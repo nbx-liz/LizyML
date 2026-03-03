@@ -74,6 +74,8 @@
 - `FeaturePipeline` の状態を永続化する（学習時の統計量・カテゴリ辞書等）。
 - 列ズレ時の方針を仕様化する（余剰列 / 不足列 / unseen category）。
 - `tuning x CV` のリーク回避方針を仕様化する（同一 CV での最適化から評価の楽観化を防ぐ）。
+- パッケージ配布時の build 定義と配布メタデータを固定する（PyPI に公開できる最小要件を満たす）。
+- インストール直後の import 導線と README の利用例を一致させる（公開 API と利用例の乖離を禁止する）。
 
 # 4. 公開 API（案）
 
@@ -443,6 +445,23 @@ get_native_model()  # export用途
 - `Model Artifact` を 1 ディレクトリにまとめる。
 - `Model.load()` で復元し、推論と評価情報参照を両立させる。
 
+## 15.4 パッケージ配布（PyPI）
+
+- `pyproject.toml` に `PEP 517/518` 準拠の `[build-system]` を必須で定義し、`sdist / wheel` を同一ソースから生成できるようにする。
+- `[project]` メタデータは最低限以下を必須とする。
+  - `name / version / description / readme / requires-python`
+  - `license`
+  - `authors or maintainers`
+  - `classifiers`
+  - `urls`（少なくとも `Homepage` と `Repository`）
+- `README.md` は PyPI の long description として成立する内容にし、公開済みでない API や未実装の import 例を載せない。
+- `README.md` のサンプルコードは「インストール直後に動く import」を基準にし、トップレベル公開面（`package/__init__.py`）と必ず一致させる。
+- optional dependency は配布利用者向けの install 契約と、開発者向けの依存を分離する。
+  - 配布利用者向け: `[project.optional-dependencies]`
+  - 開発者向け: dependency groups
+- 型ヒントを配布対象に含める場合は `py.typed` を同梱し、配布物と型情報の不整合を禁止する。
+- バージョン定義の正を 1 箇所に固定し、配布メタデータと import 後に参照できるバージョン文字列を乖離させない。
+
 # 16. 例外設計（`core/exceptions.py`）
 
 ## 16.1 統一例外
@@ -484,6 +503,9 @@ YourLibError(code, user_message, debug_message=None, cause=None)
 - 再現性テスト: 同一 config で split indices と主要指標が一致する。
 - 列ズレテスト: 余剰 / 不足 / unseen category のポリシー通り動く。
 - optional dependency テスト: 未導入時の例外コード / メッセージが崩れない。
+- Public API surface テスト: `from lizyml import Model` 等のトップレベル公開面が壊れていないことを検証する。
+- バージョン一致テスト: `lizyml.__version__` と配布メタデータのバージョンが一致することを検証する。
+- README サンプルコードテスト: `README.md` に記載された最短利用例が `SyntaxError` / `ImportError` なく実行可能であることを検証する（データ依存部分はモック可）。
 
 ## 18.2 CI（推奨）
 
@@ -491,6 +513,11 @@ YourLibError(code, user_message, debug_message=None, cause=None)
 - lint / format（`ruff` 等）
 - unit tests（`pytest`）
 - 最低限の統合テスト（LGBM 小規模データ）
+- 配布前検証として `sdist / wheel` の build を CI で必ず実行する。
+- 配布メタデータ検証（例: `twine check` 相当）を CI に含める。
+- install smoke test を行い、配布物からの import と README の最短利用例が破綻していないことを確認する。
+- 複数 Python バージョン（最低限 `requires-python` の下限と最新安定版）でテストを実行する。
+- 依存の下限バージョンでのテストを CI に含める（`uv` の resolution 機能で `lowest-direct` を使用）。
 
 # 19. ディレクトリ構成（更新案）
 

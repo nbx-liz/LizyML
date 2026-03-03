@@ -951,10 +951,26 @@ Config → tune → fit → evaluate → predict → export → load → predict
 
 - 余剰列 / 不足列 / unseen category のポリシー動作
 
+### 17-6. Public API surface テスト
+
+- `from lizyml import Model` 等のトップレベル公開面が ImportError なく動作する
+- `__init__.py` の re-export 一覧が期待通りであることを検証（名前列挙）
+
+### 17-7. バージョン一致テスト
+
+- `lizyml.__version__` と `importlib.metadata.version("lizyml")` が一致する
+
+### 17-8. README サンプルコードテスト
+
+- `README.md` から最短利用例を抽出し、`SyntaxError` / `ImportError` なく実行可能なことを検証（データ依存部分はモック可）
+
 ### DoD
 - 全 E2E テスト通過
 - 全リークテスト通過（「落ちるべき例」含む）
 - 再現性テスト通過
+- Public API surface テスト通過
+- バージョン一致テスト通過
+- README サンプルコードテスト通過
 
 ---
 
@@ -973,6 +989,9 @@ on:
 
 jobs:
   quality:
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.12"]    # 下限 + 最新安定版
     steps:
       - uv sync --frozen
       - uv run ruff check .
@@ -980,11 +999,16 @@ jobs:
       - uv run mypy lizyml/
       - uv run pytest --cov=lizyml
 
+  quality-lowest-deps:                       # 依存下限バージョンテスト
+    steps:
+      - uv sync --frozen --resolution lowest-direct
+      - uv run pytest
+
   distribution:
     steps:
-      - uv build                         # sdist + wheel
-      - uv run twine check dist/*        # 配布メタデータ検証
-      - pip install dist/*.whl            # install smoke test
+      - uv build                             # sdist + wheel
+      - uv run twine check dist/*            # 配布メタデータ検証
+      - pip install dist/*.whl               # install smoke test
       - python -c "from lizyml import Model; print('import ok')"
 ```
 
@@ -995,12 +1019,19 @@ jobs:
 - install smoke test: 配布物からの import と README の最短利用例が破綻していないことを確認する。
 - README の import 例がトップレベル公開面（`lizyml/__init__.py`）と一致していることを検証する。
 
+### 18-3. 複数 Python バージョン・依存下限テスト（BLUEPRINT §18.2 対応）
+
+- `requires-python` の下限（3.10）と最新安定版（3.12）の両方でテストを実行する。
+- `uv` の `--resolution lowest-direct` を使い、依存の下限バージョンでテストを実行して下限が嘘でないことを保証する。
+
 ### DoD
 - main への PR で CI が自動実行
 - uv.lock 整合性・Lint・Format・TypeCheck・テストが全て通る
 - `uv build` で sdist / wheel が正常に生成される
 - `twine check` がエラーなしで通る
 - install smoke test で import が成功する
+- Python 3.10 と 3.12 の両方でテストが通る
+- 依存下限バージョンでテストが通る
 
 ---
 
