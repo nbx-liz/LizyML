@@ -1,0 +1,697 @@
+# 0. ステータスとスコープ
+
+## 0.1 ステータス
+
+- 本ドキュメントは実装の単一の正とする（仕様変更は `HISTORY.md` の提案プロセスを経る）。
+- 「仕様未確定は仮実装しない」を厳守する。
+
+## 0.2 スコープ（当面）
+
+- 最初は LightGBM を最優先でサポートする。
+- 将来拡張として `sklearn` / DNN（Torch）を想定し、IF と境界を先に固定する。
+
+## 0.3 非スコープ（当面）
+
+- 分散学習基盤（Ray / Dask 等）への本格対応。
+- Auto Feature Engineering の大型実装（ただし拡張点は確保する）。
+
+# 1. 目的
+
+複数の分析ライブラリを使って、以下の分析機能を Config 駆動で統一的に実行する。
+
+- 最適化: `tune`（例: Optuna）
+- 学習: `fit`（CV / Refit / EarlyStopping）
+- 評価: `evaluate`（IF / OOF、校正前後の比較）
+- 推論: `predict`（列ズレ検知、説明可能性オプション）
+- 配布: `export`（Model Artifact、互換性管理）
+
+# 2. 設計原則
+
+- 再現性を最優先する。
+- `seed / split / params / versions / data schema / split indices / data fingerprint` を必ず保存する。
+- 仕様未確定は仮実装しない。
+- 独自推測実装を禁止し、必ず提案プロセス（`HISTORY.md`）を経る。
+- 「Facade は組み立てのみ」とする。
+- `Model` はロジックを持たず、部品を接続して実行する。
+- IF を固定し、実装の自由度を確保する。
+- `Splitter / FeaturePipeline / EstimatorAdapter / Tuner / Calibrator / Metric / Explainer` を分離する。
+
+# 3. 要件（機能・品質）
+
+## 3.1 品質要件
+
+- 保守・可読性が高い。
+- `1クラス1ファイル / 単一責任 / 重複排除 / 神クラス禁止` を守る。
+- 例外処理を統一する。
+- ユーザー向けメッセージと開発者向けデバッグ情報を分離する。
+- Optional dependency を明確化する。
+- Torch 等は optional とし、未導入時エラーも統一する。
+
+## 3.2 機能要件（ユーザー価値）
+
+- 少ないコード量でモデル構築・評価できる。
+- 学習過程、特徴量重要度、残差分布などを可視化できる。
+- 評価指標を複数サポートし、ユーザーが選択できる。
+- CV 時に IF と OOF の両方を返す。
+- 保存・読込を提供し、互換性管理と破壊的変更を前提に扱う。
+- 新規データ予測・評価で列ズレ検知とスキーマ強制 / 警告ポリシーを持つ。
+- 特徴量加工・目的変数加工（`FeaturePipeline`）を扱える。
+- CV と HPO（Optuna 等）を扱える。
+- Binary のスコアキャリブレーションを提供する。
+- `Platt / Beta / Isotonic` を扱う（`Isotonic` は LGBM の単調制約を利用）。
+- 校正のためのデータ分割・cross-fit を行う（OOF のみ利用、リーク禁止）。
+- 特徴量指定の手間を減らす。
+- `target` 指定後、その他を自動で feature 選択する。
+- `exclude` を指定可能にする。
+- 非数値データの categorical 自動扱い（LGBM 前提）と明示指定をサポートする。
+
+## 3.3 追加の必須要件（抜けやすい実務要件）
+
+- Config の入口を整備する。
+- `YAML / JSON / dict`、CLI / 環境変数 override、Config versioning、正規化（表記揺れ / alias）に対応する。
+- split indices を保存する（外側 CV / inner valid / 校正のすべて）。
+- data fingerprint を保存する（ファイルパスだけに依存しない）。
+- `FeaturePipeline` の状態を永続化する（学習時の統計量・カテゴリ辞書等）。
+- 列ズレ時の方針を仕様化する（余剰列 / 不足列 / unseen category）。
+- `tuning x CV` のリーク回避方針を仕様化する（同一 CV での最適化から評価の楽観化を防ぐ）。
+
+# 4. 公開 API（案）
+
+## 4.1 Model（学習・評価・推論の Facade）
+
+```python
+model = Model(config=config)
+model.tune()
+fit_result = model.fit()
+eval_result = model.evaluate()
+pred_result = model.predict(X_test, return_shap=True)
+model.export("path/to/export_dir")
+```
+
+補足:
+- `fit()` の default は、最も評価が良かったパラメーターで学習する。
+- 必要に応じて、最終学習に使うパラメーターを明示指定できるようにする。
+- 学習後は、以下の補助 API を提供できるようにする。
+  - `model.importance()`（`split / gain / shap` による特徴量重要度）
+  - `model.importance_plot()`（特徴量重要度の可視化）
+  - `model.residuals()`（残差の返却）
+  - `model.residuals_plot()`（残差分布の可視化）
+
+## 4.2 `Model.load()`（Artifact 読込）
+
+`export` で生成される `Model Artifact` をロードし、推論だけでなく学習時の評価情報や設定も参照できるようにする。
+
+```python
+loaded_model = Model.load("export_dir")
+eval_result = loaded_model.evaluate()
+pred_result = loaded_model.predict(X_new)
+```
+
+# 5. Config 設計
+
+## 5.1 方針
+
+- `pydantic`（`extra="forbid"`）で typo を確実にエラー化する。
+- `config_version / schema_version` を必須にする。
+- Config loader で以下を統一する。
+  - 読込: `dict / JSON / YAML`
+  - override: CLI / 環境変数（例: `LIZYML__model__lgbm__params__learning_rate=0.05`）
+  - 正規化: 表記揺れの吸収（例: `k-fold` と `kfold`）、deprecated key の警告 / 拒否方針
+
+## 5.2 Config 例（dict）
+
+```python
+config = {
+    "config_version": 1,
+    "task": "regression",
+    "data": {"path": "data.csv", "target": "y"},
+    "features": {
+        "exclude": ["id"],
+        "auto_categorical": True,
+        "categorical": ["cat_feature1", "cat_feature2"],
+    },
+    "split": {"method": "kfold", "n_splits": 5, "random_state": 1120},
+    "model": {
+        "lgbm": {
+            "params": {
+                "n_estimators": 1000,
+                "learning_rate": 0.05,
+            }
+        }
+    },
+    "training": {
+        "early_stopping": {
+            "enabled": True,
+            "inner_valid": {
+                "method": "holdout",
+                "ratio": 0.1,
+                "random_state": 1120,
+            },
+        }
+    },
+    "tuning": {
+        "optuna": {
+            "params": {
+                "n_trials": 50,
+                "direction": "minimize",
+            },
+            "space": {
+                "learning_rate": [0.01, 0.05, 0.1],
+                "num_leaves": [31, 64, 128],
+            },
+        }
+    },
+    "evaluation": {"metrics": ["rmse", "mae"]},
+}
+```
+
+# 6. 実行フロー（概念）
+
+## 6.1 `tune`
+
+1. Config validate -> `ProblemSpec` 生成
+2. `DataSource` 読込 -> DF
+3. `FeaturePipeline` 選択 -> `fit_transform`
+4. `Splitter` で外側 CV index 生成（保存対象）
+5. `Tuner`（Optuna）で `objective=CV` 平均（推奨）
+6. `best params` を `TuningResult` として保持（Artifacts へ）
+
+`tuning` と最終評価のリーク回避方針は 10 章を参照。
+
+## 6.2 `fit`（CV）
+
+1. 外側 CV 各 fold で `train / valid` を作る。
+2. `InnerValidStrategy` により early stopping 用の `(X_train, y_train), (X_valid, y_valid)` を統一生成する。
+3. `EstimatorAdapter.fit()` を実行する。
+4. OOF / IF を生成する（ロジックは `evaluation/oof.py` に隔離）。
+5. 必要なら `Calibrator` を cross-fit 学習する（OOF 予測のみ使用）。
+6. `FitResult` を返し、Artifacts を保持する。
+
+補足:
+
+- `fit()` は default で最良パラメーターを使用する。
+- 他のパラメーターセットを指定して学習できる拡張点も残す。
+
+## 6.3 `evaluate`
+
+`FitResult` を入力に、指定メトリクスで以下を返す。
+
+- `oof`
+- `if_mean`
+- `if_per_fold`
+- 校正前後（binary）を同一集合で比較
+
+## 6.4 `predict`
+
+1. 入力 DF の列を schema と照合する（列ズレ検知）。
+2. `FeaturePipeline.transform` を適用する（状態は Artifacts）。
+3. fold アンサンブル or refit モデルで予測する。
+4. 校正器を適用する（binary）。
+5. `PredictionResult` を返す（要求時のみ SHAP など付与）。
+
+## 6.5 `export`
+
+- `Model Artifact` を `export_dir` に保存する。
+- `FeaturePipeline state / schema / models / calibrator / metrics / history / config / versions / format_version` を含める。
+- `Model.load()` で復元可能にし、復元後に予測と評価情報参照の両方を行えるようにする。
+
+# 7. Artifacts（戻り値と保存対象の固定）
+
+## 7.1 FitResult（固定スキーマ）
+
+- `oof_pred`（`np.ndarray / pd.Series`）
+- `if_pred_per_fold`（`list[np.ndarray]`）
+- `metrics`（階層固定）
+  - 例: `{"raw": {"oof": {...}, "if_mean": {...}, "if_per_fold": [...]}, "calibrated": {...}}`
+- `models`
+  - fold ごとのモデル
+  - 任意: refit モデル（全データ学習）
+- `history`
+  - fold ごとの eval history / best_iteration
+- `feature_names / dtypes / categorical_features`
+- `splits`
+  - 外側 CV indices（必須）
+  - inner valid indices（有効時必須）
+  - calibration CV indices（有効時必須）
+- `data_fingerprint`
+  - `row_count / column_hash / optional: file_hash` 等
+- `pipeline_state`（`FeaturePipeline` の状態、必須）
+- `calibrator`（有効時）
+- `run_meta`
+  - `yourlib_version / python_version / deps_version / config_normalized / config_version`
+
+## 7.2 PredictionResult（固定スキーマ）
+
+- `pred`（回帰: float、分類: class / proba）
+- `proba`（binary の場合）
+- `shap_values`（要求時のみ、形は統一）
+- `used_features`（列ズレ検知用）
+- `warnings`（補正が走った場合の通知）
+
+補足:
+
+- 回帰では `pred` を主とする。
+- 分類では `pred` に加えて `proba` を返せるようにする。
+
+## 7.3 Exported Model Artifacts
+
+- `FeaturePipeline state`
+- `schema`（`feature_names, dtypes, categorical handling`）
+- `model`（fold ensemble / refit）
+- `calibrator`（`C_final`）
+- `metrics / history / fit summary`
+- `config_normalized`
+- `format_version / versions`
+
+目的:
+
+- `Model.load(path)` で復元し、予測だけでなく「そのモデルの精度がどうだったか」を後から確認できるようにする。
+
+# 8. データと検証（`data/`）
+
+## 8.1 DataSource
+
+- `CSV / Parquet / DataFrame` を「読むだけ」に限定する。
+- 入口で `DataFrameBuilder` が `target / time / group` を分離する。
+
+## 8.2 Validators（危険検知）
+
+- 時系列: ソート、未来情報混入疑い、shuffle 禁止
+- group: group 跨ぎ、分割条件の不整合
+- leakage: target リーク疑い（例: target と完全一致の列、時間逆転など）
+
+## 8.3 Data fingerprint（必須）
+
+- `row_count`
+- `column_hash`（列名 + dtype + 順序から作る）
+- optional: `file_hash`（読み込んだファイルのハッシュ）
+
+# 9. FeaturePipeline（`features/`）
+
+## 9.1 必須要件
+
+- `fit(X, y) / transform(X) / fit_transform(X, y)` の IF を固定する。
+- 状態（state）の永続化を必須にする。
+- OneHot のカテゴリ辞書、欠損補完統計量、target transform パラメータ等を保持する。
+
+## 9.2 列ズレ方針（仕様として固定）
+
+- 余剰列: デフォルト無視（警告） or エラー（オプション）
+- 不足列: デフォルトエラー（安全側）
+- unseen category:
+  - OneHot: unknown 用カテゴリ or all-zero（ポリシー選択）
+  - LGBM native categorical: 扱いを固定（未知カテゴリの扱い・dtype 強制）
+
+# 10. Split（`splitters/`）と InnerValidStrategy（`training/`）
+
+## 10.1 Splitter の責務
+
+- 「index を返すだけ」に徹底する。
+- 外側 CV / early stopping / calibration で共通利用する。
+
+## 10.2 Outer CV（例）
+
+- `KFold`
+- `StratifiedKFold`
+- `GroupKFold`
+- `TimeSeriesSplit`
+- `PurgedTimeSeries`
+- `GroupTimeSeries`
+
+## 10.3 InnerValidStrategy（early stopping 用）
+
+- CV fold 内でさらに `train / valid` を作る概念を分離する。
+- 実装例（IF）:
+  - `HoldoutInnerValid(ratio, stratify, group, time, random_state)`
+  - `InnerKFoldValid(n_splits, pick_fold, ...)`
+- 時系列は内側も時系列順を厳守する（shuffle 禁止）。
+
+## 10.4 split indices の保存（必須）
+
+- 外側 CV: fold ごとの `train_idx / valid_idx`
+- inner valid: fold 内の `inner_train_idx / inner_valid_idx`
+- calibration CV: 校正用の `train_idx / valid_idx`
+
+# 11. Tuning（`tuning/`）
+
+## 11.1 SearchSpace 表現の統一
+
+- Optuna に依存しない space 表現（離散・連続・対数・カテゴリ）を使う。
+
+## 11.2 リーク回避方針（必須で明文化）
+
+- 最適化に使った CV で最終性能を主張しない。
+
+推奨パターン（選択式）:
+
+1. `holdout`（固定検証セット）で最終評価
+2. `nested CV`（外側評価、内側最適化）
+3. `CV + 追加のテストセット`（OOF は参考値、テストを主指標）
+
+デフォルトは 1 または 3 を推奨する（実装コストを抑えつつ安全側）。
+
+# 12. Calibration（binary）
+
+## 12.1 MUST（リーク禁止）
+
+- 校正器学習は、必ず Base モデルの OOF スコアのみを使う。
+- 校正性能評価は、校正器も OOF（cross-fit）で生成した値で行う。
+- 校正器は元の特徴量 `X` を使わない（入力は `s_oof` と `y` のみ）。
+- 推論時は保存された `C_final` を使用する。
+
+## 12.2 方法
+
+- Platt Scaling
+- Beta Calibration
+- Isotonic Regression（LGBM の単調制約利用）
+
+## 12.3 評価（推奨）
+
+- `LogLoss`（必須推奨）
+- `Brier score`（必須推奨）
+- `ECE`（binning 定義を仕様化）
+- `ROC-AUC / PR-AUC`（ランキング監視）
+
+## 12.4 MUST NOT
+
+- 同一行を学習に含む予測で校正器学習する（リーク）。
+- `C_final` で `s_oof` を変換した値を評価に使う（楽観評価）。
+- 校正器が `X` を利用する。
+
+# 13. Metrics / Evaluation / Plots
+
+## 13.1 Metrics
+
+- Metric IF
+- `needs_proba / greater_is_better / supports_task`
+- 回帰: `rmse / mae / r2 ...`
+- 分類: `logloss / auc / f1 / accuracy ...`
+
+## 13.2 評価出力（固定）
+
+- IF / OOF と fold 別を必ず返す。
+- 校正前後も同一フォーマットで返す（binary）。
+
+## 13.3 追加で用意したい可視化（不足しがち）
+
+- binary: `ROC / PR / confusion matrix / threshold最適化レポート`
+- calibration: `reliability diagram / ECE`（binning 含む）
+- 時系列: fold ごとの期間情報（`train_end / valid_start`）表示
+
+# 14. Estimators（`estimators/`）
+
+## 14.1 EstimatorAdapter IF
+
+```python
+fit(X_train, y_train, X_valid=None, y_valid=None, **kwargs)
+predict(X)
+predict_proba(X)  # 分類
+importance(kind="split|gain|shap")
+get_native_model()  # export用途
+```
+
+## 14.2 LGBM adapter の責務
+
+- `objective / metric` 整合
+- categorical の扱い統一
+- early stopping の設定吸収
+- SHAP（内蔵寄り）対応
+
+# 15. Persistence / Export（`persistence/`）
+
+## 15.1 保存の基本方針
+
+- `format_version` を必須にする。
+- 保存対象:
+  - `yourlib_version`
+  - `python_version`
+  - 依存 versions（`lgbm / sklearn / optuna ...`）
+  - `config_normalized`
+  - `schema`（`feature_names / dtypes / categorical policy`）
+  - split indices
+  - `data_fingerprint`
+  - `pipeline_state`
+  - `models, calibrator`
+
+## 15.2 互換性ポリシー（必須）
+
+- `format_version` が読めない場合は明示的に拒否する（黙って壊れた復元をしない）。
+- 将来 migration を実装できる前提で serializer に拡張点を残す。
+
+## 15.3 `export`（`Model Artifact`）
+
+- `Model Artifact` を 1 ディレクトリにまとめる。
+- `Model.load()` で復元し、推論と評価情報参照を両立させる。
+
+# 16. 例外設計（`core/exceptions.py`）
+
+## 16.1 統一例外
+
+```python
+YourLibError(code, user_message, debug_message=None, cause=None)
+```
+
+## 16.2 例外コード（例）
+
+- `CONFIG_INVALID`
+- `CONFIG_VERSION_UNSUPPORTED`
+- `DATA_SCHEMA_INVALID`
+- `DATA_FINGERPRINT_MISMATCH`
+- `LEAKAGE_SUSPECTED`
+- `LEAKAGE_CONFIRMED`
+- `OPTIONAL_DEP_MISSING`
+- `MODEL_NOT_FIT`
+- `INCOMPATIBLE_COLUMNS`
+- `UNSUPPORTED_TASK`
+- `UNSUPPORTED_METRIC`
+- `METRIC_REQUIRES_PROBA`
+- `TUNING_FAILED`
+- `CALIBRATION_NOT_SUPPORTED`
+- `SERIALIZATION_FAILED`
+- `DESERIALIZATION_FAILED`
+
+# 17. Logging / Run 管理（`core/logging.py`）
+
+- `run_id` を生成し、出力先（`logs / artifacts / plots`）を統一する。
+- 重要イベントを構造化ログで出す（config hash, data fingerprint, split hash 等）。
+- エラー時は `code` を必ずログに残す。
+
+# 18. テスト / CI（必須）
+
+## 18.1 テスト戦略
+
+- Golden test: `FitResult / PredictionResult` スキーマ固定を検証する。
+- 再現性テスト: 同一 config で split indices と主要指標が一致する。
+- 列ズレテスト: 余剰 / 不足 / unseen category のポリシー通り動く。
+- optional dependency テスト: 未導入時の例外コード / メッセージが崩れない。
+
+## 18.2 CI（推奨）
+
+- type check（`mypy / pyright`）
+- lint / format（`ruff` 等）
+- unit tests（`pytest`）
+- 最低限の統合テスト（LGBM 小規模データ）
+
+# 19. ディレクトリ構成（更新案）
+
+```text
+LizyML/
+  pyproject.toml
+  README.md
+  BLUEPRINT.md
+  HISTORY.md
+  LICENSE
+  LizyML/
+    __init__.py
+
+    config/
+      loader.py              # YAML/JSON/dict、override、正規化、version管理
+      schema.py              # pydantic schema（extra=forbid）
+
+    calibration/
+      base.py
+      platt.py
+      isotonic.py
+      beta_calibration.py
+
+    core/
+      model.py               # Facade（組み立てと Artifact load）
+      types.py               # 型の再export / 集約点（薄く保つ）
+      registries.py
+      exceptions.py
+      logging.py
+      seed.py
+      types/
+        fit_result.py
+        predict_result.py
+        artifacts.py         # FitArtifacts / PredictArtifacts 等
+      specs/
+        problem_spec.py
+        feature_spec.py
+        split_spec.py
+        training_spec.py
+        tuning_spec.py
+        calibration_spec.py
+        export_spec.py       # exportの方針（形式/互換性など）
+
+    data/
+      datasource.py
+      dataframe_builder.py
+      validators.py
+      fingerprint.py         # data fingerprint 算出
+
+    features/
+      pipeline_base.py
+      pipelines_native.py
+      pipelines_sklearn.py
+      pipelines_dnn.py
+      encoders/
+        categorical_encoder.py  # 必要時のカテゴリ処理部品
+      transformers/
+        target_transformer.py
+        feature_transformer.py
+
+    splitters/
+      base.py
+      kfold.py
+      group_kfold.py
+      time_series.py
+      purged_time_series.py
+      group_time_series.py
+
+    estimators/
+      base.py
+      lgbm.py
+      sklearn.py
+      dnn_base.py
+      dnn_torch.py
+
+    training/
+      cv_trainer.py
+      refit_trainer.py
+      tuning_trainer.py
+      inner_valid.py         # InnerValidStrategy 群
+
+    tuning/
+      base.py
+      search_space.py
+      optuna_tuner.py
+
+    metrics/
+      base.py
+      regression.py
+      classification.py
+      registry.py
+
+    evaluation/
+      oof.py
+      evaluator.py
+      thresholding.py        # binary閾値最適化（任意）
+
+    explain/
+      base.py
+      shap.py
+      lgbm_contrib.py
+      integrated_gradients.py
+
+    plots/
+      learning_curve.py
+      importance.py
+      residuals.py
+      calibration.py         # reliability diagram 等
+      classification.py      # ROC/PR/confusion 等
+
+    persistence/
+      serializer.py
+      model_store.py
+
+    utils/
+      import_optional.py
+      array.py
+      pandas.py
+      time.py
+```
+
+# 20. 既知の将来拡張（設計で塞がない）
+
+- multi-class calibration（別仕様）
+- ranking タスク（`objective / metric` の拡張）
+- `export` の追加形式（`Booster text / ONNX / TorchScript` 等）
+- 大規模データ（out-of-core、カテゴリ辞書の扱い）
+
+# 付録 A: ユースケース（例）
+
+```python
+# Config設定
+config = {
+    "config_version": 1,
+    "task": "regression",
+    "data": {"path": "data.csv", "target": "y"},
+    "split": {"method": "kfold", "n_splits": 5, "random_state": 1120},
+    "model": {
+        "lgbm": {
+            "params": {
+                "n_estimators": 1000,
+                "learning_rate": 0.05,
+            }
+        }
+    },
+    "tuning": {
+        "optuna": {
+            "params": {
+                "n_trials": 50,
+                "direction": "minimize",
+            },
+            "space": {
+                "learning_rate": [0.01, 0.05, 0.1],
+                "num_leaves": [31, 64, 128],
+            },
+        }
+    },
+    "evaluation": {"metrics": ["rmse", "mae"]},
+}
+
+model = Model(config=config)
+
+model.tune()
+fit_result = model.fit()
+
+importance = model.importance()
+model.plot_learning_curve()
+model.importance_plot(kind="shap")
+
+eval_result = model.evaluate(metrics=["rmse", "mae"])
+
+residuals = model.residuals()
+preds = model.predict(X_test)
+preds_shap = model.predict(X_test, return_shap=True)
+
+model.export("export_dir")
+loaded_model = Model.load("export_dir")
+loaded_model.evaluate()
+loaded_model.predict(X_new)
+```
+
+# 付録 B: Facade の責務補足
+
+## Model が担うこと
+
+- Config を validate して `ProblemSpec` に変換する。
+- `DataSource` から DF を読む。
+- `FeaturePipeline / Splitter / EstimatorAdapter / Tuner / Calibrator` を registry 経由で選ぶ。
+- `Trainer`（または `CVRunner`）へ処理を渡して実行する。
+- 得られた `FitResult / Artifacts` を保持する。
+- 保存済み `Model Artifact` を `Model.load(path)` で復元する。
+
+## Model に置かないこと
+
+- OOF / IF 生成ロジック（`evaluation/oof.py`）
+- metric 計算（`evaluation/evaluator.py`）
+- LGBM 固有処理（`estimators/lgbm.py`）
+- plot 実装本体（`plots/*`）
+- 保存形式の詳細（`persistence/*`）
+
+## 実装メモ
+
+- `core/model.py` は組み立て専用とし、ロジックを持たせない。
+- 依存関係の切り離しが必要な箇所では Lazy Import を許容する。
