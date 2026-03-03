@@ -240,3 +240,116 @@ class CalibrationConfig(BaseModel):
 - 環境変数 override が動作する。
 - alias 正規化（`k-fold` → `kfold`）が機能する。
 - Config → 各 Spec 変換の網羅テストが通過する。
+
+---
+
+## 2026-03-04: FitResult / PredictionResult / Artifacts の全フィールド確定
+
+- ID: `H-0002`
+- Status: `proposed`
+- Scope: `Artifacts`
+- Related: `BLUEPRINT.md §7`
+
+### Context
+
+Phase 4 でデータクラスを実装する前に、FitResult / PredictionResult / Artifacts の全フィールドと shape・意味・階層を仕様として固定する。スキーマ確定前に実装すると後からの変更が破壊的変更となり format_version を上げる必要が生じる。
+
+### Proposal
+
+#### FitResult
+
+```python
+@dataclass
+class FitResult:
+    oof_pred: np.ndarray          # shape: (n_samples,) regression/binary, (n_samples, n_classes) multiclass
+    if_pred_per_fold: list[np.ndarray]  # len == n_splits, 各要素は train fold 全体の予測
+    metrics: dict                  # {"raw": {"oof": {...}, "if_mean": {...}, "if_per_fold": [...]},
+                                   #  "calibrated": {...}}  # binary + calibrator 有効時のみ
+    models: list[Any]              # fold ごとのモデル（EstimatorAdapter 内包）
+    history: list[dict]            # per-fold: {"eval_history": ..., "best_iteration": int}
+    feature_names: list[str]       # 学習に使用した特徴量名（順序固定）
+    dtypes: dict[str, str]         # 特徴量名 → dtype 文字列
+    categorical_features: list[str]  # カテゴリ特徴量名
+    splits: SplitIndices           # 外側 CV / inner valid / calibration の全 indices
+    data_fingerprint: DataFingerprint  # データ同一性の検証用
+    pipeline_state: Any            # FeaturePipeline の保存状態
+    calibrator: Any | None         # binary + calibration 有効時のみ
+    run_meta: RunMeta              # バージョン・Config 情報
+```
+
+#### PredictionResult
+
+```python
+@dataclass
+class PredictionResult:
+    pred: np.ndarray               # shape: (n_samples,)
+    proba: np.ndarray | None       # binary のみ、shape: (n_samples,)
+    shap_values: np.ndarray | None # 要求時のみ、shape: (n_samples, n_features)
+    used_features: list[str]       # 実際に使用した特徴量名
+    warnings: list[str]            # 列ズレ等の補正通知
+```
+
+#### SplitIndices
+
+```python
+@dataclass
+class SplitIndices:
+    outer: list[tuple[np.ndarray, np.ndarray]]  # fold ごとの (train_idx, valid_idx)
+    inner: list[tuple[np.ndarray, np.ndarray]] | None  # fold ごとの inner valid
+    calibration: list[tuple[np.ndarray, np.ndarray]] | None  # calibration CV indices
+```
+
+#### RunMeta
+
+```python
+@dataclass
+class RunMeta:
+    lizyml_version: str
+    python_version: str
+    deps_versions: dict[str, str]   # {"lightgbm": "4.x.x", "pydantic": "2.x.x", ...}
+    config_normalized: dict          # ロード時に正規化済みの Config dict
+    config_version: int
+    run_id: str                      # UUID
+    timestamp: str                   # ISO 8601
+```
+
+#### metrics の階層（固定）
+
+```python
+{
+    "raw": {
+        "oof": {"rmse": float, "mae": float, ...},
+        "if_mean": {"rmse": float, ...},
+        "if_per_fold": [{"rmse": float, ...}, ...]   # len == n_splits
+    },
+    "calibrated": {  # binary + calibrator 有効時のみ存在
+        "oof": {...},
+        "if_mean": {...},
+        "if_per_fold": [...]
+    }
+}
+```
+
+### Impact
+
+- `lizyml/core/types/fit_result.py` の新規実装。
+- `lizyml/core/types/predict_result.py` の新規実装。
+- `lizyml/core/types/artifacts.py` の新規実装。
+- `lizyml/core/types.py` の re-export。
+- `tests/test_core/test_contracts.py` のゴールデンテスト。
+
+### Compatibility
+
+- 新規実装につき既存コードへの破壊的影響なし。
+- 将来フィールドを追加する場合は format_version を上げ、本 HISTORY.md に migration を記録する。
+
+### Alternatives Considered
+
+- pydantic モデルで FitResult を定義する → np.ndarray 等を含む大型 dataclass には dataclass が適切。pydantic は Config 層に限定する。
+- 動的 dict で返す → 型安全性がなく、ゴールデンテストでスキーマを固定できないため却下。
+
+### Acceptance Criteria
+
+- `FitResult` / `PredictionResult` のフィールド名・型が定義通りであることをゴールデンテストで固定する。
+- `metrics` の階層 `raw/oof`, `raw/if_mean`, `raw/if_per_fold` が必ず存在することを検証する。
+- スキーマ変更時にゴールデンテストが意図的に落ちることを確認する（テスト自体の有効性の検証）。
