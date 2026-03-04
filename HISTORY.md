@@ -440,3 +440,52 @@ Phase 14 で `Model.export()` / `Model.load()` を実装する前に、保存フ
 ### Migration
 
 - `format_version=1` から `format_version=2` への移行が必要になった場合、`lizyml/persistence/migrations/v1_to_v2.py` を追加し、ロード時に自動マイグレーションを試みる（または明示的エラーで移行を促す）。
+
+---
+
+## 2026-03-04: 回帰メトリクス MAPE・Huber Loss の追加
+
+- ID: `H-0004`
+- Status: `accepted`
+- Scope: `Metrics`
+- Related: `BLUEPRINT.md §7`
+
+### Context
+
+Tutorial Notebook でよく使われる回帰メトリクス（MAPE・Huber Loss）が未実装のため、チュートリアルでの利用および実務での利用に制限がある。
+
+### Proposal
+
+- `lizyml/metrics/regression.py` に `MAPE`・`HuberLoss` クラスを追加する。
+- `MAPE`: 分母がゼロの場合は `UNSUPPORTED_METRIC` エラーを返す。
+- `HuberLoss`: `delta=1.0` をデフォルトとし、コンストラクタで設定可能にする。Config 文字列では `"huber"` で `delta=1.0` として登録する。
+- `lizyml/metrics/registry.py` の `_TASK_METRICS["regression"]` に `"mape"`, `"huber"` を追加する。
+- 既存メトリクスへの影響なし（追加のみ）。
+
+### Impact
+
+- `lizyml/metrics/regression.py`: MAPE・HuberLoss クラス追加。
+- `lizyml/metrics/__init__.py`: エクスポート追加。
+- `lizyml/metrics/registry.py`: `_TASK_METRICS["regression"]` 更新。
+- `tests/metrics/test_regression_metrics.py`: 新規テストファイル。
+
+### Compatibility
+
+- 既存の `"rmse"`, `"mae"`, `"r2"`, `"rmsle"` への影響なし。
+- `format_version` 変更不要。
+
+### Alternatives Considered
+
+- SMAPE（対称 MAPE）を代わりに実装する → MAPE の方が一般的なため MAPE を優先し、SMAPE は将来の拡張候補とする。
+
+### Acceptance Criteria
+
+- `evaluate(metrics=["mape", "huber"])` が回帰タスクで正常に動作する。
+- MAPE: y_true にゼロが含まれる場合に `LizyMLError(UNSUPPORTED_METRIC)` が返る。
+- HuberLoss: 誤差が delta 以下の場合に二乗損失、超える場合に線形損失となることをテストで確認する。
+
+### Decision
+
+- Date: `2026-03-04`
+- Result: `accepted`
+- Notes: Tutorial Notebook の要件として受け入れ。
