@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
@@ -103,8 +104,8 @@ def validate_no_target_leakage(
 
 def validate_group_split(
     groups: pd.Series,
-    train_idx: np.ndarray,
-    valid_idx: np.ndarray,
+    train_idx: npt.NDArray[np.intp],
+    valid_idx: npt.NDArray[np.intp],
     *,
     raise_on_violation: bool = True,
 ) -> list[str]:

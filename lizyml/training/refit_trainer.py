@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any, Literal
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 from lizyml.estimators.base import BaseEstimatorAdapter
@@ -36,7 +37,7 @@ class RefitResult:
     feature_names: list[str]
     categorical_features: list[str]
     best_iteration: int | None
-    train_pred: np.ndarray
+    train_pred: npt.NDArray[np.float64]
     history: dict[str, Any]
 
 
@@ -71,7 +72,7 @@ class RefitTrainer:
         self,
         X: pd.DataFrame,
         y: pd.Series,
-        groups: np.ndarray | None = None,
+        groups: npt.NDArray[Any] | None = None,
     ) -> RefitResult:
         """Fit pipeline and estimator on the full dataset.
 

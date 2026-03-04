@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 
 def optimise_threshold(
-    y_true: np.ndarray,
-    y_proba: np.ndarray,
-    metric_fn: Callable[[np.ndarray, np.ndarray], float],
+    y_true: npt.NDArray[Any],
+    y_proba: npt.NDArray[np.float64],
+    metric_fn: Callable[[npt.NDArray[Any], npt.NDArray[Any]], float],
     *,
     greater_is_better: bool = True,
     n_thresholds: int = 100,

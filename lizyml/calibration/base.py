@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 
 class BaseCalibratorAdapter(ABC):
@@ -20,8 +22,8 @@ class BaseCalibratorAdapter(ABC):
     @abstractmethod
     def fit(
         self,
-        oof_scores: np.ndarray,
-        y: np.ndarray,
+        oof_scores: npt.NDArray[np.float64],
+        y: npt.NDArray[Any],
     ) -> BaseCalibratorAdapter:
         """Fit the calibrator on OOF scores and ground-truth labels.
 
@@ -34,7 +36,7 @@ class BaseCalibratorAdapter(ABC):
         """
 
     @abstractmethod
-    def predict(self, scores: np.ndarray) -> np.ndarray:
+    def predict(self, scores: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         """Map raw scores to calibrated probabilities.
 
         Args:

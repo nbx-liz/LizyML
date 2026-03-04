@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
+import numpy.typing as npt
 from sklearn.linear_model import LogisticRegression
 
 from lizyml.calibration.base import BaseCalibratorAdapter
@@ -23,13 +26,17 @@ class PlattCalibrator(BaseCalibratorAdapter):
     def name(self) -> str:
         return "platt"
 
-    def fit(self, oof_scores: np.ndarray, y: np.ndarray) -> PlattCalibrator:
+    def fit(
+        self, oof_scores: npt.NDArray[np.float64], y: npt.NDArray[Any]
+    ) -> PlattCalibrator:
         self._model = LogisticRegression(C=1.0, solver="lbfgs", max_iter=200)
         self._model.fit(oof_scores.reshape(-1, 1), y)
         return self
 
-    def predict(self, scores: np.ndarray) -> np.ndarray:
+    def predict(self, scores: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         if self._model is None:
             raise RuntimeError("PlattCalibrator has not been fitted.")
-        result: np.ndarray = self._model.predict_proba(scores.reshape(-1, 1))[:, 1]
+        result: npt.NDArray[np.float64] = self._model.predict_proba(
+            scores.reshape(-1, 1)
+        )[:, 1]
         return result

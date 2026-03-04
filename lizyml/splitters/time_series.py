@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 from sklearn.model_selection import TimeSeriesSplit
 
 from lizyml.core.registries import SplitterRegistry
@@ -41,8 +43,8 @@ class TimeSeriesSplitter(BaseSplitter):
     def split(
         self,
         n_samples: int,
-        y: np.ndarray | None = None,
-        groups: np.ndarray | None = None,
-    ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+        y: npt.NDArray[Any] | None = None,
+        groups: npt.NDArray[Any] | None = None,
+    ) -> Iterator[tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]]:
         indices = np.arange(n_samples)
         yield from self._tss.split(indices)

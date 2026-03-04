@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 from lizyml.data.fingerprint import DataFingerprint
 
@@ -48,8 +49,8 @@ class FitResult:
         run_meta: Version and config metadata captured at fit time.
     """
 
-    oof_pred: np.ndarray
-    if_pred_per_fold: list[np.ndarray]
+    oof_pred: npt.NDArray[np.float64]
+    if_pred_per_fold: list[npt.NDArray[np.float64]]
     metrics: dict[str, Any]
     models: list[Any]
     history: list[dict[str, Any]]

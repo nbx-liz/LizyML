@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 from lizyml.core.registries import SplitterRegistry
 
@@ -34,9 +36,9 @@ class GroupTimeSeriesSplitter(BaseSplitter):
     def split(
         self,
         n_samples: int,
-        y: np.ndarray | None = None,
-        groups: np.ndarray | None = None,
-    ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+        y: npt.NDArray[Any] | None = None,
+        groups: npt.NDArray[Any] | None = None,
+    ) -> Iterator[tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]]:
         if groups is None:
             raise ValueError("GroupTimeSeriesSplitter requires groups to be provided.")
 

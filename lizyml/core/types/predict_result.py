@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import numpy.typing as npt
 
 
 @dataclass
@@ -22,8 +23,8 @@ class PredictionResult:
             applied during prediction.
     """
 
-    pred: np.ndarray
-    proba: np.ndarray | None
-    shap_values: np.ndarray | None
+    pred: npt.NDArray[np.float64]
+    proba: npt.NDArray[np.float64] | None
+    shap_values: npt.NDArray[np.float64] | None
     used_features: list[str]
     warnings: list[str]

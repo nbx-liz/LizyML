@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import Any, Literal
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 from lizyml.core.types.artifacts import RunMeta, SplitIndices
@@ -64,7 +65,7 @@ class CVTrainer:
         self,
         X: pd.DataFrame,
         y: pd.Series,
-        groups: np.ndarray | None = None,
+        groups: npt.NDArray[Any] | None = None,
         *,
         data_fingerprint: DataFingerprint,
         run_meta: RunMeta,
@@ -86,10 +87,10 @@ class CVTrainer:
         y_arr = y.to_numpy()
         oof = init_oof(n_samples, self.task, self.n_classes)
 
-        outer_splits: list[tuple[np.ndarray, np.ndarray]] = []
-        inner_splits: list[tuple[np.ndarray, np.ndarray]] = []
+        outer_splits: list[tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]] = []
+        inner_splits: list[tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]] = []
         models: list[BaseEstimatorAdapter] = []
-        if_pred_per_fold: list[np.ndarray] = []
+        if_pred_per_fold: list[npt.NDArray[np.float64]] = []
         history: list[dict[str, Any]] = []
         last_pipeline: BaseFeaturePipeline | None = None
 

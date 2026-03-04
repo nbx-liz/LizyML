@@ -4,8 +4,10 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterator
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 
 class BaseSplitter(ABC):
@@ -22,9 +24,9 @@ class BaseSplitter(ABC):
     def split(
         self,
         n_samples: int,
-        y: np.ndarray | None = None,
-        groups: np.ndarray | None = None,
-    ) -> Iterator[tuple[np.ndarray, np.ndarray]]:
+        y: npt.NDArray[Any] | None = None,
+        groups: npt.NDArray[Any] | None = None,
+    ) -> Iterator[tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]]:
         """Yield ``(train_indices, valid_indices)`` pairs.
 
         Args:

@@ -7,7 +7,7 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 
-import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 from lizyml import __version__
@@ -91,7 +91,7 @@ class Tuner:
         self,
         X: pd.DataFrame,
         y: pd.Series,
-        groups: np.ndarray | None = None,
+        groups: npt.NDArray[Any] | None = None,
     ) -> dict[str, Any]:
         """Run hyperparameter search and return best params.
 

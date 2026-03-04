@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Literal
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 ImportanceKind = Literal["split", "gain"]
@@ -46,11 +47,11 @@ class BaseEstimatorAdapter(ABC):
         """
 
     @abstractmethod
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
+    def predict(self, X: pd.DataFrame) -> npt.NDArray[np.float64]:
         """Return raw predictions (regression values or class labels)."""
 
     @abstractmethod
-    def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
+    def predict_proba(self, X: pd.DataFrame) -> npt.NDArray[np.float64]:
         """Return class probabilities, shape ``(n, k)`` for multiclass."""
 
     @abstractmethod

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
+import numpy.typing as npt
 from sklearn.metrics import (
     accuracy_score,
     average_precision_score,
@@ -17,7 +20,9 @@ from lizyml.core.registries import MetricRegistry
 from lizyml.metrics.base import BaseMetric
 
 
-def _require_1d_same_len(y_true: np.ndarray, y_pred: np.ndarray, name: str) -> None:
+def _require_1d_same_len(
+    y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any], name: str
+) -> None:
     if y_true.ndim != 1:
         raise LizyMLError(
             code=ErrorCode.UNSUPPORTED_METRIC,
@@ -51,7 +56,7 @@ class LogLoss(BaseMetric):
     def greater_is_better(self) -> bool:
         return False
 
-    def __call__(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
         _require_1d_same_len(y_true, y_pred, self.name)
         return float(log_loss(y_true, y_pred))
 
@@ -72,7 +77,7 @@ class AUC(BaseMetric):
     def greater_is_better(self) -> bool:
         return True
 
-    def __call__(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
         _require_1d_same_len(y_true, y_pred, self.name)
         return float(roc_auc_score(y_true, y_pred))
 
@@ -93,7 +98,7 @@ class AUCPR(BaseMetric):
     def greater_is_better(self) -> bool:
         return True
 
-    def __call__(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
         _require_1d_same_len(y_true, y_pred, self.name)
         return float(average_precision_score(y_true, y_pred))
 
@@ -114,7 +119,7 @@ class F1(BaseMetric):
     def greater_is_better(self) -> bool:
         return True
 
-    def __call__(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
         _require_1d_same_len(y_true, y_pred, self.name)
         # Binarise if probabilities are provided
         pred = (y_pred >= 0.5).astype(int) if y_pred.dtype.kind == "f" else y_pred
@@ -138,7 +143,7 @@ class Accuracy(BaseMetric):
     def greater_is_better(self) -> bool:
         return True
 
-    def __call__(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
         _require_1d_same_len(y_true, y_pred, self.name)
         pred = (y_pred >= 0.5).astype(int) if y_pred.dtype.kind == "f" else y_pred
         return float(accuracy_score(y_true, pred))
@@ -160,7 +165,7 @@ class Brier(BaseMetric):
     def greater_is_better(self) -> bool:
         return False
 
-    def __call__(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
         _require_1d_same_len(y_true, y_pred, self.name)
         return float(brier_score_loss(y_true, y_pred))
 
@@ -184,7 +189,7 @@ class ECE(BaseMetric):
     def greater_is_better(self) -> bool:
         return False
 
-    def __call__(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
         _require_1d_same_len(y_true, y_pred, self.name)
         bin_edges = np.linspace(0.0, 1.0, self.n_bins + 1)
         n = len(y_true)

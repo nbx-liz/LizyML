@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import numpy as np
+import numpy.typing as npt
 
 
 @dataclass
@@ -17,9 +18,9 @@ class SplitIndices:
         calibration: Per-fold calibration CV indices (None when not used).
     """
 
-    outer: list[tuple[np.ndarray, np.ndarray]]
-    inner: list[tuple[np.ndarray, np.ndarray]] | None
-    calibration: list[tuple[np.ndarray, np.ndarray]] | None
+    outer: list[tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]]
+    inner: list[tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]] | None
+    calibration: list[tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]] | None
 
 
 @dataclass

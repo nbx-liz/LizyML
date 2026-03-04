@@ -11,8 +11,10 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 from sklearn.model_selection import KFold
 
 from lizyml.calibration.base import BaseCalibratorAdapter
@@ -35,14 +37,14 @@ class CalibrationResult:
     """
 
     c_final: BaseCalibratorAdapter
-    calibrated_oof: np.ndarray
+    calibrated_oof: npt.NDArray[np.float64]
     method: str
-    split_indices: list[tuple[np.ndarray, np.ndarray]]
+    split_indices: list[tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]]
 
 
 def cross_fit_calibrate(
-    oof_scores: np.ndarray,
-    y: np.ndarray,
+    oof_scores: npt.NDArray[np.float64],
+    y: npt.NDArray[Any],
     calibrator_factory: Callable[[], BaseCalibratorAdapter],
     *,
     n_splits: int = 5,
@@ -68,7 +70,7 @@ def cross_fit_calibrate(
     """
     calibrated_oof = np.empty_like(oof_scores, dtype=float)
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
-    split_indices: list[tuple[np.ndarray, np.ndarray]] = []
+    split_indices: list[tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]] = []
 
     for train_idx, val_idx in kf.split(oof_scores):
         split_indices.append((train_idx, val_idx))

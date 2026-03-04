@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 from lizyml import __version__
@@ -312,8 +313,8 @@ class Model:
         model = refit.model
         task = self._cfg.task
 
-        pred: np.ndarray
-        proba: np.ndarray | None = None
+        pred: npt.NDArray[np.float64]
+        proba: npt.NDArray[np.float64] | None = None
 
         fit = self._fit_result  # non-None guaranteed by _require_fit()
 
@@ -333,7 +334,7 @@ class Model:
             proba = model.predict_proba(X_t)
             pred = proba.argmax(axis=1)
 
-        shap_values: np.ndarray | None = None
+        shap_values: npt.NDArray[np.float64] | None = None
         if return_shap:
             from lizyml.explain.shap_explainer import compute_shap_values
 

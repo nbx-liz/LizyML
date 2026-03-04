@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 from lizyml.core.types.fit_result import FitResult
@@ -16,9 +17,9 @@ TaskType = Literal["regression", "binary", "multiclass"]
 
 def _pred_for_metric(
     metric: BaseMetric,
-    raw_pred: np.ndarray,
+    raw_pred: npt.NDArray[np.float64],
     task: TaskType,
-) -> np.ndarray:
+) -> npt.NDArray[Any]:
     """Return the appropriate prediction array for *metric*.
 
     - ``needs_proba=True``: return ``raw_pred`` as-is.
@@ -29,15 +30,15 @@ def _pred_for_metric(
     if task == "binary":
         return (raw_pred >= 0.5).astype(int)
     if task == "multiclass":
-        result: np.ndarray = raw_pred.argmax(axis=1)
+        result: npt.NDArray[np.intp] = raw_pred.argmax(axis=1)
         return result
     return raw_pred  # regression
 
 
 def _compute_metrics(
     metrics: list[BaseMetric],
-    y_true: np.ndarray,
-    y_pred: np.ndarray,
+    y_true: npt.NDArray[Any],
+    y_pred: npt.NDArray[np.float64],
     task: TaskType,
 ) -> dict[str, float]:
     result: dict[str, float] = {}
@@ -74,7 +75,7 @@ class Evaluator:
     def evaluate(
         self,
         fit_result: FitResult,
-        y: pd.Series | np.ndarray,
+        y: pd.Series | npt.NDArray[Any],
         metric_names: list[str],
     ) -> dict[str, Any]:
         """Compute OOF, IF-per-fold, and IF-mean metrics.

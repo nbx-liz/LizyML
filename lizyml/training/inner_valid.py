@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 import numpy as np
+import numpy.typing as npt
 
 
 class BaseInnerValidStrategy(ABC):
@@ -21,9 +23,9 @@ class BaseInnerValidStrategy(ABC):
     def split(
         self,
         n_samples: int,
-        y: np.ndarray | None = None,
-        groups: np.ndarray | None = None,
-    ) -> tuple[np.ndarray, np.ndarray] | None:
+        y: npt.NDArray[Any] | None = None,
+        groups: npt.NDArray[Any] | None = None,
+    ) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]] | None:
         """Produce one (inner_train_idx, inner_valid_idx) split.
 
         Args:
@@ -68,9 +70,9 @@ class HoldoutInnerValid(BaseInnerValidStrategy):
     def split(
         self,
         n_samples: int,
-        y: np.ndarray | None = None,
-        groups: np.ndarray | None = None,
-    ) -> tuple[np.ndarray, np.ndarray]:
+        y: npt.NDArray[Any] | None = None,
+        groups: npt.NDArray[Any] | None = None,
+    ) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]:
         rng = np.random.default_rng(self.random_state)
         n_valid = max(1, int(n_samples * self.ratio))
         perm = rng.permutation(n_samples)

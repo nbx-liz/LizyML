@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
+import numpy.typing as npt
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.registries import MetricRegistry
 from lizyml.metrics.base import BaseMetric
 
 
-def _validate_shapes(y_true: np.ndarray, y_pred: np.ndarray, name: str) -> None:
+def _validate_shapes(
+    y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any], name: str
+) -> None:
     if y_true.shape != y_pred.shape:
         raise LizyMLError(
             code=ErrorCode.UNSUPPORTED_METRIC,
@@ -41,7 +46,7 @@ class RMSE(BaseMetric):
     def greater_is_better(self) -> bool:
         return False
 
-    def __call__(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
         _validate_shapes(y_true, y_pred, self.name)
         return float(np.sqrt(np.mean((y_true - y_pred) ** 2)))
 
@@ -62,7 +67,7 @@ class MAE(BaseMetric):
     def greater_is_better(self) -> bool:
         return False
 
-    def __call__(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
         _validate_shapes(y_true, y_pred, self.name)
         return float(np.mean(np.abs(y_true - y_pred)))
 
@@ -83,7 +88,7 @@ class R2(BaseMetric):
     def greater_is_better(self) -> bool:
         return True
 
-    def __call__(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
         _validate_shapes(y_true, y_pred, self.name)
         ss_res = float(np.sum((y_true - y_pred) ** 2))
         ss_tot = float(np.sum((y_true - np.mean(y_true)) ** 2))
@@ -111,6 +116,6 @@ class RMSLE(BaseMetric):
     def greater_is_better(self) -> bool:
         return False
 
-    def __call__(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
         _validate_shapes(y_true, y_pred, self.name)
         return float(np.sqrt(np.mean((np.log1p(y_true) - np.log1p(y_pred)) ** 2)))

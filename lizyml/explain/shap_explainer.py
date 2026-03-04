@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
@@ -37,7 +38,7 @@ def compute_shap_values(
     model: BaseEstimatorAdapter,
     X: pd.DataFrame,
     task: str,
-) -> np.ndarray:
+) -> npt.NDArray[np.float64]:
     """Compute SHAP values for *X* using *model*.
 
     Args:
@@ -68,7 +69,7 @@ def compute_shap_values(
     if isinstance(raw, np.ndarray):
         if raw.ndim == 3:
             # Multiclass: (n_samples, n_features, n_classes) — reduce to (n, p)
-            reduced: np.ndarray = np.mean(np.abs(raw), axis=2)
+            reduced: npt.NDArray[np.float64] = np.mean(np.abs(raw), axis=2)
             return reduced
         # Regression or binary: (n_samples, n_features)
         return raw
@@ -76,12 +77,12 @@ def compute_shap_values(
     # Legacy list format from older SHAP versions
     if isinstance(raw, list):
         if task == "binary" and len(raw) == 2:
-            result: np.ndarray = raw[1]
+            result: npt.NDArray[np.float64] = raw[1]
             return result
         # Multiclass: list of k arrays each (n_samples, n_features)
-        stacked: np.ndarray = np.stack(raw, axis=0)  # (k, n, p)
-        mean_abs: np.ndarray = np.mean(np.abs(stacked), axis=0)  # (n, p)
+        stacked: npt.NDArray[np.float64] = np.stack(raw, axis=0)  # (k, n, p)
+        mean_abs: npt.NDArray[np.float64] = np.mean(np.abs(stacked), axis=0)  # (n, p)
         return mean_abs
 
-    arr: np.ndarray = np.asarray(raw)
+    arr: npt.NDArray[np.float64] = np.asarray(raw)
     return arr

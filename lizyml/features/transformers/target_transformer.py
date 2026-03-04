@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 TargetTransform = Literal["none", "log1p"]
@@ -30,10 +31,10 @@ class TargetTransformer:
             return pd.Series(np.log1p(y.to_numpy()), index=y.index, name=y.name)
         return y.copy()
 
-    def inverse_transform(self, y: np.ndarray) -> np.ndarray:
+    def inverse_transform(self, y: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         """Apply the inverse transformation to predictions."""
         if self.transform == "log1p":
-            result: np.ndarray = np.expm1(y)
+            result: npt.NDArray[np.float64] = np.expm1(y)
             return result
         return y
 

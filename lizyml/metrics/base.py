@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
-import numpy as np
+import numpy.typing as npt
 
 
 class BaseMetric(ABC):
@@ -36,7 +37,7 @@ class BaseMetric(ABC):
         """True when a higher score means a better model."""
 
     @abstractmethod
-    def __call__(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
         """Compute metric value.
 
         Args:

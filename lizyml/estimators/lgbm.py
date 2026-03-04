@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
@@ -141,13 +142,13 @@ class LGBMAdapter(BaseEstimatorAdapter):
     # Predict
     # ------------------------------------------------------------------
 
-    def predict(self, X: pd.DataFrame) -> np.ndarray:
+    def predict(self, X: pd.DataFrame) -> npt.NDArray[np.float64]:
         """Return raw predictions."""
         model = self._require_fitted()
-        result: np.ndarray = model.predict(X)
+        result: npt.NDArray[np.float64] = model.predict(X)
         return result
 
-    def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
+    def predict_proba(self, X: pd.DataFrame) -> npt.NDArray[np.float64]:
         """Return class probabilities.
 
         For binary tasks returns shape ``(n, 2)``.
@@ -170,7 +171,7 @@ class LGBMAdapter(BaseEstimatorAdapter):
                 user_message="predict_proba requires a classifier.",
                 context={"task": self.task},
             )
-        result: np.ndarray = clf.predict_proba(X)
+        result: npt.NDArray[np.float64] = clf.predict_proba(X)
         return result
 
     # ------------------------------------------------------------------

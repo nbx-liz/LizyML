@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 if TYPE_CHECKING:
@@ -24,7 +25,7 @@ def init_oof(
     n_samples: int,
     task: TaskType,
     n_classes: int | None = None,
-) -> np.ndarray:
+) -> npt.NDArray[np.float64]:
     """Allocate an OOF prediction array filled with NaN.
 
     Args:
@@ -45,9 +46,9 @@ def init_oof(
 
 
 def fill_oof(
-    oof: np.ndarray,
-    valid_idx: np.ndarray,
-    fold_pred: np.ndarray,
+    oof: npt.NDArray[np.float64],
+    valid_idx: npt.NDArray[np.intp],
+    fold_pred: npt.NDArray[np.float64],
 ) -> None:
     """Write fold predictions into the OOF array at ``valid_idx`` positions.
 
@@ -72,7 +73,7 @@ def get_fold_pred(
     estimator: BaseEstimatorAdapter,
     X_valid: pd.DataFrame,
     task: TaskType,
-) -> np.ndarray:
+) -> npt.NDArray[np.float64]:
     """Extract fold predictions from an estimator for the given task.
 
     Args:
@@ -86,10 +87,10 @@ def get_fold_pred(
         - ``(n_valid, n_classes)`` for multiclass (class probabilities).
     """
     if task == "regression":
-        pred: np.ndarray = estimator.predict(X_valid)
+        pred: npt.NDArray[np.float64] = estimator.predict(X_valid)
         return pred
     # classification
-    proba: np.ndarray = estimator.predict_proba(X_valid)
+    proba: npt.NDArray[np.float64] = estimator.predict_proba(X_valid)
     if task == "binary":
         return proba[:, 1]  # positive-class probability
     # multiclass: return full probability matrix
