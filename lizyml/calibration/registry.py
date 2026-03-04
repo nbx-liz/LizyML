@@ -36,11 +36,11 @@ def get_calibrator(name: str) -> BaseCalibratorAdapter:
         )
     try:
         cls = CalibratorRegistry.get(name)
-    except KeyError:
+    except KeyError as err:
         raise LizyMLError(
             ErrorCode.CALIBRATION_NOT_SUPPORTED,
             user_message=f"Unknown calibration method: '{name}'.",
             context={"method": name},
-        )
+        ) from err
     instance: BaseCalibratorAdapter = cls()
     return instance

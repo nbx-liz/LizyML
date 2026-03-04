@@ -679,12 +679,11 @@ def _get_lgbm_params(cfg: LizyMLConfig) -> dict[str, Any]:
     return {}
 
 
-def _filter_metrics(
-    metrics_dict: dict[str, Any], keep: set[str]
-) -> dict[str, Any]:
+def _filter_metrics(metrics_dict: dict[str, Any], keep: set[str]) -> dict[str, Any]:
     """Return a copy of *metrics_dict* with only *keep* metric names retained.
 
-    Works recursively on the nested ``{"raw": {"oof": {...}, ...}, "calibrated": {...}}``
+    Works recursively on the nested
+    ``{"raw": {"oof": {...}, ...}, "calibrated": {...}}``
     structure produced by :class:`~lizyml.evaluation.evaluator.Evaluator`.
     """
     result: dict[str, Any] = {}
@@ -697,8 +696,7 @@ def _filter_metrics(
             if sub_key == "if_per_fold":
                 # List of per-fold dicts
                 filtered_top[sub_key] = [
-                    {m: v for m, v in fold.items() if m in keep}
-                    for fold in sub_val
+                    {m: v for m, v in fold.items() if m in keep} for fold in sub_val
                 ]
             elif isinstance(sub_val, dict):
                 filtered_top[sub_key] = {m: v for m, v in sub_val.items() if m in keep}

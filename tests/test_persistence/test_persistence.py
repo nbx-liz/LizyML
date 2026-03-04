@@ -239,7 +239,8 @@ class TestLoad:
         m = Model(_bin_config(with_calibration=True))
         m.fit(data=df)
         assert m._fit_result is not None
-        assert m._fit_result.calibrator is not None  # sanity: calibrator set before export
+        # sanity: calibrator set before export
+        assert m._fit_result.calibrator is not None
 
         out = tmp_path / "model_cal"
         m.export(out)
@@ -345,7 +346,8 @@ class TestPersistenceContract:
         assert len(m2._fit_result.run_meta.lizyml_version) > 0
 
     def test_predict_after_load_produces_same_result(self, tmp_path: Path) -> None:
-        """Pipeline state must be preserved: predict() output identical before and after load."""
+        """Pipeline state must be preserved: predict() output identical before and after
+        load."""
         df = _reg_df()
         X_new = df.drop(columns=["target"]).iloc[:5].reset_index(drop=True)
         m = Model(_reg_config())

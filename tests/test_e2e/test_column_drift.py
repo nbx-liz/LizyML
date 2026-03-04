@@ -129,7 +129,9 @@ class TestColumnDriftContract:
         X_extra["surprise_col"] = 42.0
         result = m.predict(X_extra)
 
-        assert len(result.warnings) > 0, "Expected at least one warning for extra column"
+        assert len(result.warnings) > 0, (
+            "Expected at least one warning for extra column"
+        )
         combined = " ".join(result.warnings)
         assert "surprise_col" in combined, (
             f"Warning did not mention 'surprise_col': {result.warnings}"
@@ -157,7 +159,8 @@ class TestColumnDriftContract:
         pred = m.predict(X_new)
 
         assert pred.used_features == result.feature_names, (
-            f"used_features {pred.used_features} != feature_names {result.feature_names}"
+            f"used_features {pred.used_features} != "
+            f"feature_names {result.feature_names}"
         )
 
     def test_used_features_preserves_training_column_order(self) -> None:

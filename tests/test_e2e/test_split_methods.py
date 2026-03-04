@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
-import pytest
 
 from lizyml import Model
 from lizyml.core.types.fit_result import FitResult
@@ -45,7 +44,7 @@ def _grouped_df(n: int = 300, n_groups: int = 15, seed: int = 1) -> pd.DataFrame
     feat_b = rng.uniform(-1, 1, n)
     target = feat_a * 2.0 + feat_b + rng.normal(0, 0.1, n)
     # Each group covers n // n_groups consecutive rows
-    groups = np.repeat(np.arange(n_groups), n // n_groups)[: n]
+    groups = np.repeat(np.arange(n_groups), n // n_groups)[:n]
     return pd.DataFrame(
         {"feat_a": feat_a, "feat_b": feat_b, "group": groups, "target": target}
     )
@@ -125,7 +124,7 @@ class TestStratifiedKFold:
         assert len(result.splits.outer) == N_SPLITS
 
     def test_target_balance_preserved_per_fold(self) -> None:
-        """Each fold's valid set must not deviate more than ±20% from overall positive rate."""
+        """Stratified folds: valid-set positive rate must be within ±20% of overall."""
         df = _binary_df()
         overall_rate = df["target"].mean()
 

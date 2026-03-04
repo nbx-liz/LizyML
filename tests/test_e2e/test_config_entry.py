@@ -14,13 +14,11 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import pytest
 import yaml
 
 from lizyml import Model
 from lizyml.config.loader import load_config
 from lizyml.config.schema import LizyMLConfig
-
 
 # ---------------------------------------------------------------------------
 # Helpers

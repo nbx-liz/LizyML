@@ -264,14 +264,18 @@ def _bin_config_small() -> dict:
 
 def _reg_df_small(n: int = 150, seed: int = 0) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
-    df = pd.DataFrame({"feat_a": rng.uniform(0, 10, n), "feat_b": rng.uniform(-1, 1, n)})
+    df = pd.DataFrame(
+        {"feat_a": rng.uniform(0, 10, n), "feat_b": rng.uniform(-1, 1, n)}
+    )
     df["target"] = df["feat_a"] * 2.0 + df["feat_b"]
     return df
 
 
 def _bin_df_small(n: int = 150, seed: int = 1) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
-    df = pd.DataFrame({"feat_a": rng.uniform(0, 10, n), "feat_b": rng.uniform(-1, 1, n)})
+    df = pd.DataFrame(
+        {"feat_a": rng.uniform(0, 10, n), "feat_b": rng.uniform(-1, 1, n)}
+    )
     df["target"] = (df["feat_a"] > 5).astype(int)
     return df
 

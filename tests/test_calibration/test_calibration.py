@@ -151,7 +151,7 @@ class TestCalibratorRegistry:
         assert exc_info.value.code == ErrorCode.CALIBRATION_NOT_SUPPORTED
 
     def test_beta_raises_not_implemented(self) -> None:
-        """'beta' is declared in schema but not yet implemented — must fail explicitly."""
+        """'beta' is not yet implemented — must raise LizyMLError explicitly."""
         with pytest.raises(LizyMLError) as exc_info:
             get_calibrator("beta")
         assert exc_info.value.code == ErrorCode.CALIBRATION_NOT_SUPPORTED
@@ -282,7 +282,7 @@ class TestModelCalibration:
 
 class TestCalibrationContract:
     def test_calibration_splits_saved_in_fit_result(self) -> None:
-        """FitResult.splits.calibration must be populated when calibration is enabled."""
+        """splits.calibration must be populated when calibration is enabled."""
         df = _bin_df()
         m = Model(_bin_config(with_calibration=True, method="platt"))
         result = m.fit(data=df)
@@ -295,14 +295,15 @@ class TestCalibrationContract:
             assert hasattr(valid_idx, "__len__")
 
     def test_calibration_splits_none_without_calibration(self) -> None:
-        """FitResult.splits.calibration must be None when no calibration is configured."""
+        """splits.calibration must be None when calibration is disabled."""
         df = _bin_df()
         m = Model(_bin_config(with_calibration=False))
         result = m.fit(data=df)
         assert result.splits.calibration is None
 
     def test_calibrated_metrics_has_oof_key(self) -> None:
-        """metrics["calibrated"] must contain an "oof" key with the same metric names as raw.
+        """metrics["calibrated"] must contain an "oof" key with the same metric names as
+        raw.
 
         Note: "calibrated" intentionally only computes OOF metrics (not IF).
         Calibration is applied to OOF probabilities — computing calibrated IF

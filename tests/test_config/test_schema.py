@@ -324,7 +324,7 @@ class TestConfigVersionGate:
         assert exc_info.value.code == ErrorCode.CONFIG_INVALID
 
     def test_unsupported_config_version_raises_version_unsupported(self) -> None:
-        """config_version=999 must raise CONFIG_VERSION_UNSUPPORTED, not pass through."""
+        """config_version=999 must raise CONFIG_VERSION_UNSUPPORTED."""
         raw = {**_MINIMAL_CONFIG, "config_version": 999}
         with pytest.raises(LizyMLError) as exc_info:
             load_config(raw)
