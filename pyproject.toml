@@ -48,6 +48,8 @@ dev = [
     "optuna>=3.0",
     "shap>=0.44",
     "plotly>=5.0",
+    "nbconvert>=7.0",
+    "ipykernel>=6.0",
 ]
 
 [tool.ruff]
