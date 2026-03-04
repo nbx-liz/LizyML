@@ -252,3 +252,108 @@ class TestLoad:
         pred = m2.predict(X_new)
         assert pred.proba is not None
         assert np.all(pred.proba >= 0.0) and np.all(pred.proba <= 1.0)
+
+
+# ---------------------------------------------------------------------------
+# T-5: Persistence contract — all saved fields are preserved
+# ---------------------------------------------------------------------------
+
+
+class TestPersistenceContract:
+    def test_metadata_json_has_all_required_fields(self, tmp_path: Path) -> None:
+        """metadata.json must contain every contractual field."""
+        df = _reg_df()
+        m = Model(_reg_config())
+        m.fit(data=df)
+        out = tmp_path / "meta_contract"
+        m.export(out)
+        meta = json.loads((out / "metadata.json").read_text())
+
+        required_fields = {
+            "format_version",
+            "lizyml_version",
+            "python_version",
+            "timestamp",
+            "run_id",
+            "task",
+            "feature_names",
+            "config",
+            "metrics",
+        }
+        missing = required_fields - set(meta.keys())
+        assert missing == set(), f"metadata.json missing fields: {missing}"
+
+    def test_metadata_format_version_is_integer(self, tmp_path: Path) -> None:
+        df = _reg_df()
+        m = Model(_reg_config())
+        m.fit(data=df)
+        out = tmp_path / "fv_type"
+        m.export(out)
+        meta = json.loads((out / "metadata.json").read_text())
+        assert isinstance(meta["format_version"], int)
+
+    def test_metadata_config_is_dict(self, tmp_path: Path) -> None:
+        """'config' field must be a non-empty dict (normalized config)."""
+        df = _reg_df()
+        m = Model(_reg_config())
+        m.fit(data=df)
+        out = tmp_path / "cfg_dict"
+        m.export(out)
+        meta = json.loads((out / "metadata.json").read_text())
+        assert isinstance(meta["config"], dict)
+        assert len(meta["config"]) > 0
+
+    def test_fit_result_splits_preserved_after_load(self, tmp_path: Path) -> None:
+        """FitResult.splits.outer must survive export → load with correct fold count."""
+        n_splits = 3
+        df = _reg_df()
+        m = Model(_reg_config())
+        m.fit(data=df)
+        out = tmp_path / "splits_contract"
+        m.export(out)
+
+        m2 = Model.load(out)
+        assert m2._fit_result is not None
+        assert len(m2._fit_result.splits.outer) == n_splits
+
+    def test_fit_result_data_fingerprint_preserved(self, tmp_path: Path) -> None:
+        """data_fingerprint must survive export → load (row_count preserved)."""
+        df = _reg_df()
+        m = Model(_reg_config())
+        m.fit(data=df)
+        original_fp = m._fit_result.data_fingerprint  # type: ignore[union-attr]
+        out = tmp_path / "fp_contract"
+        m.export(out)
+
+        m2 = Model.load(out)
+        assert m2._fit_result is not None
+        loaded_fp = m2._fit_result.data_fingerprint
+        assert loaded_fp.row_count == original_fp.row_count
+        assert loaded_fp.column_hash == original_fp.column_hash
+
+    def test_fit_result_run_meta_preserved(self, tmp_path: Path) -> None:
+        """run_meta.lizyml_version must survive export → load."""
+        df = _reg_df()
+        m = Model(_reg_config())
+        m.fit(data=df)
+        out = tmp_path / "run_meta_contract"
+        m.export(out)
+
+        m2 = Model.load(out)
+        assert m2._fit_result is not None
+        assert m2._fit_result.run_meta.lizyml_version is not None
+        assert len(m2._fit_result.run_meta.lizyml_version) > 0
+
+    def test_predict_after_load_produces_same_result(self, tmp_path: Path) -> None:
+        """Pipeline state must be preserved: predict() output identical before and after load."""
+        df = _reg_df()
+        X_new = df.drop(columns=["target"]).iloc[:5].reset_index(drop=True)
+        m = Model(_reg_config())
+        m.fit(data=df)
+        pred_before = m.predict(X_new)
+        out = tmp_path / "pipeline_contract"
+        m.export(out)
+
+        m2 = Model.load(out)
+        pred_after = m2.predict(X_new)
+        np.testing.assert_array_almost_equal(pred_before.pred, pred_after.pred)
