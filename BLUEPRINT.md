@@ -83,7 +83,8 @@
 
 ```python
 model = Model(config=config)
-model.tune()
+tuning_result = model.tune()       # TuningResult（best_params / best_score / trials）
+tuning_df = model.tuning_table()   # 全 trial の DataFrame（trial / score / params）
 fit_result = model.fit()
 eval_result = model.evaluate()
 pred_result = model.predict(X_test, return_shap=True)
@@ -93,13 +94,20 @@ model.export("path/to/export_dir")
 補足:
 - `fit()` の default は、最も評価が良かったパラメーターで学習する。
 - 必要に応じて、最終学習に使うパラメーターを明示指定できるようにする。
+- `tune()` は `TuningResult` を返す。`TuningResult` は `best_params`（最良パラメーター）、`best_score`（最良スコア）、`trials`（全 trial の `TrialResult` リスト）を持つ。
+- `tuning_table()` は `TuningResult.trials` を `pd.DataFrame` に変換して返す（列: `trial`, メトリクス名, 探索パラメーター名）。`tune()` 未実行時は `MODEL_NOT_FIT`。
 - 学習後は、以下の補助 API を提供する。
   - `model.importance(kind="split|gain|shap")`（特徴量重要度。`shap` は optional dependency）
   - `model.importance_plot(kind="split|gain|shap", top_n=20)`（特徴量重要度の可視化、Plotly）
   - `model.residuals()`（回帰専用。OOF 残差 `y - oof_pred` を `np.ndarray` で返す）
   - `model.residuals_plot(kind="scatter|histogram|qq|all")`（回帰専用。残差可視化、Plotly。IS/OOS 比較対応。デフォルト `kind="all"` で scatter + histogram + QQ の 3 パネル。scatter は Actual vs Predicted（x=predicted, y=actual）。IS サンプルは OOS 数に合わせてダウンサンプリング）
   - `model.evaluate_table()`（評価結果を `pd.DataFrame` で返す）
+  - `model.roc_curve_plot()`（binary 専用。IS/OOS の ROC Curve を重ね描き、Plotly）
+  - `model.confusion_matrix(threshold=0.5)`（binary/multiclass。IS/OOS の Confusion Matrix を `{"is": DataFrame, "oos": DataFrame}` で返す）
+  - `model.calibration_plot()`（binary + calibration 有効時。Raw/Calibrated の Reliability Diagram、Plotly）
+  - `model.probability_histogram_plot()`（binary + calibration 有効時。Raw/Calibrated の確率分布ヒストグラム、Plotly）
 - `residuals()` / `residuals_plot()` / `importance(kind="shap")` は `fit()` 後のみ利用可能。`Model.load()` 後は学習データ（y / X）が不在のため呼び出し不可。
+- `roc_curve_plot()` / `confusion_matrix()` / `calibration_plot()` / `probability_histogram_plot()` も `fit()` 後のみ利用可能（`y_true` が必要なため）。
 
 ## 4.2 `Model.load()`（Artifact 読込）
 
@@ -140,13 +148,25 @@ config = {
             "params": {
                 "n_estimators": 1000,
                 "learning_rate": 0.05,
-            }
+            },
+            # スマートパラメーター（§5.3 参照）
+            "auto_num_leaves": True,       # max_depth から num_leaves を自動算出
+            "num_leaves_ratio": 0.8,       # 基準値に対する割合
+            "min_data_in_leaf_ratio": 0.01, # 学習データ行数に対する割合
+            "min_data_in_bin_ratio": 0.01,  # 学習データ行数に対する割合
+            # "feature_weights": {"important_feat": 2.0},  # 特徴量重み辞書
+            # "balanced": True,            # クラス重み自動均衡化（分類タスク）
         }
     },
     "training": {
         "early_stopping": {
             "enabled": True,
             "validation_ratio": 0.1,  # inner_valid.ratio のエイリアス
+            # inner_valid 未指定時は外側 split.method に応じて自動解決
+            # 明示指定例:
+            # "inner_valid": {"method": "holdout", "ratio": 0.1, "stratify": True}
+            # "inner_valid": {"method": "group_holdout", "ratio": 0.1}
+            # "inner_valid": {"method": "time_holdout", "ratio": 0.1}
         }
     },
     "tuning": {
@@ -155,15 +175,50 @@ config = {
                 "n_trials": 50,
                 "direction": "minimize",
             },
-            "space": {
-                "learning_rate": [0.01, 0.05, 0.1],
-                "num_leaves": [31, 64, 128],
-            },
+            # space が空 or 未指定の場合はタスク別デフォルト空間を自動適用（§11.3 参照）
+            "space": {},
         }
     },
     "evaluation": {"metrics": ["rmse", "mae"]},
 }
 ```
+
+## 5.3 LGBMConfig 拡張パラメーター
+
+`LGBMConfig` に以下のスマートパラメーターを提供する。これらは `fit()` 時に学習データに基づいて LightGBM ネイティブパラメーターに解決される。`params` の直接指定とは独立して機能し、`params` で同一パラメーターが指定されている場合は競合エラーとする。
+
+### auto_num_leaves（葉の数の自動算出）
+
+- `auto_num_leaves: bool = True`: 有効時、`max_depth` から `num_leaves` を自動算出する。
+- `num_leaves_ratio: float = 1.0`（`0 < ratio ≤ 1`）: 基準値に対する割合。
+- 算出ロジック:
+  - `params.max_depth` が未指定または負値（制限なし）→ 基準値 = `131072`
+  - `params.max_depth` が指定されている → 基準値 = `2 ^ max_depth`
+  - `num_leaves = clamp(ceil(基準値 × num_leaves_ratio), 8, 131072)`
+- 制約: `auto_num_leaves=True` 時に `params.num_leaves` の直接指定は `CONFIG_INVALID`。
+
+### データサイズ相対比率パラメーター
+
+学習データの行数に対する割合で指定し、`fit()` 時に絶対値に変換する。
+
+- `min_data_in_leaf_ratio: float | None`（`0 < ratio < 1`）→ `min_data_in_leaf = max(1, ceil(n_rows × ratio))`
+- `min_data_in_bin_ratio: float | None`（`0 < ratio < 1`）→ `min_data_in_bin = max(1, ceil(n_rows × ratio))`
+- 制約: ratio 指定と対応する絶対値パラメーター（`params.min_data_in_leaf` 等）の同時指定は `CONFIG_INVALID`。
+
+### feature_weights（特徴量重みの辞書指定）
+
+- `feature_weights: dict[str, float] | None`: 特徴量名をキーとした重み辞書。
+- 未指定特徴量は `1.0` で自動補完される。
+- 学習データの特徴量順に並び替えたリストに変換し、LightGBM に渡す。
+- 副作用: `feature_pre_filter = False` を強制する。
+- 制約: 重み `> 0` 必須。学習データに存在しない未知の特徴量名は `CONFIG_INVALID`。
+
+### balanced（クラス重み自動均衡化）
+
+- `balanced: bool = False`: 学習データのクラス比率から自動的に重みを算出する。
+  - binary: `scale_pos_weight = neg_count / pos_count` を設定。
+  - multiclass: `sample_weight` でクラス逆頻度重み付け。
+  - regression で指定した場合は `UNSUPPORTED_TASK`。
 
 # 6. 実行フロー（概念）
 
@@ -174,7 +229,7 @@ config = {
 3. `FeaturePipeline` 選択 -> `fit_transform`
 4. `Splitter` で外側 CV index 生成（保存対象）
 5. `Tuner`（Optuna）で `objective=CV` 平均（推奨）
-6. `best params` を `TuningResult` として保持（Artifacts へ）
+6. `TuningResult`（`best_params` / `best_score` / 全 trial 履歴）を返す
 
 `tuning` と最終評価のリーク回避方針は 10 章を参照。
 
@@ -240,7 +295,16 @@ config = {
 - `run_meta`
   - `yourlib_version / python_version / deps_version / config_normalized / config_version`
 
-## 7.2 PredictionResult（固定スキーマ）
+## 7.2 TuningResult（固定スキーマ）
+
+- `best_params`（`dict[str, Any]`）: 最良のハイパーパラメーター
+- `best_score`（`float`）: 最良の OOF メトリクス値
+- `trials`（`list[TrialResult]`）: 全 trial の結果（番号順）
+  - `TrialResult`: `number` / `params` / `score` / `state`（`"complete"` / `"pruned"` / `"fail"`）
+- `metric_name`（`str`）: 最適化メトリクス名
+- `direction`（`str`）: `"minimize"` / `"maximize"`
+
+## 7.3 PredictionResult（固定スキーマ）
 
 - `pred`（回帰: float、分類: class / proba）
 - `proba`（binary の場合）
@@ -253,7 +317,7 @@ config = {
 - 回帰では `pred` を主とする。
 - 分類では `pred` に加えて `proba` を返せるようにする。
 
-## 7.3 Exported Model Artifacts
+## 7.4 Exported Model Artifacts
 
 - `FeaturePipeline state`
 - `schema`（`feature_names, dtypes, categorical handling`）
@@ -312,19 +376,30 @@ config = {
 ## 10.2 Outer CV（例）
 
 - `KFold`
-- `StratifiedKFold`
+- `StratifiedKFold`（binary/multiclass のデフォルト）
 - `GroupKFold`
 - `TimeSeriesSplit`
 - `PurgedTimeSeries`
 - `GroupTimeSeries`
 
+注記: `task` が `binary` または `multiclass` かつ `split.method` が未指定の場合、`StratifiedKFold` をデフォルトとする。分類タスクで `method: "kfold"` を明示指定した場合は警告を出す。回帰タスクのデフォルトは `KFold` のまま。
+
 ## 10.3 InnerValidStrategy（early stopping 用）
 
 - CV fold 内でさらに `train / valid` を作る概念を分離する。
-- 実装例（IF）:
-  - `HoldoutInnerValid(ratio, stratify, group, time, random_state)`
-  - `InnerKFoldValid(n_splits, pick_fold, ...)`
+- 実装（holdout ベース。将来 `InnerKFoldValid` も拡張可能とする）:
+  - `HoldoutInnerValid(ratio, stratify=False, random_state)`: ランダム holdout。`stratify=True` で `y` に基づく層化抽出。
+  - `GroupHoldoutInnerValid(ratio, random_state)`: group 単位の holdout。group overlap を禁止する。
+  - `TimeHoldoutInnerValid(ratio)`: 時系列順を維持し、末尾 ratio 割合を validation に割り当てる（shuffle 禁止）。
 - 時系列は内側も時系列順を厳守する（shuffle 禁止）。
+- Config で `inner_valid.method` を指定する。`inner_valid` 未指定かつ `early_stopping.enabled=True` の場合、外側 CV の method に応じて自動解決する。
+
+| 外側 split.method | inner_valid のデフォルト |
+|---|---|
+| `stratified_kfold` | `holdout(stratify=True)` |
+| `group_kfold` | `group_holdout` |
+| `time_series` | `time_holdout` |
+| `kfold`（または CV 未使用） | `holdout(stratify=False)` |
 
 ## 10.4 split indices の保存（必須）
 
@@ -338,7 +413,46 @@ config = {
 
 - Optuna に依存しない space 表現（離散・連続・対数・カテゴリ）を使う。
 
-## 11.2 リーク回避方針（必須で明文化）
+## 11.2 SearchDim カテゴリ
+
+SearchDim にカテゴリ属性を持たせ、Tuner がパラメーターの適用先を区別する。
+
+- `model`: `LGBMAdapter.params` に直接渡す（既存 SearchDim の挙動）
+- `smart`: `LGBMConfig` のスマートパラメーター（`num_leaves_ratio` 等）として `resolve_smart_params()` に渡す
+- `training`: trial ごとに `EarlyStoppingConfig` / `InnerValidStrategy` を再構築する
+
+## 11.3 デフォルト Tuning Space
+
+`tuning.optuna.space` が空（`{}`）の場合、タスク別のデフォルト探索空間を自動適用する。ユーザーが `space` を指定した場合はユーザー指定を使用する。
+
+### 探索次元
+
+| パラメーター | 型 | 範囲 | カテゴリ |
+|---|---|---|---|
+| `objective` | categorical | regression: `[huber, fair]`, binary: `[binary]`, multiclass: `[multiclass, multiclassova]` | model |
+| `n_estimators` | int | `[600, 2500]` | model |
+| `learning_rate` | float (log) | `[0.0001, 0.1]` | model |
+| `max_depth` | int | `[3, 12]` | model |
+| `feature_fraction` | float | `[0.5, 1.0]` | model |
+| `bagging_fraction` | float | `[0.5, 1.0]` | model |
+| `num_leaves_ratio` | float | `[0.5, 1.0]` | smart |
+| `min_data_in_leaf_ratio` | float | `[0.01, 0.2]` | smart |
+| `early_stopping_rounds` | int | `[40, 240]` | training |
+| `validation_ratio` | float | `[0.1, 0.3]` | training |
+
+### 固定パラメーター（探索しない）
+
+| パラメーター | 値 |
+|---|---|
+| `auto_num_leaves` | `True` |
+| `first_metric_only` | `True` |
+| `metric` | regression: `[huber, mae, mape]`, binary: `[auc, binary_logloss]`, multiclass: `[auc_mu, multi_logloss]` |
+
+注記:
+- `brier` / `precision_at_k` は LightGBM ネイティブ未対応のため除外。
+- Binary の `objective` は `[binary]` のみ（選択肢 1 つで実質固定）。
+
+## 11.4 リーク回避方針（必須で明文化）
 
 - 最適化に使った CV で最終性能を主張しない。
 
@@ -385,7 +499,9 @@ config = {
 - Metric IF
 - `needs_proba / greater_is_better / supports_task`
 - 回帰: `rmse / mae / r2 ...`
-- 分類: `logloss / auc / f1 / accuracy ...`
+- 分類（binary）: `logloss / auc / auc_pr / f1 / accuracy / brier / ece / precision_at_k ...`
+- 分類（multiclass）: `logloss / auc(OvR) / auc_pr(OvR) / f1(macro) / accuracy / brier(OvR) ...`
+- multiclass の `auc / auc_pr / brier` は One-vs-Rest 展開 + macro 平均で計算する。メトリクス名は binary と共通（`__call__` 内で `y_pred.ndim` により分岐）。
 
 ## 13.2 評価出力（固定）
 
@@ -406,10 +522,13 @@ config = {
 - `plot_oof_distribution()`: OOF 予測値の分布（ヒストグラム）
 - `residuals_plot(kind="scatter|histogram|qq|all")`: 回帰専用。IS/OOS 比較対応。`kind` で表示プロットを選択。デフォルト `kind="all"` で scatter + histogram + QQ の 3 パネル。scatter は Actual vs Predicted（x=predicted, y=actual, y=x 参照線）。IS サンプルは OOS 数に合わせてダウンサンプリング（`_downsample_is()`、seed=0 で再現可能）。
 
-追加で用意したい可視化（未実装）:
-- binary: `ROC / PR / confusion matrix / threshold最適化レポート`
-- calibration: `reliability diagram / ECE`（binning 含む）
-- 時系列: fold ごとの期間情報（`train_end / valid_start`）表示
+追加で用意したい可視化（一部実装済み）:
+- binary/multiclass: `roc_curve_plot()`（binary: IS/OOS の 2 本の ROC Curve 重ね描き。multiclass: IS/OOS を subplot 横並びにし、クラスごとの OvR ROC Curve を描画。各クラスの AUC 値を凡例に表示、macro 平均 AUC も表示）
+- binary/multiclass: `confusion_matrix(threshold=0.5)`（IS/OOS の Confusion Matrix テーブル。`{"is": DataFrame, "oos": DataFrame}` を返す。binary は threshold、multiclass は argmax でクラスラベル変換）
+- calibration: `calibration_plot()`（Raw/Calibrated の Reliability Diagram。bin 数デフォルト 10。理想線 y=x を参照線として描画。データソースは cross-fit 由来の `calibrated_oof`、`c_final` は使用しない）
+- calibration: `probability_histogram_plot()`（Raw/Calibrated の確率分布ヒストグラム重ね描き。校正前後の分布シフトを視覚的に確認）
+- 未実装: `PR Curve / threshold最適化レポート`
+- 未実装: 時系列 fold ごとの期間情報（`train_end / valid_start`）表示
 
 # 14. Estimators（`estimators/`）
 
@@ -429,6 +548,45 @@ get_native_model()  # export用途
 - categorical の扱い統一
 - early stopping の設定吸収
 - SHAP（内蔵寄り）対応
+
+## 14.3 LightGBM デフォルトパラメータープロファイル
+
+`LGBMAdapter` はタスク別のデフォルトパラメーターを提供する。`LGBMConfig.params` で明示指定した値はデフォルトを上書きする。
+
+### タスク別デフォルト
+
+| | regression | binary | multiclass |
+|---|---|---|---|
+| objective | `huber` | `binary` | `multiclass` |
+| metric | `[huber, mae, mape]` | `[auc, binary_logloss]` | `[auc_mu, multi_logloss]` |
+
+注記:
+- regression の objective を `huber` とする（外れ値に対してロバスト）。
+- `brier` / `precision_at_k` は LightGBM ネイティブ未対応。将来のカスタム feval 拡張点とする。
+
+### 共通デフォルト
+
+| パラメーター | デフォルト値 | 備考 |
+|---|---|---|
+| `boosting` | `gbdt` | |
+| `first_metric_only` | `False` | |
+| `n_estimators` | `1500` | sklearn API 相当の `num_boost_round` |
+| `learning_rate` | `0.001` | 低学習率で early stopping に依存 |
+| `max_depth` | `5` | |
+| `max_bin` | `511` | |
+| `feature_fraction` | `0.7` | |
+| `bagging_fraction` | `0.7` | |
+| `bagging_freq` | `10` | |
+| `lambda_l1` | `0.0` | |
+| `lambda_l2` | `0.000001` | |
+
+### Training デフォルト
+
+| パラメーター | デフォルト値 |
+|---|---|
+| `early_stopping.enabled` | `True` |
+| `early_stopping.rounds` | `150` |
+| `early_stopping.validation_ratio` | `0.1` |
 
 # 15. Persistence / Export（`persistence/`）
 
@@ -680,10 +838,8 @@ config = {
                 "n_trials": 50,
                 "direction": "minimize",
             },
-            "space": {
-                "learning_rate": [0.01, 0.05, 0.1],
-                "num_leaves": [31, 64, 128],
-            },
+            # space 未指定でデフォルト空間を自動適用（§11.3 参照）
+            "space": {},
         }
     },
     "evaluation": {"metrics": ["rmse", "mae"]},
@@ -691,7 +847,8 @@ config = {
 
 model = Model(config=config)
 
-model.tune()
+tuning_result = model.tune()
+model.tuning_table()  # 全 trial の DataFrame 表示
 fit_result = model.fit()
 
 importance = model.importance()
