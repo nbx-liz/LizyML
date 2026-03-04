@@ -467,6 +467,56 @@ class Model:
         _log.info("event='tune.done' best_params=%s", best_params)
         return best_params
 
+    def importance_plot(self, kind: str = "split", top_n: int | None = 20) -> Any:
+        """Plot fold-averaged feature importances as a horizontal bar chart.
+
+        Args:
+            kind: ``"split"`` or ``"gain"``.
+            top_n: Maximum number of features to show.
+
+        Returns:
+            A ``matplotlib.figure.Figure`` object.
+
+        Raises:
+            LizyMLError with MODEL_NOT_FIT when called before fit.
+            LizyMLError with OPTIONAL_DEP_MISSING when matplotlib is not installed.
+        """
+        fit_result = self._require_fit()
+        from lizyml.plots.importance import plot_importance
+
+        return plot_importance(fit_result, kind=kind, top_n=top_n)
+
+    def plot_learning_curve(self) -> Any:
+        """Plot per-fold training/validation loss vs iteration.
+
+        Returns:
+            A ``matplotlib.figure.Figure`` object.
+
+        Raises:
+            LizyMLError with MODEL_NOT_FIT when called before fit or when
+                no evaluation history is available.
+            LizyMLError with OPTIONAL_DEP_MISSING when matplotlib is not installed.
+        """
+        fit_result = self._require_fit()
+        from lizyml.plots.learning_curve import plot_learning_curve
+
+        return plot_learning_curve(fit_result)
+
+    def plot_oof_distribution(self) -> Any:
+        """Plot the distribution of out-of-fold predictions.
+
+        Returns:
+            A ``matplotlib.figure.Figure`` object.
+
+        Raises:
+            LizyMLError with MODEL_NOT_FIT when called before fit.
+            LizyMLError with OPTIONAL_DEP_MISSING when matplotlib is not installed.
+        """
+        fit_result = self._require_fit()
+        from lizyml.plots.oof_distribution import plot_oof_distribution
+
+        return plot_oof_distribution(fit_result)
+
     def export(self, path: str | Path) -> None:
         """Export Model artifacts to a directory.
 
