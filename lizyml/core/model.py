@@ -46,7 +46,10 @@ from lizyml.data.fingerprint import compute as fp_compute
 from lizyml.estimators.lgbm import LGBMAdapter
 from lizyml.evaluation.evaluator import Evaluator
 from lizyml.features.pipelines_native import NativeFeaturePipeline
+from lizyml.splitters.base import BaseSplitter
+from lizyml.splitters.group_kfold import GroupKFoldSplitter
 from lizyml.splitters.kfold import KFoldSplitter, StratifiedKFoldSplitter
+from lizyml.splitters.time_series import TimeSeriesSplitter
 from lizyml.training.cv_trainer import CVTrainer
 from lizyml.training.inner_valid import HoldoutInnerValid, NoInnerValid
 from lizyml.training.refit_trainer import RefitResult, RefitTrainer
@@ -596,7 +599,7 @@ class Model:
             context={},
         )
 
-    def _build_splitter(self) -> KFoldSplitter | StratifiedKFoldSplitter:
+    def _build_splitter(self) -> BaseSplitter:
         """Instantiate splitter from config."""
         split_cfg = self._cfg.split
         method = split_cfg.method
@@ -608,7 +611,12 @@ class Model:
             return StratifiedKFoldSplitter(
                 n_splits=n_splits, shuffle=shuffle, random_state=random_state
             )
-        # Default: kfold (also fallback for unsupported methods in Phase 11)
+        if method == "group_kfold":
+            return GroupKFoldSplitter(n_splits=n_splits)
+        if method == "time_series":
+            gap = getattr(split_cfg, "gap", 0)
+            return TimeSeriesSplitter(n_splits=n_splits, gap=gap)
+        # Default: kfold
         return KFoldSplitter(
             n_splits=n_splits, shuffle=shuffle, random_state=random_state
         )
