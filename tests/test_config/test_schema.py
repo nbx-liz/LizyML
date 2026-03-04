@@ -7,7 +7,9 @@ from pathlib import Path
 
 import pytest
 
+from lizyml import Model
 from lizyml.config.loader import (
+    SUPPORTED_CONFIG_VERSIONS,
     config_to_calibration_spec,
     config_to_feature_spec,
     config_to_problem_spec,
@@ -297,3 +299,47 @@ class TestConfigToSpecs:
     def test_calibration_spec_none_when_not_configured(self) -> None:
         cfg = load_config(_MINIMAL_CONFIG)
         assert config_to_calibration_spec(cfg) is None
+
+
+# ---------------------------------------------------------------------------
+# T-2: Config version compatibility gate
+# ---------------------------------------------------------------------------
+
+
+class TestConfigVersionGate:
+    def test_supported_versions_constant_is_nonempty(self) -> None:
+        """SUPPORTED_CONFIG_VERSIONS must be a non-empty list so the gate is active."""
+        assert isinstance(SUPPORTED_CONFIG_VERSIONS, list)
+        assert len(SUPPORTED_CONFIG_VERSIONS) > 0
+
+    def test_version_1_is_supported(self) -> None:
+        cfg = load_config(_MINIMAL_CONFIG)
+        assert cfg.config_version == 1
+
+    def test_missing_config_version_raises_config_invalid(self) -> None:
+        """Missing config_version → CONFIG_INVALID (Pydantic required field)."""
+        raw = {k: v for k, v in _MINIMAL_CONFIG.items() if k != "config_version"}
+        with pytest.raises(LizyMLError) as exc_info:
+            load_config(raw)
+        assert exc_info.value.code == ErrorCode.CONFIG_INVALID
+
+    def test_unsupported_config_version_raises_version_unsupported(self) -> None:
+        """config_version=999 must raise CONFIG_VERSION_UNSUPPORTED, not pass through."""
+        raw = {**_MINIMAL_CONFIG, "config_version": 999}
+        with pytest.raises(LizyMLError) as exc_info:
+            load_config(raw)
+        assert exc_info.value.code == ErrorCode.CONFIG_VERSION_UNSUPPORTED
+
+    def test_unsupported_version_context_includes_version(self) -> None:
+        """Error context must expose the offending version for debugging."""
+        raw = {**_MINIMAL_CONFIG, "config_version": 42}
+        with pytest.raises(LizyMLError) as exc_info:
+            load_config(raw)
+        assert exc_info.value.context.get("config_version") == 42
+
+    def test_model_init_with_unsupported_version_raises(self) -> None:
+        """Facade must propagate CONFIG_VERSION_UNSUPPORTED to callers."""
+        raw = {**_MINIMAL_CONFIG, "config_version": 999}
+        with pytest.raises(LizyMLError) as exc_info:
+            Model(raw)
+        assert exc_info.value.code == ErrorCode.CONFIG_VERSION_UNSUPPORTED

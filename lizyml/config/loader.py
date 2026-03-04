@@ -150,6 +150,27 @@ def _coerce_env_value(value: str) -> Any:
 
 
 # ---------------------------------------------------------------------------
+# Version gate
+# ---------------------------------------------------------------------------
+
+SUPPORTED_CONFIG_VERSIONS: list[int] = [1]
+
+
+def _check_config_version(raw: dict[str, Any]) -> None:
+    """Raise CONFIG_VERSION_UNSUPPORTED if config_version is unsupported."""
+    version = raw.get("config_version")
+    if isinstance(version, int) and version not in SUPPORTED_CONFIG_VERSIONS:
+        raise LizyMLError(
+            ErrorCode.CONFIG_VERSION_UNSUPPORTED,
+            user_message=(
+                f"config_version={version} is not supported. "
+                f"Supported versions: {SUPPORTED_CONFIG_VERSIONS}"
+            ),
+            context={"config_version": version, "supported": SUPPORTED_CONFIG_VERSIONS},
+        )
+
+
+# ---------------------------------------------------------------------------
 # Public loader
 # ---------------------------------------------------------------------------
 
@@ -168,6 +189,7 @@ def load_config(source: dict[str, Any] | str | Path) -> LizyMLConfig:
         LizyMLError: With ``CONFIG_INVALID`` when the file cannot be read or parsed.
     """
     raw = _read_raw(source)
+    _check_config_version(raw)
     raw = _normalize_split_method(raw)
     raw = _normalize_model_config(raw)
     raw = _apply_env_overrides(raw)
