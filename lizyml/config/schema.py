@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # ---------------------------------------------------------------------------
 # DataConfig
@@ -113,6 +113,19 @@ class EarlyStoppingConfig(BaseModel):
     enabled: bool = False
     rounds: int = 50
     inner_valid: HoldoutInnerValidConfig | None = None
+    validation_ratio: float | None = None
+
+    @model_validator(mode="after")
+    def _resolve_validation_ratio(self) -> EarlyStoppingConfig:
+        if self.validation_ratio is not None and self.inner_valid is not None:
+            raise ValueError(
+                "Specify either 'validation_ratio' or 'inner_valid', not both."
+            )
+        if self.validation_ratio is not None:
+            self.inner_valid = HoldoutInnerValidConfig(
+                method="holdout", ratio=self.validation_ratio
+            )
+        return self
 
 
 class TrainingConfig(BaseModel):

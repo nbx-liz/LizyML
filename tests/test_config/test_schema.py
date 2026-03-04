@@ -343,3 +343,62 @@ class TestConfigVersionGate:
         with pytest.raises(LizyMLError) as exc_info:
             Model(raw)
         assert exc_info.value.code == ErrorCode.CONFIG_VERSION_UNSUPPORTED
+
+
+# ---------------------------------------------------------------------------
+# H-0010: validation_ratio shorthand
+# ---------------------------------------------------------------------------
+
+
+class TestValidationRatio:
+    def test_validation_ratio_sets_inner_valid(self) -> None:
+        """validation_ratio=0.2 → inner_valid.ratio == 0.2 (H-0010)."""
+        raw = {
+            **_MINIMAL_CONFIG,
+            "training": {
+                "early_stopping": {
+                    "enabled": True,
+                    "rounds": 50,
+                    "validation_ratio": 0.2,
+                }
+            },
+        }
+        cfg = load_config(raw)
+        es = cfg.training.early_stopping
+        assert es.inner_valid is not None
+        assert es.inner_valid.ratio == pytest.approx(0.2)
+        assert es.inner_valid.method == "holdout"
+
+    def test_validation_ratio_and_inner_valid_conflict_raises(self) -> None:
+        """Both validation_ratio and inner_valid specified → CONFIG_INVALID."""
+        raw = {
+            **_MINIMAL_CONFIG,
+            "training": {
+                "early_stopping": {
+                    "enabled": True,
+                    "validation_ratio": 0.1,
+                    "inner_valid": {"method": "holdout", "ratio": 0.2},
+                }
+            },
+        }
+        with pytest.raises(LizyMLError) as exc_info:
+            load_config(raw)
+        assert exc_info.value.code == ErrorCode.CONFIG_INVALID
+
+    def test_inner_valid_backward_compat(self) -> None:
+        """Existing inner_valid form continues to work unchanged."""
+        raw = {
+            **_MINIMAL_CONFIG,
+            "training": {
+                "early_stopping": {
+                    "enabled": True,
+                    "rounds": 30,
+                    "inner_valid": {"method": "holdout", "ratio": 0.15},
+                }
+            },
+        }
+        cfg = load_config(raw)
+        es = cfg.training.early_stopping
+        assert es.inner_valid is not None
+        assert es.inner_valid.ratio == pytest.approx(0.15)
+        assert es.validation_ratio is None

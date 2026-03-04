@@ -1,10 +1,11 @@
-"""Tests for Phase 16 — Plots.
+"""Tests for Plots (Plotly-based).
 
 Covers:
-- plot_importance: runs without exception from FitResult, returns Figure
+- plot_importance: runs without exception from FitResult, returns Plotly Figure
 - plot_learning_curve: runs when eval_history present; raises on missing history
 - plot_oof_distribution: runs for regression / binary / multiclass
-- OPTIONAL_DEP_MISSING when matplotlib is None
+- plot_importance_from_dict: renders from pre-computed dict
+- OPTIONAL_DEP_MISSING when plotly is None
 - MODEL_NOT_FIT on missing data
 """
 
@@ -12,18 +13,15 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import matplotlib  # noqa: E402
-
-matplotlib.use("Agg")  # headless backend before importing pyplot
-
 import numpy as np
 import pandas as pd
+import plotly.graph_objects as go
 import pytest
 
 from lizyml import Model
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.fit_result import FitResult
-from lizyml.plots.importance import plot_importance
+from lizyml.plots.importance import plot_importance, plot_importance_from_dict
 from lizyml.plots.learning_curve import plot_learning_curve
 from lizyml.plots.oof_distribution import plot_oof_distribution
 
@@ -97,18 +95,14 @@ def _fit(task: str) -> FitResult:
 
 class TestImportancePlot:
     def test_returns_figure(self) -> None:
-        import matplotlib.figure
-
         fit_result = _fit("regression")
         fig = plot_importance(fit_result)
-        assert isinstance(fig, matplotlib.figure.Figure)
+        assert isinstance(fig, go.Figure)
 
     def test_binary(self) -> None:
-        import matplotlib.figure
-
         fit_result = _fit("binary")
         fig = plot_importance(fit_result, kind="gain")
-        assert isinstance(fig, matplotlib.figure.Figure)
+        assert isinstance(fig, go.Figure)
 
     def test_top_n(self) -> None:
         fit_result = _fit("regression")
@@ -116,29 +110,53 @@ class TestImportancePlot:
         assert fig is not None
 
     def test_via_model(self) -> None:
-        import matplotlib.figure
-
         df = _reg_df()
         m = Model(_base_cfg("regression"))
         m.fit(data=df)
         fig = m.importance_plot()
-        assert isinstance(fig, matplotlib.figure.Figure)
+        assert isinstance(fig, go.Figure)
 
     def test_optional_dep_missing(self) -> None:
         fit_result = _fit("regression")
         with (
-            patch("lizyml.plots.importance._mpl", None),
+            patch("lizyml.plots.importance._plotly", None),
             pytest.raises(LizyMLError) as exc_info,
         ):
             plot_importance(fit_result)
         assert exc_info.value.code == ErrorCode.OPTIONAL_DEP_MISSING
 
-    def test_no_models_raises(self, tmp_path: object) -> None:
+    def test_no_models_raises(self) -> None:
         fit_result = _fit("regression")
         fit_result.models = []
         with pytest.raises(LizyMLError) as exc_info:
             plot_importance(fit_result)
         assert exc_info.value.code == ErrorCode.MODEL_NOT_FIT
+
+
+# ---------------------------------------------------------------------------
+# importance from dict
+# ---------------------------------------------------------------------------
+
+
+class TestImportanceFromDict:
+    def test_returns_figure(self) -> None:
+        imp = {"feat_a": 0.5, "feat_b": 0.3, "feat_c": 0.2}
+        fig = plot_importance_from_dict(imp)
+        assert isinstance(fig, go.Figure)
+
+    def test_top_n(self) -> None:
+        imp = {"feat_a": 0.5, "feat_b": 0.3, "feat_c": 0.2}
+        fig = plot_importance_from_dict(imp, top_n=1)
+        assert isinstance(fig, go.Figure)
+
+    def test_optional_dep_missing(self) -> None:
+        imp = {"feat_a": 0.5}
+        with (
+            patch("lizyml.plots.importance._plotly", None),
+            pytest.raises(LizyMLError) as exc_info,
+        ):
+            plot_importance_from_dict(imp)
+        assert exc_info.value.code == ErrorCode.OPTIONAL_DEP_MISSING
 
 
 # ---------------------------------------------------------------------------
@@ -150,7 +168,6 @@ class TestLearningCurvePlot:
     def test_no_eval_history_raises(self) -> None:
         """Without early stopping, eval_history is empty → raise MODEL_NOT_FIT."""
         fit_result = _fit("regression")
-        # Patch all fold histories to empty
         fit_result.history = [
             {"best_iteration": None, "eval_history": {}} for _ in fit_result.history
         ]
@@ -168,7 +185,7 @@ class TestLearningCurvePlot:
     def test_optional_dep_missing(self) -> None:
         fit_result = _fit("regression")
         with (
-            patch("lizyml.plots.learning_curve._mpl", None),
+            patch("lizyml.plots.learning_curve._plotly", None),
             pytest.raises(LizyMLError) as exc_info,
         ):
             plot_learning_curve(fit_result)
@@ -176,10 +193,7 @@ class TestLearningCurvePlot:
 
     def test_with_eval_history(self) -> None:
         """Inject synthetic eval history and verify figure is produced."""
-        import matplotlib.figure
-
         fit_result = _fit("regression")
-        # Inject synthetic eval history into each fold
         fit_result.history = [
             {
                 "best_iteration": 10,
@@ -188,7 +202,7 @@ class TestLearningCurvePlot:
             for _ in fit_result.history
         ]
         fig = plot_learning_curve(fit_result)
-        assert isinstance(fig, matplotlib.figure.Figure)
+        assert isinstance(fig, go.Figure)
 
 
 # ---------------------------------------------------------------------------
@@ -198,39 +212,31 @@ class TestLearningCurvePlot:
 
 class TestOofDistributionPlot:
     def test_regression(self) -> None:
-        import matplotlib.figure
-
         fit_result = _fit("regression")
         fig = plot_oof_distribution(fit_result)
-        assert isinstance(fig, matplotlib.figure.Figure)
+        assert isinstance(fig, go.Figure)
 
     def test_binary(self) -> None:
-        import matplotlib.figure
-
         fit_result = _fit("binary")
         fig = plot_oof_distribution(fit_result)
-        assert isinstance(fig, matplotlib.figure.Figure)
+        assert isinstance(fig, go.Figure)
 
     def test_multiclass(self) -> None:
-        import matplotlib.figure
-
         fit_result = _fit("multiclass")
         fig = plot_oof_distribution(fit_result)
-        assert isinstance(fig, matplotlib.figure.Figure)
+        assert isinstance(fig, go.Figure)
 
     def test_via_model(self) -> None:
-        import matplotlib.figure
-
         df = _reg_df()
         m = Model(_base_cfg("regression"))
         m.fit(data=df)
         fig = m.plot_oof_distribution()
-        assert isinstance(fig, matplotlib.figure.Figure)
+        assert isinstance(fig, go.Figure)
 
     def test_optional_dep_missing(self) -> None:
         fit_result = _fit("regression")
         with (
-            patch("lizyml.plots.oof_distribution._mpl", None),
+            patch("lizyml.plots.oof_distribution._plotly", None),
             pytest.raises(LizyMLError) as exc_info,
         ):
             plot_oof_distribution(fit_result)
@@ -238,7 +244,7 @@ class TestOofDistributionPlot:
 
 
 # ---------------------------------------------------------------------------
-# Model.plot_learning_curve() via method
+# Model.plot_*() before fit
 # ---------------------------------------------------------------------------
 
 
