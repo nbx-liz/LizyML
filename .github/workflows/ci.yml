@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  quality:
+    name: Quality (${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync --frozen --dev
+
+      - name: Lint (ruff check)
+        run: uv run ruff check .
+
+      - name: Format check (ruff format)
+        run: uv run ruff format --check .
+
+      - name: Type check (mypy)
+        run: uv run mypy lizyml/
+
+      - name: Test (pytest)
+        run: uv run pytest tests/ --cov=lizyml --cov-report=term-missing -q
+
+  quality-lowest-deps:
+    name: Quality (lowest-direct deps)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install lowest direct dependencies
+        run: uv sync --frozen --dev --resolution lowest-direct
+
+      - name: Test (pytest)
+        run: uv run pytest tests/ -q
+
+  distribution:
+    name: Distribution check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build tools
+        run: uv sync --frozen --dev
+
+      - name: Build sdist and wheel
+        run: uv build
+
+      - name: Check distribution
+        run: uv run twine check dist/*
+
+      - name: Smoke test installation from wheel
+        run: |
+          pip install dist/*.whl --quiet
+          python -c "from lizyml import Model; print('import ok:', Model)"
