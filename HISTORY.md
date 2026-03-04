@@ -353,3 +353,90 @@ class RunMeta:
 - `FitResult` / `PredictionResult` のフィールド名・型が定義通りであることをゴールデンテストで固定する。
 - `metrics` の階層 `raw/oof`, `raw/if_mean`, `raw/if_per_fold` が必ず存在することを検証する。
 - スキーマ変更時にゴールデンテストが意図的に落ちることを確認する（テスト自体の有効性の検証）。
+
+---
+
+## 2026-03-04: Persistence / Export フォーマット仕様の確定
+
+- ID: `H-0003`
+- Status: `proposed`
+- Scope: `Artifacts | Export`
+- Related: `BLUEPRINT.md §14, §15.4`
+
+### Context
+
+Phase 14 で `Model.export()` / `Model.load()` を実装する前に、保存フォーマット・`format_version` の意味・将来の破壊的変更に対する migration 方針を仕様として固定する。未確定のまま実装すると、フォーマット変更のたびに無方針の破壊的変更が発生する。
+
+### Proposal
+
+#### ディレクトリ構造
+
+```
+{path}/
+  metadata.json          # format_version, lizyml_version, timestamp, config, metrics, run_id
+  fit_result.pkl         # FitResult dataclass (joblib 圧縮)
+  refit_model.pkl        # RefitResult dataclass (joblib 圧縮)
+```
+
+#### metadata.json スキーマ（v1）
+
+```json
+{
+  "format_version": 1,
+  "lizyml_version": "0.1.0",
+  "python_version": "3.11.x",
+  "timestamp": "2026-03-04T12:00:00",
+  "run_id": "uuid4",
+  "config": { ... },
+  "metrics": { ... },
+  "feature_names": ["feat_a", "feat_b"],
+  "task": "regression"
+}
+```
+
+#### format_version の取り扱い
+
+- `format_version = 1` を初版とする。
+- フィールドの追加はマイナー変更（後方互換）とし、format_version を上げない。
+- フィールドの削除・型変更・意味変更は破壊的変更とし、format_version を上げる。
+- ロード時に `format_version` が未知の場合は `DESERIALIZATION_FAILED` を返す。
+
+#### セキュリティ方針
+
+- `.pkl` ファイルは joblib で保存・復元。
+- `Model.load()` のドキュメントに「信頼できる出所からのみロードすること」を明記する。
+- `metadata.json` のバリデーション（format_version / task / feature_names）をロード時に必ず実行する。
+
+### Impact
+
+- `lizyml/persistence/exporter.py`: `export(model, path)` の新規実装。
+- `lizyml/persistence/loader.py`: `load(path) -> Model` の新規実装。
+- `lizyml/core/model.py`: `export()` / `load()` の NotImplementedError を実装に置き換え。
+- `tests/test_persistence/test_persistence.py`: export → load → predict E2E テスト。
+
+### Compatibility
+
+- 新規実装につき既存コードへの破壊的影響なし。
+- 将来 format_version を上げる場合は本 HISTORY.md に migration エントリを追記する。
+
+### Alternatives Considered
+
+- 単一 `.pkl` に全情報を保存 → metadata.json を分離しておくことで version 確認・human-readable なメタ参照が可能になるため分離を採用。
+- ONNX や PMML 形式 → LizyML 固有の FitResult / Artifacts の完全な復元には向かないため却下（将来の軽量 export フォーマットとして追加検討）。
+
+### Acceptance Criteria
+
+- `model.export(path)` でディレクトリが生成され、`metadata.json` / `fit_result.pkl` / `refit_model.pkl` が存在する。
+- `Model.load(path)` でロードし、`predict()` が元モデルと同じ結果を返す。
+- `format_version` が未知の場合に `DESERIALIZATION_FAILED` が返る。
+- `metadata.json` に必須フィールド不足の場合に `DESERIALIZATION_FAILED` が返る。
+
+### Decision
+
+- Date: `2026-03-04`
+- Result: `accepted`
+- Notes: Phase 14 の実装前提として受け入れ。`format_version=1` を初版とする。
+
+### Migration
+
+- `format_version=1` から `format_version=2` への移行が必要になった場合、`lizyml/persistence/migrations/v1_to_v2.py` を追加し、ロード時に自動マイグレーションを試みる（または明示的エラーで移行を促す）。
