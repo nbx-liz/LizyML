@@ -719,6 +719,7 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "shap" },
     { name = "twine" },
     { name = "types-pyyaml" },
 ]
@@ -747,6 +748,7 @@ dev = [
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-cov", specifier = ">=5.0" },
     { name = "ruff", specifier = ">=0.8" },
+    { name = "shap", specifier = ">=0.44" },
     { name = "twine", specifier = ">=6.0" },
     { name = "types-pyyaml", specifier = ">=6.0" },
 ]

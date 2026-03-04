@@ -283,7 +283,10 @@ class Model:
 
         Args:
             X: Feature DataFrame with the same columns as training data.
-            return_shap: Not yet implemented (Phase 15).
+            return_shap: When ``True``, compute SHAP values and populate
+                ``PredictionResult.shap_values`` with shape
+                ``(n_samples, n_features)``.  Requires ``shap`` to be
+                installed (``pip install 'lizyml[explain]'``).
 
         Returns:
             :class:`~lizyml.core.types.predict_result.PredictionResult`.
@@ -291,6 +294,9 @@ class Model:
         Raises:
             :class:`~lizyml.core.exceptions.LizyMLError` with
             ``MODEL_NOT_FIT`` when called before ``fit``.
+            :class:`~lizyml.core.exceptions.LizyMLError` with
+            ``OPTIONAL_DEP_MISSING`` when ``return_shap=True`` and shap
+            is not installed.
         """
         self._require_fit()
         refit = self._require_refit()
@@ -325,10 +331,16 @@ class Model:
             proba = model.predict_proba(X_t)
             pred = proba.argmax(axis=1)
 
+        shap_values: np.ndarray | None = None
+        if return_shap:
+            from lizyml.explain.shap_explainer import compute_shap_values
+
+            shap_values = compute_shap_values(refit.model, X_t, task)
+
         return PredictionResult(
             pred=pred,
             proba=proba,
-            shap_values=None,
+            shap_values=shap_values,
             used_features=refit.feature_names,
             warnings=warnings,
         )
