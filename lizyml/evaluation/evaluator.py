@@ -116,9 +116,15 @@ class Evaluator:
             }
         }
 
-        # --- Calibrated metrics (Phase 13) -----------------------------------
+        # --- Calibrated metrics -------------------------------------------
         if fit_result.calibrator is not None:
-            # Placeholder: calibrated evaluation implemented in Phase 13.
-            result["calibrated"] = {}
+            from lizyml.calibration.cross_fit import CalibrationResult
+
+            if isinstance(fit_result.calibrator, CalibrationResult):
+                cal_oof = fit_result.calibrator.calibrated_oof
+                cal_oof_scores = _compute_metrics(metrics, y_arr, cal_oof, self.task)
+                result["calibrated"] = {
+                    "oof": cal_oof_scores,
+                }
 
         return result

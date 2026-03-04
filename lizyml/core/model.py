@@ -191,6 +191,30 @@ class Model:
             X, y, groups, data_fingerprint=fingerprint, run_meta=run_meta
         )
 
+        # --- Calibration (binary only) ---------------------------------------
+        if cfg.calibration is not None:
+            if cfg.task != "binary":
+                raise LizyMLError(
+                    code=ErrorCode.CALIBRATION_NOT_SUPPORTED,
+                    user_message=(
+                        f"Calibration is only supported for binary classification. "
+                        f"Got task='{cfg.task}'."
+                    ),
+                    context={"task": cfg.task},
+                )
+            from lizyml.calibration.cross_fit import cross_fit_calibrate
+            from lizyml.calibration.registry import get_calibrator
+
+            method = cfg.calibration.method
+            calibration_result = cross_fit_calibrate(
+                oof_scores=fit_result.oof_pred,
+                y=y.to_numpy(),
+                calibrator_factory=lambda: get_calibrator(method),
+                n_splits=cfg.calibration.n_splits,
+                random_state=cfg.training.seed,
+            )
+            fit_result.calibrator = calibration_result
+
         # --- Evaluation -------------------------------------------------------
         metric_names = cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task]
         evaluator = Evaluator(task=cfg.task)
@@ -283,11 +307,19 @@ class Model:
         pred: np.ndarray
         proba: np.ndarray | None = None
 
+        fit = self._fit_result  # non-None guaranteed by _require_fit()
+
         if task == "regression":
             pred = model.predict(X_t)
         elif task == "binary":
             proba_2d = model.predict_proba(X_t)
             proba = proba_2d[:, 1]
+            # Apply C_final calibrator when available
+            if fit is not None and fit.calibrator is not None:
+                from lizyml.calibration.cross_fit import CalibrationResult
+
+                if isinstance(fit.calibrator, CalibrationResult):
+                    proba = fit.calibrator.c_final.predict(proba)
             pred = (proba >= 0.5).astype(int)
         else:  # multiclass
             proba = model.predict_proba(X_t)

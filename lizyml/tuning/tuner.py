@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 
 _optuna: Any = None
 try:
-    import optuna  # type: ignore[import-not-found]
+    import optuna
 
     _optuna = optuna
     _optuna.logging.set_verbosity(_optuna.logging.WARNING)
