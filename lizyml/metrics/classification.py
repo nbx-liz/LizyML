@@ -118,7 +118,8 @@ class F1(BaseMetric):
         _require_1d_same_len(y_true, y_pred, self.name)
         # Binarise if probabilities are provided
         pred = (y_pred >= 0.5).astype(int) if y_pred.dtype.kind == "f" else y_pred
-        return float(f1_score(y_true, pred, zero_division=0))
+        average = "binary" if len(np.unique(y_true)) == 2 else "macro"
+        return float(f1_score(y_true, pred, zero_division=0, average=average))
 
 
 @MetricRegistry.register("accuracy")
