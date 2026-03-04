@@ -1,0 +1,48 @@
+"""BaseMetric — abstract interface for all LizyML metrics."""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+
+import numpy as np
+
+
+class BaseMetric(ABC):
+    """Abstract base class for all metrics.
+
+    Subclasses must declare:
+    - ``name``: unique string identifier
+    - ``needs_proba``: whether predicted probabilities are required
+    - ``greater_is_better``: whether higher values indicate better performance
+    - ``__call__``: compute metric from arrays
+
+    The call signature always accepts positional ``y_true`` and ``y_pred``
+    and returns a single ``float``.
+    """
+
+    @property
+    @abstractmethod
+    def name(self) -> str:
+        """Unique metric identifier (e.g. ``"rmse"``)."""
+
+    @property
+    @abstractmethod
+    def needs_proba(self) -> bool:
+        """True when *y_pred* must be class probabilities, not hard labels."""
+
+    @property
+    @abstractmethod
+    def greater_is_better(self) -> bool:
+        """True when a higher score means a better model."""
+
+    @abstractmethod
+    def __call__(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
+        """Compute metric value.
+
+        Args:
+            y_true: Ground-truth targets, shape ``(n,)``.
+            y_pred: Predictions or probabilities, shape ``(n,)`` or ``(n, k)``.
+
+        Returns:
+            Scalar metric value.
+        """
