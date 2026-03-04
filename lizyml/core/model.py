@@ -260,21 +260,18 @@ class Model:
         """
         self._require_fit()
 
-        if metrics is None and self._metrics is not None:
+        if metrics is None:
+            assert self._metrics is not None  # noqa: S101 — set by fit()
             return self._metrics
 
-        # Recompute with specified metrics
-        from lizyml.data.dataframe_builder import DataFrameComponents  # noqa: F401
+        # Validate task compatibility first (raises UNSUPPORTED_METRIC if invalid)
+        from lizyml.metrics.registry import get_metrics_for_task
 
-        raise LizyMLError(
-            ErrorCode.MODEL_NOT_FIT,
-            user_message=(
-                "evaluate() with custom metrics requires access to the training "
-                "labels. Call fit(data=df) first and pass the same data here, "
-                "or use the pre-computed metrics from fit() without arguments."
-            ),
-            context={},
-        )
+        get_metrics_for_task(metrics, self._cfg.task)  # raises on unknown/incompatible
+
+        # Filter the pre-computed metrics dict to the requested subset
+        assert self._metrics is not None  # noqa: S101
+        return _filter_metrics(self._metrics, set(metrics))
 
     def predict(
         self,
@@ -680,3 +677,32 @@ def _get_lgbm_params(cfg: LizyMLConfig) -> dict[str, Any]:
     if isinstance(model_cfg, LGBMConfig):
         return dict(model_cfg.params)
     return {}
+
+
+def _filter_metrics(
+    metrics_dict: dict[str, Any], keep: set[str]
+) -> dict[str, Any]:
+    """Return a copy of *metrics_dict* with only *keep* metric names retained.
+
+    Works recursively on the nested ``{"raw": {"oof": {...}, ...}, "calibrated": {...}}``
+    structure produced by :class:`~lizyml.evaluation.evaluator.Evaluator`.
+    """
+    result: dict[str, Any] = {}
+    for top_key, top_val in metrics_dict.items():
+        if not isinstance(top_val, dict):
+            result[top_key] = top_val
+            continue
+        filtered_top: dict[str, Any] = {}
+        for sub_key, sub_val in top_val.items():
+            if sub_key == "if_per_fold":
+                # List of per-fold dicts
+                filtered_top[sub_key] = [
+                    {m: v for m, v in fold.items() if m in keep}
+                    for fold in sub_val
+                ]
+            elif isinstance(sub_val, dict):
+                filtered_top[sub_key] = {m: v for m, v in sub_val.items() if m in keep}
+            else:
+                filtered_top[sub_key] = sub_val
+        result[top_key] = filtered_top
+    return result

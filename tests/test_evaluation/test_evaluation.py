@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from lizyml import Model
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.artifacts import RunMeta
 from lizyml.data.fingerprint import compute as fp_compute
@@ -230,3 +231,97 @@ class TestThresholding:
         # With such clear separation, threshold should be in the middle
         assert 0.2 <= threshold <= 0.8
         assert score == pytest.approx(1.0)
+
+
+# ---------------------------------------------------------------------------
+# T-4: Model.evaluate() contract via Facade
+# ---------------------------------------------------------------------------
+
+
+def _reg_config_small() -> dict:
+    return {
+        "config_version": 1,
+        "task": "regression",
+        "data": {"target": "target"},
+        "split": {"method": "kfold", "n_splits": 3, "random_state": 42},
+        "model": {"name": "lgbm", "params": {"n_estimators": 10}},
+        "training": {"seed": 0},
+        "evaluation": {"metrics": ["rmse", "mae"]},
+    }
+
+
+def _bin_config_small() -> dict:
+    return {
+        "config_version": 1,
+        "task": "binary",
+        "data": {"target": "target"},
+        "split": {"method": "kfold", "n_splits": 3, "random_state": 42},
+        "model": {"name": "lgbm", "params": {"n_estimators": 10}},
+        "training": {"seed": 0},
+        "evaluation": {"metrics": ["logloss", "auc"]},
+    }
+
+
+def _reg_df_small(n: int = 150, seed: int = 0) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    df = pd.DataFrame({"feat_a": rng.uniform(0, 10, n), "feat_b": rng.uniform(-1, 1, n)})
+    df["target"] = df["feat_a"] * 2.0 + df["feat_b"]
+    return df
+
+
+def _bin_df_small(n: int = 150, seed: int = 1) -> pd.DataFrame:
+    rng = np.random.default_rng(seed)
+    df = pd.DataFrame({"feat_a": rng.uniform(0, 10, n), "feat_b": rng.uniform(-1, 1, n)})
+    df["target"] = (df["feat_a"] > 5).astype(int)
+    return df
+
+
+class TestModelEvaluateFacade:
+    def test_evaluate_no_args_returns_precomputed(self) -> None:
+        m = Model(_reg_config_small())
+        m.fit(data=_reg_df_small())
+        result = m.evaluate()
+        assert "raw" in result
+        assert "oof" in result["raw"]
+
+    def test_evaluate_with_subset_metrics_filters_output(self) -> None:
+        """evaluate(metrics=["rmse"]) returns only the requested metric."""
+        m = Model(_reg_config_small())
+        m.fit(data=_reg_df_small())
+        result = m.evaluate(metrics=["rmse"])
+        assert set(result["raw"]["oof"].keys()) == {"rmse"}
+        assert set(result["raw"]["if_mean"].keys()) == {"rmse"}
+        for fold in result["raw"]["if_per_fold"]:
+            assert set(fold.keys()) == {"rmse"}
+
+    def test_evaluate_subset_values_match_precomputed(self) -> None:
+        """Filtered values must equal the pre-computed values from fit()."""
+        m = Model(_reg_config_small())
+        m.fit(data=_reg_df_small())
+        full = m.evaluate()
+        filtered = m.evaluate(metrics=["rmse"])
+        assert filtered["raw"]["oof"]["rmse"] == pytest.approx(
+            full["raw"]["oof"]["rmse"]
+        )
+
+    def test_evaluate_incompatible_metric_raises_unsupported(self) -> None:
+        """evaluate() with a task-incompatible metric must raise UNSUPPORTED_METRIC."""
+        m = Model(_bin_config_small())
+        m.fit(data=_bin_df_small())
+        with pytest.raises(LizyMLError) as exc_info:
+            m.evaluate(metrics=["rmse"])  # rmse is not valid for binary
+        assert exc_info.value.code == ErrorCode.UNSUPPORTED_METRIC
+
+    def test_evaluate_incompatible_regression_metric_raises(self) -> None:
+        """evaluate() with auc on regression must raise UNSUPPORTED_METRIC."""
+        m = Model(_reg_config_small())
+        m.fit(data=_reg_df_small())
+        with pytest.raises(LizyMLError) as exc_info:
+            m.evaluate(metrics=["auc"])  # auc is not valid for regression
+        assert exc_info.value.code == ErrorCode.UNSUPPORTED_METRIC
+
+    def test_evaluate_before_fit_raises_model_not_fit(self) -> None:
+        m = Model(_reg_config_small())
+        with pytest.raises(LizyMLError) as exc_info:
+            m.evaluate()
+        assert exc_info.value.code == ErrorCode.MODEL_NOT_FIT
