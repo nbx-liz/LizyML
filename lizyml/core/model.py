@@ -102,6 +102,8 @@ class Model:
         self._refit_result: RefitResult | None = None
         self._metrics: dict[str, Any] | None = None
         self._best_params: dict[str, Any] | None = None
+        self._y: pd.Series | None = None  # transient; not persisted
+        self._X: pd.DataFrame | None = None  # transient; not persisted
 
     # ------------------------------------------------------------------
     # Public API
@@ -148,6 +150,8 @@ class Model:
         # --- Build X, y ------------------------------------------------------
         components = dataframe_builder.build(df, problem_spec, feature_spec)
         X, y = components.X, components.y
+        self._X = X
+        self._y = y
         groups = (
             components.group_col.to_numpy()
             if components.group_col is not None
@@ -274,6 +278,85 @@ class Model:
         assert self._metrics is not None  # noqa: S101
         return _filter_metrics(self._metrics, set(metrics))
 
+    def evaluate_table(self) -> pd.DataFrame:
+        """Return evaluation metrics as a formatted DataFrame.
+
+        Rows are metric names, columns are ``oof``, ``if_mean``,
+        ``fold_0`` … ``fold_N-1``, and ``cal_oof`` when calibrated.
+
+        Returns:
+            :class:`pd.DataFrame` with metric values.
+
+        Raises:
+            :class:`~lizyml.core.exceptions.LizyMLError` with
+            ``MODEL_NOT_FIT`` when called before ``fit``.
+        """
+        self._require_fit()
+        from lizyml.evaluation.table_formatter import format_metrics_table
+
+        assert self._metrics is not None  # noqa: S101 — set by fit()
+        return format_metrics_table(self._metrics)
+
+    def residuals(self) -> npt.NDArray[np.float64]:
+        """Return OOF residuals ``(y_true - oof_pred)``.  Regression only.
+
+        Returns:
+            1-D array of shape ``(n_samples,)``.
+
+        Raises:
+            LizyMLError with ``MODEL_NOT_FIT`` when called before ``fit``
+                or after ``Model.load()`` (target values not available).
+            LizyMLError with ``UNSUPPORTED_TASK`` for non-regression tasks.
+        """
+        fit_result = self._require_fit()
+        if self._cfg.task != "regression":
+            raise LizyMLError(
+                code=ErrorCode.UNSUPPORTED_TASK,
+                user_message=(
+                    "residuals() is only supported for regression tasks. "
+                    f"Got task='{self._cfg.task}'."
+                ),
+                context={"task": self._cfg.task},
+            )
+        if self._y is None:
+            raise LizyMLError(
+                code=ErrorCode.MODEL_NOT_FIT,
+                user_message=(
+                    "Target values not available. "
+                    "residuals() requires a fitted model (not a loaded one)."
+                ),
+                context={},
+            )
+        result: npt.NDArray[np.float64] = np.asarray(self._y) - fit_result.oof_pred
+        return result
+
+    def residuals_plot(self, *, kind: str = "all") -> Any:
+        """Plot residual analysis.  Regression only.
+
+        Args:
+            kind: Which plot to render.
+                ``"scatter"`` — residuals vs predicted (IS + OOS overlay).
+                ``"histogram"`` — residual distribution (IS + OOS overlay).
+                ``"qq"`` — QQ plot of OOS residuals.
+                ``"all"`` — all three panels in one figure (default).
+
+        Returns:
+            A ``plotly.graph_objects.Figure``.
+
+        Raises:
+            LizyMLError with ``MODEL_NOT_FIT`` when called before ``fit``
+                or after ``Model.load()``.
+            LizyMLError with ``UNSUPPORTED_TASK`` for non-regression tasks.
+            LizyMLError with ``OPTIONAL_DEP_MISSING`` when plotly is not installed.
+            LizyMLError with ``CONFIG_INVALID`` for an unknown ``kind`` value.
+        """
+        # Validate state (raises MODEL_NOT_FIT / UNSUPPORTED_TASK as needed)
+        self.residuals()
+        fit_result = self._require_fit()
+        from lizyml.plots.residuals import plot_residuals
+
+        return plot_residuals(fit_result, np.asarray(self._y), kind=kind)
+
     def predict(
         self,
         X: pd.DataFrame,
@@ -352,16 +435,46 @@ class Model:
         """Return averaged feature importance across CV fold models.
 
         Args:
-            kind: ``"split"`` or ``"gain"``.
+            kind: ``"split"``, ``"gain"``, or ``"shap"``.
+                ``"shap"`` computes mean(|SHAP|) per feature across folds.
+                Requires ``shap`` to be installed and training data to be
+                available (not after ``Model.load()``).
 
         Returns:
             Dict mapping feature name → importance score.
 
         Raises:
             :class:`~lizyml.core.exceptions.LizyMLError` with
-            ``MODEL_NOT_FIT`` when called before ``fit``.
+            ``MODEL_NOT_FIT`` when called before ``fit`` or (for ``"shap"``)
+            after ``Model.load()``.
+            :class:`~lizyml.core.exceptions.LizyMLError` with
+            ``OPTIONAL_DEP_MISSING`` when ``kind="shap"`` and shap is
+            not installed.
         """
         fit_result = self._require_fit()
+
+        if kind == "shap":
+            if self._X is None:
+                raise LizyMLError(
+                    code=ErrorCode.MODEL_NOT_FIT,
+                    user_message=(
+                        "Training data not available. "
+                        "importance(kind='shap') requires a fitted model "
+                        "(not a loaded one)."
+                    ),
+                    context={},
+                )
+            from lizyml.explain.shap_explainer import compute_shap_importance
+
+            return compute_shap_importance(
+                models=fit_result.models,
+                X=self._X,
+                splits_outer=fit_result.splits.outer,
+                task=self._cfg.task,
+                feature_names=fit_result.feature_names,
+                pipeline_state=fit_result.pipeline_state,
+            )
+
         models = fit_result.models
         if not models:
             return {}
@@ -474,16 +587,23 @@ class Model:
         """Plot fold-averaged feature importances as a horizontal bar chart.
 
         Args:
-            kind: ``"split"`` or ``"gain"``.
+            kind: ``"split"``, ``"gain"``, or ``"shap"``.
             top_n: Maximum number of features to show.
 
         Returns:
-            A ``matplotlib.figure.Figure`` object.
+            A ``plotly.graph_objects.Figure`` object.
 
         Raises:
             LizyMLError with MODEL_NOT_FIT when called before fit.
-            LizyMLError with OPTIONAL_DEP_MISSING when matplotlib is not installed.
+            LizyMLError with OPTIONAL_DEP_MISSING when plotly (or shap for
+                ``kind="shap"``) is not installed.
         """
+        if kind == "shap":
+            imp = self.importance(kind="shap")
+            from lizyml.plots.importance import plot_importance_from_dict
+
+            return plot_importance_from_dict(imp, top_n=top_n)
+
         fit_result = self._require_fit()
         from lizyml.plots.importance import plot_importance
 
@@ -493,12 +613,12 @@ class Model:
         """Plot per-fold training/validation loss vs iteration.
 
         Returns:
-            A ``matplotlib.figure.Figure`` object.
+            A ``plotly.graph_objects.Figure`` object.
 
         Raises:
             LizyMLError with MODEL_NOT_FIT when called before fit or when
                 no evaluation history is available.
-            LizyMLError with OPTIONAL_DEP_MISSING when matplotlib is not installed.
+            LizyMLError with OPTIONAL_DEP_MISSING when plotly is not installed.
         """
         fit_result = self._require_fit()
         from lizyml.plots.learning_curve import plot_learning_curve
@@ -509,11 +629,11 @@ class Model:
         """Plot the distribution of out-of-fold predictions.
 
         Returns:
-            A ``matplotlib.figure.Figure`` object.
+            A ``plotly.graph_objects.Figure`` object.
 
         Raises:
             LizyMLError with MODEL_NOT_FIT when called before fit.
-            LizyMLError with OPTIONAL_DEP_MISSING when matplotlib is not installed.
+            LizyMLError with OPTIONAL_DEP_MISSING when plotly is not installed.
         """
         fit_result = self._require_fit()
         from lizyml.plots.oof_distribution import plot_oof_distribution

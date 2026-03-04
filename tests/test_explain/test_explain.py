@@ -18,7 +18,9 @@ shap = pytest.importorskip("shap")  # noqa: E402
 
 from lizyml import Model  # noqa: E402
 from lizyml.core.exceptions import ErrorCode, LizyMLError  # noqa: E402
-from lizyml.explain.shap_explainer import compute_shap_values  # noqa: E402
+from lizyml.explain.shap_explainer import (  # noqa: E402
+    compute_shap_values,
+)
 
 # ---------------------------------------------------------------------------
 # Synthetic datasets (reused from e2e tests)
@@ -186,3 +188,68 @@ class TestShapMulticlass:
         result = m.predict(X_new, return_shap=True)
         assert result.shap_values is not None
         assert np.all(np.isfinite(result.shap_values))
+
+
+# ---------------------------------------------------------------------------
+# SHAP importance (H-0007)
+# ---------------------------------------------------------------------------
+
+
+class TestShapImportance:
+    def test_regression_returns_dict(self) -> None:
+        m, _ = _fit_model("regression")
+        imp = m.importance(kind="shap")
+        assert isinstance(imp, dict)
+        assert "feat_a" in imp
+        assert "feat_b" in imp
+        assert all(isinstance(v, float) for v in imp.values())
+        assert all(v >= 0 for v in imp.values())
+
+    def test_binary_returns_dict(self) -> None:
+        m, _ = _fit_model("binary")
+        imp = m.importance(kind="shap")
+        assert isinstance(imp, dict)
+        assert len(imp) == 2
+
+    def test_multiclass_returns_dict(self) -> None:
+        m, _ = _fit_model("multiclass")
+        imp = m.importance(kind="shap")
+        assert isinstance(imp, dict)
+        assert len(imp) == 2
+
+    def test_before_fit_raises(self) -> None:
+        m = Model(_base_cfg("regression"))
+        with pytest.raises(LizyMLError) as exc_info:
+            m.importance(kind="shap")
+        assert exc_info.value.code == ErrorCode.MODEL_NOT_FIT
+
+    def test_after_load_raises(self) -> None:
+        import tempfile
+        from pathlib import Path
+
+        m, _ = _fit_model("regression")
+        with tempfile.TemporaryDirectory() as td:
+            export_dir = Path(td) / "model"
+            m.export(str(export_dir))
+            loaded = Model.load(str(export_dir))
+
+        with pytest.raises(LizyMLError) as exc_info:
+            loaded.importance(kind="shap")
+        assert exc_info.value.code == ErrorCode.MODEL_NOT_FIT
+        assert "not available" in str(exc_info.value)
+
+    def test_optional_dep_missing(self) -> None:
+        m, _ = _fit_model("regression")
+        with (
+            patch("lizyml.explain.shap_explainer._shap", None),
+            pytest.raises(LizyMLError) as exc_info,
+        ):
+            m.importance(kind="shap")
+        assert exc_info.value.code == ErrorCode.OPTIONAL_DEP_MISSING
+
+    def test_importance_plot_shap_returns_figure(self) -> None:
+        import plotly.graph_objects as go
+
+        m, _ = _fit_model("regression")
+        fig = m.importance_plot(kind="shap")
+        assert isinstance(fig, go.Figure)

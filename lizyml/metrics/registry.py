@@ -16,7 +16,7 @@ TaskType = Literal["regression", "binary", "multiclass"]
 
 # Metrics that are valid per task type
 _TASK_METRICS: dict[TaskType, frozenset[str]] = {
-    "regression": frozenset(["rmse", "mae", "r2", "rmsle"]),
+    "regression": frozenset(["rmse", "mae", "r2", "rmsle", "mape", "huber"]),
     "binary": frozenset(["logloss", "auc", "auc_pr", "f1", "accuracy", "brier", "ece"]),
     "multiclass": frozenset(["logloss", "f1", "accuracy"]),
 }

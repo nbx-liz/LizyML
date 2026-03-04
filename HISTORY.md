@@ -162,6 +162,7 @@ class EarlyStoppingConfig(BaseModel):
     enabled: bool = False
     rounds: int = 50
     inner_valid: HoldoutInnerValidConfig | None = None
+    validation_ratio: float | None = None  # inner_valid.ratio のエイリアス (H-0010)
 
 class TrainingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -440,3 +441,423 @@ Phase 14 で `Model.export()` / `Model.load()` を実装する前に、保存フ
 ### Migration
 
 - `format_version=1` から `format_version=2` への移行が必要になった場合、`lizyml/persistence/migrations/v1_to_v2.py` を追加し、ロード時に自動マイグレーションを試みる（または明示的エラーで移行を促す）。
+
+---
+
+## 2026-03-04: 回帰メトリクス MAPE・Huber Loss の追加
+
+- ID: `H-0004`
+- Status: `accepted`
+- Scope: `Metrics`
+- Related: `BLUEPRINT.md §7`
+
+### Context
+
+Tutorial Notebook でよく使われる回帰メトリクス（MAPE・Huber Loss）が未実装のため、チュートリアルでの利用および実務での利用に制限がある。
+
+### Proposal
+
+- `lizyml/metrics/regression.py` に `MAPE`・`HuberLoss` クラスを追加する。
+- `MAPE`: 分母がゼロの場合は `UNSUPPORTED_METRIC` エラーを返す。
+- `HuberLoss`: `delta=1.0` をデフォルトとし、コンストラクタで設定可能にする。Config 文字列では `"huber"` で `delta=1.0` として登録する。
+- `lizyml/metrics/registry.py` の `_TASK_METRICS["regression"]` に `"mape"`, `"huber"` を追加する。
+- 既存メトリクスへの影響なし（追加のみ）。
+
+### Impact
+
+- `lizyml/metrics/regression.py`: MAPE・HuberLoss クラス追加。
+- `lizyml/metrics/__init__.py`: エクスポート追加。
+- `lizyml/metrics/registry.py`: `_TASK_METRICS["regression"]` 更新。
+- `tests/metrics/test_regression_metrics.py`: 新規テストファイル。
+
+### Compatibility
+
+- 既存の `"rmse"`, `"mae"`, `"r2"`, `"rmsle"` への影響なし。
+- `format_version` 変更不要。
+
+### Alternatives Considered
+
+- SMAPE（対称 MAPE）を代わりに実装する → MAPE の方が一般的なため MAPE を優先し、SMAPE は将来の拡張候補とする。
+
+### Acceptance Criteria
+
+- `evaluate(metrics=["mape", "huber"])` が回帰タスクで正常に動作する。
+- MAPE: y_true にゼロが含まれる場合に `LizyMLError(UNSUPPORTED_METRIC)` が返る。
+- HuberLoss: 誤差が delta 以下の場合に二乗損失、超える場合に線形損失となることをテストで確認する。
+
+### Decision
+
+- Date: `2026-03-04`
+- Result: `accepted`
+- Notes: Tutorial Notebook の要件として受け入れ。
+
+---
+
+## 2026-03-04: model.evaluate_table() の追加
+
+- ID: `H-0005`
+- Status: `accepted`
+- Scope: `Evaluation | Public API`
+- Related: `BLUEPRINT.md §4.1, §13.2`
+
+### Context
+
+Notebook で評価結果を確認する際、`evaluate()` が返す nested dict を手作業で DataFrame 化する必要があり、「ユーザーにコードを書かせない」思想に反する。
+
+### Proposal
+
+- `Model.evaluate_table()` を追加し、`evaluate()` の dict を `pd.DataFrame` に整形して返す。
+- 行 = メトリクス名、列 = `oof`, `if_mean`, `fold_0`...`fold_N-1`。calibrated がある場合は `cal_oof` 列を追加。
+- ロジックは `lizyml/evaluation/table_formatter.py` に配置（Model にロジックを置かない原則を遵守）。
+
+### Impact
+
+- `lizyml/evaluation/table_formatter.py`: 新規。
+- `lizyml/core/model.py`: `evaluate_table()` メソッド追加。
+- `tests/test_evaluation/test_table_formatter.py`: 新規テスト。
+
+### Compatibility
+
+- FitResult / PredictionResult / Artifacts / format_version 変更なし。非破壊的追加。
+
+### Alternatives Considered
+
+- `evaluate()` の返り値自体を DataFrame にする → 既存契約の破壊になるため却下。
+
+### Acceptance Criteria
+
+- `model.evaluate_table()` が fit 後に DataFrame を返す。
+- 行 = メトリクス名、列に oof / if_mean / fold 別が含まれる。
+- calibrated 有りの場合 cal_oof 列が追加される。
+- fit 前に呼ぶと MODEL_NOT_FIT。
+
+### Decision
+
+- Date: `2026-03-04`
+- Result: `accepted`
+- Notes: Notebook の UX 改善として受け入れ。
+
+---
+
+## 2026-03-04: model.residuals() / model.residuals_plot() の追加
+
+- ID: `H-0006`
+- Status: `accepted`
+- Scope: `Public API | Plots`
+- Related: `BLUEPRINT.md §4.1, §13.3`
+
+### Context
+
+BLUEPRINT §4.1 で `residuals()` / `residuals_plot()` が計画されていたが未実装。回帰タスクの残差分析はモデル診断の基本であり、Notebook でワンコールで可視化できる必要がある。
+
+### Proposal
+
+- `Model.residuals()`: 回帰タスク専用。`y - oof_pred` を `np.ndarray` で返す。
+- `Model.residuals_plot()`: ヒストグラム + QQ plot の 2 パネルを Plotly で表示。
+- `fit()` 中に `self._y` を一時保持（export/persistence には含めない）。
+- `Model.load()` 後は y が不在のため呼び出し不可（MODEL_NOT_FIT エラー）。
+- binary/multiclass では `UNSUPPORTED_TASK` を返す。
+- プロット実装は `lizyml/plots/residuals.py` に配置。
+
+### Impact
+
+- `lizyml/core/model.py`: `_y` フィールド追加、`residuals()` / `residuals_plot()` メソッド追加。
+- `lizyml/plots/residuals.py`: 新規。
+- `tests/test_plots/test_residuals.py`: 新規テスト。
+
+### Compatibility
+
+- FitResult / format_version 変更なし。`_y` は Model の一時状態であり Artifacts に含めない。
+
+### Alternatives Considered
+
+- FitResult に y_true を保存する → Artifacts 契約の変更になるため却下。y はユーザーデータであり、モデル成果物ではない。
+- load 後も利用可能にするため y を export に含める → データ漏洩リスクがあるため却下。
+
+### Acceptance Criteria
+
+- `model.residuals()` が回帰タスクで `(n_samples,)` の ndarray を返す。
+- `model.residuals_plot()` が Plotly Figure を返す（ヒストグラム + QQ plot）。
+- binary/multiclass で UNSUPPORTED_TASK。
+- load 後に呼ぶと MODEL_NOT_FIT。
+
+### Decision
+
+- Date: `2026-03-04`
+- Result: `accepted`
+- Notes: 回帰タスクの基本診断機能として受け入れ。
+
+---
+
+## 2026-03-04: model.importance(kind="shap") / model.importance_plot(kind="shap") の追加
+
+- ID: `H-0007`
+- Status: `accepted`
+- Scope: `Public API | Explain`
+- Related: `BLUEPRINT.md §4.1, §14.1`
+
+### Context
+
+BLUEPRINT §4.1 で `importance(kind="shap")` が計画されていたが未実装。SHAP ベースの特徴量重要度は split/gain よりモデル非依存な指標であり、Notebook でワンコールで可視化できる必要がある。
+
+### Proposal
+
+- `Model.importance(kind="shap")`: fold ごとの validation データで SHAP を計算し、mean(|SHAP|) を fold 平均して `dict[str, float]` で返す。
+- `Model.importance_plot(kind="shap")`: 上記 dict を Plotly 横棒グラフで表示。
+- `fit()` 中に `self._X` を一時保持（export/persistence には含めない）。
+- `Model.load()` 後は X が不在のため呼び出し不可（MODEL_NOT_FIT エラー）。
+- `compute_shap_importance()` を `lizyml/explain/shap_explainer.py` に追加。
+- `plot_importance_from_dict()` を `lizyml/plots/importance.py` に追加。
+- shap は optional dependency（既存パターン踏襲）。
+
+### Impact
+
+- `lizyml/core/model.py`: `_X` フィールド追加、`importance()` / `importance_plot()` の kind="shap" 対応。
+- `lizyml/explain/shap_explainer.py`: `compute_shap_importance()` 追加。
+- `lizyml/plots/importance.py`: `plot_importance_from_dict()` 追加。
+- `tests/test_explain/`: SHAP importance テスト追加。
+
+### Compatibility
+
+- FitResult / format_version 変更なし。`_X` は Model の一時状態。
+
+### Alternatives Considered
+
+- refit モデル + 全データで SHAP を計算 → CV の fold 構造を無視するため却下。fold 別 validation データで計算する方が CV philosophy に整合する。
+
+### Acceptance Criteria
+
+- `model.importance(kind="shap")` が `dict[str, float]` を返し、全 feature を含む。
+- `model.importance_plot(kind="shap")` が Plotly Figure を返す。
+- load 後に呼ぶと MODEL_NOT_FIT。
+- shap 未インストール時に OPTIONAL_DEP_MISSING。
+
+### Decision
+
+- Date: `2026-03-04`
+- Result: `accepted`
+- Notes: SHAP 重要度の可視化機能として受け入れ。
+
+---
+
+## 2026-03-04: 全プロットの Plotly 移行
+
+- ID: `H-0008`
+- Status: `accepted`
+- Scope: `Plots | Optional Dependency`
+- Related: `BLUEPRINT.md §13.3`
+
+### Context
+
+matplotlib ベースのプロットは静的で Notebook 上での視認性・操作性に劣る。Plotly に移行することでインタラクティブなプロットを提供し、UX を向上させる。
+
+### Proposal
+
+- `pyproject.toml` の optional dependency `plots` グループを `matplotlib>=3.7` → `plotly>=5.0` に変更。
+- `dependency-groups` (dev) も同様に変更。
+- 既存 3 ファイル（`importance.py`, `learning_curve.py`, `oof_distribution.py`）を Plotly に書き換え。
+- 新規ファイル（`residuals.py`）は最初から Plotly で実装。
+- optional dep sentinel を `_mpl` → `_plotly` に変更。
+- 返り値型を `matplotlib.figure.Figure` → `plotly.graph_objects.Figure` に変更。
+
+### Impact
+
+- `pyproject.toml`: optional dependency 変更。
+- `lizyml/plots/importance.py`: Plotly 移行。
+- `lizyml/plots/learning_curve.py`: Plotly 移行。
+- `lizyml/plots/oof_distribution.py`: Plotly 移行。
+- `tests/test_plots/test_plots.py`: Plotly Figure アサーションに更新。
+- mypy overrides: `matplotlib.*` → `plotly.*`。
+
+### Compatibility
+
+- plot メソッドの返り値型が変わる破壊的変更。ただし plots は optional 機能であり、0.x バージョンのため許容する。
+
+### Alternatives Considered
+
+- デュアルサポート（matplotlib + plotly 両対応）→ 保守コストが倍増するため却下。
+- 新機能のみ Plotly → ライブラリ内で可視化の一貫性が失われるため却下。
+
+### Acceptance Criteria
+
+- 全プロットメソッドが Plotly Figure を返す。
+- plotly 未インストール時に OPTIONAL_DEP_MISSING。
+- 既存テストが Plotly Figure アサーションで通過。
+
+### Decision
+
+- Date: `2026-03-04`
+- Result: `accepted`
+- Notes: UX 向上のため全面移行を受け入れ。
+
+---
+
+## 2026-03-04: residuals_plot() の拡張（散布図追加・kind 引数・IS/OOS 比較）
+
+- ID: `H-0009`
+- Status: `proposed`
+- Scope: `Public API | Plots`
+- Related: `BLUEPRINT.md §4.1, §13.3`
+
+### Context
+
+H-0006 で `residuals_plot()` を実装したが、以下の不足がある。
+
+1. Actual vs Predicted 散布図が未実装。
+2. 常に 2 パネル（histogram + QQ）が表示され、個別選択できない。
+3. In-Sample（IF）と Out-of-Sample（OOF）の傾向比較ができない。
+
+### Proposal
+
+- `residuals_plot(kind=...)` に `kind` 引数を追加する。
+  - `"scatter"`: Actual vs Predicted 散布図（x=predicted, y=actual）。IS と OOS を色分けオーバーレイ。y=x の完全予測参照線。
+  - `"histogram"`: 残差ヒストグラム。IS と OOS を色分けオーバーレイ。mean/std アノテーション（OOS のみ）。
+  - `"qq"`: QQ plot（OOS 残差のみ）。45 度参照線。
+  - `"all"`: 上記 3 つを横並びサブプロットで表示（デフォルト）。
+- 内部関数 `plot_residuals()` のシグネチャを変更し、`FitResult` + `y_true` を受け取る形式に統一する（他の plot 関数と同じパターン）。
+- IS データは `fit_result.if_pred_per_fold[i]` + `fit_result.splits.outer[i][0]`（train_idx）から組み立てる。
+- `kind` の値が不正な場合は `LizyMLError(INVALID_CONFIG)` を返す。
+
+### Impact
+
+- `lizyml/plots/residuals.py`: シグネチャ変更 + 3 プロット実装。
+- `lizyml/core/model.py`: `residuals_plot(kind=...)` 引数追加。
+- `tests/test_plots/test_residuals.py`: 新シグネチャ対応 + kind 別テスト追加。
+
+### Compatibility
+
+- `Model.residuals_plot()` のデフォルト `kind="all"` により、引数なし呼び出しは引き続き動作する。ただしパネル構成が 2 パネル（histogram + QQ）→ 3 パネル（scatter + histogram + QQ）に変わる。
+- 内部関数 `plot_residuals()` のシグネチャは破壊的変更だが、内部 API のため影響は限定的。
+
+### Alternatives Considered
+
+- `residuals_plot()` とは別に `residuals_scatter()` を追加する → API が増えすぎるため却下。`importance_plot(kind=...)` と同じパターンに統一する。
+- IS/OOS 比較を別メソッドにする → 同一グラフ上でのオーバーレイが最も直感的なため、`kind` で制御する方式を採用。
+
+### Acceptance Criteria
+
+- `model.residuals_plot(kind="scatter")` が Actual vs Predicted の Plotly Figure を返し、IS/OOS 両方のトレースと y=x 参照線を含む。
+- `model.residuals_plot(kind="histogram")` が IS/OOS オーバーレイのヒストグラムを返す。
+- `model.residuals_plot(kind="qq")` が QQ plot を返す。
+- `model.residuals_plot(kind="all")` が 3 サブプロットの Figure を返す。
+- `model.residuals_plot()` がデフォルトで `kind="all"` として動作する。
+- 不正な kind 値で `INVALID_CONFIG` エラーが返る。
+
+---
+
+## 2026-03-04: EarlyStoppingConfig に validation_ratio エイリアス追加
+
+- ID: `H-0010`
+- Status: `proposed`
+- Scope: `Config`
+- Related: `BLUEPRINT.md §5.2, HISTORY.md H-0001`
+
+### Context
+
+現在の early stopping 設定は `early_stopping.inner_valid.ratio` で指定するが、ネストが深く冗長。`validation_ratio` エイリアスを追加して簡略化する。
+
+### Proposal
+
+- `EarlyStoppingConfig` に `validation_ratio: float | None = None` フィールドを追加する。
+- `validation_ratio` 指定時、内部で `HoldoutInnerValidConfig(method="holdout", ratio=validation_ratio)` を自動生成する。
+- `inner_valid` と `validation_ratio` の両方を指定した場合はバリデーションエラー。
+- 既存の `inner_valid` 指定は引き続き動作する（後方互換）。
+
+Config 例（新しい簡略記法）:
+```python
+"early_stopping": {"enabled": True, "rounds": 50, "validation_ratio": 0.1}
+```
+
+### Impact
+
+- `lizyml/config/schema.py`: `EarlyStoppingConfig` に `validation_ratio` フィールド + `model_validator` 追加。
+- テスト: validation_ratio ショートハンド・競合エラー・後方互換のテスト追加。
+
+### Compatibility
+
+- 非破壊的追加。既存の `inner_valid` 指定は変更なく動作する。
+
+### Alternatives Considered
+
+- `inner_valid` を廃止して `validation_ratio` に完全置換 → 将来 `InnerKFoldValid` 等の拡張余地がなくなるため却下。エイリアスとして共存させる。
+
+### Acceptance Criteria
+
+- `validation_ratio=0.2` 指定で `inner_valid.ratio == 0.2` になる。
+- `inner_valid` と `validation_ratio` の両方指定でバリデーションエラー。
+- 既存の `inner_valid` 形式が引き続き動作する。
+
+---
+
+## 2026-03-04: evaluate_table() の列順変更
+
+- ID: `H-0011`
+- Status: `proposed`
+- Scope: `Evaluation | Public API`
+- Related: `BLUEPRINT.md §13.2, HISTORY.md H-0005`
+
+### Context
+
+現在の `evaluate_table()` の列順は `oof, if_mean, fold_0...fold_N-1, cal_oof` だが、実務では IF（学習時の性能）を先に確認し、次に OOF（汎化性能）を比較するフローが自然。列順を `if_mean, oof, fold_0...fold_N-1, cal_oof` に変更する。
+
+### Proposal
+
+- `lizyml/evaluation/table_formatter.py` の `format_metrics_table()` で列の挿入順を `if_mean` → `oof` → `fold_0...fold_N-1` → `cal_oof` に変更する。
+
+### Impact
+
+- `lizyml/evaluation/table_formatter.py`: 列構築順の変更。
+- `tests/test_evaluation/test_table_formatter.py`: 列順アサーションの更新。
+- `BLUEPRINT.md §13.2`: 仕様記載の列順更新。
+
+### Compatibility
+
+- `evaluate_table()` の返り値は `pd.DataFrame` であり、列名でアクセスする限り影響なし。列の「位置」に依存するコードのみ影響する（通常ない）。
+
+### Alternatives Considered
+
+- 列順をユーザーが Config で指定できるようにする → 過剰な柔軟性のため却下。固定列順で十分。
+
+### Acceptance Criteria
+
+- `evaluate_table()` の列順が `if_mean, oof, fold_0...fold_N-1, cal_oof` になる。
+- 既存テストが新しい列順で通過する。
+
+---
+
+## 2026-03-04: residuals_plot() の IS/OOS サンプル数バランシング
+
+- ID: `H-0012`
+- Status: `proposed`
+- Scope: `Plots`
+- Related: `BLUEPRINT.md §13.3, HISTORY.md H-0009`
+
+### Context
+
+K-fold CV（例: 5-fold）では IS サンプル数が OOS の約 4 倍になる。`residuals_plot(kind="scatter")` や `kind="histogram"` で IS/OOS を重ね描きすると、IS の点がOOS を覆い隠してグラフが見にくくなる。
+
+### Proposal
+
+- `lizyml/plots/residuals.py` 内部の IS データ描画時に、IS サンプル数が OOS サンプル数を超える場合、ランダムサンプリングで OOS と同数に間引く。
+- サンプリングは `np.random.default_rng(seed=0)` で再現可能にする。
+- バランシングは scatter と histogram の両方に適用する（QQ は OOS のみなので対象外）。
+- 実装は `_build_is_data()` ヘルパーの後段、描画直前で行う（`_downsample_is()` ヘルパーを新設）。
+
+### Impact
+
+- `lizyml/plots/residuals.py`: `_downsample_is()` ヘルパー追加。`_add_scatter_traces()` / `_add_histogram_traces()` 呼び出し前に適用。
+
+### Compatibility
+
+- 既存テストの IS/OOS トレース存在チェックは変更不要（ダウンサンプリング後も IS トレースは描画される）。
+
+### Alternatives Considered
+
+- ユーザーに `max_is_samples` パラメータを公開する → 過剰な柔軟性のため却下。内部で OOS 数に合わせる方式で十分。
+- opacity のみで対応する → サンプル数が大きく異なる場合は opacity だけでは不十分。
+
+### Acceptance Criteria
+
+- IS サンプル数 > OOS サンプル数の場合、IS が OOS と同数にダウンサンプリングされる。
+- IS サンプル数 <= OOS サンプル数の場合、ダウンサンプリングは行われない。
+- ダウンサンプリングは seed=0 で再現可能。

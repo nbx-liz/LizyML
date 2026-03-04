@@ -93,11 +93,13 @@ model.export("path/to/export_dir")
 補足:
 - `fit()` の default は、最も評価が良かったパラメーターで学習する。
 - 必要に応じて、最終学習に使うパラメーターを明示指定できるようにする。
-- 学習後は、以下の補助 API を提供できるようにする。
-  - `model.importance()`（`split / gain / shap` による特徴量重要度）
-  - `model.importance_plot()`（特徴量重要度の可視化）
-  - `model.residuals()`（残差の返却）
-  - `model.residuals_plot()`（残差分布の可視化）
+- 学習後は、以下の補助 API を提供する。
+  - `model.importance(kind="split|gain|shap")`（特徴量重要度。`shap` は optional dependency）
+  - `model.importance_plot(kind="split|gain|shap", top_n=20)`（特徴量重要度の可視化、Plotly）
+  - `model.residuals()`（回帰専用。OOF 残差 `y - oof_pred` を `np.ndarray` で返す）
+  - `model.residuals_plot(kind="scatter|histogram|qq|all")`（回帰専用。残差可視化、Plotly。IS/OOS 比較対応。デフォルト `kind="all"` で scatter + histogram + QQ の 3 パネル。scatter は Actual vs Predicted（x=predicted, y=actual）。IS サンプルは OOS 数に合わせてダウンサンプリング）
+  - `model.evaluate_table()`（評価結果を `pd.DataFrame` で返す）
+- `residuals()` / `residuals_plot()` / `importance(kind="shap")` は `fit()` 後のみ利用可能。`Model.load()` 後は学習データ（y / X）が不在のため呼び出し不可。
 
 ## 4.2 `Model.load()`（Artifact 読込）
 
@@ -144,11 +146,7 @@ config = {
     "training": {
         "early_stopping": {
             "enabled": True,
-            "inner_valid": {
-                "method": "holdout",
-                "ratio": 0.1,
-                "random_state": 1120,
-            },
+            "validation_ratio": 0.1,  # inner_valid.ratio のエイリアス
         }
     },
     "tuning": {
@@ -393,9 +391,22 @@ config = {
 
 - IF / OOF と fold 別を必ず返す。
 - 校正前後も同一フォーマットで返す（binary）。
+- `evaluate_table()` は `evaluate()` が返す固定構造 dict を `pd.DataFrame` に変換する純粋フォーマッタ。ロジックは `evaluation/table_formatter.py` に配置する。
+  - 行 = メトリクス名、列 = `if_mean`, `oof`, `fold_0`...`fold_N-1`。
+  - calibrated がある場合は `cal_oof` 列を追加。
 
-## 13.3 追加で用意したい可視化（不足しがち）
+## 13.3 可視化
 
+全プロットを Plotly ベースに統一する。Plotly は optional dependency（`pip install 'lizyml[plots]'`）。未インストール時は `OPTIONAL_DEP_MISSING` を返す。
+
+実装済み:
+- `importance_plot(kind="split|gain")`: fold 平均の特徴量重要度（横棒グラフ）
+- `importance_plot(kind="shap")`: fold 平均の mean(|SHAP|)（横棒グラフ）。shap optional dependency も必要。
+- `plot_learning_curve()`: fold ごとの train/valid loss 推移（折れ線グラフ）
+- `plot_oof_distribution()`: OOF 予測値の分布（ヒストグラム）
+- `residuals_plot(kind="scatter|histogram|qq|all")`: 回帰専用。IS/OOS 比較対応。`kind` で表示プロットを選択。デフォルト `kind="all"` で scatter + histogram + QQ の 3 パネル。scatter は Actual vs Predicted（x=predicted, y=actual, y=x 参照線）。IS サンプルは OOS 数に合わせてダウンサンプリング（`_downsample_is()`、seed=0 で再現可能）。
+
+追加で用意したい可視化（未実装）:
 - binary: `ROC / PR / confusion matrix / threshold最適化レポート`
 - calibration: `reliability diagram / ECE`（binning 含む）
 - 時系列: fold ごとの期間情報（`train_end / valid_start`）表示

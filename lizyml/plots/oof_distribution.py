@@ -15,11 +15,11 @@ from lizyml.core.exceptions import ErrorCode, LizyMLError
 if TYPE_CHECKING:
     from lizyml.core.types.fit_result import FitResult
 
-_mpl: Any = None
+_plotly: Any = None
 try:
-    import matplotlib.pyplot as plt
+    import plotly.graph_objects as go
 
-    _mpl = plt
+    _plotly = go
 except ImportError:  # pragma: no cover
     pass
 
@@ -28,53 +28,57 @@ def plot_oof_distribution(fit_result: FitResult) -> Any:
     """Plot the distribution of out-of-fold predictions.
 
     For regression and binary tasks, plots a histogram of ``oof_pred``.
-    For multiclass, plots a stacked histogram of class probabilities.
+    For multiclass, plots overlaid histograms of class probabilities.
 
     Args:
         fit_result: A fitted :class:`~lizyml.core.types.fit_result.FitResult`.
 
     Returns:
-        A ``matplotlib.figure.Figure`` object.
+        A ``plotly.graph_objects.Figure`` object.
 
     Raises:
-        LizyMLError with ``OPTIONAL_DEP_MISSING`` when matplotlib is not installed.
+        LizyMLError with ``OPTIONAL_DEP_MISSING`` when plotly is not installed.
     """
-    if _mpl is None:
+    if _plotly is None:
         raise LizyMLError(
             code=ErrorCode.OPTIONAL_DEP_MISSING,
             user_message=(
-                "matplotlib is required for plots. "
+                "plotly is required for plots. "
                 "Install with: pip install 'lizyml[plots]'"
             ),
-            context={"package": "matplotlib"},
+            context={"package": "plotly"},
         )
 
     oof = fit_result.oof_pred
+    fig = _plotly.Figure()
 
     if oof.ndim == 2:
         # Multiclass: (n_samples, n_classes)
         n_classes = oof.shape[1]
-        fig, ax = _mpl.subplots(figsize=(8, 4))
         for cls_idx in range(n_classes):
-            ax.hist(
-                oof[:, cls_idx],
-                bins=30,
-                alpha=0.5,
-                label=f"Class {cls_idx}",
+            fig.add_trace(
+                _plotly.Histogram(
+                    x=oof[:, cls_idx],
+                    name=f"Class {cls_idx}",
+                    opacity=0.5,
+                    nbinsx=30,
+                )
             )
-        ax.set_xlabel("Predicted probability")
-        ax.set_ylabel("Count")
-        ax.set_title("OOF Prediction Distribution (Multiclass)")
-        ax.legend()
+        fig.update_layout(
+            title="OOF Prediction Distribution (Multiclass)",
+            xaxis_title="Predicted probability",
+            yaxis_title="Count",
+            barmode="overlay",
+        )
     else:
         # Regression or binary: (n_samples,)
-        fig, ax = _mpl.subplots(figsize=(8, 4))
-        ax.hist(oof, bins=30)
         has_proba = bool(np.all((oof >= 0) & (oof <= 1)))
         xlabel = "Predicted probability" if has_proba else "Predicted value"
-        ax.set_xlabel(xlabel)
-        ax.set_ylabel("Count")
-        ax.set_title("OOF Prediction Distribution")
+        fig.add_trace(_plotly.Histogram(x=oof, nbinsx=30))
+        fig.update_layout(
+            title="OOF Prediction Distribution",
+            xaxis_title=xlabel,
+            yaxis_title="Count",
+        )
 
-    fig.tight_layout()
     return fig
