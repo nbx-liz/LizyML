@@ -125,7 +125,7 @@ class TestResidualsPlot:
         m = _fitted_reg_model()
         fig = m.residuals_plot(kind="scatter")
         assert isinstance(fig, go.Figure)
-        # Expects OOS trace, IS trace, and y=0 line
+        # Expects OOS trace, IS trace, and y=x reference line
         assert len(fig.data) >= 2
 
     def test_kind_histogram(self) -> None:
@@ -177,3 +177,19 @@ class TestResidualsPlot:
         with pytest.raises(LizyMLError) as exc_info:
             m.residuals_plot()
         assert exc_info.value.code == ErrorCode.UNSUPPORTED_TASK
+
+    def test_is_downsampled_in_scatter(self) -> None:
+        """IS must be downsampled to OOS count (3-fold, 100 rows → IS≈200 > OOS=100)."""
+        m = _fitted_reg_model()
+        fig = m.residuals_plot(kind="scatter")
+        oos_trace = next(t for t in fig.data if t.name == "OOS")
+        is_trace = next(t for t in fig.data if t.name == "IS")
+        assert len(is_trace.x) <= len(oos_trace.x)
+
+    def test_is_downsampled_in_histogram(self) -> None:
+        """IS histogram must have no more data points than OOS."""
+        m = _fitted_reg_model()
+        fig = m.residuals_plot(kind="histogram")
+        oos_trace = next(t for t in fig.data if t.name == "OOS")
+        is_trace = next(t for t in fig.data if t.name == "IS")
+        assert len(is_trace.x) <= len(oos_trace.x)

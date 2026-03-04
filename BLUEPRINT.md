@@ -97,7 +97,7 @@ model.export("path/to/export_dir")
   - `model.importance(kind="split|gain|shap")`（特徴量重要度。`shap` は optional dependency）
   - `model.importance_plot(kind="split|gain|shap", top_n=20)`（特徴量重要度の可視化、Plotly）
   - `model.residuals()`（回帰専用。OOF 残差 `y - oof_pred` を `np.ndarray` で返す）
-  - `model.residuals_plot(kind="scatter|histogram|qq|all")`（回帰専用。残差可視化、Plotly。IS/OOS 比較対応。デフォルト `kind="all"` で scatter + histogram + QQ の 3 パネル）
+  - `model.residuals_plot(kind="scatter|histogram|qq|all")`（回帰専用。残差可視化、Plotly。IS/OOS 比較対応。デフォルト `kind="all"` で scatter + histogram + QQ の 3 パネル。scatter は Actual vs Predicted（x=predicted, y=actual）。IS サンプルは OOS 数に合わせてダウンサンプリング）
   - `model.evaluate_table()`（評価結果を `pd.DataFrame` で返す）
 - `residuals()` / `residuals_plot()` / `importance(kind="shap")` は `fit()` 後のみ利用可能。`Model.load()` 後は学習データ（y / X）が不在のため呼び出し不可。
 
@@ -404,7 +404,7 @@ config = {
 - `importance_plot(kind="shap")`: fold 平均の mean(|SHAP|)（横棒グラフ）。shap optional dependency も必要。
 - `plot_learning_curve()`: fold ごとの train/valid loss 推移（折れ線グラフ）
 - `plot_oof_distribution()`: OOF 予測値の分布（ヒストグラム）
-- `residuals_plot(kind="scatter|histogram|qq|all")`: 回帰専用。IS/OOS 比較対応。`kind` で表示プロットを選択。デフォルト `kind="all"` で scatter + histogram + QQ の 3 パネル。
+- `residuals_plot(kind="scatter|histogram|qq|all")`: 回帰専用。IS/OOS 比較対応。`kind` で表示プロットを選択。デフォルト `kind="all"` で scatter + histogram + QQ の 3 パネル。scatter は Actual vs Predicted（x=predicted, y=actual, y=x 参照線）。IS サンプルは OOS 数に合わせてダウンサンプリング（`_downsample_is()`、seed=0 で再現可能）。
 
 追加で用意したい可視化（未実装）:
 - binary: `ROC / PR / confusion matrix / threshold最適化レポート`
