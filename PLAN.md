@@ -1035,6 +1035,144 @@ jobs:
 
 ---
 
+## 追加計画: テストカバレッジ改善（BLUEPRINT 準拠）
+
+現時点では unit test は十分に整っている一方、BLUEPRINT の MUST を
+「Facade 経由で本当に守れているか」を固定する統合テストが相対的に薄い。
+次の改善は、既存機能の実装追加より先に、仕様逸脱を早期に検知するための
+テスト拡充として実施する。
+
+### T-1. Split 設定の統合テスト強化（最優先）
+
+**対象:** BLUEPRINT §10, §6.2, §3.3
+
+- `Model.fit()` が `split.method` を正しく反映することを E2E で検証する。
+- 少なくとも以下を追加する。
+  - `stratified_kfold`: 各 fold の target 比率が極端に崩れない
+  - `group_kfold`: `FitResult.splits.outer` 上で group overlap が発生しない
+  - `time_series`: 各 fold で `train_idx.max() < valid_idx.min()` を満たす
+- splitter 単体ではなく、`Model` / `CVTrainer` / `FitResult.splits` まで通す。
+
+**DoD**
+- `tests/test_e2e/` または `tests/test_model_facade.py` に non-`kfold` 系の統合テストが追加されている
+- split 設定を無視した場合に落ちるテストになっている
+
+### T-2. Config 互換性ゲートのテスト追加
+
+**対象:** BLUEPRINT §5, §15.2, §16.2
+
+- `config_version` の必須性だけでなく、未対応 version の拒否をテストで固定する。
+- 少なくとも以下を追加する。
+  - `config_version` 欠落 → `CONFIG_INVALID`
+  - `config_version` が未対応値（例: `999`） → `CONFIG_VERSION_UNSUPPORTED`
+  - `Model(config=...)` 経由でも同じ例外契約を満たす
+
+**DoD**
+- `tests/test_config/` に unsupported version の失敗ケースが追加されている
+- 例外 code が `CONFIG_VERSION_UNSUPPORTED` で固定されている
+
+### T-3. Calibration 契約の固定テスト追加
+
+**対象:** BLUEPRINT §12, §7.1, §10.4
+
+- calibration の「リークしない」だけでなく、返却 shape と保存対象を固定する。
+- 少なくとも以下を追加する。
+  - `FitResult.splits.calibration` が calibration 有効時に保存される
+  - `metrics["calibrated"]` が `raw` と同型の階層を持つ
+    （`oof`, `if_mean`, `if_per_fold`）
+  - calibration 有効モデルの export / load 後も予測時に校正器が適用される
+  - `beta` を公開設定に含める場合は、実装済みであること、未実装なら明示的に失敗すること
+
+**DoD**
+- `tests/test_calibration/` と `tests/test_persistence/` に calibration 契約テストが追加されている
+- calibration の split / metrics の shape 変更が破壊的変更として検知される
+
+### T-4. Evaluation 契約の追加テスト
+
+**対象:** BLUEPRINT §6.3, §13.2
+
+- `evaluate()` のデフォルト経路だけでなく、指定メトリクス経路を固定する。
+- 少なくとも以下を追加する。
+  - `Model.evaluate(metrics=[...])` が指定メトリクスで再計算できる
+  - task 非対応 metric 指定時に正しい例外 code を返す
+  - load 後の `Model.evaluate(metrics=[...])` の契約を定義し、成功または明示的失敗を固定する
+
+**DoD**
+- `tests/test_e2e/` または `tests/test_evaluation/` に custom metrics 経路のテストが追加されている
+- `evaluate(metrics=[...])` の挙動が曖昧でなくなる
+
+### T-5. Persistence 保存対象の固定テスト
+
+**対象:** BLUEPRINT §15.1, §7.3
+
+- `metadata.json` の最低限キーだけではなく、保存契約をより厳密に固定する。
+- 少なくとも以下を追加する。
+  - `format_version`
+  - `config_normalized`
+  - `metrics`
+  - `feature_names`
+  - `run_id`
+  - `FitResult` 内の `splits / data_fingerprint / pipeline_state / run_meta`
+- 「roundtrip できた」だけでなく、「必要情報が保持される」を検証する。
+
+**DoD**
+- `tests/test_persistence/` に保存対象の明示的な契約テストが追加されている
+- 保存項目の欠落や key 名変更がテストで検知される
+
+### T-6. Column Drift / PredictionResult 意味の固定
+
+**対象:** BLUEPRINT §7.2, §9.2
+
+- 列ズレを単に「落ちない」で終わらせず、戻り値の意味まで固定する。
+- 少なくとも以下を追加する。
+  - extra column 時に `PredictionResult.warnings` に警告が入る
+  - `used_features` が学習時の列順を保持する
+  - missing column は warning ではなく hard error になる
+
+**DoD**
+- `tests/test_e2e/test_column_drift.py` で warnings / used_features の意味が固定されている
+- 列ズレポリシーの挙動変更を破壊的変更として検知できる
+
+### T-7. Config / Data 入口の E2E テスト
+
+**対象:** BLUEPRINT §5.1, §8.1
+
+- loader 単体ではなく、Facade の入口として複数の入力形式を固定する。
+- 少なくとも以下を追加する。
+  - `Model(config=<dict>)`
+  - `Model(config=<json path>)`
+  - `Model(config=<yaml path>)`
+  - `Model(config=<LizyMLConfig instance>)`
+  - `fit(data=None)` かつ `config.data.path` からの学習
+
+**DoD**
+- `tests/test_e2e/` に config path / data path 経路の統合テストが追加されている
+- README / 公開 API と実際の入口が乖離していないことを確認できる
+
+### 実施順序
+
+1. `T-1 Split 設定の統合テスト`
+2. `T-2 Config 互換性ゲート`
+3. `T-3 Calibration 契約`
+4. `T-4 Evaluation 契約`
+5. `T-5 Persistence 保存対象`
+6. `T-6 Column Drift / PredictionResult`
+7. `T-7 Config / Data 入口`
+
+理由:
+- まず split / config / calibration を押さえると、BLUEPRINT の MUST 逸脱を最も早く検知できる。
+- その後に evaluate / persistence / prediction 契約を固定すると、戻り値と保存互換性のブレを抑えられる。
+- 最後に入口 E2E を固めると、README と公開 API の実使用導線を保証できる。
+
+### 完了条件（この改善計画全体の DoD）
+
+- BLUEPRINT の MUST に対応する「落ちるべき例」が各主要領域に追加されている
+- `tests/test_e2e/` が unit test の穴埋めではなく、公開 API 契約の固定テストとして機能している
+- split / leakage / calibration / persistence の仕様逸脱を、実装変更時にテストが即時検知できる
+- 新規テスト追加後も `uv run pytest`, `uv run ruff check .`, `uv run mypy lizyml/` が通る
+
+---
+
 ## 作業ブランチ戦略
 
 ```
