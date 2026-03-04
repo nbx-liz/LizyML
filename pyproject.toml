@@ -44,6 +44,7 @@ dev = [
     "build>=1.0",
     "twine>=6.0",
     "pyarrow>=14.0",
+    "optuna>=3.0",
 ]
 
 [tool.ruff]

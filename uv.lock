@@ -712,6 +712,7 @@ tuning = [
 dev = [
     { name = "build" },
     { name = "mypy" },
+    { name = "optuna" },
     { name = "pandas-stubs", version = "2.3.3.260113", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "pandas-stubs", version = "3.0.0.260204", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "pyarrow" },
@@ -740,6 +741,7 @@ provides-extras = ["tuning", "explain"]
 dev = [
     { name = "build", specifier = ">=1.0" },
     { name = "mypy", specifier = ">=1.10" },
+    { name = "optuna", specifier = ">=3.0" },
     { name = "pandas-stubs", specifier = ">=2.0" },
     { name = "pyarrow", specifier = ">=14.0" },
     { name = "pytest", specifier = ">=8.0" },

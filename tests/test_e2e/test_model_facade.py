@@ -268,10 +268,13 @@ class TestModelErrors:
             m.fit()  # no data, no path in config
         assert exc_info.value.code == ErrorCode.DATA_SCHEMA_INVALID
 
-    def test_tune_not_implemented(self) -> None:
+    def test_tune_without_tuning_config_raises(self) -> None:
+        # tune() is now implemented; requires a tuning config section
         m = Model(_reg_config())
-        with pytest.raises(NotImplementedError):
-            m.tune()
+        data = pd.DataFrame({"feat_a": [1.0], "feat_b": [0.5], "target": [1.0]})
+        with pytest.raises(LizyMLError) as exc_info:
+            m.tune(data=data)
+        assert exc_info.value.code == ErrorCode.CONFIG_INVALID
 
     def test_export_not_implemented(self) -> None:
         m = Model(_reg_config())

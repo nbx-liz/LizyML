@@ -50,6 +50,8 @@ from lizyml.splitters.kfold import KFoldSplitter, StratifiedKFoldSplitter
 from lizyml.training.cv_trainer import CVTrainer
 from lizyml.training.inner_valid import HoldoutInnerValid, NoInnerValid
 from lizyml.training.refit_trainer import RefitResult, RefitTrainer
+from lizyml.tuning.search_space import parse_space
+from lizyml.tuning.tuner import Tuner
 
 _log = get_logger("model")
 
@@ -95,6 +97,7 @@ class Model:
         self._fit_result: FitResult | None = None
         self._refit_result: RefitResult | None = None
         self._metrics: dict[str, Any] | None = None
+        self._best_params: dict[str, Any] | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -152,7 +155,11 @@ class Model:
         # --- Build components ------------------------------------------------
         splitter = self._build_splitter()
         inner_valid = self._build_inner_valid()
-        lgbm_params = {**_get_lgbm_params(cfg), **(params or {})}
+        lgbm_params = {
+            **_get_lgbm_params(cfg),
+            **(self._best_params or {}),
+            **(params or {}),
+        }
         n_classes = int(y.nunique()) if cfg.task == "multiclass" else None
 
         def make_pipeline() -> NativeFeaturePipeline:
@@ -318,9 +325,103 @@ class Model:
                 agg[feat] = agg.get(feat, 0.0) + val / len(models)
         return agg
 
-    def tune(self) -> None:
-        """Not yet implemented — Phase 12."""
-        raise NotImplementedError("Tuning will be implemented in Phase 12.")
+    def tune(
+        self,
+        data: pd.DataFrame | None = None,
+    ) -> dict[str, Any]:
+        """Run hyperparameter search with optuna.
+
+        Requires ``tuning`` section in the config.  Best params are stored
+        internally and used automatically in the next ``fit()`` call.
+
+        Args:
+            data: Training DataFrame.  Overrides any data from construction
+                or ``data.path`` in config.
+
+        Returns:
+            Dict of best hyperparameter values found by the search.
+
+        Raises:
+            LizyMLError with CONFIG_INVALID when no ``tuning`` config is set.
+            LizyMLError with OPTIONAL_DEP_MISSING when optuna is not installed.
+            LizyMLError with TUNING_FAILED on study failure.
+        """
+        cfg = self._cfg
+        if cfg.tuning is None:
+            raise LizyMLError(
+                code=ErrorCode.CONFIG_INVALID,
+                user_message=(
+                    "No tuning configuration found. "
+                    "Add a 'tuning' section to the config to enable tuning."
+                ),
+                context={},
+            )
+
+        _log.info("event='tune.start' task=%s", cfg.task)
+
+        df = self._load_data(data)
+        problem_spec = ProblemSpec(
+            task=cfg.task,
+            target=cfg.data.target,
+            time_col=cfg.data.time_col,
+            group_col=cfg.data.group_col,
+            data_path=cfg.data.path,
+        )
+        feature_spec = FeatureSpec(
+            exclude=tuple(cfg.features.exclude),
+            auto_categorical=cfg.features.auto_categorical,
+            categorical=tuple(cfg.features.categorical),
+        )
+        components = dataframe_builder.build(df, problem_spec, feature_spec)
+        X, y = components.X, components.y
+        groups = (
+            components.group_col.to_numpy()
+            if components.group_col is not None
+            else None
+        )
+
+        n_classes = int(y.nunique()) if cfg.task == "multiclass" else None
+        splitter = self._build_splitter()
+        inner_valid = self._build_inner_valid()
+        base_params = _get_lgbm_params(cfg)
+        space = parse_space(cfg.tuning.optuna.space)
+        optuna_cfg = cfg.tuning.optuna.params
+        metric_names = cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task]
+        metric_name = metric_names[0]
+
+        def make_trial_estimator(trial_params: dict[str, Any]) -> LGBMAdapter:
+            merged = {**base_params, **trial_params}
+            return LGBMAdapter(
+                task=cfg.task,
+                params=merged,
+                num_class=n_classes,
+                early_stopping_rounds=(
+                    cfg.training.early_stopping.rounds
+                    if cfg.training.early_stopping.enabled
+                    else None
+                ),
+                random_state=cfg.training.seed,
+            )
+
+        tuner = Tuner(
+            task=cfg.task,
+            outer_splitter=splitter,
+            inner_valid=inner_valid,
+            pipeline_factory=NativeFeaturePipeline,
+            estimator_factory=make_trial_estimator,
+            dims=space,
+            n_trials=optuna_cfg.n_trials,
+            direction=optuna_cfg.direction,
+            timeout=optuna_cfg.timeout,
+            metric_name=metric_name,
+            n_classes=n_classes,
+            seed=cfg.training.seed,
+        )
+
+        best_params = tuner.tune(X, y, groups)
+        self._best_params = best_params
+        _log.info("event='tune.done' best_params=%s", best_params)
+        return best_params
 
     def export(self, path: str | Path) -> None:
         """Not yet implemented — Phase 14."""
