@@ -35,6 +35,8 @@ class TestFormatMetricsTable:
         assert "if_mean" in df.columns
         assert "fold_0" in df.columns
         assert "fold_1" in df.columns
+        # Column order: if_mean first, then oof (H-0011)
+        assert list(df.columns[:2]) == ["if_mean", "oof"]
         assert df.loc["rmse", "oof"] == pytest.approx(0.5)
         assert df.loc["mae", "if_mean"] == pytest.approx(0.25)
         assert df.loc["rmse", "fold_0"] == pytest.approx(0.38)

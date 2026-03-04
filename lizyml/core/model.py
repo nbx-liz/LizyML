@@ -330,22 +330,32 @@ class Model:
         result: npt.NDArray[np.float64] = np.asarray(self._y) - fit_result.oof_pred
         return result
 
-    def residuals_plot(self) -> Any:
-        """Plot residual distribution (histogram + QQ plot).  Regression only.
+    def residuals_plot(self, *, kind: str = "all") -> Any:
+        """Plot residual analysis.  Regression only.
+
+        Args:
+            kind: Which plot to render.
+                ``"scatter"`` — residuals vs predicted (IS + OOS overlay).
+                ``"histogram"`` — residual distribution (IS + OOS overlay).
+                ``"qq"`` — QQ plot of OOS residuals.
+                ``"all"`` — all three panels in one figure (default).
 
         Returns:
-            A ``plotly.graph_objects.Figure`` with two subplots.
+            A ``plotly.graph_objects.Figure``.
 
         Raises:
             LizyMLError with ``MODEL_NOT_FIT`` when called before ``fit``
                 or after ``Model.load()``.
             LizyMLError with ``UNSUPPORTED_TASK`` for non-regression tasks.
             LizyMLError with ``OPTIONAL_DEP_MISSING`` when plotly is not installed.
+            LizyMLError with ``CONFIG_INVALID`` for an unknown ``kind`` value.
         """
-        resid = self.residuals()
+        # Validate state (raises MODEL_NOT_FIT / UNSUPPORTED_TASK as needed)
+        self.residuals()
+        fit_result = self._require_fit()
         from lizyml.plots.residuals import plot_residuals
 
-        return plot_residuals(resid)
+        return plot_residuals(fit_result, np.asarray(self._y), kind=kind)
 
     def predict(
         self,

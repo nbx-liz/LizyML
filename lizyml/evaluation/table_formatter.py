@@ -20,7 +20,7 @@ def format_metrics_table(metrics: dict[str, Any]) -> pd.DataFrame:
 
     Returns:
         DataFrame where rows are metric names and columns are
-        ``oof``, ``if_mean``, ``fold_0`` … ``fold_N-1``, and optionally
+        ``if_mean``, ``oof``, ``fold_0`` … ``fold_N-1``, and optionally
         ``cal_oof`` when calibrated metrics are present.
     """
     raw = metrics.get("raw", {})
@@ -33,8 +33,8 @@ def format_metrics_table(metrics: dict[str, Any]) -> pd.DataFrame:
         return pd.DataFrame()
 
     data: dict[str, list[float]] = {
-        "oof": [oof.get(m, float("nan")) for m in metric_names],
         "if_mean": [if_mean.get(m, float("nan")) for m in metric_names],
+        "oof": [oof.get(m, float("nan")) for m in metric_names],
     }
 
     for fold_idx, fold_dict in enumerate(if_per_fold):
