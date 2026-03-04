@@ -29,11 +29,15 @@ class CalibrationResult:
             Length equals ``n_samples``; same row ordering as ``oof_scores``.
             Used for evaluation — never produced by ``c_final``.
         method: Calibration method name.
+        split_indices: Per-fold ``(train_idx, valid_idx)`` used in cross-fit.
+            Stored for reproducibility / audit.  Same ordering as the folds
+            that produced ``calibrated_oof``.
     """
 
     c_final: BaseCalibratorAdapter
     calibrated_oof: np.ndarray
     method: str
+    split_indices: list[tuple[np.ndarray, np.ndarray]]
 
 
 def cross_fit_calibrate(
@@ -64,8 +68,10 @@ def cross_fit_calibrate(
     """
     calibrated_oof = np.empty_like(oof_scores, dtype=float)
     kf = KFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+    split_indices: list[tuple[np.ndarray, np.ndarray]] = []
 
     for train_idx, val_idx in kf.split(oof_scores):
+        split_indices.append((train_idx, val_idx))
         cal = calibrator_factory()
         cal.fit(oof_scores[train_idx], y[train_idx])
         calibrated_oof[val_idx] = cal.predict(oof_scores[val_idx])
@@ -78,4 +84,5 @@ def cross_fit_calibrate(
         c_final=c_final,
         calibrated_oof=calibrated_oof,
         method=calibrator_factory().name,
+        split_indices=split_indices,
     )

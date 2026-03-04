@@ -6,7 +6,13 @@ from __future__ import annotations
 import lizyml.calibration.isotonic  # noqa: F401
 import lizyml.calibration.platt  # noqa: F401
 from lizyml.calibration.base import BaseCalibratorAdapter
+from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.registries import CalibratorRegistry
+
+# Methods declared in the schema but not yet implemented.
+_NOT_IMPLEMENTED: dict[str, str] = {
+    "beta": "Beta calibration is not yet implemented.",
+}
 
 
 def get_calibrator(name: str) -> BaseCalibratorAdapter:
@@ -19,8 +25,22 @@ def get_calibrator(name: str) -> BaseCalibratorAdapter:
         A new (unfitted) calibrator instance.
 
     Raises:
-        KeyError: When *name* is not registered.
+        LizyMLError: With ``CALIBRATION_NOT_SUPPORTED`` when *name* is not
+            registered or is a known-but-unimplemented method.
     """
-    cls = CalibratorRegistry.get(name)
+    if name in _NOT_IMPLEMENTED:
+        raise LizyMLError(
+            ErrorCode.CALIBRATION_NOT_SUPPORTED,
+            user_message=_NOT_IMPLEMENTED[name],
+            context={"method": name},
+        )
+    try:
+        cls = CalibratorRegistry.get(name)
+    except KeyError:
+        raise LizyMLError(
+            ErrorCode.CALIBRATION_NOT_SUPPORTED,
+            user_message=f"Unknown calibration method: '{name}'.",
+            context={"method": name},
+        )
     instance: BaseCalibratorAdapter = cls()
     return instance

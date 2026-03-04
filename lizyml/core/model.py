@@ -217,6 +217,8 @@ class Model:
                 random_state=cfg.training.seed,
             )
             fit_result.calibrator = calibration_result
+            # Store calibration split indices for reproducibility / audit
+            fit_result.splits.calibration = calibration_result.split_indices
 
         # --- Evaluation -------------------------------------------------------
         metric_names = cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task]

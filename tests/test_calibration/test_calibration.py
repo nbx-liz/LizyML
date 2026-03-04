@@ -144,9 +144,18 @@ class TestCalibratorRegistry:
         cal = get_calibrator("isotonic")
         assert isinstance(cal, IsotonicCalibrator)
 
-    def test_unknown_raises(self) -> None:
-        with pytest.raises(KeyError):
+    def test_unknown_raises_lizyml_error(self) -> None:
+        """Unknown methods must raise LizyMLError, not KeyError."""
+        with pytest.raises(LizyMLError) as exc_info:
             get_calibrator("nonexistent")
+        assert exc_info.value.code == ErrorCode.CALIBRATION_NOT_SUPPORTED
+
+    def test_beta_raises_not_implemented(self) -> None:
+        """'beta' is declared in schema but not yet implemented — must fail explicitly."""
+        with pytest.raises(LizyMLError) as exc_info:
+            get_calibrator("beta")
+        assert exc_info.value.code == ErrorCode.CALIBRATION_NOT_SUPPORTED
+        assert exc_info.value.context.get("method") == "beta"
 
 
 # ---------------------------------------------------------------------------
@@ -264,3 +273,58 @@ class TestModelCalibration:
         pred_result = m.predict(X_new)
         assert pred_result.proba is not None
         assert pred_result.proba.shape == (5,)
+
+
+# ---------------------------------------------------------------------------
+# T-3: Calibration contract — splits, metrics structure, persistence
+# ---------------------------------------------------------------------------
+
+
+class TestCalibrationContract:
+    def test_calibration_splits_saved_in_fit_result(self) -> None:
+        """FitResult.splits.calibration must be populated when calibration is enabled."""
+        df = _bin_df()
+        m = Model(_bin_config(with_calibration=True, method="platt"))
+        result = m.fit(data=df)
+        assert result.splits.calibration is not None
+        # Each element is a (train_idx, valid_idx) tuple
+        for fold in result.splits.calibration:
+            assert len(fold) == 2
+            train_idx, valid_idx = fold
+            assert hasattr(train_idx, "__len__")
+            assert hasattr(valid_idx, "__len__")
+
+    def test_calibration_splits_none_without_calibration(self) -> None:
+        """FitResult.splits.calibration must be None when no calibration is configured."""
+        df = _bin_df()
+        m = Model(_bin_config(with_calibration=False))
+        result = m.fit(data=df)
+        assert result.splits.calibration is None
+
+    def test_calibrated_metrics_has_oof_key(self) -> None:
+        """metrics["calibrated"] must contain an "oof" key with the same metric names as raw.
+
+        Note: "calibrated" intentionally only computes OOF metrics (not IF).
+        Calibration is applied to OOF probabilities — computing calibrated IF
+        predictions would require applying c_final which is trained on all data
+        and therefore unsuitable for in-fold evaluation.
+        """
+        df = _bin_df()
+        m = Model(_bin_config(with_calibration=True))
+        result = m.fit(data=df)
+        cal = result.metrics["calibrated"]
+        raw = result.metrics["raw"]
+        assert "oof" in cal
+        # OOF metric names must match raw
+        assert set(cal["oof"].keys()) == set(raw["oof"].keys())
+        # All calibrated OOF metric values must be finite
+        for val in cal["oof"].values():
+            assert np.isfinite(val), f"Non-finite calibrated OOF metric: {val}"
+
+    def test_beta_via_model_config_raises_calibration_not_supported(self) -> None:
+        """Using method='beta' in Model config must raise CALIBRATION_NOT_SUPPORTED."""
+        df = _bin_df()
+        m = Model(_bin_config(with_calibration=True, method="beta"))
+        with pytest.raises(LizyMLError) as exc_info:
+            m.fit(data=df)
+        assert exc_info.value.code == ErrorCode.CALIBRATION_NOT_SUPPORTED

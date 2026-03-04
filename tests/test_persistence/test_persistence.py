@@ -58,8 +58,8 @@ def _reg_config() -> dict:
     }
 
 
-def _bin_config() -> dict:
-    return {
+def _bin_config(with_calibration: bool = False) -> dict:
+    cfg: dict = {
         "config_version": 1,
         "task": "binary",
         "data": {"target": "target"},
@@ -67,6 +67,9 @@ def _bin_config() -> dict:
         "model": {"name": "lgbm", "params": {"n_estimators": 10}},
         "training": {"seed": 0},
     }
+    if with_calibration:
+        cfg["calibration"] = {"method": "platt", "n_splits": 3}
+    return cfg
 
 
 # ---------------------------------------------------------------------------
@@ -229,3 +232,23 @@ class TestLoad:
         with pytest.raises(LizyMLError) as exc_info:
             Model.load(out)
         assert exc_info.value.code == ErrorCode.DESERIALIZATION_FAILED
+
+    def test_export_load_preserves_calibrator(self, tmp_path: Path) -> None:
+        """Calibrator must survive export → load round-trip."""
+        df = _bin_df()
+        m = Model(_bin_config(with_calibration=True))
+        m.fit(data=df)
+        assert m._fit_result is not None
+        assert m._fit_result.calibrator is not None  # sanity: calibrator set before export
+
+        out = tmp_path / "model_cal"
+        m.export(out)
+
+        m2 = Model.load(out)
+        assert m2._fit_result is not None
+        assert m2._fit_result.calibrator is not None  # must survive round-trip
+
+        X_new = df.drop(columns=["target"]).iloc[:10].reset_index(drop=True)
+        pred = m2.predict(X_new)
+        assert pred.proba is not None
+        assert np.all(pred.proba >= 0.0) and np.all(pred.proba <= 1.0)
