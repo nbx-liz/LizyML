@@ -27,7 +27,7 @@ Its goal is to provide a single `Model` interface that handles the following wit
 ## Basic Usage
 
 ```python
-from LizyML import Model
+from lizyml import Model
 
 model = Model(config=config)
 
