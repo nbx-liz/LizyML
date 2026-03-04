@@ -46,8 +46,8 @@ class NoInnerValid(BaseInnerValidStrategy):
     def split(
         self,
         n_samples: int,
-        y: np.ndarray | None = None,
-        groups: np.ndarray | None = None,
+        y: npt.NDArray[Any] | None = None,
+        groups: npt.NDArray[Any] | None = None,
     ) -> None:
         return None
 
