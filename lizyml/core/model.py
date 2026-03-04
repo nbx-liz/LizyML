@@ -456,13 +456,62 @@ class Model:
         return best_params
 
     def export(self, path: str | Path) -> None:
-        """Not yet implemented — Phase 14."""
-        raise NotImplementedError("Export will be implemented in Phase 14.")
+        """Export Model artifacts to a directory.
+
+        Saves ``fit_result.pkl``, ``refit_model.pkl``, and ``metadata.json``
+        under *path*.  The saved model can be restored with :meth:`load`.
+
+        Args:
+            path: Output directory (created if absent).
+
+        Raises:
+            LizyMLError with MODEL_NOT_FIT when called before ``fit``.
+            LizyMLError with SERIALIZATION_FAILED on I/O errors.
+
+        Warning:
+            The ``.pkl`` files use joblib/pickle.  Only load artifacts from
+            trusted sources.
+        """
+        fit_result = self._require_fit()
+        refit_result = self._require_refit()
+        from lizyml.persistence.exporter import export as _export
+
+        _export(
+            path=path,
+            fit_result=fit_result,
+            refit_result=refit_result,
+            config=self._cfg.model_dump(),
+            task=self._cfg.task,
+        )
+        _log.info("event='export.done' path=%s", path)
 
     @classmethod
     def load(cls, path: str | Path) -> Model:
-        """Not yet implemented — Phase 14."""
-        raise NotImplementedError("Persistence will be implemented in Phase 14.")
+        """Restore a Model from a directory created by :meth:`export`.
+
+        Args:
+            path: Directory containing ``metadata.json``, ``fit_result.pkl``,
+                and ``refit_model.pkl``.
+
+        Returns:
+            A :class:`Model` instance ready for ``predict`` and ``evaluate``.
+
+        Raises:
+            LizyMLError with DESERIALIZATION_FAILED on validation or I/O errors.
+
+        Warning:
+            Only load from trusted sources — joblib uses pickle internally.
+        """
+        from lizyml.persistence.loader import load as _load
+
+        fit_result, refit_result, metadata = _load(path)
+        config = metadata["config"]
+        instance = cls(config)
+        instance._fit_result = fit_result
+        instance._refit_result = refit_result
+        instance._metrics = fit_result.metrics
+        _log.info("event='load.done' path=%s run_id=%s", path, metadata.get("run_id"))
+        return instance
 
     # ------------------------------------------------------------------
     # Internal helpers

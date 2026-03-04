@@ -13,6 +13,8 @@ Covers:
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -276,14 +278,18 @@ class TestModelErrors:
             m.tune(data=data)
         assert exc_info.value.code == ErrorCode.CONFIG_INVALID
 
-    def test_export_not_implemented(self) -> None:
+    def test_export_before_fit_raises(self, tmp_path: Any) -> None:
+        # export() is now implemented; requires fit() first
         m = Model(_reg_config())
-        with pytest.raises(NotImplementedError):
-            m.export("/tmp/model")
+        with pytest.raises(LizyMLError) as exc_info:
+            m.export(tmp_path / "out")
+        assert exc_info.value.code == ErrorCode.MODEL_NOT_FIT
 
-    def test_load_not_implemented(self) -> None:
-        with pytest.raises(NotImplementedError):
-            Model.load("/tmp/model")
+    def test_load_nonexistent_path_raises(self, tmp_path: Any) -> None:
+        # load() is now implemented; raises DESERIALIZATION_FAILED for bad path
+        with pytest.raises(LizyMLError) as exc_info:
+            Model.load(tmp_path / "does_not_exist")
+        assert exc_info.value.code == ErrorCode.DESERIALIZATION_FAILED
 
 
 # ---------------------------------------------------------------------------
