@@ -12,13 +12,51 @@ from lizyml.core.exceptions import ErrorCode, LizyMLError
 if TYPE_CHECKING:
     from lizyml.core.types.fit_result import FitResult
 
-_mpl: Any = None
+_plotly: Any = None
 try:
-    import matplotlib.pyplot as plt
+    import plotly.graph_objects as go
 
-    _mpl = plt
+    _plotly = go
 except ImportError:  # pragma: no cover
     pass
+
+
+def _check_plotly() -> None:
+    if _plotly is None:
+        raise LizyMLError(
+            code=ErrorCode.OPTIONAL_DEP_MISSING,
+            user_message=(
+                "plotly is required for plots. "
+                "Install with: pip install 'lizyml[plots]'"
+            ),
+            context={"package": "plotly"},
+        )
+
+
+def _render_bar_chart(
+    sorted_items: list[tuple[str, float]],
+    title: str,
+) -> Any:
+    """Render a horizontal bar chart from (feature, value) pairs."""
+    _check_plotly()
+    features = [item[0] for item in sorted_items]
+    values = [item[1] for item in sorted_items]
+
+    fig = _plotly.Figure(
+        _plotly.Bar(
+            x=values[::-1],
+            y=features[::-1],
+            orientation="h",
+        )
+    )
+    fig.update_layout(
+        title=title,
+        xaxis_title="Importance",
+        yaxis_title="Feature",
+        height=max(400, len(features) * 25),
+        margin=dict(l=150),
+    )
+    return fig
 
 
 def plot_importance(
@@ -35,21 +73,13 @@ def plot_importance(
         top_n: Maximum number of features to show.  ``None`` shows all.
 
     Returns:
-        A ``matplotlib.figure.Figure`` object.
+        A ``plotly.graph_objects.Figure`` object.
 
     Raises:
-        LizyMLError with ``OPTIONAL_DEP_MISSING`` when matplotlib is not installed.
+        LizyMLError with ``OPTIONAL_DEP_MISSING`` when plotly is not installed.
         LizyMLError with ``MODEL_NOT_FIT`` when no fold models are available.
     """
-    if _mpl is None:
-        raise LizyMLError(
-            code=ErrorCode.OPTIONAL_DEP_MISSING,
-            user_message=(
-                "matplotlib is required for plots. "
-                "Install with: pip install 'lizyml[plots]'"
-            ),
-            context={"package": "matplotlib"},
-        )
+    _check_plotly()
 
     if not fit_result.models:
         raise LizyMLError(
@@ -70,14 +100,30 @@ def plot_importance(
     if top_n is not None:
         sorted_items = sorted_items[:top_n]
 
-    features = [item[0] for item in sorted_items]
-    values = [item[1] for item in sorted_items]
+    return _render_bar_chart(sorted_items, f"Feature Importance ({kind})")
 
-    fig, ax = _mpl.subplots(figsize=(8, max(4, len(features) * 0.35)))
-    ax.barh(range(len(features)), values[::-1])
-    ax.set_yticks(range(len(features)))
-    ax.set_yticklabels(features[::-1])
-    ax.set_xlabel(f"Importance ({kind})")
-    ax.set_title("Feature Importance")
-    fig.tight_layout()
-    return fig
+
+def plot_importance_from_dict(
+    importance: dict[str, float],
+    *,
+    title: str = "Feature Importance (SHAP)",
+    top_n: int | None = 20,
+) -> Any:
+    """Plot feature importances from a pre-computed dict.
+
+    Args:
+        importance: Mapping of feature name to importance score.
+        title: Chart title.
+        top_n: Maximum number of features to show.  ``None`` shows all.
+
+    Returns:
+        A ``plotly.graph_objects.Figure`` object.
+
+    Raises:
+        LizyMLError with ``OPTIONAL_DEP_MISSING`` when plotly is not installed.
+    """
+    sorted_items = sorted(importance.items(), key=lambda kv: kv[1], reverse=True)
+    if top_n is not None:
+        sorted_items = sorted_items[:top_n]
+
+    return _render_bar_chart(sorted_items, title)

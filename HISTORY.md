@@ -489,3 +489,202 @@ Tutorial Notebook でよく使われる回帰メトリクス（MAPE・Huber Loss
 - Date: `2026-03-04`
 - Result: `accepted`
 - Notes: Tutorial Notebook の要件として受け入れ。
+
+---
+
+## 2026-03-04: model.evaluate_table() の追加
+
+- ID: `H-0005`
+- Status: `accepted`
+- Scope: `Evaluation | Public API`
+- Related: `BLUEPRINT.md §4.1, §13.2`
+
+### Context
+
+Notebook で評価結果を確認する際、`evaluate()` が返す nested dict を手作業で DataFrame 化する必要があり、「ユーザーにコードを書かせない」思想に反する。
+
+### Proposal
+
+- `Model.evaluate_table()` を追加し、`evaluate()` の dict を `pd.DataFrame` に整形して返す。
+- 行 = メトリクス名、列 = `oof`, `if_mean`, `fold_0`...`fold_N-1`。calibrated がある場合は `cal_oof` 列を追加。
+- ロジックは `lizyml/evaluation/table_formatter.py` に配置（Model にロジックを置かない原則を遵守）。
+
+### Impact
+
+- `lizyml/evaluation/table_formatter.py`: 新規。
+- `lizyml/core/model.py`: `evaluate_table()` メソッド追加。
+- `tests/test_evaluation/test_table_formatter.py`: 新規テスト。
+
+### Compatibility
+
+- FitResult / PredictionResult / Artifacts / format_version 変更なし。非破壊的追加。
+
+### Alternatives Considered
+
+- `evaluate()` の返り値自体を DataFrame にする → 既存契約の破壊になるため却下。
+
+### Acceptance Criteria
+
+- `model.evaluate_table()` が fit 後に DataFrame を返す。
+- 行 = メトリクス名、列に oof / if_mean / fold 別が含まれる。
+- calibrated 有りの場合 cal_oof 列が追加される。
+- fit 前に呼ぶと MODEL_NOT_FIT。
+
+### Decision
+
+- Date: `2026-03-04`
+- Result: `accepted`
+- Notes: Notebook の UX 改善として受け入れ。
+
+---
+
+## 2026-03-04: model.residuals() / model.residuals_plot() の追加
+
+- ID: `H-0006`
+- Status: `accepted`
+- Scope: `Public API | Plots`
+- Related: `BLUEPRINT.md §4.1, §13.3`
+
+### Context
+
+BLUEPRINT §4.1 で `residuals()` / `residuals_plot()` が計画されていたが未実装。回帰タスクの残差分析はモデル診断の基本であり、Notebook でワンコールで可視化できる必要がある。
+
+### Proposal
+
+- `Model.residuals()`: 回帰タスク専用。`y - oof_pred` を `np.ndarray` で返す。
+- `Model.residuals_plot()`: ヒストグラム + QQ plot の 2 パネルを Plotly で表示。
+- `fit()` 中に `self._y` を一時保持（export/persistence には含めない）。
+- `Model.load()` 後は y が不在のため呼び出し不可（MODEL_NOT_FIT エラー）。
+- binary/multiclass では `UNSUPPORTED_TASK` を返す。
+- プロット実装は `lizyml/plots/residuals.py` に配置。
+
+### Impact
+
+- `lizyml/core/model.py`: `_y` フィールド追加、`residuals()` / `residuals_plot()` メソッド追加。
+- `lizyml/plots/residuals.py`: 新規。
+- `tests/test_plots/test_residuals.py`: 新規テスト。
+
+### Compatibility
+
+- FitResult / format_version 変更なし。`_y` は Model の一時状態であり Artifacts に含めない。
+
+### Alternatives Considered
+
+- FitResult に y_true を保存する → Artifacts 契約の変更になるため却下。y はユーザーデータであり、モデル成果物ではない。
+- load 後も利用可能にするため y を export に含める → データ漏洩リスクがあるため却下。
+
+### Acceptance Criteria
+
+- `model.residuals()` が回帰タスクで `(n_samples,)` の ndarray を返す。
+- `model.residuals_plot()` が Plotly Figure を返す（ヒストグラム + QQ plot）。
+- binary/multiclass で UNSUPPORTED_TASK。
+- load 後に呼ぶと MODEL_NOT_FIT。
+
+### Decision
+
+- Date: `2026-03-04`
+- Result: `accepted`
+- Notes: 回帰タスクの基本診断機能として受け入れ。
+
+---
+
+## 2026-03-04: model.importance(kind="shap") / model.importance_plot(kind="shap") の追加
+
+- ID: `H-0007`
+- Status: `accepted`
+- Scope: `Public API | Explain`
+- Related: `BLUEPRINT.md §4.1, §14.1`
+
+### Context
+
+BLUEPRINT §4.1 で `importance(kind="shap")` が計画されていたが未実装。SHAP ベースの特徴量重要度は split/gain よりモデル非依存な指標であり、Notebook でワンコールで可視化できる必要がある。
+
+### Proposal
+
+- `Model.importance(kind="shap")`: fold ごとの validation データで SHAP を計算し、mean(|SHAP|) を fold 平均して `dict[str, float]` で返す。
+- `Model.importance_plot(kind="shap")`: 上記 dict を Plotly 横棒グラフで表示。
+- `fit()` 中に `self._X` を一時保持（export/persistence には含めない）。
+- `Model.load()` 後は X が不在のため呼び出し不可（MODEL_NOT_FIT エラー）。
+- `compute_shap_importance()` を `lizyml/explain/shap_explainer.py` に追加。
+- `plot_importance_from_dict()` を `lizyml/plots/importance.py` に追加。
+- shap は optional dependency（既存パターン踏襲）。
+
+### Impact
+
+- `lizyml/core/model.py`: `_X` フィールド追加、`importance()` / `importance_plot()` の kind="shap" 対応。
+- `lizyml/explain/shap_explainer.py`: `compute_shap_importance()` 追加。
+- `lizyml/plots/importance.py`: `plot_importance_from_dict()` 追加。
+- `tests/test_explain/`: SHAP importance テスト追加。
+
+### Compatibility
+
+- FitResult / format_version 変更なし。`_X` は Model の一時状態。
+
+### Alternatives Considered
+
+- refit モデル + 全データで SHAP を計算 → CV の fold 構造を無視するため却下。fold 別 validation データで計算する方が CV philosophy に整合する。
+
+### Acceptance Criteria
+
+- `model.importance(kind="shap")` が `dict[str, float]` を返し、全 feature を含む。
+- `model.importance_plot(kind="shap")` が Plotly Figure を返す。
+- load 後に呼ぶと MODEL_NOT_FIT。
+- shap 未インストール時に OPTIONAL_DEP_MISSING。
+
+### Decision
+
+- Date: `2026-03-04`
+- Result: `accepted`
+- Notes: SHAP 重要度の可視化機能として受け入れ。
+
+---
+
+## 2026-03-04: 全プロットの Plotly 移行
+
+- ID: `H-0008`
+- Status: `accepted`
+- Scope: `Plots | Optional Dependency`
+- Related: `BLUEPRINT.md §13.3`
+
+### Context
+
+matplotlib ベースのプロットは静的で Notebook 上での視認性・操作性に劣る。Plotly に移行することでインタラクティブなプロットを提供し、UX を向上させる。
+
+### Proposal
+
+- `pyproject.toml` の optional dependency `plots` グループを `matplotlib>=3.7` → `plotly>=5.0` に変更。
+- `dependency-groups` (dev) も同様に変更。
+- 既存 3 ファイル（`importance.py`, `learning_curve.py`, `oof_distribution.py`）を Plotly に書き換え。
+- 新規ファイル（`residuals.py`）は最初から Plotly で実装。
+- optional dep sentinel を `_mpl` → `_plotly` に変更。
+- 返り値型を `matplotlib.figure.Figure` → `plotly.graph_objects.Figure` に変更。
+
+### Impact
+
+- `pyproject.toml`: optional dependency 変更。
+- `lizyml/plots/importance.py`: Plotly 移行。
+- `lizyml/plots/learning_curve.py`: Plotly 移行。
+- `lizyml/plots/oof_distribution.py`: Plotly 移行。
+- `tests/test_plots/test_plots.py`: Plotly Figure アサーションに更新。
+- mypy overrides: `matplotlib.*` → `plotly.*`。
+
+### Compatibility
+
+- plot メソッドの返り値型が変わる破壊的変更。ただし plots は optional 機能であり、0.x バージョンのため許容する。
+
+### Alternatives Considered
+
+- デュアルサポート（matplotlib + plotly 両対応）→ 保守コストが倍増するため却下。
+- 新機能のみ Plotly → ライブラリ内で可視化の一貫性が失われるため却下。
+
+### Acceptance Criteria
+
+- 全プロットメソッドが Plotly Figure を返す。
+- plotly 未インストール時に OPTIONAL_DEP_MISSING。
+- 既存テストが Plotly Figure アサーションで通過。
+
+### Decision
+
+- Date: `2026-03-04`
+- Result: `accepted`
+- Notes: UX 向上のため全面移行を受け入れ。

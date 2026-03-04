@@ -86,3 +86,63 @@ def compute_shap_values(
 
     arr: npt.NDArray[np.float64] = np.asarray(raw)
     return arr
+
+
+def compute_shap_importance(
+    models: list[Any],
+    X: pd.DataFrame,
+    splits_outer: list[tuple[npt.NDArray[Any], npt.NDArray[Any]]],
+    task: str,
+    feature_names: list[str],
+    pipeline_state: Any,
+) -> dict[str, float]:
+    """Compute fold-averaged SHAP-based feature importance.
+
+    For each CV fold, SHAP values are computed on the validation subset.
+    The per-feature importance is ``mean(|SHAP|)`` averaged across folds.
+
+    Args:
+        models: List of fitted estimator adapters (one per fold).
+        X: Raw feature DataFrame (pre-pipeline).
+        splits_outer: Outer CV split indices ``(train_idx, valid_idx)`` per fold.
+        task: ML task type.
+        feature_names: Ordered feature names from training.
+        pipeline_state: Serialized FeaturePipeline state for transformation.
+
+    Returns:
+        Dict mapping feature name → importance score.
+
+    Raises:
+        LizyMLError with ``OPTIONAL_DEP_MISSING`` when shap is not installed.
+    """
+    if _shap is None:
+        raise LizyMLError(
+            code=ErrorCode.OPTIONAL_DEP_MISSING,
+            user_message=(
+                "shap is required for SHAP explanations. "
+                "Install with: pip install 'lizyml[explain]'"
+            ),
+            context={"package": "shap"},
+        )
+
+    from lizyml.features.pipelines_native import NativeFeaturePipeline
+
+    # Reconstruct pipeline and transform X
+    pipeline = NativeFeaturePipeline()
+    pipeline.load_state(pipeline_state)
+    X_t, _ = pipeline.transform_with_warnings(X)
+
+    n_features = len(feature_names)
+    agg = np.zeros(n_features)
+    n_folds = len(models)
+
+    for fold_idx, model in enumerate(models):
+        _, valid_idx = splits_outer[fold_idx]
+        X_valid = X_t.iloc[valid_idx]
+        shap_vals = compute_shap_values(model, X_valid, task)
+        # mean(|SHAP|) per feature for this fold
+        fold_importance: npt.NDArray[np.float64] = np.mean(np.abs(shap_vals), axis=0)
+        agg += fold_importance
+
+    agg /= n_folds
+    return {name: float(agg[i]) for i, name in enumerate(feature_names)}

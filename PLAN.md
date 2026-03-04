@@ -30,6 +30,7 @@ BLUEPRINT.md に基づき、Config駆動のML分析ライブラリ LizyML をゼ
 | 16 | Plots | learning_curve, importance, residuals, calibration, classification | Phase 4, 10 |
 | 17 | E2Eテスト・統合テスト | 全パイプラインの結合テスト | Phase 11-16 |
 | 18 | CI・PyPI 配布検証 | GitHub Actions ワークフロー, sdist/wheel build, twine check, install smoke test | Phase 17 |
+| 19 | evaluate_table / residuals / SHAP importance + Plotly 移行 | table_formatter, residuals plot, SHAP importance, Plotly 移行 | Phase 15, 16 |
 
 ---
 
@@ -1032,6 +1033,76 @@ jobs:
 - install smoke test で import が成功する
 - Python 3.10 と 3.12 の両方でテストが通る
 - 依存下限バージョンでテストが通る
+
+---
+
+## Phase 19: evaluate_table / residuals_plot / importance_plot(kind="shap") + Plotly 移行
+
+**HISTORY:** H-0005, H-0006, H-0007, H-0008
+**依存:** Phase 15 (Explain/SHAP), Phase 16 (Plots)
+**ブランチ:** `feat/phase-19-eval-table-residuals-shap`
+
+### 背景
+
+Notebook 利用を通じて、「ユーザーにコードを書かせない」思想に対する不足が判明。
+併せて全プロットを matplotlib から Plotly に移行し、インタラクティブな可視化を提供する。
+
+### 19-A: Plotly 移行（H-0008）
+
+1. `pyproject.toml` の optional dep `plots` を `matplotlib>=3.7` → `plotly>=5.0` に変更
+2. `dependency-groups` (dev) も同様に変更
+3. mypy overrides: `matplotlib.*` → `plotly.*`
+4. 既存 plots を Plotly に書き換え:
+   - `lizyml/plots/importance.py`: 横棒グラフ → Plotly
+   - `lizyml/plots/learning_curve.py`: 折れ線グラフ → Plotly
+   - `lizyml/plots/oof_distribution.py`: ヒストグラム → Plotly
+5. optional dep sentinel を `_mpl` → `_plotly` に変更
+6. `tests/test_plots/test_plots.py` を Plotly Figure アサーションに更新
+
+### 19-B: evaluate_table（H-0005）
+
+1. `lizyml/evaluation/table_formatter.py` 新規作成
+   - `format_metrics_table(metrics: dict) -> pd.DataFrame`
+   - 行 = メトリクス名、列 = `oof`, `if_mean`, `fold_0`...`fold_N-1`, `cal_oof`（存在時）
+2. `lizyml/core/model.py` に `evaluate_table()` 追加（table_formatter に委譲）
+3. `tests/test_evaluation/test_table_formatter.py` 新規テスト
+
+### 19-C: residuals / residuals_plot（H-0006）
+
+1. `lizyml/core/model.py`:
+   - `self._y` を `fit()` 中に一時保持（export には含めない）
+   - `residuals()`: 回帰専用、`y - oof_pred` を返す
+   - `residuals_plot()`: `plots/residuals.py` に委譲
+2. `lizyml/plots/residuals.py` 新規作成
+   - `plot_residuals(residuals)`: ヒストグラム + QQ plot の 2 パネル（Plotly）
+3. `tests/test_plots/test_residuals.py` 新規テスト
+
+### 19-D: importance(kind="shap") / importance_plot(kind="shap")（H-0007）
+
+1. `lizyml/core/model.py`:
+   - `self._X` を `fit()` 中に一時保持（export には含めない）
+   - `importance(kind="shap")`: `shap_explainer.compute_shap_importance()` に委譲
+   - `importance_plot(kind="shap")`: `importance()` で dict を取得し `plot_importance_from_dict()` に委譲
+2. `lizyml/explain/shap_explainer.py` に `compute_shap_importance()` 追加
+   - pipeline_state から NativeFeaturePipeline を復元 → X を transform
+   - fold ごとに validation データで SHAP 計算 → mean(|SHAP|) を fold 平均
+3. `lizyml/plots/importance.py` に `plot_importance_from_dict()` 追加
+4. テスト追加
+
+### テスト
+
+- `test_evaluation/test_table_formatter.py`: 構造、calibrated、fold 列、E2E、MODEL_NOT_FIT
+- `test_plots/test_residuals.py`: shape、回帰専用、load 後エラー、Plotly Figure、OPTIONAL_DEP_MISSING
+- `test_plots/test_plots.py`: 既存テスト Plotly 更新、importance_plot(kind="shap")
+- `test_explain/`: SHAP importance dict、load 後エラー、OPTIONAL_DEP_MISSING
+
+### DoD
+
+- 全プロットメソッドが Plotly Figure を返す
+- `evaluate_table()` が DataFrame を返す
+- `residuals()` / `residuals_plot()` が回帰タスクで動作
+- `importance(kind="shap")` / `importance_plot(kind="shap")` が動作
+- 全テスト・lint・mypy 通過
 
 ---
 

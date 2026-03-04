@@ -8,7 +8,6 @@ import pytest
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.metrics import MAPE, HuberLoss, get_metric, get_metrics_for_task
 
-
 # ---------------------------------------------------------------------------
 # MAPE
 # ---------------------------------------------------------------------------
