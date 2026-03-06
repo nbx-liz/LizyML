@@ -178,7 +178,7 @@ class Model:
         X, y = components.X, components.y
         self._X = X
         self._y = y
-        groups = (
+        groups: npt.NDArray[Any] | None = (
             components.group_col.to_numpy()
             if components.group_col is not None
             else None
@@ -208,8 +208,7 @@ class Model:
             X = X.iloc[sort_order].reset_index(drop=True)
             y = y.iloc[sort_order].reset_index(drop=True)
             if groups is not None:
-                sorted_groups: npt.NDArray[Any] = groups[sort_order]
-                groups = sorted_groups
+                groups = groups[sort_order]
             self._X = X
             self._y = y
             components.X = X
@@ -801,7 +800,7 @@ class Model:
         )
         components = dataframe_builder.build(df, problem_spec, feature_spec)
         X, y = components.X, components.y
-        groups = (
+        groups: npt.NDArray[Any] | None = (
             components.group_col.to_numpy()
             if components.group_col is not None
             else None
@@ -831,8 +830,7 @@ class Model:
             X = X.iloc[sort_order].reset_index(drop=True)
             y = y.iloc[sort_order].reset_index(drop=True)
             if groups is not None:
-                sorted_groups: npt.NDArray[Any] = groups[sort_order]
-                groups = sorted_groups
+                groups = groups[sort_order]
 
         n_classes = int(y.nunique()) if cfg.task == "multiclass" else None
         splitter = self._build_splitter()
