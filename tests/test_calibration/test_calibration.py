@@ -150,12 +150,12 @@ class TestCalibratorRegistry:
             get_calibrator("nonexistent")
         assert exc_info.value.code == ErrorCode.CALIBRATION_NOT_SUPPORTED
 
-    def test_beta_raises_not_implemented(self) -> None:
-        """'beta' is not yet implemented — must raise LizyMLError explicitly."""
-        with pytest.raises(LizyMLError) as exc_info:
-            get_calibrator("beta")
-        assert exc_info.value.code == ErrorCode.CALIBRATION_NOT_SUPPORTED
-        assert exc_info.value.context.get("method") == "beta"
+    def test_beta_returns_calibrator(self) -> None:
+        """'beta' is now implemented and should return a BetaCalibrator."""
+        from lizyml.calibration.beta import BetaCalibrator
+
+        cal = get_calibrator("beta")
+        assert isinstance(cal, BetaCalibrator)
 
 
 # ---------------------------------------------------------------------------
@@ -322,10 +322,12 @@ class TestCalibrationContract:
         for val in cal["oof"].values():
             assert np.isfinite(val), f"Non-finite calibrated OOF metric: {val}"
 
-    def test_beta_via_model_config_raises_calibration_not_supported(self) -> None:
-        """Using method='beta' in Model config must raise CALIBRATION_NOT_SUPPORTED."""
+    def test_beta_via_model_config_works(self) -> None:
+        """Using method='beta' in Model config should now work."""
+        from lizyml.calibration.cross_fit import CalibrationResult
+
         df = _bin_df()
         m = Model(_bin_config(with_calibration=True, method="beta"))
-        with pytest.raises(LizyMLError) as exc_info:
-            m.fit(data=df)
-        assert exc_info.value.code == ErrorCode.CALIBRATION_NOT_SUPPORTED
+        fr = m.fit(data=df)
+        assert isinstance(fr.calibrator, CalibrationResult)
+        assert fr.calibrator.method == "beta"

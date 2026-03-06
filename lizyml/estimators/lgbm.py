@@ -198,6 +198,20 @@ class LGBMAdapter(BaseEstimatorAdapter):
         result: npt.NDArray[np.float64] = clf.predict_proba(X)
         return result
 
+    def predict_raw(self, X: pd.DataFrame) -> npt.NDArray[np.float64]:
+        """Return raw scores (logits) before sigmoid/softmax.
+
+        For regression, identical to ``predict()``.
+        For binary/multiclass, returns booster raw_score output.
+        """
+        if self.task == "regression":
+            return self.predict(X)
+        model = self._require_fitted()
+        result: npt.NDArray[np.float64] = model.booster_.predict(  # type: ignore[assignment]
+            X, raw_score=True
+        )
+        return result
+
     # ------------------------------------------------------------------
     # Importance
     # ------------------------------------------------------------------

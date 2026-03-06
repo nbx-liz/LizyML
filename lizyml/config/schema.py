@@ -73,8 +73,30 @@ class TimeSeriesConfig(BaseModel):
     gap: int = 0
 
 
+class PurgedTimeSeriesConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["purged_time_series"]
+    n_splits: int = 5
+    purge_window: int = 0
+    gap: int = 0
+
+
+class GroupTimeSeriesConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["group_time_series"]
+    n_splits: int = 5
+    gap: int = 0
+
+
 SplitConfig = Annotated[
-    KFoldConfig | StratifiedKFoldConfig | GroupKFoldConfig | TimeSeriesConfig,
+    KFoldConfig
+    | StratifiedKFoldConfig
+    | GroupKFoldConfig
+    | TimeSeriesConfig
+    | PurgedTimeSeriesConfig
+    | GroupTimeSeriesConfig,
     Field(discriminator="method"),
 ]
 

@@ -19,6 +19,7 @@ REGRESSION_NB = NOTEBOOKS_DIR / "tutorial_regression_lgbm.ipynb"
 BINARY_NB = NOTEBOOKS_DIR / "tutorial_binary_lgbm.ipynb"
 MULTICLASS_NB = NOTEBOOKS_DIR / "tutorial_multiclass_lgbm.ipynb"
 TUNING_NB = NOTEBOOKS_DIR / "tutorial_regression_tuning_lgbm.ipynb"
+TIME_SERIES_NB = NOTEBOOKS_DIR / "tutorial_time_series_lgbm.ipynb"
 
 
 def _read_code_cells(path: Path) -> str:
@@ -51,8 +52,8 @@ def test_config_keywords_present(notebook_path: Path, keyword: str) -> None:
 
 @pytest.mark.parametrize(
     "notebook_path",
-    [REGRESSION_NB, BINARY_NB, MULTICLASS_NB, TUNING_NB],
-    ids=["regression", "binary", "multiclass", "tuning"],
+    [REGRESSION_NB, BINARY_NB, MULTICLASS_NB, TUNING_NB, TIME_SERIES_NB],
+    ids=["regression", "binary", "multiclass", "tuning", "time_series"],
 )
 def test_params_table_present(notebook_path: Path) -> None:
     code = _read_code_cells(notebook_path)
@@ -75,6 +76,30 @@ def test_multiclass_has_balanced() -> None:
 
 
 # --- feature_weights resolved cell in tuning notebook ---
+
+
+def test_time_series_has_split_summary() -> None:
+    """Time series notebook must call split_summary()."""
+    code = _read_code_cells(TIME_SERIES_NB)
+    assert "split_summary()" in code, (
+        f"'split_summary()' not found in {TIME_SERIES_NB.name}"
+    )
+
+
+def test_time_series_has_time_series_method() -> None:
+    """Time series notebook must use time_series split method."""
+    code = _read_code_cells(TIME_SERIES_NB)
+    assert "time_series" in code, (
+        f"'time_series' split method not found in {TIME_SERIES_NB.name}"
+    )
+
+
+def test_time_series_has_purged() -> None:
+    """Time series notebook must include purged_time_series example."""
+    code = _read_code_cells(TIME_SERIES_NB)
+    assert "purged_time_series" in code, (
+        f"'purged_time_series' not found in {TIME_SERIES_NB.name}"
+    )
 
 
 def test_tuning_has_feature_weights_resolved_cell() -> None:

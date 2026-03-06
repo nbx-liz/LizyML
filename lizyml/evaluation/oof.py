@@ -95,3 +95,23 @@ def get_fold_pred(
         return proba[:, 1]  # positive-class probability
     # multiclass: return full probability matrix
     return proba
+
+
+def get_fold_raw(
+    estimator: BaseEstimatorAdapter,
+    X_valid: pd.DataFrame,
+    task: TaskType,
+) -> npt.NDArray[np.float64]:
+    """Extract raw scores (logits) from an estimator for calibration.
+
+    Args:
+        estimator: A fitted :class:`~lizyml.estimators.base.BaseEstimatorAdapter`.
+        X_valid: Transformed validation features.
+        task: ML task type.
+
+    Returns:
+        - ``(n_valid,)`` for regression (raw predictions) and binary (logits).
+        - ``(n_valid, n_classes)`` for multiclass (raw scores).
+    """
+    raw: npt.NDArray[np.float64] = estimator.predict_raw(X_valid)
+    return raw
