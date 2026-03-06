@@ -208,7 +208,8 @@ class Model:
             X = X.iloc[sort_order].reset_index(drop=True)
             y = y.iloc[sort_order].reset_index(drop=True)
             if groups is not None:
-                groups = groups[sort_order]
+                sorted_groups: npt.NDArray[Any] = groups[sort_order]
+                groups = sorted_groups
             self._X = X
             self._y = y
             components.X = X
@@ -830,7 +831,8 @@ class Model:
             X = X.iloc[sort_order].reset_index(drop=True)
             y = y.iloc[sort_order].reset_index(drop=True)
             if groups is not None:
-                groups = groups[sort_order]
+                sorted_groups: npt.NDArray[Any] = groups[sort_order]
+                groups = sorted_groups
 
         n_classes = int(y.nunique()) if cfg.task == "multiclass" else None
         splitter = self._build_splitter()
