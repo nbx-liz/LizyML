@@ -302,11 +302,17 @@ class TestLoadErrors:
 
 
 class TestPurgedTimeSeries:
-    def test_negative_gap_raises(self) -> None:
+    def test_negative_purge_gap_raises(self) -> None:
         from lizyml.splitters.purged_time_series import PurgedTimeSeriesSplitter
 
-        with pytest.raises(ValueError, match="gap must be >= 0"):
-            PurgedTimeSeriesSplitter(gap=-1)
+        with pytest.raises(ValueError, match="purge_gap must be >= 0"):
+            PurgedTimeSeriesSplitter(purge_gap=-1)
+
+    def test_negative_embargo_pct_raises(self) -> None:
+        from lizyml.splitters.purged_time_series import PurgedTimeSeriesSplitter
+
+        with pytest.raises(ValueError, match="embargo_pct must be >= 0"):
+            PurgedTimeSeriesSplitter(embargo_pct=-0.1)
 
     def test_too_few_samples_raises(self) -> None:
         from lizyml.splitters.purged_time_series import PurgedTimeSeriesSplitter
@@ -315,19 +321,11 @@ class TestPurgedTimeSeries:
         with pytest.raises(ValueError, match="too small"):
             list(sp.split(3))
 
-    def test_large_gap_skips_folds(self) -> None:
+    def test_large_purge_gap_skips_folds(self) -> None:
         from lizyml.splitters.purged_time_series import PurgedTimeSeriesSplitter
 
-        # gap=50 with 100 samples and 5 splits: some folds should be skipped
-        sp = PurgedTimeSeriesSplitter(n_splits=5, gap=50)
-        folds = list(sp.split(100))
-        assert len(folds) < 5
-
-    def test_large_purge_skips_folds(self) -> None:
-        from lizyml.splitters.purged_time_series import PurgedTimeSeriesSplitter
-
-        # purge_window so large it consumes all training data
-        sp = PurgedTimeSeriesSplitter(n_splits=3, purge_window=100)
+        # purge_gap so large it consumes all training data
+        sp = PurgedTimeSeriesSplitter(n_splits=3, purge_gap=100)
         folds = list(sp.split(40))
         assert len(folds) == 0
 

@@ -78,8 +78,34 @@ class PurgedTimeSeriesConfig(BaseModel):
 
     method: Literal["purged_time_series"]
     n_splits: int = 5
-    purge_window: int = 0
-    gap: int = 0
+    purge_gap: int = 0
+    embargo_pct: float = 0.0
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_legacy_keys(cls, data: Any) -> Any:
+        """Accept legacy keys ``purge_window`` / ``gap`` with deprecation warning."""
+        if not isinstance(data, dict):
+            return data
+        import warnings
+
+        if "purge_window" in data and "purge_gap" not in data:
+            warnings.warn(
+                "purged_time_series key 'purge_window' is deprecated; "
+                "use 'purge_gap' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            data["purge_gap"] = data.pop("purge_window")
+        if "gap" in data and "embargo_pct" not in data:
+            warnings.warn(
+                "purged_time_series key 'gap' is deprecated; "
+                "use 'embargo_pct' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            data["embargo_pct"] = float(data.pop("gap"))
+        return data
 
 
 class GroupTimeSeriesConfig(BaseModel):
@@ -294,6 +320,7 @@ class CalibrationConfig(BaseModel):
 
     method: Literal["platt", "isotonic", "beta"] = "platt"
     n_splits: int = 5
+    params: dict[str, Any] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -314,3 +341,4 @@ class LizyMLConfig(BaseModel):
     tuning: TuningConfig | None = None
     evaluation: EvaluationConfig = EvaluationConfig()
     calibration: CalibrationConfig | None = None
+    output_dir: str | None = None

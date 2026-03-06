@@ -323,14 +323,16 @@ def config_to_split_spec(config: LizyMLConfig) -> SplitSpec:
     random_state: int | None = getattr(split, "random_state", None)
     shuffle: bool = getattr(split, "shuffle", False)
     gap: int = getattr(split, "gap", 0)
-    purge_window: int = getattr(split, "purge_window", 0)
+    purge_gap: int = getattr(split, "purge_gap", 0)
+    embargo_pct: float = getattr(split, "embargo_pct", 0.0)
     return SplitSpec(
         method=split.method,
         n_splits=split.n_splits,
         random_state=random_state,
         shuffle=shuffle,
         gap=gap,
-        purge_window=purge_window,
+        purge_gap=purge_gap,
+        embargo_pct=embargo_pct,
     )
 
 
