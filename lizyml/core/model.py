@@ -206,11 +206,13 @@ class Model:
         ):
             _leaf_ratio = model_cfg.min_data_in_leaf_ratio
             _bin_ratio = model_cfg.min_data_in_bin_ratio
-            ratio_resolver = lambda n: resolve_ratio_params(
-                min_data_in_leaf_ratio=_leaf_ratio,
-                min_data_in_bin_ratio=_bin_ratio,
-                n_rows=n,
-            )
+
+            def ratio_resolver(n: int) -> dict[str, int]:
+                return resolve_ratio_params(
+                    min_data_in_leaf_ratio=_leaf_ratio,
+                    min_data_in_bin_ratio=_bin_ratio,
+                    n_rows=n,
+                )
 
         def make_pipeline() -> NativeFeaturePipeline:
             return NativeFeaturePipeline()
@@ -1158,12 +1160,16 @@ class Model:
 
         # --- Config smart params ---
         if isinstance(model_cfg, LGBMConfig):
-            rows.append({"parameter": "auto_num_leaves", "value": model_cfg.auto_num_leaves})
-            rows.append({"parameter": "num_leaves_ratio", "value": model_cfg.num_leaves_ratio})
-            rows.append({"parameter": "min_data_in_leaf_ratio", "value": model_cfg.min_data_in_leaf_ratio})
-            rows.append({"parameter": "min_data_in_bin_ratio", "value": model_cfg.min_data_in_bin_ratio})
-            rows.append({"parameter": "balanced", "value": model_cfg.balanced})
-            rows.append({"parameter": "feature_weights", "value": model_cfg.feature_weights})
+            smart = {
+                "auto_num_leaves": model_cfg.auto_num_leaves,
+                "num_leaves_ratio": model_cfg.num_leaves_ratio,
+                "min_data_in_leaf_ratio": model_cfg.min_data_in_leaf_ratio,
+                "min_data_in_bin_ratio": model_cfg.min_data_in_bin_ratio,
+                "balanced": model_cfg.balanced,
+                "feature_weights": model_cfg.feature_weights,
+            }
+            for k, v in smart.items():
+                rows.append({"parameter": k, "value": v})
 
         # --- Config training params ---
         es = self._cfg.training.early_stopping

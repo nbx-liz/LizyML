@@ -33,8 +33,10 @@ def test_notebook_executes(notebook_name: str) -> None:
     assert path.exists(), f"Notebook not found: {path}"
 
     nb = nbformat.read(str(path), as_version=4)
+    # Tuning notebook runs Optuna trials — needs more time on CI
+    cell_timeout = 600 if "tuning" in notebook_name else 180
     ep = nbconvert_pp.ExecutePreprocessor(
-        timeout=180,
+        timeout=cell_timeout,
         kernel_name="python3",
     )
     ep.preprocess(nb, {"metadata": {"path": str(NOTEBOOKS_DIR)}})
