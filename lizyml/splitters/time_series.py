@@ -33,11 +33,13 @@ class TimeSeriesSplitter(BaseSplitter):
         n_splits: int = 5,
         gap: int = 0,
         max_train_size: int | None = None,
+        max_test_size: int | None = None,
     ) -> None:
         self._tss = TimeSeriesSplit(
             n_splits=n_splits,
             gap=gap,
             max_train_size=max_train_size,
+            test_size=max_test_size,
         )
 
     def split(

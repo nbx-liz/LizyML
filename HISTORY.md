@@ -2435,3 +2435,64 @@ Requirements Audit の結果、23-F は部分達成。
 ### Migration
 
 - 移行必須なし（任意で Config に `output_dir` を追加可能）。
+
+---
+
+## 2026-03-07: TimeSeries CV 方針更新（time_col基準統一 + embargo改名）
+
+- ID: `H-0040`
+- Status: `accepted`
+- Scope: `Config | Split | InnerValid`
+- Related: `BLUEPRINT.md §5.4, §6.2, §10.2, §10.3`, `PLAN.md Phase 23`
+
+### Context
+
+TimeSeries 系 split（`time_series` / `purged_time_series` / `group_time_series`）の仕様が、`time_col` の扱い・パラメーター命名・ウィンドウ制御の観点で統一されていない。  
+現状は「行順ベース」の実装が混在しており、ユーザーが `time_col` を指定しても split ロジックがその列で明示的にソートする契約になっていない。
+
+### Proposal
+
+1. 3 メソッド共通で `data.time_col` を必須化し、split 前に `time_col` 昇順で並べてから分割する。
+2. 3 メソッド共通でウィンドウ制御キー `train_size_max` / `test_size_max` を持つ。
+3. `time_series` / `group_time_series` は `gap`、`purged_time_series` は `purge_gap` を継続し、3 メソッドでギャップ指定を共通概念として扱う。
+4. `purged_time_series` の `embargo_pct`（`float`）を `embargo`（`int`、Obs 数指定）に改名・型変更する。`gap` / `purge_gap` と同じ単位に統一。
+5. 既存ユーザー向けに `embargo_pct` は移行期間中のみ警告付きで受理し、`int()` 変換の上 `embargo` へ正規化する。
+
+### Impact
+
+- `lizyml/config/schema.py`（split config 契約の更新）
+- `lizyml/config/loader.py`（正規化・後方互換）
+- `lizyml/core/model.py`（time_col 必須チェック、split 構築）
+- `lizyml/splitters/time_series.py`
+- `lizyml/splitters/purged_time_series.py`
+- `lizyml/splitters/group_time_series.py`
+- `lizyml/training/cv_trainer.py`（time_col 昇順前処理の適用位置に応じて）
+- `tests/test_splitters/*`, `tests/test_e2e/test_time_series_splits.py`, `tests/test_e2e/test_split_summary.py`
+
+### Compatibility
+
+- `embargo_pct` -> `embargo` は公開 Config 契約の変更を含むため、最終的には破壊的。
+- 移行期間中は `embargo_pct` を警告付き互換として受理し、段階移行可能にする。
+- `time_col` 必須化は既存の「行順依存」設定に影響するため、エラーメッセージと移行ガイドを明示する。
+
+### Alternatives Considered
+
+1. 現行の「行順前提」運用を継続し、`time_col` 必須化しない  
+   - 不採用。データ前処理依存で誤用しやすく、仕様の再現性を下げるため。
+2. `embargo_pct` 名を維持して文言だけ調整する  
+   - 不採用。指定単位の誤解が残るため、命名統一を優先。
+
+### Acceptance Criteria
+
+- 3 メソッドで `data.time_col` 未指定時は `CONFIG_INVALID` となる。
+- `time_col` 非昇順データを与えても、`time_col` 昇順での分割結果が再現される。
+- 3 メソッドすべてで `train_size_max` / `test_size_max` が有効に解釈される。
+- `purged_time_series` で `embargo` が有効に動作する。
+- `embargo_pct` 指定時は警告を出しつつ `embargo` と同等動作になる。
+- 既存の leakage 防止テストと split_summary テストが回帰しない。
+
+### Migration
+
+- `split.method: "purged_time_series"` を使う既存 Config は `embargo_pct` を `embargo` に置換する。
+- `time_series` / `purged_time_series` / `group_time_series` を使う既存 Config は `data.time_col` を必ず指定する。
+- 既存の並び替え前提コードは、`time_col` の値が期待どおりの順序を持つことを確認する。

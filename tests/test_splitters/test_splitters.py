@@ -195,6 +195,16 @@ class TestTimeSeriesSplitter:
             # With gap, valid set starts later so train and valid have space
             assert len(t_gap) <= len(t_no)
 
+    def test_max_train_size(self) -> None:
+        sp = TimeSeriesSplitter(n_splits=5, max_train_size=20)
+        for train, _valid in sp.split(N):
+            assert len(train) <= 20
+
+    def test_max_test_size(self) -> None:
+        sp = TimeSeriesSplitter(n_splits=3, max_test_size=5)
+        for _train, valid in sp.split(N):
+            assert len(valid) <= 5
+
 
 # ---------------------------------------------------------------------------
 # PurgedTimeSeriesSplitter
@@ -231,32 +241,37 @@ class TestPurgedTimeSeriesSplitter:
             PurgedTimeSeriesSplitter(purge_gap=-1)
 
     def test_embargo_shrinks_train(self) -> None:
-        folds_no_embargo = _collect(
-            PurgedTimeSeriesSplitter(n_splits=5, embargo_pct=0.0)
-        )
-        folds_embargo = _collect(PurgedTimeSeriesSplitter(n_splits=5, embargo_pct=0.1))
+        folds_no_embargo = _collect(PurgedTimeSeriesSplitter(n_splits=5, embargo=0))
+        folds_embargo = _collect(PurgedTimeSeriesSplitter(n_splits=5, embargo=12))
         for (t_no, _), (t_e, _) in zip(folds_no_embargo, folds_embargo, strict=False):
             assert len(t_e) < len(t_no)
 
     def test_embargo_gap_boundary(self) -> None:
         n = 120
         purge_gap = 2
-        embargo_pct = 0.05
-        embargo_size = int(n * embargo_pct)  # 6
-        sp = PurgedTimeSeriesSplitter(
-            n_splits=5, purge_gap=purge_gap, embargo_pct=embargo_pct
-        )
+        embargo = 6
+        sp = PurgedTimeSeriesSplitter(n_splits=5, purge_gap=purge_gap, embargo=embargo)
         for train, valid in sp.split(n):
             gap = valid.min() - train.max()
-            assert gap >= purge_gap + embargo_size
+            assert gap >= purge_gap + embargo
 
     def test_embargo_no_leakage(self) -> None:
-        _no_leakage(_collect(PurgedTimeSeriesSplitter(n_splits=5, embargo_pct=0.1)))
+        _no_leakage(_collect(PurgedTimeSeriesSplitter(n_splits=5, embargo=12)))
 
     def test_large_embargo_skips_folds(self) -> None:
-        sp = PurgedTimeSeriesSplitter(n_splits=3, embargo_pct=0.5)
+        sp = PurgedTimeSeriesSplitter(n_splits=3, embargo=20)
         folds = list(sp.split(40))
         assert len(folds) < 3
+
+    def test_max_train_size(self) -> None:
+        sp = PurgedTimeSeriesSplitter(n_splits=5, max_train_size=15)
+        for train, _valid in sp.split(N):
+            assert len(train) <= 15
+
+    def test_max_test_size(self) -> None:
+        sp = PurgedTimeSeriesSplitter(n_splits=5, max_test_size=8)
+        for _train, valid in sp.split(N):
+            assert len(valid) <= 8
 
 
 # ---------------------------------------------------------------------------
@@ -306,6 +321,20 @@ class TestGroupTimeSeriesSplitter:
         groups = np.array([0, 0, 1, 1] * 10)
         with pytest.raises(ValueError, match="Not enough groups"):
             _collect(GroupTimeSeriesSplitter(n_splits=5), groups=groups)
+
+    def test_max_train_size(self) -> None:
+        """max_train_size limits number of training groups."""
+        groups = self._groups(n_groups=12)
+        sp = GroupTimeSeriesSplitter(n_splits=5, max_train_size=2)
+        for train, _valid in sp.split(N, groups=groups):
+            assert len(set(groups[train])) <= 2
+
+    def test_max_test_size(self) -> None:
+        """max_test_size limits number of validation groups."""
+        groups = self._groups(n_groups=12)
+        sp = GroupTimeSeriesSplitter(n_splits=5, max_test_size=1)
+        for _train, valid in sp.split(N, groups=groups):
+            assert len(set(groups[valid])) <= 1
 
 
 # ---------------------------------------------------------------------------

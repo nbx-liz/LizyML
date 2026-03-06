@@ -23,4 +23,6 @@ class SplitSpec:
     shuffle: bool
     gap: int
     purge_gap: int = 0
-    embargo_pct: float = 0.0
+    embargo: int = 0
+    train_size_max: int | None = None
+    test_size_max: int | None = None

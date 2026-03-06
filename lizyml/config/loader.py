@@ -324,7 +324,9 @@ def config_to_split_spec(config: LizyMLConfig) -> SplitSpec:
     shuffle: bool = getattr(split, "shuffle", False)
     gap: int = getattr(split, "gap", 0)
     purge_gap: int = getattr(split, "purge_gap", 0)
-    embargo_pct: float = getattr(split, "embargo_pct", 0.0)
+    embargo: int = getattr(split, "embargo", 0)
+    train_size_max: int | None = getattr(split, "train_size_max", None)
+    test_size_max: int | None = getattr(split, "test_size_max", None)
     return SplitSpec(
         method=split.method,
         n_splits=split.n_splits,
@@ -332,7 +334,9 @@ def config_to_split_spec(config: LizyMLConfig) -> SplitSpec:
         shuffle=shuffle,
         gap=gap,
         purge_gap=purge_gap,
-        embargo_pct=embargo_pct,
+        embargo=embargo,
+        train_size_max=train_size_max,
+        test_size_max=test_size_max,
     )
 
 

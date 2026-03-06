@@ -308,11 +308,11 @@ class TestPurgedTimeSeries:
         with pytest.raises(ValueError, match="purge_gap must be >= 0"):
             PurgedTimeSeriesSplitter(purge_gap=-1)
 
-    def test_negative_embargo_pct_raises(self) -> None:
+    def test_negative_embargo_raises(self) -> None:
         from lizyml.splitters.purged_time_series import PurgedTimeSeriesSplitter
 
-        with pytest.raises(ValueError, match="embargo_pct must be >= 0"):
-            PurgedTimeSeriesSplitter(embargo_pct=-0.1)
+        with pytest.raises(ValueError, match="embargo must be >= 0"):
+            PurgedTimeSeriesSplitter(embargo=-1)
 
     def test_too_few_samples_raises(self) -> None:
         from lizyml.splitters.purged_time_series import PurgedTimeSeriesSplitter
