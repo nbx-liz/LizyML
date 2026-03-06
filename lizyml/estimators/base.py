@@ -72,6 +72,7 @@ class BaseEstimatorAdapter(ABC):
         Used by CVTrainer for per-fold ratio parameter resolution (H-0036).
         Subclasses should override if they store params internally.
         """
+        return  # noqa: B027 — intentional no-op default
 
     @property
     def best_iteration(self) -> int | None:
