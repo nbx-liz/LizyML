@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
@@ -16,11 +17,15 @@ class SplitIndices:
         outer: Per-fold ``(train_idx, valid_idx)`` tuples for outer CV.
         inner: Per-fold inner validation indices (None when not used).
         calibration: Per-fold calibration CV indices (None when not used).
+        time_range: Per-fold time period info (None for non-time-series splits).
+            Each entry is a dict with keys: ``fold``, ``train_start``,
+            ``train_end``, ``valid_start``, ``valid_end``.
     """
 
     outer: list[tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]]
     inner: list[tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]] | None
     calibration: list[tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]] | None
+    time_range: list[dict[str, Any]] | None = field(default=None)
 
 
 @dataclass

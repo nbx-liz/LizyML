@@ -55,6 +55,15 @@ class BaseEstimatorAdapter(ABC):
         """Return class probabilities, shape ``(n, k)`` for multiclass."""
 
     @abstractmethod
+    def predict_raw(self, X: pd.DataFrame) -> npt.NDArray[np.float64]:
+        """Return raw scores (logits) before sigmoid/softmax.
+
+        For regression, identical to ``predict()``.
+        For binary, returns 1-D logit scores.
+        For multiclass, returns ``(n, k)`` raw scores.
+        """
+
+    @abstractmethod
     def importance(self, kind: ImportanceKind = "split") -> dict[str, float]:
         """Return feature importance scores keyed by feature name.
 

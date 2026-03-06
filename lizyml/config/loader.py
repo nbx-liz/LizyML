@@ -42,6 +42,10 @@ _SPLIT_METHOD_ALIASES: dict[str, str] = {
     "groupkfold": "group_kfold",
     "time-series": "time_series",
     "timeseries": "time_series",
+    "purged-time-series": "purged_time_series",
+    "purgedtimeseries": "purged_time_series",
+    "group-time-series": "group_time_series",
+    "grouptimeseries": "group_time_series",
 }
 
 _ENV_PREFIX = "LIZYML__"
@@ -319,12 +323,20 @@ def config_to_split_spec(config: LizyMLConfig) -> SplitSpec:
     random_state: int | None = getattr(split, "random_state", None)
     shuffle: bool = getattr(split, "shuffle", False)
     gap: int = getattr(split, "gap", 0)
+    purge_gap: int = getattr(split, "purge_gap", 0)
+    embargo: int = getattr(split, "embargo", 0)
+    train_size_max: int | None = getattr(split, "train_size_max", None)
+    test_size_max: int | None = getattr(split, "test_size_max", None)
     return SplitSpec(
         method=split.method,
         n_splits=split.n_splits,
         random_state=random_state,
         shuffle=shuffle,
         gap=gap,
+        purge_gap=purge_gap,
+        embargo=embargo,
+        train_size_max=train_size_max,
+        test_size_max=test_size_max,
     )
 
 

@@ -71,10 +71,71 @@ class TimeSeriesConfig(BaseModel):
     method: Literal["time_series"]
     n_splits: int = 5
     gap: int = 0
+    train_size_max: int | None = None
+    test_size_max: int | None = None
+
+
+class PurgedTimeSeriesConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["purged_time_series"]
+    n_splits: int = 5
+    purge_gap: int = 0
+    embargo: int = 0
+    train_size_max: int | None = None
+    test_size_max: int | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_legacy_keys(cls, data: Any) -> Any:
+        """Accept legacy keys with deprecation warning."""
+        if not isinstance(data, dict):
+            return data
+        import warnings
+
+        if "purge_window" in data and "purge_gap" not in data:
+            warnings.warn(
+                "purged_time_series key 'purge_window' is deprecated; "
+                "use 'purge_gap' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            data["purge_gap"] = data.pop("purge_window")
+        if "embargo_pct" in data and "embargo" not in data:
+            warnings.warn(
+                "purged_time_series key 'embargo_pct' is deprecated; "
+                "use 'embargo' (int, obs count) instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            data["embargo"] = int(data.pop("embargo_pct"))
+        if "gap" in data and "embargo" not in data:
+            warnings.warn(
+                "purged_time_series key 'gap' is deprecated; use 'embargo' instead.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            data["embargo"] = int(data.pop("gap"))
+        return data
+
+
+class GroupTimeSeriesConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["group_time_series"]
+    n_splits: int = 5
+    gap: int = 0
+    train_size_max: int | None = None
+    test_size_max: int | None = None
 
 
 SplitConfig = Annotated[
-    KFoldConfig | StratifiedKFoldConfig | GroupKFoldConfig | TimeSeriesConfig,
+    KFoldConfig
+    | StratifiedKFoldConfig
+    | GroupKFoldConfig
+    | TimeSeriesConfig
+    | PurgedTimeSeriesConfig
+    | GroupTimeSeriesConfig,
     Field(discriminator="method"),
 ]
 
@@ -272,6 +333,7 @@ class CalibrationConfig(BaseModel):
 
     method: Literal["platt", "isotonic", "beta"] = "platt"
     n_splits: int = 5
+    params: dict[str, Any] = {}
 
 
 # ---------------------------------------------------------------------------
@@ -292,3 +354,4 @@ class LizyMLConfig(BaseModel):
     tuning: TuningConfig | None = None
     evaluation: EvaluationConfig = EvaluationConfig()
     calibration: CalibrationConfig | None = None
+    output_dir: str | None = None
