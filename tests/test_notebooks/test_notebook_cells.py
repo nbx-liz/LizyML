@@ -24,9 +24,7 @@ TUNING_NB = NOTEBOOKS_DIR / "tutorial_regression_tuning_lgbm.ipynb"
 def _read_code_cells(path: Path) -> str:
     """Concatenate all code cell sources into a single string."""
     nb = nbformat.read(str(path), as_version=4)
-    return "\n".join(
-        cell.source for cell in nb.cells if cell.cell_type == "code"
-    )
+    return "\n".join(cell.source for cell in nb.cells if cell.cell_type == "code")
 
 
 # --- Config keywords required in all 3 main notebooks ---
@@ -45,9 +43,7 @@ CONFIG_KEYWORDS = [
 @pytest.mark.parametrize("keyword", CONFIG_KEYWORDS)
 def test_config_keywords_present(notebook_path: Path, keyword: str) -> None:
     code = _read_code_cells(notebook_path)
-    assert keyword in code, (
-        f"'{keyword}' not found in {notebook_path.name}"
-    )
+    assert keyword in code, f"'{keyword}' not found in {notebook_path.name}"
 
 
 # --- params_table() call required in all 4 notebooks ---

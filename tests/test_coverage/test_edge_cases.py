@@ -72,7 +72,10 @@ class TestBuildSplitter:
         from lizyml.core.specs.split_spec import SplitSpec
 
         defaults: dict[str, Any] = {
-            "n_splits": 3, "random_state": 42, "shuffle": True, "gap": 0,
+            "n_splits": 3,
+            "random_state": 42,
+            "shuffle": True,
+            "gap": 0,
         }
         defaults.update(kw)
         return SplitSpec(method=method, **defaults)
@@ -487,10 +490,12 @@ class TestValidators:
         from lizyml.data.validators import validate_no_target_leakage
 
         # Mixed types that cause comparison issues
-        df = pd.DataFrame({
-            "target": [1, 2, 3],
-            "mixed": [object(), object(), object()],
-        })
+        df = pd.DataFrame(
+            {
+                "target": [1, 2, 3],
+                "mixed": [object(), object(), object()],
+            }
+        )
         # Should not raise, returns empty list
         result = validate_no_target_leakage(df, "target", raise_on_violation=False)
         assert isinstance(result, list)
