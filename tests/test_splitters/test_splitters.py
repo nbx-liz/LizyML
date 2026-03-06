@@ -230,6 +230,34 @@ class TestPurgedTimeSeriesSplitter:
         with pytest.raises(ValueError, match="purge_gap must be >= 0"):
             PurgedTimeSeriesSplitter(purge_gap=-1)
 
+    def test_embargo_shrinks_train(self) -> None:
+        folds_no_embargo = _collect(
+            PurgedTimeSeriesSplitter(n_splits=5, embargo_pct=0.0)
+        )
+        folds_embargo = _collect(PurgedTimeSeriesSplitter(n_splits=5, embargo_pct=0.1))
+        for (t_no, _), (t_e, _) in zip(folds_no_embargo, folds_embargo, strict=False):
+            assert len(t_e) < len(t_no)
+
+    def test_embargo_gap_boundary(self) -> None:
+        n = 120
+        purge_gap = 2
+        embargo_pct = 0.05
+        embargo_size = int(n * embargo_pct)  # 6
+        sp = PurgedTimeSeriesSplitter(
+            n_splits=5, purge_gap=purge_gap, embargo_pct=embargo_pct
+        )
+        for train, valid in sp.split(n):
+            gap = valid.min() - train.max()
+            assert gap >= purge_gap + embargo_size
+
+    def test_embargo_no_leakage(self) -> None:
+        _no_leakage(_collect(PurgedTimeSeriesSplitter(n_splits=5, embargo_pct=0.1)))
+
+    def test_large_embargo_skips_folds(self) -> None:
+        sp = PurgedTimeSeriesSplitter(n_splits=3, embargo_pct=0.5)
+        folds = list(sp.split(40))
+        assert len(folds) < 3
+
 
 # ---------------------------------------------------------------------------
 # GroupTimeSeriesSplitter

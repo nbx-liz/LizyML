@@ -931,19 +931,31 @@ class Model:
 
         return plot_oof_distribution(fit_result)
 
-    def export(self, path: str | Path) -> None:
+    def export(self, path: str | Path | None = None) -> Path:
         """Export Model artifacts to a directory.
 
         Saves ``fit_result.pkl``, ``refit_model.pkl``, ``metadata.json``,
         and ``analysis_context.pkl`` under *path*.  The saved model can be
         restored with :meth:`load`, including diagnostic API support.
 
+        Path resolution (first match wins):
+
+        1. Explicit *path* argument.
+        2. ``{run_dir}/export`` when a run directory exists from ``fit``/``tune``.
+        3. New run directory under ``output_dir`` if configured.
+        4. Error — no destination available.
+
         Args:
-            path: Output directory (created if absent).
+            path: Output directory (created if absent).  Optional when
+                ``output_dir`` is configured via Config or constructor.
+
+        Returns:
+            Resolved export directory path.
 
         Raises:
             LizyMLError with MODEL_NOT_FIT when called before ``fit``.
-            LizyMLError with SERIALIZATION_FAILED on I/O errors.
+            LizyMLError with SERIALIZATION_FAILED on I/O errors or when
+                no path can be resolved.
 
         Warning:
             The ``.pkl`` files use joblib/pickle.  Only load artifacts from
@@ -951,6 +963,9 @@ class Model:
         """
         fit_result = self._require_fit()
         refit_result = self._require_refit()
+
+        resolved_path = self._resolve_export_path(path)
+
         from lizyml.persistence.exporter import AnalysisContext
         from lizyml.persistence.exporter import export as _export
 
@@ -959,14 +974,35 @@ class Model:
             ctx = AnalysisContext(y_true=self._y, X_for_explain=self._X)
 
         _export(
-            path=path,
+            path=resolved_path,
             fit_result=fit_result,
             refit_result=refit_result,
             config=self._cfg.model_dump(),
             task=self._cfg.task,
             analysis_context=ctx,
         )
-        _log.info("event='export.done' path=%s", path)
+        _log.info("event='export.done' path=%s", resolved_path)
+        return resolved_path
+
+    def _resolve_export_path(self, path: str | Path | None) -> Path:
+        """Resolve the export destination directory."""
+        if path is not None:
+            return Path(path)
+        if self._run_dir is not None:
+            return Path(self._run_dir) / "export"
+        if self._output_dir is not None:
+            from lizyml.core.logging import setup_output_dir
+
+            export_run_id = generate_run_id()
+            self._run_dir = setup_output_dir(self._output_dir, export_run_id)
+            return Path(self._run_dir) / "export"
+        raise LizyMLError(
+            ErrorCode.SERIALIZATION_FAILED,
+            user_message=(
+                "No export path provided and no output_dir configured. "
+                "Pass an explicit path or set output_dir in Config / constructor."
+            ),
+        )
 
     @classmethod
     def load(cls, path: str | Path) -> Model:

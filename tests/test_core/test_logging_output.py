@@ -128,3 +128,76 @@ class TestModelOutputDir:
             if isinstance(h, logging.FileHandler):
                 root.removeHandler(h)
                 h.close()
+
+
+def _cleanup_file_handlers() -> None:
+    root = logging.getLogger("lizyml")
+    for h in list(root.handlers):
+        if isinstance(h, logging.FileHandler):
+            root.removeHandler(h)
+            h.close()
+
+
+class TestExportOutputDir:
+    def test_export_explicit_path(self, tmp_path: Path) -> None:
+        """Explicit path argument is used directly (backward compat)."""
+        df = _reg_df()
+        model = Model(_reg_config(), data=df)
+        model.fit()
+
+        export_dir = tmp_path / "custom_export"
+        result = model.export(path=export_dir)
+
+        assert result == export_dir
+        assert (export_dir / "metadata.json").exists()
+
+    def test_export_uses_run_dir_after_fit(self, tmp_path: Path) -> None:
+        """export() with no path uses {run_dir}/export after fit."""
+        df = _reg_df()
+        model = Model(_reg_config(), data=df, output_dir=tmp_path)
+        model.fit()
+
+        result = model.export()
+
+        assert result == model._run_dir / "export"
+        assert (result / "metadata.json").exists()
+
+        _cleanup_file_handlers()
+
+    def test_export_creates_run_dir_from_output_dir(self, tmp_path: Path) -> None:
+        """export() creates a new run dir when only output_dir is set."""
+        df = _reg_df()
+        model = Model(_reg_config(), data=df, output_dir=tmp_path)
+        model.fit()
+        # Reset run_dir to simulate export without prior run dir
+        model._run_dir = None
+
+        result = model.export()
+
+        assert result.name == "export"
+        assert model._run_dir is not None
+        assert (result / "metadata.json").exists()
+
+        _cleanup_file_handlers()
+
+    def test_export_no_path_no_output_dir_raises(self) -> None:
+        """export() with no path and no output_dir raises error."""
+        import pytest
+
+        from lizyml.core.exceptions import LizyMLError
+
+        df = _reg_df()
+        model = Model(_reg_config(), data=df)
+        model.fit()
+
+        with pytest.raises(LizyMLError, match="No export path"):
+            model.export()
+
+    def test_export_returns_path(self, tmp_path: Path) -> None:
+        """export() returns a Path object."""
+        df = _reg_df()
+        model = Model(_reg_config(), data=df)
+        model.fit()
+
+        result = model.export(path=tmp_path / "out")
+        assert isinstance(result, Path)
