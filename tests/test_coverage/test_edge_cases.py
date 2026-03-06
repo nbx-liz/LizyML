@@ -19,7 +19,6 @@ import pytest
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 
-
 # ============================================================================
 # 1. splitters/holdout.py  (60% -> 95%+)
 # ============================================================================
@@ -138,9 +137,11 @@ class TestNormalizeShapOutput:
         mock_explainer = MagicMock()
         mock_explainer.shap_values.return_value = [arr0, arr1]
 
-        with patch("lizyml.explain.shap_explainer._shap") as mock_shap:
+        _patch = patch("lizyml.explain.shap_explainer._shap")
+        with _patch as mock_shap:
             mock_shap.TreeExplainer.return_value = mock_explainer
-            result = compute_shap_values(mock_model, pd.DataFrame(np.zeros((10, 5))), "binary")
+            X = pd.DataFrame(np.zeros((10, 5)))
+            result = compute_shap_values(mock_model, X, "binary")
         np.testing.assert_array_equal(result, arr1)
 
     def test_legacy_list_multiclass(self) -> None:
@@ -151,9 +152,11 @@ class TestNormalizeShapOutput:
         mock_explainer = MagicMock()
         mock_explainer.shap_values.return_value = arrs
 
-        with patch("lizyml.explain.shap_explainer._shap") as mock_shap:
+        _patch = patch("lizyml.explain.shap_explainer._shap")
+        with _patch as mock_shap:
             mock_shap.TreeExplainer.return_value = mock_explainer
-            result = compute_shap_values(mock_model, pd.DataFrame(np.zeros((10, 5))), "multiclass")
+            X = pd.DataFrame(np.zeros((10, 5)))
+            result = compute_shap_values(mock_model, X, "multiclass")
         assert result.shape == (10, 5)
         expected = np.mean(np.abs(np.stack(arrs, axis=0)), axis=0)
         np.testing.assert_allclose(result, expected)
@@ -163,12 +166,13 @@ class TestNormalizeShapOutput:
 
         mock_model = MagicMock()
         mock_explainer = MagicMock()
-        # Return a tuple (not list, not ndarray) to trigger fallback
         mock_explainer.shap_values.return_value = ((1.0, 2.0), (3.0, 4.0))
 
-        with patch("lizyml.explain.shap_explainer._shap") as mock_shap:
+        _patch = patch("lizyml.explain.shap_explainer._shap")
+        with _patch as mock_shap:
             mock_shap.TreeExplainer.return_value = mock_explainer
-            result = compute_shap_values(mock_model, pd.DataFrame(np.zeros((2, 2))), "regression")
+            X = pd.DataFrame(np.zeros((2, 2)))
+            result = compute_shap_values(mock_model, X, "regression")
         assert isinstance(result, np.ndarray)
 
 
@@ -212,18 +216,20 @@ class TestExportError:
         mock_fr.metrics = {}
         mock_fr.feature_names = ["a"]
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            with patch("lizyml.persistence.exporter.joblib") as mock_jl:
-                mock_jl.dump.side_effect = IOError("disk full")
-                with pytest.raises(LizyMLError) as exc_info:
-                    export(
-                        path=tmpdir,
-                        fit_result=mock_fr,
-                        refit_result=MagicMock(),
-                        config={"task": "regression"},
-                        task="regression",
-                    )
-                assert exc_info.value.code == ErrorCode.SERIALIZATION_FAILED
+        with (
+            tempfile.TemporaryDirectory() as tmpdir,
+            patch("lizyml.persistence.exporter.joblib") as mock_jl,
+        ):
+            mock_jl.dump.side_effect = OSError("disk full")
+            with pytest.raises(LizyMLError) as exc_info:
+                export(
+                    path=tmpdir,
+                    fit_result=mock_fr,
+                    refit_result=MagicMock(),
+                    config={"task": "regression"},
+                    task="regression",
+                )
+            assert exc_info.value.code == ErrorCode.SERIALIZATION_FAILED
 
 
 # ============================================================================
@@ -236,7 +242,8 @@ class TestLoadErrors:
         from lizyml.persistence.loader import load
 
         with tempfile.TemporaryDirectory() as tmpdir:
-            (Path(tmpdir) / "metadata.json").write_text("NOT VALID JSON{{{", encoding="utf-8")
+            meta_path = Path(tmpdir) / "metadata.json"
+            meta_path.write_text("NOT VALID JSON{{{", encoding="utf-8")
             with pytest.raises(LizyMLError) as exc_info:
                 load(tmpdir)
             assert exc_info.value.code == ErrorCode.DESERIALIZATION_FAILED
@@ -253,7 +260,8 @@ class TestLoadErrors:
                 "config": {},
                 "run_id": "test",
             }
-            (Path(tmpdir) / "metadata.json").write_text(json.dumps(meta), encoding="utf-8")
+            meta_path = Path(tmpdir) / "metadata.json"
+            meta_path.write_text(json.dumps(meta), encoding="utf-8")
             (Path(tmpdir) / "fit_result.pkl").write_bytes(b"corrupt data")
             (Path(tmpdir) / "refit_model.pkl").write_bytes(b"corrupt data")
             with pytest.raises(LizyMLError) as exc_info:
@@ -272,7 +280,8 @@ class TestLoadErrors:
                 "config": {},
                 "run_id": "test",
             }
-            (Path(tmpdir) / "metadata.json").write_text(json.dumps(meta), encoding="utf-8")
+            meta_path = Path(tmpdir) / "metadata.json"
+            meta_path.write_text(json.dumps(meta), encoding="utf-8")
             # Create valid pkl for fit_result and refit but corrupt analysis_context
             import joblib
 

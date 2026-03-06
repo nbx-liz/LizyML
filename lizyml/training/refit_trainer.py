@@ -107,11 +107,8 @@ class RefitTrainer:
 
         # Resolve n_rows-dependent ratio params using inner_train size (H-0036)
         if self.ratio_param_resolver is not None:
-            if iv_result is not None:
-                n_inner_train = len(iv_result[0])  # inner_train_rel
-            else:
-                n_inner_train = n_samples
-            estimator.update_params(self.ratio_param_resolver(n_inner_train))
+            n_inner = len(iv_result[0]) if iv_result is not None else n_samples
+            estimator.update_params(self.ratio_param_resolver(n_inner))
 
         if iv_result is not None:
             inner_train_rel, inner_valid_rel = iv_result
