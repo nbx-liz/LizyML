@@ -9,9 +9,10 @@ from dataclasses import dataclass
 class InnerValidSpec:
     """Configuration for the inner validation strategy within each CV fold."""
 
-    method: str  # "holdout"
+    method: str  # "holdout" | "group_holdout" | "time_holdout"
     ratio: float
     random_state: int
+    stratify: bool = False
 
 
 @dataclass(frozen=True)

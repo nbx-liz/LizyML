@@ -308,3 +308,107 @@ class TestPublicAPI:
 
         assert isinstance(__version__, str)
         assert len(__version__) > 0
+
+
+# ---------------------------------------------------------------------------
+# fit_result property (22-J)
+# ---------------------------------------------------------------------------
+
+
+class TestFitResultProperty:
+    def test_returns_fit_result_after_fit(self) -> None:
+        m = Model(_reg_config())
+        m.fit(data=_reg_df())
+        assert isinstance(m.fit_result, FitResult)
+
+    def test_before_fit_raises(self) -> None:
+        m = Model(_reg_config())
+        with pytest.raises(LizyMLError) as exc_info:
+            _ = m.fit_result
+        assert exc_info.value.code == ErrorCode.MODEL_NOT_FIT
+
+
+# ---------------------------------------------------------------------------
+# params_table (22-M / H-0035)
+# ---------------------------------------------------------------------------
+
+
+class TestParamsTable:
+    def test_returns_dataframe(self) -> None:
+        m = Model(_reg_config())
+        m.fit(data=_reg_df())
+        table = m.params_table()
+        assert isinstance(table, pd.DataFrame)
+        assert table.index.name == "parameter"
+        assert "value" in table.columns
+
+    def test_contains_expected_params(self) -> None:
+        m = Model(_reg_config())
+        m.fit(data=_reg_df())
+        table = m.params_table()
+        params = set(table.index)
+        assert "objective" in params
+        assert "num_leaves" in params
+        assert "auto_num_leaves" in params
+        assert "best_iteration_0" in params
+
+    def test_before_fit_raises(self) -> None:
+        m = Model(_reg_config())
+        with pytest.raises(LizyMLError) as exc_info:
+            m.params_table()
+        assert exc_info.value.code == ErrorCode.MODEL_NOT_FIT
+
+
+# ---------------------------------------------------------------------------
+# H-0036: ratio params resolved with inner_train size
+# ---------------------------------------------------------------------------
+
+
+class TestRatioParamsInnerTrainSize:
+    """Verify min_data_in_leaf uses inner_train size, not full dataset."""
+
+    def test_min_data_in_leaf_uses_inner_train_size(self) -> None:
+        """With n=200, 3-fold, validation_ratio=0.1:
+        outer_train = 134 rows (200 * 2/3)
+        inner_train = ceil(134 * 0.9) = 121 rows
+        min_data_in_leaf = ceil(121 * 0.01) = 2
+        NOT ceil(200 * 0.01) = 2 (happens to be the same for small n)
+        Use ratio=0.1 to see a clearer difference.
+        """
+        config = {
+            "config_version": 1,
+            "task": "regression",
+            "data": {"target": "target"},
+            "split": {"method": "kfold", "n_splits": 3, "random_state": 42},
+            "model": {
+                "name": "lgbm",
+                "params": {"n_estimators": 20},
+                "min_data_in_leaf_ratio": 0.1,
+                "auto_num_leaves": False,
+            },
+            "training": {
+                "seed": 0,
+                "early_stopping": {
+                    "enabled": True,
+                    "rounds": 10,
+                    "validation_ratio": 0.2,
+                },
+            },
+        }
+        n = 300
+        df = _reg_df(n=n)
+        m = Model(config)
+        m.fit(data=df)
+
+        # Expected: n_outer_train ≈ 200 (300 * 2/3), inner_train ≈ 160 (200 * 0.8)
+        # min_data_in_leaf = ceil(160 * 0.1) = 16
+        # NOT ceil(300 * 0.1) = 30
+        booster = m.fit_result.models[0].get_native_model().booster_
+        mdil = int(booster.params["min_data_in_leaf"])
+
+        # Full dataset would give ceil(300 * 0.1) = 30
+        # Inner train should give something around ceil(160 * 0.1) = 16
+        assert mdil < 30, (
+            f"min_data_in_leaf={mdil} should be less than "
+            f"ceil(n_full * ratio)=30, indicating inner_train size was used"
+        )

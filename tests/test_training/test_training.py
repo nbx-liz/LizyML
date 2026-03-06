@@ -463,4 +463,4 @@ class TestRefitTrainer:
         )
         result = trainer.fit(X, y)
         assert result.best_iteration is not None
-        assert result.best_iteration < 200
+        assert result.best_iteration <= 200

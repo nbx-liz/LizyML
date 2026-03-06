@@ -223,7 +223,7 @@ class TestShapImportance:
             m.importance(kind="shap")
         assert exc_info.value.code == ErrorCode.MODEL_NOT_FIT
 
-    def test_after_load_raises(self) -> None:
+    def test_after_load_succeeds(self) -> None:
         import tempfile
         from pathlib import Path
 
@@ -233,10 +233,9 @@ class TestShapImportance:
             m.export(str(export_dir))
             loaded = Model.load(str(export_dir))
 
-        with pytest.raises(LizyMLError) as exc_info:
-            loaded.importance(kind="shap")
-        assert exc_info.value.code == ErrorCode.MODEL_NOT_FIT
-        assert "not available" in str(exc_info.value)
+        result = loaded.importance(kind="shap")
+        assert isinstance(result, dict)
+        assert len(result) > 0
 
     def test_optional_dep_missing(self) -> None:
         m, _ = _fit_model("regression")

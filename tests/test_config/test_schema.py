@@ -271,11 +271,11 @@ class TestConfigToSpecs:
         assert spec.early_stopping.inner_valid is not None
         assert spec.early_stopping.inner_valid.ratio == 0.1
 
-    def test_training_spec_no_early_stopping(self) -> None:
+    def test_training_spec_default_early_stopping(self) -> None:
         cfg = load_config(_MINIMAL_CONFIG)
         spec = config_to_training_spec(cfg)
-        assert spec.early_stopping.enabled is False
-        assert spec.early_stopping.inner_valid is None
+        assert spec.early_stopping.enabled is True
+        assert spec.early_stopping.rounds == 150
 
     def test_tuning_spec(self) -> None:
         cfg = load_config(_FULL_CONFIG)
@@ -401,4 +401,4 @@ class TestValidationRatio:
         es = cfg.training.early_stopping
         assert es.inner_valid is not None
         assert es.inner_valid.ratio == pytest.approx(0.15)
-        assert es.validation_ratio is None
+        assert es.validation_ratio == 0.1  # default, but inner_valid takes precedence

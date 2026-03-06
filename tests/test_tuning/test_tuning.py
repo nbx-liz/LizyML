@@ -20,6 +20,7 @@ import pytest
 
 from lizyml import Model
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.types.tuning_result import TuningResult
 from lizyml.tuning.search_space import (
     CategoricalDim,
     FloatDim,
@@ -176,25 +177,27 @@ class TestModelTune:
             m.tune(data=_reg_df())
         assert exc_info.value.code == ErrorCode.CONFIG_INVALID
 
-    def test_tune_returns_best_params_dict(self) -> None:
+    def test_tune_returns_tuning_result(self) -> None:
         m = Model(_reg_config_with_tuning(n_trials=3))
-        best = m.tune(data=_reg_df())
-        assert isinstance(best, dict)
-        assert "num_leaves" in best
-        assert "learning_rate" in best
+        result = m.tune(data=_reg_df())
+        assert isinstance(result, TuningResult)
+        assert "num_leaves" in result.best_params
+        assert "learning_rate" in result.best_params
+        assert len(result.trials) == 3
+        assert result.direction == "minimize"
 
     def test_tune_then_fit_uses_best_params(self) -> None:
         """After tune(), fit() should succeed and use the stored best_params."""
         df = _reg_df()
         m = Model(_reg_config_with_tuning(n_trials=2))
-        best = m.tune(data=df)
+        tuning_result = m.tune(data=df)
         # fit() should pick up _best_params automatically
         result = m.fit(data=df)
         from lizyml.core.types.fit_result import FitResult
 
         assert isinstance(result, FitResult)
         # best_params are stored
-        assert m._best_params == best
+        assert m._best_params == tuning_result.best_params
 
     def test_tune_stores_best_params_internally(self) -> None:
         m = Model(_reg_config_with_tuning(n_trials=2))

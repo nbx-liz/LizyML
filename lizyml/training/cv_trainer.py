@@ -53,6 +53,8 @@ class CVTrainer:
         estimator_factory: Callable[[], BaseEstimatorAdapter],
         task: TaskType = "regression",
         n_classes: int | None = None,
+        *,
+        ratio_param_resolver: Callable[[int], dict[str, Any]] | None = None,
     ) -> None:
         self.outer_splitter = outer_splitter
         self.inner_valid = inner_valid
@@ -60,6 +62,7 @@ class CVTrainer:
         self.estimator_factory = estimator_factory
         self.task = task
         self.n_classes = n_classes
+        self.ratio_param_resolver = ratio_param_resolver
 
     def fit(
         self,
@@ -69,6 +72,7 @@ class CVTrainer:
         *,
         data_fingerprint: DataFingerprint,
         run_meta: RunMeta,
+        sample_weight: npt.NDArray[Any] | None = None,
     ) -> FitResult:
         """Run the CV training loop and return a :class:`FitResult`.
 
@@ -102,9 +106,13 @@ class CVTrainer:
             X_valid = X.iloc[valid_idx].reset_index(drop=True)
 
             # --- Inner validation split (for early stopping) -----------------
+            groups_train: npt.NDArray[Any] | None = None
+            if groups is not None:
+                groups_train = groups[train_idx]
             iv_result = self.inner_valid.split(
                 len(X_train),
                 y=y_train.to_numpy(),
+                groups=groups_train,
             )
             if iv_result is not None:
                 inner_train_rel, inner_valid_rel = iv_result
@@ -134,11 +142,28 @@ class CVTrainer:
 
             # --- Estimator fit -----------------------------------------------
             estimator = self.estimator_factory()
+
+            # Resolve n_rows-dependent ratio params using inner_train size (H-0036)
+            if self.ratio_param_resolver is not None:
+                n_inner_train = (
+                    len(X_iv_train) if X_iv_train is not None else len(X_train_t)
+                )
+                estimator.update_params(self.ratio_param_resolver(n_inner_train))
+
             cat_cols: list[str] = (
                 pipeline.get_state().get("categorical_cols", [])
                 if hasattr(pipeline, "get_state")
                 else []
             )
+
+            # Slice sample_weight for this fold's train set
+            fit_kwargs: dict[str, Any] = {}
+            if sample_weight is not None:
+                fold_sw = sample_weight[train_idx]
+                if X_iv_train is not None:
+                    fit_kwargs["sample_weight"] = fold_sw[inner_train_rel]
+                else:
+                    fit_kwargs["sample_weight"] = fold_sw
 
             if X_iv_train is not None:
                 # y_iv_train and y_iv_valid are set in the same branch as X_iv_train
@@ -149,12 +174,14 @@ class CVTrainer:
                     X_iv_valid,
                     y_iv_valid,
                     categorical_feature=cat_cols or "auto",
+                    **fit_kwargs,
                 )
             else:
                 estimator.fit(
                     X_train_t,
                     y_train,
                     categorical_feature=cat_cols or "auto",
+                    **fit_kwargs,
                 )
             models.append(estimator)
 

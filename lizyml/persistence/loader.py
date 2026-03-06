@@ -25,7 +25,7 @@ _REQUIRED_METADATA_KEYS = frozenset(
 )
 
 
-def load(path: str | Path) -> tuple[Any, Any, dict[str, Any]]:
+def load(path: str | Path) -> tuple[Any, Any, dict[str, Any], Any]:
     """Load Model artifacts from *path*.
 
     Args:
@@ -33,7 +33,8 @@ def load(path: str | Path) -> tuple[Any, Any, dict[str, Any]]:
             :func:`~lizyml.persistence.exporter.export`.
 
     Returns:
-        ``(fit_result, refit_result, metadata)`` triple.
+        ``(fit_result, refit_result, metadata, analysis_context)`` tuple.
+        ``analysis_context`` is ``None`` for legacy artifacts that lack it.
 
     Raises:
         LizyMLError with DESERIALIZATION_FAILED on any validation or I/O error.
@@ -112,4 +113,18 @@ def load(path: str | Path) -> tuple[Any, Any, dict[str, Any]]:
             cause=exc,
         ) from exc
 
-    return fit_result, refit_result, metadata
+    # Optional: analysis_context for diagnostic APIs after load
+    analysis_context = None
+    ctx_pkl = src / "analysis_context.pkl"
+    if ctx_pkl.exists():
+        try:
+            analysis_context = joblib.load(ctx_pkl)
+        except Exception as exc:
+            raise LizyMLError(
+                code=ErrorCode.DESERIALIZATION_FAILED,
+                user_message=f"Failed to load analysis_context: {exc}",
+                context={"path": str(path)},
+                cause=exc,
+            ) from exc
+
+    return fit_result, refit_result, metadata, analysis_context

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
 
 # ---------------------------------------------------------------------------
 # DataConfig
@@ -90,6 +90,60 @@ class LGBMConfig(BaseModel):
     name: Literal["lgbm"]
     params: dict[str, Any] = {}
 
+    # Smart parameters (resolved at fit time)
+    auto_num_leaves: bool = True
+    num_leaves_ratio: float = 1.0
+    min_data_in_leaf_ratio: float | None = 0.01
+    min_data_in_bin_ratio: float | None = 0.01
+    feature_weights: dict[str, float] | None = None
+    balanced: bool | None = None
+
+    @model_validator(mode="after")
+    def _validate_smart_params(self) -> LGBMConfig:
+        if self.auto_num_leaves and "num_leaves" in self.params:
+            raise ValueError(
+                "Cannot specify 'params.num_leaves' when 'auto_num_leaves' is True. "
+                "Set 'auto_num_leaves: false' or remove 'num_leaves' from params."
+            )
+        if (
+            self.min_data_in_leaf_ratio is not None
+            and "min_data_in_leaf" in self.params
+        ):
+            raise ValueError(
+                "Cannot specify both 'min_data_in_leaf_ratio' and "
+                "'params.min_data_in_leaf'. Use one or the other."
+            )
+        if self.min_data_in_bin_ratio is not None and "min_data_in_bin" in self.params:
+            raise ValueError(
+                "Cannot specify both 'min_data_in_bin_ratio' and "
+                "'params.min_data_in_bin'. Use one or the other."
+            )
+        if not (0 < self.num_leaves_ratio <= 1):
+            raise ValueError(
+                f"num_leaves_ratio must be in (0, 1], got {self.num_leaves_ratio}"
+            )
+        if self.min_data_in_leaf_ratio is not None and not (
+            0 < self.min_data_in_leaf_ratio < 1
+        ):
+            raise ValueError(
+                f"min_data_in_leaf_ratio must be in (0, 1), "
+                f"got {self.min_data_in_leaf_ratio}"
+            )
+        if self.min_data_in_bin_ratio is not None and not (
+            0 < self.min_data_in_bin_ratio < 1
+        ):
+            raise ValueError(
+                f"min_data_in_bin_ratio must be in (0, 1), "
+                f"got {self.min_data_in_bin_ratio}"
+            )
+        if self.feature_weights:
+            for k, v in self.feature_weights.items():
+                if v <= 0:
+                    raise ValueError(
+                        f"feature_weights values must be > 0, got {v} for '{k}'"
+                    )
+        return self
+
 
 ModelConfig = Annotated[LGBMConfig, Field(discriminator="name")]
 
@@ -104,23 +158,59 @@ class HoldoutInnerValidConfig(BaseModel):
 
     method: Literal["holdout"]
     ratio: float = 0.1
+    stratify: bool = False
     random_state: int = 42
+
+
+class GroupHoldoutInnerValidConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["group_holdout"]
+    ratio: float = 0.1
+    random_state: int = 42
+
+
+class TimeHoldoutInnerValidConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["time_holdout"]
+    ratio: float = 0.1
+
+
+InnerValidConfig = Annotated[
+    HoldoutInnerValidConfig
+    | GroupHoldoutInnerValidConfig
+    | TimeHoldoutInnerValidConfig,
+    Field(discriminator="method"),
+]
 
 
 class EarlyStoppingConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    enabled: bool = False
-    rounds: int = 50
-    inner_valid: HoldoutInnerValidConfig | None = None
-    validation_ratio: float | None = None
+    enabled: bool = True
+    rounds: int = 150
+    inner_valid: InnerValidConfig | None = None
+    validation_ratio: float | None = 0.1
+    _inner_valid_explicit: bool = PrivateAttr(default=False)
 
     @model_validator(mode="after")
     def _resolve_validation_ratio(self) -> EarlyStoppingConfig:
-        if self.validation_ratio is not None and self.inner_valid is not None:
+        iv_explicit = "inner_valid" in self.model_fields_set
+        vr_explicit = "validation_ratio" in self.model_fields_set
+        if iv_explicit and vr_explicit:
+            # Allow round-trip: model_dump() produces both; consistent is OK
+            if (
+                isinstance(self.inner_valid, HoldoutInnerValidConfig)
+                and self.inner_valid.ratio == self.validation_ratio
+            ):
+                return self
             raise ValueError(
                 "Specify either 'validation_ratio' or 'inner_valid', not both."
             )
+        if iv_explicit:
+            self._inner_valid_explicit = True
+            return self
         if self.validation_ratio is not None:
             self.inner_valid = HoldoutInnerValidConfig(
                 method="holdout", ratio=self.validation_ratio

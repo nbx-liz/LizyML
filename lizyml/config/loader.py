@@ -48,6 +48,36 @@ _ENV_PREFIX = "LIZYML__"
 _ENV_SEP = "__"
 
 
+def _normalize_split_default(raw: dict[str, Any]) -> dict[str, Any]:
+    """Inject default split config if absent.
+
+    For classification tasks (binary/multiclass), defaults to stratified_kfold.
+    For regression, defaults to kfold.
+    """
+    if "split" not in raw:
+        task = raw.get("task", "regression")
+        if task in ("binary", "multiclass"):
+            raw = {
+                **raw,
+                "split": {
+                    "method": "stratified_kfold",
+                    "n_splits": 5,
+                    "random_state": 42,
+                },
+            }
+        else:
+            raw = {
+                **raw,
+                "split": {
+                    "method": "kfold",
+                    "n_splits": 5,
+                    "random_state": 42,
+                    "shuffle": True,
+                },
+            }
+    return raw
+
+
 def _normalize_split_method(raw: dict[str, Any]) -> dict[str, Any]:
     """Normalize split.method aliases (e.g. 'k-fold' → 'kfold')."""
     split = raw.get("split")
@@ -190,6 +220,7 @@ def load_config(source: dict[str, Any] | str | Path) -> LizyMLConfig:
     """
     raw = _read_raw(source)
     _check_config_version(raw)
+    raw = _normalize_split_default(raw)
     raw = _normalize_split_method(raw)
     raw = _normalize_model_config(raw)
     raw = _apply_env_overrides(raw)
@@ -305,7 +336,8 @@ def config_to_training_spec(config: LizyMLConfig) -> TrainingSpec:
         inner_valid = InnerValidSpec(
             method=iv.method,
             ratio=iv.ratio,
-            random_state=iv.random_state,
+            random_state=getattr(iv, "random_state", 42),
+            stratify=getattr(iv, "stratify", False),
         )
     return TrainingSpec(
         seed=config.training.seed,

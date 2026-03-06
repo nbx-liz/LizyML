@@ -84,7 +84,7 @@ class TestResiduals:
             m.residuals()
         assert exc_info.value.code == ErrorCode.MODEL_NOT_FIT
 
-    def test_after_load_raises(self, tmp_path: object) -> None:
+    def test_after_load_succeeds(self, tmp_path: object) -> None:
         import tempfile
         from pathlib import Path
 
@@ -97,10 +97,9 @@ class TestResiduals:
             m.export(str(export_dir))
             loaded = Model.load(str(export_dir))
 
-        with pytest.raises(LizyMLError) as exc_info:
-            loaded.residuals()
-        assert exc_info.value.code == ErrorCode.MODEL_NOT_FIT
-        assert "not available" in str(exc_info.value)
+        result = loaded.residuals()
+        assert isinstance(result, np.ndarray)
+        assert len(result) > 0
 
 
 # ---------------------------------------------------------------------------

@@ -861,3 +861,1472 @@ K-fold CV（例: 5-fold）では IS サンプル数が OOS の約 4 倍になる
 - IS サンプル数 > OOS サンプル数の場合、IS が OOS と同数にダウンサンプリングされる。
 - IS サンプル数 <= OOS サンプル数の場合、ダウンサンプリングは行われない。
 - ダウンサンプリングは seed=0 で再現可能。
+
+---
+
+## 2026-03-05: Binary/Multiclass で StratifiedKFold をデフォルト化 + KFold 警告
+
+- ID: `H-0013`
+- Status: `implemented`
+- Scope: `Config | Split`
+- Related: `BLUEPRINT.md §5.2, §10.2`
+
+### Context
+
+現在、全タスク（regression/binary/multiclass）で `kfold` がデフォルトの split method。分類タスクではクラス比率を保持する `stratified_kfold` がベストプラクティスであり、ユーザーが明示指定を忘れると不均衡な fold 分割が発生する。
+
+### Proposal
+
+- Config loader の正規化で、`task` が `binary` または `multiclass` かつ `split.method` が未指定の場合、`stratified_kfold` をデフォルトにする。
+- ユーザーが分類タスクで `method: "kfold"` を明示指定した場合、`warnings.warn()` で「StratifiedKFold の使用を推奨する」旨の警告を出す。
+- 回帰タスクの挙動は変更しない（`kfold` のまま）。
+
+### Impact
+
+- `lizyml/config/loader.py`: 正規化ロジック追加。
+- `lizyml/core/model.py`: `_build_splitter()` で `task` を参照してデフォルト判定。
+- BLUEPRINT §5.2 の Config 例、§10.2 の Outer CV リストに注記追加。
+
+### Compatibility
+
+- 既存の `method: "kfold"` 明示指定は引き続き動作する（警告付き）。
+- `method` 未指定で分類タスクを使っていたユーザーは、暗黙的に `stratified_kfold` に切り替わる（split indices が変わる）。
+
+### Alternatives Considered
+
+- `method` 未指定時はエラーにする → 既存ユーザーの breaking change になるため却下。
+- 警告なしでデフォルトを変えるだけ → KFold を意図的に選んだユーザーへの情報がないため却下。
+
+### Acceptance Criteria
+
+- `task="binary"` かつ `split.method` 未指定 → StratifiedKFold が使われる。
+- `task="binary"` かつ `split.method="kfold"` → 警告が出る + KFold が使われる。
+- `task="regression"` かつ `split.method` 未指定 → KFold が使われる（変更なし）。
+- `task="multiclass"` でも同様に StratifiedKFold がデフォルト。
+
+---
+
+## 2026-03-05: Precision at K メトリクス追加
+
+- ID: `H-0014`
+- Status: `implemented`
+- Scope: `Metrics`
+- Related: `BLUEPRINT.md §13.1`
+
+### Context
+
+Binary 分類で「上位 K% をポジティブと予測したときの精度」を評価する `Precision at K` は、不均衡データでのモデル評価に有用。現在未登録。
+
+### Proposal
+
+- `lizyml/metrics/classification.py` に `PrecisionAtKMetric` を追加する。
+  - 名前: `precision_at_k`
+  - `needs_proba: True`（確率ベースで上位 K% を算出）
+  - `greater_is_better: True`
+  - `supports_task: ["binary"]`
+  - デフォルト `k=10`（上位 10%）。`k` はメトリクス設定で指定可能。
+- `TASK_METRICS["binary"]` に登録する。
+
+### Impact
+
+- `lizyml/metrics/classification.py`: クラス追加。
+- `lizyml/metrics/registry.py`: TASK_METRICS 更新。
+
+### Compatibility
+
+- 新規追加のみ。既存メトリクスの挙動は変更しない。
+
+### Alternatives Considered
+
+- `k` を固定値（10%）のみにする → 柔軟性が低いため、パラメータ化を採用。
+- `Recall at K` も同時追加する → スコープを最小限にするため今回は見送り。
+
+### Acceptance Criteria
+
+- `precision_at_k` が `evaluate()` の結果に含まれる（binary タスク）。
+- `k` パラメータで上位 K% のカットオフを変更できる。
+- regression/multiclass タスクで指定した場合、`UNSUPPORTED_METRIC` エラー。
+
+---
+
+## 2026-03-05: ROC Curve プロット追加（IS/OOS 対応）
+
+- ID: `H-0015`
+- Status: `implemented`
+- Scope: `Plots | Public API`
+- Related: `BLUEPRINT.md §13.3`
+
+### Context
+
+Binary 分類の ROC Curve は基本的な評価可視化であり、BLUEPRINT §13.3 で「未実装」として明記されている。IS（In-Sample）と OOS（Out-of-Sample）の比較は過学習の判定に有用。
+
+### Proposal
+
+- `lizyml/plots/classification.py` を新規作成する。
+- `plot_roc_curve(fit_result, y_true)` を追加する。
+  - IS/OOS 両方の ROC Curve を重ね描きする。
+  - IS: `if_pred_per_fold` + `splits.outer` の train_idx から算出。
+  - OOS: `oof_pred` から算出。
+  - AUC 値を凡例に表示する。
+  - Plotly Figure を返す。
+- `Model.roc_curve_plot()` を Facade メソッドとして追加する。
+
+### Impact
+
+- `lizyml/plots/classification.py`: 新規ファイル。
+- `lizyml/plots/__init__.py`: export 追加。
+- `lizyml/core/model.py`: `roc_curve_plot()` メソッド追加。
+
+### Compatibility
+
+- 新規追加のみ。既存 API に変更なし。
+
+### Alternatives Considered
+
+- fold ごとの ROC を個別に描画する → 煩雑になるため、IS/OOS 集約の 2 本線を採用。
+- PR Curve も同時追加する → スコープを最小限にするため今回は見送り。
+
+### Acceptance Criteria
+
+- `model.roc_curve_plot()` が Plotly Figure を返す。
+- IS と OOS の 2 本の ROC Curve が描画される。
+- AUC 値が凡例に表示される。
+- binary タスク以外で呼び出した場合は `LizyMLError` を返す。
+- `y_true` は `fit()` 時に一時保持した値を使用する（`residuals_plot` と同じパターン）。
+
+---
+
+## 2026-03-05: Confusion Matrix テーブル追加（IS/OOS 対応）
+
+- ID: `H-0016`
+- Status: `implemented`
+- Scope: `Evaluation | Public API`
+- Related: `BLUEPRINT.md §13.3`
+
+### Context
+
+Binary/Multiclass 分類の Confusion Matrix はモデル評価の基本。BLUEPRINT §13.3 で「未実装」として明記されている。IS/OOS の比較でモデルの過学習を判定したい。出力は可視化（プロット）ではなくテーブル（DataFrame）とする。
+
+### Proposal
+
+- `lizyml/evaluation/confusion.py` を新規作成する。
+- `confusion_matrix_table(fit_result, y_true, *, threshold=0.5) -> dict[str, pd.DataFrame]` を追加する。
+  - 戻り値: `{"is": pd.DataFrame, "oos": pd.DataFrame}`
+  - DataFrame は sklearn の `confusion_matrix` 相当の行列形式。
+  - IS: `if_pred_per_fold` + `splits.outer` の train_idx から集約。
+  - OOS: `oof_pred` から算出。
+  - binary: `threshold` で確率→クラスラベル変換。
+  - multiclass: argmax でクラスラベル変換。
+- `Model.confusion_matrix()` を Facade メソッドとして追加する。
+
+### Impact
+
+- `lizyml/evaluation/confusion.py`: 新規ファイル。
+- `lizyml/core/model.py`: `confusion_matrix()` メソッド追加。
+
+### Compatibility
+
+- 新規追加のみ。既存 API に変更なし。
+
+### Alternatives Considered
+
+- Plotly ヒートマップで可視化する → ユーザー要件がテーブル出力のため、DataFrame を採用。
+- IS/OOS を 1 つの DataFrame にまとめる → 可読性が落ちるため dict で分離。
+
+### Acceptance Criteria
+
+- `model.confusion_matrix()` が `{"is": DataFrame, "oos": DataFrame}` を返す。
+- binary タスクで `threshold` パラメータが機能する。
+- multiclass タスクでも動作する。
+- regression タスクで呼び出した場合は `LizyMLError` を返す。
+
+---
+
+## 2026-03-05: Calibration Curve + Predicted Probability Histogram 追加
+
+- ID: `H-0017`
+- Status: `implemented`
+- Scope: `Plots | Public API`
+- Related: `BLUEPRINT.md §12.3, §13.3`
+
+### Context
+
+Binary 分類の Calibration 有効時に、校正の効果を可視化する手段がない。BLUEPRINT §13.3 で「reliability diagram / ECE」として計画されている。Calibration Curve（Reliability Diagram）で校正精度を確認し、Predicted Probability Histogram で Raw/Calibrated の分布変化を比較したい。
+
+### Proposal
+
+- `lizyml/plots/calibration.py` を新規作成する。
+- `plot_calibration_curve(fit_result, y_true) -> plotly.graph_objects.Figure` を追加する。
+  - Raw OOF（`fit_result.oof_pred`）と Calibrated OOF（`fit_result.calibrator.calibrated_oof`）の 2 本の Reliability Diagram を描画。
+  - 理想線（y=x）を参照線として描画。
+  - bin 数はデフォルト 10（`sklearn.calibration.calibration_curve` 相当）。
+- `plot_probability_histogram(fit_result) -> plotly.graph_objects.Figure` を追加する。
+  - Raw OOF と Calibrated OOF の確率分布ヒストグラムを重ね描き。
+  - 校正前後の分布シフトを視覚的に確認できるようにする。
+- `Model.calibration_plot()` および `Model.probability_histogram_plot()` を Facade メソッドとして追加する。
+
+### Impact
+
+- `lizyml/plots/calibration.py`: 新規ファイル。
+- `lizyml/plots/__init__.py`: export 追加。
+- `lizyml/core/model.py`: 2 メソッド追加。
+
+### Compatibility
+
+- 新規追加のみ。既存 API に変更なし。
+
+### Alternatives Considered
+
+- Calibration Curve と Histogram を 1 つの Figure にサブプロットで統合する → 個別に使いたいケースがあるため、別関数を採用。
+- ECE 値もプロットに埋め込む → 将来追加可能だが、初期実装はシンプルに保つ。
+
+### Acceptance Criteria
+
+- `model.calibration_plot()` が Plotly Figure を返す。
+- Raw と Calibrated の 2 本の Reliability Diagram + 理想線が描画される。
+- `model.probability_histogram_plot()` が Plotly Figure を返す。
+- Raw と Calibrated の 2 つのヒストグラムが重ね描きされる。
+- Calibration 未有効時に呼び出した場合は `LizyMLError` を返す。
+- binary タスク以外で呼び出した場合は `LizyMLError` を返す。
+- データソースは OOF（cross-fit 由来の `calibrated_oof`）であり、`c_final` は使用しない。
+
+---
+
+## 2026-03-05: Multiclass メトリクス拡張（AUC OvR / Average Precision OvR / Brier OvR）
+
+- ID: `H-0018`
+- Status: `implemented`
+- Scope: `Metrics | Public API`
+- Related: `BLUEPRINT.md §13.1`
+
+### Context
+
+Multiclass 分類タスクの `TASK_METRICS["multiclass"]` は現在 `logloss / f1 / accuracy` の 3 種のみ。AUC（OvR）、Average Precision（OvR）、Brier（OvR）は multiclass でも One-vs-Rest 展開で計算可能であり、Binary Notebook と対称的な評価を行うために必要。
+
+### Proposal
+
+既存の `AUCMetric` / `AUCPRMetric` / `BrierMetric` を multiclass 対応に拡張し、`TASK_METRICS["multiclass"]` に登録する。
+
+- **AUC（OvR）**: `y_pred` が 2D `(n_samples, n_classes)` の場合、`roc_auc_score(y_true, y_pred, multi_class='ovr', average='macro')` を呼ぶ。
+- **Average Precision（OvR）**: `y_true` を One-Hot 展開し、クラスごとに `average_precision_score` を計算して macro 平均。
+- **Brier（OvR）**: `y_true` を One-Hot 展開し、クラスごとに `brier_score_loss` を計算して macro 平均。
+- 各メトリクスの `__call__` で `y_pred.ndim` を分岐条件とし、1D（binary）はそのまま、2D（multiclass）は OvR ロジックに分岐する。
+- `_require_1d_same_len` ガードは multiclass 経路ではスキップする（2D は長さ比較で `y_pred.shape[0] == len(y_true)` を使う）。
+
+### Impact
+
+- `lizyml/metrics/classification.py`: `AUCMetric.__call__` / `AUCPRMetric.__call__` / `BrierMetric.__call__` に multiclass 分岐を追加。
+- `lizyml/metrics/registry.py`: `TASK_METRICS["multiclass"]` に `auc`, `auc_pr`, `brier` を追加。
+- `lizyml/metrics/classification.py`: `supports_task` に `"multiclass"` を追加（各クラス）。
+
+### Compatibility
+
+- 既存の binary 経路は変更なし（`y_pred.ndim == 1` の場合は従来ロジック）。
+- multiclass で新たにこれらメトリクスが利用可能になる（追加のみ）。
+
+### Alternatives Considered
+
+- 別名メトリクス（`auc_ovr` / `brier_ovr`）として新規追加する → メトリクス名が増え Config が煩雑になるため、同名で multiclass 対応する方式を採用。
+- `weighted` 平均をデフォルトにする → `macro` の方が class imbalance に対して公平な評価のため、`macro` を採用。
+
+### Acceptance Criteria
+
+- `task="multiclass"` で `evaluate(metrics=["auc", "auc_pr", "brier"])` が値を返す。
+- multiclass AUC は `roc_auc_score(..., multi_class='ovr', average='macro')` と一致する。
+- multiclass Average Precision はクラスごとの `average_precision_score` の macro 平均と一致する。
+- multiclass Brier はクラスごとの `brier_score_loss` の macro 平均と一致する。
+- binary タスクの既存動作が変わらない。
+- regression タスクで指定した場合は `UNSUPPORTED_METRIC` エラー。
+
+---
+
+## 2026-03-05: ROC Curve の Multiclass OvR 拡張
+
+- ID: `H-0019`
+- Status: `implemented`
+- Scope: `Plots | Public API`
+- Related: `BLUEPRINT.md §13.3, HISTORY.md H-0015`
+
+### Context
+
+H-0015 で提案した ROC Curve プロットは binary 限定。Multiclass 分類では One-vs-Rest（OvR）方式でクラスごとの ROC Curve を描画するのが標準的な手法。Binary Notebook と対称的な可視化を Multiclass Notebook でも提供したい。
+
+### Proposal
+
+H-0015 の `plot_roc_curve(fit_result, y_true)` を multiclass 対応に拡張する。
+
+- `task="multiclass"` の場合、クラスごとに OvR の ROC Curve を描画する。
+  - IS: `if_pred_per_fold`（2D）+ `splits.outer` の train_idx から集約し、クラスごとの OvR を算出。
+  - OOS: `oof_pred`（2D）からクラスごとの OvR を算出。
+- レイアウト: IS と OOS を Plotly subplots で横並びにし、各 subplot にクラスごとの ROC 曲線を描画する。
+- 各クラスの AUC 値を凡例に表示する。
+- macro 平均 AUC もタイトルまたは凡例に表示する。
+- `task="binary"` の場合は H-0015 の従来動作（IS/OOS の 2 本）を維持する。
+
+### Impact
+
+- `lizyml/plots/classification.py`: `plot_roc_curve` の multiclass 分岐を追加。
+- H-0015 の binary 実装と同一関数内で分岐する。
+
+### Compatibility
+
+- binary の既存動作は変更なし。
+- multiclass は新規追加のみ。
+
+### Alternatives Considered
+
+- binary と multiclass で関数を分ける（`plot_roc_curve_ovr`）→ Facade API が増えるため、同一関数で task 分岐する方式を採用。
+- micro 平均の ROC も描画する → 初期実装はシンプルに保ち、macro 平均 + クラス別のみ。
+
+### Acceptance Criteria
+
+- `task="multiclass"` で `model.roc_curve_plot()` が Plotly Figure を返す。
+- IS と OOS の 2 つの subplot にクラスごとの OvR ROC Curve が描画される。
+- 各クラスの AUC 値が凡例に表示される。
+- macro 平均 AUC が表示される。
+- `task="binary"` では H-0015 の従来動作が維持される。
+- `task="regression"` で呼び出した場合は `LizyMLError` を返す。
+
+---
+
+## 2026-03-05: InnerValid の split method 設定対応（stratified / group / time-aware holdout）
+
+- ID: `H-0020`
+- Status: `implemented`
+- Scope: `Config | Training | Split`
+- Related: `BLUEPRINT.md §5.2, §10.3`
+
+### Context
+
+現在の `EarlyStoppingConfig.inner_valid` は `HoldoutInnerValidConfig(method="holdout")` のみで、ランダム分割しかサポートしない。`HoldoutInnerValid.split()` は `y` と `groups` を引数に受け取るが無視しており、stratified / group / time-aware な内側分割ができない。
+
+BLUEPRINT §10.3 では `HoldoutInnerValid(ratio, stratify, group, time, random_state)` が計画されているが未実装。分類タスクで Stratified、group_col がある場合に group-aware、time_col がある場合に time-aware な inner split が必要。
+
+### Proposal
+
+#### Config 変更
+
+`HoldoutInnerValidConfig` に `stratify` パラメータを追加し、`InnerValidConfig` を discriminated union に拡張する。
+
+```python
+class HoldoutInnerValidConfig(BaseModel):
+    method: Literal["holdout"]
+    ratio: float = 0.1
+    stratify: bool = False  # 新規追加
+    random_state: int = 42
+
+class GroupHoldoutInnerValidConfig(BaseModel):
+    method: Literal["group_holdout"]
+    ratio: float = 0.1
+    random_state: int = 42
+
+class TimeHoldoutInnerValidConfig(BaseModel):
+    method: Literal["time_holdout"]
+    ratio: float = 0.1
+
+InnerValidConfig = HoldoutInnerValidConfig | GroupHoldoutInnerValidConfig | TimeHoldoutInnerValidConfig
+```
+
+`EarlyStoppingConfig.inner_valid` の型を `InnerValidConfig | None` に変更する。
+
+#### デフォルト解決ルール
+
+`inner_valid` が未指定（`None`）かつ `enabled=True` の場合、`Model.fit()` 時に外側 CV の method に応じて自動解決する。
+
+| 外側 split.method | inner_valid のデフォルト |
+|---|---|
+| `stratified_kfold` | `holdout(stratify=True)` |
+| `group_kfold` | `group_holdout` |
+| `time_series` | `time_holdout` |
+| `kfold`（またはCV未使用） | `holdout(stratify=False)` |
+
+この解決は Config loader ではなく `Model._build_inner_valid()` で行う（外側 split の情報が必要なため）。
+
+#### InnerValid 実装
+
+- `HoldoutInnerValid`: `stratify=True` の場合、`sklearn.model_selection.StratifiedShuffleSplit(n_splits=1, test_size=ratio)` を使い `y` に基づく層化抽出を行う。`stratify=False` は現行のランダム分割を維持。
+- `GroupHoldoutInnerValid`: `groups` をユニークグループ単位で分割する。validation には末尾グループを使用し、group overlap を防ぐ。
+- `TimeHoldoutInnerValid`: 時系列順を維持し、末尾 `ratio` 割合を validation に割り当てる（shuffle なし）。BLUEPRINT §10.3 の「時系列は内側も時系列順を厳守」に準拠。
+
+#### CVTrainer の変更
+
+`cv_trainer.py` で `inner_valid.split()` に `y` と `groups` を適切に渡す。現在すでに `y=y_train.to_numpy()` を渡しているが、`groups` は渡していないため追加する。
+
+### Impact
+
+- `lizyml/config/schema.py`: `InnerValidConfig` discriminated union、`GroupHoldoutInnerValidConfig`、`TimeHoldoutInnerValidConfig` 追加。`HoldoutInnerValidConfig` に `stratify` フィールド追加。
+- `lizyml/training/inner_valid.py`: `StratifiedHoldoutInnerValid`（または `HoldoutInnerValid` に stratify 分岐追加）、`GroupHoldoutInnerValid`、`TimeHoldoutInnerValid` 追加。
+- `lizyml/core/model.py`: `_build_inner_valid()` にデフォルト解決ロジック追加。
+- `lizyml/training/cv_trainer.py`: `inner_valid.split()` 呼び出しに `groups` を渡す。
+
+### Compatibility
+
+- 既存の `inner_valid: {method: "holdout", ratio: 0.1}` は動作が変わらない（`stratify` のデフォルトは `False`）。
+- `validation_ratio` ショートハンドも引き続き動作する（デフォルト解決で自動判定）。
+- `inner_valid` 未指定のデフォルト挙動が変わる: 現在は常にランダム holdout → 今後は外側 CV 方式に追従。ただし `kfold` の場合はランダム holdout のままで既存挙動と一致。
+
+### Alternatives Considered
+
+- Config loader で外側 split.method を参照してデフォルトを解決する → loader 時点では `task` 情報しかなく `split` と `inner_valid` の関連性を解決できないため、`_build_inner_valid()` での解決を採用。
+- `inner_valid.method` を外側と完全同名にする（`stratified_kfold` など）→ 内側は常に 1 分割の holdout であり KFold ではないため、名前の混乱を避けて `holdout` / `group_holdout` / `time_holdout` を採用。
+
+### Acceptance Criteria
+
+- `split.method="stratified_kfold"` かつ `inner_valid` 未指定 → inner split が stratified holdout になる。
+- `split.method="group_kfold"` かつ `inner_valid` 未指定 → inner split が group holdout になる（group overlap なし）。
+- `split.method="time_series"` かつ `inner_valid` 未指定 → inner split が time holdout になる（末尾を validation、shuffle なし）。
+- `split.method="kfold"` かつ `inner_valid` 未指定 → inner split がランダム holdout になる（既存挙動維持）。
+- `inner_valid` を明示指定した場合は外側 split.method に関わらずその設定が優先される。
+- `validation_ratio` ショートハンドが引き続き動作する。
+- `time_holdout` で shuffle が行われないことをテストで検証する。
+- `group_holdout` で group overlap が発生しないことをテストで検証する。
+
+---
+
+## 2026-03-05: LGBMConfig スマートパラメーター追加（auto_num_leaves / ratio パラメーター / feature_weights / balanced）
+
+- ID: `H-0021`
+- Status: `implemented`
+- Scope: `Config | EstimatorAdapter`
+- Decision Date: 2026-03-05
+- Related: `BLUEPRINT.md §5.3, §14.2`
+
+### Context
+
+現在の `LGBMConfig.params` は `dict[str, Any]` の生パラメーターのみで、データサイズやタスクに依存するパラメーターをユーザーが手動計算する必要がある。Config の簡潔さを損ない、設定ミスの原因になる。
+
+### Proposal
+
+`LGBMConfig` に以下のスマートパラメーターフィールドを追加し、`fit()` 時に学習データの情報に基づいて LightGBM ネイティブパラメーターに解決する。
+
+#### 1. auto_num_leaves（葉の数の自動算出）
+
+- `auto_num_leaves: bool = True`
+- `num_leaves_ratio: float = 1.0`（`0 < ratio ≤ 1`）
+- 算出ロジック:
+  - `params.max_depth` が未指定または負値（制限なし）→ 基準値 = `131072`
+  - `params.max_depth` が指定されている → 基準値 = `2 ^ max_depth`
+  - `num_leaves = clamp(ceil(基準値 × num_leaves_ratio), 8, 131072)`
+- 制約: `auto_num_leaves=True` 時に `params.num_leaves` を直接指定した場合は `CONFIG_INVALID`。
+
+#### 2. データサイズ相対比率パラメーター
+
+学習データの行数に対する割合で指定し、fit 時に絶対値に変換する。
+
+- `min_data_in_leaf_ratio: float | None = None`（`0 < ratio < 1`）→ `min_data_in_leaf = max(1, ceil(n_rows × ratio))`
+- `min_data_in_bin_ratio: float | None = None`（`0 < ratio < 1`）→ `min_data_in_bin = max(1, ceil(n_rows × ratio))`
+- 制約: ratio 指定と対応する絶対値パラメーター（`params.min_data_in_leaf` 等）の同時指定は `CONFIG_INVALID`。
+
+#### 3. feature_weights（特徴量重みの辞書指定）
+
+- `feature_weights: dict[str, float] | None = None`
+- 未指定特徴量は `1.0` で自動補完。
+- 学習データの特徴量順に並び替えたリストに変換し、LightGBM に渡す。
+- 副作用: `feature_pre_filter = False` を強制する。
+- 制約: 重み `> 0` 必須。学習データに存在しない未知の特徴量名は `CONFIG_INVALID`。
+
+#### 4. balanced（クラス重み自動均衡化）
+
+- `balanced: bool = False`
+- `True` 時、学習データのクラス比率から自動的に重みを算出する。
+  - binary: `scale_pos_weight = neg_count / pos_count` を設定。
+  - multiclass: `sample_weight` でクラス逆頻度重み付け。
+  - regression: `UNSUPPORTED_TASK` エラー。
+
+### Impact
+
+- `lizyml/config/schema.py`: `LGBMConfig` に 6 フィールド追加 + `model_validator` でバリデーション。
+- `lizyml/estimators/lgbm.py`: `resolve_smart_params(n_rows, feature_names, y)` — fit 時にスマートパラメーターを LightGBM ネイティブパラメーターに解決するロジック追加。
+- `lizyml/core/model.py`: `fit()` で `n_rows` / `feature_names` / `y` を解決関数に渡す。
+
+### Compatibility
+
+- 既存の `LGBMConfig(params={...})` は影響なし（新フィールドはすべてデフォルト付き）。
+- `auto_num_leaves` のデフォルトが `True` のため、`params.num_leaves` を直接指定しているユーザーは `auto_num_leaves=False` の追加が必要（バリデーションエラーで通知）。
+- `format_version` 変更不要（Config の拡張のみ）。
+
+### Alternatives Considered
+
+- `TrainingConfig` に配置 → LightGBM 固有のため `LGBMConfig` が適切。将来 sklearn adapter 等で同様の概念があれば各 adapter config に追加する。
+- `params` dict の中にネストする → pydantic バリデーションが効かないため却下。
+- `num_leaves_ratio` を `num_leaves` の型を `int | float` にして判定する → 暗黙的で分かりにくいため、明示的な `auto_num_leaves` フラグを採用。
+
+### Acceptance Criteria
+
+- `auto_num_leaves=True`, `max_depth=5` → `num_leaves = ceil(32 × ratio)`, `clamp(8, 131072)` が適用される。
+- `auto_num_leaves=True` + `params.num_leaves` 指定 → `CONFIG_INVALID`。
+- `auto_num_leaves=False` + `params.num_leaves=64` → そのまま `64` が使われる。
+- `min_data_in_leaf_ratio=0.01`, `n_rows=10000` → `min_data_in_leaf=100`。
+- `min_data_in_leaf_ratio` + `params.min_data_in_leaf` 同時指定 → `CONFIG_INVALID`。
+- `feature_weights={"a": 2.0}` + features=`[a, b, c]` → `[2.0, 1.0, 1.0]`, `feature_pre_filter=False`。
+- `feature_weights={"unknown": 1.0}` → `CONFIG_INVALID`。
+- `balanced=True`, binary → `scale_pos_weight` が正しく設定される。
+- `balanced=True`, regression → `UNSUPPORTED_TASK`。
+
+---
+
+## 2026-03-05: LightGBM タスク別デフォルトパラメータープロファイル
+
+- ID: `H-0022`
+- Status: `implemented`
+- Scope: `Config | EstimatorAdapter`
+- Decision Date: 2026-03-05
+- Related: `BLUEPRINT.md §14.3, §5.2`
+
+### Context
+
+現在 `LGBMAdapter._build_params()` は `objective` / `metric` / `verbose` / `random_state` のみをデフォルト設定し、`learning_rate` / `max_depth` 等は LightGBM ライブラリの内部デフォルトに依存している。実務で頻繁に使うパラメーターの推奨デフォルト値を明示的に設定し、ユーザーが最小限の Config でも妥当な精度のモデルを得られるようにする。
+
+### Proposal
+
+#### タスク別 objective / metric デフォルト
+
+| | regression | binary | multiclass |
+|---|---|---|---|
+| objective | `huber` | `binary` | `multiclass` |
+| metric | `[huber, mae, mape]` | `[auc, binary_logloss]` | `[auc_mu, multi_logloss]` |
+
+注記:
+- regression の objective を `regression`（L2）から `huber` に変更。外れ値に対してロバスト。
+- `brier` は LightGBM ネイティブ未対応のため、binary metric デフォルトから除外。カスタム feval 対応は将来の拡張点とする。
+- `precision_at_k` も LightGBM ネイティブ未対応。将来のカスタム feval 対応として保留。
+
+#### 共通デフォルト
+
+| パラメーター | デフォルト値 | 備考 |
+|---|---|---|
+| `boosting` | `gbdt` | |
+| `first_metric_only` | `False` | |
+| `n_estimators` | `1500` | sklearn API 相当の `num_boost_round` |
+| `learning_rate` | `0.001` | 低学習率で early stopping に依存 |
+| `max_depth` | `5` | |
+| `max_bin` | `511` | |
+| `feature_fraction` | `0.7` | |
+| `bagging_fraction` | `0.7` | |
+| `bagging_freq` | `10` | |
+| `lambda_l1` | `0.0` | |
+| `lambda_l2` | `0.000001` | |
+
+#### Training デフォルト変更
+
+| パラメーター | 現在のデフォルト | 新デフォルト |
+|---|---|---|
+| `early_stopping.enabled` | `False` | `True` |
+| `early_stopping.rounds` | `50` | `150` |
+
+`validation_ratio` のデフォルトは `0.1`（`EarlyStoppingConfig.validation_ratio` のデフォルトとして設定。`early_stopping.enabled=True` 時に `inner_valid` 未指定の場合に自動適用）。
+
+### Impact
+
+- `lizyml/estimators/lgbm.py`: `_build_params()` のデフォルト値拡張、`_TASK_OBJECTIVE` / `_TASK_METRIC` マッピング更新。
+- `lizyml/config/schema.py`: `EarlyStoppingConfig` のデフォルト値変更（`enabled=True`, `rounds=150`, `validation_ratio=0.1`）。
+- 既存テスト: seed 固定テスト・再現性テストの期待値が変わる可能性あり（デフォルト objective / パラメーター変更のため）。
+
+### Compatibility
+
+- `LGBMConfig.params` で明示指定した値はデフォルトを上書きするため、パラメーターを指定しているユーザーは影響なし。
+- デフォルト値のみ使用しているユーザーは挙動が変わる（`0.x` バージョンのため許容）。
+- regression の `objective` が `regression` → `huber` に変わるため、既存の回帰モデルの出力が変わる。
+- `early_stopping.enabled` が `True` になるため、未指定ユーザーは early stopping が有効になる。
+
+### Alternatives Considered
+
+- デフォルト値を変更せず、推奨設定を Config テンプレートとしてドキュメントで提供 → ユーザーが毎回コピーする手間がかかるため却下。
+- profile 方式（`"conservative"` / `"aggressive"` 等の名前付きプロファイル）→ 過度な抽象化のため却下。単一のバランスの取れたデフォルトを提供する。
+- `huber` ではなく `regression`（L2）を維持し、外れ値対応はユーザー責任とする → 実務では外れ値がある場合が多く、`huber` の方がロバストなデフォルトとして適切。
+
+### Acceptance Criteria
+
+- Config 未指定時に `learning_rate=0.001`, `max_depth=5`, `max_bin=511` 等がデフォルト適用される。
+- `params` で明示指定した値がデフォルトを上書きする。
+- regression タスクで `objective=huber` がデフォルトになる。
+- binary タスクで `metric=[auc, binary_logloss]` がデフォルトになる。
+- multiclass タスクで `metric=[auc_mu, multi_logloss]` がデフォルトになる。
+- `early_stopping.enabled` のデフォルトが `True` になる。
+- `early_stopping.rounds` のデフォルトが `150` になる。
+- `early_stopping.validation_ratio` のデフォルトが `0.1` になる。
+- 既存テストがデフォルト変更に伴い適切に更新されている。
+
+---
+
+## 2026-03-05: TuningResult 型導入と tuning_table() API 追加
+
+- ID: `H-0023`
+- Status: `accepted`
+- Scope: `Public API | Tuning`
+- Related: `BLUEPRINT.md §6.1, §4.1, §7.1`
+
+### Context
+
+現在 `Tuner.tune()` は `dict(study.best_params)` のみを返し、Optuna Study オブジェクト（全 trial の探索履歴）を破棄している。`Model.tune()` も同様に `dict[str, Any]` を返す。
+
+Tuning Notebook で「探索したパラメーターと各パラメーターでの評価」を一覧表示するには、全 trial の履歴が必要だが、現在の実装では取得手段がない。
+
+### Proposal
+
+#### 1. TuningResult 型の導入
+
+`lizyml/core/types/tuning_result.py` に `TuningResult` dataclass を新設する。
+
+```python
+@dataclass(frozen=True)
+class TrialResult:
+    number: int               # trial 番号（0-indexed）
+    params: dict[str, Any]    # 探索パラメーター
+    score: float              # OOF メトリクス値
+    state: str                # "complete" | "pruned" | "fail"
+
+@dataclass(frozen=True)
+class TuningResult:
+    best_params: dict[str, Any]
+    best_score: float
+    trials: list[TrialResult]  # 全 trial 履歴（番号順）
+    metric_name: str           # 最適化メトリクス名
+    direction: str             # "minimize" | "maximize"
+```
+
+#### 2. Tuner.tune() の戻り値変更
+
+`Tuner.tune()` の戻り値を `dict[str, Any]` → `TuningResult` に変更する。Optuna Study の `study.trials` から全 trial 情報を収集して `TuningResult` を構築する。
+
+#### 3. Model.tune() の戻り値変更
+
+`Model.tune()` の戻り値を `dict[str, Any]` → `TuningResult` に変更する。内部で `self._best_params = result.best_params` を維持し、`fit()` 連携は既存通り。`TuningResult` を `self._tuning_result` として保持する。
+
+#### 4. Model.tuning_table() の追加
+
+`Model.tuning_table() -> pd.DataFrame` を追加する。`TuningResult.trials` を DataFrame に変換する。
+
+- 列: `trial`, `score`, + 各探索パラメーター名
+- 行: trial 番号順
+- `score` 列名は `TuningResult.metric_name` を使用する（例: `rmse`）
+- `tune()` 未実行時は `MODEL_NOT_FIT` エラー
+
+### Impact
+
+- `lizyml/core/types/tuning_result.py`: 新規ファイル（`TuningResult`, `TrialResult`）。
+- `lizyml/tuning/tuner.py`: `tune()` 戻り値を `TuningResult` に変更。
+- `lizyml/core/model.py`: `tune()` 戻り値変更 + `tuning_table()` メソッド追加 + `_tuning_result` 保持。
+- `tests/test_tuning/`: `tune()` の戻り値アサーション更新、`tuning_table()` テスト追加。
+
+### Compatibility
+
+- `tune()` の戻り値型が `dict` → `TuningResult` に変わる破壊的変更。ただし `0.x` バージョンのため許容。
+- `TuningResult.best_params` で従来の dict アクセスパターンは維持可能。
+- `fit()` 連携は内部で `best_params` を参照するため影響なし。
+
+### Alternatives Considered
+
+- `tune()` の戻り値は dict のまま、別途 `study` を保持して `tuning_table()` で変換する → API として `TuningResult` の方が明確で、study への依存を外部に漏らさない。
+- Optuna の `study.trials_dataframe()` をそのまま返す → Optuna 依存が公開 API に漏れるため却下。自前で変換する。
+- `tuning_table()` を `TuningResult` のメソッドにする → `Model` の Facade パターンに合わせ、`Model.tuning_table()` として提供する。
+
+### Acceptance Criteria
+
+- `model.tune()` が `TuningResult` を返す。
+- `TuningResult.best_params` が `dict[str, Any]` で最良パラメーターを返す。
+- `TuningResult.best_score` が最良スコアを返す。
+- `TuningResult.trials` が全 trial の `TrialResult` リストを返す（番号順）。
+- `model.tuning_table()` が `pd.DataFrame` を返す。
+- DataFrame の列が `trial`, メトリクス名, 探索パラメーター名を含む。
+- `tune()` 未実行時に `tuning_table()` を呼ぶと `MODEL_NOT_FIT` エラー。
+- `fit()` が `tune()` 後に `best_params` を正しく使用する（既存動作維持）。
+
+### Decision
+
+- Date: `2026-03-05`
+- Result: `accepted`
+- Notes: `feat/phase-20-classification-enhancements` ブランチで実施。`TuningResult` / `TrialResult` を `lizyml/core/types/tuning_result.py` に追加。`Tuner.tune()` と `Model.tune()` の戻り値を `TuningResult` に変更。`Model.tuning_table()` メソッドを追加。
+
+---
+
+## 2026-03-05: デフォルト Tuning Space の導入（タスク別デフォルト探索空間 + Tuner 拡張）
+
+- ID: `H-0024`
+- Status: `accepted`
+- Scope: `Config | Tuning | Public API`
+- Related: `BLUEPRINT.md §11.1, §5.2, §14.3`
+
+### Context
+
+現在 `Model.tune()` は `tuning.optuna.space` が必須で、ユーザーが毎回 SearchSpace を手動定義する必要がある。実務では LightGBM のハイパーパラメーターの探索範囲はタスク種別によりほぼ定型化されており、デフォルトの探索空間を提供すればユーザーの手間を大幅に削減できる。
+
+また、現在の Tuner は `LGBMConfig.params` の model パラメーターのみ探索可能で、スマートパラメーター（H-0021）や training パラメーター（`early_stopping_rounds` / `validation_ratio`）は trial 間で固定されている。これらも探索対象に含めることで、より効果的なハイパーパラメーター最適化が可能になる。
+
+### Proposal
+
+#### 1. デフォルト Tuning Space の定義
+
+`tuning.optuna.space` が空（`{}`）の場合、タスク別のデフォルト探索空間を自動適用する。
+
+##### 探索次元（SearchDim）
+
+| パラメーター | 型 | 範囲 | カテゴリ | 備考 |
+|---|---|---|---|---|
+| `objective` | categorical | regression: `[huber, fair]`, binary: `[binary]`, multiclass: `[multiclass, multiclassova]` | model | タスク別選択肢 |
+| `n_estimators` | int | `[600, 2500]` | model | `num_boost_round` 相当 |
+| `learning_rate` | float (log) | `[0.0001, 0.1]` | model | 対数スケール |
+| `max_depth` | int | `[3, 12]` | model | |
+| `feature_fraction` | float | `[0.5, 1.0]` | model | |
+| `bagging_fraction` | float | `[0.5, 1.0]` | model | |
+| `num_leaves_ratio` | float | `[0.5, 1.0]` | smart | `auto_num_leaves=True` 前提 |
+| `min_data_in_leaf_ratio` | float | `[0.01, 0.2]` | smart | データサイズ相対 |
+| `early_stopping_rounds` | int | `[40, 240]` | training | `EarlyStoppingConfig.rounds` |
+| `validation_ratio` | float | `[0.1, 0.3]` | training | `EarlyStoppingConfig.validation_ratio` |
+
+##### 固定パラメーター（探索しない）
+
+| パラメーター | 値 | 備考 |
+|---|---|---|
+| `auto_num_leaves` | `True` | `num_leaves_ratio` で間接制御 |
+| `first_metric_only` | `True` | 早期停止の判定を主メトリクスのみにする |
+| `metric` | regression: `[huber, mae, mape]`, binary: `[auc, binary_logloss]`, multiclass: `[auc_mu, multi_logloss]` | H-0022 のデフォルトと同一 |
+
+注記:
+- `brier` は LightGBM ネイティブ未対応のため Binary metric から除外。
+- `precision_at_k` も LightGBM ネイティブ未対応のため除外。
+- Binary の objective は `binary` のみ（選択肢が 1 つのため実質固定）。
+
+##### 最適化メトリクスと方向
+
+| タスク | `metric_name`（OOF 評価） | `direction` |
+|---|---|---|
+| regression | Config の `evaluation.metrics[0]` またはデフォルト `rmse` | `minimize` |
+| binary | Config の `evaluation.metrics[0]` またはデフォルト `auc` | メトリクスの `greater_is_better` に従う |
+| multiclass | Config の `evaluation.metrics[0]` またはデフォルト `logloss` | メトリクスの `greater_is_better` に従う |
+
+#### 2. SearchDim のカテゴリ拡張
+
+`SearchDim` にカテゴリ属性を追加し、Tuner がパラメーターの適用先を区別できるようにする。
+
+- `model`: `LGBMAdapter.params` に渡す（現行通り）
+- `smart`: `LGBMConfig` のスマートパラメーターとして `resolve_smart_params()` に渡す
+- `training`: trial ごとに `EarlyStoppingConfig` / `InnerValidStrategy` を再構築
+
+#### 3. Tuner の拡張
+
+- `estimator_factory` のシグネチャを拡張し、smart params と training params を受け取れるようにする。
+- `validation_ratio` が探索対象の場合、trial ごとに `InnerValidStrategy` を再構築する（`inner_valid_factory` パターン）。
+- `early_stopping_rounds` が探索対象の場合、trial ごとに `LGBMAdapter` の `early_stopping_rounds` を変更する。
+
+#### 4. Config の挙動
+
+- `tuning.optuna.space` が空 `{}` → デフォルト空間を自動適用。
+- `tuning.optuna.space` が指定されている → ユーザー指定を使用（現行通り）。
+- デフォルト空間の個別次元を上書きしたい場合は、`space` に該当キーを指定する（デフォルトとマージ）。
+
+### Impact
+
+- `lizyml/tuning/search_space.py`: `default_space(task)` 関数追加、`SearchDim` にカテゴリ属性追加。
+- `lizyml/tuning/tuner.py`: smart params / training params の per-trial 適用ロジック追加、`inner_valid_factory` パターン導入。
+- `lizyml/core/model.py`: `tune()` でデフォルト空間の自動適用、拡張 `estimator_factory` / `inner_valid_factory` の構築。
+- `lizyml/config/schema.py`: `OptunaConfig.space` が空の場合のデフォルト挙動を文書化。
+
+### Compatibility
+
+- 既存の `tuning.optuna.space` 指定は変更なく動作する。
+- `space` 未指定時の挙動が変わる: 現在は空 space でエラーまたは探索なし → 今後はデフォルト空間が適用される。`0.x` のため許容。
+- `Tuner` の内部 API（`estimator_factory` シグネチャ）が変わるが、内部 API のため影響は限定的。
+
+### Alternatives Considered
+
+- デフォルト空間を Config テンプレートとしてドキュメントで提供 → ユーザーが毎回コピーする手間がかかるため却下。
+- training params を探索対象に含めない → `early_stopping_rounds` と `validation_ratio` は精度に大きく影響するため、デフォルトに含める。
+- `brier` をカスタム feval で LightGBM に渡す → 実装コストが高く、将来の拡張点とする。
+
+### Acceptance Criteria
+
+- `tuning.optuna.space` が空の場合、タスク別デフォルト空間が自動適用される。
+- regression の objective が `[huber, fair]` から探索される。
+- multiclass の objective が `[multiclass, multiclassova]` から探索される。
+- `learning_rate` が対数スケールで `[0.0001, 0.1]` の範囲で探索される。
+- `num_leaves_ratio` が `[0.5, 1.0]` の範囲で探索され、`auto_num_leaves=True` で解決される。
+- `early_stopping_rounds` が trial ごとに変更される。
+- `validation_ratio` が trial ごとに `InnerValidStrategy` を再構築する。
+- ユーザー指定の `space` がデフォルトを上書きする。
+- `first_metric_only=True` と `metric` がデフォルトで固定適用される。
+- Binary の metric に `brier` が含まれない（ネイティブ未対応）。
+- 全テスト・lint・mypy 通過。
+
+### Decision
+
+- Date: `2026-03-05`
+- Result: `accepted`
+- Notes: `feat/phase-20-classification-enhancements` ブランチで実施。`SearchDim` に `category` 属性追加。`default_space(task)` を10次元（model/smart/training）に拡張。`default_fixed_params(task)` と `split_by_category()` を追加。Tuner を拡張し smart/training params の per-trial 適用を実装。`resolve_smart_params_from_dict()` を追加。
+
+---
+
+## 2026-03-05: Phase 20/21 監査乖離の是正タスク追加
+
+- ID: `H-0025`
+- Status: `accepted`
+- Scope: `Public API | Config | Training | Notebook`
+- Related: `BLUEPRINT.md §4.4, §5.3, §10.3, §13.3`
+
+### 目的
+
+Phase 20/21 の Requirements Audit で検出された部分的乖離を、仕様変更ではなく「既存仕様への整合修正」として計画化し、次タスクで確実に是正する。
+
+対象の乖離は以下の 4 点。
+
+1. `Model.load()` 後の `probability_histogram_plot()` が実行可能で、他の「学習時ターゲット必須API」と境界不整合。
+2. `GroupHoldoutInnerValid` の validation group 選定が「shuffle 後末尾」であり、仕様の「末尾 group 割当」と不一致。
+3. `LGBMConfig` の `min_data_in_leaf_ratio` / `min_data_in_bin_ratio` に `(0,1)` 範囲検証が未実装。
+4. Notebook の LightGBM パラメーター確認セルで、スマートパラメーター表示項目が仕様要求を完全網羅していない。
+
+### Proposal
+
+#### 1. load 後 API 境界の統一
+
+- `Model.probability_histogram_plot()` でも `self._y is None` を検知し、`MODEL_NOT_FIT` を返す。
+- `roc_curve_plot()` / `confusion_matrix()` / `calibration_plot()` と同じ境界に揃える。
+
+#### 2. GroupHoldout の割当方針を仕様準拠化
+
+- `GroupHoldoutInnerValid` を「入力順の末尾 group を validation」に変更する。
+- group overlap 禁止は維持する。
+- 時系列/順序データでの再現可能な挙動を優先する。
+
+#### 3. smart ratio の範囲バリデーション追加
+
+- `min_data_in_leaf_ratio`: `0 < ratio < 1`
+- `min_data_in_bin_ratio`: `0 < ratio < 1`
+- 範囲外は `CONFIG_INVALID` とする。
+
+#### 4. Notebook 確認セルの網羅化
+
+- `tutorial_regression_lgbm.ipynb` に `min_data_in_bin_ratio`, `feature_weights`, `balanced` の表示を追加。
+- `tutorial_binary_lgbm.ipynb` / `tutorial_multiclass_lgbm.ipynb` にも同等の確認セルを揃える。
+
+### 影響範囲
+
+- `lizyml/core/model.py`
+- `lizyml/training/inner_valid.py`
+- `lizyml/config/schema.py`
+- `tests/test_*`（load後境界、group holdout、ratio検証）
+- `notebooks/tutorial_regression_lgbm.ipynb`
+- `notebooks/tutorial_binary_lgbm.ipynb`
+- `notebooks/tutorial_multiclass_lgbm.ipynb`
+
+### 互換性
+
+- 公開メソッド追加/削除はない。既存 API surface は維持。
+- `probability_histogram_plot()` の load 後挙動のみ厳格化（仕様準拠）。
+- `GroupHoldoutInnerValid` の group 選定規則が変わるため、同一 seed でも inner split が変わる可能性がある（仕様準拠の挙動変更）。
+- Config の ratio 範囲外指定は新たに早期エラーとなる。
+
+### 代替案
+
+- 現行挙動を仕様側に合わせて変更する: 監査で仕様準拠を優先する方針のため採用しない。
+- `GroupHoldoutInnerValid` に `shuffle_groups` フラグを追加し両対応する: Config/API の複雑化を避けるため採用しない。
+- Notebook は regression のみ更新する: 21-C で binary/multiclass への横展開方針があるため採用しない。
+
+### 受け入れ基準
+
+- `Model.load()` 後の `probability_histogram_plot()` が `MODEL_NOT_FIT` を返す。
+- `GroupHoldoutInnerValid` が入力順末尾 group を validation に割り当て、group overlap が発生しない。
+- `min_data_in_leaf_ratio` / `min_data_in_bin_ratio` の `<=0` または `>=1` が `CONFIG_INVALID` になる。
+- 3つの Notebook でスマートパラメーター確認セルが同等方針で揃う。
+- 追加/更新テストが通過する。
+
+---
+
+## 2026-03-05: `Model.load()` 後に診断APIを利用可能にする仕様変更
+
+- ID: `H-0026`
+- Status: `accepted`
+- Scope: `Public API | Persistence`
+- Related: `BLUEPRINT.md §4.1, §6.5, §7.4, §15.3`
+- Supersedes: `H-0025` の「1. load 後 API 境界の統一」
+
+### 目的
+
+`Model.load()` 後の利用体験を「推論・評価参照のみ」から「診断APIも含む」に拡張し、学習実行環境がない場面でも残差分析・SHAP 重要度・分類/校正可視化を再利用できるようにする。
+
+対象 API:
+
+- `residuals()`
+- `residuals_plot()`
+- `importance(kind="shap")`
+- `roc_curve_plot()`
+- `confusion_matrix()`
+- `calibration_plot()`
+- `probability_histogram_plot()`
+
+### Proposal
+
+1. `Model.load()` 後でも上記 API を利用可能とする（`fit()` 後と同等の利用境界）。
+2. Exported Model Artifacts に load 後診断APIで必要な最小データを `analysis_context` として含める。
+   - `y_true`（学習時ターゲット）
+   - `X_for_explain`（SHAP重要度算出に必要な特徴量データ）
+3. `Model.load()` は `analysis_context` を復元し、診断APIが追加データ入力なしで動作するようにする。
+
+### 影響範囲
+
+- `BLUEPRINT.md`（公開API境界、export/load、artifacts 契約）
+- `lizyml/persistence/*`（保存/読込対象）
+- `lizyml/core/model.py`（load 後 API ガード）
+- `tests/test_plots/*`, `tests/test_explain/*`（load 後境界テスト）
+
+### 互換性
+
+- 公開 API は拡張のみで、既存メソッドの削除はない。
+- 既存 artifact（`analysis_context` 未保持）については migration 方針を定義し、少なくとも以下を保証する。
+  - `predict()` / `evaluate()` は従来どおり利用可能。
+  - 追加された load 後診断 API は、必要データがない場合に明示的エラーを返すか、再 export を促す。
+
+### 代替案
+
+- 現行どおり load 後は診断 API を禁止する: ユースケース拡張の目的を満たせないため採用しない。
+- 診断 API ごとに外部から `y_true`/`X` を都度受け取る: Facade 利用性が低下し API 一貫性を損なうため採用しない。
+
+### 受け入れ基準
+
+- `Model.load()` 後に対象 7 API が呼び出し可能である。
+- `export` 成果物に `analysis_context` が含まれる。
+- load 後診断 API の回帰・分類・校正系テストが通過する。
+- 既存 artifact 互換方針がドキュメント化され、テストで担保される。
+
+### Decision
+
+- Date: `2026-03-05`
+- Result: `accepted`
+- Notes: API 境界を「fit 後のみ」から「fit 後 + load 後」に拡張する方針を採用。
+
+---
+
+## 2026-03-06: Config Reference の BLUEPRINT 反映と README デフォルト値修正
+
+- ID: `H-0027`
+- Status: `accepted`
+- Scope: `Config`
+- Related: `BLUEPRINT.md §5.4`
+
+### 目的
+
+README に記載されている Config Reference（全キー・デフォルト値・バリデーション制約の一覧表）を BLUEPRINT に正式な仕様として反映する。併せて、スキーマ実装のデフォルト値を README（仕様の正）に合わせて修正する（`min_data_in_leaf_ratio: None`→`0.01`, `min_data_in_bin_ratio: None`→`0.01`, `balanced: False`→`None`（タスク依存自動解決: regression→False, binary/multiclass→True））。
+
+### Proposal
+
+1. BLUEPRINT §5.4 として「Config Reference（全キー一覧）」セクションを追加し、README の Config Reference の内容を仕様として固定する。
+2. スキーマ実装（`schema.py`）のデフォルト値を README に合わせて修正する。
+
+### 影響範囲
+
+- BLUEPRINT.md §5.4（新規セクション追加）
+- `lizyml/config/schema.py`（デフォルト値の修正）
+
+### 互換性
+
+- デフォルト値の変更により、既存の Config で明示指定していないユーザーの動作が変わる。ただし README を参照しているユーザーにとっては期待通りの動作となる。
+
+### 代替案
+
+- README にのみ記載し BLUEPRINT に反映しない: 仕様の正が分散するため却下。
+
+### 受け入れ基準
+
+- BLUEPRINT §5.4 に全 Config キーの型・デフォルト・制約が記載されている。
+- README のデフォルト値がスキーマ実装と一致している。
+
+### Decision
+
+- Date: `2026-03-06`
+- Result: `accepted`
+- Notes: 仕様の明文化。`balanced` のデフォルトは `None`（タスク依存自動解決: regression→False, binary/multiclass→True）に変更。`min_data_in_leaf_ratio=0.01`, `min_data_in_bin_ratio=0.01` をデフォルトに設定。
+
+---
+
+## 2026-03-06: Tuning 探索状況の可視化 (`tuning_plot`)
+
+- ID: `H-0028`
+- Status: `accepted`
+- Scope: `Public API | Plots`
+- Related: `BLUEPRINT.md §4.1, §13.3`
+
+### 目的
+
+`tune()` 実行後に探索状況を可視化する `model.tuning_plot()` を公開 API に追加する。Optuna の最適化履歴（trial ごとのスコア推移）を Plotly で描画する。
+
+### Proposal
+
+1. `Model.tuning_plot()` を追加する。`tune()` 未実行時は `MODEL_NOT_FIT`。
+2. X 軸 = trial 番号、Y 軸 = スコア値。完了/枝刈り/失敗を色分けする。最良スコアの推移ラインも重ね描きする。
+3. 実装は `plots/tuning.py` に配置し、Model には委譲のみ。
+4. Plotly optional dependency。
+
+### 影響範囲
+
+- `BLUEPRINT.md §4.1`（公開 API 追加）
+- `BLUEPRINT.md §13.3`（可視化追加）
+- `lizyml/plots/tuning.py`（新規）
+- `lizyml/core/model.py`（委譲メソッド追加）
+
+### 互換性
+
+- 追加のみ。破壊的変更なし。
+
+### 代替案
+
+- Optuna の built-in visualization を直接使う: Optuna 依存を公開 API に露出させるため却下。
+
+### 受け入れ基準
+
+- `model.tuning_plot()` が Plotly Figure を返す。
+- 完了/枝刈り/失敗の trial が区別される。
+- 最良スコア推移ラインが描画される。
+- `tune()` 未実行時に `MODEL_NOT_FIT`。
+- Plotly 未インストール時に `OPTIONAL_DEP_MISSING`。
+
+### Decision
+
+- Date: `2026-03-06`
+- Result: `accepted`
+- Notes: Phase 22 追加開発で実装。
+
+---
+
+## 2026-03-06: `Model.fit_result` プロパティの追加
+
+- ID: `H-0029`
+- Status: `accepted`
+- Scope: `Public API`
+- Related: `BLUEPRINT.md §4.1`
+
+### 目的
+
+`fit()` 後の `FitResult` をユーザーが直接参照できる read-only プロパティ `model.fit_result` を追加する。これにより、Notebook 等で学習結果の詳細（models, history, splits 等）を直接確認できる。
+
+### Proposal
+
+1. `Model.fit_result` プロパティを追加する（`@property`、read-only）。
+2. `fit()` 未実行時は `MODEL_NOT_FIT`。
+3. Model クラス内に新しいロジックは追加しない（既存の `self._fit_result` を返すだけ）。
+
+### 影響範囲
+
+- `BLUEPRINT.md §4.1`（公開 API 追加）
+- `lizyml/core/model.py`（プロパティ追加のみ）
+
+### 互換性
+
+- 追加のみ。破壊的変更なし。
+
+### 代替案
+
+- `fit()` の戻り値だけで十分とする: `tune()` → `fit()` の流れで戻り値を使わない場合にアクセスできなくなるため却下。
+
+### 受け入れ基準
+
+- `model.fit_result` が `FitResult` を返す。
+- `fit()` 未実行時に `MODEL_NOT_FIT`。
+
+### Decision
+
+- Date: `2026-03-06`
+- Result: `accepted`
+- Notes: Phase 22 追加開発で実装。
+
+---
+
+## 2026-03-06: Calibration に生スコア（logits）を渡す仕様の明確化
+
+- ID: `H-0030`
+- Status: `accepted`
+- Scope: `Calibration`
+- Related: `BLUEPRINT.md §12.1`
+
+### 目的
+
+現在の BLUEPRINT §12.1 では校正器の入力を「OOF スコア」と記載しているが、確率値（predict_proba の出力）なのか生スコア（logits）なのかが曖昧。LightGBM の binary タスクでは predict_proba が sigmoid 適用後の確率を返すため、現状は確率値が渡されている。しかし校正の理論的正しさの観点から、校正器には生スコア（raw score / logits。sigmoid/softmax 適用前）を渡すべきである。
+
+### Proposal
+
+1. BLUEPRINT §12.1 を更新し、校正器への入力は「Base モデルの OOF 生スコア（raw score / logits）」であることを明示する。
+2. `EstimatorAdapter` に `predict_raw(X)` メソッドを追加し、sigmoid/softmax 適用前の生スコアを返す手段を提供する。
+3. `BaseCalibratorAdapter.fit()` の入力を確率値から生スコアに変更する。
+4. `BaseCalibratorAdapter.predict()` は生スコアを受け取り、校正済み確率を返す。
+5. Platt / Isotonic / Beta の各実装を生スコア入力に対応させる。
+6. Calibration が未指定の場合は従来どおり `predict_proba`（確率値）を OOF/IF 予測に使用する。Calibration 有効時のみ生スコアベースの校正パスに入る。
+
+### 影響範囲
+
+- `BLUEPRINT.md §12.1`（入力仕様の変更）
+- `BLUEPRINT.md §14.1`（`predict_raw` メソッド追加）
+- `lizyml/estimators/base.py`（`predict_raw` 追加）
+- `lizyml/estimators/lgbm.py`（`predict_raw` 実装）
+- `lizyml/calibration/base.py`（IF 変更）
+- `lizyml/calibration/platt.py`, `isotonic.py`（入力変更）
+- `lizyml/calibration/cross_fit.py`（raw score を渡すよう変更）
+- `lizyml/training/cv_trainer.py`（OOF 生スコア生成）
+
+### 互換性
+
+- `BaseCalibratorAdapter` の入力形式変更は破壊的。ただし Calibration は内部 IF であり公開 API ではないため、format_version 変更は不要。
+- 既存 artifact の calibrator は確率値で学習されているため、load 互換に注意が必要。
+
+### 代替案
+
+- 確率値入力のまま維持する: 校正の理論的正しさが損なわれるため却下。
+
+### 受け入れ基準
+
+- `EstimatorAdapter.predict_raw()` が生スコアを返す。
+- 校正器が生スコアで学習される。
+- cross-fit 校正が raw score ベースで動作する。
+- Calibration 未指定時は `predict_proba` で OOF/IF を生成する（動作変更なし）。
+- BLUEPRINT §12.1 に入力形式が明記されている。
+
+### Decision
+
+- Date: `2026-03-06`
+- Result: `accepted`
+- Notes: Phase 23 で実装。Calibration IF の入力を確率値から生スコアに変更。Calibration 未使用時は従来の predict_proba パスを維持。
+
+---
+
+## 2026-03-06: Beta Calibration の実装
+
+- ID: `H-0031`
+- Status: `accepted`
+- Scope: `Calibration`
+- Related: `BLUEPRINT.md §12.2`
+
+### 目的
+
+BLUEPRINT §12.2 で列挙されている 3 つの校正手法（Platt / Beta / Isotonic）のうち、Beta Calibration のみ未実装。これを実装する。
+
+### Proposal
+
+1. `lizyml/calibration/beta.py` に `BetaCalibrator(BaseCalibratorAdapter)` を実装する。
+2. Beta Calibration は `a * log(s) + b * log(1-s) + c` の 3 パラメーターモデルで、`scipy.optimize.minimize` で最適化する。
+3. `calibration/registry.py` の `_NOT_IMPLEMENTED` から `"beta"` を削除し、正式に登録する。
+
+### 影響範囲
+
+- `lizyml/calibration/beta.py`（新規）
+- `lizyml/calibration/registry.py`（登録変更）
+
+### 互換性
+
+- Config で `method="beta"` を指定可能になる（以前は `CALIBRATION_NOT_SUPPORTED` エラー）。
+- 既存の Platt / Isotonic には影響なし。
+
+### 代替案
+
+- 外部ライブラリ（`betacal`）を依存に追加する: optional dependency を増やしたくないため、自前実装を選択。
+
+### 受け入れ基準
+
+- `method="beta"` で校正が動作する。
+- cross-fit + OOF-only の契約を満たす。
+- Platt / Isotonic と同一の BaseCalibratorAdapter IF を実装する。
+
+### Decision
+
+- Date: `2026-03-06`
+- Result: `accepted`
+- Notes: Phase 23 で実装。
+
+---
+
+## 2026-03-06: PurgedTimeSeries / GroupTimeSeries の Config・Model 接続
+
+- ID: `H-0032`
+- Status: `accepted`
+- Scope: `Config | Split`
+- Related: `BLUEPRINT.md §5, §10.2`
+
+### 目的
+
+Splitter クラス（`PurgedTimeSeriesSplitter`, `GroupTimeSeriesSplitter`）は実装済みだが、Config schema に対応する `Literal` がなく、`Model._build_splitter()` にルーティングもないため、ユーザーが利用できない。Config と Model を接続する。
+
+### Proposal
+
+1. Config schema に `PurgedTimeSeriesConfig`（`method: Literal["purged_time_series"]`）と `GroupTimeSeriesConfig`（`method: Literal["group_time_series"]`）を追加する。
+2. `SplitConfig` の Union に上記を追加する。
+3. `Model._build_splitter()` に `purged_time_series` / `group_time_series` のルーティングを追加する。
+4. InnerValid 自動解決テーブルに `purged_time_series` → `time_holdout`、`group_time_series` → `group_holdout` を追加する。
+5. 正規化エイリアスを追加する（`purged-time-series` → `purged_time_series` 等）。
+
+### 影響範囲
+
+- `lizyml/config/schema.py`（Config 追加）
+- `lizyml/config/loader.py`（正規化追加）
+- `lizyml/core/model.py`（ルーティング追加）
+- `BLUEPRINT.md §5, §10.2, §10.3`
+
+### 互換性
+
+- 追加のみ。既存の 4 split method に影響なし。
+
+### 代替案
+
+- なし。
+
+### 受け入れ基準
+
+- `split.method: "purged_time_series"` / `"group_time_series"` で CV が動作する。
+- InnerValid が自動解決される。
+- 正規化エイリアスが機能する。
+
+### Decision
+
+- Date: `2026-03-06`
+- Result: `accepted`
+- Notes: Phase 23 で実装。
+
+---
+
+## 2026-03-06: 時系列 fold 期間情報の表示
+
+- ID: `H-0033`
+- Status: `accepted`
+- Scope: `Public API | Plots`
+- Related: `BLUEPRINT.md §13.3`
+
+### 目的
+
+時系列分割（`time_series` / `purged_time_series` / `group_time_series`）使用時に、fold ごとの期間情報（train の終端、valid の開始）を確認できる手段を提供する。
+
+### Proposal
+
+1. `FitResult.splits` に `time_col` の min/max 情報を fold ごとに記録する（`time_range` フィールド: `list[dict] | None`）。
+2. `model.split_summary()` メソッドを追加し、fold ごとの期間情報を `pd.DataFrame` で返す。列: `fold`, `train_start`, `train_end`, `valid_start`, `valid_end`, `train_size`, `valid_size`。
+3. 時系列でない場合は `time_range` なし、`split_summary()` は size 情報のみ返す。
+
+### 影響範囲
+
+- `BLUEPRINT.md §7.1`（FitResult.splits 拡張）
+- `BLUEPRINT.md §4.1`（公開 API 追加）
+- `lizyml/core/types/fit_result.py`（フィールド追加）
+- `lizyml/core/model.py`（委譲メソッド追加）
+
+### 互換性
+
+- FitResult に optional フィールド追加。既存 artifact の load 互換は維持（`time_range` が None の場合はサイズ情報のみ）。
+
+### 代替案
+
+- 可視化（Gantt chart）のみ提供する: DataFrame 出力の方が汎用性が高いため、まず DataFrame を提供。
+
+### 受け入れ基準
+
+- 時系列分割時に `FitResult.splits` に期間情報が含まれる。
+- `model.split_summary()` が DataFrame を返す。
+- 非時系列でも size 情報は返す。
+
+### Decision
+
+- Date: `2026-03-06`
+- Result: `accepted`
+- Notes: Phase 23 で実装。
+
+---
+
+## 2026-03-06: Logging 出力先の統一
+
+- ID: `H-0034`
+- Status: `accepted`
+- Scope: `Logging`
+- Related: `BLUEPRINT.md §17`
+
+### 目的
+
+BLUEPRINT §17 で規定されている「`run_id` に基づく出力先（logs / artifacts / plots）の統一」が未実装。run_id ベースのディレクトリ管理を実装する。
+
+### Proposal
+
+1. `Model` に `output_dir` オプションを追加する（`Config` の `output` セクション or コンストラクタ引数）。
+2. `output_dir` 指定時、`run_id` ベースのサブディレクトリ（`{output_dir}/{run_id}/`）を自動作成し、ログ・plot 保存先とする。
+3. `output_dir` 未指定時は現行動作（ログは標準出力、plot は返却のみ）を維持する。
+
+### 影響範囲
+
+- `BLUEPRINT.md §17`（仕様の具体化）
+- `lizyml/core/logging.py`（出力先管理）
+- `lizyml/core/model.py`（output_dir の受け渡し）
+
+### 互換性
+
+- `output_dir` はオプションのため既存動作に影響なし。
+
+### 代替案
+
+- MLflow 等の外部ツールに委ねる: 将来の拡張点として残すが、最小限の自前管理は必要。
+
+### 受け入れ基準
+
+- `output_dir` 指定時に `{output_dir}/{run_id}/` が作成される。
+- ログファイルが出力先に保存される。
+- 未指定時は既存動作を維持する。
+
+### Decision
+
+- Date: `2026-03-06`
+- Result: `accepted`
+- Notes: Phase 23 で実装。
+
+---
+
+## 2026-03-06: 解決済みパラメーターテーブル API
+
+- ID: `H-0035`
+- Status: `accepted`
+- Scope: `Public API`
+- Related: `BLUEPRINT.md §4.1`
+
+### 目的
+
+Notebook の「4.1 LightGBM Parameters」セルで手動実装しているパラメーター確認コードを、Model の公開メソッドとして提供する。ユーザーが booster 内部にアクセスする必要をなくし、1 行で解決済みパラメーターを確認できるようにする。
+
+### Proposal
+
+1. `model.params_table()` メソッドを追加する。
+   - 戻り値: `pd.DataFrame`（index: `parameter`, 単一列: `value`）。
+   - Config 由来の smart params（`auto_num_leaves`, `num_leaves_ratio`, `min_data_in_leaf_ratio`, `min_data_in_bin_ratio`, `balanced`, `feature_weights`）と training 設定（`early_stopping.rounds`, `validation_ratio`）を含む。
+   - fold 0 の学習済み booster から取得した解決済みネイティブパラメーター（`objective`, `num_leaves`, `min_data_in_leaf`, `min_data_in_bin`, `max_bin`, `learning_rate`, `max_depth`, `feature_fraction`, `bagging_fraction`, `bagging_freq`, `lambda_l2`, `num_iterations` 等）を含む。
+   - Config smart params（ratio 等）と resolved params（絶対値）は名前が異なるため衝突しない。同一テーブルに混在させることで、ユーザーは「指定した ratio」と「解決された絶対値」を対比確認できる。
+   - 末尾に fold ごとの `best_iteration` 行を追加する。
+   - `fit()` 未実行時は `MODEL_NOT_FIT` を送出する。
+2. 出力イメージ:
+   ```
+                             value
+   parameter
+   objective                huber
+   learning_rate            0.001
+   max_depth                    5
+   auto_num_leaves           True
+   num_leaves_ratio           1.0
+   num_leaves                  32
+   min_data_in_leaf_ratio    0.01
+   min_data_in_leaf           540
+   min_data_in_bin_ratio    0.001
+   min_data_in_bin             54
+   max_bin                    511
+   feature_fraction           0.7
+   bagging_fraction           0.7
+   bagging_freq                10
+   lambda_l2             0.000001
+   balanced                 False
+   early_stopping_rounds      150
+   validation_ratio           0.1
+   num_iterations            1500
+   best_iteration_0           487
+   best_iteration_1           512
+   ...
+   ```
+
+### 影響範囲
+
+- `BLUEPRINT.md §4.1`（公開 API 追加）
+- `lizyml/core/model.py`（委譲メソッド追加）
+- Notebook の「4.1」セルを `model.params_table()` 1 行に置き換え可能
+
+### 互換性
+
+- 新規メソッド追加のみ。既存 API に変更なし。
+
+### 代替案
+
+- 2 列（`config` / `resolved`）で対比する: ratio → 絶対値の対応を明示的に示せるが、多くのパラメーターで片方が空欄になり冗長。単一列で十分識別可能（名前が異なるため）。
+
+### 受け入れ基準
+
+- `model.params_table()` が `pd.DataFrame` を返す。
+- Config smart params と resolved booster params が同一テーブルに含まれる。
+- fold ごとの `best_iteration` が含まれる。
+- `fit()` 未実行時に `MODEL_NOT_FIT` を送出する。
+- Notebook の「4.1」セルを `model.params_table()` に置き換えて動作確認。
+
+---
+
+## 2026-03-06: Smart Parameter の n_rows 基準を inner train サイズに変更
+
+- ID: `H-0036`
+- Status: `accepted`
+- Scope: `Result の意味・shape（smart param 解決ロジック）`
+- Related: `BLUEPRINT.md §5.3`
+
+### 目的
+
+Smart parameter（`min_data_in_leaf_ratio`, `min_data_in_bin_ratio`）の `n_rows` 基準が、現在は `fit()` に渡された全データセットサイズを使用している。実際にモデルが学習するデータは outer fold 分割 + inner valid 分割後のサブセットであり、5-fold + validation_ratio=0.1 の場合は全体の約 72% に減少する。ratio パラメーターの意図（実際の学習データサイズに対する割合）と乖離するため、n_rows を inner train サイズ（early stopping 用 validation 分割後）に変更する。
+
+### Proposal
+
+1. smart parameter の `n_rows` を「CVTrainer の各 fold における inner_valid 分割後の学習データ行数」とする。
+2. `Model.fit()` での一括解決（現行）を廃止し、`CVTrainer.fit()` 内の fold ループ内で、inner_valid 分割後に smart params を解決する。
+3. `auto_num_leaves` は `max_depth` のみに依存し `n_rows` を使わないため影響なし。`num_leaves_ratio` も `max_depth` ベースのため影響なし。影響を受けるのは `min_data_in_leaf_ratio` と `min_data_in_bin_ratio` のみ。
+4. Tuner の trial 内でも同様に、CVTrainer 内部で fold ごとに解決する。
+5. BLUEPRINT §5.3 の記述を更新し、`n_rows` の定義を明確化する。
+6. `feature_weights` と `balanced`（`sample_weight`）は n_rows に依存しないため影響なし。
+
+### 影響範囲
+
+- `BLUEPRINT.md §5.3`（n_rows の定義明確化）
+- `lizyml/core/model.py`（smart param 解決の移動）
+- `lizyml/training/cv_trainer.py`（fold 内での smart param 解決追加）
+- `lizyml/estimators/lgbm.py`（`resolve_smart_params` のインターフェース変更の可能性）
+- `lizyml/tuning/tuner.py`（trial 内 smart param 解決の変更）
+- `params_table()` の出力（fold ごとに異なる可能性のある値の表示方針）
+
+### 互換性
+
+- ratio の解決値が変わるため、同一 Config でも以前と異なる `min_data_in_leaf` / `min_data_in_bin` 値が生成される（破壊的変更）。
+- ただし Artifacts の `format_version` や公開 API のシグネチャには影響しない。
+- 既存の保存済みモデルには影響しない（解決済みパラメーターは booster に格納済み）。
+
+### 代替案
+
+1. **全データセットサイズ基準を維持し仕様明確化のみ**: 安定性・再現性の観点で合理的だが、ratio の意味が「全データに対する割合」に固定される。
+2. **outer fold 基準**: inner valid 分割は考慮しない中間案。fold 間で均等分割なら安定するが、不均等分割（時系列等）では fold ごとに異なる。
+
+### 受け入れ基準
+
+- `min_data_in_leaf_ratio=0.01` で 5-fold + validation_ratio=0.1 の場合、解決値が全データの 0.72% 付近（inner train サイズ基準）になることをテストで確認。
+- fold ごとの解決値が inner train サイズに基づいて正しく計算されること。
+- Tuner の trial 内でも同一ロジックが適用されること。
+- `params_table()` が fold 0 の解決値を正しく表示すること。
+- 既存テストの回帰確認（seed 固定テストの期待値更新が必要な場合あり）。
+
+---
+
+## 2026-03-06: Phase 22 監査乖離クローズ — ドキュメント整合修正
+
+- ID: `H-0037`
+- Status: `accepted`
+- Scope: `ドキュメント整合（BLUEPRINT 文言修正 + Notebook/テスト補完）`
+- Related: `BLUEPRINT.md §5.2, §5.3, §5.4`, `PLAN.md Phase 22`
+
+### 目的
+
+Phase 22 監査で検出された BLUEPRINT の記述乖離（§5.3 balanced デフォルト、§5.2/§5.3 LGBMConfig 例）を実装/§5.4 と統一する。合わせて Notebook の feature_weights 解決後値確認セルと静的テストの不足を補完し、監査乖離を完全にクローズする。
+
+### 対象
+
+1. **BLUEPRINT §5.3 balanced 記述**: `balanced: bool = False` → `balanced: bool | None = None`（タスク依存自動解決: regression→False, binary/multiclass→True）。§5.4 Config Reference と一致させる。
+2. **BLUEPRINT §5.2/§5.3 LGBMConfig 例**: `min_data_in_leaf_ratio` / `min_data_in_bin_ratio` / `balanced` の説明文を現仕様（デフォルト値・自動解決ロジック）と一致するよう微修正。
+3. **Notebook**: `tutorial_regression_tuning_lgbm.ipynb` に feature_weights (resolved) の確認セルを追加（設定時のみ表示）。
+4. **テスト**: `tests/test_notebooks/test_notebook_cells.py` に feature_weights 解決後値確認セルの存在検証を追加。
+
+### 影響範囲
+
+- BLUEPRINT.md の文言修正のみ。公開 API / Config / Result の shape は変更なし。
+- Notebook セル追加と静的テスト追加は既存動作に影響なし。
+
+### 互換性
+
+- 破壊的変更なし。
+
+### 受け入れ基準
+
+- BLUEPRINT §5.3 の balanced デフォルト記述が §5.4 Config Reference と一致していること。
+- BLUEPRINT §5.2/§5.3 の LGBMConfig 例が現仕様と一致していること。
+- `tutorial_regression_tuning_lgbm.ipynb` に feature_weights (resolved) セルがあること。
+- Notebook 静的テストが feature_weights 解決後値確認セルの存在を検証すること。
+
+### Decision
+
+- Date: `2026-03-06`
+- Result: `accepted`
+- Notes: 変更ゲート非該当（文言修正 + テスト追加）。BLUEPRINT §5.2/§5.3 を修正し、開発タスクは Phase 22 の 22-O として追加。
