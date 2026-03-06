@@ -6,6 +6,7 @@ Directory layout (format_version=1)::
         metadata.json        — human-readable metadata + version info
         fit_result.pkl       — FitResult (joblib compressed)
         refit_model.pkl      — RefitResult (joblib compressed)
+        analysis_context.pkl — (optional) y_true + X for diagnostic APIs
 
 Security note: pickle/joblib files must only be loaded from trusted sources.
 """
@@ -13,10 +14,12 @@ Security note: pickle/joblib files must only be loaded from trusted sources.
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import joblib
+import pandas as pd
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 
@@ -27,12 +30,22 @@ if TYPE_CHECKING:
 FORMAT_VERSION = 1
 
 
+@dataclass
+class AnalysisContext:
+    """Data needed for diagnostic APIs after Model.load()."""
+
+    y_true: pd.Series
+    X_for_explain: pd.DataFrame
+
+
 def export(
     path: str | Path,
     fit_result: FitResult,
     refit_result: RefitResult,
     config: dict[str, Any],
     task: str,
+    *,
+    analysis_context: AnalysisContext | None = None,
 ) -> None:
     """Serialize Model artifacts to *path*.
 
@@ -42,6 +55,8 @@ def export(
         refit_result: Full-data refit output used for inference.
         config: Normalized config dict (from ``LizyMLConfig.model_dump()``).
         task: ML task string (``"regression"``, ``"binary"``, ``"multiclass"``).
+        analysis_context: Optional y_true and X data for diagnostic APIs
+            after ``Model.load()``.
 
     Raises:
         LizyMLError with SERIALIZATION_FAILED on any I/O or serialization error.
@@ -67,6 +82,9 @@ def export(
 
         joblib.dump(fit_result, out / "fit_result.pkl", compress=3)
         joblib.dump(refit_result, out / "refit_model.pkl", compress=3)
+
+        if analysis_context is not None:
+            joblib.dump(analysis_context, out / "analysis_context.pkl", compress=3)
 
     except LizyMLError:
         raise
