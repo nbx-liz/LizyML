@@ -39,7 +39,7 @@ class BetaCalibrator(BaseCalibratorAdapter):
     Requires ``scipy`` (optional dependency).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, params: dict[str, Any] | None = None) -> None:
         self._params: tuple[float, float, float] | None = None
 
     @property

@@ -22,6 +22,7 @@ _NOTEBOOKS = [
     "tutorial_multiclass_lgbm.ipynb",
     "tutorial_regression_lgbm.ipynb",
     "tutorial_regression_tuning_lgbm.ipynb",
+    "tutorial_time_series_lgbm.ipynb",
 ]
 
 

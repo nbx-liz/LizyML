@@ -4,10 +4,12 @@ Covers:
 - PurgedTimeSeries config validation and Model.fit
 - GroupTimeSeries config validation and Model.fit
 - Alias normalization
-- InnerValid auto-resolution
+- Legacy key deprecation warnings
 """
 
 from __future__ import annotations
+
+import warnings
 
 import numpy as np
 import pandas as pd
@@ -68,18 +70,48 @@ def _base_config(method: str, **extra: object) -> dict:
 
 class TestPurgedTimeSeriesConfig:
     def test_valid_config(self) -> None:
-        cfg = load_config(_base_config("purged_time_series", purge_window=5, gap=2))
+        cfg = load_config(
+            _base_config("purged_time_series", purge_gap=5, embargo_pct=0.02)
+        )
         assert cfg.split.method == "purged_time_series"
+        assert cfg.split.purge_gap == 5  # type: ignore[union-attr]
+        assert cfg.split.embargo_pct == 0.02  # type: ignore[union-attr]
 
     def test_fit_runs(self) -> None:
         df = _ts_df()
         model = Model(
-            _base_config("purged_time_series", purge_window=5),
+            _base_config("purged_time_series", purge_gap=5),
             data=df,
         )
         fr = model.fit()
         assert fr.oof_pred.shape == (len(df),)
         assert len(fr.models) == 3
+
+    def test_legacy_keys_warning(self) -> None:
+        """Legacy keys purge_window/gap should emit deprecation warnings."""
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            cfg = load_config(_base_config("purged_time_series", purge_window=5, gap=2))
+        assert cfg.split.method == "purged_time_series"
+        assert cfg.split.purge_gap == 5  # type: ignore[union-attr]
+        assert cfg.split.embargo_pct == 2.0  # type: ignore[union-attr]
+        deprecation_msgs = [
+            str(x.message) for x in w if issubclass(x.category, DeprecationWarning)
+        ]
+        assert any("purge_window" in m for m in deprecation_msgs)
+        assert any("gap" in m for m in deprecation_msgs)
+
+    def test_legacy_keys_fit_works(self) -> None:
+        """Legacy keys should still produce a working model."""
+        df = _ts_df()
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            model = Model(
+                _base_config("purged_time_series", purge_window=5),
+                data=df,
+            )
+        fr = model.fit()
+        assert fr.oof_pred.shape == (len(df),)
 
 
 class TestGroupTimeSeriesConfig:

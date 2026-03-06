@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 # Side-effect imports to register all calibrators
 import lizyml.calibration.beta  # noqa: F401
 import lizyml.calibration.isotonic  # noqa: F401
@@ -14,11 +16,16 @@ from lizyml.core.registries import CalibratorRegistry
 _NOT_IMPLEMENTED: dict[str, str] = {}
 
 
-def get_calibrator(name: str) -> BaseCalibratorAdapter:
+def get_calibrator(
+    name: str,
+    params: dict[str, Any] | None = None,
+) -> BaseCalibratorAdapter:
     """Return a fresh calibrator instance by name.
 
     Args:
         name: Registered calibrator name (e.g. ``"platt"``, ``"isotonic"``).
+        params: Optional method-specific parameters (e.g. LGBM params for
+            isotonic calibration).
 
     Returns:
         A new (unfitted) calibrator instance.
@@ -41,5 +48,5 @@ def get_calibrator(name: str) -> BaseCalibratorAdapter:
             user_message=f"Unknown calibration method: '{name}'.",
             context={"method": name},
         ) from err
-    instance: BaseCalibratorAdapter = cls()
+    instance: BaseCalibratorAdapter = cls(params=params)
     return instance

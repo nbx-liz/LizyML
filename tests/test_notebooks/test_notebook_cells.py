@@ -94,6 +94,12 @@ def test_time_series_has_time_series_method() -> None:
     )
 
 
+def test_time_series_has_predict() -> None:
+    """Time series notebook must include predict demonstration."""
+    code = _read_code_cells(TIME_SERIES_NB)
+    assert ".predict(" in code, f"'.predict(' not found in {TIME_SERIES_NB.name}"
+
+
 def test_time_series_has_purged() -> None:
     """Time series notebook must include purged_time_series example."""
     code = _read_code_cells(TIME_SERIES_NB)

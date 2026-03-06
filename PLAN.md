@@ -1916,6 +1916,37 @@ Requirements Audit で検出された未実装項目（Beta Calibration、Purged
 - `output_dir` 指定時にログが統一ディレクトリに出力される。
 - 追加/更新テストが通過する。
 
+### Phase 23 残タスク（Requirements Audit 2026-03-06）
+
+**HISTORY:** H-0038, H-0039  
+**SKILL:** skills/spec-update/SKILL.md, skills/history-proposals/SKILL.md, skills/splitters-and-splitplan/SKILL.md, skills/calibration/SKILL.md, skills/dev-environment/SKILL.md, skills/testing/SKILL.md
+
+監査結果により 23-C / 23-E / 23-F / 23-G に未達があるため、以下を追加対応する。
+
+1. **23-C Follow-up（BLUEPRINT優先で契約是正）**
+   - `purged_time_series` の Config 契約を BLUEPRINT §5.4 準拠（`purge_gap`, `embargo_pct`）に統一する。
+   - legacy key（`purge_window`, `gap`）は移行期間のみ警告付き受理とし、正規キーへ正規化する。
+   - split 境界（purge + embargo）のテストを追加し、リーク防止を検証する。
+2. **23-E Follow-up（Notebook ワークフロー完了）**
+   - `tutorial_time_series_lgbm.ipynb` に `predict` 実演セルを追加し、「学習・評価・予測」の一連フローを満たす。
+   - `tests/test_notebooks/test_notebook_execution.py` の `nbconvert --execute` 対象に `tutorial_time_series_lgbm.ipynb` を追加する。
+3. **23-F Follow-up（output_dir 統一の完了）**
+   - `output_dir` を Config からも指定可能にし、優先順位を `constructor > config > 未指定` で固定する。
+   - `fit` だけでなく `tune` / `export` でも `{output_dir}/{run_id}/` へログを統一出力する。
+   - 回帰テストで「未指定時の既存挙動維持」を担保する。
+4. **23-G Follow-up（Isotonic 実装の BLUEPRINT 準拠）**
+   - `lizyml/calibration/isotonic.py` を、BLUEPRINT §12.2 の方針（LGBM 単調制約利用）に沿う実装へ置換する。
+   - calibrator IF（`fit(oof_scores, y)` / `predict(scores)`）とリーク防止境界（OOF-only + cross-fit 評価）は維持する。
+   - `tests/test_calibration/` に Isotonic 実装方式の回帰テスト（単調制約設定・出力レンジ・E2E）を追加する。
+
+### Phase 23 残タスク DoD
+
+- 23-C: BLUEPRINT §5.4 のキー契約（`purge_gap`, `embargo_pct`）と実装が一致し、legacy key は警告付き互換として扱われる。
+- 23-E: 時系列 Notebook が `fit -> evaluate -> predict` を実演し、`nbconvert --execute` テストに含まれてパスする。
+- 23-F: Config/コンストラクタ双方の `output_dir` が仕様どおりに解決され、`fit/tune/export` で run ディレクトリにログが出力される。
+- 23-G: `isotonic` が BLUEPRINT §12.2 の実装方針（LGBM 単調制約利用）を満たし、既存 calibration 契約テストが回帰しない。
+- 追加テストが pass し、既存 E2E/Notebook テストに回帰がない。
+
 ---
 
 ## 補足: HISTORY.md Proposal が必要なタイミング

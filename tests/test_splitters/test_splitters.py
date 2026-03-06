@@ -214,21 +214,21 @@ class TestPurgedTimeSeriesSplitter:
             assert train.max() < valid.min()
 
     def test_purge_shrinks_train(self) -> None:
-        folds_no_purge = _collect(PurgedTimeSeriesSplitter(n_splits=5, purge_window=0))
-        folds_purged = _collect(PurgedTimeSeriesSplitter(n_splits=5, purge_window=3))
+        folds_no_purge = _collect(PurgedTimeSeriesSplitter(n_splits=5, purge_gap=0))
+        folds_purged = _collect(PurgedTimeSeriesSplitter(n_splits=5, purge_gap=3))
         for (t_no, _), (t_p, _) in zip(folds_no_purge, folds_purged, strict=True):
             assert len(t_p) <= len(t_no)
 
     def test_seed_reproducibility(self) -> None:
-        s1 = PurgedTimeSeriesSplitter(n_splits=5, purge_window=2)
-        s2 = PurgedTimeSeriesSplitter(n_splits=5, purge_window=2)
+        s1 = PurgedTimeSeriesSplitter(n_splits=5, purge_gap=2)
+        s2 = PurgedTimeSeriesSplitter(n_splits=5, purge_gap=2)
         for (t1, v1), (t2, v2) in zip(_collect(s1), _collect(s2), strict=True):
             np.testing.assert_array_equal(t1, t2)
             np.testing.assert_array_equal(v1, v2)
 
-    def test_invalid_purge_window(self) -> None:
-        with pytest.raises(ValueError, match="purge_window"):
-            PurgedTimeSeriesSplitter(purge_window=-1)
+    def test_invalid_purge_gap(self) -> None:
+        with pytest.raises(ValueError, match="purge_gap must be >= 0"):
+            PurgedTimeSeriesSplitter(purge_gap=-1)
 
 
 # ---------------------------------------------------------------------------

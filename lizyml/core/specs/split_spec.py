@@ -22,4 +22,5 @@ class SplitSpec:
     random_state: int | None
     shuffle: bool
     gap: int
-    purge_window: int = 0
+    purge_gap: int = 0
+    embargo_pct: float = 0.0

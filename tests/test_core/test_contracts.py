@@ -101,7 +101,8 @@ def prediction_result() -> PredictionResult:
 
 class TestSplitIndicesSchema:
     def test_field_names(self) -> None:
-        assert _field_names(SplitIndices) == ["outer", "inner", "calibration", "time_range"]
+        expected = ["outer", "inner", "calibration", "time_range"]
+        assert _field_names(SplitIndices) == expected
 
     def test_instantiation_no_inner_no_calibration(self) -> None:
         si = SplitIndices(

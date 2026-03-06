@@ -113,7 +113,9 @@ class Model:
             self._cfg = load_config(config)
 
         self._data: pd.DataFrame | None = data
-        self._output_dir: str | Path | None = output_dir
+        # Constructor arg takes priority over Config (BLUEPRINT §17)
+        resolved_dir = output_dir or getattr(self._cfg, "output_dir", None)
+        self._output_dir: str | Path | None = resolved_dir
         self._run_dir: Path | None = None
         self._fit_result: FitResult | None = None
         self._refit_result: RefitResult | None = None
@@ -278,6 +280,7 @@ class Model:
             from lizyml.calibration.registry import get_calibrator
 
             method = cfg.calibration.method
+            cal_params = cfg.calibration.params or None
             # Use raw scores (logits) for calibration (H-0030)
             cal_scores = (
                 fit_result.oof_raw_scores
@@ -287,7 +290,7 @@ class Model:
             calibration_result = cross_fit_calibrate(
                 oof_scores=cal_scores,
                 y=y.to_numpy(),
-                calibrator_factory=lambda: get_calibrator(method),
+                calibrator_factory=lambda: get_calibrator(method, params=cal_params),
                 n_splits=cfg.calibration.n_splits,
                 random_state=cfg.training.seed,
             )
@@ -741,6 +744,13 @@ class Model:
 
         _log.info("event='tune.start' task=%s", cfg.task)
 
+        # --- Output directory setup (H-0034) ---------------------------------
+        if self._output_dir is not None:
+            from lizyml.core.logging import setup_output_dir
+
+            tune_run_id = generate_run_id()
+            self._run_dir = setup_output_dir(self._output_dir, tune_run_id)
+
         df = self._load_data(data)
         problem_spec = ProblemSpec(
             task=cfg.task,
@@ -1040,10 +1050,10 @@ class Model:
             gap = getattr(split_cfg, "gap", 0)
             return TimeSeriesSplitter(n_splits=n_splits, gap=gap)
         if method == "purged_time_series":
-            purge_window = getattr(split_cfg, "purge_window", 0)
-            gap = getattr(split_cfg, "gap", 0)
+            purge_gap = getattr(split_cfg, "purge_gap", 0)
+            embargo_pct: float = getattr(split_cfg, "embargo_pct", 0.0)
             return PurgedTimeSeriesSplitter(
-                n_splits=n_splits, purge_window=purge_window, gap=gap
+                n_splits=n_splits, purge_gap=purge_gap, embargo_pct=embargo_pct
             )
         if method == "group_time_series":
             gap = getattr(split_cfg, "gap", 0)

@@ -90,3 +90,41 @@ class TestModelOutputDir:
         model.fit()
 
         assert model._run_dir is None
+
+    def test_output_dir_from_config(self, tmp_path: Path) -> None:
+        """output_dir specified in Config should create run directory."""
+        df = _reg_df()
+        cfg = _reg_config()
+        cfg["output_dir"] = str(tmp_path)
+        model = Model(cfg, data=df)
+        model.fit()
+
+        assert model._run_dir is not None
+        assert model._run_dir.exists()
+
+        # Clean up handler
+        root = logging.getLogger("lizyml")
+        for h in list(root.handlers):
+            if isinstance(h, logging.FileHandler):
+                root.removeHandler(h)
+                h.close()
+
+    def test_constructor_overrides_config(self, tmp_path: Path) -> None:
+        """Constructor output_dir should take priority over Config."""
+        df = _reg_df()
+        cfg = _reg_config()
+        cfg["output_dir"] = str(tmp_path / "config_dir")
+        constructor_dir = tmp_path / "constructor_dir"
+        model = Model(cfg, data=df, output_dir=constructor_dir)
+        model.fit()
+
+        assert model._run_dir is not None
+        # Should be under constructor_dir, not config_dir
+        assert str(model._run_dir).startswith(str(constructor_dir))
+
+        # Clean up handler
+        root = logging.getLogger("lizyml")
+        for h in list(root.handlers):
+            if isinstance(h, logging.FileHandler):
+                root.removeHandler(h)
+                h.close()
