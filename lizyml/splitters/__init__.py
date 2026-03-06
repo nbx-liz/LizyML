@@ -47,6 +47,23 @@ def _build_splitter(spec: SplitSpec) -> BaseSplitter:
         return TimeSeriesSplitter(
             n_splits=spec.n_splits,
             gap=spec.gap,
+            max_train_size=spec.train_size_max,
+            max_test_size=spec.test_size_max,
+        )
+    if method == "purged_time_series":
+        return PurgedTimeSeriesSplitter(
+            n_splits=spec.n_splits,
+            purge_gap=spec.purge_gap,
+            embargo=spec.embargo,
+            max_train_size=spec.train_size_max,
+            max_test_size=spec.test_size_max,
+        )
+    if method == "group_time_series":
+        return GroupTimeSeriesSplitter(
+            n_splits=spec.n_splits,
+            gap=spec.gap,
+            max_train_size=spec.train_size_max,
+            max_test_size=spec.test_size_max,
         )
 
     raise ValueError(f"Unknown split method: {method!r}")

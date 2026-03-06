@@ -27,11 +27,19 @@ class GroupTimeSeriesSplitter(BaseSplitter):
             first validation group (temporal buffer).
     """
 
-    def __init__(self, n_splits: int = 5, gap: int = 0) -> None:
+    def __init__(
+        self,
+        n_splits: int = 5,
+        gap: int = 0,
+        max_train_size: int | None = None,
+        max_test_size: int | None = None,
+    ) -> None:
         if gap < 0:
             raise ValueError("gap must be >= 0.")
         self.n_splits = n_splits
         self.gap = gap
+        self.max_train_size = max_train_size
+        self.max_test_size = max_test_size
 
     def split(
         self,
@@ -67,8 +75,14 @@ class GroupTimeSeriesSplitter(BaseSplitter):
             if valid_group_start >= valid_group_end:
                 continue
 
-            train_groups = set(ordered_unique[:train_group_end])
-            valid_groups = set(ordered_unique[valid_group_start:valid_group_end])
+            train_group_list = ordered_unique[:train_group_end]
+            valid_group_list = ordered_unique[valid_group_start:valid_group_end]
+            if self.max_train_size is not None:
+                train_group_list = train_group_list[-self.max_train_size :]
+            if self.max_test_size is not None:
+                valid_group_list = valid_group_list[: self.max_test_size]
+            train_groups = set(train_group_list)
+            valid_groups = set(valid_group_list)
 
             train_idx = np.where(np.isin(groups_arr, list(train_groups)))[0]
             valid_idx = np.where(np.isin(groups_arr, list(valid_groups)))[0]

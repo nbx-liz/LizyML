@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from pathlib import Path
 from typing import Any
 
 
@@ -39,3 +40,32 @@ def log_event(
     parts = [f"event={event!r}"]
     parts.extend(f"{k}={v!r}" for k, v in fields.items())
     logger.log(level, " ".join(parts))
+
+
+def setup_output_dir(output_dir: str | Path, run_id: str) -> Path:
+    """Create run-specific output directory and configure file logging.
+
+    Creates ``{output_dir}/{run_id}/`` and adds a :class:`FileHandler`
+    to the ``'lizyml'`` root logger writing to ``run.log``.
+
+    Args:
+        output_dir: Base output directory.
+        run_id: Unique run identifier.
+
+    Returns:
+        Path to the created run directory.
+    """
+    run_dir = Path(output_dir) / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    log_path = run_dir / "run.log"
+    handler = logging.FileHandler(log_path, encoding="utf-8")
+    handler.setFormatter(
+        logging.Formatter("%(asctime)s %(name)s %(levelname)s %(message)s")
+    )
+    root = logging.getLogger("lizyml")
+    root.addHandler(handler)
+    if root.level == logging.NOTSET:
+        root.setLevel(logging.INFO)
+
+    return run_dir
