@@ -2330,3 +2330,169 @@ Phase 22 監査で検出された BLUEPRINT の記述乖離（§5.3 balanced デ
 - Date: `2026-03-06`
 - Result: `accepted`
 - Notes: 変更ゲート非該当（文言修正 + テスト追加）。BLUEPRINT §5.2/§5.3 を修正し、開発タスクは Phase 22 の 22-O として追加。
+
+---
+
+## 2026-03-06: Phase 23 監査フォローアップ（23-C: BLUEPRINT準拠）
+
+- ID: `H-0038`
+- Status: `accepted`
+- Scope: `Config | Split`
+- Related: `BLUEPRINT.md §5.4, §10.2`, `PLAN.md Phase 23`
+
+### Context
+
+Requirements Audit の結果、Phase 23-C について BLUEPRINT と実装の乖離が確認された。  
+BLUEPRINT §5.4 は `purged_time_series` の固有キーを `purge_gap` / `embargo_pct` と定義している一方、現実装は `purge_window` / `gap` を受け付けている。
+
+本件は公開 Config 契約（split 設定）に該当するため、BLUEPRINT を正として整合させる方針を明示する。
+
+### Proposal
+
+1. `purged_time_series` の正式キーは BLUEPRINT 記載どおり `purge_gap` / `embargo_pct` とする。
+2. `config/schema.py`・`config/loader.py`・`core/model.py`・splitter 実装を上記キー契約に合わせて更新する。
+3. 既存ユーザー向けに `purge_window` / `gap` は移行期間中のみ後方互換として受け付け、明示警告を出す。
+4. `embargo_pct` の split 動作をテストで固定し、リーク防止境界を明文化する。
+
+### Impact
+
+- `lizyml/config/schema.py`
+- `lizyml/config/loader.py`
+- `lizyml/core/model.py`
+- `lizyml/splitters/purged_time_series.py`
+- `tests/test_config/*`, `tests/test_e2e/test_time_series_splits.py`
+
+### Compatibility
+
+- 公開 Config 契約の是正であり、最終的には破壊的（legacy key 廃止時）。
+- ただし移行期間を設け、legacy key を警告付きで受理することで段階移行可能とする。
+
+### Alternatives Considered
+
+1. 実装に合わせて BLUEPRINT を `purge_window` / `gap` に変更する  
+   - 不採用。ユーザー指示（23-C は BLUEPRINT を正とする）と矛盾するため。
+2. 互換レイヤーなしで即時切替する  
+   - 不採用。既存 Config 利用者への影響が大きいため。
+
+### Acceptance Criteria
+
+- `split.method: "purged_time_series"` で `purge_gap` / `embargo_pct` が有効に解釈される。
+- `purge_window` / `gap` 指定時は警告付きで同等動作し、移行案内が表示される。
+- `embargo_pct` を含む split でリーク防止境界のテストが追加され、期待どおりに通過する。
+- BLUEPRINT §5.4 / §10.2 と実装・テストのキー名が一致する。
+
+### Migration
+
+- 既存 Config の `purge_window` / `gap` は `purge_gap` / `embargo_pct` に置換する。
+- 移行期間中は legacy key を警告付きで受理し、将来削除時期をリリースノートで告知する。
+
+---
+
+## 2026-03-06: Phase 23 監査フォローアップ（23-F: output_dir 契約完了）
+
+- ID: `H-0039`
+- Status: `accepted`
+- Scope: `Config | Logging`
+- Related: `BLUEPRINT.md §17`, `PLAN.md Phase 23`
+
+### Context
+
+Requirements Audit の結果、23-F は部分達成。  
+現状は `Model(..., output_dir=...)` + `fit()` の経路のみ動作し、BLUEPRINT §17 の「Config or コンストラクタ」「fit/tune/export の統一出力先」要件を満たし切れていない。
+
+### Proposal
+
+1. `output_dir` を Config からも指定可能にする（優先順位は `constructor > config > 未指定`）。
+2. `fit` だけでなく `tune` / `export` でも `{output_dir}/{run_id}/` を作成し、ログ出力を統一する。
+3. 既存の未指定時挙動（標準出力中心、返却API中心）は維持する。
+
+### Impact
+
+- `lizyml/config/schema.py`
+- `lizyml/core/model.py`
+- `lizyml/core/logging.py`
+- `tests/test_core/test_logging_output.py`（拡張）
+
+### Compatibility
+
+- 追加機能であり後方互換。
+- `output_dir` 未指定ユーザーの挙動変更はない。
+
+### Alternatives Considered
+
+1. コンストラクタ引数のみ対応のまま維持する  
+   - 不採用。BLUEPRINT §17 の契約に未達のため。
+2. `fit` のみ対応のまま維持する  
+   - 不採用。run 管理の統一要件を満たせないため。
+
+### Acceptance Criteria
+
+- Config 経由で `output_dir` を指定した場合に run ディレクトリが作成される。
+- `fit` / `tune` / `export` の各経路で run ディレクトリとログファイルが作成される。
+- コンストラクタ引数と Config 両方がある場合、優先順位がテストで保証される。
+- 未指定時の既存挙動が回帰しない。
+
+### Migration
+
+- 移行必須なし（任意で Config に `output_dir` を追加可能）。
+
+---
+
+## 2026-03-07: TimeSeries CV 方針更新（time_col基準統一 + embargo改名）
+
+- ID: `H-0040`
+- Status: `accepted`
+- Scope: `Config | Split | InnerValid`
+- Related: `BLUEPRINT.md §5.4, §6.2, §10.2, §10.3`, `PLAN.md Phase 23`
+
+### Context
+
+TimeSeries 系 split（`time_series` / `purged_time_series` / `group_time_series`）の仕様が、`time_col` の扱い・パラメーター命名・ウィンドウ制御の観点で統一されていない。  
+現状は「行順ベース」の実装が混在しており、ユーザーが `time_col` を指定しても split ロジックがその列で明示的にソートする契約になっていない。
+
+### Proposal
+
+1. 3 メソッド共通で `data.time_col` を必須化し、split 前に `time_col` 昇順で並べてから分割する。
+2. 3 メソッド共通でウィンドウ制御キー `train_size_max` / `test_size_max` を持つ。
+3. `time_series` / `group_time_series` は `gap`、`purged_time_series` は `purge_gap` を継続し、3 メソッドでギャップ指定を共通概念として扱う。
+4. `purged_time_series` の `embargo_pct`（`float`）を `embargo`（`int`、Obs 数指定）に改名・型変更する。`gap` / `purge_gap` と同じ単位に統一。
+5. 既存ユーザー向けに `embargo_pct` は移行期間中のみ警告付きで受理し、`int()` 変換の上 `embargo` へ正規化する。
+
+### Impact
+
+- `lizyml/config/schema.py`（split config 契約の更新）
+- `lizyml/config/loader.py`（正規化・後方互換）
+- `lizyml/core/model.py`（time_col 必須チェック、split 構築）
+- `lizyml/splitters/time_series.py`
+- `lizyml/splitters/purged_time_series.py`
+- `lizyml/splitters/group_time_series.py`
+- `lizyml/training/cv_trainer.py`（time_col 昇順前処理の適用位置に応じて）
+- `tests/test_splitters/*`, `tests/test_e2e/test_time_series_splits.py`, `tests/test_e2e/test_split_summary.py`
+
+### Compatibility
+
+- `embargo_pct` -> `embargo` は公開 Config 契約の変更を含むため、最終的には破壊的。
+- 移行期間中は `embargo_pct` を警告付き互換として受理し、段階移行可能にする。
+- `time_col` 必須化は既存の「行順依存」設定に影響するため、エラーメッセージと移行ガイドを明示する。
+
+### Alternatives Considered
+
+1. 現行の「行順前提」運用を継続し、`time_col` 必須化しない  
+   - 不採用。データ前処理依存で誤用しやすく、仕様の再現性を下げるため。
+2. `embargo_pct` 名を維持して文言だけ調整する  
+   - 不採用。指定単位の誤解が残るため、命名統一を優先。
+
+### Acceptance Criteria
+
+- 3 メソッドで `data.time_col` 未指定時は `CONFIG_INVALID` となる。
+- `time_col` 非昇順データを与えても、`time_col` 昇順での分割結果が再現される。
+- 3 メソッドすべてで `train_size_max` / `test_size_max` が有効に解釈される。
+- `purged_time_series` で `embargo` が有効に動作する。
+- `embargo_pct` 指定時は警告を出しつつ `embargo` と同等動作になる。
+- 既存の leakage 防止テストと split_summary テストが回帰しない。
+
+### Migration
+
+- `split.method: "purged_time_series"` を使う既存 Config は `embargo_pct` を `embargo` に置換する。
+- `time_series` / `purged_time_series` / `group_time_series` を使う既存 Config は `data.time_col` を必ず指定する。
+- 既存の並び替え前提コードは、`time_col` の値が期待どおりの順序を持つことを確認する。

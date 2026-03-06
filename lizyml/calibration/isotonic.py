@@ -1,26 +1,46 @@
-"""IsotonicCalibrator — isotonic regression calibration."""
+"""IsotonicCalibrator — isotonic regression via LGBM monotone constraints.
+
+Uses a single-feature LightGBM regressor with ``monotone_constraints=[1]``
+to learn a monotone mapping from raw scores to calibrated probabilities
+(BLUEPRINT §12.2).
+"""
 
 from __future__ import annotations
 
 from typing import Any
 
+import lightgbm as lgbm
 import numpy as np
 import numpy.typing as npt
-from sklearn.isotonic import IsotonicRegression
 
 from lizyml.calibration.base import BaseCalibratorAdapter
 from lizyml.core.registries import CalibratorRegistry
 
+_ISOTONIC_DEFAULTS: dict[str, Any] = {
+    "n_estimators": 200,
+    "max_depth": 3,
+    "learning_rate": 0.05,
+}
+
 
 @CalibratorRegistry.register("isotonic")
 class IsotonicCalibrator(BaseCalibratorAdapter):
-    """Isotonic regression calibration.
+    """Isotonic calibration using LGBM with monotone constraints.
 
-    Accepts only 1-D OOF scores (no X).
+    Learns a monotone non-decreasing mapping from raw scores (logits)
+    to calibrated probabilities using a single-feature LightGBM regressor.
+
+    Args:
+        params: Optional LGBM parameter overrides.  ``monotone_constraints``
+            is always forced to ``[1]`` and cannot be overridden.
     """
 
-    def __init__(self) -> None:
-        self._model: IsotonicRegression | None = None
+    def __init__(self, params: dict[str, Any] | None = None) -> None:
+        merged = {**_ISOTONIC_DEFAULTS, **(params or {})}
+        merged["monotone_constraints"] = [1]
+        merged["verbose"] = -1
+        self._lgbm_params = merged
+        self._model: lgbm.LGBMRegressor | None = None
 
     @property
     def name(self) -> str:
@@ -29,13 +49,15 @@ class IsotonicCalibrator(BaseCalibratorAdapter):
     def fit(
         self, oof_scores: npt.NDArray[np.float64], y: npt.NDArray[Any]
     ) -> IsotonicCalibrator:
-        self._model = IsotonicRegression(out_of_bounds="clip")
-        self._model.fit(oof_scores, y.astype(float))
+        X_cal = oof_scores.reshape(-1, 1)
+        self._model = lgbm.LGBMRegressor(**self._lgbm_params)
+        self._model.fit(X_cal, y.astype(float))
         return self
 
     def predict(self, scores: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         if self._model is None:
             raise RuntimeError("IsotonicCalibrator has not been fitted.")
-        raw: npt.NDArray[np.float64] = self._model.predict(scores)
+        X = scores.reshape(-1, 1)
+        raw: npt.NDArray[np.float64] = self._model.predict(X)
         clipped: npt.NDArray[np.float64] = np.clip(raw, 0.0, 1.0)
         return clipped

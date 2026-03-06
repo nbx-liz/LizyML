@@ -14,7 +14,8 @@ class BaseCalibratorAdapter(ABC):
 
     Contract:
     - ``fit`` receives only ``(oof_scores, y)`` — no X allowed.
-    - ``predict`` maps raw scores to calibrated probabilities in [0, 1].
+    - ``predict`` maps raw scores (logits) to calibrated probabilities in [0, 1].
+    - Input scores are raw logits (before sigmoid/softmax), not probabilities.
     - The same (oof_scores, y) must produce identical results across calls
       with the same random state.
     """
@@ -25,10 +26,10 @@ class BaseCalibratorAdapter(ABC):
         oof_scores: npt.NDArray[np.float64],
         y: npt.NDArray[Any],
     ) -> BaseCalibratorAdapter:
-        """Fit the calibrator on OOF scores and ground-truth labels.
+        """Fit the calibrator on OOF raw scores and ground-truth labels.
 
         Args:
-            oof_scores: 1-D array of raw model scores (probabilities or logits).
+            oof_scores: 1-D array of raw model scores (logits).
             y: 1-D array of binary ground-truth labels (0/1).
 
         Returns:
@@ -37,10 +38,10 @@ class BaseCalibratorAdapter(ABC):
 
     @abstractmethod
     def predict(self, scores: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-        """Map raw scores to calibrated probabilities.
+        """Map raw scores (logits) to calibrated probabilities.
 
         Args:
-            scores: 1-D array of raw model scores.
+            scores: 1-D array of raw model scores (logits).
 
         Returns:
             1-D array of calibrated probabilities in [0, 1].
