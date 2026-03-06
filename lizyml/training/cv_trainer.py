@@ -13,7 +13,7 @@ from lizyml.core.types.artifacts import RunMeta, SplitIndices
 from lizyml.core.types.fit_result import FitResult
 from lizyml.data.fingerprint import DataFingerprint
 from lizyml.estimators.base import BaseEstimatorAdapter
-from lizyml.evaluation.oof import fill_oof, get_fold_pred, init_oof
+from lizyml.evaluation.oof import fill_oof, get_fold_pred, get_fold_raw, init_oof
 from lizyml.features.pipeline_base import BaseFeaturePipeline
 from lizyml.splitters.base import BaseSplitter
 from lizyml.training.inner_valid import BaseInnerValidStrategy
@@ -55,6 +55,7 @@ class CVTrainer:
         n_classes: int | None = None,
         *,
         ratio_param_resolver: Callable[[int], dict[str, Any]] | None = None,
+        collect_raw_scores: bool = False,
     ) -> None:
         self.outer_splitter = outer_splitter
         self.inner_valid = inner_valid
@@ -63,6 +64,7 @@ class CVTrainer:
         self.task = task
         self.n_classes = n_classes
         self.ratio_param_resolver = ratio_param_resolver
+        self.collect_raw_scores = collect_raw_scores
 
     def fit(
         self,
@@ -73,6 +75,7 @@ class CVTrainer:
         data_fingerprint: DataFingerprint,
         run_meta: RunMeta,
         sample_weight: npt.NDArray[Any] | None = None,
+        time_values: pd.Series | None = None,
     ) -> FitResult:
         """Run the CV training loop and return a :class:`FitResult`.
 
@@ -90,12 +93,16 @@ class CVTrainer:
         n_samples = len(X)
         y_arr = y.to_numpy()
         oof = init_oof(n_samples, self.task, self.n_classes)
+        oof_raw: npt.NDArray[np.float64] | None = None
+        if self.collect_raw_scores:
+            oof_raw = init_oof(n_samples, self.task, self.n_classes)
 
         outer_splits: list[tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]] = []
         inner_splits: list[tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]] = []
         models: list[BaseEstimatorAdapter] = []
         if_pred_per_fold: list[npt.NDArray[np.float64]] = []
         history: list[dict[str, Any]] = []
+        time_ranges: list[dict[str, Any]] = []
         last_pipeline: BaseFeaturePipeline | None = None
 
         fold_iter = list(self.outer_splitter.split(n_samples, y=y_arr, groups=groups))
@@ -189,6 +196,11 @@ class CVTrainer:
             fold_valid_pred = get_fold_pred(estimator, X_valid_t, self.task)
             fill_oof(oof, valid_idx, fold_valid_pred)
 
+            # --- OOF raw scores (for calibration) ----------------------------
+            if oof_raw is not None:
+                fold_valid_raw = get_fold_raw(estimator, X_valid_t, self.task)
+                fill_oof(oof_raw, valid_idx, fold_valid_raw)
+
             # --- IF predictions (train fold) ----------------------------------
             fold_train_pred = get_fold_pred(estimator, X_train_t, self.task)
             if_pred_per_fold.append(fold_train_pred)
@@ -208,6 +220,18 @@ class CVTrainer:
             # --- Record outer split ------------------------------------------
             outer_splits.append((train_idx, valid_idx))
 
+            # --- Record time range (for time series splits) ------------------
+            if time_values is not None:
+                time_ranges.append(
+                    {
+                        "fold": len(outer_splits) - 1,
+                        "train_start": time_values.iloc[train_idx].min(),
+                        "train_end": time_values.iloc[train_idx].max(),
+                        "valid_start": time_values.iloc[valid_idx].min(),
+                        "valid_end": time_values.iloc[valid_idx].max(),
+                    }
+                )
+
         assert last_pipeline is not None, "No folds were executed."  # noqa: S101
 
         feature_names = list(X.columns)
@@ -220,6 +244,7 @@ class CVTrainer:
             outer=outer_splits,
             inner=inner_splits if any(len(iv[1]) > 0 for iv in inner_splits) else None,
             calibration=None,
+            time_range=time_ranges if time_ranges else None,
         )
 
         return FitResult(
@@ -236,4 +261,5 @@ class CVTrainer:
             pipeline_state=last_pipeline.get_state(),
             calibrator=None,
             run_meta=run_meta,
+            oof_raw_scores=oof_raw,
         )

@@ -33,6 +33,7 @@ Repository = "https://github.com/nbx-liz/LizyML"
 tuning = ["optuna>=3.0"]
 explain = ["shap>=0.44"]
 plots = ["plotly>=5.0"]
+calibration = ["scipy>=1.10"]
 
 [dependency-groups]
 dev = [
@@ -48,6 +49,7 @@ dev = [
     "optuna>=3.0",
     "shap>=0.44",
     "plotly>=5.0",
+    "scipy>=1.10",
     "nbconvert>=7.0",
     "ipykernel>=6.0",
 ]
@@ -78,6 +80,10 @@ ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = "plotly.*"
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = "scipy.*"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

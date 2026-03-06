@@ -47,6 +47,9 @@ class FitResult:
         pipeline_state: Serializable state of the FeaturePipeline.
         calibrator: Fitted calibrator (``None`` when calibration is disabled).
         run_meta: Version and config metadata captured at fit time.
+        oof_raw_scores: OOF raw scores (logits) for calibration.
+            ``None`` when calibration is not enabled. Shape ``(n_samples,)``
+            for binary; ``(n_samples, n_classes)`` for multiclass.
     """
 
     oof_pred: npt.NDArray[np.float64]
@@ -62,3 +65,4 @@ class FitResult:
     pipeline_state: Any
     calibrator: Any | None
     run_meta: RunMeta
+    oof_raw_scores: npt.NDArray[np.float64] | None = None

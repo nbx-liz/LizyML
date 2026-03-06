@@ -202,7 +202,7 @@ def _add_qq_traces(
     row: int | None = None,
     col: int | None = None,
 ) -> None:
-    from scipy import stats  # type: ignore[import-untyped]  # noqa: I001
+    from scipy import stats  # noqa: I001
 
     kw: dict[str, Any] = {}
     if row is not None:

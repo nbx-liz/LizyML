@@ -19,7 +19,7 @@ class PlattCalibrator(BaseCalibratorAdapter):
     Accepts only 1-D OOF scores (no X).
     """
 
-    def __init__(self) -> None:
+    def __init__(self, params: dict[str, Any] | None = None) -> None:
         self._model: LogisticRegression | None = None
 
     @property

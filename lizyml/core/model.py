@@ -56,7 +56,9 @@ from lizyml.evaluation.evaluator import Evaluator
 from lizyml.features.pipelines_native import NativeFeaturePipeline
 from lizyml.splitters.base import BaseSplitter
 from lizyml.splitters.group_kfold import GroupKFoldSplitter
+from lizyml.splitters.group_time_series import GroupTimeSeriesSplitter
 from lizyml.splitters.kfold import KFoldSplitter, StratifiedKFoldSplitter
+from lizyml.splitters.purged_time_series import PurgedTimeSeriesSplitter
 from lizyml.splitters.time_series import TimeSeriesSplitter
 from lizyml.training.cv_trainer import CVTrainer
 from lizyml.training.inner_valid import (
@@ -103,6 +105,7 @@ class Model:
         config: dict[str, Any] | str | Path | LizyMLConfig,
         *,
         data: pd.DataFrame | None = None,
+        output_dir: str | Path | None = None,
     ) -> None:
         if isinstance(config, LizyMLConfig):
             self._cfg = config
@@ -110,6 +113,10 @@ class Model:
             self._cfg = load_config(config)
 
         self._data: pd.DataFrame | None = data
+        # Constructor arg takes priority over Config (BLUEPRINT §17)
+        resolved_dir = output_dir or getattr(self._cfg, "output_dir", None)
+        self._output_dir: str | Path | None = resolved_dir
+        self._run_dir: Path | None = None
         self._fit_result: FitResult | None = None
         self._refit_result: RefitResult | None = None
         self._metrics: dict[str, Any] | None = None
@@ -141,6 +148,12 @@ class Model:
         run_id = generate_run_id()
         run_meta = self._build_run_meta(run_id)
 
+        # --- Output directory setup (H-0034) ---------------------------------
+        if self._output_dir is not None:
+            from lizyml.core.logging import setup_output_dir
+
+            self._run_dir = setup_output_dir(self._output_dir, run_id)
+
         _log.info("event='fit.start' run_id=%s task=%s", run_id, cfg.task)
 
         # --- Load data -------------------------------------------------------
@@ -170,6 +183,40 @@ class Model:
             if components.group_col is not None
             else None
         )
+
+        # --- Time series: validate time_col and sort -------------------------
+        _TS_METHODS = frozenset(
+            {
+                "time_series",
+                "purged_time_series",
+                "group_time_series",
+            }
+        )
+        if cfg.split.method in _TS_METHODS:
+            if cfg.data.time_col is None:
+                raise LizyMLError(
+                    code=ErrorCode.CONFIG_INVALID,
+                    user_message=(
+                        f"split.method='{cfg.split.method}' requires "
+                        "data.time_col to be set."
+                    ),
+                    context={"split_method": cfg.split.method},
+                )
+            tc = components.time_col
+            assert tc is not None  # noqa: S101
+            sort_order = tc.argsort()
+            X = X.iloc[sort_order].reset_index(drop=True)
+            y = y.iloc[sort_order].reset_index(drop=True)
+            if groups is not None:
+                groups = groups[sort_order]
+            self._X = X
+            self._y = y
+            components.X = X
+            components.y = y
+            components.time_col = tc.iloc[sort_order].reset_index(drop=True)
+            if components.group_col is not None:
+                gc = components.group_col
+                components.group_col = gc.iloc[sort_order].reset_index(drop=True)
 
         fingerprint = fp_compute(X, file_path=None)
 
@@ -239,7 +286,9 @@ class Model:
             task=cfg.task,
             n_classes=n_classes,
             ratio_param_resolver=ratio_resolver,
+            collect_raw_scores=(cfg.calibration is not None),
         )
+        time_values = components.time_col if components.time_col is not None else None
         fit_result = cv_trainer.fit(
             X,
             y,
@@ -247,6 +296,7 @@ class Model:
             data_fingerprint=fingerprint,
             run_meta=run_meta,
             sample_weight=sample_weight,
+            time_values=time_values,
         )
 
         # --- Calibration (binary only) ---------------------------------------
@@ -264,10 +314,17 @@ class Model:
             from lizyml.calibration.registry import get_calibrator
 
             method = cfg.calibration.method
+            cal_params = cfg.calibration.params or None
+            # Use raw scores (logits) for calibration (H-0030)
+            cal_scores = (
+                fit_result.oof_raw_scores
+                if fit_result.oof_raw_scores is not None
+                else fit_result.oof_pred
+            )
             calibration_result = cross_fit_calibrate(
-                oof_scores=fit_result.oof_pred,
+                oof_scores=cal_scores,
                 y=y.to_numpy(),
-                calibrator_factory=lambda: get_calibrator(method),
+                calibrator_factory=lambda: get_calibrator(method, params=cal_params),
                 n_splits=cfg.calibration.n_splits,
                 random_state=cfg.training.seed,
             )
@@ -602,12 +659,17 @@ class Model:
         elif task == "binary":
             proba_2d = model.predict_proba(X_t)
             proba = proba_2d[:, 1]
-            # Apply C_final calibrator when available
+            # Apply C_final calibrator when available (H-0030: raw score input)
             if fit is not None and fit.calibrator is not None:
                 from lizyml.calibration.cross_fit import CalibrationResult
 
                 if isinstance(fit.calibrator, CalibrationResult):
-                    proba = fit.calibrator.c_final.predict(proba)
+                    if fit.oof_raw_scores is not None:
+                        raw_scores: npt.NDArray[np.float64] = model.predict_raw(X_t)
+                        proba = fit.calibrator.c_final.predict(raw_scores)
+                    else:
+                        # Backward compat: old artifact trained on probabilities
+                        proba = fit.calibrator.c_final.predict(proba)
             pred = (proba >= 0.5).astype(int)
         else:  # multiclass
             proba = model.predict_proba(X_t)
@@ -716,6 +778,13 @@ class Model:
 
         _log.info("event='tune.start' task=%s", cfg.task)
 
+        # --- Output directory setup (H-0034) ---------------------------------
+        if self._output_dir is not None:
+            from lizyml.core.logging import setup_output_dir
+
+            tune_run_id = generate_run_id()
+            self._run_dir = setup_output_dir(self._output_dir, tune_run_id)
+
         df = self._load_data(data)
         problem_spec = ProblemSpec(
             task=cfg.task,
@@ -736,6 +805,32 @@ class Model:
             if components.group_col is not None
             else None
         )
+
+        # --- Time series: validate time_col and sort -------------------------
+        _TS_METHODS = frozenset(
+            {
+                "time_series",
+                "purged_time_series",
+                "group_time_series",
+            }
+        )
+        if cfg.split.method in _TS_METHODS:
+            if cfg.data.time_col is None:
+                raise LizyMLError(
+                    code=ErrorCode.CONFIG_INVALID,
+                    user_message=(
+                        f"split.method='{cfg.split.method}' requires "
+                        "data.time_col to be set."
+                    ),
+                    context={"split_method": cfg.split.method},
+                )
+            tc = components.time_col
+            assert tc is not None  # noqa: S101
+            sort_order = tc.argsort()
+            X = X.iloc[sort_order].reset_index(drop=True)
+            y = y.iloc[sort_order].reset_index(drop=True)
+            if groups is not None:
+                groups = groups[sort_order]
 
         n_classes = int(y.nunique()) if cfg.task == "multiclass" else None
         splitter = self._build_splitter()
@@ -896,19 +991,31 @@ class Model:
 
         return plot_oof_distribution(fit_result)
 
-    def export(self, path: str | Path) -> None:
+    def export(self, path: str | Path | None = None) -> Path:
         """Export Model artifacts to a directory.
 
         Saves ``fit_result.pkl``, ``refit_model.pkl``, ``metadata.json``,
         and ``analysis_context.pkl`` under *path*.  The saved model can be
         restored with :meth:`load`, including diagnostic API support.
 
+        Path resolution (first match wins):
+
+        1. Explicit *path* argument.
+        2. ``{run_dir}/export`` when a run directory exists from ``fit``/``tune``.
+        3. New run directory under ``output_dir`` if configured.
+        4. Error — no destination available.
+
         Args:
-            path: Output directory (created if absent).
+            path: Output directory (created if absent).  Optional when
+                ``output_dir`` is configured via Config or constructor.
+
+        Returns:
+            Resolved export directory path.
 
         Raises:
             LizyMLError with MODEL_NOT_FIT when called before ``fit``.
-            LizyMLError with SERIALIZATION_FAILED on I/O errors.
+            LizyMLError with SERIALIZATION_FAILED on I/O errors or when
+                no path can be resolved.
 
         Warning:
             The ``.pkl`` files use joblib/pickle.  Only load artifacts from
@@ -916,6 +1023,9 @@ class Model:
         """
         fit_result = self._require_fit()
         refit_result = self._require_refit()
+
+        resolved_path = self._resolve_export_path(path)
+
         from lizyml.persistence.exporter import AnalysisContext
         from lizyml.persistence.exporter import export as _export
 
@@ -924,14 +1034,35 @@ class Model:
             ctx = AnalysisContext(y_true=self._y, X_for_explain=self._X)
 
         _export(
-            path=path,
+            path=resolved_path,
             fit_result=fit_result,
             refit_result=refit_result,
             config=self._cfg.model_dump(),
             task=self._cfg.task,
             analysis_context=ctx,
         )
-        _log.info("event='export.done' path=%s", path)
+        _log.info("event='export.done' path=%s", resolved_path)
+        return resolved_path
+
+    def _resolve_export_path(self, path: str | Path | None) -> Path:
+        """Resolve the export destination directory."""
+        if path is not None:
+            return Path(path)
+        if self._run_dir is not None:
+            return Path(self._run_dir) / "export"
+        if self._output_dir is not None:
+            from lizyml.core.logging import setup_output_dir
+
+            export_run_id = generate_run_id()
+            self._run_dir = setup_output_dir(self._output_dir, export_run_id)
+            return Path(self._run_dir) / "export"
+        raise LizyMLError(
+            ErrorCode.SERIALIZATION_FAILED,
+            user_message=(
+                "No export path provided and no output_dir configured. "
+                "Pass an explicit path or set output_dir in Config / constructor."
+            ),
+        )
 
     @classmethod
     def load(cls, path: str | Path) -> Model:
@@ -1013,7 +1144,36 @@ class Model:
             return GroupKFoldSplitter(n_splits=n_splits)
         if method == "time_series":
             gap = getattr(split_cfg, "gap", 0)
-            return TimeSeriesSplitter(n_splits=n_splits, gap=gap)
+            train_size_max = getattr(split_cfg, "train_size_max", None)
+            test_size_max = getattr(split_cfg, "test_size_max", None)
+            return TimeSeriesSplitter(
+                n_splits=n_splits,
+                gap=gap,
+                max_train_size=train_size_max,
+                max_test_size=test_size_max,
+            )
+        if method == "purged_time_series":
+            purge_gap = getattr(split_cfg, "purge_gap", 0)
+            embargo: int = getattr(split_cfg, "embargo", 0)
+            train_size_max = getattr(split_cfg, "train_size_max", None)
+            test_size_max = getattr(split_cfg, "test_size_max", None)
+            return PurgedTimeSeriesSplitter(
+                n_splits=n_splits,
+                purge_gap=purge_gap,
+                embargo=embargo,
+                max_train_size=train_size_max,
+                max_test_size=test_size_max,
+            )
+        if method == "group_time_series":
+            gap = getattr(split_cfg, "gap", 0)
+            train_size_max = getattr(split_cfg, "train_size_max", None)
+            test_size_max = getattr(split_cfg, "test_size_max", None)
+            return GroupTimeSeriesSplitter(
+                n_splits=n_splits,
+                gap=gap,
+                max_train_size=train_size_max,
+                max_test_size=test_size_max,
+            )
         # Default: kfold
         return KFoldSplitter(
             n_splits=n_splits, shuffle=shuffle, random_state=random_state
@@ -1053,8 +1213,10 @@ class Model:
                 return HoldoutInnerValid(ratio=ratio, random_state=seed, stratify=True)
             if split_method == "group_kfold":
                 return GroupHoldoutInnerValid(ratio=ratio, random_state=seed)
-            if split_method == "time_series":
+            if split_method in ("time_series", "purged_time_series"):
                 return TimeHoldoutInnerValid(ratio=ratio)
+            if split_method == "group_time_series":
+                return GroupHoldoutInnerValid(ratio=ratio, random_state=seed)
             return HoldoutInnerValid(ratio=ratio, random_state=seed, stratify=False)
 
         # Explicit config — use getattr for fields not common to all variants
@@ -1094,8 +1256,10 @@ class Model:
                 return HoldoutInnerValid(ratio=ratio, random_state=seed, stratify=True)
             if split_method == "group_kfold":
                 return GroupHoldoutInnerValid(ratio=ratio, random_state=seed)
-            if split_method == "time_series":
+            if split_method in ("time_series", "purged_time_series"):
                 return TimeHoldoutInnerValid(ratio=ratio)
+            if split_method == "group_time_series":
+                return GroupHoldoutInnerValid(ratio=ratio, random_state=seed)
             return HoldoutInnerValid(ratio=ratio, random_state=seed, stratify=False)
 
         return factory
@@ -1210,6 +1374,37 @@ class Model:
 
         df = pd.DataFrame(rows)
         return df.set_index("parameter")
+
+    def split_summary(self) -> pd.DataFrame:
+        """Return per-fold split summary as a DataFrame.
+
+        Columns always include ``fold``, ``train_size``, ``valid_size``.
+        For time-series splits with ``time_col``, also includes
+        ``train_start``, ``train_end``, ``valid_start``, ``valid_end``.
+
+        Returns:
+            :class:`pd.DataFrame` with one row per fold.
+
+        Raises:
+            :class:`~lizyml.core.exceptions.LizyMLError` with
+            ``MODEL_NOT_FIT`` when called before ``fit``.
+        """
+        fr = self._require_fit()
+        rows: list[dict[str, Any]] = []
+        for i, (train_idx, valid_idx) in enumerate(fr.splits.outer):
+            row: dict[str, Any] = {
+                "fold": i,
+                "train_size": len(train_idx),
+                "valid_size": len(valid_idx),
+            }
+            if fr.splits.time_range is not None and i < len(fr.splits.time_range):
+                tr = fr.splits.time_range[i]
+                row["train_start"] = tr["train_start"]
+                row["train_end"] = tr["train_end"]
+                row["valid_start"] = tr["valid_start"]
+                row["valid_end"] = tr["valid_end"]
+            rows.append(row)
+        return pd.DataFrame(rows)
 
     def _require_refit(self) -> RefitResult:
         if self._refit_result is None:

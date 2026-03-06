@@ -252,7 +252,7 @@ config = {
 |---|---|---|---|---|
 | `path` | `str \| null` | No | `null` | CSV/Parquet パス |
 | `target` | `str` | Yes | - | 目的変数列名 |
-| `time_col` | `str \| null` | No | `null` | 時系列列名 |
+| `time_col` | `str \| null` | No | `null` | 時系列列名（`time_series` / `purged_time_series` / `group_time_series` では必須） |
 | `group_col` | `str \| null` | No | `null` | グループ列名 |
 
 ### features
@@ -272,9 +272,14 @@ config = {
 | `kfold` | `n_splits=5`, `random_state=42`, `shuffle=True` |
 | `stratified_kfold` | `n_splits=5`, `random_state=42` |
 | `group_kfold` | `n_splits=5` |
-| `time_series` | `n_splits=5`, `gap=0` |
-| `purged_time_series` | `n_splits=5`, `purge_gap=0`, `embargo_pct=0.0` |
-| `group_time_series` | `n_splits=5` |
+| `time_series` | `n_splits=5`, `gap=0`, `train_size_max=null`, `test_size_max=null` |
+| `purged_time_series` | `n_splits=5`, `purge_gap=0`, `embargo=0`, `train_size_max=null`, `test_size_max=null` |
+| `group_time_series` | `n_splits=5`, `gap=0`, `train_size_max=null`, `test_size_max=null` |
+
+注記:
+- `time_series` / `purged_time_series` / `group_time_series` は共通で `data.time_col` 必須。
+- 3 メソッドは共通で `train_size_max` / `test_size_max` を受け取り、学習窓・検証窓の上限を制御する。
+- `purged_time_series` の旧キー `embargo_pct` は移行期間のみ後方互換として扱い、`embargo` に正規化する。
 
 ### model（LightGBM）
 
@@ -336,6 +341,7 @@ config = {
 ## 6.2 `fit`（CV）
 
 1. 外側 CV 各 fold で `train / valid` を作る。
+   - `split.method` が `time_series` / `purged_time_series` / `group_time_series` の場合、`data.time_col` を基準に昇順へ並べた上で分割する。
 2. `InnerValidStrategy` により early stopping 用の `(X_train, y_train), (X_valid, y_valid)` を統一生成する。
 3. `EstimatorAdapter.fit()` を実行する。
 4. OOF / IF を生成する（ロジックは `evaluation/oof.py` に隔離）。
@@ -487,8 +493,11 @@ config = {
 
 注記:
 - `task` が `binary` または `multiclass` かつ `split.method` が未指定の場合、`StratifiedKFold` をデフォルトとする。分類タスクで `method: "kfold"` を明示指定した場合は警告を出す。回帰タスクのデフォルトは `KFold` のまま。
-- `PurgedTimeSeries` は `purge_gap`（train と valid の間に設けるギャップ期間）と `embargo_pct`（valid 後の除外期間の割合）を持つ。
-- `GroupTimeSeries` は group 列の出現順に基づいて時系列的にグループを分割する。
+- `time_series` / `purged_time_series` / `group_time_series` は共通で `data.time_col` を基準に昇順へ並べてから分割する。
+- `time_series` / `group_time_series` は `gap`、`purged_time_series` は `purge_gap` を持つ（いずれも train と valid の間のギャップ）。
+- `PurgedTimeSeries` は `embargo`（train と valid の間に設ける追加除外 Obs 数、`int`、`gap` / `purge_gap` と同じ単位）を持つ。`embargo_pct` は移行期間のみ後方互換キーとする（`int()` で変換）。
+- 3 メソッドは共通で `train_size_max` / `test_size_max` を持つ。
+- `GroupTimeSeries` は group 列の出現順と `time_col` 順を整合させて時系列的にグループを分割する。
 
 ## 10.3 InnerValidStrategy（early stopping 用）
 

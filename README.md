@@ -143,7 +143,7 @@ This section documents all config keys currently supported by the implemented sc
 |---|---|---|---|---|
 | `path` | `str \| null` | No | `null` | CSV/Parquet path used when `fit()` is called without `data=`. |
 | `target` | `str` | Yes | - | Target column name. |
-| `time_col` | `str \| null` | No | `null` | Time column for time-aware workflows. |
+| `time_col` | `str \| null` | No | `null` | Time column for chronological workflows (`time_series`, `purged_time_series`, `group_time_series` require it). |
 | `group_col` | `str \| null` | No | `null` | Group column for group-aware split/validation. |
 
 ### `features`
@@ -162,6 +162,8 @@ This section documents all config keys currently supported by the implemented sc
 - `stratified_kfold`
 - `group_kfold`
 - `time_series`
+- `purged_time_series`
+- `group_time_series`
 
 Supported aliases are normalized automatically:
 
@@ -169,6 +171,8 @@ Supported aliases are normalized automatically:
 - `stratified-kfold` / `stratifiedkfold` -> `stratified_kfold`
 - `group-kfold` / `groupkfold` -> `group_kfold`
 - `time-series` / `timeseries` -> `time_series`
+- `purged-time-series` / `purgedtimeseries` -> `purged_time_series`
+- `group-time-series` / `grouptimeseries` -> `group_time_series`
 
 Method-specific keys:
 
@@ -177,12 +181,84 @@ Method-specific keys:
 | `kfold` | `n_splits=5`, `random_state=42`, `shuffle=True` |
 | `stratified_kfold` | `n_splits=5`, `random_state=42` |
 | `group_kfold` | `n_splits=5` |
-| `time_series` | `n_splits=5`, `gap=0` |
+| `time_series` | `n_splits=5`, `gap=0`, `train_size_max=null`, `test_size_max=null` |
+| `purged_time_series` | `n_splits=5`, `purge_gap=0`, `embargo=0`, `train_size_max=null`, `test_size_max=null` |
+| `group_time_series` | `n_splits=5`, `gap=0`, `train_size_max=null`, `test_size_max=null` |
 
 Default when `split` is omitted:
 
 - `task in {"binary", "multiclass"}` -> `{"method": "stratified_kfold", "n_splits": 5, "random_state": 42}`
 - `task == "regression"` -> `{"method": "kfold", "n_splits": 5, "random_state": 42, "shuffle": True}`
+
+Time-series notes:
+
+- `time_series`, `purged_time_series`, and `group_time_series` all sort rows by `data.time_col` in ascending order before fold generation.
+- `train_size_max` and `test_size_max` are shared across all three methods and cap training/validation window sizes.
+- `purged_time_series` uses `embargo` as the canonical key (`embargo_pct` is accepted only as a legacy alias during migration).
+
+### TimeSeries CV Guide (3 Methods)
+
+All three methods enforce chronological splitting. The difference is how strictly each method blocks potentially leaky rows around the validation window.
+
+Shared index-building rules:
+
+1. Sort rows by `data.time_col` in ascending order.
+2. Build each fold in chronological order (`train` always before `valid`).
+3. Apply method-specific exclusion (`gap` / `purge_gap` / `embargo`).
+4. Apply `train_size_max` / `test_size_max` caps when configured.
+
+Quick comparison:
+
+| method | boundary key | extra exclusion key | group-safe split | typical use |
+|---|---|---|---|---|
+| `time_series` | `gap` | - | No | Standard forward CV |
+| `purged_time_series` | `purge_gap` | `embargo` | No | Leakage-sensitive time labels/features |
+| `group_time_series` | `gap` | - | Yes | Entity blocks + chronology |
+
+#### 1) `time_series`
+
+Use this when regular forward-chaining CV is enough.
+
+```text
+time ---> older ........................................ newer
+
+Fold k:
+[           train           ][gap][    valid    ]
+                (optional train_size_max / test_size_max caps)
+```
+
+- Validation always comes after training in time.
+- `gap` removes rows right before validation.
+
+#### 2) `purged_time_series`
+
+Use this when labels/features can leak across nearby timestamps and you need stronger exclusion.
+
+```text
+time ---> older ........................................ newer
+
+Fold k:
+[      candidate train region      ][purge_gap][ valid ][embargo]
+         \____________ train kept _______________/   \__ excluded __/
+```
+
+- `purge_gap` separates train and validation.
+- `embargo` additionally excludes rows adjacent to the validation window.
+- In migration periods, `embargo_pct` is normalized to `embargo`.
+
+#### 3) `group_time_series`
+
+Use this when samples must be split by group blocks while still respecting chronological order.
+
+```text
+time-sorted groups:   G1   G1   G2   G2   G3   G3   G4   G4
+
+Fold k:
+[       train groups        ][gap][ valid groups ]
+```
+
+- Group boundaries are preserved (no train/valid overlap on the same group).
+- Group ordering follows chronological order from `time_col`.
 
 ### `model`
 
@@ -273,6 +349,8 @@ Resolution rules:
   - `stratified_kfold` -> `holdout(stratify=True)`
   - `group_kfold` -> `group_holdout`
   - `time_series` -> `time_holdout`
+  - `purged_time_series` -> `time_holdout`
+  - `group_time_series` -> `group_holdout`
   - otherwise -> `holdout(stratify=False)`
 - `validation_ratio` and `inner_valid` should not be explicitly set together (except round-trip-equivalent holdout dump values).
 
@@ -361,13 +439,13 @@ Supported metric names by task:
 
 | Key | Type | Required | Default | Notes |
 |---|---|---|---|---|
-| `method` | `"platt" \| "isotonic" \| "beta"` | No | `"platt"` | `beta` is schema-valid but not implemented yet. |
+| `method` | `"platt" \| "isotonic" \| "beta"` | No | `"platt"` | All methods are implemented. `beta` requires `scipy`. |
 | `n_splits` | `int` | No | `5` | Number of folds for calibration cross-fit. |
 
 Runtime notes:
 
 - Calibration is supported only for `task="binary"`.
-- `method="beta"` currently raises `CALIBRATION_NOT_SUPPORTED`.
+- `method="beta"` is supported (install optional dependency: `pip install 'lizyml[calibration]'`).
 
 ### Loader/Override Behavior
 
