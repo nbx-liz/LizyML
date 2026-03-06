@@ -72,16 +72,22 @@ class TestTuningPlotUnit:
             best_score=0.5,
             trials=[
                 TrialResult(
-                    number=0, params={"num_leaves": 8},
-                    score=1.0, state="complete",
+                    number=0,
+                    params={"num_leaves": 8},
+                    score=1.0,
+                    state="complete",
                 ),
                 TrialResult(
-                    number=1, params={"num_leaves": 16},
-                    score=0.5, state="complete",
+                    number=1,
+                    params={"num_leaves": 16},
+                    score=0.5,
+                    state="complete",
                 ),
                 TrialResult(
-                    number=2, params={"num_leaves": 32},
-                    score=0.8, state="pruned",
+                    number=2,
+                    params={"num_leaves": 32},
+                    score=0.8,
+                    state="pruned",
                 ),
             ],
             metric_name="rmse",
