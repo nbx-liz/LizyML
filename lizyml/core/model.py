@@ -56,7 +56,9 @@ from lizyml.evaluation.evaluator import Evaluator
 from lizyml.features.pipelines_native import NativeFeaturePipeline
 from lizyml.splitters.base import BaseSplitter
 from lizyml.splitters.group_kfold import GroupKFoldSplitter
+from lizyml.splitters.group_time_series import GroupTimeSeriesSplitter
 from lizyml.splitters.kfold import KFoldSplitter, StratifiedKFoldSplitter
+from lizyml.splitters.purged_time_series import PurgedTimeSeriesSplitter
 from lizyml.splitters.time_series import TimeSeriesSplitter
 from lizyml.training.cv_trainer import CVTrainer
 from lizyml.training.inner_valid import (
@@ -103,6 +105,7 @@ class Model:
         config: dict[str, Any] | str | Path | LizyMLConfig,
         *,
         data: pd.DataFrame | None = None,
+        output_dir: str | Path | None = None,
     ) -> None:
         if isinstance(config, LizyMLConfig):
             self._cfg = config
@@ -110,6 +113,8 @@ class Model:
             self._cfg = load_config(config)
 
         self._data: pd.DataFrame | None = data
+        self._output_dir: str | Path | None = output_dir
+        self._run_dir: Path | None = None
         self._fit_result: FitResult | None = None
         self._refit_result: RefitResult | None = None
         self._metrics: dict[str, Any] | None = None
@@ -140,6 +145,12 @@ class Model:
         cfg = self._cfg
         run_id = generate_run_id()
         run_meta = self._build_run_meta(run_id)
+
+        # --- Output directory setup (H-0034) ---------------------------------
+        if self._output_dir is not None:
+            from lizyml.core.logging import setup_output_dir
+
+            self._run_dir = setup_output_dir(self._output_dir, run_id)
 
         _log.info("event='fit.start' run_id=%s task=%s", run_id, cfg.task)
 
@@ -239,7 +250,9 @@ class Model:
             task=cfg.task,
             n_classes=n_classes,
             ratio_param_resolver=ratio_resolver,
+            collect_raw_scores=(cfg.calibration is not None),
         )
+        time_values = components.time_col if components.time_col is not None else None
         fit_result = cv_trainer.fit(
             X,
             y,
@@ -247,6 +260,7 @@ class Model:
             data_fingerprint=fingerprint,
             run_meta=run_meta,
             sample_weight=sample_weight,
+            time_values=time_values,
         )
 
         # --- Calibration (binary only) ---------------------------------------
@@ -264,8 +278,14 @@ class Model:
             from lizyml.calibration.registry import get_calibrator
 
             method = cfg.calibration.method
+            # Use raw scores (logits) for calibration (H-0030)
+            cal_scores = (
+                fit_result.oof_raw_scores
+                if fit_result.oof_raw_scores is not None
+                else fit_result.oof_pred
+            )
             calibration_result = cross_fit_calibrate(
-                oof_scores=fit_result.oof_pred,
+                oof_scores=cal_scores,
                 y=y.to_numpy(),
                 calibrator_factory=lambda: get_calibrator(method),
                 n_splits=cfg.calibration.n_splits,
@@ -602,12 +622,17 @@ class Model:
         elif task == "binary":
             proba_2d = model.predict_proba(X_t)
             proba = proba_2d[:, 1]
-            # Apply C_final calibrator when available
+            # Apply C_final calibrator when available (H-0030: raw score input)
             if fit is not None and fit.calibrator is not None:
                 from lizyml.calibration.cross_fit import CalibrationResult
 
                 if isinstance(fit.calibrator, CalibrationResult):
-                    proba = fit.calibrator.c_final.predict(proba)
+                    if fit.oof_raw_scores is not None:
+                        raw_scores: npt.NDArray[np.float64] = model.predict_raw(X_t)
+                        proba = fit.calibrator.c_final.predict(raw_scores)
+                    else:
+                        # Backward compat: old artifact trained on probabilities
+                        proba = fit.calibrator.c_final.predict(proba)
             pred = (proba >= 0.5).astype(int)
         else:  # multiclass
             proba = model.predict_proba(X_t)
@@ -1014,6 +1039,15 @@ class Model:
         if method == "time_series":
             gap = getattr(split_cfg, "gap", 0)
             return TimeSeriesSplitter(n_splits=n_splits, gap=gap)
+        if method == "purged_time_series":
+            purge_window = getattr(split_cfg, "purge_window", 0)
+            gap = getattr(split_cfg, "gap", 0)
+            return PurgedTimeSeriesSplitter(
+                n_splits=n_splits, purge_window=purge_window, gap=gap
+            )
+        if method == "group_time_series":
+            gap = getattr(split_cfg, "gap", 0)
+            return GroupTimeSeriesSplitter(n_splits=n_splits, gap=gap)
         # Default: kfold
         return KFoldSplitter(
             n_splits=n_splits, shuffle=shuffle, random_state=random_state
@@ -1053,8 +1087,10 @@ class Model:
                 return HoldoutInnerValid(ratio=ratio, random_state=seed, stratify=True)
             if split_method == "group_kfold":
                 return GroupHoldoutInnerValid(ratio=ratio, random_state=seed)
-            if split_method == "time_series":
+            if split_method in ("time_series", "purged_time_series"):
                 return TimeHoldoutInnerValid(ratio=ratio)
+            if split_method == "group_time_series":
+                return GroupHoldoutInnerValid(ratio=ratio, random_state=seed)
             return HoldoutInnerValid(ratio=ratio, random_state=seed, stratify=False)
 
         # Explicit config — use getattr for fields not common to all variants
@@ -1094,8 +1130,10 @@ class Model:
                 return HoldoutInnerValid(ratio=ratio, random_state=seed, stratify=True)
             if split_method == "group_kfold":
                 return GroupHoldoutInnerValid(ratio=ratio, random_state=seed)
-            if split_method == "time_series":
+            if split_method in ("time_series", "purged_time_series"):
                 return TimeHoldoutInnerValid(ratio=ratio)
+            if split_method == "group_time_series":
+                return GroupHoldoutInnerValid(ratio=ratio, random_state=seed)
             return HoldoutInnerValid(ratio=ratio, random_state=seed, stratify=False)
 
         return factory
@@ -1210,6 +1248,37 @@ class Model:
 
         df = pd.DataFrame(rows)
         return df.set_index("parameter")
+
+    def split_summary(self) -> pd.DataFrame:
+        """Return per-fold split summary as a DataFrame.
+
+        Columns always include ``fold``, ``train_size``, ``valid_size``.
+        For time-series splits with ``time_col``, also includes
+        ``train_start``, ``train_end``, ``valid_start``, ``valid_end``.
+
+        Returns:
+            :class:`pd.DataFrame` with one row per fold.
+
+        Raises:
+            :class:`~lizyml.core.exceptions.LizyMLError` with
+            ``MODEL_NOT_FIT`` when called before ``fit``.
+        """
+        fr = self._require_fit()
+        rows: list[dict[str, Any]] = []
+        for i, (train_idx, valid_idx) in enumerate(fr.splits.outer):
+            row: dict[str, Any] = {
+                "fold": i,
+                "train_size": len(train_idx),
+                "valid_size": len(valid_idx),
+            }
+            if fr.splits.time_range is not None and i < len(fr.splits.time_range):
+                tr = fr.splits.time_range[i]
+                row["train_start"] = tr["train_start"]
+                row["train_end"] = tr["train_end"]
+                row["valid_start"] = tr["valid_start"]
+                row["valid_end"] = tr["valid_end"]
+            rows.append(row)
+        return pd.DataFrame(rows)
 
     def _require_refit(self) -> RefitResult:
         if self._refit_result is None:

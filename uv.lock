@@ -1054,6 +1054,10 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+calibration = [
+    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+]
 explain = [
     { name = "shap" },
 ]
@@ -1078,6 +1082,8 @@ dev = [
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
+    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
     { name = "shap" },
     { name = "twine" },
     { name = "types-pyyaml" },
@@ -1094,9 +1100,10 @@ requires-dist = [
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "scikit-learn", specifier = ">=1.3" },
+    { name = "scipy", marker = "extra == 'calibration'", specifier = ">=1.10" },
     { name = "shap", marker = "extra == 'explain'", specifier = ">=0.44" },
 ]
-provides-extras = ["tuning", "explain", "plots"]
+provides-extras = ["tuning", "explain", "plots", "calibration"]
 
 [package.metadata.requires-dev]
 dev = [
@@ -1111,6 +1118,7 @@ dev = [
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-cov", specifier = ">=5.0" },
     { name = "ruff", specifier = ">=0.8" },
+    { name = "scipy", specifier = ">=1.10" },
     { name = "shap", specifier = ">=0.44" },
     { name = "twine", specifier = ">=6.0" },
     { name = "types-pyyaml", specifier = ">=6.0" },

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # Side-effect imports to register all calibrators
+import lizyml.calibration.beta  # noqa: F401
 import lizyml.calibration.isotonic  # noqa: F401
 import lizyml.calibration.platt  # noqa: F401
 from lizyml.calibration.base import BaseCalibratorAdapter
@@ -10,9 +11,7 @@ from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.registries import CalibratorRegistry
 
 # Methods declared in the schema but not yet implemented.
-_NOT_IMPLEMENTED: dict[str, str] = {
-    "beta": "Beta calibration is not yet implemented.",
-}
+_NOT_IMPLEMENTED: dict[str, str] = {}
 
 
 def get_calibrator(name: str) -> BaseCalibratorAdapter:
