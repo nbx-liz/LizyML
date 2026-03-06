@@ -22,8 +22,9 @@ class PurgedTimeSeriesSplitter(BaseSplitter):
       This prevents label leakage when the target is constructed from a
       look-forward window (e.g. future returns).
     - ``embargo_pct`` defines the fraction of total samples to exclude
-      after the validation window (BLUEPRINT §10.2).  In the expanding
-      window scheme, this is stored for audit / downstream use.
+      as an additional gap between training and validation on top of
+      ``purge_gap`` (BLUEPRINT §10.2).  The effective dead zone between
+      train and valid is ``purge_gap + int(n_samples * embargo_pct)``.
 
     Args:
         n_splits: Number of folds.
@@ -66,6 +67,8 @@ class PurgedTimeSeriesSplitter(BaseSplitter):
                 f"n_samples={n_samples} is too small for n_splits={self.n_splits}."
             )
 
+        embargo_size = int(n_samples * self.embargo_pct)
+
         for k in range(self.n_splits):
             valid_start = (k + 1) * fold_size
             valid_end = (k + 2) * fold_size
@@ -74,7 +77,7 @@ class PurgedTimeSeriesSplitter(BaseSplitter):
             if valid_start >= valid_end:
                 continue
 
-            train_end = (k + 1) * fold_size - self.purge_gap
+            train_end = (k + 1) * fold_size - self.purge_gap - embargo_size
             if train_end <= 0:
                 continue
 
