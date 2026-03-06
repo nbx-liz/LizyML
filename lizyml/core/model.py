@@ -1180,10 +1180,19 @@ class Model:
         # --- Resolved booster params (fold 0) ---
         booster = fr.models[0].get_native_model().booster_
         for k in [
-            "objective", "learning_rate", "max_depth", "num_leaves",
-            "min_data_in_leaf", "min_data_in_bin", "max_bin",
-            "feature_fraction", "bagging_fraction", "bagging_freq",
-            "lambda_l1", "lambda_l2", "num_iterations",
+            "objective",
+            "learning_rate",
+            "max_depth",
+            "num_leaves",
+            "min_data_in_leaf",
+            "min_data_in_bin",
+            "max_bin",
+            "feature_fraction",
+            "bagging_fraction",
+            "bagging_freq",
+            "lambda_l1",
+            "lambda_l2",
+            "num_iterations",
         ]:
             v = booster.params.get(k)
             if v is not None:
