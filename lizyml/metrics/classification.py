@@ -1,4 +1,7 @@
-"""Classification metrics: LogLoss, AUC-ROC, AUC-PR, F1, Accuracy, Brier, ECE."""
+"""Classification metrics.
+
+LogLoss, AUC-ROC, AUC-PR, F1, Accuracy, Brier, ECE, Precision@K.
+"""
 
 from __future__ import annotations
 
@@ -78,6 +81,21 @@ class AUC(BaseMetric):
         return True
 
     def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
+        if y_pred.ndim == 2:
+            # Multiclass OvR: y_pred is (n_samples, n_classes)
+            if y_pred.shape[0] != len(y_true):
+                raise LizyMLError(
+                    code=ErrorCode.UNSUPPORTED_METRIC,
+                    user_message=(
+                        f"Metric '{self.name}' requires y_true and y_pred to have "
+                        f"the same number of samples. "
+                        f"Got {len(y_true)} vs {y_pred.shape[0]}."
+                    ),
+                    context={"metric": self.name},
+                )
+            return float(
+                roc_auc_score(y_true, y_pred, multi_class="ovr", average="macro")
+            )
         _require_1d_same_len(y_true, y_pred, self.name)
         return float(roc_auc_score(y_true, y_pred))
 
@@ -99,6 +117,27 @@ class AUCPR(BaseMetric):
         return True
 
     def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
+        if y_pred.ndim == 2:
+            # Multiclass OvR: per-class average_precision_score, macro average
+            if y_pred.shape[0] != len(y_true):
+                raise LizyMLError(
+                    code=ErrorCode.UNSUPPORTED_METRIC,
+                    user_message=(
+                        f"Metric '{self.name}' requires y_true and y_pred to have "
+                        f"the same number of samples. "
+                        f"Got {len(y_true)} vs {y_pred.shape[0]}."
+                    ),
+                    context={"metric": self.name},
+                )
+            from sklearn.preprocessing import label_binarize
+
+            classes = np.arange(y_pred.shape[1])
+            y_bin = label_binarize(y_true, classes=classes)
+            per_class = [
+                float(average_precision_score(y_bin[:, k], y_pred[:, k]))
+                for k in range(y_pred.shape[1])
+            ]
+            return float(np.mean(per_class))
         _require_1d_same_len(y_true, y_pred, self.name)
         return float(average_precision_score(y_true, y_pred))
 
@@ -166,6 +205,27 @@ class Brier(BaseMetric):
         return False
 
     def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
+        if y_pred.ndim == 2:
+            # Multiclass OvR: per-class brier_score_loss, macro average
+            if y_pred.shape[0] != len(y_true):
+                raise LizyMLError(
+                    code=ErrorCode.UNSUPPORTED_METRIC,
+                    user_message=(
+                        f"Metric '{self.name}' requires y_true and y_pred to have "
+                        f"the same number of samples. "
+                        f"Got {len(y_true)} vs {y_pred.shape[0]}."
+                    ),
+                    context={"metric": self.name},
+                )
+            from sklearn.preprocessing import label_binarize
+
+            classes = np.arange(y_pred.shape[1])
+            y_bin = label_binarize(y_true, classes=classes)
+            per_class = [
+                float(brier_score_loss(y_bin[:, k], y_pred[:, k]))
+                for k in range(y_pred.shape[1])
+            ]
+            return float(np.mean(per_class))
         _require_1d_same_len(y_true, y_pred, self.name)
         return float(brier_score_loss(y_true, y_pred))
 
@@ -202,3 +262,36 @@ class ECE(BaseMetric):
             conf = float(np.mean(y_pred[mask]))
             ece += (mask.sum() / n) * abs(acc - conf)
         return ece
+
+
+@MetricRegistry.register("precision_at_k")
+class PrecisionAtK(BaseMetric):
+    """Precision at top-K percent of predicted probabilities.
+
+    Args:
+        k: Top-K percentage cutoff (default 10 = top 10%).
+    """
+
+    def __init__(self, k: int = 10) -> None:
+        if not 1 <= k <= 100:
+            raise ValueError(f"k must be in [1, 100], got {k}")
+        self.k = k
+
+    @property
+    def name(self) -> str:
+        return "precision_at_k"
+
+    @property
+    def needs_proba(self) -> bool:
+        return True
+
+    @property
+    def greater_is_better(self) -> bool:
+        return True
+
+    def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
+        _require_1d_same_len(y_true, y_pred, self.name)
+        n = len(y_true)
+        n_top = max(1, int(n * self.k / 100))
+        top_idx: npt.NDArray[np.intp] = np.argsort(y_pred)[::-1][:n_top].astype(np.intp)
+        return float(np.mean(y_true[top_idx]))

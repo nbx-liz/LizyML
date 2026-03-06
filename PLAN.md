@@ -33,6 +33,8 @@ BLUEPRINT.md に基づき、Config駆動のML分析ライブラリ LizyML をゼ
 | 19 | evaluate_table / residuals / SHAP importance + Plotly 移行 | table_formatter, residuals plot, SHAP importance, Plotly 移行 | Phase 15, 16 |
 | 20 | 分類強化 / Multiclass メトリクス・OvR ROC / InnerValid 拡張（Stratified デフォルト / Precision@K / ROC / Confusion Matrix / Calibration 可視化 / Multiclass メトリクス・OvR ROC / InnerValid stratified・group・time holdout） | StratifiedKFold デフォルト化, precision_at_k, ROC Curve (binary+multiclass OvR), Confusion Matrix, Calibration Curve, Probability Histogram, multiclass metrics (auc/auc_pr/brier OvR), InnerValid stratified/group/time holdout + デフォルト自動解決 | Phase 7, 9, 13, 16, 19 |
 | 21 | LightGBM パラメーター強化 | LGBMConfig スマートパラメーター, デフォルトプロファイル, TuningResult + tuning_table(), デフォルト Tuning Space, Notebook 更新 | Phase 8, 9, 11, 12 |
+| 22 | 監査乖離の是正 + 追加開発 | load 後診断 API, Config デフォルト修正, tuning_plot, fit_result プロパティ, Notebook 全項目 Config, params_table, n_rows inner train 基準, ドキュメント整合 | Phase 20, 21 |
+| 23 | Calibration 強化・時系列拡張 | raw score Calibration, Beta Calibration, PurgedTimeSeries/GroupTimeSeries Config 接続, split_summary, 時系列 Notebook, Logging 統一 | Phase 22 |
 
 ---
 
@@ -1494,6 +1496,425 @@ Phase 21 実装完了後、既存 Notebook を更新する。
 - `first_metric_only=True` と `metric` がデフォルトで固定適用される
 - ユーザー指定の `space` がデフォルトを上書きする
 - 全テスト・lint・mypy 通過
+
+---
+
+## Phase 22: 監査乖離の是正（Phase 20/21 Follow-up）
+
+**HISTORY:** H-0025, H-0026
+**SKILL:** skills/spec-update/SKILL.md, skills/history-proposals/SKILL.md, skills/testing/SKILL.md
+**依存:** Phase 20, Phase 21
+
+### 背景
+
+Requirements Audit（Phase 20/21 実装後）で、仕様との部分的乖離が 4 点検出された。  
+このうち 22-A（load 後 API 境界）は、`H-0025` の「load 後不可へ厳格化」から `H-0026` の「load 後も診断 API 利用可能」へ方針変更済み。
+
+### 22-A: `Model.load()` 後診断 API の利用可能化（H-0026 / H-0025-1 superseded）
+
+1. `lizyml/core/model.py`:
+   - `Model.load()` 後でも以下 API が実行可能になるよう境界を更新する:
+     `residuals()`, `residuals_plot()`, `importance(kind="shap")`, `roc_curve_plot()`,
+     `confusion_matrix()`, `calibration_plot()`, `probability_histogram_plot()`
+   - `fit()` 実行直後と `load()` 復元直後で、上記 API の意味・出力契約が一致することを保証する
+2. `lizyml/persistence/*`:
+   - load 後診断 API に必要な `analysis_context`（`y_true`, `X_for_explain`）を export 対象に追加
+   - loader で `analysis_context` を復元し、Model インスタンスへ受け渡す
+3. 互換性対応:
+   - 既存 artifact（`analysis_context` なし）を load 可能に維持
+   - 既存 artifact で診断 API を呼んだ場合は、再 export を促す明示的エラー（`MODEL_NOT_FIT`）を返す
+
+### 22-B: `GroupHoldoutInnerValid` の validation 割当ポリシーを仕様準拠化（H-0025）
+
+1. `lizyml/training/inner_valid.py`:
+   - `GroupHoldoutInnerValid` の validation group 選定を「shuffle 後の末尾」ではなく「入力順の末尾 group（time/order aware）」に変更
+   - group overlap 禁止は維持
+2. テスト:
+   - 入力順に対して末尾 group が validation に入ること
+   - 既存の overlap 禁止・再現性テストを維持
+
+### 22-C: `min_data_in_leaf_ratio` / `min_data_in_bin_ratio` の範囲検証を追加（H-0025）
+
+1. `lizyml/config/schema.py`:
+   - `min_data_in_leaf_ratio` は `0 < ratio < 1` を検証
+   - `min_data_in_bin_ratio` は `0 < ratio < 1` を検証
+2. テスト:
+   - `0`, `1`, 負値, `1超` が `CONFIG_INVALID` になること
+   - 正常値（例: `0.01`, `0.2`）が受理されること
+
+### 22-D: Notebook のスマートパラメーター確認セルを網羅化（H-0025）
+
+1. `notebooks/tutorial_regression_lgbm.ipynb`:
+   - 表示項目に `min_data_in_bin_ratio`, `feature_weights`, `balanced` を追加
+   - 解決結果として `min_data_in_bin`, `feature_weights`, `scale_pos_weight`/`sample_weight` の確認例を追加
+2. `notebooks/tutorial_binary_lgbm.ipynb`, `notebooks/tutorial_multiclass_lgbm.ipynb`:
+   - 21-C 方針に合わせて同等のパラメーター確認セルを追記（必要最小限）
+
+### テスト
+
+- `tests/test_plots/test_residuals.py`: load 後に `residuals()` / `residuals_plot()` が実行可能
+- `tests/test_explain/test_explain.py`: load 後に `importance(kind="shap")` が実行可能
+- `tests/test_plots/test_classification_plots.py`: load 後に `roc_curve_plot()` が実行可能
+- `tests/test_evaluation/test_confusion.py`: load 後に `confusion_matrix()` が実行可能
+- `tests/test_plots/test_calibration_plots.py`: load 後に `calibration_plot()` / `probability_histogram_plot()` が実行可能
+- `tests/test_persistence/test_persistence.py`: legacy artifact（`analysis_context` なし）で load は成功し、診断 API は明示的エラー
+- `tests/test_training/test_inner_valid_extensions.py`: group 末尾割当テストを追加
+- `tests/test_config/test_lgbm_smart_params.py`: ratio 範囲バリデーションケースを追加
+- Notebook は実行確認（最低限、追加セルの静的整合）
+
+### DoD
+
+- `Model.load()` 後に 7 つの診断 API（residuals / residuals_plot / shap importance / roc / confusion / calibration / probability histogram）が利用可能
+- load 後診断 API の出力契約が fit 後と整合する
+- `analysis_context` を含む artifact を export/load できる
+- 既存 artifact（`analysis_context` なし）は load 互換を維持し、診断 API 呼び出し時は再 export を促す明示的エラー
+- `GroupHoldoutInnerValid` が入力順末尾 group を validation に割り当てる
+- `min_data_in_leaf_ratio` / `min_data_in_bin_ratio` の範囲外値が `CONFIG_INVALID`
+- Regression/Binary/Multiclass Notebook にスマートパラメーター確認セルが揃う
+- 追加/更新テストが通過する
+
+### 22-E: legacy artifact での診断 API ガード統一（H-0026 Follow-up）
+
+1. `lizyml/core/model.py`:
+   - `probability_histogram_plot()` で `analysis_context` 未復元（`self._y is None`）時に `MODEL_NOT_FIT` を返す。
+   - `roc_curve_plot()` / `confusion_matrix()` / `calibration_plot()` / `residuals()` / `importance(kind="shap")` と同一の「再 export を促す」エラーメッセージ方針に統一する。
+2. `tests/test_persistence/test_persistence.py`:
+   - legacy artifact（`analysis_context` なし）で、少なくとも `probability_histogram_plot()` が `MODEL_NOT_FIT` になることを追加検証する。
+   - 可能なら 7 診断 API 全体を table-driven で検証し、`predict()` / `evaluate()` は引き続き成功することを同時に担保する。
+
+### 22-F: Notebook の解決結果確認セルの不足補完（H-0025 Follow-up）
+
+1. `notebooks/tutorial_regression_lgbm.ipynb`:
+   - `min_data_in_bin` に加えて、解決後 `feature_weights` の確認例を明示する（利用時のみ表示）。
+2. `notebooks/tutorial_binary_lgbm.ipynb`:
+   - `scale_pos_weight` の確認例を維持しつつ、解決後 `feature_weights` の確認例を追加する。
+3. `notebooks/tutorial_multiclass_lgbm.ipynb`:
+   - `sample_weight` の確認例（クラス頻度由来の重み確認）を追加する。
+   - 解決後 `feature_weights` の確認例を追加する。
+4. テスト:
+   - Notebook の静的整合テスト（`nbformat` ベース）を追加し、3本で `min_data_in_bin_ratio` / `feature_weights` / `balanced` と task 別確認項目（binary: `scale_pos_weight`, multiclass: `sample_weight`）が存在することを検証する。
+
+### 22-E/22-F 追加 DoD
+
+- legacy artifact（`analysis_context` なし）で診断 API を呼ぶと、仕様どおり `MODEL_NOT_FIT` + 再 export ガイダンスを返す。
+- legacy artifact でも `predict()` / `evaluate()` は互換性を維持する。
+- 3 本の Notebook で smart parameter の「設定値」だけでなく「解決後値」の確認例が揃う（`min_data_in_bin`, `feature_weights`, binary は `scale_pos_weight`, multiclass は `sample_weight`）。
+- 追加した Notebook 整合テストが通過する。
+
+### 22-H: Config デフォルト値修正（H-0027）
+
+1. `lizyml/config/schema.py`:
+   - `LGBMConfig.min_data_in_leaf_ratio` のデフォルトを `None` → `0.01` に変更。
+   - `LGBMConfig.min_data_in_bin_ratio` のデフォルトを `None` → `0.01` に変更。
+   - `LGBMConfig.balanced` のデフォルトを `False` → `None` に変更（`None` はタスク依存自動解決: regression→False, binary/multiclass→True）。
+2. BLUEPRINT §5.4 に Config Reference（全キー一覧）を追加（完了済み）。
+3. テスト:
+   - 既存テストのうちデフォルト値に依存するケースを更新。
+   - デフォルト値が正しく適用されることを検証するテストを追加。
+
+### 22-I: Tuning 探索状況の可視化（H-0028）
+
+1. `lizyml/plots/tuning.py`（新規）:
+   - `plot_tuning_history(tuning_result)` 関数を実装。
+   - X 軸 = trial 番号、Y 軸 = スコア値。
+   - 完了/枝刈り/失敗を色分け（marker color）。
+   - 最良スコアの累積推移ラインを重ね描き。
+   - Plotly optional dependency。
+2. `lizyml/core/model.py`:
+   - `tuning_plot()` メソッドを追加（委譲のみ）。
+   - `tune()` 未実行時は `MODEL_NOT_FIT`。
+3. テスト:
+   - `tune()` 後に `tuning_plot()` が Figure を返す。
+   - `tune()` 未実行時に `MODEL_NOT_FIT`。
+   - Plotly 未インストール時に `OPTIONAL_DEP_MISSING`。
+
+### 22-J: `Model.fit_result` プロパティ（H-0029）
+
+1. `lizyml/core/model.py`:
+   - `@property fit_result` を追加（`self._require_fit()` を返すだけ）。
+2. テスト:
+   - `fit()` 後に `model.fit_result` が `FitResult` を返す。
+   - `fit()` 未実行時に `MODEL_NOT_FIT`。
+
+### 22-K: Tutorial Notebook で全 Config 項目指定
+
+1. `notebooks/tutorial_regression_tuning_lgbm.ipynb` を更新:
+   - README の Config Reference に記載されている全キーを Config に明示指定する。
+   - 各セクション（data, features, split, model, training, tuning, evaluation）を網羅する。
+   - スマートパラメーター（auto_num_leaves, ratio系, feature_weights, balanced）を含む。
+   - 学習後に以下を確認するセルを追加:
+     - LGBMConfig Smart Parameters の設定値
+     - Training defaults
+     - 解決後 LightGBM ネイティブパラメーター（Fold 0 の booster params）
+     - feature_weights の解決結果
+     - Best iteration per fold
+2. テスト:
+   - Notebook が `nbconvert --execute` で正常に実行可能。
+
+### 22-H〜K 追加 DoD
+
+- Config デフォルト値が README/BLUEPRINT と一致する（`min_data_in_leaf_ratio=0.01`, `min_data_in_bin_ratio=0.01`, `balanced=None`（task auto: regression→False, binary/multiclass→True））。
+- `model.tuning_plot()` が Plotly Figure を返す。
+- `model.fit_result` が FitResult を返す。
+- Tutorial Notebook が全 Config 項目を網羅し、解決後パラメーターの確認セルが含まれる。
+- 追加/更新テストが通過する。
+
+---
+
+### 22-G: Notebook Config 手本化・実行エラー修正（22-F Follow-up）
+
+1. **Binary / Multiclass notebook 実行エラー修正**:
+   - Config で `params.num_leaves=31` を指定していたが `auto_num_leaves=True`（デフォルト）と競合し `CONFIG_INVALID` で実行不可。
+   - `params` から `num_leaves`, `n_estimators`, `learning_rate`, `min_child_samples` を削除し、Phase 21 デフォルトプロファイルに委ねる形に修正。
+2. **3 本の Notebook Config を Tutorial 手本として整備**:
+   - 主要スマートパラメーター（`min_data_in_leaf_ratio`, `min_data_in_bin_ratio`）を明示指定。
+   - Binary / Multiclass では `balanced: True` を明示し、解決後の `scale_pos_weight` / `sample_weight` を確認セルで表示。
+   - デフォルトで十分なパラメーター（`n_estimators`, `learning_rate`, `max_depth`, early stopping 等）はコメントで明記しつつ省略。
+3. **Multiclass notebook の `sample_weight` 表示修正**:
+   - adapter 属性ではなく `compute_sample_weight("balanced", y)` で再計算して表示する方式に変更（sample_weight はモデルに保存されないため）。
+4. **`min_data_in_bin_ratio` のデフォルト値について**:
+   - `LGBMConfig.min_data_in_bin_ratio` のデフォルトは `None`（未指定）。
+   - Notebook では Tutorial 手本として `0.001` を明示指定。
+5. **3 本の Notebook が `nbconvert --execute` で正常に実行可能なことを確認済み**。
+
+### 22-G DoD
+
+- Binary / Multiclass notebook が `CONFIG_INVALID` なく正常に実行可能。
+- 3 本の Config が Tutorial 手本として主要スマートパラメーターを明示指定している。
+- Multiclass notebook で `sample_weight` の解決後値が正しく表示される。
+- 静的整合テスト（24 cases）が全パスする。
+- 全テスト 735 パス、lint / mypy 全クリア。
+
+### Phase 22 残タスク（22-G / 22-K Follow-up）— 完了済み ✅
+
+**SKILL:** skills/spec-update/SKILL.md, skills/testing/SKILL.md
+
+1. ~~`notebooks/tutorial_regression_tuning_lgbm.ipynb`: feature_weights (resolved) 確認セル追加~~ → 完了済み。
+2. ~~Notebook 実行テスト（`tests/test_notebooks/test_notebook_execution.py`）追加~~ → 完了済み（4 本対象、`@pytest.mark.slow`）。
+3. ~~CI 連携: Notebook 実行テストを CI に組み込み~~ → 完了済み。
+
+### Phase 22 残タスク DoD — 達成済み ✅
+
+- `tutorial_regression_tuning_lgbm.ipynb` に `feature_weights (resolved)` の確認セルが追加され、22-K 要件を満たす。
+- 22-G/22-K 対象 Notebook の `nbconvert --execute` テストが追加され、ローカルでパスする。
+- CI 上でも Notebook 実行テストが実行され、失敗時に PR をブロックできる。
+
+### 22-L: Notebook パラメーター明示化 + fit_result 統一
+
+全 4 本の Tutorial Notebook に対し、LightGBM パラメーター 14 項目を明示指定して手本化する。
+
+**対象パラメーター（14 項目）:**
+`objective`, `n_estimators`, `learning_rate`, `max_depth`, `num_leaves_ratio`, `min_data_in_leaf_ratio`, `feature_fraction`, `bagging_fraction`, `bagging_freq`, `lambda_l2`, `max_bin`, `min_data_in_bin_ratio`, `early_stopping_rounds`, `validation_ratio`
+
+1. **Tuning Notebook** (`tutorial_regression_tuning_lgbm.ipynb`):
+   - §3 Config: `tuning.optuna.space` に 14 パラメーターの探索範囲を明示定義する（空 `{}` → 明示 space）。
+     - model category: `objective`, `n_estimators`, `learning_rate`, `max_depth`, `feature_fraction`, `bagging_fraction`, `bagging_freq`, `lambda_l2`, `max_bin`
+     - smart category: `num_leaves_ratio`, `min_data_in_leaf_ratio`, `min_data_in_bin_ratio`
+     - training category: `early_stopping_rounds`, `validation_ratio`
+   - §3 Config: `model.params` からは tuning で探索するパラメーターを除外（探索と固定値の重複を防ぐ）。
+   - §5.1 LightGBM Parameters: `fit_result.models[0]` を `model.fit_result.models[0]` に統一する。
+
+2. **非 Tuning Notebook** 3 本（`tutorial_regression_lgbm.ipynb`, `tutorial_binary_lgbm.ipynb`, `tutorial_multiclass_lgbm.ipynb`):
+   - §3 Config: `model.params` に 14 パラメーターを明示設定する。
+     - `model.params`: `objective`, `n_estimators`, `learning_rate`, `max_depth`, `feature_fraction`, `bagging_fraction`, `bagging_freq`, `lambda_l2`, `max_bin`
+     - Config smart params: `num_leaves_ratio`, `min_data_in_leaf_ratio`, `min_data_in_bin_ratio`（既存維持）
+     - Config training: `early_stopping.rounds`, `early_stopping.validation_ratio`（既存維持）
+   - §5.1 相当の確認セル: `fit_result` ローカル変数 → `model.fit_result` プロパティに統一する（該当箇所がある場合）。
+
+3. **テスト**:
+   - 4 本の `nbconvert --execute` 実行テストがパスすること。
+   - 既存の静的整合テストがパスすること。
+
+### 22-L DoD
+
+- Tuning Notebook: 14 パラメーターの search space が明示定義されている。
+- 非 Tuning Notebook: 14 パラメーターが `model.params` + smart params + training で明示されている。
+- 全 Notebook で `model.fit_result` プロパティ経由のアクセスに統一されている。
+- 4 本が `nbconvert --execute` で正常に実行可能。
+
+### 22-M: `model.params_table()` — 解決済みパラメーターテーブル API（H-0035）
+
+1. **`lizyml/core/model.py`**:
+   - `params_table()` メソッドを追加する。`_require_fit()` で fit 済みチェック。
+   - Config smart params（`auto_num_leaves`, `num_leaves_ratio`, `min_data_in_leaf_ratio`, `min_data_in_bin_ratio`, `balanced`, `feature_weights`, `early_stopping.rounds`, `validation_ratio`）を収集。
+   - fold 0 の booster から解決済みネイティブパラメーター（`objective`, `num_leaves`, `min_data_in_leaf` 等）を収集。
+   - fold ごとの `best_iteration` を末尾に追加。
+   - 単一列 `value` の `pd.DataFrame`（index: `parameter`）を返す。
+
+2. **Notebook 更新**:
+   - 全 4 本の「§4.1 LightGBM Parameters」セルを `model.params_table()` 1 行に置き換える。
+
+3. **テスト**:
+   - `model.params_table()` が `pd.DataFrame` を返すこと。
+   - Config smart params と resolved booster params が含まれること。
+   - `fit()` 未実行時に `MODEL_NOT_FIT` が送出されること。
+   - 4 本の `nbconvert --execute` 実行テストがパスすること。
+
+### 22-M DoD
+
+- `model.params_table()` が `pd.DataFrame`（index: `parameter`, 列: `value`）を返す。
+- Config smart params + resolved booster params + fold ごとの `best_iteration` が含まれる。
+- `fit()` 未実行時に `MODEL_NOT_FIT` を送出する。
+- Notebook の「4.1」セルが `model.params_table()` に置き換えられている。
+- 4 本が `nbconvert --execute` で正常に実行可能。
+
+### 22-N: Smart Parameter の n_rows 基準を inner train サイズに変更（H-0036）
+
+1. **`lizyml/estimators/lgbm.py`**:
+   - `resolve_smart_params()` / `resolve_smart_params_from_dict()` に渡す `n_rows` の定義を「inner valid 分割後の学習データ行数」に変更。
+   - `auto_num_leaves` / `num_leaves_ratio` は `max_depth` のみに依存するため変更不要。
+
+2. **`lizyml/core/model.py`**:
+   - `Model.fit()` から smart param の一括解決を除去。
+   - `min_data_in_leaf_ratio` / `min_data_in_bin_ratio` の解決ロジックを CVTrainer に委譲。
+   - `feature_weights` / `balanced` / `auto_num_leaves` は n_rows 非依存のため、Model.fit() での解決を維持。
+
+3. **`lizyml/training/cv_trainer.py`**:
+   - fold ループ内で inner_valid 分割後の行数を取得し、ratio パラメーターを解決。
+   - estimator_factory の呼び出し前に解決済みパラメーターを estimator に適用する仕組みを追加。
+
+4. **`lizyml/tuning/tuner.py`**:
+   - trial 内の smart param 解決で `self.n_rows` の代わりに CVTrainer 内部で fold ごとに解決する方式に移行。
+
+5. **テスト**:
+   - 5-fold + validation_ratio=0.1 で `min_data_in_leaf_ratio=0.01` → 解決値が inner train サイズ × 0.01 であることを検証。
+   - early stopping 無効時は outer fold サイズ基準であることを検証。
+   - Tuner trial 内でも同一ロジックが適用されることを検証。
+   - 既存テストの回帰確認（seed 固定テストの期待値更新が必要な場合あり）。
+
+### 22-N DoD
+
+- `min_data_in_leaf_ratio` / `min_data_in_bin_ratio` の `n_rows` が inner train サイズ基準で解決される。
+- early stopping 無効時は outer fold サイズ基準。
+- fold ごとに異なる inner train サイズの場合、各 fold で個別に解決される。
+- Tuner trial 内でも同一ロジックが適用される。
+- 既存テスト全件パス（期待値の更新を含む）。
+
+### 22-O: 監査乖離クローズ — ドキュメント整合 + Notebook/テスト補完（H-0037）
+
+1. **BLUEPRINT §5.3 balanced 記述統一**（ドキュメント修正のみ）:
+   - `balanced: bool = False` → `balanced: bool | None = None`（タスク依存自動解決）に修正。§5.4 Config Reference と一致させる。
+2. **BLUEPRINT §5.2/§5.3 LGBMConfig 例の微修正**（ドキュメント修正のみ）:
+   - `min_data_in_leaf_ratio` / `min_data_in_bin_ratio` のデフォルト値（`0.01`）を §5.3 に明記。
+   - §5.2 Config 例の `balanced` コメントを `None`（タスク依存自動）に修正。
+3. **`notebooks/tutorial_regression_tuning_lgbm.ipynb`**:
+   - feature_weights (resolved) の確認セルを追加する（設定時のみ表示する条件付き）。
+   - Fold 0 の学習済みモデルから取得し、Config 設定値との対比を明示する。
+4. **`tests/test_notebooks/test_notebook_cells.py`**:
+   - Tuning Notebook に feature_weights の「解決後値確認」セル（`feature_weights` キーワードを含むコードセル）が存在することを検証するテストを追加。
+
+### 22-O DoD
+
+- BLUEPRINT §5.3 の balanced デフォルト記述が `bool | None = None` + タスク依存自動解決の説明になっている。
+- BLUEPRINT §5.2 Config 例の balanced コメントが `None` になっている。
+- BLUEPRINT §5.3 に `min_data_in_leaf_ratio` / `min_data_in_bin_ratio` のデフォルト値 `0.01` が明記されている。
+- `tutorial_regression_tuning_lgbm.ipynb` に feature_weights (resolved) の確認セルが追加されている。
+- Notebook 静的テストが feature_weights 解決後値確認セルの存在を検証する。
+- 全テストがパスする。
+
+---
+
+## Phase 23: Calibration 強化・時系列拡張
+
+**HISTORY:** H-0030, H-0031, H-0032, H-0033, H-0034
+**SKILL:** skills/calibration/SKILL.md, skills/splitters-and-splitplan/SKILL.md, skills/plots/SKILL.md, skills/exceptions-and-logging/SKILL.md
+**依存:** Phase 22
+
+### 背景
+
+Requirements Audit で検出された未実装項目（Beta Calibration、PurgedTimeSeries/GroupTimeSeries Config 接続）と、新規要求（Calibration raw score 入力、時系列 fold 期間表示、Logging 統一、時系列 Tutorial Notebook）を Phase 23 でまとめて対応する。
+
+### 23-A: Calibration に生スコア（raw score）を渡す（H-0030）
+
+1. `lizyml/estimators/base.py`:
+   - `predict_raw(X)` 抽象メソッドを追加（sigmoid/softmax 適用前の生スコアを返す）。
+2. `lizyml/estimators/lgbm.py`:
+   - `predict_raw(X)` を実装。LightGBM の `predict(raw_score=True)` を使用。
+3. `lizyml/calibration/base.py`:
+   - `fit(oof_scores, y)` / `predict(scores)` のドキュメントを更新（入力は生スコア）。
+4. `lizyml/calibration/platt.py`, `isotonic.py`:
+   - 生スコア入力に対応（Platt は LogisticRegression で自然に対応、Isotonic は入力スケールのみ注意）。
+5. `lizyml/calibration/cross_fit.py`:
+   - OOF 生スコアを校正器に渡すよう変更。
+6. `lizyml/training/cv_trainer.py`:
+   - Calibration 有効時に `predict_raw` で OOF 生スコアを生成。Calibration 無効時は従来の `predict_proba` を維持。
+7. テスト:
+   - raw score 入力で Platt / Isotonic が動作する。
+   - Calibration 無効時は `predict_proba` パスが維持される。
+
+### 23-B: Beta Calibration（H-0031）
+
+1. `lizyml/calibration/beta.py`（新規）:
+   - `BetaCalibrator(BaseCalibratorAdapter)` を実装。
+   - 3 パラメーターモデル `a * log(s) + b * log(1-s) + c` を `scipy.optimize.minimize` で最適化。
+   - 生スコア入力に対応（23-A に依存）。
+2. `lizyml/calibration/registry.py`:
+   - `_NOT_IMPLEMENTED` から `"beta"` を削除し、`BetaCalibrator` を登録。
+3. テスト:
+   - `method="beta"` で cross-fit 校正が動作する。
+   - OOF-only / リーク禁止契約を満たす。
+
+### 23-C: PurgedTimeSeries / GroupTimeSeries の Config・Model 接続（H-0032）
+
+1. `lizyml/config/schema.py`:
+   - `PurgedTimeSeriesConfig`（`method: Literal["purged_time_series"]`, `n_splits`, `purge_gap`, `embargo_pct`）を追加。
+   - `GroupTimeSeriesConfig`（`method: Literal["group_time_series"]`, `n_splits`）を追加。
+   - `SplitConfig` の Union に上記を追加。
+2. `lizyml/config/loader.py`:
+   - `_SPLIT_METHOD_ALIASES` に `purged-time-series`, `purgedtimeseries`, `group-time-series`, `grouptimeseries` を追加。
+3. `lizyml/core/model.py`:
+   - `_build_splitter()` に `purged_time_series` / `group_time_series` のルーティングを追加。
+   - `_build_inner_valid()` に対応する自動解決を追加（`purged_time_series` → `time_holdout`, `group_time_series` → `group_holdout`）。
+4. テスト:
+   - `split.method: "purged_time_series"` / `"group_time_series"` で fit が動作する。
+   - 正規化エイリアスが機能する。
+   - InnerValid 自動解決テストを追加。
+
+### 23-D: 時系列 fold 期間情報の表示（H-0033）
+
+1. `lizyml/core/types/fit_result.py`:
+   - `SplitIndices` に `time_range: list[dict] | None = None` フィールドを追加（fold ごとの `train_start/train_end/valid_start/valid_end`）。
+2. `lizyml/training/cv_trainer.py`:
+   - 時系列分割時に `time_col` の min/max を fold ごとに記録して `time_range` に格納。
+3. `lizyml/core/model.py`:
+   - `split_summary()` メソッドを追加（委譲のみ）。
+   - fold ごとの `train_size`, `valid_size` を DataFrame で返す。時系列分割時は `train_start/train_end/valid_start/valid_end` も含む。
+4. テスト:
+   - 時系列分割で `split_summary()` が期間情報を含む DataFrame を返す。
+   - 非時系列でもサイズ情報は返す。
+
+### 23-E: 時系列 Tutorial Notebook
+
+1. `notebooks/tutorial_time_series_lgbm.ipynb`（新規）:
+   - 公開データセット（5個以上の特徴量を含む時系列データ）をダウンロードして使用。
+   - `split.method: "time_series"` で CV を実行。
+   - `split_summary()` で fold 期間情報を表示。
+   - 学習・評価・予測の一連のワークフローを実演。
+   - 解決後パラメーターの確認セルを含む。
+2. テスト:
+   - Notebook が `nbconvert --execute` で正常に実行可能。
+
+### 23-F: Logging 出力先の統一（H-0034）
+
+1. `lizyml/core/logging.py`:
+   - `setup_output_dir(output_dir, run_id)` 関数を追加。`{output_dir}/{run_id}/` ディレクトリを作成。
+   - ファイルハンドラをセットアップし、構造化ログをファイルに出力。
+2. `lizyml/core/model.py`:
+   - `Model` コンストラクタに `output_dir: str | Path | None = None` パラメーターを追加。
+   - `output_dir` 指定時、fit/tune/export のログを `{output_dir}/{run_id}/` に保存。
+3. テスト:
+   - `output_dir` 指定時にディレクトリとログファイルが作成される。
+   - 未指定時は既存動作を維持。
+
+### Phase 23 DoD
+
+- `EstimatorAdapter.predict_raw()` が生スコアを返し、Calibration 時に使用される。
+- `method="beta"` で校正が動作する。
+- `split.method: "purged_time_series"` / `"group_time_series"` で CV が動作する。
+- `model.split_summary()` が fold 情報を DataFrame で返す（時系列時は期間情報含む）。
+- 時系列 Tutorial Notebook が公開データで実行可能。
+- `output_dir` 指定時にログが統一ディレクトリに出力される。
+- 追加/更新テストが通過する。
 
 ---
 

@@ -66,6 +66,13 @@ class BaseEstimatorAdapter(ABC):
     def get_native_model(self) -> Any:
         """Return the underlying native model object."""
 
+    def update_params(self, params: dict[str, Any]) -> None:
+        """Update estimator parameters before ``fit()`` is called.
+
+        Used by CVTrainer for per-fold ratio parameter resolution (H-0036).
+        Subclasses should override if they store params internally.
+        """
+
     @property
     def best_iteration(self) -> int | None:
         """Best iteration from early stopping (``None`` if not applicable)."""

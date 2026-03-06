@@ -62,11 +62,14 @@ class RefitTrainer:
         pipeline_factory: Callable[[], BaseFeaturePipeline],
         estimator_factory: Callable[[], BaseEstimatorAdapter],
         task: TaskType = "regression",
+        *,
+        ratio_param_resolver: Callable[[int], dict[str, Any]] | None = None,
     ) -> None:
         self.inner_valid = inner_valid
         self.pipeline_factory = pipeline_factory
         self.estimator_factory = estimator_factory
         self.task = task
+        self.ratio_param_resolver = ratio_param_resolver
 
     def fit(
         self,
@@ -101,6 +104,14 @@ class RefitTrainer:
         iv_result = self.inner_valid.split(n_samples, y=y.to_numpy(), groups=groups)
 
         estimator = self.estimator_factory()
+
+        # Resolve n_rows-dependent ratio params using inner_train size (H-0036)
+        if self.ratio_param_resolver is not None:
+            if iv_result is not None:
+                n_inner_train = len(iv_result[0])  # inner_train_rel
+            else:
+                n_inner_train = n_samples
+            estimator.update_params(self.ratio_param_resolver(n_inner_train))
 
         if iv_result is not None:
             inner_train_rel, inner_valid_rel = iv_result

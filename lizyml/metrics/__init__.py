@@ -12,6 +12,7 @@ from lizyml.metrics.classification import (
     Accuracy,
     Brier,
     LogLoss,
+    PrecisionAtK,
 )
 from lizyml.metrics.registry import get_metric, get_metrics_for_task
 from lizyml.metrics.regression import MAE, MAPE, R2, RMSE, RMSLE, HuberLoss
@@ -33,6 +34,7 @@ __all__ = [
     "Accuracy",
     "Brier",
     "ECE",
+    "PrecisionAtK",
     # helpers
     "get_metric",
     "get_metrics_for_task",

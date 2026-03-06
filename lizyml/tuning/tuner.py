@@ -14,11 +14,17 @@ from lizyml import __version__
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.logging import generate_run_id, get_logger
 from lizyml.core.types.artifacts import RunMeta
+from lizyml.core.types.tuning_result import TrialResult, TuningResult
 from lizyml.data.fingerprint import compute as fp_compute
+from lizyml.estimators.lgbm import (
+    _COMMON_DEFAULTS,
+    resolve_ratio_params,
+    resolve_smart_params_from_dict,
+)
 from lizyml.evaluation.evaluator import Evaluator
 from lizyml.training.cv_trainer import CVTrainer
 from lizyml.training.inner_valid import BaseInnerValidStrategy
-from lizyml.tuning.search_space import SearchDim, suggest_params
+from lizyml.tuning.search_space import SearchDim, split_by_category, suggest_params
 
 if TYPE_CHECKING:
     from lizyml.estimators.lgbm import LGBMAdapter
@@ -47,7 +53,7 @@ class Tuner:
     Args:
         task: ML task type.
         outer_splitter: CV splitter (same as used in Model.fit).
-        inner_valid: Inner validation strategy.
+        inner_valid: Inner validation strategy (default for all trials).
         pipeline_factory: Factory producing NativeFeaturePipeline instances.
         estimator_factory: Factory accepting a trial params dict → LGBMAdapter.
         dims: Parsed search space dimensions.
@@ -57,6 +63,10 @@ class Tuner:
         metric_name: Metric to optimise (OOF score).
         n_classes: Number of classes for multiclass tasks.
         seed: Random seed for the optuna sampler.
+        inner_valid_factory: Optional factory to rebuild inner valid per trial
+            when ``validation_ratio`` is a search dim.
+        n_rows: Number of training rows (for smart param resolution).
+        fixed_params: Fixed params applied to every trial's model params.
     """
 
     def __init__(
@@ -73,6 +83,10 @@ class Tuner:
         metric_name: str = "rmse",
         n_classes: int | None = None,
         seed: int = 42,
+        *,
+        inner_valid_factory: Callable[[float], BaseInnerValidStrategy] | None = None,
+        n_rows: int | None = None,
+        fixed_params: dict[str, Any] | None = None,
     ) -> None:
         self.task = task
         self.outer_splitter = outer_splitter
@@ -86,14 +100,17 @@ class Tuner:
         self.metric_name = metric_name
         self.n_classes = n_classes
         self.seed = seed
+        self.inner_valid_factory = inner_valid_factory
+        self.n_rows = n_rows
+        self.fixed_params = fixed_params
 
     def tune(
         self,
         X: pd.DataFrame,
         y: pd.Series,
         groups: npt.NDArray[Any] | None = None,
-    ) -> dict[str, Any]:
-        """Run hyperparameter search and return best params.
+    ) -> TuningResult:
+        """Run hyperparameter search and return a TuningResult.
 
         Args:
             X: Feature DataFrame (already preprocessed by pipeline).
@@ -101,7 +118,7 @@ class Tuner:
             groups: Optional group array for group-based splitters.
 
         Returns:
-            Dict of best hyperparameter values found by optuna.
+            TuningResult with best params, best score, and trial history.
 
         Raises:
             LizyMLError with OPTIONAL_DEP_MISSING if optuna is not installed.
@@ -134,17 +151,70 @@ class Tuner:
 
         def objective(trial: Any) -> float:
             trial_params = suggest_params(trial, dims)
-            estimator = self.estimator_factory(trial_params)
+            model_p, smart_p, training_p = split_by_category(trial_params, dims)
+
+            # Apply fixed params as base, then trial's model params on top
+            merged_model = {**(self.fixed_params or {}), **model_p}
+
+            # Resolve n_rows-independent smart params (num_leaves only)
+            sample_weight: npt.NDArray[Any] | None = None
+            if smart_p and self.n_rows is not None:
+                effective = {**_COMMON_DEFAULTS, **merged_model}
+                smart_resolved = resolve_smart_params_from_dict(
+                    smart_params=smart_p,
+                    effective_params=effective,
+                    n_rows=self.n_rows,
+                )
+                merged_model.update(smart_resolved)
+
+            # Build per-fold ratio resolver for n_rows-dependent params (H-0036)
+            leaf_ratio = smart_p.get("min_data_in_leaf_ratio") if smart_p else None
+            bin_ratio = smart_p.get("min_data_in_bin_ratio") if smart_p else None
+            trial_ratio_resolver: Callable[[int], dict[str, Any]] | None = None
+            if leaf_ratio is not None or bin_ratio is not None:
+
+                def _make_resolver(
+                    lr: float | None, br: float | None
+                ) -> Callable[[int], dict[str, Any]]:
+                    return lambda n: resolve_ratio_params(lr, br, n)
+
+                trial_ratio_resolver = _make_resolver(leaf_ratio, bin_ratio)
+
+            # Build estimator with merged model params
+            estimator = self.estimator_factory(merged_model)
+
+            # Handle training params
+            if "early_stopping_rounds" in training_p:
+                estimator.early_stopping_rounds = int(
+                    training_p["early_stopping_rounds"]
+                )
+
+            # Resolve inner_valid for this trial
+            trial_inner_valid = self.inner_valid
+            if (
+                "validation_ratio" in training_p
+                and self.inner_valid_factory is not None
+            ):
+                trial_inner_valid = self.inner_valid_factory(
+                    training_p["validation_ratio"]
+                )
+
             cv_trainer = CVTrainer(
                 outer_splitter=self.outer_splitter,
-                inner_valid=self.inner_valid,
+                inner_valid=trial_inner_valid,
                 pipeline_factory=self.pipeline_factory,
                 estimator_factory=lambda: estimator,
                 task=self.task,
                 n_classes=self.n_classes,
+                ratio_param_resolver=trial_ratio_resolver,
             )
             fit_result = cv_trainer.fit(
-                X, y, groups, data_fingerprint=fingerprint, run_meta=run_meta
+                X,
+                y,
+                groups,
+                data_fingerprint=fingerprint,
+                run_meta=run_meta,
+                sample_weight=sample_weight,
             )
             metrics = evaluator.evaluate(fit_result, y, [self.metric_name])
             score: float = metrics["raw"]["oof"][self.metric_name]
@@ -158,6 +228,7 @@ class Tuner:
                 n_trials=self.n_trials,
                 timeout=self.timeout,
                 show_progress_bar=False,
+                catch=(Exception,),
             )
         except Exception as exc:
             raise LizyMLError(
@@ -167,9 +238,35 @@ class Tuner:
                 cause=exc,
             ) from exc
 
+        completed = [
+            t for t in study.trials if t.state == _optuna.trial.TrialState.COMPLETE
+        ]
+        if not completed:
+            raise LizyMLError(
+                code=ErrorCode.TUNING_FAILED,
+                user_message="All tuning trials failed. Check parameter ranges.",
+                context={"n_trials": self.n_trials},
+            )
+
         _log.info(
             "event='tune.done' best_value=%.4f n_trials=%d",
             study.best_value,
             len(study.trials),
         )
-        return dict(study.best_params)
+
+        trials = [
+            TrialResult(
+                number=t.number,
+                params=dict(t.params),
+                score=t.value if t.value is not None else float("nan"),
+                state=t.state.name.lower(),
+            )
+            for t in study.trials
+        ]
+        return TuningResult(
+            best_params=dict(study.best_params),
+            best_score=study.best_value,
+            trials=trials,
+            metric_name=self.metric_name,
+            direction=self.direction,
+        )
