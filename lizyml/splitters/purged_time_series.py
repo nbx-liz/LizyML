@@ -21,32 +21,36 @@ class PurgedTimeSeriesSplitter(BaseSplitter):
     - ``purge_gap`` samples at the *end* of the training set are removed.
       This prevents label leakage when the target is constructed from a
       look-forward window (e.g. future returns).
-    - ``embargo_pct`` defines the fraction of total samples to exclude
-      as an additional gap between training and validation on top of
+    - ``embargo`` defines the number of observations to exclude as an
+      additional gap between training and validation on top of
       ``purge_gap`` (BLUEPRINT §10.2).  The effective dead zone between
-      train and valid is ``purge_gap + int(n_samples * embargo_pct)``.
+      train and valid is ``purge_gap + embargo``.
 
     Args:
         n_splits: Number of folds.
         purge_gap: Number of samples purged from the tail of each training
             set (gap between train and valid).
-        embargo_pct: Fraction of total samples representing the exclusion
-            zone after the validation window.
+        embargo: Number of observations to exclude after the purge gap
+            (additional buffer between train and valid).
     """
 
     def __init__(
         self,
         n_splits: int = 5,
         purge_gap: int = 0,
-        embargo_pct: float = 0.0,
+        embargo: int = 0,
+        max_train_size: int | None = None,
+        max_test_size: int | None = None,
     ) -> None:
         if purge_gap < 0:
             raise ValueError("purge_gap must be >= 0.")
-        if embargo_pct < 0.0:
-            raise ValueError("embargo_pct must be >= 0.0.")
+        if embargo < 0:
+            raise ValueError("embargo must be >= 0.")
         self.n_splits = n_splits
         self.purge_gap = purge_gap
-        self.embargo_pct = embargo_pct
+        self.embargo = embargo
+        self.max_train_size = max_train_size
+        self.max_test_size = max_test_size
 
     def split(
         self,
@@ -67,8 +71,6 @@ class PurgedTimeSeriesSplitter(BaseSplitter):
                 f"n_samples={n_samples} is too small for n_splits={self.n_splits}."
             )
 
-        embargo_size = int(n_samples * self.embargo_pct)
-
         for k in range(self.n_splits):
             valid_start = (k + 1) * fold_size
             valid_end = (k + 2) * fold_size
@@ -77,10 +79,14 @@ class PurgedTimeSeriesSplitter(BaseSplitter):
             if valid_start >= valid_end:
                 continue
 
-            train_end = (k + 1) * fold_size - self.purge_gap - embargo_size
+            train_end = (k + 1) * fold_size - self.purge_gap - self.embargo
             if train_end <= 0:
                 continue
 
             train_idx = indices[:train_end]
             valid_idx = indices[valid_start:valid_end]
+            if self.max_train_size is not None:
+                train_idx = train_idx[-self.max_train_size :]
+            if self.max_test_size is not None:
+                valid_idx = valid_idx[: self.max_test_size]
             yield train_idx, valid_idx

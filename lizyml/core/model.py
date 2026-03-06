@@ -184,6 +184,40 @@ class Model:
             else None
         )
 
+        # --- Time series: validate time_col and sort -------------------------
+        _TS_METHODS = frozenset(
+            {
+                "time_series",
+                "purged_time_series",
+                "group_time_series",
+            }
+        )
+        if cfg.split.method in _TS_METHODS:
+            if cfg.data.time_col is None:
+                raise LizyMLError(
+                    code=ErrorCode.CONFIG_INVALID,
+                    user_message=(
+                        f"split.method='{cfg.split.method}' requires "
+                        "data.time_col to be set."
+                    ),
+                    context={"split_method": cfg.split.method},
+                )
+            tc = components.time_col
+            assert tc is not None  # noqa: S101
+            sort_order = tc.argsort()
+            X = X.iloc[sort_order].reset_index(drop=True)
+            y = y.iloc[sort_order].reset_index(drop=True)
+            if groups is not None:
+                groups = groups[sort_order]
+            self._X = X
+            self._y = y
+            components.X = X
+            components.y = y
+            components.time_col = tc.iloc[sort_order].reset_index(drop=True)
+            if components.group_col is not None:
+                gc = components.group_col
+                components.group_col = gc.iloc[sort_order].reset_index(drop=True)
+
         fingerprint = fp_compute(X, file_path=None)
 
         # --- Build components ------------------------------------------------
@@ -772,6 +806,32 @@ class Model:
             else None
         )
 
+        # --- Time series: validate time_col and sort -------------------------
+        _TS_METHODS = frozenset(
+            {
+                "time_series",
+                "purged_time_series",
+                "group_time_series",
+            }
+        )
+        if cfg.split.method in _TS_METHODS:
+            if cfg.data.time_col is None:
+                raise LizyMLError(
+                    code=ErrorCode.CONFIG_INVALID,
+                    user_message=(
+                        f"split.method='{cfg.split.method}' requires "
+                        "data.time_col to be set."
+                    ),
+                    context={"split_method": cfg.split.method},
+                )
+            tc = components.time_col
+            assert tc is not None  # noqa: S101
+            sort_order = tc.argsort()
+            X = X.iloc[sort_order].reset_index(drop=True)
+            y = y.iloc[sort_order].reset_index(drop=True)
+            if groups is not None:
+                groups = groups[sort_order]
+
         n_classes = int(y.nunique()) if cfg.task == "multiclass" else None
         splitter = self._build_splitter()
         inner_valid = self._build_inner_valid()
@@ -1084,16 +1144,36 @@ class Model:
             return GroupKFoldSplitter(n_splits=n_splits)
         if method == "time_series":
             gap = getattr(split_cfg, "gap", 0)
-            return TimeSeriesSplitter(n_splits=n_splits, gap=gap)
+            train_size_max = getattr(split_cfg, "train_size_max", None)
+            test_size_max = getattr(split_cfg, "test_size_max", None)
+            return TimeSeriesSplitter(
+                n_splits=n_splits,
+                gap=gap,
+                max_train_size=train_size_max,
+                max_test_size=test_size_max,
+            )
         if method == "purged_time_series":
             purge_gap = getattr(split_cfg, "purge_gap", 0)
-            embargo_pct: float = getattr(split_cfg, "embargo_pct", 0.0)
+            embargo: int = getattr(split_cfg, "embargo", 0)
+            train_size_max = getattr(split_cfg, "train_size_max", None)
+            test_size_max = getattr(split_cfg, "test_size_max", None)
             return PurgedTimeSeriesSplitter(
-                n_splits=n_splits, purge_gap=purge_gap, embargo_pct=embargo_pct
+                n_splits=n_splits,
+                purge_gap=purge_gap,
+                embargo=embargo,
+                max_train_size=train_size_max,
+                max_test_size=test_size_max,
             )
         if method == "group_time_series":
             gap = getattr(split_cfg, "gap", 0)
-            return GroupTimeSeriesSplitter(n_splits=n_splits, gap=gap)
+            train_size_max = getattr(split_cfg, "train_size_max", None)
+            test_size_max = getattr(split_cfg, "test_size_max", None)
+            return GroupTimeSeriesSplitter(
+                n_splits=n_splits,
+                gap=gap,
+                max_train_size=train_size_max,
+                max_test_size=test_size_max,
+            )
         # Default: kfold
         return KFoldSplitter(
             n_splits=n_splits, shuffle=shuffle, random_state=random_state

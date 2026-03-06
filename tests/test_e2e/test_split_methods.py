@@ -56,7 +56,9 @@ def _timeseries_df(n: int = 300, seed: int = 2) -> pd.DataFrame:
     feat_a = np.linspace(0, 10, n) + rng.normal(0, 0.1, n)
     feat_b = rng.uniform(-1, 1, n)
     target = feat_a * 2.0 + feat_b + rng.normal(0, 0.1, n)
-    return pd.DataFrame({"feat_a": feat_a, "feat_b": feat_b, "target": target})
+    return pd.DataFrame(
+        {"feat_a": feat_a, "feat_b": feat_b, "time_idx": range(n), "target": target}
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -97,7 +99,7 @@ def _time_series_config(n_splits: int = N_SPLITS) -> dict:
     return {
         "config_version": 1,
         "task": "regression",
-        "data": {"target": "target"},
+        "data": {"target": "target", "time_col": "time_idx"},
         "split": {
             "method": "time_series",
             "n_splits": n_splits,
