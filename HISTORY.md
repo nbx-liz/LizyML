@@ -2496,3 +2496,80 @@ TimeSeries 系 split（`time_series` / `purged_time_series` / `group_time_series
 - `split.method: "purged_time_series"` を使う既存 Config は `embargo_pct` を `embargo` に置換する。
 - `time_series` / `purged_time_series` / `group_time_series` を使う既存 Config は `data.time_col` を必ず指定する。
 - 既存の並び替え前提コードは、`time_col` の値が期待どおりの順序を持つことを確認する。
+
+---
+
+## 2026-03-07: LGBMAdapter: sklearn wrapper → Booster API 移行
+
+- ID: `H-0041`
+- Status: `accepted`
+- Scope: `EstimatorAdapter | Training | Persistence`
+- Related: `BLUEPRINT.md §14.2, §14.3`, `PLAN.md Phase 24`
+
+### Context
+
+LightGBM の sklearn wrapper（`LGBMRegressor` / `LGBMClassifier`）に、`early_stopping` callback 併用時に `model_to_string()` が空文字列を返す間欠バグが存在する（microsoft/LightGBM#7186）。
+このバグは sklearn wrapper 内部の後処理（`engine.py:350` で `keep_training_booster=False` 時に実行される `model_from_string(model_to_string())` ラウンドトリップ）に起因し、約 5-10% の確率で `LightGBMError: Model file doesn't specify the number of classes` を発生させる。
+
+LightGBM の Booster API（`lgb.train()`）では `keep_training_booster=True` がデフォルトであり、上記ラウンドトリップが発生しないため、このバグの影響を受けない。実際に 100 回の検証で 0 回の失敗を確認済み。
+
+### Proposal
+
+`LGBMAdapter.fit()` の内部実装を sklearn wrapper（`LGBMRegressor` / `LGBMClassifier`）から LightGBM Booster API（`lgb.train()`）に移行する。
+
+1. **`fit()`**: `lgb.Dataset` を構築し、`lgb.train(params, train_set, valid_sets=[...], callbacks=[...], keep_training_booster=True)` で学習する。
+2. **`predict()`**: `booster.predict(X)` を使用。regression はそのまま返却。classification は `objective` に応じて sigmoid/softmax 適用済みの値が返る。
+3. **`predict_proba()`**: `booster.predict(X)` を使用。binary は `(n,)` → `(n, 2)` に変換。multiclass は `(n, k)` をそのまま返却。
+4. **`predict_raw()`**: `booster.predict(X, raw_score=True)` を使用（現状と同じロジック、`booster_` 経由のアクセスが不要になる）。
+5. **`importance()`**: `booster.feature_importance(importance_type=...)` を直接呼び出す。
+6. **`get_native_model()`**: 戻り値を `lgb.Booster` に変更する。
+7. **`best_iteration`**: `booster.best_iteration` から取得する。
+8. **パラメーター変換**: sklearn 固有のパラメーター名（`n_estimators` → `num_boost_round`、`random_state` → `seed`）を Booster API に適切にマッピングする。
+
+### Impact
+
+- `lizyml/estimators/lgbm.py`（主要変更: fit / predict / predict_proba / get_native_model / _build_params）
+- `lizyml/training/cv_trainer.py`（`evals_result_` → Booster API の `eval_results` への適応）
+- `lizyml/training/refit_trainer.py`（同上）
+- `lizyml/core/model.py`（`params_table()` の `.booster_` アクセスを `.get_native_model()` 直接に変更）
+- `lizyml/explain/shap_explainer.py`（SHAP TreeExplainer は Booster を直接受け取れるため変更不要、ただし確認は必要）
+- `lizyml/persistence/exporter.py`（joblib シリアライズ対象が Booster に変わるため確認）
+- `tests/test_estimators/` `tests/test_e2e/`（`get_native_model()` 戻り値型、`.booster_` アクセスの更新）
+
+### Compatibility
+
+- **公開 API（`get_native_model()`）**: 戻り値が `LGBMRegressor | LGBMClassifier` → `lgb.Booster` に変更される。これは内部型（sklearn wrapper vs Booster）の変更であり、LightGBM 固有の下流コードに影響する。
+- **`predict()` / `predict_proba()` / `predict_raw()` の shape 契約**: 変更なし。同一の入出力 shape を維持する。
+- **`importance()` の shape 契約**: 変更なし。
+- **Persistence**: joblib による `LGBMAdapter` のシリアライズ。`lgb.Booster` の `model_to_string()` / `model_from_string()` による保存・復元が必要。ただし `format_version=1` の互換性を維持するため、既存の保存済みモデル（sklearn wrapper ベース）のロードは引き続きサポートする必要がある。
+- **SHAP**: `TreeExplainer` は `lgb.Booster` を直接受け取れるため互換性あり。
+
+### Alternatives Considered
+
+1. **テスト時に retry を追加して間欠エラーを許容する**
+   - 不採用。根本原因が LightGBM の既知バグである以上、回避策を持つべき。ユーザー利用時にも影響する。
+2. **`model_to_string()` 出力を post-fit で検証し、空の場合に再学習する**
+   - 不採用。`LightGBMError` は `model_from_string()` 内部で raise されるため、post-fit 検証が間に合わない。
+3. **`keep_training_booster=True` を sklearn wrapper に渡す**
+   - 不採用。sklearn wrapper は `keep_training_booster` を外部パラメーターとして公開していない。
+4. **LightGBM バージョンを制約する**
+   - 不採用。4.3〜4.6 のすべてで再現するため、特定バージョンの除外では解決しない。
+
+### Acceptance Criteria
+
+- regression / binary / multiclass の全タスクで `lgb.train()` 経由の学習が動作する。
+- `predict()` / `predict_proba()` / `predict_raw()` の出力 shape が移行前と同一である。
+- `importance(kind="split")` / `importance(kind="gain")` が移行前と同一の結果を返す。
+- `get_native_model()` が `lgb.Booster` を返す。
+- `best_iteration` が正しく取得される。
+- early stopping が正常に動作する（inner valid あり / なしの両方）。
+- 学習履歴（`eval_history`）が cv_trainer / refit_trainer で正しく記録される。
+- SHAP（`TreeExplainer`）が Booster 直接入力で動作する。
+- 既存の persistence（export / load）が動作する。
+- 既存テスト（782件）が回帰しない。
+- notebook テスト（`tutorial_regression_tuning_lgbm.ipynb`）の間欠エラーが解消される。
+
+### Migration
+
+- `get_native_model()` の戻り値を `LGBMRegressor | LGBMClassifier` → `lgb.Booster` に変更。既存コードで `.booster_` 経由でアクセスしていた箇所は `.get_native_model()` 直接に変更する。
+- `format_version=1` の既存保存モデルのロード互換は維持する（移行期間中は旧形式を検出して復元可能にする）。
