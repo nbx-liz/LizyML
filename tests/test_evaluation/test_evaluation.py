@@ -27,6 +27,7 @@ from lizyml.features.pipelines_native import NativeFeaturePipeline
 from lizyml.splitters.kfold import KFoldSplitter
 from lizyml.training.cv_trainer import CVTrainer
 from lizyml.training.inner_valid import NoInnerValid
+from tests._helpers import make_binary_df, make_config, make_regression_df
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -239,51 +240,21 @@ class TestThresholding:
 
 
 def _reg_config_small() -> dict:
-    return {
-        "config_version": 1,
-        "task": "regression",
-        "data": {"target": "target"},
-        "split": {"method": "kfold", "n_splits": 3, "random_state": 42},
-        "model": {"name": "lgbm", "params": {"n_estimators": 10}},
-        "training": {"seed": 0},
-        "evaluation": {"metrics": ["rmse", "mae"]},
-    }
+    cfg = make_config("regression")
+    cfg["evaluation"] = {"metrics": ["rmse", "mae"]}
+    return cfg
 
 
 def _bin_config_small() -> dict:
-    return {
-        "config_version": 1,
-        "task": "binary",
-        "data": {"target": "target"},
-        "split": {"method": "kfold", "n_splits": 3, "random_state": 42},
-        "model": {"name": "lgbm", "params": {"n_estimators": 10}},
-        "training": {"seed": 0},
-        "evaluation": {"metrics": ["logloss", "auc"]},
-    }
-
-
-def _reg_df_small(n: int = 150, seed: int = 0) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {"feat_a": rng.uniform(0, 10, n), "feat_b": rng.uniform(-1, 1, n)}
-    )
-    df["target"] = df["feat_a"] * 2.0 + df["feat_b"]
-    return df
-
-
-def _bin_df_small(n: int = 150, seed: int = 1) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {"feat_a": rng.uniform(0, 10, n), "feat_b": rng.uniform(-1, 1, n)}
-    )
-    df["target"] = (df["feat_a"] > 5).astype(int)
-    return df
+    cfg = make_config("binary")
+    cfg["evaluation"] = {"metrics": ["logloss", "auc"]}
+    return cfg
 
 
 class TestModelEvaluateFacade:
     def test_evaluate_no_args_returns_precomputed(self) -> None:
         m = Model(_reg_config_small())
-        m.fit(data=_reg_df_small())
+        m.fit(data=make_regression_df(n=150))
         result = m.evaluate()
         assert "raw" in result
         assert "oof" in result["raw"]
@@ -291,7 +262,7 @@ class TestModelEvaluateFacade:
     def test_evaluate_with_subset_metrics_filters_output(self) -> None:
         """evaluate(metrics=["rmse"]) returns only the requested metric."""
         m = Model(_reg_config_small())
-        m.fit(data=_reg_df_small())
+        m.fit(data=make_regression_df(n=150))
         result = m.evaluate(metrics=["rmse"])
         assert set(result["raw"]["oof"].keys()) == {"rmse"}
         assert set(result["raw"]["if_mean"].keys()) == {"rmse"}
@@ -301,7 +272,7 @@ class TestModelEvaluateFacade:
     def test_evaluate_subset_values_match_precomputed(self) -> None:
         """Filtered values must equal the pre-computed values from fit()."""
         m = Model(_reg_config_small())
-        m.fit(data=_reg_df_small())
+        m.fit(data=make_regression_df(n=150))
         full = m.evaluate()
         filtered = m.evaluate(metrics=["rmse"])
         assert filtered["raw"]["oof"]["rmse"] == pytest.approx(
@@ -311,7 +282,7 @@ class TestModelEvaluateFacade:
     def test_evaluate_incompatible_metric_raises_unsupported(self) -> None:
         """evaluate() with a task-incompatible metric must raise UNSUPPORTED_METRIC."""
         m = Model(_bin_config_small())
-        m.fit(data=_bin_df_small())
+        m.fit(data=make_binary_df(n=150))
         with pytest.raises(LizyMLError) as exc_info:
             m.evaluate(metrics=["rmse"])  # rmse is not valid for binary
         assert exc_info.value.code == ErrorCode.UNSUPPORTED_METRIC
@@ -319,7 +290,7 @@ class TestModelEvaluateFacade:
     def test_evaluate_incompatible_regression_metric_raises(self) -> None:
         """evaluate() with auc on regression must raise UNSUPPORTED_METRIC."""
         m = Model(_reg_config_small())
-        m.fit(data=_reg_df_small())
+        m.fit(data=make_regression_df(n=150))
         with pytest.raises(LizyMLError) as exc_info:
             m.evaluate(metrics=["auc"])  # auc is not valid for regression
         assert exc_info.value.code == ErrorCode.UNSUPPORTED_METRIC

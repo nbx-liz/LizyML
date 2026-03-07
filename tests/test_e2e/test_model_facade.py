@@ -23,80 +23,53 @@ from lizyml import Model
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.fit_result import FitResult
 from lizyml.core.types.predict_result import PredictionResult
+from tests._helpers import (
+    make_binary_df,
+    make_config,
+    make_multiclass_df,
+    make_regression_df,
+)
+
+_TASK_DATA: dict[str, Any] = {
+    "regression": make_regression_df,
+    "binary": make_binary_df,
+    "multiclass": make_multiclass_df,
+}
+
 
 # ---------------------------------------------------------------------------
-# Synthetic datasets
+# Common tests across all task types
 # ---------------------------------------------------------------------------
 
 
-def _reg_df(n: int = 200, seed: int = 0) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {
-            "feat_a": rng.uniform(0, 10, n),
-            "feat_b": rng.uniform(-1, 1, n),
-            "target": rng.uniform(0, 10, n),
-        }
-    )
-    df["target"] = df["feat_a"] * 2.0 + df["feat_b"] + rng.normal(0, 0.1, n)
-    return df
+class TestModelCommon:
+    @pytest.mark.parametrize("task", ["regression", "binary", "multiclass"])
+    def test_fit_returns_fit_result(self, task: str) -> None:
+        m = Model(make_config(task, n_estimators=20))
+        result = m.fit(data=_TASK_DATA[task]())
+        assert isinstance(result, FitResult)
 
+    @pytest.mark.parametrize("task", ["regression", "binary", "multiclass"])
+    def test_importance_keys(self, task: str) -> None:
+        df = _TASK_DATA[task]()
+        m = Model(make_config(task, n_estimators=20))
+        m.fit(data=df)
+        imp = m.importance()
+        assert set(imp.keys()) == {"feat_a", "feat_b"}
 
-def _bin_df(n: int = 200, seed: int = 1) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {
-            "feat_a": rng.uniform(0, 10, n),
-            "feat_b": rng.uniform(-1, 1, n),
-        }
-    )
-    df["target"] = (df["feat_a"] > 5).astype(int)
-    return df
+    @pytest.mark.parametrize("task", ["regression", "binary", "multiclass"])
+    def test_evaluate_has_raw_structure(self, task: str) -> None:
+        m = Model(make_config(task, n_estimators=20))
+        m.fit(data=_TASK_DATA[task]())
+        metrics = m.evaluate()
+        assert "raw" in metrics
+        assert set(metrics["raw"].keys()) == {"oof", "if_mean", "if_per_fold"}
 
-
-def _multi_df(n: int = 300, seed: int = 2) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {
-            "feat_a": rng.uniform(0, 10, n),
-            "feat_b": rng.uniform(-1, 1, n),
-        }
-    )
-    df["target"] = pd.cut(df["feat_a"], bins=3, labels=[0, 1, 2]).astype(int)
-    return df
-
-
-def _reg_config(n_splits: int = 3) -> dict:
-    return {
-        "config_version": 1,
-        "task": "regression",
-        "data": {"target": "target"},
-        "split": {"method": "kfold", "n_splits": n_splits, "random_state": 42},
-        "model": {"name": "lgbm", "params": {"n_estimators": 20}},
-        "training": {"seed": 0},
-    }
-
-
-def _bin_config(n_splits: int = 3) -> dict:
-    return {
-        "config_version": 1,
-        "task": "binary",
-        "data": {"target": "target"},
-        "split": {"method": "kfold", "n_splits": n_splits, "random_state": 42},
-        "model": {"name": "lgbm", "params": {"n_estimators": 20}},
-        "training": {"seed": 0},
-    }
-
-
-def _multi_config(n_splits: int = 3) -> dict:
-    return {
-        "config_version": 1,
-        "task": "multiclass",
-        "data": {"target": "target"},
-        "split": {"method": "kfold", "n_splits": n_splits, "random_state": 42},
-        "model": {"name": "lgbm", "params": {"n_estimators": 20}},
-        "training": {"seed": 0},
-    }
+    @pytest.mark.parametrize("task", ["regression", "binary", "multiclass"])
+    def test_metrics_stored_in_fit_result(self, task: str) -> None:
+        m = Model(make_config(task, n_estimators=20))
+        result = m.fit(data=_TASK_DATA[task]())
+        assert "raw" in result.metrics
 
 
 # ---------------------------------------------------------------------------
@@ -105,67 +78,34 @@ def _multi_config(n_splits: int = 3) -> dict:
 
 
 class TestModelRegression:
-    def test_fit_returns_fit_result(self) -> None:
-        m = Model(_reg_config())
-        result = m.fit(data=_reg_df())
-        assert isinstance(result, FitResult)
-
     def test_oof_shape(self) -> None:
-        df = _reg_df()
-        m = Model(_reg_config())
+        df = make_regression_df()
+        m = Model(make_config("regression", n_estimators=20))
         result = m.fit(data=df)
         assert result.oof_pred.shape == (len(df),)
 
     def test_oof_no_nan(self) -> None:
-        m = Model(_reg_config())
-        result = m.fit(data=_reg_df())
+        m = Model(make_config("regression", n_estimators=20))
+        result = m.fit(data=make_regression_df())
         assert not np.any(np.isnan(result.oof_pred))
 
-    def test_evaluate_structure(self) -> None:
-        m = Model(_reg_config())
-        m.fit(data=_reg_df())
-        metrics = m.evaluate()
-        assert "raw" in metrics
-        assert set(metrics["raw"].keys()) == {"oof", "if_mean", "if_per_fold"}
-
     def test_evaluate_metrics_keys(self) -> None:
-        m = Model(_reg_config())
-        m.fit(data=_reg_df())
+        m = Model(make_config("regression", n_estimators=20))
+        m.fit(data=make_regression_df())
         oof_metrics = m.evaluate()["raw"]["oof"]
         # Default metrics: rmse, mae
         assert "rmse" in oof_metrics
         assert "mae" in oof_metrics
 
     def test_predict_shape(self) -> None:
-        df = _reg_df()
-        m = Model(_reg_config())
+        df = make_regression_df()
+        m = Model(make_config("regression", n_estimators=20))
         m.fit(data=df)
         X_new = df.drop(columns=["target"]).iloc[:10].reset_index(drop=True)
         result = m.predict(X_new)
         assert isinstance(result, PredictionResult)
         assert result.pred.shape == (10,)
         assert result.proba is None
-
-    def test_importance_keys(self) -> None:
-        df = _reg_df()
-        m = Model(_reg_config())
-        m.fit(data=df)
-        imp = m.importance()
-        assert set(imp.keys()) == {"feat_a", "feat_b"}
-
-    def test_reproducibility(self) -> None:
-        df = _reg_df()
-        m1 = Model(_reg_config())
-        m2 = Model(_reg_config())
-        r1 = m1.fit(data=df)
-        r2 = m2.fit(data=df)
-        np.testing.assert_array_almost_equal(r1.oof_pred, r2.oof_pred)
-
-    def test_metrics_stored_in_fit_result(self) -> None:
-        m = Model(_reg_config())
-        result = m.fit(data=_reg_df())
-        # Evaluator populated metrics during fit()
-        assert "raw" in result.metrics
 
 
 # ---------------------------------------------------------------------------
@@ -174,21 +114,16 @@ class TestModelRegression:
 
 
 class TestModelBinary:
-    def test_fit_returns_fit_result(self) -> None:
-        m = Model(_bin_config())
-        result = m.fit(data=_bin_df())
-        assert isinstance(result, FitResult)
-
     def test_oof_proba_range(self) -> None:
-        df = _bin_df()
-        m = Model(_bin_config())
+        df = make_binary_df()
+        m = Model(make_config("binary", n_estimators=20))
         result = m.fit(data=df)
         assert result.oof_pred.shape == (len(df),)
         assert np.all(result.oof_pred >= 0) and np.all(result.oof_pred <= 1)
 
     def test_predict_proba_shape(self) -> None:
-        df = _bin_df()
-        m = Model(_bin_config())
+        df = make_binary_df()
+        m = Model(make_config("binary", n_estimators=20))
         m.fit(data=df)
         X_new = df.drop(columns=["target"]).iloc[:5].reset_index(drop=True)
         pred_result = m.predict(X_new)
@@ -197,8 +132,8 @@ class TestModelBinary:
         assert pred_result.pred.shape == (5,)
 
     def test_evaluate_binary_metrics(self) -> None:
-        m = Model(_bin_config())
-        m.fit(data=_bin_df())
+        m = Model(make_config("binary", n_estimators=20))
+        m.fit(data=make_binary_df())
         oof_metrics = m.evaluate()["raw"]["oof"]
         # Default binary metrics: logloss, auc
         assert "logloss" in oof_metrics
@@ -212,15 +147,15 @@ class TestModelBinary:
 
 class TestModelMulticlass:
     def test_oof_shape_multiclass(self) -> None:
-        df = _multi_df()
-        m = Model(_multi_config())
+        df = make_multiclass_df()
+        m = Model(make_config("multiclass", n_estimators=20))
         result = m.fit(data=df)
         # 3 classes → (n_samples, 3)
         assert result.oof_pred.shape == (len(df), 3)
 
     def test_predict_multiclass(self) -> None:
-        df = _multi_df()
-        m = Model(_multi_config())
+        df = make_multiclass_df()
+        m = Model(make_config("multiclass", n_estimators=20))
         m.fit(data=df)
         X_new = df.drop(columns=["target"]).iloc[:5].reset_index(drop=True)
         pred_result = m.predict(X_new)
@@ -236,27 +171,27 @@ class TestModelMulticlass:
 
 class TestModelErrors:
     def test_predict_before_fit_raises(self) -> None:
-        m = Model(_reg_config())
+        m = Model(make_config("regression", n_estimators=20))
         X = pd.DataFrame({"feat_a": [1.0], "feat_b": [0.5]})
         with pytest.raises(LizyMLError) as exc_info:
             m.predict(X)
         assert exc_info.value.code == ErrorCode.MODEL_NOT_FIT
 
     def test_evaluate_before_fit_raises(self) -> None:
-        m = Model(_reg_config())
+        m = Model(make_config("regression", n_estimators=20))
         with pytest.raises(LizyMLError) as exc_info:
             m.evaluate()
         assert exc_info.value.code == ErrorCode.MODEL_NOT_FIT
 
     def test_importance_before_fit_raises(self) -> None:
-        m = Model(_reg_config())
+        m = Model(make_config("regression", n_estimators=20))
         with pytest.raises(LizyMLError) as exc_info:
             m.importance()
         assert exc_info.value.code == ErrorCode.MODEL_NOT_FIT
 
     def test_predict_missing_column_raises(self) -> None:
-        df = _reg_df()
-        m = Model(_reg_config())
+        df = make_regression_df()
+        m = Model(make_config("regression", n_estimators=20))
         m.fit(data=df)
         # Missing feat_b
         X_bad = pd.DataFrame({"feat_a": [1.0, 2.0]})
@@ -265,14 +200,14 @@ class TestModelErrors:
         assert exc_info.value.code == ErrorCode.DATA_SCHEMA_INVALID
 
     def test_fit_without_data_raises(self) -> None:
-        m = Model(_reg_config())
+        m = Model(make_config("regression", n_estimators=20))
         with pytest.raises(LizyMLError) as exc_info:
             m.fit()  # no data, no path in config
         assert exc_info.value.code == ErrorCode.DATA_SCHEMA_INVALID
 
     def test_tune_without_tuning_config_raises(self) -> None:
         # tune() is now implemented; requires a tuning config section
-        m = Model(_reg_config())
+        m = Model(make_config("regression", n_estimators=20))
         data = pd.DataFrame({"feat_a": [1.0], "feat_b": [0.5], "target": [1.0]})
         with pytest.raises(LizyMLError) as exc_info:
             m.tune(data=data)
@@ -280,7 +215,7 @@ class TestModelErrors:
 
     def test_export_before_fit_raises(self, tmp_path: Any) -> None:
         # export() is now implemented; requires fit() first
-        m = Model(_reg_config())
+        m = Model(make_config("regression", n_estimators=20))
         with pytest.raises(LizyMLError) as exc_info:
             m.export(tmp_path / "out")
         assert exc_info.value.code == ErrorCode.MODEL_NOT_FIT
@@ -317,12 +252,12 @@ class TestPublicAPI:
 
 class TestFitResultProperty:
     def test_returns_fit_result_after_fit(self) -> None:
-        m = Model(_reg_config())
-        m.fit(data=_reg_df())
+        m = Model(make_config("regression", n_estimators=20))
+        m.fit(data=make_regression_df())
         assert isinstance(m.fit_result, FitResult)
 
     def test_before_fit_raises(self) -> None:
-        m = Model(_reg_config())
+        m = Model(make_config("regression", n_estimators=20))
         with pytest.raises(LizyMLError) as exc_info:
             _ = m.fit_result
         assert exc_info.value.code == ErrorCode.MODEL_NOT_FIT
@@ -335,16 +270,16 @@ class TestFitResultProperty:
 
 class TestParamsTable:
     def test_returns_dataframe(self) -> None:
-        m = Model(_reg_config())
-        m.fit(data=_reg_df())
+        m = Model(make_config("regression", n_estimators=20))
+        m.fit(data=make_regression_df())
         table = m.params_table()
         assert isinstance(table, pd.DataFrame)
         assert table.index.name == "parameter"
         assert "value" in table.columns
 
     def test_contains_expected_params(self) -> None:
-        m = Model(_reg_config())
-        m.fit(data=_reg_df())
+        m = Model(make_config("regression", n_estimators=20))
+        m.fit(data=make_regression_df())
         table = m.params_table()
         params = set(table.index)
         assert "objective" in params
@@ -353,7 +288,7 @@ class TestParamsTable:
         assert "best_iteration_0" in params
 
     def test_before_fit_raises(self) -> None:
-        m = Model(_reg_config())
+        m = Model(make_config("regression", n_estimators=20))
         with pytest.raises(LizyMLError) as exc_info:
             m.params_table()
         assert exc_info.value.code == ErrorCode.MODEL_NOT_FIT
@@ -396,7 +331,7 @@ class TestRatioParamsInnerTrainSize:
             },
         }
         n = 300
-        df = _reg_df(n=n)
+        df = make_regression_df(n=n)
         m = Model(config)
         m.fit(data=df)
 

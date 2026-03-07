@@ -4,53 +4,23 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import numpy as np
-import pandas as pd
 import plotly.graph_objects as go
 import pytest
 
 from lizyml import Model
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from tests._helpers import make_binary_df, make_config, make_regression_df
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _bin_df(n: int = 200, seed: int = 1) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {"feat_a": rng.uniform(0, 10, n), "feat_b": rng.uniform(-1, 1, n)}
-    )
-    df["target"] = (df["feat_a"] > 5).astype(int)
-    return df
-
-
-def _reg_df(n: int = 100, seed: int = 0) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {"feat_a": rng.uniform(0, 10, n), "feat_b": rng.uniform(-1, 1, n)}
-    )
-    df["target"] = df["feat_a"] * 2.0 + rng.normal(0, 0.1, n)
-    return df
-
-
-def _base_cfg(task: str) -> dict:
-    return {
-        "config_version": 1,
-        "task": task,
-        "data": {"target": "target"},
-        "split": {"method": "kfold", "n_splits": 3, "random_state": 42},
-        "model": {"name": "lgbm", "params": {"n_estimators": 10}},
-        "training": {"seed": 0},
-    }
-
-
 def _calibrated_binary_model() -> Model:
-    cfg = _base_cfg("binary")
+    cfg = make_config("binary")
     cfg["calibration"] = {"method": "platt", "n_splits": 3}
     m = Model(cfg)
-    m.fit(data=_bin_df())
+    m.fit(data=make_binary_df())
     return m
 
 
@@ -111,21 +81,21 @@ class TestProbabilityHistogram:
 
 class TestCalibrationPlotErrors:
     def test_no_calibration_raises(self) -> None:
-        m = Model(_base_cfg("binary"))
-        m.fit(data=_bin_df())
+        m = Model(make_config("binary"))
+        m.fit(data=make_binary_df())
         with pytest.raises(LizyMLError) as exc_info:
             m.calibration_plot()
         assert exc_info.value.code == ErrorCode.CALIBRATION_NOT_SUPPORTED
 
     def test_regression_raises(self) -> None:
-        m = Model(_base_cfg("regression"))
-        m.fit(data=_reg_df())
+        m = Model(make_config("regression"))
+        m.fit(data=make_regression_df(n=100))
         with pytest.raises(LizyMLError) as exc_info:
             m.calibration_plot()
         assert exc_info.value.code == ErrorCode.UNSUPPORTED_TASK
 
     def test_before_fit_raises(self) -> None:
-        m = Model(_base_cfg("binary"))
+        m = Model(make_config("binary"))
         with pytest.raises(LizyMLError) as exc_info:
             m.calibration_plot()
         assert exc_info.value.code == ErrorCode.MODEL_NOT_FIT
@@ -140,15 +110,15 @@ class TestCalibrationPlotErrors:
 
 class TestProbabilityHistogramErrors:
     def test_no_calibration_raises(self) -> None:
-        m = Model(_base_cfg("binary"))
-        m.fit(data=_bin_df())
+        m = Model(make_config("binary"))
+        m.fit(data=make_binary_df())
         with pytest.raises(LizyMLError) as exc_info:
             m.probability_histogram_plot()
         assert exc_info.value.code == ErrorCode.CALIBRATION_NOT_SUPPORTED
 
     def test_regression_raises(self) -> None:
-        m = Model(_base_cfg("regression"))
-        m.fit(data=_reg_df())
+        m = Model(make_config("regression"))
+        m.fit(data=make_regression_df(n=100))
         with pytest.raises(LizyMLError) as exc_info:
             m.probability_histogram_plot()
         assert exc_info.value.code == ErrorCode.UNSUPPORTED_TASK

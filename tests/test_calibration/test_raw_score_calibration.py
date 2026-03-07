@@ -11,59 +11,11 @@ Covers:
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 
 from lizyml import Model
 from lizyml.calibration.cross_fit import CalibrationResult
 from lizyml.estimators.lgbm import LGBMAdapter
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _bin_df(n: int = 200, seed: int = 1) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {"feat_a": rng.uniform(0, 10, n), "feat_b": rng.uniform(-1, 1, n)}
-    )
-    df["target"] = (df["feat_a"] > 5).astype(int)
-    return df
-
-
-def _reg_df(n: int = 200, seed: int = 0) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {"feat_a": rng.uniform(0, 10, n), "feat_b": rng.uniform(-1, 1, n)}
-    )
-    df["target"] = df["feat_a"] * 2 + rng.normal(0, 0.5, n)
-    return df
-
-
-def _bin_config(with_calibration: bool = False, method: str = "platt") -> dict:
-    cfg: dict = {
-        "config_version": 1,
-        "task": "binary",
-        "data": {"target": "target"},
-        "split": {"method": "kfold", "n_splits": 3, "random_state": 42},
-        "model": {"name": "lgbm", "params": {"n_estimators": 20}},
-        "training": {"seed": 0},
-    }
-    if with_calibration:
-        cfg["calibration"] = {"method": method, "n_splits": 3}
-    return cfg
-
-
-def _reg_config() -> dict:
-    return {
-        "config_version": 1,
-        "task": "regression",
-        "data": {"target": "target"},
-        "split": {"method": "kfold", "n_splits": 3, "random_state": 42},
-        "model": {"name": "lgbm", "params": {"n_estimators": 20}},
-        "training": {"seed": 0},
-    }
-
+from tests._helpers import make_binary_df, make_config, make_regression_df
 
 # ---------------------------------------------------------------------------
 # Adapter-level tests
@@ -73,7 +25,7 @@ def _reg_config() -> dict:
 class TestPredictRaw:
     def test_predict_raw_returns_logits_for_binary(self) -> None:
         """predict_raw should return logits, different from predict_proba."""
-        df = _bin_df()
+        df = make_binary_df()
         X = df[["feat_a", "feat_b"]]
         y = df["target"]
 
@@ -91,7 +43,7 @@ class TestPredictRaw:
 
     def test_predict_raw_regression_same_as_predict(self) -> None:
         """For regression, predict_raw should be identical to predict."""
-        df = _reg_df()
+        df = make_regression_df()
         X = df[["feat_a", "feat_b"]]
         y = df["target"]
 
@@ -112,8 +64,9 @@ class TestPredictRaw:
 class TestOofRawScores:
     def test_oof_raw_scores_populated_with_calibration(self) -> None:
         """oof_raw_scores should be non-None when calibration is enabled."""
-        df = _bin_df()
-        model = Model(_bin_config(with_calibration=True), data=df)
+        df = make_binary_df()
+        cfg = make_config("binary", calibration="platt", n_estimators=20)
+        model = Model(cfg, data=df)
         fr = model.fit()
 
         assert fr.oof_raw_scores is not None
@@ -123,16 +76,17 @@ class TestOofRawScores:
 
     def test_oof_raw_scores_none_without_calibration(self) -> None:
         """oof_raw_scores should be None when calibration is disabled."""
-        df = _bin_df()
-        model = Model(_bin_config(with_calibration=False), data=df)
+        df = make_binary_df()
+        model = Model(make_config("binary", n_estimators=20), data=df)
         fr = model.fit()
 
         assert fr.oof_raw_scores is None
 
     def test_calibration_result_trained_on_raw_scores(self) -> None:
         """C_final should be trained on raw scores, not probabilities."""
-        df = _bin_df()
-        model = Model(_bin_config(with_calibration=True), data=df)
+        df = make_binary_df()
+        cfg = make_config("binary", calibration="platt", n_estimators=20)
+        model = Model(cfg, data=df)
         fr = model.fit()
 
         assert isinstance(fr.calibrator, CalibrationResult)
@@ -142,8 +96,9 @@ class TestOofRawScores:
 
     def test_predict_uses_raw_scores_for_calibration(self) -> None:
         """predict() should use raw scores when calibration is enabled."""
-        df = _bin_df()
-        model = Model(_bin_config(with_calibration=True), data=df)
+        df = make_binary_df()
+        cfg = make_config("binary", calibration="platt", n_estimators=20)
+        model = Model(cfg, data=df)
         model.fit()
 
         result = model.predict(df)

@@ -810,10 +810,17 @@ YourLibError(code, user_message, debug_message=None, cause=None)
 - Golden test: `FitResult / PredictionResult` スキーマ固定を検証する。
 - 再現性テスト: 同一 config で split indices と主要指標が一致する。
 - 列ズレテスト: 余剰 / 不足 / unseen category のポリシー通り動く。
-- optional dependency テスト: 未導入時の例外コード / メッセージが崩れない。
+- optional dependency テスト: 未導入時の例外コード / メッセージが崩れない。全 optional dependency（optuna, shap, plotly, scipy）について "missing" パスを検証する。
 - Public API surface テスト: `from lizyml import Model` 等のトップレベル公開面が壊れていないことを検証する。
 - バージョン一致テスト: `lizyml.__version__` と配布メタデータのバージョンが一致することを検証する。
 - README サンプルコードテスト: `README.md` に記載された最短利用例が `SyntaxError` / `ImportError` なく実行可能であることを検証する（データ依存部分はモック可）。
+
+### テスト基盤方針（H-0043）
+
+- **共通ヘルパーの集約**: データ生成ヘルパー（`make_regression_df()`, `make_binary_df()`, `make_multiclass_df()`, `make_config()` 等）は `tests/conftest.py` に集約する。各テストファイルでのローカル重複定義を排除する。
+- **parametrize の活用**: タスク横断テスト（regression/binary/multiclass）は `@pytest.mark.parametrize` で統合し、テストロジックの重複を削減する。
+- **slow テストの分離**: `@pytest.mark.slow` 付きテスト（notebook 実行等）はローカル開発時にデフォルトスキップする（`addopts = "-m 'not slow'"`）。CI の main PR では全テストを実行し、develop PR では slow を除外する。
+- **カバレッジ閾値**: CI で `--cov-fail-under=95` を設定し、カバレッジ回帰を防止する。
 
 ## 18.2 CI（推奨）
 
@@ -826,6 +833,7 @@ YourLibError(code, user_message, debug_message=None, cause=None)
 - install smoke test を行い、配布物からの import と README の最短利用例が破綻していないことを確認する。
 - 複数 Python バージョン（最低限 `requires-python` の下限と最新安定版）でテストを実行する。
 - 依存の下限バージョンでのテストを CI に含める（`uv` の resolution 機能で `lowest-direct` を使用）。
+- `develop` および `main` ブランチへの PR で CI を実行する。`develop` PR では slow テストを除外し、`main` PR では全テストを実行する（H-0043）。
 
 # 19. ディレクトリ構成（更新案）
 
@@ -850,7 +858,10 @@ LizyML/
       beta_calibration.py
 
     core/
-      model.py               # Facade（組み立てと Artifact load）
+      model.py               # Facade 本体（fit/predict/evaluate/tune + 組み立て）
+      _model_plots.py        # ModelPlotsMixin（plot 系メソッド委譲）
+      _model_tables.py       # ModelTablesMixin（table/accessor 系メソッド委譲）
+      _model_persistence.py  # ModelPersistenceMixin（export/load 委譲）
       types.py               # 型の再export / 集約点（薄く保つ）
       registries.py
       exceptions.py
@@ -1035,4 +1046,6 @@ loaded_model.probability_histogram_plot()
 ## 実装メモ
 
 - `core/model.py` は組み立て専用とし、ロジックを持たせない。
+- `Model` クラスは mixin で構成する（H-0042）。plot 系は `_model_plots.py`、table/accessor 系は `_model_tables.py`、persistence 系は `_model_persistence.py` に分割し、`model.py` には core lifecycle（`__init__`, `fit`, `predict`, `evaluate`, `tune`）とプライベートヘルパーのみを残す。
+- mixin は `_` プレフィックスの非公開モジュールとし、`Model` の import パス（`lizyml.core.model.Model`）は変更しない。
 - 依存関係の切り離しが必要な箇所では Lazy Import を許容する。

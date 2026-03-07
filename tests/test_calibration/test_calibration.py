@@ -14,7 +14,6 @@ Covers:
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from lizyml import Model
@@ -24,19 +23,7 @@ from lizyml.calibration.isotonic import IsotonicCalibrator
 from lizyml.calibration.platt import PlattCalibrator
 from lizyml.calibration.registry import get_calibrator
 from lizyml.core.exceptions import ErrorCode, LizyMLError
-
-# ---------------------------------------------------------------------------
-# Synthetic binary dataset
-# ---------------------------------------------------------------------------
-
-
-def _bin_df(n: int = 200, seed: int = 1) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {"feat_a": rng.uniform(0, 10, n), "feat_b": rng.uniform(-1, 1, n)}
-    )
-    df["target"] = (df["feat_a"] > 5).astype(int)
-    return df
+from tests._helpers import make_binary_df, make_config
 
 
 def _oof_scores(n: int = 200, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
@@ -47,32 +34,6 @@ def _oof_scores(n: int = 200, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
     scores = y.astype(float) + rng.normal(0, 0.3, n)
     scores = np.clip(scores, 0.01, 0.99)
     return scores, y.astype(float)
-
-
-def _bin_config(with_calibration: bool = False, method: str = "platt") -> dict:
-    cfg: dict = {
-        "config_version": 1,
-        "task": "binary",
-        "data": {"target": "target"},
-        "split": {"method": "kfold", "n_splits": 3, "random_state": 42},
-        "model": {"name": "lgbm", "params": {"n_estimators": 20}},
-        "training": {"seed": 0},
-    }
-    if with_calibration:
-        cfg["calibration"] = {"method": method, "n_splits": 3}
-    return cfg
-
-
-def _reg_config() -> dict:
-    return {
-        "config_version": 1,
-        "task": "regression",
-        "data": {"target": "target"},
-        "split": {"method": "kfold", "n_splits": 3, "random_state": 42},
-        "model": {"name": "lgbm", "params": {"n_estimators": 10}},
-        "training": {"seed": 0},
-        "calibration": {"method": "platt", "n_splits": 3},
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -219,15 +180,15 @@ class TestCrossFitCalibrate:
 
 class TestModelCalibration:
     def test_fit_with_platt_stores_calibration_result(self) -> None:
-        df = _bin_df()
-        m = Model(_bin_config(with_calibration=True, method="platt"))
+        df = make_binary_df()
+        m = Model(make_config("binary", calibration="platt", n_estimators=20))
         result = m.fit(data=df)
         assert result.calibrator is not None
         assert isinstance(result.calibrator, CalibrationResult)
 
     def test_fit_calibrated_metrics_in_result(self) -> None:
-        df = _bin_df()
-        m = Model(_bin_config(with_calibration=True))
+        df = make_binary_df()
+        m = Model(make_config("binary", calibration="platt", n_estimators=20))
         result = m.fit(data=df)
         assert "calibrated" in result.metrics
         assert "oof" in result.metrics["calibrated"]
@@ -235,29 +196,24 @@ class TestModelCalibration:
         assert "logloss" in cal_oof_metrics
 
     def test_fit_isotonic_works(self) -> None:
-        df = _bin_df()
-        m = Model(_bin_config(with_calibration=True, method="isotonic"))
+        df = make_binary_df()
+        m = Model(make_config("binary", calibration="isotonic", n_estimators=20))
         result = m.fit(data=df)
         assert isinstance(result.calibrator, CalibrationResult)
         assert result.calibrator.method == "isotonic"
 
     def test_calibration_on_regression_raises(self) -> None:
-        rng = np.random.default_rng(0)
-        df = pd.DataFrame(
-            {
-                "feat_a": rng.uniform(0, 10, 100),
-                "feat_b": rng.uniform(-1, 1, 100),
-                "target": rng.uniform(0, 10, 100),
-            }
-        )
-        m = Model(_reg_config())
+        from tests._helpers import make_regression_df
+
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression", calibration="platt"))
         with pytest.raises(LizyMLError) as exc_info:
             m.fit(data=df)
         assert exc_info.value.code == ErrorCode.CALIBRATION_NOT_SUPPORTED
 
     def test_predict_with_calibration_applies_c_final(self) -> None:
-        df = _bin_df()
-        m = Model(_bin_config(with_calibration=True))
+        df = make_binary_df()
+        m = Model(make_config("binary", calibration="platt", n_estimators=20))
         m.fit(data=df)
         X_new = df.drop(columns=["target"]).iloc[:10].reset_index(drop=True)
         pred_result = m.predict(X_new)
@@ -266,8 +222,8 @@ class TestModelCalibration:
         assert np.all(pred_result.proba >= 0.0) and np.all(pred_result.proba <= 1.0)
 
     def test_predict_without_calibration_still_works(self) -> None:
-        df = _bin_df()
-        m = Model(_bin_config(with_calibration=False))
+        df = make_binary_df()
+        m = Model(make_config("binary", n_estimators=20))
         m.fit(data=df)
         X_new = df.drop(columns=["target"]).iloc[:5].reset_index(drop=True)
         pred_result = m.predict(X_new)
@@ -283,8 +239,8 @@ class TestModelCalibration:
 class TestCalibrationContract:
     def test_calibration_splits_saved_in_fit_result(self) -> None:
         """splits.calibration must be populated when calibration is enabled."""
-        df = _bin_df()
-        m = Model(_bin_config(with_calibration=True, method="platt"))
+        df = make_binary_df()
+        m = Model(make_config("binary", calibration="platt", n_estimators=20))
         result = m.fit(data=df)
         assert result.splits.calibration is not None
         # Each element is a (train_idx, valid_idx) tuple
@@ -296,8 +252,8 @@ class TestCalibrationContract:
 
     def test_calibration_splits_none_without_calibration(self) -> None:
         """splits.calibration must be None when calibration is disabled."""
-        df = _bin_df()
-        m = Model(_bin_config(with_calibration=False))
+        df = make_binary_df()
+        m = Model(make_config("binary", n_estimators=20))
         result = m.fit(data=df)
         assert result.splits.calibration is None
 
@@ -310,8 +266,8 @@ class TestCalibrationContract:
         predictions would require applying c_final which is trained on all data
         and therefore unsuitable for in-fold evaluation.
         """
-        df = _bin_df()
-        m = Model(_bin_config(with_calibration=True))
+        df = make_binary_df()
+        m = Model(make_config("binary", calibration="platt", n_estimators=20))
         result = m.fit(data=df)
         cal = result.metrics["calibrated"]
         raw = result.metrics["raw"]
@@ -326,8 +282,8 @@ class TestCalibrationContract:
         """Using method='beta' in Model config should now work."""
         from lizyml.calibration.cross_fit import CalibrationResult
 
-        df = _bin_df()
-        m = Model(_bin_config(with_calibration=True, method="beta"))
+        df = make_binary_df()
+        m = Model(make_config("binary", calibration="beta", n_estimators=20))
         fr = m.fit(data=df)
         assert isinstance(fr.calibrator, CalibrationResult)
         assert fr.calibrator.method == "beta"
