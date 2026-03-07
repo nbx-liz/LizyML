@@ -1038,7 +1038,6 @@ wheels = [
 
 [[package]]
 name = "lizyml"
-version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "joblib" },
@@ -1103,7 +1102,7 @@ requires-dist = [
     { name = "scipy", marker = "extra == 'calibration'", specifier = ">=1.10" },
     { name = "shap", marker = "extra == 'explain'", specifier = ">=0.44" },
 ]
-provides-extras = ["tuning", "explain", "plots", "calibration"]
+provides-extras = ["calibration", "explain", "plots", "tuning"]
 
 [package.metadata.requires-dev]
 dev = [
