@@ -13,7 +13,6 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from lizyml import Model
@@ -21,10 +20,7 @@ from lizyml.calibration.beta import BetaCalibrator
 from lizyml.calibration.cross_fit import CalibrationResult, cross_fit_calibrate
 from lizyml.calibration.registry import get_calibrator
 from lizyml.core.exceptions import ErrorCode, LizyMLError
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
+from tests._helpers import make_binary_df, make_config
 
 
 def _oof_logits(n: int = 300, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
@@ -33,27 +29,6 @@ def _oof_logits(n: int = 300, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
     y = rng.integers(0, 2, n).astype(float)
     logits = y * 2.0 - 1.0 + rng.normal(0, 0.5, n)
     return logits, y
-
-
-def _bin_df(n: int = 200, seed: int = 1) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {"feat_a": rng.uniform(0, 10, n), "feat_b": rng.uniform(-1, 1, n)}
-    )
-    df["target"] = (df["feat_a"] > 5).astype(int)
-    return df
-
-
-def _bin_config(method: str = "beta") -> dict:
-    return {
-        "config_version": 1,
-        "task": "binary",
-        "data": {"target": "target"},
-        "split": {"method": "kfold", "n_splits": 3, "random_state": 42},
-        "model": {"name": "lgbm", "params": {"n_estimators": 20}},
-        "training": {"seed": 0},
-        "calibration": {"method": method, "n_splits": 3},
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -127,8 +102,9 @@ class TestBetaCrossFit:
 
 class TestBetaE2E:
     def test_model_fit_with_beta_calibration(self) -> None:
-        df = _bin_df()
-        model = Model(_bin_config("beta"), data=df)
+        df = make_binary_df()
+        cfg = make_config("binary", calibration="beta", n_estimators=20)
+        model = Model(cfg, data=df)
         fr = model.fit()
 
         assert isinstance(fr.calibrator, CalibrationResult)

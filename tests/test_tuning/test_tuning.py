@@ -14,8 +14,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import numpy as np
-import pandas as pd
 import pytest
 
 from lizyml import Model
@@ -28,55 +26,26 @@ from lizyml.tuning.search_space import (
     parse_space,
     suggest_params,
 )
-
-# ---------------------------------------------------------------------------
-# Synthetic datasets
-# ---------------------------------------------------------------------------
-
-
-def _reg_df(n: int = 100, seed: int = 0) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {"feat_a": rng.uniform(0, 10, n), "feat_b": rng.uniform(-1, 1, n)}
-    )
-    df["target"] = df["feat_a"] * 2.0 + df["feat_b"]
-    return df
-
-
-def _reg_config_no_tuning() -> dict:
-    return {
-        "config_version": 1,
-        "task": "regression",
-        "data": {"target": "target"},
-        "split": {"method": "kfold", "n_splits": 3, "random_state": 42},
-        "model": {"name": "lgbm", "params": {"n_estimators": 10}},
-        "training": {"seed": 0},
-    }
+from tests._helpers import make_config, make_regression_df
 
 
 def _reg_config_with_tuning(n_trials: int = 3) -> dict:
-    return {
-        "config_version": 1,
-        "task": "regression",
-        "data": {"target": "target"},
-        "split": {"method": "kfold", "n_splits": 3, "random_state": 42},
-        "model": {"name": "lgbm", "params": {"n_estimators": 10}},
-        "training": {"seed": 0},
-        "tuning": {
-            "optuna": {
-                "params": {"n_trials": n_trials, "direction": "minimize"},
-                "space": {
-                    "num_leaves": {"type": "int", "low": 8, "high": 32},
-                    "learning_rate": {
-                        "type": "float",
-                        "low": 0.01,
-                        "high": 0.3,
-                        "log": True,
-                    },
+    cfg = make_config("regression")
+    cfg["tuning"] = {
+        "optuna": {
+            "params": {"n_trials": n_trials, "direction": "minimize"},
+            "space": {
+                "num_leaves": {"type": "int", "low": 8, "high": 32},
+                "learning_rate": {
+                    "type": "float",
+                    "low": 0.01,
+                    "high": 0.3,
+                    "log": True,
                 },
-            }
-        },
+            },
+        }
     }
+    return cfg
 
 
 # ---------------------------------------------------------------------------
@@ -172,14 +141,14 @@ class TestSuggestParams:
 
 class TestModelTune:
     def test_tune_without_tuning_config_raises(self) -> None:
-        m = Model(_reg_config_no_tuning())
+        m = Model(make_config("regression"))
         with pytest.raises(LizyMLError) as exc_info:
-            m.tune(data=_reg_df())
+            m.tune(data=make_regression_df(n=100))
         assert exc_info.value.code == ErrorCode.CONFIG_INVALID
 
     def test_tune_returns_tuning_result(self) -> None:
         m = Model(_reg_config_with_tuning(n_trials=3))
-        result = m.tune(data=_reg_df())
+        result = m.tune(data=make_regression_df(n=100))
         assert isinstance(result, TuningResult)
         assert "num_leaves" in result.best_params
         assert "learning_rate" in result.best_params
@@ -188,7 +157,7 @@ class TestModelTune:
 
     def test_tune_then_fit_uses_best_params(self) -> None:
         """After tune(), fit() should succeed and use the stored best_params."""
-        df = _reg_df()
+        df = make_regression_df(n=100)
         m = Model(_reg_config_with_tuning(n_trials=2))
         tuning_result = m.tune(data=df)
         # fit() should pick up _best_params automatically
@@ -202,7 +171,7 @@ class TestModelTune:
     def test_tune_stores_best_params_internally(self) -> None:
         m = Model(_reg_config_with_tuning(n_trials=2))
         assert m._best_params is None
-        m.tune(data=_reg_df())
+        m.tune(data=make_regression_df(n=100))
         assert m._best_params is not None
 
     def test_tune_with_no_data_raises(self) -> None:
@@ -214,7 +183,7 @@ class TestModelTune:
     def test_tuning_failed_propagation(self) -> None:
         """When optuna study raises, TUNING_FAILED is re-raised."""
         m = Model(_reg_config_with_tuning(n_trials=3))
-        df = _reg_df()
+        df = make_regression_df(n=100)
 
         # patch _optuna (the module-level variable) so study.optimize raises
         with patch("lizyml.tuning.tuner._optuna") as mock_optuna:
@@ -232,5 +201,5 @@ class TestModelTune:
         m = Model(_reg_config_with_tuning(n_trials=1))
         with patch("lizyml.tuning.tuner._optuna", None):
             with pytest.raises(LizyMLError) as exc_info:
-                m.tune(data=_reg_df())
+                m.tune(data=make_regression_df(n=100))
             assert exc_info.value.code == ErrorCode.OPTIONAL_DEP_MISSING

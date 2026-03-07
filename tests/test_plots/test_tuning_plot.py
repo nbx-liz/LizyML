@@ -11,8 +11,6 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import numpy as np
-import pandas as pd
 import plotly.graph_objects as go
 import pytest
 
@@ -20,40 +18,21 @@ from lizyml import Model
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.tuning_result import TrialResult, TuningResult
 from lizyml.plots.tuning import plot_tuning_history
-
-
-def _reg_df(n: int = 100, seed: int = 0) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {"feat_a": rng.uniform(0, 10, n), "feat_b": rng.uniform(-1, 1, n)}
-    )
-    df["target"] = df["feat_a"] * 2.0 + df["feat_b"]
-    return df
+from tests._helpers import make_config, make_regression_df
 
 
 def _reg_config_with_tuning() -> dict:
-    return {
-        "config_version": 1,
-        "task": "regression",
-        "data": {"target": "target"},
-        "split": {"method": "kfold", "n_splits": 3, "random_state": 42},
-        "model": {"name": "lgbm", "params": {"n_estimators": 10}},
-        "training": {"seed": 0},
-        "tuning": {
-            "optuna": {
-                "params": {"n_trials": 3, "direction": "minimize"},
-                "space": {
-                    "num_leaves": {"type": "int", "low": 8, "high": 32},
-                },
-            }
-        },
+    cfg = make_config("regression", tuning_n_trials=3)
+    cfg["tuning"]["optuna"]["space"] = {
+        "num_leaves": {"type": "int", "low": 8, "high": 32},
     }
+    return cfg
 
 
 class TestTuningPlotE2E:
     def test_returns_figure_after_tune(self) -> None:
         m = Model(_reg_config_with_tuning())
-        m.tune(data=_reg_df())
+        m.tune(data=make_regression_df(n=100))
         fig = m.tuning_plot()
         assert isinstance(fig, go.Figure)
 
