@@ -13,8 +13,6 @@ from __future__ import annotations
 
 from unittest.mock import patch
 
-import numpy as np
-import pandas as pd
 import plotly.graph_objects as go
 import pytest
 
@@ -24,67 +22,26 @@ from lizyml.core.types.fit_result import FitResult
 from lizyml.plots.importance import plot_importance, plot_importance_from_dict
 from lizyml.plots.learning_curve import plot_learning_curve
 from lizyml.plots.oof_distribution import plot_oof_distribution
+from tests._helpers import (
+    make_binary_df,
+    make_config,
+    make_multiclass_df,
+    make_regression_df,
+)
 
 # ---------------------------------------------------------------------------
-# Synthetic datasets
+# Helpers
 # ---------------------------------------------------------------------------
-
-
-def _reg_df(n: int = 100, seed: int = 0) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {
-            "feat_a": rng.uniform(0, 10, n),
-            "feat_b": rng.uniform(-1, 1, n),
-        }
-    )
-    df["target"] = df["feat_a"] * 2.0 + df["feat_b"] + rng.normal(0, 0.1, n)
-    return df
-
-
-def _bin_df(n: int = 100, seed: int = 1) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {
-            "feat_a": rng.uniform(0, 10, n),
-            "feat_b": rng.uniform(-1, 1, n),
-        }
-    )
-    df["target"] = (df["feat_a"] > 5).astype(int)
-    return df
-
-
-def _multi_df(n: int = 150, seed: int = 2) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {
-            "feat_a": rng.uniform(0, 10, n),
-            "feat_b": rng.uniform(-1, 1, n),
-        }
-    )
-    df["target"] = pd.cut(df["feat_a"], bins=3, labels=[0, 1, 2]).astype(int)
-    return df
-
-
-def _base_cfg(task: str) -> dict:
-    return {
-        "config_version": 1,
-        "task": task,
-        "data": {"target": "target"},
-        "split": {"method": "kfold", "n_splits": 3, "random_state": 42},
-        "model": {"name": "lgbm", "params": {"n_estimators": 10}},
-        "training": {"seed": 0},
-    }
 
 
 def _fit(task: str) -> FitResult:
     if task == "regression":
-        df = _reg_df()
+        df = make_regression_df(n=100)
     elif task == "binary":
-        df = _bin_df()
+        df = make_binary_df(n=100)
     else:
-        df = _multi_df()
-    m = Model(_base_cfg(task))
+        df = make_multiclass_df(n=150)
+    m = Model(make_config(task))
     return m.fit(data=df)
 
 
@@ -110,8 +67,8 @@ class TestImportancePlot:
         assert fig is not None
 
     def test_via_model(self) -> None:
-        df = _reg_df()
-        m = Model(_base_cfg("regression"))
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
         fig = m.importance_plot()
         assert isinstance(fig, go.Figure)
@@ -227,8 +184,8 @@ class TestOofDistributionPlot:
         assert isinstance(fig, go.Figure)
 
     def test_via_model(self) -> None:
-        df = _reg_df()
-        m = Model(_base_cfg("regression"))
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
         fig = m.plot_oof_distribution()
         assert isinstance(fig, go.Figure)
@@ -250,19 +207,19 @@ class TestOofDistributionPlot:
 
 class TestModelPlotMethods:
     def test_plot_learning_curve_before_fit_raises(self) -> None:
-        m = Model(_base_cfg("regression"))
+        m = Model(make_config("regression"))
         with pytest.raises(LizyMLError) as exc_info:
             m.plot_learning_curve()
         assert exc_info.value.code == ErrorCode.MODEL_NOT_FIT
 
     def test_importance_plot_before_fit_raises(self) -> None:
-        m = Model(_base_cfg("regression"))
+        m = Model(make_config("regression"))
         with pytest.raises(LizyMLError) as exc_info:
             m.importance_plot()
         assert exc_info.value.code == ErrorCode.MODEL_NOT_FIT
 
     def test_plot_oof_distribution_before_fit_raises(self) -> None:
-        m = Model(_base_cfg("regression"))
+        m = Model(make_config("regression"))
         with pytest.raises(LizyMLError) as exc_info:
             m.plot_oof_distribution()
         assert exc_info.value.code == ErrorCode.MODEL_NOT_FIT

@@ -23,54 +23,7 @@ import pytest
 from lizyml import Model
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.persistence.exporter import FORMAT_VERSION
-
-# ---------------------------------------------------------------------------
-# Synthetic datasets
-# ---------------------------------------------------------------------------
-
-
-def _reg_df(n: int = 100, seed: int = 0) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {"feat_a": rng.uniform(0, 10, n), "feat_b": rng.uniform(-1, 1, n)}
-    )
-    df["target"] = df["feat_a"] * 2.0 + df["feat_b"]
-    return df
-
-
-def _bin_df(n: int = 100, seed: int = 1) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {"feat_a": rng.uniform(0, 10, n), "feat_b": rng.uniform(-1, 1, n)}
-    )
-    df["target"] = (df["feat_a"] > 5).astype(int)
-    return df
-
-
-def _reg_config() -> dict:
-    return {
-        "config_version": 1,
-        "task": "regression",
-        "data": {"target": "target"},
-        "split": {"method": "kfold", "n_splits": 3, "random_state": 42},
-        "model": {"name": "lgbm", "params": {"n_estimators": 10}},
-        "training": {"seed": 0},
-    }
-
-
-def _bin_config(with_calibration: bool = False) -> dict:
-    cfg: dict = {
-        "config_version": 1,
-        "task": "binary",
-        "data": {"target": "target"},
-        "split": {"method": "kfold", "n_splits": 3, "random_state": 42},
-        "model": {"name": "lgbm", "params": {"n_estimators": 10}},
-        "training": {"seed": 0},
-    }
-    if with_calibration:
-        cfg["calibration"] = {"method": "platt", "n_splits": 3}
-    return cfg
-
+from tests._helpers import make_binary_df, make_config, make_regression_df
 
 # ---------------------------------------------------------------------------
 # Export tests
@@ -79,16 +32,16 @@ def _bin_config(with_calibration: bool = False) -> dict:
 
 class TestExport:
     def test_export_creates_directory(self, tmp_path: Path) -> None:
-        df = _reg_df()
-        m = Model(_reg_config())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
         out = tmp_path / "model_out"
         m.export(out)
         assert out.is_dir()
 
     def test_export_creates_required_files(self, tmp_path: Path) -> None:
-        df = _reg_df()
-        m = Model(_reg_config())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
         out = tmp_path / "model_out"
         m.export(out)
@@ -97,8 +50,8 @@ class TestExport:
         assert (out / "refit_model.pkl").exists()
 
     def test_metadata_has_required_fields(self, tmp_path: Path) -> None:
-        df = _reg_df()
-        m = Model(_reg_config())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
         out = tmp_path / "model_out"
         m.export(out)
@@ -111,7 +64,7 @@ class TestExport:
         assert "metrics" in meta
 
     def test_export_before_fit_raises(self, tmp_path: Path) -> None:
-        m = Model(_reg_config())
+        m = Model(make_config("regression"))
         with pytest.raises(LizyMLError) as exc_info:
             m.export(tmp_path / "out")
         assert exc_info.value.code == ErrorCode.MODEL_NOT_FIT
@@ -124,8 +77,8 @@ class TestExport:
 
 class TestLoad:
     def test_load_regression_e2e(self, tmp_path: Path) -> None:
-        df = _reg_df()
-        m = Model(_reg_config())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
         out = tmp_path / "model_reg"
         m.export(out)
@@ -137,8 +90,8 @@ class TestLoad:
         np.testing.assert_array_almost_equal(pred1.pred, pred2.pred)
 
     def test_load_binary_e2e(self, tmp_path: Path) -> None:
-        df = _bin_df()
-        m = Model(_bin_config())
+        df = make_binary_df(n=100)
+        m = Model(make_config("binary"))
         m.fit(data=df)
         out = tmp_path / "model_bin"
         m.export(out)
@@ -151,8 +104,8 @@ class TestLoad:
         assert pred2.proba is not None
 
     def test_load_evaluate_works(self, tmp_path: Path) -> None:
-        df = _reg_df()
-        m = Model(_reg_config())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
         out = tmp_path / "model_eval"
         m.export(out)
@@ -162,8 +115,8 @@ class TestLoad:
         assert "raw" in metrics
 
     def test_load_importance_works(self, tmp_path: Path) -> None:
-        df = _reg_df()
-        m = Model(_reg_config())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
         out = tmp_path / "model_imp"
         m.export(out)
@@ -178,8 +131,8 @@ class TestLoad:
         assert exc_info.value.code == ErrorCode.DESERIALIZATION_FAILED
 
     def test_load_unknown_format_version_raises(self, tmp_path: Path) -> None:
-        df = _reg_df()
-        m = Model(_reg_config())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
         out = tmp_path / "model_fv"
         m.export(out)
@@ -195,8 +148,8 @@ class TestLoad:
         assert exc_info.value.code == ErrorCode.DESERIALIZATION_FAILED
 
     def test_load_missing_metadata_field_raises(self, tmp_path: Path) -> None:
-        df = _reg_df()
-        m = Model(_reg_config())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
         out = tmp_path / "model_missing"
         m.export(out)
@@ -212,8 +165,8 @@ class TestLoad:
         assert exc_info.value.code == ErrorCode.DESERIALIZATION_FAILED
 
     def test_load_missing_pkl_raises(self, tmp_path: Path) -> None:
-        df = _reg_df()
-        m = Model(_reg_config())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
         out = tmp_path / "model_nopkl"
         m.export(out)
@@ -235,8 +188,8 @@ class TestLoad:
 
     def test_export_load_preserves_calibrator(self, tmp_path: Path) -> None:
         """Calibrator must survive export → load round-trip."""
-        df = _bin_df()
-        m = Model(_bin_config(with_calibration=True))
+        df = make_binary_df(n=100)
+        m = Model(make_config("binary", calibration="platt"))
         m.fit(data=df)
         assert m._fit_result is not None
         # sanity: calibrator set before export
@@ -263,8 +216,8 @@ class TestLoad:
 class TestPersistenceContract:
     def test_metadata_json_has_all_required_fields(self, tmp_path: Path) -> None:
         """metadata.json must contain every contractual field."""
-        df = _reg_df()
-        m = Model(_reg_config())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
         out = tmp_path / "meta_contract"
         m.export(out)
@@ -285,8 +238,8 @@ class TestPersistenceContract:
         assert missing == set(), f"metadata.json missing fields: {missing}"
 
     def test_metadata_format_version_is_integer(self, tmp_path: Path) -> None:
-        df = _reg_df()
-        m = Model(_reg_config())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
         out = tmp_path / "fv_type"
         m.export(out)
@@ -295,8 +248,8 @@ class TestPersistenceContract:
 
     def test_metadata_config_is_dict(self, tmp_path: Path) -> None:
         """'config' field must be a non-empty dict (normalized config)."""
-        df = _reg_df()
-        m = Model(_reg_config())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
         out = tmp_path / "cfg_dict"
         m.export(out)
@@ -307,8 +260,8 @@ class TestPersistenceContract:
     def test_fit_result_splits_preserved_after_load(self, tmp_path: Path) -> None:
         """FitResult.splits.outer must survive export → load with correct fold count."""
         n_splits = 3
-        df = _reg_df()
-        m = Model(_reg_config())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
         out = tmp_path / "splits_contract"
         m.export(out)
@@ -319,8 +272,8 @@ class TestPersistenceContract:
 
     def test_fit_result_data_fingerprint_preserved(self, tmp_path: Path) -> None:
         """data_fingerprint must survive export → load (row_count preserved)."""
-        df = _reg_df()
-        m = Model(_reg_config())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
         original_fp = m._fit_result.data_fingerprint  # type: ignore[union-attr]
         out = tmp_path / "fp_contract"
@@ -334,8 +287,8 @@ class TestPersistenceContract:
 
     def test_fit_result_run_meta_preserved(self, tmp_path: Path) -> None:
         """run_meta.lizyml_version must survive export → load."""
-        df = _reg_df()
-        m = Model(_reg_config())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
         out = tmp_path / "run_meta_contract"
         m.export(out)
@@ -348,9 +301,9 @@ class TestPersistenceContract:
     def test_predict_after_load_produces_same_result(self, tmp_path: Path) -> None:
         """Pipeline state must be preserved: predict() output identical before and after
         load."""
-        df = _reg_df()
+        df = make_regression_df(n=100)
         X_new = df.drop(columns=["target"]).iloc[:5].reset_index(drop=True)
-        m = Model(_reg_config())
+        m = Model(make_config("regression"))
         m.fit(data=df)
         pred_before = m.predict(X_new)
         out = tmp_path / "pipeline_contract"
@@ -370,16 +323,16 @@ class TestDiagnosticAPIsAfterLoad:
     """Verify diagnostic APIs work after export → load cycle."""
 
     def test_export_creates_analysis_context(self, tmp_path: Path) -> None:
-        df = _reg_df()
-        m = Model(_reg_config())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
         out = tmp_path / "ctx_export"
         m.export(out)
         assert (out / "analysis_context.pkl").exists()
 
     def test_residuals_after_load(self, tmp_path: Path) -> None:
-        df = _reg_df()
-        m = Model(_reg_config())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
         res_before = m.residuals()
         out = tmp_path / "res_load"
@@ -390,8 +343,8 @@ class TestDiagnosticAPIsAfterLoad:
         np.testing.assert_array_almost_equal(res_before, res_after)
 
     def test_confusion_matrix_after_load(self, tmp_path: Path) -> None:
-        df = _bin_df()
-        m = Model(_bin_config())
+        df = make_binary_df(n=100)
+        m = Model(make_config("binary"))
         m.fit(data=df)
         cm_before = m.confusion_matrix()
         out = tmp_path / "cm_load"
@@ -403,8 +356,8 @@ class TestDiagnosticAPIsAfterLoad:
 
     def test_roc_curve_plot_after_load(self, tmp_path: Path) -> None:
         pytest.importorskip("plotly")
-        df = _bin_df()
-        m = Model(_bin_config())
+        df = make_binary_df(n=100)
+        m = Model(make_config("binary"))
         m.fit(data=df)
         out = tmp_path / "roc_load"
         m.export(out)
@@ -415,8 +368,8 @@ class TestDiagnosticAPIsAfterLoad:
 
     def test_importance_shap_after_load(self, tmp_path: Path) -> None:
         pytest.importorskip("shap")
-        df = _reg_df()
-        m = Model(_reg_config())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
         out = tmp_path / "shap_load"
         m.export(out)
@@ -427,8 +380,8 @@ class TestDiagnosticAPIsAfterLoad:
 
     def test_calibration_plot_after_load(self, tmp_path: Path) -> None:
         pytest.importorskip("plotly")
-        df = _bin_df()
-        m = Model(_bin_config(with_calibration=True))
+        df = make_binary_df(n=100)
+        m = Model(make_config("binary", calibration="platt"))
         m.fit(data=df)
         out = tmp_path / "cal_load"
         m.export(out)
@@ -439,8 +392,8 @@ class TestDiagnosticAPIsAfterLoad:
 
     def test_probability_histogram_after_load(self, tmp_path: Path) -> None:
         pytest.importorskip("plotly")
-        df = _bin_df()
-        m = Model(_bin_config(with_calibration=True))
+        df = make_binary_df(n=100)
+        m = Model(make_config("binary", calibration="platt"))
         m.fit(data=df)
         out = tmp_path / "proba_hist_load"
         m.export(out)
@@ -463,8 +416,8 @@ class TestLegacyArtifactCompat:
         return Model.load(out)
 
     def test_load_without_context_succeeds(self, tmp_path: Path) -> None:
-        df = _reg_df()
-        m = Model(_reg_config())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
         out = tmp_path / "legacy"
         m2 = self._export_as_legacy(m, out)
@@ -476,8 +429,8 @@ class TestLegacyArtifactCompat:
     def test_predict_and_evaluate_still_work_without_context(
         self, tmp_path: Path
     ) -> None:
-        reg_df = _reg_df()
-        reg_model = Model(_reg_config())
+        reg_df = make_regression_df(n=100)
+        reg_model = Model(make_config("regression"))
         reg_model.fit(data=reg_df)
         legacy_reg = self._export_as_legacy(reg_model, tmp_path / "legacy_reg")
 
@@ -487,8 +440,8 @@ class TestLegacyArtifactCompat:
         assert reg_pred.pred is not None
         assert "raw" in reg_eval
 
-        bin_df = _bin_df()
-        bin_model = Model(_bin_config(with_calibration=True))
+        bin_df = make_binary_df(n=100)
+        bin_model = Model(make_config("binary", calibration="platt"))
         bin_model.fit(data=bin_df)
         legacy_bin = self._export_as_legacy(bin_model, tmp_path / "legacy_bin")
 
@@ -502,13 +455,13 @@ class TestLegacyArtifactCompat:
     def test_all_diagnostic_apis_raise_model_not_fit_for_legacy_artifact(
         self, tmp_path: Path
     ) -> None:
-        reg_df = _reg_df()
-        reg_model = Model(_reg_config())
+        reg_df = make_regression_df(n=100)
+        reg_model = Model(make_config("regression"))
         reg_model.fit(data=reg_df)
         legacy_reg = self._export_as_legacy(reg_model, tmp_path / "legacy_reg_diag")
 
-        bin_df = _bin_df()
-        bin_model = Model(_bin_config(with_calibration=True))
+        bin_df = make_binary_df(n=100)
+        bin_model = Model(make_config("binary", calibration="platt"))
         bin_model.fit(data=bin_df)
         legacy_bin = self._export_as_legacy(bin_model, tmp_path / "legacy_bin_diag")
 

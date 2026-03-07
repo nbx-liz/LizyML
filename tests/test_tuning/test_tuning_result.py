@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 import pytest
 
 from lizyml import Model
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.tuning_result import TrialResult, TuningResult
+from tests._helpers import make_config, make_regression_df
 
 # ---------------------------------------------------------------------------
 # Unit tests — TuningResult / TrialResult dataclasses
@@ -63,38 +63,23 @@ class TestTuningResultDataclass:
 # ---------------------------------------------------------------------------
 
 
-def _reg_df(n: int = 100, seed: int = 0) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {"feat_a": rng.uniform(0, 10, n), "feat_b": rng.uniform(-1, 1, n)}
-    )
-    df["target"] = df["feat_a"] * 2.0 + df["feat_b"]
-    return df
-
-
 def _reg_config_with_tuning(n_trials: int = 3) -> dict:
-    return {
-        "config_version": 1,
-        "task": "regression",
-        "data": {"target": "target"},
-        "split": {"method": "kfold", "n_splits": 3, "random_state": 42},
-        "model": {"name": "lgbm", "params": {"n_estimators": 10}},
-        "training": {"seed": 0},
-        "tuning": {
-            "optuna": {
-                "params": {"n_trials": n_trials, "direction": "minimize"},
-                "space": {
-                    "num_leaves": {"type": "int", "low": 8, "high": 32},
-                    "learning_rate": {
-                        "type": "float",
-                        "low": 0.01,
-                        "high": 0.3,
-                        "log": True,
-                    },
+    cfg = make_config("regression")
+    cfg["tuning"] = {
+        "optuna": {
+            "params": {"n_trials": n_trials, "direction": "minimize"},
+            "space": {
+                "num_leaves": {"type": "int", "low": 8, "high": 32},
+                "learning_rate": {
+                    "type": "float",
+                    "low": 0.01,
+                    "high": 0.3,
+                    "log": True,
                 },
-            }
-        },
+            },
+        }
     }
+    return cfg
 
 
 class TestTuningTable:
@@ -106,7 +91,7 @@ class TestTuningTable:
 
     def test_tuning_table_columns(self) -> None:
         m = Model(_reg_config_with_tuning(n_trials=3))
-        m.tune(data=_reg_df())
+        m.tune(data=make_regression_df(n=100))
         table = m.tuning_table()
         assert isinstance(table, pd.DataFrame)
         assert len(table) == 3
@@ -119,6 +104,6 @@ class TestTuningTable:
 
     def test_tuning_table_trial_numbers(self) -> None:
         m = Model(_reg_config_with_tuning(n_trials=2))
-        m.tune(data=_reg_df())
+        m.tune(data=make_regression_df(n=100))
         table = m.tuning_table()
         assert list(table["trial"]) == [0, 1]
