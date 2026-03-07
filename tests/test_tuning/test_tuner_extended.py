@@ -2,20 +2,9 @@
 
 from __future__ import annotations
 
-import numpy as np
-import pandas as pd
-
 from lizyml import Model
 from lizyml.core.types.tuning_result import TuningResult
-
-
-def _reg_df(n: int = 100, seed: int = 0) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {"feat_a": rng.uniform(0, 10, n), "feat_b": rng.uniform(-1, 1, n)}
-    )
-    df["target"] = df["feat_a"] * 2.0 + df["feat_b"]
-    return df
+from tests._helpers import make_regression_df
 
 
 class TestSmartParamsPerTrial:
@@ -36,7 +25,7 @@ class TestSmartParamsPerTrial:
             },
         }
         m = Model(config)
-        result = m.tune(data=_reg_df())
+        result = m.tune(data=make_regression_df(n=100))
         assert isinstance(result, TuningResult)
         # num_leaves_ratio should be in best_params (sampled by optuna)
         assert "num_leaves_ratio" in result.best_params
@@ -62,7 +51,7 @@ class TestTrainingParamsPerTrial:
             },
         }
         m = Model(config)
-        result = m.tune(data=_reg_df())
+        result = m.tune(data=make_regression_df(n=100))
         assert isinstance(result, TuningResult)
         assert "early_stopping_rounds" in result.best_params
 
@@ -83,7 +72,7 @@ class TestTrainingParamsPerTrial:
             },
         }
         m = Model(config)
-        result = m.tune(data=_reg_df())
+        result = m.tune(data=make_regression_df(n=100))
         assert isinstance(result, TuningResult)
         assert "validation_ratio" in result.best_params
 
@@ -108,7 +97,7 @@ class TestBackwardCompat:
             },
         }
         m = Model(config)
-        result = m.tune(data=_reg_df())
+        result = m.tune(data=make_regression_df(n=100))
         assert isinstance(result, TuningResult)
         assert "num_leaves" in result.best_params
         # No smart/training params in user-specified space
@@ -134,7 +123,7 @@ class TestFixedParams:
             },
         }
         m = Model(config)
-        result = m.tune(data=_reg_df())
+        result = m.tune(data=make_regression_df(n=100))
         assert isinstance(result, TuningResult)
         # Fixed params are not in best_params (they are not search dims)
         assert "first_metric_only" not in result.best_params

@@ -9,37 +9,11 @@ Verifies:
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 
 from lizyml import Model
 from lizyml.calibration.cross_fit import CalibrationResult, cross_fit_calibrate
 from lizyml.calibration.platt import PlattCalibrator
-
-
-def _bin_df(n: int = 200, seed: int = 1) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {
-            "feat_a": rng.uniform(0, 10, n),
-            "feat_b": rng.uniform(-1, 1, n),
-        }
-    )
-    df["target"] = (df["feat_a"] > 5).astype(int)
-    return df
-
-
-def _bin_cfg(calibration: bool = False) -> dict:
-    cfg: dict = {
-        "config_version": 1,
-        "task": "binary",
-        "data": {"target": "target"},
-        "split": {"method": "kfold", "n_splits": 3, "random_state": 42},
-        "model": {"name": "lgbm", "params": {"n_estimators": 20}},
-        "training": {"seed": 0},
-    }
-    if calibration:
-        cfg["calibration"] = {"method": "platt", "n_splits": 3}
-    return cfg
+from tests._helpers import make_binary_df, make_config
 
 
 class TestOofLeakage:
@@ -49,8 +23,8 @@ class TestOofLeakage:
         If there were leakage (i.e., OOF preds were computed on training data),
         OOF scores would match IF scores closely. We verify they differ.
         """
-        df = _bin_df()
-        m = Model(_bin_cfg())
+        df = make_binary_df()
+        m = Model(make_config("binary", n_estimators=20))
         result = m.fit(data=df)
 
         # OOF preds are held-out; IF preds are on training folds
@@ -62,13 +36,13 @@ class TestOofLeakage:
             )
 
     def test_oof_no_nans(self) -> None:
-        df = _bin_df()
-        result = Model(_bin_cfg()).fit(data=df)
+        df = make_binary_df()
+        result = Model(make_config("binary", n_estimators=20)).fit(data=df)
         assert not np.any(np.isnan(result.oof_pred))
 
     def test_all_samples_have_oof_pred(self) -> None:
-        df = _bin_df()
-        result = Model(_bin_cfg()).fit(data=df)
+        df = make_binary_df()
+        result = Model(make_config("binary", n_estimators=20)).fit(data=df)
         assert result.oof_pred.shape == (len(df),)
 
 
@@ -112,8 +86,8 @@ class TestCalibrationLeakage:
 
     def test_calibration_integration_no_leakage(self) -> None:
         """End-to-end: calibrated metrics come from cross-fit OOF, not C_final."""
-        df = _bin_df()
-        m = Model(_bin_cfg(calibration=True))
+        df = make_binary_df()
+        m = Model(make_config("binary", n_estimators=20, calibration="platt"))
         result = m.fit(data=df)
         assert result.calibrator is not None
         assert isinstance(result.calibrator, CalibrationResult)
@@ -128,6 +102,6 @@ class TestPipelineLeakage:
         We verify this by checking that pipeline_state in FitResult
         is populated (pipeline was fit at some point during CV).
         """
-        df = _bin_df()
-        result = Model(_bin_cfg()).fit(data=df)
+        df = make_binary_df()
+        result = Model(make_config("binary", n_estimators=20)).fit(data=df)
         assert result.pipeline_state is not None

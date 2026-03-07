@@ -8,46 +8,23 @@ Tuning is skipped here as it is slow; tune E2E is covered separately.
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from lizyml import Model
 from lizyml.core.types.fit_result import FitResult
 from lizyml.core.types.predict_result import PredictionResult
-
-
-def _reg_df(n: int = 200, seed: int = 0) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {
-            "feat_a": rng.uniform(0, 10, n),
-            "feat_b": rng.uniform(-1, 1, n),
-        }
-    )
-    df["target"] = df["feat_a"] * 2.0 + df["feat_b"] + rng.normal(0, 0.1, n)
-    return df
-
-
-def _cfg() -> dict:
-    return {
-        "config_version": 1,
-        "task": "regression",
-        "data": {"target": "target"},
-        "split": {"method": "kfold", "n_splits": 3, "random_state": 42},
-        "model": {"name": "lgbm", "params": {"n_estimators": 20}},
-        "training": {"seed": 0},
-    }
+from tests._helpers import make_config, make_regression_df
 
 
 class TestRegressionFullPipeline:
     def test_fit_returns_fit_result(self) -> None:
-        m = Model(_cfg())
-        result = m.fit(data=_reg_df())
+        m = Model(make_config("regression", n_estimators=20))
+        result = m.fit(data=make_regression_df())
         assert isinstance(result, FitResult)
 
     def test_evaluate_returns_metrics(self) -> None:
-        m = Model(_cfg())
-        m.fit(data=_reg_df())
+        m = Model(make_config("regression", n_estimators=20))
+        m.fit(data=make_regression_df())
         metrics = m.evaluate()
         assert "raw" in metrics
         assert "oof" in metrics["raw"]
@@ -55,8 +32,8 @@ class TestRegressionFullPipeline:
         assert "mae" in metrics["raw"]["oof"]
 
     def test_predict_returns_prediction_result(self) -> None:
-        df = _reg_df()
-        m = Model(_cfg())
+        df = make_regression_df()
+        m = Model(make_config("regression", n_estimators=20))
         m.fit(data=df)
         X_new = df.drop(columns=["target"]).iloc[:10].reset_index(drop=True)
         result = m.predict(X_new)
@@ -70,8 +47,8 @@ class TestRegressionFullPipeline:
         from pathlib import Path
 
         tmp = Path(str(tmp_path))
-        df = _reg_df()
-        m = Model(_cfg())
+        df = make_regression_df()
+        m = Model(make_config("regression", n_estimators=20))
         m.fit(data=df)
         X_new = df.drop(columns=["target"]).iloc[:5].reset_index(drop=True)
 
@@ -86,8 +63,8 @@ class TestRegressionFullPipeline:
         from pathlib import Path
 
         tmp = Path(str(tmp_path))
-        m = Model(_cfg())
-        m.fit(data=_reg_df())
+        m = Model(make_config("regression", n_estimators=20))
+        m.fit(data=make_regression_df())
         original_metrics = m.evaluate()
         m.export(tmp / "reg_model")
 

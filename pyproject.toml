@@ -9,7 +9,7 @@ description = "Config-driven ML analysis library for regression and classificati
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
-authors = [{ name = "LizyML Authors" }]
+authors = [{ name = "nbx" }]
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",
@@ -95,3 +95,4 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["slow: marks tests as slow (notebook execution)"]
+addopts = "-m 'not slow'"

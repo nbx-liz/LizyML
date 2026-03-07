@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import numpy as np
-import pandas as pd
 import pytest
 
 from lizyml import Model
@@ -16,6 +14,7 @@ from lizyml.tuning.search_space import (
     default_space,
     split_by_category,
 )
+from tests._helpers import make_regression_df
 
 # ---------------------------------------------------------------------------
 # Unit tests — default_space()
@@ -170,15 +169,6 @@ class TestSplitByCategory:
 # ---------------------------------------------------------------------------
 
 
-def _reg_df(n: int = 100, seed: int = 0) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {"feat_a": rng.uniform(0, 10, n), "feat_b": rng.uniform(-1, 1, n)}
-    )
-    df["target"] = df["feat_a"] * 2.0 + df["feat_b"]
-    return df
-
-
 class TestDefaultSpaceE2E:
     def test_empty_space_uses_default(self) -> None:
         """When space={}, tune() should use default_space() automatically."""
@@ -197,7 +187,7 @@ class TestDefaultSpaceE2E:
             },
         }
         m = Model(config)
-        result = m.tune(data=_reg_df())
+        result = m.tune(data=make_regression_df(n=100))
         assert isinstance(result, TuningResult)
         # Default space includes learning_rate and smart/training dims
         assert "learning_rate" in result.best_params
@@ -223,7 +213,7 @@ class TestDefaultSpaceE2E:
             },
         }
         m = Model(config)
-        result = m.tune(data=_reg_df())
+        result = m.tune(data=make_regression_df(n=100))
         assert isinstance(result, TuningResult)
         # Only num_leaves should be in best_params (user-specified space)
         assert "num_leaves" in result.best_params

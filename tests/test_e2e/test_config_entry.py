@@ -13,40 +13,12 @@ import json
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 import yaml
 
 from lizyml import Model
 from lizyml.config.loader import load_config
 from lizyml.config.schema import LizyMLConfig
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _reg_df(n: int = 100) -> pd.DataFrame:
-    rng = np.random.default_rng(0)
-    df = pd.DataFrame(
-        {
-            "feat_a": rng.uniform(0, 10, n),
-            "feat_b": rng.uniform(-1, 1, n),
-        }
-    )
-    df["target"] = df["feat_a"] * 2.0 + df["feat_b"]
-    return df
-
-
-def _base_cfg() -> dict:
-    return {
-        "config_version": 1,
-        "task": "regression",
-        "data": {"target": "target"},
-        "split": {"method": "kfold", "n_splits": 3, "random_state": 42},
-        "model": {"name": "lgbm", "params": {"n_estimators": 10}},
-        "training": {"seed": 0},
-    }
-
+from tests._helpers import make_config, make_regression_df
 
 # ---------------------------------------------------------------------------
 # T-7a: JSON file path
@@ -57,9 +29,9 @@ class TestJsonConfigFile:
     def test_model_fit_predict_via_json_path_str(self, tmp_path: Path) -> None:
         """Model(config=str) with JSON file: fit and predict work end-to-end."""
         cfg_path = tmp_path / "config.json"
-        cfg_path.write_text(json.dumps(_base_cfg()), encoding="utf-8")
+        cfg_path.write_text(json.dumps(make_config("regression")), encoding="utf-8")
 
-        df = _reg_df()
+        df = make_regression_df(n=100)
         m = Model(str(cfg_path))
         result = m.fit(data=df)
         assert result.feature_names == ["feat_a", "feat_b"]
@@ -70,13 +42,13 @@ class TestJsonConfigFile:
 
     def test_json_config_normalizes_aliases(self, tmp_path: Path) -> None:
         """Alias normalization (k-fold → kfold) works when loading from JSON."""
-        cfg = _base_cfg()
+        cfg = make_config("regression")
         cfg["split"]["method"] = "k-fold"
         cfg_path = tmp_path / "config_alias.json"
         cfg_path.write_text(json.dumps(cfg), encoding="utf-8")
 
         m = Model(str(cfg_path))
-        result = m.fit(data=_reg_df())
+        result = m.fit(data=make_regression_df(n=100))
         assert len(result.splits.outer) == 3
 
 
@@ -89,9 +61,9 @@ class TestYamlConfigFile:
     def test_model_fit_predict_via_yaml_path(self, tmp_path: Path) -> None:
         """Model(config=Path) with YAML file: fit and predict work end-to-end."""
         cfg_path = tmp_path / "config.yaml"
-        cfg_path.write_text(yaml.safe_dump(_base_cfg()), encoding="utf-8")
+        cfg_path.write_text(yaml.safe_dump(make_config("regression")), encoding="utf-8")
 
-        df = _reg_df()
+        df = make_regression_df(n=100)
         m = Model(cfg_path)
         result = m.fit(data=df)
         assert result.feature_names == ["feat_a", "feat_b"]
@@ -103,10 +75,10 @@ class TestYamlConfigFile:
     def test_yml_extension_works(self, tmp_path: Path) -> None:
         """Files with .yml extension are parsed as YAML."""
         cfg_path = tmp_path / "config.yml"
-        cfg_path.write_text(yaml.safe_dump(_base_cfg()), encoding="utf-8")
+        cfg_path.write_text(yaml.safe_dump(make_config("regression")), encoding="utf-8")
 
         m = Model(cfg_path)
-        result = m.fit(data=_reg_df())
+        result = m.fit(data=make_regression_df(n=100))
         assert isinstance(result.feature_names, list)
 
 
@@ -118,10 +90,10 @@ class TestYamlConfigFile:
 class TestLizyMLConfigInstance:
     def test_model_accepts_lizymlconfig_directly(self) -> None:
         """Model(config=LizyMLConfig) must not re-validate (config passes through)."""
-        cfg_obj = load_config(_base_cfg())
+        cfg_obj = load_config(make_config("regression"))
         assert isinstance(cfg_obj, LizyMLConfig)
 
-        df = _reg_df()
+        df = make_regression_df(n=100)
         m = Model(cfg_obj)
         result = m.fit(data=df)
         assert result.feature_names == ["feat_a", "feat_b"]
@@ -133,7 +105,7 @@ class TestLizyMLConfigInstance:
         confirming the model runs without error, even though load_config
         would normally be called for string/dict inputs.
         """
-        cfg_obj = load_config(_base_cfg())
+        cfg_obj = load_config(make_config("regression"))
         m = Model(cfg_obj)
         # _cfg must be the same object (identity) - no re-wrapping
         assert m._cfg is cfg_obj
@@ -147,11 +119,11 @@ class TestLizyMLConfigInstance:
 class TestDataPathInConfig:
     def test_fit_loads_data_from_csv_path(self, tmp_path: Path) -> None:
         """Model.fit() with no data= arg loads data from config.data.path (CSV)."""
-        df = _reg_df()
+        df = make_regression_df(n=100)
         csv_path = tmp_path / "train.csv"
         df.to_csv(csv_path, index=False)
 
-        cfg = _base_cfg()
+        cfg = make_config("regression")
         cfg["data"]["path"] = str(csv_path)
 
         m = Model(cfg)
@@ -165,14 +137,14 @@ class TestDataPathInConfig:
     def test_explicit_data_arg_overrides_config_path(self, tmp_path: Path) -> None:
         """data= passed to fit() overrides config.data.path."""
         # Write a *different* dataset to the path
-        other_df = _reg_df(n=50)
+        other_df = make_regression_df(n=50)
         csv_path = tmp_path / "other.csv"
         other_df.to_csv(csv_path, index=False)
 
-        cfg = _base_cfg()
+        cfg = make_config("regression")
         cfg["data"]["path"] = str(csv_path)
 
-        df = _reg_df(n=100)
+        df = make_regression_df(n=100)
         m = Model(cfg)
         result = m.fit(data=df)  # explicit data= should win
         # Verify we trained on 100 rows (from df), not 50 (from csv)

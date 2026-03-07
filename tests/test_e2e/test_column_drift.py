@@ -18,18 +18,7 @@ import pytest
 
 from lizyml import Model
 from lizyml.core.exceptions import ErrorCode, LizyMLError
-
-
-def _reg_df(n: int = 100) -> pd.DataFrame:
-    rng = np.random.default_rng(0)
-    df = pd.DataFrame(
-        {
-            "feat_a": rng.uniform(0, 10, n),
-            "feat_b": rng.uniform(-1, 1, n),
-        }
-    )
-    df["target"] = df["feat_a"] * 2.0 + df["feat_b"]
-    return df
+from tests._helpers import make_config, make_regression_df
 
 
 def _cat_df(n: int = 100) -> pd.DataFrame:
@@ -44,21 +33,10 @@ def _cat_df(n: int = 100) -> pd.DataFrame:
     return df
 
 
-def _cfg(task: str = "regression") -> dict:
-    return {
-        "config_version": 1,
-        "task": task,
-        "data": {"target": "target"},
-        "split": {"method": "kfold", "n_splits": 3, "random_state": 42},
-        "model": {"name": "lgbm", "params": {"n_estimators": 10}},
-        "training": {"seed": 0},
-    }
-
-
 class TestMissingColumn:
     def test_missing_feature_raises(self) -> None:
-        df = _reg_df()
-        m = Model(_cfg())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
         # Drop feat_b at predict time
         X_bad = df.drop(columns=["target", "feat_b"])
@@ -67,8 +45,8 @@ class TestMissingColumn:
         assert exc_info.value.code == ErrorCode.DATA_SCHEMA_INVALID
 
     def test_all_features_missing_raises(self) -> None:
-        df = _reg_df()
-        m = Model(_cfg())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
         X_empty = pd.DataFrame({"completely_wrong": [1.0, 2.0]})
         with pytest.raises(LizyMLError) as exc_info:
@@ -79,8 +57,8 @@ class TestMissingColumn:
 class TestExtraColumns:
     def test_extra_column_does_not_raise(self) -> None:
         """Extra columns at predict time should be ignored (not raise)."""
-        df = _reg_df()
-        m = Model(_cfg())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
         X_extra = df.drop(columns=["target"]).copy()
         X_extra["extra_col"] = 999.0
@@ -121,8 +99,8 @@ class TestUnseenCategory:
 class TestColumnDriftContract:
     def test_extra_column_warning_contains_column_name(self) -> None:
         """PredictionResult.warnings must name the extra column."""
-        df = _reg_df()
-        m = Model(_cfg())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
 
         X_extra = df.drop(columns=["target"]).copy()
@@ -139,8 +117,8 @@ class TestColumnDriftContract:
 
     def test_missing_column_is_hard_error_not_warning(self) -> None:
         """A missing required column must raise LizyMLError, NOT add a warning."""
-        df = _reg_df()
-        m = Model(_cfg())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         m.fit(data=df)
 
         X_missing = df.drop(columns=["target", "feat_b"])
@@ -151,8 +129,8 @@ class TestColumnDriftContract:
 
     def test_used_features_matches_training_feature_names(self) -> None:
         """PredictionResult.used_features must equal FitResult.feature_names."""
-        df = _reg_df()
-        m = Model(_cfg())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         result = m.fit(data=df)
 
         X_new = df.drop(columns=["target"]).iloc[:5].reset_index(drop=True)
@@ -165,8 +143,8 @@ class TestColumnDriftContract:
 
     def test_used_features_preserves_training_column_order(self) -> None:
         """used_features must reflect training column order, not predict-time order."""
-        df = _reg_df()
-        m = Model(_cfg())
+        df = make_regression_df(n=100)
+        m = Model(make_config("regression"))
         result = m.fit(data=df)
 
         # Reverse column order at predict time
