@@ -7,6 +7,7 @@ import warnings
 import pytest
 
 from lizyml.config.loader import load_config
+from lizyml.core._model_factories import build_splitter
 
 
 class TestStratifiedDefault:
@@ -79,12 +80,8 @@ class TestKFoldWarning:
             "split": {"method": "kfold"},
         }
         cfg = load_config(raw)
-        # Import Model to check the warning in _build_splitter
-        from lizyml.core.model import Model
-
-        model = Model(cfg)
         with pytest.warns(UserWarning, match="stratified_kfold"):
-            model._build_splitter()
+            build_splitter(cfg)
 
     def test_multiclass_kfold_warns(self) -> None:
         raw = {
@@ -95,11 +92,8 @@ class TestKFoldWarning:
             "split": {"method": "kfold"},
         }
         cfg = load_config(raw)
-        from lizyml.core.model import Model
-
-        model = Model(cfg)
         with pytest.warns(UserWarning, match="stratified_kfold"):
-            model._build_splitter()
+            build_splitter(cfg)
 
     def test_regression_kfold_no_warn(self) -> None:
         raw = {
@@ -110,12 +104,9 @@ class TestKFoldWarning:
             "split": {"method": "kfold"},
         }
         cfg = load_config(raw)
-        from lizyml.core.model import Model
-
-        model = Model(cfg)
         with warnings.catch_warnings():
             warnings.simplefilter("error")
-            model._build_splitter()  # Should not raise
+            build_splitter(cfg)  # Should not raise
 
     def test_stratified_kfold_no_warn(self) -> None:
         raw = {
@@ -126,9 +117,6 @@ class TestKFoldWarning:
             "split": {"method": "stratified_kfold"},
         }
         cfg = load_config(raw)
-        from lizyml.core.model import Model
-
-        model = Model(cfg)
         with warnings.catch_warnings():
             warnings.simplefilter("error")
-            model._build_splitter()  # Should not raise
+            build_splitter(cfg)  # Should not raise

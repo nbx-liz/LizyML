@@ -15,6 +15,12 @@ What Model does NOT contain:
 - LGBM-specific processing  → estimators/lgbm.py
 - Plot implementations      → plots/*
 - Persistence details       → persistence/*
+
+Mixin decomposition (H-0042):
+- Plot methods      → _model_plots.py (ModelPlotsMixin)
+- Table/accessors   → _model_tables.py (ModelTablesMixin)
+- Export/load       → _model_persistence.py (ModelPersistenceMixin)
+- Splitter/IV build → _model_factories.py (module-level functions)
 """
 
 from __future__ import annotations
@@ -36,6 +42,14 @@ from lizyml.config.schema import (
     LGBMConfig,
     LizyMLConfig,
 )
+from lizyml.core._model_factories import (
+    build_inner_valid,
+    build_splitter,
+    make_inner_valid_factory,
+)
+from lizyml.core._model_persistence import ModelPersistenceMixin
+from lizyml.core._model_plots import ModelPlotsMixin
+from lizyml.core._model_tables import ModelTablesMixin
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.logging import generate_run_id, get_logger
 from lizyml.core.specs.feature_spec import FeatureSpec
@@ -45,6 +59,7 @@ from lizyml.core.types.fit_result import FitResult
 from lizyml.core.types.predict_result import PredictionResult
 from lizyml.core.types.tuning_result import TuningResult
 from lizyml.data import dataframe_builder, datasource
+from lizyml.data.dataframe_builder import DataFrameComponents
 from lizyml.data.fingerprint import compute as fp_compute
 from lizyml.estimators.lgbm import (
     _COMMON_DEFAULTS,
@@ -54,19 +69,7 @@ from lizyml.estimators.lgbm import (
 )
 from lizyml.evaluation.evaluator import Evaluator
 from lizyml.features.pipelines_native import NativeFeaturePipeline
-from lizyml.splitters.base import BaseSplitter
-from lizyml.splitters.group_kfold import GroupKFoldSplitter
-from lizyml.splitters.group_time_series import GroupTimeSeriesSplitter
-from lizyml.splitters.kfold import KFoldSplitter, StratifiedKFoldSplitter
-from lizyml.splitters.purged_time_series import PurgedTimeSeriesSplitter
-from lizyml.splitters.time_series import TimeSeriesSplitter
 from lizyml.training.cv_trainer import CVTrainer
-from lizyml.training.inner_valid import (
-    GroupHoldoutInnerValid,
-    HoldoutInnerValid,
-    NoInnerValid,
-    TimeHoldoutInnerValid,
-)
 from lizyml.training.refit_trainer import RefitResult, RefitTrainer
 from lizyml.tuning.search_space import default_fixed_params, default_space, parse_space
 from lizyml.tuning.tuner import Tuner
@@ -82,8 +85,10 @@ _DEFAULT_METRICS: dict[str, list[str]] = {
     "multiclass": ["logloss", "f1", "accuracy"],
 }
 
+_TS_METHODS = frozenset({"time_series", "purged_time_series", "group_time_series"})
 
-class Model:
+
+class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
     """Public-facing facade for LizyML.
 
     Args:
@@ -156,73 +161,13 @@ class Model:
 
         _log.info("event='fit.start' run_id=%s task=%s", run_id, cfg.task)
 
-        # --- Load data -------------------------------------------------------
-        df = self._load_data(data)
-
-        # --- Build specs -----------------------------------------------------
-        problem_spec = ProblemSpec(
-            task=cfg.task,
-            target=cfg.data.target,
-            time_col=cfg.data.time_col,
-            group_col=cfg.data.group_col,
-            data_path=cfg.data.path,
-        )
-        feature_spec = FeatureSpec(
-            exclude=tuple(cfg.features.exclude),
-            auto_categorical=cfg.features.auto_categorical,
-            categorical=tuple(cfg.features.categorical),
-        )
-
-        # --- Build X, y ------------------------------------------------------
-        components = dataframe_builder.build(df, problem_spec, feature_spec)
-        X, y = components.X, components.y
-        self._X = X
-        self._y = y
-        groups: npt.NDArray[Any] | None = (
-            components.group_col.to_numpy()
-            if components.group_col is not None
-            else None
-        )
-
-        # --- Time series: validate time_col and sort -------------------------
-        _TS_METHODS = frozenset(
-            {
-                "time_series",
-                "purged_time_series",
-                "group_time_series",
-            }
-        )
-        if cfg.split.method in _TS_METHODS:
-            if cfg.data.time_col is None:
-                raise LizyMLError(
-                    code=ErrorCode.CONFIG_INVALID,
-                    user_message=(
-                        f"split.method='{cfg.split.method}' requires "
-                        "data.time_col to be set."
-                    ),
-                    context={"split_method": cfg.split.method},
-                )
-            tc = components.time_col
-            assert tc is not None  # noqa: S101
-            sort_order = tc.argsort()
-            X = X.iloc[sort_order].reset_index(drop=True)
-            y = y.iloc[sort_order].reset_index(drop=True)
-            if groups is not None:
-                groups = groups[sort_order]
-            self._X = X
-            self._y = y
-            components.X = X
-            components.y = y
-            components.time_col = tc.iloc[sort_order].reset_index(drop=True)
-            if components.group_col is not None:
-                gc = components.group_col
-                components.group_col = gc.iloc[sort_order].reset_index(drop=True)
-
+        # --- Load & prepare data ---------------------------------------------
+        X, y, groups, components = self._prepare_training_data(data)
         fingerprint = fp_compute(X, file_path=None)
 
         # --- Build components ------------------------------------------------
-        splitter = self._build_splitter()
-        inner_valid = self._build_inner_valid()
+        splitter = build_splitter(cfg)
+        inner_valid = build_inner_valid(cfg)
         lgbm_params = {
             **_get_lgbm_params(cfg),
             **(self._best_params or {}),
@@ -386,230 +331,6 @@ class Model:
         assert self._metrics is not None  # noqa: S101
         return _filter_metrics(self._metrics, set(metrics))
 
-    def evaluate_table(self) -> pd.DataFrame:
-        """Return evaluation metrics as a formatted DataFrame.
-
-        Rows are metric names, columns are ``oof``, ``if_mean``,
-        ``fold_0`` … ``fold_N-1``, and ``cal_oof`` when calibrated.
-
-        Returns:
-            :class:`pd.DataFrame` with metric values.
-
-        Raises:
-            :class:`~lizyml.core.exceptions.LizyMLError` with
-            ``MODEL_NOT_FIT`` when called before ``fit``.
-        """
-        self._require_fit()
-        from lizyml.evaluation.table_formatter import format_metrics_table
-
-        assert self._metrics is not None  # noqa: S101 — set by fit()
-        return format_metrics_table(self._metrics)
-
-    def residuals(self) -> npt.NDArray[np.float64]:
-        """Return OOF residuals ``(y_true - oof_pred)``.  Regression only.
-
-        Returns:
-            1-D array of shape ``(n_samples,)``.
-
-        Raises:
-            LizyMLError with ``MODEL_NOT_FIT`` when called before ``fit``
-                or when loaded artifacts lack ``analysis_context``.
-            LizyMLError with ``UNSUPPORTED_TASK`` for non-regression tasks.
-        """
-        fit_result = self._require_fit()
-        if self._cfg.task != "regression":
-            raise LizyMLError(
-                code=ErrorCode.UNSUPPORTED_TASK,
-                user_message=(
-                    "residuals() is only supported for regression tasks. "
-                    f"Got task='{self._cfg.task}'."
-                ),
-                context={"task": self._cfg.task},
-            )
-        if self._y is None:
-            raise LizyMLError(
-                code=ErrorCode.MODEL_NOT_FIT,
-                user_message=(
-                    "Target values not available. "
-                    "Re-export the model with the latest version to enable "
-                    "diagnostic APIs after Model.load()."
-                ),
-                context={},
-            )
-        result: npt.NDArray[np.float64] = np.asarray(self._y) - fit_result.oof_pred
-        return result
-
-    def residuals_plot(self, *, kind: str = "all") -> Any:
-        """Plot residual analysis.  Regression only.
-
-        Args:
-            kind: Which plot to render.
-                ``"scatter"`` — residuals vs predicted (IS + OOS overlay).
-                ``"histogram"`` — residual distribution (IS + OOS overlay).
-                ``"qq"`` — QQ plot of OOS residuals.
-                ``"all"`` — all three panels in one figure (default).
-
-        Returns:
-            A ``plotly.graph_objects.Figure``.
-
-        Raises:
-            LizyMLError with ``MODEL_NOT_FIT`` when called before ``fit``
-                or when loaded artifacts lack ``analysis_context``.
-            LizyMLError with ``UNSUPPORTED_TASK`` for non-regression tasks.
-            LizyMLError with ``OPTIONAL_DEP_MISSING`` when plotly is not installed.
-            LizyMLError with ``CONFIG_INVALID`` for an unknown ``kind`` value.
-        """
-        # Validate state (raises MODEL_NOT_FIT / UNSUPPORTED_TASK as needed)
-        self.residuals()
-        fit_result = self._require_fit()
-        from lizyml.plots.residuals import plot_residuals
-
-        return plot_residuals(fit_result, np.asarray(self._y), kind=kind)
-
-    def roc_curve_plot(self) -> Any:
-        """Plot ROC Curve. Binary: IS/OOS overlay. Multiclass: OvR subplots.
-
-        Returns:
-            A ``plotly.graph_objects.Figure``.
-
-        Raises:
-            LizyMLError with ``MODEL_NOT_FIT`` when called before ``fit``
-                or when loaded artifacts lack ``analysis_context``.
-            LizyMLError with ``UNSUPPORTED_TASK`` for regression.
-            LizyMLError with ``OPTIONAL_DEP_MISSING`` when plotly is not installed.
-        """
-        fit_result = self._require_fit()
-        if self._y is None:
-            raise LizyMLError(
-                code=ErrorCode.MODEL_NOT_FIT,
-                user_message=(
-                    "Target values not available. "
-                    "Re-export the model with the latest version "
-                    "to enable diagnostic APIs after Model.load()."
-                ),
-                context={},
-            )
-        if self._cfg.task == "regression":
-            raise LizyMLError(
-                code=ErrorCode.UNSUPPORTED_TASK,
-                user_message="roc_curve_plot() requires a binary or multiclass task.",
-                context={"task": self._cfg.task},
-            )
-        from lizyml.plots.classification import plot_roc_curve
-
-        return plot_roc_curve(fit_result, np.asarray(self._y), task=self._cfg.task)
-
-    def confusion_matrix(self, threshold: float = 0.5) -> dict[str, pd.DataFrame]:
-        """Return IS/OOS confusion matrices.
-
-        Args:
-            threshold: Binary decision boundary (binary only).
-
-        Returns:
-            ``{"is": DataFrame, "oos": DataFrame}``.
-
-        Raises:
-            LizyMLError with ``MODEL_NOT_FIT`` when called before ``fit``
-                or when loaded artifacts lack ``analysis_context``.
-            LizyMLError with ``UNSUPPORTED_TASK`` for regression.
-        """
-        fit_result = self._require_fit()
-        if self._y is None:
-            raise LizyMLError(
-                code=ErrorCode.MODEL_NOT_FIT,
-                user_message=(
-                    "Target values not available. "
-                    "Re-export the model with the latest version "
-                    "to enable diagnostic APIs after Model.load()."
-                ),
-                context={},
-            )
-        if self._cfg.task == "regression":
-            raise LizyMLError(
-                code=ErrorCode.UNSUPPORTED_TASK,
-                user_message="confusion_matrix() requires a binary or multiclass task.",
-                context={"task": self._cfg.task},
-            )
-        from lizyml.evaluation.confusion import confusion_matrix_table
-
-        return confusion_matrix_table(
-            fit_result,
-            np.asarray(self._y),
-            threshold=threshold,
-            task=self._cfg.task,
-        )
-
-    def calibration_plot(self) -> Any:
-        """Plot calibration reliability diagram. Binary + calibration only.
-
-        Returns:
-            A ``plotly.graph_objects.Figure``.
-
-        Raises:
-            LizyMLError with ``MODEL_NOT_FIT`` when called before ``fit``
-                or when loaded artifacts lack ``analysis_context``.
-            LizyMLError with ``UNSUPPORTED_TASK`` for non-binary tasks.
-            LizyMLError with ``CALIBRATION_NOT_SUPPORTED`` if calibration
-                is not enabled.
-            LizyMLError with ``OPTIONAL_DEP_MISSING`` when plotly is not installed.
-        """
-        fit_result = self._require_fit()
-        if self._y is None:
-            raise LizyMLError(
-                code=ErrorCode.MODEL_NOT_FIT,
-                user_message=(
-                    "Target values not available. "
-                    "Re-export the model with the latest version "
-                    "to enable diagnostic APIs after Model.load()."
-                ),
-                context={},
-            )
-        if self._cfg.task != "binary":
-            raise LizyMLError(
-                code=ErrorCode.UNSUPPORTED_TASK,
-                user_message="calibration_plot() requires a binary task.",
-                context={"task": self._cfg.task},
-            )
-        from lizyml.plots.calibration import plot_calibration_curve
-
-        return plot_calibration_curve(fit_result, np.asarray(self._y))
-
-    def probability_histogram_plot(self) -> Any:
-        """Plot raw vs calibrated probability histogram. Binary + calibration only.
-
-        Returns:
-            A ``plotly.graph_objects.Figure``.
-
-        Raises:
-            LizyMLError with ``MODEL_NOT_FIT`` when called before ``fit``
-                or when loaded artifacts lack ``analysis_context``.
-            LizyMLError with ``UNSUPPORTED_TASK`` for non-binary tasks.
-            LizyMLError with ``CALIBRATION_NOT_SUPPORTED`` if calibration
-                is not enabled.
-            LizyMLError with ``OPTIONAL_DEP_MISSING`` when plotly is not installed.
-        """
-        self._require_fit()
-        if self._y is None:
-            raise LizyMLError(
-                code=ErrorCode.MODEL_NOT_FIT,
-                user_message=(
-                    "Target values not available. "
-                    "Re-export the model with the latest version "
-                    "to enable diagnostic APIs after Model.load()."
-                ),
-                context={},
-            )
-        if self._cfg.task != "binary":
-            raise LizyMLError(
-                code=ErrorCode.UNSUPPORTED_TASK,
-                user_message="probability_histogram_plot() requires a binary task.",
-                context={"task": self._cfg.task},
-            )
-        fit_result = self._require_fit()
-        from lizyml.plots.calibration import plot_probability_histogram
-
-        return plot_probability_histogram(fit_result)
-
     def predict(
         self,
         X: pd.DataFrame,
@@ -689,60 +410,6 @@ class Model:
             warnings=warnings,
         )
 
-    def importance(self, kind: str = "split") -> dict[str, float]:
-        """Return averaged feature importance across CV fold models.
-
-        Args:
-            kind: ``"split"``, ``"gain"``, or ``"shap"``.
-                ``"shap"`` computes mean(|SHAP|) per feature across folds.
-                Requires ``shap`` to be installed and training data to be
-                available (or ``analysis_context`` to be restored after load).
-
-        Returns:
-            Dict mapping feature name → importance score.
-
-        Raises:
-            :class:`~lizyml.core.exceptions.LizyMLError` with
-            ``MODEL_NOT_FIT`` when called before ``fit`` or (for ``"shap"``)
-            when loaded artifacts lack ``analysis_context``.
-            :class:`~lizyml.core.exceptions.LizyMLError` with
-            ``OPTIONAL_DEP_MISSING`` when ``kind="shap"`` and shap is
-            not installed.
-        """
-        fit_result = self._require_fit()
-
-        if kind == "shap":
-            if self._X is None:
-                raise LizyMLError(
-                    code=ErrorCode.MODEL_NOT_FIT,
-                    user_message=(
-                        "Training data not available. "
-                        "Re-export the model with the latest version to enable "
-                        "diagnostic APIs after Model.load()."
-                    ),
-                    context={},
-                )
-            from lizyml.explain.shap_explainer import compute_shap_importance
-
-            return compute_shap_importance(
-                models=fit_result.models,
-                X=self._X,
-                splits_outer=fit_result.splits.outer,
-                task=self._cfg.task,
-                feature_names=fit_result.feature_names,
-                pipeline_state=fit_result.pipeline_state,
-            )
-
-        models = fit_result.models
-        if not models:
-            return {}
-
-        agg: dict[str, float] = {}
-        for m in models:
-            for feat, val in m.importance(kind=kind).items():
-                agg[feat] = agg.get(feat, 0.0) + val / len(models)
-        return agg
-
     def tune(
         self,
         data: pd.DataFrame | None = None,
@@ -785,56 +452,11 @@ class Model:
             tune_run_id = generate_run_id()
             self._run_dir = setup_output_dir(self._output_dir, tune_run_id)
 
-        df = self._load_data(data)
-        problem_spec = ProblemSpec(
-            task=cfg.task,
-            target=cfg.data.target,
-            time_col=cfg.data.time_col,
-            group_col=cfg.data.group_col,
-            data_path=cfg.data.path,
-        )
-        feature_spec = FeatureSpec(
-            exclude=tuple(cfg.features.exclude),
-            auto_categorical=cfg.features.auto_categorical,
-            categorical=tuple(cfg.features.categorical),
-        )
-        components = dataframe_builder.build(df, problem_spec, feature_spec)
-        X, y = components.X, components.y
-        groups: npt.NDArray[Any] | None = (
-            components.group_col.to_numpy()
-            if components.group_col is not None
-            else None
-        )
-
-        # --- Time series: validate time_col and sort -------------------------
-        _TS_METHODS = frozenset(
-            {
-                "time_series",
-                "purged_time_series",
-                "group_time_series",
-            }
-        )
-        if cfg.split.method in _TS_METHODS:
-            if cfg.data.time_col is None:
-                raise LizyMLError(
-                    code=ErrorCode.CONFIG_INVALID,
-                    user_message=(
-                        f"split.method='{cfg.split.method}' requires "
-                        "data.time_col to be set."
-                    ),
-                    context={"split_method": cfg.split.method},
-                )
-            tc = components.time_col
-            assert tc is not None  # noqa: S101
-            sort_order = tc.argsort()
-            X = X.iloc[sort_order].reset_index(drop=True)
-            y = y.iloc[sort_order].reset_index(drop=True)
-            if groups is not None:
-                groups = groups[sort_order]
+        X, y, groups, _ = self._prepare_training_data(data)
 
         n_classes = int(y.nunique()) if cfg.task == "multiclass" else None
-        splitter = self._build_splitter()
-        inner_valid = self._build_inner_valid()
+        splitter = build_splitter(cfg)
+        inner_valid = build_inner_valid(cfg)
         base_params = _get_lgbm_params(cfg)
         user_space = parse_space(cfg.tuning.optuna.space)
         if user_space:
@@ -875,7 +497,7 @@ class Model:
             metric_name=metric_name,
             n_classes=n_classes,
             seed=cfg.training.seed,
-            inner_valid_factory=self._make_inner_valid_factory(),
+            inner_valid_factory=make_inner_valid_factory(cfg),
             n_rows=len(X),
             fixed_params=fixed,
         )
@@ -886,214 +508,18 @@ class Model:
         _log.info("event='tune.done' best_params=%s", result.best_params)
         return result
 
-    def tuning_table(self) -> pd.DataFrame:
-        """Return a DataFrame of all tuning trial results.
+    # ------------------------------------------------------------------
+    # Properties
+    # ------------------------------------------------------------------
 
-        Columns: ``trial``, metric name, and each searched parameter name.
-
-        Returns:
-            DataFrame with one row per trial.
-
-        Raises:
-            LizyMLError with MODEL_NOT_FIT when ``tune()`` has not been called.
-        """
-        if self._tuning_result is None:
-            raise LizyMLError(
-                code=ErrorCode.MODEL_NOT_FIT,
-                user_message="tune() has not been called yet.",
-                context={},
-            )
-        tr = self._tuning_result
-        rows = []
-        for t in tr.trials:
-            row: dict[str, Any] = {
-                "trial": t.number,
-                tr.metric_name: t.score,
-                **t.params,
-            }
-            rows.append(row)
-        return pd.DataFrame(rows)
-
-    def tuning_plot(self) -> Any:
-        """Plot tuning history. Requires ``tune()`` to have been called.
-
-        Returns:
-            A ``plotly.graph_objects.Figure``.
+    @property
+    def fit_result(self) -> FitResult:
+        """Read-only access to the CV training result.
 
         Raises:
-            LizyMLError with ``MODEL_NOT_FIT`` when ``tune()`` has not been called.
-            LizyMLError with ``OPTIONAL_DEP_MISSING`` when plotly is not installed.
+            LizyMLError with ``MODEL_NOT_FIT`` when ``fit()`` has not been called.
         """
-        if self._tuning_result is None:
-            raise LizyMLError(
-                code=ErrorCode.MODEL_NOT_FIT,
-                user_message="tune() has not been called yet.",
-                context={},
-            )
-        from lizyml.plots.tuning import plot_tuning_history
-
-        return plot_tuning_history(self._tuning_result)
-
-    def importance_plot(self, kind: str = "split", top_n: int | None = 20) -> Any:
-        """Plot fold-averaged feature importances as a horizontal bar chart.
-
-        Args:
-            kind: ``"split"``, ``"gain"``, or ``"shap"``.
-            top_n: Maximum number of features to show.
-
-        Returns:
-            A ``plotly.graph_objects.Figure`` object.
-
-        Raises:
-            LizyMLError with MODEL_NOT_FIT when called before fit.
-            LizyMLError with OPTIONAL_DEP_MISSING when plotly (or shap for
-                ``kind="shap"``) is not installed.
-        """
-        if kind == "shap":
-            imp = self.importance(kind="shap")
-            from lizyml.plots.importance import plot_importance_from_dict
-
-            return plot_importance_from_dict(imp, top_n=top_n)
-
-        fit_result = self._require_fit()
-        from lizyml.plots.importance import plot_importance
-
-        return plot_importance(fit_result, kind=kind, top_n=top_n)
-
-    def plot_learning_curve(self) -> Any:
-        """Plot per-fold training/validation loss vs iteration.
-
-        Returns:
-            A ``plotly.graph_objects.Figure`` object.
-
-        Raises:
-            LizyMLError with MODEL_NOT_FIT when called before fit or when
-                no evaluation history is available.
-            LizyMLError with OPTIONAL_DEP_MISSING when plotly is not installed.
-        """
-        fit_result = self._require_fit()
-        from lizyml.plots.learning_curve import plot_learning_curve
-
-        return plot_learning_curve(fit_result)
-
-    def plot_oof_distribution(self) -> Any:
-        """Plot the distribution of out-of-fold predictions.
-
-        Returns:
-            A ``plotly.graph_objects.Figure`` object.
-
-        Raises:
-            LizyMLError with MODEL_NOT_FIT when called before fit.
-            LizyMLError with OPTIONAL_DEP_MISSING when plotly is not installed.
-        """
-        fit_result = self._require_fit()
-        from lizyml.plots.oof_distribution import plot_oof_distribution
-
-        return plot_oof_distribution(fit_result)
-
-    def export(self, path: str | Path | None = None) -> Path:
-        """Export Model artifacts to a directory.
-
-        Saves ``fit_result.pkl``, ``refit_model.pkl``, ``metadata.json``,
-        and ``analysis_context.pkl`` under *path*.  The saved model can be
-        restored with :meth:`load`, including diagnostic API support.
-
-        Path resolution (first match wins):
-
-        1. Explicit *path* argument.
-        2. ``{run_dir}/export`` when a run directory exists from ``fit``/``tune``.
-        3. New run directory under ``output_dir`` if configured.
-        4. Error — no destination available.
-
-        Args:
-            path: Output directory (created if absent).  Optional when
-                ``output_dir`` is configured via Config or constructor.
-
-        Returns:
-            Resolved export directory path.
-
-        Raises:
-            LizyMLError with MODEL_NOT_FIT when called before ``fit``.
-            LizyMLError with SERIALIZATION_FAILED on I/O errors or when
-                no path can be resolved.
-
-        Warning:
-            The ``.pkl`` files use joblib/pickle.  Only load artifacts from
-            trusted sources.
-        """
-        fit_result = self._require_fit()
-        refit_result = self._require_refit()
-
-        resolved_path = self._resolve_export_path(path)
-
-        from lizyml.persistence.exporter import AnalysisContext
-        from lizyml.persistence.exporter import export as _export
-
-        ctx: AnalysisContext | None = None
-        if self._y is not None and self._X is not None:
-            ctx = AnalysisContext(y_true=self._y, X_for_explain=self._X)
-
-        _export(
-            path=resolved_path,
-            fit_result=fit_result,
-            refit_result=refit_result,
-            config=self._cfg.model_dump(),
-            task=self._cfg.task,
-            analysis_context=ctx,
-        )
-        _log.info("event='export.done' path=%s", resolved_path)
-        return resolved_path
-
-    def _resolve_export_path(self, path: str | Path | None) -> Path:
-        """Resolve the export destination directory."""
-        if path is not None:
-            return Path(path)
-        if self._run_dir is not None:
-            return Path(self._run_dir) / "export"
-        if self._output_dir is not None:
-            from lizyml.core.logging import setup_output_dir
-
-            export_run_id = generate_run_id()
-            self._run_dir = setup_output_dir(self._output_dir, export_run_id)
-            return Path(self._run_dir) / "export"
-        raise LizyMLError(
-            ErrorCode.SERIALIZATION_FAILED,
-            user_message=(
-                "No export path provided and no output_dir configured. "
-                "Pass an explicit path or set output_dir in Config / constructor."
-            ),
-        )
-
-    @classmethod
-    def load(cls, path: str | Path) -> Model:
-        """Restore a Model from a directory created by :meth:`export`.
-
-        Args:
-            path: Directory containing ``metadata.json``, ``fit_result.pkl``,
-                and ``refit_model.pkl``.
-
-        Returns:
-            A :class:`Model` instance ready for ``predict`` and ``evaluate``.
-
-        Raises:
-            LizyMLError with DESERIALIZATION_FAILED on validation or I/O errors.
-
-        Warning:
-            Only load from trusted sources — joblib uses pickle internally.
-        """
-        from lizyml.persistence.loader import load as _load
-
-        fit_result, refit_result, metadata, analysis_context = _load(path)
-        config = metadata["config"]
-        instance = cls(config)
-        instance._fit_result = fit_result
-        instance._refit_result = refit_result
-        instance._metrics = fit_result.metrics
-        if analysis_context is not None:
-            instance._y = analysis_context.y_true
-            instance._X = analysis_context.X_for_explain
-        _log.info("event='load.done' path=%s run_id=%s", path, metadata.get("run_id"))
-        return instance
+        return self._require_fit()
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -1116,153 +542,65 @@ class Model:
             context={},
         )
 
-    def _build_splitter(self) -> BaseSplitter:
-        """Instantiate splitter from config."""
-        import warnings
+    def _prepare_training_data(
+        self, data: pd.DataFrame | None
+    ) -> tuple[pd.DataFrame, pd.Series, npt.NDArray[Any] | None, DataFrameComponents]:
+        """Load data, build specs, and prepare X/y/groups for training.
 
-        split_cfg = self._cfg.split
-        method = split_cfg.method
-        n_splits = split_cfg.n_splits
-        random_state = getattr(split_cfg, "random_state", 42)
-        shuffle = getattr(split_cfg, "shuffle", True)
+        Handles time-series sorting when the split method requires it.
+        Sets ``self._X`` and ``self._y`` as a side effect.
+        """
+        cfg = self._cfg
+        df = self._load_data(data)
 
-        # Warn if classification task explicitly uses kfold (H-0013)
-        if method == "kfold" and self._cfg.task in ("binary", "multiclass"):
-            warnings.warn(
-                f"task='{self._cfg.task}' with split.method='kfold' does not "
-                "preserve class distribution. Consider using 'stratified_kfold' "
-                "instead.",
-                UserWarning,
-                stacklevel=2,
-            )
-
-        if method == "stratified_kfold":
-            return StratifiedKFoldSplitter(
-                n_splits=n_splits, shuffle=shuffle, random_state=random_state
-            )
-        if method == "group_kfold":
-            return GroupKFoldSplitter(n_splits=n_splits)
-        if method == "time_series":
-            gap = getattr(split_cfg, "gap", 0)
-            train_size_max = getattr(split_cfg, "train_size_max", None)
-            test_size_max = getattr(split_cfg, "test_size_max", None)
-            return TimeSeriesSplitter(
-                n_splits=n_splits,
-                gap=gap,
-                max_train_size=train_size_max,
-                max_test_size=test_size_max,
-            )
-        if method == "purged_time_series":
-            purge_gap = getattr(split_cfg, "purge_gap", 0)
-            embargo: int = getattr(split_cfg, "embargo", 0)
-            train_size_max = getattr(split_cfg, "train_size_max", None)
-            test_size_max = getattr(split_cfg, "test_size_max", None)
-            return PurgedTimeSeriesSplitter(
-                n_splits=n_splits,
-                purge_gap=purge_gap,
-                embargo=embargo,
-                max_train_size=train_size_max,
-                max_test_size=test_size_max,
-            )
-        if method == "group_time_series":
-            gap = getattr(split_cfg, "gap", 0)
-            train_size_max = getattr(split_cfg, "train_size_max", None)
-            test_size_max = getattr(split_cfg, "test_size_max", None)
-            return GroupTimeSeriesSplitter(
-                n_splits=n_splits,
-                gap=gap,
-                max_train_size=train_size_max,
-                max_test_size=test_size_max,
-            )
-        # Default: kfold
-        return KFoldSplitter(
-            n_splits=n_splits, shuffle=shuffle, random_state=random_state
+        problem_spec = ProblemSpec(
+            task=cfg.task,
+            target=cfg.data.target,
+            time_col=cfg.data.time_col,
+            group_col=cfg.data.group_col,
+            data_path=cfg.data.path,
+        )
+        feature_spec = FeatureSpec(
+            exclude=tuple(cfg.features.exclude),
+            auto_categorical=cfg.features.auto_categorical,
+            categorical=tuple(cfg.features.categorical),
         )
 
-    def _build_inner_valid(
-        self,
-    ) -> (
-        HoldoutInnerValid
-        | GroupHoldoutInnerValid
-        | TimeHoldoutInnerValid
-        | NoInnerValid
-    ):
-        """Instantiate inner validation strategy from training config.
+        components = dataframe_builder.build(df, problem_spec, feature_spec)
+        X, y = components.X, components.y
+        groups: npt.NDArray[Any] | None = (
+            components.group_col.to_numpy()
+            if components.group_col is not None
+            else None
+        )
 
-        When early stopping is enabled but ``inner_valid`` is not explicitly
-        set, the strategy is auto-resolved based on the outer split method:
+        if cfg.split.method in _TS_METHODS:
+            if cfg.data.time_col is None:
+                raise LizyMLError(
+                    code=ErrorCode.CONFIG_INVALID,
+                    user_message=(
+                        f"split.method='{cfg.split.method}' requires "
+                        "data.time_col to be set."
+                    ),
+                    context={"split_method": cfg.split.method},
+                )
+            tc = components.time_col
+            assert tc is not None  # noqa: S101
+            sort_order = tc.argsort()
+            X = X.iloc[sort_order].reset_index(drop=True)
+            y = y.iloc[sort_order].reset_index(drop=True)
+            if groups is not None:
+                groups = groups[sort_order]
+            components.X = X
+            components.y = y
+            components.time_col = tc.iloc[sort_order].reset_index(drop=True)
+            if components.group_col is not None:
+                gc = components.group_col
+                components.group_col = gc.iloc[sort_order].reset_index(drop=True)
 
-        - ``stratified_kfold`` → ``HoldoutInnerValid(stratify=True)``
-        - ``group_kfold`` → ``GroupHoldoutInnerValid``
-        - ``time_series`` → ``TimeHoldoutInnerValid``
-        - ``kfold`` (or other) → ``HoldoutInnerValid(stratify=False)``
-        """
-        es = self._cfg.training.early_stopping
-        if not es.enabled:
-            return NoInnerValid()
-
-        iv_cfg = es.inner_valid
-        split_method = self._cfg.split.method
-
-        # Auto-resolve when inner_valid is not explicitly set (includes
-        # the case where it was auto-created from validation_ratio default)
-        if iv_cfg is None or not es._inner_valid_explicit:
-            ratio = iv_cfg.ratio if iv_cfg is not None else 0.1
-            seed = self._cfg.training.seed
-            if split_method == "stratified_kfold":
-                return HoldoutInnerValid(ratio=ratio, random_state=seed, stratify=True)
-            if split_method == "group_kfold":
-                return GroupHoldoutInnerValid(ratio=ratio, random_state=seed)
-            if split_method in ("time_series", "purged_time_series"):
-                return TimeHoldoutInnerValid(ratio=ratio)
-            if split_method == "group_time_series":
-                return GroupHoldoutInnerValid(ratio=ratio, random_state=seed)
-            return HoldoutInnerValid(ratio=ratio, random_state=seed, stratify=False)
-
-        # Explicit config — use getattr for fields not common to all variants
-        method = iv_cfg.method
-        if method == "holdout":
-            return HoldoutInnerValid(
-                ratio=iv_cfg.ratio,
-                random_state=getattr(iv_cfg, "random_state", 42),
-                stratify=getattr(iv_cfg, "stratify", False),
-            )
-        if method == "group_holdout":
-            return GroupHoldoutInnerValid(
-                ratio=iv_cfg.ratio,
-                random_state=getattr(iv_cfg, "random_state", 42),
-            )
-        if method == "time_holdout":
-            return TimeHoldoutInnerValid(ratio=iv_cfg.ratio)
-        return NoInnerValid()
-
-    def _make_inner_valid_factory(
-        self,
-    ) -> Callable[
-        [float],
-        HoldoutInnerValid | GroupHoldoutInnerValid | TimeHoldoutInnerValid,
-    ]:
-        """Return a factory that produces InnerValidStrategy for a given ratio.
-
-        Used by the Tuner when ``validation_ratio`` is a search dimension.
-        """
-        split_method = self._cfg.split.method
-        seed = self._cfg.training.seed
-
-        def factory(
-            ratio: float,
-        ) -> HoldoutInnerValid | GroupHoldoutInnerValid | TimeHoldoutInnerValid:
-            if split_method == "stratified_kfold":
-                return HoldoutInnerValid(ratio=ratio, random_state=seed, stratify=True)
-            if split_method == "group_kfold":
-                return GroupHoldoutInnerValid(ratio=ratio, random_state=seed)
-            if split_method in ("time_series", "purged_time_series"):
-                return TimeHoldoutInnerValid(ratio=ratio)
-            if split_method == "group_time_series":
-                return GroupHoldoutInnerValid(ratio=ratio, random_state=seed)
-            return HoldoutInnerValid(ratio=ratio, random_state=seed, stratify=False)
-
-        return factory
+        self._X = X
+        self._y = y
+        return X, y, groups, components
 
     def _build_run_meta(self, run_id: str) -> RunMeta:
         def _ver(pkg: str) -> str:
@@ -1294,117 +632,6 @@ class Model:
                 context={},
             )
         return self._fit_result
-
-    @property
-    def fit_result(self) -> FitResult:
-        """Read-only access to the CV training result.
-
-        Raises:
-            LizyMLError with ``MODEL_NOT_FIT`` when ``fit()`` has not been called.
-        """
-        return self._require_fit()
-
-    def params_table(self) -> pd.DataFrame:
-        """Return resolved parameters as a single-column DataFrame.
-
-        Merges Config smart params, training settings, resolved booster
-        params (fold 0), and per-fold ``best_iteration`` into one table.
-
-        Returns:
-            :class:`pd.DataFrame` with index ``parameter`` and column ``value``.
-
-        Raises:
-            :class:`~lizyml.core.exceptions.LizyMLError` with
-            ``MODEL_NOT_FIT`` when called before ``fit``.
-        """
-        fr = self._require_fit()
-        model_cfg = self._cfg.model
-
-        rows: list[dict[str, Any]] = []
-
-        # --- Config smart params ---
-        if isinstance(model_cfg, LGBMConfig):
-            smart = {
-                "auto_num_leaves": model_cfg.auto_num_leaves,
-                "num_leaves_ratio": model_cfg.num_leaves_ratio,
-                "min_data_in_leaf_ratio": model_cfg.min_data_in_leaf_ratio,
-                "min_data_in_bin_ratio": model_cfg.min_data_in_bin_ratio,
-                "balanced": model_cfg.balanced,
-                "feature_weights": model_cfg.feature_weights,
-            }
-            for k, v in smart.items():
-                rows.append({"parameter": k, "value": v})
-
-        # --- Config training params ---
-        es = self._cfg.training.early_stopping
-        if es is not None:
-            rows.append({"parameter": "early_stopping_rounds", "value": es.rounds})
-            rows.append({"parameter": "validation_ratio", "value": es.validation_ratio})
-
-        # --- Resolved booster params (fold 0) ---
-        booster = fr.models[0].get_native_model()
-        for k in [
-            "objective",
-            "learning_rate",
-            "max_depth",
-            "num_leaves",
-            "min_data_in_leaf",
-            "min_data_in_bin",
-            "max_bin",
-            "feature_fraction",
-            "bagging_fraction",
-            "bagging_freq",
-            "lambda_l1",
-            "lambda_l2",
-            "num_iterations",
-        ]:
-            v = booster.params.get(k)
-            if v is not None:
-                rows.append({"parameter": k, "value": v})
-
-        # task-specific params
-        for k in ["scale_pos_weight", "num_class"]:
-            v = booster.params.get(k)
-            if v is not None:
-                rows.append({"parameter": k, "value": v})
-
-        # --- Best iteration per fold ---
-        for i, m in enumerate(fr.models):
-            rows.append({"parameter": f"best_iteration_{i}", "value": m.best_iteration})
-
-        df = pd.DataFrame(rows)
-        return df.set_index("parameter")
-
-    def split_summary(self) -> pd.DataFrame:
-        """Return per-fold split summary as a DataFrame.
-
-        Columns always include ``fold``, ``train_size``, ``valid_size``.
-        For time-series splits with ``time_col``, also includes
-        ``train_start``, ``train_end``, ``valid_start``, ``valid_end``.
-
-        Returns:
-            :class:`pd.DataFrame` with one row per fold.
-
-        Raises:
-            :class:`~lizyml.core.exceptions.LizyMLError` with
-            ``MODEL_NOT_FIT`` when called before ``fit``.
-        """
-        fr = self._require_fit()
-        rows: list[dict[str, Any]] = []
-        for i, (train_idx, valid_idx) in enumerate(fr.splits.outer):
-            row: dict[str, Any] = {
-                "fold": i,
-                "train_size": len(train_idx),
-                "valid_size": len(valid_idx),
-            }
-            if fr.splits.time_range is not None and i < len(fr.splits.time_range):
-                tr = fr.splits.time_range[i]
-                row["train_start"] = tr["train_start"]
-                row["train_end"] = tr["train_end"]
-                row["valid_start"] = tr["valid_start"]
-                row["valid_end"] = tr["valid_end"]
-            rows.append(row)
-        return pd.DataFrame(rows)
 
     def _require_refit(self) -> RefitResult:
         if self._refit_result is None:

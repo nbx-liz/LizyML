@@ -11,23 +11,10 @@ Covers:
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 
 from lizyml import Model
 from lizyml.calibration.isotonic import IsotonicCalibrator
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _bin_df(n: int = 300, seed: int = 1) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {"feat_a": rng.uniform(0, 10, n), "feat_b": rng.uniform(-1, 1, n)}
-    )
-    df["target"] = (df["feat_a"] > 5).astype(int)
-    return df
+from tests._helpers import make_binary_df
 
 
 def _synthetic_scores(n: int = 500, seed: int = 42) -> tuple[np.ndarray, np.ndarray]:
@@ -102,7 +89,7 @@ class TestIsotonicCalibrator:
 
 class TestIsotonicE2E:
     def test_model_fit_with_isotonic(self) -> None:
-        df = _bin_df()
+        df = make_binary_df(n=300)
         cfg = {
             "config_version": 1,
             "task": "binary",
@@ -124,7 +111,7 @@ class TestIsotonicE2E:
         assert fr.calibrator.calibrated_oof.max() <= 1.0
 
     def test_model_fit_with_isotonic_custom_params(self) -> None:
-        df = _bin_df()
+        df = make_binary_df(n=300)
         cfg = {
             "config_version": 1,
             "task": "binary",

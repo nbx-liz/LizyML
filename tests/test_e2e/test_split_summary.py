@@ -15,19 +15,11 @@ import pytest
 
 from lizyml import Model
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from tests._helpers import make_regression_df
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _reg_df(n: int = 200, seed: int = 0) -> pd.DataFrame:
-    rng = np.random.default_rng(seed)
-    df = pd.DataFrame(
-        {"feat_a": rng.uniform(0, 10, n), "feat_b": rng.uniform(-1, 1, n)}
-    )
-    df["target"] = df["feat_a"] * 0.5 + rng.normal(0, 0.5, n)
-    return df
 
 
 def _ts_df(n: int = 200, seed: int = 0) -> pd.DataFrame:
@@ -73,7 +65,7 @@ def _ts_config(n_splits: int = 3) -> dict:
 
 class TestSplitSummary:
     def test_kfold_returns_size_columns(self) -> None:
-        df = _reg_df()
+        df = make_regression_df()
         model = Model(_kfold_config(), data=df)
         model.fit()
 
@@ -118,7 +110,7 @@ class TestSplitSummary:
             assert "valid_end" in entry
 
     def test_no_time_range_for_kfold(self) -> None:
-        df = _reg_df()
+        df = make_regression_df()
         model = Model(_kfold_config(), data=df)
         fr = model.fit()
 
