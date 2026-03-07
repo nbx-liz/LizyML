@@ -670,6 +670,22 @@ get_native_model()  # export用途
 - early stopping の設定吸収
 - SHAP（内蔵寄り）対応
 
+### 14.2.1 Booster API の使用（H-0041）
+
+`LGBMAdapter` は LightGBM の **Booster API**（`lgb.train()`）を使用する。sklearn wrapper（`LGBMRegressor` / `LGBMClassifier`）は使用しない。
+
+理由:
+- sklearn wrapper 内部の `model_to_string()` → `model_from_string()` ラウンドトリップに起因する間欠バグ（microsoft/LightGBM#7186）を回避する。
+- Booster API は `keep_training_booster=True` により上記ラウンドトリップを回避でき、直接的な制御が可能。
+
+制約:
+- `fit()` は `lgb.Dataset` を構築し、`lgb.train()` で学習する。
+- `predict()` / `predict_proba()` / `predict_raw()` は `Booster.predict()` を使用する。
+  - `predict_proba()` の shape 契約（binary: `(n, 2)`, multiclass: `(n, k)`）は維持する。
+- `get_native_model()` は `lgb.Booster` を返す。
+- パラメーター名は Booster API の名前空間に準拠する（`n_estimators` → `num_boost_round` 引数、`random_state` → `seed` パラメーター等の変換を adapter 内で吸収する）。
+- 学習履歴は `evals_result` dict から取得する（sklearn の `evals_result_` 属性ではない）。
+
 ## 14.3 LightGBM デフォルトパラメータープロファイル
 
 `LGBMAdapter` はタスク別のデフォルトパラメーターを提供する。`LGBMConfig.params` で明示指定した値はデフォルトを上書きする。
@@ -691,7 +707,7 @@ get_native_model()  # export用途
 |---|---|---|
 | `boosting` | `gbdt` | |
 | `first_metric_only` | `False` | |
-| `n_estimators` | `1500` | sklearn API 相当の `num_boost_round` |
+| `num_boost_round` | `1500` | `lgb.train()` の引数として渡す |
 | `learning_rate` | `0.001` | 低学習率で early stopping に依存 |
 | `max_depth` | `5` | |
 | `max_bin` | `511` | |
