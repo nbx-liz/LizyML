@@ -1342,7 +1342,7 @@ class Model:
             rows.append({"parameter": "validation_ratio", "value": es.validation_ratio})
 
         # --- Resolved booster params (fold 0) ---
-        booster = fr.models[0].get_native_model().booster_
+        booster = fr.models[0].get_native_model()
         for k in [
             "objective",
             "learning_rate",
