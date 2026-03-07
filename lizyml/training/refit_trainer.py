@@ -132,10 +132,7 @@ class RefitTrainer:
 
         train_pred = get_fold_pred(estimator, X_t, self.task)
 
-        native = estimator.get_native_model()
-        eval_hist: dict[str, Any] = {}
-        if hasattr(native, "evals_result_"):
-            eval_hist = dict(native.evals_result_)
+        eval_hist: dict[str, Any] = dict(estimator.eval_results)
 
         return RefitResult(
             model=estimator,

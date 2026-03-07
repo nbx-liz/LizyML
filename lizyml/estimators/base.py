@@ -87,3 +87,12 @@ class BaseEstimatorAdapter(ABC):
     def best_iteration(self) -> int | None:
         """Best iteration from early stopping (``None`` if not applicable)."""
         return None
+
+    @property
+    def eval_results(self) -> dict[str, Any]:
+        """Evaluation results collected during training.
+
+        Returns an empty dict by default. Subclasses should override to
+        return the actual evaluation history.
+        """
+        return {}
