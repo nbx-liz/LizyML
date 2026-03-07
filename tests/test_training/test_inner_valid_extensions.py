@@ -6,8 +6,9 @@ import numpy as np
 import pytest
 
 from lizyml.config.loader import load_config
+from lizyml.config.schema import LizyMLConfig
+from lizyml.core._model_factories import build_inner_valid
 from lizyml.core.exceptions import LizyMLError
-from lizyml.core.model import Model
 from lizyml.training.inner_valid import (
     GroupHoldoutInnerValid,
     HoldoutInnerValid,
@@ -133,7 +134,9 @@ class TestAutoResolve:
     """Test auto-resolve of inner_valid from outer split method."""
 
     @staticmethod
-    def _make_model(task: str, split_method: str, es_enabled: bool = True) -> Model:
+    def _make_cfg(
+        task: str, split_method: str, es_enabled: bool = True
+    ) -> LizyMLConfig:
         raw = {
             "config_version": 1,
             "task": task,
@@ -142,28 +145,27 @@ class TestAutoResolve:
             "split": {"method": split_method},
             "training": {"early_stopping": {"enabled": es_enabled, "rounds": 10}},
         }
-        cfg = load_config(raw)
-        return Model(cfg)
+        return load_config(raw)
 
     def test_stratified_kfold_auto_resolves(self) -> None:
-        model = self._make_model("binary", "stratified_kfold")
-        iv = model._build_inner_valid()
+        cfg = self._make_cfg("binary", "stratified_kfold")
+        iv = build_inner_valid(cfg)
         assert isinstance(iv, HoldoutInnerValid)
         assert iv.stratify is True
 
     def test_group_kfold_auto_resolves(self) -> None:
-        model = self._make_model("binary", "group_kfold")
-        iv = model._build_inner_valid()
+        cfg = self._make_cfg("binary", "group_kfold")
+        iv = build_inner_valid(cfg)
         assert isinstance(iv, GroupHoldoutInnerValid)
 
     def test_time_series_auto_resolves(self) -> None:
-        model = self._make_model("regression", "time_series")
-        iv = model._build_inner_valid()
+        cfg = self._make_cfg("regression", "time_series")
+        iv = build_inner_valid(cfg)
         assert isinstance(iv, TimeHoldoutInnerValid)
 
     def test_kfold_auto_resolves_plain(self) -> None:
-        model = self._make_model("regression", "kfold")
-        iv = model._build_inner_valid()
+        cfg = self._make_cfg("regression", "kfold")
+        iv = build_inner_valid(cfg)
         assert isinstance(iv, HoldoutInnerValid)
         assert iv.stratify is False
 
@@ -191,8 +193,7 @@ class TestExplicitOverride:
             },
         }
         cfg = load_config(raw)
-        model = Model(cfg)
-        iv = model._build_inner_valid()
+        iv = build_inner_valid(cfg)
         assert isinstance(iv, HoldoutInnerValid)
         assert iv.stratify is False
         assert iv.ratio == 0.15
@@ -213,8 +214,7 @@ class TestExplicitOverride:
             },
         }
         cfg = load_config(raw)
-        model = Model(cfg)
-        iv = model._build_inner_valid()
+        iv = build_inner_valid(cfg)
         assert isinstance(iv, HoldoutInnerValid)
         assert iv.ratio == 0.2
 
@@ -234,8 +234,7 @@ class TestExplicitOverride:
             },
         }
         cfg = load_config(raw)
-        model = Model(cfg)
-        iv = model._build_inner_valid()
+        iv = build_inner_valid(cfg)
         assert isinstance(iv, GroupHoldoutInnerValid)
         assert iv.ratio == 0.2
 
@@ -255,7 +254,6 @@ class TestExplicitOverride:
             },
         }
         cfg = load_config(raw)
-        model = Model(cfg)
-        iv = model._build_inner_valid()
+        iv = build_inner_valid(cfg)
         assert isinstance(iv, TimeHoldoutInnerValid)
         assert iv.ratio == 0.15
