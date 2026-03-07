@@ -13,6 +13,7 @@ Covers:
 
 from __future__ import annotations
 
+import lightgbm as lgb
 import numpy as np
 import pandas as pd
 import pytest
@@ -135,6 +136,7 @@ class TestLGBMRegression:
         adapter = LGBMAdapter(task="regression", random_state=0)
         adapter.fit(X, y)
         native = adapter.get_native_model()
+        assert isinstance(native, lgb.Booster)
         assert hasattr(native, "predict")
 
 

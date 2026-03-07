@@ -35,6 +35,7 @@ BLUEPRINT.md に基づき、Config駆動のML分析ライブラリ LizyML をゼ
 | 21 | LightGBM パラメーター強化 | LGBMConfig スマートパラメーター, デフォルトプロファイル, TuningResult + tuning_table(), デフォルト Tuning Space, Notebook 更新 | Phase 8, 9, 11, 12 |
 | 22 | 監査乖離の是正 + 追加開発 | load 後診断 API, Config デフォルト修正, tuning_plot, fit_result プロパティ, Notebook 全項目 Config, params_table, n_rows inner train 基準, ドキュメント整合 | Phase 20, 21 |
 | 23 | Calibration 強化・時系列拡張 | raw score Calibration, Beta Calibration, PurgedTimeSeries/GroupTimeSeries Config 接続, split_summary, 時系列 Notebook, Logging 統一 | Phase 22 |
+| 24 | LGBMAdapter Booster API 移行 | sklearn wrapper → `lgb.train()` 移行, predict/proba/raw shape 維持, get_native_model 戻り値変更, 学習履歴適応, persistence 互換 | Phase 23 |
 
 ---
 
@@ -1986,6 +1987,118 @@ Requirements Audit で検出された未実装項目（Beta Calibration、Purged
 - 23-I: `train_size_max` / `test_size_max` が 3 メソッドで有効に動作し、各 split 境界テストが pass する。
 - 23-J: `embargo` が正式キーとして動作し、`embargo_pct` は警告付き互換で同等動作、移行テストが pass する。
 - 既存の leakage 防止・split_summary・Notebook 実行テストに回帰がない。
+
+---
+
+## Phase 24: LGBMAdapter Booster API 移行
+
+**HISTORY:** H-0041
+**SKILL:** skills/add-estimator-adapter/SKILL.md
+**依存:** Phase 23
+
+### 背景
+
+LightGBM の sklearn wrapper（`LGBMRegressor` / `LGBMClassifier`）に、`early_stopping` callback 併用時に `model_to_string()` が空文字列を返す間欠バグが存在する（microsoft/LightGBM#7186）。Booster API（`lgb.train()`）では `keep_training_booster=True` によりこのバグを回避できる。
+
+### 24-A: LGBMAdapter.fit() を Booster API に移行
+
+1. `lizyml/estimators/lgbm.py`:
+   - `fit()`: `LGBMRegressor(**params).fit(...)` → `lgb.Dataset` 構築 + `lgb.train(params, train_set, valid_sets=..., callbacks=..., keep_training_booster=True)` に置換。
+   - `_model` の型を `LGBMRegressor | LGBMClassifier | None` → `lgb.Booster | None` に変更。
+   - `_build_params()`: sklearn 固有パラメーター名（`n_estimators`, `random_state`, `verbose`）を Booster API 名（`num_boost_round` は引数、`seed`、`verbosity`）に変換。`num_boost_round` はパラメーター dict から分離して `lgb.train()` の引数として渡す。
+   - `best_iteration`: `booster.best_iteration` から取得。
+   - `evals_result` dict をコールバック経由で収集（`lgb.record_evaluation(evals_result)` を使用）。
+2. テスト:
+   - regression / binary / multiclass の全タスクで `lgb.train()` 経由の学習が動作する。
+   - `best_iteration` が正しく取得される。
+   - early stopping が inner valid あり / なしの両方で動作する。
+
+### 24-B: predict / predict_proba / predict_raw の適応
+
+1. `lizyml/estimators/lgbm.py`:
+   - `predict()`: `booster.predict(X)` を使用。regression はそのまま返却。
+   - `predict_proba()`: `booster.predict(X)` を使用。binary は `(n,)` → `np.column_stack([1-p, p])` で `(n, 2)` に変換。multiclass は `(n, k)` をそのまま返却。
+   - `predict_raw()`: `booster.predict(X, raw_score=True)` を直接使用（`booster_` 経由のアクセスが不要になる）。
+   - `_require_fitted()` の戻り値型を `lgb.Booster` に変更。
+2. テスト:
+   - 全タスクで `predict()` / `predict_proba()` / `predict_raw()` の出力 shape が移行前と同一。
+   - binary `predict_proba()` が `(n, 2)` を返す。
+
+### 24-C: importance / get_native_model の適応
+
+1. `lizyml/estimators/lgbm.py`:
+   - `importance()`: `booster.feature_importance(importance_type=...)` を直接使用。
+   - `get_native_model()`: 戻り値型を `lgb.Booster` に変更。
+2. `lizyml/core/model.py`:
+   - `params_table()`: `.get_native_model().booster_` → `.get_native_model()` に変更（Booster を直接使用）。
+3. テスト:
+   - `importance(kind="split")` / `importance(kind="gain")` が動作する。
+   - `get_native_model()` が `lgb.Booster` インスタンスを返す。
+
+### 24-D: cv_trainer / refit_trainer の学習履歴適応
+
+1. `lizyml/training/cv_trainer.py`:
+   - `native.evals_result_` → `evals_result` dict（`LGBMAdapter` から取得する方法に変更）。
+   - `LGBMAdapter` に `eval_result` プロパティを追加し、`lgb.record_evaluation()` で収集した結果を返す。
+2. `lizyml/training/refit_trainer.py`:
+   - 同上。
+3. テスト:
+   - 学習曲線プロットが移行前と同様に動作する。
+
+### 24-E: SHAP / Persistence の確認と適応
+
+1. `lizyml/explain/shap_explainer.py`:
+   - `TreeExplainer` が `lgb.Booster` を直接受け取ることを確認。必要に応じて型ヒントを調整。
+2. `lizyml/persistence/exporter.py` / `loader.py`:
+   - `lgb.Booster` の joblib シリアライズが動作することを確認。
+   - `format_version=1` の既存保存モデルのロード互換を確認（旧形式の sklearn wrapper ベースのモデルも復元可能にする）。
+3. テスト:
+   - SHAP が Booster 直接入力で動作する。
+   - export / load のラウンドトリップが動作する。
+   - 既存の persistence テストに回帰がない。
+
+### 24-F: テスト更新と回帰確認
+
+1. `tests/test_estimators/test_estimators.py`:
+   - `get_native_model()` の戻り値型チェックを `lgb.Booster` に更新。
+   - `.booster_` 経由のアクセスを直接 Booster アクセスに更新。
+2. `tests/test_e2e/test_model_facade.py`:
+   - `params_table()` テストの `.booster_` アクセスを更新。
+3. 全テスト（782件）の pass を確認。
+4. notebook テスト（`tutorial_regression_tuning_lgbm.ipynb`）の間欠エラー解消を確認（複数回実行）。
+
+### DoD
+
+- 24-A: `lgb.train()` 経由で regression / binary / multiclass が学習でき、`best_iteration` / early stopping が動作する。
+- 24-B: `predict()` / `predict_proba()` / `predict_raw()` の出力 shape が移行前と同一であり、全タスクのテストが pass する。
+- 24-C: `importance()` / `get_native_model()` が Booster 直接で動作し、`params_table()` が回帰しない。
+- 24-D: `eval_result` による学習履歴収集が cv_trainer / refit_trainer で動作し、学習曲線プロットが回帰しない。
+- 24-E: SHAP / export / load が回帰しない。
+- 24-F: 全テスト（861件）が pass し、notebook テストの間欠エラーが解消される（notebook 5/5 pass 確認済み）。
+- 24-G: `_build_params()` が Booster 名称へ完全正規化し、対応ユニットテストが pass する。
+- 24-H: テスト件数が実測値で記録される。
+- 24-I: `H-0041` の Status が `accepted` に更新される。
+
+### Phase 24 残タスク（Requirements Audit 2026-03-07）
+
+**HISTORY:** H-0041
+**SKILL:** skills/add-estimator-adapter/SKILL.md, skills/testing/SKILL.md, skills/spec-update/SKILL.md
+
+1. **24-G: Booster パラメーター名正規化の補完**
+   - `lizyml/estimators/lgbm.py::_build_params()` で `params.random_state` / `params.verbose` を `seed` / `verbosity` に正規化する。
+   - `seed` / `verbosity` が同時指定された場合の優先順位を実装・テストで固定する。
+   - `_build_params()` 後に Booster 非推奨キー（`random_state`, `verbose`, `n_estimators`）が残らないことをテストで担保する。
+2. **24-H: 完了判定用テスト基準の更新**
+   - Phase 24 DoD の「全テスト（782件）」を現行件数に更新し、実測 pass 結果で固定する。
+   - `tests/test_notebooks/test_notebook_execution.py -k tuning` を複数回実行し、間欠エラー非再発を記録する。
+3. **24-I: 仕様記録の状態整合**
+   - Phase 24 DoD 達成後に `HISTORY.md` の `H-0041` を `proposed` から `accepted` に更新する。
+
+### Phase 24 残タスク DoD
+
+- 24-G: `_build_params()` が Booster 名称へ完全正規化し、対応ユニットテストが pass する。
+- 24-H: 現行テスト件数ベースのフルテストが pass し、tuning notebook 実行テストの複数回 pass を確認できる。
+- 24-I: `H-0041` の Status が `accepted` になり、PLAN/BLUEPRINT/HISTORY の記載が矛盾しない。
 
 ---
 

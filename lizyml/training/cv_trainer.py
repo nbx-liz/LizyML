@@ -206,10 +206,7 @@ class CVTrainer:
             if_pred_per_fold.append(fold_train_pred)
 
             # --- Collect history ----------------------------------------------
-            native = estimator.get_native_model()
-            eval_hist: dict[str, Any] = {}
-            if hasattr(native, "evals_result_"):
-                eval_hist = dict(native.evals_result_)
+            eval_hist: dict[str, Any] = dict(estimator.eval_results)
             history.append(
                 {
                     "best_iteration": estimator.best_iteration,

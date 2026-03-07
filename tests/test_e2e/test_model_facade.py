@@ -403,7 +403,7 @@ class TestRatioParamsInnerTrainSize:
         # Expected: n_outer_train ≈ 200 (300 * 2/3), inner_train ≈ 160 (200 * 0.8)
         # min_data_in_leaf = ceil(160 * 0.1) = 16
         # NOT ceil(300 * 0.1) = 30
-        booster = m.fit_result.models[0].get_native_model().booster_
+        booster = m.fit_result.models[0].get_native_model()
         mdil = int(booster.params["min_data_in_leaf"])
 
         # Full dataset would give ceil(300 * 0.1) = 30

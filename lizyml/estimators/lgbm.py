@@ -18,7 +18,6 @@ from lizyml.estimators.base import BaseEstimatorAdapter, ImportanceKind
 
 try:
     import lightgbm as lgb
-    from lightgbm import LGBMClassifier, LGBMRegressor
 except ImportError as e:  # pragma: no cover
     raise LizyMLError(
         code=ErrorCode.OPTIONAL_DEP_MISSING,
@@ -60,7 +59,10 @@ _COMMON_DEFAULTS: dict[str, Any] = {
 
 @EstimatorRegistry.register("lgbm")
 class LGBMAdapter(BaseEstimatorAdapter):
-    """LightGBM adapter supporting regression, binary, and multiclass tasks.
+    """LightGBM adapter using the Booster API (``lgb.train``).
+
+    Uses the native Booster API instead of the sklearn wrapper to avoid
+    an intermittent ``model_to_string()`` bug (microsoft/LightGBM#7186).
 
     Args:
         task: ML task type.
@@ -89,9 +91,10 @@ class LGBMAdapter(BaseEstimatorAdapter):
         self.verbose_eval = verbose_eval
         self.random_state = random_state
 
-        self._model: LGBMRegressor | LGBMClassifier | None = None
+        self._model: lgb.Booster | None = None
         self._best_iteration: int | None = None
         self._feature_names: list[str] = []
+        self._eval_results: dict[str, Any] = {}
 
     def update_params(self, params: dict[str, Any]) -> None:
         """Update params before fit(). Used for per-fold ratio resolution."""
@@ -110,7 +113,7 @@ class LGBMAdapter(BaseEstimatorAdapter):
         categorical_feature: list[str] | None = None,
         **kwargs: Any,
     ) -> LGBMAdapter:
-        """Fit the LightGBM model.
+        """Fit the LightGBM model via Booster API.
 
         Args:
             X_train: Training features.
@@ -118,21 +121,43 @@ class LGBMAdapter(BaseEstimatorAdapter):
             X_valid: Optional validation features for early stopping.
             y_valid: Optional validation target for early stopping.
             categorical_feature: List of categorical column names.
-            **kwargs: Forwarded to the underlying LightGBM estimator's ``fit``.
+            **kwargs: Additional keyword arguments. ``sample_weight`` is
+                extracted and passed to ``lgb.Dataset(weight=...)``.
         """
         self._feature_names = list(X_train.columns)
-        base_params = self._build_params()
-        base_params.update(self.params)
+        params, num_boost_round = self._build_params()
+
+        cat_feature: list[str] | Literal["auto"] = categorical_feature or "auto"
+        sample_weight = kwargs.pop("sample_weight", None)
+
+        train_set = lgb.Dataset(
+            X_train,
+            label=y_train,
+            weight=sample_weight,
+            categorical_feature=cat_feature,
+            free_raw_data=False,
+        )
 
         callbacks: list[Any] = []
+        valid_sets: list[lgb.Dataset] | None = None
+        valid_names: list[str] | None = None
+
         if self.verbose_eval == -1:
             callbacks.append(lgb.log_evaluation(period=-1))
         elif self.verbose_eval > 0:
             callbacks.append(lgb.log_evaluation(period=self.verbose_eval))
 
-        eval_set = None
         if X_valid is not None and y_valid is not None:
-            eval_set = [(X_valid, y_valid)]
+            valid_set = lgb.Dataset(
+                X_valid,
+                label=y_valid,
+                reference=train_set,
+                categorical_feature=cat_feature,
+                free_raw_data=False,
+            )
+            valid_sets = [valid_set]
+            valid_names = ["valid_0"]
+
             if self.early_stopping_rounds is not None:
                 callbacks.append(
                     lgb.early_stopping(
@@ -141,24 +166,21 @@ class LGBMAdapter(BaseEstimatorAdapter):
                     )
                 )
 
-        cat_feature = categorical_feature or "auto"
+        self._eval_results = {}
+        callbacks.append(lgb.record_evaluation(self._eval_results))
 
-        if self.task == "regression":
-            self._model = LGBMRegressor(**base_params)
-        else:
-            self._model = LGBMClassifier(**base_params)
-
-        self._model.fit(
-            X_train,
-            y_train,
-            eval_set=eval_set,  # type: ignore[arg-type]
-            categorical_feature=cat_feature,  # type: ignore[arg-type]
+        self._model = lgb.train(
+            params,
+            train_set,
+            num_boost_round=num_boost_round,
+            valid_sets=valid_sets,
+            valid_names=valid_names,
             callbacks=callbacks,
-            **kwargs,
+            keep_training_booster=True,
         )
 
-        if hasattr(self._model, "best_iteration_") and self._model.best_iteration_ > 0:
-            self._best_iteration = int(self._model.best_iteration_)
+        if self._model.best_iteration > 0:
+            self._best_iteration = self._model.best_iteration
 
         return self
 
@@ -167,10 +189,19 @@ class LGBMAdapter(BaseEstimatorAdapter):
     # ------------------------------------------------------------------
 
     def predict(self, X: pd.DataFrame) -> npt.NDArray[np.float64]:
-        """Return raw predictions."""
-        model = self._require_fitted()
-        result: npt.NDArray[np.float64] = model.predict(X)
-        return result
+        """Return predictions (regression values or class labels)."""
+        booster = self._require_fitted()
+        if self.task == "regression":
+            raw = booster.predict(X)
+            result: npt.NDArray[np.float64] = np.asarray(raw, dtype=np.float64)
+            return result
+        raw_proba = booster.predict(X)
+        proba: npt.NDArray[np.float64] = np.asarray(raw_proba, dtype=np.float64)
+        if self.task == "binary":
+            labels: npt.NDArray[np.float64] = (proba > 0.5).astype(np.float64)
+            return labels
+        labels_mc: npt.NDArray[np.float64] = np.argmax(proba, axis=1).astype(np.float64)
+        return labels_mc
 
     def predict_proba(self, X: pd.DataFrame) -> npt.NDArray[np.float64]:
         """Return class probabilities.
@@ -188,15 +219,14 @@ class LGBMAdapter(BaseEstimatorAdapter):
                 user_message="predict_proba is not available for regression tasks.",
                 context={"task": self.task},
             )
-        clf = self._require_fitted()
-        if not isinstance(clf, LGBMClassifier):
-            raise LizyMLError(  # pragma: no cover
-                code=ErrorCode.UNSUPPORTED_TASK,
-                user_message="predict_proba requires a classifier.",
-                context={"task": self.task},
-            )
-        result: npt.NDArray[np.float64] = clf.predict_proba(X)
-        return result
+        booster = self._require_fitted()
+        raw = booster.predict(X)
+        proba: npt.NDArray[np.float64] = np.asarray(raw, dtype=np.float64)
+        if self.task == "binary":
+            result: npt.NDArray[np.float64] = np.column_stack([1.0 - proba, proba])
+            return result
+        # multiclass: already (n, k)
+        return proba
 
     def predict_raw(self, X: pd.DataFrame) -> npt.NDArray[np.float64]:
         """Return raw scores (logits) before sigmoid/softmax.
@@ -206,10 +236,9 @@ class LGBMAdapter(BaseEstimatorAdapter):
         """
         if self.task == "regression":
             return self.predict(X)
-        model = self._require_fitted()
-        result: npt.NDArray[np.float64] = model.booster_.predict(  # type: ignore[assignment]
-            X, raw_score=True
-        )
+        booster = self._require_fitted()
+        raw = booster.predict(X, raw_score=True)
+        result: npt.NDArray[np.float64] = np.asarray(raw, dtype=np.float64)
         return result
 
     # ------------------------------------------------------------------
@@ -222,9 +251,9 @@ class LGBMAdapter(BaseEstimatorAdapter):
         Args:
             kind: ``"split"`` or ``"gain"``.
         """
-        model = self._require_fitted()
+        booster = self._require_fitted()
         importance_type = "split" if kind == "split" else "gain"
-        values = model.booster_.feature_importance(importance_type=importance_type)
+        values = booster.feature_importance(importance_type=importance_type)
         return {
             name: float(val)
             for name, val in zip(self._feature_names, values, strict=True)
@@ -234,7 +263,7 @@ class LGBMAdapter(BaseEstimatorAdapter):
     # Native model
     # ------------------------------------------------------------------
 
-    def get_native_model(self) -> LGBMRegressor | LGBMClassifier:
+    def get_native_model(self) -> lgb.Booster:
         return self._require_fitted()
 
     # ------------------------------------------------------------------
@@ -245,23 +274,71 @@ class LGBMAdapter(BaseEstimatorAdapter):
     def best_iteration(self) -> int | None:
         return self._best_iteration
 
+    @property
+    def eval_results(self) -> dict[str, Any]:
+        """Evaluation results collected during training via ``record_evaluation``.
+
+        Structure: ``{"valid_0": {"metric_name": [val_per_iter, ...]}}``.
+        Empty dict when no validation set was used.
+        """
+        return self._eval_results
+
+    # ------------------------------------------------------------------
+    # Serialization (backward compat with sklearn wrapper models)
+    # ------------------------------------------------------------------
+
+    def __getstate__(self) -> dict[str, Any]:
+        return self.__dict__.copy()
+
+    def __setstate__(self, state: dict[str, Any]) -> None:
+        self.__dict__.update(state)
+        # Old format may lack _eval_results
+        if not hasattr(self, "_eval_results"):
+            object.__setattr__(self, "_eval_results", {})
+        # Migrate old sklearn wrapper (_model = LGBMRegressor/LGBMClassifier)
+        model = self._model
+        if model is not None and hasattr(model, "booster_"):
+            self._model = model.booster_
+            if hasattr(model, "best_iteration_") and model.best_iteration_ > 0:
+                self._best_iteration = int(model.best_iteration_)
+
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
 
-    def _build_params(self) -> dict[str, Any]:
+    def _build_params(self) -> tuple[dict[str, Any], int]:
+        """Build LightGBM params dict and num_boost_round.
+
+        Returns:
+            ``(params_dict, num_boost_round)`` tuple.
+            ``params_dict`` uses Booster API naming (``seed``, ``verbosity``).
+            ``num_boost_round`` is extracted from ``n_estimators``.
+        """
         params: dict[str, Any] = {
             "objective": _TASK_OBJECTIVE[self.task],
             "metric": _TASK_METRIC[self.task],
-            **_COMMON_DEFAULTS,
-            "random_state": self.random_state,
-            "verbose": -1,
+            **{k: v for k, v in _COMMON_DEFAULTS.items() if k != "n_estimators"},
+            "seed": self.random_state,
+            "verbosity": -1,
         }
         if self.task == "multiclass" and self.num_class is not None:
             params["num_class"] = self.num_class
-        return params
 
-    def _require_fitted(self) -> LGBMRegressor | LGBMClassifier:
+        # Extract num_boost_round from user params (n_estimators) or use default
+        user_params = dict(self.params)
+        num_boost_round = int(
+            user_params.pop("n_estimators", _COMMON_DEFAULTS["n_estimators"])
+        )
+        # Normalize sklearn param names → Booster API names
+        if "random_state" in user_params:
+            user_params.setdefault("seed", user_params.pop("random_state"))
+        if "verbose" in user_params:
+            user_params.setdefault("verbosity", user_params.pop("verbose"))
+        params.update(user_params)
+
+        return params, num_boost_round
+
+    def _require_fitted(self) -> lgb.Booster:
         if self._model is None:
             raise LizyMLError(
                 code=ErrorCode.MODEL_NOT_FIT,
