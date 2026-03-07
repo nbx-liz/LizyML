@@ -36,6 +36,7 @@ BLUEPRINT.md に基づき、Config駆動のML分析ライブラリ LizyML をゼ
 | 22 | 監査乖離の是正 + 追加開発 | load 後診断 API, Config デフォルト修正, tuning_plot, fit_result プロパティ, Notebook 全項目 Config, params_table, n_rows inner train 基準, ドキュメント整合 | Phase 20, 21 |
 | 23 | Calibration 強化・時系列拡張 | raw score Calibration, Beta Calibration, PurgedTimeSeries/GroupTimeSeries Config 接続, split_summary, 時系列 Notebook, Logging 統一 | Phase 22 |
 | 24 | LGBMAdapter Booster API 移行 | sklearn wrapper → `lgb.train()` 移行, predict/proba/raw shape 維持, get_native_model 戻り値変更, 学習履歴適応, persistence 互換 | Phase 23 |
+| 25 | Model Facade 分割・テスト基盤改善 ✅ | model.py mixin 分割, conftest 集約, parametrize 強化, CI develop 対応, カバレッジ閾値, slow テストスキップ, optional dep テスト補完 | Phase 24 |
 
 ---
 
@@ -2115,6 +2116,83 @@ LightGBM の sklearn wrapper（`LGBMRegressor` / `LGBMClassifier`）に、`early
 
 Phase 2（Config）・Phase 4（型契約）・Phase 14（Persistence）が特に該当する。
 これらのフェーズ開始時に、まず Proposal を HISTORY.md に記録してから実装に入る。
+
+---
+
+## Phase 25: Model Facade 分割・テスト基盤改善
+
+**HISTORY:** H-0042, H-0043
+**SKILL:** skills/testing/SKILL.md, skills/dev-environment/SKILL.md
+**依存:** Phase 24
+
+### 背景
+
+品質評価の結果、以下の改善点が特定された：
+- `core/model.py` が 1,451行に肥大化しており、mixin 分割で可読性・保守性を改善できる（H-0042）。
+- テストスイートのヘルパー関数が8+ファイルで重複定義されており、conftest への集約と parametrize 活用で DRY 化できる（H-0043）。
+- CI が main PR のみで実行されており、develop PR でも品質ゲートを回すべき（H-0043）。
+
+### 25-A: Model Facade の Mixin 分割
+
+1. `lizyml/core/_model_plots.py` を新規作成し、`ModelPlotsMixin` に plot 系メソッド（8メソッド）を移動する。
+   - `residuals_plot()`, `roc_curve_plot()`, `calibration_plot()`, `probability_histogram_plot()`, `importance_plot()`, `plot_learning_curve()`, `plot_oof_distribution()`, `tuning_plot()`
+2. `lizyml/core/_model_tables.py` を新規作成し、`ModelTablesMixin` に table/accessor 系メソッド（7メソッド）を移動する。
+   - `evaluate_table()`, `residuals()`, `confusion_matrix()`, `importance()`, `params_table()`, `split_summary()`, `tuning_table()`
+3. `lizyml/core/_model_persistence.py` を新規作成し、`ModelPersistenceMixin` に persistence 系メソッド（3メソッド）を移動する。
+   - `export()`, `_resolve_export_path()`, `load()` (classmethod)
+4. `lizyml/core/model.py` を `Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin)` の多重継承に変更する。
+   - `model.py` には `__init__()`, `fit()`, `predict()`, `evaluate()`, `tune()` とプライベートヘルパーのみを残す。
+5. 各 mixin で `TYPE_CHECKING` ガードにより循環参照を回避する。
+6. mypy strict / ruff がクリーンであることを確認する。
+
+### 25-B: conftest.py へのヘルパー集約
+
+1. `tests/conftest.py` に共通ヘルパーを定義する：
+   - `make_regression_df(n=200, seed=0)` → `pd.DataFrame`
+   - `make_binary_df(n=200, seed=0)` → `pd.DataFrame`
+   - `make_multiclass_df(n=200, n_classes=3, seed=0)` → `pd.DataFrame`
+   - `make_config(task, **overrides)` → `dict`
+2. 各テストファイルのローカルヘルパー（`_reg_df()`, `_bin_df()`, `_cfg()` 等）を conftest のヘルパーに置き換える。
+3. サブディレクトリ固有のフィクスチャはサブディレクトリの `conftest.py` に残す。
+
+### 25-C: parametrize 強化
+
+1. `tests/test_e2e/` でタスク横断テストを `@pytest.mark.parametrize("task", ["regression", "binary", "multiclass"])` で統合する。
+2. `tests/test_metrics/` でタスク別の重複テストを統合する。
+3. 統合後もテスト件数（861件以上）と機能カバレッジを維持する。
+
+### 25-D: CI の develop ブランチ対応
+
+1. `.github/workflows/ci.yml` の `on.pull_request.branches` に `develop` を追加する。
+2. develop PR では slow テストを除外する（`-m "not slow"`）。main PR では全テストを実行する（`-m ""`）。
+3. `--cov-fail-under=95` を CI の pytest 実行に追加する。
+
+### 25-E: slow テストのローカルスキップ
+
+1. `pyproject.toml` の `[tool.pytest.ini_options]` に `addopts = "-m 'not slow'"` を追加する。
+2. CI（main PR）では `-m ""` で上書きして全テストを実行する。
+
+### 25-F: optional dependency の "missing" テスト補完
+
+1. plotly 未インストール時に `OPTIONAL_DEP_MISSING` エラーが発生するテストを追加する。
+2. scipy 未インストール時に `OPTIONAL_DEP_MISSING` エラーが発生するテストを追加する。
+3. テストは `unittest.mock.patch` で該当モジュールの `_plotly` / `_scipy` 変数を `None` にする方式で実装する（既存の optuna / shap パターンに準拠）。
+
+### 25-G: リリース（v0.1.1）
+
+1. CHANGELOG.md に `[0.1.1]` エントリを追加する。Phase 25 の変更内容（内部リファクタリング・テスト基盤改善・CI 拡張）を記載する。
+2. develop → main の PR を作成し、Merge commit で統合する。
+3. main に `git tag v0.1.1` を打つ。hatch-vcs により自動的にバージョンが反映される。
+
+### DoD
+
+- 25-A: `model.py` が 700行以下に収まり、全テスト（861件以上）が回帰しない。mypy strict / ruff がクリーン。
+- 25-B: 共通ヘルパーの重複定義が `tests/conftest.py` に集約され、各テストファイルからローカル定義が除去される。
+- 25-C: parametrize によりテストロジックの重複が削減され、テスト件数とカバレッジが維持される。
+- 25-D: CI が develop PR でも実行される（slow 除外）。main PR では全テスト実行。カバレッジ 95% 未満で CI が失敗する。
+- 25-E: `uv run pytest` でローカル実行時に slow テストがスキップされる。
+- 25-F: plotly / scipy の未インストール時テストが追加され、全 optional dependency の "missing" パスがカバーされる。
+- 25-G: CHANGELOG.md に `[0.1.1]` が記載され、main に `v0.1.1` タグが打たれる。
 
 ---
 
