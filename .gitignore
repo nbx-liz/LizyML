@@ -7,8 +7,9 @@ __pycache__/
 *.so
 
 # =========================
-# Distributions & Packaging
+# Distributions & Packaging (hatch-vcs auto-generated)
 # =========================
+lizyml/_version.py
 build/
 develop-eggs/
 dist/
