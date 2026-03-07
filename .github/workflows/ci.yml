@@ -2,7 +2,7 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [main, develop]
   push:
     branches: [main]
 
@@ -36,7 +36,12 @@ jobs:
         run: uv run mypy lizyml/
 
       - name: Test (pytest)
-        run: uv run pytest tests/ --cov=lizyml --cov-report=term-missing -q
+        run: |
+          if [ "${{ github.base_ref }}" = "main" ]; then
+            uv run pytest tests/ -m "" --cov=lizyml --cov-report=term-missing --cov-fail-under=95 -q
+          else
+            uv run pytest tests/ -m "not slow" --cov=lizyml --cov-report=term-missing --cov-fail-under=95 -q
+          fi
 
   quality-lowest-deps:
     name: Quality (lowest-direct deps)
