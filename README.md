@@ -446,6 +446,9 @@ Runtime notes:
 
 - Calibration is supported only for `task="binary"`.
 - `method="beta"` is supported (install optional dependency: `pip install 'lizyml[calibration]'`).
+- Calibration cross-fit splits inherit `split.method` and its parameters
+  (e.g. `gap`, `purge_gap`, `embargo`, group boundaries). Only the fold
+  count is overridden by `calibration.n_splits`.
 
 ### Loader/Override Behavior
 

@@ -286,6 +286,11 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
                         "split_method": cfg.split.method,
                         "calibration_n_splits": cfg.calibration.n_splits,
                         "n_samples": len(y_arr),
+                        **(
+                            {"n_groups": len(np.unique(groups))}
+                            if groups is not None
+                            else {}
+                        ),
                     },
                 ) from e
             calibration_result = cross_fit_calibrate(
