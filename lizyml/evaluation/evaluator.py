@@ -55,9 +55,10 @@ class Evaluator:
 
         {
             "raw": {
-                "oof":         {metric_name: float, ...},
-                "if_mean":     {metric_name: float, ...},
-                "if_per_fold": [{metric_name: float}, ...],
+                "oof":          {metric_name: float, ...},
+                "oof_per_fold": [{metric_name: float}, ...],
+                "if_mean":      {metric_name: float, ...},
+                "if_per_fold":  [{metric_name: float}, ...],
             },
             "calibrated": { ... }   # populated only when calibrator is set
         }
@@ -96,6 +97,15 @@ class Evaluator:
         # --- OOF metrics -----------------------------------------------------
         oof_scores = _compute_metrics(metrics, y_arr, fit_result.oof_pred, self.task)
 
+        # --- Per-fold OOF metrics (valid_idx) --------------------------------
+        oof_per_fold: list[dict[str, float]] = []
+        for _, valid_idx in fit_result.splits.outer:
+            y_valid = y_arr[valid_idx]
+            oof_valid_pred = fit_result.oof_pred[valid_idx]
+            oof_per_fold.append(
+                _compute_metrics(metrics, y_valid, oof_valid_pred, self.task)
+            )
+
         # --- Per-fold IF metrics ---------------------------------------------
         if_per_fold: list[dict[str, float]] = []
         for k, (train_idx, _) in enumerate(fit_result.splits.outer):
@@ -107,11 +117,13 @@ class Evaluator:
         # --- IF mean ---------------------------------------------------------
         if_mean: dict[str, float] = {}
         for m in metrics:
-            if_mean[m.name] = float(np.mean([fold[m.name] for fold in if_per_fold]))
+            vals = [fold[m.name] for fold in if_per_fold]
+            if_mean[m.name] = float(np.mean(vals))
 
         result: dict[str, Any] = {
             "raw": {
                 "oof": oof_scores,
+                "oof_per_fold": oof_per_fold,
                 "if_mean": if_mean,
                 "if_per_fold": if_per_fold,
             }
