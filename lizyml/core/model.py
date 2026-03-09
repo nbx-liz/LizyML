@@ -43,6 +43,7 @@ from lizyml.config.schema import (
     LizyMLConfig,
 )
 from lizyml.core._model_factories import (
+    build_calibration_splitter,
     build_inner_valid,
     build_splitter,
     make_inner_valid_factory,
@@ -266,12 +267,32 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
                 if fit_result.oof_raw_scores is not None
                 else fit_result.oof_pred
             )
+            # Build calibration splitter inheriting split.method (H-0044)
+            cal_splitter = build_calibration_splitter(cfg)
+            y_arr = y.to_numpy()
+            try:
+                cal_split_indices = list(
+                    cal_splitter.split(len(y_arr), y=y_arr, groups=groups)
+                )
+            except ValueError as e:
+                raise LizyMLError(
+                    code=ErrorCode.CONFIG_INVALID,
+                    user_message=(
+                        f"Cannot create calibration splits with "
+                        f"method='{cfg.split.method}' and "
+                        f"n_splits={cfg.calibration.n_splits}: {e}"
+                    ),
+                    context={
+                        "split_method": cfg.split.method,
+                        "calibration_n_splits": cfg.calibration.n_splits,
+                        "n_samples": len(y_arr),
+                    },
+                ) from e
             calibration_result = cross_fit_calibrate(
                 oof_scores=cal_scores,
-                y=y.to_numpy(),
+                y=y_arr,
                 calibrator_factory=lambda: get_calibrator(method, params=cal_params),
-                n_splits=cfg.calibration.n_splits,
-                random_state=cfg.training.seed,
+                split_indices=cal_split_indices,
             )
             fit_result.calibrator = calibration_result
             # Store calibration split indices for reproducibility / audit

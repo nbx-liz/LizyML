@@ -20,6 +20,7 @@ from lizyml.calibration.beta import BetaCalibrator
 from lizyml.calibration.cross_fit import CalibrationResult, cross_fit_calibrate
 from lizyml.calibration.registry import get_calibrator
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.splitters.kfold import KFoldSplitter
 from tests._helpers import make_binary_df, make_config
 
 
@@ -81,12 +82,14 @@ class TestBetaRegistry:
 class TestBetaCrossFit:
     def test_cross_fit_leakage(self) -> None:
         logits, y = _oof_logits()
+        splits = list(
+            KFoldSplitter(n_splits=5, shuffle=True, random_state=42).split(len(logits))
+        )
         result = cross_fit_calibrate(
             oof_scores=logits,
             y=y,
             calibrator_factory=lambda: BetaCalibrator(),
-            n_splits=5,
-            random_state=42,
+            split_indices=splits,
         )
         assert isinstance(result, CalibrationResult)
         assert result.calibrated_oof.shape == logits.shape
