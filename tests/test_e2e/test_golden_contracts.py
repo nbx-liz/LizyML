@@ -90,7 +90,12 @@ class TestFitResultContract:
     def test_metrics_structure(self) -> None:
         result = Model(make_config("regression")).fit(data=make_regression_df(n=100))
         assert "raw" in result.metrics
-        assert set(result.metrics["raw"].keys()) == {"oof", "if_mean", "if_per_fold"}
+        assert set(result.metrics["raw"].keys()) == {
+            "oof",
+            "oof_per_fold",
+            "if_mean",
+            "if_per_fold",
+        }
 
     def test_calibrator_none_when_no_calibration(self) -> None:
         result = Model(make_config("regression")).fit(data=make_regression_df(n=100))

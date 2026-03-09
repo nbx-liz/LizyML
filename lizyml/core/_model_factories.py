@@ -27,23 +27,19 @@ InnerValidType = (
 )
 
 
-def build_splitter(cfg: LizyMLConfig) -> BaseSplitter:
-    """Instantiate splitter from config."""
-    split_cfg = cfg.split
-    method = split_cfg.method
-    n_splits = split_cfg.n_splits
-    random_state = getattr(split_cfg, "random_state", 42)
-    shuffle = getattr(split_cfg, "shuffle", True)
+def _build_splitter_for_method(
+    split_cfg: object,
+    n_splits: int,
+) -> BaseSplitter:
+    """Build a splitter from split config, using the given *n_splits*.
 
-    # Warn if classification task explicitly uses kfold (H-0013)
-    if method == "kfold" and cfg.task in ("binary", "multiclass"):
-        warnings.warn(
-            f"task='{cfg.task}' with split.method='kfold' does not "
-            "preserve class distribution. Consider using 'stratified_kfold' "
-            "instead.",
-            UserWarning,
-            stacklevel=2,
-        )
+    Shared implementation for both outer CV and calibration CV splitters.
+    The *n_splits* parameter is separated so that callers can override it
+    (e.g. ``calibration.n_splits`` instead of ``split.n_splits``).
+    """
+    method: str = getattr(split_cfg, "method", "kfold")
+    random_state: int = getattr(split_cfg, "random_state", 42)
+    shuffle: bool = getattr(split_cfg, "shuffle", True)
 
     if method == "stratified_kfold":
         return StratifiedKFoldSplitter(
@@ -85,6 +81,33 @@ def build_splitter(cfg: LizyMLConfig) -> BaseSplitter:
         )
     # Default: kfold
     return KFoldSplitter(n_splits=n_splits, shuffle=shuffle, random_state=random_state)
+
+
+def build_splitter(cfg: LizyMLConfig) -> BaseSplitter:
+    """Instantiate outer CV splitter from config."""
+    split_cfg = cfg.split
+
+    # Warn if classification task explicitly uses kfold (H-0013)
+    if split_cfg.method == "kfold" and cfg.task in ("binary", "multiclass"):
+        warnings.warn(
+            f"task='{cfg.task}' with split.method='kfold' does not "
+            "preserve class distribution. Consider using 'stratified_kfold' "
+            "instead.",
+            UserWarning,
+            stacklevel=2,
+        )
+
+    return _build_splitter_for_method(split_cfg, split_cfg.n_splits)
+
+
+def build_calibration_splitter(cfg: LizyMLConfig) -> BaseSplitter:
+    """Instantiate calibration CV splitter from config (H-0044).
+
+    Inherits ``split.method`` and its parameters (gap, purge_gap, embargo,
+    etc.) but uses ``calibration.n_splits`` for the fold count.
+    """
+    assert cfg.calibration is not None  # noqa: S101
+    return _build_splitter_for_method(cfg.split, cfg.calibration.n_splits)
 
 
 def _resolve_auto_inner_valid(

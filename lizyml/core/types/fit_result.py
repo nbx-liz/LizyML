@@ -30,6 +30,7 @@ class FitResult:
                 {
                     "raw": {
                         "oof": {metric_name: float, ...},
+                        "oof_per_fold": [{metric_name: float}, ...],
                         "if_mean": {metric_name: float, ...},
                         "if_per_fold": [{metric_name: float}, ...],
                     },
