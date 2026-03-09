@@ -34,8 +34,9 @@ class ModelTablesMixin:
     def evaluate_table(self) -> pd.DataFrame:
         """Return evaluation metrics as a formatted DataFrame.
 
-        Rows are metric names, columns are ``oof``, ``if_mean``,
-        ``fold_0`` … ``fold_N-1``, and ``cal_oof`` when calibrated.
+        Rows are metric names, columns are ``if_mean``, ``oof``,
+        ``fold_0`` … ``fold_N-1`` (OOF per-fold on valid_idx),
+        and ``cal_oof`` when calibrated.
 
         Returns:
             :class:`pd.DataFrame` with metric values.
