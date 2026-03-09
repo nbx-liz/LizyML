@@ -37,9 +37,9 @@ BLUEPRINT.md に基づき、Config駆動のML分析ライブラリ LizyML をゼ
 | 23 | Calibration 強化・時系列拡張 | raw score Calibration, Beta Calibration, PurgedTimeSeries/GroupTimeSeries Config 接続, split_summary, 時系列 Notebook, Logging 統一 | Phase 22 |
 | 24 | LGBMAdapter Booster API 移行 | sklearn wrapper → `lgb.train()` 移行, predict/proba/raw shape 維持, get_native_model 戻り値変更, 学習履歴適応, persistence 互換 | Phase 23 |
 | 25 | Model Facade 分割・テスト基盤改善 ✅ | model.py mixin 分割, conftest 集約, parametrize 強化, CI develop 対応, カバレッジ閾値, slow テストスキップ, optional dep テスト補完 | Phase 24 |
-| 26 | Calibration CV と Splitter 境界の整合 | calibration split を `split.method` 継承に統一, `calibration.n_splits` 独立維持, group/time/purge 境界の契約テスト追加 | Phase 25 |
-| 27 | Evaluation 表示契約の是正（fold_n=OOF） | Evaluator に `oof_per_fold` 追加, evaluate_table の `fold_n` を OOF-valid に変更, IF列は互換維持 | Phase 26 |
-| 28 | Calibration 契約テスト拡充 & Evaluation 分類仕様 | purged/group_time calibration テスト, 例外 context 正規化, oof_per_fold golden, IF/OOF 分類仕様, ドキュメント更新 | Phase 27 |
+| 26 | Calibration CV と Splitter 境界の整合 ✅ | calibration split を `split.method` 継承に統一, `calibration.n_splits` 独立維持, group/time/purge 境界の契約テスト追加 | Phase 25 |
+| 27 | Evaluation 表示契約の是正（fold_n=OOF） ✅ | Evaluator に `oof_per_fold` 追加, evaluate_table の `fold_n` を OOF-valid に変更, IF列は互換維持 | Phase 26 |
+| 28 | Calibration 契約テスト拡充 & Evaluation 分類仕様 ✅ | purged/group_time calibration テスト, 例外 context 正規化, oof_per_fold golden, IF/OOF 分類仕様, ドキュメント更新 | Phase 27 |
 
 ---
 

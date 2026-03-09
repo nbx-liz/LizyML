@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.2] - 2026-03-10
+
+### Changed
+
+- Calibration cross-fit splits now inherit `split.method` and its parameters (group/time/purge/embargo boundaries); only fold count is overridden by `calibration.n_splits` (H-0044)
+- `evaluate()` now returns `raw.oof_per_fold` metrics computed on each outer fold's valid indices; `evaluate_table()` fold columns changed from IF to OOF-per-fold (H-0045)
+- Calibration split failure now raises `LizyMLError(CONFIG_INVALID)` with `split_method`, `calibration_n_splits`, `n_samples`, and `n_groups` (when applicable) in context
+- BLUEPRINT §13.4: IF/OOF classification for diagnostic vs generalization monitoring APIs (H-0046)
+
+### Added
+
+- Contract tests for `purged_time_series` calibration splits (purge_gap + embargo boundary verification)
+- Contract tests for `group_time_series` calibration splits (group disjointness + temporal ordering)
+- Golden test coverage for `oof_per_fold` in metrics structure
+- README and notebook documentation for calibration split.method inheritance contract
+
 ## [0.1.1] - 2026-03-08
 
 ### Changed
