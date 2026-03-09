@@ -39,6 +39,7 @@ BLUEPRINT.md に基づき、Config駆動のML分析ライブラリ LizyML をゼ
 | 25 | Model Facade 分割・テスト基盤改善 ✅ | model.py mixin 分割, conftest 集約, parametrize 強化, CI develop 対応, カバレッジ閾値, slow テストスキップ, optional dep テスト補完 | Phase 24 |
 | 26 | Calibration CV と Splitter 境界の整合 | calibration split を `split.method` 継承に統一, `calibration.n_splits` 独立維持, group/time/purge 境界の契約テスト追加 | Phase 25 |
 | 27 | Evaluation 表示契約の是正（fold_n=OOF） | Evaluator に `oof_per_fold` 追加, evaluate_table の `fold_n` を OOF-valid に変更, IF列は互換維持 | Phase 26 |
+| 28 | Calibration 契約テスト拡充 & Evaluation 分類仕様 | purged/group_time calibration テスト, 例外 context 正規化, oof_per_fold golden, IF/OOF 分類仕様, ドキュメント更新 | Phase 27 |
 
 ---
 
@@ -2300,6 +2301,100 @@ BLUEPRINT §10.1 では splitter を outer CV / early stopping / calibration で
 - 27-B: `evaluate_table()` の `fold_n` が OOF-per-fold 値を返す。
 - 27-C: 評価契約テスト・ゴールデンテストが更新され、回帰がない。
 - 27-D: 類似 API の IF/OOF 意味付け一覧が BLUEPRINT/HISTORY に反映される（追加変更が必要な場合は Proposal 化される）。
+
+---
+
+## Phase 28: Calibration 契約テスト拡充 & Evaluation 分類仕様
+
+**SKILL:** skills/calibration/SKILL.md, skills/testing/SKILL.md, skills/exceptions-and-logging/SKILL.md, skills/spec-update/SKILL.md
+**依存:** Phase 27
+
+### 背景
+
+Phase 26 で calibration split の `split.method` 継承を実装したが、`purged_time_series` / `group_time_series` の calibration 契約テストが不足している。また calibration 分割不能時の例外が `ValueError | LizyMLError` の混在状態にある。Phase 27 の `oof_per_fold` 追加に伴い、ゴールデンテストの更新漏れと IF/OOF 分類仕様の明文化が残っている。
+
+### 28-A: purged_time_series calibration 契約テスト
+
+**File:** `tests/test_calibration/test_calibration_split.py`
+
+1. `TestCalibrationSplitPurgedTimeSeries` クラスを追加する。
+2. テスト項目:
+   - `test_train_before_valid_with_gap`: `max(train_idx) + purge_gap < min(valid_idx)` を検証する。
+   - `test_embargo_respected`: valid_idx 直後の embargo 区間が次 fold の train から除外されることを検証する。
+   - `test_calibration_n_splits_independent`: outer と calibration の fold 数が独立であることを検証する。
+3. `make_config` に `split_overrides={"purge_gap": N, "embargo": M}` を渡す。
+4. `make_binary_df` に `time_col="ts"` を指定して時系列データを生成する。
+
+### 28-B: group_time_series calibration 契約テスト
+
+**File:** `tests/test_calibration/test_calibration_split.py`
+
+1. `TestCalibrationSplitGroupTimeSeries` クラスを追加する。
+2. テスト項目:
+   - `test_no_group_overlap`: train/valid の group 重複がないことを検証する。
+   - `test_temporal_ordering`: train グループの最大時刻 < valid グループの最小時刻を検証する。
+   - `test_calibration_n_splits_independent`: outer と calibration の fold 数が独立であることを検証する。
+3. `make_config` に `split_method="group_time_series"`, `group_col="grp"`, `time_col="ts"` を渡す。
+4. `make_binary_df` に `group_col="grp"`, `time_col="ts"` を指定して生成する。
+
+### 28-C: calibration 分割不能例外の正規化
+
+**Files:** `lizyml/core/model.py`, `lizyml/splitters/*.py`, `tests/test_calibration/test_calibration_split.py`
+
+1. calibration split の `ValueError` を発生源（各 Splitter の `split()` メソッド）で確実に捕捉し、`LizyMLError(code=CONFIG_INVALID)` に変換する。
+   - `model.py` の既存 try/except が主要パスだが、Splitter 側の直接呼び出しも確認する。
+2. `context` に以下を必ず含める:
+   - `split_method`: 分割方式名
+   - `calibration_n_splits`: 要求 fold 数
+   - `n_samples`: サンプル数
+   - `n_groups`（group 系分割の場合）: グループ数
+3. `TestCalibrationSplitError.test_too_many_splits_raises` を更新:
+   - `pytest.raises((ValueError, LizyMLError))` → `pytest.raises(LizyMLError)` に変更する。
+   - `exc_info.value.code == ErrorCode.CONFIG_INVALID` を検証する。
+   - `context` に `split_method`, `calibration_n_splits`, `n_samples` が含まれることを検証する。
+4. group 系分割で group 数不足の場合のテストを追加する。
+
+### 28-D: ゴールデンテスト更新（oof_per_fold）
+
+**File:** `tests/test_core/test_contracts.py`
+
+1. `fit_result` fixture の `metrics` に `oof_per_fold` を追加する:
+   ```python
+   "oof_per_fold": [{"rmse": 0.5}],
+   ```
+2. `test_metrics_raw_structure` に `oof_per_fold` の存在チェックを追加する:
+   ```python
+   assert "oof_per_fold" in raw
+   assert isinstance(raw["oof_per_fold"], list)
+   ```
+
+### 28-E: H-0046 acceptance（IF/OOF 分類仕様）
+
+**Files:** `HISTORY.md`, `BLUEPRINT.md`
+
+1. `HISTORY.md` の H-0046 Status を `proposed` → `accepted` に変更する。
+2. Decision セクションを追加する（Phase 28 で BLUEPRINT §13.4 が確定した旨を記録）。
+3. `BLUEPRINT.md §13.4` の内容は Phase 27 のスペック更新で既に追加済み — 整合性を確認する。
+
+### 28-F: ドキュメント更新
+
+**Files:** `README.md`, `notebooks/tutorial_time_series_lgbm.ipynb`（該当箇所）
+
+1. `README.md` の calibration セクションに以下の契約を明記する:
+   - `calibration.n_splits` は fold 数のみ上書きする。
+   - 分割境界（group/time/purge）は `split.method` を継承する。
+2. Notebook の calibration 説明にも同じ契約を反映する:
+   - `tutorial_time_series_lgbm.ipynb` の calibration セルのコメントまたは Markdown セルに記述する。
+
+### DoD
+
+- 28-A: `purged_time_series` の calibration テストが purge_gap + embargo 境界を検証し、全パスする。
+- 28-B: `group_time_series` の calibration テストが group/time 境界を検証し、全パスする。
+- 28-C: calibration 分割不能時に `LizyMLError(CONFIG_INVALID)` が発生し、`context` に `split_method` / `calibration_n_splits` / `n_samples` が含まれる。既存テストが `LizyMLError` 前提に更新される。
+- 28-D: `tests/test_core/test_contracts.py` の metrics ゴールデンが `oof_per_fold` を含み、パスする。
+- 28-E: H-0046 が accepted となり、BLUEPRINT §13.4 との整合性が確認される。
+- 28-F: README と Notebook に calibration split 継承契約が明記される。
+- 品質ゲート全通過: `ruff check` / `ruff format --check` / `mypy` / `pytest`。
 
 ---
 
