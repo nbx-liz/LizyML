@@ -20,6 +20,10 @@ class TestFormatMetricsTable:
         metrics = {
             "raw": {
                 "oof": {"rmse": 0.5, "mae": 0.3},
+                "oof_per_fold": [
+                    {"rmse": 0.51, "mae": 0.31},
+                    {"rmse": 0.49, "mae": 0.29},
+                ],
                 "if_mean": {"rmse": 0.4, "mae": 0.25},
                 "if_per_fold": [
                     {"rmse": 0.38, "mae": 0.23},
@@ -39,12 +43,15 @@ class TestFormatMetricsTable:
         assert list(df.columns[:2]) == ["if_mean", "oof"]
         assert df.loc["rmse", "oof"] == pytest.approx(0.5)
         assert df.loc["mae", "if_mean"] == pytest.approx(0.25)
-        assert df.loc["rmse", "fold_0"] == pytest.approx(0.38)
+        # fold columns use oof_per_fold (H-0045), not if_per_fold
+        assert df.loc["rmse", "fold_0"] == pytest.approx(0.51)
+        assert df.loc["rmse", "fold_1"] == pytest.approx(0.49)
 
     def test_with_calibrated(self) -> None:
         metrics = {
             "raw": {
                 "oof": {"logloss": 0.5},
+                "oof_per_fold": [{"logloss": 0.52}],
                 "if_mean": {"logloss": 0.45},
                 "if_per_fold": [{"logloss": 0.45}],
             },
@@ -60,6 +67,7 @@ class TestFormatMetricsTable:
         metrics = {
             "raw": {
                 "oof": {"rmse": 0.5},
+                "oof_per_fold": [],
                 "if_mean": {"rmse": 0.4},
                 "if_per_fold": [],
             }
@@ -71,6 +79,13 @@ class TestFormatMetricsTable:
         metrics = {
             "raw": {
                 "oof": {"rmse": 0.5},
+                "oof_per_fold": [
+                    {"rmse": 0.50},
+                    {"rmse": 0.51},
+                    {"rmse": 0.52},
+                    {"rmse": 0.53},
+                    {"rmse": 0.54},
+                ],
                 "if_mean": {"rmse": 0.4},
                 "if_per_fold": [
                     {"rmse": 0.38},
@@ -90,9 +105,24 @@ class TestFormatMetricsTable:
         assert df.empty
 
     def test_empty_raw(self) -> None:
-        raw = {"oof": {}, "if_mean": {}, "if_per_fold": []}
+        raw = {"oof": {}, "oof_per_fold": [], "if_mean": {}, "if_per_fold": []}
         df = format_metrics_table({"raw": raw})
         assert df.empty
+
+    def test_fold_columns_use_oof_per_fold(self) -> None:
+        """fold_N columns must use oof_per_fold, not if_per_fold (H-0045)."""
+        metrics = {
+            "raw": {
+                "oof": {"rmse": 0.5},
+                "oof_per_fold": [{"rmse": 0.55}, {"rmse": 0.45}],
+                "if_mean": {"rmse": 0.3},
+                "if_per_fold": [{"rmse": 0.28}, {"rmse": 0.32}],
+            }
+        }
+        df = format_metrics_table(metrics)
+        # fold columns must reflect oof_per_fold values, NOT if_per_fold
+        assert df.loc["rmse", "fold_0"] == pytest.approx(0.55)
+        assert df.loc["rmse", "fold_1"] == pytest.approx(0.45)
 
 
 # ---------------------------------------------------------------------------

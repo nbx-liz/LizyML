@@ -63,7 +63,12 @@ class TestModelCommon:
         m.fit(data=_TASK_DATA[task]())
         metrics = m.evaluate()
         assert "raw" in metrics
-        assert set(metrics["raw"].keys()) == {"oof", "if_mean", "if_per_fold"}
+        assert set(metrics["raw"].keys()) == {
+            "oof",
+            "oof_per_fold",
+            "if_mean",
+            "if_per_fold",
+        }
 
     @pytest.mark.parametrize("task", ["regression", "binary", "multiclass"])
     def test_metrics_stored_in_fit_result(self, task: str) -> None:
