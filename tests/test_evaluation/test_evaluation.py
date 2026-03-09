@@ -1,10 +1,11 @@
 """Tests for Phase 10 — Evaluation (Evaluator, thresholding).
 
 Covers (golden tests):
-- Output structure: "raw" key with "oof", "if_mean", "if_per_fold"
-- "if_per_fold" length == n_splits
+- Output structure: "raw" key with "oof", "oof_per_fold", "if_mean", "if_per_fold"
+- "if_per_fold" / "oof_per_fold" length == n_splits
 - OOF metric values are finite floats
 - IF-mean == mean of IF-per-fold
+- oof_per_fold computed on valid_idx (H-0045)
 - Task-incompatible metrics raise UNSUPPORTED_METRIC
 - "calibrated" key absent when calibrator is None
 - Thresholding: optimise_threshold returns valid (threshold, score) pair
@@ -100,7 +101,12 @@ class TestEvaluatorStructureRegression:
         fit_result, y, _ = _cv_fit_regression()
         ev = Evaluator(task="regression")
         out = ev.evaluate(fit_result, y, ["rmse"])
-        assert set(out["raw"].keys()) == {"oof", "if_mean", "if_per_fold"}
+        assert set(out["raw"].keys()) == {
+            "oof",
+            "oof_per_fold",
+            "if_mean",
+            "if_per_fold",
+        }
 
     def test_oof_keys_match_metrics(self) -> None:
         fit_result, y, _ = _cv_fit_regression()
@@ -142,6 +148,40 @@ class TestEvaluatorStructureRegression:
         per_fold_rmse = [fold["rmse"] for fold in out["raw"]["if_per_fold"]]
         assert out["raw"]["if_mean"]["rmse"] == pytest.approx(np.mean(per_fold_rmse))
 
+    def test_oof_per_fold_length(self) -> None:
+        n_splits = 4
+        fit_result, y, _ = _cv_fit_regression(n_splits=n_splits)
+        ev = Evaluator(task="regression")
+        out = ev.evaluate(fit_result, y, ["rmse"])
+        assert len(out["raw"]["oof_per_fold"]) == n_splits
+
+    def test_oof_per_fold_keys(self) -> None:
+        fit_result, y, _ = _cv_fit_regression()
+        ev = Evaluator(task="regression")
+        out = ev.evaluate(fit_result, y, ["rmse", "mae"])
+        for fold_metrics in out["raw"]["oof_per_fold"]:
+            assert set(fold_metrics.keys()) == {"rmse", "mae"}
+
+    def test_oof_per_fold_values_finite(self) -> None:
+        fit_result, y, _ = _cv_fit_regression()
+        ev = Evaluator(task="regression")
+        out = ev.evaluate(fit_result, y, ["rmse", "mae"])
+        for fold_dict in out["raw"]["oof_per_fold"]:
+            for v in fold_dict.values():
+                assert np.isfinite(v)
+
+    def test_oof_per_fold_computed_on_valid_idx(self) -> None:
+        """oof_per_fold values must match manual metric on valid_idx."""
+        fit_result, y_series, n_splits = _cv_fit_regression()
+        ev = Evaluator(task="regression")
+        out = ev.evaluate(fit_result, y_series, ["rmse"])
+        y_arr = np.asarray(y_series)
+        for k, (_, valid_idx) in enumerate(fit_result.splits.outer):
+            y_valid = y_arr[valid_idx]
+            oof_valid = fit_result.oof_pred[valid_idx]
+            expected = float(np.sqrt(np.mean((y_valid - oof_valid) ** 2)))
+            assert out["raw"]["oof_per_fold"][k]["rmse"] == pytest.approx(expected)
+
     def test_no_calibrated_key_without_calibrator(self) -> None:
         fit_result, y, _ = _cv_fit_regression()
         assert fit_result.calibrator is None
@@ -156,7 +196,12 @@ class TestEvaluatorStructureBinary:
         ev = Evaluator(task="binary")
         out = ev.evaluate(fit_result, y, ["logloss", "auc"])
         assert "raw" in out
-        assert set(out["raw"].keys()) == {"oof", "if_mean", "if_per_fold"}
+        assert set(out["raw"].keys()) == {
+            "oof",
+            "oof_per_fold",
+            "if_mean",
+            "if_per_fold",
+        }
 
     def test_metric_values_valid(self) -> None:
         fit_result, y, _ = _cv_fit_binary()
@@ -267,6 +312,8 @@ class TestModelEvaluateFacade:
         assert set(result["raw"]["oof"].keys()) == {"rmse"}
         assert set(result["raw"]["if_mean"].keys()) == {"rmse"}
         for fold in result["raw"]["if_per_fold"]:
+            assert set(fold.keys()) == {"rmse"}
+        for fold in result["raw"]["oof_per_fold"]:
             assert set(fold.keys()) == {"rmse"}
 
     def test_evaluate_subset_values_match_precomputed(self) -> None:

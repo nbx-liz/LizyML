@@ -330,8 +330,8 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
                 or config-defined metrics (already computed during ``fit``).
 
         Returns:
-            Structured dict: ``{"raw": {"oof": ..., "if_mean": ...,
-            "if_per_fold": ...}}``.
+            Structured dict: ``{"raw": {"oof": ..., "oof_per_fold": ...,
+            "if_mean": ..., "if_per_fold": ...}}``.
 
         Raises:
             :class:`~lizyml.core.exceptions.LizyMLError` with
@@ -686,7 +686,7 @@ def _filter_metrics(metrics_dict: dict[str, Any], keep: set[str]) -> dict[str, A
             continue
         filtered_top: dict[str, Any] = {}
         for sub_key, sub_val in top_val.items():
-            if sub_key == "if_per_fold":
+            if sub_key in ("if_per_fold", "oof_per_fold"):
                 # List of per-fold dicts
                 filtered_top[sub_key] = [
                     {m: v for m, v in fold.items() if m in keep} for fold in sub_val
