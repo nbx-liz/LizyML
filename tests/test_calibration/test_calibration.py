@@ -23,7 +23,16 @@ from lizyml.calibration.isotonic import IsotonicCalibrator
 from lizyml.calibration.platt import PlattCalibrator
 from lizyml.calibration.registry import get_calibrator
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.splitters.kfold import KFoldSplitter
 from tests._helpers import make_binary_df, make_config
+
+
+def _kfold_indices(
+    n: int, n_splits: int = 5, seed: int = 42
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    """Generate KFold split indices for unit tests."""
+    splitter = KFoldSplitter(n_splits=n_splits, shuffle=True, random_state=seed)
+    return list(splitter.split(n))
 
 
 def _oof_scores(n: int = 200, seed: int = 0) -> tuple[np.ndarray, np.ndarray]:
@@ -128,7 +137,10 @@ class TestCrossFitCalibrate:
     def test_calibrated_oof_length(self) -> None:
         scores, y = _oof_scores(n=100)
         result = cross_fit_calibrate(
-            oof_scores=scores, y=y, calibrator_factory=PlattCalibrator, n_splits=3
+            oof_scores=scores,
+            y=y,
+            calibrator_factory=PlattCalibrator,
+            split_indices=_kfold_indices(100, n_splits=3),
         )
         assert isinstance(result, CalibrationResult)
         assert result.calibrated_oof.shape == (100,)
@@ -137,7 +149,10 @@ class TestCrossFitCalibrate:
         """C_final predictions on full data differ from cross-fit OOF (no leak test)."""
         scores, y = _oof_scores(n=100)
         result = cross_fit_calibrate(
-            oof_scores=scores, y=y, calibrator_factory=PlattCalibrator, n_splits=3
+            oof_scores=scores,
+            y=y,
+            calibrator_factory=PlattCalibrator,
+            split_indices=_kfold_indices(100, n_splits=3),
         )
         c_final_preds = result.c_final.predict(scores)
         # They should NOT be identical (c_final sees all training data)
@@ -156,7 +171,10 @@ class TestCrossFitCalibrate:
         """
         scores, y = _oof_scores(n=200)
         result = cross_fit_calibrate(
-            oof_scores=scores, y=y, calibrator_factory=PlattCalibrator, n_splits=5
+            oof_scores=scores,
+            y=y,
+            calibrator_factory=PlattCalibrator,
+            split_indices=_kfold_indices(200, n_splits=5),
         )
         c_final_preds = result.c_final.predict(scores)
         # With 5 folds and non-trivial data, they must differ somewhere
@@ -168,7 +186,10 @@ class TestCrossFitCalibrate:
     def test_method_name_stored(self) -> None:
         scores, y = _oof_scores()
         result = cross_fit_calibrate(
-            oof_scores=scores, y=y, calibrator_factory=PlattCalibrator
+            oof_scores=scores,
+            y=y,
+            calibrator_factory=PlattCalibrator,
+            split_indices=_kfold_indices(200),
         )
         assert result.method == "platt"
 

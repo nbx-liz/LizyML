@@ -66,6 +66,7 @@ def fit_result(
         metrics={
             "raw": {
                 "oof": {"rmse": 0.5},
+                "oof_per_fold": [{"rmse": 0.5}],
                 "if_mean": {"rmse": 0.4},
                 "if_per_fold": [{"rmse": 0.4}],
             }
@@ -174,6 +175,8 @@ class TestFitResultSchema:
     def test_metrics_raw_structure(self, fit_result: FitResult) -> None:
         raw = fit_result.metrics["raw"]
         assert "oof" in raw
+        assert "oof_per_fold" in raw
+        assert isinstance(raw["oof_per_fold"], list)
         assert "if_mean" in raw
         assert "if_per_fold" in raw
         assert isinstance(raw["if_per_fold"], list)

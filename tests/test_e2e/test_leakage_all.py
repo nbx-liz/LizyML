@@ -13,6 +13,7 @@ import numpy as np
 from lizyml import Model
 from lizyml.calibration.cross_fit import CalibrationResult, cross_fit_calibrate
 from lizyml.calibration.platt import PlattCalibrator
+from lizyml.splitters.kfold import KFoldSplitter
 from tests._helpers import make_binary_df, make_config
 
 
@@ -58,12 +59,12 @@ class TestCalibrationLeakage:
         scores = rng.uniform(0, 1, n)
         y = (scores > 0.5).astype(int)
 
+        splits = list(KFoldSplitter(n_splits=5, shuffle=True, random_state=42).split(n))
         result = cross_fit_calibrate(
             oof_scores=scores,
             y=y,
             calibrator_factory=PlattCalibrator,
-            n_splits=5,
-            random_state=42,
+            split_indices=splits,
         )
         c_final_preds = result.c_final.predict(scores)
         # Cross-fit OOF and C_final predictions must differ
@@ -73,12 +74,14 @@ class TestCalibrationLeakage:
         rng = np.random.default_rng(42)
         scores = rng.uniform(0, 1, 100)
         y = (scores > 0.5).astype(int)
+        splits = list(
+            KFoldSplitter(n_splits=3, shuffle=True, random_state=42).split(100)
+        )
         result = cross_fit_calibrate(
             oof_scores=scores,
             y=y,
             calibrator_factory=PlattCalibrator,
-            n_splits=3,
-            random_state=42,
+            split_indices=splits,
         )
         assert isinstance(result, CalibrationResult)
         assert result.calibrated_oof.shape == (100,)
