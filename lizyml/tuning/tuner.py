@@ -6,7 +6,7 @@ import sys
 import time
 import warnings
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Literal
 
 import numpy.typing as npt
@@ -157,7 +157,7 @@ class Tuner:
             config_normalized={},
             config_version=1,
             run_id=generate_run_id(),
-            timestamp=datetime.now().isoformat(),
+            timestamp=datetime.now(tz=timezone.utc).isoformat(),
         )
 
         def objective(trial: Any) -> float:
@@ -269,14 +269,27 @@ class Tuner:
 
             optuna_callbacks.append(_progress_cb)
 
+        # Add trial failure logging callback
+        def _log_trial_failure(study_: Any, trial: Any) -> None:
+            if trial.state != _optuna.trial.TrialState.COMPLETE:
+                reason = trial.system_attrs.get("fail_reason", "unknown")
+                _log.warning(
+                    "event='trial.failed' trial=%d state=%s reason=%s",
+                    trial.number,
+                    trial.state.name,
+                    reason,
+                )
+
+        all_callbacks = [*optuna_callbacks, _log_trial_failure]
+
         try:
             study.optimize(
                 objective,
                 n_trials=self.n_trials,
                 timeout=self.timeout,
                 show_progress_bar=False,
-                catch=(Exception,),
-                callbacks=optuna_callbacks if optuna_callbacks else None,
+                catch=(LizyMLError, ValueError, RuntimeError),
+                callbacks=all_callbacks,
             )
         except Exception as exc:
             raise LizyMLError(
