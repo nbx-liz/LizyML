@@ -23,11 +23,7 @@ from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.artifacts import RunMeta
 from lizyml.data.fingerprint import compute as fp_compute
 from lizyml.estimators.lgbm import LGBMAdapter
-from lizyml.evaluation.evaluator import (
-    Evaluator,
-    _normalize_multiclass_proba,
-    _pred_for_metric,
-)
+from lizyml.evaluation.evaluator import Evaluator, _pred_for_metric
 from lizyml.evaluation.thresholding import optimise_threshold
 from lizyml.features.pipelines_native import NativeFeaturePipeline
 from lizyml.metrics.base import BaseMetric
@@ -452,6 +448,14 @@ class TestMulticlassOvaNormalization:
         np.testing.assert_array_equal(result[0], [0.0, 0.0, 0.0])
         np.testing.assert_allclose(result[1].sum(), 1.0)
 
+    def test_near_zero_row_safe(self) -> None:
+        """Near-zero (subnormal) row normalizes correctly — no inf."""
+        pred = np.array([[1e-310, 1e-310, 1e-310], [0.3, 0.3, 0.4]])
+        result = _pred_for_metric(self.simplex_metric, pred, "multiclass")
+        assert np.all(np.isfinite(result))
+        # Each element <= row_sum, so result <= 1.0 always
+        assert result.max() <= 1.0
+
     # --- Per-class metrics (needs_simplex=False) are NOT normalized ---
 
     def test_ova_pred_not_normalized_for_perclass(self) -> None:
@@ -506,10 +510,11 @@ class TestMulticlassOvaNormalization:
 
     # --- Integration test ---
 
-    def test_auc_with_multiclassova_predictions(self) -> None:
-        """AUC metric succeeds with non-normalized multiclassova predictions."""
-        from sklearn.metrics import roc_auc_score as sklearn_roc_auc
+    def test_auc_end_to_end_with_multiclassova(self) -> None:
+        """AUC metric end-to-end: _pred_for_metric → AUC.__call__."""
+        from lizyml.metrics.classification import AUC
 
+        metric = AUC()
         y_true = np.array([0, 1, 2, 0, 1])
         y_pred = np.array(
             [
@@ -522,8 +527,9 @@ class TestMulticlassOvaNormalization:
         )
         assert y_pred.sum(axis=1).max() > 1.0
 
-        normalized = _normalize_multiclass_proba(y_pred)
-        score = sklearn_roc_auc(y_true, normalized, multi_class="ovr", average="macro")
+        pred_for_metric = _pred_for_metric(metric, y_pred, "multiclass")
+        np.testing.assert_allclose(pred_for_metric.sum(axis=1), 1.0)
+        score = metric(y_true, pred_for_metric)
         assert 0.0 <= score <= 1.0
 
     # --- needs_simplex property contract ---
