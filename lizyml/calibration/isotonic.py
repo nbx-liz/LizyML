@@ -40,16 +40,6 @@ _DEFAULT_SEED = 42
 _MIN_SAMPLES_FOR_EARLY_STOPPING = 20
 
 
-def _sigmoid(x: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
-    """Numerically stable sigmoid: avoids overflow for large |x|."""
-    result: npt.NDArray[np.float64] = np.where(
-        x >= 0,
-        1.0 / (1.0 + np.exp(-x)),
-        np.exp(x) / (1.0 + np.exp(x)),
-    )
-    return result
-
-
 @CalibratorRegistry.register("isotonic")
 class IsotonicCalibrator(BaseCalibratorAdapter):
     """Isotonic calibration using LGBM Booster with monotone constraints.
@@ -153,9 +143,9 @@ class IsotonicCalibrator(BaseCalibratorAdapter):
         if self._model is None:
             raise RuntimeError("IsotonicCalibrator has not been fitted.")
         X = scores.reshape(-1, 1)
-        # objective="binary" Booster returns raw scores (log-odds)
+        # objective="binary" Booster.predict() returns probabilities (sigmoid
+        # is applied internally by LightGBM), so no manual sigmoid needed.
         raw_pred = self._model.predict(X)
-        raw: npt.NDArray[np.float64] = np.asarray(raw_pred, dtype=np.float64)
-        proba = _sigmoid(raw)
+        proba: npt.NDArray[np.float64] = np.asarray(raw_pred, dtype=np.float64)
         clipped: npt.NDArray[np.float64] = np.clip(proba, 0.0, 1.0)
         return clipped
