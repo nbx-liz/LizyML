@@ -1,7 +1,8 @@
-"""TuningResult — result types for hyperparameter tuning (H-0023)."""
+"""TuningResult — result types for hyperparameter tuning (H-0023, H-0048)."""
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -25,3 +26,28 @@ class TuningResult:
     trials: list[TrialResult]
     metric_name: str
     direction: str  # "minimize" | "maximize"
+
+
+@dataclass(frozen=True)
+class TuneProgressInfo:
+    """Progress information emitted after each tuning trial (H-0048).
+
+    Attributes:
+        current_trial: Current trial number (1-indexed).
+        total_trials: Total number of trials.
+        elapsed_seconds: Seconds elapsed since tune() started.
+        best_score: Best score so far (None if no complete trial yet).
+        latest_score: Score of the latest trial (None if fail/pruned).
+        latest_state: State of the latest trial ("complete"|"pruned"|"fail").
+    """
+
+    current_trial: int
+    total_trials: int
+    elapsed_seconds: float
+    best_score: float | None
+    latest_score: float | None
+    latest_state: str  # "complete" | "pruned" | "fail"
+
+
+TuneProgressCallback = Callable[[TuneProgressInfo], None]
+"""Callback type for receiving tuning progress updates."""
