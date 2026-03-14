@@ -221,6 +221,12 @@ class ModelTablesMixin:
             ``MODEL_NOT_FIT`` when called before ``fit``.
         """
         fr = self._require_fit()
+        if not fr.models:
+            raise LizyMLError(
+                code=ErrorCode.MODEL_NOT_FIT,
+                user_message="No trained models available.",
+                context={},
+            )
         model_cfg = self._cfg.model
 
         rows: list[dict[str, Any]] = []

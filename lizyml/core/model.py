@@ -25,9 +25,10 @@ Mixin decomposition (H-0042):
 
 from __future__ import annotations
 
+import dataclasses
 import sys
 from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timezone
 from importlib.metadata import version as pkg_version
 from pathlib import Path
 from typing import Any, Literal
@@ -299,15 +300,23 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
                 calibrator_factory=lambda: get_calibrator(method, params=cal_params),
                 split_indices=cal_split_indices,
             )
-            fit_result.calibrator = calibration_result
-            # Store calibration split indices for reproducibility / audit
-            fit_result.splits.calibration = calibration_result.split_indices
+            new_splits = dataclasses.replace(
+                fit_result.splits,
+                calibration=calibration_result.split_indices,
+            )
+            fit_result = dataclasses.replace(
+                fit_result,
+                calibrator=calibration_result,
+                splits=new_splits,
+            )
 
         # --- Evaluation -------------------------------------------------------
         metric_names = cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task]
         evaluator = Evaluator(task=cfg.task)
         metrics = evaluator.evaluate(fit_result, y, metric_names)
-        fit_result.metrics.update(metrics)
+        fit_result = dataclasses.replace(
+            fit_result, metrics={**fit_result.metrics, **metrics}
+        )
         self._metrics = metrics
 
         # --- Full-data refit (for predict) -----------------------------------
@@ -344,8 +353,14 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         """
         self._require_fit()
 
+        if self._metrics is None:
+            raise LizyMLError(
+                code=ErrorCode.MODEL_NOT_FIT,
+                user_message="Metrics not computed. Call fit() first.",
+                context={},
+            )
+
         if metrics is None:
-            assert self._metrics is not None  # noqa: S101 — set by fit()
             return self._metrics
 
         # Validate task compatibility first (raises UNSUPPORTED_METRIC if invalid)
@@ -354,7 +369,6 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         get_metrics_for_task(metrics, self._cfg.task)  # raises on unknown/incompatible
 
         # Filter the pre-computed metrics dict to the requested subset
-        assert self._metrics is not None  # noqa: S101
         return _filter_metrics(self._metrics, set(metrics))
 
     def predict(
@@ -625,12 +639,18 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             y = y.iloc[sort_order].reset_index(drop=True)
             if groups is not None:
                 groups = groups[sort_order]
-            components.X = X
-            components.y = y
-            components.time_col = tc.iloc[sort_order].reset_index(drop=True)
-            if components.group_col is not None:
-                gc = components.group_col
-                components.group_col = gc.iloc[sort_order].reset_index(drop=True)
+            sorted_time = tc.iloc[sort_order].reset_index(drop=True)
+            sorted_group = (
+                components.group_col.iloc[sort_order].reset_index(drop=True)
+                if components.group_col is not None
+                else None
+            )
+            components = DataFrameComponents(
+                X=X,
+                y=y,
+                time_col=sorted_time,
+                group_col=sorted_group,
+            )
 
         self._X = X
         self._y = y
@@ -655,7 +675,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             config_normalized=self._cfg.model_dump(),
             config_version=self._cfg.config_version,
             run_id=run_id,
-            timestamp=datetime.now().isoformat(),
+            timestamp=datetime.now(tz=timezone.utc).isoformat(),
         )
 
     def _require_fit(self) -> FitResult:
@@ -708,5 +728,13 @@ def _filter_metrics(metrics_dict: dict[str, Any], keep: set[str]) -> dict[str, A
                 filtered_top[sub_key] = {m: v for m, v in sub_val.items() if m in keep}
             else:
                 filtered_top[sub_key] = sub_val
-        result[top_key] = filtered_top
+        # Drop branches where all sub-dicts are empty after filtering
+        has_content = any(
+            (isinstance(v, dict) and len(v) > 0)
+            or (isinstance(v, list) and any(d for d in v if isinstance(d, dict)))
+            or (not isinstance(v, (dict, list)))
+            for v in filtered_top.values()
+        )
+        if has_content:
+            result[top_key] = filtered_top
     return result

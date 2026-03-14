@@ -60,7 +60,8 @@ def cross_fit_calibrate(
     only performs the cross-fit loop over the provided indices.
 
     Args:
-        oof_scores: 1-D base-model OOF probabilities (n_samples,).
+        oof_scores: 1-D base-model OOF scores (n_samples,).
+            Accepts probabilities or raw scores (logits).
         y: 1-D binary ground-truth labels (n_samples,).
         calibrator_factory: Callable returning a fresh calibrator instance.
         split_indices: Pre-computed ``(train_idx, valid_idx)`` pairs.
@@ -70,7 +71,7 @@ def cross_fit_calibrate(
     Returns:
         :class:`CalibrationResult` with ``c_final`` and ``calibrated_oof``.
     """
-    calibrated_oof = np.empty_like(oof_scores, dtype=float)
+    calibrated_oof = np.full_like(oof_scores, np.nan, dtype=np.float64)
 
     for train_idx, val_idx in split_indices:
         cal = calibrator_factory()
@@ -84,6 +85,6 @@ def cross_fit_calibrate(
     return CalibrationResult(
         c_final=c_final,
         calibrated_oof=calibrated_oof,
-        method=calibrator_factory().name,
+        method=c_final.name,
         split_indices=split_indices,
     )

@@ -98,7 +98,7 @@ class LGBMAdapter(BaseEstimatorAdapter):
 
     def update_params(self, params: dict[str, Any]) -> None:
         """Update params before fit(). Used for per-fold ratio resolution."""
-        self.params.update(params)
+        self.params = {**self.params, **params}
 
     # ------------------------------------------------------------------
     # Fit
@@ -334,6 +334,9 @@ class LGBMAdapter(BaseEstimatorAdapter):
             user_params.setdefault("seed", user_params.pop("random_state"))
         if "verbose" in user_params:
             user_params.setdefault("verbosity", user_params.pop("verbose"))
+        # Strip task-locked keys — objective/metric are always set from task
+        user_params.pop("objective", None)
+        user_params.pop("metric", None)
         params.update(user_params)
 
         return params, num_boost_round
