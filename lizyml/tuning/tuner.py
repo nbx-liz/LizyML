@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sys
+import time
+import warnings
 from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
@@ -14,7 +16,12 @@ from lizyml import __version__
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.logging import generate_run_id, get_logger
 from lizyml.core.types.artifacts import RunMeta
-from lizyml.core.types.tuning_result import TrialResult, TuningResult
+from lizyml.core.types.tuning_result import (
+    TrialResult,
+    TuneProgressCallback,
+    TuneProgressInfo,
+    TuningResult,
+)
 from lizyml.data.fingerprint import compute as fp_compute
 from lizyml.estimators.lgbm import (
     _COMMON_DEFAULTS,
@@ -67,6 +74,8 @@ class Tuner:
             when ``validation_ratio`` is a search dim.
         n_rows: Number of training rows (for smart param resolution).
         fixed_params: Fixed params applied to every trial's model params.
+        progress_callback: Optional callback invoked after each trial with
+            a :class:`TuneProgressInfo` (H-0048).
     """
 
     def __init__(
@@ -87,6 +96,7 @@ class Tuner:
         inner_valid_factory: Callable[[float], BaseInnerValidStrategy] | None = None,
         n_rows: int | None = None,
         fixed_params: dict[str, Any] | None = None,
+        progress_callback: TuneProgressCallback | None = None,
     ) -> None:
         self.task = task
         self.outer_splitter = outer_splitter
@@ -103,6 +113,7 @@ class Tuner:
         self.inner_valid_factory = inner_valid_factory
         self.n_rows = n_rows
         self.fixed_params = fixed_params
+        self.progress_callback = progress_callback
 
     def tune(
         self,
@@ -222,6 +233,42 @@ class Tuner:
 
         sampler = _optuna.samplers.TPESampler(seed=self.seed)
         study = _optuna.create_study(direction=self.direction, sampler=sampler)
+
+        # Build optuna callback for progress reporting (H-0048)
+        optuna_callbacks: list[Any] = []
+        if self.progress_callback is not None:
+            t0 = time.monotonic()
+            user_cb = self.progress_callback
+            n_total = self.n_trials
+
+            def _progress_cb(study_: Any, trial: Any) -> None:
+                state_name: str = trial.state.name.lower()
+                # Only report score for completed trials (spec: H-0048)
+                is_complete = trial.state == _optuna.trial.TrialState.COMPLETE
+                latest_score = trial.value if is_complete else None
+                try:
+                    best = study_.best_value
+                except ValueError:
+                    best = None
+                info = TuneProgressInfo(
+                    current_trial=trial.number + 1,
+                    total_trials=n_total,
+                    elapsed_seconds=time.monotonic() - t0,
+                    best_score=best,
+                    latest_score=latest_score,
+                    latest_state=state_name,
+                )
+                try:
+                    user_cb(info)
+                except Exception:
+                    warnings.warn(
+                        "progress_callback raised an exception; ignoring.",
+                        RuntimeWarning,
+                        stacklevel=1,
+                    )
+
+            optuna_callbacks.append(_progress_cb)
+
         try:
             study.optimize(
                 objective,
@@ -229,6 +276,7 @@ class Tuner:
                 timeout=self.timeout,
                 show_progress_bar=False,
                 catch=(Exception,),
+                callbacks=optuna_callbacks if optuna_callbacks else None,
             )
         except Exception as exc:
             raise LizyMLError(

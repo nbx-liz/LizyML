@@ -2398,6 +2398,112 @@ Phase 26 で calibration split の `split.method` 継承を実装したが、`pu
 
 ---
 
+# Phase 29: Isotonic Calibration 強化 + Tuning Progress Callback
+
+**ブランチ:** `feat/phase-29-isotonic-tuning-progress`
+**関連 Proposal:** H-0047, H-0048
+
+## 概要
+
+2 つの独立した機能を実装する。
+
+1. **Isotonic Calibration LightGBM パラメーター強化（H-0047）**: `IsotonicCalibrator` を Booster API に移行し、デフォルトパラメーターを強化。Early Stopping + 内部 validation split を導入。
+2. **Tuning Progress Callback（H-0048）**: `tune()` 実行時に外部ツール向けの進捗コールバック API を追加。
+
+## ステップ
+
+### 29-A: H-0047/H-0048 Proposal + 仕様更新
+
+**Files:** `HISTORY.md`, `BLUEPRINT.md`, `PLAN.md`
+
+1. `HISTORY.md` に H-0047（Isotonic 強化）と H-0048（Progress Callback）の Proposal を追加する。
+2. `BLUEPRINT.md` §12.2 に Isotonic Regression のデフォルトパラメーター詳細と Early Stopping の記載を追加する。
+3. `BLUEPRINT.md` §4.1 に `progress_callback` の補足を追加する。
+4. `BLUEPRINT.md` §11 に §11.4 Progress Callback サブセクションを追加する（既存 §11.4 は §11.5 に繰り下げ）。
+5. `PLAN.md` に Phase 29 を追加する。
+
+### 29-B: Isotonic Calibration Booster API 移行 + パラメーター強化
+
+**Files:** `lizyml/calibration/isotonic.py`
+
+1. `_ISOTONIC_DEFAULTS` を要件通りのパラメーターセットに更新する。
+2. `LGBMRegressor` → `lgb.train()` に移行する:
+   - `lgb.Dataset` を構築し、`lgb.train()` で学習する。
+   - `num_boost_round=1000` を `lgb.train()` の引数として渡す。
+3. Early Stopping を導入する:
+   - calibration 学習データから 10% をランダムサンプリングして validation set とする（`validation_ratio=0.1`, `seed=42` デフォルト）。
+   - `lgb.early_stopping(stopping_rounds=100)` コールバックを使用する。
+   - calibration データが少数（< 20 行）の場合は Early Stopping を無効化して全データで学習する。
+4. `min_data_in_leaf_ratio` を fit 時に `min_data_in_leaf = max(1, ceil(n_train * ratio))` に解決する。
+5. `monotone_constraints=[1]` を常に強制する（ユーザー上書き不可）。
+6. `predict()` で sigmoid 適用 + `np.clip(0, 1)` を行う（Booster API `objective="binary"` は raw score を返すため）。
+7. `verbose=-1` を維持する。
+
+### 29-C: Isotonic Calibration テスト
+
+**Files:** `tests/test_calibration/test_isotonic_calibration.py`
+
+1. 既存テストをパラメーター変更に合わせて更新する。
+2. Early Stopping 動作テスト: `num_boost_round=1000` だが Early Stopping で早期終了していることを確認する。
+3. 内部 validation split テスト: seed 固定で再現性を確認する。
+4. パラメーター上書きテスト: `calibration.params` 経由でデフォルト上書きが機能することを確認する。
+5. `monotone_constraints` 強制テスト。
+6. 少サンプル（< 20 行）での robustness テスト（Early Stopping 自動無効化）。
+7. 出力範囲 [0, 1] と単調性テスト。
+
+### 29-D: TuneProgressInfo + TuneProgressCallback 定義
+
+**Files:** `lizyml/core/types/tuning_result.py`, `lizyml/__init__.py`
+
+1. `TuneProgressInfo` frozen dataclass を追加する（`current_trial`, `total_trials`, `elapsed_seconds`, `best_score`, `latest_score`, `latest_state`）。
+2. `TuneProgressCallback = Callable[[TuneProgressInfo], None]` 型エイリアスを追加する。
+3. `lizyml/__init__.py` の公開面に `TuneProgressInfo` と `TuneProgressCallback` を追加する。
+
+### 29-E: Tuner + Model.tune() にコールバック統合
+
+**Files:** `lizyml/tuning/tuner.py`, `lizyml/core/model.py`
+
+1. `Tuner.__init__` に `progress_callback: TuneProgressCallback | None = None` パラメーターを追加する。
+2. `Tuner.tune()` 内で Optuna の `study.optimize(callbacks=[...])` にコールバックを構築する:
+   - 各 trial 完了時に `TuneProgressInfo` を構築して `progress_callback` に渡す。
+   - `elapsed_seconds` は `time.monotonic()` からの差分。
+   - `best_score` は `study.best_value`（complete trial がまだない場合は `None`）。
+   - コールバック内例外は catch して warning に変換する。
+3. `Model.tune()` のシグネチャに `progress_callback` を追加し、`Tuner` に渡す。
+
+### 29-F: Tuning Progress テスト
+
+**Files:** `tests/test_tuning/test_tuning_progress.py`（新規）
+
+1. コールバックが呼ばれることを確認するテスト（mock で呼び出し回数を検証）。
+2. `TuneProgressInfo` の各フィールドが正しいことを確認するテスト。
+3. `current_trial` が 1 から n_trials まで順に増加することを確認する。
+4. `elapsed_seconds >= 0` であることを確認する。
+5. `best_score` が complete trial 以降は `None` でないことを確認する。
+6. コールバック未指定（`None`）時に正常動作することを確認する（回帰テスト）。
+7. コールバック内で例外が発生した場合に tuning が中断されないことを確認する。
+
+### 29-G: H-0047/H-0048 acceptance + ドキュメント整合確認
+
+**Files:** `HISTORY.md`
+
+1. H-0047 の Status を `proposed` → `accepted` に変更する。Decision セクションを追加する。
+2. H-0048 の Status を `proposed` → `accepted` に変更する。Decision セクションを追加する。
+3. BLUEPRINT.md の記述と実装の整合性を最終確認する。
+
+### DoD
+
+- 29-A: HISTORY.md に H-0047/H-0048 の Proposal が追加されている。BLUEPRINT.md §12.2/§4.1/§11.4 が更新されている。
+- 29-B: `IsotonicCalibrator` が `lgb.train()` を使用し、要件通りのデフォルトパラメーター + Early Stopping が実装されている。
+- 29-C: Isotonic テストが全パスする。Early Stopping / 再現性 / パラメーター上書き / 少サンプル / 単調性が検証されている。
+- 29-D: `TuneProgressInfo` と `TuneProgressCallback` が定義され、公開面から import 可能。
+- 29-E: `Model.tune(progress_callback=fn)` で各 trial 完了時にコールバックが呼ばれる。コールバック内例外が tuning を中断させない。
+- 29-F: Progress Callback テストが全パスする。
+- 29-G: H-0047/H-0048 が accepted。BLUEPRINT との整合性が確認済み。
+- 品質ゲート全通過: `ruff check` / `ruff format --check` / `mypy` / `pytest`。
+
+---
+
 ## 見積もり
 
 本計画は見積もりを含まない（CLAUDE.md の方針に従い、時間予測は行わない）。
