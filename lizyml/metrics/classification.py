@@ -56,6 +56,10 @@ class LogLoss(BaseMetric):
         return True
 
     @property
+    def needs_simplex(self) -> bool:
+        return True
+
+    @property
     def greater_is_better(self) -> bool:
         return False
 
@@ -74,6 +78,10 @@ class AUC(BaseMetric):
 
     @property
     def needs_proba(self) -> bool:
+        return True
+
+    @property
+    def needs_simplex(self) -> bool:
         return True
 
     @property

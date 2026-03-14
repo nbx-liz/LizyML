@@ -14,6 +14,7 @@ Covers (golden tests):
 from __future__ import annotations
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 import pytest
 
@@ -22,9 +23,10 @@ from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.artifacts import RunMeta
 from lizyml.data.fingerprint import compute as fp_compute
 from lizyml.estimators.lgbm import LGBMAdapter
-from lizyml.evaluation.evaluator import Evaluator
+from lizyml.evaluation.evaluator import Evaluator, _pred_for_metric
 from lizyml.evaluation.thresholding import optimise_threshold
 from lizyml.features.pipelines_native import NativeFeaturePipeline
+from lizyml.metrics.base import BaseMetric
 from lizyml.splitters.kfold import KFoldSplitter
 from lizyml.training.cv_trainer import CVTrainer
 from lizyml.training.inner_valid import NoInnerValid
@@ -347,3 +349,203 @@ class TestModelEvaluateFacade:
         with pytest.raises(LizyMLError) as exc_info:
             m.evaluate()
         assert exc_info.value.code == ErrorCode.MODEL_NOT_FIT
+
+
+# ---------------------------------------------------------------------------
+# H-0049: Multiclass OVA probability normalization
+# ---------------------------------------------------------------------------
+
+
+class _FakeSimplexMetric(BaseMetric):
+    """Fake metric with needs_proba=True AND needs_simplex=True."""
+
+    @property
+    def name(self) -> str:
+        return "fake_simplex"
+
+    @property
+    def needs_proba(self) -> bool:
+        return True
+
+    @property
+    def needs_simplex(self) -> bool:
+        return True
+
+    @property
+    def greater_is_better(self) -> bool:
+        return True
+
+    def __call__(self, y_true: npt.NDArray, y_pred: npt.NDArray) -> float:
+        return 0.0
+
+
+class _FakePerClassMetric(BaseMetric):
+    """Fake metric with needs_proba=True but needs_simplex=False (default)."""
+
+    @property
+    def name(self) -> str:
+        return "fake_perclass"
+
+    @property
+    def needs_proba(self) -> bool:
+        return True
+
+    @property
+    def greater_is_better(self) -> bool:
+        return True
+
+    def __call__(self, y_true: npt.NDArray, y_pred: npt.NDArray) -> float:
+        return 0.0
+
+
+class _FakeMetricLabel(BaseMetric):
+    """Fake metric with needs_proba=False for testing."""
+
+    @property
+    def name(self) -> str:
+        return "fake_label"
+
+    @property
+    def needs_proba(self) -> bool:
+        return False
+
+    @property
+    def greater_is_better(self) -> bool:
+        return True
+
+    def __call__(self, y_true: npt.NDArray, y_pred: npt.NDArray) -> float:
+        return 0.0
+
+
+class TestMulticlassOvaNormalization:
+    """H-0049: _pred_for_metric normalizes only simplex-required metrics."""
+
+    simplex_metric = _FakeSimplexMetric()
+    perclass_metric = _FakePerClassMetric()
+    label_metric = _FakeMetricLabel()
+
+    # --- Simplex metrics (needs_simplex=True) are normalized ---
+
+    def test_softmax_pred_unchanged_for_simplex(self) -> None:
+        """Softmax predictions (already sum=1) are returned as-is."""
+        pred = np.array([[0.2, 0.3, 0.5], [0.1, 0.8, 0.1]])
+        result = _pred_for_metric(self.simplex_metric, pred, "multiclass")
+        np.testing.assert_allclose(result, pred, atol=1e-12)
+
+    def test_ova_sigmoid_normalized_for_simplex(self) -> None:
+        """OVA sigmoid predictions are row-normalized for simplex metrics."""
+        pred = np.array([[0.34, 0.007, 0.96], [0.5, 0.5, 0.8]])
+        result = _pred_for_metric(self.simplex_metric, pred, "multiclass")
+        np.testing.assert_allclose(result.sum(axis=1), 1.0)
+        # Relative order preserved
+        assert result[0, 2] > result[0, 0] > result[0, 1]
+
+    def test_zero_row_handled(self) -> None:
+        """All-zero row does not cause division by zero."""
+        pred = np.array([[0.0, 0.0, 0.0], [0.3, 0.3, 0.4]])
+        result = _pred_for_metric(self.simplex_metric, pred, "multiclass")
+        assert np.all(np.isfinite(result))
+        np.testing.assert_array_equal(result[0], [0.0, 0.0, 0.0])
+        np.testing.assert_allclose(result[1].sum(), 1.0)
+
+    def test_near_zero_row_safe(self) -> None:
+        """Near-zero (subnormal) row normalizes correctly — no inf."""
+        pred = np.array([[1e-310, 1e-310, 1e-310], [0.3, 0.3, 0.4]])
+        result = _pred_for_metric(self.simplex_metric, pred, "multiclass")
+        assert np.all(np.isfinite(result))
+        # Each element <= row_sum, so result <= 1.0 always
+        assert result.max() <= 1.0
+
+    # --- Per-class metrics (needs_simplex=False) are NOT normalized ---
+
+    def test_ova_pred_not_normalized_for_perclass(self) -> None:
+        """Per-class metric receives raw predictions (no normalization)."""
+        pred = np.array([[0.34, 0.007, 0.96], [0.5, 0.5, 0.8]])
+        result = _pred_for_metric(self.perclass_metric, pred, "multiclass")
+        np.testing.assert_array_equal(result, pred)
+
+    def test_auc_pr_receives_raw_values(self) -> None:
+        """AUCPR (needs_simplex=False) must receive raw predictions."""
+        from lizyml.metrics.classification import AUCPR
+
+        metric = AUCPR()
+        assert metric.needs_proba is True
+        assert metric.needs_simplex is False
+
+        pred = np.array([[0.34, 0.007, 0.96], [0.5, 0.5, 0.8]])
+        result = _pred_for_metric(metric, pred, "multiclass")
+        np.testing.assert_array_equal(result, pred)
+
+    def test_brier_receives_raw_values(self) -> None:
+        """Brier (needs_simplex=False) must receive raw predictions."""
+        from lizyml.metrics.classification import Brier
+
+        metric = Brier()
+        assert metric.needs_proba is True
+        assert metric.needs_simplex is False
+
+        pred = np.array([[0.34, 0.007, 0.96], [0.5, 0.5, 0.8]])
+        result = _pred_for_metric(metric, pred, "multiclass")
+        np.testing.assert_array_equal(result, pred)
+
+    # --- Other task types unaffected ---
+
+    def test_binary_not_affected(self) -> None:
+        """Binary predictions are not row-normalized."""
+        pred = np.array([0.2, 0.8, 0.5])
+        result = _pred_for_metric(self.simplex_metric, pred, "binary")
+        np.testing.assert_array_equal(result, pred)
+
+    def test_needs_proba_false_not_affected(self) -> None:
+        """Metrics with needs_proba=False skip normalization."""
+        pred = np.array([[0.34, 0.007, 0.96]])
+        result = _pred_for_metric(self.label_metric, pred, "multiclass")
+        assert result.ndim == 1  # argmax applied, not normalized
+
+    def test_regression_not_affected(self) -> None:
+        """Regression predictions are returned as-is."""
+        pred = np.array([1.5, 2.3, 3.1])
+        result = _pred_for_metric(self.simplex_metric, pred, "regression")
+        np.testing.assert_array_equal(result, pred)
+
+    # --- Integration test ---
+
+    def test_auc_end_to_end_with_multiclassova(self) -> None:
+        """AUC metric end-to-end: _pred_for_metric → AUC.__call__."""
+        from lizyml.metrics.classification import AUC
+
+        metric = AUC()
+        y_true = np.array([0, 1, 2, 0, 1])
+        y_pred = np.array(
+            [
+                [0.8, 0.1, 0.3],
+                [0.2, 0.9, 0.1],
+                [0.1, 0.2, 0.95],
+                [0.7, 0.3, 0.2],
+                [0.1, 0.85, 0.15],
+            ]
+        )
+        assert y_pred.sum(axis=1).max() > 1.0
+
+        pred_for_metric = _pred_for_metric(metric, y_pred, "multiclass")
+        np.testing.assert_allclose(pred_for_metric.sum(axis=1), 1.0)
+        score = metric(y_true, pred_for_metric)
+        assert 0.0 <= score <= 1.0
+
+    # --- needs_simplex property contract ---
+
+    def test_auc_needs_simplex_true(self) -> None:
+        """AUC metric declares needs_simplex=True."""
+        from lizyml.metrics.classification import AUC
+
+        assert AUC().needs_simplex is True
+
+    def test_logloss_needs_simplex_true(self) -> None:
+        """LogLoss metric declares needs_simplex=True."""
+        from lizyml.metrics.classification import LogLoss
+
+        assert LogLoss().needs_simplex is True
+
+    def test_default_needs_simplex_false(self) -> None:
+        """BaseMetric default needs_simplex is False."""
+        assert self.perclass_metric.needs_simplex is False
