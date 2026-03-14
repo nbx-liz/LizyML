@@ -58,7 +58,7 @@ from lizyml.core.specs.problem_spec import ProblemSpec
 from lizyml.core.types.artifacts import RunMeta
 from lizyml.core.types.fit_result import FitResult
 from lizyml.core.types.predict_result import PredictionResult
-from lizyml.core.types.tuning_result import TuningResult
+from lizyml.core.types.tuning_result import TuneProgressCallback, TuningResult
 from lizyml.data import dataframe_builder, datasource
 from lizyml.data.dataframe_builder import DataFrameComponents
 from lizyml.data.fingerprint import compute as fp_compute
@@ -439,6 +439,8 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
     def tune(
         self,
         data: pd.DataFrame | None = None,
+        *,
+        progress_callback: TuneProgressCallback | None = None,
     ) -> TuningResult:
         """Run hyperparameter search with optuna.
 
@@ -448,6 +450,11 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         Args:
             data: Training DataFrame.  Overrides any data from construction
                 or ``data.path`` in config.
+            progress_callback: Optional callback invoked after each trial.
+                Receives a :class:`TuneProgressInfo` with current trial,
+                total trials, elapsed time, best/latest score, and state.
+                Exceptions raised inside the callback are caught and emitted
+                as ``RuntimeWarning``; tuning is never aborted.
 
         Returns:
             :class:`~lizyml.core.types.tuning_result.TuningResult` with
@@ -526,6 +533,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             inner_valid_factory=make_inner_valid_factory(cfg),
             n_rows=len(X),
             fixed_params=fixed,
+            progress_callback=progress_callback,
         )
 
         result = tuner.tune(X, y, groups)
