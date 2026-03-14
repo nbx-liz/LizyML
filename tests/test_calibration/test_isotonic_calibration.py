@@ -4,13 +4,18 @@ Covers:
 - fit/predict with synthetic data
 - Output range [0, 1]
 - Monotonicity of predictions
-- E2E via Model.fit with calibration.method: "isotonic"
+- Booster API usage (lgb.train, not LGBMRegressor)
+- Early stopping with internal validation split
+- Reproducibility with seed
 - Custom params via calibration.params
+- Small sample robustness (< 20 rows, early stopping disabled)
+- E2E via Model.fit with calibration.method: "isotonic"
 """
 
 from __future__ import annotations
 
 import numpy as np
+import pytest
 
 from lizyml import Model
 from lizyml.calibration.isotonic import IsotonicCalibrator
@@ -62,8 +67,11 @@ class TestIsotonicCalibrator:
         assert cal.name == "isotonic"
 
     def test_custom_params(self) -> None:
+        """User can override defaults (except monotone_constraints) via params."""
         scores, y = _synthetic_scores()
-        cal = IsotonicCalibrator(params={"n_estimators": 50, "max_depth": 2})
+        cal = IsotonicCalibrator(
+            params={"num_boost_round": 50, "max_depth": 2, "learning_rate": 0.1}
+        )
         cal.fit(scores, y)
         pred = cal.predict(scores)
         assert pred.shape == scores.shape
@@ -80,6 +88,77 @@ class TestIsotonicCalibrator:
         pred = cal.predict(sorted_scores)
         diffs = np.diff(pred)
         assert np.all(diffs >= -1e-10)
+
+    def test_uses_booster_api(self) -> None:
+        """After fit, _model should be a lgb.Booster, not LGBMRegressor."""
+        import lightgbm as lgbm
+
+        scores, y = _synthetic_scores()
+        cal = IsotonicCalibrator()
+        cal.fit(scores, y)
+        assert isinstance(cal._model, lgbm.Booster)
+
+    def test_early_stopping_configured(self) -> None:
+        """With n >= 20, early stopping should be configured (iteration <= 1000)."""
+        scores, y = _synthetic_scores(n=500)
+        cal = IsotonicCalibrator()
+        cal.fit(scores, y)
+        assert cal._model is not None
+        # Model should have trained (at least some rounds)
+        assert cal._model.current_iteration() >= 1
+        # Should not exceed num_boost_round
+        assert cal._model.current_iteration() <= 1000
+
+    def test_reproducibility_with_seed(self) -> None:
+        """Same seed should produce identical predictions."""
+        scores, y = _synthetic_scores()
+        cal1 = IsotonicCalibrator(params={"seed": 123})
+        cal1.fit(scores, y)
+        pred1 = cal1.predict(scores)
+
+        cal2 = IsotonicCalibrator(params={"seed": 123})
+        cal2.fit(scores, y)
+        pred2 = cal2.predict(scores)
+
+        np.testing.assert_array_equal(pred1, pred2)
+
+    def test_small_sample_no_early_stopping(self) -> None:
+        """With < 20 samples, early stopping should be disabled (no crash)."""
+        scores, y = _synthetic_scores(n=15, seed=0)
+        cal = IsotonicCalibrator()
+        cal.fit(scores, y)
+        pred = cal.predict(scores)
+        assert pred.shape == scores.shape
+        assert pred.min() >= 0.0
+        assert pred.max() <= 1.0
+
+    def test_custom_validation_ratio_and_seed(self) -> None:
+        """User can override validation_ratio and seed via params."""
+        scores, y = _synthetic_scores()
+        cal = IsotonicCalibrator(params={"validation_ratio": 0.2, "seed": 99})
+        cal.fit(scores, y)
+        pred = cal.predict(scores)
+        assert pred.shape == scores.shape
+        assert pred.min() >= 0.0
+        assert pred.max() <= 1.0
+
+    def test_invalid_validation_ratio(self) -> None:
+        """validation_ratio outside (0, 1) should raise CONFIG_INVALID."""
+        from lizyml.core.exceptions import ErrorCode, LizyMLError
+
+        with pytest.raises(LizyMLError) as exc_info:
+            IsotonicCalibrator(params={"validation_ratio": 1.0})
+        assert exc_info.value.code == ErrorCode.CONFIG_INVALID
+
+        with pytest.raises(LizyMLError):
+            IsotonicCalibrator(params={"validation_ratio": 0.0})
+
+    def test_params_not_mutated(self) -> None:
+        """Constructor should not mutate the caller's params dict."""
+        params = {"validation_ratio": 0.2, "seed": 99, "max_depth": 4}
+        original_keys = set(params.keys())
+        IsotonicCalibrator(params=params)
+        assert set(params.keys()) == original_keys
 
 
 # ---------------------------------------------------------------------------
@@ -126,7 +205,7 @@ class TestIsotonicE2E:
             "calibration": {
                 "method": "isotonic",
                 "n_splits": 3,
-                "params": {"n_estimators": 50},
+                "params": {"num_boost_round": 50},
             },
         }
         model = Model(cfg, data=df)
