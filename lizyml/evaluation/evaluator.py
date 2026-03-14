@@ -25,11 +25,11 @@ def _normalize_multiclass_proba(
     1.0 and this operation is idempotent.
     """
     row_sums = pred.sum(axis=1, keepdims=True)
-    # Guard against all-zero or near-zero rows to avoid inf/nan.
-    # All-zero rows produce uniform [0, 0, ...] — NOT a valid distribution,
-    # but this is a degenerate edge case that should not occur in practice.
-    safe_sums = np.maximum(row_sums, np.finfo(np.float64).tiny)
-    normalized: npt.NDArray[np.float64] = pred / safe_sums
+    # Guard against all-zero rows (degenerate edge case).
+    # Positive values always sum to a positive number, so exact == 0.0
+    # only fires when every element in the row is 0.0.
+    row_sums = np.where(row_sums == 0.0, 1.0, row_sums)
+    normalized: npt.NDArray[np.float64] = pred / row_sums
     return normalized
 
 
@@ -40,16 +40,17 @@ def _pred_for_metric(
 ) -> npt.NDArray[Any]:
     """Return the appropriate prediction array for *metric*.
 
-    - ``needs_proba=True``:
+    - ``needs_proba=True`` and ``needs_simplex=True``:
       - multiclass 2-D predictions are row-normalised so that metrics
         receiving probabilities always see a valid distribution (sum = 1).
         This is necessary for ``multiclassova`` (independent sigmoid),
         and idempotent for ``multiclass`` (softmax).
-      - Other tasks: return ``raw_pred`` as-is.
+    - ``needs_proba=True`` and ``needs_simplex=False``:
+      - Per-class OvR metrics (e.g. AUCPR, Brier) receive raw predictions.
     - ``needs_proba=False``: binarise (binary) or argmax (multiclass).
     """
     if metric.needs_proba:
-        if task == "multiclass" and raw_pred.ndim == 2:
+        if task == "multiclass" and raw_pred.ndim == 2 and metric.needs_simplex:
             return _normalize_multiclass_proba(raw_pred)
         return raw_pred
     if task == "binary":

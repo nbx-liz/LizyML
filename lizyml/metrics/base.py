@@ -36,6 +36,17 @@ class BaseMetric(ABC):
     def greater_is_better(self) -> bool:
         """True when a higher score means a better model."""
 
+    @property
+    def needs_simplex(self) -> bool:
+        """True when multiclass *y_pred* must form a valid probability
+        distribution (row sums = 1).
+
+        Override to ``True`` for metrics like AUC and LogLoss that
+        require simplex-normalised predictions.  Per-class OvR metrics
+        (e.g. AUCPR, Brier) should keep the default ``False``.
+        """
+        return False
+
     @abstractmethod
     def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
         """Compute metric value.
