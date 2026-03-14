@@ -25,8 +25,11 @@ def _normalize_multiclass_proba(
     1.0 and this operation is idempotent.
     """
     row_sums = pred.sum(axis=1, keepdims=True)
-    row_sums = np.where(row_sums == 0.0, 1.0, row_sums)
-    normalized: npt.NDArray[np.float64] = pred / row_sums
+    # Guard against all-zero or near-zero rows to avoid inf/nan.
+    # All-zero rows produce uniform [0, 0, ...] — NOT a valid distribution,
+    # but this is a degenerate edge case that should not occur in practice.
+    safe_sums = np.maximum(row_sums, np.finfo(np.float64).tiny)
+    normalized: npt.NDArray[np.float64] = pred / safe_sums
     return normalized
 
 
