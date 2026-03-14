@@ -125,6 +125,11 @@ def compute_shap_importance(
             context={"package": "shap"},
         )
 
+    n_features = len(feature_names)
+    n_folds = len(models)
+    if n_folds == 0:
+        return {name: 0.0 for name in feature_names}
+
     from lizyml.features.pipelines_native import NativeFeaturePipeline
 
     # Reconstruct pipeline and transform X
@@ -132,9 +137,7 @@ def compute_shap_importance(
     pipeline.load_state(pipeline_state)
     X_t, _ = pipeline.transform_with_warnings(X)
 
-    n_features = len(feature_names)
     agg = np.zeros(n_features)
-    n_folds = len(models)
 
     for fold_idx, model in enumerate(models):
         _, valid_idx = splits_outer[fold_idx]
