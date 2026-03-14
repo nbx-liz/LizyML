@@ -15,6 +15,24 @@ from lizyml.metrics.registry import get_metrics_for_task
 TaskType = Literal["regression", "binary", "multiclass"]
 
 
+def _normalize_multiclass_proba(
+    pred: npt.NDArray[np.float64],
+) -> npt.NDArray[np.float64]:
+    """Row-wise normalize multiclass predictions to sum to 1.0.
+
+    Required when the objective is ``multiclassova`` (independent sigmoid
+    per class).  For ``multiclass`` (softmax), predictions already sum to
+    1.0 and this operation is idempotent.
+    """
+    row_sums = pred.sum(axis=1, keepdims=True)
+    # Guard against all-zero rows (degenerate edge case).
+    # Positive values always sum to a positive number, so exact == 0.0
+    # only fires when every element in the row is 0.0.
+    row_sums = np.where(row_sums == 0.0, 1.0, row_sums)
+    normalized: npt.NDArray[np.float64] = pred / row_sums
+    return normalized
+
+
 def _pred_for_metric(
     metric: BaseMetric,
     raw_pred: npt.NDArray[np.float64],
@@ -22,10 +40,18 @@ def _pred_for_metric(
 ) -> npt.NDArray[Any]:
     """Return the appropriate prediction array for *metric*.
 
-    - ``needs_proba=True``: return ``raw_pred`` as-is.
-    - ``needs_proba=False``: binarise (binary) or argmax (multiclass) as needed.
+    - ``needs_proba=True`` and ``needs_simplex=True``:
+      - multiclass 2-D predictions are row-normalised so that metrics
+        receiving probabilities always see a valid distribution (sum = 1).
+        This is necessary for ``multiclassova`` (independent sigmoid),
+        and idempotent for ``multiclass`` (softmax).
+    - ``needs_proba=True`` and ``needs_simplex=False``:
+      - Per-class OvR metrics (e.g. AUCPR, Brier) receive raw predictions.
+    - ``needs_proba=False``: binarise (binary) or argmax (multiclass).
     """
     if metric.needs_proba:
+        if task == "multiclass" and raw_pred.ndim == 2 and metric.needs_simplex:
+            return _normalize_multiclass_proba(raw_pred)
         return raw_pred
     if task == "binary":
         return (raw_pred >= 0.5).astype(int)
