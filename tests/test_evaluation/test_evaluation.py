@@ -23,7 +23,11 @@ from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.artifacts import RunMeta
 from lizyml.data.fingerprint import compute as fp_compute
 from lizyml.estimators.lgbm import LGBMAdapter
-from lizyml.evaluation.evaluator import Evaluator, _pred_for_metric
+from lizyml.evaluation.evaluator import (
+    Evaluator,
+    _normalize_multiclass_proba,
+    _pred_for_metric,
+)
 from lizyml.evaluation.thresholding import optimise_threshold
 from lizyml.features.pipelines_native import NativeFeaturePipeline
 from lizyml.metrics.base import BaseMetric
@@ -419,6 +423,16 @@ class TestMulticlassOvaNormalization:
         pred = np.array([[0.0, 0.0, 0.0], [0.3, 0.3, 0.4]])
         result = _pred_for_metric(self.proba_metric, pred, "multiclass")
         assert np.all(np.isfinite(result))
+        # All-zero row stays all-zero (degenerate but finite)
+        np.testing.assert_array_equal(result[0], [0.0, 0.0, 0.0])
+        # Non-zero row is properly normalized
+        np.testing.assert_allclose(result[1].sum(), 1.0)
+
+    def test_near_zero_row_handled(self) -> None:
+        """Near-zero row does not produce inf values."""
+        pred = np.array([[1e-310, 1e-310, 1e-310], [0.3, 0.3, 0.4]])
+        result = _pred_for_metric(self.proba_metric, pred, "multiclass")
+        assert np.all(np.isfinite(result))
 
     def test_binary_not_affected(self) -> None:
         """Binary predictions are not row-normalized."""
@@ -441,8 +455,6 @@ class TestMulticlassOvaNormalization:
     def test_auc_with_multiclassova_predictions(self) -> None:
         """AUC metric succeeds with non-normalized multiclassova predictions."""
         from sklearn.metrics import roc_auc_score as sklearn_roc_auc
-
-        from lizyml.evaluation.evaluator import _normalize_multiclass_proba
 
         y_true = np.array([0, 1, 2, 0, 1])
         # Simulated multiclassova output (sums > 1.0)
