@@ -44,6 +44,9 @@ class BaseMetric(ABC):
         Override to ``True`` for metrics like AUC and LogLoss that
         require simplex-normalised predictions.  Per-class OvR metrics
         (e.g. AUCPR, Brier) should keep the default ``False``.
+
+        Note: a multiclass-compatible metric with ``needs_simplex=False``
+        implies its ``__call__`` can accept a 2-D ``(n, k)`` array.
         """
         return False
 
