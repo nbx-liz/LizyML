@@ -31,6 +31,14 @@ try:
 except ImportError:  # pragma: no cover
     pass
 
+_scipy_stats: Any = None
+try:
+    from scipy import stats as _scipy_stats_mod
+
+    _scipy_stats = _scipy_stats_mod
+except ImportError:  # pragma: no cover
+    pass
+
 _VALID_KINDS = ("scatter", "histogram", "qq", "all")
 
 
@@ -202,7 +210,14 @@ def _add_qq_traces(
     row: int | None = None,
     col: int | None = None,
 ) -> None:
-    from scipy import stats  # noqa: I001
+    if _scipy_stats is None:
+        raise LizyMLError(
+            code=ErrorCode.OPTIONAL_DEP_MISSING,
+            user_message=(
+                "scipy is required for QQ plots. Install with: pip install scipy"
+            ),
+            context={"package": "scipy"},
+        )
 
     kw: dict[str, Any] = {}
     if row is not None:
@@ -210,7 +225,7 @@ def _add_qq_traces(
         kw["col"] = col
     ax_kw: dict[str, Any] = {"row": row, "col": col} if row is not None else {}
 
-    (osm, osr), _ = stats.probplot(oos_resid, dist="norm")
+    (osm, osr), _ = _scipy_stats.probplot(oos_resid, dist="norm")
     fig.add_trace(
         _plotly.Scatter(
             x=osm,

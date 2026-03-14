@@ -92,6 +92,13 @@ ignore_missing_imports = true
 module = "scipy.*"
 ignore_missing_imports = true
 
+[tool.coverage.run]
+source = ["lizyml"]
+omit = ["lizyml/_version.py"]
+
+[tool.coverage.report]
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["slow: marks tests as slow (notebook execution)"]

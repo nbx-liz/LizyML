@@ -16,6 +16,10 @@ class TrialResult:
     score: float
     state: str  # "complete" | "pruned" | "fail"
 
+    def __post_init__(self) -> None:
+        # Deep-copy mutable fields to prevent external mutation
+        object.__setattr__(self, "params", dict(self.params))
+
 
 @dataclass(frozen=True)
 class TuningResult:
@@ -26,6 +30,11 @@ class TuningResult:
     trials: list[TrialResult]
     metric_name: str
     direction: str  # "minimize" | "maximize"
+
+    def __post_init__(self) -> None:
+        # Deep-copy mutable fields to prevent external mutation
+        object.__setattr__(self, "best_params", dict(self.best_params))
+        object.__setattr__(self, "trials", list(self.trials))
 
 
 @dataclass(frozen=True)
