@@ -118,6 +118,12 @@ class RMSLE(BaseMetric):
 
     def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
         _validate_shapes(y_true, y_pred, self.name)
+        if np.any(y_true < 0) or np.any(y_pred < 0):
+            raise LizyMLError(
+                code=ErrorCode.UNSUPPORTED_METRIC,
+                user_message="RMSLE requires non-negative predictions and targets.",
+                context={"metric": self.name},
+            )
         return float(np.sqrt(np.mean((np.log1p(y_true) - np.log1p(y_pred)) ** 2)))
 
 

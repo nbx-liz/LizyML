@@ -263,7 +263,8 @@ class ECE(BaseMetric):
         n = len(y_true)
         ece = 0.0
         for lo, hi in zip(bin_edges[:-1], bin_edges[1:], strict=True):
-            mask = (y_pred >= lo) & (y_pred < hi)
+            # Last bin is right-inclusive to capture y_pred == 1.0
+            mask = (y_pred >= lo) & (y_pred <= hi if hi == 1.0 else y_pred < hi)
             if not mask.any():
                 continue
             acc = float(np.mean((y_pred[mask] >= 0.5).astype(int) == y_true[mask]))
