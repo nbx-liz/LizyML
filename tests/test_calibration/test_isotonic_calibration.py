@@ -153,6 +153,34 @@ class TestIsotonicCalibrator:
         with pytest.raises(LizyMLError):
             IsotonicCalibrator(params={"validation_ratio": 0.0})
 
+    def test_output_range_not_compressed(self) -> None:
+        """Calibrated outputs must span a wide range, not compressed.
+
+        With well-separated classes (logits ~ -1 for y=0, +1 for y=1), the
+        calibrator should produce probabilities both below 0.3 and above 0.7.
+        A double-sigmoid bug would compress everything to ~0.5-0.73.
+        """
+        scores, y = _synthetic_scores(n=1000, seed=42)
+        cal = IsotonicCalibrator()
+        cal.fit(scores, y)
+        pred = cal.predict(scores)
+        assert pred.min() < 0.3, f"min={pred.min():.4f}, expected < 0.3 (compressed?)"
+        assert pred.max() > 0.7, f"max={pred.max():.4f}, expected > 0.7 (compressed?)"
+
+    def test_extreme_scores_produce_extreme_probabilities(self) -> None:
+        """Extreme logits (e.g. +/-10) should yield near-extreme probabilities.
+
+        With the double-sigmoid bug, sigmoid(sigmoid(10)) ~ 0.73, which would
+        fail the > 0.9 assertion.
+        """
+        scores, y = _synthetic_scores(n=500, seed=42)
+        cal = IsotonicCalibrator()
+        cal.fit(scores, y)
+        extreme = np.array([-10.0, 10.0])
+        pred = cal.predict(extreme)
+        assert pred[0] < 0.1, f"pred(-10)={pred[0]:.4f}, expected < 0.1"
+        assert pred[1] > 0.9, f"pred(+10)={pred[1]:.4f}, expected > 0.9"
+
     def test_params_not_mutated(self) -> None:
         """Constructor should not mutate the caller's params dict."""
         params = {"validation_ratio": 0.2, "seed": 99, "max_depth": 4}
