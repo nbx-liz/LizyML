@@ -115,6 +115,64 @@ class Tuner:
         self.fixed_params = fixed_params
         self.progress_callback = progress_callback
 
+    # ------------------------------------------------------------------
+    # Private helpers (extracted from objective closure)
+    # ------------------------------------------------------------------
+
+    def _resolve_trial_params(
+        self,
+        model_p: dict[str, Any],
+        smart_p: dict[str, Any],
+    ) -> tuple[dict[str, Any], Callable[[int], dict[str, Any]] | None]:
+        """Merge fixed/model/smart params and build a ratio resolver."""
+        merged = {**(self.fixed_params or {}), **model_p}
+
+        # Resolve n_rows-independent smart params (num_leaves)
+        if smart_p and self.n_rows is not None:
+            effective = {**_COMMON_DEFAULTS, **merged}
+            smart_resolved = resolve_smart_params_from_dict(
+                smart_params=smart_p,
+                effective_params=effective,
+                n_rows=self.n_rows,
+            )
+            merged = {**merged, **smart_resolved}
+
+        # Build per-fold ratio resolver for n_rows-dependent params (H-0036)
+        leaf_ratio = smart_p.get("min_data_in_leaf_ratio") if smart_p else None
+        bin_ratio = smart_p.get("min_data_in_bin_ratio") if smart_p else None
+        ratio_resolver: Callable[[int], dict[str, Any]] | None = None
+        if leaf_ratio is not None or bin_ratio is not None:
+            ratio_resolver = lambda n: resolve_ratio_params(  # noqa: E731
+                leaf_ratio, bin_ratio, n
+            )
+        return merged, ratio_resolver
+
+    def _build_trial_trainer(
+        self,
+        merged_model: dict[str, Any],
+        training_p: dict[str, Any],
+        ratio_resolver: Callable[[int], dict[str, Any]] | None,
+    ) -> CVTrainer:
+        """Build a CVTrainer for a single trial."""
+        estimator = self.estimator_factory(merged_model)
+
+        if "early_stopping_rounds" in training_p:
+            estimator.early_stopping_rounds = int(training_p["early_stopping_rounds"])
+
+        trial_inner_valid = self.inner_valid
+        if "validation_ratio" in training_p and self.inner_valid_factory is not None:
+            trial_inner_valid = self.inner_valid_factory(training_p["validation_ratio"])
+
+        return CVTrainer(
+            outer_splitter=self.outer_splitter,
+            inner_valid=trial_inner_valid,
+            pipeline_factory=self.pipeline_factory,
+            estimator_factory=lambda: estimator,
+            task=self.task,
+            n_classes=self.n_classes,
+            ratio_param_resolver=ratio_resolver,
+        )
+
     def tune(
         self,
         X: pd.DataFrame,
@@ -164,59 +222,9 @@ class Tuner:
             trial_params = suggest_params(trial, dims)
             model_p, smart_p, training_p = split_by_category(trial_params, dims)
 
-            # Apply fixed params as base, then trial's model params on top
-            merged_model = {**(self.fixed_params or {}), **model_p}
-
-            # Resolve n_rows-independent smart params (num_leaves only)
-            if smart_p and self.n_rows is not None:
-                effective = {**_COMMON_DEFAULTS, **merged_model}
-                smart_resolved = resolve_smart_params_from_dict(
-                    smart_params=smart_p,
-                    effective_params=effective,
-                    n_rows=self.n_rows,
-                )
-                merged_model = {**merged_model, **smart_resolved}
-
-            # Build per-fold ratio resolver for n_rows-dependent params (H-0036)
-            leaf_ratio = smart_p.get("min_data_in_leaf_ratio") if smart_p else None
-            bin_ratio = smart_p.get("min_data_in_bin_ratio") if smart_p else None
-            trial_ratio_resolver: Callable[[int], dict[str, Any]] | None = None
-            if leaf_ratio is not None or bin_ratio is not None:
-
-                def _make_resolver(
-                    lr: float | None, br: float | None
-                ) -> Callable[[int], dict[str, Any]]:
-                    return lambda n: resolve_ratio_params(lr, br, n)
-
-                trial_ratio_resolver = _make_resolver(leaf_ratio, bin_ratio)
-
-            # Build estimator with merged model params
-            estimator = self.estimator_factory(merged_model)
-
-            # Handle training params
-            if "early_stopping_rounds" in training_p:
-                estimator.early_stopping_rounds = int(
-                    training_p["early_stopping_rounds"]
-                )
-
-            # Resolve inner_valid for this trial
-            trial_inner_valid = self.inner_valid
-            if (
-                "validation_ratio" in training_p
-                and self.inner_valid_factory is not None
-            ):
-                trial_inner_valid = self.inner_valid_factory(
-                    training_p["validation_ratio"]
-                )
-
-            cv_trainer = CVTrainer(
-                outer_splitter=self.outer_splitter,
-                inner_valid=trial_inner_valid,
-                pipeline_factory=self.pipeline_factory,
-                estimator_factory=lambda: estimator,
-                task=self.task,
-                n_classes=self.n_classes,
-                ratio_param_resolver=trial_ratio_resolver,
+            merged_model, ratio_resolver = self._resolve_trial_params(model_p, smart_p)
+            cv_trainer = self._build_trial_trainer(
+                merged_model, training_p, ratio_resolver
             )
             fit_result = cv_trainer.fit(
                 X,

@@ -145,6 +145,16 @@ SplitConfig = Annotated[
 # ---------------------------------------------------------------------------
 
 
+def _check_ratio(value: float | None, name: str, *, inclusive_upper: bool) -> None:
+    """Validate a ratio parameter is in (0, 1] or (0, 1)."""
+    if value is None:
+        return
+    hi_ok = value <= 1.0 if inclusive_upper else value < 1.0
+    if not (value > 0 and hi_ok):
+        bound = "1]" if inclusive_upper else "1)"
+        raise ValueError(f"{name} must be in (0, {bound}, got {value}")
+
+
 class LGBMConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -179,24 +189,13 @@ class LGBMConfig(BaseModel):
                 "Cannot specify both 'min_data_in_bin_ratio' and "
                 "'params.min_data_in_bin'. Use one or the other."
             )
-        if not (0 < self.num_leaves_ratio <= 1):
-            raise ValueError(
-                f"num_leaves_ratio must be in (0, 1], got {self.num_leaves_ratio}"
-            )
-        if self.min_data_in_leaf_ratio is not None and not (
-            0 < self.min_data_in_leaf_ratio < 1
-        ):
-            raise ValueError(
-                f"min_data_in_leaf_ratio must be in (0, 1), "
-                f"got {self.min_data_in_leaf_ratio}"
-            )
-        if self.min_data_in_bin_ratio is not None and not (
-            0 < self.min_data_in_bin_ratio < 1
-        ):
-            raise ValueError(
-                f"min_data_in_bin_ratio must be in (0, 1), "
-                f"got {self.min_data_in_bin_ratio}"
-            )
+        _check_ratio(self.num_leaves_ratio, "num_leaves_ratio", inclusive_upper=True)
+        _check_ratio(
+            self.min_data_in_leaf_ratio, "min_data_in_leaf_ratio", inclusive_upper=False
+        )
+        _check_ratio(
+            self.min_data_in_bin_ratio, "min_data_in_bin_ratio", inclusive_upper=False
+        )
         if self.feature_weights:
             for k, v in self.feature_weights.items():
                 if v <= 0:
