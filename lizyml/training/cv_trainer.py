@@ -20,6 +20,9 @@ from lizyml.training.inner_valid import BaseInnerValidStrategy
 
 TaskType = Literal["regression", "binary", "multiclass"]
 
+# Type alias for inner-valid subsets (X_train, y_train, X_valid, y_valid)
+_IVSubsets = tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series]
+
 
 class CVTrainer:
     """Executes an outer cross-validation training loop.
@@ -77,19 +80,7 @@ class CVTrainer:
         sample_weight: npt.NDArray[Any] | None = None,
         time_values: pd.Series | None = None,
     ) -> FitResult:
-        """Run the CV training loop and return a :class:`FitResult`.
-
-        Args:
-            X: Full feature DataFrame.
-            y: Full target Series.
-            groups: Optional group labels (same length as X).
-            data_fingerprint: Pre-computed fingerprint of the training data.
-            run_meta: Runtime/version metadata.
-
-        Returns:
-            Populated :class:`~lizyml.core.types.fit_result.FitResult`
-            with ``metrics={}`` (metrics populated by Evaluator in Phase 10).
-        """
+        """Run the CV training loop and return a :class:`FitResult`."""
         n_samples = len(X)
         y_arr = y.to_numpy()
         oof = init_oof(n_samples, self.task, self.n_classes)
@@ -112,20 +103,9 @@ class CVTrainer:
             y_train = y.iloc[train_idx].reset_index(drop=True)
             X_valid = X.iloc[valid_idx].reset_index(drop=True)
 
-            # --- Inner validation split (for early stopping) -----------------
-            groups_train: npt.NDArray[Any] | None = None
-            if groups is not None:
-                groups_train = groups[train_idx]
-            iv_result = self.inner_valid.split(
-                len(X_train),
-                y=y_train.to_numpy(),
-                groups=groups_train,
-            )
-            if iv_result is not None:
-                inner_train_rel, inner_valid_rel = iv_result
-                inner_splits.append((inner_train_rel, inner_valid_rel))
-            else:
-                inner_splits.append((np.arange(len(X_train)), np.array([], dtype=int)))
+            # --- Inner validation split --------------------------------------
+            iv_result, iv_entry = self._split_inner(X_train, y_train, groups, train_idx)
+            inner_splits.append(iv_entry)
 
             # --- Feature pipeline fit (train only, leakage prevention) -------
             pipeline = self.pipeline_factory()
@@ -133,91 +113,37 @@ class CVTrainer:
             last_pipeline = pipeline
 
             X_train_t = pipeline.transform(X_train)
-
-            # Prepare inner-valid subsets through the ALREADY-fitted pipeline
-            iv_subsets: (
-                tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series] | None
-            ) = None
-            if iv_result is not None:
-                iv_subsets = (
-                    X_train_t.iloc[inner_train_rel].reset_index(drop=True),
-                    y_train.iloc[inner_train_rel].reset_index(drop=True),
-                    X_train_t.iloc[inner_valid_rel].reset_index(drop=True),
-                    y_train.iloc[inner_valid_rel].reset_index(drop=True),
-                )
-
+            iv_subsets = self._build_iv_subsets(X_train_t, y_train, iv_result)
             X_valid_t = pipeline.transform(X_valid)
 
             # --- Estimator fit -----------------------------------------------
-            estimator = self.estimator_factory()
-
-            # Resolve n_rows-dependent ratio params using inner_train size (H-0036)
-            if self.ratio_param_resolver is not None:
-                n_inner_train = (
-                    len(iv_subsets[0]) if iv_subsets is not None else len(X_train_t)
-                )
-                estimator.update_params(self.ratio_param_resolver(n_inner_train))
-
-            cat_cols: list[str] = (
-                pipeline.get_state().get("categorical_cols", [])
-                if hasattr(pipeline, "get_state")
-                else []
+            estimator = self._fit_estimator(
+                X_train_t,
+                y_train,
+                iv_subsets,
+                iv_result,
+                pipeline,
+                sample_weight,
+                train_idx,
             )
-
-            # Slice sample_weight for this fold's train set
-            fit_kwargs: dict[str, Any] = {}
-            if sample_weight is not None:
-                fold_sw = sample_weight[train_idx]
-                if iv_subsets is not None:
-                    fit_kwargs["sample_weight"] = fold_sw[inner_train_rel]
-                else:
-                    fit_kwargs["sample_weight"] = fold_sw
-
-            if iv_subsets is not None:
-                X_iv_train, y_iv_train, X_iv_valid, y_iv_valid = iv_subsets
-                estimator.fit(
-                    X_iv_train,
-                    y_iv_train,
-                    X_iv_valid,
-                    y_iv_valid,
-                    categorical_feature=cat_cols or "auto",
-                    **fit_kwargs,
-                )
-            else:
-                estimator.fit(
-                    X_train_t,
-                    y_train,
-                    categorical_feature=cat_cols or "auto",
-                    **fit_kwargs,
-                )
             models.append(estimator)
 
-            # --- OOF predictions ---------------------------------------------
-            fold_valid_pred = get_fold_pred(estimator, X_valid_t, self.task)
-            fill_oof(oof, valid_idx, fold_valid_pred)
-
-            # --- OOF raw scores (for calibration) ----------------------------
+            # --- Predictions -------------------------------------------------
+            fill_oof(oof, valid_idx, get_fold_pred(estimator, X_valid_t, self.task))
             if oof_raw is not None:
-                fold_valid_raw = get_fold_raw(estimator, X_valid_t, self.task)
-                fill_oof(oof_raw, valid_idx, fold_valid_raw)
+                raw = get_fold_raw(estimator, X_valid_t, self.task)
+                fill_oof(oof_raw, valid_idx, raw)
+            if_pred_per_fold.append(get_fold_pred(estimator, X_train_t, self.task))
 
-            # --- IF predictions (train fold) ----------------------------------
-            fold_train_pred = get_fold_pred(estimator, X_train_t, self.task)
-            if_pred_per_fold.append(fold_train_pred)
-
-            # --- Collect history ----------------------------------------------
-            eval_hist: dict[str, Any] = dict(estimator.eval_results)
+            # --- Collect history & splits ------------------------------------
             history.append(
                 {
                     "best_iteration": estimator.best_iteration,
-                    "eval_history": eval_hist,
+                    "eval_history": dict(estimator.eval_results),
                 }
             )
-
-            # --- Record outer split ------------------------------------------
             outer_splits.append((train_idx, valid_idx))
 
-            # --- Record time range (for time series splits) ------------------
             if time_values is not None:
                 time_ranges.append(
                     {
@@ -231,19 +157,143 @@ class CVTrainer:
 
         assert last_pipeline is not None, "No folds were executed."  # noqa: S101
 
+        return self._build_result(
+            X,
+            oof,
+            oof_raw,
+            outer_splits,
+            inner_splits,
+            models,
+            if_pred_per_fold,
+            history,
+            time_ranges,
+            last_pipeline,
+            data_fingerprint,
+            run_meta,
+        )
+
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
+
+    def _split_inner(
+        self,
+        X_train: pd.DataFrame,
+        y_train: pd.Series,
+        groups: npt.NDArray[Any] | None,
+        train_idx: npt.NDArray[np.intp],
+    ) -> tuple[
+        tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]] | None,
+        tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]],
+    ]:
+        """Split train data for inner validation (early stopping)."""
+        groups_train = groups[train_idx] if groups is not None else None
+        iv_result = self.inner_valid.split(
+            len(X_train),
+            y=y_train.to_numpy(),
+            groups=groups_train,
+        )
+        if iv_result is not None:
+            return iv_result, iv_result
+        return None, (np.arange(len(X_train)), np.array([], dtype=int))
+
+    @staticmethod
+    def _build_iv_subsets(
+        X_train_t: pd.DataFrame,
+        y_train: pd.Series,
+        iv_result: tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]] | None,
+    ) -> _IVSubsets | None:
+        """Slice transformed train data into inner-valid subsets."""
+        if iv_result is None:
+            return None
+        inner_train_rel, inner_valid_rel = iv_result
+        return (
+            X_train_t.iloc[inner_train_rel].reset_index(drop=True),
+            y_train.iloc[inner_train_rel].reset_index(drop=True),
+            X_train_t.iloc[inner_valid_rel].reset_index(drop=True),
+            y_train.iloc[inner_valid_rel].reset_index(drop=True),
+        )
+
+    def _fit_estimator(
+        self,
+        X_train_t: pd.DataFrame,
+        y_train: pd.Series,
+        iv_subsets: _IVSubsets | None,
+        iv_result: tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]] | None,
+        pipeline: BaseFeaturePipeline,
+        sample_weight: npt.NDArray[Any] | None,
+        train_idx: npt.NDArray[np.intp],
+    ) -> BaseEstimatorAdapter:
+        """Create, configure, and fit a single fold estimator."""
+        estimator = self.estimator_factory()
+
+        # Resolve n_rows-dependent ratio params (H-0036)
+        if self.ratio_param_resolver is not None:
+            n_train = len(iv_subsets[0]) if iv_subsets is not None else len(X_train_t)
+            estimator.update_params(self.ratio_param_resolver(n_train))
+
+        cat_cols: list[str] = (
+            pipeline.get_state().get("categorical_cols", [])
+            if hasattr(pipeline, "get_state")
+            else []
+        )
+
+        # Prepare fit kwargs (sample_weight slicing)
+        fit_kwargs: dict[str, Any] = {}
+        if sample_weight is not None:
+            fold_sw = sample_weight[train_idx]
+            if iv_result is not None:
+                fit_kwargs["sample_weight"] = fold_sw[iv_result[0]]
+            else:
+                fit_kwargs["sample_weight"] = fold_sw
+
+        # Single estimator.fit() call with conditional eval set
+        if iv_subsets is not None:
+            X_iv_train, y_iv_train, X_iv_valid, y_iv_valid = iv_subsets
+            estimator.fit(
+                X_iv_train,
+                y_iv_train,
+                X_iv_valid,
+                y_iv_valid,
+                categorical_feature=cat_cols or "auto",
+                **fit_kwargs,
+            )
+        else:
+            estimator.fit(
+                X_train_t,
+                y_train,
+                categorical_feature=cat_cols or "auto",
+                **fit_kwargs,
+            )
+        return estimator
+
+    @staticmethod
+    def _build_result(
+        X: pd.DataFrame,
+        oof: npt.NDArray[np.float64],
+        oof_raw: npt.NDArray[np.float64] | None,
+        outer_splits: list[tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]],
+        inner_splits: list[tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]],
+        models: list[BaseEstimatorAdapter],
+        if_pred_per_fold: list[npt.NDArray[np.float64]],
+        history: list[dict[str, Any]],
+        time_ranges: list[dict[str, Any]],
+        last_pipeline: BaseFeaturePipeline,
+        data_fingerprint: DataFingerprint,
+        run_meta: RunMeta,
+    ) -> FitResult:
+        """Assemble the final FitResult from per-fold collections."""
         feature_names = list(X.columns)
         dtypes = {col: str(X[col].dtype) for col in X.columns}
         categorical_features: list[str] = last_pipeline.get_state().get(
             "categorical_cols", []
         )
-
         splits = SplitIndices(
             outer=outer_splits,
             inner=inner_splits if any(len(iv[1]) > 0 for iv in inner_splits) else None,
             calibration=None,
             time_range=time_ranges if time_ranges else None,
         )
-
         return FitResult(
             oof_pred=oof,
             if_pred_per_fold=if_pred_per_fold,
