@@ -8,7 +8,6 @@ Covers:
 - Reproducibility (seed fixed)
 - MODEL_NOT_FIT error before fit
 - UNSUPPORTED_TASK error for predict_proba on regression
-- EstimatorRegistry lookup
 """
 
 from __future__ import annotations
@@ -19,7 +18,6 @@ import pandas as pd
 import pytest
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
-from lizyml.core.registries import EstimatorRegistry
 from lizyml.estimators import LGBMAdapter
 
 # ---------------------------------------------------------------------------
@@ -199,18 +197,3 @@ class TestLGBMMulticlass:
         preds = adapter.predict(X)
         assert preds.shape == (len(X),)
         assert set(np.unique(preds)).issubset({0, 1, 2})
-
-
-# ---------------------------------------------------------------------------
-# Registry
-# ---------------------------------------------------------------------------
-
-
-class TestEstimatorRegistry:
-    def test_lgbm_registered(self) -> None:
-        cls = EstimatorRegistry.get("lgbm")
-        assert cls is LGBMAdapter
-
-    def test_unknown_raises(self) -> None:
-        with pytest.raises(KeyError):
-            EstimatorRegistry.get("nonexistent")

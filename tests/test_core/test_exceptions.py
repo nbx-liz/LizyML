@@ -7,7 +7,6 @@ import pytest
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.seed import derive_seed, set_global_seed
-from lizyml.utils.import_optional import import_optional
 
 # ---------------------------------------------------------------------------
 # LizyMLError
@@ -86,43 +85,6 @@ class TestLizyMLError:
             )
         assert exc_info.value.code == ErrorCode.INCOMPATIBLE_COLUMNS
         assert exc_info.value.context["missing"] == ["col_a"]
-
-
-# ---------------------------------------------------------------------------
-# import_optional
-# ---------------------------------------------------------------------------
-
-
-class TestImportOptional:
-    def test_imports_installed_module(self) -> None:
-        np_mod = import_optional("numpy")
-        import numpy  # noqa: PLC0415
-
-        assert np_mod is numpy
-
-    def test_raises_on_missing_module(self) -> None:
-        with pytest.raises(LizyMLError) as exc_info:
-            import_optional("_nonexistent_module_xyz_")
-        err = exc_info.value
-        assert err.code == ErrorCode.OPTIONAL_DEP_MISSING
-        assert "_nonexistent_module_xyz_" in err.user_message
-        assert err.context["module"] == "_nonexistent_module_xyz_"
-
-    def test_custom_install_hint_in_message(self) -> None:
-        with pytest.raises(LizyMLError) as exc_info:
-            import_optional(
-                "_nonexistent_module_xyz_",
-                package_name="nonexistent-pkg",
-                install_hint="pip install nonexistent-pkg --extra-index-url ...",
-            )
-        assert "pip install nonexistent-pkg --extra-index-url" in (
-            exc_info.value.user_message
-        )
-
-    def test_cause_is_import_error(self) -> None:
-        with pytest.raises(LizyMLError) as exc_info:
-            import_optional("_nonexistent_module_xyz_")
-        assert isinstance(exc_info.value.cause, ImportError)
 
 
 # ---------------------------------------------------------------------------

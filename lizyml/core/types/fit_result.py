@@ -8,9 +8,7 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
-from lizyml.data.fingerprint import DataFingerprint
-
-from .artifacts import RunMeta, SplitIndices
+from .artifacts import DataFingerprint, RunMeta, SplitIndices
 
 
 @dataclass

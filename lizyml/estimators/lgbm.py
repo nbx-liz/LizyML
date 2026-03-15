@@ -13,7 +13,6 @@ if TYPE_CHECKING:
     from lizyml.config.schema import LGBMConfig
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
-from lizyml.core.registries import EstimatorRegistry
 from lizyml.estimators.base import BaseEstimatorAdapter, ImportanceKind
 
 try:
@@ -57,7 +56,6 @@ _COMMON_DEFAULTS: dict[str, Any] = {
 }
 
 
-@EstimatorRegistry.register("lgbm")
 class LGBMAdapter(BaseEstimatorAdapter):
     """LightGBM adapter using the Booster API (``lgb.train``).
 

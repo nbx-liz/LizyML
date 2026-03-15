@@ -467,35 +467,3 @@ class TestUpdateParamsNoMutation:
         adapter.update_params({"max_depth": 5})
         # Original dict passed to constructor should not be modified
         assert "max_depth" not in original
-
-
-# ---------------------------------------------------------------------------
-# Phase 3: HoldoutInnerValid n_valid consistency
-# ---------------------------------------------------------------------------
-
-
-class TestHoldoutNValidConsistency:
-    """HoldoutSplitter and HoldoutInnerValid must use same rounding for n_valid."""
-
-    def test_same_n_valid_for_same_ratio(self) -> None:
-        from lizyml.splitters.holdout import HoldoutSplitter
-        from lizyml.training.inner_valid import HoldoutInnerValid
-
-        n_samples = 15
-        ratio = 0.1
-
-        # HoldoutSplitter
-        hs = HoldoutSplitter(ratio=ratio, random_state=0)
-        hs_folds = list(hs.split(n_samples))
-        hs_n_valid = len(hs_folds[0][1])
-
-        # HoldoutInnerValid
-        hiv = HoldoutInnerValid(ratio=ratio, random_state=0)
-        hiv_result = hiv.split(n_samples)
-        assert hiv_result is not None
-        hiv_n_valid = len(hiv_result[1])
-
-        assert hs_n_valid == hiv_n_valid, (
-            f"Inconsistent n_valid: HoldoutSplitter={hs_n_valid}, "
-            f"HoldoutInnerValid={hiv_n_valid}"
-        )

@@ -36,6 +36,42 @@
 - IF を固定し、実装の自由度を確保する。
 - `Splitter / FeaturePipeline / EstimatorAdapter / Tuner / Calibrator / Metric / Explainer` を分離する。
 
+## 2.1 5 層カテゴリアーキテクチャ（H-0051/H-0052/H-0053）
+
+モジュール間の依存を 5 層の DAG（非巡回有向グラフ）で管理する。詳細は `ARCHITECTURE.md` を参照。
+
+| Layer | 名称 | 依存先 | 含まれるカテゴリ |
+|---|---|---|---|
+| 0 | Foundation | なし | `core/exceptions`, `core/logging`, `core/types/` |
+| 1 | Leaf | Foundation のみ | `config/`, `data/`, `splitters/`, `features/`, `estimators/`, `metrics/`, `calibration/` |
+| 2 | Composition | Foundation + Layer 1 の IF | `training/`, `evaluation/`, `tuning/` |
+| 3 | Optional | Foundation + Layer 1/2 の IF | `explain/`, `plots/`, `persistence/` |
+| 4 | Facade | 全 Layer | `core/model.py`, `core/_model_*.py`, `core/_model_factories.py` |
+
+依存ルール:
+- 各カテゴリは自分より**上の Layer にのみ**依存する（下方向のみ）。
+- Layer 2 は Layer 1 の**抽象 IF のみ**を参照する（具象クラスを import しない）。
+- 具象クラスの組み立て・型ディスパッチは **Layer 4（Facade）のみ**が行う。
+- カテゴリ間の**循環依存は禁止**する。
+
+## 2.2 EstimatorProvider（マルチアルゴリズム拡張 IF）（H-0053）
+
+新しいアルゴリズムの追加を `model.py` 変更ゼロで行えるようにするため、各 estimator モジュールが `EstimatorProvider` protocol を実装する。
+
+`EstimatorProvider` が提供するもの:
+- Config → model params / smart params の抽出
+- Smart param の解決（data-size dependent な変換）
+- Per-fold ratio resolver の構築
+- Estimator factory の構築
+- Pipeline factory の構築
+- デフォルト tuning space の提供
+
+新アルゴリズム追加時の手順:
+1. `estimators/<name>/` に adapter + provider + config を作成
+2. `config/schema.py` の `ModelConfig` union に追加
+3. Facade の provider dispatch に追加
+4. `model.py` の変更: ゼロ
+
 # 3. 要件（機能・品質）
 
 ## 3.1 品質要件
@@ -779,6 +815,8 @@ result = model.tune(progress_callback=on_progress)
 
 ## 14.1 EstimatorAdapter IF
 
+> Layer 1（Leaf）に属する。Foundation のみに依存し、`config/` や他の Leaf カテゴリに依存しない。
+
 ```python
 fit(X_train, y_train, X_valid=None, y_valid=None, **kwargs)
 predict(X)
@@ -849,6 +887,50 @@ get_native_model()  # export用途
 | `early_stopping.enabled` | `True` |
 | `early_stopping.rounds` | `150` |
 | `early_stopping.validation_ratio` | `0.1` |
+
+## 14.4 EstimatorProvider protocol（H-0053）
+
+各 estimator モジュールが実装する protocol。`model.py`（Facade）が estimator 固有の知識なしに TrainComponents を構築するための統一 IF。
+
+```python
+class EstimatorProvider(Protocol):
+    def extract_model_params(self, model_cfg: Any) -> dict[str, Any]: ...
+    def extract_smart_params(self, model_cfg: Any) -> dict[str, Any]: ...
+    def resolve_smart_params(
+        self, smart: dict, effective: dict, n_rows: int,
+        feature_names: list[str], y: Series, task: str,
+    ) -> tuple[dict[str, Any], ndarray | None]: ...
+    def build_ratio_resolver(
+        self, smart: dict,
+    ) -> Callable[[int], dict[str, Any]] | None: ...
+    def build_estimator_factory(
+        self, task: str, params: dict, n_classes: int | None,
+        early_stopping_rounds: int | None, seed: int,
+    ) -> Callable[[], BaseEstimatorAdapter]: ...
+    def build_pipeline_factory(self) -> Callable[[], BaseFeaturePipeline]: ...
+    def default_space(self, task: str) -> list[SearchDim]: ...
+    def default_fixed_params(self, task: str) -> dict[str, Any]: ...
+```
+
+制約:
+- `EstimatorProvider` は `config/` の具象型（`LGBMConfig` 等）を参照してよい（provider は Facade 層から呼ばれるため、Leaf → Leaf の依存にはならない）。
+- `model_cfg` 引数は `Any` 型で受け取るが、各 provider 内部で `isinstance` チェックして具象型にキャストする。
+- `build_pipeline_factory` は estimator 固有の FeaturePipeline が必要な場合（例: EntityEmbedding のカテゴリ埋め込み）に対応する。デフォルトは `NativeFeaturePipeline` を返す。
+
+ディレクトリ構成（estimator ごとにサブパッケージ化）:
+
+```text
+estimators/
+├── base.py              BaseEstimatorAdapter（IF、変更なし）
+├── provider.py          EstimatorProvider protocol 定義
+├── lgbm/
+│   ├── __init__.py      LGBMAdapter, LGBMProvider を re-export
+│   ├── adapter.py       LGBMAdapter（現在の lgbm.py から）
+│   ├── provider.py      LGBMProvider（EstimatorProvider 実装）
+│   ├── smart_params.py  resolve_smart_params / resolve_ratio_params
+│   └── defaults.py      _COMMON_DEFAULTS / task defaults / default_space
+└── <future>/            EntityEmbedding 等（同構造で追加）
+```
 
 # 15. Persistence / Export（`persistence/`）
 
@@ -960,127 +1042,113 @@ YourLibError(code, user_message, debug_message=None, cause=None)
 - 依存の下限バージョンでのテストを CI に含める（`uv` の resolution 機能で `lowest-direct` を使用）。
 - `develop` および `main` ブランチへの PR で CI を実行する。`develop` PR では slow テストを除外し、`main` PR では全テストを実行する（H-0043）。
 
-# 19. ディレクトリ構成（更新案）
+# 19. ディレクトリ構成
+
+5 層カテゴリアーキテクチャ（§2.1）に基づく。各ディレクトリの所属 Layer を明示する。
 
 ```text
-LizyML/
-  pyproject.toml
-  README.md
-  BLUEPRINT.md
-  HISTORY.md
-  LICENSE
-  LizyML/
-    __init__.py
-
-    config/
-      loader.py              # YAML/JSON/dict、override、正規化、version管理
-      schema.py              # pydantic schema（extra=forbid）
-
-    calibration/
-      base.py
-      platt.py
-      isotonic.py
-      beta_calibration.py
-
-    core/
-      model.py               # Facade 本体（fit/predict/evaluate/tune + 組み立て）
-      _model_plots.py        # ModelPlotsMixin（plot 系メソッド委譲）
-      _model_tables.py       # ModelTablesMixin（table/accessor 系メソッド委譲）
-      _model_persistence.py  # ModelPersistenceMixin（export/load 委譲）
-      types.py               # 型の再export / 集約点（薄く保つ）
-      registries.py
-      exceptions.py
-      logging.py
-      seed.py
-      types/
-        fit_result.py
-        predict_result.py
-        artifacts.py         # FitArtifacts / PredictArtifacts 等
-      specs/
-        problem_spec.py
-        feature_spec.py
-        split_spec.py
-        training_spec.py
-        tuning_spec.py
-        calibration_spec.py
-        export_spec.py       # exportの方針（形式/互換性など）
-
-    data/
-      datasource.py
-      dataframe_builder.py
-      validators.py
-      fingerprint.py         # data fingerprint 算出
-
-    features/
-      pipeline_base.py
-      pipelines_native.py
-      pipelines_sklearn.py
-      pipelines_dnn.py
-      encoders/
-        categorical_encoder.py  # 必要時のカテゴリ処理部品
-      transformers/
-        target_transformer.py
-        feature_transformer.py
-
-    splitters/
-      base.py
-      kfold.py
-      group_kfold.py
-      time_series.py
-      purged_time_series.py
-      group_time_series.py
-
-    estimators/
-      base.py
-      lgbm.py
-      sklearn.py
-      dnn_base.py
-      dnn_torch.py
-
-    training/
-      cv_trainer.py
-      refit_trainer.py
-      tuning_trainer.py
-      inner_valid.py         # InnerValidStrategy 群
-
-    tuning/
-      base.py
-      search_space.py
-      optuna_tuner.py
-
-    metrics/
-      base.py
-      regression.py
-      classification.py
-      registry.py
-
-    evaluation/
-      oof.py
-      evaluator.py
-      thresholding.py        # binary閾値最適化（任意）
-
-    explain/
-      base.py
-      shap.py
-      lgbm_contrib.py
-      integrated_gradients.py
-
-    plots/
-      learning_curve.py
-      importance.py
-      residuals.py
-      calibration.py         # reliability diagram 等
-      classification.py      # ROC/PR/confusion 等
-
-    persistence/
-      serializer.py
-      model_store.py
-
-    utils/
-      import_optional.py
-      array.py
-      pandas.py
-      time.py
+lizyml/
+│
+├── __init__.py                     公開面 (Model, FitResult, PredictionResult, ...)
+│
+├── core/                           ── Layer 0: Foundation ──
+│   ├── exceptions.py               LizyMLError + ErrorCode
+│   ├── logging.py                  logger + run_id + output_dir
+│   ├── registries.py               MetricRegistry, CalibratorRegistry
+│   └── types/
+│       ├── fit_result.py           FitResult
+│       ├── predict_result.py       PredictionResult
+│       ├── tuning_result.py        TuningResult, TrialResult
+│       └── artifacts.py            RunMeta, SplitIndices, DataFingerprint
+│
+│                                   ── Layer 0/4: Facade (core/ 内の特殊位置) ──
+│   ├── model.py                    Model facade (組み立てと委譲のみ)
+│   ├── _model_factories.py         splitter / inner_valid / estimator provider 構築
+│   ├── _model_plots.py             ModelPlotsMixin
+│   ├── _model_tables.py            ModelTablesMixin
+│   ├── _model_persistence.py       ModelPersistenceMixin
+│   └── specs/
+│       ├── problem_spec.py         ProblemSpec (data/ が使用)
+│       └── feature_spec.py         FeatureSpec (data/ が使用)
+│
+├── config/                         ── Layer 1: Config ──
+│   ├── schema.py                   pydantic schemas (extra="forbid")
+│   └── loader.py                   YAML/JSON/dict → LizyMLConfig
+│
+├── data/                           ── Layer 1: Data ──
+│   ├── datasource.py               CSV / Parquet / DataFrame
+│   ├── dataframe_builder.py        X/y/groups 分離 + categorical
+│   └── fingerprint.py              DataFingerprint 計算 (compute 関数)
+│
+├── splitters/                      ── Layer 1: Splitting ──
+│   ├── base.py                     BaseSplitter
+│   ├── kfold.py                    KFoldSplitter, StratifiedKFoldSplitter
+│   ├── group_kfold.py              GroupKFoldSplitter
+│   ├── time_series.py              TimeSeriesSplitter
+│   ├── purged_time_series.py       PurgedTimeSeriesSplitter
+│   └── group_time_series.py        GroupTimeSeriesSplitter
+│
+├── features/                       ── Layer 1: Features ──
+│   ├── pipeline_base.py            BaseFeaturePipeline
+│   ├── pipelines_native.py         NativeFeaturePipeline
+│   └── encoders/
+│       └── categorical_encoder.py  カテゴリ処理部品
+│
+├── estimators/                     ── Layer 1: Estimators ──
+│   ├── base.py                     BaseEstimatorAdapter
+│   ├── provider.py                 EstimatorProvider protocol (§14.4)
+│   └── lgbm/                       LightGBM 実装 (サブパッケージ)
+│       ├── __init__.py             LGBMAdapter, LGBMProvider を re-export
+│       ├── adapter.py              LGBMAdapter
+│       ├── provider.py             LGBMProvider (EstimatorProvider 実装)
+│       ├── smart_params.py         resolve_smart_params / resolve_ratio_params
+│       └── defaults.py             _COMMON_DEFAULTS / default_space / default_fixed_params
+│
+├── metrics/                        ── Layer 1: Metrics ──
+│   ├── base.py                     BaseMetric
+│   ├── registry.py                 MetricRegistry helpers + task validation
+│   ├── regression.py               RMSE, MAE, R2, RMSLE, MAPE, Huber
+│   └── classification.py           LogLoss, AUC, AUCPR, F1, Accuracy, Brier, ECE, PrecisionAtK
+│
+├── calibration/                    ── Layer 1: Calibration ──
+│   ├── base.py                     BaseCalibratorAdapter
+│   ├── cross_fit.py                cross_fit_calibrate + CalibrationResult
+│   ├── registry.py                 get_calibrator
+│   ├── platt.py                    PlattCalibrator
+│   ├── isotonic.py                 IsotonicCalibrator
+│   └── beta.py                     BetaCalibrator
+│
+├── training/                       ── Layer 2: Training ──
+│   ├── cv_trainer.py               CVTrainer (outer CV loop)
+│   ├── refit_trainer.py            RefitTrainer + RefitResult
+│   ├── train_components.py         TrainComponents (frozen dataclass)
+│   ├── inner_valid.py              BaseInnerValidStrategy + 4 concrete
+│   └── oof_assembly.py             fill_oof / get_fold_pred / init_oof
+│
+├── evaluation/                     ── Layer 2: Evaluation ──
+│   ├── evaluator.py                Evaluator (raw metrics のみ)
+│   ├── table_formatter.py          evaluate_table 整形
+│   └── confusion.py                confusion_matrix_table
+│
+├── tuning/                         ── Layer 2: Tuning ──
+│   ├── tuner.py                    Tuner (Optuna study management)
+│   └── search_space.py             SearchDim, parse/suggest/split_by_category
+│
+├── explain/                        ── Layer 3: Explain (optional) ──
+│   └── shap_explainer.py           compute_shap_values / compute_shap_importance
+│
+├── plots/                          ── Layer 3: Plots (optional) ──
+│   ├── importance.py               feature importance bar chart
+│   ├── learning_curve.py           training/validation loss curve
+│   ├── oof_distribution.py         OOF prediction distribution
+│   ├── residuals.py                scatter / histogram / QQ
+│   ├── classification.py           ROC curve
+│   ├── calibration.py              reliability diagram + probability histogram
+│   └── tuning.py                   tuning history plot
+│
+└── persistence/                    ── Layer 3: Persistence ──
+    ├── exporter.py                 export() + AnalysisContext + FORMAT_VERSION
+    └── loader.py                   load() + format_version validation
 ```
 
 # 20. 既知の将来拡張（設計で塞がない）
@@ -1162,9 +1230,9 @@ loaded_model.probability_histogram_plot()
 
 ## Model に置かないこと
 
-- OOF / IF 生成ロジック（`evaluation/oof.py`）
+- OOF / IF 生成ロジック（`training/oof_assembly.py`）
 - metric 計算（`evaluation/evaluator.py`）
-- LGBM 固有処理（`estimators/lgbm.py`）
+- estimator 固有処理（`estimators/<name>/` — EstimatorProvider 経由で委譲）
 - plot 実装本体（`plots/*`）
 - 保存形式の詳細（`persistence/*`）
 

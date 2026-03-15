@@ -45,7 +45,5 @@ class _Registry:
         return key in self._store
 
 
-EstimatorRegistry = _Registry("EstimatorRegistry")
-SplitterRegistry = _Registry("SplitterRegistry")
 MetricRegistry = _Registry("MetricRegistry")
 CalibratorRegistry = _Registry("CalibratorRegistry")

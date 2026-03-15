@@ -9,12 +9,9 @@ import numpy as np
 import numpy.typing as npt
 from sklearn.model_selection import TimeSeriesSplit
 
-from lizyml.core.registries import SplitterRegistry
-
 from .base import BaseSplitter
 
 
-@SplitterRegistry.register("time_series")
 class TimeSeriesSplitter(BaseSplitter):
     """Forward-chaining (expanding window) time series splitter.
 

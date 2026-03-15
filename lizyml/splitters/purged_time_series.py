@@ -8,12 +8,9 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
-from lizyml.core.registries import SplitterRegistry
-
 from .base import BaseSplitter
 
 
-@SplitterRegistry.register("purged_time_series")
 class PurgedTimeSeriesSplitter(BaseSplitter):
     """Expanding-window time series splitter with purge gap and embargo.
 

@@ -9,9 +9,8 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
-from lizyml.core.types.artifacts import RunMeta, SplitIndices
+from lizyml.core.types.artifacts import DataFingerprint, RunMeta, SplitIndices
 from lizyml.core.types.fit_result import FitResult
-from lizyml.data.fingerprint import DataFingerprint
 from lizyml.estimators.base import BaseEstimatorAdapter
 from lizyml.evaluation.oof import fill_oof, get_fold_pred, get_fold_raw, init_oof
 from lizyml.features.pipeline_base import BaseFeaturePipeline
