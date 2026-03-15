@@ -83,7 +83,7 @@
 
 ```python
 model = Model(config=config)
-tuning_result = model.tune()       # TuningResult（best_params / best_score / trials）
+tuning_result = model.tune()       # TuningResult（best_model_params / best_smart_params / best_training_params / best_score / trials）
 tuning_df = model.tuning_table()   # 全 trial の DataFrame（trial / score / params）
 fit_result = model.fit()
 eval_result = model.evaluate()
@@ -94,7 +94,7 @@ model.export("path/to/export_dir")
 補足:
 - `fit()` の default は、最も評価が良かったパラメーターで学習する。
 - 必要に応じて、最終学習に使うパラメーターを明示指定できるようにする。
-- `tune()` は `TuningResult` を返す。`TuningResult` は `best_params`（最良パラメーター）、`best_score`（最良スコア）、`trials`（全 trial の `TrialResult` リスト）を持つ。
+- `tune()` は `TuningResult` を返す。`TuningResult` は `best_model_params` / `best_smart_params` / `best_training_params`（カテゴリ別最良パラメーター）、`best_score`（最良スコア）、`trials`（全 trial の `TrialResult` リスト）、`metric_name`、`direction` を持つ。`best_params` プロパティは3カテゴリの flat view を返す（H-0050）。
 - `tune()` は `progress_callback: TuneProgressCallback | None = None` を受け取り、各 trial 完了時に `TuneProgressInfo`（`current_trial / total_trials / elapsed_seconds / best_score / latest_score / latest_state`）をコールバックに渡す（H-0048）。コールバック内例外は catch して warning に変換し、tuning を中断させない。
 - `tuning_table()` は `TuningResult.trials` を `pd.DataFrame` に変換して返す（列: `trial`, メトリクス名, 探索パラメーター名）。`tune()` 未実行時は `MODEL_NOT_FIT`。
 - 学習後は、以下の補助 API を提供する。

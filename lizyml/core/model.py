@@ -56,6 +56,7 @@ from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.logging import generate_run_id, get_logger
 from lizyml.core.specs.feature_spec import FeatureSpec
 from lizyml.core.specs.problem_spec import ProblemSpec
+from lizyml.core.train_components import TrainComponents
 from lizyml.core.types.artifacts import RunMeta
 from lizyml.core.types.fit_result import FitResult
 from lizyml.core.types.predict_result import PredictionResult
@@ -74,7 +75,13 @@ from lizyml.evaluation.evaluator import Evaluator
 from lizyml.features.pipelines_native import NativeFeaturePipeline
 from lizyml.training.cv_trainer import CVTrainer
 from lizyml.training.refit_trainer import RefitResult, RefitTrainer
-from lizyml.tuning.search_space import default_fixed_params, default_space, parse_space
+from lizyml.tuning.search_space import (
+    default_fixed_params,
+    default_space,
+    parse_space,
+    split_by_category,
+    suggest_params,
+)
 from lizyml.tuning.tuner import Tuner
 
 _log = get_logger("model")
@@ -128,7 +135,6 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         self._fit_result: FitResult | None = None
         self._refit_result: RefitResult | None = None
         self._metrics: dict[str, Any] | None = None
-        self._best_params: dict[str, Any] | None = None
         self._tuning_result: TuningResult | None = None
         self._y: pd.Series | None = None  # transient; not persisted
         self._X: pd.DataFrame | None = None  # transient; not persisted
@@ -164,73 +170,26 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         self._X, self._y = X, y
         fingerprint = fp_compute(X, file_path=None)
 
-        # --- Build components ------------------------------------------------
+        # --- Build components (H-0050: unified TrainComponents) --------------
+        model_params, smart_params = self._merge_params(override=params)
+        tc = self._build_train_components(
+            X, y, model_params=model_params, smart_params=smart_params
+        )
         splitter = build_splitter(cfg)
-        inner_valid = build_inner_valid(cfg)
-        lgbm_params = {
-            **_get_lgbm_params(cfg),
-            **(self._best_params or {}),
-            **(params or {}),
-        }
         n_classes = int(y.nunique()) if cfg.task == "multiclass" else None
-
-        # Resolve smart parameters (H-0021, H-0050: dict-based unified)
-        sample_weight: npt.NDArray[np.float64] | None = None
-        model_cfg = cfg.model
-        if isinstance(model_cfg, LGBMConfig):
-            smart = extract_smart_params(model_cfg)
-            effective = {**_COMMON_DEFAULTS, **lgbm_params}
-            smart_resolved, sample_weight = resolve_smart_params(
-                smart=smart,
-                effective_params=effective,
-                n_rows=len(X),
-                feature_names=list(X.columns),
-                y=y,
-                task=cfg.task,
-            )
-            lgbm_params.update(smart_resolved)
-
-        # Build per-fold ratio param resolver (H-0036)
-        ratio_resolver: Callable[[int], dict[str, Any]] | None = None
-        if isinstance(model_cfg, LGBMConfig) and (
-            model_cfg.min_data_in_leaf_ratio is not None
-            or model_cfg.min_data_in_bin_ratio is not None
-        ):
-            _leaf_ratio = model_cfg.min_data_in_leaf_ratio
-            _bin_ratio = model_cfg.min_data_in_bin_ratio
-
-            def ratio_resolver(n: int) -> dict[str, int]:
-                return resolve_ratio_params(
-                    min_data_in_leaf_ratio=_leaf_ratio,
-                    min_data_in_bin_ratio=_bin_ratio,
-                    n_rows=n,
-                )
 
         def make_pipeline() -> NativeFeaturePipeline:
             return NativeFeaturePipeline()
 
-        def make_estimator() -> LGBMAdapter:
-            return LGBMAdapter(
-                task=cfg.task,
-                params=lgbm_params,
-                num_class=n_classes,
-                early_stopping_rounds=(
-                    cfg.training.early_stopping.rounds
-                    if cfg.training.early_stopping.enabled
-                    else None
-                ),
-                random_state=cfg.training.seed,
-            )
-
         # --- CV training -----------------------------------------------------
         cv_trainer = CVTrainer(
             outer_splitter=splitter,
-            inner_valid=inner_valid,
+            inner_valid=tc.inner_valid,
             pipeline_factory=make_pipeline,
-            estimator_factory=make_estimator,
+            estimator_factory=tc.estimator_factory,
             task=cfg.task,
             n_classes=n_classes,
-            ratio_param_resolver=ratio_resolver,
+            ratio_param_resolver=tc.ratio_resolver,
             collect_raw_scores=(cfg.calibration is not None),
         )
         time_values = components.time_col if components.time_col is not None else None
@@ -240,7 +199,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             groups,
             data_fingerprint=fingerprint,
             run_meta=run_meta,
-            sample_weight=sample_weight,
+            sample_weight=tc.sample_weight,
             time_values=time_values,
         )
 
@@ -258,11 +217,11 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
 
         # --- Full-data refit (for predict) -----------------------------------
         refit_trainer = RefitTrainer(
-            inner_valid=inner_valid,
+            inner_valid=tc.inner_valid,
             pipeline_factory=make_pipeline,
-            estimator_factory=make_estimator,
+            estimator_factory=tc.estimator_factory,
             task=cfg.task,
-            ratio_param_resolver=ratio_resolver,
+            ratio_param_resolver=tc.ratio_resolver,
         )
         self._refit_result = refit_trainer.fit(X, y, groups)
 
@@ -433,8 +392,8 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
 
         n_classes = int(y.nunique()) if cfg.task == "multiclass" else None
         splitter = build_splitter(cfg)
-        inner_valid = build_inner_valid(cfg)
-        base_params = _get_lgbm_params(cfg)
+        base_model_params, base_smart_params = self._merge_params()
+
         user_space = parse_space(cfg.tuning.optuna.space)
         if user_space:
             space = user_space
@@ -447,41 +406,79 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         metric_names = cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task]
         metric_name = metric_names[0]
 
-        def make_trial_estimator(trial_params: dict[str, Any]) -> LGBMAdapter:
-            merged = {**base_params, **trial_params}
-            return LGBMAdapter(
-                task=cfg.task,
-                params=merged,
-                num_class=n_classes,
-                early_stopping_rounds=(
-                    cfg.training.early_stopping.rounds
-                    if cfg.training.early_stopping.enabled
-                    else None
-                ),
-                random_state=cfg.training.seed,
+        evaluator = Evaluator(task=cfg.task)
+        fingerprint = fp_compute(X, file_path=None)
+        run_meta = self._build_run_meta(generate_run_id())
+        iv_factory = make_inner_valid_factory(cfg)
+
+        # --- Build objective closure (H-0050: uses _build_train_components) ---
+        def objective(trial: Any) -> float:
+            trial_params = suggest_params(trial, space)
+            model_p, smart_p, training_p = split_by_category(trial_params, space)
+
+            # Merge: fixed + base config + trial model params
+            merged_model = {**base_model_params, **fixed, **model_p}
+            # Merge: base smart + trial smart params
+            merged_smart = {**base_smart_params, **smart_p}
+
+            # Handle training params (early_stopping, validation_ratio)
+            inner_valid_override = None
+            if "validation_ratio" in training_p:
+                inner_valid_override = iv_factory(training_p["validation_ratio"])
+
+            tc = self._build_train_components(
+                X,
+                y,
+                model_params=merged_model,
+                smart_params=merged_smart,
             )
 
+            # Apply training param overrides to estimator
+            estimator_factory = tc.estimator_factory
+            if "early_stopping_rounds" in training_p:
+                esr = int(training_p["early_stopping_rounds"])
+                base_factory = estimator_factory
+
+                def estimator_factory() -> LGBMAdapter:
+                    est: LGBMAdapter = base_factory()  # type: ignore[assignment]
+                    est.early_stopping_rounds = esr
+                    return est
+
+            cv_trainer = CVTrainer(
+                outer_splitter=splitter,
+                inner_valid=(
+                    inner_valid_override
+                    if inner_valid_override is not None
+                    else tc.inner_valid
+                ),
+                pipeline_factory=NativeFeaturePipeline,
+                estimator_factory=estimator_factory,
+                task=cfg.task,
+                n_classes=n_classes,
+                ratio_param_resolver=tc.ratio_resolver,
+            )
+            fit_result = cv_trainer.fit(
+                X,
+                y,
+                groups,
+                data_fingerprint=fingerprint,
+                run_meta=run_meta,
+                sample_weight=tc.sample_weight,
+            )
+            metrics = evaluator.evaluate(fit_result, y, [metric_name])
+            score: float = metrics["raw"]["oof"][metric_name]
+            return score
+
         tuner = Tuner(
-            task=cfg.task,
-            outer_splitter=splitter,
-            inner_valid=inner_valid,
-            pipeline_factory=NativeFeaturePipeline,
-            estimator_factory=make_trial_estimator,
             dims=space,
             n_trials=optuna_cfg.n_trials,
             direction=optuna_cfg.direction,
             timeout=optuna_cfg.timeout,
-            metric_name=metric_name,
-            n_classes=n_classes,
             seed=cfg.training.seed,
-            inner_valid_factory=make_inner_valid_factory(cfg),
-            n_rows=len(X),
-            fixed_params=fixed,
             progress_callback=progress_callback,
         )
 
-        result = tuner.tune(X, y, groups)
-        self._best_params = result.best_params
+        result = tuner.tune(objective, metric_name=metric_name)
         self._tuning_result = result
         _log.info("event='tune.done' best_params=%s", result.best_params)
         return result
@@ -498,6 +495,126 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             LizyMLError with ``MODEL_NOT_FIT`` when ``fit()`` has not been called.
         """
         return self._require_fit()
+
+    # ------------------------------------------------------------------
+    # Internal helpers — TrainComponents (H-0050)
+    # ------------------------------------------------------------------
+
+    def _merge_params(
+        self, override: dict[str, Any] | None = None
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Merge model and smart params with priority:
+        Config defaults < tune best < fit() args.
+
+        Returns:
+            (model_params, smart_params) tuple.
+        """
+        cfg = self._cfg
+        model_cfg = cfg.model
+
+        # --- model_params: Config defaults ---
+        model_params: dict[str, Any] = {}
+        if isinstance(model_cfg, LGBMConfig):
+            model_params = dict(model_cfg.params)
+
+        # --- smart_params: Config defaults ---
+        smart_params: dict[str, Any] = {}
+        if isinstance(model_cfg, LGBMConfig):
+            smart_params = extract_smart_params(model_cfg)
+
+        # --- Overlay tune best ---
+        if self._tuning_result is not None:
+            model_params = {
+                **model_params,
+                **self._tuning_result.best_model_params,
+            }
+            if self._tuning_result.best_smart_params:
+                smart_params = {
+                    **smart_params,
+                    **self._tuning_result.best_smart_params,
+                }
+
+        # --- Overlay fit() args (highest priority) ---
+        if override:
+            model_params = {**model_params, **override}
+
+        return model_params, smart_params
+
+    def _build_train_components(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        *,
+        model_params: dict[str, Any],
+        smart_params: dict[str, Any],
+    ) -> TrainComponents:
+        """Build shared training components for CVTrainer and RefitTrainer.
+
+        Resolves smart params (num_leaves, feature_weights, balanced) and
+        builds factories/resolvers that both trainers share identically.
+
+        Args:
+            X: Feature DataFrame.
+            y: Target Series.
+            model_params: Merged model params (from ``_merge_params``).
+            smart_params: Merged smart params (from ``_merge_params``).
+
+        Returns:
+            :class:`TrainComponents` ready to pass to both trainers.
+        """
+        cfg = self._cfg
+        n_classes = int(y.nunique()) if cfg.task == "multiclass" else None
+
+        # --- Resolve smart params (Stage 1: data-size independent) ---
+        sample_weight: npt.NDArray[np.float64] | None = None
+        resolved_model = dict(model_params)
+
+        if smart_params:
+            effective = {**_COMMON_DEFAULTS, **resolved_model}
+            smart_resolved, sample_weight = resolve_smart_params(
+                smart=smart_params,
+                effective_params=effective,
+                n_rows=len(X),
+                feature_names=list(X.columns),
+                y=y,
+                task=cfg.task,
+            )
+            resolved_model = {**resolved_model, **smart_resolved}
+
+        # --- Build per-fold ratio resolver (Stage 2: n_rows dependent) ---
+        leaf_ratio = smart_params.get("min_data_in_leaf_ratio")
+        bin_ratio = smart_params.get("min_data_in_bin_ratio")
+        ratio_resolver: Callable[[int], dict[str, Any]] | None = None
+        if leaf_ratio is not None or bin_ratio is not None:
+            ratio_resolver = lambda n: resolve_ratio_params(  # noqa: E731
+                leaf_ratio, bin_ratio, n
+            )
+
+        # --- Build estimator factory ---
+        final_params = resolved_model
+
+        def make_estimator() -> LGBMAdapter:
+            return LGBMAdapter(
+                task=cfg.task,
+                params=final_params,
+                num_class=n_classes,
+                early_stopping_rounds=(
+                    cfg.training.early_stopping.rounds
+                    if cfg.training.early_stopping.enabled
+                    else None
+                ),
+                random_state=cfg.training.seed,
+            )
+
+        # --- Inner validation ---
+        inner_valid = build_inner_valid(cfg)
+
+        return TrainComponents(
+            estimator_factory=make_estimator,
+            sample_weight=sample_weight,
+            ratio_resolver=ratio_resolver,
+            inner_valid=inner_valid,
+        )
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -702,14 +819,6 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
                 context={},
             )
         return self._refit_result
-
-
-def _get_lgbm_params(cfg: LizyMLConfig) -> dict[str, Any]:
-    """Extract LightGBM params from model config."""
-    model_cfg = cfg.model
-    if isinstance(model_cfg, LGBMConfig):
-        return dict(model_cfg.params)
-    return {}
 
 
 def _has_metric_content(filtered: dict[str, Any]) -> bool:
