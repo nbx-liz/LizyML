@@ -8,7 +8,17 @@ from __future__ import annotations
 import warnings
 from collections.abc import Callable
 
-from lizyml.config.schema import LizyMLConfig
+from lizyml.config.schema import (
+    GroupKFoldConfig,
+    GroupTimeSeriesConfig,
+    HoldoutInnerValidConfig,
+    KFoldConfig,
+    LizyMLConfig,
+    PurgedTimeSeriesConfig,
+    SplitConfig,
+    StratifiedKFoldConfig,
+    TimeSeriesConfig,
+)
 from lizyml.splitters.base import BaseSplitter
 from lizyml.splitters.group_kfold import GroupKFoldSplitter
 from lizyml.splitters.group_time_series import GroupTimeSeriesSplitter
@@ -28,7 +38,7 @@ InnerValidType = (
 
 
 def _build_splitter_for_method(
-    split_cfg: object,
+    split_cfg: SplitConfig,
     n_splits: int,
 ) -> BaseSplitter:
     """Build a splitter from split config, using the given *n_splits*.
@@ -37,50 +47,45 @@ def _build_splitter_for_method(
     The *n_splits* parameter is separated so that callers can override it
     (e.g. ``calibration.n_splits`` instead of ``split.n_splits``).
     """
-    method: str = getattr(split_cfg, "method", "kfold")
-    random_state: int = getattr(split_cfg, "random_state", 42)
-    shuffle: bool = getattr(split_cfg, "shuffle", True)
-
-    if method == "stratified_kfold":
+    if isinstance(split_cfg, StratifiedKFoldConfig):
         return StratifiedKFoldSplitter(
-            n_splits=n_splits, shuffle=shuffle, random_state=random_state
+            n_splits=n_splits,
+            shuffle=True,
+            random_state=split_cfg.random_state,
         )
-    if method == "group_kfold":
+    if isinstance(split_cfg, GroupKFoldConfig):
         return GroupKFoldSplitter(n_splits=n_splits)
-    if method == "time_series":
-        gap = getattr(split_cfg, "gap", 0)
-        train_size_max = getattr(split_cfg, "train_size_max", None)
-        test_size_max = getattr(split_cfg, "test_size_max", None)
+    if isinstance(split_cfg, TimeSeriesConfig):
         return TimeSeriesSplitter(
             n_splits=n_splits,
-            gap=gap,
-            max_train_size=train_size_max,
-            max_test_size=test_size_max,
+            gap=split_cfg.gap,
+            max_train_size=split_cfg.train_size_max,
+            max_test_size=split_cfg.test_size_max,
         )
-    if method == "purged_time_series":
-        purge_gap = getattr(split_cfg, "purge_gap", 0)
-        embargo: int = getattr(split_cfg, "embargo", 0)
-        train_size_max = getattr(split_cfg, "train_size_max", None)
-        test_size_max = getattr(split_cfg, "test_size_max", None)
+    if isinstance(split_cfg, PurgedTimeSeriesConfig):
         return PurgedTimeSeriesSplitter(
             n_splits=n_splits,
-            purge_gap=purge_gap,
-            embargo=embargo,
-            max_train_size=train_size_max,
-            max_test_size=test_size_max,
+            purge_gap=split_cfg.purge_gap,
+            embargo=split_cfg.embargo,
+            max_train_size=split_cfg.train_size_max,
+            max_test_size=split_cfg.test_size_max,
         )
-    if method == "group_time_series":
-        gap = getattr(split_cfg, "gap", 0)
-        train_size_max = getattr(split_cfg, "train_size_max", None)
-        test_size_max = getattr(split_cfg, "test_size_max", None)
+    if isinstance(split_cfg, GroupTimeSeriesConfig):
         return GroupTimeSeriesSplitter(
             n_splits=n_splits,
-            gap=gap,
-            max_train_size=train_size_max,
-            max_test_size=test_size_max,
+            gap=split_cfg.gap,
+            max_train_size=split_cfg.train_size_max,
+            max_test_size=split_cfg.test_size_max,
         )
-    # Default: kfold
-    return KFoldSplitter(n_splits=n_splits, shuffle=shuffle, random_state=random_state)
+    # Default: KFoldConfig (or any unmatched variant)
+    if isinstance(split_cfg, KFoldConfig):
+        return KFoldSplitter(
+            n_splits=n_splits,
+            shuffle=split_cfg.shuffle,
+            random_state=split_cfg.random_state,
+        )
+    # Fallback — should not be reachable with the current union
+    return KFoldSplitter(n_splits=n_splits, shuffle=True, random_state=42)
 
 
 def build_splitter(cfg: LizyMLConfig) -> BaseSplitter:
@@ -142,28 +147,27 @@ def build_inner_valid(cfg: LizyMLConfig) -> InnerValidType:
 
     iv_cfg = es.inner_valid
     split_method = cfg.split.method
+    seed = cfg.training.seed
 
-    # Auto-resolve when inner_valid is not explicitly set (includes
-    # the case where it was auto-created from validation_ratio default)
-    if iv_cfg is None or not es._inner_valid_explicit:
-        ratio = iv_cfg.ratio if iv_cfg is not None else 0.1
-        seed = cfg.training.seed
-        return _resolve_auto_inner_valid(split_method, ratio, seed)
+    # Auto-resolve: inner_valid absent or created from validation_ratio default
+    if iv_cfg is None:
+        return _resolve_auto_inner_valid(split_method, 0.1, seed)
+    if not es._inner_valid_explicit:
+        return _resolve_auto_inner_valid(split_method, iv_cfg.ratio, seed)
 
-    # Explicit config — use getattr for fields not common to all variants
-    method = iv_cfg.method
-    if method == "holdout":
+    # Explicit config — dispatch by concrete type
+    if isinstance(iv_cfg, HoldoutInnerValidConfig):
         return HoldoutInnerValid(
             ratio=iv_cfg.ratio,
-            random_state=getattr(iv_cfg, "random_state", 42),
-            stratify=getattr(iv_cfg, "stratify", False),
+            random_state=iv_cfg.random_state,
+            stratify=iv_cfg.stratify,
         )
-    if method == "group_holdout":
+    if iv_cfg.method == "group_holdout":
         return GroupHoldoutInnerValid(
             ratio=iv_cfg.ratio,
-            random_state=getattr(iv_cfg, "random_state", 42),
+            random_state=iv_cfg.random_state,
         )
-    if method == "time_holdout":
+    if iv_cfg.method == "time_holdout":
         return TimeHoldoutInnerValid(ratio=iv_cfg.ratio)
     return NoInnerValid()
 
