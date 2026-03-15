@@ -16,16 +16,6 @@ import yaml
 from pydantic import ValidationError
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
-from lizyml.core.specs.calibration_spec import CalibrationSpec
-from lizyml.core.specs.feature_spec import FeatureSpec
-from lizyml.core.specs.problem_spec import ProblemSpec
-from lizyml.core.specs.split_spec import SplitSpec
-from lizyml.core.specs.training_spec import (
-    EarlyStoppingSpec,
-    InnerValidSpec,
-    TrainingSpec,
-)
-from lizyml.core.specs.tuning_spec import TuningSpec
 
 from .schema import LizyMLConfig
 
@@ -298,92 +288,3 @@ def _validate(raw: dict[str, Any]) -> LizyMLConfig:
             cause=exc,
             context={"validation_errors": exc.errors()},
         ) from exc
-
-
-# ---------------------------------------------------------------------------
-# Config → Spec conversion
-# ---------------------------------------------------------------------------
-
-
-def config_to_problem_spec(config: LizyMLConfig) -> ProblemSpec:
-    return ProblemSpec(
-        task=config.task,
-        target=config.data.target,
-        time_col=config.data.time_col,
-        group_col=config.data.group_col,
-        data_path=config.data.path,
-    )
-
-
-def config_to_feature_spec(config: LizyMLConfig) -> FeatureSpec:
-    return FeatureSpec(
-        exclude=tuple(config.features.exclude),
-        auto_categorical=config.features.auto_categorical,
-        categorical=tuple(config.features.categorical),
-    )
-
-
-def config_to_split_spec(config: LizyMLConfig) -> SplitSpec:
-    split = config.split
-    # Each SplitConfig subtype has different optional fields
-    random_state: int | None = getattr(split, "random_state", None)
-    shuffle: bool = getattr(split, "shuffle", False)
-    gap: int = getattr(split, "gap", 0)
-    purge_gap: int = getattr(split, "purge_gap", 0)
-    embargo: int = getattr(split, "embargo", 0)
-    train_size_max: int | None = getattr(split, "train_size_max", None)
-    test_size_max: int | None = getattr(split, "test_size_max", None)
-    return SplitSpec(
-        method=split.method,
-        n_splits=split.n_splits,
-        random_state=random_state,
-        shuffle=shuffle,
-        gap=gap,
-        purge_gap=purge_gap,
-        embargo=embargo,
-        train_size_max=train_size_max,
-        test_size_max=test_size_max,
-    )
-
-
-def config_to_training_spec(config: LizyMLConfig) -> TrainingSpec:
-    es_cfg = config.training.early_stopping
-    inner_valid: InnerValidSpec | None = None
-    if es_cfg.inner_valid is not None:
-        iv = es_cfg.inner_valid
-        inner_valid = InnerValidSpec(
-            method=iv.method,
-            ratio=iv.ratio,
-            random_state=getattr(iv, "random_state", 42),
-            stratify=getattr(iv, "stratify", False),
-        )
-    return TrainingSpec(
-        seed=config.training.seed,
-        early_stopping=EarlyStoppingSpec(
-            enabled=es_cfg.enabled,
-            rounds=es_cfg.rounds,
-            inner_valid=inner_valid,
-        ),
-    )
-
-
-def config_to_tuning_spec(config: LizyMLConfig) -> TuningSpec | None:
-    if config.tuning is None:
-        return None
-    optuna = config.tuning.optuna
-    return TuningSpec(
-        backend="optuna",
-        n_trials=optuna.params.n_trials,
-        direction=optuna.params.direction,
-        timeout=optuna.params.timeout,
-        space=optuna.space,
-    )
-
-
-def config_to_calibration_spec(config: LizyMLConfig) -> CalibrationSpec | None:
-    if config.calibration is None:
-        return None
-    return CalibrationSpec(
-        method=config.calibration.method,
-        n_splits=config.calibration.n_splits,
-    )

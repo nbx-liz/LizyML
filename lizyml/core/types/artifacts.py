@@ -1,4 +1,4 @@
-"""SplitIndices and RunMeta — auxiliary artifacts for FitResult."""
+"""SplitIndices, RunMeta, and DataFingerprint — auxiliary artifacts for FitResult."""
 
 from __future__ import annotations
 
@@ -7,6 +7,34 @@ from typing import Any
 
 import numpy as np
 import numpy.typing as npt
+
+
+@dataclass(frozen=True)
+class DataFingerprint:
+    """Lightweight fingerprint for verifying dataset identity.
+
+    Attributes:
+        row_count: Number of rows.
+        column_hash: SHA-256 of sorted ``column_name:dtype`` pairs.
+        file_hash: SHA-256 of the raw file bytes (None if not file-based).
+    """
+
+    row_count: int
+    column_hash: str
+    file_hash: str | None = None
+
+    def matches(self, other: DataFingerprint) -> bool:
+        """Return True if this fingerprint is compatible with *other*.
+
+        File hash is only compared when both fingerprints have it.
+        """
+        if self.row_count != other.row_count:
+            return False
+        if self.column_hash != other.column_hash:
+            return False
+        if self.file_hash is not None and other.file_hash is not None:
+            return self.file_hash == other.file_hash
+        return True
 
 
 @dataclass
