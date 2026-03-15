@@ -26,7 +26,7 @@ from lizyml.data.fingerprint import compute as fp_compute
 from lizyml.estimators.lgbm import (
     _COMMON_DEFAULTS,
     resolve_ratio_params,
-    resolve_smart_params_from_dict,
+    resolve_smart_params,
 )
 from lizyml.evaluation.evaluator import Evaluator
 from lizyml.training.cv_trainer import CVTrainer
@@ -130,10 +130,13 @@ class Tuner:
         # Resolve n_rows-independent smart params (num_leaves)
         if smart_p and self.n_rows is not None:
             effective = {**_COMMON_DEFAULTS, **merged}
-            smart_resolved = resolve_smart_params_from_dict(
-                smart_params=smart_p,
+            smart_resolved, _ = resolve_smart_params(
+                smart=smart_p,
                 effective_params=effective,
                 n_rows=self.n_rows,
+                feature_names=[],
+                y=pd.Series(dtype=float),
+                task=self.task,
             )
             merged = {**merged, **smart_resolved}
 
@@ -331,8 +334,12 @@ class Tuner:
             )
             for t in study.trials
         ]
+        best_flat = dict(study.best_params)
+        best_model, best_smart, best_training = split_by_category(best_flat, dims)
         return TuningResult(
-            best_params=dict(study.best_params),
+            best_model_params=best_model,
+            best_smart_params=best_smart,
+            best_training_params=best_training,
             best_score=study.best_value,
             trials=trials,
             metric_name=self.metric_name,

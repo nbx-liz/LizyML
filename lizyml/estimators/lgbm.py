@@ -367,8 +367,26 @@ def _compute_ratio_param(n_rows: int, ratio: float) -> int:
     return max(1, math.ceil(n_rows * ratio))
 
 
+def extract_smart_params(config: LGBMConfig) -> dict[str, Any]:
+    """Extract smart parameter fields from LGBMConfig as a plain dict.
+
+    This is the bridge between pydantic Config and the dict-based
+    ``resolve_smart_params`` function.  Both ``fit()`` and ``tune()``
+    use this to obtain the Config defaults, which can then be overridden
+    by tuning best params before resolution (H-0050).
+    """
+    return {
+        "auto_num_leaves": config.auto_num_leaves,
+        "num_leaves_ratio": config.num_leaves_ratio,
+        "min_data_in_leaf_ratio": config.min_data_in_leaf_ratio,
+        "min_data_in_bin_ratio": config.min_data_in_bin_ratio,
+        "feature_weights": config.feature_weights,
+        "balanced": config.balanced,
+    }
+
+
 def resolve_smart_params(
-    config: LGBMConfig,
+    smart: dict[str, Any],
     effective_params: dict[str, Any],
     n_rows: int,
     feature_names: list[str],
@@ -377,8 +395,12 @@ def resolve_smart_params(
 ) -> tuple[dict[str, Any], npt.NDArray[np.float64] | None]:
     """Resolve smart parameters to native LightGBM parameters.
 
+    Unified function used by both ``fit()`` and ``tune()`` (H-0050).
+    The *smart* dict is typically produced by ``extract_smart_params()``
+    and optionally merged with tuning best_smart_params overrides.
+
     Args:
-        config: LGBMConfig with smart parameter fields.
+        smart: Dict of smart parameter values (from Config or tuning).
         effective_params: Merged params (defaults + user + best_params).
         n_rows: Number of training rows.
         feature_names: List of feature column names.
@@ -392,29 +414,31 @@ def resolve_smart_params(
     sample_weight: npt.NDArray[np.float64] | None = None
 
     # auto_num_leaves
-    if config.auto_num_leaves:
+    if smart.get("auto_num_leaves", False):
+        ratio = smart.get("num_leaves_ratio", 1.0)
         resolved["num_leaves"] = _compute_num_leaves(
-            effective_params.get("max_depth"), config.num_leaves_ratio
+            effective_params.get("max_depth"), ratio
         )
 
     # NOTE: ratio params (min_data_in_leaf_ratio, min_data_in_bin_ratio) are
     # resolved per-fold via resolve_ratio_params() using inner_train size (H-0036).
 
     # feature_weights
-    if config.feature_weights is not None:
-        unknown = set(config.feature_weights) - set(feature_names)
+    fw = smart.get("feature_weights")
+    if fw is not None:
+        unknown = set(fw) - set(feature_names)
         if unknown:
             raise LizyMLError(
                 code=ErrorCode.CONFIG_INVALID,
                 user_message=f"Unknown features in feature_weights: {sorted(unknown)}",
                 context={"unknown_features": sorted(unknown)},
             )
-        weights = [config.feature_weights.get(f, 1.0) for f in feature_names]
+        weights = [fw.get(f, 1.0) for f in feature_names]
         resolved["feature_weights"] = weights
         resolved["feature_pre_filter"] = False
 
     # balanced — None means auto (True for binary/multiclass, False for regression)
-    effective_balanced = config.balanced
+    effective_balanced = smart.get("balanced")
     if effective_balanced is None:
         effective_balanced = task != "regression"
     if effective_balanced:
@@ -435,38 +459,6 @@ def resolve_smart_params(
             sample_weight = sw
 
     return resolved, sample_weight
-
-
-def resolve_smart_params_from_dict(
-    smart_params: dict[str, Any],
-    effective_params: dict[str, Any],
-    n_rows: int,
-) -> dict[str, Any]:
-    """Resolve smart parameters from a flat dict (for tuning trials).
-
-    Supports ``num_leaves_ratio``, ``min_data_in_leaf_ratio``, and
-    ``min_data_in_bin_ratio``.
-
-    Args:
-        smart_params: Dict with smart param names and values.
-        effective_params: Merged model params (for max_depth lookup).
-        n_rows: Number of training rows.
-
-    Returns:
-        Dict of resolved native LightGBM parameters.
-    """
-    resolved: dict[str, Any] = {}
-
-    if "num_leaves_ratio" in smart_params:
-        resolved["num_leaves"] = _compute_num_leaves(
-            effective_params.get("max_depth"),
-            smart_params["num_leaves_ratio"],
-        )
-
-    # NOTE: ratio params (min_data_in_leaf_ratio, min_data_in_bin_ratio) are
-    # resolved per-fold via resolve_ratio_params() using inner_train size (H-0036).
-
-    return resolved
 
 
 def resolve_ratio_params(

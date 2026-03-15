@@ -330,24 +330,29 @@ config = {
 
 ## 6.1 `tune`
 
-1. Config validate -> `ProblemSpec` 生成
-2. `DataSource` 読込 -> DF
-3. `FeaturePipeline` 選択 -> `fit_transform`
-4. `Splitter` で外側 CV index 生成（保存対象）
-5. `Tuner`（Optuna）で `objective=CV` 平均（推奨）
-6. `TuningResult`（`best_params` / `best_score` / 全 trial 履歴）を返す
+1. Config validate → データ読込・前処理
+2. Config から smart params のデフォルト値を抽出する（`extract_smart_params`）
+3. `Splitter` で外側 CV index 生成
+4. 各 trial で:
+   a. Optuna がパラメーターを提案し、`split_by_category` で model / smart / training に分類する
+   b. Config defaults と trial params をマージし、`_build_train_components()` で CVTrainer の構成要素を構築する（fit と同じコードパス）
+   c. CVTrainer で CV 実行 → OOF スコアを返す
+5. `TuningResult`（`best_model_params` / `best_smart_params` / `best_training_params` / `best_score` / 全 trial 履歴）を返す
+6. `Tuner` の責務は Optuna study の管理のみ。objective クロージャは `Model` 側で構築する
 
 `tuning` と最終評価のリーク回避方針は 10 章を参照。
 
 ## 6.2 `fit`（CV）
 
-1. 外側 CV 各 fold で `train / valid` を作る。
+1. Config defaults + tune 結果 + 引数 override をマージし、`_build_train_components()` で `TrainComponents`（`estimator_factory` / `sample_weight` / `ratio_resolver` / `inner_valid`）を構築する（tune と同じコードパス）。パラメータ優先順位: `Config defaults < tune best < fit() 引数`。
+2. 外側 CV 各 fold で `train / valid` を作る。
    - `split.method` が `time_series` / `purged_time_series` / `group_time_series` の場合、`data.time_col` を基準に昇順へ並べた上で分割する。
-2. `InnerValidStrategy` により early stopping 用の `(X_train, y_train), (X_valid, y_valid)` を統一生成する。
-3. `EstimatorAdapter.fit()` を実行する。
-4. OOF / IF を生成する（ロジックは `evaluation/oof.py` に隔離）。
-5. 必要なら `Calibrator` を cross-fit 学習する（OOF 予測のみ使用）。
-6. `FitResult` を返し、Artifacts を保持する。
+3. `InnerValidStrategy` により early stopping 用の `(X_train, y_train), (X_valid, y_valid)` を統一生成する。
+4. `EstimatorAdapter.fit()` を実行する。
+5. OOF / IF を生成する（ロジックは `evaluation/oof.py` に隔離）。
+6. 必要なら `Calibrator` を cross-fit 学習する（OOF 予測のみ使用）。
+7. 全データ Refit を実行する（同一の `TrainComponents` を使用し、CV との一貫性を構造的に保証する）。
+8. `FitResult` を返し、Artifacts を保持する。
 
 補足:
 
@@ -407,12 +412,15 @@ config = {
 
 ## 7.2 TuningResult（固定スキーマ）
 
-- `best_params`（`dict[str, Any]`）: 最良のハイパーパラメーター
+- `best_model_params`（`dict[str, Any]`）: 最良の model カテゴリパラメーター（`learning_rate` 等）
+- `best_smart_params`（`dict[str, Any]`）: 最良の smart カテゴリパラメーター（`num_leaves_ratio` 等）
+- `best_training_params`（`dict[str, Any]`）: 最良の training カテゴリパラメーター（`early_stopping_rounds` 等）
 - `best_score`（`float`）: 最良の OOF メトリクス値
 - `trials`（`list[TrialResult]`）: 全 trial の結果（番号順）
   - `TrialResult`: `number` / `params` / `score` / `state`（`"complete"` / `"pruned"` / `"fail"`）
 - `metric_name`（`str`）: 最適化メトリクス名
 - `direction`（`str`）: `"minimize"` / `"maximize"`
+- `best_params`（computed property）: `{**best_model_params, **best_smart_params, **best_training_params}` の flat view
 
 ## 7.3 PredictionResult（固定スキーマ）
 
@@ -551,7 +559,7 @@ config = {
 SearchDim にカテゴリ属性を持たせ、Tuner がパラメーターの適用先を区別する。
 
 - `model`: `LGBMAdapter.params` に直接渡す（既存 SearchDim の挙動）
-- `smart`: `LGBMConfig` のスマートパラメーター（`num_leaves_ratio` 等）として `resolve_smart_params()` に渡す
+- `smart`: スマートパラメーター（`num_leaves_ratio` 等）として `resolve_smart_params()` に渡す。fit / tune で同一の dict ベース `resolve_smart_params()` を使用する（H-0050）
 - `training`: trial ごとに `EarlyStoppingConfig` / `InnerValidStrategy` を再構築する
 
 ## 11.3 デフォルト Tuning Space
