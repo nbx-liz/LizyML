@@ -148,7 +148,7 @@ classDiagram
         +dims: list~SearchDim~
         +n_trials +direction +timeout +seed
         +progress_callback: TuneProgressCallback?
-        +tune(objective: Callable) TuningResult
+        +tune(objective, metric_name) TuningResult
     }
     Tuner ..> TuningResult : produces
 
@@ -300,7 +300,7 @@ classDiagram
     %% ============================================================
     %% FLOW ANNOTATIONS
     %% ============================================================
-    note for Model "fit() の流れ (H-0050):\n1. _merge_params() → model_params, smart_params\n2. _build_train_components(X, y, ...) → TrainComponents\n3. CVTrainer(tc.estimator_factory, tc.ratio_resolver, ...)\n4. RefitTrainer(tc.estimator_factory, tc.ratio_resolver, ...)\n★ CV と Refit は同一の TrainComponents を共有"
+    note for Model "fit() の流れ (H-0050):\n1. _merge_params() → model_params, smart_params\n2. _build_train_components(X, y, ...) → TrainComponents\n3. CVTrainer(tc.estimator_factory, tc.inner_valid, tc.ratio_resolver, ...)\n4. RefitTrainer(tc.estimator_factory, tc.inner_valid, tc.ratio_resolver, ...)\n★ CV と Refit は同一の TrainComponents を共有"
 
     note for Tuner "tune() の流れ (H-0050):\nModel が objective クロージャを構築:\n  各 trial → _build_train_components()\n           → CVTrainer.fit() → score\nTuner は Optuna study 管理のみ。\nLGBM 固有 import なし。"
 
@@ -351,13 +351,15 @@ Config
 
 ```
 Config
-  ├── extract_smart_params(cfg.model) → smart_defaults
+  ├── _merge_params() → base_model_params, base_smart_params
+  ├── default_space() → space, fixed (space空時)
   │
   └── objective(trial):
         ├── split_by_category(trial_params) → model_p, smart_p, training_p
-        ├── merge: {**smart_defaults, **smart_p}
+        ├── merge: {**base_model_params, **fixed, **model_p}
+        ├── merge: {**base_smart_params, **smart_p}
         │
-        └── _build_train_components(X, y, ...)  ← 同じ関数
+        └── _build_train_components(X, y, ...)  ← fit() と同じ関数
               → TrainComponents
                    └── CVTrainer.fit() → score
 ```

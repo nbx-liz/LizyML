@@ -156,23 +156,24 @@ class TestModelTune:
         assert result.direction == "minimize"
 
     def test_tune_then_fit_uses_best_params(self) -> None:
-        """After tune(), fit() should succeed and use the stored best_params."""
+        """After tune(), fit() should succeed and use the stored tuning_result."""
         df = make_regression_df(n=100)
         m = Model(_reg_config_with_tuning(n_trials=2))
         tuning_result = m.tune(data=df)
-        # fit() should pick up _best_params automatically
+        # fit() should pick up _tuning_result automatically via _merge_params
         result = m.fit(data=df)
         from lizyml.core.types.fit_result import FitResult
 
         assert isinstance(result, FitResult)
-        # best_params are stored
-        assert m._best_params == tuning_result.best_params
+        # tuning_result is stored (H-0050: _best_params removed)
+        assert m._tuning_result is not None
+        assert m._tuning_result.best_params == tuning_result.best_params
 
-    def test_tune_stores_best_params_internally(self) -> None:
+    def test_tune_stores_tuning_result_internally(self) -> None:
         m = Model(_reg_config_with_tuning(n_trials=2))
-        assert m._best_params is None
+        assert m._tuning_result is None
         m.tune(data=make_regression_df(n=100))
-        assert m._best_params is not None
+        assert m._tuning_result is not None
 
     def test_tune_with_no_data_raises(self) -> None:
         m = Model(_reg_config_with_tuning(n_trials=2))
