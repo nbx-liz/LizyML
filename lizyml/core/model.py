@@ -155,12 +155,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         run_id = generate_run_id()
         run_meta = self._build_run_meta(run_id)
 
-        # --- Output directory setup (H-0034) ---------------------------------
-        if self._output_dir is not None:
-            from lizyml.core.logging import setup_output_dir
-
-            self._run_dir = setup_output_dir(self._output_dir, run_id)
-
+        self._ensure_run_dir(run_id)
         _log.info("event='fit.start' run_id=%s task=%s", run_id, cfg.task)
 
         # --- Load & prepare data ---------------------------------------------
@@ -247,68 +242,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         )
 
         # --- Calibration (binary only) ---------------------------------------
-        if cfg.calibration is not None:
-            if cfg.task != "binary":
-                raise LizyMLError(
-                    code=ErrorCode.CALIBRATION_NOT_SUPPORTED,
-                    user_message=(
-                        f"Calibration is only supported for binary classification. "
-                        f"Got task='{cfg.task}'."
-                    ),
-                    context={"task": cfg.task},
-                )
-            from lizyml.calibration.cross_fit import cross_fit_calibrate
-            from lizyml.calibration.registry import get_calibrator
-
-            method = cfg.calibration.method
-            cal_params = cfg.calibration.params or None
-            # Use raw scores (logits) for calibration (H-0030)
-            cal_scores = (
-                fit_result.oof_raw_scores
-                if fit_result.oof_raw_scores is not None
-                else fit_result.oof_pred
-            )
-            # Build calibration splitter inheriting split.method (H-0044)
-            cal_splitter = build_calibration_splitter(cfg)
-            y_arr = y.to_numpy()
-            try:
-                cal_split_indices = list(
-                    cal_splitter.split(len(y_arr), y=y_arr, groups=groups)
-                )
-            except ValueError as e:
-                raise LizyMLError(
-                    code=ErrorCode.CONFIG_INVALID,
-                    user_message=(
-                        f"Cannot create calibration splits with "
-                        f"method='{cfg.split.method}' and "
-                        f"n_splits={cfg.calibration.n_splits}: {e}"
-                    ),
-                    context={
-                        "split_method": cfg.split.method,
-                        "calibration_n_splits": cfg.calibration.n_splits,
-                        "n_samples": len(y_arr),
-                        **(
-                            {"n_groups": len(np.unique(groups))}
-                            if groups is not None
-                            else {}
-                        ),
-                    },
-                ) from e
-            calibration_result = cross_fit_calibrate(
-                oof_scores=cal_scores,
-                y=y_arr,
-                calibrator_factory=lambda: get_calibrator(method, params=cal_params),
-                split_indices=cal_split_indices,
-            )
-            new_splits = dataclasses.replace(
-                fit_result.splits,
-                calibration=calibration_result.split_indices,
-            )
-            fit_result = dataclasses.replace(
-                fit_result,
-                calibrator=calibration_result,
-                splits=new_splits,
-            )
+        fit_result = self._run_calibration(cfg, fit_result, y, groups)
 
         # --- Evaluation -------------------------------------------------------
         metric_names = cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task]
@@ -490,13 +424,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
 
         _log.info("event='tune.start' task=%s", cfg.task)
 
-        # --- Output directory setup (H-0034) ---------------------------------
-        if self._output_dir is not None:
-            from lizyml.core.logging import setup_output_dir
-
-            tune_run_id = generate_run_id()
-            self._run_dir = setup_output_dir(self._output_dir, tune_run_id)
-
+        self._ensure_run_dir(generate_run_id())
         X, y, groups, _ = self._prepare_training_data(data)
 
         n_classes = int(y.nunique()) if cfg.task == "multiclass" else None
@@ -674,6 +602,86 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             config_version=self._cfg.config_version,
             run_id=run_id,
             timestamp=datetime.now(tz=timezone.utc).isoformat(),
+        )
+
+    def _ensure_run_dir(self, run_id: str) -> None:
+        """Set up the output directory for a run if configured."""
+        if self._output_dir is not None:
+            from lizyml.core.logging import setup_output_dir
+
+            self._run_dir = setup_output_dir(self._output_dir, run_id)
+
+    def _run_calibration(
+        self,
+        cfg: LizyMLConfig,
+        fit_result: FitResult,
+        y: pd.Series,
+        groups: npt.NDArray[Any] | None,
+    ) -> FitResult:
+        """Apply cross-fit calibration if configured. Returns updated FitResult."""
+        if cfg.calibration is None:
+            return fit_result
+
+        if cfg.task != "binary":
+            raise LizyMLError(
+                code=ErrorCode.CALIBRATION_NOT_SUPPORTED,
+                user_message=(
+                    f"Calibration is only supported for binary classification. "
+                    f"Got task='{cfg.task}'."
+                ),
+                context={"task": cfg.task},
+            )
+
+        from lizyml.calibration.cross_fit import cross_fit_calibrate
+        from lizyml.calibration.registry import get_calibrator
+
+        method = cfg.calibration.method
+        cal_params = cfg.calibration.params or None
+        # Use raw scores (logits) for calibration (H-0030)
+        cal_scores = (
+            fit_result.oof_raw_scores
+            if fit_result.oof_raw_scores is not None
+            else fit_result.oof_pred
+        )
+        cal_splitter = build_calibration_splitter(cfg)
+        y_arr = y.to_numpy()
+        try:
+            cal_split_indices = list(
+                cal_splitter.split(len(y_arr), y=y_arr, groups=groups)
+            )
+        except ValueError as e:
+            raise LizyMLError(
+                code=ErrorCode.CONFIG_INVALID,
+                user_message=(
+                    f"Cannot create calibration splits with "
+                    f"method='{cfg.split.method}' and "
+                    f"n_splits={cfg.calibration.n_splits}: {e}"
+                ),
+                context={
+                    "split_method": cfg.split.method,
+                    "calibration_n_splits": cfg.calibration.n_splits,
+                    "n_samples": len(y_arr),
+                    **(
+                        {"n_groups": len(np.unique(groups))}
+                        if groups is not None
+                        else {}
+                    ),
+                },
+            ) from e
+        calibration_result = cross_fit_calibrate(
+            oof_scores=cal_scores,
+            y=y_arr,
+            calibrator_factory=lambda: get_calibrator(method, params=cal_params),
+            split_indices=cal_split_indices,
+        )
+        new_splits = dataclasses.replace(
+            fit_result.splits,
+            calibration=calibration_result.split_indices,
+        )
+        return dataclasses.replace(
+            fit_result,
+            calibrator=calibration_result,
+            splits=new_splits,
         )
 
     def _require_fit(self) -> FitResult:
