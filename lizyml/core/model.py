@@ -160,6 +160,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
 
         # --- Load & prepare data ---------------------------------------------
         X, y, groups, components = self._prepare_training_data(data)
+        self._X, self._y = X, y
         fingerprint = fp_compute(X, file_path=None)
 
         # --- Build components ------------------------------------------------
@@ -426,6 +427,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
 
         self._ensure_run_dir(generate_run_id())
         X, y, groups, _ = self._prepare_training_data(data)
+        self._X, self._y = X, y
 
         n_classes = int(y.nunique()) if cfg.task == "multiclass" else None
         splitter = build_splitter(cfg)
@@ -522,7 +524,6 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         """Load data, build specs, and prepare X/y/groups for training.
 
         Handles time-series sorting when the split method requires it.
-        Sets ``self._X`` and ``self._y`` as a side effect.
         """
         cfg = self._cfg
         df = self._load_data(data)
@@ -578,8 +579,6 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
                 group_col=sorted_group,
             )
 
-        self._X = X
-        self._y = y
         return X, y, groups, components
 
     def _build_run_meta(self, run_id: str) -> RunMeta:
