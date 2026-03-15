@@ -34,21 +34,45 @@ class TestTuningResultDataclass:
             TrialResult(number=1, params={"a": 2}, score=0.3, state="complete"),
         ]
         result = TuningResult(
-            best_params={"a": 2},
+            best_model_params={"a": 2},
+            best_smart_params={},
+            best_training_params={},
             best_score=0.3,
             trials=trials,
             metric_name="rmse",
             direction="minimize",
         )
         assert result.best_params == {"a": 2}
+        assert result.best_model_params == {"a": 2}
+        assert result.best_smart_params == {}
+        assert result.best_training_params == {}
         assert result.best_score == 0.3
         assert len(result.trials) == 2
         assert result.metric_name == "rmse"
         assert result.direction == "minimize"
 
+    def test_best_params_property_merges_all_categories(self) -> None:
+        result = TuningResult(
+            best_model_params={"lr": 0.1},
+            best_smart_params={"num_leaves_ratio": 0.8},
+            best_training_params={"early_stopping_rounds": 100},
+            best_score=0.5,
+            trials=[],
+            metric_name="rmse",
+            direction="minimize",
+        )
+        flat = result.best_params
+        assert flat == {
+            "lr": 0.1,
+            "num_leaves_ratio": 0.8,
+            "early_stopping_rounds": 100,
+        }
+
     def test_tuning_result_frozen(self) -> None:
         result = TuningResult(
-            best_params={},
+            best_model_params={},
+            best_smart_params={},
+            best_training_params={},
             best_score=0.0,
             trials=[],
             metric_name="rmse",

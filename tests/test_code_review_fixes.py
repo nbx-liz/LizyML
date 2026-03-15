@@ -380,7 +380,9 @@ class TestTuningResultDeepFreeze:
     def test_best_params_immutable(self) -> None:
         source_params = {"lr": 0.1}
         tr = TuningResult(
-            best_params=source_params,
+            best_model_params=source_params,
+            best_smart_params={},
+            best_training_params={},
             best_score=0.5,
             trials=[],
             metric_name="rmse",
@@ -394,7 +396,9 @@ class TestTuningResultDeepFreeze:
     def test_trials_list_immutable(self) -> None:
         trials = [TrialResult(number=0, params={}, score=0.5, state="complete")]
         tr = TuningResult(
-            best_params={},
+            best_model_params={},
+            best_smart_params={},
+            best_training_params={},
             best_score=0.5,
             trials=trials,
             metric_name="rmse",

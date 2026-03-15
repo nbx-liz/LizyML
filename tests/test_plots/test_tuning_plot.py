@@ -47,7 +47,9 @@ class TestTuningPlotUnit:
     @pytest.fixture()
     def tuning_result(self) -> TuningResult:
         return TuningResult(
-            best_params={"num_leaves": 16},
+            best_model_params={"num_leaves": 16},
+            best_smart_params={},
+            best_training_params={},
             best_score=0.5,
             trials=[
                 TrialResult(

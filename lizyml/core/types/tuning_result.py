@@ -23,9 +23,11 @@ class TrialResult:
 
 @dataclass(frozen=True)
 class TuningResult:
-    """Result of a full hyperparameter search."""
+    """Result of a full hyperparameter search (H-0050: category-split params)."""
 
-    best_params: dict[str, Any]
+    best_model_params: dict[str, Any]
+    best_smart_params: dict[str, Any]
+    best_training_params: dict[str, Any]
     best_score: float
     trials: list[TrialResult]
     metric_name: str
@@ -33,8 +35,21 @@ class TuningResult:
 
     def __post_init__(self) -> None:
         # Deep-copy mutable fields to prevent external mutation
-        object.__setattr__(self, "best_params", dict(self.best_params))
+        object.__setattr__(self, "best_model_params", dict(self.best_model_params))
+        object.__setattr__(self, "best_smart_params", dict(self.best_smart_params))
+        object.__setattr__(
+            self, "best_training_params", dict(self.best_training_params)
+        )
         object.__setattr__(self, "trials", list(self.trials))
+
+    @property
+    def best_params(self) -> dict[str, Any]:
+        """Flat view of all best parameters (convenience / backward compat)."""
+        return {
+            **self.best_model_params,
+            **self.best_smart_params,
+            **self.best_training_params,
+        }
 
 
 @dataclass(frozen=True)

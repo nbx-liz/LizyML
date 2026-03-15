@@ -66,6 +66,7 @@ from lizyml.data.fingerprint import compute as fp_compute
 from lizyml.estimators.lgbm import (
     _COMMON_DEFAULTS,
     LGBMAdapter,
+    extract_smart_params,
     resolve_ratio_params,
     resolve_smart_params,
 )
@@ -173,13 +174,14 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         }
         n_classes = int(y.nunique()) if cfg.task == "multiclass" else None
 
-        # Resolve smart parameters (H-0021)
+        # Resolve smart parameters (H-0021, H-0050: dict-based unified)
         sample_weight: npt.NDArray[np.float64] | None = None
         model_cfg = cfg.model
         if isinstance(model_cfg, LGBMConfig):
+            smart = extract_smart_params(model_cfg)
             effective = {**_COMMON_DEFAULTS, **lgbm_params}
             smart_resolved, sample_weight = resolve_smart_params(
-                config=model_cfg,
+                smart=smart,
                 effective_params=effective,
                 n_rows=len(X),
                 feature_names=list(X.columns),
