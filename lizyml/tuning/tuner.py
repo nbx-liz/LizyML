@@ -168,7 +168,6 @@ class Tuner:
             merged_model = {**(self.fixed_params or {}), **model_p}
 
             # Resolve n_rows-independent smart params (num_leaves only)
-            sample_weight: npt.NDArray[Any] | None = None
             if smart_p and self.n_rows is not None:
                 effective = {**_COMMON_DEFAULTS, **merged_model}
                 smart_resolved = resolve_smart_params_from_dict(
@@ -176,7 +175,7 @@ class Tuner:
                     effective_params=effective,
                     n_rows=self.n_rows,
                 )
-                merged_model.update(smart_resolved)
+                merged_model = {**merged_model, **smart_resolved}
 
             # Build per-fold ratio resolver for n_rows-dependent params (H-0036)
             leaf_ratio = smart_p.get("min_data_in_leaf_ratio") if smart_p else None
@@ -225,7 +224,7 @@ class Tuner:
                 groups,
                 data_fingerprint=fingerprint,
                 run_meta=run_meta,
-                sample_weight=sample_weight,
+                sample_weight=None,
             )
             metrics = evaluator.evaluate(fit_result, y, [self.metric_name])
             score: float = metrics["raw"]["oof"][self.metric_name]

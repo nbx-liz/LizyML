@@ -141,10 +141,10 @@ class Evaluator:
             if_per_fold.append(fold_scores)
 
         # --- IF mean ---------------------------------------------------------
-        if_mean: dict[str, float] = {}
-        for m in metrics:
-            vals = [fold[m.name] for fold in if_per_fold]
-            if_mean[m.name] = float(np.mean(vals))
+        if_mean: dict[str, float] = {
+            m.name: float(np.mean([fold[m.name] for fold in if_per_fold]))
+            for m in metrics
+        }
 
         result: dict[str, Any] = {
             "raw": {

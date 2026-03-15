@@ -226,10 +226,9 @@ def load_config(source: dict[str, Any] | str | Path) -> LizyMLConfig:
     _check_config_version(raw)
     raw = _normalize_split_default(raw)
     raw = _normalize_split_method(raw)
-    raw = _normalize_model_config(raw)
+    raw = _normalize_model_config(raw)  # First pass: before env overrides
     raw = _apply_env_overrides(raw)
-    # Re-apply after env override may have added nested model.lgbm.* keys
-    raw = _normalize_model_config(raw)
+    raw = _normalize_model_config(raw)  # Second pass: env may add model.lgbm.* keys
     return _validate(raw)
 
 

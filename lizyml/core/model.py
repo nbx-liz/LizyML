@@ -398,7 +398,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             ``OPTIONAL_DEP_MISSING`` when ``return_shap=True`` and shap
             is not installed.
         """
-        self._require_fit()
+        fit = self._require_fit()
         refit = self._require_refit()
 
         # Restore pipeline from saved state
@@ -413,15 +413,13 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         pred: npt.NDArray[np.float64]
         proba: npt.NDArray[np.float64] | None = None
 
-        fit = self._fit_result  # non-None guaranteed by _require_fit()
-
         if task == "regression":
             pred = model.predict(X_t)
         elif task == "binary":
             proba_2d = model.predict_proba(X_t)
             proba = proba_2d[:, 1]
             # Apply C_final calibrator when available (H-0030: raw score input)
-            if fit is not None and fit.calibrator is not None:
+            if fit.calibrator is not None:
                 from lizyml.calibration.cross_fit import CalibrationResult
 
                 if isinstance(fit.calibrator, CalibrationResult):
