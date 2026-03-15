@@ -135,15 +135,16 @@ class CVTrainer:
             X_train_t = pipeline.transform(X_train)
 
             # Prepare inner-valid subsets through the ALREADY-fitted pipeline
-            X_iv_train: pd.DataFrame | None = None
-            y_iv_train: pd.Series | None = None
-            X_iv_valid: pd.DataFrame | None = None
-            y_iv_valid: pd.Series | None = None
+            iv_subsets: (
+                tuple[pd.DataFrame, pd.Series, pd.DataFrame, pd.Series] | None
+            ) = None
             if iv_result is not None:
-                X_iv_train = X_train_t.iloc[inner_train_rel].reset_index(drop=True)
-                y_iv_train = y_train.iloc[inner_train_rel].reset_index(drop=True)
-                X_iv_valid = X_train_t.iloc[inner_valid_rel].reset_index(drop=True)
-                y_iv_valid = y_train.iloc[inner_valid_rel].reset_index(drop=True)
+                iv_subsets = (
+                    X_train_t.iloc[inner_train_rel].reset_index(drop=True),
+                    y_train.iloc[inner_train_rel].reset_index(drop=True),
+                    X_train_t.iloc[inner_valid_rel].reset_index(drop=True),
+                    y_train.iloc[inner_valid_rel].reset_index(drop=True),
+                )
 
             X_valid_t = pipeline.transform(X_valid)
 
@@ -153,7 +154,7 @@ class CVTrainer:
             # Resolve n_rows-dependent ratio params using inner_train size (H-0036)
             if self.ratio_param_resolver is not None:
                 n_inner_train = (
-                    len(X_iv_train) if X_iv_train is not None else len(X_train_t)
+                    len(iv_subsets[0]) if iv_subsets is not None else len(X_train_t)
                 )
                 estimator.update_params(self.ratio_param_resolver(n_inner_train))
 
@@ -167,14 +168,13 @@ class CVTrainer:
             fit_kwargs: dict[str, Any] = {}
             if sample_weight is not None:
                 fold_sw = sample_weight[train_idx]
-                if X_iv_train is not None:
+                if iv_subsets is not None:
                     fit_kwargs["sample_weight"] = fold_sw[inner_train_rel]
                 else:
                     fit_kwargs["sample_weight"] = fold_sw
 
-            if X_iv_train is not None:
-                # y_iv_train and y_iv_valid are set in the same branch as X_iv_train
-                assert y_iv_train is not None and y_iv_valid is not None  # noqa: S101
+            if iv_subsets is not None:
+                X_iv_train, y_iv_train, X_iv_valid, y_iv_valid = iv_subsets
                 estimator.fit(
                     X_iv_train,
                     y_iv_train,
