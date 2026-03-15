@@ -710,6 +710,16 @@ def _get_lgbm_params(cfg: LizyMLConfig) -> dict[str, Any]:
     return {}
 
 
+def _has_metric_content(filtered: dict[str, Any]) -> bool:
+    """Check if a filtered metrics branch has any non-empty data."""
+    for v in filtered.values():
+        if isinstance(v, dict) and v:
+            return True
+        if isinstance(v, list) and any(isinstance(d, dict) and d for d in v):
+            return True
+    return False
+
+
 def _filter_metrics(metrics_dict: dict[str, Any], keep: set[str]) -> dict[str, Any]:
     """Return a copy of *metrics_dict* with only *keep* metric names retained.
 
@@ -734,12 +744,6 @@ def _filter_metrics(metrics_dict: dict[str, Any], keep: set[str]) -> dict[str, A
             else:
                 filtered_top[sub_key] = sub_val
         # Drop branches where all sub-dicts are empty after filtering
-        has_content = any(
-            (isinstance(v, dict) and len(v) > 0)
-            or (isinstance(v, list) and any(d for d in v if isinstance(d, dict)))
-            or (not isinstance(v, (dict, list)))
-            for v in filtered_top.values()
-        )
-        if has_content:
+        if _has_metric_content(filtered_top):
             result[top_key] = filtered_top
     return result
