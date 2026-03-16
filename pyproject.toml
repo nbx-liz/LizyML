@@ -52,6 +52,7 @@ dev = [
     "scipy>=1.10",
     "nbconvert>=7.0",
     "ipykernel>=6.0",
+    "vulture>=2.15",
 ]
 
 [tool.hatch.version]
