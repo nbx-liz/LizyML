@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.1.5] - 2026-03-15
+
+### Fixed
+
+- Calibration cross-fit OOF array now NaN-initialized instead of `np.empty` — prevents silent garbage values for time-series splitters
+- `GroupTimeSeriesSplitter` last fold now extends to include all trailing groups (previously silently dropped)
+- `ECE` metric last bin is now right-inclusive (`y_pred == 1.0` no longer excluded)
+- `RMSLE` raises `LizyMLError` for negative predictions/targets instead of producing NaN
+- `FitResult` post-construction mutation replaced with `dataclasses.replace()`
+- `_prepare_training_data` no longer mutates `DataFrameComponents` in-place
+- `evaluate()` bare `assert` replaced with proper `LizyMLError`
+- `_filter_metrics` removes empty branches after filtering
+- Task-locked `objective`/`metric` can no longer be overridden by user search space params
+- `LGBMAdapter.update_params` creates new dict instead of mutating in-place
+- `compute_shap_importance` handles empty models list without `ZeroDivisionError`
+- QQ plots raise `LizyMLError(OPTIONAL_DEP_MISSING)` instead of bare `ImportError` when scipy is missing
+- Tuner trial failures now logged via warning callback; catch tuple narrowed from `Exception` to specific types
+- `TuningResult`/`TrialResult` deep-copy mutable `dict`/`list` fields in `__post_init__`
+- `HoldoutInnerValid` `n_valid` uses `ceil` to match `HoldoutSplitter` rounding
+- All timestamps now include UTC timezone info
+- `params_table` guards against empty models list
+
+### Changed
+
+- CI test matrix now includes Python 3.11
+- Added `[tool.coverage.run]` and `[tool.coverage.report]` configuration to `pyproject.toml`
+- `PredictionResult.proba` docstring corrected for multiclass shape
+- `cross_fit_calibrate` docstring notes raw score (logit) support
+
 ## [0.1.4] - 2026-03-14
 
 ### Fixed
