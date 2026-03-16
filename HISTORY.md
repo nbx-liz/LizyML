@@ -3509,3 +3509,39 @@ H-0053 で `EstimatorProvider` protocol を導入し、`model.py` のゼロ LGBM
 - `model.py` が 800 行以内であること
 - 全テスト pass（932 件）
 - mypy clean（86 ファイル）
+
+---
+
+## H-0055: StratifiedGroupKFold の Config 接続
+
+- ID: `H-0055`
+- Status: `implemented`
+- Scope: `Config | Splitters`
+- Related: `BLUEPRINT.md §5, §10`
+
+### 目的
+
+`StratifiedGroupKFoldSplitter`（既に `splitters/group_kfold.py` に実装済み）を Config → Model パイプラインに接続する。グループ制約と層化分割を同時に必要とするユースケース（例: 顧客IDでグループ分割しつつクラスバランスを維持）を Config 経由で利用可能にする。
+
+### 影響範囲
+
+- `config/schema.py`: `StratifiedGroupKFoldConfig` 追加、`SplitConfig` union 拡張
+- `config/loader.py`: エイリアス追加（`stratified-group-kfold` 等）
+- `core/_model_factories.py`: `_build_splitter_for_method` dispatch 追加、`_resolve_auto_inner_valid` にエントリ追加
+- `BLUEPRINT.md §5, §10`: ドキュメント更新
+
+### 互換性
+
+- 既存 Config は影響なし（discriminated union への追加は後方互換）
+- `StratifiedGroupKFoldSplitter` クラス自体は変更なし
+
+### 代替案
+
+なし。Splitter は既に実装・テスト済みであり、Config 接続のみが不足している。
+
+### 受け入れ基準
+
+- `method: "stratified_group_kfold"` で Config → Model → fit が完走すること
+- エイリアス（`stratified-group-kfold` 等）が正規化されること
+- InnerValid auto-resolution で `group_holdout` が選択されること（group 制約を維持）
+- 全テスト pass、mypy clean

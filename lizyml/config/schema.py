@@ -65,6 +65,15 @@ class GroupKFoldConfig(BaseModel):
     n_splits: int = 5
 
 
+class StratifiedGroupKFoldConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["stratified_group_kfold"]
+    n_splits: int = 5
+    random_state: int = 42
+    shuffle: bool = True
+
+
 class TimeSeriesConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -133,6 +142,7 @@ SplitConfig = Annotated[
     KFoldConfig
     | StratifiedKFoldConfig
     | GroupKFoldConfig
+    | StratifiedGroupKFoldConfig
     | TimeSeriesConfig
     | PurgedTimeSeriesConfig
     | GroupTimeSeriesConfig,
