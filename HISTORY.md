@@ -3515,7 +3515,7 @@ H-0053 で `EstimatorProvider` protocol を導入し、`model.py` のゼロ LGBM
 ## H-0055: StratifiedGroupKFold の Config 接続
 
 - ID: `H-0055`
-- Status: `proposed`
+- Status: `implemented`
 - Scope: `Config | Splitters`
 - Related: `BLUEPRINT.md §5, §10`
 

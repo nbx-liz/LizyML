@@ -149,7 +149,7 @@ def build_inner_valid(cfg: LizyMLConfig) -> InnerValidType:
     set, the strategy is auto-resolved based on the outer split method:
 
     - ``stratified_kfold`` → ``HoldoutInnerValid(stratify=True)``
-    - ``group_kfold`` → ``GroupHoldoutInnerValid``
+    - ``group_kfold`` / ``stratified_group_kfold`` → ``GroupHoldoutInnerValid``
     - ``time_series`` → ``TimeHoldoutInnerValid``
     - ``kfold`` (or other) → ``HoldoutInnerValid(stratify=False)``
     """
