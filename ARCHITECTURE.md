@@ -750,7 +750,9 @@ lizyml/
 
 ## 実装状況
 
-以下の移行作業はすべて完了済み（H-0051/H-0052/H-0053）:
+### H-0051/H-0052/H-0053（完了 ✅）
+
+以下の移行作業はすべて完了済み:
 
 | # | 問題 | 修正内容 | 状態 |
 |---|---|---|---|
@@ -760,3 +762,15 @@ lizyml/
 | 4 | `types/` → `data/` 逆依存 | `DataFingerprint` を `core/types/artifacts.py` に移動（H-0051） | ✅ 解消 |
 | 5 | `splitters/` ↔ `specs/` 循環 | 死んだ Spec 層を削除（H-0051） | ✅ 解消 |
 | 6 | デッドコード多数 | 8 ファイル + Registry + Spec 変換関数を削除（H-0051） | ✅ 解消 |
+
+### H-0054: EstimatorProvider 完全化（作業中）
+
+2つ目のアルゴリズム追加を阻む残存 LGBM 固有依存:
+
+| # | 問題 | Layer ルール違反 | 修正方針 |
+|---|---|---|---|
+| 1 | `estimators/provider.py` が `tuning/search_space.py` の `SearchDim` を import | L1 → L2 逆依存 | `SearchDim` 型を `core/types/search_dim.py` に移動 |
+| 2 | `cv_trainer.py` に `categorical_feature=` kwarg 直書き | L2 に LGBM 固有知識 | `BaseEstimatorAdapter.set_categorical_features()` に移動 |
+| 3 | `_model_tables.py` が `LGBMConfig` を isinstance チェック | Facade に LGBM 具象依存 | `EstimatorProvider.params_summary()` 経由に |
+| 4 | `_build_run_meta` に `"lightgbm"` ハードコード | Facade に LGBM 文字列 | `EstimatorProvider.runtime_deps()` 経由に |
+| 5 | `shap_explainer.py` が `NativeFeaturePipeline` を直 import | L3 → L1 具象依存 | `pipeline_factory` を引数で受け取る |

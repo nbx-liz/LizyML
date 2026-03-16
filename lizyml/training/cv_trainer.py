@@ -236,6 +236,7 @@ class CVTrainer:
             if hasattr(pipeline, "get_state")
             else []
         )
+        estimator.set_categorical_features(cat_cols or None)
 
         # Prepare fit kwargs (sample_weight slicing)
         fit_kwargs: dict[str, Any] = {}
@@ -254,14 +255,12 @@ class CVTrainer:
                 y_iv_train,
                 X_iv_valid,
                 y_iv_valid,
-                categorical_feature=cat_cols or "auto",
                 **fit_kwargs,
             )
         else:
             estimator.fit(
                 X_train_t,
                 y_train,
-                categorical_feature=cat_cols or "auto",
                 **fit_kwargs,
             )
         return estimator

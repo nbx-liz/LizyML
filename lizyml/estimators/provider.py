@@ -15,12 +15,12 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
+from lizyml.core.types.search_dim import SearchDim
 from lizyml.estimators.base import BaseEstimatorAdapter
 from lizyml.features.pipeline_base import BaseFeaturePipeline
-from lizyml.tuning.search_space import SearchDim
 
 
-class EstimatorProvider(Protocol):
+class EstimatorProvider(Protocol):  # pragma: no cover
     """Uniform interface for estimator-specific logic.
 
     The Facade (``model.py``) calls these methods instead of importing
@@ -85,4 +85,25 @@ class EstimatorProvider(Protocol):
 
     def default_fixed_params(self, task: str) -> dict[str, Any]:
         """Return fixed params applied to every trial when using default space."""
+        ...
+
+    def runtime_deps(self) -> dict[str, str]:
+        """Return algorithm-specific dependency names and their versions.
+
+        Used by ``_build_run_meta`` to populate ``RunMeta.deps_versions``.
+        Example: ``{"lightgbm": "4.5.0"}``.
+        """
+        ...
+
+    def params_summary(
+        self,
+        model: BaseEstimatorAdapter,
+        model_cfg: Any,
+    ) -> list[dict[str, Any]]:
+        """Return parameter rows for ``params_table()``.
+
+        Each row is ``{"parameter": str, "value": Any}``.
+        Should include smart params, resolved native params, and
+        per-fold best iterations.
+        """
         ...

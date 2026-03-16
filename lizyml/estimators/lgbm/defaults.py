@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from lizyml.tuning.search_space import CategoricalDim, FloatDim, IntDim, SearchDim
+from lizyml.core.types.search_dim import CategoricalDim, FloatDim, IntDim, SearchDim
 
 TaskType = str
 
