@@ -1,18 +1,10 @@
-"""Tests for Phase 5: splitters and SplitPlan."""
+"""Tests for Phase 5: splitters."""
 
 from __future__ import annotations
 
 import numpy as np
 import pytest
 
-from lizyml.core.specs.calibration_spec import CalibrationSpec
-from lizyml.core.specs.split_plan import SplitPlan
-from lizyml.core.specs.split_spec import SplitSpec
-from lizyml.core.specs.training_spec import (
-    EarlyStoppingSpec,
-    InnerValidSpec,
-    TrainingSpec,
-)
 from lizyml.splitters import (
     GroupKFoldSplitter,
     GroupTimeSeriesSplitter,
@@ -335,90 +327,3 @@ class TestGroupTimeSeriesSplitter:
         sp = GroupTimeSeriesSplitter(n_splits=5, max_test_size=1)
         for _train, valid in sp.split(N, groups=groups):
             assert len(set(groups[valid])) <= 1
-
-
-# ---------------------------------------------------------------------------
-# SplitPlan
-# ---------------------------------------------------------------------------
-
-
-class TestSplitPlan:
-    def test_create_kfold_no_early_stopping(self) -> None:
-        split_spec = SplitSpec(
-            method="kfold",
-            n_splits=5,
-            random_state=42,
-            shuffle=True,
-            gap=0,
-        )
-        training_spec = TrainingSpec(
-            seed=42,
-            early_stopping=EarlyStoppingSpec(
-                enabled=False, rounds=50, inner_valid=None
-            ),
-        )
-        plan = SplitPlan.create(split_spec, training_spec)
-        assert isinstance(plan.outer, KFoldSplitter)
-        assert plan.inner is None
-        assert plan.calibration is None
-
-    def test_create_with_inner_valid(self) -> None:
-        split_spec = SplitSpec(
-            method="kfold",
-            n_splits=5,
-            random_state=42,
-            shuffle=True,
-            gap=0,
-        )
-        training_spec = TrainingSpec(
-            seed=42,
-            early_stopping=EarlyStoppingSpec(
-                enabled=True,
-                rounds=50,
-                inner_valid=InnerValidSpec(
-                    method="holdout", ratio=0.1, random_state=42
-                ),
-            ),
-        )
-        plan = SplitPlan.create(split_spec, training_spec)
-        assert plan.inner is not None
-
-    def test_create_with_calibration(self) -> None:
-        split_spec = SplitSpec(
-            method="kfold",
-            n_splits=5,
-            random_state=42,
-            shuffle=True,
-            gap=0,
-        )
-        training_spec = TrainingSpec(
-            seed=42,
-            early_stopping=EarlyStoppingSpec(
-                enabled=False, rounds=50, inner_valid=None
-            ),
-        )
-        cal_spec = CalibrationSpec(method="platt", n_splits=3)
-        plan = SplitPlan.create(split_spec, training_spec, cal_spec)
-        assert plan.calibration is not None
-
-    def test_outer_split_reproducibility(self) -> None:
-        split_spec = SplitSpec(
-            method="kfold",
-            n_splits=5,
-            random_state=42,
-            shuffle=True,
-            gap=0,
-        )
-        training_spec = TrainingSpec(
-            seed=42,
-            early_stopping=EarlyStoppingSpec(
-                enabled=False, rounds=50, inner_valid=None
-            ),
-        )
-        plan1 = SplitPlan.create(split_spec, training_spec)
-        plan2 = SplitPlan.create(split_spec, training_spec)
-        folds1 = list(plan1.outer.split(N))
-        folds2 = list(plan2.outer.split(N))
-        for (t1, v1), (t2, v2) in zip(folds1, folds2, strict=True):
-            np.testing.assert_array_equal(t1, t2)
-            np.testing.assert_array_equal(v1, v2)

@@ -99,45 +99,47 @@ class IsotonicCalibrator(BaseCalibratorAdapter):
         if ratio is not None:
             params["min_data_in_leaf"] = max(1, math.ceil(n_samples * ratio))
 
-        use_early_stopping = n_samples >= _MIN_SAMPLES_FOR_EARLY_STOPPING
-
-        if use_early_stopping:
-            # Split for early stopping validation
-            rng = np.random.default_rng(self._seed)
-            n_valid = max(1, int(n_samples * self._validation_ratio))
-            indices = rng.permutation(n_samples)
-            valid_idx = indices[:n_valid]
-            train_idx = indices[n_valid:]
-
-            train_ds = lgbm.Dataset(X_cal[train_idx], label=y_float[train_idx])
-            valid_ds = lgbm.Dataset(
-                X_cal[valid_idx], label=y_float[valid_idx], reference=train_ds
-            )
-
-            self._model = lgbm.train(
-                params,
-                train_ds,
-                num_boost_round=self._num_boost_round,
-                valid_sets=[valid_ds],
-                valid_names=["valid"],
-                callbacks=[
-                    lgbm.early_stopping(
-                        stopping_rounds=_EARLY_STOPPING_ROUNDS, verbose=False
-                    ),
-                    lgbm.log_evaluation(period=0),
-                ],
-            )
-        else:
-            # Too few samples: no early stopping, train on all data
-            train_ds = lgbm.Dataset(X_cal, label=y_float)
-            self._model = lgbm.train(
-                params,
-                train_ds,
-                num_boost_round=self._num_boost_round,
-                callbacks=[lgbm.log_evaluation(period=0)],
-            )
-
+        train_ds, valid_sets, callbacks = self._prepare_training(
+            X_cal, y_float, n_samples, params
+        )
+        self._model = lgbm.train(
+            params,
+            train_ds,
+            num_boost_round=self._num_boost_round,
+            valid_sets=valid_sets,
+            valid_names=["valid"] if valid_sets else None,
+            callbacks=callbacks,
+        )
         return self
+
+    def _prepare_training(
+        self,
+        X_cal: npt.NDArray[np.float64],
+        y_float: npt.NDArray[np.float64],
+        n_samples: int,
+        params: dict[str, Any],
+    ) -> tuple[lgbm.Dataset, list[lgbm.Dataset], list[Any]]:
+        """Build train dataset, optional valid sets, and callbacks."""
+        callbacks: list[Any] = [lgbm.log_evaluation(period=0)]
+
+        if n_samples < _MIN_SAMPLES_FOR_EARLY_STOPPING:
+            return lgbm.Dataset(X_cal, label=y_float), [], callbacks
+
+        # Split for early stopping validation
+        rng = np.random.default_rng(self._seed)
+        n_valid = max(1, int(n_samples * self._validation_ratio))
+        indices = rng.permutation(n_samples)
+        valid_idx, train_idx = indices[:n_valid], indices[n_valid:]
+
+        train_ds = lgbm.Dataset(X_cal[train_idx], label=y_float[train_idx])
+        valid_ds = lgbm.Dataset(
+            X_cal[valid_idx], label=y_float[valid_idx], reference=train_ds
+        )
+        callbacks.insert(
+            0,
+            lgbm.early_stopping(stopping_rounds=_EARLY_STOPPING_ROUNDS, verbose=False),
+        )
+        return train_ds, [valid_ds], callbacks
 
     def predict(self, scores: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         if self._model is None:

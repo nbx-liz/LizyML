@@ -16,16 +16,6 @@ import yaml
 from pydantic import ValidationError
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
-from lizyml.core.specs.calibration_spec import CalibrationSpec
-from lizyml.core.specs.feature_spec import FeatureSpec
-from lizyml.core.specs.problem_spec import ProblemSpec
-from lizyml.core.specs.split_spec import SplitSpec
-from lizyml.core.specs.training_spec import (
-    EarlyStoppingSpec,
-    InnerValidSpec,
-    TrainingSpec,
-)
-from lizyml.core.specs.tuning_spec import TuningSpec
 
 from .schema import LizyMLConfig
 
@@ -97,43 +87,50 @@ def _normalize_split_method(raw: dict[str, Any]) -> dict[str, Any]:
 _KNOWN_MODEL_NAMES = ("lgbm",)
 
 
-def _normalize_model_config(raw: dict[str, Any]) -> dict[str, Any]:
-    """Normalize BLUEPRINT-style model config to discriminated union form.
+def _merge_env_stray_key(model: dict[str, Any]) -> dict[str, Any]:
+    """Merge a stray nested key left by env override into the model dict.
 
-    Accepts BLUEPRINT format: ``{"lgbm": {"params": {...}}}``
-    Converts to schema format: ``{"name": "lgbm", "params": {...}}``
-
-    Also handles the case where env overrides have added a nested key
-    alongside an already-present ``"name"`` field, by merging the inner dict
-    into the top-level model dict and removing the nested key.
+    When env overrides add ``model.lgbm.params.x=1`` after the model dict
+    already has ``"name": "lgbm"``, we get a stray nested key.
+    This merges the nested dict back into the top level.
     """
+    name = model["name"]
+    if name not in model or not isinstance(model[name], dict):
+        return model
+    inner: dict[str, Any] = model[name]
+    merged = {k: v for k, v in model.items() if k != name}
+    # Deep merge params
+    if "params" in inner:
+        existing_params: dict[str, Any] = merged.get("params", {})
+        merged["params"] = {**existing_params, **inner["params"]}
+    for k, v in inner.items():
+        if k != "params":
+            merged[k] = v
+    return merged
+
+
+def _convert_blueprint_model(model: dict[str, Any]) -> dict[str, Any] | None:
+    """Convert BLUEPRINT format ``{"lgbm": {...}}`` to ``{"name": "lgbm", ...}``."""
+    for model_name in _KNOWN_MODEL_NAMES:
+        if model_name in model:
+            inner_cfg = model[model_name]
+            if isinstance(inner_cfg, dict):
+                return {"name": model_name, **inner_cfg}
+    return None
+
+
+def _normalize_model_config(raw: dict[str, Any]) -> dict[str, Any]:
+    """Normalize model config to discriminated union form."""
     model = raw.get("model")
     if not isinstance(model, dict):
         return raw
 
     if "name" in model:
-        # Schema form: check if env override left a stray nested key (e.g. model.lgbm.*)
-        name = model["name"]
-        if name in model and isinstance(model[name], dict):
-            # Merge the nested dict into the top-level model, removing the nested key
-            inner: dict[str, Any] = model[name]
-            merged = {k: v for k, v in model.items() if k != name}
-            # Deep merge params
-            if "params" in inner:
-                existing_params: dict[str, Any] = merged.get("params", {})
-                merged["params"] = {**existing_params, **inner["params"]}
-            for k, v in inner.items():
-                if k != "params":
-                    merged[k] = v
-            return {**raw, "model": merged}
-        return raw
+        return {**raw, "model": _merge_env_stray_key(model)}
 
-    for model_name in _KNOWN_MODEL_NAMES:
-        if model_name in model:
-            inner_cfg = model[model_name]
-            if isinstance(inner_cfg, dict):
-                normalized_model = {"name": model_name, **inner_cfg}
-                return {**raw, "model": normalized_model}
+    converted = _convert_blueprint_model(model)
+    if converted is not None:
+        return {**raw, "model": converted}
     return raw
 
 
@@ -226,10 +223,9 @@ def load_config(source: dict[str, Any] | str | Path) -> LizyMLConfig:
     _check_config_version(raw)
     raw = _normalize_split_default(raw)
     raw = _normalize_split_method(raw)
-    raw = _normalize_model_config(raw)
+    raw = _normalize_model_config(raw)  # First pass: before env overrides
     raw = _apply_env_overrides(raw)
-    # Re-apply after env override may have added nested model.lgbm.* keys
-    raw = _normalize_model_config(raw)
+    raw = _normalize_model_config(raw)  # Second pass: env may add model.lgbm.* keys
     return _validate(raw)
 
 
@@ -292,92 +288,3 @@ def _validate(raw: dict[str, Any]) -> LizyMLConfig:
             cause=exc,
             context={"validation_errors": exc.errors()},
         ) from exc
-
-
-# ---------------------------------------------------------------------------
-# Config → Spec conversion
-# ---------------------------------------------------------------------------
-
-
-def config_to_problem_spec(config: LizyMLConfig) -> ProblemSpec:
-    return ProblemSpec(
-        task=config.task,
-        target=config.data.target,
-        time_col=config.data.time_col,
-        group_col=config.data.group_col,
-        data_path=config.data.path,
-    )
-
-
-def config_to_feature_spec(config: LizyMLConfig) -> FeatureSpec:
-    return FeatureSpec(
-        exclude=tuple(config.features.exclude),
-        auto_categorical=config.features.auto_categorical,
-        categorical=tuple(config.features.categorical),
-    )
-
-
-def config_to_split_spec(config: LizyMLConfig) -> SplitSpec:
-    split = config.split
-    # Each SplitConfig subtype has different optional fields
-    random_state: int | None = getattr(split, "random_state", None)
-    shuffle: bool = getattr(split, "shuffle", False)
-    gap: int = getattr(split, "gap", 0)
-    purge_gap: int = getattr(split, "purge_gap", 0)
-    embargo: int = getattr(split, "embargo", 0)
-    train_size_max: int | None = getattr(split, "train_size_max", None)
-    test_size_max: int | None = getattr(split, "test_size_max", None)
-    return SplitSpec(
-        method=split.method,
-        n_splits=split.n_splits,
-        random_state=random_state,
-        shuffle=shuffle,
-        gap=gap,
-        purge_gap=purge_gap,
-        embargo=embargo,
-        train_size_max=train_size_max,
-        test_size_max=test_size_max,
-    )
-
-
-def config_to_training_spec(config: LizyMLConfig) -> TrainingSpec:
-    es_cfg = config.training.early_stopping
-    inner_valid: InnerValidSpec | None = None
-    if es_cfg.inner_valid is not None:
-        iv = es_cfg.inner_valid
-        inner_valid = InnerValidSpec(
-            method=iv.method,
-            ratio=iv.ratio,
-            random_state=getattr(iv, "random_state", 42),
-            stratify=getattr(iv, "stratify", False),
-        )
-    return TrainingSpec(
-        seed=config.training.seed,
-        early_stopping=EarlyStoppingSpec(
-            enabled=es_cfg.enabled,
-            rounds=es_cfg.rounds,
-            inner_valid=inner_valid,
-        ),
-    )
-
-
-def config_to_tuning_spec(config: LizyMLConfig) -> TuningSpec | None:
-    if config.tuning is None:
-        return None
-    optuna = config.tuning.optuna
-    return TuningSpec(
-        backend="optuna",
-        n_trials=optuna.params.n_trials,
-        direction=optuna.params.direction,
-        timeout=optuna.params.timeout,
-        space=optuna.space,
-    )
-
-
-def config_to_calibration_spec(config: LizyMLConfig) -> CalibrationSpec | None:
-    if config.calibration is None:
-        return None
-    return CalibrationSpec(
-        method=config.calibration.method,
-        n_splits=config.calibration.n_splits,
-    )

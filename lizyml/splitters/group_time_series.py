@@ -8,12 +8,9 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
-from lizyml.core.registries import SplitterRegistry
-
 from .base import BaseSplitter
 
 
-@SplitterRegistry.register("group_time_series")
 class GroupTimeSeriesSplitter(BaseSplitter):
     """Time series splitter that respects group boundaries.
 
