@@ -30,6 +30,8 @@ _SPLIT_METHOD_ALIASES: dict[str, str] = {
     "stratifiedkfold": "stratified_kfold",
     "group-kfold": "group_kfold",
     "groupkfold": "group_kfold",
+    "stratified-group-kfold": "stratified_group_kfold",
+    "stratifiedgroupkfold": "stratified_group_kfold",
     "time-series": "time_series",
     "timeseries": "time_series",
     "purged-time-series": "purged_time_series",

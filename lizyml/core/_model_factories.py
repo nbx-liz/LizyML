@@ -18,11 +18,15 @@ from lizyml.config.schema import (
     LizyMLConfig,
     PurgedTimeSeriesConfig,
     SplitConfig,
+    StratifiedGroupKFoldConfig,
     StratifiedKFoldConfig,
     TimeSeriesConfig,
 )
 from lizyml.splitters.base import BaseSplitter
-from lizyml.splitters.group_kfold import GroupKFoldSplitter
+from lizyml.splitters.group_kfold import (
+    GroupKFoldSplitter,
+    StratifiedGroupKFoldSplitter,
+)
 from lizyml.splitters.group_time_series import GroupTimeSeriesSplitter
 from lizyml.splitters.kfold import KFoldSplitter, StratifiedKFoldSplitter
 from lizyml.splitters.purged_time_series import PurgedTimeSeriesSplitter
@@ -57,6 +61,12 @@ def _build_splitter_for_method(
         )
     if isinstance(split_cfg, GroupKFoldConfig):
         return GroupKFoldSplitter(n_splits=n_splits)
+    if isinstance(split_cfg, StratifiedGroupKFoldConfig):
+        return StratifiedGroupKFoldSplitter(
+            n_splits=n_splits,
+            shuffle=split_cfg.shuffle,
+            random_state=split_cfg.random_state,
+        )
     if isinstance(split_cfg, TimeSeriesConfig):
         return TimeSeriesSplitter(
             n_splits=n_splits,
@@ -123,7 +133,7 @@ def _resolve_auto_inner_valid(
     """Resolve inner validation strategy based on the outer split method."""
     if split_method == "stratified_kfold":
         return HoldoutInnerValid(ratio=ratio, random_state=seed, stratify=True)
-    if split_method == "group_kfold":
+    if split_method in ("group_kfold", "stratified_group_kfold"):
         return GroupHoldoutInnerValid(ratio=ratio, random_state=seed)
     if split_method in ("time_series", "purged_time_series"):
         return TimeHoldoutInnerValid(ratio=ratio)
