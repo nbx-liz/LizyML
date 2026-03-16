@@ -11,9 +11,9 @@ import numpy.typing as npt
 import pandas as pd
 
 from lizyml.estimators.base import BaseEstimatorAdapter
-from lizyml.evaluation.oof import get_fold_pred
 from lizyml.features.pipeline_base import BaseFeaturePipeline
 from lizyml.training.inner_valid import BaseInnerValidStrategy
+from lizyml.training.oof_assembly import get_fold_pred
 
 TaskType = Literal["regression", "binary", "multiclass"]
 
