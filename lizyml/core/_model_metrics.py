@@ -14,7 +14,7 @@ from lizyml.core.types.fit_result import FitResult
 from lizyml.evaluation.evaluator import Evaluator
 
 
-def has_metric_content(filtered: dict[str, Any]) -> bool:
+def _has_metric_content(filtered: dict[str, Any]) -> bool:
     """Check if a filtered metrics branch has any non-empty data."""
     for v in filtered.values():
         if isinstance(v, dict) and v:
@@ -48,7 +48,7 @@ def filter_metrics(metrics_dict: dict[str, Any], keep: set[str]) -> dict[str, An
             else:
                 filtered_top[sub_key] = sub_val
         # Drop branches where all sub-dicts are empty after filtering
-        if has_metric_content(filtered_top):
+        if _has_metric_content(filtered_top):
             result[top_key] = filtered_top
     return result
 

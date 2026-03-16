@@ -20,7 +20,6 @@ from lizyml.core.types.search_dim import (
 
 __all__ = [
     "CategoricalDim",
-    "DimCategory",
     "FloatDim",
     "IntDim",
     "SearchDim",
