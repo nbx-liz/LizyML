@@ -103,7 +103,7 @@ class EstimatorProvider(Protocol):  # pragma: no cover
         """Return parameter rows for ``params_table()``.
 
         Each row is ``{"parameter": str, "value": Any}``.
-        Should include smart params, resolved native params, and
-        per-fold best iterations.
+        Should include smart params and resolved native params.
+        Per-fold best iterations are added by ``_model_tables.py``.
         """
         ...

@@ -138,8 +138,7 @@ class LGBMProvider:
     ) -> list[dict[str, Any]]:
         """Return parameter rows for params_table().
 
-        Includes smart params, resolved booster params, task-specific params,
-        and best iteration per fold.
+        Includes smart params, resolved booster params, and task-specific params.
         """
         rows: list[dict[str, Any]] = []
 
