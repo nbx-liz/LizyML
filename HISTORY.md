@@ -3309,7 +3309,7 @@ ARCHITECTURE.md で定義した 5 層カテゴリアーキテクチャにおい�
 ## 2026-03-16: EstimatorProvider 導入（マルチアルゴリズム準備）
 
 - ID: `H-0053`
-- Status: `proposed`
+- Status: `accepted`
 - Scope: `Architecture | Estimators | Public API (internal)`
 - Related: `BLUEPRINT.md §2, §14, §14.1, §19, §20, ARCHITECTURE.md`
 - Depends: `H-0051, H-0052`

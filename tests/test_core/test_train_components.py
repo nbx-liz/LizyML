@@ -11,6 +11,7 @@ from typing import Any
 import numpy as np
 
 from lizyml import Model
+from lizyml.core._model_factories import get_provider
 from lizyml.core.types.tuning_result import TuningResult
 from lizyml.estimators.base import BaseEstimatorAdapter
 from lizyml.training.inner_valid import BaseInnerValidStrategy
@@ -65,6 +66,10 @@ class TestTrainComponents:
 # ---------------------------------------------------------------------------
 
 
+def _provider_for(m: Model) -> Any:
+    return get_provider(m._cfg.model)
+
+
 class TestMergeParams:
     """Test Model._merge_params priority: Config < tune best < fit args."""
 
@@ -74,7 +79,7 @@ class TestMergeParams:
 
     def test_config_defaults_only(self) -> None:
         m = self._make_model()
-        model_params, smart_params = m._merge_params()
+        model_params, smart_params = m._merge_params(_provider_for(m))
         assert model_params["n_estimators"] == 10
         # smart_params should contain the LGBMConfig smart fields
         assert "auto_num_leaves" in smart_params
@@ -91,7 +96,7 @@ class TestMergeParams:
             metric_name="rmse",
             direction="minimize",
         )
-        model_params, _ = m._merge_params()
+        model_params, _ = m._merge_params(_provider_for(m))
         assert model_params["learning_rate"] == 0.05
 
     def test_fit_args_override_tune_best(self) -> None:
@@ -105,7 +110,9 @@ class TestMergeParams:
             metric_name="rmse",
             direction="minimize",
         )
-        model_params, _ = m._merge_params(override={"learning_rate": 0.2})
+        model_params, _ = m._merge_params(
+            _provider_for(m), override={"learning_rate": 0.2}
+        )
         assert model_params["learning_rate"] == 0.2
 
     def test_smart_params_from_tune(self) -> None:
@@ -119,12 +126,12 @@ class TestMergeParams:
             metric_name="rmse",
             direction="minimize",
         )
-        _, smart_params = m._merge_params()
+        _, smart_params = m._merge_params(_provider_for(m))
         assert smart_params["num_leaves_ratio"] == 0.5
 
     def test_no_tuning_result_returns_config_smart(self) -> None:
         m = self._make_model()
-        _, smart_params = m._merge_params()
+        _, smart_params = m._merge_params(_provider_for(m))
         # Default LGBMConfig has auto_num_leaves=True, num_leaves_ratio=1.0
         assert smart_params["auto_num_leaves"] is True
         assert smart_params["num_leaves_ratio"] == 1.0
@@ -143,10 +150,15 @@ class TestBuildTrainComponents:
         df = make_regression_df(n=100)
         X = df[["feat_a", "feat_b"]]
         y = df["target"]
+        provider = _provider_for(m)
 
-        model_params, smart_params = m._merge_params()
+        model_params, smart_params = m._merge_params(provider)
         tc = m._build_train_components(
-            X, y, model_params=model_params, smart_params=smart_params
+            X,
+            y,
+            provider=provider,
+            model_params=model_params,
+            smart_params=smart_params,
         )
         assert isinstance(tc, TrainComponents)
 
@@ -155,10 +167,15 @@ class TestBuildTrainComponents:
         df = make_regression_df(n=100)
         X = df[["feat_a", "feat_b"]]
         y = df["target"]
+        provider = _provider_for(m)
 
-        model_params, smart_params = m._merge_params()
+        model_params, smart_params = m._merge_params(provider)
         tc = m._build_train_components(
-            X, y, model_params=model_params, smart_params=smart_params
+            X,
+            y,
+            provider=provider,
+            model_params=model_params,
+            smart_params=smart_params,
         )
         estimator = tc.estimator_factory()
         assert isinstance(estimator, BaseEstimatorAdapter)
@@ -168,10 +185,15 @@ class TestBuildTrainComponents:
         df = make_regression_df(n=100)
         X = df[["feat_a", "feat_b"]]
         y = df["target"]
+        provider = _provider_for(m)
 
-        model_params, smart_params = m._merge_params()
+        model_params, smart_params = m._merge_params(provider)
         tc = m._build_train_components(
-            X, y, model_params=model_params, smart_params=smart_params
+            X,
+            y,
+            provider=provider,
+            model_params=model_params,
+            smart_params=smart_params,
         )
         assert isinstance(tc.inner_valid, BaseInnerValidStrategy)
 
@@ -182,10 +204,15 @@ class TestBuildTrainComponents:
         df = make_regression_df(n=100)
         X = df[["feat_a", "feat_b"]]
         y = df["target"]
+        provider = _provider_for(m)
 
-        model_params, smart_params = m._merge_params()
+        model_params, smart_params = m._merge_params(provider)
         tc = m._build_train_components(
-            X, y, model_params=model_params, smart_params=smart_params
+            X,
+            y,
+            provider=provider,
+            model_params=model_params,
+            smart_params=smart_params,
         )
         assert tc.ratio_resolver is not None
         resolved = tc.ratio_resolver(10000)
@@ -200,11 +227,16 @@ class TestBuildTrainComponents:
         df = make_binary_df(n=100)
         X = df[["feat_a", "feat_b"]]
         y = df["target"]
+        provider = _provider_for(m)
 
-        model_params, smart_params = m._merge_params()
+        model_params, smart_params = m._merge_params(provider)
         # balanced=True with binary → scale_pos_weight, sample_weight=None
         tc = m._build_train_components(
-            X, y, model_params=model_params, smart_params=smart_params
+            X,
+            y,
+            provider=provider,
+            model_params=model_params,
+            smart_params=smart_params,
         )
         # For binary, balanced sets scale_pos_weight, not sample_weight
         assert tc.sample_weight is None

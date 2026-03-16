@@ -7,11 +7,14 @@ import pytest
 
 from lizyml.config.schema import LGBMConfig
 from lizyml.core.exceptions import ErrorCode, LizyMLError
-from lizyml.core.model import _extract_smart_params as extract_smart_params
-from lizyml.estimators.lgbm import (
+from lizyml.estimators.lgbm.provider import LGBMProvider
+from lizyml.estimators.lgbm.smart_params import (
     resolve_ratio_params,
     resolve_smart_params,
 )
+
+_provider = LGBMProvider()
+extract_smart_params = _provider.extract_smart_params
 
 
 def _base_config(**kwargs: object) -> LGBMConfig:

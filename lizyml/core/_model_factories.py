@@ -1,12 +1,14 @@
-"""Factory functions for building splitters and inner-validation strategies.
+"""Factory functions for building splitters, inner-validation, and provider dispatch.
 
 Extracted from Model to reduce model.py size (H-0042).
+Provider dispatch added in H-0053.
 """
 
 from __future__ import annotations
 
 import warnings
 from collections.abc import Callable
+from typing import Any
 
 from lizyml.config.schema import (
     GroupKFoldConfig,
@@ -191,3 +193,38 @@ def make_inner_valid_factory(
         return _resolve_auto_inner_valid(split_method, ratio, seed)
 
     return factory
+
+
+# ------------------------------------------------------------------
+# EstimatorProvider dispatch (H-0053)
+# ------------------------------------------------------------------
+
+
+def get_provider(model_cfg: Any) -> Any:
+    """Return the EstimatorProvider for the given model config.
+
+    Dispatches on ``model_cfg.name`` to import the provider lazily.
+    New algorithms only need to add an ``elif`` branch here.
+
+    Args:
+        model_cfg: A pydantic model config (e.g. ``LGBMConfig``).
+
+    Returns:
+        An ``EstimatorProvider`` instance.
+
+    Raises:
+        LizyMLError with CONFIG_INVALID for unknown model names.
+    """
+    from lizyml.core.exceptions import ErrorCode, LizyMLError
+
+    name: str = getattr(model_cfg, "name", "")
+    if name == "lgbm":
+        from lizyml.estimators.lgbm.provider import LGBMProvider
+
+        return LGBMProvider()
+
+    raise LizyMLError(
+        code=ErrorCode.CONFIG_INVALID,
+        user_message=f"Unknown model name '{name}'. Supported: lgbm",
+        context={"model_name": name},
+    )
