@@ -6,12 +6,11 @@ import pytest
 
 from lizyml import Model
 from lizyml.core.types.tuning_result import TuningResult
+from lizyml.estimators.lgbm.defaults import default_fixed_params, default_space
 from lizyml.tuning.search_space import (
     CategoricalDim,
     FloatDim,
     IntDim,
-    default_fixed_params,
-    default_space,
     split_by_category,
 )
 from tests._helpers import make_regression_df

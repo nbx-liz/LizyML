@@ -10,12 +10,6 @@ import pytest
 from lizyml import Model
 from lizyml.config.loader import (
     SUPPORTED_CONFIG_VERSIONS,
-    config_to_calibration_spec,
-    config_to_feature_spec,
-    config_to_problem_spec,
-    config_to_split_spec,
-    config_to_training_spec,
-    config_to_tuning_spec,
     load_config,
 )
 from lizyml.core.exceptions import ErrorCode, LizyMLError
@@ -227,78 +221,6 @@ class TestEnvOverride:
         monkeypatch.setenv("LIZYML__features__auto_categorical", "false")
         cfg = load_config(_MINIMAL_CONFIG)
         assert cfg.features.auto_categorical is False
-
-
-# ---------------------------------------------------------------------------
-# Config → Spec conversion
-# ---------------------------------------------------------------------------
-
-
-class TestConfigToSpecs:
-    def test_problem_spec(self) -> None:
-        cfg = load_config(_FULL_CONFIG)
-        spec = config_to_problem_spec(cfg)
-        assert spec.task == "binary"
-        assert spec.target == "label"
-        assert spec.time_col == "date"
-        assert spec.group_col == "group"
-        assert spec.data_path == "data.csv"
-
-    def test_feature_spec(self) -> None:
-        cfg = load_config(_FULL_CONFIG)
-        spec = config_to_feature_spec(cfg)
-        assert spec.exclude == ("id",)
-        assert spec.auto_categorical is True
-        assert spec.categorical == ("cat",)
-
-    def test_split_spec_kfold(self) -> None:
-        cfg = load_config(_MINIMAL_CONFIG)
-        spec = config_to_split_spec(cfg)
-        assert spec.method == "kfold"
-        assert spec.n_splits == 5
-
-    def test_split_spec_full(self) -> None:
-        cfg = load_config(_FULL_CONFIG)
-        spec = config_to_split_spec(cfg)
-        assert spec.n_splits == 5
-        assert spec.random_state == 42
-
-    def test_training_spec(self) -> None:
-        cfg = load_config(_FULL_CONFIG)
-        spec = config_to_training_spec(cfg)
-        assert spec.seed == 123
-        assert spec.early_stopping.enabled is True
-        assert spec.early_stopping.inner_valid is not None
-        assert spec.early_stopping.inner_valid.ratio == 0.1
-
-    def test_training_spec_default_early_stopping(self) -> None:
-        cfg = load_config(_MINIMAL_CONFIG)
-        spec = config_to_training_spec(cfg)
-        assert spec.early_stopping.enabled is True
-        assert spec.early_stopping.rounds == 150
-
-    def test_tuning_spec(self) -> None:
-        cfg = load_config(_FULL_CONFIG)
-        spec = config_to_tuning_spec(cfg)
-        assert spec is not None
-        assert spec.backend == "optuna"
-        assert spec.n_trials == 10
-        assert spec.space == {"learning_rate": [0.01, 0.05]}
-
-    def test_tuning_spec_none_when_not_configured(self) -> None:
-        cfg = load_config(_MINIMAL_CONFIG)
-        assert config_to_tuning_spec(cfg) is None
-
-    def test_calibration_spec(self) -> None:
-        cfg = load_config(_FULL_CONFIG)
-        spec = config_to_calibration_spec(cfg)
-        assert spec is not None
-        assert spec.method == "platt"
-        assert spec.n_splits == 3
-
-    def test_calibration_spec_none_when_not_configured(self) -> None:
-        cfg = load_config(_MINIMAL_CONFIG)
-        assert config_to_calibration_spec(cfg) is None
 
 
 # ---------------------------------------------------------------------------

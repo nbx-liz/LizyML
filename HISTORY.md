@@ -3107,3 +3107,297 @@ BLUEPRINT §10.1 では「Splitter は外側 CV / early stopping / calibration �
 - Date: `2026-03-14`
 - Result: `accepted`
 - Notes: Evaluator 層での行正規化（案 B）を採用。ただし正規化対象を `needs_simplex=True` メトリクスに限定（案 C を統合）。`BaseMetric.needs_simplex` をデフォルト `False` の concrete property として追加し、`AUC` / `LogLoss` のみ `True` にオーバーライド。per-class OvR メトリクス（AUCPR, Brier）は raw 値を受け取る。
+
+---
+
+## 2026-03-15: Smart Parameter 統一 & TrainComponents 導入
+
+- ID: `H-0050`
+- Status: `accepted`
+- Scope: `Training | Tuning | Result`
+- Related: `BLUEPRINT.md §5.3, §6.1, §6.2, §7.2, §11.2`
+
+### Context
+
+現状 `resolve_smart_params`（fit 用、`LGBMConfig` を受け取る）と `resolve_smart_params_from_dict`（tune 用、`dict` を受け取る）の 2 関数が存在し、対応する smart params の範囲が非対称（tune 版は `feature_weights` / `balanced` を未対応）。また `TuningResult.best_params` が flat dict であるため、tune → fit 時に smart params のカテゴリ区別が失われ、Config 側の固定値で上書きされてしまう問題がある。fit / tune で CVTrainer への組み立てロジックも重複しており、一貫性・保守性を損なっている。
+
+### Proposal
+
+1. **`resolve_smart_params` を dict ベースに統一**: 第 1 引数を `LGBMConfig` → `dict[str, Any]` に変更。`extract_smart_params(config: LGBMConfig) -> dict` ヘルパーを追加。`resolve_smart_params_from_dict` を削除。fit / tune で同一関数を使用する。
+
+2. **`TuningResult` をカテゴリ別に変更**: `best_params`（flat dict）を `best_model_params` / `best_smart_params` / `best_training_params` に分割。互換性のため `best_params` を computed property（flat view）として残す。
+
+3. **`TrainComponents` 導入**: パラメータ解決結果を保持する dataclass（`estimator_factory` / `sample_weight` / `ratio_resolver` / `inner_valid`）。`Model._build_train_components()` で構築し、CVTrainer と RefitTrainer に同一インスタンスを渡すことで一貫性を構造的に保証する。
+
+4. **`Model.fit()` / `Model.tune()` の共通化**: 両者とも `_build_train_components()` を経由して CVTrainer を構築する。tune の各 trial は `_build_train_components(model_params=..., smart_params=...)` を呼び、fit と同じコードパスを通る。
+
+5. **`Tuner` のシンプル化**: Tuner の責務を Optuna study 管理のみに縮小。`objective` クロージャは Model 側で構築して注入する。Tuner から LGBM 固有の import をすべて除去する。
+
+6. **`Model._best_params` 削除**: `_tuning_result` からカテゴリ別に取得する。パラメータ優先順位: `Config defaults < tune best < fit() 引数`。
+
+### Impact
+
+- `lizyml/estimators/lgbm.py`: `resolve_smart_params` 引数変更、`extract_smart_params` 追加、`resolve_smart_params_from_dict` 削除
+- `lizyml/core/types/tuning_result.py`: field 構成変更
+- `lizyml/core/model.py`: `TrainComponents` 追加、`_build_train_components` / `_merge_params` 追加、fit() / tune() 書き換え、`_best_params` 削除
+- `lizyml/tuning/tuner.py`: コンストラクタ縮小、LGBM 固有ロジック除去
+
+- 変更しないもの: `CVTrainer` / `RefitTrainer` / `config/schema.py` / `search_space.py` のインターフェース
+
+### Compatibility
+
+- `TuningResult.best_params` は computed property として残すため、読み取り側は互換。ただし `TuningResult` のコンストラクタは変更される（`best_params` → `best_model_params` + `best_smart_params` + `best_training_params`）。
+- `Tuner` のコンストラクタは大幅に縮小されるが、内部 API のため外部互換性は影響なし。
+- `resolve_smart_params_from_dict` は削除されるが、内部 API のため外部互換性は影響なし。
+
+### Alternatives Considered
+
+1. `TuningResult.best_params` に `overrides` 引数を追加する（fit 側で overrides 適用）
+   - 不採用。カテゴリの区別が曖昧なまま残り、将来のアルゴリズム追加時に同じ問題が再発する。
+2. EstimatorBuilder パターン（B案）を先に導入する
+   - 不採用（段階的に実施）。tune → fit の smart params 問題を先に解決し、クリーンな状態で B案を検討する。
+
+### Acceptance Criteria
+
+- `resolve_smart_params_from_dict` が削除され、fit / tune が同一の `resolve_smart_params(dict, ...)` を使用している。
+- `TuningResult` が `best_model_params` / `best_smart_params` / `best_training_params` を持ち、`best_params` property が flat view を返す。
+- `_build_train_components()` が CVTrainer と RefitTrainer に同一の factory / resolver を提供している。
+- tune() の各 trial が `_build_train_components()` を経由して CVTrainer を構築している。
+- `Tuner` が LGBM 固有の import を持たない。
+- tune → fit で smart params（`num_leaves_ratio` 等）が正しく引き継がれるテストが存在する。
+- 既存テスト（910件）がすべて pass する。
+
+### Decision
+
+- Date: `2026-03-15`
+- Result: `accepted`
+- Notes: 議論の結果、「Config → Tune → Fit の一連のフローで同一コードパスを通る」設計を優先。B案（EstimatorBuilder）は本 Proposal 完了後に段階的に検討する。
+
+---
+
+## 2026-03-16: デッドコード削除と Foundation 整理
+
+- ID: `H-0051`
+- Status: `proposed`
+- Scope: `Architecture | Internal`
+- Related: `BLUEPRINT.md §2, §19, ARCHITECTURE.md`
+
+### Context
+
+アーキテクチャレビューの結果、以下のデッドコードと構造上の問題が発見された:
+1. 本番コードで未使用のクラス/モジュールが複数存在する（`TargetTransformer`, `SplitPlan`, `HoldoutSplitter`, 未使用 Spec 群, `import_optional.py`）。
+2. `EstimatorRegistry` / `SplitterRegistry` が `@register` デコレータで書き込みされるが `.get()` が呼ばれない（書き込み専用）。`MetricRegistry` / `CalibratorRegistry` は正当な lookup がある。
+3. `types/` が `data/` に依存している（`DataFingerprint` の import）。ARCHITECTURE.md で定義した Layer 0 → Layer 1 の逆依存。
+4. `splitters/` ↔ `specs/` の循環依存が存在する。
+
+これらは ARCHITECTURE.md で定義した 5 層カテゴリアーキテクチャ（Layer 0: Foundation → Layer 1: Leaf → Layer 2: Composition → Layer 3: Optional → Layer 4: Facade）の前提条件である「DAG 構造」と「各 Leaf カテゴリの独立性」に違反する。
+
+### Proposal
+
+1. **デッドコード削除**:
+   - `lizyml/features/transformers/target_transformer.py` を削除（完全未使用スタブ）
+   - `lizyml/core/specs/split_plan.py` を削除（`_model_factories` に完全置換済み）
+   - `lizyml/splitters/holdout.py` を削除（`SplitPlan` 経由のみ、他に呼び出し元なし）
+   - `lizyml/core/specs/export_spec.py` を削除（未使用）
+   - `lizyml/core/specs/training_spec.py` の `TrainingSpec` / `EarlyStoppingSpec` / `InnerValidSpec` を削除（未使用）
+   - `lizyml/core/specs/calibration_spec.py` を削除（未使用）
+   - `lizyml/core/specs/tuning_spec.py` を削除（未使用）
+   - `lizyml/config/loader.py` の `config_to_split_spec` / `config_to_training_spec` / `config_to_tuning_spec` / `config_to_calibration_spec` / `config_to_export_spec` / `config_to_problem_spec` / `config_to_feature_spec` を削除（本番で未使用。`ProblemSpec` / `FeatureSpec` は `model.py` で直接構築しているため変換関数は不要）
+   - `lizyml/utils/import_optional.py` を削除（全箇所がインライン try/except を使用）
+   - `lizyml/splitters/__init__.py` の `_build_splitter(SplitSpec)` を削除（`_model_factories` の Config ベースと重複）
+
+2. **書き込み専用 Registry の削除**:
+   - `EstimatorRegistry` の `@register` デコレータを `LGBMAdapter` から除去し、`EstimatorRegistry` クラスを `registries.py` から削除
+   - `SplitterRegistry` の `@register` デコレータを全 Splitter クラスから除去し、`SplitterRegistry` クラスを `registries.py` から削除
+   - `MetricRegistry` / `CalibratorRegistry` は `.get()` 呼び出しがあるため維持
+
+3. **DataFingerprint の移動**:
+   - `lizyml/data/fingerprint.py` の `DataFingerprint` dataclass を `lizyml/core/types/artifacts.py` に移動
+   - `compute()` 関数は `lizyml/data/fingerprint.py` に残す（`data/` が Foundation の型を返す形になり、逆依存が解消される）
+
+4. **循環依存の解消**:
+   - `specs/split_plan.py` 削除により `splitters/ → specs/` → `splitters/` の循環が自動解消
+
+### Impact
+
+- 削除対象はすべて本番コードで未使用（テストのみで使用）。公開 API・Result shape・format_version に影響なし。
+- `ProblemSpec` / `FeatureSpec` / `SplitSpec` は維持（`ProblemSpec` / `FeatureSpec` は `model.py` で使用中、`SplitSpec` は将来の Spec-based パスの可能性を残す）。
+
+### Compatibility
+
+- 公開 API の変更なし。内部モジュールの削除のみ。
+- `DataFingerprint` の import パスが `lizyml.data.fingerprint.DataFingerprint` → `lizyml.core.types.artifacts.DataFingerprint` に変更されるが、内部 API のため外部互換性は影響なし。
+
+### Alternatives Considered
+
+1. デッドコードを残し、将来の実装に備える
+   - 不採用。Spec 層は `_model_factories` の直接 Config パスに完全に置き換えられており、復活の見込みがない。デッドコードの存在は保守性を下げ、アーキテクチャの理解を妨げる。
+
+### Acceptance Criteria
+
+- 削除対象ファイルがリポジトリに存在しないこと
+- `splitters/ ↔ specs/` の循環依存が解消されていること
+- `types/` から `data/` への依存が解消されていること（`DataFingerprint` が `types/artifacts.py` に存在すること）
+- `EstimatorRegistry.get()` / `SplitterRegistry.get()` がコードベースに存在しないこと
+- 既存テスト（962件）から削除対象のテストを除いた全テストが pass すること
+- `ruff check` / `mypy` がクリーンであること
+
+---
+
+## 2026-03-16: Layer 間依存の浄化
+
+- ID: `H-0052`
+- Status: `accepted`
+- Scope: `Architecture | Training | Evaluation`
+- Related: `BLUEPRINT.md §2, §6.2, §6.3, §13.2, §14, §19, ARCHITECTURE.md`
+
+### Context
+
+ARCHITECTURE.md で定義した 5 層カテゴリアーキテクチャにおいて、以下の Layer ルール違反が存在する:
+
+1. **training/ → evaluation/**: `cv_trainer.py` が `evaluation/oof.py` の `fill_oof`, `get_fold_pred`, `init_oof` を import している。これらは OOF アセンブリの ndarray ユーティリティであり、metric 計算（Evaluator の責務）とは無関係。Layer 2 の同層間依存。
+2. **evaluation/ → calibration/**: `evaluator.py` が `CalibrationResult` を `isinstance` チェックし、calibrated metrics を直接組み立てている。Layer 2 → Layer 1 への不要な依存。Evaluator の責務は「raw predictions + y_true → metrics dict」であるべき。
+3. **estimators/ → config/**: `lgbm.py` の `extract_smart_params(LGBMConfig)` が `config/schema.py` の `LGBMConfig` を直接参照している。Layer 1 の Leaf 間依存（Leaf カテゴリは互いに依存してはならない）。
+
+### Proposal
+
+1. **OOF ヘルパーを training/ に移動**:
+   - `evaluation/oof.py` の `fill_oof`, `get_fold_pred`, `get_fold_raw`, `init_oof` を `training/oof_assembly.py`（新規）に移動
+   - `cv_trainer.py` の import を `from lizyml.training.oof_assembly import ...` に変更
+   - `evaluation/oof.py` は空にするか、後方互換の re-export のみ残す（内部 API のため即削除も可）
+
+2. **Evaluator から calibration 依存を除去**:
+   - `evaluator.py` の `evaluate()` は raw predictions のみを受け取り、`{"raw": {...}}` のみを返す
+   - calibrated metrics の組み立ては **Facade**（`model.py` の `fit()` 内）が担当する: calibrated OOF を `evaluator.evaluate()` に別途渡して結果を `{"calibrated": {...}}` として統合する
+   - `evaluator.py` から `CalibrationResult` の import と `isinstance` チェックを除去
+
+3. **estimators/ から config/ 依存を除去**:
+   - `extract_smart_params(LGBMConfig) -> dict` を `estimators/lgbm.py` → Facade（`model.py` または `_model_factories.py`）に移動
+   - `lgbm.py` の `resolve_smart_params` / `resolve_ratio_params` は既に dict ベースのため変更不要
+   - `lgbm.py` から `from lizyml.config.schema import LGBMConfig` を除去
+
+### Impact
+
+- **training/**: `cv_trainer.py` の import パスのみ変更。ロジックは同一。
+- **evaluation/**: `Evaluator.evaluate()` の返り値から `"calibrated"` キーが消える。calibrated metrics は Facade 側で追加される。最終的な `FitResult.metrics` の shape は変更なし。
+- **estimators/**: `lgbm.py` から `LGBMConfig` 依存が消える。`resolve_smart_params` は dict を受け取るため影響なし。
+- **Facade**: `model.py` の `fit()` に calibrated metrics 組み立てロジックが追加される（Evaluator を2回呼ぶ形）。`extract_smart_params` の呼び出し元が移動する。
+
+### Compatibility
+
+- 公開 API の変更なし。`FitResult.metrics` の最終 shape は不変。
+- `Evaluator.evaluate()` の返り値 shape が変更されるが、Evaluator は内部 API。
+
+### Alternatives Considered
+
+1. `evaluation/oof.py` を `core/` の共有ユーティリティに移動する
+   - 不採用。OOF アセンブリは training loop 固有のロジックであり、Foundation に置く正当性がない。
+2. Evaluator に calibrated_oof を引数で渡す（Evaluator 内で `{"calibrated": ...}` を生成）
+   - 候補として残す。ただし Evaluator が CalibrationResult 型を知らなくても済む設計が優先。
+
+### Acceptance Criteria
+
+- `training/` から `evaluation/` への import が存在しないこと
+- `evaluation/` から `calibration/` への import が存在しないこと
+- `estimators/` から `config/` への import が存在しないこと
+- `FitResult.metrics` の最終 shape が不変であること（`{"raw": {...}, "calibrated": {...}}` 構造を維持）
+- 既存テスト（962件）がすべて pass すること
+- カテゴリ間依存分析スクリプトで Layer ルール違反がゼロであること
+
+---
+
+## 2026-03-16: EstimatorProvider 導入（マルチアルゴリズム準備）
+
+- ID: `H-0053`
+- Status: `accepted`
+- Scope: `Architecture | Estimators | Public API (internal)`
+- Related: `BLUEPRINT.md §2, §14, §14.1, §19, §20, ARCHITECTURE.md`
+- Depends: `H-0051, H-0052`
+
+### Context
+
+H-0050 で `_build_train_components` / `_merge_params` により fit/tune の共通化を達成した。しかし `model.py` は依然として LGBM に直接依存している:
+
+```python
+from lizyml.estimators.lgbm import LGBMAdapter, extract_smart_params, ...
+isinstance(model_cfg, LGBMConfig)  # _merge_params 内 ×2
+LGBMAdapter(task=..., params=...)  # make_estimator 内
+default_space(cfg.task)            # tune() 内
+```
+
+EntityEmbedding 等の新アルゴリズムを追加するとき、`model.py` に `isinstance(model_cfg, EntityEmbeddingConfig)` を追加し続ける設計は持続可能でない。ARCHITECTURE.md の Layer ルール「Facade 以外の Layer は具象クラスを型ディスパッチしない」に違反する。
+
+### Proposal
+
+1. **EstimatorProvider protocol を定義** (`estimators/provider.py`):
+
+   ```python
+   class EstimatorProvider(Protocol):
+       def extract_model_params(self, model_cfg: Any) -> dict[str, Any]: ...
+       def extract_smart_params(self, model_cfg: Any) -> dict[str, Any]: ...
+       def resolve_smart_params(
+           self, smart: dict, effective: dict, n_rows: int,
+           feature_names: list[str], y: Series, task: str,
+       ) -> tuple[dict[str, Any], ndarray | None]: ...
+       def build_ratio_resolver(
+           self, smart: dict,
+       ) -> Callable[[int], dict[str, Any]] | None: ...
+       def build_estimator_factory(
+           self, task: str, params: dict, n_classes: int | None,
+           early_stopping_rounds: int | None, seed: int,
+       ) -> Callable[[], BaseEstimatorAdapter]: ...
+       def build_pipeline_factory(self) -> Callable[[], BaseFeaturePipeline]: ...
+       def default_space(self, task: str) -> list[SearchDim]: ...
+       def default_fixed_params(self, task: str) -> dict[str, Any]: ...
+   ```
+
+2. **LGBMProvider を実装** (`estimators/lgbm/provider.py`):
+   - 既存の `extract_smart_params`, `resolve_smart_params`, `resolve_ratio_params`, `default_space`, `default_fixed_params` を LGBMProvider のメソッドとして再配置
+   - `build_estimator_factory` で `LGBMAdapter` を生成
+   - `build_pipeline_factory` で `NativeFeaturePipeline` を返す
+
+3. **Provider の解決** (`estimators/registry.py` または `_model_factories.py`):
+   - `get_provider(model_cfg: ModelConfig) -> EstimatorProvider`
+   - `ModelConfig` の `name` フィールドで dispatch（`"lgbm"` → `LGBMProvider`）
+   - この dispatch は Facade 層（`_model_factories.py`）に置く
+
+4. **model.py の書き換え**:
+   - `from lizyml.estimators.lgbm import ...` を除去
+   - `_merge_params` / `_build_train_components` / `tune` を provider 経由に変更
+   - `isinstance(model_cfg, LGBMConfig)` チェックを除去
+
+5. **新アルゴリズム追加時の手順** (目標):
+   - `estimators/<name>/` に adapter + provider + config を作成
+   - `config/schema.py` の `ModelConfig` union に追加
+   - `_model_factories.py` の provider dispatch に追加
+   - **model.py の変更: ゼロ**
+
+### Impact
+
+- `model.py`: LGBM 直接 import を除去。provider 経由に書き換え。
+- `estimators/lgbm.py`: 既存関数を `LGBMProvider` に再配置。関数自体のロジックは変更なし。
+- `tuning/search_space.py`: `default_space` / `default_fixed_params` を LGBMProvider に移動。`parse_space` / `suggest_params` / `split_by_category` は汎用のため tuning/ に残す。
+
+### Compatibility
+
+- 公開 API の変更なし。`Model.fit()` / `Model.tune()` / `Model.predict()` のシグネチャは不変。
+- `EstimatorProvider` は内部 protocol。ユーザーが直接触れることはない。
+- `LGBMAdapter` の import パスは `lizyml.estimators.lgbm.LGBMAdapter` を維持（`__init__.py` で re-export）。
+
+### Alternatives Considered
+
+1. Abstract base class (`ABCEstimatorProvider`) を使う
+   - 不採用。Protocol の方が structural subtyping で柔軟。optional dependency のアルゴリズム（torch 系）でクラス継承を強制しない。
+2. Factory 関数群を module-level で定義し、dict dispatch する
+   - 不採用。Protocol の方が型安全で、mypy でチェック可能。
+3. 現状の `isinstance` dispatch を維持し、新アルゴリズムごとに `elif` を追加する
+   - 不採用。Open-Closed Principle に違反し、model.py がアルゴリズム追加のたびに変更される。
+
+### Acceptance Criteria
+
+- `model.py` に `from lizyml.estimators.lgbm import` が存在しないこと
+- `model.py` に `isinstance(model_cfg, LGBMConfig)` が存在しないこと
+- `LGBMProvider` が `EstimatorProvider` protocol を満たすこと（mypy で検証）
+- 新アルゴリズム追加のテンプレートとして `estimators/lgbm/` のディレクトリ構造がドキュメント化されていること
+- 既存テスト（962件）がすべて pass すること
+- tune → fit で smart params が正しく引き継がれるテストが維持されていること

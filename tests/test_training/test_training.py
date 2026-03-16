@@ -18,11 +18,11 @@ from lizyml.core.types.artifacts import RunMeta
 from lizyml.core.types.fit_result import FitResult
 from lizyml.data.fingerprint import DataFingerprint
 from lizyml.estimators.lgbm import LGBMAdapter
-from lizyml.evaluation.oof import fill_oof, init_oof
 from lizyml.features.pipelines_native import NativeFeaturePipeline
 from lizyml.splitters.kfold import KFoldSplitter
 from lizyml.training.cv_trainer import CVTrainer
 from lizyml.training.inner_valid import HoldoutInnerValid, NoInnerValid
+from lizyml.training.oof_assembly import fill_oof, init_oof
 from lizyml.training.refit_trainer import RefitResult, RefitTrainer
 
 # ---------------------------------------------------------------------------
