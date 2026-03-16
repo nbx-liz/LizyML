@@ -3247,7 +3247,7 @@ BLUEPRINT §10.1 では「Splitter は外側 CV / early stopping / calibration �
 ## 2026-03-16: Layer 間依存の浄化
 
 - ID: `H-0052`
-- Status: `proposed`
+- Status: `accepted`
 - Scope: `Architecture | Training | Evaluation`
 - Related: `BLUEPRINT.md §2, §6.2, §6.3, §13.2, §14, §19, ARCHITECTURE.md`
 

@@ -10,7 +10,7 @@ What Model does:
 5. Store FitResult and RefitResult; expose them via evaluate / predict.
 
 What Model does NOT contain:
-- OOF/IF generation logic  → evaluation/oof.py
+- OOF/IF generation logic  → training/oof_assembly.py
 - Metric computation        → evaluation/evaluator.py
 - LGBM-specific processing  → estimators/lgbm.py
 - Plot implementations      → plots/*
@@ -67,7 +67,6 @@ from lizyml.data.fingerprint import compute as fp_compute
 from lizyml.estimators.lgbm import (
     _COMMON_DEFAULTS,
     LGBMAdapter,
-    extract_smart_params,
     resolve_ratio_params,
     resolve_smart_params,
 )
@@ -96,6 +95,24 @@ _DEFAULT_METRICS: dict[str, list[str]] = {
 }
 
 _TS_METHODS = frozenset({"time_series", "purged_time_series", "group_time_series"})
+
+
+def _extract_smart_params(config: LGBMConfig) -> dict[str, Any]:
+    """Extract smart parameter fields from LGBMConfig as a plain dict.
+
+    Bridge between pydantic Config and the dict-based
+    ``resolve_smart_params`` function.  Both ``fit()`` and ``tune()``
+    use this to obtain Config defaults, which can then be overridden
+    by tuning best params before resolution (H-0050).
+    """
+    return {
+        "auto_num_leaves": config.auto_num_leaves,
+        "num_leaves_ratio": config.num_leaves_ratio,
+        "min_data_in_leaf_ratio": config.min_data_in_leaf_ratio,
+        "min_data_in_bin_ratio": config.min_data_in_bin_ratio,
+        "feature_weights": config.feature_weights,
+        "balanced": config.balanced,
+    }
 
 
 class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
@@ -210,6 +227,20 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         metric_names = cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task]
         evaluator = Evaluator(task=cfg.task)
         metrics = evaluator.evaluate(fit_result, y, metric_names)
+
+        # --- Calibrated metrics (assembled by Facade, not Evaluator) -------
+        if fit_result.calibrator is not None:
+            from lizyml.calibration.cross_fit import CalibrationResult
+
+            if isinstance(fit_result.calibrator, CalibrationResult):
+                cal_oof = fit_result.calibrator.calibrated_oof
+                cal_result = evaluator.evaluate(
+                    dataclasses.replace(fit_result, oof_pred=cal_oof),
+                    y,
+                    metric_names,
+                )
+                metrics["calibrated"] = {"oof": cal_result["raw"]["oof"]}
+
         fit_result = dataclasses.replace(
             fit_result, metrics={**fit_result.metrics, **metrics}
         )
@@ -520,7 +551,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         # --- smart_params: Config defaults ---
         smart_params: dict[str, Any] = {}
         if isinstance(model_cfg, LGBMConfig):
-            smart_params = extract_smart_params(model_cfg)
+            smart_params = _extract_smart_params(model_cfg)
 
         # --- Overlay tune best ---
         if self._tuning_result is not None:

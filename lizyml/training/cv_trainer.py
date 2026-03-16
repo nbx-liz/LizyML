@@ -12,10 +12,10 @@ import pandas as pd
 from lizyml.core.types.artifacts import DataFingerprint, RunMeta, SplitIndices
 from lizyml.core.types.fit_result import FitResult
 from lizyml.estimators.base import BaseEstimatorAdapter
-from lizyml.evaluation.oof import fill_oof, get_fold_pred, get_fold_raw, init_oof
 from lizyml.features.pipeline_base import BaseFeaturePipeline
 from lizyml.splitters.base import BaseSplitter
 from lizyml.training.inner_valid import BaseInnerValidStrategy
+from lizyml.training.oof_assembly import fill_oof, get_fold_pred, get_fold_raw, init_oof
 
 TaskType = Literal["regression", "binary", "multiclass"]
 

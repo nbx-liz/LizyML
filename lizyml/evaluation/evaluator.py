@@ -146,7 +146,7 @@ class Evaluator:
             for m in metrics
         }
 
-        result: dict[str, Any] = {
+        return {
             "raw": {
                 "oof": oof_scores,
                 "oof_per_fold": oof_per_fold,
@@ -154,16 +154,3 @@ class Evaluator:
                 "if_per_fold": if_per_fold,
             }
         }
-
-        # --- Calibrated metrics -------------------------------------------
-        if fit_result.calibrator is not None:
-            from lizyml.calibration.cross_fit import CalibrationResult
-
-            if isinstance(fit_result.calibrator, CalibrationResult):
-                cal_oof = fit_result.calibrator.calibrated_oof
-                cal_oof_scores = _compute_metrics(metrics, y_arr, cal_oof, self.task)
-                result["calibrated"] = {
-                    "oof": cal_oof_scores,
-                }
-
-        return result

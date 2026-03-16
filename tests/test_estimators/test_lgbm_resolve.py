@@ -7,8 +7,8 @@ import pytest
 
 from lizyml.config.schema import LGBMConfig
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.model import _extract_smart_params as extract_smart_params
 from lizyml.estimators.lgbm import (
-    extract_smart_params,
     resolve_ratio_params,
     resolve_smart_params,
 )

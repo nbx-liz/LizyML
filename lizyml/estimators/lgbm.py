@@ -3,14 +3,11 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
-
-if TYPE_CHECKING:
-    from lizyml.config.schema import LGBMConfig
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.estimators.base import BaseEstimatorAdapter, ImportanceKind
@@ -363,24 +360,6 @@ def _compute_num_leaves(max_depth: int | None, ratio: float) -> int:
 def _compute_ratio_param(n_rows: int, ratio: float) -> int:
     """Convert a ratio to an absolute count (min 1)."""
     return max(1, math.ceil(n_rows * ratio))
-
-
-def extract_smart_params(config: LGBMConfig) -> dict[str, Any]:
-    """Extract smart parameter fields from LGBMConfig as a plain dict.
-
-    This is the bridge between pydantic Config and the dict-based
-    ``resolve_smart_params`` function.  Both ``fit()`` and ``tune()``
-    use this to obtain the Config defaults, which can then be overridden
-    by tuning best params before resolution (H-0050).
-    """
-    return {
-        "auto_num_leaves": config.auto_num_leaves,
-        "num_leaves_ratio": config.num_leaves_ratio,
-        "min_data_in_leaf_ratio": config.min_data_in_leaf_ratio,
-        "min_data_in_bin_ratio": config.min_data_in_bin_ratio,
-        "feature_weights": config.feature_weights,
-        "balanced": config.balanced,
-    }
 
 
 def resolve_smart_params(
