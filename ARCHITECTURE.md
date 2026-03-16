@@ -748,15 +748,15 @@ lizyml/
 
 ---
 
-## 現状との差分（実装ロードマップ）
+## 実装状況
 
-現在の実装はこの目標構造に概ね沿っているが、以下の修正が必要:
+以下の移行作業はすべて完了済み（H-0051/H-0052/H-0053）:
 
-| # | 問題 | 目標 Layer ルール違反 | 修正方針 |
+| # | 問題 | 修正内容 | 状態 |
 |---|---|---|---|
-| 1 | `training/` が `evaluation/oof.py` に依存 | L2 → L2 (同層間の依存) | `oof.py` の `fill_oof`, `get_fold_pred` を `training/` に移動 |
-| 2 | `evaluation/` が `calibration/` に依存 | L2 → L1 (逆方向ではないが不要) | calibrated metrics の組み立てを Facade に移動 |
-| 3 | `estimators/` が `config/` に依存 | L1 → L1 (Leaf 間の依存) | `extract_smart_params(LGBMConfig)` を Facade に移動 |
-| 4 | `types/` が `data/` に依存 | L0 → L1 (逆方向) | `DataFingerprint` を `types/` に移動 |
-| 5 | `splitters/` ↔ `specs/` 循環 | 循環 | 死んだ Spec 層を削除 |
-| 6 | デッドコード多数 | — | `TargetTransformer`, `SplitPlan`, 未使用 Spec 等を削除 |
+| 1 | `training/` → `evaluation/oof.py` 依存 | `oof.py` を `training/oof_assembly.py` に移動（H-0052） | ✅ 解消 |
+| 2 | `evaluation/` → `calibration/` 依存 | calibrated metrics 組み立てを Facade に移動（H-0052） | ✅ 解消 |
+| 3 | `estimators/` → `config/` 依存 | `extract_smart_params` を LGBMProvider に移動（H-0053） | ✅ 解消 |
+| 4 | `types/` → `data/` 逆依存 | `DataFingerprint` を `core/types/artifacts.py` に移動（H-0051） | ✅ 解消 |
+| 5 | `splitters/` ↔ `specs/` 循環 | 死んだ Spec 層を削除（H-0051） | ✅ 解消 |
+| 6 | デッドコード多数 | 8 ファイル + Registry + Spec 変換関数を削除（H-0051） | ✅ 解消 |
