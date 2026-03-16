@@ -163,6 +163,11 @@ class TestAutoResolve:
         iv = build_inner_valid(cfg)
         assert isinstance(iv, TimeHoldoutInnerValid)
 
+    def test_stratified_group_kfold_auto_resolves(self) -> None:
+        cfg = self._make_cfg("binary", "stratified_group_kfold")
+        iv = build_inner_valid(cfg)
+        assert isinstance(iv, GroupHoldoutInnerValid)
+
     def test_kfold_auto_resolves_plain(self) -> None:
         cfg = self._make_cfg("regression", "kfold")
         iv = build_inner_valid(cfg)

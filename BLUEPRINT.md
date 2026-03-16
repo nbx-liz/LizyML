@@ -302,13 +302,14 @@ config = {
 
 ### split
 
-`split.method` は以下のいずれか: `kfold` / `stratified_kfold` / `group_kfold` / `time_series` / `purged_time_series` / `group_time_series`。
+`split.method` は以下のいずれか: `kfold` / `stratified_kfold` / `group_kfold` / `stratified_group_kfold` / `time_series` / `purged_time_series` / `group_time_series`。
 
 | method | 固有キー |
 |---|---|
 | `kfold` | `n_splits=5`, `random_state=42`, `shuffle=True` |
 | `stratified_kfold` | `n_splits=5`, `random_state=42` |
 | `group_kfold` | `n_splits=5` |
+| `stratified_group_kfold` | `n_splits=5`, `random_state=42`, `shuffle=True` |
 | `time_series` | `n_splits=5`, `gap=0`, `train_size_max=null`, `test_size_max=null` |
 | `purged_time_series` | `n_splits=5`, `purge_gap=0`, `embargo=0`, `train_size_max=null`, `test_size_max=null` |
 | `group_time_series` | `n_splits=5`, `gap=0`, `train_size_max=null`, `test_size_max=null` |
@@ -560,6 +561,7 @@ config = {
 |---|---|
 | `stratified_kfold` | `holdout(stratify=True)` |
 | `group_kfold` | `group_holdout` |
+| `stratified_group_kfold` | `group_holdout` |
 | `time_series` | `time_holdout` |
 | `purged_time_series` | `time_holdout` |
 | `group_time_series` | `group_holdout` |
@@ -579,6 +581,7 @@ config = {
   - `kfold` -> KFold
   - `stratified_kfold` -> StratifiedKFold（`y` を使用）
   - `group_kfold` -> GroupKFold（`groups` を使用）
+  - `stratified_group_kfold` -> StratifiedGroupKFold（`y` + `groups` を使用）
   - `time_series` -> TimeSeries（`time_col` で整列済み行順を使用）
   - `purged_time_series` -> PurgedTimeSeries（`purge_gap` / `embargo` を維持）
   - `group_time_series` -> GroupTimeSeries（group/time 境界を維持）
@@ -1096,7 +1099,7 @@ lizyml/
 ├── splitters/                      ── Layer 1: Splitting ──
 │   ├── base.py                     BaseSplitter
 │   ├── kfold.py                    KFoldSplitter, StratifiedKFoldSplitter
-│   ├── group_kfold.py              GroupKFoldSplitter
+│   ├── group_kfold.py              GroupKFoldSplitter, StratifiedGroupKFoldSplitter
 │   ├── time_series.py              TimeSeriesSplitter
 │   ├── purged_time_series.py       PurgedTimeSeriesSplitter
 │   └── group_time_series.py        GroupTimeSeriesSplitter
