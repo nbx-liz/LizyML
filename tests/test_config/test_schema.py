@@ -151,6 +151,58 @@ class TestAliasNormalization:
         cfg = load_config(raw)
         assert cfg.split.method == "time_series"
 
+    @pytest.mark.parametrize(
+        "alias",
+        [
+            "stratified_group_kfold",
+            "stratified-group-kfold",
+            "stratifiedgroupkfold",
+        ],
+    )
+    def test_stratified_group_kfold_aliases(self, alias: str) -> None:
+        raw = {**_MINIMAL_CONFIG, "split": {"method": alias}}
+        cfg = load_config(raw)
+        assert cfg.split.method == "stratified_group_kfold"
+
+
+# ---------------------------------------------------------------------------
+# StratifiedGroupKFold Config
+# ---------------------------------------------------------------------------
+
+
+class TestStratifiedGroupKFoldConfig:
+    def test_default_fields(self) -> None:
+        raw = {**_MINIMAL_CONFIG, "split": {"method": "stratified_group_kfold"}}
+        cfg = load_config(raw)
+        assert cfg.split.method == "stratified_group_kfold"
+        assert cfg.split.n_splits == 5
+        assert cfg.split.random_state == 42
+        assert cfg.split.shuffle is True
+
+    def test_custom_fields(self) -> None:
+        raw = {
+            **_MINIMAL_CONFIG,
+            "split": {
+                "method": "stratified_group_kfold",
+                "n_splits": 3,
+                "random_state": 123,
+                "shuffle": False,
+            },
+        }
+        cfg = load_config(raw)
+        assert cfg.split.n_splits == 3
+        assert cfg.split.random_state == 123
+        assert cfg.split.shuffle is False
+
+    def test_extra_field_rejected(self) -> None:
+        raw = {
+            **_MINIMAL_CONFIG,
+            "split": {"method": "stratified_group_kfold", "bogus": 1},
+        }
+        with pytest.raises(LizyMLError) as exc_info:
+            load_config(raw)
+        assert exc_info.value.code == ErrorCode.CONFIG_INVALID
+
 
 # ---------------------------------------------------------------------------
 # File loading
