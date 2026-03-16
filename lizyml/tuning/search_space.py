@@ -1,47 +1,32 @@
-"""SearchSpace — optuna-independent representation of hyperparameter search spaces."""
+"""SearchSpace — optuna-independent representation of hyperparameter search spaces.
+
+Type definitions (``SearchDim``, ``FloatDim``, ``IntDim``, ``CategoricalDim``,
+``DimCategory``) live in ``core/types/search_dim.py`` (Foundation layer) and are
+re-exported here for backward compatibility.
+"""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Any, Literal
+from typing import Any
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.types.search_dim import (
+    CategoricalDim,
+    DimCategory,
+    FloatDim,
+    IntDim,
+    SearchDim,
+)
 
-DimCategory = Literal["model", "smart", "training"]
-
-
-@dataclass(frozen=True)
-class FloatDim:
-    """A continuous float hyperparameter dimension."""
-
-    name: str
-    low: float
-    high: float
-    log: bool = False
-    category: DimCategory = "model"
-
-
-@dataclass(frozen=True)
-class IntDim:
-    """An integer hyperparameter dimension."""
-
-    name: str
-    low: int
-    high: int
-    log: bool = False
-    category: DimCategory = "model"
-
-
-@dataclass(frozen=True)
-class CategoricalDim:
-    """A categorical hyperparameter dimension."""
-
-    name: str
-    choices: tuple[Any, ...]
-    category: DimCategory = "model"
-
-
-SearchDim = FloatDim | IntDim | CategoricalDim
+__all__ = [
+    "CategoricalDim",
+    "FloatDim",
+    "IntDim",
+    "SearchDim",
+    "parse_space",
+    "split_by_category",
+    "suggest_params",
+]
 
 
 def parse_space(space: dict[str, Any]) -> list[SearchDim]:

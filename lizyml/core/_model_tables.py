@@ -8,13 +8,13 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
-from lizyml.config.schema import LGBMConfig
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 
 if TYPE_CHECKING:
     from lizyml.config.schema import LizyMLConfig
     from lizyml.core.types.fit_result import FitResult
     from lizyml.core.types.tuning_result import TuningResult
+    from lizyml.estimators.provider import EstimatorProvider
 
 
 class ModelTablesMixin:
@@ -28,6 +28,7 @@ class ModelTablesMixin:
         _X: pd.DataFrame | None
         _metrics: dict[str, Any] | None
         _tuning_result: TuningResult | None
+        _provider: EstimatorProvider | None
 
         def _require_fit(self) -> FitResult: ...
 
@@ -167,6 +168,11 @@ class ModelTablesMixin:
                 task=self._cfg.task,
                 feature_names=fit_result.feature_names,
                 pipeline_state=fit_result.pipeline_state,
+                pipeline_factory=(
+                    self._provider.build_pipeline_factory()
+                    if self._provider is not None
+                    else None
+                ),
             )
 
         models = fit_result.models
@@ -227,55 +233,18 @@ class ModelTablesMixin:
                 user_message="No trained models available.",
                 context={},
             )
-        model_cfg = self._cfg.model
 
         rows: list[dict[str, Any]] = []
 
-        # --- Config smart params ---
-        if isinstance(model_cfg, LGBMConfig):
-            smart = {
-                "auto_num_leaves": model_cfg.auto_num_leaves,
-                "num_leaves_ratio": model_cfg.num_leaves_ratio,
-                "min_data_in_leaf_ratio": model_cfg.min_data_in_leaf_ratio,
-                "min_data_in_bin_ratio": model_cfg.min_data_in_bin_ratio,
-                "balanced": model_cfg.balanced,
-                "feature_weights": model_cfg.feature_weights,
-            }
-            for k, v in smart.items():
-                rows.append({"parameter": k, "value": v})
+        # --- Estimator-specific params via provider (H-0054) ---
+        if self._provider is not None:
+            rows.extend(self._provider.params_summary(fr.models[0], self._cfg.model))
 
         # --- Config training params ---
         es = self._cfg.training.early_stopping
         if es is not None:
             rows.append({"parameter": "early_stopping_rounds", "value": es.rounds})
             rows.append({"parameter": "validation_ratio", "value": es.validation_ratio})
-
-        # --- Resolved booster params (fold 0) ---
-        booster = fr.models[0].get_native_model()
-        for k in [
-            "objective",
-            "learning_rate",
-            "max_depth",
-            "num_leaves",
-            "min_data_in_leaf",
-            "min_data_in_bin",
-            "max_bin",
-            "feature_fraction",
-            "bagging_fraction",
-            "bagging_freq",
-            "lambda_l1",
-            "lambda_l2",
-            "num_iterations",
-        ]:
-            v = booster.params.get(k)
-            if v is not None:
-                rows.append({"parameter": k, "value": v})
-
-        # task-specific params
-        for k in ["scale_pos_weight", "num_class"]:
-            v = booster.params.get(k)
-            if v is not None:
-                rows.append({"parameter": k, "value": v})
 
         # --- Best iteration per fold ---
         for i, m in enumerate(fr.models):

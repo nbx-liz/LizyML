@@ -13,6 +13,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
+from lizyml.core.types.search_dim import SearchDim
 from lizyml.estimators.base import BaseEstimatorAdapter
 from lizyml.estimators.lgbm.adapter import LGBMAdapter, TaskType
 from lizyml.estimators.lgbm.defaults import (
@@ -26,7 +27,6 @@ from lizyml.estimators.lgbm.smart_params import (
 )
 from lizyml.features.pipeline_base import BaseFeaturePipeline
 from lizyml.features.pipelines_native import NativeFeaturePipeline
-from lizyml.tuning.search_space import SearchDim
 
 
 class LGBMProvider:
@@ -120,3 +120,59 @@ class LGBMProvider:
     def default_fixed_params(self, task: str) -> dict[str, Any]:
         """Return fixed params for default search space."""
         return default_fixed_params(task)
+
+    def runtime_deps(self) -> dict[str, str]:
+        """Return LightGBM package version."""
+        try:
+            from importlib.metadata import version as pkg_version
+
+            ver = pkg_version("lightgbm")
+        except Exception:
+            ver = "unknown"
+        return {"lightgbm": ver}
+
+    def params_summary(
+        self,
+        model: BaseEstimatorAdapter,
+        model_cfg: Any,
+    ) -> list[dict[str, Any]]:
+        """Return parameter rows for params_table().
+
+        Includes smart params, resolved booster params, and task-specific params.
+        """
+        rows: list[dict[str, Any]] = []
+
+        # Smart params from config
+        smart = self.extract_smart_params(model_cfg)
+        for k, v in smart.items():
+            rows.append({"parameter": k, "value": v})
+
+        # Resolved booster params (from fold 0)
+        native = model.get_native_model()
+        booster_params = getattr(native, "params", {})
+        for k in [
+            "objective",
+            "learning_rate",
+            "max_depth",
+            "num_leaves",
+            "min_data_in_leaf",
+            "min_data_in_bin",
+            "max_bin",
+            "feature_fraction",
+            "bagging_fraction",
+            "bagging_freq",
+            "lambda_l1",
+            "lambda_l2",
+            "num_iterations",
+        ]:
+            v = booster_params.get(k)
+            if v is not None:
+                rows.append({"parameter": k, "value": v})
+
+        # Task-specific params
+        for k in ["scale_pos_weight", "num_class"]:
+            v = booster_params.get(k)
+            if v is not None:
+                rows.append({"parameter": k, "value": v})
+
+        return rows

@@ -104,6 +104,7 @@ class RefitTrainer:
         iv_result = self.inner_valid.split(n_samples, y=y.to_numpy(), groups=groups)
 
         estimator = self.estimator_factory()
+        estimator.set_categorical_features(cat_cols or None)
 
         # Resolve n_rows-dependent ratio params using inner_train size (H-0036)
         if self.ratio_param_resolver is not None:
@@ -121,13 +122,11 @@ class RefitTrainer:
                 y_iv_train,
                 X_iv_valid,
                 y_iv_valid,
-                categorical_feature=cat_cols or "auto",
             )
         else:
             estimator.fit(
                 X_t,
                 y,
-                categorical_feature=cat_cols or "auto",
             )
 
         train_pred = get_fold_pred(estimator, X_t, self.task)

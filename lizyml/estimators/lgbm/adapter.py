@@ -65,6 +65,11 @@ class LGBMAdapter(BaseEstimatorAdapter):
         self._best_iteration: int | None = None
         self._feature_names: list[str] = []
         self._eval_results: dict[str, Any] = {}
+        self._categorical_features: list[str] | None = None
+
+    def set_categorical_features(self, cols: list[str] | None) -> None:
+        """Store categorical column names for use in ``fit()``."""
+        self._categorical_features = cols
 
     def update_params(self, params: dict[str, Any]) -> None:
         """Update params before fit(). Used for per-fold ratio resolution."""
@@ -80,7 +85,6 @@ class LGBMAdapter(BaseEstimatorAdapter):
         y_train: pd.Series,
         X_valid: pd.DataFrame | None = None,
         y_valid: pd.Series | None = None,
-        categorical_feature: list[str] | None = None,
         **kwargs: Any,
     ) -> LGBMAdapter:
         """Fit the LightGBM model via Booster API.
@@ -90,14 +94,13 @@ class LGBMAdapter(BaseEstimatorAdapter):
             y_train: Training target.
             X_valid: Optional validation features for early stopping.
             y_valid: Optional validation target for early stopping.
-            categorical_feature: List of categorical column names.
             **kwargs: Additional keyword arguments. ``sample_weight`` is
                 extracted and passed to ``lgb.Dataset(weight=...)``.
         """
         self._feature_names = list(X_train.columns)
         params, num_boost_round = self._build_params()
 
-        cat_feature: list[str] | Literal["auto"] = categorical_feature or "auto"
+        cat_feature: list[str] | Literal["auto"] = self._categorical_features or "auto"
         sample_weight = kwargs.pop("sample_weight", None)
 
         train_set = lgb.Dataset(

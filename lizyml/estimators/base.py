@@ -75,6 +75,16 @@ class BaseEstimatorAdapter(ABC):
     def get_native_model(self) -> Any:
         """Return the underlying native model object."""
 
+    def set_categorical_features(self, cols: list[str] | None) -> None:
+        """Inform the estimator which columns are categorical.
+
+        Called by CVTrainer before ``fit()``.  The default is a no-op;
+        adapters that need categorical handling (e.g. LGBMAdapter) override.
+
+        Added in H-0054 to remove LGBM-specific kwargs from Layer 2.
+        """
+        return  # noqa: B027 — intentional no-op default
+
     def update_params(self, params: dict[str, Any]) -> None:
         """Update estimator parameters before ``fit()`` is called.
 
