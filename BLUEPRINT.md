@@ -1026,20 +1026,95 @@ YourLibError(code, user_message, debug_message=None, cause=None)
 
 ## 18.1 テスト戦略
 
-- Golden test: `FitResult / PredictionResult` スキーマ固定を検証する。
-- 再現性テスト: 同一 config で split indices と主要指標が一致する。
-- 列ズレテスト: 余剰 / 不足 / unseen category のポリシー通り動く。
-- optional dependency テスト: 未導入時の例外コード / メッセージが崩れない。全 optional dependency（optuna, shap, plotly, scipy）について "missing" パスを検証する。
-- Public API surface テスト: `from lizyml import Model` 等のトップレベル公開面が壊れていないことを検証する。
-- バージョン一致テスト: `lizyml.__version__` と配布メタデータのバージョンが一致することを検証する。
-- README サンプルコードテスト: `README.md` に記載された最短利用例が `SyntaxError` / `ImportError` なく実行可能であることを検証する（データ依存部分はモック可）。
+テストは以下の 10 カテゴリで構成する。各カテゴリは独立したテスト目的を持ち、組み合わせで回帰耐性を確保する。
+
+### 18.1.1 基本テストカテゴリ
+
+- **Golden test（契約固定）**: `FitResult / PredictionResult / RunMeta / SplitIndices` のフィールド名・型・構造を固定し、意図しない破壊的変更を検知する。
+- **再現性テスト**: 同一 config + seed で `oof_pred`, `predict`, `metrics`, `split indices` が bit 一致する。`tune()` も同一 seed で `best_params` / `best_score` / trial 順序が一致する。
+- **リーク防止テスト**: OOF が held-out データのみから生成されること、calibration が cross-fit で分離されていること、feature pipeline が train fold のみで fit されることを検証する。
+- **列ズレテスト**: 余剰 / 不足 / unseen category のポリシー通り動く。カテゴリ順序ずれ（学習時と推論時で同一カテゴリだが出現順が異なる）もカバーする。
+- **例外テスト**: 全 `ErrorCode` に対して少なくとも 1 テストが存在し、`context` dict の必須キーを検証する。
+- **optional dependency テスト**: 未導入時の例外コード / メッセージが崩れない。全 optional dependency（optuna, shap, plotly, scipy）について "missing" パスを検証する。
+- **Public API surface テスト**: `from lizyml import Model` 等のトップレベル公開面が壊れていないことを検証する。
+- **バージョン一致テスト**: `lizyml.__version__` と配布メタデータのバージョンが一致することを検証する。
+- **README サンプルコードテスト**: `README.md` に記載された最短利用例が `SyntaxError` / `ImportError` なく実行可能であることを検証する（データ依存部分はモック可）。
+
+### 18.1.2 Config 伝搬テスト（H-0056 カテゴリ A 関連）
+
+Config の各フィールドが最終的なコンポーネント（Booster params, split indices, pipeline state 等）に正しく到達することを、**モックなしの observable outcome** で検証する。
+
+- Config → Booster params: `learning_rate`, `max_depth`, `seed`, `feature_fraction` 等が Booster の `params` dict に到達。
+- Config → early_stopping: `rounds` が adapter の `early_stopping_rounds` に到達。`enabled=False` で `None` に。
+- Config → features: `exclude` で列が除外される。`categorical` でカテゴリ認識される。
+- Config → evaluation: `metrics` リストが FitResult.metrics のキーに反映される。
+- Config → split: `n_splits` が fold 数に反映。`random_state` で fold が決定的に再現。`group_col` で group 制約が機能。
+- Config → smart params: `auto_num_leaves` + `num_leaves_ratio` + `max_depth` の計算結果が Booster に到達。
+
+### 18.1.3 Facade オーケストレーションテスト（H-0056 カテゴリ A 関連）
+
+`Model.fit()` が各コンポーネントを正しい順序・正しい引数で呼ぶことを検証する。
+
+- CVTrainer と RefitTrainer が同一の `pipeline_factory` / `estimator_factory` / `ratio_resolver` を受け取る。
+- Evaluator が Config 指定のメトリクスリストを受け取る。
+- Calibration が `cfg.calibration is not None` かつ `task="binary"` の場合のみ実行される。non-binary で `CALIBRATION_NOT_SUPPORTED` を返す。
+- `get_provider()` が model name で正しい provider を返す。未知の name で `CONFIG_INVALID`。
+- `_merge_params` の優先順位: Config defaults < tune best < fit() args。
+
+### 18.1.4 Artifact 互換テスト（H-0056 カテゴリ A）
+
+Artifact の保存・復元が `format_version` 管理のもとで安全に動作することを検証する。
+
+- **Frozen artifact fixture**: `tests/fixtures/` に CI 生成の artifact スナップショットを格納し、`Model.load()` → `predict()` の結果が既知の期待値と一致することを検証する。将来の `format_version` bump 時に migration テストの基盤となる。
+- **Legacy calibration path**: `oof_raw_scores=None` の旧形式 artifact が probability 入力で calibrate される経路を検証する。
+- **format_version rejection**: 未知の version（`99`, `0` 等）で `DESERIALIZATION_FAILED`。
+- **metadata 部分欠損**: 必須フィールドを 1 つずつ削除し、各欠損で正しいエラーメッセージを検証。
+- **Booster string roundtrip**: `model_to_string()` → `model_from_string()` 往復で predict 結果が一致。
+
+### 18.1.5 Provider/Adapter 共通 Invariant チェック（H-0056 カテゴリ B）
+
+scikit-learn の `check_estimator` に相当する、EstimatorProvider / BaseEstimatorAdapter の自動適合性テストスイート。新 provider 追加時に自動で全チェックが走る。
+
+- **Protocol 適合**: `extract_model_params`, `extract_smart_params`, `build_estimator_factory`, `build_pipeline_factory`, `build_ratio_resolver`, `resolve_smart_params`, `runtime_deps`, `default_space`, `default_fixed_params`, `params_summary` の戻り値型チェック。
+- **Factory → fit → predict 往復**: 全タスク型 × 全 provider で fit → predict が完走し出力 shape が正しい。
+- **Pickle 往復**: fit 済み adapter を pickle → unpickle し predict 結果が一致。
+- **Importance**: fit 後に `importance("split")` / `importance("gain")` が feature_names と同じキーの dict を返す。
+- **データ多様性**: `dense_float_2col`, `dense_float_20col`, `mixed_dtype`（float + int + category）, `with_missing`（NaN 列）, `single_feature`（1列）, `high_cardinality_cat`（100+ unique）を横断。
+
+### 18.1.6 Tuning 再現性・失敗マトリクス（H-0056 カテゴリ C）
+
+Optuna の seed 固定ポリシーに準拠し、tuning 結果の再現性と失敗系パスを網羅する。
+
+- **再現性**: 同一 seed で `best_params`, `best_score`, trial 順序が一致。
+- **全 trial 失敗**: objective が常に例外 → `TUNING_FAILED` + 正しい context。
+- **部分 trial 失敗**: 一部 trial のみ失敗 → 成功 trial の best が正しく返る。
+- **NaN/inf 返却**: objective の異常値に対する挙動。
+- **Search space と Config の衝突**: space の param が Config の同名 param を上書きすることの検証。
+
+### 18.1.7 入力ソース・dtype・境界値の E2E（H-0056 カテゴリ D）
+
+LightGBM/XGBoost が `all_x_types` / `all_y_types` で実施しているコンテナ型・dtype 差分テストに相当する。
+
+- **入力ソース多様性**: CSV / Parquet 経由で fit → predict → export → load が完走する。
+- **dtype 横断**: `float32`, `float64`, nullable `Int64`, `Float64`, `string` dtype で fit が正常動作するか、明確なエラーを返す。
+- **境界値**: 0行 DataFrame, 1行 DataFrame, 重複列名, `inf`/`-inf` 含有列で明確なエラーメッセージ。
+- **カテゴリ順序ずれ**: 学習時と推論時で同一カテゴリの出現順が異なる場合の挙動。
+
+### 18.1.8 パラメータ組み合わせの Pairwise テスト（H-0056 カテゴリ E）
+
+パラメータの相互作用バグを効率的に検出するため、全直積ではなく **Pairwise（2因子間カバレッジ）** で ~20-30 ケースを生成する。
+
+- **因子**: `task` × `split_method` × `calibration` × `early_stopping` × `n_estimators`
+- **検証**: 有効な組み合わせは fit 完走。無効な組み合わせは明確なエラー。
+- **重要な相互作用の個別テスト**: `calibration + group_kfold`, `balanced + multiclass`, `feature_weights + auto_num_leaves`, `tuning + calibration`, `n_estimators=1 + early_stopping`, `exclude + categorical` 等。
 
 ### テスト基盤方針（H-0043）
 
-- **共通ヘルパーの集約**: データ生成ヘルパー（`make_regression_df()`, `make_binary_df()`, `make_multiclass_df()`, `make_config()` 等）は `tests/conftest.py` に集約する。各テストファイルでのローカル重複定義を排除する。
-- **parametrize の活用**: タスク横断テスト（regression/binary/multiclass）は `@pytest.mark.parametrize` で統合し、テストロジックの重複を削減する。
+- **共通ヘルパーの集約**: データ生成ヘルパー（`make_regression_df()`, `make_binary_df()`, `make_multiclass_df()`, `make_config()` 等）は `tests/_helpers.py` に集約する。各テストファイルでのローカル重複定義を排除する。データ多様性 fixture（`dense_float_20col`, `mixed_dtype`, `with_missing` 等）も同ファイルに追加する。
+- **parametrize の活用**: タスク横断テスト（regression/binary/multiclass）は `@pytest.mark.parametrize` で統合し、テストロジックの重複を削減する。Provider 適合性テストは `@pytest.mark.parametrize("check", ALL_CHECKS)` で自動展開する。
 - **slow テストの分離**: `@pytest.mark.slow` 付きテスト（notebook 実行等）はローカル開発時にデフォルトスキップする（`addopts = "-m 'not slow'"`）。CI の main PR では全テストを実行し、develop PR では slow を除外する。
 - **カバレッジ閾値**: CI で `--cov-fail-under=95` を設定し、カバレッジ回帰を防止する。
+- **Frozen artifact の管理**: `tests/fixtures/` に格納する artifact スナップショットは、`format_version` bump 時に新旧両方を保持し migration テストに使用する。生成スクリプトを `tests/fixtures/generate_fixtures.py` に置く。
 
 ## 18.2 CI（推奨）
 
