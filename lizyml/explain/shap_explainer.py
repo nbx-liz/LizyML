@@ -14,6 +14,7 @@ Shape contract (per H-0002):
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -95,6 +96,7 @@ def compute_shap_importance(
     task: str,
     feature_names: list[str],
     pipeline_state: Any,
+    pipeline_factory: Callable[[], Any] | None = None,
 ) -> dict[str, float]:
     """Compute fold-averaged SHAP-based feature importance.
 
@@ -108,6 +110,8 @@ def compute_shap_importance(
         task: ML task type.
         feature_names: Ordered feature names from training.
         pipeline_state: Serialized FeaturePipeline state for transformation.
+        pipeline_factory: Optional factory to create the pipeline (H-0054).
+            Falls back to ``NativeFeaturePipeline`` when not provided.
 
     Returns:
         Dict mapping feature name → importance score.
@@ -130,10 +134,13 @@ def compute_shap_importance(
     if n_folds == 0:
         return {name: 0.0 for name in feature_names}
 
-    from lizyml.features.pipelines_native import NativeFeaturePipeline
+    # Reconstruct pipeline and transform X (H-0054: use factory when provided)
+    if pipeline_factory is not None:
+        pipeline = pipeline_factory()
+    else:
+        from lizyml.features.pipelines_native import NativeFeaturePipeline
 
-    # Reconstruct pipeline and transform X
-    pipeline = NativeFeaturePipeline()
+        pipeline = NativeFeaturePipeline()
     pipeline.load_state(pipeline_state)
     X_t, _ = pipeline.transform_with_warnings(X)
 

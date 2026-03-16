@@ -824,7 +824,10 @@ predict_proba(X)  # 分類（sigmoid/softmax 適用後の確率値）
 predict_raw(X)    # 分類（sigmoid/softmax 適用前の生スコア / logits。Calibration 用）
 importance(kind="split|gain|shap")
 get_native_model()  # export用途
+set_categorical_features(cols: list[str] | None) -> None  # デフォルト no-op (H-0054)
 ```
+
+- `set_categorical_features()` は `fit()` 呼び出し前に CVTrainer が呼ぶ。categorical feature の扱いはアダプタの責務であり、`cv_trainer.py` に estimator 固有の kwarg を漏洩させない。
 
 ## 14.2 LGBM adapter の責務
 
@@ -910,18 +913,24 @@ class EstimatorProvider(Protocol):
     def build_pipeline_factory(self) -> Callable[[], BaseFeaturePipeline]: ...
     def default_space(self, task: str) -> list[SearchDim]: ...
     def default_fixed_params(self, task: str) -> dict[str, Any]: ...
+    def runtime_deps(self) -> dict[str, str]: ...
+    def params_summary(
+        self, model: BaseEstimatorAdapter, model_cfg: Any,
+    ) -> list[dict[str, Any]]: ...
 ```
 
 制約:
 - `EstimatorProvider` は `config/` の具象型（`LGBMConfig` 等）を参照してよい（provider は Facade 層から呼ばれるため、Leaf → Leaf の依存にはならない）。
 - `model_cfg` 引数は `Any` 型で受け取るが、各 provider 内部で `isinstance` チェックして具象型にキャストする。
+- `runtime_deps()` はアルゴリズム固有の依存パッケージ名とバージョンを返す（例: `{"lightgbm": "4.5.0"}`）。`RunMeta.deps_versions` に使用。
+- `params_summary()` は `params_table()` 用のパラメータ行を返す。smart params + native model params の両方を含む。
 - `build_pipeline_factory` は estimator 固有の FeaturePipeline が必要な場合（例: EntityEmbedding のカテゴリ埋め込み）に対応する。デフォルトは `NativeFeaturePipeline` を返す。
 
 ディレクトリ構成（estimator ごとにサブパッケージ化）:
 
 ```text
 estimators/
-├── base.py              BaseEstimatorAdapter（IF、変更なし）
+├── base.py              BaseEstimatorAdapter（IF + set_categorical_features）
 ├── provider.py          EstimatorProvider protocol 定義
 ├── lgbm/
 │   ├── __init__.py      LGBMAdapter, LGBMProvider を re-export
@@ -1059,13 +1068,15 @@ lizyml/
 │       ├── fit_result.py           FitResult
 │       ├── predict_result.py       PredictionResult
 │       ├── tuning_result.py        TuningResult, TrialResult
-│       └── artifacts.py            RunMeta, SplitIndices, DataFingerprint
+│       ├── artifacts.py            RunMeta, SplitIndices, DataFingerprint
+│       └── search_dim.py           SearchDim, FloatDim, IntDim, CategoricalDim, DimCategory
 │
 │                                   ── Layer 0/4: Facade (core/ 内の特殊位置) ──
 │   ├── model.py                    Model facade (組み立てと委譲のみ)
 │   ├── _model_factories.py         splitter / inner_valid / estimator provider 構築
 │   ├── _model_plots.py             ModelPlotsMixin
-│   ├── _model_tables.py            ModelTablesMixin
+│   ├── _model_tables.py            ModelTablesMixin (EstimatorProvider 経由)
+│   ├── _model_metrics.py           _has_metric_content, _filter_metrics
 │   ├── _model_persistence.py       ModelPersistenceMixin
 │   ├── train_components.py         TrainComponents (frozen dataclass)
 │   ├── seed.py                     seed 固定ユーティリティ

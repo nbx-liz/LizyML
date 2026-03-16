@@ -3401,3 +3401,111 @@ EntityEmbedding 等の新アルゴリズムを追加するとき、`model.py` �
 - 新アルゴリズム追加のテンプレートとして `estimators/lgbm/` のディレクトリ構造がドキュメント化されていること
 - 既存テスト（962件）がすべて pass すること
 - tune → fit で smart params が正しく引き継がれるテストが維持されていること
+
+---
+
+## H-0054: EstimatorProvider 完全化 — 残存 LGBM 固有依存の排除
+
+- ID: `H-0054`
+- Status: `accepted`
+- Scope: `Architecture | EstimatorProvider | Internal`
+- Related: `BLUEPRINT.md §2.1, §2.2, §14.4, HISTORY.md H-0053`
+- Depends: `H-0053`
+
+### Background
+
+H-0053 で `EstimatorProvider` protocol を導入し、`model.py` のゼロ LGBM import を達成した。
+しかしアーキテクチャ監査の結果、Facade 周辺と Layer 2 に LGBM 固有の知識が残存しており、
+2つ目のアルゴリズム（EntityEmbedding 等）追加時にクラッシュまたはサイレント不具合が発生する。
+
+### Problem Statement
+
+| # | 問題 | 影響度 | ファイル |
+|---|---|---|---|
+| 1 | `cv_trainer.py` / `refit_trainer.py` が `categorical_feature=cat_cols or "auto"` を直書き | HIGH — 非 LGBM アダプタで `TypeError` | `training/cv_trainer.py:257`, `training/refit_trainer.py:124` |
+| 2 | `_model_tables.py:params_table()` が `isinstance(model_cfg, LGBMConfig)` + `booster.params` 前提 | HIGH — 非 LGBM で `AttributeError` | `core/_model_tables.py:235` |
+| 3 | `_build_run_meta` に `"lightgbm": _ver("lightgbm")` ハードコード | HIGH — BLUEPRINT §2.2「model.py 変更ゼロ」違反 | `core/model.py:713` |
+| 4 | `estimators/provider.py` が `tuning/search_space.py` の `SearchDim` を import | HIGH — L1→L2 逆依存 | `estimators/provider.py:20` |
+| 5 | `model.py:tune()` が `est.early_stopping_rounds = esr` を属性直書き | MEDIUM — 異名アダプタで silent no-op | `core/model.py:452` |
+| 6 | `shap_explainer.py` が `NativeFeaturePipeline` を直 import | MEDIUM — L3→L1 具象依存 | `explain/shap_explainer.py:133` |
+| 7 | `model.py` 836 行（800 行上限超過） | LOW — 保守性 | `core/model.py` |
+| 8 | テスト `make_config()` が `"lgbm"` ハードコード、`fit()` docstring が "LightGBM" | LOW — 拡張時の障壁 | `tests/_helpers.py:125`, `core/model.py:144` |
+
+### Proposed Changes
+
+#### Phase A: 構造修正（2つ目のアルゴリズム追加の前提条件）
+
+**A1. `SearchDim` 型を Foundation に移動**
+- `SearchDim`, `FloatDim`, `IntDim`, `CategoricalDim`, `DimCategory` を `core/types/search_dim.py` に移動
+- `tuning/search_space.py` は `parse_space`, `suggest_params`, `split_by_category`（Optuna 依存のロジック）のみ残す
+- `estimators/provider.py` の import を `core/types/search_dim.py` に変更
+- 影響: L1→L2 逆依存が解消
+
+**A2. `categorical_feature` をアダプタ契約に移動**
+- `BaseEstimatorAdapter` に `set_categorical_features(cols: list[str] | None) -> None` メソッド追加（デフォルト no-op）
+- `LGBMAdapter` でオーバーライドし、`fit()` 内で `categorical_feature` kwarg に変換
+- `cv_trainer.py` / `refit_trainer.py` から `categorical_feature=` kwarg 削除
+- `TrainComponents` に `categorical_features: list[str] | None` フィールド追加
+- CVTrainer は `estimator.set_categorical_features(cat_cols)` を呼び、その後 `estimator.fit()` を呼ぶ
+
+**A3. `EstimatorProvider` に `runtime_deps()` / `params_summary()` 追加**
+- `runtime_deps(self) -> dict[str, str]`: アルゴリズム固有の依存パッケージとバージョンを返す
+- `params_summary(self, model: BaseEstimatorAdapter, model_cfg: Any) -> list[dict[str, Any]]`: params_table 用のパラメータ行を返す
+- `LGBMProvider` で実装（現在 `_model_tables.py` にあるロジックを移植）
+
+**A4. `_model_tables.py` から LGBMConfig 依存除去**
+- `params_table()` を `provider.params_summary()` 経由に書き換え
+- `LGBMConfig` import 削除
+- `booster.params.get(k)` 直接参照を削除
+
+**A5. `_build_run_meta` から `"lightgbm"` ハードコード除去**
+- `provider.runtime_deps()` を呼び、返り値を `deps_versions` にマージ
+- provider を `_build_run_meta` の引数に追加
+
+#### Phase B: 品質改善
+
+**B1. `early_stopping_rounds` を Provider 経由に**
+- `EstimatorProvider.build_estimator_factory()` に `early_stopping_rounds` パラメータは既にある
+- `model.py:tune()` の属性直書き（`est.early_stopping_rounds = esr`）を、`provider.build_estimator_factory()` 再呼び出しに変更
+
+**B2. `shap_explainer` の Pipeline 復元を Provider 経由に**
+- `compute_shap_importance` の引数に `pipeline_factory: Callable[[], BaseFeaturePipeline]` を追加
+- `NativeFeaturePipeline` 直 import を削除
+- Facade（`_model_plots.py`）が `provider.build_pipeline_factory()` を渡す
+
+**B3. `model.py` ヘルパー抽出**
+- `_has_metric_content`, `_filter_metrics` を `core/_model_metrics.py` に抽出
+- `model.py` を 800 行以内に
+
+**B4. テスト・docstring 整備**
+- `make_config()` に `model_name: str = "lgbm"` パラメータ追加
+- `fit()` docstring の "LightGBM parameters" を "Model parameters" に変更
+- `Evaluator` docstring から "calibrated" 言及を削除
+- `lgbm/__init__.py` に `LGBMProvider` re-export 追加
+
+### Compatibility
+
+- 公開 API の変更なし。`Model.fit()` / `Model.tune()` / `Model.predict()` のシグネチャは不変。
+- `BaseEstimatorAdapter` に `set_categorical_features()` 追加（デフォルト no-op、後方互換）。
+- `EstimatorProvider` に `runtime_deps()` / `params_summary()` 追加（protocol 拡張、内部のみ）。
+- `SearchDim` の import パスが `tuning.search_space` → `core.types.search_dim` に変更（内部のみ、公開 API に含まれない）。
+
+### Alternatives Considered
+
+1. `categorical_feature` を `fit()` の `**kwargs` に任せ続ける
+   - 不採用。新アダプタで `TypeError` が起きるリスクが高く、L2 の estimator 非依存性が破れる。
+2. `SearchDim` を `estimators/` に移動する（L1 内で完結）
+   - 不採用。`SearchDim` は tuning 以外（将来の config validation 等）でも使われる可能性がある。Foundation に置く方が汎用的。
+3. `params_summary()` を `BaseEstimatorAdapter` のメソッドにする
+   - 不採用。アダプタは「学習と予測」に徹すべき。テーブル表示はプレゼンテーション層の関心で、Provider が適切。
+
+### Acceptance Criteria
+
+- `_model_tables.py` に `LGBMConfig` import が存在しないこと
+- `cv_trainer.py` / `refit_trainer.py` に `categorical_feature` が存在しないこと
+- `model.py` に `"lightgbm"` 文字列リテラルが存在しないこと
+- `estimators/provider.py` に `tuning/` からの import が存在しないこと
+- `shap_explainer.py` に `NativeFeaturePipeline` import が存在しないこと
+- `model.py` が 800 行以内であること
+- 全テスト pass（932 件）
+- mypy clean（86 ファイル）

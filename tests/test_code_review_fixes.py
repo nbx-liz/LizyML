@@ -435,7 +435,7 @@ class TestFilterMetricsNoBranches:
     """_filter_metrics must remove empty branches after filtering."""
 
     def test_no_empty_calibrated_branch(self) -> None:
-        from lizyml.core.model import _filter_metrics
+        from lizyml.core._model_metrics import filter_metrics as _filter_metrics
 
         metrics = {
             "raw": {"oof": {"rmse": 0.5, "mae": 0.3}, "if_mean": {"rmse": 0.4}},
