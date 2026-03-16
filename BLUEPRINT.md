@@ -385,7 +385,7 @@ config = {
    - `split.method` が `time_series` / `purged_time_series` / `group_time_series` の場合、`data.time_col` を基準に昇順へ並べた上で分割する。
 3. `InnerValidStrategy` により early stopping 用の `(X_train, y_train), (X_valid, y_valid)` を統一生成する。
 4. `EstimatorAdapter.fit()` を実行する。
-5. OOF / IF を生成する（ロジックは `evaluation/oof.py` に隔離）。
+5. OOF / IF を生成する（ロジックは `training/oof_assembly.py` に隔離）。
 6. 必要なら `Calibrator` を cross-fit 学習する（OOF 予測のみ使用）。
 7. 全データ Refit を実行する（同一の `TrainComponents` を使用し、CV との一貫性を構造的に保証する）。
 8. `FitResult` を返し、Artifacts を保持する。
@@ -1067,6 +1067,8 @@ lizyml/
 │   ├── _model_plots.py             ModelPlotsMixin
 │   ├── _model_tables.py            ModelTablesMixin
 │   ├── _model_persistence.py       ModelPersistenceMixin
+│   ├── train_components.py         TrainComponents (frozen dataclass)
+│   ├── seed.py                     seed 固定ユーティリティ
 │   └── specs/
 │       ├── problem_spec.py         ProblemSpec (data/ が使用)
 │       └── feature_spec.py         FeatureSpec (data/ が使用)
@@ -1091,8 +1093,10 @@ lizyml/
 ├── features/                       ── Layer 1: Features ──
 │   ├── pipeline_base.py            BaseFeaturePipeline
 │   ├── pipelines_native.py         NativeFeaturePipeline
-│   └── encoders/
-│       └── categorical_encoder.py  カテゴリ処理部品
+│   ├── encoders/
+│   │   └── categorical_encoder.py  カテゴリ処理部品
+│   └── transformers/
+│       └── feature_transformer.py  特徴量変換 (passthrough 拡張点)
 │
 ├── estimators/                     ── Layer 1: Estimators ──
 │   ├── base.py                     BaseEstimatorAdapter
@@ -1121,14 +1125,14 @@ lizyml/
 ├── training/                       ── Layer 2: Training ──
 │   ├── cv_trainer.py               CVTrainer (outer CV loop)
 │   ├── refit_trainer.py            RefitTrainer + RefitResult
-│   ├── train_components.py         TrainComponents (frozen dataclass)
 │   ├── inner_valid.py              BaseInnerValidStrategy + 4 concrete
 │   └── oof_assembly.py             fill_oof / get_fold_pred / init_oof
 │
 ├── evaluation/                     ── Layer 2: Evaluation ──
 │   ├── evaluator.py                Evaluator (raw metrics のみ)
 │   ├── table_formatter.py          evaluate_table 整形
-│   └── confusion.py                confusion_matrix_table
+│   ├── confusion.py                confusion_matrix_table
+│   └── thresholding.py             threshold 最適化ユーティリティ
 │
 ├── tuning/                         ── Layer 2: Tuning ──
 │   ├── tuner.py                    Tuner (Optuna study management)

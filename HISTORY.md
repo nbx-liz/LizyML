@@ -54,7 +54,7 @@ PyPI 公開を前提にした場合、build 定義・配布メタデータ・REA
 ## 2026-03-04: Config Schema の全フィールド確定
 
 - ID: `H-0001`
-- Status: `proposed`
+- Status: `accepted`
 - Scope: `Config`
 - Related: `BLUEPRINT.md §5, §3.3`
 
@@ -247,7 +247,7 @@ class CalibrationConfig(BaseModel):
 ## 2026-03-04: FitResult / PredictionResult / Artifacts の全フィールド確定
 
 - ID: `H-0002`
-- Status: `proposed`
+- Status: `accepted`
 - Scope: `Artifacts`
 - Related: `BLUEPRINT.md §7`
 
@@ -360,7 +360,7 @@ class RunMeta:
 ## 2026-03-04: Persistence / Export フォーマット仕様の確定
 
 - ID: `H-0003`
-- Status: `proposed`
+- Status: `accepted`
 - Scope: `Artifacts | Export`
 - Related: `BLUEPRINT.md §14, §15.4`
 
@@ -3178,7 +3178,7 @@ BLUEPRINT §10.1 では「Splitter は外側 CV / early stopping / calibration �
 ## 2026-03-16: デッドコード削除と Foundation 整理
 
 - ID: `H-0051`
-- Status: `proposed`
+- Status: `accepted`
 - Scope: `Architecture | Internal`
 - Related: `BLUEPRINT.md §2, §19, ARCHITECTURE.md`
 
