@@ -150,7 +150,6 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         """
         cfg = self._cfg
         run_id = generate_run_id()
-        run_meta = self._build_run_meta(run_id)
 
         self._ensure_run_dir(run_id)
         _log.info("event='fit.start' run_id=%s task=%s", run_id, cfg.task)
@@ -163,6 +162,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         # --- Build components (H-0050/H-0053: provider-based) ----------------
         provider = get_provider(cfg.model)
         self._provider = provider
+        run_meta = self._build_run_meta(run_id)
         model_params, smart_params = self._merge_params(provider)
         tc = self._build_train_components(
             X,
