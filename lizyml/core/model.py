@@ -46,6 +46,7 @@ from lizyml.core._model_factories import (
     get_provider,
     make_inner_valid_factory,
 )
+from lizyml.core._model_metrics import assemble_calibrated_metrics, filter_metrics
 from lizyml.core._model_persistence import ModelPersistenceMixin
 from lizyml.core._model_plots import ModelPlotsMixin
 from lizyml.core._model_tables import ModelTablesMixin
@@ -61,7 +62,7 @@ from lizyml.core.types.tuning_result import TuneProgressCallback, TuningResult
 from lizyml.data import dataframe_builder, datasource
 from lizyml.data.dataframe_builder import DataFrameComponents
 from lizyml.data.fingerprint import compute as fp_compute
-from lizyml.estimators.base import BaseEstimatorAdapter
+from lizyml.estimators.provider import EstimatorProvider
 from lizyml.evaluation.evaluator import Evaluator
 from lizyml.training.cv_trainer import CVTrainer
 from lizyml.training.refit_trainer import RefitResult, RefitTrainer
@@ -126,6 +127,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         self._tuning_result: TuningResult | None = None
         self._y: pd.Series | None = None  # transient; not persisted
         self._X: pd.DataFrame | None = None  # transient; not persisted
+        self._provider: EstimatorProvider | None = None  # set by fit/tune
 
     # ------------------------------------------------------------------
     # Public API
@@ -141,7 +143,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         Args:
             data: Training DataFrame.  Overrides any ``data`` passed at
                 construction time and the ``data.path`` from config.
-            params: LightGBM parameters to override the config ``model.params``.
+            params: Model parameters to override the config ``model.params``.
 
         Returns:
             The :class:`~lizyml.core.types.fit_result.FitResult` from CV.
@@ -160,6 +162,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
 
         # --- Build components (H-0050/H-0053: provider-based) ----------------
         provider = get_provider(cfg.model)
+        self._provider = provider
         model_params, smart_params = self._merge_params(provider)
         tc = self._build_train_components(
             X,
@@ -201,19 +204,9 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         metric_names = cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task]
         evaluator = Evaluator(task=cfg.task)
         metrics = evaluator.evaluate(fit_result, y, metric_names)
-
-        # --- Calibrated metrics (assembled by Facade, not Evaluator) -------
-        if fit_result.calibrator is not None:
-            from lizyml.calibration.cross_fit import CalibrationResult
-
-            if isinstance(fit_result.calibrator, CalibrationResult):
-                cal_oof = fit_result.calibrator.calibrated_oof
-                cal_result = evaluator.evaluate(
-                    dataclasses.replace(fit_result, oof_pred=cal_oof),
-                    y,
-                    metric_names,
-                )
-                metrics["calibrated"] = {"oof": cal_result["raw"]["oof"]}
+        metrics = assemble_calibrated_metrics(
+            fit_result, y, metric_names, evaluator, metrics
+        )
 
         fit_result = dataclasses.replace(
             fit_result, metrics={**fit_result.metrics, **metrics}
@@ -270,7 +263,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         get_metrics_for_task(metrics, self._cfg.task)  # raises on unknown/incompatible
 
         # Filter the pre-computed metrics dict to the requested subset
-        return _filter_metrics(self._metrics, set(metrics))
+        return filter_metrics(self._metrics, set(metrics))
 
     def predict(
         self,
@@ -397,6 +390,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         self._X, self._y = X, y
 
         provider = get_provider(cfg.model)
+        self._provider = provider
         n_classes = int(y.nunique()) if cfg.task == "multiclass" else None
         splitter = build_splitter(cfg)
         base_model_params, base_smart_params = self._merge_params(provider)
@@ -441,16 +435,17 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
                 smart_params=merged_smart,
             )
 
-            # Apply training param overrides to estimator
+            # Apply training param overrides to estimator (H-0054: use provider)
             estimator_factory = tc.estimator_factory
             if "early_stopping_rounds" in training_p:
                 esr = int(training_p["early_stopping_rounds"])
-                base_factory = estimator_factory
-
-                def estimator_factory() -> BaseEstimatorAdapter:
-                    est = base_factory()
-                    est.early_stopping_rounds = esr  # type: ignore[attr-defined]
-                    return est
+                estimator_factory = provider.build_estimator_factory(
+                    task=cfg.task,
+                    params=merged_model,
+                    n_classes=n_classes,
+                    early_stopping_rounds=esr,
+                    seed=cfg.training.seed,
+                )
 
             cv_trainer = CVTrainer(
                 outer_splitter=splitter,
@@ -706,15 +701,19 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             except Exception:
                 return "unknown"
 
+        # Common deps + estimator-specific deps via provider (H-0054)
+        deps: dict[str, str] = {
+            "pandas": _ver("pandas"),
+            "numpy": _ver("numpy"),
+            "scikit-learn": _ver("scikit-learn"),
+        }
+        if self._provider is not None:
+            deps.update(self._provider.runtime_deps())
+
         return RunMeta(
             lizyml_version=__version__,
             python_version=sys.version,
-            deps_versions={
-                "lightgbm": _ver("lightgbm"),
-                "pandas": _ver("pandas"),
-                "numpy": _ver("numpy"),
-                "scikit-learn": _ver("scikit-learn"),
-            },
+            deps_versions=deps,
             config_normalized=self._cfg.model_dump(),
             config_version=self._cfg.config_version,
             run_id=run_id,
@@ -818,42 +817,3 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
                 context={},
             )
         return self._refit_result
-
-
-def _has_metric_content(filtered: dict[str, Any]) -> bool:
-    """Check if a filtered metrics branch has any non-empty data."""
-    for v in filtered.values():
-        if isinstance(v, dict) and v:
-            return True
-        if isinstance(v, list) and any(isinstance(d, dict) and d for d in v):
-            return True
-    return False
-
-
-def _filter_metrics(metrics_dict: dict[str, Any], keep: set[str]) -> dict[str, Any]:
-    """Return a copy of *metrics_dict* with only *keep* metric names retained.
-
-    Works recursively on the nested
-    ``{"raw": {"oof": {...}, ...}, "calibrated": {...}}``
-    structure produced by :class:`~lizyml.evaluation.evaluator.Evaluator`.
-    """
-    result: dict[str, Any] = {}
-    for top_key, top_val in metrics_dict.items():
-        if not isinstance(top_val, dict):
-            result[top_key] = top_val
-            continue
-        filtered_top: dict[str, Any] = {}
-        for sub_key, sub_val in top_val.items():
-            if sub_key in ("if_per_fold", "oof_per_fold"):
-                # List of per-fold dicts
-                filtered_top[sub_key] = [
-                    {m: v for m, v in fold.items() if m in keep} for fold in sub_val
-                ]
-            elif isinstance(sub_val, dict):
-                filtered_top[sub_key] = {m: v for m, v in sub_val.items() if m in keep}
-            else:
-                filtered_top[sub_key] = sub_val
-        # Drop branches where all sub-dicts are empty after filtering
-        if _has_metric_content(filtered_top):
-            result[top_key] = filtered_top
-    return result
