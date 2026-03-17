@@ -5,6 +5,7 @@ All models use extra="forbid" to catch typos as CONFIG_INVALID errors.
 
 from __future__ import annotations
 
+import warnings
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
@@ -337,12 +338,39 @@ class EvaluationConfig(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+_CALIBRATION_N_SPLITS_DEFAULT = 5
+
+
 class CalibrationConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     method: Literal["platt", "isotonic", "beta"] = "platt"
-    n_splits: int = 5
+    n_splits: int = _CALIBRATION_N_SPLITS_DEFAULT
     params: dict[str, Any] = {}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _warn_deprecated_n_splits(cls, data: Any) -> Any:
+        """Emit UserWarning when n_splits is explicitly set to a
+        non-default value (H-0058).
+
+        Only fires for dict inputs where ``n_splits`` differs from the
+        default (5).  This avoids spurious warnings when
+        ``model_dump()`` round-trips (e.g. ``Model.load()``) include
+        the default value.
+        """
+        if (
+            isinstance(data, dict)
+            and "n_splits" in data
+            and data["n_splits"] != _CALIBRATION_N_SPLITS_DEFAULT
+        ):
+            warnings.warn(
+                "calibration.n_splits is deprecated and will be ignored. "
+                "Calibration cross-fit now reuses outer CV splits (H-0058).",
+                UserWarning,
+                stacklevel=2,
+            )
+        return data
 
 
 # ---------------------------------------------------------------------------

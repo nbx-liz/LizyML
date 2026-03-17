@@ -3757,3 +3757,104 @@ TimeSeriesCV（expanding window）使用時に、最初の期間のサンプル�
 
 - `metrics["calibrated"]` には `oof_coverage` を含めない（現状維持）。calibrated の cross-fit 分割は `calibration.n_splits` で outer とは独立しており、coverage が異なりうるため、raw の値を流用すると不正確になる。
 - この不整合は H-0058（Outer Split を Calibration で再利用する提案）で構造的に解消される予定。H-0058 が実装されれば calibrated の coverage は raw と一致するため、別途 coverage を公開する必要がなくなる。
+
+---
+
+## H-0058: Outer Split を Calibration Cross-fit で再利用
+
+- ID: `H-0058`
+- Status: `implemented`
+- Scope: `Calibration | Split | Config`
+- Related: `BLUEPRINT.md §10.5, §12, §13.2`, `H-0057`
+
+### 目的
+
+calibration cross-fit が outer CV とは独立した分割を使うことで生じる coverage 不整合・コード複雑性・概念的な非対称を構造的に解消する。
+
+### 背景
+
+現状（H-0057 後）では calibration cross-fit は `calibration.n_splits` で独立した分割を生成する。outer CV と同じ `split.method` を継承するが fold 数だけが独立しており、TimeSeriesCV 使用時に raw OOF と calibrated OOF のカバレッジが乖離する。
+
+```
+outer CV:       TimeSeriesSplit(n_splits=5) → coverage ≈ 83%
+calibration CV: TimeSeriesSplit(n_splits=3) → coverage ≈ 75%
+```
+
+H-0057 では `_model_metrics.py` で splits を差し替える workaround を追加して対処したが、本質的には分割構造が二重になっていることが根本原因。
+
+### リーク安全性
+
+calibration cross-fit は `(oof_scores, y)` のみを入力とし、X は使わない（§12.1）。
+
+3-fold の具体例（データ = A, B, C）:
+
+| step | fold | 学習データ | 予測対象 |
+|------|------|-----------|---------|
+| Outer CV | 0 | X[B+C], y[B+C] → model_0 | oof[A] |
+| Outer CV | 1 | X[A+C], y[A+C] → model_1 | oof[B] |
+| Outer CV | 2 | X[A+B], y[A+B] → model_2 | oof[C] |
+| Cal cross-fit | 0 | oof[B+C], y[B+C] → cal_0 | cal_oof[A] |
+| Cal cross-fit | 1 | oof[A+C], y[A+C] → cal_1 | cal_oof[B] |
+| Cal cross-fit | 2 | oof[A+B], y[A+B] → cal_2 | cal_oof[C] |
+
+行 A に注目: `oof[A]` は A を見ていない model_0 が生成、`cal_oof[A]` は oof[A] を見ていない cal_0 が生成。同一行リーク経路なし。
+
+C_final は `fit(oof[全行], y[全行])` で学習し推論専用。評価には使わない。
+
+### Proposal
+
+calibration cross-fit で `fit_result.splits.outer` をそのまま再利用する。
+
+```python
+# 現在（model.py）
+cal_splitter = build_calibration_splitter(cfg)
+cal_split_indices = list(cal_splitter.split(...))
+
+# 変更後
+cal_split_indices = fit_result.splits.outer
+```
+
+### 影響範囲
+
+| 対象 | 変更内容 |
+|------|---------|
+| `CalibrationConfig.n_splits` | deprecated（残すが無視、UserWarning 出力） |
+| `model.py _run_calibration()` | `build_calibration_splitter` → `fit_result.splits.outer` に置換 |
+| `_model_factories.py` | `build_calibration_splitter` を deprecated 化 |
+| `_model_metrics.py` | splits 差替えロジック削除（H-0057 workaround が不要に） |
+| `SplitIndices.calibration` | outer と同一値（冗長だが互換性のため残す） |
+| `cross_fit_calibrate()` | 変更なし（split_indices を受け取るだけ） |
+| `BLUEPRINT.md §10.5` | calibration CV 規約を改訂 |
+| `BLUEPRINT.md §13.2` | calibrated coverage が raw と一致する旨を追記 |
+
+### 互換性
+
+#### Config 互換性
+- `calibration.n_splits` を指定した場合は `UserWarning` を出力し無視。
+- `extra="forbid"` なのでフィールド自体は残す（削除すると既存 Config が壊れる）。
+- 将来の `config_version` 更新時に削除を検討。
+
+#### 保存互換性
+- `SplitIndices.calibration` に outer と同一のリストを保存 → 既存の `Model.load()` は問題なし。
+- `format_version` の変更は不要（データ構造は同一、値が変わるだけ）。
+
+### 代替案（却下）
+
+1. **calibrated に oof_coverage を追加（H-0057 案 B）**: H-0058 が来ると冗長フィールドになる。
+2. **calibration.n_splits のデフォルトを outer に合わせる**: 結局独立分割が残り、method パラメータ（gap/embargo）の二重管理が消えない。
+3. **現状維持**: `_model_metrics.py` の splits 差替え workaround を永続させることになる。
+
+### 受け入れ基準
+
+- `calibration.n_splits` 指定時に `UserWarning` が出力される。
+- calibration cross-fit が `fit_result.splits.outer` を使用する。
+- `SplitIndices.calibration` が outer と同一値。
+- `_model_metrics.py` の splits 差替えロジックが削除される。
+- TimeSeriesCV で calibrated OOF の実質 coverage が `metrics["raw"]["oof_coverage"]` と一致する。
+- 既存の `Model.load()` で旧 artifact が問題なくロードできる。
+- リーク検知テスト（`test_calibration_leakage`）が引き続き pass。
+
+### Decision
+
+- Date: 2026-03-17
+- Result: Accepted — outer CV splits を calibration cross-fit でそのまま再利用する方針で実装する。
