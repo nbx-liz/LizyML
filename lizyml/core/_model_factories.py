@@ -120,9 +120,18 @@ def build_splitter(cfg: LizyMLConfig) -> BaseSplitter:
 def build_calibration_splitter(cfg: LizyMLConfig) -> BaseSplitter:
     """Instantiate calibration CV splitter from config (H-0044).
 
-    Inherits ``split.method`` and its parameters (gap, purge_gap, embargo,
-    etc.) but uses ``calibration.n_splits`` for the fold count.
+    .. deprecated:: H-0058
+        Calibration cross-fit now reuses outer CV splits.
+        This function is kept for backward compatibility only.
     """
+    import warnings
+
+    warnings.warn(
+        "build_calibration_splitter is deprecated (H-0058). "
+        "Calibration cross-fit now reuses outer CV splits.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     assert cfg.calibration is not None  # noqa: S101
     return _build_splitter_for_method(cfg.split, cfg.calibration.n_splits)
 

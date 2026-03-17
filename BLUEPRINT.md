@@ -361,7 +361,7 @@ config = {
 | Key | Type | Required | Default | Notes |
 |---|---|---|---|---|
 | `method` | `"platt" \| "isotonic" \| "beta"` | No | `"platt"` | |
-| `n_splits` | `int` | No | `5` | calibration cross-fit fold 数（`split.method` は継承、fold 数のみ上書き） |
+| `n_splits` | `int` | No | `5` | **deprecated (H-0058)**: 無視される。calibration cross-fit は outer CV splits を再利用する。指定時は `UserWarning` を出力。 |
 
 # 6. 実行フロー（概念）
 
@@ -528,7 +528,7 @@ config = {
 
 - 「index を返すだけ」に徹底する。
 - 外側 CV / early stopping / calibration で共通利用する。
-- calibration CV でも `split.method` の境界（stratified / group / time / purge / embargo）を維持する。fold 数のみ `calibration.n_splits` で独立に上書き可能とする。
+- calibration cross-fit は outer CV splits をそのまま再利用する（H-0058）。`calibration.n_splits` は deprecated（指定時 `UserWarning`、値は無視）。
 
 ## 10.2 Outer CV（例）
 
@@ -572,20 +572,14 @@ config = {
 - 外側 CV: fold ごとの `train_idx / valid_idx`
 - inner valid: fold 内の `inner_train_idx / inner_valid_idx`
 - calibration CV: 校正用の `train_idx / valid_idx`
-  - calibration split は outer split と独立に保存し、`split.n_splits` と `calibration.n_splits` の一致は要求しない。
+  - calibration split は outer split と同一値を保存する（H-0058）。冗長だが後方互換性と明示性のためフィールドは残す。
 
 ## 10.5 Calibration CV の分割規約（必須）
 
-- calibration CV は `split.method` を継承して分割する。`calibration.n_splits` は fold 数のみを規定する。
-- method ごとの分割方針:
-  - `kfold` -> KFold
-  - `stratified_kfold` -> StratifiedKFold（`y` を使用）
-  - `group_kfold` -> GroupKFold（`groups` を使用）
-  - `stratified_group_kfold` -> StratifiedGroupKFold（`y` + `groups` を使用）
-  - `time_series` -> TimeSeries（`time_col` で整列済み行順を使用）
-  - `purged_time_series` -> PurgedTimeSeries（`purge_gap` / `embargo` を維持）
-  - `group_time_series` -> GroupTimeSeries（group/time 境界を維持）
-- 分割に必要な入力（`y` / `groups`）が不足している場合、または `n_splits` がデータ条件を満たさない場合は明示的にエラーとする。
+- calibration cross-fit は outer CV の split indices (`fit_result.splits.outer`) をそのまま再利用する（H-0058）。
+- `calibration.n_splits` は **deprecated**（指定時 `UserWarning` を出力し、値は無視する）。
+- calibration の入力は `(oof_scores, y)` のみで X は使わない（§12.1）。outer splits を再利用しても同一行リークは発生しない（各行の OOF score はその行を含まないモデルが生成したものであり、cross-fit 構造がさらにリークを防ぐ）。
+- これにより calibrated OOF の coverage は raw OOF の coverage と構造的に一致する。
 
 # 11. Tuning（`tuning/`）
 
@@ -689,7 +683,7 @@ result = model.tune(progress_callback=on_progress)
 - 校正器学習は、必ず Base モデルの OOF 生スコア（raw score / logits。sigmoid/softmax 適用前）のみを使う。
 - `EstimatorAdapter.predict_raw(X)` で生スコアを取得する（§14.1 参照）。
 - 校正性能評価は、校正器も OOF（cross-fit）で生成した値で行う。
-- 校正CV分割は §10.5 の規約に従い、outer/inner と同じ split 境界（group/time/purge/embargo）を維持する。
+- 校正 cross-fit は outer CV splits をそのまま再利用する（§10.5, H-0058）。これにより raw OOF と calibrated OOF の coverage が構造的に一致する。
 - 校正器は元の特徴量 `X` を使わない（入力は `s_oof`（生スコア）と `y` のみ）。
 - 推論時は保存された `C_final` を使用する。
 - Calibration が未指定の場合は従来どおり `predict_proba`（確率値）を OOF/IF 予測に使用する。Calibration 有効時のみ生スコアベースの校正パスに入る。
@@ -771,7 +765,7 @@ result = model.tune(progress_callback=on_progress)
   - `oof`: OOF 集約値（**covered 行ベース**。split で valid に一度も含まれない行は除外。KFold では全行=covered、TimeSeriesCV では先頭行が non-covered）。
   - `fold_0`...`fold_N-1`: 各 outer fold の OOF（valid_idx）値。
   - `if_mean`: IF（train_idx）指標の fold 平均（参考値として保持）。
-  - calibrated がある場合は `cal_oof` 列を追加。
+  - calibrated がある場合は `cal_oof` 列を追加。calibrated OOF の coverage は raw と構造的に一致する（H-0058: outer splits 再利用）ため、`calibrated` に別途 `oof_coverage` は不要。
   - `df.attrs["oof_coverage"]`: float (0.0–1.0)。covered 行の割合。KFold では常に `1.0`。TimeSeriesCV では `< 1.0` になりうる。
 
 ## 13.3 可視化
