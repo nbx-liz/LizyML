@@ -208,7 +208,7 @@ class TestIsotonicE2E:
             },
             "model": {"name": "lgbm", "params": {"n_estimators": 20}},
             "training": {"seed": 0},
-            "calibration": {"method": "isotonic", "n_splits": 3},
+            "calibration": {"method": "isotonic"},
         }
         model = Model(cfg, data=df)
         fr = model.fit()
@@ -232,7 +232,6 @@ class TestIsotonicE2E:
             "training": {"seed": 0},
             "calibration": {
                 "method": "isotonic",
-                "n_splits": 3,
                 "params": {"num_boost_round": 50},
             },
         }

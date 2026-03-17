@@ -18,7 +18,7 @@ from tests._helpers import make_binary_df, make_config, make_regression_df
 
 def _calibrated_binary_model() -> Model:
     cfg = make_config("binary")
-    cfg["calibration"] = {"method": "platt", "n_splits": 3}
+    cfg["calibration"] = {"method": "platt"}
     m = Model(cfg)
     m.fit(data=make_binary_df())
     return m

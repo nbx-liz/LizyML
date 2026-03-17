@@ -53,7 +53,7 @@ _FULL_CONFIG: dict = {
         }
     },
     "evaluation": {"metrics": ["logloss", "auc"]},
-    "calibration": {"method": "platt", "n_splits": 3},
+    "calibration": {"method": "platt"},
 }
 
 
