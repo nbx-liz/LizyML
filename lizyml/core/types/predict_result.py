@@ -14,8 +14,9 @@ class PredictionResult:
 
     Attributes:
         pred: Point predictions, shape ``(n_samples,)``.
-        proba: Class probabilities for binary classification, shape ``(n_samples,)``.
-            ``None`` for regression and multiclass.
+        proba: Class probabilities.  Shape ``(n_samples,)`` for binary
+            classification, ``(n_samples, n_classes)`` for multiclass.
+            ``None`` for regression.
         shap_values: SHAP explanation values, shape ``(n_samples, n_features)``.
             ``None`` when ``return_shap=False`` (default).
         used_features: Names of features that were present and used for prediction.

@@ -50,4 +50,9 @@ def format_metrics_table(metrics: dict[str, Any]) -> pd.DataFrame:
 
     df = pd.DataFrame(data, index=metric_names)
     df.index.name = "metric"
+
+    oof_coverage = raw.get("oof_coverage")
+    if oof_coverage is not None:
+        df.attrs["oof_coverage"] = oof_coverage
+
     return df

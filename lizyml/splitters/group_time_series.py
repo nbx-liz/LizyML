@@ -8,12 +8,9 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
-from lizyml.core.registries import SplitterRegistry
-
 from .base import BaseSplitter
 
 
-@SplitterRegistry.register("group_time_series")
 class GroupTimeSeriesSplitter(BaseSplitter):
     """Time series splitter that respects group boundaries.
 
@@ -69,7 +66,11 @@ class GroupTimeSeriesSplitter(BaseSplitter):
         for k in range(self.n_splits):
             train_group_end = (k + 1) * group_fold_size
             valid_group_start = train_group_end + self.gap
-            valid_group_end = valid_group_start + group_fold_size
+            # Last fold extends to include all trailing groups
+            if k == self.n_splits - 1:
+                valid_group_end = n_groups
+            else:
+                valid_group_end = valid_group_start + group_fold_size
             if valid_group_end > n_groups:
                 valid_group_end = n_groups
             if valid_group_start >= valid_group_end:

@@ -95,6 +95,7 @@ class TestFitResultContract:
             "oof_per_fold",
             "if_mean",
             "if_per_fold",
+            "oof_coverage",
         }
 
     def test_calibrator_none_when_no_calibration(self) -> None:
@@ -151,6 +152,15 @@ class TestRunMetaContract:
         }
         actual = {f.name for f in dataclasses.fields(RunMeta)}
         assert required == actual
+
+    def test_deps_versions_includes_estimator(self) -> None:
+        """H-0054: runtime_deps() must populate deps_versions with estimator pkg."""
+        df = make_regression_df(n=100)
+        result = Model(make_config("regression")).fit(data=df)
+        deps = result.run_meta.deps_versions
+        assert "lightgbm" in deps, f"Expected 'lightgbm' in deps_versions, got {deps}"
+        assert "pandas" in deps
+        assert "numpy" in deps
 
     def test_run_id_unique_across_fits(self) -> None:
         df = make_regression_df(n=100)

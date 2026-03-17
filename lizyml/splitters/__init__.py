@@ -1,8 +1,5 @@
-"""Splitters package — re-exports and factory helper."""
+"""Splitters package — re-exports."""
 
-from __future__ import annotations
-
-from lizyml.core.specs.split_spec import SplitSpec
 from lizyml.splitters.base import BaseSplitter
 from lizyml.splitters.group_kfold import (
     GroupKFoldSplitter,
@@ -23,47 +20,3 @@ __all__ = [
     "StratifiedKFoldSplitter",
     "TimeSeriesSplitter",
 ]
-
-
-def _build_splitter(spec: SplitSpec) -> BaseSplitter:
-    """Instantiate the correct splitter from a ``SplitSpec``."""
-    method = spec.method
-
-    if method == "kfold":
-        return KFoldSplitter(
-            n_splits=spec.n_splits,
-            shuffle=spec.shuffle,
-            random_state=spec.random_state,
-        )
-    if method == "stratified_kfold":
-        return StratifiedKFoldSplitter(
-            n_splits=spec.n_splits,
-            shuffle=spec.shuffle,
-            random_state=spec.random_state,
-        )
-    if method == "group_kfold":
-        return GroupKFoldSplitter(n_splits=spec.n_splits)
-    if method == "time_series":
-        return TimeSeriesSplitter(
-            n_splits=spec.n_splits,
-            gap=spec.gap,
-            max_train_size=spec.train_size_max,
-            max_test_size=spec.test_size_max,
-        )
-    if method == "purged_time_series":
-        return PurgedTimeSeriesSplitter(
-            n_splits=spec.n_splits,
-            purge_gap=spec.purge_gap,
-            embargo=spec.embargo,
-            max_train_size=spec.train_size_max,
-            max_test_size=spec.test_size_max,
-        )
-    if method == "group_time_series":
-        return GroupTimeSeriesSplitter(
-            n_splits=spec.n_splits,
-            gap=spec.gap,
-            max_train_size=spec.train_size_max,
-            max_test_size=spec.test_size_max,
-        )
-
-    raise ValueError(f"Unknown split method: {method!r}")

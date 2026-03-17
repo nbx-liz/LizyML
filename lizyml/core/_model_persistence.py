@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
     from lizyml.config.schema import LizyMLConfig
     from lizyml.core.types.fit_result import FitResult
+    from lizyml.estimators.provider import EstimatorProvider
     from lizyml.training.refit_trainer import RefitResult
 
 _log = get_logger("model")
@@ -31,6 +32,7 @@ class ModelPersistenceMixin:
         _X: pd.DataFrame | None
         _run_dir: Path | None
         _output_dir: str | Path | None
+        _provider: EstimatorProvider | None
 
         def _require_fit(self) -> FitResult: ...
 
@@ -134,6 +136,10 @@ class ModelPersistenceMixin:
         instance._fit_result = fit_result
         instance._refit_result = refit_result
         instance._metrics = fit_result.metrics
+        # Restore provider for params_table() etc. (H-0054)
+        from lizyml.core._model_factories import get_provider
+
+        instance._provider = get_provider(instance._cfg.model)
         if analysis_context is not None:
             instance._y = analysis_context.y_true
             instance._X = analysis_context.X_for_explain

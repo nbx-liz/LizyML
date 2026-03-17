@@ -108,6 +108,7 @@ class TestEvaluatorStructureRegression:
             "oof_per_fold",
             "if_mean",
             "if_per_fold",
+            "oof_coverage",
         }
 
     def test_oof_keys_match_metrics(self) -> None:
@@ -203,6 +204,7 @@ class TestEvaluatorStructureBinary:
             "oof_per_fold",
             "if_mean",
             "if_per_fold",
+            "oof_coverage",
         }
 
     def test_metric_values_valid(self) -> None:

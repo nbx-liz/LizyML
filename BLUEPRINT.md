@@ -36,6 +36,42 @@
 - IF を固定し、実装の自由度を確保する。
 - `Splitter / FeaturePipeline / EstimatorAdapter / Tuner / Calibrator / Metric / Explainer` を分離する。
 
+## 2.1 5 層カテゴリアーキテクチャ（H-0051/H-0052/H-0053）
+
+モジュール間の依存を 5 層の DAG（非巡回有向グラフ）で管理する。詳細は `ARCHITECTURE.md` を参照。
+
+| Layer | 名称 | 依存先 | 含まれるカテゴリ |
+|---|---|---|---|
+| 0 | Foundation | なし | `core/exceptions`, `core/logging`, `core/types/` |
+| 1 | Leaf | Foundation のみ | `config/`, `data/`, `splitters/`, `features/`, `estimators/`, `metrics/`, `calibration/` |
+| 2 | Composition | Foundation + Layer 1 の IF | `training/`, `evaluation/`, `tuning/` |
+| 3 | Optional | Foundation + Layer 1/2 の IF | `explain/`, `plots/`, `persistence/` |
+| 4 | Facade | 全 Layer | `core/model.py`, `core/_model_*.py`, `core/_model_factories.py` |
+
+依存ルール:
+- 各カテゴリは自分より**上の Layer にのみ**依存する（下方向のみ）。
+- Layer 2 は Layer 1 の**抽象 IF のみ**を参照する（具象クラスを import しない）。
+- 具象クラスの組み立て・型ディスパッチは **Layer 4（Facade）のみ**が行う。
+- カテゴリ間の**循環依存は禁止**する。
+
+## 2.2 EstimatorProvider（マルチアルゴリズム拡張 IF）（H-0053）
+
+新しいアルゴリズムの追加を `model.py` 変更ゼロで行えるようにするため、各 estimator モジュールが `EstimatorProvider` protocol を実装する。
+
+`EstimatorProvider` が提供するもの:
+- Config → model params / smart params の抽出
+- Smart param の解決（data-size dependent な変換）
+- Per-fold ratio resolver の構築
+- Estimator factory の構築
+- Pipeline factory の構築
+- デフォルト tuning space の提供
+
+新アルゴリズム追加時の手順:
+1. `estimators/<name>/` に adapter + provider + config を作成
+2. `config/schema.py` の `ModelConfig` union に追加
+3. Facade の provider dispatch に追加
+4. `model.py` の変更: ゼロ
+
 # 3. 要件（機能・品質）
 
 ## 3.1 品質要件
@@ -83,7 +119,7 @@
 
 ```python
 model = Model(config=config)
-tuning_result = model.tune()       # TuningResult（best_params / best_score / trials）
+tuning_result = model.tune()       # TuningResult（best_model_params / best_smart_params / best_training_params / best_score / trials）
 tuning_df = model.tuning_table()   # 全 trial の DataFrame（trial / score / params）
 fit_result = model.fit()
 eval_result = model.evaluate()
@@ -94,7 +130,7 @@ model.export("path/to/export_dir")
 補足:
 - `fit()` の default は、最も評価が良かったパラメーターで学習する。
 - 必要に応じて、最終学習に使うパラメーターを明示指定できるようにする。
-- `tune()` は `TuningResult` を返す。`TuningResult` は `best_params`（最良パラメーター）、`best_score`（最良スコア）、`trials`（全 trial の `TrialResult` リスト）を持つ。
+- `tune()` は `TuningResult` を返す。`TuningResult` は `best_model_params` / `best_smart_params` / `best_training_params`（カテゴリ別最良パラメーター）、`best_score`（最良スコア）、`trials`（全 trial の `TrialResult` リスト）、`metric_name`、`direction` を持つ。`best_params` プロパティは3カテゴリの flat view を返す（H-0050）。
 - `tune()` は `progress_callback: TuneProgressCallback | None = None` を受け取り、各 trial 完了時に `TuneProgressInfo`（`current_trial / total_trials / elapsed_seconds / best_score / latest_score / latest_state`）をコールバックに渡す（H-0048）。コールバック内例外は catch して warning に変換し、tuning を中断させない。
 - `tuning_table()` は `TuningResult.trials` を `pd.DataFrame` に変換して返す（列: `trial`, メトリクス名, 探索パラメーター名）。`tune()` 未実行時は `MODEL_NOT_FIT`。
 - 学習後は、以下の補助 API を提供する。
@@ -266,13 +302,14 @@ config = {
 
 ### split
 
-`split.method` は以下のいずれか: `kfold` / `stratified_kfold` / `group_kfold` / `time_series` / `purged_time_series` / `group_time_series`。
+`split.method` は以下のいずれか: `kfold` / `stratified_kfold` / `group_kfold` / `stratified_group_kfold` / `time_series` / `purged_time_series` / `group_time_series`。
 
 | method | 固有キー |
 |---|---|
 | `kfold` | `n_splits=5`, `random_state=42`, `shuffle=True` |
 | `stratified_kfold` | `n_splits=5`, `random_state=42` |
 | `group_kfold` | `n_splits=5` |
+| `stratified_group_kfold` | `n_splits=5`, `random_state=42`, `shuffle=True` |
 | `time_series` | `n_splits=5`, `gap=0`, `train_size_max=null`, `test_size_max=null` |
 | `purged_time_series` | `n_splits=5`, `purge_gap=0`, `embargo=0`, `train_size_max=null`, `test_size_max=null` |
 | `group_time_series` | `n_splits=5`, `gap=0`, `train_size_max=null`, `test_size_max=null` |
@@ -324,30 +361,35 @@ config = {
 | Key | Type | Required | Default | Notes |
 |---|---|---|---|---|
 | `method` | `"platt" \| "isotonic" \| "beta"` | No | `"platt"` | |
-| `n_splits` | `int` | No | `5` | calibration cross-fit fold 数（`split.method` は継承、fold 数のみ上書き） |
+| `n_splits` | `int` | No | `5` | **deprecated (H-0058)**: 無視される。calibration cross-fit は outer CV splits を再利用する。指定時は `UserWarning` を出力。 |
 
 # 6. 実行フロー（概念）
 
 ## 6.1 `tune`
 
-1. Config validate -> `ProblemSpec` 生成
-2. `DataSource` 読込 -> DF
-3. `FeaturePipeline` 選択 -> `fit_transform`
-4. `Splitter` で外側 CV index 生成（保存対象）
-5. `Tuner`（Optuna）で `objective=CV` 平均（推奨）
-6. `TuningResult`（`best_params` / `best_score` / 全 trial 履歴）を返す
+1. Config validate → データ読込・前処理
+2. Config から smart params のデフォルト値を抽出する（`extract_smart_params`）
+3. `Splitter` で外側 CV index 生成
+4. 各 trial で:
+   a. Optuna がパラメーターを提案し、`split_by_category` で model / smart / training に分類する
+   b. Config defaults と trial params をマージし、`_build_train_components()` で CVTrainer の構成要素を構築する（fit と同じコードパス）
+   c. CVTrainer で CV 実行 → OOF スコアを返す
+5. `TuningResult`（`best_model_params` / `best_smart_params` / `best_training_params` / `best_score` / 全 trial 履歴）を返す
+6. `Tuner` の責務は Optuna study の管理のみ。objective クロージャは `Model` 側で構築する
 
 `tuning` と最終評価のリーク回避方針は 10 章を参照。
 
 ## 6.2 `fit`（CV）
 
-1. 外側 CV 各 fold で `train / valid` を作る。
+1. Config defaults + tune 結果 + 引数 override をマージし、`_build_train_components()` で `TrainComponents`（`estimator_factory` / `sample_weight` / `ratio_resolver` / `inner_valid`）を構築する（tune と同じコードパス）。パラメータ優先順位: `Config defaults < tune best < fit() 引数`。
+2. 外側 CV 各 fold で `train / valid` を作る。
    - `split.method` が `time_series` / `purged_time_series` / `group_time_series` の場合、`data.time_col` を基準に昇順へ並べた上で分割する。
-2. `InnerValidStrategy` により early stopping 用の `(X_train, y_train), (X_valid, y_valid)` を統一生成する。
-3. `EstimatorAdapter.fit()` を実行する。
-4. OOF / IF を生成する（ロジックは `evaluation/oof.py` に隔離）。
-5. 必要なら `Calibrator` を cross-fit 学習する（OOF 予測のみ使用）。
-6. `FitResult` を返し、Artifacts を保持する。
+3. `InnerValidStrategy` により early stopping 用の `(X_train, y_train), (X_valid, y_valid)` を統一生成する。
+4. `EstimatorAdapter.fit()` を実行する。
+5. OOF / IF を生成する（ロジックは `training/oof_assembly.py` に隔離）。
+6. 必要なら `Calibrator` を cross-fit 学習する（OOF 予測のみ使用）。
+7. 全データ Refit を実行する（同一の `TrainComponents` を使用し、CV との一貫性を構造的に保証する）。
+8. `FitResult` を返し、Artifacts を保持する。
 
 補足:
 
@@ -407,12 +449,15 @@ config = {
 
 ## 7.2 TuningResult（固定スキーマ）
 
-- `best_params`（`dict[str, Any]`）: 最良のハイパーパラメーター
+- `best_model_params`（`dict[str, Any]`）: 最良の model カテゴリパラメーター（`learning_rate` 等）
+- `best_smart_params`（`dict[str, Any]`）: 最良の smart カテゴリパラメーター（`num_leaves_ratio` 等）
+- `best_training_params`（`dict[str, Any]`）: 最良の training カテゴリパラメーター（`early_stopping_rounds` 等）
 - `best_score`（`float`）: 最良の OOF メトリクス値
 - `trials`（`list[TrialResult]`）: 全 trial の結果（番号順）
   - `TrialResult`: `number` / `params` / `score` / `state`（`"complete"` / `"pruned"` / `"fail"`）
 - `metric_name`（`str`）: 最適化メトリクス名
 - `direction`（`str`）: `"minimize"` / `"maximize"`
+- `best_params`（computed property）: `{**best_model_params, **best_smart_params, **best_training_params}` の flat view
 
 ## 7.3 PredictionResult（固定スキーマ）
 
@@ -483,7 +528,7 @@ config = {
 
 - 「index を返すだけ」に徹底する。
 - 外側 CV / early stopping / calibration で共通利用する。
-- calibration CV でも `split.method` の境界（stratified / group / time / purge / embargo）を維持する。fold 数のみ `calibration.n_splits` で独立に上書き可能とする。
+- calibration cross-fit は outer CV splits をそのまま再利用する（H-0058）。`calibration.n_splits` は deprecated（指定時 `UserWarning`、値は無視）。
 
 ## 10.2 Outer CV（例）
 
@@ -516,6 +561,7 @@ config = {
 |---|---|
 | `stratified_kfold` | `holdout(stratify=True)` |
 | `group_kfold` | `group_holdout` |
+| `stratified_group_kfold` | `group_holdout` |
 | `time_series` | `time_holdout` |
 | `purged_time_series` | `time_holdout` |
 | `group_time_series` | `group_holdout` |
@@ -526,19 +572,14 @@ config = {
 - 外側 CV: fold ごとの `train_idx / valid_idx`
 - inner valid: fold 内の `inner_train_idx / inner_valid_idx`
 - calibration CV: 校正用の `train_idx / valid_idx`
-  - calibration split は outer split と独立に保存し、`split.n_splits` と `calibration.n_splits` の一致は要求しない。
+  - calibration split は outer split と同一値を保存する（H-0058）。冗長だが後方互換性と明示性のためフィールドは残す。
 
 ## 10.5 Calibration CV の分割規約（必須）
 
-- calibration CV は `split.method` を継承して分割する。`calibration.n_splits` は fold 数のみを規定する。
-- method ごとの分割方針:
-  - `kfold` -> KFold
-  - `stratified_kfold` -> StratifiedKFold（`y` を使用）
-  - `group_kfold` -> GroupKFold（`groups` を使用）
-  - `time_series` -> TimeSeries（`time_col` で整列済み行順を使用）
-  - `purged_time_series` -> PurgedTimeSeries（`purge_gap` / `embargo` を維持）
-  - `group_time_series` -> GroupTimeSeries（group/time 境界を維持）
-- 分割に必要な入力（`y` / `groups`）が不足している場合、または `n_splits` がデータ条件を満たさない場合は明示的にエラーとする。
+- calibration cross-fit は outer CV の split indices (`fit_result.splits.outer`) をそのまま再利用する（H-0058）。
+- `calibration.n_splits` は **deprecated**（指定時 `UserWarning` を出力し、値は無視する）。
+- calibration の入力は `(oof_scores, y)` のみで X は使わない（§12.1）。outer splits を再利用しても同一行リークは発生しない（各行の OOF score はその行を含まないモデルが生成したものであり、cross-fit 構造がさらにリークを防ぐ）。
+- これにより calibrated OOF の coverage は raw OOF の coverage と構造的に一致する。
 
 # 11. Tuning（`tuning/`）
 
@@ -551,7 +592,7 @@ config = {
 SearchDim にカテゴリ属性を持たせ、Tuner がパラメーターの適用先を区別する。
 
 - `model`: `LGBMAdapter.params` に直接渡す（既存 SearchDim の挙動）
-- `smart`: `LGBMConfig` のスマートパラメーター（`num_leaves_ratio` 等）として `resolve_smart_params()` に渡す
+- `smart`: スマートパラメーター（`num_leaves_ratio` 等）として `resolve_smart_params()` に渡す。fit / tune で同一の dict ベース `resolve_smart_params()` を使用する（H-0050）
 - `training`: trial ごとに `EarlyStoppingConfig` / `InnerValidStrategy` を再構築する
 
 ## 11.3 デフォルト Tuning Space
@@ -642,7 +683,7 @@ result = model.tune(progress_callback=on_progress)
 - 校正器学習は、必ず Base モデルの OOF 生スコア（raw score / logits。sigmoid/softmax 適用前）のみを使う。
 - `EstimatorAdapter.predict_raw(X)` で生スコアを取得する（§14.1 参照）。
 - 校正性能評価は、校正器も OOF（cross-fit）で生成した値で行う。
-- 校正CV分割は §10.5 の規約に従い、outer/inner と同じ split 境界（group/time/purge/embargo）を維持する。
+- 校正 cross-fit は outer CV splits をそのまま再利用する（§10.5, H-0058）。これにより raw OOF と calibrated OOF の coverage が構造的に一致する。
 - 校正器は元の特徴量 `X` を使わない（入力は `s_oof`（生スコア）と `y` のみ）。
 - 推論時は保存された `C_final` を使用する。
 - Calibration が未指定の場合は従来どおり `predict_proba`（確率値）を OOF/IF 予測に使用する。Calibration 有効時のみ生スコアベースの校正パスに入る。
@@ -721,10 +762,11 @@ result = model.tune(progress_callback=on_progress)
 - 校正前後も同一フォーマットで返す（binary）。
 - `evaluate_table()` は `evaluate()` が返す固定構造 dict を `pd.DataFrame` に変換する純粋フォーマッタ。ロジックは `evaluation/table_formatter.py` に配置する。
   - 行 = メトリクス名。
-  - `oof`: 全 OOF 集約値（全行ベース）。
+  - `oof`: OOF 集約値（**covered 行ベース**。split で valid に一度も含まれない行は除外。KFold では全行=covered、TimeSeriesCV では先頭行が non-covered）。
   - `fold_0`...`fold_N-1`: 各 outer fold の OOF（valid_idx）値。
   - `if_mean`: IF（train_idx）指標の fold 平均（参考値として保持）。
-  - calibrated がある場合は `cal_oof` 列を追加。
+  - calibrated がある場合は `cal_oof` 列を追加。calibrated OOF の coverage は raw と構造的に一致する（H-0058: outer splits 再利用）ため、`calibrated` に別途 `oof_coverage` は不要。
+  - `df.attrs["oof_coverage"]`: float (0.0–1.0)。covered 行の割合。KFold では常に `1.0`。TimeSeriesCV では `< 1.0` になりうる。
 
 ## 13.3 可視化
 
@@ -771,6 +813,8 @@ result = model.tune(progress_callback=on_progress)
 
 ## 14.1 EstimatorAdapter IF
 
+> Layer 1（Leaf）に属する。Foundation のみに依存し、`config/` や他の Leaf カテゴリに依存しない。
+
 ```python
 fit(X_train, y_train, X_valid=None, y_valid=None, **kwargs)
 predict(X)
@@ -778,7 +822,10 @@ predict_proba(X)  # 分類（sigmoid/softmax 適用後の確率値）
 predict_raw(X)    # 分類（sigmoid/softmax 適用前の生スコア / logits。Calibration 用）
 importance(kind="split|gain|shap")
 get_native_model()  # export用途
+set_categorical_features(cols: list[str] | None) -> None  # デフォルト no-op (H-0054)
 ```
+
+- `set_categorical_features()` は `fit()` 呼び出し前に CVTrainer が呼ぶ。categorical feature の扱いはアダプタの責務であり、`cv_trainer.py` に estimator 固有の kwarg を漏洩させない。
 
 ## 14.2 LGBM adapter の責務
 
@@ -841,6 +888,56 @@ get_native_model()  # export用途
 | `early_stopping.enabled` | `True` |
 | `early_stopping.rounds` | `150` |
 | `early_stopping.validation_ratio` | `0.1` |
+
+## 14.4 EstimatorProvider protocol（H-0053）
+
+各 estimator モジュールが実装する protocol。`model.py`（Facade）が estimator 固有の知識なしに TrainComponents を構築するための統一 IF。
+
+```python
+class EstimatorProvider(Protocol):
+    def extract_model_params(self, model_cfg: Any) -> dict[str, Any]: ...
+    def extract_smart_params(self, model_cfg: Any) -> dict[str, Any]: ...
+    def resolve_smart_params(
+        self, smart: dict, effective: dict, n_rows: int,
+        feature_names: list[str], y: Series, task: str,
+    ) -> tuple[dict[str, Any], ndarray | None]: ...
+    def build_ratio_resolver(
+        self, smart: dict,
+    ) -> Callable[[int], dict[str, Any]] | None: ...
+    def build_estimator_factory(
+        self, task: str, params: dict, n_classes: int | None,
+        early_stopping_rounds: int | None, seed: int,
+    ) -> Callable[[], BaseEstimatorAdapter]: ...
+    def build_pipeline_factory(self) -> Callable[[], BaseFeaturePipeline]: ...
+    def default_space(self, task: str) -> list[SearchDim]: ...
+    def default_fixed_params(self, task: str) -> dict[str, Any]: ...
+    def runtime_deps(self) -> dict[str, str]: ...
+    def params_summary(
+        self, model: BaseEstimatorAdapter, model_cfg: Any,
+    ) -> list[dict[str, Any]]: ...
+```
+
+制約:
+- `EstimatorProvider` は `config/` の具象型（`LGBMConfig` 等）を参照してよい（provider は Facade 層から呼ばれるため、Leaf → Leaf の依存にはならない）。
+- `model_cfg` 引数は `Any` 型で受け取るが、各 provider 内部で `isinstance` チェックして具象型にキャストする。
+- `runtime_deps()` はアルゴリズム固有の依存パッケージ名とバージョンを返す（例: `{"lightgbm": "4.5.0"}`）。`RunMeta.deps_versions` に使用。
+- `params_summary()` は `params_table()` 用のパラメータ行を返す。smart params + native model params の両方を含む。
+- `build_pipeline_factory` は estimator 固有の FeaturePipeline が必要な場合（例: EntityEmbedding のカテゴリ埋め込み）に対応する。デフォルトは `NativeFeaturePipeline` を返す。
+
+ディレクトリ構成（estimator ごとにサブパッケージ化）:
+
+```text
+estimators/
+├── base.py              BaseEstimatorAdapter（IF + set_categorical_features）
+├── provider.py          EstimatorProvider protocol 定義
+├── lgbm/
+│   ├── __init__.py      LGBMAdapter, LGBMProvider を re-export
+│   ├── adapter.py       LGBMAdapter（現在の lgbm.py から）
+│   ├── provider.py      LGBMProvider（EstimatorProvider 実装）
+│   ├── smart_params.py  resolve_smart_params / resolve_ratio_params
+│   └── defaults.py      _COMMON_DEFAULTS / task defaults / default_space
+└── <future>/            EntityEmbedding 等（同構造で追加）
+```
 
 # 15. Persistence / Export（`persistence/`）
 
@@ -924,20 +1021,95 @@ YourLibError(code, user_message, debug_message=None, cause=None)
 
 ## 18.1 テスト戦略
 
-- Golden test: `FitResult / PredictionResult` スキーマ固定を検証する。
-- 再現性テスト: 同一 config で split indices と主要指標が一致する。
-- 列ズレテスト: 余剰 / 不足 / unseen category のポリシー通り動く。
-- optional dependency テスト: 未導入時の例外コード / メッセージが崩れない。全 optional dependency（optuna, shap, plotly, scipy）について "missing" パスを検証する。
-- Public API surface テスト: `from lizyml import Model` 等のトップレベル公開面が壊れていないことを検証する。
-- バージョン一致テスト: `lizyml.__version__` と配布メタデータのバージョンが一致することを検証する。
-- README サンプルコードテスト: `README.md` に記載された最短利用例が `SyntaxError` / `ImportError` なく実行可能であることを検証する（データ依存部分はモック可）。
+テストは以下の 10 カテゴリで構成する。各カテゴリは独立したテスト目的を持ち、組み合わせで回帰耐性を確保する。
+
+### 18.1.1 基本テストカテゴリ
+
+- **Golden test（契約固定）**: `FitResult / PredictionResult / RunMeta / SplitIndices` のフィールド名・型・構造を固定し、意図しない破壊的変更を検知する。
+- **再現性テスト**: 同一 config + seed で `oof_pred`, `predict`, `metrics`, `split indices` が bit 一致する。`tune()` も同一 seed で `best_params` / `best_score` / trial 順序が一致する。
+- **リーク防止テスト**: OOF が held-out データのみから生成されること、calibration が cross-fit で分離されていること、feature pipeline が train fold のみで fit されることを検証する。
+- **列ズレテスト**: 余剰 / 不足 / unseen category のポリシー通り動く。カテゴリ順序ずれ（学習時と推論時で同一カテゴリだが出現順が異なる）もカバーする。
+- **例外テスト**: 全 `ErrorCode` に対して少なくとも 1 テストが存在し、`context` dict の必須キーを検証する。
+- **optional dependency テスト**: 未導入時の例外コード / メッセージが崩れない。全 optional dependency（optuna, shap, plotly, scipy）について "missing" パスを検証する。
+- **Public API surface テスト**: `from lizyml import Model` 等のトップレベル公開面が壊れていないことを検証する。
+- **バージョン一致テスト**: `lizyml.__version__` と配布メタデータのバージョンが一致することを検証する。
+- **README サンプルコードテスト**: `README.md` に記載された最短利用例が `SyntaxError` / `ImportError` なく実行可能であることを検証する（データ依存部分はモック可）。
+
+### 18.1.2 Config 伝搬テスト（H-0056 カテゴリ A 関連）
+
+Config の各フィールドが最終的なコンポーネント（Booster params, split indices, pipeline state 等）に正しく到達することを、**モックなしの observable outcome** で検証する。
+
+- Config → Booster params: `learning_rate`, `max_depth`, `seed`, `feature_fraction` 等が Booster の `params` dict に到達。
+- Config → early_stopping: `rounds` が adapter の `early_stopping_rounds` に到達。`enabled=False` で `None` に。
+- Config → features: `exclude` で列が除外される。`categorical` でカテゴリ認識される。
+- Config → evaluation: `metrics` リストが FitResult.metrics のキーに反映される。
+- Config → split: `n_splits` が fold 数に反映。`random_state` で fold が決定的に再現。`group_col` で group 制約が機能。
+- Config → smart params: `auto_num_leaves` + `num_leaves_ratio` + `max_depth` の計算結果が Booster に到達。
+
+### 18.1.3 Facade オーケストレーションテスト（H-0056 カテゴリ A 関連）
+
+`Model.fit()` が各コンポーネントを正しい順序・正しい引数で呼ぶことを検証する。
+
+- CVTrainer と RefitTrainer が同一の `pipeline_factory` / `estimator_factory` / `ratio_resolver` を受け取る。
+- Evaluator が Config 指定のメトリクスリストを受け取る。
+- Calibration が `cfg.calibration is not None` かつ `task="binary"` の場合のみ実行される。non-binary で `CALIBRATION_NOT_SUPPORTED` を返す。
+- `get_provider()` が model name で正しい provider を返す。未知の name で `CONFIG_INVALID`。
+- `_merge_params` の優先順位: Config defaults < tune best < fit() args。
+
+### 18.1.4 Artifact 互換テスト（H-0056 カテゴリ A）
+
+Artifact の保存・復元が `format_version` 管理のもとで安全に動作することを検証する。
+
+- **Frozen artifact fixture**: `tests/fixtures/` に CI 生成の artifact スナップショットを格納し、`Model.load()` → `predict()` の結果が既知の期待値と一致することを検証する。将来の `format_version` bump 時に migration テストの基盤となる。
+- **Legacy calibration path**: `oof_raw_scores=None` の旧形式 artifact が probability 入力で calibrate される経路を検証する。
+- **format_version rejection**: 未知の version（`99`, `0` 等）で `DESERIALIZATION_FAILED`。
+- **metadata 部分欠損**: 必須フィールドを 1 つずつ削除し、各欠損で正しいエラーメッセージを検証。
+- **Booster string roundtrip**: `model_to_string()` → `model_from_string()` 往復で predict 結果が一致。
+
+### 18.1.5 Provider/Adapter 共通 Invariant チェック（H-0056 カテゴリ B）
+
+scikit-learn の `check_estimator` に相当する、EstimatorProvider / BaseEstimatorAdapter の自動適合性テストスイート。新 provider 追加時に自動で全チェックが走る。
+
+- **Protocol 適合**: `extract_model_params`, `extract_smart_params`, `build_estimator_factory`, `build_pipeline_factory`, `build_ratio_resolver`, `resolve_smart_params`, `runtime_deps`, `default_space`, `default_fixed_params`, `params_summary` の戻り値型チェック。
+- **Factory → fit → predict 往復**: 全タスク型 × 全 provider で fit → predict が完走し出力 shape が正しい。
+- **Pickle 往復**: fit 済み adapter を pickle → unpickle し predict 結果が一致。
+- **Importance**: fit 後に `importance("split")` / `importance("gain")` が feature_names と同じキーの dict を返す。
+- **データ多様性**: `dense_float_2col`, `dense_float_20col`, `mixed_dtype`（float + int + category）, `with_missing`（NaN 列）, `single_feature`（1列）, `high_cardinality_cat`（100+ unique）を横断。
+
+### 18.1.6 Tuning 再現性・失敗マトリクス（H-0056 カテゴリ C）
+
+Optuna の seed 固定ポリシーに準拠し、tuning 結果の再現性と失敗系パスを網羅する。
+
+- **再現性**: 同一 seed で `best_params`, `best_score`, trial 順序が一致。
+- **全 trial 失敗**: objective が常に例外 → `TUNING_FAILED` + 正しい context。
+- **部分 trial 失敗**: 一部 trial のみ失敗 → 成功 trial の best が正しく返る。
+- **NaN/inf 返却**: objective の異常値に対する挙動。
+- **Search space と Config の衝突**: space の param が Config の同名 param を上書きすることの検証。
+
+### 18.1.7 入力ソース・dtype・境界値の E2E（H-0056 カテゴリ D）
+
+LightGBM/XGBoost が `all_x_types` / `all_y_types` で実施しているコンテナ型・dtype 差分テストに相当する。
+
+- **入力ソース多様性**: CSV / Parquet 経由で fit → predict → export → load が完走する。
+- **dtype 横断**: `float32`, `float64`, nullable `Int64`, `Float64`, `string` dtype で fit が正常動作するか、明確なエラーを返す。
+- **境界値**: 0行 DataFrame, 1行 DataFrame, 重複列名, `inf`/`-inf` 含有列で明確なエラーメッセージ。
+- **カテゴリ順序ずれ**: 学習時と推論時で同一カテゴリの出現順が異なる場合の挙動。
+
+### 18.1.8 パラメータ組み合わせの Pairwise テスト（H-0056 カテゴリ E）
+
+パラメータの相互作用バグを効率的に検出するため、全直積ではなく **Pairwise（2因子間カバレッジ）** で ~20-30 ケースを生成する。
+
+- **因子**: `task` × `split_method` × `calibration` × `early_stopping` × `n_estimators`
+- **検証**: 有効な組み合わせは fit 完走。無効な組み合わせは明確なエラー。
+- **重要な相互作用の個別テスト**: `calibration + group_kfold`, `balanced + multiclass`, `feature_weights + auto_num_leaves`, `tuning + calibration`, `n_estimators=1 + early_stopping`, `exclude + categorical` 等。
 
 ### テスト基盤方針（H-0043）
 
-- **共通ヘルパーの集約**: データ生成ヘルパー（`make_regression_df()`, `make_binary_df()`, `make_multiclass_df()`, `make_config()` 等）は `tests/conftest.py` に集約する。各テストファイルでのローカル重複定義を排除する。
-- **parametrize の活用**: タスク横断テスト（regression/binary/multiclass）は `@pytest.mark.parametrize` で統合し、テストロジックの重複を削減する。
+- **共通ヘルパーの集約**: データ生成ヘルパー（`make_regression_df()`, `make_binary_df()`, `make_multiclass_df()`, `make_config()` 等）は `tests/_helpers.py` に集約する。各テストファイルでのローカル重複定義を排除する。データ多様性 fixture（`dense_float_20col`, `mixed_dtype`, `with_missing` 等）も同ファイルに追加する。
+- **parametrize の活用**: タスク横断テスト（regression/binary/multiclass）は `@pytest.mark.parametrize` で統合し、テストロジックの重複を削減する。Provider 適合性テストは `@pytest.mark.parametrize("check", ALL_CHECKS)` で自動展開する。
 - **slow テストの分離**: `@pytest.mark.slow` 付きテスト（notebook 実行等）はローカル開発時にデフォルトスキップする（`addopts = "-m 'not slow'"`）。CI の main PR では全テストを実行し、develop PR では slow を除外する。
 - **カバレッジ閾値**: CI で `--cov-fail-under=95` を設定し、カバレッジ回帰を防止する。
+- **Frozen artifact の管理**: `tests/fixtures/` に格納する artifact スナップショットは、`format_version` bump 時に新旧両方を保持し migration テストに使用する。生成スクリプトを `tests/fixtures/generate_fixtures.py` に置く。
 
 ## 18.2 CI（推奨）
 
@@ -952,127 +1124,119 @@ YourLibError(code, user_message, debug_message=None, cause=None)
 - 依存の下限バージョンでのテストを CI に含める（`uv` の resolution 機能で `lowest-direct` を使用）。
 - `develop` および `main` ブランチへの PR で CI を実行する。`develop` PR では slow テストを除外し、`main` PR では全テストを実行する（H-0043）。
 
-# 19. ディレクトリ構成（更新案）
+# 19. ディレクトリ構成
+
+5 層カテゴリアーキテクチャ（§2.1）に基づく。各ディレクトリの所属 Layer を明示する。
 
 ```text
-LizyML/
-  pyproject.toml
-  README.md
-  BLUEPRINT.md
-  HISTORY.md
-  LICENSE
-  LizyML/
-    __init__.py
-
-    config/
-      loader.py              # YAML/JSON/dict、override、正規化、version管理
-      schema.py              # pydantic schema（extra=forbid）
-
-    calibration/
-      base.py
-      platt.py
-      isotonic.py
-      beta_calibration.py
-
-    core/
-      model.py               # Facade 本体（fit/predict/evaluate/tune + 組み立て）
-      _model_plots.py        # ModelPlotsMixin（plot 系メソッド委譲）
-      _model_tables.py       # ModelTablesMixin（table/accessor 系メソッド委譲）
-      _model_persistence.py  # ModelPersistenceMixin（export/load 委譲）
-      types.py               # 型の再export / 集約点（薄く保つ）
-      registries.py
-      exceptions.py
-      logging.py
-      seed.py
-      types/
-        fit_result.py
-        predict_result.py
-        artifacts.py         # FitArtifacts / PredictArtifacts 等
-      specs/
-        problem_spec.py
-        feature_spec.py
-        split_spec.py
-        training_spec.py
-        tuning_spec.py
-        calibration_spec.py
-        export_spec.py       # exportの方針（形式/互換性など）
-
-    data/
-      datasource.py
-      dataframe_builder.py
-      validators.py
-      fingerprint.py         # data fingerprint 算出
-
-    features/
-      pipeline_base.py
-      pipelines_native.py
-      pipelines_sklearn.py
-      pipelines_dnn.py
-      encoders/
-        categorical_encoder.py  # 必要時のカテゴリ処理部品
-      transformers/
-        target_transformer.py
-        feature_transformer.py
-
-    splitters/
-      base.py
-      kfold.py
-      group_kfold.py
-      time_series.py
-      purged_time_series.py
-      group_time_series.py
-
-    estimators/
-      base.py
-      lgbm.py
-      sklearn.py
-      dnn_base.py
-      dnn_torch.py
-
-    training/
-      cv_trainer.py
-      refit_trainer.py
-      tuning_trainer.py
-      inner_valid.py         # InnerValidStrategy 群
-
-    tuning/
-      base.py
-      search_space.py
-      optuna_tuner.py
-
-    metrics/
-      base.py
-      regression.py
-      classification.py
-      registry.py
-
-    evaluation/
-      oof.py
-      evaluator.py
-      thresholding.py        # binary閾値最適化（任意）
-
-    explain/
-      base.py
-      shap.py
-      lgbm_contrib.py
-      integrated_gradients.py
-
-    plots/
-      learning_curve.py
-      importance.py
-      residuals.py
-      calibration.py         # reliability diagram 等
-      classification.py      # ROC/PR/confusion 等
-
-    persistence/
-      serializer.py
-      model_store.py
-
-    utils/
-      import_optional.py
-      array.py
-      pandas.py
-      time.py
+lizyml/
+│
+├── __init__.py                     公開面 (Model, FitResult, PredictionResult, ...)
+│
+├── core/                           ── Layer 0: Foundation ──
+│   ├── exceptions.py               LizyMLError + ErrorCode
+│   ├── logging.py                  logger + run_id + output_dir
+│   ├── registries.py               MetricRegistry, CalibratorRegistry
+│   └── types/
+│       ├── fit_result.py           FitResult
+│       ├── predict_result.py       PredictionResult
+│       ├── tuning_result.py        TuningResult, TrialResult
+│       ├── artifacts.py            RunMeta, SplitIndices, DataFingerprint
+│       └── search_dim.py           SearchDim, FloatDim, IntDim, CategoricalDim, DimCategory
+│
+│                                   ── Layer 0/4: Facade (core/ 内の特殊位置) ──
+│   ├── model.py                    Model facade (組み立てと委譲のみ)
+│   ├── _model_factories.py         splitter / inner_valid / estimator provider 構築
+│   ├── _model_plots.py             ModelPlotsMixin
+│   ├── _model_tables.py            ModelTablesMixin (EstimatorProvider 経由)
+│   ├── _model_metrics.py           _has_metric_content, _filter_metrics
+│   ├── _model_persistence.py       ModelPersistenceMixin
+│   ├── train_components.py         TrainComponents (frozen dataclass)
+│   ├── seed.py                     seed 固定ユーティリティ
+│   └── specs/
+│       ├── problem_spec.py         ProblemSpec (data/ が使用)
+│       └── feature_spec.py         FeatureSpec (data/ が使用)
+│
+├── config/                         ── Layer 1: Config ──
+│   ├── schema.py                   pydantic schemas (extra="forbid")
+│   └── loader.py                   YAML/JSON/dict → LizyMLConfig
+│
+├── data/                           ── Layer 1: Data ──
+│   ├── datasource.py               CSV / Parquet / DataFrame
+│   ├── dataframe_builder.py        X/y/groups 分離 + categorical
+│   └── fingerprint.py              DataFingerprint 計算 (compute 関数)
+│
+├── splitters/                      ── Layer 1: Splitting ──
+│   ├── base.py                     BaseSplitter
+│   ├── kfold.py                    KFoldSplitter, StratifiedKFoldSplitter
+│   ├── group_kfold.py              GroupKFoldSplitter, StratifiedGroupKFoldSplitter
+│   ├── time_series.py              TimeSeriesSplitter
+│   ├── purged_time_series.py       PurgedTimeSeriesSplitter
+│   └── group_time_series.py        GroupTimeSeriesSplitter
+│
+├── features/                       ── Layer 1: Features ──
+│   ├── pipeline_base.py            BaseFeaturePipeline
+│   ├── pipelines_native.py         NativeFeaturePipeline
+│   ├── encoders/
+│   │   └── categorical_encoder.py  カテゴリ処理部品
+│   └── transformers/
+│       └── feature_transformer.py  特徴量変換 (passthrough 拡張点)
+│
+├── estimators/                     ── Layer 1: Estimators ──
+│   ├── base.py                     BaseEstimatorAdapter
+│   ├── provider.py                 EstimatorProvider protocol (§14.4)
+│   └── lgbm/                       LightGBM 実装 (サブパッケージ)
+│       ├── __init__.py             LGBMAdapter, LGBMProvider を re-export
+│       ├── adapter.py              LGBMAdapter
+│       ├── provider.py             LGBMProvider (EstimatorProvider 実装)
+│       ├── smart_params.py         resolve_smart_params / resolve_ratio_params
+│       └── defaults.py             _COMMON_DEFAULTS / default_space / default_fixed_params
+│
+├── metrics/                        ── Layer 1: Metrics ──
+│   ├── base.py                     BaseMetric
+│   ├── registry.py                 MetricRegistry helpers + task validation
+│   ├── regression.py               RMSE, MAE, R2, RMSLE, MAPE, Huber
+│   └── classification.py           LogLoss, AUC, AUCPR, F1, Accuracy, Brier, ECE, PrecisionAtK
+│
+├── calibration/                    ── Layer 1: Calibration ──
+│   ├── base.py                     BaseCalibratorAdapter
+│   ├── cross_fit.py                cross_fit_calibrate + CalibrationResult
+│   ├── registry.py                 get_calibrator
+│   ├── platt.py                    PlattCalibrator
+│   ├── isotonic.py                 IsotonicCalibrator
+│   └── beta.py                     BetaCalibrator
+│
+├── training/                       ── Layer 2: Training ──
+│   ├── cv_trainer.py               CVTrainer (outer CV loop)
+│   ├── refit_trainer.py            RefitTrainer + RefitResult
+│   ├── inner_valid.py              BaseInnerValidStrategy + 4 concrete
+│   └── oof_assembly.py             fill_oof / get_fold_pred / init_oof
+│
+├── evaluation/                     ── Layer 2: Evaluation ──
+│   ├── evaluator.py                Evaluator (raw metrics のみ)
+│   ├── table_formatter.py          evaluate_table 整形
+│   ├── confusion.py                confusion_matrix_table
+│   └── thresholding.py             threshold 最適化ユーティリティ
+│
+├── tuning/                         ── Layer 2: Tuning ──
+│   ├── tuner.py                    Tuner (Optuna study management)
+│   └── search_space.py             SearchDim, parse/suggest/split_by_category
+│
+├── explain/                        ── Layer 3: Explain (optional) ──
+│   └── shap_explainer.py           compute_shap_values / compute_shap_importance
+│
+├── plots/                          ── Layer 3: Plots (optional) ──
+│   ├── importance.py               feature importance bar chart
+│   ├── learning_curve.py           training/validation loss curve
+│   ├── oof_distribution.py         OOF prediction distribution
+│   ├── residuals.py                scatter / histogram / QQ
+│   ├── classification.py           ROC curve
+│   ├── calibration.py              reliability diagram + probability histogram
+│   └── tuning.py                   tuning history plot
+│
+└── persistence/                    ── Layer 3: Persistence ──
+    ├── exporter.py                 export() + AnalysisContext + FORMAT_VERSION
+    └── loader.py                   load() + format_version validation
 ```
 
 # 20. 既知の将来拡張（設計で塞がない）
@@ -1154,9 +1318,9 @@ loaded_model.probability_histogram_plot()
 
 ## Model に置かないこと
 
-- OOF / IF 生成ロジック（`evaluation/oof.py`）
+- OOF / IF 生成ロジック（`training/oof_assembly.py`）
 - metric 計算（`evaluation/evaluator.py`）
-- LGBM 固有処理（`estimators/lgbm.py`）
+- estimator 固有処理（`estimators/<name>/` — EstimatorProvider 経由で委譲）
 - plot 実装本体（`plots/*`）
 - 保存形式の詳細（`persistence/*`）
 
