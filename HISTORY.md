@@ -3545,3 +3545,140 @@ H-0053 で `EstimatorProvider` protocol を導入し、`model.py` のゼロ LGBM
 - エイリアス（`stratified-group-kfold` 等）が正規化されること
 - InnerValid auto-resolution で `group_holdout` が選択されること（group 制約を維持）
 - 全テスト pass、mypy clean
+
+---
+
+## H-0056: テスト基盤の体系的補強
+
+- ID: `H-0056`
+- Status: `proposed`
+- Scope: `Testing`
+- Related: `BLUEPRINT.md §18.1, §14.4, §15.2, §11`
+
+### 目的
+
+テスト評価（1007 テスト、97% カバレッジ）とピアライブラリ比較（scikit-learn / LightGBM / Optuna / FLAML / PyCaret）により特定された構造的ギャップを補填し、新アルゴリズム追加・format_version 変更・パラメータ組み合わせ爆発に対する回帰耐性を確保する。
+
+### 背景
+
+現テストスイートは契約テスト・リーク防止・再現性・エラーパスで高品質だが、以下の5カテゴリに構造的な不足がある。
+
+### Proposal: 5 カテゴリのテスト補強
+
+#### カテゴリ A: 実 Artifact 互換テスト（優先度: 高）
+
+**現状の問題**: 同一バージョン round-trip と `analysis_context.pkl` 欠損の擬似 legacy のみ。過去版が吐いた実 artifact をロードする fixture がない。Legacy 校正経路（`model.py` 325 行目 `oof_raw_scores is None` → probability 入力で calibrate する else 分岐）は実質デッドコード扱いで未検証。
+
+**追加テスト**:
+
+1. **Frozen artifact fixture**: CI で生成した artifact を `tests/fixtures/v1_regression/` / `tests/fixtures/v1_binary_calibrated/` に格納。`Model.load()` → `predict()` → 既知の期待値と比較。LightGBM / XGBoost が保存形式互換で実施している手法に準拠。
+2. **Legacy calibration path**: `oof_raw_scores=None` の FitResult を手動構築し、`predict()` 時に probability 経由で calibrate が走ることを確認。model.py 321–326 行の else 分岐のカバレッジを保証。
+3. **format_version rejection 明示テスト**: `format_version=99` の metadata.json → `DESERIALIZATION_FAILED` で reject。`format_version=0`（過去）も同様。
+4. **Booster model string roundtrip**: `model_to_string()` → `model_from_string()` の往復が LightGBM バージョン間で壊れないことの検証（LightGBM #7186 の回帰検知）。
+5. **metadata.json 部分欠損**: 必須フィールド（`feature_names`, `task`, `run_id` 等）を1つずつ削除し、各欠損で正しいエラーメッセージが出ることを検証。
+
+#### カテゴリ B: Provider/Adapter 共通 Invariant チェック（優先度: 高）
+
+**現状の問題**: adapter / e2e テストは LGBM 前提の手書き happy-path が中心。共有データも 2 列の dense float DataFrame に偏る。scikit-learn は `check_estimator` / `parametrize_with_checks` で API 共通条件を一括検証し、LightGBM も `all_x_types` / `all_y_types` と sklearn check を回している。LizyML は provider/adapter ごとの共通チェック層を持たない。
+
+**追加テスト（`check_provider` スイート）**:
+
+1. **Protocol メソッド存在・戻り値型チェック**:
+   - `check_extract_model_params_returns_dict`: `extract_model_params()` が `dict[str, Any]` を返す。
+   - `check_extract_smart_params_returns_dict`: `extract_smart_params()` が `dict[str, Any]` を返す。
+   - `check_runtime_deps_nonempty`: `runtime_deps()` が空でない `dict[str, str]` を返す。
+   - `check_default_space_nonempty`: `default_space(task)` が空でない `list[SearchDim]` を返す。
+
+2. **Factory → fit → predict 往復チェック**:
+   - `check_estimator_fit_predict_roundtrip`: 全タスク型（regression / binary / multiclass）× provider で fit → predict が完走し、出力 shape が正しい。
+   - `check_estimator_predict_proba_shape`: binary → `(n, 2)`、multiclass → `(n, k)`。regression → `UNSUPPORTED_TASK`。
+   - `check_pipeline_factory_returns_pipeline`: `build_pipeline_factory()()` が `BaseFeaturePipeline` を返す。
+
+3. **Pickle 往復チェック**:
+   - `check_estimator_pickle_roundtrip`: fit 済み adapter を pickle → unpickle し、predict 結果が一致。
+
+4. **Importance チェック**:
+   - `check_importance_after_fit`: fit 後に `importance("split")` と `importance("gain")` が feature_names と同じキーの dict を返す。
+
+5. **データ多様性 fixture**:
+   - `dense_float_2col`（既存）、`dense_float_20col`（高次元）、`mixed_dtype`（float + int + category）、`with_missing`（NaN 列）、`single_feature`（1列）、`high_cardinality_cat`（100+ unique category）。
+   - 各 fixture を `check_estimator_fit_predict_roundtrip` にパラメタライズ。
+
+#### カテゴリ C: Tuning 再現性・失敗マトリクス（優先度: 中）
+
+**現状の問題**: 再現性テストは fit/predict/evaluate まで。tuning 側は callback と基本成功/失敗のみ。同一 seed で `best_params` / `best_score` / trial 順が固定されるか未検証。全 trial 失敗時の分岐（`tuner.py` 167 行目）は未到達。Optuna は seed 固定と逐次実行を再現性の前提として明示している。
+
+**追加テスト**:
+
+1. **tune() 再現性**: 同一 seed・同一データ・同一 space で 2 回 `tune()` を実行し、`best_params`, `best_score`, `len(trial_history)`, trial 順序が完全一致することを検証。
+2. **全 trial 失敗**: objective が常に例外を送出する mock を注入し、`TUNING_FAILED` + `context["n_trials"]` を検証。`tuner.py` 167–175 行の `if not completed` 分岐をカバー。
+3. **部分 trial 失敗**: 一部 trial のみ失敗させ、成功 trial の中から best が正しく選択されることを検証。
+4. **NaN/inf 返却時**: objective が `float("nan")` や `float("inf")` を返した場合の挙動を検証（Optuna 側の pruned 処理との整合）。
+5. **Search space と Config params の衝突**: Config に `learning_rate=0.1` を設定しつつ、search space にも `learning_rate` を含め、tune 結果が Config 値を上書きすることを検証。
+6. **空の search space**: `space={}` でデフォルト space が使用されることの明示テスト。
+
+#### カテゴリ D: 入力ソース・dtype・境界値の E2E（優先度: 中）
+
+**現状の問題**: DataSource 単体では CSV/Parquet を読めるが、Model entry まで通すテストは CSV 中心。共通 helper も単純な float DataFrame。Parquet 経由の fit/predict/export/load、nullable dtype、重複列、空/1行入力、カテゴリ順序ずれなどは見当たらない。LightGBM/XGBoost は `all_x_types` / `all_y_types` でコンテナ型・dtype 差分を広く回している。
+
+**追加テスト**:
+
+1. **Parquet フルパイプライン**: Parquet ファイル → `data.path` → fit → export → load → predict の完走。CSV 経由のみだった E2E を拡張。
+2. **float32 入力**: `float32` DataFrame を `fit()` に渡し、OOF / predict 結果が `float64` で返ることを確認。scikit-learn の `global_dtype` fixture に相当。
+3. **nullable dtype**: `pd.array([1, 2, None], dtype="Int64")` を含む DataFrame → fit が正常に動作するか、明確なエラーを返すかを検証。
+4. **空 DataFrame (0行)**: `fit()` → 明確なエラーメッセージ（`DATA_SCHEMA_INVALID` 等）。
+5. **1行 DataFrame**: CV 不可能な最小ケース → 明確なエラーメッセージ。
+6. **重複列名**: `pd.DataFrame({"a": ..., "a": ...})` → 明確なエラーメッセージ。
+7. **極端な値**: `inf` / `-inf` / 非常に大きい値を含む DataFrame での fit 挙動。
+8. **カテゴリ順序ずれ**: 学習時 `["a", "b", "c"]` → 推論時 `["c", "a", "b"]` の順序違い。列ズレテスト（test_column_drift.py）の拡張。
+
+#### カテゴリ E: パラメータ組み合わせの Pairwise テスト（優先度: 中）
+
+**現状の問題**: 各パラメータを1つずつ検証しているが、相互作用のテストがない。全組み合わせの直積は爆発するが、Pairwise（2因子間カバレッジ）なら ~20-30 ケースで主要な相互作用を検出できる。
+
+**因子と値**:
+
+| 因子 | 値 |
+|------|-----|
+| task | `regression`, `binary`, `multiclass` |
+| split_method | `kfold`, `stratified_kfold`, `group_kfold`, `time_series` |
+| calibration | `None`, `"platt"` |
+| early_stopping | `True`, `False` |
+| n_estimators | `5`, `100` |
+
+**追加テスト**:
+
+1. **Pairwise fit 完走テスト**: 上記因子の pairwise 組み合わせ（約 20-30 ケース）を `@pytest.mark.parametrize` で生成し、「有効な組み合わせは例外なく fit 完走する」「無効な組み合わせ（例: calibration + regression）は明確なエラーを返す」を検証。
+2. **個別の重要な相互作用テスト**:
+   - `calibration` + `group_kfold`: calibration splitter が group 制約を尊重するか。
+   - `balanced=True` + `multiclass`: sample_weight が正しく計算されるか。
+   - `feature_weights` + `auto_num_leaves`: smart params 同士の相互作用。
+   - `tuning` + `calibration`: tune → fit(calibration) で best_params と calibration が両立するか。
+   - `n_estimators=1` + `early_stopping`: 最小ラウンドでのエッジケース。
+   - `features.exclude` + `features.categorical`: 除外列がカテゴリ列の場合。
+
+### 影響範囲
+
+- `tests/` 以下への追加のみ。`lizyml/` の実装コードは変更しない。
+- `tests/fixtures/` にfrozen artifact を追加（CI 生成スクリプト含む）。
+- `tests/_helpers.py` にデータ多様性 fixture を追加。
+
+### 互換性
+
+- テスト追加のみのため破壊的変更なし。
+- frozen artifact fixture は `format_version=1` のスナップショットであり、将来の version bump 時に migration テストの基盤となる。
+
+### 代替案
+
+- 全組み合わせ直積テスト → 実行時間爆発（数千ケース）。pairwise で十分な因子間カバレッジを達成。
+- Property-based テスト（Hypothesis）→ scikit-learn / LightGBM / Optuna / FLAML / PyCaret の5ライブラリすべて未採用。将来の検討項目とする。
+- 可視化回帰テスト（画像 diff）→ Optuna のみ別リポで実施。現時点では low priority。
+
+### 受け入れ基準
+
+- カテゴリ A: frozen artifact fixture からの `Model.load()` → `predict()` が期待値と一致。legacy calibration path（`oof_raw_scores=None`）のカバレッジ到達。
+- カテゴリ B: `check_provider` スイートが LGBMProvider に対して全チェック pass。新 provider 追加時に自動で全チェックが走る構造。
+- カテゴリ C: 同一 seed の `tune()` が `best_params` / `best_score` 完全一致。全 trial 失敗時に `TUNING_FAILED` を返す。
+- カテゴリ D: Parquet / float32 / nullable dtype の E2E が pass。0行/1行/重複列で明確なエラー。
+- カテゴリ E: pairwise 組み合わせ全ケースで fit 完走 or 明確なエラー。
+- 全体: 既存 1007 テストに影響なし。カバレッジ 97%+ 維持。
