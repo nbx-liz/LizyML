@@ -38,15 +38,6 @@ from lizyml.metrics import (
 
 
 @pytest.fixture()
-def reg_data() -> tuple[np.ndarray, np.ndarray]:
-    """Perfect predictions plus a slight error."""
-    rng = np.random.default_rng(0)
-    y_true = rng.uniform(0, 10, size=100)
-    y_pred = y_true + rng.normal(0, 0.1, size=100)
-    return y_true, y_pred
-
-
-@pytest.fixture()
 def clf_data() -> tuple[np.ndarray, np.ndarray]:
     """Binary labels with predicted probabilities."""
     rng = np.random.default_rng(1)
