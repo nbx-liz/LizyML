@@ -95,6 +95,7 @@ class TestFitResultContract:
             "oof_per_fold",
             "if_mean",
             "if_per_fold",
+            "oof_coverage",
         }
 
     def test_calibrator_none_when_no_calibration(self) -> None:

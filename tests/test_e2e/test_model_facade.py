@@ -68,6 +68,7 @@ class TestModelCommon:
             "oof_per_fold",
             "if_mean",
             "if_per_fold",
+            "oof_coverage",
         }
 
     @pytest.mark.parametrize("task", ["regression", "binary", "multiclass"])

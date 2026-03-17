@@ -109,6 +109,34 @@ class TestFormatMetricsTable:
         df = format_metrics_table({"raw": raw})
         assert df.empty
 
+    def test_oof_coverage_in_attrs(self) -> None:
+        """oof_coverage is surfaced in df.attrs when present (H-0057)."""
+        metrics = {
+            "raw": {
+                "oof": {"rmse": 0.5},
+                "oof_per_fold": [{"rmse": 0.55}],
+                "if_mean": {"rmse": 0.4},
+                "if_per_fold": [{"rmse": 0.38}],
+                "oof_coverage": 0.75,
+            }
+        }
+        df = format_metrics_table(metrics)
+        assert "oof_coverage" in df.attrs
+        assert df.attrs["oof_coverage"] == pytest.approx(0.75)
+
+    def test_oof_coverage_absent_when_not_provided(self) -> None:
+        """No oof_coverage in attrs when not in input dict."""
+        metrics = {
+            "raw": {
+                "oof": {"rmse": 0.5},
+                "oof_per_fold": [],
+                "if_mean": {"rmse": 0.4},
+                "if_per_fold": [],
+            }
+        }
+        df = format_metrics_table(metrics)
+        assert "oof_coverage" not in df.attrs
+
     def test_fold_columns_use_oof_per_fold(self) -> None:
         """fold_N columns must use oof_per_fold, not if_per_fold (H-0045)."""
         metrics = {

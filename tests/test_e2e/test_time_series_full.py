@@ -224,3 +224,71 @@ class TestGroupTimeSeries:
             assert train_groups.isdisjoint(valid_groups), (
                 f"Fold {fold_idx}: groups overlap between train and valid"
             )
+
+
+# ===========================================================================
+# H-0057: OOF coverage — TimeSeriesCV produces valid (non-NaN) metrics
+# ===========================================================================
+
+
+class TestOofCoverage:
+    """Verify split-derived OOF coverage mask produces valid metrics."""
+
+    def test_oof_metrics_not_nan_time_series(self) -> None:
+        """TimeSeriesCV fit produces finite OOF metrics (not NaN)."""
+        df = _make_time_regression_df(n=200)
+        cfg = make_config(
+            "regression",
+            split_method="time_series",
+            n_splits=3,
+            time_col="time",
+        )
+        m = Model(cfg)
+        m.fit(data=df)
+        metrics = m.evaluate(metrics=["rmse", "mae"])
+        for name, val in metrics["raw"]["oof"].items():
+            assert np.isfinite(val), f"OOF metric '{name}' is {val}, expected finite"
+
+    def test_oof_coverage_less_than_one_time_series(self) -> None:
+        """TimeSeriesCV coverage is < 1.0 (first rows are uncovered)."""
+        df = _make_time_regression_df(n=200)
+        cfg = make_config(
+            "regression",
+            split_method="time_series",
+            n_splits=3,
+            time_col="time",
+        )
+        m = Model(cfg)
+        m.fit(data=df)
+        metrics = m.evaluate(metrics=["rmse"])
+        coverage = metrics["raw"]["oof_coverage"]
+        assert 0.0 < coverage < 1.0, f"Expected partial coverage, got {coverage}"
+
+    def test_oof_coverage_equals_one_kfold(self) -> None:
+        """KFold coverage is exactly 1.0."""
+        df = _make_time_regression_df(n=200)
+        cfg = make_config(
+            "regression",
+            split_method="kfold",
+            n_splits=3,
+        )
+        m = Model(cfg)
+        m.fit(data=df)
+        metrics = m.evaluate(metrics=["rmse"])
+        assert metrics["raw"]["oof_coverage"] == 1.0
+
+    def test_evaluate_table_has_coverage_attr(self) -> None:
+        """evaluate_table().attrs contains oof_coverage."""
+        df = _make_time_regression_df(n=200)
+        cfg = make_config(
+            "regression",
+            split_method="time_series",
+            n_splits=3,
+            time_col="time",
+        )
+        m = Model(cfg)
+        m.fit(data=df)
+        table = m.evaluate_table()
+        assert "oof_coverage" in table.attrs
+        assert isinstance(table.attrs["oof_coverage"], float)
+        assert 0.0 < table.attrs["oof_coverage"] < 1.0

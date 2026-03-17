@@ -3682,3 +3682,78 @@ H-0053 で `EstimatorProvider` protocol を導入し、`model.py` のゼロ LGBM
 - カテゴリ D: Parquet / float32 / nullable dtype の E2E が pass。0行/1行/重複列で明確なエラー。
 - カテゴリ E: pairwise 組み合わせ全ケースで fit 完走 or 明確なエラー。
 - 全体: 既存 1007 テストに影響なし。カバレッジ 97%+ 維持。
+
+---
+
+## H-0057: Split-derived OOF Coverage（TimeSeriesCV の OOF メトリクス NaN 解消）
+
+- ID: `H-0057`
+- Status: `implemented`
+- Scope: `Evaluation | Metrics`
+- Related: `BLUEPRINT.md §13.2, §7.1`
+
+### 目的
+
+TimeSeriesCV（expanding window）使用時に、最初の期間のサンプルがどの validation fold にも含まれないため OOF 予測値が NaN のまま残り、`evaluate()` / `evaluate_table()` の全体 OOF メトリクスが NaN になる問題を解消する。
+
+### 背景
+
+- `TimeSeriesSplit(n_splits=K)` では先頭 `n_samples // (K+1)` 行程度が全 fold で train 側にのみ含まれ、validation に一度も現れない。
+- 現行の `Evaluator.evaluate()` は `oof_pred` 全行で metric を計算するため、NaN が混入しメトリクスも NaN になる。
+- NaN マスク（`np.isnan` で除外）は「バグで予測されなかった行」と「仕様上カバーされない行」を区別できず、潜在バグを見落とすリスクがある。
+
+### Proposal: Split-derived OOF Coverage Mask
+
+1. **`compute_oof_valid_mask(splits_outer, n_samples)`** を `oof_assembly.py` に追加。
+   - `SplitIndices.outer` の全 fold の `valid_idx` の和集合から boolean mask を生成。
+   - NaN 検出ではなく、split 構造から決定論的に導出。
+
+2. **`Evaluator.evaluate()` の OOF メトリクス計算を変更**。
+   - mask の True 行のみで `oof` メトリクスを計算。
+   - **カバー行に NaN がある場合は `ValueError`**（予測パイプラインのバグとして検知）。
+   - `oof_per_fold` / IF メトリクスは変更なし。
+
+3. **`metrics["raw"]["oof_coverage"]`** を追加（float, 0.0–1.0）。
+   - KFold: 常に `1.0`。TimeSeriesCV: `< 1.0`。
+
+4. **`evaluate_table()`** で `df.attrs["oof_coverage"]` として公開。
+
+### 影響範囲
+
+| 対象 | 変更内容 |
+|------|---------|
+| `oof_assembly.py` | `compute_oof_valid_mask()` 追加 |
+| `evaluator.py` | mask ベースの OOF 計算 + `oof_coverage` 追加 |
+| `table_formatter.py` | `df.attrs` に `oof_coverage` |
+| `_model_metrics.py` | calibrated パスは `splits` 保持済み → 変更不要 |
+| FitResult | **変更なし**（mask は SplitIndices から導出） |
+
+### 互換性
+
+- **KFold（既存の主要ユースケース）**: 全行カバーのため挙動は完全に同一。
+- **TimeSeriesCV**: `metrics["raw"]["oof"]` が NaN → 有効な数値に変わる（改善のみ）。
+- **`metrics["raw"]` への `oof_coverage` キー追加**: 既存コードは未知キーを参照しない限り影響なし。`filter_metrics()` は非 dict 値をパススルーするため互換。
+
+### 代替案（却下）
+
+- **NaN マスク**: `np.isnan(oof_pred)` で除外。→ バグ由来の NaN も黙殺されるため却下。
+
+### 受け入れ基準
+
+- `compute_oof_valid_mask` が split indices から正しい bool mask を返す（unit test）。
+- カバー行に NaN → `ValueError`（バグ検知テスト）。
+- 非カバー行の NaN は正常スキップ。
+- KFold で `oof_coverage == 1.0`、TimeSeriesCV で `oof_coverage < 1.0`。
+- TimeSeriesCV の OOF メトリクスが finite（NaN でない）。
+- `evaluate_table().attrs["oof_coverage"]` が float。
+- 既存テスト全通し（後方互換）。
+
+### Decision
+
+- Date: 2026-03-17
+- Result: Accepted — split 構造からの決定論的マスク + バグ検知 assertion の方針で実装する。
+
+### 備考
+
+- `metrics["calibrated"]` には `oof_coverage` を含めない（現状維持）。calibrated の cross-fit 分割は `calibration.n_splits` で outer とは独立しており、coverage が異なりうるため、raw の値を流用すると不正確になる。
+- この不整合は H-0058（Outer Split を Calibration で再利用する提案）で構造的に解消される予定。H-0058 が実装されれば calibrated の coverage は raw と一致するため、別途 coverage を公開する必要がなくなる。
