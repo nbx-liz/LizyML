@@ -77,9 +77,21 @@ def assemble_calibrated_metrics(
         return metrics
 
     cal_oof = fit_result.calibrator.calibrated_oof
-    cal_result = evaluator.evaluate(
-        dataclasses.replace(fit_result, oof_pred=cal_oof),
-        y,
-        metric_names,
+    # Use calibration fold indices for the OOF coverage mask (H-0057).
+    # The calibrated OOF was produced by cross-fit calibration folds,
+    # which may have different coverage from outer CV folds.
+    cal_splits = dataclasses.replace(
+        fit_result.splits,
+        outer=fit_result.calibrator.split_indices,
     )
+    # Build a temporary FitResult with calibration-aligned splits and
+    # dummy IF predictions (evaluator requires them, but we only use OOF).
+    cal_if = [cal_oof[t] for t, _ in fit_result.calibrator.split_indices]
+    cal_fr = dataclasses.replace(
+        fit_result,
+        oof_pred=cal_oof,
+        splits=cal_splits,
+        if_pred_per_fold=cal_if,
+    )
+    cal_result = evaluator.evaluate(cal_fr, y, metric_names)
     return {**metrics, "calibrated": {"oof": cal_result["raw"]["oof"]}}
