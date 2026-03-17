@@ -221,7 +221,7 @@ classDiagram
     class TrainingConfig:::configClass { +seed +early_stopping: EarlyStoppingConfig }
     class EarlyStoppingConfig:::configClass { +enabled +rounds +inner_valid +validation_ratio }
     class EvaluationConfig:::configClass { +metrics: list }
-    class CalibrationConfig:::configClass { +method +n_splits +params }
+    class CalibrationConfig:::configClass { +method +n_splits‹deprecated› +params }
     class TuningConfig:::configClass { +optuna: OptunaConfig }
 
     LizyMLConfig *-- DataConfig
@@ -532,7 +532,7 @@ classDiagram
     class _model_factories:::facadeClass {
         +build_splitter(cfg) BaseSplitter
         +build_inner_valid(cfg) InnerValidType
-        +build_calibration_splitter(cfg) BaseSplitter
+        +build_calibration_splitter(cfg) BaseSplitter «deprecated»
         +make_inner_valid_factory(cfg) Callable
     }
 
