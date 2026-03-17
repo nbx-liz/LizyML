@@ -768,10 +768,11 @@ result = model.tune(progress_callback=on_progress)
 - 校正前後も同一フォーマットで返す（binary）。
 - `evaluate_table()` は `evaluate()` が返す固定構造 dict を `pd.DataFrame` に変換する純粋フォーマッタ。ロジックは `evaluation/table_formatter.py` に配置する。
   - 行 = メトリクス名。
-  - `oof`: 全 OOF 集約値（全行ベース）。
+  - `oof`: OOF 集約値（**covered 行ベース**。split で valid に一度も含まれない行は除外。KFold では全行=covered、TimeSeriesCV では先頭行が non-covered）。
   - `fold_0`...`fold_N-1`: 各 outer fold の OOF（valid_idx）値。
   - `if_mean`: IF（train_idx）指標の fold 平均（参考値として保持）。
   - calibrated がある場合は `cal_oof` 列を追加。
+  - `df.attrs["oof_coverage"]`: float (0.0–1.0)。covered 行の割合。KFold では常に `1.0`。TimeSeriesCV では `< 1.0` になりうる。
 
 ## 13.3 可視化
 
