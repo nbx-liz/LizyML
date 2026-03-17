@@ -43,6 +43,15 @@ class TestNSplitsDeprecation:
             warnings.simplefilter("error")
             CalibrationConfig(method="platt")
 
+    def test_model_dump_roundtrip_no_warning(self) -> None:
+        """model_dump() includes default n_splits=5; re-parsing must not warn."""
+        cfg = CalibrationConfig(method="platt")
+        dumped = cfg.model_dump()
+        assert "n_splits" in dumped  # model_dump always includes it
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
+            CalibrationConfig(**dumped)
+
     def test_n_splits_value_ignored(self) -> None:
         """Even with explicit n_splits=3 and outer n_splits=5,
         calibration splits match the outer (5 folds)."""
