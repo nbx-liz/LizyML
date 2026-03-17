@@ -440,15 +440,15 @@ Supported metric names by task:
 | Key | Type | Required | Default | Notes |
 |---|---|---|---|---|
 | `method` | `"platt" \| "isotonic" \| "beta"` | No | `"platt"` | All methods are implemented. `beta` requires `scipy`. |
-| `n_splits` | `int` | No | `5` | Number of folds for calibration cross-fit. |
+| `n_splits` | `int` | No | `5` | **Deprecated (H-0058)**: ignored. Calibration cross-fit reuses outer CV splits. Non-default values emit `UserWarning`. |
 
 Runtime notes:
 
 - Calibration is supported only for `task="binary"`.
 - `method="beta"` is supported (install optional dependency: `pip install 'lizyml[calibration]'`).
-- Calibration cross-fit splits inherit `split.method` and its parameters
-  (e.g. `gap`, `purge_gap`, `embargo`, group boundaries). Only the fold
-  count is overridden by `calibration.n_splits`.
+- Calibration cross-fit reuses outer CV split indices directly (H-0058).
+  The fold count and split boundaries (group / time / purge / embargo)
+  are inherited from the outer CV configuration.
 
 ### Loader/Override Behavior
 
