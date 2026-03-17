@@ -138,7 +138,9 @@ class TestTimeSeriesCalibrationSplitter:
     """Calibration inherits time_series splitter type from outer split config."""
 
     def test_calibration_splitter_is_time_series(self) -> None:
-        """Calibration splitter is TimeSeriesSplitter for time_series."""
+        """Deprecated build_calibration_splitter still returns correct type."""
+        import warnings
+
         from lizyml.config.loader import load_config
         from lizyml.core._model_factories import build_calibration_splitter
         from lizyml.splitters.time_series import TimeSeriesSplitter
@@ -151,15 +153,20 @@ class TestTimeSeriesCalibrationSplitter:
             calibration="platt",
             calibration_n_splits=4,
         )
-        cfg = load_config(cfg_dict)
-        splitter = build_calibration_splitter(cfg)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            cfg = load_config(cfg_dict)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            splitter = build_calibration_splitter(cfg)
         assert isinstance(splitter, TimeSeriesSplitter)
-        # Verify calibration_n_splits is used (4 folds, not outer 3)
         folds = list(splitter.split(100))
         assert len(folds) == 4
 
     def test_calibration_splitter_inherits_purged_params(self) -> None:
-        """build_calibration_splitter preserves purge_gap/embargo from outer config."""
+        """Deprecated build_calibration_splitter preserves purge params."""
+        import warnings
+
         from lizyml.config.loader import load_config
         from lizyml.core._model_factories import build_calibration_splitter
         from lizyml.splitters.purged_time_series import PurgedTimeSeriesSplitter
@@ -173,8 +180,12 @@ class TestTimeSeriesCalibrationSplitter:
             calibration_n_splits=3,
             split_overrides={"purge_gap": 10, "embargo": 5},
         )
-        cfg = load_config(cfg_dict)
-        splitter = build_calibration_splitter(cfg)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            cfg = load_config(cfg_dict)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", DeprecationWarning)
+            splitter = build_calibration_splitter(cfg)
         assert isinstance(splitter, PurgedTimeSeriesSplitter)
         assert splitter.purge_gap == 10
         assert splitter.embargo == 5

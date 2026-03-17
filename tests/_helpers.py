@@ -179,7 +179,7 @@ def make_config(
     time_col: str | None = None,
     split_overrides: dict[str, Any] | None = None,
     calibration: str | None = None,
-    calibration_n_splits: int = 5,
+    calibration_n_splits: int | None = None,
     calibration_params: dict[str, Any] | None = None,
     tuning_n_trials: int | None = None,
     seed: int = 0,
@@ -228,10 +228,9 @@ def make_config(
         "training": {"seed": seed},
     }
     if calibration is not None:
-        cal: dict[str, Any] = {
-            "method": calibration,
-            "n_splits": calibration_n_splits,
-        }
+        cal: dict[str, Any] = {"method": calibration}
+        if calibration_n_splits is not None:
+            cal["n_splits"] = calibration_n_splits
         if calibration_params is not None:
             cal["params"] = calibration_params
         cfg["calibration"] = cal

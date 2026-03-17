@@ -40,7 +40,6 @@ from lizyml import __version__
 from lizyml.config.loader import load_config
 from lizyml.config.schema import LizyMLConfig
 from lizyml.core._model_factories import (
-    build_calibration_splitter,
     build_inner_valid,
     build_splitter,
     get_provider,
@@ -759,40 +758,20 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             if fit_result.oof_raw_scores is not None
             else fit_result.oof_pred
         )
-        cal_splitter = build_calibration_splitter(cfg)
         y_arr = y.to_numpy()
-        try:
-            cal_split_indices = list(
-                cal_splitter.split(len(y_arr), y=y_arr, groups=groups)
-            )
-        except ValueError as e:
-            raise LizyMLError(
-                code=ErrorCode.CONFIG_INVALID,
-                user_message=(
-                    f"Cannot create calibration splits with "
-                    f"method='{cfg.split.method}' and "
-                    f"n_splits={cfg.calibration.n_splits}: {e}"
-                ),
-                context={
-                    "split_method": cfg.split.method,
-                    "calibration_n_splits": cfg.calibration.n_splits,
-                    "n_samples": len(y_arr),
-                    **(
-                        {"n_groups": len(np.unique(groups))}
-                        if groups is not None
-                        else {}
-                    ),
-                },
-            ) from e
+        # Reuse outer CV splits for calibration cross-fit (H-0058).
+        # Calibration input is (oof_scores, y) only — no X leakage.
+        cal_split_indices = fit_result.splits.outer
         calibration_result = cross_fit_calibrate(
             oof_scores=cal_scores,
             y=y_arr,
             calibrator_factory=lambda: get_calibrator(method, params=cal_params),
             split_indices=cal_split_indices,
+            oof_pred=fit_result.oof_pred,
         )
         new_splits = dataclasses.replace(
             fit_result.splits,
-            calibration=calibration_result.split_indices,
+            calibration=cal_split_indices,
         )
         return dataclasses.replace(
             fit_result,
