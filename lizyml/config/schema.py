@@ -5,6 +5,7 @@ All models use extra="forbid" to catch typos as CONFIG_INVALID errors.
 
 from __future__ import annotations
 
+import warnings
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
@@ -63,6 +64,15 @@ class GroupKFoldConfig(BaseModel):
 
     method: Literal["group_kfold"]
     n_splits: int = 5
+
+
+class StratifiedGroupKFoldConfig(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["stratified_group_kfold"]
+    n_splits: int = 5
+    random_state: int = 42
+    shuffle: bool = True
 
 
 class TimeSeriesConfig(BaseModel):
@@ -133,6 +143,7 @@ SplitConfig = Annotated[
     KFoldConfig
     | StratifiedKFoldConfig
     | GroupKFoldConfig
+    | StratifiedGroupKFoldConfig
     | TimeSeriesConfig
     | PurgedTimeSeriesConfig
     | GroupTimeSeriesConfig,
@@ -143,6 +154,16 @@ SplitConfig = Annotated[
 # ---------------------------------------------------------------------------
 # ModelConfig (discriminated union)
 # ---------------------------------------------------------------------------
+
+
+def _check_ratio(value: float | None, name: str, *, inclusive_upper: bool) -> None:
+    """Validate a ratio parameter is in (0, 1] or (0, 1)."""
+    if value is None:
+        return
+    hi_ok = value <= 1.0 if inclusive_upper else value < 1.0
+    if not (value > 0 and hi_ok):
+        bound = "1]" if inclusive_upper else "1)"
+        raise ValueError(f"{name} must be in (0, {bound}, got {value}")
 
 
 class LGBMConfig(BaseModel):
@@ -179,24 +200,13 @@ class LGBMConfig(BaseModel):
                 "Cannot specify both 'min_data_in_bin_ratio' and "
                 "'params.min_data_in_bin'. Use one or the other."
             )
-        if not (0 < self.num_leaves_ratio <= 1):
-            raise ValueError(
-                f"num_leaves_ratio must be in (0, 1], got {self.num_leaves_ratio}"
-            )
-        if self.min_data_in_leaf_ratio is not None and not (
-            0 < self.min_data_in_leaf_ratio < 1
-        ):
-            raise ValueError(
-                f"min_data_in_leaf_ratio must be in (0, 1), "
-                f"got {self.min_data_in_leaf_ratio}"
-            )
-        if self.min_data_in_bin_ratio is not None and not (
-            0 < self.min_data_in_bin_ratio < 1
-        ):
-            raise ValueError(
-                f"min_data_in_bin_ratio must be in (0, 1), "
-                f"got {self.min_data_in_bin_ratio}"
-            )
+        _check_ratio(self.num_leaves_ratio, "num_leaves_ratio", inclusive_upper=True)
+        _check_ratio(
+            self.min_data_in_leaf_ratio, "min_data_in_leaf_ratio", inclusive_upper=False
+        )
+        _check_ratio(
+            self.min_data_in_bin_ratio, "min_data_in_bin_ratio", inclusive_upper=False
+        )
         if self.feature_weights:
             for k, v in self.feature_weights.items():
                 if v <= 0:
@@ -328,12 +338,39 @@ class EvaluationConfig(BaseModel):
 # ---------------------------------------------------------------------------
 
 
+_CALIBRATION_N_SPLITS_DEFAULT = 5
+
+
 class CalibrationConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     method: Literal["platt", "isotonic", "beta"] = "platt"
-    n_splits: int = 5
+    n_splits: int = _CALIBRATION_N_SPLITS_DEFAULT
     params: dict[str, Any] = {}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _warn_deprecated_n_splits(cls, data: Any) -> Any:
+        """Emit UserWarning when n_splits is explicitly set to a
+        non-default value (H-0058).
+
+        Only fires for dict inputs where ``n_splits`` differs from the
+        default (5).  This avoids spurious warnings when
+        ``model_dump()`` round-trips (e.g. ``Model.load()``) include
+        the default value.
+        """
+        if (
+            isinstance(data, dict)
+            and "n_splits" in data
+            and data["n_splits"] != _CALIBRATION_N_SPLITS_DEFAULT
+        ):
+            warnings.warn(
+                "calibration.n_splits is deprecated and will be ignored. "
+                "Calibration cross-fit now reuses outer CV splits (H-0058).",
+                UserWarning,
+                stacklevel=2,
+            )
+        return data
 
 
 # ---------------------------------------------------------------------------

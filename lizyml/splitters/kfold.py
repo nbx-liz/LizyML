@@ -9,12 +9,9 @@ import numpy as np
 import numpy.typing as npt
 from sklearn.model_selection import KFold, StratifiedKFold
 
-from lizyml.core.registries import SplitterRegistry
-
 from .base import BaseSplitter
 
 
-@SplitterRegistry.register("kfold")
 class KFoldSplitter(BaseSplitter):
     """Standard K-fold cross-validation splitter.
 
@@ -46,7 +43,6 @@ class KFoldSplitter(BaseSplitter):
         yield from self._kf.split(indices)
 
 
-@SplitterRegistry.register("stratified_kfold")
 class StratifiedKFoldSplitter(BaseSplitter):
     """Stratified K-fold splitter that preserves class distribution.
 

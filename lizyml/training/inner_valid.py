@@ -98,7 +98,7 @@ class HoldoutInnerValid(BaseInnerValidStrategy):
                 np.sort(valid_rel.astype(np.intp)),
             )
         rng = np.random.default_rng(self.random_state)
-        n_valid = max(1, int(n_samples * self.ratio))
+        n_valid = max(1, int(np.ceil(n_samples * self.ratio)))
         perm = rng.permutation(n_samples)
         valid_idx = np.sort(perm[:n_valid])
         train_idx = np.sort(perm[n_valid:])

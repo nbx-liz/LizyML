@@ -54,7 +54,7 @@ PyPI 公開を前提にした場合、build 定義・配布メタデータ・REA
 ## 2026-03-04: Config Schema の全フィールド確定
 
 - ID: `H-0001`
-- Status: `proposed`
+- Status: `accepted`
 - Scope: `Config`
 - Related: `BLUEPRINT.md §5, §3.3`
 
@@ -247,7 +247,7 @@ class CalibrationConfig(BaseModel):
 ## 2026-03-04: FitResult / PredictionResult / Artifacts の全フィールド確定
 
 - ID: `H-0002`
-- Status: `proposed`
+- Status: `accepted`
 - Scope: `Artifacts`
 - Related: `BLUEPRINT.md §7`
 
@@ -360,7 +360,7 @@ class RunMeta:
 ## 2026-03-04: Persistence / Export フォーマット仕様の確定
 
 - ID: `H-0003`
-- Status: `proposed`
+- Status: `accepted`
 - Scope: `Artifacts | Export`
 - Related: `BLUEPRINT.md §14, §15.4`
 
@@ -3107,3 +3107,754 @@ BLUEPRINT §10.1 では「Splitter は外側 CV / early stopping / calibration �
 - Date: `2026-03-14`
 - Result: `accepted`
 - Notes: Evaluator 層での行正規化（案 B）を採用。ただし正規化対象を `needs_simplex=True` メトリクスに限定（案 C を統合）。`BaseMetric.needs_simplex` をデフォルト `False` の concrete property として追加し、`AUC` / `LogLoss` のみ `True` にオーバーライド。per-class OvR メトリクス（AUCPR, Brier）は raw 値を受け取る。
+
+---
+
+## 2026-03-15: Smart Parameter 統一 & TrainComponents 導入
+
+- ID: `H-0050`
+- Status: `accepted`
+- Scope: `Training | Tuning | Result`
+- Related: `BLUEPRINT.md §5.3, §6.1, §6.2, §7.2, §11.2`
+
+### Context
+
+現状 `resolve_smart_params`（fit 用、`LGBMConfig` を受け取る）と `resolve_smart_params_from_dict`（tune 用、`dict` を受け取る）の 2 関数が存在し、対応する smart params の範囲が非対称（tune 版は `feature_weights` / `balanced` を未対応）。また `TuningResult.best_params` が flat dict であるため、tune → fit 時に smart params のカテゴリ区別が失われ、Config 側の固定値で上書きされてしまう問題がある。fit / tune で CVTrainer への組み立てロジックも重複しており、一貫性・保守性を損なっている。
+
+### Proposal
+
+1. **`resolve_smart_params` を dict ベースに統一**: 第 1 引数を `LGBMConfig` → `dict[str, Any]` に変更。`extract_smart_params(config: LGBMConfig) -> dict` ヘルパーを追加。`resolve_smart_params_from_dict` を削除。fit / tune で同一関数を使用する。
+
+2. **`TuningResult` をカテゴリ別に変更**: `best_params`（flat dict）を `best_model_params` / `best_smart_params` / `best_training_params` に分割。互換性のため `best_params` を computed property（flat view）として残す。
+
+3. **`TrainComponents` 導入**: パラメータ解決結果を保持する dataclass（`estimator_factory` / `sample_weight` / `ratio_resolver` / `inner_valid`）。`Model._build_train_components()` で構築し、CVTrainer と RefitTrainer に同一インスタンスを渡すことで一貫性を構造的に保証する。
+
+4. **`Model.fit()` / `Model.tune()` の共通化**: 両者とも `_build_train_components()` を経由して CVTrainer を構築する。tune の各 trial は `_build_train_components(model_params=..., smart_params=...)` を呼び、fit と同じコードパスを通る。
+
+5. **`Tuner` のシンプル化**: Tuner の責務を Optuna study 管理のみに縮小。`objective` クロージャは Model 側で構築して注入する。Tuner から LGBM 固有の import をすべて除去する。
+
+6. **`Model._best_params` 削除**: `_tuning_result` からカテゴリ別に取得する。パラメータ優先順位: `Config defaults < tune best < fit() 引数`。
+
+### Impact
+
+- `lizyml/estimators/lgbm.py`: `resolve_smart_params` 引数変更、`extract_smart_params` 追加、`resolve_smart_params_from_dict` 削除
+- `lizyml/core/types/tuning_result.py`: field 構成変更
+- `lizyml/core/model.py`: `TrainComponents` 追加、`_build_train_components` / `_merge_params` 追加、fit() / tune() 書き換え、`_best_params` 削除
+- `lizyml/tuning/tuner.py`: コンストラクタ縮小、LGBM 固有ロジック除去
+
+- 変更しないもの: `CVTrainer` / `RefitTrainer` / `config/schema.py` / `search_space.py` のインターフェース
+
+### Compatibility
+
+- `TuningResult.best_params` は computed property として残すため、読み取り側は互換。ただし `TuningResult` のコンストラクタは変更される（`best_params` → `best_model_params` + `best_smart_params` + `best_training_params`）。
+- `Tuner` のコンストラクタは大幅に縮小されるが、内部 API のため外部互換性は影響なし。
+- `resolve_smart_params_from_dict` は削除されるが、内部 API のため外部互換性は影響なし。
+
+### Alternatives Considered
+
+1. `TuningResult.best_params` に `overrides` 引数を追加する（fit 側で overrides 適用）
+   - 不採用。カテゴリの区別が曖昧なまま残り、将来のアルゴリズム追加時に同じ問題が再発する。
+2. EstimatorBuilder パターン（B案）を先に導入する
+   - 不採用（段階的に実施）。tune → fit の smart params 問題を先に解決し、クリーンな状態で B案を検討する。
+
+### Acceptance Criteria
+
+- `resolve_smart_params_from_dict` が削除され、fit / tune が同一の `resolve_smart_params(dict, ...)` を使用している。
+- `TuningResult` が `best_model_params` / `best_smart_params` / `best_training_params` を持ち、`best_params` property が flat view を返す。
+- `_build_train_components()` が CVTrainer と RefitTrainer に同一の factory / resolver を提供している。
+- tune() の各 trial が `_build_train_components()` を経由して CVTrainer を構築している。
+- `Tuner` が LGBM 固有の import を持たない。
+- tune → fit で smart params（`num_leaves_ratio` 等）が正しく引き継がれるテストが存在する。
+- 既存テスト（910件）がすべて pass する。
+
+### Decision
+
+- Date: `2026-03-15`
+- Result: `accepted`
+- Notes: 議論の結果、「Config → Tune → Fit の一連のフローで同一コードパスを通る」設計を優先。B案（EstimatorBuilder）は本 Proposal 完了後に段階的に検討する。
+
+---
+
+## 2026-03-16: デッドコード削除と Foundation 整理
+
+- ID: `H-0051`
+- Status: `accepted`
+- Scope: `Architecture | Internal`
+- Related: `BLUEPRINT.md §2, §19, ARCHITECTURE.md`
+
+### Context
+
+アーキテクチャレビューの結果、以下のデッドコードと構造上の問題が発見された:
+1. 本番コードで未使用のクラス/モジュールが複数存在する（`TargetTransformer`, `SplitPlan`, `HoldoutSplitter`, 未使用 Spec 群, `import_optional.py`）。
+2. `EstimatorRegistry` / `SplitterRegistry` が `@register` デコレータで書き込みされるが `.get()` が呼ばれない（書き込み専用）。`MetricRegistry` / `CalibratorRegistry` は正当な lookup がある。
+3. `types/` が `data/` に依存している（`DataFingerprint` の import）。ARCHITECTURE.md で定義した Layer 0 → Layer 1 の逆依存。
+4. `splitters/` ↔ `specs/` の循環依存が存在する。
+
+これらは ARCHITECTURE.md で定義した 5 層カテゴリアーキテクチャ（Layer 0: Foundation → Layer 1: Leaf → Layer 2: Composition → Layer 3: Optional → Layer 4: Facade）の前提条件である「DAG 構造」と「各 Leaf カテゴリの独立性」に違反する。
+
+### Proposal
+
+1. **デッドコード削除**:
+   - `lizyml/features/transformers/target_transformer.py` を削除（完全未使用スタブ）
+   - `lizyml/core/specs/split_plan.py` を削除（`_model_factories` に完全置換済み）
+   - `lizyml/splitters/holdout.py` を削除（`SplitPlan` 経由のみ、他に呼び出し元なし）
+   - `lizyml/core/specs/export_spec.py` を削除（未使用）
+   - `lizyml/core/specs/training_spec.py` の `TrainingSpec` / `EarlyStoppingSpec` / `InnerValidSpec` を削除（未使用）
+   - `lizyml/core/specs/calibration_spec.py` を削除（未使用）
+   - `lizyml/core/specs/tuning_spec.py` を削除（未使用）
+   - `lizyml/config/loader.py` の `config_to_split_spec` / `config_to_training_spec` / `config_to_tuning_spec` / `config_to_calibration_spec` / `config_to_export_spec` / `config_to_problem_spec` / `config_to_feature_spec` を削除（本番で未使用。`ProblemSpec` / `FeatureSpec` は `model.py` で直接構築しているため変換関数は不要）
+   - `lizyml/utils/import_optional.py` を削除（全箇所がインライン try/except を使用）
+   - `lizyml/splitters/__init__.py` の `_build_splitter(SplitSpec)` を削除（`_model_factories` の Config ベースと重複）
+
+2. **書き込み専用 Registry の削除**:
+   - `EstimatorRegistry` の `@register` デコレータを `LGBMAdapter` から除去し、`EstimatorRegistry` クラスを `registries.py` から削除
+   - `SplitterRegistry` の `@register` デコレータを全 Splitter クラスから除去し、`SplitterRegistry` クラスを `registries.py` から削除
+   - `MetricRegistry` / `CalibratorRegistry` は `.get()` 呼び出しがあるため維持
+
+3. **DataFingerprint の移動**:
+   - `lizyml/data/fingerprint.py` の `DataFingerprint` dataclass を `lizyml/core/types/artifacts.py` に移動
+   - `compute()` 関数は `lizyml/data/fingerprint.py` に残す（`data/` が Foundation の型を返す形になり、逆依存が解消される）
+
+4. **循環依存の解消**:
+   - `specs/split_plan.py` 削除により `splitters/ → specs/` → `splitters/` の循環が自動解消
+
+### Impact
+
+- 削除対象はすべて本番コードで未使用（テストのみで使用）。公開 API・Result shape・format_version に影響なし。
+- `ProblemSpec` / `FeatureSpec` / `SplitSpec` は維持（`ProblemSpec` / `FeatureSpec` は `model.py` で使用中、`SplitSpec` は将来の Spec-based パスの可能性を残す）。
+
+### Compatibility
+
+- 公開 API の変更なし。内部モジュールの削除のみ。
+- `DataFingerprint` の import パスが `lizyml.data.fingerprint.DataFingerprint` → `lizyml.core.types.artifacts.DataFingerprint` に変更されるが、内部 API のため外部互換性は影響なし。
+
+### Alternatives Considered
+
+1. デッドコードを残し、将来の実装に備える
+   - 不採用。Spec 層は `_model_factories` の直接 Config パスに完全に置き換えられており、復活の見込みがない。デッドコードの存在は保守性を下げ、アーキテクチャの理解を妨げる。
+
+### Acceptance Criteria
+
+- 削除対象ファイルがリポジトリに存在しないこと
+- `splitters/ ↔ specs/` の循環依存が解消されていること
+- `types/` から `data/` への依存が解消されていること（`DataFingerprint` が `types/artifacts.py` に存在すること）
+- `EstimatorRegistry.get()` / `SplitterRegistry.get()` がコードベースに存在しないこと
+- 既存テスト（962件）から削除対象のテストを除いた全テストが pass すること
+- `ruff check` / `mypy` がクリーンであること
+
+---
+
+## 2026-03-16: Layer 間依存の浄化
+
+- ID: `H-0052`
+- Status: `accepted`
+- Scope: `Architecture | Training | Evaluation`
+- Related: `BLUEPRINT.md §2, §6.2, §6.3, §13.2, §14, §19, ARCHITECTURE.md`
+
+### Context
+
+ARCHITECTURE.md で定義した 5 層カテゴリアーキテクチャにおいて、以下の Layer ルール違反が存在する:
+
+1. **training/ → evaluation/**: `cv_trainer.py` が `evaluation/oof.py` の `fill_oof`, `get_fold_pred`, `init_oof` を import している。これらは OOF アセンブリの ndarray ユーティリティであり、metric 計算（Evaluator の責務）とは無関係。Layer 2 の同層間依存。
+2. **evaluation/ → calibration/**: `evaluator.py` が `CalibrationResult` を `isinstance` チェックし、calibrated metrics を直接組み立てている。Layer 2 → Layer 1 への不要な依存。Evaluator の責務は「raw predictions + y_true → metrics dict」であるべき。
+3. **estimators/ → config/**: `lgbm.py` の `extract_smart_params(LGBMConfig)` が `config/schema.py` の `LGBMConfig` を直接参照している。Layer 1 の Leaf 間依存（Leaf カテゴリは互いに依存してはならない）。
+
+### Proposal
+
+1. **OOF ヘルパーを training/ に移動**:
+   - `evaluation/oof.py` の `fill_oof`, `get_fold_pred`, `get_fold_raw`, `init_oof` を `training/oof_assembly.py`（新規）に移動
+   - `cv_trainer.py` の import を `from lizyml.training.oof_assembly import ...` に変更
+   - `evaluation/oof.py` は空にするか、後方互換の re-export のみ残す（内部 API のため即削除も可）
+
+2. **Evaluator から calibration 依存を除去**:
+   - `evaluator.py` の `evaluate()` は raw predictions のみを受け取り、`{"raw": {...}}` のみを返す
+   - calibrated metrics の組み立ては **Facade**（`model.py` の `fit()` 内）が担当する: calibrated OOF を `evaluator.evaluate()` に別途渡して結果を `{"calibrated": {...}}` として統合する
+   - `evaluator.py` から `CalibrationResult` の import と `isinstance` チェックを除去
+
+3. **estimators/ から config/ 依存を除去**:
+   - `extract_smart_params(LGBMConfig) -> dict` を `estimators/lgbm.py` → Facade（`model.py` または `_model_factories.py`）に移動
+   - `lgbm.py` の `resolve_smart_params` / `resolve_ratio_params` は既に dict ベースのため変更不要
+   - `lgbm.py` から `from lizyml.config.schema import LGBMConfig` を除去
+
+### Impact
+
+- **training/**: `cv_trainer.py` の import パスのみ変更。ロジックは同一。
+- **evaluation/**: `Evaluator.evaluate()` の返り値から `"calibrated"` キーが消える。calibrated metrics は Facade 側で追加される。最終的な `FitResult.metrics` の shape は変更なし。
+- **estimators/**: `lgbm.py` から `LGBMConfig` 依存が消える。`resolve_smart_params` は dict を受け取るため影響なし。
+- **Facade**: `model.py` の `fit()` に calibrated metrics 組み立てロジックが追加される（Evaluator を2回呼ぶ形）。`extract_smart_params` の呼び出し元が移動する。
+
+### Compatibility
+
+- 公開 API の変更なし。`FitResult.metrics` の最終 shape は不変。
+- `Evaluator.evaluate()` の返り値 shape が変更されるが、Evaluator は内部 API。
+
+### Alternatives Considered
+
+1. `evaluation/oof.py` を `core/` の共有ユーティリティに移動する
+   - 不採用。OOF アセンブリは training loop 固有のロジックであり、Foundation に置く正当性がない。
+2. Evaluator に calibrated_oof を引数で渡す（Evaluator 内で `{"calibrated": ...}` を生成）
+   - 候補として残す。ただし Evaluator が CalibrationResult 型を知らなくても済む設計が優先。
+
+### Acceptance Criteria
+
+- `training/` から `evaluation/` への import が存在しないこと
+- `evaluation/` から `calibration/` への import が存在しないこと
+- `estimators/` から `config/` への import が存在しないこと
+- `FitResult.metrics` の最終 shape が不変であること（`{"raw": {...}, "calibrated": {...}}` 構造を維持）
+- 既存テスト（962件）がすべて pass すること
+- カテゴリ間依存分析スクリプトで Layer ルール違反がゼロであること
+
+---
+
+## 2026-03-16: EstimatorProvider 導入（マルチアルゴリズム準備）
+
+- ID: `H-0053`
+- Status: `accepted`
+- Scope: `Architecture | Estimators | Public API (internal)`
+- Related: `BLUEPRINT.md §2, §14, §14.1, §19, §20, ARCHITECTURE.md`
+- Depends: `H-0051, H-0052`
+
+### Context
+
+H-0050 で `_build_train_components` / `_merge_params` により fit/tune の共通化を達成した。しかし `model.py` は依然として LGBM に直接依存している:
+
+```python
+from lizyml.estimators.lgbm import LGBMAdapter, extract_smart_params, ...
+isinstance(model_cfg, LGBMConfig)  # _merge_params 内 ×2
+LGBMAdapter(task=..., params=...)  # make_estimator 内
+default_space(cfg.task)            # tune() 内
+```
+
+EntityEmbedding 等の新アルゴリズムを追加するとき、`model.py` に `isinstance(model_cfg, EntityEmbeddingConfig)` を追加し続ける設計は持続可能でない。ARCHITECTURE.md の Layer ルール「Facade 以外の Layer は具象クラスを型ディスパッチしない」に違反する。
+
+### Proposal
+
+1. **EstimatorProvider protocol を定義** (`estimators/provider.py`):
+
+   ```python
+   class EstimatorProvider(Protocol):
+       def extract_model_params(self, model_cfg: Any) -> dict[str, Any]: ...
+       def extract_smart_params(self, model_cfg: Any) -> dict[str, Any]: ...
+       def resolve_smart_params(
+           self, smart: dict, effective: dict, n_rows: int,
+           feature_names: list[str], y: Series, task: str,
+       ) -> tuple[dict[str, Any], ndarray | None]: ...
+       def build_ratio_resolver(
+           self, smart: dict,
+       ) -> Callable[[int], dict[str, Any]] | None: ...
+       def build_estimator_factory(
+           self, task: str, params: dict, n_classes: int | None,
+           early_stopping_rounds: int | None, seed: int,
+       ) -> Callable[[], BaseEstimatorAdapter]: ...
+       def build_pipeline_factory(self) -> Callable[[], BaseFeaturePipeline]: ...
+       def default_space(self, task: str) -> list[SearchDim]: ...
+       def default_fixed_params(self, task: str) -> dict[str, Any]: ...
+   ```
+
+2. **LGBMProvider を実装** (`estimators/lgbm/provider.py`):
+   - 既存の `extract_smart_params`, `resolve_smart_params`, `resolve_ratio_params`, `default_space`, `default_fixed_params` を LGBMProvider のメソッドとして再配置
+   - `build_estimator_factory` で `LGBMAdapter` を生成
+   - `build_pipeline_factory` で `NativeFeaturePipeline` を返す
+
+3. **Provider の解決** (`estimators/registry.py` または `_model_factories.py`):
+   - `get_provider(model_cfg: ModelConfig) -> EstimatorProvider`
+   - `ModelConfig` の `name` フィールドで dispatch（`"lgbm"` → `LGBMProvider`）
+   - この dispatch は Facade 層（`_model_factories.py`）に置く
+
+4. **model.py の書き換え**:
+   - `from lizyml.estimators.lgbm import ...` を除去
+   - `_merge_params` / `_build_train_components` / `tune` を provider 経由に変更
+   - `isinstance(model_cfg, LGBMConfig)` チェックを除去
+
+5. **新アルゴリズム追加時の手順** (目標):
+   - `estimators/<name>/` に adapter + provider + config を作成
+   - `config/schema.py` の `ModelConfig` union に追加
+   - `_model_factories.py` の provider dispatch に追加
+   - **model.py の変更: ゼロ**
+
+### Impact
+
+- `model.py`: LGBM 直接 import を除去。provider 経由に書き換え。
+- `estimators/lgbm.py`: 既存関数を `LGBMProvider` に再配置。関数自体のロジックは変更なし。
+- `tuning/search_space.py`: `default_space` / `default_fixed_params` を LGBMProvider に移動。`parse_space` / `suggest_params` / `split_by_category` は汎用のため tuning/ に残す。
+
+### Compatibility
+
+- 公開 API の変更なし。`Model.fit()` / `Model.tune()` / `Model.predict()` のシグネチャは不変。
+- `EstimatorProvider` は内部 protocol。ユーザーが直接触れることはない。
+- `LGBMAdapter` の import パスは `lizyml.estimators.lgbm.LGBMAdapter` を維持（`__init__.py` で re-export）。
+
+### Alternatives Considered
+
+1. Abstract base class (`ABCEstimatorProvider`) を使う
+   - 不採用。Protocol の方が structural subtyping で柔軟。optional dependency のアルゴリズム（torch 系）でクラス継承を強制しない。
+2. Factory 関数群を module-level で定義し、dict dispatch する
+   - 不採用。Protocol の方が型安全で、mypy でチェック可能。
+3. 現状の `isinstance` dispatch を維持し、新アルゴリズムごとに `elif` を追加する
+   - 不採用。Open-Closed Principle に違反し、model.py がアルゴリズム追加のたびに変更される。
+
+### Acceptance Criteria
+
+- `model.py` に `from lizyml.estimators.lgbm import` が存在しないこと
+- `model.py` に `isinstance(model_cfg, LGBMConfig)` が存在しないこと
+- `LGBMProvider` が `EstimatorProvider` protocol を満たすこと（mypy で検証）
+- 新アルゴリズム追加のテンプレートとして `estimators/lgbm/` のディレクトリ構造がドキュメント化されていること
+- 既存テスト（962件）がすべて pass すること
+- tune → fit で smart params が正しく引き継がれるテストが維持されていること
+
+---
+
+## H-0054: EstimatorProvider 完全化 — 残存 LGBM 固有依存の排除
+
+- ID: `H-0054`
+- Status: `accepted`
+- Scope: `Architecture | EstimatorProvider | Internal`
+- Related: `BLUEPRINT.md §2.1, §2.2, §14.4, HISTORY.md H-0053`
+- Depends: `H-0053`
+
+### Background
+
+H-0053 で `EstimatorProvider` protocol を導入し、`model.py` のゼロ LGBM import を達成した。
+しかしアーキテクチャ監査の結果、Facade 周辺と Layer 2 に LGBM 固有の知識が残存しており、
+2つ目のアルゴリズム（EntityEmbedding 等）追加時にクラッシュまたはサイレント不具合が発生する。
+
+### Problem Statement
+
+| # | 問題 | 影響度 | ファイル |
+|---|---|---|---|
+| 1 | `cv_trainer.py` / `refit_trainer.py` が `categorical_feature=cat_cols or "auto"` を直書き | HIGH — 非 LGBM アダプタで `TypeError` | `training/cv_trainer.py:257`, `training/refit_trainer.py:124` |
+| 2 | `_model_tables.py:params_table()` が `isinstance(model_cfg, LGBMConfig)` + `booster.params` 前提 | HIGH — 非 LGBM で `AttributeError` | `core/_model_tables.py:235` |
+| 3 | `_build_run_meta` に `"lightgbm": _ver("lightgbm")` ハードコード | HIGH — BLUEPRINT §2.2「model.py 変更ゼロ」違反 | `core/model.py:713` |
+| 4 | `estimators/provider.py` が `tuning/search_space.py` の `SearchDim` を import | HIGH — L1→L2 逆依存 | `estimators/provider.py:20` |
+| 5 | `model.py:tune()` が `est.early_stopping_rounds = esr` を属性直書き | MEDIUM — 異名アダプタで silent no-op | `core/model.py:452` |
+| 6 | `shap_explainer.py` が `NativeFeaturePipeline` を直 import | MEDIUM — L3→L1 具象依存 | `explain/shap_explainer.py:133` |
+| 7 | `model.py` 836 行（800 行上限超過） | LOW — 保守性 | `core/model.py` |
+| 8 | テスト `make_config()` が `"lgbm"` ハードコード、`fit()` docstring が "LightGBM" | LOW — 拡張時の障壁 | `tests/_helpers.py:125`, `core/model.py:144` |
+
+### Proposed Changes
+
+#### Phase A: 構造修正（2つ目のアルゴリズム追加の前提条件）
+
+**A1. `SearchDim` 型を Foundation に移動**
+- `SearchDim`, `FloatDim`, `IntDim`, `CategoricalDim`, `DimCategory` を `core/types/search_dim.py` に移動
+- `tuning/search_space.py` は `parse_space`, `suggest_params`, `split_by_category`（Optuna 依存のロジック）のみ残す
+- `estimators/provider.py` の import を `core/types/search_dim.py` に変更
+- 影響: L1→L2 逆依存が解消
+
+**A2. `categorical_feature` をアダプタ契約に移動**
+- `BaseEstimatorAdapter` に `set_categorical_features(cols: list[str] | None) -> None` メソッド追加（デフォルト no-op）
+- `LGBMAdapter` でオーバーライドし、`fit()` 内で `categorical_feature` kwarg に変換
+- `cv_trainer.py` / `refit_trainer.py` から `categorical_feature=` kwarg 削除
+- `TrainComponents` に `categorical_features: list[str] | None` フィールド追加
+- CVTrainer は `estimator.set_categorical_features(cat_cols)` を呼び、その後 `estimator.fit()` を呼ぶ
+
+**A3. `EstimatorProvider` に `runtime_deps()` / `params_summary()` 追加**
+- `runtime_deps(self) -> dict[str, str]`: アルゴリズム固有の依存パッケージとバージョンを返す
+- `params_summary(self, model: BaseEstimatorAdapter, model_cfg: Any) -> list[dict[str, Any]]`: params_table 用のパラメータ行を返す
+- `LGBMProvider` で実装（現在 `_model_tables.py` にあるロジックを移植）
+
+**A4. `_model_tables.py` から LGBMConfig 依存除去**
+- `params_table()` を `provider.params_summary()` 経由に書き換え
+- `LGBMConfig` import 削除
+- `booster.params.get(k)` 直接参照を削除
+
+**A5. `_build_run_meta` から `"lightgbm"` ハードコード除去**
+- `provider.runtime_deps()` を呼び、返り値を `deps_versions` にマージ
+- provider を `_build_run_meta` の引数に追加
+
+#### Phase B: 品質改善
+
+**B1. `early_stopping_rounds` を Provider 経由に**
+- `EstimatorProvider.build_estimator_factory()` に `early_stopping_rounds` パラメータは既にある
+- `model.py:tune()` の属性直書き（`est.early_stopping_rounds = esr`）を、`provider.build_estimator_factory()` 再呼び出しに変更
+
+**B2. `shap_explainer` の Pipeline 復元を Provider 経由に**
+- `compute_shap_importance` の引数に `pipeline_factory: Callable[[], BaseFeaturePipeline]` を追加
+- `NativeFeaturePipeline` 直 import を削除
+- Facade（`_model_plots.py`）が `provider.build_pipeline_factory()` を渡す
+
+**B3. `model.py` ヘルパー抽出**
+- `_has_metric_content`, `_filter_metrics` を `core/_model_metrics.py` に抽出
+- `model.py` を 800 行以内に
+
+**B4. テスト・docstring 整備**
+- `make_config()` に `model_name: str = "lgbm"` パラメータ追加
+- `fit()` docstring の "LightGBM parameters" を "Model parameters" に変更
+- `Evaluator` docstring から "calibrated" 言及を削除
+- `lgbm/__init__.py` に `LGBMProvider` re-export 追加
+
+### Compatibility
+
+- 公開 API の変更なし。`Model.fit()` / `Model.tune()` / `Model.predict()` のシグネチャは不変。
+- `BaseEstimatorAdapter` に `set_categorical_features()` 追加（デフォルト no-op、後方互換）。
+- `EstimatorProvider` に `runtime_deps()` / `params_summary()` 追加（protocol 拡張、内部のみ）。
+- `SearchDim` の import パスが `tuning.search_space` → `core.types.search_dim` に変更（内部のみ、公開 API に含まれない）。
+
+### Alternatives Considered
+
+1. `categorical_feature` を `fit()` の `**kwargs` に任せ続ける
+   - 不採用。新アダプタで `TypeError` が起きるリスクが高く、L2 の estimator 非依存性が破れる。
+2. `SearchDim` を `estimators/` に移動する（L1 内で完結）
+   - 不採用。`SearchDim` は tuning 以外（将来の config validation 等）でも使われる可能性がある。Foundation に置く方が汎用的。
+3. `params_summary()` を `BaseEstimatorAdapter` のメソッドにする
+   - 不採用。アダプタは「学習と予測」に徹すべき。テーブル表示はプレゼンテーション層の関心で、Provider が適切。
+
+### Acceptance Criteria
+
+- `_model_tables.py` に `LGBMConfig` import が存在しないこと
+- `cv_trainer.py` / `refit_trainer.py` に `categorical_feature` が存在しないこと
+- `model.py` に `"lightgbm"` 文字列リテラルが存在しないこと
+- `estimators/provider.py` に `tuning/` からの import が存在しないこと
+- `shap_explainer.py` に `NativeFeaturePipeline` import が存在しないこと
+- `model.py` が 800 行以内であること
+- 全テスト pass（932 件）
+- mypy clean（86 ファイル）
+
+---
+
+## H-0055: StratifiedGroupKFold の Config 接続
+
+- ID: `H-0055`
+- Status: `implemented`
+- Scope: `Config | Splitters`
+- Related: `BLUEPRINT.md §5, §10`
+
+### 目的
+
+`StratifiedGroupKFoldSplitter`（既に `splitters/group_kfold.py` に実装済み）を Config → Model パイプラインに接続する。グループ制約と層化分割を同時に必要とするユースケース（例: 顧客IDでグループ分割しつつクラスバランスを維持）を Config 経由で利用可能にする。
+
+### 影響範囲
+
+- `config/schema.py`: `StratifiedGroupKFoldConfig` 追加、`SplitConfig` union 拡張
+- `config/loader.py`: エイリアス追加（`stratified-group-kfold` 等）
+- `core/_model_factories.py`: `_build_splitter_for_method` dispatch 追加、`_resolve_auto_inner_valid` にエントリ追加
+- `BLUEPRINT.md §5, §10`: ドキュメント更新
+
+### 互換性
+
+- 既存 Config は影響なし（discriminated union への追加は後方互換）
+- `StratifiedGroupKFoldSplitter` クラス自体は変更なし
+
+### 代替案
+
+なし。Splitter は既に実装・テスト済みであり、Config 接続のみが不足している。
+
+### 受け入れ基準
+
+- `method: "stratified_group_kfold"` で Config → Model → fit が完走すること
+- エイリアス（`stratified-group-kfold` 等）が正規化されること
+- InnerValid auto-resolution で `group_holdout` が選択されること（group 制約を維持）
+- 全テスト pass、mypy clean
+
+---
+
+## H-0056: テスト基盤の体系的補強
+
+- ID: `H-0056`
+- Status: `proposed`
+- Scope: `Testing`
+- Related: `BLUEPRINT.md §18.1, §14.4, §15.2, §11`
+
+### 目的
+
+テスト評価（1007 テスト、97% カバレッジ）とピアライブラリ比較（scikit-learn / LightGBM / Optuna / FLAML / PyCaret）により特定された構造的ギャップを補填し、新アルゴリズム追加・format_version 変更・パラメータ組み合わせ爆発に対する回帰耐性を確保する。
+
+### 背景
+
+現テストスイートは契約テスト・リーク防止・再現性・エラーパスで高品質だが、以下の5カテゴリに構造的な不足がある。
+
+### Proposal: 5 カテゴリのテスト補強
+
+#### カテゴリ A: 実 Artifact 互換テスト（優先度: 高）
+
+**現状の問題**: 同一バージョン round-trip と `analysis_context.pkl` 欠損の擬似 legacy のみ。過去版が吐いた実 artifact をロードする fixture がない。Legacy 校正経路（`model.py` 325 行目 `oof_raw_scores is None` → probability 入力で calibrate する else 分岐）は実質デッドコード扱いで未検証。
+
+**追加テスト**:
+
+1. **Frozen artifact fixture**: CI で生成した artifact を `tests/fixtures/v1_regression/` / `tests/fixtures/v1_binary_calibrated/` に格納。`Model.load()` → `predict()` → 既知の期待値と比較。LightGBM / XGBoost が保存形式互換で実施している手法に準拠。
+2. **Legacy calibration path**: `oof_raw_scores=None` の FitResult を手動構築し、`predict()` 時に probability 経由で calibrate が走ることを確認。model.py 321–326 行の else 分岐のカバレッジを保証。
+3. **format_version rejection 明示テスト**: `format_version=99` の metadata.json → `DESERIALIZATION_FAILED` で reject。`format_version=0`（過去）も同様。
+4. **Booster model string roundtrip**: `model_to_string()` → `model_from_string()` の往復が LightGBM バージョン間で壊れないことの検証（LightGBM #7186 の回帰検知）。
+5. **metadata.json 部分欠損**: 必須フィールド（`feature_names`, `task`, `run_id` 等）を1つずつ削除し、各欠損で正しいエラーメッセージが出ることを検証。
+
+#### カテゴリ B: Provider/Adapter 共通 Invariant チェック（優先度: 高）
+
+**現状の問題**: adapter / e2e テストは LGBM 前提の手書き happy-path が中心。共有データも 2 列の dense float DataFrame に偏る。scikit-learn は `check_estimator` / `parametrize_with_checks` で API 共通条件を一括検証し、LightGBM も `all_x_types` / `all_y_types` と sklearn check を回している。LizyML は provider/adapter ごとの共通チェック層を持たない。
+
+**追加テスト（`check_provider` スイート）**:
+
+1. **Protocol メソッド存在・戻り値型チェック**:
+   - `check_extract_model_params_returns_dict`: `extract_model_params()` が `dict[str, Any]` を返す。
+   - `check_extract_smart_params_returns_dict`: `extract_smart_params()` が `dict[str, Any]` を返す。
+   - `check_runtime_deps_nonempty`: `runtime_deps()` が空でない `dict[str, str]` を返す。
+   - `check_default_space_nonempty`: `default_space(task)` が空でない `list[SearchDim]` を返す。
+
+2. **Factory → fit → predict 往復チェック**:
+   - `check_estimator_fit_predict_roundtrip`: 全タスク型（regression / binary / multiclass）× provider で fit → predict が完走し、出力 shape が正しい。
+   - `check_estimator_predict_proba_shape`: binary → `(n, 2)`、multiclass → `(n, k)`。regression → `UNSUPPORTED_TASK`。
+   - `check_pipeline_factory_returns_pipeline`: `build_pipeline_factory()()` が `BaseFeaturePipeline` を返す。
+
+3. **Pickle 往復チェック**:
+   - `check_estimator_pickle_roundtrip`: fit 済み adapter を pickle → unpickle し、predict 結果が一致。
+
+4. **Importance チェック**:
+   - `check_importance_after_fit`: fit 後に `importance("split")` と `importance("gain")` が feature_names と同じキーの dict を返す。
+
+5. **データ多様性 fixture**:
+   - `dense_float_2col`（既存）、`dense_float_20col`（高次元）、`mixed_dtype`（float + int + category）、`with_missing`（NaN 列）、`single_feature`（1列）、`high_cardinality_cat`（100+ unique category）。
+   - 各 fixture を `check_estimator_fit_predict_roundtrip` にパラメタライズ。
+
+#### カテゴリ C: Tuning 再現性・失敗マトリクス（優先度: 中）
+
+**現状の問題**: 再現性テストは fit/predict/evaluate まで。tuning 側は callback と基本成功/失敗のみ。同一 seed で `best_params` / `best_score` / trial 順が固定されるか未検証。全 trial 失敗時の分岐（`tuner.py` 167 行目）は未到達。Optuna は seed 固定と逐次実行を再現性の前提として明示している。
+
+**追加テスト**:
+
+1. **tune() 再現性**: 同一 seed・同一データ・同一 space で 2 回 `tune()` を実行し、`best_params`, `best_score`, `len(trial_history)`, trial 順序が完全一致することを検証。
+2. **全 trial 失敗**: objective が常に例外を送出する mock を注入し、`TUNING_FAILED` + `context["n_trials"]` を検証。`tuner.py` 167–175 行の `if not completed` 分岐をカバー。
+3. **部分 trial 失敗**: 一部 trial のみ失敗させ、成功 trial の中から best が正しく選択されることを検証。
+4. **NaN/inf 返却時**: objective が `float("nan")` や `float("inf")` を返した場合の挙動を検証（Optuna 側の pruned 処理との整合）。
+5. **Search space と Config params の衝突**: Config に `learning_rate=0.1` を設定しつつ、search space にも `learning_rate` を含め、tune 結果が Config 値を上書きすることを検証。
+6. **空の search space**: `space={}` でデフォルト space が使用されることの明示テスト。
+
+#### カテゴリ D: 入力ソース・dtype・境界値の E2E（優先度: 中）
+
+**現状の問題**: DataSource 単体では CSV/Parquet を読めるが、Model entry まで通すテストは CSV 中心。共通 helper も単純な float DataFrame。Parquet 経由の fit/predict/export/load、nullable dtype、重複列、空/1行入力、カテゴリ順序ずれなどは見当たらない。LightGBM/XGBoost は `all_x_types` / `all_y_types` でコンテナ型・dtype 差分を広く回している。
+
+**追加テスト**:
+
+1. **Parquet フルパイプライン**: Parquet ファイル → `data.path` → fit → export → load → predict の完走。CSV 経由のみだった E2E を拡張。
+2. **float32 入力**: `float32` DataFrame を `fit()` に渡し、OOF / predict 結果が `float64` で返ることを確認。scikit-learn の `global_dtype` fixture に相当。
+3. **nullable dtype**: `pd.array([1, 2, None], dtype="Int64")` を含む DataFrame → fit が正常に動作するか、明確なエラーを返すかを検証。
+4. **空 DataFrame (0行)**: `fit()` → 明確なエラーメッセージ（`DATA_SCHEMA_INVALID` 等）。
+5. **1行 DataFrame**: CV 不可能な最小ケース → 明確なエラーメッセージ。
+6. **重複列名**: `pd.DataFrame({"a": ..., "a": ...})` → 明確なエラーメッセージ。
+7. **極端な値**: `inf` / `-inf` / 非常に大きい値を含む DataFrame での fit 挙動。
+8. **カテゴリ順序ずれ**: 学習時 `["a", "b", "c"]` → 推論時 `["c", "a", "b"]` の順序違い。列ズレテスト（test_column_drift.py）の拡張。
+
+#### カテゴリ E: パラメータ組み合わせの Pairwise テスト（優先度: 中）
+
+**現状の問題**: 各パラメータを1つずつ検証しているが、相互作用のテストがない。全組み合わせの直積は爆発するが、Pairwise（2因子間カバレッジ）なら ~20-30 ケースで主要な相互作用を検出できる。
+
+**因子と値**:
+
+| 因子 | 値 |
+|------|-----|
+| task | `regression`, `binary`, `multiclass` |
+| split_method | `kfold`, `stratified_kfold`, `group_kfold`, `time_series` |
+| calibration | `None`, `"platt"` |
+| early_stopping | `True`, `False` |
+| n_estimators | `5`, `100` |
+
+**追加テスト**:
+
+1. **Pairwise fit 完走テスト**: 上記因子の pairwise 組み合わせ（約 20-30 ケース）を `@pytest.mark.parametrize` で生成し、「有効な組み合わせは例外なく fit 完走する」「無効な組み合わせ（例: calibration + regression）は明確なエラーを返す」を検証。
+2. **個別の重要な相互作用テスト**:
+   - `calibration` + `group_kfold`: calibration splitter が group 制約を尊重するか。
+   - `balanced=True` + `multiclass`: sample_weight が正しく計算されるか。
+   - `feature_weights` + `auto_num_leaves`: smart params 同士の相互作用。
+   - `tuning` + `calibration`: tune → fit(calibration) で best_params と calibration が両立するか。
+   - `n_estimators=1` + `early_stopping`: 最小ラウンドでのエッジケース。
+   - `features.exclude` + `features.categorical`: 除外列がカテゴリ列の場合。
+
+### 影響範囲
+
+- `tests/` 以下への追加のみ。`lizyml/` の実装コードは変更しない。
+- `tests/fixtures/` にfrozen artifact を追加（CI 生成スクリプト含む）。
+- `tests/_helpers.py` にデータ多様性 fixture を追加。
+
+### 互換性
+
+- テスト追加のみのため破壊的変更なし。
+- frozen artifact fixture は `format_version=1` のスナップショットであり、将来の version bump 時に migration テストの基盤となる。
+
+### 代替案
+
+- 全組み合わせ直積テスト → 実行時間爆発（数千ケース）。pairwise で十分な因子間カバレッジを達成。
+- Property-based テスト（Hypothesis）→ scikit-learn / LightGBM / Optuna / FLAML / PyCaret の5ライブラリすべて未採用。将来の検討項目とする。
+- 可視化回帰テスト（画像 diff）→ Optuna のみ別リポで実施。現時点では low priority。
+
+### 受け入れ基準
+
+- カテゴリ A: frozen artifact fixture からの `Model.load()` → `predict()` が期待値と一致。legacy calibration path（`oof_raw_scores=None`）のカバレッジ到達。
+- カテゴリ B: `check_provider` スイートが LGBMProvider に対して全チェック pass。新 provider 追加時に自動で全チェックが走る構造。
+- カテゴリ C: 同一 seed の `tune()` が `best_params` / `best_score` 完全一致。全 trial 失敗時に `TUNING_FAILED` を返す。
+- カテゴリ D: Parquet / float32 / nullable dtype の E2E が pass。0行/1行/重複列で明確なエラー。
+- カテゴリ E: pairwise 組み合わせ全ケースで fit 完走 or 明確なエラー。
+- 全体: 既存 1007 テストに影響なし。カバレッジ 97%+ 維持。
+
+---
+
+## H-0057: Split-derived OOF Coverage（TimeSeriesCV の OOF メトリクス NaN 解消）
+
+- ID: `H-0057`
+- Status: `implemented`
+- Scope: `Evaluation | Metrics`
+- Related: `BLUEPRINT.md §13.2, §7.1`
+
+### 目的
+
+TimeSeriesCV（expanding window）使用時に、最初の期間のサンプルがどの validation fold にも含まれないため OOF 予測値が NaN のまま残り、`evaluate()` / `evaluate_table()` の全体 OOF メトリクスが NaN になる問題を解消する。
+
+### 背景
+
+- `TimeSeriesSplit(n_splits=K)` では先頭 `n_samples // (K+1)` 行程度が全 fold で train 側にのみ含まれ、validation に一度も現れない。
+- 現行の `Evaluator.evaluate()` は `oof_pred` 全行で metric を計算するため、NaN が混入しメトリクスも NaN になる。
+- NaN マスク（`np.isnan` で除外）は「バグで予測されなかった行」と「仕様上カバーされない行」を区別できず、潜在バグを見落とすリスクがある。
+
+### Proposal: Split-derived OOF Coverage Mask
+
+1. **`compute_oof_valid_mask(splits_outer, n_samples)`** を `oof_assembly.py` に追加。
+   - `SplitIndices.outer` の全 fold の `valid_idx` の和集合から boolean mask を生成。
+   - NaN 検出ではなく、split 構造から決定論的に導出。
+
+2. **`Evaluator.evaluate()` の OOF メトリクス計算を変更**。
+   - mask の True 行のみで `oof` メトリクスを計算。
+   - **カバー行に NaN がある場合は `ValueError`**（予測パイプラインのバグとして検知）。
+   - `oof_per_fold` / IF メトリクスは変更なし。
+
+3. **`metrics["raw"]["oof_coverage"]`** を追加（float, 0.0–1.0）。
+   - KFold: 常に `1.0`。TimeSeriesCV: `< 1.0`。
+
+4. **`evaluate_table()`** で `df.attrs["oof_coverage"]` として公開。
+
+### 影響範囲
+
+| 対象 | 変更内容 |
+|------|---------|
+| `oof_assembly.py` | `compute_oof_valid_mask()` 追加 |
+| `evaluator.py` | mask ベースの OOF 計算 + `oof_coverage` 追加 |
+| `table_formatter.py` | `df.attrs` に `oof_coverage` |
+| `_model_metrics.py` | calibrated パスは `splits` 保持済み → 変更不要 |
+| FitResult | **変更なし**（mask は SplitIndices から導出） |
+
+### 互換性
+
+- **KFold（既存の主要ユースケース）**: 全行カバーのため挙動は完全に同一。
+- **TimeSeriesCV**: `metrics["raw"]["oof"]` が NaN → 有効な数値に変わる（改善のみ）。
+- **`metrics["raw"]` への `oof_coverage` キー追加**: 既存コードは未知キーを参照しない限り影響なし。`filter_metrics()` は非 dict 値をパススルーするため互換。
+
+### 代替案（却下）
+
+- **NaN マスク**: `np.isnan(oof_pred)` で除外。→ バグ由来の NaN も黙殺されるため却下。
+
+### 受け入れ基準
+
+- `compute_oof_valid_mask` が split indices から正しい bool mask を返す（unit test）。
+- カバー行に NaN → `ValueError`（バグ検知テスト）。
+- 非カバー行の NaN は正常スキップ。
+- KFold で `oof_coverage == 1.0`、TimeSeriesCV で `oof_coverage < 1.0`。
+- TimeSeriesCV の OOF メトリクスが finite（NaN でない）。
+- `evaluate_table().attrs["oof_coverage"]` が float。
+- 既存テスト全通し（後方互換）。
+
+### Decision
+
+- Date: 2026-03-17
+- Result: Accepted — split 構造からの決定論的マスク + バグ検知 assertion の方針で実装する。
+
+### 備考
+
+- `metrics["calibrated"]` には `oof_coverage` を含めない（現状維持）。calibrated の cross-fit 分割は `calibration.n_splits` で outer とは独立しており、coverage が異なりうるため、raw の値を流用すると不正確になる。
+- この不整合は H-0058（Outer Split を Calibration で再利用する提案）で構造的に解消される予定。H-0058 が実装されれば calibrated の coverage は raw と一致するため、別途 coverage を公開する必要がなくなる。
+
+---
+
+## H-0058: Outer Split を Calibration Cross-fit で再利用
+
+- ID: `H-0058`
+- Status: `implemented`
+- Scope: `Calibration | Split | Config`
+- Related: `BLUEPRINT.md §10.5, §12, §13.2`, `H-0057`
+
+### 目的
+
+calibration cross-fit が outer CV とは独立した分割を使うことで生じる coverage 不整合・コード複雑性・概念的な非対称を構造的に解消する。
+
+### 背景
+
+現状（H-0057 後）では calibration cross-fit は `calibration.n_splits` で独立した分割を生成する。outer CV と同じ `split.method` を継承するが fold 数だけが独立しており、TimeSeriesCV 使用時に raw OOF と calibrated OOF のカバレッジが乖離する。
+
+```
+outer CV:       TimeSeriesSplit(n_splits=5) → coverage ≈ 83%
+calibration CV: TimeSeriesSplit(n_splits=3) → coverage ≈ 75%
+```
+
+H-0057 では `_model_metrics.py` で splits を差し替える workaround を追加して対処したが、本質的には分割構造が二重になっていることが根本原因。
+
+### リーク安全性
+
+calibration cross-fit は `(oof_scores, y)` のみを入力とし、X は使わない（§12.1）。
+
+3-fold の具体例（データ = A, B, C）:
+
+| step | fold | 学習データ | 予測対象 |
+|------|------|-----------|---------|
+| Outer CV | 0 | X[B+C], y[B+C] → model_0 | oof[A] |
+| Outer CV | 1 | X[A+C], y[A+C] → model_1 | oof[B] |
+| Outer CV | 2 | X[A+B], y[A+B] → model_2 | oof[C] |
+| Cal cross-fit | 0 | oof[B+C], y[B+C] → cal_0 | cal_oof[A] |
+| Cal cross-fit | 1 | oof[A+C], y[A+C] → cal_1 | cal_oof[B] |
+| Cal cross-fit | 2 | oof[A+B], y[A+B] → cal_2 | cal_oof[C] |
+
+行 A に注目: `oof[A]` は A を見ていない model_0 が生成、`cal_oof[A]` は oof[A] を見ていない cal_0 が生成。同一行リーク経路なし。
+
+C_final は `fit(oof[全行], y[全行])` で学習し推論専用。評価には使わない。
+
+### Proposal
+
+calibration cross-fit で `fit_result.splits.outer` をそのまま再利用する。
+
+```python
+# 現在（model.py）
+cal_splitter = build_calibration_splitter(cfg)
+cal_split_indices = list(cal_splitter.split(...))
+
+# 変更後
+cal_split_indices = fit_result.splits.outer
+```
+
+### 影響範囲
+
+| 対象 | 変更内容 |
+|------|---------|
+| `CalibrationConfig.n_splits` | deprecated（残すが無視、UserWarning 出力） |
+| `model.py _run_calibration()` | `build_calibration_splitter` → `fit_result.splits.outer` に置換 |
+| `_model_factories.py` | `build_calibration_splitter` を deprecated 化 |
+| `_model_metrics.py` | splits 差替えロジック削除（H-0057 workaround が不要に） |
+| `SplitIndices.calibration` | outer と同一値（冗長だが互換性のため残す） |
+| `cross_fit_calibrate()` | 変更なし（split_indices を受け取るだけ） |
+| `BLUEPRINT.md §10.5` | calibration CV 規約を改訂 |
+| `BLUEPRINT.md §13.2` | calibrated coverage が raw と一致する旨を追記 |
+
+### 互換性
+
+#### Config 互換性
+- `calibration.n_splits` を指定した場合は `UserWarning` を出力し無視。
+- `extra="forbid"` なのでフィールド自体は残す（削除すると既存 Config が壊れる）。
+- 将来の `config_version` 更新時に削除を検討。
+
+#### 保存互換性
+- `SplitIndices.calibration` に outer と同一のリストを保存 → 既存の `Model.load()` は問題なし。
+- `format_version` の変更は不要（データ構造は同一、値が変わるだけ）。
+
+### 代替案（却下）
+
+1. **calibrated に oof_coverage を追加（H-0057 案 B）**: H-0058 が来ると冗長フィールドになる。
+2. **calibration.n_splits のデフォルトを outer に合わせる**: 結局独立分割が残り、method パラメータ（gap/embargo）の二重管理が消えない。
+3. **現状維持**: `_model_metrics.py` の splits 差替え workaround を永続させることになる。
+
+### 受け入れ基準
+
+- `calibration.n_splits` 指定時に `UserWarning` が出力される。
+- calibration cross-fit が `fit_result.splits.outer` を使用する。
+- `SplitIndices.calibration` が outer と同一値。
+- `_model_metrics.py` の splits 差替えロジックが削除される。
+- TimeSeriesCV で calibrated OOF の実質 coverage が `metrics["raw"]["oof_coverage"]` と一致する。
+- 既存の `Model.load()` で旧 artifact が問題なくロードできる。
+- リーク検知テスト（`test_calibration_leakage`）が引き続き pass。
+
+### Decision
+
+- Date: 2026-03-17
+- Result: Accepted — outer CV splits を calibration cross-fit でそのまま再利用する方針で実装する。

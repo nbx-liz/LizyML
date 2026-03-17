@@ -67,6 +67,108 @@ def make_multiclass_df(n: int = 300, seed: int = 2) -> pd.DataFrame:
     return df
 
 
+def make_dense_float_20col(n: int = 200, seed: int = 10) -> pd.DataFrame:
+    """Create a regression DataFrame with 20 float features."""
+    rng = np.random.default_rng(seed)
+    data = {f"feat_{i:02d}": rng.uniform(0, 10, n) for i in range(20)}
+    df = pd.DataFrame(data)
+    df["target"] = sum(df[f"feat_{i:02d}"] * (0.5 - 0.02 * i) for i in range(20))
+    df["target"] += rng.normal(0, 0.1, n)
+    return df
+
+
+def make_mixed_dtype_df(n: int = 200, seed: int = 11) -> pd.DataFrame:
+    """Create a DataFrame with float, int, and category columns."""
+    rng = np.random.default_rng(seed)
+    df = pd.DataFrame(
+        {
+            "feat_float": rng.uniform(0, 10, n),
+            "feat_int": rng.integers(0, 100, n),
+            "feat_cat": pd.Categorical(rng.choice(["a", "b", "c", "d"], n)),
+        }
+    )
+    df["target"] = (
+        df["feat_float"] * 2.0 + df["feat_int"] * 0.01 + rng.normal(0, 0.1, n)
+    )
+    return df
+
+
+def make_with_missing_df(n: int = 200, seed: int = 12) -> pd.DataFrame:
+    """Create a DataFrame with ~10% NaN in each feature."""
+    rng = np.random.default_rng(seed)
+    df = pd.DataFrame(
+        {
+            "feat_a": rng.uniform(0, 10, n),
+            "feat_b": rng.uniform(-1, 1, n),
+            "feat_c": rng.uniform(0, 5, n),
+        }
+    )
+    for col in ["feat_a", "feat_b", "feat_c"]:
+        mask = rng.random(n) < 0.1
+        df.loc[mask, col] = np.nan
+    df["target"] = df["feat_a"].fillna(5) * 2.0 + rng.normal(0, 0.1, n)
+    return df
+
+
+def make_single_feature_df(n: int = 200, seed: int = 13) -> pd.DataFrame:
+    """Create a single-feature regression DataFrame."""
+    rng = np.random.default_rng(seed)
+    df = pd.DataFrame({"feat_only": rng.uniform(0, 10, n)})
+    df["target"] = df["feat_only"] * 3.0 + rng.normal(0, 0.1, n)
+    return df
+
+
+def make_high_cardinality_cat_df(n: int = 200, seed: int = 14) -> pd.DataFrame:
+    """Create a DataFrame with a high-cardinality categorical (100+ unique)."""
+    rng = np.random.default_rng(seed)
+    categories = [f"cat_{i}" for i in range(min(n, 120))]
+    df = pd.DataFrame(
+        {
+            "feat_num": rng.uniform(0, 10, n),
+            "feat_hi_cat": pd.Categorical(rng.choice(categories, n)),
+        }
+    )
+    df["target"] = df["feat_num"] * 2.0 + rng.normal(0, 0.5, n)
+    return df
+
+
+def make_pairwise_df(
+    task: str,
+    n: int = 200,
+    seed: int = 0,
+    *,
+    group_col: str | None = None,
+    n_groups: int = 10,
+    time_col: str | None = None,
+) -> pd.DataFrame:
+    """Universal data generator for pairwise combination tests.
+
+    Adjusts target and dataset size by task type. Ensures class-balanced
+    binary/multiclass for small-fold splits.
+    """
+    rng = np.random.default_rng(seed)
+    df = pd.DataFrame(
+        {
+            "feat_a": rng.uniform(0, 10, n),
+            "feat_b": rng.uniform(-1, 1, n),
+        }
+    )
+    if task == "regression":
+        df["target"] = df["feat_a"] * 2.0 + rng.normal(0, 0.1, n)
+    elif task == "binary":
+        df["target"] = (df["feat_a"] > 5).astype(int)
+    else:  # multiclass
+        df["target"] = pd.cut(df["feat_a"], bins=3, labels=[0, 1, 2]).astype(int)
+
+    if group_col is not None:
+        block_size = max(1, n // n_groups)
+        groups = np.repeat(np.arange(n_groups), block_size)[:n]
+        df[group_col] = groups
+    if time_col is not None:
+        df[time_col] = np.arange(n)
+    return df
+
+
 def make_config(
     task: str,
     *,
@@ -77,7 +179,7 @@ def make_config(
     time_col: str | None = None,
     split_overrides: dict[str, Any] | None = None,
     calibration: str | None = None,
-    calibration_n_splits: int = 5,
+    calibration_n_splits: int | None = None,
     calibration_params: dict[str, Any] | None = None,
     tuning_n_trials: int | None = None,
     seed: int = 0,
@@ -126,10 +228,9 @@ def make_config(
         "training": {"seed": seed},
     }
     if calibration is not None:
-        cal: dict[str, Any] = {
-            "method": calibration,
-            "n_splits": calibration_n_splits,
-        }
+        cal: dict[str, Any] = {"method": calibration}
+        if calibration_n_splits is not None:
+            cal["n_splits"] = calibration_n_splits
         if calibration_params is not None:
             cal["params"] = calibration_params
         cfg["calibration"] = cal

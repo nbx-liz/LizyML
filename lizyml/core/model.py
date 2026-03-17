@@ -10,11 +10,11 @@ What Model does:
 5. Store FitResult and RefitResult; expose them via evaluate / predict.
 
 What Model does NOT contain:
-- OOF/IF generation logic  → evaluation/oof.py
-- Metric computation        → evaluation/evaluator.py
-- LGBM-specific processing  → estimators/lgbm.py
-- Plot implementations      → plots/*
-- Persistence details       → persistence/*
+- OOF/IF generation logic     → training/oof_assembly.py
+- Metric computation          → evaluation/evaluator.py
+- Estimator-specific logic    → estimators/<name>/provider.py (via EstimatorProvider)
+- Plot implementations        → plots/*
+- Persistence details         → persistence/*
 
 Mixin decomposition (H-0042):
 - Plot methods      → _model_plots.py (ModelPlotsMixin)
@@ -25,9 +25,9 @@ Mixin decomposition (H-0042):
 
 from __future__ import annotations
 
+import dataclasses
 import sys
-from collections.abc import Callable
-from datetime import datetime
+from datetime import datetime, timezone
 from importlib.metadata import version as pkg_version
 from pathlib import Path
 from typing import Any, Literal
@@ -38,16 +38,14 @@ import pandas as pd
 
 from lizyml import __version__
 from lizyml.config.loader import load_config
-from lizyml.config.schema import (
-    LGBMConfig,
-    LizyMLConfig,
-)
+from lizyml.config.schema import LizyMLConfig
 from lizyml.core._model_factories import (
-    build_calibration_splitter,
     build_inner_valid,
     build_splitter,
+    get_provider,
     make_inner_valid_factory,
 )
+from lizyml.core._model_metrics import assemble_calibrated_metrics, filter_metrics
 from lizyml.core._model_persistence import ModelPersistenceMixin
 from lizyml.core._model_plots import ModelPlotsMixin
 from lizyml.core._model_tables import ModelTablesMixin
@@ -55,6 +53,7 @@ from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.logging import generate_run_id, get_logger
 from lizyml.core.specs.feature_spec import FeatureSpec
 from lizyml.core.specs.problem_spec import ProblemSpec
+from lizyml.core.train_components import TrainComponents
 from lizyml.core.types.artifacts import RunMeta
 from lizyml.core.types.fit_result import FitResult
 from lizyml.core.types.predict_result import PredictionResult
@@ -62,17 +61,15 @@ from lizyml.core.types.tuning_result import TuneProgressCallback, TuningResult
 from lizyml.data import dataframe_builder, datasource
 from lizyml.data.dataframe_builder import DataFrameComponents
 from lizyml.data.fingerprint import compute as fp_compute
-from lizyml.estimators.lgbm import (
-    _COMMON_DEFAULTS,
-    LGBMAdapter,
-    resolve_ratio_params,
-    resolve_smart_params,
-)
+from lizyml.estimators.provider import EstimatorProvider
 from lizyml.evaluation.evaluator import Evaluator
-from lizyml.features.pipelines_native import NativeFeaturePipeline
 from lizyml.training.cv_trainer import CVTrainer
 from lizyml.training.refit_trainer import RefitResult, RefitTrainer
-from lizyml.tuning.search_space import default_fixed_params, default_space, parse_space
+from lizyml.tuning.search_space import (
+    parse_space,
+    split_by_category,
+    suggest_params,
+)
 from lizyml.tuning.tuner import Tuner
 
 _log = get_logger("model")
@@ -126,10 +123,10 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         self._fit_result: FitResult | None = None
         self._refit_result: RefitResult | None = None
         self._metrics: dict[str, Any] | None = None
-        self._best_params: dict[str, Any] | None = None
         self._tuning_result: TuningResult | None = None
         self._y: pd.Series | None = None  # transient; not persisted
         self._X: pd.DataFrame | None = None  # transient; not persisted
+        self._provider: EstimatorProvider | None = None  # set by fit/tune
 
     # ------------------------------------------------------------------
     # Public API
@@ -145,93 +142,47 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         Args:
             data: Training DataFrame.  Overrides any ``data`` passed at
                 construction time and the ``data.path`` from config.
-            params: LightGBM parameters to override the config ``model.params``.
+            params: Model parameters to override the config ``model.params``.
 
         Returns:
             The :class:`~lizyml.core.types.fit_result.FitResult` from CV.
         """
         cfg = self._cfg
         run_id = generate_run_id()
-        run_meta = self._build_run_meta(run_id)
 
-        # --- Output directory setup (H-0034) ---------------------------------
-        if self._output_dir is not None:
-            from lizyml.core.logging import setup_output_dir
-
-            self._run_dir = setup_output_dir(self._output_dir, run_id)
-
+        self._ensure_run_dir(run_id)
         _log.info("event='fit.start' run_id=%s task=%s", run_id, cfg.task)
 
         # --- Load & prepare data ---------------------------------------------
         X, y, groups, components = self._prepare_training_data(data)
+        self._X, self._y = X, y
         fingerprint = fp_compute(X, file_path=None)
 
-        # --- Build components ------------------------------------------------
+        # --- Build components (H-0050/H-0053: provider-based) ----------------
+        provider = get_provider(cfg.model)
+        self._provider = provider
+        run_meta = self._build_run_meta(run_id)
+        model_params, smart_params = self._merge_params(provider)
+        tc = self._build_train_components(
+            X,
+            y,
+            provider=provider,
+            model_params=model_params,
+            smart_params=smart_params,
+        )
         splitter = build_splitter(cfg)
-        inner_valid = build_inner_valid(cfg)
-        lgbm_params = {
-            **_get_lgbm_params(cfg),
-            **(self._best_params or {}),
-            **(params or {}),
-        }
         n_classes = int(y.nunique()) if cfg.task == "multiclass" else None
-
-        # Resolve smart parameters (H-0021)
-        sample_weight: npt.NDArray[np.float64] | None = None
-        model_cfg = cfg.model
-        if isinstance(model_cfg, LGBMConfig):
-            effective = {**_COMMON_DEFAULTS, **lgbm_params}
-            smart_resolved, sample_weight = resolve_smart_params(
-                config=model_cfg,
-                effective_params=effective,
-                n_rows=len(X),
-                feature_names=list(X.columns),
-                y=y,
-                task=cfg.task,
-            )
-            lgbm_params.update(smart_resolved)
-
-        # Build per-fold ratio param resolver (H-0036)
-        ratio_resolver: Callable[[int], dict[str, Any]] | None = None
-        if isinstance(model_cfg, LGBMConfig) and (
-            model_cfg.min_data_in_leaf_ratio is not None
-            or model_cfg.min_data_in_bin_ratio is not None
-        ):
-            _leaf_ratio = model_cfg.min_data_in_leaf_ratio
-            _bin_ratio = model_cfg.min_data_in_bin_ratio
-
-            def ratio_resolver(n: int) -> dict[str, int]:
-                return resolve_ratio_params(
-                    min_data_in_leaf_ratio=_leaf_ratio,
-                    min_data_in_bin_ratio=_bin_ratio,
-                    n_rows=n,
-                )
-
-        def make_pipeline() -> NativeFeaturePipeline:
-            return NativeFeaturePipeline()
-
-        def make_estimator() -> LGBMAdapter:
-            return LGBMAdapter(
-                task=cfg.task,
-                params=lgbm_params,
-                num_class=n_classes,
-                early_stopping_rounds=(
-                    cfg.training.early_stopping.rounds
-                    if cfg.training.early_stopping.enabled
-                    else None
-                ),
-                random_state=cfg.training.seed,
-            )
+        pipeline_factory = provider.build_pipeline_factory()
 
         # --- CV training -----------------------------------------------------
         cv_trainer = CVTrainer(
             outer_splitter=splitter,
-            inner_valid=inner_valid,
-            pipeline_factory=make_pipeline,
-            estimator_factory=make_estimator,
+            inner_valid=tc.inner_valid,
+            pipeline_factory=pipeline_factory,
+            estimator_factory=tc.estimator_factory,
             task=cfg.task,
             n_classes=n_classes,
-            ratio_param_resolver=ratio_resolver,
+            ratio_param_resolver=tc.ratio_resolver,
             collect_raw_scores=(cfg.calibration is not None),
         )
         time_values = components.time_col if components.time_col is not None else None
@@ -241,82 +192,33 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             groups,
             data_fingerprint=fingerprint,
             run_meta=run_meta,
-            sample_weight=sample_weight,
+            sample_weight=tc.sample_weight,
             time_values=time_values,
         )
 
         # --- Calibration (binary only) ---------------------------------------
-        if cfg.calibration is not None:
-            if cfg.task != "binary":
-                raise LizyMLError(
-                    code=ErrorCode.CALIBRATION_NOT_SUPPORTED,
-                    user_message=(
-                        f"Calibration is only supported for binary classification. "
-                        f"Got task='{cfg.task}'."
-                    ),
-                    context={"task": cfg.task},
-                )
-            from lizyml.calibration.cross_fit import cross_fit_calibrate
-            from lizyml.calibration.registry import get_calibrator
-
-            method = cfg.calibration.method
-            cal_params = cfg.calibration.params or None
-            # Use raw scores (logits) for calibration (H-0030)
-            cal_scores = (
-                fit_result.oof_raw_scores
-                if fit_result.oof_raw_scores is not None
-                else fit_result.oof_pred
-            )
-            # Build calibration splitter inheriting split.method (H-0044)
-            cal_splitter = build_calibration_splitter(cfg)
-            y_arr = y.to_numpy()
-            try:
-                cal_split_indices = list(
-                    cal_splitter.split(len(y_arr), y=y_arr, groups=groups)
-                )
-            except ValueError as e:
-                raise LizyMLError(
-                    code=ErrorCode.CONFIG_INVALID,
-                    user_message=(
-                        f"Cannot create calibration splits with "
-                        f"method='{cfg.split.method}' and "
-                        f"n_splits={cfg.calibration.n_splits}: {e}"
-                    ),
-                    context={
-                        "split_method": cfg.split.method,
-                        "calibration_n_splits": cfg.calibration.n_splits,
-                        "n_samples": len(y_arr),
-                        **(
-                            {"n_groups": len(np.unique(groups))}
-                            if groups is not None
-                            else {}
-                        ),
-                    },
-                ) from e
-            calibration_result = cross_fit_calibrate(
-                oof_scores=cal_scores,
-                y=y_arr,
-                calibrator_factory=lambda: get_calibrator(method, params=cal_params),
-                split_indices=cal_split_indices,
-            )
-            fit_result.calibrator = calibration_result
-            # Store calibration split indices for reproducibility / audit
-            fit_result.splits.calibration = calibration_result.split_indices
+        fit_result = self._run_calibration(cfg, fit_result, y, groups)
 
         # --- Evaluation -------------------------------------------------------
         metric_names = cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task]
         evaluator = Evaluator(task=cfg.task)
         metrics = evaluator.evaluate(fit_result, y, metric_names)
-        fit_result.metrics.update(metrics)
+        metrics = assemble_calibrated_metrics(
+            fit_result, y, metric_names, evaluator, metrics
+        )
+
+        fit_result = dataclasses.replace(
+            fit_result, metrics={**fit_result.metrics, **metrics}
+        )
         self._metrics = metrics
 
         # --- Full-data refit (for predict) -----------------------------------
         refit_trainer = RefitTrainer(
-            inner_valid=inner_valid,
-            pipeline_factory=make_pipeline,
-            estimator_factory=make_estimator,
+            inner_valid=tc.inner_valid,
+            pipeline_factory=pipeline_factory,
+            estimator_factory=tc.estimator_factory,
             task=cfg.task,
-            ratio_param_resolver=ratio_resolver,
+            ratio_param_resolver=tc.ratio_resolver,
         )
         self._refit_result = refit_trainer.fit(X, y, groups)
 
@@ -344,8 +246,14 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         """
         self._require_fit()
 
+        if self._metrics is None:
+            raise LizyMLError(
+                code=ErrorCode.MODEL_NOT_FIT,
+                user_message="Metrics not computed. Call fit() first.",
+                context={},
+            )
+
         if metrics is None:
-            assert self._metrics is not None  # noqa: S101 — set by fit()
             return self._metrics
 
         # Validate task compatibility first (raises UNSUPPORTED_METRIC if invalid)
@@ -354,8 +262,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         get_metrics_for_task(metrics, self._cfg.task)  # raises on unknown/incompatible
 
         # Filter the pre-computed metrics dict to the requested subset
-        assert self._metrics is not None  # noqa: S101
-        return _filter_metrics(self._metrics, set(metrics))
+        return filter_metrics(self._metrics, set(metrics))
 
     def predict(
         self,
@@ -384,11 +291,12 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             ``OPTIONAL_DEP_MISSING`` when ``return_shap=True`` and shap
             is not installed.
         """
-        self._require_fit()
+        fit = self._require_fit()
         refit = self._require_refit()
 
-        # Restore pipeline from saved state
-        pipeline = NativeFeaturePipeline()
+        # Restore pipeline from saved state via provider
+        provider = get_provider(self._cfg.model)
+        pipeline = provider.build_pipeline_factory()()
         pipeline.load_state(refit.pipeline_state)
 
         X_t, warnings = pipeline.transform_with_warnings(X)
@@ -399,15 +307,13 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         pred: npt.NDArray[np.float64]
         proba: npt.NDArray[np.float64] | None = None
 
-        fit = self._fit_result  # non-None guaranteed by _require_fit()
-
         if task == "regression":
             pred = model.predict(X_t)
         elif task == "binary":
             proba_2d = model.predict_proba(X_t)
             proba = proba_2d[:, 1]
             # Apply C_final calibrator when available (H-0030: raw score input)
-            if fit is not None and fit.calibrator is not None:
+            if fit.calibrator is not None:
                 from lizyml.calibration.cross_fit import CalibrationResult
 
                 if isinstance(fit.calibrator, CalibrationResult):
@@ -478,66 +384,103 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
 
         _log.info("event='tune.start' task=%s", cfg.task)
 
-        # --- Output directory setup (H-0034) ---------------------------------
-        if self._output_dir is not None:
-            from lizyml.core.logging import setup_output_dir
-
-            tune_run_id = generate_run_id()
-            self._run_dir = setup_output_dir(self._output_dir, tune_run_id)
-
+        self._ensure_run_dir(generate_run_id())
         X, y, groups, _ = self._prepare_training_data(data)
+        self._X, self._y = X, y
 
+        provider = get_provider(cfg.model)
+        self._provider = provider
         n_classes = int(y.nunique()) if cfg.task == "multiclass" else None
         splitter = build_splitter(cfg)
-        inner_valid = build_inner_valid(cfg)
-        base_params = _get_lgbm_params(cfg)
+        base_model_params, base_smart_params = self._merge_params(provider)
+
         user_space = parse_space(cfg.tuning.optuna.space)
         if user_space:
             space = user_space
             fixed: dict[str, Any] = {}
         else:
-            space = default_space(cfg.task)
-            fixed = default_fixed_params(cfg.task)
+            space = provider.default_space(cfg.task)
+            fixed = provider.default_fixed_params(cfg.task)
 
         optuna_cfg = cfg.tuning.optuna.params
         metric_names = cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task]
         metric_name = metric_names[0]
 
-        def make_trial_estimator(trial_params: dict[str, Any]) -> LGBMAdapter:
-            merged = {**base_params, **trial_params}
-            return LGBMAdapter(
-                task=cfg.task,
-                params=merged,
-                num_class=n_classes,
-                early_stopping_rounds=(
-                    cfg.training.early_stopping.rounds
-                    if cfg.training.early_stopping.enabled
-                    else None
-                ),
-                random_state=cfg.training.seed,
+        evaluator = Evaluator(task=cfg.task)
+        fingerprint = fp_compute(X, file_path=None)
+        run_meta = self._build_run_meta(generate_run_id())
+        iv_factory = make_inner_valid_factory(cfg)
+
+        # --- Build objective closure (H-0050: uses _build_train_components) ---
+        def objective(trial: Any) -> float:
+            trial_params = suggest_params(trial, space)
+            model_p, smart_p, training_p = split_by_category(trial_params, space)
+
+            # Merge: fixed + base config + trial model params
+            merged_model = {**base_model_params, **fixed, **model_p}
+            # Merge: base smart + trial smart params
+            merged_smart = {**base_smart_params, **smart_p}
+
+            # Handle training params (early_stopping, validation_ratio)
+            inner_valid_override = None
+            if "validation_ratio" in training_p:
+                inner_valid_override = iv_factory(training_p["validation_ratio"])
+
+            tc = self._build_train_components(
+                X,
+                y,
+                provider=provider,
+                model_params=merged_model,
+                smart_params=merged_smart,
             )
 
+            # Apply training param overrides to estimator (H-0054: use provider)
+            estimator_factory = tc.estimator_factory
+            if "early_stopping_rounds" in training_p:
+                esr = int(training_p["early_stopping_rounds"])
+                estimator_factory = provider.build_estimator_factory(
+                    task=cfg.task,
+                    params=merged_model,
+                    n_classes=n_classes,
+                    early_stopping_rounds=esr,
+                    seed=cfg.training.seed,
+                )
+
+            cv_trainer = CVTrainer(
+                outer_splitter=splitter,
+                inner_valid=(
+                    inner_valid_override
+                    if inner_valid_override is not None
+                    else tc.inner_valid
+                ),
+                pipeline_factory=provider.build_pipeline_factory(),
+                estimator_factory=estimator_factory,
+                task=cfg.task,
+                n_classes=n_classes,
+                ratio_param_resolver=tc.ratio_resolver,
+            )
+            fit_result = cv_trainer.fit(
+                X,
+                y,
+                groups,
+                data_fingerprint=fingerprint,
+                run_meta=run_meta,
+                sample_weight=tc.sample_weight,
+            )
+            metrics = evaluator.evaluate(fit_result, y, [metric_name])
+            score: float = metrics["raw"]["oof"][metric_name]
+            return score
+
         tuner = Tuner(
-            task=cfg.task,
-            outer_splitter=splitter,
-            inner_valid=inner_valid,
-            pipeline_factory=NativeFeaturePipeline,
-            estimator_factory=make_trial_estimator,
             dims=space,
             n_trials=optuna_cfg.n_trials,
             direction=optuna_cfg.direction,
             timeout=optuna_cfg.timeout,
-            metric_name=metric_name,
-            n_classes=n_classes,
             seed=cfg.training.seed,
-            inner_valid_factory=make_inner_valid_factory(cfg),
-            n_rows=len(X),
-            fixed_params=fixed,
             progress_callback=progress_callback,
         )
 
-        result = tuner.tune(X, y, groups)
-        self._best_params = result.best_params
+        result = tuner.tune(objective, metric_name=metric_name)
         self._tuning_result = result
         _log.info("event='tune.done' best_params=%s", result.best_params)
         return result
@@ -554,6 +497,117 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             LizyMLError with ``MODEL_NOT_FIT`` when ``fit()`` has not been called.
         """
         return self._require_fit()
+
+    # ------------------------------------------------------------------
+    # Internal helpers — TrainComponents (H-0050)
+    # ------------------------------------------------------------------
+
+    def _merge_params(
+        self,
+        provider: Any,
+        override: dict[str, Any] | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Merge model and smart params with priority:
+        Config defaults < tune best < fit() args.
+
+        Args:
+            provider: EstimatorProvider instance.
+            override: Optional fit() arg overrides (highest priority).
+
+        Returns:
+            (model_params, smart_params) tuple.
+        """
+        cfg = self._cfg
+        model_cfg = cfg.model
+
+        # --- model_params / smart_params: Config defaults via provider ---
+        model_params = provider.extract_model_params(model_cfg)
+        smart_params = provider.extract_smart_params(model_cfg)
+
+        # --- Overlay tune best ---
+        if self._tuning_result is not None:
+            model_params = {
+                **model_params,
+                **self._tuning_result.best_model_params,
+            }
+            if self._tuning_result.best_smart_params:
+                smart_params = {
+                    **smart_params,
+                    **self._tuning_result.best_smart_params,
+                }
+
+        # --- Overlay fit() args (highest priority) ---
+        if override:
+            model_params = {**model_params, **override}
+
+        return model_params, smart_params
+
+    def _build_train_components(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        *,
+        provider: Any,
+        model_params: dict[str, Any],
+        smart_params: dict[str, Any],
+    ) -> TrainComponents:
+        """Build shared training components for CVTrainer and RefitTrainer.
+
+        Delegates estimator-specific logic to the provider (H-0053).
+
+        Args:
+            X: Feature DataFrame.
+            y: Target Series.
+            provider: EstimatorProvider instance.
+            model_params: Merged model params (from ``_merge_params``).
+            smart_params: Merged smart params (from ``_merge_params``).
+
+        Returns:
+            :class:`TrainComponents` ready to pass to both trainers.
+        """
+        cfg = self._cfg
+        n_classes = int(y.nunique()) if cfg.task == "multiclass" else None
+
+        # --- Resolve smart params (Stage 1: data-size independent) ---
+        sample_weight: npt.NDArray[np.float64] | None = None
+        resolved_model = dict(model_params)
+
+        if smart_params:
+            smart_resolved, sample_weight = provider.resolve_smart_params(
+                smart=smart_params,
+                effective_params=resolved_model,
+                n_rows=len(X),
+                feature_names=list(X.columns),
+                y=y,
+                task=cfg.task,
+            )
+            resolved_model = {**resolved_model, **smart_resolved}
+
+        # --- Build per-fold ratio resolver (Stage 2: n_rows dependent) ---
+        ratio_resolver = provider.build_ratio_resolver(smart_params)
+
+        # --- Build estimator factory ---
+        estimator_factory = provider.build_estimator_factory(
+            task=cfg.task,
+            params=resolved_model,
+            n_classes=n_classes,
+            early_stopping_rounds=(
+                cfg.training.early_stopping.rounds
+                if cfg.training.early_stopping.enabled
+                else None
+            ),
+            seed=cfg.training.seed,
+        )
+
+        # --- Inner validation ---
+        inner_valid = build_inner_valid(cfg)
+
+        return TrainComponents(
+            estimator_factory=estimator_factory,
+            sample_weight=sample_weight,
+            ratio_resolver=ratio_resolver,
+            inner_valid=inner_valid,
+        )
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -582,7 +636,6 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         """Load data, build specs, and prepare X/y/groups for training.
 
         Handles time-series sorting when the split method requires it.
-        Sets ``self._X`` and ``self._y`` as a side effect.
         """
         cfg = self._cfg
         df = self._load_data(data)
@@ -625,15 +678,19 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             y = y.iloc[sort_order].reset_index(drop=True)
             if groups is not None:
                 groups = groups[sort_order]
-            components.X = X
-            components.y = y
-            components.time_col = tc.iloc[sort_order].reset_index(drop=True)
-            if components.group_col is not None:
-                gc = components.group_col
-                components.group_col = gc.iloc[sort_order].reset_index(drop=True)
+            sorted_time = tc.iloc[sort_order].reset_index(drop=True)
+            sorted_group = (
+                components.group_col.iloc[sort_order].reset_index(drop=True)
+                if components.group_col is not None
+                else None
+            )
+            components = DataFrameComponents(
+                X=X,
+                y=y,
+                time_col=sorted_time,
+                group_col=sorted_group,
+            )
 
-        self._X = X
-        self._y = y
         return X, y, groups, components
 
     def _build_run_meta(self, run_id: str) -> RunMeta:
@@ -643,19 +700,83 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             except Exception:
                 return "unknown"
 
+        # Common deps + estimator-specific deps via provider (H-0054)
+        deps: dict[str, str] = {
+            "pandas": _ver("pandas"),
+            "numpy": _ver("numpy"),
+            "scikit-learn": _ver("scikit-learn"),
+        }
+        if self._provider is not None:
+            deps.update(self._provider.runtime_deps())
+
         return RunMeta(
             lizyml_version=__version__,
             python_version=sys.version,
-            deps_versions={
-                "lightgbm": _ver("lightgbm"),
-                "pandas": _ver("pandas"),
-                "numpy": _ver("numpy"),
-                "scikit-learn": _ver("scikit-learn"),
-            },
+            deps_versions=deps,
             config_normalized=self._cfg.model_dump(),
             config_version=self._cfg.config_version,
             run_id=run_id,
-            timestamp=datetime.now().isoformat(),
+            timestamp=datetime.now(tz=timezone.utc).isoformat(),
+        )
+
+    def _ensure_run_dir(self, run_id: str) -> None:
+        """Set up the output directory for a run if configured."""
+        if self._output_dir is not None:
+            from lizyml.core.logging import setup_output_dir
+
+            self._run_dir = setup_output_dir(self._output_dir, run_id)
+
+    def _run_calibration(
+        self,
+        cfg: LizyMLConfig,
+        fit_result: FitResult,
+        y: pd.Series,
+        groups: npt.NDArray[Any] | None,
+    ) -> FitResult:
+        """Apply cross-fit calibration if configured. Returns updated FitResult."""
+        if cfg.calibration is None:
+            return fit_result
+
+        if cfg.task != "binary":
+            raise LizyMLError(
+                code=ErrorCode.CALIBRATION_NOT_SUPPORTED,
+                user_message=(
+                    f"Calibration is only supported for binary classification. "
+                    f"Got task='{cfg.task}'."
+                ),
+                context={"task": cfg.task},
+            )
+
+        from lizyml.calibration.cross_fit import cross_fit_calibrate
+        from lizyml.calibration.registry import get_calibrator
+
+        method = cfg.calibration.method
+        cal_params = cfg.calibration.params or None
+        # Use raw scores (logits) for calibration (H-0030)
+        cal_scores = (
+            fit_result.oof_raw_scores
+            if fit_result.oof_raw_scores is not None
+            else fit_result.oof_pred
+        )
+        y_arr = y.to_numpy()
+        # Reuse outer CV splits for calibration cross-fit (H-0058).
+        # Calibration input is (oof_scores, y) only — no X leakage.
+        cal_split_indices = fit_result.splits.outer
+        calibration_result = cross_fit_calibrate(
+            oof_scores=cal_scores,
+            y=y_arr,
+            calibrator_factory=lambda: get_calibrator(method, params=cal_params),
+            split_indices=cal_split_indices,
+            oof_pred=fit_result.oof_pred,
+        )
+        new_splits = dataclasses.replace(
+            fit_result.splits,
+            calibration=cal_split_indices,
+        )
+        return dataclasses.replace(
+            fit_result,
+            calibrator=calibration_result,
+            splits=new_splits,
         )
 
     def _require_fit(self) -> FitResult:
@@ -675,38 +796,3 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
                 context={},
             )
         return self._refit_result
-
-
-def _get_lgbm_params(cfg: LizyMLConfig) -> dict[str, Any]:
-    """Extract LightGBM params from model config."""
-    model_cfg = cfg.model
-    if isinstance(model_cfg, LGBMConfig):
-        return dict(model_cfg.params)
-    return {}
-
-
-def _filter_metrics(metrics_dict: dict[str, Any], keep: set[str]) -> dict[str, Any]:
-    """Return a copy of *metrics_dict* with only *keep* metric names retained.
-
-    Works recursively on the nested
-    ``{"raw": {"oof": {...}, ...}, "calibrated": {...}}``
-    structure produced by :class:`~lizyml.evaluation.evaluator.Evaluator`.
-    """
-    result: dict[str, Any] = {}
-    for top_key, top_val in metrics_dict.items():
-        if not isinstance(top_val, dict):
-            result[top_key] = top_val
-            continue
-        filtered_top: dict[str, Any] = {}
-        for sub_key, sub_val in top_val.items():
-            if sub_key in ("if_per_fold", "oof_per_fold"):
-                # List of per-fold dicts
-                filtered_top[sub_key] = [
-                    {m: v for m, v in fold.items() if m in keep} for fold in sub_val
-                ]
-            elif isinstance(sub_val, dict):
-                filtered_top[sub_key] = {m: v for m, v in sub_val.items() if m in keep}
-            else:
-                filtered_top[sub_key] = sub_val
-        result[top_key] = filtered_top
-    return result

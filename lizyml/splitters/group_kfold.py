@@ -9,12 +9,9 @@ import numpy as np
 import numpy.typing as npt
 from sklearn.model_selection import GroupKFold, StratifiedGroupKFold
 
-from lizyml.core.registries import SplitterRegistry
-
 from .base import BaseSplitter
 
 
-@SplitterRegistry.register("group_kfold")
 class GroupKFoldSplitter(BaseSplitter):
     """K-fold splitter that keeps all samples from each group in the same fold.
 
@@ -37,7 +34,6 @@ class GroupKFoldSplitter(BaseSplitter):
         yield from self._gkf.split(indices, y, groups)
 
 
-@SplitterRegistry.register("stratified_group_kfold")
 class StratifiedGroupKFoldSplitter(BaseSplitter):
     """Stratified K-fold splitter with group constraints.
 

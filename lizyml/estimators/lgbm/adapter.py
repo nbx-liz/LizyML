@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-import math
-from typing import TYPE_CHECKING, Any, Literal
+from typing import Any, Literal
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
-if TYPE_CHECKING:
-    from lizyml.config.schema import LGBMConfig
-
 from lizyml.core.exceptions import ErrorCode, LizyMLError
-from lizyml.core.registries import EstimatorRegistry
 from lizyml.estimators.base import BaseEstimatorAdapter, ImportanceKind
+from lizyml.estimators.lgbm.defaults import (
+    _COMMON_DEFAULTS,
+    _TASK_METRIC,
+    _TASK_OBJECTIVE,
+)
 
 try:
     import lightgbm as lgb
@@ -27,37 +27,7 @@ except ImportError as e:  # pragma: no cover
 
 TaskType = Literal["regression", "binary", "multiclass"]
 
-# Maps task → objective
-_TASK_OBJECTIVE: dict[str, str] = {
-    "regression": "huber",
-    "binary": "binary",
-    "multiclass": "multiclass",
-}
 
-# Maps task → eval_metric list
-_TASK_METRIC: dict[str, list[str]] = {
-    "regression": ["huber", "mae", "mape"],
-    "binary": ["auc", "binary_logloss"],
-    "multiclass": ["auc_mu", "multi_logloss"],
-}
-
-# Common LightGBM defaults (also used by resolve_smart_params)
-_COMMON_DEFAULTS: dict[str, Any] = {
-    "boosting": "gbdt",
-    "n_estimators": 1500,
-    "learning_rate": 0.001,
-    "max_depth": 5,
-    "max_bin": 511,
-    "feature_fraction": 0.7,
-    "bagging_fraction": 0.7,
-    "bagging_freq": 10,
-    "lambda_l1": 0.0,
-    "lambda_l2": 0.000001,
-    "first_metric_only": False,
-}
-
-
-@EstimatorRegistry.register("lgbm")
 class LGBMAdapter(BaseEstimatorAdapter):
     """LightGBM adapter using the Booster API (``lgb.train``).
 
@@ -95,10 +65,15 @@ class LGBMAdapter(BaseEstimatorAdapter):
         self._best_iteration: int | None = None
         self._feature_names: list[str] = []
         self._eval_results: dict[str, Any] = {}
+        self._categorical_features: list[str] | None = None
+
+    def set_categorical_features(self, cols: list[str] | None) -> None:
+        """Store categorical column names for use in ``fit()``."""
+        self._categorical_features = cols
 
     def update_params(self, params: dict[str, Any]) -> None:
         """Update params before fit(). Used for per-fold ratio resolution."""
-        self.params.update(params)
+        self.params = {**self.params, **params}
 
     # ------------------------------------------------------------------
     # Fit
@@ -110,7 +85,6 @@ class LGBMAdapter(BaseEstimatorAdapter):
         y_train: pd.Series,
         X_valid: pd.DataFrame | None = None,
         y_valid: pd.Series | None = None,
-        categorical_feature: list[str] | None = None,
         **kwargs: Any,
     ) -> LGBMAdapter:
         """Fit the LightGBM model via Booster API.
@@ -120,14 +94,13 @@ class LGBMAdapter(BaseEstimatorAdapter):
             y_train: Training target.
             X_valid: Optional validation features for early stopping.
             y_valid: Optional validation target for early stopping.
-            categorical_feature: List of categorical column names.
             **kwargs: Additional keyword arguments. ``sample_weight`` is
                 extracted and passed to ``lgb.Dataset(weight=...)``.
         """
         self._feature_names = list(X_train.columns)
         params, num_boost_round = self._build_params()
 
-        cat_feature: list[str] | Literal["auto"] = categorical_feature or "auto"
+        cat_feature: list[str] | Literal["auto"] = self._categorical_features or "auto"
         sample_weight = kwargs.pop("sample_weight", None)
 
         train_set = lgb.Dataset(
@@ -334,6 +307,9 @@ class LGBMAdapter(BaseEstimatorAdapter):
             user_params.setdefault("seed", user_params.pop("random_state"))
         if "verbose" in user_params:
             user_params.setdefault("verbosity", user_params.pop("verbose"))
+        # Strip task-locked keys — objective/metric are always set from task
+        user_params.pop("objective", None)
+        user_params.pop("metric", None)
         params.update(user_params)
 
         return params, num_boost_round
@@ -346,151 +322,3 @@ class LGBMAdapter(BaseEstimatorAdapter):
                 context={"adapter": "LGBMAdapter"},
             )
         return self._model
-
-
-# ------------------------------------------------------------------
-# Smart parameter resolution (H-0021)
-# ------------------------------------------------------------------
-
-
-def _compute_num_leaves(max_depth: int | None, ratio: float) -> int:
-    """Compute num_leaves from max_depth and ratio."""
-    base = 131072 if max_depth is None or max_depth < 0 else 2**max_depth
-    return max(8, min(131072, math.ceil(base * ratio)))
-
-
-def _compute_ratio_param(n_rows: int, ratio: float) -> int:
-    """Convert a ratio to an absolute count (min 1)."""
-    return max(1, math.ceil(n_rows * ratio))
-
-
-def resolve_smart_params(
-    config: LGBMConfig,
-    effective_params: dict[str, Any],
-    n_rows: int,
-    feature_names: list[str],
-    y: pd.Series,
-    task: TaskType,
-) -> tuple[dict[str, Any], npt.NDArray[np.float64] | None]:
-    """Resolve smart parameters to native LightGBM parameters.
-
-    Args:
-        config: LGBMConfig with smart parameter fields.
-        effective_params: Merged params (defaults + user + best_params).
-        n_rows: Number of training rows.
-        feature_names: List of feature column names.
-        y: Target series.
-        task: ML task type.
-
-    Returns:
-        Tuple of (resolved native params dict, sample_weight array or None).
-    """
-    resolved: dict[str, Any] = {}
-    sample_weight: npt.NDArray[np.float64] | None = None
-
-    # auto_num_leaves
-    if config.auto_num_leaves:
-        resolved["num_leaves"] = _compute_num_leaves(
-            effective_params.get("max_depth"), config.num_leaves_ratio
-        )
-
-    # NOTE: ratio params (min_data_in_leaf_ratio, min_data_in_bin_ratio) are
-    # resolved per-fold via resolve_ratio_params() using inner_train size (H-0036).
-
-    # feature_weights
-    if config.feature_weights is not None:
-        unknown = set(config.feature_weights) - set(feature_names)
-        if unknown:
-            raise LizyMLError(
-                code=ErrorCode.CONFIG_INVALID,
-                user_message=f"Unknown features in feature_weights: {sorted(unknown)}",
-                context={"unknown_features": sorted(unknown)},
-            )
-        weights = [config.feature_weights.get(f, 1.0) for f in feature_names]
-        resolved["feature_weights"] = weights
-        resolved["feature_pre_filter"] = False
-
-    # balanced — None means auto (True for binary/multiclass, False for regression)
-    effective_balanced = config.balanced
-    if effective_balanced is None:
-        effective_balanced = task != "regression"
-    if effective_balanced:
-        if task == "regression":
-            raise LizyMLError(
-                code=ErrorCode.UNSUPPORTED_TASK,
-                user_message="'balanced' is not supported for regression tasks.",
-                context={"task": task},
-            )
-        if task == "binary":
-            neg = int((y == 0).sum())
-            pos = int((y == 1).sum())
-            resolved["scale_pos_weight"] = neg / pos if pos > 0 else 1.0
-        else:  # multiclass
-            from sklearn.utils.class_weight import compute_sample_weight
-
-            sw: npt.NDArray[np.float64] = compute_sample_weight("balanced", y)
-            sample_weight = sw
-
-    return resolved, sample_weight
-
-
-def resolve_smart_params_from_dict(
-    smart_params: dict[str, Any],
-    effective_params: dict[str, Any],
-    n_rows: int,
-) -> dict[str, Any]:
-    """Resolve smart parameters from a flat dict (for tuning trials).
-
-    Supports ``num_leaves_ratio``, ``min_data_in_leaf_ratio``, and
-    ``min_data_in_bin_ratio``.
-
-    Args:
-        smart_params: Dict with smart param names and values.
-        effective_params: Merged model params (for max_depth lookup).
-        n_rows: Number of training rows.
-
-    Returns:
-        Dict of resolved native LightGBM parameters.
-    """
-    resolved: dict[str, Any] = {}
-
-    if "num_leaves_ratio" in smart_params:
-        resolved["num_leaves"] = _compute_num_leaves(
-            effective_params.get("max_depth"),
-            smart_params["num_leaves_ratio"],
-        )
-
-    # NOTE: ratio params (min_data_in_leaf_ratio, min_data_in_bin_ratio) are
-    # resolved per-fold via resolve_ratio_params() using inner_train size (H-0036).
-
-    return resolved
-
-
-def resolve_ratio_params(
-    min_data_in_leaf_ratio: float | None,
-    min_data_in_bin_ratio: float | None,
-    n_rows: int,
-) -> dict[str, int]:
-    """Resolve n_rows-dependent ratio params to native LightGBM values.
-
-    Called per-fold with inner_train size (after inner_valid split) to ensure
-    ratio params reflect the actual training data size (H-0036).
-
-    Args:
-        min_data_in_leaf_ratio: Ratio for min_data_in_leaf (None to skip).
-        min_data_in_bin_ratio: Ratio for min_data_in_bin (None to skip).
-        n_rows: Number of inner-train rows (after inner_valid split).
-
-    Returns:
-        Dict of resolved native LightGBM parameters.
-    """
-    resolved: dict[str, int] = {}
-    if min_data_in_leaf_ratio is not None:
-        resolved["min_data_in_leaf"] = _compute_ratio_param(
-            n_rows, min_data_in_leaf_ratio
-        )
-    if min_data_in_bin_ratio is not None:
-        resolved["min_data_in_bin"] = _compute_ratio_param(
-            n_rows, min_data_in_bin_ratio
-        )
-    return resolved

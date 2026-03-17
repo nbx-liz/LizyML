@@ -11,6 +11,7 @@ import pandas as pd
 from lizyml.core.types.fit_result import FitResult
 from lizyml.metrics.base import BaseMetric
 from lizyml.metrics.registry import get_metrics_for_task
+from lizyml.training.oof_assembly import compute_oof_valid_mask
 
 TaskType = Literal["regression", "binary", "multiclass"]
 
@@ -120,8 +121,31 @@ class Evaluator:
         metrics = get_metrics_for_task(metric_names, self.task)
         y_arr = np.asarray(y)
 
-        # --- OOF metrics -----------------------------------------------------
-        oof_scores = _compute_metrics(metrics, y_arr, fit_result.oof_pred, self.task)
+        # --- OOF coverage mask (H-0057) --------------------------------------
+        oof_mask = compute_oof_valid_mask(fit_result.splits.outer, len(y_arr))
+        covered_pred = fit_result.oof_pred[oof_mask]
+
+        # Assert no NaN in covered rows — NaN here indicates a pipeline bug,
+        # not a structurally uncovered row (e.g. TimeSeriesCV first period).
+        _nan_flags = np.isnan(covered_pred)
+        # For 2-D predictions (multiclass), collapse to per-row bool.
+        nan_in_covered = (
+            _nan_flags if _nan_flags.ndim == 1 else np.asarray(_nan_flags.any(axis=1))
+        )
+        if nan_in_covered.any():
+            nan_count = int(nan_in_covered.sum())
+            nan_indices = np.where(oof_mask)[0][nan_in_covered]
+            raise ValueError(
+                f"OOF predictions contain NaN in {nan_count} row(s) "
+                f"covered by validation folds (indices: "
+                f"{nan_indices[:5].tolist()}{'...' if nan_count > 5 else ''}). "
+                f"This indicates a bug in the training pipeline."
+            )
+
+        oof_coverage = float(oof_mask.sum()) / len(y_arr) if len(y_arr) > 0 else 0.0
+
+        # --- OOF metrics (covered rows only) ----------------------------------
+        oof_scores = _compute_metrics(metrics, y_arr[oof_mask], covered_pred, self.task)
 
         # --- Per-fold OOF metrics (valid_idx) --------------------------------
         oof_per_fold: list[dict[str, float]] = []
@@ -141,29 +165,17 @@ class Evaluator:
             if_per_fold.append(fold_scores)
 
         # --- IF mean ---------------------------------------------------------
-        if_mean: dict[str, float] = {}
-        for m in metrics:
-            vals = [fold[m.name] for fold in if_per_fold]
-            if_mean[m.name] = float(np.mean(vals))
+        if_mean: dict[str, float] = {
+            m.name: float(np.mean([fold[m.name] for fold in if_per_fold]))
+            for m in metrics
+        }
 
-        result: dict[str, Any] = {
+        return {
             "raw": {
                 "oof": oof_scores,
                 "oof_per_fold": oof_per_fold,
                 "if_mean": if_mean,
                 "if_per_fold": if_per_fold,
+                "oof_coverage": oof_coverage,
             }
         }
-
-        # --- Calibrated metrics -------------------------------------------
-        if fit_result.calibrator is not None:
-            from lizyml.calibration.cross_fit import CalibrationResult
-
-            if isinstance(fit_result.calibrator, CalibrationResult):
-                cal_oof = fit_result.calibrator.calibrated_oof
-                cal_oof_scores = _compute_metrics(metrics, y_arr, cal_oof, self.task)
-                result["calibrated"] = {
-                    "oof": cal_oof_scores,
-                }
-
-        return result

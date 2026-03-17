@@ -5,6 +5,58 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.2.0] - 2026-03-17
+
+### Added
+
+- `StratifiedGroupKFoldSplitter` — new split method combining stratification with group boundaries (`split.method: "stratified_group_kfold"`) (H-0055)
+- `metrics["raw"]["oof_coverage"]` — float (0.0–1.0) indicating the fraction of rows covered by OOF validation folds; `evaluate_table().attrs["oof_coverage"]` for programmatic access (H-0057)
+- `compute_oof_valid_mask()` — derives OOF coverage mask from split indices, not NaN detection; NaN in covered rows raises `ValueError` for bug detection (H-0057)
+
+### Changed
+
+- Calibration cross-fit now reuses outer CV split indices directly instead of generating independent splits (H-0058)
+- `CalibrationConfig.n_splits` is deprecated — non-default values emit `UserWarning` and are ignored (H-0058)
+- `build_calibration_splitter()` is deprecated with `DeprecationWarning` (H-0058)
+- OOF metrics are computed on covered rows only; TimeSeriesCV first-period rows (never validated) are excluded instead of propagating NaN (H-0057)
+- `cross_fit_calibrate()` handles NaN training rows with identity fallback to `oof_pred` probabilities (H-0058)
+
+### Internal
+
+- 5-layer DAG architecture migration: dead code removal (H-0051), layer dependency purification (H-0052), `EstimatorProvider` protocol introduction (H-0053)
+- `TrainComponents` frozen dataclass, `resolve_smart_params` dict unification, `TuningResult` 3-way category split (H-0050)
+- `EstimatorProvider` extensibility: `params_summary`, `set_categorical_features`, provider-level factory dispatch (H-0054)
+- Systematic test reinforcement: 92 new tests across 5 categories — config propagation, facade orchestration, provider invariants, artifact compatibility, tuning reproducibility, dtype boundaries, pairwise parameters (H-0056)
+
+## [0.1.5] - 2026-03-15
+
+### Fixed
+
+- Calibration cross-fit OOF array now NaN-initialized instead of `np.empty` — prevents silent garbage values for time-series splitters
+- `GroupTimeSeriesSplitter` last fold now extends to include all trailing groups (previously silently dropped)
+- `ECE` metric last bin is now right-inclusive (`y_pred == 1.0` no longer excluded)
+- `RMSLE` raises `LizyMLError` for negative predictions/targets instead of producing NaN
+- `FitResult` post-construction mutation replaced with `dataclasses.replace()`
+- `_prepare_training_data` no longer mutates `DataFrameComponents` in-place
+- `evaluate()` bare `assert` replaced with proper `LizyMLError`
+- `_filter_metrics` removes empty branches after filtering
+- Task-locked `objective`/`metric` can no longer be overridden by user search space params
+- `LGBMAdapter.update_params` creates new dict instead of mutating in-place
+- `compute_shap_importance` handles empty models list without `ZeroDivisionError`
+- QQ plots raise `LizyMLError(OPTIONAL_DEP_MISSING)` instead of bare `ImportError` when scipy is missing
+- Tuner trial failures now logged via warning callback; catch tuple narrowed from `Exception` to specific types
+- `TuningResult`/`TrialResult` deep-copy mutable `dict`/`list` fields in `__post_init__`
+- `HoldoutInnerValid` `n_valid` uses `ceil` to match `HoldoutSplitter` rounding
+- All timestamps now include UTC timezone info
+- `params_table` guards against empty models list
+
+### Changed
+
+- CI test matrix now includes Python 3.11
+- Added `[tool.coverage.run]` and `[tool.coverage.report]` configuration to `pyproject.toml`
+- `PredictionResult.proba` docstring corrected for multiclass shape
+- `cross_fit_calibrate` docstring notes raw score (logit) support
+
 ## [0.1.4] - 2026-03-14
 
 ### Fixed
