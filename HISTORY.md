@@ -3864,9 +3864,10 @@ cal_split_indices = fit_result.splits.outer
 ## H-0059: Codegen Export — LizyML 非依存の学習・推論コード生成
 
 - ID: `H-0059`
-- Status: `proposed`
+- Status: `accepted`
+- Decision: `v0.3.0 でリリース (2026-03-20)`
 - Scope: `Export | Public API`
-- Related: `BLUEPRINT.md §6.5, §15.3`, `skills/export/SKILL.md`
+- Related: `BLUEPRINT.md §6.6, §15.4`, `skills/export/SKILL.md`
 
 ### 目的
 
