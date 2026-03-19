@@ -111,18 +111,18 @@ def _predict_via_codegen(
     expected = state["feature_names"]
     Xp = X[expected].copy()
 
-    # The exported pipeline_state uses the LizyML encoder format:
-    # encoder.categories: {col: [cat_values]}
-    # We replicate the NativeFeaturePipeline transform: set pd.Categorical
-    encoder = state.get("encoder", {})
-    categories = encoder.get("categories", {})
-    for col, cats in categories.items():
+    # Replicate predict.py transform: use category_mappings (str→int)
+    for col, mapping in state.get("category_mappings", {}).items():
         if col in Xp.columns:
-            Xp[col] = Xp[col].astype("category")
-            Xp[col] = Xp[col].cat.set_categories(cats)
+            Xp[col] = Xp[col].astype(str).map(mapping)
+    # Ensure all columns are numeric for Booster.predict()
+    for col in Xp.columns:
+        if not np.issubdtype(Xp[col].dtype, np.number):
+            Xp[col] = pd.to_numeric(Xp[col], errors="coerce")
 
-    # Load model and predict
+    # Load model and predict (use numpy to avoid categorical dtype conflicts)
     booster = lgb.Booster(model_file=str(artifacts / "model.txt"))
+    Xp = Xp.values  # type: ignore[assignment]
     task = cfg["_task"]
 
     if task == "regression":
