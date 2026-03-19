@@ -86,6 +86,7 @@ class TestExportCodeBinary:
         assert (out / "config.json").exists()
         assert (out / "train.py").exists()
         assert (out / "predict.py").exists()
+        assert (out / "test_equivalence.py").exists()
         assert (out / "requirements.txt").exists()
         assert (out / "artifacts" / "model.txt").exists()
         assert (out / "artifacts" / "pipeline_state.json").exists()

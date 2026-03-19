@@ -81,6 +81,7 @@ class TestGenerateCode:
         assert (tmp_path / "config.json").exists()
         assert (tmp_path / "train.py").exists()
         assert (tmp_path / "predict.py").exists()
+        assert (tmp_path / "test_equivalence.py").exists()
         assert (tmp_path / "requirements.txt").exists()
         assert (tmp_path / "artifacts" / "model.txt").exists()
         assert (tmp_path / "artifacts" / "pipeline_state.json").exists()

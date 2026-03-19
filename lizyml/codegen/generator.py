@@ -11,6 +11,7 @@ from lizyml.codegen.config_writer import build_config
 from lizyml.codegen.templates import (
     render_predict_py,
     render_requirements_txt,
+    render_test_equivalence_py,
     render_train_py,
 )
 from lizyml.estimators.lgbm.adapter import LGBMAdapter
@@ -41,6 +42,7 @@ def generate_code(
         ├── config.json
         ├── train.py
         ├── predict.py
+        ├── test_equivalence.py
         ├── requirements.txt
         └── artifacts/
             ├── model.txt
@@ -96,6 +98,7 @@ def generate_code(
     # Write source files
     (root / "train.py").write_text(render_train_py())
     (root / "predict.py").write_text(render_predict_py())
+    (root / "test_equivalence.py").write_text(render_test_equivalence_py())
     (root / "requirements.txt").write_text(render_requirements_txt())
 
     return root
