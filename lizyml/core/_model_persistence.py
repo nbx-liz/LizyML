@@ -91,6 +91,78 @@ class ModelPersistenceMixin:
         _log.info("event='export.done' path=%s", resolved_path)
         return resolved_path
 
+    def export_code(self, path: str | Path) -> Path:
+        """Generate LizyML-independent training and prediction code.
+
+        Creates ``train.py``, ``predict.py``, ``config.json``,
+        ``requirements.txt``, and ``artifacts/`` under *path*.
+
+        Args:
+            path: Output directory (created if absent).
+
+        Returns:
+            Resolved output directory path.
+
+        Raises:
+            LizyMLError with ``MODEL_NOT_FIT`` when called before ``fit``.
+        """
+        fit_result = self._require_fit()
+        refit_result = self._require_refit()
+
+        from lizyml.codegen.generator import generate_code
+        from lizyml.estimators.lgbm.adapter import LGBMAdapter
+
+        adapter = refit_result.model
+        if not isinstance(adapter, LGBMAdapter):
+            raise LizyMLError(
+                ErrorCode.UNSUPPORTED_TASK,
+                user_message=("export_code() currently supports LGBMAdapter only."),
+            )
+
+        # Extract LightGBM params from the adapter
+        lgbm_params, num_boost_round = adapter._build_params()
+
+        cfg = self._cfg
+        es = cfg.training.early_stopping
+        calibration_method: str | None = None
+        calibration_n_splits = 5
+        if cfg.calibration is not None:
+            calibration_method = cfg.calibration.method
+
+        # Extract c_final calibrator from CalibrationResult
+        calibrator = None
+        cal_result = fit_result.calibrator
+        if cal_result is not None and hasattr(cal_result, "c_final"):
+            calibrator = cal_result.c_final
+
+        # Build run_meta dict from FitResult
+        meta = fit_result.run_meta
+        run_meta_dict: dict[str, Any] = {
+            "lizyml_version": meta.lizyml_version,
+            "run_id": meta.run_id,
+            "timestamp": meta.timestamp,
+            "config_normalized": meta.config_normalized,
+        }
+
+        result = generate_code(
+            output_dir=path,
+            run_meta=run_meta_dict,
+            feature_names=refit_result.feature_names,
+            categorical_features=refit_result.categorical_features,
+            lgbm_params=lgbm_params,
+            num_boost_round=num_boost_round,
+            early_stopping_rounds=(es.rounds if es.enabled else None),
+            validation_ratio=es.validation_ratio or 0.0,
+            seed=cfg.training.seed,
+            calibration_method=calibration_method,
+            calibration_n_splits=calibration_n_splits,
+            model_adapter=adapter,
+            pipeline_state=refit_result.pipeline_state,
+            calibrator=calibrator,
+        )
+        _log.info("event='export_code.done' path=%s", result)
+        return result
+
     def _resolve_export_path(self, path: str | Path | None) -> Path:
         """Resolve the export destination directory."""
         if path is not None:
