@@ -119,13 +119,15 @@ class ModelPersistenceMixin:
                 user_message=("export_code() currently supports LGBMAdapter only."),
             )
 
-        # Extract LightGBM params from the adapter
+        # Extract LightGBM params from the adapter.
+        # TODO(H-0059): expose via EstimatorProvider protocol in a future PR.
         lgbm_params, num_boost_round = adapter._build_params()
 
         cfg = self._cfg
         es = cfg.training.early_stopping
         calibration_method: str | None = None
-        calibration_n_splits = 5
+        # Use outer CV n_splits for OOF calibration (H-0058: reuses outer splits)
+        calibration_n_splits = cfg.split.n_splits
         if cfg.calibration is not None:
             calibration_method = cfg.calibration.method
 

@@ -213,6 +213,11 @@ def fit_calibrator(X: np.ndarray, y: np.ndarray) -> dict | None:
     oof = _generate_oof(X, y)
 
     log.info("[4/4] Fitting %s calibrator ...", method)
+    if method not in _CAL_FITTERS:
+        raise ValueError(
+            f"Unknown calibration method: {method!r}. "
+            f"Supported: {list(_CAL_FITTERS)}"
+        )
     params = _CAL_FITTERS[method](oof, y)
     with open(ARTIFACTS / "calibrator.json", "w") as f:
         json.dump(params, f, indent=2)
@@ -345,7 +350,10 @@ def _sigmoid(x: np.ndarray) -> np.ndarray:
 
 def _load_calibrator() -> dict | None:
     path = ARTIFACTS / "calibrator.json"
-    return json.load(open(path)) if path.exists() else None
+    if not path.exists():
+        return None
+    with open(path) as f:
+        return json.load(f)
 
 
 def calibrate(raw_scores: np.ndarray, cal: dict) -> np.ndarray:
@@ -358,9 +366,13 @@ def calibrate(raw_scores: np.ndarray, cal: dict) -> np.ndarray:
         logit = cal["a"] * np.log(s) + cal["b"] * np.log(1 - s) + cal["c"]
         return np.clip(_sigmoid(logit), 0, 1)
     if m == "isotonic":
-        bst = lgb.Booster(model_file=str(ARTIFACTS / cal["model_file"]))
+        model_file = Path(cal["model_file"]).name  # sanitize path
+        bst = lgb.Booster(model_file=str(ARTIFACTS / model_file))
         return np.clip(bst.predict(raw_scores.reshape(-1, 1)), 0, 1)
-    raise ValueError(f\'Unknown calibration: "{m}"\')
+    raise ValueError(
+        f\'Unknown calibration method: "{m}". \'
+        "Supported: platt, beta, isotonic"
+    )
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -424,6 +436,7 @@ lightgbm>=4.0
 numpy
 pandas
 scikit-learn
+scipy
 """
 
 

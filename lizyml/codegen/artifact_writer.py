@@ -10,6 +10,31 @@ from lizyml.calibration.base import BaseCalibratorAdapter
 from lizyml.estimators.lgbm.adapter import LGBMAdapter
 
 
+def _convert_pipeline_state(
+    state: dict[str, Any], config: dict[str, Any]
+) -> dict[str, Any]:
+    """Convert LizyML pipeline state to codegen-compatible format.
+
+    LizyML stores ``encoder.categories`` (list of known categories per column).
+    Codegen ``predict.py`` expects ``category_mappings`` (str→int dicts).
+    """
+    feature_names = state.get("feature_names", config.get("feature_names", []))
+    categorical_features = config.get("categorical_features", [])
+
+    # Build integer mappings from encoder categories
+    encoder = state.get("encoder", {})
+    categories = encoder.get("categories", {})
+    mappings: dict[str, dict[str, int]] = {}
+    for col, cats in categories.items():
+        mappings[col] = {str(v): i for i, v in enumerate(cats)}
+
+    return {
+        "feature_names": feature_names,
+        "categorical_features": categorical_features,
+        "category_mappings": mappings,
+    }
+
+
 def write_artifacts(
     *,
     output_dir: str | Path,
@@ -41,9 +66,10 @@ def write_artifacts(
     # model.txt
     model_adapter.save_model_text(artifacts / "model.txt")
 
-    # pipeline_state.json
+    # pipeline_state.json — convert LizyML format to codegen format
+    codegen_state = _convert_pipeline_state(pipeline_state, config)
     with open(artifacts / "pipeline_state.json", "w") as f:
-        json.dump(pipeline_state, f, indent=2, ensure_ascii=False)
+        json.dump(codegen_state, f, indent=2, ensure_ascii=False)
 
     # calibrator
     if calibrator is not None:
