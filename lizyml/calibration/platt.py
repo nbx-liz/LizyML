@@ -40,3 +40,13 @@ class PlattCalibrator(BaseCalibratorAdapter):
             scores.reshape(-1, 1)
         )[:, 1]
         return result
+
+    def export_params(self) -> dict[str, Any]:
+        """Export Platt parameters: sigmoid(a * score + b)."""
+        if self._model is None:
+            raise RuntimeError("PlattCalibrator has not been fitted.")
+        return {
+            "method": "platt",
+            "a": float(self._model.coef_[0, 0]),
+            "b": float(self._model.intercept_[0]),
+        }

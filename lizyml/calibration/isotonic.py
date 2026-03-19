@@ -8,6 +8,7 @@ to learn a monotone mapping from raw scores to calibrated probabilities
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from typing import Any
 
 import lightgbm as lgbm
@@ -151,3 +152,17 @@ class IsotonicCalibrator(BaseCalibratorAdapter):
         proba: npt.NDArray[np.float64] = np.asarray(raw_pred, dtype=np.float64)
         clipped: npt.NDArray[np.float64] = np.clip(proba, 0.0, 1.0)
         return clipped
+
+    def export_params(self) -> dict[str, Any]:
+        """Export isotonic calibrator metadata."""
+        if self._model is None:
+            raise RuntimeError("IsotonicCalibrator has not been fitted.")
+        return {"method": "isotonic", "model_file": "calibrator_model.txt"}
+
+    def save_model_text(self, path: str | Path) -> Path:
+        """Save the internal Booster to a human-readable text file."""
+        if self._model is None:
+            raise RuntimeError("IsotonicCalibrator has not been fitted.")
+        p = Path(path)
+        self._model.save_model(str(p))
+        return p
