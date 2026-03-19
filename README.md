@@ -51,6 +51,24 @@ pred_result = loaded_model.predict(X_new)
 
 This design lets you inspect not only predictions, but also how well the model performed and which settings were used during training.
 
+### Codegen Export (LizyML-free deployment)
+
+Generate standalone training and prediction scripts that run **without LizyML**:
+
+```python
+model.export_code("deploy/my_model")
+```
+
+This creates `train.py`, `predict.py`, and `config.json` — ready for production use with only `lightgbm`, `numpy`, and `pandas` as dependencies.
+
+```bash
+# Retrain on new data
+python deploy/my_model/train.py new_data.csv
+
+# Run predictions
+python deploy/my_model/predict.py test.csv -o predictions.csv
+```
+
 ## Config Example
 
 ```python
@@ -500,6 +518,18 @@ The artifact produced by `export` is expected to include at least:
 - metrics / history / fit summary
 - `config_normalized`
 - `versions / format_version`
+
+### Codegen Export
+
+`export_code()` generates a self-contained directory with LizyML-free training and prediction scripts:
+
+- `config.json` — all hyperparameters and feature definitions in one place
+- `train.py` — refit pipeline: feature pipeline fit → LightGBM training → calibrator construction
+- `predict.py` — inference pipeline: feature transform → prediction → calibration
+- `artifacts/` — model files in human-readable formats (LightGBM text, JSON)
+- `test_equivalence.py` — verify codegen output matches `Model.predict()`
+
+Dependencies: `lightgbm`, `numpy`, `pandas`, `scikit-learn` (training only).
 
 ## Core Design Priorities
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
@@ -322,3 +323,17 @@ class LGBMAdapter(BaseEstimatorAdapter):
                 context={"adapter": "LGBMAdapter"},
             )
         return self._model
+
+    def save_model_text(self, path: str | Path) -> Path:
+        """Save the Booster to a human-readable text file.
+
+        Args:
+            path: Destination file path.
+
+        Returns:
+            The resolved Path.
+        """
+        booster = self._require_fitted()
+        p = Path(path)
+        booster.save_model(str(p))
+        return p
