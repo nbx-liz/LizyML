@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import ast
 
-from lizyml.codegen.templates import render_predict_py, render_train_py
+from lizyml.codegen.templates import (
+    render_predict_py,
+    render_test_equivalence_py,
+    render_train_py,
+)
 
 
 class TestRenderTrainPy:
@@ -101,3 +105,32 @@ class TestRenderPredictPy:
         assert "regression" in src
         assert "binary" in src
         assert "multiclass" in src
+
+
+class TestRenderTestEquivalencePy:
+    def test_returns_string(self) -> None:
+        src = render_test_equivalence_py()
+        assert isinstance(src, str)
+        assert len(src) > 100
+
+    def test_valid_python(self) -> None:
+        src = render_test_equivalence_py()
+        ast.parse(src)
+
+    def test_contains_main_guard(self) -> None:
+        src = render_test_equivalence_py()
+        assert 'if __name__ == "__main__"' in src
+
+    def test_contains_check_equivalence(self) -> None:
+        src = render_test_equivalence_py()
+        tree = ast.parse(src)
+        func_names = {
+            node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+        }
+        assert "check_equivalence" in func_names
+        assert "main" in func_names
+
+    def test_contains_rtol(self) -> None:
+        src = render_test_equivalence_py()
+        assert "rtol" in src
+        assert "1e-7" in src
