@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -135,6 +137,26 @@ class NativeFeaturePipeline(BaseFeaturePipeline):
             "encoder": self._encoder.get_state(),
             "transformer": self._transformer.get_state(),
         }
+
+    def export_state_json(self, path: str | Path) -> Path:
+        """Export pipeline state to a JSON file.
+
+        Args:
+            path: Destination file path.
+
+        Returns:
+            The resolved Path.
+
+        Raises:
+            RuntimeError: If the pipeline has not been fitted.
+        """
+        if not self._fitted:
+            raise RuntimeError("Pipeline has not been fitted. Call fit() first.")
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "w") as f:
+            json.dump(self.get_state(), f, indent=2, ensure_ascii=False)
+        return p
 
     def load_state(self, state: dict[str, Any]) -> NativeFeaturePipeline:
         """Restore pipeline from saved state."""
