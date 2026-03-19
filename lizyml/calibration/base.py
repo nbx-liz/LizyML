@@ -51,3 +51,11 @@ class BaseCalibratorAdapter(ABC):
     @abstractmethod
     def name(self) -> str:
         """Short identifier for this calibration method."""
+
+    @abstractmethod
+    def export_params(self) -> dict[str, Any]:
+        """Export calibrator parameters as a JSON-serializable dict.
+
+        The dict must include a ``"method"`` key matching :attr:`name`.
+        Raises ``RuntimeError`` if the calibrator has not been fitted.
+        """
