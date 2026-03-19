@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-03-20
+
+### Added
+
+- `Model.export_code(path)` — generate LizyML-independent training and prediction scripts (H-0059)
+- `lizyml/codegen/` package — config_writer, artifact_writer, templates, generator modules
+- Exported output: `train.py`, `predict.py`, `test_equivalence.py`, `config.json`, `requirements.txt`, `artifacts/`
+- Supports all task types (regression, binary, multiclass) and all calibrators (Platt, Beta, Isotonic)
+- `BaseCalibratorAdapter.export_params()` — abstract method for calibrator parameter export
+- `PlattCalibrator.export_params()`, `BetaCalibrator.export_params()`, `IsotonicCalibrator.export_params()` + `save_model_text()`
+- `LGBMAdapter.save_model_text()` — export Booster to human-readable text format
+- `NativeFeaturePipeline.export_state_json()` — export pipeline state to JSON
+- 73 new codegen tests including E2E equivalence verification (5 patterns)
+
 ## [0.2.0] - 2026-03-17
 
 ### Added
