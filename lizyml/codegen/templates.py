@@ -473,7 +473,10 @@ with open(ROOT / "config.json") as _f:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def _load_pipeline() -> dict:
-    with open(ARTIFACTS / "pipeline_state.json") as f:
+    path = ARTIFACTS / "pipeline_state.json"
+    if not path.exists():
+        raise FileNotFoundError(f"{path} not found. Run train.py first.")
+    with open(path) as f:
         return json.load(f)
 
 
@@ -503,7 +506,6 @@ def _predict(df: pd.DataFrame) -> dict[str, np.ndarray | None]:
                 "proba": None}
 
     if task == "binary":
-        proba = np.asarray(booster.predict(X), dtype=np.float64)
         cal_path = ARTIFACTS / "calibrator.json"
         if cal_path.exists():
             with open(cal_path) as f:
@@ -517,9 +519,16 @@ def _predict(df: pd.DataFrame) -> dict[str, np.ndarray | None]:
                 logit = cal["a"] * np.log(s) + cal["b"] * np.log(1 - s) + cal["c"]
                 proba = np.clip(_sigmoid(logit), 0, 1)
             elif m == "isotonic":
-                model_file = Path(cal["model_file"]).name
+                model_file = Path(cal["model_file"]).name  # sanitize path
                 bst = lgb.Booster(model_file=str(ARTIFACTS / model_file))
                 proba = np.clip(bst.predict(logits.reshape(-1, 1)), 0, 1)
+            else:
+                raise ValueError(
+                    f"Unknown calibration method: {m!r}. "
+                    "Supported: platt, beta, isotonic"
+                )
+        else:
+            proba = np.asarray(booster.predict(X), dtype=np.float64)
         return {"pred": (proba > 0.5).astype(np.int64), "proba": proba}
 
     if task == "multiclass":
@@ -533,6 +542,25 @@ def _predict(df: pd.DataFrame) -> dict[str, np.ndarray | None]:
 #  Equivalence check
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+def _compare(
+    name: str, actual: np.ndarray, expected: np.ndarray, rtol: float
+) -> bool:
+    """Compare two arrays and log result."""
+    if len(actual) != len(expected):
+        log.error(
+            "%s: FAIL — row count mismatch (codegen=%d, ref=%d)",
+            name, len(actual), len(expected),
+        )
+        return False
+    try:
+        np.testing.assert_allclose(actual, expected, rtol=rtol)
+        log.info("%s: PASS (rtol=%s, n=%d)", name, rtol, len(actual))
+        return True
+    except AssertionError as e:
+        log.error("%s: FAIL\\n%s", name, e)
+        return False
+
+
 def check_equivalence(
     df: pd.DataFrame,
     ref: pd.DataFrame,
@@ -540,29 +568,33 @@ def check_equivalence(
     rtol: float = 1e-7,
 ) -> bool:
     """Compare codegen predictions against reference."""
+    if "pred" not in ref.columns:
+        raise ValueError(
+            f\'"pred" column not found in reference file. \'
+            f"Available columns: {list(ref.columns)}"
+        )
+
     result = _predict(df)
     ok = True
 
     # Check pred
-    codegen_pred = result["pred"]
-    ref_pred = ref["pred"].values
-    try:
-        np.testing.assert_allclose(codegen_pred, ref_pred, rtol=rtol)
-        log.info("pred: PASS (rtol=%s, n=%d)", rtol, len(codegen_pred))
-    except AssertionError as e:
-        log.error("pred: FAIL\\n%s", e)
+    if not _compare("pred", result["pred"], ref["pred"].values, rtol):
         ok = False
 
-    # Check proba (if present in both)
-    if result["proba"] is not None and "proba" in ref.columns:
-        codegen_proba = result["proba"]
-        ref_proba = ref["proba"].values
-        try:
-            np.testing.assert_allclose(codegen_proba, ref_proba, rtol=rtol)
-            log.info("proba: PASS (rtol=%s)", rtol)
-        except AssertionError as e:
-            log.error("proba: FAIL\\n%s", e)
-            ok = False
+    # Check proba
+    proba = result["proba"]
+    if proba is not None:
+        if proba.ndim == 1 and "proba" in ref.columns:
+            # Binary: single proba column
+            if not _compare("proba", proba, ref["proba"].values, rtol):
+                ok = False
+        elif proba.ndim == 2:
+            # Multiclass: proba_0, proba_1, ...
+            for i in range(proba.shape[1]):
+                col = f"proba_{i}"
+                if col in ref.columns:
+                    if not _compare(col, proba[:, i], ref[col].values, rtol):
+                        ok = False
 
     return ok
 
