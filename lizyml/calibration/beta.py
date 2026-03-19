@@ -94,3 +94,10 @@ class BetaCalibrator(BaseCalibratorAdapter):
         result = _sigmoid(logit)
         clipped: npt.NDArray[np.float64] = np.clip(result, 0.0, 1.0)
         return clipped
+
+    def export_params(self) -> dict[str, Any]:
+        """Export Beta parameters: sigmoid(a*log(s) + b*log(1-s) + c)."""
+        if self._params is None:
+            raise RuntimeError("BetaCalibrator has not been fitted.")
+        a, b, c = self._params
+        return {"method": "beta", "a": a, "b": b, "c": c}
