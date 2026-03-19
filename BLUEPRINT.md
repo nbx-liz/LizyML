@@ -125,6 +125,7 @@ fit_result = model.fit()
 eval_result = model.evaluate()
 pred_result = model.predict(X_test, return_shap=True)
 model.export("path/to/export_dir")
+model.export_code("path/to/codegen_dir")  # LizyML 非依存の学習・推論コード生成（H-0059）
 ```
 
 補足:
@@ -420,6 +421,19 @@ config = {
 - `FeaturePipeline state / schema / models / calibrator / metrics / history / config / versions / format_version` を含める。
 - load 後診断 API 用に `analysis_context`（`y_true`, `X_for_explain`）を含める。
 - `Model.load()` で復元可能にし、復元後に予測と評価情報参照の両方を行えるようにする。
+
+## 6.6 `export_code`（Codegen Export, H-0059）
+
+LizyML 非依存の学習・推論コードを自動生成する。
+
+- **出力構造**: `config.json` + `train.py` + `predict.py` + `artifacts/` + `requirements.txt` + `test_equivalence.py`
+- **train.py**: Feature pipeline fit → LightGBM refit（全データ学習）→ OOF 生成（軽量 CV）→ Calibrator fit
+- **predict.py**: Feature transform → LightGBM predict → Calibration apply
+- **config.json**: ハイパーパラメータ・特徴量定義・校正設定を集約。コード編集なしでパラメータ変更可能
+- 生成コードは `import lizyml` を含まない。依存は `lightgbm` / `numpy` / `pandas` / `scikit-learn`（学習時のみ）
+- `test_equivalence.py` で `Model.predict()` と codegen 出力の一致を `rtol=1e-7` で検証
+- 初期実装は LightGBM のみ対応。将来の EstimatorProvider 拡張で他アルゴリズムにも対応可能
+- Calibrator 保存形式: Platt → JSON (a, b)、Beta → JSON (a, b, c)、Isotonic → Booster テキスト
 
 # 7. Artifacts（戻り値と保存対象の固定）
 
@@ -965,7 +979,30 @@ estimators/
 - `Model Artifact` を 1 ディレクトリにまとめる。
 - `Model.load()` で復元し、推論と評価情報参照に加えて診断 API（残差/SHAP/分類・校正可視化）も利用可能にする。
 
-## 15.4 パッケージ配布（PyPI）
+## 15.4 `export_code`（Codegen Export, H-0059）
+
+- LizyML 非依存の学習・推論コードを生成する。`export`（§15.3）とは独立した出力形式。
+- `format_version` とは無関係（pickle を使用せず、テキスト/JSON のみ）。
+- 出力ディレクトリ構造:
+
+```
+{path}/
+├── config.json             # 全設定（ハイパーパラメータ / 特徴量 / 校正）
+├── train.py                # 学習（pipeline fit → refit → calibration）
+├── predict.py              # 推論（transform → predict → calibrate）
+├── requirements.txt        # 最小依存
+├── test_equivalence.py     # LizyML との一致検証
+└── artifacts/              # train.py が生成
+    ├── model.txt           # LightGBM Booster テキスト
+    ├── pipeline_state.json # 学習済み Pipeline 状態
+    ├── calibrator.json     # Calibrator パラメータ
+    └── calibrator_model.txt # Isotonic Booster（該当時のみ）
+```
+
+- `artifacts/` の初期内容は `export_code()` 実行時に元の FitResult/RefitResult から生成される
+- `train.py` で新データから再学習すると `artifacts/` が上書きされる
+
+## 15.5 パッケージ配布（PyPI）
 
 - `pyproject.toml` に `PEP 517/518` 準拠の `[build-system]` を必須で定義し、`sdist / wheel` を同一ソースから生成できるようにする。
 - `[project]` メタデータは最低限以下を必須とする。
