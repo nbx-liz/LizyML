@@ -127,7 +127,12 @@ class ModelPersistenceMixin:
         es = cfg.training.early_stopping
         calibration_method: str | None = None
         # Use outer CV n_splits for OOF calibration (H-0058: reuses outer splits)
-        calibration_n_splits = cfg.split.n_splits
+        calibration_n_splits: int = getattr(cfg.split, "n_splits", 0)
+        if calibration_n_splits == 0:
+            # BlockedGroupKFoldConfig: use groups.n_splits
+            calibration_n_splits = int(
+                getattr(getattr(cfg.split, "groups", None), "n_splits", 5)
+            )
         if cfg.calibration is not None:
             calibration_method = cfg.calibration.method
 
