@@ -27,7 +27,7 @@ flowchart TB
         direction LR
         CONFIG["config/<br/>LizyMLConfig<br/>pydantic schemas"]
         DATA["data/<br/>datasource<br/>dataframe_builder<br/>fingerprint"]
-        SPLIT["splitters/<br/>BaseSplitter<br/>+ 7 concrete"]
+        SPLIT["splitters/<br/>BaseSplitter<br/>+ 8 concrete"]
         FEAT["features/<br/>BaseFeaturePipeline<br/>NativeFeaturePipeline"]
         EST["estimators/<br/>BaseEstimatorAdapter<br/>LGBMAdapter<br/>smart params"]
         METRIC["metrics/<br/>BaseMetric<br/>+ registry<br/>+ 14 concrete"]
@@ -239,6 +239,7 @@ classDiagram
     class TimeSeriesConfig:::configClass { +method="time_series" }
     class PurgedTimeSeriesConfig:::configClass { +method="purged_time_series" }
     class GroupTimeSeriesConfig:::configClass { +method="group_time_series" }
+    class BlockedGroupKFoldConfig:::configClass { +method="blocked_group_kfold" +blocks +groups }
 
     LizyMLConfig *-- KFoldConfig : split
     LizyMLConfig *-- StratifiedKFoldConfig : split
@@ -246,6 +247,7 @@ classDiagram
     LizyMLConfig *-- TimeSeriesConfig : split
     LizyMLConfig *-- PurgedTimeSeriesConfig : split
     LizyMLConfig *-- GroupTimeSeriesConfig : split
+    LizyMLConfig *-- BlockedGroupKFoldConfig : split
 
     %% ModelConfig — discriminated union on "name"
     class LGBMConfig:::configClass {
@@ -286,12 +288,14 @@ classDiagram
     class TimeSeriesSplitter:::leafClass { }
     class PurgedTimeSeriesSplitter:::leafClass { }
     class GroupTimeSeriesSplitter:::leafClass { }
+    class BlockedGroupKFoldSplitter:::leafClass { +block_values +cutoffs +mode }
     KFoldSplitter --|> BaseSplitter
     StratifiedKFoldSplitter --|> BaseSplitter
     GroupKFoldSplitter --|> BaseSplitter
     TimeSeriesSplitter --|> BaseSplitter
     PurgedTimeSeriesSplitter --|> BaseSplitter
     GroupTimeSeriesSplitter --|> BaseSplitter
+    BlockedGroupKFoldSplitter --|> BaseSplitter
 
     %% === features/ ===
     class BaseFeaturePipeline:::ifClass {
@@ -404,10 +408,14 @@ classDiagram
     class HoldoutInnerValid:::compClass { +ratio +stratify +random_state }
     class GroupHoldoutInnerValid:::compClass { +ratio +random_state }
     class TimeHoldoutInnerValid:::compClass { +ratio }
+    class BlockedGroupInnerValid:::compClass { +ratio }
+    class StratifiedTimeHoldoutInnerValid:::compClass { +ratio }
     NoInnerValid --|> BaseInnerValidStrategy
     HoldoutInnerValid --|> BaseInnerValidStrategy
     GroupHoldoutInnerValid --|> BaseInnerValidStrategy
     TimeHoldoutInnerValid --|> BaseInnerValidStrategy
+    BlockedGroupInnerValid --|> BaseInnerValidStrategy
+    StratifiedTimeHoldoutInnerValid --|> BaseInnerValidStrategy
 
     TrainComponents ..> CVTrainer : provides factory/resolver/iv
     TrainComponents ..> RefitTrainer : provides same
@@ -571,8 +579,11 @@ Facade (Model)
   ├─ 4. Training ── CVTrainer.fit(X, y, groups, ...)
   │    ┌─ Splitters ── outer_splitter.split() → indices
   │    ├─ per fold:
+  │    │   ├─ Training ── inner_valid.split(train_fold, y, groups)
+  │    │   │              → (inner_train_idx, inner_valid_idx)
   │    │   ├─ Features ── pipeline.fit(X_train) → transform
-  │    │   ├─ Estimators ── estimator.fit(X, y, X_valid, y_valid)
+  │    │   │              ※ pipeline の fit 境界は outer train 全体
+  │    │   ├─ Estimators ── estimator.fit(X_inner_train, y_inner_train, X_inner_valid, y_inner_valid)
   │    │   └─ predictions → OOF / IF
   │    └─ → FitResult (metrics={})
   │
@@ -670,7 +681,8 @@ lizyml/
 │   ├── group_kfold.py              GroupKFoldSplitter
 │   ├── time_series.py              TimeSeriesSplitter
 │   ├── purged_time_series.py       PurgedTimeSeriesSplitter
-│   └── group_time_series.py        GroupTimeSeriesSplitter
+│   ├── group_time_series.py        GroupTimeSeriesSplitter
+│   └── blocked_group_kfold.py     BlockedGroupKFoldSplitter (H-0060)
 │
 ├── features/                       ── Layer 1: Features ──
 │   ├── pipeline_base.py            BaseFeaturePipeline
@@ -699,7 +711,7 @@ lizyml/
 │   ├── cv_trainer.py               CVTrainer (outer CV loop)
 │   ├── refit_trainer.py            RefitTrainer + RefitResult
 │   ├── train_components.py         TrainComponents (frozen dataclass)
-│   └── inner_valid.py              BaseInnerValidStrategy + 4 concrete
+│   └── inner_valid.py              BaseInnerValidStrategy + 6 concrete
 │
 ├── evaluation/                     ── Layer 2: Evaluation ──
 │   ├── evaluator.py                Evaluator (structured metrics)
