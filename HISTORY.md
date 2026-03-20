@@ -4426,3 +4426,205 @@ if __name__ == "__main__":
 **共通:**
 - 依存が requirements.txt に収まる。
 - E2E テスト: fit → export_code → train → predict → 結果検証。
+
+---
+
+## H-0060: blocked_group_kfold — 2軸交差検証（期間 × グループ）
+
+- ID: `H-0060`
+- Status: `accepted`
+- Scope: `Split | InnerValid | Config | Public API`
+- Related: `BLUEPRINT §5.4, §10`
+
+### 目的
+
+期間軸（blocks）とグループ軸（groups）の直積で交差検証を行う新しい split method `blocked_group_kfold` を追加する。時間的な前方検証とグループ間リーク防止を同時に実現する。
+
+### 背景
+
+既存の splitter は1軸の分割のみ対応する（時間 or グループ）。実務では以下のような2軸分割が必要になる。
+
+- 金融: ユーザーID × 月次データ（2月以前で学習、3月以降で評価、学習/評価でユーザーが異なる）
+- 医療: 患者ID × 受診期間
+- 小売: 店舗ID × 週次/月次データ
+
+既存の `group_time_series` はグループの出現順で時系列分割するが、以下を満たさない。
+
+1. 任意の境界値（cutoff）で期間を区切れない
+2. グループ軸で KFold できない（データ利用効率が低い）
+3. expanding / sliding の窓制御ができない
+
+### Proposal
+
+#### Config 構造
+
+```yaml
+split:
+  method: blocked_group_kfold
+  blocks:                             # ── 期間軸（何で区切るか）
+    col: date                         #   区切りに使うカラム
+    cutoffs: ["2025-02", "2025-03"]   #   境界値リスト（valid 期間の開始点）
+    mode: sliding                     #   expanding | sliding
+    train_window: 2                   #   sliding 時: train に使う期間数
+  groups:                             # ── グループ軸（何で分けるか）
+    col: user_id                      #   グループ分割するカラム
+    n_splits: 3                       #   グループの分割数
+    stratify: auto                    #   auto | true | false
+    shuffle: true                     #   グループ分割時のシャッフル
+  min_train_rows: 10                  #   fold スキップ閾値（train）
+  min_valid_rows: 5                   #   fold スキップ閾値（valid）
+```
+
+#### blocks セクション
+
+| フィールド | 型 | デフォルト | 説明 |
+|---|---|---|---|
+| `col` | `str` | **必須** | 期間を定義するカラム名。ソート可能な型 |
+| `cutoffs` | `list` | **必須** | 境界値リスト。各値が valid 期間の開始点 |
+| `mode` | `"expanding" \| "sliding"` | `"expanding"` | train 期間の構成方式 |
+| `train_window` | `int \| null` | `null` | `sliding` 時のみ有効。train に使う期間数 |
+
+#### groups セクション
+
+| フィールド | 型 | デフォルト | 説明 |
+|---|---|---|---|
+| `col` | `str` | **必須** | グループ分割するカラム名 |
+| `n_splits` | `int` | **必須** | グループの分割数（K） |
+| `stratify` | `"auto" \| true \| false` | `"auto"` | ターゲット分布による層化 |
+| `shuffle` | `bool` | `true` | グループ分割時のシャッフル |
+
+`stratify: auto` は binary/multiclass → 層化あり、regression → 層化なし。層化時はグループごとの代表ラベル（多数決クラス）で層化分割する。
+
+#### 期間の定義
+
+`cutoffs: [C₁, C₂, ..., Cₙ]` から `n+1` 個の期間を生成:
+
+- P₀: `col < C₁`
+- P₁: `C₁ ≤ col < C₂`
+- Pₙ: `col ≥ Cₙ`
+
+**expanding**: fold k の train = P₀ + ... + Pₖ、valid = Pₖ₊₁
+**sliding** (`train_window=W`): fold k の train = 直前 W 期間、valid = Pₖ₊₁
+
+時間 fold 数 = `len(cutoffs)`
+
+#### Fold 生成アルゴリズム
+
+```
+for each 時間fold t:
+    train_period_rows = 期間割り当てで train に属する全行
+    valid_period_rows = 期間割り当てで valid に属する全行
+    all_users = unique(groups[train_period_rows ∪ valid_period_rows])
+    user_folds = StratifiedGroupKFold(all_users, n_splits=K)
+
+    for each ユーザーfold u:
+        train_users, valid_users = user_folds[u]
+        train_idx = train_period_rows ∩ rows_of(train_users)
+        valid_idx = valid_period_rows ∩ rows_of(valid_users)
+        # 除外: train期間×valid_users, valid期間×train_users
+        if len(train_idx) >= min_train_rows and len(valid_idx) >= min_valid_rows:
+            yield (train_idx, valid_idx)
+        else:
+            warn and skip
+```
+
+合計 fold 数 = `len(cutoffs) × groups.n_splits − skip数`
+
+#### Inner Valid（early stopping）
+
+新規 strategy `BlockedGroupInnerValid` を追加する。
+
+**自動解決ルール:**
+
+| タスク | 戦略 | 動作 |
+|---|---|---|
+| binary / multiclass | `BlockedGroupInnerValid` | グループ分離 + 各クラス末尾グループ + 層化 |
+| regression | `BlockedGroupInnerValid` | グループ分離 + 末尾グループ |
+| フォールバック | `StratifiedTimeHoldoutInnerValid` | グループ数 < 4 で自動切替 |
+
+**BlockedGroupInnerValid アルゴリズム:**
+
+1. outer fold train 内のユニークグループを取得
+2. 各グループの代表ラベルを算出（多数決クラス）※分類時のみ
+3. 各グループの最終出現時刻でソート
+4. 分類時: 各クラス内で末尾 `ratio` 分のグループを inner valid に割り当て（各クラス最低1グループ保証）
+5. 回帰時: 末尾 `ratio` 分のグループを inner valid に割り当て
+6. グループ単位で完全分離（同一グループが inner train/valid に跨がらない）
+
+**フォールバック条件:** `n_unique_groups < 4` の場合、`StratifiedTimeHoldoutInnerValid`（各クラスの末尾行から `ratio` 分を取得）にフォールバックし、警告を出す。
+
+**StratifiedTimeHoldoutInnerValid:** 各クラス内で時間順序を保持し、末尾 `ratio` 分を inner valid に取る。全クラスが inner valid に最低1行含まれることを保証しつつ、クラス内では時間順序を維持する。
+
+#### バリデーション
+
+- `blocks.col` と `groups.col` が同一カラムの場合 → `CONFIG_INVALID`
+- `mode: "sliding"` で `train_window` 未指定 → `CONFIG_INVALID`
+- `mode: "expanding"` で `train_window` 指定 → 警告（値は無視）
+- `cutoffs` が空 → `CONFIG_INVALID`
+- `blocks.col` の値が比較不能 → `DATA_SCHEMA_INVALID`
+
+### 設計判断
+
+| 判断項目 | 選択 | 理由 |
+|---|---|---|
+| Purge vs Group KFold | Group KFold | データ利用効率が高い。Purge は除外行が多すぎる |
+| Config 構造 | セクション分離（blocks/groups） | 2つの軸の役割が視覚的に明確 |
+| BaseSplitter IF 変更 | 変更なし | blocks.col 値は Facade がコンストラクタに注入 |
+| Inner Valid | 専用 strategy（BlockedGroupInnerValid） | outer と同じグループ分離を inner でも適用 |
+| 層化 | auto（タスク依存） | 既存慣例（StratifiedKFold デフォルト）と整合 |
+| フォールバック | グループ数 < 4 で行レベル分割 | 少数グループ時の安定性確保 |
+
+### 影響範囲
+
+| 対象 | 変更内容 |
+|---|---|
+| **新規**: `lizyml/splitters/blocked_group_kfold.py` | `BlockedGroupKFoldSplitter` |
+| **新規**: `lizyml/training/inner_valid.py` に追加 | `BlockedGroupInnerValid`, `StratifiedTimeHoldoutInnerValid` |
+| `lizyml/config/schema.py` | `BlockedGroupKFoldConfig`, `SplitConfig` union 更新 |
+| `lizyml/core/_model_factories.py` | factory 分岐, inner valid auto 解決 |
+| `lizyml/core/model.py` | `blocks.col` 抽出 + splitter コンストラクタ注入 |
+| `lizyml/splitters/__init__.py` | re-export |
+| `BLUEPRINT.md` | §5.4, §10.2, §10.3 更新 |
+
+### 互換性
+
+- 既存 Config / splitter に変更なし（新規 method の追加のみ）
+- BaseSplitter インターフェース変更なし
+- 既存テストへの影響なし
+
+### 代替案（却下）
+
+1. **Purge 方式**: train/valid に跨がるグループを除去する。データ利用効率が低い（各 fold で 30-50% が除外される）。
+2. **専用 splitter 量産**: Group+Time、Group+Group 等の組み合わせごとに専用クラスを作る。組み合わせ爆発。
+3. **BaseSplitter IF 拡張**: `split()` に `time_order` パラメータを追加。既存全 splitter のシグネチャ変更が必要。
+
+### 制約・前提
+
+- `blocks.col` は順序付き型（比較演算可能）が必要
+- Facade が `blocks.col` でデータをソートする（既存 TS method と同じ規約）
+- 2軸分離の構造上、各 fold で「train期間 × valid_users」と「valid期間 × train_users」の行は除外される
+
+### 受け入れ基準
+
+**契約:**
+- fold 数 = `len(cutoffs) × groups.n_splits − skip数`
+- 各 fold で `train_users ∩ valid_users == ∅`
+- 各 fold で train 行の `blocks.col` 値が train 期間内、valid 行が valid 期間内
+
+**再現性:**
+- 同一 seed → 同一 fold indices
+
+**層化:**
+- binary/multiclass で各 user fold のクラス分布が均等（±許容範囲）
+
+**Inner Valid:**
+- inner train/valid でグループ完全分離
+- inner valid グループが時間的に遅いグループから選択される
+- 分類タスクで各クラス最低1グループが inner valid に含まれる
+- グループ数 < 4 でフォールバック発動 + 警告
+
+**Edge case:**
+- cutoffs 1つ → 1時間 fold × n_splits
+- 全ユーザーが全期間に存在 → 除外多、正常動作
+- valid 期間にデータがないユーザー → 正常動作
+- min_train_rows / min_valid_rows 未満 → fold スキップ + 警告

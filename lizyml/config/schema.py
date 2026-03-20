@@ -139,6 +139,61 @@ class GroupTimeSeriesConfig(BaseModel):
     test_size_max: int | None = None
 
 
+# ---------------------------------------------------------------------------
+# BlockedGroupKFold (H-0060): 2-axis CV (period × group)
+# ---------------------------------------------------------------------------
+
+
+class BlocksConfig(BaseModel):
+    """Period axis configuration for blocked_group_kfold."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    col: str
+    cutoffs: list[Any] = Field(min_length=1)
+    mode: Literal["expanding", "sliding"] = "expanding"
+    train_window: int | None = None
+
+
+class GroupCVConfig(BaseModel):
+    """Group axis configuration for blocked_group_kfold."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    col: str
+    n_splits: int = 3
+    stratify: Literal["auto"] | bool = "auto"
+    shuffle: bool = True
+
+
+class BlockedGroupKFoldConfig(BaseModel):
+    """2-axis cross-validation: period blocks × group KFold (H-0060)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    method: Literal["blocked_group_kfold"]
+    blocks: BlocksConfig
+    groups: GroupCVConfig
+    min_train_rows: int = 10
+    min_valid_rows: int = 5
+
+    @model_validator(mode="after")
+    def _validate_axes(self) -> BlockedGroupKFoldConfig:
+        if self.blocks.col == self.groups.col:
+            raise ValueError(
+                f"blocks.col and groups.col must differ, both are '{self.blocks.col}'"
+            )
+        if self.blocks.mode == "sliding" and self.blocks.train_window is None:
+            raise ValueError("train_window is required when mode is 'sliding'")
+        if self.blocks.mode == "expanding" and self.blocks.train_window is not None:
+            warnings.warn(
+                "train_window is ignored when mode is 'expanding'",
+                UserWarning,
+                stacklevel=2,
+            )
+        return self
+
+
 SplitConfig = Annotated[
     KFoldConfig
     | StratifiedKFoldConfig
@@ -146,7 +201,8 @@ SplitConfig = Annotated[
     | StratifiedGroupKFoldConfig
     | TimeSeriesConfig
     | PurgedTimeSeriesConfig
-    | GroupTimeSeriesConfig,
+    | GroupTimeSeriesConfig
+    | BlockedGroupKFoldConfig,
     Field(discriminator="method"),
 ]
 
