@@ -464,6 +464,43 @@ class TestEdgeCases:
             assert train_idx.dtype == np.intp
             assert valid_idx.dtype == np.intp
 
+    def test_empty_period_skipped(self) -> None:
+        """Cutoff beyond data range → empty valid period → fold skipped."""
+        block_values = np.array([0, 0, 1, 1])
+        groups = np.array(["a", "b", "a", "b"])
+        y = np.array([0, 1, 0, 1])
+        splitter = BlockedGroupKFoldSplitter(
+            block_values=block_values,
+            cutoffs=[5],  # no data >= 5
+            mode="expanding",
+            n_splits=2,
+            stratify=False,
+            shuffle=False,
+            random_state=42,
+            min_train_rows=1,
+            min_valid_rows=1,
+        )
+        folds = list(splitter.split(len(block_values), y=y, groups=groups))
+        assert len(folds) == 0  # Empty valid period → no folds
+
+    def test_sliding_without_train_window_raises(self) -> None:
+        """Direct construction with mode=sliding, train_window=None."""
+        block_values = np.array([0, 0, 1, 1])
+        groups = np.array(["a", "b", "a", "b"])
+        y = np.array([0, 1, 0, 1])
+        splitter = BlockedGroupKFoldSplitter(
+            block_values=block_values,
+            cutoffs=[1],
+            mode="sliding",
+            train_window=None,  # Invalid for sliding
+            n_splits=2,
+            stratify=False,
+            shuffle=False,
+            random_state=42,
+        )
+        with pytest.raises(ValueError, match="train_window"):
+            list(splitter.split(len(block_values), y=y, groups=groups))
+
     def test_no_overlap_between_train_and_valid_indices(self) -> None:
         """Train and valid index arrays never share row indices."""
         block_values, groups, y = _make_data(n_users=10, n_periods=5, seed=42)
