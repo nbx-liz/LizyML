@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -202,10 +203,7 @@ class StratifiedTimeHoldoutInnerValid(BaseInnerValidStrategy):
         groups: npt.NDArray[Any] | None = None,
     ) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]:
         if y is None:
-            # Fallback: simple tail holdout
-            n_valid = max(1, int(n_samples * self.ratio))
-            all_idx = np.arange(n_samples, dtype=np.intp)
-            return all_idx[:-n_valid], all_idx[-n_valid:]
+            return TimeHoldoutInnerValid(self.ratio).split(n_samples)
 
         valid_indices: list[int] = []
         for cls in np.unique(y):
@@ -214,7 +212,6 @@ class StratifiedTimeHoldoutInnerValid(BaseInnerValidStrategy):
             valid_indices.extend(cls_idx[-n_valid:].tolist())
 
         valid_set = set(valid_indices)
-        all_idx = np.arange(n_samples, dtype=np.intp)
         valid_idx = np.array(sorted(valid_set), dtype=np.intp)
         train_idx = np.array(
             [i for i in range(n_samples) if i not in valid_set], dtype=np.intp
@@ -272,8 +269,6 @@ class BlockedGroupInnerValid(BaseInnerValidStrategy):
         n_unique = len(ordered_groups)
 
         if n_unique < self._MIN_GROUPS_FOR_ISOLATION:
-            import warnings
-
             warnings.warn(
                 f"Too few groups ({n_unique}) for group-isolated inner "
                 f"valid (need >= {self._MIN_GROUPS_FOR_ISOLATION}). "

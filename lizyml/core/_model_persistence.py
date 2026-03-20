@@ -131,7 +131,7 @@ class ModelPersistenceMixin:
         if calibration_n_splits == 0:
             # BlockedGroupKFoldConfig: use groups.n_splits
             calibration_n_splits = int(
-                getattr(getattr(cfg.split, "groups", None), "n_splits", 5)
+                getattr(getattr(cfg.split, "groups", None), "n_splits", 3)
             )
         if cfg.calibration is not None:
             calibration_method = cfg.calibration.method
