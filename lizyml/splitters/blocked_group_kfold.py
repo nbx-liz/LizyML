@@ -157,7 +157,8 @@ class BlockedGroupKFoldSplitter(BaseSplitter):
                 train_mask |= period_masks[i]
         else:
             # Sliding: train = last train_window periods before valid
-            assert self._train_window is not None
+            if self._train_window is None:
+                raise ValueError("train_window must be set when mode='sliding'")
             start = max(0, time_fold + 1 - self._train_window)
             for i in range(start, time_fold + 1):
                 train_mask |= period_masks[i]
@@ -209,8 +210,8 @@ class BlockedGroupKFoldSplitter(BaseSplitter):
         labels = np.empty(len(users), dtype=y.dtype)
         for i, user in enumerate(users):
             mask = groups == user
-            if not np.any(mask):
-                labels[i] = y[0]  # fallback
+            if not np.any(mask):  # pragma: no cover — should not be reachable
+                labels[i] = y[0]
                 continue
             user_y = y[mask]
             values, counts = np.unique(user_y, return_counts=True)
