@@ -231,6 +231,12 @@ class BlockedGroupInnerValid(BaseInnerValidStrategy):
     Falls back to :class:`StratifiedTimeHoldoutInnerValid` when fewer than
     4 unique groups are available.
 
+    .. note::
+
+        Assumes ``groups`` is passed in temporal order (ascending by block
+        value), as guaranteed by the ``_BLOCK_METHODS`` data preparation
+        path in ``Model._prepare_training_data``.
+
     Args:
         ratio: Fraction of groups to assign to validation.
         task: ``"binary"`` / ``"multiclass"`` / ``"regression"``.

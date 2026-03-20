@@ -58,8 +58,8 @@ def _resolve_stratify(stratify: str | bool, task: str) -> bool:
         return stratify
     if stratify == "auto":
         return task in ("binary", "multiclass")
-    # "true" / "false" strings (from YAML)
-    return str(stratify).lower() == "true"
+    # Defensive fallback — schema restricts to Literal["auto"] | bool
+    return str(stratify).lower() == "true"  # pragma: no cover
 
 
 def _build_splitter_for_method(
@@ -99,7 +99,7 @@ def _build_splitter_for_method(
             n_splits=split_cfg.groups.n_splits,
             stratify=stratify_bool,
             shuffle=split_cfg.groups.shuffle,
-            random_state=seed or 42,
+            random_state=42 if seed is None else seed,
             min_train_rows=split_cfg.min_train_rows,
             min_valid_rows=split_cfg.min_valid_rows,
         )
@@ -176,8 +176,8 @@ def build_splitter(
             split_cfg,
             split_cfg.groups.n_splits,
             block_values=block_values,
-            task=task or cfg.task,
-            seed=seed or cfg.training.seed,
+            task=cfg.task if task is None else task,
+            seed=cfg.training.seed if seed is None else seed,
         )
 
     return _build_splitter_for_method(split_cfg, split_cfg.n_splits)
