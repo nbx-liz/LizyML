@@ -4432,7 +4432,7 @@ if __name__ == "__main__":
 ## H-0060: blocked_group_kfold — 2軸交差検証（期間 × グループ）
 
 - ID: `H-0060`
-- Status: `proposed`
+- Status: `accepted`
 - Scope: `Split | InnerValid | Config | Public API`
 - Related: `BLUEPRINT §5.4, §10`
 

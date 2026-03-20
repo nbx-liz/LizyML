@@ -739,18 +739,18 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             self._block_values = block_series.iloc[sort_order].to_numpy()
 
             # Update components
-            sorted_time = (
+            block_sorted_time: pd.Series | None = (
                 components.time_col.iloc[sort_order].reset_index(drop=True)
                 if components.time_col is not None
                 else None
             )
-            sorted_group = (
+            block_sorted_group: pd.Series | None = (
                 components.group_col.iloc[sort_order].reset_index(drop=True)
                 if components.group_col is not None
                 else None
             )
             components = DataFrameComponents(
-                X=X, y=y, time_col=sorted_time, group_col=sorted_group
+                X=X, y=y, time_col=block_sorted_time, group_col=block_sorted_group
             )
 
         return X, y, groups, components
