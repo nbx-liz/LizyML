@@ -128,6 +128,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         self._y: pd.Series | None = None  # transient; not persisted
         self._X: pd.DataFrame | None = None  # transient; not persisted
         self._provider: EstimatorProvider | None = None  # set by fit/tune
+        self._block_values: npt.NDArray[Any] | None = None  # _prepare_training_data
 
     # ------------------------------------------------------------------
     # Public API
@@ -173,7 +174,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         )
         splitter = build_splitter(
             cfg,
-            block_values=getattr(self, "_block_values", None),
+            block_values=self._block_values,
             task=cfg.task,
             seed=cfg.training.seed,
         )
@@ -399,7 +400,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         n_classes = int(y.nunique()) if cfg.task == "multiclass" else None
         splitter = build_splitter(
             cfg,
-            block_values=getattr(self, "_block_values", None),
+            block_values=self._block_values,
             task=cfg.task,
             seed=cfg.training.seed,
         )
