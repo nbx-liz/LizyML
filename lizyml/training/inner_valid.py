@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -175,3 +176,157 @@ class TimeHoldoutInnerValid(BaseInnerValidStrategy):
         train_idx = all_idx[:-n_valid]
         valid_idx = all_idx[-n_valid:]
         return train_idx, valid_idx
+
+
+class StratifiedTimeHoldoutInnerValid(BaseInnerValidStrategy):
+    """Per-class tail selection for inner validation (H-0060).
+
+    Within each class, selects the last ``ratio`` fraction of rows for
+    validation. Ensures every class has at least 1 row in inner valid
+    while preserving time ordering within each class.
+
+    Falls back to simple tail holdout when ``y`` is ``None``.
+
+    Args:
+        ratio: Fraction of each class to assign to validation.
+    """
+
+    def __init__(self, ratio: float = 0.1) -> None:
+        if not 0.0 < ratio < 1.0:
+            raise ValueError(f"ratio must be in (0, 1), got {ratio}")
+        self.ratio = ratio
+
+    def split(
+        self,
+        n_samples: int,
+        y: npt.NDArray[Any] | None = None,
+        groups: npt.NDArray[Any] | None = None,
+    ) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]:
+        if y is None:
+            return TimeHoldoutInnerValid(self.ratio).split(n_samples)
+
+        valid_indices: list[int] = []
+        for cls in np.unique(y):
+            cls_idx = np.where(y == cls)[0]
+            n_valid = max(1, int(len(cls_idx) * self.ratio))
+            valid_indices.extend(cls_idx[-n_valid:].tolist())
+
+        valid_set = set(valid_indices)
+        valid_idx = np.array(sorted(valid_set), dtype=np.intp)
+        train_idx = np.array(
+            [i for i in range(n_samples) if i not in valid_set], dtype=np.intp
+        )
+        return train_idx, valid_idx
+
+
+class BlockedGroupInnerValid(BaseInnerValidStrategy):
+    """Group-isolated, time-ordered, stratified inner valid (H-0060).
+
+    For ``blocked_group_kfold``: selects tail groups (by last appearance)
+    for inner validation, with per-class stratification for classification.
+
+    Falls back to :class:`StratifiedTimeHoldoutInnerValid` when fewer than
+    4 unique groups are available.
+
+    .. note::
+
+        Assumes ``groups`` is passed in temporal order (ascending by block
+        value), as guaranteed by the ``_BLOCK_METHODS`` data preparation
+        path in ``Model._prepare_training_data``.
+
+    Args:
+        ratio: Fraction of groups to assign to validation.
+        task: ``"binary"`` / ``"multiclass"`` / ``"regression"``.
+    """
+
+    _MIN_GROUPS_FOR_ISOLATION = 4
+
+    def __init__(self, ratio: float = 0.1, task: str = "regression") -> None:
+        if not 0.0 < ratio < 1.0:
+            raise ValueError(f"ratio must be in (0, 1), got {ratio}")
+        self.ratio = ratio
+        self.task = task
+
+    def split(
+        self,
+        n_samples: int,
+        y: npt.NDArray[Any] | None = None,
+        groups: npt.NDArray[Any] | None = None,
+    ) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]:
+        if groups is None:
+            raise LizyMLError(
+                code=ErrorCode.CONFIG_INVALID,
+                user_message=(
+                    "BlockedGroupInnerValid requires groups. "
+                    "Set groups.col in the split config."
+                ),
+                context={},
+            )
+
+        # Preserve input order (= time order)
+        seen: dict[Any, None] = dict.fromkeys(groups.tolist())
+        ordered_groups = list(seen.keys())
+        n_unique = len(ordered_groups)
+
+        if n_unique < self._MIN_GROUPS_FOR_ISOLATION:
+            warnings.warn(
+                f"Too few groups ({n_unique}) for group-isolated inner "
+                f"valid (need >= {self._MIN_GROUPS_FOR_ISOLATION}). "
+                f"Falling back to StratifiedTimeHoldout.",
+                UserWarning,
+                stacklevel=2,
+            )
+            return StratifiedTimeHoldoutInnerValid(self.ratio).split(
+                n_samples, y=y, groups=groups
+            )
+
+        # Compute last occurrence index per group (for time ordering)
+        last_occurrence: dict[Any, int] = {}
+        for i, g in enumerate(groups.tolist()):
+            last_occurrence[g] = i
+
+        # Sort groups by last occurrence (ascending = earliest first)
+        sorted_groups = sorted(ordered_groups, key=lambda g: last_occurrence[g])
+
+        if self.task in ("binary", "multiclass") and y is not None:
+            valid_groups = self._stratified_tail_groups(sorted_groups, y, groups)
+        else:
+            n_valid = max(1, int(len(sorted_groups) * self.ratio))
+            valid_groups = set(sorted_groups[-n_valid:])
+
+        # Build index arrays
+        valid_group_set = set(valid_groups)
+        all_idx = np.arange(n_samples, dtype=np.intp)
+        valid_mask = np.array([g in valid_group_set for g in groups.tolist()])
+        return all_idx[~valid_mask], all_idx[valid_mask]
+
+    def _stratified_tail_groups(
+        self,
+        sorted_groups: list[Any],
+        y: npt.NDArray[Any],
+        groups: npt.NDArray[Any],
+    ) -> set[Any]:
+        """Select tail groups ensuring each class has >= 1 group."""
+        # Majority label per group
+        group_labels: dict[Any, Any] = {}
+        for g in sorted_groups:
+            mask = groups == g
+            values, counts = np.unique(y[mask], return_counts=True)
+            group_labels[g] = values[counts.argmax()]
+
+        # Group by class
+        classes = np.unique(y)
+        per_class: dict[Any, list[Any]] = {c: [] for c in classes}
+        for g in sorted_groups:
+            per_class[group_labels[g]].append(g)
+
+        # Take tail ratio groups per class (min 1)
+        valid_groups: set[Any] = set()
+        for cls in classes:
+            cls_groups = per_class[cls]
+            if not cls_groups:
+                continue
+            n_valid = max(1, int(len(cls_groups) * self.ratio))
+            valid_groups.update(cls_groups[-n_valid:])
+
+        return valid_groups

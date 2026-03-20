@@ -303,7 +303,7 @@ config = {
 
 ### split
 
-`split.method` は以下のいずれか: `kfold` / `stratified_kfold` / `group_kfold` / `stratified_group_kfold` / `time_series` / `purged_time_series` / `group_time_series`。
+`split.method` は以下のいずれか: `kfold` / `stratified_kfold` / `group_kfold` / `stratified_group_kfold` / `time_series` / `purged_time_series` / `group_time_series` / `blocked_group_kfold`。
 
 | method | 固有キー |
 |---|---|
@@ -314,11 +314,13 @@ config = {
 | `time_series` | `n_splits=5`, `gap=0`, `train_size_max=null`, `test_size_max=null` |
 | `purged_time_series` | `n_splits=5`, `purge_gap=0`, `embargo=0`, `train_size_max=null`, `test_size_max=null` |
 | `group_time_series` | `n_splits=5`, `gap=0`, `train_size_max=null`, `test_size_max=null` |
+| `blocked_group_kfold` | `blocks={col, cutoffs, mode, train_window}`, `groups={col, n_splits, stratify, shuffle}`, `min_train_rows=10`, `min_valid_rows=5` |
 
 注記:
 - `time_series` / `purged_time_series` / `group_time_series` は共通で `data.time_col` 必須。
 - 3 メソッドは共通で `train_size_max` / `test_size_max` を受け取り、学習窓・検証窓の上限を制御する。
 - `purged_time_series` の旧キー `embargo_pct` は移行期間のみ後方互換として扱い、`embargo` に正規化する。
+- `blocked_group_kfold` は2軸交差検証（期間 × グループ）。`blocks.col` で期間を `cutoffs` で区切り、`groups.col` で KFold する。詳細は §10.6 参照。
 
 ### model（LightGBM）
 
@@ -385,12 +387,21 @@ config = {
 1. Config defaults + tune 結果 + 引数 override をマージし、`_build_train_components()` で `TrainComponents`（`estimator_factory` / `sample_weight` / `ratio_resolver` / `inner_valid`）を構築する（tune と同じコードパス）。パラメータ優先順位: `Config defaults < tune best < fit() 引数`。
 2. 外側 CV 各 fold で `train / valid` を作る。
    - `split.method` が `time_series` / `purged_time_series` / `group_time_series` の場合、`data.time_col` を基準に昇順へ並べた上で分割する。
-3. `InnerValidStrategy` により early stopping 用の `(X_train, y_train), (X_valid, y_valid)` を統一生成する。
-4. `EstimatorAdapter.fit()` を実行する。
-5. OOF / IF を生成する（ロジックは `training/oof_assembly.py` に隔離）。
-6. 必要なら `Calibrator` を cross-fit 学習する（OOF 予測のみ使用）。
-7. 全データ Refit を実行する（同一の `TrainComponents` を使用し、CV との一貫性を構造的に保証する）。
-8. `FitResult` を返し、Artifacts を保持する。
+3. `InnerValidStrategy` により early stopping 用の `inner_train / inner_valid` を生成する。
+   - 分割対象は outer fold の `train` 部分のみとする。
+   - `inner_train_idx / inner_valid_idx` は、その outer fold の `train` 部分に対する 0-based 相対 index として扱う。
+   - `early_stopping.enabled=False` の場合は inner split を作らない。
+4. `FeaturePipeline.fit()` は outer fold の `train` 全体に対して行う。
+   - inner valid は estimator の early stopping 用 evaluation set であり、pipeline の fit 境界は outer train からさらに狭めない。
+5. `EstimatorAdapter.fit()` を実行する。
+   - inner split がある場合は `inner_train` を学習データ、`inner_valid` を eval set として渡す。
+   - inner split がない場合は outer fold の `train` 全体で学習する。
+6. OOF / IF を生成する（ロジックは `training/oof_assembly.py` に隔離）。
+   - OOF は outer fold の `valid` 行に対してのみ生成する。
+7. 必要なら `Calibrator` を cross-fit 学習する（OOF 予測のみ使用）。
+8. 全データ Refit を実行する（同一の `TrainComponents` を使用し、CV との一貫性を構造的に保証する）。
+   - `CVTrainer` と `RefitTrainer` は同じ `InnerValidStrategy` を共有する。
+9. `FitResult` を返し、Artifacts を保持する。
 
 補足:
 
@@ -450,8 +461,8 @@ LizyML 非依存の学習・推論コードを自動生成する。
   - fold ごとの eval history / best_iteration
 - `feature_names / dtypes / categorical_features`
 - `splits`
-  - 外側 CV indices（必須）
-  - inner valid indices（有効時必須）
+  - 外側 CV indices（必須、元データ基準の absolute index）
+  - inner valid indices（有効時必須。各 outer fold train に対する 0-based 相対 index）
   - calibration CV indices（有効時必須）
   - `time_range`（時系列分割時。fold ごとの train/valid の期間情報 `list[dict] | None`）
 - `data_fingerprint`
@@ -541,7 +552,8 @@ LizyML 非依存の学習・推論コードを自動生成する。
 ## 10.1 Splitter の責務
 
 - 「index を返すだけ」に徹底する。
-- 外側 CV / early stopping / calibration で共通利用する。
+- 外側 CV / calibration で共通利用する。
+- early stopping 用の内側分割は `training/inner_valid.py` の `InnerValidStrategy` が担当し、splitter とは責務を分離する。
 - calibration cross-fit は outer CV splits をそのまま再利用する（H-0058）。`calibration.n_splits` は deprecated（指定時 `UserWarning`、値は無視）。
 
 ## 10.2 Outer CV（例）
@@ -552,6 +564,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `TimeSeriesSplit`
 - `PurgedTimeSeries`
 - `GroupTimeSeries`
+- `BlockedGroupKFold`（2軸交差検証: 期間 × グループ、H-0060）
 
 注記:
 - `task` が `binary` または `multiclass` かつ `split.method` が未指定の場合、`StratifiedKFold` をデフォルトとする。分類タスクで `method: "kfold"` を明示指定した場合は警告を出す。回帰タスクのデフォルトは `KFold` のまま。
@@ -564,12 +577,16 @@ LizyML 非依存の学習・推論コードを自動生成する。
 ## 10.3 InnerValidStrategy（early stopping 用）
 
 - CV fold 内でさらに `train / valid` を作る概念を分離する。
-- 実装（holdout ベース。将来 `InnerKFoldValid` も拡張可能とする）:
-  - `HoldoutInnerValid(ratio, stratify=False, random_state)`: ランダム holdout。`stratify=True` で `y` に基づく層化抽出。
-  - `GroupHoldoutInnerValid(ratio, random_state)`: group 単位の holdout。group overlap を禁止する。
-  - `TimeHoldoutInnerValid(ratio)`: 時系列順を維持し、末尾 ratio 割合を validation に割り当てる（shuffle 禁止）。
-- 時系列は内側も時系列順を厳守する（shuffle 禁止）。
-- Config で `inner_valid.method` を指定する。`inner_valid` 未指定かつ `early_stopping.enabled=True` の場合、外側 CV の method に応じて自動解決する。
+- `InnerValidStrategy` は `Model._build_train_components()` で解決し、`CVTrainer` と `RefitTrainer` に同一インスタンスを渡す。
+- `early_stopping.enabled=False` の場合は `NoInnerValid` を使い、inner split を生成しない。
+
+### 10.3.1 設定の解決規則
+
+- `training.early_stopping.inner_valid` を明示指定した場合は、その method / ratio / random_state をそのまま使う。外側 `split.method` は参照しない。
+- `training.early_stopping.validation_ratio` は ratio の shorthand であり、method 指定ではない。`inner_valid` を明示指定していない場合、ratio は `validation_ratio` から取り、method は外側 `split.method` から自動解決する。
+- `validation_ratio` と `inner_valid` を同時に明示指定した場合は `CONFIG_INVALID` とする。ただし `model_dump()` round-trip で両者が同値になるケースは許容する。
+- 自動解決時に inner valid が継承する outer CV 設定は `split.method` のみとする。`n_splits` / `shuffle` / `random_state` / `gap` / `purge_gap` / `embargo` / `train_size_max` / `test_size_max` は inner valid に伝搬しない。
+- 自動解決時の seed は `training.seed` を使う。outer split の `random_state` は inner valid に伝搬しない。
 
 | 外側 split.method | inner_valid のデフォルト |
 |---|---|
@@ -579,7 +596,43 @@ LizyML 非依存の学習・推論コードを自動生成する。
 | `time_series` | `time_holdout` |
 | `purged_time_series` | `time_holdout` |
 | `group_time_series` | `group_holdout` |
+| `blocked_group_kfold` | `blocked_group_inner_valid`（§10.6.2 参照） |
 | `kfold`（または CV 未使用） | `holdout(stratify=False)` |
+
+補足:
+
+- `split.method` 未指定時は outer CV 側のデフォルトが先に確定し、その method を使って inner valid を自動解決する。
+  - `binary` / `multiclass`: `stratified_kfold` → `holdout(stratify=True)`
+  - `regression`: `kfold` → `holdout(stratify=False)`
+
+### 10.3.2 CV / Refit への適用位置
+
+- `CVTrainer` では各 outer fold の `train` 部分に対してのみ inner split を作る。outer fold の `valid` 部分は inner valid の対象に含めない。
+- `FitResult.splits.inner` に保存する `inner_train_idx / inner_valid_idx` は、各 outer fold の `train` 部分に対する 0-based 相対 index とする。inner valid が無効な場合は `FitResult.splits.inner = None` とする。
+- `FeaturePipeline.fit` は outer fold の `train` 全体に対して行う。inner valid は estimator の early stopping 用 evaluation set であり、FeaturePipeline の fit 境界は outer train のままとする。
+- estimator は inner valid が有効な場合 `inner_train` のみで学習し、`inner_valid` を eval set として early stopping を行う。OOF の割当先は引き続き outer fold の `valid` のみとする。
+- `RefitTrainer` でも同じ `InnerValidStrategy` を全データに適用して final model の early stopping 用 split を作る。
+  - `time_series` / `purged_time_series` / `group_time_series` では、`Model._prepare_training_data()` により時系列昇順へ並べ替えた後の全データに対して inner valid を切る。
+
+### 10.3.3 各 strategy の分割規則
+
+- `HoldoutInnerValid(ratio, stratify=False, random_state)`:
+  - `stratify=False`: outer fold train 行を乱択し、`ceil(n_rows * ratio)` 行を validation に割り当てる。
+  - `stratify=True`: `y` に基づく stratified holdout を行う。
+- `GroupHoldoutInnerValid(ratio, random_state)`:
+  - group overlap を禁止する。
+  - validation には、入力順（group の first appearance 順）の末尾 `max(1, floor(n_unique_groups * ratio))` 個の group を割り当てる。
+  - shuffle は行わないため、`group_time_series` では time-sort 後の入力順に従って末尾 group が validation になる。
+- `TimeHoldoutInnerValid(ratio)`:
+  - 行順を保持したまま、末尾 `max(1, floor(n_rows * ratio))` 行を validation に割り当てる。
+  - `purged_time_series` で outer CV が purge / embargo を持っていても、inner valid 自体は追加の purge / embargo を持たない。
+- `BlockedGroupInnerValid(ratio)`:
+  - `blocked_group_kfold` 専用。グループ分離 + 時間順序 + 層化（分類時）を同時に満たす。
+  - 詳細は §10.6.2 を参照。
+- `StratifiedTimeHoldoutInnerValid(ratio)`:
+  - `BlockedGroupInnerValid` のフォールバック（グループ数 < 4 時）。
+  - 各クラス内で時間順序を保持し、末尾 `ratio` 分を validation に割り当てる。全クラス最低1行を保証する。
+  - 回帰タスクでは `TimeHoldoutInnerValid` と同等。
 
 ## 10.4 split indices の保存（必須）
 
@@ -594,6 +647,60 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `calibration.n_splits` は **deprecated**（指定時 `UserWarning` を出力し、値は無視する）。
 - calibration の入力は `(oof_scores, y)` のみで X は使わない（§12.1）。outer splits を再利用しても同一行リークは発生しない（各行の OOF score はその行を含まないモデルが生成したものであり、cross-fit 構造がさらにリークを防ぐ）。
 - これにより calibrated OOF の coverage は raw OOF の coverage と構造的に一致する。
+
+## 10.6 blocked_group_kfold（2軸交差検証、H-0060）
+
+期間軸（blocks）とグループ軸（groups）の直積で交差検証を行う。各 fold = (時間分割 t) × (ユーザー分割 u) として生成される。
+
+### 10.6.1 Config 構造
+
+```yaml
+split:
+  method: blocked_group_kfold
+  blocks:
+    col: date                         # 期間を定義するカラム（ソート可能な型）
+    cutoffs: ["2025-02", "2025-03"]   # 境界値リスト（valid 期間の開始点）
+    mode: sliding                     # expanding | sliding
+    train_window: 2                   # sliding 時: train に使う期間数
+  groups:
+    col: user_id                      # グループ分割するカラム
+    n_splits: 3                       # グループの分割数
+    stratify: auto                    # auto | true | false
+    shuffle: true                     # グループ分割時のシャッフル
+  min_train_rows: 10                  # fold スキップ閾値
+  min_valid_rows: 5
+```
+
+**blocks**: `cutoffs: [C₁, C₂, ..., Cₙ]` から `n+1` 個の期間を生成する（P₀: `col < C₁`, P₁: `C₁ ≤ col < C₂`, ..., Pₙ: `col ≥ Cₙ`）。`expanding` は train が累積、`sliding` は直前 `train_window` 期間のみ train に使用。
+
+**groups**: 全ユーザーを `n_splits` 分割し KFold する。`stratify: auto` は binary/multiclass で代表ラベル（多数決クラス）による層化を適用する。
+
+**fold 生成**: 各時間 fold t のデータから全ユーザーを取得し、`n_splits` 分割。各ユーザー fold u に対して:
+- Train = train 期間の行 ∩ train_users の行
+- Valid = valid 期間の行 ∩ valid_users の行
+- 除外 = train 期間 × valid_users + valid 期間 × train_users
+
+合計 fold 数 = `len(cutoffs) × groups.n_splits − skip数`。`min_train_rows` / `min_valid_rows` 未満の fold はスキップ + 警告。
+
+**バリデーション**: `blocks.col == groups.col` → `CONFIG_INVALID`。`mode: sliding` で `train_window` 未指定 → `CONFIG_INVALID`。`cutoffs` 空 → `CONFIG_INVALID`。
+
+**Facade 責務**: `blocks.col` でデータをソートし、`blocks.col` の値を splitter コンストラクタに注入する。`BaseSplitter.split()` のシグネチャは変更しない。
+
+### 10.6.2 Inner Valid: BlockedGroupInnerValid
+
+outer fold の train データ（特定期間 × 特定ユーザー）に対して、グループ分離 + 時間順序 + 層化（分類時）を同時に満たす inner valid を提供する。
+
+**アルゴリズム:**
+
+1. outer fold train 内のユニークグループを取得
+2. 各グループの代表ラベルを算出（多数決クラス）※分類時のみ
+3. 各グループの最終出現時刻でソート
+4. 分類時: 各クラス内で末尾 `ratio` 分のグループを inner valid に割り当て（各クラス最低1グループ保証）。回帰時: 単純に末尾 `ratio` 分のグループを割り当て
+5. グループ単位で完全分離: inner train = train グループの全行、inner valid = valid グループの全行
+
+**フォールバック**: `n_unique_groups < 4` の場合、`StratifiedTimeHoldoutInnerValid`（各クラスの末尾行から `ratio` 分）に切り替え、警告を出す。
+
+**明示指定**: `training.early_stopping.inner_valid` を明示指定した場合は auto 解決を上書きする。
 
 # 11. Tuning（`tuning/`）
 
