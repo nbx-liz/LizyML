@@ -1,6 +1,7 @@
 """Splitters package — re-exports."""
 
 from lizyml.splitters.base import BaseSplitter
+from lizyml.splitters.blocked_group_kfold import BlockedGroupKFoldSplitter
 from lizyml.splitters.group_kfold import (
     GroupKFoldSplitter,
     StratifiedGroupKFoldSplitter,
@@ -12,6 +13,7 @@ from lizyml.splitters.time_series import TimeSeriesSplitter
 
 __all__ = [
     "BaseSplitter",
+    "BlockedGroupKFoldSplitter",
     "GroupKFoldSplitter",
     "GroupTimeSeriesSplitter",
     "KFoldSplitter",

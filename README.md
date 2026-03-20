@@ -182,6 +182,7 @@ This section documents all config keys currently supported by the implemented sc
 - `time_series`
 - `purged_time_series`
 - `group_time_series`
+- `blocked_group_kfold`
 
 Supported aliases are normalized automatically:
 
@@ -191,6 +192,7 @@ Supported aliases are normalized automatically:
 - `time-series` / `timeseries` -> `time_series`
 - `purged-time-series` / `purgedtimeseries` -> `purged_time_series`
 - `group-time-series` / `grouptimeseries` -> `group_time_series`
+- `blocked-group-kfold` / `blockedgroupkfold` -> `blocked_group_kfold`
 
 Method-specific keys:
 
@@ -202,6 +204,7 @@ Method-specific keys:
 | `time_series` | `n_splits=5`, `gap=0`, `train_size_max=null`, `test_size_max=null` |
 | `purged_time_series` | `n_splits=5`, `purge_gap=0`, `embargo=0`, `train_size_max=null`, `test_size_max=null` |
 | `group_time_series` | `n_splits=5`, `gap=0`, `train_size_max=null`, `test_size_max=null` |
+| `blocked_group_kfold` | `blocks={col, cutoffs, mode, train_window}`, `groups={col, n_splits, stratify, shuffle}`, `min_train_rows=10`, `min_valid_rows=5` |
 
 Default when `split` is omitted:
 
@@ -277,6 +280,49 @@ Fold k:
 
 - Group boundaries are preserved (no train/valid overlap on the same group).
 - Group ordering follows chronological order from `time_col`.
+
+### 2-Axis CV: `blocked_group_kfold`
+
+Use this when you need both **time-period blocking** and **group isolation** (e.g., train on past months with separate users for train/valid).
+
+Each fold = (time block) × (group fold). Total folds = `len(cutoffs) × groups.n_splits`.
+
+```yaml
+split:
+  method: blocked_group_kfold
+  blocks:                          # Period axis: what defines train/valid periods
+    col: date                      #   Column to split on (must be orderable)
+    cutoffs: ["2025-03"]           #   Boundary values (valid period starts here)
+    mode: expanding                #   expanding | sliding
+  groups:                          # Group axis: how to cross-validate entities
+    col: user_id                   #   Column to split groups on
+    n_splits: 3                    #   Number of group folds
+    stratify: auto                 #   auto (task-dependent) | true | false
+    shuffle: true
+  min_train_rows: 10               # Skip fold if train < N rows
+  min_valid_rows: 5                # Skip fold if valid < N rows
+```
+
+```text
+cutoffs=["2025-03"], mode=expanding, groups.n_splits=2
+
+Time block 0:  Train period = before Mar,  Valid period = Mar onward
+
+  Sub-fold 0-0:  Train users={A,B}  Valid users={C,D}
+    Train = (before Mar) ∩ {A,B}     Valid = (Mar onward) ∩ {C,D}
+
+  Sub-fold 0-1:  Train users={C,D}  Valid users={A,B}
+    Train = (before Mar) ∩ {C,D}     Valid = (Mar onward) ∩ {A,B}
+
+Excluded rows: (train period × valid users) + (valid period × train users)
+→ No user appears in both train and valid within any fold.
+```
+
+Key behaviors:
+- `blocks.col` and `groups.col` must be different columns.
+- Data is sorted by `blocks.col` before splitting.
+- For classification tasks, `stratify: auto` balances target distribution across group folds using each group's majority-class label.
+- Inner validation (early stopping) uses `BlockedGroupInnerValid`: group-isolated, time-ordered, stratified (classification). Falls back to row-level split when fewer than 4 groups.
 
 ### `model`
 
@@ -369,6 +415,7 @@ Resolution rules:
   - `time_series` -> `time_holdout`
   - `purged_time_series` -> `time_holdout`
   - `group_time_series` -> `group_holdout`
+  - `blocked_group_kfold` -> `blocked_group_inner_valid` (group-isolated + time-ordered + stratified for classification; falls back to row-level split when < 4 groups)
   - otherwise -> `holdout(stratify=False)`
 - `validation_ratio` and `inner_valid` should not be explicitly set together (except round-trip-equivalent holdout dump values).
 
