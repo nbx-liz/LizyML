@@ -38,7 +38,7 @@ import pandas as pd
 
 from lizyml import __version__
 from lizyml.config.loader import load_config
-from lizyml.config.schema import LizyMLConfig
+from lizyml.config.schema import BlockedGroupKFoldConfig, LizyMLConfig
 from lizyml.core._model_factories import (
     build_inner_valid,
     build_splitter,
@@ -84,6 +84,7 @@ _DEFAULT_METRICS: dict[str, list[str]] = {
 }
 
 _TS_METHODS = frozenset({"time_series", "purged_time_series", "group_time_series"})
+_BLOCK_METHODS = frozenset({"blocked_group_kfold"})
 
 
 class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
@@ -170,7 +171,12 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             model_params=model_params,
             smart_params=smart_params,
         )
-        splitter = build_splitter(cfg)
+        splitter = build_splitter(
+            cfg,
+            block_values=getattr(self, "_block_values", None),
+            task=cfg.task,
+            seed=cfg.training.seed,
+        )
         n_classes = int(y.nunique()) if cfg.task == "multiclass" else None
         pipeline_factory = provider.build_pipeline_factory()
 
@@ -391,7 +397,12 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         provider = get_provider(cfg.model)
         self._provider = provider
         n_classes = int(y.nunique()) if cfg.task == "multiclass" else None
-        splitter = build_splitter(cfg)
+        splitter = build_splitter(
+            cfg,
+            block_values=getattr(self, "_block_values", None),
+            task=cfg.task,
+            seed=cfg.training.seed,
+        )
         base_model_params, base_smart_params = self._merge_params(provider)
 
         user_space = parse_space(cfg.tuning.optuna.space)
@@ -689,6 +700,57 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
                 y=y,
                 time_col=sorted_time,
                 group_col=sorted_group,
+            )
+
+        if cfg.split.method in _BLOCK_METHODS:
+            assert isinstance(cfg.split, BlockedGroupKFoldConfig)  # noqa: S101
+            blocks_col_name = cfg.split.blocks.col
+            groups_col_name = cfg.split.groups.col
+
+            # Validate columns exist in the raw DataFrame (df)
+            for col_name, label in [
+                (blocks_col_name, "blocks.col"),
+                (groups_col_name, "groups.col"),
+            ]:
+                if col_name not in df.columns:
+                    raise LizyMLError(
+                        code=ErrorCode.CONFIG_INVALID,
+                        user_message=(
+                            f"split.{label}='{col_name}' not found "
+                            f"in DataFrame columns."
+                        ),
+                        context={
+                            "column": col_name,
+                            "available": list(df.columns),
+                        },
+                    )
+
+            # Extract from raw df (before feature pipeline drops them)
+            block_series = df[blocks_col_name]
+            group_series = df[groups_col_name]
+
+            # Sort by blocks.col
+            sort_order = block_series.argsort()
+            X = X.iloc[sort_order].reset_index(drop=True)
+            y = y.iloc[sort_order].reset_index(drop=True)
+
+            # Override groups with groups.col (not data.group_col)
+            groups = group_series.iloc[sort_order].to_numpy()
+            self._block_values = block_series.iloc[sort_order].to_numpy()
+
+            # Update components
+            sorted_time = (
+                components.time_col.iloc[sort_order].reset_index(drop=True)
+                if components.time_col is not None
+                else None
+            )
+            sorted_group = (
+                components.group_col.iloc[sort_order].reset_index(drop=True)
+                if components.group_col is not None
+                else None
+            )
+            components = DataFrameComponents(
+                X=X, y=y, time_col=sorted_time, group_col=sorted_group
             )
 
         return X, y, groups, components
