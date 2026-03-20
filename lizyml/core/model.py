@@ -650,6 +650,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         Handles time-series sorting when the split method requires it.
         """
         cfg = self._cfg
+        self._block_values = None  # reset per-call transient state
         df = self._load_data(data)
 
         problem_spec = ProblemSpec(
@@ -704,7 +705,15 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             )
 
         if cfg.split.method in _BLOCK_METHODS:
-            assert isinstance(cfg.split, BlockedGroupKFoldConfig)  # noqa: S101
+            if not isinstance(cfg.split, BlockedGroupKFoldConfig):
+                raise LizyMLError(
+                    code=ErrorCode.CONFIG_INVALID,
+                    user_message=(
+                        "Internal error: expected BlockedGroupKFoldConfig "
+                        f"for method '{cfg.split.method}'."
+                    ),
+                    context={"split_method": cfg.split.method},
+                )
             blocks_col_name = cfg.split.blocks.col
             groups_col_name = cfg.split.groups.col
 
