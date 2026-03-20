@@ -10,7 +10,10 @@ import warnings
 from collections.abc import Callable
 from typing import Any
 
+import numpy.typing as npt
+
 from lizyml.config.schema import (
+    BlockedGroupKFoldConfig,
     GroupKFoldConfig,
     GroupTimeSeriesConfig,
     HoldoutInnerValidConfig,
@@ -23,6 +26,7 @@ from lizyml.config.schema import (
     TimeSeriesConfig,
 )
 from lizyml.splitters.base import BaseSplitter
+from lizyml.splitters.blocked_group_kfold import BlockedGroupKFoldSplitter
 from lizyml.splitters.group_kfold import (
     GroupKFoldSplitter,
     StratifiedGroupKFoldSplitter,
@@ -32,6 +36,7 @@ from lizyml.splitters.kfold import KFoldSplitter, StratifiedKFoldSplitter
 from lizyml.splitters.purged_time_series import PurgedTimeSeriesSplitter
 from lizyml.splitters.time_series import TimeSeriesSplitter
 from lizyml.training.inner_valid import (
+    BlockedGroupInnerValid,
     GroupHoldoutInnerValid,
     HoldoutInnerValid,
     NoInnerValid,
@@ -39,13 +44,31 @@ from lizyml.training.inner_valid import (
 )
 
 InnerValidType = (
-    HoldoutInnerValid | GroupHoldoutInnerValid | TimeHoldoutInnerValid | NoInnerValid
+    HoldoutInnerValid
+    | GroupHoldoutInnerValid
+    | TimeHoldoutInnerValid
+    | BlockedGroupInnerValid
+    | NoInnerValid
 )
+
+
+def _resolve_stratify(stratify: str | bool, task: str) -> bool:
+    """Resolve ``stratify: "auto"`` to a concrete boolean."""
+    if isinstance(stratify, bool):
+        return stratify
+    if stratify == "auto":
+        return task in ("binary", "multiclass")
+    # "true" / "false" strings (from YAML)
+    return str(stratify).lower() == "true"
 
 
 def _build_splitter_for_method(
     split_cfg: SplitConfig,
     n_splits: int,
+    *,
+    block_values: npt.NDArray[Any] | None = None,
+    task: str | None = None,
+    seed: int | None = None,
 ) -> BaseSplitter:
     """Build a splitter from split config, using the given *n_splits*.
 
@@ -53,6 +76,33 @@ def _build_splitter_for_method(
     The *n_splits* parameter is separated so that callers can override it
     (e.g. ``calibration.n_splits`` instead of ``split.n_splits``).
     """
+    if isinstance(split_cfg, BlockedGroupKFoldConfig):
+        if block_values is None:
+            from lizyml.core.exceptions import ErrorCode, LizyMLError
+
+            raise LizyMLError(
+                code=ErrorCode.CONFIG_INVALID,
+                user_message=(
+                    "blocked_group_kfold requires block_values "
+                    "(extracted from blocks.col by Facade)."
+                ),
+                context={},
+            )
+        stratify_bool = _resolve_stratify(
+            split_cfg.groups.stratify, task or "regression"
+        )
+        return BlockedGroupKFoldSplitter(
+            block_values=block_values,
+            cutoffs=split_cfg.blocks.cutoffs,
+            mode=split_cfg.blocks.mode,
+            train_window=split_cfg.blocks.train_window,
+            n_splits=split_cfg.groups.n_splits,
+            stratify=stratify_bool,
+            shuffle=split_cfg.groups.shuffle,
+            random_state=seed or 42,
+            min_train_rows=split_cfg.min_train_rows,
+            min_valid_rows=split_cfg.min_valid_rows,
+        )
     if isinstance(split_cfg, StratifiedKFoldConfig):
         return StratifiedKFoldSplitter(
             n_splits=n_splits,
@@ -100,7 +150,13 @@ def _build_splitter_for_method(
     return KFoldSplitter(n_splits=n_splits, shuffle=True, random_state=42)
 
 
-def build_splitter(cfg: LizyMLConfig) -> BaseSplitter:
+def build_splitter(
+    cfg: LizyMLConfig,
+    *,
+    block_values: npt.NDArray[Any] | None = None,
+    task: str | None = None,
+    seed: int | None = None,
+) -> BaseSplitter:
     """Instantiate outer CV splitter from config."""
     split_cfg = cfg.split
 
@@ -112,6 +168,16 @@ def build_splitter(cfg: LizyMLConfig) -> BaseSplitter:
             "instead.",
             UserWarning,
             stacklevel=2,
+        )
+
+    # BlockedGroupKFoldConfig has no n_splits at top level
+    if isinstance(split_cfg, BlockedGroupKFoldConfig):
+        return _build_splitter_for_method(
+            split_cfg,
+            split_cfg.groups.n_splits,
+            block_values=block_values,
+            task=task or cfg.task,
+            seed=seed or cfg.training.seed,
         )
 
     return _build_splitter_for_method(split_cfg, split_cfg.n_splits)
@@ -137,9 +203,20 @@ def build_calibration_splitter(cfg: LizyMLConfig) -> BaseSplitter:
 
 
 def _resolve_auto_inner_valid(
-    split_method: str, ratio: float, seed: int
-) -> HoldoutInnerValid | GroupHoldoutInnerValid | TimeHoldoutInnerValid:
+    split_method: str,
+    ratio: float,
+    seed: int,
+    *,
+    task: str | None = None,
+) -> (
+    HoldoutInnerValid
+    | GroupHoldoutInnerValid
+    | TimeHoldoutInnerValid
+    | BlockedGroupInnerValid
+):
     """Resolve inner validation strategy based on the outer split method."""
+    if split_method == "blocked_group_kfold":
+        return BlockedGroupInnerValid(ratio=ratio, task=task or "regression")
     if split_method == "stratified_kfold":
         return HoldoutInnerValid(ratio=ratio, random_state=seed, stratify=True)
     if split_method in ("group_kfold", "stratified_group_kfold"):
@@ -172,9 +249,11 @@ def build_inner_valid(cfg: LizyMLConfig) -> InnerValidType:
 
     # Auto-resolve: inner_valid absent or created from validation_ratio default
     if iv_cfg is None:
-        return _resolve_auto_inner_valid(split_method, 0.1, seed)
+        return _resolve_auto_inner_valid(split_method, 0.1, seed, task=cfg.task)
     if not es._inner_valid_explicit:
-        return _resolve_auto_inner_valid(split_method, iv_cfg.ratio, seed)
+        return _resolve_auto_inner_valid(
+            split_method, iv_cfg.ratio, seed, task=cfg.task
+        )
 
     # Explicit config — dispatch by concrete type
     if isinstance(iv_cfg, HoldoutInnerValidConfig):
@@ -197,7 +276,12 @@ def make_inner_valid_factory(
     cfg: LizyMLConfig,
 ) -> Callable[
     [float],
-    HoldoutInnerValid | GroupHoldoutInnerValid | TimeHoldoutInnerValid,
+    (
+        HoldoutInnerValid
+        | GroupHoldoutInnerValid
+        | TimeHoldoutInnerValid
+        | BlockedGroupInnerValid
+    ),
 ]:
     """Return a factory that produces InnerValidStrategy for a given ratio.
 
@@ -205,11 +289,17 @@ def make_inner_valid_factory(
     """
     split_method = cfg.split.method
     seed = cfg.training.seed
+    task = cfg.task
 
     def factory(
         ratio: float,
-    ) -> HoldoutInnerValid | GroupHoldoutInnerValid | TimeHoldoutInnerValid:
-        return _resolve_auto_inner_valid(split_method, ratio, seed)
+    ) -> (
+        HoldoutInnerValid
+        | GroupHoldoutInnerValid
+        | TimeHoldoutInnerValid
+        | BlockedGroupInnerValid
+    ):
+        return _resolve_auto_inner_valid(split_method, ratio, seed, task=task)
 
     return factory
 
