@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.1] - 2026-03-21
+
+### Changed
+
+- Rewrote README: 620 → 190 lines with badges, installation, quick start, and architecture diagram
+- Extracted Config Reference to `docs/config-reference.md` (384 lines)
+
+### Added
+
+- `scripts/release.py` — automated release script (CHANGELOG validation, commit, push, PR creation)
+- `.github/workflows/auto-release.yml` — auto-tag and GitHub Release on merge to main
+- GitHub Releases for all past versions (v0.1.0–v0.4.0)
+
 ## [0.4.0] - 2026-03-21
 
 ### Added
