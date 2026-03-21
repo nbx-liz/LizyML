@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.2] - 2026-03-21
+
+### Added
+
+- `CONTRIBUTING.md` — development workflow, quality gates, and spec-first process
+- `SECURITY.md` — vulnerability reporting policy
+- `CODE_OF_CONDUCT.md` — Contributor Covenant v2.1
+- `Makefile` — unified development commands (`make ci`, `make test`, etc.)
+- `.editorconfig` — cross-editor formatting consistency
+- `.github/dependabot.yml` — automated dependency updates (pip + GitHub Actions)
+- `.github/PULL_REQUEST_TEMPLATE.md` — PR checklist template
+- `.github/ISSUE_TEMPLATE/` — bug report and feature request templates
+
 ## [0.4.1] - 2026-03-21
 
 ### Changed
@@ -17,6 +30,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `scripts/release.py` — automated release script (CHANGELOG validation, commit, push, PR creation)
 - `.github/workflows/auto-release.yml` — auto-tag and GitHub Release on merge to main
 - GitHub Releases for all past versions (v0.1.0–v0.4.0)
+- `CONTRIBUTING.md` — development workflow, quality gates, and spec-first process
+- `SECURITY.md` — vulnerability reporting policy
+- `CODE_OF_CONDUCT.md` — Contributor Covenant v2.1
+- `Makefile` — unified development commands (`make ci`, `make test`, etc.)
+- `.editorconfig` — cross-editor formatting consistency
+- `.github/dependabot.yml` — automated dependency updates (pip + GitHub Actions)
+- `.github/PULL_REQUEST_TEMPLATE.md` — PR checklist template
+- `.github/ISSUE_TEMPLATE/` — bug report and feature request templates
 
 ## [0.4.0] - 2026-03-21
 
