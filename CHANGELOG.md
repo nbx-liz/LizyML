@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.1] - 2026-03-28
+
+### Fixed
+
+- **`r2` metric with early stopping** — `r2` was listed as a LightGBM native metric but is not implemented in LightGBM 4.6.0 (only in unreleased master). Passing `metric: "r2"` silently produced empty eval results, breaking early stopping. Moved `r2` from native whitelist to feval (custom function) so it works correctly with early stopping and learning curves.
+
 ## [0.6.0] - 2026-03-28
 
 ### Added
