@@ -112,7 +112,9 @@ _LGBM_NATIVE_METRICS: dict[str, frozenset[str]] = {
     ),
 }
 
-# Metrics that require feval (no LightGBM native equivalent) per task
+# Metrics that require feval (no LightGBM native equivalent) per task.
+# NOTE: r2 is documented in LightGBM master but not shipped in 4.6.0 binary.
+# Kept here until the upstream release is confirmed and minimum version bumped.
 _FEVAL_METRICS: dict[str, frozenset[str]] = {
     "regression": frozenset(["rmsle", "r2"]),
     "binary": frozenset(["f1", "brier", "ece", "precision_at_k", "accuracy"]),
