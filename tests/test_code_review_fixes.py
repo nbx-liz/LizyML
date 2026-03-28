@@ -346,7 +346,7 @@ class TestObjectiveOverwriteProtection:
             task="binary",
             params={"objective": "regression"},
         )
-        params, _ = adapter._build_params()
+        params, *_ = adapter._build_params()
         assert params["objective"] == "binary"
 
 

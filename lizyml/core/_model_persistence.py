@@ -121,7 +121,7 @@ class ModelPersistenceMixin:
 
         # Extract LightGBM params from the adapter.
         # TODO(H-0059): expose via EstimatorProvider protocol in a future PR.
-        lgbm_params, num_boost_round = adapter._build_params()
+        lgbm_params, num_boost_round, _ = adapter._build_params()
 
         cfg = self._cfg
         es = cfg.training.early_stopping

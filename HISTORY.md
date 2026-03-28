@@ -4776,3 +4776,80 @@ Config の全フィールドが適切なクラス・関数に渡され、その�
 
 - 上記 A〜D の全項目に対するテストが存在し pass する
 - 既存テストに regression なし
+
+## H-0064: LightGBM 学習用 metric の統合管理（マッピング・バリデーション・feval）
+
+- **ステータス**: Done（PR #60）
+- **起票日**: 2026-03-28
+- **関連 Issue**: #57, #58, #59
+
+### 目的
+
+LizyML 評価用メトリクス名と LightGBM 学習用 `metric` パラメータの間にマッピング・バリデーション・カスタム feval 生成の統合管理層を導入する。現状、ユーザーは LizyML 名と LightGBM 名の両方を把握する必要があり、無効な metric 名の事前検証もない。
+
+### 影響範囲
+
+- `lizyml/estimators/lgbm/metric_bridge.py`（新規）— マッピング・バリデーション・feval 生成
+- `lizyml/estimators/lgbm/adapter.py` — `_build_params()` 戻り値拡張、`fit()` の feval 注入
+- `lizyml/estimators/lgbm/__init__.py` — re-export 追加（必要時）
+- Config の `params={"metric": "..."}` の意味が拡張される（LizyML 名も受付可能に）
+
+### 3 つの課題と解決方針
+
+#### A. メトリクス名マッピング (#58)
+
+LizyML 名と LightGBM 名が異なるメトリクスの自動変換:
+
+| LizyML 名 | LightGBM 名 | タスク |
+|-----------|-------------|-------|
+| `logloss` | `binary_logloss` / `multi_logloss` | binary / multiclass |
+| `auc_pr` | `average_precision` | binary / multiclass |
+
+`accuracy` は LightGBM の `binary_error`/`multi_error` と意味が逆（higher is better vs lower is better）のため自動変換せず、feval で対応する。
+
+#### B. ホワイトリストバリデーション (#57)
+
+LightGBM ネイティブメトリクスのタスク別ホワイトリストを定義し、`_build_params()` 内でマッピング適用後に事前検証する。feval 対象メトリクスはバイパスする。
+
+| タスク | 有効な LightGBM ネイティブメトリクス |
+|-------|----------------------------------|
+| regression | `l1`, `l2`, `rmse`, `quantile`, `mape`, `huber`, `fair`, `poisson`, `gamma`, `gamma_deviance`, `tweedie`, `r2` |
+| binary | `binary_logloss`, `binary_error`, `auc`, `average_precision`, `cross_entropy`, `cross_entropy_lambda`, `kullback_leibler` |
+| multiclass | `multi_logloss`, `multi_error`, `auc`, `auc_mu` |
+
+#### C. feval カスタム関数 (#59)
+
+LightGBM に存在しないメトリクスを `feval` 引数経由で注入:
+
+| Metric | Regression | Binary | Multiclass | y_pred 変換 |
+|--------|:---:|:---:|:---:|------------|
+| `rmsle` | ✅ | | | そのまま |
+| `f1` | | ✅ | ✅ | sigmoid / softmax → 閾値 / argmax |
+| `brier` | | ✅ | ✅ | sigmoid / softmax |
+| `ece` | | ✅ | | sigmoid |
+| `precision_at_k` | | ✅ | | sigmoid |
+| `accuracy` | | ✅ | ✅ | sigmoid / softmax → 閾値 / argmax |
+
+### 互換性
+
+- `_build_params()` は private API — 戻り値の拡張（feval リスト追加）は外部互換に影響しない
+- `fit()` の外部シグネチャは変更なし
+- `params={"metric": "binary_logloss"}` 等の既存指定はそのまま動作（マッピングは LizyML 名のみ変換）
+- 既存の post-hoc エラー検出（defense in depth）は残す
+
+### 代替案
+
+1. **マッピングなし（LightGBM 名のみ受付）** — ユーザー体験が悪い。評価用と学習用で異なる名前を覚える必要がある
+2. **feval なし（ネイティブメトリクスのみ）** — LizyML 独自メトリクスを学習時に使えない。機能制限が大きい
+3. **バリデーションなし（現状維持）** — LightGBM が黙って無視するケースがあり、デバッグ困難
+
+### 受け入れ基準（テスト観点）
+
+- `params={"metric": "logloss"}` が binary で `binary_logloss` に、multiclass で `multi_logloss` に自動変換される
+- 無効なメトリクス名が `_build_params()` 段階で `LizyMLError(CONFIG_INVALID)` を raise する
+- タスク非互換メトリクス（regression + `auc` 等）がバリデーションで弾かれる
+- `params={"metric": "f1"}` で binary 訓練時に eval_results に `f1` が記録される
+- native + feval の混在（`["auc", "brier"]`）が動作する
+- feval 付きの early_stopping が正常に機能する
+- 全既存テストがパスする
+- 新規テスト ~50 が追加される
