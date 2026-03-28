@@ -152,6 +152,7 @@ class LGBMProvider:
         booster_params = getattr(native, "params", {})
         for k in [
             "objective",
+            "metric",
             "learning_rate",
             "max_depth",
             "num_leaves",
