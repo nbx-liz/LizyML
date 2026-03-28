@@ -1,9 +1,13 @@
 name: Release to PyPI
 
 on:
-  push:
-    tags:
-      - "v*"
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Git tag to publish (e.g. v0.5.0)"
+        required: true
 
 permissions:
   contents: read
@@ -16,6 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: ${{ inputs.tag || github.event.release.tag_name }}
           fetch-depth: 0
 
       - name: Install uv

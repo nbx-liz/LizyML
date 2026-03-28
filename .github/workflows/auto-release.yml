@@ -2,7 +2,7 @@ name: Auto-tag and GitHub Release
 
 # Triggered when a PR with title starting "release:" is merged into main.
 # Creates a git tag and a GitHub Release with notes from CHANGELOG.md.
-# The tag push then triggers the existing release.yml (PyPI publish).
+# The release event then triggers release.yml (PyPI publish via Trusted Publishers).
 
 on:
   pull_request:
