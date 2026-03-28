@@ -56,7 +56,7 @@ def filter_metrics(metrics_dict: dict[str, Any], keep: set[str]) -> dict[str, An
 def assemble_calibrated_metrics(
     fit_result: FitResult,
     y: pd.Series,
-    metric_names: list[str],
+    metric_entries: list[str | dict[str, dict[str, Any]]],
     evaluator: Evaluator,
     metrics: dict[str, Any],
 ) -> dict[str, Any]:
@@ -83,5 +83,5 @@ def assemble_calibrated_metrics(
         fit_result,
         oof_pred=cal_oof,
     )
-    cal_result = evaluator.evaluate(cal_fr, y, metric_names)
+    cal_result = evaluator.evaluate(cal_fr, y, metric_entries)
     return {**metrics, "calibrated": {"oof": cal_result["raw"]["oof"]}}

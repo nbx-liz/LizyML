@@ -69,6 +69,7 @@ class LGBMAdapter(BaseEstimatorAdapter):
         self._feature_names: list[str] = []
         self._eval_results: dict[str, Any] = {}
         self._categorical_features: list[str] | None = None
+        self._feval_display_names: list[str] = []
 
     def set_categorical_features(self, cols: list[str] | None) -> None:
         """Store categorical column names for use in ``fit()``."""
@@ -101,7 +102,9 @@ class LGBMAdapter(BaseEstimatorAdapter):
                 extracted and passed to ``lgb.Dataset(weight=...)``.
         """
         self._feature_names = list(X_train.columns)
-        params, num_boost_round, feval_list = self._build_params()
+        params, num_boost_round, feval_list, self._feval_display_names = (
+            self._build_params()
+        )
 
         cat_feature: list[str] | Literal["auto"] = self._categorical_features or "auto"
         sample_weight = kwargs.pop("sample_weight", None)
@@ -322,6 +325,9 @@ class LGBMAdapter(BaseEstimatorAdapter):
         # Old format may lack _eval_results
         if not hasattr(self, "_eval_results"):
             object.__setattr__(self, "_eval_results", {})
+        # H-0065: Old format may lack _feval_display_names
+        if not hasattr(self, "_feval_display_names"):
+            object.__setattr__(self, "_feval_display_names", [])
         # Migrate old sklearn wrapper (_model = LGBMRegressor/LGBMClassifier)
         model = self._model
         if model is not None and hasattr(model, "booster_"):
@@ -335,14 +341,16 @@ class LGBMAdapter(BaseEstimatorAdapter):
 
     def _build_params(
         self,
-    ) -> tuple[dict[str, Any], int, list[Any]]:
-        """Build LightGBM params dict, num_boost_round, and feval list.
+    ) -> tuple[dict[str, Any], int, list[Any], list[str]]:
+        """Build LightGBM params, num_boost_round, feval list, and names.
 
         Returns:
-            ``(params_dict, num_boost_round, feval_list)`` tuple.
+            ``(params_dict, num_boost_round, feval_list, feval_display_names)`` tuple.
             ``params_dict`` uses Booster API naming (``seed``, ``verbosity``).
             ``num_boost_round`` is extracted from ``n_estimators``.
             ``feval_list`` contains callables for LizyML-only metrics.
+            ``feval_display_names`` contains human-readable names for feval
+            metrics (e.g. ``"precision_at_k (k=20)"``).
         """
         params: dict[str, Any] = {
             "objective": _TASK_OBJECTIVE[self.task],
@@ -367,23 +375,25 @@ class LGBMAdapter(BaseEstimatorAdapter):
         # Strip task-locked keys — objective is always set from task
         user_params.pop("objective", None)
         # Allow user-specified metric; fall back to task default if absent/empty
+        # Accepts str, list[str], or list[str | dict] (H-0065 MetricEntry).
         user_metric = user_params.pop("metric", None)
         feval_list: list[Any] = []
+        feval_display_names: list[str] = []
         if user_metric:
-            if isinstance(user_metric, str):
+            if isinstance(user_metric, (str, dict)):
                 user_metric = [user_metric]
-            # Filter out empty strings
+            # Filter out empty strings (dicts are always kept)
             user_metric = [m for m in user_metric if m]
             if user_metric:
                 # Resolve: translate LizyML names, split native vs feval,
-                # and validate against whitelist (H-0064)
-                native, feval_list = resolve_metrics(
+                # and validate against whitelist (H-0064, H-0065)
+                native, feval_list, feval_display_names = resolve_metrics(
                     user_metric, self.task, num_class=self.num_class
                 )
                 params["metric"] = native if native else "None"
         params.update(user_params)
 
-        return params, num_boost_round, feval_list
+        return params, num_boost_round, feval_list, feval_display_names
 
     def _require_fitted(self) -> lgb.Booster:
         if self._model is None:

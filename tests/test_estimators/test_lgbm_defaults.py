@@ -45,7 +45,7 @@ class TestCommonDefaults:
         assert params["max_bin"] == 511
 
     def test_num_boost_round(self) -> None:
-        _, num_boost_round, _ = LGBMAdapter(task="regression")._build_params()
+        _, num_boost_round, *_ = LGBMAdapter(task="regression")._build_params()
         assert num_boost_round == 1500
 
     def test_feature_fraction(self) -> None:
@@ -76,7 +76,7 @@ class TestUserOverride:
 
     def test_n_estimators_override(self) -> None:
         adapter = LGBMAdapter(task="regression", params={"n_estimators": 500})
-        params, num_boost_round, _ = adapter._build_params()
+        params, num_boost_round, *_ = adapter._build_params()
         assert num_boost_round == 500
         assert "n_estimators" not in params
 
