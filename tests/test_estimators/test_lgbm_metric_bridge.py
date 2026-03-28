@@ -698,7 +698,9 @@ class TestR2FevalMigration:
 
         name, value, is_higher = feval_fn(y_pred, ds)
 
-        expected = R2()(y_true, y_pred)
+        # Use label from dataset to match float32 precision (cf. test_rmsle)
+        ds_label = np.asarray(ds.get_label())
+        expected = R2()(ds_label, y_pred)
         assert name == "r2"
         assert is_higher is True
         assert value == pytest.approx(expected, abs=1e-10)
@@ -716,6 +718,26 @@ class TestR2FevalMigration:
 
         _, value, _ = feval_fn(y, ds)
         assert value == pytest.approx(1.0)
+
+    def test_r2_feval_constant_y_true(self) -> None:
+        """R2 with constant y_true (ss_tot == 0): ss_res == 0 → 1.0, else → 0.0."""
+        import lightgbm as lgb
+
+        _, fevals = resolve_metrics(["r2"], "regression")
+        feval_fn = fevals[0]
+
+        # ss_res == 0 (perfect predictions on constant target) → 1.0
+        y = np.array([5.0, 5.0, 5.0])
+        ds = lgb.Dataset(np.zeros((3, 1)), label=y, free_raw_data=False)
+        ds.construct()
+        _, value, _ = feval_fn(y, ds)
+        assert value == pytest.approx(1.0)
+
+        # ss_res != 0 (imperfect predictions on constant target) → 0.0
+        ds2 = lgb.Dataset(np.zeros((3, 1)), label=y, free_raw_data=False)
+        ds2.construct()
+        _, value2, _ = feval_fn(np.array([5.0, 5.0, 6.0]), ds2)
+        assert value2 == pytest.approx(0.0)
 
     def test_r2_mixed_with_native_metric(self) -> None:
         """r2 + rmse: rmse should be native, r2 should be feval."""
