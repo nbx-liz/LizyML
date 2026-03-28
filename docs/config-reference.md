@@ -236,7 +236,7 @@ Supported values for `model.params.metric` by task:
 
 | task | metrics |
 |---|---|
-| `regression` | `l1` (`mae`), `l2` (`mse`), `rmse`, `quantile`, `mape`, `huber`, `fair`, `poisson`, `gamma`, `gamma_deviance`, `tweedie`, `r2` |
+| `regression` | `l1` (`mae`), `l2` (`mse`), `rmse`, `quantile`, `mape`, `huber`, `fair`, `poisson`, `gamma`, `gamma_deviance`, `tweedie` |
 | `binary` | `binary_logloss`, `binary_error`, `auc`, `average_precision`, `cross_entropy`, `cross_entropy_lambda`, `kullback_leibler` |
 | `multiclass` | `multi_logloss`, `multi_error`, `auc`, `auc_mu` |
 
@@ -252,6 +252,7 @@ Supported values for `model.params.metric` by task:
 | metric | regression | binary | multiclass |
 |---|:---:|:---:|:---:|
 | `rmsle` | ✅ | | |
+| `r2` | ✅ | | |
 | `f1` | | ✅ | ✅ |
 | `brier` | | ✅ | ✅ |
 | `ece` | | ✅ | |
