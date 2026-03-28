@@ -1,8 +1,12 @@
-"""Metric registry helpers: task-aware lookup and validation."""
+"""Metric registry helpers: task-aware lookup and validation.
+
+Supports ``MetricEntry`` — either a plain string or a dict mapping a
+metric name to its keyword arguments (H-0065).
+"""
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 import lizyml.metrics.classification  # noqa: F401
 
@@ -14,6 +18,9 @@ from lizyml.metrics.base import BaseMetric
 
 TaskType = Literal["regression", "binary", "multiclass"]
 
+# H-0065: A metric entry is either a plain name or {name: {param: value}}.
+MetricEntry = str | dict[str, dict[str, Any]]
+
 # Metrics that are valid per task type
 _TASK_METRICS: dict[TaskType, frozenset[str]] = {
     "regression": frozenset(["rmse", "mae", "r2", "rmsle", "mape", "huber"]),
@@ -24,11 +31,81 @@ _TASK_METRICS: dict[TaskType, frozenset[str]] = {
 }
 
 
-def get_metric(name: str) -> BaseMetric:
+# ---------------------------------------------------------------------------
+# MetricEntry parsing (H-0065)
+# ---------------------------------------------------------------------------
+
+
+def parse_metric_entry(entry: MetricEntry) -> tuple[str, dict[str, Any]]:
+    """Normalise a single MetricEntry to ``(name, kwargs)``.
+
+    Args:
+        entry: ``"rmse"`` or ``{"precision_at_k": {"k": 20}}``.
+
+    Returns:
+        ``(metric_name, kwargs_dict)`` — kwargs is empty for plain strings.
+
+    Raises:
+        :class:`~lizyml.core.exceptions.LizyMLError` with ``CONFIG_INVALID``
+        when the dict form is malformed.
+    """
+    if isinstance(entry, str):
+        return entry, {}
+
+    if not isinstance(entry, dict):
+        raise LizyMLError(
+            code=ErrorCode.CONFIG_INVALID,
+            user_message=(
+                f"MetricEntry must be a str or dict, got {type(entry).__name__}."
+            ),
+            context={"entry": entry},
+        )
+
+    if len(entry) != 1:
+        raise LizyMLError(
+            code=ErrorCode.CONFIG_INVALID,
+            user_message=(
+                "MetricEntry dict must have exactly one key (the metric name). "
+                f"Got {len(entry)} keys: {sorted(entry.keys())}."
+            ),
+            context={"entry": entry},
+        )
+
+    name = next(iter(entry))
+    kwargs = entry[name]
+
+    if not isinstance(kwargs, dict):
+        raise LizyMLError(
+            code=ErrorCode.CONFIG_INVALID,
+            user_message=(
+                f"MetricEntry value for '{name}' must be a dict of parameters, "
+                f"got {type(kwargs).__name__}."
+            ),
+            context={"entry": entry},
+        )
+
+    return name, kwargs
+
+
+def parse_metric_entries(
+    entries: list[MetricEntry],
+) -> list[tuple[str, dict[str, Any]]]:
+    """Normalise a list of MetricEntry to ``[(name, kwargs), ...]``."""
+    return [parse_metric_entry(e) for e in entries]
+
+
+# ---------------------------------------------------------------------------
+# Metric instantiation
+# ---------------------------------------------------------------------------
+
+
+def get_metric(name: str, **kwargs: Any) -> BaseMetric:
     """Return an instantiated metric by name.
 
     Args:
         name: Registered metric key (e.g. ``"rmse"``, ``"auc"``).
+        **kwargs: Optional keyword arguments forwarded to the metric
+            constructor (e.g. ``k=20`` for ``PrecisionAtK``).
 
     Returns:
         Instantiated :class:`BaseMetric`.
@@ -47,15 +124,27 @@ def get_metric(name: str) -> BaseMetric:
             ),
             context={"metric": name},
         ) from None
-    instance: BaseMetric = cls()
+    try:
+        instance: BaseMetric = cls(**kwargs)
+    except (TypeError, ValueError) as exc:
+        raise LizyMLError(
+            code=ErrorCode.CONFIG_INVALID,
+            user_message=(f"Invalid parameters for metric '{name}': {exc}"),
+            context={"metric": name, "kwargs": kwargs},
+        ) from exc
     return instance
 
 
-def get_metrics_for_task(names: list[str], task: TaskType) -> list[BaseMetric]:
+def get_metrics_for_task(
+    entries: list[MetricEntry],
+    task: TaskType,
+) -> list[BaseMetric]:
     """Return instantiated metrics, validating task compatibility.
 
+    Accepts both plain strings and ``MetricEntry`` dicts (H-0065).
+
     Args:
-        names: List of metric keys.
+        entries: List of metric keys or ``{name: {param: value}}`` dicts.
         task: ML task type.
 
     Returns:
@@ -67,8 +156,9 @@ def get_metrics_for_task(names: list[str], task: TaskType) -> list[BaseMetric]:
     """
     valid_for_task = _TASK_METRICS.get(task, frozenset())
     metrics: list[BaseMetric] = []
-    for name in names:
-        metric = get_metric(name)
+    for entry in entries:
+        name, kwargs = parse_metric_entry(entry)
+        metric = get_metric(name, **kwargs)
         if name not in valid_for_task:
             raise LizyMLError(
                 code=ErrorCode.UNSUPPORTED_METRIC,

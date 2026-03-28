@@ -4853,3 +4853,88 @@ LightGBM に存在しないメトリクスを `feval` 引数経由で注入:
 - feval 付きの early_stopping が正常に機能する
 - 全既存テストがパスする
 - 新規テスト ~50 が追加される
+
+## H-0065: パラメータ付き MetricEntry（precision_at_k の k 設定可能化）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-03-28
+- **関連**: H-0064 (metric_bridge)
+
+### 目的
+
+`precision_at_k` の `k` パラメータをユーザーが設定可能にする。Evaluation と Model Params（LightGBM 学習用 metric）の両方で独立した `k` を指定できるようにし、Plot 凡例と `params_summary()` で設定値を表示して事故を防止する。
+
+### 設計方針（B-1: 使う場所で設定する）
+
+`EvaluationConfig.metrics` と `model.lgbm.params.metric` の両方で `str | dict[str, dict[str, Any]]` 形式をサポートする。
+
+```python
+# Config 例（YAML 表記）
+evaluation:
+  metrics:
+    - auc
+    - precision_at_k:           # dict 形式: {metric_name: {param: value}}
+        k: 20
+
+model:
+  lgbm:
+    params:
+      metric:
+        - logloss
+        - precision_at_k:
+            k: 5               # Evaluation とは独立した k
+```
+
+### 型定義
+
+```python
+MetricEntry = str | dict[str, dict[str, Any]]
+```
+
+- `str`: 従来通りのデフォルトパラメータ（後方互換）
+- `dict`: キーが metric 名、値がパラメータ辞書。キー数は必ず 1。
+
+### 影響範囲
+
+- `lizyml/metrics/registry.py` — `parse_metric_entry()` ユーティリティ新設、`get_metric()` に kwargs サポート
+- `lizyml/config/schema.py` — `EvaluationConfig.metrics` の型を `list[MetricEntry]` に拡張
+- `lizyml/evaluation/evaluator.py` — `evaluate()` が `list[MetricEntry]` を受け取る
+- `lizyml/estimators/lgbm/metric_bridge.py` — `resolve_metrics()` が `list[MetricEntry]` を処理
+- `lizyml/estimators/lgbm/adapter.py` — `_build_params()` が dict 形式 metric を処理
+- `lizyml/estimators/lgbm/provider.py` — `params_summary()` で feval metric のパラメータ（k 等）を表示
+- `lizyml/plots/learning_curve.py` — subplot_titles で metric パラメータを表示
+- `lizyml/core/model.py` — `fit()` / `evaluate()` が MetricEntry を伝搬
+- `lizyml/core/_model_metrics.py` — `filter_metrics()` が MetricEntry 対応
+
+### name プロパティは変更しない
+
+`PrecisionAtK.name` は `"precision_at_k"` のまま維持する。`k` の可視化は以下に限定:
+- **Plot 凡例**: subplot_titles で `precision_at_k (k=20)` のように表示
+- **params_summary()**: metric 行で `precision_at_k (k=5)` のように表示
+
+### 互換性
+
+- `list[str]` はそのまま動作（後方互換完全維持）
+- `PrecisionAtK.name` 不変 → 結果 dict のキーは `"precision_at_k"` のまま
+- `get_metric()` の既存呼び出し（引数なし）は従来通り動作
+- `LGBMConfig.params` は `dict[str, Any]` のままで型変更なし（metric 値のパース時に dict を処理）
+
+### 代替案
+
+1. **案A: EvaluationConfig にトップレベル `precision_at_k` フィールド** — 将来パラメータ付き metric 追加時にフィールドが増える
+2. **案B-2: k は EvaluationConfig のみ、Model Params は自動参照** — Model Params のみで使うケースに対応できない
+3. **案B-3: metric_params セクションに集約** — Model Params との関連が初見で分からない
+
+### 将来の拡張性
+
+この `dict` 形式は `precision_at_k` 固有ではなく、将来の `ndcg@k` 等のパラメータ付きメトリクスにも汎用的に使える。
+
+### 受け入れ基準（テスト観点）
+
+- `metrics: ["auc", {"precision_at_k": {"k": 20}}]` で Evaluation 結果キーが `"precision_at_k"` で k=20 の値になる
+- `params={"metric": [{"precision_at_k": {"k": 5}}]}` で feval が k=5 で動作し eval_history に記録される
+- `metrics: ["precision_at_k"]` でデフォルト k=10 のまま動作（後方互換）
+- 不正な dict 形式（キー数 ≠ 1、未知の metric 名、不正な k 値）がバリデーションエラー
+- `params_summary()` で metric の k 値が表示される
+- learning curve の subplot_titles で k 値が表示される
+- 全既存テストがパスする

@@ -19,7 +19,7 @@ import numpy.typing as npt
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.metrics.base import BaseMetric
-from lizyml.metrics.registry import get_metric
+from lizyml.metrics.registry import MetricEntry, get_metric, parse_metric_entries
 
 # ---------------------------------------------------------------------------
 # Phase 1: LizyML → LightGBM name mapping
@@ -181,10 +181,29 @@ def _softmax(x: npt.NDArray[Any]) -> npt.NDArray[Any]:
     return result
 
 
+def _metric_display_name(metric: BaseMetric, kwargs: dict[str, Any]) -> str:
+    """Build a display name for a metric, appending params if present.
+
+    Examples::
+
+        _metric_display_name(PrecisionAtK(k=20), {"k": 20})
+        # -> "precision_at_k (k=20)"
+
+        _metric_display_name(RMSE(), {})
+        # -> "rmse"
+    """
+    if not kwargs:
+        return metric.name
+    params_str = ", ".join(f"{k}={v}" for k, v in sorted(kwargs.items()))
+    return f"{metric.name} ({params_str})"
+
+
 def _build_feval(
     metric: BaseMetric,
     task: str,
     num_class: int | None = None,
+    *,
+    display_name: str | None = None,
 ) -> Callable[..., tuple[str, float, bool]]:
     """Create a LightGBM feval callable from a BaseMetric.
 
@@ -196,12 +215,16 @@ def _build_feval(
         metric: A LizyML BaseMetric instance.
         task: ML task type.
         num_class: Number of classes (required for multiclass).
+        display_name: Override name returned in the feval tuple.  When
+            ``None``, falls back to ``metric.name``.
 
     Returns:
         A callable with signature
         ``(y_pred: ndarray, dataset: lgb.Dataset) -> (name, value, is_higher_better)``.
     """
     import lightgbm as lgb
+
+    feval_name = display_name or metric.name
 
     def feval_fn(
         y_pred: npt.NDArray[Any], dataset: lgb.Dataset
@@ -240,17 +263,19 @@ def _build_feval(
             pred = proba
 
         value = metric(np.asarray(y_true), np.asarray(pred))
-        return (metric.name, value, metric.greater_is_better)
+        return (feval_name, value, metric.greater_is_better)
 
     return feval_fn
 
 
 def resolve_metrics(
-    metrics: list[str],
+    metrics: list[MetricEntry],
     task: str,
     num_class: int | None = None,
-) -> tuple[list[str], list[Callable[..., tuple[str, float, bool]]]]:
+) -> tuple[list[str], list[Callable[..., tuple[str, float, bool]]], list[str]]:
     """Split metrics into native LightGBM names and feval callables.
+
+    Accepts both plain strings and ``MetricEntry`` dicts (H-0065).
 
     Steps:
     1. Translate LizyML names → LightGBM names
@@ -259,25 +284,27 @@ def resolve_metrics(
     4. Build feval callables for non-native metrics
 
     Args:
-        metrics: List of metric names (LizyML or LightGBM).
+        metrics: List of metric names or ``{name: {param: value}}`` dicts.
         task: ML task type.
         num_class: Number of classes (needed for multiclass feval).
 
     Returns:
-        ``(native_metrics, feval_callables)`` tuple.
+        ``(native_metrics, feval_callables, feval_display_names)`` tuple.
 
     Raises:
         :class:`~lizyml.core.exceptions.LizyMLError` with
         ``CONFIG_INVALID`` for unknown or task-incompatible metrics.
     """
+    parsed = parse_metric_entries(metrics)
     feval_for_task = _FEVAL_METRICS.get(task, frozenset())
     native: list[str] = []
     fevals: list[Callable[..., tuple[str, float, bool]]] = []
+    feval_display_names: list[str] = []
     feval_names_for_validation: set[str] = set()
 
     # Reject duplicate metric names
     seen: set[str] = set()
-    for name in metrics:
+    for name, _kwargs in parsed:
         if name in seen:
             raise LizyMLError(
                 code=ErrorCode.CONFIG_INVALID,
@@ -286,12 +313,16 @@ def resolve_metrics(
             )
         seen.add(name)
 
-    for raw_name in metrics:
+    for raw_name, kwargs in parsed:
         # Check if the raw name is a feval metric BEFORE translation
         if raw_name in feval_for_task:
             feval_names_for_validation.add(raw_name)
-            metric_obj = get_metric(raw_name)
-            fevals.append(_build_feval(metric_obj, task, num_class))
+            metric_obj = get_metric(raw_name, **kwargs)
+            display = _metric_display_name(metric_obj, kwargs)
+            fevals.append(
+                _build_feval(metric_obj, task, num_class, display_name=display)
+            )
+            feval_display_names.append(display)
         elif raw_name in _ALL_FEVAL_NAMES and raw_name not in feval_for_task:
             # feval metric but wrong task
             raise LizyMLError(
@@ -311,4 +342,4 @@ def resolve_metrics(
         native, task, feval_names=frozenset(feval_names_for_validation)
     )
 
-    return native, fevals
+    return native, fevals, feval_display_names

@@ -877,6 +877,30 @@ result = model.tune(progress_callback=on_progress)
 - 分類（multiclass）: `logloss / auc(OvR) / auc_pr(OvR) / f1(macro) / accuracy / brier(OvR) ...`
 - multiclass の `auc / auc_pr / brier` は One-vs-Rest 展開 + macro 平均で計算する。メトリクス名は binary と共通（`__call__` 内で `y_pred.ndim` により分岐）。
 
+### 13.1.1 パラメータ付き MetricEntry（H-0065）
+
+パラメータを持つメトリクス（`precision_at_k` の `k` 等）は、`str | dict[str, dict[str, Any]]` 形式（`MetricEntry`）で指定する。
+
+```python
+MetricEntry = str | dict[str, dict[str, Any]]
+```
+
+- `str` 指定: デフォルトパラメータで動作（後方互換）
+- `dict` 指定: `{metric_name: {param: value}}`。キー数は 1。
+
+`EvaluationConfig.metrics` と `model.lgbm.params.metric` の両方で使用可能。各設定箇所で独立した値を指定できる。
+
+```yaml
+evaluation:
+  metrics: [auc, {precision_at_k: {k: 20}}]
+model:
+  lgbm:
+    params:
+      metric: [{precision_at_k: {k: 5}}]
+```
+
+`BaseMetric.name` プロパティは変更しない（`"precision_at_k"` のまま）。`k` の可視化は Plot 凡例と `params_summary()` に限定する。
+
 ## 13.2 評価出力（固定）
 
 - IF / OOF と fold 別を必ず返す。

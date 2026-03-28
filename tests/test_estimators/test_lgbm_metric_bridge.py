@@ -144,34 +144,34 @@ class TestResolveMetrics:
     """Split user metric list into native LightGBM names + feval callables."""
 
     def test_all_native_metrics(self) -> None:
-        native, fevals = resolve_metrics(["auc", "binary_logloss"], "binary")
+        native, fevals, _ = resolve_metrics(["auc", "binary_logloss"], "binary")
         assert native == ["auc", "binary_logloss"]
         assert fevals == []
 
     def test_all_feval_metrics(self) -> None:
-        native, fevals = resolve_metrics(["f1"], "binary")
+        native, fevals, _ = resolve_metrics(["f1"], "binary")
         assert native == []
         assert len(fevals) == 1
 
     def test_mixed_native_and_feval(self) -> None:
-        native, fevals = resolve_metrics(["auc", "brier"], "binary")
+        native, fevals, _ = resolve_metrics(["auc", "brier"], "binary")
         assert native == ["auc"]
         assert len(fevals) == 1
 
     def test_lizyml_name_translated_before_split(self) -> None:
         """logloss should be translated to binary_logloss and classified as native."""
-        native, fevals = resolve_metrics(["logloss"], "binary")
+        native, fevals, _ = resolve_metrics(["logloss"], "binary")
         assert native == ["binary_logloss"]
         assert fevals == []
 
     def test_rmsle_regression(self) -> None:
-        native, fevals = resolve_metrics(["rmsle"], "regression")
+        native, fevals, _ = resolve_metrics(["rmsle"], "regression")
         assert native == []
         assert len(fevals) == 1
 
     def test_accuracy_treated_as_feval(self) -> None:
         """accuracy has no LightGBM equivalent — should go through feval."""
-        native, fevals = resolve_metrics(["accuracy"], "binary")
+        native, fevals, _ = resolve_metrics(["accuracy"], "binary")
         assert native == []
         assert len(fevals) == 1
 
@@ -182,7 +182,7 @@ class TestResolveMetrics:
 
     def test_feval_returns_correct_tuple_format(self) -> None:
         """feval callable should return (name, value, is_higher_better)."""
-        _, fevals = resolve_metrics(["f1"], "binary")
+        _, fevals, _ = resolve_metrics(["f1"], "binary")
         feval_fn = fevals[0]
         # Create a mock dataset
         import lightgbm as lgb
@@ -205,7 +205,7 @@ class TestResolveMetrics:
 
     def test_feval_brier_binary(self) -> None:
         """Brier feval for binary should sigmoid raw logits."""
-        _, fevals = resolve_metrics(["brier"], "binary")
+        _, fevals, _ = resolve_metrics(["brier"], "binary")
         feval_fn = fevals[0]
         import lightgbm as lgb
 
@@ -222,7 +222,7 @@ class TestResolveMetrics:
 
     def test_feval_rmsle_regression(self) -> None:
         """RMSLE feval for regression (no logit transform)."""
-        _, fevals = resolve_metrics(["rmsle"], "regression")
+        _, fevals, _ = resolve_metrics(["rmsle"], "regression")
         feval_fn = fevals[0]
         import lightgbm as lgb
 
@@ -238,7 +238,7 @@ class TestResolveMetrics:
 
     def test_feval_ece_binary(self) -> None:
         """ECE feval for binary."""
-        _, fevals = resolve_metrics(["ece"], "binary")
+        _, fevals, _ = resolve_metrics(["ece"], "binary")
         assert len(fevals) == 1
         feval_fn = fevals[0]
         import lightgbm as lgb
@@ -258,7 +258,7 @@ class TestResolveMetrics:
 
     def test_feval_multiclass_f1(self) -> None:
         """F1 feval for multiclass — y_pred is flattened (n * k)."""
-        _, fevals = resolve_metrics(["f1"], "multiclass", num_class=3)
+        _, fevals, _ = resolve_metrics(["f1"], "multiclass", num_class=3)
         feval_fn = fevals[0]
         import lightgbm as lgb
 
@@ -279,7 +279,7 @@ class TestResolveMetrics:
 
     def test_feval_precision_at_k_binary(self) -> None:
         """PrecisionAtK feval for binary."""
-        _, fevals = resolve_metrics(["precision_at_k"], "binary")
+        _, fevals, _ = resolve_metrics(["precision_at_k"], "binary")
         assert len(fevals) == 1
 
 
@@ -318,7 +318,7 @@ class TestFevalNumericalCorrectness:
         """F1: logits → sigmoid → threshold 0.5 → f1_score."""
         from sklearn.metrics import f1_score
 
-        _, fevals = resolve_metrics(["f1"], "binary")
+        _, fevals, _ = resolve_metrics(["f1"], "binary")
         y_true = [1, 0, 1, 1, 0, 0, 1, 0]
         # sigmoid(1.0)=0.731, sigmoid(-1.0)=0.269, sigmoid(0.2)=0.550
         logits = [1.0, -1.0, 0.2, 2.0, -2.0, 0.5, -0.5, -1.5]
@@ -341,7 +341,7 @@ class TestFevalNumericalCorrectness:
         """Accuracy: logits → sigmoid → threshold 0.5 → accuracy_score."""
         from sklearn.metrics import accuracy_score
 
-        _, fevals = resolve_metrics(["accuracy"], "binary")
+        _, fevals, _ = resolve_metrics(["accuracy"], "binary")
         y_true = [1, 0, 1, 1, 0, 0]
         logits = [2.0, -2.0, -0.1, 0.1, 0.5, -0.5]
         yt, yp, ds = self._make_binary_dataset(y_true, logits)
@@ -362,7 +362,7 @@ class TestFevalNumericalCorrectness:
         """Brier: logits → sigmoid → brier_score_loss."""
         from sklearn.metrics import brier_score_loss
 
-        _, fevals = resolve_metrics(["brier"], "binary")
+        _, fevals, _ = resolve_metrics(["brier"], "binary")
         y_true = [1, 0, 1, 0, 1]
         logits = [0.5, -0.5, 1.5, -1.5, 0.0]
         yt, yp, ds = self._make_binary_dataset(y_true, logits)
@@ -384,7 +384,7 @@ class TestFevalNumericalCorrectness:
         """ECE: logits → sigmoid → equal-width bins → weighted |acc - conf|."""
         from lizyml.metrics.classification import ECE
 
-        _, fevals = resolve_metrics(["ece"], "binary")
+        _, fevals, _ = resolve_metrics(["ece"], "binary")
         y_true = [1, 0, 1, 1, 0, 1, 0, 0, 1, 0]
         logits = [2.0, -2.0, 1.0, 0.5, -0.5, 3.0, -3.0, -1.0, 0.1, -0.1]
         yt, yp, ds = self._make_binary_dataset(y_true, logits)
@@ -404,7 +404,7 @@ class TestFevalNumericalCorrectness:
         """PrecisionAtK: logits → sigmoid → top-K% → precision."""
         from lizyml.metrics.classification import PrecisionAtK
 
-        _, fevals = resolve_metrics(["precision_at_k"], "binary")
+        _, fevals, _ = resolve_metrics(["precision_at_k"], "binary")
         y_true = [1, 0, 1, 1, 0, 0, 1, 0, 1, 0]
         logits = [3.0, 2.5, 2.0, 1.5, 1.0, -1.0, -1.5, -2.0, -2.5, -3.0]
         yt, yp, ds = self._make_binary_dataset(y_true, logits)
@@ -422,7 +422,7 @@ class TestFevalNumericalCorrectness:
 
     def test_rmsle_regression_numerical(self) -> None:
         """RMSLE: no transform, direct log1p RMSE."""
-        _, fevals = resolve_metrics(["rmsle"], "regression")
+        _, fevals, _ = resolve_metrics(["rmsle"], "regression")
         import lightgbm as lgb
 
         y_true = np.array([3.0, 5.0, 2.5, 8.0])
@@ -447,7 +447,7 @@ class TestFevalNumericalCorrectness:
         """F1 multiclass: flattened logits → reshape → softmax → argmax → f1."""
         from sklearn.metrics import f1_score
 
-        _, fevals = resolve_metrics(["f1"], "multiclass", num_class=3)
+        _, fevals, _ = resolve_metrics(["f1"], "multiclass", num_class=3)
         import lightgbm as lgb
 
         y_true = np.array([0, 1, 2, 1, 0, 2], dtype=np.float64)
@@ -498,7 +498,7 @@ class TestFevalNumericalCorrectness:
         from sklearn.metrics import brier_score_loss
         from sklearn.preprocessing import label_binarize
 
-        _, fevals = resolve_metrics(["brier"], "multiclass", num_class=3)
+        _, fevals, _ = resolve_metrics(["brier"], "multiclass", num_class=3)
         import lightgbm as lgb
 
         y_true = np.array([0, 1, 2, 0], dtype=np.float64)
@@ -543,7 +543,7 @@ class TestFevalNumericalCorrectness:
         """Accuracy multiclass: reshape → softmax → argmax → accuracy."""
         from sklearn.metrics import accuracy_score
 
-        _, fevals = resolve_metrics(["accuracy"], "multiclass", num_class=3)
+        _, fevals, _ = resolve_metrics(["accuracy"], "multiclass", num_class=3)
         import lightgbm as lgb
 
         y_true = np.array([0, 1, 2, 1], dtype=np.float64)
@@ -582,7 +582,7 @@ class TestFevalNumericalCorrectness:
 
     def test_sigmoid_extreme_logits(self) -> None:
         """Extreme logits should not cause overflow or NaN."""
-        _, fevals = resolve_metrics(["brier"], "binary")
+        _, fevals, _ = resolve_metrics(["brier"], "binary")
         import lightgbm as lgb
 
         y_true = np.array([1, 0, 1, 0], dtype=np.float64)
@@ -622,7 +622,7 @@ class TestResolveMetricsValidation:
         from lizyml.estimators.lgbm.defaults import _TASK_METRIC
 
         for task, metrics in _TASK_METRIC.items():
-            native, fevals = resolve_metrics(
+            native, fevals, _ = resolve_metrics(
                 metrics, task, num_class=3 if task == "multiclass" else None
             )
             assert len(native) + len(fevals) == len(metrics)
@@ -678,7 +678,7 @@ class TestR2FevalMigration:
 
     def test_resolve_r2_returns_feval(self) -> None:
         """resolve_metrics('r2', 'regression') must return feval, not native."""
-        native, fevals = resolve_metrics(["r2"], "regression")
+        native, fevals, _ = resolve_metrics(["r2"], "regression")
         assert native == []
         assert len(fevals) == 1
 
@@ -688,7 +688,7 @@ class TestR2FevalMigration:
 
         from lizyml.metrics.regression import R2
 
-        _, fevals = resolve_metrics(["r2"], "regression")
+        _, fevals, _ = resolve_metrics(["r2"], "regression")
         feval_fn = fevals[0]
 
         y_true = np.array([3.0, -0.5, 2.0, 7.0])
@@ -709,7 +709,7 @@ class TestR2FevalMigration:
         """R2 feval must return 1.0 for perfect predictions."""
         import lightgbm as lgb
 
-        _, fevals = resolve_metrics(["r2"], "regression")
+        _, fevals, _ = resolve_metrics(["r2"], "regression")
         feval_fn = fevals[0]
 
         y = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
@@ -723,7 +723,7 @@ class TestR2FevalMigration:
         """R2 with constant y_true (ss_tot == 0): ss_res == 0 → 1.0, else → 0.0."""
         import lightgbm as lgb
 
-        _, fevals = resolve_metrics(["r2"], "regression")
+        _, fevals, _ = resolve_metrics(["r2"], "regression")
         feval_fn = fevals[0]
 
         # ss_res == 0 (perfect predictions on constant target) → 1.0
@@ -741,7 +741,7 @@ class TestR2FevalMigration:
 
     def test_r2_mixed_with_native_metric(self) -> None:
         """r2 + rmse: rmse should be native, r2 should be feval."""
-        native, fevals = resolve_metrics(["rmse", "r2"], "regression")
+        native, fevals, _ = resolve_metrics(["rmse", "r2"], "regression")
         assert native == ["rmse"]
         assert len(fevals) == 1
 

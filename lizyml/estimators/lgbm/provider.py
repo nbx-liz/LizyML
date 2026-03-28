@@ -176,4 +176,13 @@ class LGBMProvider:
             if v is not None:
                 rows.append({"parameter": k, "value": v})
 
+        # Feval metric display names (H-0065: shows k params etc.)
+        if isinstance(model, LGBMAdapter) and model._feval_display_names:
+            rows.append(
+                {
+                    "parameter": "feval_metrics",
+                    "value": ", ".join(model._feval_display_names),
+                }
+            )
+
         return rows
