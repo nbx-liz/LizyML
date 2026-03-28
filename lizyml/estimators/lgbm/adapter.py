@@ -144,6 +144,7 @@ class LGBMAdapter(BaseEstimatorAdapter):
         self._eval_results = {}
         callbacks.append(lgb.record_evaluation(self._eval_results))
 
+        user_metric = params.get("metric")
         try:
             self._model = lgb.train(
                 params,
@@ -154,18 +155,54 @@ class LGBMAdapter(BaseEstimatorAdapter):
                 callbacks=callbacks,
                 keep_training_booster=True,
             )
-        except (lgb.basic.LightGBMError, ValueError) as exc:
-            msg = str(exc).lower()
-            if "metric" in msg or "eval" in msg:
+        except lgb.basic.LightGBMError as exc:
+            if "metric" in str(exc).lower():
                 raise LizyMLError(
                     code=ErrorCode.CONFIG_INVALID,
                     user_message=(
-                        f"Invalid LightGBM metric: {params.get('metric')}. "
-                        f"Check the metric name against LightGBM documentation."
+                        f"Invalid LightGBM metric: {user_metric}. "
+                        f"Check the metric name against LightGBM "
+                        f"documentation. Original error: {exc}"
                     ),
-                    context={"metric": params.get("metric"), "task": self.task},
+                    context={
+                        "metric": user_metric,
+                        "task": self.task,
+                    },
                 ) from exc
             raise
+        except ValueError as exc:
+            if "eval metric" in str(exc).lower():
+                raise LizyMLError(
+                    code=ErrorCode.CONFIG_INVALID,
+                    user_message=(
+                        f"No valid eval metric for LightGBM. "
+                        f"Specified metric={user_metric} may be "
+                        f"invalid. Original error: {exc}"
+                    ),
+                    context={
+                        "metric": user_metric,
+                        "task": self.task,
+                    },
+                ) from exc
+            raise
+
+        # Detect silent invalid metric: LightGBM ignores unknown metric
+        # names and produces empty eval_results when no valid metric
+        # matched. Only check when user specified a custom metric.
+        if (
+            user_metric is not None
+            and valid_sets is not None
+            and not self._eval_results
+        ):
+            import warnings
+
+            warnings.warn(
+                f"LightGBM produced no eval results for "
+                f"metric={user_metric}. The metric name(s) may be "
+                f"invalid or unrecognized by this LightGBM version.",
+                UserWarning,
+                stacklevel=2,
+            )
 
         if self._model.best_iteration > 0:
             self._best_iteration = self._model.best_iteration
@@ -329,7 +366,10 @@ class LGBMAdapter(BaseEstimatorAdapter):
         if user_metric:
             if isinstance(user_metric, str):
                 user_metric = [user_metric]
-            params["metric"] = user_metric
+            # Filter out empty strings
+            user_metric = [m for m in user_metric if m]
+            if user_metric:
+                params["metric"] = user_metric
         params.update(user_params)
 
         return params, num_boost_round
