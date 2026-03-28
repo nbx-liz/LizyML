@@ -29,22 +29,22 @@ class TestUserMetricOverride:
 
     def test_user_metric_list_overrides_default(self) -> None:
         adapter = LGBMAdapter(task="binary", params={"metric": ["auc"]})
-        params, _ = adapter._build_params()
+        params, *_ = adapter._build_params()
         assert params["metric"] == ["auc"]
 
     def test_user_metric_string_normalised_to_list(self) -> None:
         adapter = LGBMAdapter(task="binary", params={"metric": "auc"})
-        params, _ = adapter._build_params()
+        params, *_ = adapter._build_params()
         assert params["metric"] == ["auc"]
 
     def test_fallback_to_task_default_when_no_user_metric(self) -> None:
         adapter = LGBMAdapter(task="binary")
-        params, _ = adapter._build_params()
+        params, *_ = adapter._build_params()
         assert params["metric"] == _TASK_METRIC["binary"]
 
     def test_fallback_when_empty_list(self) -> None:
         adapter = LGBMAdapter(task="binary", params={"metric": []})
-        params, _ = adapter._build_params()
+        params, *_ = adapter._build_params()
         assert params["metric"] == _TASK_METRIC["binary"]
 
     @pytest.mark.parametrize("task", ["regression", "binary", "multiclass"])
@@ -53,7 +53,7 @@ class TestUserMetricOverride:
         if task == "multiclass":
             kwargs["num_class"] = 3
         adapter = LGBMAdapter(**kwargs)
-        params, _ = adapter._build_params()
+        params, *_ = adapter._build_params()
         assert params["metric"] == _TASK_METRIC[task]
 
 
@@ -136,8 +136,12 @@ class TestInvalidMetricError:
         assert "metric" in err.context
         assert "totally_invalid_metric_xyz" in str(err.context["metric"])
 
-    def test_invalid_metric_without_early_stopping_warns(self) -> None:
-        """Invalid metric without early stopping should emit a warning."""
+    def test_invalid_metric_without_early_stopping_raises(self) -> None:
+        """Invalid metric should raise LizyMLError even without early stopping.
+
+        Since H-0064 pre-validation, invalid metrics are caught in
+        _build_params() before lgb.train() is called.
+        """
         rng = np.random.default_rng(42)
         n = 100
         X_train = pd.DataFrame({"f1": rng.standard_normal(n)})
@@ -153,8 +157,9 @@ class TestInvalidMetricError:
             },
             early_stopping_rounds=None,
         )
-        with pytest.warns(UserWarning, match="no eval results"):
+        with pytest.raises(LizyMLError) as exc_info:
             adapter.fit(X_train, y_train, X_valid, y_valid)
+        assert exc_info.value.code == ErrorCode.CONFIG_INVALID
 
     def test_empty_string_metric_falls_back(self) -> None:
         """metric=[''] should be filtered and fall back to task default."""
@@ -162,7 +167,7 @@ class TestInvalidMetricError:
             task="binary",
             params={"metric": [""]},
         )
-        params, _ = adapter._build_params()
+        params, *_ = adapter._build_params()
         from lizyml.estimators.lgbm.defaults import _TASK_METRIC
 
         assert params["metric"] == _TASK_METRIC["binary"]
@@ -173,7 +178,7 @@ class TestInvalidMetricError:
             task="binary",
             params={"metric": ""},
         )
-        params, _ = adapter._build_params()
+        params, *_ = adapter._build_params()
         from lizyml.estimators.lgbm.defaults import _TASK_METRIC
 
         assert params["metric"] == _TASK_METRIC["binary"]
