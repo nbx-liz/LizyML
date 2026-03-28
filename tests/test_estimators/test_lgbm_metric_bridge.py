@@ -80,7 +80,7 @@ class TestValidateLgbmMetrics:
         [
             (["rmse"], "regression"),
             (["l1", "l2", "mape"], "regression"),
-            (["huber", "fair", "r2"], "regression"),
+            (["huber", "fair"], "regression"),
             (["binary_logloss", "auc"], "binary"),
             (["average_precision"], "binary"),
             (["multi_logloss", "auc_mu"], "multiclass"),
@@ -638,3 +638,92 @@ class TestResolveMetricsValidation:
         """Duplicate feval metric names should also be rejected."""
         with pytest.raises(LizyMLError):
             resolve_metrics(["f1", "f1"], "binary")
+
+
+# ============================================================================
+# R2 feval migration (LightGBM 4.6.0 does not support r2 natively)
+# ============================================================================
+
+
+class TestR2FevalMigration:
+    """Verify r2 is handled as feval, not native, for LightGBM 4.6.0.
+
+    LightGBM's C++ binary (v4.6.0) does not implement r2 as a native metric
+    despite it being documented in the master branch. Passing metric='r2' to
+    lgb.train() silently produces empty eval_results, breaking early stopping.
+    """
+
+    def test_r2_not_in_native_whitelist(self) -> None:
+        """r2 must NOT be in the native LightGBM metric whitelist."""
+        from lizyml.estimators.lgbm.metric_bridge import _LGBM_NATIVE_METRICS
+
+        assert "r2" not in _LGBM_NATIVE_METRICS["regression"]
+
+    def test_r2_in_feval_metrics(self) -> None:
+        """r2 must be in the feval metric set for regression."""
+        from lizyml.estimators.lgbm.metric_bridge import _FEVAL_METRICS
+
+        assert "r2" in _FEVAL_METRICS["regression"]
+
+    def test_r2_not_valid_for_binary(self) -> None:
+        """r2 is regression-only; should raise for binary."""
+        with pytest.raises(LizyMLError) as exc_info:
+            resolve_metrics(["r2"], "binary")
+        assert exc_info.value.code == ErrorCode.CONFIG_INVALID
+
+    def test_r2_not_valid_for_multiclass(self) -> None:
+        """r2 is regression-only; should raise for multiclass."""
+        with pytest.raises(LizyMLError):
+            resolve_metrics(["r2"], "multiclass")
+
+    def test_resolve_r2_returns_feval(self) -> None:
+        """resolve_metrics('r2', 'regression') must return feval, not native."""
+        native, fevals = resolve_metrics(["r2"], "regression")
+        assert native == []
+        assert len(fevals) == 1
+
+    def test_r2_feval_numerical_correctness(self) -> None:
+        """R2 feval must match direct BaseMetric computation."""
+        import lightgbm as lgb
+
+        from lizyml.metrics.regression import R2
+
+        _, fevals = resolve_metrics(["r2"], "regression")
+        feval_fn = fevals[0]
+
+        y_true = np.array([3.0, -0.5, 2.0, 7.0])
+        y_pred = np.array([2.5, 0.0, 2.0, 8.0])
+        ds = lgb.Dataset(np.zeros((4, 1)), label=y_true, free_raw_data=False)
+        ds.construct()
+
+        name, value, is_higher = feval_fn(y_pred, ds)
+
+        expected = R2()(y_true, y_pred)
+        assert name == "r2"
+        assert is_higher is True
+        assert value == pytest.approx(expected, abs=1e-10)
+
+    def test_r2_feval_perfect_predictions(self) -> None:
+        """R2 feval must return 1.0 for perfect predictions."""
+        import lightgbm as lgb
+
+        _, fevals = resolve_metrics(["r2"], "regression")
+        feval_fn = fevals[0]
+
+        y = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+        ds = lgb.Dataset(np.zeros((5, 1)), label=y, free_raw_data=False)
+        ds.construct()
+
+        _, value, _ = feval_fn(y, ds)
+        assert value == pytest.approx(1.0)
+
+    def test_r2_mixed_with_native_metric(self) -> None:
+        """r2 + rmse: rmse should be native, r2 should be feval."""
+        native, fevals = resolve_metrics(["rmse", "r2"], "regression")
+        assert native == ["rmse"]
+        assert len(fevals) == 1
+
+    def test_r2_validate_lgbm_metrics_rejects(self) -> None:
+        """r2 without feval bypass must be rejected by validate_lgbm_metrics."""
+        with pytest.raises(LizyMLError):
+            validate_lgbm_metrics(["r2"], "regression", feval_names=frozenset())
