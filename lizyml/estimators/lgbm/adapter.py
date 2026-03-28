@@ -16,6 +16,7 @@ from lizyml.estimators.lgbm.defaults import (
     _TASK_METRIC,
     _TASK_OBJECTIVE,
 )
+from lizyml.estimators.lgbm.metric_bridge import resolve_metrics
 
 try:
     import lightgbm as lgb
@@ -100,7 +101,7 @@ class LGBMAdapter(BaseEstimatorAdapter):
                 extracted and passed to ``lgb.Dataset(weight=...)``.
         """
         self._feature_names = list(X_train.columns)
-        params, num_boost_round = self._build_params()
+        params, num_boost_round, feval_list = self._build_params()
 
         cat_feature: list[str] | Literal["auto"] = self._categorical_features or "auto"
         sample_weight = kwargs.pop("sample_weight", None)
@@ -152,6 +153,7 @@ class LGBMAdapter(BaseEstimatorAdapter):
                 num_boost_round=num_boost_round,
                 valid_sets=valid_sets,
                 valid_names=valid_names,
+                feval=feval_list if feval_list else None,
                 callbacks=callbacks,
                 keep_training_booster=True,
             )
@@ -331,13 +333,16 @@ class LGBMAdapter(BaseEstimatorAdapter):
     # Internals
     # ------------------------------------------------------------------
 
-    def _build_params(self) -> tuple[dict[str, Any], int]:
-        """Build LightGBM params dict and num_boost_round.
+    def _build_params(
+        self,
+    ) -> tuple[dict[str, Any], int, list[Any]]:
+        """Build LightGBM params dict, num_boost_round, and feval list.
 
         Returns:
-            ``(params_dict, num_boost_round)`` tuple.
+            ``(params_dict, num_boost_round, feval_list)`` tuple.
             ``params_dict`` uses Booster API naming (``seed``, ``verbosity``).
             ``num_boost_round`` is extracted from ``n_estimators``.
+            ``feval_list`` contains callables for LizyML-only metrics.
         """
         params: dict[str, Any] = {
             "objective": _TASK_OBJECTIVE[self.task],
@@ -363,16 +368,22 @@ class LGBMAdapter(BaseEstimatorAdapter):
         user_params.pop("objective", None)
         # Allow user-specified metric; fall back to task default if absent/empty
         user_metric = user_params.pop("metric", None)
+        feval_list: list[Any] = []
         if user_metric:
             if isinstance(user_metric, str):
                 user_metric = [user_metric]
             # Filter out empty strings
             user_metric = [m for m in user_metric if m]
             if user_metric:
-                params["metric"] = user_metric
+                # Resolve: translate LizyML names, split native vs feval,
+                # and validate against whitelist (H-0064)
+                native, feval_list = resolve_metrics(
+                    user_metric, self.task, num_class=self.num_class
+                )
+                params["metric"] = native if native else "None"
         params.update(user_params)
 
-        return params, num_boost_round
+        return params, num_boost_round, feval_list
 
     def _require_fitted(self) -> lgb.Booster:
         if self._model is None:

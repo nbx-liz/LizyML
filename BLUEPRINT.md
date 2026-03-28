@@ -326,7 +326,7 @@ config = {
 
 | Key | Type | Required | Default | Notes |
 |---|---|---|---|---|
-| `params` | `dict[str, Any]` | No | `{}` | LightGBM パラメーター。`metric` キーでユーザー指定の evaluation metric を設定可能（§14.3 参照、H-0061） |
+| `params` | `dict[str, Any]` | No | `{}` | LightGBM パラメーター。`metric` キーで evaluation metric を指定可能。LizyML 名（`logloss`, `auc_pr` 等）も自動変換される（§14.3 参照、H-0061/H-0064） |
 | `auto_num_leaves` | `bool` | No | `True` | §5.3 参照 |
 | `num_leaves_ratio` | `float` | No | `1.0` | `0 < ratio ≤ 1` |
 | `min_data_in_leaf_ratio` | `float \| null` | No | `0.01` | `0 < ratio < 1` |
@@ -984,9 +984,36 @@ set_categorical_features(cols: list[str] | None) -> None  # デフォルト no-o
 
 注記:
 - regression の objective を `huber` とする（外れ値に対してロバスト）。
-- `brier` / `precision_at_k` は LightGBM ネイティブ未対応。将来のカスタム feval 拡張点とする。
 - `LGBMConfig.params` に `metric` を指定した場合、ユーザー指定値を優先する。未指定時は上記タスク別デフォルトにフォールバックする（H-0061）。
-- 無効な metric 名は LightGBM に委任し、エラー時は `LizyMLError` で wrap してユーザー指定 metric 値をコンテキストに含める。
+
+#### Metric Bridge（H-0064）
+
+`metric_bridge.py` が metric 指定に対して以下の処理を行う:
+
+1. **名前マッピング**: LizyML 評価用名 → LightGBM 学習用名に自動変換
+
+| LizyML 名 | LightGBM 名 | タスク |
+|-----------|-------------|-------|
+| `logloss` | `binary_logloss` / `multi_logloss` | binary / multiclass |
+| `auc_pr` | `average_precision` | binary / multiclass |
+
+2. **ホワイトリストバリデーション**: マッピング後の名前をタスク別ホワイトリストで事前検証。無効な metric 名は `LizyMLError(CONFIG_INVALID)` で即座に拒否する（LightGBM 呼び出し前）。
+
+3. **feval カスタム関数**: LightGBM ネイティブ未対応の metric は `lgb.train(feval=...)` 経由でカスタム評価関数として注入する。
+
+| feval Metric | Regression | Binary | Multiclass | y_pred 変換 |
+|-------------|:---:|:---:|:---:|------------|
+| `rmsle` | ✅ | | | そのまま |
+| `f1` | | ✅ | ✅ | sigmoid / softmax → 閾値 / argmax |
+| `brier` | | ✅ | ✅ | sigmoid / softmax |
+| `ece` | | ✅ | | sigmoid |
+| `precision_at_k` | | ✅ | | sigmoid |
+| `accuracy` | | ✅ | ✅ | sigmoid / softmax → 閾値 / argmax |
+
+- binary: `y_pred` は raw logits → `sigmoid` で確率に変換
+- multiclass: `y_pred` は flatten `(n * k,)` → `reshape(-1, k)` + `softmax` で確率に変換
+- native metric と feval metric の混在指定が可能（例: `["auc", "f1"]`）
+- feval-only 指定時も early stopping が正常に機能する
 
 ### 共通デフォルト
 
