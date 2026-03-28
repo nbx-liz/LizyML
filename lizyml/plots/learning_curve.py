@@ -23,11 +23,18 @@ except ImportError:  # pragma: no cover
     _make_subplots = None
 
 
-def plot_learning_curve(fit_result: FitResult) -> Any:
+def plot_learning_curve(
+    fit_result: FitResult,
+    *,
+    metrics: list[str] | None = None,
+) -> Any:
     """Plot per-fold training/validation loss vs iteration.
 
     Args:
         fit_result: A fitted :class:`~lizyml.core.types.fit_result.FitResult`.
+        metrics: Optional list of metric names to display. Matches against
+            the metric part of eval history keys (after the ``/`` in
+            ``dataset/metric``). ``None`` plots all metrics (H-0062).
 
     Returns:
         A ``plotly.graph_objects.Figure`` object.
@@ -36,6 +43,8 @@ def plot_learning_curve(fit_result: FitResult) -> Any:
         LizyMLError with ``OPTIONAL_DEP_MISSING`` when plotly is not installed.
         LizyMLError with ``MODEL_NOT_FIT`` when no history is available or the
             history contains no evaluation metrics (e.g. early stopping disabled).
+        LizyMLError with ``CONFIG_INVALID`` when *metrics* filter matches no
+            keys in the eval history.
     """
     if _plotly is None:
         raise LizyMLError(
@@ -62,8 +71,8 @@ def plot_learning_curve(fit_result: FitResult) -> Any:
             continue
         # eval_hist is {dataset_name: {metric_name: [values]}}
         flat: dict[str, list[float]] = {}
-        for ds_name, metrics in eval_hist.items():
-            for metric_name, values in metrics.items():
+        for ds_name, ds_metrics in eval_hist.items():
+            for metric_name, values in ds_metrics.items():
                 key = f"{ds_name}/{metric_name}"
                 flat[key] = list(values)
         if flat:
@@ -80,7 +89,26 @@ def plot_learning_curve(fit_result: FitResult) -> Any:
         )
 
     # Use first fold's keys as reference
-    metric_keys = list(fold_histories[0].keys())
+    all_metric_keys = list(fold_histories[0].keys())
+
+    if metrics is not None:
+        metric_keys = [k for k in all_metric_keys if k.split("/", 1)[-1] in metrics]
+        if not metric_keys:
+            available = sorted({k.split("/", 1)[-1] for k in all_metric_keys})
+            raise LizyMLError(
+                code=ErrorCode.CONFIG_INVALID,
+                user_message=(
+                    f"No matching metrics found for {metrics}. "
+                    f"Available metrics: {available}"
+                ),
+                context={
+                    "requested_metrics": metrics,
+                    "available_metrics": available,
+                },
+            )
+    else:
+        metric_keys = all_metric_keys
+
     n_metrics = len(metric_keys)
 
     fig = _make_subplots(
