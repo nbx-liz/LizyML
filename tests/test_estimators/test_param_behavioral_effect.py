@@ -106,40 +106,40 @@ class TestBoosterParamPropagation:
     )
     def test_param_reaches_booster(self, param_name: str, param_value: Any) -> None:
         adapter = LGBMAdapter(task="regression", params={param_name: param_value})
-        params, _ = adapter._build_params()
+        params, *_ = adapter._build_params()
         assert params[param_name] == param_value
 
     def test_objective_locked_to_task(self) -> None:
         # User cannot override objective
         adapter = LGBMAdapter(task="binary", params={"objective": "regression"})
-        params, _ = adapter._build_params()
+        params, *_ = adapter._build_params()
         assert params["objective"] == "binary"
 
     def test_verbosity_forced_negative(self) -> None:
         adapter = LGBMAdapter(task="regression")
-        params, _ = adapter._build_params()
+        params, *_ = adapter._build_params()
         assert params["verbosity"] == -1
 
     def test_num_class_injected_for_multiclass(self) -> None:
         adapter = LGBMAdapter(task="multiclass", num_class=5)
-        params, _ = adapter._build_params()
+        params, *_ = adapter._build_params()
         assert params["num_class"] == 5
 
     def test_num_class_absent_for_regression(self) -> None:
         adapter = LGBMAdapter(task="regression")
-        params, _ = adapter._build_params()
+        params, *_ = adapter._build_params()
         assert "num_class" not in params
 
     def test_metric_default_per_task(self) -> None:
         for task in ("regression", "binary"):
             kwargs: dict[str, Any] = {"task": task}
             adapter = LGBMAdapter(**kwargs)
-            params, _ = adapter._build_params()
+            params, *_ = adapter._build_params()
             assert params["metric"] == _TASK_METRIC[task]
 
     def test_user_metric_reaches_booster(self) -> None:
         adapter = LGBMAdapter(task="binary", params={"metric": ["auc"]})
-        params, _ = adapter._build_params()
+        params, *_ = adapter._build_params()
         assert params["metric"] == ["auc"]
 
     def test_arbitrary_param_passthrough(self) -> None:
@@ -148,7 +148,7 @@ class TestBoosterParamPropagation:
             task="regression",
             params={"extra_trees": True, "linear_tree": True},
         )
-        params, _ = adapter._build_params()
+        params, *_ = adapter._build_params()
         assert params["extra_trees"] is True
         assert params["linear_tree"] is True
 
