@@ -14,7 +14,13 @@ from lizyml.metrics.classification import (
     LogLoss,
     PrecisionAtK,
 )
-from lizyml.metrics.registry import get_metric, get_metrics_for_task
+from lizyml.metrics.registry import (
+    MetricEntry,
+    get_metric,
+    get_metrics_for_task,
+    parse_metric_entries,
+    parse_metric_entry,
+)
 from lizyml.metrics.regression import MAE, MAPE, R2, RMSE, RMSLE, HuberLoss
 
 __all__ = [
@@ -36,6 +42,9 @@ __all__ = [
     "ECE",
     "PrecisionAtK",
     # helpers
+    "MetricEntry",
     "get_metric",
     "get_metrics_for_task",
+    "parse_metric_entry",
+    "parse_metric_entries",
 ]

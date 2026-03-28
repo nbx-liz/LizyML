@@ -77,7 +77,7 @@ _log = get_logger("model")
 TaskType = Literal["regression", "binary", "multiclass"]
 
 # Default metrics per task when none are specified in config.
-_DEFAULT_METRICS: dict[str, list[str]] = {
+_DEFAULT_METRICS: dict[str, list[str | dict[str, dict[str, Any]]]] = {
     "regression": ["rmse", "mae"],
     "binary": ["logloss", "auc"],
     "multiclass": ["logloss", "f1", "accuracy"],
@@ -207,11 +207,11 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         fit_result = self._run_calibration(cfg, fit_result, y, groups)
 
         # --- Evaluation -------------------------------------------------------
-        metric_names = cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task]
+        metric_entries = cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task]
         evaluator = Evaluator(task=cfg.task)
-        metrics = evaluator.evaluate(fit_result, y, metric_names)
+        metrics = evaluator.evaluate(fit_result, y, metric_entries)
         metrics = assemble_calibrated_metrics(
-            fit_result, y, metric_names, evaluator, metrics
+            fit_result, y, metric_entries, evaluator, metrics
         )
 
         fit_result = dataclasses.replace(
@@ -235,13 +235,14 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
 
     def evaluate(
         self,
-        metrics: list[str] | None = None,
+        metrics: list[str | dict[str, dict[str, Any]]] | None = None,
     ) -> dict[str, Any]:
         """Return structured evaluation metrics from the last ``fit``.
 
         Args:
-            metrics: Metric names to compute.  When ``None`` uses defaults
-                or config-defined metrics (already computed during ``fit``).
+            metrics: Metric names or parameterised ``MetricEntry`` dicts to
+                filter.  When ``None`` uses defaults or config-defined metrics
+                (already computed during ``fit``).
 
         Returns:
             Structured dict: ``{"raw": {"oof": ..., "oof_per_fold": ...,
@@ -264,12 +265,15 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             return self._metrics
 
         # Validate task compatibility first (raises UNSUPPORTED_METRIC if invalid)
-        from lizyml.metrics.registry import get_metrics_for_task
+        from lizyml.metrics.registry import get_metrics_for_task, parse_metric_entries
 
         get_metrics_for_task(metrics, self._cfg.task)  # raises on unknown/incompatible
 
+        # Extract metric names for filtering (H-0065)
+        names = {name for name, _kwargs in parse_metric_entries(metrics)}
+
         # Filter the pre-computed metrics dict to the requested subset
-        return filter_metrics(self._metrics, set(metrics))
+        return filter_metrics(self._metrics, names)
 
     def predict(
         self,
@@ -415,8 +419,12 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             fixed = provider.default_fixed_params(cfg.task)
 
         optuna_cfg = cfg.tuning.optuna.params
-        metric_names = cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task]
-        metric_name = metric_names[0]
+        metric_entries = cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task]
+        # Extract the first metric name for optimisation scoring
+        from lizyml.metrics.registry import parse_metric_entry
+
+        first_entry = metric_entries[0]
+        metric_name, _ = parse_metric_entry(first_entry)
 
         evaluator = Evaluator(task=cfg.task)
         fingerprint = fp_compute(X, file_path=None)
@@ -479,7 +487,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
                 run_meta=run_meta,
                 sample_weight=tc.sample_weight,
             )
-            metrics = evaluator.evaluate(fit_result, y, [metric_name])
+            metrics = evaluator.evaluate(fit_result, y, [first_entry])
             score: float = metrics["raw"]["oof"][metric_name]
             return score
 
