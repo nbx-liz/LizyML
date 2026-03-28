@@ -43,12 +43,6 @@ _OBJECTIVE_CHOICES: dict[str, tuple[str, ...]] = {
     "multiclass": ("multiclass", "multiclassova"),
 }
 
-_FIXED_METRIC: dict[str, list[str]] = {
-    "regression": ["huber", "mae", "mape"],
-    "binary": ["auc", "binary_logloss"],
-    "multiclass": ["auc_mu", "multi_logloss"],
-}
-
 
 def default_space(task: str) -> list[SearchDim]:
     """Return the PLAN-specified default search space for LightGBM.
@@ -93,5 +87,5 @@ def default_fixed_params(task: str) -> dict[str, Any]:
     return {
         "auto_num_leaves": True,
         "first_metric_only": True,
-        "metric": _FIXED_METRIC.get(task, ["huber", "mae", "mape"]),
+        "metric": _TASK_METRIC.get(task, ["huber", "mae", "mape"]),
     }

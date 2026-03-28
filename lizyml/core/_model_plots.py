@@ -191,8 +191,16 @@ class ModelPlotsMixin:
 
         return plot_importance(fit_result, kind=kind, top_n=top_n)
 
-    def plot_learning_curve(self) -> Any:
+    def plot_learning_curve(
+        self,
+        *,
+        metrics: list[str] | None = None,
+    ) -> Any:
         """Plot per-fold training/validation loss vs iteration.
+
+        Args:
+            metrics: Optional list of metric names to filter displayed
+                subplots. ``None`` shows all metrics (H-0062).
 
         Returns:
             A ``plotly.graph_objects.Figure`` object.
@@ -201,11 +209,12 @@ class ModelPlotsMixin:
             LizyMLError with MODEL_NOT_FIT when called before fit or when
                 no evaluation history is available.
             LizyMLError with OPTIONAL_DEP_MISSING when plotly is not installed.
+            LizyMLError with CONFIG_INVALID when *metrics* matches nothing.
         """
         fit_result = self._require_fit()
         from lizyml.plots.learning_curve import plot_learning_curve
 
-        return plot_learning_curve(fit_result)
+        return plot_learning_curve(fit_result, metrics=metrics)
 
     def plot_oof_distribution(self) -> Any:
         """Plot the distribution of out-of-fold predictions.
