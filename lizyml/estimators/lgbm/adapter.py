@@ -37,8 +37,9 @@ class LGBMAdapter(BaseEstimatorAdapter):
 
     Args:
         task: ML task type.
-        params: LightGBM parameters (excluding ``objective`` and ``metric``
-            which are set automatically from *task*).
+        params: LightGBM parameters (excluding ``objective`` which is set
+            automatically from *task*). ``metric`` may be user-specified;
+            if absent or empty, falls back to task defaults (H-0061).
         num_class: Number of classes for multiclass (required when
             ``task="multiclass"``).
         early_stopping_rounds: Early stopping patience.
@@ -143,15 +144,65 @@ class LGBMAdapter(BaseEstimatorAdapter):
         self._eval_results = {}
         callbacks.append(lgb.record_evaluation(self._eval_results))
 
-        self._model = lgb.train(
-            params,
-            train_set,
-            num_boost_round=num_boost_round,
-            valid_sets=valid_sets,
-            valid_names=valid_names,
-            callbacks=callbacks,
-            keep_training_booster=True,
-        )
+        user_metric = params.get("metric")
+        try:
+            self._model = lgb.train(
+                params,
+                train_set,
+                num_boost_round=num_boost_round,
+                valid_sets=valid_sets,
+                valid_names=valid_names,
+                callbacks=callbacks,
+                keep_training_booster=True,
+            )
+        except lgb.basic.LightGBMError as exc:
+            if "metric" in str(exc).lower():
+                raise LizyMLError(
+                    code=ErrorCode.CONFIG_INVALID,
+                    user_message=(
+                        f"Invalid LightGBM metric: {user_metric}. "
+                        f"Check the metric name against LightGBM "
+                        f"documentation. Original error: {exc}"
+                    ),
+                    context={
+                        "metric": user_metric,
+                        "task": self.task,
+                    },
+                ) from exc
+            raise
+        except ValueError as exc:
+            if "eval metric" in str(exc).lower():
+                raise LizyMLError(
+                    code=ErrorCode.CONFIG_INVALID,
+                    user_message=(
+                        f"No valid eval metric for LightGBM. "
+                        f"Specified metric={user_metric} may be "
+                        f"invalid. Original error: {exc}"
+                    ),
+                    context={
+                        "metric": user_metric,
+                        "task": self.task,
+                    },
+                ) from exc
+            raise
+
+        # Detect silent invalid metric: LightGBM ignores unknown metric
+        # names and produces empty eval_results when no valid metric
+        # matched. Only check when user specified a custom metric.
+        if (
+            user_metric is not None
+            and valid_sets is not None
+            and not self._eval_results
+        ):
+            import warnings
+
+            warnings.warn(
+                f"LightGBM produced no eval results for "
+                f"metric={user_metric}. The metric name(s) may be "
+                f"invalid or unrecognized by this LightGBM version.",
+                UserWarning,
+                stacklevel=2,
+            )
 
         if self._model.best_iteration > 0:
             self._best_iteration = self._model.best_iteration
@@ -308,9 +359,17 @@ class LGBMAdapter(BaseEstimatorAdapter):
             user_params.setdefault("seed", user_params.pop("random_state"))
         if "verbose" in user_params:
             user_params.setdefault("verbosity", user_params.pop("verbose"))
-        # Strip task-locked keys — objective/metric are always set from task
+        # Strip task-locked keys — objective is always set from task
         user_params.pop("objective", None)
-        user_params.pop("metric", None)
+        # Allow user-specified metric; fall back to task default if absent/empty
+        user_metric = user_params.pop("metric", None)
+        if user_metric:
+            if isinstance(user_metric, str):
+                user_metric = [user_metric]
+            # Filter out empty strings
+            user_metric = [m for m in user_metric if m]
+            if user_metric:
+                params["metric"] = user_metric
         params.update(user_params)
 
         return params, num_boost_round
