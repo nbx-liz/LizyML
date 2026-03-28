@@ -10,7 +10,7 @@ import pandas as pd
 
 from lizyml.core.types.fit_result import FitResult
 from lizyml.metrics.base import BaseMetric
-from lizyml.metrics.registry import get_metrics_for_task
+from lizyml.metrics.registry import MetricEntry, get_metrics_for_task
 from lizyml.training.oof_assembly import compute_oof_valid_mask
 
 TaskType = Literal["regression", "binary", "multiclass"]
@@ -104,7 +104,7 @@ class Evaluator:
         self,
         fit_result: FitResult,
         y: pd.Series | npt.NDArray[Any],
-        metric_names: list[str],
+        metric_entries: list[MetricEntry],
     ) -> dict[str, Any]:
         """Compute OOF, IF-per-fold, and IF-mean metrics.
 
@@ -112,13 +112,14 @@ class Evaluator:
             fit_result: Completed CV training output.
             y: Ground-truth target for the full dataset (same order as
                 ``fit_result.oof_pred``).
-            metric_names: Names of metrics to compute.  Must be compatible
-                with the task this :class:`Evaluator` was constructed for.
+            metric_entries: Metric names or parameterised ``MetricEntry``
+                dicts to compute.  Must be compatible with the task this
+                :class:`Evaluator` was constructed for.
 
         Returns:
             Nested dict with ``"raw"`` (and ``"calibrated"`` when applicable).
         """
-        metrics = get_metrics_for_task(metric_names, self.task)
+        metrics = get_metrics_for_task(metric_entries, self.task)
         y_arr = np.asarray(y)
 
         # --- OOF coverage mask (H-0057) --------------------------------------

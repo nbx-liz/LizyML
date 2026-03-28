@@ -261,6 +261,20 @@ Supported values for `model.params.metric` by task:
 
 Native and custom metrics can be mixed: `params={"metric": ["auc", "f1"]}`.
 
+Parameterised metrics use dict form (H-0065):
+
+```yaml
+model:
+  lgbm:
+    params:
+      metric:
+        - auc
+        - precision_at_k:
+            k: 5
+```
+
+The `k` value is shown in `params_summary()` and learning curve subplot titles.
+
 Invalid metric names are rejected before training with a clear error message listing valid options.
 
 ### Default LightGBM params
@@ -391,7 +405,17 @@ When using the default space, these fixed params are also applied to every trial
 
 | Key | Type | Required | Default | Notes |
 |---|---|---|---|---|
-| `metrics` | `list[str]` | No | `[]` | Metric names validated per task. |
+| `metrics` | `list[str \| dict]` | No | `[]` | Metric names validated per task. Supports parameterised dict form (H-0065). |
+
+Metrics can be specified as plain strings or parameterised dicts:
+
+```yaml
+evaluation:
+  metrics:
+    - auc                          # plain string (default params)
+    - precision_at_k:              # dict form with custom k
+        k: 20
+```
 
 If `metrics` is empty, runtime defaults are:
 
@@ -424,7 +448,7 @@ Metric details:
 | `accuracy` | Classification Accuracy (threshold=0.5 for binary) | No | Yes |
 | `brier` | Brier Score (mean squared probability error, macro average for multiclass) | Yes | No |
 | `ece` | Expected Calibration Error (equal-width bins, M=10) | Yes | No |
-| `precision_at_k` | Precision at top-K% (default K=10) | Yes | Yes |
+| `precision_at_k` | Precision at top-K% (default K=10). K is configurable via dict form: `{precision_at_k: {k: 20}}` | Yes | Yes |
 
 ## `calibration`
 
