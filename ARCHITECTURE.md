@@ -691,7 +691,13 @@ lizyml/
 │
 ├── estimators/                     ── Layer 1: Estimators ──
 │   ├── base.py                     BaseEstimatorAdapter
-│   └── lgbm.py                     LGBMAdapter + smart param resolution
+│   ├── provider.py                 EstimatorProvider protocol (H-0053)
+│   └── lgbm/                       LightGBM subpackage (H-0053)
+│       ├── adapter.py              LGBMAdapter (Booster API wrapper)
+│       ├── defaults.py             Task defaults, search space
+│       ├── smart_params.py         resolve_smart_params, resolve_ratio_params
+│       ├── metric_bridge.py        Metric mapping, validation, feval (H-0064)
+│       └── provider.py             LGBMProvider (EstimatorProvider impl)
 │
 ├── metrics/                        ── Layer 1: Metrics ──
 │   ├── base.py                     BaseMetric
