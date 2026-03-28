@@ -4628,3 +4628,151 @@ for each 時間fold t:
 - 全ユーザーが全期間に存在 → 除外多、正常動作
 - valid 期間にデータがないユーザー → 正常動作
 - min_train_rows / min_valid_rows 未満 → fold スキップ + 警告
+
+## H-0061: LGBMAdapter でユーザー指定 metric を許可 + params_summary に metric 追加
+
+- **ステータス**: Accepted
+- **起票日**: 2026-03-28
+- **関連 Issue**: #50, #51
+
+### 目的
+
+1. `_build_params()` が `params.metric` を常に破棄する問題を修正し、ユーザーが LightGBM の evaluation metric をカスタマイズできるようにする。
+2. `params_summary()` の出力に `metric` を含め、Widget 等の下流が使用 metric を表示できるようにする。
+
+### 影響範囲
+
+- `lizyml/estimators/lgbm/adapter.py` — `_build_params()` の metric 処理変更
+- `lizyml/estimators/lgbm/provider.py` — `params_summary()` に metric 行追加
+- 学習履歴（`eval_history`）のキーがユーザー指定 metric に応じて変化する
+
+### 互換性
+
+- **後方互換**: `params` に `metric` 未指定時は従来通り `_TASK_METRIC[task]` がフォールバック
+- `params_summary()` の返却は `list[dict]` のまま。行が 1 つ増えるだけで shape 変更なし
+
+### バリデーション方針
+
+- LightGBM に委任（案 A）。無効 metric は LightGBM がランタイムエラーを返す
+- `LizyMLError` で wrap し、ユーザー指定 metric 値をコンテキストに含めてエラー箇所を特定可能にする
+
+### 代替案
+
+- 案 B: ホワイトリストで事前バリデーション → LightGBM バージョン依存で保守コスト大、却下
+
+### 受け入れ基準（テスト観点）
+
+- ユーザー指定 metric が Booster params に到達する
+- 未指定時は `_TASK_METRIC` フォールバック
+- 無効 metric で `LizyMLError`（context に metric 値を含む）
+- `params_summary()` に metric 行が含まれる
+
+## H-0062: plot_learning_curve() に metrics フィルタパラメータ追加
+
+- **ステータス**: Accepted
+- **起票日**: 2026-03-28
+- **関連 Issue**: #52
+
+### 目的
+
+`plot_learning_curve()` に `metrics` パラメータを追加し、表示する metric をフィルタ可能にする。Widget 等の表示幅が限られた環境で、選択した metric のみプロットできるようにする。
+
+### 影響範囲
+
+- `lizyml/plots/learning_curve.py` — 関数シグネチャに `metrics: list[str] | None = None` 追加
+
+### 互換性
+
+- **完全後方互換**: `metrics=None`（デフォルト）で既存の全 metric プロット動作を維持
+- 公開 API にオプショナル keyword-only パラメータを追加するのみ
+
+### 仕様
+
+- `metrics=None`: 全 metric をプロット（既存動作）
+- `metrics=["auc"]`: eval_history キーの `/` 以降（metric 名部分）が一致するもののみ表示
+- 一致する metric が 0 件の場合: `LizyMLError` で利用可能な metric 名を提示
+
+### 代替案
+
+- subplot の max_cols 制限 + ページング → 実装が複雑、Widget 側でフィルタする方が自然。却下
+
+### 受け入れ基準（テスト観点）
+
+- `metrics=None` で全 metric プロット（後方互換）
+- `metrics=["auc"]` で該当 metric のみフィルタ
+- 存在しない metric 指定で `LizyMLError`（利用可能な metric リスト付き）
+
+## H-0063: Config 伝搬・実効性テスト網羅化
+
+- **ステータス**: Accepted
+- **起票日**: 2026-03-28
+
+### 目的
+
+Config の全フィールドが適切なクラス・関数に渡され、その値が実際の動作に反映されていることを検証するテストを追加する。現状のテストは「値が渡っている」伝搬テストが中心で、「渡った値が動作を変える」実効性テストが不足している。
+
+### 影響範囲
+
+- テストのみ。プロダクションコードの変更なし
+- `tests/test_estimators/test_param_behavioral_effect.py`（新規）
+- `tests/test_core/test_config_propagation.py`（既存の伝搬テスト補強）
+
+### テスト設計
+
+#### A. Booster パラメータ実効性テスト（2 値比較パターン）
+
+異なる値で fit → 予測が変わることを検証:
+
+| パラメータ | 値 A | 値 B |
+|-----------|------|------|
+| `learning_rate` | 0.01 | 0.5 |
+| `max_depth` | 3 | 8 |
+| `n_estimators` | 10 | 100 |
+| `max_bin` | 63 | 511 |
+| `lambda_l1` | 0 | 10.0 |
+| `lambda_l2` | 0 | 10.0 |
+| `bagging_fraction` + `bagging_freq` | 0.5/1 | 1.0/0 |
+| `feature_fraction` | 0.3 | 1.0 |
+| `boosting` | `gbdt` | `rf` |
+| `metric` | `["auc"]` | `["binary_logloss"]` |
+| `num_leaves` | 8 | 64（auto_num_leaves=False） |
+| `min_data_in_leaf` | 5 | 50（直接指定） |
+
+#### B. Smart Parameters 動作反映テスト
+
+| パラメータ | 検証内容 |
+|-----------|---------|
+| `feature_weights` | 重み付きで fit → importance 順序が変わる |
+| `balanced` | binary で scale_pos_weight → 不均衡データの予測分布が変わる |
+| `min_data_in_leaf_ratio` vs 直接指定 | ratio と直接指定の排他動作 |
+
+#### C. Training / Feature / Calibration 実効性テスト
+
+| パラメータ | 検証内容 |
+|-----------|---------|
+| `early_stopping.random_state` | 同一 seed → 同一 inner split |
+| `validation_ratio` | 0.1 vs 0.4 → inner valid サイズが比例 |
+| `features.auto_categorical` | True で string 列が自動検出 |
+| `calibration.params` | カスタムパラメータが calibrator に到達 |
+| `verbosity` | `-1` 固定 → stdout に出力なし |
+| `scale_pos_weight` | 1.0 vs 10.0 → 予測分布が変わる |
+| `objective` | task 固定が Booster に正しく到達 |
+| `num_class` | multiclass でクラス数が正しく設定 |
+
+#### D. 伝搬テスト補強（不足分）
+
+| パラメータ | 検証内容 |
+|-----------|---------|
+| `bagging_freq` | Booster params に到達 |
+| `lambda_l1` / `lambda_l2` | Booster params に到達 |
+| `first_metric_only` | Booster params に到達 |
+| 任意パラメータ透過 | `path_smooth` 等の任意キーが Booster にそのまま到達 |
+
+### 代替案
+
+- 全パラメータの E2E テスト → 実行時間が長すぎる。adapter 単位の 2 値比較パターンで効率的にカバー
+
+### 受け入れ基準（テスト観点）
+
+- 上記 A〜D の全項目に対するテストが存在し pass する
+- 既存テストに regression なし
