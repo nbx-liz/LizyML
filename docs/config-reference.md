@@ -215,6 +215,55 @@ Validation constraints:
 - `min_data_in_leaf_ratio` and `params.min_data_in_leaf` cannot be specified together.
 - `min_data_in_bin_ratio` and `params.min_data_in_bin` cannot be specified together.
 
+### Training metric vs evaluation metric
+
+LizyML has two separate metric systems:
+
+| | Training metric (`model.params.metric`) | Evaluation metric (`evaluation.metrics`) |
+|---|---|---|
+| **Purpose** | Used by LightGBM during training (early stopping, validation monitoring) | Used by LizyML after training (OOF/IF evaluation, results table) |
+| **Where** | Passed to `lgb.train(params={"metric": ...})` | Computed by `Evaluator` on FitResult |
+| **Naming** | LightGBM native names (`binary_logloss`) or LizyML names (`logloss`) | LizyML names only (`logloss`) |
+
+You can use LizyML metric names in `model.params.metric` — they are automatically translated
+to LightGBM equivalents (e.g. `"logloss"` → `"binary_logloss"` for binary tasks).
+
+### Training metric reference (`model.params.metric`)
+
+Supported values for `model.params.metric` by task:
+
+**LightGBM native metrics:**
+
+| task | metrics |
+|---|---|
+| `regression` | `l1` (`mae`), `l2` (`mse`), `rmse`, `quantile`, `mape`, `huber`, `fair`, `poisson`, `gamma`, `gamma_deviance`, `tweedie`, `r2` |
+| `binary` | `binary_logloss`, `binary_error`, `auc`, `average_precision`, `cross_entropy`, `cross_entropy_lambda`, `kullback_leibler` |
+| `multiclass` | `multi_logloss`, `multi_error`, `auc`, `auc_mu` |
+
+**LizyML name auto-translation:**
+
+| LizyML name | translates to | task |
+|---|---|---|
+| `logloss` | `binary_logloss` / `multi_logloss` | binary / multiclass |
+| `auc_pr` | `average_precision` | binary / multiclass |
+
+**Custom feval metrics** (injected via `lgb.train(feval=...)`):
+
+| metric | regression | binary | multiclass |
+|---|:---:|:---:|:---:|
+| `rmsle` | ✅ | | |
+| `f1` | | ✅ | ✅ |
+| `brier` | | ✅ | ✅ |
+| `ece` | | ✅ | |
+| `precision_at_k` | | ✅ | |
+| `accuracy` | | ✅ | ✅ |
+
+Native and custom metrics can be mixed: `params={"metric": ["auc", "f1"]}`.
+
+Invalid metric names are rejected before training with a clear error message listing valid options.
+
+### Default LightGBM params
+
 Default LightGBM params applied when not overridden in `model.params`:
 
 Task-specific defaults:
@@ -356,6 +405,25 @@ Supported metric names by task:
 | `regression` | `rmse`, `mae`, `r2`, `rmsle`, `mape`, `huber` |
 | `binary` | `logloss`, `auc`, `auc_pr`, `f1`, `accuracy`, `brier`, `ece`, `precision_at_k` |
 | `multiclass` | `logloss`, `f1`, `accuracy`, `auc`, `auc_pr`, `brier` |
+
+Metric details:
+
+| metric | description | `needs_proba` | `greater_is_better` |
+|---|---|:---:|:---:|
+| `rmse` | Root Mean Squared Error | No | No |
+| `mae` | Mean Absolute Error | No | No |
+| `r2` | R² (Coefficient of Determination) | No | Yes |
+| `rmsle` | Root Mean Squared Logarithmic Error (requires non-negative values) | No | No |
+| `mape` | Mean Absolute Percentage Error (undefined when y_true contains zeros) | No | No |
+| `huber` | Huber Loss (delta=1.0) | No | No |
+| `logloss` | Log Loss (binary cross-entropy / multi-class cross-entropy) | Yes | No |
+| `auc` | Area Under the ROC Curve (binary or multiclass OvR macro) | Yes | Yes |
+| `auc_pr` | Area Under the Precision-Recall Curve (macro average for multiclass) | Yes | Yes |
+| `f1` | F1 Score (threshold=0.5 for binary, macro average for multiclass) | No | Yes |
+| `accuracy` | Classification Accuracy (threshold=0.5 for binary) | No | Yes |
+| `brier` | Brier Score (mean squared probability error, macro average for multiclass) | Yes | No |
+| `ece` | Expected Calibration Error (equal-width bins, M=10) | Yes | No |
+| `precision_at_k` | Precision at top-K% (default K=10) | Yes | Yes |
 
 ## `calibration`
 
