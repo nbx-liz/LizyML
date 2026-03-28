@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.0] - 2026-03-28
+
+### Added
+
+- `LGBMConfig.params.metric` — user-specified LightGBM evaluation metric override with task-default fallback (H-0061, #50, #51)
+- `plot_learning_curve(*, metrics=None)` — filter displayed subplots by metric name (H-0062, #52)
+- `Model.plot_learning_curve(*, metrics=None)` — pass-through for metrics filter
+- `params_summary()` now includes `metric` in output rows
+- Silent invalid metric detection: `UserWarning` when user metric produces no eval results
+- 70 new tests: metric override, learning curve filter, Config propagation + behavioral effect (H-0063)
+
+### Fixed
+
+- Variable shadowing bug in `plot_learning_curve()` — loop variable `metrics` overwrote the function parameter (pre-existing, exposed by H-0062)
+- Empty string metric (`[""]`) now correctly falls back to task default
+
+### Changed
+
+- `_build_params()` no longer strips user-specified `metric` from params dict
+- Error handling split: `LightGBMError` (metric keyword) and `ValueError` (eval metric) caught separately for precise diagnostics
+
+### Removed
+
+- Duplicate `_FIXED_METRIC` dict in `defaults.py` — consolidated into `_TASK_METRIC`
+
 ## [0.4.2] - 2026-03-21
 
 ### Added

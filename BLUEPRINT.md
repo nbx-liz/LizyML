@@ -326,7 +326,7 @@ config = {
 
 | Key | Type | Required | Default | Notes |
 |---|---|---|---|---|
-| `params` | `dict[str, Any]` | No | `{}` | LightGBM パラメーター |
+| `params` | `dict[str, Any]` | No | `{}` | LightGBM パラメーター。`metric` キーでユーザー指定の evaluation metric を設定可能（§14.3 参照、H-0061） |
 | `auto_num_leaves` | `bool` | No | `True` | §5.3 参照 |
 | `num_leaves_ratio` | `float` | No | `1.0` | `0 < ratio ≤ 1` |
 | `min_data_in_leaf_ratio` | `float \| null` | No | `0.01` | `0 < ratio < 1` |
@@ -896,7 +896,7 @@ result = model.tune(progress_callback=on_progress)
 実装済み:
 - `importance_plot(kind="split|gain")`: fold 平均の特徴量重要度（横棒グラフ）
 - `importance_plot(kind="shap")`: fold 平均の mean(|SHAP|)（横棒グラフ）。shap optional dependency も必要。
-- `plot_learning_curve()`: fold ごとの train/valid loss 推移（折れ線グラフ）
+- `plot_learning_curve(*, metrics=None)`: fold ごとの train/valid loss 推移（折れ線グラフ）。`metrics: list[str] | None` で表示 metric をフィルタ可能（H-0062）。`None` で全 metric、指定時は `/` 以降の metric 名で一致するもののみ表示。一致なしで `LizyMLError`。
 - `plot_oof_distribution()`: OOF 予測値の分布（ヒストグラム）
 - `residuals_plot(kind="scatter|histogram|qq|all")`: 回帰専用。IS/OOS 比較対応。`kind` で表示プロットを選択。デフォルト `kind="all"` で scatter + histogram + QQ の 3 パネル。scatter は Actual vs Predicted（x=predicted, y=actual, y=x 参照線）。IS サンプルは OOS 数に合わせてダウンサンプリング（`_downsample_is()`、seed=0 で再現可能）。
 
@@ -985,6 +985,8 @@ set_categorical_features(cols: list[str] | None) -> None  # デフォルト no-o
 注記:
 - regression の objective を `huber` とする（外れ値に対してロバスト）。
 - `brier` / `precision_at_k` は LightGBM ネイティブ未対応。将来のカスタム feval 拡張点とする。
+- `LGBMConfig.params` に `metric` を指定した場合、ユーザー指定値を優先する。未指定時は上記タスク別デフォルトにフォールバックする（H-0061）。
+- 無効な metric 名は LightGBM に委任し、エラー時は `LizyMLError` で wrap してユーザー指定 metric 値をコンテキストに含める。
 
 ### 共通デフォルト
 
@@ -1042,7 +1044,7 @@ class EstimatorProvider(Protocol):
 - `EstimatorProvider` は `config/` の具象型（`LGBMConfig` 等）を参照してよい（provider は Facade 層から呼ばれるため、Leaf → Leaf の依存にはならない）。
 - `model_cfg` 引数は `Any` 型で受け取るが、各 provider 内部で `isinstance` チェックして具象型にキャストする。
 - `runtime_deps()` はアルゴリズム固有の依存パッケージ名とバージョンを返す（例: `{"lightgbm": "4.5.0"}`）。`RunMeta.deps_versions` に使用。
-- `params_summary()` は `params_table()` 用のパラメータ行を返す。smart params + native model params の両方を含む。
+- `params_summary()` は `params_table()` 用のパラメータ行を返す。smart params + native model params（`metric` を含む、H-0061）の両方を含む。
 - `build_pipeline_factory` は estimator 固有の FeaturePipeline が必要な場合（例: EntityEmbedding のカテゴリ埋め込み）に対応する。デフォルトは `NativeFeaturePipeline` を返す。
 
 ディレクトリ構成（estimator ごとにサブパッケージ化）:
@@ -1179,16 +1181,27 @@ YourLibError(code, user_message, debug_message=None, cause=None)
 - **バージョン一致テスト**: `lizyml.__version__` と配布メタデータのバージョンが一致することを検証する。
 - **README サンプルコードテスト**: `README.md` に記載された最短利用例が `SyntaxError` / `ImportError` なく実行可能であることを検証する（データ依存部分はモック可）。
 
-### 18.1.2 Config 伝搬テスト（H-0056 カテゴリ A 関連）
+### 18.1.2 Config 伝搬・実効性テスト（H-0056 カテゴリ A + H-0063）
 
-Config の各フィールドが最終的なコンポーネント（Booster params, split indices, pipeline state 等）に正しく到達することを、**モックなしの observable outcome** で検証する。
+Config の各フィールドが最終的なコンポーネント（Booster params, split indices, pipeline state 等）に正しく到達し、**実際の動作に反映されている**ことを、**モックなしの observable outcome** で検証する。
 
-- Config → Booster params: `learning_rate`, `max_depth`, `seed`, `feature_fraction` 等が Booster の `params` dict に到達。
+**伝搬テスト**（値が到達すること）:
+
+- Config → Booster params: `learning_rate`, `max_depth`, `seed`, `feature_fraction`, `bagging_fraction`, `bagging_freq`, `lambda_l1`, `lambda_l2`, `max_bin`, `boosting`, `first_metric_only`, `metric`（H-0061）, 任意パラメータ透過 等が Booster の `params` dict に到達。
 - Config → early_stopping: `rounds` が adapter の `early_stopping_rounds` に到達。`enabled=False` で `None` に。
 - Config → features: `exclude` で列が除外される。`categorical` でカテゴリ認識される。
 - Config → evaluation: `metrics` リストが FitResult.metrics のキーに反映される。
 - Config → split: `n_splits` が fold 数に反映。`random_state` で fold が決定的に再現。`group_col` で group 制約が機能。
 - Config → smart params: `auto_num_leaves` + `num_leaves_ratio` + `max_depth` の計算結果が Booster に到達。
+- Config → task-locked: `objective` がタスクから固定。`num_class` が multiclass で自動注入。`verbosity` が `-1` 固定。
+
+**実効性テスト**（値が動作に反映されること）:
+
+- **2 値比較パターン**: 各 Booster パラメータについて、異なる値で fit → 予測が変わることを検証する。対象: `learning_rate`, `max_depth`, `n_estimators`, `max_bin`, `lambda_l1`, `lambda_l2`, `bagging_fraction`, `feature_fraction`, `boosting`, `metric`, `num_leaves`, `min_data_in_leaf`。
+- **Smart Params 動作反映**: `feature_weights` → importance 順序変化、`balanced` → 不均衡データの予測分布変化、`scale_pos_weight` → 予測分布変化。
+- **Training 実効性**: `early_stopping.random_state` → 同一 seed で同一 inner split、`validation_ratio` → inner valid サイズ比例。
+- **Feature 実効性**: `auto_categorical` → string 列の自動検出。
+- **Calibration 実効性**: `calibration.params` → calibrator パラメータ到達。
 
 ### 18.1.3 Facade オーケストレーションテスト（H-0056 カテゴリ A 関連）
 
