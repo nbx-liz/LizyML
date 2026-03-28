@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.0] - 2026-03-28
+
+### Added
+
+- **Metric bridge** (`metric_bridge.py`) — unified metric handling for LightGBM training (H-0064, #57, #58, #59)
+  - LizyML metric names auto-translate to LightGBM equivalents (`logloss` → `binary_logloss`, `auc_pr` → `average_precision`)
+  - Per-task whitelist validation before `lgb.train()` with clear error messages
+  - Custom feval support for LizyML-only metrics: `rmsle`, `f1`, `brier`, `ece`, `precision_at_k`, `accuracy`
+  - Native + feval metrics can be mixed (e.g. `params={"metric": ["auc", "f1"]}`)
+- 64 new tests: metric mapping, whitelist validation, feval numerical correctness, behavioral training tests
+- `docs/config-reference.md`: training metric reference, metric details table, two-system explanation
+
+### Changed
+
+- `_build_params()` now returns `(params, num_boost_round, feval_list)` — 3-element tuple
+- `fit()` passes feval callables to `lgb.train(feval=...)` when custom metrics are specified
+- Invalid metric names are now rejected at `_build_params()` time (pre-validation) instead of relying on LightGBM post-hoc detection
+
 ## [0.5.0] - 2026-03-28
 
 ### Added
