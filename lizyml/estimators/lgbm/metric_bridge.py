@@ -79,7 +79,6 @@ _LGBM_NATIVE_METRICS: dict[str, frozenset[str]] = {
             "gamma",
             "gamma_deviance",
             "tweedie",
-            "r2",
         ]
     ),
     "binary": frozenset(
@@ -115,7 +114,7 @@ _LGBM_NATIVE_METRICS: dict[str, frozenset[str]] = {
 
 # Metrics that require feval (no LightGBM native equivalent) per task
 _FEVAL_METRICS: dict[str, frozenset[str]] = {
-    "regression": frozenset(["rmsle"]),
+    "regression": frozenset(["rmsle", "r2"]),
     "binary": frozenset(["f1", "brier", "ece", "precision_at_k", "accuracy"]),
     "multiclass": frozenset(["f1", "brier", "accuracy"]),
 }
