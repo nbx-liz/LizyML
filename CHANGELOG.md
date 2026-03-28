@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] - 2026-03-28
+
+### Added
+
+- **Parameterised MetricEntry** (H-0065) — `precision_at_k` `k` parameter is now user-configurable via dict form in both `evaluation.metrics` and `model.lgbm.params.metric`
+  - `metrics: ["auc", {precision_at_k: {k: 20}}]` sets top-K% cutoff
+  - Evaluation and Model Params support independent `k` values
+  - `params_summary()` displays feval metric parameters (e.g. `precision_at_k (k=20)`)
+  - Learning curve subplot titles show parameterised metric names
+  - Plain string `"precision_at_k"` continues to use default `k=10` (backward compatible)
+  - Invalid metric parameters now raise `LizyMLError(CONFIG_INVALID)` instead of raw `ValueError`
+
 ## [0.6.1] - 2026-03-28
 
 ### Fixed

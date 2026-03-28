@@ -384,9 +384,16 @@ class TuningConfig(BaseModel):
 
 
 class EvaluationConfig(BaseModel):
+    """Evaluation configuration.
+
+    ``metrics`` accepts both plain strings and parameterised dicts (H-0065)::
+
+        metrics: ["auc", {"precision_at_k": {"k": 20}}]
+    """
+
     model_config = ConfigDict(extra="forbid")
 
-    metrics: list[str] = []
+    metrics: list[str | dict[str, dict[str, Any]]] = []
 
 
 # ---------------------------------------------------------------------------
