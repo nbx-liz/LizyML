@@ -7,6 +7,8 @@ Phase 3: feval custom function generation
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pytest
 
@@ -279,6 +281,322 @@ class TestResolveMetrics:
         """PrecisionAtK feval for binary."""
         _, fevals = resolve_metrics(["precision_at_k"], "binary")
         assert len(fevals) == 1
+
+
+# ============================================================================
+# Phase 3b: Numerical correctness — feval vs direct metric computation
+# ============================================================================
+
+
+class TestFevalNumericalCorrectness:
+    """Verify feval values match direct BaseMetric computation.
+
+    For each metric, we:
+    1. Create known raw LightGBM predictions (logits for binary)
+    2. Run the feval callable
+    3. Manually apply the same transform (sigmoid/softmax) and call the metric
+    4. Assert the values match exactly
+    """
+
+    def _make_binary_dataset(
+        self, y_true: list[float], logits: list[float]
+    ) -> tuple[np.ndarray, np.ndarray, Any]:
+        import lightgbm as lgb
+
+        yt = np.array(y_true, dtype=np.float64)
+        yp = np.array(logits, dtype=np.float64)
+        ds = lgb.Dataset(np.zeros((len(yt), 1)), label=yt, free_raw_data=False)
+        ds.construct()
+        return yt, yp, ds
+
+    def _sigmoid(self, x: np.ndarray) -> np.ndarray:
+        return 1.0 / (1.0 + np.exp(-np.clip(x, -500, 500)))
+
+    # -- F1 (binary) --
+
+    def test_f1_binary_numerical(self) -> None:
+        """F1: logits → sigmoid → threshold 0.5 → f1_score."""
+        from sklearn.metrics import f1_score
+
+        _, fevals = resolve_metrics(["f1"], "binary")
+        y_true = [1, 0, 1, 1, 0, 0, 1, 0]
+        # sigmoid(1.0)=0.731, sigmoid(-1.0)=0.269, sigmoid(0.2)=0.550
+        logits = [1.0, -1.0, 0.2, 2.0, -2.0, 0.5, -0.5, -1.5]
+        yt, yp, ds = self._make_binary_dataset(y_true, logits)
+
+        name, feval_val, is_higher = fevals[0](yp, ds)
+
+        # Manual: sigmoid → threshold
+        proba = self._sigmoid(yp)
+        pred_labels = (proba >= 0.5).astype(int)
+        expected = f1_score(yt, pred_labels, zero_division=0)
+
+        assert name == "f1"
+        assert is_higher is True
+        assert feval_val == pytest.approx(expected, abs=1e-10)
+
+    # -- Accuracy (binary) --
+
+    def test_accuracy_binary_numerical(self) -> None:
+        """Accuracy: logits → sigmoid → threshold 0.5 → accuracy_score."""
+        from sklearn.metrics import accuracy_score
+
+        _, fevals = resolve_metrics(["accuracy"], "binary")
+        y_true = [1, 0, 1, 1, 0, 0]
+        logits = [2.0, -2.0, -0.1, 0.1, 0.5, -0.5]
+        yt, yp, ds = self._make_binary_dataset(y_true, logits)
+
+        name, feval_val, is_higher = fevals[0](yp, ds)
+
+        proba = self._sigmoid(yp)
+        pred_labels = (proba >= 0.5).astype(int)
+        expected = accuracy_score(yt, pred_labels)
+
+        assert name == "accuracy"
+        assert is_higher is True
+        assert feval_val == pytest.approx(expected, abs=1e-10)
+
+    # -- Brier (binary) --
+
+    def test_brier_binary_numerical(self) -> None:
+        """Brier: logits → sigmoid → brier_score_loss."""
+        from sklearn.metrics import brier_score_loss
+
+        _, fevals = resolve_metrics(["brier"], "binary")
+        y_true = [1, 0, 1, 0, 1]
+        logits = [0.5, -0.5, 1.5, -1.5, 0.0]
+        yt, yp, ds = self._make_binary_dataset(y_true, logits)
+
+        name, feval_val, is_higher = fevals[0](yp, ds)
+
+        proba = self._sigmoid(yp)
+        expected = brier_score_loss(yt, proba)
+
+        assert name == "brier"
+        assert is_higher is False
+        assert feval_val == pytest.approx(expected, abs=1e-10)
+
+    # -- LogLoss (binary, via feval path check — logloss maps to native) --
+
+    # -- ECE (binary) --
+
+    def test_ece_binary_numerical(self) -> None:
+        """ECE: logits → sigmoid → equal-width bins → weighted |acc - conf|."""
+        from lizyml.metrics.classification import ECE
+
+        _, fevals = resolve_metrics(["ece"], "binary")
+        y_true = [1, 0, 1, 1, 0, 1, 0, 0, 1, 0]
+        logits = [2.0, -2.0, 1.0, 0.5, -0.5, 3.0, -3.0, -1.0, 0.1, -0.1]
+        yt, yp, ds = self._make_binary_dataset(y_true, logits)
+
+        name, feval_val, is_higher = fevals[0](yp, ds)
+
+        proba = self._sigmoid(yp)
+        expected = ECE()(yt, proba)
+
+        assert name == "ece"
+        assert is_higher is False
+        assert feval_val == pytest.approx(expected, abs=1e-10)
+
+    # -- PrecisionAtK (binary) --
+
+    def test_precision_at_k_binary_numerical(self) -> None:
+        """PrecisionAtK: logits → sigmoid → top-K% → precision."""
+        from lizyml.metrics.classification import PrecisionAtK
+
+        _, fevals = resolve_metrics(["precision_at_k"], "binary")
+        y_true = [1, 0, 1, 1, 0, 0, 1, 0, 1, 0]
+        logits = [3.0, 2.5, 2.0, 1.5, 1.0, -1.0, -1.5, -2.0, -2.5, -3.0]
+        yt, yp, ds = self._make_binary_dataset(y_true, logits)
+
+        name, feval_val, is_higher = fevals[0](yp, ds)
+
+        proba = self._sigmoid(yp)
+        expected = PrecisionAtK(k=10)(np.array(yt), proba)
+
+        assert name == "precision_at_k"
+        assert is_higher is True
+        assert feval_val == pytest.approx(expected, abs=1e-10)
+
+    # -- RMSLE (regression) --
+
+    def test_rmsle_regression_numerical(self) -> None:
+        """RMSLE: no transform, direct log1p RMSE."""
+        _, fevals = resolve_metrics(["rmsle"], "regression")
+        import lightgbm as lgb
+
+        y_true = np.array([3.0, 5.0, 2.5, 8.0])
+        y_pred = np.array([2.5, 5.5, 2.0, 7.0])
+        ds = lgb.Dataset(np.zeros((4, 1)), label=y_true, free_raw_data=False)
+        ds.construct()
+
+        name, feval_val, is_higher = fevals[0](y_pred, ds)
+
+        # Manual RMSLE — use label from dataset to account for
+        # LightGBM's float32 internal storage precision
+        ds_label = np.asarray(ds.get_label())
+        expected = float(np.sqrt(np.mean((np.log1p(ds_label) - np.log1p(y_pred)) ** 2)))
+
+        assert name == "rmsle"
+        assert is_higher is False
+        assert feval_val == pytest.approx(expected, abs=1e-10)
+
+    # -- F1 (multiclass) --
+
+    def test_f1_multiclass_numerical(self) -> None:
+        """F1 multiclass: flattened logits → reshape → softmax → argmax → f1."""
+        from sklearn.metrics import f1_score
+
+        _, fevals = resolve_metrics(["f1"], "multiclass", num_class=3)
+        import lightgbm as lgb
+
+        y_true = np.array([0, 1, 2, 1, 0, 2], dtype=np.float64)
+        n = len(y_true)
+        # Build flattened logits: (n * 3,) — row-major
+        logits = np.array(
+            [
+                3.0,
+                0.1,
+                0.1,  # sample 0: class 0 highest
+                0.1,
+                2.0,
+                0.5,  # sample 1: class 1 highest
+                0.2,
+                0.3,
+                4.0,  # sample 2: class 2 highest
+                0.1,
+                1.0,
+                0.5,  # sample 3: class 1 highest
+                2.0,
+                0.1,
+                0.1,  # sample 4: class 0 highest
+                0.5,
+                0.5,
+                0.1,  # sample 5: class 0 highest (wrong! true=2)
+            ]
+        )
+        ds = lgb.Dataset(np.zeros((n, 1)), label=y_true, free_raw_data=False)
+        ds.construct()
+
+        name, feval_val, is_higher = fevals[0](logits, ds)
+
+        # Manual: reshape → softmax → argmax
+        reshaped = logits.reshape(-1, 3)
+        e_x = np.exp(reshaped - reshaped.max(axis=1, keepdims=True))
+        proba = e_x / e_x.sum(axis=1, keepdims=True)
+        pred_labels = proba.argmax(axis=1)
+        expected = f1_score(y_true, pred_labels, average="macro", zero_division=0)
+
+        assert name == "f1"
+        assert is_higher is True
+        assert feval_val == pytest.approx(expected, abs=1e-10)
+
+    # -- Brier (multiclass) --
+
+    def test_brier_multiclass_numerical(self) -> None:
+        """Brier multiclass: flattened logits → reshape → softmax → per-class brier."""
+        from sklearn.metrics import brier_score_loss
+        from sklearn.preprocessing import label_binarize
+
+        _, fevals = resolve_metrics(["brier"], "multiclass", num_class=3)
+        import lightgbm as lgb
+
+        y_true = np.array([0, 1, 2, 0], dtype=np.float64)
+        n = len(y_true)
+        logits = np.array(
+            [
+                3.0,
+                0.1,
+                0.1,
+                0.1,
+                3.0,
+                0.1,
+                0.1,
+                0.1,
+                3.0,
+                0.1,
+                0.1,
+                3.0,  # wrong: true=0, pred=2
+            ]
+        )
+        ds = lgb.Dataset(np.zeros((n, 1)), label=y_true, free_raw_data=False)
+        ds.construct()
+
+        name, feval_val, is_higher = fevals[0](logits, ds)
+
+        # Manual
+        reshaped = logits.reshape(-1, 3)
+        e_x = np.exp(reshaped - reshaped.max(axis=1, keepdims=True))
+        proba = e_x / e_x.sum(axis=1, keepdims=True)
+        classes = np.arange(3)
+        y_bin = label_binarize(y_true.astype(int), classes=classes)
+        per_class = [brier_score_loss(y_bin[:, k], proba[:, k]) for k in range(3)]
+        expected = float(np.mean(per_class))
+
+        assert name == "brier"
+        assert is_higher is False
+        assert feval_val == pytest.approx(expected, abs=1e-10)
+
+    # -- Accuracy (multiclass) --
+
+    def test_accuracy_multiclass_numerical(self) -> None:
+        """Accuracy multiclass: reshape → softmax → argmax → accuracy."""
+        from sklearn.metrics import accuracy_score
+
+        _, fevals = resolve_metrics(["accuracy"], "multiclass", num_class=3)
+        import lightgbm as lgb
+
+        y_true = np.array([0, 1, 2, 1], dtype=np.float64)
+        logits = np.array(
+            [
+                3.0,
+                0.1,
+                0.1,  # correct
+                0.1,
+                3.0,
+                0.1,  # correct
+                0.1,
+                0.1,
+                3.0,  # correct
+                0.1,
+                3.0,
+                0.1,  # correct
+            ]
+        )
+        ds = lgb.Dataset(np.zeros((4, 1)), label=y_true, free_raw_data=False)
+        ds.construct()
+
+        name, feval_val, is_higher = fevals[0](logits, ds)
+
+        reshaped = logits.reshape(-1, 3)
+        e_x = np.exp(reshaped - reshaped.max(axis=1, keepdims=True))
+        proba = e_x / e_x.sum(axis=1, keepdims=True)
+        pred_labels = proba.argmax(axis=1)
+        expected = accuracy_score(y_true, pred_labels)
+
+        assert name == "accuracy"
+        assert is_higher is True
+        assert feval_val == pytest.approx(expected, abs=1e-10)
+
+    # -- Sigmoid edge cases --
+
+    def test_sigmoid_extreme_logits(self) -> None:
+        """Extreme logits should not cause overflow or NaN."""
+        _, fevals = resolve_metrics(["brier"], "binary")
+        import lightgbm as lgb
+
+        y_true = np.array([1, 0, 1, 0], dtype=np.float64)
+        logits = np.array([1000.0, -1000.0, 500.0, -500.0])
+        ds = lgb.Dataset(np.zeros((4, 1)), label=y_true, free_raw_data=False)
+        ds.construct()
+
+        name, feval_val, is_higher = fevals[0](logits, ds)
+
+        # sigmoid(1000) ≈ 1.0, sigmoid(-1000) ≈ 0.0
+        # Brier for perfect predictions ≈ 0.0
+        assert not np.isnan(feval_val)
+        assert not np.isinf(feval_val)
+        assert feval_val == pytest.approx(0.0, abs=1e-6)
 
 
 # ============================================================================
