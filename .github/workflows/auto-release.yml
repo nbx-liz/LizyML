@@ -2,7 +2,12 @@ name: Auto-tag and GitHub Release
 
 # Triggered when a PR with title starting "release:" is merged into main.
 # Creates a git tag and a GitHub Release with notes from CHANGELOG.md.
-# The release event then triggers release.yml (PyPI publish via Trusted Publishers).
+# Then triggers release.yml (PyPI publish) via workflow_dispatch.
+#
+# Note: GITHUB_TOKEN-created release events do NOT trigger other workflows
+# (GitHub's infinite loop prevention). workflow_dispatch is the official
+# exception — explicitly supported since Sep 2022.
+# See: https://github.blog/changelog/2022-09-08-github-actions-use-github_token-with-workflow_dispatch-and-repository_dispatch/
 
 on:
   pull_request:
@@ -11,6 +16,7 @@ on:
 
 permissions:
   contents: write
+  actions: write  # Required to trigger release.yml via workflow_dispatch
 
 jobs:
   tag-and-release:
@@ -71,3 +77,10 @@ jobs:
           gh release create "${{ steps.version.outputs.tag }}" \
             --title "${{ steps.version.outputs.tag }}" \
             --notes-file /tmp/release-notes.md
+
+      - name: Trigger PyPI publish workflow
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run release.yml \
+            -f tag=${{ steps.version.outputs.tag }}
