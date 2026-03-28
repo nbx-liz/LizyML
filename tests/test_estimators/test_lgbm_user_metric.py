@@ -136,6 +136,48 @@ class TestInvalidMetricError:
         assert "metric" in err.context
         assert "totally_invalid_metric_xyz" in str(err.context["metric"])
 
+    def test_invalid_metric_without_early_stopping_warns(self) -> None:
+        """Invalid metric without early stopping should emit a warning."""
+        rng = np.random.default_rng(42)
+        n = 100
+        X_train = pd.DataFrame({"f1": rng.standard_normal(n)})
+        y_train = pd.Series((rng.standard_normal(n) > 0).astype(int))
+        X_valid = pd.DataFrame({"f1": rng.standard_normal(20)})
+        y_valid = pd.Series((rng.standard_normal(20) > 0).astype(int))
+
+        adapter = LGBMAdapter(
+            task="binary",
+            params={
+                "metric": ["totally_invalid_metric_xyz"],
+                "n_estimators": 5,
+            },
+            early_stopping_rounds=None,
+        )
+        with pytest.warns(UserWarning, match="no eval results"):
+            adapter.fit(X_train, y_train, X_valid, y_valid)
+
+    def test_empty_string_metric_falls_back(self) -> None:
+        """metric=[''] should be filtered and fall back to task default."""
+        adapter = LGBMAdapter(
+            task="binary",
+            params={"metric": [""]},
+        )
+        params, _ = adapter._build_params()
+        from lizyml.estimators.lgbm.defaults import _TASK_METRIC
+
+        assert params["metric"] == _TASK_METRIC["binary"]
+
+    def test_string_metric_with_empty_falls_back(self) -> None:
+        """metric='' should be treated as empty and fall back."""
+        adapter = LGBMAdapter(
+            task="binary",
+            params={"metric": ""},
+        )
+        params, _ = adapter._build_params()
+        from lizyml.estimators.lgbm.defaults import _TASK_METRIC
+
+        assert params["metric"] == _TASK_METRIC["binary"]
+
 
 # ---------------------------------------------------------------------------
 # params_summary: metric included
