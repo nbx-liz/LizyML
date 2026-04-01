@@ -29,6 +29,32 @@ __all__ = [
 ]
 
 
+_ALLOWED_CHOICE_TYPES = (type(None), bool, int, float, str)
+
+
+def _validate_categorical_choices(name: str, choices: list[Any]) -> None:
+    """Validate that every element in *choices* is a scalar type.
+
+    Optuna's ``CategoricalDistribution`` requires each choice to be
+    ``None | bool | int | float | str``.  Non-scalar values (e.g. a nested
+    list produced by YAML ``- [a, b]``) are rejected early with a clear
+    error message.
+    """
+    for i, val in enumerate(choices):
+        if not isinstance(val, _ALLOWED_CHOICE_TYPES):
+            raise LizyMLError(
+                code=ErrorCode.CONFIG_INVALID,
+                user_message=(
+                    f"Categorical dim '{name}' has invalid choice at index {i}: "
+                    f"got {val!r} (type={type(val).__name__}). "
+                    f"Each choice must be a scalar (str, int, float, bool, or None). "
+                    f"Hint: flatten nested lists in your YAML config "
+                    f'— use "- value" instead of "- [value1, value2]".'
+                ),
+                context={"param": name, "index": i, "bad_value": str(val)},
+            )
+
+
 def parse_space(space: dict[str, Any]) -> list[SearchDim]:
     """Parse a config-style space dict into typed SearchDim instances.
 
@@ -83,6 +109,7 @@ def parse_space(space: dict[str, Any]) -> list[SearchDim]:
                     ),
                     context={"param": name},
                 )
+            _validate_categorical_choices(name, choices)
             dims.append(
                 CategoricalDim(name=name, choices=tuple(choices), category=category)
             )
