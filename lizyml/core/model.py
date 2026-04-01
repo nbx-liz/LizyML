@@ -64,6 +64,7 @@ from lizyml.data.fingerprint import compute as fp_compute
 from lizyml.estimators.provider import EstimatorProvider
 from lizyml.evaluation.evaluator import Evaluator
 from lizyml.training.cv_trainer import CVTrainer
+from lizyml.training.inner_valid import BaseInnerValidStrategy
 from lizyml.training.refit_trainer import RefitResult, RefitTrainer
 from lizyml.tuning.search_space import (
     parse_space,
@@ -165,12 +166,18 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         self._provider = provider
         run_meta = self._build_run_meta(run_id)
         model_params, smart_params = self._merge_params(provider)
+        training_overrides = (
+            self._tuning_result.best_training_params
+            if self._tuning_result is not None
+            else {}
+        )
         tc = self._build_train_components(
             X,
             y,
             provider=provider,
             model_params=model_params,
             smart_params=smart_params,
+            training_overrides=training_overrides,
         )
         splitter = build_splitter(
             cfg,
@@ -546,6 +553,17 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
 
         # --- Overlay tune best ---
         if self._tuning_result is not None:
+            # Apply default fixed params when default space was used (#76).
+            # cfg.tuning is always set when _tuning_result exists (tune() sets
+            # both), but guard defensively for unit tests that inject
+            # _tuning_result directly.
+            used_default_space = cfg.tuning is not None and not parse_space(
+                cfg.tuning.optuna.space
+            )
+            if used_default_space:
+                fixed = provider.default_fixed_params(cfg.task)
+                model_params = {**model_params, **fixed}
+
             model_params = {
                 **model_params,
                 **self._tuning_result.best_model_params,
@@ -570,6 +588,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         provider: Any,
         model_params: dict[str, Any],
         smart_params: dict[str, Any],
+        training_overrides: dict[str, Any] | None = None,
     ) -> TrainComponents:
         """Build shared training components for CVTrainer and RefitTrainer.
 
@@ -581,12 +600,15 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             provider: EstimatorProvider instance.
             model_params: Merged model params (from ``_merge_params``).
             smart_params: Merged smart params (from ``_merge_params``).
+            training_overrides: Optional training param overrides from tuning
+                (``early_stopping_rounds``, ``validation_ratio``).  (#76)
 
         Returns:
             :class:`TrainComponents` ready to pass to both trainers.
         """
         cfg = self._cfg
         n_classes = int(y.nunique()) if cfg.task == "multiclass" else None
+        tp = training_overrides or {}
 
         # --- Resolve smart params (Stage 1: data-size independent) ---
         sample_weight: npt.NDArray[np.float64] | None = None
@@ -606,21 +628,31 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         # --- Build per-fold ratio resolver (Stage 2: n_rows dependent) ---
         ratio_resolver = provider.build_ratio_resolver(smart_params)
 
+        # --- Resolve early stopping rounds (config < tune override) ---
+        esr: int | None
+        if "early_stopping_rounds" in tp:
+            esr = int(tp["early_stopping_rounds"])
+        elif cfg.training.early_stopping.enabled:
+            esr = cfg.training.early_stopping.rounds
+        else:
+            esr = None
+
         # --- Build estimator factory ---
         estimator_factory = provider.build_estimator_factory(
             task=cfg.task,
             params=resolved_model,
             n_classes=n_classes,
-            early_stopping_rounds=(
-                cfg.training.early_stopping.rounds
-                if cfg.training.early_stopping.enabled
-                else None
-            ),
+            early_stopping_rounds=esr,
             seed=cfg.training.seed,
         )
 
-        # --- Inner validation ---
-        inner_valid = build_inner_valid(cfg)
+        # --- Inner validation (config < tune override) ---
+        inner_valid: BaseInnerValidStrategy
+        if "validation_ratio" in tp:
+            iv_factory = make_inner_valid_factory(cfg)
+            inner_valid = iv_factory(tp["validation_ratio"])
+        else:
+            inner_valid = build_inner_valid(cfg)
 
         return TrainComponents(
             estimator_factory=estimator_factory,
