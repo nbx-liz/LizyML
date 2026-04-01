@@ -78,14 +78,17 @@ def default_space(task: str) -> list[SearchDim]:
 def default_fixed_params(task: str) -> dict[str, Any]:
     """Return fixed parameters applied to every trial when using default space.
 
+    Only model-level LightGBM parameters belong here.  Smart params
+    (``auto_num_leaves`` etc.) are handled via ``base_smart_params`` in the
+    tune objective and must **not** leak into model params (#76).
+
     Args:
         task: ML task type.
 
     Returns:
-        Dict with ``auto_num_leaves``, ``first_metric_only``, and ``metric``.
+        Dict with ``first_metric_only`` and ``metric``.
     """
     return {
-        "auto_num_leaves": True,
         "first_metric_only": True,
         "metric": _TASK_METRIC.get(task, ["huber", "mae", "mape"]),
     }
