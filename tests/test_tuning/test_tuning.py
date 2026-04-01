@@ -103,6 +103,70 @@ class TestParseSpace:
             parse_space({"x": {"type": "categorical", "choices": []}})
         assert exc_info.value.code == ErrorCode.CONFIG_INVALID
 
+    def test_categorical_nested_list_choice_raises(self) -> None:
+        """Nested list in choices (e.g. YAML '- [auc, logloss]') must be rejected."""
+        with pytest.raises(LizyMLError) as exc_info:
+            parse_space(
+                {
+                    "metric": {
+                        "type": "categorical",
+                        "choices": [["auc", "binary_logloss"], "auc", "binary_logloss"],
+                    }
+                }
+            )
+        err = exc_info.value
+        assert err.code == ErrorCode.CONFIG_INVALID
+        assert "metric" in err.user_message
+        assert "index 0" in err.user_message
+        assert "list" in err.user_message
+
+    def test_categorical_dict_choice_raises(self) -> None:
+        """Dict in choices must also be rejected."""
+        with pytest.raises(LizyMLError) as exc_info:
+            parse_space(
+                {
+                    "param": {
+                        "type": "categorical",
+                        "choices": [{"a": 1}, "x"],
+                    }
+                }
+            )
+        err = exc_info.value
+        assert err.code == ErrorCode.CONFIG_INVALID
+        assert "param" in err.user_message
+
+    def test_categorical_invalid_choice_at_non_zero_index_raises(self) -> None:
+        """Validation must check all elements, not just the first."""
+        with pytest.raises(LizyMLError) as exc_info:
+            parse_space(
+                {
+                    "x": {
+                        "type": "categorical",
+                        "choices": ["valid", {"bad": 1}],
+                    }
+                }
+            )
+        assert "index 1" in exc_info.value.user_message
+
+    def test_categorical_bool_choice_is_allowed(self) -> None:
+        """bool is a subclass of int; both True and False must be accepted."""
+        dims = parse_space({"flag": {"type": "categorical", "choices": [True, False]}})
+        assert dims[0].choices[0] is True
+        assert dims[0].choices[1] is False
+
+    def test_categorical_valid_scalar_choices_ok(self) -> None:
+        """All valid scalar types (str, int, float, bool, None) must pass."""
+        dims = parse_space(
+            {
+                "x": {
+                    "type": "categorical",
+                    "choices": ["auc", 42, 3.14, True, None],
+                }
+            }
+        )
+        assert isinstance(dims[0], CategoricalDim)
+        assert dims[0].choices == ("auc", 42, 3.14, True, None)
+
     def test_empty_space_returns_empty_list(self) -> None:
         dims = parse_space({})
         assert dims == []

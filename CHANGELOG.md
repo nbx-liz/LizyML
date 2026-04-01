@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.7.1] - 2026-04-02
+
+### Fixed
+
+- **Categorical search space validation** — `parse_space()` now rejects non-scalar choices (e.g. nested lists from YAML `- [auc, binary_logloss]`) with a clear `CONFIG_INVALID` error and a hint for the correct YAML format. Previously, such values passed through to Optuna's `suggest_categorical()` causing repeated warnings during tuning.
+
 ## [0.7.0] - 2026-03-28
 
 ### Added
