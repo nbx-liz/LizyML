@@ -119,7 +119,7 @@ class TestDefaultSpace:
 class TestDefaultFixedParams:
     def test_regression(self) -> None:
         fp = default_fixed_params("regression")
-        assert fp["auto_num_leaves"] is True
+        assert "auto_num_leaves" not in fp  # smart param, not fixed (#76)
         assert fp["first_metric_only"] is True
         assert fp["metric"] == ["huber", "mae", "mape"]
 
