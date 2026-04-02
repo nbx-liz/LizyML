@@ -436,7 +436,6 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         evaluator = Evaluator(task=cfg.task)
         fingerprint = fp_compute(X, file_path=None)
         run_meta = self._build_run_meta(generate_run_id())
-        iv_factory = make_inner_valid_factory(cfg)
 
         # --- Build objective closure (H-0050: uses _build_train_components) ---
         def objective(trial: Any) -> float:
@@ -448,40 +447,20 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             # Merge: base smart + trial smart params
             merged_smart = {**base_smart_params, **smart_p}
 
-            # Handle training params (early_stopping, validation_ratio)
-            inner_valid_override = None
-            if "validation_ratio" in training_p:
-                inner_valid_override = iv_factory(training_p["validation_ratio"])
-
             tc = self._build_train_components(
                 X,
                 y,
                 provider=provider,
                 model_params=merged_model,
                 smart_params=merged_smart,
+                training_overrides=training_p,
             )
-
-            # Apply training param overrides to estimator (H-0054: use provider)
-            estimator_factory = tc.estimator_factory
-            if "early_stopping_rounds" in training_p:
-                esr = int(training_p["early_stopping_rounds"])
-                estimator_factory = provider.build_estimator_factory(
-                    task=cfg.task,
-                    params=merged_model,
-                    n_classes=n_classes,
-                    early_stopping_rounds=esr,
-                    seed=cfg.training.seed,
-                )
 
             cv_trainer = CVTrainer(
                 outer_splitter=splitter,
-                inner_valid=(
-                    inner_valid_override
-                    if inner_valid_override is not None
-                    else tc.inner_valid
-                ),
+                inner_valid=tc.inner_valid,
                 pipeline_factory=provider.build_pipeline_factory(),
-                estimator_factory=estimator_factory,
+                estimator_factory=tc.estimator_factory,
                 task=cfg.task,
                 n_classes=n_classes,
                 ratio_param_resolver=tc.ratio_resolver,
