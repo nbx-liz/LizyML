@@ -91,17 +91,16 @@ class TestTrainingParamsApplied:
 
 
 class TestTuneFitIdentity:
-    """Tune best trial score must match fit() OOF score after applying all params.
+    """Tune best trial score must exactly match fit() OOF score.
 
-    A small tolerance (rel=1e-3) is used because LightGBM's internal
-    thread-local state may cause minor floating-point differences even
-    with identical parameters and seed.  The critical assertion is that
-    scores are practically identical — not off by orders of magnitude as
-    they were before the #76 fix.
+    After the code-path unification (#76 follow-up), tune objective and
+    fit() both go through ``_build_train_components`` with identical
+    parameters.  The OOF scores must be bit-for-bit identical because the
+    same seed, splitter, and resolved params are used.
     """
 
     def test_tune_then_fit_same_oof_score_regression(self) -> None:
-        """Regression: tune best score ≈ fit OOF score on same metric."""
+        """Regression: tune best score == fit OOF score (exact)."""
         df = make_regression_df(n=300, seed=0)
         cfg_dict = make_config(
             "regression", n_estimators=50, n_splits=2, tuning_n_trials=3, seed=42
@@ -116,14 +115,14 @@ class TestTuneFitIdentity:
         tune_best_score = tune_result.best_score
         fit_oof_score = fit_result.metrics["raw"]["oof"][metric_name]
 
-        assert fit_oof_score == pytest.approx(tune_best_score, rel=1e-3), (
+        assert fit_oof_score == pytest.approx(tune_best_score, rel=1e-10), (
             f"Tune best score ({tune_best_score}) != Fit OOF score ({fit_oof_score}) "
             f"for metric '{metric_name}'. "
-            f"best_training_params may not be applied during fit."
+            f"Tune and fit code paths may diverge."
         )
 
     def test_tune_then_fit_same_oof_score_binary(self) -> None:
-        """Binary classification: tune best score ≈ fit OOF score."""
+        """Binary classification: tune best score == fit OOF score (exact)."""
         df = make_binary_df(n=300, seed=0)
         cfg_dict = make_config(
             "binary", n_estimators=50, n_splits=2, tuning_n_trials=3, seed=42
@@ -138,7 +137,8 @@ class TestTuneFitIdentity:
         tune_best_score = tune_result.best_score
         fit_oof_score = fit_result.metrics["raw"]["oof"][metric_name]
 
-        assert fit_oof_score == pytest.approx(tune_best_score, rel=1e-3), (
+        assert fit_oof_score == pytest.approx(tune_best_score, rel=1e-10), (
             f"Tune best score ({tune_best_score}) != Fit OOF score ({fit_oof_score}) "
-            f"for metric '{metric_name}'."
+            f"for metric '{metric_name}'. "
+            f"Tune and fit code paths may diverge."
         )
