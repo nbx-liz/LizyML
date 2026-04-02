@@ -7,6 +7,19 @@
 
 set -euo pipefail
 
+# --- Stage 0: Block gitignored files ---
+STAGED=$(git diff --cached --name-only)
+if [ -n "$STAGED" ]; then
+    IGNORED=$(echo "$STAGED" | git check-ignore --no-index --stdin || true)
+    if [ -n "$IGNORED" ]; then
+        echo ""
+        echo "BLOCKED: gitignored files are staged:"
+        echo "$IGNORED"
+        echo "  Remove with: git reset HEAD <file>"
+        exit 1
+    fi
+fi
+
 STAGED_PY=$(git diff --cached --name-only --diff-filter=ACM -- '*.py' || true)
 
 if [ -z "$STAGED_PY" ]; then
