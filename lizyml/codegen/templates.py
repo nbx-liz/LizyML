@@ -114,10 +114,12 @@ def train_lgbm(X: pd.DataFrame, y: pd.Series, cat_cols: list[str]) -> lgb.Booste
         callbacks.insert(0, lgb.early_stopping(es_rounds, verbose=True))
         log.info("    holdout: %d train / %d valid", n - n_val, n_val)
 
+    fevals = build_feval_from_config()
     booster = lgb.train(
         CFG["lgbm_params"], train_set,
         num_boost_round=CFG["num_boost_round"],
         valid_sets=valid_sets, valid_names=valid_names,
+        feval=fevals if fevals else None,
         callbacks=callbacks,
     )
     booster.save_model(str(ARTIFACTS / "model.txt"))
@@ -131,6 +133,140 @@ def train_lgbm(X: pd.DataFrame, y: pd.Series, cat_cols: list[str]) -> lgb.Booste
 
 def _sigmoid(x: np.ndarray) -> np.ndarray:
     return np.where(x >= 0, 1 / (1 + np.exp(-x)), np.exp(x) / (1 + np.exp(x)))
+
+
+def _softmax(x: np.ndarray) -> np.ndarray:
+    """Row-wise softmax for 2D array."""
+    e_x = np.exp(x - np.max(x, axis=1, keepdims=True))
+    return e_x / e_x.sum(axis=1, keepdims=True)
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  Custom feval metrics (H-0066)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def _feval_rmsle(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    return float(np.sqrt(np.mean((np.log1p(y_true) - np.log1p(y_pred)) ** 2)))
+
+def _feval_r2(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    ss_res = float(np.sum((y_true - y_pred) ** 2))
+    ss_tot = float(np.sum((y_true - np.mean(y_true)) ** 2))
+    if ss_tot == 0.0:
+        return 1.0 if ss_res == 0.0 else 0.0
+    return 1.0 - ss_res / ss_tot
+
+def _feval_f1(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    from sklearn.metrics import f1_score
+    pred = (y_pred >= 0.5).astype(int) if y_pred.dtype.kind == "f" else y_pred
+    average = "binary" if len(np.unique(y_true)) == 2 else "macro"
+    return float(f1_score(y_true, pred, zero_division=0, average=average))
+
+def _feval_brier(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    if y_pred.ndim == 2:
+        from sklearn.preprocessing import label_binarize
+        from sklearn.metrics import brier_score_loss
+        classes = np.arange(y_pred.shape[1])
+        y_bin = label_binarize(y_true, classes=classes)
+        per_class = [
+            float(brier_score_loss(y_bin[:, k], y_pred[:, k]))
+            for k in range(y_pred.shape[1])
+        ]
+        return float(np.mean(per_class))
+    from sklearn.metrics import brier_score_loss
+    return float(brier_score_loss(y_true, y_pred))
+
+def _feval_ece(y_true: np.ndarray, y_pred: np.ndarray, *, n_bins: int = 10) -> float:
+    bin_edges = np.linspace(0.0, 1.0, n_bins + 1)
+    n = len(y_true)
+    ece = 0.0
+    for lo, hi in zip(bin_edges[:-1], bin_edges[1:], strict=True):
+        mask = (y_pred >= lo) & (y_pred <= hi if hi == 1.0 else y_pred < hi)
+        if not mask.any():
+            continue
+        acc = float(np.mean((y_pred[mask] >= 0.5).astype(int) == y_true[mask]))
+        conf = float(np.mean(y_pred[mask]))
+        ece += (mask.sum() / n) * abs(acc - conf)
+    return ece
+
+def _feval_precision_at_k(
+    y_true: np.ndarray, y_pred: np.ndarray, *, k: int = 10,
+) -> float:
+    n = len(y_true)
+    n_top = max(1, int(n * k / 100))
+    top_idx = np.argsort(y_pred)[::-1][:n_top]
+    return float(np.mean(y_true[top_idx]))
+
+def _feval_accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    from sklearn.metrics import accuracy_score
+    pred = (y_pred >= 0.5).astype(int) if y_pred.dtype.kind == "f" else y_pred
+    return float(accuracy_score(y_true, pred))
+
+
+_FEVAL_REGISTRY: dict = {
+    "rmsle": _feval_rmsle,
+    "r2": _feval_r2,
+    "f1": _feval_f1,
+    "brier": _feval_brier,
+    "ece": _feval_ece,
+    "precision_at_k": _feval_precision_at_k,
+    "accuracy": _feval_accuracy,
+}
+
+
+def build_feval_from_config() -> list:
+    """Build LightGBM feval callables from config.json feval_metrics."""
+    feval_entries = CFG.get("feval_metrics", [])
+    if not feval_entries:
+        return []
+
+    task = CFG["_task"]
+    fevals: list = []
+    for entry in feval_entries:
+        name = entry["name"]
+        params = entry.get("params", {})
+        greater_is_better = entry["greater_is_better"]
+        needs_proba = entry["needs_proba"]
+        fn = _FEVAL_REGISTRY.get(name)
+        if fn is None:
+            log.warning("Unknown feval metric: %s — skipping", name)
+            continue
+
+        # Build display name
+        if params:
+            parts = ", ".join(f"{k}={v}" for k, v in sorted(params.items()))
+            display = f"{name} ({parts})"
+        else:
+            display = name
+
+        def _make_feval(
+            _fn=fn, _name=display, _gib=greater_is_better,
+            _needs_proba=needs_proba, _params=params, _task=task,
+        ):
+            def feval(y_pred, dataset):
+                y_true = dataset.get_label()
+                if _task == "binary":
+                    proba = _sigmoid(y_pred)
+                elif _task == "multiclass":
+                    num_class = CFG["lgbm_params"].get("num_class", 2)
+                    proba = y_pred.reshape(-1, num_class)
+                    proba = _softmax(proba)
+                else:
+                    proba = y_pred
+                # For metrics that don't need probabilities, convert to labels
+                if not _needs_proba and _task in ("binary", "multiclass"):
+                    if proba.ndim == 2:
+                        pred = proba.argmax(axis=1).astype(np.int64)
+                    else:
+                        pred = (proba >= 0.5).astype(np.int64)
+                else:
+                    pred = proba
+                value = _fn(np.asarray(y_true), np.asarray(pred), **_params)
+                return (_name, value, _gib)
+            return feval
+
+        fevals.append(_make_feval())
+
+    return fevals
 
 
 def _generate_oof(X: np.ndarray, y: np.ndarray) -> np.ndarray:

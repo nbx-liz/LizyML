@@ -33,6 +33,7 @@ def generate_code(
     model_adapter: LGBMAdapter,
     pipeline_state: dict[str, Any],
     calibrator: BaseCalibratorAdapter | None,
+    feval_metrics: list[dict[str, Any]] | None = None,
 ) -> Path:
     """Generate LizyML-independent training and prediction code.
 
@@ -65,6 +66,9 @@ def generate_code(
         model_adapter: Fitted LGBMAdapter.
         pipeline_state: Serializable pipeline state dict.
         calibrator: Fitted calibrator or None.
+        feval_metrics: List of feval metric descriptors (H-0066).
+            Each dict has ``name``, ``params``, ``greater_is_better``,
+            ``needs_proba``.  Defaults to ``[]``.
 
     Returns:
         The resolved output directory path.
@@ -84,6 +88,7 @@ def generate_code(
         seed=seed,
         calibration_method=calibration_method,
         calibration_n_splits=calibration_n_splits,
+        feval_metrics=feval_metrics,
     )
 
     # Write artifacts (config.json, model.txt, pipeline_state.json, calibrator)

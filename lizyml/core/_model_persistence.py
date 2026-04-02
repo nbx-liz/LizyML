@@ -13,10 +13,51 @@ if TYPE_CHECKING:
 
     from lizyml.config.schema import LizyMLConfig
     from lizyml.core.types.fit_result import FitResult
+    from lizyml.estimators.lgbm.adapter import LGBMAdapter
     from lizyml.estimators.provider import EstimatorProvider
     from lizyml.training.refit_trainer import RefitResult
 
 _log = get_logger("model")
+
+
+def _extract_feval_metadata(
+    adapter: LGBMAdapter,
+) -> list[dict[str, Any]]:
+    """Extract feval metric metadata from adapter params (H-0066).
+
+    Reads the user-specified ``metric`` from the adapter's params dict,
+    identifies which are feval metrics (not LightGBM native), and returns
+    serializable metadata for each.
+    """
+    from lizyml.estimators.lgbm.metric_bridge import _FEVAL_METRICS
+    from lizyml.metrics.registry import get_metric, parse_metric_entries
+
+    user_metric = adapter.params.get("metric")
+    if not user_metric:
+        return []
+
+    if isinstance(user_metric, (str, dict)):
+        user_metric = [user_metric]
+    user_metric = [m for m in user_metric if m]
+    if not user_metric:
+        return []
+
+    feval_for_task = _FEVAL_METRICS.get(adapter.task, frozenset())
+    parsed = parse_metric_entries(user_metric)
+
+    result: list[dict[str, Any]] = []
+    for name, kwargs in parsed:
+        if name in feval_for_task:
+            metric_obj = get_metric(name, **kwargs)
+            result.append(
+                {
+                    "name": name,
+                    "params": kwargs,
+                    "greater_is_better": metric_obj.greater_is_better,
+                    "needs_proba": metric_obj.needs_proba,
+                }
+            )
+    return result
 
 
 class ModelPersistenceMixin:
@@ -123,6 +164,9 @@ class ModelPersistenceMixin:
         # TODO(H-0059): expose via EstimatorProvider protocol in a future PR.
         lgbm_params, num_boost_round, _, _ = adapter._build_params()
 
+        # Extract feval metric metadata from user config (H-0066).
+        feval_metrics = _extract_feval_metadata(adapter)
+
         cfg = self._cfg
         es = cfg.training.early_stopping
         calibration_method: str | None = None
@@ -166,6 +210,7 @@ class ModelPersistenceMixin:
             model_adapter=adapter,
             pipeline_state=refit_result.pipeline_state,
             calibrator=calibrator,
+            feval_metrics=feval_metrics,
         )
         _log.info("event='export_code.done' path=%s", result)
         return result

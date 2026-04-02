@@ -4938,3 +4938,67 @@ MetricEntry = str | dict[str, dict[str, Any]]
 - `params_summary()` で metric の k 値が表示される
 - learning curve の subplot_titles で k 値が表示される
 - 全既存テストがパスする
+
+## H-0066: Codegen feval metric サポート（Metric Bridge 追従）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-04-02
+- **関連**: H-0059 (Codegen Export), H-0064 (Metric Bridge), H-0065 (MetricEntry)
+
+### 目的
+
+H-0064 で導入された feval metric（f1, brier, ece, precision_at_k, accuracy, rmsle, r2）が `export_code()` で生成される codegen 出力に反映されない問題を修正する。現状、`_build_params()` の feval 情報は `_, _` で破棄されており、feval-only metric 使用時は `lgbm_params.metric = "None"` が config.json に書き込まれる。これにより early stopping の監視指標が LizyML 本体と異なる挙動になる。
+
+### 設計方針（B案: feval 再実装）
+
+`train.py` テンプレートに pure numpy/scipy の feval callable を再実装し、`config.json` に feval metric のメタ情報を記録する。codegen 実行時に feval metric を検出し、生成コード内で同一の feval 関数を再構築する。
+
+### 変更内容
+
+1. **`config.json` 契約拡張**: `feval_metrics` フィールド追加
+   ```json
+   {
+     "feval_metrics": [
+       {"name": "f1", "params": {}, "greater_is_better": true, "needs_proba": false},
+       {"name": "precision_at_k", "params": {"k": 20}, "greater_is_better": true, "needs_proba": true}
+     ]
+   }
+   ```
+
+2. **`train.py` テンプレート拡張**: feval セクション追加
+   - `_codegen_sigmoid`, `_codegen_softmax` ヘルパー
+   - 各 metric の pure numpy 実装（rmsle, r2, f1, brier, ece, precision_at_k, accuracy）
+   - `build_feval_from_config()` ファクトリ: config.json → feval callable リスト
+   - `train_lgbm()` の `lgb.train()` 呼び出しに `feval` パラメータ追加
+
+3. **`_model_persistence.py` 修正**: feval メタ情報を config の metric 設定から再構築し `generate_code()` に渡す
+
+### 影響範囲
+
+- `lizyml/core/_model_persistence.py` — feval 情報の伝搬
+- `lizyml/codegen/config_writer.py` — `feval_metrics` フィールド追加
+- `lizyml/codegen/generator.py` — `feval_metrics` パラメータ追加
+- `lizyml/codegen/templates.py` — `train.py` テンプレートに feval セクション追加
+- `BLUEPRINT.md` §6.6 / §15.4 — feval 対応の追記
+
+### 互換性
+
+- `feval_metrics` が空リスト `[]` の場合、既存の codegen 出力と完全に同一（後方互換）
+- `predict.py` / `test_equivalence.py` は予測のみなので変更不要
+- `config.json` に新フィールド追加のみ（既存フィールドは不変）
+- `generate_code()` / `build_config()` の新パラメータはデフォルト値 `[]` で後方互換
+
+### 代替案
+
+1. **案A: native metric にフォールバック** — feval metric を捨て、task default metric に差し替える。簡単だが学習挙動が変わる
+2. **案C: 警告のみ** — feval 使用時に `UserWarning` を出すだけ。ユーザー体験が悪い
+
+### 受け入れ基準（テスト観点）
+
+- feval metric 使用時の `export_code()` で `config.json` に `feval_metrics` が正しく記録される
+- `feval_metrics` が空リストの場合、既存テスト 73 件が全 PASS（後方互換）
+- `train.py` テンプレートの各 feval 関数が LizyML 本体と同一の値を返す（`rtol=1e-10`）
+- `metric="None"` + feval-only の組み合わせで `train.py` が正常に動作する
+- multiclass feval（f1, brier, accuracy）の reshape + softmax が正しく動作する
+- `precision_at_k` の `k` パラメータが config.json 経由で正しく伝搬される
+- 品質ゲート（ruff / mypy / pytest）全 PASS
