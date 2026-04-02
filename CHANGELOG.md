@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] - 2026-04-03
+
+### Added
+
+- **Codegen feval metric support** (H-0066) — `export_code()` now preserves feval metrics (f1, brier, ece, precision_at_k, accuracy, rmsle, r2) in generated code. Previously, feval metrics were silently dropped during code generation, causing `metric="None"` in config.json and incorrect early stopping behavior.
+  - `config.json` gains a `feval_metrics` field with metric metadata (name, params, greater_is_better, needs_proba)
+  - `train.py` template includes pure numpy/sklearn feval implementations and a `build_feval_from_config()` factory
+  - Backward compatible: empty `feval_metrics` produces identical output to previous versions
+- **New estimator implementation guide** — `docs/add-estimator-guide.md` documents all requirements for adding non-LightGBM estimators: adapter, provider, config, metric bridge, codegen, and test checklist
+
 ## [0.7.3] - 2026-04-02
 
 ### Fixed
