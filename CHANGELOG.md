@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.7.3] - 2026-04-02
+
+### Fixed
+
+- **Tune → Fit exact identity** — Unified tune objective and fit code paths so both go through `_build_train_components(training_overrides=...)`. Previously, the tune objective rebuilt the estimator factory with pre-smart-resolution params (`merged_model`) when `early_stopping_rounds` was in the search space, causing `num_leaves` and `scale_pos_weight` to be missing. Tune and fit now produce bit-for-bit identical OOF scores.
+
+## [0.7.2] - 2026-04-02
+
+### Fixed
+
+- **Tune → Fit parameter identity** (#76) — `default_fixed_params()` was leaking `auto_num_leaves` (a smart param) into model params during tuning. Additionally, `best_training_params` (`early_stopping_rounds`, `validation_ratio`) from tuning were not applied during subsequent `fit()`. Both issues caused score divergence between tune best trial and fit OOF. After fix, tune and fit produce identical model params and near-identical OOF scores (within LightGBM floating-point tolerance).
+
 ## [0.7.1] - 2026-04-02
 
 ### Fixed
