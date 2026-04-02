@@ -17,11 +17,12 @@ def build_config(
     seed: int,
     calibration_method: str | None,
     calibration_n_splits: int,
+    feval_metrics: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build config.json content as an ordered dict.
 
     The returned dict is JSON-serializable and follows the key ordering:
-    meta (``_`` prefix) → features → lgbm → calibration.
+    meta (``_`` prefix) → features → lgbm → feval → calibration.
 
     Args:
         run_meta: Dict with ``lizyml_version``, ``run_id``, ``timestamp``,
@@ -35,6 +36,9 @@ def build_config(
         seed: Random seed.
         calibration_method: Calibration method name or None.
         calibration_n_splits: Number of CV splits for OOF calibration.
+        feval_metrics: List of feval metric descriptors (H-0066).  Each dict
+            has keys ``name``, ``params``, ``greater_is_better``,
+            ``needs_proba``.  Defaults to ``[]``.
 
     Returns:
         Dict ready for ``json.dump()``.
@@ -60,6 +64,8 @@ def build_config(
         "early_stopping_rounds": early_stopping_rounds,
         "validation_ratio": validation_ratio,
         "seed": seed,
+        # ── Feval metrics (H-0066) ──
+        "feval_metrics": list(feval_metrics) if feval_metrics else [],
         # ── Calibration ──
         "calibration_method": calibration_method,
         "calibration_n_splits": calibration_n_splits,
