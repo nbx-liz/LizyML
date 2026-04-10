@@ -65,7 +65,37 @@ LizyML follows a **specification-first** workflow. Before implementing changes t
 - Export/simulate formats
 - Persistence format
 
-You **must** add a Proposal to `HISTORY.md` first. See `skills/history-proposals/SKILL.md` for the format.
+You **must** add a Proposal to `HISTORY.md` first.
+
+### Proposal Template
+
+```markdown
+## H-XXXX: <Title>
+
+- **ステータス**: Proposed
+- **起票日**: YYYY-MM-DD
+- **関連**: H-YYYY (if applicable)
+
+### 目的
+Why is this change needed?
+
+### 変更内容
+What will change? List affected files and behaviors.
+
+### 影響範囲
+Which modules, configs, or result shapes are affected?
+
+### 互換性
+Is this backward compatible? Does format_version need a bump?
+
+### 代替案
+What alternatives were considered and why rejected?
+
+### 受け入れ基準（テスト観点）
+What tests prove the change is correct?
+```
+
+The proposal must be **accepted** (reviewed) before implementation begins. Commit order: `docs(history): add proposal` → `feat/fix: implement` → `test: add tests`.
 
 ### Documentation Priority
 

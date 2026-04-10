@@ -3,6 +3,17 @@
 > Full reference for all `config_version=1` keys.
 > See [README](../README.md) for quick start and installation.
 
+**Validation**: All config schemas use pydantic `extra="forbid"`. Unknown keys raise `CONFIG_INVALID` immediately — typos are caught at config load time, not at runtime.
+
+**Environment variable overrides**: Any config key can be overridden using the `LIZYML__` prefix with `__` as the path separator. Examples:
+
+| Environment Variable | Equivalent Config Key |
+|---|---|
+| `LIZYML__training__seed=99` | `training.seed = 99` |
+| `LIZYML__split__n_splits=10` | `split.n_splits = 10` |
+| `LIZYML__model__params__num_leaves=64` | `model.params.num_leaves = 64` |
+| `LIZYML__calibration__method=isotonic` | `calibration.method = "isotonic"` |
+
 ## Top-Level Keys
 
 | Key | Type | Required | Default | Notes |

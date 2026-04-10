@@ -57,6 +57,37 @@ detect temporal leakage with OOF coverage.
 
 ---
 
+### `tutorial_shap_explanations.ipynb`
+
+SHAP value computation and interpretation: `predict(return_shap=True)` for
+per-sample explanations, `importance_plot(kind="shap")` for global
+feature importance, and comparison of split vs gain vs SHAP rankings.
+
+**Extras required:** `pip install 'lizyml[explain]'`
+
+---
+
+### `tutorial_calibration.ipynb`
+
+Probability calibration for binary classification: Platt, Isotonic, and
+Beta methods. Compares raw vs calibrated metrics (logloss, brier, ece),
+visualizes with `calibration_plot()` and `probability_histogram_plot()`.
+
+**Extras required:** `pip install 'lizyml[calibration]'` (for Beta method)
+
+---
+
+### `tutorial_codegen_export.ipynb`
+
+Codegen export walkthrough: `export_code()` generates standalone
+`train.py` + `predict.py` + `config.json` that run without LizyML.
+Shows generated file structure and equivalence verification with
+`test_equivalence.py`.
+
+**Extras required:** none (base install)
+
+---
+
 ## Installing Extras
 
 ```bash
@@ -66,24 +97,9 @@ pip install 'lizyml[tuning]'
 # SHAP explanations
 pip install 'lizyml[explain]'
 
+# Calibration (Beta method requires scipy)
+pip install 'lizyml[calibration]'
+
 # All extras
-pip install 'lizyml[tuning,explain]'
+pip install 'lizyml[tuning,explain,plots,calibration]'
 ```
-
----
-
-## Planned Notebooks
-
-The following notebooks are planned for future releases:
-
-- **`tutorial_shap_explain.ipynb`** — SHAP value computation via
-  `predict(return_shap=True)` and `importance(kind="shap")`.
-  Requires `lizyml[explain]`.
-
-- **`tutorial_calibration.ipynb`** — Isotonic and Platt calibration for
-  binary classification: calibration plot, ECE metric, and how
-  `oof_coverage` interacts with calibrated OOF metrics.
-
-- **`tutorial_export_code.ipynb`** — `export_code()` walkthrough: generating
-  LizyML-independent `train.py` / `predict.py` and verifying equivalence with
-  `test_equivalence.py`.

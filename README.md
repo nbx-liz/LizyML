@@ -1,6 +1,7 @@
 # LizyML
 
 [![CI](https://github.com/nbx-liz/LizyML/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nbx-liz/LizyML/actions/workflows/ci.yml)
+[![PyPI version](https://img.shields.io/pypi/v/lizyml.svg)](https://pypi.org/project/lizyml/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -194,6 +195,13 @@ See [BLUEPRINT.md](BLUEPRINT.md) for full schemas and invariants.
 1. Fork the repo and create a branch from `develop`
 2. Run quality gates: `uv run ruff check . && uv run mypy lizyml/ && uv run pytest`
 3. Open a PR against `develop`
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+
+## Language Policy
+
+- **Specs** (`BLUEPRINT.md`, `HISTORY.md`, `ARCHITECTURE.md`): Japanese
+- **Code, docstrings, commit messages, PRs, user-facing docs**: English
 
 ## License
 
