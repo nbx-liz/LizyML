@@ -183,7 +183,7 @@ def _feval_ece(y_true: np.ndarray, y_pred: np.ndarray, *, n_bins: int = 10) -> f
         mask = (y_pred >= lo) & (y_pred <= hi if hi == 1.0 else y_pred < hi)
         if not mask.any():
             continue
-        acc = float(np.mean((y_pred[mask] >= 0.5).astype(int) == y_true[mask]))
+        acc = float(np.mean(y_true[mask]))
         conf = float(np.mean(y_pred[mask]))
         ece += (mask.sum() / n) * abs(acc - conf)
     return ece
