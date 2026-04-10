@@ -121,7 +121,7 @@ class IsotonicCalibrator(BaseCalibratorAdapter):
         params: dict[str, Any],
     ) -> tuple[lgbm.Dataset, list[lgbm.Dataset], list[Any]]:
         """Build train dataset, optional valid sets, and callbacks."""
-        callbacks: list[Any] = [lgbm.log_evaluation(period=0)]
+        callbacks: list[Any] = [lgbm.log_evaluation(period=-1)]
 
         if n_samples < _MIN_SAMPLES_FOR_EARLY_STOPPING:
             return lgbm.Dataset(X_cal, label=y_float), [], callbacks

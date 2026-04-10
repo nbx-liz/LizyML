@@ -10,6 +10,7 @@ import pandas as pd
 from sklearn.metrics import confusion_matrix
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.training.oof_assembly import compute_oof_valid_mask
 
 if TYPE_CHECKING:
     from lizyml.core.types.fit_result import FitResult
@@ -46,13 +47,18 @@ def confusion_matrix_table(
     y_arr = np.asarray(y_true)
     oof_pred = fit_result.oof_pred
 
+    # Exclude structurally uncovered rows (e.g. TimeSeriesCV first period)
+    valid_mask = compute_oof_valid_mask(fit_result.splits.outer, len(y_arr))
+    y_oos = y_arr[valid_mask]
+    oof_oos = oof_pred[valid_mask]
+
     # OOS labels
     if task == "binary":
-        oof_labels: npt.NDArray[Any] = (oof_pred >= threshold).astype(int)
+        oof_labels: npt.NDArray[Any] = (oof_oos >= threshold).astype(int)
     else:
-        oof_labels = oof_pred.argmax(axis=1)
+        oof_labels = oof_oos.argmax(axis=1)
 
-    cm_oos = confusion_matrix(y_arr, oof_labels)
+    cm_oos = confusion_matrix(y_oos, oof_labels)
     df_oos = pd.DataFrame(cm_oos)
 
     # IS: assemble all fold predictions and labels

@@ -3,6 +3,17 @@
 > Full reference for all `config_version=1` keys.
 > See [README](../README.md) for quick start and installation.
 
+**Validation**: All config schemas use pydantic `extra="forbid"`. Unknown keys raise `CONFIG_INVALID` immediately — typos are caught at config load time, not at runtime.
+
+**Environment variable overrides**: Any config key can be overridden using the `LIZYML__` prefix with `__` as the path separator. Examples:
+
+| Environment Variable | Equivalent Config Key |
+|---|---|
+| `LIZYML__training__seed=99` | `training.seed = 99` |
+| `LIZYML__split__n_splits=10` | `split.n_splits = 10` |
+| `LIZYML__model__params__num_leaves=64` | `model.params.num_leaves = 64` |
+| `LIZYML__calibration__method=isotonic` | `calibration.method = "isotonic"` |
+
 ## Top-Level Keys
 
 | Key | Type | Required | Default | Notes |
@@ -447,7 +458,7 @@ Metric details:
 | `f1` | F1 Score (threshold=0.5 for binary, macro average for multiclass) | No | Yes |
 | `accuracy` | Classification Accuracy (threshold=0.5 for binary) | No | Yes |
 | `brier` | Brier Score (mean squared probability error, macro average for multiclass) | Yes | No |
-| `ece` | Expected Calibration Error (equal-width bins, M=10) | Yes | No |
+| `ece` | Expected Calibration Error (equal-width bins, M=10). Per-bin accuracy = fraction of positives `mean(y_true)`, confidence = `mean(y_pred)`. | Yes | No |
 | `precision_at_k` | Precision at top-K% (default K=10). K is configurable via dict form: `{precision_at_k: {k: 20}}` | Yes | Yes |
 
 ## `calibration`

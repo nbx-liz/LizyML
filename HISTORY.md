@@ -5002,3 +5002,68 @@ H-0064 で導入された feval metric（f1, brier, ece, precision_at_k, accurac
 - multiclass feval（f1, brier, accuracy）の reshape + softmax が正しく動作する
 - `precision_at_k` の `k` パラメータが config.json 経由で正しく伝搬される
 - 品質ゲート（ruff / mypy / pytest）全 PASS
+
+## H-0067: コードベース監査バグ修正バッチ（9件）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-04-11
+- **関連**: H-0057 (OOF Coverage), H-0058 (Outer Split Calibration), H-0064 (Metric Bridge)
+
+### 目的
+
+コードベース全体の監査で発見された 9 件のバグを一括修正する。メトリクス計算の正確性、leakage 境界の一貫性、防御的プログラミングの強化が対象。
+
+### 変更内容
+
+1. **ECE 計算式修正** (`metrics/classification.py`, `codegen/templates.py`):
+   - 各 calibration bin 内の accuracy を `mean((y_pred >= 0.5) == y_true)`（二値化精度）から `mean(y_true)`（正例割合 = fraction-of-positives）に修正。標準的な ECE 定義に準拠。
+
+2. **confusion_matrix_table NaN 除外** (`evaluation/confusion.py`):
+   - OOS 混同行列に `compute_oof_valid_mask()` を適用し、構造的にカバーされない行（TimeSeriesCV 最初の期間等）を除外。修正前は NaN >= 0.5 → False → 偽の負例として計上されていた。
+
+3. **リーク検知の短絡評価順序** (`data/validators.py`):
+   - `np.allclose(dropna(), dropna())` の前に `isna().equals()` を評価するよう順序を変更。NaN 位置が異なる場合の `ValueError` が `except` で飲み込まれてリーク検知がスキップされる問題を修正。
+
+4. **isotonic log_evaluation period** (`calibration/isotonic.py`):
+   - `lgbm.log_evaluation(period=0)` を `period=-1` に変更。LightGBM 4.x で `period=0` は未定義挙動。`LGBMAdapter` の `period=-1` と統一。
+
+5. **RefitTrainer pipeline leakage 境界** (`training/refit_trainer.py`):
+   - pipeline を inner-train のみで fit するよう変更（CVTrainer と一致する leakage 境界）。最終的な `pipeline_state`（推論用）は別途全データで fit した pipeline から取得。`categorical_features` も final pipeline から取得。`NoInnerValid` 時は二重 fit を回避。
+
+6. **cross_fit NaN guard** (`calibration/cross_fit.py`):
+   - `val_idx` に NaN 行が含まれる場合の 3 分岐ガードを追加: all finite → `cal.predict()`、mixed → finite のみ predict + NaN は fallback、all NaN → fallback。
+
+7. **calibrated metrics に oof_per_fold 追加** (`core/_model_metrics.py`):
+   - `metrics["calibrated"]` に `oof_per_fold` を追加。IF metrics は leakage リスクのため引き続き除外。calibrated ブランチの構造: `{"oof": {...}, "oof_per_fold": [...]}`。
+
+8. **HoldoutInnerValid 空 train ガード** (`training/inner_valid.py`):
+   - `n_valid >= n_samples` の場合に `ValueError` を発出。修正前は空の train set が LightGBM に渡されて cryptic なエラーが発生。
+
+9. **TimeHoldoutInnerValid 空 train ガード** (`training/inner_valid.py`):
+   - 同上。`n_samples=1` でも発生する。
+
+### 影響範囲
+
+- `lizyml/metrics/classification.py` — ECE 計算式
+- `lizyml/codegen/templates.py` — codegen ECE 計算式
+- `lizyml/evaluation/confusion.py` — OOS 混同行列
+- `lizyml/data/validators.py` — リーク検知
+- `lizyml/calibration/isotonic.py` — log 抑制
+- `lizyml/calibration/cross_fit.py` — NaN ガード
+- `lizyml/training/refit_trainer.py` — pipeline fit 境界
+- `lizyml/core/_model_metrics.py` — calibrated metrics 構造
+- `lizyml/training/inner_valid.py` — 空 train ガード
+
+### 互換性
+
+- **ECE**: 計算結果が変わるが、修正前の値が誤りであるため後方互換の問題ではない
+- **confusion_matrix_table**: NaN 行が除外されるため、TimeSeriesCV 使用時に行数が変わる
+- **calibrated metrics**: `oof_per_fold` キーが追加される（追加方向、後方互換）
+- **RefitTrainer**: 学習結果が微妙に変わる可能性（pipeline fit 境界変更）。現行の `NativeFeaturePipeline` は y 非使用のため実質的な影響なし
+- **inner_valid**: 極端なエッジケースで新たに `ValueError` が発生するようになる
+
+### 受け入れ基準（テスト観点）
+
+- 各バグに対する回帰テスト（16 件追加）
+- 既存テスト 1478 件が引き続き PASS（テスト総数 1495）
+- 品質ゲート（ruff / mypy / pytest）全 PASS

@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.8.1] - 2026-04-11
+
+### Fixed
+
+- **ECE formula corrected** (H-0067) — ECE per-bin accuracy now uses `mean(y_true)` (fraction of positives) instead of binarized-prediction accuracy. The old formula systematically overestimated ECE for well-calibrated models. Same fix applied to codegen templates.
+- **Confusion matrix NaN exclusion** (H-0067) — `confusion_matrix_table()` now applies `compute_oof_valid_mask()` to exclude structurally uncovered rows (e.g., TimeSeriesCV first period) from the OOS matrix. Previously, NaN predictions were silently treated as class 0.
+- **Leakage validator eval order** (H-0067) — `validate_no_target_leakage()` now checks NaN positions (`isna().equals()`) before `np.allclose()`, preventing a silent `ValueError` swallow when columns have NaN at different positions.
+- **Isotonic calibrator log suppression** (H-0067) — Changed `lgbm.log_evaluation(period=0)` to `period=-1` for well-defined behavior in LightGBM 4.x.
+- **RefitTrainer pipeline leakage boundary** (H-0067) — Pipeline is now fitted on inner-train rows only (consistent with CVTrainer). A second pipeline is fitted on all data for the final `pipeline_state` used at inference. `categorical_features` sourced from the full-data pipeline.
+- **Cross-fit calibration NaN guard** (H-0067) — `cross_fit_calibrate()` now guards against NaN in validation indices. Finite rows go to `cal.predict()`, NaN rows fall back to uncalibrated OOF predictions.
+- **Calibrated metrics include oof_per_fold** (H-0067) — `metrics["calibrated"]` now includes `oof_per_fold` in addition to `oof`. IF metrics remain excluded (leakage risk).
+- **Inner validation empty train guard** (H-0067) — `HoldoutInnerValid` and `TimeHoldoutInnerValid` now raise `ValueError` when `n_valid >= n_samples` instead of producing an empty training set.
+
 ## [0.8.0] - 2026-04-03
 
 ### Added

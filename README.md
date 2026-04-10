@@ -1,6 +1,7 @@
 # LizyML
 
 [![CI](https://github.com/nbx-liz/LizyML/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/nbx-liz/LizyML/actions/workflows/ci.yml)
+[![PyPI version](https://img.shields.io/pypi/v/lizyml.svg)](https://pypi.org/project/lizyml/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -31,6 +32,11 @@ pip install 'lizyml[plots]'          # Plotly visualizations
 pip install 'lizyml[calibration]'    # Beta calibrator (scipy)
 pip install 'lizyml[tuning,explain,plots,calibration]'  # all extras
 ```
+
+### System Requirements
+
+- Python 3.10+
+- LightGBM native library (`libgomp` on Linux: `apt-get install libgomp1`)
 
 ### Development install
 
@@ -155,7 +161,10 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for full diagrams and module layout.
         "if_per_fold": [...],
         "oof_coverage": 1.0,
     },
-    "calibrated": {"oof": {"logloss": 0.35}},  # binary only
+    "calibrated": {                             # binary only
+        "oof": {"logloss": 0.35},
+        "oof_per_fold": [{"logloss": 0.36}, {"logloss": 0.34}, ...],
+    },
 }
 ```
 
@@ -171,7 +180,11 @@ See [BLUEPRINT.md](BLUEPRINT.md) for full schemas and invariants.
 
 ## Documentation
 
+- [API Reference](docs/api.md) -- public Model API, result objects, and error codes
 - [Config Reference](docs/config-reference.md) -- all config keys, defaults, and split guides
+- [Examples & Tutorials](docs/examples.md) -- Jupyter notebook index
+- [FAQ / Troubleshooting](docs/faq.md) -- common questions and error resolution
+- [Migration Guide](docs/migration.md) -- upgrading between versions
 - [BLUEPRINT.md](BLUEPRINT.md) -- implementation specification (source of truth)
 - [ARCHITECTURE.md](ARCHITECTURE.md) -- 5-layer architecture diagrams
 - [CHANGELOG.md](CHANGELOG.md) -- release history
@@ -182,6 +195,13 @@ See [BLUEPRINT.md](BLUEPRINT.md) for full schemas and invariants.
 1. Fork the repo and create a branch from `develop`
 2. Run quality gates: `uv run ruff check . && uv run mypy lizyml/ && uv run pytest`
 3. Open a PR against `develop`
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for detailed guidelines.
+
+## Language Policy
+
+- **Specs** (`BLUEPRINT.md`, `HISTORY.md`, `ARCHITECTURE.md`): Japanese
+- **Code, docstrings, commit messages, PRs, user-facing docs**: English
 
 ## License
 

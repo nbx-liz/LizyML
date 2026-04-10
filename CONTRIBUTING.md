@@ -19,6 +19,15 @@ git config core.hooksPath .githooks
 4. **Create PR** to `develop` (squash merge on GitHub)
 5. **Conventional Commits**: `<type>(<scope>): <description>`
 
+### Release (develop → main)
+
+1. Add a CHANGELOG entry on develop (via a feature PR)
+2. `gh pr create --base main --head develop --title "release: vX.Y.Z"`
+3. Verify CI passes: `gh pr checks <PR#>`
+4. Merge with **Create a merge commit** (NOT squash — squash breaks history sync)
+5. `auto-release.yml` auto-creates tag + GitHub Release
+6. No post-release sync PR needed
+
 ### Commit Types
 
 | Type | Description |
@@ -56,7 +65,37 @@ LizyML follows a **specification-first** workflow. Before implementing changes t
 - Export/simulate formats
 - Persistence format
 
-You **must** add a Proposal to `HISTORY.md` first. See `skills/history-proposals/SKILL.md` for the format.
+You **must** add a Proposal to `HISTORY.md` first.
+
+### Proposal Template
+
+```markdown
+## H-XXXX: <Title>
+
+- **ステータス**: Proposed
+- **起票日**: YYYY-MM-DD
+- **関連**: H-YYYY (if applicable)
+
+### 目的
+Why is this change needed?
+
+### 変更内容
+What will change? List affected files and behaviors.
+
+### 影響範囲
+Which modules, configs, or result shapes are affected?
+
+### 互換性
+Is this backward compatible? Does format_version need a bump?
+
+### 代替案
+What alternatives were considered and why rejected?
+
+### 受け入れ基準（テスト観点）
+What tests prove the change is correct?
+```
+
+The proposal must be **accepted** (reviewed) before implementation begins. Commit order: `docs(history): add proposal` → `feat/fix: implement` → `test: add tests`.
 
 ### Documentation Priority
 
@@ -80,8 +119,33 @@ When specifications conflict, priority is:
 - `BLUEPRINT.md`, `HISTORY.md`, `PLAN.md`, `CLAUDE.md`: Japanese
 - Code, docstrings, commit messages, PR descriptions: English
 
+## Running Tests
+
+```bash
+uv run pytest                          # full suite
+uv run pytest tests/test_metrics/      # single directory
+uv run pytest -k "test_ece"            # by keyword
+uv run pytest --cov=lizyml -q          # with coverage
+```
+
+## Adding a New Metric
+
+1. Create a class inheriting `BaseMetric` in `lizyml/metrics/regression.py` or `classification.py`
+2. Decorate with `@MetricRegistry.register("metric_name")`
+3. Implement `__call__(self, y_true, y_pred) -> float`, `needs_proba`, `greater_is_better`
+4. Add to the task whitelist in `lizyml/estimators/lgbm/metric_bridge.py` (if applicable as feval)
+5. Add codegen implementation in `lizyml/codegen/templates.py` (if feval)
+6. Add tests: correctness, boundary values, and `get_metric("name")` registry lookup
+7. Update `docs/config-reference.md` metric table
+
+## Adding a New Estimator
+
+See [docs/add-estimator-guide.md](docs/add-estimator-guide.md) for the full checklist.
+
 ## Getting Help
 
 - Open an [issue](https://github.com/nbx-liz/LizyML/issues) for bug reports or feature requests
+- Check [docs/api.md](docs/api.md) for public API reference
+- Check [docs/faq.md](docs/faq.md) for common questions
 - Check `BLUEPRINT.md` for architectural context
 - Check `HISTORY.md` for design decision history
