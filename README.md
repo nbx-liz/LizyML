@@ -32,6 +32,11 @@ pip install 'lizyml[calibration]'    # Beta calibrator (scipy)
 pip install 'lizyml[tuning,explain,plots,calibration]'  # all extras
 ```
 
+### System Requirements
+
+- Python 3.10+
+- LightGBM native library (`libgomp` on Linux: `apt-get install libgomp1`)
+
 ### Development install
 
 ```bash
@@ -155,7 +160,10 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for full diagrams and module layout.
         "if_per_fold": [...],
         "oof_coverage": 1.0,
     },
-    "calibrated": {"oof": {"logloss": 0.35}},  # binary only
+    "calibrated": {                             # binary only
+        "oof": {"logloss": 0.35},
+        "oof_per_fold": [{"logloss": 0.36}, {"logloss": 0.34}, ...],
+    },
 }
 ```
 
@@ -171,7 +179,11 @@ See [BLUEPRINT.md](BLUEPRINT.md) for full schemas and invariants.
 
 ## Documentation
 
+- [API Reference](docs/api.md) -- public Model API, result objects, and error codes
 - [Config Reference](docs/config-reference.md) -- all config keys, defaults, and split guides
+- [Examples & Tutorials](docs/examples.md) -- Jupyter notebook index
+- [FAQ / Troubleshooting](docs/faq.md) -- common questions and error resolution
+- [Migration Guide](docs/migration.md) -- upgrading between versions
 - [BLUEPRINT.md](BLUEPRINT.md) -- implementation specification (source of truth)
 - [ARCHITECTURE.md](ARCHITECTURE.md) -- 5-layer architecture diagrams
 - [CHANGELOG.md](CHANGELOG.md) -- release history

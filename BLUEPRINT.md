@@ -613,6 +613,9 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `FeaturePipeline.fit` は outer fold の `train` 全体に対して行う。inner valid は estimator の early stopping 用 evaluation set であり、FeaturePipeline の fit 境界は outer train のままとする。
 - estimator は inner valid が有効な場合 `inner_train` のみで学習し、`inner_valid` を eval set として early stopping を行う。OOF の割当先は引き続き outer fold の `valid` のみとする。
 - `RefitTrainer` でも同じ `InnerValidStrategy` を全データに適用して final model の early stopping 用 split を作る。
+  - inner valid がある場合、pipeline は **inner-train のみ**で fit する（CVTrainer と一致する leakage 境界）。estimator は inner-train で学習、inner-valid で early stopping。
+  - 最終的な `pipeline_state`（推論用）は、別途全データで fit した pipeline から取得する。`categorical_features` も全データ fit 由来の pipeline から取得する。
+  - inner valid が無い場合（`NoInnerValid`）は、pipeline は全データで 1 回のみ fit する（二重 fit を回避）。
   - `time_series` / `purged_time_series` / `group_time_series` では、`Model._prepare_training_data()` により時系列昇順へ並べ替えた後の全データに対して inner valid を切る。
 
 ### 10.3.3 各 strategy の分割規則
@@ -620,6 +623,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `HoldoutInnerValid(ratio, stratify=False, random_state)`:
   - `stratify=False`: outer fold train 行を乱択し、`ceil(n_rows * ratio)` 行を validation に割り当てる。
   - `stratify=True`: `y` に基づく stratified holdout を行う。
+  - `n_valid >= n_samples` の場合は `ValueError` を発出する（空の train set 防止）。
 - `GroupHoldoutInnerValid(ratio, random_state)`:
   - group overlap を禁止する。
   - validation には、入力順（group の first appearance 順）の末尾 `max(1, floor(n_unique_groups * ratio))` 個の group を割り当てる。
@@ -627,6 +631,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `TimeHoldoutInnerValid(ratio)`:
   - 行順を保持したまま、末尾 `max(1, floor(n_rows * ratio))` 行を validation に割り当てる。
   - `purged_time_series` で outer CV が purge / embargo を持っていても、inner valid 自体は追加の purge / embargo を持たない。
+  - `n_valid >= n_samples` の場合は `ValueError` を発出する（空の train set 防止）。
 - `BlockedGroupInnerValid(ratio)`:
   - `blocked_group_kfold` 専用。グループ分離 + 時間順序 + 層化（分類時）を同時に満たす。
   - 詳細は §10.6.2 を参照。
@@ -858,7 +863,7 @@ result = model.tune(progress_callback=on_progress)
 
 - `LogLoss`（必須推奨）
 - `Brier score`（必須推奨）
-- `ECE`（binning 定義を仕様化）
+- `ECE`（equal-width binning, M=10。各 bin の accuracy = `mean(y_true[mask])`（正例割合）、confidence = `mean(y_pred[mask])`。ECE = Σ (|bin| / N) × |accuracy − confidence|）
 - `ROC-AUC / PR-AUC`（ランキング監視）
 
 ## 12.4 MUST NOT
@@ -911,7 +916,7 @@ model:
   - `oof`: OOF 集約値（**covered 行ベース**。split で valid に一度も含まれない行は除外。KFold では全行=covered、TimeSeriesCV では先頭行が non-covered）。
   - `fold_0`...`fold_N-1`: 各 outer fold の OOF（valid_idx）値。
   - `if_mean`: IF（train_idx）指標の fold 平均（参考値として保持）。
-  - calibrated がある場合は `cal_oof` 列を追加。calibrated OOF の coverage は raw と構造的に一致する（H-0058: outer splits 再利用）ため、`calibrated` に別途 `oof_coverage` は不要。
+  - calibrated がある場合は `cal_oof` 列と `cal_fold_0`...`cal_fold_N-1` 列を追加。calibrated ブランチの metrics 構造は `{"oof": {...}, "oof_per_fold": [...]}`。IF metrics は leakage リスクのため含めない。`oof_coverage` は raw と構造的に一致する（H-0058: outer splits 再利用）ため、`calibrated` に別途含めない。
   - `df.attrs["oof_coverage"]`: float (0.0–1.0)。covered 行の割合。KFold では常に `1.0`。TimeSeriesCV では `< 1.0` になりうる。
 
 ## 13.3 可視化
@@ -927,7 +932,7 @@ model:
 
 追加で用意したい可視化（一部実装済み）:
 - binary/multiclass: `roc_curve_plot()`（binary: IS/OOS の 2 本の ROC Curve 重ね描き。multiclass: IS/OOS を subplot 横並びにし、クラスごとの OvR ROC Curve を描画。各クラスの AUC 値を凡例に表示、macro 平均 AUC も表示）
-- binary/multiclass: `confusion_matrix(threshold=0.5)`（IS/OOS の Confusion Matrix テーブル。`{"is": DataFrame, "oos": DataFrame}` を返す。binary は threshold、multiclass は argmax でクラスラベル変換）
+- binary/multiclass: `confusion_matrix(threshold=0.5)`（IS/OOS の Confusion Matrix テーブル。`{"is": DataFrame, "oos": DataFrame}` を返す。binary は threshold、multiclass は argmax でクラスラベル変換。OOS は `compute_oof_valid_mask()` でカバー済み行のみを対象とする — NaN の構造的未カバー行は除外）
 - calibration: `calibration_plot()`（Raw/Calibrated の Reliability Diagram。bin 数デフォルト 10。理想線 y=x を参照線として描画。データソースは cross-fit 由来の `calibrated_oof`、`c_final` は使用しない）
 - calibration: `probability_histogram_plot()`（Raw/Calibrated の確率分布ヒストグラム重ね描き。校正前後の分布シフトを視覚的に確認）
 - tuning: `tuning_plot()`（trial ごとのスコア推移。X 軸 = trial 番号、Y 軸 = スコア。完了/枝刈り/失敗を色分け。最良スコア推移ラインを重ね描き）
@@ -1419,7 +1424,7 @@ lizyml/
 ├── training/                       ── Layer 2: Training ──
 │   ├── cv_trainer.py               CVTrainer (outer CV loop)
 │   ├── refit_trainer.py            RefitTrainer + RefitResult
-│   ├── inner_valid.py              BaseInnerValidStrategy + 4 concrete
+│   ├── inner_valid.py              BaseInnerValidStrategy + 6 concrete
 │   └── oof_assembly.py             fill_oof / get_fold_pred / init_oof
 │
 ├── evaluation/                     ── Layer 2: Evaluation ──

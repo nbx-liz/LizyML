@@ -89,8 +89,33 @@ When specifications conflict, priority is:
 - `BLUEPRINT.md`, `HISTORY.md`, `PLAN.md`, `CLAUDE.md`: Japanese
 - Code, docstrings, commit messages, PR descriptions: English
 
+## Running Tests
+
+```bash
+uv run pytest                          # full suite
+uv run pytest tests/test_metrics/      # single directory
+uv run pytest -k "test_ece"            # by keyword
+uv run pytest --cov=lizyml -q          # with coverage
+```
+
+## Adding a New Metric
+
+1. Create a class inheriting `BaseMetric` in `lizyml/metrics/regression.py` or `classification.py`
+2. Decorate with `@MetricRegistry.register("metric_name")`
+3. Implement `__call__(self, y_true, y_pred) -> float`, `needs_proba`, `greater_is_better`
+4. Add to the task whitelist in `lizyml/estimators/lgbm/metric_bridge.py` (if applicable as feval)
+5. Add codegen implementation in `lizyml/codegen/templates.py` (if feval)
+6. Add tests: correctness, boundary values, and `get_metric("name")` registry lookup
+7. Update `docs/config-reference.md` metric table
+
+## Adding a New Estimator
+
+See [docs/add-estimator-guide.md](docs/add-estimator-guide.md) for the full checklist.
+
 ## Getting Help
 
 - Open an [issue](https://github.com/nbx-liz/LizyML/issues) for bug reports or feature requests
+- Check [docs/api.md](docs/api.md) for public API reference
+- Check [docs/faq.md](docs/faq.md) for common questions
 - Check `BLUEPRINT.md` for architectural context
 - Check `HISTORY.md` for design decision history

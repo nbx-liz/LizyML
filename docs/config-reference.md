@@ -447,7 +447,7 @@ Metric details:
 | `f1` | F1 Score (threshold=0.5 for binary, macro average for multiclass) | No | Yes |
 | `accuracy` | Classification Accuracy (threshold=0.5 for binary) | No | Yes |
 | `brier` | Brier Score (mean squared probability error, macro average for multiclass) | Yes | No |
-| `ece` | Expected Calibration Error (equal-width bins, M=10) | Yes | No |
+| `ece` | Expected Calibration Error (equal-width bins, M=10). Per-bin accuracy = fraction of positives `mean(y_true)`, confidence = `mean(y_pred)`. | Yes | No |
 | `precision_at_k` | Precision at top-K% (default K=10). K is configurable via dict form: `{precision_at_k: {k: 20}}` | Yes | Yes |
 
 ## `calibration`
