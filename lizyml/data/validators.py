@@ -82,8 +82,8 @@ def validate_no_target_leakage(
             if df[col].equals(y) or (
                 pd.api.types.is_numeric_dtype(df[col])
                 and pd.api.types.is_numeric_dtype(y)
-                and np.allclose(df[col].dropna(), y.dropna(), equal_nan=True)
                 and df[col].isna().equals(y.isna())
+                and np.allclose(df[col].dropna(), y.dropna(), equal_nan=True)
             ):
                 msg = (
                     f"Column '{col}' is perfectly correlated with target '{target}'. "

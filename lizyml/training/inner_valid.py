@@ -100,6 +100,12 @@ class HoldoutInnerValid(BaseInnerValidStrategy):
             )
         rng = np.random.default_rng(self.random_state)
         n_valid = max(1, int(np.ceil(n_samples * self.ratio)))
+        if n_valid >= n_samples:
+            raise ValueError(
+                f"Inner validation would consume all {n_samples} sample(s) "
+                f"(n_valid={n_valid}, ratio={self.ratio}). "
+                "Increase training data or decrease validation_ratio."
+            )
         perm = rng.permutation(n_samples)
         valid_idx = np.sort(perm[:n_valid])
         train_idx = np.sort(perm[n_valid:])
@@ -172,6 +178,12 @@ class TimeHoldoutInnerValid(BaseInnerValidStrategy):
         groups: npt.NDArray[Any] | None = None,
     ) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]:
         n_valid = max(1, int(n_samples * self.ratio))
+        if n_valid >= n_samples:
+            raise ValueError(
+                f"Inner validation would consume all {n_samples} sample(s) "
+                f"(n_valid={n_valid}, ratio={self.ratio}). "
+                "Increase training data or decrease validation_ratio."
+            )
         all_idx = np.arange(n_samples, dtype=np.intp)
         train_idx = all_idx[:-n_valid]
         valid_idx = all_idx[-n_valid:]

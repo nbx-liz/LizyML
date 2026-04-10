@@ -96,7 +96,19 @@ def cross_fit_calibrate(
             continue
         cal = calibrator_factory()
         cal.fit(train_scores[finite_mask], train_y[finite_mask])
-        calibrated_oof[val_idx] = cal.predict(oof_scores[val_idx])
+
+        # Guard: val_idx may include structurally uncovered rows (NaN OOF)
+        # if calibration splits differ from outer CV splits in future.
+        val_scores = oof_scores[val_idx]
+        val_finite = ~np.isnan(val_scores)
+        if val_finite.all():
+            calibrated_oof[val_idx] = cal.predict(val_scores)
+        elif val_finite.any():
+            calibrated_oof[val_idx[val_finite]] = cal.predict(val_scores[val_finite])
+            calibrated_oof[val_idx[~val_finite]] = fallback[val_idx[~val_finite]]
+        else:
+            # All val rows are NaN — use fallback entirely
+            calibrated_oof[val_idx] = fallback[val_idx]
 
     # C_final: trained on ALL covered data — for inference only
     c_final = calibrator_factory()

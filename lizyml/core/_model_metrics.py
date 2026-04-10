@@ -84,4 +84,10 @@ def assemble_calibrated_metrics(
         oof_pred=cal_oof,
     )
     cal_result = evaluator.evaluate(cal_fr, y, metric_entries)
-    return {**metrics, "calibrated": {"oof": cal_result["raw"]["oof"]}}
+    return {
+        **metrics,
+        "calibrated": {
+            "oof": cal_result["raw"]["oof"],
+            "oof_per_fold": cal_result["raw"]["oof_per_fold"],
+        },
+    }
