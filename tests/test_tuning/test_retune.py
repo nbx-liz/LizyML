@@ -23,6 +23,7 @@ from lizyml import Model
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.search_dim import CategoricalDim, FloatDim, IntDim
 from lizyml.core.types.tuning_result import (
+    BoundaryDimStatus,
     BoundaryReport,
     RoundSummary,
     TrialResult,
@@ -468,3 +469,258 @@ class TestBoundaryTable:
         assert "edge" in table.columns
         assert "expanded" in table.columns
         assert len(table) == 2  # 2 dims in space
+
+
+# ---------------------------------------------------------------------------
+# Edge case and branch coverage tests
+# ---------------------------------------------------------------------------
+
+
+class TestBoundaryEdgeCases:
+    """Edge cases for boundary detection and expansion."""
+
+    def test_zero_span_linear_returns_center(self) -> None:
+        """Degenerate dim with low==high → position 0.5 → no expansion."""
+        dims = [FloatDim("x", low=5.0, high=5.0)]
+        report = detect_boundary(dims, {"x": 5.0}, threshold=0.05)
+        s = report.dims[0]
+        assert s.position_pct == 0.5
+        assert s.edge == "none"
+        assert s.expanded is False
+
+    def test_zero_span_log_returns_center(self) -> None:
+        """Degenerate log dim with low==high → position 0.5."""
+        dims = [FloatDim("x", low=1.0, high=1.0, log=True)]
+        report = detect_boundary(dims, {"x": 1.0}, threshold=0.05)
+        s = report.dims[0]
+        assert s.position_pct == 0.5
+        assert s.edge == "none"
+
+    def test_expand_range_edge_none_passthrough(self) -> None:
+        """expand_dims with no expansion returns same dims."""
+        dims = [
+            FloatDim("a", low=0.0, high=1.0),
+            IntDim("b", low=1, high=100),
+        ]
+        # Best in center → no expansion
+        report = detect_boundary(dims, {"a": 0.5, "b": 50}, threshold=0.05)
+        assert report.expanded_names == ()
+        new = expand_dims(dims, report)
+        assert new[0] is dims[0]
+        assert new[1] is dims[1]
+
+    def test_expand_dims_unrecognized_dim_passthrough(self) -> None:
+        """Dim in expand_map but not matching FloatDim/IntDim falls through."""
+        # This tests the else branch at L373 — a dim in expansion_map
+        # that is somehow neither FloatDim nor IntDim (defensive code).
+        # We can trigger it by creating a boundary report with CategoricalDim
+        # manually marked as expanded (which shouldn't happen in practice).
+        dims = [CategoricalDim("cat", choices=("a", "b"))]
+        fake_status = BoundaryDimStatus(
+            name="cat",
+            best_value="a",
+            low=None,
+            high=None,
+            position_pct=None,
+            edge="none",
+            expanded=True,  # Force expansion flag on categorical
+            new_low=None,
+            new_high=None,
+        )
+        fake_report = BoundaryReport(dims=(fake_status,), expanded_names=("cat",))
+        new = expand_dims(dims, fake_report)
+        # CategoricalDim should pass through unchanged
+        assert new[0] is dims[0]
+
+    def test_int_dim_log_upper_expansion(self) -> None:
+        """IntDim with log scale expands upper bound correctly."""
+        dims = [IntDim("x", low=1, high=100, log=True)]
+        report = detect_boundary(dims, {"x": 99}, threshold=0.05)
+        s = report.dims[0]
+        assert s.edge == "upper"
+        new = expand_dims(dims, report)
+        assert isinstance(new[0], IntDim)
+        assert new[0].high == 300  # 100 * 3.0, ceiled to int
+
+    def test_float_linear_upper_expansion(self) -> None:
+        """FloatDim linear upper expansion adds range."""
+        dims = [FloatDim("x", low=0.0, high=1.0)]
+        report = detect_boundary(dims, {"x": 0.98}, threshold=0.05)
+        s = report.dims[0]
+        assert s.edge == "upper"
+        assert s.new_high is not None
+        assert s.new_high == pytest.approx(2.0)  # 1.0 + (1.0 - 0.0)
+        assert s.new_low == pytest.approx(0.0)  # lower bound unchanged
+
+    def test_multiple_rounds_three_rounds(self) -> None:
+        """Three sequential resume rounds build up correctly."""
+        cfg = _reg_config_with_tuning(n_trials=2)
+        df = make_regression_df()
+        model = Model(cfg)
+
+        r1 = model.tune(df)
+        assert len(r1.rounds) == 1
+
+        r2 = model.tune(df, resume=True, n_trials=2)
+        assert len(r2.rounds) == 2
+        assert r2.rounds[0].round == 1
+        assert r2.rounds[1].round == 2
+
+        r3 = model.tune(df, resume=True, n_trials=2)
+        assert len(r3.rounds) == 3
+        assert r3.rounds[2].round == 3
+        # All trials should have round numbers 1, 2, or 3
+        round_nums = {t.round for t in r3.trials}
+        assert round_nums == {1, 2, 3}
+
+    def test_round_summary_best_score_before(self) -> None:
+        """Round 2 should record round 1's best as best_score_before."""
+        cfg = _reg_config_with_tuning(n_trials=2)
+        df = make_regression_df()
+        model = Model(cfg)
+
+        r1 = model.tune(df)
+        r2 = model.tune(df, resume=True, n_trials=2)
+
+        assert r2.rounds[0].best_score_before is None  # round 1 has no prior
+        assert r2.rounds[1].best_score_before == r1.best_score
+
+
+# ---------------------------------------------------------------------------
+# Plot tests
+# ---------------------------------------------------------------------------
+
+
+class TestPlotTuningHistoryRounds:
+    """Test plot_tuning_history with round separators."""
+
+    def test_single_round_no_vlines(self) -> None:
+        """Single round should not add vertical lines."""
+        from lizyml.plots.tuning import plot_tuning_history
+
+        result = TuningResult(
+            best_model_params={},
+            best_smart_params={},
+            best_training_params={},
+            best_score=0.5,
+            trials=[
+                TrialResult(number=0, params={"x": 1}, score=0.6, state="complete"),
+                TrialResult(number=1, params={"x": 2}, score=0.5, state="complete"),
+            ],
+            metric_name="rmse",
+            direction="minimize",
+            rounds=(
+                RoundSummary(
+                    round=1,
+                    n_trials=2,
+                    best_score_before=None,
+                    best_score_after=0.5,
+                    expanded_dims=(),
+                    space_snapshot=(),
+                ),
+            ),
+        )
+        fig = plot_tuning_history(result)
+        # Should have traces but no vertical lines (shapes)
+        assert len(fig.data) >= 1
+        # No vline shapes for single round
+        shapes = fig.layout.shapes or ()
+        assert len(shapes) == 0
+
+    def test_two_rounds_has_vline(self) -> None:
+        """Two rounds should add a vertical dashed line at the boundary."""
+        from lizyml.plots.tuning import plot_tuning_history
+
+        result = TuningResult(
+            best_model_params={},
+            best_smart_params={},
+            best_training_params={},
+            best_score=0.4,
+            trials=[
+                TrialResult(
+                    number=0, params={"x": 1}, score=0.6, state="complete", round=1
+                ),
+                TrialResult(
+                    number=1, params={"x": 2}, score=0.5, state="complete", round=1
+                ),
+                TrialResult(
+                    number=2, params={"x": 3}, score=0.4, state="complete", round=2
+                ),
+            ],
+            metric_name="rmse",
+            direction="minimize",
+            rounds=(
+                RoundSummary(
+                    round=1,
+                    n_trials=2,
+                    best_score_before=None,
+                    best_score_after=0.5,
+                    expanded_dims=(),
+                    space_snapshot=(),
+                ),
+                RoundSummary(
+                    round=2,
+                    n_trials=1,
+                    best_score_before=0.5,
+                    best_score_after=0.4,
+                    expanded_dims=("lr",),
+                    space_snapshot=(),
+                ),
+            ),
+        )
+        fig = plot_tuning_history(result)
+        # Should have at least one vline shape
+        shapes = fig.layout.shapes or ()
+        assert len(shapes) >= 1
+        # Should have round annotations
+        annotations = fig.layout.annotations or ()
+        assert len(annotations) >= 2  # one per round
+        # Check annotation text
+        texts = [a.text for a in annotations]
+        assert any("Round 1" in t for t in texts)
+        assert any("Round 2" in t and "lr" in t for t in texts)
+
+    def test_plot_with_failed_trials(self) -> None:
+        """Plot handles mix of complete and failed trials."""
+        from lizyml.plots.tuning import plot_tuning_history
+
+        result = TuningResult(
+            best_model_params={},
+            best_smart_params={},
+            best_training_params={},
+            best_score=0.5,
+            trials=[
+                TrialResult(number=0, params={"x": 1}, score=0.5, state="complete"),
+                TrialResult(
+                    number=1, params={"x": 2}, score=float("nan"), state="fail"
+                ),
+            ],
+            metric_name="rmse",
+            direction="minimize",
+        )
+        fig = plot_tuning_history(result)
+        assert len(fig.data) >= 2  # complete + fail traces
+
+    def test_plot_maximize_direction(self) -> None:
+        """Best score line works for maximize direction."""
+        from lizyml.plots.tuning import plot_tuning_history
+
+        result = TuningResult(
+            best_model_params={},
+            best_smart_params={},
+            best_training_params={},
+            best_score=0.9,
+            trials=[
+                TrialResult(number=0, params={"x": 1}, score=0.7, state="complete"),
+                TrialResult(number=1, params={"x": 2}, score=0.9, state="complete"),
+            ],
+            metric_name="auc",
+            direction="maximize",
+        )
+        fig = plot_tuning_history(result)
+        # Find the "Best Score" trace
+        best_trace = [t for t in fig.data if t.name == "Best Score"]
+        assert len(best_trace) == 1
+        # Best line should be monotonically increasing
+        ys = list(best_trace[0].y)
+        assert ys[1] >= ys[0]
