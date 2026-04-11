@@ -218,9 +218,9 @@ class Tuner:
                 params=dict(t.params),
                 score=t.value if t.value is not None else float("nan"),
                 state=t.state.name.lower(),
-                round=round_number
-                if t.number >= _prior
-                else _trial_round(t.number, _prior),
+                # Prior-round trials get sentinel round=1; Model.tune() reassigns
+                # correct round numbers via dataclasses.replace().
+                round=round_number if t.number >= _prior else 1,
             )
             for t in study.trials
         ]
@@ -236,17 +236,3 @@ class Tuner:
             direction=self.direction,
         )
         return result, study
-
-
-def _trial_round(trial_number: int, current_round_start: int) -> int:
-    """Determine round for a trial from a previous round.
-
-    For simplicity, trials before the current round start are assigned
-    round numbers based on the assumption that they are from earlier rounds.
-    This is a heuristic — the precise mapping is maintained by Model.
-    """
-    # Trials before current_round_start belong to earlier rounds.
-    # We don't have full round boundary info here, so return 0 as sentinel.
-    # Model._build_tuning_result will fix up round numbers.
-    _ = trial_number, current_round_start
-    return 1  # Default for trials from resumed study (overridden by Model)

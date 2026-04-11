@@ -188,7 +188,8 @@ class ModelTablesMixin:
     def tuning_table(self) -> pd.DataFrame:
         """Return a DataFrame of all tuning trial results.
 
-        Columns: ``trial``, metric name, and each searched parameter name.
+        Columns: ``trial``, ``round``, metric name, each searched parameter
+        name, and ``state``.
 
         Returns:
             DataFrame with one row per trial.

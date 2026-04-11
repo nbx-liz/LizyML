@@ -309,6 +309,14 @@ class TestModelRetuneResume:
         assert exc_info.value.code == ErrorCode.TUNING_FAILED
         assert "resume" in str(exc_info.value.user_message).lower()
 
+    @pytest.mark.parametrize("threshold", [0.0, 0.5, 1.0, -0.1])
+    def test_invalid_boundary_threshold_raises(self, threshold: float) -> None:
+        cfg = _reg_config_with_tuning(n_trials=2)
+        model = Model(cfg)
+        with pytest.raises(LizyMLError) as exc_info:
+            model.tune(make_regression_df(), boundary_threshold=threshold)
+        assert exc_info.value.code == ErrorCode.CONFIG_INVALID
+
     def test_resume_accumulates_trials(self) -> None:
         cfg = _reg_config_with_tuning(n_trials=3)
         df = make_regression_df()
@@ -320,9 +328,9 @@ class TestModelRetuneResume:
         assert r1.rounds[0].round == 1
 
         r2 = model.tune(df, resume=True, n_trials=2)
-        # 3 original + 1 enqueued + 2 new = 6 total,
-        # but enqueued counts as a trial in study
-        assert len(r2.trials) >= 5
+        # Round 1: 3 trials. Round 2: optimize(n_trials=2) — enqueue counts
+        # as 1 of the 2 trials. Total: 3 + 2 = 5 trials.
+        assert len(r2.trials) == 5
         assert len(r2.rounds) == 2
         assert r2.rounds[1].round == 2
 

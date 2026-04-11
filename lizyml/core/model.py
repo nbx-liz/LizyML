@@ -432,6 +432,16 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
                 context={},
             )
 
+        if not 0.0 < boundary_threshold < 0.5:
+            raise LizyMLError(
+                code=ErrorCode.CONFIG_INVALID,
+                user_message=(
+                    f"boundary_threshold must be in (0.0, 0.5), "
+                    f"got {boundary_threshold}."
+                ),
+                context={"boundary_threshold": boundary_threshold},
+            )
+
         optuna_cfg = cfg.tuning.optuna.params
         actual_n_trials = n_trials if n_trials is not None else optuna_cfg.n_trials
 
