@@ -21,8 +21,6 @@ from lizyml.core.types.search_dim import (
 from lizyml.core.types.tuning_result import BoundaryDimStatus, BoundaryReport
 
 __all__ = [
-    "BoundaryDimStatus",
-    "BoundaryReport",
     "CategoricalDim",
     "FloatDim",
     "IntDim",

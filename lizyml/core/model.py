@@ -568,21 +568,16 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
 
         # --- Run tuner ------------------------------------------------------------
         round_number = self._round_number + 1
-        prior_trials = (
-            len(self._study.trials) if resume and self._study is not None else 0
-        )
-        best_score_before = (
-            self._tuning_result.best_score
-            if resume and self._tuning_result is not None
-            else None
-        )
-
-        # Enqueue previous best for warm-start (H-0068)
-        enqueue = (
-            dict(self._tuning_result.best_params)
-            if resume and self._tuning_result is not None
-            else None
-        )
+        prior_trials = 0
+        best_score_before: float | None = None
+        enqueue: dict[str, Any] | None = None
+        if resume:
+            # Guaranteed non-None: validated at the top of tune()
+            assert self._study is not None
+            assert self._tuning_result is not None
+            prior_trials = len(self._study.trials)
+            best_score_before = self._tuning_result.best_score
+            enqueue = dict(self._tuning_result.best_params)
 
         tuner = Tuner(
             dims=space,

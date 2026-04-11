@@ -122,8 +122,6 @@ class Tuner:
 
         # Build optuna callbacks for progress reporting (H-0048, H-0068)
         optuna_callbacks: list[Any] = []
-        # Capture prior_trials for use in both callback and trial list
-        _prior = prior_trials
 
         if self.progress_callback is not None:
             t0 = time.monotonic()
@@ -141,7 +139,7 @@ class Tuner:
                 except ValueError:
                     best = None
                 # trial.number is 0-indexed across the whole study
-                current_in_round = trial.number - _prior + 1
+                current_in_round = trial.number - prior_trials + 1
                 info = TuneProgressInfo(
                     current_trial=current_in_round,
                     total_trials=n_total,
@@ -220,7 +218,7 @@ class Tuner:
                 state=t.state.name.lower(),
                 # Prior-round trials get sentinel round=1; Model.tune() reassigns
                 # correct round numbers via dataclasses.replace().
-                round=round_number if t.number >= _prior else 1,
+                round=round_number if t.number >= prior_trials else 1,
             )
             for t in study.trials
         ]
