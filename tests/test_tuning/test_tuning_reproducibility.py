@@ -44,7 +44,7 @@ class TestTuningReproducibility:
             # Deterministic objective based only on params
             return (lr - 0.1) ** 2 + (nl - 31) ** 2 / 1000.0
 
-        result = tuner.tune(objective, metric_name="synthetic")
+        result, _ = tuner.tune(objective, metric_name="synthetic")
         return result
 
     def test_same_seed_same_best_params(self) -> None:
@@ -86,7 +86,7 @@ class TestAllTrialFailure:
             raise ValueError(msg)
 
         with pytest.raises(LizyMLError) as exc_info:
-            tuner.tune(failing_objective)
+            tuner.tune(failing_objective)  # raises before returning tuple
         assert exc_info.value.code == ErrorCode.TUNING_FAILED
         assert exc_info.value.context["n_trials"] == 3
 
@@ -100,7 +100,7 @@ class TestAllTrialFailure:
             raise RuntimeError(msg)
 
         with pytest.raises(LizyMLError) as exc_info:
-            tuner.tune(failing_objective)
+            tuner.tune(failing_objective)  # raises before returning tuple
         assert "failed" in exc_info.value.user_message.lower()
 
 
@@ -123,7 +123,7 @@ class TestPartialTrialFailure:
                 raise ValueError(msg)
             return lr  # lower is better
 
-        result = tuner.tune(partial_objective)
+        result, _ = tuner.tune(partial_objective)
         # Should have some completed trials
         completed = [t for t in result.trials if t.state == "complete"]
         failed = [t for t in result.trials if t.state != "complete"]

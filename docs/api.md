@@ -70,6 +70,10 @@ def tune(
     self,
     data: pd.DataFrame | None = None,
     *,
+    resume: bool = False,
+    n_trials: int | None = None,
+    expand_boundary: bool | None = None,
+    boundary_threshold: float = 0.05,
     progress_callback: TuneProgressCallback | None = None,
 ) -> TuningResult
 ```
@@ -77,16 +81,27 @@ def tune(
 Runs Optuna-based hyperparameter search. Best params are stored internally and
 applied automatically on the next `fit()` call.
 
+Call with `resume=True` after an initial `tune()` to add trials to the existing
+Optuna study. The TPE sampler reuses knowledge from previous trials, and the
+previous best params are enqueued as a warm-start trial. When `expand_boundary`
+is enabled, dimensions whose best params are near the search space edge are
+automatically expanded in the promising direction (H-0068).
+
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `data` | `pd.DataFrame \| None` | Training DataFrame. |
+| `resume` | `bool` | If `True`, resume from the previous Study and add trials. Requires a prior `tune()` call. |
+| `n_trials` | `int \| None` | Number of trials. `None` uses the config value. |
+| `expand_boundary` | `bool \| None` | Auto-expand dims near boundary. `None` means `True` for default space, `False` for user-specified space. |
+| `boundary_threshold` | `float` | Edge detection threshold (0.0–0.5). Best values within this fraction of the range from either edge trigger expansion. |
 | `progress_callback` | `TuneProgressCallback \| None` | Called after each trial with a `TuneProgressInfo`. Exceptions inside the callback are caught and emitted as `RuntimeWarning`; tuning is never aborted. |
 
 **Returns:** [`TuningResult`](#tuningresult)
 
 **Raises:**
-- `LizyMLError(CONFIG_INVALID)` — no `tuning` section in config.
+- `LizyMLError(CONFIG_INVALID)` — no `tuning` section in config, or `boundary_threshold` out of range.
 - `LizyMLError(OPTIONAL_DEP_MISSING)` — `optuna` not installed.
+- `LizyMLError(TUNING_FAILED)` — `resume=True` without prior `tune()` call.
 - `LizyMLError(TUNING_FAILED)` — study failure.
 
 ---
@@ -289,7 +304,8 @@ artifact).
 | `residuals()` | regression | OOF residuals `(y_true - oof_pred)`, shape `(n_samples,)`. |
 | `split_summary()` | all | Per-fold split sizes as a DataFrame. |
 | `params_table()` | all | Resolved model parameters as a single-column DataFrame. |
-| `tuning_table()` | all | All tuning trial results; requires `tune()` first. |
+| `tuning_table()` | all | All tuning trial results with `round` and `state` columns; requires `tune()` first. |
+| `boundary_table()` | all | Boundary detection results per dimension; requires `tune(resume=True, expand_boundary=True)` (H-0068). |
 | `residuals_plot()` | regression | Plotly residual diagnostic plots. |
 | `roc_curve_plot()` | binary/multiclass | OOF ROC curve. |
 | `calibration_plot()` | binary | Calibration reliability diagram. |
@@ -360,9 +376,73 @@ Result of a full hyperparameter search.
 | `best_smart_params` | `dict` | Best smart parameters (e.g. `pos_weight_ratio`). |
 | `best_training_params` | `dict` | Best training parameters (e.g. `num_boost_round`). |
 | `best_score` | `float` | Best OOF score achieved. |
-| `trials` | `list[TrialResult]` | All trial results (number, params, score, state). |
+| `trials` | `list[TrialResult]` | All trial results (number, params, score, state, round). |
 | `metric_name` | `str` | Name of the metric used for optimization. |
 | `direction` | `str` | `"minimize"` or `"maximize"`. |
+| `rounds` | `tuple[RoundSummary, ...]` | Per-round tuning history (H-0068). Empty tuple for single-round tuning. |
+| `boundary_report` | `BoundaryReport \| None` | Boundary detection results (H-0068). Set only when `resume=True` with `expand_boundary` enabled. |
+
+### TrialResult
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `number` | `int` | Trial index (0-based). |
+| `params` | `dict` | Parameters sampled in this trial. |
+| `score` | `float` | Objective value (NaN if failed). |
+| `state` | `str` | `"complete"`, `"pruned"`, or `"fail"`. |
+| `round` | `int` | Which re-tune round this trial belongs to (1-indexed, H-0068). |
+
+### RoundSummary
+
+Summary of a single tuning round (H-0068).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `round` | `int` | Round number (1-indexed). |
+| `n_trials` | `int` | Number of trials in this round. |
+| `best_score_before` | `float \| None` | Best score at start of round (`None` for round 1). |
+| `best_score_after` | `float` | Best score at end of round. |
+| `expanded_dims` | `tuple[str, ...]` | Names of dimensions expanded before this round. |
+| `space_snapshot` | `tuple[SearchDim, ...]` | Search space used in this round. |
+
+### BoundaryReport
+
+Boundary detection results for all dimensions (H-0068).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `dims` | `tuple[BoundaryDimStatus, ...]` | Per-dimension boundary analysis. |
+| `expanded_names` | `tuple[str, ...]` | Names of dimensions that were expanded. |
+
+### BoundaryDimStatus
+
+Per-dimension boundary analysis (H-0068).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `str` | Dimension name. |
+| `best_value` | `float \| int \| str \| None` | Best parameter value found. |
+| `low` / `high` | `float \| int \| None` | Search range bounds (`None` for categorical). |
+| `position_pct` | `float \| None` | Relative position of best in [0.0, 1.0] (`None` for categorical). |
+| `edge` | `str` | `"lower"`, `"upper"`, or `"none"`. |
+| `expanded` | `bool` | Whether this dim was expanded. |
+| `new_low` / `new_high` | `float \| int \| None` | New bounds after expansion (`None` if not expanded). |
+
+### TuneProgressInfo
+
+Progress information emitted after each tuning trial (H-0048, H-0068).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `current_trial` | `int` | Current trial number in this round (1-indexed). |
+| `total_trials` | `int` | Total trials in this round. |
+| `elapsed_seconds` | `float` | Time elapsed since `tune()` started. |
+| `best_score` | `float \| None` | Best score so far. |
+| `latest_score` | `float \| None` | Score of the latest trial (`None` if fail/pruned). |
+| `latest_state` | `str` | `"complete"`, `"pruned"`, or `"fail"`. |
+| `round` | `int` | Current round number (1-indexed, H-0068). |
+| `cumulative_trials` | `int` | Total trials across all rounds (H-0068). |
+| `expanded_dims` | `tuple[str, ...]` | Dimensions expanded in this round (H-0068). |
 
 ---
 

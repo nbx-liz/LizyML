@@ -767,6 +767,9 @@ SearchDim にカテゴリ属性を持たせ、Tuner がパラメーターの適�
 | `best_score` | `float \| None` | これまでの最良スコア（complete trial なしの場合 `None`） |
 | `latest_score` | `float \| None` | 直近 trial のスコア（fail/pruned の場合 `None`） |
 | `latest_state` | `str` | `"complete"` / `"pruned"` / `"fail"` |
+| `round` | `int` | 現在のラウンド番号（1-indexed）。H-0068 で追加 |
+| `cumulative_trials` | `int` | 全ラウンド通算の試行数。H-0068 で追加 |
+| `expanded_dims` | `tuple[str, ...]` | このラウンドで拡張された次元名。H-0068 で追加 |
 
 ### TuneProgressCallback
 
@@ -778,7 +781,8 @@ TuneProgressCallback = Callable[[TuneProgressInfo], None]
 
 ```python
 def on_progress(info: TuneProgressInfo) -> None:
-    print(f"Trial {info.current_trial}/{info.total_trials} "
+    print(f"[Round {info.round}] Trial {info.current_trial}/{info.total_trials} "
+          f"(cumulative {info.cumulative_trials}) "
           f"score={info.latest_score} best={info.best_score}")
 
 result = model.tune(progress_callback=on_progress)
@@ -791,7 +795,108 @@ result = model.tune(progress_callback=on_progress)
 - Optuna の `study.optimize(callbacks=[...])` を活用し、各 trial 完了時に通知する。
 - `TuneProgressInfo` と `TuneProgressCallback` は `lizyml/__init__.py` の公開面に含める。
 
-## 11.5 リーク回避方針（必須で明文化）
+## 11.5 Re-tune: Study Resume + 境界検知拡張（H-0068）
+
+初回 tuning 後に追加探索を行い、さらなる精度向上を目指す。
+
+### Model.tune() の拡張パラメーター
+
+| パラメーター | デフォルト | 説明 |
+|---|---|---|
+| `resume` | `False` | `True`: 前回 Study を再利用して追加試行 |
+| `n_trials` | `None` | 追加試行数（`None` → config 値） |
+| `expand_boundary` | `None` | 境界拡張。`None`: デフォルト空間→`True`、ユーザー空間→`False` |
+| `boundary_threshold` | `0.05` | 端判定閾値（0.0〜1.0） |
+
+### 境界検知ルール
+
+- **linear 空間**: `(best - low) / (high - low) < threshold` → 下限近傍
+- **log 空間**: 対数空間で同一計算
+- **categorical**: 拡張不可（ログ通知のみ）
+
+### 非対称拡張ルール
+
+- linear: 端方向に `(high - low)` を追加（range 2 倍）
+- log: 端方向に対数空間で 3 倍に拡張
+- `IntDim`: `max(1, new_low)` で下限ガード
+- 反対側の端は据え置き
+
+### RoundSummary / BoundaryReport
+
+```python
+@dataclass(frozen=True)
+class RoundSummary:
+    round: int                        # 1-indexed
+    n_trials: int
+    best_score_before: float | None
+    best_score_after: float
+    expanded_dims: tuple[str, ...]
+    space_snapshot: tuple[SearchDim, ...]
+
+@dataclass(frozen=True)
+class BoundaryDimStatus:
+    name: str
+    best_value: float | int | str | None
+    low: float | int | None
+    high: float | int | None
+    position_pct: float | None
+    edge: str                    # "lower" | "upper" | "none"
+    expanded: bool
+    new_low: float | int | None
+    new_high: float | int | None
+
+@dataclass(frozen=True)
+class BoundaryReport:
+    dims: tuple[BoundaryDimStatus, ...]
+    expanded_names: tuple[str, ...]
+```
+
+### TuningResult 拡張
+
+```python
+# 追加フィールド
+rounds: tuple[RoundSummary, ...]        # デフォルト: (RoundSummary(round=1, ...),)
+boundary_report: BoundaryReport | None  # resume 時のみ設定
+```
+
+### TrialResult 拡張
+
+```python
+round: int  # 追加: どのラウンドの試行か (1-indexed)。デフォルト 1
+```
+
+### tuning_table() 拡張
+
+`round` 列と `state` 列を追加。
+
+### boundary_table() 新設
+
+`BoundaryReport` を DataFrame に変換。列: `dim`, `best`, `low`, `high`, `position`, `edge`, `expanded`, `new_low`, `new_high`。
+
+### plot_tuning_history() 拡張
+
+- ラウンド境界に縦の破線
+- ラウンドごとのアノテーション（拡張次元名）
+- best score 累積線はラウンドをまたいで連続
+
+### Widget / Studio 連携
+
+LizyML Core は callback + 結果型でデータを提供し、Widget/Studio が消費する設計。
+
+| 消費者 | 情報源 | 用途 |
+|---|---|---|
+| Widget（リアルタイム） | `TuneProgressInfo.round`, `.cumulative_trials`, `.expanded_dims` | 進捗バー、拡張パネル |
+| Studio（ダッシュボード） | `TuningResult.rounds`, `.boundary_report` | Round History、Search Space Evolution、収束判定 |
+
+収束判定（`expanded_dims` 空 + 改善微小 → fit 推奨）は Widget/Studio 側の責務。Core は判断材料のみ提供する。
+
+### 制約
+
+- `resume=False` は現在と同一動作（完全後方互換）
+- `resume=True` で未 tune → `LizyMLError(TUNING_FAILED)`
+- Tuner は study オブジェクトの受け取り・返却に対応するが、study の永続化（RDB storage 等）は対象外
+
+## 11.6 リーク回避方針（必須で明文化）
 
 - 最適化に使った CV で最終性能を主張しない。
 
