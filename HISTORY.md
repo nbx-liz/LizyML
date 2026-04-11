@@ -5067,3 +5067,272 @@ H-0064 で導入された feval metric（f1, brier, ece, precision_at_k, accurac
 - 各バグに対する回帰テスト（16 件追加）
 - 既存テスト 1478 件が引き続き PASS（テスト総数 1495）
 - 品質ゲート（ruff / mypy / pytest）全 PASS
+
+## H-0068: Re-tune（Study Resume + 境界検知拡張）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-04-11
+- **スコープ**: Public API | Tuning | Types
+- **関連**: BLUEPRINT.md §11, H-0048 (Progress Callback), H-0050 (TuningResult 3分割)
+
+### 目的
+
+初回 tuning 後に追加探索を行い、さらなる精度向上を目指す re-tune 機能を提供する。主に以下の 2 つの機能で構成する:
+
+1. **Study Resume**: 前回の Optuna Study を保持し、追加試行を行う（TPE が過去試行から学習済み）
+2. **境界検知 + 非対称拡張**: best params が探索空間の端に張り付いている次元を自動検知し、有望方向にのみ探索空間を拡張する
+
+狭めるのではなく「まだ見ていない有望領域を探しに行く」発想。
+
+### 背景・調査結果
+
+- **Optuna**: `study.optimize()` 再呼び出しで試行追加可能。TPE sampler は過去試行を自動活用。`enqueue_trial()` で前回 best を初期候補に注入可能。
+- **FLAML**: `points_to_evaluate` + progressive widening（低コスト→高コスト）。
+- **PBT (DeepMind)**: best の ×0.8/×1.2 摂動で次世代生成。探索空間に明示境界なし。
+- **共通リスク**: 同一 validation fold での繰り返し評価は過適合を招く。LizyML は OOF 評価のため単純リークはないが、試行数増加による選択バイアスは残る。
+
+### Proposal
+
+#### 1. `Model.tune()` API 拡張
+
+```python
+def tune(
+    self,
+    data: pd.DataFrame | None = None,
+    *,
+    resume: bool = False,
+    n_trials: int | None = None,
+    expand_boundary: bool | None = None,
+    boundary_threshold: float = 0.05,
+    progress_callback: TuneProgressCallback | None = None,
+) -> TuningResult:
+```
+
+| パラメーター | デフォルト | 説明 |
+|---|---|---|
+| `resume` | `False` | `True` の場合、前回の Study を再利用して追加試行を行う |
+| `n_trials` | `None` | 追加試行数。`None` の場合 `config.tuning.optuna.params.n_trials` を使用 |
+| `expand_boundary` | `None` | 境界拡張の有無。`None` の場合、デフォルト空間では `True`、ユーザー指定空間では `False` |
+| `boundary_threshold` | `0.05` | 端判定の閾値（0.0〜1.0）。best の位置が端から threshold 以内なら拡張候補 |
+
+制約:
+- `resume=False` は現在と同一動作（完全な後方互換）
+- `resume=True` で `tune()` 未呼び出しの場合は `LizyMLError(TUNING_FAILED)` を送出
+- `expand_boundary=True` でユーザー指定空間の場合も動作する（明示許可）
+
+#### 2. 境界検知ロジック
+
+`tuning/search_space.py` に `detect_boundary()` と `expand_dims()` を追加。
+
+**検知ルール**:
+- `FloatDim` / `IntDim`（linear）: `(best - low) / (high - low) < threshold` → 下限近傍、`(high - best) / (high - low) < threshold` → 上限近傍
+- `FloatDim` / `IntDim`（log）: 対数空間で同一の計算を行う
+- `CategoricalDim`: 拡張不可（ログで通知のみ）
+
+**拡張ルール**:
+- linear: 端方向に `(high - low)` を追加（つまり range を 2 倍に拡張）
+- log: 端方向に対数空間で 3 倍に拡張（例: low=0.0001 → low=0.0000333）
+- `IntDim`: 拡張後の値を int に丸める。low は `max(1, new_low)` で下限ガード
+- 反対側の端は据え置き（非対称拡張）
+
+**戻り値型**:
+
+```python
+@dataclass(frozen=True)
+class BoundaryDimStatus:
+    name: str
+    best_value: float | int | str | None
+    low: float | int | None
+    high: float | int | None
+    position_pct: float | None   # 0.0〜1.0
+    edge: str                    # "lower" | "upper" | "none"
+    expanded: bool
+    new_low: float | int | None
+    new_high: float | int | None
+
+@dataclass(frozen=True)
+class BoundaryReport:
+    dims: tuple[BoundaryDimStatus, ...]
+    expanded_names: tuple[str, ...]
+```
+
+#### 3. Tuner の Study 保持
+
+`Tuner.tune()` に `study` 引数を追加（省略時は従来通り新規作成）。`enqueue_trial` で前回 best を注入。
+
+```python
+def tune(
+    self,
+    objective: Any,
+    metric_name: str = "rmse",
+    *,
+    study: Any | None = None,
+    enqueue_params: dict[str, Any] | None = None,
+) -> tuple[TuningResult, Any]:
+    # Returns (result, study) — study を Model が保持して resume に使う
+```
+
+#### 4. TuningResult 拡張
+
+```python
+@dataclass(frozen=True)
+class RoundSummary:
+    round: int                        # 1-indexed
+    n_trials: int
+    best_score_before: float | None   # ラウンド開始前の best
+    best_score_after: float           # ラウンド終了時の best
+    expanded_dims: tuple[str, ...]
+    space_snapshot: tuple[SearchDim, ...]
+
+@dataclass(frozen=True)
+class TuningResult:
+    # --- 既存（変更なし） ---
+    best_model_params: dict[str, Any]
+    best_smart_params: dict[str, Any]
+    best_training_params: dict[str, Any]
+    best_score: float
+    trials: list[TrialResult]
+    metric_name: str
+    direction: str
+    # --- 追加 ---
+    rounds: tuple[RoundSummary, ...]
+    boundary_report: BoundaryReport | None
+```
+
+- `rounds` のデフォルトは `(RoundSummary(round=1, ...),)`（初回 tune でも 1 要素）
+- `boundary_report` は `resume=True` 時のみ設定。初回 tune では `None`
+
+#### 5. TuneProgressInfo 拡張
+
+```python
+@dataclass(frozen=True)
+class TuneProgressInfo:
+    # --- 既存 ---
+    current_trial: int
+    total_trials: int
+    elapsed_seconds: float
+    best_score: float | None
+    latest_score: float | None
+    latest_state: str
+    # --- 追加 ---
+    round: int                          # 1-indexed
+    cumulative_trials: int              # 全ラウンド通算
+    expanded_dims: tuple[str, ...]      # このラウンドで拡張された次元名
+```
+
+#### 6. TrialResult 拡張
+
+```python
+@dataclass(frozen=True)
+class TrialResult:
+    number: int
+    params: dict[str, Any]
+    score: float
+    state: str
+    round: int  # 追加: どのラウンドの試行か (1-indexed)
+```
+
+#### 7. tuning_table() 拡張
+
+`round` 列と `state` 列を追加:
+
+```
+trial  round  rmse     learning_rate  num_leaves  state
+0      1      0.312    0.005          128         complete
+...
+50     2      0.283    0.00008        300         complete
+```
+
+#### 8. boundary_table() 新設
+
+`_model_tables.py` に `boundary_table()` メソッドを追加:
+
+```
+dim               best     low       high     position  edge   expanded  new_low  new_high
+learning_rate     0.00015  0.0001    0.1      1.1%      lower  True      0.00001  0.1
+num_leaves        251      16        256      97.9%     upper  True      16       512
+feature_fraction  0.72     0.5       1.0      44.0%     none   False     —        —
+```
+
+#### 9. plot_tuning_history() 拡張
+
+- ラウンド境界に縦の破線を追加
+- ラウンドごとにアノテーション（拡張された次元名）
+- best score の累積線はラウンドをまたいで連続描画
+
+#### 10. ログ出力
+
+```
+INFO  tune.resume: expanding 2 of 5 dims
+        learning_rate: lower bound 0.0001 → 0.00001 (best 0.00015 near lower edge)
+        num_leaves: upper bound 256 → 512 (best 251 near upper edge)
+INFO  tune.resume: enqueued previous best as initial trial
+INFO  tune.resume: starting 30 additional trials (80 cumulative)
+```
+
+#### 11. Widget / Studio 連携仕様
+
+LizyML Core は callback + 結果型でデータを提供し、Widget/Studio が消費する。
+
+**Widget（リアルタイムモニタ）向け情報**:
+
+| Widget 要素 | 情報源 |
+|---|---|
+| Round 表示 | `TuneProgressInfo.round` |
+| 進捗バー | `TuneProgressInfo.cumulative_trials` |
+| 改善幅 | `best_score` vs `RoundSummary.best_score_before` |
+| 拡張パネル | `TuneProgressInfo.expanded_dims` |
+| Score History | callback 呼び出しごとに蓄積 |
+
+**Studio（ダッシュボード）向け情報**:
+
+| Studio 要素 | 情報源 |
+|---|---|
+| Round History テーブル | `TuningResult.rounds` |
+| Search Space Evolution | `RoundSummary.space_snapshot` |
+| 収束判定 | `expanded_dims == ()` AND 改善 < threshold |
+| boundary_table() | `TuningResult.boundary_report` |
+
+収束判定ロジック自体は LizyML Core には含めず、Studio/Widget 側の責務とする。Core は判断材料のみを提供する。
+
+### 影響範囲
+
+- `lizyml/core/types/tuning_result.py` — TuningResult, TuneProgressInfo, TrialResult 拡張 + RoundSummary, BoundaryReport, BoundaryDimStatus 追加
+- `lizyml/tuning/search_space.py` — detect_boundary(), expand_dims() 追加
+- `lizyml/tuning/tuner.py` — study 引数追加、enqueue_trial 対応
+- `lizyml/core/model.py` — tune() に resume/n_trials/expand_boundary/boundary_threshold 追加、`_study` 保持
+- `lizyml/core/_model_tables.py` — tuning_table() に round/state 列追加、boundary_table() 新設
+- `lizyml/plots/tuning.py` — plot_tuning_history() にラウンド区切り線追加
+- `lizyml/__init__.py` — 新型の公開面追加
+
+### 互換性
+
+- `tune()` のデフォルト動作は変更なし（`resume=False`）→ 完全後方互換
+- `TuningResult` に `rounds` と `boundary_report` フィールドが追加される。既存コードで positional args を使っている場合は影響があるが、frozen dataclass は keyword-only 使用が慣例
+- `TuneProgressInfo` に 3 フィールド追加。callback が属性アクセスで使用している場合は影響なし（追加方向）
+- `TrialResult` に `round` フィールド追加（デフォルト `1`）。追加方向
+- `tuning_table()` に `round` と `state` 列が追加される（追加方向）
+- `plot_tuning_history()` は初回 tune のみの場合、区切り線なしで従来と同一表示
+
+### 代替案
+
+1. **Space Narrowing（探索空間絞り込み）**: best 周辺に範囲を狭める。真の最適が範囲外にある場合に見逃すリスクが高い。過適合リスクも拡張型より高い。
+2. **Successive Halving**: n_estimators を段階的に増やす多段評価。LizyML の CV ベース評価とは設計思想が異なる。
+3. **拡張なしの純粋 Resume のみ**: 実装は簡単だが、探索空間の端に張り付いた場合に改善の余地がない。
+
+### 受け入れ基準（テスト観点）
+
+1. `resume=False` で既存テストが全 PASS（後方互換）
+2. `resume=True` で累計試行数が正しく増加し、best_score が悪化しない
+3. 境界検知: 端に張り付いた次元が正しく検知される（linear/log/categorical 各ケース）
+4. 非対称拡張: 端方向のみ拡張され、反対側は据え置き
+5. `TuningResult.rounds` が正しい RoundSummary を含む
+6. `TuneProgressInfo` の追加フィールドが正しく報告される
+7. `TrialResult.round` が正しいラウンド番号を持つ
+8. `tuning_table()` に `round` / `state` 列が存在する
+9. `boundary_table()` が BoundaryReport を正しく DataFrame に変換する
+10. `plot_tuning_history()` でラウンド境界が描画される
+11. ユーザー指定空間 + `expand_boundary=None` → 拡張されない
+12. デフォルト空間 + `expand_boundary=None` → 拡張される
+13. `resume=True` で未 tune → `TUNING_FAILED` エラー
+14. 品質ゲート（ruff / mypy / pytest）全 PASS

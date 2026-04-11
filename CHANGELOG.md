@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] - 2026-04-12
+
+### Added
+
+- **Re-tune: Study Resume + Boundary Expansion** (H-0068)
+  - `Model.tune(resume=True)` resumes from the previous Optuna Study with additional trials; TPE sampler reuses knowledge from prior trials and previous best params are enqueued as a warm-start trial
+  - Automatic boundary detection identifies dimensions where best params are near the search space edge
+  - Asymmetric space expansion extends promising directions only (linear: 2× range, log: 3× in log space)
+  - `TuningResult.rounds` tracks per-round history (`RoundSummary` with scores, expanded dims, space snapshots)
+  - `TuningResult.boundary_report` provides dimension-by-dimension boundary analysis (`BoundaryReport` / `BoundaryDimStatus`)
+  - `Model.boundary_table()` returns boundary detection results as a DataFrame
+  - `TuneProgressInfo` gains `round`, `cumulative_trials`, `expanded_dims` for real-time progress monitoring
+  - `TrialResult.round` indicates which re-tune round each trial belongs to
+  - `tuning_table()` includes `round` and `state` columns
+  - `plot_tuning_history()` shows round boundary separators with expanded dimension annotations
+  - New public types exported from `lizyml`: `BoundaryReport`, `BoundaryDimStatus`, `RoundSummary`
+  - Fully backward compatible: `tune()` with no new parameters behaves identically to previous versions
+
 ## [0.8.1] - 2026-04-11
 
 ### Fixed
