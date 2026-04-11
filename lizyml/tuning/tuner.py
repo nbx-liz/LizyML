@@ -1,9 +1,10 @@
-"""Tuner — optuna-backed hyperparameter optimisation (H-0050: study management only).
+"""Tuner — optuna-backed hyperparameter optimisation (H-0050, H-0068).
 
 The Tuner is responsible for:
 - Creating and running an Optuna study
 - Managing progress callbacks and failure logging
 - Collecting trial results into a TuningResult
+- Accepting an existing study for resume (H-0068)
 
 The Tuner does NOT know about LightGBM, smart params, CVTrainer, or any
 model-specific logic.  The objective closure is built externally (by Model)
@@ -71,17 +72,31 @@ class Tuner:
         self,
         objective: Any,
         metric_name: str = "rmse",
-    ) -> TuningResult:
-        """Run hyperparameter search and return a TuningResult.
+        *,
+        study: Any | None = None,
+        enqueue_params: dict[str, Any] | None = None,
+        round_number: int = 1,
+        prior_trials: int = 0,
+        expanded_dims: tuple[str, ...] = (),
+    ) -> tuple[TuningResult, Any]:
+        """Run hyperparameter search and return a TuningResult + study.
 
         Args:
             objective: Callable ``(optuna.Trial) -> float`` that evaluates a
                 single trial.  Built externally by Model.tune().
             metric_name: Name of the metric being optimised (stored in
                 TuningResult for downstream display/logging).
+            study: Optional existing Optuna study to resume (H-0068).
+                If None, a new study is created.
+            enqueue_params: Optional params dict to enqueue as initial trial
+                (H-0068). Typically the previous best params.
+            round_number: Current round number (1-indexed, H-0068).
+            prior_trials: Number of trials from previous rounds (H-0068).
+            expanded_dims: Dimensions expanded in this round (H-0068).
 
         Returns:
-            TuningResult with best params, best score, and trial history.
+            Tuple of (TuningResult, study). The study is returned so that
+            Model can hold it for future resume calls.
 
         Raises:
             LizyMLError with OPTIONAL_DEP_MISSING if optuna is not installed.
@@ -97,15 +112,25 @@ class Tuner:
                 context={"package": "optuna"},
             )
 
-        sampler = _optuna.samplers.TPESampler(seed=self.seed)
-        study = _optuna.create_study(direction=self.direction, sampler=sampler)
+        if study is None:
+            sampler = _optuna.samplers.TPESampler(seed=self.seed)
+            study = _optuna.create_study(direction=self.direction, sampler=sampler)
 
-        # Build optuna callbacks for progress reporting (H-0048)
+        # Enqueue previous best as initial trial (H-0068)
+        if enqueue_params is not None:
+            study.enqueue_trial(enqueue_params)
+
+        # Build optuna callbacks for progress reporting (H-0048, H-0068)
         optuna_callbacks: list[Any] = []
+        # Capture prior_trials for use in both callback and trial list
+        _prior = prior_trials
+
         if self.progress_callback is not None:
             t0 = time.monotonic()
             user_cb = self.progress_callback
             n_total = self.n_trials
+            rnd = round_number
+            exp_dims = expanded_dims
 
             def _progress_cb(study_: Any, trial: Any) -> None:
                 state_name: str = trial.state.name.lower()
@@ -115,13 +140,18 @@ class Tuner:
                     best = study_.best_value
                 except ValueError:
                     best = None
+                # trial.number is 0-indexed across the whole study
+                current_in_round = trial.number - _prior + 1
                 info = TuneProgressInfo(
-                    current_trial=trial.number + 1,
+                    current_trial=current_in_round,
                     total_trials=n_total,
                     elapsed_seconds=time.monotonic() - t0,
                     best_score=best,
                     latest_score=latest_score,
                     latest_state=state_name,
+                    round=rnd,
+                    cumulative_trials=trial.number + 1,
+                    expanded_dims=exp_dims,
                 )
                 try:
                     user_cb(info)
@@ -175,9 +205,10 @@ class Tuner:
             )
 
         _log.info(
-            "event='tune.done' best_value=%.4f n_trials=%d",
+            "event='tune.done' best_value=%.4f n_trials=%d round=%d",
             study.best_value,
             len(study.trials),
+            round_number,
         )
 
         dims = self.dims
@@ -187,12 +218,15 @@ class Tuner:
                 params=dict(t.params),
                 score=t.value if t.value is not None else float("nan"),
                 state=t.state.name.lower(),
+                round=round_number
+                if t.number >= _prior
+                else _trial_round(t.number, _prior),
             )
             for t in study.trials
         ]
         best_flat = dict(study.best_params)
         best_model, best_smart, best_training = split_by_category(best_flat, dims)
-        return TuningResult(
+        result = TuningResult(
             best_model_params=best_model,
             best_smart_params=best_smart,
             best_training_params=best_training,
@@ -201,3 +235,18 @@ class Tuner:
             metric_name=metric_name,
             direction=self.direction,
         )
+        return result, study
+
+
+def _trial_round(trial_number: int, current_round_start: int) -> int:
+    """Determine round for a trial from a previous round.
+
+    For simplicity, trials before the current round start are assigned
+    round numbers based on the assumption that they are from earlier rounds.
+    This is a heuristic — the precise mapping is maintained by Model.
+    """
+    # Trials before current_round_start belong to earlier rounds.
+    # We don't have full round boundary info here, so return 0 as sentinel.
+    # Model._build_tuning_result will fix up round numbers.
+    _ = trial_number, current_round_start
+    return 1  # Default for trials from resumed study (overridden by Model)

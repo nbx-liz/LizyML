@@ -207,10 +207,52 @@ class ModelTablesMixin:
         for t in tr.trials:
             row: dict[str, Any] = {
                 "trial": t.number,
+                "round": t.round,
                 tr.metric_name: t.score,
                 **t.params,
+                "state": t.state,
             }
             rows.append(row)
+        return pd.DataFrame(rows)
+
+    def boundary_table(self) -> pd.DataFrame:
+        """Return a DataFrame of boundary detection results (H-0068).
+
+        Columns: ``dim``, ``best``, ``low``, ``high``, ``position``,
+        ``edge``, ``expanded``, ``new_low``, ``new_high``.
+
+        Returns:
+            DataFrame with one row per search dimension.
+
+        Raises:
+            LizyMLError with MODEL_NOT_FIT when ``tune(resume=True)`` has
+            not been called or no boundary report exists.
+        """
+        if self._tuning_result is None or self._tuning_result.boundary_report is None:
+            raise LizyMLError(
+                code=ErrorCode.MODEL_NOT_FIT,
+                user_message=(
+                    "No boundary report available. "
+                    "Run tune(resume=True) to generate a boundary report."
+                ),
+                context={},
+            )
+        report = self._tuning_result.boundary_report
+        rows = []
+        for s in report.dims:
+            rows.append(
+                {
+                    "dim": s.name,
+                    "best": s.best_value,
+                    "low": s.low,
+                    "high": s.high,
+                    "position": s.position_pct,
+                    "edge": s.edge,
+                    "expanded": s.expanded,
+                    "new_low": s.new_low,
+                    "new_high": s.new_high,
+                }
+            )
         return pd.DataFrame(rows)
 
     def params_table(self) -> pd.DataFrame:

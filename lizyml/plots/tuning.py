@@ -1,4 +1,4 @@
-"""Tuning history plot: trial scores and best-score progression."""
+"""Tuning history plot: trial scores, best-score progression, and round separators."""
 
 from __future__ import annotations
 
@@ -39,6 +39,9 @@ _STATE_COLORS: dict[str, str] = {
 
 def plot_tuning_history(tuning_result: TuningResult) -> Any:
     """Plot trial-by-trial score with best-score cumulative line.
+
+    When the result contains multiple rounds (H-0068), vertical dashed lines
+    are drawn at round boundaries with annotations showing expanded dims.
 
     Args:
         tuning_result: Result from ``Model.tune()``.
@@ -93,6 +96,37 @@ def plot_tuning_history(tuning_result: TuningResult) -> Any:
                 line={"color": "crimson", "width": 2, "dash": "dash"},
             )
         )
+
+    # H-0068: Round boundary separators
+    if tuning_result.rounds and len(tuning_result.rounds) > 1:
+        cumulative = 0
+        for rs in tuning_result.rounds[:-1]:
+            cumulative += rs.n_trials
+            # Vertical line at the boundary between rounds
+            fig.add_vline(
+                x=cumulative - 0.5,
+                line_dash="dot",
+                line_color="gray",
+                line_width=1,
+                opacity=0.7,
+            )
+
+        # Annotate each round
+        cumulative = 0
+        for rs in tuning_result.rounds:
+            mid_x = cumulative + rs.n_trials / 2
+            label = f"Round {rs.round}"
+            if rs.expanded_dims:
+                label += f" ({', '.join(rs.expanded_dims)})"
+            fig.add_annotation(
+                x=mid_x,
+                y=1.0,
+                yref="paper",
+                text=label,
+                showarrow=False,
+                font={"size": 10, "color": "gray"},
+            )
+            cumulative += rs.n_trials
 
     fig.update_layout(
         title="Tuning History",
