@@ -5336,3 +5336,78 @@ LizyML Core は callback + 結果型でデータを提供し、Widget/Studio が
 12. デフォルト空間 + `expand_boundary=None` → 拡張される
 13. `resume=True` で未 tune → `TUNING_FAILED` エラー
 14. 品質ゲート（ruff / mypy / pytest）全 PASS
+
+## H-0069: `validation_ratio` を computed_field 化（Issue #95 構造的根治）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-05-02
+- **スコープ**: Public Config | Schema | Persistence
+- **関連**: [Issue #95](https://github.com/nbx-liz/LizyML/issues/95), [LizyStudio #345](https://github.com/nbx-liz/LizyStudio/issues/345)
+
+### 目的
+
+`EarlyStoppingConfig.validation_ratio` と `inner_valid.ratio` が「両方 mutable / 両方 dump 出力 / 同期は validator の片方向のみ」という二重表現になっており、以下のバグを構造的に発生させている:
+
+1. **Issue #95（顕在）**: `inner_valid` が `group_holdout` / `time_holdout` のとき `Model.save()` → `Model.load()` で round-trip が `ValidationError` で落ちる。LizyStudio #345 の production 500 エラーを引き起こしている
+2. **codegen silent ratio mismatch（潜在）**: `inner_valid={method:..., ratio:0.25}` を渡しても `validation_ratio` は default 0.1 のまま。`_model_persistence.py:206` が `es.validation_ratio` を `export_code()` に渡すため、生成 `train.py` が誤った holdout 比率で動作する
+
+これらは個別に対症修正（B 案: validator 内双方向同期）しても、二重表現自体が残るため再発リスクが高い。本 Proposal は `validation_ratio` を `inner_valid.ratio` から派生する read-only `@computed_field` に正規化し、Single Source of Truth 化することで二重表現を根絶する。
+
+### 変更内容
+
+1. **`EarlyStoppingConfig` schema 改訂** (`lizyml/config/schema.py`)
+   - `validation_ratio: float | None = 0.1` を **削除**（stored field でなくなる）
+   - `@computed_field` として `validation_ratio` プロパティを追加 — `inner_valid.ratio` を返す read-only
+   - `_resolve_validation_ratio` validator を削除し、以下に置換:
+     - `mode="wrap"` validator で legacy YAML 入力 (`{"validation_ratio": 0.1}` のみ) を `{"inner_valid": {"method": "holdout", "ratio": 0.1}}` に変換 + round-trip 入力 (`validation_ratio` と `inner_valid` 両方在) は `validation_ratio` を strip
+     - mode="wrap" 内で `_inner_valid_explicit` PrivateAttr を「ユーザーが入力で `inner_valid` を明示し、かつ `validation_ratio` を併記しなかった場合のみ True」に設定（既存 auto-resolve セマンティクス維持）
+   - `mode="after"` で `inner_valid is None` のとき default `HoldoutInnerValidConfig(method="holdout", ratio=0.1)` を補填
+
+2. **下流の読み出し経路は無変更**
+   - `_model_persistence.py:206`, `_model_tables.py:290` は `es.validation_ratio` を読むが、computed_field なので呼び出しは不変。値は自動的に正しくなる
+   - `model.py:795` の `tp["validation_ratio"]` 読み出し（Tuner 探索次元）は引数辞書ベースなので無変更
+   - `defaults.py:73` の `FloatDim("validation_ratio", ...)` も無変更（探索次元名として継続使用）
+
+3. **既存 `model.lizyml` artifact 互換**
+   - 旧 `metadata.json` には `validation_ratio: 0.1` が含まれる → mode="wrap" の round-trip strip ロジックで透過的に受理される
+   - `format_version` bump 不要
+
+### 影響範囲
+
+- `lizyml/config/schema.py` — `EarlyStoppingConfig` schema（中核）
+- `tests/test_config/test_early_stopping_defaults.py` — 既存テスト確認（API 不変なので PASS のはず）
+- `tests/test_config/test_early_stopping_roundtrip.py` — 新規 round-trip 回帰テスト（Issue #95 受け入れ基準）
+- `tests/regression/test_reg_issue_95_*.py` — 永続化互換テスト（旧形式 metadata.json の読み込み）
+- BLUEPRINT.md — `EarlyStoppingConfig` セクションがあれば更新
+
+### 互換性
+
+- **YAML 入力（user-facing）**: 完全互換
+  - `{"validation_ratio": 0.1}` → 内部で `inner_valid: holdout` に正規化（既存挙動と同じ）
+  - `{"inner_valid": {...}}` → そのまま（既存挙動と同じ）
+  - 両方併記 + 値一致 → OK（既存 round-trip allowance を継承）
+  - 両方併記 + 値不一致 → `ValueError`（実コンフリクトの検知は維持）
+- **`Model.load()` 互換**: 旧 artifact (`validation_ratio: 0.1` を含む metadata) はそのまま load 可能
+- **`cfg.training.early_stopping.validation_ratio` の読み取り**: 引き続き動作（computed_field）
+- **`auto-resolve` セマンティクス**: `_inner_valid_explicit` フラグの設定ルール変更なし（legacy YAML や round-trip では False、明示的 inner_valid では True）。`_model_factories.py:253` の挙動は不変
+- **format_version**: 変更なし（schema 入出力契約は維持）
+
+### 代替案
+
+- **A. `isinstance` チェックを緩和するだけ**: Issue #95 の症状のみ修正。`validation_ratio ↔ inner_valid.ratio` の同期欠落は残存し codegen silent bug は手付かず → 場当たり修正
+- **B. validator 内で双方向同期**: 同期欠落を修正するが二重表現は残存。新コンシューマが `validation_ratio` を mutable 前提で書くと再発リスク → 中庸
+- **C. computed_field 化（本 Proposal）**: 二重表現を構造的に根絶。ユーザー API（read 経路）は完全互換 → **採用**
+- **D. `validation_ratio` 完全撤廃**: 全 consumer を `inner_valid.ratio` 直読に変更。最もクリーンだが破壊的（YAML 入力 + Tuner 探索次元名）。次メジャー（v1.0）に持ち越し
+
+### 受け入れ基準（テスト観点）
+
+1. **Issue #95 直接修正**: 3 つの `InnerValidConfig` discriminant (`holdout` / `group_holdout` / `time_holdout`) について `model_validate(model_dump())` round-trip がすべて成功
+2. **non-default ratio round-trip**: 上記 3 discriminant × `ratio ∈ {0.1, 0.25, 0.4}` の cross product でも round-trip 成功（隠れていた validation_ratio 同期欠落も同時解消）
+3. **legacy YAML 互換**: `{"validation_ratio": 0.1}` 単独入力で `inner_valid` が `Holdout(ratio=0.1)` に正規化され、`_inner_valid_explicit=False`（auto-resolve 経路維持）
+4. **明示的 inner_valid**: `{"inner_valid": {"method": "group_holdout", "ratio": 0.2}}` 入力で `_inner_valid_explicit=True`、`es.validation_ratio == 0.2`
+5. **両方併記の整合性ガード**: `{"inner_valid": {ratio: 0.1}, "validation_ratio": 0.25}` は `ValidationError`（不整合の検知は維持）
+6. **下流読み取り正常性**: `cfg.training.early_stopping.validation_ratio` が `inner_valid.ratio` と一致（computed）
+7. **persistence 互換**: 旧 `validation_ratio: 0.1` を含む `metadata.json` から `Model.load()` 成功（パラメトライズ: 3 discriminant）
+8. **codegen 整合**: `inner_valid={method: holdout, ratio: 0.25}` で fit したモデルを `export_code` した `train.py` が `validation_ratio=0.25` で動作（codegen silent bug の同時修正確認）
+9. **auto-resolve 維持**: `validation_ratio: 0.1` + `split.method=group_kfold` の組み合わせで factory が `GroupHoldoutInnerValid` を返す（既存挙動）
+10. **品質ゲート**: ruff / mypy / pytest 全 PASS、既存 1320+ テストが PASS
