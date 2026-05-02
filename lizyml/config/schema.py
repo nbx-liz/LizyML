@@ -8,7 +8,14 @@ from __future__ import annotations
 import warnings
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    PrivateAttr,
+    computed_field,
+    model_validator,
+)
 
 # ---------------------------------------------------------------------------
 # DataConfig
@@ -312,37 +319,94 @@ InnerValidConfig = Annotated[
 ]
 
 
+_DEFAULT_VALIDATION_RATIO = 0.1
+
+
 class EarlyStoppingConfig(BaseModel):
+    """Early-stopping configuration.
+
+    ``inner_valid`` is the canonical source of truth for the holdout
+    fraction.  ``validation_ratio`` is exposed as a read-only computed
+    field that mirrors ``inner_valid.ratio`` (H-0069).
+
+    Legacy YAML inputs that supply only ``validation_ratio`` are
+    transparently migrated into a ``HoldoutInnerValidConfig`` so the
+    user-facing surface stays compatible.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     enabled: bool = True
     rounds: int = 150
     inner_valid: InnerValidConfig | None = None
-    validation_ratio: float | None = 0.1
     _inner_valid_explicit: bool = PrivateAttr(default=False)
 
-    @model_validator(mode="after")
-    def _resolve_validation_ratio(self) -> EarlyStoppingConfig:
-        iv_explicit = "inner_valid" in self.model_fields_set
-        vr_explicit = "validation_ratio" in self.model_fields_set
-        if iv_explicit and vr_explicit:
-            # Allow round-trip: model_dump() produces both; consistent is OK
-            if (
-                isinstance(self.inner_valid, HoldoutInnerValidConfig)
-                and self.inner_valid.ratio == self.validation_ratio
-            ):
-                return self
-            raise ValueError(
-                "Specify either 'validation_ratio' or 'inner_valid', not both."
+    @model_validator(mode="wrap")
+    @classmethod
+    def _migrate_and_track_explicit(
+        cls, data: Any, handler: Any
+    ) -> EarlyStoppingConfig:
+        """Translate legacy ``validation_ratio`` input + track explicitness.
+
+        Behavior (H-0069):
+
+        - Pure legacy input ``{"validation_ratio": 0.1}`` → migrates to
+          ``inner_valid: {method: "holdout", ratio: 0.1}``;
+          ``_inner_valid_explicit`` stays ``False`` so the factory's
+          auto-resolve path keeps choosing the split-aware variant.
+        - Explicit ``{"inner_valid": {...}}`` → kept as-is;
+          ``_inner_valid_explicit`` becomes ``True``.
+        - Round-trip dump ``{"inner_valid": {...}, "validation_ratio": x}``
+          → ``validation_ratio`` is silently dropped (it is a computed
+          field re-emitted by ``model_dump()``); explicitness mirrors
+          the round-trip-without-vr semantics (False — auto-resolve).
+        - Inconsistent values (``validation_ratio != inner_valid.ratio``)
+          → ``ValueError`` to surface real conflicts.
+        """
+        user_explicit_inner_valid = False
+        if isinstance(data, dict):
+            iv_in = data.get("inner_valid") is not None
+            vr_present = "validation_ratio" in data
+            user_explicit_inner_valid = iv_in and not vr_present
+            if vr_present:
+                legacy_ratio = data.pop("validation_ratio")
+                iv_value = data.get("inner_valid")
+                if iv_value is None:
+                    if legacy_ratio is not None:
+                        data["inner_valid"] = {
+                            "method": "holdout",
+                            "ratio": legacy_ratio,
+                        }
+                else:
+                    iv_ratio = (
+                        iv_value.get("ratio")
+                        if isinstance(iv_value, dict)
+                        else getattr(iv_value, "ratio", None)
+                    )
+                    if (
+                        legacy_ratio is not None
+                        and iv_ratio is not None
+                        and legacy_ratio != iv_ratio
+                    ):
+                        raise ValueError(
+                            "Specify either 'validation_ratio' or 'inner_valid', "
+                            "not both."
+                        )
+        instance: EarlyStoppingConfig = handler(data)
+        if instance.inner_valid is None:
+            instance.inner_valid = HoldoutInnerValidConfig(
+                method="holdout", ratio=_DEFAULT_VALIDATION_RATIO
             )
-        if iv_explicit:
-            self._inner_valid_explicit = True
-            return self
-        if self.validation_ratio is not None:
-            self.inner_valid = HoldoutInnerValidConfig(
-                method="holdout", ratio=self.validation_ratio
-            )
-        return self
+        instance._inner_valid_explicit = user_explicit_inner_valid
+        return instance
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def validation_ratio(self) -> float:
+        """Holdout fraction; derived from ``inner_valid.ratio`` (H-0069)."""
+        if self.inner_valid is None:
+            return _DEFAULT_VALIDATION_RATIO
+        return self.inner_valid.ratio
 
 
 class TrainingConfig(BaseModel):

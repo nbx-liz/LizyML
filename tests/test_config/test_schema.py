@@ -360,7 +360,12 @@ class TestValidationRatio:
         assert exc_info.value.code == ErrorCode.CONFIG_INVALID
 
     def test_inner_valid_backward_compat(self) -> None:
-        """Existing inner_valid form continues to work unchanged."""
+        """Existing inner_valid form continues to work unchanged.
+
+        Post-H-0069: ``validation_ratio`` is a computed field that
+        mirrors ``inner_valid.ratio``; the previous silent default of
+        ``0.1`` is replaced by the actual configured ratio.
+        """
         raw = {
             **_MINIMAL_CONFIG,
             "training": {
@@ -375,4 +380,4 @@ class TestValidationRatio:
         es = cfg.training.early_stopping
         assert es.inner_valid is not None
         assert es.inner_valid.ratio == pytest.approx(0.15)
-        assert es.validation_ratio == 0.1  # default, but inner_valid takes precedence
+        assert es.validation_ratio == pytest.approx(0.15)
