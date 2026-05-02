@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **`Model.load()` fails for non-holdout `inner_valid`** (H-0069, [#95](https://github.com/nbx-liz/LizyML/issues/95)) — Saving a model fit with `inner_valid.method ∈ {group_holdout, time_holdout}` produced an artifact that could not be re-loaded (`CONFIG_INVALID`). Root cause: `validation_ratio` and `inner_valid.ratio` were two mutable fields whose only synchronization was a one-way validator branch that ignored `group_holdout` / `time_holdout`. `model_dump()` always emitted both keys, so the round-trip silently broke.
+
+### Changed
+
+- **`EarlyStoppingConfig.validation_ratio` is now a read-only computed field** (H-0069) — `validation_ratio` mirrors `inner_valid.ratio` automatically, eliminating the dual-write inconsistency at its source. Existing YAML inputs (`validation_ratio: 0.1` only, or `inner_valid: {...}` only) are fully backward compatible. Existing `model.lizyml` artifacts load without migration. Side effect: codegen `export_code()` now uses the correct holdout fraction when `inner_valid.ratio` differs from the default 0.1 (previously a silent ratio mismatch).
+
 ## [0.9.0] - 2026-04-12
 
 ### Added
