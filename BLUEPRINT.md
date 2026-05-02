@@ -341,8 +341,8 @@ config = {
 | `seed` | `int` | No | `42` | グローバルシード |
 | `early_stopping.enabled` | `bool` | No | `True` | |
 | `early_stopping.rounds` | `int` | No | `150` | |
-| `early_stopping.validation_ratio` | `float \| null` | No | `0.1` | inner_valid.ratio のエイリアス |
-| `early_stopping.inner_valid` | `object \| null` | No | `null`（自動解決） | |
+| `early_stopping.validation_ratio` | `float` (read-only) | — | `inner_valid.ratio` から派生 | `inner_valid.ratio` の computed alias（H-0069）。入力は `inner_valid` 経由を推奨。legacy YAML での入力は受理 |
+| `early_stopping.inner_valid` | `object \| null` | No | `null`（自動解決） | inner valid の唯一の正規表現 |
 
 ### tuning
 
@@ -584,8 +584,8 @@ LizyML 非依存の学習・推論コードを自動生成する。
 ### 10.3.1 設定の解決規則
 
 - `training.early_stopping.inner_valid` を明示指定した場合は、その method / ratio / random_state をそのまま使う。外側 `split.method` は参照しない。
-- `training.early_stopping.validation_ratio` は ratio の shorthand であり、method 指定ではない。`inner_valid` を明示指定していない場合、ratio は `validation_ratio` から取り、method は外側 `split.method` から自動解決する。
-- `validation_ratio` と `inner_valid` を同時に明示指定した場合は `CONFIG_INVALID` とする。ただし `model_dump()` round-trip で両者が同値になるケースは許容する。
+- `training.early_stopping.validation_ratio` は legacy 入力ショートハンドであり、method 指定ではない。`inner_valid` を明示指定していない場合、ratio は `validation_ratio` から取り、method は外側 `split.method` から自動解決する。H-0069 以降、`validation_ratio` は `inner_valid.ratio` から派生する read-only の computed field。出力 (`model_dump()`) には常に同値の `validation_ratio` が含まれる。
+- `validation_ratio` と `inner_valid` を同時に明示指定した場合、ratio が一致しなければ `CONFIG_INVALID`、一致すれば許容する（round-trip 互換）。一致しない場合の検知は維持される。
 - 自動解決時に inner valid が継承する outer CV 設定は `split.method` のみとする。`n_splits` / `shuffle` / `random_state` / `gap` / `purge_gap` / `embargo` / `train_size_max` / `test_size_max` は inner valid に伝搬しない。
 - 自動解決時の seed は `training.seed` を使う。outer split の `random_state` は inner valid に伝搬しない。
 
