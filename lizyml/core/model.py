@@ -223,6 +223,12 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             time_values=time_values,
         )
 
+        # H-0070: attach target encoder so predict() / persistence / codegen
+        # can map predicted int codes back to the original labels.
+        fit_result = dataclasses.replace(
+            fit_result, target_encoder=components.target_encoder
+        )
+
         # --- Calibration (binary only) ---------------------------------------
         fit_result = self._run_calibration(cfg, fit_result, y, groups)
 
@@ -335,7 +341,9 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         model = refit.model
         task = self._cfg.task
 
-        pred: npt.NDArray[np.float64]
+        # H-0070: pred may be int (numeric target) or original-label dtype
+        # (object / string / category) after inverse_transform.
+        pred: npt.NDArray[Any]
         proba: npt.NDArray[np.float64] | None = None
 
         if task == "regression":
@@ -354,10 +362,14 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
                     else:
                         # Backward compat: old artifact trained on probabilities
                         proba = fit.calibrator.c_final.predict(proba)
-            pred = (proba >= 0.5).astype(int)
+            pred_codes: npt.NDArray[Any] = (proba >= 0.5).astype(int)
+            # H-0070: inverse-map int codes back to original labels when
+            # the target was non-numeric at fit time.
+            pred = fit.target_encoder.inverse_transform(pred_codes)
         else:  # multiclass
             proba = model.predict_proba(X_t)
-            pred = proba.argmax(axis=1)
+            pred_codes = proba.argmax(axis=1)
+            pred = fit.target_encoder.inverse_transform(pred_codes)
 
         shap_values: npt.NDArray[np.float64] | None = None
         if return_shap:
@@ -886,6 +898,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
                 y=y,
                 time_col=sorted_time,
                 group_col=sorted_group,
+                target_encoder=components.target_encoder,
             )
 
         if cfg.split.method in _BLOCK_METHODS:
@@ -944,7 +957,11 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
                 else None
             )
             components = DataFrameComponents(
-                X=X, y=y, time_col=block_sorted_time, group_col=block_sorted_group
+                X=X,
+                y=y,
+                time_col=block_sorted_time,
+                group_col=block_sorted_group,
+                target_encoder=components.target_encoder,
             )
 
         return X, y, groups, components

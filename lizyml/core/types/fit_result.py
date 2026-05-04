@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
 import numpy.typing as npt
 
 from .artifacts import DataFingerprint, RunMeta, SplitIndices
+from .target_encoder import TargetEncoder
 
 
 @dataclass
@@ -49,6 +50,9 @@ class FitResult:
         oof_raw_scores: OOF raw scores (logits) for calibration.
             ``None`` when calibration is not enabled. Shape ``(n_samples,)``
             for binary; ``(n_samples, n_classes)`` for multiclass.
+        target_encoder: Encoder applied to y at fit time. ``no_op()`` for
+            numeric targets / regression. Carries ``classes_`` so consumers
+            can map predicted int codes back to original labels (H-0070).
     """
 
     oof_pred: npt.NDArray[np.float64]
@@ -65,3 +69,4 @@ class FitResult:
     calibrator: Any | None
     run_meta: RunMeta
     oof_raw_scores: npt.NDArray[np.float64] | None = None
+    target_encoder: TargetEncoder = field(default_factory=TargetEncoder.no_op)

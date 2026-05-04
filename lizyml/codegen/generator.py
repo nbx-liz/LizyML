@@ -34,6 +34,7 @@ def generate_code(
     pipeline_state: dict[str, Any],
     calibrator: BaseCalibratorAdapter | None,
     feval_metrics: list[dict[str, Any]] | None = None,
+    target_classes: list[Any] | None = None,
 ) -> Path:
     """Generate LizyML-independent training and prediction code.
 
@@ -89,6 +90,7 @@ def generate_code(
         calibration_method=calibration_method,
         calibration_n_splits=calibration_n_splits,
         feval_metrics=feval_metrics,
+        target_classes=target_classes,
     )
 
     # Write artifacts (config.json, model.txt, pipeline_state.json, calibrator)

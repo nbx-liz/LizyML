@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from lizyml.core.types.fit_result import FitResult
     from lizyml.training.refit_trainer import RefitResult
 
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
 
 
 @dataclass

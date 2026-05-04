@@ -86,9 +86,13 @@ class TestArtifactRoundtrip:
 
 
 class TestFormatVersionRejection:
-    """Unknown format_version values are rejected on load."""
+    """Unknown format_version values are rejected on load.
 
-    @pytest.mark.parametrize("bad_version", [0, 2, 99, -1, None])
+    H-0070: format_version 1 and 2 are both accepted; only versions outside
+    the supported set are rejected.
+    """
+
+    @pytest.mark.parametrize("bad_version", [0, 3, 99, -1, None])
     def test_invalid_format_version_raises(
         self, tmp_path: Path, bad_version: Any
     ) -> None:
@@ -107,6 +111,38 @@ class TestFormatVersionRejection:
             Model.load(export_dir)
         assert exc_info.value.code == ErrorCode.DESERIALIZATION_FAILED
         assert "format_version" in str(exc_info.value)
+
+
+class TestFormatVersionV1Migration:
+    """H-0070 (INV-5): v1 artifacts load with no-op encoder injected."""
+
+    def test_v1_metadata_still_loads(self, tmp_path: Path) -> None:
+        df = make_regression_df(n=100, seed=0)
+        export_dir = _fit_and_export(
+            make_config("regression", n_estimators=5, n_splits=2), df, tmp_path
+        )
+
+        # Tamper metadata to claim v1 to simulate an older artifact.
+        meta_path = export_dir / "metadata.json"
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta["format_version"] = 1
+        meta_path.write_text(json.dumps(meta), encoding="utf-8")
+
+        # Re-pickle the FitResult without target_encoder to mirror v1 layout.
+        fit_pkl = export_dir / "fit_result.pkl"
+        fit_result = joblib.load(fit_pkl)
+        # Strip target_encoder via in-place dict mutation (frozen=False on
+        # FitResult, so attribute assignment is OK).
+        fit_result.target_encoder = None  # type: ignore[assignment]
+        joblib.dump(fit_result, fit_pkl, compress=3)
+
+        m2 = Model.load(export_dir)
+        # After migration, the no-op encoder is in place
+        assert m2.fit_result.target_encoder.needs_encoding is False
+        # Predict still works
+        X_test = df.drop(columns=["target"]).iloc[:5]
+        out = m2.predict(X_test)
+        assert out.pred.shape == (5,)
 
 
 # ===================================================================

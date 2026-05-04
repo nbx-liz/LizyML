@@ -169,6 +169,7 @@ class TestFitResultSchema:
             "calibrator",
             "run_meta",
             "oof_raw_scores",
+            "target_encoder",
         ]
         assert _field_names(FitResult) == expected
 

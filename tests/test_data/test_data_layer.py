@@ -188,6 +188,107 @@ class TestDataFrameBuilder:
 
 
 # ---------------------------------------------------------------------------
+# DataFrameBuilder + TargetEncoder integration (H-0070)
+# ---------------------------------------------------------------------------
+
+
+class TestDataFrameBuilderTargetEncoder:
+    def test_numeric_binary_no_op_encoder(
+        self,
+        simple_df: pd.DataFrame,
+        problem_spec: ProblemSpec,
+        feature_spec: FeatureSpec,
+    ) -> None:
+        result = dataframe_builder.build(simple_df, problem_spec, feature_spec)
+        assert result.target_encoder.needs_encoding is False
+        assert result.target_encoder.classes_ == ()
+
+    def test_string_binary_encodes_y_to_int(self) -> None:
+        df = pd.DataFrame(
+            {
+                "feature_a": [1.0, 2.0, 3.0, 4.0],
+                "label": ["yes", "no", "yes", "no"],
+            }
+        )
+        spec = ProblemSpec(
+            task="binary",
+            target="label",
+            time_col=None,
+            group_col=None,
+            data_path=None,
+        )
+        result = dataframe_builder.build(df, spec, FeatureSpec())
+        assert result.target_encoder.needs_encoding is True
+        assert result.target_encoder.classes_ == ("no", "yes")
+        # ('no', 'yes') → no=0, yes=1
+        assert list(result.y) == [1, 0, 1, 0]
+        assert result.y.dtype == np.int64
+
+    def test_string_multiclass_encodes_y_to_int(self) -> None:
+        df = pd.DataFrame(
+            {
+                "feature_a": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0],
+                "species": [
+                    "Adelie",
+                    "Gentoo",
+                    "Chinstrap",
+                    "Adelie",
+                    "Gentoo",
+                    "Chinstrap",
+                ],
+            }
+        )
+        spec = ProblemSpec(
+            task="multiclass",
+            target="species",
+            time_col=None,
+            group_col=None,
+            data_path=None,
+        )
+        result = dataframe_builder.build(df, spec, FeatureSpec())
+        assert result.target_encoder.classes_ == ("Adelie", "Chinstrap", "Gentoo")
+        # Adelie=0, Chinstrap=1, Gentoo=2
+        assert list(result.y) == [0, 2, 1, 0, 2, 1]
+        assert result.y.dtype == np.int64
+
+    def test_regression_with_string_target_raises_target_not_numeric(self) -> None:
+        df = pd.DataFrame(
+            {
+                "feature_a": [1.0, 2.0, 3.0],
+                "y_str": ["1.5", "2.0", "3.0"],
+            }
+        )
+        spec = ProblemSpec(
+            task="regression",
+            target="y_str",
+            time_col=None,
+            group_col=None,
+            data_path=None,
+        )
+        with pytest.raises(LizyMLError) as exc_info:
+            dataframe_builder.build(df, spec, FeatureSpec())
+        assert exc_info.value.code == ErrorCode.TARGET_NOT_NUMERIC
+
+    def test_categorical_target_encodes(self) -> None:
+        df = pd.DataFrame(
+            {
+                "feature_a": [1.0, 2.0, 3.0, 4.0],
+                "label": pd.Categorical(["a", "b", "a", "b"]),
+            }
+        )
+        spec = ProblemSpec(
+            task="binary",
+            target="label",
+            time_col=None,
+            group_col=None,
+            data_path=None,
+        )
+        result = dataframe_builder.build(df, spec, FeatureSpec())
+        assert result.target_encoder.needs_encoding is True
+        assert list(result.y) == [0, 1, 0, 1]
+
+
+# ---------------------------------------------------------------------------
 # Validators — 「落ちるべき例」
 # ---------------------------------------------------------------------------
 
