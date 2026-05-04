@@ -186,3 +186,78 @@ class TestNumericTargetIsNoOp:
         pred = m.predict(df.drop(columns=["target"])).pred
         # Numeric target → predict still returns int
         assert pred.dtype.kind in ("i", "u")
+
+
+# ---------------------------------------------------------------------------
+# tune() path with non-numeric y (review gap M-1)
+# ---------------------------------------------------------------------------
+
+
+class TestStringTargetTunePath:
+    def test_tune_then_fit_then_predict_with_string_y(self) -> None:
+        df = _binary_string_df()
+        cfg = make_config(
+            "binary",
+            n_estimators=10,
+            split_method="stratified_kfold",
+            tuning_n_trials=2,
+        )
+        m = Model(cfg)
+        # tune() shares _prepare_training_data — must accept str y too
+        m.tune(data=df)
+        result = m.fit(data=df)
+        assert result.target_encoder.needs_encoding is True
+        prediction = m.predict(df.drop(columns=["target"]))
+        assert prediction.pred.dtype == object
+        assert set(np.unique(prediction.pred)).issubset({"yes", "no"})
+
+
+# ---------------------------------------------------------------------------
+# Save/load round-trip with non-numeric y (review gap M-2)
+# ---------------------------------------------------------------------------
+
+
+class TestStringTargetExportLoad:
+    def test_export_load_predict_preserves_string_dtype(
+        self, tmp_path: pytest.TempPathFactory
+    ) -> None:
+        df = _binary_string_df()
+        cfg = make_config("binary", n_estimators=15, split_method="stratified_kfold")
+        m = Model(cfg)
+        m.fit(data=df)
+
+        export_dir = tmp_path / "model"  # type: ignore[operator]
+        m.export(export_dir)
+
+        m2 = Model.load(export_dir)
+        # target_encoder survives pickle round-trip
+        assert m2.fit_result.target_encoder.classes_ == ("no", "yes")
+
+        prediction = m2.predict(df.drop(columns=["target"]).iloc[:30])
+        assert prediction.pred.dtype == object
+        assert set(np.unique(prediction.pred)).issubset({"yes", "no"})
+
+    def test_export_load_predict_multiclass_string(
+        self, tmp_path: pytest.TempPathFactory
+    ) -> None:
+        df = _multiclass_string_df()
+        cfg = make_config(
+            "multiclass", n_estimators=15, split_method="stratified_kfold"
+        )
+        m = Model(cfg)
+        m.fit(data=df)
+
+        export_dir = tmp_path / "mc_model"  # type: ignore[operator]
+        m.export(export_dir)
+
+        m2 = Model.load(export_dir)
+        assert m2.fit_result.target_encoder.classes_ == (
+            "Adelie",
+            "Chinstrap",
+            "Gentoo",
+        )
+        prediction = m2.predict(df.drop(columns=["target"]).iloc[:40])
+        assert prediction.pred.dtype == object
+        assert set(np.unique(prediction.pred)).issubset(
+            {"Adelie", "Chinstrap", "Gentoo"}
+        )

@@ -96,14 +96,27 @@ class TargetEncoder:
 
         Raises:
             LizyMLError: With ``TARGET_UNSEEN_LABEL`` when y contains labels
-                not present in :attr:`classes_`.
+                not present in :attr:`classes_`. With ``DATA_SCHEMA_INVALID``
+                when y contains NaN — classification targets must be fully
+                labeled before fit.
         """
         if not self.needs_encoding:
             return y
 
+        y_series = pd.Series(y)
+        nan_mask = y_series.isna()
+        if nan_mask.any():
+            raise LizyMLError(
+                code=ErrorCode.DATA_SCHEMA_INVALID,
+                user_message=(
+                    f"Target column contains {int(nan_mask.sum())} NaN value(s); "
+                    "classification targets must be fully labeled."
+                ),
+                context={"nan_count": int(nan_mask.sum())},
+            )
+
         mapping = {c: i for i, c in enumerate(self.classes_)}
-        present = set(pd.Series(y).dropna().unique())
-        unseen = present - mapping.keys()
+        unseen = set(y_series.unique()) - mapping.keys()
         if unseen:
             raise LizyMLError(
                 code=ErrorCode.TARGET_UNSEEN_LABEL,
@@ -116,7 +129,7 @@ class TargetEncoder:
                     "known": [str(c) for c in self.classes_],
                 },
             )
-        encoded = pd.Series(y).map(mapping).astype(np.int64)
+        encoded = y_series.map(mapping).astype(np.int64)
         encoded.index = y.index
         encoded.name = y.name
         return encoded
@@ -128,22 +141,38 @@ class TargetEncoder:
         """Map int codes back to the original labels.
 
         No-op when ``needs_encoding`` is False (returns ``codes`` unchanged).
-        Restores the original y dtype where possible (object / string /
-        category preserved; numeric falls through).
+        Returns an ``object``-typed numpy array for non-numeric targets
+        regardless of the original dtype (object / string / category).
+        Pandas-extension dtype (Categorical/StringDtype) preservation is
+        a non-goal for v1 — labels are recovered, not the container type.
+
+        Raises:
+            LizyMLError: With ``TARGET_UNSEEN_LABEL`` when a code is outside
+                ``range(len(classes_))`` (defensive: unreachable in normal
+                flow because predict outputs argmax / threshold codes only).
         """
         if not self.needs_encoding:
             return codes
 
         codes_arr = np.asarray(codes)
-        decoded = np.array(
-            [self.classes_[int(c)] for c in codes_arr.ravel()],
-            dtype=object,
-        ).reshape(codes_arr.shape)
+        n_classes = len(self.classes_)
+        try:
+            decoded = np.array(
+                [self.classes_[int(c)] for c in codes_arr.ravel()],
+                dtype=object,
+            ).reshape(codes_arr.shape)
+        except IndexError as exc:
+            raise LizyMLError(
+                code=ErrorCode.TARGET_UNSEEN_LABEL,
+                user_message=(
+                    f"Predicted code is outside [0, {n_classes}); "
+                    f"classes_ has {n_classes} entries."
+                ),
+                context={"n_classes": n_classes},
+                cause=exc,
+            ) from exc
 
-        # Restore original dtype where straightforward.
-        if self.original_dtype == "category":
-            return pd.Categorical(decoded, categories=list(self.classes_)).to_numpy()
-        if self.original_dtype.lower() in {"string", "string[python]"}:
+        if self.original_dtype.lower() == "string":
             return pd.array(decoded, dtype="string").to_numpy()
         return decoded
 

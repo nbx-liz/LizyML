@@ -192,3 +192,36 @@ class TestTrainScriptRoundTrip:
             cwd=str(codegen_dir),
         )
         assert (codegen_dir / "artifacts" / "model.txt").exists(), result.stderr
+
+
+class TestUnseenLabelRejection:
+    """Generated train.py raises a clear error on unseen labels (H-0070)."""
+
+    def test_train_script_rejects_unseen_label(self, tmp_path: Path) -> None:
+        df = _binary_string_df()
+        m = Model(_config("binary"))
+        m.fit(df)
+
+        codegen_dir = tmp_path / "codegen"
+        m.export_code(codegen_dir)
+
+        # Inject a third label the encoder has never seen.
+        bad_df = df.copy()
+        bad_df.loc[bad_df.index[:5], "target"] = "maybe"
+        bad_csv = tmp_path / "bad_train.csv"
+        bad_df.to_csv(bad_csv, index=False)
+
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(codegen_dir / "train.py"),
+                str(bad_csv),
+                "--no-calibration",
+            ],
+            capture_output=True,
+            text=True,
+            cwd=str(codegen_dir),
+        )
+        assert result.returncode != 0
+        # The encoder raises ValueError with the unseen label name.
+        assert "maybe" in (result.stderr + result.stdout)

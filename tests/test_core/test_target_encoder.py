@@ -174,3 +174,26 @@ class TestImmutability:
     def test_classes_is_tuple_not_list(self) -> None:
         enc = TargetEncoder.fit(pd.Series(["a", "b"]), "binary")
         assert isinstance(enc.classes_, tuple)
+
+
+class TestEdgeCases:
+    def test_transform_with_nan_raises_clear_error(self) -> None:
+        enc = TargetEncoder.fit(pd.Series(["a", "b"]), "binary")
+        with pytest.raises(LizyMLError) as exc_info:
+            enc.transform(pd.Series(["a", None, "b"]))
+        assert exc_info.value.code == ErrorCode.DATA_SCHEMA_INVALID
+        assert "NaN" in exc_info.value.user_message
+
+    def test_inverse_transform_out_of_range_code_raises(self) -> None:
+        enc = TargetEncoder.fit(pd.Series(["a", "b"]), "binary")
+        with pytest.raises(LizyMLError) as exc_info:
+            enc.inverse_transform(np.array([0, 1, 2]))
+        assert exc_info.value.code == ErrorCode.TARGET_UNSEEN_LABEL
+        assert exc_info.value.context["n_classes"] == 2
+
+    def test_single_class_classification_encoded(self) -> None:
+        # Degenerate case: only one unique label. Encoder should still
+        # succeed (downstream LightGBM may reject, but encoder is dtype-only).
+        enc = TargetEncoder.fit(pd.Series(["only"]), "binary")
+        assert enc.classes_ == ("only",)
+        assert enc.transform(pd.Series(["only", "only"])).tolist() == [0, 0]
