@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.10.0] - 2026-05-04
+
+### Added
+
+- **Auto-encode non-numeric classification targets** (H-0070, [#98](https://github.com/nbx-liz/LizyML/issues/98)) — `task ∈ {binary, multiclass}` now accepts non-numeric `y` (object / `pd.StringDtype` / category / bool). LizyML applies a `TargetEncoder` automatically and `Model.predict()` returns predictions in the **original label dtype** (e.g. `"Adelie"` instead of `2`). The new `FitResult.target_encoder` carries `classes_` so consumers (incl. `export_code()`-generated `train.py` / `predict.py`) can map int codes back to the original labels. Calibration / tuning paths work transparently.
+- **New error codes**: `TARGET_NOT_NUMERIC`, `TARGET_UNSEEN_LABEL`.
+
+### Changed
+
+- **`task=regression` × non-numeric `y` now raises `TARGET_NOT_NUMERIC` before model training starts** (H-0070) — previously fit failed with an unclear error from the LightGBM layer.
+- **Codegen `predict.py` output dtype**: when the original target was non-numeric, generated predictions now decode int codes back to the original labels via a `target_encoder.classes` array baked into `config.json`.
+- **Persistence `FORMAT_VERSION` bumped to 2** (H-0070) — `Model.load()` accepts both `format_version=1` (old) and `2` (current). v1 artifacts are migrated in-memory by injecting a no-op `TargetEncoder`, so existing saved models continue to load without user action.
+
 ## [0.9.1] - 2026-05-02
 
 ### Fixed

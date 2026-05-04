@@ -36,6 +36,7 @@ class TestFitResultContract:
             "calibrator",
             "run_meta",
             "oof_raw_scores",
+            "target_encoder",
         }
         actual = {f.name for f in dataclasses.fields(FitResult)}
         assert required == actual

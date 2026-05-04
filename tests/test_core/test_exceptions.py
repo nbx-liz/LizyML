@@ -68,6 +68,8 @@ class TestLizyMLError:
             "CALIBRATION_NOT_SUPPORTED",
             "SERIALIZATION_FAILED",
             "DESERIALIZATION_FAILED",
+            "TARGET_NOT_NUMERIC",
+            "TARGET_UNSEEN_LABEL",
         }
         defined_codes = {e.value for e in ErrorCode}
         assert expected_codes == defined_codes

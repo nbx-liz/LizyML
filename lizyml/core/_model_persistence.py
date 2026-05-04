@@ -195,6 +195,12 @@ class ModelPersistenceMixin:
             "config_normalized": meta.config_normalized,
         }
 
+        # H-0070: bake target encoder classes into config so train.py /
+        # predict.py can re-encode and decode the original labels.
+        target_classes: list[Any] | None = None
+        if fit_result.target_encoder.needs_encoding:
+            target_classes = list(fit_result.target_encoder.classes_)
+
         result = generate_code(
             output_dir=path,
             run_meta=run_meta_dict,
@@ -211,6 +217,7 @@ class ModelPersistenceMixin:
             pipeline_state=refit_result.pipeline_state,
             calibrator=calibrator,
             feval_metrics=feval_metrics,
+            target_classes=target_classes,
         )
         _log.info("event='export_code.done' path=%s", result)
         return result

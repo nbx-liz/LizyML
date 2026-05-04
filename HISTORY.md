@@ -5411,3 +5411,105 @@ LizyML Core は callback + 結果型でデータを提供し、Widget/Studio が
 8. **codegen 整合**: `inner_valid={method: holdout, ratio: 0.25}` で fit したモデルを `export_code` した `train.py` が `validation_ratio=0.25` で動作（codegen silent bug の同時修正確認）
 9. **auto-resolve 維持**: `validation_ratio: 0.1` + `split.method=group_kfold` の組み合わせで factory が `GroupHoldoutInnerValid` を返す（既存挙動）
 10. **品質ゲート**: ruff / mypy / pytest 全 PASS、既存 1320+ テストが PASS
+
+---
+
+## H-0070: 非数値 Classification Target の自動エンコード（TargetEncoder 導入）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-05-04
+- **スコープ**: Public API | Foundation 型 | Data 層 | Persistence Format | Codegen
+- **関連**: [Issue #98](https://github.com/nbx-liz/LizyML/issues/98), LizyStudio 観測（penguins.csv multiclass / target=species で `ValueError`）
+
+### 目的
+
+`task ∈ {binary, multiclass}` で y が非数値（object / str / `pd.StringDtype` / category-with-string-categories / bool）のとき、`Model.fit()` が LightGBM 層 (`_check_for_bad_pandas_dtypes`) で `ValueError: pandas dtypes must be int, float or bool` を出して落ちる。回避するにはユーザーが手動で `LabelEncoder` / `pd.factorize` する必要があり、`predict` 出力は整数コードのまま元ラベル（例 `"Adelie"`）への inverse 手段が無い。
+
+これは ML ライブラリとしての基本機能ギャップであり、本 Proposal は task 駆動で y を自動エンコードし、`FitResult.target_encoder` 経由で predict / inference / codegen が元ラベルへ inverse_transform できる経路を整備する。同時に `task=regression` × 非数値 y の早期 reject も加える（現状は不明瞭エラーで死ぬ）。
+
+### 変更内容
+
+1. **Foundation: `TargetEncoder` 契約型新設** (`lizyml/core/types/target_encoder.py`)
+   - `@dataclass(frozen=True) TargetEncoder { classes_: tuple[Any, ...], needs_encoding: bool, original_dtype: str }`
+   - `TargetEncoder.fit(y, task) -> TargetEncoder`: regression / 数値 y は no-op、非数値 classification y は `pd.factorize`-equivalent
+   - `transform(y) -> pd.Series` / `inverse_transform(codes) -> np.ndarray`
+   - `TargetEncoder.no_op()` クラスメソッド: 旧 artifact migration / 数値 y 用の sentinel
+   - 全カテゴリが Foundation 経由で参照可能（DAG 違反なし）
+
+2. **`ErrorCode` 拡張** (`lizyml/core/exceptions.py`)
+   - `TARGET_NOT_NUMERIC` — task=regression × 非数値 y を fit 開始前に reject
+   - `TARGET_UNSEEN_LABEL` — 将来の explicit_classes 経路用ガード（v1 では fit 時の不変式チェックに使用）
+
+3. **`FitResult` 拡張** (`lizyml/core/types/fit_result.py`)
+   - `target_encoder: TargetEncoder = field(default_factory=TargetEncoder.no_op)` 追加
+   - 数値 y / 旧 artifact では `needs_encoding=False` の sentinel が入るので consumer 側の分岐は最小
+
+4. **Data 層改修** (`lizyml/data/dataframe_builder.py`)
+   - `DataFrameComponents` に `target_encoder: TargetEncoder` 追加
+   - `build()` シグネチャに `task: TaskType` 追加
+   - 非数値 classification y → `TargetEncoder.fit` → `transform` 適用
+   - regression × 非数値 y → `TARGET_NOT_NUMERIC` を fit 開始前に raise
+   - **影響閉じ込め**: training/ / estimators/ / calibration/ は引き続き int y を見るのみで無変更
+
+5. **Facade 配線** (`lizyml/core/model.py`)
+   - `_prepare_training_data` → builder に `task=cfg.task` を渡し、components から encoder を受け取る
+   - CVTrainer.fit 後に `dataclasses.replace(fit_result, target_encoder=encoder)` で注入
+   - `predict()` の binary / multiclass 分岐で `pred = fit.target_encoder.inverse_transform(pred_codes)`
+   - tune() 経路も同じ `_prepare_training_data` を使うため自動対応
+
+6. **Persistence migration** (`lizyml/persistence/exporter.py`, `loader.py`)
+   - `FORMAT_VERSION` を 1 → 2 に bump
+   - loader: v1 metadata 検出時に no-op encoder を注入して FitResult を再構成（`target_encoder` フィールドが pickle に存在しなければ default 適用、joblib の dataclass デフォルト値で自動補填されるが、明示的に v1→v2 migration ルートを通す）
+
+7. **Codegen 拡張** (`lizyml/codegen/templates.py`, `config_writer.py`)
+   - 非数値 classification target の場合、predict.py に `_CLASSES = (...)` 定数 + `_decode(codes) -> np.ndarray` ヘルパーを emit
+   - config.json に `target_encoder.classes_` を書き出し
+   - 数値 target / regression は従来出力と完全互換
+
+### 影響範囲
+
+- **新規ファイル**: `lizyml/core/types/target_encoder.py`、関連テスト
+- **変更ファイル**:
+  - Foundation: `core/types/{__init__,fit_result}.py`, `core/exceptions.py`
+  - Data: `data/dataframe_builder.py`
+  - Facade: `core/model.py`
+  - Persistence: `persistence/{exporter,loader}.py`
+  - Codegen: `codegen/{templates,config_writer}.py`
+- **無変更（疎結合維持）**: `splitters/` / `features/` / `estimators/` / `calibration/` / `metrics/` / `training/` / `evaluation/` / `tuning/`
+
+### 不変条件 (Invariants-First)
+
+| ID | Invariant |
+|---|---|
+| INV-1 | `FitResult.target_encoder.needs_encoding=True` ⇔ 元 y が非数値（fit 時点） |
+| INV-2 | `predict().pred.dtype == 元 y dtype`（str → str, int → int, category → category） |
+| INV-3 | `target_encoder.classes_` は sorted（`key=str`）かつ frozen。`classes_[i]` の `i` が int code |
+| INV-4 | task=regression × 非数値 y → fit 開始前に `TARGET_NOT_NUMERIC` raise（LightGBM 層に到達しない） |
+| INV-5 | format_version=1 artifact ロード時に no-op encoder が注入され、predict 挙動が v0.x と等価（数値 target の round-trip） |
+
+### 互換性
+
+- **既存ユーザー API**: 数値 y の fit/predict/save/load は完全互換（FitResult の追加フィールドは default 値）
+- **predict 出力 dtype**: 非数値 classification の場合のみ `pred.dtype` が int → 元 dtype に変化（**新挙動**）。CHANGELOG で告知。下流（LizyStudio / Widget）は `pd.api.types.is_numeric_dtype(pred)` 分岐で吸収可能
+- **format_version**: 1 → 2 に bump、loader が v1 を migration で受理
+- **proba 列順契約**: 多クラス proba の列順は `target_encoder.classes_` の順（数値 y 互換のため、numeric 時は sorted 数値順 = 既存挙動と一致）
+
+### 代替案
+
+- **A. ユーザー手動エンコード（status quo）**: 全コンシューマがバラバラの前処理を実装。最悪の UX
+- **B. Validate-and-reject のみ**: 非数値 y を弾いて clear エラーを出す。実装最小だが本質解決にならず、ユーザーは自前 LabelEncoder + inverse 経路を組む必要が残る
+- **C. sklearn `LabelEncoder` 直接利用**: 標準だが `LizyMLError` 契約に合わせる薄い wrapper が必要、`classes_` numpy array が JSON 化を煩雑にする
+- **D. 自前 `TargetEncoder` dataclass（本 Proposal）**: 例外契約整合・`frozen` で immutable・JSON 化容易・原 dtype 復元可能 → **採用**
+
+### 受け入れ基準（テスト観点）
+
+1. **Foundation 単体**: `TargetEncoder.fit(y, task)` の no-op / 非数値 / regression 透過パターン、`transform` / `inverse_transform` の round-trip（`tests/test_core/test_target_encoder.py`）
+2. **regression reject**: `task=regression` × str y で `TARGET_NOT_NUMERIC` を fit 開始前に raise（INV-4）
+3. **Data 層統合**: `dataframe_builder.build(df, ps, fs, task)` が encoder を返し、y が int 化される
+4. **binary E2E**: 2 クラス str y（例 `["yes", "no"]`）で fit → predict 成功、`pred.dtype == y.dtype`、proba 列順が `classes_` 整合（INV-1, INV-2, INV-3）
+5. **multiclass E2E**: 3 クラス str y（penguins-like）で fit → predict 成功、同上
+6. **calibration**: binary + isotonic + str y で fit/predict/calibrated_oof 成功（int y 経路を通る確認）
+7. **tune→fit→predict**: tune 経路も非数値 y で動く
+8. **persistence 互換**: format_version=1 artifact (旧 fixture) を load して数値 y 用 predict 経路が等価動作（INV-5）
+9. **codegen E2E**: 非数値 classification で `export_code` → 別プロセスで `predict.py` 実行 → 元ラベルが復元される
+10. **品質ゲート**: ruff / mypy / pytest 全 PASS、既存 1320+ テスト全 PASS
