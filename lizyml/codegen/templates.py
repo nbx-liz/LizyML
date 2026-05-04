@@ -365,9 +365,25 @@ def fit_calibrator(X: np.ndarray, y: np.ndarray) -> dict | None:
 #  Main
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+def _encode_target(y: pd.Series) -> pd.Series:
+    """Map non-numeric target labels to int codes (H-0070)."""
+    enc = CFG.get("target_encoder", {})
+    if not enc.get("needs_encoding"):
+        return y
+    classes = enc["classes"]
+    mapping = {c: i for i, c in enumerate(classes)}
+    unseen = set(pd.Series(y).dropna().unique()) - mapping.keys()
+    if unseen:
+        raise ValueError(
+            f"Target column contains labels not seen at fit time: "
+            f"{sorted(unseen, key=str)}. Known: {classes}"
+        )
+    return pd.Series(y).map(mapping).astype(np.int64)
+
+
 def train(df: pd.DataFrame, *, calibrate: bool = True) -> None:
     target = CFG["_target_col"]
-    y = df[target]
+    y = _encode_target(df[target])
     X_raw = df.drop(columns=[target])
 
     log.info("[1/4] Fitting feature pipeline ...")
@@ -515,6 +531,15 @@ def calibrate(raw_scores: np.ndarray, cal: dict) -> np.ndarray:
 #  Predict
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+def _decode_pred(codes: np.ndarray) -> np.ndarray:
+    """Map int codes back to original labels (H-0070). No-op when numeric."""
+    enc = CFG.get("target_encoder", {})
+    if not enc.get("needs_encoding"):
+        return codes
+    classes = enc["classes"]
+    return np.array([classes[int(c)] for c in codes], dtype=object)
+
+
 def predict(df: pd.DataFrame) -> dict[str, np.ndarray | None]:
     """Run inference. Returns {"pred": ..., "proba": ...}."""
     X = transform(df)
@@ -531,11 +556,13 @@ def predict(df: pd.DataFrame) -> dict[str, np.ndarray | None]:
         if cal:
             logits = np.asarray(booster.predict(X, raw_score=True), dtype=np.float64)
             proba = calibrate(logits, cal)
-        return {"pred": (proba > 0.5).astype(np.int64), "proba": proba}
+        codes = (proba > 0.5).astype(np.int64)
+        return {"pred": _decode_pred(codes), "proba": proba}
 
     if task == "multiclass":
         proba = np.asarray(booster.predict(X), dtype=np.float64)
-        return {"pred": np.argmax(proba, axis=1).astype(np.int64), "proba": proba}
+        codes = np.argmax(proba, axis=1).astype(np.int64)
+        return {"pred": _decode_pred(codes), "proba": proba}
 
     raise ValueError(f\'Unknown task: "{task}"\')
 

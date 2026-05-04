@@ -18,6 +18,7 @@ def build_config(
     calibration_method: str | None,
     calibration_n_splits: int,
     feval_metrics: list[dict[str, Any]] | None = None,
+    target_classes: list[Any] | None = None,
 ) -> dict[str, Any]:
     """Build config.json content as an ordered dict.
 
@@ -48,6 +49,13 @@ def build_config(
     data_cfg = config_norm.get("data", {})
     target_col = data_cfg.get("target", data_cfg.get("target_col", "y"))
 
+    # H-0070: serialise target encoder so train.py can re-encode and
+    # predict.py can decode int codes back to original labels.
+    target_encoder_block: dict[str, Any] = {
+        "needs_encoding": bool(target_classes),
+        "classes": list(target_classes) if target_classes else [],
+    }
+
     return {
         # ── Meta (read-only, _ prefix) ──
         "_generated_by": f"lizyml {run_meta['lizyml_version']}",
@@ -66,6 +74,8 @@ def build_config(
         "seed": seed,
         # ── Feval metrics (H-0066) ──
         "feval_metrics": list(feval_metrics) if feval_metrics else [],
+        # ── Target encoder (H-0070) ──
+        "target_encoder": target_encoder_block,
         # ── Calibration ──
         "calibration_method": calibration_method,
         "calibration_n_splits": calibration_n_splits,

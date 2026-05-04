@@ -472,6 +472,11 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `calibrator`（有効時）
 - `run_meta`
   - `yourlib_version / python_version / deps_version / config_normalized / config_version`
+- `target_encoder`（H-0070, format_version=2）
+  - `TargetEncoder(classes_: tuple[Any, ...], needs_encoding: bool, original_dtype: str)`
+  - 数値 y / regression では `needs_encoding=False` の no-op
+  - 非数値 classification y では `classes_` に sorted 元ラベルを保持
+  - `predict()` / codegen / persistence migration で利用
 
 ## 7.2 TuningResult（固定スキーマ）
 
@@ -497,6 +502,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
 
 - 回帰では `pred` を主とする。
 - 分類では `pred` に加えて `proba` を返せるようにする。
+- 分類で y が非数値（object/str/StringDtype/category/bool）の場合、`pred` の dtype は **fit 時の元 y dtype と一致**する（H-0070, INV-2）。`proba` の列順は `FitResult.target_encoder.classes_` と一致する（INV-3）。
 
 ## 7.4 Exported Model Artifacts
 
@@ -519,12 +525,17 @@ LizyML 非依存の学習・推論コードを自動生成する。
 
 - `CSV / Parquet / DataFrame` を「読むだけ」に限定する。
 - 入口で `DataFrameBuilder` が `target / time / group` を分離する。
+- `DataFrameBuilder.build()` は `ProblemSpec.task` を見て `TargetEncoder` を fit/apply し、`DataFrameComponents.target_encoder` に格納する（H-0070）。
+  - 数値 y / regression は no-op（`needs_encoding=False`）
+  - 非数値 classification y は int code に encode（下流の training/estimators/calibration は常に int y を見る）
+  - regression × 非数値 y → `TARGET_NOT_NUMERIC` を fit 開始前に raise
 
 ## 8.2 Validators（危険検知）
 
 - 時系列: ソート、未来情報混入疑い、shuffle 禁止
 - group: group 跨ぎ、分割条件の不整合
 - leakage: target リーク疑い（例: target と完全一致の列、時間逆転など）
+- target dtype: regression × 非数値 y は `TARGET_NOT_NUMERIC`（H-0070）
 
 ## 8.3 Data fingerprint（必須）
 
@@ -1244,6 +1255,7 @@ estimators/
 
 - `format_version` が読めない場合は明示的に拒否する（黙って壊れた復元をしない）。
 - 将来 migration を実装できる前提で serializer に拡張点を残す。
+- 現行 `FORMAT_VERSION = 2`（H-0070）。`{1, 2}` の両方を loader が受理し、v1 artifact には no-op `TargetEncoder` を in-memory で注入して contract を整合させる（INV-5）。
 
 ## 15.3 `export`（`Model Artifact`）
 
