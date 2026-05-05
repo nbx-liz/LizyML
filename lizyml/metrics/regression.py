@@ -1,4 +1,4 @@
-"""Regression metrics: RMSE, MAE, R2, RMSLE, MAPE, HuberLoss."""
+"""Regression metrics: RMSE, MAE, R2, RMSLE, MAPE, HuberLoss, SMAPE, WAPE."""
 
 from __future__ import annotations
 
@@ -194,3 +194,85 @@ class HuberLoss(BaseMetric):
             self.delta * (abs_e - 0.5 * self.delta),
         )
         return float(np.mean(loss))
+
+
+@MetricRegistry.register("smape")
+class SMAPE(BaseMetric):
+    """Symmetric Mean Absolute Percentage Error (range [0, 200]).
+
+    Formula::
+
+        sMAPE = mean( 2 * |y_true - y_pred| / (|y_true| + |y_pred|) ) * 100
+
+    Tolerates ``y_true == 0`` (unlike :class:`MAPE`). Convention: when
+    ``|y_true| + |y_pred| == 0`` for a row (i.e. both are zero), the
+    row's contribution is 0 (perfect prediction).
+
+    Use sMAPE instead of MAPE when the target may take the value 0
+    on a per-row basis (e.g. demand / count regressions).
+    """
+
+    @property
+    def name(self) -> str:
+        return "smape"
+
+    @property
+    def needs_proba(self) -> bool:
+        return False
+
+    @property
+    def greater_is_better(self) -> bool:
+        return False
+
+    def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
+        _validate_shapes(y_true, y_pred, self.name)
+        denom = np.abs(y_true) + np.abs(y_pred)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            terms = np.where(
+                denom == 0,
+                0.0,
+                2.0 * np.abs(y_true - y_pred) / denom,
+            )
+        return float(np.mean(terms) * 100.0)
+
+
+@MetricRegistry.register("wape")
+class WAPE(BaseMetric):
+    """Weighted Absolute Percentage Error.
+
+    Formula::
+
+        WAPE = sum(|y_true - y_pred|) / sum(|y_true|) * 100
+             = MAE / mean(|y_true|) * 100
+
+    Defined whenever ``sum(|y_true|) > 0`` — much weaker than MAPE's
+    per-row guard. Particularly useful for imbalanced-magnitude
+    regressions where one large-volume series would otherwise dominate
+    MAE noise.
+
+    Raises :class:`~lizyml.core.exceptions.LizyMLError` with
+    ``UNSUPPORTED_METRIC`` only when ``sum(|y_true|) == 0``.
+    """
+
+    @property
+    def name(self) -> str:
+        return "wape"
+
+    @property
+    def needs_proba(self) -> bool:
+        return False
+
+    @property
+    def greater_is_better(self) -> bool:
+        return False
+
+    def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
+        _validate_shapes(y_true, y_pred, self.name)
+        denom = float(np.sum(np.abs(y_true)))
+        if denom == 0.0:
+            raise LizyMLError(
+                code=ErrorCode.UNSUPPORTED_METRIC,
+                user_message="WAPE is undefined when sum(|y_true|) is zero.",
+                context={"metric": self.name},
+            )
+        return float(np.sum(np.abs(y_true - y_pred)) / denom * 100.0)

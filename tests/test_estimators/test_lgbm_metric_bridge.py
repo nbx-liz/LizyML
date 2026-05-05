@@ -441,6 +441,64 @@ class TestFevalNumericalCorrectness:
         assert is_higher is False
         assert feval_val == pytest.approx(expected, abs=1e-10)
 
+    # -- SMAPE / WAPE (regression, H-0071) --
+
+    def test_smape_regression_numerical(self) -> None:
+        """sMAPE feval: regression, no logit transform, tolerates per-row 0."""
+        _, fevals, _ = resolve_metrics(["smape"], "regression")
+        import lightgbm as lgb
+
+        y_true = np.array([0.0, 5.0, 4.0])
+        y_pred = np.array([1.0, 6.0, 6.0])
+        ds = lgb.Dataset(np.zeros((3, 1)), label=y_true, free_raw_data=False)
+        ds.construct()
+
+        name, feval_val, is_higher = fevals[0](y_pred, ds)
+
+        ds_label = np.asarray(ds.get_label())
+        denom = np.abs(ds_label) + np.abs(y_pred)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            terms = np.where(
+                denom == 0,
+                0.0,
+                2.0 * np.abs(ds_label - y_pred) / denom,
+            )
+        expected = float(np.mean(terms) * 100.0)
+
+        assert name == "smape"
+        assert is_higher is False
+        assert feval_val == pytest.approx(expected, abs=1e-6)
+
+    def test_wape_regression_numerical(self) -> None:
+        """WAPE feval: regression, sum-ratio form."""
+        _, fevals, _ = resolve_metrics(["wape"], "regression")
+        import lightgbm as lgb
+
+        y_true = np.array([10.0, 20.0, 30.0])
+        y_pred = np.array([11.0, 18.0, 33.0])
+        ds = lgb.Dataset(np.zeros((3, 1)), label=y_true, free_raw_data=False)
+        ds.construct()
+
+        name, feval_val, is_higher = fevals[0](y_pred, ds)
+
+        ds_label = np.asarray(ds.get_label())
+        expected = float(
+            np.sum(np.abs(ds_label - y_pred)) / np.sum(np.abs(ds_label)) * 100.0
+        )
+
+        assert name == "wape"
+        assert is_higher is False
+        assert feval_val == pytest.approx(expected, abs=1e-6)
+
+    def test_smape_invalid_for_binary(self) -> None:
+        """smape is registered as a regression-only feval metric."""
+        with pytest.raises(LizyMLError):
+            resolve_metrics(["smape"], "binary")
+
+    def test_wape_invalid_for_multiclass(self) -> None:
+        with pytest.raises(LizyMLError):
+            resolve_metrics(["wape"], "multiclass")
+
     # -- F1 (multiclass) --
 
     def test_f1_multiclass_numerical(self) -> None:

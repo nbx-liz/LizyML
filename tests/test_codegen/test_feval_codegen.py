@@ -249,6 +249,46 @@ class TestFevalNumericalEquivalence:
             rtol=1e-10,
         )
 
+    def test_smape(self, regression_data: tuple[np.ndarray, np.ndarray]) -> None:
+        """H-0071: codegen sMAPE numerically matches lizyml.metrics.SMAPE."""
+        y_true, y_pred = regression_data
+        codegen_fn = self._get_codegen_fn("smape")
+        lizyml_metric = self._get_lizyml_metric("smape")
+        np.testing.assert_allclose(
+            codegen_fn(y_true, y_pred),
+            lizyml_metric(y_true, y_pred),
+            rtol=1e-10,
+        )
+
+    def test_smape_with_zero_zero_row(self) -> None:
+        """H-0071: codegen sMAPE handles |y_true|+|y_pred|==0 row."""
+        codegen_fn = self._get_codegen_fn("smape")
+        lizyml_metric = self._get_lizyml_metric("smape")
+        y_true = np.array([0.0, 5.0, 4.0])
+        y_pred = np.array([0.0, 6.0, 6.0])
+        np.testing.assert_allclose(
+            codegen_fn(y_true, y_pred),
+            lizyml_metric(y_true, y_pred),
+            rtol=1e-10,
+        )
+
+    def test_wape(self, regression_data: tuple[np.ndarray, np.ndarray]) -> None:
+        """H-0071: codegen WAPE numerically matches lizyml.metrics.WAPE."""
+        y_true, y_pred = regression_data
+        codegen_fn = self._get_codegen_fn("wape")
+        lizyml_metric = self._get_lizyml_metric("wape")
+        np.testing.assert_allclose(
+            codegen_fn(y_true, y_pred),
+            lizyml_metric(y_true, y_pred),
+            rtol=1e-10,
+        )
+
+    def test_wape_all_zero_y_true_raises(self) -> None:
+        """H-0071: codegen WAPE raises on sum(|y_true|)==0."""
+        codegen_fn = self._get_codegen_fn("wape")
+        with pytest.raises(ValueError, match="WAPE is undefined"):
+            codegen_fn(np.array([0.0, 0.0]), np.array([1.0, 2.0]))
+
     def test_f1_binary(self, binary_data: tuple[np.ndarray, np.ndarray]) -> None:
         y_true, y_pred = binary_data
         codegen_fn = self._get_codegen_fn("f1")
@@ -382,6 +422,9 @@ class TestTemplateFevalContent:
             "_feval_ece",
             "_feval_precision_at_k",
             "_feval_accuracy",
+            # H-0071: zero-tolerant percentage-style regression metrics
+            "_feval_smape",
+            "_feval_wape",
         ]
         for name in expected:
             assert name in src, f"{name} not found in train.py template"
