@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.11.0] - 2026-05-05
+
+### Added
+
+- **sMAPE / WAPE — zero-tolerant percentage-style regression metrics** (H-0071, [#101](https://github.com/nbx-liz/LizyML/issues/101)) — `lizyml.metrics.SMAPE` and `lizyml.metrics.WAPE` are now available for `task=regression` and registered in `MetricRegistry` under `"smape"` / `"wape"`. Both close the gap left by MAPE on datasets where `y_true` may be `0` (sales / demand / count regressions). Wired into the LightGBM metric bridge so `params={"metric": ["smape", "wape"]}` produces feval-driven entries in `eval_history` / learning curves, and into the codegen exporter so `Model.export_code()` reproduces the same values offline. Authoritative formulas and edge-case conventions are documented in [`docs/config-reference.md` § Metric formula reference](docs/config-reference.md#metric-formula-reference).
+- **Metric formula reference** — `docs/config-reference.md` now documents authoritative formulas, ranges, and edge-case conventions for every regression and classification metric LizyML ships, plus a MAPE / sMAPE / WAPE selection guide.
+
 ## [0.10.0] - 2026-05-04
 
 ### Added

@@ -5513,3 +5513,149 @@ LizyML Core は callback + 結果型でデータを提供し、Widget/Studio が
 8. **persistence 互換**: format_version=1 artifact (旧 fixture) を load して数値 y 用 predict 経路が等価動作（INV-5）
 9. **codegen E2E**: 非数値 classification で `export_code` → 別プロセスで `predict.py` 実行 → 元ラベルが復元される
 10. **品質ゲート**: ruff / mypy / pytest 全 PASS、既存 1320+ テスト全 PASS
+
+## H-0071: sMAPE / WAPE — zero-tolerant percentage-style 回帰メトリクスの追加
+
+- **ステータス**: Accepted
+- **起票日**: 2026-05-05
+- **決定日**: 2026-05-05
+- **スコープ**: Public API (Metrics) | LGBM metric bridge | Codegen feval | Docs
+- **関連**: [Issue #101](https://github.com/nbx-liz/LizyML/issues/101), LizyStudio v0.4.0 GUI 検証で発覚（target に 0 を含む sales/demand 系 regression で MAPE が `UNSUPPORTED_METRIC`）
+
+### 目的
+
+回帰メトリクス集合（`rmse`, `mae`, `r2`, `rmsle`, `mape`, `huber`）には **zero-tolerant な percentage-style 指標が無い**。`MAPE` は `y_true` に 0 を含むと `LizyMLError(UNSUPPORTED_METRIC)` を raise する仕様（[regression.py:152-157](lizyml/metrics/regression.py#L152-L157)）であり、これは数学的には正しいが、0 が valid 値となる sales / demand / count 回帰では percentage 系の代替が存在しない。
+
+本 Proposal は **sMAPE**（symmetric MAPE）と **WAPE**（weighted absolute percentage error）の 2 指標を追加し、既存契約を破壊せずにギャップを埋める。LizyStudio 側でも「計算不能 metric の auto-disable warning」を companion Issue で別途対処予定だが、上流で tolerant な代替を提供するのが本質的な解。
+
+### 変更内容
+
+1. **新規 metric クラス 2 件** (`lizyml/metrics/regression.py`)
+   - `@MetricRegistry.register("smape")` → `class SMAPE(BaseMetric)`
+     - 式: `mean(2 * |y_true - y_pred| / (|y_true| + |y_pred|)) * 100`、range `[0, 200]`（doubled 形）
+     - `y_true == y_pred == 0` の行は `0/0` を 0 として扱う（perfect prediction 規約）
+     - `greater_is_better=False`, `needs_proba=False`
+   - `@MetricRegistry.register("wape")` → `class WAPE(BaseMetric)`
+     - 式: `sum(|y_true - y_pred|) / sum(|y_true|) * 100`（= `MAE / mean(|y_true|) * 100`）
+     - `sum(|y_true|) == 0` のときのみ `LizyMLError(UNSUPPORTED_METRIC, "WAPE is undefined when sum(|y_true|) is zero.")`
+     - `greater_is_better=False`, `needs_proba=False`
+
+2. **Registry 拡張** (`lizyml/metrics/registry.py:26`)
+   - `_TASK_METRICS["regression"]` の frozenset に `"smape"`, `"wape"` を追加
+
+3. **LGBM feval Bridge 連携** (`lizyml/estimators/lgbm/metric_bridge.py`)
+   - LightGBM ネイティブに sMAPE / WAPE は無いため、`_FEVAL_METRICS["regression"]` 既存の `frozenset(["rmsle", "r2"])` に `"smape"`, `"wape"` を追加
+   - `_build_feval()` は `BaseMetric` インスタンスを受けて feval callable を生成する汎用機構なので追加実装不要（H-0064 の設計を継承）
+   - これにより `params={"metric": "smape"}` で early stopping / learning curve への接続が自動的に有効化される
+
+4. **Re-export** (`lizyml/metrics/__init__.py`)
+   - `from .regression import SMAPE, WAPE` 追加（既存パターン踏襲）
+
+5. **Codegen 対応** (`lizyml/codegen/templates.py`)
+   - Codegen の `_FEVAL_REGISTRY` は metric_bridge と独立した手書き dict のため、`_feval_smape` / `_feval_wape` 関数と registry エントリを追記
+   - 関数定義は metric 本体と同一の数式を再現（`np.errstate` で 0/0 を 0 扱い、`sum(|y|)==0` で `ValueError`）
+   - `tests/test_codegen/test_feval_codegen.py` にて lizyml 実装との数値等価性を rtol=1e-10 で検証
+
+### 影響範囲
+
+- **新規シンボル**: `lizyml.metrics.SMAPE`, `lizyml.metrics.WAPE`
+- **変更ファイル**:
+  - `lizyml/metrics/regression.py`（クラス 2 件追加）
+  - `lizyml/metrics/registry.py`（task frozenset 拡張）
+  - `lizyml/metrics/__init__.py`（re-export）
+  - `lizyml/estimators/lgbm/metric_bridge.py`（feval 名 frozenset 拡張）
+- **無変更**: BaseMetric IF / Evaluator / FeaturePipeline / Calibration / Persistence
+- **Config 互換**: 既存の `eval_metrics: ["rmse", "mae"]` 等は完全互換、`smape`/`wape` を新規に列挙可能
+
+### 不変条件 (Invariants-First)
+
+| ID | Invariant |
+|---|---|
+| INV-1 | `SMAPE(y, y) == 0.0`（恒等予測でゼロ） |
+| INV-2 | `SMAPE` 出力範囲 `[0, 200]`、`y_true == y_pred == 0` の行は寄与 0 |
+| INV-3 | `WAPE(y, y) == 0.0`、`sum(|y_true|) == 0` でのみ `UNSUPPORTED_METRIC` raise（per-row 0 では raise しない） |
+| INV-4 | `MetricRegistry.get("smape", "regression")` と `("wape", "regression")` が成功、binary / multiclass では `LizyMLError(METRIC_NOT_FOUND)` |
+| INV-5 | `params={"metric": "smape"}` で `lgb.train` の `eval_results` に `smape` キーが現れる（feval 経由）|
+| INV-6 | `greater_is_better=False`、`needs_proba=False`（両 metric 共通） |
+
+### 互換性
+
+- **後方互換**: 完全互換。既存 metric / Config / FitResult / Persistence に変更なし
+- **format_version**: bump 不要（artifact 構造に変更なし）
+- **LightGBM 依存**: feval 経由で実装するため LightGBM のバージョン要件に変更なし
+
+### 代替案
+
+- **A. 何もしない（status quo）** — 0 を含む regression データで percentage 系評価が不可能。問題本体の放置
+- **B. MAPE の挙動緩和（`y_true == 0` を skip）** — 数学的に MAPE の定義を歪める。既存ユーザーへの silent な挙動変化、リグレッションリスク高 → 不採用
+- **C. sMAPE のみ追加** — sMAPE は per-row 平均、WAPE は sum 比であり用途が異なる（imbalanced magnitude regression では WAPE の方が頑健）。Issue 起案者も両方要請 → 不採用
+- **D. sMAPE + WAPE 同時追加（本 Proposal）** — 既存 metric IF に乗るだけ、追加コスト最小、用途分離明確 → **採用**
+
+### 受け入れ基準（テスト観点）
+
+1. **基本正解性** (`tests/test_metrics/test_regression.py`):
+   - sMAPE: hand-computed example（例: y=[1,2,3], y_pred=[1,2,4] → 期待値を手計算で固定）
+   - WAPE: hand-computed example、`MAE / mean(|y_true|) * 100` との一致
+2. **エッジケース**:
+   - sMAPE: `y_true = [0, 1]`, `y_pred = [0, 1]` で 0.0（INV-2）
+   - sMAPE: `y_true = [0, 5]`, `y_pred = [0, 4]` で raise しない（MAPE 対比）
+   - WAPE: `y_true = [0, 0, 0]`, `y_pred = [0, 1, 2]` で `UNSUPPORTED_METRIC` raise（INV-3）
+   - WAPE: `y_true = [0, 1, 2]`（部分的 0）で raise しない
+3. **属性契約**: `name`, `greater_is_better`, `needs_proba` の golden test（INV-6）
+4. **Registry 統合**: `MetricRegistry.get("smape", "regression")` / `("wape", "regression")` 成功、binary 等では失敗（INV-4）
+5. **LGBM feval E2E** (`tests/test_estimators/test_lgbm_feval.py` 拡張):
+   - regression × `params={"metric": "smape"}` で fit 成功、`fit_result.history` に `smape` キーが現れる（INV-5）
+   - 同上 `wape` パターン
+   - `params={"metric": ["rmse", "smape", "wape"]}` の native + feval 混在
+6. **Codegen E2E** (`tests/test_codegen/`):
+   - regression + smape + wape を `eval_metrics` に含む config で `export_code` → 別プロセスで `predict.py` 実行 → equivalence 確認（feval bridge 継承の確認）
+7. **CHANGELOG**: `Added` セクションに sMAPE / WAPE 追加を記載
+8. **Docstring**: 各クラスに式・range・edge case 規約・MAPE との使い分け方針を明記
+9. **品質ゲート**: ruff / mypy / pytest 全 PASS、既存 1320+ テスト全 PASS
+
+### 参考実装方針（informational）
+
+```python
+# lizyml/metrics/regression.py（追加）
+
+@MetricRegistry.register("smape")
+class SMAPE(BaseMetric):
+    """Symmetric Mean Absolute Percentage Error (range [0, 200])."""
+
+    @property
+    def name(self) -> str: return "smape"
+    @property
+    def needs_proba(self) -> bool: return False
+    @property
+    def greater_is_better(self) -> bool: return False
+
+    def __call__(self, y_true, y_pred) -> float:
+        _validate_shapes(y_true, y_pred, self.name)
+        denom = np.abs(y_true) + np.abs(y_pred)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            terms = np.where(denom == 0, 0.0, 2 * np.abs(y_true - y_pred) / denom)
+        return float(np.mean(terms) * 100)
+
+
+@MetricRegistry.register("wape")
+class WAPE(BaseMetric):
+    """Weighted Absolute Percentage Error (= MAE / mean(|y_true|) * 100)."""
+
+    @property
+    def name(self) -> str: return "wape"
+    @property
+    def needs_proba(self) -> bool: return False
+    @property
+    def greater_is_better(self) -> bool: return False
+
+    def __call__(self, y_true, y_pred) -> float:
+        _validate_shapes(y_true, y_pred, self.name)
+        denom = float(np.sum(np.abs(y_true)))
+        if denom == 0.0:
+            raise LizyMLError(
+                code=ErrorCode.UNSUPPORTED_METRIC,
+                user_message="WAPE is undefined when sum(|y_true|) is zero.",
+                context={"metric": self.name},
+            )
+        return float(np.sum(np.abs(y_true - y_pred)) / denom * 100)
+```
