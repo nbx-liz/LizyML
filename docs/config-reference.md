@@ -264,6 +264,8 @@ Supported values for `model.params.metric` by task:
 |---|:---:|:---:|:---:|
 | `rmsle` | ✅ | | |
 | `r2` | ✅ | | |
+| `smape` | ✅ | | |
+| `wape` | ✅ | | |
 | `f1` | | ✅ | ✅ |
 | `brier` | | ✅ | ✅ |
 | `ece` | | ✅ | |
@@ -438,7 +440,7 @@ Supported metric names by task:
 
 | task | metrics |
 |---|---|
-| `regression` | `rmse`, `mae`, `r2`, `rmsle`, `mape`, `huber` |
+| `regression` | `rmse`, `mae`, `r2`, `rmsle`, `mape`, `huber`, `smape`, `wape` |
 | `binary` | `logloss`, `auc`, `auc_pr`, `f1`, `accuracy`, `brier`, `ece`, `precision_at_k` |
 | `multiclass` | `logloss`, `f1`, `accuracy`, `auc`, `auc_pr`, `brier` |
 
@@ -452,6 +454,8 @@ Metric details:
 | `rmsle` | Root Mean Squared Logarithmic Error (requires non-negative values) | No | No |
 | `mape` | Mean Absolute Percentage Error (undefined when y_true contains zeros) | No | No |
 | `huber` | Huber Loss (delta=1.0) | No | No |
+| `smape` | Symmetric MAPE — tolerates per-row zeros (range [0, 200]) | No | No |
+| `wape` | Weighted Absolute Percentage Error — defined whenever sum(\|y_true\|) > 0 | No | No |
 | `logloss` | Log Loss (binary cross-entropy / multi-class cross-entropy) | Yes | No |
 | `auc` | Area Under the ROC Curve (binary or multiclass OvR macro) | Yes | Yes |
 | `auc_pr` | Area Under the Precision-Recall Curve (macro average for multiclass) | Yes | Yes |
@@ -460,6 +464,54 @@ Metric details:
 | `brier` | Brier Score (mean squared probability error, macro average for multiclass) | Yes | No |
 | `ece` | Expected Calibration Error (equal-width bins, M=10). Per-bin accuracy = fraction of positives `mean(y_true)`, confidence = `mean(y_pred)`. | Yes | No |
 | `precision_at_k` | Precision at top-K% (default K=10). K is configurable via dict form: `{precision_at_k: {k: 20}}` | Yes | Yes |
+
+### Metric formula reference
+
+Authoritative formulas for each evaluation metric. `n` denotes the number
+of rows; `y` is `y_true` and `ŷ` is `y_pred`. For probabilistic
+classification metrics, `p` denotes the predicted probability.
+
+#### Regression
+
+| metric | formula | range | notes |
+|---|---|---|---|
+| `rmse` | $\sqrt{\frac{1}{n}\sum_i (y_i - \hat y_i)^2}$ | $[0, \infty)$ | — |
+| `mae` | $\frac{1}{n}\sum_i \lvert y_i - \hat y_i \rvert$ | $[0, \infty)$ | — |
+| `r2` | $1 - \frac{\sum_i (y_i - \hat y_i)^2}{\sum_i (y_i - \bar y)^2}$ | $(-\infty, 1]$ | $\bar y$ = mean of `y_true` |
+| `rmsle` | $\sqrt{\frac{1}{n}\sum_i (\log(1+y_i) - \log(1+\hat y_i))^2}$ | $[0, \infty)$ | requires $y_i, \hat y_i \ge 0$ |
+| `mape` | $\frac{100}{n}\sum_i \left\lvert \frac{y_i - \hat y_i}{y_i} \right\rvert$ | $[0, \infty)$ | undefined if any $y_i = 0$ |
+| `huber` | $\frac{1}{n}\sum_i L_\delta(y_i - \hat y_i)$ where $L_\delta(e) = \begin{cases} \tfrac{1}{2}e^2 & \lvert e \rvert \le \delta \\ \delta (\lvert e \rvert - \tfrac{1}{2}\delta) & \text{otherwise} \end{cases}$ | $[0, \infty)$ | $\delta = 1.0$ default |
+| `smape` (H-0071) | $\frac{100}{n}\sum_i \frac{2 \lvert y_i - \hat y_i \rvert}{\lvert y_i \rvert + \lvert \hat y_i \rvert}$ | $[0, 200]$ | row with $\lvert y_i \rvert + \lvert \hat y_i \rvert = 0$ contributes 0 |
+| `wape` (H-0071) | $\frac{\sum_i \lvert y_i - \hat y_i \rvert}{\sum_i \lvert y_i \rvert} \times 100$ | $[0, \infty)$ | undefined only when $\sum_i \lvert y_i \rvert = 0$ |
+
+**MAPE vs sMAPE vs WAPE.**
+- **MAPE** is the classical per-row percentage error — fails on any $y_i = 0$.
+- **sMAPE** averages a *symmetric* percentage error per row, so a single $y_i = 0$ no longer breaks it; it only breaks when both $y_i = 0$ and $\hat y_i = 0$ (which we treat as 0 contribution by convention).
+- **WAPE** is a *sum-ratio*, equivalent to $\text{MAE}/\overline{\lvert y \rvert} \times 100$. It tolerates per-row zeros and is the most robust choice for imbalanced-magnitude regressions where a few large-volume series would otherwise dominate.
+
+#### Classification — probability-based
+
+| metric | formula | range | notes |
+|---|---|---|---|
+| `logloss` (binary) | $-\frac{1}{n}\sum_i \big[y_i \log p_i + (1-y_i) \log (1-p_i)\big]$ | $[0, \infty)$ | $p_i$ = predicted prob. of class 1 |
+| `logloss` (multiclass) | $-\frac{1}{n}\sum_i \sum_{k} \mathbf{1}\{y_i = k\} \log p_{i,k}$ | $[0, \infty)$ | $p_{i,k}$ = predicted prob. of class $k$ |
+| `auc` (binary) | Area under the ROC curve (TPR vs FPR over all thresholds) | $[0, 1]$ | computed via sklearn `roc_auc_score` |
+| `auc` (multiclass) | OvR macro average of per-class AUC | $[0, 1]$ | one-vs-rest, equal-weight average |
+| `auc_pr` (binary) | Area under the precision–recall curve (= average precision) | $[0, 1]$ | sklearn `average_precision_score` |
+| `auc_pr` (multiclass) | macro average of per-class AP | $[0, 1]$ | — |
+| `brier` (binary) | $\frac{1}{n}\sum_i (p_i - y_i)^2$ | $[0, 1]$ | mean squared probability error |
+| `brier` (multiclass) | $\frac{1}{K}\sum_{k=1}^{K} \mathrm{Brier}(\mathbf{1}\{y = k\}, p_{:,k})$ | $[0, 1]$ | macro average over classes |
+| `ece` (binary) | $\sum_{m=1}^{M} \frac{\lvert B_m \rvert}{n} \big\lvert \mathrm{acc}(B_m) - \mathrm{conf}(B_m) \big\rvert$ | $[0, 1]$ | $M = 10$ equal-width bins; $\mathrm{acc}(B_m) = \mathrm{mean}(y_{B_m})$, $\mathrm{conf}(B_m) = \mathrm{mean}(p_{B_m})$ |
+
+#### Classification — label-based
+
+| metric | formula | range | notes |
+|---|---|---|---|
+| `f1` (binary) | $\frac{2 \cdot \mathrm{precision} \cdot \mathrm{recall}}{\mathrm{precision} + \mathrm{recall}}$ at threshold 0.5 | $[0, 1]$ | uses `(p \ge 0.5)` cut |
+| `f1` (multiclass) | macro average of per-class F1 | $[0, 1]$ | argmax over class probs |
+| `accuracy` (binary) | $\frac{1}{n}\sum_i \mathbf{1}\{\hat y_i = y_i\}$ at threshold 0.5 | $[0, 1]$ | — |
+| `accuracy` (multiclass) | $\frac{1}{n}\sum_i \mathbf{1}\{\arg\max_k p_{i,k} = y_i\}$ | $[0, 1]$ | — |
+| `precision_at_k` | $\mathrm{mean}\big(y_{\text{top-K\%}}\big)$ where rows are sorted desc by $p$ and top-K% kept | $[0, 1]$ | default $K = 10\%$; configurable: `{precision_at_k: {k: 20}}` |
 
 ## `calibration`
 

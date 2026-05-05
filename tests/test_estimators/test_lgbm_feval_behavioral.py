@@ -195,6 +195,54 @@ class TestFevalRegressionTraining:
         assert "rmse" in valid_keys
         assert "rmsle" in valid_keys
 
+    def test_smape_in_eval_results(self) -> None:
+        """H-0071: sMAPE feval works during regression training."""
+        rng = np.random.default_rng(42)
+        X_train, y_train, X_valid, y_valid = _make_regression_data(rng)
+
+        adapter = LGBMAdapter(
+            task="regression",
+            params={"metric": ["smape"], "n_estimators": 10},
+            early_stopping_rounds=5,
+        )
+        adapter.fit(X_train, y_train, X_valid, y_valid)
+
+        history = adapter.eval_results
+        valid_keys = set(history.get("valid_0", {}).keys())
+        assert "smape" in valid_keys
+
+    def test_wape_in_eval_results(self) -> None:
+        """H-0071: WAPE feval works during regression training."""
+        rng = np.random.default_rng(42)
+        X_train, y_train, X_valid, y_valid = _make_regression_data(rng)
+
+        adapter = LGBMAdapter(
+            task="regression",
+            params={"metric": ["wape"], "n_estimators": 10},
+            early_stopping_rounds=5,
+        )
+        adapter.fit(X_train, y_train, X_valid, y_valid)
+
+        history = adapter.eval_results
+        valid_keys = set(history.get("valid_0", {}).keys())
+        assert "wape" in valid_keys
+
+    def test_mixed_native_and_smape_wape(self) -> None:
+        """H-0071: native + smape + wape mixed."""
+        rng = np.random.default_rng(42)
+        X_train, y_train, X_valid, y_valid = _make_regression_data(rng)
+
+        adapter = LGBMAdapter(
+            task="regression",
+            params={"metric": ["rmse", "smape", "wape"], "n_estimators": 10},
+            early_stopping_rounds=5,
+        )
+        adapter.fit(X_train, y_train, X_valid, y_valid)
+
+        history = adapter.eval_results
+        valid_keys = set(history.get("valid_0", {}).keys())
+        assert {"rmse", "smape", "wape"}.issubset(valid_keys)
+
 
 class TestFevalMulticlassTraining:
     """feval metrics in multiclass training."""

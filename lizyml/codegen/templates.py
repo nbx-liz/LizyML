@@ -201,6 +201,18 @@ def _feval_accuracy(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     pred = (y_pred >= 0.5).astype(int) if y_pred.dtype.kind == "f" else y_pred
     return float(accuracy_score(y_true, pred))
 
+def _feval_smape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    denom = np.abs(y_true) + np.abs(y_pred)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        terms = np.where(denom == 0, 0.0, 2.0 * np.abs(y_true - y_pred) / denom)
+    return float(np.mean(terms) * 100.0)
+
+def _feval_wape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
+    denom = float(np.sum(np.abs(y_true)))
+    if denom == 0.0:
+        raise ValueError("WAPE is undefined when sum(|y_true|) is zero.")
+    return float(np.sum(np.abs(y_true - y_pred)) / denom * 100.0)
+
 
 _FEVAL_REGISTRY: dict = {
     "rmsle": _feval_rmsle,
@@ -210,6 +222,8 @@ _FEVAL_REGISTRY: dict = {
     "ece": _feval_ece,
     "precision_at_k": _feval_precision_at_k,
     "accuracy": _feval_accuracy,
+    "smape": _feval_smape,
+    "wape": _feval_wape,
 }
 
 

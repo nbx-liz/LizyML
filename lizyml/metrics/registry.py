@@ -23,7 +23,9 @@ MetricEntry = str | dict[str, dict[str, Any]]
 
 # Metrics that are valid per task type
 _TASK_METRICS: dict[TaskType, frozenset[str]] = {
-    "regression": frozenset(["rmse", "mae", "r2", "rmsle", "mape", "huber"]),
+    "regression": frozenset(
+        ["rmse", "mae", "r2", "rmsle", "mape", "huber", "smape", "wape"]
+    ),
     "binary": frozenset(
         ["logloss", "auc", "auc_pr", "f1", "accuracy", "brier", "ece", "precision_at_k"]
     ),
