@@ -394,8 +394,11 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         expand_boundary: bool | None = None,
         boundary_threshold: float = 0.05,
         progress_callback: TuneProgressCallback | None = None,
+        storage: str | Any | None = None,
+        study_name: str | None = None,
     ) -> TuningResult:
-        """Run hyperparameter search with optuna (H-0068: resume + expand).
+        """Run hyperparameter search with optuna (H-0068: resume + expand,
+        H-0072: persistent storage).
 
         Requires ``tuning`` section in the config.  Best params are stored
         internally and used automatically in the next ``fit()`` call.
@@ -412,6 +415,13 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
                 for default space, False for user-specified space.
             boundary_threshold: Edge detection threshold (0.0–1.0).
             progress_callback: Optional callback invoked after each trial.
+            storage: Optional Optuna storage URL or ``BaseStorage`` instance
+                for resumable tuning (H-0072). ``None`` keeps the in-memory
+                behavior. When set, ``study_name`` is required.
+            study_name: Optional study identifier used together with
+                ``storage`` (H-0072). Required when ``storage`` is given.
+                Re-using the same ``(storage, study_name)`` pair re-attaches
+                to the persisted study via ``load_if_exists=True``.
 
         Returns:
             :class:`~lizyml.core.types.tuning_result.TuningResult` with
@@ -598,6 +608,8 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             timeout=optuna_cfg.timeout,
             seed=cfg.training.seed,
             progress_callback=progress_callback,
+            storage=storage,
+            study_name=study_name,
         )
 
         result, study = tuner.tune(
