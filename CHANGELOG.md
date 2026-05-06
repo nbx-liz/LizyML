@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.12.0] - 2026-05-06
+
+### Added
+
+- **Resumable tuning via Optuna persistent storage** (H-0072, [#105](https://github.com/nbx-liz/LizyML/issues/105)) — `Tuner` and `Model.tune()` now accept `storage` (Optuna URL such as `sqlite:///path/to.db` or a `BaseStorage` instance) and `study_name`. When set, trial state is persisted to disk after each trial completes; re-invoking `Model.tune(storage=..., study_name=...)` with the same identifiers re-attaches via `load_if_exists=True` so completed trials are not re-run. `storage=None` (default) preserves the in-memory behavior with no disk I/O. Designed for long-running tune jobs that must survive process kill, server restart, or network outage. No new dependencies (uses Optuna's built-in storage backends).
+
 ## [0.11.0] - 2026-05-05
 
 ### Added

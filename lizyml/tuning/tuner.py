@@ -49,6 +49,14 @@ class Tuner:
         timeout: Optional timeout in seconds.
         seed: Random seed for the optuna sampler.
         progress_callback: Optional callback invoked after each trial.
+        storage: Optional Optuna storage URL (e.g. ``sqlite:///path/to.db``)
+            or ``BaseStorage`` instance for resumable tuning (H-0072).
+            ``None`` (default) keeps the in-memory study behavior. When set,
+            ``study_name`` is required.
+        study_name: Optional study identifier used together with ``storage``
+            (H-0072). Required when ``storage`` is given. Re-using the same
+            ``(storage, study_name)`` pair re-attaches to an existing study
+            via ``load_if_exists=True`` so completed trials are not re-run.
     """
 
     def __init__(
@@ -60,13 +68,26 @@ class Tuner:
         seed: int = 42,
         *,
         progress_callback: TuneProgressCallback | None = None,
+        storage: str | Any | None = None,
+        study_name: str | None = None,
     ) -> None:
+        if storage is not None and study_name is None:
+            raise LizyMLError(
+                code=ErrorCode.CONFIG_INVALID,
+                user_message=(
+                    "study_name is required when storage is provided. "
+                    "Pass a unique identifier so the study can be re-attached."
+                ),
+                context={"storage": str(storage)},
+            )
         self.dims = dims
         self.n_trials = n_trials
         self.direction = direction
         self.timeout = timeout
         self.seed = seed
         self.progress_callback = progress_callback
+        self.storage = storage
+        self.study_name = study_name
 
     def tune(
         self,
@@ -114,7 +135,16 @@ class Tuner:
 
         if study is None:
             sampler = _optuna.samplers.TPESampler(seed=self.seed)
-            study = _optuna.create_study(direction=self.direction, sampler=sampler)
+            if self.storage is None:
+                study = _optuna.create_study(direction=self.direction, sampler=sampler)
+            else:
+                study = _optuna.create_study(
+                    direction=self.direction,
+                    sampler=sampler,
+                    storage=self.storage,
+                    study_name=self.study_name,
+                    load_if_exists=True,
+                )
 
         # Enqueue previous best as initial trial (H-0068)
         if enqueue_params is not None:

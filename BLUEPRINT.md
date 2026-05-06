@@ -905,7 +905,32 @@ LizyML Core は callback + 結果型でデータを提供し、Widget/Studio が
 
 - `resume=False` は現在と同一動作（完全後方互換）
 - `resume=True` で未 tune → `LizyMLError(TUNING_FAILED)`
-- Tuner は study オブジェクトの受け取り・返却に対応するが、study の永続化（RDB storage 等）は対象外
+- Tuner は study オブジェクトの受け取り・返却に対応する。study の永続化（disk-backed storage）は §11.5.1 で扱う。
+
+## 11.5.1 Persistent Storage（H-0072）
+
+長時間 tuning ジョブが process kill / 再起動 / ネットワーク断で中断した際に、journal / RDB に永続化された trial 状態から **完了済 trial を再実行せずに resume** できる仕組みを提供する。Optuna 標準の `JournalStorage` / `RDBStorage` を薄く pass-through する設計とする。
+
+### Tuner / Model.tune() の追加パラメーター
+
+| パラメーター | デフォルト | 説明 |
+|---|---|---|
+| `storage` | `None` | Optuna storage URL（`sqlite:///path/to.db` 等）または `BaseStorage` インスタンス。`None` で in-memory（従来挙動） |
+| `study_name` | `None` | Study 識別子。`storage` 指定時は必須（fail fast） |
+
+`storage=None` で完全後方互換（disk IO ゼロ）。`storage` 指定時は `optuna.create_study(..., storage=..., study_name=..., load_if_exists=True)` で idempotent に再アタッチする。
+
+### resume との関係
+
+- `Model.tune(resume=False, storage=...)`: 同一 process 内で初回呼び出し時、`load_if_exists=True` により journal に既存 study があれば再アタッチ（crash recovery）。journal に該当 study が無ければ新規作成
+- `Model.tune(resume=True, ...)`: 既存の `Model._study` を再利用（in-memory / disk-backed どちらでも動作）
+- `storage` を指定し続ける限り、各 trial 完了直後に backend に追記される
+
+### 制約
+
+- `storage is not None and study_name is None` → `LizyMLError(CONFIG_INVALID)`
+- `RoundSummary` / `BoundaryReport` 等のラウンドメタは journal には保存されない（trial 単位 resume のみが対象）。round 履歴の永続化は別 Proposal で扱う。
+- 利用者は study_name のユニーク性を担保する責任を持つ。同一 storage に異なる direction の study を同 study_name で作成することは Optuna 仕様上不可。
 
 ## 11.6 リーク回避方針（必須で明文化）
 
