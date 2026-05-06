@@ -5659,3 +5659,217 @@ class WAPE(BaseMetric):
             )
         return float(np.sum(np.abs(y_true - y_pred)) / denom * 100)
 ```
+
+## H-0072: Tuner / Model.tune に Optuna 永続化 storage を追加（resumable tuning）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-05-06
+- **決定日**: 2026-05-06
+- **スコープ**: Public API (Tuner / Model.tune) | Tuning persistence | Docs
+- **関連**: [Issue #105](https://github.com/nbx-liz/LizyML/issues/105), [LizyStudio#360](https://github.com/nbx-liz/LizyStudio/issues/360), BLUEPRINT.md §11.5（制約: 「study の永続化（RDB storage 等）は対象外」を改訂）
+
+### 目的
+
+LizyStudio v0.5 が要求する **24h+ Tune ジョブの再開可能性**（プロセス kill / サーバ再起動 / ネットワーク断 / ブラウザリロード後に最終 trial から resume）を実現するため、Optuna 標準の永続 storage（`JournalStorage` / `RDBStorage`）を `Tuner` / `Model.tune()` に薄く pass-through する。
+
+H-0068 で既に `study=` 注入経路は導入済みだが、in-memory study はプロセス終了で消失するため、再アタッチ可能な **disk-backed study** を構築する手段が現状存在しない。本 Proposal は `storage` + `study_name` の 2 引数を追加し、Optuna 標準機能の薄い委譲として実装する（追加依存なし、Optuna 同梱機能）。
+
+LizyStudio 側で trial loop を再実装することは、`enqueue_trial` / `progress_callback` / `round_number` / `prior_trials` / `expanded_dims` 等 H-0068 で導入済みの round 管理を二重化することになり保守上のアンチパターン。`Tuner.tune()` が study を構築する箇所で storage を受け取れるのが構造的に最適。
+
+### 変更内容
+
+1. **`Tuner.__init__()` に 2 引数を追加** (`lizyml/tuning/tuner.py:54-69`)
+
+   ```python
+   def __init__(
+       self,
+       dims: list[SearchDim],
+       n_trials: int = 50,
+       direction: Literal["minimize", "maximize"] = "minimize",
+       timeout: float | None = None,
+       seed: int = 42,
+       *,
+       progress_callback: TuneProgressCallback | None = None,
+       storage: str | Any | None = None,    # NEW: optuna URL or BaseStorage
+       study_name: str | None = None,        # NEW: study identifier (required when storage is given)
+   ) -> None:
+   ```
+
+2. **`Tuner.tune()` の study 生成ロジック拡張** (`lizyml/tuning/tuner.py:115-117`)
+
+   ```python
+   if study is None:
+       sampler = _optuna.samplers.TPESampler(seed=self.seed)
+       if self.storage is None:
+           study = _optuna.create_study(direction=self.direction, sampler=sampler)
+       else:
+           study = _optuna.create_study(
+               direction=self.direction,
+               sampler=sampler,
+               storage=self.storage,
+               study_name=self.study_name,
+               load_if_exists=True,   # idempotent re-attach
+           )
+   ```
+
+   - `storage is not None and study_name is None` → `LizyMLError(CONFIG_INVALID, "study_name is required when storage is provided.")`
+   - 既存 `study=` 注入経路はそのまま（外部で構築済 study を渡す既存ユースケースは無変更）
+
+3. **`Model.tune()` に同 2 引数を pass-through** (`lizyml/core/model.py:388-397`)
+
+   ```python
+   def tune(
+       self,
+       data: pd.DataFrame | None = None,
+       *,
+       resume: bool = False,
+       n_trials: int | None = None,
+       expand_boundary: bool | None = None,
+       boundary_threshold: float = 0.05,
+       progress_callback: TuneProgressCallback | None = None,
+       storage: str | Any | None = None,    # NEW
+       study_name: str | None = None,        # NEW
+   ) -> TuningResult:
+   ```
+
+   - `Tuner(..., storage=storage, study_name=study_name)` に転送
+   - `resume=True` と `storage=` の併用挙動: `self._study` が既に存在すれば従来通り（in-memory 続行）。`self._study is None` かつ `storage` 指定時は `load_if_exists=True` により journal から自動 resume（Studio の crash recovery シナリオ）
+
+4. **trial 数カウントの整合**
+   - `prior_trials = len(self._study.trials)` は study load 後に正しい値を返す（Optuna 仕様）
+   - `round_number` は `Model._round_number` をベースに増分するため、journal resume 後の初回 `tune()` は round 1 から（journal 自体は round メタを持たない仕様）。round 履歴を永続化したい場合は別 Proposal で扱う
+
+5. **BLUEPRINT.md §11.5 改訂**
+   - 「Tuner は study オブジェクトの受け取り・返却に対応するが、study の永続化（RDB storage 等）は対象外」を削除
+   - 新節 §11.5.x「Persistent Storage（H-0072）」を追加し、`storage` / `study_name` の引数仕様 / resume パターン / round 履歴非保証 を明記
+
+6. **Docs（README または docs/tuning-resume.md）**
+   - 最小サンプル: `Model.tune(storage="sqlite:///workspace/tune.db", study_name="job-42")` を 2 回呼び出し → 2 回目は途中再開
+   - JournalStorage URL 形式の注意（`journal:///` は Optuna ≥ 3.x で利用可、SQLite は `sqlite:///`）
+
+### 影響範囲
+
+- **変更ファイル**:
+  - `lizyml/tuning/tuner.py`（`__init__` 引数 2 件追加 + `create_study` 分岐）
+  - `lizyml/core/model.py`（`tune()` 引数 2 件追加 + Tuner 構築時に転送）
+  - `BLUEPRINT.md` §11.5 制約改訂 + 新節
+  - `tests/test_tuning/test_tuner_persistence.py`（新規）
+  - `tests/test_core/test_model_tune.py`（pass-through 引数のテスト追記）
+  - README.md または docs/tuning-resume.md（resume 例）
+  - `CHANGELOG.md`（Added セクション）
+- **無変更**: `TuningResult` / `TrialResult` / `RoundSummary` / `BoundaryReport` / `progress_callback` / Persistence (Artifacts) / Calibration / Codegen
+- **依存追加**: なし（Optuna 同梱の `JournalStorage` / `RDBStorage` をそのまま利用）。`sqlite:///` は標準 Python（追加 install 不要）。`mysql://` 等は利用者側で driver を入れる前提（Optuna 同様）
+
+### 不変条件 (Invariants-First)
+
+| ID | Invariant |
+|---|---|
+| INV-1 | `storage=None`（デフォルト）で挙動が H-0071 までと完全一致（in-memory study、disk IO ゼロ） |
+| INV-2 | `storage=<url>` + `study_name=<name>` で trial 完了直後に journal/DB に追記され、process kill 後でもファイル/DB に N trials 残る |
+| INV-3 | 同 storage + 同 study_name で `Model.tune()` 再呼び出し時、`load_if_exists=True` により完了済 trial を再実行せず resume（`len(study.trials)` が単調増加） |
+| INV-4 | `storage` 指定 + `study_name=None` → `LizyMLError(CONFIG_INVALID)`（fail fast） |
+| INV-5 | `storage` を後から変更した場合（同 process 内で異なる storage で 2 回目 tune）→ `study_name` が同一なら別 storage の trial と混ざらない（Optuna 仕様準拠） |
+| INV-6 | `progress_callback` / `enqueue_params` / `expanded_dims` / `round_number` の挙動は `storage` 有無に依存しない |
+
+### 互換性
+
+- **後方互換**: 完全互換。`storage=None` がデフォルトで、現在の全テスト・全ユースケースに影響なし
+- **format_version**: bump 不要（Artifact / FitResult / TuningResult 構造に変更なし）
+- **Optuna バージョン要件**: `JournalStorage` の API は Optuna 3.0+。LizyML 既存の Optuna 依存範囲（`pyproject.toml` 確認）を満たす場合は追加制約なし。利用者が古い Optuna を使う場合は SQLite (`sqlite:///`) でフォールバック可能
+
+### 代替案
+
+- **A. 何もしない（status quo）** — LizyStudio v0.5 の crash recovery が実装不能。LizyStudio 側で `Tuner` をバイパスして optuna 直叩きする迂回が必要になり、`progress_callback` / round 管理を二重実装する保守地獄 → 不採用
+- **B. LizyStudio 側で `study=` を毎回外部構築** — `study` を毎回外で作って渡す方式は、LizyStudio が `Tuner.tune()` の objective closure 構築に必要な `_build_train_components` 等の internal にアクセスする必要があり、private API への依存を強要する → 不採用
+- **C. `Tuner` ではなく `Model` 側で storage を持つ** — `Model._study` の永続化責務は Model に持たせる案。しかし `Tuner` が study を生成する責務（`Tuner.tune()` 内 `create_study`）と分離されており、Model 側で持つと「Model が study を作って Tuner に渡す」逆転構造になる。現在の責務分離を保つほうが H-0068 設計と整合 → 不採用
+- **D. `storage` + `study_name` を Tuner / Model.tune に追加（本 Proposal）** — Optuna 標準機能の薄い委譲。コード変更最小、責務分離維持、後方互換 100% → **採用**
+- **E. round 履歴の永続化も同時に行う** — `RoundSummary` を journal に保存する拡張は別の管理レイヤー（Optuna study の system_attrs に詰める or 独立ファイル）が必要で、本 Issue のスコープ（trial 単位 resume）を超える → 別 Proposal（H-0073 候補）
+
+### 受け入れ基準（テスト観点）
+
+1. **後方互換** (`tests/test_tuning/test_tuner.py` 既存 + 新規):
+   - `storage=None` で Tuner.tune を実行し、in-memory study が生成されることを確認（`study._storage` が `InMemoryStorage`）
+   - 既存 H-0068 resume テスト（`study=` 注入）が PASS のまま
+2. **永続化 happy path** (`tests/test_tuning/test_tuner_persistence.py` 新規):
+   - tmp_path 配下に SQLite (`sqlite:///{tmp}/study.db`) で Tuner.tune → `len(study.trials) == n_trials` 確認
+   - 同一 storage + study_name で 2 回目 Tuner.tune → `len(study.trials) == n_trials * 2` 確認（resume 動作）
+3. **crash-and-resume** (新規、INV-2/INV-3):
+   - objective が `trial.number == K` で `RuntimeError` を raise する細工 → catch して study が壊れないことを確認
+   - 別 Tuner インスタンスを構築（`storage` + `study_name` 同一）→ 残り trial 実行 → `len(study.trials) == n_trials` で resume 完了
+4. **fail fast** (INV-4):
+   - `Tuner(..., storage="sqlite:///x.db", study_name=None).tune(...)` → `LizyMLError(CONFIG_INVALID)`
+   - 同上 `Model.tune(storage=..., study_name=None)` → 同エラー
+5. **`Model.tune()` pass-through** (`tests/test_core/test_model_tune.py` 拡張):
+   - `Model.tune(storage="sqlite:///{tmp}/study.db", study_name="m1")` で TuningResult が H-0071 までと同型で返る
+   - 2 回目呼び出し（`resume=False` だが `_study is None`、storage 指定）で journal から再アタッチし、trial 数が累積する
+6. **progress_callback 互換** (INV-6):
+   - `storage` 有無にかかわらず `TuneProgressInfo` が同型で発火、`current_trial` / `cumulative_trials` の値が一致
+7. **JournalStorage URL** (Optuna 3.x 利用可能なバージョンで): SQLite と JournalStorage（`JournalFileBackend`）の両方で 1〜3 のテストを parametrize（環境依存があれば JournalStorage は skip 可、SQLite は必須）
+8. **Docs**: README に最小 resume 例 + `docs/tuning-resume.md`（または既存 docs に節追加）に LizyStudio crash recovery 想定の使い方を記述
+9. **CHANGELOG**: `Added` セクションに「`Tuner` / `Model.tune()` に `storage` / `study_name` 引数を追加（Issue #105）」を記載
+10. **品質ゲート**: ruff / mypy / pytest 全 PASS、既存 1320+ テスト全 PASS
+
+### Migration
+
+破壊的変更なし。利用者側の対応は **任意**:
+
+- 従来通り `Model.tune()` を引数なしで呼べば in-memory のまま（変更不要）
+- 永続化を有効にするには `Model.tune(storage="sqlite:///workspace/tune.db", study_name="<unique>")` に変更
+- 同 study_name で再呼び出しすれば自動的に途中再開
+
+### 参考実装方針（informational）
+
+```python
+# lizyml/tuning/tuner.py（差分）
+
+class Tuner:
+    def __init__(
+        self,
+        dims: list[SearchDim],
+        n_trials: int = 50,
+        direction: Literal["minimize", "maximize"] = "minimize",
+        timeout: float | None = None,
+        seed: int = 42,
+        *,
+        progress_callback: TuneProgressCallback | None = None,
+        storage: str | Any | None = None,
+        study_name: str | None = None,
+    ) -> None:
+        if storage is not None and study_name is None:
+            raise LizyMLError(
+                code=ErrorCode.CONFIG_INVALID,
+                user_message="study_name is required when storage is provided.",
+                context={"storage": str(storage)},
+            )
+        self.dims = dims
+        self.n_trials = n_trials
+        self.direction = direction
+        self.timeout = timeout
+        self.seed = seed
+        self.progress_callback = progress_callback
+        self.storage = storage
+        self.study_name = study_name
+
+    def tune(self, objective, metric_name="rmse", *, study=None, ...):
+        ...
+        if study is None:
+            sampler = _optuna.samplers.TPESampler(seed=self.seed)
+            if self.storage is None:
+                study = _optuna.create_study(direction=self.direction, sampler=sampler)
+            else:
+                study = _optuna.create_study(
+                    direction=self.direction,
+                    sampler=sampler,
+                    storage=self.storage,
+                    study_name=self.study_name,
+                    load_if_exists=True,
+                )
+        ...
+```
+
+### Decision
+
+- Date: 2026-05-06
+- Result: accepted
+- Notes: Issue #105 に対する upstream 対応として承認。Optuna 標準機能の薄い委譲、後方互換 100%、追加依存なし。round 履歴の永続化は別 Proposal（H-0073 候補）で扱う。
+
