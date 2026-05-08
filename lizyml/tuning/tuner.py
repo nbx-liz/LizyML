@@ -183,9 +183,9 @@ class Tuner:
                 )
                 try:
                     user_cb(info)
-                except Exception:
+                except Exception as exc:
                     warnings.warn(
-                        "progress_callback raised an exception; ignoring.",
+                        f"progress_callback raised an exception: {type(exc).__name__}: {exc}",
                         RuntimeWarning,
                         stacklevel=1,
                     )
