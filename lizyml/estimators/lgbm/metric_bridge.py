@@ -107,7 +107,12 @@ _LGBM_NATIVE_METRICS: dict[str, frozenset[str]] = {
             "ova",
             "ovr",
             "multi_error",
-            "auc",
+            # H-0079 Phase 3: ``auc`` was incorrectly listed here, but
+            # LightGBM 4.x raises "Multiclass objective and metrics don't
+            # match" when ``auc`` reaches multiclass ``params["metric"]``.
+            # The post-fit ``MetricRegistry`` still computes multiclass
+            # AUC via sklearn OvR (``Model.evaluate(metrics=["auc"])`` keeps
+            # working); only the lgb.train passthrough is rejected.
             "auc_mu",
         ]
     ),

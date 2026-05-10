@@ -226,6 +226,42 @@ Validation constraints:
 - `min_data_in_leaf_ratio` and `params.min_data_in_leaf` cannot be specified together.
 - `min_data_in_bin_ratio` and `params.min_data_in_bin` cannot be specified together.
 
+### Training objective reference (`model.params.objective`)
+
+LightGBM's `objective` drives gradient + hessian and therefore which loss
+the booster optimises. From v0.15 (H-0079) any task-compatible value
+supplied via `model.params.objective` is honoured by training (pre-0.15
+the value was silently overridden — see [DEPRECATIONS.md](DEPRECATIONS.md#lgbmconfigparamsobjective-cross-task-injection-h-0079)).
+Cross-task injection (e.g. `objective="regression"` for a binary task)
+raises `LizyMLError(CONFIG_INVALID)`.
+
+The canonical objective names per task (canonical names only — aliases
+such as `softmax` ≡ `multiclass` are not surfaced):
+
+| task | valid objectives |
+|---|---|
+| `regression` | `regression`, `regression_l1`, `huber`, `fair`, `poisson`, `quantile`, `mape`, `gamma`, `tweedie` |
+| `binary` | `binary`, `cross_entropy`, `cross_entropy_lambda` |
+| `multiclass` | `multiclass`, `multiclassova` |
+
+Some objectives place constraints on the target distribution:
+
+- `gamma` requires strictly positive targets (`y > 0`)
+- `poisson` / `tweedie` require non-negative targets (`y >= 0`)
+- `mape` requires non-zero targets (`y != 0`)
+
+`default_space()` only samples a conservative subset (`("huber", "fair")`
+for regression, `("binary",)` for binary, `("multiclass", "multiclassova")`
+for multiclass) so that tune does not fail on arbitrary target
+distributions. To explore the full set in tune, supply your own
+`tuning.search_space` with `CategoricalDim("objective",
+LGBMProvider().objective_choices(task), category="model")`.
+
+The list above is the canonical source of truth for downstream
+integrations and is exposed programmatically via
+`LGBMProvider().objective_choices(task)`. Generated documentation
+should pull from that API rather than copy this table.
+
 ### Training metric vs evaluation metric
 
 LizyML has two separate metric systems:
@@ -243,13 +279,16 @@ to LightGBM equivalents (e.g. `"logloss"` → `"binary_logloss"` for binary task
 
 Supported values for `model.params.metric` by task:
 
-**LightGBM native metrics:**
+**LightGBM native metrics** (canonical names — full alias list accepted at config-input
+time. Surfaced via `LGBMProvider().metric_choices(task)["native"]` for downstream UIs):
 
 | task | metrics |
 |---|---|
-| `regression` | `l1` (`mae`), `l2` (`mse`), `rmse`, `quantile`, `mape`, `huber`, `fair`, `poisson`, `gamma`, `gamma_deviance`, `tweedie` |
+| `regression` | `rmse`, `mae`, `mape`, `huber`, `fair`, `poisson`, `quantile`, `gamma`, `gamma_deviance`, `tweedie` |
 | `binary` | `binary_logloss`, `binary_error`, `auc`, `average_precision`, `cross_entropy`, `cross_entropy_lambda`, `kullback_leibler` |
-| `multiclass` | `multi_logloss`, `multi_error`, `auc`, `auc_mu` |
+| `multiclass` | `multi_logloss`, `multi_error`, `auc`, `auc_mu`, `multiclassova` |
+
+Aliases accepted at config-input time but not surfaced (e.g. `l1`/`l2`/`mse`/`mean_absolute_error`/`regression_l1`/`softmax`/`ova`/`ovr`/`xentropy`/`xentlambda`/`kldiv`) collapse to the canonical name above before reaching `lgb.train`.
 
 **LizyML name auto-translation:**
 

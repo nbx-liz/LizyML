@@ -84,11 +84,20 @@ class TestValidateLgbmMetrics:
             (["binary_logloss", "auc"], "binary"),
             (["average_precision"], "binary"),
             (["multi_logloss", "auc_mu"], "multiclass"),
-            (["auc"], "multiclass"),
         ],
     )
     def test_valid_native_metrics_pass(self, metrics: list[str], task: str) -> None:
         validate_lgbm_metrics(metrics, task, feval_names=frozenset())
+
+    def test_auc_rejected_for_multiclass_native(self) -> None:
+        """H-0079 Phase 3: ``auc`` is not accepted by LightGBM as a
+        multiclass native metric (raises "Multiclass objective and
+        metrics don't match"); whitelist must reject it pre-fit."""
+        from lizyml.core.exceptions import LizyMLError
+
+        with pytest.raises(LizyMLError) as excinfo:
+            validate_lgbm_metrics(["auc"], "multiclass", feval_names=frozenset())
+        assert excinfo.value.code.name == "CONFIG_INVALID"
 
     # -- Invalid metrics --
 
