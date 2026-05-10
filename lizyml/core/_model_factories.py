@@ -207,7 +207,8 @@ def build_calibration_splitter(cfg: LizyMLConfig) -> BaseSplitter:
 
     warnings.warn(
         "build_calibration_splitter is deprecated (H-0058). "
-        "Calibration cross-fit now reuses outer CV splits.",
+        "Calibration cross-fit now reuses outer CV splits. "
+        "Will be removed in v1.0.",
         DeprecationWarning,
         stacklevel=2,
     )
