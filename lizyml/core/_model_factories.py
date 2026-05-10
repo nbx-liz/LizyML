@@ -139,15 +139,25 @@ def _build_splitter_for_method(
             max_train_size=split_cfg.train_size_max,
             max_test_size=split_cfg.test_size_max,
         )
-    # Default: KFoldConfig (or any unmatched variant)
     if isinstance(split_cfg, KFoldConfig):
         return KFoldSplitter(
             n_splits=n_splits,
             shuffle=split_cfg.shuffle,
             random_state=split_cfg.random_state,
         )
-    # Fallback — should not be reachable with the current union
-    return KFoldSplitter(n_splits=n_splits, shuffle=True, random_state=42)
+    # Loud fail — adding a new SplitConfig variant without updating this
+    # dispatch must not silently produce KFold splits (#119).
+    from lizyml.core.exceptions import ErrorCode, LizyMLError
+
+    type_name = type(split_cfg).__name__
+    raise LizyMLError(
+        code=ErrorCode.CONFIG_INVALID,
+        user_message=(
+            f"Unhandled SplitConfig type: {type_name}. "
+            "Update _build_splitter_for_method dispatch when adding a new variant."
+        ),
+        context={"split_config_type": type_name},
+    )
 
 
 def build_splitter(
