@@ -475,7 +475,8 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `target_encoder`（H-0070, format_version=2）
   - `TargetEncoder(classes_: tuple[Any, ...], needs_encoding: bool, original_dtype: str)`
   - 数値 y / regression では `needs_encoding=False` の no-op
-  - 非数値 classification y では `classes_` に sorted 元ラベルを保持
+  - 非数値 classification y では `classes_` に **lexicographically** sorted な元ラベルを保持
+    （`sorted(unique, key=str)`、numeric-string では自然順とは一致しない: `["1","10","2"]` → `("1","10","2")`）
   - `predict()` / codegen / persistence migration で利用
 
 ## 7.2 TuningResult（固定スキーマ）
