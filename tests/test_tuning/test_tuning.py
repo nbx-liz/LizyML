@@ -171,6 +171,81 @@ class TestParseSpace:
         dims = parse_space({})
         assert dims == []
 
+    # --- H-0078 Phase 1: range / log validation ---------------------------
+
+    def test_float_low_equal_high_raises(self) -> None:
+        """A float dim with low == high is degenerate and must be rejected."""
+        with pytest.raises(LizyMLError) as exc_info:
+            parse_space({"lr": {"type": "float", "low": 0.1, "high": 0.1}})
+        err = exc_info.value
+        assert err.code == ErrorCode.CONFIG_INVALID
+        assert "lr" in err.user_message
+        assert err.context.get("param") == "lr"
+
+    def test_float_low_greater_than_high_raises(self) -> None:
+        """An inverted float range must be rejected at parse time, not by Optuna."""
+        with pytest.raises(LizyMLError) as exc_info:
+            parse_space({"lr": {"type": "float", "low": 0.5, "high": 0.1}})
+        err = exc_info.value
+        assert err.code == ErrorCode.CONFIG_INVALID
+        assert "lr" in err.user_message
+        # context must capture both bounds for diagnosability
+        assert err.context.get("low") == 0.5
+        assert err.context.get("high") == 0.1
+
+    def test_int_low_equal_high_raises(self) -> None:
+        """An int dim with low == high is degenerate and must be rejected."""
+        with pytest.raises(LizyMLError) as exc_info:
+            parse_space({"n": {"type": "int", "low": 8, "high": 8}})
+        err = exc_info.value
+        assert err.code == ErrorCode.CONFIG_INVALID
+        assert "n" in err.user_message
+
+    def test_int_low_greater_than_high_raises(self) -> None:
+        """An inverted int range must be rejected at parse time."""
+        with pytest.raises(LizyMLError) as exc_info:
+            parse_space({"n": {"type": "int", "low": 64, "high": 16}})
+        err = exc_info.value
+        assert err.code == ErrorCode.CONFIG_INVALID
+        assert err.context.get("param") == "n"
+
+    def test_float_log_with_zero_low_raises(self) -> None:
+        """Log distribution requires strictly positive lower bound."""
+        with pytest.raises(LizyMLError) as exc_info:
+            parse_space({"lr": {"type": "float", "low": 0.0, "high": 0.1, "log": True}})
+        err = exc_info.value
+        assert err.code == ErrorCode.CONFIG_INVALID
+        assert "log" in err.user_message.lower()
+        assert err.context.get("param") == "lr"
+        assert err.context.get("log") is True
+
+    def test_float_log_with_negative_low_raises(self) -> None:
+        """Log distribution must reject negative low even when low<high holds."""
+        with pytest.raises(LizyMLError) as exc_info:
+            parse_space(
+                {"lr": {"type": "float", "low": -0.01, "high": 0.1, "log": True}}
+            )
+        err = exc_info.value
+        assert err.code == ErrorCode.CONFIG_INVALID
+        assert "lr" in err.user_message
+
+    def test_int_log_with_zero_low_raises(self) -> None:
+        """Log on int dim with low<=0 must also be rejected."""
+        with pytest.raises(LizyMLError) as exc_info:
+            parse_space({"n": {"type": "int", "low": 0, "high": 100, "log": True}})
+        err = exc_info.value
+        assert err.code == ErrorCode.CONFIG_INVALID
+        assert "n" in err.user_message
+
+    def test_float_log_with_positive_low_ok(self) -> None:
+        """Sanity: a valid log-scale dim still parses without error."""
+        dims = parse_space(
+            {"lr": {"type": "float", "low": 0.001, "high": 0.1, "log": True}}
+        )
+        assert len(dims) == 1
+        assert isinstance(dims[0], FloatDim)
+        assert dims[0].log is True
+
 
 class TestSuggestParams:
     def test_float_suggestion(self) -> None:

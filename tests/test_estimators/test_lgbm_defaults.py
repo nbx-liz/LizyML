@@ -108,3 +108,57 @@ class TestUserOverride:
         )._build_params()
         for key in ("n_estimators", "random_state", "verbose"):
             assert key not in params
+
+
+# ---------------------------------------------------------------------------
+# H-0078 Phase 2: parameter_bounds (LGBM)
+# ---------------------------------------------------------------------------
+
+
+class TestLGBMParameterBounds:
+    """LGBMProvider.parameter_bounds returns LightGBM-meaningful bounds."""
+
+    def _bounds(self, task: str = "regression") -> dict:
+        from lizyml.estimators.lgbm.provider import LGBMProvider
+
+        return LGBMProvider().parameter_bounds(task)
+
+    def test_returns_non_empty_map(self) -> None:
+        bounds = self._bounds()
+        assert len(bounds) > 0
+
+    def test_learning_rate_capped_at_one(self) -> None:
+        """`learning_rate` must not be allowed to grow beyond 1.0 (#152)."""
+        b = self._bounds()
+        assert "learning_rate" in b
+        assert b["learning_rate"]["max"] <= 1.0
+        assert b["learning_rate"]["min"] > 0  # log-safe
+
+    def test_feature_fraction_capped_at_one(self) -> None:
+        b = self._bounds()
+        assert "feature_fraction" in b
+        assert b["feature_fraction"]["max"] <= 1.0
+
+    def test_bagging_fraction_capped_at_one(self) -> None:
+        b = self._bounds()
+        assert "bagging_fraction" in b
+        assert b["bagging_fraction"]["max"] <= 1.0
+
+    def test_validation_ratio_floor_above_zero(self) -> None:
+        """validation_ratio of 0 means no inner valid; must stay above 0 (#152)."""
+        b = self._bounds()
+        assert "validation_ratio" in b
+        assert b["validation_ratio"]["min"] > 0
+
+    def test_max_depth_has_sane_ceiling(self) -> None:
+        """max_depth growing without bound causes tree memory cliffs (#152)."""
+        b = self._bounds()
+        assert "max_depth" in b
+        assert b["max_depth"]["max"] <= 50
+
+    def test_same_bounds_across_tasks(self) -> None:
+        """Bounds are not task-dependent for LightGBM (sanity)."""
+        b_reg = self._bounds("regression")
+        b_bin = self._bounds("binary")
+        b_mc = self._bounds("multiclass")
+        assert b_reg == b_bin == b_mc

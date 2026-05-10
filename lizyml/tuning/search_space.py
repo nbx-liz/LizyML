@@ -25,6 +25,7 @@ __all__ = [
     "FloatDim",
     "IntDim",
     "SearchDim",
+    "attach_bounds",
     "detect_boundary",
     "expand_dims",
     "parse_space",
@@ -34,6 +35,39 @@ __all__ = [
 
 
 _ALLOWED_CHOICE_TYPES = (type(None), bool, int, float, str)
+
+
+def _validate_numeric_range(
+    name: str,
+    low: float,
+    high: float,
+    *,
+    log: bool,
+) -> None:
+    """Validate ``low < high`` and (when ``log`` is True) ``low > 0``.
+
+    Optuna only raises these errors at trial-time with generic messages.
+    Catching them at parse time gives users a clear, configuration-level
+    diagnostic with the offending bounds in ``context``.
+    """
+    if low >= high:
+        raise LizyMLError(
+            code=ErrorCode.CONFIG_INVALID,
+            user_message=(
+                f"Search dim '{name}' has low >= high (low={low}, high={high}). "
+                f"Min must be strictly less than Max."
+            ),
+            context={"param": name, "low": low, "high": high, "log": log},
+        )
+    if log and low <= 0:
+        raise LizyMLError(
+            code=ErrorCode.CONFIG_INVALID,
+            user_message=(
+                f"Search dim '{name}' uses log distribution but low={low} <= 0. "
+                f"Log requires a strictly positive lower bound."
+            ),
+            context={"param": name, "low": low, "high": high, "log": log},
+        )
 
 
 def _validate_categorical_choices(name: str, choices: list[Any]) -> None:
@@ -84,22 +118,30 @@ def parse_space(space: dict[str, Any]) -> list[SearchDim]:
         dim_type: str = spec.get("type", "")
         category: DimCategory = spec.get("category", "model")
         if dim_type == "float":
+            low_f = float(spec["low"])
+            high_f = float(spec["high"])
+            log_f = bool(spec.get("log", False))
+            _validate_numeric_range(name, low_f, high_f, log=log_f)
             dims.append(
                 FloatDim(
                     name=name,
-                    low=float(spec["low"]),
-                    high=float(spec["high"]),
-                    log=bool(spec.get("log", False)),
+                    low=low_f,
+                    high=high_f,
+                    log=log_f,
                     category=category,
                 )
             )
         elif dim_type == "int":
+            low_i = int(spec["low"])
+            high_i = int(spec["high"])
+            log_i = bool(spec.get("log", False))
+            _validate_numeric_range(name, low_i, high_i, log=log_i)
             dims.append(
                 IntDim(
                     name=name,
-                    low=int(spec["low"]),
-                    high=int(spec["high"]),
-                    log=bool(spec.get("log", False)),
+                    low=low_i,
+                    high=high_i,
+                    log=log_i,
                     category=category,
                 )
             )
@@ -220,7 +262,9 @@ def _expand_range(
     edge: str,
     *,
     log: bool,
-) -> tuple[float, float]:
+    min_allowed: float | None = None,
+    max_allowed: float | None = None,
+) -> tuple[float, float, bool]:
     """Expand *low*/*high* asymmetrically toward *edge*.
 
     Linear lower-edge expansion is clamped at 0.0 (#110): negative bounds are
@@ -228,19 +272,33 @@ def _expand_range(
     crash downstream samplers. Log-scale expansion is already safe because
     division by ``_LOG_EXPANSION_FACTOR`` cannot make a positive value cross
     zero. ``IntDim`` retains its own ``max(1, ...)`` clamp at the call site.
+
+    When ``min_allowed`` / ``max_allowed`` are provided (H-0078), the
+    expansion is additionally clamped to those parameter-meaningful
+    bounds. The third return value is ``True`` iff such a clamp actually
+    bit (i.e. the natural expansion would have crossed the bound).
     """
+    new_low = low
+    new_high = high
     if edge == "lower":
         if log and low > 0:
             new_low = low / _LOG_EXPANSION_FACTOR
         else:
             new_low = max(0.0, low - (high - low))
-        return new_low, high
-    if edge == "upper":
+    elif edge == "upper":
         new_high = (
             high * _LOG_EXPANSION_FACTOR if log and high > 0 else high + (high - low)
         )
-        return low, new_high
-    return low, high
+
+    clamped = False
+    if min_allowed is not None and new_low < min_allowed:
+        new_low = min_allowed
+        clamped = True
+    if max_allowed is not None and new_high > max_allowed:
+        new_high = max_allowed
+        clamped = True
+
+    return new_low, new_high, clamped
 
 
 def detect_boundary(
@@ -294,8 +352,22 @@ def detect_boundary(
 
         new_low: float | int | None = None
         new_high: float | int | None = None
+        clamped = False
         if should_expand:
-            nl, nh = _expand_range(low, high, edge, log=is_log)
+            min_allowed = (
+                float(dim.min_allowed) if dim.min_allowed is not None else None
+            )
+            max_allowed = (
+                float(dim.max_allowed) if dim.max_allowed is not None else None
+            )
+            nl, nh, clamped = _expand_range(
+                low,
+                high,
+                edge,
+                log=is_log,
+                min_allowed=min_allowed,
+                max_allowed=max_allowed,
+            )
             if isinstance(dim, IntDim):
                 nl = max(1, int(math.floor(nl)))
                 nh = int(math.ceil(nh))
@@ -314,6 +386,7 @@ def detect_boundary(
                 expanded=should_expand,
                 new_low=new_low,
                 new_high=new_high,
+                clamped_to_bound=clamped,
             )
         )
 
@@ -321,6 +394,67 @@ def detect_boundary(
         dims=tuple(statuses),
         expanded_names=tuple(expanded_names),
     )
+
+
+def attach_bounds(
+    dims: list[SearchDim],
+    bounds: dict[str, dict[str, float | int]],
+) -> list[SearchDim]:
+    """Return a new list of dims with ``min_allowed`` / ``max_allowed`` injected.
+
+    For each ``FloatDim`` / ``IntDim`` whose ``name`` is a key in *bounds*,
+    a copy is returned with ``min_allowed`` / ``max_allowed`` populated
+    from ``{"min": ..., "max": ...}``. Dims that already carry user-set
+    bounds are left untouched (user override wins). ``CategoricalDim`` is
+    always returned unchanged. Dims with no entry in *bounds* are
+    unchanged.
+
+    Used by ``Model.tune`` to wire ``EstimatorProvider.parameter_bounds(task)``
+    onto the search space (H-0078).
+    """
+    if not bounds:
+        return list(dims)
+
+    new_dims: list[SearchDim] = []
+    for dim in dims:
+        if isinstance(dim, CategoricalDim):
+            new_dims.append(dim)
+            continue
+        b = bounds.get(dim.name)
+        if b is None:
+            new_dims.append(dim)
+            continue
+        # Respect user-set bounds — do not overwrite.
+        if dim.min_allowed is not None or dim.max_allowed is not None:
+            new_dims.append(dim)
+            continue
+        if isinstance(dim, FloatDim):
+            new_dims.append(
+                FloatDim(
+                    name=dim.name,
+                    low=dim.low,
+                    high=dim.high,
+                    log=dim.log,
+                    category=dim.category,
+                    min_allowed=float(b["min"]),
+                    max_allowed=float(b["max"]),
+                )
+            )
+        elif isinstance(dim, IntDim):
+            new_dims.append(
+                IntDim(
+                    name=dim.name,
+                    low=dim.low,
+                    high=dim.high,
+                    log=dim.log,
+                    category=dim.category,
+                    min_allowed=int(b["min"]),
+                    max_allowed=int(b["max"]),
+                )
+            )
+        else:  # pragma: no cover — exhaustive over SearchDim
+            new_dims.append(dim)
+    return new_dims
 
 
 def expand_dims(
@@ -361,6 +495,8 @@ def expand_dims(
                     high=float(status.new_high),
                     log=dim.log,
                     category=dim.category,
+                    min_allowed=dim.min_allowed,
+                    max_allowed=dim.max_allowed,
                 )
             )
         elif (
@@ -375,6 +511,8 @@ def expand_dims(
                     high=int(status.new_high),
                     log=dim.log,
                     category=dim.category,
+                    min_allowed=dim.min_allowed,
+                    max_allowed=dim.max_allowed,
                 )
             )
         else:

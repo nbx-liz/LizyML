@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.14.0] - 2026-05-10
+
+### Added
+
+- **`EstimatorProvider.parameter_bounds(task)`** (H-0078, [#152](https://github.com/nbx-liz/LizyML/issues/152)) — new Protocol method returning per-parameter meaningful bounds (`{"min": ..., "max": ...}`) for boundary expansion. `LGBMProvider.parameter_bounds(task)` ships a static map for 15 LightGBM parameters (e.g. `learning_rate ∈ [1e-8, 1.0]`, `feature_fraction ∈ [1e-3, 1.0]`, `validation_ratio ∈ [0.05, 0.5]`, `max_depth ∈ [-1, 30]`). Used by `Model.tune` and downstream UIs (LizyStudio) to constrain user input. Third-party providers may return `{}` for unbounded behaviour.
+- **`SearchDim.min_allowed` / `max_allowed`** (H-0078) — optional bounds on `FloatDim` / `IntDim` (default `None`). Boundary expansion clamps to these limits when set.
+- **`BoundaryDimStatus.clamped_to_bound: bool`** (H-0078) — flags dims whose expansion hit the parameter-meaningful bound, so downstream UIs can badge "max reached" dims. Defaults `False`.
+- **`attach_bounds(dims, bounds)` helper in `lizyml.tuning.search_space`** (H-0078) — injects `min_allowed` / `max_allowed` onto matching dims by name. Called from `Model._resolve_search_space` so default-space and user-supplied dims both pick up provider bounds automatically.
+
+### Changed
+
+- **`parse_space()` rejects degenerate / inverted ranges and log-with-non-positive-low** (H-0078, [#152](https://github.com/nbx-liz/LizyML/issues/152)) — `low >= high` and `log=True ∧ low <= 0` now raise `LizyMLError(CONFIG_INVALID)` at parse time instead of letting Optuna raise a generic error mid-trial. Strictly better failure mode (earlier and clearer).
+- **`expand_dims` propagates `min_allowed` / `max_allowed`** (H-0078) — re-tune over multiple rounds preserves provider-supplied bounds, preventing the original `learning_rate` drift (`0.1 → 0.3 → 0.9 → 2.7`) reported in #152. 5- and 10-round regression tests guard the contract.
+
+### Internal
+
+- **`_expand_range` is bounds-aware** (H-0078) — keyword-only `min_allowed` / `max_allowed` arguments + 3-tuple return `(low, high, clamped)`. Internal signature change; only `detect_boundary` is a caller.
+
 ## [0.13.0] - 2026-05-10
 
 ### Added

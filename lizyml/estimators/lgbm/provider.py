@@ -31,6 +31,28 @@ from lizyml.estimators.provider import ExportParams
 from lizyml.features.pipeline_base import BaseFeaturePipeline
 from lizyml.features.pipelines_native import NativeFeaturePipeline
 
+# H-0078: LightGBM-meaningful per-parameter bounds for boundary expansion.
+# Values reflect LightGBM's documented limits and physically-meaningful
+# ranges; they keep ``expand_dims`` from drifting into ranges that crash
+# the booster or have no effect.
+_LGBM_PARAMETER_BOUNDS: dict[str, dict[str, float | int]] = {
+    "learning_rate": {"min": 1e-8, "max": 1.0},
+    "feature_fraction": {"min": 1e-3, "max": 1.0},
+    "bagging_fraction": {"min": 1e-3, "max": 1.0},
+    "num_leaves_ratio": {"min": 0.1, "max": 2.0},
+    "min_data_in_leaf_ratio": {"min": 1e-4, "max": 0.5},
+    "min_data_in_bin_ratio": {"min": 1e-4, "max": 0.5},
+    "validation_ratio": {"min": 0.05, "max": 0.5},
+    "lambda_l1": {"min": 0.0, "max": 100.0},
+    "lambda_l2": {"min": 0.0, "max": 100.0},
+    "n_estimators": {"min": 10, "max": 10000},
+    "max_depth": {"min": -1, "max": 30},
+    "max_bin": {"min": 2, "max": 8192},
+    "bagging_freq": {"min": 0, "max": 100},
+    "early_stopping_rounds": {"min": 1, "max": 5000},
+    "seed": {"min": 0, "max": 2**31 - 1},
+}
+
 
 class LGBMProvider:
     """EstimatorProvider implementation for LightGBM.
@@ -188,6 +210,17 @@ class LGBMProvider:
             )
 
         return rows
+
+    def parameter_bounds(self, task: TaskType) -> dict[str, dict[str, float | int]]:
+        """Return LightGBM-meaningful bounds for boundary expansion (H-0078).
+
+        These limits constrain ``expand_dims`` so that ``re_tune=True``
+        cannot grow ``learning_rate`` past 1.0, ``feature_fraction`` past
+        1.0, ``validation_ratio`` below ~0, etc. Bounds are not
+        task-dependent for LightGBM.
+        """
+        del task  # bounds are identical across tasks for LightGBM
+        return _LGBM_PARAMETER_BOUNDS
 
     def build_export_params(self, adapter: BaseEstimatorAdapter) -> ExportParams:
         """Build codegen-relevant params from a fitted ``LGBMAdapter`` (H-0073).
