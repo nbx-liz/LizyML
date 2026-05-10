@@ -20,6 +20,7 @@ from lizyml.estimators.base import BaseEstimatorAdapter
 from lizyml.estimators.lgbm.adapter import LGBMAdapter
 from lizyml.estimators.lgbm.defaults import (
     _COMMON_DEFAULTS,
+    TASK_COMPATIBLE_OBJECTIVES,
     default_fixed_params,
     default_space,
 )
@@ -27,7 +28,7 @@ from lizyml.estimators.lgbm.smart_params import (
     resolve_ratio_params,
     resolve_smart_params,
 )
-from lizyml.estimators.provider import ExportParams
+from lizyml.estimators.provider import ExportParams, MetricChoices
 from lizyml.features.pipeline_base import BaseFeaturePipeline
 from lizyml.features.pipelines_native import NativeFeaturePipeline
 
@@ -52,6 +53,144 @@ _LGBM_PARAMETER_BOUNDS: dict[str, dict[str, float | int]] = {
     "early_stopping_rounds": {"min": 1, "max": 5000},
     "seed": {"min": 0, "max": 2**31 - 1},
 }
+
+# H-0079: canonical objective tuples per task, ordered for stable UI display.
+# Source of truth lives in ``defaults.TASK_COMPATIBLE_OBJECTIVES`` (the
+# whitelist used by ``LGBMAdapter._build_params`` for cross-task validation).
+# This module only adds an explicit ordering for surface APIs.
+_LGBM_OBJECTIVE_CHOICES: dict[str, tuple[str, ...]] = {
+    "regression": (
+        "regression",
+        "regression_l1",
+        "huber",
+        "fair",
+        "poisson",
+        "quantile",
+        "mape",
+        "gamma",
+        "tweedie",
+    ),
+    "binary": (
+        "binary",
+        "cross_entropy",
+        "cross_entropy_lambda",
+    ),
+    "multiclass": (
+        "multiclass",
+        "multiclassova",
+    ),
+}
+
+# H-0079: canonical metric tuples per task / source. Aliases such as
+# LightGBM's ``l1`` / ``l2`` / ``mse`` / ``mean_absolute_error`` /
+# ``regression_l1`` / ``ova`` / ``ovr`` are still **accepted** at config
+# input time by ``metric_bridge.validate_lgbm_metrics``; the choice tables
+# below intentionally surface only the canonical short form so downstream
+# UIs render a single picker per metric.
+_LGBM_NATIVE_METRIC_CHOICES: dict[str, tuple[str, ...]] = {
+    "regression": (
+        "rmse",
+        "mae",
+        "mape",
+        "huber",
+        "fair",
+        "poisson",
+        "quantile",
+        "gamma",
+        "gamma_deviance",
+        "tweedie",
+    ),
+    "binary": (
+        "binary_logloss",
+        "binary_error",
+        "auc",
+        "average_precision",
+        "cross_entropy",
+        "cross_entropy_lambda",
+        "kullback_leibler",
+    ),
+    "multiclass": (
+        "multi_logloss",
+        "multi_error",
+        "auc_mu",
+        "multiclassova",
+    ),
+}
+
+_LGBM_FEVAL_METRIC_CHOICES: dict[str, tuple[str, ...]] = {
+    "regression": ("rmsle", "r2", "smape", "wape"),
+    "binary": ("f1", "brier", "ece", "precision_at_k", "accuracy"),
+    "multiclass": ("f1", "brier", "accuracy"),
+}
+
+
+def _validate_objective_consistency() -> None:
+    """Module-load self-check: per-task surface tuples must match the
+    Phase-1 whitelist exactly. Catches drift between the two sources of
+    truth before they reach a user (Phase 3 collapses these into one,
+    but during Phase 2 both must agree).
+
+    Raises ``RuntimeError`` at module load time, which renders LizyML
+    un-importable. Intentional fail-fast: a drift means
+    ``LGBMProvider.objective_choices`` could surface a value that
+    ``LGBMAdapter._build_params`` rejects (or vice versa), producing
+    impossible-to-debug user reports. Better to fail at process start.
+    """
+    for task, surface in _LGBM_OBJECTIVE_CHOICES.items():
+        whitelist = TASK_COMPATIBLE_OBJECTIVES[task]
+        if set(surface) != set(whitelist):
+            raise RuntimeError(  # pragma: no cover — load-time invariant
+                f"H-0079 drift: _LGBM_OBJECTIVE_CHOICES[{task!r}]="
+                f"{sorted(surface)} differs from TASK_COMPATIBLE_OBJECTIVES="
+                f"{sorted(whitelist)}."
+            )
+
+
+def _validate_metric_consistency() -> None:
+    """Module-load self-check: every metric surfaced via
+    ``metric_choices()`` must be reachable at fit-time (H-0079 follow-up).
+
+    Mirrors ``_validate_objective_consistency`` for the metric side:
+
+    - Each ``_LGBM_NATIVE_METRIC_CHOICES[task]`` entry must be in
+      ``metric_bridge._LGBM_NATIVE_METRICS[task]`` so that
+      ``validate_lgbm_metrics`` accepts it before training.
+    - Each ``_LGBM_FEVAL_METRIC_CHOICES[task]`` entry must be in
+      ``metric_bridge._FEVAL_METRICS[task]`` so that ``resolve_metrics``
+      wires it as a feval callable.
+
+    Drift here would mean a downstream UI offers a metric that the
+    library subsequently rejects — exactly the failure mode the
+    ``metric_choices`` API was introduced to eliminate.
+    """
+    # Local import to avoid circular dependency at module top.
+    from lizyml.estimators.lgbm.metric_bridge import (
+        _FEVAL_METRICS,
+        _LGBM_NATIVE_METRICS,
+    )
+
+    for task, surface in _LGBM_NATIVE_METRIC_CHOICES.items():
+        whitelist = _LGBM_NATIVE_METRICS.get(task, frozenset())
+        unsupported = set(surface) - set(whitelist)
+        if unsupported:
+            raise RuntimeError(  # pragma: no cover — load-time invariant
+                f"H-0079 drift: _LGBM_NATIVE_METRIC_CHOICES[{task!r}] "
+                f"includes {sorted(unsupported)} which are not in "
+                f"metric_bridge._LGBM_NATIVE_METRICS[{task!r}]."
+            )
+    for task, surface in _LGBM_FEVAL_METRIC_CHOICES.items():
+        whitelist = _FEVAL_METRICS.get(task, frozenset())
+        unsupported = set(surface) - set(whitelist)
+        if unsupported:
+            raise RuntimeError(  # pragma: no cover — load-time invariant
+                f"H-0079 drift: _LGBM_FEVAL_METRIC_CHOICES[{task!r}] "
+                f"includes {sorted(unsupported)} which are not in "
+                f"metric_bridge._FEVAL_METRICS[{task!r}]."
+            )
+
+
+_validate_objective_consistency()
+_validate_metric_consistency()
 
 
 class LGBMProvider:
@@ -222,12 +361,44 @@ class LGBMProvider:
         del task  # bounds are identical across tasks for LightGBM
         return _LGBM_PARAMETER_BOUNDS
 
+    def objective_choices(self, task: TaskType) -> tuple[str, ...]:
+        """Canonical LightGBM objective names valid for *task* (H-0079).
+
+        Returns the same set of values that ``LGBMAdapter._build_params``
+        accepts (see ``TASK_COMPATIBLE_OBJECTIVES``), but as an ordered
+        tuple suitable for downstream UI rendering. Unknown tasks return
+        the empty tuple.
+        """
+        return _LGBM_OBJECTIVE_CHOICES.get(task, ())
+
+    def metric_choices(self, task: TaskType) -> MetricChoices:
+        """Canonical LightGBM metric names per task, split by source (H-0079).
+
+        Returns ``{"native": (...), "feval": (...)}`` with deterministic
+        ordering and no duplicates across the two keys. Aliases such as
+        ``l1`` / ``l2`` are still accepted at config-input time but are
+        not surfaced here.
+        """
+        return {
+            "native": _LGBM_NATIVE_METRIC_CHOICES.get(task, ()),
+            "feval": _LGBM_FEVAL_METRIC_CHOICES.get(task, ()),
+        }
+
     def build_export_params(self, adapter: BaseEstimatorAdapter) -> ExportParams:
         """Build codegen-relevant params from a fitted ``LGBMAdapter`` (H-0073).
 
         Wraps the LGBM-private ``_build_params()`` and the feval metadata
         extraction so that ``_model_persistence.py`` does not need to import
         ``LGBMAdapter`` or call private methods.
+
+        Note:
+            This method intentionally calls ``adapter._build_params()`` —
+            an attribute of the same ``lgbm/`` subpackage. Treat the
+            (provider, adapter) pair as a unit when refactoring; the
+            access is co-located by package boundary, but type checkers
+            cannot enforce it. If ``LGBMAdapter._build_params()`` ever
+            grows new return values, update both this call site and
+            ``LGBMAdapter`` in the same change.
 
         Raises:
             LizyMLError with ``UNSUPPORTED_TASK`` when the supplied adapter

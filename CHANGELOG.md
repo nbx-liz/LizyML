@@ -5,6 +5,34 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.15.0] - 2026-05-10
+
+### Changed (potentially breaking)
+
+- **`LGBMConfig.params["objective"]` is now respected when task-compatible** (H-0079 Phase 1, [#159](https://github.com/nbx-liz/LizyML/issues/159)) — pre-0.15 `LGBMAdapter._build_params()` silently stripped any user/Optuna-supplied `objective` and force-set `_TASK_OBJECTIVE[task]`, so `default_space("regression")` trials sampling `"fair"` actually trained with `"huber"`. From this release: same-task values flow through to `lgb.train` (e.g. `objective="fair"` for regression now actually uses Fair loss); cross-task values raise `LizyMLError(CONFIG_INVALID)` instead of being silently demoted. Users who relied on the silent strip to suppress accidental cross-task injection see no behaviour change at the contract level (still rejected), but **same-task non-default objectives may produce different metrics than pre-0.15 runs**. Re-running tune over `default_space` may yield a different `best_params` because `"fair"` is now genuinely evaluated.
+- **`LGBMAdapter._build_params()` enforces an objective invariant assertion** (H-0079 L5) — at the end of `_build_params()`, an `assert` validates that any user-supplied `objective` survives the build. Active in dev / test / CI; suppressed under `python -O`. Fail-fast guard against future regressions to the silent-strip pattern.
+
+### Added
+
+- **`TASK_COMPATIBLE_OBJECTIVES` whitelist in `lizyml.estimators.lgbm.defaults`** (H-0079 Phase 1) — public mapping `dict[str, frozenset[str]]` enumerating the canonical LightGBM objective names valid per task (regression: 9, binary: 3, multiclass: 2). Used by `_build_params()` for cross-task validation and exposed for downstream integrations until the Provider-level API ships in Phase 2.
+- **`EstimatorProvider.objective_choices(task) -> tuple[str, ...]`** (H-0079 Phase 2, [#159](https://github.com/nbx-liz/LizyML/issues/159)) — new Protocol method returning canonical objective names valid for *task* in deterministic order. `LGBMProvider.objective_choices(task)` ships ordered tuples (regression: 9, binary: 3, multiclass: 2) sourced from the same whitelist as `TASK_COMPATIBLE_OBJECTIVES`. Drift between the two surfaces is caught by a load-time invariant. Used by `default_space()` and downstream UIs (LizyStudio) so the canonical list lives in one place.
+- **`EstimatorProvider.metric_choices(task) -> dict[Literal["native", "feval"], tuple[str, ...]]`** (H-0079 Phase 2, [#159](https://github.com/nbx-liz/LizyML/issues/159)) — new Protocol method returning per-task valid metrics split by source. `"native"` lists LightGBM-evaluated metrics composed straight into `params["metric"]`; `"feval"` lists LizyML custom metrics wired as feval callables. Canonical names only (aliases like `l1` / `l2` / `mse` are still accepted at config-input time but not surfaced).
+- **`MetricChoices` type alias in `lizyml.estimators.provider`** (H-0079 Phase 2) — `dict[Literal["native", "feval"], tuple[str, ...]]`. Forward-compatible: future estimators may add new keys (e.g. `"sklearn"` for scikit-learn-backed metrics) without breaking existing consumers.
+- **`default_space(task, provider=None)` accepts an optional `EstimatorProvider`** (H-0079 Phase 2) — when supplied, the `objective` `CategoricalDim` is built from `provider.objective_choices(task)` so default-space and user-supplied provider stay aligned. Existing call sites unchanged (provider defaults to `None` → conservative tune-safe subset).
+
+### Fixed
+
+- **`metric_bridge._LGBM_NATIVE_METRICS["multiclass"]` incorrectly listed `auc`** (H-0079 Phase 3, surfaced by L4 drift test) — LightGBM 4.x raises `LightGBMError("Multiclass objective and metrics don't match")` when `auc` reaches multiclass `params["metric"]`. The whitelist accepted the name pre-validation, so users got a cryptic LightGBM-side error instead of a clear LizyML rejection. The whitelist now omits `auc` for multiclass; users requesting AUC on multiclass should use `Model.evaluate(metrics=["auc"])` (sklearn OvR, computed Python-side post-fit) or `auc_mu` for fit-time evaluation.
+
+### Internal
+
+- **`_OBJECTIVE_CHOICES` retired** (H-0079 Phase 3) — replaced by a conservative `_DEFAULT_TUNE_OBJECTIVES` table in `lizyml/estimators/lgbm/defaults.py` whose values intentionally exclude `gamma` / `poisson` / `tweedie` / `mape` (target-distribution-restricted). The full canonical set is exposed via `LGBMProvider().objective_choices(task)` for downstream UIs and explicit user-supplied search spaces.
+- **`_LGBM_OBJECTIVE_CHOICES` self-validates against `TASK_COMPATIBLE_OBJECTIVES`** at module load time (H-0079 Phase 2/3) so the two sources of truth cannot drift.
+- **L4 MetricRegistry coverage drift test** (`tests/test_estimators/test_metric_choices_registry_coverage.py`, H-0079 Phase 3) — every fit-time-reachable metric in `MetricRegistry._TASK_METRICS` is now asserted to appear in `LGBMProvider.metric_choices()` after alias translation. Caught the multiclass `auc` omission above.
+- **`_validate_metric_consistency()` load-time guard** (H-0079 follow-up, [#164](https://github.com/nbx-liz/LizyML/pull/164)) — parallel to `_validate_objective_consistency()`. Asserts at module load that every name surfaced via `_LGBM_NATIVE_METRIC_CHOICES` / `_LGBM_FEVAL_METRIC_CHOICES` is reachable via `metric_bridge` whitelists. Drift would offer a metric to a downstream UI that the library would later reject; fail-fast prevents that.
+- **H-0079 follow-up coverage tests** (`tests/test_estimators/test_h0079_followup.py`, [#164](https://github.com/nbx-liz/LizyML/pull/164)) — 11 tests pinning previously-untested integration boundaries: codegen export with non-default objective (3), save/load round-trip with non-default objective (2), `_check_objective_compatible` edge inputs (4), and Platt calibration on top of binary `cross_entropy` objective (2).
+- **`LGBMProvider.build_export_params` docstring** (H-0079 follow-up) gains a `Note:` block documenting the intentional same-package private call into `LGBMAdapter._build_params()` so future refactors update both call sites together.
+
 ## [0.14.0] - 2026-05-10
 
 ### Added

@@ -6488,4 +6488,148 @@ Re-tune (`expand_boundary=True`) を繰り返した際、`expand_dims` がパラ
   - 後方互換性は完全維持。サードパーティ Provider は `parameter_bounds(task) -> {}` で従来挙動を再現可能。
   - リリース: v0.14.0 で配布。
 
+## H-0079: silent objective override 修正と `EstimatorProvider.objective_choices()` / `metric_choices()` 導入
+
+- **ステータス**: Accepted
+- **起票日**: 2026-05-10
+- **決定日**: 2026-05-10
+- **スコープ**: Public API (`EstimatorProvider`), `lizyml/estimators/lgbm/adapter.py`, `lizyml/estimators/lgbm/defaults.py`, `lizyml/estimators/lgbm/metric_bridge.py`, `lizyml/estimators/lgbm/provider.py`, `lizyml/tuning/search_space.py` (`default_space` signature)
+- **関連**: [Issue #159](https://github.com/nbx-liz/LizyML/issues/159), H-0078（同型の Provider 拡張パターン）, LizyStudio Issue #461（下流 UI consumer）, PR [#160](https://github.com/nbx-liz/LizyML/pull/160) / [#161](https://github.com/nbx-liz/LizyML/pull/161) / [#162](https://github.com/nbx-liz/LizyML/pull/162)
+
+### 目的
+
+LGBM Provider 層に存在する次の 2 つの問題を解消する。
+
+1. **Bug — silent objective override**: `LGBMAdapter._build_params()` が user / Optuna trial 由来の `objective` を **無条件に strip** し、`_TASK_OBJECTIVE[task]` で再代入する。`default_space("regression")` の `CategoricalDim("objective", ("huber", "fair"))` で `"fair"` をサンプルした trial も実際は `"huber"` で学習され、`tuning_table` の `objective` 列が嘘になる。`metric` 側は H-0061 で同型の strip を解除済だが、`objective` は同型バグとして残置されていた（コミット `ba152b0`「fix(estimators): objective/metric stripped from user params (task-locked)」、2026-03-15）。
+2. **API gap — private choice lists**: LizyStudio など下流 UI が "valid objective / metric per task" を提示する際、`_OBJECTIVE_CHOICES`（`defaults.py`）/ `_LGBM_NATIVE_METRICS` / `_FEVAL_METRICS`（`metric_bridge.py`）すべてが private。Provider レベルの公開 API が無いため、下流は (a) リストを再実装（drift risk）または (b) private symbol を import（layer 違反）の二択になる。さらに `_OBJECTIVE_CHOICES` は LightGBM が受理する `objective` enum の一部しか登録していない（regression: 9 → 2、binary: 3 → 1、multiclass: 2 → 2）。
+
+H-0078 の `parameter_bounds(task)` と同型の Provider 拡張で両方を一度に解く。
+
+### 対応方針
+
+H-0078 と同じ 3-Phase 構成。Phase 単位で独立 PR 化し、各 Phase のみで価値が出る形にする。
+
+#### Phase 1 — silent override 修正 + invariant guards
+
+`LGBMAdapter._build_params()` の `user_params.pop("objective", None)` を **task-compatibility check** に置換する。
+
+- 同 task 互換の値 → `params["objective"]` に上書き（lgb.train まで届く）。
+- task 非互換の値（例: `task="binary"` で `objective="regression"`）→ `LizyMLError(CONFIG_INVALID)` を raise。既存の cross-task 注入防御テスト（`tests/test_code_review_fixes.py`）の意図は維持される。
+- 末尾に **invariant assertion** を追加し、user 指定値が strip / 上書きされた場合に dev / test 環境で fail-fast（L5 in-code guard）。
+
+`TASK_COMPATIBLE_OBJECTIVES: dict[TaskType, frozenset[str]]` を `defaults.py` に追加し、LightGBM 公式 enum の canonical 名のみ登録する（regression 9 / binary 3 / multiclass 2）。
+
+#### Phase 2 — Provider choice APIs
+
+`EstimatorProvider` Protocol に 2 つの method を追加する。
+
+```python
+class EstimatorProvider(Protocol):
+    ...
+    def objective_choices(self, task: TaskType) -> tuple[str, ...]:
+        """Canonical objective names valid for *task*. No aliases."""
+        ...
+
+    def metric_choices(self, task: TaskType) -> dict[Literal["native", "feval"], tuple[str, ...]]:
+        """Per-task valid metrics, split by source.
+
+        - ``"native"``: LightGBM-evaluated metrics.
+        - ``"feval"``:  LizyML custom metrics, wired as feval callables.
+
+        Canonical names only, deterministic order, no duplicates across keys.
+        """
+        ...
+```
+
+`LGBMProvider` で実装。`default_space()` は optional `provider` 引数を受け取り、`provider.objective_choices(task)` から `CategoricalDim("objective", ...)` を構築する（既存 callers は無変更で動作）。
+
+#### Phase 3 — 内部統合 + drift guards + docs
+
+- `defaults.py:_OBJECTIVE_CHOICES` を削除し、`default_space` は `LGBMProvider().objective_choices()` を経由する。
+- `metric_bridge._LGBM_NATIVE_METRICS` / `_FEVAL_METRICS` は private cache として残すが、authoritative source は Provider と明記。alias 受理（`l1`, `l2`, `mae`, `mse` 等）は metric_bridge 側に残し、`metric_choices()` の戻り値は canonical のみ。
+- `MetricRegistry` の登録メトリクスが `metric_choices(task)["native"] ∪ metric_choices(task)["feval"]` で完全に被覆されることを drift test で担保（L4）。
+- `docs/config-reference.md` に task 別 valid objectives 表を追加（L7）。
+
+### Regression prevention（7 layers）
+
+Issue #159 で要求された全 7 層を Phase に分散して実装する。
+
+| Layer | 内容 | 対応 Phase |
+|---|---|---|
+| L1 | parametric end-to-end identity test（14 task×objective ペア） | Phase 1 |
+| L2 | tune-sampled-objective が refit booster に届く identity guard | Phase 1 |
+| L3 | provider drift smoke-fit（`objective_choices` / `metric_choices` の各値で実際に学習が通ること） | Phase 2 |
+| L4 | `MetricRegistry` ↔ `metric_choices` 被覆 drift test | Phase 3 |
+| L5 | `_build_params()` 末尾の invariant assertion | Phase 1 |
+| L6 | CHANGELOG（Changed (potentially breaking)）+ DEPRECATIONS 行 | Phase 1 |
+| L7 | `docs/config-reference.md` に task 別 valid objectives 表 | Phase 3 |
+
+### 影響範囲
+
+- **変更ファイル**:
+  - Phase 1: `lizyml/estimators/lgbm/adapter.py`、`lizyml/estimators/lgbm/defaults.py`（`TASK_COMPATIBLE_OBJECTIVES` 追加）、`tests/test_estimators/test_lgbm_objective_identity.py`（新規）、`tests/test_tuning/test_tune_fit_identity.py`（追記）、`tests/test_estimators/test_lgbm_defaults.py`（修正：バグ前提アサート差し替え）、`CHANGELOG.md`、`docs/DEPRECATIONS.md`、`HISTORY.md`。
+  - Phase 2: `lizyml/estimators/provider.py`（Protocol 追加）、`lizyml/estimators/lgbm/provider.py`（実装）、`lizyml/estimators/lgbm/defaults.py`（`default_space` signature）、`tests/test_estimators/test_provider_choice_apis.py`（新規）、`tests/test_estimators/test_provider_protocol_drift.py`（新規）、`HISTORY.md`、`CHANGELOG.md`。
+  - Phase 3: `lizyml/estimators/lgbm/defaults.py`（`_OBJECTIVE_CHOICES` 削除）、`lizyml/estimators/lgbm/metric_bridge.py`（authoritative source コメント）、`tests/test_estimators/test_metric_choices_registry_coverage.py`（新規）、`docs/config-reference.md`、`HISTORY.md`、`CHANGELOG.md`。
+- **無変更**: Persistence 形式、Calibration、Plots/Tables 出力 shape、Codegen export、CV / Splitter、Calibration の cross-fit 仕様。
+
+### 互換性
+
+- **`objective` の挙動変更**（Phase 1）: 同 task 互換値はこれまで silent に無視されていたが、今後は反映される。**過去の tune 結果を re-tune / refit すると metric が変動する可能性**がある（特に regression default_space の `objective="fair"` を引いていた trial）。CHANGELOG の "Changed (potentially breaking)" に明記し、DEPRECATIONS 行で言及する。
+- **`EstimatorProvider` の Protocol 拡張**（Phase 2）: method 2 件を追加。LizyML 内蔵 Provider（LGBM）は実装する。サードパーティ Provider が存在する場合は実装が必要だが現時点で該当なし（H-0078 と同じ判断）。
+- **`default_space()` signature**（Phase 2）: optional `provider` 引数を追加。既存 callers は無変更で動作。
+- **format_version 変更不要**: 保存物の意味は変わらない（trained booster 自体は今も `_TASK_OBJECTIVE[task]` で学習されているため、export / persistence で書かれる値は修正前後で一致）。Re-tune / re-fit 後にのみ booster の objective が変わる。
+
+### 代替案と不採用理由
+
+| 代替案 | 不採用理由 |
+|---|---|
+| `_TASK_OBJECTIVE` を継続し、user 指定値を完全無視（現状維持） | tune の `tuning_table` が嘘を表示し続ける問題が解決しない。`default_space` が `objective` を tunable に出している以上、サンプル値が反映されないのは仕様矛盾 |
+| 互換性のため warning のみで `_TASK_OBJECTIVE` を上書きしない | `tuning_table` と実際の booster が乖離し続ける（現状の bug と同じ）。サイレントが致命的なので fail-fast へ倒す |
+| Issue #159 を 1 PR で bundle | レビュー範囲が大きく、Phase 1 の bug fix が API 追加と同時にしか出せなくなる。H-0078 の 3-PR 構成が機能した実績があるため踏襲 |
+| `objective_choices` を `frozenset` で返す | 順序保証が無く、UI 側で安定した表示順を担保できない。`tuple[str, ...]` で順序固定 |
+| `metric_choices` を flat な `tuple` にする | 下流 UI が "native vs feval" を区別できず、計算速度の違い（feval は callable 経由で遅い）を伝えられない。`dict[Literal, tuple]` で source を明示 |
+| custom `fobj`（callable objective）対応を同梱 | 別問題（`ObjectiveRegistry` 設計が必要）。Out of scope として後続 Issue に回す |
+| `_TASK_METRIC` の objective 連動（例: `objective="tweedie"` なら metric も tweedie 系へ） | 別問題。UX 改善で hard bug ではないため Out of scope |
+
+### 受け入れ基準
+
+- [ ] **Phase 1**:
+  - [ ] `LGBMAdapter._build_params()` が同 task 互換の `objective` を pass-through し、cross-task 値を `LizyMLError(CONFIG_INVALID)` で reject する。
+  - [ ] L1: 14 (task × objective) ペアの parametric end-to-end identity test が green（user 指定 `objective` が booster の `params["objective"]` に bit-for-bit 一致する）。
+  - [ ] L2: tune-sampled-objective が refit booster に届く identity guard が green。
+  - [ ] L5: `_build_params()` 末尾の invariant assertion が存在する。
+  - [ ] L6: CHANGELOG「Changed (potentially breaking)」+ DEPRECATIONS 行。
+  - [ ] 既存 1709 テスト全件 pass。
+- [ ] **Phase 2**:
+  - [ ] `EstimatorProvider.objective_choices(task) -> tuple[str, ...]` が Protocol に追加されている。
+  - [ ] `EstimatorProvider.metric_choices(task) -> dict[Literal["native","feval"], tuple[str, ...]]` が Protocol に追加されている。
+  - [ ] `LGBMProvider.objective_choices(task)` が canonical 9 / 3 / 2 を返す。
+  - [ ] `LGBMProvider.metric_choices(task)` が canonical 名のみ・重複無し・順序固定で返す。
+  - [ ] `default_space(task, provider=None)` が `provider.objective_choices(task)` を経由する。
+  - [ ] L3: provider drift smoke-fit（全 objective / 全 native metric で smoke fit が通る）。
+- [ ] **Phase 3**:
+  - [ ] `_OBJECTIVE_CHOICES`（defaults.py）が削除されている。
+  - [ ] L4: MetricRegistry ↔ `metric_choices` 被覆 drift test が green。
+  - [ ] L7: `docs/config-reference.md` に task 別 valid objectives 表が追加されている。
+- [ ] `uv run ruff check .` / `uv run ruff format --check .` / `uv run mypy lizyml/` / `uv run pytest` が全 Phase でクリーン。
+
+### Migration
+
+- ユーザー向け：
+  - `LGBMConfig.params={"objective": ...}` を明示指定していたコードは、これまで silent に無視されていた値が今後は反映される。同 task 互換であれば動作上のデグレは無いが、metric が変わる可能性に注意。
+  - `default_space("regression")` の tune 結果は、`"fair"` を引いた trial が今後は実際に `fair` で学習されるため、過去の tuning_table の score と乖離する可能性がある（過去の tuning_table は嘘だった）。
+- サードパーティ Provider 実装者：Phase 2 で `objective_choices` / `metric_choices` の追加実装を求める。空の `tuple` / `{"native": (), "feval": ()}` を返せば「choice 提供なし」として扱われる（`default_space` 側はサンプル候補が無くなるので tune 不可、明示的なエラーにする）。
+
+### Decision
+
+- Date: 2026-05-10
+- Result: accepted (Phase 1)
+- Notes:
+  - **Phase 1 (PR #160)**: `LGBMAdapter._build_params()` の `user_params.pop("objective", None)` を `_check_objective_compatible()` 経由の task-compat check に置換。`TASK_COMPATIBLE_OBJECTIVES`（regression 9 / binary 3 / multiclass 2）を `defaults.py` に追加。L1 parametric identity test（14 ペア + 7 cross-task reject）、L2 tune-sampled-objective identity test（regression）、L5 in-code invariant assertion を実装（+24 tests）。CHANGELOG「Changed (potentially breaking)」と DEPRECATIONS の行を追加。
+  - **Phase 2 (PR #161)**: `EstimatorProvider.objective_choices(task) -> tuple[str, ...]` と `EstimatorProvider.metric_choices(task) -> dict[Literal["native","feval"], tuple[str, ...]]`（型 alias `MetricChoices`）を Protocol に追加。`LGBMProvider` に canonical 名のみの順序付きテーブル（regression 9 / binary 3 / multiclass 2 objectives、native/feval metric tuples）を実装。`default_space(task, provider=None)` を任意 provider 注入対応に拡張（既存 callers は無変更）。`_validate_objective_consistency()` をモジュールロード時に走らせ、`TASK_COMPATIBLE_OBJECTIVES` ↔ `_LGBM_OBJECTIVE_CHOICES` の drift を即座に検知（**意図的フェイルファスト**: drift があれば LizyML import 自体が失敗する。サイレントな整合性違反よりも process start 時クラッシュを優先する設計トレードオフ）。L3 provider drift smoke-fit（14 objectives + 21 native metrics = 35 fits）、API contract test 44 件（signature / no-aliases / no-duplicates / 各種 subset）を追加。
+  - 既存 1709 → 1794（Phase 1）→ 1873 テスト全件 pass。
+  - **Phase 3 (PR pending)**: `defaults._OBJECTIVE_CHOICES` を削除し、tune-safe な保守的サブセット `_DEFAULT_TUNE_OBJECTIVES` にリネームして意図を明示（`gamma`/`poisson`/`tweedie` 等は target 分布の制約が厳しく default tune には不向きのため非露出。ユーザーは `LGBMProvider().objective_choices(task)` で広い集合を取得して独自 search_space を組める）。L4 MetricRegistry 被覆 drift test を追加し、`metric_bridge._LGBM_NATIVE_METRICS["multiclass"]` に `auc` が誤登録されていた **pre-existing バグを発見**（LightGBM 4.x は multiclass で `params["metric"]=["auc"]` を `"Multiclass objective and metrics don't match"` で拒否）。whitelist から `auc` を削除し、ユーザーは `Model.evaluate(metrics=["auc"])` 経由 (sklearn OvR) または `auc_mu` (fit-time) を使うよう挙動を整理。`docs/config-reference.md` に L7 task-objective canonical 表 + target-distribution 制約 + Provider が source of truth であることを明記。
+  - 既存 1873 → 1885 テスト全件 pass（+12 L4 drift coverage）。
+  - **リリース予定**: v0.15.0 で 3 phase まとめて配布。
+
 

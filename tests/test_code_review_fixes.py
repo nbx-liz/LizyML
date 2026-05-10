@@ -336,18 +336,28 @@ class TestFitResultImmutability:
 
 
 class TestObjectiveOverwriteProtection:
-    """Task-locked objective must not be overridable by user params."""
+    """Cross-task objective injection must be rejected.
+
+    Pre-H-0079 this was enforced by silent strip + force re-set to the
+    task default. From H-0079 onwards the same defensive contract is
+    preserved but the mechanism is an explicit ``CONFIG_INVALID`` raise,
+    so users no longer get a silently-different model.
+    """
 
     def test_objective_locked_after_user_params(self) -> None:
-        """Even if user passes objective='regression', binary task keeps 'binary'."""
+        """User-supplied objective='regression' for binary task must raise."""
+        import pytest
+
+        from lizyml.core.exceptions import LizyMLError
         from lizyml.estimators.lgbm import LGBMAdapter
 
         adapter = LGBMAdapter(
             task="binary",
             params={"objective": "regression"},
         )
-        params, *_ = adapter._build_params()
-        assert params["objective"] == "binary"
+        with pytest.raises(LizyMLError) as excinfo:
+            adapter._build_params()
+        assert excinfo.value.code.name == "CONFIG_INVALID"
 
 
 # ---------------------------------------------------------------------------

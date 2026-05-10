@@ -2,16 +2,66 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from lizyml.core.types.search_dim import CategoricalDim, FloatDim, IntDim, SearchDim
 from lizyml.core.types.task import TaskType
+
+if TYPE_CHECKING:  # pragma: no cover — H-0079 type hint only (import cycle)
+    from lizyml.estimators.provider import EstimatorProvider
+
+# H-0079 Phase 3: tune-safe default objective candidates per task.
+# Conservative subset of ``TASK_COMPATIBLE_OBJECTIVES`` chosen because
+# every value here works on **arbitrary** target distributions
+# (``gamma`` / ``poisson`` / ``tweedie`` need non-negative targets,
+# ``mape`` needs non-zero, etc.; those would fail tune trials on
+# generic regression data, so they are not surfaced as defaults).
+# Users that want the wider set can pass an explicit
+# ``CategoricalDim("objective", LGBMProvider().objective_choices(task))``
+# in ``tuning.search_space``.
+_DEFAULT_TUNE_OBJECTIVES: dict[str, tuple[str, ...]] = {
+    "regression": ("huber", "fair"),
+    "binary": ("binary",),
+    "multiclass": ("multiclass", "multiclassova"),
+}
 
 # Maps task → objective
 _TASK_OBJECTIVE: dict[str, str] = {
     "regression": "huber",
     "binary": "binary",
     "multiclass": "multiclass",
+}
+
+# H-0079: Per-task whitelist of LightGBM objective names accepted by
+# ``LGBMAdapter._build_params``. Canonical names only (no aliases). Source:
+# https://lightgbm.readthedocs.io/en/latest/Parameters.html#objective
+TASK_COMPATIBLE_OBJECTIVES: dict[str, frozenset[str]] = {
+    "regression": frozenset(
+        [
+            "regression",
+            "regression_l1",
+            "huber",
+            "fair",
+            "poisson",
+            "quantile",
+            "mape",
+            "gamma",
+            "tweedie",
+        ]
+    ),
+    "binary": frozenset(
+        [
+            "binary",
+            "cross_entropy",
+            "cross_entropy_lambda",
+        ]
+    ),
+    "multiclass": frozenset(
+        [
+            "multiclass",
+            "multiclassova",
+        ]
+    ),
 }
 
 # Maps task → eval_metric list
@@ -36,27 +86,38 @@ _COMMON_DEFAULTS: dict[str, Any] = {
     "first_metric_only": False,
 }
 
-_OBJECTIVE_CHOICES: dict[str, tuple[str, ...]] = {
-    "regression": ("huber", "fair"),
-    "binary": ("binary",),
-    "multiclass": ("multiclass", "multiclassova"),
-}
 
-
-def default_space(task: TaskType) -> list[SearchDim]:
+def default_space(
+    task: TaskType,
+    provider: EstimatorProvider | None = None,
+) -> list[SearchDim]:
     """Return the PLAN-specified default search space for LightGBM.
 
     Args:
         task: ML task type (``"regression"``, ``"binary"``, ``"multiclass"``).
+        provider: Optional ``EstimatorProvider`` used to source the
+            ``objective`` choices (H-0079). When ``None`` (the default),
+            a conservative ``_DEFAULT_TUNE_OBJECTIVES`` set is used so
+            that tune over arbitrary regression data does not fail trials
+            with task-incompatible distributions (e.g. ``gamma`` /
+            ``poisson`` need non-negative targets). When supplied, the
+            full ``provider.objective_choices(task)`` is used — caller
+            opts in to a wider tune space.
 
     Returns:
         List of 10 SearchDim across model / smart / training categories.
     """
+    if provider is not None:
+        objective_choices = provider.objective_choices(
+            task
+        ) or _DEFAULT_TUNE_OBJECTIVES.get(task, ("huber",))
+    else:
+        objective_choices = _DEFAULT_TUNE_OBJECTIVES.get(task, ("huber",))
     dims: list[SearchDim] = [
         # -- model --
         CategoricalDim(
             "objective",
-            _OBJECTIVE_CHOICES.get(task, ("huber",)),
+            objective_choices,
             category="model",
         ),
         IntDim("n_estimators", 600, 2500, category="model"),
