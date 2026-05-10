@@ -174,6 +174,32 @@ class TestExpandDims:
         new = expand_dims(dims, report)
         assert new[0] is dims[0]  # same object, untouched
 
+    def test_float_dim_linear_lower_clamped_to_zero(self) -> None:
+        """Regression for #110: linear FloatDim expansion must not produce
+        negative lower bounds, otherwise downstream samplers (e.g. LightGBM
+        learning_rate) crash on physically-impossible negative values.
+        """
+        dims = [FloatDim("learning_rate", low=0.001, high=0.1, log=False)]
+        report = detect_boundary(dims, {"learning_rate": 0.001}, threshold=0.05)
+        new = expand_dims(dims, report)
+        assert isinstance(new[0], FloatDim)
+        assert new[0].low >= 0.0, (
+            f"FloatDim.low must not be negative after expansion, got {new[0].low}"
+        )
+        assert new[0].high == 0.1  # upper unchanged
+
+    def test_float_dim_linear_lower_clamp_preserves_already_safe_values(
+        self,
+    ) -> None:
+        """Linear expansion that produces a non-negative low must not be
+        clamped (no over-correction)."""
+        dims = [FloatDim("ratio", low=0.5, high=1.0, log=False)]
+        report = detect_boundary(dims, {"ratio": 0.51}, threshold=0.05)
+        new = expand_dims(dims, report)
+        # 0.5 - (1.0 - 0.5) = 0.0, exactly the floor — should pass through
+        assert new[0].low == 0.0
+        assert new[0].high == 1.0
+
 
 # ---------------------------------------------------------------------------
 # Type extension tests
