@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed (potentially breaking)
+
+- **`LGBMConfig.params["objective"]` is now respected when task-compatible** (H-0079 Phase 1, [#159](https://github.com/nbx-liz/LizyML/issues/159)) — pre-0.15 `LGBMAdapter._build_params()` silently stripped any user/Optuna-supplied `objective` and force-set `_TASK_OBJECTIVE[task]`, so `default_space("regression")` trials sampling `"fair"` actually trained with `"huber"`. From this release: same-task values flow through to `lgb.train` (e.g. `objective="fair"` for regression now actually uses Fair loss); cross-task values raise `LizyMLError(CONFIG_INVALID)` instead of being silently demoted. Users who relied on the silent strip to suppress accidental cross-task injection see no behaviour change at the contract level (still rejected), but **same-task non-default objectives may produce different metrics than pre-0.15 runs**. Re-running tune over `default_space` may yield a different `best_params` because `"fair"` is now genuinely evaluated.
+- **`LGBMAdapter._build_params()` enforces an objective invariant assertion** (H-0079 L5) — at the end of `_build_params()`, an `assert` validates that any user-supplied `objective` survives the build. Active in dev / test / CI; suppressed under `python -O`. Fail-fast guard against future regressions to the silent-strip pattern.
+
+### Added
+
+- **`TASK_COMPATIBLE_OBJECTIVES` whitelist in `lizyml.estimators.lgbm.defaults`** (H-0079 Phase 1) — public mapping `dict[str, frozenset[str]]` enumerating the canonical LightGBM objective names valid per task (regression: 9, binary: 3, multiclass: 2). Used by `_build_params()` for cross-task validation and exposed for downstream integrations until the Provider-level API ships in Phase 2.
+
 ## [0.14.0] - 2026-05-10
 
 ### Added

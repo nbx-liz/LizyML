@@ -15,8 +15,33 @@ from lizyml.estimators.lgbm.defaults import (
     _COMMON_DEFAULTS,
     _TASK_METRIC,
     _TASK_OBJECTIVE,
+    TASK_COMPATIBLE_OBJECTIVES,
 )
 from lizyml.estimators.lgbm.metric_bridge import resolve_metrics
+
+
+def _check_objective_compatible(task: str, objective: str) -> None:
+    """Raise CONFIG_INVALID when *objective* is not valid for *task* (H-0079).
+
+    Cross-task injection (e.g. ``objective='regression'`` for binary task)
+    used to be silently stripped pre-H-0079 — same defensive intent, but
+    explicit failure instead of a silent override that misled tuning_table.
+    """
+    valid = TASK_COMPATIBLE_OBJECTIVES.get(task, frozenset())
+    if objective not in valid:
+        raise LizyMLError(
+            code=ErrorCode.CONFIG_INVALID,
+            user_message=(
+                f"objective '{objective}' is not compatible with task "
+                f"'{task}'. Valid objectives: {sorted(valid)}."
+            ),
+            context={
+                "task": task,
+                "objective": objective,
+                "valid_objectives": sorted(valid),
+            },
+        )
+
 
 try:
     import lightgbm as lgb
@@ -374,8 +399,14 @@ class LGBMAdapter(BaseEstimatorAdapter):
             user_params.setdefault("seed", user_params.pop("random_state"))
         if "verbose" in user_params:
             user_params.setdefault("verbosity", user_params.pop("verbose"))
-        # Strip task-locked keys — objective is always set from task
-        user_params.pop("objective", None)
+        # H-0079: respect user/Optuna-supplied objective when task-compatible.
+        # Pre-H-0079 this value was silently stripped, so default_space
+        # tune trials sampling e.g. "fair" actually trained with the task
+        # default. Reject cross-task injections explicitly with CONFIG_INVALID.
+        user_objective = user_params.pop("objective", None)
+        if user_objective is not None:
+            _check_objective_compatible(self.task, user_objective)
+            params["objective"] = user_objective
         # Allow user-specified metric; fall back to task default if absent/empty
         # Accepts str, list[str], or list[str | dict] (H-0065 MetricEntry).
         user_metric = user_params.pop("metric", None)
@@ -394,6 +425,20 @@ class LGBMAdapter(BaseEstimatorAdapter):
                 )
                 params["metric"] = native if native else "None"
         params.update(user_params)
+
+        # H-0079 L5: invariant guard — if a user objective was supplied and
+        # task-compatible, it must survive _build_params(). Catches future
+        # regressions to the silent-strip pattern even if someone refactors
+        # the body. Disabled under `python -O` (production), active in
+        # dev / test / CI.
+        assert (  # noqa: S101 — defensive contract guard, see H-0079
+            user_objective is None or params["objective"] == user_objective
+        ), (
+            f"H-0079 invariant violated: user-supplied objective="
+            f"'{user_objective}' did not survive _build_params() "
+            f"(got '{params.get('objective')}'). Likely regression to "
+            f"the silent-strip pattern."
+        )
 
         return params, num_boost_round, feval_list, feval_display_names
 
