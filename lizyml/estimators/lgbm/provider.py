@@ -129,6 +129,12 @@ def _validate_objective_consistency() -> None:
     Phase-1 whitelist exactly. Catches drift between the two sources of
     truth before they reach a user (Phase 3 collapses these into one,
     but during Phase 2 both must agree).
+
+    Raises ``RuntimeError`` at module load time, which renders LizyML
+    un-importable. Intentional fail-fast: a drift means
+    ``LGBMProvider.objective_choices`` could surface a value that
+    ``LGBMAdapter._build_params`` rejects (or vice versa), producing
+    impossible-to-debug user reports. Better to fail at process start.
     """
     for task, surface in _LGBM_OBJECTIVE_CHOICES.items():
         whitelist = TASK_COMPATIBLE_OBJECTIVES[task]
@@ -140,7 +146,51 @@ def _validate_objective_consistency() -> None:
             )
 
 
+def _validate_metric_consistency() -> None:
+    """Module-load self-check: every metric surfaced via
+    ``metric_choices()`` must be reachable at fit-time (H-0079 follow-up).
+
+    Mirrors ``_validate_objective_consistency`` for the metric side:
+
+    - Each ``_LGBM_NATIVE_METRIC_CHOICES[task]`` entry must be in
+      ``metric_bridge._LGBM_NATIVE_METRICS[task]`` so that
+      ``validate_lgbm_metrics`` accepts it before training.
+    - Each ``_LGBM_FEVAL_METRIC_CHOICES[task]`` entry must be in
+      ``metric_bridge._FEVAL_METRICS[task]`` so that ``resolve_metrics``
+      wires it as a feval callable.
+
+    Drift here would mean a downstream UI offers a metric that the
+    library subsequently rejects — exactly the failure mode the
+    ``metric_choices`` API was introduced to eliminate.
+    """
+    # Local import to avoid circular dependency at module top.
+    from lizyml.estimators.lgbm.metric_bridge import (
+        _FEVAL_METRICS,
+        _LGBM_NATIVE_METRICS,
+    )
+
+    for task, surface in _LGBM_NATIVE_METRIC_CHOICES.items():
+        whitelist = _LGBM_NATIVE_METRICS.get(task, frozenset())
+        unsupported = set(surface) - set(whitelist)
+        if unsupported:
+            raise RuntimeError(  # pragma: no cover — load-time invariant
+                f"H-0079 drift: _LGBM_NATIVE_METRIC_CHOICES[{task!r}] "
+                f"includes {sorted(unsupported)} which are not in "
+                f"metric_bridge._LGBM_NATIVE_METRICS[{task!r}]."
+            )
+    for task, surface in _LGBM_FEVAL_METRIC_CHOICES.items():
+        whitelist = _FEVAL_METRICS.get(task, frozenset())
+        unsupported = set(surface) - set(whitelist)
+        if unsupported:
+            raise RuntimeError(  # pragma: no cover — load-time invariant
+                f"H-0079 drift: _LGBM_FEVAL_METRIC_CHOICES[{task!r}] "
+                f"includes {sorted(unsupported)} which are not in "
+                f"metric_bridge._FEVAL_METRICS[{task!r}]."
+            )
+
+
 _validate_objective_consistency()
+_validate_metric_consistency()
 
 
 class LGBMProvider:
@@ -340,6 +390,15 @@ class LGBMProvider:
         Wraps the LGBM-private ``_build_params()`` and the feval metadata
         extraction so that ``_model_persistence.py`` does not need to import
         ``LGBMAdapter`` or call private methods.
+
+        Note:
+            This method intentionally calls ``adapter._build_params()`` —
+            an attribute of the same ``lgbm/`` subpackage. Treat the
+            (provider, adapter) pair as a unit when refactoring; the
+            access is co-located by package boundary, but type checkers
+            cannot enforce it. If ``LGBMAdapter._build_params()`` ever
+            grows new return values, update both this call site and
+            ``LGBMAdapter`` in the same change.
 
         Raises:
             LizyMLError with ``UNSUPPORTED_TASK`` when the supplied adapter
