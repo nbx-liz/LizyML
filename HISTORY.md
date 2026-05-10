@@ -6347,10 +6347,11 @@ H-0074 Phase 1 で `FitState` frozen dataclass と `Model._get_fit_state()` を�
 
 ## H-0078: 探索空間の検証強化と `EstimatorProvider.parameter_bounds()` 導入
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-05-10
+- **決定日**: 2026-05-10
 - **スコープ**: Public API (`EstimatorProvider`), Internal Types (`SearchDim`, `BoundaryDimStatus`), `tuning/search_space.py`, `core/model.py`
-- **関連**: [Issue #152](https://github.com/nbx-liz/issues/152) (severity: high), LizyStudio Issue #460（下流 UI）
+- **関連**: [Issue #152](https://github.com/nbx-liz/issues/152) (severity: high), LizyStudio Issue #460（下流 UI）, PR [#153](https://github.com/nbx-liz/LizyML/pull/153) / [#154](https://github.com/nbx-liz/LizyML/pull/154) / [#156](https://github.com/nbx-liz/LizyML/pull/156)
 
 ### 目的
 
@@ -6478,8 +6479,13 @@ Re-tune (`expand_boundary=True`) を繰り返した際、`expand_dims` がパラ
 
 ### Decision
 
-- Date: TBD
-- Result: pending
-- Notes: 3 Phase 分割で順次 PR を提出する。各 Phase 完了時にこのエントリを更新。
+- Date: 2026-05-10
+- Result: accepted
+- Notes:
+  - **Phase 1 (PR #153)**: `parse_space` が `low >= high` と `log + low <= 0` を `LizyMLError(CONFIG_INVALID)` で拒否（+8 tests）。
+  - **Phase 2 (PR #154)**: `EstimatorProvider.parameter_bounds(task)` Protocol method を追加し、`LGBMProvider` が 15 params の bounds を返す。`SearchDim`（FloatDim/IntDim）に optional `min_allowed`/`max_allowed` を追加。`_expand_range` が bounds でクランプし `BoundaryDimStatus.clamped_to_bound` を立てる（+25 tests）。
+  - **Phase 3 (PR #156)**: `attach_bounds(dims, bounds)` ヘルパーを追加し、`Model._resolve_search_space` が `provider.parameter_bounds(cfg.task)` を search space に注入。default-space と user-supplied space の両方が bounds を自動取得（+10 tests）。Issue #152 の 5 ラウンド regression test 込み。
+  - 後方互換性は完全維持。サードパーティ Provider は `parameter_bounds(task) -> {}` で従来挙動を再現可能。
+  - リリース: v0.14.0 で配布。
 
 
