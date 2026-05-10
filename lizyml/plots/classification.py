@@ -9,6 +9,7 @@ import numpy.typing as npt
 from sklearn.metrics import roc_auc_score, roc_curve
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.plots._theme import apply_default_layout
 
 if TYPE_CHECKING:
     from lizyml.core.types.fit_result import FitResult
@@ -103,7 +104,8 @@ def _plot_roc_binary(fit_result: FitResult, y_true: npt.NDArray[Any]) -> Any:
             showlegend=False,
         )
     )
-    fig.update_layout(
+    apply_default_layout(
+        fig,
         title="ROC Curve (IS vs OOS)",
         xaxis_title="False Positive Rate",
         yaxis_title="True Positive Rate",
@@ -182,7 +184,8 @@ def _plot_roc_multiclass(fit_result: FitResult, y_true: npt.NDArray[Any]) -> Any
         fig.update_yaxes(title_text="True Positive Rate", row=1, col=col)
 
     macro_auc = float(roc_auc_score(y_bin, oof_pred, average="macro"))
-    fig.update_layout(
+    apply_default_layout(
+        fig,
         title=f"ROC Curves OvR (Macro AUC={macro_auc:.3f})",
         height=500,
         width=1000,
