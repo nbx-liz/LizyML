@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import dataclasses
 import sys
+from collections.abc import Callable
 from datetime import datetime, timezone
 from importlib.metadata import version as pkg_version
 from pathlib import Path
@@ -41,7 +42,11 @@ if TYPE_CHECKING:
 
 from lizyml import __version__
 from lizyml.config.loader import load_config
-from lizyml.config.schema import BlockedGroupKFoldConfig, LizyMLConfig
+from lizyml.config.schema import (
+    BlockedGroupKFoldConfig,
+    LizyMLConfig,
+    OptunaParamsConfig,
+)
 from lizyml.core._model_factories import (
     build_inner_valid,
     build_splitter,
@@ -57,7 +62,7 @@ from lizyml.core.logging import generate_run_id, get_logger
 from lizyml.core.specs.feature_spec import FeatureSpec
 from lizyml.core.specs.problem_spec import ProblemSpec
 from lizyml.core.train_components import TrainComponents
-from lizyml.core.types.artifacts import RunMeta
+from lizyml.core.types.artifacts import DataFingerprint, RunMeta
 from lizyml.core.types.fit_result import FitResult
 from lizyml.core.types.predict_result import PredictionResult
 from lizyml.core.types.tuning_result import (
@@ -71,6 +76,7 @@ from lizyml.data.dataframe_builder import DataFrameComponents
 from lizyml.data.fingerprint import compute as fp_compute
 from lizyml.estimators.provider import EstimatorProvider
 from lizyml.evaluation.evaluator import Evaluator
+from lizyml.splitters.base import BaseSplitter
 from lizyml.training.cv_trainer import CVTrainer
 from lizyml.training.inner_valid import BaseInnerValidStrategy
 from lizyml.training.refit_trainer import RefitResult, RefitTrainer
@@ -669,17 +675,17 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         base_smart_params: dict[str, Any],
         fixed: dict[str, Any],
         provider: EstimatorProvider,
-        splitter: Any,
+        splitter: BaseSplitter,
         X: pd.DataFrame,
         y: pd.Series,
         groups: npt.NDArray[Any] | None,
         n_classes: int | None,
-        fingerprint: Any,
+        fingerprint: DataFingerprint,
         run_meta: RunMeta,
         evaluator: Evaluator,
-        first_entry: Any,
+        first_entry: str | dict[str, Any],
         metric_name: str,
-    ) -> Any:
+    ) -> Callable[[Any], float]:
         """Return the optuna objective closure used by ``Tuner``.
 
         Captures all parameters needed by a single trial: the provider,
@@ -731,11 +737,11 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
 
     def _run_tune_round(
         self,
-        objective: Any,
+        objective: Callable[[Any], float],
         *,
         space: list[Any],
         actual_n_trials: int,
-        optuna_cfg: Any,
+        optuna_cfg: OptunaParamsConfig,
         metric_name: str,
         progress_callback: TuneProgressCallback | None,
         storage: str | BaseStorage | None,
@@ -1007,7 +1013,9 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
                 "set data.path in the config."
             ),
             context={
-                "cfg_data_path": self._cfg.data.path,
+                # Defensive: only the boolean is logged so that user file
+                # paths never leak through error logs / repr (cf. #118 audit).
+                "cfg_data_path_set": bool(self._cfg.data.path),
                 "constructor_data": self._data is not None,
             },
         )
