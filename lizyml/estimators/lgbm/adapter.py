@@ -27,7 +27,9 @@ except ImportError as e:  # pragma: no cover
         context={"package": "lightgbm"},
     ) from e
 
-TaskType = Literal["regression", "binary", "multiclass"]
+from lizyml.core.types.task import TaskType  # noqa: E402  re-export for ext
+
+__all__ = ["LGBMAdapter", "TaskType"]
 
 
 class LGBMAdapter(BaseEstimatorAdapter):

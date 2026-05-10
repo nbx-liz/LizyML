@@ -10,6 +10,7 @@ import numpy as np
 import numpy.typing as npt
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.types.task import TaskType
 
 
 class BaseInnerValidStrategy(ABC):
@@ -270,7 +271,7 @@ class BlockedGroupInnerValid(BaseInnerValidStrategy):
 
     _MIN_GROUPS_FOR_ISOLATION = 4
 
-    def __init__(self, ratio: float = 0.1, task: str = "regression") -> None:
+    def __init__(self, ratio: float = 0.1, task: TaskType = "regression") -> None:
         if not 0.0 < ratio < 1.0:
             raise ValueError(f"ratio must be in (0, 1), got {ratio}")
         self.ratio = ratio

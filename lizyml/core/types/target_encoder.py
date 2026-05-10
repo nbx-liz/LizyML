@@ -7,15 +7,16 @@ a back-dependency on Layer 1 ``data/``.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.types.task import TaskType
 
-TaskType = Literal["regression", "binary", "multiclass"]
+__all__ = ["TargetEncoder", "TaskType"]
 
 
 @dataclass(frozen=True)

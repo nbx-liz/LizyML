@@ -31,7 +31,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from importlib.metadata import version as pkg_version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 import numpy.typing as npt
@@ -66,6 +66,7 @@ from lizyml.core.types.artifacts import DataFingerprint, RunMeta
 from lizyml.core.types.fit_result import FitResult
 from lizyml.core.types.fit_state import FitState
 from lizyml.core.types.predict_result import PredictionResult
+from lizyml.core.types.task import TaskType
 from lizyml.core.types.tuning_result import (
     BoundaryReport,
     RoundSummary,
@@ -97,10 +98,8 @@ from lizyml.tuning.tuner import Tuner
 
 _log = get_logger("model")
 
-TaskType = Literal["regression", "binary", "multiclass"]
-
 # Default metrics per task when none are specified in config.
-_DEFAULT_METRICS: dict[str, list[str | dict[str, dict[str, Any]]]] = {
+_DEFAULT_METRICS: dict[TaskType, list[str | dict[str, dict[str, Any]]]] = {
     "regression": ["rmse", "mae"],
     "binary": ["logloss", "auc"],
     "multiclass": ["logloss", "f1", "accuracy"],

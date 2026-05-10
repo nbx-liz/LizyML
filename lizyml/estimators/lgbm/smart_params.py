@@ -10,6 +10,7 @@ import numpy.typing as npt
 import pandas as pd
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.types.task import TaskType
 
 
 def _compute_num_leaves(max_depth: int | None, ratio: float) -> int:
@@ -29,7 +30,7 @@ def resolve_smart_params(
     n_rows: int,
     feature_names: list[str],
     y: pd.Series,
-    task: str,
+    task: TaskType,
 ) -> tuple[dict[str, Any], npt.NDArray[np.float64] | None]:
     """Resolve smart parameters to native LightGBM parameters.
 

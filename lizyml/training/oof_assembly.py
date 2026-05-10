@@ -9,16 +9,18 @@ Assembly rules (leakage prevention):
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
+from lizyml.core.types.task import TaskType
+
 if TYPE_CHECKING:
     from lizyml.estimators.base import BaseEstimatorAdapter
 
-TaskType = Literal["regression", "binary", "multiclass"]
+__all__ = ["TaskType", "compute_oof_valid_mask", "init_oof"]
 
 
 def init_oof(

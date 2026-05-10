@@ -10,6 +10,7 @@ import pandas as pd
 from sklearn.metrics import confusion_matrix
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.types.task import TaskType
 from lizyml.training.oof_assembly import compute_oof_valid_mask
 
 if TYPE_CHECKING:
@@ -21,7 +22,7 @@ def confusion_matrix_table(
     y_true: npt.NDArray[Any],
     *,
     threshold: float = 0.5,
-    task: str,
+    task: TaskType,
 ) -> dict[str, pd.DataFrame]:
     """Compute IS and OOS confusion matrices.
 

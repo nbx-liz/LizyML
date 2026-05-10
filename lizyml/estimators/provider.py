@@ -17,6 +17,7 @@ import numpy.typing as npt
 import pandas as pd
 
 from lizyml.core.types.search_dim import SearchDim
+from lizyml.core.types.task import TaskType
 from lizyml.estimators.base import BaseEstimatorAdapter
 from lizyml.features.pipeline_base import BaseFeaturePipeline
 
@@ -68,7 +69,7 @@ class EstimatorProvider(Protocol):  # pragma: no cover
         n_rows: int,
         feature_names: list[str],
         y: pd.Series,
-        task: str,
+        task: TaskType,
     ) -> tuple[dict[str, Any], npt.NDArray[np.float64] | None]:
         """Resolve smart parameters to native estimator parameters.
 
@@ -89,7 +90,7 @@ class EstimatorProvider(Protocol):  # pragma: no cover
 
     def build_estimator_factory(
         self,
-        task: str,
+        task: TaskType,
         params: dict[str, Any],
         n_classes: int | None,
         early_stopping_rounds: int | None,
@@ -102,11 +103,11 @@ class EstimatorProvider(Protocol):  # pragma: no cover
         """Return a zero-arg factory that creates the appropriate FeaturePipeline."""
         ...
 
-    def default_space(self, task: str) -> list[SearchDim]:
+    def default_space(self, task: TaskType) -> list[SearchDim]:
         """Return the default hyperparameter search space for this estimator."""
         ...
 
-    def default_fixed_params(self, task: str) -> dict[str, Any]:
+    def default_fixed_params(self, task: TaskType) -> dict[str, Any]:
         """Return fixed params applied to every trial when using default space."""
         ...
 

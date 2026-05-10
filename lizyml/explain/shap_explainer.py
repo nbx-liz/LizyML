@@ -22,6 +22,7 @@ import numpy.typing as npt
 import pandas as pd
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.types.task import TaskType
 
 if TYPE_CHECKING:
     from lizyml.estimators.base import BaseEstimatorAdapter
@@ -38,7 +39,7 @@ except ImportError:  # pragma: no cover
 def compute_shap_values(
     model: BaseEstimatorAdapter,
     X: pd.DataFrame,
-    task: str,
+    task: TaskType,
 ) -> npt.NDArray[np.float64]:
     """Compute SHAP values for *X* using *model*.
 
@@ -93,7 +94,7 @@ def compute_shap_importance(
     models: list[Any],
     X: pd.DataFrame,
     splits_outer: list[tuple[npt.NDArray[Any], npt.NDArray[Any]]],
-    task: str,
+    task: TaskType,
     feature_names: list[str],
     pipeline_state: Any,
     pipeline_factory: Callable[[], Any] | None = None,

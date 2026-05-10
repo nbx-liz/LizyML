@@ -9,6 +9,7 @@ import numpy.typing as npt
 from sklearn.metrics import roc_auc_score, roc_curve
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.types.task import TaskType
 from lizyml.plots._theme import apply_default_layout
 
 if TYPE_CHECKING:
@@ -202,7 +203,7 @@ def plot_roc_curve(
     fit_result: FitResult,
     y_true: npt.NDArray[Any],
     *,
-    task: str,
+    task: TaskType,
 ) -> Any:
     """Plot ROC curve(s).
 
