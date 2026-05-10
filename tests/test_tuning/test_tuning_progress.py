@@ -206,3 +206,28 @@ class TestProgressCallbackIntegration:
 
         assert call_count == 3
         assert result.best_params is not None
+
+    def test_callback_exception_warning_includes_details(self) -> None:
+        """Warning emitted from a failing callback must surface exception
+        type and message so users can debug their own callback (#117).
+        """
+
+        def bad_callback(info: TuneProgressInfo) -> None:
+            raise ValueError("intentional error in callback")
+
+        df = make_regression_df(n=200)
+        cfg = _reg_config_with_tuning(n_trials=2)
+        model = Model(cfg, data=df)
+
+        with pytest.warns(RuntimeWarning) as records:
+            model.tune(progress_callback=bad_callback)
+
+        callback_warnings = [
+            str(rec.message)
+            for rec in records
+            if "progress_callback" in str(rec.message)
+        ]
+        assert callback_warnings, "expected at least one progress_callback warning"
+        for msg in callback_warnings:
+            assert "ValueError" in msg
+            assert "intentional error in callback" in msg
