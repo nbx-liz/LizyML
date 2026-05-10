@@ -18,7 +18,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **`EstimatorProvider.objective_choices(task) -> tuple[str, ...]`** (H-0079 Phase 2, [#159](https://github.com/nbx-liz/LizyML/issues/159)) — new Protocol method returning canonical objective names valid for *task* in deterministic order. `LGBMProvider.objective_choices(task)` ships ordered tuples (regression: 9, binary: 3, multiclass: 2) sourced from the same whitelist as `TASK_COMPATIBLE_OBJECTIVES`. Drift between the two surfaces is caught by a load-time invariant. Used by `default_space()` and downstream UIs (LizyStudio) so the canonical list lives in one place.
 - **`EstimatorProvider.metric_choices(task) -> dict[Literal["native", "feval"], tuple[str, ...]]`** (H-0079 Phase 2, [#159](https://github.com/nbx-liz/LizyML/issues/159)) — new Protocol method returning per-task valid metrics split by source. `"native"` lists LightGBM-evaluated metrics composed straight into `params["metric"]`; `"feval"` lists LizyML custom metrics wired as feval callables. Canonical names only (aliases like `l1` / `l2` / `mse` are still accepted at config-input time but not surfaced).
 - **`MetricChoices` type alias in `lizyml.estimators.provider`** (H-0079 Phase 2) — `dict[Literal["native", "feval"], tuple[str, ...]]`. Forward-compatible: future estimators may add new keys (e.g. `"sklearn"` for scikit-learn-backed metrics) without breaking existing consumers.
-- **`default_space(task, provider=None)` accepts an optional `EstimatorProvider`** (H-0079 Phase 2) — when supplied, the `objective` `CategoricalDim` is built from `provider.objective_choices(task)` so default-space and user-supplied provider stay aligned. Existing call sites unchanged (provider defaults to `None` → falls back to the local `_OBJECTIVE_CHOICES` table; Phase 3 retires that table).
+- **`default_space(task, provider=None)` accepts an optional `EstimatorProvider`** (H-0079 Phase 2) — when supplied, the `objective` `CategoricalDim` is built from `provider.objective_choices(task)` so default-space and user-supplied provider stay aligned. Existing call sites unchanged (provider defaults to `None` → conservative tune-safe subset).
+
+### Fixed
+
+- **`metric_bridge._LGBM_NATIVE_METRICS["multiclass"]` incorrectly listed `auc`** (H-0079 Phase 3, surfaced by L4 drift test) — LightGBM 4.x raises `LightGBMError("Multiclass objective and metrics don't match")` when `auc` reaches multiclass `params["metric"]`. The whitelist accepted the name pre-validation, so users got a cryptic LightGBM-side error instead of a clear LizyML rejection. The whitelist now omits `auc` for multiclass; users requesting AUC on multiclass should use `Model.evaluate(metrics=["auc"])` (sklearn OvR, computed Python-side post-fit) or `auc_mu` for fit-time evaluation.
+
+### Internal
+
+- **`_OBJECTIVE_CHOICES` retired** (H-0079 Phase 3) — replaced by a conservative `_DEFAULT_TUNE_OBJECTIVES` table in `lizyml/estimators/lgbm/defaults.py` whose values intentionally exclude `gamma` / `poisson` / `tweedie` / `mape` (target-distribution-restricted). The full canonical set is exposed via `LGBMProvider().objective_choices(task)` for downstream UIs and explicit user-supplied search spaces.
+- **`_LGBM_OBJECTIVE_CHOICES` self-validates against `TASK_COMPATIBLE_OBJECTIVES`** at module load time (H-0079 Phase 2/3) so the two sources of truth cannot drift.
+- **L4 MetricRegistry coverage drift test** (`tests/test_estimators/test_metric_choices_registry_coverage.py`, H-0079 Phase 3) — every fit-time-reachable metric in `MetricRegistry._TASK_METRICS` is now asserted to appear in `LGBMProvider.metric_choices()` after alias translation. Caught the multiclass `auc` omission above.
 
 ## [0.14.0] - 2026-05-10
 
