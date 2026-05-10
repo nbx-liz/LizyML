@@ -158,6 +158,33 @@ class TestProtocolReturnTypes:
         result = provider.default_fixed_params(task)
         assert isinstance(result, dict)
 
+    @pytest.mark.parametrize(
+        "provider_name,provider", PROVIDERS, ids=[p[0] for p in PROVIDERS]
+    )
+    @pytest.mark.parametrize("task", ["regression", "binary", "multiclass"])
+    def test_parameter_bounds_returns_dict(
+        self, provider_name: str, provider: Any, task: str
+    ) -> None:
+        """``parameter_bounds`` returns a dict of param->{'min','max'} (H-0078).
+
+        An empty dict is acceptable (provider without bounds).  Non-empty
+        entries must each contain 'min' and 'max' as numeric values, with
+        ``min < max``.
+        """
+        bounds = provider.parameter_bounds(task)
+        assert isinstance(bounds, dict)
+        for param, b in bounds.items():
+            assert isinstance(param, str), f"param key must be str, got {type(param)}"
+            assert isinstance(b, dict), f"{param} bounds must be dict"
+            assert "min" in b and "max" in b, (
+                f"{param} bounds must have 'min' and 'max' keys"
+            )
+            assert isinstance(b["min"], (int, float)), f"{param}.min must be numeric"
+            assert isinstance(b["max"], (int, float)), f"{param}.max must be numeric"
+            assert b["min"] < b["max"], (
+                f"{param} must satisfy min < max, got min={b['min']}, max={b['max']}"
+            )
+
 
 # ===================================================================
 # Check 2: Factory → fit → predict roundtrip

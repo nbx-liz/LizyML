@@ -261,7 +261,9 @@ def _expand_range(
     edge: str,
     *,
     log: bool,
-) -> tuple[float, float]:
+    min_allowed: float | None = None,
+    max_allowed: float | None = None,
+) -> tuple[float, float, bool]:
     """Expand *low*/*high* asymmetrically toward *edge*.
 
     Linear lower-edge expansion is clamped at 0.0 (#110): negative bounds are
@@ -269,19 +271,33 @@ def _expand_range(
     crash downstream samplers. Log-scale expansion is already safe because
     division by ``_LOG_EXPANSION_FACTOR`` cannot make a positive value cross
     zero. ``IntDim`` retains its own ``max(1, ...)`` clamp at the call site.
+
+    When ``min_allowed`` / ``max_allowed`` are provided (H-0078), the
+    expansion is additionally clamped to those parameter-meaningful
+    bounds. The third return value is ``True`` iff such a clamp actually
+    bit (i.e. the natural expansion would have crossed the bound).
     """
+    new_low = low
+    new_high = high
     if edge == "lower":
         if log and low > 0:
             new_low = low / _LOG_EXPANSION_FACTOR
         else:
             new_low = max(0.0, low - (high - low))
-        return new_low, high
-    if edge == "upper":
+    elif edge == "upper":
         new_high = (
             high * _LOG_EXPANSION_FACTOR if log and high > 0 else high + (high - low)
         )
-        return low, new_high
-    return low, high
+
+    clamped = False
+    if min_allowed is not None and new_low < min_allowed:
+        new_low = min_allowed
+        clamped = True
+    if max_allowed is not None and new_high > max_allowed:
+        new_high = max_allowed
+        clamped = True
+
+    return new_low, new_high, clamped
 
 
 def detect_boundary(
@@ -335,8 +351,22 @@ def detect_boundary(
 
         new_low: float | int | None = None
         new_high: float | int | None = None
+        clamped = False
         if should_expand:
-            nl, nh = _expand_range(low, high, edge, log=is_log)
+            min_allowed = (
+                float(dim.min_allowed) if dim.min_allowed is not None else None
+            )
+            max_allowed = (
+                float(dim.max_allowed) if dim.max_allowed is not None else None
+            )
+            nl, nh, clamped = _expand_range(
+                low,
+                high,
+                edge,
+                log=is_log,
+                min_allowed=min_allowed,
+                max_allowed=max_allowed,
+            )
             if isinstance(dim, IntDim):
                 nl = max(1, int(math.floor(nl)))
                 nh = int(math.ceil(nh))
@@ -355,6 +385,7 @@ def detect_boundary(
                 expanded=should_expand,
                 new_low=new_low,
                 new_high=new_high,
+                clamped_to_bound=clamped,
             )
         )
 
@@ -402,6 +433,8 @@ def expand_dims(
                     high=float(status.new_high),
                     log=dim.log,
                     category=dim.category,
+                    min_allowed=dim.min_allowed,
+                    max_allowed=dim.max_allowed,
                 )
             )
         elif (
@@ -416,6 +449,8 @@ def expand_dims(
                     high=int(status.new_high),
                     log=dim.log,
                     category=dim.category,
+                    min_allowed=dim.min_allowed,
+                    max_allowed=dim.max_allowed,
                 )
             )
         else:

@@ -147,3 +147,17 @@ class EstimatorProvider(Protocol):  # pragma: no cover
                 responsible for narrowing the adapter type internally.
         """
         ...
+
+    def parameter_bounds(self, task: TaskType) -> dict[str, dict[str, float | int]]:
+        """Return per-parameter meaningful bounds for this estimator (H-0078).
+
+        Used by ``expand_dims`` to clamp boundary expansion and by
+        downstream UIs (e.g. LizyStudio) to constrain user input.
+
+        Returns:
+            Dict mapping a parameter name to ``{"min": ..., "max": ...}``.
+            Parameters not present in the dict are unbounded (re-tune
+            expansion grows freely as before). An empty dict means the
+            provider has no parameter-specific bounds to declare.
+        """
+        ...
