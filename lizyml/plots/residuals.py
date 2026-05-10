@@ -16,6 +16,7 @@ import numpy as np
 import numpy.typing as npt
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.plots._theme import apply_default_layout
 
 if TYPE_CHECKING:
     from lizyml.core.types.fit_result import FitResult
@@ -318,15 +319,19 @@ def plot_residuals(
     if kind == "scatter":
         fig = _plotly.Figure()
         _add_scatter_traces(fig, oof_pred, y_arr, is_pred_ds, is_actual_ds)
-        fig.update_layout(
-            title="Actual vs Predicted (IS vs OOS)", height=450, width=700
+        apply_default_layout(
+            fig,
+            title="Actual vs Predicted (IS vs OOS)",
+            height=450,
+            width=700,
         )
         return fig
 
     if kind == "histogram":
         fig = _plotly.Figure()
         _add_histogram_traces(fig, oos_resid, is_resid_ds, show_annotation=True)
-        fig.update_layout(
+        apply_default_layout(
+            fig,
             title="Residual Distribution (IS vs OOS)",
             barmode="overlay",
             height=400,
@@ -337,7 +342,7 @@ def plot_residuals(
     if kind == "qq":
         fig = _plotly.Figure()
         _add_qq_traces(fig, oos_resid)
-        fig.update_layout(title="QQ Plot (OOS)", height=450, width=500)
+        apply_default_layout(fig, title="QQ Plot (OOS)", height=450, width=500)
         return fig
 
     # kind == "all"
@@ -370,7 +375,8 @@ def plot_residuals(
         show_annotation=False,
     )
     _add_qq_traces(fig, oos_resid, row=1, col=3)
-    fig.update_layout(
+    apply_default_layout(
+        fig,
         title="Residual Analysis",
         barmode="overlay",
         height=400,
