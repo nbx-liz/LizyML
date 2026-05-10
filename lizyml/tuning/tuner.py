@@ -15,10 +15,13 @@ from __future__ import annotations
 
 import time
 import warnings
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.logging import get_logger
+
+if TYPE_CHECKING:
+    from optuna.storages import BaseStorage
 from lizyml.core.types.tuning_result import (
     TrialResult,
     TuneProgressCallback,
@@ -68,7 +71,7 @@ class Tuner:
         seed: int = 42,
         *,
         progress_callback: TuneProgressCallback | None = None,
-        storage: str | Any | None = None,
+        storage: str | BaseStorage | None = None,
         study_name: str | None = None,
     ) -> None:
         if storage is not None and study_name is None:
