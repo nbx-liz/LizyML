@@ -36,6 +36,39 @@ __all__ = [
 _ALLOWED_CHOICE_TYPES = (type(None), bool, int, float, str)
 
 
+def _validate_numeric_range(
+    name: str,
+    low: float,
+    high: float,
+    *,
+    log: bool,
+) -> None:
+    """Validate ``low < high`` and (when ``log`` is True) ``low > 0``.
+
+    Optuna only raises these errors at trial-time with generic messages.
+    Catching them at parse time gives users a clear, configuration-level
+    diagnostic with the offending bounds in ``context``.
+    """
+    if low >= high:
+        raise LizyMLError(
+            code=ErrorCode.CONFIG_INVALID,
+            user_message=(
+                f"Search dim '{name}' has low >= high (low={low}, high={high}). "
+                f"Min must be strictly less than Max."
+            ),
+            context={"param": name, "low": low, "high": high, "log": log},
+        )
+    if log and low <= 0:
+        raise LizyMLError(
+            code=ErrorCode.CONFIG_INVALID,
+            user_message=(
+                f"Search dim '{name}' uses log distribution but low={low} <= 0. "
+                f"Log requires a strictly positive lower bound."
+            ),
+            context={"param": name, "low": low, "high": high, "log": log},
+        )
+
+
 def _validate_categorical_choices(name: str, choices: list[Any]) -> None:
     """Validate that every element in *choices* is a scalar type.
 
@@ -84,22 +117,30 @@ def parse_space(space: dict[str, Any]) -> list[SearchDim]:
         dim_type: str = spec.get("type", "")
         category: DimCategory = spec.get("category", "model")
         if dim_type == "float":
+            low_f = float(spec["low"])
+            high_f = float(spec["high"])
+            log_f = bool(spec.get("log", False))
+            _validate_numeric_range(name, low_f, high_f, log=log_f)
             dims.append(
                 FloatDim(
                     name=name,
-                    low=float(spec["low"]),
-                    high=float(spec["high"]),
-                    log=bool(spec.get("log", False)),
+                    low=low_f,
+                    high=high_f,
+                    log=log_f,
                     category=category,
                 )
             )
         elif dim_type == "int":
+            low_i = int(spec["low"])
+            high_i = int(spec["high"])
+            log_i = bool(spec.get("log", False))
+            _validate_numeric_range(name, low_i, high_i, log=log_i)
             dims.append(
                 IntDim(
                     name=name,
-                    low=int(spec["low"]),
-                    high=int(spec["high"]),
-                    log=bool(spec.get("log", False)),
+                    low=low_i,
+                    high=high_i,
+                    log=log_i,
                     category=category,
                 )
             )

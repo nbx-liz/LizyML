@@ -6343,4 +6343,143 @@ H-0074 Phase 1 で `FitState` frozen dataclass と `Model._get_fit_state()` を�
 - Result: accepted
 - Notes: Phase 1 (H-0074) で予告した Phase 2 の実装。tuning 系メソッドの fit-前-tune-後 ケースを `TuningState` 別経路で扱うことで `FitState` の "fit 後 snapshot" 不変条件を維持。
 
+---
+
+## H-0078: 探索空間の検証強化と `EstimatorProvider.parameter_bounds()` 導入
+
+- **ステータス**: Proposed
+- **起票日**: 2026-05-10
+- **スコープ**: Public API (`EstimatorProvider`), Internal Types (`SearchDim`, `BoundaryDimStatus`), `tuning/search_space.py`, `core/model.py`
+- **関連**: [Issue #152](https://github.com/nbx-liz/issues/152) (severity: high), LizyStudio Issue #460（下流 UI）
+
+### 目的
+
+Re-tune (`expand_boundary=True`) を繰り返した際、`expand_dims` がパラメータ別の意味境界を超えて探索範囲を拡大してしまう。`learning_rate.high` が 1.0 を超え、`feature_fraction.high` が 1.0 を超え、`validation_ratio.low` が 0.0 にまで縮退する。さらに `parse_space` は `low >= high` や `log=True ∧ low <= 0` のような不正値を受け入れ、Optuna の trial 時にようやく汚いエラーで失敗する。
+
+これらは LizyStudio や CLI 利用者を含む全ての Tuning 利用者に影響する。本 Proposal では以下の 3 階層で対応する。
+
+1. **Parse-time validation**: `parse_space` が `low<high`・`log+positive` を即時拒否（早期失敗）。
+2. **Provider-supplied bounds**: `EstimatorProvider.parameter_bounds(task)` でパラメータ別の意味境界を表現できる API を新設。LightGBM 用は `LGBMProvider` が知る。
+3. **Bounded expansion**: `_expand_range` を `min_allowed` / `max_allowed` 認識にし、`Model.tune` が provider→dim に bounds を注入する。`BoundaryDimStatus.clamped_to_bound` で UI が badge できる。
+
+### 変更内容
+
+#### Phase 1 — `parse_space` 検証強化
+
+`lizyml/tuning/search_space.py::parse_space()` に以下のチェックを追加。
+
+- `"float"` / `"int"`: `low < high` が満たされない場合 `LizyMLError(CONFIG_INVALID, ...)` を raise。
+- `log=True`: `low > 0` が満たされない場合 `LizyMLError(CONFIG_INVALID, ...)` を raise（log distribution は正の下限を要求）。
+
+エラー文言には `param`, `low`, `high`, `log` を context に含める。
+
+#### Phase 2 — `parameter_bounds` API + bounds-aware `_expand_range`
+
+1. **`EstimatorProvider.parameter_bounds(task)` 追加**
+
+   ```python
+   def parameter_bounds(self, task: TaskType) -> dict[str, dict[str, float | int]]:
+       """Return per-parameter meaningful bounds. Empty dict = unbounded."""
+       ...
+   ```
+
+   ベースの Protocol で宣言。デフォルト実装はないため、各 Provider が実装する（未対応 estimator は `{}` を返してよい）。
+
+2. **`LGBMProvider.parameter_bounds(task)` 実装**
+
+   LightGBM 既知の意味境界を返す（Issue #152 の表を出発点に LightGBM docs と integration test で確定）:
+
+   ```python
+   {
+       "learning_rate":          {"min": 1e-8, "max": 1.0},
+       "feature_fraction":       {"min": 1e-3, "max": 1.0},
+       "bagging_fraction":       {"min": 1e-3, "max": 1.0},
+       "num_leaves_ratio":       {"min": 0.1,  "max": 2.0},
+       "min_data_in_leaf_ratio": {"min": 1e-4, "max": 0.5},
+       "min_data_in_bin_ratio":  {"min": 1e-4, "max": 0.5},
+       "validation_ratio":       {"min": 0.05, "max": 0.5},
+       "lambda_l1":              {"min": 0.0,  "max": 100.0},
+       "lambda_l2":              {"min": 0.0,  "max": 100.0},
+       "n_estimators":           {"min": 10,   "max": 10000},
+       "max_depth":              {"min": -1,   "max": 30},
+       "max_bin":                {"min": 2,    "max": 8192},
+       "bagging_freq":           {"min": 0,    "max": 100},
+       "early_stopping_rounds":  {"min": 1,    "max": 5000},
+       "seed":                   {"min": 0,    "max": 2**31 - 1},
+   }
+   ```
+
+3. **`SearchDim` (FloatDim/IntDim) に optional フィールド追加**
+
+   `min_allowed: float | int | None = None`, `max_allowed: float | int | None = None`。`@dataclass(frozen=True)` の不変条件と後方互換性を維持。
+
+4. **`_expand_range` を bounds-aware に拡張**
+
+   引数に `min_allowed` / `max_allowed` を追加し、計算された `new_low` / `new_high` を境界でクランプ。両側がぶつかった場合は元値のまま返す（無限ループ防止のため `expanded=False` を上位で再判定）。
+
+5. **`BoundaryDimStatus.clamped_to_bound: bool` フィールド追加**
+
+   `expand_dims` 経由で expansion が境界に当たった場合 True。下流 UI が "max reached" badge を出すためのフラグ。デフォルト False で後方互換。
+
+#### Phase 3 — `Model.tune` 配線
+
+`Model._maybe_expand_boundary()` で `provider.parameter_bounds(cfg.task)` を取得し、`detect_boundary` 呼び出し前に各 dim へ bounds を注入する（または `detect_boundary` の signature を bounds-aware にする）。`expand_boundary=False` 時は既存挙動と同一（bounds は無視される）。
+
+`expand_dims` も bounds 認識にし、`new_low/new_high` のクランプ + `clamped_to_bound` セットを行う。
+
+### 影響範囲
+
+- **変更ファイル**:
+  - `lizyml/tuning/search_space.py`（`parse_space` 検証 / `_expand_range` bounds 対応 / `detect_boundary` `expand_dims` への bounds 配線）
+  - `lizyml/core/types/search_dim.py`（`min_allowed` / `max_allowed` 追加）
+  - `lizyml/core/types/tuning_result.py`（`BoundaryDimStatus.clamped_to_bound` 追加）
+  - `lizyml/estimators/provider.py`（Protocol に `parameter_bounds` 追加）
+  - `lizyml/estimators/lgbm/provider.py`（実装追加）
+  - `lizyml/core/model.py`（`_maybe_expand_boundary` で bounds 注入）
+  - テスト: `tests/test_search_space/test_parse_space_validation.py`（新規）、`tests/test_search_space/test_expand_dims_clamp.py`（新規）、`tests/test_estimators/test_lgbm_provider.py`（追記）、`tests/test_core/test_model_tune_uses_bounds.py`（新規）
+- **無変更**: Persistence 形式、Calibration、Plots/Tables 出力 shape、Codegen export、既存 happy-path tuning 挙動。
+
+### 互換性
+
+- **`parse_space`**: 不正値を受け入れていたコードは新たに `CONFIG_INVALID` で fail-fast。これは "later & messier" → "earlier & clearer" への振る舞い変更で、**実害のあるユーザーコードは存在しない**（Optuna が trial で raise していたため）。format_version 影響なし。
+- **`SearchDim`**: 新 field は optional でデフォルト None。既存呼び出しは無変更で動作。
+- **`BoundaryDimStatus`**: 新 field は default False で後方互換。golden test の dim status 比較は更新が必要。
+- **`EstimatorProvider`**: Protocol に method 追加。LizyML 内蔵 Provider (LGBM) は実装する。サードパーティ Provider が存在する場合は実装が必要だが現時点で該当なし。
+- **`_expand_range`**: 新引数 `min_allowed` / `max_allowed` は keyword-only / optional。
+- format_version 変更不要。
+
+### 代替案と不採用理由
+
+| 代替案 | 不採用理由 |
+|---|---|
+| `_expand_range` 内で param 名から bounds を直接 lookup | search_space.py が estimator-specific 知識を持つことになり、5-layer DAG (provider 経由のみ) の境界違反 |
+| `default_space` に bounds をハードコード | `default_space` を使わずユーザーが `tuning.search_space` を指定した場合に bounds が効かない（Issue #152 のシナリオを完全には解決できない） |
+| `parse_space` の検証緩和（warning のみ） | Optuna が後で raise するため、結局 fail。早期失敗で UX 改善が目的 |
+| 単一 PR で全 Phase | レビュー負荷増・rollback 単位が粗い。3 Phase に分割し、各 Phase 単体で価値が出る形にする |
+| Provider 不要（dim に bounds を直接書く） | `default_space` 以外（ユーザー定義空間）でも bounds が効くようにするには、param 名 → bounds の mapping が必要。estimator ごとの mapping を保持する責務は Provider が自然 |
+
+### 受け入れ基準
+
+- [ ] `parse_space` が `low >= high` を `LizyMLError(CONFIG_INVALID)` で拒否（テストあり）。
+- [ ] `parse_space` が `log=True ∧ low <= 0` を `LizyMLError(CONFIG_INVALID)` で拒否（テストあり）。
+- [ ] `EstimatorProvider.parameter_bounds(task)` が Protocol に追加されている。
+- [ ] `LGBMProvider.parameter_bounds(task)` が LightGBM 固有 map を返す（テストあり）。
+- [ ] `SearchDim`（FloatDim/IntDim）が optional `min_allowed` / `max_allowed` を持つ。
+- [ ] `_expand_range` が bounds でクランプし、`BoundaryDimStatus.clamped_to_bound` を立てる（テストあり）。
+- [ ] `Model.tune(re_tune=...)` が provider→dim に bounds を注入する（統合テストあり）。
+- [ ] 既存 1709 テスト全件 pass。
+- [ ] `uv run ruff check .` / `uv run ruff format --check .` / `uv run mypy lizyml/` がクリーン。
+
+### Migration
+
+- ユーザーには影響なし（公開 API 完全互換、新 field は optional）。
+- サードパーティ Provider 実装者には `parameter_bounds(task) -> dict` の追加実装を求める。空 dict を返せば既存挙動と同一（unbounded expansion）。
+- LizyStudio 側はこの Phase 完了後 `provider.parameter_bounds(...)` を介して UI の bound 制限を取得する流れに切り替える（別 Issue 管理）。
+
+### Decision
+
+- Date: TBD
+- Result: pending
+- Notes: 3 Phase 分割で順次 PR を提出する。各 Phase 完了時にこのエントリを更新。
+
 
