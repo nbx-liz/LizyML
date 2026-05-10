@@ -437,37 +437,9 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
                 prior tune().
         """
         cfg = self._cfg
-        if cfg.tuning is None:
-            raise LizyMLError(
-                code=ErrorCode.CONFIG_INVALID,
-                user_message=(
-                    "No tuning configuration found. "
-                    "Add a 'tuning' section to the config to enable tuning."
-                ),
-                context={},
-            )
+        self._validate_tune_inputs(resume=resume, boundary_threshold=boundary_threshold)
 
-        if resume and self._study is None:
-            raise LizyMLError(
-                code=ErrorCode.TUNING_FAILED,
-                user_message=(
-                    "Cannot resume tuning: no previous tune() call. "
-                    "Run tune() first, then tune(resume=True)."
-                ),
-                context={},
-            )
-
-        if not 0.0 < boundary_threshold < 0.5:
-            raise LizyMLError(
-                code=ErrorCode.CONFIG_INVALID,
-                user_message=(
-                    f"boundary_threshold must be in (0.0, 0.5), "
-                    f"got {boundary_threshold}."
-                ),
-                context={"boundary_threshold": boundary_threshold},
-            )
-
-        optuna_cfg = cfg.tuning.optuna.params
+        optuna_cfg = cfg.tuning.optuna.params  # type: ignore[union-attr]
         actual_n_trials = n_trials if n_trials is not None else optuna_cfg.n_trials
 
         _log.info(
@@ -492,7 +464,137 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         )
         base_model_params, base_smart_params = self._merge_params(provider)
 
-        # --- Resolve search space ------------------------------------------------
+        space, used_default, fixed = self._resolve_search_space(
+            resume=resume, provider=provider
+        )
+        space, boundary_report, expanded_names = self._maybe_expand_boundary(
+            space,
+            resume=resume,
+            used_default=used_default,
+            expand_boundary=expand_boundary,
+            boundary_threshold=boundary_threshold,
+        )
+
+        # --- Metric & evaluator setup --------------------------------------------
+        metric_entries = cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task]
+        from lizyml.metrics.registry import parse_metric_entry
+
+        first_entry = metric_entries[0]
+        metric_name, _ = parse_metric_entry(first_entry)
+
+        evaluator = Evaluator(task=cfg.task)
+        fingerprint = fp_compute(X, file_path=None)
+        run_meta = self._build_run_meta(generate_run_id())
+
+        objective = self._build_tune_objective(
+            space=space,
+            base_model_params=base_model_params,
+            base_smart_params=base_smart_params,
+            fixed=fixed,
+            provider=provider,
+            splitter=splitter,
+            X=X,
+            y=y,
+            groups=groups,
+            n_classes=n_classes,
+            fingerprint=fingerprint,
+            run_meta=run_meta,
+            evaluator=evaluator,
+            first_entry=first_entry,
+            metric_name=metric_name,
+        )
+
+        round_number = self._round_number + 1
+        result, study, prior_trials, best_score_before = self._run_tune_round(
+            objective,
+            space=space,
+            actual_n_trials=actual_n_trials,
+            optuna_cfg=optuna_cfg,
+            metric_name=metric_name,
+            progress_callback=progress_callback,
+            storage=storage,
+            study_name=study_name,
+            resume=resume,
+            round_number=round_number,
+            expanded_names=expanded_names,
+        )
+
+        final_result, all_rounds = self._assemble_tuning_result(
+            result,
+            round_number=round_number,
+            actual_n_trials=actual_n_trials,
+            best_score_before=best_score_before,
+            expanded_names=expanded_names,
+            space=space,
+            boundary_report=boundary_report,
+            prior_trials=prior_trials,
+        )
+
+        # --- Update internal state -----------------------------------------------
+        self._tuning_result = final_result
+        self._study = study
+        self._round_number = round_number
+        self._rounds = list(all_rounds)
+        self._space = space
+        self._used_default_space = used_default
+
+        _log.info(
+            "event='tune.done' round=%d best_params=%s",
+            round_number,
+            final_result.best_params,
+        )
+        return final_result
+
+    # --- tune() helpers (#114 — split god method) -------------------------------
+
+    def _validate_tune_inputs(self, *, resume: bool, boundary_threshold: float) -> None:
+        """Validate cfg + tune-call invariants. Raises ``LizyMLError`` on
+        violation."""
+        cfg = self._cfg
+        if cfg.tuning is None:
+            raise LizyMLError(
+                code=ErrorCode.CONFIG_INVALID,
+                user_message=(
+                    "No tuning configuration found. "
+                    "Add a 'tuning' section to the config to enable tuning."
+                ),
+                context={"task": cfg.task, "model": getattr(cfg.model, "name", None)},
+            )
+
+        if resume and self._study is None:
+            raise LizyMLError(
+                code=ErrorCode.TUNING_FAILED,
+                user_message=(
+                    "Cannot resume tuning: no previous tune() call. "
+                    "Run tune() first, then tune(resume=True)."
+                ),
+                context={"resume": True, "round_number": self._round_number},
+            )
+
+        if not 0.0 < boundary_threshold < 0.5:
+            raise LizyMLError(
+                code=ErrorCode.CONFIG_INVALID,
+                user_message=(
+                    f"boundary_threshold must be in (0.0, 0.5), "
+                    f"got {boundary_threshold}."
+                ),
+                context={"boundary_threshold": boundary_threshold},
+            )
+
+    def _resolve_search_space(
+        self,
+        *,
+        resume: bool,
+        provider: EstimatorProvider,
+    ) -> tuple[list[Any], bool, dict[str, Any]]:
+        """Return the search space for this tune call.
+
+        Returns a tuple ``(space, used_default, fixed_params)`` where
+        ``used_default`` signals that no user-supplied space was provided
+        (drives the H-0068 expand-boundary default).
+        """
+        cfg = self._cfg
+        assert cfg.tuning is not None  # noqa: S101 — validated upstream
         if resume and self._space is not None:
             space = list(self._space)
             used_default = self._used_default_space
@@ -508,52 +610,86 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         fixed: dict[str, Any] = (
             provider.default_fixed_params(cfg.task) if used_default else {}
         )
+        return space, used_default, fixed
 
-        # --- H-0068: boundary detection + expansion ------------------------------
-        boundary_report: BoundaryReport | None = None
-        expanded_names: tuple[str, ...] = ()
-        if resume and self._tuning_result is not None:
-            should_expand = expand_boundary
-            if should_expand is None:
-                should_expand = used_default
+    def _maybe_expand_boundary(
+        self,
+        space: list[Any],
+        *,
+        resume: bool,
+        used_default: bool,
+        expand_boundary: bool | None,
+        boundary_threshold: float,
+    ) -> tuple[list[Any], BoundaryReport | None, tuple[str, ...]]:
+        """Apply H-0068 boundary detection + expansion when applicable.
 
-            if should_expand:
-                boundary_report = detect_boundary(
-                    space, self._tuning_result.best_params, boundary_threshold
-                )
-                expanded_names = boundary_report.expanded_names
-                if expanded_names:
-                    space = expand_dims(space, boundary_report)
-                    for name in expanded_names:
-                        status = next(s for s in boundary_report.dims if s.name == name)
-                        _log.info(
-                            "event='tune.expand' dim=%s edge=%s "
-                            "old=[%s, %s] new=[%s, %s] best=%s",
-                            name,
-                            status.edge,
-                            status.low,
-                            status.high,
-                            status.new_low,
-                            status.new_high,
-                            status.best_value,
-                        )
-                else:
-                    _log.info("event='tune.resume' no dims near boundary")
-            else:
-                _log.info("event='tune.resume' expand_boundary=False")
+        Returns ``(new_space, boundary_report, expanded_names)``. Without
+        a prior tune() or when ``expand_boundary`` is False, the input
+        ``space`` is returned unchanged with ``(None, ())``.
+        """
+        if not (resume and self._tuning_result is not None):
+            return space, None, ()
 
-        # --- Metric & evaluator setup --------------------------------------------
-        metric_entries = cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task]
-        from lizyml.metrics.registry import parse_metric_entry
+        should_expand = expand_boundary
+        if should_expand is None:
+            should_expand = used_default
 
-        first_entry = metric_entries[0]
-        metric_name, _ = parse_metric_entry(first_entry)
+        if not should_expand:
+            _log.info("event='tune.resume' expand_boundary=False")
+            return space, None, ()
 
-        evaluator = Evaluator(task=cfg.task)
-        fingerprint = fp_compute(X, file_path=None)
-        run_meta = self._build_run_meta(generate_run_id())
+        boundary_report = detect_boundary(
+            space, self._tuning_result.best_params, boundary_threshold
+        )
+        expanded_names = boundary_report.expanded_names
+        if not expanded_names:
+            _log.info("event='tune.resume' no dims near boundary")
+            return space, boundary_report, expanded_names
 
-        # --- Build objective closure (H-0050: uses _build_train_components) -------
+        new_space = expand_dims(space, boundary_report)
+        for name in expanded_names:
+            status = next(s for s in boundary_report.dims if s.name == name)
+            _log.info(
+                "event='tune.expand' dim=%s edge=%s old=[%s, %s] new=[%s, %s] best=%s",
+                name,
+                status.edge,
+                status.low,
+                status.high,
+                status.new_low,
+                status.new_high,
+                status.best_value,
+            )
+        return new_space, boundary_report, expanded_names
+
+    def _build_tune_objective(
+        self,
+        *,
+        space: list[Any],
+        base_model_params: dict[str, Any],
+        base_smart_params: dict[str, Any],
+        fixed: dict[str, Any],
+        provider: EstimatorProvider,
+        splitter: Any,
+        X: pd.DataFrame,
+        y: pd.Series,
+        groups: npt.NDArray[Any] | None,
+        n_classes: int | None,
+        fingerprint: Any,
+        run_meta: RunMeta,
+        evaluator: Evaluator,
+        first_entry: Any,
+        metric_name: str,
+    ) -> Any:
+        """Return the optuna objective closure used by ``Tuner``.
+
+        Captures all parameters needed by a single trial: the provider,
+        splitter, training data, fingerprint/run-meta and the metric to
+        optimise. The closure rebuilds ``TrainComponents`` and ``CVTrainer``
+        per trial because trial-level params (``smart``, ``training``)
+        change per call.
+        """
+        cfg = self._cfg
+
         def objective(trial: Any) -> float:
             trial_params = suggest_params(trial, space)
             model_p, smart_p, training_p = split_by_category(trial_params, space)
@@ -591,15 +727,35 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             score: float = metrics["raw"]["oof"][metric_name]
             return score
 
-        # --- Run tuner ------------------------------------------------------------
-        round_number = self._round_number + 1
+        return objective
+
+    def _run_tune_round(
+        self,
+        objective: Any,
+        *,
+        space: list[Any],
+        actual_n_trials: int,
+        optuna_cfg: Any,
+        metric_name: str,
+        progress_callback: TuneProgressCallback | None,
+        storage: str | BaseStorage | None,
+        study_name: str | None,
+        resume: bool,
+        round_number: int,
+        expanded_names: tuple[str, ...],
+    ) -> tuple[TuningResult, Any, int, float | None]:
+        """Construct the ``Tuner`` and execute one round of optuna search.
+
+        Returns ``(raw_result, study, prior_trials, best_score_before)``.
+        ``prior_trials`` and ``best_score_before`` are populated only when
+        ``resume`` is True (validated upstream by ``_validate_tune_inputs``).
+        """
         prior_trials = 0
         best_score_before: float | None = None
         enqueue: dict[str, Any] | None = None
         if resume:
-            # Guaranteed non-None: validated at the top of tune()
-            assert self._study is not None
-            assert self._tuning_result is not None
+            assert self._study is not None  # noqa: S101 — validated upstream
+            assert self._tuning_result is not None  # noqa: S101
             prior_trials = len(self._study.trials)
             best_score_before = self._tuning_result.best_score
             enqueue = dict(self._tuning_result.best_params)
@@ -609,12 +765,11 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             n_trials=actual_n_trials,
             direction=optuna_cfg.direction,
             timeout=optuna_cfg.timeout,
-            seed=cfg.training.seed,
+            seed=self._cfg.training.seed,
             progress_callback=progress_callback,
             storage=storage,
             study_name=study_name,
         )
-
         result, study = tuner.tune(
             objective,
             metric_name=metric_name,
@@ -624,26 +779,42 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             prior_trials=prior_trials,
             expanded_dims=expanded_names,
         )
+        return result, study, prior_trials, best_score_before
 
-        # --- Build round summary and fix trial round numbers ---------------------
+    def _assemble_tuning_result(
+        self,
+        raw_result: TuningResult,
+        *,
+        round_number: int,
+        actual_n_trials: int,
+        best_score_before: float | None,
+        expanded_names: tuple[str, ...],
+        space: list[Any],
+        boundary_report: BoundaryReport | None,
+        prior_trials: int,
+    ) -> tuple[TuningResult, tuple[RoundSummary, ...]]:
+        """Build the round summary, fix per-trial round numbers, and
+        assemble the final ``TuningResult``.
+
+        Returns ``(final_result, all_rounds)``. ``all_rounds`` is the new
+        complete tuple including the just-completed round, ready for
+        persistence to ``self._rounds``.
+        """
         round_summary = RoundSummary(
             round=round_number,
             n_trials=actual_n_trials,
             best_score_before=best_score_before,
-            best_score_after=result.best_score,
+            best_score_after=raw_result.best_score,
             expanded_dims=expanded_names,
             space_snapshot=tuple(space),
         )
-
-        # Preserve previous rounds + add current
         all_rounds = tuple(self._rounds) + (round_summary,)
 
-        # Fix up trial round numbers: trials from previous rounds keep their
-        # original round, new trials get current round_number
+        # Fix up trial round numbers: trials from previous rounds keep
+        # their original round, new trials get the current round_number.
         fixed_trials = []
-        for t in result.trials:
+        for t in raw_result.trials:
             if t.number < prior_trials:
-                # Find which round this trial belonged to
                 trial_round = 1
                 cumulative = 0
                 for rs in self._rounds:
@@ -655,33 +826,18 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             else:
                 fixed_trials.append(dataclasses.replace(t, round=round_number))
 
-        # Rebuild result with rounds and boundary_report
         final_result = TuningResult(
-            best_model_params=result.best_model_params,
-            best_smart_params=result.best_smart_params,
-            best_training_params=result.best_training_params,
-            best_score=result.best_score,
+            best_model_params=raw_result.best_model_params,
+            best_smart_params=raw_result.best_smart_params,
+            best_training_params=raw_result.best_training_params,
+            best_score=raw_result.best_score,
             trials=fixed_trials,
-            metric_name=result.metric_name,
-            direction=result.direction,
+            metric_name=raw_result.metric_name,
+            direction=raw_result.direction,
             rounds=all_rounds,
             boundary_report=boundary_report,
         )
-
-        # --- Update internal state -----------------------------------------------
-        self._tuning_result = final_result
-        self._study = study
-        self._round_number = round_number
-        self._rounds = list(all_rounds)
-        self._space = space
-        self._used_default_space = used_default
-
-        _log.info(
-            "event='tune.done' round=%d best_params=%s",
-            round_number,
-            final_result.best_params,
-        )
-        return final_result
+        return final_result, all_rounds
 
     # ------------------------------------------------------------------
     # Properties
