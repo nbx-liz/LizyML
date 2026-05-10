@@ -5873,3 +5873,387 @@ class Tuner:
 - Result: accepted
 - Notes: Issue #105 に対する upstream 対応として承認。Optuna 標準機能の薄い委譲、後方互換 100%、追加依存なし。round 履歴の永続化は別 Proposal（H-0073 候補）で扱う。
 
+## H-0073: EstimatorProvider に build_export_params() を追加し codegen 経路から LGBM 固有コードを除去
+
+- **ステータス**: Accepted
+- **起票日**: 2026-05-10
+- **決定日**: 2026-05-10
+- **スコープ**: Public Protocol (`EstimatorProvider`) | Internal API (`_model_persistence.py`, `_model_factories.py`)
+- **関連**: [Issue #109](https://github.com/nbx-liz/issues/109) (CRITICAL), [Issue #126](https://github.com/nbx-liz/issues/126) (MEDIUM), BLUEPRINT.md §2.2 / §14.4
+
+### 目的
+
+H-0053（EstimatorProvider 導入）で公開された Provider 抽象が、`Model.export_code()` 経路で**たった 1 箇所だけ破られている**。`lizyml/core/_model_persistence.py:154-179` が `LGBMAdapter` を直接 `isinstance` チェックし、private な `_build_params()` を直接呼び出す形でコード生成用パラメータを取得しているため、新しい Estimator（XGBoost / sklearn 等）を追加する際に**必ずこの persistence 層を編集する必要があり、Provider 抽象化の意義を半減させている**（#109 CRITICAL）。
+
+加えて `BlockedGroupKFoldConfig` の `n_splits` 解決ロジックが `_model_persistence.py:174-179` と `_model_factories.py:173-181` に重複している（#126 MEDIUM）。本 Proposal は両者を 1 つの構造変更にまとめて解消する。
+
+### 変更内容
+
+1. **Provider Protocol に `build_export_params()` を追加** (`lizyml/estimators/provider.py`)
+
+   ```python
+   class EstimatorProvider(Protocol):
+       ...
+       def build_export_params(self, adapter: Any) -> dict[str, Any]:
+           """Return booster params suitable for codegen export.
+
+           Used by Model.export_code() to emit a self-contained train.py
+           that does not depend on LizyML at runtime."""
+   ```
+
+2. **`LGBMProvider.build_export_params()` を実装** (`lizyml/estimators/lgbm/provider.py`)
+
+   ```python
+   def build_export_params(self, adapter: LGBMAdapter) -> dict[str, Any]:
+       return adapter._build_params()  # private は LGBM パッケージ内で閉じる
+   ```
+
+   - `_build_params()` は `LGBMAdapter` の private のままで OK（同パッケージ内 access）
+   - 将来 `XGBoostProvider` を追加するときも、同じ public method を実装するだけ
+
+3. **`get_outer_n_splits(cfg) -> int` ユーティリティを `_model_factories.py` に追加**
+
+   ```python
+   def get_outer_n_splits(cfg: LizyMLConfig) -> int:
+       if isinstance(cfg.split, BlockedGroupKFoldConfig):
+           return cfg.split.groups.n_splits
+       return cfg.split.n_splits
+   ```
+
+4. **`_model_persistence.py` 全面刷新**
+   - `from lizyml.estimators.lgbm.adapter import LGBMAdapter` → 削除
+   - `isinstance(adapter, LGBMAdapter)` → 削除
+   - `adapter._build_params()` → `provider.build_export_params(adapter)` に置換
+   - inline n_splits 解決 → `get_outer_n_splits(cfg)` 呼び出しに置換
+
+### 影響範囲
+
+- **変更ファイル**:
+  - `lizyml/estimators/provider.py`（Protocol に 1 method 追加）
+  - `lizyml/estimators/lgbm/provider.py`（実装追加）
+  - `lizyml/core/_model_persistence.py`（LGBMAdapter import 削除 + dispatch 経由化）
+  - `lizyml/core/_model_factories.py`（`get_outer_n_splits` 追加）
+  - `tests/test_persistence/`（既存 73 codegen テストが pass することを確認、 isinstance ゼロを確認するテストを追加）
+  - BLUEPRINT.md §14.4（Provider spec に `build_export_params` を追記）
+- **無変更**: `Model` public API、`FitResult`、`PredictionResult`、Artifacts schema、Calibration、Tuning。
+
+### 互換性
+
+- **Provider Protocol への method 追加は破壊的**（既存の Provider 実装は新メソッドを実装する必要あり）。ただし現状 `LGBMProvider` のみ存在するため実害なし。
+- `format_version` バンプ不要（Artifacts schema は無変更）。
+
+### 代替案と不採用理由
+
+| 代替案 | 不採用理由 |
+|---|---|
+| `LGBMAdapter._build_params()` を public 化 | LGBM 内部詳細をパッケージ外に漏らす。Provider 抽象の存在意義に反する |
+| `_model_persistence.py` を Provider に丸ごと移管 | 過剰な責務移動。export 形式の決定は Facade 層の仕事 |
+| `n_splits` 重複だけ解消し #109 は別 PR | #126 は #109 のサブセット。同じ refactor 経路で同時解消が効率的 |
+
+### 受け入れ基準
+
+- [ ] `grep -rn 'LGBMAdapter' lizyml/core/` → ゼロマッチ。
+- [ ] `grep -rn 'isinstance.*LGBMAdapter' lizyml/core/` → ゼロマッチ。
+- [ ] `grep -rn 'BlockedGroupKFoldConfig' lizyml/core/_model_persistence.py` → ゼロマッチ（factories へ集約）。
+- [ ] 既存 codegen テスト（73 件）が無修正で pass。
+- [ ] `EstimatorProvider.build_export_params` の契約テストを追加（呼び出すと `dict[str, Any]` が返る）。
+- [ ] BLUEPRINT.md §14.4 に新メソッドが記載されている。
+
+### Migration
+
+- 外部の Provider 実装者向け（現状ゼロだが将来用）：`build_export_params(adapter) -> dict` を実装する必要がある。
+- LizyML 利用者には影響なし（内部 refactor）。
+
+### Decision
+
+- Date: 2026-05-10
+- Result: accepted
+- Notes: コードレビューで CRITICAL とマークされた #109 + その subset の #126 を一括解消する内部 refactor。Provider 抽象化の整合性を取り戻すことで XGBoost / sklearn 拡張の素地を整える。
+
+---
+
+## H-0074: FitState frozen dataclass を導入し Mixin の private state 直接参照を解消
+
+- **ステータス**: Accepted
+- **起票日**: 2026-05-10
+- **決定日**: 2026-05-10
+- **スコープ**: Internal API (Mixin classes), Testability
+- **関連**: [Issue #112](https://github.com/nbx-liz/issues/112) (HIGH)
+
+### 目的
+
+H-0042 で `model.py` を行数削減するため `ModelPlotsMixin` / `ModelTablesMixin` / `ModelPersistenceMixin` を切り出したが、各 Mixin が `self._y`、`self._X`、`self._cfg`、`self._provider`、`self._tuning_result`、`self._metrics`、`self._run_dir`、`self._output_dir` 等を**直接読み書きしている**。結果として:
+
+1. **責務分離が見かけだけ**：Mixin 単独でユニットテスト不可（fit 済み Model が必要）
+2. **silent breakage**：Model の private 属性をリネームすると Mixin が**型チェックなしに壊れる**（mypy は `if TYPE_CHECKING` ブロックで属性宣言される範囲しか追えない）
+3. **入力契約が暗黙**：各 Mixin が必要とする state が分散しており、API として不明瞭
+
+本 Proposal は **`FitState`（frozen dataclass）を中継層に導入**し、Mixin が必要な値を明示的に受け取る形に変える。
+
+### 変更内容
+
+1. **`FitState` を新規追加** (`lizyml/core/types/fit_state.py`)
+
+   ```python
+   from dataclasses import dataclass
+   from pathlib import Path
+   from lizyml.config.schema import LizyMLConfig
+   from lizyml.core.types.fit_result import FitResult
+   from lizyml.core.types.tuning_result import TuningResult
+   from lizyml.estimators.provider import EstimatorProvider
+   from lizyml.training.refit_trainer import RefitResult
+
+   @dataclass(frozen=True)
+   class FitState:
+       """Snapshot of Model fit state consumed by Mixin methods (#112).
+
+       Created by ``Model._get_fit_state()`` after fit/tune. Mixin methods
+       receive this instead of reading ``self._*`` directly.
+       """
+       cfg: LizyMLConfig
+       fit_result: FitResult
+       refit_result: RefitResult | None
+       tuning_result: TuningResult | None
+       provider: EstimatorProvider
+       output_dir: Path | None
+       run_dir: Path | None
+       y: pd.Series | None    # transient; absent after Model.load() w/o analysis_context
+       X: pd.DataFrame | None
+       metrics: dict[str, Any] | None
+   ```
+
+2. **`Model._get_fit_state() -> FitState` を追加**
+   - 内部の `self._*` を 1 箇所に集約。Mixin 経由の参照は全てこれを通る。
+   - 失敗時（`fit_result is None`）は既存の `_require_fit()` と同じ `LizyMLError` を raise。
+
+3. **Mixin signatures を `state: FitState` 受け取りに変更**
+   - 例: `ModelPlotsMixin.calibration_plot(self, *, state: FitState | None = None)` で渡されない場合は `self._get_fit_state()` 経由でフォールバック（破壊的変更回避）
+   - 段階的移行：Phase 1 = `FitState` 経由でも `self._*` 経由でも動く / Phase 2 = `self._*` 直接 access を削除
+
+4. **Mixin の単体テスト追加**
+   - `tests/test_core/test_model_plots_mixin.py`：`FitState` を mock で組み立てて Mixin 単体で動作確認
+
+### 影響範囲
+
+- **変更ファイル**:
+  - `lizyml/core/types/fit_state.py`（新規）
+  - `lizyml/core/_model_plots.py`、`_model_tables.py`、`_model_persistence.py`（Mixin signatures + body 更新）
+  - `lizyml/core/model.py`（`_get_fit_state()` 追加 + Mixin 呼び出し経路調整）
+  - `tests/test_core/test_model_plots_mixin.py`（新規）
+  - BLUEPRINT.md §3（責務分離の記述更新）
+- **無変更**: 公開 API、Persistence 形式、Tuning、Plots 出力、Tables 形式。
+
+### 互換性
+
+- **公開 API 完全互換**。Model のメソッド名・シグネチャ・戻り値は変更なし。
+- 内部 attribute (`self._cfg`, `self._fit_result`, ...) も維持（FitState はその snapshot）。
+
+### 代替案と不採用理由
+
+| 代替案 | 不採用理由 |
+|---|---|
+| Mixin を継承から composition に変更 | 既存の継承階層（Model(ModelPlotsMixin, ...)）が public 型表面なので破壊的 |
+| `Protocol` で Model attrs を宣言 | mypy は通るが runtime 結合は変わらず、テスト可能性が改善しない |
+| Phase 2（self._* 直接 access 削除）を同 PR で実施 | refactor 量が大きく review 負荷が跳ね上がる。段階的に進める |
+
+### 受け入れ基準
+
+- [ ] `FitState` frozen dataclass が定義されている。
+- [ ] `Model._get_fit_state()` が動作し、既存テスト（特に `test_model_facade.py`）が pass。
+- [ ] 各 Mixin に少なくとも 1 件の **mock FitState を使った単体テスト** を追加。
+- [ ] 既存の Mixin tests がすべて pass。
+- [ ] mypy --strict が pass。
+
+### Migration
+
+- ユーザーには影響なし。
+- 拡張開発者向け：将来的に Mixin 内部から `self._*` 直接 access を削除する Phase 2 PR を予告（H-0074-Phase2 として別 Proposal）。
+
+### Decision
+
+- Date: 2026-05-10
+- Result: accepted
+- Notes: Mixin の責務分離を実態化する構造改善。Phase 1 では後方互換を保つ二重経路を許容し、Phase 2 で完全移行する段階的アプローチを承認。
+
+---
+
+## H-0075: TaskType Literal を全分岐サイトに伝搬し dispatch dict 化
+
+- **ステータス**: Accepted
+- **起票日**: 2026-05-10
+- **決定日**: 2026-05-10
+- **スコープ**: Internal type annotations, Code organisation
+- **関連**: [Issue #122](https://github.com/nbx-liz/issues/122) (MEDIUM)
+
+### 目的
+
+`TaskType = Literal["regression", "binary", "multiclass"]` は既に `core/types/target_encoder.py` で定義されているが、コードベース内に `if task == "regression"` / `elif task == "binary"` 形式の分岐が **6 ファイル以上に散在**している。新しい task type（例: "ranking"、"multilabel"）を追加する際、全箇所を手で grep して書き換える必要があり、**漏れによる silent bug のリスクが高い**。
+
+### 変更内容
+
+1. **`TaskType` を全分岐サイトに type annotation として伝搬**
+
+   対象ファイル（grep で確認）:
+   - `lizyml/core/model.py:349` 等
+   - `lizyml/evaluation/evaluator.py:57,59`
+   - `lizyml/estimators/lgbm/metric_bridge.py:239,241`
+   - `lizyml/core/_model_factories.py:55-62` (`_resolve_stratify`)
+   - `lizyml/core/types/target_encoder.py`（既に使用済）
+   - 他 grep で発見された箇所
+
+2. **形が同じ `if/elif` チェーンを dispatch dict に置換**
+
+   ```python
+   # before
+   if task == "regression":
+       handler = handle_regression
+   elif task == "binary":
+       handler = handle_binary
+   else:  # multiclass
+       handler = handle_multiclass
+
+   # after
+   _TASK_DISPATCH: dict[TaskType, Callable[..., R]] = {
+       "regression": handle_regression,
+       "binary": handle_binary,
+       "multiclass": handle_multiclass,
+   }
+   handler = _TASK_DISPATCH[task]
+   ```
+
+3. **特に metric_bridge.py / evaluator.py は確実に dispatch dict 化**
+   - 同形分岐が 3 つ以上ある site のみが対象（`if-elif-else` を残す価値の低いケース）
+
+4. **task が "regression" / "binary" / "multiclass" 以外を取れる箇所を grep で網羅し、エラーパスは `LizyMLError(UNSUPPORTED_TASK)` に統一**
+
+### 影響範囲
+
+- **変更ファイル**:
+  - `lizyml/core/model.py`、`evaluation/evaluator.py`、`estimators/lgbm/metric_bridge.py`、`core/_model_factories.py` 等
+  - `tests/test_*` 全般（既存 task 別パラメトリックテストは影響なし）
+- **無変更**: 公開 API、戻り値の意味、metric の挙動、`TaskType` の値そのもの。
+
+### 互換性
+
+- **公開 API 完全互換**。`task` 文字列の値は変えない。
+- 型注釈強化と内部リファクタのみ。
+
+### 代替案と不採用理由
+
+| 代替案 | 不採用理由 |
+|---|---|
+| `Task` Enum 化 | `TaskType` は外部 Config（YAML/JSON）から `str` で来るため Enum 化は変換コストを増やす。`Literal` のままが pydantic と相性が良い |
+| `functools.singledispatch` | task は型ではなく value。singledispatch は不適切 |
+| 全 if/elif を dispatch dict 化 | 1〜2 分岐の小さい if/elif は可読性が落ちる。3 分岐以上だけが対象 |
+
+### 受け入れ基準
+
+- [ ] `metric_bridge.py` と `evaluator.py` が dispatch dict を使用している。
+- [ ] 全分岐サイトで `task` の type annotation が `TaskType` または `str` ではなく `TaskType`（後者は禁止）。
+- [ ] 既存テスト全件 pass。
+- [ ] mypy --strict が `task: TaskType` を正しく narrowing する（dispatch dict 経由で全 key カバレッジを確認）。
+
+### Migration
+
+- ユーザー影響なし。
+- 拡張開発者向け：新しい task type を追加するときは `TaskType` Literal を更新するだけで dispatch table が mypy エラーで網羅性を強制できる。
+
+### Decision
+
+- Date: 2026-05-10
+- Result: accepted
+- Notes: 内部 refactor。新 task 追加時の漏れリスク削減と、mypy による網羅性チェックを獲得する。
+
+---
+
+## H-0076: Deprecation Warning に削除目標バージョンを明記し中央レジストリ化
+
+- **ステータス**: Accepted
+- **起票日**: 2026-05-10
+- **決定日**: 2026-05-10
+- **スコープ**: Documentation, User-facing warnings
+- **関連**: [Issue #120](https://github.com/nbx-liz/issues/120) (MEDIUM), [Issue #121](https://github.com/nbx-liz/issues/121) (MEDIUM), [H-0058](#h-0058)
+
+### 目的
+
+複数の `DeprecationWarning` / `UserWarning` で「いつ削除するか」が記述されておらず、ユーザーは migration の緊急度を判断できない。具体的には:
+
+- `lizyml/config/schema.py:115` (`purge_window`)
+- `lizyml/config/schema.py:123` (`embargo_pct`)
+- `lizyml/config/schema.py:131` (`gap` for purged_time_series)
+- `lizyml/config/schema.py:475,495` (`CalibrationConfig.n_splits`)
+- `lizyml/core/_model_factories.py:196` (`build_calibration_splitter`)
+
+加えて H-0058 で `build_calibration_splitter` を deprecated にして以来、**実際の削除計画が記録されていない**ためテスト側も具体挙動を依存してしまっている（#120）。
+
+### 変更内容
+
+1. **すべての deprecation 文言に "Will be removed in v1.0." を追記**
+
+   ```python
+   warnings.warn(
+       "`purge_window` is deprecated; use `purge_gap` instead. "
+       "Will be removed in v1.0.",
+       DeprecationWarning,
+       stacklevel=2,
+   )
+   ```
+
+2. **削除目標を `docs/DEPRECATIONS.md` に集約**（新規）
+
+   | 対象 | 代替 | 削除予定 | Deprecated since |
+   |---|---|---|---|
+   | `EarlyStoppingConfig.validation_ratio` | `inner_valid.ratio` | v1.0 | H-0069 (2026-04) |
+   | `CalibrationConfig.n_splits` | （outer split を再利用） | v1.0 | H-0058 (2026-04) |
+   | `purge_window` | `purge_gap` | v1.0 | H-0021 |
+   | `embargo_pct` | `embargo` | v1.0 | H-0021 |
+   | `build_calibration_splitter()` | （内部実装で OOF split を再利用） | v1.0 | H-0058 |
+   | `gap` (purged_time_series) | `purge_gap` | v1.0 | H-0021 |
+
+3. **deprecation テストの整理**
+   - `build_calibration_splitter` の動作に依存する既存テストを `pytest.warns(DeprecationWarning)` チェックに変更（実装非依存化）。
+   - 削除時に最小コミットで除去できる状態にする。
+
+4. **CI で `pytest.warns(DeprecationWarning, match="Will be removed in v")` を強制するテストを追加**
+   - 全 deprecation メッセージに削除予定が含まれることをリグレッションテストで保証。
+
+### 影響範囲
+
+- **変更ファイル**:
+  - `lizyml/config/schema.py`（deprecation 文言更新）
+  - `lizyml/core/_model_factories.py`（同）
+  - `docs/DEPRECATIONS.md`（新規）
+  - `tests/test_config/`、`tests/test_calibration/`（テスト整理）
+- **無変更**: 削除そのもの（v1.0 リリースまでは互換維持）、public API、Artifacts。
+
+### 互換性
+
+- **完全互換**。文言追加のみ、挙動は変えない。
+- 実際の削除（v1.0）は別 Proposal（H-XXXX-removal）で扱う。
+
+### 代替案と不採用理由
+
+| 代替案 | 不採用理由 |
+|---|---|
+| 削除を即実施 | 互換性ポリシー違反。v1.0 は別タイムライン |
+| バージョン記述を `pyproject.toml` のメタに集約 | warning メッセージから乖離する。docs/DEPRECATIONS.md が docs と warn 両方の SSOT として機能する |
+| Python `@deprecated` decorator 移行 | Python 3.13+ の機能。3.10 サポート期間中は採用不可 |
+
+### 受け入れ基準
+
+- [ ] `docs/DEPRECATIONS.md` が存在し、上記 6 項目を含む。
+- [ ] `grep -E "DeprecationWarning|deprecated" lizyml/` の全 warning に "v1.0" が含まれる（CI test で強制）。
+- [ ] `build_calibration_splitter` の挙動依存テストが `pytest.warns` ベースに置き換わっている。
+- [ ] 既存テスト全件 pass。
+
+### Migration
+
+- ユーザー向け：v1.0 までは現状の deprecation を継続。v1.0 リリース時に対応 PR で完全削除。
+- 内部開発：新規の deprecation を追加する際は必ず DEPRECATIONS.md と "Will be removed in vX.Y." 形式の文言を伴うこと（CONTRIBUTING.md / CLAUDE.md にルール追記）。
+
+### Decision
+
+- Date: 2026-05-10
+- Result: accepted
+- Notes: ユーザーへの予告と内部の削除計画を一元管理する非機能改善。実際の削除は v1.0 リリースの直前に別 PR で実施する。
+
