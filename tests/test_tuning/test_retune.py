@@ -30,7 +30,7 @@ from lizyml.core.types.tuning_result import (
     TuneProgressInfo,
     TuningResult,
 )
-from lizyml.tuning.search_space import detect_boundary, expand_dims
+from lizyml.tuning.search_space import attach_bounds, detect_boundary, expand_dims
 from tests._helpers import make_config, make_regression_df
 
 # ---------------------------------------------------------------------------
@@ -403,6 +403,161 @@ class TestBoundaryDimStatusClampedField:
             clamped_to_bound=True,
         )
         assert s.clamped_to_bound is True
+
+
+# ---------------------------------------------------------------------------
+# H-0078 Phase 3: attach_bounds — provider->dim wiring
+# ---------------------------------------------------------------------------
+
+
+class TestAttachBounds:
+    """``attach_bounds`` injects provider bounds onto matching dims."""
+
+    def test_floatdim_matching_name_gets_bounds(self) -> None:
+        dims = [FloatDim("learning_rate", low=0.001, high=0.1, log=True)]
+        bounds = {"learning_rate": {"min": 1e-8, "max": 1.0}}
+        new = attach_bounds(dims, bounds)
+        assert isinstance(new[0], FloatDim)
+        assert new[0].min_allowed == 1e-8
+        assert new[0].max_allowed == 1.0
+        # Other fields preserved
+        assert new[0].low == 0.001
+        assert new[0].high == 0.1
+        assert new[0].log is True
+
+    def test_intdim_matching_name_gets_bounds_as_int(self) -> None:
+        dims = [IntDim("max_depth", low=3, high=12)]
+        bounds = {"max_depth": {"min": -1, "max": 30}}
+        new = attach_bounds(dims, bounds)
+        assert isinstance(new[0], IntDim)
+        assert new[0].min_allowed == -1
+        assert new[0].max_allowed == 30
+        assert isinstance(new[0].max_allowed, int)
+
+    def test_dim_without_match_unchanged(self) -> None:
+        dim = FloatDim("custom_param", low=0.1, high=0.5)
+        bounds = {"learning_rate": {"min": 0.0, "max": 1.0}}
+        new = attach_bounds([dim], bounds)
+        assert new[0] is dim  # untouched, same object
+
+    def test_categorical_dim_unchanged(self) -> None:
+        dim = CategoricalDim("obj", choices=("a", "b"))
+        bounds = {"obj": {"min": 0.0, "max": 1.0}}  # nonsensical but shouldn't crash
+        new = attach_bounds([dim], bounds)
+        assert new[0] is dim
+
+    def test_user_set_min_allowed_preserved(self) -> None:
+        """User-set min_allowed/max_allowed wins over provider bounds."""
+        dims = [
+            FloatDim(
+                "learning_rate",
+                low=0.001,
+                high=0.1,
+                log=True,
+                min_allowed=1e-6,
+                max_allowed=0.5,
+            )
+        ]
+        bounds = {"learning_rate": {"min": 1e-8, "max": 1.0}}
+        new = attach_bounds(dims, bounds)
+        # user values preserved
+        assert new[0].min_allowed == 1e-6
+        assert new[0].max_allowed == 0.5
+
+    def test_empty_bounds_returns_same_list(self) -> None:
+        dims = [FloatDim("x", low=0.0, high=1.0)]
+        new = attach_bounds(dims, {})
+        assert new[0] is dims[0]
+
+    def test_multiple_dims_some_matching(self) -> None:
+        dims = [
+            FloatDim("learning_rate", low=0.001, high=0.1),
+            IntDim("max_depth", low=3, high=12),
+            FloatDim("custom_unrelated", low=0.0, high=1.0),
+        ]
+        bounds = {
+            "learning_rate": {"min": 1e-8, "max": 1.0},
+            "max_depth": {"min": -1, "max": 30},
+        }
+        new = attach_bounds(dims, bounds)
+        assert new[0].max_allowed == 1.0
+        assert new[1].max_allowed == 30
+        assert new[2].max_allowed is None
+
+
+class TestModelTuneWiresParameterBounds:
+    """Integration: ``Model.tune(re_tune=True)`` clamps boundary expansion
+    using ``provider.parameter_bounds(task)`` (H-0078 Phase 3)."""
+
+    def test_default_space_picks_up_lgbm_bounds(self) -> None:
+        """Tuning with the default LightGBM space exposes max_allowed on
+        ``learning_rate`` after the first ``tune()`` call."""
+        cfg = make_config("regression")
+        cfg["tuning"] = {"optuna": {"params": {"n_trials": 2}}}
+        df = make_regression_df()
+        model = Model(cfg)
+        model.tune(df)
+        space = model._space  # type: ignore[attr-defined]
+        assert space is not None
+        lr = next((d for d in space if d.name == "learning_rate"), None)
+        assert lr is not None
+        assert lr.max_allowed == 1.0
+
+    def test_user_space_lr_picks_up_lgbm_bounds_by_name(self) -> None:
+        """A user-supplied dim named ``learning_rate`` also picks up the
+        provider bound by name match."""
+        cfg = make_config("regression")
+        cfg["tuning"] = {
+            "optuna": {
+                "params": {"n_trials": 2},
+                "space": {
+                    "learning_rate": {
+                        "type": "float",
+                        "low": 0.01,
+                        "high": 0.3,
+                        "log": True,
+                    },
+                },
+            }
+        }
+        df = make_regression_df()
+        model = Model(cfg)
+        model.tune(df)
+        space = model._space  # type: ignore[attr-defined]
+        lr = next((d for d in space if d.name == "learning_rate"), None)
+        assert lr is not None
+        assert lr.max_allowed == 1.0
+        assert lr.min_allowed == 1e-8
+
+    def test_re_tune_clamps_learning_rate_at_one(self) -> None:
+        """Regression for #152: re-tune cannot push ``learning_rate.high``
+        past 1.0 because provider bounds are wired through ``Model.tune``."""
+        cfg = make_config("regression")
+        cfg["tuning"] = {
+            "optuna": {
+                "params": {"n_trials": 2},
+                "space": {
+                    "learning_rate": {
+                        "type": "float",
+                        "low": 0.5,
+                        "high": 0.9,
+                        "log": True,
+                    },
+                    "max_depth": {"type": "int", "low": 3, "high": 5},
+                },
+            }
+        }
+        df = make_regression_df()
+        model = Model(cfg)
+        model.tune(df)
+        # Run several re-tune rounds with expand_boundary=True. The space
+        # should never grow ``learning_rate.high`` past 1.0.
+        for _ in range(5):
+            model.tune(df, resume=True, n_trials=2, expand_boundary=True)
+            space = model._space  # type: ignore[attr-defined]
+            lr = next((d for d in space if d.name == "learning_rate"), None)
+            assert lr is not None
+            assert lr.high <= 1.0, f"learning_rate.high must stay <= 1.0, got {lr.high}"
 
 
 # ---------------------------------------------------------------------------

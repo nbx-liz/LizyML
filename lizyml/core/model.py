@@ -88,6 +88,7 @@ from lizyml.training.cv_trainer import CVTrainer
 from lizyml.training.inner_valid import BaseInnerValidStrategy
 from lizyml.training.refit_trainer import RefitResult, RefitTrainer
 from lizyml.tuning.search_space import (
+    attach_bounds,
     detect_boundary,
     expand_dims,
     parse_space,
@@ -604,6 +605,10 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         Returns a tuple ``(space, used_default, fixed_params)`` where
         ``used_default`` signals that no user-supplied space was provided
         (drives the H-0068 expand-boundary default).
+
+        H-0078: ``provider.parameter_bounds(task)`` is attached to each
+        matching dim so that boundary expansion in subsequent rounds is
+        clamped to physically-meaningful limits.
         """
         cfg = self._cfg
         assert cfg.tuning is not None  # noqa: S101 — validated upstream
@@ -618,6 +623,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             else:
                 space = provider.default_space(cfg.task)
                 used_default = True
+            space = attach_bounds(space, provider.parameter_bounds(cfg.task))
 
         fixed: dict[str, Any] = (
             provider.default_fixed_params(cfg.task) if used_default else {}
