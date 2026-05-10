@@ -30,11 +30,14 @@ import sys
 from datetime import datetime, timezone
 from importlib.metadata import version as pkg_version
 from pathlib import Path
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+
+if TYPE_CHECKING:
+    from optuna.storages import BaseStorage
 
 from lizyml import __version__
 from lizyml.config.loader import load_config
@@ -394,7 +397,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         expand_boundary: bool | None = None,
         boundary_threshold: float = 0.05,
         progress_callback: TuneProgressCallback | None = None,
-        storage: str | Any | None = None,
+        storage: str | BaseStorage | None = None,
         study_name: str | None = None,
     ) -> TuningResult:
         """Run hyperparameter search with optuna (H-0068: resume + expand,
