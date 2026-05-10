@@ -15,8 +15,9 @@ import pandas as pd
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.search_dim import SearchDim
+from lizyml.core.types.task import TaskType
 from lizyml.estimators.base import BaseEstimatorAdapter
-from lizyml.estimators.lgbm.adapter import LGBMAdapter, TaskType
+from lizyml.estimators.lgbm.adapter import LGBMAdapter
 from lizyml.estimators.lgbm.defaults import (
     _COMMON_DEFAULTS,
     default_fixed_params,
@@ -61,7 +62,7 @@ class LGBMProvider:
         n_rows: int,
         feature_names: list[str],
         y: pd.Series,
-        task: str,
+        task: TaskType,
     ) -> tuple[dict[str, Any], npt.NDArray[np.float64] | None]:
         """Resolve smart parameters to native LightGBM parameters.
 
@@ -90,7 +91,7 @@ class LGBMProvider:
 
     def build_estimator_factory(
         self,
-        task: str,
+        task: TaskType,
         params: dict[str, Any],
         n_classes: int | None,
         early_stopping_rounds: int | None,
@@ -98,11 +99,10 @@ class LGBMProvider:
     ) -> Callable[[], BaseEstimatorAdapter]:
         """Return a factory that creates a configured LGBMAdapter."""
         final_params = params
-        lgbm_task: TaskType = task  # type: ignore[assignment]
 
         def make_estimator() -> LGBMAdapter:
             return LGBMAdapter(
-                task=lgbm_task,
+                task=task,
                 params=final_params,
                 num_class=n_classes,
                 early_stopping_rounds=early_stopping_rounds,
@@ -115,11 +115,11 @@ class LGBMProvider:
         """Return a factory that creates NativeFeaturePipeline."""
         return NativeFeaturePipeline
 
-    def default_space(self, task: str) -> list[SearchDim]:
+    def default_space(self, task: TaskType) -> list[SearchDim]:
         """Return the default LightGBM search space."""
         return default_space(task)
 
-    def default_fixed_params(self, task: str) -> dict[str, Any]:
+    def default_fixed_params(self, task: TaskType) -> dict[str, Any]:
         """Return fixed params for default search space."""
         return default_fixed_params(task)
 

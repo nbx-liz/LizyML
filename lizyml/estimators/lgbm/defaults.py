@@ -5,8 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from lizyml.core.types.search_dim import CategoricalDim, FloatDim, IntDim, SearchDim
-
-TaskType = str
+from lizyml.core.types.task import TaskType
 
 # Maps task → objective
 _TASK_OBJECTIVE: dict[str, str] = {
@@ -44,7 +43,7 @@ _OBJECTIVE_CHOICES: dict[str, tuple[str, ...]] = {
 }
 
 
-def default_space(task: str) -> list[SearchDim]:
+def default_space(task: TaskType) -> list[SearchDim]:
     """Return the PLAN-specified default search space for LightGBM.
 
     Args:
@@ -75,7 +74,7 @@ def default_space(task: str) -> list[SearchDim]:
     return dims
 
 
-def default_fixed_params(task: str) -> dict[str, Any]:
+def default_fixed_params(task: TaskType) -> dict[str, Any]:
     """Return fixed parameters applied to every trial when using default space.
 
     Only model-level LightGBM parameters belong here.  Smart params

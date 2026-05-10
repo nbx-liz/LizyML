@@ -25,6 +25,7 @@ from lizyml.config.schema import (
     StratifiedKFoldConfig,
     TimeSeriesConfig,
 )
+from lizyml.core.types.task import TaskType
 from lizyml.splitters.base import BaseSplitter
 from lizyml.splitters.blocked_group_kfold import BlockedGroupKFoldSplitter
 from lizyml.splitters.group_kfold import (
@@ -52,7 +53,7 @@ InnerValidType = (
 )
 
 
-def _resolve_stratify(stratify: str | bool, task: str) -> bool:
+def _resolve_stratify(stratify: str | bool, task: TaskType) -> bool:
     """Resolve ``stratify: "auto"`` to a concrete boolean."""
     if isinstance(stratify, bool):
         return stratify
@@ -67,7 +68,7 @@ def _build_splitter_for_method(
     n_splits: int,
     *,
     block_values: npt.NDArray[Any] | None = None,
-    task: str | None = None,
+    task: TaskType | None = None,
     seed: int | None = None,
 ) -> BaseSplitter:
     """Build a splitter from split config, using the given *n_splits*.
@@ -180,7 +181,7 @@ def build_splitter(
     cfg: LizyMLConfig,
     *,
     block_values: npt.NDArray[Any] | None = None,
-    task: str | None = None,
+    task: TaskType | None = None,
     seed: int | None = None,
 ) -> BaseSplitter:
     """Instantiate outer CV splitter from config."""
@@ -236,7 +237,7 @@ def _resolve_auto_inner_valid(
     ratio: float,
     seed: int,
     *,
-    task: str | None = None,
+    task: TaskType | None = None,
 ) -> (
     HoldoutInnerValid
     | GroupHoldoutInnerValid

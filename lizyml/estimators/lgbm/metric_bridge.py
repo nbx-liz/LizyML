@@ -18,6 +18,7 @@ import numpy as np
 import numpy.typing as npt
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.types.task import TaskType
 from lizyml.metrics.base import BaseMetric
 from lizyml.metrics.registry import MetricEntry, get_metric, parse_metric_entries
 
@@ -32,7 +33,7 @@ _LIZYML_TO_LGBM: dict[str, dict[str, str]] = {
 }
 
 
-def translate_metric(name: str, task: str) -> str:
+def translate_metric(name: str, task: TaskType) -> str:
     """Translate a LizyML metric name to its LightGBM equivalent.
 
     If no mapping exists, returns the name unchanged.
@@ -127,7 +128,7 @@ _ALL_FEVAL_NAMES: frozenset[str] = frozenset().union(*_FEVAL_METRICS.values())
 
 def validate_lgbm_metrics(
     metrics: list[str],
-    task: str,
+    task: TaskType,
     *,
     feval_names: frozenset[str],
 ) -> None:
@@ -200,7 +201,7 @@ def _metric_display_name(metric: BaseMetric, kwargs: dict[str, Any]) -> str:
 
 def _build_feval(
     metric: BaseMetric,
-    task: str,
+    task: TaskType,
     num_class: int | None = None,
     *,
     display_name: str | None = None,
@@ -270,7 +271,7 @@ def _build_feval(
 
 def resolve_metrics(
     metrics: list[MetricEntry],
-    task: str,
+    task: TaskType,
     num_class: int | None = None,
 ) -> tuple[list[str], list[Callable[..., tuple[str, float, bool]]], list[str]]:
     """Split metrics into native LightGBM names and feval callables.
