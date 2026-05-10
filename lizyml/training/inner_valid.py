@@ -215,7 +215,17 @@ class StratifiedTimeHoldoutInnerValid(BaseInnerValidStrategy):
         groups: npt.NDArray[Any] | None = None,
     ) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]:
         if y is None:
-            return TimeHoldoutInnerValid(self.ratio).split(n_samples)
+            # Inline tail holdout (#124): avoids per-call construction of
+            # TimeHoldoutInnerValid, which is hot in tuning workloads.
+            n_valid = max(1, int(n_samples * self.ratio))
+            if n_valid >= n_samples:
+                raise ValueError(
+                    f"Inner validation would consume all {n_samples} sample(s) "
+                    f"(n_valid={n_valid}, ratio={self.ratio}). "
+                    "Increase training data or decrease validation_ratio."
+                )
+            all_idx = np.arange(n_samples, dtype=np.intp)
+            return all_idx[:-n_valid], all_idx[-n_valid:]
 
         valid_indices: list[int] = []
         for cls in np.unique(y):
