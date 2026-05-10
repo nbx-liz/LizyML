@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from lizyml.calibration.base import BaseCalibratorAdapter
-from lizyml.estimators.lgbm.adapter import LGBMAdapter
+from lizyml.estimators.base import BaseEstimatorAdapter
 
 
 def _convert_pipeline_state(
@@ -39,7 +39,7 @@ def write_artifacts(
     *,
     output_dir: str | Path,
     config: dict[str, Any],
-    model_adapter: LGBMAdapter,
+    model_adapter: BaseEstimatorAdapter,
     pipeline_state: dict[str, Any],
     calibrator: BaseCalibratorAdapter | None,
 ) -> Path:
@@ -48,7 +48,10 @@ def write_artifacts(
     Args:
         output_dir: Root directory for the exported code.
         config: Config dict from :func:`build_config`.
-        model_adapter: Fitted LGBMAdapter to export.
+        model_adapter: Fitted estimator adapter to export. Currently only
+            ``LGBMAdapter`` is supported by the codegen templates, but the
+            type is widened to ``BaseEstimatorAdapter`` so callers in
+            ``_model_persistence.py`` can stay estimator-agnostic (H-0073).
         pipeline_state: Serializable pipeline state dict.
         calibrator: Fitted calibrator or None.
 

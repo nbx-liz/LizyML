@@ -13,6 +13,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
+from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.search_dim import SearchDim
 from lizyml.estimators.base import BaseEstimatorAdapter
 from lizyml.estimators.lgbm.adapter import LGBMAdapter, TaskType
@@ -25,6 +26,7 @@ from lizyml.estimators.lgbm.smart_params import (
     resolve_ratio_params,
     resolve_smart_params,
 )
+from lizyml.estimators.provider import ExportParams
 from lizyml.features.pipeline_base import BaseFeaturePipeline
 from lizyml.features.pipelines_native import NativeFeaturePipeline
 
@@ -186,3 +188,74 @@ class LGBMProvider:
             )
 
         return rows
+
+    def build_export_params(self, adapter: BaseEstimatorAdapter) -> ExportParams:
+        """Build codegen-relevant params from a fitted ``LGBMAdapter`` (H-0073).
+
+        Wraps the LGBM-private ``_build_params()`` and the feval metadata
+        extraction so that ``_model_persistence.py`` does not need to import
+        ``LGBMAdapter`` or call private methods.
+
+        Raises:
+            LizyMLError with ``UNSUPPORTED_TASK`` when the supplied adapter
+            is not an ``LGBMAdapter``.
+        """
+        if not isinstance(adapter, LGBMAdapter):
+            raise LizyMLError(
+                code=ErrorCode.UNSUPPORTED_TASK,
+                user_message=(
+                    "LGBMProvider.build_export_params() requires an "
+                    "LGBMAdapter instance."
+                ),
+                context={"adapter_type": type(adapter).__name__},
+            )
+        params, num_boost_round, _, _ = adapter._build_params()
+        feval_metadata = _extract_feval_metadata(adapter)
+        return ExportParams(
+            params=params,
+            num_boost_round=num_boost_round,
+            feval_metadata=feval_metadata,
+        )
+
+
+def _extract_feval_metadata(
+    adapter: LGBMAdapter,
+) -> list[dict[str, Any]]:
+    """Extract feval metric metadata from adapter params (H-0066/H-0073).
+
+    Reads the user-specified ``metric`` from the adapter's params dict,
+    identifies which are feval metrics (not LightGBM native), and returns
+    serializable metadata for each.
+
+    Moved from ``_model_persistence.py`` so that the persistence layer
+    no longer reaches into ``LGBMAdapter`` internals.
+    """
+    from lizyml.estimators.lgbm.metric_bridge import _FEVAL_METRICS
+    from lizyml.metrics.registry import get_metric, parse_metric_entries
+
+    user_metric = adapter.params.get("metric")
+    if not user_metric:
+        return []
+
+    if isinstance(user_metric, (str, dict)):
+        user_metric = [user_metric]
+    user_metric = [m for m in user_metric if m]
+    if not user_metric:
+        return []
+
+    feval_for_task = _FEVAL_METRICS.get(adapter.task, frozenset())
+    parsed = parse_metric_entries(user_metric)
+
+    result: list[dict[str, Any]] = []
+    for name, kwargs in parsed:
+        if name in feval_for_task:
+            metric_obj = get_metric(name, **kwargs)
+            result.append(
+                {
+                    "name": name,
+                    "params": kwargs,
+                    "greater_is_better": metric_obj.greater_is_better,
+                    "needs_proba": metric_obj.needs_proba,
+                }
+            )
+    return result

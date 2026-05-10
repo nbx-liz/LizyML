@@ -118,6 +118,26 @@ class TestProtocolReturnTypes:
     @pytest.mark.parametrize(
         "provider_name,provider", PROVIDERS, ids=[p[0] for p in PROVIDERS]
     )
+    def test_build_export_params_returns_export_params(
+        self, provider_name: str, provider: Any
+    ) -> None:
+        """``build_export_params`` returns a populated ``ExportParams``.
+
+        See #109 / H-0073.
+        """
+        from lizyml.estimators.provider import ExportParams
+
+        X, y = _make_data("binary")
+        adapter = _build_and_fit(provider, "binary", X, y)
+        export = provider.build_export_params(adapter)
+        assert isinstance(export, ExportParams)
+        assert isinstance(export.params, dict)
+        assert export.num_boost_round > 0
+        assert isinstance(export.feval_metadata, list)
+
+    @pytest.mark.parametrize(
+        "provider_name,provider", PROVIDERS, ids=[p[0] for p in PROVIDERS]
+    )
     @pytest.mark.parametrize("task", ["regression", "binary", "multiclass"])
     def test_default_space_returns_search_dims(
         self, provider_name: str, provider: Any, task: str
