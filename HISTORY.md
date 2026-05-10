@@ -6624,8 +6624,9 @@ Issue #159 で要求された全 7 層を Phase に分散して実装する。
 - Date: 2026-05-10
 - Result: accepted (Phase 1)
 - Notes:
-  - **Phase 1 (PR pending)**: `LGBMAdapter._build_params()` の `user_params.pop("objective", None)` を `_check_objective_compatible()` 経由の task-compat check に置換。`TASK_COMPATIBLE_OBJECTIVES`（regression 9 / binary 3 / multiclass 2）を `defaults.py` に追加。L1 parametric identity test（14 ペア + 7 cross-task reject）、L2 tune-sampled-objective identity test（regression）、L5 in-code invariant assertion を実装（+24 tests）。CHANGELOG「Changed (potentially breaking)」と DEPRECATIONS の行を追加。
-  - 既存 1709 → 1794 テスト全件 pass。
-  - **Phase 2 / Phase 3 は別 PR で続報**。Decision rows を順次追記する。
+  - **Phase 1 (PR #160)**: `LGBMAdapter._build_params()` の `user_params.pop("objective", None)` を `_check_objective_compatible()` 経由の task-compat check に置換。`TASK_COMPATIBLE_OBJECTIVES`（regression 9 / binary 3 / multiclass 2）を `defaults.py` に追加。L1 parametric identity test（14 ペア + 7 cross-task reject）、L2 tune-sampled-objective identity test（regression）、L5 in-code invariant assertion を実装（+24 tests）。CHANGELOG「Changed (potentially breaking)」と DEPRECATIONS の行を追加。
+  - **Phase 2 (PR pending)**: `EstimatorProvider.objective_choices(task) -> tuple[str, ...]` と `EstimatorProvider.metric_choices(task) -> dict[Literal["native","feval"], tuple[str, ...]]`（型 alias `MetricChoices`）を Protocol に追加。`LGBMProvider` に canonical 名のみの順序付きテーブル（regression 9 / binary 3 / multiclass 2 objectives、native/feval metric tuples）を実装。`default_space(task, provider=None)` を任意 provider 注入対応に拡張（既存 callers は無変更）。`_validate_objective_consistency()` をモジュールロード時に走らせ、`TASK_COMPATIBLE_OBJECTIVES` ↔ `_LGBM_OBJECTIVE_CHOICES` の drift を即座に検知。L3 provider drift smoke-fit（14 objectives + 21 native metrics = 35 fits）、API contract test 44 件（signature / no-aliases / no-duplicates / 各種 subset）を追加。
+  - 既存 1709 → 1794（Phase 1）→ 1873 テスト全件 pass。
+  - **Phase 3 は別 PR で続報**: `_OBJECTIVE_CHOICES` の削除、L4 MetricRegistry 被覆 drift test、L7 `docs/config-reference.md`。
 
 
