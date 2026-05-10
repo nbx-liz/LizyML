@@ -6490,10 +6490,11 @@ Re-tune (`expand_boundary=True`) を繰り返した際、`expand_dims` がパラ
 
 ## H-0079: silent objective override 修正と `EstimatorProvider.objective_choices()` / `metric_choices()` 導入
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-05-10
+- **決定日**: 2026-05-10
 - **スコープ**: Public API (`EstimatorProvider`), `lizyml/estimators/lgbm/adapter.py`, `lizyml/estimators/lgbm/defaults.py`, `lizyml/estimators/lgbm/metric_bridge.py`, `lizyml/estimators/lgbm/provider.py`, `lizyml/tuning/search_space.py` (`default_space` signature)
-- **関連**: [Issue #159](https://github.com/nbx-liz/LizyML/issues/159), H-0078（同型の Provider 拡張パターン）, LizyStudio Issue #461（下流 UI consumer）
+- **関連**: [Issue #159](https://github.com/nbx-liz/LizyML/issues/159), H-0078（同型の Provider 拡張パターン）, LizyStudio Issue #461（下流 UI consumer）, PR [#160](https://github.com/nbx-liz/LizyML/pull/160) / [#161](https://github.com/nbx-liz/LizyML/pull/161) / [#162](https://github.com/nbx-liz/LizyML/pull/162)
 
 ### 目的
 
