@@ -1,83 +1,36 @@
-"""ModelPersistenceMixin — export/load methods extracted from Model facade."""
+"""ModelPersistenceMixin — export/load methods extracted from Model facade.
+
+After H-0077 (Phase 2) every method reads state exclusively through
+``self._get_fit_state()`` — direct ``self._<private>`` access is
+forbidden. Path resolution that mutates ``Model._run_dir`` lives on the
+Model facade as ``Model._resolve_export_path``.
+"""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from lizyml.core.exceptions import ErrorCode, LizyMLError
-from lizyml.core.logging import generate_run_id, get_logger
+from lizyml.core.logging import get_logger
 
 if TYPE_CHECKING:
-    import pandas as pd
-
-    from lizyml.config.schema import LizyMLConfig
-    from lizyml.core.types.fit_result import FitResult
-    from lizyml.estimators.lgbm.adapter import LGBMAdapter
-    from lizyml.estimators.provider import EstimatorProvider
+    from lizyml.core.types.fit_state import FitState
     from lizyml.training.refit_trainer import RefitResult
 
 _log = get_logger("model")
 
 
-def _extract_feval_metadata(
-    adapter: LGBMAdapter,
-) -> list[dict[str, Any]]:
-    """Extract feval metric metadata from adapter params (H-0066).
-
-    Reads the user-specified ``metric`` from the adapter's params dict,
-    identifies which are feval metrics (not LightGBM native), and returns
-    serializable metadata for each.
-    """
-    from lizyml.estimators.lgbm.metric_bridge import _FEVAL_METRICS
-    from lizyml.metrics.registry import get_metric, parse_metric_entries
-
-    user_metric = adapter.params.get("metric")
-    if not user_metric:
-        return []
-
-    if isinstance(user_metric, (str, dict)):
-        user_metric = [user_metric]
-    user_metric = [m for m in user_metric if m]
-    if not user_metric:
-        return []
-
-    feval_for_task = _FEVAL_METRICS.get(adapter.task, frozenset())
-    parsed = parse_metric_entries(user_metric)
-
-    result: list[dict[str, Any]] = []
-    for name, kwargs in parsed:
-        if name in feval_for_task:
-            metric_obj = get_metric(name, **kwargs)
-            result.append(
-                {
-                    "name": name,
-                    "params": kwargs,
-                    "greater_is_better": metric_obj.greater_is_better,
-                    "needs_proba": metric_obj.needs_proba,
-                }
-            )
-    return result
-
-
 class ModelPersistenceMixin:
     """Mixin providing export/load methods for :class:`Model`."""
 
-    # Attributes provided by Model — declared for type checking only.
+    # Facade entry points provided by Model — declared for type checking only.
     if TYPE_CHECKING:
-        _cfg: LizyMLConfig
-        _fit_result: FitResult | None
-        _refit_result: RefitResult | None
-        _metrics: dict[str, Any] | None
-        _y: pd.Series | None
-        _X: pd.DataFrame | None
-        _run_dir: Path | None
-        _output_dir: str | Path | None
-        _provider: EstimatorProvider | None
 
-        def _require_fit(self) -> FitResult: ...
+        def _get_fit_state(self) -> FitState: ...
 
         def _require_refit(self) -> RefitResult: ...
+
+        def _resolve_export_path(self, path: str | Path | None) -> Path: ...
 
     def export(self, path: str | Path | None = None) -> Path:
         """Export Model artifacts to a directory.
@@ -109,7 +62,7 @@ class ModelPersistenceMixin:
             The ``.pkl`` files use joblib/pickle.  Only load artifacts from
             trusted sources.
         """
-        fit_result = self._require_fit()
+        state = self._get_fit_state()
         refit_result = self._require_refit()
 
         resolved_path = self._resolve_export_path(path)
@@ -118,15 +71,15 @@ class ModelPersistenceMixin:
         from lizyml.persistence.exporter import export as _export
 
         ctx: AnalysisContext | None = None
-        if self._y is not None and self._X is not None:
-            ctx = AnalysisContext(y_true=self._y, X_for_explain=self._X)
+        if state.y is not None and state.X is not None:
+            ctx = AnalysisContext(y_true=state.y, X_for_explain=state.X)
 
         _export(
             path=resolved_path,
-            fit_result=fit_result,
+            fit_result=state.fit_result,
             refit_result=refit_result,
-            config=self._cfg.model_dump(),
-            task=self._cfg.task,
+            config=state.cfg.model_dump(),
+            task=state.cfg.task,
             analysis_context=ctx,
         )
         _log.info("event='export.done' path=%s", resolved_path)
@@ -147,47 +100,35 @@ class ModelPersistenceMixin:
         Raises:
             LizyMLError with ``MODEL_NOT_FIT`` when called before ``fit``.
         """
-        fit_result = self._require_fit()
+        state = self._get_fit_state()
         refit_result = self._require_refit()
 
         from lizyml.codegen.generator import generate_code
-        from lizyml.estimators.lgbm.adapter import LGBMAdapter
+        from lizyml.core._model_factories import get_outer_n_splits
 
         adapter = refit_result.model
-        if not isinstance(adapter, LGBMAdapter):
-            raise LizyMLError(
-                ErrorCode.UNSUPPORTED_TASK,
-                user_message=("export_code() currently supports LGBMAdapter only."),
-            )
 
-        # Extract LightGBM params from the adapter.
-        # TODO(H-0059): expose via EstimatorProvider protocol in a future PR.
-        lgbm_params, num_boost_round, _, _ = adapter._build_params()
+        # Codegen-relevant params and feval metadata go through the
+        # EstimatorProvider so that this module remains
+        # estimator-agnostic (H-0073).
+        export = state.provider.build_export_params(adapter)
 
-        # Extract feval metric metadata from user config (H-0066).
-        feval_metrics = _extract_feval_metadata(adapter)
-
-        cfg = self._cfg
+        cfg = state.cfg
         es = cfg.training.early_stopping
         calibration_method: str | None = None
         # Use outer CV n_splits for OOF calibration (H-0058: reuses outer splits)
-        from lizyml.config.schema import BlockedGroupKFoldConfig
-
-        if isinstance(cfg.split, BlockedGroupKFoldConfig):
-            calibration_n_splits = cfg.split.groups.n_splits
-        else:
-            calibration_n_splits = cfg.split.n_splits
+        calibration_n_splits = get_outer_n_splits(cfg)
         if cfg.calibration is not None:
             calibration_method = cfg.calibration.method
 
         # Extract c_final calibrator from CalibrationResult
         calibrator = None
-        cal_result = fit_result.calibrator
+        cal_result = state.fit_result.calibrator
         if cal_result is not None and hasattr(cal_result, "c_final"):
             calibrator = cal_result.c_final
 
         # Build run_meta dict from FitResult
-        meta = fit_result.run_meta
+        meta = state.fit_result.run_meta
         run_meta_dict: dict[str, Any] = {
             "lizyml_version": meta.lizyml_version,
             "run_id": meta.run_id,
@@ -198,16 +139,16 @@ class ModelPersistenceMixin:
         # H-0070: bake target encoder classes into config so train.py /
         # predict.py can re-encode and decode the original labels.
         target_classes: list[Any] | None = None
-        if fit_result.target_encoder.needs_encoding:
-            target_classes = list(fit_result.target_encoder.classes_)
+        if state.fit_result.target_encoder.needs_encoding:
+            target_classes = list(state.fit_result.target_encoder.classes_)
 
         result = generate_code(
             output_dir=path,
             run_meta=run_meta_dict,
             feature_names=refit_result.feature_names,
             categorical_features=refit_result.categorical_features,
-            lgbm_params=lgbm_params,
-            num_boost_round=num_boost_round,
+            lgbm_params=export.params,
+            num_boost_round=export.num_boost_round,
             early_stopping_rounds=(es.rounds if es.enabled else None),
             validation_ratio=es.validation_ratio or 0.0,
             seed=cfg.training.seed,
@@ -216,31 +157,11 @@ class ModelPersistenceMixin:
             model_adapter=adapter,
             pipeline_state=refit_result.pipeline_state,
             calibrator=calibrator,
-            feval_metrics=feval_metrics,
+            feval_metrics=export.feval_metadata,
             target_classes=target_classes,
         )
         _log.info("event='export_code.done' path=%s", result)
         return result
-
-    def _resolve_export_path(self, path: str | Path | None) -> Path:
-        """Resolve the export destination directory."""
-        if path is not None:
-            return Path(path)
-        if self._run_dir is not None:
-            return Path(self._run_dir) / "export"
-        if self._output_dir is not None:
-            from lizyml.core.logging import setup_output_dir
-
-            export_run_id = generate_run_id()
-            self._run_dir = setup_output_dir(self._output_dir, export_run_id)
-            return Path(self._run_dir) / "export"
-        raise LizyMLError(
-            ErrorCode.SERIALIZATION_FAILED,
-            user_message=(
-                "No export path provided and no output_dir configured. "
-                "Pass an explicit path or set output_dir in Config / constructor."
-            ),
-        )
 
     @classmethod
     def load(cls, path: str | Path) -> Any:
@@ -263,7 +184,11 @@ class ModelPersistenceMixin:
 
         fit_result, refit_result, metadata, analysis_context = _load(path)
         config = metadata["config"]
-        instance = cls(config)  # type: ignore[call-arg]  # cls is Model at runtime
+        # ``load`` is the canonical re-hydration path — direct private-attr
+        # writes here are confined to this classmethod and intentionally
+        # rebuild the Model body. The Mixin state-isolation guard targets
+        # instance methods only.
+        instance: Any = cls(config)  # type: ignore[call-arg]  # cls is Model at runtime
         instance._fit_result = fit_result
         instance._refit_result = refit_result
         instance._metrics = fit_result.metrics

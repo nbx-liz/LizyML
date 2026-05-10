@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.plots._theme import apply_default_layout
 
 if TYPE_CHECKING:
     from lizyml.core.types.fit_result import FitResult
@@ -49,7 +50,8 @@ def _render_bar_chart(
             orientation="h",
         )
     )
-    fig.update_layout(
+    apply_default_layout(
+        fig,
         title=title,
         xaxis_title="Importance",
         yaxis_title="Feature",
@@ -85,7 +87,7 @@ def plot_importance(
         raise LizyMLError(
             code=ErrorCode.MODEL_NOT_FIT,
             user_message="No trained models found in FitResult.",
-            context={},
+            context={"plot": "importance", "kind": kind},
         )
 
     # Average importance across folds

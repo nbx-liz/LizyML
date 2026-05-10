@@ -14,7 +14,7 @@ from lizyml.codegen.templates import (
     render_test_equivalence_py,
     render_train_py,
 )
-from lizyml.estimators.lgbm.adapter import LGBMAdapter
+from lizyml.estimators.base import BaseEstimatorAdapter
 
 
 def generate_code(
@@ -30,7 +30,7 @@ def generate_code(
     seed: int,
     calibration_method: str | None,
     calibration_n_splits: int,
-    model_adapter: LGBMAdapter,
+    model_adapter: BaseEstimatorAdapter,
     pipeline_state: dict[str, Any],
     calibrator: BaseCalibratorAdapter | None,
     feval_metrics: list[dict[str, Any]] | None = None,
@@ -64,7 +64,9 @@ def generate_code(
         seed: Random seed.
         calibration_method: Calibration method name or None.
         calibration_n_splits: CV splits for OOF calibration.
-        model_adapter: Fitted LGBMAdapter.
+        model_adapter: Fitted estimator adapter (typed as
+            ``BaseEstimatorAdapter`` post H-0073; the templates currently
+            assume LightGBM internals).
         pipeline_state: Serializable pipeline state dict.
         calibrator: Fitted calibrator or None.
         feval_metrics: List of feval metric descriptors (H-0066).

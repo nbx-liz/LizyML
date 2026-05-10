@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.13.0] - 2026-05-10
+
+### Added
+
+- **`EstimatorProvider.build_export_params()`** (H-0073, [#109](https://github.com/nbx-liz/LizyML/issues/109), [#126](https://github.com/nbx-liz/LizyML/issues/126)) — codegen-relevant booster params and feval metadata are now retrieved through the `EstimatorProvider` Protocol, so `Model.export_code()` is fully estimator-agnostic. Adding a new estimator no longer requires editing `lizyml/core/_model_persistence.py`. The new method also unifies `BlockedGroupKFold` `n_splits` resolution between persistence and factories.
+- **`FitState` / `TuningState` frozen dataclasses + `Model._get_fit_state()` / `_get_tuning_state()`** (H-0074 Phase 1 + H-0077 Phase 2, [#112](https://github.com/nbx-liz/LizyML/issues/112)) — `ModelPlotsMixin` / `ModelTablesMixin` / `ModelPersistenceMixin` now read state exclusively through these snapshots. Direct `self._<private>` access is forbidden inside Mixin bodies and enforced by a static guard test (`tests/test_core/test_mixin_state_isolation.py`). Mixins become unit-testable with synthetic state. Public API unchanged.
+- **`docs/DEPRECATIONS.md` central deprecation registry** (H-0076, [#120](https://github.com/nbx-liz/LizyML/issues/120), [#121](https://github.com/nbx-liz/LizyML/issues/121)) — single source of truth for every deprecated public surface and its removal target version. Every `DeprecationWarning` LizyML raises now contains "Will be removed in vX.Y." (currently "v1.0"); `tests/test_core/test_deprecation_registry.py` enforces this contract in CI.
+
+### Changed
+
+- **`TaskType` Literal centralised + propagated to all dispatch sites** (H-0075, [#122](https://github.com/nbx-liz/LizyML/issues/122)) — `lizyml/core/types/task.py` exposes `TaskType = Literal["regression", "binary", "multiclass"]`. Every branch on task now uses an exhaustive dispatch table, eliminating string-comparison divergence between modules. Public API unchanged; internal type-safety only.
+- **`DeprecationWarning` messages now state the removal target version** (H-0076) — users see "Will be removed in v1.0." in every deprecation message so migration deadlines are explicit.
+- **Inner-valid membership checks vectorised with numpy** (H-0065 follow-up, [#135](https://github.com/nbx-liz/LizyML/issues/135)) — measurable speedup on large CV folds; behaviour unchanged.
+- **`Model.tune()` decomposed into 5 testable helpers** (H-0040 follow-up, [#114](https://github.com/nbx-liz/LizyML/issues/114)) — orchestrator + per-step helpers, no behaviour change.
+- **`LizyMLError.context` enriched at 23 sites** ([#118](https://github.com/nbx-liz/LizyML/issues/118)) — fold index / config path / method name now consistently carried; regression guard added.
+- **`storage` parameter type tightened to `str | BaseStorage | None`** ([#136](https://github.com/nbx-liz/LizyML/issues/136)) — was `Any`; aligns with H-0072 docstring.
+- **Plot theme deduplicated via `apply_default_layout`** ([#134](https://github.com/nbx-liz/LizyML/issues/134)) — `lizyml/plots/_theme.py` is now the single source for default layout settings shared across every plot module.
+- **`StratifiedTimeHoldoutInnerValid` tail-holdout fallback inlined** ([#133](https://github.com/nbx-liz/LizyML/issues/133)) — readability improvement, behaviour unchanged.
+- **`TargetEncoder` lexicographic class ordering documented with example** ([#132](https://github.com/nbx-liz/LizyML/issues/132)).
+
+### Fixed
+
+- **Tuning progress callback warning now includes exception type and message** ([#128](https://github.com/nbx-liz/LizyML/issues/128)) — debugging callback failures no longer requires re-running with logging tweaks.
+- **`FloatDim` linear lower expansion clamped at zero** ([#129](https://github.com/nbx-liz/LizyML/issues/129)) — boundary-detection re-tune (H-0068) no longer drives lower bounds below zero on naturally non-negative parameters.
+- **Legacy top-level `validation_ratio` input emits `DeprecationWarning`** ([#130](https://github.com/nbx-liz/LizyML/issues/130)) — previously a YAML with only `early_stopping.validation_ratio` (and no `inner_valid:` block) was silent. Now the deprecation contract is enforced on input, not just output.
+- **Unhandled `SplitConfig` variants raise `LizyMLError(CONFIG_INVALID)`** ([#131](https://github.com/nbx-liz/LizyML/issues/131)) — previously a silent fallback could mask schema regressions.
+- **Code-review HIGH issues + `#124` test gap closed** ([#141](https://github.com/nbx-liz/LizyML/issues/141)) — Sprint 1+2 follow-up batch.
+- **MEDIUM / LOW code-review batch** ([#142](https://github.com/nbx-liz/LizyML/issues/142)) — accumulated cleanup landed in one PR.
+
+### Internal
+
+- **`TrainComponents` rebuild path extracted to `_sort_and_rebuild_components()`** ([#137](https://github.com/nbx-liz/LizyML/issues/137)) — refactor only.
+- **Mixin source files contain zero direct `self._<private>` access** (H-0077 Phase 2, enforced by `tests/test_core/test_mixin_state_isolation.py`).
+
 ## [0.12.0] - 2026-05-06
 
 ### Added

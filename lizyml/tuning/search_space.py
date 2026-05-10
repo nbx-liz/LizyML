@@ -221,9 +221,19 @@ def _expand_range(
     *,
     log: bool,
 ) -> tuple[float, float]:
-    """Expand *low*/*high* asymmetrically toward *edge*."""
+    """Expand *low*/*high* asymmetrically toward *edge*.
+
+    Linear lower-edge expansion is clamped at 0.0 (#110): negative bounds are
+    physically meaningless for hyperparameters such as ``learning_rate`` and
+    crash downstream samplers. Log-scale expansion is already safe because
+    division by ``_LOG_EXPANSION_FACTOR`` cannot make a positive value cross
+    zero. ``IntDim`` retains its own ``max(1, ...)`` clamp at the call site.
+    """
     if edge == "lower":
-        new_low = low / _LOG_EXPANSION_FACTOR if log and low > 0 else low - (high - low)
+        if log and low > 0:
+            new_low = low / _LOG_EXPANSION_FACTOR
+        else:
+            new_low = max(0.0, low - (high - low))
         return new_low, high
     if edge == "upper":
         new_high = (

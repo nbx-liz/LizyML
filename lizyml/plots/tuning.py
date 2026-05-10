@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.plots._theme import apply_default_layout
 
 if TYPE_CHECKING:
     from lizyml.core.types.tuning_result import TuningResult
@@ -128,7 +129,8 @@ def plot_tuning_history(tuning_result: TuningResult) -> Any:
             )
             cumulative += rs.n_trials
 
-    fig.update_layout(
+    apply_default_layout(
+        fig,
         title="Tuning History",
         xaxis_title="Trial",
         yaxis_title=tuning_result.metric_name,

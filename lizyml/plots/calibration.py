@@ -11,6 +11,7 @@ import numpy as np
 import numpy.typing as npt
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.plots._theme import apply_default_layout
 
 if TYPE_CHECKING:
     from lizyml.core.types.fit_result import FitResult
@@ -47,7 +48,7 @@ def _require_calibrator(fit_result: FitResult) -> Any:
                 "Calibration plots require calibration to be enabled. "
                 "Set calibration.method in the config."
             ),
-            context={},
+            context={"calibrator_type": type(fit_result.calibrator).__name__},
         )
     return fit_result.calibrator
 
@@ -112,7 +113,8 @@ def plot_calibration_curve(
             line=dict(color="darkorange"),
         )
     )
-    fig.update_layout(
+    apply_default_layout(
+        fig,
         title="Calibration Curve (Reliability Diagram)",
         xaxis_title="Mean Predicted Probability",
         yaxis_title="Fraction of Positives",
@@ -160,7 +162,8 @@ def plot_probability_histogram(fit_result: FitResult) -> Any:
             marker_color="darkorange",
         )
     )
-    fig.update_layout(
+    apply_default_layout(
+        fig,
         title="Probability Histogram (Raw vs Calibrated)",
         xaxis_title="Predicted Probability",
         yaxis_title="Count",

@@ -10,6 +10,7 @@ import numpy as np
 import numpy.typing as npt
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.types.task import TaskType
 
 
 class BaseInnerValidStrategy(ABC):
@@ -143,15 +144,20 @@ class GroupHoldoutInnerValid(BaseInnerValidStrategy):
                     "GroupHoldoutInnerValid requires groups to be provided. "
                     "Set data.group_col in the config."
                 ),
-                context={},
+                context={
+                    "n_samples": n_samples,
+                    "strategy": "GroupHoldoutInnerValid",
+                },
             )
         # Preserve input order of groups (np.unique sorts, so use dict.fromkeys)
         seen: dict[Any, None] = dict.fromkeys(groups.tolist())
         ordered_groups = list(seen.keys())
         n_valid_groups = max(1, int(len(ordered_groups) * self.ratio))
-        valid_groups = set(ordered_groups[-n_valid_groups:])
+        valid_groups = ordered_groups[-n_valid_groups:]
         all_idx = np.arange(n_samples, dtype=np.intp)
-        valid_mask = np.array([g in valid_groups for g in groups])
+        # Vectorised membership test (#116) — C implementation, ~5x+ faster
+        # than the previous Python comprehension on large datasets.
+        valid_mask = np.isin(groups, valid_groups)
         valid_idx = all_idx[valid_mask]
         train_idx = all_idx[~valid_mask]
         return train_idx, valid_idx
@@ -215,7 +221,17 @@ class StratifiedTimeHoldoutInnerValid(BaseInnerValidStrategy):
         groups: npt.NDArray[Any] | None = None,
     ) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]:
         if y is None:
-            return TimeHoldoutInnerValid(self.ratio).split(n_samples)
+            # Inline tail holdout (#124): avoids per-call construction of
+            # TimeHoldoutInnerValid, which is hot in tuning workloads.
+            n_valid = max(1, int(n_samples * self.ratio))
+            if n_valid >= n_samples:
+                raise ValueError(
+                    f"Inner validation would consume all {n_samples} sample(s) "
+                    f"(n_valid={n_valid}, ratio={self.ratio}). "
+                    "Increase training data or decrease validation_ratio."
+                )
+            all_idx = np.arange(n_samples, dtype=np.intp)
+            return all_idx[:-n_valid], all_idx[-n_valid:]
 
         valid_indices: list[int] = []
         for cls in np.unique(y):
@@ -223,11 +239,13 @@ class StratifiedTimeHoldoutInnerValid(BaseInnerValidStrategy):
             n_valid = max(1, int(len(cls_idx) * self.ratio))
             valid_indices.extend(cls_idx[-n_valid:].tolist())
 
-        valid_set = set(valid_indices)
-        valid_idx = np.array(sorted(valid_set), dtype=np.intp)
-        train_idx = np.array(
-            [i for i in range(n_samples) if i not in valid_set], dtype=np.intp
-        )
+        # Vectorised mask construction (#116) — replaces an O(n) Python
+        # ``i not in valid_set`` filter with a single boolean array.
+        valid_mask = np.zeros(n_samples, dtype=bool)
+        valid_mask[np.asarray(valid_indices, dtype=np.intp)] = True
+        all_idx = np.arange(n_samples, dtype=np.intp)
+        valid_idx = all_idx[valid_mask]
+        train_idx = all_idx[~valid_mask]
         return train_idx, valid_idx
 
 
@@ -253,7 +271,7 @@ class BlockedGroupInnerValid(BaseInnerValidStrategy):
 
     _MIN_GROUPS_FOR_ISOLATION = 4
 
-    def __init__(self, ratio: float = 0.1, task: str = "regression") -> None:
+    def __init__(self, ratio: float = 0.1, task: TaskType = "regression") -> None:
         if not 0.0 < ratio < 1.0:
             raise ValueError(f"ratio must be in (0, 1), got {ratio}")
         self.ratio = ratio
@@ -272,7 +290,11 @@ class BlockedGroupInnerValid(BaseInnerValidStrategy):
                     "BlockedGroupInnerValid requires groups. "
                     "Set groups.col in the split config."
                 ),
-                context={},
+                context={
+                    "n_samples": n_samples,
+                    "strategy": "BlockedGroupInnerValid",
+                    "task": self.task,
+                },
             )
 
         # Preserve input order (= time order)
@@ -306,10 +328,9 @@ class BlockedGroupInnerValid(BaseInnerValidStrategy):
             n_valid = max(1, int(len(sorted_groups) * self.ratio))
             valid_groups = set(sorted_groups[-n_valid:])
 
-        # Build index arrays
-        valid_group_set = set(valid_groups)
+        # Build index arrays via vectorised membership (#116).
         all_idx = np.arange(n_samples, dtype=np.intp)
-        valid_mask = np.array([g in valid_group_set for g in groups.tolist()])
+        valid_mask = np.isin(groups, list(valid_groups))
         return all_idx[~valid_mask], all_idx[valid_mask]
 
     def _stratified_tail_groups(

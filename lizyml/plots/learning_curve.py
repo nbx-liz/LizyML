@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.plots._theme import apply_default_layout
 
 if TYPE_CHECKING:
     from lizyml.core.types.fit_result import FitResult
@@ -60,7 +61,7 @@ def plot_learning_curve(
         raise LizyMLError(
             code=ErrorCode.MODEL_NOT_FIT,
             user_message="No training history found in FitResult.",
-            context={},
+            context={"plot": "learning_curve", "n_history": 0},
         )
 
     # Gather eval_history entries; skip folds with empty history
@@ -85,7 +86,10 @@ def plot_learning_curve(
                 "No evaluation history found. "
                 "Enable early stopping to record validation metrics per fold."
             ),
-            context={},
+            context={
+                "plot": "learning_curve",
+                "n_folds": len(fit_result.history),
+            },
         )
 
     # Use first fold's keys as reference
@@ -134,7 +138,8 @@ def plot_learning_curve(
         fig.update_xaxes(title_text="Iteration", row=1, col=col + 1)
         fig.update_yaxes(title_text="Loss", row=1, col=col + 1)
 
-    fig.update_layout(
+    apply_default_layout(
+        fig,
         title="Learning Curve",
         height=400,
         width=500 * n_metrics,

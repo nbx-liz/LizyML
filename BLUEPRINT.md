@@ -475,7 +475,8 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `target_encoder`（H-0070, format_version=2）
   - `TargetEncoder(classes_: tuple[Any, ...], needs_encoding: bool, original_dtype: str)`
   - 数値 y / regression では `needs_encoding=False` の no-op
-  - 非数値 classification y では `classes_` に sorted 元ラベルを保持
+  - 非数値 classification y では `classes_` に **lexicographically** sorted な元ラベルを保持
+    （`sorted(unique, key=str)`、numeric-string では自然順とは一致しない: `["1","10","2"]` → `("1","10","2")`）
   - `predict()` / codegen / persistence migration で利用
 
 ## 7.2 TuningResult（固定スキーマ）
@@ -1236,6 +1237,9 @@ class EstimatorProvider(Protocol):
     def params_summary(
         self, model: BaseEstimatorAdapter, model_cfg: Any,
     ) -> list[dict[str, Any]]: ...
+    def build_export_params(
+        self, adapter: BaseEstimatorAdapter,
+    ) -> ExportParams: ...
 ```
 
 制約:
@@ -1244,6 +1248,7 @@ class EstimatorProvider(Protocol):
 - `runtime_deps()` はアルゴリズム固有の依存パッケージ名とバージョンを返す（例: `{"lightgbm": "4.5.0"}`）。`RunMeta.deps_versions` に使用。
 - `params_summary()` は `params_table()` 用のパラメータ行を返す。smart params + native model params（`metric` を含む、H-0061）の両方を含む。
 - `build_pipeline_factory` は estimator 固有の FeaturePipeline が必要な場合（例: EntityEmbedding のカテゴリ埋め込み）に対応する。デフォルトは `NativeFeaturePipeline` を返す。
+- `build_export_params` は codegen 経路（`Model.export_code()`）が必要とする native params / num_boost_round / feval metadata を `ExportParams` frozen dataclass で返す（H-0073）。`_model_persistence.py` から estimator 具象型（`LGBMAdapter` 等）への直接参照を排除するための入口。
 
 ディレクトリ構成（estimator ごとにサブパッケージ化）:
 
@@ -1687,3 +1692,4 @@ loaded_model.probability_histogram_plot()
 - `Model` クラスは mixin で構成する（H-0042）。plot 系は `_model_plots.py`、table/accessor 系は `_model_tables.py`、persistence 系は `_model_persistence.py` に分割し、`model.py` には core lifecycle（`__init__`, `fit`, `predict`, `evaluate`, `tune`）とプライベートヘルパーのみを残す。
 - mixin は `_` プレフィックスの非公開モジュールとし、`Model` の import パス（`lizyml.core.model.Model`）は変更しない。
 - 依存関係の切り離しが必要な箇所では Lazy Import を許容する。
+- `Model._get_fit_state()` が返す `FitState` frozen dataclass を mixin の唯一の入口として整備中（H-0074, Phase 1: 型定義 + factory + テスト, Phase 2: 全 mixin 移行）。`FitState` は `cfg / fit_result / refit_result / tuning_result / provider / metrics / y / X / run_dir / output_dir` の post-fit snapshot を持ち、`self._*` への直接アクセスを段階的に置換する。

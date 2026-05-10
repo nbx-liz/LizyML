@@ -15,10 +15,13 @@ from __future__ import annotations
 
 import time
 import warnings
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.logging import get_logger
+
+if TYPE_CHECKING:
+    from optuna.storages import BaseStorage
 from lizyml.core.types.tuning_result import (
     TrialResult,
     TuneProgressCallback,
@@ -68,7 +71,7 @@ class Tuner:
         seed: int = 42,
         *,
         progress_callback: TuneProgressCallback | None = None,
-        storage: str | Any | None = None,
+        storage: str | BaseStorage | None = None,
         study_name: str | None = None,
     ) -> None:
         if storage is not None and study_name is None:
@@ -183,9 +186,15 @@ class Tuner:
                 )
                 try:
                     user_cb(info)
-                except Exception:
+                except Exception as exc:
+                    # stacklevel=1 (this site) is intentional: by the time
+                    # ``warnings.warn`` runs, ``user_cb`` has already raised
+                    # and unwound, so its frame is not on the stack. The
+                    # exception type+message in the warning text is the
+                    # actionable signal for the user (#117).
                     warnings.warn(
-                        "progress_callback raised an exception; ignoring.",
+                        f"progress_callback raised an exception; ignoring. "
+                        f"{type(exc).__name__}: {exc}",
                         RuntimeWarning,
                         stacklevel=1,
                     )

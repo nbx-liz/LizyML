@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.plots._theme import apply_default_layout
 
 if TYPE_CHECKING:
     from lizyml.core.types.fit_result import FitResult
@@ -64,7 +65,8 @@ def plot_oof_distribution(fit_result: FitResult) -> Any:
                     nbinsx=30,
                 )
             )
-        fig.update_layout(
+        apply_default_layout(
+            fig,
             title="OOF Prediction Distribution (Multiclass)",
             xaxis_title="Predicted probability",
             yaxis_title="Count",
@@ -75,7 +77,8 @@ def plot_oof_distribution(fit_result: FitResult) -> Any:
         has_proba = bool(np.all((oof >= 0) & (oof <= 1)))
         xlabel = "Predicted probability" if has_proba else "Predicted value"
         fig.add_trace(_plotly.Histogram(x=oof, nbinsx=30))
-        fig.update_layout(
+        apply_default_layout(
+            fig,
             title="OOF Prediction Distribution",
             xaxis_title=xlabel,
             yaxis_title="Count",

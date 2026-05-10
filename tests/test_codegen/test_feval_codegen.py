@@ -434,7 +434,7 @@ class TestTemplateFevalContent:
 
 
 class TestExtractFevalMetadata:
-    """Tests for _extract_feval_metadata in _model_persistence."""
+    """Tests for _extract_feval_metadata in lgbm.provider (moved in H-0073)."""
 
     def _make_adapter(
         self,
@@ -450,19 +450,19 @@ class TestExtractFevalMetadata:
         )
 
     def test_no_metric_returns_empty(self) -> None:
-        from lizyml.core._model_persistence import _extract_feval_metadata
+        from lizyml.estimators.lgbm.provider import _extract_feval_metadata
 
         adapter = self._make_adapter(params={})
         assert _extract_feval_metadata(adapter) == []
 
     def test_native_only_returns_empty(self) -> None:
-        from lizyml.core._model_persistence import _extract_feval_metadata
+        from lizyml.estimators.lgbm.provider import _extract_feval_metadata
 
         adapter = self._make_adapter(params={"metric": ["auc", "binary_logloss"]})
         assert _extract_feval_metadata(adapter) == []
 
     def test_feval_metric_extracted(self) -> None:
-        from lizyml.core._model_persistence import _extract_feval_metadata
+        from lizyml.estimators.lgbm.provider import _extract_feval_metadata
 
         adapter = self._make_adapter(params={"metric": ["auc", "f1"]})
         result = _extract_feval_metadata(adapter)
@@ -473,7 +473,7 @@ class TestExtractFevalMetadata:
         assert result[0]["params"] == {}
 
     def test_feval_with_params(self) -> None:
-        from lizyml.core._model_persistence import _extract_feval_metadata
+        from lizyml.estimators.lgbm.provider import _extract_feval_metadata
 
         adapter = self._make_adapter(params={"metric": [{"precision_at_k": {"k": 20}}]})
         result = _extract_feval_metadata(adapter)
@@ -484,7 +484,7 @@ class TestExtractFevalMetadata:
         assert result[0]["needs_proba"] is True
 
     def test_mixed_native_and_feval(self) -> None:
-        from lizyml.core._model_persistence import _extract_feval_metadata
+        from lizyml.estimators.lgbm.provider import _extract_feval_metadata
 
         adapter = self._make_adapter(params={"metric": ["auc", "f1", "brier"]})
         result = _extract_feval_metadata(adapter)
@@ -494,7 +494,7 @@ class TestExtractFevalMetadata:
         assert "auc" not in names
 
     def test_regression_feval(self) -> None:
-        from lizyml.core._model_persistence import _extract_feval_metadata
+        from lizyml.estimators.lgbm.provider import _extract_feval_metadata
 
         adapter = self._make_adapter(
             task="regression", params={"metric": ["rmse", "rmsle"]}
@@ -505,7 +505,7 @@ class TestExtractFevalMetadata:
         assert result[0]["greater_is_better"] is False
 
     def test_string_metric(self) -> None:
-        from lizyml.core._model_persistence import _extract_feval_metadata
+        from lizyml.estimators.lgbm.provider import _extract_feval_metadata
 
         adapter = self._make_adapter(params={"metric": "f1"})
         result = _extract_feval_metadata(adapter)
@@ -513,7 +513,7 @@ class TestExtractFevalMetadata:
         assert result[0]["name"] == "f1"
 
     def test_r2_regression_feval(self) -> None:
-        from lizyml.core._model_persistence import _extract_feval_metadata
+        from lizyml.estimators.lgbm.provider import _extract_feval_metadata
 
         adapter = self._make_adapter(
             task="regression", params={"metric": ["rmse", "r2"]}

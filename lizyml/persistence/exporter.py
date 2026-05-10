@@ -22,6 +22,7 @@ import joblib
 import pandas as pd
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.types.task import TaskType
 
 if TYPE_CHECKING:
     from lizyml.core.types.fit_result import FitResult
@@ -43,7 +44,7 @@ def export(
     fit_result: FitResult,
     refit_result: RefitResult,
     config: dict[str, Any],
-    task: str,
+    task: TaskType,
     *,
     analysis_context: AnalysisContext | None = None,
 ) -> None:

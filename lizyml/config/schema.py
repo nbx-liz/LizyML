@@ -113,7 +113,7 @@ class PurgedTimeSeriesConfig(BaseModel):
         if "purge_window" in data and "purge_gap" not in data:
             warnings.warn(
                 "purged_time_series key 'purge_window' is deprecated; "
-                "use 'purge_gap' instead.",
+                "use 'purge_gap' instead. Will be removed in v1.0.",
                 DeprecationWarning,
                 stacklevel=2,
             )
@@ -121,14 +121,16 @@ class PurgedTimeSeriesConfig(BaseModel):
         if "embargo_pct" in data and "embargo" not in data:
             warnings.warn(
                 "purged_time_series key 'embargo_pct' is deprecated; "
-                "use 'embargo' (int, obs count) instead.",
+                "use 'embargo' (int, obs count) instead. "
+                "Will be removed in v1.0.",
                 DeprecationWarning,
                 stacklevel=2,
             )
             data["embargo"] = int(data.pop("embargo_pct"))
         if "gap" in data and "embargo" not in data:
             warnings.warn(
-                "purged_time_series key 'gap' is deprecated; use 'embargo' instead.",
+                "purged_time_series key 'gap' is deprecated; "
+                "use 'embargo' instead. Will be removed in v1.0.",
                 DeprecationWarning,
                 stacklevel=2,
             )
@@ -373,6 +375,13 @@ class EarlyStoppingConfig(BaseModel):
                 iv_value = data.get("inner_valid")
                 if iv_value is None:
                     if legacy_ratio is not None:
+                        warnings.warn(
+                            "`validation_ratio` is deprecated; use "
+                            "`inner_valid.ratio` instead. "
+                            "Will be removed in v1.0.",
+                            DeprecationWarning,
+                            stacklevel=2,
+                        )
                         data["inner_valid"] = {
                             "method": "holdout",
                             "ratio": legacy_ratio,
@@ -493,7 +502,8 @@ class CalibrationConfig(BaseModel):
         ):
             warnings.warn(
                 "calibration.n_splits is deprecated and will be ignored. "
-                "Calibration cross-fit now reuses outer CV splits (H-0058).",
+                "Calibration cross-fit now reuses outer CV splits (H-0058). "
+                "Will be removed in v1.0.",
                 UserWarning,
                 stacklevel=2,
             )

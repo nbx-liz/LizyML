@@ -2,18 +2,19 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
 from lizyml.core.types.fit_result import FitResult
+from lizyml.core.types.task import TaskType
 from lizyml.metrics.base import BaseMetric
 from lizyml.metrics.registry import MetricEntry, get_metrics_for_task
 from lizyml.training.oof_assembly import compute_oof_valid_mask
 
-TaskType = Literal["regression", "binary", "multiclass"]
+__all__ = ["Evaluator", "TaskType"]
 
 
 def _normalize_multiclass_proba(

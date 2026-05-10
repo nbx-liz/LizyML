@@ -25,6 +25,7 @@ from lizyml.config.schema import (
     StratifiedKFoldConfig,
     TimeSeriesConfig,
 )
+from lizyml.core.types.task import TaskType
 from lizyml.splitters.base import BaseSplitter
 from lizyml.splitters.blocked_group_kfold import BlockedGroupKFoldSplitter
 from lizyml.splitters.group_kfold import (
@@ -52,7 +53,7 @@ InnerValidType = (
 )
 
 
-def _resolve_stratify(stratify: str | bool, task: str) -> bool:
+def _resolve_stratify(stratify: str | bool, task: TaskType) -> bool:
     """Resolve ``stratify: "auto"`` to a concrete boolean."""
     if isinstance(stratify, bool):
         return stratify
@@ -67,7 +68,7 @@ def _build_splitter_for_method(
     n_splits: int,
     *,
     block_values: npt.NDArray[Any] | None = None,
-    task: str | None = None,
+    task: TaskType | None = None,
     seed: int | None = None,
 ) -> BaseSplitter:
     """Build a splitter from split config, using the given *n_splits*.
@@ -86,7 +87,10 @@ def _build_splitter_for_method(
                     "blocked_group_kfold requires block_values "
                     "(extracted from blocks.col by Facade)."
                 ),
-                context={},
+                context={
+                    "split_method": "blocked_group_kfold",
+                    "blocks_col": split_cfg.blocks.col,
+                },
             )
         stratify_bool = _resolve_stratify(
             split_cfg.groups.stratify, task or "regression"
@@ -139,22 +143,45 @@ def _build_splitter_for_method(
             max_train_size=split_cfg.train_size_max,
             max_test_size=split_cfg.test_size_max,
         )
-    # Default: KFoldConfig (or any unmatched variant)
     if isinstance(split_cfg, KFoldConfig):
         return KFoldSplitter(
             n_splits=n_splits,
             shuffle=split_cfg.shuffle,
             random_state=split_cfg.random_state,
         )
-    # Fallback — should not be reachable with the current union
-    return KFoldSplitter(n_splits=n_splits, shuffle=True, random_state=42)
+    # Loud fail — adding a new SplitConfig variant without updating this
+    # dispatch must not silently produce KFold splits (#119).
+    from lizyml.core.exceptions import ErrorCode, LizyMLError
+
+    type_name = type(split_cfg).__name__
+    raise LizyMLError(
+        code=ErrorCode.CONFIG_INVALID,
+        user_message=(
+            f"Unhandled SplitConfig type: {type_name}. "
+            "Update _build_splitter_for_method dispatch when adding a new variant."
+        ),
+        context={"split_config_type": type_name},
+    )
+
+
+def get_outer_n_splits(cfg: LizyMLConfig) -> int:
+    """Return the outer CV n_splits regardless of split config variant (H-0073).
+
+    ``BlockedGroupKFoldConfig`` exposes ``groups.n_splits`` (the outer
+    KFold over groups) while every other variant has a top-level
+    ``n_splits``. Centralised here so that callers in ``_model_factories``
+    and ``_model_persistence`` use the same resolution.
+    """
+    if isinstance(cfg.split, BlockedGroupKFoldConfig):
+        return cfg.split.groups.n_splits
+    return cfg.split.n_splits
 
 
 def build_splitter(
     cfg: LizyMLConfig,
     *,
     block_values: npt.NDArray[Any] | None = None,
-    task: str | None = None,
+    task: TaskType | None = None,
     seed: int | None = None,
 ) -> BaseSplitter:
     """Instantiate outer CV splitter from config."""
@@ -170,17 +197,19 @@ def build_splitter(
             stacklevel=2,
         )
 
-    # BlockedGroupKFoldConfig has no n_splits at top level
+    n_splits = get_outer_n_splits(cfg)
+
+    # BlockedGroupKFoldConfig has no n_splits at top level — pass block_values etc.
     if isinstance(split_cfg, BlockedGroupKFoldConfig):
         return _build_splitter_for_method(
             split_cfg,
-            split_cfg.groups.n_splits,
+            n_splits,
             block_values=block_values,
             task=cfg.task if task is None else task,
             seed=cfg.training.seed if seed is None else seed,
         )
 
-    return _build_splitter_for_method(split_cfg, split_cfg.n_splits)
+    return _build_splitter_for_method(split_cfg, n_splits)
 
 
 def build_calibration_splitter(cfg: LizyMLConfig) -> BaseSplitter:
@@ -194,7 +223,8 @@ def build_calibration_splitter(cfg: LizyMLConfig) -> BaseSplitter:
 
     warnings.warn(
         "build_calibration_splitter is deprecated (H-0058). "
-        "Calibration cross-fit now reuses outer CV splits.",
+        "Calibration cross-fit now reuses outer CV splits. "
+        "Will be removed in v1.0.",
         DeprecationWarning,
         stacklevel=2,
     )
@@ -207,7 +237,7 @@ def _resolve_auto_inner_valid(
     ratio: float,
     seed: int,
     *,
-    task: str | None = None,
+    task: TaskType | None = None,
 ) -> (
     HoldoutInnerValid
     | GroupHoldoutInnerValid

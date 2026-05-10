@@ -211,6 +211,16 @@ class TestStratifiedTimeHoldout:
         # Last 20% = 2 rows
         np.testing.assert_array_equal(valid_idx, np.array([8, 9]))
 
+    def test_regression_fallback_raises_when_ratio_consumes_all(self) -> None:
+        """Inline fallback (#124) must reject configurations that would
+        consume the entire training set, matching the pre-refactor contract
+        of ``TimeHoldoutInnerValid``. The trip wire fires for n_samples=1
+        because ``max(1, int(1*r))`` is always 1, leaving zero training rows.
+        """
+        strategy = StratifiedTimeHoldoutInnerValid(ratio=0.5)
+        with pytest.raises(ValueError, match="would consume all"):
+            strategy.split(1, y=None)
+
     def test_complete_coverage(self) -> None:
         y = np.array([0, 1, 0, 1, 0, 1])
         strategy = StratifiedTimeHoldoutInnerValid(ratio=0.3)
