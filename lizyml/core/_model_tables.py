@@ -1,4 +1,8 @@
-"""ModelTablesMixin — table/accessor methods extracted from Model facade."""
+"""ModelTablesMixin — table/accessor methods extracted from Model facade.
+
+After H-0077 (Phase 2) every method reads state exclusively through
+``self._get_fit_state()`` / ``self._get_tuning_state()``.
+"""
 
 from __future__ import annotations
 
@@ -11,26 +15,18 @@ import pandas as pd
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 
 if TYPE_CHECKING:
-    from lizyml.config.schema import LizyMLConfig
-    from lizyml.core.types.fit_result import FitResult
-    from lizyml.core.types.tuning_result import TuningResult
-    from lizyml.estimators.provider import EstimatorProvider
+    from lizyml.core.types.fit_state import FitState, TuningState
 
 
 class ModelTablesMixin:
     """Mixin providing table/accessor methods for :class:`Model`."""
 
-    # Attributes provided by Model — declared for type checking only.
+    # Facade entry points provided by Model — declared for type checking only.
     if TYPE_CHECKING:
-        _cfg: LizyMLConfig
-        _fit_result: FitResult | None
-        _y: pd.Series | None
-        _X: pd.DataFrame | None
-        _metrics: dict[str, Any] | None
-        _tuning_result: TuningResult | None
-        _provider: EstimatorProvider | None
 
-        def _require_fit(self) -> FitResult: ...
+        def _get_fit_state(self) -> FitState: ...
+
+        def _get_tuning_state(self) -> TuningState: ...
 
     def evaluate_table(self) -> pd.DataFrame:
         """Return evaluation metrics as a formatted DataFrame.
@@ -46,11 +42,11 @@ class ModelTablesMixin:
             :class:`~lizyml.core.exceptions.LizyMLError` with
             ``MODEL_NOT_FIT`` when called before ``fit``.
         """
-        self._require_fit()
+        state = self._get_fit_state()
         from lizyml.evaluation.table_formatter import format_metrics_table
 
-        assert self._metrics is not None  # noqa: S101 — set by fit()
-        return format_metrics_table(self._metrics)
+        assert state.metrics is not None  # noqa: S101 — populated after fit()
+        return format_metrics_table(state.metrics)
 
     def residuals(self) -> npt.NDArray[np.float64]:
         """Return OOF residuals ``(y_true - oof_pred)``.  Regression only.
@@ -63,17 +59,17 @@ class ModelTablesMixin:
                 or when loaded artifacts lack ``analysis_context``.
             LizyMLError with ``UNSUPPORTED_TASK`` for non-regression tasks.
         """
-        fit_result = self._require_fit()
-        if self._cfg.task != "regression":
+        state = self._get_fit_state()
+        if state.cfg.task != "regression":
             raise LizyMLError(
                 code=ErrorCode.UNSUPPORTED_TASK,
                 user_message=(
                     "residuals() is only supported for regression tasks. "
-                    f"Got task='{self._cfg.task}'."
+                    f"Got task='{state.cfg.task}'."
                 ),
-                context={"task": self._cfg.task},
+                context={"task": state.cfg.task},
             )
-        if self._y is None:
+        if state.y is None:
             raise LizyMLError(
                 code=ErrorCode.MODEL_NOT_FIT,
                 user_message=(
@@ -82,12 +78,14 @@ class ModelTablesMixin:
                     "diagnostic APIs after Model.load()."
                 ),
                 context={
-                    "task": self._cfg.task,
+                    "task": state.cfg.task,
                     "loaded_from_artifact": True,
                     "method": "residuals",
                 },
             )
-        result: npt.NDArray[np.float64] = np.asarray(self._y) - fit_result.oof_pred
+        result: npt.NDArray[np.float64] = (
+            np.asarray(state.y) - state.fit_result.oof_pred
+        )
         return result
 
     def confusion_matrix(self, threshold: float = 0.5) -> dict[str, pd.DataFrame]:
@@ -104,8 +102,8 @@ class ModelTablesMixin:
                 or when loaded artifacts lack ``analysis_context``.
             LizyMLError with ``UNSUPPORTED_TASK`` for regression.
         """
-        fit_result = self._require_fit()
-        if self._y is None:
+        state = self._get_fit_state()
+        if state.y is None:
             raise LizyMLError(
                 code=ErrorCode.MODEL_NOT_FIT,
                 user_message=(
@@ -113,21 +111,21 @@ class ModelTablesMixin:
                     "Re-export the model with the latest version "
                     "to enable diagnostic APIs after Model.load()."
                 ),
-                context={"task": self._cfg.task, "loaded_from_artifact": True},
+                context={"task": state.cfg.task, "loaded_from_artifact": True},
             )
-        if self._cfg.task == "regression":
+        if state.cfg.task == "regression":
             raise LizyMLError(
                 code=ErrorCode.UNSUPPORTED_TASK,
                 user_message="confusion_matrix() requires a binary or multiclass task.",
-                context={"task": self._cfg.task},
+                context={"task": state.cfg.task},
             )
         from lizyml.evaluation.confusion import confusion_matrix_table
 
         return confusion_matrix_table(
-            fit_result,
-            np.asarray(self._y),
+            state.fit_result,
+            np.asarray(state.y),
             threshold=threshold,
-            task=self._cfg.task,
+            task=state.cfg.task,
         )
 
     def importance(self, kind: str = "split") -> dict[str, float]:
@@ -150,10 +148,10 @@ class ModelTablesMixin:
             ``OPTIONAL_DEP_MISSING`` when ``kind="shap"`` and shap is
             not installed.
         """
-        fit_result = self._require_fit()
+        state = self._get_fit_state()
 
         if kind == "shap":
-            if self._X is None:
+            if state.X is None:
                 raise LizyMLError(
                     code=ErrorCode.MODEL_NOT_FIT,
                     user_message=(
@@ -162,7 +160,7 @@ class ModelTablesMixin:
                         "diagnostic APIs after Model.load()."
                     ),
                     context={
-                        "task": self._cfg.task,
+                        "task": state.cfg.task,
                         "kind": kind,
                         "method": "importance",
                     },
@@ -170,20 +168,16 @@ class ModelTablesMixin:
             from lizyml.explain.shap_explainer import compute_shap_importance
 
             return compute_shap_importance(
-                models=fit_result.models,
-                X=self._X,
-                splits_outer=fit_result.splits.outer,
-                task=self._cfg.task,
-                feature_names=fit_result.feature_names,
-                pipeline_state=fit_result.pipeline_state,
-                pipeline_factory=(
-                    self._provider.build_pipeline_factory()
-                    if self._provider is not None
-                    else None
-                ),
+                models=state.fit_result.models,
+                X=state.X,
+                splits_outer=state.fit_result.splits.outer,
+                task=state.cfg.task,
+                feature_names=state.fit_result.feature_names,
+                pipeline_state=state.fit_result.pipeline_state,
+                pipeline_factory=state.provider.build_pipeline_factory(),
             )
 
-        models = fit_result.models
+        models = state.fit_result.models
         if not models:
             return {}
 
@@ -205,13 +199,8 @@ class ModelTablesMixin:
         Raises:
             LizyMLError with MODEL_NOT_FIT when ``tune()`` has not been called.
         """
-        if self._tuning_result is None:
-            raise LizyMLError(
-                code=ErrorCode.MODEL_NOT_FIT,
-                user_message="tune() has not been called yet.",
-                context={"method": "tuning_table", "task": self._cfg.task},
-            )
-        tr = self._tuning_result
+        state = self._get_tuning_state()
+        tr = state.tuning_result
         rows = []
         for t in tr.trials:
             row: dict[str, Any] = {
@@ -237,7 +226,8 @@ class ModelTablesMixin:
             LizyMLError with MODEL_NOT_FIT when ``tune(resume=True)`` has
             not been called or no boundary report exists.
         """
-        if self._tuning_result is None or self._tuning_result.boundary_report is None:
+        state = self._get_tuning_state()
+        if state.tuning_result.boundary_report is None:
             raise LizyMLError(
                 code=ErrorCode.MODEL_NOT_FIT,
                 user_message=(
@@ -246,10 +236,10 @@ class ModelTablesMixin:
                 ),
                 context={
                     "method": "boundary_table",
-                    "tune_called": self._tuning_result is not None,
+                    "tune_called": True,
                 },
             )
-        report = self._tuning_result.boundary_report
+        report = state.tuning_result.boundary_report
         rows = []
         for s in report.dims:
             rows.append(
@@ -280,22 +270,22 @@ class ModelTablesMixin:
             :class:`~lizyml.core.exceptions.LizyMLError` with
             ``MODEL_NOT_FIT`` when called before ``fit``.
         """
-        fr = self._require_fit()
+        state = self._get_fit_state()
+        fr = state.fit_result
         if not fr.models:
             raise LizyMLError(
                 code=ErrorCode.MODEL_NOT_FIT,
                 user_message="No trained models available.",
-                context={"method": "params_table", "task": self._cfg.task},
+                context={"method": "params_table", "task": state.cfg.task},
             )
 
         rows: list[dict[str, Any]] = []
 
         # --- Estimator-specific params via provider (H-0054) ---
-        if self._provider is not None:
-            rows.extend(self._provider.params_summary(fr.models[0], self._cfg.model))
+        rows.extend(state.provider.params_summary(fr.models[0], state.cfg.model))
 
         # --- Config training params ---
-        es = self._cfg.training.early_stopping
+        es = state.cfg.training.early_stopping
         if es is not None:
             rows.append({"parameter": "early_stopping_rounds", "value": es.rounds})
             rows.append({"parameter": "validation_ratio", "value": es.validation_ratio})
@@ -321,7 +311,8 @@ class ModelTablesMixin:
             :class:`~lizyml.core.exceptions.LizyMLError` with
             ``MODEL_NOT_FIT`` when called before ``fit``.
         """
-        fr = self._require_fit()
+        state = self._get_fit_state()
+        fr = state.fit_result
         rows: list[dict[str, Any]] = []
         for i, (train_idx, valid_idx) in enumerate(fr.splits.outer):
             row: dict[str, Any] = {

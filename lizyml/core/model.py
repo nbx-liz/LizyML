@@ -64,7 +64,7 @@ from lizyml.core.specs.problem_spec import ProblemSpec
 from lizyml.core.train_components import TrainComponents
 from lizyml.core.types.artifacts import DataFingerprint, RunMeta
 from lizyml.core.types.fit_result import FitResult
-from lizyml.core.types.fit_state import FitState
+from lizyml.core.types.fit_state import FitState, TuningState
 from lizyml.core.types.predict_result import PredictionResult
 from lizyml.core.types.task import TaskType
 from lizyml.core.types.tuning_result import (
@@ -1277,10 +1277,10 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
     def _get_fit_state(self) -> FitState:
         """Return a frozen snapshot of post-fit state for Mixin methods (#112).
 
-        H-0074 introduces this as the single read path that Mixin methods
-        will eventually consume. Phase 1 (introduction) keeps the existing
-        ``self._*`` access intact; Phase 2 will migrate Mixins to read
-        only from the returned ``FitState``.
+        Single read path for ``ModelPlotsMixin`` / ``ModelTablesMixin`` /
+        ``ModelPersistenceMixin``. After H-0077 (Phase 2) Mixin methods read
+        state exclusively from the returned ``FitState`` — direct ``self._*``
+        access from Mixin bodies is forbidden.
 
         Raises:
             :class:`~lizyml.core.exceptions.LizyMLError` with
@@ -1308,4 +1308,61 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             X=self._X,
             run_dir=self._run_dir,
             output_dir=self._output_dir,
+        )
+
+    def _get_tuning_state(self) -> TuningState:
+        """Return a frozen snapshot of post-tune state for tuning Mixin methods.
+
+        Used by ``tuning_plot`` / ``tuning_table`` / ``boundary_table`` which
+        operate on tuning artefacts even when ``fit()`` has not been called.
+        Kept distinct from :meth:`_get_fit_state` to preserve the latter's
+        "fit-required" invariant (H-0077).
+
+        Raises:
+            :class:`~lizyml.core.exceptions.LizyMLError` with
+            ``MODEL_NOT_FIT`` when ``tune()`` has not been called.
+        """
+        if self._tuning_result is None:
+            raise LizyMLError(
+                code=ErrorCode.MODEL_NOT_FIT,
+                user_message="tune() has not been called yet.",
+                context={"method": "_get_tuning_state", "task": self._cfg.task},
+            )
+        return TuningState(cfg=self._cfg, tuning_result=self._tuning_result)
+
+    def _resolve_export_path(self, path: str | Path | None) -> Path:
+        """Resolve the export destination directory (H-0077: moved from Mixin).
+
+        Path resolution (first match wins):
+
+        1. Explicit *path* argument.
+        2. ``{run_dir}/export`` when a run directory exists from
+           ``fit()`` / ``tune()``.
+        3. New run directory under ``output_dir`` if configured.
+        4. Error — no destination available.
+
+        This method writes to ``self._run_dir`` when allocating a new run
+        directory in case 3, which is why it lives on the Model facade rather
+        than on the (frozen-state) Mixin.
+
+        Raises:
+            :class:`~lizyml.core.exceptions.LizyMLError` with
+            ``SERIALIZATION_FAILED`` when no destination can be resolved.
+        """
+        if path is not None:
+            return Path(path)
+        if self._run_dir is not None:
+            return Path(self._run_dir) / "export"
+        if self._output_dir is not None:
+            from lizyml.core.logging import setup_output_dir
+
+            export_run_id = generate_run_id()
+            self._run_dir = setup_output_dir(self._output_dir, export_run_id)
+            return Path(self._run_dir) / "export"
+        raise LizyMLError(
+            ErrorCode.SERIALIZATION_FAILED,
+            user_message=(
+                "No export path provided and no output_dir configured. "
+                "Pass an explicit path or set output_dir in Config / constructor."
+            ),
         )

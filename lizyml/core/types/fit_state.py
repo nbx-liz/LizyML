@@ -1,16 +1,20 @@
-"""FitState — frozen snapshot of Model state consumed by Mixin methods (#112, H-0074).
+"""FitState / TuningState — frozen snapshots of Model state for Mixin methods (#112).
 
-Created by ``Model._get_fit_state()`` after ``fit()`` / ``tune()`` / ``load()``.
-Mixin methods (``ModelPlotsMixin``, ``ModelTablesMixin``, ``ModelPersistenceMixin``)
-will increasingly receive a ``FitState`` instance instead of reading
-``self._*`` attributes directly. Phase 1 (this introduction PR) only adds
-the dataclass and the factory; Mixin signatures remain backward-compatible.
-Phase 2 will migrate Mixin methods to ``state: FitState`` and remove the
-``self._*`` access path.
+Created by ``Model._get_fit_state()`` / ``Model._get_tuning_state()`` and consumed by
+``ModelPlotsMixin`` / ``ModelTablesMixin`` / ``ModelPersistenceMixin``. After H-0077
+(Phase 2) Mixin methods read state exclusively from these snapshots — direct
+``self._*`` access is forbidden inside Mixin bodies.
 
-The class is frozen and contains only references — it is cheap to build
-once per public-API call. It must NOT capture transient training state
-(e.g. per-fold buffers); only the post-fit handles required by diagnostic
+Two state types are distinguished by lifecycle:
+
+* :class:`FitState` — post-``fit()`` / ``tune()`` / ``load()`` snapshot. Required
+  for any diagnostic API that depends on ``fit_result`` (plots, tables, export).
+* :class:`TuningState` — post-``tune()`` snapshot, valid even before ``fit()`` is
+  called. Required for ``tuning_plot`` / ``tuning_table`` / ``boundary_table``.
+
+Both classes are frozen and contain only references — they are cheap to build
+once per public-API call. They must NOT capture transient training state
+(e.g. per-fold buffers); only the handles required by diagnostic / export
 methods belong here.
 """
 
@@ -65,3 +69,24 @@ class FitState:
     X: pd.DataFrame | None
     run_dir: Path | None
     output_dir: str | Path | None
+
+
+@dataclass(frozen=True)
+class TuningState:
+    """Frozen snapshot of post-``tune()`` Model state for Mixin consumption.
+
+    Used by ``tuning_plot`` / ``tuning_table`` / ``boundary_table`` which must
+    work after ``tune()`` even when ``fit()`` has not been called. Keeping this
+    distinct from :class:`FitState` preserves the latter's "fit-required"
+    invariant and avoids forcing every Mixin method to handle a ``None``
+    ``fit_result``.
+
+    Attributes:
+        cfg: The active :class:`LizyMLConfig`.
+        tuning_result: Output of :meth:`Model.tune`. Always non-``None`` —
+            :meth:`Model._get_tuning_state` raises ``MODEL_NOT_FIT`` when
+            ``tune()`` has not been called.
+    """
+
+    cfg: LizyMLConfig
+    tuning_result: TuningResult

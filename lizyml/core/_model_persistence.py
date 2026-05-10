@@ -1,8 +1,9 @@
 """ModelPersistenceMixin — export/load methods extracted from Model facade.
 
-After H-0073 this module is fully estimator-agnostic: codegen-relevant
-parameters and feval metadata flow through ``EstimatorProvider`` rather
-than direct ``LGBMAdapter`` access.
+After H-0077 (Phase 2) every method reads state exclusively through
+``self._get_fit_state()`` — direct ``self._<private>`` access is
+forbidden. Path resolution that mutates ``Model._run_dir`` lives on the
+Model facade as ``Model._resolve_export_path``.
 """
 
 from __future__ import annotations
@@ -10,15 +11,10 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from lizyml.core.exceptions import ErrorCode, LizyMLError
-from lizyml.core.logging import generate_run_id, get_logger
+from lizyml.core.logging import get_logger
 
 if TYPE_CHECKING:
-    import pandas as pd
-
-    from lizyml.config.schema import LizyMLConfig
-    from lizyml.core.types.fit_result import FitResult
-    from lizyml.estimators.provider import EstimatorProvider
+    from lizyml.core.types.fit_state import FitState
     from lizyml.training.refit_trainer import RefitResult
 
 _log = get_logger("model")
@@ -27,21 +23,14 @@ _log = get_logger("model")
 class ModelPersistenceMixin:
     """Mixin providing export/load methods for :class:`Model`."""
 
-    # Attributes provided by Model — declared for type checking only.
+    # Facade entry points provided by Model — declared for type checking only.
     if TYPE_CHECKING:
-        _cfg: LizyMLConfig
-        _fit_result: FitResult | None
-        _refit_result: RefitResult | None
-        _metrics: dict[str, Any] | None
-        _y: pd.Series | None
-        _X: pd.DataFrame | None
-        _run_dir: Path | None
-        _output_dir: str | Path | None
-        _provider: EstimatorProvider | None
 
-        def _require_fit(self) -> FitResult: ...
+        def _get_fit_state(self) -> FitState: ...
 
         def _require_refit(self) -> RefitResult: ...
+
+        def _resolve_export_path(self, path: str | Path | None) -> Path: ...
 
     def export(self, path: str | Path | None = None) -> Path:
         """Export Model artifacts to a directory.
@@ -73,7 +62,7 @@ class ModelPersistenceMixin:
             The ``.pkl`` files use joblib/pickle.  Only load artifacts from
             trusted sources.
         """
-        fit_result = self._require_fit()
+        state = self._get_fit_state()
         refit_result = self._require_refit()
 
         resolved_path = self._resolve_export_path(path)
@@ -82,15 +71,15 @@ class ModelPersistenceMixin:
         from lizyml.persistence.exporter import export as _export
 
         ctx: AnalysisContext | None = None
-        if self._y is not None and self._X is not None:
-            ctx = AnalysisContext(y_true=self._y, X_for_explain=self._X)
+        if state.y is not None and state.X is not None:
+            ctx = AnalysisContext(y_true=state.y, X_for_explain=state.X)
 
         _export(
             path=resolved_path,
-            fit_result=fit_result,
+            fit_result=state.fit_result,
             refit_result=refit_result,
-            config=self._cfg.model_dump(),
-            task=self._cfg.task,
+            config=state.cfg.model_dump(),
+            task=state.cfg.task,
             analysis_context=ctx,
         )
         _log.info("event='export.done' path=%s", resolved_path)
@@ -111,29 +100,20 @@ class ModelPersistenceMixin:
         Raises:
             LizyMLError with ``MODEL_NOT_FIT`` when called before ``fit``.
         """
-        fit_result = self._require_fit()
+        state = self._get_fit_state()
         refit_result = self._require_refit()
 
         from lizyml.codegen.generator import generate_code
         from lizyml.core._model_factories import get_outer_n_splits
 
         adapter = refit_result.model
-        provider = self._provider
-        if provider is None:
-            raise LizyMLError(
-                code=ErrorCode.MODEL_NOT_FIT,
-                user_message=(
-                    "Provider is not initialised. Call fit() before export_code()."
-                ),
-                context={"method": "export_code"},
-            )
 
         # Codegen-relevant params and feval metadata go through the
         # EstimatorProvider so that this module remains
         # estimator-agnostic (H-0073).
-        export = provider.build_export_params(adapter)
+        export = state.provider.build_export_params(adapter)
 
-        cfg = self._cfg
+        cfg = state.cfg
         es = cfg.training.early_stopping
         calibration_method: str | None = None
         # Use outer CV n_splits for OOF calibration (H-0058: reuses outer splits)
@@ -143,12 +123,12 @@ class ModelPersistenceMixin:
 
         # Extract c_final calibrator from CalibrationResult
         calibrator = None
-        cal_result = fit_result.calibrator
+        cal_result = state.fit_result.calibrator
         if cal_result is not None and hasattr(cal_result, "c_final"):
             calibrator = cal_result.c_final
 
         # Build run_meta dict from FitResult
-        meta = fit_result.run_meta
+        meta = state.fit_result.run_meta
         run_meta_dict: dict[str, Any] = {
             "lizyml_version": meta.lizyml_version,
             "run_id": meta.run_id,
@@ -159,8 +139,8 @@ class ModelPersistenceMixin:
         # H-0070: bake target encoder classes into config so train.py /
         # predict.py can re-encode and decode the original labels.
         target_classes: list[Any] | None = None
-        if fit_result.target_encoder.needs_encoding:
-            target_classes = list(fit_result.target_encoder.classes_)
+        if state.fit_result.target_encoder.needs_encoding:
+            target_classes = list(state.fit_result.target_encoder.classes_)
 
         result = generate_code(
             output_dir=path,
@@ -183,26 +163,6 @@ class ModelPersistenceMixin:
         _log.info("event='export_code.done' path=%s", result)
         return result
 
-    def _resolve_export_path(self, path: str | Path | None) -> Path:
-        """Resolve the export destination directory."""
-        if path is not None:
-            return Path(path)
-        if self._run_dir is not None:
-            return Path(self._run_dir) / "export"
-        if self._output_dir is not None:
-            from lizyml.core.logging import setup_output_dir
-
-            export_run_id = generate_run_id()
-            self._run_dir = setup_output_dir(self._output_dir, export_run_id)
-            return Path(self._run_dir) / "export"
-        raise LizyMLError(
-            ErrorCode.SERIALIZATION_FAILED,
-            user_message=(
-                "No export path provided and no output_dir configured. "
-                "Pass an explicit path or set output_dir in Config / constructor."
-            ),
-        )
-
     @classmethod
     def load(cls, path: str | Path) -> Any:
         """Restore a Model from a directory created by :meth:`export`.
@@ -224,7 +184,11 @@ class ModelPersistenceMixin:
 
         fit_result, refit_result, metadata, analysis_context = _load(path)
         config = metadata["config"]
-        instance = cls(config)  # type: ignore[call-arg]  # cls is Model at runtime
+        # ``load`` is the canonical re-hydration path — direct private-attr
+        # writes here are confined to this classmethod and intentionally
+        # rebuild the Model body. The Mixin state-isolation guard targets
+        # instance methods only.
+        instance: Any = cls(config)  # type: ignore[call-arg]  # cls is Model at runtime
         instance._fit_result = fit_result
         instance._refit_result = refit_result
         instance._metrics = fit_result.metrics

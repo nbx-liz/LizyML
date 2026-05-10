@@ -6257,3 +6257,90 @@ H-0042 で `model.py` を行数削減するため `ModelPlotsMixin` / `ModelTabl
 - Result: accepted
 - Notes: ユーザーへの予告と内部の削除計画を一元管理する非機能改善。実際の削除は v1.0 リリースの直前に別 PR で実施する。
 
+## H-0077: H-0074 Phase 2 — Mixin から self._* 直接 access を排除
+
+- **ステータス**: Accepted
+- **起票日**: 2026-05-10
+- **決定日**: 2026-05-10
+- **スコープ**: Internal API (`_model_plots.py`, `_model_tables.py`, `_model_persistence.py`, `core/types/fit_state.py`, `core/model.py`)
+- **関連**: [Issue #112](https://github.com/nbx-liz/issues/112) (HIGH), H-0074 (Phase 1)
+
+### 目的
+
+H-0074 Phase 1 で `FitState` frozen dataclass と `Model._get_fit_state()` を導入したが、Mixin (`ModelPlotsMixin` / `ModelTablesMixin` / `ModelPersistenceMixin`) はまだ `self._cfg`, `self._y`, `self._X`, `self._fit_result`, `self._tuning_result`, `self._provider`, `self._metrics`, `self._run_dir`, `self._output_dir` を直接参照している（合計 59 箇所）。Phase 2 として、Mixin の Model 本体への結合を `state: FitState` 経由のみに揃え、Issue #112 の Acceptance criteria（"Mixin methods access only `state.*` and method-local variables"）を満たす。
+
+### 変更内容
+
+1. **`TuningState` frozen dataclass を `core/types/fit_state.py` に追加**
+
+   `tuning_plot` / `tuning_table` / `boundary_table` は `tune()` のみ呼ばれた `fit()` 前の状態でも動作する必要があるため（既存テスト `tests/test_tuning/test_tuning_result.py` / `tests/test_plots/test_tuning_plot.py` で確認済み）、`FitState` の不変条件「fit 後 snapshot」を維持しつつ別経路を提供する。
+
+   ```python
+   @dataclass(frozen=True)
+   class TuningState:
+       cfg: LizyMLConfig
+       tuning_result: TuningResult  # not None — required for tuning APIs
+   ```
+
+2. **`Model._get_tuning_state() -> TuningState` を追加**
+
+   `_tuning_result is None` のとき `LizyMLError(MODEL_NOT_FIT)` を raise する単一の入口。tuning 系 Mixin メソッドはこれを通る。
+
+3. **Mixin 全メソッドの書き換え**
+
+   各メソッド冒頭で `state = self._get_fit_state()`（または `_get_tuning_state()`）を呼び、以降 `state.cfg / state.fit_result / state.y / state.X / state.metrics / state.tuning_result / state.provider / state.run_dir / state.output_dir` のみで完結させる。`self._<attr>` の直接 access を Mixin 内から完全に排除。`TYPE_CHECKING` ブロックの attribute stub も削除。
+
+4. **`_resolve_export_path()` を Model facade に移動**
+
+   既存実装は `self._run_dir = setup_output_dir(...)` で書き戻しを行うため、frozen な `FitState` 経由では実現できない。書き込み責務を Model facade に残し、Mixin の `export()` は facade method を呼ぶ形にする。
+
+5. **Mixin 単体テストの追加**
+
+   `tests/test_core/test_mixin_state_isolation.py` (新規) で mock の `FitState` / `TuningState` を Mixin に渡し、Mixin が `state.*` のみを参照していることを実証する単体テストを追加する。Issue #112 Acceptance criteria の 2 番目を満たす。
+
+### 影響範囲
+
+- **変更ファイル**:
+  - `lizyml/core/types/fit_state.py`（`TuningState` 追加）
+  - `lizyml/core/model.py`（`_get_tuning_state()` + `_resolve_export_path()` 追加）
+  - `lizyml/core/_model_plots.py`（`self._*` → `state.*`）
+  - `lizyml/core/_model_tables.py`（同上）
+  - `lizyml/core/_model_persistence.py`（同上 + `_resolve_export_path` を facade 委譲化）
+  - `tests/test_core/test_mixin_state_isolation.py`（新規）
+- **無変更**: 公開 API、Persistence 形式、Tuning 挙動、Plots 出力、Tables 形式、Config schema。
+
+### 互換性
+
+- **公開 API 完全互換**。Mixin メソッド signature・戻り値は不変。
+- 内部 attribute (`self._cfg`, `self._fit_result`, `_provider` 等) は Model 本体に維持。`FitState` / `TuningState` はその snapshot。
+- format_version 影響なし。
+
+### 代替案と不採用理由
+
+| 代替案 | 不採用理由 |
+|---|---|
+| `FitState` を `fit_result: FitResult \| None` に緩めて単一入口化 | "fit 後 snapshot" の不変条件が崩れ、すべての Mixin メソッドで null check が必要になる。型安全性が低下 |
+| Mixin メソッドに `state: FitState \| None = None` 引数を追加（外部 inject 可能） | 公開 API 表面が増え、ユーザーが内部構造を知る誘因になる。テスト用の入口は内部 helper で十分 |
+| Mixin を継承から composition に変更 | 既存の継承階層が public 型表面（`isinstance(model, ModelPlotsMixin)` 互換）。本 Issue のスコープ外 |
+| Phase 2 を tuning 系除外で実施 | Issue #112 Acceptance criteria を完全に満たさない |
+
+### 受け入れ基準
+
+- [ ] `grep -nE "self\._(cfg|y|X|fit_result|refit_result|tuning_result|metrics|provider|run_dir|output_dir)" lizyml/core/_model_plots.py lizyml/core/_model_tables.py lizyml/core/_model_persistence.py` の出力が空。
+- [ ] 各 Mixin の `TYPE_CHECKING` ブロックから Model attribute stub が削除されている（`_get_fit_state` / `_get_tuning_state` / `_resolve_export_path` の宣言のみ残す）。
+- [ ] `tests/test_core/test_mixin_state_isolation.py` で mock state を使った単体テストが各 Mixin に存在し、pass する。
+- [ ] 既存 1709 テスト全件 pass。
+- [ ] `uv run ruff check .` / `uv run ruff format --check .` / `uv run mypy lizyml/` がクリーン。
+
+### Migration
+
+- ユーザーには影響なし（公開 API 互換）。
+- 拡張開発者向け：以後、Mixin に新メソッドを追加する際は `self._<private>` ではなく `state = self._get_fit_state()` パターンに従うこと。
+
+### Decision
+
+- Date: 2026-05-10
+- Result: accepted
+- Notes: Phase 1 (H-0074) で予告した Phase 2 の実装。tuning 系メソッドの fit-前-tune-後 ケースを `TuningState` 別経路で扱うことで `FitState` の "fit 後 snapshot" 不変条件を維持。
+
+
