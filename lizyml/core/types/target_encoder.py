@@ -29,9 +29,27 @@ class TargetEncoder:
     can map predicted codes back to the original labels via
     :meth:`inverse_transform`.
 
+    Class ordering:
+        Class labels are sorted **lexicographically** by their string form
+        (``sorted(unique, key=str)``). This is deterministic and works for
+        heterogeneous label types (e.g. mixed ``str``/``int``) but does
+        **not** match natural numeric order for numeric-string labels::
+
+            input y:   ["1", "10", "2"]
+            classes_:  ("1", "10", "2")     # NOT ("1", "2", "10")
+            codes:      0     1     2
+
+        Downstream metric tables (``f1_score`` per class, etc.) inherit
+        this order. If natural numeric ordering is required, cast the
+        target to a numeric dtype before fitting (then the encoder becomes
+        a no-op and the model uses the numeric values directly). This
+        ordering rule is part of the public contract — see
+        BLUEPRINT.md §7.1.
+
     Attributes:
-        classes_: Sorted original labels. Empty tuple when ``needs_encoding``
-            is False. ``classes_[i]`` corresponds to int code ``i``.
+        classes_: Lexicographically sorted original labels (see *Class
+            ordering* above). Empty tuple when ``needs_encoding`` is False.
+            ``classes_[i]`` corresponds to int code ``i``.
         needs_encoding: Whether ``transform`` / ``inverse_transform`` perform
             actual mapping. False for regression and numeric classification.
         original_dtype: String form of the original y dtype (e.g. ``"object"``,
