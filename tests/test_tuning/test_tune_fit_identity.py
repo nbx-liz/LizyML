@@ -142,3 +142,48 @@ class TestTuneFitIdentity:
             f"for metric '{metric_name}'. "
             f"Tune and fit code paths may diverge."
         )
+
+
+# ===================================================================
+# Phase 4: H-0079 — tune-sampled objective reaches refit booster
+# ===================================================================
+
+
+class TestTuneSampledObjectiveIdentity:
+    """L2 of H-0079: when tune samples ``objective`` from default_space,
+    the refit booster must train with the **sampled** value, not the
+    task-locked default.
+
+    Pre-H-0079 the score-equality test (``TestTuneFitIdentity``) passed
+    even with the silent strip, because both tune trial and refit threw
+    away the sampled objective the same way. This test plugs the gap
+    by inspecting the booster's actual ``params["objective"]`` after
+    fit, independent of any score comparison.
+    """
+
+    def test_tune_sampled_objective_matches_refit_booster_regression(self) -> None:
+        """Refit booster's objective must equal ``best_params["objective"]``."""
+        df = make_regression_df(n=300, seed=0)
+        cfg_dict = make_config(
+            "regression", n_estimators=30, n_splits=2, tuning_n_trials=5, seed=42
+        )
+        cfg = LizyMLConfig(**cfg_dict)
+
+        m = Model(cfg)
+        tune_result = m.tune(data=df)
+
+        # default_space("regression") samples objective ∈ {"huber", "fair"}.
+        best_objective = tune_result.best_params.get("objective")
+        assert best_objective is not None, (
+            "tune.best_params must include 'objective' when default_space "
+            "is used (regression)."
+        )
+
+        m.fit(data=df)
+        refit_booster = m._refit_result.model.get_native_model()  # type: ignore[union-attr]
+        actual = refit_booster.params["objective"]
+        assert actual == best_objective, (
+            f"Tune sampled objective='{best_objective}' but refit booster "
+            f"trained with '{actual}'. _build_params() may be stripping "
+            f"the sampled value (H-0079 silent override)."
+        )

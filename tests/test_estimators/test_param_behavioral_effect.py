@@ -110,10 +110,15 @@ class TestBoosterParamPropagation:
         assert params[param_name] == param_value
 
     def test_objective_locked_to_task(self) -> None:
-        # User cannot override objective
+        # H-0079: cross-task objective injection now raises CONFIG_INVALID
+        # (was silently stripped pre-H-0079 — same defensive intent, but
+        # explicit failure instead of silent override).
+        from lizyml.core.exceptions import LizyMLError
+
         adapter = LGBMAdapter(task="binary", params={"objective": "regression"})
-        params, *_ = adapter._build_params()
-        assert params["objective"] == "binary"
+        with pytest.raises(LizyMLError) as excinfo:
+            adapter._build_params()
+        assert excinfo.value.code.name == "CONFIG_INVALID"
 
     def test_verbosity_forced_negative(self) -> None:
         adapter = LGBMAdapter(task="regression")

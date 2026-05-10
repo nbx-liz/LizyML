@@ -14,6 +14,38 @@ _TASK_OBJECTIVE: dict[str, str] = {
     "multiclass": "multiclass",
 }
 
+# H-0079: Per-task whitelist of LightGBM objective names accepted by
+# ``LGBMAdapter._build_params``. Canonical names only (no aliases). Source:
+# https://lightgbm.readthedocs.io/en/latest/Parameters.html#objective
+TASK_COMPATIBLE_OBJECTIVES: dict[str, frozenset[str]] = {
+    "regression": frozenset(
+        [
+            "regression",
+            "regression_l1",
+            "huber",
+            "fair",
+            "poisson",
+            "quantile",
+            "mape",
+            "gamma",
+            "tweedie",
+        ]
+    ),
+    "binary": frozenset(
+        [
+            "binary",
+            "cross_entropy",
+            "cross_entropy_lambda",
+        ]
+    ),
+    "multiclass": frozenset(
+        [
+            "multiclass",
+            "multiclassova",
+        ]
+    ),
+}
+
 # Maps task → eval_metric list
 _TASK_METRIC: dict[str, list[str]] = {
     "regression": ["huber", "mae", "mape"],
