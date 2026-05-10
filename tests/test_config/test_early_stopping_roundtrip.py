@@ -101,9 +101,10 @@ class TestExplicitFlagTracking:
     """
 
     def test_legacy_validation_ratio_keeps_auto_resolve(self) -> None:
-        cfg = EarlyStoppingConfig.model_validate(
-            {"enabled": True, "rounds": 50, "validation_ratio": 0.2}
-        )
+        with pytest.warns(DeprecationWarning, match="validation_ratio"):
+            cfg = EarlyStoppingConfig.model_validate(
+                {"enabled": True, "rounds": 50, "validation_ratio": 0.2}
+            )
         assert cfg.inner_valid is not None
         assert cfg.inner_valid.method == "holdout"
         assert cfg.inner_valid.ratio == 0.2
