@@ -64,6 +64,7 @@ from lizyml.core.specs.problem_spec import ProblemSpec
 from lizyml.core.train_components import TrainComponents
 from lizyml.core.types.artifacts import DataFingerprint, RunMeta
 from lizyml.core.types.fit_result import FitResult
+from lizyml.core.types.fit_state import FitState
 from lizyml.core.types.predict_result import PredictionResult
 from lizyml.core.types.tuning_result import (
     BoundaryReport,
@@ -1273,3 +1274,39 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
                 },
             )
         return self._refit_result
+
+    def _get_fit_state(self) -> FitState:
+        """Return a frozen snapshot of post-fit state for Mixin methods (#112).
+
+        H-0074 introduces this as the single read path that Mixin methods
+        will eventually consume. Phase 1 (introduction) keeps the existing
+        ``self._*`` access intact; Phase 2 will migrate Mixins to read
+        only from the returned ``FitState``.
+
+        Raises:
+            :class:`~lizyml.core.exceptions.LizyMLError` with
+            ``MODEL_NOT_FIT`` when called before ``fit()`` (delegated via
+            :meth:`_require_fit`).
+        """
+        fit_result = self._require_fit()
+        if self._provider is None:
+            raise LizyMLError(
+                code=ErrorCode.MODEL_NOT_FIT,
+                user_message=(
+                    "Provider is not initialised. Call fit() before "
+                    "diagnostic / export APIs."
+                ),
+                context={"method": "_get_fit_state"},
+            )
+        return FitState(
+            cfg=self._cfg,
+            fit_result=fit_result,
+            refit_result=self._refit_result,
+            tuning_result=self._tuning_result,
+            provider=self._provider,
+            metrics=self._metrics,
+            y=self._y,
+            X=self._X,
+            run_dir=self._run_dir,
+            output_dir=self._output_dir,
+        )
