@@ -86,7 +86,10 @@ def _build_splitter_for_method(
                     "blocked_group_kfold requires block_values "
                     "(extracted from blocks.col by Facade)."
                 ),
-                context={},
+                context={
+                    "split_method": "blocked_group_kfold",
+                    "blocks_col": split_cfg.blocks.col,
+                },
             )
         stratify_bool = _resolve_stratify(
             split_cfg.groups.stratify, task or "regression"

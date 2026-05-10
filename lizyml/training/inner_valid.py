@@ -143,7 +143,10 @@ class GroupHoldoutInnerValid(BaseInnerValidStrategy):
                     "GroupHoldoutInnerValid requires groups to be provided. "
                     "Set data.group_col in the config."
                 ),
-                context={},
+                context={
+                    "n_samples": n_samples,
+                    "strategy": "GroupHoldoutInnerValid",
+                },
             )
         # Preserve input order of groups (np.unique sorts, so use dict.fromkeys)
         seen: dict[Any, None] = dict.fromkeys(groups.tolist())
@@ -286,7 +289,11 @@ class BlockedGroupInnerValid(BaseInnerValidStrategy):
                     "BlockedGroupInnerValid requires groups. "
                     "Set groups.col in the split config."
                 ),
-                context={},
+                context={
+                    "n_samples": n_samples,
+                    "strategy": "BlockedGroupInnerValid",
+                    "task": self.task,
+                },
             )
 
         # Preserve input order (= time order)

@@ -87,7 +87,7 @@ def plot_importance(
         raise LizyMLError(
             code=ErrorCode.MODEL_NOT_FIT,
             user_message="No trained models found in FitResult.",
-            context={},
+            context={"plot": "importance", "kind": kind},
         )
 
     # Average importance across folds

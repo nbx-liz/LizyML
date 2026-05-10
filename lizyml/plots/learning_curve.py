@@ -61,7 +61,7 @@ def plot_learning_curve(
         raise LizyMLError(
             code=ErrorCode.MODEL_NOT_FIT,
             user_message="No training history found in FitResult.",
-            context={},
+            context={"plot": "learning_curve", "n_history": 0},
         )
 
     # Gather eval_history entries; skip folds with empty history
@@ -86,7 +86,10 @@ def plot_learning_curve(
                 "No evaluation history found. "
                 "Enable early stopping to record validation metrics per fold."
             ),
-            context={},
+            context={
+                "plot": "learning_curve",
+                "n_folds": len(fit_result.history),
+            },
         )
 
     # Use first fold's keys as reference
