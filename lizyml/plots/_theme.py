@@ -58,5 +58,8 @@ def apply_default_layout(
         final_layout["height"] = DEFAULT_HEIGHT
     if "width" not in layout:
         final_layout["width"] = DEFAULT_WIDTH
+    # Only ``None`` is filtered out so plotly's auto-sizing kicks in for that
+    # key. Falsy-but-meaningful values (``0``, ``False``, ``""``) are valid
+    # plotly inputs and pass through untouched.
     final_layout.update({k: v for k, v in layout.items() if v is not None})
     fig.update_layout(**final_layout)
