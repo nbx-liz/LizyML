@@ -187,6 +187,11 @@ class Tuner:
                 try:
                     user_cb(info)
                 except Exception as exc:
+                    # stacklevel=1 (this site) is intentional: by the time
+                    # ``warnings.warn`` runs, ``user_cb`` has already raised
+                    # and unwound, so its frame is not on the stack. The
+                    # exception type+message in the warning text is the
+                    # actionable signal for the user (#117).
                     warnings.warn(
                         f"progress_callback raised an exception; ignoring. "
                         f"{type(exc).__name__}: {exc}",

@@ -76,6 +76,11 @@ from lizyml.data.dataframe_builder import DataFrameComponents
 from lizyml.data.fingerprint import compute as fp_compute
 from lizyml.estimators.provider import EstimatorProvider
 from lizyml.evaluation.evaluator import Evaluator
+from lizyml.metrics.registry import (
+    get_metrics_for_task,
+    parse_metric_entries,
+    parse_metric_entry,
+)
 from lizyml.splitters.base import BaseSplitter
 from lizyml.training.cv_trainer import CVTrainer
 from lizyml.training.inner_valid import BaseInnerValidStrategy
@@ -300,8 +305,6 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             return self._metrics
 
         # Validate task compatibility first (raises UNSUPPORTED_METRIC if invalid)
-        from lizyml.metrics.registry import get_metrics_for_task, parse_metric_entries
-
         get_metrics_for_task(metrics, self._cfg.task)  # raises on unknown/incompatible
 
         # Extract metric names for filtering (H-0065)
@@ -456,7 +459,11 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         )
 
         self._ensure_run_dir(generate_run_id())
-        X, y, groups, _ = self._prepare_training_data(data)
+        # Components are dropped: tune() only needs the sorted X/y/groups for
+        # the objective closure; FeaturePipeline state is built per-trial via
+        # `provider.build_pipeline_factory()`.
+        X, y, groups, _components = self._prepare_training_data(data)
+        del _components
         self._X, self._y = X, y
 
         provider = get_provider(cfg.model)
@@ -483,7 +490,6 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
 
         # --- Metric & evaluator setup --------------------------------------------
         metric_entries = cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task]
-        from lizyml.metrics.registry import parse_metric_entry
 
         first_entry = metric_entries[0]
         metric_name, _ = parse_metric_entry(first_entry)
@@ -818,19 +824,26 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
 
         # Fix up trial round numbers: trials from previous rounds keep
         # their original round, new trials get the current round_number.
+        # Pre-compute (cumulative_count, round) so the per-trial lookup is
+        # a small linear scan over rounds (O(n + m) total) instead of
+        # O(n × m).
+        round_boundaries: list[tuple[int, int]] = []
+        running = 0
+        for rs in self._rounds:
+            running += rs.n_trials
+            round_boundaries.append((running, rs.round))
+
         fixed_trials = []
         for t in raw_result.trials:
-            if t.number < prior_trials:
-                trial_round = 1
-                cumulative = 0
-                for rs in self._rounds:
-                    cumulative += rs.n_trials
-                    if t.number < cumulative:
-                        trial_round = rs.round
-                        break
-                fixed_trials.append(dataclasses.replace(t, round=trial_round))
-            else:
+            if t.number >= prior_trials:
                 fixed_trials.append(dataclasses.replace(t, round=round_number))
+                continue
+            trial_round = 1
+            for cumulative, rs_round in round_boundaries:
+                if t.number < cumulative:
+                    trial_round = rs_round
+                    break
+            fixed_trials.append(dataclasses.replace(t, round=trial_round))
 
         final_result = TuningResult(
             best_model_params=raw_result.best_model_params,
