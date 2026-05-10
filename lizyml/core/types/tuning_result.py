@@ -15,7 +15,7 @@ from lizyml.core.types.search_dim import SearchDim
 
 @dataclass(frozen=True)
 class BoundaryDimStatus:
-    """Boundary analysis for a single search dimension (H-0068).
+    """Boundary analysis for a single search dimension (H-0068, H-0078).
 
     Attributes:
         name: Dimension name.
@@ -27,6 +27,9 @@ class BoundaryDimStatus:
         expanded: Whether this dim was expanded in the current round.
         new_low: New lower bound after expansion (None if not expanded).
         new_high: New upper bound after expansion (None if not expanded).
+        clamped_to_bound: ``True`` when expansion hit the dim's
+            ``min_allowed`` / ``max_allowed`` ceiling/floor (H-0078).
+            Used by downstream UIs to badge "max reached" dims.
     """
 
     name: str
@@ -38,6 +41,7 @@ class BoundaryDimStatus:
     expanded: bool
     new_low: float | int | None
     new_high: float | int | None
+    clamped_to_bound: bool = False
 
 
 @dataclass(frozen=True)

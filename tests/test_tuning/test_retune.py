@@ -202,6 +202,210 @@ class TestExpandDims:
 
 
 # ---------------------------------------------------------------------------
+# H-0078 Phase 2: bounds-aware expansion
+# ---------------------------------------------------------------------------
+
+
+class TestExpandWithBounds:
+    """Boundary expansion respects per-dim ``min_allowed`` / ``max_allowed``.
+
+    Regression for #152: re-tuning grew ``learning_rate`` past 1.0 and
+    ``feature_fraction`` past 1.0 because no parameter-aware ceiling
+    existed. With ``max_allowed`` set, expansion clamps and signals via
+    ``clamped_to_bound``.
+    """
+
+    def test_upper_expansion_clamps_to_max_allowed_log(self) -> None:
+        """log dim near upper edge: 0.3 * 3 = 0.9 (under cap), but next round
+        would exceed; with max_allowed=1.0 the expansion is clamped to 1.0."""
+        dims = [
+            FloatDim(
+                "learning_rate",
+                low=0.0001,
+                high=0.5,
+                log=True,
+                max_allowed=1.0,
+            )
+        ]
+        report = detect_boundary(dims, {"learning_rate": 0.49}, threshold=0.05)
+        new = expand_dims(dims, report)
+        assert isinstance(new[0], FloatDim)
+        # 0.5 * 3.0 = 1.5 → clamped to 1.0
+        assert new[0].high == 1.0
+        # the dim status must signal clamp
+        status = next(s for s in report.dims if s.name == "learning_rate")
+        assert status.clamped_to_bound is True
+
+    def test_upper_expansion_clamps_to_max_allowed_linear(self) -> None:
+        dims = [FloatDim("ff", low=0.5, high=1.0, log=False, max_allowed=1.0)]
+        report = detect_boundary(dims, {"ff": 0.99}, threshold=0.05)
+        new = expand_dims(dims, report)
+        assert new[0].high == 1.0
+        status = next(s for s in report.dims if s.name == "ff")
+        assert status.clamped_to_bound is True
+
+    def test_lower_expansion_clamps_to_min_allowed(self) -> None:
+        """validation_ratio with min_allowed=0.05 must not collapse to 0.0."""
+        dims = [
+            FloatDim(
+                "validation_ratio",
+                low=0.1,
+                high=0.3,
+                log=False,
+                min_allowed=0.05,
+            )
+        ]
+        report = detect_boundary(dims, {"validation_ratio": 0.11}, threshold=0.05)
+        new = expand_dims(dims, report)
+        # 0.1 - 0.2 = -0.1 → would clamp to 0.0 normally, but min_allowed
+        # forces the floor up to 0.05.
+        assert new[0].low == 0.05
+        status = next(s for s in report.dims if s.name == "validation_ratio")
+        assert status.clamped_to_bound is True
+
+    def test_no_clamp_when_within_bounds(self) -> None:
+        """Expansion that does not hit a bound must not signal clamped."""
+        dims = [
+            FloatDim(
+                "lr",
+                low=0.01,
+                high=0.05,
+                log=True,
+                max_allowed=1.0,
+            )
+        ]
+        report = detect_boundary(dims, {"lr": 0.049}, threshold=0.05)
+        new = expand_dims(dims, report)
+        # 0.05 * 3 = 0.15, well under 1.0 → no clamp
+        assert new[0].high == pytest.approx(0.15, rel=1e-9)
+        status = next(s for s in report.dims if s.name == "lr")
+        assert status.clamped_to_bound is False
+
+    def test_int_dim_upper_clamp_to_max_allowed(self) -> None:
+        dims = [IntDim("max_depth", low=3, high=12, max_allowed=30)]
+        report = detect_boundary(dims, {"max_depth": 12}, threshold=0.05)
+        new = expand_dims(dims, report)
+        # 12 + (12 - 3) = 21, under 30 → not clamped
+        assert isinstance(new[0], IntDim)
+        assert new[0].high == 21
+        status = next(s for s in report.dims if s.name == "max_depth")
+        assert status.clamped_to_bound is False
+
+        # Second round of expansion would push past 30 → clamped
+        dims2 = [IntDim("max_depth", low=3, high=21, max_allowed=30)]
+        report2 = detect_boundary(dims2, {"max_depth": 21}, threshold=0.05)
+        new2 = expand_dims(dims2, report2)
+        # 21 + (21 - 3) = 39 → clamp to 30
+        assert new2[0].high == 30
+        status2 = next(s for s in report2.dims if s.name == "max_depth")
+        assert status2.clamped_to_bound is True
+
+    def test_no_max_allowed_means_unbounded_expansion(self) -> None:
+        """Backward compat: no max_allowed → expansion grows unboundedly."""
+        dims = [FloatDim("lr", low=0.0001, high=0.1, log=True)]
+        report = detect_boundary(dims, {"lr": 0.099}, threshold=0.05)
+        new = expand_dims(dims, report)
+        assert new[0].high == pytest.approx(0.3, rel=1e-9)
+        status = next(s for s in report.dims if s.name == "lr")
+        assert status.clamped_to_bound is False
+
+    def test_clamp_to_existing_high_is_a_noop(self) -> None:
+        """If the expansion would land below the current high (degenerate
+        max_allowed already at high), expansion is effectively a no-op:
+        new high must not become smaller than the original high."""
+        dims = [FloatDim("ff", low=0.5, high=1.0, log=False, max_allowed=1.0)]
+        report = detect_boundary(dims, {"ff": 0.99}, threshold=0.05)
+        new = expand_dims(dims, report)
+        assert new[0].high == 1.0  # unchanged, not less
+        # And the status reports clamp because expansion was bounded
+        status = next(s for s in report.dims if s.name == "ff")
+        assert status.clamped_to_bound is True
+
+    def test_multi_round_log_expansion_never_exceeds_max_allowed(self) -> None:
+        """Regression for #152: the original report shows ``learning_rate``
+        drifting 0.1 → 0.3 → 0.9 → 2.7 over three re-tune rounds. With
+        ``max_allowed=1.0`` propagated across rounds, ``high`` must never
+        exceed 1.0 no matter how many rounds run."""
+        dim: FloatDim = FloatDim(
+            "learning_rate",
+            low=0.0001,
+            high=0.1,
+            log=True,
+            max_allowed=1.0,
+        )
+        dims: list = [dim]
+        for _ in range(10):
+            # always near upper edge → triggers expansion
+            best = dims[0].high * 0.99
+            report = detect_boundary(dims, {"learning_rate": best}, threshold=0.05)
+            dims = expand_dims(dims, report)
+            assert isinstance(dims[0], FloatDim)
+            assert dims[0].high <= 1.0, (
+                f"learning_rate.high must stay <= 1.0, got {dims[0].high}"
+            )
+            assert dims[0].max_allowed == 1.0  # bound is propagated
+        # After 10 rounds it should be saturated at exactly 1.0
+        assert dims[0].high == 1.0
+
+
+class TestSearchDimMinMaxAllowed:
+    """FloatDim / IntDim accept optional ``min_allowed`` / ``max_allowed``."""
+
+    def test_floatdim_default_none(self) -> None:
+        dim = FloatDim("x", low=0.0, high=1.0)
+        assert dim.min_allowed is None
+        assert dim.max_allowed is None
+
+    def test_floatdim_with_bounds(self) -> None:
+        dim = FloatDim("x", low=0.1, high=0.5, min_allowed=0.0, max_allowed=1.0)
+        assert dim.min_allowed == 0.0
+        assert dim.max_allowed == 1.0
+
+    def test_intdim_default_none(self) -> None:
+        dim = IntDim("n", low=1, high=10)
+        assert dim.min_allowed is None
+        assert dim.max_allowed is None
+
+    def test_intdim_with_bounds(self) -> None:
+        dim = IntDim("n", low=3, high=12, max_allowed=30)
+        assert dim.max_allowed == 30
+        assert dim.min_allowed is None
+
+
+class TestBoundaryDimStatusClampedField:
+    """``BoundaryDimStatus.clamped_to_bound`` defaults False."""
+
+    def test_default_false(self) -> None:
+        s = BoundaryDimStatus(
+            name="x",
+            best_value=0.5,
+            low=0.0,
+            high=1.0,
+            position_pct=0.5,
+            edge="none",
+            expanded=False,
+            new_low=None,
+            new_high=None,
+        )
+        assert s.clamped_to_bound is False
+
+    def test_set_true(self) -> None:
+        s = BoundaryDimStatus(
+            name="x",
+            best_value=0.99,
+            low=0.5,
+            high=1.0,
+            position_pct=0.99,
+            edge="upper",
+            expanded=True,
+            new_low=0.5,
+            new_high=1.0,
+            clamped_to_bound=True,
+        )
+        assert s.clamped_to_bound is True
+
+
+# ---------------------------------------------------------------------------
 # Type extension tests
 # ---------------------------------------------------------------------------
 
