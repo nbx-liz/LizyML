@@ -895,23 +895,10 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             tc = components.time_col
             assert tc is not None  # noqa: S101
             sort_order = tc.argsort()
-            X = X.iloc[sort_order].reset_index(drop=True)
-            y = y.iloc[sort_order].reset_index(drop=True)
+            components = self._sort_and_rebuild_components(sort_order, components)
+            X, y = components.X, components.y
             if groups is not None:
                 groups = groups[sort_order]
-            sorted_time = tc.iloc[sort_order].reset_index(drop=True)
-            sorted_group = (
-                components.group_col.iloc[sort_order].reset_index(drop=True)
-                if components.group_col is not None
-                else None
-            )
-            components = DataFrameComponents(
-                X=X,
-                y=y,
-                time_col=sorted_time,
-                group_col=sorted_group,
-                target_encoder=components.target_encoder,
-            )
 
         if cfg.split.method in _BLOCK_METHODS:
             if not isinstance(cfg.split, BlockedGroupKFoldConfig):
@@ -948,35 +935,53 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             block_series = df[blocks_col_name]
             group_series = df[groups_col_name]
 
-            # Sort by blocks.col
+            # Sort by blocks.col, then rebuild via shared helper.
             sort_order = block_series.argsort()
-            X = X.iloc[sort_order].reset_index(drop=True)
-            y = y.iloc[sort_order].reset_index(drop=True)
+            components = self._sort_and_rebuild_components(sort_order, components)
+            X, y = components.X, components.y
 
             # Override groups with groups.col (not data.group_col)
             groups = group_series.iloc[sort_order].to_numpy()
             self._block_values = block_series.iloc[sort_order].to_numpy()
 
-            # Update components
-            block_sorted_time: pd.Series | None = (
-                components.time_col.iloc[sort_order].reset_index(drop=True)
-                if components.time_col is not None
-                else None
-            )
-            block_sorted_group: pd.Series | None = (
-                components.group_col.iloc[sort_order].reset_index(drop=True)
-                if components.group_col is not None
-                else None
-            )
-            components = DataFrameComponents(
-                X=X,
-                y=y,
-                time_col=block_sorted_time,
-                group_col=block_sorted_group,
-                target_encoder=components.target_encoder,
-            )
-
         return X, y, groups, components
+
+    @staticmethod
+    def _sort_and_rebuild_components(
+        sort_order: npt.NDArray[np.intp] | pd.Series,
+        components: DataFrameComponents,
+    ) -> DataFrameComponents:
+        """Apply *sort_order* to every Series in *components* and return a
+        new :class:`DataFrameComponents` (#115).
+
+        Shared by the time-series and blocked-group branches of
+        :meth:`_prepare_training_data`. The two callers previously contained
+        nearly-identical sort-and-reset blocks; the only difference is the
+        sort key, which the caller computes.
+
+        ``groups`` (``np.ndarray`` outside ``components``) is *not* touched
+        here — each branch handles it differently (TS reuses, Block
+        replaces). The ``target_encoder`` is propagated unchanged.
+        """
+        X = components.X.iloc[sort_order].reset_index(drop=True)
+        y = components.y.iloc[sort_order].reset_index(drop=True)
+        sorted_time = (
+            components.time_col.iloc[sort_order].reset_index(drop=True)
+            if components.time_col is not None
+            else None
+        )
+        sorted_group = (
+            components.group_col.iloc[sort_order].reset_index(drop=True)
+            if components.group_col is not None
+            else None
+        )
+        return DataFrameComponents(
+            X=X,
+            y=y,
+            time_col=sorted_time,
+            group_col=sorted_group,
+            target_encoder=components.target_encoder,
+        )
 
     def _build_run_meta(self, run_id: str) -> RunMeta:
         def _ver(pkg: str) -> str:
