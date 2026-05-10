@@ -1692,3 +1692,4 @@ loaded_model.probability_histogram_plot()
 - `Model` クラスは mixin で構成する（H-0042）。plot 系は `_model_plots.py`、table/accessor 系は `_model_tables.py`、persistence 系は `_model_persistence.py` に分割し、`model.py` には core lifecycle（`__init__`, `fit`, `predict`, `evaluate`, `tune`）とプライベートヘルパーのみを残す。
 - mixin は `_` プレフィックスの非公開モジュールとし、`Model` の import パス（`lizyml.core.model.Model`）は変更しない。
 - 依存関係の切り離しが必要な箇所では Lazy Import を許容する。
+- `Model._get_fit_state()` が返す `FitState` frozen dataclass を mixin の唯一の入口として整備中（H-0074, Phase 1: 型定義 + factory + テスト, Phase 2: 全 mixin 移行）。`FitState` は `cfg / fit_result / refit_result / tuning_result / provider / metrics / y / X / run_dir / output_dir` の post-fit snapshot を持ち、`self._*` への直接アクセスを段階的に置換する。
