@@ -25,6 +25,7 @@ __all__ = [
     "FloatDim",
     "IntDim",
     "SearchDim",
+    "attach_bounds",
     "detect_boundary",
     "expand_dims",
     "parse_space",
@@ -393,6 +394,67 @@ def detect_boundary(
         dims=tuple(statuses),
         expanded_names=tuple(expanded_names),
     )
+
+
+def attach_bounds(
+    dims: list[SearchDim],
+    bounds: dict[str, dict[str, float | int]],
+) -> list[SearchDim]:
+    """Return a new list of dims with ``min_allowed`` / ``max_allowed`` injected.
+
+    For each ``FloatDim`` / ``IntDim`` whose ``name`` is a key in *bounds*,
+    a copy is returned with ``min_allowed`` / ``max_allowed`` populated
+    from ``{"min": ..., "max": ...}``. Dims that already carry user-set
+    bounds are left untouched (user override wins). ``CategoricalDim`` is
+    always returned unchanged. Dims with no entry in *bounds* are
+    unchanged.
+
+    Used by ``Model.tune`` to wire ``EstimatorProvider.parameter_bounds(task)``
+    onto the search space (H-0078).
+    """
+    if not bounds:
+        return list(dims)
+
+    new_dims: list[SearchDim] = []
+    for dim in dims:
+        if isinstance(dim, CategoricalDim):
+            new_dims.append(dim)
+            continue
+        b = bounds.get(dim.name)
+        if b is None:
+            new_dims.append(dim)
+            continue
+        # Respect user-set bounds — do not overwrite.
+        if dim.min_allowed is not None or dim.max_allowed is not None:
+            new_dims.append(dim)
+            continue
+        if isinstance(dim, FloatDim):
+            new_dims.append(
+                FloatDim(
+                    name=dim.name,
+                    low=dim.low,
+                    high=dim.high,
+                    log=dim.log,
+                    category=dim.category,
+                    min_allowed=float(b["min"]),
+                    max_allowed=float(b["max"]),
+                )
+            )
+        elif isinstance(dim, IntDim):
+            new_dims.append(
+                IntDim(
+                    name=dim.name,
+                    low=dim.low,
+                    high=dim.high,
+                    log=dim.log,
+                    category=dim.category,
+                    min_allowed=int(b["min"]),
+                    max_allowed=int(b["max"]),
+                )
+            )
+        else:  # pragma: no cover — exhaustive over SearchDim
+            new_dims.append(dim)
+    return new_dims
 
 
 def expand_dims(
