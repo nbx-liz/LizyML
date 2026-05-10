@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.15.0] - 2026-05-10
 
 ### Changed (potentially breaking)
 
@@ -29,6 +29,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **`_OBJECTIVE_CHOICES` retired** (H-0079 Phase 3) — replaced by a conservative `_DEFAULT_TUNE_OBJECTIVES` table in `lizyml/estimators/lgbm/defaults.py` whose values intentionally exclude `gamma` / `poisson` / `tweedie` / `mape` (target-distribution-restricted). The full canonical set is exposed via `LGBMProvider().objective_choices(task)` for downstream UIs and explicit user-supplied search spaces.
 - **`_LGBM_OBJECTIVE_CHOICES` self-validates against `TASK_COMPATIBLE_OBJECTIVES`** at module load time (H-0079 Phase 2/3) so the two sources of truth cannot drift.
 - **L4 MetricRegistry coverage drift test** (`tests/test_estimators/test_metric_choices_registry_coverage.py`, H-0079 Phase 3) — every fit-time-reachable metric in `MetricRegistry._TASK_METRICS` is now asserted to appear in `LGBMProvider.metric_choices()` after alias translation. Caught the multiclass `auc` omission above.
+- **`_validate_metric_consistency()` load-time guard** (H-0079 follow-up, [#164](https://github.com/nbx-liz/LizyML/pull/164)) — parallel to `_validate_objective_consistency()`. Asserts at module load that every name surfaced via `_LGBM_NATIVE_METRIC_CHOICES` / `_LGBM_FEVAL_METRIC_CHOICES` is reachable via `metric_bridge` whitelists. Drift would offer a metric to a downstream UI that the library would later reject; fail-fast prevents that.
+- **H-0079 follow-up coverage tests** (`tests/test_estimators/test_h0079_followup.py`, [#164](https://github.com/nbx-liz/LizyML/pull/164)) — 11 tests pinning previously-untested integration boundaries: codegen export with non-default objective (3), save/load round-trip with non-default objective (2), `_check_objective_compatible` edge inputs (4), and Platt calibration on top of binary `cross_entropy` objective (2).
+- **`LGBMProvider.build_export_params` docstring** (H-0079 follow-up) gains a `Note:` block documenting the intentional same-package private call into `LGBMAdapter._build_params()` so future refactors update both call sites together.
 
 ## [0.14.0] - 2026-05-10
 
