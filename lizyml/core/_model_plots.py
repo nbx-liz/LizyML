@@ -82,7 +82,7 @@ class ModelPlotsMixin:
                     "Re-export the model with the latest version "
                     "to enable diagnostic APIs after Model.load()."
                 ),
-                context={},
+                context={"task": self._cfg.task, "loaded_from_artifact": True},
             )
         if self._cfg.task == "regression":
             raise LizyMLError(
@@ -117,7 +117,7 @@ class ModelPlotsMixin:
                     "Re-export the model with the latest version "
                     "to enable diagnostic APIs after Model.load()."
                 ),
-                context={},
+                context={"task": self._cfg.task, "loaded_from_artifact": True},
             )
         if self._cfg.task != "binary":
             raise LizyMLError(
@@ -152,7 +152,7 @@ class ModelPlotsMixin:
                     "Re-export the model with the latest version "
                     "to enable diagnostic APIs after Model.load()."
                 ),
-                context={},
+                context={"task": self._cfg.task, "loaded_from_artifact": True},
             )
         if self._cfg.task != "binary":
             raise LizyMLError(
@@ -245,7 +245,7 @@ class ModelPlotsMixin:
             raise LizyMLError(
                 code=ErrorCode.MODEL_NOT_FIT,
                 user_message="tune() has not been called yet.",
-                context={},
+                context={"plot": "tuning_history", "task": self._cfg.task},
             )
         from lizyml.plots.tuning import plot_tuning_history
 

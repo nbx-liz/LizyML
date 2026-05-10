@@ -287,7 +287,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             raise LizyMLError(
                 code=ErrorCode.MODEL_NOT_FIT,
                 user_message="Metrics not computed. Call fit() first.",
-                context={},
+                context={"task": self._cfg.task, "fit_called": False},
             )
 
         if metrics is None:
@@ -444,7 +444,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
                     "No tuning configuration found. "
                     "Add a 'tuning' section to the config to enable tuning."
                 ),
-                context={},
+                context={"task": cfg.task, "model": getattr(cfg.model, "name", None)},
             )
 
         if resume and self._study is None:
@@ -454,7 +454,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
                     "Cannot resume tuning: no previous tune() call. "
                     "Run tune() first, then tune(resume=True)."
                 ),
-                context={},
+                context={"resume": True, "round_number": self._round_number},
             )
 
         if not 0.0 < boundary_threshold < 0.5:
@@ -850,7 +850,10 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
                 "No data provided. Pass a DataFrame to fit(data=df) or "
                 "set data.path in the config."
             ),
-            context={},
+            context={
+                "cfg_data_path": self._cfg.data.path,
+                "constructor_data": self._data is not None,
+            },
         )
 
     def _prepare_training_data(
@@ -1072,7 +1075,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             raise LizyMLError(
                 code=ErrorCode.MODEL_NOT_FIT,
                 user_message="Model has not been fitted. Call fit() first.",
-                context={},
+                context={"task": self._cfg.task, "method": "fit"},
             )
         return self._fit_result
 
@@ -1081,6 +1084,10 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             raise LizyMLError(
                 code=ErrorCode.MODEL_NOT_FIT,
                 user_message="Model has not been fitted. Call fit() first.",
-                context={},
+                context={
+                    "task": self._cfg.task,
+                    "method": "refit",
+                    "fit_done": self._fit_result is not None,
+                },
             )
         return self._refit_result

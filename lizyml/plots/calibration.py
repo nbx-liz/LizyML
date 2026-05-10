@@ -48,7 +48,7 @@ def _require_calibrator(fit_result: FitResult) -> Any:
                 "Calibration plots require calibration to be enabled. "
                 "Set calibration.method in the config."
             ),
-            context={},
+            context={"calibrator_type": type(fit_result.calibrator).__name__},
         )
     return fit_result.calibrator
 

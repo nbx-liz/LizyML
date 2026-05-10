@@ -81,7 +81,11 @@ class ModelTablesMixin:
                     "Re-export the model with the latest version to enable "
                     "diagnostic APIs after Model.load()."
                 ),
-                context={},
+                context={
+                    "task": self._cfg.task,
+                    "loaded_from_artifact": True,
+                    "method": "residuals",
+                },
             )
         result: npt.NDArray[np.float64] = np.asarray(self._y) - fit_result.oof_pred
         return result
@@ -109,7 +113,7 @@ class ModelTablesMixin:
                     "Re-export the model with the latest version "
                     "to enable diagnostic APIs after Model.load()."
                 ),
-                context={},
+                context={"task": self._cfg.task, "loaded_from_artifact": True},
             )
         if self._cfg.task == "regression":
             raise LizyMLError(
@@ -157,7 +161,11 @@ class ModelTablesMixin:
                         "Re-export the model with the latest version to enable "
                         "diagnostic APIs after Model.load()."
                     ),
-                    context={},
+                    context={
+                        "task": self._cfg.task,
+                        "kind": kind,
+                        "method": "importance",
+                    },
                 )
             from lizyml.explain.shap_explainer import compute_shap_importance
 
@@ -201,7 +209,7 @@ class ModelTablesMixin:
             raise LizyMLError(
                 code=ErrorCode.MODEL_NOT_FIT,
                 user_message="tune() has not been called yet.",
-                context={},
+                context={"method": "tuning_table", "task": self._cfg.task},
             )
         tr = self._tuning_result
         rows = []
@@ -236,7 +244,10 @@ class ModelTablesMixin:
                     "No boundary report available. "
                     "Run tune(resume=True) to generate a boundary report."
                 ),
-                context={},
+                context={
+                    "method": "boundary_table",
+                    "tune_called": self._tuning_result is not None,
+                },
             )
         report = self._tuning_result.boundary_report
         rows = []
@@ -274,7 +285,7 @@ class ModelTablesMixin:
             raise LizyMLError(
                 code=ErrorCode.MODEL_NOT_FIT,
                 user_message="No trained models available.",
-                context={},
+                context={"method": "params_table", "task": self._cfg.task},
             )
 
         rows: list[dict[str, Any]] = []
