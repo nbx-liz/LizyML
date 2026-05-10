@@ -1237,6 +1237,9 @@ class EstimatorProvider(Protocol):
     def params_summary(
         self, model: BaseEstimatorAdapter, model_cfg: Any,
     ) -> list[dict[str, Any]]: ...
+    def build_export_params(
+        self, adapter: BaseEstimatorAdapter,
+    ) -> ExportParams: ...
 ```
 
 制約:
@@ -1245,6 +1248,7 @@ class EstimatorProvider(Protocol):
 - `runtime_deps()` はアルゴリズム固有の依存パッケージ名とバージョンを返す（例: `{"lightgbm": "4.5.0"}`）。`RunMeta.deps_versions` に使用。
 - `params_summary()` は `params_table()` 用のパラメータ行を返す。smart params + native model params（`metric` を含む、H-0061）の両方を含む。
 - `build_pipeline_factory` は estimator 固有の FeaturePipeline が必要な場合（例: EntityEmbedding のカテゴリ埋め込み）に対応する。デフォルトは `NativeFeaturePipeline` を返す。
+- `build_export_params` は codegen 経路（`Model.export_code()`）が必要とする native params / num_boost_round / feval metadata を `ExportParams` frozen dataclass で返す（H-0073）。`_model_persistence.py` から estimator 具象型（`LGBMAdapter` 等）への直接参照を排除するための入口。
 
 ディレクトリ構成（estimator ごとにサブパッケージ化）:
 

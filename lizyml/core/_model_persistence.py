@@ -1,4 +1,9 @@
-"""ModelPersistenceMixin — export/load methods extracted from Model facade."""
+"""ModelPersistenceMixin — export/load methods extracted from Model facade.
+
+After H-0073 this module is fully estimator-agnostic: codegen-relevant
+parameters and feval metadata flow through ``EstimatorProvider`` rather
+than direct ``LGBMAdapter`` access.
+"""
 
 from __future__ import annotations
 
@@ -13,51 +18,10 @@ if TYPE_CHECKING:
 
     from lizyml.config.schema import LizyMLConfig
     from lizyml.core.types.fit_result import FitResult
-    from lizyml.estimators.lgbm.adapter import LGBMAdapter
     from lizyml.estimators.provider import EstimatorProvider
     from lizyml.training.refit_trainer import RefitResult
 
 _log = get_logger("model")
-
-
-def _extract_feval_metadata(
-    adapter: LGBMAdapter,
-) -> list[dict[str, Any]]:
-    """Extract feval metric metadata from adapter params (H-0066).
-
-    Reads the user-specified ``metric`` from the adapter's params dict,
-    identifies which are feval metrics (not LightGBM native), and returns
-    serializable metadata for each.
-    """
-    from lizyml.estimators.lgbm.metric_bridge import _FEVAL_METRICS
-    from lizyml.metrics.registry import get_metric, parse_metric_entries
-
-    user_metric = adapter.params.get("metric")
-    if not user_metric:
-        return []
-
-    if isinstance(user_metric, (str, dict)):
-        user_metric = [user_metric]
-    user_metric = [m for m in user_metric if m]
-    if not user_metric:
-        return []
-
-    feval_for_task = _FEVAL_METRICS.get(adapter.task, frozenset())
-    parsed = parse_metric_entries(user_metric)
-
-    result: list[dict[str, Any]] = []
-    for name, kwargs in parsed:
-        if name in feval_for_task:
-            metric_obj = get_metric(name, **kwargs)
-            result.append(
-                {
-                    "name": name,
-                    "params": kwargs,
-                    "greater_is_better": metric_obj.greater_is_better,
-                    "needs_proba": metric_obj.needs_proba,
-                }
-            )
-    return result
 
 
 class ModelPersistenceMixin:
@@ -151,32 +115,29 @@ class ModelPersistenceMixin:
         refit_result = self._require_refit()
 
         from lizyml.codegen.generator import generate_code
-        from lizyml.estimators.lgbm.adapter import LGBMAdapter
+        from lizyml.core._model_factories import get_outer_n_splits
 
         adapter = refit_result.model
-        if not isinstance(adapter, LGBMAdapter):
+        provider = self._provider
+        if provider is None:
             raise LizyMLError(
-                ErrorCode.UNSUPPORTED_TASK,
-                user_message=("export_code() currently supports LGBMAdapter only."),
+                code=ErrorCode.MODEL_NOT_FIT,
+                user_message=(
+                    "Provider is not initialised. Call fit() before export_code()."
+                ),
+                context={"method": "export_code"},
             )
 
-        # Extract LightGBM params from the adapter.
-        # TODO(H-0059): expose via EstimatorProvider protocol in a future PR.
-        lgbm_params, num_boost_round, _, _ = adapter._build_params()
-
-        # Extract feval metric metadata from user config (H-0066).
-        feval_metrics = _extract_feval_metadata(adapter)
+        # Codegen-relevant params and feval metadata go through the
+        # EstimatorProvider so that this module remains
+        # estimator-agnostic (H-0073).
+        export = provider.build_export_params(adapter)
 
         cfg = self._cfg
         es = cfg.training.early_stopping
         calibration_method: str | None = None
         # Use outer CV n_splits for OOF calibration (H-0058: reuses outer splits)
-        from lizyml.config.schema import BlockedGroupKFoldConfig
-
-        if isinstance(cfg.split, BlockedGroupKFoldConfig):
-            calibration_n_splits = cfg.split.groups.n_splits
-        else:
-            calibration_n_splits = cfg.split.n_splits
+        calibration_n_splits = get_outer_n_splits(cfg)
         if cfg.calibration is not None:
             calibration_method = cfg.calibration.method
 
@@ -206,8 +167,8 @@ class ModelPersistenceMixin:
             run_meta=run_meta_dict,
             feature_names=refit_result.feature_names,
             categorical_features=refit_result.categorical_features,
-            lgbm_params=lgbm_params,
-            num_boost_round=num_boost_round,
+            lgbm_params=export.params,
+            num_boost_round=export.num_boost_round,
             early_stopping_rounds=(es.rounds if es.enabled else None),
             validation_ratio=es.validation_ratio or 0.0,
             seed=cfg.training.seed,
@@ -216,7 +177,7 @@ class ModelPersistenceMixin:
             model_adapter=adapter,
             pipeline_state=refit_result.pipeline_state,
             calibrator=calibrator,
-            feval_metrics=feval_metrics,
+            feval_metrics=export.feval_metadata,
             target_classes=target_classes,
         )
         _log.info("event='export_code.done' path=%s", result)

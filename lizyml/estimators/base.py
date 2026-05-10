@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any, Literal
 
 import numpy as np
@@ -74,6 +75,20 @@ class BaseEstimatorAdapter(ABC):
     @abstractmethod
     def get_native_model(self) -> Any:
         """Return the underlying native model object."""
+
+    @abstractmethod
+    def save_model_text(self, path: str | Path) -> Path:
+        """Persist the fitted model as a portable text file (H-0073).
+
+        Used by codegen export to emit a LizyML-independent artifact
+        loadable by the native estimator's runtime alone.
+
+        Args:
+            path: Destination file path.
+
+        Returns:
+            The resolved ``Path`` of the written file.
+        """
 
     def set_categorical_features(self, cols: list[str] | None) -> None:
         """Inform the estimator which columns are categorical.

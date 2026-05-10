@@ -163,6 +163,19 @@ def _build_splitter_for_method(
     )
 
 
+def get_outer_n_splits(cfg: LizyMLConfig) -> int:
+    """Return the outer CV n_splits regardless of split config variant (H-0073).
+
+    ``BlockedGroupKFoldConfig`` exposes ``groups.n_splits`` (the outer
+    KFold over groups) while every other variant has a top-level
+    ``n_splits``. Centralised here so that callers in ``_model_factories``
+    and ``_model_persistence`` use the same resolution.
+    """
+    if isinstance(cfg.split, BlockedGroupKFoldConfig):
+        return cfg.split.groups.n_splits
+    return cfg.split.n_splits
+
+
 def build_splitter(
     cfg: LizyMLConfig,
     *,
@@ -183,17 +196,19 @@ def build_splitter(
             stacklevel=2,
         )
 
-    # BlockedGroupKFoldConfig has no n_splits at top level
+    n_splits = get_outer_n_splits(cfg)
+
+    # BlockedGroupKFoldConfig has no n_splits at top level — pass block_values etc.
     if isinstance(split_cfg, BlockedGroupKFoldConfig):
         return _build_splitter_for_method(
             split_cfg,
-            split_cfg.groups.n_splits,
+            n_splits,
             block_values=block_values,
             task=cfg.task if task is None else task,
             seed=cfg.training.seed if seed is None else seed,
         )
 
-    return _build_splitter_for_method(split_cfg, split_cfg.n_splits)
+    return _build_splitter_for_method(split_cfg, n_splits)
 
 
 def build_calibration_splitter(cfg: LizyMLConfig) -> BaseSplitter:
