@@ -218,7 +218,8 @@ class TestExplicitOverride:
                 }
             },
         }
-        cfg = load_config(raw)
+        with pytest.warns(DeprecationWarning, match="validation_ratio"):
+            cfg = load_config(raw)
         iv = build_inner_valid(cfg)
         assert isinstance(iv, HoldoutInnerValid)
         assert iv.ratio == 0.2

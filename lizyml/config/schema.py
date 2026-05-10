@@ -373,6 +373,13 @@ class EarlyStoppingConfig(BaseModel):
                 iv_value = data.get("inner_valid")
                 if iv_value is None:
                     if legacy_ratio is not None:
+                        warnings.warn(
+                            "`validation_ratio` is deprecated; use "
+                            "`inner_valid.ratio` instead. "
+                            "Will be removed in v1.0.",
+                            DeprecationWarning,
+                            stacklevel=2,
+                        )
                         data["inner_valid"] = {
                             "method": "holdout",
                             "ratio": legacy_ratio,

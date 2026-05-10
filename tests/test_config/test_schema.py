@@ -337,11 +337,87 @@ class TestValidationRatio:
                 }
             },
         }
-        cfg = load_config(raw)
+        with pytest.warns(DeprecationWarning, match="validation_ratio"):
+            cfg = load_config(raw)
         es = cfg.training.early_stopping
         assert es.inner_valid is not None
         assert es.inner_valid.ratio == pytest.approx(0.2)
         assert es.inner_valid.method == "holdout"
+
+    def test_validation_ratio_emits_deprecation_warning(self) -> None:
+        """Pure legacy ``validation_ratio`` input must emit a
+        ``DeprecationWarning`` so users have a signal to migrate (#111).
+
+        The warning must mention the field name and the replacement
+        ``inner_valid.ratio``.
+        """
+        raw = {
+            **_MINIMAL_CONFIG,
+            "training": {
+                "early_stopping": {
+                    "enabled": True,
+                    "rounds": 50,
+                    "validation_ratio": 0.15,
+                }
+            },
+        }
+        with pytest.warns(DeprecationWarning) as records:
+            load_config(raw)
+        msgs = [str(rec.message) for rec in records]
+        relevant = [m for m in msgs if "validation_ratio" in m]
+        assert relevant, f"expected validation_ratio deprecation, got: {msgs}"
+        assert any("inner_valid" in m for m in relevant)
+
+    def test_inner_valid_only_emits_no_deprecation(self) -> None:
+        """Configs using the new ``inner_valid`` form must not emit any
+        deprecation warning (round-trip safety, #111)."""
+        import warnings
+
+        raw = {
+            **_MINIMAL_CONFIG,
+            "training": {
+                "early_stopping": {
+                    "enabled": True,
+                    "rounds": 30,
+                    "inner_valid": {"method": "holdout", "ratio": 0.15},
+                }
+            },
+        }
+        with warnings.catch_warnings(record=True) as records:
+            warnings.simplefilter("always")
+            load_config(raw)
+        vr_warnings = [r for r in records if "validation_ratio" in str(r.message)]
+        assert not vr_warnings, (
+            f"unexpected validation_ratio warning(s): "
+            f"{[str(r.message) for r in vr_warnings]}"
+        )
+
+    def test_validation_ratio_roundtrip_emits_no_deprecation(self) -> None:
+        """A round-trip dump (``inner_valid`` + ``validation_ratio`` both
+        present and consistent) must not emit a deprecation warning — the
+        ``validation_ratio`` value is the dump artifact of the computed field,
+        not user-authored legacy input (#111)."""
+        import warnings
+
+        raw = {
+            **_MINIMAL_CONFIG,
+            "training": {
+                "early_stopping": {
+                    "enabled": True,
+                    "rounds": 30,
+                    "inner_valid": {"method": "holdout", "ratio": 0.15},
+                    "validation_ratio": 0.15,
+                }
+            },
+        }
+        with warnings.catch_warnings(record=True) as records:
+            warnings.simplefilter("always")
+            load_config(raw)
+        vr_warnings = [r for r in records if "validation_ratio" in str(r.message)]
+        assert not vr_warnings, (
+            f"unexpected validation_ratio warning on roundtrip: "
+            f"{[str(r.message) for r in vr_warnings]}"
+        )
 
     def test_validation_ratio_and_inner_valid_conflict_raises(self) -> None:
         """Both validation_ratio and inner_valid specified → CONFIG_INVALID."""
