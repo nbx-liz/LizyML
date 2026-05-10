@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from lizyml.core.types.search_dim import CategoricalDim, FloatDim, IntDim, SearchDim
 from lizyml.core.types.task import TaskType
+
+if TYPE_CHECKING:  # pragma: no cover — H-0079 type hint only (import cycle)
+    from lizyml.estimators.provider import EstimatorProvider
 
 # Maps task → objective
 _TASK_OBJECTIVE: dict[str, str] = {
@@ -75,20 +78,35 @@ _OBJECTIVE_CHOICES: dict[str, tuple[str, ...]] = {
 }
 
 
-def default_space(task: TaskType) -> list[SearchDim]:
+def default_space(
+    task: TaskType,
+    provider: EstimatorProvider | None = None,
+) -> list[SearchDim]:
     """Return the PLAN-specified default search space for LightGBM.
 
     Args:
         task: ML task type (``"regression"``, ``"binary"``, ``"multiclass"``).
+        provider: Optional ``EstimatorProvider`` used to source the
+            ``objective`` choices (H-0079). When ``None``, the local
+            ``_OBJECTIVE_CHOICES`` table is consulted (Phase 3 will retire
+            it in favour of the Provider API). Passing a provider keeps
+            ``default_space`` in lock-step with the same canonical names
+            that downstream UIs and ``LGBMAdapter._build_params`` see.
 
     Returns:
         List of 10 SearchDim across model / smart / training categories.
     """
+    if provider is not None:
+        objective_choices = provider.objective_choices(task)
+        if not objective_choices:
+            objective_choices = _OBJECTIVE_CHOICES.get(task, ("huber",))
+    else:
+        objective_choices = _OBJECTIVE_CHOICES.get(task, ("huber",))
     dims: list[SearchDim] = [
         # -- model --
         CategoricalDim(
             "objective",
-            _OBJECTIVE_CHOICES.get(task, ("huber",)),
+            objective_choices,
             category="model",
         ),
         IntDim("n_estimators", 600, 2500, category="model"),

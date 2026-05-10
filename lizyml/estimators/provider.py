@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
 import numpy as np
 import numpy.typing as npt
@@ -20,6 +20,12 @@ from lizyml.core.types.search_dim import SearchDim
 from lizyml.core.types.task import TaskType
 from lizyml.estimators.base import BaseEstimatorAdapter
 from lizyml.features.pipeline_base import BaseFeaturePipeline
+
+# H-0079: forward-typed alias for ``metric_choices`` return value. The
+# ``Literal`` keys reserve room for future estimators that introduce
+# additional metric sources (sklearn-backed metrics, custom Python
+# callables, etc.) without breaking existing consumers.
+MetricChoices = dict[Literal["native", "feval"], tuple[str, ...]]
 
 
 @dataclass(frozen=True)
@@ -159,5 +165,45 @@ class EstimatorProvider(Protocol):  # pragma: no cover
             Parameters not present in the dict are unbounded (re-tune
             expansion grows freely as before). An empty dict means the
             provider has no parameter-specific bounds to declare.
+        """
+        ...
+
+    def objective_choices(self, task: TaskType) -> tuple[str, ...]:
+        """Return canonical objective names valid for *task* (H-0079).
+
+        Used by:
+        - :func:`default_space` to construct ``CategoricalDim("objective", ...)``.
+        - Downstream UIs (LizyStudio) to populate the "objective" picker.
+        - ``_build_params()`` / config validation to reject task-incompatible
+          values.
+
+        The returned tuple lists **canonical** names only — no aliases.
+        Order is deterministic and stable across calls so UIs can render
+        a consistent display.
+
+        An empty tuple means the provider exposes no objective choices for
+        this task (the consumer should treat that as "objective is not
+        tunable / not user-selectable" for this estimator).
+        """
+        ...
+
+    def metric_choices(self, task: TaskType) -> MetricChoices:
+        """Return per-task valid metrics, split by source (H-0079).
+
+        The returned dict has two keys:
+
+        - ``"native"``: metrics evaluated by the underlying booster (e.g.
+          via ``params["metric"]`` for LightGBM).
+        - ``"feval"``:  metrics implemented by LizyML and wired as feval
+          callables. Slower per trial than native because they execute
+          Python on each evaluation round.
+
+        Both tuples list **canonical** names only (aliases such as
+        LightGBM's ``l1`` / ``l2`` are still accepted at config-input time
+        by the metric_bridge, but ``metric_choices`` returns the canonical
+        form so UIs can render a single, consistent picker).
+
+        Order is deterministic. Names must not be duplicated across the
+        two keys for a single task.
         """
         ...
