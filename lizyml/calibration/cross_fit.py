@@ -94,6 +94,13 @@ def cross_fit_calibrate(
             # probabilities as-is (no calibration applied).
             calibrated_oof[val_idx] = fallback[val_idx]
             continue
+        if np.unique(train_y[finite_mask]).size < 2:
+            # Single-class training fold — a calibrator (e.g. Platt's
+            # LogisticRegression) cannot fit on one class.  Fall back to the
+            # uncalibrated OOF probabilities for this fold's validation rows
+            # rather than letting an opaque sklearn ValueError escape.
+            calibrated_oof[val_idx] = fallback[val_idx]
+            continue
         cal = calibrator_factory()
         cal.fit(train_scores[finite_mask], train_y[finite_mask])
 
