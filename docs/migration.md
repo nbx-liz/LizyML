@@ -5,6 +5,41 @@ release from v0.5.0 onward.
 
 ---
 
+## v0.15.0
+
+### `LGBMConfig.params["objective"]` is now respected when task-compatible
+
+**Impact:** Tuning / training with a non-default LightGBM `objective` (H-0079).
+
+Before v0.15.0 a user/Optuna-supplied `objective` was silently stripped and
+replaced with the task default. From v0.15.0:
+
+- A **same-task** objective string flows through to `lgb.train` — e.g.
+  `objective: "fair"` on a regression task now actually trains with Fair loss.
+  Re-running `tune()` over `default_space` may therefore yield different
+  `best_params` / metrics than pre-0.15 runs.
+- A **cross-task** objective now raises `LizyMLError(CONFIG_INVALID)` instead of
+  being silently demoted (contract unchanged — still rejected).
+- A **callable** objective is rejected with `CONFIG_INVALID` (unsupported).
+
+No config edits are required; review any explicit non-default `objective`.
+
+---
+
+## v0.10.0
+
+### Persistence `format_version` bumped to 2
+
+**Impact:** Saved `model.lizyml` artifacts (H-0070).
+
+Auto-encoding of non-numeric classification targets added a `TargetEncoder` to
+the artifact, bumping `FORMAT_VERSION` from 1 to 2. `Model.load()` accepts
+**both** versions: v1 artifacts are migrated in memory by injecting a no-op
+`TargetEncoder`, so existing saved models keep loading with no user action. New
+saves are written as v2.
+
+---
+
 ## v0.8.x
 
 ### ECE formula corrected

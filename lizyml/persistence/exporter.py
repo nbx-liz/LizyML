@@ -1,6 +1,6 @@
 """Exporter — save Model artifacts to a directory.
 
-Directory layout (format_version=1)::
+Directory layout (format_version=2)::
 
     {path}/
         metadata.json        — human-readable metadata + version info

@@ -32,6 +32,7 @@ class FitResult:
                         "oof_per_fold": [{metric_name: float}, ...],
                         "if_mean": {metric_name: float, ...},
                         "if_per_fold": [{metric_name: float}, ...],
+                        "oof_coverage": float,  # covered-row fraction (H-0057)
                     },
                     "calibrated": { ... }  # binary + calibrator only
                 }

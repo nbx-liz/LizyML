@@ -287,7 +287,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
 
         Returns:
             Structured dict: ``{"raw": {"oof": ..., "oof_per_fold": ...,
-            "if_mean": ..., "if_per_fold": ...}}``.
+            "if_mean": ..., "if_per_fold": ..., "oof_coverage": float}}``.
 
         Raises:
             :class:`~lizyml.core.exceptions.LizyMLError` with
@@ -426,7 +426,8 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             expand_boundary: Whether to auto-expand search space dimensions
                 whose best params are near the boundary.  None means True
                 for default space, False for user-specified space.
-            boundary_threshold: Edge detection threshold (0.0–1.0).
+            boundary_threshold: Edge detection threshold; must be in the open
+                interval ``(0.0, 0.5)``.
             progress_callback: Optional callback invoked after each trial.
             storage: Optional Optuna storage URL or ``BaseStorage`` instance
                 for resumable tuning (H-0072). ``None`` keeps the in-memory
