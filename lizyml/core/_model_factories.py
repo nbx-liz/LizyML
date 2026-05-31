@@ -76,7 +76,13 @@ def _build_splitter_for_method(
     Shared implementation for both outer CV and calibration CV splitters.
     The *n_splits* parameter is separated so that callers can override it
     (e.g. ``calibration.n_splits`` instead of ``split.n_splits``).
+
+    ``seed`` is the fallback used when a split config's ``random_state`` is
+    ``None`` (H-0080): an explicit ``random_state`` wins, otherwise the
+    splitter inherits ``training.seed`` (passed by ``build_splitter`` as
+    ``seed``). ``seed=None`` itself falls back to the historical default 42.
     """
+    resolved_seed = 42 if seed is None else seed
     if isinstance(split_cfg, BlockedGroupKFoldConfig):
         if block_values is None:
             from lizyml.core.exceptions import ErrorCode, LizyMLError
@@ -103,7 +109,7 @@ def _build_splitter_for_method(
             n_splits=split_cfg.groups.n_splits,
             stratify=stratify_bool,
             shuffle=split_cfg.groups.shuffle,
-            random_state=42 if seed is None else seed,
+            random_state=resolved_seed,
             min_train_rows=split_cfg.min_train_rows,
             min_valid_rows=split_cfg.min_valid_rows,
         )
@@ -111,7 +117,11 @@ def _build_splitter_for_method(
         return StratifiedKFoldSplitter(
             n_splits=n_splits,
             shuffle=True,
-            random_state=split_cfg.random_state,
+            random_state=(
+                split_cfg.random_state
+                if split_cfg.random_state is not None
+                else resolved_seed
+            ),
         )
     if isinstance(split_cfg, GroupKFoldConfig):
         return GroupKFoldSplitter(n_splits=n_splits)
@@ -119,7 +129,11 @@ def _build_splitter_for_method(
         return StratifiedGroupKFoldSplitter(
             n_splits=n_splits,
             shuffle=split_cfg.shuffle,
-            random_state=split_cfg.random_state,
+            random_state=(
+                split_cfg.random_state
+                if split_cfg.random_state is not None
+                else resolved_seed
+            ),
         )
     if isinstance(split_cfg, TimeSeriesConfig):
         return TimeSeriesSplitter(
@@ -147,7 +161,11 @@ def _build_splitter_for_method(
         return KFoldSplitter(
             n_splits=n_splits,
             shuffle=split_cfg.shuffle,
-            random_state=split_cfg.random_state,
+            random_state=(
+                split_cfg.random_state
+                if split_cfg.random_state is not None
+                else resolved_seed
+            ),
         )
     # Loud fail — adding a new SplitConfig variant without updating this
     # dispatch must not silently produce KFold splits (#119).
@@ -209,7 +227,13 @@ def build_splitter(
             seed=cfg.training.seed if seed is None else seed,
         )
 
-    return _build_splitter_for_method(split_cfg, n_splits)
+    # General (non-blocked) splitters: thread training.seed as the fallback
+    # for any split config whose random_state is None (H-0080).
+    return _build_splitter_for_method(
+        split_cfg,
+        n_splits,
+        seed=cfg.training.seed if seed is None else seed,
+    )
 
 
 def build_calibration_splitter(cfg: LizyMLConfig) -> BaseSplitter:
