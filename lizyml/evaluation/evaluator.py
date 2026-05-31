@@ -87,6 +87,8 @@ class Evaluator:
                 "oof_per_fold": [{metric_name: float}, ...],
                 "if_mean":      {metric_name: float, ...},
                 "if_per_fold":  [{metric_name: float}, ...],
+                "oof_coverage": float,   # fraction of rows covered by a
+                                         # validation fold (H-0057)
             },
             "calibrated": { ... }   # populated only when calibrator is set
         }

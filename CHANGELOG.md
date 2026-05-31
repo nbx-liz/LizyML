@@ -417,5 +417,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Optuna-based tuning with unified search space (optional dependency)
 - Plotly-based visualizations: learning curve, importance, OOF distribution, residuals (optional dependency)
 - Export/load with format_version=1 and metadata
-- Simulate (bootstrap prediction distributions)
+- ~~Simulate (bootstrap prediction distributions)~~ — listed in error; this
+  feature was never shipped (no `simulate` API has existed in any release).
+  Tracked in [#177](https://github.com/nbx-liz/LizyML/issues/177).
 - YAML/JSON config loading with pydantic validation

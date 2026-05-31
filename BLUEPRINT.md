@@ -454,7 +454,8 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `oof_pred`（`np.ndarray / pd.Series`）
 - `if_pred_per_fold`（`list[np.ndarray]`）
 - `metrics`（階層固定）
-  - 例: `{"raw": {"oof": {...}, "oof_per_fold": [...], "if_mean": {...}, "if_per_fold": [...]}, "calibrated": {...}}`
+  - 例: `{"raw": {"oof": {...}, "oof_per_fold": [...], "if_mean": {...}, "if_per_fold": [...], "oof_coverage": 1.0}, "calibrated": {...}}`
+  - `oof_coverage`（float, 0.0–1.0）: validation fold に覆われた行の割合（H-0057）。KFold では常に `1.0`、TimeSeriesCV では `< 1.0` になりうる。`calibrated` は raw と構造一致のため別途含めない（H-0058）。
 - `models`
   - fold ごとのモデル
   - 任意: refit モデル（全データ学習）

@@ -69,6 +69,7 @@ def fit_result(
                 "oof_per_fold": [{"rmse": 0.5}],
                 "if_mean": {"rmse": 0.4},
                 "if_per_fold": [{"rmse": 0.4}],
+                "oof_coverage": 1.0,
             }
         },
         models=[object()],
@@ -175,12 +176,18 @@ class TestFitResultSchema:
 
     def test_metrics_raw_structure(self, fit_result: FitResult) -> None:
         raw = fit_result.metrics["raw"]
-        assert "oof" in raw
-        assert "oof_per_fold" in raw
+        # Exact key set — pins the raw metrics contract (incl. oof_coverage,
+        # H-0057) so a dropped or renamed key is caught, not silently tolerated.
+        assert set(raw) == {
+            "oof",
+            "oof_per_fold",
+            "if_mean",
+            "if_per_fold",
+            "oof_coverage",
+        }
         assert isinstance(raw["oof_per_fold"], list)
-        assert "if_mean" in raw
-        assert "if_per_fold" in raw
         assert isinstance(raw["if_per_fold"], list)
+        assert isinstance(raw["oof_coverage"], float)
 
     def test_calibrated_key_absent_when_no_calibrator(
         self, fit_result: FitResult
