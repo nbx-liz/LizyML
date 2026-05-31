@@ -5,6 +5,7 @@ LogLoss, AUC-ROC, AUC-PR, F1, Accuracy, Brier, ECE, Precision@K.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -41,6 +42,70 @@ def _require_1d_same_len(
             ),
             context={"metric": name},
         )
+
+
+def _multiclass_ovr_macro(
+    y_true: npt.NDArray[Any],
+    y_pred: npt.NDArray[Any],
+    name: str,
+    per_class_fn: Callable[[npt.NDArray[Any], npt.NDArray[Any]], float],
+    *,
+    min_classes: int,
+) -> float:
+    """Macro-average a One-vs-Rest metric over classes present in ``y_true``.
+
+    Per-fold CV evaluation can legitimately produce a validation fold whose
+    ``y_true`` is missing one or more classes. Rather than letting the
+    underlying sklearn call raise an opaque ``ValueError`` (AUC) or silently
+    fold a degenerate zero-filled column into the mean (AUC-PR / Brier), the
+    macro average is restricted to the classes that actually occur in
+    ``y_true`` and at least ``min_classes`` of them are required. When every
+    class is present (the non-degenerate case) the result is identical to
+    averaging over all ``y_pred`` columns, so golden / calibrated numbers are
+    unchanged.
+
+    Raises:
+        LizyMLError(UNSUPPORTED_METRIC): on sample-count mismatch, a label
+            outside the ``y_pred`` column range, or fewer than ``min_classes``
+            classes present in this fold.
+    """
+    if y_pred.shape[0] != len(y_true):
+        raise LizyMLError(
+            code=ErrorCode.UNSUPPORTED_METRIC,
+            user_message=(
+                f"Metric '{name}' requires y_true and y_pred to have the same "
+                f"number of samples. Got {len(y_true)} vs {y_pred.shape[0]}."
+            ),
+            context={"metric": name},
+        )
+    present = np.unique(y_true).astype(np.intp)
+    n_columns = int(y_pred.shape[1])
+    if present.size and (int(present.min()) < 0 or int(present.max()) >= n_columns):
+        raise LizyMLError(
+            code=ErrorCode.UNSUPPORTED_METRIC,
+            user_message=(
+                f"Metric '{name}' received a y_true label outside the range of "
+                f"y_pred columns (0..{n_columns - 1})."
+            ),
+            context={"metric": name, "n_columns": n_columns},
+        )
+    if len(present) < min_classes:
+        raise LizyMLError(
+            code=ErrorCode.UNSUPPORTED_METRIC,
+            user_message=(
+                f"Metric '{name}' on multiclass needs at least {min_classes} "
+                f"class(es) present in this fold's y_true; found {len(present)}. "
+                f"Evaluate on the full OOF, or aggregate folds that each cover "
+                f"all classes."
+            ),
+            context={
+                "metric": name,
+                "n_present_classes": int(len(present)),
+                "n_columns": n_columns,
+            },
+        )
+    per_class = [per_class_fn((y_true == k).astype(int), y_pred[:, k]) for k in present]
+    return float(np.mean(per_class))
 
 
 @MetricRegistry.register("logloss")
@@ -90,19 +155,14 @@ class AUC(BaseMetric):
 
     def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
         if y_pred.ndim == 2:
-            # Multiclass OvR: y_pred is (n_samples, n_classes)
-            if y_pred.shape[0] != len(y_true):
-                raise LizyMLError(
-                    code=ErrorCode.UNSUPPORTED_METRIC,
-                    user_message=(
-                        f"Metric '{self.name}' requires y_true and y_pred to have "
-                        f"the same number of samples. "
-                        f"Got {len(y_true)} vs {y_pred.shape[0]}."
-                    ),
-                    context={"metric": self.name},
-                )
-            return float(
-                roc_auc_score(y_true, y_pred, multi_class="ovr", average="macro")
+            # Multiclass OvR: macro-average per-class ROC AUC over classes
+            # present in y_true (needs >= 2 so each OvR split has pos + neg).
+            return _multiclass_ovr_macro(
+                y_true,
+                y_pred,
+                self.name,
+                lambda yb, s: float(roc_auc_score(yb, s)),
+                min_classes=2,
             )
         _require_1d_same_len(y_true, y_pred, self.name)
         return float(roc_auc_score(y_true, y_pred))
@@ -126,26 +186,15 @@ class AUCPR(BaseMetric):
 
     def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
         if y_pred.ndim == 2:
-            # Multiclass OvR: per-class average_precision_score, macro average
-            if y_pred.shape[0] != len(y_true):
-                raise LizyMLError(
-                    code=ErrorCode.UNSUPPORTED_METRIC,
-                    user_message=(
-                        f"Metric '{self.name}' requires y_true and y_pred to have "
-                        f"the same number of samples. "
-                        f"Got {len(y_true)} vs {y_pred.shape[0]}."
-                    ),
-                    context={"metric": self.name},
-                )
-            from sklearn.preprocessing import label_binarize
-
-            classes = np.arange(y_pred.shape[1])
-            y_bin = label_binarize(y_true, classes=classes)
-            per_class = [
-                float(average_precision_score(y_bin[:, k], y_pred[:, k]))
-                for k in range(y_pred.shape[1])
-            ]
-            return float(np.mean(per_class))
+            # Multiclass OvR: macro-average per-class average precision over
+            # classes present in y_true (each present class has >= 1 positive).
+            return _multiclass_ovr_macro(
+                y_true,
+                y_pred,
+                self.name,
+                lambda yb, s: float(average_precision_score(yb, s)),
+                min_classes=1,
+            )
         _require_1d_same_len(y_true, y_pred, self.name)
         return float(average_precision_score(y_true, y_pred))
 
@@ -214,26 +263,15 @@ class Brier(BaseMetric):
 
     def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
         if y_pred.ndim == 2:
-            # Multiclass OvR: per-class brier_score_loss, macro average
-            if y_pred.shape[0] != len(y_true):
-                raise LizyMLError(
-                    code=ErrorCode.UNSUPPORTED_METRIC,
-                    user_message=(
-                        f"Metric '{self.name}' requires y_true and y_pred to have "
-                        f"the same number of samples. "
-                        f"Got {len(y_true)} vs {y_pred.shape[0]}."
-                    ),
-                    context={"metric": self.name},
-                )
-            from sklearn.preprocessing import label_binarize
-
-            classes = np.arange(y_pred.shape[1])
-            y_bin = label_binarize(y_true, classes=classes)
-            per_class = [
-                float(brier_score_loss(y_bin[:, k], y_pred[:, k]))
-                for k in range(y_pred.shape[1])
-            ]
-            return float(np.mean(per_class))
+            # Multiclass OvR: macro-average per-class Brier over classes
+            # present in y_true.
+            return _multiclass_ovr_macro(
+                y_true,
+                y_pred,
+                self.name,
+                lambda yb, s: float(brier_score_loss(yb, s)),
+                min_classes=1,
+            )
         _require_1d_same_len(y_true, y_pred, self.name)
         return float(brier_score_loss(y_true, y_pred))
 
