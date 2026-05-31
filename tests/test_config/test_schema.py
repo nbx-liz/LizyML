@@ -176,7 +176,8 @@ class TestStratifiedGroupKFoldConfig:
         cfg = load_config(raw)
         assert cfg.split.method == "stratified_group_kfold"
         assert cfg.split.n_splits == 5
-        assert cfg.split.random_state == 42
+        # H-0080: default is None (sentinel) → inherits training.seed at build.
+        assert cfg.split.random_state is None
         assert cfg.split.shuffle is True
 
     def test_custom_fields(self) -> None:

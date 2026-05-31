@@ -1231,7 +1231,13 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         from lizyml.calibration.registry import get_calibrator
 
         method = cfg.calibration.method
-        cal_params = cfg.calibration.params or None
+        # Inherit training.seed for isotonic's internal validation split when
+        # no explicit calibration seed is given (H-0080). Other calibrators
+        # (platt / beta) do not use a seed, so leave their params untouched.
+        cal_params_dict = dict(cfg.calibration.params or {})
+        if method == "isotonic":
+            cal_params_dict.setdefault("seed", cfg.training.seed)
+        cal_params = cal_params_dict or None
         # Use raw scores (logits) for calibration (H-0030)
         cal_scores = (
             fit_result.oof_raw_scores

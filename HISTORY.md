@@ -6632,4 +6632,48 @@ Issue #159 で要求された全 7 層を Phase に分散して実装する。
   - 既存 1873 → 1885 テスト全件 pass（+12 L4 drift coverage）。
   - **リリース予定**: v0.15.0 で 3 phase まとめて配布。
 
+## H-0080: `training.seed` を outer splitter / isotonic calibrator に伝搬（`split.random_state` を sentinel None 化）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-06-01
+- **決定日**: 2026-06-01
+- **スコープ**: Config schema (`KFoldConfig` / `StratifiedKFoldConfig` / `StratifiedGroupKFoldConfig` の `random_state`), `lizyml/config/loader.py`（default split 注入）, `lizyml/core/_model_factories.py`（`build_splitter` / `_build_splitter_for_method`）, `lizyml/core/model.py`（calibration params 構築）
+- **関連**: [Issue #169](https://github.com/nbx-liz/LizyML/issues/169), v0.15.0 品質監査, H-0069（フィールド同期の前例）
+
+### 目的（課題）
+
+「single seed が deterministic に全乱数へ伝搬する」という再現性要件に反し、`training.seed` が **outer splitter と isotonic calibrator に届いていなかった**。
+
+- `build_splitter()` は `BlockedGroupKFoldConfig` 分岐でのみ `cfg.training.seed` を転送し、一般分岐（KFold / StratifiedKFold / StratifiedGroupKFold）は `split.random_state`（既定 42）を直接使用していた。さらに `loader._normalize_split_default()` が split 省略時に `random_state: 42` を**ハードコード注入**していたため、最頻ケース（split 省略 + `training.seed` 指定）でも fold は 42 固定だった。
+- isotonic calibrator は内部 validation split 用 seed を `calibration.params["seed"]`（既定 42）から取り、`training.seed` を見ていなかった。
+
+結果として `training.seed=123` に変えても CV fold / calibrator split は 42 のままで、再シードに複数フィールドの lockstep 変更が必要な usability trap になっていた。
+
+### 対応方針（Option A: sentinel None）
+
+`split.random_state` を `int | None`（既定 `None`）に変更し、`None` を「`training.seed` を継承」の sentinel とする。解決は **splitter-build 時のみ**で行い、config には書き戻さない（H-0069 の dual-write round-trip 破壊を回避）。
+
+- `KFoldConfig` / `StratifiedKFoldConfig` / `StratifiedGroupKFoldConfig`: `random_state: int | None = None`。
+- `loader._normalize_split_default()`: default split から `random_state: 42` を除去（schema 既定 None を効かせる）。
+- `build_splitter()`: 一般分岐でも `seed=cfg.training.seed` を `_build_splitter_for_method` に渡す。
+- `_build_splitter_for_method()`: `random_state = explicit if explicit is not None else seed`（明示値が優先、未指定は training.seed、最終 fallback 42）。
+- `model.py` calibration: `method == "isotonic"` かつ `calibration.params` に `seed` 不在のとき `cfg.training.seed` を `setdefault`。
+
+代替案 Option D（`split.random_state` を computed mirror 化して seed を単一化）は、既存の明示指定ユーザー向け legacy 吸収が必要で破壊度が高く、独立 split seed の能力を失うため不採用。
+
+### 影響範囲 / 互換性
+
+- **後方互換（無変更ケース）**: `training.seed` も既定 42 のため、全デフォルト構成・`training.seed` 未変更構成では実効 seed は 42 のまま。fold / OOF / calibrated は不変。
+- **変化するケース（＝意図した修正）**: `training.seed` を非 42 に設定し、かつ `split.random_state` を明示していない構成。これらは fold が `training.seed` を反映するようになる（**potentially breaking**: OOF / metrics / split indices / 保存 artifact の fold 構成が変わりうる）。CHANGELOG に「Changed (potentially breaking)」として明記する。
+- 明示 `split.random_state` 指定は従来通り優先され不変。
+- `model_dump()` は `random_state: None` をそのまま round-trip（書き戻しなし）。保存 artifact 互換に `format_version` 変更は不要。
+- inner_valid は既に `cfg.training.seed` を継承済（`build_inner_valid`, BLUEPRINT §10.3.1）のため対象外。明示 inner_valid config の `random_state`（既定 42）は本提案のスコープ外。
+
+### 受け入れ基準（テスト観点）
+
+- `build_splitter`: ①全デフォルト（`training.seed=42`, split `random_state` None）→ splitter `random_state == 42`（後方互換）、②`training.seed=123` + split `random_state` None → splitter `random_state == 123`、③`split.random_state=7` 明示 + `training.seed=123` → splitter `random_state == 7`（明示優先）。
+- **seed sensitivity（invariant）**: `training.seed` のみ異なる 2 構成で OOF / outer split indices が変化する（同一なら fail）。同一 seed では bit 一致。
+- isotonic calibrator: `calibration.params` に seed 不在時に `training.seed` を継承する。
+- 既存テスト全件 green（loader default split の `random_state` ハードコード除去に伴う回帰なし）。
+
 

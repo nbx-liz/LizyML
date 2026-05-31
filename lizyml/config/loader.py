@@ -52,13 +52,15 @@ def _normalize_split_default(raw: dict[str, Any]) -> dict[str, Any]:
     """
     if "split" not in raw:
         task = raw.get("task", "regression")
+        # random_state is intentionally omitted so the schema default (None)
+        # applies and the splitter inherits training.seed (H-0080). With the
+        # default training.seed=42 this reproduces the historical seed.
         if task in ("binary", "multiclass"):
             raw = {
                 **raw,
                 "split": {
                     "method": "stratified_kfold",
                     "n_splits": 5,
-                    "random_state": 42,
                 },
             }
         else:
@@ -67,7 +69,6 @@ def _normalize_split_default(raw: dict[str, Any]) -> dict[str, Any]:
                 "split": {
                     "method": "kfold",
                     "n_splits": 5,
-                    "random_state": 42,
                     "shuffle": True,
                 },
             }
