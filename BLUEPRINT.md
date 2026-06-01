@@ -27,7 +27,7 @@
 
 # 2. 設計原則
 
-- 再現性を最優先する。
+- 再現性を最優先する。bit 一致保証（同一 `config + seed` で同一結果）は**固定 `(num_threads, CPU)` 環境**を前提とする。LightGBM の histogram 構築はスレッド数に依存するため、CPU / スレッド数が異なる環境間での bit 一致は保証範囲外とする（クロス環境再現性は将来 opt-in で提供しうるが、現状の defaults はスコープしない。詳細は H-0081）。
 - `seed / split / params / versions / data schema / split indices / data fingerprint` を必ず保存する。
 - 仕様未確定は仮実装しない。
 - 独自推測実装を禁止し、必ず提案プロセス（`HISTORY.md`）を経る。
@@ -1378,7 +1378,7 @@ YourLibError(code, user_message, debug_message=None, cause=None)
 ### 18.1.1 基本テストカテゴリ
 
 - **Golden test（契約固定）**: `FitResult / PredictionResult / RunMeta / SplitIndices` のフィールド名・型・構造を固定し、意図しない破壊的変更を検知する。
-- **再現性テスト**: 同一 config + seed で `oof_pred`, `predict`, `metrics`, `split indices` が bit 一致する。`tune()` も同一 seed で `best_params` / `best_score` / trial 順序が一致する。
+- **再現性テスト**: 同一 config + seed で `oof_pred`, `predict`, `metrics`, `split indices` が bit 一致する。`tune()` も同一 seed で `best_params` / `best_score` / trial 順序が一致する。bit 一致は**固定 `(num_threads, CPU)` 環境**（同一スレッド数の同一プロセス / マシン）を前提とする。LightGBM の histogram 構築がスレッド数依存のため、クロス環境 bit 一致は保証範囲外（H-0081）。
 - **リーク防止テスト**: OOF が held-out データのみから生成されること、calibration が cross-fit で分離されていること、feature pipeline が train fold のみで fit されることを検証する。
 - **列ズレテスト**: 余剰 / 不足 / unseen category のポリシー通り動く。カテゴリ順序ずれ（学習時と推論時で同一カテゴリだが出現順が異なる）もカバーする。
 - **例外テスト**: 全 `ErrorCode` に対して少なくとも 1 テストが存在し、`context` dict の必須キーを検証する。
