@@ -22,8 +22,23 @@ nbformat = pytest.importorskip("nbformat")
 nbconvert_pp = pytest.importorskip(
     "nbconvert.preprocessors",
 )
+nbclient_exc = pytest.importorskip("nbclient.exceptions")
 
 NOTEBOOKS_DIR = Path(__file__).resolve().parents[2] / "notebooks"
+
+# Some tutorials fetch a remote dataset (e.g. OpenML credit-g). When the CI
+# runner cannot reach the network, that is an environment outage, not a
+# notebook regression — skip rather than fail the (release-gating) slow run.
+_NETWORK_ERROR_MARKERS = (
+    "HTTPError",
+    "URLError",
+    "OpenMLError",
+    "api.openml.org",
+    "Max retries",
+    "ConnectionError",
+    "Temporary failure in name resolution",
+    "network error",
+)
 
 _ALL_NOTEBOOKS = sorted(p.name for p in NOTEBOOKS_DIR.glob("*.ipynb"))
 
@@ -71,4 +86,13 @@ def test_notebook_executes(notebook_name: str) -> None:
         timeout=cell_timeout,
         kernel_name="python3",
     )
-    ep.preprocess(nb, {"metadata": {"path": str(NOTEBOOKS_DIR)}})
+    try:
+        ep.preprocess(nb, {"metadata": {"path": str(NOTEBOOKS_DIR)}})
+    except nbclient_exc.CellExecutionError as exc:
+        message = str(exc)
+        if any(marker in message for marker in _NETWORK_ERROR_MARKERS):
+            pytest.skip(
+                f"{notebook_name}: remote dataset fetch failed (network "
+                f"unavailable in CI), not a notebook regression."
+            )
+        raise
