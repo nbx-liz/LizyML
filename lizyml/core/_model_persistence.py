@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Any
 from lizyml.core.logging import get_logger
 
 if TYPE_CHECKING:
-    from lizyml.core.types.fit_state import FitState
+    from lizyml.core._model_state import FitState
     from lizyml.training.refit_trainer import RefitResult
 
 _log = get_logger("model")
