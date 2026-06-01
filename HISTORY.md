@@ -6711,3 +6711,47 @@ defaults に `deterministic: true` + `force_row_wise: true` を追加し、ク�
 - コード変更なしのため新規テスト不要。既存テスト全件 green（回帰なし）を確認する。
 - BLUEPRINT / README の文言に「固定 `(num_threads, CPU)` 環境」のスコープが明記されていること（レビュー観点）。
 
+
+## H-0082: `evaluate(None)` / `fit_result` の公開返却を selective deep-copy 化し internal state 汚染を防止
+
+- **ステータス**: Accepted
+- **起票日**: 2026-06-01
+- **決定日**: 2026-06-01
+- **スコープ**: `lizyml/core/model.py`（`evaluate(metrics=None)` 返却、`fit_result` property 返却）, `lizyml/core/types/fit_result.py`（`FitResult.__deepcopy__`）。`FitResult` は **非 frozen を維持**（dataclass のまま）。
+- **関連**: [Issue #174](https://github.com/nbx-liz/LizyML/issues/174), v0.15.0 品質監査, `TuningResult`（frozen + defensive copy の前例）
+
+### 目的（課題）
+
+`FitResult` は非 frozen dataclass で mutable フィールド（`metrics` 等のネスト dict）を持ち、`evaluate(metrics=None)` と `fit_result` property は **live な内部参照をそのまま返す**。呼び出し側が返り値を変異させる（例: `m.evaluate()["raw"]["oof"]["rmse"] = 0`）と内部 `_metrics` が破壊され、`export()` が live な `_metrics` を読むため **export メタデータ汚染（再現性リスク）** に至る。一方 filtered path（`evaluate([...])`）は `filter_metrics` で fresh dict を返すため、**挙動が非対称**でもある。
+
+### 対応方針（public return で selective deep-copy、FitResult 非 frozen 維持）
+
+公開返却点でのみ copy を適用し、内部 live state を外部に貸し出さない。`fit_result` は **selective deep-copy**（mutable data は複製、学習済み estimator は reference 共有）とする。
+
+- `evaluate(metrics=None)`: `return deepcopy(self._metrics)`（`metrics` は純粋なネスト dict のため全 deep-copy で問題なし）。
+- `fit_result` property: `return deepcopy(self._require_fit())`。`FitResult.__deepcopy__` を実装し、
+  - **deep-copy する mutable data**: `metrics` / `history` / `feature_names` / `dtypes` / `categorical_features` / `splits` / `data_fingerprint` / `run_meta` / `target_encoder` / `oof_pred` / `if_pred_per_fold` / `oof_raw_scores`。
+  - **reference 共有する学習済み estimator**: `models` / `calibrator` / `pipeline_state`。
+- **selective の理由**: `copy.deepcopy(LightGBM Booster)` は model 文字列 round-trip となり `booster.params`（`objective` 等）の fidelity を失う（`params["objective"]` が `None` 化）。export 汚染の実害ベクタは `metrics`（plain dict）であり、これを deep-copy で完全封鎖すれば再現性リスクは解消する。学習済み estimator まで複製すると **公開 `fit_result.models[i]` 経由の Booster metadata を劣化させる回帰**となるため共有する。
+- 内部経路（Mixin / plot / persistence / export）は `FitState.fit_result`（`_require_fit()` 由来の live 参照）と `self._metrics` を直接使うため **copy のコストを負わない**。公開 property `Model.fit_result` は外部呼び出し専用であることをコード調査で確認済み（内部は `state.fit_result` を使用）。
+
+### 代替案（不採用）
+
+- **FitResult 全体を deepcopy**: 学習済み Booster の `params` fidelity を失い、公開 `fit_result.models[i]` の metadata を劣化させる回帰となるため不採用（本対応方針が selective とした根拠）。
+- **FitResult を frozen 化**: ネスト dict / list は frozen dataclass でも mutable のままで根本解決にならず、内部で `FitResult` を構築・保持する多数の経路に破壊的影響が及ぶため不採用。
+- **fit_result を borrowed reference として doc 明記のみ**: export 汚染という実害（再現性リスク）を残すため不採用。
+
+### 影響範囲 / 互換性
+
+- **Result の「形・意味」は不変**。返却される dict / FitResult の構造・値は完全に同一で、参照の同一性のみが変わる（`m.fit_result is m.fit_result` → `False`、`m.evaluate() is m.evaluate()` → `False`）。`format_version` 変更不要。
+- `fit_result.models` / `calibrator` / `pipeline_state` は **reference 共有**（read-only 想定）。これらを呼び出し側が破壊的に変異させると内部 state に波及しうるが、学習済みモデルの故意変異は契約外の misuse とし、docstring に read-only である旨を明記する。export 汚染の現実的ベクタ（`metrics` 変異）は完全に封鎖される。
+- 同一性に依存する利用（`is` 比較）は破壊されうるが、Result は値オブジェクトであり同一性依存は契約外。
+
+### 受け入れ基準（テスト観点）
+
+- **汚染防止（回帰トラップ）**: `evaluate(None)` の返り値ネスト dict を変異 → 後続 `export()` のメタデータ / `model.evaluate()` が影響を受けない。
+- **fit_result 独立性**: `m.fit_result.metrics` を変異 → 内部 state（後続 `m.fit_result` / `export`）が不変。
+- **estimator 共有**: `m.fit_result.models[i] is m._fit_result.models[i]`（identity 保持で Booster fidelity を維持）。
+- **値の同一性**: copy 前後で構造・数値が bit 一致（`==`）する。
+- 既存テスト全件 green。
+
