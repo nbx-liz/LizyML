@@ -28,6 +28,7 @@ from __future__ import annotations
 import dataclasses
 import sys
 from collections.abc import Callable
+from copy import deepcopy
 from datetime import datetime, timezone
 from importlib.metadata import version as pkg_version
 from pathlib import Path
@@ -303,7 +304,9 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             )
 
         if metrics is None:
-            return self._metrics
+            # Return an independent copy so callers cannot mutate internal
+            # state (and thereby contaminate a later export()) — H-0082.
+            return deepcopy(self._metrics)
 
         # Validate task compatibility first (raises UNSUPPORTED_METRIC if invalid)
         get_metrics_for_task(metrics, self._cfg.task)  # raises on unknown/incompatible
@@ -873,10 +876,18 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
     def fit_result(self) -> FitResult:
         """Read-only access to the CV training result.
 
+        Returns an independent copy each call: mutable data fields are
+        deep-copied so mutating the result cannot corrupt internal state (or a
+        later ``export()``). Trained estimators (``models`` / ``calibrator`` /
+        ``pipeline_state``) are shared by reference and must be treated as
+        read-only — see :meth:`FitResult.__deepcopy__` (H-0082).
+
         Raises:
             LizyMLError with ``MODEL_NOT_FIT`` when ``fit()`` has not been called.
         """
-        return self._require_fit()
+        # Selective deep copy (FitResult.__deepcopy__): mutable data copied,
+        # trained estimators shared by reference to preserve Booster fidelity.
+        return deepcopy(self._require_fit())
 
     # ------------------------------------------------------------------
     # Internal helpers — TrainComponents (H-0050)
