@@ -137,7 +137,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for full diagrams and module layout.
 
 ## Design Priorities
 
-**Reproducibility** -- Same config + seed = same splits, same OOF predictions, same metrics. Every run captures seed, split indices, params, library versions, and a data fingerprint.
+**Reproducibility** -- Same config + seed = same splits, same OOF predictions, same metrics, **within a fixed `(num_threads, CPU)` environment**. (LightGBM's histogram construction is thread-count sensitive, so bit-identical results across machines with different CPU/thread counts are out of scope.) Every run captures seed, split indices, params, library versions, and a data fingerprint.
 
 **Leakage prevention** -- OOF rows are never seen during training. Calibration cross-fit reuses outer CV splits. Time and group constraints propagate to inner validation (early stopping) and calibration.
 

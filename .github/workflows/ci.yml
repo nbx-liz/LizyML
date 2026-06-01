@@ -36,11 +36,15 @@ jobs:
         run: uv run mypy lizyml/
 
       - name: Test (pytest)
+        # cov-fail-under=96 is branch-inclusive (branch=true, #173): the
+        # not-slow develop lane measures ~97% with branches counted, so 96 is a
+        # realistic floor with a 1-point buffer. The main lane (full suite)
+        # measures higher, so the same floor holds there.
         run: |
           if [ "${{ github.base_ref }}" = "main" ]; then
-            uv run pytest tests/ -m "" --cov=lizyml --cov-report=term-missing --cov-fail-under=95 -q
+            uv run pytest tests/ -m "" --cov=lizyml --cov-report=term-missing --cov-fail-under=96 -q
           else
-            uv run pytest tests/ -m "not slow" --cov=lizyml --cov-report=term-missing --cov-fail-under=95 -q
+            uv run pytest tests/ -m "not slow" --cov=lizyml --cov-report=term-missing --cov-fail-under=96 -q
           fi
 
   quality-lowest-deps:
@@ -60,6 +64,58 @@ jobs:
 
       - name: Test (pytest)
         run: uv run pytest tests/ -q
+
+  quality-latest-deps:
+    name: Quality (latest deps, non-blocking)
+    runs-on: ubuntu-latest
+    # Forward-compat early-warning lane (#180): resolves dependencies upward to
+    # the newest compatible releases so an upstream breaking change (pandas /
+    # numpy / lightgbm) surfaces here before it reaches the locked lanes.
+    # Non-blocking — it must not gate merges on third-party regressions.
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install latest dependencies
+        run: uv sync --upgrade --dev
+
+      - name: Test (pytest)
+        run: uv run pytest tests/ -m "not slow" -q
+
+  smoke-os-matrix:
+    name: Smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    # OS portability smoke (#180): file I/O, path, and newline handling on
+    # non-Linux runners. Scoped to persistence + a minimal end-to-end
+    # round-trip (single Python) to keep the matrix fast.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install OpenMP runtime (macOS — required by lightgbm)
+        if: runner.os == 'macOS'
+        run: brew install libomp
+
+      - name: Install dependencies
+        run: uv sync --frozen --dev
+
+      - name: Portability smoke (persistence + README round-trip)
+        run: uv run pytest tests/test_persistence tests/test_e2e/test_readme_example.py -m "not slow" -q
 
   distribution:
     name: Distribution check

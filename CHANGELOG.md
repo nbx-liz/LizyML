@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.16.0] - 2026-06-01
+
+Quality-audit remediation release: resolves the v0.15.0 comprehensive audit
+(issues [#167](https://github.com/nbx-liz/LizyML/issues/167)–[#180](https://github.com/nbx-liz/LizyML/issues/180), all except the v1.0 deprecation-removal tracker #148).
+
+### Changed (potentially breaking)
+
+- **`training.seed` now propagates to the outer splitter and the isotonic calibrator** (H-0080, [#169](https://github.com/nbx-liz/LizyML/issues/169)). `split.random_state` defaults to a sentinel `None` meaning "inherit `training.seed`", and the loader no longer hard-codes `42`. For configs that set `training.seed` to a non-`42` value **without** an explicit `split.random_state`, CV fold composition — and therefore OOF predictions, metrics, and saved split indices — now reflects `training.seed` (previously folds were silently fixed at `42`). Explicit `split.random_state` is still honored and unchanged; all-default configs are unaffected (the effective seed stays `42`).
+
+### Added
+
+- **Artifact integrity binding (SHA-256)** (H-0083, [#179](https://github.com/nbx-liz/LizyML/issues/179)). `export()` records the SHA-256 of each `.pkl` (`fit_result` / `refit_model` / `analysis_context`) in `metadata.json` under a `checksums` field; `Model.load()` verifies the digest before `joblib.load` and raises `DESERIALIZATION_FAILED` on a mismatch, detecting tampering or corruption. Additive and back-compatible — artifacts without the field still load and `format_version` stays `2`. (Does not make pickle safe against a trusted-but-malicious producer; the trusted-source contract is unchanged.)
+
+### Fixed
+
+- **multiclass OvR metrics (AUC / AUCPR / Brier) no longer fail on a class-missing CV fold** ([#167](https://github.com/nbx-liz/LizyML/issues/167)) — they now macro-average only over the classes present in `y_true` instead of raising an unwrapped `ValueError` / silently degrading.
+- **cross-fit calibration tolerates a single-class training fold** ([#168](https://github.com/nbx-liz/LizyML/issues/168)) — it falls back gracefully instead of raising an unwrapped `ValueError`.
+- **`evaluate(None)` and the `fit_result` property return independent copies** (H-0082, [#174](https://github.com/nbx-liz/LizyML/issues/174)) — they no longer hand out live internal references, so mutating a returned metrics dict / `FitResult` can no longer corrupt internal state or contaminate a later `export()`. Trained estimators reachable via `fit_result` (`models` / `calibrator` / `pipeline_state`) are shared by reference (read-only by convention) to preserve LightGBM Booster fidelity.
+- **`export_code()` writes generated files as UTF-8** ([#180](https://github.com/nbx-liz/LizyML/issues/180)) — fixes a `UnicodeEncodeError` when exporting on Windows, where the default `cp1252` codec could not encode non-ASCII template characters.
+
+### Internal
+
+- **Facade `predict()` extracted** ([#172](https://github.com/nbx-liz/LizyML/issues/172)) — estimator/calibration/SHAP branching moved to `core/_model_predict.py`; `Model.predict()` is now assembly-only.
+- **`FitState` / `TuningState` moved out of Layer-0** (H-0084, [#171](https://github.com/nbx-liz/LizyML/issues/171)) — relocated from `core/types/` to facade-adjacent `core/_model_state.py`, restoring the Layer-0 "dependency-free" invariant (the sole DAG back-edge removed). Internal types; no public-API change.
+- **Forward-compat CI lane + OS portability matrix** ([#180](https://github.com/nbx-liz/LizyML/issues/180)) — a non-blocking latest-deps lane (`uv sync --upgrade`) surfaces upstream breakage early, and an ubuntu/windows/macos smoke matrix catches path/newline portability issues. The no-upper-bound dependency policy is documented in CONTRIBUTING and BLUEPRINT §18.2.
+- **Branch coverage enabled** ([#173](https://github.com/nbx-liz/LizyML/issues/173)) — `branch = true`; `--cov-fail-under` re-baselined to a branch-inclusive `96` (measured ~97%).
+- **Forward-looking test hardening** ([#178](https://github.com/nbx-liz/LizyML/issues/178)) — codegen real-subprocess equivalence, a feature-pipeline leakage trap, reproducibility bit-equality + seed-sensitivity, README-block execution, inner-valid ratio guards across all strategies, and notebook coverage. Executing every tutorial in CI surfaced two previously-unreferenced, broken notebooks — the `calibration` and `SHAP` tutorials now run end-to-end (fixed outdated config/result-access against the current API); notebook execution also skips gracefully on a remote-dataset network outage instead of failing the release gate.
+- **Documentation reconciliation** ([#170](https://github.com/nbx-liz/LizyML/issues/170), [#175](https://github.com/nbx-liz/LizyML/issues/175), [#176](https://github.com/nbx-liz/LizyML/issues/176), [#177](https://github.com/nbx-liz/LizyML/issues/177)) — corrected the FAQ custom-objective example, `api.md` `tune()` storage/study_name, `migration.md`, several docstrings, documented `oof_coverage`, scoped the bit-identical reproducibility guarantee to a fixed `(num_threads, CPU)` environment, and corrected the erroneous `simulate` CHANGELOG entry.
+
 ## [0.15.0] - 2026-05-10
 
 ### Changed (potentially breaking)
@@ -417,5 +446,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Optuna-based tuning with unified search space (optional dependency)
 - Plotly-based visualizations: learning curve, importance, OOF distribution, residuals (optional dependency)
 - Export/load with format_version=1 and metadata
-- Simulate (bootstrap prediction distributions)
+- ~~Simulate (bootstrap prediction distributions)~~ — listed in error; this
+  feature was never shipped (no `simulate` API has existed in any release).
+  The CHANGELOG/code reconciliation was completed in
+  [#177](https://github.com/nbx-liz/LizyML/issues/177); implementing the feature
+  is tracked separately in [#194](https://github.com/nbx-liz/LizyML/issues/194).
 - YAML/JSON config loading with pydantic validation

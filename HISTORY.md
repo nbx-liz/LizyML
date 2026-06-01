@@ -6632,4 +6632,215 @@ Issue #159 で要求された全 7 層を Phase に分散して実装する。
   - 既存 1873 → 1885 テスト全件 pass（+12 L4 drift coverage）。
   - **リリース予定**: v0.15.0 で 3 phase まとめて配布。
 
+## H-0080: `training.seed` を outer splitter / isotonic calibrator に伝搬（`split.random_state` を sentinel None 化）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-06-01
+- **決定日**: 2026-06-01
+- **スコープ**: Config schema (`KFoldConfig` / `StratifiedKFoldConfig` / `StratifiedGroupKFoldConfig` の `random_state`), `lizyml/config/loader.py`（default split 注入）, `lizyml/core/_model_factories.py`（`build_splitter` / `_build_splitter_for_method`）, `lizyml/core/model.py`（calibration params 構築）
+- **関連**: [Issue #169](https://github.com/nbx-liz/LizyML/issues/169), v0.15.0 品質監査, H-0069（フィールド同期の前例）
+
+### 目的（課題）
+
+「single seed が deterministic に全乱数へ伝搬する」という再現性要件に反し、`training.seed` が **outer splitter と isotonic calibrator に届いていなかった**。
+
+- `build_splitter()` は `BlockedGroupKFoldConfig` 分岐でのみ `cfg.training.seed` を転送し、一般分岐（KFold / StratifiedKFold / StratifiedGroupKFold）は `split.random_state`（既定 42）を直接使用していた。さらに `loader._normalize_split_default()` が split 省略時に `random_state: 42` を**ハードコード注入**していたため、最頻ケース（split 省略 + `training.seed` 指定）でも fold は 42 固定だった。
+- isotonic calibrator は内部 validation split 用 seed を `calibration.params["seed"]`（既定 42）から取り、`training.seed` を見ていなかった。
+
+結果として `training.seed=123` に変えても CV fold / calibrator split は 42 のままで、再シードに複数フィールドの lockstep 変更が必要な usability trap になっていた。
+
+### 対応方針（Option A: sentinel None）
+
+`split.random_state` を `int | None`（既定 `None`）に変更し、`None` を「`training.seed` を継承」の sentinel とする。解決は **splitter-build 時のみ**で行い、config には書き戻さない（H-0069 の dual-write round-trip 破壊を回避）。
+
+- `KFoldConfig` / `StratifiedKFoldConfig` / `StratifiedGroupKFoldConfig`: `random_state: int | None = None`。
+- `loader._normalize_split_default()`: default split から `random_state: 42` を除去（schema 既定 None を効かせる）。
+- `build_splitter()`: 一般分岐でも `seed=cfg.training.seed` を `_build_splitter_for_method` に渡す。
+- `_build_splitter_for_method()`: `random_state = explicit if explicit is not None else seed`（明示値が優先、未指定は training.seed、最終 fallback 42）。
+- `model.py` calibration: `method == "isotonic"` かつ `calibration.params` に `seed` 不在のとき `cfg.training.seed` を `setdefault`。
+
+代替案 Option D（`split.random_state` を computed mirror 化して seed を単一化）は、既存の明示指定ユーザー向け legacy 吸収が必要で破壊度が高く、独立 split seed の能力を失うため不採用。
+
+### 影響範囲 / 互換性
+
+- **後方互換（無変更ケース）**: `training.seed` も既定 42 のため、全デフォルト構成・`training.seed` 未変更構成では実効 seed は 42 のまま。fold / OOF / calibrated は不変。
+- **変化するケース（＝意図した修正）**: `training.seed` を非 42 に設定し、かつ `split.random_state` を明示していない構成。これらは fold が `training.seed` を反映するようになる（**potentially breaking**: OOF / metrics / split indices / 保存 artifact の fold 構成が変わりうる）。CHANGELOG に「Changed (potentially breaking)」として明記する。
+- 明示 `split.random_state` 指定は従来通り優先され不変。
+- `model_dump()` は `random_state: None` をそのまま round-trip（書き戻しなし）。保存 artifact 互換に `format_version` 変更は不要。
+- inner_valid は既に `cfg.training.seed` を継承済（`build_inner_valid`, BLUEPRINT §10.3.1）のため対象外。明示 inner_valid config の `random_state`（既定 42）は本提案のスコープ外。
+
+### 受け入れ基準（テスト観点）
+
+- `build_splitter`: ①全デフォルト（`training.seed=42`, split `random_state` None）→ splitter `random_state == 42`（後方互換）、②`training.seed=123` + split `random_state` None → splitter `random_state == 123`、③`split.random_state=7` 明示 + `training.seed=123` → splitter `random_state == 7`（明示優先）。
+- **seed sensitivity（invariant）**: `training.seed` のみ異なる 2 構成で OOF / outer split indices が変化する（同一なら fail）。同一 seed では bit 一致。
+- isotonic calibrator: `calibration.params` に seed 不在時に `training.seed` を継承する。
+- 既存テスト全件 green（loader default split の `random_state` ハードコード除去に伴う回帰なし）。
+
+
+## H-0081: bit 一致の再現性保証を「固定 `(num_threads, CPU)` 環境」にスコープ明記（doc-scope）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-06-01
+- **決定日**: 2026-06-01
+- **スコープ**: BLUEPRINT.md（§2 設計原則の再現性原則、§18.1.1 再現性テスト）, README.md（Design Priorities の bit 一致記述）。**コード変更なし（defaults 不変）**。
+- **関連**: [Issue #170](https://github.com/nbx-liz/LizyML/issues/170), v0.15.0 品質監査
+
+### 目的（課題）
+
+BLUEPRINT は「同一 `config + seed` で bit 一致」を再現性の最優先保証として掲げるが、LightGBM のデフォルト（`feature_fraction` / `bagging_fraction` / `bagging_freq` による確率的サブサンプリング）は `deterministic` / `force_row_wise` / `num_threads` 未設定のままである。LightGBM の histogram 構築はスレッド数に依存するため、CPU / スレッド数が異なるマシン間（CI runner / ユーザー環境）では bit 一致が崩れうる。保証の文言が環境スコープを明示していないため、**文書上の over-promise** になっている。
+
+### 対応方針（doc-scope: 保証をスコープ明記）
+
+bit 一致保証を「**固定 `(num_threads, CPU)` 環境**」にスコープする旨を BLUEPRINT / README に明記する。defaults への `deterministic: true` / `force_row_wise: true` 追加は行わない。
+
+- BLUEPRINT §2 設計原則: 再現性原則に「bit 一致は固定 `(num_threads, CPU)` 環境を前提とする」旨の注記を追加。
+- BLUEPRINT §18.1.1 再現性テスト: 再現性テストが同一環境（同一スレッド数）を前提とすることを明記。
+- README: Reproducibility 記述に同趣旨の注記を追加。
+
+### 代替案（不採用）
+
+defaults に `deterministic: true` + `force_row_wise: true` を追加し、クロス環境 bit 一致を実際に保証する案。**性能コスト**（`force_row_wise` による学習速度低下、`deterministic` のオーバーヘッド）が大きく、最頻ユースケースに恒久的なペナルティを課すため不採用。将来、クロス環境再現性を opt-in で提供する場合は別 Proposal（Change-Gate）とする。
+
+### 影響範囲 / 互換性
+
+- **ドキュメントのみ**。公開 API / Config / FitResult / PredictionResult / Artifacts / defaults いずれも不変。`format_version` 変更不要。
+- 既存ユーザーの実行結果・保存 artifact に一切変化なし。
+
+### 受け入れ基準（テスト観点）
+
+- コード変更なしのため新規テスト不要。既存テスト全件 green（回帰なし）を確認する。
+- BLUEPRINT / README の文言に「固定 `(num_threads, CPU)` 環境」のスコープが明記されていること（レビュー観点）。
+
+
+## H-0082: `evaluate(None)` / `fit_result` の公開返却を selective deep-copy 化し internal state 汚染を防止
+
+- **ステータス**: Accepted
+- **起票日**: 2026-06-01
+- **決定日**: 2026-06-01
+- **スコープ**: `lizyml/core/model.py`（`evaluate(metrics=None)` 返却、`fit_result` property 返却）, `lizyml/core/types/fit_result.py`（`FitResult.__deepcopy__`）。`FitResult` は **非 frozen を維持**（dataclass のまま）。
+- **関連**: [Issue #174](https://github.com/nbx-liz/LizyML/issues/174), v0.15.0 品質監査, `TuningResult`（frozen + defensive copy の前例）
+
+### 目的（課題）
+
+`FitResult` は非 frozen dataclass で mutable フィールド（`metrics` 等のネスト dict）を持ち、`evaluate(metrics=None)` と `fit_result` property は **live な内部参照をそのまま返す**。呼び出し側が返り値を変異させる（例: `m.evaluate()["raw"]["oof"]["rmse"] = 0`）と内部 `_metrics` が破壊され、`export()` が live な `_metrics` を読むため **export メタデータ汚染（再現性リスク）** に至る。一方 filtered path（`evaluate([...])`）は `filter_metrics` で fresh dict を返すため、**挙動が非対称**でもある。
+
+### 対応方針（public return で selective deep-copy、FitResult 非 frozen 維持）
+
+公開返却点でのみ copy を適用し、内部 live state を外部に貸し出さない。`fit_result` は **selective deep-copy**（mutable data は複製、学習済み estimator は reference 共有）とする。
+
+- `evaluate(metrics=None)`: `return deepcopy(self._metrics)`（`metrics` は純粋なネスト dict のため全 deep-copy で問題なし）。
+- `fit_result` property: `return deepcopy(self._require_fit())`。`FitResult.__deepcopy__` を実装し、
+  - **deep-copy する mutable data**: `metrics` / `history` / `feature_names` / `dtypes` / `categorical_features` / `splits` / `data_fingerprint` / `run_meta` / `target_encoder` / `oof_pred` / `if_pred_per_fold` / `oof_raw_scores`。
+  - **reference 共有する学習済み estimator**: `models` / `calibrator` / `pipeline_state`。
+- **selective の理由**: `copy.deepcopy(LightGBM Booster)` は model 文字列 round-trip となり `booster.params`（`objective` 等）の fidelity を失う（`params["objective"]` が `None` 化）。export 汚染の実害ベクタは `metrics`（plain dict）であり、これを deep-copy で完全封鎖すれば再現性リスクは解消する。学習済み estimator まで複製すると **公開 `fit_result.models[i]` 経由の Booster metadata を劣化させる回帰**となるため共有する。
+- 内部経路（Mixin / plot / persistence / export）は `FitState.fit_result`（`_require_fit()` 由来の live 参照）と `self._metrics` を直接使うため **copy のコストを負わない**。公開 property `Model.fit_result` は外部呼び出し専用であることをコード調査で確認済み（内部は `state.fit_result` を使用）。
+
+### 代替案（不採用）
+
+- **FitResult 全体を deepcopy**: 学習済み Booster の `params` fidelity を失い、公開 `fit_result.models[i]` の metadata を劣化させる回帰となるため不採用（本対応方針が selective とした根拠）。
+- **FitResult を frozen 化**: ネスト dict / list は frozen dataclass でも mutable のままで根本解決にならず、内部で `FitResult` を構築・保持する多数の経路に破壊的影響が及ぶため不採用。
+- **fit_result を borrowed reference として doc 明記のみ**: export 汚染という実害（再現性リスク）を残すため不採用。
+
+### 影響範囲 / 互換性
+
+- **Result の「形・意味」は不変**。返却される dict / FitResult の構造・値は完全に同一で、参照の同一性のみが変わる（`m.fit_result is m.fit_result` → `False`、`m.evaluate() is m.evaluate()` → `False`）。`format_version` 変更不要。
+- `fit_result.models` / `calibrator` / `pipeline_state` は **reference 共有**（read-only 想定）。これらを呼び出し側が破壊的に変異させると内部 state に波及しうるが、学習済みモデルの故意変異は契約外の misuse とし、docstring に read-only である旨を明記する。export 汚染の現実的ベクタ（`metrics` 変異）は完全に封鎖される。
+- 同一性に依存する利用（`is` 比較）は破壊されうるが、Result は値オブジェクトであり同一性依存は契約外。
+
+### 受け入れ基準（テスト観点）
+
+- **汚染防止（回帰トラップ）**: `evaluate(None)` の返り値ネスト dict を変異 → 後続 `export()` のメタデータ / `model.evaluate()` が影響を受けない。
+- **fit_result 独立性**: `m.fit_result.metrics` を変異 → 内部 state（後続 `m.fit_result` / `export`）が不変。
+- **estimator 共有**: `m.fit_result.models[i] is m._fit_result.models[i]`（identity 保持で Booster fidelity を維持）。
+- **値の同一性**: copy 前後で構造・数値が bit 一致（`==`）する。
+- 既存テスト全件 green。
+
+
+## H-0083: export 時に各 .pkl の SHA-256 を metadata.json に記録し load 時に検証
+
+- **ステータス**: Accepted
+- **起票日**: 2026-06-01
+- **決定日**: 2026-06-01
+- **スコープ**: `lizyml/persistence/exporter.py`（metadata に `checksums` 追加）, `lizyml/persistence/loader.py`（load 前の digest 検証）。`FORMAT_VERSION` は **2 のまま据置（additive・後方互換 read）**。
+- **関連**: [Issue #179](https://github.com/nbx-liz/LizyML/issues/179), v0.15.0 品質監査（SECURITY/LOW）
+
+### 目的（課題）
+
+`Model.load()` は `.pkl`（`fit_result` / `refit_model` / `analysis_context`）を `joblib.load` で復元するが、これは任意 Python を実行する。load 前検証は `metadata.json` のみで、**検証済み metadata と .pkl バイト列の間に整合バインドが無い**。良性 metadata に改竄 .pkl を組み合わせると ACE に至る。「trusted-source のみ」契約＋pickle-free codegen 代替の開示により LOW だが、安価な整合チェックで改竄/破損を検出できる。
+
+### 対応方針（additive checksum、format_version 据置）
+
+`export()` で各 .pkl の SHA-256 を計算し `metadata.json` に additive フィールドとして記録。`load()` で `joblib.load` 前に digest を照合し、不一致は `DESERIALIZATION_FAILED` を送出する。
+
+- metadata 構造（additive）::
+
+      "checksums": {
+          "algorithm": "sha256",
+          "files": {
+              "fit_result.pkl": "<hex>",
+              "refit_model.pkl": "<hex>",
+              "analysis_context.pkl": "<hex>"   # 任意（存在時のみ）
+          }
+      }
+
+- `export()`: .pkl を dump 後にバイト列の SHA-256 を計算し metadata に格納（書き込み順を「.pkl → metadata.json」に変更）。
+- `load()`: `checksums` が存在し当該ファイルの digest が登録されていれば照合。`algorithm` が `sha256` 以外、または digest 不一致は `DESERIALIZATION_FAILED`（context に `file` / `expected` / `actual` を格納）。
+- **後方互換 read**: `checksums` 不在（H-0083 以前の format_version 2、または format_version 1）の artifact は検証を skip して従来通り load する。これにより `FORMAT_VERSION` 据置で旧 artifact を読める。
+
+### 代替案（不採用）
+
+- **`FORMAT_VERSION` を 3 に bump**: checksum は additive で旧 read を壊さないため不要。migration 負荷を避ける（locked 決定）。
+- **署名（HMAC/公開鍵）**: 鍵管理が必要で LOW リスクに対し過剰。SHA-256 は「改竄/破損検出」目的に十分（fully-trusted-but-malicious producer に対し pickle を安全化するとは主張しない）。
+- **検証を warning に留める**: 整合バインドの意味を成さないため、不一致は fail-closed（例外）とする。
+
+### 影響範囲 / 互換性
+
+- **後方互換**: 旧 artifact（checksums 不在）は従来通り load 可能。新 artifact は旧 loader でも load 可能（`checksums` は未知フィールドとして無視される）。`FORMAT_VERSION` 不変。
+- 公開 API（`export` / `load` の引数・戻り値）不変。`load()` の戻り `metadata` dict に `checksums` キーが増えるのみ。
+- **TOCTOU 対策**: `load()` は .pkl のバイト列を 1 回だけ読み、in-memory で digest 照合後 `joblib.load(io.BytesIO(...))` で復元する（ファイルを再 open しない）。hash 後・load 前のすり替え窓を排除（security-review 指摘）。
+- **脅威モデル（明示）**: `metadata.json` 自体は署名しないため、書き込み権限を持つ攻撃者は `checksums` を改竄/除去できる。本機能は「改竄/破損の検出」が目的であり、trusted-but-malicious producer に対し pickle を安全化するものではない（既存の trusted-source 契約を維持）。
+
+### 受け入れ基準（テスト観点）
+
+- **正常**: export→load round-trip が成功し、`metadata["checksums"]["files"]` に全 .pkl の SHA-256 が入る。
+- **改竄検出（落ちるべき例）**: export 後に `fit_result.pkl` のバイトを書き換え→`load()` が `DESERIALIZATION_FAILED`（context に file/expected/actual）。`refit_model.pkl` / `analysis_context.pkl` も同様。
+- **後方互換**: `checksums` を持たない metadata（旧 artifact 模擬）で `load()` が従来通り成功する。
+- 既存 persistence テスト全件 green。
+
+
+## H-0084: `FitState` / `TuningState` を Layer-0 `core/types/` から facade 隣接 `core/_model_state.py` へ移動
+
+- **ステータス**: Accepted
+- **起票日**: 2026-06-01
+- **決定日**: 2026-06-01
+- **スコープ**: `lizyml/core/types/fit_state.py` → `lizyml/core/_model_state.py`（rename/move）, importer 4ファイル（`model.py` / `_model_plots.py` / `_model_tables.py` / `_model_persistence.py`）, `ARCHITECTURE.md`（facade tree）。**振る舞い・公開 API 不変**（`FitState` は `core/types/__init__` 非エクスポートの内部型）。
+- **関連**: [Issue #171](https://github.com/nbx-liz/LizyML/issues/171), H-0074 / H-0077（Mixin state isolation）, ARCHITECTURE.md §Layer 0（依存ゼロ不変条件）
+
+### 目的（課題）
+
+`FitState` / `TuningState` は `lizyml/core/types/`（5層 DAG の Layer-0、ARCHITECTURE.md で「依存ゼロ」と宣言）に置かれていたが、フィールドが構造的に Layer-1/2 型（`LizyMLConfig`, `EstimatorProvider`, `RefitResult`）を参照する。参照は `TYPE_CHECKING` 限定で runtime import cycle は無いが、**配置が Layer-0 不変条件に違反**する唯一の lower-imports-higher エッジだった。`FitState` は実態として「組み立て済み fit の facade snapshot」であり、Layer-0 ではなく facade 隣接が正しい住所。BLUEPRINT は内容（H-0074）を記録するが配置ルールを waive していない。
+
+### 対応方針（facade-adjacent へ移動、内容不変）
+
+- `core/types/fit_state.py` を `core/_model_state.py`（Layer-4 facade 隣接、`_model_metrics.py` / `_model_predict.py` と同列）へ移動。クラス定義・フィールド・docstring（内容）は不変。
+- importer の import パスを `lizyml.core.types.fit_state` → `lizyml.core._model_state` に更新（4 ソース + 2 テスト）。
+- `ARCHITECTURE.md` の Layer-4 facade ディレクトリツリーに `_model_state.py` を追記（併せて既存ツリーから欠落していた `_model_metrics.py` / `_model_predict.py` も補記）。
+- これにより Layer-0（`core/types/`）は `FitResult` / `PredictionResult` / `TuningResult` / `artifacts` のみの「依存ゼロ」型に戻り、DAG の唯一の back-edge を解消する。
+
+### 代替案（不採用）
+
+- **現状維持 + facade-state 例外を明文化**: 不変条件を弱める方向で、DAG の「Layer-0 は基盤・依存ゼロ」保証を曇らせるため不採用。
+- **`FitState` を Layer-0 に留め、参照型を Layer-0 へ降格**: `LizyMLConfig` / `EstimatorProvider` / `RefitResult` は本質的に上位層であり降格不可。
+
+### 影響範囲 / 互換性
+
+- **振る舞い・公開 API 不変**。`FitState` / `TuningState` は内部型（`core/types/__init__` 非エクスポート、`lizyml` トップレベル非公開）であり、利用者向けの import パス変更は無い。
+- `format_version` 変更不要（Artifacts schema 無関係）。
+- 純粋な配置移動 + import 更新 + doc 同期。
+
+### 受け入れ基準（テスト観点）
+
+- 既存テスト全件 green（`test_fit_state.py` / `test_mixin_state_isolation.py` の import パス更新後も挙動不変）。
+- `core/types/` 配下に Layer-1/2 型を参照する型が残っていないこと（Layer-0 依存ゼロの回復）。
+- structural refactor のため E2E gate（`tests/test_e2e/` + 診断 API 経路）green。
 

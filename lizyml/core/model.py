@@ -28,6 +28,7 @@ from __future__ import annotations
 import dataclasses
 import sys
 from collections.abc import Callable
+from copy import deepcopy
 from datetime import datetime, timezone
 from importlib.metadata import version as pkg_version
 from pathlib import Path
@@ -56,6 +57,8 @@ from lizyml.core._model_factories import (
 from lizyml.core._model_metrics import assemble_calibrated_metrics, filter_metrics
 from lizyml.core._model_persistence import ModelPersistenceMixin
 from lizyml.core._model_plots import ModelPlotsMixin
+from lizyml.core._model_predict import run_predict
+from lizyml.core._model_state import FitState, TuningState
 from lizyml.core._model_tables import ModelTablesMixin
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.logging import generate_run_id, get_logger
@@ -64,7 +67,6 @@ from lizyml.core.specs.problem_spec import ProblemSpec
 from lizyml.core.train_components import TrainComponents
 from lizyml.core.types.artifacts import DataFingerprint, RunMeta
 from lizyml.core.types.fit_result import FitResult
-from lizyml.core.types.fit_state import FitState, TuningState
 from lizyml.core.types.predict_result import PredictionResult
 from lizyml.core.types.task import TaskType
 from lizyml.core.types.tuning_result import (
@@ -287,7 +289,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
 
         Returns:
             Structured dict: ``{"raw": {"oof": ..., "oof_per_fold": ...,
-            "if_mean": ..., "if_per_fold": ...}}``.
+            "if_mean": ..., "if_per_fold": ..., "oof_coverage": float}}``.
 
         Raises:
             :class:`~lizyml.core.exceptions.LizyMLError` with
@@ -303,7 +305,9 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             )
 
         if metrics is None:
-            return self._metrics
+            # Return an independent copy so callers cannot mutate internal
+            # state (and thereby contaminate a later export()) — H-0082.
+            return deepcopy(self._metrics)
 
         # Validate task compatibility first (raises UNSUPPORTED_METRIC if invalid)
         get_metrics_for_task(metrics, self._cfg.task)  # raises on unknown/incompatible
@@ -343,59 +347,17 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         """
         fit = self._require_fit()
         refit = self._require_refit()
-
-        # Restore pipeline from saved state via provider
         provider = get_provider(self._cfg.model)
-        pipeline = provider.build_pipeline_factory()()
-        pipeline.load_state(refit.pipeline_state)
 
-        X_t, warnings = pipeline.transform_with_warnings(X)
-
-        model = refit.model
-        task = self._cfg.task
-
-        # H-0070: pred may be int (numeric target) or original-label dtype
-        # (object / string / category) after inverse_transform.
-        pred: npt.NDArray[Any]
-        proba: npt.NDArray[np.float64] | None = None
-
-        if task == "regression":
-            pred = model.predict(X_t)
-        elif task == "binary":
-            proba_2d = model.predict_proba(X_t)
-            proba = proba_2d[:, 1]
-            # Apply C_final calibrator when available (H-0030: raw score input)
-            if fit.calibrator is not None:
-                from lizyml.calibration.cross_fit import CalibrationResult
-
-                if isinstance(fit.calibrator, CalibrationResult):
-                    if fit.oof_raw_scores is not None:
-                        raw_scores: npt.NDArray[np.float64] = model.predict_raw(X_t)
-                        proba = fit.calibrator.c_final.predict(raw_scores)
-                    else:
-                        # Backward compat: old artifact trained on probabilities
-                        proba = fit.calibrator.c_final.predict(proba)
-            pred_codes: npt.NDArray[Any] = (proba >= 0.5).astype(int)
-            # H-0070: inverse-map int codes back to original labels when
-            # the target was non-numeric at fit time.
-            pred = fit.target_encoder.inverse_transform(pred_codes)
-        else:  # multiclass
-            proba = model.predict_proba(X_t)
-            pred_codes = proba.argmax(axis=1)
-            pred = fit.target_encoder.inverse_transform(pred_codes)
-
-        shap_values: npt.NDArray[np.float64] | None = None
-        if return_shap:
-            from lizyml.explain.shap_explainer import compute_shap_values
-
-            shap_values = compute_shap_values(refit.model, X_t, task)
-
-        return PredictionResult(
-            pred=pred,
-            proba=proba,
-            shap_values=shap_values,
-            used_features=refit.feature_names,
-            warnings=warnings,
+        # Estimator/calibration/SHAP branching lives behind this seam (#172);
+        # the facade only resolves state and delegates.
+        return run_predict(
+            task=self._cfg.task,
+            fit_result=fit,
+            refit_result=refit,
+            provider=provider,
+            X=X,
+            return_shap=return_shap,
         )
 
     def tune(
@@ -426,7 +388,8 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             expand_boundary: Whether to auto-expand search space dimensions
                 whose best params are near the boundary.  None means True
                 for default space, False for user-specified space.
-            boundary_threshold: Edge detection threshold (0.0–1.0).
+            boundary_threshold: Edge detection threshold; must be in the open
+                interval ``(0.0, 0.5)``.
             progress_callback: Optional callback invoked after each trial.
             storage: Optional Optuna storage URL or ``BaseStorage`` instance
                 for resumable tuning (H-0072). ``None`` keeps the in-memory
@@ -872,10 +835,18 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
     def fit_result(self) -> FitResult:
         """Read-only access to the CV training result.
 
+        Returns an independent copy each call: mutable data fields are
+        deep-copied so mutating the result cannot corrupt internal state (or a
+        later ``export()``). Trained estimators (``models`` / ``calibrator`` /
+        ``pipeline_state``) are shared by reference and must be treated as
+        read-only — see :meth:`FitResult.__deepcopy__` (H-0082).
+
         Raises:
             LizyMLError with ``MODEL_NOT_FIT`` when ``fit()`` has not been called.
         """
-        return self._require_fit()
+        # Selective deep copy (FitResult.__deepcopy__): mutable data copied,
+        # trained estimators shared by reference to preserve Booster fidelity.
+        return deepcopy(self._require_fit())
 
     # ------------------------------------------------------------------
     # Internal helpers — TrainComponents (H-0050)
@@ -1230,7 +1201,13 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         from lizyml.calibration.registry import get_calibrator
 
         method = cfg.calibration.method
-        cal_params = cfg.calibration.params or None
+        # Inherit training.seed for isotonic's internal validation split when
+        # no explicit calibration seed is given (H-0080). Other calibrators
+        # (platt / beta) do not use a seed, so leave their params untouched.
+        cal_params_dict = dict(cfg.calibration.params or {})
+        if method == "isotonic":
+            cal_params_dict.setdefault("seed", cfg.training.seed)
+        cal_params = cal_params_dict or None
         # Use raw scores (logits) for calibration (H-0030)
         cal_scores = (
             fit_result.oof_raw_scores

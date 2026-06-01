@@ -122,10 +122,13 @@ class TestFormatVersionV1Migration:
             make_config("regression", n_estimators=5, n_splits=2), df, tmp_path
         )
 
-        # Tamper metadata to claim v1 to simulate an older artifact.
+        # Tamper metadata to claim v1 to simulate an older artifact. Real v1
+        # artifacts predate the H-0083 integrity field, so drop ``checksums``
+        # too (otherwise the re-pickled payload below would mismatch).
         meta_path = export_dir / "metadata.json"
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         meta["format_version"] = 1
+        meta.pop("checksums", None)
         meta_path.write_text(json.dumps(meta), encoding="utf-8")
 
         # Re-pickle the FitResult without target_encoder to mirror v1 layout.
@@ -211,6 +214,13 @@ class TestLegacyCalibrationPath:
         else:
             fit_result.oof_raw_scores = None
         joblib.dump(fit_result, fit_pkl, compress=3)
+
+        # Drop the H-0083 checksum so the re-pickled legacy-shaped payload
+        # loads (a pre-H-0083 artifact carries no integrity field).
+        meta_path = export_dir / "metadata.json"
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        meta.pop("checksums", None)
+        meta_path.write_text(json.dumps(meta), encoding="utf-8")
 
         m2 = Model.load(export_dir)
         X_test = df.drop(columns=["target"]).iloc[:20]

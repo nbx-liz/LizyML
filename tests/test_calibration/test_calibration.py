@@ -308,3 +308,62 @@ class TestCalibrationContract:
         fr = m.fit(data=df)
         assert isinstance(fr.calibrator, CalibrationResult)
         assert fr.calibrator.method == "beta"
+
+
+# ---------------------------------------------------------------------------
+# cross_fit_calibrate — single-class training fold (issue #168)
+# ---------------------------------------------------------------------------
+
+
+class TestCrossFitSingleClassFold:
+    """A fold whose training slice is single-class must fall back to the
+    uncalibrated OOF instead of raising a raw sklearn ValueError."""
+
+    def test_all_folds_single_class_fall_back_without_raising(self) -> None:
+        # Fold A trains on rows {0,1} (both class 0); fold B on {2,3} (both
+        # class 1). Pre-fix, PlattCalibrator's LogisticRegression raised on the
+        # single-class slice. Post-fix both folds fall back to oof_pred.
+        oof_scores = np.array([0.2, 0.3, 0.7, 0.8])
+        y = np.array([0.0, 0.0, 1.0, 1.0])
+        oof_pred = oof_scores.copy()
+        split_indices = [
+            (np.array([0, 1], dtype=np.intp), np.array([2, 3], dtype=np.intp)),
+            (np.array([2, 3], dtype=np.intp), np.array([0, 1], dtype=np.intp)),
+        ]
+        result = cross_fit_calibrate(
+            oof_scores,
+            y,
+            calibrator_factory=PlattCalibrator,
+            split_indices=split_indices,
+            oof_pred=oof_pred,
+        )
+        np.testing.assert_array_equal(result.calibrated_oof, oof_pred)
+
+    def test_mixed_single_and_two_class_folds(self) -> None:
+        # Imbalanced 4:2 data, every row validated exactly once.
+        # Fold A trains on the 4 class-0 rows {0,1,2,3} -> single-class ->
+        # falls back for its validation rows {4,5}. Folds B and C have both
+        # classes in training and actually calibrate rows {0,1} and {2,3}.
+        oof_scores = np.array([0.1, 0.2, 0.3, 0.4, 0.85, 0.9])
+        y = np.array([0.0, 0.0, 0.0, 0.0, 1.0, 1.0])
+        oof_pred = oof_scores.copy()
+        split_indices = [
+            (np.array([0, 1, 2, 3], dtype=np.intp), np.array([4, 5], dtype=np.intp)),
+            (np.array([2, 3, 4, 5], dtype=np.intp), np.array([0, 1], dtype=np.intp)),
+            (np.array([0, 1, 4, 5], dtype=np.intp), np.array([2, 3], dtype=np.intp)),
+        ]
+        result = cross_fit_calibrate(
+            oof_scores,
+            y,
+            calibrator_factory=PlattCalibrator,
+            split_indices=split_indices,
+            oof_pred=oof_pred,
+        )
+        # Every row is validated once -> no uncovered NaN.
+        assert not np.isnan(result.calibrated_oof).any()
+        # The single-class fold fell back to the uncalibrated OOF for {4,5}.
+        np.testing.assert_array_equal(result.calibrated_oof[[4, 5]], oof_pred[[4, 5]])
+        # The two-class folds actually calibrated {0,1,2,3} (not a passthrough).
+        assert not np.allclose(
+            result.calibrated_oof[[0, 1, 2, 3]], oof_pred[[0, 1, 2, 3]]
+        )

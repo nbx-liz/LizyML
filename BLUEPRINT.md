@@ -27,7 +27,7 @@
 
 # 2. 設計原則
 
-- 再現性を最優先する。
+- 再現性を最優先する。bit 一致保証（同一 `config + seed` で同一結果）は**固定 `(num_threads, CPU)` 環境**を前提とする。LightGBM の histogram 構築はスレッド数に依存するため、CPU / スレッド数が異なる環境間での bit 一致は保証範囲外とする（クロス環境再現性は将来 opt-in で提供しうるが、現状の defaults はスコープしない。詳細は H-0081）。
 - `seed / split / params / versions / data schema / split indices / data fingerprint` を必ず保存する。
 - 仕様未確定は仮実装しない。
 - 独自推測実装を禁止し、必ず提案プロセス（`HISTORY.md`）を経る。
@@ -454,7 +454,8 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `oof_pred`（`np.ndarray / pd.Series`）
 - `if_pred_per_fold`（`list[np.ndarray]`）
 - `metrics`（階層固定）
-  - 例: `{"raw": {"oof": {...}, "oof_per_fold": [...], "if_mean": {...}, "if_per_fold": [...]}, "calibrated": {...}}`
+  - 例: `{"raw": {"oof": {...}, "oof_per_fold": [...], "if_mean": {...}, "if_per_fold": [...], "oof_coverage": 1.0}, "calibrated": {...}}`
+  - `oof_coverage`（float, 0.0–1.0）: validation fold に覆われた行の割合（H-0057）。KFold では常に `1.0`、TimeSeriesCV では `< 1.0` になりうる。`calibrated` は raw と構造一致のため別途含めない（H-0058）。
 - `models`
   - fold ごとのモデル
   - 任意: refit モデル（全データ学習）
@@ -1377,7 +1378,7 @@ YourLibError(code, user_message, debug_message=None, cause=None)
 ### 18.1.1 基本テストカテゴリ
 
 - **Golden test（契約固定）**: `FitResult / PredictionResult / RunMeta / SplitIndices` のフィールド名・型・構造を固定し、意図しない破壊的変更を検知する。
-- **再現性テスト**: 同一 config + seed で `oof_pred`, `predict`, `metrics`, `split indices` が bit 一致する。`tune()` も同一 seed で `best_params` / `best_score` / trial 順序が一致する。
+- **再現性テスト**: 同一 config + seed で `oof_pred`, `predict`, `metrics`, `split indices` が bit 一致する。`tune()` も同一 seed で `best_params` / `best_score` / trial 順序が一致する。bit 一致は**固定 `(num_threads, CPU)` 環境**（同一スレッド数の同一プロセス / マシン）を前提とする。LightGBM の histogram 構築がスレッド数依存のため、クロス環境 bit 一致は保証範囲外（H-0081）。
 - **リーク防止テスト**: OOF が held-out データのみから生成されること、calibration が cross-fit で分離されていること、feature pipeline が train fold のみで fit されることを検証する。
 - **列ズレテスト**: 余剰 / 不足 / unseen category のポリシー通り動く。カテゴリ順序ずれ（学習時と推論時で同一カテゴリだが出現順が異なる）もカバーする。
 - **例外テスト**: 全 `ErrorCode` に対して少なくとも 1 テストが存在し、`context` dict の必須キーを検証する。
@@ -1484,6 +1485,8 @@ LightGBM/XGBoost が `all_x_types` / `all_y_types` で実施しているコン�
 - install smoke test を行い、配布物からの import と README の最短利用例が破綻していないことを確認する。
 - 複数 Python バージョン（最低限 `requires-python` の下限と最新安定版）でテストを実行する。
 - 依存の下限バージョンでのテストを CI に含める（`uv` の resolution 機能で `lowest-direct` を使用）。
+- 依存の上限方向（forward-compat）を検証する non-blocking lane を CI に含める（`uv sync --upgrade`）。上流の破壊的リリース（pandas / numpy / lightgbm 等）を早期検知する。ランタイム依存は下限のみ宣言し上限 cap は付けない方針とする（詳細は CONTRIBUTING.md）。
+- OS portability smoke（ubuntu / windows / macos）を CI に含め、path / newline 等の移植性問題を検知する（最低限の file I/O 系サブセット、単一 Python で可）。
 - `develop` および `main` ブランチへの PR で CI を実行する。`develop` PR では slow テストを除外し、`main` PR では全テストを実行する（H-0043）。
 
 # 19. ディレクトリ構成

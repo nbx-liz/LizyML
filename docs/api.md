@@ -75,6 +75,8 @@ def tune(
     expand_boundary: bool | None = None,
     boundary_threshold: float = 0.05,
     progress_callback: TuneProgressCallback | None = None,
+    storage: str | BaseStorage | None = None,
+    study_name: str | None = None,
 ) -> TuningResult
 ```
 
@@ -95,11 +97,13 @@ automatically expanded in the promising direction (H-0068).
 | `expand_boundary` | `bool \| None` | Auto-expand dims near boundary. `None` means `True` for default space, `False` for user-specified space. |
 | `boundary_threshold` | `float` | Edge detection threshold (0.0–0.5). Best values within this fraction of the range from either edge trigger expansion. |
 | `progress_callback` | `TuneProgressCallback \| None` | Called after each trial with a `TuneProgressInfo`. Exceptions inside the callback are caught and emitted as `RuntimeWarning`; tuning is never aborted. |
+| `storage` | `str \| BaseStorage \| None` | Optional Optuna storage URL or `BaseStorage` for resumable tuning (H-0072). `None` keeps the in-memory behavior. Requires `study_name` when set. |
+| `study_name` | `str \| None` | Study identifier used together with `storage` (H-0072). Required when `storage` is given; re-using the same `(storage, study_name)` pair re-attaches to the persisted study. |
 
 **Returns:** [`TuningResult`](#tuningresult)
 
 **Raises:**
-- `LizyMLError(CONFIG_INVALID)` — no `tuning` section in config, or `boundary_threshold` out of range.
+- `LizyMLError(CONFIG_INVALID)` — no `tuning` section in config, `boundary_threshold` out of range, or `storage` set without `study_name`.
 - `LizyMLError(OPTIONAL_DEP_MISSING)` — `optuna` not installed.
 - `LizyMLError(TUNING_FAILED)` — `resume=True` without prior `tune()` call.
 - `LizyMLError(TUNING_FAILED)` — study failure.

@@ -54,7 +54,8 @@ class KFoldConfig(BaseModel):
 
     method: Literal["kfold"]
     n_splits: int = 5
-    random_state: int = 42
+    # None -> inherit training.seed at splitter-build time (H-0080).
+    random_state: int | None = None
     shuffle: bool = True
 
 
@@ -63,7 +64,8 @@ class StratifiedKFoldConfig(BaseModel):
 
     method: Literal["stratified_kfold"]
     n_splits: int = 5
-    random_state: int = 42
+    # None -> inherit training.seed at splitter-build time (H-0080).
+    random_state: int | None = None
 
 
 class GroupKFoldConfig(BaseModel):
@@ -78,7 +80,8 @@ class StratifiedGroupKFoldConfig(BaseModel):
 
     method: Literal["stratified_group_kfold"]
     n_splits: int = 5
-    random_state: int = 42
+    # None -> inherit training.seed at splitter-build time (H-0080).
+    random_state: int | None = None
     shuffle: bool = True
 
 

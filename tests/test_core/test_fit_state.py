@@ -16,8 +16,8 @@ from typing import Any
 import pytest
 
 from lizyml import Model
+from lizyml.core._model_state import FitState
 from lizyml.core.exceptions import ErrorCode, LizyMLError
-from lizyml.core.types.fit_state import FitState
 from tests._helpers import make_config, make_regression_df
 
 

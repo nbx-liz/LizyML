@@ -15,7 +15,7 @@ import pandas as pd
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 
 if TYPE_CHECKING:
-    from lizyml.core.types.fit_state import FitState, TuningState
+    from lizyml.core._model_state import FitState, TuningState
 
 
 class ModelTablesMixin:

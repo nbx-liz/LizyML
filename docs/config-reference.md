@@ -72,8 +72,8 @@ Method-specific keys:
 
 | method | Keys |
 |---|---|
-| `kfold` | `n_splits=5`, `random_state=42`, `shuffle=True` |
-| `stratified_kfold` | `n_splits=5`, `random_state=42` |
+| `kfold` | `n_splits=5`, `random_state=null` (inherits `training.seed`, default `42`), `shuffle=True` |
+| `stratified_kfold` | `n_splits=5`, `random_state=null` (inherits `training.seed`, default `42`) |
 | `group_kfold` | `n_splits=5` |
 | `time_series` | `n_splits=5`, `gap=0`, `train_size_max=null`, `test_size_max=null` |
 | `purged_time_series` | `n_splits=5`, `purge_gap=0`, `embargo=0`, `train_size_max=null`, `test_size_max=null` |
@@ -82,8 +82,13 @@ Method-specific keys:
 
 Default when `split` is omitted:
 
-- `task in {"binary", "multiclass"}` -> `{"method": "stratified_kfold", "n_splits": 5, "random_state": 42}`
-- `task == "regression"` -> `{"method": "kfold", "n_splits": 5, "random_state": 42, "shuffle": True}`
+- `task in {"binary", "multiclass"}` -> `{"method": "stratified_kfold", "n_splits": 5}` (`random_state` inherits `training.seed`)
+- `task == "regression"` -> `{"method": "kfold", "n_splits": 5, "shuffle": True}` (`random_state` inherits `training.seed`)
+
+`split.random_state` defaults to `null`, meaning the splitter inherits
+`training.seed` (H-0080). An explicit `random_state` overrides it. Because
+`training.seed` also defaults to `42`, a fully-default config reproduces the
+historical seed; only changing `training.seed` now also changes the CV folds.
 
 Time-series notes:
 

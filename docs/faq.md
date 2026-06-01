@@ -75,22 +75,33 @@ Common causes:
 
 ### How do I use a custom LightGBM objective?
 
-Pass it through `model.params` in the config:
+Set `model.params.objective` to a LightGBM built-in objective **string** that
+is valid for your task:
 
 ```yaml
 model:
-  type: lgbm
+  name: lgbm
   params:
-    objective: "binary"   # or any LightGBM built-in string
+    objective: "fair"   # a regression objective; see the per-task list below
 ```
 
-For a fully custom Python objective function, define it and pass it via
-`fit(params={"objective": my_fn})`. LizyML forwards all `model.params`
-values directly to LightGBM; no additional wrappers are needed.
+Since v0.15.0 (H-0079), LizyML validates the objective against the task:
 
-Note that custom objectives may require a corresponding `feval` function for
-evaluation during training. See `evaluation.metrics` in config and the
-metric bridge documentation.
+- A **same-task** built-in objective string flows through to `lgb.train`
+  (e.g. `objective: "fair"` or `"huber"` for regression actually trains with
+  that loss).
+- A **cross-task** objective (e.g. a binary objective on a regression task)
+  raises `LizyMLError(CONFIG_INVALID)` instead of being silently demoted.
+- A **callable** Python objective is **not supported** — it is rejected with
+  `LizyMLError(CONFIG_INVALID)`. Use a built-in objective string.
+
+The canonical per-task objective names are available programmatically via
+`LGBMProvider().objective_choices(task)` (and `TASK_COMPATIBLE_OBJECTIVES` in
+`lizyml.estimators.lgbm.defaults`).
+
+Note that some LizyML metrics are evaluated via a `feval` callback during
+training; see `evaluation.metrics` in config and the metric bridge
+documentation.
 
 ---
 
