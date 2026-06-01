@@ -36,11 +36,15 @@ jobs:
         run: uv run mypy lizyml/
 
       - name: Test (pytest)
+        # cov-fail-under=96 is branch-inclusive (branch=true, #173): the
+        # not-slow develop lane measures ~97% with branches counted, so 96 is a
+        # realistic floor with a 1-point buffer. The main lane (full suite)
+        # measures higher, so the same floor holds there.
         run: |
           if [ "${{ github.base_ref }}" = "main" ]; then
-            uv run pytest tests/ -m "" --cov=lizyml --cov-report=term-missing --cov-fail-under=95 -q
+            uv run pytest tests/ -m "" --cov=lizyml --cov-report=term-missing --cov-fail-under=96 -q
           else
-            uv run pytest tests/ -m "not slow" --cov=lizyml --cov-report=term-missing --cov-fail-under=95 -q
+            uv run pytest tests/ -m "not slow" --cov=lizyml --cov-report=term-missing --cov-fail-under=96 -q
           fi
 
   quality-lowest-deps:
