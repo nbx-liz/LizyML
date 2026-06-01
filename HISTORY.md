@@ -6677,3 +6677,37 @@ Issue #159 で要求された全 7 層を Phase に分散して実装する。
 - 既存テスト全件 green（loader default split の `random_state` ハードコード除去に伴う回帰なし）。
 
 
+## H-0081: bit 一致の再現性保証を「固定 `(num_threads, CPU)` 環境」にスコープ明記（doc-scope）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-06-01
+- **決定日**: 2026-06-01
+- **スコープ**: BLUEPRINT.md（§2 設計原則の再現性原則、§18.1.1 再現性テスト）, README.md（Design Priorities の bit 一致記述）。**コード変更なし（defaults 不変）**。
+- **関連**: [Issue #170](https://github.com/nbx-liz/LizyML/issues/170), v0.15.0 品質監査
+
+### 目的（課題）
+
+BLUEPRINT は「同一 `config + seed` で bit 一致」を再現性の最優先保証として掲げるが、LightGBM のデフォルト（`feature_fraction` / `bagging_fraction` / `bagging_freq` による確率的サブサンプリング）は `deterministic` / `force_row_wise` / `num_threads` 未設定のままである。LightGBM の histogram 構築はスレッド数に依存するため、CPU / スレッド数が異なるマシン間（CI runner / ユーザー環境）では bit 一致が崩れうる。保証の文言が環境スコープを明示していないため、**文書上の over-promise** になっている。
+
+### 対応方針（doc-scope: 保証をスコープ明記）
+
+bit 一致保証を「**固定 `(num_threads, CPU)` 環境**」にスコープする旨を BLUEPRINT / README に明記する。defaults への `deterministic: true` / `force_row_wise: true` 追加は行わない。
+
+- BLUEPRINT §2 設計原則: 再現性原則に「bit 一致は固定 `(num_threads, CPU)` 環境を前提とする」旨の注記を追加。
+- BLUEPRINT §18.1.1 再現性テスト: 再現性テストが同一環境（同一スレッド数）を前提とすることを明記。
+- README: Reproducibility 記述に同趣旨の注記を追加。
+
+### 代替案（不採用）
+
+defaults に `deterministic: true` + `force_row_wise: true` を追加し、クロス環境 bit 一致を実際に保証する案。**性能コスト**（`force_row_wise` による学習速度低下、`deterministic` のオーバーヘッド）が大きく、最頻ユースケースに恒久的なペナルティを課すため不採用。将来、クロス環境再現性を opt-in で提供する場合は別 Proposal（Change-Gate）とする。
+
+### 影響範囲 / 互換性
+
+- **ドキュメントのみ**。公開 API / Config / FitResult / PredictionResult / Artifacts / defaults いずれも不変。`format_version` 変更不要。
+- 既存ユーザーの実行結果・保存 artifact に一切変化なし。
+
+### 受け入れ基準（テスト観点）
+
+- コード変更なしのため新規テスト不要。既存テスト全件 green（回帰なし）を確認する。
+- BLUEPRINT / README の文言に「固定 `(num_threads, CPU)` 環境」のスコープが明記されていること（レビュー観点）。
+
