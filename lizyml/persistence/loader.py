@@ -12,6 +12,8 @@ Raises DESERIALIZATION_FAILED when:
 from __future__ import annotations
 
 import dataclasses
+import hashlib
+import io
 import json
 from pathlib import Path
 from typing import Any
@@ -21,7 +23,7 @@ import joblib
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.fit_result import FitResult
 from lizyml.core.types.target_encoder import TargetEncoder
-from lizyml.persistence.exporter import FORMAT_VERSION
+from lizyml.persistence.exporter import CHECKSUM_ALGORITHM, FORMAT_VERSION
 
 _REQUIRED_METADATA_KEYS = frozenset(
     {"format_version", "task", "feature_names", "config", "run_id"}
@@ -51,6 +53,50 @@ def _migrate_fit_result(fit_result: Any, source_version: int) -> Any:
             fit_result, target_encoder=TargetEncoder.no_op()
         )
     return fit_result
+
+
+def _verify_and_read_pkl(pkl_path: Path, checksums: dict[str, Any] | None) -> bytes:
+    """Read *pkl_path*, verify its digest, and return the bytes (H-0083).
+
+    Reading the bytes once and loading from them (the caller passes the return
+    value to ``joblib.load(io.BytesIO(...))``) closes the TOCTOU window between
+    hashing and deserialization — the file is never re-opened after the check.
+
+    No verification is performed when *checksums* is absent (legacy artifacts
+    exported before H-0083 — back-compatible read) or when the file is not
+    listed. Raises ``DESERIALIZATION_FAILED`` on an unknown algorithm or a
+    digest mismatch, detecting tampering/corruption *before* pickle executes.
+    """
+    raw = pkl_path.read_bytes()
+    if not checksums:
+        return raw
+    expected = checksums.get("files", {}).get(pkl_path.name)
+    if expected is None:
+        return raw
+
+    algorithm = checksums.get("algorithm")
+    if algorithm != CHECKSUM_ALGORITHM:
+        raise LizyMLError(
+            code=ErrorCode.DESERIALIZATION_FAILED,
+            user_message=(
+                f"Unsupported checksum algorithm {algorithm!r} for "
+                f"'{pkl_path.name}'. Expected {CHECKSUM_ALGORITHM!r}."
+            ),
+            context={"file": pkl_path.name, "algorithm": algorithm},
+        )
+
+    actual = hashlib.sha256(raw).hexdigest()
+    if actual != expected:
+        raise LizyMLError(
+            code=ErrorCode.DESERIALIZATION_FAILED,
+            user_message=(
+                f"Integrity check failed for '{pkl_path.name}': the file does "
+                f"not match the SHA-256 recorded in metadata.json. The artifact "
+                f"may be corrupted or tampered with."
+            ),
+            context={"file": pkl_path.name, "expected": expected, "actual": actual},
+        )
+    return raw
 
 
 def load(path: str | Path) -> tuple[Any, Any, dict[str, Any], Any]:
@@ -134,9 +180,15 @@ def load(path: str | Path) -> tuple[Any, Any, dict[str, Any], Any]:
                 context={"path": str(pkl_path)},
             )
 
+    # H-0083: verify payload integrity, then load from the verified bytes (no
+    # second file open) so pickle never executes unverified bytes.
+    checksums = metadata.get("checksums")
+    fit_raw = _verify_and_read_pkl(fit_pkl, checksums)
+    refit_raw = _verify_and_read_pkl(refit_pkl, checksums)
+
     try:
-        fit_result = joblib.load(fit_pkl)
-        refit_result = joblib.load(refit_pkl)
+        fit_result = joblib.load(io.BytesIO(fit_raw))
+        refit_result = joblib.load(io.BytesIO(refit_raw))
     except Exception as exc:
         raise LizyMLError(
             code=ErrorCode.DESERIALIZATION_FAILED,
@@ -153,8 +205,9 @@ def load(path: str | Path) -> tuple[Any, Any, dict[str, Any], Any]:
     analysis_context = None
     ctx_pkl = src / "analysis_context.pkl"
     if ctx_pkl.exists():
+        ctx_raw = _verify_and_read_pkl(ctx_pkl, checksums)
         try:
-            analysis_context = joblib.load(ctx_pkl)
+            analysis_context = joblib.load(io.BytesIO(ctx_raw))
         except Exception as exc:
             raise LizyMLError(
                 code=ErrorCode.DESERIALIZATION_FAILED,
