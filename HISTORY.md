@@ -6807,3 +6807,40 @@ defaults に `deterministic: true` + `force_row_wise: true` を追加し、ク�
 - **後方互換**: `checksums` を持たない metadata（旧 artifact 模擬）で `load()` が従来通り成功する。
 - 既存 persistence テスト全件 green。
 
+
+## H-0084: `FitState` / `TuningState` を Layer-0 `core/types/` から facade 隣接 `core/_model_state.py` へ移動
+
+- **ステータス**: Accepted
+- **起票日**: 2026-06-01
+- **決定日**: 2026-06-01
+- **スコープ**: `lizyml/core/types/fit_state.py` → `lizyml/core/_model_state.py`（rename/move）, importer 4ファイル（`model.py` / `_model_plots.py` / `_model_tables.py` / `_model_persistence.py`）, `ARCHITECTURE.md`（facade tree）。**振る舞い・公開 API 不変**（`FitState` は `core/types/__init__` 非エクスポートの内部型）。
+- **関連**: [Issue #171](https://github.com/nbx-liz/LizyML/issues/171), H-0074 / H-0077（Mixin state isolation）, ARCHITECTURE.md §Layer 0（依存ゼロ不変条件）
+
+### 目的（課題）
+
+`FitState` / `TuningState` は `lizyml/core/types/`（5層 DAG の Layer-0、ARCHITECTURE.md で「依存ゼロ」と宣言）に置かれていたが、フィールドが構造的に Layer-1/2 型（`LizyMLConfig`, `EstimatorProvider`, `RefitResult`）を参照する。参照は `TYPE_CHECKING` 限定で runtime import cycle は無いが、**配置が Layer-0 不変条件に違反**する唯一の lower-imports-higher エッジだった。`FitState` は実態として「組み立て済み fit の facade snapshot」であり、Layer-0 ではなく facade 隣接が正しい住所。BLUEPRINT は内容（H-0074）を記録するが配置ルールを waive していない。
+
+### 対応方針（facade-adjacent へ移動、内容不変）
+
+- `core/types/fit_state.py` を `core/_model_state.py`（Layer-4 facade 隣接、`_model_metrics.py` / `_model_predict.py` と同列）へ移動。クラス定義・フィールド・docstring（内容）は不変。
+- importer の import パスを `lizyml.core.types.fit_state` → `lizyml.core._model_state` に更新（4 ソース + 2 テスト）。
+- `ARCHITECTURE.md` の Layer-4 facade ディレクトリツリーに `_model_state.py` を追記（併せて既存ツリーから欠落していた `_model_metrics.py` / `_model_predict.py` も補記）。
+- これにより Layer-0（`core/types/`）は `FitResult` / `PredictionResult` / `TuningResult` / `artifacts` のみの「依存ゼロ」型に戻り、DAG の唯一の back-edge を解消する。
+
+### 代替案（不採用）
+
+- **現状維持 + facade-state 例外を明文化**: 不変条件を弱める方向で、DAG の「Layer-0 は基盤・依存ゼロ」保証を曇らせるため不採用。
+- **`FitState` を Layer-0 に留め、参照型を Layer-0 へ降格**: `LizyMLConfig` / `EstimatorProvider` / `RefitResult` は本質的に上位層であり降格不可。
+
+### 影響範囲 / 互換性
+
+- **振る舞い・公開 API 不変**。`FitState` / `TuningState` は内部型（`core/types/__init__` 非エクスポート、`lizyml` トップレベル非公開）であり、利用者向けの import パス変更は無い。
+- `format_version` 変更不要（Artifacts schema 無関係）。
+- 純粋な配置移動 + import 更新 + doc 同期。
+
+### 受け入れ基準（テスト観点）
+
+- 既存テスト全件 green（`test_fit_state.py` / `test_mixin_state_isolation.py` の import パス更新後も挙動不変）。
+- `core/types/` 配下に Layer-1/2 型を参照する型が残っていないこと（Layer-0 依存ゼロの回復）。
+- structural refactor のため E2E gate（`tests/test_e2e/` + 診断 API 経路）green。
+
