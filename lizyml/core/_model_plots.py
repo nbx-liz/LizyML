@@ -17,7 +17,7 @@ from lizyml.core.exceptions import ErrorCode, LizyMLError
 if TYPE_CHECKING:
     import numpy.typing as npt
 
-    from lizyml.core.types.fit_state import FitState, TuningState
+    from lizyml.core._model_state import FitState, TuningState
 
 
 class ModelPlotsMixin:

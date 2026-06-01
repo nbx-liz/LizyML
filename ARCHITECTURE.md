@@ -747,6 +747,9 @@ lizyml/
 └── core/                           ── Layer 4: Facade ──
     ├── model.py                    Model (組み立てと委譲のみ)
     ├── _model_factories.py         splitter/inner_valid/calibration 構築
+    ├── _model_metrics.py           metric filtering + calibrated assembly
+    ├── _model_predict.py           predict/calibration/SHAP 本体 (#172)
+    ├── _model_state.py             FitState / TuningState (facade snapshot, #171)
     ├── _model_plots.py             ModelPlotsMixin
     ├── _model_tables.py            ModelTablesMixin
     └── _model_persistence.py       ModelPersistenceMixin

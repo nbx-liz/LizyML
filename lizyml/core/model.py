@@ -58,6 +58,7 @@ from lizyml.core._model_metrics import assemble_calibrated_metrics, filter_metri
 from lizyml.core._model_persistence import ModelPersistenceMixin
 from lizyml.core._model_plots import ModelPlotsMixin
 from lizyml.core._model_predict import run_predict
+from lizyml.core._model_state import FitState, TuningState
 from lizyml.core._model_tables import ModelTablesMixin
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.logging import generate_run_id, get_logger
@@ -66,7 +67,6 @@ from lizyml.core.specs.problem_spec import ProblemSpec
 from lizyml.core.train_components import TrainComponents
 from lizyml.core.types.artifacts import DataFingerprint, RunMeta
 from lizyml.core.types.fit_result import FitResult
-from lizyml.core.types.fit_state import FitState, TuningState
 from lizyml.core.types.predict_result import PredictionResult
 from lizyml.core.types.task import TaskType
 from lizyml.core.types.tuning_result import (
