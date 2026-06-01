@@ -6677,3 +6677,42 @@ Issue #159 で要求された全 7 層を Phase に分散して実装する。
 - 既存テスト全件 green（loader default split の `random_state` ハードコード除去に伴う回帰なし）。
 
 
+## H-0082: `evaluate(None)` / `fit_result` の公開返却を deepcopy 化し internal state 汚染を防止
+
+- **ステータス**: Accepted
+- **起票日**: 2026-06-01
+- **決定日**: 2026-06-01
+- **スコープ**: `lizyml/core/model.py`（`evaluate(metrics=None)` 返却、`fit_result` property 返却）。`FitResult` は **非 frozen を維持**（dataclass のまま）。
+- **関連**: [Issue #174](https://github.com/nbx-liz/LizyML/issues/174), v0.15.0 品質監査, `TuningResult`（frozen + defensive copy の前例）
+
+### 目的（課題）
+
+`FitResult` は非 frozen dataclass で mutable フィールド（`metrics` 等のネスト dict）を持ち、`evaluate(metrics=None)` と `fit_result` property は **live な内部参照をそのまま返す**。呼び出し側が返り値を変異させる（例: `m.evaluate()["raw"]["oof"]["rmse"] = 0`）と内部 `_metrics` が破壊され、`export()` が live な `_metrics` を読むため **export メタデータ汚染（再現性リスク）** に至る。一方 filtered path（`evaluate([...])`）は `filter_metrics` で fresh dict を返すため、**挙動が非対称**でもある。
+
+### 対応方針（deepcopy on public return、FitResult 非 frozen 維持）
+
+公開返却点でのみ `copy.deepcopy` を適用し、内部 live state を外部に貸し出さない。
+
+- `evaluate(metrics=None)`: `return deepcopy(self._metrics)`。
+- `fit_result` property: `return deepcopy(self._require_fit())`。
+- 内部経路（Mixin / plot / persistence / export）は `FitState.fit_result`（`_require_fit()` 由来の live 参照）と `self._metrics` を直接使うため **deepcopy のコストを負わない**。公開 property `Model.fit_result` は外部呼び出し専用であることをコード調査で確認済み（内部は `state.fit_result` を使用）。
+
+### 代替案（不採用）
+
+- **FitResult を frozen 化**: ネスト dict / list は frozen dataclass でも mutable のままで根本解決にならず、内部で `FitResult` を構築・保持する多数の経路に破壊的影響が及ぶため不採用。
+- **fit_result を borrowed reference として doc 明記のみ**: export 汚染という実害（再現性リスク）を残すため不採用。
+- **export() 側で snapshot**: 公開返却の非対称性（live を返す問題）自体は解消されないため、入口（公開返却点）で防ぐ本方針を採用。
+
+### 影響範囲 / 互換性
+
+- **Result の「形・意味」は不変**。返却される dict / FitResult の構造・値は完全に同一で、参照の同一性のみが変わる（`m.fit_result is m.fit_result` → `False`、`m.evaluate() is m.evaluate()` → `False`）。`format_version` 変更不要。
+- `fit_result` deepcopy は `models`（学習済み Booster）も複製するが、**外部からの明示的 public read 時のみ**発生する。Booster は pickle 可能で deepcopy 可能（persistence で実証済）。
+- 同一性に依存する利用（`is` 比較）は破壊されうるが、Result は値オブジェクトであり同一性依存は契約外。
+
+### 受け入れ基準（テスト観点）
+
+- **汚染防止（回帰トラップ）**: `evaluate(None)` の返り値ネスト dict を変異 → 後続 `export()` のメタデータ / `model.evaluate()` が影響を受けない。
+- **fit_result 独立性**: `m.fit_result.metrics` を変異 → 内部 state（後続 `m.fit_result` / `export`）が不変。
+- **値の同一性**: deepcopy 前後で構造・数値が bit 一致（`==`）する。
+- 既存テスト全件 green。
+
