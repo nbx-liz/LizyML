@@ -1485,6 +1485,8 @@ LightGBM/XGBoost が `all_x_types` / `all_y_types` で実施しているコン�
 - install smoke test を行い、配布物からの import と README の最短利用例が破綻していないことを確認する。
 - 複数 Python バージョン（最低限 `requires-python` の下限と最新安定版）でテストを実行する。
 - 依存の下限バージョンでのテストを CI に含める（`uv` の resolution 機能で `lowest-direct` を使用）。
+- 依存の上限方向（forward-compat）を検証する non-blocking lane を CI に含める（`uv sync --upgrade`）。上流の破壊的リリース（pandas / numpy / lightgbm 等）を早期検知する。ランタイム依存は下限のみ宣言し上限 cap は付けない方針とする（詳細は CONTRIBUTING.md）。
+- OS portability smoke（ubuntu / windows / macos）を CI に含め、path / newline 等の移植性問題を検知する（最低限の file I/O 系サブセット、単一 Python で可）。
 - `develop` および `main` ブランチへの PR で CI を実行する。`develop` PR では slow テストを除外し、`main` PR では全テストを実行する（H-0043）。
 
 # 19. ディレクトリ構成

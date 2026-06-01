@@ -56,6 +56,28 @@ This runs:
 - `uv run mypy lizyml/` — type checking
 - `uv run pytest` — tests (80%+ coverage required)
 
+## Dependencies
+
+### Version-bound policy
+
+Runtime dependencies declare a **lower bound only** (e.g. `pandas>=2.0`) — **no
+upper caps**. LizyML already runs the current major releases (numpy 2.x,
+pandas 3.x), so a conservative cap such as `pandas<3` would be regressive.
+Forward compatibility is protected by CI rather than by pinning:
+
+- **`Quality (latest deps, non-blocking)`** — a CI lane that resolves
+  dependencies *upward* (`uv sync --upgrade`) and runs the suite. It is
+  **non-blocking**: it surfaces an upstream breaking change (pandas / numpy /
+  lightgbm) early without gating merges on a third-party regression.
+- **`Quality (lowest-direct deps)`** — pins the declared lower bounds
+  (`--resolution lowest-direct`, BLUEPRINT §18.2) so the floor stays honest.
+- **`Smoke (<os>)`** — an OS matrix (ubuntu / windows / macos) running the
+  file-I/O-sensitive subset to catch path / newline portability issues.
+
+When the latest-deps lane goes red, fix forward (adapt the code) and bump
+`uv.lock` — do **not** add an upper cap to silence it. Adding or removing a
+runtime dependency still requires a Change-Gate proposal (see below).
+
 ## Spec-First Development
 
 LizyML follows a **specification-first** workflow. Before implementing changes to:
