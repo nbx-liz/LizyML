@@ -104,10 +104,14 @@ def generate_code(
         calibrator=calibrator,
     )
 
-    # Write source files
-    (root / "train.py").write_text(render_train_py())
-    (root / "predict.py").write_text(render_predict_py())
-    (root / "test_equivalence.py").write_text(render_test_equivalence_py())
-    (root / "requirements.txt").write_text(render_requirements_txt())
+    # Write source files. ``encoding="utf-8"`` is required: the templates
+    # contain non-ASCII characters, and write_text() would otherwise use the
+    # platform default (cp1252 on Windows) and raise UnicodeEncodeError (#180).
+    (root / "train.py").write_text(render_train_py(), encoding="utf-8")
+    (root / "predict.py").write_text(render_predict_py(), encoding="utf-8")
+    (root / "test_equivalence.py").write_text(
+        render_test_equivalence_py(), encoding="utf-8"
+    )
+    (root / "requirements.txt").write_text(render_requirements_txt(), encoding="utf-8")
 
     return root

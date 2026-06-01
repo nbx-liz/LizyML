@@ -62,8 +62,9 @@ def write_artifacts(
     artifacts = root / "artifacts"
     artifacts.mkdir(parents=True, exist_ok=True)
 
-    # config.json
-    with open(root / "config.json", "w") as f:
+    # config.json (encoding="utf-8": ensure_ascii=False may emit non-ASCII,
+    # which the Windows default cp1252 codec cannot encode — #180)
+    with open(root / "config.json", "w", encoding="utf-8") as f:
         json.dump(config, f, indent=2, ensure_ascii=False)
 
     # model.txt
@@ -71,13 +72,13 @@ def write_artifacts(
 
     # pipeline_state.json — convert LizyML format to codegen format
     codegen_state = _convert_pipeline_state(pipeline_state, config)
-    with open(artifacts / "pipeline_state.json", "w") as f:
+    with open(artifacts / "pipeline_state.json", "w", encoding="utf-8") as f:
         json.dump(codegen_state, f, indent=2, ensure_ascii=False)
 
     # calibrator
     if calibrator is not None:
         params = calibrator.export_params()
-        with open(artifacts / "calibrator.json", "w") as f:
+        with open(artifacts / "calibrator.json", "w", encoding="utf-8") as f:
             json.dump(params, f, indent=2)
 
         # Isotonic: also save the Booster model file

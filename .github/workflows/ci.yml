@@ -103,6 +103,10 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install OpenMP runtime (macOS — required by lightgbm)
+        if: runner.os == 'macOS'
+        run: brew install libomp
+
       - name: Install dependencies
         run: uv sync --frozen --dev
 
