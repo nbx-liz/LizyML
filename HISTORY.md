@@ -6755,3 +6755,55 @@ defaults に `deterministic: true` + `force_row_wise: true` を追加し、ク�
 - **値の同一性**: copy 前後で構造・数値が bit 一致（`==`）する。
 - 既存テスト全件 green。
 
+
+## H-0083: export 時に各 .pkl の SHA-256 を metadata.json に記録し load 時に検証
+
+- **ステータス**: Accepted
+- **起票日**: 2026-06-01
+- **決定日**: 2026-06-01
+- **スコープ**: `lizyml/persistence/exporter.py`（metadata に `checksums` 追加）, `lizyml/persistence/loader.py`（load 前の digest 検証）。`FORMAT_VERSION` は **2 のまま据置（additive・後方互換 read）**。
+- **関連**: [Issue #179](https://github.com/nbx-liz/LizyML/issues/179), v0.15.0 品質監査（SECURITY/LOW）
+
+### 目的（課題）
+
+`Model.load()` は `.pkl`（`fit_result` / `refit_model` / `analysis_context`）を `joblib.load` で復元するが、これは任意 Python を実行する。load 前検証は `metadata.json` のみで、**検証済み metadata と .pkl バイト列の間に整合バインドが無い**。良性 metadata に改竄 .pkl を組み合わせると ACE に至る。「trusted-source のみ」契約＋pickle-free codegen 代替の開示により LOW だが、安価な整合チェックで改竄/破損を検出できる。
+
+### 対応方針（additive checksum、format_version 据置）
+
+`export()` で各 .pkl の SHA-256 を計算し `metadata.json` に additive フィールドとして記録。`load()` で `joblib.load` 前に digest を照合し、不一致は `DESERIALIZATION_FAILED` を送出する。
+
+- metadata 構造（additive）::
+
+      "checksums": {
+          "algorithm": "sha256",
+          "files": {
+              "fit_result.pkl": "<hex>",
+              "refit_model.pkl": "<hex>",
+              "analysis_context.pkl": "<hex>"   # 任意（存在時のみ）
+          }
+      }
+
+- `export()`: .pkl を dump 後にバイト列の SHA-256 を計算し metadata に格納（書き込み順を「.pkl → metadata.json」に変更）。
+- `load()`: `checksums` が存在し当該ファイルの digest が登録されていれば照合。`algorithm` が `sha256` 以外、または digest 不一致は `DESERIALIZATION_FAILED`（context に `file` / `expected` / `actual` を格納）。
+- **後方互換 read**: `checksums` 不在（H-0083 以前の format_version 2、または format_version 1）の artifact は検証を skip して従来通り load する。これにより `FORMAT_VERSION` 据置で旧 artifact を読める。
+
+### 代替案（不採用）
+
+- **`FORMAT_VERSION` を 3 に bump**: checksum は additive で旧 read を壊さないため不要。migration 負荷を避ける（locked 決定）。
+- **署名（HMAC/公開鍵）**: 鍵管理が必要で LOW リスクに対し過剰。SHA-256 は「改竄/破損検出」目的に十分（fully-trusted-but-malicious producer に対し pickle を安全化するとは主張しない）。
+- **検証を warning に留める**: 整合バインドの意味を成さないため、不一致は fail-closed（例外）とする。
+
+### 影響範囲 / 互換性
+
+- **後方互換**: 旧 artifact（checksums 不在）は従来通り load 可能。新 artifact は旧 loader でも load 可能（`checksums` は未知フィールドとして無視される）。`FORMAT_VERSION` 不変。
+- 公開 API（`export` / `load` の引数・戻り値）不変。`load()` の戻り `metadata` dict に `checksums` キーが増えるのみ。
+- **TOCTOU 対策**: `load()` は .pkl のバイト列を 1 回だけ読み、in-memory で digest 照合後 `joblib.load(io.BytesIO(...))` で復元する（ファイルを再 open しない）。hash 後・load 前のすり替え窓を排除（security-review 指摘）。
+- **脅威モデル（明示）**: `metadata.json` 自体は署名しないため、書き込み権限を持つ攻撃者は `checksums` を改竄/除去できる。本機能は「改竄/破損の検出」が目的であり、trusted-but-malicious producer に対し pickle を安全化するものではない（既存の trusted-source 契約を維持）。
+
+### 受け入れ基準（テスト観点）
+
+- **正常**: export→load round-trip が成功し、`metadata["checksums"]["files"]` に全 .pkl の SHA-256 が入る。
+- **改竄検出（落ちるべき例）**: export 後に `fit_result.pkl` のバイトを書き換え→`load()` が `DESERIALIZATION_FAILED`（context に file/expected/actual）。`refit_model.pkl` / `analysis_context.pkl` も同様。
+- **後方互換**: `checksums` を持たない metadata（旧 artifact 模擬）で `load()` が従来通り成功する。
+- 既存 persistence テスト全件 green。
+
