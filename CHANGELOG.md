@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Generated `train.py` / `predict.py` / `test_equivalence.py` open JSON artifacts as UTF-8** ([#192](https://github.com/nbx-liz/LizyML/issues/192)) — every `open()` in the exported scripts now pins `encoding="utf-8"`. A Windows (`cp1252`) or `C`-locale end-user running the generated scripts over data with a non-ASCII categorical value previously hit a `UnicodeEncodeError` / `UnicodeDecodeError` when writing/reading `pipeline_state.json`. (Completes [#180](https://github.com/nbx-liz/LizyML/issues/180), which fixed only the LizyML-side codegen writes.)
+
 ## [0.16.0] - 2026-06-01
 
 Quality-audit remediation release: resolves the v0.15.0 comprehensive audit
