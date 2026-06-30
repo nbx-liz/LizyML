@@ -41,7 +41,7 @@ log = logging.getLogger(__name__)
 ROOT = Path(__file__).parent
 ARTIFACTS = ROOT / "artifacts"
 
-with open(ROOT / "config.json") as _f:
+with open(ROOT / "config.json", encoding="utf-8") as _f:
     CFG = json.load(_f)
 
 
@@ -68,7 +68,7 @@ def fit_pipeline(df: pd.DataFrame) -> dict:
         "category_mappings": mappings,
     }
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
-    with open(ARTIFACTS / "pipeline_state.json", "w") as f:
+    with open(ARTIFACTS / "pipeline_state.json", "w", encoding="utf-8") as f:
         json.dump(state, f, indent=2, ensure_ascii=False)
     return state
 
@@ -369,7 +369,7 @@ def fit_calibrator(X: np.ndarray, y: np.ndarray) -> dict | None:
             f"Supported: {list(_CAL_FITTERS)}"
         )
     params = _CAL_FITTERS[method](oof, y)
-    with open(ARTIFACTS / "calibrator.json", "w") as f:
+    with open(ARTIFACTS / "calibrator.json", "w", encoding="utf-8") as f:
         json.dump(params, f, indent=2)
     log.info("    saved calibrator.json")
     return params
@@ -467,7 +467,7 @@ log = logging.getLogger(__name__)
 ROOT = Path(__file__).parent
 ARTIFACTS = ROOT / "artifacts"
 
-with open(ROOT / "config.json") as _f:
+with open(ROOT / "config.json", encoding="utf-8") as _f:
     CFG = json.load(_f)
 
 
@@ -479,7 +479,7 @@ def _load_pipeline() -> dict:
     path = ARTIFACTS / "pipeline_state.json"
     if not path.exists():
         raise FileNotFoundError(f"{path} not found. Run train.py first.")
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -518,7 +518,7 @@ def _load_calibrator() -> dict | None:
     path = ARTIFACTS / "calibrator.json"
     if not path.exists():
         return None
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -641,7 +641,7 @@ log = logging.getLogger(__name__)
 ROOT = Path(__file__).parent
 ARTIFACTS = ROOT / "artifacts"
 
-with open(ROOT / "config.json") as _f:
+with open(ROOT / "config.json", encoding="utf-8") as _f:
     CFG = json.load(_f)
 
 
@@ -653,7 +653,7 @@ def _load_pipeline() -> dict:
     path = ARTIFACTS / "pipeline_state.json"
     if not path.exists():
         raise FileNotFoundError(f"{path} not found. Run train.py first.")
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
@@ -685,7 +685,7 @@ def _predict(df: pd.DataFrame) -> dict[str, np.ndarray | None]:
     if task == "binary":
         cal_path = ARTIFACTS / "calibrator.json"
         if cal_path.exists():
-            with open(cal_path) as f:
+            with open(cal_path, encoding="utf-8") as f:
                 cal = json.load(f)
             logits = np.asarray(booster.predict(X, raw_score=True), dtype=np.float64)
             m = cal["method"]
