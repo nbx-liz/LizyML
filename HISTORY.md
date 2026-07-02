@@ -6844,3 +6844,50 @@ defaults に `deterministic: true` + `force_row_wise: true` を追加し、ク�
 - `core/types/` 配下に Layer-1/2 型を参照する型が残っていないこと（Layer-0 依存ゼロの回復）。
 - structural refactor のため E2E gate（`tests/test_e2e/` + 診断 API 経路）green。
 
+---
+
+## H-0085: inner-valid 境界ポリシーの統一（pipeline fit 境界の矛盾解消 + purge/embargo の inner 伝播）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-07-02
+- **決定日**: 2026-07-02
+- **スコープ**: `training/refit_trainer.py`（pipeline fit 境界）, `training/inner_valid.py`（`TimeHoldoutInnerValid` に gap 追加）, `core/_model_factories.py`（`_resolve_auto_inner_valid` の purge/embargo 受け渡し）, `evaluation/evaluator.py`（数値 target NaN の例外化）, `config`（time-order 下 shuffled inner_valid の警告）, `BLUEPRINT.md §6.2 / §10.3.1 L602 / §10.3.2 L629-631`。**公開 API・FitResult shape は不変**（`best_iteration` の数値は変わり得る＝再現性の観点で挙動変化）。
+- **関連**: [Issue #208](https://github.com/nbx-liz/LizyML/issues/208), [#212](https://github.com/nbx-liz/LizyML/issues/212), [#207](https://github.com/nbx-liz/LizyML/issues/207) item 4, [#210](https://github.com/nbx-liz/LizyML/issues/210) item 3。BLUEPRINT §6.2 / §10.3。2026-07-02 full-package review。
+
+### 目的（課題）
+
+inner-valid（early-stopping）境界に関する 4 つの課題を、一貫した 1 つの決定として解消する。
+
+1. **#208 — pipeline fit 境界の自己矛盾**: BLUEPRINT §6.2 L394-395 と §10.3.2 L626 は「pipeline は outer fold の train 全体で fit する（inner-train に狭めない）」と定めるが、§10.3.2 L629 は RefitTrainer について「pipeline は inner-train のみで fit する（CVTrainer と一致）」と**逆の境界**を記す。実装も分かれており、`cv_trainer.py:111` は outer train 全体、`refit_trainer.py:100-103` は inner-train のみで fit し、コメント「consistent with CVTrainer」は事実に反する。
+2. **#212 — inner 境界の gap 欠落**: `purge_gap` / `embargo`（`time_series` の `gap`）は outer split のみに適用され、§10.3.1 L602 は「inner valid に伝搬しない」と明記。auto-resolve の `TimeHoldoutInnerValid`（`inner_valid.py:194-196`）は inner_train と inner_valid を gap ゼロで隣接させるため、look-ahead 構築 target が境界で重なり、全 outer fold の `best_iteration` を楽観的に汚染する。
+3. **#207 item 4 — 数値 target の NaN 契約が未定義**: NaN-target 検証は label-encoded string target のみ（`core/types/target_encoder.py:126-134`）。regression/binary の数値 target では `Model.fit` の契約が未定義・未テスト。
+4. **#210 item 3 — time-order 下 shuffled inner_valid が無警告**: 明示 `inner_valid: {method: holdout}`（random permutation）を `time_series` / `purged_time_series` outer split と組み合わせると、時間的にリークした early-stopping split が無警告で成立する（BLUEPRINT L599 が許容）。
+
+### 対応方針（決定）
+
+- **#208 → pipeline fit 境界を「outer-train 全体（Refit は全データ）」に統一する**。RefitTrainer を CVTrainer 側へ寄せ、pipeline を全データで 1 回 fit → 変換後に inner-train / inner-valid を slice（CVTrainer の `_build_iv_subsets` と同型）。これにより現行の二重 fit（L630 の推論用 pipeline 別 fit）を解消し、`best_iteration` 選択の境界を CV fold と一致させる。`refit_trainer.py:95-96` の虚偽コメントを訂正。BLUEPRINT §10.3.2 L629-631 を outer/full-train 境界へ改訂（§6.2 / L626 が正）。
+  - 根拠: (a) 高優先の §6.2 が既に outer-train 境界を定義、(b) 現行 `NativeFeaturePipeline` は y-free（カテゴリ辞書は X のみ）で OOF・best_iteration とも実質リークしない、(c) refit の二重 fit と境界不一致という実バグを同時に解消。将来 y-dependent transform を導入する際は、その Proposal で「pipeline fit を inner-train に狭める」判断を改めて行う。
+- **#212 → purge_gap / embargo（time_series の gap）を auto-resolve inner-valid へ伝播する**。`TimeHoldoutInnerValid` に gap パラメータを追加し、inner_train と inner_valid の間を `purge_gap + embargo`（time_series は `gap`）行だけ空ける。`_resolve_auto_inner_valid` が outer split 設定から gap を受け渡す。BLUEPRINT §10.3.1 L602 を「purge_gap / embargo（gap）は inner valid にも伝播する」に改訂（`n_splits` / `shuffle` / `random_state` / `train_size_max` / `test_size_max` は引き続き非伝播）。
+- **#207 item 4 → 数値 target の NaN を明示的に拒否**。covered-OOF より前段、`Model.fit` の入口で数値 target に NaN があれば `LizyMLError(DATA_SCHEMA_INVALID)` を nan_count context 付きで送出する契約に固定する。
+- **#210 item 3 → 警告に留める（エラー化しない）**。`time_series` / `purged_time_series` outer split と shuffle を伴う明示 inner_valid（holdout stratify、random permutation）の組み合わせで `UserWarning` を発する。L599 の「明示指定を尊重する」仕様は維持（spec-compatible）。
+
+### 代替案（不採用）
+
+- **#208 を inner-train のみに統一**: 最も厳格で将来の y-dependent transform に耐性があるが、高優先の §6.2 L394-395 を改訂する必要があり、CVTrainer が fold 毎に pipeline 再 fit するコスト増を伴う。現 pipeline が y-free で実害が early-stopping 語彙に限定される現状では過剰。y-dependent transform 導入時に再検討する。
+- **#212 を明文化のみ（docstring caveat）**: 実装コストは最小だが、`purge_gap` を設定したユーザーの意図（境界リーク排除）を early-stopping 経路で裏切る穴が残るため不採用。
+- **#210 item 3 をエラー化**: L599 の「明示 inner_valid を尊重」仕様と衝突するため、警告に留める。
+
+### 影響範囲 / 互換性
+
+- **公開 API・Config・FitResult / PredictionResult の shape は不変**。
+- **挙動変化**: RefitTrainer の pipeline fit 境界変更と inner 境界の gap 追加により、既存モデルの `best_iteration`（ひいては学習済みモデル）が変わり得る。再現性契約上の変更であり、format_version は据え置き（Artifacts schema は不変）。CHANGELOG に「早期停止の分割境界が変わる」旨を明記する。
+- 数値 target NaN の拒否は、従来 undefined だった経路を fail-fast にするもので、正常データには影響しない。
+
+### 受け入れ基準（テスト観点）
+
+- **#208**: RefitTrainer が全データで pipeline を 1 回 fit することを固定するテスト（二重 fit が無いこと）。CVTrainer / RefitTrainer が同一 pipeline fit 境界であることを検証（`test_pipeline_fit_boundary.py` に境界固定 assertion 追加）。
+- **#212**: `purged_time_series`（purge_gap>0）で auto-resolve された inner-valid の inner_train 末尾と inner_valid 先頭の間に `purge_gap + embargo` 行の gap が存在することを固定する RED テスト（現行 zero-gap では落ちる）。
+- **#207 item 4**: 数値 target に NaN を含む入力で `Model.fit` が `LizyMLError(DATA_SCHEMA_INVALID)` を nan_count context 付きで送出する RED テスト。
+- **#210 item 3**: time-order outer split × shuffled 明示 inner_valid で `UserWarning` が発ることを検証するテスト。
+- 上記いずれも「落ちるべき例」を含む（CLAUDE.md §6 の split/leakage/calibration 必須要件）。
+
