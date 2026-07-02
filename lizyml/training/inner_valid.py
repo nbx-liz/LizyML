@@ -170,12 +170,21 @@ class TimeHoldoutInnerValid(BaseInnerValidStrategy):
 
     Args:
         ratio: Fraction of rows to assign to validation (from the end).
+        gap: Number of rows to purge between inner-train and inner-valid
+            (H-0085 / #212). Propagated from the outer split's
+            ``purge_gap + embargo`` (``purged_time_series``) or ``gap``
+            (``time_series``) so the early-stopping boundary gets the same
+            look-ahead guard as the outer split. The purged rows belong to
+            neither inner-train nor inner-valid.
     """
 
-    def __init__(self, ratio: float = 0.1) -> None:
+    def __init__(self, ratio: float = 0.1, gap: int = 0) -> None:
         if not 0.0 < ratio < 1.0:
             raise ValueError(f"ratio must be in (0, 1), got {ratio}")
+        if gap < 0:
+            raise ValueError(f"gap must be >= 0, got {gap}")
         self.ratio = ratio
+        self.gap = gap
 
     def split(
         self,
@@ -184,15 +193,16 @@ class TimeHoldoutInnerValid(BaseInnerValidStrategy):
         groups: npt.NDArray[Any] | None = None,
     ) -> tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]:
         n_valid = max(1, int(n_samples * self.ratio))
-        if n_valid >= n_samples:
+        if n_valid + self.gap >= n_samples:
             raise ValueError(
                 f"Inner validation would consume all {n_samples} sample(s) "
-                f"(n_valid={n_valid}, ratio={self.ratio}). "
-                "Increase training data or decrease validation_ratio."
+                f"(n_valid={n_valid}, gap={self.gap}, ratio={self.ratio}). "
+                "Increase training data, decrease validation_ratio, "
+                "or reduce purge_gap/embargo."
             )
         all_idx = np.arange(n_samples, dtype=np.intp)
-        train_idx = all_idx[:-n_valid]
         valid_idx = all_idx[-n_valid:]
+        train_idx = all_idx[: n_samples - n_valid - self.gap]
         return train_idx, valid_idx
 
 
