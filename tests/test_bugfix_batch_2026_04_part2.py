@@ -1,6 +1,7 @@
 """Regression tests for issues #5, #6, #7 discovered 2026-04-10.
 
-#5: RefitTrainer pipeline fitted on all data (inner-valid included).
+#5: RefitTrainer pipeline fit boundary — now unified to full-data, single
+    fit by H-0085 (#208); this file pins the current (post-H-0085) contract.
 #6: cross_fit_calibrate passes NaN val_idx to calibrator.predict.
 #7: calibrated metrics missing oof_per_fold key.
 """
@@ -81,12 +82,19 @@ class StubEstimator:
 
 
 class TestRefitTrainerPipelineLeakage:
-    """Pipeline must be fitted on inner-train only, not all data."""
+    """Pipeline fit boundary is the full dataset, fitted once (H-0085).
 
-    def test_pipeline_fit_excludes_inner_valid_rows(self) -> None:
-        """When inner-valid is used, the initial pipeline.fit must
-        be called on inner-train rows only (not the full dataset).
-        The final pipeline_state should be from a full-data refit.
+    Superseded the 2026-04 #5 fix: H-0085 (#208) unified the pipeline fit
+    boundary to the full outer-train set — for a refit that is all rows,
+    fitted exactly once (matching CVTrainer's outer-train boundary), and the
+    same pipeline provides ``pipeline_state``. No inner-train fit, no double
+    fit. The y-free ``NativeFeaturePipeline`` keeps OOF clean either way; see
+    HISTORY.md H-0085.
+    """
+
+    def test_pipeline_fits_once_on_full_data(self) -> None:
+        """When inner-valid is used, pipeline.fit is called exactly once, on
+        the full dataset, and ``pipeline_state`` comes from that single fit.
         """
         n = 100
         X = pd.DataFrame({"f1": np.arange(n, dtype=float)})
@@ -109,22 +117,15 @@ class TestRefitTrainerPipelineLeakage:
 
         result = trainer.fit(X, y)
 
-        # Two pipelines: inner-train fit + full-data fit
-        assert len(spy_pipelines) == 2, (
-            f"Expected 2 pipeline instances, got {len(spy_pipelines)}"
+        # Exactly one pipeline, fitted on all rows (no double fit).
+        assert len(spy_pipelines) == 1, (
+            f"Expected 1 pipeline instance, got {len(spy_pipelines)}"
         )
-        # First pipeline: fitted on inner-train only
-        assert spy_pipelines[0].fit_n_rows is not None
-        assert spy_pipelines[0].fit_n_rows < n, (
-            f"First pipeline fitted on {spy_pipelines[0].fit_n_rows} "
-            f"rows, expected < {n} (inner-train only)"
-        )
-        # Second pipeline: fitted on full data
-        assert spy_pipelines[1].fit_n_rows == n, (
-            f"Second pipeline fitted on {spy_pipelines[1].fit_n_rows} "
+        assert spy_pipelines[0].fit_n_rows == n, (
+            f"Pipeline fitted on {spy_pipelines[0].fit_n_rows} "
             f"rows, expected {n} (full data)"
         )
-        # pipeline_state comes from full-data fit
+        # pipeline_state comes from that single full-data fit
         assert result.pipeline_state == {"cols": ["f1"]}
 
 

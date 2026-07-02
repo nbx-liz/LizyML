@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed (potentially breaking)
+
+- **Unified the inner-valid (early-stopping) pipeline fit boundary** (H-0085, [#208](https://github.com/nbx-liz/LizyML/issues/208)). `RefitTrainer` now fits the feature pipeline **once on the full dataset** — the same outer-train boundary `CVTrainer` already uses — instead of fitting on the inner-train slice and then refitting a second pipeline on all data. This removes the double fit and aligns `best_iteration` selection with the CV folds. OOF predictions are unaffected (the y-free `NativeFeaturePipeline` never let outer-valid rows into the fit); however, a model's `best_iteration` — and therefore the refit model — can change for configs that use early stopping. Resolves a BLUEPRINT self-contradiction (§6.2 / §10.3.2). `format_version` unchanged.
+
 ## [0.16.1] - 2026-06-30
 
 ### Fixed
