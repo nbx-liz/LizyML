@@ -332,6 +332,16 @@ def build_inner_valid(cfg: LizyMLConfig) -> InnerValidType:
 
     # Explicit config — dispatch by concrete type
     if isinstance(iv_cfg, HoldoutInnerValidConfig):
+        if split_method in ("time_series", "purged_time_series"):
+            warnings.warn(
+                "Explicit inner_valid method='holdout' uses a shuffled random "
+                f"split, but the outer split.method='{split_method}' is "
+                "time-ordered. The early-stopping validation will not respect "
+                "time order and may be temporally leaked. Consider "
+                "inner_valid.method='time_holdout'.",
+                UserWarning,
+                stacklevel=2,
+            )
         return HoldoutInnerValid(
             ratio=iv_cfg.ratio,
             random_state=iv_cfg.random_state,

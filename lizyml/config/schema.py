@@ -95,6 +95,37 @@ class TimeSeriesConfig(BaseModel):
     test_size_max: int | None = None
 
 
+def _legacy_obs_count(key: str, value: Any) -> int:
+    """Coerce a legacy purge/embargo value to an integer observation count.
+
+    Rejects fractional values instead of silently truncating them to ``0`` — a
+    leak-prevention parameter must never collapse to ``0`` (#210). Integer-valued
+    inputs (``3`` or ``3.0``) are accepted; a fractional value (``0.05``) raises.
+    """
+    if isinstance(value, bool):
+        raise ValueError(
+            f"purged_time_series '{key}' must be an integer observation count, "
+            f"got {value!r}."
+        )
+    if isinstance(value, int):
+        return value
+    try:
+        as_float = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"purged_time_series '{key}' must be an integer observation count, "
+            f"got {value!r}."
+        ) from None
+    if as_float != int(as_float):
+        raise ValueError(
+            f"purged_time_series legacy '{key}'={value!r} is fractional; "
+            "'embargo' is an integer observation count, not a fraction. It must "
+            "not silently truncate to 0. Compute the row count explicitly "
+            "(e.g. int(round(fraction * n_rows)))."
+        )
+    return int(as_float)
+
+
 class PurgedTimeSeriesConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -129,7 +160,7 @@ class PurgedTimeSeriesConfig(BaseModel):
                 DeprecationWarning,
                 stacklevel=2,
             )
-            data["embargo"] = int(data.pop("embargo_pct"))
+            data["embargo"] = _legacy_obs_count("embargo_pct", data.pop("embargo_pct"))
         if "gap" in data and "embargo" not in data:
             warnings.warn(
                 "purged_time_series key 'gap' is deprecated; "
@@ -137,7 +168,7 @@ class PurgedTimeSeriesConfig(BaseModel):
                 DeprecationWarning,
                 stacklevel=2,
             )
-            data["embargo"] = int(data.pop("gap"))
+            data["embargo"] = _legacy_obs_count("gap", data.pop("gap"))
         return data
 
 
