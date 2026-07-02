@@ -626,9 +626,10 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `FeaturePipeline.fit` は outer fold の `train` 全体に対して行う。inner valid は estimator の early stopping 用 evaluation set であり、FeaturePipeline の fit 境界は outer train のままとする。
 - estimator は inner valid が有効な場合 `inner_train` のみで学習し、`inner_valid` を eval set として early stopping を行う。OOF の割当先は引き続き outer fold の `valid` のみとする。
 - `RefitTrainer` でも同じ `InnerValidStrategy` を全データに適用して final model の early stopping 用 split を作る。
-  - inner valid がある場合、pipeline は **inner-train のみ**で fit する（CVTrainer と一致する leakage 境界）。estimator は inner-train で学習、inner-valid で early stopping。
-  - 最終的な `pipeline_state`（推論用）は、別途全データで fit した pipeline から取得する。`categorical_features` も全データ fit 由来の pipeline から取得する。
-  - inner valid が無い場合（`NoInnerValid`）は、pipeline は全データで 1 回のみ fit する（二重 fit を回避）。
+  - **pipeline は全データで 1 回のみ fit する**（H-0085）。CVTrainer が outer fold の `train` 全体で pipeline を fit するのと同じ境界であり、Refit における「outer train 全体」は全データに相当する。inner-train には狭めない。
+  - estimator は inner valid がある場合、変換後データから slice した `inner_train` で学習し、`inner_valid` を eval set として early stopping を行う。
+  - 最終的な `pipeline_state`（推論用）および `categorical_features` は、この全データ fit 済み pipeline から取得する（二重 fit は行わない）。
+  - inner valid が無い場合（`NoInnerValid`）も、pipeline は全データで 1 回 fit し、estimator を全データで学習する。
   - `time_series` / `purged_time_series` / `group_time_series` では、`Model._prepare_training_data()` により時系列昇順へ並べ替えた後の全データに対して inner valid を切る。
 
 ### 10.3.3 各 strategy の分割規則
