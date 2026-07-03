@@ -150,6 +150,9 @@ def generate_code(
     (root / "test_equivalence.py").write_text(
         render_test_equivalence_py(), encoding="utf-8"
     )
-    (root / "requirements.txt").write_text(render_requirements_txt(), encoding="utf-8")
+    (root / "requirements.txt").write_text(
+        render_requirements_txt(uses_beta_calibration=calibration_method == "beta"),
+        encoding="utf-8",
+    )
 
     return root

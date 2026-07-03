@@ -237,3 +237,5 @@ class TestGenerateCode:
         assert "lightgbm" in reqs
         assert "numpy" in reqs
         assert "pandas" in reqs
+        # No beta calibration here -> scipy must not be pinned (#218).
+        assert "scipy" not in reqs
