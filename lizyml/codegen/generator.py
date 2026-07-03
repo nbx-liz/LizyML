@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,29 @@ from lizyml.codegen.templates import (
     render_train_py,
 )
 from lizyml.estimators.base import BaseEstimatorAdapter
+
+# Split methods whose CV the generated train.py (shuffled K-fold) reproduces
+# faithfully. Any other method (time_series / purged_time_series / group_* /
+# blocked_group_kfold) is NOT reproduced by the generated retrain — see #206.
+_SHUFFLE_SAFE_METHODS = frozenset({"kfold", "stratified_kfold"})
+
+
+def _train_py_split_banner(split_method: str) -> str:
+    """Warning banner injected into the generated train.py when its shuffled
+    K-fold CV does not reproduce the model's actual ``split.method`` (#206)."""
+    rule = "# " + "=" * 60
+    return (
+        f"\n{rule}\n"
+        f"# WARNING (lizyml codegen): this model was trained with\n"
+        f"# split.method='{split_method}', but this generated train.py retrains\n"
+        "# and calibrates using SHUFFLED random K-fold CV. It does NOT reproduce\n"
+        "# the time/group split, so retraining on temporal or grouped data will\n"
+        "# leak across the split boundary (look-ahead / group overlap).\n"
+        "# The exported model.txt and predict.py are unaffected — only\n"
+        "# re-training from this script is. Replace the CV below with the\n"
+        "# appropriate time/group-aware split before retraining.\n"
+        f"{rule}\n"
+    )
 
 
 def generate_code(
@@ -35,6 +59,7 @@ def generate_code(
     calibrator: BaseCalibratorAdapter | None,
     feval_metrics: list[dict[str, Any]] | None = None,
     target_classes: list[Any] | None = None,
+    split_method: str = "kfold",
 ) -> Path:
     """Generate LizyML-independent training and prediction code.
 
@@ -107,7 +132,20 @@ def generate_code(
     # Write source files. ``encoding="utf-8"`` is required: the templates
     # contain non-ASCII characters, and write_text() would otherwise use the
     # platform default (cp1252 on Windows) and raise UnicodeEncodeError (#180).
-    (root / "train.py").write_text(render_train_py(), encoding="utf-8")
+    train_src = render_train_py()
+    if split_method not in _SHUFFLE_SAFE_METHODS:
+        # Inject the banner after the shebang line (which must stay line 1).
+        shebang, _, rest = train_src.partition("\n")
+        train_src = f"{shebang}\n{_train_py_split_banner(split_method)}{rest}"
+        warnings.warn(
+            "export_code: the generated train.py uses shuffled K-fold CV and "
+            f"does not reproduce split.method='{split_method}'. Retraining from "
+            "the script may leak across the time/group boundary; the exported "
+            "model and predict.py are unaffected. See the banner in train.py.",
+            UserWarning,
+            stacklevel=2,
+        )
+    (root / "train.py").write_text(train_src, encoding="utf-8")
     (root / "predict.py").write_text(render_predict_py(), encoding="utf-8")
     (root / "test_equivalence.py").write_text(
         render_test_equivalence_py(), encoding="utf-8"
