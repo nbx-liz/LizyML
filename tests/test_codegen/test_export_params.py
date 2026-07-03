@@ -12,6 +12,7 @@ import pytest
 
 from lizyml.calibration.isotonic import IsotonicCalibrator
 from lizyml.calibration.platt import PlattCalibrator
+from lizyml.core.exceptions import LizyMLError
 
 # ── Fixtures ──────────────────────────────────────────────────
 
@@ -58,7 +59,7 @@ class TestPlattExportParams:
 
     def test_export_params_unfitted_raises(self) -> None:
         cal = PlattCalibrator()
-        with pytest.raises(RuntimeError, match="not been fitted"):
+        with pytest.raises(LizyMLError, match="not been fitted"):
             cal.export_params()
 
     def test_export_params_json_serializable(self, binary_data: tuple) -> None:
@@ -109,7 +110,7 @@ class TestBetaExportParams:
         from lizyml.calibration.beta import BetaCalibrator
 
         cal = BetaCalibrator()
-        with pytest.raises(RuntimeError, match="not been fitted"):
+        with pytest.raises(LizyMLError, match="not been fitted"):
             cal.export_params()
 
 
@@ -159,12 +160,12 @@ class TestIsotonicExportParams:
 
     def test_save_model_text_unfitted_raises(self, tmp_path: Path) -> None:
         cal = IsotonicCalibrator()
-        with pytest.raises(RuntimeError, match="not been fitted"):
+        with pytest.raises(LizyMLError, match="not been fitted"):
             cal.save_model_text(tmp_path / "model.txt")
 
     def test_export_params_unfitted_raises(self) -> None:
         cal = IsotonicCalibrator()
-        with pytest.raises(RuntimeError, match="not been fitted"):
+        with pytest.raises(LizyMLError, match="not been fitted"):
             cal.export_params()
 
 
