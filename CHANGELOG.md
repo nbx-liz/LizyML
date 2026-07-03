@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Contract types and the unified exception are now importable from the top-level package** (H-0086, [#213](https://github.com/nbx-liz/LizyML/issues/213)). `FitResult`, `PredictionResult`, `TuningResult`, `LizyMLError`, `ErrorCode`, `load_config`, and `TaskType` are re-exported from `lizyml` (previously only reachable via the private-looking `lizyml.core.*` paths), and `DataFingerprint` is re-exported from `lizyml.core.types`. Users can now write `from lizyml import FitResult, LizyMLError` for type annotations and `except LizyMLError` handling. Purely additive; a golden test pins the top-level `__all__`.
 - **Tuned parameters are now persisted and restored across `export()` / `Model.load()`** (H-0086, [#215](https://github.com/nbx-liz/LizyML/issues/215)). `export()` records the tuned-param overlay (`best_model_params` / `best_smart_params` / `best_training_params` + score / metric / direction) under a `tuning` block in `metadata.json`, and `Model.load()` restores it into `_tuning_result`. A re-`fit()` after `load()` now reproduces the tuned params instead of silently reverting to config defaults. Additive and back-compatible — non-tuned and pre-#215 artifacts have no `tuning` block and load with `_tuning_result = None`; `format_version` stays `2`. (Restoring the full optuna study for a complete `tune(resume=True)` from a loaded model remains a follow-up.)
 
 ### Changed (potentially breaking)
