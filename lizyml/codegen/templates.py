@@ -500,9 +500,20 @@ def transform(df: pd.DataFrame) -> pd.DataFrame:
         log.warning("Ignoring %d extra column(s): %s", len(extra), extra)
 
     X = df[expected].copy()
+    policy = state.get("unseen_policy", "nan")
+    unseen_codes = state.get("unseen_codes", {})
     for col, mapping in state.get("category_mappings", {}).items():
         if col in X.columns:
-            X[col] = X[col].astype(str).map(mapping)  # unseen -> NaN
+            codes = X[col].astype(str).map(mapping)  # unseen -> NaN
+            if policy == "mode" and col in unseen_codes:
+                # Match the runtime encoder: replace unseen with the training mode.
+                codes = codes.fillna(unseen_codes[col])
+            elif policy == "error" and codes.isna().any():
+                raise ValueError(
+                    f"Column '{col}' contains unseen categories "
+                    "(unseen_policy='error')"
+                )
+            X[col] = codes
     return X
 
 
@@ -556,7 +567,11 @@ def _decode_pred(codes: np.ndarray) -> np.ndarray:
 
 def predict(df: pd.DataFrame) -> dict[str, np.ndarray | None]:
     """Run inference. Returns {"pred": ..., "proba": ...}."""
-    X = transform(df)
+    # Feed a numpy array (not a DataFrame) so LightGBM matches features
+    # positionally by ``feature_names`` order.  Categorical columns are already
+    # integer-coded by ``transform`` (matching the training category codes);
+    # passing a DataFrame would trip LightGBM's pandas-categorical dtype check.
+    X = transform(df).to_numpy()
     booster = lgb.Booster(model_file=str(ARTIFACTS / "model.txt"))
     task = CFG["_task"]
 
