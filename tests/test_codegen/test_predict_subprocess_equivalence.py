@@ -153,3 +153,34 @@ def test_generated_equivalence_script_runs_via_predict(tmp_path: Path) -> None:
     )
     assert res.returncode == 0, res.stderr
     assert "All checks PASSED" in (res.stdout + res.stderr)
+
+
+def test_unseen_category_matches_model(tmp_path: Path) -> None:
+    """#205: an unseen category at predict time must map to the training mode
+    in the exported ``predict.py`` (unseen_policy='mode'), matching
+    ``Model.predict``. Before the fix, ``predict.py`` mapped unseen -> NaN and
+    diverged silently.
+    """
+    rng = np.random.default_rng(7)
+    n = 300
+    df = pd.DataFrame(
+        {
+            "num": rng.normal(size=n),
+            # "a" is the most frequent training category (the mode).
+            "cat": rng.choice(["a", "a", "a", "b", "c"], size=n),
+            "target": rng.integers(0, 2, size=n),
+        }
+    )
+    m = Model(make_config("binary", n_estimators=40, split_method="stratified_kfold"))
+    m.fit(data=df)
+
+    # Inference data whose categorical column is an UNSEEN value.
+    X = pd.DataFrame({"num": rng.normal(size=20), "cat": ["ZZZ_UNSEEN"] * 20})
+    codegen_dir = tmp_path / "codegen"
+    m.export_code(codegen_dir)
+    out = _predict_via_subprocess(codegen_dir, X, tmp_path)
+
+    ref = m.predict(X)
+    np.testing.assert_array_equal(out["pred"].to_numpy(), ref.pred)
+    assert ref.proba is not None
+    np.testing.assert_allclose(out["proba"].to_numpy(), ref.proba, rtol=1e-6)
