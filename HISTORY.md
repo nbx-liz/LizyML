@@ -6936,3 +6936,35 @@ full-package review が検出した契約・永続化・公開 API の 4 課題�
 - **#203**: `{"inner_valid": {"method": "time_holdout", "ratio": 0.2, ...}}` を dump → reload して `_inner_valid_explicit` が保持される RED テスト（現行 False で落ちる）。`export → load → fit` で明示 inner_valid が auto-resolve されない leakage 観点テスト。純 legacy `{"validation_ratio": 0.1}` は従来どおり auto-resolve（非回帰）。
 - **#213**: `lizyml` の top-level `__all__` を固定するゴールデンテスト（`FitResult` 等が import 可能・set が pin される）。
 
+## H-0087: leakage validator を public API 化（dead-code 解消）＋空 `lizyml/utils/` 削除
+
+- **ステータス**: Accepted
+- **起票日**: 2026-07-03
+- **決定日**: 2026-07-03
+- **スコープ**: `lizyml/data/__init__.py`（3 validator の re-export + `__all__`）, `lizyml/utils/` 削除, docs（validator の言及追加）。**公開 API の additive 追加のみ**。`Model.fit` への自動配線は行わない（挙動不変）。
+- **関連**: [Issue #216](https://github.com/nbx-liz/LizyML/issues/216)。2026-07-02 full-package review（dead-code 判定は cross-check 検証済）。leakage-first charter（CLAUDE.md §0）。
+
+### 目的（課題）
+
+`lizyml/data/validators.py` の 3 つの leakage validator（`validate_time_series_order` / `validate_no_target_leakage` / `validate_group_split`）は `LizyMLError` code とテストを備えた良質なコードだが、`lizyml/` 内に呼び出し箇所が皆無で、`lizyml.data` / top-level からも未 export・docs 未記載＝dead code。leakage-first を掲げる本ライブラリで leakage 検査ツールが利用不能な状態。加えて `lizyml/utils/` は 0 byte の空パッケージで誰も import していない。
+
+### 対応方針（決定）
+
+- **validator を `lizyml.data` の public API として re-export**し、docstring / docs に利用方法を記載する。ユーザーが `from lizyml.data import validate_time_series_order` 等で明示的に leakage 検査を呼べるようにする。**`Model.fit` への自動配線はしない**（既存の通過中 config に警告/例外を新たに出す挙動変更を避けるため。自動配線は将来別 Proposal で検討）。
+- **空 `lizyml/utils/` を削除**する（import 参照ゼロを grep 確認済）。
+
+### 代替案（不採用）
+
+- **validator を削除**: charter 上価値ある leakage tooling とそのテストを失うため不採用。
+- **`Model.fit` へ自動配線（warn/raise）**: leakage-first に最も合致するが、既存の通過中 config に新たな警告/例外を出す挙動変更（互換性リスク）を伴い、別 Proposal と RED テストが必要。本 Proposal のスコープ外とし follow-up とする。
+
+### 影響範囲 / 互換性
+
+- **純 additive**: `lizyml.data` に 3 シンボルを追加するのみ。既存 import（`from lizyml.data.validators import ...`）は不変。`Model.fit` の挙動は不変。`lizyml/utils/` 削除は参照ゼロにつき無影響。format_version 不変。
+
+### 受け入れ基準（テスト観点）
+
+- `lizyml.data.__all__` に 3 validator が含まれ、`from lizyml.data import ...` で import 可能なことを固定するゴールデンテスト。
+- `lizyml/utils/` が存在せず、`import lizyml.utils` が失敗すること（削除の確認）。
+- 既存 validator の振る舞いテストは不変で pass すること。
+
