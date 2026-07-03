@@ -6,9 +6,30 @@ import ast
 
 from lizyml.codegen.templates import (
     render_predict_py,
+    render_requirements_txt,
     render_test_equivalence_py,
     render_train_py,
 )
+
+
+class TestRenderRequirementsTxt:
+    """scipy is pinned only when the model uses beta calibration (#218)."""
+
+    def test_base_deps_always_present(self) -> None:
+        for reqs in (
+            render_requirements_txt(),
+            render_requirements_txt(uses_beta_calibration=True),
+        ):
+            assert "lightgbm" in reqs
+            assert "numpy" in reqs
+            assert "pandas" in reqs
+            assert "scikit-learn" in reqs
+
+    def test_scipy_omitted_without_beta(self) -> None:
+        assert "scipy" not in render_requirements_txt()
+
+    def test_scipy_pinned_with_beta(self) -> None:
+        assert "scipy" in render_requirements_txt(uses_beta_calibration=True)
 
 
 class TestRenderTrainPy:

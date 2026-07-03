@@ -748,12 +748,11 @@ if __name__ == "__main__":
     main()
 '''
 
-_REQUIREMENTS_TXT = """\
+_REQUIREMENTS_BASE = """\
 lightgbm>=4.0
 numpy
 pandas
 scikit-learn
-scipy
 """
 
 
@@ -767,9 +766,17 @@ def render_predict_py() -> str:
     return _PREDICT_PY
 
 
-def render_requirements_txt() -> str:
-    """Return the requirements.txt content."""
-    return _REQUIREMENTS_TXT
+def render_requirements_txt(*, uses_beta_calibration: bool = False) -> str:
+    """Return the requirements.txt content.
+
+    ``scipy`` is pinned only when the model uses beta calibration -- the sole
+    generated code path that imports it (lazily, inside ``_fit_beta`` in
+    ``train.py``; the predict-time beta application is pure numpy). This keeps
+    the emitted dependency set matching the README claim (#218).
+    """
+    if uses_beta_calibration:
+        return _REQUIREMENTS_BASE + "scipy\n"
+    return _REQUIREMENTS_BASE
 
 
 def render_test_equivalence_py() -> str:

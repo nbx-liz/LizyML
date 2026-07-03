@@ -16,6 +16,8 @@ import numpy as np
 import numpy.typing as npt
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.plots._deps import require_plotly
+from lizyml.plots._helpers import collect_is_data
 from lizyml.plots._theme import apply_default_layout
 
 if TYPE_CHECKING:
@@ -46,25 +48,6 @@ _VALID_KINDS = ("scatter", "histogram", "qq", "all")
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _build_is_data(
-    fit_result: FitResult,
-    y_true: npt.NDArray[np.float64],
-) -> tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]:
-    """Return ``(is_pred_all, is_actual_all)`` from per-fold IF data."""
-    is_preds: list[npt.NDArray[np.float64]] = []
-    is_actuals: list[npt.NDArray[np.float64]] = []
-    for (train_idx, _), if_pred in zip(
-        fit_result.splits.outer, fit_result.if_pred_per_fold, strict=True
-    ):
-        y_train = y_true[train_idx]
-        is_preds.append(if_pred.astype(np.float64))
-        is_actuals.append(y_train.astype(np.float64))
-    if is_preds:
-        return np.concatenate(is_preds), np.concatenate(is_actuals)
-    empty: npt.NDArray[np.float64] = np.array([], dtype=np.float64)
-    return empty, empty
 
 
 def _downsample_is(
@@ -283,15 +266,7 @@ def plot_residuals(
         LizyMLError with ``OPTIONAL_DEP_MISSING`` when plotly is not installed.
         LizyMLError with ``CONFIG_INVALID`` for an unknown ``kind`` value.
     """
-    if _plotly is None:
-        raise LizyMLError(
-            code=ErrorCode.OPTIONAL_DEP_MISSING,
-            user_message=(
-                "plotly is required for plots. "
-                "Install with: pip install 'lizyml[plots]'"
-            ),
-            context={"package": "plotly"},
-        )
+    require_plotly(_plotly, feature="residual plots")
 
     if kind not in _VALID_KINDS:
         raise LizyMLError(
@@ -307,7 +282,7 @@ def plot_residuals(
     oof_pred = fit_result.oof_pred.astype(np.float64)
     oos_resid: npt.NDArray[np.float64] = y_arr - oof_pred
 
-    is_pred, is_actual = _build_is_data(fit_result, y_arr)
+    is_pred, is_actual = collect_is_data(fit_result, y_arr, dtype=np.float64)
     is_resid: npt.NDArray[np.float64] = (
         is_actual - is_pred if len(is_pred) > 0 else is_actual
     )

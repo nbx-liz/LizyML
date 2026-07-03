@@ -8,6 +8,8 @@ Verifies that:
 
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from lizyml.config.schema import LizyMLConfig
@@ -186,4 +188,47 @@ class TestTuneSampledObjectiveIdentity:
             f"Tune sampled objective='{best_objective}' but refit booster "
             f"trained with '{actual}'. _build_params() may be stripping "
             f"the sampled value (H-0079 silent override)."
+        )
+
+
+# ===================================================================
+# Phase 5: #218 — post-tune fit() emits an optimistic-bias warning
+# ===================================================================
+
+
+class TestPostTuneFitWarning:
+    """fit() after tune() reuses the tuning CV splits, so its OOF metrics are
+    optimistically biased. The facade must surface this once per fit (#218).
+    """
+
+    def test_fit_after_tune_logs_bias_warning(
+        self, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        df = make_regression_df(n=300, seed=0)
+        cfg_dict = make_config(
+            "regression", n_estimators=30, n_splits=2, tuning_n_trials=3, seed=42
+        )
+        cfg = LizyMLConfig(**cfg_dict)
+
+        m = Model(cfg)
+        m.tune(data=df)
+        with caplog.at_level(logging.WARNING, logger="lizyml.model"):
+            m.fit(data=df)
+
+        post_tune = [r for r in caplog.records if "fit.post_tune" in r.getMessage()]
+        assert len(post_tune) == 1, (
+            "fit() after tune() must emit exactly one post_tune bias warning"
+        )
+
+    def test_fit_without_tune_is_silent(self, caplog: pytest.LogCaptureFixture) -> None:
+        df = make_regression_df(n=300, seed=0)
+        cfg_dict = make_config("regression", n_estimators=30, n_splits=2, seed=42)
+        cfg = LizyMLConfig(**cfg_dict)
+
+        m = Model(cfg)
+        with caplog.at_level(logging.WARNING, logger="lizyml.model"):
+            m.fit(data=df)
+
+        assert not [r for r in caplog.records if "fit.post_tune" in r.getMessage()], (
+            "fit() without a prior tune() must not emit the post_tune warning"
         )

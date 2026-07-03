@@ -187,6 +187,19 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         self._ensure_run_dir(run_id)
         _log.info("event='fit.start' run_id=%s task=%s", run_id, cfg.task)
 
+        # A fit() after tune() reuses the identical deterministic CV splits used
+        # to select the params, so the reported OOF metrics are optimistically
+        # biased (documented user-side policy, BLUEPRINT §11.6). Surface it once
+        # per fit so it is not silently unenforced (#218).
+        if self._tuning_result is not None:
+            _log.warning(
+                "event='fit.post_tune' run_id=%s "
+                "msg='fit() after tune() reuses the tuning CV splits; reported "
+                "OOF metrics are optimistically biased (BLUEPRINT 11.6). Use a "
+                "held-out set for an unbiased estimate.'",
+                run_id,
+            )
+
         # --- Load & prepare data ---------------------------------------------
         X, y, groups, components = self._prepare_training_data(data)
         self._X, self._y = X, y

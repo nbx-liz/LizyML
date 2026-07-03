@@ -10,6 +10,8 @@ from sklearn.metrics import roc_auc_score, roc_curve
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.task import TaskType
+from lizyml.plots._deps import require_plotly
+from lizyml.plots._helpers import collect_is_data
 from lizyml.plots._theme import apply_default_layout
 
 if TYPE_CHECKING:
@@ -43,21 +45,6 @@ _OVR_COLORS = (
 )
 
 
-def _collect_is_data(
-    fit_result: FitResult,
-    y_true: npt.NDArray[Any],
-) -> tuple[npt.NDArray[Any], npt.NDArray[Any]]:
-    """Return ``(is_pred_all, is_y_all)`` from per-fold IF data."""
-    is_preds: list[npt.NDArray[Any]] = []
-    is_y: list[npt.NDArray[Any]] = []
-    for (train_idx, _), if_pred in zip(
-        fit_result.splits.outer, fit_result.if_pred_per_fold, strict=True
-    ):
-        is_preds.append(if_pred)
-        is_y.append(y_true[train_idx])
-    return np.concatenate(is_preds, axis=0), np.concatenate(is_y)
-
-
 # ---------------------------------------------------------------------------
 # Binary ROC
 # ---------------------------------------------------------------------------
@@ -72,7 +59,7 @@ def _plot_roc_binary(fit_result: FitResult, y_true: npt.NDArray[Any]) -> Any:
     auc_oos = float(roc_auc_score(y_arr, oof_pred))
 
     # IS
-    is_pred, is_y = _collect_is_data(fit_result, y_arr)
+    is_pred, is_y = collect_is_data(fit_result, y_arr)
     fpr_is, tpr_is, _ = roc_curve(is_y, is_pred)
     auc_is = float(roc_auc_score(is_y, is_pred))
 
@@ -130,7 +117,7 @@ def _plot_roc_multiclass(fit_result: FitResult, y_true: npt.NDArray[Any]) -> Any
     y_bin = label_binarize(y_arr, classes=classes)
     oof_pred = fit_result.oof_pred
 
-    is_pred, is_y = _collect_is_data(fit_result, y_arr)
+    is_pred, is_y = collect_is_data(fit_result, y_arr)
     is_y_bin = label_binarize(is_y, classes=classes)
 
     fig = _make_subplots(
@@ -219,15 +206,7 @@ def plot_roc_curve(
         LizyMLError with OPTIONAL_DEP_MISSING if plotly is not installed.
         LizyMLError with UNSUPPORTED_TASK for regression.
     """
-    if _plotly is None:
-        raise LizyMLError(
-            code=ErrorCode.OPTIONAL_DEP_MISSING,
-            user_message=(
-                "plotly is required for ROC curve plots. "
-                "Install with: pip install 'lizyml[plots]'"
-            ),
-            context={"package": "plotly"},
-        )
+    require_plotly(_plotly, feature="ROC curve plots")
     if task == "regression":
         raise LizyMLError(
             code=ErrorCode.UNSUPPORTED_TASK,

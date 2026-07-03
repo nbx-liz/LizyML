@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.plots._deps import require_plotly
 from lizyml.plots._theme import apply_default_layout
 
 if TYPE_CHECKING:
@@ -47,15 +48,7 @@ def plot_learning_curve(
         LizyMLError with ``CONFIG_INVALID`` when *metrics* filter matches no
             keys in the eval history.
     """
-    if _plotly is None:
-        raise LizyMLError(
-            code=ErrorCode.OPTIONAL_DEP_MISSING,
-            user_message=(
-                "plotly is required for plots. "
-                "Install with: pip install 'lizyml[plots]'"
-            ),
-            context={"package": "plotly"},
-        )
+    require_plotly(_plotly, feature="learning curve plots")
 
     if not fit_result.history:
         raise LizyMLError(
