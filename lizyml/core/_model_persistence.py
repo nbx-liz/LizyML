@@ -161,6 +161,7 @@ class ModelPersistenceMixin:
             calibrator=calibrator,
             feval_metrics=export.feval_metadata,
             target_classes=target_classes,
+            split_method=cfg.split.method,
         )
         _log.info("event='export_code.done' path=%s", result)
         return result
