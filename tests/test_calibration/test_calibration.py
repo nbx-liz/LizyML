@@ -371,3 +371,80 @@ class TestCrossFitSingleClassFold:
         assert not np.allclose(
             result.calibrated_oof[[0, 1, 2, 3]], oof_pred[[0, 1, 2, 3]]
         )
+
+
+# ---------------------------------------------------------------------------
+# cross_fit_calibrate — fallback transparency markers (H-0089, #218)
+# ---------------------------------------------------------------------------
+
+
+class TestCrossFitFallbackMarkers:
+    """CalibrationResult records which folds fell back to the uncalibrated OOF
+    and how many rows were affected, so the calibrated metrics are not silently
+    computed over a partial blend."""
+
+    def test_no_fallback_on_healthy_folds(self) -> None:
+        scores, y = _oof_scores(n=200)
+        result = cross_fit_calibrate(
+            oof_scores=scores,
+            y=y,
+            calibrator_factory=PlattCalibrator,
+            split_indices=_kfold_indices(200, n_splits=5),
+        )
+        assert result.fallback_fold_flags == [False] * 5
+        assert result.n_fallback_rows == 0
+
+    def test_single_class_fold_flagged_and_counted(self) -> None:
+        # Fold A trains on the 4 class-0 rows -> single-class -> falls back for
+        # its 2 validation rows {4,5}. Folds B and C calibrate normally.
+        oof_scores = np.array([0.1, 0.2, 0.3, 0.4, 0.85, 0.9])
+        y = np.array([0.0, 0.0, 0.0, 0.0, 1.0, 1.0])
+        oof_pred = oof_scores.copy()
+        split_indices = [
+            (np.array([0, 1, 2, 3], dtype=np.intp), np.array([4, 5], dtype=np.intp)),
+            (np.array([2, 3, 4, 5], dtype=np.intp), np.array([0, 1], dtype=np.intp)),
+            (np.array([0, 1, 4, 5], dtype=np.intp), np.array([2, 3], dtype=np.intp)),
+        ]
+        result = cross_fit_calibrate(
+            oof_scores,
+            y,
+            calibrator_factory=PlattCalibrator,
+            split_indices=split_indices,
+            oof_pred=oof_pred,
+        )
+        assert result.fallback_fold_flags == [True, False, False]
+        assert result.n_fallback_rows == 2
+
+    def test_uncovered_training_fold_flagged_and_counted(self) -> None:
+        # TimeSeriesCV-style: fold A's training rows are structurally uncovered
+        # (NaN scores) -> no covered training data -> whole fold falls back.
+        # Fold B calibrates but validates the still-uncovered rows {0,1}, which
+        # also fall back per-row.
+        oof_scores = np.array([np.nan, np.nan, 0.2, 0.8, 0.3, 0.7])
+        y = np.array([0.0, 1.0, 0.0, 1.0, 0.0, 1.0])
+        oof_pred = np.array([0.1, 0.9, 0.2, 0.8, 0.3, 0.7])
+        split_indices = [
+            (np.array([0, 1], dtype=np.intp), np.array([2, 3], dtype=np.intp)),
+            (np.array([2, 3, 4, 5], dtype=np.intp), np.array([0, 1], dtype=np.intp)),
+        ]
+        result = cross_fit_calibrate(
+            oof_scores,
+            y,
+            calibrator_factory=PlattCalibrator,
+            split_indices=split_indices,
+            oof_pred=oof_pred,
+        )
+        # Fold A: no covered training -> flag True, 2 rows. Fold B fits but its
+        # val rows {0,1} are NaN-score -> per-row fallback (+2), flag False.
+        assert result.fallback_fold_flags == [True, False]
+        assert result.n_fallback_rows == 4
+
+    def test_metrics_surface_fallback_row_count(self) -> None:
+        """metrics["calibrated"] carries fallback_row_count (0 for a healthy fit)."""
+        df = make_binary_df()
+        m = Model(make_config("binary", calibration="platt", n_estimators=20))
+        result = m.fit(data=df)
+        cal = result.metrics["calibrated"]
+        assert "fallback_row_count" in cal
+        assert cal["fallback_row_count"] == 0
+        assert result.calibrator.n_fallback_rows == 0  # type: ignore[union-attr]

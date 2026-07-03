@@ -84,10 +84,17 @@ def assemble_calibrated_metrics(
         oof_pred=cal_oof,
     )
     cal_result = evaluator.evaluate(cal_fr, y, metric_entries)
+    # H-0089 (#218): surface how many OOF rows were scored with the uncalibrated
+    # fallback (folds with no covered / single-class training data) so the
+    # calibrated metrics are not silently computed over a partial blend.
+    # ``getattr`` keeps pre-#218 CalibrationResult objects (loaded artifacts)
+    # readable — they default to 0.
+    fallback_row_count = int(getattr(fit_result.calibrator, "n_fallback_rows", 0))
     return {
         **metrics,
         "calibrated": {
             "oof": cal_result["raw"]["oof"],
             "oof_per_fold": cal_result["raw"]["oof_per_fold"],
+            "fallback_row_count": fallback_row_count,
         },
     }
