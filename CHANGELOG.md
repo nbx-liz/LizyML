@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - **Legacy `embargo_pct` / `gap` truncation** — a fractional legacy value (e.g. `embargo_pct=0.05`) was migrated via `int()` and silently collapsed to `0`, removing the leakage guard. Fractional legacy values are now rejected with `CONFIG_INVALID` and guidance to supply an integer observation count; integer-valued inputs still migrate.
   - **Shuffled `inner_valid` under a time-ordered outer split** — an explicit `inner_valid.method="holdout"` (shuffled) combined with a `time_series` / `purged_time_series` outer split now emits a `UserWarning` (the temporally-leaked early-stopping split is otherwise silent). Behavior is unchanged — the explicit choice is still honored.
 
+### Internal
+
+- **Facade slimming — extracted accumulated logic out of `core/model.py`** ([#209](https://github.com/nbx-liz/LizyML/issues/209)). Round-summary assembly and per-trial round renumbering moved to `lizyml/tuning/rounds.py` (`assemble_round_result`); split-driven data ordering/extraction moved to `lizyml/data/dataframe_builder.py` (`prepare_for_split` / `sort_components`). `core/model.py` dropped from 1355 to 1244 lines. Pure refactor — no behavior change, no public-API/`format_version` change. Relocating the ~471-line `tune()` orchestration into a mixin is tracked as a follow-up (it needs an invariant decision vs the H-0077 read-only-mixin rule).
+
 ## [0.16.1] - 2026-06-30
 
 ### Fixed
