@@ -10,7 +10,7 @@ Design invariants (from SKILL calibration):
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -33,12 +33,23 @@ class CalibrationResult:
         split_indices: Per-fold ``(train_idx, valid_idx)`` used in cross-fit.
             Stored for reproducibility / audit.  Same ordering as the folds
             that produced ``calibrated_oof``.
+        fallback_fold_flags: Per-fold flag, same ordering as ``split_indices``.
+            ``True`` when no calibrator could be fitted for that fold (no
+            covered training data, or a single-class training fold) so its
+            validation rows fall back to the **uncalibrated** OOF probabilities.
+            Metric-honesty marker for H-0058's documented fallback (#218).
+        n_fallback_rows: Total number of validation rows across all folds that
+            received the uncalibrated fallback instead of ``c_final``-family
+            calibrated probabilities (includes partial NaN-score rows inside an
+            otherwise-calibrated fold). ``0`` in the common fully-calibrated case.
     """
 
     c_final: BaseCalibratorAdapter
     calibrated_oof: npt.NDArray[np.float64]
     method: str
     split_indices: list[tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]]
+    fallback_fold_flags: list[bool] = field(default_factory=list)
+    n_fallback_rows: int = 0
 
 
 def cross_fit_calibrate(
@@ -79,6 +90,10 @@ def cross_fit_calibrate(
     """
     calibrated_oof = np.full_like(oof_scores, np.nan, dtype=np.float64)
     fallback = oof_pred if oof_pred is not None else oof_scores
+    # Metric-honesty markers (#218): per-fold "no calibrator fitted" flags and
+    # a total count of validation rows that received the uncalibrated fallback.
+    fallback_fold_flags: list[bool] = []
+    n_fallback_rows = 0
 
     for train_idx, val_idx in split_indices:
         # Skip structurally uncovered rows (NaN OOF scores) from
@@ -93,6 +108,8 @@ def cross_fit_calibrate(
             # fold 0 where all train rows are uncovered).  Use OOF
             # probabilities as-is (no calibration applied).
             calibrated_oof[val_idx] = fallback[val_idx]
+            fallback_fold_flags.append(True)
+            n_fallback_rows += len(val_idx)
             continue
         if np.unique(train_y[finite_mask]).size < 2:
             # Single-class training fold — a calibrator (e.g. Platt's
@@ -100,9 +117,12 @@ def cross_fit_calibrate(
             # uncalibrated OOF probabilities for this fold's validation rows
             # rather than letting an opaque sklearn ValueError escape.
             calibrated_oof[val_idx] = fallback[val_idx]
+            fallback_fold_flags.append(True)
+            n_fallback_rows += len(val_idx)
             continue
         cal = calibrator_factory()
         cal.fit(train_scores[finite_mask], train_y[finite_mask])
+        fallback_fold_flags.append(False)
 
         # Guard: val_idx may include structurally uncovered rows (NaN OOF)
         # if calibration splits differ from outer CV splits in future.
@@ -113,9 +133,11 @@ def cross_fit_calibrate(
         elif val_finite.any():
             calibrated_oof[val_idx[val_finite]] = cal.predict(val_scores[val_finite])
             calibrated_oof[val_idx[~val_finite]] = fallback[val_idx[~val_finite]]
+            n_fallback_rows += int((~val_finite).sum())
         else:
             # All val rows are NaN — use fallback entirely
             calibrated_oof[val_idx] = fallback[val_idx]
+            n_fallback_rows += len(val_idx)
 
     # C_final: trained on ALL covered data — for inference only
     c_final = calibrator_factory()
@@ -127,4 +149,6 @@ def cross_fit_calibrate(
         calibrated_oof=calibrated_oof,
         method=c_final.name,
         split_indices=split_indices,
+        fallback_fold_flags=fallback_fold_flags,
+        n_fallback_rows=n_fallback_rows,
     )
