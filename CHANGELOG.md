@@ -27,6 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - **`config_version` string bypass** — a string value (e.g. `"999"`) previously skipped the supported-version gate and was then lax-coerced by pydantic, loading an unsupported version silently. The gate now coerces to `int` before the check, so unsupported versions are rejected as `CONFIG_VERSION_UNSUPPORTED` regardless of input type.
   - **Legacy `embargo_pct` / `gap` truncation** — a fractional legacy value (e.g. `embargo_pct=0.05`) was migrated via `int()` and silently collapsed to `0`, removing the leakage guard. Fractional legacy values are now rejected with `CONFIG_INVALID` and guidance to supply an integer observation count; integer-valued inputs still migrate.
   - **Shuffled `inner_valid` under a time-ordered outer split** — an explicit `inner_valid.method="holdout"` (shuffled) combined with a `time_series` / `purged_time_series` outer split now emits a `UserWarning` (the temporally-leaked early-stopping split is otherwise silent). Behavior is unchanged — the explicit choice is still honored.
+- **A NaN in a numeric / regression target is now rejected** (H-0085, [#207](https://github.com/nbx-liz/LizyML/issues/207)). Previously the `Model.fit` contract was undefined for a NaN numeric target (only string classification targets were validated), so it was silently accepted and could corrupt training. It now raises `LizyMLError(DATA_SCHEMA_INVALID)` with a `nan_count` context, symmetric with the existing string-target check.
+
+### Internal
+
+- **Fail-closed leakage tests** (H-0085, [#207](https://github.com/nbx-liz/LizyML/issues/207)) — replaced a tautological OOF leakage assertion with a trap that records each fold estimator's training rows and asserts disjointness from its validation rows; added traps for per-fold calibration boundaries (calibrator fit on the train slice, not the scored valid rows) and inner-index containment (relative to each outer train fold).
 
 ### Internal
 
