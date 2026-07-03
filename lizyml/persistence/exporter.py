@@ -32,9 +32,29 @@ from lizyml.core.types.task import TaskType
 
 if TYPE_CHECKING:
     from lizyml.core.types.fit_result import FitResult
+    from lizyml.core.types.tuning_result import TuningResult
     from lizyml.training.refit_trainer import RefitResult
 
 FORMAT_VERSION = 2
+
+
+def _tuning_metadata(tuning: TuningResult) -> dict[str, Any]:
+    """Serialize the tuned-param overlay for ``metadata.json`` (H-0086, #215).
+
+    Only the values ``Model._merge_params`` needs to reproduce the tuned fit are
+    recorded (``best_*`` params + score/metric/direction). The full trial list
+    and optuna study are intentionally omitted — restoring those (for a complete
+    ``tune(resume=True)`` from a loaded model) is a separate follow-up.
+    """
+    return {
+        "best_model_params": dict(tuning.best_model_params),
+        "best_smart_params": dict(tuning.best_smart_params),
+        "best_training_params": dict(tuning.best_training_params),
+        "best_score": tuning.best_score,
+        "metric_name": tuning.metric_name,
+        "direction": tuning.direction,
+    }
+
 
 #: Checksum algorithm recorded in ``metadata.json`` and verified on load.
 CHECKSUM_ALGORITHM = "sha256"
@@ -61,6 +81,7 @@ def export(
     task: TaskType,
     *,
     analysis_context: AnalysisContext | None = None,
+    tuning: TuningResult | None = None,
 ) -> None:
     """Serialize Model artifacts to *path*.
 
@@ -72,6 +93,9 @@ def export(
         task: ML task string (``"regression"``, ``"binary"``, ``"multiclass"``).
         analysis_context: Optional y_true and X data for diagnostic APIs
             after ``Model.load()``.
+        tuning: Optional tuning result. When present, the tuned-param overlay
+            is recorded under ``metadata["tuning"]`` so a re-``fit()`` after
+            ``Model.load()`` reproduces the tuned params (H-0086, #215).
 
     Raises:
         LizyMLError with SERIALIZATION_FAILED on any I/O or serialization error.
@@ -105,6 +129,10 @@ def export(
                 "files": {name: sha256_file(out / name) for name in pkl_names},
             },
         }
+        if tuning is not None:
+            # Additive (H-0086, #215): absent for non-tuned models and pre-#215
+            # artifacts, which load with ``_tuning_result = None`` as before.
+            metadata["tuning"] = _tuning_metadata(tuning)
         (out / "metadata.json").write_text(
             json.dumps(metadata, indent=2, default=str), encoding="utf-8"
         )

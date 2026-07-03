@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **Tuned parameters are now persisted and restored across `export()` / `Model.load()`** (H-0086, [#215](https://github.com/nbx-liz/LizyML/issues/215)). `export()` records the tuned-param overlay (`best_model_params` / `best_smart_params` / `best_training_params` + score / metric / direction) under a `tuning` block in `metadata.json`, and `Model.load()` restores it into `_tuning_result`. A re-`fit()` after `load()` now reproduces the tuned params instead of silently reverting to config defaults. Additive and back-compatible — non-tuned and pre-#215 artifacts have no `tuning` block and load with `_tuning_result = None`; `format_version` stays `2`. (Restoring the full optuna study for a complete `tune(resume=True)` from a loaded model remains a follow-up.)
+
 ### Changed (potentially breaking)
 
 - **Unified the inner-valid (early-stopping) pipeline fit boundary** (H-0085, [#208](https://github.com/nbx-liz/LizyML/issues/208)). `RefitTrainer` now fits the feature pipeline **once on the full dataset** — the same outer-train boundary `CVTrainer` already uses — instead of fitting on the inner-train slice and then refitting a second pipeline on all data. This removes the double fit and aligns `best_iteration` selection with the CV folds. OOF predictions are unaffected (the y-free `NativeFeaturePipeline` never let outer-valid rows into the fit); however, a model's `best_iteration` — and therefore the refit model — can change for configs that use early stopping. Resolves a BLUEPRINT self-contradiction (§6.2 / §10.3.2). `format_version` unchanged.
