@@ -480,6 +480,27 @@ except LizyMLError as e:
 | `UNSUPPORTED_TASK` | A method is not applicable to the configured task type. |
 | `UNSUPPORTED_METRIC` | An unknown or task-incompatible metric name was provided. |
 | `TUNING_FAILED` | The Optuna study encountered an unrecoverable failure. |
+| `EVALUATION_FAILED` | OOF predictions contain NaN in covered rows, or feval construction failed. |
 | `CALIBRATION_NOT_SUPPORTED` | Calibration was requested for a non-binary task or unsupported config. |
+| `CALIBRATION_NOT_FITTED` | A calibrator's `predict()` / `export_params()` was called before `fit()`. |
 | `SERIALIZATION_FAILED` | `export()` encountered an I/O error or could not resolve a path. |
 | `DESERIALIZATION_FAILED` | `load()` encountered a validation or I/O error. |
+
+## Leakage validators (`lizyml.data`)
+
+Optional, explicitly-called leakage checks (they are **not** auto-run by
+`Model.fit`). Each returns a list of warning messages, or raises
+`LizyMLError(LEAKAGE_SUSPECTED / LEAKAGE_CONFIRMED)` when `raise_on_violation=True`
+(the default).
+
+```python
+from lizyml.data import (
+    validate_time_series_order,
+    validate_no_target_leakage,
+    validate_group_split,
+)
+
+validate_time_series_order(df, time_col="date")        # non-decreasing time order
+validate_no_target_leakage(df, target="y")             # no column ≡ target
+validate_group_split(groups, train_idx, valid_idx)     # no group in both folds
+```

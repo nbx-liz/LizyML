@@ -73,8 +73,10 @@ class TestPlattCalibrator:
 
     def test_predict_before_fit_raises(self) -> None:
         cal = PlattCalibrator()
-        with pytest.raises(RuntimeError):
+        # #214 (H-0086): bare RuntimeError unified to LizyMLError.
+        with pytest.raises(LizyMLError) as exc:
             cal.predict(np.array([0.5, 0.6]))
+        assert exc.value.code is ErrorCode.CALIBRATION_NOT_FITTED
 
 
 # ---------------------------------------------------------------------------
@@ -96,8 +98,10 @@ class TestIsotonicCalibrator:
 
     def test_predict_before_fit_raises(self) -> None:
         cal = IsotonicCalibrator()
-        with pytest.raises(RuntimeError):
+        # #214 (H-0086): bare RuntimeError unified to LizyMLError.
+        with pytest.raises(LizyMLError) as exc:
             cal.predict(np.array([0.5]))
+        assert exc.value.code is ErrorCode.CALIBRATION_NOT_FITTED
 
 
 # ---------------------------------------------------------------------------
