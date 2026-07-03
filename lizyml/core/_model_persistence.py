@@ -8,6 +8,7 @@ Model facade as ``Model._resolve_export_path``.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -191,7 +192,10 @@ class ModelPersistenceMixin:
         instance: Any = cls(config)  # type: ignore[call-arg]  # cls is Model at runtime
         instance._fit_result = fit_result
         instance._refit_result = refit_result
-        instance._metrics = fit_result.metrics
+        # Deep-copy the metrics dict so the internal state does not share a
+        # mutable object with the ``fit_result`` copy handed to callers
+        # (#204 / H-0086 — the same isolation fit()/fit_result enforce).
+        instance._metrics = deepcopy(fit_result.metrics)
         # Restore provider for params_table() etc. (H-0054)
         from lizyml.core._model_factories import get_provider
 

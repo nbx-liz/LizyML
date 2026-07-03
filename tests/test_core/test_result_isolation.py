@@ -88,3 +88,52 @@ def test_mutating_evaluate_does_not_contaminate_export(
     metadata = json.loads((out / "metadata.json").read_text(encoding="utf-8"))
 
     assert metadata["metrics"]["raw"]["oof"][key] != _SENTINEL
+
+
+# --- #204: fit() return value and load()'s metrics must also be isolated ------
+
+
+def test_fit_return_value_is_independent_copy() -> None:
+    """``fit()`` — the primary access path — must not hand out the internal
+    object (H-0086 / #204). Mutating its return must not corrupt internal state.
+    """
+    model = Model(make_config("regression"))
+    returned = model.fit(data=make_regression_df(n=120))
+
+    assert returned is not model._fit_result
+    key = _oof_key(returned.metrics)
+    returned.metrics["raw"]["oof"][key] = _SENTINEL
+
+    assert model.evaluate()["raw"]["oof"][key] != _SENTINEL
+    # Selective copy: trained estimators stay shared by reference.
+    assert returned.models[0] is model._fit_result.models[0]
+
+
+def test_mutating_fit_return_does_not_contaminate_export(tmp_path) -> None:
+    model = Model(make_config("regression"))
+    returned = model.fit(data=make_regression_df(n=120))
+    key = _oof_key(returned.metrics)
+    returned.metrics["raw"]["oof"][key] = _SENTINEL
+
+    out = model.export(path=tmp_path / "artifact")
+    metadata = json.loads((out / "metadata.json").read_text(encoding="utf-8"))
+
+    assert metadata["metrics"]["raw"]["oof"][key] != _SENTINEL
+
+
+def test_load_metrics_not_shared_with_returned_fit_result(tmp_path) -> None:
+    """After ``load()``, the internal ``_metrics`` dict must not be the same
+    object the ``fit_result`` copy exposes, so mutating a public return cannot
+    corrupt the reloaded internal state (#204).
+    """
+    model = Model(make_config("regression"))
+    model.fit(data=make_regression_df(n=120))
+    out = model.export(path=tmp_path / "artifact")
+
+    loaded = Model.load(out)
+    returned = loaded.fit_result
+    key = _oof_key(returned.metrics)
+    returned.metrics["raw"]["oof"][key] = _SENTINEL
+
+    assert loaded.evaluate()["raw"]["oof"][key] != _SENTINEL
+    assert loaded._metrics is not loaded._fit_result.metrics

@@ -274,7 +274,11 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
 
         self._fit_result = fit_result
         _log.info("event='fit.done' run_id=%s", run_id)
-        return fit_result
+        # Return a selective deep copy (FitResult.__deepcopy__): mutating the
+        # primary return path must not corrupt internal state or a later
+        # export() — the same H-0082 defense as the ``fit_result`` property
+        # (#204 / H-0086). Trained estimators stay shared by reference.
+        return deepcopy(fit_result)
 
     def evaluate(
         self,
