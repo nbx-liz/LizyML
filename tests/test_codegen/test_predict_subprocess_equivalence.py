@@ -100,3 +100,56 @@ def test_multiclass_predict_script_matches_model(tmp_path: Path) -> None:
     assert len(proba_cols) == ref.proba.shape[1]
     out_proba = out[sorted(proba_cols, key=lambda c: int(c.split("_")[1]))].to_numpy()
     np.testing.assert_allclose(out_proba, ref.proba, rtol=1e-6)
+
+
+def test_generated_equivalence_script_runs_via_predict(tmp_path: Path) -> None:
+    """#217: the generated ``test_equivalence.py`` imports ``predict.py`` and
+    runs end-to-end (rather than inlining a second, drift-prone implementation).
+
+    The reference is produced by ``predict.py`` itself, so the checker — which
+    now calls ``predict.predict()`` — must exit 0.
+    """
+    df = make_binary_df(n=300)
+    m = Model(
+        make_config(
+            "binary",
+            n_estimators=40,
+            split_method="stratified_kfold",
+            calibration="platt",
+        )
+    )
+    m.fit(data=df)
+    X = df.drop(columns=["target"]).iloc[:60].reset_index(drop=True)
+
+    codegen_dir = tmp_path / "codegen"
+    m.export_code(codegen_dir)
+
+    infer = tmp_path / "infer.parquet"
+    X.to_parquet(infer)
+    ref_csv = tmp_path / "ref.csv"
+    subprocess.run(
+        [
+            sys.executable,
+            str(codegen_dir / "predict.py"),
+            str(infer),
+            "-o",
+            str(ref_csv),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    res = subprocess.run(
+        [
+            sys.executable,
+            str(codegen_dir / "test_equivalence.py"),
+            str(infer),
+            "--reference",
+            str(ref_csv),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode == 0, res.stderr
+    assert "All checks PASSED" in (res.stdout + res.stderr)

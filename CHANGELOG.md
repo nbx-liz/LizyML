@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - **Legacy `embargo_pct` / `gap` truncation** — a fractional legacy value (e.g. `embargo_pct=0.05`) was migrated via `int()` and silently collapsed to `0`, removing the leakage guard. Fractional legacy values are now rejected with `CONFIG_INVALID` and guidance to supply an integer observation count; integer-valued inputs still migrate.
   - **Shuffled `inner_valid` under a time-ordered outer split** — an explicit `inner_valid.method="holdout"` (shuffled) combined with a `time_series` / `purged_time_series` outer split now emits a `UserWarning` (the temporally-leaked early-stopping split is otherwise silent). Behavior is unchanged — the explicit choice is still honored.
 
+### Internal
+
+- **Generated `test_equivalence.py` now imports `predict.py`** ([#217](https://github.com/nbx-liz/LizyML/issues/217)) — the codegen equivalence checker previously inlined a second copy of the transform / calibration logic that had already diverged from `predict.py` (e.g. missing column-drift validation), so it could pass while validating a different code path than users run. It now calls `predict.predict()` directly, and a template guard test asserts no second prediction implementation is emitted.
+
 ## [0.16.1] - 2026-06-30
 
 ### Fixed
