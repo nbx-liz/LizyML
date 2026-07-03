@@ -38,6 +38,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Plot optional-dependency guard de-duplicated** ([#218](https://github.com/nbx-liz/LizyML/issues/218)). The three per-module `_require_plotly` / `_check_plotly` guards (two names, three message strings) are replaced by a single `lizyml/plots/_deps.py::require_plotly(...)`. Same `OPTIONAL_DEP_MISSING` behavior. Also corrected the README's generated-code dependency note to include `scipy` (required for beta calibration).
 - **Facade slimming — extracted accumulated logic out of `core/model.py`** ([#209](https://github.com/nbx-liz/LizyML/issues/209)). Round-summary assembly and per-trial round renumbering moved to `lizyml/tuning/rounds.py` (`assemble_round_result`); split-driven data ordering/extraction moved to `lizyml/data/dataframe_builder.py` (`prepare_for_split` / `sort_components`). `core/model.py` dropped from 1355 to 1244 lines. Pure refactor — no behavior change, no public-API/`format_version` change. Relocating the ~471-line `tune()` orchestration into a mixin is tracked as a follow-up (it needs an invariant decision vs the H-0077 read-only-mixin rule).
 
+### Internal
+
+- **Generated `test_equivalence.py` now imports `predict.py`** ([#217](https://github.com/nbx-liz/LizyML/issues/217)) — the codegen equivalence checker previously inlined a second copy of the transform / calibration logic that had already diverged from `predict.py` (e.g. missing column-drift validation), so it could pass while validating a different code path than users run. It now calls `predict.predict()` directly, and a template guard test asserts no second prediction implementation is emitted.
+
 ## [0.16.1] - 2026-06-30
 
 ### Fixed
