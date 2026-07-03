@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **`fit()` and `load()` no longer expose the internal `FitResult` by reference** (H-0086, [#204](https://github.com/nbx-liz/LizyML/issues/204)). `fit()` — the primary access path — now returns a selective deep copy (the same isolation the `fit_result` property already applied under H-0082), and `Model.load()` deep-copies the restored metrics dict. Mutating a returned result can no longer corrupt internal state or contaminate a later `export()`'s `metadata.json`. Trained estimators (`models` / `calibrator` / `pipeline_state`) stay shared by reference as before; the return type is unchanged.
 - **Config validation hardening** (H-0085, [#210](https://github.com/nbx-liz/LizyML/issues/210)):
   - **`config_version` string bypass** — a string value (e.g. `"999"`) previously skipped the supported-version gate and was then lax-coerced by pydantic, loading an unsupported version silently. The gate now coerces to `int` before the check, so unsupported versions are rejected as `CONFIG_VERSION_UNSUPPORTED` regardless of input type.
   - **Legacy `embargo_pct` / `gap` truncation** — a fractional legacy value (e.g. `embargo_pct=0.05`) was migrated via `int()` and silently collapsed to `0`, removing the leakage guard. Fractional legacy values are now rejected with `CONFIG_INVALID` and guidance to supply an integer observation count; integer-valued inputs still migrate.
