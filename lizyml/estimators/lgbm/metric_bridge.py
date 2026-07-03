@@ -237,22 +237,38 @@ def _build_feval(
     ) -> tuple[str, float, bool]:
         y_true = dataset.get_label()
         if y_true is None:  # pragma: no cover
-            raise RuntimeError(
-                "feval received a Dataset with no label — "
-                "ensure the Dataset was constructed with label data."
+            raise LizyMLError(
+                code=ErrorCode.EVALUATION_FAILED,
+                user_message=(
+                    "feval received a Dataset with no label — "
+                    "ensure the Dataset was constructed with label data."
+                ),
+                context={"metric": feval_name, "task": task},
             )
 
         if task == "binary":
             proba = _sigmoid(y_pred)
         elif task == "multiclass":
             if num_class is None:  # pragma: no cover
-                raise RuntimeError("num_class is required for multiclass feval.")
+                raise LizyMLError(
+                    code=ErrorCode.CONFIG_INVALID,
+                    user_message="num_class is required for multiclass feval.",
+                    context={"metric": feval_name, "task": task},
+                )
             proba = y_pred.reshape(-1, num_class)
             if proba.shape[0] != len(y_true):
-                raise RuntimeError(
-                    f"feval reshape mismatch: expected ({len(y_true)}, "
-                    f"{num_class}), got {proba.shape}. "
-                    f"num_class may be incorrect."
+                raise LizyMLError(
+                    code=ErrorCode.CONFIG_INVALID,
+                    user_message=(
+                        f"feval reshape mismatch: expected ({len(y_true)}, "
+                        f"{num_class}), got {proba.shape}. "
+                        f"num_class may be incorrect."
+                    ),
+                    context={
+                        "metric": feval_name,
+                        "num_class": num_class,
+                        "pred_shape": list(proba.shape),
+                    },
                 )
             proba = _softmax(proba)
         else:

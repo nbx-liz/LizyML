@@ -61,8 +61,10 @@ class TestBetaCalibrator:
 
     def test_predict_before_fit_raises(self) -> None:
         cal = BetaCalibrator()
-        with pytest.raises(RuntimeError, match="not been fitted"):
+        # #214 (H-0086): bare RuntimeError unified to LizyMLError.
+        with pytest.raises(LizyMLError, match="not been fitted") as exc:
             cal.predict(np.array([0.0, 1.0]))
+        assert exc.value.code is ErrorCode.CALIBRATION_NOT_FITTED
 
     def test_scipy_missing(self) -> None:
         logits, y = _oof_logits()

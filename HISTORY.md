@@ -6891,3 +6891,114 @@ inner-valid（early-stopping）境界に関する 4 つの課題を、一貫し�
 - **#210 item 3**: time-order outer split × shuffled 明示 inner_valid で `UserWarning` が発ることを検証するテスト。
 - 上記いずれも「落ちるべき例」を含む（CLAUDE.md §6 の split/leakage/calibration 必須要件）。
 
+## H-0086: Phase 3 契約/永続化/公開API の一括修正（FitResult 参照返し・tuned params 非永続化・config round-trip・top-level export）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-07-03
+- **決定日**: 2026-07-03
+- **スコープ**: `core/model.py`（`fit()` の返却 / `load()` の metrics 共有）, `core/_model_persistence.py` + `persistence/exporter.py` + `persistence/loader.py`（tuned params の永続化・復元）, `config/schema.py`（inner_valid explicitness の round-trip 化）, `lizyml/__init__.py` + `core/types/__init__.py`（公開 re-export）, `BLUEPRINT.md`（公開 API surface / Artifacts metadata）。**format_version は据え置き（2、additive）**。
+- **関連**: [Issue #204](https://github.com/nbx-liz/LizyML/issues/204), [#215](https://github.com/nbx-liz/LizyML/issues/215), [#203](https://github.com/nbx-liz/LizyML/issues/203), [#213](https://github.com/nbx-liz/LizyML/issues/213)。H-0082（deep-copy 防御）, H-0069（inner_valid canonical）, H-0083（metadata additive 前例）。2026-07-02 full-package review。
+
+### 目的（課題）
+
+full-package review が検出した契約・永続化・公開 API の 4 課題を、Phase 3 の契約クラスタとして一括で解消する。
+
+1. **#204 — `fit()` / `load()` が内部 FitResult を参照で漏らす**: `fit_result` プロパティは H-0082 で selective deep-copy して internal state 汚染（→後続 `export()` の metadata 汚染）を防ぐが、主経路である `fit()` は `self._fit_result` と同一オブジェクトを返す（`model.py:275-277`）。`load()` も `instance._metrics = fit_result.metrics` で dict を共有する（`_model_persistence.py:192`）。最も使われる経路で防御が効いていない。
+2. **#215 — tuned params が永続化されない**: best params は in-memory の `_tuning_result` overlay 経由で fit 時に適用される（`model.py:185-201, 878-897`）のみで、`export()` は fit/refit/config/metrics だけを書き（`exporter.py:96-108`）、`load()` は `_tuning_result` を復元しない（`_model_persistence.py:191-201`）。`Model.load()` 後の再 `fit()` は tuned params を失い config デフォルトで学習する — artifact は tuned で predict するのに再学習は defaults という silent な再現性ドリフト。
+3. **#203 — config round-trip で明示 inner_valid が消失**: `model_dump()` は computed field `validation_ratio` を常に emit するため、再検証時に explicitness ヒューリスティック（`user_explicit_inner_valid = iv_in and not vr_present`）が `False` に倒れ、`_inner_valid_explicit`（`PrivateAttr`・非直列化）が失われる。factory は outer split から auto-resolve し直し、ユーザーの明示 `time_holdout` / `group_holdout` を silent に別戦略へ置換する（`export → load → fit` 経路を含む）。time/group データでは leakage-relevant。
+4. **#213 — 契約型 / LizyMLError が top-level 未 export**: `Model.fit/predict/tune` は `FitResult` / `PredictionResult` / `TuningResult` を返し、公開メソッドは `LizyMLError` を送出するが、いずれも `lizyml` 直下から import できない（`__init__.py:13-22` は `Model` + 5 tuning 型のみ）。ユーザーは型注釈や `except LizyMLError` のために `lizyml.core.types` / `lizyml.core.exceptions`（private に見えるパス）へ手を伸ばす必要があり、公開/内部境界が曖昧化して将来のリファクタが事実上破壊的になる。
+
+### 対応方針（決定）
+
+- **#204 → `fit()` も selective deep-copy を返す**。`fit()` は `self._fit_result` に internal 参照を保持したまま、返却値は `FitResult.__deepcopy__`（H-0082 の selective copy）を通す。`load()` は `instance._metrics` を metrics dict の deep-copy にして internal と外部返却の共有を断つ。公開 API の shape・意味は不変（返却型は FitResult のまま）。回帰テスト: `fit()` の返却値を mutate → 後続 `export()` の metadata が汚染されないこと。
+- **#215 → tuned params を metadata.json に additive 永続化し load で復元**。`export()` の metadata に `tuning` ブロック（`best_model_params` / `best_smart_params` / `best_training_params` / `best_score` / `metric_name` / `direction`）を追加し、`load()` が最小 `TuningResult`（`trials=()` / `rounds=()`）を復元して `_tuning_result` にセットする。これにより `load()` 後の再 `fit()` が tuned params を再現する。**format_version は 2 のまま（additive、H-0083 と同型）**: `tuning` キーの無い旧 artifact は従来どおり load でき `_tuning_result=None`（現行挙動）。**スコープ外**: optuna study 実体を要する完全な `tune(resume=True)`（trials/study の再構築）は本 Proposal では扱わず follow-up とする（params 復元により resume の seed には寄与するが study 継続は別途）。
+- **#203 → explicitness を round-trip 安全な marker で直列化**。`validation_ratio` と同様に wrap-validator で pop される computed marker `inner_valid_explicit` を emit し、再検証時に入力 dict にあればそれを explicitness の source of truth として尊重する（無ければ従来ヒューリスティックにフォールバック）。これで `dump → reload` と `export → load → fit` がユーザーの明示 inner_valid 戦略を再現する。**settable な公開フィールドは追加しない**（computed かつ入力時 pop）。互換性: 旧 dump（marker 無し）はヒューリスティックにフォールバック＝現行挙動。paired-config-fields skill 準拠。
+- **#213 → 契約型と例外を top-level に re-export**。`lizyml/__init__.py.__all__` に `FitResult` / `PredictionResult` / `TuningResult` / `LizyMLError` / `ErrorCode` / `load_config` / `TaskType` を追加、`core/types/__init__.py` に `DataFingerprint` を追加。公開 export set を固定するゴールデンテストを追加。純粋な additive（既存 import は不変）。
+
+### 代替案（不採用）
+
+- **#204 を「返却は参照のまま・doc で read-only を明記」**: コスト最小だが H-0082 の防御目的（export 汚染防止）を主経路で放棄するため不採用。
+- **#215 を「loaded model を inference-only とし再 fit を warn/raise」**: 実装は軽いが、tune→export→load→再 fit という正当なワークフローを塞ぐ。params 復元の方がユーザー価値が高いため不採用（study 完全 resume のみ follow-up 送り）。
+- **#215 で TuningResult 全体（trials 含む）を JSON 直列化**: metadata.json が肥大化し、TrialResult の非自明な直列化が必要。overlay に必要な best_* params + スコアに絞る。
+- **#203 で `validation_ratio` を model_dump から除外**: round-trip は直るが、read-only mirror として dump 出力を読む外部/下流の想定を壊すため不採用。marker 追加の方が additive。
+- **#213 で `lizyml.core.*` を公開パスとして追認**: 内部レイアウトを凍結してしまい将来のリファクタを縛るため不採用。
+
+### 影響範囲 / 互換性
+
+- **format_version は 2 のまま**。#215 の `tuning`・#203 の `inner_valid_explicit` はいずれも additive で、旧 artifact / 旧 dump は従来どおり load・再検証できる。
+- **公開 API**: #213 は re-export の追加のみ（既存 import 不変）。#204 は返却型不変（同一オブジェクト → 独立コピーへ変わるのみ；参照同一性に依存する呼び出し側があれば挙動変化だが、契約は「読み取り専用の独立コピー」を明文化）。
+- **挙動変化**: #203 の修正後、round-trip / load 経由の明示 inner_valid は auto-resolve されず明示戦略を保つ（＝リーク経路を塞ぐ正しい方向の変化）。#215 の修正後、load 後の再 fit は tuned params を再現する。いずれも CHANGELOG に明記。
+
+### 受け入れ基準（テスト観点）
+
+- **#204**: `fit()` の返却値の `metrics` を mutate → 内部 state と後続 `export()` 出力が汚染されないことを固定する回帰テスト。`load()` 後 `_metrics` が返却 metrics と別オブジェクトであること。
+- **#215**: tune → export → load → 再 fit で tuned params が再現される契約テスト（load 前後で `_merge_params` の overlay が一致）。`tuning` キーの無い旧 metadata が load 可能（後方互換）な RED/GREEN テスト。
+- **#203**: `{"inner_valid": {"method": "time_holdout", "ratio": 0.2, ...}}` を dump → reload して `_inner_valid_explicit` が保持される RED テスト（現行 False で落ちる）。`export → load → fit` で明示 inner_valid が auto-resolve されない leakage 観点テスト。純 legacy `{"validation_ratio": 0.1}` は従来どおり auto-resolve（非回帰）。
+- **#213**: `lizyml` の top-level `__all__` を固定するゴールデンテスト（`FitResult` 等が import 可能・set が pin される）。
+
+## H-0087: leakage validator を public API 化（dead-code 解消）＋空 `lizyml/utils/` 削除
+
+- **ステータス**: Accepted
+- **起票日**: 2026-07-03
+- **決定日**: 2026-07-03
+- **スコープ**: `lizyml/data/__init__.py`（3 validator の re-export + `__all__`）, `lizyml/utils/` 削除, docs（validator の言及追加）。**公開 API の additive 追加のみ**。`Model.fit` への自動配線は行わない（挙動不変）。
+- **関連**: [Issue #216](https://github.com/nbx-liz/LizyML/issues/216)。2026-07-02 full-package review（dead-code 判定は cross-check 検証済）。leakage-first charter（CLAUDE.md §0）。
+
+### 目的（課題）
+
+`lizyml/data/validators.py` の 3 つの leakage validator（`validate_time_series_order` / `validate_no_target_leakage` / `validate_group_split`）は `LizyMLError` code とテストを備えた良質なコードだが、`lizyml/` 内に呼び出し箇所が皆無で、`lizyml.data` / top-level からも未 export・docs 未記載＝dead code。leakage-first を掲げる本ライブラリで leakage 検査ツールが利用不能な状態。加えて `lizyml/utils/` は 0 byte の空パッケージで誰も import していない。
+
+### 対応方針（決定）
+
+- **validator を `lizyml.data` の public API として re-export**し、docstring / docs に利用方法を記載する。ユーザーが `from lizyml.data import validate_time_series_order` 等で明示的に leakage 検査を呼べるようにする。**`Model.fit` への自動配線はしない**（既存の通過中 config に警告/例外を新たに出す挙動変更を避けるため。自動配線は将来別 Proposal で検討）。
+- **空 `lizyml/utils/` を削除**する（import 参照ゼロを grep 確認済）。
+
+### 代替案（不採用）
+
+- **validator を削除**: charter 上価値ある leakage tooling とそのテストを失うため不採用。
+- **`Model.fit` へ自動配線（warn/raise）**: leakage-first に最も合致するが、既存の通過中 config に新たな警告/例外を出す挙動変更（互換性リスク）を伴い、別 Proposal と RED テストが必要。本 Proposal のスコープ外とし follow-up とする。
+
+### 影響範囲 / 互換性
+
+- **純 additive**: `lizyml.data` に 3 シンボルを追加するのみ。既存 import（`from lizyml.data.validators import ...`）は不変。`Model.fit` の挙動は不変。`lizyml/utils/` 削除は参照ゼロにつき無影響。format_version 不変。
+
+### 受け入れ基準（テスト観点）
+
+- `lizyml.data.__all__` に 3 validator が含まれ、`from lizyml.data import ...` で import 可能なことを固定するゴールデンテスト。
+- `lizyml/utils/` が存在せず、`import lizyml.utils` が失敗すること（削除の確認）。
+- 既存 validator の振る舞いテストは不変で pass すること。
+
+## H-0088: Layer-DAG ドリフトの解消（実在エッジの宣言 + BLUEPRINT §19 / 付録 B 同期）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-07-03
+- **決定日**: 2026-07-03
+- **スコープ**: `ARCHITECTURE.md`（codegen の Layer 配置 + 宣言済みエッジ表）, `BLUEPRINT.md §19`（欠落モジュール追記 + codegen 追加）, `BLUEPRINT.md 付録 B`（H-0074 完了マーク）。**ドキュメント/仕様のみ。コード変更なし**。
+- **関連**: [Issue #211](https://github.com/nbx-liz/LizyML/issues/211)。ARCHITECTURE.md §2.1 DAG, H-0052 / H-0054 / H-0073 / H-0074。2026-07-02 full-package review。
+
+### 目的（課題）
+
+宣言された 5 層 DAG（ARCHITECTURE.md / BLUEPRINT §2.1・§19）と実際の import グラフに乖離があり、「IF only / 下方向のみ」レビュールールが該当エッジで機能しない。
+
+1. **eval→training エッジが未宣言**: `evaluation/{evaluator,confusion}.py` が `training/oof_assembly.py` の `compute_oof_valid_mask` を import（Layer 2 内の横依存、H-0052 の副作用）。循環なし。
+2. **plots→calibration 具象ディスパッチ**: `plots/calibration.py` が Layer 1 具象 `CalibrationResult` を runtime import + isinstance dispatch（型ディスパッチは本来 Layer 4）。
+3. **codegen/ に Layer 未割当**: 4 モジュール（833 行の `templates.py` 含む）が §19 / ARCHITECTURE.md に不在。実質 Layer 3。seam が estimator 固有（`generate_code(..., lgbm_params=...)`）で H-0073 の狙いと不整合。
+4. **§19 / 付録 B ドリフト**: §19 が `core/_model_predict.py` / `core/_model_state.py` / `core/types/task.py` / `core/types/target_encoder.py` / `data/validators.py`（H-0087 で public 化）/ `codegen/` を欠く。付録 B が H-0074 FitState 移行を「整備中」と記すが 3 mixin は既に `_get_fit_state()` / `_get_tuning_state()` 使用済（H-0077 完了）。
+
+### 対応方針（決定）
+
+- **実在エッジを仕様に宣言する（型移動は follow-up）**。項目 1–3 のエッジはいずれも循環がなく、既存動作を保ったまま「仕様を実装に合わせる」ことでレビュールールを再び機能させる。ARCHITECTURE.md に codegen（Layer 3）を追加し、宣言済み横断エッジ（eval→training utility、persistence→training `RefitResult`（TYPE_CHECKING）、plots→calibration `CalibrationResult` dispatch）を rationale 付きで明記する。
+- **§19 / 付録 B を実装へ同期する**（欠落モジュール追記、H-0074 を完了マーク）。
+- **型の再配置は本 Proposal では行わない**（`compute_oof_valid_mask` / `RefitResult` / `CalibrationResult` の `core/types/` 昇格、`templates.py` 分割、codegen の estimator-agnostic 化）。いずれも shared-type contract / DAG に触れる別変更のため follow-up issue とする（codegen seam は既存 [#228](https://github.com/nbx-liz/LizyML/issues/228) を参照）。
+
+### 代替案（不採用）
+
+- **型を Layer 0 へ即時移動**: よりクリーンだが FitResult 契約に触れる shared-type 変更で、複数の import 経路と golden test に波及する。ドリフト解消（レビュールールの再機能化）が目的の本 Proposal では過剰。段階移行のため follow-up に分離。
+
+### 影響範囲 / 互換性
+
+- **コード・公開 API・format_version すべて不変**。ドキュメント/仕様のみ。実装は既に spec が記す実態に一致する方向へ更新するため、以後の DAG レビューが該当エッジで機能する。
+
+### 受け入れ基準（テスト観点）
+
+- ドキュメントのみのため runtime テストなし。BLUEPRINT §19 が実在モジュール（上記 5 + codegen）を網羅し、付録 B が H-0074 を完了として記すこと、ARCHITECTURE.md に codegen と宣言済みエッジが記載されることを目視レビューで確認する。

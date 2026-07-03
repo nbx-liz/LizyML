@@ -1508,15 +1508,19 @@ lizyml/
 │       ├── predict_result.py       PredictionResult
 │       ├── tuning_result.py        TuningResult, TrialResult
 │       ├── artifacts.py            RunMeta, SplitIndices, DataFingerprint
+│       ├── task.py                 TaskType (canonical, H-0075)
+│       ├── target_encoder.py       TargetEncoder (H-0070)
 │       └── search_dim.py           SearchDim, FloatDim, IntDim, CategoricalDim, DimCategory
 │
 │                                   ── Layer 0/4: Facade (core/ 内の特殊位置) ──
 │   ├── model.py                    Model facade (組み立てと委譲のみ)
 │   ├── _model_factories.py         splitter / inner_valid / estimator provider 構築
+│   ├── _model_predict.py           predict / predict_proba 実体 (facade 委譲先)
 │   ├── _model_plots.py             ModelPlotsMixin
 │   ├── _model_tables.py            ModelTablesMixin (EstimatorProvider 経由)
 │   ├── _model_metrics.py           _has_metric_content, _filter_metrics
 │   ├── _model_persistence.py       ModelPersistenceMixin
+│   ├── _model_state.py             FitState / TuningState frozen snapshot (H-0074/H-0084)
 │   ├── train_components.py         TrainComponents (frozen dataclass)
 │   ├── seed.py                     seed 固定ユーティリティ
 │   └── specs/
@@ -1530,7 +1534,8 @@ lizyml/
 ├── data/                           ── Layer 1: Data ──
 │   ├── datasource.py               CSV / Parquet / DataFrame
 │   ├── dataframe_builder.py        X/y/groups 分離 + categorical
-│   └── fingerprint.py              DataFingerprint 計算 (compute 関数)
+│   ├── fingerprint.py              DataFingerprint 計算 (compute 関数)
+│   └── validators.py               leakage validators (public API, H-0087)
 │
 ├── splitters/                      ── Layer 1: Splitting ──
 │   ├── base.py                     BaseSplitter
@@ -1600,10 +1605,18 @@ lizyml/
 │   ├── calibration.py              reliability diagram + probability histogram
 │   └── tuning.py                   tuning history plot
 │
-└── persistence/                    ── Layer 3: Persistence ──
-    ├── exporter.py                 export() + AnalysisContext + FORMAT_VERSION
-    └── loader.py                   load() + format_version validation
+├── persistence/                    ── Layer 3: Persistence ──
+│   ├── exporter.py                 export() + AnalysisContext + FORMAT_VERSION
+│   └── loader.py                   load() + format_version validation
+│
+└── codegen/                        ── Layer 3: Codegen (optional, H-0059/H-0073) ──
+    ├── generator.py                generate_code() エントリ (Model.export_code から)
+    ├── artifact_writer.py          pipeline_state.json / model.txt 等の書き出し
+    ├── config_writer.py            config.json 書き出し
+    └── templates.py                train.py / predict.py / test_equivalence.py テンプレ
 ```
+
+> **codegen の seam に関する既知の逸脱（H-0088, #211）**: `generate_code()` は現状 `lgbm_params=` 等 estimator 固有引数を受け取り、H-0073 の estimator-agnostic 目標と不整合。`ExportParams` / provider metadata 経由への一本化と `templates.py`（800 行超）の分割は follow-up（[#228](https://github.com/nbx-liz/LizyML/issues/228)）。
 
 # 20. 既知の将来拡張（設計で塞がない）
 
@@ -1696,4 +1709,4 @@ loaded_model.probability_histogram_plot()
 - `Model` クラスは mixin で構成する（H-0042）。plot 系は `_model_plots.py`、table/accessor 系は `_model_tables.py`、persistence 系は `_model_persistence.py` に分割し、`model.py` には core lifecycle（`__init__`, `fit`, `predict`, `evaluate`, `tune`）とプライベートヘルパーのみを残す。
 - mixin は `_` プレフィックスの非公開モジュールとし、`Model` の import パス（`lizyml.core.model.Model`）は変更しない。
 - 依存関係の切り離しが必要な箇所では Lazy Import を許容する。
-- `Model._get_fit_state()` が返す `FitState` frozen dataclass を mixin の唯一の入口として整備中（H-0074, Phase 1: 型定義 + factory + テスト, Phase 2: 全 mixin 移行）。`FitState` は `cfg / fit_result / refit_result / tuning_result / provider / metrics / y / X / run_dir / output_dir` の post-fit snapshot を持ち、`self._*` への直接アクセスを段階的に置換する。
+- `Model._get_fit_state()` が返す `FitState` frozen dataclass を mixin の唯一の入口とする（H-0074 型定義 + factory + テスト、H-0077 で全 mixin 移行完了、H-0084 で `core/_model_state.py` へ移設）。`FitState` は `cfg / fit_result / refit_result / tuning_result / provider / metrics / y / X / run_dir / output_dir` の post-fit snapshot を持ち、mixin 本体からの `self._*` 直接アクセスを置換済み（plots / tables / persistence の 3 mixin は `_get_fit_state()` / `_get_tuning_state()` 経由）。

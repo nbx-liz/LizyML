@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.plots._deps import require_plotly
 from lizyml.plots._theme import apply_default_layout
 
 if TYPE_CHECKING:
@@ -17,18 +17,6 @@ try:
     _plotly = go
 except ImportError:  # pragma: no cover
     pass
-
-
-def _require_plotly() -> None:
-    if _plotly is None:
-        raise LizyMLError(
-            code=ErrorCode.OPTIONAL_DEP_MISSING,
-            user_message=(
-                "plotly is required for tuning plots. "
-                "Install with: pip install 'lizyml[plots]'"
-            ),
-            context={"package": "plotly"},
-        )
 
 
 _STATE_COLORS: dict[str, str] = {
@@ -50,7 +38,7 @@ def plot_tuning_history(tuning_result: TuningResult) -> Any:
     Returns:
         A ``plotly.graph_objects.Figure``.
     """
-    _require_plotly()
+    require_plotly(_plotly, feature="tuning plots")
     go = _plotly
 
     fig = go.Figure()

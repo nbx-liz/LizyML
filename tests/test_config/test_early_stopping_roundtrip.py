@@ -91,13 +91,15 @@ class TestInnerValidConflictGuard:
 
 class TestExplicitFlagTracking:
     """``_inner_valid_explicit`` PrivateAttr drives the factory's
-    auto-resolve path (`_model_factories.py:253`).  H-0069 must
-    preserve the existing semantics:
+    auto-resolve path (`_model_factories.py:253`).  Semantics:
 
     - Legacy ``validation_ratio`` only → ``False`` (auto-resolve)
     - Explicit ``inner_valid`` only → ``True`` (use as-is)
-    - Round-trip (both keys) → ``False`` (auto-resolve, matching
-      pre-H-0069 behaviour for round-tripped artifacts)
+    - Round-trip of an explicit ``inner_valid`` → ``True`` (preserved via the
+      serialized ``inner_valid_explicit`` marker). This **supersedes** the
+      pre-#203 behaviour where a round-trip always collapsed to ``False`` and
+      silently auto-resolved from the outer split (H-0086, #203 — leakage-
+      relevant for time/group data). See ``test_inner_valid_roundtrip.py``.
     """
 
     def test_legacy_validation_ratio_keeps_auto_resolve(self) -> None:
@@ -127,10 +129,11 @@ class TestExplicitFlagTracking:
         assert cfg.inner_valid.ratio == 0.1
         assert cfg._inner_valid_explicit is False
 
-    def test_roundtrip_preserves_auto_resolve(self) -> None:
-        """A dump always carries both ``inner_valid`` and ``validation_ratio``
-        — re-loading must mirror the legacy behaviour where the pair triggers
-        auto-resolve, not explicit."""
+    def test_roundtrip_preserves_explicit(self) -> None:
+        """A dump carries ``inner_valid`` + ``validation_ratio`` + the
+        ``inner_valid_explicit`` marker — re-loading an explicit ``inner_valid``
+        must stay explicit (H-0086, #203), superseding the pre-#203 behaviour
+        where the ``validation_ratio`` pair silently forced auto-resolve."""
         original = EarlyStoppingConfig.model_validate(
             {
                 "enabled": True,
@@ -138,6 +141,16 @@ class TestExplicitFlagTracking:
                 "inner_valid": {"method": "group_holdout", "ratio": 0.2},
             }
         )
+        restored = EarlyStoppingConfig.model_validate(original.model_dump())
+        assert restored._inner_valid_explicit is True
+
+    def test_roundtrip_legacy_validation_ratio_stays_auto_resolve(self) -> None:
+        """Pure-legacy ``validation_ratio`` input stays ``False`` across a
+        round-trip — the marker must not promote legacy input to explicit."""
+        with pytest.warns(DeprecationWarning, match="validation_ratio"):
+            original = EarlyStoppingConfig.model_validate(
+                {"enabled": True, "rounds": 50, "validation_ratio": 0.2}
+            )
         restored = EarlyStoppingConfig.model_validate(original.model_dump())
         assert restored._inner_valid_explicit is False
 

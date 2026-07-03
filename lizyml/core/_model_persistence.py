@@ -8,6 +8,7 @@ Model facade as ``Model._resolve_export_path``.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -81,6 +82,7 @@ class ModelPersistenceMixin:
             config=state.cfg.model_dump(),
             task=state.cfg.task,
             analysis_context=ctx,
+            tuning=state.tuning_result,
         )
         _log.info("event='export.done' path=%s", resolved_path)
         return resolved_path
@@ -191,11 +193,30 @@ class ModelPersistenceMixin:
         instance: Any = cls(config)  # type: ignore[call-arg]  # cls is Model at runtime
         instance._fit_result = fit_result
         instance._refit_result = refit_result
-        instance._metrics = fit_result.metrics
+        # Deep-copy the metrics dict so the internal state does not share a
+        # mutable object with the ``fit_result`` copy handed to callers
+        # (#204 / H-0086 — the same isolation fit()/fit_result enforce).
+        instance._metrics = deepcopy(fit_result.metrics)
         # Restore provider for params_table() etc. (H-0054)
         from lizyml.core._model_factories import get_provider
 
         instance._provider = get_provider(instance._cfg.model)
+        # Restore the tuned-param overlay so a re-fit() reproduces the tuned
+        # params instead of silently reverting to config defaults (H-0086,
+        # #215). Absent for non-tuned / pre-#215 artifacts (stays None).
+        tuning_meta = metadata.get("tuning")
+        if tuning_meta is not None:
+            from lizyml.core.types.tuning_result import TuningResult
+
+            instance._tuning_result = TuningResult(
+                best_model_params=tuning_meta["best_model_params"],
+                best_smart_params=tuning_meta["best_smart_params"],
+                best_training_params=tuning_meta["best_training_params"],
+                best_score=tuning_meta["best_score"],
+                trials=[],
+                metric_name=tuning_meta["metric_name"],
+                direction=tuning_meta["direction"],
+            )
         if analysis_context is not None:
             instance._y = analysis_context.y_true
             instance._X = analysis_context.X_for_explain

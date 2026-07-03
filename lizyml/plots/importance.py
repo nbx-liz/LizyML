@@ -8,6 +8,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.plots._deps import require_plotly
 from lizyml.plots._theme import apply_default_layout
 
 if TYPE_CHECKING:
@@ -22,24 +23,12 @@ except ImportError:  # pragma: no cover
     pass
 
 
-def _check_plotly() -> None:
-    if _plotly is None:
-        raise LizyMLError(
-            code=ErrorCode.OPTIONAL_DEP_MISSING,
-            user_message=(
-                "plotly is required for plots. "
-                "Install with: pip install 'lizyml[plots]'"
-            ),
-            context={"package": "plotly"},
-        )
-
-
 def _render_bar_chart(
     sorted_items: list[tuple[str, float]],
     title: str,
 ) -> Any:
     """Render a horizontal bar chart from (feature, value) pairs."""
-    _check_plotly()
+    require_plotly(_plotly)
     features = [item[0] for item in sorted_items]
     values = [item[1] for item in sorted_items]
 
@@ -81,7 +70,7 @@ def plot_importance(
         LizyMLError with ``OPTIONAL_DEP_MISSING`` when plotly is not installed.
         LizyMLError with ``MODEL_NOT_FIT`` when no fold models are available.
     """
-    _check_plotly()
+    require_plotly(_plotly)
 
     if not fit_result.models:
         raise LizyMLError(
