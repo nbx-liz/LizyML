@@ -6967,3 +6967,38 @@ full-package review が検出した契約・永続化・公開 API の 4 課題�
 - `lizyml.data.__all__` に 3 validator が含まれ、`from lizyml.data import ...` で import 可能なことを固定するゴールデンテスト。
 - `lizyml/utils/` が存在せず、`import lizyml.utils` が失敗すること（削除の確認）。
 - 既存 validator の振る舞いテストは不変で pass すること。
+
+## H-0088: Layer-DAG ドリフトの解消（実在エッジの宣言 + BLUEPRINT §19 / 付録 B 同期）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-07-03
+- **決定日**: 2026-07-03
+- **スコープ**: `ARCHITECTURE.md`（codegen の Layer 配置 + 宣言済みエッジ表）, `BLUEPRINT.md §19`（欠落モジュール追記 + codegen 追加）, `BLUEPRINT.md 付録 B`（H-0074 完了マーク）。**ドキュメント/仕様のみ。コード変更なし**。
+- **関連**: [Issue #211](https://github.com/nbx-liz/LizyML/issues/211)。ARCHITECTURE.md §2.1 DAG, H-0052 / H-0054 / H-0073 / H-0074。2026-07-02 full-package review。
+
+### 目的（課題）
+
+宣言された 5 層 DAG（ARCHITECTURE.md / BLUEPRINT §2.1・§19）と実際の import グラフに乖離があり、「IF only / 下方向のみ」レビュールールが該当エッジで機能しない。
+
+1. **eval→training エッジが未宣言**: `evaluation/{evaluator,confusion}.py` が `training/oof_assembly.py` の `compute_oof_valid_mask` を import（Layer 2 内の横依存、H-0052 の副作用）。循環なし。
+2. **plots→calibration 具象ディスパッチ**: `plots/calibration.py` が Layer 1 具象 `CalibrationResult` を runtime import + isinstance dispatch（型ディスパッチは本来 Layer 4）。
+3. **codegen/ に Layer 未割当**: 4 モジュール（833 行の `templates.py` 含む）が §19 / ARCHITECTURE.md に不在。実質 Layer 3。seam が estimator 固有（`generate_code(..., lgbm_params=...)`）で H-0073 の狙いと不整合。
+4. **§19 / 付録 B ドリフト**: §19 が `core/_model_predict.py` / `core/_model_state.py` / `core/types/task.py` / `core/types/target_encoder.py` / `data/validators.py`（H-0087 で public 化）/ `codegen/` を欠く。付録 B が H-0074 FitState 移行を「整備中」と記すが 3 mixin は既に `_get_fit_state()` / `_get_tuning_state()` 使用済（H-0077 完了）。
+
+### 対応方針（決定）
+
+- **実在エッジを仕様に宣言する（型移動は follow-up）**。項目 1–3 のエッジはいずれも循環がなく、既存動作を保ったまま「仕様を実装に合わせる」ことでレビュールールを再び機能させる。ARCHITECTURE.md に codegen（Layer 3）を追加し、宣言済み横断エッジ（eval→training utility、persistence→training `RefitResult`（TYPE_CHECKING）、plots→calibration `CalibrationResult` dispatch）を rationale 付きで明記する。
+- **§19 / 付録 B を実装へ同期する**（欠落モジュール追記、H-0074 を完了マーク）。
+- **型の再配置は本 Proposal では行わない**（`compute_oof_valid_mask` / `RefitResult` / `CalibrationResult` の `core/types/` 昇格、`templates.py` 分割、codegen の estimator-agnostic 化）。いずれも shared-type contract / DAG に触れる別変更のため follow-up issue とする（codegen seam は既存 [#228](https://github.com/nbx-liz/LizyML/issues/228) を参照）。
+
+### 代替案（不採用）
+
+- **型を Layer 0 へ即時移動**: よりクリーンだが FitResult 契約に触れる shared-type 変更で、複数の import 経路と golden test に波及する。ドリフト解消（レビュールールの再機能化）が目的の本 Proposal では過剰。段階移行のため follow-up に分離。
+
+### 影響範囲 / 互換性
+
+- **コード・公開 API・format_version すべて不変**。ドキュメント/仕様のみ。実装は既に spec が記す実態に一致する方向へ更新するため、以後の DAG レビューが該当エッジで機能する。
+
+### 受け入れ基準（テスト観点）
+
+- ドキュメントのみのため runtime テストなし。BLUEPRINT §19 が実在モジュール（上記 5 + codegen）を網羅し、付録 B が H-0074 を完了として記すこと、ARCHITECTURE.md に codegen と宣言済みエッジが記載されることを目視レビューで確認する。
