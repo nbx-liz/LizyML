@@ -9,6 +9,7 @@ import numpy.typing as npt
 from sklearn.linear_model import LogisticRegression
 
 from lizyml.calibration.base import BaseCalibratorAdapter
+from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.registries import CalibratorRegistry
 
 
@@ -35,7 +36,11 @@ class PlattCalibrator(BaseCalibratorAdapter):
 
     def predict(self, scores: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         if self._model is None:
-            raise RuntimeError("PlattCalibrator has not been fitted.")
+            raise LizyMLError(
+                code=ErrorCode.CALIBRATION_NOT_FITTED,
+                user_message="PlattCalibrator has not been fitted.",
+                context={"calibrator": "platt"},
+            )
         result: npt.NDArray[np.float64] = self._model.predict_proba(
             scores.reshape(-1, 1)
         )[:, 1]
@@ -44,7 +49,11 @@ class PlattCalibrator(BaseCalibratorAdapter):
     def export_params(self) -> dict[str, Any]:
         """Export Platt parameters: sigmoid(a * score + b)."""
         if self._model is None:
-            raise RuntimeError("PlattCalibrator has not been fitted.")
+            raise LizyMLError(
+                code=ErrorCode.CALIBRATION_NOT_FITTED,
+                user_message="PlattCalibrator has not been fitted.",
+                context={"calibrator": "platt"},
+            )
         return {
             "method": "platt",
             "a": float(self._model.coef_[0, 0]),
