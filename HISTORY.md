@@ -7002,3 +7002,41 @@ full-package review が検出した契約・永続化・公開 API の 4 課題�
 ### 受け入れ基準（テスト観点）
 
 - ドキュメントのみのため runtime テストなし。BLUEPRINT §19 が実在モジュール（上記 5 + codegen）を網羅し、付録 B が H-0074 を完了として記すこと、ARCHITECTURE.md に codegen と宣言済みエッジが記載されることを目視レビューで確認する。
+
+## H-0089: calibrated OOF metrics の fallback 透明化（CalibrationResult に per-fold fallback フラグ + metrics に fallback-row count）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-07-04
+- **決定日**: 2026-07-04
+- **スコープ**: `lizyml/calibration/cross_fit.py`（`CalibrationResult` に additive フィールド 2 件 + `cross_fit_calibrate` の集計）, `lizyml/core/_model_metrics.py`（`metrics["calibrated"]` に `fallback_row_count` を追加）。
+- **関連**: [Issue #218](https://github.com/nbx-liz/LizyML/issues/218)（metrics transparency 項）, H-0058（calibration が outer splits を再利用）, H-0054（calibrated metrics assembly）。2026-07-02 full-package review。
+
+### 目的（課題）
+
+cross-fit calibration には、fold の学習データに **有効な被覆スコアが無い**（例: TimeSeriesCV fold 0 の全 train 行が未被覆 = NaN）か、**単一クラス**の場合、その fold の validation 行に対して calibrator を fit できず、**未校正の生 OOF 確率（`oof_pred`）をそのまま埋める** fallback 経路が 3 つ存在する（`cross_fit.py` の no-covered-train / single-class / partial-NaN-val 分岐）。この fallback は無標識で `calibrated_oof` に混入し、`metrics["calibrated"]["oof"]` は「校正済み確率」と「未校正確率」のブレンド上で計算されるが、**その事実がどこにも surface されない**。行リークではないが（H-0058 で許容済みの挙動）、**metric の誠実性（honesty）**の問題であり、ユーザは校正メトリクスが部分的に未校正であることを知り得ない。
+
+### 対応方針（決定）
+
+1. `CalibrationResult` に **additive** フィールドを 2 件追加する（いずれも default 付きで後方互換）:
+   - `fallback_fold_flags: list[bool]`（`default_factory=list`）— split_indices と同順。calibrator を fit できず fold 全体が未校正 fallback になった fold で `True`。
+   - `n_fallback_rows: int = 0` — 全 fold 合計で、`cal.predict(...)` ではなく未校正 fallback を割り当てた validation 行数（部分 NaN-val 行を含む）。
+2. `cross_fit_calibrate` のループでこれらを集計する（挙動そのものは不変 — 値は既存の fallback 経路をカウントするだけ）。
+3. `assemble_calibrated_metrics`（`_model_metrics.py`）が `metrics["calibrated"]` に `fallback_row_count: int`（= `CalibrationResult.n_fallback_rows`）を追加し、校正メトリクスの横に fallback 規模を surface する。fallback が皆無の通常ケースは `0`。
+
+### 影響範囲 / 互換性
+
+- **契約変更（Result shape）**: `CalibrationResult` に 2 フィールド追加、`metrics["calibrated"]` に `fallback_row_count` キー追加。いずれも **additive**。既存の `metrics["calibrated"]["oof"]` / `oof_per_fold` の意味・値は不変（fallback 行は従来どおり blend に含まれる — 本変更は「標識を足す」だけで数値は変えない）。
+- **format_version**: 据え置き（`2`）。`metrics` は fit 時に生成され dict として保存される純データで、旧アーティファクトの `metrics["calibrated"]` に本キーが無くても読み込みに支障はない（migration 不要）。`CalibrationResult` の新フィールドは default 付きのため、直接構築するコード（テスト等）も影響なし。旧 pickle の `CalibrationResult` を外部から読む経路では `getattr(cal, "n_fallback_rows", 0)` で防御する。
+- **公開 API**: `FitResult.metrics` の shape が additive に拡張される。golden test（calibrated keys / 契約）を更新。
+
+### 代替案（不採用）
+
+- **fallback 行を `calibrated_oof` から除外して NaN 化**: 校正メトリクスから未校正行を完全に排除できるが、`calibrated_oof` の長さ・被覆契約（H-0058: raw OOF と同一被覆）を破壊し、下流の table / plot に波及する破壊的変更。誠実性は「除外」ではなく「標識化」で達成できるため過剰。
+- **log のみで surface**: 実行時ログは事後監査に残らず、`FitResult` を受け取る評価コードから参照できない。metrics 契約に載せるのが最小で最も有用。
+
+### 受け入れ基準（テスト観点）
+
+- TimeSeriesCV（fold 0 全未被覆）相当の split で `cross_fit_calibrate` → `fallback_fold_flags[0] is True`、`n_fallback_rows == 当該 fold の fallback 行数`。
+- fallback が発生しない通常の binary KFold + platt 構成で `fallback_fold_flags` が全 `False`、`n_fallback_rows == 0`、`metrics["calibrated"]["fallback_row_count"] == 0`。
+- 単一クラス train fold を含む split で当該 fold flag が `True`、fallback 行数が一致。
+- 既存の calibrated metrics テスト（`"oof" in cal`、`set(cal["oof"]) == set(raw["oof"])`）が引き続き green。
