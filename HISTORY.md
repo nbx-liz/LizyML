@@ -7002,4 +7002,3 @@ full-package review が検出した契約・永続化・公開 API の 4 課題�
 ### 受け入れ基準（テスト観点）
 
 - ドキュメントのみのため runtime テストなし。BLUEPRINT §19 が実在モジュール（上記 5 + codegen）を網羅し、付録 B が H-0074 を完了として記すこと、ARCHITECTURE.md に codegen と宣言済みエッジが記載されることを目視レビューで確認する。
-
