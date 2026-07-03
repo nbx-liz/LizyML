@@ -11,6 +11,7 @@ import numpy as np
 import numpy.typing as npt
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.plots._deps import require_plotly
 from lizyml.plots._theme import apply_default_layout
 
 if TYPE_CHECKING:
@@ -23,18 +24,6 @@ try:
     _plotly = go
 except ImportError:  # pragma: no cover
     pass
-
-
-def _require_plotly() -> None:
-    if _plotly is None:
-        raise LizyMLError(
-            code=ErrorCode.OPTIONAL_DEP_MISSING,
-            user_message=(
-                "plotly is required for calibration plots. "
-                "Install with: pip install 'lizyml[plots]'"
-            ),
-            context={"package": "plotly"},
-        )
 
 
 def _require_calibrator(fit_result: FitResult) -> Any:
@@ -73,7 +62,7 @@ def plot_calibration_curve(
         LizyMLError with OPTIONAL_DEP_MISSING if plotly is not installed.
         LizyMLError with CALIBRATION_NOT_SUPPORTED if calibration is disabled.
     """
-    _require_plotly()
+    require_plotly(_plotly, feature="calibration plots")
     calibrator = _require_calibrator(fit_result)
 
     from sklearn.calibration import calibration_curve
@@ -137,7 +126,7 @@ def plot_probability_histogram(fit_result: FitResult) -> Any:
         LizyMLError with OPTIONAL_DEP_MISSING if plotly is not installed.
         LizyMLError with CALIBRATION_NOT_SUPPORTED if calibration is disabled.
     """
-    _require_plotly()
+    require_plotly(_plotly, feature="calibration plots")
     calibrator = _require_calibrator(fit_result)
 
     raw_oof = fit_result.oof_pred

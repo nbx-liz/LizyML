@@ -8,6 +8,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
+from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.fit_result import FitResult
 from lizyml.core.types.task import TaskType
 from lizyml.metrics.base import BaseMetric
@@ -139,11 +140,19 @@ class Evaluator:
         if nan_in_covered.any():
             nan_count = int(nan_in_covered.sum())
             nan_indices = np.where(oof_mask)[0][nan_in_covered]
-            raise ValueError(
-                f"OOF predictions contain NaN in {nan_count} row(s) "
-                f"covered by validation folds (indices: "
-                f"{nan_indices[:5].tolist()}{'...' if nan_count > 5 else ''}). "
-                f"This indicates a bug in the training pipeline."
+            raise LizyMLError(
+                code=ErrorCode.EVALUATION_FAILED,
+                user_message=(
+                    f"OOF predictions contain NaN in {nan_count} row(s) "
+                    f"covered by validation folds (indices: "
+                    f"{nan_indices[:5].tolist()}{'...' if nan_count > 5 else ''}). "
+                    f"This indicates a bug in the training pipeline."
+                ),
+                context={
+                    "nan_count": nan_count,
+                    "nan_indices": nan_indices[:20].tolist(),
+                    "task": self.task,
+                },
             )
 
         oof_coverage = float(oof_mask.sum()) / len(y_arr) if len(y_arr) > 0 else 0.0
