@@ -6967,4 +6967,3 @@ full-package review が検出した契約・永続化・公開 API の 4 課題�
 - `lizyml.data.__all__` に 3 validator が含まれ、`from lizyml.data import ...` で import 可能なことを固定するゴールデンテスト。
 - `lizyml/utils/` が存在せず、`import lizyml.utils` が失敗すること（削除の確認）。
 - 既存 validator の振る舞いテストは不変で pass すること。
-
