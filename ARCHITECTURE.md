@@ -744,6 +744,12 @@ lizyml/
 │   ├── exporter.py                 export() + FORMAT_VERSION
 │   └── loader.py                   load() + format_version validation
 │
+├── codegen/                        ── Layer 3: Codegen (optional, H-0059/H-0073) ──
+│   ├── generator.py                generate_code() (Model.export_code から)
+│   ├── artifact_writer.py          pipeline_state.json / model.txt 書き出し
+│   ├── config_writer.py            config.json 書き出し
+│   └── templates.py                train.py / predict.py / test_equivalence.py テンプレ
+│
 └── core/                           ── Layer 4: Facade ──
     ├── model.py                    Model (組み立てと委譲のみ)
     ├── _model_factories.py         splitter/inner_valid/calibration 構築
@@ -795,3 +801,14 @@ lizyml/
 | 3 | `_model_tables.py` が `LGBMConfig` を isinstance チェック | Facade に LGBM 具象依存 | `EstimatorProvider.params_summary()` 経由に |
 | 4 | `_build_run_meta` に `"lightgbm"` ハードコード | Facade に LGBM 文字列 | `EstimatorProvider.runtime_deps()` 経由に |
 | 5 | `shap_explainer.py` が `NativeFeaturePipeline` を直 import | L3 → L1 具象依存 | `pipeline_factory` を引数で受け取る |
+
+### H-0088: 宣言済み横断エッジ（#211 — 循環なし・型移動は follow-up）
+
+以下は実在するが循環のないエッジで、H-0088 で仕様に明示宣言した。型の `core/types/` 昇格による解消は follow-up とする（レビュー時はここを参照し、新規の逆依存・循環のみをブロックする）。
+
+| # | 実在エッジ | 種別 | 解消方針（follow-up） |
+|---|---|---|---|
+| 1 | `evaluation/{evaluator,confusion}.py` → `training/oof_assembly.compute_oof_valid_mask` | L2 内の横依存（純粋な split-mask utility, H-0052 副作用） | `compute_oof_valid_mask` を Layer 0（`core/types/` 相当）へ昇格 |
+| 2 | `persistence/exporter.py` → `training.refit_trainer.RefitResult`（TYPE_CHECKING のみ） | L3 → L2 型参照（実行時依存なし） | `RefitResult` を `core/types/` へ昇格 |
+| 3 | `plots/calibration.py` → `calibration.CalibrationResult`（runtime import + isinstance dispatch） | L3 が L1 具象を型ディスパッチ（H-0054 item 5 と同種） | `CalibrationResult` を `core/types/` へ昇格、または Facade mixin で絞り込み |
+| 4 | `codegen/` の estimator 固有 seam（`generate_code(..., lgbm_params=...)`） | H-0073 の estimator-agnostic 目標と不整合 | `ExportParams` / provider metadata 経由へ一本化、`templates.py` 分割（[#228](https://github.com/nbx-liz/LizyML/issues/228)） |

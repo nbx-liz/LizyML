@@ -110,7 +110,7 @@ Output:
 - `test_equivalence.py` -- verify codegen matches `Model.predict()`
 - `artifacts/` -- model files in human-readable formats
 
-Dependencies: only `lightgbm`, `numpy`, `pandas`, `scikit-learn`.
+Dependencies: `lightgbm`, `numpy`, `pandas`, `scikit-learn` (plus `scipy` when the model uses beta calibration). The generated `requirements.txt` lists exactly what is needed.
 
 ## Architecture
 
