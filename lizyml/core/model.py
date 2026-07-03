@@ -89,6 +89,7 @@ from lizyml.splitters.base import BaseSplitter
 from lizyml.training.cv_trainer import CVTrainer
 from lizyml.training.inner_valid import BaseInnerValidStrategy
 from lizyml.training.refit_trainer import RefitResult, RefitTrainer
+from lizyml.tuning.rounds import assemble_round_result
 from lizyml.tuning.search_space import (
     attach_bounds,
     detect_boundary,
@@ -778,58 +779,23 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         boundary_report: BoundaryReport | None,
         prior_trials: int,
     ) -> tuple[TuningResult, tuple[RoundSummary, ...]]:
-        """Build the round summary, fix per-trial round numbers, and
-        assemble the final ``TuningResult``.
+        """Delegate round-summary/trial-renumber assembly to ``tuning/rounds.py``.
 
-        Returns ``(final_result, all_rounds)``. ``all_rounds`` is the new
-        complete tuple including the just-completed round, ready for
-        persistence to ``self._rounds``.
+        The domain logic (``RoundSummary`` construction, cumulative round
+        boundaries, per-trial ``round`` renumbering) lives in ``tuning/`` per
+        the category contract (#209); the Facade only supplies ``self._rounds``.
         """
-        round_summary = RoundSummary(
-            round=round_number,
-            n_trials=actual_n_trials,
+        return assemble_round_result(
+            raw_result,
+            round_number=round_number,
+            actual_n_trials=actual_n_trials,
             best_score_before=best_score_before,
-            best_score_after=raw_result.best_score,
-            expanded_dims=expanded_names,
-            space_snapshot=tuple(space),
-        )
-        all_rounds = tuple(self._rounds) + (round_summary,)
-
-        # Fix up trial round numbers: trials from previous rounds keep
-        # their original round, new trials get the current round_number.
-        # Pre-compute (cumulative_count, round) so the per-trial lookup is
-        # a small linear scan over rounds (O(n + m) total) instead of
-        # O(n × m).
-        round_boundaries: list[tuple[int, int]] = []
-        running = 0
-        for rs in self._rounds:
-            running += rs.n_trials
-            round_boundaries.append((running, rs.round))
-
-        fixed_trials = []
-        for t in raw_result.trials:
-            if t.number >= prior_trials:
-                fixed_trials.append(dataclasses.replace(t, round=round_number))
-                continue
-            trial_round = 1
-            for cumulative, rs_round in round_boundaries:
-                if t.number < cumulative:
-                    trial_round = rs_round
-                    break
-            fixed_trials.append(dataclasses.replace(t, round=trial_round))
-
-        final_result = TuningResult(
-            best_model_params=raw_result.best_model_params,
-            best_smart_params=raw_result.best_smart_params,
-            best_training_params=raw_result.best_training_params,
-            best_score=raw_result.best_score,
-            trials=fixed_trials,
-            metric_name=raw_result.metric_name,
-            direction=raw_result.direction,
-            rounds=all_rounds,
+            expanded_names=expanded_names,
+            space=space,
             boundary_report=boundary_report,
+            prior_trials=prior_trials,
+            prior_rounds=tuple(self._rounds),
         )
-        return final_result, all_rounds
 
     # ------------------------------------------------------------------
     # Properties
@@ -1039,31 +1005,15 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         )
 
         components = dataframe_builder.build(df, problem_spec, feature_spec)
-        X, y = components.X, components.y
         groups: npt.NDArray[Any] | None = (
             components.group_col.to_numpy()
             if components.group_col is not None
             else None
         )
 
-        if cfg.split.method in _TS_METHODS:
-            if cfg.data.time_col is None:
-                raise LizyMLError(
-                    code=ErrorCode.CONFIG_INVALID,
-                    user_message=(
-                        f"split.method='{cfg.split.method}' requires "
-                        "data.time_col to be set."
-                    ),
-                    context={"split_method": cfg.split.method},
-                )
-            tc = components.time_col
-            assert tc is not None  # noqa: S101
-            sort_order = tc.argsort()
-            components = self._sort_and_rebuild_components(sort_order, components)
-            X, y = components.X, components.y
-            if groups is not None:
-                groups = groups[sort_order]
-
+        # Determine split-driven ordering/extraction (config concerns stay
+        # here; the pure data transforms live in dataframe_builder — #209).
+        blocked: tuple[str, str] | None = None
         if cfg.split.method in _BLOCK_METHODS:
             if not isinstance(cfg.split, BlockedGroupKFoldConfig):
                 raise LizyMLError(
@@ -1074,78 +1024,17 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
                     ),
                     context={"split_method": cfg.split.method},
                 )
-            blocks_col_name = cfg.split.blocks.col
-            groups_col_name = cfg.split.groups.col
+            blocked = (cfg.split.blocks.col, cfg.split.groups.col)
 
-            # Validate columns exist in the raw DataFrame (df)
-            for col_name, label in [
-                (blocks_col_name, "blocks.col"),
-                (groups_col_name, "groups.col"),
-            ]:
-                if col_name not in df.columns:
-                    raise LizyMLError(
-                        code=ErrorCode.CONFIG_INVALID,
-                        user_message=(
-                            f"split.{label}='{col_name}' not found "
-                            f"in DataFrame columns."
-                        ),
-                        context={
-                            "column": col_name,
-                            "available": list(df.columns),
-                        },
-                    )
-
-            # Extract from raw df (before feature pipeline drops them)
-            block_series = df[blocks_col_name]
-            group_series = df[groups_col_name]
-
-            # Sort by blocks.col, then rebuild via shared helper.
-            sort_order = block_series.argsort()
-            components = self._sort_and_rebuild_components(sort_order, components)
-            X, y = components.X, components.y
-
-            # Override groups with groups.col (not data.group_col)
-            groups = group_series.iloc[sort_order].to_numpy()
-            self._block_values = block_series.iloc[sort_order].to_numpy()
-
-        return X, y, groups, components
-
-    @staticmethod
-    def _sort_and_rebuild_components(
-        sort_order: npt.NDArray[np.intp] | pd.Series,
-        components: DataFrameComponents,
-    ) -> DataFrameComponents:
-        """Apply *sort_order* to every Series in *components* and return a
-        new :class:`DataFrameComponents` (#115).
-
-        Shared by the time-series and blocked-group branches of
-        :meth:`_prepare_training_data`. The two callers previously contained
-        nearly-identical sort-and-reset blocks; the only difference is the
-        sort key, which the caller computes.
-
-        ``groups`` (``np.ndarray`` outside ``components``) is *not* touched
-        here — each branch handles it differently (TS reuses, Block
-        replaces). The ``target_encoder`` is propagated unchanged.
-        """
-        X = components.X.iloc[sort_order].reset_index(drop=True)
-        y = components.y.iloc[sort_order].reset_index(drop=True)
-        sorted_time = (
-            components.time_col.iloc[sort_order].reset_index(drop=True)
-            if components.time_col is not None
-            else None
+        components, groups, self._block_values = dataframe_builder.prepare_for_split(
+            df,
+            components,
+            groups,
+            time_series=cfg.split.method in _TS_METHODS,
+            method_name=cfg.split.method,
+            blocked=blocked,
         )
-        sorted_group = (
-            components.group_col.iloc[sort_order].reset_index(drop=True)
-            if components.group_col is not None
-            else None
-        )
-        return DataFrameComponents(
-            X=X,
-            y=y,
-            time_col=sorted_time,
-            group_col=sorted_group,
-            target_encoder=components.target_encoder,
-        )
+        return components.X, components.y, groups, components
 
     def _build_run_meta(self, run_id: str) -> RunMeta:
         def _ver(pkg: str) -> str:
