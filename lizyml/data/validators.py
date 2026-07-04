@@ -79,12 +79,7 @@ def validate_no_target_leakage(
         if col == target:
             continue
         try:
-            if df[col].equals(y) or (
-                pd.api.types.is_numeric_dtype(df[col])
-                and pd.api.types.is_numeric_dtype(y)
-                and df[col].isna().equals(y.isna())
-                and np.allclose(df[col].dropna(), y.dropna(), equal_nan=True)
-            ):
+            if _series_perfectly_correlated(df[col], y):
                 msg = (
                     f"Column '{col}' is perfectly correlated with target '{target}'. "
                     "This is a strong signal of target leakage."
@@ -100,6 +95,26 @@ def validate_no_target_leakage(
             # Non-comparable types; skip
             pass
     return warnings
+
+
+def _series_perfectly_correlated(col: pd.Series, y: pd.Series) -> bool:
+    """Return True when *col* is a perfect duplicate of the target *y*.
+
+    The NaN-position guard (``isna().equals``) MUST be evaluated before
+    ``np.allclose`` so that columns with a differing number of NaNs never
+    reach ``dropna()`` with mismatched lengths (which would raise
+    ``ValueError``). The short-circuiting ``and`` chain encodes that ordering;
+    keeping it in one pure helper makes the ordering unit-testable without
+    patching ``np.allclose``.
+    """
+    if col.equals(y):
+        return True
+    return bool(
+        pd.api.types.is_numeric_dtype(col)
+        and pd.api.types.is_numeric_dtype(y)
+        and col.isna().equals(y.isna())
+        and np.allclose(col.dropna(), y.dropna(), equal_nan=True)
+    )
 
 
 def validate_group_split(
