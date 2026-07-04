@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.17.1] - 2026-07-04
+
+Internal / test-quality patch — no user-facing API or behavior change ([#218](https://github.com/nbx-liz/LizyML/issues/218), [#247](https://github.com/nbx-liz/LizyML/pull/247)).
+
+### Internal
+
+- **Extracted pure helpers to remove white-box test mocking** ([#218](https://github.com/nbx-liz/LizyML/issues/218)). `explain/shap_explainer.py` gains `_normalize_shap_output(raw, task)` and `data/validators.py` gains `_series_perfectly_correlated(col, y)`, isolating the SHAP-output normalization and the target-leakage NaN-ordering guard so both are unit-testable with plain inputs. Pure refactor — public API / `FitResult` / `Artifacts` / `format_version` unchanged.
+
+### Tests
+
+- **Redistributed the date-batched / coverage-anchored test files into per-module `tests/test_<module>/` directories** ([#218](https://github.com/nbx-liz/LizyML/issues/218)). The `test_bugfix_batch_2026_04*.py`, `test_code_review_fixes.py`, and `test_coverage/test_edge_cases.py` grab-bags were split by the module under test (empty `test_coverage/` package removed). The SHAP-normalization and leakage-ordering suites now assert against the extracted helpers with plain inputs instead of patching library internals (`MagicMock` explainer / `np.allclose` monkeypatch), and a mismatched-NaN-count regression case pins the leakage guard's short-circuit ordering.
+
 ## [0.17.0] - 2026-07-04
 
 Full-package review remediation release: leakage-safe codegen retrain, metrics

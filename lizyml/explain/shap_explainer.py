@@ -67,7 +67,23 @@ def compute_shap_values(
     native = model.get_native_model()
     explainer = _shap.TreeExplainer(native)
     raw = explainer.shap_values(X)
+    return _normalize_shap_output(raw, task)
 
+
+def _normalize_shap_output(raw: Any, task: TaskType) -> npt.NDArray[np.float64]:
+    """Normalize a raw ``TreeExplainer.shap_values`` return to ``(n, p)``.
+
+    Handles the three shapes SHAP may return, per the H-0002 contract:
+
+    - ``ndarray`` of ``ndim == 3`` — multiclass ``(n, p, k)`` → mean-abs over ``k``.
+    - ``ndarray`` of ``ndim <= 2`` — regression/binary ``(n, p)`` → returned as-is.
+    - ``list`` — legacy per-class format: binary keeps the positive class,
+      multiclass reduces via mean-abs across classes.
+    - anything else — coerced with ``np.asarray`` as a last resort.
+
+    Pure (no SHAP call), so the normalization branches are unit-testable with
+    plain numpy inputs.
+    """
     if isinstance(raw, np.ndarray):
         if raw.ndim == 3:
             # Multiclass: (n_samples, n_features, n_classes) — reduce to (n, p)
