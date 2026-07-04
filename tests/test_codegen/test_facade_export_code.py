@@ -166,8 +166,9 @@ class TestExportCodeRegression:
 
 
 class TestExportCodeSplitGuard:
-    """#206: export_code warns + banners when the generated train.py's shuffled
-    K-fold CV cannot reproduce the model's time/group split."""
+    """#228 (H-0090): the generated train.py now reproduces the model's
+    time/group split from config.json["split"], so export_code no longer emits
+    the #206 shuffle-leak warning/banner and serializes the split spec."""
 
     @staticmethod
     def _fit_time_series(n: int = 200) -> Model:
@@ -213,22 +214,42 @@ class TestExportCodeSplitGuard:
         m.fit(df)
         return m
 
-    def test_time_series_export_warns_and_banners(self, tmp_path: Path) -> None:
-        m = self._fit_time_series()
-        with pytest.warns(UserWarning, match="split.method='time_series'"):
-            m.export_code(tmp_path / "cg")
-        train_src = (tmp_path / "cg" / "train.py").read_text(encoding="utf-8")
-        assert "WARNING (lizyml codegen)" in train_src
-        assert "split.method='time_series'" in train_src
-        # Shebang must remain the first line.
-        assert train_src.startswith("#!/usr/bin/env python3")
+    def test_time_series_export_no_banner_serializes_split(
+        self, tmp_path: Path
+    ) -> None:
+        import warnings
 
-    def test_group_kfold_export_warns(self, tmp_path: Path) -> None:
-        m = self._fit_group_kfold()
-        with pytest.warns(UserWarning, match="group_kfold"):
+        m = self._fit_time_series()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
             m.export_code(tmp_path / "cg")
+        msgs = [str(w.message) for w in caught]
+        assert not any("does not reproduce split.method" in msg for msg in msgs)
         train_src = (tmp_path / "cg" / "train.py").read_text(encoding="utf-8")
-        assert "WARNING (lizyml codegen)" in train_src
+        assert "WARNING (lizyml codegen)" not in train_src
+        assert train_src.startswith("#!/usr/bin/env python3")
+        with open(tmp_path / "cg" / "config.json") as f:
+            cfg = json.load(f)
+        assert cfg["split"]["method"] == "time_series"
+        assert cfg["split"]["time_col"] == "t"
+
+    def test_group_kfold_export_no_banner_serializes_split(
+        self, tmp_path: Path
+    ) -> None:
+        import warnings
+
+        m = self._fit_group_kfold()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            m.export_code(tmp_path / "cg")
+        msgs = [str(w.message) for w in caught]
+        assert not any("does not reproduce split.method" in msg for msg in msgs)
+        train_src = (tmp_path / "cg" / "train.py").read_text(encoding="utf-8")
+        assert "WARNING (lizyml codegen)" not in train_src
+        with open(tmp_path / "cg" / "config.json") as f:
+            cfg = json.load(f)
+        assert cfg["split"]["method"] == "group_kfold"
+        assert cfg["split"]["group_col"] == "g"
 
     def test_kfold_export_no_split_warning_no_banner(self, tmp_path: Path) -> None:
         import warnings

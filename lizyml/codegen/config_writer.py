@@ -19,6 +19,7 @@ def build_config(
     calibration_n_splits: int,
     feval_metrics: list[dict[str, Any]] | None = None,
     target_classes: list[Any] | None = None,
+    split: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build config.json content as an ordered dict.
 
@@ -79,4 +80,6 @@ def build_config(
         # ── Calibration ──
         "calibration_method": calibration_method,
         "calibration_n_splits": calibration_n_splits,
+        # ── Split reproduction for retrain OOF (#228) ──
+        "split": split,
     }
