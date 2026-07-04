@@ -21,6 +21,78 @@ if TYPE_CHECKING:
 _log = get_logger("model")
 
 
+def _build_split_metadata(cfg: Any) -> dict[str, Any]:
+    """Serialize the outer split config so the generated ``train.py`` can
+    reproduce the model's CV folds (leakage-safe retrain, #228).
+
+    All method-specific parameters are resolved to plain JSON-serializable
+    values (e.g. ``stratify="auto"`` collapsed to a bool, ``random_state``
+    fallen back to ``training.seed``) so the template needs no LizyML logic.
+    """
+    from lizyml.config.schema import (
+        BlockedGroupKFoldConfig,
+        GroupTimeSeriesConfig,
+        KFoldConfig,
+        PurgedTimeSeriesConfig,
+        StratifiedGroupKFoldConfig,
+        StratifiedKFoldConfig,
+        TimeSeriesConfig,
+    )
+    from lizyml.core._model_factories import get_outer_n_splits
+
+    sc = cfg.split
+    seed = cfg.training.seed
+    block: dict[str, Any] = {
+        "method": sc.method,
+        "n_splits": get_outer_n_splits(cfg),
+        "time_col": cfg.data.time_col,
+        "group_col": cfg.data.group_col,
+    }
+    if isinstance(sc, KFoldConfig):
+        # KFoldSplitter uses the config shuffle; StratifiedKFoldSplitter forces
+        # shuffle=True (handled below). random_state falls back to training.seed.
+        block["shuffle"] = sc.shuffle
+        block["random_state"] = sc.random_state if sc.random_state is not None else seed
+    elif isinstance(sc, StratifiedKFoldConfig):
+        block["shuffle"] = True
+        block["random_state"] = sc.random_state if sc.random_state is not None else seed
+    elif isinstance(sc, TimeSeriesConfig | GroupTimeSeriesConfig):
+        block["gap"] = sc.gap
+        block["train_size_max"] = sc.train_size_max
+        block["test_size_max"] = sc.test_size_max
+    elif isinstance(sc, PurgedTimeSeriesConfig):
+        block["purge_gap"] = sc.purge_gap
+        block["embargo"] = sc.embargo
+        block["train_size_max"] = sc.train_size_max
+        block["test_size_max"] = sc.test_size_max
+    elif isinstance(sc, StratifiedGroupKFoldConfig):
+        block["shuffle"] = sc.shuffle
+        block["random_state"] = sc.random_state if sc.random_state is not None else seed
+    elif isinstance(sc, BlockedGroupKFoldConfig):
+        stratify = sc.groups.stratify
+        stratify_bool = (
+            cfg.task in ("binary", "multiclass")
+            if stratify == "auto"
+            else bool(stratify)
+        )
+        block["blocks"] = {
+            "col": sc.blocks.col,
+            "cutoffs": list(sc.blocks.cutoffs),
+            "mode": sc.blocks.mode,
+            "train_window": sc.blocks.train_window,
+        }
+        block["groups"] = {
+            "col": sc.groups.col,
+            "n_splits": sc.groups.n_splits,
+            "stratify": stratify_bool,
+            "shuffle": sc.groups.shuffle,
+        }
+        block["random_state"] = seed
+        block["min_train_rows"] = sc.min_train_rows
+        block["min_valid_rows"] = sc.min_valid_rows
+    return block
+
+
 class ModelPersistenceMixin:
     """Mixin providing export/load methods for :class:`Model`."""
 
@@ -161,7 +233,7 @@ class ModelPersistenceMixin:
             calibrator=calibrator,
             feval_metrics=export.feval_metadata,
             target_classes=target_classes,
-            split_method=cfg.split.method,
+            split=_build_split_metadata(cfg),
         )
         _log.info("event='export_code.done' path=%s", result)
         return result

@@ -7040,3 +7040,42 @@ cross-fit calibration には、fold の学習データに **有効な被覆ス�
 - fallback が発生しない通常の binary KFold + platt 構成で `fallback_fold_flags` が全 `False`、`n_fallback_rows == 0`、`metrics["calibrated"]["fallback_row_count"] == 0`。
 - 単一クラス train fold を含む split で当該 fold flag が `True`、fallback 行数が一致。
 - 既存の calibrated metrics テスト（`"oof" in cal`、`set(cal["oof"]) == set(raw["oof"])`）が引き続き green。
+
+## H-0090: codegen の生成 train.py で time/group split を再現（#206 の shuffle-leak banner 撤去）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-07-04
+- **決定日**: 2026-07-04
+- **スコープ**: `lizyml/codegen/templates.py`（生成 train.py に split 再現ロジックを追加、calibration OOF を再現 fold で生成、covered 行のみで calibrator fit）, `lizyml/codegen/config_writer.py`（config.json に `split` ブロック追加）, `lizyml/codegen/generator.py`（`generate_code(split=...)`、#206 banner/warning 撤去）, `lizyml/core/_model_persistence.py`（`_build_split_metadata(cfg)` で split spec を JSON 化）。
+- **関連**: [Issue #228](https://github.com/nbx-liz/LizyML/issues/228)（#206 のフォローアップ）, [#206](https://github.com/nbx-liz/LizyML/issues/206)（最小対応: warn+banner）, H-0058（calibration は outer splits を再利用）, H-0060（BlockedGroupKFold）, [#211](https://github.com/nbx-liz/LizyML/issues/211) item 3（codegen seam）。
+
+### 目的（課題）
+
+#206 は最小対応として、`split.method` が `kfold` / `stratified_kfold` 以外のとき、生成 `train.py` に「shuffled random K-fold で retrain するため time/group 境界を跨いでリークする」旨の `UserWarning` + banner を出すに留めていた。retrain OOF（calibration 用）が実際にシャッフル分割のままで、時系列・グループデータの再学習が**境界を跨いでリーク**する状態は解消されていなかった。
+
+### 対応方針（決定）
+
+生成 `train.py` の calibration OOF CV を、`config.json["split"]` からモデルの `split.method` を**忠実に再現**する形に置き換える。LizyML 非依存を保つため、標準 3 種は sklearn を直接呼び（`time_series`=`TimeSeriesSplit`, `group_kfold`=`GroupKFold`, `stratified_group_kfold`=`StratifiedGroupKFold`）、独自 3 種（`purged_time_series` / `group_time_series` / `blocked_group_kfold`）は LizyML splitter の fold ロジックを pure numpy でテンプレに移植する。
+
+- **ソート再現**: LizyML は分割前にデータを time_col（time系）または blocks.col（blocked）で `argsort()` する。生成側も同じ pandas `argsort()` で並べ替え、fold index を元の行順に戻す。
+- **split metadata の JSON 化**: `_build_split_metadata(cfg)` が method 固有パラメータ（gap / purge_gap / embargo / cutoffs / mode / train_window / stratify / shuffle / random_state / min_train/valid_rows / n_splits / time_col / group_col）を**解決済みの値**（`stratify="auto"` は bool 化、`random_state` は `training.seed` へフォールバック）で serialize。テンプレは LizyML ロジック不要。
+- **covered 行のみで calibrator fit**: time/group split では first-period / 未被覆行が全 validation fold から漏れて OOF が NaN になり得るため、calibrator は `~isnan(oof)` の covered 行のみで fit する（LizyML cross-fit C_final と同じ）。#206 で shuffled K-fold（全行被覆）だったため顕在化していなかった latent bug を解消。
+- **#206 banner/warning 撤去**: 全 method を再現するため不要。
+
+### 影響範囲 / 互換性
+
+- **codegen 出力の意味変更（leakage 境界）**: 生成 `train.py` の retrain CV が shuffled K-fold から実 split に変わる。**リーク解消の是正**であり、`predict.py` / `model.txt` は不変。
+- **config.json 追加キー `split`**: additive。旧 export（`split` なし）を読む生成コードは legacy の task-based shuffled K-fold にフォールバックする（後方互換）。
+- **format_version**: 据え置き（生成コードは配布物で、`format_version` は Model artifact 側の契約）。
+- **公開 API**: `generate_code` の `split_method: str` パラメータを `split: dict | None` に置換（内部 codegen API、外部利用なし）。
+
+### 代替案（不採用）
+
+- **LizyML splitter を生成コードから import**: 生成物の「LizyML 非依存」契約（export skill）を破壊するため不可。
+- **元データの split indices を artifact に焼き込み**: retrain は新規データに対して行うため、固定 index では再現できない（split ロジックの移植が必須）。
+
+### 受け入れ基準（テスト観点）
+
+- 6 method（time_series / purged_time_series / group_time_series / group_kfold / stratified_group_kfold / blocked_group_kfold）+ stratified_kfold で、生成 `train.py` の `_resolve_folds(df, y)` が LizyML `build_splitter(...).split(...)` と **fold index 完全一致**（`tests/test_codegen/test_split_reproduction.py`）。
+- time_series + calibration の export → 生成 `train()` が再現 fold で end-to-end に retrain し `calibrator.json` を生成（covered 行 fit）。
+- `export_code` が対象 method で #206 warning/banner を出さず、`config.json["split"]` に method + 列名を serialize する。
