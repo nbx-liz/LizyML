@@ -5,7 +5,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.17.0] - 2026-07-04
+
+Full-package review remediation release: leakage-safe codegen retrain, metrics
+transparency, and facade decomposition (issues [#203](https://github.com/nbx-liz/LizyML/issues/203)–[#218](https://github.com/nbx-liz/LizyML/issues/218), [#228](https://github.com/nbx-liz/LizyML/issues/228), [#237](https://github.com/nbx-liz/LizyML/issues/237); H-0085–H-0091).
 
 ### Added
 
