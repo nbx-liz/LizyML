@@ -11,7 +11,16 @@ from typing import Any
 import pandas as pd
 
 from lizyml.core.types.fit_result import FitResult
+from lizyml.core.types.task import TaskType
 from lizyml.evaluation.evaluator import Evaluator
+
+# Default metrics per task when none are specified in config. Shared by the
+# Model facade (fit) and the tuning mixin (tune) — H-0091.
+_DEFAULT_METRICS: dict[TaskType, list[str | dict[str, dict[str, Any]]]] = {
+    "regression": ["rmse", "mae"],
+    "binary": ["logloss", "auc"],
+    "multiclass": ["logloss", "f1", "accuracy"],
+}
 
 
 def _has_metric_content(filtered: dict[str, Any]) -> bool:
