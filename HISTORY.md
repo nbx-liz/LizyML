@@ -7079,3 +7079,57 @@ cross-fit calibration には、fold の学習データに **有効な被覆ス�
 - 6 method（time_series / purged_time_series / group_time_series / group_kfold / stratified_group_kfold / blocked_group_kfold）+ stratified_kfold で、生成 `train.py` の `_resolve_folds(df, y)` が LizyML `build_splitter(...).split(...)` と **fold index 完全一致**（`tests/test_codegen/test_split_reproduction.py`）。
 - time_series + calibration の export → 生成 `train()` が再現 fold で end-to-end に retrain し `calibrator.json` を生成（covered 行 fit）。
 - `export_code` が対象 method で #206 warning/banner を出さず、`config.json["split"]` に method + 列名を serialize する。
+
+## H-0091: tune() orchestration を writer-exempt な `_model_tuning.py` mixin へ抽出（H-0077 の read-only-mixin 不変条件を明示的に category 分割）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-07-04
+- **決定日**: 2026-07-04
+- **スコープ**: `lizyml/core/model.py`（tune() + 5 helper を撤去、`ModelTuningMixin` を継承）, `lizyml/core/_model_tuning.py`（新規: writer-exempt orchestrator mixin）, `tests/test_core/test_mixin_state_isolation.py`（不変条件の category 分割を文書化 + writer-mixin 判定テスト追加）。
+- **関連**: [Issue #237](https://github.com/nbx-liz/LizyML/issues/237)（#209 Phase 3 から deferred）, H-0074 / H-0077（Mixin state isolation）, #209（invariant-safe な部分は抽出済）。
+
+### 目的（課題）
+
+`core/model.py` は 800 行ガイダンスを超過（develop で 1244 行）。残る tuning orchestration（`tune()` + `_validate_tune_inputs` / `_resolve_search_space` / `_maybe_expand_boundary` / `_build_tune_objective` / `_run_tune_round`、約 471 行）が facade に残存している。#209 は invariant-safe な domain logic（`assemble_round_result` / `prepare_for_split` 等）のみ抽出し、orchestration は **H-0077 の read-only-mixin 不変条件と衝突**するため deferred した。
+
+既存 mixin（`_model_plots` / `_model_tables` / `_model_persistence`）は **read-only な post-fit consumer** で、H-0077 により mixin body は `_get_fit_state()` / `_get_tuning_state()` 経由でのみ state を読む（`self._<private>` 直接 access 禁止、`tests/test_core/test_mixin_state_isolation.py` の静的ガードで強制）。一方 `tune()` は **writer**（`self._tuning_result` / `_study` / `_rounds` / `_run_dir` を書き換え、`self._merge_params` / `_build_train_components` を呼ぶ）。frozen state snapshot は writer に使えないため、素朴に mixin へ移すとガードに抵触する。
+
+### 対応方針（決定）— writer-exempt orchestrator mixin category
+
+mixin を 2 カテゴリに明示的に分ける:
+
+1. **Diagnostic mixin（read-only）**: `_model_plots` / `_model_tables` / `_model_persistence`。post-fit consumer。H-0077 の read-only 規則が適用され、静的ガード（`_MIXIN_FILES`）が `self._<private>` を禁止する。
+2. **Orchestrator mixin（writer-exempt）**: `_model_tuning`（新規）。`tune()` の mutating lifecycle 中に走る唯一の writer mixin。`self._<private>` への読み書きを許可し、静的ガードの `_MIXIN_FILES` に**含めない**（＝ read-only 規則の対象外であることを列挙で明示）。
+
+これにより H-0077 の read-only 不変条件は diagnostic mixin に対して**無傷**のまま、orchestration を facade から分離して `model.py < 800 行` を達成する。純 refactor（振る舞い不変）。
+
+### 不変条件（INV, testable）
+
+- **INV-1**: diagnostic mixin（`_model_plots` / `_model_tables` / `_model_persistence`）は Model body の private state を書かない。読むのは `_get_fit_state()` / `_get_tuning_state()` 経由のみ。— 違反シナリオ: diagnostic mixin に `self._tuning_result = ...` が現れる → 静的ガードが検出。
+- **INV-2**: writer mixin は **ちょうど 1 つ**（`_model_tuning`）で、writer-exempt として列挙される。diagnostic ガードの `_MIXIN_FILES` に `_model_tuning` は現れない。— 違反シナリオ: `_model_tuning` を `_MIXIN_FILES` に追加 → tune() の writer access を誤検出、または writer mixin が 2 つに増える。
+- **INV-3**: `tune()` の抽出は振る舞いを変えない（OOF/best_params/rounds/study が抽出前後で一致）。— 違反シナリオ: 移動中に self._ 参照を取りこぼす → tuning E2E が fail。
+
+### 失敗パス（Failure Paths Covered）
+
+- **normal**: tune() → best_params/rounds/study が populate、後続 fit() が best_training_params 適用。
+- **resume**: `tune(resume=True)` で既存 study を継続。
+- **boundary expand**: `_maybe_expand_boundary` が探索空間境界を拡張する round。
+- **exception**: tune 中の trial 例外は既存の callback（RuntimeWarning）で握られ、study は継続。
+- **前提未達**: fit 前に diagnostic mixin メソッド呼び出し → `MODEL_NOT_FIT`（既存契約、不変）。
+
+### 影響範囲 / 互換性
+
+- **公開 API・FitResult・Artifacts・format_version すべて不変**。純 refactor。`Model` の MRO に `ModelTuningMixin` が加わるのみ（`tune()` は同じシグネチャで公開され続ける）。
+- **BLUEPRINT §19 / ARCHITECTURE.md**: mixin 一覧に `_model_tuning`（orchestrator/writer category）を追記。
+
+### 代替案（不採用）
+
+- **案 A: H-0077 を緩めて「writer-exempt」フラグを diagnostic ガードに追加**: ガードのロジックが複雑化。ファイルリスト方式（diagnostic のみ列挙）の方が単純で、writer mixin は「リストに無い」ことで自然に exempt になる。
+- **tune() を facade に残す**: model.py < 800 行が達成できず #237 未解決。
+
+### 受け入れ基準（テスト観点）
+
+- `core/model.py` < 800 行。
+- 全 tuning + retune E2E green（振る舞い不変）: `test_tuning/` 一式、`test_tune_fit_identity.py`、`test_retune.py`、`test_tuning_persistence.py`。
+- 静的ガード（`test_mixin_state_isolation.py::TestMixinPrivateAccessGuard`）が 3 diagnostic mixin で引き続き pass。
+- 新規テスト: `_model_tuning.py` が `_MIXIN_FILES`（read-only ガード対象）に**含まれない**こと、`ModelTuningMixin` が `Model` の base に含まれ `tune` を提供することを assert。
