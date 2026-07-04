@@ -256,12 +256,30 @@ def build_calibration_splitter(cfg: LizyMLConfig) -> BaseSplitter:
     return _build_splitter_for_method(cfg.split, cfg.calibration.n_splits)
 
 
+def _auto_inner_gap(split_cfg: Any) -> int:
+    """Look-ahead gap to purge at the inner-valid boundary (H-0085 / #212).
+
+    Propagated from the outer split so the early-stopping split gets the same
+    guard: ``purge_gap + embargo`` for ``purged_time_series``, ``gap`` for
+    ``time_series``. Other methods contribute no inner gap.
+    """
+    method = getattr(split_cfg, "method", None)
+    if method == "purged_time_series":
+        return int(getattr(split_cfg, "purge_gap", 0)) + int(
+            getattr(split_cfg, "embargo", 0)
+        )
+    if method == "time_series":
+        return int(getattr(split_cfg, "gap", 0))
+    return 0
+
+
 def _resolve_auto_inner_valid(
     split_method: str,
     ratio: float,
     seed: int,
     *,
     task: TaskType | None = None,
+    gap: int = 0,
 ) -> (
     HoldoutInnerValid
     | GroupHoldoutInnerValid
@@ -276,7 +294,7 @@ def _resolve_auto_inner_valid(
     if split_method in ("group_kfold", "stratified_group_kfold"):
         return GroupHoldoutInnerValid(ratio=ratio, random_state=seed)
     if split_method in ("time_series", "purged_time_series"):
-        return TimeHoldoutInnerValid(ratio=ratio)
+        return TimeHoldoutInnerValid(ratio=ratio, gap=gap)
     if split_method == "group_time_series":
         return GroupHoldoutInnerValid(ratio=ratio, random_state=seed)
     return HoldoutInnerValid(ratio=ratio, random_state=seed, stratify=False)
@@ -300,17 +318,30 @@ def build_inner_valid(cfg: LizyMLConfig) -> InnerValidType:
     iv_cfg = es.inner_valid
     split_method = cfg.split.method
     seed = cfg.training.seed
+    gap = _auto_inner_gap(cfg.split)
 
     # Auto-resolve: inner_valid absent or created from validation_ratio default
     if iv_cfg is None:
-        return _resolve_auto_inner_valid(split_method, 0.1, seed, task=cfg.task)
+        return _resolve_auto_inner_valid(
+            split_method, 0.1, seed, task=cfg.task, gap=gap
+        )
     if not es._inner_valid_explicit:
         return _resolve_auto_inner_valid(
-            split_method, iv_cfg.ratio, seed, task=cfg.task
+            split_method, iv_cfg.ratio, seed, task=cfg.task, gap=gap
         )
 
     # Explicit config — dispatch by concrete type
     if isinstance(iv_cfg, HoldoutInnerValidConfig):
+        if split_method in ("time_series", "purged_time_series"):
+            warnings.warn(
+                "Explicit inner_valid method='holdout' uses a shuffled random "
+                f"split, but the outer split.method='{split_method}' is "
+                "time-ordered. The early-stopping validation will not respect "
+                "time order and may be temporally leaked. Consider "
+                "inner_valid.method='time_holdout'.",
+                UserWarning,
+                stacklevel=2,
+            )
         return HoldoutInnerValid(
             ratio=iv_cfg.ratio,
             random_state=iv_cfg.random_state,
@@ -344,6 +375,7 @@ def make_inner_valid_factory(
     split_method = cfg.split.method
     seed = cfg.training.seed
     task = cfg.task
+    gap = _auto_inner_gap(cfg.split)
 
     def factory(
         ratio: float,
@@ -353,7 +385,7 @@ def make_inner_valid_factory(
         | TimeHoldoutInnerValid
         | BlockedGroupInnerValid
     ):
-        return _resolve_auto_inner_valid(split_method, ratio, seed, task=task)
+        return _resolve_auto_inner_valid(split_method, ratio, seed, task=task, gap=gap)
 
     return factory
 

@@ -188,3 +188,36 @@ class TestMixinMethodsAfterMigration:
         out = m.export(tmp_path / "exp")
         assert out.exists()
         assert (out / "metadata.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# H-0091: writer-exempt orchestrator mixin category
+# ---------------------------------------------------------------------------
+
+
+class TestWriterExemptTuningMixin:
+    """H-0091 (#237): ``_model_tuning.py`` (``ModelTuningMixin``) is the sole
+    *writer* mixin — it runs during the mutating ``tune()`` lifecycle and reads
+    and writes Model body state. It is deliberately outside the read-only
+    diagnostic-mixin guard (``_MIXIN_FILES``); the H-0077 read-only invariant
+    applies only to the diagnostic mixins."""
+
+    def test_tuning_mixin_excluded_from_readonly_guard(self) -> None:
+        # INV-2: the writer mixin must NOT be enumerated in the read-only guard,
+        # else its legitimate self._* writes would be flagged as violations.
+        assert Path("lizyml/core/_model_tuning.py") not in _MIXIN_FILES
+
+    def test_exactly_the_three_diagnostic_mixins_are_guarded(self) -> None:
+        # INV-1: the read-only guard covers exactly the diagnostic mixins.
+        assert {p.name for p in _MIXIN_FILES} == {
+            "_model_plots.py",
+            "_model_tables.py",
+            "_model_persistence.py",
+        }
+
+    def test_model_composes_tuning_mixin(self) -> None:
+        from lizyml.core._model_tuning import ModelTuningMixin
+
+        assert ModelTuningMixin in Model.__mro__
+        assert hasattr(Model, "tune")
+        assert hasattr(Model, "_get_tuning_state")

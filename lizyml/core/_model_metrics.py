@@ -11,7 +11,16 @@ from typing import Any
 import pandas as pd
 
 from lizyml.core.types.fit_result import FitResult
+from lizyml.core.types.task import TaskType
 from lizyml.evaluation.evaluator import Evaluator
+
+# Default metrics per task when none are specified in config. Shared by the
+# Model facade (fit) and the tuning mixin (tune) — H-0091.
+_DEFAULT_METRICS: dict[TaskType, list[str | dict[str, dict[str, Any]]]] = {
+    "regression": ["rmse", "mae"],
+    "binary": ["logloss", "auc"],
+    "multiclass": ["logloss", "f1", "accuracy"],
+}
 
 
 def _has_metric_content(filtered: dict[str, Any]) -> bool:
@@ -84,10 +93,17 @@ def assemble_calibrated_metrics(
         oof_pred=cal_oof,
     )
     cal_result = evaluator.evaluate(cal_fr, y, metric_entries)
+    # H-0089 (#218): surface how many OOF rows were scored with the uncalibrated
+    # fallback (folds with no covered / single-class training data) so the
+    # calibrated metrics are not silently computed over a partial blend.
+    # ``getattr`` keeps pre-#218 CalibrationResult objects (loaded artifacts)
+    # readable — they default to 0.
+    fallback_row_count = int(getattr(fit_result.calibrator, "n_fallback_rows", 0))
     return {
         **metrics,
         "calibrated": {
             "oof": cal_result["raw"]["oof"],
             "oof_per_fold": cal_result["raw"]["oof_per_fold"],
+            "fallback_row_count": fallback_row_count,
         },
     }

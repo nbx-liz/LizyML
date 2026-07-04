@@ -85,7 +85,11 @@ class BetaCalibrator(BaseCalibratorAdapter):
 
     def predict(self, scores: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         if self._params is None:
-            raise RuntimeError("BetaCalibrator has not been fitted.")
+            raise LizyMLError(
+                code=ErrorCode.CALIBRATION_NOT_FITTED,
+                user_message="BetaCalibrator has not been fitted.",
+                context={"calibrator": "beta"},
+            )
 
         a, b, c = self._params
         s = _sigmoid(scores)
@@ -98,6 +102,10 @@ class BetaCalibrator(BaseCalibratorAdapter):
     def export_params(self) -> dict[str, Any]:
         """Export Beta parameters: sigmoid(a*log(s) + b*log(1-s) + c)."""
         if self._params is None:
-            raise RuntimeError("BetaCalibrator has not been fitted.")
+            raise LizyMLError(
+                code=ErrorCode.CALIBRATION_NOT_FITTED,
+                user_message="BetaCalibrator has not been fitted.",
+                context={"calibrator": "beta"},
+            )
         a, b, c = self._params
         return {"method": "beta", "a": a, "b": b, "c": c}

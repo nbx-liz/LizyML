@@ -17,6 +17,13 @@ def _convert_pipeline_state(
 
     LizyML stores ``encoder.categories`` (list of known categories per column).
     Codegen ``predict.py`` expects ``category_mappings`` (str→int dicts).
+
+    Also exports the encoder's ``unseen_policy`` and, per column, the integer
+    code of the training mode (``unseen_codes``) so the generated ``predict.py``
+    can reproduce the runtime ``unseen_policy="mode"`` behavior (#205). Without
+    these, ``predict.py`` mapped unseen categories to NaN while the runtime
+    ``CategoricalEncoder`` replaced them with the most frequent training
+    category — a silent prediction divergence.
     """
     feature_names = state.get("feature_names", config.get("feature_names", []))
     categorical_features = config.get("categorical_features", [])
@@ -24,14 +31,25 @@ def _convert_pipeline_state(
     # Build integer mappings from encoder categories
     encoder = state.get("encoder", {})
     categories = encoder.get("categories", {})
+    modes = encoder.get("modes", {})
+    unseen_policy = encoder.get("unseen_policy", "mode")
     mappings: dict[str, dict[str, int]] = {}
+    unseen_codes: dict[str, int] = {}
     for col, cats in categories.items():
-        mappings[col] = {str(v): i for i, v in enumerate(cats)}
+        mapping = {str(v): i for i, v in enumerate(cats)}
+        mappings[col] = mapping
+        mode_val = modes.get(col)
+        # The mode is always one of the known categories, so its str form is a
+        # key in ``mapping`` — record its code as the unseen replacement.
+        if mode_val is not None and str(mode_val) in mapping:
+            unseen_codes[col] = mapping[str(mode_val)]
 
     return {
         "feature_names": feature_names,
         "categorical_features": categorical_features,
         "category_mappings": mappings,
+        "unseen_policy": unseen_policy,
+        "unseen_codes": unseen_codes,
     }
 
 

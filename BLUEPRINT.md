@@ -596,10 +596,10 @@ LizyML 非依存の学習・推論コードを自動生成する。
 
 ### 10.3.1 設定の解決規則
 
-- `training.early_stopping.inner_valid` を明示指定した場合は、その method / ratio / random_state をそのまま使う。外側 `split.method` は参照しない。
+- `training.early_stopping.inner_valid` を明示指定した場合は、その method / ratio / random_state をそのまま使う。外側 `split.method` は参照しない。ただし、shuffle を伴う `method: holdout` を time-ordered な outer split（`time_series` / `purged_time_series`）と組み合わせた場合は、early stopping split が時間順を守らず temporally leak し得るため `UserWarning` を発する（挙動は変えず明示指定を尊重する。H-0085 / #210）。
 - `training.early_stopping.validation_ratio` は legacy 入力ショートハンドであり、method 指定ではない。`inner_valid` を明示指定していない場合、ratio は `validation_ratio` から取り、method は外側 `split.method` から自動解決する。H-0069 以降、`validation_ratio` は `inner_valid.ratio` から派生する read-only の computed field。出力 (`model_dump()`) には常に同値の `validation_ratio` が含まれる。
 - `validation_ratio` と `inner_valid` を同時に明示指定した場合、ratio が一致しなければ `CONFIG_INVALID`、一致すれば許容する（round-trip 互換）。一致しない場合の検知は維持される。
-- 自動解決時に inner valid が継承する outer CV 設定は `split.method` のみとする。`n_splits` / `shuffle` / `random_state` / `gap` / `purge_gap` / `embargo` / `train_size_max` / `test_size_max` は inner valid に伝搬しない。
+- 自動解決時に inner valid が継承する outer CV 設定は `split.method` と、look-ahead 防止のための境界 gap である。すなわち `purged_time_series` では `purge_gap + embargo`、`time_series` では `gap` を inner valid（`TimeHoldoutInnerValid`）の inner-train と inner-valid の間に purge する（H-0085 / #212）。`n_splits` / `shuffle` / `random_state` / `train_size_max` / `test_size_max` は inner valid に伝搬しない。
 - 自動解決時の seed は `training.seed` を使う。outer split の `random_state` は inner valid に伝搬しない。
 
 | 外側 split.method | inner_valid のデフォルト |
@@ -626,9 +626,10 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `FeaturePipeline.fit` は outer fold の `train` 全体に対して行う。inner valid は estimator の early stopping 用 evaluation set であり、FeaturePipeline の fit 境界は outer train のままとする。
 - estimator は inner valid が有効な場合 `inner_train` のみで学習し、`inner_valid` を eval set として early stopping を行う。OOF の割当先は引き続き outer fold の `valid` のみとする。
 - `RefitTrainer` でも同じ `InnerValidStrategy` を全データに適用して final model の early stopping 用 split を作る。
-  - inner valid がある場合、pipeline は **inner-train のみ**で fit する（CVTrainer と一致する leakage 境界）。estimator は inner-train で学習、inner-valid で early stopping。
-  - 最終的な `pipeline_state`（推論用）は、別途全データで fit した pipeline から取得する。`categorical_features` も全データ fit 由来の pipeline から取得する。
-  - inner valid が無い場合（`NoInnerValid`）は、pipeline は全データで 1 回のみ fit する（二重 fit を回避）。
+  - **pipeline は全データで 1 回のみ fit する**（H-0085）。CVTrainer が outer fold の `train` 全体で pipeline を fit するのと同じ境界であり、Refit における「outer train 全体」は全データに相当する。inner-train には狭めない。
+  - estimator は inner valid がある場合、変換後データから slice した `inner_train` で学習し、`inner_valid` を eval set として early stopping を行う。
+  - 最終的な `pipeline_state`（推論用）および `categorical_features` は、この全データ fit 済み pipeline から取得する（二重 fit は行わない）。
+  - inner valid が無い場合（`NoInnerValid`）も、pipeline は全データで 1 回 fit し、estimator を全データで学習する。
   - `time_series` / `purged_time_series` / `group_time_series` では、`Model._prepare_training_data()` により時系列昇順へ並べ替えた後の全データに対して inner valid を切る。
 
 ### 10.3.3 各 strategy の分割規則
@@ -1507,15 +1508,19 @@ lizyml/
 │       ├── predict_result.py       PredictionResult
 │       ├── tuning_result.py        TuningResult, TrialResult
 │       ├── artifacts.py            RunMeta, SplitIndices, DataFingerprint
+│       ├── task.py                 TaskType (canonical, H-0075)
+│       ├── target_encoder.py       TargetEncoder (H-0070)
 │       └── search_dim.py           SearchDim, FloatDim, IntDim, CategoricalDim, DimCategory
 │
 │                                   ── Layer 0/4: Facade (core/ 内の特殊位置) ──
 │   ├── model.py                    Model facade (組み立てと委譲のみ)
 │   ├── _model_factories.py         splitter / inner_valid / estimator provider 構築
+│   ├── _model_predict.py           predict / predict_proba 実体 (facade 委譲先)
 │   ├── _model_plots.py             ModelPlotsMixin
 │   ├── _model_tables.py            ModelTablesMixin (EstimatorProvider 経由)
 │   ├── _model_metrics.py           _has_metric_content, _filter_metrics
 │   ├── _model_persistence.py       ModelPersistenceMixin
+│   ├── _model_state.py             FitState / TuningState frozen snapshot (H-0074/H-0084)
 │   ├── train_components.py         TrainComponents (frozen dataclass)
 │   ├── seed.py                     seed 固定ユーティリティ
 │   └── specs/
@@ -1529,7 +1534,8 @@ lizyml/
 ├── data/                           ── Layer 1: Data ──
 │   ├── datasource.py               CSV / Parquet / DataFrame
 │   ├── dataframe_builder.py        X/y/groups 分離 + categorical
-│   └── fingerprint.py              DataFingerprint 計算 (compute 関数)
+│   ├── fingerprint.py              DataFingerprint 計算 (compute 関数)
+│   └── validators.py               leakage validators (public API, H-0087)
 │
 ├── splitters/                      ── Layer 1: Splitting ──
 │   ├── base.py                     BaseSplitter
@@ -1599,10 +1605,18 @@ lizyml/
 │   ├── calibration.py              reliability diagram + probability histogram
 │   └── tuning.py                   tuning history plot
 │
-└── persistence/                    ── Layer 3: Persistence ──
-    ├── exporter.py                 export() + AnalysisContext + FORMAT_VERSION
-    └── loader.py                   load() + format_version validation
+├── persistence/                    ── Layer 3: Persistence ──
+│   ├── exporter.py                 export() + AnalysisContext + FORMAT_VERSION
+│   └── loader.py                   load() + format_version validation
+│
+└── codegen/                        ── Layer 3: Codegen (optional, H-0059/H-0073) ──
+    ├── generator.py                generate_code() エントリ (Model.export_code から)
+    ├── artifact_writer.py          pipeline_state.json / model.txt 等の書き出し
+    ├── config_writer.py            config.json 書き出し
+    └── templates.py                train.py / predict.py / test_equivalence.py テンプレ
 ```
+
+> **codegen の seam に関する既知の逸脱（H-0088, #211）**: `generate_code()` は現状 `lgbm_params=` 等 estimator 固有引数を受け取り、H-0073 の estimator-agnostic 目標と不整合。`ExportParams` / provider metadata 経由への一本化と `templates.py`（800 行超）の分割は follow-up（[#228](https://github.com/nbx-liz/LizyML/issues/228)）。
 
 # 20. 既知の将来拡張（設計で塞がない）
 
@@ -1695,4 +1709,4 @@ loaded_model.probability_histogram_plot()
 - `Model` クラスは mixin で構成する（H-0042）。plot 系は `_model_plots.py`、table/accessor 系は `_model_tables.py`、persistence 系は `_model_persistence.py` に分割し、`model.py` には core lifecycle（`__init__`, `fit`, `predict`, `evaluate`, `tune`）とプライベートヘルパーのみを残す。
 - mixin は `_` プレフィックスの非公開モジュールとし、`Model` の import パス（`lizyml.core.model.Model`）は変更しない。
 - 依存関係の切り離しが必要な箇所では Lazy Import を許容する。
-- `Model._get_fit_state()` が返す `FitState` frozen dataclass を mixin の唯一の入口として整備中（H-0074, Phase 1: 型定義 + factory + テスト, Phase 2: 全 mixin 移行）。`FitState` は `cfg / fit_result / refit_result / tuning_result / provider / metrics / y / X / run_dir / output_dir` の post-fit snapshot を持ち、`self._*` への直接アクセスを段階的に置換する。
+- `Model._get_fit_state()` が返す `FitState` frozen dataclass を mixin の唯一の入口とする（H-0074 型定義 + factory + テスト、H-0077 で全 mixin 移行完了、H-0084 で `core/_model_state.py` へ移設）。`FitState` は `cfg / fit_result / refit_result / tuning_result / provider / metrics / y / X / run_dir / output_dir` の post-fit snapshot を持ち、mixin 本体からの `self._*` 直接アクセスを置換済み（plots / tables / persistence の 3 mixin は `_get_fit_state()` / `_get_tuning_state()` 経由）。

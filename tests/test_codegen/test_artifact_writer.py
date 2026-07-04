@@ -215,3 +215,26 @@ class TestWriteArtifacts:
         )
         assert (out / "config.json").exists()
         assert (out / "artifacts" / "model.txt").exists()
+
+
+class TestUnseenPolicyExport:
+    """#205: pipeline_state.json must carry unseen_policy + per-column mode code
+    so predict.py can reproduce the runtime unseen_policy='mode' behavior."""
+
+    def test_convert_exports_unseen_policy_and_codes(self) -> None:
+        from lizyml.codegen.artifact_writer import _convert_pipeline_state
+
+        state = {
+            "feature_names": ["a", "b"],
+            "encoder": {
+                "unseen_policy": "mode",
+                "categories": {"b": ["x", "y", "z"]},
+                "modes": {"b": "y"},
+            },
+        }
+        out = _convert_pipeline_state(state, {"categorical_features": ["b"]})
+
+        assert out["unseen_policy"] == "mode"
+        assert out["category_mappings"]["b"] == {"x": 0, "y": 1, "z": 2}
+        # mode "y" -> code 1 is the unseen replacement.
+        assert out["unseen_codes"] == {"b": 1}

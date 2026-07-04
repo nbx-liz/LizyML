@@ -55,6 +55,15 @@ dev = [
     "vulture>=2.15",
 ]
 
+[tool.uv]
+# Forward-compat lane guard (#180 lane): `uv sync --upgrade` prefers the newest
+# numpy, which no modern numba supports yet, so the resolver backtracks numba to
+# an ancient, uncapped release (0.53.x) that drags in llvmlite 0.36.0 — a version
+# with no Python 3.12 wheel that fails to build. Flooring numba keeps the
+# numba/llvmlite/numpy chain modern so the lane surfaces real upstream breakage
+# instead of resolver-backtracking noise. numba (via shap) is transitive-only.
+constraint-dependencies = ["numba>=0.60"]
+
 [tool.hatch.version]
 source = "vcs"
 

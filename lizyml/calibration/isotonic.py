@@ -16,6 +16,7 @@ import numpy as np
 import numpy.typing as npt
 
 from lizyml.calibration.base import BaseCalibratorAdapter
+from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.registries import CalibratorRegistry
 
 _ISOTONIC_DEFAULTS: dict[str, Any] = {
@@ -67,8 +68,6 @@ class IsotonicCalibrator(BaseCalibratorAdapter):
         self._seed = int(user.pop("seed", _DEFAULT_SEED))
 
         if not (0.0 < self._validation_ratio < 1.0):
-            from lizyml.core.exceptions import ErrorCode, LizyMLError
-
             raise LizyMLError(
                 code=ErrorCode.CONFIG_INVALID,
                 user_message="validation_ratio must be in (0.0, 1.0)",
@@ -144,7 +143,11 @@ class IsotonicCalibrator(BaseCalibratorAdapter):
 
     def predict(self, scores: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
         if self._model is None:
-            raise RuntimeError("IsotonicCalibrator has not been fitted.")
+            raise LizyMLError(
+                code=ErrorCode.CALIBRATION_NOT_FITTED,
+                user_message="IsotonicCalibrator has not been fitted.",
+                context={"calibrator": "isotonic"},
+            )
         X = scores.reshape(-1, 1)
         # objective="binary" Booster.predict() returns probabilities (sigmoid
         # is applied internally by LightGBM), so no manual sigmoid needed.
@@ -156,13 +159,21 @@ class IsotonicCalibrator(BaseCalibratorAdapter):
     def export_params(self) -> dict[str, Any]:
         """Export isotonic calibrator metadata."""
         if self._model is None:
-            raise RuntimeError("IsotonicCalibrator has not been fitted.")
+            raise LizyMLError(
+                code=ErrorCode.CALIBRATION_NOT_FITTED,
+                user_message="IsotonicCalibrator has not been fitted.",
+                context={"calibrator": "isotonic"},
+            )
         return {"method": "isotonic", "model_file": "calibrator_model.txt"}
 
     def save_model_text(self, path: str | Path) -> Path:
         """Save the internal Booster to a human-readable text file."""
         if self._model is None:
-            raise RuntimeError("IsotonicCalibrator has not been fitted.")
+            raise LizyMLError(
+                code=ErrorCode.CALIBRATION_NOT_FITTED,
+                user_message="IsotonicCalibrator has not been fitted.",
+                context={"calibrator": "isotonic"},
+            )
         p = Path(path)
         self._model.save_model(str(p))
         return p

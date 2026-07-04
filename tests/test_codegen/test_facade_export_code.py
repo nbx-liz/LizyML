@@ -163,3 +163,103 @@ class TestExportCodeRegression:
             cfg = json.load(f)
         assert cfg["_task"] == "regression"
         assert cfg["calibration_method"] is None
+
+
+class TestExportCodeSplitGuard:
+    """#228 (H-0090): the generated train.py now reproduces the model's
+    time/group split from config.json["split"], so export_code no longer emits
+    the #206 shuffle-leak warning/banner and serializes the split spec."""
+
+    @staticmethod
+    def _fit_time_series(n: int = 200) -> Model:
+        rng = np.random.default_rng(0)
+        df = pd.DataFrame(
+            {
+                "num1": rng.normal(size=n),
+                "t": np.arange(n),
+                "target": rng.normal(size=n),
+            }
+        )
+        cfg = {
+            "config_version": 1,
+            "task": "regression",
+            "data": {"target": "target", "time_col": "t"},
+            "split": {"method": "time_series", "n_splits": 3},
+            "model": {"name": "lgbm", "params": {"n_estimators": 20}},
+            "training": {"seed": 0},
+        }
+        m = Model(cfg)
+        m.fit(df)
+        return m
+
+    @staticmethod
+    def _fit_group_kfold(n: int = 200) -> Model:
+        rng = np.random.default_rng(0)
+        df = pd.DataFrame(
+            {
+                "num1": rng.normal(size=n),
+                "g": rng.integers(0, 10, size=n),
+                "target": rng.integers(0, 2, size=n),
+            }
+        )
+        cfg = {
+            "config_version": 1,
+            "task": "binary",
+            "data": {"target": "target", "group_col": "g"},
+            "split": {"method": "group_kfold", "n_splits": 3},
+            "model": {"name": "lgbm", "params": {"n_estimators": 20}},
+            "training": {"seed": 0},
+        }
+        m = Model(cfg)
+        m.fit(df)
+        return m
+
+    def test_time_series_export_no_banner_serializes_split(
+        self, tmp_path: Path
+    ) -> None:
+        import warnings
+
+        m = self._fit_time_series()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            m.export_code(tmp_path / "cg")
+        msgs = [str(w.message) for w in caught]
+        assert not any("does not reproduce split.method" in msg for msg in msgs)
+        train_src = (tmp_path / "cg" / "train.py").read_text(encoding="utf-8")
+        assert "WARNING (lizyml codegen)" not in train_src
+        assert train_src.startswith("#!/usr/bin/env python3")
+        with open(tmp_path / "cg" / "config.json") as f:
+            cfg = json.load(f)
+        assert cfg["split"]["method"] == "time_series"
+        assert cfg["split"]["time_col"] == "t"
+
+    def test_group_kfold_export_no_banner_serializes_split(
+        self, tmp_path: Path
+    ) -> None:
+        import warnings
+
+        m = self._fit_group_kfold()
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            m.export_code(tmp_path / "cg")
+        msgs = [str(w.message) for w in caught]
+        assert not any("does not reproduce split.method" in msg for msg in msgs)
+        train_src = (tmp_path / "cg" / "train.py").read_text(encoding="utf-8")
+        assert "WARNING (lizyml codegen)" not in train_src
+        with open(tmp_path / "cg" / "config.json") as f:
+            cfg = json.load(f)
+        assert cfg["split"]["method"] == "group_kfold"
+        assert cfg["split"]["group_col"] == "g"
+
+    def test_kfold_export_no_split_warning_no_banner(self, tmp_path: Path) -> None:
+        import warnings
+
+        m = Model(_regression_config())
+        m.fit(_make_regression_data())
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            m.export_code(tmp_path / "cg")
+        msgs = [str(w.message) for w in caught]
+        assert not any("does not reproduce split.method" in msg for msg in msgs)
+        train_src = (tmp_path / "cg" / "train.py").read_text(encoding="utf-8")
+        assert "WARNING (lizyml codegen)" not in train_src

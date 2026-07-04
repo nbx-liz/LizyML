@@ -92,18 +92,13 @@ class RefitTrainer:
         # Inner validation split for early stopping
         iv_result = self.inner_valid.split(n_samples, y=y.to_numpy(), groups=groups)
 
-        # Fit pipeline on inner-train only to prevent leakage into
-        # early-stopping validation (consistent with CVTrainer).
+        # H-0085: fit the feature pipeline once on the FULL dataset. This is the
+        # outer-train boundary (the whole set for a full-data refit), matching
+        # CVTrainer, where the pipeline is fit on the whole outer-fold train and
+        # the inner-valid rows are sliced from the transformed data. It also
+        # serves as the inference-time ``pipeline_state`` — no second fit.
         pipeline = self.pipeline_factory()
-        if iv_result is not None:
-            inner_train_rel, inner_valid_rel = iv_result
-            pipeline.fit(
-                X.iloc[inner_train_rel].reset_index(drop=True),
-                y.iloc[inner_train_rel].reset_index(drop=True),
-            )
-        else:
-            pipeline.fit(X, y)
-
+        pipeline.fit(X, y)
         X_t = pipeline.transform(X)
 
         cat_cols: list[str] = (
@@ -121,6 +116,7 @@ class RefitTrainer:
             estimator.update_params(self.ratio_param_resolver(n_inner))
 
         if iv_result is not None:
+            inner_train_rel, inner_valid_rel = iv_result
             X_iv_train = X_t.iloc[inner_train_rel].reset_index(drop=True)
             y_iv_train = y.iloc[inner_train_rel].reset_index(drop=True)
             X_iv_valid = X_t.iloc[inner_valid_rel].reset_index(drop=True)
@@ -140,26 +136,11 @@ class RefitTrainer:
         train_pred = get_fold_pred(estimator, X_t, self.task)
         eval_hist: dict[str, Any] = dict(estimator.eval_results)
 
-        # Refit pipeline on ALL data for the final pipeline_state
-        # (used at inference time).  When no inner-valid split was used,
-        # the first pipeline was already fitted on all data — reuse it.
-        if iv_result is not None:
-            final_pipeline = self.pipeline_factory()
-            final_pipeline.fit(X, y)
-        else:
-            final_pipeline = pipeline
-
-        final_cat_cols: list[str] = (
-            final_pipeline.get_state().get("categorical_cols", [])
-            if hasattr(final_pipeline, "get_state")
-            else []
-        )
-
         return RefitResult(
             model=estimator,
-            pipeline_state=final_pipeline.get_state(),
+            pipeline_state=pipeline.get_state(),
             feature_names=list(X.columns),
-            categorical_features=final_cat_cols,
+            categorical_features=cat_cols,
             best_iteration=estimator.best_iteration,
             train_pred=train_pred,
             history=eval_hist,

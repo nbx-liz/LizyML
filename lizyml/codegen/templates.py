@@ -31,7 +31,13 @@ import lightgbm as lgb
 import numpy as np
 import pandas as pd
 from sklearn.linear_model import LogisticRegression
-from sklearn.model_selection import KFold, StratifiedKFold
+from sklearn.model_selection import (
+    GroupKFold,
+    KFold,
+    StratifiedGroupKFold,
+    StratifiedKFold,
+    TimeSeriesSplit,
+)
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s  %(message)s", datefmt="%H:%M:%S",
@@ -283,18 +289,250 @@ def build_feval_from_config() -> list:
     return fevals
 
 
-def _generate_oof(X: np.ndarray, y: np.ndarray) -> np.ndarray:
-    """Lightweight CV to produce OOF raw scores (logits)."""
-    n_splits = CFG.get("calibration_n_splits", 5)
-    task = CFG["_task"]
-    seed = CFG["seed"]
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  CV split reproduction (mirrors the model's split.method; #228)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#
+#  The calibration OOF must respect the same time/group boundary the model
+#  was trained with; a shuffled K-fold would leak across it on retrain.
+#  These helpers rebuild the outer folds from config.json["split"] using the
+#  same logic as LizyML (sklearn for the standard families, ported numpy for
+#  purged / group-time-series / blocked-group). Rows are sorted the same way
+#  (by time_col, or blocks.col) before splitting; returned indices are mapped
+#  back to the input row order.
 
-    kf = (StratifiedKFold if task == "binary" else KFold)(
-        n_splits=n_splits, shuffle=True, random_state=seed,
+def _kfold_folds(n, y, method, shuffle, random_state, n_splits):
+    cls = StratifiedKFold if method == "stratified_kfold" else KFold
+    kf = cls(
+        n_splits=n_splits, shuffle=shuffle,
+        random_state=random_state if shuffle else None,
     )
+    return list(kf.split(np.arange(n), y))
+
+
+def _purged_ts_folds(n, n_splits, purge_gap, embargo, max_train, max_test):
+    idx = np.arange(n)
+    fold_size = n // (n_splits + 1)
+    if fold_size == 0:
+        raise ValueError(f"n_samples={n} too small for n_splits={n_splits}")
+    folds = []
+    for k in range(n_splits):
+        valid_start = (k + 1) * fold_size
+        valid_end = min((k + 2) * fold_size, n)
+        if valid_start >= valid_end:
+            continue
+        train_end = (k + 1) * fold_size - purge_gap - embargo
+        if train_end <= 0:
+            continue
+        tr = idx[:train_end]
+        va = idx[valid_start:valid_end]
+        if max_train is not None:
+            tr = tr[-max_train:]
+        if max_test is not None:
+            va = va[:max_test]
+        folds.append((tr, va))
+    return folds
+
+
+def _group_ts_folds(groups, n_splits, gap, max_train, max_test):
+    groups = np.asarray(groups)
+    _, first_idx = np.unique(groups, return_index=True)
+    ordered_unique = groups[np.sort(first_idx)]
+    n_groups = len(ordered_unique)
+    if n_groups < n_splits + 1 + gap:
+        raise ValueError(
+            f"Not enough groups ({n_groups}) for n_splits={n_splits} gap={gap}"
+        )
+    gfs = n_groups // (n_splits + 1)
+    folds = []
+    for k in range(n_splits):
+        train_group_end = (k + 1) * gfs
+        valid_group_start = train_group_end + gap
+        if k == n_splits - 1:
+            valid_group_end = n_groups
+        else:
+            valid_group_end = min(valid_group_start + gfs, n_groups)
+        if valid_group_start >= valid_group_end:
+            continue
+        tgl = ordered_unique[:train_group_end]
+        vgl = ordered_unique[valid_group_start:valid_group_end]
+        if max_train is not None:
+            tgl = tgl[-max_train:]
+        if max_test is not None:
+            vgl = vgl[:max_test]
+        tr = np.where(np.isin(groups, list(set(tgl))))[0]
+        va = np.where(np.isin(groups, list(set(vgl))))[0]
+        folds.append((tr, va))
+    return folds
+
+
+def _blocked_period_masks(bv, cutoffs):
+    masks = [bv < cutoffs[0]]
+    for i in range(1, len(cutoffs)):
+        masks.append((bv >= cutoffs[i - 1]) & (bv < cutoffs[i]))
+    masks.append(bv >= cutoffs[-1])
+    return masks
+
+
+def _blocked_split_users(all_users, y, groups, sp):
+    gp = sp["groups"]
+    n_splits = gp["n_splits"]
+    stratify = gp["stratify"]
+    shuffle = gp["shuffle"]
+    rng = np.random.RandomState(sp["random_state"])
+    nu = len(all_users)
+    if stratify and y is not None:
+        labels = np.empty(nu, dtype=y.dtype)
+        for i, u in enumerate(all_users):
+            uy = y[groups == u]
+            vals, cnts = np.unique(uy, return_counts=True)
+            labels[i] = vals[cnts.argmax()]
+        per_class = []
+        for cls in np.unique(labels):
+            ci = np.where(labels == cls)[0]
+            if shuffle:
+                rng.shuffle(ci)
+            per_class.append(ci)
+        order = []
+        max_len = max(len(c) for c in per_class)
+        for i in range(max_len):
+            for ci in per_class:
+                if i < len(ci):
+                    order.append(int(ci[i]))
+        user_order = np.array(order, dtype=np.intp)
+    elif shuffle:
+        user_order = rng.permutation(nu)
+    else:
+        user_order = np.arange(nu)
+    fold_sizes = np.full(n_splits, nu // n_splits, dtype=int)
+    fold_sizes[: nu % n_splits] += 1
+    out = []
+    cur = 0
+    for k in range(n_splits):
+        vi = user_order[cur : cur + fold_sizes[k]]
+        ti = np.concatenate([user_order[:cur], user_order[cur + fold_sizes[k] :]])
+        out.append((all_users[ti], all_users[vi]))
+        cur += fold_sizes[k]
+    return out
+
+
+def _blocked_group_folds(block_values, groups, y, sp):
+    bl = sp["blocks"]
+    cutoffs = sorted(bl["cutoffs"])
+    mode = bl["mode"]
+    train_window = bl.get("train_window")
+    min_train = sp.get("min_train_rows", 1)
+    min_valid = sp.get("min_valid_rows", 1)
+    bv = np.asarray(block_values)
+    n = len(bv)
+    masks = _blocked_period_masks(bv, cutoffs)
+    folds = []
+    for t in range(len(cutoffs)):
+        train_mask = np.zeros(n, dtype=bool)
+        valid_mask = masks[t + 1]
+        if mode == "expanding":
+            for i in range(t + 1):
+                train_mask |= masks[i]
+        else:
+            if train_window is None:
+                raise ValueError("train_window must be set when mode='sliding'")
+            for i in range(max(0, t + 1 - train_window), t + 1):
+                train_mask |= masks[i]
+        tpi = np.where(train_mask)[0]
+        vpi = np.where(valid_mask)[0]
+        if len(tpi) == 0 or len(vpi) == 0:
+            continue
+        all_users = np.unique(np.concatenate([groups[tpi], groups[vpi]]))
+        for tu, vu in _blocked_split_users(all_users, y, groups, sp):
+            tr = tpi[np.isin(groups[tpi], list(set(tu)))]
+            va = vpi[np.isin(groups[vpi], list(set(vu)))]
+            if len(tr) < min_train or len(va) < min_valid:
+                continue
+            folds.append((tr.astype(np.intp), va.astype(np.intp)))
+    return folds
+
+
+def _resolve_folds(df: pd.DataFrame, y: np.ndarray):
+    """Return outer CV ``(train_idx, valid_idx)`` pairs in ``df`` row order,
+    reproducing the model's ``split.method`` so the calibration OOF respects
+    the same boundary. Falls back to shuffled K-fold for older exports that
+    have no ``split`` block."""
+    sp = CFG.get("split")
+    n = len(y)
+    seed = CFG["seed"]
+    task = CFG["_task"]
+    if not sp:
+        # Legacy export (no split block): the original task-based shuffled
+        # K-fold, preserved for back-compat.
+        cls = StratifiedKFold if task == "binary" else KFold
+        return list(
+            cls(
+                n_splits=CFG.get("calibration_n_splits", 5),
+                shuffle=True, random_state=seed,
+            ).split(np.arange(n), y)
+        )
+
+    method = sp["method"]
+    n_splits = sp["n_splits"]
+    if method in ("kfold", "stratified_kfold"):
+        return _kfold_folds(
+            n, y, method, sp.get("shuffle", True),
+            sp.get("random_state", seed), n_splits,
+        )
+
+    if method in ("time_series", "purged_time_series", "group_time_series"):
+        order = np.asarray(df[sp["time_col"]].argsort())
+    elif method == "blocked_group_kfold":
+        order = np.asarray(df[sp["blocks"]["col"]].argsort())
+    else:  # group_kfold / stratified_group_kfold — no reordering
+        order = np.arange(n)
+
+    y_s = np.asarray(y)[order]
+    groups_s = None
+    if sp.get("group_col"):
+        groups_s = df[sp["group_col"]].to_numpy()[order]
+
+    if method == "time_series":
+        tss = TimeSeriesSplit(
+            n_splits=n_splits, gap=sp.get("gap", 0),
+            max_train_size=sp.get("train_size_max"),
+            test_size=sp.get("test_size_max"),
+        )
+        folds = list(tss.split(np.arange(n)))
+    elif method == "purged_time_series":
+        folds = _purged_ts_folds(
+            n, n_splits, sp.get("purge_gap", 0), sp.get("embargo", 0),
+            sp.get("train_size_max"), sp.get("test_size_max"),
+        )
+    elif method == "group_time_series":
+        folds = _group_ts_folds(
+            groups_s, n_splits, sp.get("gap", 0),
+            sp.get("train_size_max"), sp.get("test_size_max"),
+        )
+    elif method == "group_kfold":
+        folds = list(GroupKFold(n_splits=n_splits).split(np.arange(n), y_s, groups_s))
+    elif method == "stratified_group_kfold":
+        sgkf = StratifiedGroupKFold(
+            n_splits=n_splits, shuffle=sp["shuffle"],
+            random_state=sp["random_state"] if sp["shuffle"] else None,
+        )
+        folds = list(sgkf.split(np.arange(n), y_s, groups_s))
+    elif method == "blocked_group_kfold":
+        bv = df[sp["blocks"]["col"]].to_numpy()[order]
+        gv = df[sp["groups"]["col"]].to_numpy()[order]
+        folds = _blocked_group_folds(bv, gv, y_s, sp)
+    else:
+        raise ValueError(f"Unsupported split.method for retrain: {method!r}")
+
+    return [(order[np.asarray(tr)], order[np.asarray(va)]) for tr, va in folds]
+
+
+def _generate_oof(X: np.ndarray, y: np.ndarray, folds) -> np.ndarray:
+    """Lightweight CV to produce OOF raw scores (logits) over *folds*."""
     oof = np.full(len(y), np.nan)
-    for i, (trn, val) in enumerate(kf.split(X, y)):
-        log.info("    CV fold %d/%d", i + 1, n_splits)
+    n_folds = len(folds)
+    for i, (trn, val) in enumerate(folds):
+        log.info("    CV fold %d/%d", i + 1, n_folds)
         ds = lgb.Dataset(X[trn], label=y[trn])
         bst = lgb.train(CFG["lgbm_params"], ds,
                         num_boost_round=CFG["num_boost_round"],
@@ -353,14 +591,15 @@ def _fit_isotonic(scores: np.ndarray, y: np.ndarray) -> dict:
 _CAL_FITTERS = {"platt": _fit_platt, "beta": _fit_beta, "isotonic": _fit_isotonic}
 
 
-def fit_calibrator(X: np.ndarray, y: np.ndarray) -> dict | None:
+def fit_calibrator(X: np.ndarray, y: np.ndarray, df: pd.DataFrame) -> dict | None:
     """Generate OOF scores and fit calibrator. Returns params or None."""
     method = CFG.get("calibration_method")
     if not method or CFG["_task"] != "binary":
         return None
 
     log.info("[3/4] Generating OOF scores ...")
-    oof = _generate_oof(X, y)
+    folds = _resolve_folds(df, y)
+    oof = _generate_oof(X, y, folds)
 
     log.info("[4/4] Fitting %s calibrator ...", method)
     if method not in _CAL_FITTERS:
@@ -368,7 +607,11 @@ def fit_calibrator(X: np.ndarray, y: np.ndarray) -> dict | None:
             f"Unknown calibration method: {method!r}. "
             f"Supported: {list(_CAL_FITTERS)}"
         )
-    params = _CAL_FITTERS[method](oof, y)
+    # A time/group split can leave first-period / uncovered rows out of every
+    # validation fold, so their OOF score stays NaN. Fit the calibrator on the
+    # covered rows only (matches LizyML's cross-fit C_final; #228).
+    covered = ~np.isnan(oof)
+    params = _CAL_FITTERS[method](oof[covered], y[covered])
     with open(ARTIFACTS / "calibrator.json", "w", encoding="utf-8") as f:
         json.dump(params, f, indent=2)
     log.info("    saved calibrator.json")
@@ -409,7 +652,7 @@ def train(df: pd.DataFrame, *, calibrate: bool = True) -> None:
     train_lgbm(X, y, cat_cols)
 
     if calibrate:
-        fit_calibrator(X.values, y.values)
+        fit_calibrator(X.values, y.values, df)
     else:
         log.info("[3/4] Calibration skipped")
         log.info("[4/4] --")
@@ -500,9 +743,20 @@ def transform(df: pd.DataFrame) -> pd.DataFrame:
         log.warning("Ignoring %d extra column(s): %s", len(extra), extra)
 
     X = df[expected].copy()
+    policy = state.get("unseen_policy", "nan")
+    unseen_codes = state.get("unseen_codes", {})
     for col, mapping in state.get("category_mappings", {}).items():
         if col in X.columns:
-            X[col] = X[col].astype(str).map(mapping)  # unseen -> NaN
+            codes = X[col].astype(str).map(mapping)  # unseen -> NaN
+            if policy == "mode" and col in unseen_codes:
+                # Match the runtime encoder: replace unseen with the training mode.
+                codes = codes.fillna(unseen_codes[col])
+            elif policy == "error" and codes.isna().any():
+                raise ValueError(
+                    f"Column '{col}' contains unseen categories "
+                    "(unseen_policy='error')"
+                )
+            X[col] = codes
     return X
 
 
@@ -556,7 +810,11 @@ def _decode_pred(codes: np.ndarray) -> np.ndarray:
 
 def predict(df: pd.DataFrame) -> dict[str, np.ndarray | None]:
     """Run inference. Returns {"pred": ..., "proba": ...}."""
-    X = transform(df)
+    # Feed a numpy array (not a DataFrame) so LightGBM matches features
+    # positionally by ``feature_names`` order.  Categorical columns are already
+    # integer-coded by ``transform`` (matching the training category codes);
+    # passing a DataFrame would trip LightGBM's pandas-categorical dtype check.
+    X = transform(df).to_numpy()
     booster = lgb.Booster(model_file=str(ARTIFACTS / "model.txt"))
     task = CFG["_task"]
 
@@ -619,105 +877,34 @@ Compares the output of predict.py against a reference CSV exported from
 LizyML (``Model.predict()``).  The reference file must contain a ``pred``
 column and optionally a ``proba`` column.
 
+This checker imports ``predict`` and calls ``predict.predict()`` directly, so
+it exercises the exact code path users run.  It never re-implements the
+transform / calibration logic (a second copy would let the two paths drift
+apart silently).
+
 Generated by lizyml -- https://github.com/nbx-liz/LizyML
 """
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import sys
 from pathlib import Path
 
-import lightgbm as lgb
 import numpy as np
 import pandas as pd
+
+import predict
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s  %(message)s", datefmt="%H:%M:%S",
 )
 log = logging.getLogger(__name__)
 
-ROOT = Path(__file__).parent
-ARTIFACTS = ROOT / "artifacts"
 
-with open(ROOT / "config.json", encoding="utf-8") as _f:
-    CFG = json.load(_f)
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  Prediction (inline — mirrors predict.py)
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-def _load_pipeline() -> dict:
-    path = ARTIFACTS / "pipeline_state.json"
-    if not path.exists():
-        raise FileNotFoundError(f"{path} not found. Run train.py first.")
-    with open(path, encoding="utf-8") as f:
-        return json.load(f)
-
-
-def _sigmoid(x: np.ndarray) -> np.ndarray:
-    return np.where(x >= 0, 1 / (1 + np.exp(-x)), np.exp(x) / (1 + np.exp(x)))
-
-
-def _transform(df: pd.DataFrame) -> np.ndarray:
-    state = _load_pipeline()
-    X = df[state["feature_names"]].copy()
-    for col, mapping in state.get("category_mappings", {}).items():
-        if col in X.columns:
-            X[col] = X[col].astype(str).map(mapping)
-    for col in X.columns:
-        if not np.issubdtype(X[col].dtype, np.number):
-            X[col] = pd.to_numeric(X[col], errors="coerce")
-    return X.values
-
-
-def _predict(df: pd.DataFrame) -> dict[str, np.ndarray | None]:
-    X = _transform(df)
-    booster = lgb.Booster(model_file=str(ARTIFACTS / "model.txt"))
-    task = CFG["_task"]
-
-    if task == "regression":
-        return {"pred": np.asarray(booster.predict(X), dtype=np.float64),
-                "proba": None}
-
-    if task == "binary":
-        cal_path = ARTIFACTS / "calibrator.json"
-        if cal_path.exists():
-            with open(cal_path, encoding="utf-8") as f:
-                cal = json.load(f)
-            logits = np.asarray(booster.predict(X, raw_score=True), dtype=np.float64)
-            m = cal["method"]
-            if m == "platt":
-                proba = 1 / (1 + np.exp(-(cal["a"] * logits + cal["b"])))
-            elif m == "beta":
-                s = np.clip(_sigmoid(logits), 1e-10, 1 - 1e-10)
-                logit = cal["a"] * np.log(s) + cal["b"] * np.log(1 - s) + cal["c"]
-                proba = np.clip(_sigmoid(logit), 0, 1)
-            elif m == "isotonic":
-                model_file = Path(cal["model_file"]).name  # sanitize path
-                bst = lgb.Booster(model_file=str(ARTIFACTS / model_file))
-                proba = np.clip(bst.predict(logits.reshape(-1, 1)), 0, 1)
-            else:
-                raise ValueError(
-                    f"Unknown calibration method: {m!r}. "
-                    "Supported: platt, beta, isotonic"
-                )
-        else:
-            proba = np.asarray(booster.predict(X), dtype=np.float64)
-        return {"pred": (proba > 0.5).astype(np.int64), "proba": proba}
-
-    if task == "multiclass":
-        proba = np.asarray(booster.predict(X), dtype=np.float64)
-        return {"pred": np.argmax(proba, axis=1).astype(np.int64), "proba": proba}
-
-    raise ValueError(f"Unknown task: {task}")
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  Equivalence check
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def _compare(
     name: str, actual: np.ndarray, expected: np.ndarray, rtol: float
@@ -747,11 +934,11 @@ def check_equivalence(
     """Compare codegen predictions against reference."""
     if "pred" not in ref.columns:
         raise ValueError(
-            f\'"pred" column not found in reference file. \'
+            \'"pred" column not found in reference file. \'
             f"Available columns: {list(ref.columns)}"
         )
 
-    result = _predict(df)
+    result = predict.predict(df)
     ok = True
 
     # Check pred
@@ -804,12 +991,11 @@ if __name__ == "__main__":
     main()
 '''
 
-_REQUIREMENTS_TXT = """\
+_REQUIREMENTS_BASE = """\
 lightgbm>=4.0
 numpy
 pandas
 scikit-learn
-scipy
 """
 
 
@@ -823,9 +1009,17 @@ def render_predict_py() -> str:
     return _PREDICT_PY
 
 
-def render_requirements_txt() -> str:
-    """Return the requirements.txt content."""
-    return _REQUIREMENTS_TXT
+def render_requirements_txt(*, uses_beta_calibration: bool = False) -> str:
+    """Return the requirements.txt content.
+
+    ``scipy`` is pinned only when the model uses beta calibration -- the sole
+    generated code path that imports it (lazily, inside ``_fit_beta`` in
+    ``train.py``; the predict-time beta application is pure numpy). This keeps
+    the emitted dependency set matching the README claim (#218).
+    """
+    if uses_beta_calibration:
+        return _REQUIREMENTS_BASE + "scipy\n"
+    return _REQUIREMENTS_BASE
 
 
 def render_test_equivalence_py() -> str:

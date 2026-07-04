@@ -35,6 +35,7 @@ def generate_code(
     calibrator: BaseCalibratorAdapter | None,
     feval_metrics: list[dict[str, Any]] | None = None,
     target_classes: list[Any] | None = None,
+    split: dict[str, Any] | None = None,
 ) -> Path:
     """Generate LizyML-independent training and prediction code.
 
@@ -93,6 +94,7 @@ def generate_code(
         calibration_n_splits=calibration_n_splits,
         feval_metrics=feval_metrics,
         target_classes=target_classes,
+        split=split,
     )
 
     # Write artifacts (config.json, model.txt, pipeline_state.json, calibrator)
@@ -107,11 +109,17 @@ def generate_code(
     # Write source files. ``encoding="utf-8"`` is required: the templates
     # contain non-ASCII characters, and write_text() would otherwise use the
     # platform default (cp1252 on Windows) and raise UnicodeEncodeError (#180).
+    # The generated train.py now reproduces the model's ``split.method`` from
+    # ``config.json["split"]`` (#228), so the #206 shuffle-leak banner/warning
+    # is no longer needed.
     (root / "train.py").write_text(render_train_py(), encoding="utf-8")
     (root / "predict.py").write_text(render_predict_py(), encoding="utf-8")
     (root / "test_equivalence.py").write_text(
         render_test_equivalence_py(), encoding="utf-8"
     )
-    (root / "requirements.txt").write_text(render_requirements_txt(), encoding="utf-8")
+    (root / "requirements.txt").write_text(
+        render_requirements_txt(uses_beta_calibration=calibration_method == "beta"),
+        encoding="utf-8",
+    )
 
     return root

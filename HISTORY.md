@@ -6844,3 +6844,292 @@ defaults に `deterministic: true` + `force_row_wise: true` を追加し、ク�
 - `core/types/` 配下に Layer-1/2 型を参照する型が残っていないこと（Layer-0 依存ゼロの回復）。
 - structural refactor のため E2E gate（`tests/test_e2e/` + 診断 API 経路）green。
 
+---
+
+## H-0085: inner-valid 境界ポリシーの統一（pipeline fit 境界の矛盾解消 + purge/embargo の inner 伝播）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-07-02
+- **決定日**: 2026-07-02
+- **スコープ**: `training/refit_trainer.py`（pipeline fit 境界）, `training/inner_valid.py`（`TimeHoldoutInnerValid` に gap 追加）, `core/_model_factories.py`（`_resolve_auto_inner_valid` の purge/embargo 受け渡し）, `evaluation/evaluator.py`（数値 target NaN の例外化）, `config`（time-order 下 shuffled inner_valid の警告）, `BLUEPRINT.md §6.2 / §10.3.1 L602 / §10.3.2 L629-631`。**公開 API・FitResult shape は不変**（`best_iteration` の数値は変わり得る＝再現性の観点で挙動変化）。
+- **関連**: [Issue #208](https://github.com/nbx-liz/LizyML/issues/208), [#212](https://github.com/nbx-liz/LizyML/issues/212), [#207](https://github.com/nbx-liz/LizyML/issues/207) item 4, [#210](https://github.com/nbx-liz/LizyML/issues/210) item 3。BLUEPRINT §6.2 / §10.3。2026-07-02 full-package review。
+
+### 目的（課題）
+
+inner-valid（early-stopping）境界に関する 4 つの課題を、一貫した 1 つの決定として解消する。
+
+1. **#208 — pipeline fit 境界の自己矛盾**: BLUEPRINT §6.2 L394-395 と §10.3.2 L626 は「pipeline は outer fold の train 全体で fit する（inner-train に狭めない）」と定めるが、§10.3.2 L629 は RefitTrainer について「pipeline は inner-train のみで fit する（CVTrainer と一致）」と**逆の境界**を記す。実装も分かれており、`cv_trainer.py:111` は outer train 全体、`refit_trainer.py:100-103` は inner-train のみで fit し、コメント「consistent with CVTrainer」は事実に反する。
+2. **#212 — inner 境界の gap 欠落**: `purge_gap` / `embargo`（`time_series` の `gap`）は outer split のみに適用され、§10.3.1 L602 は「inner valid に伝搬しない」と明記。auto-resolve の `TimeHoldoutInnerValid`（`inner_valid.py:194-196`）は inner_train と inner_valid を gap ゼロで隣接させるため、look-ahead 構築 target が境界で重なり、全 outer fold の `best_iteration` を楽観的に汚染する。
+3. **#207 item 4 — 数値 target の NaN 契約が未定義**: NaN-target 検証は label-encoded string target のみ（`core/types/target_encoder.py:126-134`）。regression/binary の数値 target では `Model.fit` の契約が未定義・未テスト。
+4. **#210 item 3 — time-order 下 shuffled inner_valid が無警告**: 明示 `inner_valid: {method: holdout}`（random permutation）を `time_series` / `purged_time_series` outer split と組み合わせると、時間的にリークした early-stopping split が無警告で成立する（BLUEPRINT L599 が許容）。
+
+### 対応方針（決定）
+
+- **#208 → pipeline fit 境界を「outer-train 全体（Refit は全データ）」に統一する**。RefitTrainer を CVTrainer 側へ寄せ、pipeline を全データで 1 回 fit → 変換後に inner-train / inner-valid を slice（CVTrainer の `_build_iv_subsets` と同型）。これにより現行の二重 fit（L630 の推論用 pipeline 別 fit）を解消し、`best_iteration` 選択の境界を CV fold と一致させる。`refit_trainer.py:95-96` の虚偽コメントを訂正。BLUEPRINT §10.3.2 L629-631 を outer/full-train 境界へ改訂（§6.2 / L626 が正）。
+  - 根拠: (a) 高優先の §6.2 が既に outer-train 境界を定義、(b) 現行 `NativeFeaturePipeline` は y-free（カテゴリ辞書は X のみ）で OOF・best_iteration とも実質リークしない、(c) refit の二重 fit と境界不一致という実バグを同時に解消。将来 y-dependent transform を導入する際は、その Proposal で「pipeline fit を inner-train に狭める」判断を改めて行う。
+- **#212 → purge_gap / embargo（time_series の gap）を auto-resolve inner-valid へ伝播する**。`TimeHoldoutInnerValid` に gap パラメータを追加し、inner_train と inner_valid の間を `purge_gap + embargo`（time_series は `gap`）行だけ空ける。`_resolve_auto_inner_valid` が outer split 設定から gap を受け渡す。BLUEPRINT §10.3.1 L602 を「purge_gap / embargo（gap）は inner valid にも伝播する」に改訂（`n_splits` / `shuffle` / `random_state` / `train_size_max` / `test_size_max` は引き続き非伝播）。
+- **#207 item 4 → 数値 target の NaN を明示的に拒否**。covered-OOF より前段、`Model.fit` の入口で数値 target に NaN があれば `LizyMLError(DATA_SCHEMA_INVALID)` を nan_count context 付きで送出する契約に固定する。
+- **#210 item 3 → 警告に留める（エラー化しない）**。`time_series` / `purged_time_series` outer split と shuffle を伴う明示 inner_valid（holdout stratify、random permutation）の組み合わせで `UserWarning` を発する。L599 の「明示指定を尊重する」仕様は維持（spec-compatible）。
+
+### 代替案（不採用）
+
+- **#208 を inner-train のみに統一**: 最も厳格で将来の y-dependent transform に耐性があるが、高優先の §6.2 L394-395 を改訂する必要があり、CVTrainer が fold 毎に pipeline 再 fit するコスト増を伴う。現 pipeline が y-free で実害が early-stopping 語彙に限定される現状では過剰。y-dependent transform 導入時に再検討する。
+- **#212 を明文化のみ（docstring caveat）**: 実装コストは最小だが、`purge_gap` を設定したユーザーの意図（境界リーク排除）を early-stopping 経路で裏切る穴が残るため不採用。
+- **#210 item 3 をエラー化**: L599 の「明示 inner_valid を尊重」仕様と衝突するため、警告に留める。
+
+### 影響範囲 / 互換性
+
+- **公開 API・Config・FitResult / PredictionResult の shape は不変**。
+- **挙動変化**: RefitTrainer の pipeline fit 境界変更と inner 境界の gap 追加により、既存モデルの `best_iteration`（ひいては学習済みモデル）が変わり得る。再現性契約上の変更であり、format_version は据え置き（Artifacts schema は不変）。CHANGELOG に「早期停止の分割境界が変わる」旨を明記する。
+- 数値 target NaN の拒否は、従来 undefined だった経路を fail-fast にするもので、正常データには影響しない。
+
+### 受け入れ基準（テスト観点）
+
+- **#208**: RefitTrainer が全データで pipeline を 1 回 fit することを固定するテスト（二重 fit が無いこと）。CVTrainer / RefitTrainer が同一 pipeline fit 境界であることを検証（`test_pipeline_fit_boundary.py` に境界固定 assertion 追加）。
+- **#212**: `purged_time_series`（purge_gap>0）で auto-resolve された inner-valid の inner_train 末尾と inner_valid 先頭の間に `purge_gap + embargo` 行の gap が存在することを固定する RED テスト（現行 zero-gap では落ちる）。
+- **#207 item 4**: 数値 target に NaN を含む入力で `Model.fit` が `LizyMLError(DATA_SCHEMA_INVALID)` を nan_count context 付きで送出する RED テスト。
+- **#210 item 3**: time-order outer split × shuffled 明示 inner_valid で `UserWarning` が発ることを検証するテスト。
+- 上記いずれも「落ちるべき例」を含む（CLAUDE.md §6 の split/leakage/calibration 必須要件）。
+
+## H-0086: Phase 3 契約/永続化/公開API の一括修正（FitResult 参照返し・tuned params 非永続化・config round-trip・top-level export）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-07-03
+- **決定日**: 2026-07-03
+- **スコープ**: `core/model.py`（`fit()` の返却 / `load()` の metrics 共有）, `core/_model_persistence.py` + `persistence/exporter.py` + `persistence/loader.py`（tuned params の永続化・復元）, `config/schema.py`（inner_valid explicitness の round-trip 化）, `lizyml/__init__.py` + `core/types/__init__.py`（公開 re-export）, `BLUEPRINT.md`（公開 API surface / Artifacts metadata）。**format_version は据え置き（2、additive）**。
+- **関連**: [Issue #204](https://github.com/nbx-liz/LizyML/issues/204), [#215](https://github.com/nbx-liz/LizyML/issues/215), [#203](https://github.com/nbx-liz/LizyML/issues/203), [#213](https://github.com/nbx-liz/LizyML/issues/213)。H-0082（deep-copy 防御）, H-0069（inner_valid canonical）, H-0083（metadata additive 前例）。2026-07-02 full-package review。
+
+### 目的（課題）
+
+full-package review が検出した契約・永続化・公開 API の 4 課題を、Phase 3 の契約クラスタとして一括で解消する。
+
+1. **#204 — `fit()` / `load()` が内部 FitResult を参照で漏らす**: `fit_result` プロパティは H-0082 で selective deep-copy して internal state 汚染（→後続 `export()` の metadata 汚染）を防ぐが、主経路である `fit()` は `self._fit_result` と同一オブジェクトを返す（`model.py:275-277`）。`load()` も `instance._metrics = fit_result.metrics` で dict を共有する（`_model_persistence.py:192`）。最も使われる経路で防御が効いていない。
+2. **#215 — tuned params が永続化されない**: best params は in-memory の `_tuning_result` overlay 経由で fit 時に適用される（`model.py:185-201, 878-897`）のみで、`export()` は fit/refit/config/metrics だけを書き（`exporter.py:96-108`）、`load()` は `_tuning_result` を復元しない（`_model_persistence.py:191-201`）。`Model.load()` 後の再 `fit()` は tuned params を失い config デフォルトで学習する — artifact は tuned で predict するのに再学習は defaults という silent な再現性ドリフト。
+3. **#203 — config round-trip で明示 inner_valid が消失**: `model_dump()` は computed field `validation_ratio` を常に emit するため、再検証時に explicitness ヒューリスティック（`user_explicit_inner_valid = iv_in and not vr_present`）が `False` に倒れ、`_inner_valid_explicit`（`PrivateAttr`・非直列化）が失われる。factory は outer split から auto-resolve し直し、ユーザーの明示 `time_holdout` / `group_holdout` を silent に別戦略へ置換する（`export → load → fit` 経路を含む）。time/group データでは leakage-relevant。
+4. **#213 — 契約型 / LizyMLError が top-level 未 export**: `Model.fit/predict/tune` は `FitResult` / `PredictionResult` / `TuningResult` を返し、公開メソッドは `LizyMLError` を送出するが、いずれも `lizyml` 直下から import できない（`__init__.py:13-22` は `Model` + 5 tuning 型のみ）。ユーザーは型注釈や `except LizyMLError` のために `lizyml.core.types` / `lizyml.core.exceptions`（private に見えるパス）へ手を伸ばす必要があり、公開/内部境界が曖昧化して将来のリファクタが事実上破壊的になる。
+
+### 対応方針（決定）
+
+- **#204 → `fit()` も selective deep-copy を返す**。`fit()` は `self._fit_result` に internal 参照を保持したまま、返却値は `FitResult.__deepcopy__`（H-0082 の selective copy）を通す。`load()` は `instance._metrics` を metrics dict の deep-copy にして internal と外部返却の共有を断つ。公開 API の shape・意味は不変（返却型は FitResult のまま）。回帰テスト: `fit()` の返却値を mutate → 後続 `export()` の metadata が汚染されないこと。
+- **#215 → tuned params を metadata.json に additive 永続化し load で復元**。`export()` の metadata に `tuning` ブロック（`best_model_params` / `best_smart_params` / `best_training_params` / `best_score` / `metric_name` / `direction`）を追加し、`load()` が最小 `TuningResult`（`trials=()` / `rounds=()`）を復元して `_tuning_result` にセットする。これにより `load()` 後の再 `fit()` が tuned params を再現する。**format_version は 2 のまま（additive、H-0083 と同型）**: `tuning` キーの無い旧 artifact は従来どおり load でき `_tuning_result=None`（現行挙動）。**スコープ外**: optuna study 実体を要する完全な `tune(resume=True)`（trials/study の再構築）は本 Proposal では扱わず follow-up とする（params 復元により resume の seed には寄与するが study 継続は別途）。
+- **#203 → explicitness を round-trip 安全な marker で直列化**。`validation_ratio` と同様に wrap-validator で pop される computed marker `inner_valid_explicit` を emit し、再検証時に入力 dict にあればそれを explicitness の source of truth として尊重する（無ければ従来ヒューリスティックにフォールバック）。これで `dump → reload` と `export → load → fit` がユーザーの明示 inner_valid 戦略を再現する。**settable な公開フィールドは追加しない**（computed かつ入力時 pop）。互換性: 旧 dump（marker 無し）はヒューリスティックにフォールバック＝現行挙動。paired-config-fields skill 準拠。
+- **#213 → 契約型と例外を top-level に re-export**。`lizyml/__init__.py.__all__` に `FitResult` / `PredictionResult` / `TuningResult` / `LizyMLError` / `ErrorCode` / `load_config` / `TaskType` を追加、`core/types/__init__.py` に `DataFingerprint` を追加。公開 export set を固定するゴールデンテストを追加。純粋な additive（既存 import は不変）。
+
+### 代替案（不採用）
+
+- **#204 を「返却は参照のまま・doc で read-only を明記」**: コスト最小だが H-0082 の防御目的（export 汚染防止）を主経路で放棄するため不採用。
+- **#215 を「loaded model を inference-only とし再 fit を warn/raise」**: 実装は軽いが、tune→export→load→再 fit という正当なワークフローを塞ぐ。params 復元の方がユーザー価値が高いため不採用（study 完全 resume のみ follow-up 送り）。
+- **#215 で TuningResult 全体（trials 含む）を JSON 直列化**: metadata.json が肥大化し、TrialResult の非自明な直列化が必要。overlay に必要な best_* params + スコアに絞る。
+- **#203 で `validation_ratio` を model_dump から除外**: round-trip は直るが、read-only mirror として dump 出力を読む外部/下流の想定を壊すため不採用。marker 追加の方が additive。
+- **#213 で `lizyml.core.*` を公開パスとして追認**: 内部レイアウトを凍結してしまい将来のリファクタを縛るため不採用。
+
+### 影響範囲 / 互換性
+
+- **format_version は 2 のまま**。#215 の `tuning`・#203 の `inner_valid_explicit` はいずれも additive で、旧 artifact / 旧 dump は従来どおり load・再検証できる。
+- **公開 API**: #213 は re-export の追加のみ（既存 import 不変）。#204 は返却型不変（同一オブジェクト → 独立コピーへ変わるのみ；参照同一性に依存する呼び出し側があれば挙動変化だが、契約は「読み取り専用の独立コピー」を明文化）。
+- **挙動変化**: #203 の修正後、round-trip / load 経由の明示 inner_valid は auto-resolve されず明示戦略を保つ（＝リーク経路を塞ぐ正しい方向の変化）。#215 の修正後、load 後の再 fit は tuned params を再現する。いずれも CHANGELOG に明記。
+
+### 受け入れ基準（テスト観点）
+
+- **#204**: `fit()` の返却値の `metrics` を mutate → 内部 state と後続 `export()` 出力が汚染されないことを固定する回帰テスト。`load()` 後 `_metrics` が返却 metrics と別オブジェクトであること。
+- **#215**: tune → export → load → 再 fit で tuned params が再現される契約テスト（load 前後で `_merge_params` の overlay が一致）。`tuning` キーの無い旧 metadata が load 可能（後方互換）な RED/GREEN テスト。
+- **#203**: `{"inner_valid": {"method": "time_holdout", "ratio": 0.2, ...}}` を dump → reload して `_inner_valid_explicit` が保持される RED テスト（現行 False で落ちる）。`export → load → fit` で明示 inner_valid が auto-resolve されない leakage 観点テスト。純 legacy `{"validation_ratio": 0.1}` は従来どおり auto-resolve（非回帰）。
+- **#213**: `lizyml` の top-level `__all__` を固定するゴールデンテスト（`FitResult` 等が import 可能・set が pin される）。
+
+## H-0087: leakage validator を public API 化（dead-code 解消）＋空 `lizyml/utils/` 削除
+
+- **ステータス**: Accepted
+- **起票日**: 2026-07-03
+- **決定日**: 2026-07-03
+- **スコープ**: `lizyml/data/__init__.py`（3 validator の re-export + `__all__`）, `lizyml/utils/` 削除, docs（validator の言及追加）。**公開 API の additive 追加のみ**。`Model.fit` への自動配線は行わない（挙動不変）。
+- **関連**: [Issue #216](https://github.com/nbx-liz/LizyML/issues/216)。2026-07-02 full-package review（dead-code 判定は cross-check 検証済）。leakage-first charter（CLAUDE.md §0）。
+
+### 目的（課題）
+
+`lizyml/data/validators.py` の 3 つの leakage validator（`validate_time_series_order` / `validate_no_target_leakage` / `validate_group_split`）は `LizyMLError` code とテストを備えた良質なコードだが、`lizyml/` 内に呼び出し箇所が皆無で、`lizyml.data` / top-level からも未 export・docs 未記載＝dead code。leakage-first を掲げる本ライブラリで leakage 検査ツールが利用不能な状態。加えて `lizyml/utils/` は 0 byte の空パッケージで誰も import していない。
+
+### 対応方針（決定）
+
+- **validator を `lizyml.data` の public API として re-export**し、docstring / docs に利用方法を記載する。ユーザーが `from lizyml.data import validate_time_series_order` 等で明示的に leakage 検査を呼べるようにする。**`Model.fit` への自動配線はしない**（既存の通過中 config に警告/例外を新たに出す挙動変更を避けるため。自動配線は将来別 Proposal で検討）。
+- **空 `lizyml/utils/` を削除**する（import 参照ゼロを grep 確認済）。
+
+### 代替案（不採用）
+
+- **validator を削除**: charter 上価値ある leakage tooling とそのテストを失うため不採用。
+- **`Model.fit` へ自動配線（warn/raise）**: leakage-first に最も合致するが、既存の通過中 config に新たな警告/例外を出す挙動変更（互換性リスク）を伴い、別 Proposal と RED テストが必要。本 Proposal のスコープ外とし follow-up とする。
+
+### 影響範囲 / 互換性
+
+- **純 additive**: `lizyml.data` に 3 シンボルを追加するのみ。既存 import（`from lizyml.data.validators import ...`）は不変。`Model.fit` の挙動は不変。`lizyml/utils/` 削除は参照ゼロにつき無影響。format_version 不変。
+
+### 受け入れ基準（テスト観点）
+
+- `lizyml.data.__all__` に 3 validator が含まれ、`from lizyml.data import ...` で import 可能なことを固定するゴールデンテスト。
+- `lizyml/utils/` が存在せず、`import lizyml.utils` が失敗すること（削除の確認）。
+- 既存 validator の振る舞いテストは不変で pass すること。
+
+## H-0088: Layer-DAG ドリフトの解消（実在エッジの宣言 + BLUEPRINT §19 / 付録 B 同期）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-07-03
+- **決定日**: 2026-07-03
+- **スコープ**: `ARCHITECTURE.md`（codegen の Layer 配置 + 宣言済みエッジ表）, `BLUEPRINT.md §19`（欠落モジュール追記 + codegen 追加）, `BLUEPRINT.md 付録 B`（H-0074 完了マーク）。**ドキュメント/仕様のみ。コード変更なし**。
+- **関連**: [Issue #211](https://github.com/nbx-liz/LizyML/issues/211)。ARCHITECTURE.md §2.1 DAG, H-0052 / H-0054 / H-0073 / H-0074。2026-07-02 full-package review。
+
+### 目的（課題）
+
+宣言された 5 層 DAG（ARCHITECTURE.md / BLUEPRINT §2.1・§19）と実際の import グラフに乖離があり、「IF only / 下方向のみ」レビュールールが該当エッジで機能しない。
+
+1. **eval→training エッジが未宣言**: `evaluation/{evaluator,confusion}.py` が `training/oof_assembly.py` の `compute_oof_valid_mask` を import（Layer 2 内の横依存、H-0052 の副作用）。循環なし。
+2. **plots→calibration 具象ディスパッチ**: `plots/calibration.py` が Layer 1 具象 `CalibrationResult` を runtime import + isinstance dispatch（型ディスパッチは本来 Layer 4）。
+3. **codegen/ に Layer 未割当**: 4 モジュール（833 行の `templates.py` 含む）が §19 / ARCHITECTURE.md に不在。実質 Layer 3。seam が estimator 固有（`generate_code(..., lgbm_params=...)`）で H-0073 の狙いと不整合。
+4. **§19 / 付録 B ドリフト**: §19 が `core/_model_predict.py` / `core/_model_state.py` / `core/types/task.py` / `core/types/target_encoder.py` / `data/validators.py`（H-0087 で public 化）/ `codegen/` を欠く。付録 B が H-0074 FitState 移行を「整備中」と記すが 3 mixin は既に `_get_fit_state()` / `_get_tuning_state()` 使用済（H-0077 完了）。
+
+### 対応方針（決定）
+
+- **実在エッジを仕様に宣言する（型移動は follow-up）**。項目 1–3 のエッジはいずれも循環がなく、既存動作を保ったまま「仕様を実装に合わせる」ことでレビュールールを再び機能させる。ARCHITECTURE.md に codegen（Layer 3）を追加し、宣言済み横断エッジ（eval→training utility、persistence→training `RefitResult`（TYPE_CHECKING）、plots→calibration `CalibrationResult` dispatch）を rationale 付きで明記する。
+- **§19 / 付録 B を実装へ同期する**（欠落モジュール追記、H-0074 を完了マーク）。
+- **型の再配置は本 Proposal では行わない**（`compute_oof_valid_mask` / `RefitResult` / `CalibrationResult` の `core/types/` 昇格、`templates.py` 分割、codegen の estimator-agnostic 化）。いずれも shared-type contract / DAG に触れる別変更のため follow-up issue とする（codegen seam は既存 [#228](https://github.com/nbx-liz/LizyML/issues/228) を参照）。
+
+### 代替案（不採用）
+
+- **型を Layer 0 へ即時移動**: よりクリーンだが FitResult 契約に触れる shared-type 変更で、複数の import 経路と golden test に波及する。ドリフト解消（レビュールールの再機能化）が目的の本 Proposal では過剰。段階移行のため follow-up に分離。
+
+### 影響範囲 / 互換性
+
+- **コード・公開 API・format_version すべて不変**。ドキュメント/仕様のみ。実装は既に spec が記す実態に一致する方向へ更新するため、以後の DAG レビューが該当エッジで機能する。
+
+### 受け入れ基準（テスト観点）
+
+- ドキュメントのみのため runtime テストなし。BLUEPRINT §19 が実在モジュール（上記 5 + codegen）を網羅し、付録 B が H-0074 を完了として記すこと、ARCHITECTURE.md に codegen と宣言済みエッジが記載されることを目視レビューで確認する。
+
+## H-0089: calibrated OOF metrics の fallback 透明化（CalibrationResult に per-fold fallback フラグ + metrics に fallback-row count）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-07-04
+- **決定日**: 2026-07-04
+- **スコープ**: `lizyml/calibration/cross_fit.py`（`CalibrationResult` に additive フィールド 2 件 + `cross_fit_calibrate` の集計）, `lizyml/core/_model_metrics.py`（`metrics["calibrated"]` に `fallback_row_count` を追加）。
+- **関連**: [Issue #218](https://github.com/nbx-liz/LizyML/issues/218)（metrics transparency 項）, H-0058（calibration が outer splits を再利用）, H-0054（calibrated metrics assembly）。2026-07-02 full-package review。
+
+### 目的（課題）
+
+cross-fit calibration には、fold の学習データに **有効な被覆スコアが無い**（例: TimeSeriesCV fold 0 の全 train 行が未被覆 = NaN）か、**単一クラス**の場合、その fold の validation 行に対して calibrator を fit できず、**未校正の生 OOF 確率（`oof_pred`）をそのまま埋める** fallback 経路が 3 つ存在する（`cross_fit.py` の no-covered-train / single-class / partial-NaN-val 分岐）。この fallback は無標識で `calibrated_oof` に混入し、`metrics["calibrated"]["oof"]` は「校正済み確率」と「未校正確率」のブレンド上で計算されるが、**その事実がどこにも surface されない**。行リークではないが（H-0058 で許容済みの挙動）、**metric の誠実性（honesty）**の問題であり、ユーザは校正メトリクスが部分的に未校正であることを知り得ない。
+
+### 対応方針（決定）
+
+1. `CalibrationResult` に **additive** フィールドを 2 件追加する（いずれも default 付きで後方互換）:
+   - `fallback_fold_flags: list[bool]`（`default_factory=list`）— split_indices と同順。calibrator を fit できず fold 全体が未校正 fallback になった fold で `True`。
+   - `n_fallback_rows: int = 0` — 全 fold 合計で、`cal.predict(...)` ではなく未校正 fallback を割り当てた validation 行数（部分 NaN-val 行を含む）。
+2. `cross_fit_calibrate` のループでこれらを集計する（挙動そのものは不変 — 値は既存の fallback 経路をカウントするだけ）。
+3. `assemble_calibrated_metrics`（`_model_metrics.py`）が `metrics["calibrated"]` に `fallback_row_count: int`（= `CalibrationResult.n_fallback_rows`）を追加し、校正メトリクスの横に fallback 規模を surface する。fallback が皆無の通常ケースは `0`。
+
+### 影響範囲 / 互換性
+
+- **契約変更（Result shape）**: `CalibrationResult` に 2 フィールド追加、`metrics["calibrated"]` に `fallback_row_count` キー追加。いずれも **additive**。既存の `metrics["calibrated"]["oof"]` / `oof_per_fold` の意味・値は不変（fallback 行は従来どおり blend に含まれる — 本変更は「標識を足す」だけで数値は変えない）。
+- **format_version**: 据え置き（`2`）。`metrics` は fit 時に生成され dict として保存される純データで、旧アーティファクトの `metrics["calibrated"]` に本キーが無くても読み込みに支障はない（migration 不要）。`CalibrationResult` の新フィールドは default 付きのため、直接構築するコード（テスト等）も影響なし。旧 pickle の `CalibrationResult` を外部から読む経路では `getattr(cal, "n_fallback_rows", 0)` で防御する。
+- **公開 API**: `FitResult.metrics` の shape が additive に拡張される。golden test（calibrated keys / 契約）を更新。
+
+### 代替案（不採用）
+
+- **fallback 行を `calibrated_oof` から除外して NaN 化**: 校正メトリクスから未校正行を完全に排除できるが、`calibrated_oof` の長さ・被覆契約（H-0058: raw OOF と同一被覆）を破壊し、下流の table / plot に波及する破壊的変更。誠実性は「除外」ではなく「標識化」で達成できるため過剰。
+- **log のみで surface**: 実行時ログは事後監査に残らず、`FitResult` を受け取る評価コードから参照できない。metrics 契約に載せるのが最小で最も有用。
+
+### 受け入れ基準（テスト観点）
+
+- TimeSeriesCV（fold 0 全未被覆）相当の split で `cross_fit_calibrate` → `fallback_fold_flags[0] is True`、`n_fallback_rows == 当該 fold の fallback 行数`。
+- fallback が発生しない通常の binary KFold + platt 構成で `fallback_fold_flags` が全 `False`、`n_fallback_rows == 0`、`metrics["calibrated"]["fallback_row_count"] == 0`。
+- 単一クラス train fold を含む split で当該 fold flag が `True`、fallback 行数が一致。
+- 既存の calibrated metrics テスト（`"oof" in cal`、`set(cal["oof"]) == set(raw["oof"])`）が引き続き green。
+
+## H-0090: codegen の生成 train.py で time/group split を再現（#206 の shuffle-leak banner 撤去）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-07-04
+- **決定日**: 2026-07-04
+- **スコープ**: `lizyml/codegen/templates.py`（生成 train.py に split 再現ロジックを追加、calibration OOF を再現 fold で生成、covered 行のみで calibrator fit）, `lizyml/codegen/config_writer.py`（config.json に `split` ブロック追加）, `lizyml/codegen/generator.py`（`generate_code(split=...)`、#206 banner/warning 撤去）, `lizyml/core/_model_persistence.py`（`_build_split_metadata(cfg)` で split spec を JSON 化）。
+- **関連**: [Issue #228](https://github.com/nbx-liz/LizyML/issues/228)（#206 のフォローアップ）, [#206](https://github.com/nbx-liz/LizyML/issues/206)（最小対応: warn+banner）, H-0058（calibration は outer splits を再利用）, H-0060（BlockedGroupKFold）, [#211](https://github.com/nbx-liz/LizyML/issues/211) item 3（codegen seam）。
+
+### 目的（課題）
+
+#206 は最小対応として、`split.method` が `kfold` / `stratified_kfold` 以外のとき、生成 `train.py` に「shuffled random K-fold で retrain するため time/group 境界を跨いでリークする」旨の `UserWarning` + banner を出すに留めていた。retrain OOF（calibration 用）が実際にシャッフル分割のままで、時系列・グループデータの再学習が**境界を跨いでリーク**する状態は解消されていなかった。
+
+### 対応方針（決定）
+
+生成 `train.py` の calibration OOF CV を、`config.json["split"]` からモデルの `split.method` を**忠実に再現**する形に置き換える。LizyML 非依存を保つため、標準 3 種は sklearn を直接呼び（`time_series`=`TimeSeriesSplit`, `group_kfold`=`GroupKFold`, `stratified_group_kfold`=`StratifiedGroupKFold`）、独自 3 種（`purged_time_series` / `group_time_series` / `blocked_group_kfold`）は LizyML splitter の fold ロジックを pure numpy でテンプレに移植する。
+
+- **ソート再現**: LizyML は分割前にデータを time_col（time系）または blocks.col（blocked）で `argsort()` する。生成側も同じ pandas `argsort()` で並べ替え、fold index を元の行順に戻す。
+- **split metadata の JSON 化**: `_build_split_metadata(cfg)` が method 固有パラメータ（gap / purge_gap / embargo / cutoffs / mode / train_window / stratify / shuffle / random_state / min_train/valid_rows / n_splits / time_col / group_col）を**解決済みの値**（`stratify="auto"` は bool 化、`random_state` は `training.seed` へフォールバック）で serialize。テンプレは LizyML ロジック不要。
+- **covered 行のみで calibrator fit**: time/group split では first-period / 未被覆行が全 validation fold から漏れて OOF が NaN になり得るため、calibrator は `~isnan(oof)` の covered 行のみで fit する（LizyML cross-fit C_final と同じ）。#206 で shuffled K-fold（全行被覆）だったため顕在化していなかった latent bug を解消。
+- **#206 banner/warning 撤去**: 全 method を再現するため不要。
+
+### 影響範囲 / 互換性
+
+- **codegen 出力の意味変更（leakage 境界）**: 生成 `train.py` の retrain CV が shuffled K-fold から実 split に変わる。**リーク解消の是正**であり、`predict.py` / `model.txt` は不変。
+- **config.json 追加キー `split`**: additive。旧 export（`split` なし）を読む生成コードは legacy の task-based shuffled K-fold にフォールバックする（後方互換）。
+- **format_version**: 据え置き（生成コードは配布物で、`format_version` は Model artifact 側の契約）。
+- **公開 API**: `generate_code` の `split_method: str` パラメータを `split: dict | None` に置換（内部 codegen API、外部利用なし）。
+
+### 代替案（不採用）
+
+- **LizyML splitter を生成コードから import**: 生成物の「LizyML 非依存」契約（export skill）を破壊するため不可。
+- **元データの split indices を artifact に焼き込み**: retrain は新規データに対して行うため、固定 index では再現できない（split ロジックの移植が必須）。
+
+### 受け入れ基準（テスト観点）
+
+- 6 method（time_series / purged_time_series / group_time_series / group_kfold / stratified_group_kfold / blocked_group_kfold）+ stratified_kfold で、生成 `train.py` の `_resolve_folds(df, y)` が LizyML `build_splitter(...).split(...)` と **fold index 完全一致**（`tests/test_codegen/test_split_reproduction.py`）。
+- time_series + calibration の export → 生成 `train()` が再現 fold で end-to-end に retrain し `calibrator.json` を生成（covered 行 fit）。
+- `export_code` が対象 method で #206 warning/banner を出さず、`config.json["split"]` に method + 列名を serialize する。
+
+## H-0091: tune() orchestration を writer-exempt な `_model_tuning.py` mixin へ抽出（H-0077 の read-only-mixin 不変条件を明示的に category 分割）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-07-04
+- **決定日**: 2026-07-04
+- **スコープ**: `lizyml/core/model.py`（tune() + 5 helper を撤去、`ModelTuningMixin` を継承）, `lizyml/core/_model_tuning.py`（新規: writer-exempt orchestrator mixin）, `tests/test_core/test_mixin_state_isolation.py`（不変条件の category 分割を文書化 + writer-mixin 判定テスト追加）。
+- **関連**: [Issue #237](https://github.com/nbx-liz/LizyML/issues/237)（#209 Phase 3 から deferred）, H-0074 / H-0077（Mixin state isolation）, #209（invariant-safe な部分は抽出済）。
+
+### 目的（課題）
+
+`core/model.py` は 800 行ガイダンスを超過（develop で 1244 行）。残る tuning orchestration（`tune()` + `_validate_tune_inputs` / `_resolve_search_space` / `_maybe_expand_boundary` / `_build_tune_objective` / `_run_tune_round`、約 471 行）が facade に残存している。#209 は invariant-safe な domain logic（`assemble_round_result` / `prepare_for_split` 等）のみ抽出し、orchestration は **H-0077 の read-only-mixin 不変条件と衝突**するため deferred した。
+
+既存 mixin（`_model_plots` / `_model_tables` / `_model_persistence`）は **read-only な post-fit consumer** で、H-0077 により mixin body は `_get_fit_state()` / `_get_tuning_state()` 経由でのみ state を読む（`self._<private>` 直接 access 禁止、`tests/test_core/test_mixin_state_isolation.py` の静的ガードで強制）。一方 `tune()` は **writer**（`self._tuning_result` / `_study` / `_rounds` / `_run_dir` を書き換え、`self._merge_params` / `_build_train_components` を呼ぶ）。frozen state snapshot は writer に使えないため、素朴に mixin へ移すとガードに抵触する。
+
+### 対応方針（決定）— writer-exempt orchestrator mixin category
+
+mixin を 2 カテゴリに明示的に分ける:
+
+1. **Diagnostic mixin（read-only）**: `_model_plots` / `_model_tables` / `_model_persistence`。post-fit consumer。H-0077 の read-only 規則が適用され、静的ガード（`_MIXIN_FILES`）が `self._<private>` を禁止する。
+2. **Orchestrator mixin（writer-exempt）**: `_model_tuning`（新規）。`tune()` の mutating lifecycle 中に走る唯一の writer mixin。`self._<private>` への読み書きを許可し、静的ガードの `_MIXIN_FILES` に**含めない**（＝ read-only 規則の対象外であることを列挙で明示）。
+
+これにより H-0077 の read-only 不変条件は diagnostic mixin に対して**無傷**のまま、orchestration を facade から分離して `model.py < 800 行` を達成する。純 refactor（振る舞い不変）。
+
+### 不変条件（INV, testable）
+
+- **INV-1**: diagnostic mixin（`_model_plots` / `_model_tables` / `_model_persistence`）は Model body の private state を書かない。読むのは `_get_fit_state()` / `_get_tuning_state()` 経由のみ。— 違反シナリオ: diagnostic mixin に `self._tuning_result = ...` が現れる → 静的ガードが検出。
+- **INV-2**: writer mixin は **ちょうど 1 つ**（`_model_tuning`）で、writer-exempt として列挙される。diagnostic ガードの `_MIXIN_FILES` に `_model_tuning` は現れない。— 違反シナリオ: `_model_tuning` を `_MIXIN_FILES` に追加 → tune() の writer access を誤検出、または writer mixin が 2 つに増える。
+- **INV-3**: `tune()` の抽出は振る舞いを変えない（OOF/best_params/rounds/study が抽出前後で一致）。— 違反シナリオ: 移動中に self._ 参照を取りこぼす → tuning E2E が fail。
+
+### 失敗パス（Failure Paths Covered）
+
+- **normal**: tune() → best_params/rounds/study が populate、後続 fit() が best_training_params 適用。
+- **resume**: `tune(resume=True)` で既存 study を継続。
+- **boundary expand**: `_maybe_expand_boundary` が探索空間境界を拡張する round。
+- **exception**: tune 中の trial 例外は既存の callback（RuntimeWarning）で握られ、study は継続。
+- **前提未達**: fit 前に diagnostic mixin メソッド呼び出し → `MODEL_NOT_FIT`（既存契約、不変）。
+
+### 影響範囲 / 互換性
+
+- **公開 API・FitResult・Artifacts・format_version すべて不変**。純 refactor。`Model` の MRO に `ModelTuningMixin` が加わるのみ（`tune()` は同じシグネチャで公開され続ける）。
+- **BLUEPRINT §19 / ARCHITECTURE.md**: mixin 一覧に `_model_tuning`（orchestrator/writer category）を追記。
+
+### 代替案（不採用）
+
+- **案 A: H-0077 を緩めて「writer-exempt」フラグを diagnostic ガードに追加**: ガードのロジックが複雑化。ファイルリスト方式（diagnostic のみ列挙）の方が単純で、writer mixin は「リストに無い」ことで自然に exempt になる。
+- **tune() を facade に残す**: model.py < 800 行が達成できず #237 未解決。
+
+### 受け入れ基準（テスト観点）
+
+- `core/model.py` < 800 行。
+- 全 tuning + retune E2E green（振る舞い不変）: `test_tuning/` 一式、`test_tune_fit_identity.py`、`test_retune.py`、`test_tuning_persistence.py`。
+- 静的ガード（`test_mixin_state_isolation.py::TestMixinPrivateAccessGuard`）が 3 diagnostic mixin で引き続き pass。
+- 新規テスト: `_model_tuning.py` が `_MIXIN_FILES`（read-only ガード対象）に**含まれない**こと、`ModelTuningMixin` が `Model` の base に含まれ `tune` を提供することを assert。

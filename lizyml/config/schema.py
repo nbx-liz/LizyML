@@ -95,6 +95,37 @@ class TimeSeriesConfig(BaseModel):
     test_size_max: int | None = None
 
 
+def _legacy_obs_count(key: str, value: Any) -> int:
+    """Coerce a legacy purge/embargo value to an integer observation count.
+
+    Rejects fractional values instead of silently truncating them to ``0`` — a
+    leak-prevention parameter must never collapse to ``0`` (#210). Integer-valued
+    inputs (``3`` or ``3.0``) are accepted; a fractional value (``0.05``) raises.
+    """
+    if isinstance(value, bool):
+        raise ValueError(
+            f"purged_time_series '{key}' must be an integer observation count, "
+            f"got {value!r}."
+        )
+    if isinstance(value, int):
+        return value
+    try:
+        as_float = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"purged_time_series '{key}' must be an integer observation count, "
+            f"got {value!r}."
+        ) from None
+    if as_float != int(as_float):
+        raise ValueError(
+            f"purged_time_series legacy '{key}'={value!r} is fractional; "
+            "'embargo' is an integer observation count, not a fraction. It must "
+            "not silently truncate to 0. Compute the row count explicitly "
+            "(e.g. int(round(fraction * n_rows)))."
+        )
+    return int(as_float)
+
+
 class PurgedTimeSeriesConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -129,7 +160,7 @@ class PurgedTimeSeriesConfig(BaseModel):
                 DeprecationWarning,
                 stacklevel=2,
             )
-            data["embargo"] = int(data.pop("embargo_pct"))
+            data["embargo"] = _legacy_obs_count("embargo_pct", data.pop("embargo_pct"))
         if "gap" in data and "embargo" not in data:
             warnings.warn(
                 "purged_time_series key 'gap' is deprecated; "
@@ -137,7 +168,7 @@ class PurgedTimeSeriesConfig(BaseModel):
                 DeprecationWarning,
                 stacklevel=2,
             )
-            data["embargo"] = int(data.pop("gap"))
+            data["embargo"] = _legacy_obs_count("gap", data.pop("gap"))
         return data
 
 
@@ -369,7 +400,17 @@ class EarlyStoppingConfig(BaseModel):
           → ``ValueError`` to surface real conflicts.
         """
         user_explicit_inner_valid = False
+        explicit_marker: bool | None = None
         if isinstance(data, dict):
+            # A serialized explicitness marker (emitted by a prior
+            # ``model_dump()``) is the round-trip source of truth: pop it before
+            # ``handler`` since ``extra="forbid"`` — the same treatment the
+            # computed ``validation_ratio`` gets. This keeps an explicit
+            # ``inner_valid`` explicit across dump/reload instead of letting the
+            # re-emitted ``validation_ratio`` flip it to auto-resolve (H-0086,
+            # #203).
+            if "inner_valid_explicit" in data:
+                explicit_marker = bool(data.pop("inner_valid_explicit"))
             iv_in = data.get("inner_valid") is not None
             vr_present = "validation_ratio" in data
             user_explicit_inner_valid = iv_in and not vr_present
@@ -409,7 +450,11 @@ class EarlyStoppingConfig(BaseModel):
             instance.inner_valid = HoldoutInnerValidConfig(
                 method="holdout", ratio=_DEFAULT_VALIDATION_RATIO
             )
-        instance._inner_valid_explicit = user_explicit_inner_valid
+        instance._inner_valid_explicit = (
+            explicit_marker
+            if explicit_marker is not None
+            else user_explicit_inner_valid
+        )
         return instance
 
     @computed_field  # type: ignore[prop-decorator]
@@ -419,6 +464,19 @@ class EarlyStoppingConfig(BaseModel):
         if self.inner_valid is None:
             return _DEFAULT_VALIDATION_RATIO
         return self.inner_valid.ratio
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def inner_valid_explicit(self) -> bool:
+        """Round-trip marker for whether ``inner_valid`` was user-explicit.
+
+        Emitted by ``model_dump()`` and honored on re-validation (popped like
+        ``validation_ratio``) so a dumped/exported config preserves the user's
+        explicit ``inner_valid`` choice instead of silently falling back to
+        split-derived auto-resolution (H-0086, #203). Not a settable input
+        field — it only mirrors the internal ``_inner_valid_explicit`` state.
+        """
+        return self._inner_valid_explicit
 
 
 class TrainingConfig(BaseModel):

@@ -1,6 +1,8 @@
-"""Edge-case tests to improve per-file coverage to >= 95%.
+"""Edge-case and error-path tests, grouped by the module under test.
 
-Each section targets a specific module's uncovered lines.
+Each section exercises a specific module's boundary / error behavior
+(invalid inputs, corrupt artifacts, degenerate splits, SHAP output shapes).
+Section headers name the module; they are not tied to any coverage snapshot.
 """
 
 from __future__ import annotations
@@ -20,12 +22,12 @@ import pytest
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 
 # ============================================================================
-# 1. splitters/holdout.py  (60% -> 95%+)
+# splitters/holdout.py
 # ============================================================================
 
 
 # ============================================================================
-# 2. core/logging.py  (75% -> 100%)
+# core/logging.py
 # ============================================================================
 
 
@@ -44,7 +46,7 @@ class TestLogEvent:
 
 
 # ============================================================================
-# 4. explain/shap_explainer.py  (81% -> 95%+)
+# explain/shap_explainer.py
 # ============================================================================
 
 
@@ -98,7 +100,7 @@ class TestNormalizeShapOutput:
 
 
 # ============================================================================
-# 5. evaluation/thresholding.py  (85% -> 100%)
+# evaluation/thresholding.py
 # ============================================================================
 
 
@@ -120,7 +122,7 @@ class TestOptimiseThreshold:
 
 
 # ============================================================================
-# 6. persistence/exporter.py  (85% -> 95%+)
+# persistence/exporter.py
 # ============================================================================
 
 
@@ -154,7 +156,7 @@ class TestExportError:
 
 
 # ============================================================================
-# 7. persistence/loader.py  (86% -> 95%+)
+# persistence/loader.py
 # ============================================================================
 
 
@@ -215,7 +217,7 @@ class TestLoadErrors:
 
 
 # ============================================================================
-# 8. splitters/purged_time_series.py  (86% -> 95%+)
+# splitters/purged_time_series.py
 # ============================================================================
 
 
@@ -249,7 +251,7 @@ class TestPurgedTimeSeries:
 
 
 # ============================================================================
-# 9. data/fingerprint.py  (91% -> 95%+)
+# data/fingerprint.py
 # ============================================================================
 
 
@@ -269,7 +271,7 @@ class TestFingerprint:
 
 
 # ============================================================================
-# 10. features/encoders/categorical_encoder.py  (92% -> 95%+)
+# features/encoders/categorical_encoder.py
 # ============================================================================
 
 
@@ -318,7 +320,7 @@ class TestCategoricalEncoder:
 
 
 # ============================================================================
-# 11. core/exceptions.py  (92% -> 100%)
+# core/exceptions.py
 # ============================================================================
 
 
@@ -349,7 +351,7 @@ class TestLizyMLErrorRepr:
 
 
 # ============================================================================
-# 12. splitters/group_time_series.py  (92% -> 95%+)
+# splitters/group_time_series.py
 # ============================================================================
 
 
@@ -383,7 +385,7 @@ class TestGroupTimeSeries:
 
 
 # ============================================================================
-# 13. data/validators.py  (93% -> 95%+)
+# data/validators.py
 # ============================================================================
 
 
@@ -418,7 +420,7 @@ class TestValidators:
 
 
 # ============================================================================
-# 14. config/loader.py  (94% -> 95%+)
+# config/loader.py
 # ============================================================================
 
 

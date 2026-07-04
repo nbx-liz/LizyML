@@ -191,16 +191,30 @@ SUPPORTED_CONFIG_VERSIONS: list[int] = [1]
 
 
 def _check_config_version(raw: dict[str, Any]) -> None:
-    """Raise CONFIG_VERSION_UNSUPPORTED if config_version is unsupported."""
+    """Raise CONFIG_VERSION_UNSUPPORTED if config_version is unsupported.
+
+    The value is coerced to an ``int`` before the membership check so a string
+    like ``"999"`` cannot bypass the gate and then be lax-coerced by pydantic
+    (#210). A missing or non-integer value is left for pydantic to report.
+    """
     version = raw.get("config_version")
-    if isinstance(version, int) and version not in SUPPORTED_CONFIG_VERSIONS:
+    if version is None or isinstance(version, bool):
+        return
+    try:
+        version_int = int(version)
+    except (TypeError, ValueError):
+        return  # non-coercible → pydantic reports the type error
+    if version_int not in SUPPORTED_CONFIG_VERSIONS:
         raise LizyMLError(
             ErrorCode.CONFIG_VERSION_UNSUPPORTED,
             user_message=(
-                f"config_version={version} is not supported. "
+                f"config_version={version!r} is not supported. "
                 f"Supported versions: {SUPPORTED_CONFIG_VERSIONS}"
             ),
-            context={"config_version": version, "supported": SUPPORTED_CONFIG_VERSIONS},
+            context={
+                "config_version": version,
+                "supported": SUPPORTED_CONFIG_VERSIONS,
+            },
         )
 
 

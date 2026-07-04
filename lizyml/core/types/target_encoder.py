@@ -111,15 +111,28 @@ class TargetEncoder:
     def transform(self, y: pd.Series) -> pd.Series:
         """Encode y to int codes.
 
-        No-op when ``needs_encoding`` is False (returns y unchanged).
+        No-op when ``needs_encoding`` is False (returns y unchanged), other than
+        the NaN guard below.
 
         Raises:
             LizyMLError: With ``TARGET_UNSEEN_LABEL`` when y contains labels
                 not present in :attr:`classes_`. With ``DATA_SCHEMA_INVALID``
-                when y contains NaN — classification targets must be fully
-                labeled before fit.
+                when y contains NaN — the target (numeric or classification)
+                must be fully populated before fit (H-0085 / #207).
         """
         if not self.needs_encoding:
+            # Numeric / regression target: passthrough, but a NaN target is
+            # still an invalid contract (previously silently accepted, #207).
+            nan_mask = pd.Series(y).isna()
+            if nan_mask.any():
+                raise LizyMLError(
+                    code=ErrorCode.DATA_SCHEMA_INVALID,
+                    user_message=(
+                        f"Target column contains {int(nan_mask.sum())} "
+                        "NaN value(s); the target must be fully populated."
+                    ),
+                    context={"nan_count": int(nan_mask.sum())},
+                )
             return y
 
         y_series = pd.Series(y)

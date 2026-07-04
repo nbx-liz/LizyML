@@ -6,9 +6,30 @@ import ast
 
 from lizyml.codegen.templates import (
     render_predict_py,
+    render_requirements_txt,
     render_test_equivalence_py,
     render_train_py,
 )
+
+
+class TestRenderRequirementsTxt:
+    """scipy is pinned only when the model uses beta calibration (#218)."""
+
+    def test_base_deps_always_present(self) -> None:
+        for reqs in (
+            render_requirements_txt(),
+            render_requirements_txt(uses_beta_calibration=True),
+        ):
+            assert "lightgbm" in reqs
+            assert "numpy" in reqs
+            assert "pandas" in reqs
+            assert "scikit-learn" in reqs
+
+    def test_scipy_omitted_without_beta(self) -> None:
+        assert "scipy" not in render_requirements_txt()
+
+    def test_scipy_pinned_with_beta(self) -> None:
+        assert "scipy" in render_requirements_txt(uses_beta_calibration=True)
 
 
 class TestRenderTrainPy:
@@ -134,3 +155,39 @@ class TestRenderTestEquivalencePy:
         src = render_test_equivalence_py()
         assert "rtol" in src
         assert "1e-7" in src
+
+    def test_imports_and_calls_predict_module(self) -> None:
+        """#217: the checker imports predict.py and calls it, rather than
+        re-implementing the prediction path (which drifts silently)."""
+        src = render_test_equivalence_py()
+        tree = ast.parse(src)
+        imports = {
+            alias.name
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Import)
+            for alias in node.names
+        }
+        assert "predict" in imports
+        assert "predict.predict(" in src
+
+    def test_no_second_prediction_implementation(self) -> None:
+        """#217: no inlined transform / predict / calibrate copy that could
+        diverge from predict.py while the equivalence check still passes."""
+        src = render_test_equivalence_py()
+        tree = ast.parse(src)
+        func_names = {
+            node.name for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+        }
+        for forbidden in (
+            "_predict",
+            "_transform",
+            "_calibrate",
+            "calibrate",
+            "_load_pipeline",
+            "_load_calibrator",
+        ):
+            assert forbidden not in func_names, (
+                f"{forbidden} re-implemented in generated test_equivalence.py"
+            )
+        # No direct model/artifact loading — that lives in predict.py only.
+        assert "import lightgbm" not in src

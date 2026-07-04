@@ -14,6 +14,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
+from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.artifacts import DataFingerprint, RunMeta, SplitIndices
 from lizyml.core.types.fit_result import FitResult
 from lizyml.evaluation.evaluator import Evaluator
@@ -192,7 +193,12 @@ class TestEvaluatorPartialCoverageTimeSeries:
 
 
 class TestEvaluatorNanBugDetection:
-    """NaN in covered rows must raise ValueError."""
+    """NaN in covered rows must raise ``LizyMLError(EVALUATION_FAILED)``.
+
+    Updated for #214 (H-0086): the guard was a bare ``ValueError`` — now unified
+    to ``LizyMLError`` with a ``code`` + ``context`` so ``except LizyMLError``
+    catches it and callers can inspect ``nan_count`` / ``nan_indices``.
+    """
 
     def test_nan_in_covered_rows_raises(self) -> None:
         n = 9
@@ -209,8 +215,11 @@ class TestEvaluatorNanBugDetection:
         )
         fr = _make_fit_result(oof_pred, outer)
         ev = Evaluator(task="regression")
-        with pytest.raises(ValueError, match="covered by validation folds"):
+        with pytest.raises(LizyMLError, match="covered by validation folds") as exc:
             ev.evaluate(fr, y, ["rmse"])
+        assert exc.value.code is ErrorCode.EVALUATION_FAILED
+        assert exc.value.context["nan_count"] == 1
+        assert 3 in exc.value.context["nan_indices"]
 
     def test_nan_in_uncovered_rows_ok(self) -> None:
         """NaN in structurally uncovered rows is expected and must not raise."""

@@ -17,17 +17,21 @@ What Model does NOT contain:
 - Persistence details         → persistence/*
 
 Mixin decomposition (H-0042):
-- Plot methods      → _model_plots.py (ModelPlotsMixin)
-- Table/accessors   → _model_tables.py (ModelTablesMixin)
-- Export/load       → _model_persistence.py (ModelPersistenceMixin)
+- Plot methods      → _model_plots.py (ModelPlotsMixin)        [read-only]
+- Table/accessors   → _model_tables.py (ModelTablesMixin)      [read-only]
+- Export/load       → _model_persistence.py (ModelPersistenceMixin) [read-only]
+- Tuning orchestr.  → _model_tuning.py (ModelTuningMixin)      [writer; H-0091]
 - Splitter/IV build → _model_factories.py (module-level functions)
+
+Diagnostic mixins (the three read-only ones) read state exclusively through
+``_get_fit_state()`` / ``_get_tuning_state()`` (H-0077). ``ModelTuningMixin`` is
+the writer-exempt orchestrator (runs during the mutating ``tune()`` lifecycle).
 """
 
 from __future__ import annotations
 
 import dataclasses
 import sys
-from collections.abc import Callable
 from copy import deepcopy
 from datetime import datetime, timezone
 from importlib.metadata import version as pkg_version
@@ -39,14 +43,13 @@ import numpy.typing as npt
 import pandas as pd
 
 if TYPE_CHECKING:
-    from optuna.storages import BaseStorage
+    pass
 
 from lizyml import __version__
 from lizyml.config.loader import load_config
 from lizyml.config.schema import (
     BlockedGroupKFoldConfig,
     LizyMLConfig,
-    OptunaParamsConfig,
 )
 from lizyml.core._model_factories import (
     build_inner_valid,
@@ -54,25 +57,27 @@ from lizyml.core._model_factories import (
     get_provider,
     make_inner_valid_factory,
 )
-from lizyml.core._model_metrics import assemble_calibrated_metrics, filter_metrics
+from lizyml.core._model_metrics import (
+    _DEFAULT_METRICS,
+    assemble_calibrated_metrics,
+    filter_metrics,
+)
 from lizyml.core._model_persistence import ModelPersistenceMixin
 from lizyml.core._model_plots import ModelPlotsMixin
 from lizyml.core._model_predict import run_predict
-from lizyml.core._model_state import FitState, TuningState
+from lizyml.core._model_state import FitState
 from lizyml.core._model_tables import ModelTablesMixin
+from lizyml.core._model_tuning import ModelTuningMixin
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.logging import generate_run_id, get_logger
 from lizyml.core.specs.feature_spec import FeatureSpec
 from lizyml.core.specs.problem_spec import ProblemSpec
 from lizyml.core.train_components import TrainComponents
-from lizyml.core.types.artifacts import DataFingerprint, RunMeta
+from lizyml.core.types.artifacts import RunMeta
 from lizyml.core.types.fit_result import FitResult
 from lizyml.core.types.predict_result import PredictionResult
-from lizyml.core.types.task import TaskType
 from lizyml.core.types.tuning_result import (
-    BoundaryReport,
     RoundSummary,
-    TuneProgressCallback,
     TuningResult,
 )
 from lizyml.data import dataframe_builder, datasource
@@ -83,36 +88,21 @@ from lizyml.evaluation.evaluator import Evaluator
 from lizyml.metrics.registry import (
     get_metrics_for_task,
     parse_metric_entries,
-    parse_metric_entry,
 )
-from lizyml.splitters.base import BaseSplitter
 from lizyml.training.cv_trainer import CVTrainer
 from lizyml.training.inner_valid import BaseInnerValidStrategy
 from lizyml.training.refit_trainer import RefitResult, RefitTrainer
 from lizyml.tuning.search_space import (
-    attach_bounds,
-    detect_boundary,
-    expand_dims,
     parse_space,
-    split_by_category,
-    suggest_params,
 )
-from lizyml.tuning.tuner import Tuner
 
 _log = get_logger("model")
-
-# Default metrics per task when none are specified in config.
-_DEFAULT_METRICS: dict[TaskType, list[str | dict[str, dict[str, Any]]]] = {
-    "regression": ["rmse", "mae"],
-    "binary": ["logloss", "auc"],
-    "multiclass": ["logloss", "f1", "accuracy"],
-}
 
 _TS_METHODS = frozenset({"time_series", "purged_time_series", "group_time_series"})
 _BLOCK_METHODS = frozenset({"blocked_group_kfold"})
 
 
-class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
+class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTuningMixin):
     """Public-facing facade for LizyML.
 
     Args:
@@ -185,6 +175,19 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
 
         self._ensure_run_dir(run_id)
         _log.info("event='fit.start' run_id=%s task=%s", run_id, cfg.task)
+
+        # A fit() after tune() reuses the identical deterministic CV splits used
+        # to select the params, so the reported OOF metrics are optimistically
+        # biased (documented user-side policy, BLUEPRINT §11.6). Surface it once
+        # per fit so it is not silently unenforced (#218).
+        if self._tuning_result is not None:
+            _log.warning(
+                "event='fit.post_tune' run_id=%s "
+                "msg='fit() after tune() reuses the tuning CV splits; reported "
+                "OOF metrics are optimistically biased (BLUEPRINT 11.6). Use a "
+                "held-out set for an unbiased estimate.'",
+                run_id,
+            )
 
         # --- Load & prepare data ---------------------------------------------
         X, y, groups, components = self._prepare_training_data(data)
@@ -274,7 +277,11 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
 
         self._fit_result = fit_result
         _log.info("event='fit.done' run_id=%s", run_id)
-        return fit_result
+        # Return a selective deep copy (FitResult.__deepcopy__): mutating the
+        # primary return path must not corrupt internal state or a later
+        # export() — the same H-0082 defense as the ``fit_result`` property
+        # (#204 / H-0086). Trained estimators stay shared by reference.
+        return deepcopy(fit_result)
 
     def evaluate(
         self,
@@ -359,473 +366,6 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             X=X,
             return_shap=return_shap,
         )
-
-    def tune(
-        self,
-        data: pd.DataFrame | None = None,
-        *,
-        resume: bool = False,
-        n_trials: int | None = None,
-        expand_boundary: bool | None = None,
-        boundary_threshold: float = 0.05,
-        progress_callback: TuneProgressCallback | None = None,
-        storage: str | BaseStorage | None = None,
-        study_name: str | None = None,
-    ) -> TuningResult:
-        """Run hyperparameter search with optuna (H-0068: resume + expand,
-        H-0072: persistent storage).
-
-        Requires ``tuning`` section in the config.  Best params are stored
-        internally and used automatically in the next ``fit()`` call.
-
-        Args:
-            data: Training DataFrame.  Overrides any data from construction
-                or ``data.path`` in config.
-            resume: If True, resume from the previous Study and add trials.
-                The TPE sampler reuses knowledge from previous trials.
-            n_trials: Number of trials to run.  Defaults to
-                ``config.tuning.optuna.params.n_trials`` if None.
-            expand_boundary: Whether to auto-expand search space dimensions
-                whose best params are near the boundary.  None means True
-                for default space, False for user-specified space.
-            boundary_threshold: Edge detection threshold; must be in the open
-                interval ``(0.0, 0.5)``.
-            progress_callback: Optional callback invoked after each trial.
-            storage: Optional Optuna storage URL or ``BaseStorage`` instance
-                for resumable tuning (H-0072). ``None`` keeps the in-memory
-                behavior. When set, ``study_name`` is required.
-            study_name: Optional study identifier used together with
-                ``storage`` (H-0072). Required when ``storage`` is given.
-                Re-using the same ``(storage, study_name)`` pair re-attaches
-                to the persisted study via ``load_if_exists=True``.
-
-        Returns:
-            :class:`~lizyml.core.types.tuning_result.TuningResult` with
-            best params, best score, and full trial history.
-
-        Raises:
-            LizyMLError with CONFIG_INVALID when no ``tuning`` config is set.
-            LizyMLError with OPTIONAL_DEP_MISSING when optuna is not installed.
-            LizyMLError with TUNING_FAILED on study failure or resume without
-                prior tune().
-        """
-        cfg = self._cfg
-        self._validate_tune_inputs(resume=resume, boundary_threshold=boundary_threshold)
-
-        optuna_cfg = cfg.tuning.optuna.params  # type: ignore[union-attr]
-        actual_n_trials = n_trials if n_trials is not None else optuna_cfg.n_trials
-
-        _log.info(
-            "event='tune.start' task=%s resume=%s n_trials=%d",
-            cfg.task,
-            resume,
-            actual_n_trials,
-        )
-
-        self._ensure_run_dir(generate_run_id())
-        # Components are dropped: tune() only needs the sorted X/y/groups for
-        # the objective closure; FeaturePipeline state is built per-trial via
-        # `provider.build_pipeline_factory()`.
-        X, y, groups, _components = self._prepare_training_data(data)
-        del _components
-        self._X, self._y = X, y
-
-        provider = get_provider(cfg.model)
-        self._provider = provider
-        n_classes = int(y.nunique()) if cfg.task == "multiclass" else None
-        splitter = build_splitter(
-            cfg,
-            block_values=self._block_values,
-            task=cfg.task,
-            seed=cfg.training.seed,
-        )
-        base_model_params, base_smart_params = self._merge_params(provider)
-
-        space, used_default, fixed = self._resolve_search_space(
-            resume=resume, provider=provider
-        )
-        space, boundary_report, expanded_names = self._maybe_expand_boundary(
-            space,
-            resume=resume,
-            used_default=used_default,
-            expand_boundary=expand_boundary,
-            boundary_threshold=boundary_threshold,
-        )
-
-        # --- Metric & evaluator setup --------------------------------------------
-        metric_entries = cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task]
-
-        first_entry = metric_entries[0]
-        metric_name, _ = parse_metric_entry(first_entry)
-
-        evaluator = Evaluator(task=cfg.task)
-        fingerprint = fp_compute(X, file_path=None)
-        run_meta = self._build_run_meta(generate_run_id())
-
-        objective = self._build_tune_objective(
-            space=space,
-            base_model_params=base_model_params,
-            base_smart_params=base_smart_params,
-            fixed=fixed,
-            provider=provider,
-            splitter=splitter,
-            X=X,
-            y=y,
-            groups=groups,
-            n_classes=n_classes,
-            fingerprint=fingerprint,
-            run_meta=run_meta,
-            evaluator=evaluator,
-            first_entry=first_entry,
-            metric_name=metric_name,
-        )
-
-        round_number = self._round_number + 1
-        result, study, prior_trials, best_score_before = self._run_tune_round(
-            objective,
-            space=space,
-            actual_n_trials=actual_n_trials,
-            optuna_cfg=optuna_cfg,
-            metric_name=metric_name,
-            progress_callback=progress_callback,
-            storage=storage,
-            study_name=study_name,
-            resume=resume,
-            round_number=round_number,
-            expanded_names=expanded_names,
-        )
-
-        final_result, all_rounds = self._assemble_tuning_result(
-            result,
-            round_number=round_number,
-            actual_n_trials=actual_n_trials,
-            best_score_before=best_score_before,
-            expanded_names=expanded_names,
-            space=space,
-            boundary_report=boundary_report,
-            prior_trials=prior_trials,
-        )
-
-        # --- Update internal state -----------------------------------------------
-        self._tuning_result = final_result
-        self._study = study
-        self._round_number = round_number
-        self._rounds = list(all_rounds)
-        self._space = space
-        self._used_default_space = used_default
-
-        _log.info(
-            "event='tune.done' round=%d best_params=%s",
-            round_number,
-            final_result.best_params,
-        )
-        return final_result
-
-    # --- tune() helpers (#114 — split god method) -------------------------------
-
-    def _validate_tune_inputs(self, *, resume: bool, boundary_threshold: float) -> None:
-        """Validate cfg + tune-call invariants. Raises ``LizyMLError`` on
-        violation."""
-        cfg = self._cfg
-        if cfg.tuning is None:
-            raise LizyMLError(
-                code=ErrorCode.CONFIG_INVALID,
-                user_message=(
-                    "No tuning configuration found. "
-                    "Add a 'tuning' section to the config to enable tuning."
-                ),
-                context={"task": cfg.task, "model": getattr(cfg.model, "name", None)},
-            )
-
-        if resume and self._study is None:
-            raise LizyMLError(
-                code=ErrorCode.TUNING_FAILED,
-                user_message=(
-                    "Cannot resume tuning: no previous tune() call. "
-                    "Run tune() first, then tune(resume=True)."
-                ),
-                context={"resume": True, "round_number": self._round_number},
-            )
-
-        if not 0.0 < boundary_threshold < 0.5:
-            raise LizyMLError(
-                code=ErrorCode.CONFIG_INVALID,
-                user_message=(
-                    f"boundary_threshold must be in (0.0, 0.5), "
-                    f"got {boundary_threshold}."
-                ),
-                context={"boundary_threshold": boundary_threshold},
-            )
-
-    def _resolve_search_space(
-        self,
-        *,
-        resume: bool,
-        provider: EstimatorProvider,
-    ) -> tuple[list[Any], bool, dict[str, Any]]:
-        """Return the search space for this tune call.
-
-        Returns a tuple ``(space, used_default, fixed_params)`` where
-        ``used_default`` signals that no user-supplied space was provided
-        (drives the H-0068 expand-boundary default).
-
-        H-0078: ``provider.parameter_bounds(task)`` is attached to each
-        matching dim so that boundary expansion in subsequent rounds is
-        clamped to physically-meaningful limits.
-        """
-        cfg = self._cfg
-        assert cfg.tuning is not None  # noqa: S101 — validated upstream
-        if resume and self._space is not None:
-            space = list(self._space)
-            used_default = self._used_default_space
-        else:
-            user_space = parse_space(cfg.tuning.optuna.space)
-            if user_space:
-                space = user_space
-                used_default = False
-            else:
-                space = provider.default_space(cfg.task)
-                used_default = True
-            space = attach_bounds(space, provider.parameter_bounds(cfg.task))
-
-        fixed: dict[str, Any] = (
-            provider.default_fixed_params(cfg.task) if used_default else {}
-        )
-        return space, used_default, fixed
-
-    def _maybe_expand_boundary(
-        self,
-        space: list[Any],
-        *,
-        resume: bool,
-        used_default: bool,
-        expand_boundary: bool | None,
-        boundary_threshold: float,
-    ) -> tuple[list[Any], BoundaryReport | None, tuple[str, ...]]:
-        """Apply H-0068 boundary detection + expansion when applicable.
-
-        Returns ``(new_space, boundary_report, expanded_names)``. Without
-        a prior tune() or when ``expand_boundary`` is False, the input
-        ``space`` is returned unchanged with ``(None, ())``.
-        """
-        if not (resume and self._tuning_result is not None):
-            return space, None, ()
-
-        should_expand = expand_boundary
-        if should_expand is None:
-            should_expand = used_default
-
-        if not should_expand:
-            _log.info("event='tune.resume' expand_boundary=False")
-            return space, None, ()
-
-        boundary_report = detect_boundary(
-            space, self._tuning_result.best_params, boundary_threshold
-        )
-        expanded_names = boundary_report.expanded_names
-        if not expanded_names:
-            _log.info("event='tune.resume' no dims near boundary")
-            return space, boundary_report, expanded_names
-
-        new_space = expand_dims(space, boundary_report)
-        for name in expanded_names:
-            status = next(s for s in boundary_report.dims if s.name == name)
-            _log.info(
-                "event='tune.expand' dim=%s edge=%s old=[%s, %s] new=[%s, %s] best=%s",
-                name,
-                status.edge,
-                status.low,
-                status.high,
-                status.new_low,
-                status.new_high,
-                status.best_value,
-            )
-        return new_space, boundary_report, expanded_names
-
-    def _build_tune_objective(
-        self,
-        *,
-        space: list[Any],
-        base_model_params: dict[str, Any],
-        base_smart_params: dict[str, Any],
-        fixed: dict[str, Any],
-        provider: EstimatorProvider,
-        splitter: BaseSplitter,
-        X: pd.DataFrame,
-        y: pd.Series,
-        groups: npt.NDArray[Any] | None,
-        n_classes: int | None,
-        fingerprint: DataFingerprint,
-        run_meta: RunMeta,
-        evaluator: Evaluator,
-        first_entry: str | dict[str, Any],
-        metric_name: str,
-    ) -> Callable[[Any], float]:
-        """Return the optuna objective closure used by ``Tuner``.
-
-        Captures all parameters needed by a single trial: the provider,
-        splitter, training data, fingerprint/run-meta and the metric to
-        optimise. The closure rebuilds ``TrainComponents`` and ``CVTrainer``
-        per trial because trial-level params (``smart``, ``training``)
-        change per call.
-        """
-        cfg = self._cfg
-
-        def objective(trial: Any) -> float:
-            trial_params = suggest_params(trial, space)
-            model_p, smart_p, training_p = split_by_category(trial_params, space)
-
-            merged_model = {**base_model_params, **fixed, **model_p}
-            merged_smart = {**base_smart_params, **smart_p}
-
-            tc = self._build_train_components(
-                X,
-                y,
-                provider=provider,
-                model_params=merged_model,
-                smart_params=merged_smart,
-                training_overrides=training_p,
-            )
-
-            cv_trainer = CVTrainer(
-                outer_splitter=splitter,
-                inner_valid=tc.inner_valid,
-                pipeline_factory=provider.build_pipeline_factory(),
-                estimator_factory=tc.estimator_factory,
-                task=cfg.task,
-                n_classes=n_classes,
-                ratio_param_resolver=tc.ratio_resolver,
-            )
-            fit_result = cv_trainer.fit(
-                X,
-                y,
-                groups,
-                data_fingerprint=fingerprint,
-                run_meta=run_meta,
-                sample_weight=tc.sample_weight,
-            )
-            metrics = evaluator.evaluate(fit_result, y, [first_entry])
-            score: float = metrics["raw"]["oof"][metric_name]
-            return score
-
-        return objective
-
-    def _run_tune_round(
-        self,
-        objective: Callable[[Any], float],
-        *,
-        space: list[Any],
-        actual_n_trials: int,
-        optuna_cfg: OptunaParamsConfig,
-        metric_name: str,
-        progress_callback: TuneProgressCallback | None,
-        storage: str | BaseStorage | None,
-        study_name: str | None,
-        resume: bool,
-        round_number: int,
-        expanded_names: tuple[str, ...],
-    ) -> tuple[TuningResult, Any, int, float | None]:
-        """Construct the ``Tuner`` and execute one round of optuna search.
-
-        Returns ``(raw_result, study, prior_trials, best_score_before)``.
-        ``prior_trials`` and ``best_score_before`` are populated only when
-        ``resume`` is True (validated upstream by ``_validate_tune_inputs``).
-        """
-        prior_trials = 0
-        best_score_before: float | None = None
-        enqueue: dict[str, Any] | None = None
-        if resume:
-            assert self._study is not None  # noqa: S101 — validated upstream
-            assert self._tuning_result is not None  # noqa: S101
-            prior_trials = len(self._study.trials)
-            best_score_before = self._tuning_result.best_score
-            enqueue = dict(self._tuning_result.best_params)
-
-        tuner = Tuner(
-            dims=space,
-            n_trials=actual_n_trials,
-            direction=optuna_cfg.direction,
-            timeout=optuna_cfg.timeout,
-            seed=self._cfg.training.seed,
-            progress_callback=progress_callback,
-            storage=storage,
-            study_name=study_name,
-        )
-        result, study = tuner.tune(
-            objective,
-            metric_name=metric_name,
-            study=self._study if resume else None,
-            enqueue_params=enqueue,
-            round_number=round_number,
-            prior_trials=prior_trials,
-            expanded_dims=expanded_names,
-        )
-        return result, study, prior_trials, best_score_before
-
-    def _assemble_tuning_result(
-        self,
-        raw_result: TuningResult,
-        *,
-        round_number: int,
-        actual_n_trials: int,
-        best_score_before: float | None,
-        expanded_names: tuple[str, ...],
-        space: list[Any],
-        boundary_report: BoundaryReport | None,
-        prior_trials: int,
-    ) -> tuple[TuningResult, tuple[RoundSummary, ...]]:
-        """Build the round summary, fix per-trial round numbers, and
-        assemble the final ``TuningResult``.
-
-        Returns ``(final_result, all_rounds)``. ``all_rounds`` is the new
-        complete tuple including the just-completed round, ready for
-        persistence to ``self._rounds``.
-        """
-        round_summary = RoundSummary(
-            round=round_number,
-            n_trials=actual_n_trials,
-            best_score_before=best_score_before,
-            best_score_after=raw_result.best_score,
-            expanded_dims=expanded_names,
-            space_snapshot=tuple(space),
-        )
-        all_rounds = tuple(self._rounds) + (round_summary,)
-
-        # Fix up trial round numbers: trials from previous rounds keep
-        # their original round, new trials get the current round_number.
-        # Pre-compute (cumulative_count, round) so the per-trial lookup is
-        # a small linear scan over rounds (O(n + m) total) instead of
-        # O(n × m).
-        round_boundaries: list[tuple[int, int]] = []
-        running = 0
-        for rs in self._rounds:
-            running += rs.n_trials
-            round_boundaries.append((running, rs.round))
-
-        fixed_trials = []
-        for t in raw_result.trials:
-            if t.number >= prior_trials:
-                fixed_trials.append(dataclasses.replace(t, round=round_number))
-                continue
-            trial_round = 1
-            for cumulative, rs_round in round_boundaries:
-                if t.number < cumulative:
-                    trial_round = rs_round
-                    break
-            fixed_trials.append(dataclasses.replace(t, round=trial_round))
-
-        final_result = TuningResult(
-            best_model_params=raw_result.best_model_params,
-            best_smart_params=raw_result.best_smart_params,
-            best_training_params=raw_result.best_training_params,
-            best_score=raw_result.best_score,
-            trials=fixed_trials,
-            metric_name=raw_result.metric_name,
-            direction=raw_result.direction,
-            rounds=all_rounds,
-            boundary_report=boundary_report,
-        )
-        return final_result, all_rounds
 
     # ------------------------------------------------------------------
     # Properties
@@ -1035,31 +575,15 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
         )
 
         components = dataframe_builder.build(df, problem_spec, feature_spec)
-        X, y = components.X, components.y
         groups: npt.NDArray[Any] | None = (
             components.group_col.to_numpy()
             if components.group_col is not None
             else None
         )
 
-        if cfg.split.method in _TS_METHODS:
-            if cfg.data.time_col is None:
-                raise LizyMLError(
-                    code=ErrorCode.CONFIG_INVALID,
-                    user_message=(
-                        f"split.method='{cfg.split.method}' requires "
-                        "data.time_col to be set."
-                    ),
-                    context={"split_method": cfg.split.method},
-                )
-            tc = components.time_col
-            assert tc is not None  # noqa: S101
-            sort_order = tc.argsort()
-            components = self._sort_and_rebuild_components(sort_order, components)
-            X, y = components.X, components.y
-            if groups is not None:
-                groups = groups[sort_order]
-
+        # Determine split-driven ordering/extraction (config concerns stay
+        # here; the pure data transforms live in dataframe_builder — #209).
+        blocked: tuple[str, str] | None = None
         if cfg.split.method in _BLOCK_METHODS:
             if not isinstance(cfg.split, BlockedGroupKFoldConfig):
                 raise LizyMLError(
@@ -1070,78 +594,17 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
                     ),
                     context={"split_method": cfg.split.method},
                 )
-            blocks_col_name = cfg.split.blocks.col
-            groups_col_name = cfg.split.groups.col
+            blocked = (cfg.split.blocks.col, cfg.split.groups.col)
 
-            # Validate columns exist in the raw DataFrame (df)
-            for col_name, label in [
-                (blocks_col_name, "blocks.col"),
-                (groups_col_name, "groups.col"),
-            ]:
-                if col_name not in df.columns:
-                    raise LizyMLError(
-                        code=ErrorCode.CONFIG_INVALID,
-                        user_message=(
-                            f"split.{label}='{col_name}' not found "
-                            f"in DataFrame columns."
-                        ),
-                        context={
-                            "column": col_name,
-                            "available": list(df.columns),
-                        },
-                    )
-
-            # Extract from raw df (before feature pipeline drops them)
-            block_series = df[blocks_col_name]
-            group_series = df[groups_col_name]
-
-            # Sort by blocks.col, then rebuild via shared helper.
-            sort_order = block_series.argsort()
-            components = self._sort_and_rebuild_components(sort_order, components)
-            X, y = components.X, components.y
-
-            # Override groups with groups.col (not data.group_col)
-            groups = group_series.iloc[sort_order].to_numpy()
-            self._block_values = block_series.iloc[sort_order].to_numpy()
-
-        return X, y, groups, components
-
-    @staticmethod
-    def _sort_and_rebuild_components(
-        sort_order: npt.NDArray[np.intp] | pd.Series,
-        components: DataFrameComponents,
-    ) -> DataFrameComponents:
-        """Apply *sort_order* to every Series in *components* and return a
-        new :class:`DataFrameComponents` (#115).
-
-        Shared by the time-series and blocked-group branches of
-        :meth:`_prepare_training_data`. The two callers previously contained
-        nearly-identical sort-and-reset blocks; the only difference is the
-        sort key, which the caller computes.
-
-        ``groups`` (``np.ndarray`` outside ``components``) is *not* touched
-        here — each branch handles it differently (TS reuses, Block
-        replaces). The ``target_encoder`` is propagated unchanged.
-        """
-        X = components.X.iloc[sort_order].reset_index(drop=True)
-        y = components.y.iloc[sort_order].reset_index(drop=True)
-        sorted_time = (
-            components.time_col.iloc[sort_order].reset_index(drop=True)
-            if components.time_col is not None
-            else None
+        components, groups, self._block_values = dataframe_builder.prepare_for_split(
+            df,
+            components,
+            groups,
+            time_series=cfg.split.method in _TS_METHODS,
+            method_name=cfg.split.method,
+            blocked=blocked,
         )
-        sorted_group = (
-            components.group_col.iloc[sort_order].reset_index(drop=True)
-            if components.group_col is not None
-            else None
-        )
-        return DataFrameComponents(
-            X=X,
-            y=y,
-            time_col=sorted_time,
-            group_col=sorted_group,
-            target_encoder=components.target_encoder,
-        )
+        return components.X, components.y, groups, components
 
     def _build_run_meta(self, run_id: str) -> RunMeta:
         def _ver(pkg: str) -> str:
@@ -1292,26 +755,6 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin):
             run_dir=self._run_dir,
             output_dir=self._output_dir,
         )
-
-    def _get_tuning_state(self) -> TuningState:
-        """Return a frozen snapshot of post-tune state for tuning Mixin methods.
-
-        Used by ``tuning_plot`` / ``tuning_table`` / ``boundary_table`` which
-        operate on tuning artefacts even when ``fit()`` has not been called.
-        Kept distinct from :meth:`_get_fit_state` to preserve the latter's
-        "fit-required" invariant (H-0077).
-
-        Raises:
-            :class:`~lizyml.core.exceptions.LizyMLError` with
-            ``MODEL_NOT_FIT`` when ``tune()`` has not been called.
-        """
-        if self._tuning_result is None:
-            raise LizyMLError(
-                code=ErrorCode.MODEL_NOT_FIT,
-                user_message="tune() has not been called yet.",
-                context={"method": "_get_tuning_state", "task": self._cfg.task},
-            )
-        return TuningState(cfg=self._cfg, tuning_result=self._tuning_result)
 
     def _resolve_export_path(self, path: str | Path | None) -> Path:
         """Resolve the export destination directory (H-0077: moved from Mixin).
