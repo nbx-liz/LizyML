@@ -74,7 +74,7 @@ version-file = "lizyml/_version.py"
 line-length = 88
 target-version = "py310"
 exclude = [
-    ".githooks/",
+    ".githooks/artifact-language.py",
     "scripts/verify-artifact-language-bundle.py",
     "tests/artifact-language-probe.py",
 ]
