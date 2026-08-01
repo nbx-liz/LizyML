@@ -73,6 +73,11 @@ version-file = "lizyml/_version.py"
 [tool.ruff]
 line-length = 88
 target-version = "py310"
+exclude = [
+    ".githooks/artifact-language.py",
+    "scripts/verify-artifact-language-bundle.py",
+    "tests/artifact-language-probe.py",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W", "UP", "B", "SIM"]

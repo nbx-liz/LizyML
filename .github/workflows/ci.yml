@@ -7,6 +7,16 @@ on:
     branches: [main]
 
 jobs:
+  git-policy:
+    name: Owned Git policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Activate tracked hooks
+        run: git config core.hooksPath .githooks
+      - name: Verify owned hook routing and controls
+        run: bash tests/test-owned-githooks-policy.sh
+
   quality:
     name: Quality (${{ matrix.python-version }})
     runs-on: ubuntu-latest
@@ -28,6 +38,9 @@ jobs:
 
       - name: Lint (ruff check)
         run: uv run ruff check .
+
+      - name: Verify Ruff policy boundary mutations
+        run: bash tests/test-ruff-policy-boundary.sh
 
       - name: Format check (ruff format)
         run: uv run ruff format --check .
