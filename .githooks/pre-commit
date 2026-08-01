@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# managed-by: claude-code-config (owned .githooks integration)
 # Pre-commit hook: ruff check + format before every commit.
 # Activate: git config core.hooksPath .githooks
 #
@@ -6,6 +7,28 @@
 # Full checks (mypy, pytest) are CI-only.
 
 set -euo pipefail
+
+probe_file="${CLAUDE_CODE_CONFIG_PRE_COMMIT_PROBE:-}"
+if [ -n "$probe_file" ]; then
+    case "$probe_file" in
+        /*) ;;
+        *) echo "BLOCKED: pre-commit integration probe path must be absolute" >&2; exit 1 ;;
+    esac
+    probe_parent="${probe_file%/*}"
+    [ -n "$probe_parent" ] || probe_parent="/"
+    [ -d "$probe_parent" ] && [ ! -L "$probe_parent" ] \
+        || { echo "BLOCKED: pre-commit integration probe parent is unsafe" >&2; exit 1; }
+    [ ! -e "$probe_file" ] && [ ! -L "$probe_file" ] \
+        || { echo "BLOCKED: pre-commit integration probe path already exists" >&2; exit 1; }
+    umask 077
+    (set -o noclobber; printf '%s\n' 'claude-code-config-pre-commit-reached' >"$probe_file") \
+        || { echo "BLOCKED: cannot publish pre-commit integration probe" >&2; exit 1; }
+fi
+
+# shellcheck source=./protected-refs.sh
+. "$(dirname "${BASH_SOURCE[0]}")/protected-refs.sh"
+
+assert_not_on_protected_branch commit
 
 # --- Stage 0: Block gitignored files ---
 STAGED=$(git diff --cached --name-only)
@@ -20,7 +43,17 @@ if [ -n "$STAGED" ]; then
     fi
 fi
 
-STAGED_PY=$(git diff --cached --name-only --diff-filter=ACM -- '*.py' || true)
+STAGED_PY="$(
+    git diff --cached --name-only --diff-filter=ACM -- '*.py' |
+        while IFS= read -r path; do
+            case "$path" in
+                .githooks/artifact-language.py | \
+                    scripts/verify-artifact-language-bundle.py | \
+                    tests/artifact-language-probe.py) ;;
+                *) printf '%s\n' "$path" ;;
+            esac
+        done
+)"
 
 if [ -z "$STAGED_PY" ]; then
     exit 0
