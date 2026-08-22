@@ -44,7 +44,10 @@ dev = [
     "pandas-stubs>=2.0",
     "types-PyYAML>=6.0",
     "build>=1.0",
-    "twine>=6.0",
+    # >=7.0: twine 6.x monkeypatches packaging's metadata-version allowlist to
+    # cap it at 2.4, so `twine check` rejects the Metadata-Version 2.5 that
+    # current hatchling emits. 7.0.0 fixed it.
+    "twine>=7.0",
     "pyarrow>=14.0",
     "optuna>=3.0",
     "shap>=0.44",
