@@ -81,3 +81,51 @@ class TestAutoResolvePropagatesGap:
         assert isinstance(iv, TimeHoldoutInnerValid)
         train_idx, valid_idx = iv.split(100)
         assert _gap_between(train_idx, valid_idx) == 0
+
+
+class TestExplicitInnerValidDoesNotInheritGap:
+    """An explicitly configured inner valid keeps its own settings (BLUEPRINT 10.3.3).
+
+    Auto-resolution inherits the outer split's boundary gap; an explicit
+    ``training.early_stopping.inner_valid`` does not, per 10.3.1's rule that an
+    explicit spec does not consult the outer ``split.method``. The two paths
+    therefore disagree on purpose for the same outer configuration, and that
+    difference is what these tests pin -- it is the sentence 10.3.3 states, and
+    nothing asserted it before.
+    """
+
+    @staticmethod
+    def _cfg(split: dict, inner_valid: dict | None) -> object:
+        early_stopping: dict = {"enabled": True, "rounds": 10}
+        if inner_valid is not None:
+            early_stopping["inner_valid"] = inner_valid
+        raw = {
+            "config_version": 1,
+            "task": "regression",
+            "data": {"target": "y"},
+            "model": {"name": "lgbm"},
+            "split": split,
+            "training": {"early_stopping": early_stopping},
+        }
+        return load_config(raw)
+
+    #: One outer configuration whose auto-resolved inner gap is non-zero.
+    SPLIT = {"method": "purged_time_series", "purge_gap": 3, "embargo": 2}
+
+    def test_explicit_time_holdout_gets_no_gap(self) -> None:
+        cfg = self._cfg(self.SPLIT, {"method": "time_holdout", "ratio": 0.1})
+        iv = build_inner_valid(cfg)
+        assert isinstance(iv, TimeHoldoutInnerValid)
+        assert iv.gap == 0
+        train_idx, valid_idx = iv.split(100)
+        assert _gap_between(train_idx, valid_idx) == 0
+
+    def test_auto_and_explicit_differ_for_the_same_outer_split(self) -> None:
+        auto = build_inner_valid(self._cfg(self.SPLIT, None))
+        explicit = build_inner_valid(
+            self._cfg(self.SPLIT, {"method": "time_holdout", "ratio": 0.1})
+        )
+        assert isinstance(auto, TimeHoldoutInnerValid)
+        assert isinstance(explicit, TimeHoldoutInnerValid)
+        assert auto.gap == 5  # purge_gap 3 + embargo 2
+        assert explicit.gap == 0

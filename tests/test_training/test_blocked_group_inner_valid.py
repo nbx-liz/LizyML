@@ -14,6 +14,7 @@ import pytest
 from lizyml.training.inner_valid import (
     BlockedGroupInnerValid,
     StratifiedTimeHoldoutInnerValid,
+    TimeHoldoutInnerValid,
 )
 
 # ---------------------------------------------------------------------------
@@ -238,3 +239,48 @@ class TestStratifiedTimeHoldout:
         assert result is not None
         _, valid_idx = result
         assert 1 in y[valid_idx], "Class 1 must be in valid"
+
+
+class TestRegressionFallbackIsTimeOrdered:
+    """The <4-group fallback must not stratify a continuous target (H-0092).
+
+    BLUEPRINT 10.3.3 fixes the regression fallback as equivalent to
+    ``TimeHoldoutInnerValid``. It was not: ``np.unique`` on a continuous target
+    yields one "class" per row, each contributing at least one validation row,
+    so every row landed in validation and inner-train came back empty. Nothing
+    raised -- the empty split was handed to the estimator.
+    """
+
+    @staticmethod
+    def _continuous(n: int) -> np.ndarray:
+        return np.arange(n, dtype=float) * 1.5 + 0.25  # every value distinct
+
+    def test_regression_fallback_matches_time_holdout(self) -> None:
+        n = 6
+        groups = np.array([0, 0, 1, 1, 2, 2])  # 3 groups: below the threshold
+        with pytest.warns(UserWarning, match="Falling back to TimeHoldout"):
+            train_idx, valid_idx = BlockedGroupInnerValid(
+                ratio=0.3, task="regression"
+            ).split(n, y=self._continuous(n), groups=groups)
+
+        expected_train, expected_valid = TimeHoldoutInnerValid(ratio=0.3).split(n)
+        assert train_idx.tolist() == expected_train.tolist()
+        assert valid_idx.tolist() == expected_valid.tolist()
+        assert train_idx.size > 0
+
+    def test_classification_fallback_still_stratifies(self) -> None:
+        n = 6
+        groups = np.array([0, 0, 1, 1, 2, 2])
+        y = np.array([0, 1, 0, 1, 0, 1])
+        with pytest.warns(UserWarning, match="Falling back to StratifiedTimeHoldout"):
+            train_idx, valid_idx = BlockedGroupInnerValid(
+                ratio=0.3, task="binary"
+            ).split(n, y=y, groups=groups)
+        # One tail row per class, so both classes are represented in validation.
+        assert sorted(y[valid_idx].tolist()) == [0, 1]
+        assert train_idx.size > 0
+
+    def test_stratifying_a_continuous_target_directly_is_refused(self) -> None:
+        n = 6
+        with pytest.raises(ValueError, match="cannot be stratified"):
+            StratifiedTimeHoldoutInnerValid(ratio=0.3).split(n, y=self._continuous(n))
