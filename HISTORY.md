@@ -7133,3 +7133,77 @@ mixin を 2 カテゴリに明示的に分ける:
 - 全 tuning + retune E2E green（振る舞い不変）: `test_tuning/` 一式、`test_tune_fit_identity.py`、`test_retune.py`、`test_tuning_persistence.py`。
 - 静的ガード（`test_mixin_state_isolation.py::TestMixinPrivateAccessGuard`）が 3 diagnostic mixin で引き続き pass。
 - 新規テスト: `_model_tuning.py` が `_MIXIN_FILES`（read-only ガード対象）に**含まれない**こと、`ModelTuningMixin` が `Model` の base に含まれ `tune` を提供することを assert。
+
+## H-0092: §10.3.3 を H-0085 に追随させ、inner valid の gap 継承を「自動解決時のみ」に明文化（#265 / #266）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-09-06
+- **決定日**: 2026-09-06
+- **スコープ**: `BLUEPRINT.md`（§0.1 に `ARCHITECTURE.md` の位置づけを追記、§10.3.3 全面改訂、§8.2 の shuffle 禁止を outer split に限定）, `ARCHITECTURE.md`（冒頭に派生文書である旨を明記、`format_version` 3 箇所 1→2）, `lizyml/training/inner_valid.py`（`BlockedGroupInnerValid` の回帰フォールバック先を修正、`StratifiedTimeHoldoutInnerValid` に空 train の fail-fast を追加）, `tests/test_docs/test_declared_versions.py`（新規）, `tests/test_training/test_inner_valid_purge_embargo.py` / `tests/test_training/test_blocked_group_inner_valid.py`（pin を追加）, `pyproject.toml`（`[tool.ruff] exclude` に `docs/audits/**` を追加）, `docs/audits/2026-09-defect-discovery/`（調査 run の恒久アーカイブ）。
+- **関連**: [Issue #265](https://github.com/nbx-liz/LizyML/issues/265), [Issue #266](https://github.com/nbx-liz/LizyML/issues/266), H-0085 / #212（gap 伝播の決定）, H-0060（§10.3.3 の初版）, H-0070（`format_version` 1→2）。
+
+### 目的（課題）
+
+**#265 は「2 つの規則が矛盾している」ではなく、H-0085 が片側だけ更新した取り残し（DC3）だった。**
+
+`git blame` が経緯を確定させる。§10.3.1 L602 は `deacc9ee`（2026-07-02, H-0085）で「gap は inner valid に伝播する」に改訂された。一方 §10.3.3 の該当行は `f846ab2c`（2026-03-21, H-0060）のままで、「outer CV が purge / embargo を持っていても inner valid は追加の purge / embargo を持たない」という**改訂前の規則**を今も述べている。H-0085 の決定文自身が「§10.3.1 L602 を改訂」とだけ書いており、姉妹節の存在が見落とされた。
+
+したがって修復は判断ではなく機械的な追随である。ただし取り残された同じブロックは、実装との乖離を他に 4 件抱えていた。
+
+| BLUEPRINT の記述 | 実装 |
+|---|---|
+| `TimeHoldoutInnerValid(ratio)` | `__init__(self, ratio=0.1, gap=0)` |
+| `n_valid >= n_samples` で `ValueError` | `n_valid + self.gap >= n_samples`（`training/inner_valid.py:195`） |
+| `BlockedGroupInnerValid(ratio)` | `__init__(self, ratio=0.1, task="regression")` |
+| `HoldoutInnerValid(ratio, stratify=False, random_state)` | `__init__(self, ratio=0.1, random_state=42, stratify=False)`（引数順が逆） |
+
+姉妹エントリは構築子引数を列挙しているため、この省略は「引数が無い」という積極的な主張として読める。
+
+**#266**: `ARCHITECTURE.md` は `format_version` を 3 箇所（:48 / :487 / :646）で 1 と述べていたが、`persistence/exporter.py:38` は H-0070 以来 2 である。3 箇所が揃って古びたまま CI は緑だった。文書が述べる定数をコードの定義と突き合わせる仕組みが無かったためで、3 箇所を手で直してもクラスは閉じない。
+
+### 対応方針（決定）
+
+1. **§10.3.3 を H-0085 に追随させる。** 5 つの strategy すべてを実装どおりの構築子シグネチャ（既定値つき）で記述し、`TimeHoldoutInnerValid` に gap 対応の分割規則と実際の `ValueError` 条件を書く。
+2. **gap 継承を「自動解決時のみ」と明記する。** §10.3.1 が既に「明示指定した場合は外側 `split.method` を参照しない」と決めており、実装もそうなっている（`core/_model_factories.py:321→297` の自動経路は gap を渡し、`:356` の明示経路は渡さない）。§10.3.3 はこの限定を書いていなかったため、両節が同一入力に対して異なる予測をしていた。
+3. **伝播量は「outer split の境界 gap」という概念で書き、`purge_gap + embargo` という合成では書かない。** 現行実装の合成（`_auto_inner_gap`）は保守的な選択であって必要量ではない。`embargo` が `purge_gap` と同じ valid 前 gap を動かしている件（前方連鎖 splitter では valid 後に train 行が置かれない）は別途の未起票事項であり、合成を BLUEPRINT に固定すると、その決着で仕様が再び古びる。概念で書けばどちらに転んでも真のままとなる。
+4. **§8.2 の「shuffle 禁止」を outer split に限定する。** §10.3.1 L599 は「時間順の outer split に対して shuffle する inner split を明示指定した場合、警告した上で明示指定を尊重する」と決めており、実装も `UserWarning` を発する（`_model_factories.py:334-343`）。§8.2 の無限定な「禁止」はこれと衝突していた。
+5. **`ARCHITECTURE.md` は派生文書であり規範性を持たないことを `BLUEPRINT.md` §0.1 に明記する。** 併せて `ARCHITECTURE.md` 冒頭にも同じ断りを置き、3 箇所の `format_version` を 2 に直す。
+
+   当初は `CLAUDE.md` §1 の優先順位表に追記する想定だったが、**このリポジトリの `CLAUDE.md` は `.gitignore:156` で除外された追跡外ファイル**であり、PR に含められない。同様に §1 が 3 位に挙げる `AGENTS.md` もリポジトリに存在しない。順位の宣言は、追跡されておりかつ `ARCHITECTURE.md` を上位から規定できる `BLUEPRINT.md` に置くのが正しい。
+
+6. **§10.3.3 の「回帰では `TimeHoldoutInnerValid` と同等」を実装側で真にする（本 Proposal で唯一の実装変更）。**
+
+   文書を実装に追随させる作業中に、この一文だけは**実装が偽にしていた**ことが分かった。`BlockedGroupInnerValid.split` はグループ数 < 4 のとき `task` を見ずに `StratifiedTimeHoldoutInnerValid` へフォールバックする（`training/inner_valid.py:323`）。回帰の `y` は連続値なので 1 行 1 クラスとなり、クラスごとの末尾選択が全行を validation に入れ、**inner-train が空**になる。実行で再現した（`n=6, ratio=0.3`: `train=[] valid=[0..5]`。同条件の `TimeHoldoutInnerValid` は `train=[0..4] valid=[5]`）。
+
+   ここで文書側を実装に合わせる（「回帰では層化フォールバックする」と書く）選択は取れない。空の inner-train は early stopping を成立させない不具合であって、記述すべき仕様ではないため。したがって修復は 2 点：
+
+   - `BlockedGroupInnerValid` のフォールバック先を `task` で分岐させ、`regression` は `TimeHoldoutInnerValid` に送る（警告文もフォールバック先を正しく名乗る）。
+   - `StratifiedTimeHoldoutInnerValid` 自体を、train が空になる `y` に対して `ValueError` で fail-fast させる。分岐だけでは、この strategy を直接指定した経路が同じ形で壊れたままになる（DC1: 黙って空の train を返す）。
+
+   §10.3.3 は、この分岐が `task` で決まること、および層化不能な `y` が拒否されることを明記する。
+
+### 影響範囲 / 互換性
+
+- **公開 API・Config・FitResult・PredictionResult・Artifacts・`format_version` すべて不変。** 実装変更は決定 6 の 1 点のみで、公開シグネチャも Result の shape も変わらない。
+- **振る舞いの変化は 2 つ、いずれも従来が壊れていた入力に限られる。** (a) `blocked_group_kfold` + 回帰 + グループ数 < 4 のとき、inner valid が空 train ではなく時間順 holdout になる。(b) `StratifiedTimeHoldoutInnerValid` を層化不能な `y` に直接適用すると、空 train を返す代わりに `ValueError` を送出する。どちらも従来は early stopping が成立しない状態であり、正常動作していた入力の結果は変わらない。
+- §10.3.3 の gap 記述は H-0085 で既に決定済みの内容の明文化であり、新たな決定ではない。「明示指定時は継承しない」という限定のみが新しく書かれた文であり、これは実装の既存挙動と一致する（下記テストで固定）。
+- `ARCHITECTURE.md` は本 Proposal 以降、`BLUEPRINT.md` から派生した説明資料として扱う。矛盾時は `BLUEPRINT.md` が正。
+
+### 代替案（不採用）
+
+- **案 A: §10.3.1 を §10.3.3 に合わせる（伝播しない方に戻す）。** H-0085 の決定を無効化することになる。H-0085 は look-ahead 防止という根拠を持ち、実装・テストとも伝播側で入っている。文書の古い側に実装を合わせるのは順序が逆。
+- **案 B: 伝播量を `purge_gap + embargo` と明記する。** 現行実装と一致するが、`embargo` の意味に関する未決着の論点を仕様に固定してしまう。決着すれば BLUEPRINT が再び古びる。
+- **案 C: `ARCHITECTURE.md` の 3 箇所を直すだけにする。** 3 箇所が揃って古びた原因（文書の定数を誰も検査していない）が残る。個別事例を閉じてクラスを開いたままにするのは、この監査が繰り返し見つけた形。
+- **案 D: `ARCHITECTURE.md` を `BLUEPRINT.md` から自動生成する。** 本筋だが規模が別物。まず順位を確定させ、検査で drift を落とす。
+- **案 E: 監査アーカイブの計測スクリプトを ruff に合わせて整形する（`exclude` を足さない）。** アーカイブは「その数値をどう測ったか」の証拠であり、整形は証拠の編集にあたる。`pyproject.toml` には既に同じ理由の除外が 3 件ある。同じ理由で `test_declared_versions.py` の `EXCLUDED_DIRS` からも外している。
+
+### 受け入れ基準（テスト観点）
+
+- **`tests/test_docs/test_declared_versions.py`（新規）**: 現行仕様を述べる文書（`ARCHITECTURE.md` / `BLUEPRINT.md` / `README.md` / `docs/**`）が述べる `format_version` / `config_version` の値が、コードの定義（`persistence/exporter.py:FORMAT_VERSION`, `config/loader.py:SUPPORTED_CONFIG_VERSIONS`）と一致すること。修正前は `ARCHITECTURE.md` の 3 箇所で **RED**、修正後 green。
+  - 追記型の記録（`HISTORY.md` / `CHANGELOG.md` / `PLAN.md`）は意図的に母集団外とし、除外理由を明記した上で**除外先ファイルの存在も検査する**（改名で母集団が黙って広がらないため）。監査アーカイブ（`docs/audits/`）も同様に除外する（報告対象の古い値をそのまま引用しているため）。
+  - 検査が 1 件も一致しなくなった場合に vacuous pass しないよう、最小サイト数のガードに加え、**中心文書ごとに 1 サイト以上の寄与を要求する**（`ARCHITECTURE.md` だけが走査から外れても件数では気づけないため）。
+  - **文法は accept / reject で閉じる。** 正規表現が突合するのは「定数名＋区切り」の**接頭部だけ**とし、行の残り全体を 3 分類する。トークンを取る書き方だとパターンが停止した先が不可視になり、境界が閉じない。accept（value）: 数字列の**直後**が行末・空白・囲み記号（`"` `` ` `` `）` `）` `」` `。` 等）のいずれかであること。type annotation: 残り全体が許可済みの型名 1 個であること（mermaid クラス図の `+config_version: int`。綴りを列挙し、未使用の綴りが残らないことも検査する）。reject: それ以外すべてを**失敗として報告する（skip しない）**。
+  - 反例で検証する: `2bogus` / `2-bogus` / `2.5` / `02x` / 値なし / `two` はすべて reject、`config_version: int = 999` は初期化子を無視して annotation と読まずに reject、1 行に 2 つの宣言がある場合は両方を個別に分類する。値パターンに終端境界が無いと `2bogus` を `2` と読んで clean を報告し（DC2）、読めない宣言を黙って落とすと「見ていない」を「問題なし」と報告する（DC1）。
+- **`tests/test_training/test_inner_valid_purge_embargo.py`（追加）**: 同一の outer 設定（`purged_time_series`, `purge_gap=3`, `embargo=2`）に対し、自動解決の inner valid は `gap == 5`、`inner_valid` を明示指定した inner valid は `gap == 0` になること。§10.3.3 が新たに書いた限定文に対応する pin であり、既存の自動解決テストはこの区別を検査していなかった。
+- **`tests/test_training/test_blocked_group_inner_valid.py`（追加, `TestRegressionFallbackIsTimeOrdered`）**: 決定 6 の回帰テスト。(1) `BlockedGroupInnerValid(task="regression")` がグループ数 < 4 の連続値 `y` で**空でない** inner-train を返し、その分割が同一 `ratio` の `TimeHoldoutInnerValid` と一致すること（修正前は `train=[]` で **RED**）。(2) 警告文がフォールバック先として `TimeHoldout` を名乗ること。(3) `StratifiedTimeHoldoutInnerValid` を層化不能な連続値 `y` に直接適用すると `ValueError` になること。
+- 既存の `TestTimeHoldoutGap` / `TestAutoResolvePropagatesGap`、および分類タスクの `BlockedGroupInnerValid` フォールバック既存テストは不変のまま green。
