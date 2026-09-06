@@ -1,5 +1,9 @@
 # Architecture
 
+> **この文書は派生文書であり、規範性を持たない（H-0092）。** `BLUEPRINT.md` と実装から
+> 書き起こした説明資料で、仕様の正は `BLUEPRINT.md` §0.1 の優先順位に従う。
+> 内容が `BLUEPRINT.md` と矛盾する場合は、この文書の側が誤りである。
+
 LizyML のアーキテクチャは **5 層のカテゴリ（圏）** で構成される。
 各カテゴリは明確な境界を持ち、依存は常に上位層→下位層の DAG（非巡回有向グラフ）のみ。
 
@@ -45,7 +49,7 @@ flowchart TB
         direction LR
         EXPLAIN["explain/<br/>shap_explainer<br/>(optional dep)"]
         PLOTS["plots/<br/>8 plot modules<br/>(optional dep)"]
-        PERSIST["persistence/<br/>exporter + loader<br/>format_version=1"]
+        PERSIST["persistence/<br/>exporter + loader<br/>format_version=2"]
     end
 
     subgraph L4["Layer 4 — Facade"]
@@ -484,7 +488,7 @@ classDiagram
     class persistence:::optClass {
         +export(path, fit_result, refit_result, ...) void
         +load(path) tuple
-        +FORMAT_VERSION = 1
+        +FORMAT_VERSION = 2
     }
     class AnalysisContext:::optClass { +y_true +X_for_explain }
     persistence ..> AnalysisContext : saves/restores
@@ -643,7 +647,7 @@ Facade (Model)
 ```
 export:  FitResult + RefitResult + Config + AnalysisContext
          → metadata.json + fit_result.pkl + refit_model.pkl
-         format_version=1
+         format_version=2
 
 load:    metadata.json → validate format_version
          → Model instance (predict / evaluate / plots ready)
