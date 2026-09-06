@@ -80,6 +80,11 @@ exclude = [
     ".githooks/artifact-language.py",
     "scripts/verify-artifact-language-bundle.py",
     "tests/artifact-language-probe.py",
+    # Archived audit instruments (H-0092). These are the record of how a
+    # finding was measured, kept verbatim so a number can be reproduced; they
+    # are not maintained code and are never imported by the package or the
+    # suite. Reformatting them would edit the evidence.
+    "docs/audits/**",
 ]
 
 [tool.ruff.lint]
