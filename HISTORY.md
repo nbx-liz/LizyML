@@ -7139,7 +7139,7 @@ mixin を 2 カテゴリに明示的に分ける:
 - **ステータス**: Accepted
 - **起票日**: 2026-09-06
 - **決定日**: 2026-09-06
-- **スコープ**: `BLUEPRINT.md`（§0.1 に `ARCHITECTURE.md` の位置づけを追記、§10.3.3 全面改訂、§8.2 の shuffle 禁止を outer split に限定）, `ARCHITECTURE.md`（冒頭に派生文書である旨を明記、`format_version` 3 箇所 1→2）, `lizyml/training/inner_valid.py`（`BlockedGroupInnerValid` の回帰フォールバック先を修正、`StratifiedTimeHoldoutInnerValid` に空 train の fail-fast を追加）, `tests/test_docs/test_declared_versions.py`（新規）, `tests/test_training/test_inner_valid_purge_embargo.py` / `tests/test_training/test_blocked_group_inner_valid.py`（pin を追加）, `pyproject.toml`（`[tool.ruff] exclude` に `docs/audits/**` を追加）, `docs/audits/2026-09-defect-discovery/`（調査 run の恒久アーカイブ）。
+- **スコープ**: `BLUEPRINT.md`（§0.1 に `ARCHITECTURE.md` の位置づけを追記、§10.3.3 全面改訂、§8.2 の shuffle 禁止を outer split に限定）, `ARCHITECTURE.md`（冒頭に派生文書である旨を明記、`format_version` 3 箇所 1→2）, `lizyml/training/inner_valid.py`（`BlockedGroupInnerValid` の回帰フォールバック先を修正、`StratifiedTimeHoldoutInnerValid` に空 train の fail-fast を追加）, `tests/test_docs/test_declared_versions.py`（新規）, `tests/test_training/test_inner_valid_purge_embargo.py` / `tests/test_training/test_blocked_group_inner_valid.py`（pin を追加）, `pyproject.toml`（`[tool.ruff] exclude` に `docs/audits/**` を追加し、併せて `force-exclude = true` を設定）, `docs/audits/2026-09-defect-discovery/`（調査 run の恒久アーカイブ）。
 - **関連**: [Issue #265](https://github.com/nbx-liz/LizyML/issues/265), [Issue #266](https://github.com/nbx-liz/LizyML/issues/266), H-0085 / #212（gap 伝播の決定）, H-0060（§10.3.3 の初版）, H-0070（`format_version` 1→2）。
 
 ### 目的（課題）
@@ -7196,6 +7196,7 @@ mixin を 2 カテゴリに明示的に分ける:
 - **案 C: `ARCHITECTURE.md` の 3 箇所を直すだけにする。** 3 箇所が揃って古びた原因（文書の定数を誰も検査していない）が残る。個別事例を閉じてクラスを開いたままにするのは、この監査が繰り返し見つけた形。
 - **案 D: `ARCHITECTURE.md` を `BLUEPRINT.md` から自動生成する。** 本筋だが規模が別物。まず順位を確定させ、検査で drift を落とす。
 - **案 E: 監査アーカイブの計測スクリプトを ruff に合わせて整形する（`exclude` を足さない）。** アーカイブは「その数値をどう測ったか」の証拠であり、整形は証拠の編集にあたる。`pyproject.toml` には既に同じ理由の除外が 3 件ある。同じ理由で `test_declared_versions.py` の `EXCLUDED_DIRS` からも外している。
+- **案 F: `exclude` だけを足す（`force-exclude` を設定しない）。** これは実際に一度書いて落ちた。**ruff はコマンドラインに明示的に渡されたパスに `exclude` を適用しない**ため、`ruff check .` を走らせる CI では効き、staged ファイルを名前で渡す `.githooks/pre-commit` では効かない — 同じ宣言が呼び出し側によって別の意味になる（DC4 の形）。`force-exclude = true` を設定すると呼び出し方に依らず宣言が正となる。stdin-filename を使った両方向の対照で確認済み: `lizyml/` 配下の名前では未使用 import が 2 件検出され、`docs/audits/` 配下の同一内容では除外される。なお `.githooks/pre-commit` は既存 3 件の除外をシェル側にも重複して持っており（DC3）、`force-exclude` はその重複を将来解消できる前提条件でもある。
 
 ### 受け入れ基準（テスト観点）
 

@@ -76,6 +76,12 @@ version-file = "lizyml/_version.py"
 [tool.ruff]
 line-length = 88
 target-version = "py310"
+# Ruff ignores `exclude` for paths passed explicitly on the command line, and
+# `.githooks/pre-commit` passes the staged files by name. Without this, the
+# exclusions below hold for `ruff check .` (what CI runs) and silently do not
+# hold for the commit hook — the same declaration meaning two different things
+# depending on who invokes it.
+force-exclude = true
 exclude = [
     ".githooks/artifact-language.py",
     "scripts/verify-artifact-language-bundle.py",
