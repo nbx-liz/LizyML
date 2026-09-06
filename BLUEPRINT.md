@@ -4,6 +4,10 @@
 
 - 本ドキュメントは実装の単一の正とする（仕様変更は `HISTORY.md` の提案プロセスを経る）。
 - 「仕様未確定は仮実装しない」を厳守する。
+- `ARCHITECTURE.md` は本ドキュメントと実装から書き起こした**派生文書**であり、規範性を持たない。
+  矛盾した場合は常に本ドキュメントが正で、`ARCHITECTURE.md` の側を直す（H-0092）。
+  文書が述べるバージョン定数は `tests/test_docs/test_declared_versions.py` が
+  コードの定義と突き合わせる。
 
 ## 0.2 スコープ（当面）
 
@@ -534,7 +538,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
 
 ## 8.2 Validators（危険検知）
 
-- 時系列: ソート、未来情報混入疑い、shuffle 禁止
+- 時系列: ソート、未来情報混入疑い、**outer split の** shuffle 禁止（inner valid に時間順を崩す `method: holdout` を明示指定した場合は、禁止せず `UserWarning` を発して明示指定を尊重する。§10.3.1 参照）
 - group: group 跨ぎ、分割条件の不整合
 - leakage: target リーク疑い（例: target と完全一致の列、時間逆転など）
 - target dtype: regression × 非数値 y は `TARGET_NOT_NUMERIC`（H-0070）
@@ -634,25 +638,35 @@ LizyML 非依存の学習・推論コードを自動生成する。
 
 ### 10.3.3 各 strategy の分割規則
 
-- `HoldoutInnerValid(ratio, stratify=False, random_state)`:
+- `HoldoutInnerValid(ratio=0.1, random_state=42, stratify=False)`:
   - `stratify=False`: outer fold train 行を乱択し、`ceil(n_rows * ratio)` 行を validation に割り当てる。
   - `stratify=True`: `y` に基づく stratified holdout を行う。
   - `n_valid >= n_samples` の場合は `ValueError` を発出する（空の train set 防止）。
-- `GroupHoldoutInnerValid(ratio, random_state)`:
+- `GroupHoldoutInnerValid(ratio=0.1, random_state=42)`:
   - group overlap を禁止する。
   - validation には、入力順（group の first appearance 順）の末尾 `max(1, floor(n_unique_groups * ratio))` 個の group を割り当てる。
   - shuffle は行わないため、`group_time_series` では time-sort 後の入力順に従って末尾 group が validation になる。
-- `TimeHoldoutInnerValid(ratio)`:
+- `TimeHoldoutInnerValid(ratio=0.1, gap=0)`:
   - 行順を保持したまま、末尾 `max(1, floor(n_rows * ratio))` 行を validation に割り当てる。
-  - `purged_time_series` で outer CV が purge / embargo を持っていても、inner valid 自体は追加の purge / embargo を持たない。
-  - `n_valid >= n_samples` の場合は `ValueError` を発出する（空の train set 防止）。
-- `BlockedGroupInnerValid(ratio)`:
+  - `gap > 0` のとき、inner-train と inner-valid の境界で `gap` 行を purge する。purge された行は
+    inner-train にも inner-valid にも属さない。
+  - `gap` の値は §10.3.1 の解決規則が決める。**自動解決時**は outer split の境界 gap を継承する
+    （H-0085）。**`training.early_stopping.inner_valid` を明示指定した場合は継承せず**、明示された
+    値（既定 `gap=0`）を使う。§10.3.1 の「明示指定した場合は外側 `split.method` を参照しない」に従う。
+  - `n_valid + gap >= n_samples` の場合は `ValueError` を発出する（空の train set 防止）。
+- `BlockedGroupInnerValid(ratio=0.1, task="regression")`:
   - `blocked_group_kfold` 専用。グループ分離 + 時間順序 + 層化（分類時）を同時に満たす。
+  - `task` は層化の要否を決める（`binary` / `multiclass` で層化、`regression` では行わない）。
+  - グループ数 < 4 のときはフォールバックする。フォールバック先も `task` が決める：
+    `binary` / `multiclass` は `StratifiedTimeHoldoutInnerValid`、**`regression` は
+    `TimeHoldoutInnerValid`**。回帰で層化フォールバックを選ぶと、連続値の `y` は
+    1 行 1 クラスとなり全行が validation に入って inner-train が空になる。
   - 詳細は §10.6.2 を参照。
-- `StratifiedTimeHoldoutInnerValid(ratio)`:
-  - `BlockedGroupInnerValid` のフォールバック（グループ数 < 4 時）。
+- `StratifiedTimeHoldoutInnerValid(ratio=0.1)`:
+  - `BlockedGroupInnerValid` の分類タスク時のフォールバック（グループ数 < 4 時）。
   - 各クラス内で時間順序を保持し、末尾 `ratio` 分を validation に割り当てる。全クラス最低1行を保証する。
-  - 回帰タスクでは `TimeHoldoutInnerValid` と同等。
+  - **層化できない `y`（クラスあたり 1 行しかない連続値など）で train が空になる場合は
+    `ValueError` を発出する。** 回帰の inner valid には `TimeHoldoutInnerValid` を使う。
 
 ## 10.4 split indices の保存（必須）
 
@@ -718,7 +732,10 @@ outer fold の train データ（特定期間 × 特定ユーザー）に対し�
 4. 分類時: 各クラス内で末尾 `ratio` 分のグループを inner valid に割り当て（各クラス最低1グループ保証）。回帰時: 単純に末尾 `ratio` 分のグループを割り当て
 5. グループ単位で完全分離: inner train = train グループの全行、inner valid = valid グループの全行
 
-**フォールバック**: `n_unique_groups < 4` の場合、`StratifiedTimeHoldoutInnerValid`（各クラスの末尾行から `ratio` 分）に切り替え、警告を出す。
+**フォールバック**: `n_unique_groups < 4` の場合、警告を出した上で切り替える。切り替え先は `task` が決める。
+
+- `binary` / `multiclass`: `StratifiedTimeHoldoutInnerValid`（各クラスの末尾行から `ratio` 分）。
+- `regression`: `TimeHoldoutInnerValid`（末尾 `ratio` 分の行）。連続値の `y` は層化すると 1 行 1 クラスとなり、全行が inner valid に入って inner train が空になるため、層化フォールバックは選べない。
 
 **明示指定**: `training.early_stopping.inner_valid` を明示指定した場合は auto 解決を上書きする。
 
