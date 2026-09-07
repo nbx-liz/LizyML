@@ -7446,6 +7446,28 @@ DC4（inert wiring）。配管はあり、公開の書き手が誰も到達し�
 
 3. **不明名の拒否は出所を名指しする。** 3 入力が 1 つの dict にマージされてから検査されるため、従来はすべて `model.params` として報告していた。3 つのうち 2 つは**利用者を誤ったファイルに送る**。`_merge_params` が `origins` を持ち、`model.params` / `provider default fixed params` / `tuning best_model_params` / `fit(params=)` を名前ごとに区別する。優先順位が上の入力が出所を上書きするので、同名が複数入力にある場合は**実際に効いている方**が報告される。
 
+5. **パラメーターの層は綴りではなく同一性でマージする（レビュー round 3 の指摘）。**
+
+   `{**base, **override}` は綴りが違えば両方を残す。LightGBM はエイリアスを解決し、**両方あるときは canonical を採る**ため、上書きが黙って負ける。実測（booster から読んだ値、`_COMMON_DEFAULTS` は `learning_rate=0.001` を常に注入する）:
+
+   | config | fit(params=) | 修正前 | 修正後 |
+   |---|---|---|---|
+   | `learning_rate: 0.07` | — | 0.07 | 0.07 |
+   | **`eta: 0.07`** | — | **0.001** | **0.07** |
+   | `learning_rate: 0.07` | `eta: 0.5` | **0.07** | **0.5** |
+   | （無し） | `eta: 0.5` | **0.001** | **0.5** |
+
+   2 行目が示すとおり、これは `fit(params=)` だけの問題ではない。**`_COMMON_DEFAULTS` は canonical 名で 11 個のパラメーターを毎回注入する**ので、そのどれかをエイリアスで書いた config は出荷以来ずっと無効だった。
+
+   したがって修正は 2 か所:
+
+   - `_merge_params` の 3 つの継ぎ目（config → provider 既定 fixed → tune best → `fit()` 上書き）を `overlay_params` に置き換える。上位層が名指すパラメーターの**別綴りを下位層から落とす**。
+   - `LGBMAdapter._build_params` で、**利用者がどれかの綴りで名指しているパラメーターの既定値を落とす**。ここを直さないと、facade で綴りを揃えても既定の canonical が後段で再注入されて上書きがまた負ける（実測済み）。
+
+   **学習器に 2 つの綴りを渡さない**形にしてあるので、結果は「LightGBM がどちらを優先するか」に依存しない。優先規則は実測したが、それに乗るのではなく、曖昧さを渡さないことで閉じている。
+
+   `overlay_params` は**学習器が知らない名前を落とさない**。落とすと H-0093 の拒否がその名前を見られなくなり、綴り間違いがまた無言の no-op に戻る。これはテストで固定した。
+
 ### Conditional-Activation Evidence
 
 **転送そのものには不要。** `if override:` は Change Gate が列挙する 6 つの目的（`skip` / `shorten` / `cache` / `select` / `allow` / `conditionally-activate`）のいずれでもなく、「上書きがあるかないか」という通常の必須動作の分岐である。`origins` も同様に、拒否メッセージの宛先を決めるだけで何かの発火条件ではない。
@@ -7493,6 +7515,7 @@ Firing rate: 0/0 of shipped calls passing fit(params=...) -- no call site exists
 - **管理表がコードと一致すること**: 解決関数の `resolved[...] =` 代入の走査と `SMART_PARAM_TARGETS` が一致すること。両方向の RED 確認済み（宣言のみの名前 / 走査にだけ現れる名前）。
 - **スマート面の分割が閉じていること**: provider が申告する全スマートパラメーターが「ネイティブ名を書く」か「何も書かない」のどちらかに分類され、未分類が残らないこと。
 - **対照**: 管理対象でない名前（`learning_rate`）は拒否されず届くこと、multiclass の `scale_pos_weight` は届くこと。
+- **決定 5（同一性マージ）**: (a) config が canonical、`fit(params=)` がエイリアスのとき**上書きが勝つ**こと（booster から読む）。(b) config に無くても既定の canonical に勝つこと。(c) tune 結果がエイリアスでも config に勝つこと。(d) **`lgb.train` に渡る綴りが 1 つだけ**であること（結果だけを見るテストは、dict に両方残っていても通ってしまう）。(e) config だけにエイリアスがある場合も効くようになること（振る舞い変更、CHANGELOG に記載）。(f) 学習器が知らない名前は `overlay_params` に落とされないこと。両方の継ぎ目で RED 確認済み。
 
 その他:
 

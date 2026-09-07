@@ -1250,6 +1250,9 @@ class EstimatorProvider(Protocol):
     def extract_smart_params(self, model_cfg: Any) -> dict[str, Any]: ...
     def accepted_model_param_names(self) -> frozenset[str]: ...   # H-0093
     def smart_param_names(self) -> frozenset[str]: ...            # H-0093
+    def canonical_param_names(                                    # H-0094
+        self, names: Iterable[str],
+    ) -> dict[str, str]: ...               # name -> the parameter it identifies
     def smart_managed_param_names(                                # H-0094
         self, smart: dict[str, Any], task: str,
     ) -> dict[str, tuple[str, str]]: ...   # spelling -> (canonical, smart)
@@ -1284,6 +1287,7 @@ class EstimatorProvider(Protocol):
 - `build_pipeline_factory` は estimator 固有の FeaturePipeline が必要な場合（例: EntityEmbedding のカテゴリ埋め込み）に対応する。デフォルトは `NativeFeaturePipeline` を返す。
 - `build_export_params` は codegen 経路（`Model.export_code()`）が必要とする native params / num_boost_round / feval metadata を `ExportParams` frozen dataclass で返す（H-0073）。`_model_persistence.py` から estimator 具象型（`LGBMAdapter` 等）への直接参照を排除するための入口。
 - `accepted_model_param_names()` / `smart_param_names()` は「その学習器が受理する名前」を宣言する（H-0093）。前者は**学習器自身から導出すること**（列挙しない）。学習器の更新で名前が増減したときに黙って古びる実装は、この IF が検出しようとしている欠陥をそれ自体が持つことになる。後者は `extract_smart_params` が返すキーと必ず一致させ、両者を単一の宣言から導くこと。
+- `canonical_param_names(names)` は「その名前がどのパラメーターを指すか」を返す（H-0094）。**パラメーター層のマージは綴りではなく同一性で行うこと**: 学習器がエイリアスを解決する以上、`{**base, **override}` は 1 つのパラメーターを 2 つの綴りで残し、どちらが効くかは学習器の規則次第になる。実測: config の `learning_rate` が `fit(params={"eta": ...})` に勝っていた。**学習器に 2 つの綴りを渡さない**こと。学習器が知らない名前は自分自身に写すこと（不明名の拒否は `accepted_model_param_names` の仕事であり、この写像が二重の門になってはならない）。
 - `smart_managed_param_names(smart, task)` は「**有効なスマートパラメーターが上書きしてしまうネイティブ名**」を返す（H-0094）。スマート解決はパラメーター dict のマージより後段で走り、その結果が勝つため、ここに挙がる名前を手で指定しても黙って置き換えられる。呼び出し側はそれを**拒否**に使う（`CONFIG_INVALID`）。task を取るのは、同じスマートパラメーターでも task によって書くものが変わるためである（`balanced` は binary では `scale_pos_weight` を書くが、multiclass では sample weight を作る＝パラメーター名ではないので衝突しない）。宣言は**コードから閉じる**こと: 解決関数群の `resolved[...] = ...` 代入を走査し、宣言されていない名前が書かれたら落ちるテストを持つ。
 - **エイリアスを展開すること（H-0094 レビュー round 2 の指摘）。** 学習器がエイリアスを同一パラメーターとして解決する場合、文字列一致の検査は同じパラメーターを別綴りで通してしまう。実測: `max_leaves`（LightGBM では `num_leaves` のエイリアス）は検査を通過し、スマート解決が入れた `num_leaves` を LightGBM が優先したため、上書きはまた黙って無視された（`[(12, 32), (12, 32), (12, 32)]`、booster は `[num_leaves: 32]`）。戻り値のキーは**学習器が受理する全綴り**とし、綴りの集合は学習器の登録表から導くこと（列挙しない）。
   - 検査の発火点は**学習器に渡す直前**（`_merge_params` の merge 後、および tuning study 開始前）であって構築時ではない。config は呼び出し側が参照を保持したまま変更でき、`best_model_params` は artifact から `__init__` 後に復元されるため、構築時の検査ではどちらも素通りする。`Model.load()` 自体は検査しない（artifact は起きた fit の記録であり、読めなくする理由がない）。
