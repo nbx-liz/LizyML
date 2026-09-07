@@ -1016,6 +1016,7 @@ LizyML Core は callback + 結果型でデータを提供し、Widget/Studio が
 - `calibration.params` で上記デフォルト（`monotone_constraints` 以外）を上書き可能。
 - `validation_ratio` と `seed` も `calibration.params` 経由で指定可能。
 - **名前は fit 開始前に検査される（H-0093）。** `calibration.params` の中身は `lgb.train` にほぼそのまま渡るため、LightGBM が知らない名前は黙って捨てられる。Facade は LightGBM 自身の登録表に照らして不明な名前を `CONFIG_INVALID` で拒否する。calibrator 自身が消費する `num_boost_round` / `validation_ratio` / `min_data_in_leaf_ratio` は受理される（`seed` は LightGBM のネイティブ名なので登録表側で受理される）。この検査は LightGBM を使う calibrator（現在は `isotonic` のみ）に対してのみ働く。**発火は外側 CV が始まる前**であり、拒否される config で Booster が 1 本でも学習されることはない。
+- **`platt` / `beta` は `calibration.params` を受理して無視する（現状の記録、[#277](https://github.com/nbx-liz/LizyML/issues/277)）。** 両者は `params` をコンストラクタで受け取るが保持も参照もしない（`platt.py:23` / `beta.py:42`）。実測: `calibration.params` の有無だけが異なる 2 回の fit で calibrated メトリクスは完全一致し、警告も出ない。LightGBM を経由しないため上記の名前検査は意図的に適用されず、結果として無検査・無効果のまま通る。**「受理して無視」を解消する方向（拒否するか、実際に honour するか）は #277 で未決**であり、ここは決定ではなく現状の記録である。
 
 #### Booster API 固有の注意
 
@@ -1442,7 +1443,8 @@ Config の各フィールドが最終的なコンポーネント（Booster param
 - Evaluator が Config 指定のメトリクスリストを受け取る。
 - Calibration が `cfg.calibration is not None` かつ `task="binary"` の場合のみ実行される。non-binary で `CALIBRATION_NOT_SUPPORTED` を返す。
 - `get_provider()` が model name で正しい provider を返す。未知の name で `CONFIG_INVALID`。
-- `_merge_params` の優先順位: Config defaults < tune best < fit() args。
+- `_merge_params` の優先順位: Config defaults < tune best < fit() args。**この 3 段目は宣言だけで実際には届いていなかった（H-0094 / #264）**ため、`fit(params=...)` を渡した fit と渡さない fit で**学習済み Booster が異なること**を主張する。マージ後の dict を突き合わせるだけでは、欠陥のあるコードでも成立した。
+- 不明な名前の拒否は**出所（`model.params` / `tuning best_model_params` / `fit(params=)`）を名指しする**（H-0094）。3 つの入口が 1 つの dict にマージされてから検査されるため、出所を持たないと 3 つのうち 2 つは誤った宛先を指す。
 
 ### 18.1.4 Artifact 互換テスト（H-0056 カテゴリ A）
 

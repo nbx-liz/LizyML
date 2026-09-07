@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **`Model.fit(params=...)` now reaches the trained model** (H-0094, [#264](https://github.com/nbx-liz/LizyML/issues/264)). The argument was accepted and documented as overriding `model.params`, and was never forwarded: the overlay that would apply it had no caller, so an override was discarded in silence and the booster trained on the config value. Two fits differing only in `params` produced byte-identical boosters. They now differ, at the documented priority (config defaults < tune best < `fit()` args). **If you passed `params=` before, your model was trained on the config values, not yours.** The override applies to that call only and does not mutate the config you handed in.
+- **Parameter names LightGBM does not define are refused instead of silently discarded** (H-0093, [#261](https://github.com/nbx-liz/LizyML/issues/261), [#262](https://github.com/nbx-liz/LizyML/issues/262)). LightGBM drops an unknown key without raising, and LizyML ships `verbose=-1`, so a misspelled or invented name produced a run that looked successful and in which the parameter did nothing. `model.params`, `tuning.optuna.space` (`category: model`), `calibration.params` for LightGBM-backed calibrators, the params `export_code()` generates, and now `fit(params=...)` are all checked against LightGBM's own registry before training starts, and an unknown name raises `CONFIG_INVALID` naming the surface it came from.
+
+### Changed — action may be required
+
+- **`feature_weights` is no longer accepted; use `feature_contri`** ([#261](https://github.com/nbx-liz/LizyML/issues/261)). `feature_weights` is not a LightGBM parameter — it is neither a canonical name nor an alias in LightGBM's own `LGBM_DumpParamAliases` — so **it has never had any effect** since it shipped. Measured with the same data and seed, a fit with `feature_weights` set produced an importance ordering and gain identical to one without it, while `feature_contri` changed both. A config carrying `feature_weights` now raises `CONFIG_INVALID` instead of training a model in which it did nothing.
+
+  ```yaml
+  model:
+    params:
+      feature_weights: [0.0, 1.0, 1.0]   # before: accepted, inert
+      feature_contri:  [0.0, 1.0, 1.0]   # after:  the same intent, and it applies
+  ```
+
+  A run that used `feature_weights` and looked fine was training without per-feature weighting. Renaming the key will change the model it produces — that is the point.
+
+- **`calibration.params` is still accepted and ignored for `platt` and `beta`** ([#277](https://github.com/nbx-liz/LizyML/issues/277)). Neither reads it; both fit with scikit-learn / scipy and never touch LightGBM, so the name check above deliberately does not apply to them. Recorded here and in BLUEPRINT 12.2 because it is the current behaviour, not because it is intended; the direction is open on #277.
+
 ## [0.17.1] - 2026-07-04
 
 Internal / test-quality patch — no user-facing API or behavior change ([#218](https://github.com/nbx-liz/LizyML/issues/218), [#247](https://github.com/nbx-liz/LizyML/pull/247)).
