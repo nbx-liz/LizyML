@@ -314,3 +314,85 @@ gate issue against the discovery audit.
 
 Recomputation script:
 `docs/audits/2026-09-defect-discovery/instruments/plan_population_recheck.py`.
+
+
+### D7 — PR 2 stopped at round 5 on a pre-registered condition
+
+**PR** 2 (#278) · **Proposal** H-0094 · **Reversal cost** — · **Window** `before-close`
+
+**This item needs a decision.** The run has stopped opening rounds on PR 2.
+
+## State
+
+PR **#278**, draft, pushed. **CI 12/12 pass** on the previous head and re-running
+on this one. Full suite **2267 passed**; `ruff check .`,
+`ruff format --check .`, `mypy lizyml/` clean.
+
+The merge gate is external review `APPROVE` + CI green. **Only the first half is
+missing**, as on PR 1.
+
+## What happened
+
+Blocking findings per round: **1, 1, 2, 2, 1**. All seven reproduced, all seven
+on the path `fit(params=)` → `lgb.train`, and the records carry each one with
+what was run: `results/pr2_codex_round[1-5].md`.
+
+Four were live production defects that had shipped — the override overwritten by
+smart resolution, the merge keeping two spellings, an objective alias skipping
+the task-compatibility check, and the config surface matching literal names.
+Three were introduced by a previous round's remedy, which is why the loop was
+watched: rounds 1→2, 3→4 and 4→5 each found a defect the previous stage wrote.
+
+**The stop is pre-registered, not chosen after the fact.** The rounds 3-4 monitor
+supplied the condition, phrased on authorship rather than on surface because the
+previous pre-registration had measured the wrong axis, and the main context
+adopted it verbatim before round 5's verdict was seen. Round 5's finding was
+round-4-authored, and the reviewer independently said the same:
+
+> The adopted stop condition is triggered: fix this defect, then hand PR 2 to
+> the maintainer rather than proceeding to round 6.
+
+Both were done: the finding is fixed and RED-verified, and no round 6 was opened.
+
+## The options
+
+**1. Merge on the round-5 record.** The gate's substance — a reviewer who
+executed everything it reports, a fix for every finding, CI green, and a stop
+condition set from outside the loop and honoured — is met; the `APPROVE` token
+is not. This is the same disposition PR 1 took at D5 before the maintainer
+directed a scoped round.
+
+- **PRO:** every finding is fixed and RED-verified; the deliverable's own path
+  has had five independent passes over it; three surfaces found along the way
+  are filed rather than absorbed (#277, #279, #280); the remaining risk is on
+  surfaces this PR does not change.
+- **CON:** no `APPROVE` token, and three of the seven findings were
+  remedy-introduced, which is the pattern that argues the next round would find
+  something too.
+
+**2. One further round, scoped to the remedies** — what the maintainer chose on
+PR 1, where it returned the first `APPROVE` after six rounds.
+
+- **PRO:** the round-5 remedy is small and self-contained (one comparison and
+  its tests), so a scoped round is cheap; it repairs the one procedural gap —
+  the last fix is unreviewed.
+- **CON:** it reopens a loop that has been stopped on a condition set from
+  outside it, and the pre-registration said the loop ends here.
+
+**3. Split the PR** — ship the forwarding and the name checks, defer the
+identity work to its own PR.
+
+- **PRO:** the identity work grew past the plan's file list and carries the
+  user-visible behaviour changes.
+- **CON:** the forwarding **does not work** without the identity merge — that
+  was measured, not argued. Splitting ships an override that an alias defeats,
+  which is the defect #264 reports.
+
+## Recommendation
+
+**Option 1**, with option 2 as the maintainer's call if the missing token
+matters more than the missing round. The reason is the same one that decided
+D5: the loop was stopped by the party outside it, on a condition fixed before
+the outcome was known, and the thing it named was fixed rather than argued away.
+
+Option 3 is not viable on the measurement.
