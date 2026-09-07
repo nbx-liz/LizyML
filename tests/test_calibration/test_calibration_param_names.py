@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+import inspect
 import pathlib
 from typing import Any
 
@@ -186,6 +187,22 @@ NON_TRAINING_ENTRY_POINTS: dict[str, str] = {
 }
 
 
+#: Arguments for the three classified methods that cannot be called bare.
+#:
+#: Without them ``getattr(model, name)()`` raises ``TypeError`` at argument
+#: binding, the body never executes, and ``spy.calls == []`` holds because
+#: nothing ran -- a green cell that checked nothing, on exactly the two methods
+#: rounds 1 and 2 found real defects in (``load``, ``export_code``). Measured:
+#: 3 of the 21 bind-fail bare, 18 reach the body. The test asserts the binding
+#: succeeds, so a future classified method with a required argument fails here
+#: rather than passing vacuously.
+NON_TRAINING_ENTRY_POINT_ARGS: dict[str, Any] = {
+    "predict": lambda tmp: (make_binary_df(n=30),),
+    "export_code": lambda tmp: (tmp / "generated.py",),
+    "load": lambda tmp: (tmp / "no-such-artifact.joblib",),
+}
+
+
 def _public_callables() -> set[str]:
     """``Model``'s public callable surface, including what the mixins add."""
     return {
@@ -226,25 +243,42 @@ def test_the_entry_point_split_covers_the_public_surface() -> None:
 
 @pytest.mark.parametrize("name", sorted(NON_TRAINING_ENTRY_POINTS))
 def test_non_training_entry_points_really_do_not_train(
-    name: str, monkeypatch: pytest.MonkeyPatch
+    name: str, monkeypatch: pytest.MonkeyPatch, tmp_path: pathlib.Path
 ) -> None:
     """The reasons above are claims about behaviour, so execute them.
 
     Each is called on an *unfitted* ``Model``, which is the only state where a
     method could plausibly train something on its own. Almost all raise -- that
     is the point: what is asserted is that no Booster was trained, whatever the
-    call did. A method that cannot be invoked without arguments still cannot
-    have trained, because the spy would have seen it.
+    call did.
+
+    The call must reach the body for that to mean anything. A method with a
+    required argument, called bare, raises before its first statement runs, and
+    the spy then observes an empty list because nothing executed. So the binding
+    is asserted first, and ``NON_TRAINING_ENTRY_POINT_ARGS`` supplies what the
+    three such methods need.
     """
     spy = _TrainSpy()
     spy.install(monkeypatch)
     cfg = make_config("binary", calibration="isotonic", tuning_n_trials=1)
     model = Model(cfg)
 
+    bound = getattr(model, name)
+    args = NON_TRAINING_ENTRY_POINT_ARGS.get(name, lambda tmp: ())(tmp_path)
+    try:
+        inspect.signature(bound).bind(*args)
+    except TypeError as exc:
+        pytest.fail(
+            f"Model.{name}() cannot be called with the arguments this test "
+            f"supplies ({exc}). The body would never run and the assertion "
+            "below would hold vacuously -- add an entry to "
+            "NON_TRAINING_ENTRY_POINT_ARGS."
+        )
+
     # Any outcome is acceptable except training: most of these raise on an
     # unfitted model, and a raise is not what is being asserted.
     with contextlib.suppress(Exception):
-        getattr(model, name)()
+        bound(*args)
 
     assert spy.calls == [], (
         f"Model.{name}() is classified as not training "
