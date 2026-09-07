@@ -233,6 +233,14 @@ config = {
 
 `LGBMConfig` に以下のスマートパラメーターを提供する。これらは `fit()` 時に学習データに基づいて LightGBM ネイティブパラメーターに解決される。`params` の直接指定とは独立して機能し、`params` で同一パラメーターが指定されている場合は競合エラーとする。
 
+**この競合ルールが適用される入口（H-0094 / 実測）。** スマート解決はパラメーター dict のマージより後段で走り、その結果が勝つため、ルールが適用されない入口では「受理して黙って置換」になる。
+
+| 入口 | 状態 |
+|---|---|
+| `model.params`（config） | `LGBMConfig._validate_smart_params` が parse 時に拒否。ただし `auto_num_leaves` / 2 つの ratio の **3 件のみ**で、`balanced`→`scale_pos_weight` と `feature_weights`→`feature_contri` / `feature_pre_filter` は対象外 |
+| `fit(params=...)` | **H-0094 で拒否する（5 件すべて）。** 有効なスマートパラメーターが書くネイティブ名は `CONFIG_INVALID` とし、どのスマートパラメーターが管理しているかを名指しする |
+| `tuning.optuna.space`（`category: model`） | **未対応（[#279](https://github.com/nbx-liz/LizyML/issues/279)）。** サンプルされた値は学習に届かず、`best_model_params` には届かなかった値が記録される。実測: 本リポジトリのスイートが構築する `category: model` 探索空間 67 件のうち **54 件**が該当（すべて `num_leaves`）。方向の決定は #279 |
+
 ### auto_num_leaves（葉の数の自動算出）
 
 - `auto_num_leaves: bool = True`: 有効時、`max_depth` から `num_leaves` を自動算出する。
@@ -1242,6 +1250,9 @@ class EstimatorProvider(Protocol):
     def extract_smart_params(self, model_cfg: Any) -> dict[str, Any]: ...
     def accepted_model_param_names(self) -> frozenset[str]: ...   # H-0093
     def smart_param_names(self) -> frozenset[str]: ...            # H-0093
+    def smart_managed_param_names(                                # H-0094
+        self, smart: dict[str, Any], task: str,
+    ) -> dict[str, str]: ...
     def resolve_smart_params(
         self, smart: dict, effective: dict, n_rows: int,
         feature_names: list[str], y: Series, task: str,
@@ -1273,6 +1284,7 @@ class EstimatorProvider(Protocol):
 - `build_pipeline_factory` は estimator 固有の FeaturePipeline が必要な場合（例: EntityEmbedding のカテゴリ埋め込み）に対応する。デフォルトは `NativeFeaturePipeline` を返す。
 - `build_export_params` は codegen 経路（`Model.export_code()`）が必要とする native params / num_boost_round / feval metadata を `ExportParams` frozen dataclass で返す（H-0073）。`_model_persistence.py` から estimator 具象型（`LGBMAdapter` 等）への直接参照を排除するための入口。
 - `accepted_model_param_names()` / `smart_param_names()` は「その学習器が受理する名前」を宣言する（H-0093）。前者は**学習器自身から導出すること**（列挙しない）。学習器の更新で名前が増減したときに黙って古びる実装は、この IF が検出しようとしている欠陥をそれ自体が持つことになる。後者は `extract_smart_params` が返すキーと必ず一致させ、両者を単一の宣言から導くこと。
+- `smart_managed_param_names(smart, task)` は「**有効なスマートパラメーターが上書きしてしまうネイティブ名**」を返す（H-0094）。スマート解決はパラメーター dict のマージより後段で走り、その結果が勝つため、ここに挙がる名前を手で指定しても黙って置き換えられる。呼び出し側はそれを**拒否**に使う（`CONFIG_INVALID`）。task を取るのは、同じスマートパラメーターでも task によって書くものが変わるためである（`balanced` は binary では `scale_pos_weight` を書くが、multiclass では sample weight を作る＝パラメーター名ではないので衝突しない）。宣言は**コードから閉じる**こと: 解決関数群の `resolved[...] = ...` 代入を走査し、宣言されていない名前が書かれたら落ちるテストを持つ。
   - 検査の発火点は**学習器に渡す直前**（`_merge_params` の merge 後、および tuning study 開始前）であって構築時ではない。config は呼び出し側が参照を保持したまま変更でき、`best_model_params` は artifact から `__init__` 後に復元されるため、構築時の検査ではどちらも素通りする。`Model.load()` 自体は検査しない（artifact は起きた fit の記録であり、読めなくする理由がない）。
 
 ディレクトリ構成（estimator ごとにサブパッケージ化）:
@@ -1445,6 +1457,7 @@ Config の各フィールドが最終的なコンポーネント（Booster param
 - `get_provider()` が model name で正しい provider を返す。未知の name で `CONFIG_INVALID`。
 - `_merge_params` の優先順位: Config defaults < tune best < fit() args。**この 3 段目は宣言だけで実際には届いていなかった（H-0094 / #264）**ため、`fit(params=...)` を渡した fit と渡さない fit で**学習済み Booster が異なること**を主張する。マージ後の dict を突き合わせるだけでは、欠陥のあるコードでも成立した。
 - 不明な名前の拒否は**出所（`model.params` / `tuning best_model_params` / `fit(params=)`）を名指しする**（H-0094）。3 つの入口が 1 つの dict にマージされてから検査されるため、出所を持たないと 3 つのうち 2 つは誤った宛先を指す。
+- `fit(params=)` に**有効なスマートパラメーターが管理するネイティブ名**を渡した場合は拒否する（H-0094 決定 4、§5.3 の表）。テストは 2 方向で主張すること: 有効なら拒否かつ Booster 0 本、**無効化すれば同じ値が `lgb.train` に届く**。後者が無いと、管理表に何を書いても拒否テストは通る。
 
 ### 18.1.4 Artifact 互換テスト（H-0056 カテゴリ A）
 

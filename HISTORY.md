@@ -7379,7 +7379,7 @@ Firing rate: 0/3 of configs carrying calibration.params (#262's calibration surf
 - **ステータス**: Accepted
 - **起票日**: 2026-09-07
 - **決定日**: 2026-09-07
-- **スコープ**: `lizyml/core/model.py`（`fit()` から override を渡す / `_merge_params` が名前の出所を持つ）, `tests/test_core/test_fit_params_override.py`（新規）, `tests/_train_spy.py`（新規: `lgb.train` / `lgb.Dataset` の記録を 1 か所へ）, `tests/test_estimators/test_lightgbm_parameter_names.py`（自前の記録器を共有ヘルパへ置換）, `BLUEPRINT.md` §12.2 / §18.1.3, `CHANGELOG.md`。
+- **スコープ**: `lizyml/core/model.py`（`fit()` から override を渡す / `_merge_params` が名前の出所を持つ）, `lizyml/core/_model_factories.py`（決定 4 の拒否）, `lizyml/estimators/lgbm/smart_params.py`（`SMART_PARAM_TARGETS` 宣言 + `smart_managed_names`）, `lizyml/estimators/provider.py`（**公開 Protocol に 1 メソッド追加**）, `lizyml/estimators/lgbm/provider.py`（実装）, `tests/test_core/test_fit_params_override.py`（新規）, `tests/_train_spy.py`（新規: `lgb.train` / `lgb.Dataset` の記録を 1 か所へ）, `tests/test_estimators/test_lightgbm_parameter_names.py`（自前の記録器を共有ヘルパへ置換）, `BLUEPRINT.md` §12.2 / §18.1.3, `CHANGELOG.md`。
 - **関連**: [Issue #264](https://github.com/nbx-liz/LizyML/issues/264), H-0093（名前検査の設置場所）, H-0050（`_merge_params` の優先順位）, [#277](https://github.com/nbx-liz/LizyML/issues/277)（本 PR で起票した calibration 側の同型欠陥）。
 
 ### 目的（課題）
@@ -7415,16 +7415,49 @@ DC4（inert wiring）。配管はあり、公開の書き手が誰も到達し�
 
    ただし**これは `lgb.train` への全経路ではない**。trial params は `_merge_params` の後にマージされ（探索空間の parse 時検査でカバー）、`LGBMAdapter(params=...)` の直接構築と codegen が出す `lgb.train` は別方向からカバーされる（H-0093 決定 8）。主張は「**利用者の Config または `fit()` 呼び出し**が `lgb.train` の前に置ける名前は必ず provider の検査を通る」であり、「パッケージ内の全呼び出しが 1 関数を通る」ではない。
 
+4. **スマートパラメーターが管理するネイティブ名は、上書きを受理せず拒否する（レビュー round 1 の指摘）。**
+
+   転送しただけでは足りなかった。スマート解決は `_merge_params` より**後段**で走り、その結果が勝つ（`core/model.py`: `resolved_model = {**resolved_model, **smart_resolved}`）。したがって「最優先」は嘘になる。round 1 の実測:
+
+   ```
+   fit(params={"scale_pos_weight": 10})  -> lgb.train received 0.9354838709677419
+   fit(params={"num_leaves": 12})        -> lgb.train received 32
+   fit(params={"min_data_in_leaf": 3})   -> lgb.train received 1
+   ```
+
+   **受理して置き換えるのは、この PR が直している欠陥そのものの再演である。** そこで `LGBMConfig._validate_smart_params` が config に対して既に適用している方針（衝突は競合エラー）を `fit()` 入力にも適用する: 有効なスマートパラメーターが書くネイティブ名は `CONFIG_INVALID` で拒否し、**どのスマートパラメーターが管理しているか**と**それを無効化する方法**を message に書く。
+
+   宣言（`SMART_PARAM_TARGETS`）は**コードから閉じる**。`resolve_smart_params` / `resolve_ratio_params` の `resolved[<文字列>] = ...` 代入を走査し、宣言と一致しなければ落ちるテストを置く。宣言だけの表は「4 つ目のネイティブ名を書き始めた日」に黙って古びる — それは本 PR が閉じている silence と同じ形である。
+
+   さらに**表が実在の上書きを指していること自体を実行で確かめる**: 各名前について、管理しているスマートパラメーターを**無効化すると同じ上書きが `lgb.train` に素通しで届く**ことを主張する。これが無いと表は何を書いても拒否テストが通ってしまう。`balanced` は multiclass では sample weight を作る（パラメーター名ではない）ため、multiclass の `scale_pos_weight` は管理対象外であることも実行で固定する。
+
+   **適用範囲は `fit(params=)` のみ。** config 面は parse 時に 3 件が拒否済みで、残り 2 件の衝突は出荷済み config に 0 件（上の firing rate）。探索空間面は 54/67 で該当するが、閉じると本リポジトリの 54 件が落ちるため #279 に分離した。**この非一貫性は認識したうえでの分離であり、H-0094 の主張は「`fit(params=)` について閉じた」までである。**
+
 3. **不明名の拒否は出所を名指しする。** 3 入力が 1 つの dict にマージされてから検査されるため、従来はすべて `model.params` として報告していた。3 つのうち 2 つは**利用者を誤ったファイルに送る**。`_merge_params` が `origins` を持ち、`model.params` / `provider default fixed params` / `tuning best_model_params` / `fit(params=)` を名前ごとに区別する。優先順位が上の入力が出所を上書きするので、同名が複数入力にある場合は**実際に効いている方**が報告される。
 
 ### Conditional-Activation Evidence
 
-**不要。** `if override:` は Change Gate が列挙する 6 つの目的（`skip` / `shorten` / `cache` / `select` / `allow` / `conditionally-activate`）のいずれでもなく、「上書きがあるかないか」という通常の必須動作の分岐である。ゲートも fast path も exemption も追加していない。`origins` も同様に、拒否メッセージの宛先を決めるだけで何かの発火条件ではない。
+**転送そのものには不要。** `if override:` は Change Gate が列挙する 6 つの目的（`skip` / `shorten` / `cache` / `select` / `allow` / `conditionally-activate`）のいずれでもなく、「上書きがあるかないか」という通常の必須動作の分岐である。`origins` も同様に、拒否メッセージの宛先を決めるだけで何かの発火条件ではない。
+
+**決定 4 の拒否には必要（`allow` 目的のゲート）。** レビュー round 1 の指摘で追加した「スマートパラメーターが管理するネイティブ名を拒否する」検査は入力を条件付きで通す門なので、同型の衝突が実際にどれだけ起きているかを、出荷済みスイートが構築する全 config（912 件、`LizyMLConfig` を記録する pytest plugin で計測）に対して測った。
+
+```
+Firing rate: 0/824 of configs carrying model.params
+Firing rate: 54/67 of configs carrying a category:model tuning space
+Firing rate: 0/0 of shipped calls passing fit(params=...) -- no call site exists
+```
+
+3 行の意味は同じではない。
+
+- **`model.params` は 0/824。** parse 時の既存チェックが 3 件を止めているうえ、残る 2 件（`balanced` / `feature_weights`）の衝突を書いている config が実際に無い。したがってこの面に検査を広げても、出荷済みの何も壊れない代わりに、何も捕まらない。
+- **探索空間は 54/67。** これは**生きている欠陥**であり、本 PR では**閉じない**。閉じると本リポジトリ自身の 54 件が落ち、方向（拒否する / チューニング値を勝たせる / smart 次元へ写像する）は保守者の判断である。[#279](https://github.com/nbx-liz/LizyML/issues/279) に実行証拠つきで起票し、BLUEPRINT §5.3 に入口ごとの状態表を置いた。
+- **`fit(params=)` は母集団 0。** 引数がこれまで何もしていなかったため、この引数を渡す呼び出しがコードベースに 1 つも存在しない（`grep` で新規テスト以外 0 件）。すなわち新しい拒否は**既存の何も拒否しない**。これは Change Gate が言う「測定不能」ではなく、母集団が空であることを測った結果である。
 
 ### 影響範囲 / 互換性
 
 - **公開 API のシグネチャは不変**。`FitResult` / `PredictionResult` / `Artifacts` / `format_version` も不変。split / leakage 境界に触れない。
 - **振る舞いは変わる。** これまで無視されていた `fit(params=...)` が効くようになる。すでにこの引数を使っていた利用者は、**今まで意図と違うモデルを得ていた**ことになる。CHANGELOG に Fixed として明記する。
+- **「最優先」は 3 入力の中での最優先であって無条件ではない。** 有効なスマートパラメーターが管理するネイティブ名は、上書きされるのではなく**拒否される**（決定 4）。無条件の最優先を主張すると、決定 4 の前に実測された「受理して置換」を仕様として書くことになる。
 - 不正な名前を `fit(params=)` に渡していた場合は `CONFIG_INVALID` で拒否されるようになる（H-0093 と同じ理由: 黙って捨てられるより拒否される方がよい）。
 - `fit(params=)` は**その呼び出しに閉じる**。`_merge_params` は新しい dict を作るので利用者の config オブジェクトは書き換わらず、次の `fit()` は config の値に戻る。これはテストで固定する。
 
@@ -7445,6 +7478,10 @@ DC4（inert wiring）。配管はあり、公開の書き手が誰も到達し�
 - **出所の名指し**: 例外メッセージと `context["unknown"]` の `surface` が `fit(params=)` であること。smart param 名の場合も専用メッセージを保ったまま出所を名乗ること。
 - **3 入力の同時判定**: `model.params` / `tuning best_model_params` / `fit(params=)` にそれぞれ不明名を置き、3 件が**それぞれの出所**で報告されること。
 - **誤って何かを変えないこと**: `params=None` と `params={}` がともに no-op であること、上書きが呼び出しをまたいで残らず利用者の config を書き換えないこと。
+- **決定 4（管理名の拒否、6 名前 × 2 方向）**: 各ネイティブ名について、(a) 管理するスマートパラメーターが有効なら `CONFIG_INVALID` で拒否され、両者の名前が message に現れ、**Booster が 1 本も学習されていない**こと。(b) そのスマートパラメーターを無効化すると、**同じ上書きが `lgb.train` に届く**こと。(b) が無ければ表は何を書いても (a) が通る。
+- **管理表がコードと一致すること**: 解決関数の `resolved[...] =` 代入の走査と `SMART_PARAM_TARGETS` が一致すること。両方向の RED 確認済み（宣言のみの名前 / 走査にだけ現れる名前）。
+- **スマート面の分割が閉じていること**: provider が申告する全スマートパラメーターが「ネイティブ名を書く」か「何も書かない」のどちらかに分類され、未分類が残らないこと。
+- **対照**: 管理対象でない名前（`learning_rate`）は拒否されず届くこと、multiclass の `scale_pos_weight` は届くこと。
 
 その他:
 
