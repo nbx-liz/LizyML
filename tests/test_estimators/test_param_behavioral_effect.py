@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from typing import Any
 
+import lightgbm as lgb
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
@@ -19,6 +20,7 @@ import pytest
 
 from lizyml.estimators.lgbm import LGBMAdapter
 from lizyml.estimators.lgbm.defaults import _TASK_METRIC
+from lizyml.estimators.lgbm.param_names import LGBM_PARAM_NAMES
 
 # ---------------------------------------------------------------------------
 # Test data helpers (minimal, fast)
@@ -105,9 +107,41 @@ class TestBoosterParamPropagation:
         ],
     )
     def test_param_reaches_booster(self, param_name: str, param_value: Any) -> None:
-        adapter = LGBMAdapter(task="regression", params={param_name: param_value})
-        params, *_ = adapter._build_params()
-        assert params[param_name] == param_value
+        """The value propagates, and the name is one LightGBM actually defines.
+
+        Two assertions, because propagation alone is not the interesting claim.
+
+        ``Booster.params`` is an echo of the dict handed to ``lgb.train``, not a
+        report of what LightGBM parsed: an invented key is retained there
+        verbatim (measured -- ``not_a_lightgbm_parameter`` comes back as ``9``),
+        while a parameter LightGBM defaulted is absent. So asserting only that
+        the value arrives would hold for a name LightGBM silently discards,
+        which is precisely the defect H-0093 is about.
+
+        The second assertion is what closes that: the names in the list above
+        are hand-written, and each is checked against LightGBM's own registry.
+        Whether the parameter *changes the model* is a separate question, and
+        the behavioural section below is where it is asked.
+        """
+        assert param_name in LGBM_PARAM_NAMES, (
+            f"{param_name!r} is not a name LightGBM {lgb.__version__} defines, "
+            "so asserting that it propagates asserts nothing -- LightGBM would "
+            "discard it without error."
+        )
+
+        X_train, y_train, X_valid, y_valid = _regression_data()
+        adapter = LGBMAdapter(
+            task="regression",
+            params={"n_estimators": 10, param_name: param_value},
+            random_state=42,
+        )
+        adapter.fit(X_train, y_train, X_valid, y_valid)
+        booster = adapter._model
+        assert booster is not None, "adapter.fit did not produce a Booster"
+        assert booster.params.get(param_name) == param_value, (
+            f"{param_name}={param_value!r} did not reach the trained Booster; "
+            f"it holds {booster.params.get(param_name)!r}."
+        )
 
     def test_objective_locked_to_task(self) -> None:
         # H-0079: cross-task objective injection now raises CONFIG_INVALID
@@ -310,7 +344,72 @@ class TestSmartParamsBehavior:
         assert "scale_pos_weight" not in resolved_false
 
     def test_feature_weights_changes_importance(self) -> None:
-        """feature_weights resolved by smart_params should influence training."""
+        """feature_weights must change what the booster learns (BLUEPRINT 14.4).
+
+        Rewritten for H-0093. The previous version compared the two *resolved
+        parameter dicts* and never trained anything, so it held whether or not
+        LightGBM honoured the key -- and LightGBM did not, because the emitted
+        name was ``feature_weights`` rather than ``feature_contri``. The
+        invariant BLUEPRINT declares is about importance ordering, so that is
+        what is asserted: suppress the informative feature and it must stop
+        leading the importance ranking.
+        """
+        from lizyml.estimators.lgbm.smart_params import resolve_smart_params
+
+        X_train, y_train, X_valid, y_valid = _regression_data()
+        feature_names = list(X_train.columns)
+        base_smart: dict[str, Any] = {
+            "auto_num_leaves": None,
+            "num_leaves_ratio": None,
+            "min_data_in_leaf_ratio": None,
+            "min_data_in_bin_ratio": None,
+            "feature_weights": None,
+            "balanced": None,
+        }
+
+        def gains(weights: dict[str, float] | None) -> dict[str, float]:
+            resolved, _ = resolve_smart_params(
+                smart={**base_smart, "feature_weights": weights},
+                effective_params={},
+                n_rows=len(X_train),
+                feature_names=feature_names,
+                y=y_train,
+                task="regression",
+            )
+            adapter = LGBMAdapter(
+                task="regression",
+                params={"n_estimators": 30, **resolved},
+                random_state=42,
+            )
+            adapter.fit(X_train, y_train, X_valid, y_valid)
+            booster = adapter._model
+            return dict(
+                zip(
+                    booster.feature_name(),
+                    booster.feature_importance("gain"),
+                    strict=True,
+                )
+            )
+
+        # f1 carries the signal (y = 2*f1 + noise), so it leads unweighted.
+        unweighted = gains(None)
+        assert max(unweighted, key=lambda k: unweighted[k]) == "f1"
+
+        # Suppressing f1 must dislodge it. Under the old emitted key this was
+        # byte-identical to `unweighted`.
+        suppressed = gains({"f1": 0.0001, "f2": 1.0})
+        assert suppressed["f1"] < unweighted["f1"], (
+            "suppressing f1 did not reduce its gain, so the weights never "
+            f"reached the booster: unweighted={unweighted}, "
+            f"suppressed={suppressed}"
+        )
+        assert max(suppressed, key=lambda k: suppressed[k]) == "f2", (
+            "f1 still leads the importance ranking after being suppressed; "
+            f"got {suppressed}"
+        )
+
+    def test_feature_weights_resolves_to_an_ordered_list(self) -> None:
+        """The dict is positional over the training feature order."""
         from lizyml.estimators.lgbm.smart_params import resolve_smart_params
 
         X_train, y_train, X_valid, y_valid = _regression_data()
@@ -345,11 +444,12 @@ class TestSmartParamsBehavior:
             task="regression",
         )
 
-        # Verify weights are different
-        assert resolved_a.get("feature_weights") != resolved_b.get("feature_weights")
-        # Verify weights are properly ordered lists
-        fw_a = resolved_a["feature_weights"]
-        fw_b = resolved_b["feature_weights"]
+        # Emitted under LightGBM's own name (H-0093), positional over the
+        # training feature order.
+        fw_a = resolved_a["feature_contri"]
+        fw_b = resolved_b["feature_contri"]
+        assert "feature_weights" not in resolved_a
+        assert fw_a != fw_b
         assert isinstance(fw_a, list)
         assert fw_a[0] > fw_a[1]  # f1 heavier
         assert fw_b[1] > fw_b[0]  # f2 heavier

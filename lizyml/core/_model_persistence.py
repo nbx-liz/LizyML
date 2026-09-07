@@ -178,7 +178,7 @@ class ModelPersistenceMixin:
         refit_result = self._require_refit()
 
         from lizyml.codegen.generator import generate_code
-        from lizyml.core._model_factories import get_outer_n_splits
+        from lizyml.core._model_factories import check_param_names, get_outer_n_splits
 
         adapter = refit_result.model
 
@@ -186,6 +186,19 @@ class ModelPersistenceMixin:
         # EstimatorProvider so that this module remains
         # estimator-agnostic (H-0073).
         export = state.provider.build_export_params(adapter)
+
+        # H-0093: the generated `train.py` hands these straight to `lgb.train`
+        # and gets the same silent discard the library gives any unknown name.
+        # They come from the fitted adapter, not from the config, so neither
+        # gate on the training path sees them -- and `Model.load()` is
+        # deliberately permissive, so an artifact written before that gate
+        # existed can carry a name LightGBM never honoured right into the
+        # exported script.
+        check_param_names(
+            state.provider,
+            (("exported lgbm_params", name) for name in export.params),
+            model_name=state.cfg.model.name,
+        )
 
         cfg = state.cfg
         es = cfg.training.early_stopping

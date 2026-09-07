@@ -6661,6 +6661,24 @@ Issue #159 で要求された全 7 層を Phase に分散して実装する。
 
 代替案 Option D（`split.random_state` を computed mirror 化して seed を単一化）は、既存の明示指定ユーザー向け legacy 吸収が必要で破壊度が高く、独立 split seed の能力を失うため不採用。
 
+### 経路の母集団（散文ではなく検査で閉じる）
+
+独立レビューが 2 ラウンド続けて「全経路を覆う」という主張を反証した。1 回目は構築後の config 変更と artifact 由来の `best_model_params`、2 回目は `export_code` の生成 params である。**どちらも回答は「呼び出し点を 1 つ足して文を 1 つ足す」だった** — 同じ形の主張が同じ形で 2 回破れており、3 回目が無いと考える理由が無い。
+
+そこで母集団を**測って閉じる**。`lizyml/` 内で「パラメータ dict が学習器の前に置かれうる場所」を AST で走査すると 3 か所しかない:
+
+| 場所 | 内容 |
+|---|---|
+| `estimators/lgbm/adapter.py` | パッケージ内で唯一の実行時 `lgb.train`。params は `self.params` |
+| `estimators/lgbm/adapter.py` | `lgb.Dataset`。キーワードは API 引数であって調整対象パラメータではなく、コンストラクタのシグネチャと突き合わせる |
+| `estimators/lgbm/provider.py` | `build_estimator_factory` の adapter 構築。**params が adapter に渡る唯一の入口**であり、その dict を作る側（`_merge_params` / 探索空間 / `export_code`）を Facade が塞いでいる |
+
+この一覧は `tests/test_estimators/test_lightgbm_parameter_names.py` の `ESTIMATOR_ROUTES` として置き、走査が**一覧に無い場所を見つけた場合**と**一覧が存在しない場所を挙げている場合**の両方で落ちる。前者は新しい経路の追加をコミット時点で捕まえ、後者は「実際より広い被覆」を主張したままの記述を防ぐ。
+
+codegen テンプレートは文字列定数の中にあり、このモジュールの AST では call にならないため上記の走査には現れない。別途テンプレート専用の走査が担当する。
+
+**バックストップ（`build_estimator_factory` 内での再検査）は置かない。** 上記の走査が「Facade の 3 つの門を通らずに adapter へ届く経路は無い」ことを示している以上、その位置の検査は本番入力に対して決して発火しない — DC6 そのものになる。経路が増えたときに落ちるのは走査であって、沈黙するバックストップではない。
+
 ### 影響範囲 / 互換性
 
 - **後方互換（無変更ケース）**: `training.seed` も既定 42 のため、全デフォルト構成・`training.seed` 未変更構成では実効 seed は 42 のまま。fold / OOF / calibrated は不変。
@@ -7208,3 +7226,146 @@ mixin を 2 カテゴリに明示的に分ける:
 - **`tests/test_training/test_inner_valid_purge_embargo.py`（追加）**: 同一の outer 設定（`purged_time_series`, `purge_gap=3`, `embargo=2`）に対し、自動解決の inner valid は `gap == 5`、`inner_valid` を明示指定した inner valid は `gap == 0` になること。§10.3.3 が新たに書いた限定文に対応する pin であり、既存の自動解決テストはこの区別を検査していなかった。
 - **`tests/test_training/test_blocked_group_inner_valid.py`（追加, `TestRegressionFallbackIsTimeOrdered`）**: 決定 6 の回帰テスト。(1) `BlockedGroupInnerValid(task="regression")` がグループ数 < 4 の連続値 `y` で**空でない** inner-train を返し、その分割が同一 `ratio` の `TimeHoldoutInnerValid` と一致すること（修正前は `train=[]` で **RED**）。(2) 警告文がフォールバック先として `TimeHoldout` を名乗ること。(3) `StratifiedTimeHoldoutInnerValid` を層化不能な連続値 `y` に直接適用すると `ValueError` になること。
 - 既存の `TestTimeHoldoutGap` / `TestAutoResolvePropagatesGap`、および分類タスクの `BlockedGroupInnerValid` フォールバック既存テストは不変のまま green。
+
+## H-0093: LightGBM パラメータ名の境界を閉じる（#261 / #262 / #268 の一部）
+
+- **ステータス**: Proposed
+- **起票日**: 2026-09-07
+- **スコープ**: `lizyml/estimators/provider.py`（`EstimatorProvider` に受理名を問う 2 メソッドを追加 = **公開 Protocol の変更**）, `lizyml/estimators/lgbm/provider.py`（実装）, `lizyml/estimators/lgbm/smart_params.py`（`feature_weights` → `feature_contri`）, `lizyml/core/_model_factories.py`（名前検証関数）, `lizyml/core/model.py`（`_merge_params` から呼ぶ）, `lizyml/core/_model_tuning.py`（study 開始前に探索空間を検査）, `lizyml/core/_model_persistence.py`（`export_code` の生成 params を検査）, `BLUEPRINT.md` §5.3 / §14.4, `tests/test_estimators/test_lightgbm_parameter_names.py`（新規）, `tests/test_tuning/test_search_space_name_validation.py`（新規）, `lizyml/calibration/isotonic.py`（自身が消費する名前の宣言）, `tests/test_calibration/test_calibration_param_names.py`（新規）, `tests/_ast_scan.py`（新規: LightGBM の束縛名を import から解決する走査ヘルパ）, `tests/test_estimators/test_param_behavioral_effect.py` / `tests/test_core/test_config_propagation.py`（既存テストの書き換え）。
+- **関連**: [Issue #261](https://github.com/nbx-liz/LizyML/issues/261), [#262](https://github.com/nbx-liz/LizyML/issues/262), [#268](https://github.com/nbx-liz/LizyML/issues/268), H-0053（`EstimatorProvider` 導入）, H-0036（ratio params）。
+
+### 目的（課題）
+
+LightGBM に渡す名前を誰も検査していない。綴りを間違えた、あるいは存在しない名前は `lgb.train` に転送され、**LightGBM に黙って捨てられる**。`verbose=-1`（既定）が LightGBM 自身の警告を抑止するため、利用者には何も起きない。
+
+**#261 — `feature_weights` は出荷以来ずっと無効だった。** これは「キー名の綴り違い」ではなく、**公開機能が一度も動作していなかった**という事実である。LightGBM 4.6.0 が定義する名前は `feature_contri` で、`feature_weights` は正式名にもエイリアスにも存在しない（LightGBM 自身の `LGBM_DumpParamAliases` で確認: 140 canonical / 307 aliases 込み）。
+
+同一データ・同一 seed・`f0` の重みを 0.0 にして測定した結果:
+
+```
+baseline            : ['f1', 'f0', 'f2', 'f3', 'f4']   f0 gain 2704.69
+feature_weights=... : ['f1', 'f0', 'f2', 'f3', 'f4']   f0 gain 2704.69   ← baseline と完全同一
+feature_contri=...  : ['f1', 'f2', 'f3', 'f4', 'f0']   f0 gain    0.00   ← 効く
+```
+
+`BLUEPRINT.md:1425` は「`feature_weights` → importance 順序変化」を**検証すべき不変条件として宣言している**。この宣言は機能の全期間にわたり実装に対して偽だった（DC7）。既存の `TestFeatureWeightsE2E::test_feature_weights_applied` が「2 つの列名が importance dict に存在すること」しか見ておらず、重みの有無に関わらず成立する主張だったため検出されなかった。
+
+**#262 — `tuning.optuna.space` の `category: model` 名を誰も検査していない。** 探索空間に存在しない名前を書くと、Optuna はその次元をサンプリングし、値は `lgb.train` に渡り、捨てられる。試行は完了し、スコアが出て、その次元は結果に何の影響も与えない。
+
+**同じ穴が `model.params` にもある。** `model.params` は `tuning.optuna.space` の fit 側の双子であり、書いた内容はそのまま `lgb.train` に転送される。実行で確認済み: 存在しない名前を含む params で `lgb.train` はエラーを出さず 3 本の木を学習した。片方だけ塞いで双子を開けたままにするのは #270 が指摘する形そのものなので、同一のゲートで両方を塞ぐ。
+
+### 対応方針（決定）
+
+1. **`feature_contri` を発出する。** Config フィールド名 `feature_weights` は据え置き、`smart_params.py` が LightGBM に渡すキーだけを変える。`feature_pre_filter = False` の強制は現行どおり維持する。
+2. **`EstimatorProvider` に「受理する名前」を問うメソッドを 2 つ追加する（公開 Protocol の変更）。**
+   - `accepted_model_param_names() -> frozenset[str]`: その学習器がネイティブに受理する名前。
+   - `smart_param_names() -> frozenset[str]`: smart parameter 名。誤って `category: model` や `model.params` に書かれた場合に**別のメッセージ**を返すために要る（利用者の意図はほぼ確実に smart 指定である）。
+
+   LGBM 実装は前者を `LGBM_DumpParamAliases` から**モジュール読み込み時に 1 度だけ導出**する。手書きのリストにすると LightGBM の更新で名前が増減したときに黙って古びる（DC3）— それはこのゲートが検出するはずの欠陥そのものである。後者は `_SMART_PARAM_NAMES` の 1 タプルを正とし、`extract_smart_params` も同じタプルから構成する（両者が別々に名前を並べると同じ DC3 になる）。
+3. **検証は Layer 4（Facade）に置く。`config/schema.py` には置かない。**
+
+   `ARCHITECTURE.md` の DAG で `config/` と `estimators/` は**どちらも Layer 1 の兄弟**であり、Layer 1 は Layer 0 のみを参照できる。config 層から provider を import するのは層違反になる。したがって検証は、config と provider が**規則上はじめて出会える場所** = Facade で行う。エラーコードは `CONFIG_INVALID`、いかなる学習も始まる前に落ちる。
+4. **発火点は「学習器に渡す直前」であり、構築時ではない。**
+
+   当初は `Model.__init__` に置いたが、独立レビューが実行で 2 つの穴を示した。どちらも構築時検査という選択そのものの帰結である。
+
+   - **呼び出し側は config の参照を持ち続ける。** `Model` は渡された `LizyMLConfig` をコピーせず保持するため、構築後に呼び出し側が書き換えた内容がそのまま学習器に届く。実測: `Model(cfg)` 構築後に `cfg.model.params` へ不正名を足して fit すると、3 回の `lgb.train` すべてにその名前が渡った。
+   - **`best_model_params` は `__init__` の後に載る。** artifact から復元された tuned params は構築を経由しないため、構築時検査は原理的に届かない。実測: 復元後の再 fit で 3 回とも渡った。
+
+   したがって検証は 4 か所で行う。いずれも同一関数の呼び出しであり、判断が分かれる複数の門ではない（4 つ目は決定 6 でレビュー中に加わった）。
+
+   | 呼び出し点 | 覆う経路 |
+   |---|---|
+   | `_merge_params` のマージ後 | config の `model.params`、構築後に変更された config、artifact から復元された `best_model_params` |
+   | tuning study 開始前 | `category: model` の探索空間。trial params はこの名前から生成されるため、空間を覆えば trial も覆う |
+   | `export_code` の生成直前 | 生成される `train.py` が `CFG["lgbm_params"]` として `lgb.train` に渡す params。これは**学習済み adapter から**取られるため config 側のどちらの門も見ておらず、かつ `load()` を通した古い artifact がそのまま流れ込む |
+   | 学習を始める各入口の先頭（`_fit_impl` と tuning の `_merge_params` 直後） | `calibration.params`。calibrator の Booster に渡る名前であり、config 側のどの門も見ていない。決定 6 を参照 |
+
+   **`fit(params=...)` はこの一覧に含まれない。** 現在の `Model.fit` は `params` を `_merge_params` に転送していないため、この引数は**そもそも何にも効いていない**（実測: `{"not_a_lightgbm_parameter": 7, "num_leaves": 2}` を渡しても `lgb.train` 3 回のいずれにも届かず、`num_leaves` は既定値のままだった）。転送は #264 / PR 2 の題材であり、検証はすでに `_merge_params` の返り値に置かれているので、PR 2 は引数を配線するだけでこの経路も覆われる。
+5. **`Model.load()` は検証しない。** 保存済み artifact は「実際に起きた fit の記録」であり、綴り違いを含む古い artifact の読み込みを拒否しても誰の役にも立たない。当初は決定 4 でそう書きながら**実装は逆だった** — `load()` は `cls(config)` を通るため、構築時検査は古い artifact の読み込みを拒否していた。発火点を移した結果、`load()` は成功し、その artifact から**再学習しようとした時点で**落ちる。これは正しい非対称性である: 記録は読めるべきだが、何も起こさない名前で学習を始めるべきではない。
+6. **`calibration.params` も同じゲートで塞ぐ（レビュー round 3 で発見、当初スコープ外）。**
+
+   `IsotonicCalibrator` は `calibration.params` を `_ISOTONIC_DEFAULTS` に上書きマージして `lgbm.train` に渡す。すなわち **`model.params` と全く同じ silent-discard がこの面にもある**。実測で確認済み: `IsotonicCalibrator({"num_leave": 7})` は例外を出さず、その名前がそのまま `lgbm.train` に届いた（`tests/test_calibration/test_calibration_param_names.py::test_the_calibrator_itself_forwards_an_unknown_name` が negative control としてこれを固定する）。
+
+   これは当初 3 経路を塞いだ**後**に見つかった 4 つ目の経路であり、見落としの原因は経路の走査そのものにあった（決定 8）。PR 1 の受け入れ基準が「LightGBM が捨てる名前は拒否される」である以上、自身が列挙した経路を 1 つ未ゲートのまま出荷すると宣言が偽になる（DC5）ため、繰り延べずここで塞ぐ。
+
+   3 点だけ `model.params` と扱いが異なる。
+
+   - **対象は `method` が LightGBM を使う calibrator に限る。** `platt` / `beta` は numpy と scipy で fit し LightGBM に触れないため、その params を LightGBM の登録表で判定すると正当な config を誤って拒否する。どの method が該当するかは散文で宣言せず**走査する**: `test_lgbm_backed_calibrators_matches_the_scan` が登録済み calibrator の各モジュールの import を読み、`LGBM_BACKED_CALIBRATORS` と一致しなければ落ちる。`isotonic` 自身が未ゲートのまま出荷されたのと同じ経緯を、次の calibrator で繰り返さないための機構である。
+   - **calibrator 自身が消費する名前は受理する。** `num_boost_round` / `validation_ratio` / `min_data_in_leaf_ratio` の 3 つは LightGBM に転送される前に取り出される。宣言はそれらを pop するコードの隣（`isotonic.py` の `CALIBRATOR_OWN_PARAM_NAMES`）に置き、Facade は `check_param_names(..., extra_accepted=...)` で受け取る。各面の例外がゲート関数側に溜まると、どの面の話なのか分からなくなるためである。
+   - **発火点は `_merge_params` の直後であって `_run_calibration` ではない。** 当初は calibrator を組み立てる直前に置いた。「使用点で検査する」という決定 4 の方針には合っているが、`_run_calibration` は**外側 CV が終わった後**に走るため、絶対に使えない config のために全学習を先に払うことになる。レビュー round 4 が実行で示した: 不正な `num_leave` を置いた fit は、`CONFIG_INVALID` になる前に base model を 2 本学習していた。決定 4 と BLUEPRINT §12.2 の「学習が始まる前に落ちる」という記述が、この面に対してだけ偽だったことになる（DC5）。
+
+     順序そのものをテストで固定する: `test_unknown_calibration_param_is_refused_before_any_training` は、不正名が `lgbm.train` に届かないことに加えて **`lgb.train` の呼び出し回数が 0 であること**を主張する。前者だけなら欠陥のある配置でも成立していた（実際していた）ため、順序は別の主張として要る。修正前は RED（Booster 3 本）。
+
+     **さらにその修正も、入口を 1 つしか覆っていなかった。** レビュー round 5 が実行で示した: `tune()` は自前の入口を持ち、`model.params` と探索空間は検査するが `calibration.params` は問わない。したがって `tune()` → `fit()` の順で使うと、`fit()` が拒否する config が **study を丸ごと完走してから**落ちる（実測 `calls_after_tune=2`）。上の順序テストは直接 `fit()` しか通らないため green のままだった。
+
+     この検査を入口で見落としたのは**これで 2 度目**である（1 度目は構築時に置いていたこと）。したがって修正は「もう 1 か所呼ぶ」ではなく、**学習する公開入口を列挙してそれぞれを実行で確かめる**形にする: `TRAINING_ENTRY_POINTS`（`fit` / `tune`）を parametrize し、各入口が「拒否が先、学習が後」であることを主張する。`predict` / `export_code` は学習しないので含めない。修正前は `tune` のセルだけが RED、`fit` のセルは green — 見落としの形そのものである。
+
+     **ただし列挙しただけでは軸は閉じない。** 手書きの 2 件は何とも突き合わされておらず、将来学習する公開メソッドが増えても何も落ちない。これは本 PR が 3 ラウンドかけて学んだ「宣言した fixture は突き合わせた軸しか閉じない」形そのものなので、`NON_TRAINING_ENTRY_POINTS`（残り 21 件、各々に理由）を置き、**両者が `dir(Model)` の公開 callable を過不足なく分割すること**を主張する。母集団は `Model` の公開面から導出され、未分類のメソッドは失敗になる。分類が偽でないことも実行で確かめる: 非学習と宣言した各メソッドを未 fit の `Model` に対して呼び、Booster が 1 本も学習されないことを spy で主張する。両方向の RED 確認済み（分類漏れ / 実在しない名前）。
+
+   - **`seed` は例外に含めない。** `__init__` で pop されるが `merged["seed"]` で戻されるため実際に Booster に届き、かつ LightGBM が知っている名前なので基底の登録表がすでに受理する。pop されているという理由だけで例外表に足すと**偽の宣言**になる。この 3 名 / `seed` の区別は散文ではなく実行で固定されている: 宣言された各名前が本当に `lgbm.train` に到達しないこと、`seed` は到達すること、をスパイで主張する。
+
+7. **例外表（exemption table）は出荷しない。** 中身が空の許可リストは何も許可しない経路であり DC6 になる。LightGBM が定義しない唯一のキー（`feature_weights`）への対処は「正しい名前を出す」ことであって「間違った名前を免除する」ことではない。免除が本当に必要になった PR が、その理由と自身の計測値を伴って表を導入すればよい。
+
+8. **「どの経路を覆っているか」は散文で主張せず、走査した母集団として持つ。**
+
+   レビュー 3 ラウンドが経路主張を 3 回反証した。1 回目「2 面」、2 回目「`CFG[...]` は覆われている」、3 回目は主張ではなく**走査そのもの**の欠陥だった。走査は受け手の名前を `{"lgb", "lightgbm"}` と直書きで照合していたため、`import lightgbm as lgbm` と書く `calibration/isotonic.py` が**丸ごと不可視**であり、走査は「経路は 3 つ、全て覆われている」と報告していた（DC1）。同じラウンドで、走査が adapter の構築（扉）だけを見て `build_estimator_factory(params=...)` の**呼び出し側（生産者）**を見ていないことも示された — 新しい呼び出し側を足しても検出は 0 件で、「経路が増えればテストが落ちる」という主張自体が偽だった。
+
+   したがって `ESTIMATOR_ROUTES`（`tests/test_estimators/test_lightgbm_parameter_names.py`）は次の形を取る。
+
+   - 受け手の名前は**各モジュール自身の import から解決する**（`tests/_ast_scan.py`）。慣例名 `{"lgb", "lightgbm"}` との和集合を取るのは、import が別の文字列定数にあるテンプレート断片で false-clean にならないためであり、過検出は loud failure にしかならない。
+   - **生産者も走査対象**に含める。
+   - 走査が本当に新しい経路を検出することを、**注入したソースに対する実行で**主張する（`HOSTILE_ROUTE_SHAPES`、10 ケース: エイリアス import / `from lightgbm import` / 改名付き `from` import / サブモジュール修飾 `lgb.basic.Dataset` / factory 呼び出し 2 形 / adapter 構築、および negative control 3 件 = `not_lgb.train` / `params=` の無い factory 呼び出し / 根が module でない `self.lgb.train`）。ここが散文だったことが、上記 2 つの見落としを許した箇所である。サブモジュール修飾の形は本ラウンドで走査を自分で攻撃して見つけた 3 つ目の false-clean であり、指摘されたものではない。
+
+   走査後の経路母集団は **6 件**（当初の宣言は 3 件）。内訳は adapter の `train` / `Dataset`、adapter 構築（扉）、`build_estimator_factory` 呼び出し（唯一の生産者）、calibrator の `train` / `Dataset`。
+
+   **この走査が主張する範囲を明示的に狭める。** Python の呼び出し文法は開いており（`getattr(lgb, "train")` / `functools.partial` / ディスパッチ表）、AST walker でそれを閉じることはできない。実際、本ラウンドで走査を 3 か所直したうち、**実在の欠陥を見つけたのは alias 解決の 1 件だけ**である（生産者走査は指摘された仮想形、サブモジュール修飾は自分で生成した仮想形を塞いだもの）。形を 1 つずつ追いかければ装置だけが際限なく育つ — 現に走査系は 557 行あり、本 PR の出荷差分 299 行を超えている。
+
+   したがって走査の役割は「**明日の平凡な新しい呼び出し側を loud にする tripwire**」であって、「今日のコードが覆われていることの証明」ではない。後者の根拠は別にある: 門が使用点に置かれていること、H-0093 の実測 firing rate、そして実際の fit が実際の `lgb.train` に渡した内容を読む `test_train_param_names_are_lightgbm_names` である。以後のレビューで「この走査が見落とす呼び出し形がある」という指摘は、**その形が実際にツリーに存在する場合にのみ** blocking として扱う。
+
+### Conditional-Activation Evidence
+
+本 Proposal は `allow` 目的の条件（受理する名前だけを通す）を導入するため、`change-gate.md` により実装前の計測が要る。母集団は**出荷済みテストスイートが実際に構築する `LizyMLConfig` 全件**（静的な dict リテラル走査では `tests/_helpers.py` が override から組み立てる大半を取りこぼす）。`1d7c4e2` で再計測した:
+
+```
+Firing rate: 0/52 of configs carrying a tuning search space (#262 / PR 1; recorded by instruments/firing_rate_plugin.py over the shipped suite at 1d7c4e2)
+Firing rate: 0/736 of configs carrying model.params (#262's twin surface / PR 1; same recording)
+Firing rate: 0/3 of configs carrying calibration.params (#262's calibration surface / PR 1; recorded by a scratchpad pytest plugin over the shipped suite at 1d7c4e2)
+```
+
+875 configs 中、探索空間を持つものが 52、`model.params` を持つものが 736、`calibration` ブロックを持つものが 94、うち `calibration.params` を持つものが 3。**ゲートが拒否するものは 0 件**である（探索空間 / `model.params` の 2 行は 824 configs を母集団として先に計測し、calibration 面は決定 6 の判断のために後から同じ方法で計測した。母集団の差はその間に足したテストの分である）。`allow` 目的のゲートとしてこれは正常な結果であり（出荷済みコーパスに不正な名前が無いことを意味する）、DC6 ではないことは control で示す: `not_a_lightgbm_parameter` / `feature_weights_typo` / `nun_leaves` はいずれも受理集合の外、`num_leaves` / `learning_rate` / `feature_contri` / `num_leaves_ratio` はいずれも内側。実測された distinct な名前は探索空間 3 種・`model.params` 7 種で、いずれも受理集合内。`calibration.params` の distinct な名前は `num_boost_round` / `seed` の 2 種でいずれも受理集合内、`_ISOTONIC_DEFAULTS` の 13 キーも全て受理集合内（`min_data_in_leaf_ratio` は決定 6 の例外経由）、control の `not_a_lightgbm_parameter` は受理集合外。
+
+なお §7 は `5712f41` で同じ 0/52・0/736 を記録している。本 Proposal は**その数値を引き写さず再導出した**（引き写しは本監査が繰り返し見つけてきた DC3 の形であるため）。母集団は 821→824 に増えているが、これは PR 0 が足したテストの分である。
+
+### 影響範囲 / 互換性
+
+- **公開 Protocol の破壊的変更**: `EstimatorProvider` にメソッドが 2 つ増える。`Protocol` を構造的に満たす外部実装は、この 2 つを実装しないと適合しなくなる。リポジトリ内の実装は `LGBMProvider` のみ。`format_version` は不変（Protocol は永続化されない）。
+- **`feature_weights` を設定していた利用者の fit 結果が変わる。** これは本 PR で唯一の、既存の正常系に影響する変更である。従来は重みが**一切効いていなかった**ため、修正後は異なるモデルが学習される。その設定でチューニングした `best_params` や保存済み artifact は、重みが効いていないモデルを前提に得られたものである。値は保存された config のとおりに解釈されるようになる（従来は無視されていた）。**移行は不要だが、`feature_weights` 利用者は再チューニングを検討すべきである。**
+- `model.params` / `tuning.optuna.space` / `calibration.params` に不正な名前を書いていた config は、**学習・チューニング・コード出力を開始した時点で**落ちるようになる（`Model(...)` の構築自体は成功する）。**計測上、出荷済みコーパスに該当は 0 件。**
+- `calibration.params` の検査は `method: isotonic` のときだけ働く。`platt` / `beta` の `calibration.params` は従来どおり素通りする — ただし `PlattCalibrator` はそもそも `params` を一切読んでいない（構築時に捨てている）。これは本 PR が塞ぐ silent-discard とは別経路の別欠陥であり、本 PR では**変更しない**。
+- `FitResult` / `PredictionResult` / `Artifacts` の形と意味は不変。split / leakage 境界に触れない。
+
+### 代替案（不採用）
+
+- **案 A: Config フィールド名も `feature_contri` に改名する。** 公開 Config の破壊的変更になる。`feature_weights` という名前は利用者にとって意味が通っており、変える理由は LightGBM の内部命名に合わせること以外に無い。BLUEPRINT §5.3 が「LightGBM に渡す」と書くだけで名前を書いていないのは、まさにこの分離が意図されていたためである。
+- **案 B: `config/schema.py` で config-parse 時に弾く（当初計画）。** Layer 1 の兄弟間 import になり `ARCHITECTURE.md` の DAG に反する。層を曲げてまで早く落とす利益は無い — 学習・チューニング・出力のいずれも、開始する前に落ちる。
+- **案 C: 受理名を手書きのリストで持つ。** LightGBM の更新で名前が増減したときに黙って古びる。このゲートが検出すべき欠陥を、ゲート自身が持つことになる。
+- **案 D: `tuning/search_space.py` の `parse_space` にも provider を渡して二重に検査する。** Layer 2 は Layer 1 の抽象 IF を参照してよいので層違反ではないが、**同じ判断を下す門が 2 つできる**。両者が食い違ったときに正がどちらか決まらない。門は 1 つにする。
+- **案 E: `Model.load()` でも検証する。** 綴り違いを含む古い artifact が読めなくなる。artifact は起きた事実の記録であり、それを拒否しても既存の利用者を困らせるだけである。
+
+### 受け入れ基準（テスト観点）
+
+- **`tests/test_estimators/test_lightgbm_parameter_names.py`（新規）**: LizyML が `lgb.train` に渡す全キーと `lgb.Dataset` に渡す全キーワードを、3 タスク × **provider が宣言する全 smart parameter** にわたって収集し、LightGBM 自身のエイリアス表と突き合わせる。権威は `LGBM_DumpParamAliases` であって手書きの一覧ではないため、LightGBM 側が名前を削除した場合にも落ちる。
+  - smart parameter のケースは**`extract_smart_params` から導出する**。並べ挙げると母集団を名乗る標本になる。`test_every_smart_parameter_has_a_case` が、provider の宣言するどれかに値が無い場合に落ちること。
+  - 呼び出しの照合は属性チェーンの厳密一致で行う（`str.endswith` は `not_lgb.train` にも一致してしまう — DC2）。
+  - 修正前は `feature_weights` を含む 3 タスク分と、`model.params` の 3 タスク分が **RED**。
+- **`tests/test_tuning/test_search_space_name_validation.py`（新規）**: 名前 3 種（LightGBM 名 / smart 名 `num_leaves_ratio` / 存在しない `not_a_lightgbm_parameter`）× `category` 3 値 × 3 タスク = **27 セル**。`category: model` かつ受理集合外のセルで `CONFIG_INVALID` になること、smart 名の場合は診断メッセージが `category: smart` を名指しすること、**拒否されたセルではその名前が `lgb.train` に到達しないこと**。
+- **`feature_contri` の実効性**: `feature_weights` を設定した fit と設定しない fit で **importance の順序が変わる**こと。`BLUEPRINT.md:1425` が宣言し、これまで検証されていなかった不変条件そのもの。修正前は **RED**（順序が変わらない）。
+- **構築後に現れる名前も検査されること**: (a) `Model(cfg)` 構築後に `cfg.model.params` を書き換えて fit → `CONFIG_INVALID`、かつその名前が `lgb.train` に**到達しない**。(b) artifact から復元した `best_model_params` に不正名がある状態で再 fit → 同様。(c) その config を持つ `Model` の**構築自体は成功する**（`load()` を塞がないこと）。(a) と (b) は構築時検査では通ってしまう経路、(c) は構築時検査が誤って塞いでいた経路であり、いずれも実測で確認する。
+- **`export_code` の生成 params も検査されること**: 学習済み adapter の params に不正名がある状態で `export_code()` を呼ぶと `CONFIG_INVALID` になること。生成される `train.py` は `CFG["lgbm_params"]` をそのまま `lgb.train` に渡すため、ここを塞がないと「読み込みは許すが学習は拒む」という決定 5 の非対称性が出力経路から破れる。
+- **codegen テンプレートの名前も検査すること**: `lizyml/codegen/templates.py` が LightGBM に渡す名前を AST で読み、同じ権威と突き合わせる。呼び出しの照合は属性チェーンの厳密一致（`endswith` は `not_lgb.train` にも一致する — DC2）。各 `lgb.train` サイトは **3 分類で網羅する**: ここで読める名前 / `CFG[...]` 由来（実行時ゲートが担保）/ **読めない（失敗、skip しない）**。テンプレート内の正当なキーを不正名に置換すると落ちること。
+- **`tests/test_calibration/test_calibration_param_names.py`（新規）**: (a) negative control — ゲートを通さず `IsotonicCalibrator` を直接構築すると不正名が `lgbm.train` に**到達する**こと（到達しなくなったらゲートの存在理由が変わるので落ちる）。(b) **学習する公開入口それぞれ**（`fit` / `tune`）で `CONFIG_INVALID` になり、その名前が `lgbm.train` に到達せず、かつ **Booster が 1 本も学習されていない**こと（後半は決定 6 の順序主張。前半だけでは欠陥のある配置でも成立した。入口ごとに主張するのは、この検査が入口を 2 度取りこぼしたためである）。(c) `_ISOTONIC_DEFAULTS` の**全キー**が受理されること（誤拒否の検査）。(d) `CALIBRATOR_OWN_PARAM_NAMES` の**各名前**が本当に calibrator に消費され `lgbm.train` に届かないこと、および `seed` は届くこと。(e) `platt` / `beta` は検査されないこと。(f) `LGBM_BACKED_CALIBRATORS` が登録済み calibrator の import 走査と一致すること。
+- **経路の走査自体が実行で検査されること**: `HOSTILE_ROUTE_SHAPES` の各ソースに対し、走査が期待どおりの検出集合を返すこと（negative control 2 件を含む）。これが無い間、「経路が増えればテストが落ちる」は 2 度偽だった。
+- **既存テストの書き換え（追加ではなく置換）**: `test_param_reaches_booster` は、値が学習済み Booster に届くことに加え、**その名前が LightGBM の定義に存在すること**を検査する。`Booster.params` は渡した dict の反響であって解析結果ではない（実測: 存在しないキーもそのまま保持され、LightGBM が既定値で埋めたパラメータは現れない）ため、到達だけを主張しても捨てられる名前で成立してしまう。列挙された 8 つの名前を権威と突き合わせる後者が、この主張を意味あるものにする。
+- `TestFeatureWeightsE2E::test_feature_weights_applied` は**差分**を主張する形に直す（現状の「2 つの列名が存在する」は重みの有無に関わらず成立する）。
+- 全スイート green、`ruff check .` / `ruff format --check .` / `mypy lizyml/` クリーン。

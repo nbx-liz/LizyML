@@ -141,7 +141,11 @@ class TestFeatureWeights:
         resolved, _ = resolve_smart_params(
             smart, {}, 100, ["a", "b", "c"], pd.Series([0]), "regression"
         )
-        assert resolved["feature_weights"] == [2.0, 1.0, 1.0]
+        # The Config field is `feature_weights`; the key LightGBM understands
+        # is `feature_contri` (H-0093). Emitting the Config's own name meant
+        # LightGBM discarded it and the weights did nothing.
+        assert resolved["feature_contri"] == [2.0, 1.0, 1.0]
+        assert "feature_weights" not in resolved
         assert resolved["feature_pre_filter"] is False
 
     def test_unknown_feature_raises(self) -> None:
