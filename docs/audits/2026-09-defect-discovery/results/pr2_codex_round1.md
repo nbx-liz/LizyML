@@ -98,6 +98,24 @@ rather than implying the surface is closed.
 
 ---
 
+## Monitor, before round 2
+
+An absolute monitor in a fresh context returned `DELIVERABLE-FOCUSED` /
+`continue` (`scratchpad/monitor-pr2-r1.md`), and corrected a fact stated above:
+**#277 shipped with the original PR** (commit `0396c08`, alongside the
+BLUEPRINT 12.2 statement), not during this remedy. Only **#279** is a round-1
+deferral.
+
+It classified the provider Protocol method as forced by the repository's own
+layering invariant rather than requested by the reviewer, and flagged one item
+as apparatus-leaning: the classification test and its one-entry
+`SMART_PARAMS_THAT_WRITE_NOTHING`. That is kept deliberately -- it is the same
+partition shape PR 1's round 5 required of `TRAINING_ENTRY_POINTS`, where a
+hand-written set checked against nothing was itself the finding.
+
+It also weighed, unprompted, that the 912-config firing-rate instrument is not
+in the diffstat: the meter was used and discarded rather than shipped.
+
 ## Checked and clean (round 1)
 
 Reported by the reviewer, each with what was run:
