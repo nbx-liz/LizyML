@@ -412,6 +412,51 @@ Recomputation script:
 > it buys another generation of the same, not a closer approach to a clean
 > verdict. **Reopening is a decision only the maintainer can make; this run will
 > not open round 8.**
+>
+> ---
+>
+> **RESCINDED 2026-09-07 by the maintainer. The stop condition above no longer
+> applies to this PR.** The instruction is to run PR 2 on the standard applied
+> to PR 1 — **until the external reviewer returns `APPROVE`** — with the stated
+> reasoning that not obtaining `APPROVE` is itself evidence that real problems
+> remain in the fix code. The record supports that premise: all twelve findings
+> were reproduced.
+>
+> The rounds 6-7 relational monitor (`results/pr2_monitor_round67.md`) returned
+> **`CONVERGING` / `redirect`**, reversing its predecessor's `DRIFTING` with a
+> measurement, and answered the reachability question directly: PR 1's round 6
+> partitioned an **enumerable** population, PR 2 was enumerating an **open** one,
+> and round 7's remedy closed PR 2's domain by construction — so round 8 can be
+> PR-1-round-6-shaped. It also named why three consecutive rounds each found
+> something: each remedy ships a *declaration* verified by a hand-written table,
+> and the next round finds the gap between declaration and verification. **On
+> that method, "run until APPROVE" manufactures its own next finding.**
+>
+> Its prescription — quantify each declaration over its whole population, the
+> DC7 durable repair — was adopted in full before round 8: two instruments, plus
+> three self-found defects fixed ahead of the round. The third, found while
+> checking the instruments, is round 7's finding one step further along the same
+> path: `hasattr(element, "__bool__")` **invokes** the attribute, so an element
+> whose `__bool__` is a property that raises escaped a function declared not to
+> raise. The check now reads the type's dictionaries, which runs no caller code
+> and is the more accurate question anyway. Every expression in `values_differ`
+> that touches a caller's value is now inside a `try` or reads the type without
+> invoking it — a property of the shape rather than of the cases anyone
+> remembered.
+>
+> Also corrected in the instruments themselves: the exporting-test population is
+> now matched on AST **calls** rather than source substrings (a marker also
+> matches a docstring — DC2 inside an instrument built to catch DC1), it is
+> defined by the tests that **write** rather than the ones that read (round 7's
+> own bad test read nothing, so a reader-side rule would have missed it), and a
+> test whose signature this instrument cannot supply is now refused loudly
+> instead of having its `TypeError` absorbed as "the test noticed" — DC1 in the
+> instrument written to catch DC1.
+>
+> Full suite **2390 passed**. Round 8 is scope-limited to the round-7 remedies
+> and these instruments, with rounds 1-6 surfaces out of scope and no new region
+> admitted. **It is not pre-registered as the last round**; the standard is
+> `APPROVE`.
 
 ## State
 
