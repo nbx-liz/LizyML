@@ -7728,3 +7728,57 @@ Firing rate: 0/1009 of pre-existing configs carrying model.params
 
 - `docs/audits/2026-09-defect-discovery/instruments/calibration_canonicalisation_firing_rate.py` を追加。
 - 全スイート green、`ruff check .` / `ruff format --check .` / `mypy lizyml/` クリーン。
+
+#### 決定 8 の追補: 探索空間もひとつの層だった（rounds 11-12 monitor の指摘 → 実行 → 修正）
+
+rounds 11-12 monitor は `CONVERGING` / `continue` を返しつつ、上の継ぎ目表に 3 点の
+反論を出した。verdict としてではなく finding として受け、3 点とも処理した。
+
+1. **走査が宣言していた構文の集合に、その走査自身の指摘が住んでいる構文が無かった。**
+   決定 8-2 の欠陥は `merged["verbose"] = -1`、8-3 の欠陥は
+   `resolved["num_leaves"] = ...` で、どちらも `d[k] = v` である。表はそれらを
+   *最寄りの宣言済み構文*の行に載せていた — つまり隣接コードを読んで見つけたので
+   あって、走査が見つけたのではない。**自分が報告した欠陥の形を見られない走査で
+   閉じた母集団は、近さで標本抽出しただけである。**
+
+   構文集合を広げた（`d[k] = v` / `dict(a, **b)` / `f(**x)`）。候補は 24 → **48**。
+
+2. **名指しされた継ぎ目は実在した。** `lizyml/tuning/search_space.py:215-223` は
+   `params[dim.name] = trial.suggest_*` を次元ごとに書くので、**互いにエイリアスで
+   ある 2 次元は同じ trial dict に両綴りを入れる**。`check_duplicate_identities` の
+   呼び出しは 3 か所（`model.py:456,493` / `_model_factories.py:870`）で、空間の上には
+   無い。実測:
+
+   ```
+   space = {learning_rate: [0.001, 0.01], eta: [0.4, 0.5]}
+   -> 全 trial で両綴りが lgb.train に届き、learning_rate の値で学習
+   -> best_model_params: {'learning_rate': 0.0064, 'eta': 0.4545}
+   ```
+
+   **`eta` 次元は sample され、Optuna が最適化し、どの trial にも影響しない。**
+   study は何もしない軸で trial を順位づけ、`best_model_params` が死んだ綴りを
+   記録するので、後続の `fit` もそれを運ぶ（DC1 + DC6）。
+
+   #279（次元 × スマートパラメーターの衝突）とも #280（`model.params` ×
+   スマートパラメーター）とも別物である。決定 6 が「宣言した層すべてに」と言う層で、
+   呼び出し側が無かった 3 つ目 — round 11 の 2 番目と同じ形。
+
+   `check_duplicate_space_dimensions` を study 開始前（名前検査の隣）に配線した。
+   **ここには同値による免除が無い**: 2 次元は独立に sample するので、境界が何であれ
+   1 パラメーターを 2 回名指しすることは曖昧である。両方向をテストで固定した。
+
+   ```
+   Firing rate: 0/69 of pre-existing configs carrying a category:model search space
+   （70 件中 1 件が発火し、それは本変更と同時に足した回帰テスト）
+   ```
+
+3. **instrument が出荷されていなかった。** 決定 8 の表は走査から作ったのに、走査は
+   scratchpad にしか無く、表を再生成できなかった — 本リポジトリ自身の規則で DC3。
+   `instruments/parameter_merge_seams.py` として出荷した。走査が**できないこと**も
+   明記してある: hint 語の絞り込みは識別子テキストのヒューリスティックであって型解析
+   ではないので、hint 語のどれにも当たらない変数に入ったパラメーター dict は見えない。
+   `HINTS` を定数として置いてあるのは、「走査が見落とした」を検証可能にするためである。
+
+monitor の予測も記録しておく（採用ではなく記録）: *範囲を絞らなかったラウンド
+（1-5, 7, 11, 12）はすべて `lizyml/` のファイルを名指ししている。round 13 は
+`APPROVE` を予測しない。*

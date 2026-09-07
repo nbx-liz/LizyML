@@ -67,6 +67,29 @@ def observe_calibration(params: dict[str, Any], origin: str = "") -> None:
         )
 
 
+def observe_space(names: list[str], origin: str = "") -> None:
+    """Classify one ``category: model`` search space for the new refusal.
+
+    Two dimensions spelling one LightGBM parameter are refused now; before,
+    both reached ``lgb.train`` and the non-canonical one was optimised over
+    without affecting any trial.
+    """
+    COUNTS["configs with a category:model search space"] += 1
+    grouped: dict[str, list[str]] = {}
+    for name in names:
+        grouped.setdefault(LGBM_CANONICAL_NAME.get(name, name), []).append(name)
+    conflicts = {k: v for k, v in grouped.items() if len(v) > 1}
+    if conflicts:
+        COUNTS["refused: two dimensions, one parameter"] += 1
+        HITS.append(
+            {
+                "surface": "tuning.optuna.space",
+                "conflicts": conflicts,
+                "origin": origin,
+            }
+        )
+
+
 def observe_params(surface: str, params: dict[str, Any], origin: str = "") -> None:
     """Classify one parameter dict for the refusal this change lifts."""
     COUNTS[f"configs with {surface}"] += 1
@@ -105,6 +128,12 @@ def report() -> str:
         f"{COUNTS['model.params: one value, two containers (was refused)']}"
         f"/{COUNTS['configs with model.params']} of configs carrying "
         "model.params (the lifted refusal)"
+    )
+    lines.append(
+        "Firing rate: "
+        f"{COUNTS['refused: two dimensions, one parameter']}"
+        f"/{COUNTS['configs with a category:model search space']} of configs "
+        "carrying a category:model search space (the new space refusal)"
     )
     if HITS:
         lines.append(f"hits: {HITS}")

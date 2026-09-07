@@ -9,7 +9,8 @@ issue #264: `Model.fit(params=...)` was accepted, documented as overriding
 `model.params`, and forwarded nowhere.
 
 **Twelve review rounds have run. No `APPROVE` yet.** Blocking findings per
-round: **1, 1, 2, 2, 1, 3, 2, 4, 3, 2, 3, 2**. Every one was reproduced before
+round: **1, 1, 2, 2, 1, 3, 2, 4, 3, 2, 3, 2**, plus two the main context found
+itself in round 12 by enumeration. Every one was reproduced before
 it was fixed and RED-verified after.
 
 The maintainer's instruction is the whole gate: **run PR 2 to the same standard
@@ -39,10 +40,11 @@ whatever the previous round returned.
    and the two things round 12 established:
    - neither reviewer finding was in code round 11 wrote, so this is not the
      authorship pattern the maintainer rescinded;
-   - the parameter-merge seam population is now **enumerated and closed** (24
-     expressions, 12 cross-source, each executed — H-0094 decision 8). Ask it
-     whether that table is the closed population, or whether it can name a merge
-     the AST scan's hint-word filter would miss.
+   - the parameter-merge seam population is enumerated by a **shipped**
+     instrument (`instruments/parameter_merge_seams.py`, 48 candidates), and the
+     rounds 11-12 monitor already found the first version's construct set too
+     narrow and named a real seam it missed. Ask the next one the same question
+     about the widened version, and tell it what happened to the last answer.
 
    Its output is a finding to reconcile, never a verdict to adopt
    (`policy:main-context-ownership`).
@@ -70,10 +72,11 @@ whatever the previous round returned.
 ## State at the time of writing
 
 - Head: the round-12 fixes, on `fix/phase3-pr2-fit-params-forwarding`.
-- Full suite **2445 passed**; `ruff check .`, `ruff format --check .`,
+- Full suite **2447 passed**; `ruff check .`, `ruff format --check .`,
   `mypy lizyml/` clean.
 - Round 12's record: `results/pr2_codex_round12.md`. Decisions:
-  `HISTORY.md` H-0094, decisions 1-8. Open question log:
+  `HISTORY.md` H-0094, decisions 1-8 and the decision-8 addendum. Monitor:
+  `results/pr2_monitor_round1112.md`. Open question log:
   `DECISIONS-PENDING.md` D7.
 
 ## What is deliberately not in this PR
@@ -82,8 +85,9 @@ whatever the previous round returned.
   config surface is 3 of 18 refused, measured in round 12 and recorded in
   BLUEPRINT §14.4. `config/` cannot import `estimators/`, so where the refusal
   belongs is a design decision the maintainer holds.
-- **#279** — the same collision inside a `category: model` tuning space, 54/67
-  measured.
+- **#279** — a `category: model` dimension colliding with a **smart parameter**,
+  54/67 measured. (Two dimensions colliding with **each other** is a different
+  seam and *is* fixed here — H-0094 decision 8's addendum.)
 - **#277** — `calibration.params` accepted and ignored for `platt` / `beta`.
 - The calibration layer's `min_data_in_leaf` case, which belongs to #280's class
   and is recorded in round 12's note.

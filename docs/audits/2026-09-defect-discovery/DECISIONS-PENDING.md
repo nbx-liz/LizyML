@@ -710,3 +710,33 @@ recorded in H-0094 decision 8. This class produced a finding in most rounds, so
 enumerating it was cheaper than meeting it again.
 
 **Round 13 stays unscoped**, for the reason round 12 did.
+
+#### The rounds 11-12 monitor, and what changed because of it
+
+`CONVERGING` / `continue`. It measured the periphery-to-deliverable ratio as
+flat (~29:1 in both rounds, docstrings stripped) rather than accreting, and it
+**tested** the authorship question instead of adopting this context's reading —
+executing `values_differ` from before and after round 11 and confirming round
+12's finding 1 predates the step round 11 wrote.
+
+It also raised three objections to the seam table. All three were acted on
+before round 13, following the rounds 10-11 precedent that probing a named layer
+beats leaving it for the next round to find:
+
+1. **The scan could not see the construct its own findings lived in** —
+   `d[k] = v` was not in the declared set, and two of round 12's three defects
+   live there. The set is widened; candidates 24 → 48.
+2. **The seam it named is real, reproduced, and fixed.** Two `category: model`
+   dimensions spelling one LightGBM parameter both reach `lgb.train`; the
+   non-canonical one is sampled and optimised over **without affecting any
+   trial**, and `best_model_params` records the dead value. Third layer with no
+   caller for the same-layer rule. `Firing rate: 0/69` of pre-existing spaces.
+3. **The instrument was not shipped**, so the table could not be regenerated —
+   DC3 by this repository's own rule. Shipped, with its limits stated.
+
+Blocking per round now reads **1, 1, 2, 2, 1, 3, 2, 4, 3, 2, 3, 2 (+2 found by
+the main context)**. Full suite **2447 passed**.
+
+Its prediction is recorded rather than adopted: the record predicts at least one
+finding in round 13 and does not predict `APPROVE`. The seam it called unprobed
+is no longer unprobed.
