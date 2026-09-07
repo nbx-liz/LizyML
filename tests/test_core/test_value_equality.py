@@ -10,7 +10,13 @@ wrong, so the cases below are kept as a table of *inputs*, not of code paths:
   array, even for a value written once;
 - round 6 — a numpy scalar fell through to the printed forms and was refused;
   a broadcast comparison called two sequences of different lengths equal; and a
-  declared exception-safe fallback did not cover the comparison itself.
+  declared exception-safe fallback did not cover the comparison itself;
+- round 7 — a comparison whose ``__bool__`` failed for a reason of its own
+  escaped a handler that caught only the two exceptions an array raises;
+- round 8 — a ``DataFrame`` with integer column labels was called equal to a
+  different one, by the second guard written to keep the elementwise step from
+  reading labels. The step is gone; the cases it used to serve are decided by
+  the printed forms.
 """
 
 from __future__ import annotations
@@ -21,7 +27,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from lizyml.core.value_equality import _defines_own_truth, values_differ
+from lizyml.core.value_equality import values_differ
 
 
 class _RaisingLength:
@@ -165,19 +171,20 @@ def test_it_never_raises_on_the_case_table() -> None:
 
 
 def test_iterating_a_comparison_does_not_always_yield_the_comparison() -> None:
-    """Stated separately because it is the reduction's bound, not one case.
+    """Stated separately because it is why there is no elementwise step.
 
     Comparing two DataFrames yields a DataFrame, and iterating that yields its
-    **column labels** -- strings, all truthy -- so requiring every element to be
-    true called two different frames equal. Measured in self-review before round
-    7. The reduction now refuses to trust string elements and falls through to
-    the printed forms, which is weaker but not wrong.
+    **column labels**, not its cells. Two guards were written to exclude that --
+    one on the labels being strings (round 6), one on the labels defining
+    ``__bool__`` (before round 8) -- and each was refuted by the next label type.
+    The function no longer reads a comparison result's contents at all.
     """
     left = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
     right = pd.DataFrame({"a": [9, 9], "b": [9, 9]})
     assert list(left == right) == ["a", "b"], (
         "the premise of this test is that iteration yields labels; if pandas "
-        "changed that, the guard needs re-reading rather than the test editing"
+        "changed that, the reasoning needs re-reading rather than the test "
+        "editing"
     )
     assert values_differ(left, right)
 
@@ -304,56 +311,49 @@ def test_every_step_has_somewhere_to_fall(
     assert values_differ(second, first) is differ, f"{label} (reversed)"
 
 
-def test_the_reduction_only_trusts_elements_that_can_state_a_truth() -> None:
-    """The bound the elementwise step rests on, asserted directly.
+@pytest.mark.parametrize(
+    ("label", "frame"),
+    [
+        ("string labels", pd.DataFrame({"x": [10, 20]})),
+        # Integer labels are truthy, so the guard that excluded string labels
+        # admitted these and two unequal frames read as equal (review round 8).
+        ("integer labels", pd.DataFrame({1: [10, 20]})),
+        ("a falsy integer label", pd.DataFrame({0: [10, 20]})),
+    ],
+)
+def test_two_unequal_frames_differ_whatever_their_labels_are(
+    label: str, frame: pd.DataFrame
+) -> None:
+    """No property of the labels can decide this, so nothing reads them.
 
-    ``bool`` and the library scalars define ``__bool__``; a string, a list and a
-    bare object do not -- their truthiness comes from length or from the default,
-    neither of which answers "are these equal". Two different routes produced an
-    iteration that is not the comparison (a DataFrame yielding column labels; a
-    comparison object yielding anything), and this property is what excludes
-    both without naming either.
+    A ``DataFrame`` comparison yields its **column labels**, not its cells.
+    Rounds 6 and 8 each found one label type that a guard on the labels let
+    through; the function no longer inspects a comparison result's contents at
+    all, so there is no third label type to find.
     """
-    assert _defines_own_truth(True)
-    assert _defines_own_truth(np.True_)
-    assert _defines_own_truth(np.float64(0.5))
-    assert not _defines_own_truth("a")
-    assert not _defines_own_truth(object())
-    assert not _defines_own_truth([1])
+    other = frame + 20
+
+    assert values_differ(frame, other) is True, label
+    assert values_differ(other, frame) is True, f"{label} (reversed)"
+    assert values_differ(frame, frame.copy()) is False, f"{label} (equal copy)"
 
 
-def test_asking_whether_an_element_can_state_a_truth_never_runs_its_code() -> None:
-    """The check reads the type, so a hostile ``__bool__`` is never invoked.
+def test_a_base_exception_from_a_caller_value_is_not_swallowed() -> None:
+    """The bound is "no ``Exception``", and that word is load-bearing.
 
-    ``hasattr`` would invoke it. An element whose ``__bool__`` is a property
-    that raises therefore escaped the whole function, which is round 7's
-    finding one step further along the same path; found before round 8.
+    Catching ``BaseException`` would make a comparison that hangs
+    uninterruptible, which is worse than the ambiguity the bound prevents. So
+    the declaration is limited and this pins the limit.
     """
-
-    class HostileLookup:
-        @property
-        def __bool__(self) -> object:
-            raise RuntimeError("truth lookup failed")
-
-    element = HostileLookup()
-    assert _defines_own_truth(element) is True
-    with pytest.raises(RuntimeError):
-        hasattr(element, "__bool__")  # what the check used to do
-
-    class Comparison:
-        def __bool__(self) -> bool:
-            raise ValueError("ambiguous")
-
-        def __iter__(self) -> object:
-            return iter([HostileLookup(), HostileLookup()])
 
     class Value:
         __hash__ = None  # type: ignore[assignment]
 
-        def __eq__(self, other: object) -> object:
-            return Comparison()
+        def __eq__(self, other: object) -> bool:
+            raise KeyboardInterrupt
 
-    assert values_differ(Value(), Value()) is True
+    with pytest.raises(KeyboardInterrupt):
+        values_differ(Value(), Value())
 
 
 # ---------------------------------------------------------------------------
@@ -401,10 +401,10 @@ class _JunkIterable:
 class _HostileElement:
     """An element whose ``__bool__`` raises when it is merely *looked up*.
 
-    ``hasattr(element, "__bool__")`` invokes the property, so the step that
-    decides whether an element can state a truth of its own raised through a
-    function declared not to raise. Found before round 8; the check now reads
-    the type's dictionaries instead.
+    Kept as a behaviour the caller's value can exhibit. It defeated a guard that
+    asked each element with ``hasattr``, which invokes the property; that guard
+    is gone along with the whole elementwise step, and this is one of the shapes
+    that has nothing left to defeat.
     """
 
     @property
@@ -499,10 +499,13 @@ def test_the_cross_product_covers_every_declared_behaviour() -> None:
     assert declared == {"__eq__": 5, "__len__": 3, "__repr__": 2}, declared
     assert len(AWKWARD_COMBINATIONS) == 5 * 3 * 2, AWKWARD_COMBINATIONS
 
-    # Each `__eq__` variant must reach a different step, or the axis is wider
-    # than the function is. This is the half the count does not check: a
-    # behaviour added and then routed to an existing branch by `_make_awkward`
-    # would grow the population without growing the coverage.
+    # Each `__eq__` variant must produce a distinct kind of comparison result,
+    # or the axis is wider than the values it generates. This is the half the
+    # count does not check: a behaviour added and then routed to an existing
+    # branch by `_make_awkward` would grow the population without growing the
+    # coverage. Distinct *results*, not distinct steps -- since round 8 several
+    # of them are decided by the same printed-form fallback, which is the point
+    # of that change rather than a gap in this one.
     assert len(set(_BEHAVIOURS["__eq__"])) == 5, _BEHAVIOURS["__eq__"]
     outcomes = {
         eq: type(_make_awkward(eq, "absent", "normal", "a").__eq__(object()))

@@ -41,24 +41,6 @@ def _length_or_none(value: Any) -> int | None:
         return None
 
 
-def _defines_own_truth(element: Any) -> bool:
-    """Return whether the element's *type* defines ``__bool__`` itself.
-
-    The lookup walks the class dictionaries instead of asking the element,
-    because ``hasattr`` **invokes** the attribute: a ``__bool__`` written as a
-    property runs its getter, and a getter that raises escaped a function
-    declared not to raise (H-0094, found before review round 8 -- round 7's
-    finding one step further along the same path). Reading the MRO runs no code
-    the caller wrote, and it is the more accurate question anyway: Python looks
-    special methods up on the type, so a ``__bool__`` set on an instance is not
-    what decides that instance's truth either.
-    """
-    try:
-        return any("__bool__" in vars(klass) for klass in type(element).__mro__)
-    except Exception:  # noqa: BLE001 - an exotic metaclass may refuse either
-        return False
-
-
 def _printed_forms_differ(first: Any, second: Any) -> bool:
     """Compare printed forms, and answer "the same" when even that fails.
 
@@ -93,28 +75,43 @@ def values_differ(first: Any, second: Any) -> bool:
        sequence would agree with anything by a vacuous ``all()``.
     2. **The comparison as a truth value**, which covers ordinary values and the
        library scalars whose result is not a ``bool`` but converts to one.
-    3. **Elementwise**, requiring every element to be equal, for the array-like
-       results that cannot convert to a single truth value -- and only when
-       every element can state a truth of its own, since iterating a comparison
-       does not always yield the comparison.
-    4. **The printed forms**, for anything that raised on the way -- an
-       ``__eq__`` that fails, or a shape whose elements are themselves arrays.
-       A weaker answer than equality, and the only one both values always have.
-    5. **"The same"**, when even the printed forms raise.
+    3. **The printed forms**, for everything else -- an ``__eq__`` that raises,
+       and every comparison result that is not a truth value. A weaker answer
+       than equality, and the only one both values always have.
+    4. **"The same"**, when even the printed forms raise.
 
-    Every expression that touches a caller's value is inside a ``try``, or reads
-    the value's type without invoking anything the caller wrote. That is what
-    makes the paragraph below a property of the function's shape rather than of
-    the value types someone remembered.
+    **There is no step that inspects the comparison result's contents**, and
+    that absence is deliberate. Three review rounds each found one: reducing an
+    array-like result elementwise requires knowing that iterating it yields the
+    comparison, and nothing about an arbitrary object establishes that. A
+    ``DataFrame`` comparison yields its **column labels**, which read as "equal"
+    when the labels are truthy -- found with string labels in round 6 and again
+    with integer labels in round 8, through two different guards written to
+    exclude exactly that. Each guard was a hypothesis about object structure,
+    and the next round refuted it. Every step that remains rests on a single
+    protocol call on the values themselves, so there is nothing left of that
+    kind to refute.
 
-    **This function does not raise.** Step 5 is what makes that true by
-    construction rather than by having thought of enough value types: three
-    review rounds each found one more shape that got past the previous
-    enumeration, so the last step is a decision rather than another case. It
-    answers "the same" and not "different" on purpose -- the refusal it feeds
-    exists to catch a parameter the caller wrote twice, and refusing a value
-    nothing can analyse would block a legitimate call to prevent an ambiguity
-    that may not be there.
+    **What that costs, stated rather than hidden.** Two array-likes whose
+    comparison cannot be a truth value are now decided by ``repr``. Two arrays
+    holding equal numbers under different dtypes print differently and are
+    therefore reported as differing, so a caller who writes one parameter twice,
+    once as ``[1, 2]`` and once as ``np.array([1.0, 2.0])``, is refused. The
+    refusal names both spellings and both values, so it is legible and the
+    caller can settle it. Conversely two arrays that print alike -- past
+    ``numpy``'s summarisation threshold, or below its display precision -- are
+    reported as the same, and the callers then keep the first spelling written.
+    That is the direction the floor already chose: this function feeds refusals,
+    and answering "the same" declines to block a call rather than blocking one
+    on an ambiguity nothing here can resolve.
+
+    **This function does not raise an ``Exception``.** Step 4 is what makes that
+    true by construction rather than by having thought of enough value types.
+    Every expression that touches a caller's value is inside a ``try``. A
+    ``BaseException`` a caller's value raises -- ``KeyboardInterrupt`` and
+    ``SystemExit`` are the ones that matter -- is **not** caught and propagates
+    on purpose: swallowing those would make a hung comparison uninterruptible,
+    which is a worse failure than the one this bound prevents.
 
     Note:
         ``float("nan")`` is not equal to itself, so a parameter written twice as
@@ -144,34 +141,6 @@ def values_differ(first: Any, second: Any) -> bool:
     except Exception:  # noqa: BLE001 - see below
         # Every exception, not the two an array raises. A comparison result is
         # an object the caller supplied too, and its `__bool__` may fail for a
-        # reason of its own; catching only `ValueError` and `TypeError` let
-        # that escape a function declared not to raise (H-0094, review round 7).
-        pass  # Reduce it below, or fall through to the printed forms.
-
-    try:
-        elements = list(equal)
-    except Exception:  # noqa: BLE001 - nested arrays, exotic containers
-        return _printed_forms_differ(first, second)
-
-    # Iterating a comparison result does not always yield the comparison, and
-    # what it yields instead is usually truthy, so the reduction below would
-    # read "equal" for two different values. Measured twice, by two different
-    # routes: a DataFrame comparison iterates over its **column labels**, and a
-    # comparison object that cannot be a boolean but is iterable yields
-    # whatever it likes.
-    #
-    # The property that separates a comparison outcome from junk is that the
-    # element can state a truth **of its own**. `bool`, `numpy.bool_` and the
-    # library scalars define `__bool__`; a string, a list and a bare object do
-    # not -- their truthiness comes from length or from the default, neither of
-    # which is an answer to "are these equal". An element without `__bool__`
-    # therefore means the iteration is not the comparison, and the printed
-    # forms are the honest fallback. Asking the type rather than the element is
-    # deliberate -- see `_defines_own_truth`.
-    if not all(_defines_own_truth(element) for element in elements):
-        return _printed_forms_differ(first, second)
-
-    try:
-        return not all(bool(element) for element in elements)
-    except Exception:  # noqa: BLE001 - elements that are themselves array-like
+        # reason of its own; catching only `ValueError` and `TypeError` let that
+        # escape a function declared not to raise (H-0094, review round 7).
         return _printed_forms_differ(first, second)
