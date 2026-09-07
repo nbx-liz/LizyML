@@ -75,6 +75,32 @@ class _UnbooleanEquality:
         return "_UnbooleanEquality()"
 
 
+class _HostileText(str):
+    """A ``str`` subclass whose comparison answers whatever it likes.
+
+    ``repr`` is allowed to return a subclass of ``str``, so comparing the two
+    printed forms with ``!=`` handed the decision back to the caller's object at
+    the step that exists to escape it (review round 9).
+    """
+
+    def __ne__(self, other: object) -> Any:
+        return [False]
+
+    __hash__ = str.__hash__
+
+
+class _PrintsHostileText:
+    """A value that cannot be compared, and prints through ``_HostileText``."""
+
+    def __eq__(self, other: object) -> bool:
+        raise ValueError("no comparison")
+
+    __hash__ = None  # type: ignore[assignment]
+
+    def __repr__(self) -> str:
+        return _HostileText("the same text")
+
+
 class _RaisingEquality:
     """A value whose ``__eq__`` fails, which a user object legitimately may."""
 
@@ -162,6 +188,12 @@ CASES: list[tuple[str, object, object, bool]] = [
         "arrays past the summarisation threshold that print alike",
         _long_array(differing_at=None),
         _long_array(differing_at=1000),
+        False,
+    ),
+    (
+        "printed forms whose own comparison is hostile",
+        _PrintsHostileText(),
+        _PrintsHostileText(),
         False,
     ),
 ]

@@ -47,9 +47,20 @@ def _printed_forms_differ(first: Any, second: Any) -> bool:
     ``repr`` is the last thing two values have in common, and it is not
     guaranteed either: an object may define a ``__repr__`` that raises. This is
     the function's floor, so it cannot propagate.
+
+    The texts are compared through ``str.__eq__`` rather than with ``!=``.
+    ``repr`` may return a **subclass** of ``str``, and a subclass may override
+    the comparison, so ``!=`` handed the decision back to the caller's object at
+    the very step that exists to escape it -- the fallback returned a list, and
+    two values printing identically were refused (H-0094, review round 9).
+    Reading the characters is what this step was always meant to do.
+
+    Anything other than a definite "not equal" answers "the same", which is the
+    same direction the floor takes: this feeds refusals, and blocking a call on
+    an ambiguity nothing here can resolve is the worse error.
     """
     try:
-        return repr(first) != repr(second)
+        return str.__eq__(repr(first), repr(second)) is False
     except Exception:  # noqa: BLE001 - a user value may define a failing __repr__
         return False
 
