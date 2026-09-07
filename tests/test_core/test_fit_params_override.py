@@ -1033,13 +1033,40 @@ def test_the_two_refusals_agree_on_the_awkward_values_too() -> None:
 
 
 def test_the_override_reaches_the_exported_booster(tmp_path: pathlib.Path) -> None:
-    """The artifact must be the model that was trained, not the config's."""
+    """The artifact must carry the model that was trained, not the config's.
+
+    Read back from the artifact, not from the model in memory. The first version
+    of this test asserted on ``_booster_text(model)`` and passed with ``export``
+    replaced by a no-op -- green because it never looked at what was written
+    (review round 7). Both persisted surfaces are checked: the CV boosters and
+    the refit model, which is the one ``predict`` uses.
+    """
+    out = tmp_path / "artifact"
     cfg = make_config("binary", n_estimators=5, n_splits=2, learning_rate=CONFIG_VALUE)
     model = Model(cfg, data=make_binary_df(n=160))
     model.fit(params={OVERRIDDEN: OVERRIDE_VALUE})
-    model.export(tmp_path / "artifact")
+    model.export(out)
 
-    assert f"[{OVERRIDDEN}: {OVERRIDE_VALUE}]" in _booster_text(model)
+    restored = Model.load(out)
+    # Pinned rather than assumed: the assertions below must be about what was
+    # written, not about the model still in memory. The first version of this
+    # test read the in-memory model and stayed green with `export` replaced by
+    # a no-op, and only this line makes that substitution fail.
+    assert restored is not model and restored.fit_result is not model.fit_result
+
+    expected = f"[{OVERRIDDEN}: {OVERRIDE_VALUE}]"
+
+    persisted = [
+        fold.get_native_model().model_to_string() for fold in restored.fit_result.models
+    ]
+    assert persisted, "the artifact carries no CV boosters"
+    for index, text in enumerate(persisted):
+        assert expected in text, f"CV booster {index} was saved with other params"
+
+    refit = restored._refit_result.model.get_native_model().model_to_string()
+    assert expected in refit, (
+        "the refit model predict() uses was saved with other params"
+    )
 
 
 def test_the_override_does_not_survive_a_load(tmp_path: pathlib.Path) -> None:
