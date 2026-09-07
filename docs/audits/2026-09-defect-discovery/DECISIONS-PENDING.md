@@ -337,6 +337,37 @@ Recomputation script:
 >
 > The analysis below is kept as the record of the state that produced the
 > decision.
+>
+> ---
+>
+> **The scoped round ran and returned `REQUEST_CHANGES` with three findings, all
+> in the pre-round-6 fix** (`results/pr2_codex_round6.md`): a library scalar
+> refused as a different value, broadcasting hiding two sequences of different
+> lengths, and a declared exception-safe fallback that did not cover the
+> comparison itself. All three fixed and RED-verified per finding; the
+> pre-registration said no round 7 either way, and none was opened.
+>
+> **So PR 2 is back here, and the shape has changed.** Rounds 1-4 found defects
+> that had shipped. Rounds 5 and 6 found defects the previous remedy wrote, and
+> round 6's were all inside a 40-line helper written to fix round 5's. The
+> subject has narrowed from "does the override reach the model" to "how do you
+> compare two values", and the loop is no longer finding anything that predates
+> it.
+>
+> Blocking per round: **1, 1, 2, 2, 1, 3**. Full suite **2334 passed**.
+>
+> **The options are the same three, with one changed weight.** Option 2 has now
+> been tried: it cost one round and found three real defects in the newest code,
+> which is an argument both ways — the round paid for itself, and it also shows
+> the newest code is where the risk now lives. What the record cannot tell you
+> is whether a *seventh* round would find three more in the fix for these three;
+> the honest answer is that rounds 5 and 6 both did.
+>
+> The recommendation is now **option 1 (merge on this record)**, changed from
+> the previous "option 1, with option 2 as the maintainer's call": the scoped
+> round has been taken, the deliverable's own path has had six independent
+> passes, and the remaining findings are in a helper whose whole job is one
+> comparison, tested against 25 labelled inputs in both directions.
 
 ## State
 
