@@ -22,6 +22,7 @@ from lizyml.core._model_factories import (
     check_param_names,
     get_provider,
     model_space_names,
+    overlay_params,
 )
 from lizyml.core._model_metrics import _DEFAULT_METRICS
 from lizyml.core._model_state import TuningState
@@ -444,7 +445,17 @@ class ModelTuningMixin:
             trial_params = suggest_params(trial, space)
             model_p, smart_p, training_p = split_by_category(trial_params, space)
 
-            merged_model = {**base_model_params, **fixed, **model_p}
+            # Overlaid by identity, the same way `_merge_params` overlays its
+            # three layers. A plain dict merge keeps both spellings: a config
+            # `learning_rate` and a search dimension named `eta` are one
+            # parameter to LightGBM, which then prefers the canonical name --
+            # so the trials trained at the config's value while the study
+            # recorded the trial's, and the fit afterwards used the recorded
+            # one. Tuning selected a model it had never evaluated (H-0094,
+            # review round 11). This is the fourth seam; the other three were
+            # made identity-aware in round 3.
+            merged_model = overlay_params(provider, base_model_params, fixed)
+            merged_model = overlay_params(provider, merged_model, model_p)
             merged_smart = {**base_smart_params, **smart_p}
 
             tc = self._build_train_components(
