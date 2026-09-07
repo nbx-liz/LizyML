@@ -550,6 +550,51 @@ Recomputation script:
 > passed**.
 >
 > The rounds 9-10 relational monitor runs before round 11.
+>
+> ---
+>
+> **The rounds 9-10 monitor returned `DRIFTING` and refused the question it was
+> asked** (`results/pr2_monitor_round910.md`), which was the most useful thing
+> any monitor in this run has done. Asked whether round 10's clean production
+> result meant the deliverable was finished, it answered that **the record cannot
+> distinguish that from "not yet reached", because rounds 6, 8, 9 and 10 were
+> each scoped to the previous round's remedies** — and that round 7, the one
+> round pointed elsewhere, found production defects. It named the one observation
+> that settles it and redirected round 11 to take it: unscoped over the
+> deliverable path.
+>
+> It also stated what the scoping does to the maintainer's premise: *"no APPROVE
+> means real problems remain in the fix code" is not tested by remedy-scoped
+> rounds; findings in apparatus written two commits ago are not evidence about
+> the fix.*
+>
+> **Round 11 ran unscoped and returned three findings, all in production**
+> (`results/pr2_codex_round11.md`), two of them on the merge path itself:
+>
+> 1. **tuning evaluated different parameters from the ones it selected** — the
+>    trial merge was the fourth seam and the only one still merging by spelling,
+>    so trials trained at the config's value while the study recorded the
+>    trial's, and the fit afterwards used the recorded one;
+> 2. **the same-layer duplicate refusal had no caller for `model.params`** —
+>    declared in decision 6, wired for `fit(params=)` only, so a config with both
+>    `learning_rate` and `eta` sent both to `lgb.train`;
+> 3. **equal arrays under two spellings were refused** — the cost round 8 wrote
+>    into a docstring, executed on the production entrypoint. Acknowledging a
+>    cost does not satisfy the requirement not to refuse valid input.
+>
+> All three fixed, recorded as **H-0094 decision 7**, with the Change Gate
+> measurement for the new refusal: `Firing rate: 0/811 of pre-existing configs
+> carrying model.params`.
+>
+> Blocking per round: **1, 1, 2, 2, 1, 3, 2, 4, 3, 2, 3**. Full suite **2417
+> passed**.
+>
+> **This is the measurement the run was missing.** Four consecutive
+> remedy-scoped rounds found nothing in production; one unscoped round found
+> three. The maintainer's premise is confirmed on the deliverable path, and the
+> narrowing of rounds 8-10 was itself the drift the loop monitor exists to catch.
+> **Round 12 stays unscoped** — on this record, only an unscoped `APPROVE` means
+> anything under the maintainer's standard.
 
 ## State
 

@@ -7539,6 +7539,36 @@ Firing rate: 0/0 of shipped calls passing fit(params=...) -- no call site exists
 - **決定 6（特別扱いの同一性）**: (a) `application`（`objective` のエイリアス）に task 不一致の値を渡すと **`CONFIG_INVALID` で拒否され、Booster が 1 本も学習されない**こと。(b) 互換な値なら学習されること。(c) 同一パラメーターの 2 綴りが**同値なら通る**こと（KeyError にならない）。(d) 値が異なれば拒否され、両方の綴りが message に現れること。(e) boosting 回数が `n_estimators` / `num_iterations` / `num_round` のいずれでも効くこと（`lgb.train` に渡る `num_boost_round` で確認）。(f) `metrics` が metric として扱われること。(g) **adapter が同一性で pop する名前の集合**が、テストが持つ別名ケースの集合と一致すること（走査で導出）。(h) facade の重複拒否が冗長でないこと — 外すと通常パラメーターのケースだけが RED になる。
 - **決定 5（同一性マージ）**: (a) config が canonical、`fit(params=)` がエイリアスのとき**上書きが勝つ**こと（booster から読む）。(b) config に無くても既定の canonical に勝つこと。(c) tune 結果がエイリアスでも config に勝つこと。(d) **`lgb.train` に渡る綴りが 1 つだけ**であること（結果だけを見るテストは、dict に両方残っていても通ってしまう）。(e) config だけにエイリアスがある場合も効くようになること（振る舞い変更、CHANGELOG に記載）。(f) 学習器が知らない名前は `overlay_params` に落とされないこと。両方の継ぎ目で RED 確認済み。
 
+### 決定 7: 同一性は 4 つ目の継ぎ目にも、同一層規則は宣言した層すべてに（レビュー round 11）
+
+11 ラウンド目は初めて**範囲を絞らず**、成果物の経路全体（`docs/` を除く diff 全体）に対して回した。直前 4 ラウンド（6 / 8 / 9 / 10）はいずれも「前ラウンドの修正」に絞られており、rounds 9-10 の monitor がその構造を指摘していた —
+**「新しく書かれた装置に向けたラウンドは、出荷コードが正しいかどうかに関係なく装置の欠陥を見つける。round 10 の『本番欠陥ゼロ』はスコープが機械的に生んだ結果であって、成果物の状態を示していない」**。
+範囲を広げた round 11 は**本番の欠陥を 3 件**返した。うち 2 件は、round 6 以降一度も変更されていないマージ経路そのものにあった。
+
+1. **tuning の trial マージが 4 つ目の継ぎ目だった（DC1）。** 決定 5 は 3 つの継ぎ目を同一性マージにしたが、`_model_tuning.py` の objective 内 `{**base_model_params, **fixed, **model_p}` は綴りベースのまま残っていた。config に `learning_rate=0.001`、探索次元に `eta` があると、**trial は 0.001 で学習し、study には `eta=0.5` が best として記録され、その後の fit は 0.5 で学習する**。tuning が一度も評価していないモデルを選んでいた。実測（booster の `[learning_rate: ...]` 行）:
+
+   ```
+   best: {'eta': 0.5}
+   tune: ['[learning_rate: 0.001]', '[learning_rate: 0.001]']
+   fit:  ['[learning_rate: 0.5]',   '[learning_rate: 0.5]', ...]
+   ```
+
+   `overlay_params` を同じ順序（base → fixed → trial）で適用する。**この修正は本 PR の diff の外**（`_model_tuning.py`）にあるが、非一貫性を作ったのは本 PR である — 片側だけを同一性にしたため、trial の評価と選択が食い違うようになった。#279（スマートパラメーターが解決する探索次元）とは別物で、あちらはスマート解決による上書き、こちらは通常のエイリアス衝突である。
+
+2. **同一層の重複拒否が 1 層にしか配線されていなかった（DC4）。** 決定 6 は「同じ層で 1 パラメーターが複数綴り・異なる値なら `CONFIG_INVALID`」と宣言したが、呼び出しは `fit(params=)` にしか無かった。`model.params` に `learning_rate` と `eta` を両方書いた config は両方が `lgb.train` に届き、LightGBM が黙って canonical 側を採る — 宣言はあり、実装もあり、その層には呼び出し側が無い。検査は facade（`_merge_params`）に置く。`config/` は層規約上 `estimators/` を import できないためである。
+
+   ```
+   Firing rate: 0/811 of pre-existing configs carrying model.params (本リポジトリの
+   スイートが構築する config を `check_duplicate_identities` の呼び出し点で観測。
+   812 件中 1 件が発火し、それは本変更と同時に足した回帰テストそのもの)
+   ```
+
+   出荷済み config は 1 件も壊れない。`allow` 目的の条件なので Change Gate の実測要件に従って測った。
+
+3. **等価な配列を拒否していた（DC7）。** round 8 で要素ごとの還元ステップを削除したとき、真偽値にできない比較は印字形で判定することにし、その代償（dtype の違う等値な配列は「異なる」と報告される）を docstring に明記した。round 11 はその代償を**本番入口で実測**した: `np.array([1, 2])` と `np.array([1.0, 2.0])` はそれぞれ単独では学習でき、2 綴りで同時に書くと `CONFIG_INVALID` で拒否される。**代償を書いたことは、有効な入力を拒まないという要求を満たさない。**
+
+   真偽値ステップと印字形の間に**変換ステップ**を入れる: 両辺に `tolist` があれば plain Python に変換し、**同じ**（ガード済みの）真偽値の問いをもう一度する。これは「任意のオブジェクトを反復すると何が出るか」という推測（round 8 が削除したもの）ではなく、文書化された変換のあとに通常の問いを繰り返すだけである。副次的に、印字形が要約で潰していた長い配列の差も正しく検出されるようになった。残る代償は plain Python への忠実な変換を持たない値（`DataFrame`、利用者独自のオブジェクト）だけで、ケース表がそこに到達する。
+
 その他:
 
 - `tests/_train_spy.py` は `lgb.train` / `lgb.Dataset` の記録器を 1 つにする。同じ計測器の 2 つ目の写しが既にあり、3 つ目を作る前に共有化した。`test_calibration_param_names.py` の `_TrainSpy` は**意図的に残す**: あれは `isotonic.lgbm` を名前で patch することで「calibrator の経路である」ことの証拠になっており、LightGBM 一般についての計測ではない。
