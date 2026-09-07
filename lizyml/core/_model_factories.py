@@ -740,8 +740,21 @@ def check_calibration_param_names(calibration_cfg: Any) -> None:
         calibration_cfg: ``cfg.calibration``, or ``None`` when the run is not
             calibrated.
 
+    It is also a fourth **layer**, and the same-layer rule applies to it: one
+    parameter written twice under two spellings with different values is
+    refused. Until this was wired, ``{"learning_rate": 0.001, "eta": 0.5}``
+    sent both to the calibrator's ``lgbm.train``, which kept the canonical one
+    in silence -- the shape H-0094 decision 6 declares against, on the one layer
+    that had a name check and no identity check (H-0094 decision 7, found by the
+    rounds 10-11 monitor).
+
+    Args:
+        calibration_cfg: ``cfg.calibration``, or ``None`` when the run is not
+            calibrated.
+
     Raises:
-        LizyMLError: with ``CONFIG_INVALID``, naming every offending name.
+        LizyMLError: with ``CONFIG_INVALID``, naming every offending name, and
+            naming both spellings when one parameter is written twice.
     """
     if calibration_cfg is None:
         return
@@ -758,9 +771,11 @@ def check_calibration_param_names(calibration_cfg: Any) -> None:
     # The calibrator hardcodes LightGBM regardless of which estimator the model
     # uses, so the authority here is the LightGBM provider and not
     # ``get_provider(cfg.model)``.
+    provider = LGBMProvider()
     check_param_names(
-        LGBMProvider(),
+        provider,
         [("calibration.params", name) for name in params],
         model_name="lgbm",
         extra_accepted=CALIBRATOR_OWN_PARAM_NAMES,
     )
+    check_duplicate_identities(provider, dict(params), surface="calibration.params")

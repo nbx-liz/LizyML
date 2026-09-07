@@ -254,6 +254,72 @@ def test_two_spellings_in_the_config_are_refused_before_training() -> None:
     )
 
 
+def test_two_spellings_in_calibration_params_are_refused_before_training() -> None:
+    """The fourth layer, which had a name check and no identity check.
+
+    `calibration.params` reaches the calibrator's `lgbm.train` and is a layer
+    like any other, so the same-layer rule applies to it. It did not: measured
+    before this, `{"learning_rate": 0.001, "eta": 0.5}` sent **both** spellings
+    to the calibrator and LightGBM kept the canonical one in silence. Found by
+    the rounds 10-11 monitor asking which layers the rule was wired to.
+    """
+    cfg = make_config("binary", n_estimators=3, n_splits=2)
+    cfg["calibration"] = {
+        "method": "isotonic",
+        "params": {OVERRIDDEN: CONFIG_VALUE, "eta": OVERRIDE_VALUE},
+    }
+
+    with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as exc:
+        Model(cfg, data=make_binary_df(n=160)).fit()
+
+    assert exc.value.code is ErrorCode.CONFIG_INVALID
+    assert "calibration.params" in exc.value.user_message, exc.value.user_message
+    assert not seen["train_params"], (
+        f"{len(seen['train_params'])} Booster(s) were trained before the "
+        "refusal; the check must fire before any training"
+    )
+
+
+def test_two_spellings_of_one_value_in_calibration_params_are_accepted() -> None:
+    """The other direction, so the fourth layer is not refusing everything."""
+    cfg = make_config("binary", n_estimators=3, n_splits=2)
+    cfg["calibration"] = {
+        "method": "isotonic",
+        "params": {OVERRIDDEN: OVERRIDE_VALUE, "eta": OVERRIDE_VALUE},
+    }
+
+    with record_lightgbm_calls() as seen:
+        Model(cfg, data=make_binary_df(n=160)).fit()
+
+    assert seen["train_params"], "the call was refused, or nothing trained"
+
+
+def test_no_smart_parameter_name_has_an_estimator_alias() -> None:
+    """Why the smart layer is merged by spelling and needs no identity overlay.
+
+    Every other layer merges by parameter identity because LightGBM resolves
+    aliases. The smart layer does not, and this is the reason rather than an
+    oversight: smart parameter names are LizyML's own and the library has never
+    heard of them, so there is no second spelling for one of them to arrive
+    under. Asserted rather than assumed, because "no aliases" is exactly the
+    kind of claim that goes stale when a name is added.
+    """
+    aliased = {}
+    for name in LGBMProvider().smart_param_names():
+        try:
+            spellings = accepted_spellings(name)
+        except Exception:  # noqa: BLE001 - not a canonical LightGBM name at all
+            continue
+        if spellings - {name}:
+            aliased[name] = sorted(spellings - {name})
+
+    assert not aliased, (
+        f"these smart parameters now have estimator aliases: {aliased}. The "
+        "smart layer is merged by spelling, so it would keep both and the "
+        "resolver would read whichever it names."
+    )
+
+
 def test_two_spellings_of_one_value_in_the_config_are_accepted() -> None:
     """The other direction, so the refusal is not bought by refusing everything.
 
