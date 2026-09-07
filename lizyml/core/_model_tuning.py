@@ -19,6 +19,7 @@ from lizyml.config.schema import OptunaParamsConfig
 from lizyml.core._model_factories import (
     build_splitter,
     check_calibration_param_names,
+    check_duplicate_space_dimensions,
     check_param_names,
     get_provider,
     model_space_names,
@@ -202,6 +203,11 @@ class ModelTuningMixin:
         # nothing says so. Checked before the study starts; trial params
         # are drawn from these names, so covering the space covers them.
         check_param_names(provider, model_space_names(cfg), model_name=cfg.model.name)
+        # The same-layer rule, on the layer decision 6 had not reached. Two
+        # dimensions spelling one parameter both land in the trial dict, and
+        # LightGBM keeps the canonical one -- so the other is sampled and
+        # optimised over without affecting any trial (H-0094 decision 8).
+        check_duplicate_space_dimensions(provider, cfg)
         # The calibration surface is checked here too, not only on the fit path.
         # `tune()` is its own entry point: without this, a config carrying a
         # dead `calibration.params` name completes a whole study and is refused

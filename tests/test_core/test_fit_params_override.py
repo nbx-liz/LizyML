@@ -294,6 +294,65 @@ def test_two_spellings_of_one_value_in_calibration_params_are_accepted() -> None
     assert seen["train_params"], "the call was refused, or nothing trained"
 
 
+def test_two_search_dimensions_naming_one_parameter_are_refused() -> None:
+    """The same-layer rule on the layer decision 6 had not reached.
+
+    `sample_params` writes one key per dimension, so `learning_rate` and `eta`
+    as two dimensions both land in every trial dict. LightGBM resolves them to
+    one parameter and keeps the canonical spelling, so measured before this
+    check: every trial trained at the `learning_rate` value, `eta` was sampled
+    and optimised over without affecting anything, and `best_model_params`
+    recorded both -- so the `fit` afterwards carried the dead spelling too.
+
+    There is no equal-values escape here, unlike the dict surfaces: two
+    dimensions sample independently.
+    """
+    cfg = make_config("binary", n_estimators=3, n_splits=2, tuning_n_trials=3)
+    cfg["tuning"]["optuna"]["space"] = {
+        OVERRIDDEN: {
+            "type": "float",
+            "low": 0.001,
+            "high": 0.01,
+            "category": "model",
+        },
+        "eta": {"type": "float", "low": 0.4, "high": 0.5, "category": "model"},
+    }
+
+    with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as exc:
+        Model(cfg, data=make_binary_df(n=160)).tune()
+
+    assert exc.value.code is ErrorCode.CONFIG_INVALID
+    assert "tuning.optuna.space" in exc.value.user_message, exc.value.user_message
+    assert not seen["train_params"], (
+        f"{len(seen['train_params'])} Booster(s) were trained before the "
+        "refusal; the check must fire before the study starts"
+    )
+
+
+def test_two_search_dimensions_of_different_parameters_are_accepted() -> None:
+    """The other direction, so the space check is not refusing every study."""
+    cfg = make_config("binary", n_estimators=3, n_splits=2, tuning_n_trials=2)
+    cfg["tuning"]["optuna"]["space"] = {
+        OVERRIDDEN: {
+            "type": "float",
+            "low": 0.001,
+            "high": 0.01,
+            "category": "model",
+        },
+        "lambda_l2": {
+            "type": "float",
+            "low": 0.1,
+            "high": 1.0,
+            "category": "model",
+        },
+    }
+
+    with record_lightgbm_calls() as seen:
+        Model(cfg, data=make_binary_df(n=160)).tune()
+
+    assert seen["train_params"], "the study was refused, or nothing trained"
+
+
 @pytest.mark.parametrize("surface", ["model.params", "fit(params=)"])
 def test_one_sequence_written_in_two_containers_is_not_refused(surface: str) -> None:
     """A false refusal on ordinary input, one container past round 11's.

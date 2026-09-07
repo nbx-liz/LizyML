@@ -538,6 +538,81 @@ def model_space_names(cfg: LizyMLConfig) -> list[tuple[str, str]]:
     return out
 
 
+def check_duplicate_space_dimensions(provider: Any, cfg: LizyMLConfig) -> None:
+    """Refuse two ``category: model`` dimensions that name one parameter.
+
+    ``sample_params`` writes one key per dimension, so two dimensions spelling
+    one LightGBM parameter put both spellings in the same trial dict. LightGBM
+    resolves them to one parameter and prefers the canonical spelling, so the
+    other dimension is sampled, optimised over, and **has no effect on any
+    trial**. Measured before this check, with ``learning_rate`` and ``eta`` as
+    two dimensions:
+
+    ``lgb.train`` received both on every trial and trained at the
+    ``learning_rate`` value; ``best_model_params`` recorded both, so the ``fit``
+    afterwards carried the dead spelling too. Optuna ranked the trials on an
+    axis that did nothing (H-0094 decision 8, review round 12, named by the
+    rounds 11-12 monitor and reproduced before being fixed).
+
+    This is the same-layer rule on the layer decision 6 had not reached: the
+    space is one layer, and it was meeting itself. Unlike the dict surfaces
+    there is **no equal-values escape** -- two dimensions sample independently,
+    so naming one parameter twice is ambiguous whatever the bounds say.
+
+    Distinct from #279, which is a dimension colliding with a *smart parameter*,
+    and from #280, which is ``model.params`` colliding with one.
+
+    Args:
+        provider: EstimatorProvider instance.
+        cfg: The whole config; the space is read through ``model_space_names``
+            so this and the name check cannot disagree about which dimensions
+            are the estimator's.
+
+    Raises:
+        LizyMLError: with ``CONFIG_INVALID``, naming the dimensions and the
+            parameter they share.
+    """
+    names = [name for _, name in model_space_names(cfg)]
+    if len(names) < 2:
+        return
+    from lizyml.core.exceptions import ErrorCode, LizyMLError
+
+    canonical = provider.canonical_param_names(names)
+    grouped: dict[str, list[str]] = {}
+    for name in names:
+        grouped.setdefault(canonical[name], []).append(name)
+
+    conflicts = {
+        parameter: written for parameter, written in grouped.items() if len(written) > 1
+    }
+    if not conflicts:
+        return
+    lines = [
+        f"  tuning.optuna.space: {sorted(written)} are dimensions for the one "
+        f"parameter '{parameter}', so only one of them can reach the estimator."
+        for parameter, written in sorted(conflicts.items())
+    ]
+    raise LizyMLError(
+        code=ErrorCode.CONFIG_INVALID,
+        user_message=(
+            "Search space dimension(s) naming one parameter more than once:\n"
+            + "\n".join(lines)
+            + "\nThe other would be sampled and optimised over without "
+            "affecting any trial."
+        ),
+        context={
+            "conflicts": [
+                {
+                    "surface": "tuning.optuna.space",
+                    "parameter": parameter,
+                    "dimensions": sorted(written),
+                }
+                for parameter, written in sorted(conflicts.items())
+            ]
+        },
+    )
+
+
 #: Calibration methods whose ``params`` reach LightGBM.
 #:
 #: ``IsotonicCalibrator`` trains a single-feature Booster, so its params go to
