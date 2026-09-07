@@ -15,9 +15,19 @@ condition.
 VERDICT: REQUEST_CHANGES
 ```
 
-Two blocking findings, both on `_build_params`, **both introduced by the round-3
-remedy**. The pre-registration is therefore not triggered: these are defects in
-the new production code on the fit-params path, not adjacent-surface findings.
+Two blocking findings, both on `_build_params`. The pre-registration is not
+triggered: these change production code on the fit-params path, not an adjacent
+surface.
+
+> **Attribution corrected after the rounds 3-4 monitor
+> (`results/pr2_monitor_round34.md`).** This record first said both findings were
+> introduced by the round-3 remedy, following the reviewer's revert-attribution.
+> The monitor read the pre-round-3 adapter and found that the base params dict
+> always set the canonical `objective`, so LightGBM's canonical preference
+> **masked** any alias-spelled objective. Finding 1 therefore predates round 3
+> and was unmasked by it; reverting the shadow-drop restores the mask, which is
+> why the revert test cannot tell the two apart. Only finding 2, the `KeyError`,
+> was authored by round 3.
 
 ### 1 — an objective alias skipped the task-compatibility check
 
@@ -43,7 +53,8 @@ still in the user dict, and the H-0079 invariant read the deleted key.
 **Defect-class: DC2.**
 
 Codex attributed both to the stage by reverting only the shadow-drop in memory
-and watching them disappear.
+and watching them disappear. That test cannot separate *introduced* from
+*unmasked*, and finding 1 turns out to be the latter — see the correction above.
 
 ---
 
@@ -111,6 +122,7 @@ Codex's own probe after the fix:
 ## State
 
 Blocking findings per round: **1, 1, 2, 2**. Rounds 3 and 4 were both on the
-production path the deliverable runs through, and round 4's were defects the
-round-3 remedy introduced. Full suite **2263 passed**; `ruff check .`,
+production path the deliverable runs through. Of round 4's two, one was authored
+by the round-3 remedy and one had been shipping since inception behind a mask
+that remedy removed. Full suite **2263 passed**; `ruff check .`,
 `ruff format --check .`, `mypy lizyml/` clean.
