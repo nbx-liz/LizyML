@@ -605,10 +605,17 @@ def check_duplicate_identities(
     for name, value in params.items():
         grouped.setdefault(canonical[name], {})[name] = value
 
+    # Compared by equality, not by printed form. `repr` made `1` and `1.0`
+    # two different values and refused a call that meant one thing twice
+    # (H-0094, review round 5) -- a gate refusing valid input, which is worse
+    # here than the ambiguity it exists to catch. Equality also matches
+    # `_pop_by_identity`, so the two refusals cannot disagree about what
+    # "the same value" means. It works for the unhashable values a parameter
+    # can take (`feature_contri` is a list), which a set of values would not.
     conflicts = {
         parameter: written
         for parameter, written in grouped.items()
-        if len({repr(value) for value in written.values()}) > 1
+        if any(value != next(iter(written.values())) for value in written.values())
     }
     if not conflicts:
         return

@@ -21,9 +21,13 @@ from typing import Any
 import pytest
 
 from lizyml import Model
-from lizyml.core._model_factories import overlay_params
+from lizyml.core._model_factories import (
+    check_duplicate_identities,
+    overlay_params,
+)
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.tuning_result import TuningResult
+from lizyml.estimators.lgbm.adapter import _pop_by_identity
 from lizyml.estimators.lgbm.param_names import accepted_spellings
 from lizyml.estimators.lgbm.provider import LGBMProvider
 from lizyml.estimators.lgbm.smart_params import SMART_PARAM_TARGETS
@@ -844,4 +848,72 @@ def test_every_specially_handled_name_has_an_alias_under_test() -> None:
         assert alias in accepted_spellings(canonical), (
             f"{alias!r} is not a spelling of {canonical!r}, so the case named "
             "for it tests nothing"
+        )
+
+
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        (1, 1.0),
+        (0.5, 0.5),
+    ],
+)
+def test_equal_values_under_two_spellings_are_accepted_whatever_the_type(
+    first: Any, second: Any
+) -> None:
+    """Equal is equal, even when the two are written differently.
+
+    The refusal compared ``repr`` at first, so ``1`` and ``1.0`` read as two
+    values and a call that meant one thing twice was refused (review round 5).
+    A gate that refuses valid input is worse here than the ambiguity it exists
+    to catch, and it disagreed with ``_pop_by_identity``, which compares by
+    equality.
+    """
+    calls = _fit_with({}, {OVERRIDDEN: first, ALIAS: second})
+    assert calls, "no lgb.train call was recorded"
+    assert all(call.get(OVERRIDDEN, call.get(ALIAS)) == first for call in calls), [
+        c.get(OVERRIDDEN, c.get(ALIAS)) for c in calls
+    ]
+
+
+def test_the_two_refusals_agree_about_what_equal_means() -> None:
+    """The adapter and the facade must not disagree on one input.
+
+    ``_pop_by_identity`` refuses a conflicting objective; the facade refuses a
+    conflicting anything. If they used different notions of equality, the same
+    call would be accepted or refused depending on which parameter it named.
+    """
+    provider = LGBMProvider()
+    # ``True == 1`` in Python, and this is where that belongs: LightGBM cannot
+    # parse a bool as a learning rate, so the pair cannot be checked through a
+    # real fit without testing the library's parser instead of the refusal.
+    for first, second in ((1, 1.0), (0.5, 0.5), (True, 1)):
+        check_duplicate_identities(
+            provider, {OVERRIDDEN: first, ALIAS: second}, surface="probe"
+        )
+        assert _pop_by_identity(
+            {"objective": first, "application": second}, "objective"
+        ) == (first, "objective")
+
+    with pytest.raises(LizyMLError):
+        check_duplicate_identities(provider, {OVERRIDDEN: 1, ALIAS: 2}, surface="probe")
+    with pytest.raises(LizyMLError):
+        _pop_by_identity(
+            {"objective": "binary", "application": "xentropy"}, "objective"
+        )
+
+
+def test_an_unhashable_value_does_not_break_the_refusal() -> None:
+    """``feature_contri`` is a list, and a set of values would raise on it."""
+    provider = LGBMProvider()
+    check_duplicate_identities(
+        provider,
+        {"feature_contri": [1.0, 2.0], "feature_contrib": [1.0, 2.0]},
+        surface="probe",
+    )
+    with pytest.raises(LizyMLError):
+        check_duplicate_identities(
+            provider,
+            {"feature_contri": [1.0, 2.0], "feature_contrib": [2.0, 1.0]},
+            surface="probe",
         )
