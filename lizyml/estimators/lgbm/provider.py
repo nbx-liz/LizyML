@@ -24,6 +24,7 @@ from lizyml.estimators.lgbm.defaults import (
     default_fixed_params,
     default_space,
 )
+from lizyml.estimators.lgbm.param_names import LGBM_PARAM_NAMES
 from lizyml.estimators.lgbm.smart_params import (
     resolve_ratio_params,
     resolve_smart_params,
@@ -31,6 +32,18 @@ from lizyml.estimators.lgbm.smart_params import (
 from lizyml.estimators.provider import ExportParams, MetricChoices
 from lizyml.features.pipeline_base import BaseFeaturePipeline
 from lizyml.features.pipelines_native import NativeFeaturePipeline
+
+# H-0093: the single declaration of which fields are smart parameters.
+# `extract_smart_params` reads the config through it and `smart_param_names`
+# reports it, so the two cannot disagree about what a smart parameter is.
+_SMART_PARAM_NAMES: tuple[str, ...] = (
+    "auto_num_leaves",
+    "num_leaves_ratio",
+    "min_data_in_leaf_ratio",
+    "min_data_in_bin_ratio",
+    "feature_weights",
+    "balanced",
+)
 
 # H-0078: LightGBM-meaningful per-parameter bounds for boundary expansion.
 # Values reflect LightGBM's documented limits and physically-meaningful
@@ -207,14 +220,20 @@ class LGBMProvider:
 
     def extract_smart_params(self, model_cfg: Any) -> dict[str, Any]:
         """Extract smart parameter fields from LGBMConfig as a plain dict."""
-        return {
-            "auto_num_leaves": model_cfg.auto_num_leaves,
-            "num_leaves_ratio": model_cfg.num_leaves_ratio,
-            "min_data_in_leaf_ratio": model_cfg.min_data_in_leaf_ratio,
-            "min_data_in_bin_ratio": model_cfg.min_data_in_bin_ratio,
-            "feature_weights": model_cfg.feature_weights,
-            "balanced": model_cfg.balanced,
-        }
+        return {name: getattr(model_cfg, name) for name in _SMART_PARAM_NAMES}
+
+    def accepted_model_param_names(self) -> frozenset[str]:
+        """Return LightGBM's own parameter names (H-0093).
+
+        Read from ``LGBM_DumpParamAliases`` at import, not listed here: a copy
+        would go stale exactly when LightGBM renames something, which is the
+        drift the gate consuming this exists to catch.
+        """
+        return LGBM_PARAM_NAMES
+
+    def smart_param_names(self) -> frozenset[str]:
+        """Return the smart parameter names, from the same declaration as above."""
+        return frozenset(_SMART_PARAM_NAMES)
 
     def resolve_smart_params(
         self,

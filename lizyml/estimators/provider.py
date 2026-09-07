@@ -68,6 +68,38 @@ class EstimatorProvider(Protocol):  # pragma: no cover
         """Extract smart parameter fields from a pydantic Config object."""
         ...
 
+    def accepted_model_param_names(self) -> frozenset[str]:
+        """Return every native parameter name this estimator accepts (H-0093).
+
+        Used by the Facade to reject a ``model.params`` key, or a
+        ``tuning.optuna.space`` dimension declared ``category: model``, that the
+        estimator would silently discard. LightGBM drops an unknown key without
+        raising, so an unchecked typo produces a run that looks successful and
+        in which the parameter did nothing.
+
+        Implementations must derive this from the library rather than list it,
+        so that an upstream rename is caught instead of being papered over.
+
+        Returns:
+            The accepted names, including any aliases the library honours.
+        """
+        ...
+
+    def smart_param_names(self) -> frozenset[str]:
+        """Return the names of this estimator's smart parameters (H-0093).
+
+        These are LizyML's own parameters, not the library's. They are declared
+        separately from :meth:`accepted_model_param_names` so that a smart name
+        written where a native one belongs gets a diagnostic naming the category
+        it wants, rather than the generic "unknown parameter" message -- writing
+        ``num_leaves_ratio`` under ``category: model`` is a category mistake,
+        not a typo.
+
+        Must agree with the keys :meth:`extract_smart_params` returns; deriving
+        both from one declaration is the way to keep that true.
+        """
+        ...
+
     def resolve_smart_params(
         self,
         smart: dict[str, Any],
