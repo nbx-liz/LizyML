@@ -2,8 +2,8 @@
 
 Round 1 is in the sibling file. Before this round an **absolute** monitor
 returned `DELIVERABLE-FOCUSED` / `continue`
-(`scratchpad/monitor-pr2-r1.md`), and corrected one fact I had given it: #277
-shipped with the original PR, not with the round-1 remedy.
+(`results/pr2_monitor_round12.md`), and corrected one fact I had given it:
+#277 shipped with the original PR, not with the round-1 remedy.
 
 ---
 

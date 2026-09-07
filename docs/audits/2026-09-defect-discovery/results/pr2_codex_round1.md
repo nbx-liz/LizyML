@@ -101,7 +101,8 @@ rather than implying the surface is closed.
 ## Monitor, before round 2
 
 An absolute monitor in a fresh context returned `DELIVERABLE-FOCUSED` /
-`continue` (`scratchpad/monitor-pr2-r1.md`), and corrected a fact stated above:
+`continue` (`results/pr2_monitor_round12.md`), and corrected a fact stated
+above:
 **#277 shipped with the original PR** (commit `0396c08`, alongside the
 BLUEPRINT 12.2 statement), not during this remedy. Only **#279** is a round-1
 deferral.

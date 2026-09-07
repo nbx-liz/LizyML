@@ -237,7 +237,7 @@ config = {
 
 | 入口 | 状態 |
 |---|---|
-| `model.params`（config） | `LGBMConfig._validate_smart_params` が parse 時に拒否。ただし `auto_num_leaves` / 2 つの ratio の **3 件のみ**で、`balanced`→`scale_pos_weight` と `feature_weights`→`feature_contri` / `feature_pre_filter` は対象外 |
+| `model.params`（config） | `LGBMConfig._validate_smart_params` が parse 時に拒否。ただし **(a) `auto_num_leaves` / 2 つの ratio の 3 件のみ**（`balanced`→`scale_pos_weight` と `feature_weights`→`feature_contri` / `feature_pre_filter` は対象外）、かつ **(b) 文字列一致のみ**でエイリアスを見ない。実測: `max_leaves` / `min_child_samples` は通過して黙って置換される（[#280](https://github.com/nbx-liz/LizyML/issues/280)）。`config/` は層規約上 `estimators/` を import できず学習器の別名表に届かないため、修正は「どこで拒否するか」の設計判断になる |
 | `fit(params=...)` | **H-0094 で拒否する（5 件すべて）。** 有効なスマートパラメーターが書くネイティブ名は `CONFIG_INVALID` とし、どのスマートパラメーターが管理しているかを名指しする |
 | `tuning.optuna.space`（`category: model`） | **未対応（[#279](https://github.com/nbx-liz/LizyML/issues/279)）。** サンプルされた値は学習に届かず、`best_model_params` には届かなかった値が記録される。実測: 本リポジトリのスイートが構築する `category: model` 探索空間 67 件のうち **54 件**が該当（すべて `num_leaves`）。方向の決定は #279 |
 
