@@ -12,6 +12,69 @@ import pandas as pd
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.task import TaskType
 
+#: The native LightGBM names each smart parameter writes when it is active
+#: (H-0094).
+#:
+#: Smart resolution runs *after* the parameter dict is merged and its result
+#: wins (``core/model.py``: ``resolved_model = {**resolved_model, **smart}``),
+#: so a native name listed here does not survive being set by hand -- it is
+#: replaced, without a word. ``LGBMConfig._validate_smart_params`` already
+#: refuses three of these combinations at config-parse time, which is the
+#: policy this table generalises: the conflict is an error, not a silent
+#: substitution.
+#:
+#: The set is not asserted from reading the code once: a test walks the
+#: ``resolved[...] = ...`` assignments in ``resolve_smart_params`` and
+#: ``resolve_ratio_params`` and fails when a name appears there that is not
+#: declared here, so a new smart parameter cannot quietly start overwriting a
+#: fourth native name.
+SMART_PARAM_TARGETS: dict[str, frozenset[str]] = {
+    "auto_num_leaves": frozenset({"num_leaves"}),
+    "min_data_in_leaf_ratio": frozenset({"min_data_in_leaf"}),
+    "min_data_in_bin_ratio": frozenset({"min_data_in_bin"}),
+    "feature_weights": frozenset({"feature_contri", "feature_pre_filter"}),
+    "balanced": frozenset({"scale_pos_weight"}),
+}
+
+
+def smart_managed_names(smart: dict[str, Any], task: TaskType) -> dict[str, str]:
+    """Native names an *active* smart parameter will write, and which one.
+
+    Active is not the same as present: every smart parameter has a default that
+    switches it on or off, and ``balanced`` writes ``scale_pos_weight`` only
+    for binary -- multiclass gets a sample weight, which is not a parameter
+    name and so cannot collide with one.
+
+    Args:
+        smart: Smart parameter values, as ``extract_smart_params`` returns them.
+        task: ML task type.
+
+    Returns:
+        ``{native name: the smart parameter that will overwrite it}``.
+    """
+    managed: dict[str, str] = {}
+
+    def claim(smart_name: str) -> None:
+        for native in SMART_PARAM_TARGETS[smart_name]:
+            managed[native] = smart_name
+
+    if smart.get("auto_num_leaves", False):
+        claim("auto_num_leaves")
+    if smart.get("min_data_in_leaf_ratio") is not None:
+        claim("min_data_in_leaf_ratio")
+    if smart.get("min_data_in_bin_ratio") is not None:
+        claim("min_data_in_bin_ratio")
+    if smart.get("feature_weights") is not None:
+        claim("feature_weights")
+
+    balanced = smart.get("balanced")
+    if balanced is None:
+        balanced = task != "regression"
+    if balanced and task == "binary":
+        claim("balanced")
+
+    return managed
+
 
 def _compute_num_leaves(max_depth: int | None, ratio: float) -> int:
     """Compute num_leaves from max_depth and ratio."""

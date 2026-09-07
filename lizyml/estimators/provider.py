@@ -100,6 +100,29 @@ class EstimatorProvider(Protocol):  # pragma: no cover
         """
         ...
 
+    def smart_managed_param_names(
+        self, smart: dict[str, Any], task: TaskType
+    ) -> dict[str, str]:
+        """Return native names an *active* smart parameter will overwrite (H-0094).
+
+        :meth:`resolve_smart_params` runs after the parameter dict is merged and
+        its result wins, so a native name it writes cannot be set by hand: the
+        value is replaced without a word. The caller uses this to refuse such a
+        name instead, which is the policy the config schema already applies to
+        the same collisions at parse time.
+
+        Args:
+            smart: Smart parameter values, as :meth:`extract_smart_params`
+                returns them.
+            task: ML task type -- a smart parameter may write a native name for
+                one task and something that is not a parameter for another.
+
+        Returns:
+            ``{native name: the smart parameter that will overwrite it}``, empty
+            when no smart parameter is active.
+        """
+        ...
+
     def resolve_smart_params(
         self,
         smart: dict[str, Any],

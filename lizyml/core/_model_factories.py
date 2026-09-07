@@ -550,6 +550,69 @@ def model_space_names(cfg: LizyMLConfig) -> list[tuple[str, str]]:
 LGBM_BACKED_CALIBRATORS: frozenset[str] = frozenset({"isotonic"})
 
 
+def check_smart_managed_overrides(
+    provider: Any,
+    override: dict[str, Any] | None,
+    smart: dict[str, Any],
+    task: Any,
+    *,
+    surface: str,
+) -> None:
+    """Refuse an override of a name a smart parameter is going to overwrite.
+
+    Smart resolution runs after the parameter dict is merged and its result
+    wins, so ``fit(params={"num_leaves": 12})`` trains at whatever
+    ``auto_num_leaves`` computes and reports nothing. Measured before this
+    check: ``num_leaves=12`` trained at 32, ``min_data_in_leaf=3`` at 1, and
+    ``scale_pos_weight=10`` at 0.935.
+
+    This is the policy ``LGBMConfig._validate_smart_params`` already applies to
+    the same collisions in the config: the conflict is an error, not a silent
+    substitution. It applies here to the ``fit()`` override only, because that
+    is the input this change introduces -- the config surface is refused at
+    parse time for three of the five, and the search-space surface has its own
+    measured gap (H-0094, #279).
+
+    Args:
+        provider: EstimatorProvider instance.
+        override: The ``fit()`` override, or ``None``.
+        smart: Merged smart params, as they will be resolved.
+        task: ML task type -- a smart parameter may write a native name for one
+            task and not for another.
+        surface: How to name the offending input in the message.
+
+    Raises:
+        LizyMLError: with ``CONFIG_INVALID``, naming every managed name given.
+    """
+    if not override:
+        return
+    from lizyml.core.exceptions import ErrorCode, LizyMLError
+
+    managed: dict[str, str] = provider.smart_managed_param_names(smart, task)
+    hits = [(name, managed[name]) for name in override if name in managed]
+    if not hits:
+        return
+
+    lines = [
+        f"  {surface}: '{name}' is resolved from the smart parameter "
+        f"'{smart_name}' and would be replaced, so setting it here would have "
+        f"no effect. Disable 'model.{smart_name}' to set '{name}' directly."
+        for name, smart_name in hits
+    ]
+    raise LizyMLError(
+        code=ErrorCode.CONFIG_INVALID,
+        user_message=(
+            "Parameter name(s) managed by a smart parameter:\n" + "\n".join(lines)
+        ),
+        context={
+            "managed": [
+                {"surface": surface, "name": name, "smart_param": smart_name}
+                for name, smart_name in hits
+            ]
+        },
+    )
+
+
 def check_calibration_param_names(calibration_cfg: Any) -> None:
     """Reject ``calibration.params`` names LightGBM would silently discard.
 

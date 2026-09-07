@@ -28,6 +28,7 @@ from lizyml.estimators.lgbm.param_names import LGBM_PARAM_NAMES
 from lizyml.estimators.lgbm.smart_params import (
     resolve_ratio_params,
     resolve_smart_params,
+    smart_managed_names,
 )
 from lizyml.estimators.provider import ExportParams, MetricChoices
 from lizyml.features.pipeline_base import BaseFeaturePipeline
@@ -234,6 +235,12 @@ class LGBMProvider:
     def smart_param_names(self) -> frozenset[str]:
         """Return the smart parameter names, from the same declaration as above."""
         return frozenset(_SMART_PARAM_NAMES)
+
+    def smart_managed_param_names(
+        self, smart: dict[str, Any], task: TaskType
+    ) -> dict[str, str]:
+        """Return native names an active smart parameter will overwrite (H-0094)."""
+        return smart_managed_names(smart, task)
 
     def resolve_smart_params(
         self,

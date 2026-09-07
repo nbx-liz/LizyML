@@ -56,6 +56,7 @@ from lizyml.core._model_factories import (
     build_splitter,
     check_calibration_param_names,
     check_param_names,
+    check_smart_managed_overrides,
     get_provider,
     make_inner_valid_factory,
 )
@@ -168,10 +169,13 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             data: Training DataFrame.  Overrides any ``data`` passed at
                 construction time and the ``data.path`` from config.
             params: Model parameters to override the config ``model.params``
-                for this call only.  Highest priority: config defaults < tune
-                best < these.  A name the estimator does not define raises
-                ``CONFIG_INVALID`` rather than being discarded (H-0093), and
-                the config object the caller handed in is not modified.
+                for this call only.  Highest priority among the three inputs:
+                config defaults < tune best < these.  Two names are refused
+                with ``CONFIG_INVALID`` rather than silently doing nothing: one
+                the estimator does not define (H-0093), and one an active smart
+                parameter resolves, which would be overwritten downstream of
+                this merge (H-0094).  The config object the caller handed in is
+                not modified.
 
         Returns:
             The :class:`~lizyml.core.types.fit_result.FitResult` from CV.
@@ -468,6 +472,15 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
                 }
 
         # --- Overlay fit() args (highest priority) ---
+        # "Highest priority" is highest among these three inputs. A native name
+        # an active smart parameter resolves is not one of them: smart
+        # resolution runs downstream of this merge and wins, so accepting such
+        # an override would be accepting a value that is then discarded. The
+        # config schema already refuses the same collision at parse time; this
+        # applies that policy to the `fit()` input (H-0094).
+        check_smart_managed_overrides(
+            provider, override, smart_params, cfg.task, surface="fit(params=)"
+        )
         if override:
             model_params = {**model_params, **override}
             origins.update(dict.fromkeys(override, "fit(params=)"))
