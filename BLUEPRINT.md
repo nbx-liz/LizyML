@@ -257,7 +257,7 @@ config = {
 
 - `feature_weights: dict[str, float] | None`: 特徴量名をキーとした重み辞書。
 - 未指定特徴量は `1.0` で自動補完される。
-- 学習データの特徴量順に並び替えたリストに変換し、LightGBM に渡す。
+- 学習データの特徴量順に並び替えたリストに変換し、**LightGBM の `feature_contri` として**渡す（H-0093）。Config のフィールド名 `feature_weights` は利用者向けの名前であり、LightGBM 側の名前とは意図的に分けている。
 - 副作用: `feature_pre_filter = False` を強制する。
 - 制約: 重み `> 0` 必須。学習データに存在しない未知の特徴量名は `CONFIG_INVALID`。
 
@@ -1015,6 +1015,7 @@ LizyML Core は callback + 結果型でデータを提供し、Widget/Studio が
 
 - `calibration.params` で上記デフォルト（`monotone_constraints` 以外）を上書き可能。
 - `validation_ratio` と `seed` も `calibration.params` 経由で指定可能。
+- **名前は fit 開始前に検査される（H-0093）。** `calibration.params` の中身は `lgb.train` にほぼそのまま渡るため、LightGBM が知らない名前は黙って捨てられる。Facade は LightGBM 自身の登録表に照らして不明な名前を `CONFIG_INVALID` で拒否する。calibrator 自身が消費する `num_boost_round` / `validation_ratio` / `min_data_in_leaf_ratio` は受理される（`seed` は LightGBM のネイティブ名なので登録表側で受理される）。この検査は LightGBM を使う calibrator（現在は `isotonic` のみ）に対してのみ働く。**発火は外側 CV が始まる前**であり、拒否される config で Booster が 1 本でも学習されることはない。
 
 #### Booster API 固有の注意
 
@@ -1238,6 +1239,8 @@ set_categorical_features(cols: list[str] | None) -> None  # デフォルト no-o
 class EstimatorProvider(Protocol):
     def extract_model_params(self, model_cfg: Any) -> dict[str, Any]: ...
     def extract_smart_params(self, model_cfg: Any) -> dict[str, Any]: ...
+    def accepted_model_param_names(self) -> frozenset[str]: ...   # H-0093
+    def smart_param_names(self) -> frozenset[str]: ...            # H-0093
     def resolve_smart_params(
         self, smart: dict, effective: dict, n_rows: int,
         feature_names: list[str], y: Series, task: str,
@@ -1268,6 +1271,8 @@ class EstimatorProvider(Protocol):
 - `params_summary()` は `params_table()` 用のパラメータ行を返す。smart params + native model params（`metric` を含む、H-0061）の両方を含む。
 - `build_pipeline_factory` は estimator 固有の FeaturePipeline が必要な場合（例: EntityEmbedding のカテゴリ埋め込み）に対応する。デフォルトは `NativeFeaturePipeline` を返す。
 - `build_export_params` は codegen 経路（`Model.export_code()`）が必要とする native params / num_boost_round / feval metadata を `ExportParams` frozen dataclass で返す（H-0073）。`_model_persistence.py` から estimator 具象型（`LGBMAdapter` 等）への直接参照を排除するための入口。
+- `accepted_model_param_names()` / `smart_param_names()` は「その学習器が受理する名前」を宣言する（H-0093）。前者は**学習器自身から導出すること**（列挙しない）。学習器の更新で名前が増減したときに黙って古びる実装は、この IF が検出しようとしている欠陥をそれ自体が持つことになる。後者は `extract_smart_params` が返すキーと必ず一致させ、両者を単一の宣言から導くこと。
+  - 検査の発火点は**学習器に渡す直前**（`_merge_params` の merge 後、および tuning study 開始前）であって構築時ではない。config は呼び出し側が参照を保持したまま変更でき、`best_model_params` は artifact から `__init__` 後に復元されるため、構築時の検査ではどちらも素通りする。`Model.load()` 自体は検査しない（artifact は起きた fit の記録であり、読めなくする理由がない）。
 
 ディレクトリ構成（estimator ごとにサブパッケージ化）:
 
@@ -1423,6 +1428,8 @@ Config の各フィールドが最終的なコンポーネント（Booster param
 
 - **2 値比較パターン**: 各 Booster パラメータについて、異なる値で fit → 予測が変わることを検証する。対象: `learning_rate`, `max_depth`, `n_estimators`, `max_bin`, `lambda_l1`, `lambda_l2`, `bagging_fraction`, `feature_fraction`, `boosting`, `metric`, `num_leaves`, `min_data_in_leaf`。
 - **Smart Params 動作反映**: `feature_weights` → importance 順序変化、`balanced` → 不均衡データの予測分布変化、`scale_pos_weight` → 予測分布変化。
+  - この宣言は H-0093 まで実装に対して偽だった（発出キーが LightGBM の定義に無く、重みは捨てられていた）。「importance 順序変化」は**重み無しの fit との差分**で検査すること。importance dict に列名が含まれることの確認は、重みが効いていなくても成立するため検査になっていない。
+- **学習器に渡す名前の検査**: `model.params` と `tuning.optuna.space` の `category: model` 次元は、学習器が受理する名前のみを通す（H-0093）。受理集合は学習器自身から導出し、列挙しない。LightGBM は未知の名前を**エラーなく捨てる**（既定の `verbose=-1` では警告も出ない）ため、検査が無いと綴り違いは「成功したが何も起きていない run」になる。
 - **Training 実効性**: `early_stopping.random_state` → 同一 seed で同一 inner split、`validation_ratio` → inner valid サイズ比例。
 - **Feature 実効性**: `auto_categorical` → string 列の自動検出。
 - **Calibration 実効性**: `calibration.params` → calibrator パラメータ到達。
