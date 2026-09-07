@@ -167,7 +167,11 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         Args:
             data: Training DataFrame.  Overrides any ``data`` passed at
                 construction time and the ``data.path`` from config.
-            params: Model parameters to override the config ``model.params``.
+            params: Model parameters to override the config ``model.params``
+                for this call only.  Highest priority: config defaults < tune
+                best < these.  A name the estimator does not define raises
+                ``CONFIG_INVALID`` rather than being discarded (H-0093), and
+                the config object the caller handed in is not modified.
 
         Returns:
             The :class:`~lizyml.core.types.fit_result.FitResult` from CV.
@@ -200,7 +204,11 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         provider = get_provider(cfg.model)
         self._provider = provider
         run_meta = self._build_run_meta(run_id)
-        model_params, smart_params = self._merge_params(provider)
+        # H-0094: `params` is forwarded here. It was documented as overriding
+        # `model.params` and reached nothing: `_merge_params`'s `override`
+        # overlay was correct and had no caller, so an override was discarded
+        # in silence and the booster trained on the config value (#264).
+        model_params, smart_params = self._merge_params(provider, override=params)
         # Both parameter surfaces are checked here, before any training starts.
         # `_merge_params` gates `model.params`; the calibration surface is
         # checked beside it rather than at `_run_calibration`, which runs after
@@ -423,6 +431,13 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         model_params = provider.extract_model_params(model_cfg)
         smart_params = provider.extract_smart_params(model_cfg)
 
+        # H-0094: which input a name came from, so a rejection can name the
+        # file or the call the user has to change. Three inputs merge into one
+        # dict below and the merged dict is what is checked, so without this
+        # every name is reported as `model.params` -- true for one of the
+        # three, and a wrong address for the other two.
+        origins: dict[str, str] = dict.fromkeys(model_params, "model.params")
+
         # --- Overlay tune best ---
         if self._tuning_result is not None:
             # Apply default fixed params when default space was used (#76).
@@ -435,11 +450,17 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             if used_default_space:
                 fixed = provider.default_fixed_params(cfg.task)
                 model_params = {**model_params, **fixed}
+                origins.update(dict.fromkeys(fixed, "provider default fixed params"))
 
             model_params = {
                 **model_params,
                 **self._tuning_result.best_model_params,
             }
+            origins.update(
+                dict.fromkeys(
+                    self._tuning_result.best_model_params, "tuning best_model_params"
+                )
+            )
             if self._tuning_result.best_smart_params:
                 smart_params = {
                     **smart_params,
@@ -449,6 +470,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         # --- Overlay fit() args (highest priority) ---
         if override:
             model_params = {**model_params, **override}
+            origins.update(dict.fromkeys(override, "fit(params=)"))
 
         # H-0093: the merged dict is what reaches the estimator, so it is where
         # the names are checked. Every route into it is covered by construction
@@ -459,7 +481,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         # the search space before the study starts.
         check_param_names(
             provider,
-            (("model.params", name) for name in model_params),
+            ((origins.get(name, "model.params"), name) for name in model_params),
             model_name=model_cfg.name,
         )
 
