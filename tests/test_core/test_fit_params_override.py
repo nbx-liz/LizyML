@@ -18,6 +18,7 @@ import json
 import pathlib
 import re
 from typing import Any
+from unittest import mock
 
 import numpy as np
 import pytest
@@ -1136,3 +1137,93 @@ def test_export_code_without_an_override_carries_the_config_value(
     # The generated project keeps the resolved estimator parameters under
     # `lgbm_params`; `model.params` is the input shape, not the emitted one.
     assert config["lgbm_params"][OVERRIDDEN] == CONFIG_VALUE, config["lgbm_params"]
+
+
+# ---------------------------------------------------------------------------
+# Every artifact-reading test must fail when nothing is written
+# ---------------------------------------------------------------------------
+# Round 7 found one test that passed with `Model.export` replaced by a no-op:
+# it asserted on the model in memory and never read what was written. The fix
+# was made for that one test. The rounds 6-7 monitor named the repair -- assert
+# the property over **every** test that claims to read the artifact, not over
+# the one that was caught -- which is what stops the next round finding the
+# second instance of a class already found.
+
+
+def _artifact_reading_tests() -> list[str]:
+    """Tests whose body reads an exported artifact, found by reading them.
+
+    Derived rather than listed: a test added later that loads an artifact joins
+    this population without anyone remembering to add it, which is the whole
+    reason the population is not a constant here.
+    """
+    source = pathlib.Path(__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    found: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef) or not node.name.startswith("test_"):
+            continue
+        body = ast.get_source_segment(source, node) or ""
+        if any(
+            marker in body
+            for marker in ("Model.load(", "rglob(", 'read_text(encoding="utf-8")')
+        ):
+            found.append(node.name)
+    return sorted(found)
+
+
+def test_artifact_reading_tests_fail_when_nothing_is_exported(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Substitute the export and every one of them must notice.
+
+    A test that still passes is not reading the artifact, whatever its name
+    says. This is the property round 7 used to expose one such test, applied to
+    the population instead of to the instance.
+    """
+    names = _artifact_reading_tests()
+    assert names, "no artifact-reading test was found; the scan has gone blind"
+
+    still_green: list[str] = []
+    for name in names:
+        target = globals()[name]
+        # Both writers, because a test reads whichever one it called: the first
+        # run of this instrument patched only `export` and reported the
+        # `export_code` test as not reading its artifact, when in fact the
+        # substitution had missed it. An instrument that names the wrong test is
+        # the same defect as a test that checks nothing.
+        with (
+            mock.patch.object(
+                Model, "export", autospec=True, return_value=tmp_path / "never-written"
+            ),
+            mock.patch.object(
+                Model,
+                "export_code",
+                autospec=True,
+                return_value=tmp_path / "never-written",
+            ),
+        ):
+            try:
+                target(tmp_path / f"probe-{name}")
+            except Exception:  # noqa: BLE001 - failing is the expected outcome
+                continue
+            still_green.append(name)
+
+    assert not still_green, (
+        f"these tests passed with export replaced by a no-op, so they are not "
+        f"reading the artifact: {still_green}"
+    )
+
+
+def test_the_artifact_test_population_is_not_empty_by_accident() -> None:
+    """The scan must find the tests it is named for.
+
+    A scan that silently matches nothing would make the assertion above pass
+    vacuously -- the failure this PR has been fixing, in the instrument built to
+    prevent it.
+    """
+    names = _artifact_reading_tests()
+    assert "test_the_override_reaches_the_exported_booster" in names, names
+    assert "test_the_override_does_not_survive_a_load" in names, names
+    assert "test_export_code_generates_the_overridden_value" in names, names
+    assert len(names) >= 3, names

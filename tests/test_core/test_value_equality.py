@@ -320,3 +320,125 @@ def test_the_reduction_only_trusts_elements_that_can_state_a_truth() -> None:
     assert not hasattr("a", "__bool__")
     assert not hasattr(object(), "__bool__")
     assert not hasattr([1], "__bool__")
+
+
+# ---------------------------------------------------------------------------
+# The bound, quantified over the population instead of over a table
+# ---------------------------------------------------------------------------
+# Rounds 5, 6 and 7 each shipped a declaration ("this does not raise") verified
+# by hand-written cases, and each time the next round found the shape the table
+# had not thought of. The rounds 6-7 monitor named the repair: quantify the
+# declaration over its whole population, which is what `defect-classes.md` asks
+# for. The population here is not "values" -- that is open -- but **the ways a
+# caller's value can defeat each step**, and those are the four dunders this
+# function touches.
+
+#: How each dunder can behave. `absent` means the type does not define it at
+#: all, which is a different path from defining one that fails.
+_BEHAVIOURS: dict[str, tuple[str, ...]] = {
+    "__eq__": ("normal", "raises", "returns_unbooleanable", "returns_junk_iterable"),
+    "__len__": ("absent", "normal", "raises"),
+    "__repr__": ("normal", "raises"),
+}
+
+
+class _Unbooleanable:
+    def __bool__(self) -> bool:
+        raise RuntimeError("truth failed")
+
+
+class _JunkIterable:
+    def __bool__(self) -> bool:
+        raise RuntimeError("truth failed")
+
+    def __iter__(self) -> Any:
+        return iter([object(), object()])
+
+
+def _make_awkward(eq: str, length: str, printed: str, tag: str) -> object:
+    """Build a value whose dunders behave as named."""
+    namespace: dict[str, Any] = {"tag": tag}
+
+    if eq == "normal":
+        namespace["__eq__"] = lambda self, other: (
+            getattr(other, "tag", None) == self.tag
+        )
+    elif eq == "raises":
+        namespace["__eq__"] = lambda self, other: (_ for _ in ()).throw(
+            RuntimeError("equality failed")
+        )
+    elif eq == "returns_unbooleanable":
+        namespace["__eq__"] = lambda self, other: _Unbooleanable()
+    else:
+        namespace["__eq__"] = lambda self, other: _JunkIterable()
+    namespace["__hash__"] = None
+
+    if length == "normal":
+        namespace["__len__"] = lambda self: 2
+    elif length == "raises":
+        namespace["__len__"] = lambda self: (_ for _ in ()).throw(
+            RuntimeError("len failed")
+        )
+
+    if printed == "normal":
+        namespace["__repr__"] = lambda self: f"Awkward({self.tag!r})"
+    else:
+        namespace["__repr__"] = lambda self: (_ for _ in ()).throw(
+            RuntimeError("repr failed")
+        )
+
+    return type("Awkward", (), namespace)()
+
+
+AWKWARD_COMBINATIONS: list[tuple[str, str, str]] = [
+    (eq, length, printed)
+    for eq in _BEHAVIOURS["__eq__"]
+    for length in _BEHAVIOURS["__len__"]
+    for printed in _BEHAVIOURS["__repr__"]
+]
+
+
+@pytest.mark.parametrize(("eq", "length", "printed"), AWKWARD_COMBINATIONS)
+def test_the_no_raise_bound_holds_over_the_whole_cross_product(
+    eq: str, length: str, printed: str
+) -> None:
+    """``values_differ`` answers, whatever the caller's value does to it.
+
+    Every combination of the ways the three dunders this function touches can
+    behave, including the ones no round has produced. A generated population
+    rather than a table is the point: a table is only ever as complete as the
+    last thing someone thought of, which is how rounds 5, 6 and 7 each found the
+    previous round's gap.
+    """
+    first = _make_awkward(eq, length, printed, "a")
+    second = _make_awkward(eq, length, printed, "b")
+    same = _make_awkward(eq, length, printed, "a")
+
+    for left, right in ((first, second), (first, same), (first, first)):
+        for a, b in ((left, right), (right, left)):
+            result = values_differ(a, b)
+            assert isinstance(result, bool), (
+                f"{eq}/{length}/{printed} answered {result!r}, not a bool"
+            )
+
+
+def test_the_cross_product_covers_every_declared_behaviour() -> None:
+    """The population is derived, so a new behaviour must be declared to exist.
+
+    Without this, shrinking ``_BEHAVIOURS`` would quietly shrink the guarantee
+    while every generated case still passed.
+    """
+    expected = 4 * 3 * 2
+    assert len(AWKWARD_COMBINATIONS) == expected, AWKWARD_COMBINATIONS
+    assert set(_BEHAVIOURS) == {"__eq__", "__len__", "__repr__"}
+
+
+def test_identical_values_are_never_reported_as_differing() -> None:
+    """The half of the bound that a no-raise assertion does not cover.
+
+    Answering is not enough: answering "different" for one object compared with
+    itself would refuse a legitimate call for every awkward value at once.
+    """
+    for eq, length, printed in AWKWARD_COMBINATIONS:
+        value = _make_awkward(eq, length, printed, "a")
+        assert values_differ(value, value) is False, f"{eq}/{length}/{printed}"
