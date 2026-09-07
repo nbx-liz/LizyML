@@ -18,6 +18,7 @@ import pathlib
 import re
 from typing import Any
 
+import numpy as np
 import pytest
 
 from lizyml import Model
@@ -27,6 +28,7 @@ from lizyml.core._model_factories import (
 )
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.tuning_result import TuningResult
+from lizyml.core.value_equality import values_differ
 from lizyml.estimators.lgbm.adapter import _pop_by_identity
 from lizyml.estimators.lgbm.param_names import accepted_spellings
 from lizyml.estimators.lgbm.provider import LGBMProvider
@@ -917,3 +919,103 @@ def test_an_unhashable_value_does_not_break_the_refusal() -> None:
             {"feature_contri": [1.0, 2.0], "feature_contrib": [2.0, 1.0]},
             surface="probe",
         )
+
+
+# ---------------------------------------------------------------------------
+# What a parameter's *value* can be (self-review + rounds 4-5 monitor)
+# ---------------------------------------------------------------------------
+
+#: Values a LightGBM parameter plausibly arrives as, beyond a number or string.
+#:
+#: Five rounds went over *which name* a parameter is written under. Nothing had
+#: looked at what its value can be, and both refusals compared values with a
+#: bare ``!=``: for a numpy array that yields an array, and ``bool()`` of it
+#: raises. It raised even for a value written **once**, because the comparison
+#: was made against itself. ``feature_contri`` and ``monotone_constraints`` both
+#: plausibly arrive as arrays.
+AWKWARD_VALUES: dict[str, Any] = {
+    "numpy array": np.array([1.0, 2.0]),
+    "list": [1.0, 2.0],
+    "tuple": (1.0, 2.0),
+    "none": None,
+    "bool": True,
+    "empty list": [],
+}
+
+
+@pytest.mark.parametrize("label", sorted(AWKWARD_VALUES))
+def test_a_single_value_of_any_shape_passes_the_duplicate_refusal(label: str) -> None:
+    """One spelling cannot be a duplicate, whatever the value is.
+
+    The refusal compared each value against the group's first -- itself, when
+    the group has one member -- so an array value raised ``ValueError`` on a
+    call that named nothing twice.
+    """
+    check_duplicate_identities(
+        LGBMProvider(), {"feature_contri": AWKWARD_VALUES[label]}, surface="probe"
+    )
+
+
+@pytest.mark.parametrize("label", sorted(AWKWARD_VALUES))
+def test_equal_values_of_any_shape_are_accepted_under_two_spellings(
+    label: str,
+) -> None:
+    """And two spellings of the same value are the same value."""
+    value = AWKWARD_VALUES[label]
+    provider = LGBMProvider()
+    check_duplicate_identities(
+        provider,
+        {"feature_contri": value, "feature_contrib": value},
+        surface="probe",
+    )
+    assert _pop_by_identity(
+        {"feature_contri": value, "feature_contrib": value}, "feature_contri"
+    ) == (value, "feature_contri")
+
+
+def test_arrays_that_differ_are_still_refused() -> None:
+    """The refusal must not be bought by making everything compare equal."""
+    provider = LGBMProvider()
+    with pytest.raises(LizyMLError):
+        check_duplicate_identities(
+            provider,
+            {
+                "feature_contri": np.array([1.0, 2.0]),
+                "feature_contrib": np.array([2.0, 1.0]),
+            },
+            surface="probe",
+        )
+    with pytest.raises(LizyMLError):
+        _pop_by_identity(
+            {
+                "feature_contri": np.array([1.0, 2.0]),
+                "feature_contrib": np.array([2.0, 1.0]),
+            },
+            "feature_contri",
+        )
+
+
+def test_an_array_valued_parameter_survives_a_real_fit() -> None:
+    """The path the defect was reachable on: an override, before any training.
+
+    ``check_duplicate_identities`` runs unconditionally on the override, so the
+    crash needed no duplicate and no unusual config -- just an array value.
+    """
+    df = make_binary_df(n=160)
+    n_features = len([c for c in df.columns if c != "target"])
+    cfg = make_config("binary", n_estimators=5, n_splits=2)
+    model = Model(cfg, data=df)
+
+    with record_lightgbm_calls() as seen:
+        model.fit(params={"feature_contri": np.ones(n_features)})
+
+    assert seen["train_params"], "no lgb.train call was recorded"
+
+
+def test_the_two_refusals_agree_on_the_awkward_values_too() -> None:
+    """One notion of equality, shared, so neither can drift from the other."""
+    for value in AWKWARD_VALUES.values():
+        assert not values_differ(value, value)
+    assert values_differ(np.array([1.0, 2.0]), np.array([2.0, 1.0]))
+    assert values_differ([1.0], [1.0, 2.0])
+    assert not values_differ(1, 1.0)

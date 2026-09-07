@@ -26,6 +26,7 @@ from lizyml.config.schema import (
     TimeSeriesConfig,
 )
 from lizyml.core.types.task import TaskType
+from lizyml.core.value_equality import values_differ
 from lizyml.splitters.base import BaseSplitter
 from lizyml.splitters.blocked_group_kfold import BlockedGroupKFoldSplitter
 from lizyml.splitters.group_kfold import (
@@ -608,14 +609,17 @@ def check_duplicate_identities(
     # Compared by equality, not by printed form. `repr` made `1` and `1.0`
     # two different values and refused a call that meant one thing twice
     # (H-0094, review round 5) -- a gate refusing valid input, which is worse
-    # here than the ambiguity it exists to catch. Equality also matches
-    # `_pop_by_identity`, so the two refusals cannot disagree about what
-    # "the same value" means. It works for the unhashable values a parameter
-    # can take (`feature_contri` is a list), which a set of values would not.
+    # here than the ambiguity it exists to catch. `values_differ` is shared
+    # with `_pop_by_identity`, so the two refusals cannot disagree about what
+    # "the same value" means, and it survives a value whose `!=` is not a bool
+    # -- a bare `!=` raised on a numpy array even when the value appeared once.
     conflicts = {
         parameter: written
         for parameter, written in grouped.items()
-        if any(value != next(iter(written.values())) for value in written.values())
+        if any(
+            values_differ(value, next(iter(written.values())))
+            for value in written.values()
+        )
     }
     if not conflicts:
         return

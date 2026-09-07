@@ -10,6 +10,7 @@ import numpy.typing as npt
 import pandas as pd
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.value_equality import values_differ
 from lizyml.estimators.base import BaseEstimatorAdapter, ImportanceKind
 from lizyml.estimators.lgbm.defaults import (
     _COMMON_DEFAULTS,
@@ -57,7 +58,9 @@ def _pop_by_identity(
     if not supplied:
         return None, None
     written, value = next(iter(supplied.items()))
-    conflicting = {name: other for name, other in supplied.items() if other != value}
+    conflicting = {
+        name: other for name, other in supplied.items() if values_differ(other, value)
+    }
     if conflicting:
         raise LizyMLError(
             code=ErrorCode.CONFIG_INVALID,
