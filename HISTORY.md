@@ -7229,8 +7229,9 @@ mixin を 2 カテゴリに明示的に分ける:
 
 ## H-0093: LightGBM パラメータ名の境界を閉じる（#261 / #262 / #268 の一部）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-09-07
+- **決定日**: 2026-09-07（PR [#275](https://github.com/nbx-liz/LizyML/pull/275) merge。外部レビュー 6 ラウンド、blocking 4/4/2/1/1/0）
 - **スコープ**: `lizyml/estimators/provider.py`（`EstimatorProvider` に受理名を問う 2 メソッドを追加 = **公開 Protocol の変更**）, `lizyml/estimators/lgbm/provider.py`（実装）, `lizyml/estimators/lgbm/smart_params.py`（`feature_weights` → `feature_contri`）, `lizyml/core/_model_factories.py`（名前検証関数）, `lizyml/core/model.py`（`_merge_params` から呼ぶ）, `lizyml/core/_model_tuning.py`（study 開始前に探索空間を検査）, `lizyml/core/_model_persistence.py`（`export_code` の生成 params を検査）, `BLUEPRINT.md` §5.3 / §14.4, `tests/test_estimators/test_lightgbm_parameter_names.py`（新規）, `tests/test_tuning/test_search_space_name_validation.py`（新規）, `lizyml/calibration/isotonic.py`（自身が消費する名前の宣言）, `tests/test_calibration/test_calibration_param_names.py`（新規）, `tests/_ast_scan.py`（新規: LightGBM の束縛名を import から解決する走査ヘルパ）, `tests/test_estimators/test_param_behavioral_effect.py` / `tests/test_core/test_config_propagation.py`（既存テストの書き換え）。
 - **関連**: [Issue #261](https://github.com/nbx-liz/LizyML/issues/261), [#262](https://github.com/nbx-liz/LizyML/issues/262), [#268](https://github.com/nbx-liz/LizyML/issues/268), H-0053（`EstimatorProvider` 導入）, H-0036（ratio params）。
 
@@ -7370,4 +7371,82 @@ Firing rate: 0/3 of configs carrying calibration.params (#262's calibration surf
 - **経路の走査自体が実行で検査されること**: `HOSTILE_ROUTE_SHAPES` の各ソースに対し、走査が期待どおりの検出集合を返すこと（negative control 2 件を含む）。これが無い間、「経路が増えればテストが落ちる」は 2 度偽だった。
 - **既存テストの書き換え（追加ではなく置換）**: `test_param_reaches_booster` は、値が学習済み Booster に届くことに加え、**その名前が LightGBM の定義に存在すること**を検査する。`Booster.params` は渡した dict の反響であって解析結果ではない（実測: 存在しないキーもそのまま保持され、LightGBM が既定値で埋めたパラメータは現れない）ため、到達だけを主張しても捨てられる名前で成立してしまう。列挙された 8 つの名前を権威と突き合わせる後者が、この主張を意味あるものにする。
 - `TestFeatureWeightsE2E::test_feature_weights_applied` は**差分**を主張する形に直す（現状の「2 つの列名が存在する」は重みの有無に関わらず成立する）。
+- 全スイート green、`ruff check .` / `ruff format --check .` / `mypy lizyml/` クリーン。
+
+
+## H-0094: `Model.fit(params=...)` を実際に転送し、不明名の出所を名指しする（#264）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-09-07
+- **決定日**: 2026-09-07
+- **スコープ**: `lizyml/core/model.py`（`fit()` から override を渡す / `_merge_params` が名前の出所を持つ）, `tests/test_core/test_fit_params_override.py`（新規）, `tests/_train_spy.py`（新規: `lgb.train` / `lgb.Dataset` の記録を 1 か所へ）, `tests/test_estimators/test_lightgbm_parameter_names.py`（自前の記録器を共有ヘルパへ置換）, `BLUEPRINT.md` §12.2 / §18.1.3, `CHANGELOG.md`。
+- **関連**: [Issue #264](https://github.com/nbx-liz/LizyML/issues/264), H-0093（名前検査の設置場所）, H-0050（`_merge_params` の優先順位）, [#277](https://github.com/nbx-liz/LizyML/issues/277)（本 PR で起票した calibration 側の同型欠陥）。
+
+### 目的（課題）
+
+`Model.fit(data=None, params=None)` は `params` を**公開シグネチャに持ち、docstring で「config の `model.params` を上書きする」と宣言している**。転送されていなかった。
+
+受け皿である `_merge_params(self, provider, override=None)` のオーバーレイ自体は正しく、**呼び出し側が override を渡していなかった**（`model.py:203`）。したがって上書きは例外も警告もなく捨てられ、Booster は config の値で学習される。
+
+出荷コードに対する実測（#264 より、本 PR で再現）:
+
+```
+Model._merge_params(override), declared default: None
+invocations observed: 2  (one plain fit, one fit(params=...))
+values it was bound to: [None, None]
+invocations binding a non-default: 0
+```
+
+```python
+dumps[0] == dumps[1]          # -> True   (booster texts identical)
+# '[learning_rate: 0.001]' in both — the 0.5 override never arrived
+```
+
+DC4（inert wiring）。配管はあり、公開の書き手が誰も到達しない。
+
+**この欠陥は「dict が正しいか」では捕まらない。** マージ後の dict は常に正しかった（誰も override を渡していないのだから）。だから受け入れ基準は**学習済み Booster** と `lgb.train` が実際に受け取った値に対して置く。
+
+### 対応方針（決定）
+
+1. **転送する（引数を削除するのではなく）。** `model.py` の呼び出しを
+   `self._merge_params(provider, override=params)` にする。#264 が挙げるもう一方の方向（引数と docstring の削除）は §代替案 を参照。
+
+2. **検査は転送先の dict の上に置く（H-0093 で既にそこにある）。** 転送だけを行うと H-0093 が閉じた境界が新しい入口から開く: `fit(params={"not_a_lightgbm_parameter": 1})` が無検査で `lgb.train` に届く。名前検査は `_merge_params` が返す dict に対して働くため、config・tune 結果・`fit()` 上書きの 3 入力すべてがそこを通る。
+
+   ただし**これは `lgb.train` への全経路ではない**。trial params は `_merge_params` の後にマージされ（探索空間の parse 時検査でカバー）、`LGBMAdapter(params=...)` の直接構築と codegen が出す `lgb.train` は別方向からカバーされる（H-0093 決定 8）。主張は「**利用者の Config または `fit()` 呼び出し**が `lgb.train` の前に置ける名前は必ず provider の検査を通る」であり、「パッケージ内の全呼び出しが 1 関数を通る」ではない。
+
+3. **不明名の拒否は出所を名指しする。** 3 入力が 1 つの dict にマージされてから検査されるため、従来はすべて `model.params` として報告していた。3 つのうち 2 つは**利用者を誤ったファイルに送る**。`_merge_params` が `origins` を持ち、`model.params` / `provider default fixed params` / `tuning best_model_params` / `fit(params=)` を名前ごとに区別する。優先順位が上の入力が出所を上書きするので、同名が複数入力にある場合は**実際に効いている方**が報告される。
+
+### Conditional-Activation Evidence
+
+**不要。** `if override:` は Change Gate が列挙する 6 つの目的（`skip` / `shorten` / `cache` / `select` / `allow` / `conditionally-activate`）のいずれでもなく、「上書きがあるかないか」という通常の必須動作の分岐である。ゲートも fast path も exemption も追加していない。`origins` も同様に、拒否メッセージの宛先を決めるだけで何かの発火条件ではない。
+
+### 影響範囲 / 互換性
+
+- **公開 API のシグネチャは不変**。`FitResult` / `PredictionResult` / `Artifacts` / `format_version` も不変。split / leakage 境界に触れない。
+- **振る舞いは変わる。** これまで無視されていた `fit(params=...)` が効くようになる。すでにこの引数を使っていた利用者は、**今まで意図と違うモデルを得ていた**ことになる。CHANGELOG に Fixed として明記する。
+- 不正な名前を `fit(params=)` に渡していた場合は `CONFIG_INVALID` で拒否されるようになる（H-0093 と同じ理由: 黙って捨てられるより拒否される方がよい）。
+- `fit(params=)` は**その呼び出しに閉じる**。`_merge_params` は新しい dict を作るので利用者の config オブジェクトは書き換わらず、次の `fit()` は config の値に戻る。これはテストで固定する。
+
+### 代替案（不採用）
+
+- **引数と docstring を削除する。** #264 が挙げるもう一方の方向で、同じ公開 API 変更である。不採用の理由は `fit(params=tuning_result.best_model_params)` が文書化されたワークフローであり、**今日たまたま動いているのは tune 結果が別経路（`_tuning_result` オーバーレイ）で適用されるからにすぎない**こと。削除するとこのワークフローは書けなくなる。
+- **config だけを検査し、転送後は検査しない。** 実装は小さいが、`fit(params=)` という無検査の入口を新設することになる。H-0093 が閉じたばかりの境界を同じ PR で開くことになるため不採用。
+- **出所を持たず全て `model.params` と報告し続ける。** 追加コストは無いが、`fit(params=)` の綴り違いを config ファイルの問題として報告するため、利用者は存在しない行を探すことになる。
+
+### 受け入れ基準（テスト観点）
+
+`tests/test_core/test_fit_params_override.py`（新規、11 ケース）:
+
+- **学習済み Booster が変わること**: `params` だけが異なる 2 回の fit で booster テキストが**異なり**、上書き側が上書き値を、対照側が config 値を実際に持つこと（修正前は両者バイト同一で RED）。
+- **`lgb.train` が受け取った値**: 記録した全 `lgb.train` 呼び出しの `learning_rate` が上書き値のみであること。
+- **優先順位の 2 段**: `fit(params=)` が tune 結果に勝つこと、tune 結果が config に勝つこと。後者は修正前から green で、前者だけが RED — 欠陥の形そのもの。
+- **境界が開かないこと**: `fit(params={"not_a_lightgbm_parameter": 1})` が `CONFIG_INVALID` で拒否され、かつ **Booster が 1 本も学習されていないこと**。
+- **出所の名指し**: 例外メッセージと `context["unknown"]` の `surface` が `fit(params=)` であること。smart param 名の場合も専用メッセージを保ったまま出所を名乗ること。
+- **3 入力の同時判定**: `model.params` / `tuning best_model_params` / `fit(params=)` にそれぞれ不明名を置き、3 件が**それぞれの出所**で報告されること。
+- **誤って何かを変えないこと**: `params=None` と `params={}` がともに no-op であること、上書きが呼び出しをまたいで残らず利用者の config を書き換えないこと。
+
+その他:
+
+- `tests/_train_spy.py` は `lgb.train` / `lgb.Dataset` の記録器を 1 つにする。同じ計測器の 2 つ目の写しが既にあり、3 つ目を作る前に共有化した。`test_calibration_param_names.py` の `_TrainSpy` は**意図的に残す**: あれは `isotonic.lgbm` を名前で patch することで「calibrator の経路である」ことの証拠になっており、LightGBM 一般についての計測ではない。
 - 全スイート green、`ruff check .` / `ruff format --check .` / `mypy lizyml/` クリーン。
