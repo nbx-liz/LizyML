@@ -97,7 +97,14 @@ class IsotonicCalibrator(BaseCalibratorAdapter):
         merged = {**_ISOTONIC_DEFAULTS, **user}
         # Always enforce monotone constraint
         merged["monotone_constraints"] = [1]
-        merged["verbose"] = -1
+        # `verbosity`, not `verbose`: LightGBM treats the two as one parameter
+        # and prefers the canonical spelling, so forcing the alias left the
+        # force defeatable -- `calibration.params={"verbosity": 1}` reached
+        # `lgbm.train` beside `verbose: -1` and won (H-0094 decision 8, review
+        # round 12). `monotone_constraints` above is already canonical, which
+        # is why that force holds and this one did not.
+        merged.pop("verbose", None)
+        merged["verbosity"] = -1
         merged["seed"] = self._seed
         self._lgbm_params = merged
         self._model: lgbm.Booster | None = None

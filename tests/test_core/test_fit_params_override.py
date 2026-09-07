@@ -294,6 +294,161 @@ def test_two_spellings_of_one_value_in_calibration_params_are_accepted() -> None
     assert seen["train_params"], "the call was refused, or nothing trained"
 
 
+@pytest.mark.parametrize("surface", ["model.params", "fit(params=)"])
+def test_one_sequence_written_in_two_containers_is_not_refused(surface: str) -> None:
+    """A false refusal on ordinary input, one container past round 11's.
+
+    ``feature_contri`` and ``feature_penalty`` are one LightGBM parameter, so
+    writing both is the same-layer case the identity refusal exists for --
+    correctly, when the values differ. Here they do not: ``np.array([1., 2.])``
+    and ``(1., 2.)`` produce the byte-identical booster. The refusal fired
+    anyway, on both surfaces, with nothing trained (H-0094 decision 8, review
+    round 12).
+
+    Each spelling alone is asserted to train first, so a failure distinguishes
+    "the pair is refused" from "the parameter is unusable here".
+    """
+    combined = {"feature_contri": np.array([1.0, 2.0]), "feature_penalty": (1.0, 2.0)}
+    for written in ({k: v} for k, v in combined.items()), (combined,):
+        for params in written:
+            cfg = make_config("binary", n_estimators=3, n_splits=2)
+            if surface == "model.params":
+                cfg["model"]["params"].update(params)
+            with record_lightgbm_calls() as seen:
+                Model(cfg, data=make_binary_df(n=160)).fit(
+                    params=dict(params) if surface == "fit(params=)" else None
+                )
+            assert seen["train_params"], (
+                f"{sorted(params)} on {surface} trained nothing"
+            )
+            reached = seen["train_params"][0]
+            assert any(name in reached for name in params), (
+                f"{sorted(params)} did not reach lgb.train: {sorted(reached)}"
+            )
+
+
+@pytest.mark.parametrize("alias", ["eta", "shrinkage_rate", "learning_rate"])
+def test_a_calibration_alias_reaches_the_calibrator(alias: str) -> None:
+    """The override must not be defeated by the default it was written over.
+
+    The calibrator merges ``calibration.params`` over its own defaults **by
+    spelling**, and those defaults are canonical. So ``{"eta": 0.5}`` passed the
+    name check and the identity check -- the caller wrote the parameter once --
+    and then arrived at ``lgbm.train`` beside the default ``learning_rate:
+    0.03``, which LightGBM preferred. Measured before the fix: the
+    ``learning_rate`` spelling trained at 0.5 and every alias trained at 0.03
+    (H-0094 decision 8, review round 12).
+
+    ``learning_rate`` itself is in the parametrisation because a test that only
+    exercises the aliases cannot show the two spellings now agree.
+    """
+    cfg = make_config("binary", n_estimators=3, n_splits=2)
+    cfg["calibration"] = {"method": "isotonic", "params": {alias: OVERRIDE_VALUE}}
+
+    with record_lightgbm_calls() as seen:
+        Model(cfg, data=make_binary_df(n=160)).fit()
+
+    calibrator_calls = [
+        call for call in seen["train_params"] if call.get("monotone_constraints") == [1]
+    ]
+    assert calibrator_calls, "no calibrator Booster was trained"
+    for call in calibrator_calls:
+        assert call.get("learning_rate") == OVERRIDE_VALUE, (
+            f"the calibrator trained at {call.get('learning_rate')!r} while "
+            f"'{alias}' asked for {OVERRIDE_VALUE!r}"
+        )
+        assert not any(
+            spelling in call
+            for spelling in accepted_spellings(OVERRIDDEN)
+            if spelling != OVERRIDDEN
+        ), f"two spellings of one parameter reached lgb.train: {call!r}"
+
+
+@pytest.mark.parametrize(
+    "forced,spelling",
+    [
+        ("monotone_constraints", "monotone_constraints"),
+        ("monotone_constraints", "monotone_constraint"),
+        ("verbosity", "verbosity"),
+        ("verbosity", "verbose"),
+    ],
+)
+def test_a_calibration_parameter_the_calibrator_forces_reaches_it_once(
+    forced: str, spelling: str
+) -> None:
+    """One spelling of a forced parameter reaches lgb.train, whatever was written.
+
+    The calibrator forces `monotone_constraints` and `verbosity` after merging
+    the caller's dict, and it cannot see aliases -- `lizyml/calibration/` may
+    not import `lizyml/estimators/`. The facade canonicalises first, so the
+    force lands on the same key the caller's value did and overwrites it,
+    instead of both reaching LightGBM and the estimator's preference deciding
+    (H-0094 decision 8, review round 12).
+    """
+    cfg = make_config("binary", n_estimators=3, n_splits=2)
+    cfg["calibration"] = {"method": "isotonic", "params": {spelling: 99}}
+
+    with record_lightgbm_calls() as seen:
+        Model(cfg, data=make_binary_df(n=160)).fit()
+
+    calibrator_calls = [
+        call for call in seen["train_params"] if call.get("monotone_constraints")
+    ]
+    assert calibrator_calls, "no calibrator Booster was trained"
+    for call in calibrator_calls:
+        reached = {s: call[s] for s in accepted_spellings(forced) if s in call}
+        assert list(reached) == [forced], (
+            f"'{spelling}' left {sorted(reached)} for lgb.train; which one "
+            "applies would then be LightGBM's choice rather than the code's"
+        )
+        assert reached[forced] != 99, (
+            f"'{spelling}' overrode a value the calibrator forces"
+        )
+
+
+def test_every_calibration_alias_is_canonical_before_the_defaults_merge() -> None:
+    """The property, quantified over the calibrator's own defaults.
+
+    The defect above is not about ``learning_rate``: it is available for
+    **every** default the calibrator carries, because the merge is by spelling
+    and the caller may write any of them under an alias. Checking one name
+    would leave the rest to the next round, so this asks it of all of them.
+
+    ``CALIBRATOR_OWN_PARAM_NAMES`` are excluded deliberately and asserted to be
+    excluded: ``num_boost_round`` is a LightGBM alias of ``num_iterations``, and
+    renaming it would take the key the calibrator pops for its boosting rounds.
+    """
+    from lizyml.calibration.isotonic import (
+        _ISOTONIC_DEFAULTS,
+        CALIBRATOR_OWN_PARAM_NAMES,
+    )
+    from lizyml.core._model_factories import canonicalise_calibration_params
+
+    canonical = LGBMProvider().canonical_param_names(_ISOTONIC_DEFAULTS)
+    checked = 0
+    for default_name in _ISOTONIC_DEFAULTS:
+        if default_name in CALIBRATOR_OWN_PARAM_NAMES:
+            continue
+        for spelling in accepted_spellings(canonical[default_name]):
+            written = canonicalise_calibration_params({spelling: "sentinel"})
+            assert written == {canonical[default_name]: "sentinel"}, (
+                f"'{spelling}' reaches the calibrator as {list(written)}, so it "
+                f"would sit beside the default '{default_name}' instead of "
+                "replacing it"
+            )
+            checked += 1
+    assert checked > len(_ISOTONIC_DEFAULTS), (
+        "the population collapsed to one spelling per default; the aliases are "
+        "the whole point of the check"
+    )
+
+    for own in CALIBRATOR_OWN_PARAM_NAMES:
+        assert canonicalise_calibration_params({own: 7}) == {own: 7}, (
+            f"'{own}' is the calibrator's own key and was renamed, which takes "
+            "it away from the code that pops it"
+        )
+
+
 def test_no_smart_parameter_name_has_an_estimator_alias() -> None:
     """Why the smart layer is merged by spelling and needs no identity overlay.
 

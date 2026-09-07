@@ -663,10 +663,28 @@ def check_smart_managed_overrides(
 
     This is the policy ``LGBMConfig._validate_smart_params`` already applies to
     the same collisions in the config: the conflict is an error, not a silent
-    substitution. It applies here to the ``fit()`` override only, because that
-    is the input this change introduces -- the config surface is refused at
-    parse time for three of the five, and the search-space surface has its own
-    measured gap (H-0094, #279).
+    substitution. **It applies here to the ``fit()`` override only**, because
+    that is the input this change introduces.
+
+    The other two surfaces are open, with their gaps measured rather than
+    described, so this bound is not read as wider than it is:
+
+    * ``model.params`` -- ``LGBMConfig._validate_smart_params`` compares
+      literal strings and covers three of the five smart parameters, so over
+      the whole surface (each smart parameter x each native name it writes x
+      each spelling LightGBM accepts) **3 of 18 are refused**; of the rest, 12
+      send two spellings to ``lgb.train`` and 3 are overwritten outright.
+      ``config/`` cannot import ``estimators/`` under the layer rule and so
+      cannot reach the alias table; where the refusal belongs is a design
+      decision the maintainer holds open as **#280**, recorded in
+      BLUEPRINT.md §14.4.
+    * the search space has its own measured gap (H-0094, **#279**).
+
+    An earlier wording of this docstring said the config surface "is refused at
+    parse time for three of the five", which is true of the smart parameters and
+    false of the surface: it counted the three canonical names and not the
+    fifteen spellings and targets that pass. A bound stated wider than it holds
+    is the shape this PR is about (H-0094 decision 8, review round 12).
 
     Args:
         provider: EstimatorProvider instance.
@@ -736,10 +754,6 @@ def check_calibration_param_names(calibration_cfg: Any) -> None:
     Only the LightGBM-backed methods are checked; see
     ``LGBM_BACKED_CALIBRATORS``.
 
-    Args:
-        calibration_cfg: ``cfg.calibration``, or ``None`` when the run is not
-            calibrated.
-
     It is also a fourth **layer**, and the same-layer rule applies to it: one
     parameter written twice under two spellings with different values is
     refused. Until this was wired, ``{"learning_rate": 0.001, "eta": 0.5}``
@@ -779,3 +793,49 @@ def check_calibration_param_names(calibration_cfg: Any) -> None:
         extra_accepted=CALIBRATOR_OWN_PARAM_NAMES,
     )
     check_duplicate_identities(provider, dict(params), surface="calibration.params")
+
+
+def canonicalise_calibration_params(params: dict[str, Any]) -> dict[str, Any]:
+    """Rewrite ``calibration.params`` names to the spellings the calibrator merges by.
+
+    The calibrator merges the caller's parameters over its own defaults **by
+    spelling** -- ``{**_ISOTONIC_DEFAULTS, **user}`` -- and those defaults are
+    written in LightGBM's canonical names. So ``{"eta": 0.5}`` did not replace
+    anything: the merged dict carried ``learning_rate: 0.03`` from the defaults
+    *and* ``eta: 0.5`` from the caller, LightGBM resolved the two to one
+    parameter and kept the canonical one, and the override was defeated in
+    silence by the value it was written to override (H-0094 decision 8, review
+    round 12). ``random_state`` was the same defect against the seed the facade
+    supplies.
+
+    The same-layer identity refusal does not reach this, and should not: the
+    caller wrote the parameter **once**. The collision is between the caller's
+    layer and the calibrator's defaults, so it is resolved by putting both in
+    one spelling before they meet, rather than by teaching the calibrator about
+    aliases -- ``lizyml/calibration/`` may not import ``lizyml/estimators/``.
+
+    The calibrator's **own** parameters are left alone. ``num_boost_round`` is a
+    LightGBM alias of ``num_iterations``, and canonicalising it would rename the
+    key the calibrator pops for its boosting rounds; see
+    ``CALIBRATOR_OWN_PARAM_NAMES``.
+
+    Args:
+        params: ``cfg.calibration.params``, as the caller wrote it.
+
+    Returns:
+        A new dict with every LightGBM-known name in its canonical spelling.
+        When two of the caller's spellings canonicalise to one name they have
+        already been refused unless they carry the same value, so the surviving
+        entry means what both spellings meant.
+    """
+    if not params:
+        return dict(params)
+
+    from lizyml.calibration.isotonic import CALIBRATOR_OWN_PARAM_NAMES
+    from lizyml.estimators.lgbm.provider import LGBMProvider
+
+    canonical = LGBMProvider().canonical_param_names(params)
+    return {
+        name if name in CALIBRATOR_OWN_PARAM_NAMES else canonical[name]: value
+        for name, value in params.items()
+    }

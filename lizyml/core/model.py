@@ -54,6 +54,7 @@ from lizyml.config.schema import (
 from lizyml.core._model_factories import (
     build_inner_valid,
     build_splitter,
+    canonicalise_calibration_params,
     check_calibration_param_names,
     check_duplicate_identities,
     check_param_names,
@@ -741,7 +742,13 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         # Inherit training.seed for isotonic's internal validation split when
         # no explicit calibration seed is given (H-0080). Other calibrators
         # (platt / beta) do not use a seed, so leave their params untouched.
-        cal_params_dict = dict(cfg.calibration.params or {})
+        # Canonicalised before it reaches the calibrator, which merges it over
+        # its own defaults by spelling. An alias such as `eta` collided with the
+        # default `learning_rate` instead of replacing it, and LightGBM then
+        # kept the default (H-0094 decision 8, review round 12).
+        cal_params_dict = canonicalise_calibration_params(
+            dict(cfg.calibration.params or {})
+        )
         if method == "isotonic":
             cal_params_dict.setdefault("seed", cfg.training.seed)
         cal_params = cal_params_dict or None
