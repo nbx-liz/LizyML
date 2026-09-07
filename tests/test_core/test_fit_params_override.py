@@ -14,6 +14,7 @@ against the **trained Booster** and against what ``lgb.train`` received.
 from __future__ import annotations
 
 import ast
+import json
 import pathlib
 import re
 from typing import Any
@@ -1019,3 +1020,92 @@ def test_the_two_refusals_agree_on_the_awkward_values_too() -> None:
     assert values_differ(np.array([1.0, 2.0]), np.array([2.0, 1.0]))
     assert values_differ([1.0], [1.0, 2.0])
     assert not values_differ(1, 1.0)
+
+
+# ---------------------------------------------------------------------------
+# What the override does to what is saved (rounds 5-6 monitor)
+# ---------------------------------------------------------------------------
+# Six review rounds went over the path from `fit(params=...)` to `lgb.train`.
+# None of them, and none of the 41 tests above, paired an override with
+# `export`, `load` or `export_code` -- the monitor found no occurrence of those
+# words in this file. The behaviour turns out to be right; it was simply never
+# pinned, so these say what it is.
+
+
+def test_the_override_reaches_the_exported_booster(tmp_path: pathlib.Path) -> None:
+    """The artifact must be the model that was trained, not the config's."""
+    cfg = make_config("binary", n_estimators=5, n_splits=2, learning_rate=CONFIG_VALUE)
+    model = Model(cfg, data=make_binary_df(n=160))
+    model.fit(params={OVERRIDDEN: OVERRIDE_VALUE})
+    model.export(tmp_path / "artifact")
+
+    assert f"[{OVERRIDDEN}: {OVERRIDE_VALUE}]" in _booster_text(model)
+
+
+def test_the_override_does_not_survive_a_load(tmp_path: pathlib.Path) -> None:
+    """`fit(params=)` is documented as applying to that call only.
+
+    So a model restored from the artifact must re-fit on the config's values.
+    That is the same contract ``test_the_override_does_not_outlive_the_call``
+    pins in process, asserted across the artifact boundary, where it could
+    plausibly have been persisted instead.
+    """
+    out = tmp_path / "artifact"
+    cfg = make_config("binary", n_estimators=5, n_splits=2, learning_rate=CONFIG_VALUE)
+    df = make_binary_df(n=160)
+    model = Model(cfg, data=df)
+    model.fit(params={OVERRIDDEN: OVERRIDE_VALUE})
+    model.export(out)
+
+    restored = Model.load(out)
+    assert restored._cfg.model.params[OVERRIDDEN] == CONFIG_VALUE
+
+    with record_lightgbm_calls() as seen:
+        restored.fit(data=df)
+    values = {call.get(OVERRIDDEN) for call in seen["train_params"]}
+    assert values == {CONFIG_VALUE}, (
+        f"a re-fit after load trained at {values}; the override was persisted "
+        "when it is documented as applying to one call"
+    )
+
+
+def test_export_code_generates_the_overridden_value(tmp_path: pathlib.Path) -> None:
+    """The generated project must reproduce the model that was fitted.
+
+    Asserted on the generated ``config.json`` rather than on ``train.py``: the
+    template carries a fixed example line mentioning ``learning_rate`` that is
+    identical whether or not an override was passed, so matching the source text
+    would pass for the wrong reason.
+    """
+    out = tmp_path / "generated"
+    cfg = make_config("binary", n_estimators=5, n_splits=2, learning_rate=CONFIG_VALUE)
+    model = Model(cfg, data=make_binary_df(n=160))
+    model.fit(params={OVERRIDDEN: OVERRIDE_VALUE})
+    model.export_code(out)
+
+    config = json.loads((out / "config.json").read_text(encoding="utf-8"))
+    # The generated project keeps the resolved estimator parameters under
+    # `lgbm_params`; `model.params` is the input shape, not the emitted one.
+    assert config["lgbm_params"][OVERRIDDEN] == OVERRIDE_VALUE, config["lgbm_params"]
+
+    boosters = list(out.rglob("model.txt"))
+    assert len(boosters) == 1, f"expected one exported booster, found {boosters}"
+    assert f"[{OVERRIDDEN}: {OVERRIDE_VALUE}]" in boosters[0].read_text(
+        encoding="utf-8"
+    )
+
+
+def test_export_code_without_an_override_carries_the_config_value(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The control, without which the test above passes on a constant."""
+    out = tmp_path / "generated"
+    cfg = make_config("binary", n_estimators=5, n_splits=2, learning_rate=CONFIG_VALUE)
+    model = Model(cfg, data=make_binary_df(n=160))
+    model.fit()
+    model.export_code(out)
+
+    config = json.loads((out / "config.json").read_text(encoding="utf-8"))
+    # The generated project keeps the resolved estimator parameters under
+    # `lgbm_params`; `model.params` is the input shape, not the emitted one.
+    assert config["lgbm_params"][OVERRIDDEN] == CONFIG_VALUE, config["lgbm_params"]
