@@ -14,6 +14,7 @@ against the **trained Booster** and against what ``lgb.train`` received.
 from __future__ import annotations
 
 import ast
+import inspect
 import json
 import pathlib
 import re
@@ -1140,22 +1141,26 @@ def test_export_code_without_an_override_carries_the_config_value(
 
 
 # ---------------------------------------------------------------------------
-# Every artifact-reading test must fail when nothing is written
+# Every test that exports must fail when nothing is written
 # ---------------------------------------------------------------------------
 # Round 7 found one test that passed with `Model.export` replaced by a no-op:
 # it asserted on the model in memory and never read what was written. The fix
 # was made for that one test. The rounds 6-7 monitor named the repair -- assert
-# the property over **every** test that claims to read the artifact, not over
-# the one that was caught -- which is what stops the next round finding the
-# second instance of a class already found.
+# the property over **every** test that claims something about the artifact,
+# not over the one that was caught -- which is what stops the next round
+# finding the second instance of a class already found.
+#
+# The population is the tests that *write*, because that is the claim being
+# checked and it is the side this instrument substitutes. Defining it by what a
+# test reads would miss round 7's own shape, which read nothing.
 
 
-def _artifact_reading_tests() -> list[str]:
-    """Tests whose body reads an exported artifact, found by reading them.
+def _tests_that_export() -> list[str]:
+    """Tests that call one of the writers, found by reading the module.
 
-    Derived rather than listed: a test added later that loads an artifact joins
-    this population without anyone remembering to add it, which is the whole
-    reason the population is not a constant here.
+    Derived rather than listed: a test added later that exports joins this
+    population without anyone remembering to add it, which is the whole reason
+    the population is not a constant here.
     """
     source = pathlib.Path(__file__).read_text(encoding="utf-8")
     tree = ast.parse(source)
@@ -1163,26 +1168,62 @@ def _artifact_reading_tests() -> list[str]:
     for node in ast.walk(tree):
         if not isinstance(node, ast.FunctionDef) or not node.name.startswith("test_"):
             continue
-        body = ast.get_source_segment(source, node) or ""
-        if any(
-            marker in body
-            for marker in ("Model.load(", "rglob(", 'read_text(encoding="utf-8")')
-        ):
+        if any(_calls_a_writer(call) for call in ast.walk(node)):
             found.append(node.name)
     return sorted(found)
 
 
-def test_artifact_reading_tests_fail_when_nothing_is_exported(
+#: The writers this instrument substitutes. A test that calls one of them is
+#: claiming something about what was written, so it belongs to the population
+#: whether or not it then remembers to read it back.
+_ARTIFACT_WRITERS = frozenset({"export", "export_code"})
+
+
+def _calls_a_writer(node: ast.AST) -> bool:
+    """Whether the node is a *call* to ``export`` or ``export_code``.
+
+    The population is the tests that write, not the ones that read: round 7's
+    finding was a test that exported and then asserted on the model still in
+    memory, which no reader-side rule would have caught. Substituting the
+    writers and demanding that every such test notice covers both that shape
+    and the one where a test reads the wrong artifact.
+
+    Matching the call in the AST rather than a substring of the source, because
+    the same characters occur in docstrings, comments and longer identifiers --
+    DC2 inside the instrument built to catch DC1.
+    """
+    if not isinstance(node, ast.Call):
+        return False
+    function = node.func
+    return isinstance(function, ast.Attribute) and function.attr in _ARTIFACT_WRITERS
+
+
+def test_every_exporting_test_fails_when_nothing_is_written(
     tmp_path: pathlib.Path,
 ) -> None:
-    """Substitute the export and every one of them must notice.
+    """Substitute both writers and every test that exports must notice.
 
-    A test that still passes is not reading the artifact, whatever its name
-    says. This is the property round 7 used to expose one such test, applied to
-    the population instead of to the instance.
+    A test that still passes made no claim about what was written, whatever its
+    name says. This is the property round 7 used to expose one such test,
+    applied to the population instead of to the instance.
     """
-    names = _artifact_reading_tests()
-    assert names, "no artifact-reading test was found; the scan has gone blind"
+    names = _tests_that_export()
+    assert names, "no exporting test was found; the scan has gone blind"
+
+    # Refuse a shape this instrument cannot supply, instead of calling it and
+    # reading the resulting `TypeError` as "the test noticed". That would be
+    # DC1 -- couldn't run, counted as clean -- inside the instrument written to
+    # catch DC1. A test that needs another fixture is a real gap, so it has to
+    # be visible rather than absorbed.
+    unsupported = {
+        name: list(inspect.signature(globals()[name]).parameters)
+        for name in names
+        if list(inspect.signature(globals()[name]).parameters) != ["tmp_path"]
+    }
+    assert not unsupported, (
+        f"these exporting tests take arguments this instrument cannot provide, "
+        f"so it cannot check them: {unsupported}"
+    )
 
     still_green: list[str] = []
     for name in names:
@@ -1210,20 +1251,28 @@ def test_artifact_reading_tests_fail_when_nothing_is_exported(
             still_green.append(name)
 
     assert not still_green, (
-        f"these tests passed with export replaced by a no-op, so they are not "
-        f"reading the artifact: {still_green}"
+        f"these tests passed with both writers replaced by no-ops, so they "
+        f"assert nothing about what was written: {still_green}"
     )
 
 
-def test_the_artifact_test_population_is_not_empty_by_accident() -> None:
+def test_the_exporting_test_population_is_not_empty_by_accident() -> None:
     """The scan must find the tests it is named for.
 
     A scan that silently matches nothing would make the assertion above pass
     vacuously -- the failure this PR has been fixing, in the instrument built to
     prevent it.
     """
-    names = _artifact_reading_tests()
+    names = _tests_that_export()
     assert "test_the_override_reaches_the_exported_booster" in names, names
     assert "test_the_override_does_not_survive_a_load" in names, names
     assert "test_export_code_generates_the_overridden_value" in names, names
-    assert len(names) >= 3, names
+    assert "test_export_code_without_an_override_carries_the_config_value" in names
+    assert len(names) >= 4, names
+
+    # And it must not sweep in tests that never export: the scan reads calls,
+    # not characters, so a test that reads a repository source file with
+    # `read_text` stays out. Two such tests exist in this module, and an
+    # earlier substring form of the scan claimed both.
+    assert "test_every_specially_handled_name_has_an_alias_under_test" not in names
+    assert "test_the_managed_table_matches_the_code_that_writes_the_names" not in names
