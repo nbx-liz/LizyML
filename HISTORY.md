@@ -7468,6 +7468,24 @@ DC4（inert wiring）。配管はあり、公開の書き手が誰も到達し�
 
    `overlay_params` は**学習器が知らない名前を落とさない**。落とすと H-0093 の拒否がその名前を見られなくなり、綴り間違いがまた無言の no-op に戻る。これはテストで固定した。
 
+6. **特別扱いされるパラメーターも同一性で取り出す（レビュー round 4 の指摘）。**
+
+   決定 5 が「利用者がどれかの綴りで名指したパラメーターの既定値を落とす」ようにした結果、**adapter が文字列一致で特別扱いしていた 3 つのパラメーターに穴が開いた**。それまでは canonical の既定値が隣にあってエイリアスに勝っていたので露見しなかった。実測（binary タスク）:
+
+   ```
+   fit(params={"objective": "regression"})    -> CONFIG_INVALID（task 不一致で拒否）
+   fit(params={"application": "regression"})  -> 学習された [objective: regression]
+   fit(params={"objective": "binary", "application": "binary"}) -> KeyError 'objective'
+   ```
+
+   1 件目と 2 件目は同じパラメーターであり、**エイリアスで書くと `_check_objective_compatible` を丸ごと迂回して誤った objective で学習していた**（DC2 → DC1）。3 件目は、adapter が検証済みの `objective` を `params` に置いた後、`application` が user 側に残っているため決定 5 の既定値落としがそれを既定値と誤認して消し、末尾の不変条件が消えたキーを読んで落ちる（DC2）。
+
+   したがって adapter の特別扱い（`objective` / `metric` / boosting round 数）は **`_pop_by_identity` で全綴りを取り出す**形にする。同じ層で 1 つのパラメーターが複数綴りで指定され、**値が異なる場合は `CONFIG_INVALID`** とする（同値なら無害なので通す）。どちらを採るかを dict の順序で決めるのは、本変更が消そうとしている欠陥そのものである。
+
+   **facade 側にも同じ拒否を置く**（`check_duplicate_identities`）。adapter の拒否は特別扱いされる 3 つしか見ないが、通常のパラメーターは誰も pop しないため両綴りが dict に残り、学習器がどちらかを選んでしまう。これが冗長でないことは RED で確かめてある: facade の拒否を外すと `objective` のケースは通ったまま**通常パラメーターのケースだけが落ちる**。
+
+   副次的に、`num_iterations` のエイリアス（`num_round` 等）で boosting 回数を指定できるようになった。従来は `n_estimators` という 1 綴りだけが `num_boost_round` に変換され、他の綴りは params に残って `lgb.train` の引数と食い違っていた。
+
 ### Conditional-Activation Evidence
 
 **転送そのものには不要。** `if override:` は Change Gate が列挙する 6 つの目的（`skip` / `shorten` / `cache` / `select` / `allow` / `conditionally-activate`）のいずれでもなく、「上書きがあるかないか」という通常の必須動作の分岐である。`origins` も同様に、拒否メッセージの宛先を決めるだけで何かの発火条件ではない。
@@ -7515,6 +7533,7 @@ Firing rate: 0/0 of shipped calls passing fit(params=...) -- no call site exists
 - **管理表がコードと一致すること**: 解決関数の `resolved[...] =` 代入の走査と `SMART_PARAM_TARGETS` が一致すること。両方向の RED 確認済み（宣言のみの名前 / 走査にだけ現れる名前）。
 - **スマート面の分割が閉じていること**: provider が申告する全スマートパラメーターが「ネイティブ名を書く」か「何も書かない」のどちらかに分類され、未分類が残らないこと。
 - **対照**: 管理対象でない名前（`learning_rate`）は拒否されず届くこと、multiclass の `scale_pos_weight` は届くこと。
+- **決定 6（特別扱いの同一性）**: (a) `application`（`objective` のエイリアス）に task 不一致の値を渡すと **`CONFIG_INVALID` で拒否され、Booster が 1 本も学習されない**こと。(b) 互換な値なら学習されること。(c) 同一パラメーターの 2 綴りが**同値なら通る**こと（KeyError にならない）。(d) 値が異なれば拒否され、両方の綴りが message に現れること。(e) boosting 回数が `n_estimators` / `num_iterations` / `num_round` のいずれでも効くこと（`lgb.train` に渡る `num_boost_round` で確認）。(f) `metrics` が metric として扱われること。(g) **adapter が同一性で pop する名前の集合**が、テストが持つ別名ケースの集合と一致すること（走査で導出）。(h) facade の重複拒否が冗長でないこと — 外すと通常パラメーターのケースだけが RED になる。
 - **決定 5（同一性マージ）**: (a) config が canonical、`fit(params=)` がエイリアスのとき**上書きが勝つ**こと（booster から読む）。(b) config に無くても既定の canonical に勝つこと。(c) tune 結果がエイリアスでも config に勝つこと。(d) **`lgb.train` に渡る綴りが 1 つだけ**であること（結果だけを見るテストは、dict に両方残っていても通ってしまう）。(e) config だけにエイリアスがある場合も効くようになること（振る舞い変更、CHANGELOG に記載）。(f) 学習器が知らない名前は `overlay_params` に落とされないこと。両方の継ぎ目で RED 確認済み。
 
 その他:
