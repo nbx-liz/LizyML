@@ -29,11 +29,29 @@ from typing import Any
 
 
 def _length_or_none(value: Any) -> int | None:
-    """Return ``len(value)``, or ``None`` when the value has no length."""
+    """Return ``len(value)``, or ``None`` when the value has no usable length.
+
+    Every exception is a "no length", not only ``TypeError``: a user object may
+    define a ``__len__`` that fails, and this function exists to make a decision
+    safely rather than to diagnose the value.
+    """
     try:
         return len(value)
-    except TypeError:
+    except Exception:  # noqa: BLE001 - a user value may define a failing __len__
         return None
+
+
+def _printed_forms_differ(first: Any, second: Any) -> bool:
+    """Compare printed forms, and answer "the same" when even that fails.
+
+    ``repr`` is the last thing two values have in common, and it is not
+    guaranteed either: an object may define a ``__repr__`` that raises. This is
+    the function's floor, so it cannot propagate.
+    """
+    try:
+        return repr(first) != repr(second)
+    except Exception:  # noqa: BLE001 - a user value may define a failing __repr__
+        return False
 
 
 def values_differ(first: Any, second: Any) -> bool:
@@ -48,6 +66,10 @@ def values_differ(first: Any, second: Any) -> bool:
 
     The order of the checks is the point:
 
+    0. **Identity.** One object is the same value as itself, and no comparison
+       can improve on that. This is also the case the callers make most often:
+       a parameter written under one spelling is compared with itself, and
+       before this it went the long way round and could raise on the way.
     1. **Length, when both have one.** Elementwise comparison broadcasts, so
        ``[1.0, 1.0]`` and ``[1.0]`` would otherwise compare equal, and an empty
        sequence would agree with anything by a vacuous ``all()``.
@@ -58,13 +80,26 @@ def values_differ(first: Any, second: Any) -> bool:
     4. **The printed forms**, for anything that raised on the way -- an
        ``__eq__`` that fails, or a shape whose elements are themselves arrays.
        A weaker answer than equality, and the only one both values always have.
+    5. **"The same"**, when even the printed forms raise.
+
+    **This function does not raise.** Step 5 is what makes that true by
+    construction rather than by having thought of enough value types: three
+    review rounds each found one more shape that got past the previous
+    enumeration, so the last step is a decision rather than another case. It
+    answers "the same" and not "different" on purpose -- the refusal it feeds
+    exists to catch a parameter the caller wrote twice, and refusing a value
+    nothing can analyse would block a legitimate call to prevent an ambiguity
+    that may not be there.
 
     Note:
         ``float("nan")`` is not equal to itself, so a parameter written twice as
         ``nan`` is reported as differing. That is the honest answer: nothing can
         establish those are the same value, and LightGBM refuses a NaN parameter
-        anyway.
+        anyway. A single ``nan``, being one object, is caught by step 0.
     """
+    if first is second:
+        return False
+
     first_length = _length_or_none(first)
     second_length = _length_or_none(second)
     if (
@@ -77,7 +112,7 @@ def values_differ(first: Any, second: Any) -> bool:
     try:
         equal = first == second
     except Exception:  # noqa: BLE001 - a user value may define a failing __eq__
-        return repr(first) != repr(second)
+        return _printed_forms_differ(first, second)
 
     try:
         return not bool(equal)
@@ -85,6 +120,20 @@ def values_differ(first: Any, second: Any) -> bool:
         pass  # An array-like result: reduce it below.
 
     try:
-        return not all(bool(element) for element in equal)
+        elements = list(equal)
     except Exception:  # noqa: BLE001 - nested arrays, exotic containers
-        return repr(first) != repr(second)
+        return _printed_forms_differ(first, second)
+
+    # Iterating a comparison result does not always yield the comparison. A
+    # DataFrame comparison iterates over **column labels**, which are strings
+    # and therefore all truthy, so two different frames reduced to "equal"
+    # (measured before this guard). A string element means what is being
+    # reduced is not the elementwise answer, so fall through to the printed
+    # forms rather than trust it.
+    if any(isinstance(element, str) for element in elements):
+        return _printed_forms_differ(first, second)
+
+    try:
+        return not all(bool(element) for element in elements)
+    except Exception:  # noqa: BLE001 - elements that are themselves array-like
+        return _printed_forms_differ(first, second)
