@@ -550,6 +550,39 @@ def model_space_names(cfg: LizyMLConfig) -> list[tuple[str, str]]:
 LGBM_BACKED_CALIBRATORS: frozenset[str] = frozenset({"isotonic"})
 
 
+def overlay_params(
+    provider: Any, base: dict[str, Any], overlay: dict[str, Any]
+) -> dict[str, Any]:
+    """Overlay *overlay* onto *base* by parameter identity, not by spelling.
+
+    ``{**base, **overlay}`` keeps both spellings when the two layers name one
+    parameter differently, and the estimator then picks one of them -- measured
+    on LightGBM: a canonical name in the lower layer beat an alias in the
+    higher one, so the override silently lost. Dropping the losing spelling
+    here means the estimator never sees the ambiguity, so the outcome does not
+    depend on which spelling it happens to prefer.
+
+    Args:
+        provider: EstimatorProvider instance.
+        base: The lower-priority layer.
+        overlay: The higher-priority layer, which wins.
+
+    Returns:
+        A new dict; neither argument is modified.
+    """
+    if not overlay:
+        return dict(base)
+    canonical = provider.canonical_param_names([*base, *overlay])
+    overlaid = {canonical[name] for name in overlay}
+    merged = {
+        name: value
+        for name, value in base.items()
+        if name in overlay or canonical[name] not in overlaid
+    }
+    merged.update(overlay)
+    return merged
+
+
 def check_smart_managed_overrides(
     provider: Any,
     override: dict[str, Any] | None,

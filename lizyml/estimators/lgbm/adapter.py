@@ -18,6 +18,7 @@ from lizyml.estimators.lgbm.defaults import (
     TASK_COMPATIBLE_OBJECTIVES,
 )
 from lizyml.estimators.lgbm.metric_bridge import resolve_metrics
+from lizyml.estimators.lgbm.param_names import LGBM_CANONICAL_NAME
 
 
 def _check_objective_compatible(task: str, objective: str) -> None:
@@ -424,6 +425,21 @@ class LGBMAdapter(BaseEstimatorAdapter):
                     user_metric, self.task, num_class=self.num_class
                 )
                 params["metric"] = native if native else "None"
+        # H-0094: LightGBM resolves aliases and prefers the canonical spelling
+        # when both are present, and the defaults above are canonical. So a
+        # user parameter written as an alias was merged in beside its own
+        # default and then ignored -- measured: `model.params {"eta": 0.07}`
+        # trained at 0.001, the default. Drop a default the user has named
+        # under any spelling, so LightGBM never sees two spellings of one
+        # parameter and the result does not depend on which it prefers.
+        user_identities = {LGBM_CANONICAL_NAME.get(name, name) for name in user_params}
+        for key in [
+            key
+            for key in params
+            if key not in user_params
+            and LGBM_CANONICAL_NAME.get(key, key) in user_identities
+        ]:
+            del params[key]
         params.update(user_params)
 
         # H-0079 L5: invariant guard — if a user objective was supplied and

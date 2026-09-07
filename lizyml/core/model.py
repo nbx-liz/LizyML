@@ -59,6 +59,7 @@ from lizyml.core._model_factories import (
     check_smart_managed_overrides,
     get_provider,
     make_inner_valid_factory,
+    overlay_params,
 )
 from lizyml.core._model_metrics import (
     _DEFAULT_METRICS,
@@ -453,13 +454,12 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             )
             if used_default_space:
                 fixed = provider.default_fixed_params(cfg.task)
-                model_params = {**model_params, **fixed}
+                model_params = overlay_params(provider, model_params, fixed)
                 origins.update(dict.fromkeys(fixed, "provider default fixed params"))
 
-            model_params = {
-                **model_params,
-                **self._tuning_result.best_model_params,
-            }
+            model_params = overlay_params(
+                provider, model_params, self._tuning_result.best_model_params
+            )
             origins.update(
                 dict.fromkeys(
                     self._tuning_result.best_model_params, "tuning best_model_params"
@@ -482,7 +482,12 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             provider, override, smart_params, cfg.task, surface="fit(params=)"
         )
         if override:
-            model_params = {**model_params, **override}
+            # Overlaid by identity: a config spelling `learning_rate` and an
+            # override spelling `eta` are one parameter, and a plain dict merge
+            # keeps both, after which LightGBM prefers the canonical one and
+            # the override loses. Measured before this: `fit(params={"eta":
+            # 0.5})` trained at the config's 0.001 (H-0094, review round 3).
+            model_params = overlay_params(provider, model_params, override)
             origins.update(dict.fromkeys(override, "fit(params=)"))
 
         # H-0093: the merged dict is what reaches the estimator, so it is where

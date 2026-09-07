@@ -8,7 +8,7 @@ See BLUEPRINT §14.4 for the full specification.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
@@ -122,6 +122,26 @@ class EstimatorProvider(Protocol):  # pragma: no cover
             empty when no smart parameter is active. Every spelling the library
             accepts must be a key: a library that resolves aliases makes a
             literal-name check admit the same parameter under another name.
+        """
+        ...
+
+    def canonical_param_names(self, names: Iterable[str]) -> dict[str, str]:
+        """Map each name to the parameter it identifies (H-0094).
+
+        A library that accepts aliases treats two spellings as one parameter,
+        so any code that merges parameter layers by dictionary key is merging
+        by spelling rather than by identity: a lower-priority layer spelling it
+        canonically survives beside a higher-priority layer spelling it as an
+        alias, and the library then picks one of them. The caller uses this to
+        drop the losing spelling before the estimator ever sees it.
+
+        Args:
+            names: Names to resolve. A name the estimator does not define maps
+                to itself -- refusing it is :meth:`accepted_model_param_names`
+                work, and this method must not double as that gate.
+
+        Returns:
+            ``{name: canonical name}`` for every name given.
         """
         ...
 

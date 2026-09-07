@@ -6,7 +6,7 @@ model.py has zero LightGBM imports.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 import numpy as np
@@ -24,7 +24,10 @@ from lizyml.estimators.lgbm.defaults import (
     default_fixed_params,
     default_space,
 )
-from lizyml.estimators.lgbm.param_names import LGBM_PARAM_NAMES
+from lizyml.estimators.lgbm.param_names import (
+    LGBM_CANONICAL_NAME,
+    LGBM_PARAM_NAMES,
+)
 from lizyml.estimators.lgbm.smart_params import (
     resolve_ratio_params,
     resolve_smart_params,
@@ -235,6 +238,10 @@ class LGBMProvider:
     def smart_param_names(self) -> frozenset[str]:
         """Return the smart parameter names, from the same declaration as above."""
         return frozenset(_SMART_PARAM_NAMES)
+
+    def canonical_param_names(self, names: Iterable[str]) -> dict[str, str]:
+        """Map each name to the LightGBM parameter it identifies (H-0094)."""
+        return {name: LGBM_CANONICAL_NAME.get(name, name) for name in names}
 
     def smart_managed_param_names(
         self, smart: dict[str, Any], task: TaskType

@@ -20,6 +20,7 @@ from typing import Any
 import pytest
 
 from lizyml import Model
+from lizyml.core._model_factories import overlay_params
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.tuning_result import TuningResult
 from lizyml.estimators.lgbm.param_names import accepted_spellings
@@ -548,3 +549,125 @@ def test_every_smart_parameter_is_classified() -> None:
     )
     gone = sorted(classified - smart_names)
     assert not gone, f"classified name(s) the provider does not report as smart: {gone}"
+
+
+# ---------------------------------------------------------------------------
+# One parameter, two spellings (review round 3)
+# ---------------------------------------------------------------------------
+
+#: LightGBM's alias for ``learning_rate``. Not managed by any smart parameter,
+#: so these tests are about the merge itself and nothing else.
+ALIAS = "eta"
+
+#: ``_COMMON_DEFAULTS`` carries ``learning_rate``, so the canonical spelling is
+#: in the parameter dict of every fit whether the user wrote it or not. That is
+#: what made this defect reachable without any config entry at all.
+DEFAULTED = 0.001
+
+
+def _learning_rate_in_booster(model: Model) -> str:
+    line = [
+        s for s in _booster_text(model).splitlines() if s.startswith(f"[{OVERRIDDEN}:")
+    ]
+    assert line, "the booster does not report learning_rate at all"
+    return line[0]
+
+
+def test_an_alias_override_wins_over_a_canonical_config_value() -> None:
+    """The round-3 finding: one parameter, two spellings, override lost.
+
+    ``{**config, **override}`` keeps both keys, and LightGBM prefers the
+    canonical one. Measured before the fix: ``fit(params={"eta": 0.5})`` on a
+    config carrying ``learning_rate: 0.001`` trained at 0.001.
+    """
+    model = _fit({ALIAS: OVERRIDE_VALUE})
+    assert _learning_rate_in_booster(model) == f"[{OVERRIDDEN}: {OVERRIDE_VALUE}]"
+
+
+def test_an_alias_override_wins_over_the_estimator_defaults() -> None:
+    """No config entry at all, and the override still has to win.
+
+    The defaults are canonical and are merged in below the user's parameters,
+    so an alias override was beaten by a value the user never wrote.
+    """
+    cfg = make_config("binary", n_estimators=5, n_splits=2)
+    model = Model(cfg, data=make_binary_df(n=160))
+    model.fit(params={ALIAS: OVERRIDE_VALUE})
+    assert _learning_rate_in_booster(model) == f"[{OVERRIDDEN}: {OVERRIDE_VALUE}]"
+
+
+def test_the_estimator_never_sees_two_spellings_of_one_parameter() -> None:
+    """Do not rely on which spelling the estimator prefers -- send one.
+
+    Asserting only on the outcome would pass while the merged dict still
+    carried both keys, leaving the result at the mercy of a library rule this
+    code does not own.
+    """
+    cfg = make_config("binary", n_estimators=5, n_splits=2, learning_rate=CONFIG_VALUE)
+    model = Model(cfg, data=make_binary_df(n=160))
+
+    with record_lightgbm_calls() as seen:
+        model.fit(params={ALIAS: OVERRIDE_VALUE})
+
+    assert seen["train_params"], "no lgb.train call was recorded"
+    for call in seen["train_params"]:
+        spellings = sorted({ALIAS, OVERRIDDEN} & set(call))
+        assert spellings == [ALIAS], (
+            f"lgb.train received {spellings}; it must receive exactly the "
+            "spelling the caller used, with the other one removed"
+        )
+
+
+def test_an_alias_in_the_tuning_result_wins_over_the_config() -> None:
+    """The same seam one rung down, and the rung a real workflow uses.
+
+    ``fit(params=tuning_result.best_model_params)`` is why the argument was
+    kept rather than removed, so a tuned value spelled differently from the
+    config must not lose to it either.
+    """
+    cfg = make_config("binary", n_estimators=5, n_splits=2, learning_rate=CONFIG_VALUE)
+    model = Model(cfg, data=make_binary_df(n=160))
+    model._tuning_result = TuningResult(
+        best_model_params={ALIAS: 0.25},
+        best_smart_params={},
+        best_training_params={},
+        best_score=0.0,
+        metric_name="auc",
+        direction="maximize",
+        trials=(),
+        rounds=(),
+    )
+
+    model.fit()
+    assert _learning_rate_in_booster(model) == f"[{OVERRIDDEN}: 0.25]"
+
+
+def test_an_alias_in_the_config_now_applies_too() -> None:
+    """A consequence of the fix, asserted rather than left to be discovered.
+
+    Before it, ``model.params: {"eta": 0.07}`` trained at 0.001 -- the
+    canonical default shadowed the alias the user wrote, silently. Fixing the
+    merge for the override fixes this seam as well, which changes what an
+    existing config does and is recorded in the CHANGELOG for that reason.
+    """
+    cfg = make_config("binary", n_estimators=5, n_splits=2)
+    cfg["model"]["params"][ALIAS] = 0.07
+    model = Model(cfg, data=make_binary_df(n=160))
+    model.fit()
+    assert _learning_rate_in_booster(model) == f"[{OVERRIDDEN}: 0.07]"
+
+
+def test_overlay_params_keeps_a_name_the_estimator_does_not_know() -> None:
+    """Canonicalisation must not double as the accepted-name gate.
+
+    An unknown name has no canonical form; if ``overlay_params`` dropped it,
+    the refusal that H-0093 owns would never see it and an invented name would
+    become a silent no-op again -- the exact defect this PR sits on top of.
+    """
+    provider = LGBMProvider()
+    merged = overlay_params(
+        provider,
+        {"learning_rate": 0.1, "invented_name": 1},
+        {"eta": 0.5},
+    )
+    assert merged == {"invented_name": 1, "eta": 0.5}, merged
