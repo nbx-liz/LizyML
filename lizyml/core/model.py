@@ -55,6 +55,7 @@ from lizyml.core._model_factories import (
     build_inner_valid,
     build_splitter,
     check_calibration_param_names,
+    check_duplicate_identities,
     check_param_names,
     check_smart_managed_overrides,
     get_provider,
@@ -478,6 +479,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         # an override would be accepting a value that is then discarded. The
         # config schema already refuses the same collision at parse time; this
         # applies that policy to the `fit()` input (H-0094).
+        check_duplicate_identities(provider, override or {}, surface="fit(params=)")
         check_smart_managed_overrides(
             provider, override, smart_params, cfg.task, surface="fit(params=)"
         )

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ast
 import pathlib
+import re
 from typing import Any
 
 import pytest
@@ -671,3 +672,176 @@ def test_overlay_params_keeps_a_name_the_estimator_does_not_know() -> None:
         {"eta": 0.5},
     )
     assert merged == {"invented_name": 1, "eta": 0.5}, merged
+
+
+# ---------------------------------------------------------------------------
+# The adapter's own special handling, by identity (review round 4)
+# ---------------------------------------------------------------------------
+
+#: The parameters the adapter pulls out of the merged dict and treats specially
+#: -- validating, renaming, or passing them as a call argument -- with a value
+#: to try and how to read the outcome back.
+#:
+#: Each was matched by one literal name. That was survivable while a canonical
+#: default sat beside the alias and won; once the merge became identity-aware
+#: and dropped the shadowing default, the alias became the value that trained
+#: **and skipped the handling**. Measured on a binary task:
+#: ``fit(params={"application": "regression"})`` trained a regression objective.
+SPECIAL_HANDLING_ALIASES: dict[str, str] = {
+    "objective": "application",
+    "metric": "metrics",
+    "num_iterations": "num_round",
+}
+
+
+def _rounds_handed_to_lgb_train(params: dict[str, Any] | None) -> list[int]:
+    """``num_boost_round`` is a call argument, not a key in the params dict."""
+    import lightgbm as lgb
+
+    seen: list[int] = []
+    real = lgb.train
+
+    def spy(
+        params_: Any, train_set: Any, num_boost_round: int = 100, *a: Any, **kw: Any
+    ) -> Any:
+        seen.append(num_boost_round)
+        return real(params_, train_set, num_boost_round, *a, **kw)
+
+    cfg = make_config("binary", n_estimators=3, n_splits=2)
+    model = Model(cfg, data=make_binary_df(n=120))
+    lgb.train = spy  # type: ignore[assignment]
+    try:
+        model.fit(params=params)
+    finally:
+        lgb.train = real  # type: ignore[assignment]
+    return seen
+
+
+def test_an_objective_alias_gets_the_same_task_check() -> None:
+    """The check must follow the parameter, not the spelling.
+
+    ``application`` is LightGBM's alias for ``objective``. Before this, a
+    cross-task objective written that way skipped ``_check_objective_compatible``
+    entirely and trained: measured as ``[objective: regression]`` on a binary
+    task.
+    """
+    cfg = make_config("binary", n_estimators=3, n_splits=2)
+    model = Model(cfg, data=make_binary_df(n=120))
+
+    with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as exc:
+        model.fit(params={"application": "regression"})
+
+    assert exc.value.code is ErrorCode.CONFIG_INVALID
+    assert "regression" in str(exc.value)
+    assert not seen["train_params"], "it trained before refusing"
+
+
+def test_a_compatible_objective_alias_still_trains() -> None:
+    """The other side: the check must not refuse what it should accept."""
+    cfg = make_config("binary", n_estimators=3, n_splits=2)
+    model = Model(cfg, data=make_binary_df(n=120))
+    model.fit(params={"application": "binary"})
+    assert "[objective: binary]" in _booster_text(model)
+
+
+def test_two_spellings_of_one_parameter_with_the_same_value_are_fine() -> None:
+    """Redundant is not ambiguous, and must not be an internal error.
+
+    This raised ``KeyError: 'objective'``: the adapter validated the popped
+    ``objective`` into its params, and the shadow-drop then deleted it as if it
+    were a default, because the alias was still in the user dict.
+    """
+    cfg = make_config("binary", n_estimators=3, n_splits=2)
+    model = Model(cfg, data=make_binary_df(n=120))
+    model.fit(params={"objective": "binary", "application": "binary"})
+    assert "[objective: binary]" in _booster_text(model)
+
+
+def test_two_spellings_with_different_values_are_refused() -> None:
+    """Ambiguous is refused, and the message names both spellings.
+
+    Resolving it by dictionary order would decide the training run on something
+    the caller cannot see -- the class of defect this change exists to remove.
+    """
+    cfg = make_config("binary", n_estimators=3, n_splits=2)
+    model = Model(cfg, data=make_binary_df(n=120))
+
+    with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as exc:
+        model.fit(params={"objective": "binary", "application": "cross_entropy"})
+
+    assert exc.value.code is ErrorCode.CONFIG_INVALID
+    message = str(exc.value)
+    assert "objective" in message and "application" in message, message
+    assert not seen["train_params"], "it trained before refusing"
+
+
+def test_two_spellings_of_an_ordinary_parameter_are_refused_too() -> None:
+    """The refusal cannot live only in the adapter special handling.
+
+    ``objective`` is caught there because it is popped and validated; an
+    ordinary parameter is not popped by anything, so both spellings would
+    survive into the dict and the estimator would pick one. Removing the facade
+    check leaves the objective case still passing and this one failing, which is
+    what makes this test the one that holds it.
+    """
+    cfg = make_config("binary", n_estimators=5, n_splits=2)
+    model = Model(cfg, data=make_binary_df(n=160))
+
+    with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as exc:
+        model.fit(params={OVERRIDDEN: 0.1, ALIAS: 0.2})
+
+    assert exc.value.code is ErrorCode.CONFIG_INVALID
+    message = str(exc.value)
+    assert OVERRIDDEN in message and ALIAS in message, message
+    assert not seen["train_params"], "it trained before refusing"
+
+    written = exc.value.context["conflicts"][0]["written"]
+    assert written == {OVERRIDDEN: 0.1, ALIAS: 0.2}, written
+
+
+def test_the_same_ordinary_value_under_two_spellings_is_accepted() -> None:
+    """Redundant is not ambiguous here either."""
+    calls = _fit_with({}, {OVERRIDDEN: 0.2, ALIAS: 0.2})
+    assert calls, "no lgb.train call was recorded"
+    assert all(call.get(OVERRIDDEN, call.get(ALIAS)) == 0.2 for call in calls)
+
+
+@pytest.mark.parametrize("spelling", ["n_estimators", "num_iterations", "num_round"])
+def test_a_boosting_round_alias_sets_the_rounds(spelling: str) -> None:
+    """``num_boost_round`` is extracted from the params, so identity matters.
+
+    Only the literal ``n_estimators`` was extracted; another spelling stayed in
+    the dict and reached ``lgb.train`` as a parameter beside a different
+    ``num_boost_round`` argument.
+    """
+    assert _rounds_handed_to_lgb_train({spelling: 7}) == [7, 7, 7]
+    assert _rounds_handed_to_lgb_train(None) == [3, 3, 3]
+
+
+def test_a_metric_alias_is_taken_as_the_metric() -> None:
+    """The third specially handled name, for the same reason."""
+    calls = _fit_with({}, {"metrics": "auc"})
+    assert calls, "no lgb.train call was recorded"
+    assert all(call.get("metric") == ["auc"] for call in calls), (
+        f"metric reached lgb.train as {[c.get('metric') for c in calls]}"
+    )
+
+
+def test_every_specially_handled_name_has_an_alias_under_test() -> None:
+    """The population is the adapter's special handling, checked against it.
+
+    A parameter the adapter starts treating specially, matched by one literal
+    name, is this defect again. This fails when one is added without a case
+    here.
+    """
+    source = (REPO / "lizyml/estimators/lgbm/adapter.py").read_text()
+    popped = set(re.findall(r'_pop_by_identity\(user_params, "([^"]+)"\)', source))
+    assert popped == set(SPECIAL_HANDLING_ALIASES), (
+        f"the adapter pops {sorted(popped)} by identity; the cases here cover "
+        f"{sorted(SPECIAL_HANDLING_ALIASES)}"
+    )
+    for canonical, alias in SPECIAL_HANDLING_ALIASES.items():
+        assert alias in accepted_spellings(canonical), (
+            f"{alias!r} is not a spelling of {canonical!r}, so the case named "
+            "for it tests nothing"
+        )

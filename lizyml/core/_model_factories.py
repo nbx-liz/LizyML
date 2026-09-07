@@ -583,6 +583,57 @@ def overlay_params(
     return merged
 
 
+def check_duplicate_identities(
+    provider: Any, params: dict[str, Any], *, surface: str
+) -> None:
+    """Refuse one layer naming a parameter twice with different values.
+
+    ``{"objective": "binary", "application": "binary"}`` is one parameter
+    written twice. Equal values are harmless; different ones are ambiguous, and
+    resolving them by dictionary order would decide the training run on
+    something the caller cannot see (H-0094, review round 4).
+
+    Raises:
+        LizyMLError: with ``CONFIG_INVALID``, naming the spellings and values.
+    """
+    if not params:
+        return
+    from lizyml.core.exceptions import ErrorCode, LizyMLError
+
+    canonical = provider.canonical_param_names(params)
+    grouped: dict[str, dict[str, Any]] = {}
+    for name, value in params.items():
+        grouped.setdefault(canonical[name], {})[name] = value
+
+    conflicts = {
+        parameter: written
+        for parameter, written in grouped.items()
+        if len({repr(value) for value in written.values()}) > 1
+    }
+    if not conflicts:
+        return
+    lines = [
+        f"  {surface}: '{parameter}' is set as {written}, and the estimator "
+        "treats those as one parameter."
+        for parameter, written in sorted(conflicts.items())
+    ]
+    raise LizyMLError(
+        code=ErrorCode.CONFIG_INVALID,
+        user_message=(
+            "Parameter(s) set more than once under different spellings:\n"
+            + "\n".join(lines)
+            + "\nWhich value applies would depend on the estimator rather than "
+            "on what you wrote."
+        ),
+        context={
+            "conflicts": [
+                {"surface": surface, "parameter": parameter, "written": written}
+                for parameter, written in sorted(conflicts.items())
+            ]
+        },
+    )
+
+
 def check_smart_managed_overrides(
     provider: Any,
     override: dict[str, Any] | None,

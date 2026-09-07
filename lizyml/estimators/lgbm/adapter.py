@@ -18,7 +18,59 @@ from lizyml.estimators.lgbm.defaults import (
     TASK_COMPATIBLE_OBJECTIVES,
 )
 from lizyml.estimators.lgbm.metric_bridge import resolve_metrics
-from lizyml.estimators.lgbm.param_names import LGBM_CANONICAL_NAME
+from lizyml.estimators.lgbm.param_names import (
+    LGBM_CANONICAL_NAME,
+    accepted_spellings,
+)
+
+
+def _pop_by_identity(
+    user_params: dict[str, Any], canonical: str
+) -> tuple[Any, str | None]:
+    """Pop every spelling of one parameter, and return its single value.
+
+    The special handling below (objective, metric, boosting rounds) used to
+    match one literal name, so the same parameter written under an alias was
+    left in the ordinary parameter dict: it skipped the validation the literal
+    name gets, and -- once identity-aware merging removed the shadowing default
+    -- became the value that trained (H-0094, review round 4). Measured on a
+    binary task: ``fit(params={"application": "regression"})`` trained a
+    regression objective.
+
+    Args:
+        user_params: Mutated in place; every spelling found is removed.
+        canonical: The canonical parameter name.
+
+    Returns:
+        ``(value, the spelling it was written as)``, or ``(None, None)``.
+
+    Raises:
+        LizyMLError: with ``CONFIG_INVALID`` when one layer names the parameter
+            twice with different values. Picking one silently is the class of
+            defect this whole change exists to remove; equal values are fine.
+    """
+    supplied = {
+        name: user_params.pop(name)
+        for name in list(user_params)
+        if name in accepted_spellings(canonical)
+    }
+    if not supplied:
+        return None, None
+    written, value = next(iter(supplied.items()))
+    conflicting = {name: other for name, other in supplied.items() if other != value}
+    if conflicting:
+        raise LizyMLError(
+            code=ErrorCode.CONFIG_INVALID,
+            user_message=(
+                f"'{canonical}' is set more than once under different "
+                f"spellings, with different values: "
+                f"{ {name: supplied[name] for name in supplied} }. LightGBM "
+                "treats these as one parameter, so which value applies would "
+                "depend on the library rather than on what you wrote."
+            ),
+            context={"parameter": canonical, "supplied": dict(supplied)},
+        )
+    return value, written
 
 
 def _check_objective_compatible(task: str, objective: str) -> None:
@@ -392,8 +444,9 @@ class LGBMAdapter(BaseEstimatorAdapter):
 
         # Extract num_boost_round from user params (n_estimators) or use default
         user_params = dict(self.params)
+        rounds_value, _ = _pop_by_identity(user_params, "num_iterations")
         num_boost_round = int(
-            user_params.pop("n_estimators", _COMMON_DEFAULTS["n_estimators"])
+            _COMMON_DEFAULTS["n_estimators"] if rounds_value is None else rounds_value
         )
         # Normalize sklearn param names → Booster API names
         if "random_state" in user_params:
@@ -404,13 +457,13 @@ class LGBMAdapter(BaseEstimatorAdapter):
         # Pre-H-0079 this value was silently stripped, so default_space
         # tune trials sampling e.g. "fair" actually trained with the task
         # default. Reject cross-task injections explicitly with CONFIG_INVALID.
-        user_objective = user_params.pop("objective", None)
+        user_objective, _ = _pop_by_identity(user_params, "objective")
         if user_objective is not None:
             _check_objective_compatible(self.task, user_objective)
             params["objective"] = user_objective
         # Allow user-specified metric; fall back to task default if absent/empty
         # Accepts str, list[str], or list[str | dict] (H-0065 MetricEntry).
-        user_metric = user_params.pop("metric", None)
+        user_metric, _ = _pop_by_identity(user_params, "metric")
         feval_list: list[Any] = []
         feval_display_names: list[str] = []
         if user_metric:
