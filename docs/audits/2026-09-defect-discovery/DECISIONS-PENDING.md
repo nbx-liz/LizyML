@@ -149,7 +149,32 @@ non-LightGBM calibrators.
 
 **PR** 1 · **Proposal** H-0093 · **Reversal cost** — · **Window** `before-close`
 
-**This item needs a decision. The run has stopped opening rounds on PR 1.**
+> **RESOLVED 2026-09-07 — by a fourth option the three below did not name.**
+>
+> The maintainer read this item and the rounds 4-5 monitor and directed **one
+> further round, with the review target narrowed to the remedies for findings
+> already raised**. That is neither "merge on the round-5 record" (option 1) nor
+> "open a full round 6" (option 2): it repairs the procedural defect the monitor
+> named — the stop had been self-certified by the party owning the deliverable —
+> without re-opening surfaces five rounds had already covered.
+>
+> Round 6 returned **`APPROVE`**, the first on PR 1, with no blocking finding and
+> no out-of-scope finding. Record: `results/pr1_codex_round6.md`.
+>
+> Before the round, the maker found and fixed a **DC1 defect inside the remedy
+> itself**: 3 of the 21 classified methods have a required argument, so calling
+> them bare raised at argument binding and the spy observed an empty list because
+> nothing had executed. Two of the three were `load` and `export_code`. Disclosed
+> in the round-6 prompt rather than left to be found; the reviewer then verified
+> the fix by removing each argument entry and by tracing that all 21 bodies run.
+>
+> The reviewer also executed what the maker had not: the three `tune()` re-entry
+> paths (resume, repeat, existing study), all refusing with zero Boosters, and
+> five ways a new public callable can arrive on `Model` (ordinary, inherited,
+> `classmethod`, `staticmethod`, class-creation), all failing as unclassified.
+>
+> **The merge gate is now met**: external review `APPROVE` + CI green. The
+> analysis below is kept as the record of the state that produced the decision.
 
 ## State
 

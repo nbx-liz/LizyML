@@ -247,10 +247,16 @@ def test_non_training_entry_points_really_do_not_train(
 ) -> None:
     """The reasons above are claims about behaviour, so execute them.
 
-    Each is called on an *unfitted* ``Model``, which is the only state where a
-    method could plausibly train something on its own. Almost all raise -- that
-    is the point: what is asserted is that no Booster was trained, whatever the
-    call did.
+    Each is called on an *unfitted* ``Model``. Almost all raise -- that is the
+    point: what is asserted is that no Booster was trained, whatever the call
+    did.
+
+    **The bound is the state, and it is one state.** This establishes that none
+    of these methods trains from the unfitted state; it does not establish that
+    none of them trains from every state a ``Model`` can be in. Unfitted is the
+    state a method that trained on its own would have to train in -- after a fit
+    there is already a Booster for it to read -- but that is an argument, not a
+    measurement, and the measurement here covers the one state.
 
     The call must reach the body for that to mean anything. A method with a
     required argument, called bare, raises before its first statement runs, and
