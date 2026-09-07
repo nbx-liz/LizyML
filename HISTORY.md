@@ -7442,7 +7442,7 @@ DC4（inert wiring）。配管はあり、公開の書き手が誰も到達し�
 
    `max_leaves` は受理名なので H-0093 の検査も通り、決定 4 の管理表にも無いので拒否もされず、**LightGBM が canonical 側を優先するため上書きはまた黙って捨てられた**。したがって管理表は canonical 名で宣言し、判定時に**学習器が受理する全綴りへ展開する**。綴りの集合は列挙せず `LGBM_DumpParamAliases`（H-0093 と同じ権威）から導く。管理対象 6 名の綴りは実測 18 通り（`num_leaves` に 4、`min_data_in_leaf` に 4、`feature_contri` に 4 のエイリアス）。テストは全 18 綴り × 2 方向で回し、エイリアス展開を外すと**エイリアス 12 セルだけが RED**、canonical 6 セルは green になることを確認済み — 見落としの形そのものである。
 
-   **適用範囲は `fit(params=)` のみ。** config 面は parse 時に 3 件が拒否済み（ただし**文字列一致のみ**でエイリアスを見ない — `max_leaves` / `min_child_samples` は通過して置換される。実測済み、[#280](https://github.com/nbx-liz/LizyML/issues/280)）、残り 2 件の衝突は出荷済み config に 0 件（上の firing rate）。`config/` から学習器の別名表へは層規約上届かないので、config 面の修正は「どこで拒否するか」の設計判断であり本 PR の入力ではない。探索空間面は 54/67 で該当するが、閉じると本リポジトリの 54 件が落ちるため #279 に分離した。**この非一貫性は認識したうえでの分離であり、H-0094 の主張は「`fit(params=)` について閉じた」までである。**
+   **適用範囲は `fit(params=)` のみ。** config 面の穴は round 12 で**面の全体を実行して**数えた（スマートパラメーター × 書き込む native 名 × LightGBM が受ける綴り = 18 通り）: **拒否 3 / 2 綴りが届く 12 / 黙って上書き 3**。「parse 時に 3 件が拒否済み」は**スマートパラメーターについては真、面については偽**であり、通過する 15 を数えていない（決定 8-3 で訂正）。実測済み、[#280](https://github.com/nbx-liz/LizyML/issues/280)。残り 2 件の衝突は出荷済み config に 0 件（上の firing rate）。`config/` から学習器の別名表へは層規約上届かないので、config 面の修正は「どこで拒否するか」の設計判断であり本 PR の入力ではない。探索空間面は 54/67 で該当するが、閉じると本リポジトリの 54 件が落ちるため #279 に分離した。**この非一貫性は認識したうえでの分離であり、H-0094 の主張は「`fit(params=)` について閉じた」までである。**
 
 3. **不明名の拒否は出所を名指しする。** 3 入力が 1 つの dict にマージされてから検査されるため、従来はすべて `model.params` として報告していた。3 つのうち 2 つは**利用者を誤ったファイルに送る**。`_merge_params` が `origins` を持ち、`model.params` / `provider default fixed params` / `tuning best_model_params` / `fit(params=)` を名前ごとに区別する。優先順位が上の入力が出所を上書きするので、同名が複数入力にある場合は**実際に効いている方**が報告される。
 
@@ -7581,4 +7581,150 @@ Firing rate: 0/0 of shipped calls passing fit(params=...) -- no call site exists
 その他:
 
 - `tests/_train_spy.py` は `lgb.train` / `lgb.Dataset` の記録器を 1 つにする。同じ計測器の 2 つ目の写しが既にあり、3 つ目を作る前に共有化した。`test_calibration_param_names.py` の `_TrainSpy` は**意図的に残す**: あれは `isotonic.lgbm` を名前で patch することで「calibrator の経路である」ことの証拠になっており、LightGBM 一般についての計測ではない。
+- 全スイート green、`ruff check .` / `ruff format --check .` / `mypy lizyml/` クリーン。
+
+### 決定 8: 綴りと容れ物は値ではない（レビュー round 12）
+
+round 12 は round 11 と同じく**範囲を絞らない**ラウンドとして回した。結果は
+`REQUEST_CHANGES` 2 件、どちらも `[P2]`、どちらも修正前にこちらで再現した。
+以下 3 件目は、その後に**継ぎ目の全数列挙**（round 11-12 monitor へ持ち込む
+問い）を実行して見つけたもので、レビュアーの指摘ではない。
+
+1. **等価な列を容れ物の違いで拒否していた（DC7）。** 決定 7 の 3 番目は
+   `np.array([1, 2])` と `np.array([1.0, 2.0])` の誤拒否を `tolist` 変換で閉じた。
+   round 12 はその 1 つ隣を実測した: `np.array([1., 2.])` と `(1., 2.)` は
+   `tolist` が配列だけを変え tuple を変えないので印字形まで落ち、`differ` になる。
+   `feature_contri` と `feature_penalty` は LightGBM の同一パラメーターなので、
+   同一層の同一性拒否が発火する — **`model.params` でも `fit(params=)` でも
+   `CONFIG_INVALID`、`train_calls = 0`**。
+
+   **これは round 11 が持ち込んだ退行ではない。** `tolist` ステップが無かった頃も
+   この組は印字形で判定され、同じく differ になっていた。
+
+   **受け入れ済みの判断を覆した。** `tests/test_core/test_value_equality.py` は
+   `("a list and an equal tuple", [1.0, 2.0], (1.0, 2.0), True)` を持ち、
+   「これは偶然ではなく判断である」と書いた test を添えていた。その判断は
+   Python から論じていた（`[1.0, 2.0] == (1.0, 2.0)` は `False`）が、**問いを
+   取り違えていた**。この関数が呼び出し元のために答える問いは「学習器は 2 つの値を
+   見るか」であって「呼び出し元は同じ容れ物に手を伸ばしたか」ではない。実行して
+   決めた:
+
+   ```
+   feature_contri        [1.0, 2.0] / (1.0, 2.0) / array([1., 2.]) / array([1, 2])
+                         -> [feature_contri: 1,2]        identical trees: True
+   monotone_constraints  [1, 0] / (1, 0) / array([1, 0])
+                         -> [monotone_constraints: 1,0]  identical trees: True
+   ```
+
+   黙って一方が選ばれるわけではない — **選ぶべき差が無い**。round 11 の 3 番目を
+   通したのと同じ論法である。
+
+   修正は**独立したステップ**として比較の前に置く: テキストでない `Sequence` を
+   `list` にする。`_as_plain_python` の拡張では足りない — `[1.0, 2.0] == (1.0, 2.0)`
+   は真っ当な `bool` なので真偽値ステップが先に答えてしまい、変換ステップに届かない。
+   `str` / `bytes` / `bytearray` は除外し、除外自体をケース表で固定した
+   （`"ab"` と `("a", "b")` は differ）。
+
+2. **calibration のエイリアスが、上書きしようとした既定値に負けていた（DC1）。**
+   `IsotonicCalibrator.__init__` は `{**_ISOTONIC_DEFAULTS, **user}` と**綴りで**
+   マージし、既定値は canonical で書かれている。したがって
+   `calibration.params = {"eta": 0.5}` は名前検査も同一性検査も通り（呼び出し元は
+   1 度しか書いていない）、`lgbm.train` には `learning_rate: 0.03` と並んで届き、
+   LightGBM が canonical を採った。実測:
+
+   ```
+   learning_rate: 0.5 -> calibrator は {'learning_rate': 0.5}
+   eta:           0.5 -> calibrator は {'learning_rate': 0.03, 'eta': 0.5}
+   ```
+
+   レビュアーは範囲を明示した — *「これは本 PR が触れた calibration 経路に残っていた
+   既存の下流マージであり、本 PR が導入したとは主張しない」*。
+
+   **修正の置き場所は層規約が決める。** `lizyml/calibration/` は
+   `lizyml/estimators/` を import できないので calibrator にエイリアスを教えられない。
+   `canonicalise_calibration_params` を facade 側（provider に既に届く場所）に置き、
+   dict を渡す前に綴りを canonical に書き換える。calibrator 自身のキーは除外し、
+   除外を assert で固定した: `num_boost_round` は `num_iterations` のエイリアスなので、
+   canonical 化すると calibrator が pop するキーが消える。`random_state` は facade が
+   供給する seed に対する同じ欠陥で、同じ書き換えで閉じた。
+
+   **その書き換えが 1 件の振る舞いを変えたので、そこも閉じた。** calibrator は
+   マージ後に `merged["verbose"] = -1` を強制していたが、**`verbose` は
+   エイリアスで canonical は `verbosity`** である。LightGBM は canonical を優先する
+   ので、`calibration.params = {"verbosity": 1}` は**本 PR 以前から**その強制を
+   破っていた。canonical 化により `verbose` も同じ経路を通るようになり、非一貫が
+   一貫した穴になる — なので強制を canonical 側に移した（`merged["verbosity"] = -1`、
+   他綴りは pop）。`monotone_constraints` の強制が効いていたのは、そちらが最初から
+   canonical だったからである。両方向をテストで固定した。
+
+3. **同一層規則の 6 つ目の継ぎ目は、既に起票済みの設計判断だった（#280）。**
+   継ぎ目の全数列挙で `check_smart_managed_overrides` に届いた。この検査は
+   `fit(params=)` にしか配線されておらず、docstring は根拠として「config 面は
+   parse 時に 5 件中 3 件が拒否済み」と書いていた。面の全体を実行した — スマート
+   パラメーター × 書き込む native 名 × LightGBM が受ける綴り:
+
+   ```
+   population: 18
+   DEFEATED   12/18   2 綴りが lgb.train に届き、LightGBM が canonical を採る
+   REPLACED    3/18   resolver が利用者の値を黙って上書きする
+   REFUSED     3/18
+   ```
+
+   **この欠陥は既知であり、BLUEPRINT.md §14.4 に正確に記載され、#280 として
+   maintainer の判断待ちである。**`config/` から別名表に届かないため「どこで拒否
+   するか」が設計判断になる、というのがその起票内容そのものである。したがって
+   **本 PR では実装しない**。本 PR のコードにある欠陥は宣言の側で、
+   「5 件中 3 件が拒否済み」はスマートパラメーターについては真だが**面については
+   偽** — canonical 3 件を数え、通過する 15 の綴りと対象を数えていない。docstring を
+   実測値に置き換え、#280 と BLUEPRINT §14.4 を指すようにした。**宣言を実態より広く
+   書くことは、この PR が扱っている形そのものである（DC5）。**
+
+   同じ類が calibration 層にもう 1 件ある（記録のみ、未修正）:
+   `calibration.params = {"min_data_in_leaf": 7}` は、`IsotonicCalibrator.fit` が
+   常在の既定 `min_data_in_leaf_ratio = 0.01` から `params["min_data_in_leaf"]` を
+   無条件に書くため、**全綴りで** 7 ではなく `ceil(n × 0.01)` で学習する。本 PR 前後で
+   結果は変わらない（canonical 綴りも以前から負けていた）。#280 と同じ設計判断に
+   属するので、実装せず記録する。
+
+#### 継ぎ目の全数列挙
+
+`lizyml/` の中で「あるパラメーター dict が別のパラメーター dict に出会う」場所を
+AST で列挙した（`{**a, **b}` / `.update` / `|` / 名前付きヘルパ 2 つ）。24 式。
+そのうち**出所の異なる** 2 つの dict が出会うのは以下で、各行は実行して確かめた:
+
+| 場所 | 解決 |
+|---|---|
+| `calibration/isotonic.py:97` | facade で canonical 化 — **決定 8-2** |
+| `config/loader.py:108` | 同一層どうし。実行済み: 値が違えば拒否、同じなら学習 |
+| `core/_model_factories.py:583` | `overlay_params` の中身、同一性を見る |
+| `core/_model_tuning.py:457,458` | `overlay_params`（決定 7） |
+| `core/_model_tuning.py:459` | スマート層。スマート名にエイリアスは無い（固定済み） |
+| `core/model.py:469,472,503` | `overlay_params` |
+| `core/model.py:481` | スマート層 |
+| `core/model.py:749` | `canonicalise_calibration_params`（新規） |
+| `estimators/lgbm/adapter.py:163` | ratio resolver が利用者の dict に出会う — **決定 8-3 / #280** |
+| `estimators/lgbm/adapter.py:499` | 同一性を見る（rounds 1-2） |
+| `estimators/lgbm/adapter.py:456,458` | `random_state` / `verbose`、上の重複排除に吸収される |
+| `estimators/lgbm/provider.py:265` | `{**_COMMON_DEFAULTS, **effective_params}`。resolver が読み戻す唯一のキーは `max_depth` で、**エイリアスが無い**。実測し、古びないよう固定した |
+
+残りの式はパラメーターのマージではない（`frozenset` の合併、行ビルダー 2 つ）。
+
+#### Firing rate
+
+スイートが構築する `LizyMLConfig` を全数記録し、**どのテストが作った config か**を
+併記して、本変更自身の回帰テストと既存母集団を区別できるようにした。
+
+```
+Firing rate: 0/22 of pre-existing configs carrying calibration.params
+             （calibrator が学習する値が変わるもの。24 件中 4 件が発火し、
+               うち 2 件は本変更の回帰テスト、残り 2 件は round 11 の
+               2 綴りテストで、潰れた側は同値か元々拒否される）
+Firing rate: 0/1009 of pre-existing configs carrying model.params
+             （本変更が解く拒否に掛かっていたもの。1010 件中 1 件が発火し、
+               それは本変更の回帰テスト）
+```
+
+その他:
+
+- `docs/audits/2026-09-defect-discovery/instruments/calibration_canonicalisation_firing_rate.py` を追加。
 - 全スイート green、`ruff check .` / `ruff format --check .` / `mypy lizyml/` クリーン。
