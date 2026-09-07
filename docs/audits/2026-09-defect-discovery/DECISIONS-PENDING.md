@@ -145,62 +145,124 @@ non-LightGBM calibrators.
 **Needs a decision:** file it as an issue for this run's later PRs, or accept
 `params` as meaningless for `platt` / `beta` and say so in BLUEPRINT §12.
 
-
 ### D5 — PR 1's review loop closed without an APPROVE; the run is paused on it
 
 **PR** 1 · **Proposal** H-0093 · **Reversal cost** — · **Window** `before-close`
 
-**This item now needs a decision. The run has stopped opening rounds on PR 1.**
+**This item needs a decision. The run has stopped opening rounds on PR 1.**
 
-Blocking findings per round: **4, 4, 2, 1, 1**. Every one was reproduced before being
-accepted and every one was real; three were live production defects
-(`Model.load()` rejecting legacy artifacts, `export_code` ungated,
-`calibration.params` ungated) and one was a specification statement that was
-false of the code (the calibration check ran after the whole outer CV).
+## State
 
-The count converged and severity fell, but rounds 4 and 5 each found the
-*previous round's fix* incomplete on an entry point — round 4 that the check ran
-after the outer CV, round 5 that `tune()` has its own entry point the fix did not
-reach. Both were pre-registered as the stop condition before round 5 ran, by the
-relational monitor and in this item, so the loop closed on that condition rather
-than on a verdict token.
+PR **#275**, draft, pushed, 6 commits on `fix/phase3-pr1-lgbm-parameter-names`.
+**CI 12/12 pass**, `MERGEABLE` / `CLEAN`. Full suite 2171 passed; `ruff check .`,
+`ruff format --check .`, `mypy lizyml/` clean.
 
-**What is worth knowing:** the PR grew past its planned scope twice, both times
-because review found a route the plan had not enumerated — `export_code` in
-round 2 and `calibration.params` in round 3 (D3). PR 1's scope in the plan was
-written from the issue text rather than from a scan of the tree, and that is the
-reason, not reviewer thoroughness. The later PRs in this run have scopes written
-the same way.
+The standing merge gate is external review `APPROVE` + CI green. **Only the
+first half is missing.**
 
-**Round 5's finding was fixed** (the tuning path now carries the same check, and
-`TRAINING_ENTRY_POINTS` parametrizes the ordering assertion over `fit` and
-`tune`, RED-verified). Fixing a reviewer-confirmed defect is not continuing the
-loop; opening a round 6 would have been, and none was opened. So the tree is in
-the best state this run can put it in without another review round.
+## What happened
 
-**What the maintainer decides.** The standing merge gate is Codex `APPROVE` + CI
-green, and PR 1 does not have the first half. Three options, no recommendation
-implied by their order:
+Blocking findings per round: **4, 4, 2, 1, 1**. Every one was reproduced before
+being accepted and every one was real. Four were live production defects
+(`Model.load()` refusing legacy artifacts, `fit(params=)` inert, `export_code`
+ungated, `calibration.params` ungated) and two were specification statements
+false of the code.
 
-1. **Merge on the round-5 record.** Every round-5 finding is closed and the
-   reviewer's own clean list covers 10 items including the ones a merge would
-   depend on. CI has not run yet — the branch is not pushed.
+The reviewer never rejected the design. Every finding was "this is not covered",
+and every one was covered. Severity fell monotonically:
+
+| Round | Finding | Reach |
+|---|---|---|
+| 3 | `calibration.params` reached LightGBM unchecked | user config, live defect |
+| 4 | the check ran after the whole outer CV | correct refusal, but a full training was paid first, and the spec said otherwise |
+| 5 | the check covered `fit` but not `tune` | correct refusal, one entry point uncovered |
+
+Rounds 4 and 5 each found the **previous round's remedy** incomplete. That
+recursion has no fixed point — "round N's fix is unreviewed" is true of every
+round including the last — so it cannot itself be the stopping rule. A stop
+condition fixed *before* the outcome was known is what breaks it, and one was:
+the rounds 3-4 monitor raised the flag, and it was written into round 5's prompt
+before round 5 ran.
+
+## The loop audit
+
+`policy:loop-monitor` owns the question of whether a review loop should still be
+running. Five monitors ran, each in a fresh read-only context:
+
+| Monitor | Observed | Verdict | Recommendation |
+|---|---|---|---|
+| absolute | round 1 | `DELIVERABLE-FOCUSED` | `continue` |
+| relational | 1-2 | `CONVERGING` | `redirect` |
+| relational | 2-3 | `CONVERGING` | `redirect` |
+| relational | 3-4 | `CONVERGING` | `continue` |
+| relational | 4-5 | `CONVERGING` | **`take-stop-condition`** |
+
+**The rounds 4-5 monitor was run late, and that is a procedural defect worth
+recording.** The loop was closed and escalated first; the monitor the policy
+places outside the loop was spawned only after the maintainer asked what it had
+said. Its finding on that point, verbatim in substance: the stop was *sound in
+content, defective in procedure* — the trigger genuinely fired (round 4 anchored
+the check at one caller of a shared helper rather than in the helper, and
+`tune()` is the second caller), but it was self-certified by the party owning
+the deliverable. It adds that it would have raised the same flag unprompted.
+
+Its grounds for stopping: two consecutive rounds of **zero periphery growth**
+(the AST apparatus is unchanged since round 4 — 588 lines, neither scan file
+touched), findings shrinking and production-real, and the one class still
+producing findings now being caught by the maker without a review round.
+
+## Known open, and fixable without a round
+
+`TRAINING_ENTRY_POINTS` (`tests/test_calibration/test_calibration_param_names.py:151`)
+is hand-written — `fit` and `tune`, 2 of `Model`'s 23 public callables — and is
+checked against nothing. Its contents are correct today (`predict`, `evaluate`
+and `export_code` do not train), so there is **no live defect**, but the axis is
+open: a future public method that trains would not fail this test. It is the
+same declared-fixture shape rounds 3-5 were about, and it can be closed by
+deriving the set instead of listing it.
+
+Both the main context and the monitor found it independently, after the loop
+closed. That cuts toward stopping rather than toward a sixth round.
+
+## What the maintainer decides
+
+Three options; the order implies no recommendation.
+
+1. **Merge on the round-5 record.** Every round-5 finding is closed, CI is
+   12/12 green, and the reviewer's own clean list covers 10 items including the
+   ones a merge depends on. Fastest path to PR 2.
 2. **Authorise a round 6**, waiving the stop condition explicitly. The trend
-   (4, 4, 2, 1, 1) suggests it would find at most one more thing, and the last
-   two were both entry-point completeness rather than new defect classes.
-3. **Split PR 1.** The model-surface gate (`model.params`, tuning space,
-   `export_code`) has been clean since round 2; the calibration surface (D3) is
-   what rounds 3, 4 and 5 have been about. Shipping the first and moving the
-   second to its own PR would close the reviewed part now.
+   (4, 4, 2, 1, 1) and the fact that the last two were entry-point completeness
+   rather than new defect classes suggest at most one more finding — but that is
+   an estimate, not a guarantee.
+3. **Split PR 1.** The model surface (`model.params`, tuning space,
+   `export_code`) has been clean since round 2; rounds 3, 4 and 5 are all about
+   the calibration surface (D3). Shipping the first closes the reviewed part
+   now, and **unblocks PR 2**, which builds on the model surface.
 
-**Also worth knowing:** the PR grew past its planned scope twice, both times
-because review found a route the plan had not enumerated — `export_code` in
-round 2 and `calibration.params` in round 3 (D3). PR 1's route population was
-the one thing in its plan entry stated in prose rather than derived by scanning.
+Also open: how to handle the two gate issues this loop produced —
+nbx-liz/claude-code-config#327 (the mechanized close-the-grammar review format
+never fired) and #276 (the discovery audit stated PR 1's population in prose).
 
-**An earlier version of this item said the later PRs were written the same way.
-That was wrong, and it was written without checking.** Every population the plan
-declares was recomputed at the current head:
+## What was missing from the run policy
+
+The kickoff gate assumed `APPROVE` would arrive. Nothing said what to do when
+real findings keep arriving and it does not. That gap is why this item exists,
+and the next long-run kickoff should settle a round bound, or an equivalent
+stop condition, alongside the merge gate.
+
+### D6 — the plan's populations were rechecked; only PR 1's was prose
+
+**PR** — · **Proposal** — · **Reversal cost** — · **Window** `open`
+
+Filed as its own item because it is a finding about the *plan*, not about PR 1,
+and because an earlier version of D5 asserted the opposite without checking.
+
+PR 1 grew past its planned scope twice, both times because review found a route
+the plan had not enumerated — `export_code` in round 2 and `calibration.params`
+in round 3 (D3). D5 originally concluded that the later PRs were scoped the same
+way and would overrun likewise. **That was written without measuring it, and it
+is wrong.** Every population the plan declares, recomputed at `1d7c4e2`:
 
 | PR | declared | measured | |
 |---|---|---|---|
@@ -209,14 +271,21 @@ declares was recomputed at the current head:
 | PR 5 | 3 `UnseenPolicy` values | 3 (`mode`, `nan`, `error`) | ✓ |
 | PR 6 | 20 `ErrorCode` members | 20 | ✓ |
 | PR 8 | 74 defaulted / keyword-only `__init__` params | 74 | ✓ |
-| PR 9 | 92 proposals | 94 | explained |
+| PR 9 | 92 proposals | 94 | explained below |
 | PR 2 | enumerated from `Model`'s public signatures | 23 callables, 21 params | ✓ |
 
-PR 9's difference is exactly the two proposals this run has added — H-0092 in
-PR 0 and H-0093 in PR 1 — which is the population-grows-with-the-run effect
-already scheduled for the reconciliation pass before PR 9 (C5).
+PR 9's difference is exactly the two proposals this run added — H-0092 in PR 0
+and H-0093 in PR 1 — the population-grows-with-the-run effect already scheduled
+for the reconciliation pass before PR 9 (C5).
 
-So the plan's later scopes are scan-derived and reproduce, and **no decision
-about the plan is needed on this account.** PR 1 was the exception, not the
-pattern. Recomputation script:
+**PR 1's route population was the one thing stated in prose rather than derived
+by scanning, and it is the only one that failed.** That is checkable before the
+fact: a population given as a sentence rather than as a derivation is the one to
+distrust.
+
+**No decision about the plan is needed on this account.** The item is here so
+the correction is on the record, and because it is the evidence behind #276, the
+gate issue against the discovery audit.
+
+Recomputation script:
 `docs/audits/2026-09-defect-discovery/instruments/plan_population_recheck.py`.
