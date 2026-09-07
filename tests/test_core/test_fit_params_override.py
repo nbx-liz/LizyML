@@ -13,7 +13,6 @@ against the **trained Booster** and against what ``lgb.train`` received.
 
 from __future__ import annotations
 
-import ast
 import contextlib
 import inspect
 import json
@@ -36,7 +35,11 @@ from lizyml.core.value_equality import values_differ
 from lizyml.estimators.lgbm.adapter import _pop_by_identity
 from lizyml.estimators.lgbm.param_names import accepted_spellings
 from lizyml.estimators.lgbm.provider import LGBMProvider
-from lizyml.estimators.lgbm.smart_params import SMART_PARAM_TARGETS
+from lizyml.estimators.lgbm.smart_params import (
+    SMART_PARAM_TARGETS,
+    resolve_ratio_params,
+    resolve_smart_params,
+)
 from tests._helpers import make_binary_df, make_config, make_multiclass_df
 from tests._train_spy import record_lightgbm_calls
 
@@ -507,38 +510,94 @@ def test_scale_pos_weight_is_not_managed_for_multiclass() -> None:
     assert {call.get("scale_pos_weight") for call in seen["train_params"]} == {10}
 
 
-def test_the_managed_table_matches_the_code_that_writes_the_names() -> None:
-    """Close the table against the assignments, not against a reading of them.
+#: A value that switches each smart parameter on. The keys are asserted below
+#: against the provider's own list, so a new smart parameter fails here for
+#: having no activation rather than passing unobserved.
+SMART_ACTIVATIONS: dict[str, Any] = {
+    "auto_num_leaves": True,
+    "num_leaves_ratio": 0.5,
+    "min_data_in_leaf_ratio": 0.01,
+    "min_data_in_bin_ratio": 0.01,
+    "feature_weights": {"f0": 2.0},
+    "balanced": True,
+}
+
+
+def _names_the_resolvers_write() -> set[str]:
+    """Run the resolvers and record what they actually put in the dict.
+
+    Executed, not parsed. The previous form walked the source for
+    ``resolved["<literal>"] = ...`` inside two named functions, which is a
+    hypothesis about how an assignment is spelled: a fourth native name written
+    through ``resolved.update({...})`` was invisible to it and the test still
+    passed (rounds 8-9 monitor). Running the code has no spelling to guess.
+
+    The input population is closed because it is enumerable: every smart
+    parameter the provider declares, activated, across every task.
+    """
+    written: set[str] = set()
+    frame = make_binary_df(n=40)
+    feature_names = [column for column in frame.columns if column != "target"]
+    activations = dict(SMART_ACTIVATIONS)
+    activations["feature_weights"] = {feature_names[0]: 2.0}
+
+    for task in ("binary", "multiclass", "regression"):
+        target = frame["target"] if task != "regression" else frame["target"] * 1.0
+        for name, value in activations.items():
+            smart = {name: value}
+            if name != "balanced":
+                # `balanced` defaults to on for the classification tasks, so
+                # every case would write `scale_pos_weight` and the individual
+                # activations would say nothing. Off unless it is the subject.
+                smart["balanced"] = False
+            try:
+                resolved, _ = resolve_smart_params(
+                    smart=smart,
+                    effective_params={"max_depth": 5},
+                    n_rows=len(frame),
+                    feature_names=feature_names,
+                    y=target,
+                    task=task,
+                )
+            except LizyMLError:
+                # `balanced` refuses regression outright, which writes nothing.
+                continue
+            written |= set(resolved)
+
+    written |= set(
+        resolve_ratio_params(
+            min_data_in_leaf_ratio=activations["min_data_in_leaf_ratio"],
+            min_data_in_bin_ratio=activations["min_data_in_bin_ratio"],
+            n_rows=1000,
+        )
+    )
+    return written
+
+
+def test_every_smart_parameter_has_an_activation() -> None:
+    """The observation above is only closed if every smart parameter is run.
+
+    A new smart parameter with no activation would be observed writing nothing,
+    and the table would agree with a measurement that never took place.
+    """
+    assert set(SMART_ACTIVATIONS) == LGBMProvider().smart_param_names(), (
+        f"declared activations {sorted(SMART_ACTIVATIONS)} do not match the "
+        f"provider's smart parameters {sorted(LGBMProvider().smart_param_names())}"
+    )
+
+
+def test_the_managed_table_matches_the_names_the_resolvers_write() -> None:
+    """Close the table against what running the resolvers produces.
 
     ``SMART_PARAM_TARGETS`` claims to name every native parameter smart
     resolution writes. That claim would go stale the day a smart parameter
     learns to write a fourth one, and nothing else would notice: the refusal
     would simply not fire and the override would be silently replaced again.
     """
-    source = (REPO / "lizyml/estimators/lgbm/smart_params.py").read_text()
-    tree = ast.parse(source)
-
-    written: set[str] = set()
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.FunctionDef):
-            continue
-        if node.name not in {"resolve_smart_params", "resolve_ratio_params"}:
-            continue
-        for inner in ast.walk(node):
-            if not isinstance(inner, ast.Assign):
-                continue
-            for target in inner.targets:
-                if (
-                    isinstance(target, ast.Subscript)
-                    and isinstance(target.value, ast.Name)
-                    and target.value.id == "resolved"
-                    and isinstance(target.slice, ast.Constant)
-                    and isinstance(target.slice.value, str)
-                ):
-                    written.add(target.slice.value)
-
+    written = _names_the_resolvers_write()
     declared = {name for names in SMART_PARAM_TARGETS.values() for name in names}
-    assert written, "the scan found no `resolved[...] = ...` assignment at all"
+
+    assert written, "running the resolvers produced no native parameter at all"
     assert declared == written, (
         f"SMART_PARAM_TARGETS declares {sorted(declared)}; the resolvers write "
         f"{sorted(written)}. A name written but not declared is silently "
@@ -1206,22 +1265,24 @@ ARTIFACT_WRITERS: dict[str, str] = {
 
 
 def _declared_writers() -> frozenset[str]:
-    """The writer methods ``ModelPersistenceMixin`` actually defines.
+    """``Model``'s callable attributes whose name begins with ``export``.
 
-    Read from the module so that a third writer is noticed here rather than
-    quietly left unsubstituted.
+    Asked of the **class**, not of its source. The source form matched
+    ``ast.FunctionDef`` in one class body, so an ``async def``, an assignment,
+    or a method inherited from elsewhere was absent from this side as well as
+    from the map, the equality below held, and that writer was never
+    substituted (rounds 8-9 monitor).
+
+    The one assumption left is the name: a writer called something that does not
+    begin with ``export`` is not covered here, and no check can find it, because
+    "writes to disk" is not a property of a name. That is a stated limit, not a
+    silence.
     """
-    source = (REPO / "lizyml/core/_model_persistence.py").read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    for node in ast.walk(tree):
-        if isinstance(node, ast.ClassDef) and node.name == "ModelPersistenceMixin":
-            return frozenset(
-                child.name
-                for child in node.body
-                if isinstance(child, ast.FunctionDef)
-                and child.name.startswith("export")
-            )
-    raise AssertionError("ModelPersistenceMixin was not found; the scan has gone blind")
+    return frozenset(
+        name
+        for name in dir(Model)
+        if name.startswith("export") and callable(getattr(Model, name, None))
+    )
 
 
 def _keep_the_output_path(*args: Any, **kwargs: Any) -> Any:
