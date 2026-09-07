@@ -193,10 +193,30 @@ implied by their order:
    what rounds 3, 4 and 5 have been about. Shipping the first and moving the
    second to its own PR would close the reviewed part now.
 
-**Also worth knowing, and the reason this is not only a PR-1 question:** the PR
-grew past its planned scope twice, both times because review found a route the
-plan had not enumerated — `export_code` in round 2 and `calibration.params` in
-round 3 (D3). PR 1's scope in the plan was written from the issue text rather
-than from a scan of the tree. **The later PRs in this run have scopes written
-the same way**, so the same overrun is likely unless their scopes are re-derived
-by scanning first. That is a decision about the plan, not about PR 1.
+**Also worth knowing:** the PR grew past its planned scope twice, both times
+because review found a route the plan had not enumerated — `export_code` in
+round 2 and `calibration.params` in round 3 (D3). PR 1's route population was
+the one thing in its plan entry stated in prose rather than derived by scanning.
+
+**An earlier version of this item said the later PRs were written the same way.
+That was wrong, and it was written without checking.** Every population the plan
+declares was recomputed at the current head:
+
+| PR | declared | measured | |
+|---|---|---|---|
+| PR 3 | 22 `(task, metric)` pairs in `_TASK_METRICS` | 22 | ✓ |
+| PR 4 | `CVTrainer.fit` 7, `RefitTrainer.fit` 3, union 7 | 7 / 3 / 7 | ✓ |
+| PR 5 | 3 `UnseenPolicy` values | 3 (`mode`, `nan`, `error`) | ✓ |
+| PR 6 | 20 `ErrorCode` members | 20 | ✓ |
+| PR 8 | 74 defaulted / keyword-only `__init__` params | 74 | ✓ |
+| PR 9 | 92 proposals | 94 | explained |
+| PR 2 | enumerated from `Model`'s public signatures | 23 callables, 21 params | ✓ |
+
+PR 9's difference is exactly the two proposals this run has added — H-0092 in
+PR 0 and H-0093 in PR 1 — which is the population-grows-with-the-run effect
+already scheduled for the reconciliation pass before PR 9 (C5).
+
+So the plan's later scopes are scan-derived and reproduce, and **no decision
+about the plan is needed on this account.** PR 1 was the exception, not the
+pattern. Recomputation script:
+`docs/audits/2026-09-defect-discovery/instruments/plan_population_recheck.py`.
