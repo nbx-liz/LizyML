@@ -510,17 +510,79 @@ def test_scale_pos_weight_is_not_managed_for_multiclass() -> None:
     assert {call.get("scale_pos_weight") for call in seen["train_params"]} == {10}
 
 
+#: The tasks smart resolution runs under. Not "every task LizyML has" -- these
+#: are the three the resolvers branch on.
+SMART_TASKS: tuple[str, ...] = ("binary", "multiclass", "regression")
+
+#: The feature the ``feature_weights`` activation names. It has to exist in the
+#: frame, or the resolver refuses; naming a fictional feature and rewriting it
+#: inside the observer meant the declared value was never the one used.
+WEIGHTED_FEATURE = "feat_a"
+
 #: A value that switches each smart parameter on. The keys are asserted below
 #: against the provider's own list, so a new smart parameter fails here for
-#: having no activation rather than passing unobserved.
+#: having no activation rather than passing unobserved, and every value is
+#: asserted to make a difference, so an activation cannot go inert.
 SMART_ACTIVATIONS: dict[str, Any] = {
     "auto_num_leaves": True,
-    "num_leaves_ratio": 0.5,
+    "num_leaves_ratio": 0.25,
     "min_data_in_leaf_ratio": 0.01,
     "min_data_in_bin_ratio": 0.01,
-    "feature_weights": {"f0": 2.0},
+    "feature_weights": {WEIGHTED_FEATURE: 2.0},
     "balanced": True,
 }
+
+#: What a smart parameter needs switched on before it does anything.
+#: ``num_leaves_ratio`` is read only inside the ``auto_num_leaves`` branch, so
+#: activating it alone exercised a combination the resolver never reaches --
+#: dead in practice, and the observation said nothing about it (review round 10).
+SMART_PREREQUISITES: dict[str, dict[str, Any]] = {
+    "num_leaves_ratio": {"auto_num_leaves": True},
+}
+
+
+def _resolve_smart(smart: dict[str, Any], task: str) -> dict[str, Any]:
+    """Both resolvers, the way the training path calls them.
+
+    ``resolve_ratio_params`` is a separate entry point called per fold, so a
+    parameter that goes through it is invisible to the other one. Running both
+    puts every smart parameter through the same door here.
+    """
+    frame = make_binary_df(n=40)
+    feature_names = [column for column in frame.columns if column != "target"]
+    target = frame["target"] if task != "regression" else frame["target"] * 1.0
+
+    resolved, _ = resolve_smart_params(
+        smart=smart,
+        effective_params={"max_depth": 5},
+        n_rows=len(frame),
+        feature_names=feature_names,
+        y=target,
+        task=task,
+    )
+    resolved.update(
+        resolve_ratio_params(
+            min_data_in_leaf_ratio=smart.get("min_data_in_leaf_ratio"),
+            min_data_in_bin_ratio=smart.get("min_data_in_bin_ratio"),
+            n_rows=1000,
+        )
+    )
+    return resolved
+
+
+def _smart_input(name: str | None) -> dict[str, Any]:
+    """One smart parameter switched on, with whatever it needs beneath it.
+
+    ``balanced`` is switched off unless it is the subject: it defaults to on for
+    the classification tasks, so otherwise every case would write
+    ``scale_pos_weight`` and the individual activations would say nothing.
+    """
+    smart: dict[str, Any] = {"balanced": False}
+    if name is None:
+        return smart
+    smart.update(SMART_PREREQUISITES.get(name, {}))
+    smart[name] = SMART_ACTIVATIONS[name]
+    return smart
 
 
 def _names_the_resolvers_write() -> set[str]:
@@ -532,50 +594,35 @@ def _names_the_resolvers_write() -> set[str]:
     through ``resolved.update({...})`` was invisible to it and the test still
     passed (rounds 8-9 monitor). Running the code has no spelling to guess.
 
-    The input population is closed because it is enumerable: every smart
-    parameter the provider declares, activated, across every task.
+    **This is a bounded set of executions, not a closed input domain.** Every
+    declared smart parameter is run on its own with its prerequisites, and all
+    of them are run together, across the three tasks. Enumerating the parameter
+    *names* does not enumerate the combinations the resolvers accept, and saying
+    it did was the overclaim round 10 found. What it does establish is that a
+    native name written under any of these executions is declared.
     """
     written: set[str] = set()
-    frame = make_binary_df(n=40)
-    feature_names = [column for column in frame.columns if column != "target"]
-    activations = dict(SMART_ACTIVATIONS)
-    activations["feature_weights"] = {feature_names[0]: 2.0}
+    inputs = [_smart_input(name) for name in SMART_ACTIVATIONS]
+    everything = {"balanced": SMART_ACTIVATIONS["balanced"]}
+    for name in SMART_ACTIVATIONS:
+        everything.update(SMART_PREREQUISITES.get(name, {}))
+        everything[name] = SMART_ACTIVATIONS[name]
+    inputs.append(everything)
 
-    for task in ("binary", "multiclass", "regression"):
-        target = frame["target"] if task != "regression" else frame["target"] * 1.0
-        for name, value in activations.items():
-            smart = {name: value}
-            if name != "balanced":
-                # `balanced` defaults to on for the classification tasks, so
-                # every case would write `scale_pos_weight` and the individual
-                # activations would say nothing. Off unless it is the subject.
-                smart["balanced"] = False
-            try:
-                resolved, _ = resolve_smart_params(
-                    smart=smart,
-                    effective_params={"max_depth": 5},
-                    n_rows=len(frame),
-                    feature_names=feature_names,
-                    y=target,
-                    task=task,
-                )
-            except LizyMLError:
-                # `balanced` refuses regression outright, which writes nothing.
+    for task in SMART_TASKS:
+        for smart in inputs:
+            if smart.get("balanced") and task == "regression":
+                # The one refusal this observation expects. Every other
+                # `LizyMLError` is a failure, not a case to skip.
+                with pytest.raises(LizyMLError):
+                    _resolve_smart(smart, task)
                 continue
-            written |= set(resolved)
-
-    written |= set(
-        resolve_ratio_params(
-            min_data_in_leaf_ratio=activations["min_data_in_leaf_ratio"],
-            min_data_in_bin_ratio=activations["min_data_in_bin_ratio"],
-            n_rows=1000,
-        )
-    )
+            written |= set(_resolve_smart(smart, task))
     return written
 
 
 def test_every_smart_parameter_has_an_activation() -> None:
-    """The observation above is only closed if every smart parameter is run.
+    """Every smart parameter the provider declares is one this observation runs.
 
     A new smart parameter with no activation would be observed writing nothing,
     and the table would agree with a measurement that never took place.
@@ -583,6 +630,40 @@ def test_every_smart_parameter_has_an_activation() -> None:
     assert set(SMART_ACTIVATIONS) == LGBMProvider().smart_param_names(), (
         f"declared activations {sorted(SMART_ACTIVATIONS)} do not match the "
         f"provider's smart parameters {sorted(LGBMProvider().smart_param_names())}"
+    )
+    assert set(SMART_PREREQUISITES) <= set(SMART_ACTIVATIONS), SMART_PREREQUISITES
+
+
+@pytest.mark.parametrize("name", sorted(SMART_ACTIVATIONS))
+def test_every_activation_changes_what_the_resolvers_produce(name: str) -> None:
+    """An activation that does nothing observes nothing, and says so quietly.
+
+    Two ways that happened at once (review round 10): ``feature_weights`` named
+    a feature the frame does not have, so the observer silently substituted its
+    own value and the declared one was never used; and ``num_leaves_ratio`` was
+    supplied without ``auto_num_leaves``, so the resolver never read it. Setting
+    either to ``None`` left both closure tests green.
+
+    Compared against the same input **with its prerequisites but without the
+    parameter itself**, so the difference is the parameter and nothing else.
+    """
+    baseline_input = _smart_input(None)
+    baseline_input.update(SMART_PREREQUISITES.get(name, {}))
+    activated = _smart_input(name)
+
+    differences = []
+    for task in SMART_TASKS:
+        if activated.get("balanced") and task == "regression":
+            continue
+        baseline = _resolve_smart(baseline_input, task)
+        with_it = _resolve_smart(activated, task)
+        if baseline != with_it:
+            differences.append(task)
+
+    assert differences, (
+        f"activating {name!r} with {SMART_ACTIVATIONS[name]!r} produced exactly "
+        "what leaving it out produced, on every task. The observation that "
+        "backs SMART_PARAM_TARGETS therefore never exercised it."
     )
 
 
@@ -1297,19 +1378,25 @@ def _probe(target: Any, tmp_path: pathlib.Path, name: str) -> str:
     synthetic targets. An instrument whose own decision rule is only exercised
     by the four tests it happens to select is verified by a table again.
 
-    ``noticed`` -- it failed, and the writing it depends on had been reached, so
-    the failure is about the artifact.
+    ``failed-after-writing`` -- it failed, and the writing it depends on had
+    been reached first.
     ``never-reached`` -- it failed before any writing, so its failure is evidence
     of nothing. Counting that as noticing would be a silent pass in the
     instrument written to catch silent passes (review round 8).
     ``green`` -- it passed, so it asserts nothing about what was written.
 
-    The bound on ``noticed``: reaching the writer before failing does not by
-    itself prove the target inspected the artifact. The inference holds only
-    because the substitution differs from the real thing in **nothing but the
-    writing** -- the methods run, resolve their paths and return them exactly as
-    they would. That is why the return contract is preserved rather than
-    replaced, and it is a limit on this instrument, not a claim of it.
+    **``failed-after-writing`` is not "it inspected the artifact", and the
+    verdict is named for what was observed rather than for what it would be
+    convenient to conclude.** Two invocations of the same target can differ in
+    more than the writing -- in the path each is given, and in whatever state
+    the first left behind -- so ordering alone establishes nothing; a target that
+    reaches the exporter and then fails for its own reasons lands here (review
+    round 10). What the verdict rules out is the shape this instrument exists
+    for: a test that stays green when nothing is written. That the remaining
+    difference is *only* the writing is what the preserved return contract buys,
+    and it is a limit on this instrument, not a claim of it. The artifact
+    assertions in the named tests are reviewed directly; this does not replace
+    reading them.
     """
     # It must pass unpatched first. Without this control, a target that fails
     # for a reason of its own -- a broken fixture, an import error, a bug in
@@ -1329,7 +1416,7 @@ def _probe(target: Any, tmp_path: pathlib.Path, name: str) -> str:
             target(tmp_path / f"probe-{name}")
         except Exception:  # noqa: BLE001 - failing is the expected outcome
             reached = any(writer.called for writer in substituted)
-            return "noticed" if reached else "never-reached"
+            return "failed-after-writing" if reached else "never-reached"
     return "green"
 
 
@@ -1462,7 +1549,7 @@ def _synthetic_broken(path: pathlib.Path) -> None:
 
 def test_the_probe_tells_the_three_outcomes_apart(tmp_path: pathlib.Path) -> None:
     """Each verdict is reached by a target constructed to produce it."""
-    assert _probe(_synthetic_reader, tmp_path, "reader") == "noticed"
+    assert _probe(_synthetic_reader, tmp_path, "reader") == "failed-after-writing"
     assert _probe(_synthetic_in_memory_asserter, tmp_path, "in-memory") == "green"
     assert _probe(_synthetic_return_path_only, tmp_path, "return-path") == "green"
 

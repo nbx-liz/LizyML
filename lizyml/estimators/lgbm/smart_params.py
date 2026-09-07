@@ -32,13 +32,19 @@ from lizyml.estimators.lgbm.param_names import accepted_spellings
 #: name to every spelling LightGBM accepts for it.
 #:
 #: The set is not asserted from reading the code once: a test **runs** both
-#: resolvers with every smart parameter this provider declares switched on, over
-#: every task, and fails when a name comes back that is not declared here. It
-#: used to read the source for ``resolved[...] = ...`` instead, which was a
-#: guess about how an assignment is written -- a fourth name added through
+#: resolvers -- each smart parameter this provider declares on its own with
+#: whatever it needs beneath it, and all of them together, across the three
+#: tasks -- and fails when a name comes back that is not declared here. It used
+#: to read the source for ``resolved[...] = ...`` instead, which was a guess
+#: about how an assignment is written: a fourth name added through
 #: ``resolved.update({...})`` was invisible to it (H-0094, review round 9's
-#: monitor). Running the code has no spelling to guess, and the input population
-#: is closed because the smart parameters are enumerable.
+#: monitor). Running the code has no spelling to guess.
+#:
+#: That is a bounded set of executions, not a closed input domain: enumerating
+#: the parameter *names* does not enumerate the combinations the resolvers
+#: accept, and claiming otherwise was itself a finding (review round 10). Each
+#: declared activation is separately asserted to change what the resolvers
+#: produce, so none of them can go inert and be observed writing nothing.
 SMART_PARAM_TARGETS: dict[str, frozenset[str]] = {
     "auto_num_leaves": frozenset({"num_leaves"}),
     "min_data_in_leaf_ratio": frozenset({"min_data_in_leaf"}),
