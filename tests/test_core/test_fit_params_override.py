@@ -1171,46 +1171,45 @@ def test_export_code_without_an_override_carries_the_config_value(
 # it asserted on the model in memory and never read what was written. The fix
 # was made for that one test. The rounds 6-7 monitor named the repair -- assert
 # the property over **every** test that claims something about the artifact,
-# not over the one that was caught -- which is what stops the next round
-# finding the second instance of a class already found.
+# not over the one that was caught.
 #
-# The population is the tests that *write*, because that is the claim being
-# checked and it is the side this instrument substitutes. Defining it by what a
-# test reads would miss round 7's own shape, which read nothing.
+# Rounds 8 and 9 then found that "every" was a claim no scanner can keep. A
+# source scan looking for `model.export(...)` was defeated by binding the
+# attribute, then by `getattr(model, "export")`, then by `getattr(model, name)`
+# -- and `operator.methodcaller`, `functools.partial` and `Model.__dict__` are
+# next. Python's dispatch is an open grammar, so the completeness claim was
+# always a hypothesis about spelling and each round refuted one more spelling.
+#
+# So the scanner is deleted rather than taught a fourth form. The population is
+# named here, by hand, and says so. A bounded claim that is honestly stated
+# cannot be reproduced against; an unbounded one was reproduced against three
+# times. What it costs is real and is not hidden: a new exporting test has to be
+# added to this tuple by hand, and nothing detects a failure to do that.
 
+#: The tests whose subject is the exported artifact. Hand-maintained.
+ARTIFACT_TESTS: tuple[str, ...] = (
+    "test_the_override_reaches_the_exported_booster",
+    "test_the_override_does_not_survive_a_load",
+    "test_export_code_generates_the_overridden_value",
+    "test_export_code_without_an_override_carries_the_config_value",
+)
 
-def _tests_that_export() -> list[str]:
-    """Tests that call one of the writers, found by reading the module.
-
-    Derived rather than listed: a test added later that exports joins this
-    population without anyone remembering to add it, which is the whole reason
-    the population is not a constant here.
-    """
-    source = pathlib.Path(__file__).read_text(encoding="utf-8")
-    tree = ast.parse(source)
-    found: list[str] = []
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.FunctionDef) or not node.name.startswith("test_"):
-            continue
-        spellings = _writer_spellings(node)
-        unsupported = sorted(spellings - {"call"})
-        assert not unsupported, (
-            f"{node.name} names a writer in a form this scan does not classify "
-            f"as a call ({unsupported}); the grammar has to say what that means "
-            "rather than silently leaving the test out of the population"
-        )
-        if spellings:
-            found.append(node.name)
-    return sorted(found)
+#: Writer method -> the function beneath it that actually touches the disk.
+#: The substitution replaces the *writing*, not the method, so the method still
+#: runs and still returns the path it resolved. Substituting the method changed
+#: its return value too, and a target asserting only on that return failed for a
+#: reason that had nothing to do with the artifact (review round 9).
+ARTIFACT_WRITERS: dict[str, str] = {
+    "export": "lizyml.persistence.exporter.export",
+    "export_code": "lizyml.codegen.generator.generate_code",
+}
 
 
 def _declared_writers() -> frozenset[str]:
     """The writer methods ``ModelPersistenceMixin`` actually defines.
 
-    Read from the module rather than listed here. A hand-written set is complete
-    only until someone adds a third writer, and then every test using it drops
-    out of the population without a word -- the drift class this instrument
-    exists to catch, in the instrument's own constant (rounds 7-8 monitor).
+    Read from the module so that a third writer is noticed here rather than
+    quietly left unsubstituted.
     """
     source = (REPO / "lizyml/core/_model_persistence.py").read_text(encoding="utf-8")
     tree = ast.parse(source)
@@ -1225,61 +1224,9 @@ def _declared_writers() -> frozenset[str]:
     raise AssertionError("ModelPersistenceMixin was not found; the scan has gone blind")
 
 
-#: The writers this instrument substitutes. A test that names one of them is
-#: claiming something about what was written, so it belongs to the population
-#: whether or not it then remembers to read it back.
-_ARTIFACT_WRITERS = _declared_writers()
-
-
-def _writer_spellings(test: ast.FunctionDef) -> set[str]:
-    """Every way this test names a writer, classified.
-
-    The population is the tests that write, not the ones that read: round 7's
-    finding was a test that exported and then asserted on the model still in
-    memory, which no reader-side rule would have caught. Substituting the
-    writers and demanding that every such test notice covers both that shape
-    and the one where a test reads the wrong artifact.
-
-    Matching the AST rather than a substring of the source, because the same
-    characters occur in docstrings, comments and longer identifiers -- DC2
-    inside an instrument built to catch DC1.
-
-    Returns ``"call"`` for a direct ``model.export(...)``, and the offending
-    spelling for the two forms that reach a writer without being one:
-    ``writer = model.export`` and ``getattr(model, "export")``. Those are
-    *reported* by the caller, not quietly skipped -- a test that exports under a
-    spelling this scan cannot see would otherwise leave the population while the
-    pin below stayed green, which is round 8's third finding.
-    """
-    spellings: set[str] = set()
-    called_directly: set[int] = set()
-
-    for node in ast.walk(test):
-        if not isinstance(node, ast.Call):
-            continue
-        function = node.func
-        if isinstance(function, ast.Attribute) and function.attr in _ARTIFACT_WRITERS:
-            spellings.add("call")
-            called_directly.add(id(function))
-        elif isinstance(function, ast.Name) and function.id == "getattr":
-            # `getattr(model, "export")` reaches a writer through a string.
-            if any(
-                isinstance(argument, ast.Constant)
-                and argument.value in _ARTIFACT_WRITERS
-                for argument in node.args
-            ):
-                spellings.add("getattr")
-
-    for node in ast.walk(test):
-        if (
-            isinstance(node, ast.Attribute)
-            and node.attr in _ARTIFACT_WRITERS
-            and id(node) not in called_directly
-        ):
-            # Bound to a name and called later, or passed somewhere else.
-            spellings.add("bound attribute")
-
-    return spellings
+def _keep_the_output_path(*args: Any, **kwargs: Any) -> Any:
+    """Return the directory the caller asked for, writing nothing."""
+    return pathlib.Path(kwargs["output_dir"])
 
 
 def _probe(target: Any, tmp_path: pathlib.Path, name: str) -> str:
@@ -1289,35 +1236,33 @@ def _probe(target: Any, tmp_path: pathlib.Path, name: str) -> str:
     synthetic targets. An instrument whose own decision rule is only exercised
     by the four tests it happens to select is verified by a table again.
 
-    ``noticed`` -- it failed, and at least one substituted writer had been
-    reached, so the failure is about the artifact.
-    ``never-reached`` -- it failed before either writer, so its failure is
-    evidence of nothing. Counting that as noticing would be a silent pass in
-    the instrument written to catch silent passes (review round 8).
+    ``noticed`` -- it failed, and the writing it depends on had been reached, so
+    the failure is about the artifact.
+    ``never-reached`` -- it failed before any writing, so its failure is evidence
+    of nothing. Counting that as noticing would be a silent pass in the
+    instrument written to catch silent passes (review round 8).
     ``green`` -- it passed, so it asserts nothing about what was written.
+
+    The bound on ``noticed``: reaching the writer before failing does not by
+    itself prove the target inspected the artifact. The inference holds only
+    because the substitution differs from the real thing in **nothing but the
+    writing** -- the methods run, resolve their paths and return them exactly as
+    they would. That is why the return contract is preserved rather than
+    replaced, and it is a limit on this instrument, not a claim of it.
     """
     # It must pass unpatched first. Without this control, a target that fails
     # for a reason of its own -- a broken fixture, an import error, a bug in
     # this loop -- would be read as having noticed the missing artifact.
     target(tmp_path / f"control-{name}")
 
-    # Every declared writer, because a test reads whichever one it called: the
-    # first run of this instrument patched only `export` and reported the
-    # `export_code` test as not reading its artifact, when in fact the
-    # substitution had missed it. An instrument that names the wrong test is the
-    # same defect as a test that checks nothing. The set is derived, so a writer
-    # added later is substituted here without anyone remembering to add it.
     with contextlib.ExitStack() as stack:
         substituted = [
             stack.enter_context(
-                mock.patch.object(
-                    Model,
-                    writer,
-                    autospec=True,
-                    return_value=tmp_path / "never-written",
-                )
+                mock.patch(where, side_effect=_keep_the_output_path)
+                if where.endswith("generate_code")
+                else mock.patch(where)
             )
-            for writer in sorted(_ARTIFACT_WRITERS)
+            for where in sorted(ARTIFACT_WRITERS.values())
         ]
         try:
             target(tmp_path / f"probe-{name}")
@@ -1330,15 +1275,12 @@ def _probe(target: Any, tmp_path: pathlib.Path, name: str) -> str:
 def test_every_exporting_test_fails_when_nothing_is_written(
     tmp_path: pathlib.Path,
 ) -> None:
-    """Substitute both writers and every test that exports must notice.
+    """Suppress the writing and every test in ``ARTIFACT_TESTS`` must notice.
 
     A test that still passes made no claim about what was written, whatever its
     name says. This is the property round 7 used to expose one such test,
-    applied to the population instead of to the instance.
+    applied to the named population instead of to the instance.
     """
-    names = _tests_that_export()
-    assert names, "no exporting test was found; the scan has gone blind"
-
     # Refuse a shape this instrument cannot supply, instead of calling it and
     # reading the resulting `TypeError` as "the test noticed". That would be
     # DC1 -- couldn't run, counted as clean -- inside the instrument written to
@@ -1346,7 +1288,7 @@ def test_every_exporting_test_fails_when_nothing_is_written(
     # be visible rather than absorbed.
     unsupported = {
         name: list(inspect.signature(globals()[name]).parameters)
-        for name in names
+        for name in ARTIFACT_TESTS
         if list(inspect.signature(globals()[name]).parameters) != ["tmp_path"]
     }
     assert not unsupported, (
@@ -1354,53 +1296,47 @@ def test_every_exporting_test_fails_when_nothing_is_written(
         f"so it cannot check them: {unsupported}"
     )
 
-    verdicts = {name: _probe(globals()[name], tmp_path, name) for name in names}
+    verdicts = {
+        name: _probe(globals()[name], tmp_path, name) for name in ARTIFACT_TESTS
+    }
     still_green = [name for name, verdict in verdicts.items() if verdict == "green"]
     never_reached = [
         name for name, verdict in verdicts.items() if verdict == "never-reached"
     ]
 
     assert not never_reached, (
-        f"these tests failed before reaching either substituted writer, so "
-        f"their failure says nothing about the artifact: {never_reached}"
+        f"these tests failed before any writing was reached, so their failure "
+        f"says nothing about the artifact: {never_reached}"
     )
     assert not still_green, (
-        f"these tests passed with both writers replaced by no-ops, so they "
-        f"assert nothing about what was written: {still_green}"
+        f"these tests passed with the writing suppressed, so they assert "
+        f"nothing about what was written: {still_green}"
     )
 
 
-def test_the_exporting_test_population_is_not_empty_by_accident() -> None:
-    """The scan must find the tests it is named for.
+def test_the_named_population_names_tests_that_exist() -> None:
+    """A stale name would drop a test from the check without a word.
 
-    A scan that silently matches nothing would make the assertion above pass
-    vacuously -- the failure this PR has been fixing, in the instrument built to
-    prevent it.
+    This is the whole guarantee the deleted scanner used to claim: it is smaller
+    than that claim, and unlike it, it is true. Nothing here detects a *new*
+    exporting test that was not added to the tuple -- that limit is stated where
+    the tuple is defined.
     """
-    names = _tests_that_export()
-    assert "test_the_override_reaches_the_exported_booster" in names, names
-    assert "test_the_override_does_not_survive_a_load" in names, names
-    assert "test_export_code_generates_the_overridden_value" in names, names
-    assert "test_export_code_without_an_override_carries_the_config_value" in names
-    assert len(names) >= 4, names
-
-    # And it must not sweep in tests that never export: the scan reads calls,
-    # not characters, so a test that reads a repository source file with
-    # `read_text` stays out. Two such tests exist in this module, and an
-    # earlier substring form of the scan claimed both.
-    assert "test_every_specially_handled_name_has_an_alias_under_test" not in names
-    assert "test_the_managed_table_matches_the_code_that_writes_the_names" not in names
+    assert ARTIFACT_TESTS, "the population is empty"
+    assert len(set(ARTIFACT_TESTS)) == len(ARTIFACT_TESTS), ARTIFACT_TESTS
+    for name in ARTIFACT_TESTS:
+        assert name in globals(), f"{name} is named here but does not exist"
 
 
-def test_the_writer_set_is_read_from_the_module_that_defines_them() -> None:
-    """A scan that found nothing would empty the population without a word.
+def test_every_declared_writer_has_a_substitution() -> None:
+    """A writer added to the mixin must not be left running for real.
 
-    ``_ARTIFACT_WRITERS`` is derived so a third writer joins it on its own; this
-    asserts the derivation still finds the two that exist, because a rename or a
-    moved class would otherwise leave every exporting test unreviewed.
+    The map is written by hand, but the *keys* are checked against the class
+    that defines the methods, so a third writer fails here instead of quietly
+    going unsuppressed while the instrument still reports clean.
     """
-    assert {"export", "export_code"} == _ARTIFACT_WRITERS, _ARTIFACT_WRITERS
-    assert all(hasattr(Model, writer) for writer in _ARTIFACT_WRITERS)
+    assert set(ARTIFACT_WRITERS) == _declared_writers(), ARTIFACT_WRITERS
+    assert all(hasattr(Model, writer) for writer in ARTIFACT_WRITERS)
 
 
 # ---------------------------------------------------------------------------
@@ -1442,6 +1378,22 @@ def _synthetic_in_memory_asserter(path: pathlib.Path) -> None:
     assert model.fit_result is not None
 
 
+def _synthetic_return_path_only(path: pathlib.Path) -> None:
+    """A target that asserts only on the path the writer returned.
+
+    It inspects no artifact, so it must be reported ``green``. Substituting the
+    *method* rather than the writing changed this return value too, and the
+    target failed for a reason that had nothing to do with the artifact and was
+    reported as having noticed one (review round 9).
+    """
+    model = Model(
+        make_config("binary", n_estimators=3, n_splits=2),
+        data=make_binary_df(n=80),
+    )
+    model.fit()
+    assert model.export(path) == path
+
+
 def _synthetic_broken(path: pathlib.Path) -> None:
     """A target that fails before it could reach any writer."""
     raise RuntimeError("failed before any export")
@@ -1451,6 +1403,7 @@ def test_the_probe_tells_the_three_outcomes_apart(tmp_path: pathlib.Path) -> Non
     """Each verdict is reached by a target constructed to produce it."""
     assert _probe(_synthetic_reader, tmp_path, "reader") == "noticed"
     assert _probe(_synthetic_in_memory_asserter, tmp_path, "in-memory") == "green"
+    assert _probe(_synthetic_return_path_only, tmp_path, "return-path") == "green"
 
     # This one fails unpatched too, so the control run refuses it before any
     # verdict is reached, which is the stronger of the two guards.
@@ -1478,52 +1431,3 @@ def test_the_probe_will_not_read_a_failure_before_the_writer_as_noticing(
 
     assert _probe(target, tmp_path, "unrelated") == "never-reached"
     assert calls["n"] == 2
-
-
-#: ``(label, body, spellings)``. The grammar, stated as inputs.
-WRITER_SPELLINGS: list[tuple[str, str, set[str]]] = [
-    ("a direct call", "def t(p):\n    model.export(p)\n", {"call"}),
-    ("the other writer", "def t(p):\n    model.export_code(p)\n", {"call"}),
-    (
-        "a bound attribute",
-        "def t(p):\n    w = model.export\n    w(p)\n",
-        {"bound attribute"},
-    ),
-    ("passed along", "def t(p):\n    run(model.export_code)\n", {"bound attribute"}),
-    (
-        "through getattr",
-        'def t(p):\n    getattr(model, "export")(p)\n',
-        {"getattr"},
-    ),
-    ("no writer at all", "def t(p):\n    model.fit()\n", set()),
-    ("a writer in a docstring", 'def t(p):\n    """model.export(p)"""\n', set()),
-    ("a longer identifier", "def t(p):\n    model.export_nothing(p)\n", set()),
-]
-
-
-@pytest.mark.parametrize(("label", "body", "spellings"), WRITER_SPELLINGS)
-def test_the_writer_grammar_classifies_every_declared_spelling(
-    label: str, body: str, spellings: set[str]
-) -> None:
-    """Every way of naming a writer is classified, and none is passed over."""
-    function = ast.parse(body).body[0]
-    assert isinstance(function, ast.FunctionDef)
-    assert _writer_spellings(function) == spellings, label
-
-
-def test_a_writer_spelling_the_scan_cannot_see_is_refused_not_dropped() -> None:
-    """The scan says so rather than returning a quietly smaller population.
-
-    Round 8: binding ``writer = model.export`` escaped selection while the
-    population pin stayed green, so a test that exported was reviewed by
-    nothing. A grammar that admits only what it can classify has to refuse the
-    rest out loud.
-    """
-    source = pathlib.Path(__file__).read_text(encoding="utf-8")
-    source += "\n\ndef test_alias(tmp_path):\n    w = Model.export\n    w(tmp_path)\n"
-
-    with (
-        mock.patch.object(pathlib.Path, "read_text", return_value=source),
-        pytest.raises(AssertionError, match="bound attribute"),
-    ):
-        _tests_that_export()
