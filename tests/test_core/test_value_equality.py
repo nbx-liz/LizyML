@@ -144,7 +144,13 @@ CASES: list[tuple[str, object, object, bool]] = [
     ("different two-dimensional arrays", np.ones((2, 2)), np.zeros((2, 2)), True),
     ("equal lists", [1.0, 2.0], [1.0, 2.0], False),
     ("lists of different length", [1.0], [1.0, 2.0], True),
-    ("a list and an equal tuple", [1.0, 2.0], (1.0, 2.0), True),
+    ("a list and an equal tuple", [1.0, 2.0], (1.0, 2.0), False),
+    ("an array and an equal tuple", np.array([1.0, 2.0]), (1.0, 2.0), False),
+    ("an array and an equal list", np.array([1.0, 2.0]), [1.0, 2.0], False),
+    ("a series and an equal tuple", pd.Series([1.0, 2.0]), (1.0, 2.0), False),
+    ("a tuple and a reordered list", (1.0, 2.0), [2.0, 1.0], True),
+    ("a tuple and a list of different length", (1.0,), [1.0, 2.0], True),
+    ("a string and the tuple of its characters", "ab", ("a", "b"), True),
     ("equal series", pd.Series([1.0, 2.0]), pd.Series([1.0, 2.0]), False),
     ("equal strings", "binary", "binary", False),
     ("different strings", "binary", "regression", True),
@@ -297,14 +303,65 @@ def test_the_summarisation_cases_actually_reach_summarisation() -> None:
     )
 
 
-def test_a_list_and_a_tuple_are_not_the_same_value() -> None:
-    """Stated as its own case because it is a judgement, not an accident.
+@pytest.mark.parametrize(
+    "parameter,spellings",
+    [
+        (
+            "feature_contri",
+            ([1.0, 2.0], (1.0, 2.0), np.array([1.0, 2.0]), np.array([1, 2])),
+        ),
+        ("monotone_constraints", ([1, 0], (1, 0), np.array([1, 0]))),
+    ],
+)
+def test_containers_the_estimator_cannot_tell_apart_are_one_value(
+    parameter: str, spellings: tuple[object, ...]
+) -> None:
+    """The judgement, and the execution that decides it.
 
-    ``[1.0, 2.0] == (1.0, 2.0)`` is ``False`` in Python, and this function does
-    not second-guess that: a caller who wrote both spellings wrote two things,
-    and being told so is better than one of them being chosen silently.
+    An earlier version of this file asserted the opposite -- that a list and an
+    equal tuple are two values -- reasoning from Python, where
+    ``[1.0, 2.0] == (1.0, 2.0)`` is ``False``. That reasoned about the wrong
+    question. Nothing is chosen silently when a caller writes both spellings,
+    because there is nothing to choose between: LightGBM trains the
+    **byte-identical booster** from either, so a refusal here refuses a call
+    that meant one thing (H-0094 decision 8, review round 12).
+
+    This asserts that by training, not by citing it. The models are compared
+    with the ``[data:`` line dropped, which carries the dataset's own name.
     """
-    assert values_differ([1.0, 2.0], (1.0, 2.0))
+    lgb = pytest.importorskip("lightgbm")
+    rng = np.random.default_rng(0)
+    frame = pd.DataFrame(rng.normal(size=(120, 2)), columns=["a", "b"])
+    target = (frame["a"] + rng.normal(scale=0.2, size=120) > 0).astype(int)
+
+    trained: list[str] = []
+    for value in spellings:
+        booster = lgb.train(
+            {
+                "objective": "binary",
+                "verbose": -1,
+                "seed": 1,
+                "num_threads": 1,
+                "deterministic": True,
+                parameter: value,
+            },
+            lgb.Dataset(frame, target),
+            num_boost_round=5,
+        )
+        text = booster.model_to_string()
+        trained.append(
+            "\n".join(
+                line for line in text.splitlines() if not line.startswith("[data:")
+            )
+        )
+
+    assert len(set(trained)) == 1, (
+        f"LightGBM distinguishes the spellings of {parameter}; the equality "
+        "below would then be wrong rather than merely unnecessary"
+    )
+    for other in spellings[1:]:
+        assert not values_differ(spellings[0], other)
+        assert not values_differ(other, spellings[0])
 
 
 class _RaisingEverything:

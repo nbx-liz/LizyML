@@ -25,6 +25,7 @@ same call is accepted or refused depending on which of them saw it.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 
@@ -39,6 +40,36 @@ def _length_or_none(value: Any) -> int | None:
         return len(value)
     except Exception:  # noqa: BLE001 - a user value may define a failing __len__
         return None
+
+
+def _as_plain_sequence(value: Any) -> Any:
+    """Rewrite a sequence to a ``list``, or return the value as is.
+
+    A list, a tuple and a numpy array holding the same numbers are **one value**
+    to the estimator. Written to ``feature_contri`` or to
+    ``monotone_constraints``, all three train the byte-identical booster and
+    LightGBM prints the parameter as the same string. Python disagrees --
+    ``[1.0, 2.0] == (1.0, 2.0)`` is ``False`` -- and an earlier form of this
+    function took Python's answer, so a caller who wrote one parameter twice
+    under two spellings was refused for having written the second one as a
+    tuple (H-0094, review round 12).
+
+    The question these callers ask is "would the estimator see two values?",
+    not "did the caller reach for the same container type", so the container is
+    normalised away before anything is compared. ``str``, ``bytes`` and
+    ``bytearray`` are sequences too and are **not** normalised: their elements
+    are characters rather than a parameter's elements, and ``"auto"`` must not
+    become ``["a", "u", "t", "o"]``.
+
+    A value that is not a ``Sequence``, or one whose iteration fails, is
+    returned unchanged and decided by the steps that follow.
+    """
+    if isinstance(value, (str, bytes, bytearray)) or not isinstance(value, Sequence):
+        return value
+    try:
+        return list(value)
+    except Exception:  # noqa: BLE001 - a user Sequence may fail to iterate
+        return value
 
 
 def _as_plain_python(value: Any) -> Any:
@@ -103,20 +134,25 @@ def values_differ(first: Any, second: Any) -> bool:
        can improve on that. This is also the case the callers make most often:
        a parameter written under one spelling is compared with itself, and
        before this it went the long way round and could raise on the way.
-    1. **Length, when both have one.** Elementwise comparison broadcasts, so
+    1. **Sequence normalisation.** A sequence that is not text becomes a
+       ``list``, so the container a caller reached for is not itself an
+       answer. A list, a tuple and an array of the same numbers train the
+       byte-identical booster, and refusing the pair for the container was a
+       false refusal on ordinary input (H-0094, review round 12).
+    2. **Length, when both have one.** Elementwise comparison broadcasts, so
        ``[1.0, 1.0]`` and ``[1.0]`` would otherwise compare equal, and an empty
        sequence would agree with anything by a vacuous ``all()``.
-    2. **The comparison as a truth value**, which covers ordinary values and the
+    3. **The comparison as a truth value**, which covers ordinary values and the
        library scalars whose result is not a ``bool`` but converts to one.
-    3. **The same comparison over plain Python**, when the values convert --
+    4. **The same comparison over plain Python**, when the values convert --
        ``tolist`` on an array or a Series yields nested lists and Python
        numbers, whose ``==`` is an ordinary truth value. A conversion followed
        by the question already asked, not a new rule.
-    4. **The printed forms**, for everything else -- an ``__eq__`` that raises,
+    5. **The printed forms**, for everything else -- an ``__eq__`` that raises,
        and every comparison result that is neither a truth value nor
        convertible. A weaker answer than equality, and the only one both values
        always have.
-    5. **"The same"**, when even the printed forms raise.
+    6. **"The same"**, when even the printed forms raise.
 
     **There is no step that inspects the comparison result's contents**, and
     that absence is deliberate. Three review rounds each found one: reducing an
@@ -130,12 +166,13 @@ def values_differ(first: Any, second: Any) -> bool:
     protocol call on the values themselves, so there is nothing left of that
     kind to refute.
 
-    **What that costs, stated rather than hidden.** Step 3 covers the values
-    this library actually passes -- arrays, Series and library scalars -- so
-    equal numbers under different dtypes are the same value and a very long
-    pair that ``repr`` summarises identically still differs. What is left for
-    ``repr`` is the values with no faithful conversion to plain Python: a
-    ``DataFrame``, and a caller's own object. Two of those that print alike are
+    **What that costs, stated rather than hidden.** Steps 1 and 4 cover the
+    values this library actually passes -- lists, tuples, arrays, Series and
+    library scalars -- so equal numbers under different containers and different
+    dtypes are the same value, and a very long pair that ``repr`` summarises
+    identically still differs. What is left for ``repr`` is the values with no
+    faithful conversion to plain Python: a ``DataFrame``, and a caller's own
+    object. Two of those that print alike are
     reported as the same, and the callers then keep the first spelling written.
     That is the direction the floor already chose: this function feeds refusals,
     and answering "the same" declines to block a call rather than blocking one
@@ -146,9 +183,12 @@ def values_differ(first: Any, second: Any) -> bool:
     An earlier form decided every array-like by ``repr``, and review round 11
     reproduced what that cost on ordinary input: ``fit`` refused a call naming
     one parameter twice as ``np.array([1, 2])`` and ``np.array([1.0, 2.0])``,
-    values LightGBM accepts individually and which are the same value.
+    values LightGBM accepts individually and which are the same value. Round 12
+    found the same shape one container away -- ``np.array([1.0, 2.0])`` and
+    ``(1.0, 2.0)`` -- which is why the normalisation is a step of its own rather
+    than a widening of the conversion.
 
-    **This function does not raise an ``Exception``.** Step 4 is what makes that
+    **This function does not raise an ``Exception``.** Step 5 is what makes that
     true by construction rather than by having thought of enough value types.
     Every expression that touches a caller's value is inside a ``try``. A
     ``BaseException`` a caller's value raises -- ``KeyboardInterrupt`` and
@@ -165,8 +205,14 @@ def values_differ(first: Any, second: Any) -> bool:
     if first is second:
         return False
 
-    first_length = _length_or_none(first)
-    second_length = _length_or_none(second)
+    # The container is normalised away before anything is compared, because a
+    # list and a tuple of the same numbers are one value to the estimator and
+    # `==` says otherwise. Only sequences are touched, and only into a list.
+    normal_first = _as_plain_sequence(first)
+    normal_second = _as_plain_sequence(second)
+
+    first_length = _length_or_none(normal_first)
+    second_length = _length_or_none(normal_second)
     if (
         first_length is not None
         and second_length is not None
@@ -175,7 +221,7 @@ def values_differ(first: Any, second: Any) -> bool:
         return True
 
     try:
-        equal = first == second
+        equal = normal_first == normal_second
     except Exception:  # noqa: BLE001 - a user value may define a failing __eq__
         return _printed_forms_differ(first, second)
 
@@ -193,9 +239,9 @@ def values_differ(first: Any, second: Any) -> bool:
     # dtypes print differently, and deciding them by `repr` refused a call that
     # named one value twice -- with ordinary arrays, not adversarial objects
     # (H-0094, review round 11).
-    plain_first = _as_plain_python(first)
-    plain_second = _as_plain_python(second)
-    if plain_first is not first or plain_second is not second:
+    plain_first = _as_plain_python(normal_first)
+    plain_second = _as_plain_python(normal_second)
+    if plain_first is not normal_first or plain_second is not normal_second:
         try:
             return not bool(plain_first == plain_second)
         except Exception:  # noqa: BLE001 - the conversion is not guaranteed either
