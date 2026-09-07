@@ -1168,19 +1168,26 @@ def _tests_that_export() -> list[str]:
     for node in ast.walk(tree):
         if not isinstance(node, ast.FunctionDef) or not node.name.startswith("test_"):
             continue
-        if any(_calls_a_writer(call) for call in ast.walk(node)):
+        spellings = _writer_spellings(node)
+        unsupported = sorted(spellings - {"call"})
+        assert not unsupported, (
+            f"{node.name} names a writer in a form this scan does not classify "
+            f"as a call ({unsupported}); the grammar has to say what that means "
+            "rather than silently leaving the test out of the population"
+        )
+        if spellings:
             found.append(node.name)
     return sorted(found)
 
 
-#: The writers this instrument substitutes. A test that calls one of them is
+#: The writers this instrument substitutes. A test that names one of them is
 #: claiming something about what was written, so it belongs to the population
 #: whether or not it then remembers to read it back.
 _ARTIFACT_WRITERS = frozenset({"export", "export_code"})
 
 
-def _calls_a_writer(node: ast.AST) -> bool:
-    """Whether the node is a *call* to ``export`` or ``export_code``.
+def _writer_spellings(test: ast.FunctionDef) -> set[str]:
+    """Every way this test names a writer, classified.
 
     The population is the tests that write, not the ones that read: round 7's
     finding was a test that exported and then asserted on the model still in
@@ -1188,14 +1195,90 @@ def _calls_a_writer(node: ast.AST) -> bool:
     writers and demanding that every such test notice covers both that shape
     and the one where a test reads the wrong artifact.
 
-    Matching the call in the AST rather than a substring of the source, because
-    the same characters occur in docstrings, comments and longer identifiers --
-    DC2 inside the instrument built to catch DC1.
+    Matching the AST rather than a substring of the source, because the same
+    characters occur in docstrings, comments and longer identifiers -- DC2
+    inside an instrument built to catch DC1.
+
+    Returns ``"call"`` for a direct ``model.export(...)``, and the offending
+    spelling for the two forms that reach a writer without being one:
+    ``writer = model.export`` and ``getattr(model, "export")``. Those are
+    *reported* by the caller, not quietly skipped -- a test that exports under a
+    spelling this scan cannot see would otherwise leave the population while the
+    pin below stayed green, which is round 8's third finding.
     """
-    if not isinstance(node, ast.Call):
-        return False
-    function = node.func
-    return isinstance(function, ast.Attribute) and function.attr in _ARTIFACT_WRITERS
+    spellings: set[str] = set()
+    called_directly: set[int] = set()
+
+    for node in ast.walk(test):
+        if not isinstance(node, ast.Call):
+            continue
+        function = node.func
+        if isinstance(function, ast.Attribute) and function.attr in _ARTIFACT_WRITERS:
+            spellings.add("call")
+            called_directly.add(id(function))
+        elif isinstance(function, ast.Name) and function.id == "getattr":
+            # `getattr(model, "export")` reaches a writer through a string.
+            if any(
+                isinstance(argument, ast.Constant)
+                and argument.value in _ARTIFACT_WRITERS
+                for argument in node.args
+            ):
+                spellings.add("getattr")
+
+    for node in ast.walk(test):
+        if (
+            isinstance(node, ast.Attribute)
+            and node.attr in _ARTIFACT_WRITERS
+            and id(node) not in called_directly
+        ):
+            # Bound to a name and called later, or passed somewhere else.
+            spellings.add("bound attribute")
+
+    return spellings
+
+
+def _probe(target: Any, tmp_path: pathlib.Path, name: str) -> str:
+    """Run one target twice and say what its behaviour under substitution means.
+
+    A separate function because the three outcomes have to be testable on
+    synthetic targets. An instrument whose own decision rule is only exercised
+    by the four tests it happens to select is verified by a table again.
+
+    ``noticed`` -- it failed, and at least one substituted writer had been
+    reached, so the failure is about the artifact.
+    ``never-reached`` -- it failed before either writer, so its failure is
+    evidence of nothing. Counting that as noticing would be a silent pass in
+    the instrument written to catch silent passes (review round 8).
+    ``green`` -- it passed, so it asserts nothing about what was written.
+    """
+    # It must pass unpatched first. Without this control, a target that fails
+    # for a reason of its own -- a broken fixture, an import error, a bug in
+    # this loop -- would be read as having noticed the missing artifact.
+    target(tmp_path / f"control-{name}")
+
+    # Both writers, because a test reads whichever one it called: the first run
+    # of this instrument patched only `export` and reported the `export_code`
+    # test as not reading its artifact, when in fact the substitution had missed
+    # it. An instrument that names the wrong test is the same defect as a test
+    # that checks nothing.
+    with (
+        mock.patch.object(
+            Model, "export", autospec=True, return_value=tmp_path / "never-written"
+        ) as export,
+        mock.patch.object(
+            Model,
+            "export_code",
+            autospec=True,
+            return_value=tmp_path / "never-written",
+        ) as export_code,
+    ):
+        try:
+            target(tmp_path / f"probe-{name}")
+        except Exception:  # noqa: BLE001 - failing is the expected outcome
+            return (
+                "noticed" if (export.called or export_code.called) else "never-reached"
+            )
+    return "green"
 
 
 def test_every_exporting_test_fails_when_nothing_is_written(
@@ -1225,31 +1308,16 @@ def test_every_exporting_test_fails_when_nothing_is_written(
         f"so it cannot check them: {unsupported}"
     )
 
-    still_green: list[str] = []
-    for name in names:
-        target = globals()[name]
-        # Both writers, because a test reads whichever one it called: the first
-        # run of this instrument patched only `export` and reported the
-        # `export_code` test as not reading its artifact, when in fact the
-        # substitution had missed it. An instrument that names the wrong test is
-        # the same defect as a test that checks nothing.
-        with (
-            mock.patch.object(
-                Model, "export", autospec=True, return_value=tmp_path / "never-written"
-            ),
-            mock.patch.object(
-                Model,
-                "export_code",
-                autospec=True,
-                return_value=tmp_path / "never-written",
-            ),
-        ):
-            try:
-                target(tmp_path / f"probe-{name}")
-            except Exception:  # noqa: BLE001 - failing is the expected outcome
-                continue
-            still_green.append(name)
+    verdicts = {name: _probe(globals()[name], tmp_path, name) for name in names}
+    still_green = [name for name, verdict in verdicts.items() if verdict == "green"]
+    never_reached = [
+        name for name, verdict in verdicts.items() if verdict == "never-reached"
+    ]
 
+    assert not never_reached, (
+        f"these tests failed before reaching either substituted writer, so "
+        f"their failure says nothing about the artifact: {never_reached}"
+    )
     assert not still_green, (
         f"these tests passed with both writers replaced by no-ops, so they "
         f"assert nothing about what was written: {still_green}"
@@ -1276,3 +1344,129 @@ def test_the_exporting_test_population_is_not_empty_by_accident() -> None:
     # earlier substring form of the scan claimed both.
     assert "test_every_specially_handled_name_has_an_alias_under_test" not in names
     assert "test_the_managed_table_matches_the_code_that_writes_the_names" not in names
+
+
+# ---------------------------------------------------------------------------
+# The instrument's own decision rule and grammar, on synthetic inputs
+# ---------------------------------------------------------------------------
+# Round 8 found two defects here: a target that failed before reaching either
+# writer was counted as having noticed, and a writer named under an alias left
+# the population without a word. Both are the classes this PR keeps fixing, in
+# the instrument built to catch them, so both are pinned against inputs made
+# for the purpose rather than against the four tests that happen to be selected.
+
+
+def _synthetic_reader(path: pathlib.Path) -> None:
+    """A target that reads what it wrote. Not a ``test_``, so not a population
+    member -- the scan is about the tests under review, and this one exists to
+    exercise the probe."""
+    model = Model(
+        make_config("binary", n_estimators=3, n_splits=2),
+        data=make_binary_df(n=80),
+    )
+    model.fit()
+    out = model.export(path)
+    restored = Model.load(out)
+    assert restored is not model and restored.fit_result is not model.fit_result
+
+
+def _synthetic_in_memory_asserter(path: pathlib.Path) -> None:
+    """A target that exports and then asserts on the model still in memory.
+
+    Round 7's shape exactly, reproduced so the probe's ``green`` verdict is
+    reached by something and not only declared.
+    """
+    model = Model(
+        make_config("binary", n_estimators=3, n_splits=2),
+        data=make_binary_df(n=80),
+    )
+    model.fit()
+    model.export(path)
+    assert model.fit_result is not None
+
+
+def _synthetic_broken(path: pathlib.Path) -> None:
+    """A target that fails before it could reach any writer."""
+    raise RuntimeError("failed before any export")
+
+
+def test_the_probe_tells_the_three_outcomes_apart(tmp_path: pathlib.Path) -> None:
+    """Each verdict is reached by a target constructed to produce it."""
+    assert _probe(_synthetic_reader, tmp_path, "reader") == "noticed"
+    assert _probe(_synthetic_in_memory_asserter, tmp_path, "in-memory") == "green"
+
+    # This one fails unpatched too, so the control run refuses it before any
+    # verdict is reached, which is the stronger of the two guards.
+    with pytest.raises(RuntimeError, match="failed before any export"):
+        _probe(_synthetic_broken, tmp_path, "broken")
+
+
+def test_the_probe_will_not_read_a_failure_before_the_writer_as_noticing(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The other guard, on a target that passes unpatched and fails patched.
+
+    The control run cannot catch this one: the target is healthy, and it fails
+    under substitution for a reason that has nothing to do with the artifact.
+    Only the record of whether a writer was reached separates the two.
+    """
+    calls = {"n": 0}
+
+    def target(path: pathlib.Path) -> None:
+        # The first call is the control and passes; the second runs under the
+        # substitution and fails for a reason that never reaches a writer.
+        calls["n"] += 1
+        if calls["n"] > 1:
+            raise RuntimeError("unrelated failure, no writer involved")
+
+    assert _probe(target, tmp_path, "unrelated") == "never-reached"
+    assert calls["n"] == 2
+
+
+#: ``(label, body, spellings)``. The grammar, stated as inputs.
+WRITER_SPELLINGS: list[tuple[str, str, set[str]]] = [
+    ("a direct call", "def t(p):\n    model.export(p)\n", {"call"}),
+    ("the other writer", "def t(p):\n    model.export_code(p)\n", {"call"}),
+    (
+        "a bound attribute",
+        "def t(p):\n    w = model.export\n    w(p)\n",
+        {"bound attribute"},
+    ),
+    ("passed along", "def t(p):\n    run(model.export_code)\n", {"bound attribute"}),
+    (
+        "through getattr",
+        'def t(p):\n    getattr(model, "export")(p)\n',
+        {"getattr"},
+    ),
+    ("no writer at all", "def t(p):\n    model.fit()\n", set()),
+    ("a writer in a docstring", 'def t(p):\n    """model.export(p)"""\n', set()),
+    ("a longer identifier", "def t(p):\n    model.export_nothing(p)\n", set()),
+]
+
+
+@pytest.mark.parametrize(("label", "body", "spellings"), WRITER_SPELLINGS)
+def test_the_writer_grammar_classifies_every_declared_spelling(
+    label: str, body: str, spellings: set[str]
+) -> None:
+    """Every way of naming a writer is classified, and none is passed over."""
+    function = ast.parse(body).body[0]
+    assert isinstance(function, ast.FunctionDef)
+    assert _writer_spellings(function) == spellings, label
+
+
+def test_a_writer_spelling_the_scan_cannot_see_is_refused_not_dropped() -> None:
+    """The scan says so rather than returning a quietly smaller population.
+
+    Round 8: binding ``writer = model.export`` escaped selection while the
+    population pin stayed green, so a test that exported was reviewed by
+    nothing. A grammar that admits only what it can classify has to refuse the
+    rest out loud.
+    """
+    source = pathlib.Path(__file__).read_text(encoding="utf-8")
+    source += "\n\ndef test_alias(tmp_path):\n    w = Model.export\n    w(tmp_path)\n"
+
+    with (
+        mock.patch.object(pathlib.Path, "read_text", return_value=source),
+        pytest.raises(AssertionError, match="bound attribute"),
+    ):
+        _tests_that_export()
