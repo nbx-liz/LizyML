@@ -457,6 +457,31 @@ Recomputation script:
 > and these instruments, with rounds 1-6 surfaces out of scope and no new region
 > admitted. **It is not pre-registered as the last round**; the standard is
 > `APPROVE`.
+>
+> ---
+>
+> **Round 8 ran and returned `REQUEST_CHANGES` with four findings — the most of
+> any round in this run** (`results/pr2_codex_round8.md`). All four reproduced,
+> all four fixed. **Two of them were in the instruments the rounds 6-7 monitor
+> prescribed**, and one was a production correctness defect: a `DataFrame` with
+> integer column labels was reported equal to a different one, which is round
+> 6's defect through the second guard written to exclude it.
+>
+> That finding was answered by **removing the elementwise step** rather than
+> patching it a third time. It was the only step whose correctness depended on
+> what iterating an arbitrary object yields; every version of it was a hypothesis
+> about object structure that the next round refuted. All 104 cases in the file
+> passed unchanged after the removal, so nothing in the table had depended on it,
+> and the cost — two arrays with equal numbers under different dtypes are now
+> reported as differing — is stated in the docstring rather than discovered later.
+>
+> Blocking per round: **1, 1, 2, 2, 1, 3, 2, 4**. Full suite **2403 passed**.
+>
+> The monitor's prediction held for an eighth round, including for the apparatus
+> built to end the pattern. The rounds 7-8 relational monitor runs before round
+> 9 and must be given the `4` unsoftened, with one question: **after these fixes,
+> is any declaration in scope still verified by a table rather than by a
+> construction or a stated limit?**
 
 ## State
 
