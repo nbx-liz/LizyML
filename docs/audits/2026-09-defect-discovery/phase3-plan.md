@@ -477,6 +477,28 @@ not part of this defect and is not changed.
 `tests/test_core/test_train_components.py` (:102 rewritten),
 `tests/test_core/test_fit_param_override.py` (new, priority chain).
 
+> **Actual scope, recorded 2026-09-07 after PR #278's review (this list is
+> stale).** Three review rounds moved the fix outward, each time because the
+> declared behaviour was not delivered by the smaller change:
+>
+> | Round | Why the scope moved | Files added |
+> |---|---|---|
+> | 1 | Smart resolution runs downstream of the merge and wins, so forwarding delivered nothing for six native names | `_model_factories.py`, `estimators/lgbm/smart_params.py`, `estimators/provider.py` (**public Protocol**), `estimators/lgbm/provider.py` |
+> | 2 | The refusal compared literal names while LightGBM resolves aliases | `estimators/lgbm/param_names.py` |
+> | 3 | A dict merge keeps both spellings and the estimator prefers the canonical one; a facade-only fix is re-beaten by the injected default | `estimators/lgbm/adapter.py` |
+>
+> Round 3 also carries a **user-visible behaviour change the plan did not
+> anticipate**: a config setting one of the eleven defaulted parameters under a
+> LightGBM alias was inert since it shipped and now takes effect (H-0094
+> decision 5, CHANGELOG). Three surfaces measured and deferred rather than
+> absorbed: #277, #279, #280.
+>
+> This is the third PR-scope overrun in Phase 3 (PR 1 overran twice). The
+> pattern is the same each time — **the plan's file list was written from the
+> defect's symptom, and the fix lives where the behaviour is actually decided.**
+> Recorded here rather than silently, and it is the same class of finding as
+> #276.
+
 **RED before the fix.** `test_fit_args_override_tune_best` rewritten to drive
 `Model.fit(params=...)` and assert the trained boosters differ. Today it calls
 the private merge helper directly with an explicit override, so it passes on
