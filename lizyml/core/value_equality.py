@@ -76,7 +76,9 @@ def values_differ(first: Any, second: Any) -> bool:
     2. **The comparison as a truth value**, which covers ordinary values and the
        library scalars whose result is not a ``bool`` but converts to one.
     3. **Elementwise**, requiring every element to be equal, for the array-like
-       results that cannot convert to a single truth value.
+       results that cannot convert to a single truth value -- and only when
+       every element can state a truth of its own, since iterating a comparison
+       does not always yield the comparison.
     4. **The printed forms**, for anything that raised on the way -- an
        ``__eq__`` that fails, or a shape whose elements are themselves arrays.
        A weaker answer than equality, and the only one both values always have.
@@ -128,13 +130,21 @@ def values_differ(first: Any, second: Any) -> bool:
     except Exception:  # noqa: BLE001 - nested arrays, exotic containers
         return _printed_forms_differ(first, second)
 
-    # Iterating a comparison result does not always yield the comparison. A
-    # DataFrame comparison iterates over **column labels**, which are strings
-    # and therefore all truthy, so two different frames reduced to "equal"
-    # (measured before this guard). A string element means what is being
-    # reduced is not the elementwise answer, so fall through to the printed
-    # forms rather than trust it.
-    if any(isinstance(element, str) for element in elements):
+    # Iterating a comparison result does not always yield the comparison, and
+    # what it yields instead is usually truthy, so the reduction below would
+    # read "equal" for two different values. Measured twice, by two different
+    # routes: a DataFrame comparison iterates over its **column labels**, and a
+    # comparison object that cannot be a boolean but is iterable yields
+    # whatever it likes.
+    #
+    # The property that separates a comparison outcome from junk is that the
+    # element can state a truth **of its own**. `bool`, `numpy.bool_` and the
+    # library scalars define `__bool__`; a string, a list and a bare object do
+    # not -- their truthiness comes from length or from the default, neither of
+    # which is an answer to "are these equal". An element without `__bool__`
+    # therefore means the iteration is not the comparison, and the printed
+    # forms are the honest fallback.
+    if not all(hasattr(element, "__bool__") for element in elements):
         return _printed_forms_differ(first, second)
 
     try:

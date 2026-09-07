@@ -235,3 +235,88 @@ def test_it_does_not_raise_on_a_value_nothing_can_analyse() -> None:
     that may not be there.
     """
     assert values_differ(_RaisingEverything(), _RaisingEverything()) is False
+
+
+class _UnbooleanIterableComparison:
+    """A comparison result that cannot be a boolean but *is* iterable.
+
+    Found in self-review before round 8. Round 7 widened the truth step to catch
+    every exception, which moved this shape out of the printed-form fallback and
+    into the elementwise reduction -- where iterating yielded objects that are
+    truthy by default, so two different values read as equal. The DataFrame case
+    round 6 found, reached through a different door.
+    """
+
+    def __iter__(self) -> Any:
+        return iter([object(), object()])
+
+    def __bool__(self) -> bool:
+        raise RuntimeError("truth failed")
+
+
+class _ComparesToJunk:
+    """Two of these are different, and only the comparison could say so."""
+
+    def __init__(self, tag: str) -> None:
+        self.tag = tag
+
+    def __eq__(self, other: object) -> Any:
+        return _UnbooleanIterableComparison()
+
+    __hash__ = None  # type: ignore[assignment]
+
+    def __repr__(self) -> str:
+        return f"_ComparesToJunk({self.tag!r})"
+
+
+#: One value per internal step, each failing at that step and no earlier, with
+#: what the function must still be able to say about it.
+#:
+#: This is the axis, not another case. Rounds 5, 6 and 7 each added the value
+#: shape that had just been found, and each time the next shape got through, so
+#: what is pinned here is that **every step has somewhere to fall**: a value that
+#: defeats one step is answered by a later one, and the last step is a decision
+#: rather than a computation.
+STEP_FAILURES: list[tuple[str, object, object, bool]] = [
+    ("length raises", _RaisingLength(), _RaisingLength(), False),
+    ("equality raises", _RaisingEquality(), _RaisingEquality(), False),
+    ("the truth value raises", _UnbooleanEquality(), _UnbooleanEquality(), False),
+    (
+        "iterating the comparison yields junk, and the values differ",
+        _ComparesToJunk("a"),
+        _ComparesToJunk("b"),
+        True,
+    ),
+    (
+        "iterating the comparison yields junk, and the values match",
+        _ComparesToJunk("a"),
+        _ComparesToJunk("a"),
+        False,
+    ),
+]
+
+
+@pytest.mark.parametrize(("label", "first", "second", "differ"), STEP_FAILURES)
+def test_every_step_has_somewhere_to_fall(
+    label: str, first: object, second: object, differ: bool
+) -> None:
+    assert values_differ(first, second) is differ, label
+    assert values_differ(second, first) is differ, f"{label} (reversed)"
+
+
+def test_the_reduction_only_trusts_elements_that_can_state_a_truth() -> None:
+    """The bound the elementwise step rests on, asserted directly.
+
+    ``bool`` and the library scalars define ``__bool__``; a string, a list and a
+    bare object do not -- their truthiness comes from length or from the default,
+    neither of which answers "are these equal". Two different routes produced an
+    iteration that is not the comparison (a DataFrame yielding column labels; a
+    comparison object yielding anything), and this property is what excludes
+    both without naming either.
+    """
+    assert hasattr(True, "__bool__")
+    assert hasattr(np.True_, "__bool__")
+    assert hasattr(np.float64(0.5), "__bool__")
+    assert not hasattr("a", "__bool__")
+    assert not hasattr(object(), "__bool__")
+    assert not hasattr([1], "__bool__")
