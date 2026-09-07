@@ -320,7 +320,23 @@ Recomputation script:
 
 **PR** 2 (#278) · **Proposal** H-0094 · **Reversal cost** — · **Window** `before-close`
 
-**This item needs a decision.** The run has stopped opening rounds on PR 2.
+> **RESOLVED 2026-09-07 — option 2, one further round scoped to the remedies.**
+>
+> The same choice the maintainer made on PR 1's D5, where a scoped round
+> returned the first `APPROVE` after five rounds without one.
+>
+> The rounds 4-5 monitor, spawned before that round and told the situation
+> plainly, judged it **warranted on its merits rather than for the missing
+> token**: asked whether a scoped round could still find anything, it answered
+> by finding something — the round-5 remedy raised `ValueError` on an
+> array-valued parameter, on the production entrypoint, with no duplicate
+> spelling needed. **The maker had found the same defect in self-review minutes
+> earlier**; two independent contexts converged on it without knowing of each
+> other. Fixed before the round, and disclosed in its prompt:
+> `results/pr2_monitor_round45.md`.
+>
+> The analysis below is kept as the record of the state that produced the
+> decision.
 
 ## State
 
