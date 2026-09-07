@@ -1,74 +1,96 @@
-# PR 2 — where this stands, and the next action
+# PR 2 — the next action, standing alone
 
-Written as a clean stopping point. Everything below is committed and pushed;
-the working tree is clean and CI is green on the branch.
+Written so that a session starting cold can act without reading the run.
 
-## State
+## Where this is
 
-- PR **#278**, draft, branch `fix/phase3-pr2-fit-params-forwarding`, base
-  `origin/develop` = `ccae32b`.
-- Full suite **2383 passed**; `ruff check .`, `ruff format --check .`,
-  `mypy lizyml/` clean.
-- **Seven review rounds, no `APPROVE`.** Blocking per round: 1, 1, 2, 2, 1, 3,
-  2 — twelve findings, every one reproduced and every one fixed.
-- Records: `pr2_codex_round[1-7].md`, monitors `pr2_monitor_round[12,23,34,45,56,67].md`,
-  decision D7 in `DECISIONS-PENDING.md`.
+PR **#278**, draft, branch `fix/phase3-pr2-fit-params-forwarding`. H-0094 /
+issue #264: `Model.fit(params=...)` was accepted, documented as overriding
+`model.params`, and forwarded nowhere.
 
-## The maintainer's standing instruction
+**Twelve review rounds have run. No `APPROVE` yet.** Blocking findings per
+round: **1, 1, 2, 2, 1, 3, 2, 4, 3, 2, 3, 2**. Every one was reproduced before
+it was fixed and RED-verified after.
 
-**Run until the external reviewer returns `APPROVE`**, on the standard applied
-to PR 1 (which took six rounds and got there on a scope-limited sixth). Stated
-reasoning: not obtaining `APPROVE` is itself evidence that real problems remain
-in the fix code — which the record supports, since every round found real,
-reproduced defects.
+The maintainer's instruction is the whole gate: **run PR 2 to the same standard
+as PR 1 — until the external reviewer returns `APPROVE`.** The absence of
+`APPROVE` is itself treated as evidence that problems remain in the fix code,
+and rounds 11 and 12 confirmed that by execution. The merge gate is
+`APPROVE` + CI green, already decided; do not re-ask
+(`memory/feedback_phase3_run_policy.md`).
 
-## What was done before round 8, and why it should be different
+## The one thing to know about scope
 
-The rounds 6-7 monitor identified why the previous three rounds each found
-something: **each remedy shipped a declaration verified by a hand-written table,
-and the next round found the gap between declaration and verification.** On that
-method, "run until APPROVE" manufactures its own next finding.
+Rounds 6, 8, 9 and 10 were each narrowed to the previous round's remedies, and
+each found nothing in production. That result was **produced by the scope, not
+by the code**: a round aimed at freshly written test apparatus finds
+test-apparatus defects. Round 11 was widened and found three production
+defects; round 12 was widened and found two more, plus one the main context
+found by enumeration.
 
-Three things changed, all committed:
-
-1. **One more self-authored defect found and fixed** — round 7's widening moved
-   an unbooleanable comparison into the elementwise reduction, where iterating
-   yielded truthy junk and two different values read as equal. The string
-   special-case is replaced by the property it stood for: an element with no
-   `__bool__` of its own is not a comparison outcome.
-2. **Instrument 1** — the no-raise bound quantified over a generated cross
-   product of the dunders `values_differ` touches, in both directions, with the
-   population derived so a shrunk behaviour table fails.
-3. **Instrument 2** — every artifact-reading test must fail when nothing is
-   written, over a population found by reading the module. **It found a second
-   instance of round 7's defect on its first run** (the `export_code` test
-   passed under a no-op `export`, which never touched the writer it uses).
+**Every further round is unscoped.** Do not narrow one to "review the fixes",
+whatever the previous round returned.
 
 ## The next action
 
-**Run round 8**, scope-limited, using
-`scratchpad/codex-pr2-review-prompt-r7.md` as the shape. Per the rounds 6-7
-monitor, point it at:
+1. **Run the rounds 12-13 relational monitor first.** It is mandatory before
+   round 13 (`policy:loop-monitor`), read-only, fresh context, via
+   `templates/review-loop-monitor-capsule.md`. Give it the numbers unsoftened
+   and the two things round 12 established:
+   - neither reviewer finding was in code round 11 wrote, so this is not the
+     authorship pattern the maintainer rescinded;
+   - the parameter-merge seam population is now **enumerated and closed** (24
+     expressions, 12 cross-source, each executed — H-0094 decision 8). Ask it
+     whether that table is the closed population, or whether it can name a merge
+     the AST scan's hint-word filter would miss.
 
-- the round-7 remedies (the handler widening, the artifact-reading test),
-- the two instruments above,
-- **rounds 1-6 surfaces explicitly out of scope, and no new region admitted.**
+   Its output is a finding to reconcile, never a verdict to adopt
+   (`policy:main-context-ownership`).
 
-Record in the prompt that the persistence/export redirect already measured the
-last unmeasured shipped surface and found production correct, so it is not fresh
-territory. The prompt's metadata block takes `Monitor-mode: relational`,
-`Monitor-verdict: CONVERGING`, `Monitor-evidence: results/pr2_monitor_round67.md`,
-`Monitor-disposition: redirect`.
+2. **Then round 13, unscoped**, on the whole diff except `docs/`. Write the
+   prompt to `scratchpad/codex-pr2-review-prompt-r13.md` with the metadata block
+   the `review-loop-monitor-guard.sh` hook validates (`Review-kind` on line 1;
+   round 3+ requires the relational monitor fields).
 
-**Do not pre-register this as the last round.** The maintainer's standard is
-`APPROVE`, and two earlier pre-registrations were overridden.
+3. Codex invocation, and the two rules around it:
 
-## The mechanics, unchanged
+   ```
+   CODEX_HOME=<writable copy> codex exec --sandbox read-only \
+     -C /home/rem/repos/LizyML --color never - < prompt > log 2>&1
+   ```
 
-```
-CODEX_HOME=<scratchpad>/codex-home codex exec --sandbox read-only \
-  -C /home/rem/repos/LizyML --color never - < <prompt> > <log> 2>&1
-```
-Copy `auth.json` + `config.toml` in with `setup_codex_home.py`, and **delete the
-copy afterwards** with `cleanup_codex_home.py`. Before every round from 3
-onward, a relational monitor runs first; the hook validates the metadata block.
+   `setup_codex_home.py` makes the copy; **`cleanup_codex_home.py` deletes it
+   after every run** — it holds `auth.json`. `codex-home/`, `~/.codex`, `~/.ssh`
+   and `~/.aws` are outside every reviewer's read scope.
+
+4. Reproduce every finding before fixing it, RED-verify every regression test,
+   and measure a firing rate by replaying real configs rather than estimating
+   it.
+
+## State at the time of writing
+
+- Head: the round-12 fixes, on `fix/phase3-pr2-fit-params-forwarding`.
+- Full suite **2445 passed**; `ruff check .`, `ruff format --check .`,
+  `mypy lizyml/` clean.
+- Round 12's record: `results/pr2_codex_round12.md`. Decisions:
+  `HISTORY.md` H-0094, decisions 1-8. Open question log:
+  `DECISIONS-PENDING.md` D7.
+
+## What is deliberately not in this PR
+
+- **#280** — the smart-managed refusal is wired to `fit(params=)` only; the
+  config surface is 3 of 18 refused, measured in round 12 and recorded in
+  BLUEPRINT §14.4. `config/` cannot import `estimators/`, so where the refusal
+  belongs is a design decision the maintainer holds.
+- **#279** — the same collision inside a `category: model` tuning space, 54/67
+  measured.
+- **#277** — `calibration.params` accepted and ignored for `platt` / `beta`.
+- The calibration layer's `min_data_in_leaf` case, which belongs to #280's class
+  and is recorded in round 12's note.
+
+## After this PR
+
+PR 3 (#258 tuning direction), PR 3b (H-0024 space merge — must resolve
+`HISTORY.md:1615` against `:1616`), PR 4-9. One reconciliation pass immediately
+before PR 9 for the deferred Phase 3 completion-measurement tooling
+(`phase3_gap.py` + manifest).

@@ -670,3 +670,43 @@ D5: the loop was stopped by the party outside it, on a condition fixed before
 the outcome was known, and the thing it named was fixed rather than argued away.
 
 Option 3 is not viable on the measurement.
+
+### Round 12 (2026-09-08) — unscoped, and the population closed
+
+`REQUEST_CHANGES`, 2 findings, both `[P2]`, both reproduced before anything was
+changed. A third was found afterwards by the main context, by enumerating every
+place one parameter dict meets another in `lizyml/`.
+
+Blocking per round: **1, 1, 2, 2, 1, 3, 2, 4, 3, 2, 3, 2 (+1)**. Full suite
+**2445 passed**.
+
+**What discriminates this round from round 5.** Neither reviewer finding is in
+code round 11 wrote. Finding 1 lands in the round-11 fix *file* but predates the
+step round 11 added — before the `tolist` conversion existed, the same pair went
+to the printed forms and also differed. Finding 2 is a downstream merge this PR
+gated but did not write, and the reviewer said so unprompted. So this is not the
+authorship pattern the maintainer rescinded; it is the deliverable surfacing
+defects that were already in it.
+
+**The third finding is #280, and is not implemented.** The smart-managed
+refusal is wired to `fit(params=)` only. Measured over the whole config surface
+(smart parameter x native name it writes x spelling LightGBM accepts): **3 of 18
+refused, 12 send two spellings to `lgb.train`, 3 are overwritten outright**.
+That defect is already recorded in BLUEPRINT §14.4 and already filed as #280,
+open for the maintainer because `config/` cannot reach the alias table under the
+layer rule. What was fixed here is the part that is this PR's own: the
+docstring claimed "refused at parse time for three of the five", which is true
+of the smart parameters and false of the surface. The measurement went to
+BLUEPRINT and to the docstring.
+
+**One more of the same class is recorded and not fixed**, for the same reason:
+`calibration.params = {"min_data_in_leaf": 7}` trains at `ceil(n x 0.01)` under
+every spelling, because the calibrator writes that key unconditionally from its
+always-present ratio default. Identical before and after this change.
+
+**The seam population is now closed, not sampled.** 24 dict-merge expressions in
+`lizyml/`; 12 where dicts from different sources meet; every one executed and
+recorded in H-0094 decision 8. This class produced a finding in most rounds, so
+enumerating it was cheaper than meeting it again.
+
+**Round 13 stays unscoped**, for the reason round 12 did.
