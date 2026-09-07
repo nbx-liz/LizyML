@@ -518,6 +518,38 @@ Recomputation script:
 > plainly: apparatus share 2/3, both in the constructs round 8 had already found,
 > and the remedy deleted one of them. Its question: **does anything left in scope
 > make a claim over an open population?**
+>
+> ---
+>
+> **The rounds 8-9 monitor answered `CONVERGING`** (`results/pr2_monitor_round89.md`),
+> the first such verdict reached over a measurement rather than an argument: the
+> periphery **shrank 64 lines** after growing 431, findings fell 4 → 3, and both
+> apparatus findings landed in constructs now deleted or structurally repaired.
+> It found the last two claims a source scan could not keep — the
+> `SMART_PARAM_TARGETS` closure and the writer set — and both were reproduced and
+> closed by replacing a parse with an observation: run the resolvers, and ask the
+> class.
+>
+> **Round 10 returned `REQUEST_CHANGES` with two findings**
+> (`results/pr2_codex_round10.md`), and **neither was a production defect**. Both
+> were claims the apparatus made about itself that exceeded what it does: the
+> smart-parameter observation supplied `num_leaves_ratio` without the branch that
+> reads it and overwrote its own declared `feature_weights`, so either activation
+> could go inert with both tests green; and `_probe` called "failed after
+> reaching a writer" evidence of artifact inspection, which ordering alone cannot
+> establish.
+>
+> The remedy was subtraction plus one property: prerequisites declared, declared
+> values actually used, the expected refusal asserted instead of absorbed, both
+> declarations cut back to a *bounded set of executions rather than a closed
+> input domain*, and the verdict renamed `failed-after-writing` for what is
+> observed. One new assertion — that every activation changes what the resolvers
+> produce — which is the property both faults violated at once.
+>
+> Blocking per round: **1, 1, 2, 2, 1, 3, 2, 4, 3, 2**. Full suite **2409
+> passed**.
+>
+> The rounds 9-10 relational monitor runs before round 11.
 
 ## State
 
