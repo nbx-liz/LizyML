@@ -7558,12 +7558,21 @@ Firing rate: 0/0 of shipped calls passing fit(params=...) -- no call site exists
 2. **同一層の重複拒否が 1 層にしか配線されていなかった（DC4）。** 決定 6 は「同じ層で 1 パラメーターが複数綴り・異なる値なら `CONFIG_INVALID`」と宣言したが、呼び出しは `fit(params=)` にしか無かった。`model.params` に `learning_rate` と `eta` を両方書いた config は両方が `lgb.train` に届き、LightGBM が黙って canonical 側を採る — 宣言はあり、実装もあり、その層には呼び出し側が無い。検査は facade（`_merge_params`）に置く。`config/` は層規約上 `estimators/` を import できないためである。
 
    ```
-   Firing rate: 0/811 of pre-existing configs carrying model.params (本リポジトリの
+   Firing rate: 0/813 of pre-existing configs carrying model.params (本リポジトリの
    スイートが構築する config を `check_duplicate_identities` の呼び出し点で観測。
-   812 件中 1 件が発火し、それは本変更と同時に足した回帰テストそのもの)
+   814 件中 1 件が発火し、それは本変更と同時に足した回帰テストそのもの)
    ```
 
    出荷済み config は 1 件も壊れない。`allow` 目的の条件なので Change Gate の実測要件に従って測った。
+
+   **さらに 4 つ目の層があった（rounds 10-11 monitor の指摘）。** 決定 7 を「宣言した層すべてに」と書いたので、monitor に「どの層に配線したのか」を問われた。`check_duplicate_identities` の呼び出しは 2 か所しか無く、**`calibration.params` は名前検査だけで同一性検査が無かった** — H-0093 が「config 側のどの門も見ていない 4 つ目の経路」と呼んだ層である。実測: `calibration.params: {"learning_rate": 0.001, "eta": 0.5}` は**両綴りが calibrator の `lgbm.train` に届き**、LightGBM が黙って canonical 側を採っていた。`check_calibration_param_names` の中に配線した（名前検査と同じ入口・同じ provider）。
+
+   ```
+   Firing rate: 0/22 of pre-existing configs carrying calibration.params
+   (同じ観測。23 件中 1 件が発火し、それは本変更と同時に足した回帰テスト)
+   ```
+
+   **スマート層は綴りマージのままでよい（同 monitor の 2 つ目の候補、実測して否定）。** 他の全層を同一性でマージするのは学習器がエイリアスを解決するからであり、**スマートパラメーター名には学習器のエイリアスが 1 つも無い** — LizyML 自身の名前で、LightGBM はそれらを知らない。したがって 2 つ目の綴りで届く経路が存在しない。実測 0 件、テストで固定（名前が増えて古びる種類の主張なので、仮定ではなく主張として置く）。
 
 3. **等価な配列を拒否していた（DC7）。** round 8 で要素ごとの還元ステップを削除したとき、真偽値にできない比較は印字形で判定することにし、その代償（dtype の違う等値な配列は「異なる」と報告される）を docstring に明記した。round 11 はその代償を**本番入口で実測**した: `np.array([1, 2])` と `np.array([1.0, 2.0])` はそれぞれ単独では学習でき、2 綴りで同時に書くと `CONFIG_INVALID` で拒否される。**代償を書いたことは、有効な入力を拒まないという要求を満たさない。**
 
