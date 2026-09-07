@@ -444,6 +444,16 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         # three, and a wrong address for the other two.
         origins: dict[str, str] = dict.fromkeys(model_params, "model.params")
 
+        # The same-layer rule, applied to the layer it was declared for as well
+        # as to the one that introduced it. H-0094 decision 6 and BLUEPRINT
+        # 14.4 state that one parameter written twice under two spellings with
+        # different values is refused, and until now only `fit(params=)` was
+        # checked: a config carrying both `learning_rate` and `eta` sent both
+        # to `lgb.train`, which silently kept the canonical one (review round
+        # 11). The check lives here rather than in the schema because the alias
+        # table is in `estimators/`, which `config/` may not import.
+        check_duplicate_identities(provider, model_params, surface="model.params")
+
         # --- Overlay tune best ---
         if self._tuning_result is not None:
             # Apply default fixed params when default space was used (#76).
