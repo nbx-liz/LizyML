@@ -103,7 +103,9 @@ def values_differ(first: Any, second: Any) -> bool:
     reported as the same, and the callers then keep the first spelling written.
     That is the direction the floor already chose: this function feeds refusals,
     and answering "the same" declines to block a call rather than blocking one
-    on an ambiguity nothing here can resolve.
+    on an ambiguity nothing here can resolve. Both halves of that cost are in
+    the case table, executed rather than asserted here, because a limit nothing
+    reaches is a limit nobody has checked.
 
     **This function does not raise an ``Exception``.** Step 4 is what makes that
     true by construction rather than by having thought of enough value types.

@@ -87,6 +87,20 @@ class _RaisingEquality:
         return "_RaisingEquality()"
 
 
+def _long_array(differing_at: int | None) -> Any:
+    """An array long enough that ``repr`` summarises its middle away.
+
+    The printed forms are the last thing this function has, so past numpy's
+    summarisation threshold two different arrays print alike. That is the
+    declared cost of deciding array-likes by ``repr``, and this builds the pair
+    that reaches it.
+    """
+    array = np.zeros(2000)
+    if differing_at is not None:
+        array[differing_at] = 1.0
+    return array
+
+
 #: ``(label, first, second, differ)``. The label is what the case is *about*,
 #: so a failure names the property rather than the literal.
 CASES: list[tuple[str, object, object, bool]] = [
@@ -134,6 +148,22 @@ CASES: list[tuple[str, object, object, bool]] = [
         True,
     ),
     ("nan is not itself, and that is deliberate", float("nan"), float("nan"), True),
+    # The two halves of the cost round 8's removal declared. Stated in the
+    # docstring and executed by nothing until the rounds 7-8 monitor ran it,
+    # which is the same shape as the declarations the loop keeps finding: a
+    # limit is only a limit once something reaches it.
+    (
+        "equal numbers under different dtypes print differently",
+        np.array([1, 2]),
+        np.array([1.0, 2.0]),
+        True,
+    ),
+    (
+        "arrays past the summarisation threshold that print alike",
+        _long_array(differing_at=None),
+        _long_array(differing_at=1000),
+        False,
+    ),
 ]
 
 
@@ -187,6 +217,25 @@ def test_iterating_a_comparison_does_not_always_yield_the_comparison() -> None:
         "editing"
     )
     assert values_differ(left, right)
+
+
+def test_the_summarisation_case_actually_reaches_summarisation() -> None:
+    """The premise of the case above, so it cannot pass for the wrong reason.
+
+    If numpy stopped summarising at this length the two arrays would print
+    differently, the case would report "different", and the expectation would be
+    edited to match instead of the reasoning being re-read.
+    """
+    same_printing = _long_array(differing_at=None)
+    different_values = _long_array(differing_at=1000)
+
+    assert repr(same_printing) == repr(different_values), (
+        "the premise is that repr summarises the differing element away; "
+        "if numpy changed that, this case needs re-reading, not re-writing"
+    )
+    assert not np.array_equal(same_printing, different_values), (
+        "the arrays must actually differ, or the case asserts nothing"
+    )
 
 
 def test_a_list_and_a_tuple_are_not_the_same_value() -> None:

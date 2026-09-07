@@ -14,6 +14,7 @@ against the **trained Booster** and against what ``lgb.train`` received.
 from __future__ import annotations
 
 import ast
+import contextlib
 import inspect
 import json
 import pathlib
@@ -936,14 +937,25 @@ def test_an_unhashable_value_does_not_break_the_refusal() -> None:
 #: raises. It raised even for a value written **once**, because the comparison
 #: was made against itself. ``feature_contri`` and ``monotone_constraints`` both
 #: plausibly arrive as arrays.
+#: Factories, not values. Binding one object under both spellings made every
+#: case resolve at the identity step and reach nothing else, so the claim "equal
+#: values under two spellings are accepted whatever the type" was carried by six
+#: cases that never compared anything (found by the rounds 7-8 monitor).
 AWKWARD_VALUES: dict[str, Any] = {
-    "numpy array": np.array([1.0, 2.0]),
-    "list": [1.0, 2.0],
-    "tuple": (1.0, 2.0),
-    "none": None,
-    "bool": True,
-    "empty list": [],
+    "numpy array": lambda: np.array([1.0, 2.0]),
+    "list": lambda: [1.0, 2.0],
+    # Built rather than written as a literal: CPython folds a constant tuple
+    # into the code object, so two calls returned the same object and the case
+    # went no further than the identity step.
+    "tuple": lambda: tuple([1.0, 2.0]),
+    "none": lambda: None,
+    "bool": lambda: True,
+    "empty list": lambda: [],
 }
+
+#: The labels whose value is a singleton, where two calls cannot produce two
+#: objects. Named rather than skipped, so the exception is visible.
+SINGLETON_VALUES = frozenset({"none", "bool"})
 
 
 @pytest.mark.parametrize("label", sorted(AWKWARD_VALUES))
@@ -955,7 +967,7 @@ def test_a_single_value_of_any_shape_passes_the_duplicate_refusal(label: str) ->
     call that named nothing twice.
     """
     check_duplicate_identities(
-        LGBMProvider(), {"feature_contri": AWKWARD_VALUES[label]}, surface="probe"
+        LGBMProvider(), {"feature_contri": AWKWARD_VALUES[label]()}, surface="probe"
     )
 
 
@@ -963,17 +975,29 @@ def test_a_single_value_of_any_shape_passes_the_duplicate_refusal(label: str) ->
 def test_equal_values_of_any_shape_are_accepted_under_two_spellings(
     label: str,
 ) -> None:
-    """And two spellings of the same value are the same value."""
-    value = AWKWARD_VALUES[label]
+    """And two spellings of an equal value are the same value.
+
+    Two *objects*, built separately. One object bound under both keys is
+    answered by the identity step and reaches nothing else, so the version of
+    this test that did that asserted only that ``x is x`` (rounds 7-8 monitor).
+    """
+    first, second = AWKWARD_VALUES[label](), AWKWARD_VALUES[label]()
+    if label not in SINGLETON_VALUES:
+        assert first is not second, (
+            f"{label} produced one object twice, so this case cannot reach "
+            "past the identity step"
+        )
+
     provider = LGBMProvider()
     check_duplicate_identities(
         provider,
-        {"feature_contri": value, "feature_contrib": value},
+        {"feature_contri": first, "feature_contrib": second},
         surface="probe",
     )
-    assert _pop_by_identity(
-        {"feature_contri": value, "feature_contrib": value}, "feature_contri"
-    ) == (value, "feature_contri")
+    kept, spelling = _pop_by_identity(
+        {"feature_contri": first, "feature_contrib": second}, "feature_contri"
+    )
+    assert kept is first and spelling == "feature_contri"
 
 
 def test_arrays_that_differ_are_still_refused() -> None:
@@ -1180,10 +1204,31 @@ def _tests_that_export() -> list[str]:
     return sorted(found)
 
 
+def _declared_writers() -> frozenset[str]:
+    """The writer methods ``ModelPersistenceMixin`` actually defines.
+
+    Read from the module rather than listed here. A hand-written set is complete
+    only until someone adds a third writer, and then every test using it drops
+    out of the population without a word -- the drift class this instrument
+    exists to catch, in the instrument's own constant (rounds 7-8 monitor).
+    """
+    source = (REPO / "lizyml/core/_model_persistence.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef) and node.name == "ModelPersistenceMixin":
+            return frozenset(
+                child.name
+                for child in node.body
+                if isinstance(child, ast.FunctionDef)
+                and child.name.startswith("export")
+            )
+    raise AssertionError("ModelPersistenceMixin was not found; the scan has gone blind")
+
+
 #: The writers this instrument substitutes. A test that names one of them is
 #: claiming something about what was written, so it belongs to the population
 #: whether or not it then remembers to read it back.
-_ARTIFACT_WRITERS = frozenset({"export", "export_code"})
+_ARTIFACT_WRITERS = _declared_writers()
 
 
 def _writer_spellings(test: ast.FunctionDef) -> set[str]:
@@ -1256,28 +1301,29 @@ def _probe(target: Any, tmp_path: pathlib.Path, name: str) -> str:
     # this loop -- would be read as having noticed the missing artifact.
     target(tmp_path / f"control-{name}")
 
-    # Both writers, because a test reads whichever one it called: the first run
-    # of this instrument patched only `export` and reported the `export_code`
-    # test as not reading its artifact, when in fact the substitution had missed
-    # it. An instrument that names the wrong test is the same defect as a test
-    # that checks nothing.
-    with (
-        mock.patch.object(
-            Model, "export", autospec=True, return_value=tmp_path / "never-written"
-        ) as export,
-        mock.patch.object(
-            Model,
-            "export_code",
-            autospec=True,
-            return_value=tmp_path / "never-written",
-        ) as export_code,
-    ):
+    # Every declared writer, because a test reads whichever one it called: the
+    # first run of this instrument patched only `export` and reported the
+    # `export_code` test as not reading its artifact, when in fact the
+    # substitution had missed it. An instrument that names the wrong test is the
+    # same defect as a test that checks nothing. The set is derived, so a writer
+    # added later is substituted here without anyone remembering to add it.
+    with contextlib.ExitStack() as stack:
+        substituted = [
+            stack.enter_context(
+                mock.patch.object(
+                    Model,
+                    writer,
+                    autospec=True,
+                    return_value=tmp_path / "never-written",
+                )
+            )
+            for writer in sorted(_ARTIFACT_WRITERS)
+        ]
         try:
             target(tmp_path / f"probe-{name}")
         except Exception:  # noqa: BLE001 - failing is the expected outcome
-            return (
-                "noticed" if (export.called or export_code.called) else "never-reached"
-            )
+            reached = any(writer.called for writer in substituted)
+            return "noticed" if reached else "never-reached"
     return "green"
 
 
@@ -1344,6 +1390,17 @@ def test_the_exporting_test_population_is_not_empty_by_accident() -> None:
     # earlier substring form of the scan claimed both.
     assert "test_every_specially_handled_name_has_an_alias_under_test" not in names
     assert "test_the_managed_table_matches_the_code_that_writes_the_names" not in names
+
+
+def test_the_writer_set_is_read_from_the_module_that_defines_them() -> None:
+    """A scan that found nothing would empty the population without a word.
+
+    ``_ARTIFACT_WRITERS`` is derived so a third writer joins it on its own; this
+    asserts the derivation still finds the two that exist, because a rename or a
+    moved class would otherwise leave every exporting test unreviewed.
+    """
+    assert {"export", "export_code"} == _ARTIFACT_WRITERS, _ARTIFACT_WRITERS
+    assert all(hasattr(Model, writer) for writer in _ARTIFACT_WRITERS)
 
 
 # ---------------------------------------------------------------------------
