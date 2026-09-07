@@ -174,20 +174,35 @@ CASES: list[tuple[str, object, object, bool]] = [
         True,
     ),
     ("nan is not itself, and that is deliberate", float("nan"), float("nan"), True),
-    # The two halves of the cost round 8's removal declared. Stated in the
-    # docstring and executed by nothing until the rounds 7-8 monitor ran it,
-    # which is the same shape as the declarations the loop keeps finding: a
-    # limit is only a limit once something reaches it.
+    # Both of these were decided by the printed forms until round 11, and both
+    # were wrong there: the first refused a call naming one value twice, and
+    # the second called two different arrays the same. Converting to plain
+    # Python answers both.
     (
-        "equal numbers under different dtypes print differently",
+        "equal numbers under different dtypes",
         np.array([1, 2]),
         np.array([1.0, 2.0]),
-        True,
+        False,
     ),
     (
-        "arrays past the summarisation threshold that print alike",
+        "a list and an equal array",
+        [1.0, 2.0],
+        np.array([1.0, 2.0]),
+        False,
+    ),
+    (
+        "arrays whose printed forms summarise the difference away",
         _long_array(differing_at=None),
         _long_array(differing_at=1000),
+        True,
+    ),
+    # What is left for the printed forms: a value with no faithful conversion
+    # to plain Python. This is the cost, and it is here so that something
+    # reaches it.
+    (
+        "frames whose printed forms summarise the difference away",
+        pd.DataFrame({"x": _long_array(differing_at=None)}),
+        pd.DataFrame({"x": _long_array(differing_at=1000)}),
         False,
     ),
     (
@@ -251,22 +266,34 @@ def test_iterating_a_comparison_does_not_always_yield_the_comparison() -> None:
     assert values_differ(left, right)
 
 
-def test_the_summarisation_case_actually_reaches_summarisation() -> None:
-    """The premise of the case above, so it cannot pass for the wrong reason.
+def test_the_summarisation_cases_actually_reach_summarisation() -> None:
+    """The premise of the two cases above, so neither passes for a wrong reason.
 
-    If numpy stopped summarising at this length the two arrays would print
-    differently, the case would report "different", and the expectation would be
-    edited to match instead of the reasoning being re-read.
+    Both pairs print identically. The arrays are nonetheless reported as
+    differing, because they convert to plain Python and are compared there; the
+    frames are reported as the same, because they do not convert and the printed
+    forms are all that is left. If either premise stopped holding, the pair would
+    print differently and the expectation would be edited to match instead of the
+    reasoning being re-read.
     """
     same_printing = _long_array(differing_at=None)
     different_values = _long_array(differing_at=1000)
 
     assert repr(same_printing) == repr(different_values), (
         "the premise is that repr summarises the differing element away; "
-        "if numpy changed that, this case needs re-reading, not re-writing"
+        "if numpy changed that, these cases need re-reading, not re-writing"
     )
     assert not np.array_equal(same_printing, different_values), (
-        "the arrays must actually differ, or the case asserts nothing"
+        "the arrays must actually differ, or the cases assert nothing"
+    )
+
+    left = pd.DataFrame({"x": same_printing})
+    right = pd.DataFrame({"x": different_values})
+    assert repr(left) == repr(right), "pandas no longer summarises this frame"
+    assert not left.equals(right), "the frames must actually differ"
+    assert not hasattr(left, "tolist"), (
+        "a DataFrame gaining `tolist` would move it out of the printed-form "
+        "fallback, which is the only case left that reaches that cost"
     )
 
 

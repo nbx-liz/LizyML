@@ -169,6 +169,113 @@ def test_the_tuning_result_still_outranks_the_config() -> None:
     assert values == {0.25}, f"expected the tuned value, lgb.train saw {values}"
 
 
+def test_tuning_evaluates_the_parameters_it_then_selects() -> None:
+    """A trial must train on the value the study records for it.
+
+    The trial merge was the fourth seam and the only one still merging by
+    spelling. A config `learning_rate` and a search dimension named `eta` are
+    one parameter to LightGBM, so a plain dict merge kept both and the library
+    preferred the canonical one: **the trials trained at the config's value
+    while the study recorded the trial's**, and the fit afterwards used the
+    recorded one. Tuning selected a model it had never evaluated (review round
+    11).
+    """
+    cfg = make_config(
+        "binary",
+        n_estimators=3,
+        n_splits=2,
+        learning_rate=CONFIG_VALUE,
+        tuning_n_trials=1,
+        num_threads=1,
+    )
+    cfg["tuning"]["optuna"]["space"] = {
+        "eta": {
+            "type": "categorical",
+            "choices": [OVERRIDE_VALUE],
+            "category": "model",
+        }
+    }
+    model = Model(cfg, data=make_binary_df(n=120))
+
+    def rates(calls: list[dict[str, Any]]) -> set[Any]:
+        # Under whichever spelling reached the library: the overlay keeps the
+        # spelling that was written last, and LightGBM resolves the alias.
+        spellings = accepted_spellings(OVERRIDDEN)
+        return {
+            value for call in calls for name, value in call.items() if name in spellings
+        }
+
+    with record_lightgbm_calls() as seen:
+        result = model.tune()
+    tuned = rates(seen["train_params"])
+
+    assert result.best_model_params == {"eta": OVERRIDE_VALUE}
+    assert tuned == {OVERRIDE_VALUE}, (
+        f"the trials trained at {tuned} while the study recorded "
+        f"{result.best_model_params}; tuning selected a model it never "
+        "evaluated"
+    )
+
+    with record_lightgbm_calls() as seen:
+        model.fit()
+    fitted = rates(seen["train_params"])
+    assert fitted == tuned, (
+        f"the fit trained at {fitted} and the trials at {tuned}; the selected "
+        "model is not the one the fit reproduces"
+    )
+
+
+def test_two_spellings_in_the_config_are_refused_before_training() -> None:
+    """The same-layer rule applies to the layer it was declared for.
+
+    H-0094 decision 6 states that one parameter written twice under two
+    spellings with different values is refused. Until review round 11 only
+    `fit(params=)` was checked, so a config carrying both `learning_rate` and
+    `eta` sent both to `lgb.train`, which silently kept the canonical one -- the
+    exact shape the rule exists to prevent, on the layer most callers use.
+    """
+    cfg = make_config(
+        "binary",
+        n_estimators=3,
+        n_splits=2,
+        learning_rate=CONFIG_VALUE,
+        eta=OVERRIDE_VALUE,
+    )
+    model = Model(cfg, data=make_binary_df(n=120))
+
+    with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as exc:
+        model.fit()
+
+    assert exc.value.code is ErrorCode.CONFIG_INVALID
+    assert "model.params" in exc.value.user_message, exc.value.user_message
+    assert not seen["train_params"], (
+        f"{len(seen['train_params'])} Booster(s) were trained before the "
+        "refusal; the check must fire before any training"
+    )
+
+
+def test_two_spellings_of_one_value_in_the_config_are_accepted() -> None:
+    """The other direction, so the refusal is not bought by refusing everything.
+
+    Writing one parameter twice with the *same* value names one thing twice;
+    there is no ambiguity for LightGBM to resolve, so nothing is refused.
+    """
+    cfg = make_config(
+        "binary",
+        n_estimators=3,
+        n_splits=2,
+        learning_rate=OVERRIDE_VALUE,
+        eta=OVERRIDE_VALUE,
+    )
+    model = Model(cfg, data=make_binary_df(n=120))
+
+    with record_lightgbm_calls() as seen:
+        model.fit()
+
+    values = {call.get(OVERRIDDEN) for call in seen["train_params"]}
+    assert values == {OVERRIDE_VALUE}, values
+
+
 # ---------------------------------------------------------------------------
 # The boundary PR 1 closed must stay closed through the new route
 # ---------------------------------------------------------------------------
@@ -1138,6 +1245,29 @@ def test_equal_values_of_any_shape_are_accepted_under_two_spellings(
         {"feature_contri": first, "feature_contrib": second}, "feature_contri"
     )
     assert kept is first and spelling == "feature_contri"
+
+
+def test_equal_arrays_of_different_dtypes_are_one_value() -> None:
+    """Through the production entrypoint, because that is where it was refused.
+
+    `np.array([1, 2])` and `np.array([1.0, 2.0])` are the same value and each
+    trains on its own. Deciding array-likes by their printed forms made them
+    two values, so naming one parameter twice with them was refused with
+    `CONFIG_INVALID` -- a gate refusing legitimate input, on ordinary arrays
+    rather than adversarial objects (review round 11).
+    """
+    cfg = make_config("binary", n_estimators=3, n_splits=2)
+    model = Model(cfg, data=make_binary_df(n=120))
+
+    with record_lightgbm_calls() as seen:
+        model.fit(
+            params={
+                "feature_contri": np.array([1, 2]),
+                "feature_contrib": np.array([1.0, 2.0]),
+            }
+        )
+
+    assert seen["train_params"], "the call was refused, or nothing trained"
 
 
 def test_arrays_that_differ_are_still_refused() -> None:

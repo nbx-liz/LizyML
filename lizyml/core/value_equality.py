@@ -41,6 +41,28 @@ def _length_or_none(value: Any) -> int | None:
         return None
 
 
+def _as_plain_python(value: Any) -> Any:
+    """Convert an array-like to ordinary Python objects, or return it as is.
+
+    ``tolist`` is the documented conversion on ``numpy`` arrays and scalars and
+    on ``pandas`` Series: it yields nested lists and Python numbers, whose
+    ``==`` answers with a real ``bool``. That is what makes the step below a
+    *normalisation* rather than a rule about what iterating an object yields --
+    the removed elementwise step guessed at the latter and three rounds refuted
+    it, while this converts and then asks the ordinary question again.
+
+    A value with no such conversion, or one whose conversion fails, is returned
+    unchanged and decided by the printed forms as before.
+    """
+    conversion = getattr(value, "tolist", None)
+    if not callable(conversion):
+        return value
+    try:
+        return conversion()
+    except Exception:  # noqa: BLE001 - a user object may define a failing tolist
+        return value
+
+
 def _printed_forms_differ(first: Any, second: Any) -> bool:
     """Compare printed forms, and answer "the same" when even that fails.
 
@@ -86,10 +108,15 @@ def values_differ(first: Any, second: Any) -> bool:
        sequence would agree with anything by a vacuous ``all()``.
     2. **The comparison as a truth value**, which covers ordinary values and the
        library scalars whose result is not a ``bool`` but converts to one.
-    3. **The printed forms**, for everything else -- an ``__eq__`` that raises,
-       and every comparison result that is not a truth value. A weaker answer
-       than equality, and the only one both values always have.
-    4. **"The same"**, when even the printed forms raise.
+    3. **The same comparison over plain Python**, when the values convert --
+       ``tolist`` on an array or a Series yields nested lists and Python
+       numbers, whose ``==`` is an ordinary truth value. A conversion followed
+       by the question already asked, not a new rule.
+    4. **The printed forms**, for everything else -- an ``__eq__`` that raises,
+       and every comparison result that is neither a truth value nor
+       convertible. A weaker answer than equality, and the only one both values
+       always have.
+    5. **"The same"**, when even the printed forms raise.
 
     **There is no step that inspects the comparison result's contents**, and
     that absence is deliberate. Three review rounds each found one: reducing an
@@ -103,20 +130,23 @@ def values_differ(first: Any, second: Any) -> bool:
     protocol call on the values themselves, so there is nothing left of that
     kind to refute.
 
-    **What that costs, stated rather than hidden.** Two array-likes whose
-    comparison cannot be a truth value are now decided by ``repr``. Two arrays
-    holding equal numbers under different dtypes print differently and are
-    therefore reported as differing, so a caller who writes one parameter twice,
-    once as ``[1, 2]`` and once as ``np.array([1.0, 2.0])``, is refused. The
-    refusal names both spellings and both values, so it is legible and the
-    caller can settle it. Conversely two arrays that print alike -- past
-    ``numpy``'s summarisation threshold, or below its display precision -- are
+    **What that costs, stated rather than hidden.** Step 3 covers the values
+    this library actually passes -- arrays, Series and library scalars -- so
+    equal numbers under different dtypes are the same value and a very long
+    pair that ``repr`` summarises identically still differs. What is left for
+    ``repr`` is the values with no faithful conversion to plain Python: a
+    ``DataFrame``, and a caller's own object. Two of those that print alike are
     reported as the same, and the callers then keep the first spelling written.
     That is the direction the floor already chose: this function feeds refusals,
     and answering "the same" declines to block a call rather than blocking one
-    on an ambiguity nothing here can resolve. Both halves of that cost are in
-    the case table, executed rather than asserted here, because a limit nothing
-    reaches is a limit nobody has checked.
+    on an ambiguity nothing here can resolve. The remaining cost is in the case
+    table, executed rather than asserted here, because a limit nothing reaches
+    is a limit nobody has checked.
+
+    An earlier form decided every array-like by ``repr``, and review round 11
+    reproduced what that cost on ordinary input: ``fit`` refused a call naming
+    one parameter twice as ``np.array([1, 2])`` and ``np.array([1.0, 2.0])``,
+    values LightGBM accepts individually and which are the same value.
 
     **This function does not raise an ``Exception``.** Step 4 is what makes that
     true by construction rather than by having thought of enough value types.
@@ -156,4 +186,19 @@ def values_differ(first: Any, second: Any) -> bool:
         # an object the caller supplied too, and its `__bool__` may fail for a
         # reason of its own; catching only `ValueError` and `TypeError` let that
         # escape a function declared not to raise (H-0094, review round 7).
-        return _printed_forms_differ(first, second)
+        pass
+
+    # The comparison could not be a truth value, so convert each side to plain
+    # Python and ask again. Two arrays holding equal numbers under different
+    # dtypes print differently, and deciding them by `repr` refused a call that
+    # named one value twice -- with ordinary arrays, not adversarial objects
+    # (H-0094, review round 11).
+    plain_first = _as_plain_python(first)
+    plain_second = _as_plain_python(second)
+    if plain_first is not first or plain_second is not second:
+        try:
+            return not bool(plain_first == plain_second)
+        except Exception:  # noqa: BLE001 - the conversion is not guaranteed either
+            pass
+
+    return _printed_forms_differ(first, second)
