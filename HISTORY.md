@@ -7431,6 +7431,17 @@ DC4（inert wiring）。配管はあり、公開の書き手が誰も到達し�
 
    さらに**表が実在の上書きを指していること自体を実行で確かめる**: 各名前について、管理しているスマートパラメーターを**無効化すると同じ上書きが `lgb.train` に素通しで届く**ことを主張する。これが無いと表は何を書いても拒否テストが通ってしまう。`balanced` は multiclass では sample weight を作る（パラメーター名ではない）ため、multiclass の `scale_pos_weight` は管理対象外であることも実行で固定する。
 
+   **エイリアスまで閉じること（レビュー round 2 の指摘）。** ここまでの実装は文字列一致で、LightGBM がエイリアスを同一パラメーターとして解決することを見ていなかった。実測:
+
+   ```
+   auto_num_leaves=True   fit(params={"max_leaves": 12})
+       -> lgb.train received (max_leaves=12, num_leaves=32), booster [num_leaves: 32]
+   auto_num_leaves=False  fit(params={"max_leaves": 12})
+       -> booster [num_leaves: 12]
+   ```
+
+   `max_leaves` は受理名なので H-0093 の検査も通り、決定 4 の管理表にも無いので拒否もされず、**LightGBM が canonical 側を優先するため上書きはまた黙って捨てられた**。したがって管理表は canonical 名で宣言し、判定時に**学習器が受理する全綴りへ展開する**。綴りの集合は列挙せず `LGBM_DumpParamAliases`（H-0093 と同じ権威）から導く。管理対象 6 名の綴りは実測 18 通り（`num_leaves` に 4、`min_data_in_leaf` に 4、`feature_contri` に 4 のエイリアス）。テストは全 18 綴り × 2 方向で回し、エイリアス展開を外すと**エイリアス 12 セルだけが RED**、canonical 6 セルは green になることを確認済み — 見落としの形そのものである。
+
    **適用範囲は `fit(params=)` のみ。** config 面は parse 時に 3 件が拒否済みで、残り 2 件の衝突は出荷済み config に 0 件（上の firing rate）。探索空間面は 54/67 で該当するが、閉じると本リポジトリの 54 件が落ちるため #279 に分離した。**この非一貫性は認識したうえでの分離であり、H-0094 の主張は「`fit(params=)` について閉じた」までである。**
 
 3. **不明名の拒否は出所を名指しする。** 3 入力が 1 つの dict にマージされてから検査されるため、従来はすべて `model.params` として報告していた。3 つのうち 2 つは**利用者を誤ったファイルに送る**。`_merge_params` が `origins` を持ち、`model.params` / `provider default fixed params` / `tuning best_model_params` / `fit(params=)` を名前ごとに区別する。優先順位が上の入力が出所を上書きするので、同名が複数入力にある場合は**実際に効いている方**が報告される。
@@ -7478,7 +7489,7 @@ Firing rate: 0/0 of shipped calls passing fit(params=...) -- no call site exists
 - **出所の名指し**: 例外メッセージと `context["unknown"]` の `surface` が `fit(params=)` であること。smart param 名の場合も専用メッセージを保ったまま出所を名乗ること。
 - **3 入力の同時判定**: `model.params` / `tuning best_model_params` / `fit(params=)` にそれぞれ不明名を置き、3 件が**それぞれの出所**で報告されること。
 - **誤って何かを変えないこと**: `params=None` と `params={}` がともに no-op であること、上書きが呼び出しをまたいで残らず利用者の config を書き換えないこと。
-- **決定 4（管理名の拒否、6 名前 × 2 方向）**: 各ネイティブ名について、(a) 管理するスマートパラメーターが有効なら `CONFIG_INVALID` で拒否され、両者の名前が message に現れ、**Booster が 1 本も学習されていない**こと。(b) そのスマートパラメーターを無効化すると、**同じ上書きが `lgb.train` に届く**こと。(b) が無ければ表は何を書いても (a) が通る。
+- **決定 4（管理名の拒否、18 綴り × 2 方向）**: 学習器が受理する各綴りについて、(a) 管理するスマートパラメーターが有効なら `CONFIG_INVALID` で拒否され、書かれた綴り・canonical 名・スマートパラメーター名が message に現れ、**Booster が 1 本も学習されていない**こと。(b) そのスマートパラメーターを無効化すると、**同じ上書きが `lgb.train` に届く**こと。(b) が無ければ表は何を書いても (a) が通る。綴りの母集団は登録表から導出し、`accepted_spellings` が canonical しか返さなくなったら落ちるテストを別に置く（そうでないと全セルが通ったまま穴が戻る）。
 - **管理表がコードと一致すること**: 解決関数の `resolved[...] =` 代入の走査と `SMART_PARAM_TARGETS` が一致すること。両方向の RED 確認済み（宣言のみの名前 / 走査にだけ現れる名前）。
 - **スマート面の分割が閉じていること**: provider が申告する全スマートパラメーターが「ネイティブ名を書く」か「何も書かない」のどちらかに分類され、未分類が残らないこと。
 - **対照**: 管理対象でない名前（`learning_rate`）は拒否されず届くこと、multiclass の `scale_pos_weight` は届くこと。
