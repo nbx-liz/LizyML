@@ -368,6 +368,50 @@ Recomputation script:
 > round has been taken, the deliverable's own path has had six independent
 > passes, and the remaining findings are in a helper whose whole job is one
 > comparison, tested against 25 labelled inputs in both directions.
+>
+> ---
+>
+> **Round 7 (2026-09-07): the maintainer directed one more round; the monitor
+> before it returned `DRIFTING`, the first non-converging verdict in this run.**
+>
+> The monitor rejected the series being reported: **6 of 10 findings had been
+> written by the loop**, and **no round since round 4 had found a defect that
+> predates the PR**. It showed the next generation already at HEAD, read-only,
+> and concluded that an open value domain cannot be exhausted by review rounds —
+> what closes it is a bound. It redirected the round to the one shipped surface
+> six rounds never touched: persistence and export of an overridden fit.
+>
+> Adopted in full. Before the round: the value helper was bounded by
+> construction (identity first, and a floor that answers "the same" when nothing
+> can analyse the pair); two further self-authored defects were found and fixed
+> (`__len__` raising anything but `TypeError`; a DataFrame comparison iterating
+> over column labels, so two different frames read as equal); and the
+> persistence axis was measured and pinned — it is **correct**: the override
+> reaches the artifact and the generated project, and does not survive a load.
+>
+> **Round 7 found two more, both in code written in rounds 5-7** — a truth-value
+> conversion that still let ordinary exceptions escape a function declared not
+> to raise, and an export test that passed with `export` replaced by a no-op.
+> Both fixed and RED-verified. `results/pr2_codex_round7.md`.
+>
+> **The pre-registered stop condition tripped, and the reviewer closed the loop
+> itself**: "Both findings concern rounds 5–7, so the stated stop condition
+> closes this review loop; this verdict does not initiate round 8."
+>
+> Blocking per round: **1, 1, 2, 2, 1, 3, 2**. Full suite **2349 passed**.
+>
+> **The recommendation is unchanged and now has four rounds of evidence behind
+> it: option 1.** The loop has not found a defect predating this PR since round
+> 4. Rounds 5, 6 and 7 each found defects in what the previous round wrote, and
+> round 7's second finding was in a test written in the same pass as the round
+> it was meant to close. Another round is expected to find something — in the
+> code that round produces. That is not a reason to keep going; it is the
+> monitor's DRIFTING verdict stated as a prediction.
+>
+> If the maintainer prefers a further round anyway, the honest framing is that
+> it buys another generation of the same, not a closer approach to a clean
+> verdict. **Reopening is a decision only the maintainer can make; this run will
+> not open round 8.**
 
 ## State
 
