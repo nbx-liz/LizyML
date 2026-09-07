@@ -482,6 +482,42 @@ Recomputation script:
 > 9 and must be given the `4` unsoftened, with one question: **after these fixes,
 > is any declaration in scope still verified by a table rather than by a
 > construction or a stated limit?**
+>
+> ---
+>
+> **The rounds 7-8 monitor answered `DRIFTING` with a measured denominator**
+> (`results/pr2_monitor_round78.md`): the forwarding path — the declared
+> deliverable — **has not changed since before round 6 was reviewed**, while the
+> apparatus now runs 2144 lines against 146 lines of helper. It named three
+> declarations still carried by hand-written tables; all three were reproduced
+> and repaired **in place**, and the repair of the third immediately exposed a
+> fourth instance (a constant tuple folded into the code object, so that case had
+> never compared anything either). Its constraint on round 9 was adopted: a
+> finding in existing apparatus is repaired in place or that apparatus is
+> deleted; no new module, generator or scanner as a remedy.
+>
+> **Round 9 returned `REQUEST_CHANGES` with three findings**
+> (`results/pr2_codex_round9.md`), **two of them in the same two constructs round
+> 8 found**. One was a production defect again: `repr` may return a `str`
+> subclass, so comparing the printed forms with `!=` handed the decision back to
+> the caller's object at the step that exists to escape it — the fallback
+> returned a list and both refusals fired on a pair that printed identically.
+>
+> The exporting-test scanner was **deleted** rather than taught a fourth
+> spelling. After `writer = model.export` and `getattr(model, "export")` came
+> `getattr(model, name)`, and after that `operator.methodcaller`,
+> `functools.partial` and `Model.__dict__`: "every test that exports" is a claim
+> no AST scan can deliver. It is replaced by four names, hand-maintained, saying
+> so, with the cost stated — nothing detects a new exporting test that is not
+> added. **That is the second contraction in two rounds**, and both removals took
+> out a claim no implementation could keep.
+>
+> Blocking per round: **1, 1, 2, 2, 1, 3, 2, 4, 3**. Full suite **2402 passed**.
+>
+> The rounds 8-9 relational monitor runs before round 10, and is to be told
+> plainly: apparatus share 2/3, both in the constructs round 8 had already found,
+> and the remedy deleted one of them. Its question: **does anything left in scope
+> make a claim over an open population?**
 
 ## State
 
