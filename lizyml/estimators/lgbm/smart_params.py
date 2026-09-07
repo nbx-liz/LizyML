@@ -11,6 +11,7 @@ import pandas as pd
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.task import TaskType
+from lizyml.estimators.lgbm.param_names import accepted_spellings
 
 #: The native LightGBM names each smart parameter writes when it is active
 #: (H-0094).
@@ -22,6 +23,13 @@ from lizyml.core.types.task import TaskType
 #: refuses three of these combinations at config-parse time, which is the
 #: policy this table generalises: the conflict is an error, not a silent
 #: substitution.
+#:
+#: The names here are LightGBM's **canonical** ones. LightGBM accepts aliases
+#: and treats them as the same parameter, so a check comparing literal strings
+#: lets ``max_leaves`` through while ``auto_num_leaves`` supplies ``num_leaves``
+#: and LightGBM prefers the canonical one -- the override silently ignored
+#: again, which review round 2 measured. ``smart_managed_names`` expands each
+#: name to every spelling LightGBM accepts for it.
 #:
 #: The set is not asserted from reading the code once: a test walks the
 #: ``resolved[...] = ...`` assignments in ``resolve_smart_params`` and
@@ -37,26 +45,33 @@ SMART_PARAM_TARGETS: dict[str, frozenset[str]] = {
 }
 
 
-def smart_managed_names(smart: dict[str, Any], task: TaskType) -> dict[str, str]:
-    """Native names an *active* smart parameter will write, and which one.
+def smart_managed_names(
+    smart: dict[str, Any], task: TaskType
+) -> dict[str, tuple[str, str]]:
+    """Names an *active* smart parameter will write, every spelling of them.
 
     Active is not the same as present: every smart parameter has a default that
     switches it on or off, and ``balanced`` writes ``scale_pos_weight`` only
     for binary -- multiclass gets a sample weight, which is not a parameter
     name and so cannot collide with one.
 
+    Every alias LightGBM accepts is included, because LightGBM resolves an
+    alias to the same parameter: refusing ``num_leaves`` and admitting
+    ``max_leaves`` refuses nothing.
+
     Args:
         smart: Smart parameter values, as ``extract_smart_params`` returns them.
         task: ML task type.
 
     Returns:
-        ``{native name: the smart parameter that will overwrite it}``.
+        ``{accepted spelling: (canonical name, the smart parameter writing it)}``.
     """
-    managed: dict[str, str] = {}
+    managed: dict[str, tuple[str, str]] = {}
 
     def claim(smart_name: str) -> None:
         for native in SMART_PARAM_TARGETS[smart_name]:
-            managed[native] = smart_name
+            for spelling in accepted_spellings(native):
+                managed[spelling] = (native, smart_name)
 
     if smart.get("auto_num_leaves", False):
         claim("auto_num_leaves")

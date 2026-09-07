@@ -22,6 +22,7 @@ import pytest
 from lizyml import Model
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.tuning_result import TuningResult
+from lizyml.estimators.lgbm.param_names import accepted_spellings
 from lizyml.estimators.lgbm.provider import LGBMProvider
 from lizyml.estimators.lgbm.smart_params import SMART_PARAM_TARGETS
 from tests._helpers import make_binary_df, make_config, make_multiclass_df
@@ -355,6 +356,21 @@ MANAGED_CASES: dict[str, dict[str, Any]] = {
 SMART_PARAMS_THAT_WRITE_NOTHING: frozenset[str] = frozenset({"num_leaves_ratio"})
 
 
+#: Every spelling LightGBM accepts for a managed name, paired with the canonical
+#: one, read from LightGBM's own alias registry rather than listed here.
+#:
+#: Review round 2 measured why: the refusal compared literal names, so
+#: ``max_leaves`` passed it, and LightGBM -- which treats the alias as
+#: ``num_leaves`` -- then preferred the value smart resolution had supplied.
+#: ``fit(params={"max_leaves": 12})`` trained at 32 and said nothing. Refusing
+#: one spelling of a parameter and admitting another refuses nothing.
+MANAGED_SPELLINGS: list[tuple[str, str]] = sorted(
+    (spelling, canonical)
+    for canonical in MANAGED_CASES
+    for spelling in accepted_spellings(canonical)
+)
+
+
 def _fit_with(smart: dict[str, Any], params: dict[str, Any]) -> list[dict[str, Any]]:
     cfg = make_config("binary", n_estimators=5, n_splits=2)
     cfg["model"].update(smart)
@@ -364,30 +380,44 @@ def _fit_with(smart: dict[str, Any], params: dict[str, Any]) -> list[dict[str, A
     return list(seen["train_params"])
 
 
-@pytest.mark.parametrize("native", sorted(MANAGED_CASES))
-def test_a_managed_name_is_refused_rather_than_replaced(native: str) -> None:
-    """Accepting a value that is then discarded is the defect, not the fix."""
+@pytest.mark.parametrize(("spelling", "native"), MANAGED_SPELLINGS)
+def test_a_managed_name_is_refused_rather_than_replaced(
+    spelling: str, native: str
+) -> None:
+    """Accepting a value that is then discarded is the defect, not the fix.
+
+    Parametrized over every spelling the library accepts, because the estimator
+    resolves aliases and a check that does not would leave the same parameter
+    reachable under another name.
+    """
     case = MANAGED_CASES[native]
     cfg = make_config("binary", n_estimators=5, n_splits=2)
     cfg["model"].update(case["enable"])
     model = Model(cfg, data=make_binary_df(n=160))
 
     with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as exc:
-        model.fit(params={native: case["value"]})
+        model.fit(params={spelling: case["value"]})
 
     assert exc.value.code is ErrorCode.CONFIG_INVALID
     message = str(exc.value)
-    assert native in message and case["smart"] in message, (
-        "the refusal must name both the parameter and the smart parameter that "
-        f"manages it; got: {message}"
+    assert spelling in message and case["smart"] in message, (
+        "the refusal must name both the parameter as written and the smart "
+        f"parameter that manages it; got: {message}"
     )
+    if spelling != native:
+        assert native in message, (
+            f"an alias must be told what it names; {spelling!r} was refused "
+            f"without mentioning {native!r}: {message}"
+        )
     assert not seen["train_params"], (
         f"{len(seen['train_params'])} Booster(s) were trained before the refusal"
     )
 
 
-@pytest.mark.parametrize("native", sorted(MANAGED_CASES))
-def test_the_same_name_applies_once_its_smart_parameter_is_off(native: str) -> None:
+@pytest.mark.parametrize(("spelling", "native"), MANAGED_SPELLINGS)
+def test_the_same_name_applies_once_its_smart_parameter_is_off(
+    spelling: str, native: str
+) -> None:
     """The other direction, and the reason the table is not merely a list.
 
     Each entry claims "an active smart parameter overwrites this name". Switch
@@ -396,13 +426,53 @@ def test_the_same_name_applies_once_its_smart_parameter_is_off(native: str) -> N
     refusal above would still pass.
     """
     case = MANAGED_CASES[native]
-    calls = _fit_with(case["disable"], {native: case["value"]})
+    calls = _fit_with(case["disable"], {spelling: case["value"]})
 
     assert calls, "no lgb.train call was recorded"
-    got = [call.get(native) for call in calls]
+    got = [call.get(spelling) for call in calls]
     assert all(value == case["value"] for value in got), (
-        f"with {case['smart']} disabled, {native} should reach lgb.train as "
+        f"with {case['smart']} disabled, {spelling} should reach lgb.train as "
         f"{case['value']!r}; it arrived as {got}"
+    )
+
+
+def test_the_alias_review_round_2_measured_is_refused() -> None:
+    """The exact case, kept as itself so the regression has a name.
+
+    ``max_leaves`` is LightGBM's alias for ``num_leaves``. Before this, it
+    passed the refusal, reached ``lgb.train`` alongside the smart-resolved
+    ``num_leaves``, and LightGBM used the canonical one: measured as
+    ``[(12, 32), (12, 32), (12, 32)]`` with ``[num_leaves: 32]`` in the booster.
+    """
+    cfg = make_config("binary", n_estimators=5, n_splits=2)
+    model = Model(cfg, data=make_binary_df(n=160))
+
+    with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as exc:
+        model.fit(params={"max_leaves": 12})
+
+    assert exc.value.code is ErrorCode.CONFIG_INVALID
+    assert not seen["train_params"]
+    names = {entry["name"] for entry in exc.value.context["managed"]}
+    canonicals = {entry["canonical"] for entry in exc.value.context["managed"]}
+    assert names == {"max_leaves"} and canonicals == {"num_leaves"}, (
+        f"context reported names={names} canonicals={canonicals}"
+    )
+
+
+def test_every_alias_of_a_managed_name_is_covered() -> None:
+    """The spelling population must come from the library, not from a list.
+
+    If ``accepted_spellings`` ever returned only the canonical name, every
+    parametrized cell above would still pass and the alias hole would be back.
+    """
+    for canonical in MANAGED_CASES:
+        spellings = {s for s, c in MANAGED_SPELLINGS if c == canonical}
+        assert canonical in spellings
+        assert spellings == accepted_spellings(canonical)
+    assert any(s != c for s, c in MANAGED_SPELLINGS), (
+        "no alias appears in the population at all, so the alias direction is "
+        "untested; LightGBM defines aliases for num_leaves, min_data_in_leaf "
+        "and feature_contri"
     )
 
 

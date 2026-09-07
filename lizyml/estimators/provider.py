@@ -102,8 +102,8 @@ class EstimatorProvider(Protocol):  # pragma: no cover
 
     def smart_managed_param_names(
         self, smart: dict[str, Any], task: TaskType
-    ) -> dict[str, str]:
-        """Return native names an *active* smart parameter will overwrite (H-0094).
+    ) -> dict[str, tuple[str, str]]:
+        """Return names an *active* smart parameter will overwrite (H-0094).
 
         :meth:`resolve_smart_params` runs after the parameter dict is merged and
         its result wins, so a native name it writes cannot be set by hand: the
@@ -118,8 +118,10 @@ class EstimatorProvider(Protocol):  # pragma: no cover
                 one task and something that is not a parameter for another.
 
         Returns:
-            ``{native name: the smart parameter that will overwrite it}``, empty
-            when no smart parameter is active.
+            ``{accepted spelling: (canonical name, the smart parameter)}``,
+            empty when no smart parameter is active. Every spelling the library
+            accepts must be a key: a library that resolves aliases makes a
+            literal-name check admit the same parameter under another name.
         """
         ...
 

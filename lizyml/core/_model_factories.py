@@ -588,17 +588,29 @@ def check_smart_managed_overrides(
         return
     from lizyml.core.exceptions import ErrorCode, LizyMLError
 
-    managed: dict[str, str] = provider.smart_managed_param_names(smart, task)
-    hits = [(name, managed[name]) for name in override if name in managed]
+    managed: dict[str, tuple[str, str]] = provider.smart_managed_param_names(
+        smart, task
+    )
+    hits = [(name, *managed[name]) for name in override if name in managed]
     if not hits:
         return
 
-    lines = [
-        f"  {surface}: '{name}' is resolved from the smart parameter "
-        f"'{smart_name}' and would be replaced, so setting it here would have "
-        f"no effect. Disable 'model.{smart_name}' to set '{name}' directly."
-        for name, smart_name in hits
-    ]
+    lines = []
+    for name, canonical, smart_name in hits:
+        # An alias is the same parameter to the estimator, so say which one it
+        # names -- otherwise the message talks about a name the user did not
+        # write, or about one whose connection to theirs is invisible.
+        subject = (
+            f"'{name}'"
+            if name == canonical
+            else f"'{name}', which names '{canonical}',"
+        )
+        lines.append(
+            f"  {surface}: {subject} is resolved from the smart parameter "
+            f"'{smart_name}' and would be replaced, so setting it here would "
+            f"have no effect. Disable 'model.{smart_name}' to set "
+            f"'{canonical}' directly."
+        )
     raise LizyMLError(
         code=ErrorCode.CONFIG_INVALID,
         user_message=(
@@ -606,8 +618,13 @@ def check_smart_managed_overrides(
         ),
         context={
             "managed": [
-                {"surface": surface, "name": name, "smart_param": smart_name}
-                for name, smart_name in hits
+                {
+                    "surface": surface,
+                    "name": name,
+                    "canonical": canonical,
+                    "smart_param": smart_name,
+                }
+                for name, canonical, smart_name in hits
             ]
         },
     )

@@ -70,13 +70,54 @@ def _dump_param_aliases() -> dict[str, list[str]]:
     return table
 
 
+_ALIAS_TABLE: dict[str, list[str]] = _dump_param_aliases()
+
+
 def _accepted_names() -> frozenset[str]:
-    table = _dump_param_aliases()
-    names = set(table)
-    for aliases in table.values():
+    names = set(_ALIAS_TABLE)
+    for aliases in _ALIAS_TABLE.values():
         names.update(aliases)
     return frozenset(names)
 
 
+def _canonical_by_name() -> dict[str, str]:
+    """Map every accepted spelling to the canonical name it means.
+
+    LightGBM treats an alias as the parameter itself, so any check that reasons
+    about *which parameter* a name refers to has to canonicalise first.
+    ``max_leaves`` is ``num_leaves``: a check comparing literal strings sees two
+    different names and lets one of them through (H-0094, review round 2).
+    """
+    out = {name: name for name in _ALIAS_TABLE}
+    for canonical, aliases in _ALIAS_TABLE.items():
+        for alias in aliases:
+            out[alias] = canonical
+    return out
+
+
 #: Every name LightGBM accepts for a training parameter, canonical or alias.
 LGBM_PARAM_NAMES: frozenset[str] = _accepted_names()
+
+#: Accepted spelling -> the canonical parameter it names. Covers the canonical
+#: names themselves, which map to themselves.
+LGBM_CANONICAL_NAME: dict[str, str] = _canonical_by_name()
+
+
+def accepted_spellings(canonical: str) -> frozenset[str]:
+    """Every spelling LightGBM accepts for *canonical*, including itself.
+
+    Raises:
+        KeyError: if *canonical* is not a name LightGBM defines. A silent empty
+            set here would make an alias-aware check pass vacuously (DC1).
+    """
+    if canonical not in _ALIAS_TABLE:
+        known = LGBM_CANONICAL_NAME.get(canonical)
+        why = (
+            f"it is an alias of {known!r}"
+            if known is not None
+            else "LightGBM does not define it"
+        )
+        raise KeyError(
+            f"{canonical!r} is not a canonical LightGBM parameter name; {why}"
+        )
+    return frozenset({canonical, *_ALIAS_TABLE[canonical]})

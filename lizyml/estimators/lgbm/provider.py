@@ -238,8 +238,8 @@ class LGBMProvider:
 
     def smart_managed_param_names(
         self, smart: dict[str, Any], task: TaskType
-    ) -> dict[str, str]:
-        """Return native names an active smart parameter will overwrite (H-0094)."""
+    ) -> dict[str, tuple[str, str]]:
+        """Return names an active smart parameter will overwrite (H-0094)."""
         return smart_managed_names(smart, task)
 
     def resolve_smart_params(
