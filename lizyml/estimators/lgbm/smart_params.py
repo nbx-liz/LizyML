@@ -73,7 +73,12 @@ def resolve_smart_params(
                 context={"unknown_features": sorted(unknown)},
             )
         weights = [fw.get(f, 1.0) for f in feature_names]
-        resolved["feature_weights"] = weights
+        # LightGBM's name for this is `feature_contri` (H-0093). The Config
+        # field stays `feature_weights`, which is the clearer name for the
+        # user; only the emitted key is LightGBM's. Emitting `feature_weights`
+        # meant LightGBM discarded it, so the weights had no effect at all --
+        # measured as a byte-identical model, not inferred.
+        resolved["feature_contri"] = weights
         resolved["feature_pre_filter"] = False
 
     # balanced — None means auto (True for binary/multiclass, False for regression)

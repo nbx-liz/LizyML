@@ -54,6 +54,8 @@ from lizyml.config.schema import (
 from lizyml.core._model_factories import (
     build_inner_valid,
     build_splitter,
+    check_calibration_param_names,
+    check_param_names,
     get_provider,
     make_inner_valid_factory,
 )
@@ -199,6 +201,13 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         self._provider = provider
         run_meta = self._build_run_meta(run_id)
         model_params, smart_params = self._merge_params(provider)
+        # Both parameter surfaces are checked here, before any training starts.
+        # `_merge_params` gates `model.params`; the calibration surface is
+        # checked beside it rather than at `_run_calibration`, which runs after
+        # the whole outer CV. A name the calibrator can never honour must not
+        # cost a full training first -- and H-0093 states the check fires
+        # before training, which was false while it lived downstream.
+        check_calibration_param_names(cfg.calibration)
         training_overrides = (
             self._tuning_result.best_training_params
             if self._tuning_result is not None
@@ -440,6 +449,19 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         # --- Overlay fit() args (highest priority) ---
         if override:
             model_params = {**model_params, **override}
+
+        # H-0093: the merged dict is what reaches the estimator, so it is where
+        # the names are checked. Every route into it is covered by construction
+        # -- config `model.params`, a config the caller mutated after handing it
+        # over, `best_model_params` restored from an artifact, and the `fit()`
+        # override -- which a construction-time check could not claim. Trial
+        # params overlay *after* this point and are covered instead by checking
+        # the search space before the study starts.
+        check_param_names(
+            provider,
+            (("model.params", name) for name in model_params),
+            model_name=model_cfg.name,
+        )
 
         return model_params, smart_params
 

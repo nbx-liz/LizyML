@@ -7,7 +7,7 @@ Provider dispatch added in H-0053.
 from __future__ import annotations
 
 import warnings
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 import numpy.typing as npt
@@ -422,4 +422,170 @@ def get_provider(model_cfg: Any) -> Any:
         code=ErrorCode.CONFIG_INVALID,
         user_message=f"Unknown model name '{name}'. Supported: lgbm",
         context={"model_name": name},
+    )
+
+
+def check_param_names(
+    provider: Any,
+    named: Iterable[tuple[str, str]],
+    *,
+    model_name: str,
+    extra_accepted: frozenset[str] = frozenset(),
+) -> None:
+    """Reject parameter names the estimator would silently discard (H-0093).
+
+    LightGBM drops a name it does not know without raising -- and with the
+    shipped ``verbose=-1`` it does not even warn -- so an unchecked typo yields
+    a run that looks successful and in which the parameter did nothing. For a
+    tuning dimension it is worse: the study explores an axis that cannot
+    influence the score.
+
+    This lives in the Facade rather than in ``config/``. ``ARCHITECTURE.md``'s
+    layer DAG puts ``config/`` and ``estimators/`` both in Layer 1, and Layer 1
+    may reference Layer 0 only, so the config layer cannot ask a provider what
+    it accepts. The Facade is the first place the two legally meet.
+
+    It is called at the point of use rather than at construction. A config
+    handed to ``Model`` stays under the caller's reference and can be mutated
+    afterwards, and ``best_model_params`` restored from an artifact are
+    installed after ``__init__`` has run, so a construction-time check would
+    pass over both. Firing on the way to the estimator also leaves
+    ``Model.load()`` able to read back an artifact whose recorded config carries
+    a name this gate would refuse.
+
+    **What "covered" means here is enumerated, not asserted.** Three review
+    rounds each falsified a prose claim about covering every route, and the
+    first two were answered with another call site and another sentence. The
+    population is instead a checked object: ``ESTIMATOR_ROUTES`` in
+    ``tests/test_estimators/test_lightgbm_parameter_names.py`` lists every site
+    in ``lizyml/`` that can put a parameter dict in front of the estimator, and
+    its test fails both when a site is missing from the list and when the list
+    names a site that no longer exists.
+
+    The scan resolves LightGBM from each module's own imports and looks at the
+    *producers* of a params dict as well as the adapter construction that
+    consumes one. Both were fixes to false-clean scans, not refinements: the
+    calibrator imports LightGBM as ``lgbm`` and was invisible while it handed
+    ``calibration.params`` to a Booster, and a new caller of
+    ``build_estimator_factory`` produced no detection at all. Both shapes are
+    now exercised against injected sources rather than described.
+
+    Args:
+        provider: The ``EstimatorProvider`` about to receive these names.
+        named: ``(surface, name)`` pairs, where *surface* is the
+            user-facing location to quote back, e.g. ``model.params``.
+        model_name: The estimator's name, for the message.
+        extra_accepted: Names the *caller's own* surface consumes before the
+            estimator sees them. The model surface has none -- its own
+            namespace is the smart parameters, reported separately below --
+            but the calibration surface pops four (H-0093). Passing them here
+            keeps each surface's exceptions beside the code that pops them
+            instead of accumulating in this function.
+
+    Raises:
+        LizyMLError: with ``CONFIG_INVALID``, naming every offending name and,
+            for a smart parameter written where a native one belongs, the
+            category it should have carried.
+    """
+    from lizyml.core.exceptions import ErrorCode, LizyMLError
+
+    accepted: frozenset[str] = provider.accepted_model_param_names() | extra_accepted
+    smart: frozenset[str] = provider.smart_param_names()
+
+    unknown = [(surface, name) for surface, name in named if name not in accepted]
+    if not unknown:
+        return
+
+    lines = []
+    for surface, name in unknown:
+        if name in smart:
+            lines.append(
+                f"  {surface}: '{name}' is a LizyML smart parameter, not a "
+                f"native {model_name} parameter. Declare it with "
+                f"category: smart, or set it directly on the model config."
+            )
+        else:
+            lines.append(f"  {surface}: '{name}' is not a {model_name} parameter.")
+    raise LizyMLError(
+        code=ErrorCode.CONFIG_INVALID,
+        user_message=(
+            f"Unknown {model_name} parameter name(s):\n" + "\n".join(lines) + "\n"
+            "An unrecognised name is discarded by the estimator without error, "
+            "so it would have had no effect."
+        ),
+        context={
+            "unknown": [{"surface": s, "name": n} for s, n in unknown],
+            "model_name": model_name,
+        },
+    )
+
+
+def model_space_names(cfg: LizyMLConfig) -> list[tuple[str, str]]:
+    """Return the ``category: model`` dimensions of the tuning search space.
+
+    ``smart`` and ``training`` dimensions are LizyML's own namespaces and are
+    never handed to the estimator as parameters, so they are out of scope.
+    """
+    tuning = getattr(cfg, "tuning", None)
+    optuna = getattr(tuning, "optuna", None) if tuning is not None else None
+    space = getattr(optuna, "space", None) if optuna is not None else None
+    out: list[tuple[str, str]] = []
+    for dim_name, spec in (space or {}).items():
+        category = spec.get("category", "model") if isinstance(spec, dict) else "model"
+        if category == "model":
+            out.append(("tuning.optuna.space", dim_name))
+    return out
+
+
+#: Calibration methods whose ``params`` reach LightGBM.
+#:
+#: ``IsotonicCalibrator`` trains a single-feature Booster, so its params go to
+#: ``lgbm.train`` and an unknown name there is discarded in silence -- the same
+#: defect the model surface has (H-0093). ``platt`` and ``beta`` fit with numpy
+#: and scipy and never touch LightGBM, so checking their names against
+#: LightGBM's registry would refuse legitimate configs. That split is scanned
+#: rather than asserted: ``test_calibration_param_names.py`` walks
+#: ``lizyml/calibration/`` and fails when a module that binds LightGBM is not
+#: named here.
+LGBM_BACKED_CALIBRATORS: frozenset[str] = frozenset({"isotonic"})
+
+
+def check_calibration_param_names(calibration_cfg: Any) -> None:
+    """Reject ``calibration.params`` names LightGBM would silently discard.
+
+    A fourth route into the estimator, found by review after the first three
+    were gated: ``cfg.calibration.params`` is merged over the calibrator's
+    defaults and handed to ``lgbm.train``, so ``{"num_leave": 7}`` trains with
+    the default ``num_leaves`` and reports success.
+
+    Only the LightGBM-backed methods are checked; see
+    ``LGBM_BACKED_CALIBRATORS``.
+
+    Args:
+        calibration_cfg: ``cfg.calibration``, or ``None`` when the run is not
+            calibrated.
+
+    Raises:
+        LizyMLError: with ``CONFIG_INVALID``, naming every offending name.
+    """
+    if calibration_cfg is None:
+        return
+    method: str = getattr(calibration_cfg, "method", "")
+    if method not in LGBM_BACKED_CALIBRATORS:
+        return
+    params = getattr(calibration_cfg, "params", None) or {}
+    if not params:
+        return
+
+    from lizyml.calibration.isotonic import CALIBRATOR_OWN_PARAM_NAMES
+    from lizyml.estimators.lgbm.provider import LGBMProvider
+
+    # The calibrator hardcodes LightGBM regardless of which estimator the model
+    # uses, so the authority here is the LightGBM provider and not
+    # ``get_provider(cfg.model)``.
+    check_param_names(
+        LGBMProvider(),
+        [("calibration.params", name) for name in params],
+        model_name="lgbm",
+        extra_accepted=CALIBRATOR_OWN_PARAM_NAMES,
     )

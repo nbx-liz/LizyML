@@ -343,16 +343,37 @@ class TestFeatureWeightsE2E:
     """feature_weights from Config reach the LightGBM training."""
 
     def test_feature_weights_applied(self):
-        cfg = make_config("regression")
-        cfg["model"]["feature_weights"] = {"feat_a": 2.0, "feat_b": 0.5}
-        m = Model(cfg)
-        result = m.fit(data=make_regression_df())
-        # The feature weights should affect importance distribution
-        # feat_a (weight 2.0) should generally be more important than
-        # feat_b (weight 0.5) given the data generation (target = 2*feat_a + feat_b)
-        imp = result.models[0].importance("split")
-        assert "feat_a" in imp
-        assert "feat_b" in imp
+        """Setting feature_weights must change the model, end to end.
+
+        Rewritten for H-0093. The previous version asserted that ``feat_a`` and
+        ``feat_b`` appear in the importance dict, which is true whether or not
+        the weights were applied -- and they were not, because the emitted key
+        was ``feature_weights`` where LightGBM defines ``feature_contri``. The
+        assertion is now a difference against an unweighted fit, which is the
+        invariant BLUEPRINT 14.4 declares for this parameter.
+        """
+        df = make_regression_df()
+
+        def importance(weights):
+            cfg = make_config("regression", seed=0)
+            if weights is not None:
+                cfg["model"]["feature_weights"] = weights
+            result = Model(cfg).fit(data=df)
+            return result.models[0].importance("gain")
+
+        # target = 2*feat_a + feat_b, so feat_a leads when nothing is weighted.
+        unweighted = importance(None)
+        assert max(unweighted, key=lambda k: unweighted[k]) == "feat_a"
+
+        # Suppress feat_a hard; it must lose the lead.
+        suppressed = importance({"feat_a": 0.0001, "feat_b": 1.0})
+        assert suppressed != unweighted, (
+            "the fit is identical with and without feature_weights, so the "
+            f"weights never reached LightGBM: {unweighted}"
+        )
+        assert max(suppressed, key=lambda k: suppressed[k]) == "feat_b", (
+            f"feat_a still leads after being suppressed: {suppressed}"
+        )
 
 
 # ===========================================================================
