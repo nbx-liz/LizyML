@@ -15,6 +15,8 @@ wrong, so the cases below are kept as a table of *inputs*, not of code paths:
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -40,6 +42,31 @@ class _RaisingLength:
 
     def __repr__(self) -> str:
         return "_RaisingLength()"
+
+
+class _UnbooleanComparison:
+    """A comparison result whose truth value fails.
+
+    Round 7: the truth step caught only ``ValueError`` and ``TypeError``, the
+    two an array raises, so a comparison object failing for a reason of its own
+    escaped a function declared not to raise. The comparison result is supplied
+    by the caller's value too, not only by numpy.
+    """
+
+    def __bool__(self) -> bool:
+        raise RuntimeError("truth failed")
+
+
+class _UnbooleanEquality:
+    """A value whose ``__eq__`` returns something that cannot be a boolean."""
+
+    def __eq__(self, other: object) -> Any:
+        return _UnbooleanComparison()
+
+    __hash__ = None  # type: ignore[assignment]
+
+    def __repr__(self) -> str:
+        return "_UnbooleanEquality()"
 
 
 class _RaisingEquality:
@@ -82,6 +109,12 @@ CASES: list[tuple[str, object, object, bool]] = [
     ("a bool and the int it equals", True, 1, False),
     ("an equality that raises", _RaisingEquality(), _RaisingEquality(), False),
     ("a length that raises", _RaisingLength(), _RaisingLength(), False),
+    (
+        "a comparison whose truth value raises",
+        _UnbooleanEquality(),
+        _UnbooleanEquality(),
+        False,
+    ),
     (
         "frames whose comparison iterates over labels, equal",
         pd.DataFrame({"a": [1, 2], "b": [3, 4]}),

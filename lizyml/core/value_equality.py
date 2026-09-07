@@ -116,8 +116,12 @@ def values_differ(first: Any, second: Any) -> bool:
 
     try:
         return not bool(equal)
-    except (ValueError, TypeError):
-        pass  # An array-like result: reduce it below.
+    except Exception:  # noqa: BLE001 - see below
+        # Every exception, not the two an array raises. A comparison result is
+        # an object the caller supplied too, and its `__bool__` may fail for a
+        # reason of its own; catching only `ValueError` and `TypeError` let
+        # that escape a function declared not to raise (H-0094, review round 7).
+        pass  # Reduce it below, or fall through to the printed forms.
 
     try:
         elements = list(equal)
