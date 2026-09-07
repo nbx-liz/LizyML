@@ -41,6 +41,24 @@ def _length_or_none(value: Any) -> int | None:
         return None
 
 
+def _defines_own_truth(element: Any) -> bool:
+    """Return whether the element's *type* defines ``__bool__`` itself.
+
+    The lookup walks the class dictionaries instead of asking the element,
+    because ``hasattr`` **invokes** the attribute: a ``__bool__`` written as a
+    property runs its getter, and a getter that raises escaped a function
+    declared not to raise (H-0094, found before review round 8 -- round 7's
+    finding one step further along the same path). Reading the MRO runs no code
+    the caller wrote, and it is the more accurate question anyway: Python looks
+    special methods up on the type, so a ``__bool__`` set on an instance is not
+    what decides that instance's truth either.
+    """
+    try:
+        return any("__bool__" in vars(klass) for klass in type(element).__mro__)
+    except Exception:  # noqa: BLE001 - an exotic metaclass may refuse either
+        return False
+
+
 def _printed_forms_differ(first: Any, second: Any) -> bool:
     """Compare printed forms, and answer "the same" when even that fails.
 
@@ -83,6 +101,11 @@ def values_differ(first: Any, second: Any) -> bool:
        ``__eq__`` that fails, or a shape whose elements are themselves arrays.
        A weaker answer than equality, and the only one both values always have.
     5. **"The same"**, when even the printed forms raise.
+
+    Every expression that touches a caller's value is inside a ``try``, or reads
+    the value's type without invoking anything the caller wrote. That is what
+    makes the paragraph below a property of the function's shape rather than of
+    the value types someone remembered.
 
     **This function does not raise.** Step 5 is what makes that true by
     construction rather than by having thought of enough value types: three
@@ -143,8 +166,9 @@ def values_differ(first: Any, second: Any) -> bool:
     # not -- their truthiness comes from length or from the default, neither of
     # which is an answer to "are these equal". An element without `__bool__`
     # therefore means the iteration is not the comparison, and the printed
-    # forms are the honest fallback.
-    if not all(hasattr(element, "__bool__") for element in elements):
+    # forms are the honest fallback. Asking the type rather than the element is
+    # deliberate -- see `_defines_own_truth`.
+    if not all(_defines_own_truth(element) for element in elements):
         return _printed_forms_differ(first, second)
 
     try:

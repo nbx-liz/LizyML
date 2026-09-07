@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from lizyml.core.value_equality import values_differ
+from lizyml.core.value_equality import _defines_own_truth, values_differ
 
 
 class _RaisingLength:
@@ -314,12 +314,46 @@ def test_the_reduction_only_trusts_elements_that_can_state_a_truth() -> None:
     comparison object yielding anything), and this property is what excludes
     both without naming either.
     """
-    assert hasattr(True, "__bool__")
-    assert hasattr(np.True_, "__bool__")
-    assert hasattr(np.float64(0.5), "__bool__")
-    assert not hasattr("a", "__bool__")
-    assert not hasattr(object(), "__bool__")
-    assert not hasattr([1], "__bool__")
+    assert _defines_own_truth(True)
+    assert _defines_own_truth(np.True_)
+    assert _defines_own_truth(np.float64(0.5))
+    assert not _defines_own_truth("a")
+    assert not _defines_own_truth(object())
+    assert not _defines_own_truth([1])
+
+
+def test_asking_whether_an_element_can_state_a_truth_never_runs_its_code() -> None:
+    """The check reads the type, so a hostile ``__bool__`` is never invoked.
+
+    ``hasattr`` would invoke it. An element whose ``__bool__`` is a property
+    that raises therefore escaped the whole function, which is round 7's
+    finding one step further along the same path; found before round 8.
+    """
+
+    class HostileLookup:
+        @property
+        def __bool__(self) -> object:
+            raise RuntimeError("truth lookup failed")
+
+    element = HostileLookup()
+    assert _defines_own_truth(element) is True
+    with pytest.raises(RuntimeError):
+        hasattr(element, "__bool__")  # what the check used to do
+
+    class Comparison:
+        def __bool__(self) -> bool:
+            raise ValueError("ambiguous")
+
+        def __iter__(self) -> object:
+            return iter([HostileLookup(), HostileLookup()])
+
+    class Value:
+        __hash__ = None  # type: ignore[assignment]
+
+        def __eq__(self, other: object) -> object:
+            return Comparison()
+
+    assert values_differ(Value(), Value()) is True
 
 
 # ---------------------------------------------------------------------------
@@ -330,13 +364,22 @@ def test_the_reduction_only_trusts_elements_that_can_state_a_truth() -> None:
 # had not thought of. The rounds 6-7 monitor named the repair: quantify the
 # declaration over its whole population, which is what `defect-classes.md` asks
 # for. The population here is not "values" -- that is open -- but **the ways a
-# caller's value can defeat each step**, and those are the four dunders this
-# function touches.
+# caller's value can defeat each step**, and those are the three dunders this
+# function reads on the value itself. The fourth thing it touches, `__bool__`,
+# belongs to whatever `__eq__` returned rather than to the value, so it is
+# covered by the `__eq__` return variants -- including the one whose elements
+# are hostile to being *asked* whether they define it.
 
 #: How each dunder can behave. `absent` means the type does not define it at
 #: all, which is a different path from defining one that fails.
 _BEHAVIOURS: dict[str, tuple[str, ...]] = {
-    "__eq__": ("normal", "raises", "returns_unbooleanable", "returns_junk_iterable"),
+    "__eq__": (
+        "normal",
+        "raises",
+        "returns_unbooleanable",
+        "returns_junk_iterable",
+        "returns_hostile_elements",
+    ),
     "__len__": ("absent", "normal", "raises"),
     "__repr__": ("normal", "raises"),
 }
@@ -355,6 +398,28 @@ class _JunkIterable:
         return iter([object(), object()])
 
 
+class _HostileElement:
+    """An element whose ``__bool__`` raises when it is merely *looked up*.
+
+    ``hasattr(element, "__bool__")`` invokes the property, so the step that
+    decides whether an element can state a truth of its own raised through a
+    function declared not to raise. Found before round 8; the check now reads
+    the type's dictionaries instead.
+    """
+
+    @property
+    def __bool__(self) -> Any:
+        raise RuntimeError("truth lookup failed")
+
+
+class _HostileElementsIterable:
+    def __bool__(self) -> bool:
+        raise RuntimeError("truth failed")
+
+    def __iter__(self) -> Any:
+        return iter([_HostileElement(), _HostileElement()])
+
+
 def _make_awkward(eq: str, length: str, printed: str, tag: str) -> object:
     """Build a value whose dunders behave as named."""
     namespace: dict[str, Any] = {"tag": tag}
@@ -369,8 +434,10 @@ def _make_awkward(eq: str, length: str, printed: str, tag: str) -> object:
         )
     elif eq == "returns_unbooleanable":
         namespace["__eq__"] = lambda self, other: _Unbooleanable()
-    else:
+    elif eq == "returns_junk_iterable":
         namespace["__eq__"] = lambda self, other: _JunkIterable()
+    else:
+        namespace["__eq__"] = lambda self, other: _HostileElementsIterable()
     namespace["__hash__"] = None
 
     if length == "normal":
@@ -428,9 +495,21 @@ def test_the_cross_product_covers_every_declared_behaviour() -> None:
     Without this, shrinking ``_BEHAVIOURS`` would quietly shrink the guarantee
     while every generated case still passed.
     """
-    expected = 4 * 3 * 2
-    assert len(AWKWARD_COMBINATIONS) == expected, AWKWARD_COMBINATIONS
-    assert set(_BEHAVIOURS) == {"__eq__", "__len__", "__repr__"}
+    declared = {name: len(behaviours) for name, behaviours in _BEHAVIOURS.items()}
+    assert declared == {"__eq__": 5, "__len__": 3, "__repr__": 2}, declared
+    assert len(AWKWARD_COMBINATIONS) == 5 * 3 * 2, AWKWARD_COMBINATIONS
+
+    # Each `__eq__` variant must reach a different step, or the axis is wider
+    # than the function is. This is the half the count does not check: a
+    # behaviour added and then routed to an existing branch by `_make_awkward`
+    # would grow the population without growing the coverage.
+    assert len(set(_BEHAVIOURS["__eq__"])) == 5, _BEHAVIOURS["__eq__"]
+    outcomes = {
+        eq: type(_make_awkward(eq, "absent", "normal", "a").__eq__(object()))
+        for eq in _BEHAVIOURS["__eq__"]
+        if eq != "raises"
+    }
+    assert len(set(outcomes.values())) == len(outcomes), outcomes
 
 
 def test_identical_values_are_never_reported_as_differing() -> None:
