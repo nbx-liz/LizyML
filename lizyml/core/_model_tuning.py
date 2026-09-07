@@ -16,7 +16,13 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from lizyml.config.schema import OptunaParamsConfig
-from lizyml.core._model_factories import build_splitter, get_provider
+from lizyml.core._model_factories import (
+    build_splitter,
+    check_calibration_param_names,
+    check_param_names,
+    get_provider,
+    model_space_names,
+)
 from lizyml.core._model_metrics import _DEFAULT_METRICS
 from lizyml.core._model_state import TuningState
 from lizyml.core.exceptions import ErrorCode, LizyMLError
@@ -188,6 +194,21 @@ class ModelTuningMixin:
             seed=cfg.training.seed,
         )
         base_model_params, base_smart_params = self._merge_params(provider)
+
+        # H-0093: a `category: model` dimension whose name the estimator
+        # does not know is sampled by Optuna, forwarded, and discarded --
+        # so every trial in the study really explores the other axes, and
+        # nothing says so. Checked before the study starts; trial params
+        # are drawn from these names, so covering the space covers them.
+        check_param_names(provider, model_space_names(cfg), model_name=cfg.model.name)
+        # The calibration surface is checked here too, not only on the fit path.
+        # `tune()` is its own entry point: without this, a config carrying a
+        # dead `calibration.params` name completes a whole study and is refused
+        # only by the `fit()` that follows, having already trained. Calibration
+        # itself does not run during tuning -- what this buys is the ordering
+        # H-0093 decision 6 and BLUEPRINT 12.2 declare, on every entry point
+        # rather than on one of them.
+        check_calibration_param_names(cfg.calibration)
 
         space, used_default, fixed = self._resolve_search_space(
             resume=resume, provider=provider

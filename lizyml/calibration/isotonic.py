@@ -35,6 +35,26 @@ _ISOTONIC_DEFAULTS: dict[str, Any] = {
     "bagging_freq": 0,
 }
 
+#: Names this calibrator consumes itself and never forwards to LightGBM.
+#:
+#: ``calibration.params`` is handed to ``lgbm.train`` almost verbatim, so a
+#: misspelled name there is discarded in silence exactly as it is on the model
+#: surface (H-0093). The Facade refuses unknown names against LightGBM's own
+#: registry, and these three are the exceptions: the first two are popped in
+#: ``__init__``, the third in ``fit``, where it is resolved into LightGBM's
+#: ``min_data_in_leaf``.
+#:
+#: ``seed`` is deliberately absent. It is popped in ``__init__`` too, but
+#: ``merged["seed"]`` puts it straight back, so it does reach the Booster --
+#: and LightGBM knows the name, so the base registry already accepts it.
+#: Listing it here would have been harmless but false, and
+#: ``test_calibration_param_names.py`` asserts by execution that every name in
+#: this set really is consumed here rather than forwarded. Declaring the set
+#: beside the code that pops the names is what keeps that check honest.
+CALIBRATOR_OWN_PARAM_NAMES: frozenset[str] = frozenset(
+    {"num_boost_round", "validation_ratio", "min_data_in_leaf_ratio"}
+)
+
 _NUM_BOOST_ROUND = 1000
 _EARLY_STOPPING_ROUNDS = 100
 _VALIDATION_RATIO = 0.1
