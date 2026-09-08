@@ -471,6 +471,20 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
                 model_params = overlay_params(provider, model_params, fixed)
                 origins.update(dict.fromkeys(fixed, "provider default fixed params"))
 
+            # The same-layer rule on the layer that arrives from disk.
+            # `overlay_params` drops competing spellings from the layer it
+            # overlays, and keeps whatever the **overlay itself** carries -- so
+            # a restored `best_model_params` naming one parameter twice sent
+            # both spellings to `lgb.train`, and LightGBM kept the canonical
+            # one. Measured: `{"learning_rate": 0.1, "eta": 0.8}` trained at
+            # 0.1 with both present (H-0094 decision 11, review round 15).
+            # `load()` itself still reads such an artifact; the refusal belongs
+            # on the re-fit, which is here.
+            check_duplicate_identities(
+                provider,
+                self._tuning_result.best_model_params,
+                surface="tuning best_model_params",
+            )
             model_params = overlay_params(
                 provider, model_params, self._tuning_result.best_model_params
             )

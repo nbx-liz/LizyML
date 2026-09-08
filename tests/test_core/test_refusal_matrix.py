@@ -59,7 +59,7 @@ REFUSAL_MATRIX: dict[str, dict[str, str]] = {
     },
     "tuning best_model_params": {
         "check_param_names": "wired",
-        "check_duplicate_identities": "n/a: overlaid by identity into a checked dict",
+        "check_duplicate_identities": "wired",
         "check_training_managed_overrides": "wired",
         "check_smart_managed_overrides": "open: #279, 54/67 of the population",
         "canonicalisation": "n/a: merged by identity, not by spelling",
@@ -306,6 +306,13 @@ def _with_tuning_result(config: dict[str, Any], best: dict[str, Any]) -> Model:
     [
         ("check_param_names", {"not_a_lightgbm_parameter": 1}),
         ("check_training_managed_overrides", {"seed": 7}),
+        # Added in round 15, which falsified this cell's previous `n/a`.
+        # `overlay_params` drops competing spellings from the layer it overlays
+        # and keeps whatever the **overlay itself** carries, so a restored
+        # `best_model_params` naming one parameter twice sent both spellings to
+        # `lgb.train`. Measured: `{"learning_rate": 0.1, "eta": 0.8}` trained at
+        # 0.1 with both present.
+        ("check_duplicate_identities", {"learning_rate": 0.1, "eta": 0.8}),
     ],
 )
 def test_a_restored_tuning_result_is_refused_too(
@@ -364,6 +371,7 @@ def test_the_executed_cells_are_exactly_the_wired_ones() -> None:
     executed = set(_CELL_INPUTS) | {
         ("tuning best_model_params", "check_param_names"),
         ("tuning best_model_params", "check_training_managed_overrides"),
+        ("tuning best_model_params", "check_duplicate_identities"),
         ("calibration.params", "canonicalisation"),
     }
     missing = _WIRED - executed
