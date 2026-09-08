@@ -8953,7 +8953,52 @@ Firing rate: 14/1518 of every parameter value the suite constructs
 実運用の config 由来の値は 1 件も拒否されていない。計測器
 `instruments/parameter_value_type_census.py` は `normalise_params` を包むように更新済み。
 
-**縮小後のスイート**: 7425 passed / 256 skipped、`ruff` / `mypy` clean。
+**スイート**: 7432 passed / 256 skipped、`ruff` / `mypy` clean（round 21 の修正後）。
+
+#### review round 21 が見つけた 3 件（2026-09-08、unscoped）
+
+**関係監視が事前に宣言した反証条件が、finding 1 でちょうど発火した** —
+「導出が生成しなかった形であって、受理すると `lgb.train` に届く bytes が変わるもの」。
+
+10. **numpy を継承で受理していた（DC1、`deliverable-path`）。** `isinstance(value,
+    np.generic)` は `np.float64` の**サブクラス**（`__format__` が嘘をつく）と
+    **`np.timedelta64`** を通した。後者が非自明で、実行して分かった:
+    **`np.timedelta64` は `np.integer` のサブクラスである。** 実測:
+
+    ```
+    値                                      caller の wire    学習に届く wire
+    np.float64 サブクラス（__format__ が嘘）    0.9              0.1
+    np.timedelta64(1, "ns")                  1 nanoseconds    1
+    ```
+
+    どちらも fit は完了する。出口の表明は変換**後**の素の値を見るので検出できない。
+    修正は **2 段の防御**で、それぞれ別のものを買う:
+    - **`NUMPY_SCALAR_TYPES` を numpy 自身の階層から導出し厳密型一致で受理** →
+      買うのは「**正規化中に呼び出し元のコードが 1 行も走らない**」こと。
+      `.item()` も `__format__` も numpy 自身の実装になり、rounds 16-20 の軸が
+      構成上消える。
+    - **`format(plain, "") != format(value, "")` なら拒否** → `timedelta64` を
+      捕まえるのはこちら（型集合の中にいるので 1 段目では捕まらない）。
+
+    RED 検証で 2 段が別々に効いていることを確認した。
+
+11. **`values_differ` が全域でなかった（DC7、`deliverable-path`）。** Python の `int` に
+    幅は無いので `10**400` は受理集合の内側のごく普通の値（シリアライザは桁を書く）だが、
+    `float()` は `OverflowError` を投げ、`(TypeError, ValueError)` しか囲っていなかった。
+    **「受理集合の上で全域」という宣言そのものを反証する** — 宣言は正しく、コードが
+    例外 1 つ足りなかった。
+
+12. **導出テストが「広がり」を検出できなかった（DC3、`periphery`）。** 列型のテストは
+    「こちらが受理する名前が join 分岐に現れるか」しか見ておらず、**シリアライザが新しい
+    列型を得ても永遠に通る**。レビュアーが in-memory で広げたソースを食わせて実証した。
+    join 分岐の `isinstance` タプルから**名前を抽出して集合として比較**するよう修正。
+    実測: `deque` / `array` の追加で落ち、`frozenset` の追加では通る（正しい —
+    `frozenset` は `REFUSED_SEQUENCE_TYPES` に記録済み）。
+
+**この 3 件は「同じサイクルの引っ越し」ではない。** 10 は DC1 だが**受理の入口の型判定**の
+欠陥であって「比較が値を理解し損ねた」欠陥ではなく、修正は個別の guard ではなく
+**呼び出し元コードが走らないようにする構成上の変更**である。11 と 12 は宣言と実装の
+ずれで、どちらも宣言のほうが正しかった。記録は `results/pr2_codex_round21.md`。
 
 #### 受け入れ基準 7 の決定: **#283 は H-0095 では解決しない**
 
