@@ -8953,7 +8953,7 @@ Firing rate: 14/1518 of every parameter value the suite constructs
 実運用の config 由来の値は 1 件も拒否されていない。計測器
 `instruments/parameter_value_type_census.py` は `normalise_params` を包むように更新済み。
 
-**スイート**: 7436 passed / 256 skipped、`ruff` / `mypy` clean。
+**スイート**: 7439 passed / 256 skipped、`ruff` / `mypy` clean。
 
 #### review round 21 が見つけた 3 件（2026-09-08、unscoped）
 
@@ -9049,6 +9049,44 @@ Firing rate: 14/1518 of every parameter value the suite constructs
     なお **round 22 の verdict は取得できていない** — provider 側のコンテンツフィルタで
     実行が中断された（敵対的オブジェクトを構築する手法自体が誤検知されたと見られる）。
     上記はログに残っていた再現である。記録は `results/pr2_codex_round22.md`。
+
+15. **`in` は同一性ではなかった（DC1、round 23）。**
+    `type(value) in NUMPY_SCALAR_TYPES` は `frozenset` の探索であり、判定は
+    **呼び出し元の `__hash__` / `__eq__`** で行われる。クラスのそれらは**メタクラス**から
+    来るので呼び出し元が書ける。実測: `hash(np.float64)` を返し `__eq__` が真になる
+    メタクラスを持つクラスは、**numpy を継承せず、`__module__` も名乗らず、import 順にも
+    依存せずに**通過し、自前の `__format__` と `item()` が正規化の中で走った。
+    `PLAIN_SCALAR_TYPES`（tuple、`x is e or x == e`）にも同じ穴。
+    **修正: 全ての門を `is` 比較にする** — `is` は Python で唯一呼び出し元が参加できない
+    比較である。
+
+16. **`vars(numpy)` は書き込み可能（DC1、round 23）。** `np.Injected = Injected` を
+    import より前に 1 行書くだけで型集合に入る。checker の指摘の核心:
+    **「Python のどんな名前空間の読み取りも呼び出し元から独立ではない。『呼び出し元が
+    自称できない』は、どんな導出も提供できない性質である。」**
+
+    **修正: 決め手を名前空間から numpy 自身の dtype レジストリへ移す。** 候補は
+    `vars(np)` / `np.sctypeDict` から**列挙するだけ**（上位集合でよい）とし、採用は
+    **`np.dtype(kind).type is kind` の往復**で決める。サブクラスは基底に解決されるので
+    通らない（実測: `Injected -> float64`）。
+
+    **そして bound を書き直した。** これはパラメーターの**値**に対して領域を閉じる。
+    **プロセス内で既に numpy の一部を差し替えた呼び出し元に対する sandbox ではない** —
+    `numpy.dtype` を差し替えられる者は `numpy.float64` もこのモジュールも差し替えられる。
+    **この run で「宣言が達成不能だった」のは 3 度目**（round 18 の「何に対しても
+    raise しない」、round 20 の NaN、そして今回）。**達成可能な宣言に書き直すのが正しい
+    修復である。**
+
+17. **要素位置の門が未検証だった（round 23）。** `_plain_element` の厳密型一致を
+    `isinstance` に緩めてもファイル全体が緑のままだった（DC6 の形 — 防御は正しく、
+    それを行使するテストが無い）。振る舞いは実在する。テストを追加。
+
+    **なお round 23 は Codex ではなく `policy:fresh-checker` の read-only checker が
+    実行した。Codex は 3 回連続で provider 側のコンテンツフィルタに落ちており、
+    3 回目でプロンプトではなく `param_domain.py` の中身自体が反応していると判断して
+    経路を変えた（同一エラー 3 連続で approach を変える運用ルール）。
+    ⚠️ したがってマージゲートの「Codex APPROVE」は依然として未取得である。**
+    記録は `results/pr2_codex_round23.md`。
 
 #### 受け入れ基準 7 の決定: **#283 は H-0095 では解決しない**
 
