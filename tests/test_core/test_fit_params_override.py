@@ -2491,6 +2491,52 @@ def test_the_export_params_carry_the_patience_without_a_default() -> None:
     assert field.default_factory is dataclasses.MISSING, field
 
 
+def test_the_generated_project_trains_at_the_patience_the_run_used(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The claim `export_code` actually makes, executed rather than inspected.
+
+    Every other assertion here reads the argument handed to ``generate_code``.
+    That is one step short of the claim: the generated project is what a user
+    runs, and what it does with the argument is its own code. The rounds 15-16
+    monitor asked for the training to be executed where a cell claims
+    reproduction, and this is that cell -- after a tune, the configured patience
+    is 7 and the run used 2.
+    """
+    import subprocess
+    import sys
+
+    model = _training_report_model()
+    model.tune()
+    model.fit()
+    assert model.fit_result.models[0].early_stopping_rounds == _TUNED_PATIENCE
+
+    project = tmp_path / "project"
+    model.export_code(project)
+
+    written = json.loads((project / "config.json").read_text(encoding="utf-8"))
+    assert written["early_stopping_rounds"] == _TUNED_PATIENCE, written
+    assert written["validation_ratio"] == _TUNED_RATIO, written
+
+    data = tmp_path / "train.parquet"
+    make_binary_df(n=200).to_parquet(data)
+    run = subprocess.run(
+        [sys.executable, str(project / "train.py"), str(data), "--no-calibration"],
+        capture_output=True,
+        text=True,
+        cwd=str(project),
+    )
+    assert run.returncode == 0, run.stderr[-3000:]
+
+    # The generated trainer logs its holdout split, and the early-stopping
+    # callback is constructed from the same config value. A run that had taken
+    # the configured 7 would hold out 40 rows, not 90.
+    assert "holdout: 110 train / 90 valid" in run.stdout + run.stderr, (
+        run.stdout[-2000:],
+        run.stderr[-2000:],
+    )
+
+
 def test_a_float_subclass_that_refuses_conversion_still_trains() -> None:
     """Review round 16, finding 2, end to end on the shipped path.
 
