@@ -18,6 +18,7 @@ whole PR exists to remove.
 from __future__ import annotations
 
 import contextlib
+import json
 import math
 import pathlib
 from typing import Any
@@ -279,6 +280,28 @@ def test_normalising_twice_is_normalising_once(value: Any) -> None:
     twice = normalise_value(once)
     assert repr(twice) == repr(once)
     assert is_accepted(twice)
+
+
+@pytest.mark.parametrize(
+    "value", ACCEPTED_POPULATION, ids=[_label(v) for v in ACCEPTED_POPULATION]
+)
+def test_every_accepted_value_can_be_written_as_json(value: Any) -> None:
+    """The requirement ``export_code`` brings, quantified over the whole set.
+
+    The trainer is not the only consumer of a normalised value. ``export_code``
+    writes the same parameters into ``config.json`` with ``json.dump``, and
+    json carries neither a path nor a numpy scalar. That was found one type at
+    a time -- a path trained happily and made ``export_code`` raise
+    ``TypeError`` afterwards -- and one type at a time is how the next one
+    would be found too. So the requirement is asserted here for every value the
+    normaliser accepts, rather than for the type that happened to be reported.
+
+    The call mirrors ``codegen/artifact_writer.py``, ``allow_nan`` included at
+    its default: ``nan`` and ``inf`` are accepted parameter values and the
+    writer emits them the way ``json.dump`` does.
+    """
+    normalised = normalise_value(value)
+    json.dumps({"k": normalised}, indent=2, ensure_ascii=False)
 
 
 def test_the_population_covers_every_shape_the_serialiser_distinguishes() -> None:
@@ -769,7 +792,6 @@ def test_a_path_is_carried_on_as_its_text() -> None:
     JSON serializable`` on a run that had trained happily. Measured on the
     shipped path, which is why the fix is here and not in the writer.
     """
-    import json
 
     written = pathlib.Path("models/forced.json")
     normalised = normalise_params({"forcedsplits_filename": written}, surface="probe")[

@@ -8749,6 +8749,11 @@ pandas も import している。**numpy を型として名指すことは最初
 `isinstance(val, (str, Path, _NUMERIC_TYPES)) or _is_numeric(val)`、列は
 `list` / `tuple` / `set` / 1-D ndarray）:
 
+**⚠️ この表は superseded である。** 実装時の実測で 2 行が誤りと分かり（1-D ndarray /
+`str` サブクラス）、以後 19 件の補正が積み上がった。**受理集合の正は本節末尾の
+「契約の確定」であり、そこのブロックは生成物である。** 以下は提案が何を提案したかの
+記録として残す。
+
 | 入力 | 正規化後 |
 |---|---|
 | `None` / `bool` / `int` / `float` / `str` | そのまま（`str` サブクラスは厳密な `str` へ） |
@@ -9140,3 +9145,132 @@ Firing rate: 14/1518 of every parameter value the suite constructs
 であり、依然として拒否される。**admit するには「学習器にどちらを渡すか」を決める必要が
 あり、それは別の決定である**（`allow` ＝振る舞いの拡大なので firing rate 付きの Proposal が
 要る）。#283 は open のままとし、`KNOWN_BOUNDS` の免除もそのまま残す。
+
+### 契約の確定（2026-09-08、D10 の帰結）
+
+**上の「提案」節の受理表と、それに続く補正 1-19 は、この節に置き換わる。**
+削除はしない（提案がどう動いたかの記録である）が、**受理集合と消費者の正は以下**であり、
+補正の列を読んで再構成する必要はない。
+
+書き直した理由は D10 に記録した。24 ラウンドで `APPROVE` が出なかったのは、
+受入基準が実質「**この検証を破る値は存在するか**」を問うていたからで、これは Python の
+あらゆるオブジェクトを渡る全称命題であり、**開いた領域に対する「反例なし」は有限の
+レビューでは示せない**。以下は「破れるか」ではなく「**契約通りか**」を判定できる形に
+書き直したものである。
+
+#### 1. 受理集合（位置 × 厳密型）
+
+**シリアライザは位置ごとに別のフォーマッタを使う**ので、集合も位置ごとに定義する
+（スカラー位置は `__format__`、列の要素位置は `str`）。以下のブロックは
+`lizyml/core/param_domain.py` から**生成**したものであり、散文に写した表ではない。
+
+再生成 / 差分検出:
+
+```
+uv run python docs/audits/2026-09-defect-discovery/instruments/param_domain_contract.py
+uv run python docs/audits/2026-09-defect-discovery/instruments/param_domain_contract.py --check
+```
+
+`--check` はこのブロックとモジュールを突き合わせ、乖離したら非零で終了する（DC3）。
+
+<!-- param-domain-contract:begin -->
+```text
+numpy               2.4.2
+
+scalar position     NoneType, bool, float, int, str
+  converted         PosixPath, WindowsPath -> str
+  converted         numpy scalar -> .item(), checked by format()
+element position    NoneType, bool, float, int, str
+  converted         PosixPath, WindowsPath -> str
+  converted         numpy scalar -> the plain value printing as str(x)
+sequence            list, tuple, 1-D ndarray
+  member            scalar, list (depth 2 only), dict
+mapping             dict with exact-str keys, values normalised
+refused sequence    frozenset, set
+
+numpy scalar types (exact type; derived by np.dtype(k).type is k)
+  numpy.bool, numpy.float16, numpy.float32, numpy.float64, numpy.int16, numpy.int32, numpy.int64, numpy.int8, numpy.longdouble, numpy.longlong, numpy.str_, numpy.timedelta64, numpy.uint16, numpy.uint32, numpy.uint64, numpy.uint8, numpy.ulonglong
+
+  timedelta64 is in the set because it is a numpy.integer, and the
+  derivation admits the type. Its values are refused by the format()
+  check instead -- measured for a unit-carrying value, a unitless one
+  and NaT, in both positions (1 nanoseconds vs 1).
+```
+<!-- param-domain-contract:end -->
+
+**各行を固定しているテスト**（テストの無い行は、次のラウンドが見つける行である）:
+
+| 受理集合の行 | 固定しているテスト（`tests/test_core/test_param_domain.py`） |
+|---|---|
+| スカラー位置の素の型 | `test_the_scalar_types_are_the_ones_the_serialiser_names` |
+| path を受理してテキストにする | `test_every_path_type_accepted_is_one_the_serialiser_accepts` / `test_a_path_is_carried_on_as_its_text` / `test_the_path_conversion_is_safe_because_of_the_types_admitted` |
+| numpy 型集合の導出 | `test_the_numpy_scalar_types_are_derived_from_numpy` / `test_the_numpy_type_set_is_what_numpy_resolves_to_itself` |
+| numpy 型集合が呼び出し元から独立であること | `test_a_caller_class_cannot_claim_to_be_a_numpy_type` / `test_a_class_put_into_the_numpy_namespace_is_still_refused` |
+| numpy スカラーの変換を `format` で検査すること | `test_a_numpy_value_whose_conversion_would_lose_bytes_is_refused` / `test_the_written_form_is_read_before_the_conversion` / `test_each_defence_is_load_bearing_for_something_different` |
+| 要素位置の門と、素の代替の探索 | `test_the_element_position_admits_by_identity_too` / `test_a_reduced_precision_element_that_does_have_a_stand_in_is_accepted` / `test_a_value_with_no_plain_stand_in_is_refused_rather_than_rounded` |
+| 列の型 | `test_the_sequence_types_are_the_ones_the_serialiser_joins` / `test_a_numpy_array_subclass_is_refused_for_the_same_reason_a_scalar_is` |
+| `set` の拒否 | `test_a_set_is_refused_rather_than_ordered_by_hash` |
+| リストの入れ子は深さ 2 まで | `test_the_one_nested_shape_lightgbm_reads_is_accepted` / `test_a_list_nested_deeper_than_the_serialiser_reads_is_refused` |
+| mapping は入口で受理し出口で拒否 | `test_a_metric_entry_written_as_a_mapping_is_accepted_at_the_surface` / `test_a_mapping_that_survived_to_the_trainer_is_a_defect` |
+| 門は `is` であること | `test_membership_is_identity_and_not_the_callers_own_equality` |
+| 受理した型が書ける値とは限らないこと | `test_an_accepted_type_is_not_by_itself_a_writable_value` / `test_an_integer_too_large_for_a_float_is_accepted_and_compared` |
+| 境界そのもの（受理と拒否の分割） | `test_the_refused_subset_is_exactly_the_declared_boundary` / `test_a_refusal_inside_the_candidate_set_is_forced_not_chosen` |
+
+#### 2. 消費者と、それぞれが課す要件
+
+**正規化した値の消費者は、学習器だけではない。** 提案は 4 surface と `lgb.train` 2 サイト
+しか名指しておらず、`export_code` は 19 番目の補正で**実装のほうから**現れた
+（rounds 23-25 監視が `DRIFTING` の根拠に挙げた）。ここで全部名指す。
+
+| 消費者 | sink | 課す要件 | 受理母集団の上で実行しているオラクル |
+|---|---|---|---|
+| 学習（adapter） | `estimators/lgbm/adapter.py` の `lgb.train` | 値が `is_plain`（mapping は adapter が消費済み） | `test_the_exit_assertion_passes_everything_the_normaliser_produces` / `test_the_exit_assertion_is_called_at_every_place_that_trains` |
+| 学習（calibrator） | `calibration/isotonic.py` の `lgbm.train` | 同上 | 同上（学習サイトの母集団はソースから導出） |
+| 学習に届く bytes | 上記 2 サイトのシリアライザ | **正規化の前後で wire が同じ** | `test_normalising_does_not_change_the_bytes_the_estimator_is_sent` |
+| `export_code` | `codegen/artifact_writer.py` の `json.dump`（`config.json`） | **`json.dump` で書けること** | `test_every_accepted_value_can_be_written_as_json` |
+| 2 度正規化する経路 | `calibration.params`（検査側と calibrator dict 生成側） | **冪等** | `test_normalising_twice_is_normalising_once` |
+| 同一性比較 | `core/value_equality.py` | **受理集合の上で全域、どれでも raise しない** | `test_the_comparison_is_total_over_the_accepted_set`（`test_value_equality.py`） |
+| 述語 | `is_accepted` / `is_plain` | 正規化関数と一致すること | `test_the_predicate_and_the_normaliser_agree` / `test_every_accepted_value_normalises_into_the_closed_set` |
+
+**閉じられるのは「要件のリスト」であって「消費者のリスト」ではない。** 各要件は
+受理母集団**全体**の上で実行するオラクルを持ち、そこは閉じている。消費者のリストは
+各要件の**根拠**であって、走査で閉じたものではない。
+
+sink の走査は `instruments/param_domain_contract.py` として出荷するが、
+**それを閉包と呼ばない**。`parameter_merge_seams.py` の docstring が同じ主張を
+2 回して 2 回反証されたのと同じ理由であり、実際に**この走査も初版で 1 件落とした** ——
+calibrator は同じライブラリを `lgbm` という別名で import しており、
+`lgb` しか知らない版はその `train` を見なかった。既知のサイトと突き合わせて見つけた。
+
+**要件を課さない sink**（走査に出るが、パラメーター値を運ばない、あるいは運んでも
+raise しない）:
+
+- `persistence/exporter.py` の `joblib.dump` — pickle であり、素の値はすべて運べる
+- `persistence/exporter.py` の `json.dumps(metadata, default=str)` — 受け取るのは
+  config であって正規化後の dict ではなく、`default=str` があるので raise しない
+- `features/pipelines_native.py` の `json.dump` — pipeline state であってパラメーターではない
+
+#### 3. 宣言する bound（スコープ外を明示する）
+
+**達成不能な宣言を書くのは DC7 であり、この run で 3 度書き直している。** よって
+スコープ外を事実として書く。
+
+1. **プロセス内で numpy の一部を差し替え済みの呼び出し元に対する sandbox ではない。**
+   `numpy.dtype` を差し替えられる者は `numpy.float64` もこのモジュールも差し替えられる。
+   閉じるのはパラメーターの**値**に対してである。
+2. **`Model.load()` は検査しない。** artifact は起きた fit の記録であり、読めなく
+   する理由がない（§14.4 既定）。したがって**このバージョンより前に書かれた artifact**
+   は、受理集合の外の値を持つ adapter を復元しうる。**実測**: 復元した adapter の
+   params に path を入れて `export_code` を呼ぶと
+   `TypeError: Object of type PosixPath is not JSON serializable` になる
+   （H-0095 の前と同じ振る舞いであり、この提案が悪化させたものではない）。
+   閉じているのは「**このプロセスで 4 surface を通って入った値**」である。
+3. **入口と出口で受理集合が違う**のは意図である（mapping）。1 つの述語で両端を
+   賄うと、緩いほうに合わせることになり、学習器に必要な bound が言えなくなる。
+
+#### 4. この契約に対してレビューが答える問い
+
+「この検証を破る値はあるか」ではなく、**「1 の集合と 3 の bound の下で、2 の各要件が
+受理母集団全体の上で成り立っているか」**である。前者は Python のあらゆるオブジェクトを
+渡る全称命題で有限のレビューでは閉じない。後者は**有限で、実行可能で、実際に実行して
+いる**。
