@@ -8953,7 +8953,7 @@ Firing rate: 14/1518 of every parameter value the suite constructs
 実運用の config 由来の値は 1 件も拒否されていない。計測器
 `instruments/parameter_value_type_census.py` は `normalise_params` を包むように更新済み。
 
-**スイート**: 7432 passed / 256 skipped、`ruff` / `mypy` clean（round 21 の修正後）。
+**スイート**: 7433 passed / 256 skipped、`ruff` / `mypy` clean。
 
 #### review round 21 が見つけた 3 件（2026-09-08、unscoped）
 
@@ -8999,6 +8999,22 @@ Firing rate: 14/1518 of every parameter value the suite constructs
 欠陥であって「比較が値を理解し損ねた」欠陥ではなく、修正は個別の guard ではなく
 **呼び出し元コードが走らないようにする構成上の変更**である。11 と 12 は宣言と実装の
 ずれで、どちらも宣言のほうが正しかった。記録は `results/pr2_codex_round21.md`。
+
+13. **`np.ndarray` も厳密な型一致で受理する（rounds 20-22 監視が名指しし、こちらで
+    実測して見つけた）。** 監視は「`isinstance(value, np.ndarray)` が 2 か所残っており、
+    安全だと検証していない」と明示した。実行したところ **1 件出た**:
+
+    ```
+    値                                          caller の wire   正規化後の wire
+    1-D ndarray サブクラス（__iter__ が毎回変わる）   1.0,1.0          2.0,2.0
+    ```
+
+    **サブクラスを反復すると呼び出し元の `__iter__` が走り、呼び出し元のメソッドは
+    2 度同じものを返す義務を負わない。** `np.matrix` / masked array / `ndim` が嘘を
+    つくサブクラスは元から拒否されていたが、これは通っていた。修正はスカラーの門と
+    同じ形（**`type(value) is np.ndarray`**）。1-D 判定も**シリアライザ自身が読む
+    `len(shape)`** に合わせた（`ndim` と `shape` は numpy の配列では一致するが、
+    他では一致する保証がない）。
 
 #### 受け入れ基準 7 の決定: **#283 は H-0095 では解決しない**
 

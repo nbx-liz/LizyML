@@ -570,6 +570,45 @@ def test_each_defence_is_load_bearing_for_something_different() -> None:
         normalise_params({"learning_rate": _Boom(0.1)}, surface="probe")
 
 
+def test_a_numpy_array_subclass_is_refused_for_the_same_reason_a_scalar_is() -> None:
+    """The array gate, closed the way the scalar gate was.
+
+    The rounds 19-21 monitor named this while declining to verify it, and it
+    was a real hole: iterating an ``ndarray`` subclass runs the subclass
+    ``__iter__``, and a caller method is not obliged to answer the same twice.
+    Measured -- a subclass yielding a different sequence on each call was
+    normalised to one thing and the trainer would have been sent another,
+    which is the silent-wire-change class this whole change exists to remove.
+
+    So the array is admitted by exact type, and the ``1-D`` question is asked
+    the way the serialiser asks it, with ``len(shape)`` rather than ``ndim``.
+    """
+
+    class _Shifting(np.ndarray):
+        _calls = 0
+
+        def __iter__(self) -> Any:
+            type(self)._calls += 1
+            return iter([float(type(self)._calls)] * 2)
+
+    shifting = np.array([1.0, 2.0]).view(_Shifting)
+    assert _wire(shifting) != _wire(shifting), "the witness does not shift"
+
+    for label, value in [
+        ("a subclass with a shifting __iter__", np.array([1.0, 2.0]).view(_Shifting)),
+        ("numpy matrix", np.matrix([[1.0, 2.0]])),
+        ("a masked array", np.ma.masked_array([1.0, 2.0], mask=[0, 1])),
+    ]:
+        with pytest.raises(LizyMLError) as exc:
+            normalise_params({"feature_contri": value}, surface="probe")
+        assert exc.value.code is ErrorCode.CONFIG_INVALID, label
+
+    # The plain array it narrows from is untouched.
+    plain = np.array([1.0, 2.0])
+    assert normalise_value(plain) == [1.0, 2.0]
+    assert _wire(normalise_value(plain)) == _wire(plain)
+
+
 def test_an_integer_too_large_for_a_float_is_accepted_and_compared() -> None:
     """Review round 21, finding 2.
 

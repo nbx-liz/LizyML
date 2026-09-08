@@ -105,6 +105,13 @@ def _derived_numpy_scalar_types() -> frozenset[type]:
 #: The numpy scalar types a parameter value may be, by **exact type**.
 NUMPY_SCALAR_TYPES: frozenset[type] = _derived_numpy_scalar_types()
 
+#: ``numpy.ndarray`` is admitted by exact type for the same reason, and it is a
+#: separate statement because it was a separate hole. Iterating a subclass runs
+#: the subclass ``__iter__``, and what a caller method returns is not required
+#: to be the same twice: measured, a subclass yielding a different sequence on
+#: each call was normalised to one thing and would have been serialised as
+#: another. Reading a plain array runs numpy code only.
+
 
 #: Sequence types accepted here, alongside a 1-D ndarray.
 #:
@@ -267,10 +274,13 @@ def _plain_mapping(value: dict[Any, Any]) -> dict[str, Any]:
 
 def _plain_sequence(value: Any) -> list[Any]:
     """The plain stand-in for a sequence the serialiser joins with commas."""
-    if isinstance(value, np.ndarray):
-        if value.ndim != 1:
+    if type(value) is np.ndarray:
+        # `len(shape)`, which is what `_is_numpy_1d_array` reads, rather than
+        # `ndim`: two attributes that agree on a numpy array and need not agree
+        # on anything else, and the serialiser reads the first.
+        if len(value.shape) != 1:
             raise _Unaccepted(
-                value, f"a {value.ndim}-D numpy array is not a parameter value"
+                value, f"a {len(value.shape)}-D numpy array is not a parameter value"
             )
         members: list[Any] = list(value)
     else:
@@ -284,7 +294,7 @@ def normalise_value(value: Any) -> Any:
     Raises:
         _Unaccepted: when the value is outside the accepted set.
     """
-    if isinstance(value, np.ndarray) or type(value) in PLAIN_SEQUENCE_TYPES:
+    if type(value) is np.ndarray or type(value) in PLAIN_SEQUENCE_TYPES:
         return _plain_sequence(value)
     if type(value) is dict:
         return _plain_mapping(value)
