@@ -178,7 +178,11 @@ class ModelPersistenceMixin:
         refit_result = self._require_refit()
 
         from lizyml.codegen.generator import generate_code
-        from lizyml.core._model_factories import check_param_names, get_outer_n_splits
+        from lizyml.core._model_factories import (
+            check_param_names,
+            effective_early_stopping_rounds,
+            get_outer_n_splits,
+        )
 
         adapter = refit_result.model
 
@@ -236,7 +240,18 @@ class ModelPersistenceMixin:
             categorical_features=refit_result.categorical_features,
             lgbm_params=export.params,
             num_boost_round=export.num_boost_round,
-            early_stopping_rounds=(es.rounds if es.enabled else None),
+            # The effective patience, not the configured one. `export_code`
+            # generates a project meant to reproduce the training, and reading
+            # the config alone made it generate one that trains a **different
+            # model** after a tune: measured, config 7 and tuned 2, the run
+            # trained at 2 and the generated project would have trained at 7
+            # (H-0094 decision 12, named by the rounds 14-15 monitor).
+            early_stopping_rounds=effective_early_stopping_rounds(
+                cfg,
+                state.tuning_result.best_training_params
+                if state.tuning_result is not None
+                else None,
+            ),
             validation_ratio=es.validation_ratio or 0.0,
             seed=cfg.training.seed,
             calibration_method=calibration_method,

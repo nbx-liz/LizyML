@@ -285,9 +285,29 @@ class ModelTablesMixin:
         rows.extend(state.provider.params_summary(fr.models[0], state.cfg.model))
 
         # --- Config training params ---
+        # The **effective** patience, not the configured one: a tuning result
+        # supplies `early_stopping_rounds` and the trainer takes it, so a table
+        # reading the config alone reported a number the run did not use.
+        # Measured: config 7, tuned 2, trained at 2, table said 7 (H-0094
+        # decision 12, named by the rounds 14-15 monitor).
+        # `effective_early_stopping_rounds` is the definition the trainer and
+        # the refusal already share; a third reading of the same question is
+        # what round 15's finding 1 was.
+        from lizyml.core._model_factories import effective_early_stopping_rounds
+
         es = state.cfg.training.early_stopping
         if es is not None:
-            rows.append({"parameter": "early_stopping_rounds", "value": es.rounds})
+            rows.append(
+                {
+                    "parameter": "early_stopping_rounds",
+                    "value": effective_early_stopping_rounds(
+                        state.cfg,
+                        state.tuning_result.best_training_params
+                        if state.tuning_result is not None
+                        else None,
+                    ),
+                }
+            )
             rows.append({"parameter": "validation_ratio", "value": es.validation_ratio})
 
         # --- Best iteration per fold ---
