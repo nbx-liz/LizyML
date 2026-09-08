@@ -29,19 +29,23 @@ from __future__ import annotations
 import argparse
 import ast
 import pathlib
+import platform
 import sys
+from typing import Any
 
 import numpy as np
 
 REPO = pathlib.Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO))
 
+from lizyml.core.exceptions import LizyMLError  # noqa: E402
 from lizyml.core.param_domain import (  # noqa: E402
     NUMPY_SCALAR_TYPES,
     PATH_TYPES,
     PLAIN_SCALAR_TYPES,
     PLAIN_SEQUENCE_TYPES,
     REFUSED_SEQUENCE_TYPES,
+    normalise_params,
 )
 
 HISTORY = REPO / "HISTORY.md"
@@ -80,12 +84,51 @@ def _numpy_names(kinds: object) -> str:
     )
 
 
+#: Values tried, in order, when constructing one instance of a numpy type.
+PROBE_SEEDS = (1, 0, True, "x")
+
+
+def _probe(kind: type, *, element: bool) -> bool:
+    """Is a constructed value of ``kind`` accepted in that position?"""
+    for seed in PROBE_SEEDS:
+        try:
+            value = kind(seed)
+        except (TypeError, ValueError, OverflowError):
+            continue
+        break
+    else:
+        return False
+    payload: Any = [value] if element else value
+    try:
+        normalise_params({"k": payload}, surface="probe")
+    except LizyMLError:
+        return False
+    return True
+
+
+def _refused_probes(*, element: bool) -> str:
+    """The admitted types whose probe value this position refuses.
+
+    Derived rather than noted, because the type set and the value set are not
+    the same set and the difference moves. ``timedelta64`` is admitted as a type
+    -- it is a ``numpy.integer``, so the dtype round trip keeps it -- and its
+    values are refused by the ``format`` check. ``longdouble`` is a second case
+    and an asymmetric one: ``.item()`` on it returns a ``longdouble`` rather
+    than a Python float, so the scalar position refuses it, while the element
+    position parses its text back and accepts. A line written by hand would
+    have named the first and missed the second.
+    """
+    refused = [k for k in NUMPY_SCALAR_TYPES if not _probe(k, element=element)]
+    return _numpy_names(refused) if refused else "none"
+
+
 def _accepted_block() -> str:
     """The accepted set, read out of the module rather than described."""
     lines = [
         BEGIN,
         "```text",
         f"numpy               {np.__version__}",
+        f"platform            {sys.platform} {platform.machine()}",
         "",
         "scalar position     " + _names(PLAIN_SCALAR_TYPES),
         "  converted         " + _names(PATH_TYPES) + " -> str",
@@ -101,10 +144,11 @@ def _accepted_block() -> str:
         "numpy scalar types (exact type; derived by np.dtype(k).type is k)",
         "  " + _numpy_names(NUMPY_SCALAR_TYPES),
         "",
-        "  timedelta64 is in the set because it is a numpy.integer, and the",
-        "  derivation admits the type. Its values are refused by the format()",
-        "  check instead -- measured for a unit-carrying value, a unitless one",
-        "  and NaT, in both positions (1 nanoseconds vs 1).",
+        "  the type set is wider than the value set, and by position:",
+        "  refused in scalar position   " + _refused_probes(element=False),
+        "  refused in element position  " + _refused_probes(element=True),
+        "  (one constructed value per type -- a measurement of these values,",
+        "  not a proof about every value of the type)",
         "```",
         END,
     ]

@@ -9172,10 +9172,27 @@ uv run python docs/audits/2026-09-defect-discovery/instruments/param_domain_cont
 ```
 
 `--check` はこのブロックとモジュールを突き合わせ、乖離したら非零で終了する（DC3）。
+**乖離検出が実際に落ちることは確認済み**（numpy の版を 1 文字変えて exit 1）。
+
+ブロックが **numpy の版と platform を書いている**のは飾りではない。
+`longdouble` / `longlong` / `ulonglong` は C の型に対する別名であり、**platform に
+よっては別の型に解決されて集合から消える**。このブロックは「受理集合」ではなく
+「**この numpy・この platform での受理集合**」であり、別環境で `--check` が落ちるのは
+ドリフトではなく環境差である。
+
+**型集合は値集合より広い**、というのもブロックが**測って書いている**（散文の注ではない）。
+`timedelta64` は `numpy.integer` なので導出が型を通し、値は `format` 検査が拒否する。
+`longdouble` は 2 例目で、しかも**位置で非対称**である（`.item()` が Python の float を
+返さないのでスカラー位置は拒否、要素位置はテキストを parse し直して受理）。
+手で書いた注は 1 例目しか挙げておらず、2 例目は計測して初めて出た。
+
+なお `param_domain.ACCEPTED_DESCRIPTION` は**拒否メッセージに載せる利用者向けの要約**で
+あって契約ではない。契約はこのブロックと下の要件表である。
 
 <!-- param-domain-contract:begin -->
 ```text
 numpy               2.4.2
+platform            linux x86_64
 
 scalar position     NoneType, bool, float, int, str
   converted         PosixPath, WindowsPath -> str
@@ -9191,10 +9208,11 @@ refused sequence    frozenset, set
 numpy scalar types (exact type; derived by np.dtype(k).type is k)
   numpy.bool, numpy.float16, numpy.float32, numpy.float64, numpy.int16, numpy.int32, numpy.int64, numpy.int8, numpy.longdouble, numpy.longlong, numpy.str_, numpy.timedelta64, numpy.uint16, numpy.uint32, numpy.uint64, numpy.uint8, numpy.ulonglong
 
-  timedelta64 is in the set because it is a numpy.integer, and the
-  derivation admits the type. Its values are refused by the format()
-  check instead -- measured for a unit-carrying value, a unitless one
-  and NaT, in both positions (1 nanoseconds vs 1).
+  the type set is wider than the value set, and by position:
+  refused in scalar position   numpy.longdouble, numpy.timedelta64
+  refused in element position  numpy.timedelta64
+  (one constructed value per type -- a measurement of these values,
+  not a proof about every value of the type)
 ```
 <!-- param-domain-contract:end -->
 
