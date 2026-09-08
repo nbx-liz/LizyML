@@ -17,6 +17,7 @@ import numpy.typing as npt
 
 from lizyml.calibration.base import BaseCalibratorAdapter
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.param_domain import assert_plain_params
 from lizyml.core.registries import CalibratorRegistry
 
 _ISOTONIC_DEFAULTS: dict[str, Any] = {
@@ -129,6 +130,12 @@ class IsotonicCalibrator(BaseCalibratorAdapter):
         train_ds, valid_sets, callbacks = self._prepare_training(
             X_cal, y_float, n_samples, params
         )
+        # H-0095: the domain is closed at the four surfaces, and this is
+        # where that becomes a property rather than a claim about wiring.
+        # A value that reached training without being normalised stops the
+        # run and names itself, instead of being serialised by whatever
+        # `__format__` it happens to carry.
+        assert_plain_params(params, where="the calibrator lgbm.train")
         self._model = lgbm.train(
             params,
             train_ds,

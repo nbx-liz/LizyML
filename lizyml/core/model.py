@@ -56,13 +56,13 @@ from lizyml.core._model_factories import (
     build_splitter,
     canonicalise_calibration_params,
     check_calibration_param_names,
-    check_duplicate_identities,
     check_param_names,
     check_smart_managed_overrides,
     check_training_managed_overrides,
     effective_early_stopping_rounds,
     get_provider,
     make_inner_valid_factory,
+    normalise_and_check,
     overlay_params,
     tuned_validation_ratio,
 )
@@ -476,7 +476,13 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         # to `lgb.train`, which silently kept the canonical one (review round
         # 11). The check lives here rather than in the schema because the alias
         # table is in `estimators/`, which `config/` may not import.
-        check_duplicate_identities(provider, model_params, surface="model.params")
+        # H-0095: normalised here as well as checked. Everything below --
+        # the overlays, the identity comparisons, the dict handed to the
+        # adapter -- then works on plain values only, which is what lets
+        # the comparison be total instead of one guard per exotic object.
+        model_params = normalise_and_check(
+            provider, model_params, surface="model.params"
+        )
 
         # --- Overlay tune best ---
         if self._tuning_result is not None:
@@ -501,19 +507,13 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             # 0.1 with both present (H-0094 decision 11, review round 15).
             # `load()` itself still reads such an artifact; the refusal belongs
             # on the re-fit, which is here.
-            check_duplicate_identities(
+            best_model_params = normalise_and_check(
                 provider,
                 self._tuning_result.best_model_params,
                 surface="tuning best_model_params",
             )
-            model_params = overlay_params(
-                provider, model_params, self._tuning_result.best_model_params
-            )
-            origins.update(
-                dict.fromkeys(
-                    self._tuning_result.best_model_params, "tuning best_model_params"
-                )
-            )
+            model_params = overlay_params(provider, model_params, best_model_params)
+            origins.update(dict.fromkeys(best_model_params, "tuning best_model_params"))
             if self._tuning_result.best_smart_params:
                 smart_params = {
                     **smart_params,
@@ -527,7 +527,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         # an override would be accepting a value that is then discarded. The
         # config schema already refuses the same collision at parse time; this
         # applies that policy to the `fit()` input (H-0094).
-        check_duplicate_identities(provider, override or {}, surface="fit(params=)")
+        override = normalise_and_check(provider, override or {}, surface="fit(params=)")
         check_smart_managed_overrides(
             provider, override, smart_params, cfg.task, surface="fit(params=)"
         )

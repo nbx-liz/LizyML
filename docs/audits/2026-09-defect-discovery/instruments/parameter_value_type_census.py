@@ -2,13 +2,14 @@
 
 This is the Change Gate evidence for **H-0095** (normalise parameter values at
 ingress). An accept-list at the parameter surfaces is an ``allow`` condition, so
-it needs a measured firing rate before implementation rather than an argument
-from plausibility.
+it needs a measured firing rate rather than an argument from plausibility -- and
+it needs the same measurement again afterwards, because a refusal nobody
+measures after shipping is a refusal nobody knows the size of.
 
-It measures by replaying real inputs, not by reading code: it wraps
-``check_duplicate_identities`` -- the one function every parameter dict passes
-through at every declared surface, which rounds 10-12 established and pinned --
-and records the concrete type of every value that reaches it.
+It measures by replaying real inputs, not by reading code. It wraps
+``normalise_params`` -- the one function every parameter dict passes through at
+every declared surface -- and records the concrete type of every value that
+reaches it, **before** normalisation, together with whether the surface refused.
 
 Run it as a pytest plugin over the whole suite::
 
@@ -16,7 +17,9 @@ Run it as a pytest plugin over the whole suite::
     TYPE_CENSUS_OUT=/tmp/type_census.json \\
     uv run pytest -q --no-cov -p parameter_value_type_census
 
-Measured at head `1403ba8` over the full suite (2898 passed, 62 skipped):
+Measured **before** H-0095, at head `1403ba8` over the full suite (2898 passed,
+62 skipped), by wrapping ``check_duplicate_identities``, which was the single
+narrow point at the time:
 
 ===========================  =======
 concrete type                 values
@@ -33,10 +36,10 @@ NoneType                           3
 ===========================  =======
 
 Total **1430**. Sequence elements were `float` 52, `str` 22, `int` 2 -- all
-plain. The seven remaining values are `Equivalent`, `Proxy`, `Conflicting`,
-`FormatsToLiar` and `Rate`: **every one is a hostile object constructed by this
+plain. The seven remaining values were `Equivalent`, `Proxy`, `Conflicting`,
+`FormatsToLiar` and `Rate`: **every one a hostile object constructed by this
 PR's own rounds 16-20 regression tests.** No configuration in this repository
-produces a value outside the proposed accept-list.
+produced a value outside the proposed accept-list.
 
     Firing rate: 7/1430 of every parameter value the suite constructs
     (measured by wrapping the shared identity check over the full suite);
@@ -63,6 +66,7 @@ _BY_SURFACE: dict[str, collections.Counter[str]] = collections.defaultdict(
     collections.Counter
 )
 _ELEMENTS: collections.Counter[str] = collections.Counter()
+_REFUSED: collections.Counter[str] = collections.Counter()
 
 
 def _record(surface: str, params: dict[str, Any]) -> None:
@@ -75,25 +79,25 @@ def _record(surface: str, params: dict[str, Any]) -> None:
 
 
 def pytest_configure(config: Any) -> None:
-    """Wrap the shared identity check, which every declared surface reaches."""
-    real = factories.check_duplicate_identities
+    """Wrap the ingress normaliser, which every declared surface reaches."""
+    real = factories.normalise_params
 
-    def wrapped(provider: Any, params: dict[str, Any], *, surface: str) -> None:
+    def wrapped(params: dict[str, Any], *, surface: str) -> dict[str, Any]:
         try:
             _record(surface, params)
         except Exception:  # noqa: BLE001 - a measurement must never fail a test
             pass
-        return real(provider, params, surface=surface)
+        try:
+            return real(params, surface=surface)
+        except Exception:
+            try:
+                for value in params.values():
+                    _REFUSED[type(value).__name__] += 1
+            except Exception:  # noqa: BLE001 - as above
+                pass
+            raise
 
-    factories.check_duplicate_identities = wrapped  # type: ignore[assignment]
-
-    # The facade imported it by name, so the rebind has to reach there too --
-    # patching only the definition module would measure a subset and report it
-    # as the whole, which is the defect class this audit exists to find.
-    import lizyml.core.model as facade
-
-    if hasattr(facade, "check_duplicate_identities"):
-        facade.check_duplicate_identities = wrapped  # type: ignore[assignment]
+    factories.normalise_params = wrapped  # type: ignore[assignment]
 
 
 def pytest_sessionfinish(session: Any, exitstatus: int) -> None:
@@ -104,6 +108,7 @@ def pytest_sessionfinish(session: Any, exitstatus: int) -> None:
                 "values_by_type": dict(_COUNTS),
                 "by_surface": {k: dict(v) for k, v in _BY_SURFACE.items()},
                 "sequence_elements_by_type": dict(_ELEMENTS),
+                "refused_dict_values_by_type": dict(_REFUSED),
                 "total_values": sum(_COUNTS.values()),
             },
             indent=2,

@@ -25,6 +25,7 @@ from lizyml.config.schema import (
     StratifiedKFoldConfig,
     TimeSeriesConfig,
 )
+from lizyml.core.param_domain import normalise_params
 from lizyml.core.types.task import TaskType
 from lizyml.core.value_equality import values_differ
 from lizyml.splitters.base import BaseSplitter
@@ -918,6 +919,34 @@ def check_duplicate_identities(
     )
 
 
+def normalise_and_check(
+    provider: Any, params: dict[str, Any], *, surface: str
+) -> dict[str, Any]:
+    """Normalise one layer at its surface, then apply the same-layer rule.
+
+    This is the single narrow point every parameter dict passes through, so it
+    is where the domain is closed (H-0095). Normalisation runs **first**: the
+    identity check compares values, and comparing plain values is the whole
+    reason that comparison can be total. Callers must use the returned dict --
+    the value the estimator is given has to be the value that was checked.
+
+    Args:
+        provider: the estimator provider, which owns the alias table.
+        params: the parameters exactly as the caller wrote them.
+        surface: the input they arrived through, named in any refusal.
+
+    Returns:
+        A new dict of plain values, ready to overlay or to train on.
+
+    Raises:
+        LizyMLError: with ``CONFIG_INVALID``, for a value outside the accepted
+            set, or for one parameter written twice with different values.
+    """
+    normalised = normalise_params(params, surface=surface)
+    check_duplicate_identities(provider, normalised, surface=surface)
+    return normalised
+
+
 def check_smart_managed_overrides(
     provider: Any,
     override: dict[str, Any] | None,
@@ -1065,7 +1094,7 @@ def check_calibration_param_names(calibration_cfg: Any) -> None:
         model_name="lgbm",
         extra_accepted=CALIBRATOR_OWN_PARAM_NAMES,
     )
-    check_duplicate_identities(provider, dict(params), surface="calibration.params")
+    normalise_and_check(provider, dict(params), surface="calibration.params")
 
 
 def canonicalise_calibration_params(params: dict[str, Any]) -> dict[str, Any]:
@@ -1107,6 +1136,13 @@ def canonicalise_calibration_params(params: dict[str, Any]) -> dict[str, Any]:
     from lizyml.calibration.isotonic import CALIBRATOR_OWN_PARAM_NAMES
     from lizyml.estimators.lgbm.provider import LGBMProvider
 
+    # Normalised here as well as in `check_calibration_param_names`: that
+    # one refuses, this one produces the dict the calibrator is actually
+    # handed, and the calibrator reaches `lgbm.train` without passing the
+    # other three surfaces. Normalisation is idempotent, so running it
+    # twice costs a walk of a small dict and removes a route into training
+    # that is normalised nowhere (H-0095).
+    params = normalise_params(params, surface="calibration.params")
     canonical = LGBMProvider().canonical_param_names(params)
     return {
         name if name in CALIBRATOR_OWN_PARAM_NAMES else canonical[name]: value

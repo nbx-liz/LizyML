@@ -10,6 +10,7 @@ import numpy.typing as npt
 import pandas as pd
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.param_domain import assert_plain_params
 from lizyml.core.value_equality import values_differ
 from lizyml.estimators.base import BaseEstimatorAdapter, ImportanceKind
 from lizyml.estimators.lgbm.defaults import (
@@ -232,6 +233,12 @@ class LGBMAdapter(BaseEstimatorAdapter):
         callbacks.append(lgb.record_evaluation(self._eval_results))
 
         user_metric = params.get("metric")
+        # H-0095: the domain is closed at the four surfaces, and this is
+        # where that becomes a property rather than a claim about wiring.
+        # A value that reached training without being normalised stops the
+        # run and names itself, instead of being serialised by whatever
+        # `__format__` it happens to carry.
+        assert_plain_params(params, where="lgb.train")
         try:
             self._model = lgb.train(
                 params,
