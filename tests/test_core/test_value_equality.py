@@ -21,12 +21,14 @@ wrong, so the cases below are kept as a table of *inputs*, not of code paths:
 
 from __future__ import annotations
 
+import pathlib
 from typing import Any
 
 import numpy as np
 import pandas as pd
 import pytest
 
+from lizyml.core import value_equality
 from lizyml.core.value_equality import values_differ
 
 
@@ -895,15 +897,25 @@ ELEMENT_COMBINATIONS: list[tuple[str, str, str, str, str]] = [
 ]
 
 
-def _serialiser_raises_on(value: Any) -> bool:
-    """Does LightGBM's own serialiser refuse this value outright?"""
+def _wire(value: Any) -> str | None:
+    """The bytes LightGBM would send for this value, or ``None`` if it refuses.
+
+    Read from the serialiser rather than reconstructed, because reconstructing
+    it is exactly what round 19 got wrong: the scalar branch writes
+    ``f"{key}={val}"`` and the element branch calls ``str``, and those disagree
+    for a value that overrides one and not the other.
+    """
     from lightgbm.basic import _param_dict_to_str
 
     try:
-        _param_dict_to_str({"learning_rate": value})
-    except Exception:  # noqa: BLE001 - the question is only whether it raises
-        return True
-    return False
+        return _param_dict_to_str({"k": value})[2:]
+    except Exception:  # noqa: BLE001 - refusal is one of the answers
+        return None
+
+
+def _serialiser_raises_on(value: Any) -> bool:
+    """Does LightGBM's own serialiser refuse this value outright?"""
+    return _wire(value) is None
 
 
 @pytest.mark.parametrize(
@@ -971,6 +983,274 @@ def test_the_oracle_relation_is_not_vacuous() -> None:
 
     # ...and the raising `__class__` is one it refuses, so it is outside.
     assert _serialiser_raises_on(refused) is True
+
+
+# ---------------------------------------------------------------------------
+# The other half of the bound (round 19)
+# ---------------------------------------------------------------------------
+# The relation above asserts only that this function does not **raise** where
+# the serialiser does not. Round 19's finding passed that relation by
+# construction and still broke the bound in both directions: a pair with the
+# same wire form was refused, and a pair with **different** wire forms was
+# admitted -- `learning_rate` at 0.25 compared equal to `eta` at 0.5.
+#
+# That was not a missing axis. Adding `__format__` to the generated population
+# would have caught this one instance; asserting the missing relation catches
+# it under **any** axis, including ones nobody has thought of. Four rounds have
+# now been spent adding axes.
+
+
+class _FormatDiffers(str):
+    """Wire form ``0.5``; ``str()`` says ``0.25``.
+
+    The serialiser writes a scalar with ``f"{key}={val}"``, so this value is
+    ``0.5`` on the wire. Normalising with ``str`` instead made it ``0.25`` and
+    a wire-identical pair was **refused**.
+    """
+
+    def __str__(self) -> str:
+        return "0.25"
+
+    def __format__(self, spec: str) -> str:
+        return "0.5"
+
+
+class _FormatConflicts(str):
+    """Wire form ``0.25``; ``str()`` says ``0.5`` -- the dangerous direction.
+
+    Normalising with ``str`` made this compare **equal** to ``0.5``, so two
+    genuinely different values were admitted as one and the booster trained on
+    whichever LightGBM happened to keep (DC1).
+    """
+
+    def __str__(self) -> str:
+        return "0.5"
+
+    def __format__(self, spec: str) -> str:
+        return "0.25"
+
+
+_WIRE_PAIR_VALUES: list[tuple[str, Any]] = [
+    ("exact str", "0.5"),
+    ("float", 0.5),
+    # Round 19. Without these two the population contains no value whose
+    # `format` and `str` disagree, and the relation cannot see the defect that
+    # produced it -- verified by reverting the fix and watching the suite stay
+    # green.
+    ("format differs", _FormatDiffers("0.5")),
+    ("format conflicts", _FormatConflicts("0.25")),
+    ("int-ish float", 3.0),
+    ("plain subclass", _make_awkward_text("normal", "normal", "normal")),
+    ("proxy", _make_awkward_text("normal", "normal", "proxy")),
+    ("hostile split", _make_awkward_text("raises", "normal", "normal")),
+    ("hostile strip", _make_awkward_text("normal", "raises", "normal")),
+    ("single-element list", [0.5]),
+    ("single-element tuple", (0.5,)),
+    ("different value", "0.25"),
+    ("different number", 0.25),
+]
+
+
+#: Pairs the relation reports and this PR deliberately does not fix, each with
+#: the issue that owns it. The values stay in the population above so the
+#: non-vacuity witnesses are not lost; only the assertion is deferred. Admitting
+#: a currently-refused pair is a behaviour widening -- an `allow` under the
+#: Change Gate -- and needs a Proposal with a measured firing rate, not a fix
+#: folded into a review round.
+KNOWN_BOUNDS: dict[frozenset[str], str] = {
+    frozenset({"float", "single-element list"}): "#283",
+    frozenset({"float", "single-element tuple"}): "#283",
+}
+
+
+@pytest.mark.parametrize("left_label", [label for label, _ in _WIRE_PAIR_VALUES])
+@pytest.mark.parametrize("right_label", [label for label, _ in _WIRE_PAIR_VALUES])
+def test_the_verdict_follows_the_wire_form(left_label: str, right_label: str) -> None:
+    """Two implications, over every pair the serialiser writes.
+
+    - same wire form  => ``values_differ`` is ``False`` (one value, admit it);
+    - both numeric and different => ``values_differ`` is ``True`` (refuse it).
+
+    The second is the one round 19 broke in the dangerous direction, and no
+    no-raise assertion can see it. Pairs whose wire forms differ but are not
+    both numeric are left unasserted on purpose: this function is allowed to
+    have no opinion there, and claiming otherwise would be the kind of
+    over-broad declaration this module has already paid for three times.
+    """
+    values = dict(_WIRE_PAIR_VALUES)
+    left, right = values[left_label], values[right_label]
+
+    wire_left, wire_right = _wire(left), _wire(right)
+    if wire_left is None or wire_right is None:
+        pytest.skip("outside the bound: the serialiser refuses an operand")
+
+    bound = KNOWN_BOUNDS.get(frozenset({left_label, right_label}))
+    if bound is not None:
+        pytest.skip(f"known bound, filed as {bound}")
+
+    verdict = values_differ(left, right)
+    assert isinstance(verdict, bool)
+
+    if wire_left == wire_right:
+        assert verdict is False, (
+            f"{left_label} vs {right_label}: both write {wire_left!r} "
+            f"and were reported as differing"
+        )
+        return
+
+    try:
+        numeric = float(wire_left) != float(wire_right)
+    except ValueError:
+        numeric = False
+    if numeric:
+        assert verdict is True, (
+            f"{left_label} vs {right_label}: {wire_left!r} and {wire_right!r} "
+            f"are different values and were reported as the same"
+        )
+
+
+# ---------------------------------------------------------------------------
+# A population derived rather than declared (round 19)
+# ---------------------------------------------------------------------------
+# Four rounds were spent adding an axis the previous round had not thought of:
+# `__float__`, then `__str__`, then `split`, then `__class__`, then `__format__`
+# and `tolist`. Every one was chosen by a person, which is why every one was
+# incomplete. This population is derived from **Python's own dunder list** on
+# the types this module handles, plus the explicit attribute names the module
+# looks up by string. It is linear in the number of names, and it grows by
+# itself when Python or the module does.
+
+_EXPLICIT_LOOKUPS: frozenset[str] = frozenset({"tolist"})
+
+
+def _derived_hostile_names() -> list[str]:
+    """Every dunder on the types this module touches, plus its own lookups."""
+    names = {
+        name
+        for type_ in (object, str, float, list, tuple)
+        for name in vars(type_)
+        if name.startswith("__")
+    }
+    return sorted(names | _EXPLICIT_LOOKUPS)
+
+
+DERIVED_HOSTILE_NAMES: list[str] = _derived_hostile_names()
+
+
+def _hostile_on(name: str) -> Any:
+    """A ``float`` subclass of 0.5 whose *one* named attribute raises."""
+
+    def boom(self: Any, *args: Any, **kwargs: Any) -> Any:
+        raise RuntimeError(f"{name} unavailable")
+
+    namespace: dict[str, Any] = {name: property(boom)}
+    try:
+        return type("HostileAttr", (float,), namespace)(0.5)
+    except Exception:  # noqa: BLE001 - a few slots cannot be a property
+        return None
+
+
+@pytest.mark.parametrize("name", DERIVED_HOSTILE_NAMES)
+def test_the_bound_holds_over_a_derived_hostile_population(name: str) -> None:
+    """One hostile attribute at a time, over a population nobody enumerated.
+
+    The claim is the module's own, and it is checked against the oracle rather
+    than asserted absolutely: **if the serialiser writes this value, comparing
+    it must not raise, and a pair with the same wire form must be admitted.**
+    A value the serialiser refuses is outside the bound and only has to not
+    crash the test.
+    """
+    hostile = _hostile_on(name)
+    if hostile is None:
+        pytest.skip(f"{name} cannot be overridden as a property")
+
+    wire = _wire(hostile)
+    if wire is None:
+        return  # outside the bound: the serialiser refuses it too
+
+    for other in (0.5, "0.5", [0.5]):
+        for a, b in ((hostile, other), (other, hostile)):
+            verdict = values_differ(a, b)
+            assert isinstance(verdict, bool), f"{name}: answered {verdict!r}"
+            if _wire(other) != wire:
+                continue
+            if isinstance(other, (list, tuple)):
+                continue  # the scalar/single-sequence bound, filed as #283
+            assert verdict is False, (
+                f"{name}: {wire!r} on both sides, reported as differing"
+            )
+
+
+def test_the_derived_population_is_derived() -> None:
+    """It must come from Python and the module, not from a written-down list.
+
+    A hand-written list is what went stale four rounds running. This asserts the
+    shape of the derivation rather than its contents, so adding a Python version
+    or a new explicit lookup grows the population without editing a constant.
+    """
+    names = set(DERIVED_HOSTILE_NAMES)
+
+    # Every name is either a real dunder on a type this module handles, or an
+    # attribute the module itself looks up by string.
+    for name in names:
+        assert name.startswith("__") or name in _EXPLICIT_LOOKUPS, name
+
+    # The axes four rounds discovered one at a time must all be in here now.
+    for discovered in ("__float__", "__str__", "__format__", "__class__", "tolist"):
+        assert discovered in names, discovered
+
+    # And the explicit lookups must match what the module actually does, or this
+    # half of the derivation is a copy that can go stale (DC3).
+    source = pathlib.Path(value_equality.__file__).read_text(encoding="utf-8")
+    for name in _EXPLICIT_LOOKUPS:
+        assert f'"{name}"' in source, f"{name} is no longer looked up by name"
+
+
+def test_both_wire_implications_have_witnesses() -> None:
+    """Neither implication may be vacuous over the population above.
+
+    An implication whose antecedent never holds is satisfied by any
+    implementation -- the DC6 shape, and the reason the first relation shipped
+    with the same check.
+    """
+    wires = [(label, _wire(value)) for label, value in _WIRE_PAIR_VALUES]
+    written = [(label, w) for label, w in wires if w is not None]
+
+    same = [(a, b) for a, wa in written for b, wb in written if a != b and wa == wb]
+    differ = [
+        (a, b)
+        for a, wa in written
+        for b, wb in written
+        if a != b and wa != wb and _both_numeric(wa, wb)
+    ]
+
+    assert same, "no pair shares a wire form: the admit implication is vacuous"
+    assert differ, "no numeric pair differs: the refuse implication is vacuous"
+
+    # And the deferred cells must not have eaten every witness of the half they
+    # belong to -- a known bound that swallows its own implication leaves the
+    # relation asserting nothing while still looking populated.
+    asserted_same = [(a, b) for a, b in same if frozenset({a, b}) not in KNOWN_BOUNDS]
+    assert asserted_same, "every same-wire pair is deferred; the half is unasserted"
+
+    # Every deferred cell must still be a real disagreement, or it is a stale
+    # exemption hiding a case that now passes.
+    values = dict(_WIRE_PAIR_VALUES)
+    for pair, issue in KNOWN_BOUNDS.items():
+        left, right = (values[label] for label in sorted(pair))
+        assert _wire(left) == _wire(right), (pair, issue)
+        assert values_differ(left, right) is True, (
+            f"{sorted(pair)} now agrees; remove the {issue} exemption"
+        )
+
+
+def _both_numeric(first: str, second: str) -> bool:
+    try:
+        float(first)
+        float(second)
+    except ValueError:
+        return False
+    return True
 
 
 @pytest.mark.parametrize(

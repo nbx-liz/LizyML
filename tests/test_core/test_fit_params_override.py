@@ -2672,6 +2672,47 @@ def test_a_string_proxy_that_trains_alone_still_trains_as_a_pair() -> None:
     assert _booster_text(together) == _booster_text(alone)
 
 
+def test_the_comparison_uses_the_formatter_the_serialiser_uses() -> None:
+    """Review round 19, on the shipped path, in both directions.
+
+    LightGBM writes a scalar parameter with ``f"{key}={val}"`` -- ``__format__``
+    -- and writes sequence elements through ``_to_string``, which calls
+    ``str``. Round 18 normalised the scalar operand with ``str``, and those
+    disagree for a value that overrides one and not the other.
+
+    The second assertion is the one that matters most: comparing by ``str``
+    made two values with **different** wire forms compare equal, so a caller
+    who wrote ``learning_rate`` at ``0.25`` and ``eta`` at ``0.5`` was told
+    nothing and trained on whichever LightGBM kept.
+    """
+
+    class Equivalent(str):
+        def __str__(self) -> str:
+            return "0.25"
+
+        def __format__(self, spec: str) -> str:
+            return "0.5"
+
+    class Conflicting(str):
+        def __str__(self) -> str:
+            return "0.5"
+
+        def __format__(self, spec: str) -> str:
+            return "0.25"
+
+    # Same wire form: one parameter written twice, so it must train.
+    alone = _fit({"learning_rate": Equivalent("0.5")}, num_threads=1)
+    other = _fit({"eta": 0.5}, num_threads=1)
+    assert _booster_text(alone) == _booster_text(other)
+    together = _fit({"learning_rate": Equivalent("0.5"), "eta": 0.5}, num_threads=1)
+    assert _booster_text(together) == _booster_text(alone)
+
+    # Different wire forms: a genuine conflict, and it must be refused.
+    with pytest.raises(LizyMLError) as excinfo:
+        _fit({"learning_rate": Conflicting("0.25"), "eta": 0.5}, num_threads=1)
+    assert excinfo.value.code is ErrorCode.CONFIG_INVALID
+
+
 def test_a_float_subclass_that_refuses_conversion_still_trains() -> None:
     """Review round 16, finding 2, end to end on the shipped path.
 
