@@ -28,6 +28,7 @@ import pytest
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.param_domain import (
     ACCEPTED_DESCRIPTION,
+    NUMPY_SCALAR_TYPES,
     PLAIN_SCALAR_TYPES,
     PLAIN_SEQUENCE_TYPES,
     REFUSED_SEQUENCE_TYPES,
@@ -447,26 +448,146 @@ def test_the_scalar_types_are_the_ones_the_serialiser_names() -> None:
 
 
 def test_the_sequence_types_are_the_ones_the_serialiser_joins() -> None:
-    """The comma-joining branch, read out of the serialiser's own source.
+    """Both directions, so a **widening** is visible and not only a narrowing.
 
-    Both directions: nothing is treated as a sequence that the serialiser does
-    not join, and the one type it joins that this refuses is refused **on the
-    record** rather than by omission.
+    The first version of this asked whether each name we accept appears in the
+    joining branch, which a serialiser that grew a new sequence type would go
+    on satisfying for ever -- exactly the stale-derivation shape (DC3) the
+    derivation exists to prevent, and review round 21 demonstrated it by
+    feeding this test a widened source and watching it pass.
+
+    So the names are **extracted** from the branch and compared as a set: every
+    type the serialiser joins is either accepted here or refused here on the
+    record, and a type that is neither fails.
     """
     import inspect
+    import re
 
     from lightgbm.basic import _param_dict_to_str
 
     source = inspect.getsource(_param_dict_to_str)
     joining = source.split("elif")[0]
-    for kind in PLAIN_SEQUENCE_TYPES:
-        assert kind.__name__ in joining, (
-            f"{kind.__name__} is treated as a sequence here but the serialiser "
-            "does not join it"
-        )
+
+    match = re.search(r"isinstance\(\s*val\s*,\s*\(([^)]*)\)", joining)
+    assert match, f"the joining branch is no longer an isinstance tuple: {joining}"
+    joined = {name.strip() for name in match.group(1).split(",") if name.strip()}
     assert "_is_numpy_1d_array" in joining
-    assert "set" in joining, "the serialiser no longer joins a set"
-    assert set in REFUSED_SEQUENCE_TYPES
+
+    known = {kind.__name__ for kind in PLAIN_SEQUENCE_TYPES} | {
+        kind.__name__ for kind in REFUSED_SEQUENCE_TYPES
+    }
+    assert joined <= known, (
+        f"the serialiser joins {joined - known}, which this module neither "
+        "accepts nor refuses on the record"
+    )
+    assert {kind.__name__ for kind in PLAIN_SEQUENCE_TYPES} <= joined, (
+        "a type is treated as a sequence here that the serialiser does not join"
+    )
+    assert "set" in joined, "the serialiser no longer joins a set"
+
+
+def test_the_numpy_scalar_types_are_derived_from_numpy() -> None:
+    """The other derived set, and the one round 21 found admitting by inheritance.
+
+    Asserted as a relation to numpy own hierarchy rather than as a list: every
+    accepted type is one numpy defines under the bases a parameter value can
+    come from, and the types outside those bases stay outside.
+    """
+    assert NUMPY_SCALAR_TYPES, "the derivation produced nothing"
+    for kind in NUMPY_SCALAR_TYPES:
+        assert kind.__module__.split(".")[0] == "numpy", kind
+        assert issubclass(kind, (np.integer, np.floating, np.bool_, np.str_)), kind
+    for kind in (np.float16, np.float32, np.float64, np.int64, np.bool_, np.str_):
+        assert kind in NUMPY_SCALAR_TYPES, kind
+    for kind in (np.datetime64, np.complex128, np.void, np.bytes_):
+        assert kind not in NUMPY_SCALAR_TYPES, kind
+
+
+@pytest.mark.parametrize(
+    ("label", "value"),
+    [
+        ("a subclass with a lying formatter", None),
+        ("numpy timedelta64", np.timedelta64(1, "ns")),
+        ("numpy datetime64", np.datetime64("2020-01-01")),
+        ("numpy complex128", np.complex128(1 + 2j)),
+    ],
+)
+def test_a_numpy_value_whose_conversion_would_lose_bytes_is_refused(
+    label: str, value: Any
+) -> None:
+    """Review round 21, both halves of it.
+
+    ``numpy.timedelta64`` is a ``numpy.integer``, so accepting by inheritance
+    admitted it, and ``.item()`` turned ``1 nanoseconds`` into ``1`` -- a fit
+    that completed on bytes the caller did not write, which is the expensive
+    class this whole change exists to remove. A subclass of ``numpy.float64``
+    did the same through an overridden ``__format__``.
+
+    Two defences, and this asserts both: the type must be one numpy itself
+    defines, and the converted value must **write what the original writes**.
+    """
+    if value is None:
+
+        class _Lying(np.float64):
+            def __format__(self, spec: str) -> str:
+                return "0.9"
+
+        value = _Lying(0.1)
+
+    with pytest.raises(LizyMLError) as exc:
+        normalise_params({"learning_rate": value}, surface="probe")
+    assert exc.value.code is ErrorCode.CONFIG_INVALID
+
+
+def test_each_defence_is_load_bearing_for_something_different() -> None:
+    """Two checks, and what each one actually buys -- measured, not asserted.
+
+    The written-form check is what refuses ``timedelta64``: it is a
+    ``numpy.integer``, so the type set contains it and only the comparison of
+    what it writes against what its conversion writes catches it.
+
+    The exact-type check buys something the written-form check cannot: with it,
+    **no caller-defined code runs at all** during normalisation. ``.item()``
+    and ``__format__`` are numpy own implementations, because the value is one
+    of numpy own types. Accepting by inheritance would run a subclass method,
+    and a subclass method can do anything -- which is the whole shape rounds
+    16-20 were spent on. The witness below is a subclass whose ``item`` raises:
+    with the type check it is refused, and without it the exception leaves a
+    function documented to raise only ``LizyMLError``.
+    """
+    assert np.timedelta64 in NUMPY_SCALAR_TYPES
+    delta = np.timedelta64(1, "ns")
+    assert format(delta, "") != format(delta.item(), "")
+    with pytest.raises(LizyMLError):
+        normalise_params({"learning_rate": delta}, surface="probe")
+
+    class _Boom(np.float64):
+        def item(self, *args: Any) -> Any:
+            raise RuntimeError("a caller method ran")
+
+    assert type(_Boom(0.1)) not in NUMPY_SCALAR_TYPES
+    with pytest.raises(LizyMLError):
+        normalise_params({"learning_rate": _Boom(0.1)}, surface="probe")
+
+
+def test_an_integer_too_large_for_a_float_is_accepted_and_compared() -> None:
+    """Review round 21, finding 2.
+
+    Python integers have no width, so ``10 ** 400`` is an ordinary accepted
+    value -- the serialiser writes its digits -- and the comparison converted it
+    to ``float`` to ask the numeric question. ``OverflowError`` was one
+    exception short of a function declared total over the accepted set.
+    """
+    from lizyml.core.value_equality import values_differ
+
+    huge = 10**400
+    normalised = normalise_params({"num_leaves": huge}, surface="probe")["num_leaves"]
+    assert normalised == huge
+    assert _wire(huge) == str(huge)
+
+    assert values_differ(huge, "1") is True
+    assert values_differ(huge, str(huge)) is False
+    assert values_differ(huge, huge) is False
 
 
 def test_a_set_is_refused_rather_than_ordered_by_hash() -> None:

@@ -91,7 +91,12 @@ def _comma_form_matches(text: Any, sequence: Any) -> bool | None:
         try:
             if float(part) == float(element):
                 continue
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
+            # `OverflowError` too: an `int` has no width in Python, so `10**400`
+            # is an ordinary accepted value whose `float()` cannot exist. Review
+            # round 21 measured it escaping a function declared total over the
+            # accepted set -- the declaration was right and the code was one
+            # exception short of it.
             pass
         if part.strip() != str(element).strip():
             return False
@@ -114,7 +119,9 @@ def values_differ(first: Any, second: Any) -> bool:
     with itself -- and because it is the only answer that needs nothing else.
 
     **This is total over the values ``param_domain`` admits, and it raises on
-    none of them.** That is a finite, enumerable claim, checked by executing it
+    none of them** -- including an ``int`` too large to convert to ``float``,
+    which Python allows and review round 21 measured escaping. That is a
+    finite, enumerable claim, checked by executing it
     over the accepted set rather than argued from the code. The bound it
     replaces was quantified over every Python object, which is not satisfiable
     and was itself the DC7 that kept the review loop running (H-0095).

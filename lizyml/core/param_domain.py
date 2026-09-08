@@ -72,6 +72,40 @@ PLAIN_SCALAR_TYPES: tuple[type, ...] = (
     pathlib.WindowsPath,
 )
 
+
+def _derived_numpy_scalar_types() -> frozenset[type]:
+    """Concrete numpy scalar types, walked from numpy own abstract bases.
+
+    Derived rather than listed, for the same reason the rest of the accepted
+    set is: a numpy upgrade that adds a scalar type should be visible here
+    instead of quietly falling through an ``isinstance`` that was never
+    revisited. The walk starts at the bases whose members are *values a
+    parameter can hold* -- a number, a truth, or a name -- so ``datetime64``,
+    ``complex128``, ``void`` and ``bytes_`` are outside it by construction.
+
+    Only types numpy itself defines are kept. A caller subclass would otherwise
+    be admitted by inheritance, and a subclass may override ``__format__``:
+    review round 21 measured one that wrote ``0.9`` for a value that trained at
+    ``0.1``.
+    """
+    accepted: set[type] = set()
+    seen: set[type] = set()
+    stack: list[type] = [np.integer, np.floating, np.bool_, np.str_]
+    while stack:
+        kind = stack.pop()
+        if kind in seen:
+            continue
+        seen.add(kind)
+        if kind.__module__.split(".")[0] == "numpy":
+            accepted.add(kind)
+        stack.extend(kind.__subclasses__())
+    return frozenset(accepted)
+
+
+#: The numpy scalar types a parameter value may be, by **exact type**.
+NUMPY_SCALAR_TYPES: frozenset[type] = _derived_numpy_scalar_types()
+
+
 #: Sequence types accepted here, alongside a 1-D ndarray.
 #:
 #: The serialiser also joins a ``set``, and this deliberately does not accept
@@ -124,11 +158,26 @@ def _plain_scalar(value: Any) -> Any:
     """
     if type(value) in PLAIN_SCALAR_TYPES:
         return value
-    if isinstance(value, np.generic):
+    if type(value) in NUMPY_SCALAR_TYPES:
         plain = value.item()
-        if type(plain) in PLAIN_SCALAR_TYPES:
-            return plain
-        raise _Unaccepted(value, f"numpy scalar of dtype {value.dtype} is not plain")
+        if type(plain) not in PLAIN_SCALAR_TYPES:
+            raise _Unaccepted(
+                value, f"numpy scalar of dtype {value.dtype} is not plain"
+            )
+        # The conversion is **checked**, not trusted. `.item()` preserves the
+        # scalar formatter for every dtype measured, but `numpy.timedelta64` is
+        # a `numpy.integer` whose `__format__` writes `1 nanoseconds` where its
+        # converted value writes `1` -- accepted and silently retrained, until
+        # review round 21 measured it. Asking `format` directly is the same
+        # question the serialiser asks, on this value, so there is nothing left
+        # to have thought of.
+        written = format(value, "")
+        if format(plain, "") != written:
+            raise _Unaccepted(
+                value,
+                f"it writes {written!r} and no plain value it converts to does",
+            )
+        return plain
     raise _Unaccepted(value, f"{_describe(value)} is not an accepted scalar")
 
 
@@ -144,7 +193,7 @@ def _plain_element(value: Any) -> Any:
     """
     if type(value) in PLAIN_SCALAR_TYPES:
         return value
-    if isinstance(value, np.generic):
+    if type(value) in NUMPY_SCALAR_TYPES:
         text = str(value)
         for candidate in _element_candidates(value, text):
             if type(candidate) in PLAIN_SCALAR_TYPES and str(candidate) == text:
@@ -157,7 +206,7 @@ def _plain_element(value: Any) -> Any:
     raise _Unaccepted(value, f"{_describe(value)} is not an accepted element")
 
 
-def _element_candidates(value: np.generic, text: str) -> list[Any]:
+def _element_candidates(value: Any, text: str) -> list[Any]:
     """Plain values that might print exactly as ``text``."""
     candidates: list[Any] = [value.item()]
     for build in (int, float):
