@@ -779,3 +779,30 @@ what was executed, and that calling a scan over an open space a closure is the
 DC5 this run keeps finding in other people's declarations.
 
 **Round 14 stays unscoped**, for the reason rounds 12 and 13 did.
+
+#### The rounds 12-13 monitor — the first `redirect` of this run
+
+`CONVERGING` / **`redirect`**, and it earned the redirect by falsifying a claim
+round 13 had just made. Decision 9-2 said it had closed the equivalence-class
+grammar rather than chasing it; the monitor executed the other three of the four
+types LightGBM joins and found them still refused, with the serialiser producing
+the byte-identical wire string for each pair. Re-executed here before adopting:
+3 of 4 pairs refused.
+
+Adopted in full before round 14 opened. `_wire_elements` now answers the
+question for every type, the test uses the serialiser itself as the oracle over
+the whole type set, and the two exclusions (`set`, `None`) are written as
+judgements with their reasons and pinned by cases rather than left looking like
+the gap they were.
+
+The periphery measurement is the reason the verdict is still `CONVERGING`:
+production grew (+72 to +94 code-only lines) while the periphery more than
+halved (1262 to 516). It declined `take-stop-condition` because round 13's
+findings were not in round 12's code, which matches this context's own reading.
+
+**The operational lesson, from two instances one round apart**: the seam claim
+and the grammar claim were both asserted as closed and both falsified within a
+round. Asserting from measurement is right; **when the claim is "applied to the
+whole set", the execution has to cover the whole set.**
+
+Full suite **2498 passed**. Round 14 stays unscoped.

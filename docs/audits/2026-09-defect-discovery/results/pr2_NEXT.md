@@ -34,21 +34,20 @@ whatever the previous round returned.
 
 ## The next action
 
-1. **Run the rounds 13-14 relational monitor first.** It is mandatory before
-   round 14 (`policy:loop-monitor`), read-only, fresh context, via
-   `templates/review-loop-monitor-capsule.md`. Give it the numbers unsoftened
-   and the two things round 12 established:
-   - neither reviewer finding was in code round 11 wrote, so this is not the
-     authorship pattern the maintainer rescinded;
-   - round 13 is the **third consecutive round finding the next equivalence
-     class in one function** (`values_differ`: dtype, container, text grammar).
-     Ask whether the round-13 fix closes that grammar or chases it;
-   - the seam-enumeration closure claim has now been **falsified twice within a
-     round of being made** (round 12's construct set, round 13's hint words), so
-     the instrument no longer claims closure. Ask whether "candidates, and the
-     table asserts only what was executed" is an honest retitle or a retreat.
+1. **The rounds 12-13 monitor has already run**, returning `CONVERGING` /
+   `redirect` — the first redirect of this run. Its redirect was verified by
+   execution and adopted in full before round 14: the round-13 grammar fix
+   reached one of the four types LightGBM joins, and the other three were
+   refused although the serialiser produced the byte-identical wire string. See
+   `results/pr2_monitor_round1213.md`. **Round 14 can open directly.**
 
-   Its output is a finding to reconcile, never a verdict to adopt
+   Before round 15, spawn the rounds 14-15 monitor with the numbers unsoftened,
+   plus the pattern two monitors have now established: a claim of the form
+   "applied to the whole set" has been falsified within one round of being made,
+   twice — the seam construct set, then the serialiser type set. Ask it what
+   else in this diff claims a set it has not executed over.
+
+   A monitor's output is a finding to reconcile, never a verdict to adopt
    (`policy:main-context-ownership`).
 
 2. **Then round 14, unscoped**, on the whole diff except `docs/`. Write the
@@ -74,11 +73,11 @@ whatever the previous round returned.
 ## State at the time of writing
 
 - Head: the round-12 fixes, on `fix/phase3-pr2-fit-params-forwarding`.
-- Full suite **2474 passed**; `ruff check .`, `ruff format --check .`,
+- Full suite **2498 passed**; `ruff check .`, `ruff format --check .`,
   `mypy lizyml/` clean.
 - Round 13's record: `results/pr2_codex_round13.md`. Decisions:
   `HISTORY.md` H-0094, decisions 1-9. Monitor:
-  `results/pr2_monitor_round1112.md`. Open question log:
+  `results/pr2_monitor_round1213.md`. Open question log:
   `DECISIONS-PENDING.md` D7.
 
 ## What is deliberately not in this PR
