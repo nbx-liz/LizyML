@@ -64,6 +64,7 @@ from lizyml.core._model_factories import (
     get_provider,
     make_inner_valid_factory,
     overlay_params,
+    tuned_validation_ratio,
 )
 from lizyml.core._model_metrics import (
     _DEFAULT_METRICS,
@@ -148,6 +149,13 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         self._refit_result: RefitResult | None = None
         self._metrics: dict[str, Any] | None = None
         self._tuning_result: TuningResult | None = None
+        # The training overlay the last fit() actually applied. Distinct from
+        # `_tuning_result`, which tune() replaces without replacing the fitted
+        # adapters -- so reporting surfaces that read it answered for a model
+        # that was never trained (H-0094 decision 13, review round 16).
+        # `Model.load()` leaves this empty: the artifact records the tuning
+        # result but not which fit consumed it.
+        self._applied_training_params: dict[str, Any] = {}
         self._y: pd.Series | None = None  # transient; not persisted
         self._X: pd.DataFrame | None = None  # transient; not persisted
         self._provider: EstimatorProvider | None = None  # set by fit/tune
@@ -230,6 +238,10 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             if self._tuning_result is not None
             else {}
         )
+        # Retained, because this is the only record of what *this* fit applied:
+        # a later tune() replaces `_tuning_result` and leaves the fitted
+        # adapters alone (H-0094 decision 13).
+        self._applied_training_params = dict(training_overrides)
         tc = self._build_train_components(
             X,
             y,
@@ -622,10 +634,14 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         )
 
         # --- Inner validation (config < tune override) ---
+        # Read through the shared definition, so the two reporting surfaces
+        # cannot answer this question differently from the trainer -- which
+        # they did, silently, until H-0094 decision 13.
         inner_valid: BaseInnerValidStrategy
-        if "validation_ratio" in tp:
+        tuned_ratio = tuned_validation_ratio(tp)
+        if tuned_ratio is not None:
             iv_factory = make_inner_valid_factory(cfg)
-            inner_valid = iv_factory(tp["validation_ratio"])
+            inner_valid = iv_factory(tuned_ratio)
         else:
             inner_valid = build_inner_valid(cfg)
 
@@ -866,6 +882,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             fit_result=fit_result,
             refit_result=self._refit_result,
             tuning_result=self._tuning_result,
+            applied_training_params=dict(self._applied_training_params),
             provider=self._provider,
             metrics=self._metrics,
             y=self._y,

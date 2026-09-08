@@ -592,6 +592,31 @@ def effective_early_stopping_rounds(
     return None
 
 
+def tuned_validation_ratio(training_overrides: dict[str, Any] | None) -> float | None:
+    """The inner-validation ratio a tuning result overrides, or ``None``.
+
+    One definition with three readers: ``_build_train_components`` chooses the
+    inner-validation strategy from it, and ``params_table`` / ``export_code``
+    report it. Measured before this was one definition -- a
+    ``category: training`` ``validation_ratio`` dimension with choice ``0.45``
+    over a config of ``0.2``: the inner-validation factory was called with
+    ``0.45`` and both reporting surfaces said ``0.2``, so ``export_code``
+    generated a project holding out a different fraction than the run did
+    (H-0094 decision 13, review round 16).
+
+    Returns ``None`` -- meaning "no override, use the configured ratio" --
+    rather than falling back to the config here, because the trainer's two
+    branches are not the same call: an override goes through
+    ``make_inner_valid_factory``, and its absence through
+    ``build_inner_valid``, which also resolves explicit ``inner_valid`` config
+    and the early-stopping-off case.
+    """
+    overrides = training_overrides or {}
+    if "validation_ratio" not in overrides:
+        return None
+    return float(overrides["validation_ratio"])
+
+
 def check_training_managed_space(provider: Any, cfg: LizyMLConfig) -> None:
     """Refuse a search dimension for a parameter a ``training.*`` setting controls.
 

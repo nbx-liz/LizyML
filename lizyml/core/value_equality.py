@@ -135,6 +135,17 @@ def _comma_form_matches(text: Any, sequence: Any) -> bool | None:
         this step has no opinion and the caller should carry on.
 
     Note:
+        **This step raises no ``Exception`` either**, which is what makes the
+        module-level bound on ``values_differ`` true. Both expressions that
+        touch a caller's element -- ``float(element)`` and ``str(element)`` --
+        are inside a ``try``. Narrowing the first to ``TypeError`` and
+        ``ValueError`` was enough for every value that had been thought of and
+        not for one that had not: a ``float`` subclass whose ``__float__``
+        raises ``RuntimeError`` made ``fit`` raise where it had trained,
+        against a docstring saying it could not (H-0094 decision 13, review
+        round 16).
+
+    Note:
         **Only the flat grammar.** ``interaction_constraints`` accepts nested
         forms such as ``[[0, 1], [2]]`` and ``"[0,1],[2]"``, and reading those
         needs a parser over a grammar LightGBM may extend -- the open-grammar
@@ -157,9 +168,13 @@ def _comma_form_matches(text: Any, sequence: Any) -> bool | None:
         try:
             if float(part) == float(element):
                 continue
-        except (TypeError, ValueError):
+        except Exception:  # noqa: BLE001 - a user value may define a failing __float__
             pass
-        if part.strip() != str(element).strip():
+        try:
+            printed = str(element)
+        except Exception:  # noqa: BLE001 - a user value may define a failing __str__
+            return None  # no opinion: the later steps still get their turn
+        if part.strip() != printed.strip():
             return False
     return True
 

@@ -180,8 +180,8 @@ class ModelPersistenceMixin:
         from lizyml.codegen.generator import generate_code
         from lizyml.core._model_factories import (
             check_param_names,
-            effective_early_stopping_rounds,
             get_outer_n_splits,
+            tuned_validation_ratio,
         )
 
         adapter = refit_result.model
@@ -206,6 +206,8 @@ class ModelPersistenceMixin:
 
         cfg = state.cfg
         es = cfg.training.early_stopping
+        tuned_ratio = tuned_validation_ratio(state.applied_training_params)
+        effective_ratio = es.validation_ratio if tuned_ratio is None else tuned_ratio
         calibration_method: str | None = None
         # Use outer CV n_splits for OOF calibration (H-0058: reuses outer splits)
         calibration_n_splits = get_outer_n_splits(cfg)
@@ -240,19 +242,23 @@ class ModelPersistenceMixin:
             categorical_features=refit_result.categorical_features,
             lgbm_params=export.params,
             num_boost_round=export.num_boost_round,
-            # The effective patience, not the configured one. `export_code`
-            # generates a project meant to reproduce the training, and reading
-            # the config alone made it generate one that trains a **different
-            # model** after a tune: measured, config 7 and tuned 2, the run
-            # trained at 2 and the generated project would have trained at 7
-            # (H-0094 decision 12, named by the rounds 14-15 monitor).
-            early_stopping_rounds=effective_early_stopping_rounds(
-                cfg,
-                state.tuning_result.best_training_params
-                if state.tuning_result is not None
-                else None,
-            ),
-            validation_ratio=es.validation_ratio or 0.0,
+            # Both of these describe the run the generated project must
+            # reproduce, so both come from what the fit applied -- never from
+            # the config plus the model's *current* tuning result. Reading the
+            # config alone generated a project training a different model after
+            # a tune (decision 12); recomputing from the current tuning result
+            # generated one training a different model after `fit -> tune`,
+            # because `tune()` replaces that result and leaves the fitted
+            # adapters alone (decision 13, review round 16 -- a defect decision
+            # 12's own fix introduced).
+            #
+            # The patience is the trained adapter's, through the provider. The
+            # ratio is the retained overlay's, because the adapter does not
+            # record it; after `load()` the overlay is empty and the configured
+            # ratio is used, the bound stated on
+            # `FitState.applied_training_params`.
+            early_stopping_rounds=export.early_stopping_rounds,
+            validation_ratio=effective_ratio or 0.0,
             seed=cfg.training.seed,
             calibration_method=calibration_method,
             calibration_n_splits=calibration_n_splits,

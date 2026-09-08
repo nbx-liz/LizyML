@@ -39,6 +39,16 @@ class ExportParams:
     Attributes:
         params: Native model parameters (e.g. LightGBM Booster API names).
         num_boost_round: Total training iterations actually used.
+        early_stopping_rounds: The patience the fitted estimator actually
+            trained with, or ``None`` when early stopping was off. Read from
+            the trained adapter, not recomputed from config plus the current
+            tuning result: ``tune()`` replaces the tuning result without
+            replacing the fitted adapters, so the fitted estimator is the only
+            surface that still answers what *this* model was trained with
+            (H-0094 decision 13, review round 16).
+            Deliberately carries **no default** -- a defaulted ``None`` would
+            make "the provider did not set it" indistinguishable from "early
+            stopping was off", which is the DC1 shape.
         feval_metadata: User-specified ``feval`` metric descriptors needed
             by the generated train.py to recompute custom metrics. Each
             dict has ``name``, ``params``, ``greater_is_better``,
@@ -47,6 +57,7 @@ class ExportParams:
 
     params: dict[str, Any]
     num_boost_round: int
+    early_stopping_rounds: int | None
     feval_metadata: list[dict[str, Any]] = field(default_factory=list)
 
 

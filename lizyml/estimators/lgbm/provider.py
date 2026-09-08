@@ -470,6 +470,11 @@ class LGBMProvider:
         return ExportParams(
             params=params,
             num_boost_round=num_boost_round,
+            # The adapter's own patience, which is what this booster trained
+            # with. Recomputing it from the config plus the *current* tuning
+            # result reported a different model's number after `fit -> tune`
+            # (H-0094 decision 13, review round 16).
+            early_stopping_rounds=adapter.early_stopping_rounds,
             feval_metadata=feval_metadata,
         )
 
