@@ -841,3 +841,48 @@ rounds 14-15 monitor gets the pattern unsoftened: three set-claims falsified in
 three rounds (seam constructs, serialiser types, "every input at once"), each
 within a round of being made, and each found by a different party — a monitor,
 a monitor, then the reviewer once the question was put to it.
+
+#### The rounds 13-14 monitor — and a correction to the round-14 entry above
+
+`CONVERGING` / `redirect`, the second consecutive redirect, and the second
+consecutive monitor to find something this context had got wrong.
+
+**The correction, first, because the entry above understated it.** `git show
+92e3d51` confirms round 13's fix commit authored both
+`check_training_managed_overrides` and the comment claiming it "covers every
+input at once". So **round 14's finding is in code round 13's fix wrote — D7's
+authorship condition plainly fired, for the first time this run.** The round-14
+entry above called it "the third instance of one shape" and did not say that.
+
+The condition stays **rescinded** by the maintainer, so it does not stop the
+loop. But recording it unsoftened when it fires is this run's own standard, and
+that was not done. It is recorded now.
+
+**Question (a) — the one population that was prose.** The round-13 literal-read
+enumeration said "a grep returns four candidates" with the pattern nowhere
+recorded, so it could not be re-run, while the write-direction scan has been
+shipped with a positive control since H-0093. Both declarations the monitor
+asked for are now shipped, and writing them was not a formality:
+
+- the 5x5 refusal grid caught **three cells marked wired with no executed
+  input**;
+- the read-direction scan caught **two undeclared reads and two stale
+  allow-list entries** — because the list had been written by reading rather
+  than by running the scan, which is the same error that produced the round-13
+  enumeration it replaces.
+
+**Question (b) — converging, or mining a blind spot.** Its argument: the class
+is a finite grid, rounds 11, 12 and 14 each drained one cell, the two cells left
+are already open with issues and measured rates (#279, #280), so the loop is
+draining a nearly-full grid rather than mining a blind spot. Adopted, and turned
+into an executable table rather than left as an argument.
+
+**One part of the redirect declined.** It recommended opening round 15 *scoped*
+to the two new declarations. Rounds 6, 8, 9 and 10 were each scoped to the
+previous round's remedies and each found nothing in production — a result this
+run established was produced by the scope. The precedent for a monitor's named
+work is to handle it **before** the round and leave the round unscoped, which is
+what turned two previous monitors' named layers into fixed defects instead of
+next-round findings. **Round 15 is unscoped.**
+
+Full suite **2529 passed**.

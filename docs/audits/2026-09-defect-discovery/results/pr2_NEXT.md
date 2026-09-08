@@ -33,19 +33,24 @@ whatever the previous round returned.
 
 ## The next action
 
-1. **Spawn the rounds 14-15 relational monitor first.** Mandatory before round
-   15 (`policy:loop-monitor`), read-only, fresh context, via
-   `templates/review-loop-monitor-capsule.md`. Give it the numbers unsoftened
-   and the pattern the run has now produced three times:
+1. **The rounds 13-14 monitor has already run** — `CONVERGING` / `redirect`,
+   the second consecutive redirect. Its two named items were verified by
+   execution and closed before round 15: the 5×5 refusal grid and the
+   read-direction literal scan are now executable declarations
+   (`tests/test_core/test_refusal_matrix.py`,
+   `tests/test_estimators/test_literal_parameter_reads.py`). It also caught a
+   correction this context owed the record — **D7's authorship condition fired
+   in round 14 and the round-14 entry did not say so**; it is recorded now, and
+   the condition stays rescinded so the loop continues.
+   See `results/pr2_monitor_round1314.md`. **Round 15 can open directly, and it
+   is unscoped** — the monitor recommended scoping it and that one part was
+   declined, for the reason in §"The one thing to know about scope".
 
-   **A claim of the form "applied to the whole set" has been falsified within a
-   round of being made, three times running** — the seam construct set (rounds
-   11-12 monitor), the serialiser type set (rounds 12-13 monitor), and "covers
-   every input at once" (round 14's reviewer, once the prompt put the question
-   to it). Each was reproduced and each was closed. Ask it what else in this
-   diff claims a set it has not executed over — and, separately, whether a loop
-   that keeps finding this one class is converging or has found its own blind
-   spot and is now mining it.
+   Before round 16, spawn the rounds 15-16 monitor. Two monitors running have
+   each falsified a claim this context made in the round they were watching, and
+   each was right. Give the next one that fact, and ask it the question neither
+   has been asked yet: **what would make this PR wrong that no refusal, grid or
+   scan in it would catch?**
 
    A monitor's output is a finding to reconcile, never a verdict to adopt
    (`policy:main-context-ownership`).
@@ -72,12 +77,12 @@ whatever the previous round returned.
 
 ## State at the time of writing
 
-- Head: the round-14 fix, on `fix/phase3-pr2-fit-params-forwarding`.
-- Full suite **2500 passed**; `ruff check .`, `ruff format --check .`,
+- Head: the round-14 fix plus the rounds 13-14 monitor redirect, on `fix/phase3-pr2-fit-params-forwarding`.
+- Full suite **2529 passed**; `ruff check .`, `ruff format --check .`,
   `mypy lizyml/` clean.
 - Round 14's record: `results/pr2_codex_round14.md`. Decisions:
   `HISTORY.md` H-0094, decisions 1-10. Monitor:
-  `results/pr2_monitor_round1213.md`. Open question log:
+  `results/pr2_monitor_round1314.md`. Open question log:
   `DECISIONS-PENDING.md` D7.
 
 ## What is deliberately not in this PR
