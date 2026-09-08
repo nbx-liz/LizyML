@@ -247,7 +247,15 @@ def _as_wire_text(value: Any) -> Any:
     try:
         if type(value) is str or not isinstance(value, str):
             return value
-        return format(value, "")
+        # `str.__str__` unbound, on the formatter's result: `format` may hand
+        # back a `str` **subclass**, and returning that keeps every overridable
+        # behaviour it brought with it. Measured -- a subclass whose `__eq__`
+        # answers `True` made two different wire forms compare equal, and one
+        # whose `__len__` lies made one wire form compare different (H-0094
+        # decision 17, review round 20). `str()` is not enough: it dispatches to
+        # `__str__`, which the same object may override. Only the base method
+        # returns the characters LightGBM will actually send.
+        return str.__str__(format(value, ""))
     except Exception:  # noqa: BLE001 - a caller's value may refuse either question
         return value
 
