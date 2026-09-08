@@ -72,6 +72,55 @@ def _as_plain_sequence(value: Any) -> Any:
         return value
 
 
+def _comma_form_matches(text: Any, sequence: Any) -> bool | None:
+    """Compare a comma-separated text against a sequence, elementwise.
+
+    LightGBM serialises **every** sequence parameter the same way, whatever it
+    is called: ``lightgbm/basic.py::_param_dict_to_str`` writes
+    ``f"{key}={','.join(map(_to_string, val))}"`` for any ``list``, ``tuple``,
+    ``set`` or 1-D ndarray, and passes a ``str`` through unchanged. So the
+    comma-separated text and the sequence are **one value on the wire**, and a
+    caller who wrote one parameter in both forms wrote one thing -- measured:
+    ``feature_contri=[1, 2]`` and ``feature_penalty="1,2"`` each train, and
+    train the byte-identical booster, while the pair was refused (H-0094
+    decision 9, review round 13).
+
+    The comparison is elementwise rather than textual because the wire form is
+    not canonical: ``[1.0, 2.0]`` joins to ``"1.0,2.0"`` and ``[1, 2]`` to
+    ``"1,2"``, and LightGBM parses both to the same doubles. Comparing the
+    joined strings would refuse that pair -- the false refusal this exists to
+    remove, one formatting step along.
+
+    Returns:
+        ``True`` or ``False`` when the two are comparable, and ``None`` when
+        this step has no opinion and the caller should carry on.
+
+    Note:
+        **Only the flat grammar.** ``interaction_constraints`` accepts nested
+        forms such as ``[[0, 1], [2]]`` and ``"[0,1],[2]"``, and reading those
+        needs a parser over a grammar LightGBM may extend -- the open-grammar
+        shape that turns a comparison into a silent miscount. Those two are
+        reported as differing, and a caller who means one thing writes it in
+        one form.
+    """
+    if not isinstance(text, str) or not isinstance(sequence, list):
+        return None
+    parts = text.split(",")
+    if len(parts) != len(sequence):
+        return False
+    for part, element in zip(parts, sequence, strict=True):
+        if isinstance(element, (list, tuple, dict, set)):
+            return None  # nested: not this step's grammar
+        try:
+            if float(part) == float(element):
+                continue
+        except (TypeError, ValueError):
+            pass
+        if part.strip() != str(element).strip():
+            return False
+    return True
+
+
 def _as_plain_python(value: Any) -> Any:
     """Convert an array-like to ordinary Python objects, or return it as is.
 
@@ -210,6 +259,18 @@ def values_differ(first: Any, second: Any) -> bool:
     # `==` says otherwise. Only sequences are touched, and only into a list.
     normal_first = _as_plain_sequence(first)
     normal_second = _as_plain_sequence(second)
+
+    # One side written as LightGBM's own comma-separated form. Asked before the
+    # length step, because the length of a text is its character count and has
+    # nothing to say about the length of a sequence -- comparing the two is how
+    # this pair was refused (H-0094 decision 9, review round 13).
+    for text, sequence in (
+        (normal_first, normal_second),
+        (normal_second, normal_first),
+    ):
+        matched = _comma_form_matches(text, sequence)
+        if matched is not None:
+            return not matched
 
     first_length = _length_or_none(normal_first)
     second_length = _length_or_none(normal_second)

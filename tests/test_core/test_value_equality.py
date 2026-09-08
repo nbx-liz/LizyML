@@ -151,6 +151,16 @@ CASES: list[tuple[str, object, object, bool]] = [
     ("a tuple and a reordered list", (1.0, 2.0), [2.0, 1.0], True),
     ("a tuple and a list of different length", (1.0,), [1.0, 2.0], True),
     ("a string and the tuple of its characters", "ab", ("a", "b"), True),
+    ("a comma form and its list", "1,2", [1, 2], False),
+    ("a comma form and its list under another dtype", "1,2", [1.0, 2.0], False),
+    ("a joined float list and its int list", "1.0,2.0", [1, 2], False),
+    ("a comma form and its tuple", "1,2", (1, 2), False),
+    ("a comma form and a different list", "1,2", [5, 6], True),
+    ("a comma form and a longer list", "1,2", [1, 2, 3], True),
+    ("a bare word and its one-element list", "gbdt", ["gbdt"], False),
+    ("a bare word and a two-element list", "auc", ["auc", "logloss"], True),
+    ("a comma form of words and its list", "a,b", ["a", "b"], False),
+    ("a nested comma form and its list", "[0,1],[2]", [[0, 1], [2]], True),
     ("equal series", pd.Series([1.0, 2.0]), pd.Series([1.0, 2.0]), False),
     ("equal strings", "binary", "binary", False),
     ("different strings", "binary", "regression", True),
@@ -303,14 +313,41 @@ def test_the_summarisation_cases_actually_reach_summarisation() -> None:
     )
 
 
+def test_the_comma_form_is_lightgbms_own_serialisation() -> None:
+    """The authority for treating a text and a sequence as one value.
+
+    Read rather than assumed: LightGBM writes every sequence parameter as
+    ``",".join(...)`` regardless of its name, so the two forms are one value on
+    the wire. Executing the serialiser is what makes that a fact here instead
+    of a claim about a library (H-0094 decision 9, review round 13).
+    """
+    basic = pytest.importorskip("lightgbm.basic")
+
+    assert basic._param_dict_to_str({"feature_contri": [1, 2]}) == "feature_contri=1,2"
+    assert basic._param_dict_to_str({"feature_contri": (1, 2)}) == "feature_contri=1,2"
+    assert basic._param_dict_to_str({"feature_contri": "1,2"}) == "feature_contri=1,2"
+    # And the reason the comparison is elementwise rather than textual: the
+    # wire form is not canonical, so two equal values join differently.
+    assert basic._param_dict_to_str({"x": [1.0, 2.0]}) != basic._param_dict_to_str(
+        {"x": [1, 2]}
+    )
+    assert not values_differ([1.0, 2.0], [1, 2])
+
+
 @pytest.mark.parametrize(
     "parameter,spellings",
     [
         (
             "feature_contri",
-            ([1.0, 2.0], (1.0, 2.0), np.array([1.0, 2.0]), np.array([1, 2])),
+            (
+                [1.0, 2.0],
+                (1.0, 2.0),
+                np.array([1.0, 2.0]),
+                np.array([1, 2]),
+                "1,2",
+            ),
         ),
-        ("monotone_constraints", ([1, 0], (1, 0), np.array([1, 0]))),
+        ("monotone_constraints", ([1, 0], (1, 0), np.array([1, 0]), "1,0")),
     ],
 )
 def test_containers_the_estimator_cannot_tell_apart_are_one_value(
