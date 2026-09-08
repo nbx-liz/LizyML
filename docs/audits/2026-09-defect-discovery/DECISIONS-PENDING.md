@@ -886,3 +886,39 @@ what turned two previous monitors' named layers into fixed defects instead of
 next-round findings. **Round 15 is unscoped.**
 
 Full suite **2529 passed**.
+
+### Round 15 (2026-09-08) — unscoped
+
+`REQUEST_CHANGES`, 2 blocking + 1 non-blocking, all reproduced before anything
+was changed. Blocking per round: **1, 1, 2, 2, 1, 3, 2, 4, 3, 2, 3, 2, 3, 1, 2**.
+Full suite **2533 passed**.
+
+**The prompt asked the reviewer to attack the two new executable declarations,
+and it did.** Finding 2 falsified one of the refusal grid's own `n/a`
+rationales: `tuning best_model_params x check_duplicate_identities` claimed the
+overlay was "overlaid by identity into a checked dict", and `overlay_params`
+checks the overlay against the layer **below** it, not against itself. A
+restored `best_model_params` naming one parameter twice sent both spellings to
+`lgb.train`.
+
+That is the declaration doing its job. The harness requiring every `wired` cell
+to have an executed input is what forced the correction to be real rather than a
+reworded reason.
+
+**Finding 1 is round 13's check failing from a second direction**: it read
+`cfg.training.early_stopping.enabled` while the trainer takes its patience from
+a tuning result when one supplies it. One definition now serves both.
+
+**The non-blocking finding was fixed rather than deferred.** `params_table()`
+listed nothing for a parameter written under an alias, though the booster
+trained at the overridden value. Reporting only — but it misreports the run on
+the one path this change exists to make work, and it is the same literal-read
+construct that cost the round-13 export defect. The read scan shipped last round
+did not catch it, for a reason its own docstring declares.
+
+**What the reviewer did that no previous round had done**: it inspected the
+exception traceback for all 12 grid fixtures to confirm each reached its named
+checker rather than failing for another reason, and it executed a real
+`export()` / `load()` round trip — a path no reviewer had executed since round 7.
+
+**Round 16 stays unscoped.**

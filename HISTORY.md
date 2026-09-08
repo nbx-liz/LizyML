@@ -8066,3 +8066,107 @@ monitor は「2 つの宣言を出荷し、**round 15 をそれらに絞って**
 round 15 は範囲を絞らず、新しい宣言もその中に入る。
 
 全スイート **2529 passed**。
+
+### 決定 11: 宣言が反証された — 格子の `n/a` が偽だった（レビュー round 15）
+
+round 15 のプロンプトは、前ラウンドで出荷した 2 つの実行可能な宣言を**名指しで攻撃せよ**と
+求めた。レビュアーはそうし、**格子自身の `n/a` の 1 つを反証した**。これは宣言が
+意図どおり働いた結果である — 反証できる表は、反証できない散文より価値が高い。
+
+`REQUEST_CHANGES` 2 件（ブロッキング）+ 1 件（非ブロッキング）。すべて修正前に再現。
+
+1. **tuning が入れた早期停止設定が衝突ゲートから見えていなかった（DC1）。**
+   `check_training_managed_overrides` は `cfg.training.early_stopping.enabled`
+   だけを読んで `early_stopping_round` を claim するか決めていた。しかし
+   `_build_train_components` は `best_training_params["early_stopping_rounds"]`
+   があればそれを採る — **config が早期停止を無効にしていても**である。つまり
+   study が config の設定を覆して早期停止を有効にでき、ゲートはそれを見ていなかった。
+
+   実測（config 無効 / `category: training` で patience を 2 に tuning / `fit(params=)`
+   で 10 を上書き）:
+
+   ```
+   tuned training params: {'early_stopping_rounds': 2, 'validation_ratio': 0.2}
+   (上書き, callback rounds, iterations): [(10, [2], 4), (10, [2], 4), (10, [2], 4)]
+   ```
+
+   上書きは毎回 `lgb.train` に届き、全 booster が tuning 側の 2 で停止した。
+   round 13 の指摘 3 と同じクラスで、**発動源が 1 つ違う**だけである。
+
+   修正: `effective_early_stopping_rounds(cfg, training_overrides)` を
+   「早期停止は有効か、patience はいくつか」の**唯一の定義**にし、
+   `_build_train_components` と検査の**両方**がそれを使う。**この問いに 2 つの読みが
+   あったこと自体が欠陥だった**ので、修理は 1 つにすることである。
+
+2. **復元された `best_model_params` が同一層拒否をすり抜けていた（DC1 + DC4 + DC5）。**
+   `overlay_params` は「重ねられる側」から競合綴りを落とすが、**overlay 自身が
+   持っている**綴りはそのまま残す。`_merge_params` は overlay 内部の重複を検査して
+   いなかった。実測:
+
+   ```
+   best_model_params = {"learning_rate": 0.1, "eta": 0.8}
+     lgb.train には: [(0.1, 0.8), (0.1, 0.8), (0.1, 0.8)]
+     booster:        [learning_rate: 0.1]
+   ```
+
+   レビュアーは実際の `export()` / `load()` 往復でも再現し、**主張しないこと**も明記
+   した — 現在の `tune()` がそういう結果を作るとは言っていない。実際作れない
+   （`check_duplicate_space_dimensions` が 2 次元 1 パラメーターを拒否する）。
+   母集団は**本 PR より前に書かれた artifact** である。
+
+   **そして格子はこのセルを問題なしと書いていた。**
+   `tuning best_model_params × check_duplicate_identities` は
+   `"n/a: overlaid by identity into a checked dict"` だった。この理由付けは**偽**である:
+   overlay は「その下の層に対して」検査されるのであって、自分自身に対してではない。
+   セルを `wired` にし、実行される入力を足した。**`wired` のセルには到達する入力が
+   必要という harness が、この訂正を強制した。**
+
+   修正: overlay の前に `best_model_params` へ `check_duplicate_identities`。
+   `load()` 自体は依然としてその artifact を読む — artifact は「起きた fit の記録」で
+   あり、読めなくして得をする人はいない。拒否は**再 fit** に属する。
+
+3. **（非ブロッキング、ただし修正した）`params_table()` がエイリアス上書き後に
+   過少報告していた。** `params_summary` は canonical 名の固定リストを booster の
+   dict から**リテラル綴りで**読んでいた。実測:
+
+   ```
+   fit(params={"learning_rate": 0.5}) -> 表に learning_rate: 0.5
+   fit(params={"eta": 0.5})           -> 表にどちらの名前も無い
+                                         （booster はどちらでも 0.5 で学習）
+   ```
+
+   レビュアーは非ブロッキングとし「学習値ではなく報告の問題」と正しく限定した。
+   **それでも修正した**: **本変更が動くようにするためだけに存在する経路**で run を
+   誤報告するからであり、かつ round 13 の export 欠陥と**同じリテラル読み構文**だから
+   である。前ラウンドで出荷した読み取り走査はこれを捕まえていない — `_DICT_NAMES` に
+   `booster_params` が無く、キーがループ変数でリテラルでもない。レビュアーはそれを
+   名指しし、それはその走査の docstring が自ら宣言している限界そのものである。
+
+#### Firing rate
+
+```
+指摘 1: 出荷スイートで `category: training` の `early_stopping_rounds` 次元を持つ
+        config は 1 件（`test_tuner_extended.py:38`）で、model 層の早期停止名は
+        持たない。既存 config の拒否は 0 件。当該テストが通ることを確認済み。
+指摘 2: 本リポジトリからは測定不能（母集団は旧版が書いた artifact であり、ここには
+        無い）。代わりに境界を述べる: **`tune()` は今や重複綴りの
+        `best_model_params` を作れない**（2 次元 1 パラメーターが study 前に拒否
+        されるため）ので、これから書かれる artifact がこの拒否に掛かることはない。
+非ブロッキング: 拒否は増えていない。空だった報告が埋まるだけである。
+```
+
+#### レビュアーが実行して clean と報告した内容
+
+- **`_CELL_INPUTS` の 12 fixture すべてについて例外 traceback を検査**し、各々が
+  名指しした checker に到達していること（別の理由で失敗しているのではないこと）を
+  確認した。**これはこちらが自分の格子について実行できなかった検査である。**
+- RAM 上の artifact I/O で実際の `export()` / `load()` 往復を実行 — 上書き無しの再 fit は
+  config の `learning_rate=0.001` を復元し、新しい `eta=0.7` の上書きは 3 つの学習
+  呼び出しすべてに届いた。**この経路はレビュアーによる実行としては round 7 以来である。**
+- `export_code()` **と生成された `train_lgbm()`** を `metric` / `metrics` /
+  `metric_types` で実行し、いずれも Brier 評価を保持し `learning_rate=0.5` の booster を
+  学習した。
+
+レビュアー自身が述べた限界: ディスク I/O をメモリ実装で置換したのでファイルシステムの
+挙動は未検証、フルスイート・lint・mypy は再実行していない。こちらで実行 —
+**2533 passed**、`ruff` / `ruff format --check` / `mypy` クリーン。

@@ -8,8 +8,8 @@ PR **#278**, draft, branch `fix/phase3-pr2-fit-params-forwarding`. H-0094 /
 issue #264: `Model.fit(params=...)` was accepted, documented as overriding
 `model.params`, and forwarded nowhere.
 
-**Fourteen review rounds have run. No `APPROVE` yet.** Blocking findings per
-round: **1, 1, 2, 2, 1, 3, 2, 4, 3, 2, 3, 2, 3, 1**, plus two the main context found
+**Fifteen review rounds have run. No `APPROVE` yet.** Blocking findings per
+round: **1, 1, 2, 2, 1, 3, 2, 4, 3, 2, 3, 2, 3, 1, 2**, plus two the main context found
 itself in round 12 by enumeration. Every one was reproduced before
 it was fixed and RED-verified after.
 
@@ -25,7 +25,7 @@ and rounds 11 and 12 confirmed that by execution. The merge gate is
 Rounds 6, 8, 9 and 10 were each narrowed to the previous round's remedies, and
 each found nothing in production. That result was **produced by the scope, not
 by the code**: a round aimed at freshly written test apparatus finds
-test-apparatus defects. Rounds 11-14 were widened and found nine production
+test-apparatus defects. Rounds 11-15 were widened and found eleven production
 defects between them, plus two the main context found by enumeration.
 
 **Every further round is unscoped.** Do not narrow one to "review the fixes",
@@ -33,30 +33,30 @@ whatever the previous round returned.
 
 ## The next action
 
-1. **The rounds 13-14 monitor has already run** — `CONVERGING` / `redirect`,
-   the second consecutive redirect. Its two named items were verified by
-   execution and closed before round 15: the 5×5 refusal grid and the
-   read-direction literal scan are now executable declarations
-   (`tests/test_core/test_refusal_matrix.py`,
-   `tests/test_estimators/test_literal_parameter_reads.py`). It also caught a
-   correction this context owed the record — **D7's authorship condition fired
-   in round 14 and the round-14 entry did not say so**; it is recorded now, and
-   the condition stays rescinded so the loop continues.
-   See `results/pr2_monitor_round1314.md`. **Round 15 can open directly, and it
-   is unscoped** — the monitor recommended scoping it and that one part was
-   declined, for the reason in §"The one thing to know about scope".
+1. **Spawn the rounds 14-15 relational monitor first.** Mandatory before round
+   16 (`policy:loop-monitor`), read-only, fresh context, via
+   `templates/review-loop-monitor-capsule.md`.
 
-   Before round 16, spawn the rounds 15-16 monitor. Two monitors running have
-   each falsified a claim this context made in the round they were watching, and
-   each was right. Give the next one that fact, and ask it the question neither
-   has been asked yet: **what would make this PR wrong that no refusal, grid or
-   scan in it would catch?**
+   Give it the numbers unsoftened, and this: **two consecutive monitors each
+   falsified a claim this context made in the round they were watching, and
+   round 15's reviewer then falsified a third** — the refusal grid's own `n/a`
+   for `tuning best_model_params × check_duplicate_identities`. Every
+   declaration this PR has made about a set has been shown wrong within a round
+   of being made, by whoever was asked to look at it. Each was reproduced and
+   closed, and the grid's harness is what forced the last correction to be real
+   rather than a reworded reason.
+
+   Then ask it the question none of them has been asked yet: **what would make
+   this PR wrong that no refusal, grid or scan in it would catch?** Every
+   instrument here answers one question — "is one parameter reaching the
+   estimator twice, or under a name nothing honours". Ask what class of
+   wrongness that shape cannot see at all.
 
    A monitor's output is a finding to reconcile, never a verdict to adopt
    (`policy:main-context-ownership`).
 
-2. **Then round 15, unscoped**, on the whole diff except `docs/`. Write the
-   prompt to `scratchpad/codex-pr2-review-prompt-r15.md` with the metadata block
+2. **Then round 16, unscoped**, on the whole diff except `docs/`. Write the
+   prompt to `scratchpad/codex-pr2-review-prompt-r16.md` with the metadata block
    the `review-loop-monitor-guard.sh` hook validates (`Review-kind` on line 1;
    round 3+ requires the relational monitor fields).
 
@@ -77,11 +77,11 @@ whatever the previous round returned.
 
 ## State at the time of writing
 
-- Head: the round-14 fix plus the rounds 13-14 monitor redirect, on `fix/phase3-pr2-fit-params-forwarding`.
-- Full suite **2529 passed**; `ruff check .`, `ruff format --check .`,
+- Head: the round-15 fixes, on `fix/phase3-pr2-fit-params-forwarding`.
+- Full suite **2533 passed**; `ruff check .`, `ruff format --check .`,
   `mypy lizyml/` clean.
-- Round 14's record: `results/pr2_codex_round14.md`. Decisions:
-  `HISTORY.md` H-0094, decisions 1-10. Monitor:
+- Round 15's record: `results/pr2_codex_round15.md`. Decisions:
+  `HISTORY.md` H-0094, decisions 1-11. Monitor:
   `results/pr2_monitor_round1314.md`. Open question log:
   `DECISIONS-PENDING.md` D7.
 
