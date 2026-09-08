@@ -2638,130 +2638,237 @@ def test_the_generated_project_trains_at_the_patience_the_run_used(
     )
 
 
-def test_a_string_proxy_that_trains_alone_still_trains_as_a_pair() -> None:
-    """Review round 18, on the shipped path.
+# ---------------------------------------------------------------------------
+# Rounds 16-20, rewritten by H-0095
+# ---------------------------------------------------------------------------
+#
+# Five consecutive review rounds each handed `values_differ` one more object
+# whose `__format__`, `__class__`, `tolist` or `__eq__` answered in a way it had
+# not anticipated, and each fix was right about the object the round named and
+# silent about the next one. H-0095 closed the domain instead: these values are
+# refused at the surface they are written on, before anything trains.
+#
+# The objects are kept, and so are the rounds that found them. What changed is
+# the claim being made about them -- not that the comparison survives them, but
+# that it is never asked. Deleting them would delete the record of five rounds
+# of findings along with the only executed evidence that the closure covers
+# them.
+
+
+class _Proxy:
+    """Round 18: not a ``str`` by ``type()``, a ``str`` by ``isinstance``.
 
     Round 17's repair called ``str.split`` unbound so a subclass override could
-    not run. But ``isinstance`` reads ``__class__`` and the unbound descriptor
-    reads ``type()``, and a **proxy** separates them: not a ``str``, admitted as
-    one. LightGBM's serialiser sides with ``isinstance`` -- measured,
-    ``_param_dict_to_str`` emits ``learning_rate=0.5`` for it -- so it is a
-    value that trains, and the pair was refused with a ``TypeError`` from the
-    descriptor.
-
-    The failure this pins is the *opposite* of round 17's: not raising is half
-    the bound, and admitting what the serialiser joins is the other half.
+    not run; ``isinstance`` reads ``__class__`` and the unbound descriptor reads
+    ``type()``, and this separates them.
     """
 
-    class Proxy:
-        @property
-        def __class__(self) -> Any:  # type: ignore[override]
-            return str
+    @property
+    def __class__(self) -> Any:  # type: ignore[override]
+        return str
 
-        def __str__(self) -> str:
-            return "0.5"
+    def __str__(self) -> str:
+        return "0.5"
 
-        def split(self, *args: Any, **kwargs: Any) -> list[str]:
-            return ["0.5"]
-
-    alone = _fit({"learning_rate": Proxy()}, num_threads=1)
-    other_spelling = _fit({"eta": 0.5}, num_threads=1)
-    assert _booster_text(alone) == _booster_text(other_spelling)
-
-    together = _fit({"learning_rate": Proxy(), "eta": 0.5}, num_threads=1)
-    assert _booster_text(together) == _booster_text(alone)
+    def split(self, *args: Any, **kwargs: Any) -> list[str]:
+        return ["0.5"]
 
 
-def test_the_comparison_uses_the_formatter_the_serialiser_uses() -> None:
-    """Review round 19, on the shipped path, in both directions.
+class _Equivalent(str):
+    """Round 19: ``__str__`` and ``__format__` disagree, and the wire wins."""
 
-    LightGBM writes a scalar parameter with ``f"{key}={val}"`` -- ``__format__``
-    -- and writes sequence elements through ``_to_string``, which calls
-    ``str``. Round 18 normalised the scalar operand with ``str``, and those
-    disagree for a value that overrides one and not the other.
+    def __str__(self) -> str:
+        return "0.25"
 
-    The second assertion is the one that matters most: comparing by ``str``
-    made two values with **different** wire forms compare equal, so a caller
-    who wrote ``learning_rate`` at ``0.25`` and ``eta`` at ``0.5`` was told
-    nothing and trained on whichever LightGBM kept.
+    def __format__(self, spec: str) -> str:
+        return "0.5"
+
+
+class _Conflicting(str):
+    """Round 19, the other direction: equal by ``str``, different on the wire."""
+
+    def __str__(self) -> str:
+        return "0.5"
+
+    def __format__(self, spec: str) -> str:
+        return "0.25"
+
+
+class _Liar(str):
+    """Round 20: a ``str`` subclass whose ``__eq__`` answers ``True``."""
+
+    def __eq__(self, other: object) -> bool:
+        return True
+
+    def __hash__(self) -> int:
+        return 0
+
+
+class _FormatsToLiar(str):
+    """Round 20: ``format`` hands back a subclass, and the subclass decides."""
+
+    def __format__(self, spec: str) -> Any:
+        return _Liar("0.25")
+
+
+class _Rate(float):
+    """Round 16: a number whose ``__float__`` raises something unlisted."""
+
+    def __float__(self) -> float:
+        raise RuntimeError("conversion unavailable")
+
+
+#: The object each of rounds 16-20 was spent on, keyed by the round.
+_HOSTILE_BY_ROUND: dict[str, Any] = {
+    "round 16": _Rate(0.5),
+    "round 18": _Proxy(),
+    "round 19 equivalent": _Equivalent("0.5"),
+    "round 19 conflicting": _Conflicting("0.25"),
+    "round 20": _FormatsToLiar("0.25"),
+}
+
+
+@pytest.mark.parametrize("round_name", sorted(_HOSTILE_BY_ROUND))
+def test_the_objects_rounds_16_to_20_found_never_reach_training(
+    round_name: str,
+) -> None:
+    """H-0095, on the shipped path, for every object those rounds produced.
+
+    Asserted on two things, because both were defects here before: that the
+    refusal names the input the caller has to change, and that **nothing
+    trained first** -- these values used to reach ``lgb.train`` and be
+    serialised by whatever ``__format__`` they carried.
     """
-
-    class Equivalent(str):
-        def __str__(self) -> str:
-            return "0.25"
-
-        def __format__(self, spec: str) -> str:
-            return "0.5"
-
-    class Conflicting(str):
-        def __str__(self) -> str:
-            return "0.5"
-
-        def __format__(self, spec: str) -> str:
-            return "0.25"
-
-    # Same wire form: one parameter written twice, so it must train.
-    alone = _fit({"learning_rate": Equivalent("0.5")}, num_threads=1)
-    other = _fit({"eta": 0.5}, num_threads=1)
-    assert _booster_text(alone) == _booster_text(other)
-    together = _fit({"learning_rate": Equivalent("0.5"), "eta": 0.5}, num_threads=1)
-    assert _booster_text(together) == _booster_text(alone)
-
-    # Different wire forms: a genuine conflict, and it must be refused.
-    with pytest.raises(LizyMLError) as excinfo:
-        _fit({"learning_rate": Conflicting("0.25"), "eta": 0.5}, num_threads=1)
-    assert excinfo.value.code is ErrorCode.CONFIG_INVALID
-
-
-def test_a_lying_formatter_result_cannot_hide_a_real_conflict() -> None:
-    """Review round 20, on the shipped path, in the direction that matters.
-
-    ``format`` may hand back a ``str`` subclass, and round 19 returned it as it
-    came. A subclass whose ``__eq__`` answers ``True`` then decided the
-    comparison: ``learning_rate`` at ``0.25`` beside ``eta`` at ``0.50`` --
-    genuinely different on the wire -- was reported as one value.
-    """
-
-    class Liar(str):
-        def __eq__(self, other: object) -> bool:
-            return True
-
-        def __hash__(self) -> int:
-            return 0
-
-    class FormatsToLiar(str):
-        def __format__(self, spec: str) -> Any:
-            return Liar("0.25")
-
-    # The other spelling is written as **text**, deliberately. Written as a
-    # number it routes through the comma-form step, which refuses correctly
-    # even with this fix reverted -- so a float here would make the test pass
-    # for a reason other than the one it names. Caught by RED verification, and
-    # the third time in this PR that check has earned its place.
-    with pytest.raises(LizyMLError) as excinfo:
-        _fit({"learning_rate": FormatsToLiar("0.25"), "eta": "0.50"}, num_threads=1)
-    assert excinfo.value.code is ErrorCode.CONFIG_INVALID
-
-
-def test_a_float_subclass_that_refuses_conversion_still_trains() -> None:
-    """Review round 16, finding 2, end to end on the shipped path.
-
-    One parameter written twice -- once as a value whose ``__float__`` raises,
-    once as the comma form of the same number -- reached the duplicate-identity
-    check, which compares the two. The comparison caught ``TypeError`` and
-    ``ValueError`` only, so a ``RuntimeError`` from the caller's own value came
-    out of ``fit()`` against a docstring saying it could not.
-    """
-
-    class Rate(float):
-        def __float__(self) -> float:
-            raise RuntimeError("conversion unavailable")
-
-    model = Model(
-        make_config("binary", n_estimators=3, n_splits=2, num_threads=1),
-        data=make_binary_df(n=120),
+    cfg = make_config(
+        "binary", n_estimators=3, n_splits=2, num_threads=1, learning_rate=CONFIG_VALUE
     )
-    model.fit(params={"learning_rate": Rate(0.5), "eta": "0.5"})
+    model = Model(cfg, data=make_binary_df(n=120))
 
-    text = model.fit_result.models[0].get_native_model().model_to_string()
-    assert "[learning_rate: 0.5]" in text
+    with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as excinfo:
+        model.fit(params={"learning_rate": _HOSTILE_BY_ROUND[round_name]})
+
+    assert excinfo.value.code is ErrorCode.CONFIG_INVALID
+    assert "fit(params=)" in excinfo.value.user_message
+    assert "learning_rate" in excinfo.value.user_message
+    assert not seen["train_params"], (
+        f"{round_name}: trained {len(seen['train_params'])} Booster(s) before refusing"
+    )
+
+
+@pytest.mark.parametrize("round_name", sorted(_HOSTILE_BY_ROUND))
+def test_a_hostile_value_is_refused_beside_a_second_spelling_too(
+    round_name: str,
+) -> None:
+    """The pair form, which is how every one of those rounds reproduced.
+
+    The value used to be compared against the other spelling, and the outcome
+    of that comparison decided whether the run trained, refused, or trained on
+    a value nobody wrote. Now the pair never gets that far: the refusal is
+    about the value itself, so it does not depend on what it is written beside.
+    """
+    cfg = make_config(
+        "binary", n_estimators=3, n_splits=2, num_threads=1, learning_rate=CONFIG_VALUE
+    )
+    model = Model(cfg, data=make_binary_df(n=120))
+
+    with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as excinfo:
+        model.fit(params={"learning_rate": _HOSTILE_BY_ROUND[round_name], "eta": 0.5})
+
+    assert excinfo.value.code is ErrorCode.CONFIG_INVALID
+    assert "learning_rate" in excinfo.value.user_message
+    assert not seen["train_params"]
+
+
+def test_closing_the_domain_did_not_close_it_on_the_values_callers_write() -> None:
+    """The other half of H-0095, and the one a narrowing would break silently.
+
+    Rounds 12 and 13 both found a **false refusal**, and both are still findings.
+    So the admissions those rounds bought are asserted here on the shipped path,
+    with plain values: one parameter written twice as text and as a number, and
+    as a comma form beside a sequence, still trains as one parameter.
+    """
+    text_and_number = _fit({"learning_rate": "0.5", "eta": 0.5}, num_threads=1)
+    single = _fit({"eta": 0.5}, num_threads=1)
+    assert _booster_text(text_and_number) == _booster_text(single)
+
+    comma_form = _fit(
+        {"interaction_constraints": [[0, 1]], "learning_rate": 0.5}, num_threads=1
+    )
+    assert "[learning_rate: 0.5]" in _booster_text(comma_form)
+
+
+def _normalising_model(surface: str, value: Any) -> Model:
+    """A model with ``value`` written at ``surface``, ready to fit."""
+    cfg = make_config(
+        "binary", n_estimators=3, n_splits=2, num_threads=1, learning_rate=CONFIG_VALUE
+    )
+    if surface == "model.params":
+        cfg["model"]["params"]["learning_rate"] = value
+    elif surface == "calibration.params":
+        cfg["calibration"] = {"method": "isotonic", "params": {"learning_rate": value}}
+    model = Model(cfg, data=make_binary_df(n=160))
+    if surface == "tuning best_model_params":
+        model._tuning_result = TuningResult(
+            best_model_params={"learning_rate": value},
+            best_smart_params={},
+            best_training_params={},
+            best_score=0.0,
+            metric_name="auc",
+            direction="maximize",
+            trials=[],
+            rounds=(),
+        )
+    return model
+
+
+@pytest.mark.parametrize(
+    "surface",
+    [
+        "model.params",
+        "fit(params=)",
+        "tuning best_model_params",
+        "calibration.params",
+    ],
+)
+def test_the_normalised_value_is_the_one_the_estimator_is_given(
+    surface: str,
+) -> None:
+    """Every surface must **use** what it normalised, not merely call it.
+
+    A check whose result the caller drops is DC4 with the plumbing in place,
+    and it is the shape this PR found four times. The value here is a numpy
+    scalar -- accepted, and changed by normalisation -- so a surface that
+    normalises and then overlays the original is caught by the assertion at
+    ``lgb.train`` instead of training on a value nothing checked.
+    """
+    value = np.float64(0.5)
+    assert type(value) is not float
+
+    model = _normalising_model(surface, value)
+    fit_kwargs: dict[str, Any] = (
+        {"params": {"learning_rate": value}} if surface == "fit(params=)" else {}
+    )
+
+    with record_lightgbm_calls() as seen:
+        model.fit(**fit_kwargs)
+
+    reached = [
+        call["learning_rate"]
+        for call in seen["train_params"]
+        if "learning_rate" in call
+    ]
+    # The value itself, not merely "some call carried the name": the model own
+    # `learning_rate` is already a plain float, so asserting on the calls in
+    # general would pass for `calibration.params` without the calibrator value
+    # ever arriving.
+    assert 0.5 in reached, f"{surface}: {reached} never carried the value written"
+    assert all(type(seen_value) is float for seen_value in reached), (
+        f"{surface}: {[type(v).__name__ for v in reached]} reached lgb.train"
+    )
+
+
+def test_a_genuine_conflict_between_plain_values_is_still_refused() -> None:
+    """Closing the domain must not cost the refusal the domain was closed for."""
+    with pytest.raises(LizyMLError) as excinfo:
+        _fit({"learning_rate": 0.25, "eta": 0.5}, num_threads=1)
+    assert excinfo.value.code is ErrorCode.CONFIG_INVALID

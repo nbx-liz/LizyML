@@ -44,6 +44,7 @@ from tests._train_spy import record_lightgbm_calls
 #: deliberate one without re-deriving either.
 REFUSAL_MATRIX: dict[str, dict[str, str]] = {
     "model.params": {
+        "normalise_params": "wired",
         "check_param_names": "wired",
         "check_duplicate_identities": "wired",
         "check_training_managed_overrides": "wired",
@@ -51,6 +52,7 @@ REFUSAL_MATRIX: dict[str, dict[str, str]] = {
         "canonicalisation": "n/a: merged by identity, not by spelling",
     },
     "fit(params=)": {
+        "normalise_params": "wired",
         "check_param_names": "wired",
         "check_duplicate_identities": "wired",
         "check_training_managed_overrides": "wired",
@@ -58,6 +60,7 @@ REFUSAL_MATRIX: dict[str, dict[str, str]] = {
         "canonicalisation": "n/a: merged by identity, not by spelling",
     },
     "tuning best_model_params": {
+        "normalise_params": "wired",
         "check_param_names": "wired",
         "check_duplicate_identities": "wired",
         "check_training_managed_overrides": "wired",
@@ -65,6 +68,10 @@ REFUSAL_MATRIX: dict[str, dict[str, str]] = {
         "canonicalisation": "n/a: merged by identity, not by spelling",
     },
     "tuning.optuna.space": {
+        "normalise_params": (
+            "n/a: dimensions carry bounds, and the values sampled from them "
+            "arrive at `tuning best_model_params`"
+        ),
         "check_param_names": "wired",
         "check_duplicate_identities": "wired",
         "check_training_managed_overrides": "wired",
@@ -72,6 +79,7 @@ REFUSAL_MATRIX: dict[str, dict[str, str]] = {
         "canonicalisation": "n/a: dimensions carry names, not values",
     },
     "calibration.params": {
+        "normalise_params": "wired",
         "check_param_names": "wired",
         "check_duplicate_identities": "wired",
         "check_training_managed_overrides": (
@@ -102,7 +110,7 @@ def test_the_refusal_matrix_covers_every_layer_and_every_check() -> None:
     found by review (H-0094 decision 10).
     """
     checks = {check for row in REFUSAL_MATRIX.values() for check in row}
-    assert len(checks) == 5, checks
+    assert len(checks) == 6, checks
     for layer, row in REFUSAL_MATRIX.items():
         assert set(row) == checks, f"{layer} is missing {checks - set(row)}"
         for check, state in row.items():
@@ -133,8 +141,13 @@ def test_no_refusal_exists_that_the_matrix_does_not_name() -> None:
     refusals = {
         name
         for name in dir(factories)
-        if name.startswith("check_") and name not in {"check_param_names"}
+        if name.startswith(("check_", "normalise_"))
+        and name not in {"check_param_names"}
     }
+    # The surfaces call one entry point that normalises and then checks; the
+    # column is named for the half that is new.
+    refusals -= {"normalise_and_check"}
+    refusals |= {"normalise_params"}
     # The space-level wrappers delegate to the row they belong to.
     refusals -= {"check_duplicate_space_dimensions", "check_training_managed_space"}
     refusals -= {"check_calibration_param_names"}
@@ -160,6 +173,23 @@ def test_no_refusal_exists_that_the_matrix_does_not_name() -> None:
 
 #: A native name whose value is visible in the booster text.
 _OVERRIDDEN = "learning_rate"
+
+
+class _Unaccepted:
+    """A value LightGBM would serialise and H-0095 refuses at the surface.
+
+    ``_is_numeric`` accepts anything ``float()`` survives, so the serialiser
+    would have written ``learning_rate=0.5`` for this. The accepted set is
+    narrower on purpose: what a value *is* has to be knowable before the
+    comparison, not discovered by asking the value.
+    """
+
+    def __float__(self) -> float:
+        return 0.5
+
+
+#: One instance, shared by the cells below.
+_UNACCEPTED = _Unaccepted()
 
 
 def _base(**kwargs: Any) -> dict[str, Any]:
@@ -200,6 +230,11 @@ _CELL_INPUTS: dict[tuple[str, str], tuple[dict[str, Any], dict[str, Any], str]] 
         {},
         "fit",
     ),
+    ("model.params", "normalise_params"): (
+        _model_params(learning_rate=_UNACCEPTED),
+        {},
+        "fit",
+    ),
     ("model.params", "check_training_managed_overrides"): (
         _model_params(seed=7),
         {},
@@ -213,6 +248,11 @@ _CELL_INPUTS: dict[tuple[str, str], tuple[dict[str, Any], dict[str, Any], str]] 
     ("fit(params=)", "check_duplicate_identities"): (
         _base(),
         {"params": {"learning_rate": 0.001, "eta": 0.5}},
+        "fit",
+    ),
+    ("fit(params=)", "normalise_params"): (
+        _base(),
+        {"params": {"learning_rate": _UNACCEPTED}},
         "fit",
     ),
     ("fit(params=)", "check_training_managed_overrides"): (
@@ -247,6 +287,11 @@ _CELL_INPUTS: dict[tuple[str, str], tuple[dict[str, Any], dict[str, Any], str]] 
     ),
     ("calibration.params", "check_duplicate_identities"): (
         _calibration(learning_rate=0.001, eta=0.5),
+        {},
+        "fit",
+    ),
+    ("calibration.params", "normalise_params"): (
+        _calibration(learning_rate=_UNACCEPTED),
         {},
         "fit",
     ),
@@ -313,6 +358,10 @@ def _with_tuning_result(config: dict[str, Any], best: dict[str, Any]) -> Model:
         # `lgb.train`. Measured: `{"learning_rate": 0.1, "eta": 0.8}` trained at
         # 0.1 with both present.
         ("check_duplicate_identities", {"learning_rate": 0.1, "eta": 0.8}),
+        # H-0095: an artifact is the one layer written before these refusals
+        # existed, so it is the one that can carry a value the accepted set
+        # does not contain.
+        ("normalise_params", {"learning_rate": _UNACCEPTED}),
     ],
 )
 def test_a_restored_tuning_result_is_refused_too(
@@ -372,6 +421,7 @@ def test_the_executed_cells_are_exactly_the_wired_ones() -> None:
         ("tuning best_model_params", "check_param_names"),
         ("tuning best_model_params", "check_training_managed_overrides"),
         ("tuning best_model_params", "check_duplicate_identities"),
+        ("tuning best_model_params", "normalise_params"),
         ("calibration.params", "canonicalisation"),
     }
     missing = _WIRED - executed
