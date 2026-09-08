@@ -570,6 +570,95 @@ def test_each_defence_is_load_bearing_for_something_different() -> None:
         normalise_params({"learning_rate": _Boom(0.1)}, surface="probe")
 
 
+def test_a_caller_class_cannot_claim_to_be_a_numpy_type() -> None:
+    """Review round 22, which defeated the first derivation twice over.
+
+    ``__module__`` is an ordinary class attribute -- writing
+    ``__module__ = "numpy"`` in a class body is enough -- so a derivation that
+    filtered on it was reading the caller own claim. And the walk that produced
+    it ran at import time, so whether a caller class was inside the set
+    depended on whether it had been defined before this module was first
+    imported.
+
+    Measured before the repair: the serialiser wrote ``learning_rate=0.9`` for
+    the caller value and every training call received ``0.1``, and the fit
+    completed.
+
+    **The derivation is re-run here rather than read from the module-level
+    constant.** A witness defined inside a test body is defined after the
+    import, so a test that only looked at the constant would pass against the
+    order-dependent implementation -- which is exactly what the first version
+    of this test did, caught by reverting the fix and watching it stay green.
+    """
+    from lizyml.core.param_domain import _derived_numpy_scalar_types
+
+    class _Disguised(np.float64):
+        __module__ = "numpy"
+
+        def __format__(self, spec: str) -> str:
+            return "0.1" if getattr(self, "converted", False) else "0.9"
+
+        def item(self, *args: Any) -> float:
+            self.converted = True
+            return 0.1
+
+    assert _Disguised.__module__ == "numpy"
+    assert issubclass(_Disguised, np.floating)
+
+    # Derived *now*, with the witness already defined: an implementation that
+    # walks subclasses would include it, and one that reads what numpy exports
+    # cannot.
+    assert _Disguised not in _derived_numpy_scalar_types()
+    assert type(_Disguised(0.1)) not in NUMPY_SCALAR_TYPES
+
+    with pytest.raises(LizyMLError) as exc:
+        normalise_params({"learning_rate": _Disguised(0.1)}, surface="probe")
+    assert exc.value.code is ErrorCode.CONFIG_INVALID
+
+
+def test_the_numpy_type_set_is_what_numpy_exports() -> None:
+    """Stated as a property, so it holds whenever a caller class was defined."""
+    for kind in NUMPY_SCALAR_TYPES:
+        assert getattr(np, kind.__name__, None) is kind, (
+            f"{kind.__name__} is in the set but is not what numpy exports "
+            "under that name"
+        )
+    assert np.float64 in NUMPY_SCALAR_TYPES
+    assert np.str_ in NUMPY_SCALAR_TYPES
+
+
+def test_the_written_form_is_read_before_the_conversion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The second defence, tested with the first one deliberately switched off.
+
+    A value that answers ``__format__`` differently after ``item()`` has run
+    defeats a check that reads the written form *second*: it ends up comparing
+    the conversion against the conversion. Nothing that passes the type gate
+    can do that, because numpy own scalars are not stateful -- so the only way
+    to test this defence is to let the witness through the first gate on
+    purpose. Otherwise the ordering would be an untested claim, which is the
+    shape this PR has already paid for.
+    """
+    import lizyml.core.param_domain as domain
+
+    class _Stateful(np.float64):
+        def __format__(self, spec: str) -> str:
+            return "0.1" if getattr(self, "converted", False) else "0.9"
+
+        def item(self, *args: Any) -> float:
+            self.converted = True
+            return 0.1
+
+    monkeypatch.setattr(
+        domain, "NUMPY_SCALAR_TYPES", domain.NUMPY_SCALAR_TYPES | {_Stateful}
+    )
+    with pytest.raises(LizyMLError) as exc:
+        domain.normalise_params({"learning_rate": _Stateful(0.1)}, surface="probe")
+    assert exc.value.code is ErrorCode.CONFIG_INVALID
+    assert "0.9" in exc.value.user_message
+
+
 def test_a_numpy_array_subclass_is_refused_for_the_same_reason_a_scalar_is() -> None:
     """The array gate, closed the way the scalar gate was.
 

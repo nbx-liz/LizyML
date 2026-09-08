@@ -74,31 +74,31 @@ PLAIN_SCALAR_TYPES: tuple[type, ...] = (
 
 
 def _derived_numpy_scalar_types() -> frozenset[type]:
-    """Concrete numpy scalar types, walked from numpy own abstract bases.
+    """Concrete numpy scalar types, read out of numpy own namespace.
 
     Derived rather than listed, for the same reason the rest of the accepted
     set is: a numpy upgrade that adds a scalar type should be visible here
-    instead of quietly falling through an ``isinstance`` that was never
-    revisited. The walk starts at the bases whose members are *values a
-    parameter can hold* -- a number, a truth, or a name -- so ``datetime64``,
-    ``complex128``, ``void`` and ``bytes_`` are outside it by construction.
+    instead of falling through a test nobody revisited. Only the bases whose
+    members are *values a parameter can hold* -- a number, a truth, a name --
+    are admitted, so ``datetime64``, ``complex128``, ``void`` and ``bytes_``
+    are outside by construction.
 
-    Only types numpy itself defines are kept. A caller subclass would otherwise
-    be admitted by inheritance, and a subclass may override ``__format__``:
-    review round 21 measured one that wrote ``0.9`` for a value that trained at
-    ``0.1``.
+    **Read from ``vars(numpy)``, not from a walk over ``__subclasses__()``.**
+    The walk was the first attempt and review round 22 defeated it twice over.
+    It filtered by ``__module__``, which is an ordinary class attribute a
+    caller writes -- ``__module__ = "numpy"`` in a class body is enough -- and
+    it ran at import time, so whether a caller class was inside the set
+    depended on whether it had been defined before this module was first
+    imported. Both are gone here: a type is accepted because numpy itself
+    exports it under that name, which a caller cannot claim by assertion, and
+    nothing about the order the caller imports in changes the answer.
     """
     accepted: set[type] = set()
-    seen: set[type] = set()
-    stack: list[type] = [np.integer, np.floating, np.bool_, np.str_]
-    while stack:
-        kind = stack.pop()
-        if kind in seen:
+    for exported in vars(np).values():
+        if not isinstance(exported, type):
             continue
-        seen.add(kind)
-        if kind.__module__.split(".")[0] == "numpy":
-            accepted.add(kind)
-        stack.extend(kind.__subclasses__())
+        if issubclass(exported, (np.integer, np.floating, np.bool_, np.str_)):
+            accepted.add(exported)
     return frozenset(accepted)
 
 
@@ -166,6 +166,15 @@ def _plain_scalar(value: Any) -> Any:
     if type(value) in PLAIN_SCALAR_TYPES:
         return value
     if type(value) in NUMPY_SCALAR_TYPES:
+        # Read **before** the conversion. A value asked the same question twice
+        # need not answer the same way, and review round 22 built one that did
+        # not: its `__format__` returned `0.9` until `item()` set a flag and
+        # `0.1` afterwards, so a check that read it second compared the
+        # conversion against the conversion. Nothing that reaches here can do
+        # that any more -- the type set holds only types numpy exports -- but
+        # reading first is free, and a check whose correctness depends on the
+        # other check having worked is not a second defence.
+        written = format(value, "")
         plain = value.item()
         if type(plain) not in PLAIN_SCALAR_TYPES:
             raise _Unaccepted(
@@ -176,9 +185,7 @@ def _plain_scalar(value: Any) -> Any:
         # a `numpy.integer` whose `__format__` writes `1 nanoseconds` where its
         # converted value writes `1` -- accepted and silently retrained, until
         # review round 21 measured it. Asking `format` directly is the same
-        # question the serialiser asks, on this value, so there is nothing left
-        # to have thought of.
-        written = format(value, "")
+        # question the serialiser asks, on this value.
         if format(plain, "") != written:
             raise _Unaccepted(
                 value,
