@@ -2400,6 +2400,107 @@ def test_the_report_and_the_export_describe_the_fit_that_happened(
     assert _exported(model) == (patience, ratio)
 
 
+@pytest.mark.parametrize("failure", ["refused_by_a_gate", "raised_mid_training"])
+def test_a_rejected_fit_leaves_the_retained_model_describing_itself(
+    failure: str,
+) -> None:
+    """The lifecycle the five success orderings could not reach (round 17).
+
+    ``fit()`` published what a report reads at the point each value happened to
+    be available, which is before the fit has succeeded. So a **refused** call
+    rewrote the state of the model that was kept: measured, the reports took
+    the refused attempt's inner-validation ratio while the fitted adapters were
+    untouched, and ``_X`` / ``_y`` -- what SHAP and the diagnostics read --
+    became a frame the retained model had never seen.
+
+    Both failure points, because one placement has to cover both: refused by a
+    gate before any training starts, and raised while training.
+    """
+    model = _training_report_model()
+    model.fit()
+    model.tune()
+
+    kept_adapter = model.fit_result.models[0]
+    before = (_reported(model), _exported(model))
+
+    _fail_a_fit(model, failure)
+
+    assert model.fit_result.models[0] is kept_adapter
+    assert (_reported(model), _exported(model)) == before
+
+
+def _fail_a_fit(model: Model, failure: str) -> None:
+    """Call ``fit`` with different data, in a way that cannot succeed."""
+    other = make_binary_df(n=90)
+    other["extra_col"] = 1.0
+    with contextlib.ExitStack() as stack:
+        if failure == "raised_mid_training":
+            stack.enter_context(
+                mock.patch(
+                    "lizyml.training.cv_trainer.CVTrainer.fit",
+                    side_effect=RuntimeError("training blew up"),
+                )
+            )
+            params = None
+        else:
+            # A gate refusal: the objective is not compatible with the task.
+            params = {"objective": "regression"}
+        with pytest.raises((LizyMLError, RuntimeError)):
+            model.fit(data=other, params=params)
+
+
+@pytest.mark.parametrize("failure", ["refused_by_a_gate", "raised_mid_training"])
+def test_a_rejected_fit_leaves_the_diagnostics_data_alone(failure: str) -> None:
+    """``_X`` / ``_y`` are what SHAP and the diagnostics read.
+
+    **No ``tune()`` here, deliberately.** The first version of this claim had
+    one, and `tune()` assigns `_X` / `_y` as well -- so the assertion passed
+    against a build where `fit()` never assigned them at all. A test that holds
+    for a reason other than the one it names is the class this run is hunting,
+    found in its own regression test.
+    """
+    model = _training_report_model()
+    model.fit()
+    kept_rows = len(model._X) if model._X is not None else None
+    assert kept_rows == 200
+
+    _fail_a_fit(model, failure)
+
+    assert model._X is not None
+    assert len(model._X) == kept_rows, "diagnostics data came from the failed call"
+    assert "extra_col" not in model._X.columns
+    assert model._y is not None
+    assert len(model._y) == kept_rows
+
+
+def test_a_failed_tune_leaves_the_diagnostics_data_alone() -> None:
+    """The same defect on the adjacent method, found by executing the set.
+
+    ``tune()`` assigned ``_X`` / ``_y`` right after preparing its data, before
+    the study ran, so a study that raised left the retained fit describing rows
+    it had never seen. Present before this change; folded in because it is the
+    same repair on the line next door.
+    """
+    model = _training_report_model()
+    model.fit()
+    kept_rows = len(model._X) if model._X is not None else None
+
+    other = make_binary_df(n=90)
+    other["extra_col"] = 1.0
+    with (
+        mock.patch(
+            "lizyml.core._model_tuning.ModelTuningMixin._run_tune_round",
+            side_effect=RuntimeError("the study blew up"),
+        ),
+        pytest.raises(RuntimeError),
+    ):
+        model.tune(data=other)
+
+    assert model._X is not None
+    assert len(model._X) == kept_rows
+    assert "extra_col" not in model._X.columns
+
+
 def test_a_later_tune_does_not_rewrite_what_the_fitted_model_reports() -> None:
     """The reproduction from review round 16, as its own case.
 

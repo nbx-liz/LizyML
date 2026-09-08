@@ -807,10 +807,41 @@ def test_the_cross_product_covers_every_declared_behaviour() -> None:
 # element. Those are `float(element)` and `str(element)`, and they are the
 # population here.
 
+# Round 17 widened it again, and the widening is the lesson: the round-16
+# population covered the **element** operand only, so a `str` subclass whose
+# `split` raises defeated the step from the side nothing had enumerated. The
+# population is therefore both operands -- every expression in the step that
+# touches something a caller owns, which is the table in the function's own
+# docstring.
+
+_TEXT_BEHAVIOURS: dict[str, tuple[str, ...]] = {
+    "split": ("normal", "raises"),
+    "strip": ("normal", "raises"),
+}
+
 _ELEMENT_BEHAVIOURS: dict[str, tuple[str, ...]] = {
     "__float__": ("absent", "normal", "raises"),
-    "__str__": ("normal", "raises"),
+    # `returns_subclass` is its own behaviour because `str(element)` handing
+    # back a `str` subclass puts the *derived* value under a caller override
+    # too. Measured: an element whose `__str__` returns one does exactly that.
+    "__str__": ("normal", "raises", "returns_subclass"),
 }
+
+
+def _make_awkward_text(split: str, strip: str) -> str:
+    """A ``str`` subclass whose own methods behave as named."""
+    namespace: dict[str, Any] = {}
+
+    if split == "raises":
+        namespace["split"] = lambda self, *a, **k: (_ for _ in ()).throw(
+            RuntimeError("split failed")
+        )
+    if strip == "raises":
+        namespace["strip"] = lambda self, *a, **k: (_ for _ in ()).throw(
+            RuntimeError("strip failed")
+        )
+
+    return type("AwkwardText", (str,), namespace)("0.5")
 
 
 def _make_awkward_element(to_float: str, printed: str) -> object:
@@ -826,6 +857,8 @@ def _make_awkward_element(to_float: str, printed: str) -> object:
 
     if printed == "normal":
         namespace["__str__"] = lambda self: "0.5"
+    elif printed == "returns_subclass":
+        namespace["__str__"] = lambda self: _make_awkward_text("raises", "raises")
     else:
         namespace["__str__"] = lambda self: (_ for _ in ()).throw(
             RuntimeError("str failed")
@@ -834,33 +867,66 @@ def _make_awkward_element(to_float: str, printed: str) -> object:
     return type("AwkwardElement", (), namespace)()
 
 
-ELEMENT_COMBINATIONS: list[tuple[str, str]] = [
-    (to_float, printed)
+ELEMENT_COMBINATIONS: list[tuple[str, str, str, str]] = [
+    (split, strip, to_float, printed)
+    for split in _TEXT_BEHAVIOURS["split"]
+    for strip in _TEXT_BEHAVIOURS["strip"]
     for to_float in _ELEMENT_BEHAVIOURS["__float__"]
     for printed in _ELEMENT_BEHAVIOURS["__str__"]
 ]
 
 
-@pytest.mark.parametrize(("to_float", "printed"), ELEMENT_COMBINATIONS)
+@pytest.mark.parametrize(
+    ("split", "strip", "to_float", "printed"), ELEMENT_COMBINATIONS
+)
 def test_the_bound_holds_with_text_on_one_side_and_a_sequence_on_the_other(
-    to_float: str, printed: str
+    split: str, strip: str, to_float: str, printed: str
 ) -> None:
-    """The comma-form step answers, whatever the elements do to it.
+    """The comma-form step answers, whatever **either** operand does to it.
 
-    Measured before the guard was widened: a ``float`` subclass whose
-    ``__float__`` raises ``RuntimeError`` came straight out of ``values_differ``
-    -- and out of ``fit()`` -- because the ``except`` named ``TypeError`` and
-    ``ValueError``. ``str`` was one line further down and unguarded entirely.
+    Round 16: a ``float`` subclass whose ``__float__`` raises ``RuntimeError``
+    came straight out of ``values_differ`` -- and out of ``fit()`` -- because
+    the ``except`` named ``TypeError`` and ``ValueError``, and ``str`` one line
+    down was unguarded entirely. Round 17: the same thing from the text side,
+    because a ``str`` subclass is still a ``str`` and its overrides run on
+    attribute access.
     """
     element = _make_awkward_element(to_float, printed)
+    hostile_text = _make_awkward_text(split, strip)
+    label = f"{split}/{strip}/{to_float}/{printed}"
 
     for sequence in ([element], (element,), [element, element]):
-        for text in ("0.5", "0.5,0.5", ""):
+        for text in (hostile_text, type(hostile_text)("0.5,0.5"), "0.5"):
             for a, b in ((text, sequence), (sequence, text)):
                 result = values_differ(a, b)
                 assert isinstance(result, bool), (
-                    f"{to_float}/{printed} answered {result!r}, not a bool"
+                    f"{label} answered {result!r}, not a bool"
                 )
+
+
+@pytest.mark.parametrize(
+    ("split", "strip"),
+    [
+        (split, strip)
+        for split in _TEXT_BEHAVIOURS["split"]
+        for strip in _TEXT_BEHAVIOURS["strip"]
+    ],
+)
+def test_a_hostile_text_is_still_compared_rather_than_merely_survived(
+    split: str, strip: str
+) -> None:
+    """Not raising is half the claim; the other half is admitting the pair.
+
+    A blanket ``try`` around the subclass call would satisfy a no-raise
+    assertion and still refuse ``learning_rate="0.5"`` beside ``eta=0.5`` --
+    one parameter, one value, written twice. Calling the base method unbound is
+    what makes the step compare rather than decline.
+    """
+    text = _make_awkward_text(split, strip)
+
+    assert values_differ(text, [0.5]) is False
+    assert values_differ([0.5], text) is False
+    assert values_differ(text, [0.25]) is True
 
 
 def test_a_float_subclass_is_reached_as_an_element_not_as_a_container() -> None:
@@ -881,11 +947,37 @@ def test_a_float_subclass_is_reached_as_an_element_not_as_a_container() -> None:
     assert values_differ("0.25", [Rate(0.5)]) is True
 
 
+def test_a_str_subclass_is_reached_as_the_text_operand() -> None:
+    """The exact shape review round 17 reproduced, kept as itself.
+
+    The generated texts above are built here. This is the one a caller writes:
+    a ``str`` subclass reaching ``fit(params=...)``, which is a ``str`` to
+    every check upstream and runs its own ``split`` at the comparison.
+    """
+
+    class Text(str):
+        def split(self, *args: Any, **kwargs: Any) -> list[str]:
+            raise RuntimeError("split unavailable")
+
+    assert values_differ(Text("0.5"), 0.5) is False
+    assert values_differ(0.5, Text("0.5")) is False
+    assert values_differ(Text("0.5"), [0.5]) is False
+    assert values_differ(Text("0.25"), 0.5) is True
+
+
 def test_the_element_cross_product_covers_every_declared_behaviour() -> None:
     """Derived like the population above, and pinned for the same reason."""
-    declared = {name: len(values) for name, values in _ELEMENT_BEHAVIOURS.items()}
-    assert declared == {"__float__": 3, "__str__": 2}, declared
-    assert len(ELEMENT_COMBINATIONS) == 3 * 2, ELEMENT_COMBINATIONS
+    declared = {
+        name: len(values)
+        for name, values in {**_TEXT_BEHAVIOURS, **_ELEMENT_BEHAVIOURS}.items()
+    }
+    assert declared == {
+        "split": 2,
+        "strip": 2,
+        "__float__": 3,
+        "__str__": 3,
+    }, declared
+    assert len(ELEMENT_COMBINATIONS) == 2 * 2 * 3 * 3, len(ELEMENT_COMBINATIONS)
 
     # `absent` and `raises` must be different paths, not two spellings of one.
     assert not hasattr(_make_awkward_element("absent", "normal"), "__float__")
@@ -893,6 +985,20 @@ def test_the_element_cross_product_covers_every_declared_behaviour() -> None:
         float(_make_awkward_element("raises", "normal"))  # type: ignore[arg-type]
     with pytest.raises(RuntimeError, match="str failed"):
         str(_make_awkward_element("normal", "raises"))
+
+    # Each text behaviour must actually defeat its own method, or the axis is
+    # wider than the values it generates.
+    with pytest.raises(RuntimeError, match="split failed"):
+        _make_awkward_text("raises", "normal").split(",")
+    with pytest.raises(RuntimeError, match="strip failed"):
+        _make_awkward_text("normal", "raises").strip()
+
+    # And `returns_subclass` must put a caller override on the *derived* value,
+    # which is a different escape from the element raising.
+    printed = str(_make_awkward_element("absent", "returns_subclass"))
+    assert type(printed) is not str, type(printed)
+    with pytest.raises(RuntimeError, match="strip failed"):
+        printed.strip()
 
 
 def test_identical_values_are_never_reported_as_differing() -> None:
