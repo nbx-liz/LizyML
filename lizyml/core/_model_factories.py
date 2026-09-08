@@ -565,6 +565,33 @@ TRAINING_MANAGED_PARAMS: dict[str, str] = {
 }
 
 
+def effective_early_stopping_rounds(
+    cfg: LizyMLConfig, training_overrides: dict[str, Any] | None
+) -> int | None:
+    """The patience the trainer will actually use, or ``None`` when it is off.
+
+    A tuning result's ``best_training_params`` can supply
+    ``early_stopping_rounds``, and it does so **whether or not**
+    ``training.early_stopping.enabled`` is set -- so a study can switch early
+    stopping on for a config that disables it. Measured before this was one
+    definition: with the config disabled and a tuned patience of 2, the
+    conflict gate read only the config, admitted
+    ``fit(params={"early_stopping_round": 10})``, and the callback stopped at 2
+    while the override sat in the parameter dict doing nothing (H-0094 decision
+    11, review round 15).
+
+    This exists so the trainer and the gate cannot disagree about whether early
+    stopping is on. Two readings of that question is what the defect was.
+    """
+    overrides = training_overrides or {}
+    if "early_stopping_rounds" in overrides:
+        return int(overrides["early_stopping_rounds"])
+    if cfg.training.early_stopping.enabled:
+        rounds: int = cfg.training.early_stopping.rounds
+        return rounds
+    return None
+
+
 def check_training_managed_space(provider: Any, cfg: LizyMLConfig) -> None:
     """Refuse a search dimension for a parameter a ``training.*`` setting controls.
 
@@ -597,6 +624,7 @@ def check_training_managed_overrides(
     cfg: LizyMLConfig,
     *,
     origins: dict[str, str] | None = None,
+    training_overrides: dict[str, Any] | None = None,
 ) -> None:
     """Refuse a native parameter that a ``training.*`` setting already controls.
 
@@ -641,8 +669,11 @@ def check_training_managed_overrides(
     claimed: dict[str, str] = {}
     for canonical, config_path in TRAINING_MANAGED_PARAMS.items():
         if canonical == "early_stopping_round":
-            stopping = getattr(training, "early_stopping", None)
-            if not getattr(stopping, "enabled", False):
+            # Asked of the **effective** setting, not of the config alone: a
+            # tuning result can switch early stopping on for a config that
+            # disables it, and reading only the config let that combination
+            # through (H-0094 decision 11).
+            if effective_early_stopping_rounds(cfg, training_overrides) is None:
                 continue
         elif getattr(training, "seed", None) is None:
             continue

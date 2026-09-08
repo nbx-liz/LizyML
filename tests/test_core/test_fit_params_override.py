@@ -479,6 +479,51 @@ def test_two_search_dimensions_naming_one_parameter_are_refused() -> None:
     )
 
 
+def test_a_tuned_early_stopping_setting_reaches_the_conflict_gate() -> None:
+    """The gate must read the effective setting, not the config alone.
+
+    `_build_train_components` takes the patience from
+    `best_training_params["early_stopping_rounds"]` when the tuning result
+    supplies it, **whether or not** `training.early_stopping.enabled` is set. So
+    a study could switch early stopping on for a config that disables it, and
+    the gate — reading only the config — then admitted a `fit(params=)` override
+    that the callback silently outranked. Measured before this: config disabled,
+    tuned patience 2, override 10; the override reached `lgb.train` on all three
+    calls and every booster stopped at the tuned 2 (H-0094 decision 11, review
+    round 15).
+
+    The two now share `effective_early_stopping_rounds`, so they cannot disagree
+    about whether early stopping is on — which was the whole defect.
+    """
+    cfg = make_config("binary", n_estimators=30, n_splits=2, tuning_n_trials=1)
+    cfg["training"]["early_stopping"] = {"enabled": False}
+    cfg["tuning"]["optuna"]["space"] = {
+        "early_stopping_rounds": {
+            "type": "categorical",
+            "choices": [2],
+            "category": "training",
+        },
+        "validation_ratio": {
+            "type": "categorical",
+            "choices": [0.2],
+            "category": "training",
+        },
+    }
+    model = Model(cfg, data=make_binary_df(n=160))
+    tuned = model.tune()
+    assert tuned.best_training_params.get("early_stopping_rounds") == 2, (
+        "the study no longer supplies the patience, so this case proves nothing"
+    )
+
+    with pytest.raises(LizyMLError) as exc:
+        model.fit(params={"early_stopping_round": 10})
+
+    assert exc.value.code is ErrorCode.CONFIG_INVALID
+    assert "training.early_stopping.rounds" in exc.value.user_message, (
+        exc.value.user_message
+    )
+
+
 @pytest.mark.parametrize("canonical", ["seed", "early_stopping_round"])
 def test_a_search_dimension_a_training_setting_controls_is_refused(
     canonical: str,

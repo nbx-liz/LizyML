@@ -60,6 +60,7 @@ from lizyml.core._model_factories import (
     check_param_names,
     check_smart_managed_overrides,
     check_training_managed_overrides,
+    effective_early_stopping_rounds,
     get_provider,
     make_inner_valid_factory,
     overlay_params,
@@ -528,7 +529,17 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         # (H-0094 decision 10, review round 14). The space is checked before the
         # study starts, in `_model_tuning.py`, beside the other two space-level
         # refusals.
-        check_training_managed_overrides(provider, model_params, cfg, origins=origins)
+        check_training_managed_overrides(
+            provider,
+            model_params,
+            cfg,
+            origins=origins,
+            training_overrides=(
+                self._tuning_result.best_training_params
+                if self._tuning_result is not None
+                else None
+            ),
+        )
 
         return model_params, smart_params
 
@@ -581,13 +592,11 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         ratio_resolver = provider.build_ratio_resolver(smart_params)
 
         # --- Resolve early stopping rounds (config < tune override) ---
-        esr: int | None
-        if "early_stopping_rounds" in tp:
-            esr = int(tp["early_stopping_rounds"])
-        elif cfg.training.early_stopping.enabled:
-            esr = cfg.training.early_stopping.rounds
-        else:
-            esr = None
+        # Shared with `check_training_managed_overrides`, which has to know
+        # whether early stopping will be on before it decides whether to claim
+        # `early_stopping_round`. Two readings of that question is exactly the
+        # defect this became (H-0094 decision 11).
+        esr = effective_early_stopping_rounds(cfg, tp)
 
         # --- Build estimator factory ---
         estimator_factory = provider.build_estimator_factory(
