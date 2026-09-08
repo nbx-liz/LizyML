@@ -451,11 +451,42 @@ class LGBMAdapter(BaseEstimatorAdapter):
         num_boost_round = int(
             _COMMON_DEFAULTS["n_estimators"] if rounds_value is None else rounds_value
         )
-        # Normalize sklearn param names → Booster API names
-        if "random_state" in user_params:
-            user_params.setdefault("seed", user_params.pop("random_state"))
-        if "verbose" in user_params:
-            user_params.setdefault("verbosity", user_params.pop("verbose"))
+        # Normalize sklearn param names → Booster API names, **by identity**.
+        # These read `user_params` by one literal spelling each, so
+        # `random_state` was renamed and `random_seed` -- the third spelling of
+        # the same parameter -- was not.
+        #
+        # **This is a consistency fix, not a defect fix, and the difference was
+        # executed rather than assumed.** `random_seed=7` reached `lgb.train`
+        # under its own name and LightGBM honoured it: the booster is identical
+        # to one trained with `seed=7` and differs from `seed=99`. So no value
+        # was lost. What this removes is the last literal-spelling read of a
+        # caller-owned dict in this module -- the construct that *did* cost a
+        # defect one file over, where `_extract_feval_metadata` read `"metric"`
+        # literally and dropped a custom metric from the export (decision 9).
+        #
+        # On the facade path the branch is unreachable anyway:
+        # `check_training_managed_overrides` claims every spelling of `seed`
+        # whenever `training.seed` is set, and it is always set (default 42; an
+        # explicit null is refused). `LGBMAdapter` is also constructed directly,
+        # which is the path this still governs.
+        # (H-0094 decision 10, named by the rounds 13-14 monitor.)
+        # The existing priority is kept exactly: the canonical spelling wins
+        # when both are written. `_pop_by_identity` is deliberately **not** used
+        # here -- it refuses two spellings with different values, and this
+        # module has an accepted decision that `seed` takes priority over
+        # `random_state` (`test_lgbm_defaults.py`). Changing a refusal as a side
+        # effect of a naming tidy-up is not this commit's business.
+        for canonical in ("seed", "verbosity"):
+            supplied = {
+                name: user_params.pop(name)
+                for name in list(user_params)
+                if name in accepted_spellings(canonical)
+            }
+            if supplied:
+                user_params[canonical] = supplied.get(
+                    canonical, next(iter(supplied.values()))
+                )
         # H-0079: respect user/Optuna-supplied objective when task-compatible.
         # Pre-H-0079 this value was silently stripped, so default_space
         # tune trials sampling e.g. "fair" actually trained with the task
