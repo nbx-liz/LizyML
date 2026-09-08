@@ -190,19 +190,12 @@ def _comma_form_matches(text: Any, sequence: Any) -> bool | None:
     elements = _wire_elements(sequence)
     if elements is None:
         return None
-    # `isinstance` reads `__class__`; the unbound descriptor below reads
-    # `type()`. Those disagree for a **proxy** -- an object that is not a `str`
-    # but answers `__class__` with one -- and the serialiser sides with
-    # `isinstance`: measured, `_param_dict_to_str({"learning_rate": proxy})`
-    # emits `learning_rate=0.5`, so the proxy is a value LightGBM trains on and
-    # this step must compare it rather than fall over. Normalising through
-    # `str()` is what the serialiser itself then does to it (H-0094 decision
-    # 15, review round 18).
-    if type(text) is not str:
-        try:
-            text = str(text)
-        except Exception:  # noqa: BLE001 - a proxy may fail to print
-            return None
+    # `text` arrives already in its wire form: `values_differ` calls
+    # `_as_wire_text` on both operands before any step runs. It used to be done
+    # here instead, which meant it only happened when the *other* operand was a
+    # sequence -- so a proxy compared against ordinary text skipped it entirely
+    # (H-0094 decision 16, review round 19).
+    #
     # `str.split` and `str.strip` unbound, not `text.split` and `part.strip`:
     # a `str` **subclass** is still a `str`, and its overrides run on attribute
     # access. Calling the base method cannot be overridden, and it returns
@@ -233,6 +226,32 @@ def _comma_form_matches(text: Any, sequence: Any) -> bool | None:
     return True
 
 
+def _as_wire_text(value: Any) -> Any:
+    """Put a ``str``-like operand in the form the serialiser would write.
+
+    ``_param_dict_to_str`` writes a scalar parameter with ``f"{key}={val}"``,
+    which dispatches to ``__format__``. An exact ``str`` formats to itself, so
+    it is returned untouched; anything else that answers ``isinstance(_, str)``
+    -- a subclass, or a **proxy** whose ``__class__`` says ``str`` -- is put in
+    its wire form, because that is the text LightGBM will actually send.
+
+    Everything that is not ``str``-like is returned unchanged: sequences are
+    written by a different formatter (``_to_string``, which calls ``str``), and
+    conflating the two is precisely the round-19 defect.
+
+    Raises nothing. A value whose ``__class__`` or ``__format__`` raises is
+    returned as it came, and the later steps decide -- the serialiser refuses
+    such a value anyway, so it is outside the bound stated on
+    :func:`values_differ`.
+    """
+    try:
+        if type(value) is str or not isinstance(value, str):
+            return value
+        return format(value, "")
+    except Exception:  # noqa: BLE001 - a caller's value may refuse either question
+        return value
+
+
 def _as_plain_python(value: Any) -> Any:
     """Convert an array-like to ordinary Python objects, or return it as is.
 
@@ -246,7 +265,17 @@ def _as_plain_python(value: Any) -> Any:
     A value with no such conversion, or one whose conversion fails, is returned
     unchanged and decided by the printed forms as before.
     """
-    conversion = getattr(value, "tolist", None)
+    # The **lookup** is guarded, not only the call. `getattr` with a default
+    # swallows `AttributeError` and nothing else, so a `tolist` **property**
+    # that raises anything else came straight out of this function -- and the
+    # serialiser accepts such a value and trains on it, so it is inside the
+    # bound (H-0094 decision 16, review round 19, reported as non-blocking
+    # because it predates the round-18 remedy; fixed because the bound this
+    # module now declares is the one it falsifies).
+    try:
+        conversion = getattr(value, "tolist", None)
+    except Exception:  # noqa: BLE001 - a user object may define a failing tolist
+        return value
     if not callable(conversion):
         return value
     try:
@@ -390,6 +419,15 @@ def values_differ(first: Any, second: Any) -> bool:
     """
     if first is second:
         return False
+
+    # A str-like operand is put in the form the serialiser would write **here**,
+    # once, for both operands -- not inside one step. Round 18 normalised it
+    # inside `_comma_form_matches`, which only runs when the other operand is a
+    # sequence, so a proxy compared against ordinary text never reached it and
+    # two operands writing the same bytes were reported as differing (H-0094
+    # decision 16, review round 19; the gap is decision 15's own).
+    first = _as_wire_text(first)
+    second = _as_wire_text(second)
 
     # The container is normalised away before anything is compared, because a
     # list and a tuple of the same numbers are one value to the estimator and
