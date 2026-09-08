@@ -48,7 +48,7 @@ produced a value outside the proposed accept-list.
 Measured **after** H-0095, by wrapping ``normalise_params``:
 
     Firing rate: 14/1518 of every parameter value the suite constructs
-    (6074 passed, 48 skipped); all 14 are objects this PR builds to exercise
+    (7425 passed, 256 skipped); all 14 are objects this PR builds to exercise
     the refusal -- the rounds 16-20 adversarial values and the refusal-matrix
     probe. No configuration in this repository is refused.
 
@@ -96,11 +96,16 @@ def pytest_configure(config: Any) -> None:
             pass
         try:
             return real(params, surface=surface)
-        except Exception:
+        except Exception as refusal:
+            # The values the refusal **named**, not every value in the dict
+            # they sat in. Counting bystanders would report a firing rate
+            # larger than the one the change actually has, and the rate is the
+            # Change Gate evidence -- so it has to be machine-produced from
+            # the refusal itself rather than narrowed by hand afterwards.
             try:
-                for value in params.values():
-                    _REFUSED[type(value).__name__] += 1
-            except Exception:  # noqa: BLE001 - as above
+                for entry in getattr(refusal, "context", {}).get("rejected", []):
+                    _REFUSED[entry["type"]] += 1
+            except Exception:  # noqa: BLE001 - a measurement must never fail a test
                 pass
             raise
 

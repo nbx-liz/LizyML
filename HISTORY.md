@@ -8909,19 +8909,24 @@ _param_dict_to_str:  スカラー位置  -> f"{key}={val}"  = __format__
    異なる**のが正しい: 入口は mapping を受理し、`lgb.train` の表明は拒否する。
    mapping のキーは厳密な `str`、値は再帰的に正規化する。
 
-8. **`set` の扱いが変わった（振る舞いの拡大 = `allow`）。** 旧 `values_differ` は
+8. **`set` は入口で拒否する（振る舞いの縮小）。** 旧 `values_differ` は
    `{1.0, 2.0}` と `[1.0, 2.0]` を**別の値**として拒否していた。理由は「set に順序が
    無く、ここの列パラメーターはすべて位置依存だから、認めると答えがハッシュ順に依存する」
-   というもので、その反対理由は正しかった。**入口正規化はその反対理由を消す**:
-   set は入口で 1 度だけ `list` になり、その順序は**シリアライザが join したはずの順序
-   そのもの**なので、比較の時点で決める順序はもう無い。両者は wire 上で同じ bytes で
-   あり、1 つの値である。
+   というもので、**その理由は入口正規化でも消えない**。`list({1.0, 2.0})` は確かに
+   シリアライザが書いたはずの bytes を書くが、それが**リテラルの `[1.0, 2.0]` と一致
+   するかどうかはハッシュ順の偶然**である（実測: `list({3.0, 1.0, 2.0})` は
+   `[3.0, 1.0, 2.0]` ではない）。よって `set` / `frozenset` は受理集合から外し、
+   入口で `CONFIG_INVALID` にする。拒否は縮小側なので変更ゲートの `allow` には当たらない。
+   実測コスト **0/1518**（この repository が構成するパラメーター値に set は 1 件も無い）。
 
-   ```
-   Firing rate: 0/1518 of every parameter value the suite constructs
-                (no configuration in this repository writes a set as a
-                parameter value; measured with the shipped census instrument)
-   ```
+8b. **リストの入れ子は深さ 2 まで（実装中に発見し、自己レビューで修正）。** mapping を
+   受理する過程で `_plain_member` を再帰にしたところ、深さ 3 のリストが受理された。
+   `_to_string` が意味を与えるのは深さ 2 まで（`interaction_constraints`）で、
+   3 段目は Python の list repr で書かれるため **wire が変わる**。実測:
+   `[[[np.float32(0.1)]]]` は `[[np.float32(0.1)]]` と書かれ、正規化後は `[[0.1]]`。
+   深さ 3 以上は拒否する。**母集団が深さ 3 を生成していなかったので wire 保存の性質
+   テストはこれを見られなかった** — 母集団に深さ 3 と set を加え、
+   「拒否は宣言した 3 つの理由のいずれかに当たる」ことを毎ケース検査するようにした。
 
 9. **`value_equality.py` を閉じた集合の上へ縮めた（受け入れ基準 6）。** 494 行 →
    約 140 行。消えたのは敵対オブジェクト向けの防御だけである:
@@ -8948,7 +8953,7 @@ Firing rate: 14/1518 of every parameter value the suite constructs
 実運用の config 由来の値は 1 件も拒否されていない。計測器
 `instruments/parameter_value_type_census.py` は `normalise_params` を包むように更新済み。
 
-**縮小後のスイート**: 6074 passed / 48 skipped、`ruff` / `mypy` clean。
+**縮小後のスイート**: 7425 passed / 256 skipped、`ruff` / `mypy` clean。
 
 #### 受け入れ基準 7 の決定: **#283 は H-0095 では解決しない**
 
