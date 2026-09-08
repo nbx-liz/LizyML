@@ -349,6 +349,52 @@ def test_a_scalar_and_its_text_form_are_not_refused() -> None:
     assert seen["train_params"], "the pair was refused, or nothing trained"
 
 
+def test_a_parameter_passed_as_a_keyword_is_honoured_under_every_spelling() -> None:
+    """The channel that is not the params dict.
+
+    Every instrument this change built reads the parameter **dict** — the
+    refusals, the refusal grid, the literal-read scan, the seam scan. The
+    adapter also passes settings as **keyword arguments**: `num_boost_round=`
+    to `lgb.train`, and `categorical_feature=` at `lgb.Dataset` construction. A
+    parameter that reached the dict correctly and was then outranked by one of
+    those would be invisible to all of them (named as this PR's blind-spot class
+    by the rounds 14-15 monitor; H-0094 decision 12).
+
+    Executed, and clean — asserted on what the **booster did**, not on
+    `booster.params`, because the dict is exactly what would not show it.
+    """
+    configured, asked = 6, 17
+    for spelling in sorted(accepted_spellings("num_iterations")):
+        cfg = make_config("binary", n_estimators=configured, n_splits=2)
+        model = Model(cfg, data=make_binary_df(n=200))
+        model.fit(params={spelling: asked})
+        trees = model.fit_result.models[0].get_native_model().num_trees()
+        assert trees == asked, (
+            f"'{spelling}' asked for {asked} rounds and the booster grew "
+            f"{trees}; the config said {configured}"
+        )
+
+
+def test_categorical_feature_from_fit_params_reaches_the_dataset() -> None:
+    """The second keyword channel, and the one form it accepts.
+
+    `categorical_feature` is handed to `lgb.Dataset`, so a value in the params
+    dict competes with a constructor argument. Executed: the index form is
+    honoured under both spellings; the `name:` form fails **loudly** from
+    LightGBM, because the feature pipeline has renamed the columns by then.
+    Loud is the acceptable half of this — the class being checked here is
+    silent defeat.
+    """
+    model = _fit({"categorical_feature": [0]})
+    text = model.fit_result.models[0].get_native_model().model_to_string()
+    assert "[categorical_feature: 0]" in text, (
+        "the categorical feature written in fit(params=) did not reach the Dataset"
+    )
+
+    with pytest.raises(Exception, match="categorical_feature"):
+        _fit({"categorical_feature": ["name:feat_a"]})
+
+
 @pytest.mark.parametrize("spelling", ["learning_rate", "eta"])
 def test_params_table_reports_the_value_whatever_spelling_reached_it(
     spelling: str,
