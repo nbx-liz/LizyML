@@ -9234,6 +9234,7 @@ numpy scalar types (exact type; derived by np.dtype(k).type is k)
 | 受理した型が書ける値とは限らないこと | `test_an_accepted_type_is_not_by_itself_a_writable_value` / `test_an_integer_too_large_for_a_float_is_accepted_and_compared` |
 | 境界そのもの（受理と拒否の分割） | `test_the_refused_subset_is_exactly_the_declared_boundary` / `test_a_refusal_inside_the_candidate_set_is_forced_not_chosen` |
 | 書く文字が UTF-8 に encode できること（round 25 追加） | `test_a_string_neither_consumer_can_encode_is_refused` |
+| 「正規化が値を変えなかった」を**型と同一性**で判定すること（round 26 追加） | `test_unchanged_is_decided_by_type_and_not_by_printed_text` |
 | 母集団の型軸が受理型集合と一致すること（round 25 追加） | `test_the_population_covers_every_admitted_numpy_type` |
 
 #### 2. 消費者と、それぞれが課す要件
@@ -9259,6 +9260,19 @@ numpy scalar types (exact type; derived by np.dtype(k).type is k)
 encode する。孤立サロゲート `"\ud800"` は受理型の `str` であり、正規化・出口の表明・
 `json.dumps` オラクルをすべて通ってから両消費者で `UnicodeEncodeError` になっていた。
 **要件を 1 つ持つ消費者を「1 つの要件で足りる」と読んだのが誤りである。**
+
+**round 26 が、この 2 つの修正の続きを 2 件出した**（記録: `results/pr2_codex_round26.md`）。
+
+- **UTF-8 検査は 1 か所を漏らしていた**: `_plain_element` の numpy 分岐が
+  テキストを直接読んでいたため、`np.str_` の孤立サロゲートが**素の文字列に正規化され**、
+  その結果を再び正規化すると拒否される（**冪等性違反**）。修正は他の位置と同じ門
+  （`_written_or_refused`）を通すこと。レビュアーは**サロゲート 2048 個 × 12 構成**を
+  列挙して、この 1 形だけが通っていたことを示した。
+- **`repr` で「変わっていない」を判定したのが誤りだった**（**こちらの修正が書いた欠陥**）。
+  `repr` は表示テキストであり、numpy が公式に持つ `printoptions(legacy="1.25")` の下で
+  `np.int64(1)` と `1` は同じに印字される。**この PR が 24 ラウンドかけて排除してきた
+  「呼び出し元が参加できる比較」を、値の比較側で開けた**ことになる。
+  判定は**型の再帰的な一致と、スカラーの同一性（`is`）**で行う形に直した。
 
 **述語の行も round 25 が見つけた**（指摘 2）。述語は受理集合を**自分の言葉で言い直して
 いた**ため、round 24 が正規化だけを「実際に文字を書ける値」へ狭めたときに置き去りに

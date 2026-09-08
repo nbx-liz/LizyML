@@ -130,7 +130,12 @@ def _numpy_atoms() -> list[Any]:
         elif kind == "f":
             values = _FLOAT_VALUES
         elif kind == "U":
-            values = ["", "text", "0.50"]
+            # The last one is of an accepted type and is not an accepted value,
+            # and it is in the sample because round 26 found it by hand: the
+            # numpy element branch read its text without asking whether the
+            # text could be encoded, so it normalised into a plain string no
+            # consumer can take.
+            values = ["", "text", "0.50", "\ud800"]
         else:
             values = _INT_VALUES
         for value in values:
@@ -1279,7 +1284,7 @@ def test_shapes_outside_the_accepted_set_are_refused(value: Any) -> None:
     assert exc.value.code is ErrorCode.CONFIG_INVALID
 
 
-def test_a_string_neither_consumer_can_encode_is_refused(position: Any = None) -> None:
+def test_a_string_neither_consumer_can_encode_is_refused() -> None:
     """Review round 25, finding 1. Both consumers encode UTF-8, and it was not asked.
 
     The requirement list said the trainer reads what ``_param_dict_to_str``
@@ -1335,6 +1340,28 @@ def test_the_predicates_refuse_everything_the_normaliser_refuses(value: Any) -> 
     assert not is_plain(value), f"{_label(value)} is refused but is_plain"
     with pytest.raises(LizyMLError):
         assert_plain_params({"k": value}, where="probe")
+
+
+def test_unchanged_is_decided_by_type_and_not_by_printed_text() -> None:
+    """Review round 26, finding 2, in code the round-25 fix wrote.
+
+    ``is_accepted`` asked whether normalisation left the value alone by
+    comparing ``repr``, and ``repr`` is display text: under numpy's supported
+    ``printoptions(legacy="1.25")`` a ``numpy.int64`` and a plain ``int`` print
+    the same, so an unconverted numpy scalar passed both predicates and the exit
+    assertion. That is the shape this pull request spent its rounds removing --
+    a comparison the caller can take part in -- reintroduced on the value side.
+
+    The predicate asks about types now, recursively, and about identity for a
+    scalar, because ``is`` is the one comparison nobody else can join.
+    """
+    with np.printoptions(legacy="1.25"):
+        for value in (np.int64(1), np.float32(1.0), np.bool_(True)):
+            assert not is_accepted(value), f"{_label(value)} passed is_accepted"
+            assert not is_plain(value), f"{_label(value)} passed is_plain"
+            assert not is_accepted([value])
+            with pytest.raises(LizyMLError):
+                assert_plain_params({"k": value}, where="probe")
 
 
 def test_the_population_covers_every_admitted_numpy_type() -> None:

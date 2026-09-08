@@ -307,7 +307,12 @@ def _plain_element(value: Any) -> Any:
     if _is_one_of(value, PATH_TYPES):
         return _encodable_or_refused(value, str(value))
     if _is_one_of(value, NUMPY_SCALAR_TYPES):
-        text = str(value)
+        # Through the same gate as every other position. This branch read the
+        # text directly, so a `numpy.str_` holding a lone surrogate normalised
+        # into a plain string neither consumer can encode -- and normalising
+        # that result again refused it, which broke idempotence as well
+        # (review round 26).
+        text = _written_or_refused(value, str)
         for candidate in _element_candidates(value, text):
             if _is_one_of(candidate, PLAIN_SCALAR_TYPES) and str(candidate) == text:
                 return candidate
@@ -447,15 +452,41 @@ def is_accepted(value: Any) -> bool:
     one too many, so there is now a single statement and the predicates ask it
     (review round 25).
 
-    "Unchanged" is compared by ``repr`` rather than by ``==`` for the reason
-    the whole pull request exists: ``nan`` is not equal to itself, and equality
-    is the question that turned out to be hard.
+    "Unchanged" is decided by **type and identity**, recursively. It was
+    decided by ``repr`` first, and ``repr`` is display text: numpy supports
+    ``printoptions(legacy="1.25")``, under which ``numpy.int64(1)`` and ``1``
+    print the same, and an unconverted numpy scalar then passed both predicates
+    and the assertion before training (review round 26). A comparison the
+    caller can configure is the shape this module removes everywhere else, so
+    it does not belong here either.
     """
     try:
         normalised = normalise_value(value)
     except _Unaccepted:
         return False
-    return repr(normalised) == repr(value)
+    return _is_unchanged(normalised, value)
+
+
+def _is_unchanged(normalised: Any, original: Any) -> bool:
+    """Did normalisation hand back what it was given?
+
+    A scalar it leaves alone is returned as **the same object**, so identity
+    answers it -- and ``is`` is the one comparison in Python that no caller can
+    take part in. A container is rebuilt, so its members are asked the same
+    question.
+    """
+    if type(normalised) is not type(original):
+        return False
+    if type(original) is list:
+        return len(normalised) == len(original) and all(
+            _is_unchanged(member, source)
+            for member, source in zip(normalised, original, strict=True)
+        )
+    if type(original) is dict:
+        return list(normalised) == list(original) and all(
+            _is_unchanged(normalised[key], original[key]) for key in original
+        )
+    return normalised is original
 
 
 def normalise_params(params: dict[str, Any], *, surface: str) -> dict[str, Any]:
