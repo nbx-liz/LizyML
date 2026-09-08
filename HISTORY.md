@@ -8953,7 +8953,7 @@ Firing rate: 14/1518 of every parameter value the suite constructs
 実運用の config 由来の値は 1 件も拒否されていない。計測器
 `instruments/parameter_value_type_census.py` は `normalise_params` を包むように更新済み。
 
-**スイート**: 7433 passed / 256 skipped、`ruff` / `mypy` clean。
+**スイート**: 7436 passed / 256 skipped、`ruff` / `mypy` clean。
 
 #### review round 21 が見つけた 3 件（2026-09-08、unscoped）
 
@@ -9015,6 +9015,40 @@ Firing rate: 14/1518 of every parameter value the suite constructs
     同じ形（**`type(value) is np.ndarray`**）。1-D 判定も**シリアライザ自身が読む
     `len(shape)`** に合わせた（`ndim` と `shape` は numpy の配列では一致するが、
     他では一致する保証がない）。
+
+14. **呼び出し元が numpy を自称できた（DC1、review round 22）。** 13 までの導出は
+    `np.integer` などの `__subclasses__()` を **import 時に**歩き、
+    `kind.__module__.split(".")[0] == "numpy"` で絞っていた。**`__module__` は
+    クラス本体に書けるただの属性である。** レビュアーは
+    `class Disguised(np.float64): __module__ = "numpy"` と書き、さらに
+    `__format__` が `item()` の立てるフラグで答えを変えるようにして、
+    **2 段の防御を同時に破った**:
+
+    ```
+                              caller が書く wire   学習に届く wire
+    model.params                learning_rate=0.9   0.1
+    fit(params=)                learning_rate=0.9   0.1
+    tuning best_model_params    learning_rate=0.9   0.1
+    calibration.params          learning_rate=0.9   0.1
+    ```
+
+    fit は完了する。加えて走査が import 時なので、**そのクラスが lizyml の import より
+    前に定義されたかどうかで答えが変わっていた**。
+
+    修正: **型集合を `vars(numpy)` から読む** — 「numpy がその名前で export している型か」
+    は**同一性**の問いであり、呼び出し元が主張できず、import 順にも依存しない。
+    加えて **`format(value, "")` を `.item()` の前に読む**（「もう一方の検査が効いている
+    ことに正しさが依存する検査」は 2 段目ではない）。
+
+    **RED 検証をやり直した。** 最初に書いたテストは**どちらの revert でも緑**だった —
+    witness をテスト本体で定義すると import より後になるので走査実装でも集合に入らず、
+    状態を持つ値は型集合を通れないので順序の検査に届かない。**導出関数を witness
+    定義後に呼び直す**形と、**型集合を monkeypatch で緩めて 2 段目だけを単独で試す**形に
+    書き直して両方 RED を確認した。**この run で「テストが別の理由で緑だった」のは 5 回目。**
+
+    なお **round 22 の verdict は取得できていない** — provider 側のコンテンツフィルタで
+    実行が中断された（敵対的オブジェクトを構築する手法自体が誤検知されたと見られる）。
+    上記はログに残っていた再現である。記録は `results/pr2_codex_round22.md`。
 
 #### 受け入れ基準 7 の決定: **#283 は H-0095 では解決しない**
 
