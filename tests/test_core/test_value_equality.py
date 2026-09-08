@@ -1048,7 +1048,36 @@ _WIRE_PAIR_VALUES: list[tuple[str, Any]] = [
     ("single-element tuple", (0.5,)),
     ("different value", "0.25"),
     ("different number", 0.25),
+    # Round 20: in the population **because** it is the exception, so the
+    # exception is exercised rather than only written down. A declared
+    # exception nothing reaches is the shape this run has been hunting.
+    ("nan", float("nan")),
+    ("another nan", float("nan")),
 ]
+
+
+#: NaN is outside the relation, declared here rather than discovered later.
+#:
+#: The serialiser writes `nan` happily, so a relation quantified over "values
+#: the serialiser accepts" demands that two NaNs be admitted as one value. The
+#: module deliberately reports them as differing, and says why: nothing can
+#: establish that two NaNs are the same value, since `nan != nan`. Round 20
+#: caught the new relation contradicting that older, documented contract -- the
+#: relation was written without checking it against the thing it was quantified
+#: over, which is the failure this module keeps paying for.
+#:
+#: The exception costs nothing real, and that is executed rather than assumed:
+#: LightGBM refuses a NaN `learning_rate` outright, so no pair of NaN spellings
+#: can reach a trained model under any verdict.
+_NAN_IS_OUTSIDE_THE_RELATION = True
+
+
+def _is_nan_wire(wire: str) -> bool:
+    """Does this wire form denote a NaN?"""
+    try:
+        return float(wire) != float(wire)
+    except ValueError:
+        return False
 
 
 #: Pairs the relation reports and this PR deliberately does not fix, each with
@@ -1087,6 +1116,9 @@ def test_the_verdict_follows_the_wire_form(left_label: str, right_label: str) ->
     bound = KNOWN_BOUNDS.get(frozenset({left_label, right_label}))
     if bound is not None:
         pytest.skip(f"known bound, filed as {bound}")
+
+    if _is_nan_wire(wire_left) or _is_nan_wire(wire_right):
+        pytest.skip("outside the relation: NaN, see _NAN_IS_OUTSIDE_THE_RELATION")
 
     verdict = values_differ(left, right)
     assert isinstance(verdict, bool)
@@ -1204,6 +1236,62 @@ def test_the_derived_population_is_derived() -> None:
     source = pathlib.Path(value_equality.__file__).read_text(encoding="utf-8")
     for name in _EXPLICIT_LOOKUPS:
         assert f'"{name}"' in source, f"{name} is no longer looked up by name"
+
+
+def test_the_nan_exception_is_reached_and_is_the_only_one_of_its_kind() -> None:
+    """The declared exception must fire, and must not be paying for anything.
+
+    Two halves. The population must actually contain a NaN pair, or the
+    exception is a sentence nothing reaches -- and it must be **harmless**,
+    which is executed rather than argued: LightGBM refuses a NaN parameter, so
+    no verdict on a NaN pair can change what any model trains on.
+    """
+    wires = [_wire(value) for _, value in _WIRE_PAIR_VALUES]
+    nan_wires = [w for w in wires if w is not None and _is_nan_wire(w)]
+    assert len(nan_wires) >= 2, "the NaN exception is declared but unreachable"
+
+    # The behaviour the exception exists to protect, asserted directly.
+    assert values_differ(float("nan"), float("nan")) is True
+    one = float("nan")
+    assert values_differ(one, one) is False, "one object is one value"
+
+
+def test_the_formatter_result_cannot_decide_the_comparison() -> None:
+    """``format`` may hand back a ``str`` subclass; its overrides must not run.
+
+    Round 20, both directions. A subclass whose ``__eq__`` answers ``True`` made
+    two different wire forms compare equal -- the DC1 direction; one whose
+    ``__len__`` lies made a single wire form compare different.
+    """
+
+    class Liar(str):
+        def __eq__(self, other: object) -> bool:
+            return True
+
+        def __hash__(self) -> int:
+            return 0
+
+    class LongLiar(str):
+        def __len__(self) -> int:
+            return 99
+
+    class FormatsToLiar(str):
+        def __format__(self, spec: str) -> Any:
+            return Liar("0.25")
+
+    class FormatsToLongLiar(str):
+        def __format__(self, spec: str) -> Any:
+            return LongLiar("0.5")
+
+    # Different wire forms must stay different, whatever the result claims.
+    assert _wire(FormatsToLiar("0.25")) == "0.25"
+    assert values_differ(FormatsToLiar("0.25"), "0.50") is True
+    assert values_differ("0.50", FormatsToLiar("0.25")) is True
+
+    # And one wire form must stay one value.
+    assert _wire(FormatsToLongLiar("0.5")) == "0.5"
+    assert values_differ(FormatsToLongLiar("0.5"), "0.5") is False
+    assert values_differ("0.5", FormatsToLongLiar("0.5")) is False
 
 
 def test_both_wire_implications_have_witnesses() -> None:

@@ -2713,6 +2713,36 @@ def test_the_comparison_uses_the_formatter_the_serialiser_uses() -> None:
     assert excinfo.value.code is ErrorCode.CONFIG_INVALID
 
 
+def test_a_lying_formatter_result_cannot_hide_a_real_conflict() -> None:
+    """Review round 20, on the shipped path, in the direction that matters.
+
+    ``format`` may hand back a ``str`` subclass, and round 19 returned it as it
+    came. A subclass whose ``__eq__`` answers ``True`` then decided the
+    comparison: ``learning_rate`` at ``0.25`` beside ``eta`` at ``0.50`` --
+    genuinely different on the wire -- was reported as one value.
+    """
+
+    class Liar(str):
+        def __eq__(self, other: object) -> bool:
+            return True
+
+        def __hash__(self) -> int:
+            return 0
+
+    class FormatsToLiar(str):
+        def __format__(self, spec: str) -> Any:
+            return Liar("0.25")
+
+    # The other spelling is written as **text**, deliberately. Written as a
+    # number it routes through the comma-form step, which refuses correctly
+    # even with this fix reverted -- so a float here would make the test pass
+    # for a reason other than the one it names. Caught by RED verification, and
+    # the third time in this PR that check has earned its place.
+    with pytest.raises(LizyMLError) as excinfo:
+        _fit({"learning_rate": FormatsToLiar("0.25"), "eta": "0.50"}, num_threads=1)
+    assert excinfo.value.code is ErrorCode.CONFIG_INVALID
+
+
 def test_a_float_subclass_that_refuses_conversion_still_trains() -> None:
     """Review round 16, finding 2, end to end on the shipped path.
 
