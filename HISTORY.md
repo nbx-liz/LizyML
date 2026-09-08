@@ -8552,3 +8552,82 @@ str.split はサブクラスを受ける   : ['0.5']
 宣言個数の guard は、新しい軸を初回実行で捕まえた（設計通り）。
 
 全スイート **2666 passed**、grid exit 0。
+
+### 決定 16: 欠けていたのは軸ではなく**関係**だった（review round 19、範囲限定）
+
+round 19 も**修正箇所に限定して**開いた（round 18 と同じ枠組み）。blocking 1 件、
+non-blocking 1 件。**2 件とも `fdf5cc2`（round 18 の修正）由来で、D7 authorship は
+4 ラウンド連続の発火である。**
+
+#### 1 件目 — 正規化が「別の formatter」を使っていた
+
+round 18 は `str` 側の被演算子を `str()` で正規化した。だが serialiser は
+**スカラー**を `f"{key}={val}"`（= `__format__`）で書き、**列の要素**は `_to_string`
+（= `str`）で書く。この 2 つは片方だけを override した値で食い違い、両方向に出た:
+
+```
+F1a  wire form : a=0.5 | a=0.5   -> 1 つの値なのに values_differ True（拒否）
+F1b  wire form : a=0.25 | a=0.5  -> 2 つの値なのに values_differ False（受理, DC1）
+```
+
+F1b が重い。`learning_rate=0.25` と `eta=0.5` が「同じ」と報告され、LightGBM が
+残した方で学習していた。
+
+**書く前に対応関係を実行した**（8 値 × 両 formatter）。`format` はスカラーの wire form に
+8/8 一致、`str` は要素の wire form に 8/8 一致。**LightGBM が 2 つの関数を使い分けている
+から、こちらも使い分ける**。下流の `str(element)` は要素用で正しく、揃えてはいけない。
+
+#### 2 件目 — non-blocking と報告されたが修正した
+
+`getattr(value, "tolist", None)` は `AttributeError` しか飲まないので、raise する
+`tolist` **プロパティ**はそのまま外に出ていた。reviewer は round 18 より前からある
+として non-blocking にしたが、**1 ラウンド前にこの PR が宣言した bound を反証する**ので
+修正した（serialiser はその値を受理し、学習もできる ＝ bound の内側。決定 15 が除外した
+`__class__` の raise とは違う）。
+
+#### 本当の修復 — 関係の欠けていた半分
+
+round 18 は列挙をオラクル関係に置き換えたが、**半分しか作っていなかった**:
+「serialiser が raise するときだけ raise する」。もう半分「serialiser が 1 つの値と
+みなす組は admit する」は一切主張していなかった。round 19 の両方向は、no-raise テストを
+**構成上必ず通る**。
+
+`__format__` を軸に足せば「この 1 例」は捕まる。**関係を足せばどの軸でも捕まる**:
+
+- wire form が同じ ⟹ `values_differ` は `False`
+- 両方が数値で異なる ⟹ `values_differ` は `True`
+
+**存在した瞬間に 3 件見つけた:**
+
+| 内容 | 処置 |
+|---|---|
+| `"0.5"` と proxy、両順（8 cell） | **修正** — 決定 15 自身の穴 |
+| スカラー と 単一要素の列（4 cell） | **[#283](https://github.com/nbx-liz/LizyML/issues/283) に起票** |
+
+proxy の穴は示唆的である: round 18 は `_comma_form_matches` の**中**で正規化しており、
+そこは相手が列のときしか走らない。だから proxy を素のテキストと比べる経路は素通りだった。
+**正規化は入口で 1 度、両方の被演算子に**行うようにした。
+
+スカラー/単一要素の件を直さないのは、**現在拒否している組を admit するのは振る舞いの拡大**
+（変更ゲートの `allow`）であり、実測 firing rate 付きの Proposal が要るからである。値は
+母集団に残し `KNOWN_BOUNDS` に issue 番号を書いた（関係の非空虚性の witness を失わない
+ため）。免除が不要になったら落ちる staleness 検査も置いた。
+
+#### 母集団を「宣言」から「導出」へ
+
+4 ラウンドかけて `__float__` → `__str__` → `split` → `__class__` → `__format__` /
+`tolist` と、毎回「前のラウンドが思いつかなかった軸」を足してきた。**すべて人が選んだので、
+すべて不完全だった。**
+
+`DERIVED_HOSTILE_NAMES` は、この module が扱う型に対する **Python 自身の dunder 一覧**と、
+module が文字列で引く属性名から導出する。各 1 個ずつ敵対化して関係に通す。導出が導出で
+あることを確かめる相棒テストも置いた（明示 lookup 名が module のソースに実在するかまで
+見るので、写しが古びれば落ちる）。**何も出なかった。それが走らせた意味である。**
+
+#### 赤にならなかった RED 検証
+
+記録しておく。最初の RED 実行で `format` を `str` に戻したのに**スイートは緑のままだった** —
+reviewer の再現値を 1 つもテストに固定していなかったので、母集団に「`format` と `str` が
+食い違う値」が存在しなかった。両方を、生成母集団にも出荷経路にも追加した。
+
+全スイート **2895 passed / 6 skipped**、grid exit 0。
