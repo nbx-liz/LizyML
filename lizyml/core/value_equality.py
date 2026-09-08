@@ -157,8 +157,10 @@ def _comma_form_matches(text: Any, sequence: Any) -> bool | None:
         ``isinstance`` reads ``__class__``, which a caller can define to raise,
         and **no guard here would help**: the serialiser reads it too. Measured,
         ``_param_dict_to_str`` on a value with a raising ``__class__`` raises
-        the caller's own exception, so such a value never reaches ``lgb.train``
-        under any spelling and there is no pair to admit. That is why the bound
+        the caller's own exception, so such a value **cannot complete training**
+        under any spelling and there is no pair to admit. (Serialisation happens
+        inside LightGBM, so `lgb.train` is entered and then fails; the rounds
+        17-18 monitor corrected that wording here.) That is why the bound
         on ``values_differ`` is stated relative to the serialiser rather than
         over every Python object -- see there (H-0094 decision 15).
 
@@ -358,8 +360,10 @@ def values_differ(first: Any, second: Any) -> bool:
     decide whether two spellings are one LightGBM parameter, so the values that
     matter are exactly the ones LightGBM would train on -- and the serialiser is
     the authority on which those are. Measured: a value whose ``__class__``
-    raises makes ``_param_dict_to_str`` itself raise, so it never reaches
-    ``lgb.train`` under any spelling and there is no pair to admit. Three
+    raises makes ``_param_dict_to_str`` itself raise, so it **cannot complete
+    training** under any spelling and there is no pair to admit -- `lgb.train`
+    is entered and fails inside, which is not the same as never being reached.
+    Three
     consecutive review rounds found the next unguarded expression under the old
     open-ended wording, which is DC7 on the declaration itself.
 

@@ -8524,8 +8524,10 @@ str.split はサブクラスを受ける   : ['0.5']
   LightGBM が学習する値である。`text` は unbound 呼び出しの前に `str()` で正規化する
   （serialiser 自身がそれに対して行うのと同じ操作）。
 - **`__class__` が raise する値は bound の外であり、どんな guard でも変わらない。**
-  serialiser 自体が呼び出し側の例外を投げるので、その値はどの綴りでも `lgb.train` に
-  届かず、admit すべき組が存在しない。
+  serialiser 自体が呼び出し側の例外を投げるので、その値はどの綴りでも**学習を完了できず**、
+  admit すべき組が存在しない。（当初この行は「`lgb.train` に届かない」と書いていた。
+  rounds 17-18 monitor が経路を実行して訂正した — 直列化は LightGBM の**内側**で起きるので
+  `lgb.train` には入り、そこで失敗する。支持できる主張はここに書いた形である。）
 
 **bound を serialiser 相対に書き換えた:**
 

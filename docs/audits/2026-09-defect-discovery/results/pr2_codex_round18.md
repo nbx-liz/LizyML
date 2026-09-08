@@ -94,7 +94,11 @@ Two decisions follow, and neither is a guess:
   returns a subclass, the unbound call accepts it anyway.
 - **The raising `__class__` is outside the bound, and no guard would change
   that.** The serialiser raises the caller's own exception on it, so the value
-  never reaches `lgb.train` under any spelling and there is no pair to admit.
+  **cannot complete training** under any spelling, so there is no pair to admit.
+  (An earlier draft of this line said "never reaches `lgb.train`". The rounds
+  17-18 monitor executed the path and corrected it: serialisation happens
+  *inside* LightGBM, so `lgb.train` is entered and then fails. The supported
+  claim is the one stated here.)
 
 **The bound is restated relative to the serialiser:**
 
