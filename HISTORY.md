@@ -8711,9 +8711,9 @@ revert で 2 件とも赤になった。
 
 ## H-0095: パラメーター値を入口で正規化し、比較の領域を閉じる（#264 後継 / D8 の帰結）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-09-08
-- **決定日**: —
+- **決定日**: 2026-09-08
 - **スコープ**: `lizyml/core/_model_factories.py`（入口の正規化 + 受理集合の拒否）, `lizyml/core/value_equality.py`（閉じた型集合の上へ縮小）, `lizyml/core/model.py` / `lizyml/calibration/`（4 つの呼び出し元が正規化後の dict を使う）, `tests/test_core/test_value_equality.py`, `tests/test_core/test_fit_params_override.py`, `BLUEPRINT.md` §14.4, `CHANGELOG.md`。
 - **関連**: H-0094（PR 2、決定 1-17）, [#264](https://github.com/nbx-liz/LizyML/issues/264), [#283](https://github.com/nbx-liz/LizyML/issues/283), `docs/audits/2026-09-defect-discovery/DECISIONS-PENDING.md` の **D8**。
 
@@ -8848,3 +8848,75 @@ E の副次的コストも記録する: `_param_dict_to_str` は private であ�
    H-0094 決定 16 の導出母集団は「入口の拒否」を確かめる側へ移る。
 7. **#283（スカラー vs 単一要素の列）をこの提案で解決するかを明示的に決める。**
    正規化後は両者とも素の型なので、判断材料が揃う。
+
+
+### 実装時の実測による提案の補正（2026-09-08）
+
+受け入れ基準 1（wire 保存）を先に書いて実行したところ、**提案の受理表が 2 か所間違って
+いた**。どちらも「型で正規化すれば bytes は変わらない」という暗黙の前提から来ており、
+実際にはシリアライザが**位置によって別のフォーマッタを使う**ことが効く。
+
+```
+_param_dict_to_str:  スカラー位置  -> f"{key}={val}"  = __format__
+                     要素位置      -> _to_string(v)   = str
+```
+
+1. **`1-D ndarray` → `.tolist()` は誤り。** 要素位置のフォーマッタは `str` であり、numpy の
+   `str` と Python の `str` は同じ数値に対して別のテキストを書く。実測（27 通り中 8 件が
+   不一致）:
+
+   ```
+   np.array([0.1], float32)   wire: 0.1     .tolist() 後: 0.10000000149011612
+   np.array([0.1], float16)   wire: 0.1     .tolist() 後: 0.0999755859375
+   ```
+
+   **正しい要素変換は「その要素と同じテキストを印字する素の値」**。多くは `.item()` が
+   それであり、そうでないところはテキストを parse し直す。スカラー位置は `.item()` で
+   全 dtype 一致（実測 0 件の不一致）。
+
+2. **`str` サブクラス → 厳密な `str` も誤り。** `__format__` を上書きしたサブクラスは
+   スカラー位置で別の bytes を書くので、`str()` に落とすと wire が変わる。**厳密な型一致
+   で受理し、サブクラスは拒否する**（rounds 18-20 の 3 オブジェクトがこれに当たる）。
+   実測コストは 0 件。
+
+3. **入れ子リストを受理表に追加。** `_to_string` は `list` 要素だけを
+   `[` + カンマ結合 + `]` として書く。これは `interaction_constraints` の綴りそのもの
+   なので受理する。要素位置の `tuple` / `set` / ndarray は Python や numpy の repr
+   （`(1, 2)` / `[1 2]`）になり LightGBM が読めないため拒否する。
+
+4. **素の代替が存在しない値は変換せずに拒否する。** `str(np.float16(1e3))` は `1e+03` で、
+   これを印字する Python の数値は存在しない。丸めて通せば**呼び出し元が書いていない bytes
+   で学習する**ことになるので、ここは拒否側に倒す。テストは「拒否が強制されたものである
+   こと」（＝どの素の値も同じテキストを印字しないこと）を毎ケース検査する。
+
+5. **受け入れ基準 8 を追加: 出口の表明。** 4 surface で正規化するのは**配線についての
+   主張**であり、5 つ目の経路が後から足されたときに黙って崩れる（DC4）。
+   `assert_plain_params` を `lgb.train` の 2 か所（`estimators/lgbm/adapter.py`、
+   `calibration/isotonic.py`）に置き、**学習サイトの母集団をソースから導出して**
+   全サイトが通っていることをテストで固定する。これで「閉じている」は主張ではなく性質に
+   なる。
+
+6. **`calibration.params` は 2 か所で正規化する。** 検査側（`check_calibration_param_names`）
+   と、calibrator に渡る dict を作る側（`canonicalise_calibration_params`）の両方。
+   calibrator は他の 3 surface を通らずに `lgbm.train` へ到達するため。正規化は冪等で
+   あることをテストで固定してある。
+
+#### 実装後の実測
+
+```
+Firing rate: 14/1504 of every parameter value the suite constructs
+             (measured by wrapping `normalise_params` over the full suite
+             after implementation; 5005 passed, 62 skipped)
+```
+
+14 件の内訳は rounds 16-20 の敵対オブジェクト 10 件と、拒否経路を実行するために
+`test_refusal_matrix.py` が構築した 4 件で、**すべてこの PR 自身のテストが作ったもの**。
+実運用の config 由来の値は 1 件も拒否されていない。計測器
+`instruments/parameter_value_type_census.py` は `normalise_params` を包むように更新済み。
+
+#### 受け入れ基準 7 の決定: **#283 は H-0095 では解決しない**
+
+スカラー `0.5` と単一要素の列 `[0.5]` は同じ bytes を書くが、正規化後も `float` と `list`
+であり、依然として拒否される。**admit するには「学習器にどちらを渡すか」を決める必要が
+あり、それは別の決定である**（`allow` ＝振る舞いの拡大なので firing rate 付きの Proposal が
+要る）。#283 は open のままとし、`KNOWN_BOUNDS` の免除もそのまま残す。
