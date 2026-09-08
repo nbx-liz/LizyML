@@ -538,6 +538,122 @@ def model_space_names(cfg: LizyMLConfig) -> list[tuple[str, str]]:
     return out
 
 
+#: Native parameters that a ``training.*`` setting already controls.
+#:
+#: Each is one parameter under two names in two places -- LizyML's, and
+#: LightGBM's -- so a config naming both has said one thing twice, and which
+#: one applies is decided by machinery the caller cannot see. Measured before
+#: this check (H-0094 decision 9, review round 13):
+#:
+#: * ``early_stopping_round``: the override reached ``lgb.train`` on every call
+#:   and the callback built from ``training.early_stopping.rounds`` still
+#:   decided when to stop -- ``rounds: 2`` with an override of ``10`` trained 3
+#:   iterations. With the callback **off** it is not inert either: LightGBM
+#:   honours the parameter itself, and LizyML has built no validation set, so
+#:   the run dies with ``CONFIG_INVALID`` blaming the metric.
+#: * ``seed``: the override wins, silently, over the ``training.seed`` the
+#:   config states -- so a run's reproducibility control is not the one the
+#:   config appears to declare.
+#:
+#: The values are the config paths, because the message has to name the place
+#: the caller can change. The keys are canonical and expanded to every spelling
+#: at check time; a literal-name check would refuse ``seed`` and admit
+#: ``random_seed``, which refuses nothing.
+TRAINING_MANAGED_PARAMS: dict[str, str] = {
+    "early_stopping_round": "training.early_stopping.rounds",
+    "seed": "training.seed",
+}
+
+
+def check_training_managed_overrides(
+    provider: Any,
+    params: dict[str, Any],
+    cfg: LizyMLConfig,
+    *,
+    origins: dict[str, str] | None = None,
+) -> None:
+    """Refuse a native parameter that a ``training.*`` setting already controls.
+
+    This is the same policy the smart-managed check applies one layer over: the
+    conflict is an error, not a silent substitution. It differs in *which* way
+    the silence falls, and that difference is why refusing beats picking a
+    winner -- ``early_stopping_round`` loses to the config, ``seed`` beats it.
+    Nothing in the config says which.
+
+    Only an **active** setting claims its parameter: ``training.early_stopping``
+    claims ``early_stopping_round`` when it is enabled, and not otherwise.
+
+    Args:
+        provider: EstimatorProvider instance.
+        params: The merged model params.
+        cfg: The whole config, read for the ``training`` section.
+        origins: ``{name: the input it came from}``, so the message can address
+            the caller's own file or call rather than always saying
+            ``model.params``.
+
+    Raises:
+        LizyMLError: with ``CONFIG_INVALID``, naming the parameter, the spelling
+            written, and the ``training.*`` setting it collides with.
+    """
+    if not params:
+        return
+    from lizyml.core.exceptions import ErrorCode, LizyMLError
+
+    training = getattr(cfg, "training", None)
+    if training is None:
+        return
+
+    # Every spelling of each claimed parameter, derived from the provider
+    # rather than listed: the protocol answers "which parameter does this name
+    # identify", so inverting it over the accepted names gives the spellings
+    # without this module knowing which estimator is in play.
+    accepted = provider.accepted_model_param_names()
+    spellings_of: dict[str, set[str]] = {}
+    for name, canonical_name in provider.canonical_param_names(accepted).items():
+        spellings_of.setdefault(canonical_name, set()).add(name)
+
+    claimed: dict[str, str] = {}
+    for canonical, config_path in TRAINING_MANAGED_PARAMS.items():
+        if canonical == "early_stopping_round":
+            stopping = getattr(training, "early_stopping", None)
+            if not getattr(stopping, "enabled", False):
+                continue
+        elif getattr(training, "seed", None) is None:
+            continue
+        for spelling in spellings_of.get(canonical, {canonical}):
+            claimed[spelling] = config_path
+
+    hits = [(name, claimed[name]) for name in params if name in claimed]
+    if not hits:
+        return
+
+    origins = origins or {}
+    lines = [
+        f"  {origins.get(name, 'model.params')}: '{name}' is already set by "
+        f"'{config_path}', and the estimator treats those as one parameter."
+        for name, config_path in sorted(hits)
+    ]
+    raise LizyMLError(
+        code=ErrorCode.CONFIG_INVALID,
+        user_message=(
+            "Parameter(s) already controlled by a training setting:\n"
+            + "\n".join(lines)
+            + "\nWhich value applies would depend on how LizyML builds the "
+            "training call rather than on what you wrote. Set it in one place."
+        ),
+        context={
+            "conflicts": [
+                {
+                    "surface": origins.get(name, "model.params"),
+                    "name": name,
+                    "config_path": config_path,
+                }
+                for name, config_path in sorted(hits)
+            ]
+        },
+    )
+
+
 def check_duplicate_space_dimensions(provider: Any, cfg: LizyMLConfig) -> None:
     """Refuse two ``category: model`` dimensions that name one parameter.
 

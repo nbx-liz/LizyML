@@ -59,6 +59,7 @@ from lizyml.core._model_factories import (
     check_duplicate_identities,
     check_param_names,
     check_smart_managed_overrides,
+    check_training_managed_overrides,
     get_provider,
     make_inner_valid_factory,
     overlay_params,
@@ -515,6 +516,10 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             ((origins.get(name, "model.params"), name) for name in model_params),
             model_name=model_cfg.name,
         )
+        # A native parameter a `training.*` setting already controls. Checked on
+        # the merged dict with `origins`, so it covers every input at once and
+        # still names the one the caller has to change (H-0094 decision 9).
+        check_training_managed_overrides(provider, model_params, cfg, origins=origins)
 
         return model_params, smart_params
 

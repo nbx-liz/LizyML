@@ -294,6 +294,101 @@ def test_two_spellings_of_one_value_in_calibration_params_are_accepted() -> None
     assert seen["train_params"], "the call was refused, or nothing trained"
 
 
+@pytest.mark.parametrize("spelling", ["metric", "metrics", "metric_types"])
+def test_export_code_keeps_a_custom_metric_written_under_any_spelling(
+    spelling: str, tmp_path: pathlib.Path
+) -> None:
+    """The export reader must resolve the metric the way training resolved it.
+
+    `_build_params` reads the metric with `_pop_by_identity`, so `metrics` and
+    `metric_types` train correctly. `_extract_feval_metadata` read the literal
+    `"metric"`, so the exported config carried `metric="None"` and **no**
+    evaluation function: measured before this, the generated `train_lgbm`
+    refused to run at all -- "For early stopping, at least one dataset and eval
+    metric is required" (H-0094 decision 9, review round 13).
+
+    Asserted on the generated artifact rather than on the adapter, because the
+    defect lived between the two.
+    """
+    model = _fit({spelling: "brier"})
+    assert "brier" in model.fit_result.models[0]._eval_results["valid_0"], (
+        "the fit did not evaluate the metric, so the export claim is untestable"
+    )
+
+    out = tmp_path / "generated"
+    model.export_code(out)
+    config = json.loads((out / "config.json").read_text(encoding="utf-8"))
+    assert [entry["name"] for entry in config["feval_metrics"]] == ["brier"], (
+        f"'{spelling}' trained with brier and exported "
+        f"{config['feval_metrics']}, so the generated code cannot reproduce it"
+    )
+
+
+@pytest.mark.parametrize(
+    "config_path,canonical,setting",
+    [
+        (
+            "training.early_stopping.rounds",
+            "early_stopping_round",
+            {"early_stopping": {"enabled": True, "rounds": 2}},
+        ),
+        ("training.seed", "seed", {"seed": 42}),
+    ],
+)
+def test_a_parameter_a_training_setting_controls_is_refused(
+    config_path: str, canonical: str, setting: dict[str, Any]
+) -> None:
+    """One parameter under two names in two places, resolved invisibly.
+
+    `training.early_stopping.rounds` and `training.seed` are LizyML's spellings
+    of native LightGBM parameters, and the two silently disagreed in **opposite
+    directions** (H-0094 decision 9, review round 13):
+
+    * the override reached `lgb.train` on every call and the callback built
+      from `training.early_stopping.rounds` still decided -- `rounds: 2` with
+      an override of `10` trained 3 iterations. With early stopping disabled it
+      is not inert either: LightGBM honours the parameter itself, LizyML has
+      built no validation set, and the run dies blaming the metric;
+    * `seed` went the other way and beat `training.seed`, so the run's
+      reproducibility control was not the one the config declares.
+
+    Quantified over **every spelling**, because a literal-name check would
+    refuse `seed` and admit `random_seed`, which refuses nothing.
+    """
+    for spelling in sorted(accepted_spellings(canonical)):
+        cfg = make_config("binary", n_estimators=5, n_splits=2)
+        cfg["training"].update(setting)
+        cfg["model"]["params"][spelling] = 11
+
+        with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as exc:
+            Model(cfg, data=make_binary_df(n=160)).fit()
+
+        assert exc.value.code is ErrorCode.CONFIG_INVALID
+        assert config_path in exc.value.user_message, exc.value.user_message
+        assert spelling in exc.value.user_message, exc.value.user_message
+        assert not seen["train_params"], (
+            f"'{spelling}' trained {len(seen['train_params'])} Booster(s) "
+            "before the refusal"
+        )
+
+
+def test_an_unrelated_parameter_is_not_refused_by_the_training_check() -> None:
+    """The other direction, so the check is not refusing every config.
+
+    `training.seed` is set in every config this helper builds, so a check that
+    over-matched would refuse the whole suite rather than one parameter.
+    """
+    cfg = make_config("binary", n_estimators=5, n_splits=2)
+    cfg["training"]["early_stopping"] = {"enabled": True, "rounds": 2}
+    cfg["model"]["params"]["lambda_l2"] = 0.25
+
+    with record_lightgbm_calls() as seen:
+        Model(cfg, data=make_binary_df(n=160)).fit()
+
+    assert seen["train_params"], "the fit was refused, or nothing trained"
+    assert seen["train_params"][0].get("lambda_l2") == 0.25
+
+
 def test_two_search_dimensions_naming_one_parameter_are_refused() -> None:
     """The same-layer rule on the layer decision 6 had not reached.
 
