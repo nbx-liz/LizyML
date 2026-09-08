@@ -12,6 +12,16 @@ training actually consumed, captured while it ran rather than read back from a
 config. A cell is `n/a` only with a stated reason; `params_table` has no seed row,
 which is a gap in the table and not a disagreement.
 
+**Three lifecycles here are not decision 13's, and that is the running lesson.**
+A declared set is only as good as its declaration, and this one has been short
+twice. `tune_fit_export_load` is the only ordering the bound decision 13 *states*
+actually bites in, so without it the `known-bound` branch was code no input
+reached. `fit_tune_refused_fit` and `fit_tune_failed_training` are round 17's
+finding: decision 13's five are all **success** orderings, so none of them could
+establish what a model reports after a call that failed -- and it reported the
+failed call. Add the lifecycle when a round finds one, rather than trusting the
+count.
+
 Run:
 
     uv run python docs/audits/2026-09-defect-discovery/instruments/report_lifecycle_grid.py
@@ -22,6 +32,7 @@ stale in silence.
 
 from __future__ import annotations
 
+import contextlib
 import sys
 import tempfile
 import warnings
@@ -71,6 +82,12 @@ LIFECYCLES = (
     "fit_export_load",
     "fit_tune_export_load",
     "tune_fit_export_load",
+    # Round 17's finding, and the reviewer named the gap in this file: all of
+    # the above are **success** orderings, so none of them can establish what a
+    # model reports after a call that failed. Two failure points, because one
+    # placement of the commit has to cover both.
+    "fit_tune_refused_fit",
+    "fit_tune_failed_training",
 )
 DECLARED_LIFECYCLES = 5
 SURFACES = ("params_table", "export_code")
@@ -181,6 +198,16 @@ def _exported(model: Model) -> dict[str, Any]:
     }
 
 
+def _failing(name: str) -> Any:
+    """The two ways a fit can fail: refused by a gate, or raised mid-training."""
+    if name == "fit_tune_failed_training":
+        return mock.patch(
+            "lizyml.training.cv_trainer.CVTrainer.fit",
+            side_effect=RuntimeError("training blew up"),
+        )
+    return contextlib.nullcontext()
+
+
 def _run_lifecycle(name: str, workdir: Path) -> tuple[Model, dict[str, Any]]:
     """Return the model to report from, and the ground truth for its fit."""
     model = build()
@@ -190,8 +217,30 @@ def _run_lifecycle(name: str, workdir: Path) -> tuple[Model, dict[str, Any]]:
         truth = _fit_capturing(model)
     else:
         truth = _fit_capturing(model)
-        if name in ("fit_then_tune", "fit_tune_export_load"):
+        if name in (
+            "fit_then_tune",
+            "fit_tune_export_load",
+            "fit_tune_refused_fit",
+            "fit_tune_failed_training",
+        ):
             model.tune()
+
+    if name in ("fit_tune_refused_fit", "fit_tune_failed_training"):
+        # A call that fails must leave every report describing the model that
+        # was kept, so the ground truth is still the successful fit's.
+        other = make_binary_df(n=90)
+        with _failing(name):
+            try:
+                model.fit(
+                    data=other,
+                    params={"objective": "regression"}
+                    if name == "fit_tune_refused_fit"
+                    else None,
+                )
+            except Exception:  # noqa: BLE001 - the failure is the input here
+                pass
+            else:  # pragma: no cover - the call is constructed to fail
+                raise AssertionError(f"{name}: the fit was expected to fail")
 
     ground = {
         "early_stopping_rounds": truth.patience,
@@ -275,8 +324,9 @@ def main() -> int:
     print()
     print(
         f"cells: {len(rows)} "
-        f"({declared_cells} from decision 13, "
-        f"{expected_cells - declared_cells} for the bound issue #281 names)"
+        f"({declared_cells} from decision 13's five lifecycles, "
+        f"{expected_cells - declared_cells} from the three added because a "
+        f"declared set is only as good as its declaration)"
     )
     for verdict in sorted(counts):
         print(f"  {verdict}: {counts[verdict]}")
