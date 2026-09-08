@@ -7946,3 +7946,61 @@ list とそのテキスト     'p=1.0,2.0'     'p=1.0,2.0'     True   学習
 反証がループ外の monitor から来たこと、そして反証が具体的な値の組で来たことである。
 主張を実測で書くこと自体は正しいが、**「型集合全体に適用した」と言うときは型集合全体で
 実行すること**が、この 2 例から出る運用上の結論である。
+
+### 決定 10: 探索空間も「入力」である — study が自分の次の一手に拒否される結果を返していた（レビュー round 14）
+
+round 14 も範囲を絞らず回した。`REQUEST_CHANGES` **1 件（`[P1]`）** — round 5 以降で
+最少であり、単一指摘のラウンドとしても round 5 以来である。
+
+**指摘は、このラウンドのプロンプトが初めて投げた問いの答えだった。** rounds 12-13
+monitor が「集合全体に適用した」という主張を 2 ラウンド続けて反証したので、round 14 の
+プロンプトはレビュアーに *「この diff が集合を主張している箇所は、その集合の上で実行
+されたのか」* を明示的に問わせた。返ってきた 1 件はまさにその形である。
+
+**欠陥。** `check_training_managed_overrides` は `_merge_params` の中で走り、そこの
+コメントは「every input at once をカバーする」と書いていた。`_merge_params` で出会う
+**3 つの入力**については真だが、**4 つ目については偽**である — trial パラメーターは
+その後、tune の objective で重なる。
+
+したがって `category: model` の探索次元が `seed` や `early_stopping_round` を名乗ると、
+**受理され、sample され、学習される** — そして直後の `fit()` が、その study が今作った
+`best_model_params` を拒否する。両エントリの**全 7 綴り**で再現:
+
+```
+random_seed / random_state / seed / early_stopping / early_stopping_round /
+early_stopping_rounds / n_iter_no_change
+  -> いずれも booster を 2 個学習してから、次の fit が CONFIG_INVALID
+```
+
+**拒否が無かったのではなく、study が終わってから来ていた**のが欠陥である
+（DC1 + DC4 + DC5）。
+
+**修正。** `check_training_managed_space` を study 開始前、既にそこにある 2 つの
+空間レベルの拒否（`check_param_names` / `check_duplicate_space_dimensions`）の隣に
+配線した。空間も他と同じ 1 つの層であり、これは round 11 が
+`check_duplicate_identities` について見つけ、決定 8 の追補が空間自身について見つけた
+**同じ形の 3 例目**である。
+
+**偽の主張は、修正だけでなく主張がなされた場所でも訂正した**: `model.py` のコメントは
+merged-dict 検査がカバーする 3 入力を名指しし、カバーしない 1 つと、それがどこで
+検査されるかを書く。
+
+```
+Firing rate: 0/70 of pre-existing configs carrying a category:model search space
+（77 件中 7 件が発火し、それは本変更の回帰テストが 7 綴りを回した分）
+```
+
+#### レビュアーが「clean」と報告した内容（範囲付き）
+
+- `fit(params={"eta": 0.5})` を binary / multiclass / regression で実行し、**全 CV
+  booster と full-data refit booster**が `[learning_rate: 0.5]` を持つことを確認。
+- training-managed の全 7 綴りを `model.params` と `fit(params=)` の両面で実行し
+  **14/14 が学習前に拒否**。今回の指摘は tuning 層のみ。
+- 学習済み adapter からの export パラメーター抽出を `metric` / `metrics` /
+  `metric_types` で実行し、3 つとも Brier のメタデータを保持 — **round 13 の
+  指摘 1 が独立に再実行されて確認された**。
+
+レビュアー自身が「確立していない」と明記した範囲: フルスイート・lint・mypy は
+再実行しておらず、ディスクへの export、生成プロジェクトの実行、実際の `Model.load()`
+後の fit は read-only 制約下で実行していない。これらはこちらで実行した — フルスイート
+**2500 passed**、`ruff check .` / `ruff format --check .` / `mypy lizyml/` クリーン。

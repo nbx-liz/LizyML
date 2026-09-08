@@ -8,8 +8,8 @@ PR **#278**, draft, branch `fix/phase3-pr2-fit-params-forwarding`. H-0094 /
 issue #264: `Model.fit(params=...)` was accepted, documented as overriding
 `model.params`, and forwarded nowhere.
 
-**Thirteen review rounds have run. No `APPROVE` yet.** Blocking findings per
-round: **1, 1, 2, 2, 1, 3, 2, 4, 3, 2, 3, 2, 3**, plus two the main context found
+**Fourteen review rounds have run. No `APPROVE` yet.** Blocking findings per
+round: **1, 1, 2, 2, 1, 3, 2, 4, 3, 2, 3, 2, 3, 1**, plus two the main context found
 itself in round 12 by enumeration. Every one was reproduced before
 it was fixed and RED-verified after.
 
@@ -25,33 +25,33 @@ and rounds 11 and 12 confirmed that by execution. The merge gate is
 Rounds 6, 8, 9 and 10 were each narrowed to the previous round's remedies, and
 each found nothing in production. That result was **produced by the scope, not
 by the code**: a round aimed at freshly written test apparatus finds
-test-apparatus defects. Round 11 was widened and found three production
-defects; round 12 was widened and found two more, plus one the main context
-found by enumeration.
+test-apparatus defects. Rounds 11-14 were widened and found nine production
+defects between them, plus two the main context found by enumeration.
 
 **Every further round is unscoped.** Do not narrow one to "review the fixes",
 whatever the previous round returned.
 
 ## The next action
 
-1. **The rounds 12-13 monitor has already run**, returning `CONVERGING` /
-   `redirect` — the first redirect of this run. Its redirect was verified by
-   execution and adopted in full before round 14: the round-13 grammar fix
-   reached one of the four types LightGBM joins, and the other three were
-   refused although the serialiser produced the byte-identical wire string. See
-   `results/pr2_monitor_round1213.md`. **Round 14 can open directly.**
+1. **Spawn the rounds 14-15 relational monitor first.** Mandatory before round
+   15 (`policy:loop-monitor`), read-only, fresh context, via
+   `templates/review-loop-monitor-capsule.md`. Give it the numbers unsoftened
+   and the pattern the run has now produced three times:
 
-   Before round 15, spawn the rounds 14-15 monitor with the numbers unsoftened,
-   plus the pattern two monitors have now established: a claim of the form
-   "applied to the whole set" has been falsified within one round of being made,
-   twice — the seam construct set, then the serialiser type set. Ask it what
-   else in this diff claims a set it has not executed over.
+   **A claim of the form "applied to the whole set" has been falsified within a
+   round of being made, three times running** — the seam construct set (rounds
+   11-12 monitor), the serialiser type set (rounds 12-13 monitor), and "covers
+   every input at once" (round 14's reviewer, once the prompt put the question
+   to it). Each was reproduced and each was closed. Ask it what else in this
+   diff claims a set it has not executed over — and, separately, whether a loop
+   that keeps finding this one class is converging or has found its own blind
+   spot and is now mining it.
 
    A monitor's output is a finding to reconcile, never a verdict to adopt
    (`policy:main-context-ownership`).
 
-2. **Then round 14, unscoped**, on the whole diff except `docs/`. Write the
-   prompt to `scratchpad/codex-pr2-review-prompt-r14.md` with the metadata block
+2. **Then round 15, unscoped**, on the whole diff except `docs/`. Write the
+   prompt to `scratchpad/codex-pr2-review-prompt-r15.md` with the metadata block
    the `review-loop-monitor-guard.sh` hook validates (`Review-kind` on line 1;
    round 3+ requires the relational monitor fields).
 
@@ -72,11 +72,11 @@ whatever the previous round returned.
 
 ## State at the time of writing
 
-- Head: the round-12 fixes, on `fix/phase3-pr2-fit-params-forwarding`.
-- Full suite **2498 passed**; `ruff check .`, `ruff format --check .`,
+- Head: the round-14 fix, on `fix/phase3-pr2-fit-params-forwarding`.
+- Full suite **2500 passed**; `ruff check .`, `ruff format --check .`,
   `mypy lizyml/` clean.
-- Round 13's record: `results/pr2_codex_round13.md`. Decisions:
-  `HISTORY.md` H-0094, decisions 1-9. Monitor:
+- Round 14's record: `results/pr2_codex_round14.md`. Decisions:
+  `HISTORY.md` H-0094, decisions 1-10. Monitor:
   `results/pr2_monitor_round1213.md`. Open question log:
   `DECISIONS-PENDING.md` D7.
 

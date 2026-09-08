@@ -806,3 +806,38 @@ round. Asserting from measurement is right; **when the claim is "applied to the
 whole set", the execution has to cover the whole set.**
 
 Full suite **2498 passed**. Round 14 stays unscoped.
+
+### Round 14 (2026-09-08) — unscoped
+
+`REQUEST_CHANGES`, **1 finding**, `[P1]`, production, reproduced before it was
+changed. Blocking per round: **1, 1, 2, 2, 1, 3, 2, 4, 3, 2, 3, 2, 3, 1**. Full
+suite **2500 passed**.
+
+**The lowest count since round 5, and the first single-finding round since
+then.** But the count is not the interesting part. The finding was produced by a
+question the loop had not been asking until the rounds 12-13 monitor supplied
+it: *where this diff claims a set, check whether it executed over that set.* The
+round-14 prompt put that question to the reviewer explicitly, and the one finding
+is an instance of it — a comment claiming a check "covers every input at once"
+when it covered three inputs of four.
+
+**The finding is the third instance of one shape**: a rule declared for every
+layer and wired to some. Round 11 found it for `check_duplicate_identities`; the
+decision-8 addendum found it for the search space; round 14 found it for
+`check_training_managed_overrides`, again on the search space, because trial
+parameters overlay after `_merge_params` runs. Each was reproduced, each was
+wired, each firing rate measured 0 over the pre-existing population.
+
+**A second thing worth recording about this round.** The reviewer's "checked and
+clean" section independently re-executed round 13's first fix (export metadata
+across `metric` / `metrics` / `metric_types`) rather than taking the record's
+word, and stated plainly what its read-only constraint prevented it from
+establishing — disk export, generated-project execution, and a real `load()`
+followed by fit. Those were run here. That is the first round where the clean
+section carried its own executed evidence at that level.
+
+**Round 15 stays unscoped**, for the reason rounds 12-14 did. Before it, the
+rounds 14-15 monitor gets the pattern unsoftened: three set-claims falsified in
+three rounds (seam constructs, serialiser types, "every input at once"), each
+within a round of being made, and each found by a different party — a monitor,
+a monitor, then the reviewer once the question was put to it.
