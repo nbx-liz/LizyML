@@ -27,18 +27,25 @@
 4. **`BLUEPRINT.md` §14.4** に同じ 3 点（生成物である / 消費者を全部名指す / スコープ外）を追記。
    上位文書が下位より少なく述べている状態を作らないため。
 
+### B / C / D は回答済み（D10 の続き）
+
+- **B: 認めない。** マージゲートは **Codex `APPROVE`** のみ。フィルタに落ちたら
+  依頼の書き方を変えて Codex を通す。fresh-checker は発見の手段としては使ってよい。
+- **C: authorship 条件。** **round N の修正が書いたコードの欠陥が round N+1 で出たら停止**
+  して判断を仰ぐ。ラウンド上限は置かない。
+- **D: 現方針維持。** #283 は H-0095 では解決しない（open のまま、免除も残す）。
+
 ### 次にやること
 
-1. **B / C / D をまとめて 1 回で聞く**（round 25 を開く直前。C は開くときに必要になる）
-   - **B**: Codex が使えない局面で `policy:fresh-checker` の結果を**マージゲートとして認めるか**
-   - **C**: ラウンド上限、またはそれに代わる**停止条件**
-   - **D**: **#283** は H-0095 では解決しないという方針でよいか
+1. **ラウンド前に監視**（`policy:loop-monitor`、round 25 は**関係監視**。
+   `templates/review-loop-monitor-capsule.md`。監視を回している間はファイルを編集しない）。
 2. **round 25 を回す。** 依頼は
    `prompt-templates/pr2-review-round24-completed.md` を雛形にし、問いを
    **「1 の受理集合と 3 の bound の下で、2 の各要件が受理母集団全体の上で成り立っているか」**
    にする（「破れる値はあるか」に戻さないこと — それが 24 ラウンド `APPROVE` が
    出なかった理由である）。
-3. **ラウンド前に監視**（`policy:loop-monitor`、round 25 は関係監視）。
+3. **停止条件（C）を毎ラウンド適用する** — round N の修正が書いたコードの欠陥が
+   round N+1 で出たら、そこで止めて判断を仰ぐ。
 
 ---
 
@@ -47,9 +54,9 @@
 | 項目 | 状態 |
 |---|---|
 | ブランチ | `fix/phase3-pr2-fit-params-forwarding` |
-| head | 契約書き直しのコミット（`origin` に push すること） |
+| head | **`56ff118`**（契約の書き直し 2 コミット）、`origin` と一致、作業ツリー clean |
 | PR **#278** | **draft** |
-| CI | 直前の head で **12/12 全緑**（書き直し後は再走が要る） |
+| CI | **13/13 全緑**（`56ff118`。macOS / Windows smoke を含む） |
 | フルスイート | **8239 passed / 256 skipped**（json オラクル 796 件で 7443 から増えた） |
 | ruff / ruff-format / mypy | clean |
 | `report_lifecycle_grid.py` | exit 0 |
