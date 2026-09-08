@@ -64,14 +64,27 @@ PLAIN_SCALAR_TYPES: tuple[type, ...] = (
     int,
     float,
     str,
-    # `Path()` instantiates a concrete flavour, so the exact types are listed
-    # rather than the abstract base. **Only the flavours of `Path`.** The
-    # serialiser tests `isinstance(val, Path)`, and a `PurePosixPath` is not a
-    # `Path` -- it was accepted here and the serialiser raised on it (review
-    # round 24).
-    pathlib.PosixPath,
-    pathlib.WindowsPath,
 )
+
+#: Path types accepted at the surface, and **converted to their text**.
+#:
+#: The serialiser writes a path with the scalar formatter, which for a path is
+#: its text, so the bytes are the same either way -- and the text is the form
+#: everything downstream can carry. A path survived normalisation as a path
+#: until now, and `export_code` then raised `TypeError: Object of type
+#: PosixPath is not JSON serializable` on a run that had trained happily.
+#:
+#: Only the flavours of `Path`. `_param_dict_to_str` tests
+#: `isinstance(val, Path)`, and a `PurePosixPath` is not a `Path` -- it was
+#: accepted here and the serialiser raised on it (review round 24).
+#: The conversion needs no check of its own, and that is a claim about these
+#: types rather than about paths in general: ``pathlib`` defines no
+#: ``__format__``, so ``format(p, "")`` is ``object.__format__``, which is
+#: ``str(p)``. A test asserts that for each type here. A subclass could define
+#: one, and a subclass is not admitted -- the exact-type gate is what makes the
+#: conversion safe, so putting a second check inside the branch would be a
+#: guard nothing can reach.
+PATH_TYPES: tuple[type, ...] = (pathlib.PosixPath, pathlib.WindowsPath)
 
 
 def _derived_numpy_scalar_types() -> frozenset[type]:
@@ -151,7 +164,7 @@ ACCEPTED_DESCRIPTION = (
     "None, bool, int, float, str, pathlib.Path, a numpy scalar, a list, tuple "
     "or 1-D numpy array of those, or a dict with str keys holding those "
     "(a set is refused: a sequence parameter is positional and a set has no "
-    "order)"
+    "order; a path is accepted and carried on as its text)"
 )
 
 
@@ -220,6 +233,8 @@ def _plain_scalar(value: Any) -> Any:
         if value is not None:
             _written_or_refused(value, lambda item: format(item, ""))
         return value
+    if _is_one_of(value, PATH_TYPES):
+        return str(value)
     if _is_one_of(value, NUMPY_SCALAR_TYPES):
         # Read **before** the conversion. A value asked the same question twice
         # need not answer the same way, and review round 22 built one that did
@@ -266,6 +281,8 @@ def _plain_element(value: Any) -> Any:
         # serialiser can write.
         _written_or_refused(value, str)
         return value
+    if _is_one_of(value, PATH_TYPES):
+        return str(value)
     if _is_one_of(value, NUMPY_SCALAR_TYPES):
         text = str(value)
         for candidate in _element_candidates(value, text):

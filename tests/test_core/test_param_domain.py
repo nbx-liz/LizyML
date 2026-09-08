@@ -29,6 +29,7 @@ from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.param_domain import (
     ACCEPTED_DESCRIPTION,
     NUMPY_SCALAR_TYPES,
+    PATH_TYPES,
     PLAIN_SCALAR_TYPES,
     PLAIN_SEQUENCE_TYPES,
     REFUSED_SEQUENCE_TYPES,
@@ -748,14 +749,84 @@ def test_every_path_type_accepted_is_one_the_serialiser_accepts() -> None:
     ...))``. Listing a path type here that is not a ``Path`` puts a value in
     the accepted set that cannot be written -- which is what happened.
     """
-    paths = [kind for kind in PLAIN_SCALAR_TYPES if issubclass(kind, pathlib.PurePath)]
-    assert paths, "no path type is accepted; the serialiser still names Path"
-    for kind in paths:
+    assert PATH_TYPES, "no path type is accepted; the serialiser still names Path"
+    for kind in PATH_TYPES:
         assert issubclass(kind, pathlib.Path), (
             f"{kind.__name__} is accepted here but the serialiser writes only "
             "flavours of Path"
         )
-    assert type(pathlib.Path("f.json")) in paths
+    assert type(pathlib.Path("f.json")) in PATH_TYPES
+    assert not any(issubclass(kind, pathlib.PurePath) for kind in PLAIN_SCALAR_TYPES)
+
+
+def test_a_path_is_carried_on_as_its_text() -> None:
+    """Accepted, and converted -- because a path is not carried on as one.
+
+    The serialiser writes a path with the scalar formatter, which for a path is
+    its text, so the characters are the same either way. What differs is
+    everything downstream: a path survived normalisation as a path, and
+    ``export_code`` then raised ``TypeError: Object of type PosixPath is not
+    JSON serializable`` on a run that had trained happily. Measured on the
+    shipped path, which is why the fix is here and not in the writer.
+    """
+    import json
+
+    written = pathlib.Path("models/forced.json")
+    normalised = normalise_params({"forcedsplits_filename": written}, surface="probe")[
+        "forcedsplits_filename"
+    ]
+
+    assert type(normalised) is str
+    assert _wire(normalised) == _wire(written)
+    assert is_plain(normalised)
+    # The property the conversion exists for, stated where it is checked.
+    assert json.dumps({"forcedsplits_filename": normalised})
+    with pytest.raises(TypeError):
+        json.dumps({"forcedsplits_filename": written})
+
+
+def test_the_path_conversion_is_safe_because_of_the_types_admitted() -> None:
+    """Why converting a path needs no check, said where it can be checked.
+
+    ``pathlib`` defines no ``__format__``, so for these types the scalar
+    formatter is ``object.__format__``, which is ``str``. The conversion
+    therefore cannot change the characters -- for **these** types. A subclass
+    could define one, and the exact-type gate is what keeps subclasses out.
+
+    The first version of this test asserted that a lying subclass was refused,
+    and stayed green when the conversion check was removed: the exact-type gate
+    was refusing it, not the check. So the check was a guard nothing could
+    reach, and it came out rather than being kept as reassurance. That is the
+    sixth time in this pull request a test has passed for a reason other than
+    the one it named.
+    """
+    for kind in PATH_TYPES:
+        assert "__format__" not in vars(kind), (
+            f"{kind.__name__} now defines __format__; the conversion needs a "
+            "check of its own again"
+        )
+    assert "__format__" not in vars(pathlib.PurePath)
+
+    written = pathlib.Path("models/forced.json")
+    assert format(written, "") == str(written)
+
+    class _Lying(type(written)):  # type: ignore[misc]
+        def __format__(self, spec: str) -> str:
+            return "elsewhere.json"
+
+    assert not _is_one_of_path(_Lying("models/forced.json")), (
+        "a subclass is admitted by the path gate; it is no longer exact"
+    )
+    with pytest.raises(LizyMLError) as exc:
+        normalise_params(
+            {"forcedsplits_filename": _Lying("models/forced.json")}, surface="probe"
+        )
+    assert exc.value.code is ErrorCode.CONFIG_INVALID
+
+
+def _is_one_of_path(value: object) -> bool:
+    """Does the path gate admit this value?"""
+    return any(type(value) is kind for kind in PATH_TYPES)
 
 
 def test_membership_is_identity_and_not_the_callers_own_equality() -> None:
