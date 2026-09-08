@@ -112,15 +112,12 @@ CASES: list[tuple[str, object, object, object]] = [
     ("an int and its text", 100, "100", False),
     ("a scalar and a different text", 0.5, "0.7", True),
     ("a scalar and a two-element comma form", 0.5, "0.5,0.5", True),
-    # **Changed by H-0095, deliberately.** This pair used to be reported as two
-    # values, because a set has no order and every sequence parameter here is
-    # positional, so admitting it would have made the answer depend on hash
-    # order. Normalisation fixes the order once, at the surface, in exactly the
-    # order the serialiser would have joined it -- so by the time anything
-    # compares them the set *is* that list, and they are one value on the wire.
-    # The objection was to deciding hash order at comparison time, and there is
-    # no longer a comparison-time decision to make.
-    ("a set and the list it prints like", {1.0, 2.0}, [1.0, 2.0], False),
+    # The old refusal's reason survives H-0095 and the refusal moved to the
+    # surface. Normalising a set would preserve the wire, but it would make
+    # this pair one value by **hash-order coincidence** -- `list({1.0, 2.0})`
+    # happens to be `[1.0, 2.0]` and `list({3.0, 1.0, 2.0})` is not
+    # `[3.0, 1.0, 2.0]` -- and every sequence parameter here is positional.
+    ("a set and the list it prints like", {1.0, 2.0}, [1.0, 2.0], REFUSED),
     # `_param_dict_to_str` skips a `None` entirely -- it means "not sent",
     # which is not the string LightGBM would read as a value.
     ("none and the text of none", None, "None", True),
@@ -230,12 +227,12 @@ def test_the_comparison_is_total_over_the_accepted_set(left: int, right: int) ->
 
 @pytest.mark.parametrize("index", range(len(_ACCEPTED)))
 def test_a_value_is_never_reported_as_differing_from_itself(index: int) -> None:
-    """Reflexive, except where the value declares it is not.
+    """Reflexive on one object, which is the identity step and nothing else.
 
-    ``nan`` is the exception and it is named rather than skipped: nothing can
-    establish that two NaNs are the same value. A single ``nan``, being one
-    object, is caught by the identity step -- which this checks by comparing
-    two separately built values wherever the value can be rebuilt.
+    Said plainly, because the stronger claim is not true and stating it would
+    be the overstatement this run keeps finding: two **separately built** NaNs
+    are reported as differing, on purpose. That case is asserted by name in
+    ``test_the_nan_exception_is_reached_and_is_the_only_one_of_its_kind``.
     """
     value = _ACCEPTED[index]
     assert values_differ(value, value) is False

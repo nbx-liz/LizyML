@@ -30,7 +30,9 @@ from lizyml.core.param_domain import (
     ACCEPTED_DESCRIPTION,
     PLAIN_SCALAR_TYPES,
     PLAIN_SEQUENCE_TYPES,
+    REFUSED_SEQUENCE_TYPES,
     assert_plain_params,
+    is_accepted,
     is_plain,
     normalise_params,
     normalise_value,
@@ -123,8 +125,22 @@ def _numpy_atoms() -> list[Any]:
 
 
 def _sequences_of(atom: Any) -> list[Any]:
-    """Every accepted sequence shape this atom can sit in."""
-    shapes: list[Any] = [[atom], [atom, atom], (atom,), [[atom, atom]]]
+    """Every sequence shape this atom can sit in, accepted or not.
+
+    The refused shapes are here on purpose: a boundary nothing probes from the
+    outside is a boundary nobody has checked. A ``set`` and a three-deep list
+    are the two the module declines, and both are generated rather than named
+    in the tests that assert the decline.
+    """
+    shapes: list[Any] = [
+        [atom],
+        [atom, atom],
+        (atom,),
+        [[atom, atom]],
+        [[[atom]]],
+        {"entry": atom},
+        ["auc", {"entry": atom}],
+    ]
     with contextlib.suppress(TypeError):  # no atom here is unhashable, but do
         shapes.append({atom})  # not assume it
     if isinstance(atom, np.generic):
@@ -137,11 +153,6 @@ def _accepted_population() -> list[Any]:
     population: list[Any] = []
     for atom in _plain_atoms() + _numpy_atoms():
         population.append(atom)
-        if atom is None:
-            # `None` inside a sequence prints as `None`, which LightGBM cannot
-            # read back as a number; it is accepted as a scalar only, where the
-            # serialiser drops the parameter entirely.
-            continue
         population.extend(_sequences_of(atom))
     population.append([])
     population.append(())
@@ -156,6 +167,15 @@ def _label(value: Any) -> str:
         return f"{type(value).__name__}:{value!r}"
     except Exception:  # noqa: BLE001 - a label is not worth failing over
         return type(value).__name__
+
+
+def _holds_a_mapping(value: Any) -> bool:
+    """Is there a ``dict`` anywhere inside this value?"""
+    if isinstance(value, dict):
+        return True
+    if isinstance(value, (list, tuple, set, np.ndarray)):
+        return any(_holds_a_mapping(member) for member in value)
+    return False
 
 
 def _normalise(value: Any) -> tuple[bool, Any]:
@@ -186,7 +206,19 @@ def test_normalising_does_not_change_the_bytes_the_estimator_is_sent(
     Not "the normalised value is equal" -- equality is the question the whole
     PR found hard. The bytes are what the trainer reads, so the bytes are what
     has to be identical.
+
+    A value holding a mapping is excluded, and the exclusion is asserted rather
+    than assumed: such a value is never handed to the serialiser as itself (the
+    adapter consumes it, and the exit assertion refuses it if it did not), so
+    "the bytes it would be sent" is not a thing it has. The companion test
+    below is what makes that exclusion safe.
     """
+    if _holds_a_mapping(value):
+        assert not is_plain(normalise_value(value)), (
+            "a mapping-bearing value passed the serialiser bound; the wire "
+            "exclusion below would then be hiding a real change"
+        )
+        pytest.skip("holds a mapping: never serialised as itself")
     before = _wire(value)
     normalised = normalise_value(value)
     assert _wire(normalised) == before, (
@@ -199,9 +231,36 @@ def test_normalising_does_not_change_the_bytes_the_estimator_is_sent(
     "value", ACCEPTED_POPULATION, ids=[_label(v) for v in ACCEPTED_POPULATION]
 )
 def test_every_accepted_value_normalises_into_the_closed_set(value: Any) -> None:
-    """Acceptance means landing inside the set, not merely not raising."""
+    """Acceptance means landing inside the set, not merely not raising.
+
+    Against the surface predicate, and then -- for everything that is not a
+    mapping -- against the narrower one the trainer is entitled to. The two are
+    checked separately because they are two different claims, and collapsing
+    them would weaken whichever end was asserted with the other's bound.
+    """
     normalised = normalise_value(value)
-    assert is_plain(normalised), f"{_label(value)} normalised to {normalised!r}"
+    assert is_accepted(normalised), f"{_label(value)} normalised to {normalised!r}"
+    if not _holds_a_mapping(normalised):
+        assert is_plain(normalised), f"{_label(value)} normalised to {normalised!r}"
+
+
+@pytest.mark.parametrize(
+    "value", ACCEPTED_POPULATION, ids=[_label(v) for v in ACCEPTED_POPULATION]
+)
+def test_the_predicate_and_the_normaliser_agree(value: Any) -> None:
+    """A predicate that disagreed with the function would be the SSOT drift.
+
+    ``is_accepted`` exists so callers can ask without raising; if it answered
+    ``True`` for something ``normalise_params`` refuses, or the reverse, the
+    two would be two definitions of the accepted set.
+    """
+    normalised = normalise_value(value)
+    assert is_accepted(normalised)
+    if is_accepted(value):
+        # `repr`, not `==`: `nan` is not equal to itself, and this is a claim
+        # about the normaliser leaving an accepted value alone rather than a
+        # claim about equality -- the question the whole PR found hard.
+        assert repr(normalise_value(value)) == repr(value)
 
 
 @pytest.mark.parametrize(
@@ -216,8 +275,8 @@ def test_normalising_twice_is_normalising_once(value: Any) -> None:
     """
     once = normalise_value(value)
     twice = normalise_value(once)
-    assert _wire(twice) == _wire(once)
-    assert is_plain(twice)
+    assert repr(twice) == repr(once)
+    assert is_accepted(twice)
 
 
 def test_the_population_covers_every_shape_the_serialiser_distinguishes() -> None:
@@ -229,6 +288,8 @@ def test_the_population_covers_every_shape_the_serialiser_distinguishes() -> Non
     """
     kinds = {type(value) for value in CANDIDATES}
     assert set(PLAIN_SEQUENCE_TYPES) <= kinds, kinds
+    assert dict in kinds, "no mapping in the candidate set"
+    assert any(type(v) in REFUSED_SEQUENCE_TYPES for v in CANDIDATES)
     assert np.ndarray in kinds
     assert {type(None), bool, int, float, str} <= kinds
     assert any(isinstance(value, pathlib.PurePath) for value in CANDIDATES)
@@ -266,15 +327,45 @@ def test_a_refusal_inside_the_candidate_set_is_forced_not_chosen(value: Any) -> 
     the bytes, and the normalised dict is what the rest of the library then
     computes on.
     """
-    unprintable = [
-        element
-        for element in _elements_of(value)
-        if isinstance(element, np.generic) and not _has_plain_stand_in(element)
-    ]
-    assert unprintable, (
-        f"{_label(value)} is refused although every element has a plain "
-        "stand-in; the refusal is not forced by the serialiser"
+    assert _refusal_reason(value) is not None, (
+        f"{_label(value)} is refused for none of the declared reasons"
     )
+
+
+#: Why the module is allowed to be narrower than the serialiser. Two reasons,
+#: closed, and every refusal inside the candidate set must name one of them.
+REFUSAL_REASONS = (
+    "no plain value prints the same text",
+    "an unordered container in a positional parameter",
+    "a list nested deeper than the serialiser gives meaning to",
+)
+
+
+def _refusal_reason(value: Any) -> str | None:
+    """Which declared reason refuses this value, or ``None`` for none of them."""
+    # Only in **element** position. A bare numpy scalar goes through the
+    # serialiser scalar branch, where `.item()` preserves the bytes for every
+    # dtype -- `numpy.float16(1e3)` is accepted written alone and refused
+    # written inside a list, and that asymmetry is the two formatters rather
+    # than an inconsistency.
+    if isinstance(value, (list, tuple, set, frozenset, np.ndarray)) and any(
+        isinstance(element, np.generic) and not _has_plain_stand_in(element)
+        for element in _elements_of(value)
+    ):
+        return REFUSAL_REASONS[0]
+    if type(value) in REFUSED_SEQUENCE_TYPES:
+        return REFUSAL_REASONS[1]
+    if _list_depth(value) > 2:
+        return REFUSAL_REASONS[2]
+    return None
+
+
+def _list_depth(value: Any) -> int:
+    """How deeply lists are nested inside this value."""
+    if isinstance(value, (list, tuple, np.ndarray)):
+        members = list(value)
+        return 1 + max((_list_depth(member) for member in members), default=0)
+    return 0
 
 
 def _elements_of(value: Any) -> list[Any]:
@@ -306,25 +397,30 @@ def _parsed(text: str) -> list[Any]:
     return parsed
 
 
-def test_the_refused_subset_is_the_precision_boundary_and_nothing_else() -> None:
-    """The boundary is small, and it is where it was said to be.
+def test_the_refused_subset_is_exactly_the_declared_boundary() -> None:
+    """The measured boundary and the declared one are the same set.
 
-    Stated as a proportion of the candidate set, so that a change widening the
-    refusal -- a behavioural narrowing, shipped in silence -- fails here rather
-    than in a user's config.
+    Not a proportion: the candidate set deliberately contains refused shapes,
+    so a proportion would only say how many of those were generated. This says
+    the stronger thing -- every value the module refuses is one the declared
+    reasons predict, and every value they predict is refused. A change that
+    widened the refusal without a reason, or that quietly started accepting a
+    shape a reason names, fails here rather than in a user config.
     """
     assert REFUSED_POPULATION, "nothing is refused; the candidate set stopped probing"
-    assert len(REFUSED_POPULATION) < len(CANDIDATES) * 0.05, (
-        f"{len(REFUSED_POPULATION)}/{len(CANDIDATES)} of the candidate set is "
-        "refused, which is no longer a precision boundary"
-    )
-    kinds = {
-        type(element)
-        for value in REFUSED_POPULATION
-        for element in _elements_of(value)
-        if isinstance(element, np.generic) and not _has_plain_stand_in(element)
+    predicted = {
+        id(value) for value in CANDIDATES if _refusal_reason(value) is not None
     }
-    assert kinds <= {np.float16, np.float32}, kinds
+    measured = {id(value) for value in REFUSED_POPULATION}
+    assert measured == predicted, (
+        f"refused but not predicted: {len(measured - predicted)}; "
+        f"predicted but accepted: {len(predicted - measured)}"
+    )
+    reasons = {_refusal_reason(value) for value in REFUSED_POPULATION}
+    assert None not in reasons, "a refusal with no declared reason"
+    assert reasons == set(REFUSAL_REASONS), (
+        f"a declared reason nothing reaches: {set(REFUSAL_REASONS) - reasons}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -351,7 +447,12 @@ def test_the_scalar_types_are_the_ones_the_serialiser_names() -> None:
 
 
 def test_the_sequence_types_are_the_ones_the_serialiser_joins() -> None:
-    """The comma-joining branch, read out of the serialiser's own source."""
+    """The comma-joining branch, read out of the serialiser's own source.
+
+    Both directions: nothing is treated as a sequence that the serialiser does
+    not join, and the one type it joins that this refuses is refused **on the
+    record** rather than by omission.
+    """
     import inspect
 
     from lightgbm.basic import _param_dict_to_str
@@ -364,6 +465,46 @@ def test_the_sequence_types_are_the_ones_the_serialiser_joins() -> None:
             "does not join it"
         )
     assert "_is_numpy_1d_array" in joining
+    assert "set" in joining, "the serialiser no longer joins a set"
+    assert set in REFUSED_SEQUENCE_TYPES
+
+
+def test_a_set_is_refused_rather_than_ordered_by_hash() -> None:
+    """The one type the serialiser joins and this refuses, with its reason.
+
+    ``list({1.0, 2.0})`` writes the bytes the serialiser would have written, so
+    normalising a set would preserve the wire. What it would **not** preserve
+    is the reason the old comparison refused a set: every sequence parameter
+    here is positional, so admitting ``{1.0, 2.0}`` beside a literal
+    ``[1.0, 2.0]`` makes them one value by hash-order coincidence rather than
+    by anything the caller wrote. Refusing is the narrowing half of that trade.
+    """
+    with pytest.raises(LizyMLError) as exc:
+        normalise_params({"feature_contri": {1.0, 2.0}}, surface="probe")
+    assert exc.value.code is ErrorCode.CONFIG_INVALID
+    assert "feature_contri" in exc.value.user_message
+
+    # The coincidence itself, so the reason is evidence rather than assertion.
+    assert list({1.0, 2.0}) == [1.0, 2.0]
+    assert list({3.0, 1.0, 2.0}) != [3.0, 1.0, 2.0]
+
+
+def test_a_list_nested_deeper_than_the_serialiser_reads_is_refused() -> None:
+    """Depth 2 is where ``_to_string`` stops, and the boundary is where it stops.
+
+    At depth 3 the members are written by Python's own list repr, and a
+    normalised member prints differently from the value the caller wrote --
+    executed here rather than argued, because the argument is what a reviewer
+    cannot check.
+    """
+    deep = [[[np.float32(0.1)]]]
+    assert _wire(deep) == "[[np.float32(0.1)]]"
+    assert _wire([[[0.1]]]) == "[[0.1]]"
+
+    with pytest.raises(LizyMLError):
+        normalise_params({"interaction_constraints": deep}, surface="probe")
+    with pytest.raises(LizyMLError):
+        normalise_params({"interaction_constraints": [[[1, 2]]]}, surface="probe")
 
 
 # ---------------------------------------------------------------------------
@@ -580,12 +721,26 @@ def test_a_message_is_built_without_asking_the_value_to_print_itself() -> None:
 
 
 def test_the_exit_assertion_passes_everything_the_normaliser_produces() -> None:
-    """The two ends agree, over the whole population rather than an example."""
-    params = {
-        f"p{index}": normalise_value(value)
-        for index, value in enumerate(ACCEPTED_POPULATION)
+    """The two ends agree, over the whole population rather than an example.
+
+    Everything except the mapping-bearing values, which the trainer is entitled
+    to refuse and which the adapter is supposed to have consumed. That
+    exclusion is not a hole: the test below asserts each of them **is** refused,
+    so the two together partition the accepted set.
+    """
+    normalised = [normalise_value(value) for value in ACCEPTED_POPULATION]
+    serialisable = {
+        f"p{index}": value
+        for index, value in enumerate(normalised)
+        if not _holds_a_mapping(value)
     }
-    assert_plain_params(params, where="probe")
+    assert_plain_params(serialisable, where="probe")
+
+    mappings = [value for value in normalised if _holds_a_mapping(value)]
+    assert mappings, "no mapping in the population; the partition is one-sided"
+    for index, value in enumerate(mappings):
+        with pytest.raises(LizyMLError):
+            assert_plain_params({f"m{index}": value}, where="probe")
 
 
 def test_the_exit_assertion_refuses_a_value_that_skipped_the_surfaces() -> None:
@@ -622,8 +777,13 @@ def test_the_exit_assertion_is_called_at_every_place_that_trains() -> None:
             continue
         text = path.read_text(encoding="utf-8")
         for match in re.finditer(r"^\s*(?:self\._model = )?lgbm?\.train\(", text, re.M):
-            before = text[: match.start()]
-            training_sites.append((path, "assert_plain_params(" in before))
+            # The enclosing function, not the whole file above the call: an
+            # assertion in some earlier function would satisfy the looser
+            # question while leaving this call unguarded.
+            starts = [m.start() for m in re.finditer(r"^\s*def ", text, re.M)]
+            enclosing = max((s for s in starts if s < match.start()), default=0)
+            body = text[enclosing : match.start()]
+            training_sites.append((path, "assert_plain_params(" in body))
     assert training_sites, "no training site found; the scan stopped working"
     missing = [str(path) for path, guarded in training_sites if not guarded]
     assert not missing, f"training without the ingress assertion: {missing}"

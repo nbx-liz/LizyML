@@ -72,13 +72,29 @@ PLAIN_SCALAR_TYPES: tuple[type, ...] = (
     pathlib.WindowsPath,
 )
 
-#: Sequence types the serialiser joins with commas, alongside a 1-D ndarray.
-PLAIN_SEQUENCE_TYPES: tuple[type, ...] = (list, tuple, set)
+#: Sequence types accepted here, alongside a 1-D ndarray.
+#:
+#: The serialiser also joins a ``set``, and this deliberately does not accept
+#: one. Every sequence parameter LightGBM takes is **positional** --
+#: ``feature_contri`` reads element *i* as feature *i* -- and a set has no
+#: order, so the parameter it becomes is decided by hash order. Normalising it
+#: to ``list(value)`` would write the same bytes the serialiser would have
+#: written, but it would also make ``{1.0, 2.0}`` and a literal ``[1.0, 2.0]``
+#: one value **by hash-order coincidence**, which is the answer the old
+#: comparison refused to give for the same reason. Refusing is the narrowing
+#: half, and it is measured: 0 of 1518 parameter values this repository
+#: constructs is a set.
+PLAIN_SEQUENCE_TYPES: tuple[type, ...] = (list, tuple)
+
+#: Joined by the serialiser and refused here, with the reason above.
+REFUSED_SEQUENCE_TYPES: tuple[type, ...] = (set, frozenset)
 
 #: What a caller is told they may write.
 ACCEPTED_DESCRIPTION = (
-    "None, bool, int, float, str, pathlib.Path, a numpy scalar, a list, tuple, "
-    "set or 1-D numpy array of those, or a dict with str keys holding those"
+    "None, bool, int, float, str, pathlib.Path, a numpy scalar, a list, tuple "
+    "or 1-D numpy array of those, or a dict with str keys holding those "
+    "(a set is refused: a sequence parameter is positional and a set has no "
+    "order)"
 )
 
 
@@ -163,7 +179,14 @@ def _plain_member(member: Any) -> Any:
     list would change the bytes. Both are refused rather than guessed at.
     """
     if type(member) is list:
-        return [_plain_member(inner) for inner in member]
+        # One level, not recursion. `_to_string` writes a nested `list` with
+        # its own bracketed form and writes **that** list's members with
+        # `str`, so depth 2 is where the serialiser stops giving meaning. A
+        # third level is written by Python's list repr, where a normalised
+        # member prints differently from the value the caller wrote -- measured:
+        # `[[[numpy.float32(0.1)]]]` writes `[[np.float32(0.1)]]` and its
+        # normalised form writes `[[0.1]]`.
+        return [_plain_element(inner) for inner in member]
     if type(member) is dict:
         return _plain_mapping(member)
     return _plain_element(member)
@@ -240,6 +263,34 @@ def is_plain(value: Any) -> bool:
     )
 
 
+def is_accepted(value: Any) -> bool:
+    """Whether ``value`` is already inside the **surface** set, unchanged.
+
+    Wider than :func:`is_plain`, by exactly the mapping: a metric entry is a
+    LizyML value the adapter consumes, so it passes here and is refused at the
+    trainer. Keeping the two predicates apart is what lets each say something
+    true; one predicate covering both ends would have to be the looser of them,
+    and the looser one is not the bound the trainer needs.
+    """
+    if type(value) in PLAIN_SCALAR_TYPES:
+        return True
+    if type(value) is dict:
+        return all(
+            type(key) is str and is_accepted(member) for key, member in value.items()
+        )
+    if type(value) is not list:
+        return False
+    return all(
+        type(member) in PLAIN_SCALAR_TYPES
+        or (type(member) is dict and is_accepted(member))
+        or (
+            type(member) is list
+            and all(type(inner) in PLAIN_SCALAR_TYPES for inner in member)
+        )
+        for member in value
+    )
+
+
 def normalise_params(params: dict[str, Any], *, surface: str) -> dict[str, Any]:
     """Return ``params`` with every value replaced by its plain stand-in.
 
@@ -288,9 +339,13 @@ def assert_plain_params(params: dict[str, Any], *, where: str) -> None:
     Normalising at the four surfaces is a claim about wiring, and a claim about
     wiring is exactly what fails silently when a fifth route is added later
     (DC4). This turns it into a property: the two places that call
-    ``lgb.train`` check it, so a value that reached training without being
-    normalised stops the run and names itself instead of training on bytes
-    nobody chose.
+    ``lgb.train`` check it, so such a value stops the run and names itself
+    instead of training on bytes nobody chose.
+
+    Its set is **narrower** than what :func:`normalise_params` accepts, so a
+    value here can be one that did pass a surface -- a mapping, which the
+    adapter is supposed to have consumed. The message says what is true of
+    every case: this value cannot be given to the estimator.
 
     Raises:
         LizyMLError: with ``CONFIG_INVALID``, naming every offending parameter.
@@ -306,8 +361,8 @@ def assert_plain_params(params: dict[str, Any], *, where: str) -> None:
     raise LizyMLError(
         code=ErrorCode.CONFIG_INVALID,
         user_message=(
-            f"Parameter value(s) reached {where} without being normalised at a "
-            "surface:\n" + "\n".join(lines) + f"\nAccepted: {ACCEPTED_DESCRIPTION}."
+            f"Parameter value(s) the estimator cannot be given reached {where}:"
+            "\n" + "\n".join(lines) + f"\nAccepted: {ACCEPTED_DESCRIPTION}."
         ),
         context={
             "where": where,
