@@ -8170,3 +8170,86 @@ round 15 のプロンプトは、前ラウンドで出荷した 2 つの実行�
 レビュアー自身が述べた限界: ディスク I/O をメモリ実装で置換したのでファイルシステムの
 挙動は未検証、フルスイート・lint・mypy は再実行していない。こちらで実行 —
 **2533 passed**、`ruff` / `ruff format --check` / `mypy` クリーン。
+
+### 決定 12: 「唯一の定義」は 4 人の読み手を持っていた（rounds 14-15 monitor）
+
+rounds 14-15 monitor は `CONVERGING` / `redirect` を返し、2 つの有限な列挙を名指しした。
+**両方ともこちらで実行してから対応した。1 つは欠陥、1 つは clean。**
+
+monitor は verdict では言えないことを 1 文で言った。記録として採用する:
+
+> CONVERGING / DRIFTING の二分法が捉え損ねていて、15 ラウンド `APPROVE` が出ない実際の
+> 理由はこれである — **maker が毎ラウンド、集合の上で実行していない普遍的な宣言を
+> 出荷し、次のラウンドがそれを反証する。** 4 回連続である。
+
+これはコードについてではなく**こちらの流儀について**の指摘であり、正しい。
+
+#### 1 つ目の列挙 — 欠陥だった
+
+決定 11 は `effective_early_stopping_rounds` を「**唯一の定義**」と宣言し、docstring は
+trainer と検査が「食い違えない」と書いた。monitor はその問いの読み手を列挙した —
+**4 人いて、宣言は 2 人の上でしか実行されていなかった。**
+
+| 読み手 | 修正前 |
+|---|---|
+| `_model_factories.py` — 拒否 | 統一済み |
+| `model.py` — trainer | 統一済み |
+| `_model_persistence.py:239` — `export_code` へ | **config のみ** |
+| `_model_tables.py:290` — `params_table` へ | **config のみ** |
+
+実測（config patience 7、tuning patience 2）:
+
+```
+tuned patience  : 2
+params_table    : 7
+export_code     : 7
+実際に使われた値: 2
+```
+
+**報告の問題より重い。** `export_code` は学習を再現するプロジェクトを生成するものであり、
+**別のモデルを学習するプロジェクトを生成していた**。両方を共有定義に繋ぎ、4 人全員が
+一致することを確認した。
+
+monitor は帰結も明示した: この宣言はコミット `b737062`（round 15 の修正）にあるので、
+**round 16 でここに指摘が出れば D7 の authorship 条件が round 15 に対して発火する**。
+ラウンド前に処理することがそれを防ぐ、というのが rounds 10-11 / 11-12 で機能した先例
+である。
+
+#### 2 つ目の列挙 — 名指しされた死角のクラス、実行して clean
+
+> **正しい名前で `lgb.train` に届いたパラメーターが、params dict ではない経路に
+> 上書きされる。** この PR の計測器はすべて dict を読む。`adapter.py` は
+> `num_boost_round=` を keyword で、早期停止を callback で、
+> `categorical_feature=` / `weight=` を Dataset 構築時に渡す。
+> `TRAINING_MANAGED_PARAMS` は 2 件しかないので、`num_iterations` と
+> `categorical_feature` は**拒否も格子の列も持たない経路**である。
+
+monitor は探し方も指定した: それらの経路をエイリアス表と掛け合わせ、
+**booster が何をしたか**で判定せよ（`booster.params` ではなく — dict こそが見せない
+ものだから）。その通りに実行し、**clean**:
+
+```
+num_boost_round 全 7 綴り     -> booster は 17 本（要求 17、config 6）、dict は空
+categorical_feature 添字形式  -> booster に [categorical_feature: 0]
+categorical_feature "name:"   -> LightGBMError が列名を挙げて明示的に失敗
+```
+
+`num_boost_round` は rounds 1-2 の修正が全綴りで効き続けている結果であり、`name:` の
+失敗は**明示的**である（狩っているクラスは黙って負けることなので、明示的な失敗は
+許容される側）。両方をテストで固定した — **clean の結果を durable にする半分がこれ**
+である。
+
+monitor は 3 つ目の候補（`lgb.Dataset` が `params=` 無しで構築される件）については
+「`lgb.train` が未構築 Dataset に params を押し込む可能性があり、そうなら dead」として
+**主張を控えた**。この自制があるからこそ、実際にした 2 つの主張は実行する価値があった。
+
+#### 推奨は全面的に採用した
+
+> `redirect` — 2 つの有限な列挙をラウンド前に実行し、**round 16 は範囲を絞らないこと**。
+> probe-before-round は monitor が名指しした面を 2 度「指摘」ではなく「修正」に変えたが、
+> ラウンドを絞ることは 4 度とも何も生まなかった。
+
+**monitor の redirect が「絞るな」と推奨したのはこれが初めて**であり、しかもそれを
+この run 自身の記録から導いている。
+
+全スイート **2535 passed**。

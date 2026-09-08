@@ -922,3 +922,49 @@ checker rather than failing for another reason, and it executed a real
 `export()` / `load()` round trip — a path no reviewer had executed since round 7.
 
 **Round 16 stays unscoped.**
+
+#### The rounds 14-15 monitor — the diagnosis the verdict could not carry
+
+`CONVERGING` / `redirect`, the third consecutive redirect, and the most
+substantive monitor of the run. Both of its enumerations were executed here
+before anything was acted on: one was a defect, one was clean.
+
+**Its diagnosis, adopted as the finding of record.** It said the binary verdict
+misses the actual reason fifteen rounds have produced no `APPROVE`: *the maker
+ships a universal declaration each round without executing it over its set, and
+the next round falsifies it* — four consecutive now (the seam scan, the
+value-equality class, the grid cell, and the one it held). That is a statement
+about this context's practice rather than about the code, and it is correct.
+
+**Enumeration 1, a defect.** Decision 11 called
+`effective_early_stopping_rounds` "the single definition" and said the trainer
+and the gate "cannot disagree". The question has **four** readers and the claim
+had been executed over two: `export_code` and `params_table` both read the
+config alone. Executed — config patience 7, tuned 2, the run trained at 2, and
+both reported 7. `export_code` generates a project meant to reproduce the
+training, so it was generating one that trains a **different model**. All four
+now share the definition.
+
+The monitor also stated the consequence: that claim is in round 15's own fix
+commit, so a round-16 finding there would fire D7 on round 15. Probing before
+the round is what prevents that.
+
+**Enumeration 2, clean.** It named this PR's blind-spot class — *a parameter
+that reaches `lgb.train` correctly and is then outranked by a channel that is
+not the params dict* — and said how to look: assert on what the booster did, not
+on `booster.params`. Executed: `num_boost_round` is honoured under all seven
+spellings with an empty dict, `categorical_feature` is honoured in index form
+and fails **loudly** in `name:` form. Both are now pinned by tests, which is the
+durable half of a clean result.
+
+It declined to claim a third candidate because it could not rule out that the
+mechanism was dead — restraint that is why its two actual claims were worth
+executing.
+
+**Its recommendation was adopted in full, including the scoping.** For the first
+time a monitor's redirect recommended leaving the next round **unscoped** rather
+than narrowing it, reaching that from the run's own record: probe-before-round
+has twice turned a named surface into a fix instead of a finding, while scoping
+a round has four times produced nothing.
+
+Full suite **2535 passed**. **Round 16 stays unscoped.**

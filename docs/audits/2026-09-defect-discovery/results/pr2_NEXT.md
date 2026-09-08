@@ -77,12 +77,12 @@ whatever the previous round returned.
 
 ## State at the time of writing
 
-- Head: the round-15 fixes, on `fix/phase3-pr2-fit-params-forwarding`.
-- Full suite **2533 passed**; `ruff check .`, `ruff format --check .`,
+- Head: the round-15 fixes plus the rounds 14-15 monitor redirect, on `fix/phase3-pr2-fit-params-forwarding`.
+- Full suite **2535 passed**; `ruff check .`, `ruff format --check .`,
   `mypy lizyml/` clean.
 - Round 15's record: `results/pr2_codex_round15.md`. Decisions:
-  `HISTORY.md` H-0094, decisions 1-11. Monitor:
-  `results/pr2_monitor_round1314.md`. Open question log:
+  `HISTORY.md` H-0094, decisions 1-12. Monitor:
+  `results/pr2_monitor_round1415.md`. Open question log:
   `DECISIONS-PENDING.md` D7.
 
 ## What is deliberately not in this PR
