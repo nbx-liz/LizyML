@@ -74,31 +74,46 @@ PLAIN_SCALAR_TYPES: tuple[type, ...] = (
 
 
 def _derived_numpy_scalar_types() -> frozenset[type]:
-    """Concrete numpy scalar types, read out of numpy own namespace.
+    """The numpy scalar types a parameter value may be, derived from numpy.
 
-    Derived rather than listed, for the same reason the rest of the accepted
-    set is: a numpy upgrade that adds a scalar type should be visible here
-    instead of falling through a test nobody revisited. Only the bases whose
-    members are *values a parameter can hold* -- a number, a truth, a name --
-    are admitted, so ``datetime64``, ``complex128``, ``void`` and ``bytes_``
-    are outside by construction.
+    Derived rather than listed, so a numpy upgrade that adds a scalar type is
+    visible here instead of falling through a test nobody revisited. Only the
+    bases whose members are *values a parameter can hold* -- a number, a truth,
+    a name -- are admitted, so ``datetime64``, ``complex128``, ``void`` and
+    ``bytes_`` are outside by construction.
 
-    **Read from ``vars(numpy)``, not from a walk over ``__subclasses__()``.**
-    The walk was the first attempt and review round 22 defeated it twice over.
-    It filtered by ``__module__``, which is an ordinary class attribute a
-    caller writes -- ``__module__ = "numpy"`` in a class body is enough -- and
-    it ran at import time, so whether a caller class was inside the set
-    depended on whether it had been defined before this module was first
-    imported. Both are gone here: a type is accepted because numpy itself
-    exports it under that name, which a caller cannot claim by assertion, and
-    nothing about the order the caller imports in changes the answer.
+    **The deciding step is the dtype round trip, not the enumeration.** Reading
+    a namespace is not enough on its own: ``vars(numpy)`` is an ordinary module
+    dict, and a caller who assigns into it before this module is first imported
+    puts their own class in the set -- measured. So a candidate is kept only
+    when numpy own dtype machinery resolves it **back to itself**, which a
+    subclass does not: ``numpy.dtype(a float64 subclass).type`` is
+    ``numpy.float64``. Enumeration only has to produce a superset; the round
+    trip is what closes it.
+
+    **The bound, stated rather than implied.** This closes the domain against
+    parameter *values*. It is not a sandbox against a caller who has already
+    replaced part of numpy in the running process -- one who can rebind
+    ``numpy.dtype`` can also rebind ``numpy.float64``, or this module. Naming
+    that limit is the point: an earlier form of this docstring claimed the
+    stronger thing, and the stronger thing is not attainable in Python.
     """
+    candidates: set[type] = set()
+    for namespace in (vars(np), getattr(np, "sctypeDict", {})):
+        for exported in namespace.values():
+            if isinstance(exported, type):
+                candidates.add(exported)
+
     accepted: set[type] = set()
-    for exported in vars(np).values():
-        if not isinstance(exported, type):
+    for kind in candidates:
+        if not issubclass(kind, (np.integer, np.floating, np.bool_, np.str_)):
             continue
-        if issubclass(exported, (np.integer, np.floating, np.bool_, np.str_)):
-            accepted.add(exported)
+        try:
+            resolved = np.dtype(kind).type
+        except Exception:  # noqa: BLE001 - a candidate numpy cannot resolve
+            continue
+        if resolved is kind:
+            accepted.add(kind)
     return frozenset(accepted)
 
 
@@ -139,6 +154,23 @@ ACCEPTED_DESCRIPTION = (
 )
 
 
+def _is_one_of(value: Any, kinds: Any) -> bool:
+    """Is ``type(value)`` **identically** one of ``kinds``?
+
+    Not ``type(value) in kinds``. Membership in a ``set`` or a ``tuple`` is
+    decided by ``__hash__`` and ``__eq__``, and for a *class* those come from
+    its metaclass -- which a caller writes. A metaclass answering
+    ``hash(numpy.float64)`` and ``__eq__`` true passed the check with no numpy
+    base, no claimed ``__module__``, and no dependence on import order, and its
+    own ``__format__`` and ``item()`` then ran inside normalisation (found by a
+    read-only checker after review round 22).
+
+    ``is`` is the only comparison in Python a caller cannot participate in, so
+    it is the only one this gate can be built from.
+    """
+    return any(type(value) is kind for kind in kinds)
+
+
 class _Unaccepted(Exception):
     """A value outside the accepted set, carried back to the surface."""
 
@@ -163,9 +195,9 @@ def _plain_scalar(value: Any) -> Any:
     The scalar formatter is ``__format__``, and ``.item()`` on a numpy scalar
     preserves it for every dtype measured (see the wire-preservation test).
     """
-    if type(value) in PLAIN_SCALAR_TYPES:
+    if _is_one_of(value, PLAIN_SCALAR_TYPES):
         return value
-    if type(value) in NUMPY_SCALAR_TYPES:
+    if _is_one_of(value, NUMPY_SCALAR_TYPES):
         # Read **before** the conversion. A value asked the same question twice
         # need not answer the same way, and review round 22 built one that did
         # not: its `__format__` returned `0.9` until `item()` set a flag and
@@ -176,7 +208,7 @@ def _plain_scalar(value: Any) -> Any:
         # other check having worked is not a second defence.
         written = format(value, "")
         plain = value.item()
-        if type(plain) not in PLAIN_SCALAR_TYPES:
+        if not _is_one_of(plain, PLAIN_SCALAR_TYPES):
             raise _Unaccepted(
                 value, f"numpy scalar of dtype {value.dtype} is not plain"
             )
@@ -205,12 +237,12 @@ def _plain_element(value: Any) -> Any:
     and ``str(1e8)`` is ``100000000.0`` -- and there the text itself is parsed
     back. Where no plain value prints that text, this refuses.
     """
-    if type(value) in PLAIN_SCALAR_TYPES:
+    if _is_one_of(value, PLAIN_SCALAR_TYPES):
         return value
-    if type(value) in NUMPY_SCALAR_TYPES:
+    if _is_one_of(value, NUMPY_SCALAR_TYPES):
         text = str(value)
         for candidate in _element_candidates(value, text):
-            if type(candidate) in PLAIN_SCALAR_TYPES and str(candidate) == text:
+            if _is_one_of(candidate, PLAIN_SCALAR_TYPES) and str(candidate) == text:
                 return candidate
         raise _Unaccepted(
             value,
@@ -301,7 +333,7 @@ def normalise_value(value: Any) -> Any:
     Raises:
         _Unaccepted: when the value is outside the accepted set.
     """
-    if type(value) is np.ndarray or type(value) in PLAIN_SEQUENCE_TYPES:
+    if type(value) is np.ndarray or _is_one_of(value, PLAIN_SEQUENCE_TYPES):
         return _plain_sequence(value)
     if type(value) is dict:
         return _plain_mapping(value)
@@ -315,15 +347,15 @@ def is_plain(value: Any) -> bool:
     mapping is a LizyML-level value the adapter consumes (a metric entry), and
     one that survives to the trainer is a defect, not a parameter.
     """
-    if type(value) in PLAIN_SCALAR_TYPES:
+    if _is_one_of(value, PLAIN_SCALAR_TYPES):
         return True
     if type(value) is not list:
         return False
     return all(
-        type(member) in PLAIN_SCALAR_TYPES
+        _is_one_of(member, PLAIN_SCALAR_TYPES)
         or (
             type(member) is list
-            and all(type(inner) in PLAIN_SCALAR_TYPES for inner in member)
+            and all(_is_one_of(inner, PLAIN_SCALAR_TYPES) for inner in member)
         )
         for member in value
     )
@@ -338,7 +370,7 @@ def is_accepted(value: Any) -> bool:
     true; one predicate covering both ends would have to be the looser of them,
     and the looser one is not the bound the trainer needs.
     """
-    if type(value) in PLAIN_SCALAR_TYPES:
+    if _is_one_of(value, PLAIN_SCALAR_TYPES):
         return True
     if type(value) is dict:
         return all(
@@ -347,11 +379,11 @@ def is_accepted(value: Any) -> bool:
     if type(value) is not list:
         return False
     return all(
-        type(member) in PLAIN_SCALAR_TYPES
+        _is_one_of(member, PLAIN_SCALAR_TYPES)
         or (type(member) is dict and is_accepted(member))
         or (
             type(member) is list
-            and all(type(inner) in PLAIN_SCALAR_TYPES for inner in member)
+            and all(_is_one_of(inner, PLAIN_SCALAR_TYPES) for inner in member)
         )
         for member in value
     )

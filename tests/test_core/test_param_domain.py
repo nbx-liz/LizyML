@@ -623,15 +623,50 @@ def test_a_caller_class_cannot_claim_to_be_a_numpy_type() -> None:
     assert exc.value.code is ErrorCode.CONFIG_INVALID
 
 
-def test_the_numpy_type_set_is_what_numpy_exports() -> None:
-    """Stated as a property, so it holds whenever a caller class was defined."""
+def test_the_numpy_type_set_is_what_numpy_resolves_to_itself() -> None:
+    """Membership is a dtype round trip, not a namespace read.
+
+    ``vars(numpy)`` is an ordinary module dict, so a caller who assigns into it
+    before this module is first imported puts their own class in the set --
+    measured by a read-only checker after round 22, with the caller ``item()``
+    running inside normalisation and the serialised value changing from ``0.1``
+    to ``0.9``.
+
+    Enumeration only has to produce a superset. What decides membership is that
+    numpy resolves the type back to itself, which a subclass does not.
+    """
     for kind in NUMPY_SCALAR_TYPES:
-        assert getattr(np, kind.__name__, None) is kind, (
-            f"{kind.__name__} is in the set but is not what numpy exports "
-            "under that name"
+        assert np.dtype(kind).type is kind, (
+            f"{kind.__name__} is in the set but numpy resolves it to "
+            f"{np.dtype(kind).type.__name__}"
         )
     assert np.float64 in NUMPY_SCALAR_TYPES
     assert np.str_ in NUMPY_SCALAR_TYPES
+
+
+def test_a_class_put_into_the_numpy_namespace_is_still_refused() -> None:
+    """The injection the namespace read admitted, closed by the round trip.
+
+    The derivation is re-run with the class already in ``vars(numpy)``, because
+    the module-level constant was computed before this test existed and would
+    answer for the wrong moment.
+    """
+    from lizyml.core.param_domain import _derived_numpy_scalar_types
+
+    class _Injected(np.float64):
+        pass
+
+    try:
+        np.Injected = _Injected  # type: ignore[attr-defined]
+        assert vars(np)["Injected"] is _Injected
+        assert _Injected not in _derived_numpy_scalar_types()
+        assert np.dtype(_Injected).type is np.float64
+    finally:
+        del np.Injected  # type: ignore[attr-defined]
+
+    with pytest.raises(LizyMLError) as exc:
+        normalise_params({"learning_rate": _Injected(0.1)}, surface="probe")
+    assert exc.value.code is ErrorCode.CONFIG_INVALID
 
 
 def test_the_written_form_is_read_before_the_conversion(
@@ -664,6 +699,79 @@ def test_the_written_form_is_read_before_the_conversion(
         domain.normalise_params({"learning_rate": _Stateful(0.1)}, surface="probe")
     assert exc.value.code is ErrorCode.CONFIG_INVALID
     assert "0.9" in exc.value.user_message
+
+
+def test_membership_is_identity_and_not_the_callers_own_equality() -> None:
+    """``type(x) in <set>`` was never identity, and a metaclass proved it.
+
+    Membership in a ``set`` or a ``tuple`` is decided by ``__hash__`` and
+    ``__eq__``, and for a class those come from its metaclass, which a caller
+    writes. A metaclass answering ``hash(numpy.float64)`` and comparing equal
+    to it passed the gate with **no numpy base, no claimed module, and no
+    dependence on import order**, and its own ``__format__`` and ``item()``
+    then ran inside normalisation -- found by a read-only checker after round
+    22, and the reason every gate here compares with ``is``.
+    """
+
+    class _Claiming(type):
+        def __eq__(cls, other: object) -> bool:
+            return other is np.float64 or cls is other
+
+        def __hash__(cls) -> int:
+            return hash(np.float64)
+
+    class _Sneaky(metaclass=_Claiming):
+        reads = 0
+
+        def __float__(self) -> float:
+            return 0.1
+
+        def __format__(self, spec: str) -> str:
+            type(self).reads += 1
+            return "0.9" if type(self).reads == 1 else "0.1"
+
+        def item(self, *args: Any) -> float:
+            return 0.9
+
+    # The claim the object makes, so the test fails loudly if a numpy or Python
+    # change stops it from being able to make it.
+    assert type(_Sneaky) is _Claiming
+    assert type(_Sneaky()) in NUMPY_SCALAR_TYPES, (
+        "the witness can no longer spoof set membership; rewrite it rather "
+        "than delete it"
+    )
+
+    with pytest.raises(LizyMLError) as exc:
+        normalise_params({"learning_rate": _Sneaky()}, surface="probe")
+    assert exc.value.code is ErrorCode.CONFIG_INVALID
+    assert not is_plain(_Sneaky())
+    assert not is_accepted(_Sneaky())
+
+
+def test_the_element_position_admits_by_identity_too() -> None:
+    """The same gate, in the position the scalar tests do not reach.
+
+    A checker found this one untested: the element branch could be widened to
+    ``isinstance`` and the whole file stayed green, while the behaviour it
+    guards is real -- a subclass overriding ``__str__`` and ``item()`` inside a
+    list ran its own code and changed the value.
+    """
+
+    class _Lying(np.float64):
+        def __str__(self) -> str:
+            return "1.0"
+
+        def item(self, *args: Any) -> float:
+            return 1.0
+
+    written = [_Lying(2.0), 3.0]
+    assert isinstance(written[0], np.floating)
+    assert type(written[0]) not in NUMPY_SCALAR_TYPES
+
+    with pytest.raises(LizyMLError) as exc:
+        normalise_params({"feature_contri": written}, surface="probe")
+    assert exc.value.code is ErrorCode.CONFIG_INVALID
+    assert "feature_contri" in exc.value.user_message
 
 
 def test_a_numpy_array_subclass_is_refused_for_the_same_reason_a_scalar_is() -> None:
