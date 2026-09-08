@@ -8953,7 +8953,7 @@ Firing rate: 14/1518 of every parameter value the suite constructs
 実運用の config 由来の値は 1 件も拒否されていない。計測器
 `instruments/parameter_value_type_census.py` は `normalise_params` を包むように更新済み。
 
-**スイート**: 7441 passed / 256 skipped、`ruff` / `mypy` clean。
+**スイート**: 7443 passed / 256 skipped、`ruff` / `mypy` clean。
 
 #### review round 21 が見つけた 3 件（2026-09-08、unscoped）
 
@@ -9110,6 +9110,29 @@ Firing rate: 14/1518 of every parameter value the suite constructs
     走る経路」という問い・煽りを外し、**契約の検証**として書き直したところ通った。
     受け入れ基準 2/3/4/5/7/8/9 は合格しており、特に 8 は**レビュアーが AST で学習
     サイトを列挙**して確認している。記録は `results/pr2_codex_round24.md`。
+
+19. **`export_code` は受理集合の 3 番目の消費者である（提案が名指していなかった）。**
+    実測: `fit(params={"forcedsplits_filename": Path("f.json")})` は**学習が通り**、
+    その後 `export_code` が `TypeError: Object of type PosixPath is not JSON
+    serializable` で落ちる。`json.dump` に path のエンコーダは無い。
+
+    **修正: path は入口でテキストにする。** シリアライザは path をスカラー
+    フォーマッタで書き、path のそれは自身のテキストなので **bytes は同じ**であり、
+    テキストは下流の全員が運べる唯一の形である。受理集合からは型が 1 つ減る。
+
+    **これは提案の補正であって、実装の詳細ではない。** H-0095 が宣言した消費者は
+    **4 surface と 2 つの `lgb.train` 表明サイト**だけで、`export_code` は
+    1 度も出てこない。rounds 23-25 の監視がこれを `DRIFTING` の根拠に挙げた ——
+    「受理集合の定義が、提案が名指していない第 3 の消費者によって決められている」。
+    **指摘は正しい。よってここに消費者として明記する**: 正規化後の値は
+    **`json.dump` できること**も要件である。
+
+    `_path_text` に置いた変換の検査は**到達不能だったので外した**（DC6）。
+    厳密型一致がサブクラスを弾くので、`__format__` を持つ path は入口に届かない。
+    `pathlib` は `__format__` を定義しないので、この 2 型については
+    `format(p, "") == str(p)` が構成上成り立つ —— **それをテストで固定した**。
+    最初に書いたテストは検査を外しても緑のままで、**この PR で「テストが別の理由で
+    緑」は 6 回目**である。
 
 #### 受け入れ基準 7 の決定: **#283 は H-0095 では解決しない**
 
