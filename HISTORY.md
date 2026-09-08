@@ -8901,18 +8901,54 @@ _param_dict_to_str:  スカラー位置  -> f"{key}={val}"  = __format__
    calibrator は他の 3 surface を通らずに `lgbm.train` へ到達するため。正規化は冪等で
    あることをテストで固定してある。
 
+7. **mapping を受理集合に加えた（実装中に発見）。** `metric` は
+   `{"precision_at_k": {"k": 15}}` および `["auc", {"precision_at_k": {"k": 20}}]`
+   という **LizyML の形**を持つ（H-0065）。提案の受理表にはこれが無く、そのままなら
+   **出荷済みの設定形式を入口で拒否していた**（DC7 を自分で作るところだった）。
+   `_build_params` がこれを feval に変換して除去するので、**入口と出口で受理集合が
+   異なる**のが正しい: 入口は mapping を受理し、`lgb.train` の表明は拒否する。
+   mapping のキーは厳密な `str`、値は再帰的に正規化する。
+
+8. **`set` の扱いが変わった（振る舞いの拡大 = `allow`）。** 旧 `values_differ` は
+   `{1.0, 2.0}` と `[1.0, 2.0]` を**別の値**として拒否していた。理由は「set に順序が
+   無く、ここの列パラメーターはすべて位置依存だから、認めると答えがハッシュ順に依存する」
+   というもので、その反対理由は正しかった。**入口正規化はその反対理由を消す**:
+   set は入口で 1 度だけ `list` になり、その順序は**シリアライザが join したはずの順序
+   そのもの**なので、比較の時点で決める順序はもう無い。両者は wire 上で同じ bytes で
+   あり、1 つの値である。
+
+   ```
+   Firing rate: 0/1518 of every parameter value the suite constructs
+                (no configuration in this repository writes a set as a
+                parameter value; measured with the shipped census instrument)
+   ```
+
+9. **`value_equality.py` を閉じた集合の上へ縮めた（受け入れ基準 6）。** 494 行 →
+   約 140 行。消えたのは敵対オブジェクト向けの防御だけである:
+   `_as_wire_text`（`__format__` / `__class__` プロキシ対策）、`_as_plain_python`
+   （`tolist` 探索）、`_as_plain_sequence`、`_length_or_none`、
+   `_printed_forms_differ`（`repr` の床）、および unbound な `str.split` /
+   `str.strip` / `str.__str__` 呼び出しと広い `except Exception`。**残したのは
+   round 12/13 が買った admission**（列とそのカンマ形は 1 つの値、比較は textual では
+   なく elementwise）である。宣言する bound は
+   **「`param_domain` が受理する値の上で全域であり、そのどれでも raise しない」**に
+   変わった。有限で列挙可能なので、**受理母集団を import して実行する**ことで確かめる
+   （散文で言い直さない ＝ DC3 回避）。
+
 #### 実装後の実測
 
 ```
-Firing rate: 14/1504 of every parameter value the suite constructs
+Firing rate: 14/1518 of every parameter value the suite constructs
              (measured by wrapping `normalise_params` over the full suite
-             after implementation; 5005 passed, 62 skipped)
+             after implementation)
 ```
 
 14 件の内訳は rounds 16-20 の敵対オブジェクト 10 件と、拒否経路を実行するために
 `test_refusal_matrix.py` が構築した 4 件で、**すべてこの PR 自身のテストが作ったもの**。
 実運用の config 由来の値は 1 件も拒否されていない。計測器
 `instruments/parameter_value_type_census.py` は `normalise_params` を包むように更新済み。
+
+**縮小後のスイート**: 6074 passed / 48 skipped、`ruff` / `mypy` clean。
 
 #### 受け入れ基準 7 の決定: **#283 は H-0095 では解決しない**
 

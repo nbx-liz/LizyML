@@ -45,6 +45,13 @@ produced a value outside the proposed accept-list.
     (measured by wrapping the shared identity check over the full suite);
     all 7 are adversarial objects built by review rounds 16-20.
 
+Measured **after** H-0095, by wrapping ``normalise_params``:
+
+    Firing rate: 14/1518 of every parameter value the suite constructs
+    (6074 passed, 48 skipped); all 14 are objects this PR builds to exercise
+    the refusal -- the rounds 16-20 adversarial values and the refusal-matrix
+    probe. No configuration in this repository is refused.
+
 **Bound.** This is the population *this repository* constructs. LightGBM is a
 library, so the production distribution is user code and cannot be observed from
 here. That bound is why H-0095's refusal is stated as loud-at-ingress rather
