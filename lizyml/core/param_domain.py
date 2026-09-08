@@ -77,9 +77,8 @@ PLAIN_SEQUENCE_TYPES: tuple[type, ...] = (list, tuple, set)
 
 #: What a caller is told they may write.
 ACCEPTED_DESCRIPTION = (
-    "None, bool, int, float, str, pathlib.Path, a numpy scalar, or a list, "
-    "tuple, set or 1-D numpy array of those (whose elements may themselves be "
-    "lists of those)"
+    "None, bool, int, float, str, pathlib.Path, a numpy scalar, a list, tuple, "
+    "set or 1-D numpy array of those, or a dict with str keys holding those"
 )
 
 
@@ -164,8 +163,34 @@ def _plain_member(member: Any) -> Any:
     list would change the bytes. Both are refused rather than guessed at.
     """
     if type(member) is list:
-        return [_plain_element(inner) for inner in member]
+        return [_plain_member(inner) for inner in member]
+    if type(member) is dict:
+        return _plain_mapping(member)
     return _plain_element(member)
+
+
+def _plain_mapping(value: dict[Any, Any]) -> dict[str, Any]:
+    """The plain stand-in for a LizyML-level mapping value.
+
+    LightGBM has no mapping form -- ``_param_dict_to_str`` raises on a ``dict``
+    in scalar position and writes Python repr for one inside a sequence -- so
+    nothing here is about the wire. This is about LizyML values that the adapter
+    **consumes** before serialising: a metric entry is written as
+    ``{"precision_at_k": {"k": 15}}`` or inside a list beside plain names
+    (H-0065), and ``_build_params`` turns those into evaluation functions and
+    removes them.
+
+    So a mapping is accepted at the surface and refused at ``lgb.train``: the
+    two ends have different accepted sets on purpose, and the assertion there is
+    what says a mapping never survived the adapter. Keys must be exact ``str``,
+    and values are normalised like any other, so the closure holds through them.
+    """
+    normalised: dict[str, Any] = {}
+    for key, member in value.items():
+        if type(key) is not str:
+            raise _Unaccepted(value, f"a mapping key is a {_describe(key)}")
+        normalised[key] = normalise_value(member)
+    return normalised
 
 
 def _plain_sequence(value: Any) -> list[Any]:
@@ -189,11 +214,18 @@ def normalise_value(value: Any) -> Any:
     """
     if isinstance(value, np.ndarray) or type(value) in PLAIN_SEQUENCE_TYPES:
         return _plain_sequence(value)
+    if type(value) is dict:
+        return _plain_mapping(value)
     return _plain_scalar(value)
 
 
 def is_plain(value: Any) -> bool:
-    """Whether ``value`` is already inside the accepted set, unchanged."""
+    """Whether ``value`` is one the **serialiser** can be handed as it is.
+
+    Narrower than what :func:`normalise_params` accepts, and deliberately: a
+    mapping is a LizyML-level value the adapter consumes (a metric entry), and
+    one that survives to the trainer is a defect, not a parameter.
+    """
     if type(value) in PLAIN_SCALAR_TYPES:
         return True
     if type(value) is not list:
