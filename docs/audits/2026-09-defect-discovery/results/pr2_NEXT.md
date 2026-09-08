@@ -1,106 +1,101 @@
-# PR 2 — the next action, standing alone
+# 次の一手 — 2026-09-08 時点（セッション切替のための単独ハンドオフ）
 
-Written so that a session starting cold can act without reading the run.
+このファイルだけ読めば次の作業に入れるように書いてある。
 
-## Where this is
+## 状態
 
-PR **#278**, draft, branch `fix/phase3-pr2-fit-params-forwarding`. H-0094 /
-issue #264: `Model.fit(params=...)` was accepted, documented as overriding
-`model.params`, and forwarded nowhere.
+- ブランチ `fix/phase3-pr2-fit-params-forwarding`、**head `1403ba8` +（このコミット）**、
+  作業ツリー clean、すべて push 済み。
+- PR **#278** は **draft**。CI **12/12 緑**、`mergeStateStatus: CLEAN`。
+  フルスイート **2898 passed / 62 skipped**、`ruff check` / `ruff format --check` /
+  `mypy lizyml/` clean、出荷計測器 `report_lifecycle_grid.py` は exit 0。
+- レビューは **20 ラウンド走り、`APPROVE` は取得できなかった**。全ラウンドの指摘は実在・
+  再現済み・修正済み。記録は `results/pr2_codex_round[1-20].md`、ループ監査は
+  `results/pr2_monitor_round[1011..1819].md`。
 
-**Fifteen review rounds have run. No `APPROVE` yet.** Blocking findings per
-round: **1, 1, 2, 2, 1, 3, 2, 4, 3, 2, 3, 2, 3, 1, 2**, plus two the main context found
-itself in round 12 by enumeration. Every one was reproduced before
-it was fixed and RED-verified after.
+## 決まったこと
 
-The maintainer's instruction is the whole gate: **run PR 2 to the same standard
-as PR 1 — until the external reviewer returns `APPROVE`.** The absence of
-`APPROVE` is itself treated as evidence that problems remain in the fix code,
-and rounds 11 and 12 confirmed that by execution. The merge gate is
-`APPROVE` + CI green, already decided; do not re-ask
-(`memory/feedback_phase3_run_policy.md`).
+**D8 は解決済み — 選択肢 F（入口で正規化して比較の領域を閉じる）。提案は HISTORY の
+`H-0095`（ステータス Proposed）。** 経緯・却下した代替案・実測は
+`DECISIONS-PENDING.md` の D8 末尾にある。
 
-## The one thing to know about scope
+要点だけ:
 
-Rounds 6, 8, 9 and 10 were each narrowed to the previous round's remedies, and
-each found nothing in production. That result was **produced by the scope, not
-by the code**: a round aimed at freshly written test apparatus finds
-test-apparatus defects. Rounds 11-15 were widened and found eleven production
-defects between them, plus two the main context found by enumeration.
+- rounds 16-20 は 5 連続で「直前の修正が書いたコード」に欠陥が出た。5 件すべてが
+  `lizyml/core/value_equality.py`。原因は個々の guard 漏れではなく**入力領域が開いている**
+  こと。
+- **「Layer 0 = 標準ライブラリのみ」はアーキテクチャの規則ではなく、そのモジュールが自ら
+  課したものだった。** Layer 0 の他モジュールは numpy を import している。duck typing は
+  必要ではなく、それが領域を開いていた。
+- Codex（medium）の推奨は E（provider 経由で `_param_dict_to_str` を同一性の定義に使う）
+  だったが、**実行して却下した** — wire form は正準形ではなく、E は round 13 の誤拒否を
+  復活させる（`[1.0, 2.0]` vs `"1,2"`、`0.5` vs `"0.50"` まで拒否になる）。
+- 変更ゲートの実測: **`Firing rate: 7/1430`**、7 件すべて rounds 16-20 自身が構築した
+  敵対オブジェクト。計測器は
+  `instruments/parameter_value_type_census.py` として出荷済み（再実行可能）。
 
-**Every further round is unscoped.** Do not narrow one to "review the fixes",
-whatever the previous round returned.
+## ⛔ 最初にやること — 管理者の判断が 1 件だけ残っている
 
-## The next action
+**PR #278 を今の状態でマージするか、H-0095 が着地するまで draft のまま置くか。**
 
-1. **Spawn the rounds 14-15 relational monitor first.** Mandatory before round
-   16 (`policy:loop-monitor`), read-only, fresh context, via
-   `templates/review-loop-monitor-capsule.md`.
+- PR 2 のマージゲート（Codex `APPROVE` + CI 緑）の **`APPROVE` は未取得**で、F はその門を
+  retire しない。
+- 一方 PR 2 は rounds 1-15 の修正＝ **#264 の本体**を含み、CI 緑・全スイート緑。
+- **推奨はマージ。ただし「`APPROVE` 無しでマージ」は選択肢 C の形なので、管理者の明示的な
+  承認なしに実行しないこと。** ここで意図的に止めてある。
 
-   Give it the numbers unsoftened, and this: **two consecutive monitors each
-   falsified a claim this context made in the round they were watching, and
-   round 15's reviewer then falsified a third** — the refusal grid's own `n/a`
-   for `tuning best_model_params × check_duplicate_identities`. Every
-   declaration this PR has made about a set has been shown wrong within a round
-   of being made, by whoever was asked to look at it. Each was reproduced and
-   closed, and the grid's harness is what forced the last correction to be real
-   rather than a reworded reason.
+## そのあと — H-0095 の実装（承認後）
 
-   Then ask it the question none of them has been asked yet: **what would make
-   this PR wrong that no refusal, grid or scan in it would catch?** Every
-   instrument here answers one question — "is one parameter reaching the
-   estimator twice, or under a name nothing honours". Ask what class of
-   wrongness that shape cannot see at all.
+提案本文は `HISTORY.md` の `H-0095`。受け入れ基準 7 項目もそこにある。実装の骨子:
 
-   A monitor's output is a finding to reconcile, never a verdict to adopt
-   (`policy:main-context-ownership`).
+1. **受理集合**は LightGBM から導出する（`lightgbm/basic.py`:
+   `_NUMERIC_TYPES = (int, float, bool)`、スカラーは
+   `isinstance(val, (str, Path, _NUMERIC_TYPES)) or _is_numeric(val)`、列は
+   `list` / `tuple` / `set` / 1-D ndarray）。**写さずに導出すること。**
+2. **正規化は素の型へ。文字列化しない** — smart params の解決と boundary 展開が数値演算を
+   するので壊れる。numpy スカラー → `.item()`、1-D ndarray → `.tolist()`、
+   `tuple`/`set` → `list`、`str` サブクラス → 厳密な `str`。
+3. **配線先は既にある**: `check_duplicate_identities`（`_model_factories.py:860`）が
+   4 surface すべての唯一の絞りで、rounds 10-12 で配線・固定済み。呼び出し元は
+   `model.py:479`, `:504`, `:530` と `_model_factories.py:1068`（calibration）。
+   **「検査するだけ」から「検査して正規化した dict を返す」へ変え、4 呼び出し元が返り値を
+   使うようにする。**
+4. **中心的な受け入れ基準は wire 保存**:
+   `_param_dict_to_str({"k": normalise(x)}) == _param_dict_to_str({"k": x})` を受理集合の
+   全要素について。閉じていて実行可能。
+5. **rounds 16-20 の敵対オブジェクトのテストは削除せず書き換える** — 意味が「学習する」から
+   「入口で拒否される」に変わるだけ。テストを消して通すのは禁止事項。
+6. `value_equality.py` は閉じた素の型集合の上に縮む。H-0094 決定 16 の導出母集団
+   （`DERIVED_HOSTILE_NAMES`）は「入口の拒否」を確かめる側へ移す。
+7. **#283**（スカラー vs 単一要素の列）を H-0095 で解決するか明示的に決める。正規化後は
+   両者とも素の型なので判断材料が揃う。
 
-2. **Then round 16, unscoped**, on the whole diff except `docs/`. Write the
-   prompt to `scratchpad/codex-pr2-review-prompt-r16.md` with the metadata block
-   the `review-loop-monitor-guard.sh` hook validates (`Review-kind` on line 1;
-   round 3+ requires the relational monitor fields).
+## 積み残し（PR 2 由来、起票済み）
 
-3. Codex invocation, and the two rules around it:
+- **#281** — loaded model の `validation_ratio`。artifact が「どの fit が overlay を消費
+  したか」を記録しないため、`load()` 後は config の値に落ちる。`metadata.json` のキー追加
+  ＝変更ゲート案件。
+- **#282** — `category: training` の `seed` 次元が受理・サンプルされて黙って無視される。
+- **#283** — スカラーと単一要素の列が同じ bytes を書くのに拒否される。admit は振る舞いの
+  拡大（`allow`）なので firing rate 付き Proposal が要る。
+- **#277 / #279 / #280** — PR 2 の範囲外として先行して起票済み。
 
-   ```
-   CODEX_HOME=<writable copy> codex exec --sandbox read-only \
-     -C /home/rem/repos/LizyML --color never - < prompt > log 2>&1
-   ```
+## この run のあと
 
-   `setup_codex_home.py` makes the copy; **`cleanup_codex_home.py` deletes it
-   after every run** — it holds `auth.json`. `codex-home/`, `~/.codex`, `~/.ssh`
-   and `~/.aws` are outside every reviewer's read scope.
+PR 3（#258 tuning direction）、PR 3b（H-0024 space merge、`HISTORY.md:1615` と `:1616` の
+矛盾を解消すること）、PR 4-9。**PR 9 の直前に繰り延べ 1 件を 1 パスで片付ける**:
+Phase 3 完了測定ツール（`phase3_gap.py` + manifest）は復元品が 5 箇所古く
+`instruments/deferred/` に未出荷で archive してある。
 
-4. Reproduce every finding before fixing it, RED-verify every regression test,
-   and measure a firing rate by replaying real configs rather than estimating
-   it.
+## 環境メモ（踏むと時間を失う）
 
-## State at the time of writing
-
-- Head: the round-15 fixes plus the rounds 14-15 monitor redirect, on `fix/phase3-pr2-fit-params-forwarding`.
-- Full suite **2535 passed**; `ruff check .`, `ruff format --check .`,
-  `mypy lizyml/` clean.
-- Round 15's record: `results/pr2_codex_round15.md`. Decisions:
-  `HISTORY.md` H-0094, decisions 1-12. Monitor:
-  `results/pr2_monitor_round1415.md`. Open question log:
-  `DECISIONS-PENDING.md` D7.
-
-## What is deliberately not in this PR
-
-- **#280** — the smart-managed refusal is wired to `fit(params=)` only; the
-  config surface is 3 of 18 refused, measured in round 12 and recorded in
-  BLUEPRINT §14.4. `config/` cannot import `estimators/`, so where the refusal
-  belongs is a design decision the maintainer holds.
-- **#279** — a `category: model` dimension colliding with a **smart parameter**,
-  54/67 measured. (Two dimensions colliding with **each other** is a different
-  seam and *is* fixed here — H-0094 decision 8's addendum.)
-- **#277** — `calibration.params` accepted and ignored for `platt` / `beta`.
-- The calibration layer's `min_data_in_leaf` case, which belongs to #280's class
-  and is recorded in round 12's note.
-
-## After this PR
-
-PR 3 (#258 tuning direction), PR 3b (H-0024 space merge — must resolve
-`HISTORY.md:1615` against `:1616`), PR 4-9. One reconciliation pass immediately
-before PR 9 for the deferred Phase 3 completion-measurement tooling
-(`phase3_gap.py` + manifest).
+- `uv` は読み取り専用の既定キャッシュで落ちる → **`UV_CACHE_DIR="$TMPDIR/uv-cache"`** を
+  毎回付ける。
+- コマンドガードがアポストロフィ・ヒアドキュメント内の引用符を解析できずに拒否する →
+  **スクリプトファイルにして `bash file.sh` / `uv run python file.py`**、コミットメッセージ
+  には**アポストロフィを一切入れない**（git-manager のプロンプトに明記すること）。
+- Codex は `CODEX_HOME` に書き込み可能なコピーを作ってから実行し、**実行後に消すこと**
+  （`setup_codex_home.py` / `cleanup_codex_home.py`）。既定は effort `low`。
+  評価用に上げるなら `-c model_reasoning_effort=medium`。
+- codex の長時間実行はバックグラウンドにするとハーネスの低メモリ判定で 2 回 kill された →
+  **フォアグラウンドで `timeout` を長めに**。

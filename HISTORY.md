@@ -8706,3 +8706,145 @@ revert で 2 件とも赤になった。
   見ていない。現時点で欠けている lookup は無い。**こちらが書いた検査の実際の弱点である。**
 
 全スイート **2898 passed / 62 skipped**、grid exit 0。
+
+---
+
+## H-0095: パラメーター値を入口で正規化し、比較の領域を閉じる（#264 後継 / D8 の帰結）
+
+- **ステータス**: Proposed
+- **起票日**: 2026-09-08
+- **決定日**: —
+- **スコープ**: `lizyml/core/_model_factories.py`（入口の正規化 + 受理集合の拒否）, `lizyml/core/value_equality.py`（閉じた型集合の上へ縮小）, `lizyml/core/model.py` / `lizyml/calibration/`（4 つの呼び出し元が正規化後の dict を使う）, `tests/test_core/test_value_equality.py`, `tests/test_core/test_fit_params_override.py`, `BLUEPRINT.md` §14.4, `CHANGELOG.md`。
+- **関連**: H-0094（PR 2、決定 1-17）, [#264](https://github.com/nbx-liz/LizyML/issues/264), [#283](https://github.com/nbx-liz/LizyML/issues/283), `docs/audits/2026-09-defect-discovery/DECISIONS-PENDING.md` の **D8**。
+
+### 目的（課題）
+
+PR 2（#278）のレビューは **20 ラウンド回って `APPROVE` に到達しなかった**。うち
+**rounds 16-20 は 5 連続で、直前のラウンドの修正が書いたコードに欠陥が出た**（D7 の
+authorship 条件が 5 回発火）。**5 件すべてが `lizyml/core/value_equality.py` 内**である。
+
+原因は個々の guard 漏れではなく、**この関数が判定しなければならない入力領域が開いている**
+ことである。そしてそれが開いているのには 2 つの理由があった:
+
+1. **型を名指せなかった。** このモジュールは自ら「標準ライブラリのみ」を課しており、
+   numpy を `isinstance` で判定できないので `tolist` を探す等の duck typing に頼っていた。
+   任意のオブジェクトが `__format__` / `__class__` / `tolist` / `__eq__` / `__len__` を
+   どうにでも定義できるので、領域は構成上開く。
+2. **誤拒否も欠陥だと、レビューが 2 度押し返した**（round 12 finding 1、round 13
+   finding 2、どちらも DC7）。admit を増やすほど、任意オブジェクトについて理解すべき
+   ことが増える。
+
+**訂正すべき前提が 1 つある。** 「Layer 0 = 標準ライブラリのみ」は**アーキテクチャの規則
+ではない**。`ARCHITECTURE.md` の「依存ゼロ」は*内部レイヤ*依存ゼロの意味で、Layer 0 の
+他モジュール（`core/types/fit_result.py`, `core/_model_factories.py` 等）は numpy も
+pandas も import している。**numpy を型として名指すことは最初から許されていた。**
+
+### 提案
+
+**パラメーター値を、surface の入口で 1 度だけ正規化する。** 受理集合の外は、学習が始まる
+前に `CONFIG_INVALID` で拒否する。
+
+受理集合は LightGBM 自身の受理集合から導出する（`lightgbm/basic.py`:
+`_NUMERIC_TYPES = (int, float, bool)`、スカラーは
+`isinstance(val, (str, Path, _NUMERIC_TYPES)) or _is_numeric(val)`、列は
+`list` / `tuple` / `set` / 1-D ndarray）:
+
+| 入力 | 正規化後 |
+|---|---|
+| `None` / `bool` / `int` / `float` / `str` | そのまま（`str` サブクラスは厳密な `str` へ） |
+| `Path` | そのまま |
+| numpy スカラー | `.item()` |
+| 1-D `ndarray` | `.tolist()` |
+| `tuple` / `set` | `list` |
+| 上記の列 | 要素ごとに同じ正規化 |
+| **それ以外** | **`CONFIG_INVALID`（入口で、パラメーター名と受理集合を明示）** |
+
+**文字列化はしない。** 素の型のまま正規化する — smart params の解決や boundary 展開は
+数値演算をするので、文字列にすると壊れる。
+
+配線先は既にある。`check_duplicate_identities` は **4 つの surface すべてが通る唯一の絞り**
+として rounds 10-12 で配線・固定済みである（実測: `model.params` / `fit(params=)` /
+`calibration.params` / `tuning best_model_params`）。ここを「検査するだけ」から
+「検査して正規化した dict を返す」に変える。
+
+### 影響範囲
+
+`value_equality.py` は**閉じた素の型集合**の上でのみ動くようになり、劇的に縮む。
+`__format__` / `__class__` / `tolist` / `__eq__` の敵対的実装は**入口を通らない**ので、
+rounds 16-20 の指摘クラスは丸ごと消滅する。
+
+`fit(params=...)` の型注釈は `dict[str, Any]` のままだが、**実効的な入力契約が狭まる**
+ので公開 API の変更として扱う。
+
+### 互換性
+
+**LightGBM が受理するものの一部を、この提案は拒否する。** `_is_numeric` は `float(obj)`
+が通れば何でも受けるので、独自 `__float__` を持つオブジェクトは LightGBM 的には有効である。
+
+```
+Firing rate: 7/1430 of every parameter value the suite constructs
+             (measured by wrapping the shared identity check over the full
+             suite at head 1403ba8; 2898 passed, 62 skipped)
+```
+
+内訳: `int` 1082 / `float` 187 / `str` 78 / `list` 45 / `ndarray` 14 / `tuple` 8 /
+`bool` 6 / `None` 3 — **1423 件は受理集合の内側**。列の要素も全て素の型
+（`float` 52 / `str` 22 / `int` 2）。**残る 7 件は `Equivalent` 2 / `Proxy` 2 /
+`Conflicting` 1 / `FormatsToLiar` 1 / `Rate` 1 で、すべて rounds 16-20 が自分で構築した
+敵対オブジェクトである。** 現実的な config 由来のものは 1 件も無い。
+
+計測器は `docs/audits/2026-09-defect-discovery/instruments/parameter_value_type_census.py`
+として**出荷する**（散文に写した数は古びる）。
+
+**述べる bound**: これはこのリポジトリが構成する母集団であって、ライブラリのユーザー
+コードは観測できない。だから拒否は「現実には何も拒否しない」ではなく
+**「入口で、明示的に、学習前に拒否する」**として正当化する。**狩っているのは
+「黙って違う値で学習する」ことなので、大声で拒否する側は許容できる半分である。**
+
+### 代替案
+
+**E: 同一性判定を provider protocol の背後へ移し、`_param_dict_to_str` を同一性の定義に
+使う。** Codex（`gpt-6-astra`, effort medium）の評価では E > D > B > A > C で第 1 位
+だったが、**実行して却下した**:
+
+```
+pair                      wire A     wire B    wire一致  現状
+[1, 2]      vs '1,2'      1,2        1,2       True     admit
+[1.0, 2.0]  vs '1,2'      1.0,2.0    1,2       False    admit  <- E なら誤拒否
+(1.0, 2.0)  vs [1, 2]     1.0,2.0    1,2       False    admit  <- E なら誤拒否
+0.5         vs '0.50'     0.5        0.50      False    admit  <- E なら誤拒否
+```
+
+**wire form は正準形ではない。** `_comma_form_matches` の docstring が既にそう書いている
+—「比較が textual でなく elementwise なのは wire form が正準でないからで、joined string を
+比較すると**この関数が除去するために存在する誤拒否そのもの**を起こす」。E は
+**round 13 finding 2 の修正を、その理由が書いてある行ごと元に戻す**。数値を意識した比較を
+wire の上に足せば救えるが、それは再実装に戻ることで E の存在理由が消える。
+
+E の副次的コストも記録する: `_param_dict_to_str` は private であり `pyproject.toml` は
+`lightgbm>=4.0` を許すのでバージョン幅の検証が要る、公開 protocol が 18 → 19 メソッドに
+なる、実装を `estimators/` へ移す必要がある（F は `core/` のままでよい）。
+
+**B: contract を狭める（round 13 の admission 撤回）** — E と同じ理由で誤拒否を再導入する。
+**A: 範囲限定で続行** — rounds 18-19 monitor 自身が「blocking 数の減少はどちらの区別にも
+ならない」と述べ、round 20 はその monitor の識別子に不合格になった。
+**C: `APPROVE` を要求しない** — 受入要件を終わらせるだけで根拠を解決しない。
+**D: レビュアーへの問いを変える** — 失敗した成果物の作者が受入基準を書き換える利益相反。
+
+### 受け入れ基準（テスト観点）
+
+1. **正規化は wire form を保存する。** 受理集合の全要素について
+   `_param_dict_to_str({"k": normalise(x)}) == _param_dict_to_str({"k": x})`。
+   **閉じた実行可能な性質**であり、既にテストにあるオラクルでそのまま書ける。これが
+   本提案の中心的な受け入れ基準である。
+2. **受理集合は LightGBM の受理集合から導出し、写さない。** 導出が導出であることを
+   確かめるテストを置く（H-0094 決定 16 の `DERIVED_HOSTILE_NAMES` と同じ形）。
+3. **拒否は入口で、学習前に、パラメーター名と受理集合を挙げて起きる。** `CONFIG_INVALID`。
+4. **4 つの surface すべてで正規化が効く。** `model.params` / `fit(params=)` /
+   `calibration.params` / `tuning best_model_params` — 宣言ではなく実行で確認する。
+5. **rounds 16-20 の敵対オブジェクトが全て入口で拒否される。** 既存の回帰テストは
+   「学習する」から「入口で拒否される」へ意味が変わるので、**削除せず書き換える**。
+6. **`values_differ` は閉じた型集合の上で全域である。** 敵対母集団は入口を通らないので、
+   H-0094 決定 16 の導出母集団は「入口の拒否」を確かめる側へ移る。
+7. **#283（スカラー vs 単一要素の列）をこの提案で解決するかを明示的に決める。**
+   正規化後は両者とも素の型なので、判断材料が揃う。

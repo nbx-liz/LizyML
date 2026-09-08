@@ -973,7 +973,8 @@ Full suite **2535 passed**. **Round 16 stays unscoped.**
 
 ### D8 — PR 2 stopped at round 20 on a pre-registered condition, five rounds into one function
 
-**Status: awaiting the maintainer. Round 21 is not opened.**
+**Status: RESOLVED 2026-09-08 — option F (ingress normalisation), Proposal H-0095.
+One item remains open: whether to merge PR #278 as it stands. See the end of this entry.**
 
 #### What happened
 
@@ -1055,3 +1056,75 @@ three are written as a starting point rather than a menu.
 Round 20's two findings are already fixed, RED-verified and committed, because
 stopping the loop is a decision about the next round and not a reason to ship a
 known defect.
+
+#### 決定（2026-09-08）: **F — 入口で正規化して領域を閉じる。提案は H-0095。**
+
+管理者の判断は **F**。選択肢 A-E のいずれでもなく、**Codex の評価が最後に付け足した
+「誰も挙げていなかった選択肢」**である。この run で停止条件が発火したのは 3 度目で、
+**3 度とも、事前に列挙した選択肢の外が選ばれた**（round 5 = 範囲限定ラウンド、
+round 17 = 保留して確認、round 20 = 入口正規化）。
+
+##### 評価の経緯
+
+全選択肢を Codex（`gpt-6-astra`, effort **medium** — レビュー 20 ラウンドは全て
+effort `low` で走っていた）に評価させた。結果は **E > D > B > A > C**、推奨は E。
+
+**その E を、こちらで実行して却下した。**
+
+```
+pair                      wire A     wire B    wire一致  現状
+[1, 2]      vs '1,2'      1,2        1,2       True     admit
+[1.0, 2.0]  vs '1,2'      1.0,2.0    1,2       False    admit  <- E なら誤拒否
+(1.0, 2.0)  vs [1, 2]     1.0,2.0    1,2       False    admit  <- E なら誤拒否
+0.5         vs '0.50'     0.5        0.50      False    admit  <- E なら誤拒否
+```
+
+E の中核は「wire form の一致を同一性の定義にする」ことだが、**wire form は正準形ではない**。
+`_comma_form_matches` の docstring が既にそう書いており、**E は round 13 finding 2 の修正を、
+その理由が書いてある行ごと元に戻す**。Codex は「E は B の互換性トレードオフを継承する」と
+一般論では書いていたが、実測するとその範囲は `0.5` と `"0.50"` にまで及ぶ。
+
+**評価そのものは高い価値があった。** Codex はこちらの事実誤りを 2 件訂正し
+（provider protocol は 8 でなく **18** メソッド、`check_duplicate_identities` の呼び出しは
+3 でなく **4** 箇所）、こちらが挙げていなかったリスクを 1 件挙げ（`_param_dict_to_str` は
+private、`pyproject.toml` は `lightgbm>=4.0` を許す）、こちらの診断の言い過ぎも 1 件突いた
+（「直近の指摘は全て serialiser 再実装の不一致」は round 20 の 2 件目＝NaN 契約の矛盾を
+含まないので文字通りには完全でない）。**そして最後に F を出した。**
+
+##### F を選ぶ根拠
+
+| | E | **F** |
+|---|---|---|
+| 領域を閉じるか | 閉じない（serialiser 内でユーザーのメソッドが走る） | **閉じる** |
+| round 13 の誤拒否 | **再導入する**（実測済み） | しない |
+| private API 依存 | `_param_dict_to_str`、バージョン幅未検証 | 不要 |
+| 公開 protocol 変更 | 18 → 19 | 不要 |
+| 実装場所 | `estimators/` へ移設 | **`core/` のまま** |
+| 比較時と学習時で値が変わる危険 | 残る | **消える**（入口で凍結） |
+
+**前提の訂正が 1 つ効いた。** 「Layer 0 = 標準ライブラリのみ」は**アーキテクチャの規則では
+なく、`value_equality.py` が自ら課したもの**である。`ARCHITECTURE.md` の「依存ゼロ」は
+*内部レイヤ*依存ゼロの意味で、Layer 0 の他モジュールは numpy も pandas も import している。
+**numpy を型として名指すことは最初から許されていた** — duck typing は必要に迫られたもの
+ではなく、それが開いた領域の原因だった。
+
+##### 実測（変更ゲート）
+
+```
+Firing rate: 7/1430 of every parameter value the suite constructs
+             (measured at head 1403ba8 over the full suite)
+```
+
+1423 件は受理集合の内側。**残る 7 件は rounds 16-20 が自分で構築した敵対オブジェクトのみ。**
+計測器は `instruments/parameter_value_type_census.py` として出荷済み。
+
+##### 残る 1 件の判断（次のセッションの最初の項目）
+
+**PR 2（#278）を今の状態でマージするか、H-0095 が着地するまで draft のまま置くか。**
+
+- PR 2 自身のマージゲート（Codex `APPROVE` + CI 緑）の **`APPROVE` は取得できていない**。
+  F はその門を retire するものではない。
+- 一方 PR 2 は rounds 1-15 の修正＝ **#264 の本体**を含み、CI は 12/12 緑、
+  フルスイート 2898 passed。放置すると正しい成果が宙に浮く。
+- **こちらの推奨: マージする。** ただし「`APPROVE` 無しでマージ」は選択肢 C の形なので、
+  **管理者の明示的な承認なしには実行しない。** ここで止めてある。
