@@ -214,7 +214,6 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
 
         # --- Load & prepare data ---------------------------------------------
         X, y, groups, components = self._prepare_training_data(data)
-        self._X, self._y = X, y
         fingerprint = fp_compute(X, file_path=None)
 
         # --- Build components (H-0050/H-0053: provider-based) ----------------
@@ -238,10 +237,6 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             if self._tuning_result is not None
             else {}
         )
-        # Retained, because this is the only record of what *this* fit applied:
-        # a later tune() replaces `_tuning_result` and leaves the fitted
-        # adapters alone (H-0094 decision 13).
-        self._applied_training_params = dict(training_overrides)
         tc = self._build_train_components(
             X,
             y,
@@ -301,8 +296,6 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         fit_result = dataclasses.replace(
             fit_result, metrics={**fit_result.metrics, **metrics}
         )
-        self._metrics = metrics
-
         # --- Full-data refit (for predict) -----------------------------------
         refit_trainer = RefitTrainer(
             inner_valid=tc.inner_valid,
@@ -311,8 +304,24 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             task=cfg.task,
             ratio_param_resolver=tc.ratio_resolver,
         )
-        self._refit_result = refit_trainer.fit(X, y, groups)
+        refit_result = refit_trainer.fit(X, y, groups)
 
+        # --- Commit, in one group, nothing between that can raise ------------
+        # Everything a reporting surface reads about "the fit" is published
+        # here, together, and only once the fit has succeeded. Assigning where
+        # the value happened to be available instead left a **rejected** call
+        # describing the model that was retained: measured, `fit -> tune ->
+        # refused fit` reported the refused attempt's inner-validation ratio
+        # while the fitted adapters were untouched, and `_X` / `_y` -- the data
+        # SHAP and the diagnostics read -- became a frame the retained model
+        # had never seen (H-0094 decision 14, review round 17). Reproduced at
+        # both failure points: refused by a gate, and raised mid-training.
+        self._X, self._y = X, y
+        self._metrics = metrics
+        # The only record of what *this* fit applied: a later tune() replaces
+        # `_tuning_result` and leaves the fitted adapters alone (decision 13).
+        self._applied_training_params = dict(training_overrides)
+        self._refit_result = refit_result
         self._fit_result = fit_result
         _log.info("event='fit.done' run_id=%s", run_id)
         # Return a selective deep copy (FitResult.__deepcopy__): mutating the

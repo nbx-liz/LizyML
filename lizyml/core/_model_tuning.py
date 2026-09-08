@@ -185,7 +185,6 @@ class ModelTuningMixin:
         # `provider.build_pipeline_factory()`.
         X, y, groups, _components = self._prepare_training_data(data)
         del _components
-        self._X, self._y = X, y
 
         provider = get_provider(cfg.model)
         self._provider = provider
@@ -291,6 +290,13 @@ class ModelTuningMixin:
         )
 
         # --- Update internal state -----------------------------------------------
+        # Published together, and only once the study has finished. `_X` / `_y`
+        # used to be assigned right after the data was prepared, which meant a
+        # `tune()` that failed replaced the diagnostics data belonging to the
+        # retained fit with a frame no trained model had seen -- the same
+        # defect round 17 found in `fit()`, on the adjacent method (H-0094
+        # decision 14). Nothing between here and there reads them.
+        self._X, self._y = X, y
         self._tuning_result = final_result
         self._study = study
         self._round_number = round_number

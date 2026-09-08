@@ -136,14 +136,31 @@ def _comma_form_matches(text: Any, sequence: Any) -> bool | None:
 
     Note:
         **This step raises no ``Exception`` either**, which is what makes the
-        module-level bound on ``values_differ`` true. Both expressions that
-        touch a caller's element -- ``float(element)`` and ``str(element)`` --
-        are inside a ``try``. Narrowing the first to ``TypeError`` and
-        ``ValueError`` was enough for every value that had been thought of and
-        not for one that had not: a ``float`` subclass whose ``__float__``
-        raises ``RuntimeError`` made ``fit`` raise where it had trained,
-        against a docstring saying it could not (H-0094 decision 13, review
-        round 16).
+        module-level bound on ``values_differ`` true. The population is not
+        "values" but **every expression here that touches something a caller
+        owns**, and each is closed one of two ways:
+
+        ===========================  ========  ==================================
+        expression                   owner     how it is closed
+        ===========================  ========  ==================================
+        ``str.split(text, ",")``     caller    base method, unbound
+        ``float(element)``           caller    ``try``
+        ``str(element)``             caller    ``try``
+        ``str.strip(part)``          derived   base method, unbound
+        ``str.strip(printed)``       derived   base method, unbound
+        ``float(part)``              ours      ``part`` is an exact ``str``
+        ``len``, ``zip``,
+        ``isinstance``               ours      real lists and types
+        ===========================  ========  ==================================
+
+        Enumerating that table is the repair; two rounds running found the
+        expression the previous round had not thought of. Round 16: narrowing
+        ``float(element)`` to ``TypeError`` and ``ValueError`` was enough for
+        every value anyone had thought of, and a ``float`` subclass whose
+        ``__float__`` raises ``RuntimeError`` made ``fit`` raise where it had
+        trained. Round 17: the guards covered the **element** operand and not
+        the **text** one, and a ``str`` subclass whose ``split`` raises did the
+        same thing (H-0094 decisions 13 and 14).
 
     Note:
         **Only the flat grammar.** ``interaction_constraints`` accepts nested
@@ -159,7 +176,14 @@ def _comma_form_matches(text: Any, sequence: Any) -> bool | None:
     elements = _wire_elements(sequence)
     if elements is None:
         return None
-    parts = text.split(",")
+    # `str.split` and `str.strip` unbound, not `text.split` and `part.strip`:
+    # a `str` **subclass** is still a `str`, and its overrides run on attribute
+    # access. Calling the base method cannot be overridden, and it returns
+    # exact `str` parts, so everything derived from them is ours again. The
+    # guard idiom one step down does not reach this -- a `try` around a
+    # subclass method call would refuse a legitimate pair rather than compare
+    # it, and comparing it is the whole point of this step.
+    parts = str.split(text, ",")
     if len(parts) != len(elements):
         return False
     for part, element in zip(parts, elements, strict=True):
@@ -174,7 +198,10 @@ def _comma_form_matches(text: Any, sequence: Any) -> bool | None:
             printed = str(element)
         except Exception:  # noqa: BLE001 - a user value may define a failing __str__
             return None  # no opinion: the later steps still get their turn
-        if part.strip() != printed.strip():
+        # `str(element)` can itself return a `str` subclass -- measured, an
+        # element whose `__str__` returns one -- so this side needs the unbound
+        # call for the same reason the operand above did.
+        if str.strip(part) != str.strip(printed):
             return False
     return True
 
@@ -297,7 +324,12 @@ def values_differ(first: Any, second: Any) -> bool:
 
     **This function does not raise an ``Exception``.** Step 5 is what makes that
     true by construction rather than by having thought of enough value types.
-    Every expression that touches a caller's value is inside a ``try``. A
+    Every expression that touches a caller's value is either inside a ``try`` or
+    calls the base type's method unbound, so a subclass override cannot run at
+    all -- the two closures, one per column of the table on
+    ``_comma_form_matches``. The second exists because a ``try`` around a
+    subclass method would *refuse* a legitimate pair instead of comparing it,
+    which is the other half of the defect this module exists to prevent. A
     ``BaseException`` a caller's value raises -- ``KeyboardInterrupt`` and
     ``SystemExit`` are the ones that matter -- is **not** caught and propagates
     on purpose: swallowing those would make a hung comparison uninterruptible,
