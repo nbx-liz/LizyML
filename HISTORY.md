@@ -8253,3 +8253,100 @@ monitor は 3 つ目の候補（`lgb.Dataset` が `params=` 無しで構築さ�
 この run 自身の記録から導いている。
 
 全スイート **2535 passed**。
+
+### 決定 13: 報告面は「fit した model」を答える — D7 の authorship 条件が発火した（review round 16）
+
+round 16（範囲を絞らない、head `bca3844`）は `REQUEST_CHANGES` を 2 件で返し、両方とも
+こちらで再現した。
+
+**1 件目は、決定 12 の修正自身が書いたコードの欠陥である。D7 の authorship 条件
+（「round N の修正が書いたコードの欠陥が round N+1 で出る」）は、コミット `be2795a`
+に対して発火した。** rounds 14-15 monitor はこの帰結を事前に明示していた。ここを弱めて
+書かない — それは rounds 13-14 monitor が一度捕まえた癖そのものである。
+
+#### 1 件目 — `params_table()` / `export_code()` が最新の tune を追いかけていた
+
+決定 12 は 4 人の読み手を「実効値を再計算する」形で揃えた。だが `tune()` は
+**tuning result を置き換えるだけで、fit 済み adapter は置き換えない**。実測:
+
+```
+fit した adapter が学習した patience : 7
+params_table（tune 前）              : 7
+tune 後、同じ adapter か             : True
+params_table（tune 後）              : 2
+export_code（tune 後）               : 2
+```
+
+**存在しない model について報告していた。** `export_code` は学習を再現するプロジェクトを
+生成するので、決定 12 が閉じたはずの欠陥が向きを変えて戻ってきた形である。
+
+reviewer の指示は明示的だった —「retained training state か、provider 経由で学習済み
+adapter から解決せよ」。**両方を使った。どちらを使うかは値ごとに実行して決めた。**
+
+#### 修正前に集合を列挙した — これがこの run の中心的な教訓
+
+決定 12 の欠陥は「読み元を変える修正を、それを生んだ 1 つの lifecycle でしか実行して
+いなかった」ことである。今回の集合は **lifecycle** であり、`export_code` が config から
+渡す全引数と `params_table` が config から作る全行を、5 つの順序で実行した。
+
+| 値 | 修正前 | 出所 |
+|---|---|---|
+| `early_stopping_rounds` | lifecycle 3 / 5b で誤り | **学習済み adapter**（`ExportParams` 経由） |
+| `validation_ratio` | **lifecycle 2 で誤り（develop 由来、この PR の混入ではない）** | 保持した overlay（`FitState.applied_training_params`） |
+| `seed` | 正しい | config のみ。trainer も `cfg.training.seed` しか読まない |
+| `num_boost_round` | 正しい | 既に adapter 由来 |
+
+5 つの lifecycle（`fit` / `tune→fit` / `fit→tune→report` / `fit→export→load` /
+`fit→tune→export→load`）を全て実行した。
+
+**`early_stopping_rounds` は adapter から読む。** `ExportParams` に
+`early_stopping_rounds`（**default なし** — 「provider が設定しなかった」と「early
+stopping が無効だった」を同じ値にするのは DC1 の形）を追加した。adapter は joblib で
+保存されるので、これは lifecycle 5b でも正しい — **tuning result 経由の修正なら間違えて
+いた唯一の lifecycle** である（artifact が持つ tuning result は、どの fit も消費していない）。
+
+**`validation_ratio` は adapter に無い。** `FitState.applied_training_params` に、その fit が
+実際に適用した overlay を保持する。実行して確認した内容:
+
+```
+inner-valid factory が呼ばれた ratio : [0.45]
+params_table の validation_ratio     : 0.2   ← 修正前
+```
+
+`tuned_validation_ratio()` を唯一の定義とし、読み手 3 人（trainer / `params_table` /
+`export_code`）を全て通した。
+
+**述べる bound**: `load()` 後、この overlay は空である。artifact は tuning result を
+記録するが「どの fit がそれを消費したか」を記録しないため、loaded model は config の
+ratio に落ちる。これは `metadata.json` のキー追加＝変更ゲート案件なので、この PR では
+やらない。**テストで固定し、issue に起票した。**
+
+#### 2 件目 — comma 形式の比較が例外を出しうる（宣言違反）
+
+`_comma_form_matches` の `float(element)` が `TypeError` / `ValueError` しか捕まえて
+いなかった。`__float__` が `RuntimeError` を投げる `float` サブクラスで再現:
+
+```
+{'learning_rate': 0.5}              TRAINED True
+{'eta': '0.5'}                      TRAINED True
+{'learning_rate': 0.5, 'eta': '0.5'} RuntimeError conversion unavailable
+```
+
+module の宣言は「**この関数は `Exception` を送出しない**」「呼び出し側の値に触れる式は
+すべて `try` の中にある」である。1 行下の `str(element)` は `try` の外にすらいなかった。
+両方を広げ、`BaseException` は従来どおり伝播させる。
+
+**durable な半分は、この cell が生まれた理由の方である。** 既存の cross product は
+awkward な値どうしを比較するので `text` が `str` になることがなく、comma 形式の step は
+要素に触れる前に `None` を返していた。**片側が文字列、片側が敵対的な要素の列** という
+cell が存在しなかった。`_ELEMENT_BEHAVIOURS`（`__float__` 3 × `__str__` 2）を追加して
+埋めた。
+
+#### 範囲外として起票したもの
+
+- **loaded model の `validation_ratio`**（上記 bound）— [#281](https://github.com/nbx-liz/LizyML/issues/281)。
+- **`category: training` の `seed` 次元**: 実行すると受理・サンプル・`best_training_params`
+  に格納されるが、trainer は `cfg.training.seed` しか読まないので**黙って無視される**
+  （実測: 次元 123、学習は 0）。develop 由来で、この PR の経路上にない — [#282](https://github.com/nbx-liz/LizyML/issues/282)。
+
+全スイート **2551 passed**。
