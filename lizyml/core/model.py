@@ -517,8 +517,17 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             model_name=model_cfg.name,
         )
         # A native parameter a `training.*` setting already controls. Checked on
-        # the merged dict with `origins`, so it covers every input at once and
-        # still names the one the caller has to change (H-0094 decision 9).
+        # the merged dict with `origins`, so it covers **the three inputs that
+        # meet here** -- `model.params`, the tuning result, and `fit(params=)`
+        # -- and names the one the caller has to change (H-0094 decision 9).
+        #
+        # It does not cover the search space, and an earlier comment claiming it
+        # covered "every input at once" was wrong about exactly that: trial
+        # parameters overlay after this point, so a study sampled the parameter,
+        # trained on it, and returned a result this very check then refused
+        # (H-0094 decision 10, review round 14). The space is checked before the
+        # study starts, in `_model_tuning.py`, beside the other two space-level
+        # refusals.
         check_training_managed_overrides(provider, model_params, cfg, origins=origins)
 
         return model_params, smart_params

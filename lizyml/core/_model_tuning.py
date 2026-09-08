@@ -21,6 +21,7 @@ from lizyml.core._model_factories import (
     check_calibration_param_names,
     check_duplicate_space_dimensions,
     check_param_names,
+    check_training_managed_space,
     get_provider,
     model_space_names,
     overlay_params,
@@ -208,6 +209,13 @@ class ModelTuningMixin:
         # LightGBM keeps the canonical one -- so the other is sampled and
         # optimised over without affecting any trial (H-0094 decision 8).
         check_duplicate_space_dimensions(provider, cfg)
+        # And the training-managed rule, on the same layer. `_merge_params`
+        # checks the three inputs that meet there; trial parameters overlay
+        # afterwards, so without this a study sampled a parameter
+        # `training.*` controls, trained on it, and returned a
+        # `best_model_params` the following `fit()` refused (H-0094 decision
+        # 10, review round 14).
+        check_training_managed_space(provider, cfg)
         # The calibration surface is checked here too, not only on the fit path.
         # `tune()` is its own entry point: without this, a config carrying a
         # dead `calibration.params` name completes a whole study and is refused

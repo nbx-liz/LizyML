@@ -479,6 +479,41 @@ def test_two_search_dimensions_naming_one_parameter_are_refused() -> None:
     )
 
 
+@pytest.mark.parametrize("canonical", ["seed", "early_stopping_round"])
+def test_a_search_dimension_a_training_setting_controls_is_refused(
+    canonical: str,
+) -> None:
+    """A study must not return a result its own next step refuses.
+
+    `check_training_managed_overrides` runs inside `_merge_params`, and trial
+    parameters overlay **after** that. So a `category: model` dimension naming
+    one of these was sampled, trained on, and recorded in `best_model_params` --
+    and then the following `fit()` refused it. Measured over all seven spellings
+    of both entries: each study trained real boosters and each subsequent fit
+    raised `CONFIG_INVALID` (H-0094 decision 10, review round 14).
+
+    Quantified over every spelling, and asserted to fire **before the study**,
+    because the defect was not that the refusal was missing but that it arrived
+    after two boosters had been trained.
+    """
+    for spelling in sorted(accepted_spellings(canonical)):
+        cfg = make_config("binary", n_estimators=6, n_splits=2, tuning_n_trials=1)
+        cfg["training"]["early_stopping"] = {"enabled": True, "rounds": 2}
+        cfg["tuning"]["optuna"]["space"] = {
+            spelling: {"type": "int", "low": 11, "high": 12, "category": "model"}
+        }
+
+        with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as exc:
+            Model(cfg, data=make_binary_df(n=120)).tune()
+
+        assert exc.value.code is ErrorCode.CONFIG_INVALID
+        assert "tuning.optuna.space" in exc.value.user_message, exc.value.user_message
+        assert not seen["train_params"], (
+            f"'{spelling}' trained {len(seen['train_params'])} Booster(s) "
+            "before the refusal; the study must not start"
+        )
+
+
 def test_two_search_dimensions_of_different_parameters_are_accepted() -> None:
     """The other direction, so the space check is not refusing every study."""
     cfg = make_config("binary", n_estimators=3, n_splits=2, tuning_n_trials=2)

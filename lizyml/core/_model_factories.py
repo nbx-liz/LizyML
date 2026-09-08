@@ -565,6 +565,32 @@ TRAINING_MANAGED_PARAMS: dict[str, str] = {
 }
 
 
+def check_training_managed_space(provider: Any, cfg: LizyMLConfig) -> None:
+    """Refuse a search dimension for a parameter a ``training.*`` setting controls.
+
+    The merged-dict check below runs inside ``_merge_params``, and **trial
+    parameters overlay after that**, so a ``category: model`` dimension naming
+    one of these was accepted, sampled, and trained. Measured over all seven
+    spellings of both entries (H-0094 decision 10, review round 14): each study
+    trained real boosters, returned a ``best_model_params`` carrying the name,
+    and **the following ``fit()`` then refused it** -- a study whose result its
+    own next step cannot consume.
+
+    A comment on the merged-dict call claimed it "covers every input at once".
+    That was true of the three inputs that meet in `_merge_params` and false of
+    the fourth, which arrives later. Checked here, before the study starts, the
+    way the other two space-level refusals are.
+    """
+    names = [name for _, name in model_space_names(cfg)]
+    if names:
+        check_training_managed_overrides(
+            provider,
+            dict.fromkeys(names),
+            cfg,
+            origins=dict.fromkeys(names, "tuning.optuna.space"),
+        )
+
+
 def check_training_managed_overrides(
     provider: Any,
     params: dict[str, Any],
