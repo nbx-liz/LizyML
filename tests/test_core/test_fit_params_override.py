@@ -2638,6 +2638,40 @@ def test_the_generated_project_trains_at_the_patience_the_run_used(
     )
 
 
+def test_a_string_proxy_that_trains_alone_still_trains_as_a_pair() -> None:
+    """Review round 18, on the shipped path.
+
+    Round 17's repair called ``str.split`` unbound so a subclass override could
+    not run. But ``isinstance`` reads ``__class__`` and the unbound descriptor
+    reads ``type()``, and a **proxy** separates them: not a ``str``, admitted as
+    one. LightGBM's serialiser sides with ``isinstance`` -- measured,
+    ``_param_dict_to_str`` emits ``learning_rate=0.5`` for it -- so it is a
+    value that trains, and the pair was refused with a ``TypeError`` from the
+    descriptor.
+
+    The failure this pins is the *opposite* of round 17's: not raising is half
+    the bound, and admitting what the serialiser joins is the other half.
+    """
+
+    class Proxy:
+        @property
+        def __class__(self) -> Any:  # type: ignore[override]
+            return str
+
+        def __str__(self) -> str:
+            return "0.5"
+
+        def split(self, *args: Any, **kwargs: Any) -> list[str]:
+            return ["0.5"]
+
+    alone = _fit({"learning_rate": Proxy()}, num_threads=1)
+    other_spelling = _fit({"eta": 0.5}, num_threads=1)
+    assert _booster_text(alone) == _booster_text(other_spelling)
+
+    together = _fit({"learning_rate": Proxy(), "eta": 0.5}, num_threads=1)
+    assert _booster_text(together) == _booster_text(alone)
+
+
 def test_a_float_subclass_that_refuses_conversion_still_trains() -> None:
     """Review round 16, finding 2, end to end on the shipped path.
 

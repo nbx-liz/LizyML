@@ -817,6 +817,10 @@ def test_the_cross_product_covers_every_declared_behaviour() -> None:
 _TEXT_BEHAVIOURS: dict[str, tuple[str, ...]] = {
     "split": ("normal", "raises"),
     "strip": ("normal", "raises"),
+    # Round 18: `isinstance` reads `__class__` and the unbound descriptor reads
+    # `type()`. `proxy` is the object where those disagree -- not a `str`, but
+    # `isinstance` says it is, and the **serialiser agrees**, so it trains.
+    "__class__": ("normal", "proxy", "raises"),
 }
 
 _ELEMENT_BEHAVIOURS: dict[str, tuple[str, ...]] = {
@@ -828,8 +832,8 @@ _ELEMENT_BEHAVIOURS: dict[str, tuple[str, ...]] = {
 }
 
 
-def _make_awkward_text(split: str, strip: str) -> str:
-    """A ``str`` subclass whose own methods behave as named."""
+def _make_awkward_text(split: str, strip: str, klass: str = "normal") -> Any:
+    """A text operand whose own methods and ``__class__`` behave as named."""
     namespace: dict[str, Any] = {}
 
     if split == "raises":
@@ -841,7 +845,21 @@ def _make_awkward_text(split: str, strip: str) -> str:
             RuntimeError("strip failed")
         )
 
-    return type("AwkwardText", (str,), namespace)("0.5")
+    if klass == "normal":
+        return type("AwkwardText", (str,), namespace)("0.5")
+
+    # Not a `str` at all. `isinstance` is what admits it, and `isinstance`
+    # reads `__class__` -- so `proxy` is accepted as text while the unbound
+    # descriptor, which reads `type()`, is not applicable to it.
+    namespace["__str__"] = lambda self: "0.5"
+    if klass == "proxy":
+        namespace["__class__"] = property(lambda self: str)
+    else:
+        namespace["__class__"] = property(
+            lambda self: (_ for _ in ()).throw(RuntimeError("class failed"))
+        )
+    namespace.setdefault("split", lambda self, *a, **k: ["0.5"])
+    return type("AwkwardProxy", (), namespace)()
 
 
 def _make_awkward_element(to_float: str, printed: str) -> object:
@@ -867,41 +885,92 @@ def _make_awkward_element(to_float: str, printed: str) -> object:
     return type("AwkwardElement", (), namespace)()
 
 
-ELEMENT_COMBINATIONS: list[tuple[str, str, str, str]] = [
-    (split, strip, to_float, printed)
+ELEMENT_COMBINATIONS: list[tuple[str, str, str, str, str]] = [
+    (split, strip, klass, to_float, printed)
     for split in _TEXT_BEHAVIOURS["split"]
     for strip in _TEXT_BEHAVIOURS["strip"]
+    for klass in _TEXT_BEHAVIOURS["__class__"]
     for to_float in _ELEMENT_BEHAVIOURS["__float__"]
     for printed in _ELEMENT_BEHAVIOURS["__str__"]
 ]
 
 
-@pytest.mark.parametrize(
-    ("split", "strip", "to_float", "printed"), ELEMENT_COMBINATIONS
-)
-def test_the_bound_holds_with_text_on_one_side_and_a_sequence_on_the_other(
-    split: str, strip: str, to_float: str, printed: str
-) -> None:
-    """The comma-form step answers, whatever **either** operand does to it.
+def _serialiser_raises_on(value: Any) -> bool:
+    """Does LightGBM's own serialiser refuse this value outright?"""
+    from lightgbm.basic import _param_dict_to_str
 
-    Round 16: a ``float`` subclass whose ``__float__`` raises ``RuntimeError``
-    came straight out of ``values_differ`` -- and out of ``fit()`` -- because
-    the ``except`` named ``TypeError`` and ``ValueError``, and ``str`` one line
-    down was unguarded entirely. Round 17: the same thing from the text side,
-    because a ``str`` subclass is still a ``str`` and its overrides run on
-    attribute access.
+    try:
+        _param_dict_to_str({"learning_rate": value})
+    except Exception:  # noqa: BLE001 - the question is only whether it raises
+        return True
+    return False
+
+
+@pytest.mark.parametrize(
+    ("split", "strip", "klass", "to_float", "printed"), ELEMENT_COMBINATIONS
+)
+def test_the_bound_holds_wherever_the_serialiser_accepts_the_value(
+    split: str, strip: str, klass: str, to_float: str, printed: str
+) -> None:
+    """The bound, stated as a **relation to the oracle** rather than as a bool.
+
+    Rounds 16, 17 and 18 each found the next expression the previous round had
+    not enumerated, and round 18 named the root cause: the old declaration --
+    "raises on nothing" -- quantifies over every Python object and **no
+    implementation can satisfy it**, because a caller can make
+    ``__getattribute__`` or ``__class__`` raise. That is DC7 on the
+    declaration.
+
+    So the claim asserted here is the one the module can keep and that anybody
+    cares about: **``values_differ`` raises only where the serialiser raises.**
+    A value LightGBM would refuse outright is not a value this function owes an
+    answer for; a value LightGBM trains on is. Enumerating expressions is what
+    kept going stale -- an oracle does not.
     """
     element = _make_awkward_element(to_float, printed)
-    hostile_text = _make_awkward_text(split, strip)
-    label = f"{split}/{strip}/{to_float}/{printed}"
+    hostile_text = _make_awkward_text(split, strip, klass)
+    label = f"{split}/{strip}/{klass}/{to_float}/{printed}"
 
     for sequence in ([element], (element,), [element, element]):
-        for text in (hostile_text, type(hostile_text)("0.5,0.5"), "0.5"):
+        for text in (hostile_text, "0.5", "0.5,0.5"):
             for a, b in ((text, sequence), (sequence, text)):
-                result = values_differ(a, b)
-                assert isinstance(result, bool), (
-                    f"{label} answered {result!r}, not a bool"
+                try:
+                    result: Any = values_differ(a, b)
+                    raised = False
+                except Exception:  # noqa: BLE001 - that is the measurement
+                    result, raised = None, True
+
+                if not raised:
+                    assert isinstance(result, bool), (
+                        f"{label} answered {result!r}, not a bool"
+                    )
+                    continue
+
+                # It raised, so the serialiser must refuse at least one of the
+                # two operands -- otherwise this is a value LightGBM trains on
+                # and the pair was owed a comparison.
+                assert _serialiser_raises_on(a) or _serialiser_raises_on(b), (
+                    f"{label} raised on a pair the serialiser accepts"
                 )
+
+
+def test_the_oracle_relation_is_not_vacuous() -> None:
+    """Both sides of the relation must occur, or it asserts nothing.
+
+    A relation whose antecedent never holds is satisfied by any implementation
+    -- the DC6 shape, in the test that replaced an enumeration precisely
+    because enumerations kept going stale.
+    """
+    accepted = _make_awkward_text("normal", "normal", "proxy")
+    refused = _make_awkward_text("normal", "normal", "raises")
+
+    # The proxy is a value LightGBM trains on, so it is inside the bound...
+    assert _serialiser_raises_on(accepted) is False
+    assert values_differ(accepted, [0.5]) is False
+    assert values_differ([0.5], accepted) is False
+
+    # ...and the raising `__class__` is one it refuses, so it is outside.
+    assert _serialiser_raises_on(refused) is True
 
 
 @pytest.mark.parametrize(
@@ -974,10 +1043,11 @@ def test_the_element_cross_product_covers_every_declared_behaviour() -> None:
     assert declared == {
         "split": 2,
         "strip": 2,
+        "__class__": 3,
         "__float__": 3,
         "__str__": 3,
     }, declared
-    assert len(ELEMENT_COMBINATIONS) == 2 * 2 * 3 * 3, len(ELEMENT_COMBINATIONS)
+    assert len(ELEMENT_COMBINATIONS) == 2 * 2 * 3 * 3 * 3, len(ELEMENT_COMBINATIONS)
 
     # `absent` and `raises` must be different paths, not two spellings of one.
     assert not hasattr(_make_awkward_element("absent", "normal"), "__float__")
@@ -999,6 +1069,19 @@ def test_the_element_cross_product_covers_every_declared_behaviour() -> None:
     assert type(printed) is not str, type(printed)
     with pytest.raises(RuntimeError, match="strip failed"):
         printed.strip()
+
+    # The three `__class__` behaviours must be three distinct situations, or the
+    # axis that round 18 needed is one value wearing three names. What separates
+    # them is exactly the disagreement the finding lived in: `isinstance` reads
+    # `__class__`, `type()` does not, and the serialiser sides with `isinstance`.
+    plain = _make_awkward_text("normal", "normal", "normal")
+    proxy = _make_awkward_text("normal", "normal", "proxy")
+    assert type(plain) is not str and isinstance(plain, str)
+    assert type(proxy) is not str and isinstance(proxy, str)
+    assert issubclass(type(plain), str), "the plain case must be a real subclass"
+    assert not issubclass(type(proxy), str), "the proxy case must not be one"
+    with pytest.raises(RuntimeError, match="class failed"):
+        isinstance(_make_awkward_text("normal", "normal", "raises"), str)
 
 
 def test_identical_values_are_never_reported_as_differing() -> None:
