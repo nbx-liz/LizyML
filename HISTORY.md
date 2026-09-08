@@ -7782,3 +7782,120 @@ rounds 11-12 monitor は `CONVERGING` / `continue` を返しつつ、上の継�
 monitor の予測も記録しておく（採用ではなく記録）: *範囲を絞らなかったラウンド
 （1-5, 7, 11, 12）はすべて `lizyml/` のファイルを名指ししている。round 13 は
 `APPROVE` を予測しない。*
+
+### 決定 9: 同じ値の別の書き方、そして LizyML 自身が握っているパラメーター（レビュー round 13）
+
+round 13 も範囲を絞らず回した。`REQUEST_CHANGES` 3 件、すべて本番コード、すべて
+修正前に再現した。**3 件とも round 12 が書いたコードではない** — 1 と 3 は、
+エイリアスと転送が効くようになったことで本 PR が**露出させた**既存の読み手であり、
+2 は本 PR が書いた関数の中だが、当該ケースは round 12 のステップより古い
+（長さ 2 対 3 で、そのステップが無かった頃も拒否されていた）。
+
+1. **エイリアスで書かれたカスタム metric が `export_code` で失われる（DC1）。**
+   `_extract_feval_metadata` は `adapter.params.get("metric")` と**リテラル綴りで**
+   読んでいた。`_build_params` は同じパラメーターを `_pop_by_identity` で読むので、
+   **学習したコードと出力したコードが「呼び出し元は何を指定したか」で食い違っていた**。
+   実測:
+
+   ```
+   metric        評価=['brier']  出力 metric='None'  feval=['brier']
+   metrics       評価=['brier']  出力 metric='None'  feval=[]
+   metric_types  評価=['brier']  出力 metric='None'  feval=[]
+   ```
+
+   生成コードは metric を失うだけでなく**動かない** — レビュアーが生成された
+   `train_lgbm` を実行し、`ValueError: For early stopping, at least one dataset and
+   eval metric is required` を得ている。同一性で読むよう直した。
+
+   **この構文の母集団を列挙した。** `estimators/` / `persistence/` / `codegen/` /
+   `core/` / `training/` でパラメーター dict をリテラル綴りで読む箇所は 4 件。
+   `provider.py:473` が生きた 1 件で、`adapter.py:234,507` は `_pop_by_identity` の
+   後（正規化済み）、`smart_params.py:146` は `max_depth`（エイリアス無し）。
+   **これは継ぎ目走査が扱っていない構文である** — 「dict が dict に出会う」ではなく
+   「利用者が綴った dict を 1 つの綴りで読む」。
+
+2. **列とそのカンマ区切り文字列が「2 つの値」として拒否されていた（DC7）。** 実測:
+
+   ```
+   {feature_contri: [1, 2]}                          -> 学習
+   {feature_penalty: "1,2"}                          -> 学習
+   {feature_contri: [1, 2], feature_penalty: "1,2"}  -> CONFIG_INVALID
+   2 つの単独ケースは同一の booster を学習する: True
+   ```
+
+   長さステップが `"1,2"` の**文字数**と `[1, 2]` の**要素数**を比べていた。
+
+   **これは同じ関数で 3 ラウンド連続の「次の等価クラス」である** — round 11: dtype、
+   round 12: 容れ物、round 13: テキスト文法。open grammar を 1 形式ずつ塞ぐ形なので、
+   **追いかけるのではなく閉じる**書き方にした。
+
+   **権威は推測せず読んだ。** `lightgbm/basic.py::_param_dict_to_str` は
+   `list` / `tuple` / `set` / 1 次元 ndarray の**すべて**を、パラメーター名に関わらず
+   `",".join(map(_to_string, val))` で書き、`str` はそのまま通す。つまり 2 つの形は
+   **ワイヤ上で 1 つの値**であり、これが「パラメーターごとの知識」ではなく一様な
+   ステップにできる理由である。テストは serialiser を**実行**する。
+
+   比較は**テキストではなく要素ごと**にした。ワイヤ形式は正規形ではないからである:
+   `[1.0, 2.0]` は `"1.0,2.0"`、`[1, 2]` は `"1,2"` になり、LightGBM はどちらも同じ
+   double に解釈する。連結文字列を比べるとこの組を拒否してしまい、**同じ誤拒否が
+   書式 1 段ずれて再発する**。
+
+   **明示する限界**: 入れ子の文法は**扱わない**。`interaction_constraints` は
+   `[[0, 1], [2]]` と `"[0,1],[2]"` を受けるが、それを読むには LightGBM が今後
+   拡張しうる文法のパーサが要る — DC1 が警告する open-grammar そのものである。
+   両者は「異なる」と報告し、ケース表で固定した。負のコントロール（`"1,2"` 対
+   `[5, 6]` / `[1, 2, 3]`、`"auc"` 対 `["auc", "logloss"]`）も実行済み。
+   **「同じ」の床には落とさない** — 落とすと、この門が存在する理由である DC1 を
+   そのまま通してしまう。
+
+3. **`training.*` が既に握っているネイティブパラメーター（DC1、両方向）。**
+   `adapter.py:223` は `training.early_stopping.rounds` から作った callback を常に
+   足す。実測: 上書きは毎回 `lgb.train` に届き、それでも config が停止を決めていた
+   （`rounds: 2` + 上書き `10` → 3 イテレーション）。
+
+   **修正方針を決めた実行**: callback を**切った**場合も inert ではない —
+   LightGBM 自身がそのパラメーターを honour し、LizyML は検証セットを作っていないので
+   `CONFIG_INVALID` が metric のせいにして落ちる。**安全に受理できる読みが存在しない。**
+
+   **母集団を列挙し、全綴りで実行した。**
+
+   ```
+   training.early_stopping.rounds -> early_stopping_round
+     early_stopping / early_stopping_round / early_stopping_rounds / n_iter_no_change
+     4 綴りすべて受理され、それでも callback が決めていた
+   training.seed -> seed
+     random_seed / random_state / seed
+     3 綴りすべて受理され、上書きが training.seed に黙って勝っていた
+   ```
+
+   `seed` は**逆方向**に失敗する（上書きが勝つ）ので、実行された run の再現性制御は
+   config が宣言しているものではなかった。**2 方向が食い違うからこそ、どちらかを
+   選ぶのではなく拒否する** — config のどこにも「どちらが効くか」は書いていない。
+   検査は merge 後の dict に `origins` 付きで当て、利用者が直すべき入力を名指しする。
+
+   ```
+   Firing rate: 0/916 of configs with early stopping enabled and model.params
+   Firing rate: 0/928 of configs with training.seed and model.params
+   ```
+
+#### 継ぎ目列挙の主張を格下げした
+
+round 13 のプロンプトはレビュアーに「広げた走査がまだ見落とす継ぎ目を名指しせよ」と
+明示的に求め、レビュアーは `config/loader.py:167`
+（`node[last] = _coerce_env_value(value)`、環境変数上書きの書き込み）を挙げた。
+カーソル変数名が `node` で hint 語に当たらなかったためである。実行して分類を確認した:
+綴りが 2 つで値が違えば拒否、同値なら学習 — **列挙の穴であって欠陥ではない**、という
+レビュアー自身の但し書きが正しい。hint 語に `node` / `cfg` / `config` を追加、候補
+48 → **58**。
+
+**そして主張自体を書き換えた。**「母集団を列挙した（閉じた）」は 2 回主張され、
+2 回とも主張の 1 ラウンド以内に反証された — round 12 版は自分の 3 件中 2 件が住む
+構文を宣言しておらず、round 13 版は `node` を見落とした。instrument の docstring は
+**候補を生成する**こと、表が主張するのは**実行した分だけ**であること、そして
+「開いた空間の走査を閉包と呼ぶこと」こそ本 run が他人の宣言に見つけ続けている DC5
+であることを明記する。
+
+その他:
+
+- 全スイート **2474 passed**、`ruff check .` / `ruff format --check .` /
+  `mypy lizyml/` クリーン。

@@ -8,8 +8,8 @@ PR **#278**, draft, branch `fix/phase3-pr2-fit-params-forwarding`. H-0094 /
 issue #264: `Model.fit(params=...)` was accepted, documented as overriding
 `model.params`, and forwarded nowhere.
 
-**Twelve review rounds have run. No `APPROVE` yet.** Blocking findings per
-round: **1, 1, 2, 2, 1, 3, 2, 4, 3, 2, 3, 2**, plus two the main context found
+**Thirteen review rounds have run. No `APPROVE` yet.** Blocking findings per
+round: **1, 1, 2, 2, 1, 3, 2, 4, 3, 2, 3, 2, 3**, plus two the main context found
 itself in round 12 by enumeration. Every one was reproduced before
 it was fixed and RED-verified after.
 
@@ -34,23 +34,25 @@ whatever the previous round returned.
 
 ## The next action
 
-1. **Run the rounds 12-13 relational monitor first.** It is mandatory before
-   round 13 (`policy:loop-monitor`), read-only, fresh context, via
+1. **Run the rounds 13-14 relational monitor first.** It is mandatory before
+   round 14 (`policy:loop-monitor`), read-only, fresh context, via
    `templates/review-loop-monitor-capsule.md`. Give it the numbers unsoftened
    and the two things round 12 established:
    - neither reviewer finding was in code round 11 wrote, so this is not the
      authorship pattern the maintainer rescinded;
-   - the parameter-merge seam population is enumerated by a **shipped**
-     instrument (`instruments/parameter_merge_seams.py`, 48 candidates), and the
-     rounds 11-12 monitor already found the first version's construct set too
-     narrow and named a real seam it missed. Ask the next one the same question
-     about the widened version, and tell it what happened to the last answer.
+   - round 13 is the **third consecutive round finding the next equivalence
+     class in one function** (`values_differ`: dtype, container, text grammar).
+     Ask whether the round-13 fix closes that grammar or chases it;
+   - the seam-enumeration closure claim has now been **falsified twice within a
+     round of being made** (round 12's construct set, round 13's hint words), so
+     the instrument no longer claims closure. Ask whether "candidates, and the
+     table asserts only what was executed" is an honest retitle or a retreat.
 
    Its output is a finding to reconcile, never a verdict to adopt
    (`policy:main-context-ownership`).
 
-2. **Then round 13, unscoped**, on the whole diff except `docs/`. Write the
-   prompt to `scratchpad/codex-pr2-review-prompt-r13.md` with the metadata block
+2. **Then round 14, unscoped**, on the whole diff except `docs/`. Write the
+   prompt to `scratchpad/codex-pr2-review-prompt-r14.md` with the metadata block
    the `review-loop-monitor-guard.sh` hook validates (`Review-kind` on line 1;
    round 3+ requires the relational monitor fields).
 
@@ -72,10 +74,10 @@ whatever the previous round returned.
 ## State at the time of writing
 
 - Head: the round-12 fixes, on `fix/phase3-pr2-fit-params-forwarding`.
-- Full suite **2447 passed**; `ruff check .`, `ruff format --check .`,
+- Full suite **2474 passed**; `ruff check .`, `ruff format --check .`,
   `mypy lizyml/` clean.
-- Round 12's record: `results/pr2_codex_round12.md`. Decisions:
-  `HISTORY.md` H-0094, decisions 1-8 and the decision-8 addendum. Monitor:
+- Round 13's record: `results/pr2_codex_round13.md`. Decisions:
+  `HISTORY.md` H-0094, decisions 1-9. Monitor:
   `results/pr2_monitor_round1112.md`. Open question log:
   `DECISIONS-PENDING.md` D7.
 

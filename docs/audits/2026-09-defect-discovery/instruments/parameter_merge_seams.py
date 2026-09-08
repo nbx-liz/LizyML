@@ -1,10 +1,18 @@
 """Enumerate every place one parameter dict meets another inside ``lizyml/``.
 
 The defect class this run met in most rounds is "two parameter dicts joined by
-spelling, where the estimator resolves aliases". The population is finite, so it
-is cheaper to enumerate it than to meet it once more. This scan is the
-regeneration check for the table in HISTORY.md under H-0094 decision 8: run it
-and compare, rather than trusting a table copied into prose (DC3).
+spelling, where the estimator resolves aliases". This scan is the regeneration
+check for the table in HISTORY.md under H-0094 decision 8: run it and compare,
+rather than trusting a table copied into prose (DC3).
+
+**It generates candidates. It does not close the population, and the table does
+not claim to.** That claim was made twice and falsified twice within a round of
+being made: round 12's version omitted the `d[key] = value` construct two of its
+own three defects lived in, and round 13's reviewer named
+`config/loader.py:167`, an env-override write through a cursor called `node`
+that the hint-word filter did not reach. What the table asserts is what was
+*executed*, one row at a time. Treating a scan over an open space as a closure
+is the DC5 this run keeps finding in other people's declarations.
 
     .venv/bin/python docs/audits/2026-09-defect-discovery/instruments/parameter_merge_seams.py
 
@@ -44,6 +52,14 @@ HINTS = (
     "space",
     "resolved",
     "smart",
+    # Added in round 13: `config/loader.py` walks the config with a cursor
+    # named `node`, so the env-override write `node[last] = ...` was invisible
+    # to the round-12 filter. Named by the round-13 reviewer -- the second time
+    # in two rounds that this filter was shown too narrow, which is why the
+    # claim below is "candidates", not "closed".
+    "node",
+    "cfg",
+    "config",
 )
 
 #: Helpers that are themselves the answer, so a call to one is a resolved seam.

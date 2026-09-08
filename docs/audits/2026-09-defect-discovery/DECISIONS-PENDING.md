@@ -740,3 +740,42 @@ the main context)**. Full suite **2447 passed**.
 Its prediction is recorded rather than adopted: the record predicts at least one
 finding in round 13 and does not predict `APPROVE`. The seam it called unprobed
 is no longer unprobed.
+
+### Round 13 (2026-09-08) — unscoped
+
+`REQUEST_CHANGES`, 3 findings, all production, all reproduced before anything
+was changed. Plus one non-blocking finding this round **invited**: the prompt
+asked the reviewer to break the seam-enumeration claim, and it did.
+
+Blocking per round: **1, 1, 2, 2, 1, 3, 2, 4, 3, 2, 3, 2, 3**. Full suite
+**2474 passed**.
+
+**None of the three is in code round 12 wrote.** Findings 1 and 3 are
+pre-existing readers this PR exposed by making aliases and forwarding work;
+finding 2 is in PR-authored code but the case predates round 12's step. The
+authorship pattern the maintainer rescinded still does not fire.
+
+**What the record now shows about the shape of the loop.** Round 13 is the
+**third consecutive round finding the next equivalence class in one function**
+— round 11: dtype; round 12: container; round 13: text grammar. That is the
+open-grammar shape DC1's own note warns about, and it is the thing to watch
+rather than the round count. The fix is written to close it rather than chase
+it: LightGBM's own serialiser was read (`_param_dict_to_str` joins **every**
+sequence the same way, whatever the parameter is called), the rule applied is
+that uniform one, the test executes the serialiser, and the one form not covered
+— nested grammar — is stated in the code and pinned by a case rather than left
+to be found.
+
+**The other two findings opened a construct the seam scan does not cover**: not
+"one dict meets another" but "a user-spelled dict is read under one spelling"
+(finding 1), and "LizyML and LightGBM each own a name for one parameter"
+(finding 3). Both populations were enumerated and executed — 4 literal reads, of
+which 1 was live; 2 `training.*` controls, both broken, in opposite directions.
+
+**The seam-enumeration claim is retitled, not repaired.** "The population is
+enumerated" was asserted twice and falsified twice within a round of being made.
+The instrument now says it generates *candidates*, that the table asserts only
+what was executed, and that calling a scan over an open space a closure is the
+DC5 this run keeps finding in other people's declarations.
+
+**Round 14 stays unscoped**, for the reason rounds 12 and 13 did.
