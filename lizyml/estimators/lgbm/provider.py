@@ -347,6 +347,24 @@ class LGBMProvider:
         # Resolved booster params (from fold 0)
         native = model.get_native_model()
         booster_params = getattr(native, "params", {})
+
+        def resolved(canonical: str) -> Any:
+            """The value under whichever spelling actually reached the booster.
+
+            The names below are canonical, and the booster carries whatever
+            spelling the caller wrote -- so reading them literally reported
+            nothing for a parameter that had been set. Measured: after
+            `fit(params={"eta": 0.5})` the booster trained at `learning_rate:
+            0.5` and this table listed neither name, while the same call written
+            as `learning_rate` listed it (H-0094 decision 11, review round 15,
+            reported as non-blocking and fixed because it misreports the run on
+            the very path this change exists to make work).
+            """
+            for spelling in accepted_spellings(canonical):
+                if spelling in booster_params:
+                    return booster_params[spelling]
+            return None
+
         for k in [
             "objective",
             "metric",
@@ -363,13 +381,13 @@ class LGBMProvider:
             "lambda_l2",
             "num_iterations",
         ]:
-            v = booster_params.get(k)
+            v = resolved(k)
             if v is not None:
                 rows.append({"parameter": k, "value": v})
 
         # Task-specific params
         for k in ["scale_pos_weight", "num_class"]:
-            v = booster_params.get(k)
+            v = resolved(k)
             if v is not None:
                 rows.append({"parameter": k, "value": v})
 

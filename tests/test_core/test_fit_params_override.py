@@ -349,6 +349,39 @@ def test_a_scalar_and_its_text_form_are_not_refused() -> None:
     assert seen["train_params"], "the pair was refused, or nothing trained"
 
 
+@pytest.mark.parametrize("spelling", ["learning_rate", "eta"])
+def test_params_table_reports_the_value_whatever_spelling_reached_it(
+    spelling: str,
+) -> None:
+    """The resolved-parameter table must report what the run actually used.
+
+    `params_summary` read a hardcoded list of canonical names out of the booster
+    dict by literal spelling, and the booster carries whatever spelling the
+    caller wrote. So `fit(params={"eta": 0.5})` trained at `learning_rate: 0.5`
+    and the table listed **neither name**, while the same call written as
+    `learning_rate` listed it (H-0094 decision 11, review round 15, reported
+    non-blocking).
+
+    Fixed rather than deferred because it misreports the run on the one path
+    this whole change exists to make work.
+    """
+    model = _fit({spelling: OVERRIDE_VALUE})
+    booster = model.fit_result.models[0].get_native_model()
+    trained = next(
+        line
+        for line in booster.model_to_string().splitlines()
+        if line.startswith(f"[{OVERRIDDEN}:")
+    )
+    assert str(OVERRIDE_VALUE) in trained, trained
+
+    table = model.params_table()
+    assert OVERRIDDEN in set(map(str, table.index)), (
+        f"'{spelling}' trained at {OVERRIDE_VALUE} and params_table() does not "
+        f"report {OVERRIDDEN}: {sorted(map(str, table.index))}"
+    )
+    assert table.loc[OVERRIDDEN, "value"] == OVERRIDE_VALUE
+
+
 @pytest.mark.parametrize("spelling", ["metric", "metrics", "metric_types"])
 def test_export_code_keeps_a_custom_metric_written_under_any_spelling(
     spelling: str, tmp_path: pathlib.Path
