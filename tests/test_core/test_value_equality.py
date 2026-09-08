@@ -796,6 +796,105 @@ def test_the_cross_product_covers_every_declared_behaviour() -> None:
     assert len(set(outcomes.values())) == len(outcomes), outcomes
 
 
+# ---------------------------------------------------------------------------
+# The cell the cross product above does not reach (round 16)
+# ---------------------------------------------------------------------------
+# Every case above compares an awkward value against another awkward value, so
+# `text` is never a `str` and `_comma_form_matches` returns `None` before it
+# touches an element. That is the cell the round-16 finding came out of: a
+# **string on one side and a sequence of hostile elements on the other**, which
+# is the only way to reach the two expressions that step applies to a caller's
+# element. Those are `float(element)` and `str(element)`, and they are the
+# population here.
+
+_ELEMENT_BEHAVIOURS: dict[str, tuple[str, ...]] = {
+    "__float__": ("absent", "normal", "raises"),
+    "__str__": ("normal", "raises"),
+}
+
+
+def _make_awkward_element(to_float: str, printed: str) -> object:
+    """An element whose conversions behave as named."""
+    namespace: dict[str, Any] = {}
+
+    if to_float == "normal":
+        namespace["__float__"] = lambda self: 0.5
+    elif to_float == "raises":
+        namespace["__float__"] = lambda self: (_ for _ in ()).throw(
+            RuntimeError("float failed")
+        )
+
+    if printed == "normal":
+        namespace["__str__"] = lambda self: "0.5"
+    else:
+        namespace["__str__"] = lambda self: (_ for _ in ()).throw(
+            RuntimeError("str failed")
+        )
+
+    return type("AwkwardElement", (), namespace)()
+
+
+ELEMENT_COMBINATIONS: list[tuple[str, str]] = [
+    (to_float, printed)
+    for to_float in _ELEMENT_BEHAVIOURS["__float__"]
+    for printed in _ELEMENT_BEHAVIOURS["__str__"]
+]
+
+
+@pytest.mark.parametrize(("to_float", "printed"), ELEMENT_COMBINATIONS)
+def test_the_bound_holds_with_text_on_one_side_and_a_sequence_on_the_other(
+    to_float: str, printed: str
+) -> None:
+    """The comma-form step answers, whatever the elements do to it.
+
+    Measured before the guard was widened: a ``float`` subclass whose
+    ``__float__`` raises ``RuntimeError`` came straight out of ``values_differ``
+    -- and out of ``fit()`` -- because the ``except`` named ``TypeError`` and
+    ``ValueError``. ``str`` was one line further down and unguarded entirely.
+    """
+    element = _make_awkward_element(to_float, printed)
+
+    for sequence in ([element], (element,), [element, element]):
+        for text in ("0.5", "0.5,0.5", ""):
+            for a, b in ((text, sequence), (sequence, text)):
+                result = values_differ(a, b)
+                assert isinstance(result, bool), (
+                    f"{to_float}/{printed} answered {result!r}, not a bool"
+                )
+
+
+def test_a_float_subclass_is_reached_as_an_element_not_as_a_container() -> None:
+    """The exact shape review round 16 reproduced, kept as itself.
+
+    The generated elements above are plain objects. A ``float`` subclass is a
+    different route into the same expression -- it is already a number, so
+    nothing upstream converts or rejects it -- and it is the one a caller
+    actually wrote.
+    """
+
+    class Rate(float):
+        def __float__(self) -> float:
+            raise RuntimeError("conversion unavailable")
+
+    assert values_differ("0.5", [Rate(0.5)]) is False
+    assert values_differ([Rate(0.5)], "0.5") is False
+    assert values_differ("0.25", [Rate(0.5)]) is True
+
+
+def test_the_element_cross_product_covers_every_declared_behaviour() -> None:
+    """Derived like the population above, and pinned for the same reason."""
+    declared = {name: len(values) for name, values in _ELEMENT_BEHAVIOURS.items()}
+    assert declared == {"__float__": 3, "__str__": 2}, declared
+    assert len(ELEMENT_COMBINATIONS) == 3 * 2, ELEMENT_COMBINATIONS
+
+    # `absent` and `raises` must be different paths, not two spellings of one.
+    assert not hasattr(_make_awkward_element("absent", "normal"), "__float__")
+    with pytest.raises(RuntimeError, match="float failed"):
+        float(_make_awkward_element("raises", "normal"))  # type: ignore[arg-type]
+    with pytest.raises(RuntimeError, match="str failed"):
+        str(_make_awkward_element("normal", "raises"))
+
+
 def test_identical_values_are_never_reported_as_differing() -> None:
     """The half of the bound that a no-raise assertion does not cover.
 

@@ -2298,3 +2298,218 @@ def test_the_probe_will_not_read_a_failure_before_the_writer_as_noticing(
 
     assert _probe(target, tmp_path, "unrelated") == "never-reached"
     assert calls["n"] == 2
+
+
+# ---------------------------------------------------------------------------
+# The reporting surfaces answer for the model that was fitted (round 16)
+# ---------------------------------------------------------------------------
+# Review round 15 unified `early_stopping_rounds` across four readers by making
+# `params_table` and `export_code` recompute it from the config plus the
+# model's *current* tuning result. Round 16 falsified that: `tune()` replaces
+# the tuning result and leaves the fitted adapters alone, so after `fit ->
+# tune` both surfaces reported a model that was never trained. Executing the
+# same question over the rest of `export_code`'s config-sourced arguments found
+# `validation_ratio` with the same shape, present in `develop` -- the run used
+# the tuned ratio and both surfaces reported the configured one.
+#
+# The population here is the **lifecycles**, not the one ordering that surfaced
+# the defect: a fix that changes where a value is read from has to be executed
+# over every order in which a fit and a tune can reach a report.
+
+#: A study that changes both training-managed values away from the config, so a
+#: reader taking the wrong source is visible rather than coincidentally right.
+_TRAINING_SPACE: dict[str, Any] = {
+    "early_stopping_rounds": {
+        "type": "categorical",
+        "choices": [2],
+        "category": "training",
+    },
+    "validation_ratio": {
+        "type": "categorical",
+        "choices": [0.45],
+        "category": "training",
+    },
+}
+_CONFIG_PATIENCE = 7
+_CONFIG_RATIO = 0.2
+_TUNED_PATIENCE = 2
+_TUNED_RATIO = 0.45
+
+
+def _training_report_model() -> Model:
+    cfg = make_config(
+        "binary", n_estimators=10, n_splits=2, num_threads=1, tuning_n_trials=1
+    )
+    cfg["training"]["early_stopping"] = {
+        "enabled": True,
+        "rounds": _CONFIG_PATIENCE,
+        "validation_ratio": _CONFIG_RATIO,
+    }
+    cfg["tuning"]["optuna"]["space"] = dict(_TRAINING_SPACE)
+    return Model(cfg, data=make_binary_df(n=200))
+
+
+def _reported(model: Model) -> tuple[Any, Any]:
+    """``(patience, ratio)`` as ``params_table`` reports them."""
+    table = model.params_table()
+    return (
+        table.loc["early_stopping_rounds", "value"],
+        table.loc["validation_ratio", "value"],
+    )
+
+
+def _exported(model: Model) -> tuple[Any, Any]:
+    """``(patience, ratio)`` as ``export_code`` would generate them."""
+    with mock.patch("lizyml.codegen.generator.generate_code") as generate:
+        model.export_code("not-written")
+    kwargs = generate.call_args.kwargs
+    return kwargs["early_stopping_rounds"], kwargs["validation_ratio"]
+
+
+@pytest.mark.parametrize(
+    ("lifecycle", "patience", "ratio"),
+    [
+        ("fit", _CONFIG_PATIENCE, _CONFIG_RATIO),
+        ("tune_then_fit", _TUNED_PATIENCE, _TUNED_RATIO),
+        ("fit_then_tune", _CONFIG_PATIENCE, _CONFIG_RATIO),
+    ],
+)
+def test_the_report_and_the_export_describe_the_fit_that_happened(
+    lifecycle: str, patience: int, ratio: float
+) -> None:
+    """Both surfaces answer for the fitted model, in every fit/tune order.
+
+    ``fit_then_tune`` is the one that was wrong: the adapters still hold the
+    configured patience, and both surfaces read the new study's instead.
+    ``tune_then_fit`` is the one ``validation_ratio`` was wrong in, and it was
+    wrong before this change too.
+    """
+    model = _training_report_model()
+    if lifecycle == "tune_then_fit":
+        model.tune()
+        model.fit()
+    else:
+        model.fit()
+        if lifecycle == "fit_then_tune":
+            model.tune()
+
+    # The claim is anchored to the trained adapter rather than to the expected
+    # number, so a config change cannot make this pass by coincidence.
+    assert model.fit_result.models[0].early_stopping_rounds == patience
+    assert _reported(model) == (patience, ratio)
+    assert _exported(model) == (patience, ratio)
+
+
+def test_a_later_tune_does_not_rewrite_what_the_fitted_model_reports() -> None:
+    """The reproduction from review round 16, as its own case.
+
+    Stated as a before/after on one model, because the defect was not a wrong
+    constant -- it was a report that *changed* while the fitted model did not.
+    """
+    model = _training_report_model()
+    model.fit()
+    fitted = model.fit_result.models[0]
+    before = (_reported(model), _exported(model))
+
+    model.tune()
+
+    assert model.fit_result.models[0] is fitted, "the fit was replaced, not read"
+    assert (_reported(model), _exported(model)) == before
+
+
+def test_a_loaded_model_reports_the_patience_its_adapters_carry(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The lifecycle a tuning-result-based fix would have got wrong.
+
+    ``export()`` writes the model's current tuning result, so an artifact
+    exported after ``fit -> tune`` carries an overlay that no fit consumed.
+    The patience survives that because it is read from the pickled adapter.
+
+    ``validation_ratio`` does **not**: nothing in the artifact records which
+    overlay the fit applied, so a loaded model falls back to the configured
+    ratio. That bound is stated on ``FitState.applied_training_params`` and
+    asserted here rather than left to be discovered.
+    """
+    model = _training_report_model()
+    model.fit()
+    model.tune()
+    model.export(tmp_path / "artifact")
+
+    loaded = Model.load(tmp_path / "artifact")
+
+    assert loaded.fit_result.models[0].early_stopping_rounds == _CONFIG_PATIENCE
+    assert _reported(loaded) == (_CONFIG_PATIENCE, _CONFIG_RATIO)
+    assert _exported(loaded) == (_CONFIG_PATIENCE, _CONFIG_RATIO)
+
+
+def test_the_tuned_ratio_is_the_one_the_trainer_builds_its_inner_valid_from() -> None:
+    """The other half of the ``validation_ratio`` claim: what the run did.
+
+    Reporting and training must read one definition. Asserting only on the
+    table would pass against a build that reports the tuned ratio and trains on
+    the configured one, which is the same defect with the sides swapped.
+    """
+    import lizyml.core.model as model_mod
+
+    seen: list[float] = []
+    real_factory = model_mod.make_inner_valid_factory
+
+    def spy_factory(cfg: Any) -> Any:
+        inner = real_factory(cfg)
+
+        def wrapped(ratio: float) -> Any:
+            seen.append(ratio)
+            return inner(ratio)
+
+        return wrapped
+
+    model = _training_report_model()
+    model.tune()
+    with mock.patch.object(model_mod, "make_inner_valid_factory", spy_factory):
+        model.fit()
+
+    assert seen == [_TUNED_RATIO], seen
+    assert _reported(model)[1] == _TUNED_RATIO
+
+
+def test_the_export_params_carry_the_patience_without_a_default() -> None:
+    """A defaulted ``None`` would be the DC1 shape this field exists to avoid.
+
+    "The provider did not set it" and "early stopping was off" are different
+    facts, and a default makes them the same value. Asserted on the dataclass
+    itself so the guarantee cannot be lost by editing the provider.
+    """
+    import dataclasses
+
+    from lizyml.estimators.provider import ExportParams
+
+    field = {f.name: f for f in dataclasses.fields(ExportParams)}[
+        "early_stopping_rounds"
+    ]
+    assert field.default is dataclasses.MISSING, field
+    assert field.default_factory is dataclasses.MISSING, field
+
+
+def test_a_float_subclass_that_refuses_conversion_still_trains() -> None:
+    """Review round 16, finding 2, end to end on the shipped path.
+
+    One parameter written twice -- once as a value whose ``__float__`` raises,
+    once as the comma form of the same number -- reached the duplicate-identity
+    check, which compares the two. The comparison caught ``TypeError`` and
+    ``ValueError`` only, so a ``RuntimeError`` from the caller's own value came
+    out of ``fit()`` against a docstring saying it could not.
+    """
+
+    class Rate(float):
+        def __float__(self) -> float:
+            raise RuntimeError("conversion unavailable")
+
+    model = Model(
+        make_config("binary", n_estimators=3, n_splits=2, num_threads=1),
+        data=make_binary_df(n=120),
+    )
+    model.fit(params={"learning_rate": Rate(0.5), "eta": "0.5"})
+
+    text = model.fit_result.models[0].get_native_model().model_to_string()
+    assert "[learning_rate: 0.5]" in text

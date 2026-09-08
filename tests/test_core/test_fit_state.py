@@ -97,6 +97,7 @@ class TestFitStateForMixinUnitTest:
             fit_result=_Sentinel(),  # type: ignore[arg-type]
             refit_result=None,
             tuning_result=None,
+            applied_training_params={},
             provider=_Sentinel(),  # type: ignore[arg-type]
             metrics={"raw": {}},
             y=None,
@@ -120,6 +121,7 @@ class TestFitStateForMixinUnitTest:
             "fit_result": object(),
             "refit_result": None,
             "tuning_result": None,
+            "applied_training_params": {},
             "provider": object(),
             "metrics": None,
             "y": None,
