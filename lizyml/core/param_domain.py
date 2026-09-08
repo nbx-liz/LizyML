@@ -65,9 +65,10 @@ PLAIN_SCALAR_TYPES: tuple[type, ...] = (
     float,
     str,
     # `Path()` instantiates a concrete flavour, so the exact types are listed
-    # rather than the abstract base.
-    pathlib.PurePosixPath,
-    pathlib.PureWindowsPath,
+    # rather than the abstract base. **Only the flavours of `Path`.** The
+    # serialiser tests `isinstance(val, Path)`, and a `PurePosixPath` is not a
+    # `Path` -- it was accepted here and the serialiser raised on it (review
+    # round 24).
     pathlib.PosixPath,
     pathlib.WindowsPath,
 )
@@ -189,6 +190,26 @@ def _describe(value: Any) -> str:
     return type(value).__name__
 
 
+def _written_or_refused(value: Any, write: Any) -> str:
+    """The characters ``write`` produces for ``value``, or refuse the value.
+
+    Being an accepted *type* is not the same as being a value the serialiser
+    can write. A Python ``int`` has no width, and above the interpreter decimal
+    limit ``str`` of one raises rather than returning digits -- so ``10 ** 5000``
+    was accepted here, passed the assertion before training, and made LightGBM
+    raise from inside (review round 24). Asking for the characters is the only
+    way to know there are any.
+    """
+    try:
+        written: str = write(value)
+    except Exception as unwritable:  # noqa: BLE001 - the answer is the refusal
+        raise _Unaccepted(
+            value,
+            f"the estimator cannot be sent it: {type(unwritable).__name__}",
+        ) from None
+    return written
+
+
 def _plain_scalar(value: Any) -> Any:
     """The plain stand-in for a value in the serialiser's *scalar* position.
 
@@ -196,6 +217,8 @@ def _plain_scalar(value: Any) -> Any:
     preserves it for every dtype measured (see the wire-preservation test).
     """
     if _is_one_of(value, PLAIN_SCALAR_TYPES):
+        if value is not None:
+            _written_or_refused(value, lambda item: format(item, ""))
         return value
     if _is_one_of(value, NUMPY_SCALAR_TYPES):
         # Read **before** the conversion. A value asked the same question twice
@@ -206,7 +229,7 @@ def _plain_scalar(value: Any) -> Any:
         # that any more -- the type set holds only types numpy exports -- but
         # reading first is free, and a check whose correctness depends on the
         # other check having worked is not a second defence.
-        written = format(value, "")
+        written = _written_or_refused(value, lambda item: format(item, ""))
         plain = value.item()
         if not _is_one_of(plain, PLAIN_SCALAR_TYPES):
             raise _Unaccepted(
@@ -238,6 +261,10 @@ def _plain_element(value: Any) -> Any:
     back. Where no plain value prints that text, this refuses.
     """
     if _is_one_of(value, PLAIN_SCALAR_TYPES):
+        # `str`, because that is the element formatter, and for the same reason
+        # as in scalar position: an accepted type is not by itself a value the
+        # serialiser can write.
+        _written_or_refused(value, str)
         return value
     if _is_one_of(value, NUMPY_SCALAR_TYPES):
         text = str(value)

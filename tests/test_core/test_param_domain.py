@@ -701,6 +701,63 @@ def test_the_written_form_is_read_before_the_conversion(
     assert "0.9" in exc.value.user_message
 
 
+def test_an_accepted_type_is_not_by_itself_a_writable_value() -> None:
+    """Review round 24. Being in the accepted set is a claim about the type.
+
+    Two values were accepted, passed the assertion before training, and then
+    made LightGBM raise from inside:
+
+    * a ``PurePosixPath``, because the serialiser tests ``isinstance(val,
+      Path)`` and a pure path is not a ``Path``;
+    * ``10 ** 5000``, because a Python ``int`` has no width and ``str`` of one
+      above the interpreter decimal limit raises rather than returning digits.
+
+    The contract is that an accepted value serialises. So the characters are
+    **asked for** at the surface rather than assumed from the type.
+    """
+    from lightgbm.basic import _param_dict_to_str
+
+    for value in (pathlib.PurePosixPath("f.json"), pathlib.PureWindowsPath("f.json")):
+        assert not isinstance(value, pathlib.Path), (
+            "this pure path is now a Path; the witness needs rewriting"
+        )
+        with pytest.raises(LizyMLError) as exc:
+            normalise_params({"forcedsplits_filename": value}, surface="probe")
+        assert exc.value.code is ErrorCode.CONFIG_INVALID
+
+    huge = 10**5000
+    with pytest.raises(ValueError):
+        str(huge)
+    with pytest.raises(LizyMLError) as exc:
+        normalise_params({"num_leaves": huge}, surface="probe")
+    assert exc.value.code is ErrorCode.CONFIG_INVALID
+    with pytest.raises(LizyMLError):
+        normalise_params({"feature_contri": [huge]}, surface="probe")
+
+    # The values either side of each boundary still pass, so the refusal is the
+    # narrow one it claims to be.
+    for accepted in (pathlib.Path("f.json"), 10**400):
+        params = normalise_params({"forcedsplits_filename": accepted}, surface="probe")
+        assert _param_dict_to_str(params)
+
+
+def test_every_path_type_accepted_is_one_the_serialiser_accepts() -> None:
+    """Derived from the serialiser own test, rather than from what looks right.
+
+    ``_param_dict_to_str`` writes a scalar when ``isinstance(val, (str, Path,
+    ...))``. Listing a path type here that is not a ``Path`` puts a value in
+    the accepted set that cannot be written -- which is what happened.
+    """
+    paths = [kind for kind in PLAIN_SCALAR_TYPES if issubclass(kind, pathlib.PurePath)]
+    assert paths, "no path type is accepted; the serialiser still names Path"
+    for kind in paths:
+        assert issubclass(kind, pathlib.Path), (
+            f"{kind.__name__} is accepted here but the serialiser writes only "
+            "flavours of Path"
+        )
+    assert type(pathlib.Path("f.json")) in paths
+
+
 def test_membership_is_identity_and_not_the_callers_own_equality() -> None:
     """``type(x) in <set>`` was never identity, and a metaclass proved it.
 

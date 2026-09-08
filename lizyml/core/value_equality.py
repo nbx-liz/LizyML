@@ -91,14 +91,24 @@ def _comma_form_matches(text: Any, sequence: Any) -> bool | None:
         try:
             if float(part) == float(element):
                 continue
+            printed = str(element)
         except (TypeError, ValueError, OverflowError):
             # `OverflowError` too: an `int` has no width in Python, so `10**400`
             # is an ordinary accepted value whose `float()` cannot exist. Review
             # round 21 measured it escaping a function declared total over the
             # accepted set -- the declaration was right and the code was one
             # exception short of it.
-            pass
-        if part.strip() != str(element).strip():
+            printed = None
+        if printed is None:
+            try:
+                printed = str(element)
+            except (TypeError, ValueError):
+                # `str` of a very large `int` raises rather than returning
+                # digits. The surface refuses such a value, so this is the
+                # belt to that braces -- but a function declaring totality
+                # should not depend on the other end having worked.
+                return None
+        if part.strip() != printed.strip():
             return False
     return True
 
