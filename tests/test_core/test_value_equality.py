@@ -161,6 +161,19 @@ CASES: list[tuple[str, object, object, bool]] = [
     ("a bare word and a two-element list", "auc", ["auc", "logloss"], True),
     ("a comma form of words and its list", "a,b", ["a", "b"], False),
     ("a nested comma form and its list", "[0,1],[2]", [[0, 1], [2]], True),
+    ("a comma form and its array", "1.0,2.0", np.array([1.0, 2.0]), False),
+    ("a comma form and an int array", "1,2", np.array([1, 2]), False),
+    ("a comma form and its series", "1.0,2.0", pd.Series([1.0, 2.0]), False),
+    ("a scalar and its text", 0.5, "0.5", False),
+    ("an int and its text", 100, "100", False),
+    ("a scalar and a different text", 0.5, "0.7", True),
+    ("a scalar and a two-element comma form", 0.5, "0.5,0.5", True),
+    # Excluded on purpose, not overlooked: a set has no order and every
+    # sequence parameter here is positional. See `_wire_elements`.
+    ("a set and the list it prints like", {1.0, 2.0}, [1.0, 2.0], True),
+    # `_param_dict_to_str` skips a `None` entirely -- it means "not sent",
+    # which is not the string LightGBM would read as a value.
+    ("none and the text of none", None, "None", True),
     ("equal series", pd.Series([1.0, 2.0]), pd.Series([1.0, 2.0]), False),
     ("equal strings", "binary", "binary", False),
     ("different strings", "binary", "regression", True),
@@ -310,6 +323,72 @@ def test_the_summarisation_cases_actually_reach_summarisation() -> None:
     assert not hasattr(left, "tolist"), (
         "a DataFrame gaining `tolist` would move it out of the printed-form "
         "fallback, which is the only case left that reaches that cost"
+    )
+
+
+def test_every_type_the_serialiser_joins_is_covered() -> None:
+    """The claim quantified over the type set, not over the one type reached.
+
+    The round-13 fix said it closed the "same value, another written form"
+    class. It closed **one of the four types** its own docstring named: it asked
+    `isinstance(sequence, list)`, and an ndarray and a Series are not
+    `collections.abc.Sequence`, and a scalar is not a sequence at all. The
+    rounds 12-13 monitor found that by execution after the claim was made
+    (H-0094 decision 9).
+
+    So the test is written the way the claim should have been checked in the
+    first place: **LightGBM's own serialiser is the oracle**, and every form is
+    put through it. Where two values produce the same wire string, they are one
+    value and `values_differ` must say so.
+
+    `set` is the one exclusion, asserted here as an exclusion rather than left
+    to look like a gap: LightGBM does join a set, but a set has no order and
+    `feature_contri` reads element *i* as feature *i*, so two sets printing
+    alike did so by hash accident.
+    """
+    basic = pytest.importorskip("lightgbm.basic")
+
+    # A Series is deliberately absent: LightGBM does not join it, it *refuses*
+    # it. Asserted rather than assumed, because "which types the serialiser
+    # accepts" is exactly the external fact this test exists to execute.
+    with pytest.raises(TypeError, match="Unknown type of parameter"):
+        basic._param_dict_to_str({"p": pd.Series([1.0, 2.0])})
+
+    covered = [
+        [1.0, 2.0],
+        (1.0, 2.0),
+        np.array([1.0, 2.0]),
+        np.array([1, 2]),
+        "1.0,2.0",
+    ]
+    for value in covered:
+        for other in covered:
+            same_wire = basic._param_dict_to_str(
+                {"p": value}
+            ) == basic._param_dict_to_str({"p": other})
+            if not same_wire:
+                # The wire form is not canonical -- `[1, 2]` joins to "1,2" and
+                # `[1.0, 2.0]` to "1.0,2.0" -- so equal wires are sufficient for
+                # sameness, not necessary. Only the sufficient direction is
+                # asserted; the elementwise comparison covers the rest, and the
+                # case table above pins it.
+                continue
+            assert not values_differ(value, other), (
+                f"{value!r} and {other!r} reach LightGBM as the identical "
+                "string and were reported as two values"
+            )
+
+    scalar_forms = [0.5, "0.5"]
+    assert basic._param_dict_to_str({"p": 0.5}) == basic._param_dict_to_str(
+        {"p": "0.5"}
+    )
+    assert not values_differ(*scalar_forms)
+
+    a_set = {1.0, 2.0}
+    assert basic._param_dict_to_str({"p": a_set}), "LightGBM no longer joins a set"
+    assert values_differ(a_set, [1.0, 2.0]), (
+        "a set is excluded on purpose; if this is ever changed, the ordering "
+        "question has to be answered first"
     )
 
 

@@ -72,6 +72,45 @@ def _as_plain_sequence(value: Any) -> Any:
         return value
 
 
+def _wire_elements(value: Any) -> list[Any] | None:
+    """The elements LightGBM would join for this value, or ``None`` for neither.
+
+    ``_param_dict_to_str`` writes a joined list for a ``list``, ``tuple``,
+    ``set`` or 1-D ndarray and ``str(val)`` for a scalar, so a value's wire form
+    is a sequence of elements either way -- a scalar being a sequence of one.
+    This returns those elements so the comparison against a text form is the
+    same question for every type.
+
+    An earlier form of this asked ``isinstance(sequence, list)``, and reached
+    **one of the four types its own docstring named**: an ndarray and a Series
+    are not ``collections.abc.Sequence``, so nothing normalised them before the
+    comma step, and a scalar is not a sequence at all. Measured at that point,
+    with LightGBM's own serialiser producing the byte-identical wire string for
+    every pair (H-0094 decision 9, found by the rounds 12-13 monitor after the
+    round-13 fix claimed to close the class):
+
+    ``np.array([1., 2.])`` with ``"1.0,2.0"``, and ``0.5`` with ``"0.5"``, were
+    both refused.
+
+    ``set`` and ``frozenset`` are **deliberately excluded**, and that is not the
+    same oversight. LightGBM does join them, but a set has no order, and every
+    parameter that takes a sequence here is positional -- ``feature_contri``
+    reads element *i* as feature *i*. Two sets that print alike did so by
+    iteration accident, and treating that as a value would make the answer
+    depend on hash order. ``None`` is excluded too, because ``_param_dict_to_str``
+    skips a ``None`` entirely: it means "not sent", which is not the string
+    ``"None"``.
+    """
+    plain = _as_plain_sequence(_as_plain_python(value))
+    if isinstance(plain, list):
+        return plain
+    if plain is None or isinstance(
+        plain, (str, bytes, bytearray, set, frozenset, dict)
+    ):
+        return None
+    return [plain]
+
+
 def _comma_form_matches(text: Any, sequence: Any) -> bool | None:
     """Compare a comma-separated text against a sequence, elementwise.
 
@@ -101,14 +140,18 @@ def _comma_form_matches(text: Any, sequence: Any) -> bool | None:
         needs a parser over a grammar LightGBM may extend -- the open-grammar
         shape that turns a comparison into a silent miscount. Those two are
         reported as differing, and a caller who means one thing writes it in
-        one form.
+        one form. Which types are joined at all is ``_wire_elements``, and the
+        two exclusions there are stated for the same reason.
     """
-    if not isinstance(text, str) or not isinstance(sequence, list):
+    if not isinstance(text, str):
+        return None
+    elements = _wire_elements(sequence)
+    if elements is None:
         return None
     parts = text.split(",")
-    if len(parts) != len(sequence):
+    if len(parts) != len(elements):
         return False
-    for part, element in zip(parts, sequence, strict=True):
+    for part, element in zip(parts, elements, strict=True):
         if isinstance(element, (list, tuple, dict, set)):
             return None  # nested: not this step's grammar
         try:

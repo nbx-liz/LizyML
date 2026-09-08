@@ -294,6 +294,61 @@ def test_two_spellings_of_one_value_in_calibration_params_are_accepted() -> None
     assert seen["train_params"], "the call was refused, or nothing trained"
 
 
+@pytest.mark.parametrize(
+    "written,as_text",
+    [
+        ([1.0, 2.0], "1.0,2.0"),
+        ((1.0, 2.0), "1.0,2.0"),
+        (np.array([1.0, 2.0]), "1.0,2.0"),
+        (np.array([1, 2]), "1,2"),
+    ],
+)
+def test_a_value_and_its_text_form_are_not_refused(
+    written: object, as_text: str
+) -> None:
+    """Quantified over every type LightGBM joins, not over the one first fixed.
+
+    Round 13 closed this for a `list` and claimed the class. The rounds 12-13
+    monitor then executed the other three types and found them still refused --
+    with LightGBM's own serialiser producing the byte-identical wire string for
+    each pair (H-0094 decision 9).
+
+    The pair is asserted to train **and** to be the same value on the wire, so
+    a future change that makes one of them stop reaching LightGBM cannot leave
+    this test passing on the strength of the refusal alone.
+    """
+    basic = pytest.importorskip("lightgbm.basic")
+    assert basic._param_dict_to_str({"p": written}) == basic._param_dict_to_str(
+        {"p": as_text}
+    ), "the two forms no longer reach LightGBM as one string"
+
+    cfg = make_config("binary", n_estimators=3, n_splits=2)
+    cfg["model"]["params"]["feature_contri"] = written
+    cfg["model"]["params"]["feature_penalty"] = as_text
+
+    with record_lightgbm_calls() as seen:
+        Model(cfg, data=make_binary_df(n=160)).fit()
+
+    assert seen["train_params"], "the pair was refused, or nothing trained"
+
+
+def test_a_scalar_and_its_text_form_are_not_refused() -> None:
+    """The same argument where the value is not a sequence at all.
+
+    `_param_dict_to_str` writes `str(val)` for a scalar, so `0.5` and `"0.5"`
+    reach LightGBM identically. The first version of the fix asked whether the
+    other side was a `list`, so a scalar never reached the comparison.
+    """
+    cfg = make_config("binary", n_estimators=3, n_splits=2)
+    cfg["model"]["params"][OVERRIDDEN] = OVERRIDE_VALUE
+    cfg["model"]["params"]["eta"] = str(OVERRIDE_VALUE)
+
+    with record_lightgbm_calls() as seen:
+        Model(cfg, data=make_binary_df(n=160)).fit()
+
+    assert seen["train_params"], "the pair was refused, or nothing trained"
+
+
 @pytest.mark.parametrize("spelling", ["metric", "metrics", "metric_types"])
 def test_export_code_keeps_a_custom_metric_written_under_any_spelling(
     spelling: str, tmp_path: pathlib.Path
