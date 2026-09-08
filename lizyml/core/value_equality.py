@@ -143,24 +143,36 @@ def _comma_form_matches(text: Any, sequence: Any) -> bool | None:
         ===========================  ========  ==================================
         expression                   owner     how it is closed
         ===========================  ========  ==================================
-        ``str.split(text, ",")``     caller    base method, unbound
+        ``isinstance(text, str)``    caller    **not closed** -- see below
+        ``str(text)``                caller    ``try``
+        ``str.split(text, ",")``     derived   base method, unbound
         ``float(element)``           caller    ``try``
         ``str(element)``             caller    ``try``
         ``str.strip(part)``          derived   base method, unbound
         ``str.strip(printed)``       derived   base method, unbound
         ``float(part)``              ours      ``part`` is an exact ``str``
-        ``len``, ``zip``,
-        ``isinstance``               ours      real lists and types
+        ``len``, ``zip``             ours      real lists
         ===========================  ========  ==================================
 
-        Enumerating that table is the repair; two rounds running found the
+        ``isinstance`` reads ``__class__``, which a caller can define to raise,
+        and **no guard here would help**: the serialiser reads it too. Measured,
+        ``_param_dict_to_str`` on a value with a raising ``__class__`` raises
+        the caller's own exception, so such a value never reaches ``lgb.train``
+        under any spelling and there is no pair to admit. That is why the bound
+        on ``values_differ`` is stated relative to the serialiser rather than
+        over every Python object -- see there (H-0094 decision 15).
+
+        Enumerating this table is the repair, and three rounds running found the
         expression the previous round had not thought of. Round 16: narrowing
         ``float(element)`` to ``TypeError`` and ``ValueError`` was enough for
         every value anyone had thought of, and a ``float`` subclass whose
         ``__float__`` raises ``RuntimeError`` made ``fit`` raise where it had
         trained. Round 17: the guards covered the **element** operand and not
         the **text** one, and a ``str`` subclass whose ``split`` raises did the
-        same thing (H-0094 decisions 13 and 14).
+        same. Round 18: the unbound call that fixed round 17 reads ``type()``
+        while the admission test reads ``__class__``, and a proxy that trains
+        under either spelling alone was refused as a pair (decisions 13, 14
+        and 15).
 
     Note:
         **Only the flat grammar.** ``interaction_constraints`` accepts nested
@@ -176,6 +188,19 @@ def _comma_form_matches(text: Any, sequence: Any) -> bool | None:
     elements = _wire_elements(sequence)
     if elements is None:
         return None
+    # `isinstance` reads `__class__`; the unbound descriptor below reads
+    # `type()`. Those disagree for a **proxy** -- an object that is not a `str`
+    # but answers `__class__` with one -- and the serialiser sides with
+    # `isinstance`: measured, `_param_dict_to_str({"learning_rate": proxy})`
+    # emits `learning_rate=0.5`, so the proxy is a value LightGBM trains on and
+    # this step must compare it rather than fall over. Normalising through
+    # `str()` is what the serialiser itself then does to it (H-0094 decision
+    # 15, review round 18).
+    if type(text) is not str:
+        try:
+            text = str(text)
+        except Exception:  # noqa: BLE001 - a proxy may fail to print
+            return None
     # `str.split` and `str.strip` unbound, not `text.split` and `part.strip`:
     # a `str` **subclass** is still a `str`, and its overrides run on attribute
     # access. Calling the base method cannot be overridden, and it returns
@@ -322,14 +347,32 @@ def values_differ(first: Any, second: Any) -> bool:
     ``(1.0, 2.0)`` -- which is why the normalisation is a step of its own rather
     than a widening of the conversion.
 
-    **This function does not raise an ``Exception``.** Step 5 is what makes that
-    true by construction rather than by having thought of enough value types.
-    Every expression that touches a caller's value is either inside a ``try`` or
-    calls the base type's method unbound, so a subclass override cannot run at
-    all -- the two closures, one per column of the table on
-    ``_comma_form_matches``. The second exists because a ``try`` around a
-    subclass method would *refuse* a legitimate pair instead of comparing it,
-    which is the other half of the defect this module exists to prevent. A
+    **This function does not raise an ``Exception`` on any value the serialiser
+    accepts, and admits any pair the serialiser would treat as one value.**
+
+    The bound is stated relative to ``_param_dict_to_str`` rather than over
+    every Python object, and that is decision 15's correction rather than a
+    weakening. "Raises on nothing at all" is not satisfiable: a caller can
+    define ``__getattribute__`` or ``__class__`` to raise, and then *any*
+    expression fails. It is also not the useful claim. This function exists to
+    decide whether two spellings are one LightGBM parameter, so the values that
+    matter are exactly the ones LightGBM would train on -- and the serialiser is
+    the authority on which those are. Measured: a value whose ``__class__``
+    raises makes ``_param_dict_to_str`` itself raise, so it never reaches
+    ``lgb.train`` under any spelling and there is no pair to admit. Three
+    consecutive review rounds found the next unguarded expression under the old
+    open-ended wording, which is DC7 on the declaration itself.
+
+    Both halves are load-bearing, and the second is what round 18 cost: a
+    ``try`` that turns a caller's exception into a refusal satisfies "does not
+    raise" while rejecting a pair the serialiser joins, which is the other half
+    of the defect this module exists to prevent.
+
+    Step 5 makes the first half true by construction rather than by having
+    thought of enough value types. Every expression that touches a caller's
+    value is either inside a ``try`` or calls the base type's method unbound, so
+    a subclass override cannot run at all -- the two closures in the table on
+    ``_comma_form_matches``. A
     ``BaseException`` a caller's value raises -- ``KeyboardInterrupt`` and
     ``SystemExit`` are the ones that matter -- is **not** caught and propagates
     on purpose: swallowing those would make a hung comparison uninterruptible,
