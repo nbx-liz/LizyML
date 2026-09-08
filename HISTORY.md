@@ -8456,3 +8456,97 @@ RED harness 側も同じ形の誤りだった: 移動した代入を**削除**�
 （テストが直前の成功呼び出しの残りを読んでしまう）。両方とも元の位置へ**戻す**形にした。
 
 全スイート **2592 passed**。
+
+### 決定 15: 充足不能だったのは宣言のほうだった（review round 18、範囲限定）
+
+round 18 は**修正箇所に限定して**開いた。rounds 15-16 / 16-17 の monitor が 2 回連続で
+`DRIFTING` / `escalate` を返し、2 回目が「同じことを繰り返して今度はうまくいく、とは
+言えない」と明言したため、round 18 を開かずに管理者の判断を仰いだ結果である。判断は
+**「修正箇所に絞って開く」** — round 5 で管理者自身が出した第 4 の選択肢と同じ形。
+
+#### 範囲限定ラウンドが取りに行った成果は、実際に得られた
+
+**round 17 の状態公開の修正は、正面から攻撃されて持ちこたえた。** 3 ラウンドぶりに、
+修正が clean で返ってきた最初の例である。
+
+> CV 学習 / calibration / evaluation / full-data refit に失敗を注入。grouped fit
+> フィールド 6 個すべてが従前のオブジェクト同一性を保持。`_run_tune_round` と
+> `_assemble_tuning_result` での tune 失敗でも、検査した 12 フィールドすべて保持。
+> 成功パスでの属性アクセスも計測し、6 フィールドは実行中に読まれないことを確認。
+
+出荷した計測器も実行され、数字が完全に再現された（64 cells / 54 agree / 2 known-bound
+/ 8 n/a / exit 0）。新しい回帰ケースは mutation test にかけられ、各々が「固定すると
+主張している本番行」を実際に検出することが確認された。
+
+#### 指摘は 1 件、そして**それは D7 authorship の 3 ラウンド連続発火**（`d83af2b`）
+
+round 17 は `str.split` を unbound で呼ぶことでサブクラスの override を封じた。だが
+**`isinstance` は `__class__` を読み、unbound descriptor は `type()` を読む**。
+両者が食い違うのが **proxy**（`str` ではないが `__class__` に `str` を返す）である。
+
+```
+単独ではどちらも学習、booster 同一 : True
+組にすると                        : TypeError: descriptor 'split' ...
+```
+
+round 17 の指摘は「比較すべきところで**送出した**」。今回はその鏡像で「比較すべきところで
+**拒否した**」。bound の両半分とも効いており、round 17 の修正は前者を買って後者を売った。
+
+#### 根本原因は guard ではなく**宣言**だった
+
+reviewer は non-blocking として「`__class__` が raise する値は `isinstance` の時点で
+bound を破り、それは `04f3930` でも同じだった」と報告した。これが 3 ラウンド続いた理由を
+説明する: 宣言
+
+> *この関数は `Exception` を送出しない*
+
+は**あらゆる Python オブジェクト**を量化しており、**どんな実装でも充足できない**
+（`__getattribute__` や `__class__` を raise させれば任意の式が落ちる）。
+**これは宣言そのものに対する DC7 である。** だから毎ラウンド新しい dunder が見つかった。
+
+#### module 自身が名指ししている権威に訊いた
+
+docstring は `_param_dict_to_str` を値等価性の権威として既に名指ししている。推論ではなく
+実行した:
+
+```
+Proxy (isinstance は str、type は違う)  -> 'learning_rate=0.5'
+Rate (__class__ が raise)              -> RuntimeError: class unavailable
+Text (素の str サブクラス)              -> 'learning_rate=0.5'
+0.5                                    -> 'learning_rate=0.5'
+
+type(str(Text('0.5')))          : str
+type(str(SelfPrinting('0.5')))  : SelfPrinting
+str.split はサブクラスを受ける   : ['0.5']
+```
+
+- **proxy は admit しなければならない。** serialiser が `learning_rate=0.5` を出す以上、
+  LightGBM が学習する値である。`text` は unbound 呼び出しの前に `str()` で正規化する
+  （serialiser 自身がそれに対して行うのと同じ操作）。
+- **`__class__` が raise する値は bound の外であり、どんな guard でも変わらない。**
+  serialiser 自体が呼び出し側の例外を投げるので、その値はどの綴りでも `lgb.train` に
+  届かず、admit すべき組が存在しない。
+
+**bound を serialiser 相対に書き換えた:**
+
+> *serialiser が受理する値については `Exception` を送出せず、serialiser が 1 つの値と
+> みなす組は admit する。*
+
+これは**閉じた、実行可能な母集団**である。旧来の宣言は開いており、3 ラウンドはそこに
+費やされた。`_comma_form_matches` の式の表には `isinstance` を「**ここでは閉じない**」
+という closure で 1 行加え、理由を書いた。
+
+#### テストを「列挙」から「オラクルとの関係」に変えた
+
+生成した cross product に対する `isinstance(result, bool)` は列挙であり、列挙こそが
+古び続けたものである。text 側に `__class__` 軸（`normal` / `proxy` / `raises`）を加えて
+108 通りにし、主張を**オラクルとの関係**にした:
+
+> `values_differ` が送出するのは、`_param_dict_to_str` が送出するときだけである。
+
+さらに「関係が空虚でないこと」を確かめる相棒テストを置いた。前件が一度も成立しない関係は
+どんな実装でも満たされる — **列挙から逃げるために書いたテストの中の DC6** である。
+
+宣言個数の guard は、新しい軸を初回実行で捕まえた（設計通り）。
+
+全スイート **2666 passed**、grid exit 0。
