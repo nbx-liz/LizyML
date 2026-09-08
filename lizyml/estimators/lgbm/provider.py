@@ -27,6 +27,7 @@ from lizyml.estimators.lgbm.defaults import (
 from lizyml.estimators.lgbm.param_names import (
     LGBM_CANONICAL_NAME,
     LGBM_PARAM_NAMES,
+    accepted_spellings,
 )
 from lizyml.estimators.lgbm.smart_params import (
     resolve_ratio_params,
@@ -470,7 +471,23 @@ def _extract_feval_metadata(
     from lizyml.estimators.lgbm.metric_bridge import _FEVAL_METRICS
     from lizyml.metrics.registry import get_metric, parse_metric_entries
 
-    user_metric = adapter.params.get("metric")
+    # Read by identity, not by the literal spelling. `adapter.params` is the
+    # caller's dict, so it carries whatever spelling was written -- and
+    # `_build_params` already reads the metric with `_pop_by_identity`, so a
+    # literal read here disagreed with the code that trained. Measured before
+    # this: `fit(params={"metrics": "brier"})` evaluated Brier correctly and
+    # exported `metric="None"` with no evaluation function, and the generated
+    # `train_lgbm` then refused to run at all -- "at least one dataset and eval
+    # metric is required" (H-0094 decision 9, review round 13). Not popped:
+    # this is a read of a dict the caller still owns.
+    user_metric = next(
+        (
+            adapter.params[spelling]
+            for spelling in accepted_spellings("metric")
+            if adapter.params.get(spelling)
+        ),
+        None,
+    )
     if not user_metric:
         return []
 
