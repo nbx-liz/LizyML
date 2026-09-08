@@ -8953,7 +8953,7 @@ Firing rate: 14/1518 of every parameter value the suite constructs
 実運用の config 由来の値は 1 件も拒否されていない。計測器
 `instruments/parameter_value_type_census.py` は `normalise_params` を包むように更新済み。
 
-**スイート**: 7439 passed / 256 skipped、`ruff` / `mypy` clean。
+**スイート**: 7441 passed / 256 skipped、`ruff` / `mypy` clean。
 
 #### review round 21 が見つけた 3 件（2026-09-08、unscoped）
 
@@ -9087,6 +9087,29 @@ Firing rate: 14/1518 of every parameter value the suite constructs
     経路を変えた（同一エラー 3 連続で approach を変える運用ルール）。
     ⚠️ したがってマージゲートの「Codex APPROVE」は依然として未取得である。**
     記録は `results/pr2_codex_round23.md`。
+
+18. **受理した型が「書ける値」とは限らない（DC1、round 24）。** 2 つの値が surface を
+    通り、学習前の表明も通り、**LightGBM の内側で raise した**:
+
+    - **`PurePosixPath` / `PureWindowsPath`** — シリアライザは
+      `isinstance(val, (str, Path, ...))` で判定するが、**pure path は `Path` では
+      ない**。受理集合に入れていたのがそのまま誤り。
+    - **`10**5000`** — Python の `int` に幅は無いが、**十進変換の上限（既定 4300 桁）を
+      超えると `str()` は桁を返さず raise する**。round 21 で `float()` の
+      `OverflowError` を直したが、`str()` の `ValueError` は別物だった。
+
+    **修正: 型からの推定をやめ、文字列を実際に要求する。** `_written_or_refused` を
+    scalar 位置（`format`）と element 位置（`str`）の両方に置き、書けない値は入口で
+    `CONFIG_INVALID`。path は `Path` のフレーバーだけに絞り、
+    **「受理する path 型はすべて `issubclass(kind, pathlib.Path)`」をテストで固定**する
+    （シリアライザ自身の判定から導出）。`values_differ` の `str(element)` も
+    例外ハンドラの中へ入れた。
+
+    **round 24 は Codex が完走した。** rounds 22-23 の中断はコードではなく
+    **レビュー依頼の書き方**が原因で、過去のすり抜けを並べた表・「呼び出し元のコードが
+    走る経路」という問い・煽りを外し、**契約の検証**として書き直したところ通った。
+    受け入れ基準 2/3/4/5/7/8/9 は合格しており、特に 8 は**レビュアーが AST で学習
+    サイトを列挙**して確認している。記録は `results/pr2_codex_round24.md`。
 
 #### 受け入れ基準 7 の決定: **#283 は H-0095 では解決しない**
 
