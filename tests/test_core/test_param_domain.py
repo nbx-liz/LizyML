@@ -419,8 +419,15 @@ def test_the_refused_subset_is_exactly_the_declared_boundary() -> None:
     )
     reasons = {_refusal_reason(value) for value in REFUSED_POPULATION}
     assert None not in reasons, "a refusal with no declared reason"
-    assert reasons == set(REFUSAL_REASONS), (
-        f"a declared reason nothing reaches: {set(REFUSAL_REASONS) - reasons}"
+    assert reasons <= set(REFUSAL_REASONS), reasons
+    # The two reasons that are properties of this module rather than of the
+    # numpy build. The third -- no plain value prints the same text -- depends
+    # on how numpy chooses to print a reduced-precision float, and on an older
+    # numpy no probed value reaches it. Requiring it unconditionally is how
+    # this file went red on two CI lanes while passing here.
+    version_independent = {REFUSAL_REASONS[1], REFUSAL_REASONS[2]}
+    assert version_independent <= reasons, (
+        f"a version-independent reason nothing reaches: {version_independent - reasons}"
     )
 
 
@@ -741,19 +748,30 @@ def test_a_set_is_refused_rather_than_ordered_by_hash() -> None:
 def test_a_list_nested_deeper_than_the_serialiser_reads_is_refused() -> None:
     """Depth 2 is where ``_to_string`` stops, and the boundary is where it stops.
 
-    At depth 3 the members are written by Python's own list repr, and a
-    normalised member prints differently from the value the caller wrote --
-    executed here rather than argued, because the argument is what a reviewer
-    cannot check.
-    """
-    deep = [[[np.float32(0.1)]]]
-    assert _wire(deep) == "[[np.float32(0.1)]]"
-    assert _wire([[[0.1]]]) == "[[0.1]]"
+    ``_to_string`` writes a ``list`` member as its own members joined with
+    commas, and writes **those** with ``str``. A third level is written by
+    Python own list repr instead, which LightGBM does not read back and which
+    prints its members by ``repr``.
 
-    with pytest.raises(LizyMLError):
-        normalise_params({"interaction_constraints": deep}, surface="probe")
-    with pytest.raises(LizyMLError):
-        normalise_params({"interaction_constraints": [[[1, 2]]]}, surface="probe")
+    The refusal is unconditional; the *sharpest* justification for it is not.
+    On a numpy that reprs a scalar as ``np.float32(0.1)``, normalising a
+    depth-3 value changes the bytes outright -- and that is asserted where it
+    is true rather than written as a literal, because a literal of it went red
+    on the CI lanes carrying an older numpy.
+    """
+    deep_numpy = [[[np.float32(0.1)]]]
+    deep_plain = [[[0.1]]]
+
+    if repr(np.float32(0.1)) != repr(0.1):
+        assert _wire(deep_numpy) != _wire(deep_plain), (
+            "this numpy reprs a scalar distinctly, so normalising depth 3 must "
+            "change the bytes"
+        )
+
+    for value in (deep_numpy, deep_plain):
+        with pytest.raises(LizyMLError) as exc:
+            normalise_params({"interaction_constraints": value}, surface="probe")
+        assert exc.value.code is ErrorCode.CONFIG_INVALID
 
 
 # ---------------------------------------------------------------------------
@@ -853,23 +871,45 @@ def test_every_rejected_parameter_is_reported_not_only_the_first() -> None:
 
 
 def test_a_value_with_no_plain_stand_in_is_refused_rather_than_rounded() -> None:
-    """The one place the accepted set is narrower than "every numpy dtype".
+    """The one place the accepted set is narrower than every numpy dtype.
 
-    ``str(numpy.float32(1e8))`` is ``1e+08`` and no Python float prints that, so
-    an element of that value has no stand-in. Converting it anyway -- with
-    ``.tolist()``, the obvious choice -- sends ``100000000.0`` instead, which is
-    a different number of characters for LightGBM to parse and, for
-    ``float32(0.1)``, a different number. Refusing is the half of that trade
-    this PR is allowed to fall on.
+    Some reduced-precision floats print in a form no plain Python number
+    prints. Converting one anyway -- with ``.tolist()``, the obvious choice --
+    sends different characters for LightGBM to parse and, for ``float32(0.1)``,
+    a different number. Refusing is the half of that trade this PR is allowed
+    to fall on.
+
+    **Which values those are depends on the numpy version**, because it is
+    numpy choosing the exponent form, so the witness is *found* rather than
+    written down. An assertion on the literal ``1e+08`` passed here and failed
+    on the two CI lanes carrying an older numpy -- the derived-versus-copied
+    distinction this file argues for everywhere else, applied to itself.
     """
-    hostile = np.array([1e8], dtype=np.float32)
-    assert _wire(hostile) == "1e+08"
-    assert _wire(hostile.tolist()) == "100000000.0"
+    witnesses = [
+        value
+        for value in CANDIDATES
+        if isinstance(value, np.ndarray)
+        and _refusal_reason(value) == REFUSAL_REASONS[0]
+    ]
+    if not witnesses:
+        pytest.skip(
+            "this numpy prints every probed float in a form a plain number "
+            "also prints, so the boundary has no witness here"
+        )
+
+    hostile = witnesses[0]
+    text = str(hostile[0])
+    assert str(float(text)) != text, (
+        f"{text!r} does have a plain stand-in; the reason is misclassified"
+    )
+    assert _wire(hostile) != _wire(hostile.tolist()), (
+        "tolist would not have changed the bytes for this witness"
+    )
 
     with pytest.raises(LizyMLError) as exc:
         normalise_params({"feature_contri": hostile}, surface="model.params")
     assert exc.value.code is ErrorCode.CONFIG_INVALID
-    assert "1e+08" in exc.value.user_message
+    assert text in exc.value.user_message
 
 
 def test_a_reduced_precision_element_that_does_have_a_stand_in_is_accepted() -> None:
