@@ -62,21 +62,15 @@ def _wire(value: Any) -> str | None:
 # The accepted population, built rather than listed
 # ---------------------------------------------------------------------------
 
-#: numpy scalar types, taken from numpy's own hierarchy rather than typed out.
-_NUMPY_SCALAR_TYPES: list[type] = [
-    np.float16,
-    np.float32,
-    np.float64,
-    np.int8,
-    np.int16,
-    np.int32,
-    np.int64,
-    np.uint8,
-    np.uint16,
-    np.uint32,
-    np.uint64,
-    np.bool_,
-]
+#: The numpy scalar types the module admits, read from the module.
+#:
+#: The list that stood here called itself derived and was twelve types typed
+#: out, and on this machine the module admits five more -- ``longdouble``,
+#: ``longlong``, ``str_``, ``timedelta64`` and ``ulonglong``. Every oracle below
+#: runs over a population built from this axis, so a type missing here is a type
+#: none of them covers, whatever the sentence beside them claims (review round
+#: 25). Sorted by name so the parametrised ids are stable.
+_NUMPY_SCALAR_TYPES: list[type] = sorted(NUMPY_SCALAR_TYPES, key=lambda k: k.__name__)
 
 #: Values chosen for the ways a float can print: exponent forms on both ends,
 #: the values a reduced-precision dtype cannot hold exactly, and the three
@@ -101,28 +95,48 @@ _INT_VALUES: list[int] = [0, 1, 3, 100]
 
 
 def _plain_atoms() -> list[Any]:
-    """Values already inside the accepted set."""
+    """Values of an accepted type, whether or not the value itself is accepted.
+
+    The last two are of accepted types and are **not** accepted values, and
+    they are here because round 25 found both by hand after the population had
+    been declared closed. A Python ``int`` has no width but ``str`` of one
+    above the interpreter decimal limit raises, and a lone surrogate is a
+    ``str`` that no consumer can encode. A population holding only writable
+    values cannot see a predicate that admits an unwritable one.
+    """
     atoms: list[Any] = [None, True, False, "", "text", "0.50", "1,2"]
     atoms += _INT_VALUES + [-7, 2**40]
     atoms += _FLOAT_VALUES
     atoms.append(pathlib.Path("models/out.txt"))
+    atoms.append(10**5000)
+    atoms.append("\ud800")
     return atoms
 
 
 def _numpy_atoms() -> list[Any]:
-    """One numpy scalar per (dtype, value) that the dtype can hold."""
+    """One numpy scalar per (dtype, value) that the dtype can hold.
+
+    Chosen by the dtype's **kind** rather than by naming the types, so that the
+    axis above can grow without this silently skipping what it grew by. The
+    kinds that no plain value can stand in for -- ``timedelta64`` prints its
+    unit -- are built too: they land in the refused population, which is where
+    the boundary is asserted.
+    """
     atoms: list[Any] = []
     for dtype in _NUMPY_SCALAR_TYPES:
+        kind = np.dtype(dtype).kind
         if dtype is np.bool_:
             values: list[Any] = [True, False]
-        elif np.dtype(dtype).kind == "f":
+        elif kind == "f":
             values = _FLOAT_VALUES
+        elif kind == "U":
+            values = ["", "text", "0.50"]
         else:
             values = _INT_VALUES
         for value in values:
             try:
                 atoms.append(dtype(value))
-            except (OverflowError, ValueError):
+            except (OverflowError, ValueError, TypeError):
                 continue
     return atoms
 
@@ -144,8 +158,12 @@ def _sequences_of(atom: Any) -> list[Any]:
         {"entry": atom},
         ["auc", {"entry": atom}],
     ]
-    with contextlib.suppress(TypeError):  # no atom here is unhashable, but do
-        shapes.append({atom})  # not assume it
+    # One atom here is unhashable now that the type axis is derived --
+    # `numpy.timedelta64` raises `ValueError` rather than `TypeError`, which is
+    # why this catches both. The set shape exists to probe a refusal, so an
+    # atom that cannot form one simply contributes no set.
+    with contextlib.suppress(TypeError, ValueError):
+        shapes.append({atom})
     if isinstance(atom, np.generic):
         shapes.append(np.array([atom, atom], dtype=atom.dtype))
     return shapes
@@ -363,26 +381,75 @@ REFUSAL_REASONS = (
     "no plain value prints the same text",
     "an unordered container in a positional parameter",
     "a list nested deeper than the serialiser gives meaning to",
+    "a value the serialiser cannot turn into characters",
+    "characters no consumer can encode as UTF-8",
+    "a numpy scalar whose conversion is not a plain value",
 )
+
+
+def _positions(value: Any, position: str = "scalar") -> Any:
+    """``(position, item)`` for every place the serialiser formats inside a value.
+
+    The two positions use different formatters, so a classification that walked
+    values without walking positions would answer the wrong question for half
+    of them. A mapping value is in scalar position: ``_plain_mapping`` sends it
+    back through ``normalise_value``.
+    """
+    if type(value) is dict:
+        for member in value.values():
+            yield from _positions(member, "scalar")
+        return
+    if isinstance(value, (list, tuple, set, frozenset, np.ndarray)):
+        for member in list(value):
+            if type(member) is dict:
+                yield from _positions(member, "scalar")
+            else:
+                yield from _positions(member, "element")
+        return
+    yield position, value
+
+
+def _written_text(position: str, item: Any) -> str | None:
+    """The characters the serialiser writes here, or ``None`` if it cannot."""
+    try:
+        return format(item, "") if position == "scalar" else str(item)
+    except Exception:  # noqa: BLE001 - not writing is one of the answers
+        return None
 
 
 def _refusal_reason(value: Any) -> str | None:
     """Which declared reason refuses this value, or ``None`` for none of them."""
-    # Only in **element** position. A bare numpy scalar goes through the
-    # serialiser scalar branch, where `.item()` preserves the bytes for every
-    # dtype -- `numpy.float16(1e3)` is accepted written alone and refused
-    # written inside a list, and that asymmetry is the two formatters rather
-    # than an inconsistency.
-    if isinstance(value, (list, tuple, set, frozenset, np.ndarray)) and any(
-        isinstance(element, np.generic) and not _has_plain_stand_in(element)
-        for element in _elements_of(value)
-    ):
-        return REFUSAL_REASONS[0]
+    for position, item in _positions(value):
+        text = _written_text(position, item)
+        if text is None:
+            return REFUSAL_REASONS[3]
+        try:
+            text.encode("utf-8")
+        except UnicodeEncodeError:
+            return REFUSAL_REASONS[4]
     if type(value) in REFUSED_SEQUENCE_TYPES:
         return REFUSAL_REASONS[1]
     if _list_depth(value) > 2:
         return REFUSAL_REASONS[2]
+    for position, item in _positions(value):
+        if not isinstance(item, np.generic):
+            continue
+        # A conversion that is not a plain value at all, and a conversion that
+        # prints differently, are two refusals rather than one: `longdouble`
+        # converts to a `longdouble` and `timedelta64` converts to an `int`
+        # that prints without the unit. The first is why the scalar position
+        # refuses `longdouble` while the element position, which parses the
+        # text back, accepts it.
+        if position == "scalar" and not _is_plain_conversion(item):
+            return REFUSAL_REASONS[5]
+        if not _has_plain_stand_in(item, position):
+            return REFUSAL_REASONS[0]
     return None
+
+
+def _is_plain_conversion(element: np.generic) -> bool:
+    """Does ``.item()`` on this scalar give a plain Python value?"""
+    return type(element.item()) in (bool, int, float, str)
 
 
 def _list_depth(value: Any) -> int:
@@ -393,21 +460,23 @@ def _list_depth(value: Any) -> int:
     return 0
 
 
-def _elements_of(value: Any) -> list[Any]:
-    """Every position the serialiser would format inside ``value``."""
-    if isinstance(value, np.ndarray) or type(value) in PLAIN_SEQUENCE_TYPES:
-        flattened: list[Any] = []
-        for member in list(value):
-            flattened.extend(_elements_of(member))
-        return flattened
-    return [value]
+def _has_plain_stand_in(element: np.generic, position: str = "element") -> bool:
+    """Does a plain value write exactly what this scalar writes, in this position?
 
-
-def _has_plain_stand_in(element: np.generic) -> bool:
-    """Does a plain number print exactly as this element does?"""
+    The two positions ask it of different formatters, which is why the answer
+    differs between them: `numpy.float16(1e3)` is accepted written alone and
+    refused written inside a list. In scalar position only `.item()` is a
+    candidate -- that is what the module converts to -- while in element
+    position the text may also be parsed back.
+    """
+    if position == "scalar":
+        plain = element.item()
+        return type(plain) in (bool, int, float, str) and format(plain, "") == format(
+            element, ""
+        )
     text = str(element)
     for candidate in (element.item(), *_parsed(text)):
-        if type(candidate) in (bool, int, float) and str(candidate) == text:
+        if type(candidate) in (bool, int, float, str) and str(candidate) == text:
             return True
     return False
 
@@ -1208,6 +1277,80 @@ def test_shapes_outside_the_accepted_set_are_refused(value: Any) -> None:
     with pytest.raises(LizyMLError) as exc:
         normalise_params({"learning_rate": value}, surface="probe")
     assert exc.value.code is ErrorCode.CONFIG_INVALID
+
+
+def test_a_string_neither_consumer_can_encode_is_refused(position: Any = None) -> None:
+    """Review round 25, finding 1. Both consumers encode UTF-8, and it was not asked.
+
+    The requirement list said the trainer reads what ``_param_dict_to_str``
+    writes and that ``export_code`` needs the value to be json. Both are true
+    and neither is enough: LightGBM hands the serialised string to ``_c_str``,
+    which encodes UTF-8, and the codegen writer opens its file with
+    ``encoding="utf-8"``. A lone surrogate is a ``str`` this repository would
+    otherwise accept, and it passed normalisation, the exit assertion and the
+    json oracle before raising inside each consumer.
+    """
+    from lightgbm.basic import _c_str
+
+    surrogate = "\ud800"
+
+    # What both consumers do with it, asserted here so the refusal below is
+    # justified by the consumers rather than by taste.
+    with pytest.raises(UnicodeEncodeError):
+        _c_str(_param_dict_to_str_text(surrogate))
+    with pytest.raises(UnicodeEncodeError):
+        surrogate.encode("utf-8")
+
+    for written in (surrogate, [surrogate], {"entry": surrogate}):
+        with pytest.raises(LizyMLError) as exc:
+            normalise_params({"forcedsplits_filename": written}, surface="probe")
+        assert exc.value.code is ErrorCode.CONFIG_INVALID
+    assert not is_accepted(surrogate)
+    assert not is_plain(surrogate)
+
+
+def _param_dict_to_str_text(value: Any) -> str:
+    from lightgbm.basic import _param_dict_to_str
+
+    return _param_dict_to_str({"k": value})
+
+
+@pytest.mark.parametrize(
+    "value", REFUSED_POPULATION, ids=[_label(v) for v in REFUSED_POPULATION]
+)
+def test_the_predicates_refuse_everything_the_normaliser_refuses(value: Any) -> None:
+    """Review round 25, finding 2, quantified over the whole refused population.
+
+    ``is_plain`` and ``is_accepted`` accepted any exact ``int``, and round 24
+    narrowed the normaliser to values the serialiser can actually write without
+    narrowing them alongside it. ``10 ** 5000`` was then accepted by both
+    predicates and by the exit assertion, and refused by normalisation -- the
+    two definitions of the accepted set disagreeing, which is what having two
+    of them costs.
+
+    The agreement test above walks the accepted population, so it cannot see a
+    predicate that is too permissive. This one walks the other side.
+    """
+    assert not is_accepted(value), f"{_label(value)} is refused but is_accepted"
+    assert not is_plain(value), f"{_label(value)} is refused but is_plain"
+    with pytest.raises(LizyMLError):
+        assert_plain_params({"k": value}, where="probe")
+
+
+def test_the_population_covers_every_admitted_numpy_type() -> None:
+    """Review round 25, finding 3. The type axis is derived, not typed out.
+
+    The list this fixture used called itself derived and was not, and five of
+    the module's admitted types were missing from it on this machine --
+    including ``longdouble``, whose accepted element values the generated block
+    names. An oracle that runs over a population missing a type is not running
+    over the accepted population, whatever the claim beside it says.
+    """
+    covered = {type(value) for value in CANDIDATES if isinstance(value, np.generic)}
+    assert covered == set(NUMPY_SCALAR_TYPES), (
+        f"admitted but never probed: {set(NUMPY_SCALAR_TYPES) - covered}; "
+        f"probed but not admitted: {covered - set(NUMPY_SCALAR_TYPES)}"
+    )
 
 
 def test_a_metric_entry_written_as_a_mapping_is_accepted_at_the_surface() -> None:

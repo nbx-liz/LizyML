@@ -9233,6 +9233,8 @@ numpy scalar types (exact type; derived by np.dtype(k).type is k)
 | 門は `is` であること | `test_membership_is_identity_and_not_the_callers_own_equality` |
 | 受理した型が書ける値とは限らないこと | `test_an_accepted_type_is_not_by_itself_a_writable_value` / `test_an_integer_too_large_for_a_float_is_accepted_and_compared` |
 | 境界そのもの（受理と拒否の分割） | `test_the_refused_subset_is_exactly_the_declared_boundary` / `test_a_refusal_inside_the_candidate_set_is_forced_not_chosen` |
+| 書く文字が UTF-8 に encode できること（round 25 追加） | `test_a_string_neither_consumer_can_encode_is_refused` |
+| 母集団の型軸が受理型集合と一致すること（round 25 追加） | `test_the_population_covers_every_admitted_numpy_type` |
 
 #### 2. 消費者と、それぞれが課す要件
 
@@ -9246,9 +9248,25 @@ numpy scalar types (exact type; derived by np.dtype(k).type is k)
 | 学習（calibrator） | `calibration/isotonic.py` の `lgbm.train` | 同上 | 同上（学習サイトの母集団はソースから導出） |
 | 学習に届く bytes | 上記 2 サイトのシリアライザ | **正規化の前後で wire が同じ** | `test_normalising_does_not_change_the_bytes_the_estimator_is_sent` |
 | `export_code` | `codegen/artifact_writer.py` の `json.dump`（`config.json`） | **`json.dump` で書けること** | `test_every_accepted_value_can_be_written_as_json` |
+| **学習器と `export_code` の両方**（round 25 追加） | LightGBM の `_c_str` / `artifact_writer` の `encoding="utf-8"` | **書く文字が UTF-8 に encode できること** | `test_a_string_neither_consumer_can_encode_is_refused` |
 | 2 度正規化する経路 | `calibration.params`（検査側と calibrator dict 生成側） | **冪等** | `test_normalising_twice_is_normalising_once` |
 | 同一性比較 | `core/value_equality.py` | **受理集合の上で全域、どれでも raise しない** | `test_the_comparison_is_total_over_the_accepted_set`（`test_value_equality.py`） |
-| 述語 | `is_accepted` / `is_plain` | 正規化関数と一致すること | `test_the_predicate_and_the_normaliser_agree` / `test_every_accepted_value_normalises_into_the_closed_set` |
+| 述語 | `is_accepted` / `is_plain` | 正規化関数と一致すること（**両向き**） | `test_the_predicate_and_the_normaliser_agree` / `test_every_accepted_value_normalises_into_the_closed_set` / `test_the_predicates_refuse_everything_the_normaliser_refuses` |
+
+**UTF-8 の行は round 25 が見つけた**（記録: `results/pr2_codex_round25.md` 指摘 1）。
+「学習器は `_param_dict_to_str` が書くものを読む」「`export_code` は json 化できれば
+よい」はどちらも真で、**どちらも足りていなかった** —— 両消費者ともそのあと UTF-8 に
+encode する。孤立サロゲート `"\ud800"` は受理型の `str` であり、正規化・出口の表明・
+`json.dumps` オラクルをすべて通ってから両消費者で `UnicodeEncodeError` になっていた。
+**要件を 1 つ持つ消費者を「1 つの要件で足りる」と読んだのが誤りである。**
+
+**述語の行も round 25 が見つけた**（指摘 2）。述語は受理集合を**自分の言葉で言い直して
+いた**ため、round 24 が正規化だけを「実際に文字を書ける値」へ狭めたときに置き去りに
+なり、`10**5000` が両述語と出口の表明を通って正規化にだけ拒否された。
+**1 つの境界に対する宣言が 2 つあったのが原因**なので、述語は**正規化関数を呼ぶ**形に
+した（`is_accepted` = 正規化が通り、かつ結果が入力と同じ）。
+一致テストも**両向きにした** —— 従来は受理母集団しか走査しておらず、
+**緩すぎる述語を構成上見られなかった**。
 
 **閉じられるのは「要件のリスト」であって「消費者のリスト」ではない。** 各要件は
 受理母集団**全体**の上で実行するオラクルを持ち、そこは閉じている。消費者のリストは
@@ -9289,6 +9307,20 @@ raise しない）:
 #### 4. この契約に対してレビューが答える問い
 
 「この検証を破る値はあるか」ではなく、**「1 の集合と 3 の bound の下で、2 の各要件が
-受理母集団全体の上で成り立っているか」**である。前者は Python のあらゆるオブジェクトを
-渡る全称命題で有限のレビューでは閉じない。後者は**有限で、実行可能で、実際に実行して
-いる**。
+受理母集団の上で成り立っているか」**である。前者は Python のあらゆるオブジェクトを
+渡る全称命題で有限のレビューでは閉じない。後者は**実行可能で、実際に実行している**。
+
+**ただし「受理母集団」は領域そのものではない**（round 25 指摘 3 の後半による訂正）。
+§1 の値領域は**無限**である —— 文字列・整数・コンテナの中身に上限が無い。
+`ACCEPTED_POPULATION` は**その有限標本**であり、テストが主張しているのは
+**「この標本の上での網羅」**であって「すべての受理値について成り立つ」ではない。
+両者を書き分けること。**標本の閉じ方**は次の 2 つで担保する:
+
+- **型軸は受理型集合から導出する**（`_NUMPY_SCALAR_TYPES` はモジュールの
+  `NUMPY_SCALAR_TYPES` を読む。ベタ書きだった版は 5 型を落としていた ——
+  `test_the_population_covers_every_admitted_numpy_type` が固定する）。
+- **拒否の理由は閉じた列挙**であり、標本の中のどの拒否も 6 つの宣言理由のいずれかに
+  当たること、かつ理由が予測する値はすべて拒否されることを両向きで確かめる
+  （`test_the_refused_subset_is_exactly_the_declared_boundary`）。
+  理由は位置ごとに評価する —— **同じ型が scalar 位置で拒否され element 位置で
+  受理される**ことがあるためで、`longdouble` が実例である。

@@ -220,6 +220,29 @@ def _written_or_refused(value: Any, write: Any) -> str:
             value,
             f"the estimator cannot be sent it: {type(unwritable).__name__}",
         ) from None
+    return _encodable_or_refused(value, written)
+
+
+def _encodable_or_refused(value: Any, written: str) -> str:
+    """Refuse characters neither consumer can encode.
+
+    Having characters is not the same as having characters that can be sent.
+    Both consumers encode UTF-8 and neither was asked: LightGBM hands the
+    serialised string to ``_c_str``, and the codegen writer opens ``config.json``
+    with ``encoding="utf-8"``. A lone surrogate is a ``str`` of the accepted
+    type, and it passed normalisation, the assertion before training and the
+    json oracle before raising ``UnicodeEncodeError`` inside each consumer
+    (review round 25).
+
+    Python is the only place in this pipeline where such a string exists, so
+    this is the only place it can be refused by name rather than by traceback.
+    """
+    try:
+        written.encode("utf-8")
+    except UnicodeEncodeError:
+        raise _Unaccepted(
+            value, "the characters it writes cannot be encoded as UTF-8"
+        ) from None
     return written
 
 
@@ -234,7 +257,7 @@ def _plain_scalar(value: Any) -> Any:
             _written_or_refused(value, lambda item: format(item, ""))
         return value
     if _is_one_of(value, PATH_TYPES):
-        return str(value)
+        return _encodable_or_refused(value, str(value))
     if _is_one_of(value, NUMPY_SCALAR_TYPES):
         # Read **before** the conversion. A value asked the same question twice
         # need not answer the same way, and review round 22 built one that did
@@ -282,7 +305,7 @@ def _plain_element(value: Any) -> Any:
         _written_or_refused(value, str)
         return value
     if _is_one_of(value, PATH_TYPES):
-        return str(value)
+        return _encodable_or_refused(value, str(value))
     if _is_one_of(value, NUMPY_SCALAR_TYPES):
         text = str(value)
         for candidate in _element_candidates(value, text):
@@ -351,6 +374,9 @@ def _plain_mapping(value: dict[Any, Any]) -> dict[str, Any]:
     for key, member in value.items():
         if type(key) is not str:
             raise _Unaccepted(value, f"a mapping key is a {_describe(key)}")
+        # The key is written into `config.json` beside the value, so the
+        # same encoding requirement reaches it.
+        _encodable_or_refused(value, key)
         normalised[key] = normalise_value(member)
     return normalised
 
@@ -384,6 +410,15 @@ def normalise_value(value: Any) -> Any:
     return _plain_scalar(value)
 
 
+def _holds_a_mapping(value: Any) -> bool:
+    """Is there a mapping anywhere inside this value?"""
+    if type(value) is dict:
+        return True
+    if type(value) is list:
+        return any(_holds_a_mapping(member) for member in value)
+    return False
+
+
 def is_plain(value: Any) -> bool:
     """Whether ``value`` is one the **serialiser** can be handed as it is.
 
@@ -391,18 +426,7 @@ def is_plain(value: Any) -> bool:
     mapping is a LizyML-level value the adapter consumes (a metric entry), and
     one that survives to the trainer is a defect, not a parameter.
     """
-    if _is_one_of(value, PLAIN_SCALAR_TYPES):
-        return True
-    if type(value) is not list:
-        return False
-    return all(
-        _is_one_of(member, PLAIN_SCALAR_TYPES)
-        or (
-            type(member) is list
-            and all(_is_one_of(inner, PLAIN_SCALAR_TYPES) for inner in member)
-        )
-        for member in value
-    )
+    return not _holds_a_mapping(value) and is_accepted(value)
 
 
 def is_accepted(value: Any) -> bool:
@@ -413,24 +437,25 @@ def is_accepted(value: Any) -> bool:
     trainer. Keeping the two predicates apart is what lets each say something
     true; one predicate covering both ends would have to be the looser of them,
     and the looser one is not the bound the trainer needs.
+
+    **Asked through the normaliser rather than beside it.** These predicates
+    used to restate the accepted set in their own terms, and round 24 then
+    narrowed the normaliser -- to values the serialiser can actually turn into
+    characters -- without narrowing them alongside it. ``10 ** 5000`` was the
+    result: accepted by both predicates, accepted by the assertion before
+    training, and refused by normalisation. Two statements of one boundary is
+    one too many, so there is now a single statement and the predicates ask it
+    (review round 25).
+
+    "Unchanged" is compared by ``repr`` rather than by ``==`` for the reason
+    the whole pull request exists: ``nan`` is not equal to itself, and equality
+    is the question that turned out to be hard.
     """
-    if _is_one_of(value, PLAIN_SCALAR_TYPES):
-        return True
-    if type(value) is dict:
-        return all(
-            type(key) is str and is_accepted(member) for key, member in value.items()
-        )
-    if type(value) is not list:
+    try:
+        normalised = normalise_value(value)
+    except _Unaccepted:
         return False
-    return all(
-        _is_one_of(member, PLAIN_SCALAR_TYPES)
-        or (type(member) is dict and is_accepted(member))
-        or (
-            type(member) is list
-            and all(_is_one_of(inner, PLAIN_SCALAR_TYPES) for inner in member)
-        )
-        for member in value
-    )
+    return repr(normalised) == repr(value)
 
 
 def normalise_params(params: dict[str, Any], *, surface: str) -> dict[str, Any]:
