@@ -968,3 +968,90 @@ has twice turned a named surface into a fix instead of a finding, while scoping
 a round has four times produced nothing.
 
 Full suite **2535 passed**. **Round 16 stays unscoped.**
+
+---
+
+### D8 — PR 2 stopped at round 20 on a pre-registered condition, five rounds into one function
+
+**Status: awaiting the maintainer. Round 21 is not opened.**
+
+#### What happened
+
+Rounds 16 through 20 each returned a blocking finding, and **every one of them
+was in `lizyml/core/value_equality.py`, in the code the immediately preceding
+round's fix had written.** D7's authorship condition has fired five consecutive
+times.
+
+Before round 20 ran, this context registered the trigger and told the maintainer
+about it; the rounds 18-19 monitor was shown it and endorsed it:
+
+> The pre-registered round-20 trigger is appropriate: another same-function
+> authorship failure after this methodological intervention would directly
+> undermine the reason for continuing.
+
+Round 20 found two. The condition is met and this is the decision point.
+
+#### What is not in question
+
+- **Every finding across all twenty rounds was real and reproduced**, including
+  round 20's. None was apparatus, and none has been waved away.
+- **The original defect is fixed and executed.** `Model.fit(params=...)` was
+  documented as overriding `model.params` and forwarded nowhere; it now reaches
+  `lgb.train` on every path, pinned end to end.
+- **The merge gate's second half has been satisfied since round 15**: CI green,
+  full suite 2898 passed, `ruff`, `ruff format`, `mypy` clean, the shipped
+  lifecycle grid exits 0.
+- **The last two monitors returned `CONVERGING` / `continue`**, and the second
+  judged the recent work to be *"a specification being written down"* rather than
+  a loop that cannot terminate — while refusing to call it domain closure.
+
+#### What is in question
+
+The last five rounds have been spent on one Layer 0 function whose job is to
+decide whether two spellings name one parameter value. Each round's fix has been
+correct about the case it was shown and incomplete about a neighbouring one, and
+the neighbours are supplied by an **open** domain: what an arbitrary Python
+object can do to `format`, `str`, `__eq__`, `__len__`, `__class__`, `tolist`.
+
+Round 19 changed the method — an oracle relation against LightGBM's own
+serialiser, and a hostile population derived from Python's dunder list rather
+than written down. Round 20 still found two, and one of them was the new
+relation contradicting an older contract of the same module.
+
+#### The options
+
+**A. Continue scoped.** Open round 21 against the round-20 remedy, as rounds 18,
+19 and 20 were opened. Precedent: rounds 18 and 19 each reduced the blocking
+count and each produced a substantive clean result alongside its finding.
+Against: this is the fifth iteration, and the trigger for stopping was set
+precisely so that it is not extended by default.
+
+**B. Narrow this function's contract** — the option named when the trigger was
+registered, and the one the monitor called *"appropriate, because it revisits the
+obligation generating the repairs."* Reverse the round-13 admission: refuse a
+mixed text/sequence pair unless the two wire forms are identical, rather than
+comparing elementwise. Fewer admissions, a much smaller surface for a hostile
+object to act on. **The monitor's caveat is adopted and repeated here: this
+trades compatibility for a narrower comparison contract, and calling it a
+"near-zero attack surface" was this context's phrase and is not proven.** It
+would also need its own Change Gate treatment, because it removes an admission
+that round 13 added deliberately after measuring it.
+
+**C. Take the stop condition and merge without `APPROVE`.** The declared
+deliverable is delivered and verified; the residual is a hardening exercise on
+one function against adversarial inputs no measured configuration produces. File
+the remaining hostile-input classes as issues, close PR 2, proceed to PR 3.
+Against: the maintainer's standing instruction is that the absence of `APPROVE`
+is itself evidence of remaining problems, and rounds 16-20 do not contradict
+that — the findings were real.
+
+**D. Something else.** Every previous stop condition in this run was resolved
+with an option nobody had listed, twice — round 5 (a scoped round) and round 17
+(hold and ask). That is the empirically most likely outcome, and the reason these
+three are written as a starting point rather than a menu.
+
+#### What is ready either way
+
+Round 20's two findings are already fixed, RED-verified and committed, because
+stopping the loop is a decision about the next round and not a reason to ship a
+known defect.
