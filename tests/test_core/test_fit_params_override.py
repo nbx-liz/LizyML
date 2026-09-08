@@ -27,9 +27,11 @@ import pytest
 from lizyml import Model
 from lizyml.core._model_factories import (
     check_duplicate_identities,
+    normalise_and_check,
     overlay_params,
 )
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.param_domain import normalise_params
 from lizyml.core.types.tuning_result import TuningResult
 from lizyml.core.value_equality import values_differ
 from lizyml.estimators.lgbm.adapter import _pop_by_identity
@@ -1825,15 +1827,18 @@ def test_equal_values_of_any_shape_are_accepted_under_two_spellings(
         )
 
     provider = LGBMProvider()
-    check_duplicate_identities(
+    # Through the surface, not through the check alone: H-0095 normalises the
+    # value on the way in, so a numpy array is a `list` by the time anything
+    # compares it. Calling the check directly would be asking the comparison a
+    # question the shipped path never asks it.
+    normalised = normalise_and_check(
         provider,
         {"feature_contri": first, "feature_contrib": second},
         surface="probe",
     )
-    kept, spelling = _pop_by_identity(
-        {"feature_contri": first, "feature_contrib": second}, "feature_contri"
-    )
-    assert kept is first and spelling == "feature_contri"
+    kept, spelling = _pop_by_identity(dict(normalised), "feature_contri")
+    assert spelling == "feature_contri"
+    assert not values_differ(kept, normalised["feature_contri"])
 
 
 def test_equal_arrays_of_different_dtypes_are_one_value() -> None:
@@ -1862,22 +1867,15 @@ def test_equal_arrays_of_different_dtypes_are_one_value() -> None:
 def test_arrays_that_differ_are_still_refused() -> None:
     """The refusal must not be bought by making everything compare equal."""
     provider = LGBMProvider()
+    written = {
+        "feature_contri": np.array([1.0, 2.0]),
+        "feature_contrib": np.array([2.0, 1.0]),
+    }
     with pytest.raises(LizyMLError):
-        check_duplicate_identities(
-            provider,
-            {
-                "feature_contri": np.array([1.0, 2.0]),
-                "feature_contrib": np.array([2.0, 1.0]),
-            },
-            surface="probe",
-        )
+        normalise_and_check(provider, dict(written), surface="probe")
     with pytest.raises(LizyMLError):
         _pop_by_identity(
-            {
-                "feature_contri": np.array([1.0, 2.0]),
-                "feature_contrib": np.array([2.0, 1.0]),
-            },
-            "feature_contri",
+            normalise_params(dict(written), surface="probe"), "feature_contri"
         )
 
 
@@ -1899,10 +1897,19 @@ def test_an_array_valued_parameter_survives_a_real_fit() -> None:
 
 
 def test_the_two_refusals_agree_on_the_awkward_values_too() -> None:
-    """One notion of equality, shared, so neither can drift from the other."""
-    for value in AWKWARD_VALUES.values():
-        assert not values_differ(value, value)
-    assert values_differ(np.array([1.0, 2.0]), np.array([2.0, 1.0]))
+    """One notion of equality, shared, so neither can drift from the other.
+
+    Asked about the values the surfaces produce, since H-0095: the comparison
+    is total over those, and asking it about a numpy array directly is asking
+    a question the shipped path no longer poses (the array is a `list` by then).
+    """
+
+    def written(value: Any) -> Any:
+        return normalise_params({"k": value}, surface="probe")["k"]
+
+    for build in AWKWARD_VALUES.values():
+        assert not values_differ(written(build()), written(build()))
+    assert values_differ(written(np.array([1.0, 2.0])), written(np.array([2.0, 1.0])))
     assert values_differ([1.0], [1.0, 2.0])
     assert not values_differ(1, 1.0)
 

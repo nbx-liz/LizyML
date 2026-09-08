@@ -492,14 +492,23 @@ def test_a_reduced_precision_element_that_does_have_a_stand_in_is_accepted() -> 
 @pytest.mark.parametrize(
     "value",
     [
-        {"a": 1},
+        {1: "int key"},
         np.array([[1, 2], [3, 4]]),
         [(1, 2)],
         [np.array([1, 2])],
         object(),
         b"bytes",
+        {"metric": object()},
     ],
-    ids=["dict", "2d-array", "nested-tuple", "nested-array", "object", "bytes"],
+    ids=[
+        "non-str-mapping-key",
+        "2d-array",
+        "nested-tuple",
+        "nested-array",
+        "object",
+        "bytes",
+        "mapping-of-object",
+    ],
 )
 def test_shapes_outside_the_accepted_set_are_refused(value: Any) -> None:
     """Including shapes the serialiser itself would have written unreadably.
@@ -511,6 +520,35 @@ def test_shapes_outside_the_accepted_set_are_refused(value: Any) -> None:
     with pytest.raises(LizyMLError) as exc:
         normalise_params({"learning_rate": value}, surface="probe")
     assert exc.value.code is ErrorCode.CONFIG_INVALID
+
+
+def test_a_metric_entry_written_as_a_mapping_is_accepted_at_the_surface() -> None:
+    """The two ends of the pipe have different accepted sets, on purpose.
+
+    LightGBM has no mapping form. LizyML does: a metric entry is written as
+    ``{"precision_at_k": {"k": 15}}``, or inside a list beside plain names
+    (H-0065), and the adapter turns those into evaluation functions and removes
+    them before serialising. Refusing a mapping at the surface would refuse a
+    documented config; accepting one at ``lgb.train`` would serialise a value
+    LightGBM cannot read. So the surface accepts it and the exit assertion does
+    not.
+    """
+    entry = {"precision_at_k": {"k": np.int64(15)}}
+    normalised = normalise_params({"metric": entry}, surface="probe")["metric"]
+    assert normalised == {"precision_at_k": {"k": 15}}
+    assert type(normalised["precision_at_k"]["k"]) is int
+
+    in_a_list = normalise_params({"metric": ["auc", entry]}, surface="probe")["metric"]
+    assert in_a_list == ["auc", {"precision_at_k": {"k": 15}}]
+
+
+def test_a_mapping_that_survived_to_the_trainer_is_a_defect() -> None:
+    """The other half of the sentence above, stated where it is checked."""
+    with pytest.raises(LizyMLError) as exc:
+        assert_plain_params({"metric": {"precision_at_k": {"k": 15}}}, where="probe")
+    assert exc.value.code is ErrorCode.CONFIG_INVALID
+    assert not is_plain({"a": 1})
+    assert not is_plain(["auc", {"a": 1}])
 
 
 def test_the_one_nested_shape_lightgbm_reads_is_accepted() -> None:
