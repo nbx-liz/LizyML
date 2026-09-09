@@ -24,12 +24,12 @@ An accepted proposal, **H-0096**, removes that question rather than bounding it
 further: a duplicate spelling is now refused whatever the values are. The
 comparison module is deleted.
 
-The commits are `3fba763..9d33737` — a proposal, a documentation pass that
+The commits are `3fba763..5e23617` — a proposal, a documentation pass that
 re-anchors what referred to the deleted module, and the implementation.
 
 ```
-git log --oneline 3fba763~1..9d33737
-git diff 3fba763~1..9d33737
+git log --oneline 3fba763~1..5e23617
+git diff 3fba763~1..5e23617
 ```
 
 ## The contract this round checks
@@ -94,7 +94,7 @@ was exercised over; a shape missing from it is worth naming.
 
 - Repository: `/home/rem/repos/LizyML`
 - Branch: `fix/phase3-pr2-fit-params-forwarding`, PR **#278** (draft)
-- **Head: `9d33737`**, which is the current `HEAD` and matches `origin`.
+- **Head: `5e23617`**, which is the current `HEAD` and matches `origin`.
 - Proposals: **H-0094**, **H-0095** (the section titled 契約の確定 is the
   settled contract) and **H-0096** in `HISTORY.md`. `BLUEPRINT.md` §14.4 carries
   the amended rule.

@@ -62,14 +62,22 @@ def _pop_by_identity(
     if not supplied:
         return None, None
     if len(supplied) > 1:
+        # The message names the **spellings** and not the values. A spelling is
+        # a `str` key and always prints; a value need not -- a Python `int`
+        # above `sys.get_int_max_str_digits()` digits has no decimal text, and
+        # formatting one here turned the promised `CONFIG_INVALID` into a bare
+        # `ValueError` (review round 27). The rule decides on how many spellings
+        # were written, so reporting it must not depend on the values either.
+        # `check_duplicate_identities` carries the same correction; the defect
+        # was reported at one of the two and was present at both.
         raise LizyMLError(
             code=ErrorCode.CONFIG_INVALID,
             user_message=(
-                f"'{canonical}' is set more than once under different "
-                f"spellings: {dict(supplied)}. LightGBM treats these as one "
-                "parameter. Write it once, under one spelling."
+                f"'{canonical}' is set more than once, under the spellings "
+                f"{sorted(supplied)}. LightGBM treats these as one parameter. "
+                "Write it once, under one spelling."
             ),
-            context={"parameter": canonical, "supplied": dict(supplied)},
+            context={"parameter": canonical, "spellings": sorted(supplied)},
         )
     written, value = next(iter(supplied.items()))
     return value, written

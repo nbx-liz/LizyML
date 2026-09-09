@@ -18,6 +18,7 @@ import inspect
 import json
 import pathlib
 import re
+import sys
 from typing import Any
 from unittest import mock
 
@@ -1710,8 +1711,13 @@ def test_two_spellings_of_an_ordinary_parameter_are_refused_too() -> None:
     assert OVERRIDDEN in message and ALIAS in message, message
     assert not seen["train_params"], "it trained before refusing"
 
-    written = exc.value.context["conflicts"][0]["written"]
-    assert written == {OVERRIDDEN: 0.1, ALIAS: 0.2}, written
+    # Spellings, not values. `LizyMLError.__repr__` renders its context with
+    # `!r`, so a value in there is a value something downstream will try to
+    # print -- which is the defect review round 27 found in the message
+    # (H-0096). The spellings are what tell the caller where to look, and they
+    # always print.
+    spellings = exc.value.context["conflicts"][0]["spellings"]
+    assert spellings == sorted((OVERRIDDEN, ALIAS)), spellings
 
 
 def test_the_same_ordinary_value_under_two_spellings_is_refused() -> None:
@@ -3179,6 +3185,56 @@ def test_a_sequence_or_its_comma_text_still_trains_when_written_alone(
 
     reached = [call for call in seen["train_params"] if name in call]
     assert reached, f"{name} never reached lgb.train"
+
+
+def test_neither_refusal_needs_the_values_to_be_printable() -> None:
+    """Round 27, and its sibling, which the round did not name.
+
+    The rule decides on the number of spellings, so it never reads a value --
+    but *reporting* the refusal did, by formatting the supplied dict into the
+    message. A Python ``int`` above ``sys.get_int_max_str_digits()`` digits has
+    no decimal text, so ``str()`` of it raises, and the promised
+    ``CONFIG_INVALID`` became a bare ``ValueError``.
+
+    Round 27 reported this at ``_pop_by_identity``. Executing the same value
+    against ``check_duplicate_identities`` showed the identical defect there, so
+    it is asserted at both call sites in one test rather than repaired where it
+    was reported -- the shape that has now twice been "a gate was added and one
+    position was not routed through it" is the shape to avoid here.
+
+    In the shipped path neither is reachable with such a value: ``param_domain``
+    already refuses a value it cannot turn into characters, and every surface
+    normalises before either refusal runs. That is why this asserts on the two
+    helpers directly. The claim being pinned is that the refusal does not depend
+    on a property of the values, which is what the rule says about itself.
+    """
+    unprintable = 10 ** (sys.get_int_max_str_digits() + 1)
+    with pytest.raises(ValueError):
+        str(unprintable)
+
+    with pytest.raises(LizyMLError) as at_adapter:
+        _pop_by_identity(
+            {"num_iterations": unprintable, "n_estimators": unprintable},
+            "num_iterations",
+        )
+    assert at_adapter.value.code is ErrorCode.CONFIG_INVALID
+
+    with pytest.raises(LizyMLError) as at_surface:
+        check_duplicate_identities(
+            LGBMProvider(),
+            {"num_iterations": unprintable, "n_estimators": unprintable},
+            surface="probe",
+        )
+    assert at_surface.value.code is ErrorCode.CONFIG_INVALID
+
+    # And each raised error is itself renderable, both ways. A message that
+    # cannot be printed is the same defect one step later, and `__repr__`
+    # renders `context` with `!r`, so a value left in the context would be a
+    # third position of the same class rather than a fixed one.
+    for excinfo in (at_adapter, at_surface):
+        assert "num_iterations" in str(excinfo.value)
+        assert "n_estimators" in str(excinfo.value)
+        repr(excinfo.value)
 
 
 def test_no_production_module_imports_the_deleted_comparison() -> None:

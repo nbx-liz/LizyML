@@ -902,9 +902,16 @@ def check_duplicate_identities(
     }
     if not conflicts:
         return
+    # Spellings, not values. A spelling is a `str` key and always prints; a
+    # value need not -- a Python `int` above `sys.get_int_max_str_digits()`
+    # digits has no decimal text, and formatting one here turned the promised
+    # `CONFIG_INVALID` into a bare `ValueError` (review round 27, reported
+    # against the adapter helper and present here identically). The rule
+    # decides on how many spellings were written, so reporting it must not
+    # depend on the values either.
     lines = [
-        f"  {surface}: '{parameter}' is set as {written}, and the estimator "
-        "treats those as one parameter."
+        f"  {surface}: '{parameter}' is set as {sorted(written)}, and the "
+        "estimator treats those as one parameter."
         for parameter, written in sorted(conflicts.items())
     ]
     raise LizyMLError(
@@ -916,7 +923,11 @@ def check_duplicate_identities(
         ),
         context={
             "conflicts": [
-                {"surface": surface, "parameter": parameter, "written": written}
+                {
+                    "surface": surface,
+                    "parameter": parameter,
+                    "spellings": sorted(written),
+                }
                 for parameter, written in sorted(conflicts.items())
             ]
         },
