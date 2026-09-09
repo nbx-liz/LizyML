@@ -1262,6 +1262,8 @@ structural walk. Each visited value produces its plain representation, unchanged
 status and mapping presence together. The surface predicate consumes unchanged
 status; the training predicate additionally excludes mappings. Scalar and element
 formatting retain their existing position-dependent byte-preservation rules.
+The training mode rejects a mapping at the shared dispatch before visiting its
+members, including cyclic mappings, so the assertion returns CONFIG_INVALID.
 Search-space categorical choices retain H-0095's deliberate plain-scalar-only
 restriction; numeric range bounds are converted before sampling.
 

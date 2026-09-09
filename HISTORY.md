@@ -9450,6 +9450,11 @@ returning a normalized value, whether it was unchanged, and whether it contains
 a mapping. The surface and training predicates consume these results directly.
 Scalar and element formatting remain distinct, following the estimator wire.
 
+Review repair: when the training boundary disallows mappings, the same dictionary
+dispatch refuses before traversing members. This preserves controlled rejection
+of cyclic dictionaries; there is no separate mapping-search walk. Surface
+normalization behavior is unchanged.
+
 ### Compatibility and migration
 
 Preserve the current accepted set and scalar/sequence-position asymmetry.

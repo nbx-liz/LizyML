@@ -358,7 +358,9 @@ class _Normalization:
     contains_mapping: bool
 
 
-def _walk(value: Any, *, position: str = "value") -> _Normalization:
+def _walk(
+    value: Any, *, position: str = "value", allow_mappings: bool = True
+) -> _Normalization:
     """Normalize and derive boundary facts in the same structural dispatch.
 
     A top-level sequence uses member formatting. A nested list uses element
@@ -366,6 +368,8 @@ def _walk(value: Any, *, position: str = "value") -> _Normalization:
     values restart at value position because adapters consume those mappings.
     """
     if position != "element" and type(value) is dict:
+        if not allow_mappings:
+            raise _Unaccepted(value, "a mapping cannot reach the estimator")
         mapping: dict[str, Any] = {}
         unchanged = True
         for key, member in value.items():
@@ -390,7 +394,9 @@ def _walk(value: Any, *, position: str = "value") -> _Normalization:
         contains_mapping = False
         child_position = "element" if nested else "member"
         for member in value:
-            child = _walk(member, position=child_position)
+            child = _walk(
+                member, position=child_position, allow_mappings=allow_mappings
+            )
             members.append(child.value)
             unchanged = unchanged and child.unchanged
             contains_mapping = contains_mapping or child.contains_mapping
@@ -407,7 +413,7 @@ def normalise_value(value: Any) -> Any:
 def is_plain(value: Any) -> bool:
     """Whether the serializer can consume the value unchanged, without mappings."""
     try:
-        result = _walk(value)
+        result = _walk(value, allow_mappings=False)
     except _Unaccepted:
         return False
     return result.unchanged and not result.contains_mapping
