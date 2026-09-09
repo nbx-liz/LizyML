@@ -27,7 +27,6 @@ from lizyml.config.schema import (
 )
 from lizyml.core.param_domain import normalise_params
 from lizyml.core.types.task import TaskType
-from lizyml.core.value_equality import values_differ
 from lizyml.splitters.base import BaseSplitter
 from lizyml.splitters.blocked_group_kfold import BlockedGroupKFoldSplitter
 from lizyml.splitters.group_kfold import (
@@ -861,12 +860,30 @@ def overlay_params(
 def check_duplicate_identities(
     provider: Any, params: dict[str, Any], *, surface: str
 ) -> None:
-    """Refuse one layer naming a parameter twice with different values.
+    """Refuse one layer naming a parameter under more than one spelling.
 
     ``{"objective": "binary", "application": "binary"}`` is one parameter
-    written twice. Equal values are harmless; different ones are ambiguous, and
-    resolving them by dictionary order would decide the training run on
-    something the caller cannot see (H-0094, review round 4).
+    written twice. **The values are not read** (H-0096).
+
+    Until H-0096 this allowed the pair through when the two values were equal,
+    which meant deciding *equal* for whatever a caller had written. That
+    question has no closed domain -- an object may define ``__format__``,
+    ``__eq__`` or ``tolist`` however it likes -- and rounds 18-26 of the H-0094
+    review each found one more object inside it. Asking nothing about the values
+    removes the question rather than bounding it.
+
+    Three measurements support dropping the tolerance rather than repairing it,
+    all recorded in H-0096: no pre-existing config or test in this repository
+    reaches the tolerated branch; LightGBM itself warns on the duplicate whether
+    or not the values agree, and resolves it by a precedence that does not
+    depend on dictionary order; and of nine surveyed systems only the C
+    preprocessor branches on agreement at all, comparing token sequences rather
+    than values.
+
+    So the refusal no longer rests on "which value applies is invisible" -- it
+    is in fact decided, and LightGBM says so. It rests on the caller having
+    written one setting twice, leaving LizyML nothing to say about which was
+    meant.
 
     Raises:
         LizyMLError: with ``CONFIG_INVALID``, naming the spellings and values.
@@ -880,20 +897,8 @@ def check_duplicate_identities(
     for name, value in params.items():
         grouped.setdefault(canonical[name], {})[name] = value
 
-    # Compared by equality, not by printed form. `repr` made `1` and `1.0`
-    # two different values and refused a call that meant one thing twice
-    # (H-0094, review round 5) -- a gate refusing valid input, which is worse
-    # here than the ambiguity it exists to catch. `values_differ` is shared
-    # with `_pop_by_identity`, so the two refusals cannot disagree about what
-    # "the same value" means, and it survives a value whose `!=` is not a bool
-    # -- a bare `!=` raised on a numpy array even when the value appeared once.
     conflicts = {
-        parameter: written
-        for parameter, written in grouped.items()
-        if any(
-            values_differ(value, next(iter(written.values())))
-            for value in written.values()
-        )
+        parameter: written for parameter, written in grouped.items() if len(written) > 1
     }
     if not conflicts:
         return
@@ -907,8 +912,7 @@ def check_duplicate_identities(
         user_message=(
             "Parameter(s) set more than once under different spellings:\n"
             + "\n".join(lines)
-            + "\nWhich value applies would depend on the estimator rather than "
-            "on what you wrote."
+            + "\nWrite the parameter once, under one spelling."
         ),
         context={
             "conflicts": [

@@ -11,7 +11,6 @@ import pandas as pd
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.param_domain import assert_plain_params
-from lizyml.core.value_equality import values_differ
 from lizyml.estimators.base import BaseEstimatorAdapter, ImportanceKind
 from lizyml.estimators.lgbm.defaults import (
     _COMMON_DEFAULTS,
@@ -48,8 +47,12 @@ def _pop_by_identity(
 
     Raises:
         LizyMLError: with ``CONFIG_INVALID`` when one layer names the parameter
-            twice with different values. Picking one silently is the class of
-            defect this whole change exists to remove; equal values are fine.
+            under more than one spelling. **The values are not read** (H-0096);
+            picking one silently is the class of defect this whole change exists
+            to remove, and deciding whether two values are "the same" is the
+            question that had no closed domain. Kept in step with
+            ``check_duplicate_identities`` by asking the same thing -- how many
+            spellings -- rather than by sharing a comparison.
     """
     supplied = {
         name: user_params.pop(name)
@@ -58,22 +61,17 @@ def _pop_by_identity(
     }
     if not supplied:
         return None, None
-    written, value = next(iter(supplied.items()))
-    conflicting = {
-        name: other for name, other in supplied.items() if values_differ(other, value)
-    }
-    if conflicting:
+    if len(supplied) > 1:
         raise LizyMLError(
             code=ErrorCode.CONFIG_INVALID,
             user_message=(
                 f"'{canonical}' is set more than once under different "
-                f"spellings, with different values: "
-                f"{ {name: supplied[name] for name in supplied} }. LightGBM "
-                "treats these as one parameter, so which value applies would "
-                "depend on the library rather than on what you wrote."
+                f"spellings: {dict(supplied)}. LightGBM treats these as one "
+                "parameter. Write it once, under one spelling."
             ),
             context={"parameter": canonical, "supplied": dict(supplied)},
         )
+    written, value = next(iter(supplied.items()))
     return value, written
 
 

@@ -8,14 +8,30 @@ starts (H-0095).
 
 Why a closed set rather than a tolerant one
 -------------------------------------------
-:func:`lizyml.core.value_equality.values_differ` has to answer whether two
-writings of one parameter mean the same value, and it used to be asked that
-question about *any* Python object. Five consecutive review rounds (H-0094,
-rounds 16-20) each found one more object whose ``__format__``, ``__class__``,
-``tolist`` or ``__eq__`` answered in a way the comparison had not anticipated,
-and every fix was correct for the object the round named and silent about the
-next one. The defect was not the missing guard; it was that the domain had no
-boundary, so no finite set of guards could close it.
+This set was originally closed to bound a comparison. A parameter written under
+two spellings used to be allowed through when the two values were *equal*, and
+deciding *equal* meant answering that question about any Python object: five
+consecutive review rounds (H-0094, rounds 16-20) each found one more object
+whose ``__format__``, ``__class__``, ``tolist`` or ``__eq__`` answered in a way
+the comparison had not anticipated. The defect was not the missing guard; it was
+that the domain had no boundary, so no finite set of guards could close it.
+
+**H-0096 removed the comparison instead**, by refusing a duplicate spelling
+whatever the values are. What still needs the set closed is the two consumers
+that remain, neither of which is about duplicates:
+
+* the exit assertion at the training sites (:func:`assert_plain_params`), and
+* ``export_code``, which writes the same values into ``config.json`` through
+  ``json.dump`` and then encodes them as UTF-8.
+
+The second is a defect that predates all of this work: measured on
+``origin/develop`` at ``ccae32b``, ``model.params={"feature_contri":
+np.array([1.0, 1.0])}`` trains and then raises ``TypeError: Object of type
+ndarray is not JSON serializable`` out of ``export_code``.
+
+The three structural walks in this module state one boundary three times, with
+nothing keeping them in step, and collapsing them is filed separately as issue
+284 rather than folded into H-0096.
 
 What "accepted" is derived from
 -------------------------------

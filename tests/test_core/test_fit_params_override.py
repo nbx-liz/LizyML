@@ -33,7 +33,6 @@ from lizyml.core._model_factories import (
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.param_domain import normalise_params
 from lizyml.core.types.tuning_result import TuningResult
-from lizyml.core.value_equality import values_differ
 from lizyml.estimators.lgbm.adapter import _pop_by_identity
 from lizyml.estimators.lgbm.param_names import accepted_spellings
 from lizyml.estimators.lgbm.provider import LGBMProvider
@@ -283,17 +282,41 @@ def test_two_spellings_in_calibration_params_are_refused_before_training() -> No
 
 
 def test_two_spellings_of_one_value_in_calibration_params_are_accepted() -> None:
-    """The other direction, so the fourth layer is not refusing everything."""
+    """The fourth layer refuses a duplicate spelling carrying equal values too.
+
+    This asserted the opposite until H-0096. The control it used to provide --
+    that the layer is not simply refusing everything -- is now provided by
+    ``test_a_single_spelling_reaches_the_calibrator`` below, which is the honest
+    form of it: one spelling, and the value has to arrive.
+    """
     cfg = make_config("binary", n_estimators=3, n_splits=2)
     cfg["calibration"] = {
         "method": "isotonic",
         "params": {OVERRIDDEN: OVERRIDE_VALUE, "eta": OVERRIDE_VALUE},
     }
 
+    with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as excinfo:
+        Model(cfg, data=make_binary_df(n=160)).fit()
+
+    assert excinfo.value.code is ErrorCode.CONFIG_INVALID
+    assert not seen["train_params"], "trained before the refusal"
+
+
+def test_a_single_spelling_reaches_the_calibrator() -> None:
+    """The control for the two refusals above: one spelling still trains."""
+    cfg = make_config("binary", n_estimators=3, n_splits=2)
+    cfg["calibration"] = {
+        "method": "isotonic",
+        "params": {OVERRIDDEN: OVERRIDE_VALUE},
+    }
+
     with record_lightgbm_calls() as seen:
         Model(cfg, data=make_binary_df(n=160)).fit()
 
-    assert seen["train_params"], "the call was refused, or nothing trained"
+    assert seen["train_params"], "nothing trained"
+    assert OVERRIDE_VALUE in [
+        call[OVERRIDDEN] for call in seen["train_params"] if OVERRIDDEN in call
+    ], "the calibrator value never arrived"
 
 
 @pytest.mark.parametrize(
@@ -305,19 +328,21 @@ def test_two_spellings_of_one_value_in_calibration_params_are_accepted() -> None
         (np.array([1, 2]), "1,2"),
     ],
 )
-def test_a_value_and_its_text_form_are_not_refused(
+def test_a_value_and_its_text_form_are_refused_under_two_spellings(
     written: object, as_text: str
 ) -> None:
-    """Quantified over every type LightGBM joins, not over the one first fixed.
+    """Same wire bytes, still two spellings, and refused since H-0096.
 
-    Round 13 closed this for a `list` and claimed the class. The rounds 12-13
-    monitor then executed the other three types and found them still refused --
-    with LightGBM's own serialiser producing the byte-identical wire string for
-    each pair (H-0094 decision 9).
+    Round 13 established the fact this keeps asserting: LightGBM's own
+    serialiser writes the byte-identical string for each of these pairs, over
+    every type it joins rather than the one type first fixed. That fact was then
+    used to *accept* the pair, and answering "same value?" for it is a large
+    part of what the deleted comparison was.
 
-    The pair is asserted to train **and** to be the same value on the wire, so
-    a future change that makes one of them stop reaching LightGBM cannot leave
-    this test passing on the strength of the refusal alone.
+    The fact is still asserted, because it is what makes the case interesting --
+    these are refused despite being indistinguishable to LightGBM. The rule is
+    about the caller writing one parameter twice, not about what the two
+    writings would have meant.
     """
     basic = pytest.importorskip("lightgbm.basic")
     assert basic._param_dict_to_str({"p": written}) == basic._param_dict_to_str(
@@ -328,27 +353,28 @@ def test_a_value_and_its_text_form_are_not_refused(
     cfg["model"]["params"]["feature_contri"] = written
     cfg["model"]["params"]["feature_penalty"] = as_text
 
-    with record_lightgbm_calls() as seen:
+    with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as excinfo:
         Model(cfg, data=make_binary_df(n=160)).fit()
 
-    assert seen["train_params"], "the pair was refused, or nothing trained"
+    assert excinfo.value.code is ErrorCode.CONFIG_INVALID
+    assert not seen["train_params"], "trained before the refusal"
 
 
-def test_a_scalar_and_its_text_form_are_not_refused() -> None:
+def test_a_scalar_and_its_text_form_are_refused_under_two_spellings() -> None:
     """The same argument where the value is not a sequence at all.
 
     `_param_dict_to_str` writes `str(val)` for a scalar, so `0.5` and `"0.5"`
-    reach LightGBM identically. The first version of the fix asked whether the
-    other side was a `list`, so a scalar never reached the comparison.
+    reach LightGBM identically -- and are still two spellings of one parameter.
     """
     cfg = make_config("binary", n_estimators=3, n_splits=2)
     cfg["model"]["params"][OVERRIDDEN] = OVERRIDE_VALUE
     cfg["model"]["params"]["eta"] = str(OVERRIDE_VALUE)
 
-    with record_lightgbm_calls() as seen:
+    with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as excinfo:
         Model(cfg, data=make_binary_df(n=160)).fit()
 
-    assert seen["train_params"], "the pair was refused, or nothing trained"
+    assert excinfo.value.code is ErrorCode.CONFIG_INVALID
+    assert not seen["train_params"], "trained before the refusal"
 
 
 def test_a_parameter_passed_as_a_keyword_is_honoured_under_every_spelling() -> None:
@@ -665,36 +691,45 @@ def test_two_search_dimensions_of_different_parameters_are_accepted() -> None:
 
 
 @pytest.mark.parametrize("surface", ["model.params", "fit(params=)"])
-def test_one_sequence_written_in_two_containers_is_not_refused(surface: str) -> None:
-    """A false refusal on ordinary input, one container past round 11's.
+def test_one_sequence_written_in_two_containers_is_refused(surface: str) -> None:
+    """Each container alone trains; the two together are refused.
 
     ``feature_contri`` and ``feature_penalty`` are one LightGBM parameter, so
-    writing both is the same-layer case the identity refusal exists for --
-    correctly, when the values differ. Here they do not: ``np.array([1., 2.])``
-    and ``(1., 2.)`` produce the byte-identical booster. The refusal fired
-    anyway, on both surfaces, with nothing trained (H-0094 decision 8, review
-    round 12).
+    writing both is the same-layer case the refusal exists for. Round 12 found
+    the pair refused when the values agreed and called that a false refusal;
+    H-0096 makes it the rule, because "the values agree" is the question with no
+    closed domain.
 
-    Each spelling alone is asserted to train first, so a failure distinguishes
-    "the pair is refused" from "the parameter is unusable here".
+    Both halves are still asserted, and the order matters: each spelling alone
+    has to train and reach ``lgb.train`` first, so a failure distinguishes "the
+    pair is refused" from "the parameter is unusable here".
     """
     combined = {"feature_contri": np.array([1.0, 2.0]), "feature_penalty": (1.0, 2.0)}
-    for written in ({k: v} for k, v in combined.items()), (combined,):
-        for params in written:
-            cfg = make_config("binary", n_estimators=3, n_splits=2)
-            if surface == "model.params":
-                cfg["model"]["params"].update(params)
-            with record_lightgbm_calls() as seen:
-                Model(cfg, data=make_binary_df(n=160)).fit(
-                    params=dict(params) if surface == "fit(params=)" else None
-                )
-            assert seen["train_params"], (
-                f"{sorted(params)} on {surface} trained nothing"
+
+    for name, value in combined.items():
+        params = {name: value}
+        cfg = make_config("binary", n_estimators=3, n_splits=2)
+        if surface == "model.params":
+            cfg["model"]["params"].update(params)
+        with record_lightgbm_calls() as seen:
+            Model(cfg, data=make_binary_df(n=160)).fit(
+                params=dict(params) if surface == "fit(params=)" else None
             )
-            reached = seen["train_params"][0]
-            assert any(name in reached for name in params), (
-                f"{sorted(params)} did not reach lgb.train: {sorted(reached)}"
-            )
+        assert seen["train_params"], f"{name} on {surface} trained nothing"
+        assert name in seen["train_params"][0], (
+            f"{name} did not reach lgb.train: {sorted(seen['train_params'][0])}"
+        )
+
+    cfg = make_config("binary", n_estimators=3, n_splits=2)
+    if surface == "model.params":
+        cfg["model"]["params"].update(combined)
+    with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as excinfo:
+        Model(cfg, data=make_binary_df(n=160)).fit(
+            params=dict(combined) if surface == "fit(params=)" else None
+        )
+
+    assert excinfo.value.code is ErrorCode.CONFIG_INVALID
+    assert not seen["train_params"], f"{surface} trained before the refusal"
 
 
 @pytest.mark.parametrize("alias", ["eta", "shrinkage_rate", "learning_rate"])
@@ -845,11 +880,17 @@ def test_no_smart_parameter_name_has_an_estimator_alias() -> None:
     )
 
 
-def test_two_spellings_of_one_value_in_the_config_are_accepted() -> None:
-    """The other direction, so the refusal is not bought by refusing everything.
+def test_two_spellings_of_one_value_in_the_config_are_refused() -> None:
+    """The config surface refuses a duplicate spelling carrying equal values.
 
-    Writing one parameter twice with the *same* value names one thing twice;
-    there is no ambiguity for LightGBM to resolve, so nothing is refused.
+    Asserted the opposite until H-0096, on the reasoning that "there is no
+    ambiguity for LightGBM to resolve". LightGBM does resolve it, deterministically
+    and independently of dictionary order -- and warns about it either way
+    (measured; see ``instruments/lgbm_duplicate_alias_behaviour.py``). What LizyML
+    cannot resolve is which of the two the caller meant to be reading later.
+
+    The control that this used to double as is
+    ``test_a_single_spelling_in_the_config_reaches_training`` below.
     """
     cfg = make_config(
         "binary",
@@ -858,10 +899,22 @@ def test_two_spellings_of_one_value_in_the_config_are_accepted() -> None:
         learning_rate=OVERRIDE_VALUE,
         eta=OVERRIDE_VALUE,
     )
-    model = Model(cfg, data=make_binary_df(n=120))
+
+    with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as excinfo:
+        Model(cfg, data=make_binary_df(n=120)).fit()
+
+    assert excinfo.value.code is ErrorCode.CONFIG_INVALID
+    assert not seen["train_params"], "trained before the refusal"
+
+
+def test_a_single_spelling_in_the_config_reaches_training() -> None:
+    """The control for the refusal above."""
+    cfg = make_config(
+        "binary", n_estimators=3, n_splits=2, learning_rate=OVERRIDE_VALUE
+    )
 
     with record_lightgbm_calls() as seen:
-        model.fit()
+        Model(cfg, data=make_binary_df(n=120)).fit()
 
     values = {call.get(OVERRIDDEN) for call in seen["train_params"]}
     assert values == {OVERRIDE_VALUE}, values
@@ -1592,16 +1645,30 @@ def test_a_compatible_objective_alias_still_trains() -> None:
     assert "[objective: binary]" in _booster_text(model)
 
 
-def test_two_spellings_of_one_parameter_with_the_same_value_are_fine() -> None:
-    """Redundant is not ambiguous, and must not be an internal error.
+def test_two_spellings_of_one_parameter_with_the_same_value_are_refused() -> None:
+    """Redundant is refused too, since H-0096 -- and refused, not crashed.
 
-    This raised ``KeyError: 'objective'``: the adapter validated the popped
-    ``objective`` into its params, and the shadow-drop then deleted it as if it
-    were a default, because the alias was still in the user dict.
+    The original defect here was an internal error: ``KeyError: 'objective'``,
+    because the adapter validated the popped ``objective`` into its params and
+    the shadow-drop then deleted it as if it were a default, the alias still
+    being in the user dict. That half still matters. A refusal reached through
+    ``CONFIG_INVALID`` is the fix; a ``KeyError`` would not be, so the assertion
+    is on the code and not merely on something being raised.
     """
     cfg = make_config("binary", n_estimators=3, n_splits=2)
     model = Model(cfg, data=make_binary_df(n=120))
-    model.fit(params={"objective": "binary", "application": "binary"})
+
+    with pytest.raises(LizyMLError) as excinfo:
+        model.fit(params={"objective": "binary", "application": "binary"})
+
+    assert excinfo.value.code is ErrorCode.CONFIG_INVALID
+
+
+def test_one_spelling_of_objective_still_trains() -> None:
+    """The control for the refusal above: the ordinary path still works."""
+    cfg = make_config("binary", n_estimators=3, n_splits=2)
+    model = Model(cfg, data=make_binary_df(n=120))
+    model.fit(params={"objective": "binary"})
     assert "[objective: binary]" in _booster_text(model)
 
 
@@ -1647,9 +1714,16 @@ def test_two_spellings_of_an_ordinary_parameter_are_refused_too() -> None:
     assert written == {OVERRIDDEN: 0.1, ALIAS: 0.2}, written
 
 
-def test_the_same_ordinary_value_under_two_spellings_is_accepted() -> None:
-    """Redundant is not ambiguous here either."""
-    calls = _fit_with({}, {OVERRIDDEN: 0.2, ALIAS: 0.2})
+def test_the_same_ordinary_value_under_two_spellings_is_refused() -> None:
+    """Redundant is refused here too (H-0096)."""
+    with pytest.raises(LizyMLError) as excinfo:
+        _fit_with({}, {OVERRIDDEN: 0.2, ALIAS: 0.2})
+    assert excinfo.value.code is ErrorCode.CONFIG_INVALID
+
+
+def test_an_ordinary_value_under_one_spelling_reaches_training() -> None:
+    """The control for the refusal above."""
+    calls = _fit_with({}, {OVERRIDDEN: 0.2})
     assert calls, "no lgb.train call was recorded"
     assert all(call.get(OVERRIDDEN, call.get(ALIAS)) == 0.2 for call in calls)
 
@@ -1702,65 +1776,76 @@ def test_every_specially_handled_name_has_an_alias_under_test() -> None:
         (0.5, 0.5),
     ],
 )
-def test_equal_values_under_two_spellings_are_accepted_whatever_the_type(
+def test_equal_values_under_two_spellings_are_refused_whatever_the_type(
     first: Any, second: Any
 ) -> None:
-    """Equal is equal, even when the two are written differently.
+    """Two spellings, refused, whether or not the two values compare equal.
 
-    The refusal compared ``repr`` at first, so ``1`` and ``1.0`` read as two
-    values and a call that meant one thing twice was refused (review round 5).
-    A gate that refuses valid input is worse here than the ambiguity it exists
-    to catch, and it disagreed with ``_pop_by_identity``, which compares by
-    equality.
+    ``(1, 1.0)`` is the pair that started this: the refusal compared ``repr``,
+    read them as two values, and round 5 called that a false refusal on a call
+    that meant one thing twice. The repair was to compare by equality, and
+    deciding equality for an arbitrary value is what the following twenty rounds
+    were spent on. H-0096 stops asking, so both pairs land the same way and
+    neither answer depends on the types involved.
     """
-    calls = _fit_with({}, {OVERRIDDEN: first, ALIAS: second})
-    assert calls, "no lgb.train call was recorded"
-    assert all(call.get(OVERRIDDEN, call.get(ALIAS)) == first for call in calls), [
-        c.get(OVERRIDDEN, c.get(ALIAS)) for c in calls
-    ]
+    with pytest.raises(LizyMLError) as excinfo:
+        _fit_with({}, {OVERRIDDEN: first, ALIAS: second})
+    assert excinfo.value.code is ErrorCode.CONFIG_INVALID
 
 
-def test_the_two_refusals_agree_about_what_equal_means() -> None:
+def test_the_two_refusals_agree_on_every_pair() -> None:
     """The adapter and the facade must not disagree on one input.
 
-    ``_pop_by_identity`` refuses a conflicting objective; the facade refuses a
-    conflicting anything. If they used different notions of equality, the same
-    call would be accepted or refused depending on which parameter it named.
+    They used to be kept in step by sharing a comparison, and this asserted that
+    the shared answer was the same on both sides. Since H-0096 neither reads the
+    values, so the pairs that used to separate the two -- ``(1, 1.0)``, and
+    ``(True, 1)``, which are equal in Python but not to LightGBM's parser -- now
+    land identically on both, and so do the pairs that differ.
+
+    Kept because the claim is about the two call sites rather than about the
+    comparison: a change that made one of them read values again would show up
+    here.
     """
     provider = LGBMProvider()
-    # ``True == 1`` in Python, and this is where that belongs: LightGBM cannot
-    # parse a bool as a learning rate, so the pair cannot be checked through a
-    # real fit without testing the library's parser instead of the refusal.
-    for first, second in ((1, 1.0), (0.5, 0.5), (True, 1)):
-        check_duplicate_identities(
-            provider, {OVERRIDDEN: first, ALIAS: second}, surface="probe"
-        )
-        assert _pop_by_identity(
-            {"objective": first, "application": second}, "objective"
-        ) == (first, "objective")
+    for first, second in ((1, 1.0), (0.5, 0.5), (True, 1), (1, 2), ("binary", "xent")):
+        with pytest.raises(LizyMLError) as at_surface:
+            check_duplicate_identities(
+                provider, {OVERRIDDEN: first, ALIAS: second}, surface="probe"
+            )
+        with pytest.raises(LizyMLError) as at_adapter:
+            _pop_by_identity({"objective": first, "application": second}, "objective")
 
-    with pytest.raises(LizyMLError):
-        check_duplicate_identities(provider, {OVERRIDDEN: 1, ALIAS: 2}, surface="probe")
-    with pytest.raises(LizyMLError):
-        _pop_by_identity(
-            {"objective": "binary", "application": "xentropy"}, "objective"
-        )
+        assert at_surface.value.code is ErrorCode.CONFIG_INVALID, (first, second)
+        assert at_adapter.value.code is ErrorCode.CONFIG_INVALID, (first, second)
+
+    # One spelling passes both, so the agreement is not bought by refusing all.
+    check_duplicate_identities(provider, {OVERRIDDEN: 0.5}, surface="probe")
+    assert _pop_by_identity({"objective": "binary"}, "objective") == (
+        "binary",
+        "objective",
+    )
 
 
 def test_an_unhashable_value_does_not_break_the_refusal() -> None:
-    """``feature_contri`` is a list, and a set of values would raise on it."""
+    """``feature_contri`` is a list, and a set of values would raise on it.
+
+    Still worth asserting after H-0096: the refusal groups by canonical name and
+    puts the *values* in the message and the context, so an unhashable value
+    still travels through it.
+    """
     provider = LGBMProvider()
+    for pair in ([1.0, 2.0], [1.0, 2.0]), ([1.0, 2.0], [2.0, 1.0]):
+        with pytest.raises(LizyMLError) as excinfo:
+            check_duplicate_identities(
+                provider,
+                {"feature_contri": pair[0], "feature_contrib": pair[1]},
+                surface="probe",
+            )
+        assert excinfo.value.code is ErrorCode.CONFIG_INVALID
+
     check_duplicate_identities(
-        provider,
-        {"feature_contri": [1.0, 2.0], "feature_contrib": [1.0, 2.0]},
-        surface="probe",
+        provider, {"feature_contri": [1.0, 2.0]}, surface="probe"
     )
-    with pytest.raises(LizyMLError):
-        check_duplicate_identities(
-            provider,
-            {"feature_contri": [1.0, 2.0], "feature_contrib": [2.0, 1.0]},
-            surface="probe",
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -1810,58 +1895,69 @@ def test_a_single_value_of_any_shape_passes_the_duplicate_refusal(label: str) ->
 
 
 @pytest.mark.parametrize("label", sorted(AWKWARD_VALUES))
-def test_equal_values_of_any_shape_are_accepted_under_two_spellings(
+def test_equal_values_of_any_shape_are_refused_under_two_spellings(
     label: str,
 ) -> None:
-    """And two spellings of an equal value are the same value.
+    """Two spellings are refused for every shape, H-0096.
 
-    Two *objects*, built separately. One object bound under both keys is
-    answered by the identity step and reaches nothing else, so the version of
-    this test that did that asserted only that ``x is x`` (rounds 7-8 monitor).
+    This used to assert the opposite -- that an equal value under two spellings
+    was accepted -- and it is the population that made that tolerance expensive:
+    answering "equal?" for a numpy array, a tuple, an empty list and ``None``
+    is four different questions, and there was always a fifth shape.
+
+    Two *objects*, built separately. One object bound under both keys would be
+    answered by an identity step and reach nothing else, so the version of this
+    test that did that asserted only that ``x is x`` (rounds 7-8 monitor). The
+    distinction is kept even though the rule no longer reads the values, because
+    it is what makes the case reach the rule at all.
     """
     first, second = AWKWARD_VALUES[label](), AWKWARD_VALUES[label]()
     if label not in SINGLETON_VALUES:
         assert first is not second, (
-            f"{label} produced one object twice, so this case cannot reach "
-            "past the identity step"
+            f"{label} produced one object twice, so this case is not two values"
         )
 
-    provider = LGBMProvider()
-    # Through the surface, not through the check alone: H-0095 normalises the
-    # value on the way in, so a numpy array is a `list` by the time anything
-    # compares it. Calling the check directly would be asking the comparison a
-    # question the shipped path never asks it.
-    normalised = normalise_and_check(
-        provider,
-        {"feature_contri": first, "feature_contrib": second},
-        surface="probe",
-    )
-    kept, spelling = _pop_by_identity(dict(normalised), "feature_contri")
-    assert spelling == "feature_contri"
-    assert not values_differ(kept, normalised["feature_contri"])
+    with pytest.raises(LizyMLError) as excinfo:
+        normalise_and_check(
+            LGBMProvider(),
+            {"feature_contri": first, "feature_contrib": second},
+            surface="probe",
+        )
+
+    assert excinfo.value.code is ErrorCode.CONFIG_INVALID
 
 
-def test_equal_arrays_of_different_dtypes_are_one_value() -> None:
+def test_equal_arrays_of_different_dtypes_are_refused_under_two_spellings() -> None:
     """Through the production entrypoint, because that is where it was refused.
 
-    `np.array([1, 2])` and `np.array([1.0, 2.0])` are the same value and each
-    trains on its own. Deciding array-likes by their printed forms made them
-    two values, so naming one parameter twice with them was refused with
-    `CONFIG_INVALID` -- a gate refusing legitimate input, on ordinary arrays
-    rather than adversarial objects (review round 11).
-    """
-    cfg = make_config("binary", n_estimators=3, n_splits=2)
-    model = Model(cfg, data=make_binary_df(n=120))
+    Round 11 filed the refusal of this pair as a gate refusing legitimate input,
+    on ordinary arrays rather than adversarial objects. It is refused again
+    under H-0096 -- but for naming one parameter twice, not for a judgement
+    about whether two arrays hold the same numbers, which is the judgement that
+    had no closed domain.
 
-    with record_lightgbm_calls() as seen:
-        model.fit(
+    Each array alone must still train; that half is asserted first so this
+    cannot pass on a rule that refuses arrays outright.
+    """
+    for written in (np.array([1, 2]), np.array([1.0, 2.0])):
+        cfg = make_config("binary", n_estimators=3, n_splits=2)
+        with record_lightgbm_calls() as seen:
+            Model(cfg, data=make_binary_df(n=120)).fit(
+                params={"feature_contri": written}
+            )
+        assert seen["train_params"], f"{written!r} alone trained nothing"
+
+    cfg = make_config("binary", n_estimators=3, n_splits=2)
+    with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as excinfo:
+        Model(cfg, data=make_binary_df(n=120)).fit(
             params={
                 "feature_contri": np.array([1, 2]),
                 "feature_contrib": np.array([1.0, 2.0]),
             }
         )
 
-    assert seen["train_params"], "the call was refused, or nothing trained"
+    assert excinfo.value.code is ErrorCode.CONFIG_INVALID
+    assert not seen["train_params"], "trained before the refusal"
 
 
 def test_arrays_that_differ_are_still_refused() -> None:
@@ -1897,21 +1993,33 @@ def test_an_array_valued_parameter_survives_a_real_fit() -> None:
 
 
 def test_the_two_refusals_agree_on_the_awkward_values_too() -> None:
-    """One notion of equality, shared, so neither can drift from the other.
+    """Both places refuse the same call, so neither can drift from the other.
 
-    Asked about the values the surfaces produce, since H-0095: the comparison
-    is total over those, and asking it about a numpy array directly is asking
-    a question the shipped path no longer poses (the array is a `list` by then).
+    They used to agree by *sharing a comparison*. Since H-0096 they agree by
+    asking the same question -- how many spellings -- which is a question with
+    one answer for every value, so there is nothing left for them to disagree
+    about. Asserted over the awkward population anyway: the claim is about the
+    two call sites, and a shape that reached only one of them would still be a
+    way for them to part company.
     """
+    provider = LGBMProvider()
+    for label, build in AWKWARD_VALUES.items():
+        written = {"feature_contri": build(), "feature_contrib": build()}
 
-    def written(value: Any) -> Any:
-        return normalise_params({"k": value}, surface="probe")["k"]
+        with pytest.raises(LizyMLError) as at_surface:
+            normalise_and_check(provider, dict(written), surface="probe")
+        with pytest.raises(LizyMLError) as at_adapter:
+            _pop_by_identity(dict(written), "feature_contri")
 
-    for build in AWKWARD_VALUES.values():
-        assert not values_differ(written(build()), written(build()))
-    assert values_differ(written(np.array([1.0, 2.0])), written(np.array([2.0, 1.0])))
-    assert values_differ([1.0], [1.0, 2.0])
-    assert not values_differ(1, 1.0)
+        assert at_surface.value.code is ErrorCode.CONFIG_INVALID, label
+        assert at_adapter.value.code is ErrorCode.CONFIG_INVALID, label
+
+    # And a single spelling passes both, so the agreement above is not bought
+    # by refusing everything.
+    single = {"feature_contri": [1.0, 2.0]}
+    normalise_and_check(provider, dict(single), surface="probe")
+    value, spelling = _pop_by_identity(dict(single), "feature_contri")
+    assert (value, spelling) == ([1.0, 2.0], "feature_contri")
 
 
 # ---------------------------------------------------------------------------
@@ -2789,19 +2897,26 @@ def test_a_hostile_value_is_refused_beside_a_second_spelling_too(
 def test_closing_the_domain_did_not_close_it_on_the_values_callers_write() -> None:
     """The other half of H-0095, and the one a narrowing would break silently.
 
-    Rounds 12 and 13 both found a **false refusal**, and both are still findings.
-    So the admissions those rounds bought are asserted here on the shipped path,
-    with plain values: one parameter written twice as text and as a number, and
-    as a comma form beside a sequence, still trains as one parameter.
+    Rounds 12 and 13 found false refusals on **ordinary values**, and that half
+    still stands: the shapes those rounds named have to keep training. What
+    changed under H-0096 is only the *duplicate* case -- ``"0.5"`` beside
+    ``0.5`` is now refused for being two spellings, so the claim is asserted
+    on each value written once, which is where a narrowing of the accepted set
+    would actually show.
     """
-    text_and_number = _fit({"learning_rate": "0.5", "eta": 0.5}, num_threads=1)
-    single = _fit({"eta": 0.5}, num_threads=1)
-    assert _booster_text(text_and_number) == _booster_text(single)
+    for written in ("0.5", 0.5):
+        assert "[learning_rate: 0.5]" in _booster_text(
+            _fit({"eta": written}, num_threads=1)
+        ), f"eta={written!r} did not train at 0.5"
 
     comma_form = _fit(
         {"interaction_constraints": [[0, 1]], "learning_rate": 0.5}, num_threads=1
     )
     assert "[learning_rate: 0.5]" in _booster_text(comma_form)
+
+    with pytest.raises(LizyMLError) as excinfo:
+        _fit({"learning_rate": "0.5", "eta": 0.5}, num_threads=1)
+    assert excinfo.value.code is ErrorCode.CONFIG_INVALID
 
 
 def _normalising_model(surface: str, value: Any) -> Model:
@@ -2879,3 +2994,161 @@ def test_a_genuine_conflict_between_plain_values_is_still_refused() -> None:
     with pytest.raises(LizyMLError) as excinfo:
         _fit({"learning_rate": 0.25, "eta": 0.5}, num_threads=1)
     assert excinfo.value.code is ErrorCode.CONFIG_INVALID
+
+
+# ---------------------------------------------------------------------------
+# H-0096: one parameter under two spellings is refused whatever the values are
+#
+# Until H-0096 the rule was "refuse when the values differ, allow when they are
+# equal". Deciding *equal* is what forced a total equality predicate over an
+# open value domain, and that predicate is what rounds 18-26 kept finding one
+# more object inside. The rule below asks nothing about the values, so there is
+# no predicate to be total over.
+#
+# The evidence the change rests on, all measured and recorded in H-0096:
+#   * the tolerated branch fires nowhere in pre-existing code (0 of 37, the
+#     other 37 being this file's own tests);
+#   * LightGBM warns on the duplicate itself, equal values included, and
+#     resolves it by a precedence that does not depend on dictionary order;
+#   * of nine surveyed systems only the C preprocessor branches on agreement,
+#     and it compares token sequences rather than values.
+# ---------------------------------------------------------------------------
+
+
+#: Pairs that the *old* rule allowed through, one per shape the deleted
+#: comparison had a branch for. Each must now be refused, and refused for the
+#: same reason: one parameter, two spellings.
+_EQUAL_UNDER_TWO_SPELLINGS: list[tuple[str, str, str, Any, Any]] = [
+    ("plain float", "learning_rate", "eta", 0.5, 0.5),
+    ("int and float", "learning_rate", "eta", 1, 1.0),
+    ("string and float", "learning_rate", "eta", "0.5", 0.5),
+    ("list and tuple", "feature_contri", "feature_contrib", [1.0, 2.0], (1.0, 2.0)),
+    (
+        "list and its comma text",
+        "feature_contri",
+        "feature_penalty",
+        [1.0, 2.0],
+        "1.0,2.0",
+    ),
+    (
+        "list and ndarray",
+        "feature_contri",
+        "feature_contrib",
+        [1.0, 2.0],
+        np.array([1.0, 2.0]),
+    ),
+    ("numpy scalar and plain", "learning_rate", "eta", np.float64(0.5), 0.5),
+    ("identical strings", "objective", "application", "binary", "binary"),
+]
+
+
+@pytest.mark.parametrize(
+    "label,first,second,left,right",
+    _EQUAL_UNDER_TWO_SPELLINGS,
+    ids=[case[0] for case in _EQUAL_UNDER_TWO_SPELLINGS],
+)
+@pytest.mark.parametrize(
+    "surface",
+    ["model.params", "fit(params=)", "calibration.params", "tuning best_model_params"],
+)
+def test_two_spellings_are_refused_whatever_the_values(
+    surface: str, label: str, first: str, second: str, left: Any, right: Any
+) -> None:
+    """Every surface, every shape the old comparison had an opinion about.
+
+    Red before H-0096: each of these pairs was *accepted*, because the values
+    compared equal. The parametrisation is the point -- a rule that asks nothing
+    about the values cannot answer differently for one shape than another.
+    """
+    with pytest.raises(LizyMLError) as excinfo:
+        normalise_and_check(
+            LGBMProvider(), {first: left, second: right}, surface=surface
+        )
+
+    assert excinfo.value.code is ErrorCode.CONFIG_INVALID
+    assert surface in excinfo.value.user_message, excinfo.value.user_message
+    assert first in excinfo.value.user_message, excinfo.value.user_message
+    assert second in excinfo.value.user_message, excinfo.value.user_message
+
+
+def test_the_adapter_refuses_a_duplicate_spelling_carrying_equal_values() -> None:
+    """The fifth place, which pops every spelling of a specially handled name.
+
+    `_pop_by_identity` had the same tolerance and needs the same rule: it is
+    reached for `objective`, `metric` and the boosting-round names, which the
+    adapter validates or renames, so a second spelling there is the same
+    ambiguity as anywhere else.
+    """
+    with pytest.raises(LizyMLError) as excinfo:
+        _pop_by_identity({"objective": "binary", "application": "binary"}, "objective")
+
+    assert excinfo.value.code is ErrorCode.CONFIG_INVALID
+    assert "objective" in excinfo.value.user_message
+    assert "application" in excinfo.value.user_message
+
+
+def test_a_duplicate_spelling_carrying_equal_values_is_refused_before_training() -> (
+    None
+):
+    """End to end, and nothing may train first."""
+    cfg = make_config("binary", n_estimators=3, n_splits=2)
+
+    with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as excinfo:
+        Model(cfg, data=make_binary_df(n=120)).fit(
+            params={OVERRIDDEN: OVERRIDE_VALUE, "eta": OVERRIDE_VALUE}
+        )
+
+    assert excinfo.value.code is ErrorCode.CONFIG_INVALID
+    assert not seen["train_params"], (
+        f"{len(seen['train_params'])} Booster(s) trained before the refusal"
+    )
+
+
+def test_a_single_spelling_still_reaches_training() -> None:
+    """The control. A rule that refused everything would pass the tests above."""
+    with record_lightgbm_calls() as seen:
+        _fit({OVERRIDDEN: OVERRIDE_VALUE})
+
+    values = {call.get(OVERRIDDEN) for call in seen["train_params"]}
+    assert values == {OVERRIDE_VALUE}, values
+
+
+@pytest.mark.parametrize(
+    "name,value",
+    [
+        ("feature_contri", [1.0, 2.0]),
+        ("feature_penalty", "1.0,2.0"),
+        ("feature_contrib", [1, 2]),
+    ],
+    ids=["sequence", "comma text", "int sequence"],
+)
+def test_a_sequence_or_its_comma_text_still_trains_when_written_alone(
+    name: str, value: Any
+) -> None:
+    """Deleting the comma-form equivalence must not cost a *single* value.
+
+    The deleted comparison knew that `[1.0, 2.0]` and `"1.0,2.0"` are one value,
+    and that knowledge only ever answered the duplicate question. Written once,
+    each of these is an ordinary parameter and must still reach `lgb.train`
+    unchanged -- which is the half of round 13 that H-0096 does not touch.
+    """
+    with record_lightgbm_calls() as seen:
+        _fit({name: value})
+
+    reached = [call for call in seen["train_params"] if name in call]
+    assert reached, f"{name} never reached lgb.train"
+
+
+def test_no_production_module_imports_the_deleted_comparison() -> None:
+    """H-0096 acceptance criterion 4, asked of the tree rather than of memory.
+
+    A deleted module that something still imports is an import error; a deleted
+    module that a *docstring* still names as the reason another module exists is
+    the quieter half, and it is the one that survives a green suite.
+    """
+    offenders = [
+        path.relative_to(REPO)
+        for path in (REPO / "lizyml").rglob("*.py")
+        if "value_equality" in path.read_text(encoding="utf-8")
+    ]
+    assert not offenders, f"still reference the deleted module: {offenders}"

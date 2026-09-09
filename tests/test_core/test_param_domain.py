@@ -1,10 +1,13 @@
 """The ingress normaliser, against the serialiser it is derived from.
 
-H-0095. `values_differ` spent five consecutive review rounds (H-0094 rounds
-16-20) being handed one more object whose `__format__`, `__class__`, `tolist`
-or `__eq__` answered in a way it had not anticipated. Every fix was right about
-the object the round named and silent about the next one, because the domain
-had no boundary. `lizyml.core.param_domain` gives it one.
+H-0095. The deleted comparison (`values_differ`, removed by H-0096) spent five
+consecutive review rounds (H-0094 rounds 16-20) being handed one more object
+whose `__format__`, `__class__`, `tolist` or `__eq__` answered in a way it had
+not anticipated. Every fix was right about the object the round named and silent
+about the next one, because the domain had no boundary. `param_domain` gave it
+one; H-0096 then removed the comparison itself, and what still needs the
+boundary is the exit assertion at the training sites and `export_code`, which
+writes the same values through `json.dump` and encodes them as UTF-8.
 
 The central property here is **wire preservation**: for every value the
 normaliser accepts, the bytes LightGBM is sent are the same before and after
@@ -1037,24 +1040,21 @@ def test_a_numpy_array_subclass_is_refused_for_the_same_reason_a_scalar_is() -> 
     assert _wire(normalise_value(plain)) == _wire(plain)
 
 
-def test_an_integer_too_large_for_a_float_is_accepted_and_compared() -> None:
-    """Review round 21, finding 2.
+def test_an_integer_too_large_for_a_float_is_accepted() -> None:
+    """Review round 21, finding 2 -- the half of it that outlived H-0096.
 
     Python integers have no width, so ``10 ** 400`` is an ordinary accepted
-    value -- the serialiser writes its digits -- and the comparison converted it
-    to ``float`` to ask the numeric question. ``OverflowError`` was one
-    exception short of a function declared total over the accepted set.
+    value and the serialiser writes its digits. Round 21 found the comparison
+    converting it to ``float`` and raising ``OverflowError``, one exception
+    short of a function declared total over the accepted set; H-0096 deleted
+    that comparison, so what is left to assert is that the value is admitted
+    and written unchanged -- which is the part the accepted set is responsible
+    for either way.
     """
-    from lizyml.core.value_equality import values_differ
-
     huge = 10**400
     normalised = normalise_params({"num_leaves": huge}, surface="probe")["num_leaves"]
     assert normalised == huge
     assert _wire(huge) == str(huge)
-
-    assert values_differ(huge, "1") is True
-    assert values_differ(huge, str(huge)) is False
-    assert values_differ(huge, huge) is False
 
 
 def test_a_set_is_refused_rather_than_ordered_by_hash() -> None:
@@ -1164,9 +1164,10 @@ def test_the_objects_five_review_rounds_were_spent_on_are_refused_at_ingress(
     """Rewritten, not deleted: the same objects, now refused instead of compared.
 
     Each of these was the subject of one blocking finding in H-0094 rounds
-    16-20, and each fix taught `values_differ` one more thing about one more
+    16-20, and each fix taught the comparison one more thing about one more
     object. They are kept because the claim being made now is about them: not
-    that the comparison handles them, but that they never reach it.
+    that the comparison handles them -- H-0096 deleted it -- but that they are
+    refused before anything downstream is asked about them at all.
     """
     with pytest.raises(LizyMLError) as exc:
         normalise_params(
