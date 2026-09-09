@@ -9437,6 +9437,50 @@ Firing rate: 0/54 of the choices in the shipped suite would be newly refused
 
 ---
 
+## H-0098: Derive parameter-domain predicates from one structural walk
+
+- Status: proposed
+- Date: 2026-09-10
+- Related: BLUEPRINT §14.4; H-0095; issues #284 and #287.
+
+### Purpose and scope
+
+Replace the three structural walks in `core/param_domain.py` with one walk
+returning a normalized value, whether it was unchanged, and whether it contains
+a mapping. The surface and training predicates consume these results directly.
+Scalar and element formatting remain distinct, following the estimator wire.
+
+### Compatibility and migration
+
+Preserve the current accepted set and scalar/sequence-position asymmetry.
+Identity determines unchanged scalar values; container branches aggregate child
+results during normalization. No caller-controlled equality or display is used.
+Public signatures and persisted formats are unchanged; no migration is needed.
+
+For #287 retain the H-0095 categorical choice decision: exact plain Python
+scalars only. Numeric range bounds are converted at parsing; choices are carried
+literally and reject numpy scalars before a study. This deliberate difference
+from the four normalization surfaces is retained, not silently widened.
+The former numpy-choice TUNING_FAILED symptom is already fixed at base 2436a66:
+the shipped instrument returns CONFIG_INVALID with a successful plain control.
+
+### Alternatives
+
+Keeping separate recursive predicates retains the drift seam of #284.
+Normalizing categorical choices would widen the current contract and needs a
+separate compatibility decision; per-trial normalization repeats avoidable work.
+
+### Acceptance criteria
+
+- Existing parameter population preserves wire bytes, JSON/UTF-8 behavior,
+  idempotence, mapping exclusion and caller-independent unchanged decisions.
+- One structural dispatch derives normalized value and both predicate facts.
+- `param_domain_contract.py --check` still verifies the generated contract.
+- Every literal-bearing search dimension is covered: numpy categorical values
+  fail CONFIG_INVALID naming the dimension; float/int bounds become plain;
+  plain categorical controls remain accepted.
+- Lint, format, type checks and non-slow suite pass before external review.
+
 ## H-0096: 同一層の重複綴りを値によらず拒否する（H-0094 決定の改訂 / D13 の帰結）
 
 - **ステータス**: Accepted
