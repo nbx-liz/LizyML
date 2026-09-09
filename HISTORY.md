@@ -9338,3 +9338,167 @@ raise しない）:
   （`test_the_refused_subset_is_exactly_the_declared_boundary`）。
   理由は位置ごとに評価する —— **同じ型が scalar 位置で拒否され element 位置で
   受理される**ことがあるためで、`longdouble` が実例である。
+
+---
+
+## H-0096: 同一層の重複綴りを値によらず拒否する（H-0094 決定の改訂 / D13 の帰結）
+
+- **ステータス**: Proposed
+- **起票日**: 2026-09-09
+- **スコープ**: `lizyml/core/_model_factories.py`（`check_duplicate_identities`）, `lizyml/estimators/lgbm/adapter.py`（`_pop_by_identity`）, **`lizyml/core/value_equality.py`（削除）**, `tests/test_core/test_value_equality.py`（削除）, `tests/test_core/test_fit_params_override.py`（許容ケース → 拒否ケース）, **`BLUEPRINT.md` §14.4**, `CHANGELOG.md`。
+- **関連**: H-0094（決定 6 / round 5 で入れた同値許容）, H-0095（比較の領域を閉じる提案）, [#264](https://github.com/nbx-liz/LizyML/issues/264), `docs/audits/2026-09-defect-discovery/DECISIONS-PENDING.md` の **D13**, `results/pr2_why_no_approve.md`, `results/pr2_prior_art.md`。
+
+### 目的（課題）
+
+PR 2（#278）は **26 ラウンド回って `APPROVE` に到達しなかった**。原因解析
+（`results/pr2_why_no_approve.md`、実測）が特定した原因は 2 つで、独立している。
+
+**原因 A（設計）。** H-0094 round 5 が入れた「**同一層の重複綴りは、値が等しければ許し、
+違えば拒否する**」という 1 行が、**任意の Python 値についての全域な等価判定**を要求する。
+`values_differ` の呼び出し元は今も 2 か所しかなく、どちらもまさにこの問いである。
+その 1 つの述語が `value_equality.py` + `param_domain.py` = **728 行**、
+production commit **51 件中 30 件**、**rounds 18-26 の 9 連続**を生んでいる。
+そして「誤拒否も欠陥」（round 12/13 が 2 度押し返した DC7）なので、
+**正しくあるには領域を広げねばならず、証明可能であるには狭めねばならない** ——
+2 つは逆向きに引き、広げるたびに新しい位置が開く。
+
+**原因 B（手続き）。** round 21 以降、レビューの問いが「**どんな値でも門を破れないか**」
+という全称命題になった。反例でしか答えられないので `APPROVE` の出口が無い。
+**本提案は原因 A を除去する。原因 B はレビュー依頼の書き方で別に扱う。**
+
+### 実測（この提案が根拠にしているもの）
+
+**1. 許容分岐は出荷済み母集団で 0 回発火する。** 4 surface すべての呼び出し点を包んで
+スイート全体（`9731 passed`）を計測した
+（`docs/audits/2026-09-defect-discovery/instruments/duplicate_tolerance_firing_rate.py`）:
+
+```
+one parameter under two spellings: 51
+  REFUSED  (different values): 14
+  TOLERATED (equal values):    37
+帰属: 37/37 が tests/test_core/test_fit_params_override.py（本 PR が追加した file）
+      pre-existing のヒット: 0
+```
+
+round 11 の `0/811`、round 12 の `0/1009` / `0/22`、round 13 の `0/916` / `0/928`、
+round 14 の `0/70`、H-0093 の `0/736` / `0/52` / `0/3` と整合する。
+
+**2. LightGBM 自身は値を比較しない。** verbosity を既定に戻して fd レベルで捕捉すると、
+**等しくても違っても重複そのものを警告する**
+（`instruments/lgbm_duplicate_alias_behaviour.py`）:
+
+```
+[Warning] learning_rate is set=0.5, eta=0.5 will be ignored. Current value: learning_rate=0.5
+```
+
+優先順位は**決定的で dict の順序に依存しない**（`eta` はどちらの順でも `shrinkage_rate`
+に勝つ）。したがって round 4 の拒否理由「どの値が効くかは*書いたもの*ではなく*ライブラリ*
+で決まる」は**半分しか正しくない** —— 決定的であり、LightGBM 自身がそう言う。
+**拒否の根拠は「不可視だから」ではなく「利用者が 1 つの設定を 2 度書いており、
+どちらを意図したか LizyML には決められないから」に置き換わる。**
+
+**3. 先行事例に `values_differ` の形は無い**（`instruments/duplicate_key_prior_art.py`、
+`results/pr2_prior_art.md`）。調べた 9 処理系のうち意味的な値の等価で分岐するのは
+C プリプロセッサだけで、その C ですら**トークン列の同一性**（構文的）で判定する。
+Python の呼び出しは**等しくても `TypeError`**、pydantic は alias が無言で勝ち、
+Go yaml.v3 / Ruby Psych はエラー、PyYAML / PostgreSQL / dict / json は後勝ち。
+
+### 提案
+
+**同一層で 1 つのパラメーターが 2 つ以上の綴りで書かれていたら、値によらず
+`CONFIG_INVALID` で拒否する。**
+
+- `check_duplicate_identities`（4 surface）: canonical 名でグループ化し、**要素が 2 つ
+  以上のグループがあれば拒否**。値は読まない。
+- `_pop_by_identity`（adapter）: 受理綴りが 2 つ以上供給されていれば拒否。値は読まない。
+- **`lizyml/core/value_equality.py` を削除する。** 呼び出し元が消えるため。
+  カンマ形式の同一視（`feature_contri: [1,2]` と `feature_penalty: "1,2"` を 1 つの値と
+  みなす、round 13）も同時に消える —— **これは「同じ値か」を問うことをやめた帰結であり、
+  「2 つの綴り」であることに変わりはないので拒否側に入る。**
+- 拒否メッセージは surface と綴りと値を名指す（現行の文面を流用し、「異なる値で」の
+  条件節を落とす）。
+
+**`lizyml/core/param_domain.py` はこの提案では変更しない。** 理由を実測で述べる。
+
+比較（消費者行 7）は消えるが、**他の消費者は残り、そのうち `export_code` は本 PR とは
+独立の既存欠陥を直している**。`origin/develop`（`ccae32b`、本 PR 以前）で実行した:
+
+```
+model.params = {"feature_contri": np.array([1.0, 1.0])}
+  -> fit ok, export_code -> TypeError: Object of type ndarray is not JSON serializable
+```
+
+**この欠陥は config 面に元からあり、#264 とも重複検出とも関係が無い。**
+`param_domain` を削ると再発する。また `is_accepted` / `_is_unchanged` は
+`assert_plain_params`（学習サイトの出口表明）にのみ仕えており、比較の消費者ではない。
+**縮小の範囲を「比較のために存在したもの」に限る**のが本提案の立場であり、
+`param_domain` の再設計は別提案とする（round 24/25/26 は、この境界を言い直すたびに
+指摘が出たことを示している）。
+
+### 影響範囲
+
+- **公開 API のシグネチャは変わらない。** 変わるのは**受理される入力**である。
+- これまで通っていた「1 パラメーター × 2 綴り × 等しい値」が `CONFIG_INVALID` になる。
+  4 surface（`model.params` / `fit(params=)` / `calibration.params` /
+  `tuning.optuna.space`）と adapter の全部。
+- `FitResult` / `PredictionResult` / `Artifacts` の形と意味は変わらない。
+  `format_version` の変更は不要。
+- **`BLUEPRINT.md` §14.4（1291 行目）の改訂が必要。** 現行は
+  「同じ層で 1 パラメーターが複数綴り・異なる値で指定されたら `CONFIG_INVALID` とすること
+  （**同値は通す**）」と書いている。**この括弧を削る。**
+  （なお §5.3 が固定しているのはスマートパラメーターと `params` の競合であって
+  別名重複ではない。改訂対象は §14.4 だけである。）
+
+### 互換性
+
+**破壊的変更である。** ただし影響は以下に限られ、実測で裏づけがある。
+
+- **出荷済みの config / テストで壊れるものは 0 件**（上の実測 1、pre-existing 0/37）。
+- **保存済み Artifacts の読み込みには影響しない**: 検査は入口（fit 前）でのみ走る。
+  ただし `best_model_params` を含む復元経路は `tuning best_model_params` surface を
+  通るため、**過去のバージョンが書いた重複綴りの `best_model_params` は
+  読み込み時に拒否される** —— これは H-0094 決定 15 が既に「異なる値なら拒否」として
+  導入した経路であり、本提案はその条件を広げる。tune() は round 11 以降
+  重複次元を study 開始前に拒否するので、**新しい artifact はこの形を作れない**。
+- 利用者にとっての回避は自明である（**綴りを 1 つに減らす**）。拒否メッセージが
+  両方の綴りを名指す。
+
+### 代替案（すべて検討し、実測で棄却した）
+
+| 案 | 棄却理由 |
+|---|---|
+| **現状維持 + 位置を計測**（D13 選択肢 1） | 原因 A が残る。領域の拡大↔閉包の綱引きが続く |
+| **wire 比較**（C のトークン同一性に相当） | numpy / ndarray / tuple / カンマ文字列は無料で解けるが、**`1` vs `1.0` は拒否に戻る**（実測）。round 5 の緊張は解消せず境界が構文的に移るだけ。さらに `_param_dict_to_str` の `_is_numeric` は `try: float(obj)` なので `__float__` を持つ任意クラスが通り、型の門は別途必要 |
+| **sink に型判定を委譲** | 同上の `_is_numeric` の穴に加え、実測で `set`(hash 順) / 入れ子の深さ / サロゲート str / `None` 無言脱落 の 4 つの誤受理。**「構成上閉じる」は成り立たない** |
+| **警告して決定的に選ぶ**（LightGBM / pydantic の答え） | **#264 はまさに「黙って上書きされた」ことの報告**であり、警告は利用者が読む前提の仕組みである。本リポジトリの最優先は再現性であり、`CONFIG_INVALID` の既存方針（BLUEPRINT §5.3）と整合しない |
+| **PR を分割**（D13 選択肢 2） | 併用可能だが、分割しても A の設計判断は残る。D13 は経路 1 を選んだ |
+
+### 受け入れ基準（テスト観点）
+
+1. **等しい値の重複綴りが、5 か所すべてで `CONFIG_INVALID` になる** ——
+   `model.params` / `fit(params=)` / `calibration.params` / `tuning.optuna.space` /
+   adapter の `_pop_by_identity`。**これが振る舞いの変更点であり、
+   既存の 37 件の許容ケースを拒否ケースへ書き換える。**
+2. **異なる値の重複綴りは、これまで通り拒否される**（回帰させない）。
+3. **1 つの綴りしか書かれていない場合は、これまで通り学習に届く**（対照）。
+   `feature_contri: [1,2]` 単独 / `feature_penalty: "1,2"` 単独のどちらも通ること ——
+   カンマ形式の同一視を消したことで**単独の値**が壊れていないことを固定する。
+4. **`lizyml/core/value_equality.py` が存在せず、production に import が 1 つも残らない**
+   （走査テストで固定する。DC4 の裏返し）。
+5. 拒否メッセージが **surface と、書かれた全綴りと、その値**を名指す。
+6. **`param_domain.py` の振る舞いが変わっていない**こと ——
+   `test_param_domain.py` が無変更で通る。
+7. フルスイートが緑で、**`export_code` + ndarray の既存修復が保たれている**
+   （`origin/develop` で再現した `TypeError` が本ブランチでは起きないことを固定する）。
+
+#### Firing rate
+
+```
+Firing rate: 0/37 of the tolerance branch's occurrences come from pre-existing code
+             (37/37 from tests/test_core/test_fit_params_override.py, a file this PR
+             adds; recorded by instruments/duplicate_tolerance_firing_rate.py over the
+             shipped suite at 251353d, wrapping all four surfaces plus the adapter)
+```
+
+本提案は許容条件（`allow`）を**除去**するものであり、条件を追加しない。上の実測は
+「除去して壊れる母集団が空である」ことの証拠として記録する。
