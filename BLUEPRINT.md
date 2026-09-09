@@ -792,6 +792,19 @@ SearchDim にカテゴリ属性を持たせ、Tuner がパラメーターの適�
 - `brier` / `precision_at_k` は LightGBM ネイティブ未対応のため除外。
 - Binary の `objective` は `[binary]` のみ（選択肢 1 つで実質固定）。
 
+### `categorical` の `choices` の型（H-0095 の決定、[#287](https://github.com/nbx-liz/LizyML/issues/287)）
+
+`choices` の各要素は**素の Python スカラー**（`None` / `bool` / `int` / `float` / `str`）で
+なければならず、**判定は型の同一性で行う**（`type(v) is t`。`isinstance` でも
+`type(v) in (...)` でもない —— 前者は `np.float64` / `np.str_` を通し、後者はメタクラスが
+書ける等価に依存する。理由は **§14.4 の受理集合の項**に書いてある同じもの）。
+**numpy スカラーは拒否する** —— `choices` は 4 surface の正規化を通らないため、
+通せば adapter の出口表明が study の内側で拒否し、利用者には `TUNING_FAILED` しか見えない。
+
+`float` / `int` 次元の `low` / `high` は parse 時に `float()` / `int()` で強制変換するので
+この規則の対象外である。**なお 4 surface が numpy を受理するのに探索空間が拒否する
+という差は残っている** —— それを埋めるかどうかは #287 の判断。
+
 ## 11.4 Progress Callback（H-0048）
 
 `tune()` 実行時に外部ツール（Widget 等）が進捗情報をリアルタイムに取得するためのコールバック機構を提供する。

@@ -7,9 +7,22 @@ and H-0096 refuses a duplicate spelling at five positions including
 overlaid onto the trial parameters after the entrance, so nothing normalises it.
 It reaches the exit assertion in the adapter as the type it was written as.
 
-The failure is closed: the assertion refuses, and no Booster trains. That is why
-this is filed rather than fixed inside PR 2 -- the direction is a valid input
-being refused, not an invalid one admitted.
+The failure was closed: the assertion refused and no Booster trained, so the
+direction was a valid-looking input being refused rather than an invalid one
+admitted.
+
+**The hole this measured is now shut** (H-0095, the decision on the search
+space): the choices gate judges the type by identity, so the two numpy types that
+subclass a Python scalar -- ``np.float64`` and ``np.str_`` -- are refused at the
+entrance like every other numpy type. This script is kept as the before/after
+record, and its output is the difference:
+
+    before   numpy scalar   : refused, code=TUNING_FAILED
+    after    numpy scalar   : refused, code=CONFIG_INVALID
+
+What it does **not** measure is the inconsistency that remains: the four
+normalisation surfaces accept a numpy scalar and convert it, while the search
+space refuses one. That question is #287.
 
 Run it from the repository root::
 

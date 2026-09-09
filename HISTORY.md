@@ -9339,6 +9339,89 @@ raise しない）:
   理由は位置ごとに評価する —— **同じ型が scalar 位置で拒否され element 位置で
   受理される**ことがあるためで、`longdouble` が実例である。
 
+### 決定: 探索空間の `choices` は型の同一性で判定する（受け入れレビュー round 29 / [#287](https://github.com/nbx-liz/LizyML/issues/287)）
+
+**この決定は探索空間を 5 つ目の正規化 surface にするものではない。** 探索空間は
+これまでどおり numpy スカラーを**すべて拒否**する。変わるのは、**Python のスカラーを
+継承している 2 型（`np.float64` / `np.str_`）が今まですり抜けていた**のを止める点だけである。
+
+#### 何が起きていたか
+
+`lizyml/tuning/search_space.py` の `_validate_categorical_choices` は
+`(NoneType, bool, int, float, str)` を **`isinstance`** で判定していた。
+`np.float64` は `float` のサブクラス、`np.str_` は `str` のサブクラスなので**通る**。
+サンプルされた値を正規化する場所は無いので、値は numpy のまま
+`_model_tuning.py` の trial overlay に載り、adapter の出口表明
+（`assert_plain_params`）が全トライアルで拒否する。Optuna は各トライアルを FAIL と
+記録し、全滅した結果**利用者が見るのは `TUNING_FAILED: All tuning trials failed.
+Check parameter ranges.`** —— range は正しいのに range を疑えと言われる。
+
+実測（numpy 2.4.2、`instruments/space_choice_normalisation.py`）:
+
+```
+  np.float64 (eta       ): TUNING_FAILED  All tuning trials failed. Check parameter ranges.
+  np.float32 (eta       ): CONFIG_INVALID Categorical dim 'eta' has invalid choice at index 0 ...
+    np.int64 (num_leaves): CONFIG_INVALID Categorical dim 'num_leaves' has invalid choice at index 0 ...
+     np.str_ (boosting  ): TUNING_FAILED  All tuning trials failed. Check parameter ranges.
+ plain float (eta       ): tuned
+```
+
+**範囲は `categorical` だけ。** `FloatDim` は `float(spec["low"])`、`IntDim` は
+`int(spec["low"])` と parse 時に強制変換するので、numpy の境界はサンプル前に素の値になる。
+リテラルをそのまま運ぶのは `choices` だけである。
+
+#### 対応方針（決定）
+
+**`isinstance` を型の同一性へ変える** ——
+`any(type(value) is plain for plain in _ALLOWED_CHOICE_TYPES)`。
+
+`type(value) in _ALLOWED_CHOICE_TYPES` **とは書かない**。`in` はタプル上の
+ハッシュと等価による探索で、クラスの `__hash__` / `__eq__` は**メタクラス**から来る
+＝呼び出し元が書ける（`BLUEPRINT.md` §14.4、レビュー round 23 が受理集合について
+実測した穴と同型）。テストで固定する。
+
+**この門は受理集合の言い直しではない。** 守っている境界が違う ——
+`param_domain` の受理集合は「LightGBM に書ける値」であり、**numpy スカラーを受理して
+変換する**。こちらは「Optuna の `CategoricalDistribution` が受け取れる値」かつ
+「正規化を経ずに出口表明へ到達しても通る値」であり、**素の Python スカラーだけ**である。
+1 つの境界に宣言を 2 つ持たないという規則（§14.4、round 25）に反しない。
+
+メッセージも直す。現行の「Each choice must be a scalar (str, int, float, bool, or
+None)」は、**まさに `float` である値を拒否したときに自己矛盾する**。
+「a plain Python scalar (not a numpy scalar)」と書く。
+
+#### Firing rate
+
+```
+Firing rate: 0/54 of the choices in the shipped suite would be newly refused
+             (42 categorical dimensions, 54 choices: 51 plain Python scalars,
+             3 already refused today and all three from tests asserting that
+             refusal, 0 subclassing a plain scalar; measured by
+             instruments/space_choice_type_firing_rate.py over the full suite at
+             22b11b3, report in results/pr2_space_choice_measurement.txt)
+```
+
+`allow` 条件を**狭める**変更なので、上の実測は「狭めて壊れる母集団が空である」ことの
+証拠として記録する。加えて、狭める対象の 2 型は**今日すでに動かない**（`TUNING_FAILED`
+になる）ので、動いている config は定義上 1 件も存在しない。
+
+#### 残る不整合（この決定では閉じない）
+
+4 つの正規化 surface は numpy スカラーを**受理して変換する**のに、探索空間は**拒否する**。
+この決定はその差を**縮めない** —— すり抜けを止めるだけである。
+「`choices` も他の 4 surface と同じように numpy を受理すべきか」は別の判断で、
+そちらを採るなら trial overlay か parse 時のどちらかで正規化を走らせる提案が必要になる。
+**[#287](https://github.com/nbx-liz/LizyML/issues/287) をその問いのために開いたままにする。**
+
+#### 受け入れ基準（テスト観点）
+
+1. `np.float64` / `np.str_` を `choices` に書くと **`CONFIG_INVALID`** で、
+   **`TUNING_FAILED` ではなく**、次元名を名指し、**Booster が 1 本も学習されない**。
+2. `np.float32` / `np.int64` / `np.bool_` は**従来どおり**同じ形で拒否される（回帰させない）。
+3. 素の値は従来どおり tuning が通る（対照 —— 無いと「全部拒否」でも 1 と 2 が通る）。
+4. 門が**型の同一性**を見ていること —— `float` と等価を装うメタクラスを持つクラスが
+   通らない。
+
 ---
 
 ## H-0096: 同一層の重複綴りを値によらず拒否する（H-0094 決定の改訂 / D13 の帰結）

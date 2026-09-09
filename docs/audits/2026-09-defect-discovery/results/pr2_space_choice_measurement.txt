@@ -1,0 +1,11 @@
+categorical dimensions observed: 42
+choice: already refused today: 3
+choice: plain Python scalar: 51
+choices observed: 54
+
+WOULD BE NEWLY REFUSED: 0
+
+ALREADY REFUSED TODAY: 3
+  ('tests/test_tuning/test_tuning.py::TestParseSpace::test_categorical_nested_list_choice_raises', 'metric', 0, 'list', "['auc', 'binary_logloss']")
+  ('tests/test_tuning/test_tuning.py::TestParseSpace::test_categorical_dict_choice_raises', 'param', 0, 'dict', "{'a': 1}")
+  ('tests/test_tuning/test_tuning.py::TestParseSpace::test_categorical_invalid_choice_at_non_zero_index_raises', 'x', 1, 'dict', "{'bad': 1}")
