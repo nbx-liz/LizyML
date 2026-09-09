@@ -117,18 +117,27 @@ acceptance (DC5) the audit exists to find; see §5.
 
 ## 3. The sequence
 
-| PR | Title | Fixes | Refs | Proposal | Permanent check it ships |
-|---|---|---|---|---|---|
-| 0 | Settle the two specification contradictions and the document rank | #265, #266 | — | decision record | doc-stated version constant vs code constant |
-| 1 | Close the LightGBM parameter-name boundary | #261, #262 | #270 | yes | every key reaching `lgb.train` / `lgb.Dataset`, from both `model.params` and the tuning space; the 27-cell category matrix |
-| 2 | Forward `Model.fit(params=...)` | #264 | #270 | yes | documented argument reaches the trained model |
-| 3 | Reconcile tuning direction with metric orientation | #258 | — | yes | all 22 (task, metric) pairs |
-| 4 | Bring `RefitTrainer.fit` to `CVTrainer.fit` | #269 | — | yes | CV/refit input parity across 3 tasks |
-| 5 | Make the feature-pipeline extension point usable as specified | #259, #260 | — | yes | `BaseFeaturePipeline` conformance through fit → predict → explain |
-| 6 | Make every declared `ErrorCode` raisable, on every entry path | #263, #272 | — | yes | 20 `ErrorCode` members, executed; both `Model` entry paths |
-| 7 | Decide the leakage validator's swallow | #267 | — | yes | caller can tell "clean" from "not checked" |
-| 8 | Dispose of the 22 remaining unreachable knobs | #268 | — | yes | all 74 defaulted public knobs: reachable or written policy |
-| 9 | Fold the decided proposals into `BLUEPRINT.md` | #271 | — | yes | proposal on the contract surface ⇒ named in BLUEPRINT |
+> **Revision 6 (2026-09-09) inserts four PRs and marks three done.** The reason is
+> measured and is set out in §12: the run manufactures most of its own byproduct
+> issues, and the residue of PR 2 has no home in PRs 3-9. Status column added.
+
+| PR | Title | Fixes | Refs | Proposal | Permanent check it ships | Status |
+|---|---|---|---|---|---|---|
+| 0 | Settle the two specification contradictions and the document rank | #265, #266 | — | decision record | doc-stated version constant vs code constant | **merged** (#274, H-0092) |
+| 1 | Close the LightGBM parameter-name boundary | #261, #262 | #270 | yes | every key reaching `lgb.train` / `lgb.Dataset`, from both `model.params` and the tuning space; the 27-cell category matrix | **merged** (#275, H-0093) |
+| 2 | Forward `Model.fit(params=...)` | #264, #288 | #270 | yes | documented argument reaches the trained model | **merged** (#278, H-0094/95/96, 30 rounds) |
+| **2b** | **The parameter-domain residue of PR 2** | **#283, #284, #285, #286, #287** | — | yes | every position the H-0094/95/96 rules bind, derived from source | **new in Revision 6** |
+| 3 | Reconcile tuning direction with metric orientation | #258, **#279, #282** | — | yes | all 22 (task, metric) pairs; every search dimension a smart parameter or a training setting consumes | |
+| **3b** | **H-0024 search-space merge** | — | — | yes | a partial space does not silently drop the default dimensions | **carried from the run policy** |
+| **3c** | **`calibration.params` for `platt` and `beta`** | **#277** | — | yes | every calibrator: its declared params reach it, or are refused | **new in Revision 6** |
+| 4 | Bring `RefitTrainer.fit` to `CVTrainer.fit` | #269 | — | yes | CV/refit input parity across 3 tasks | |
+| 5 | Make the feature-pipeline extension point usable as specified | #259, #260 | — | yes | `BaseFeaturePipeline` conformance through fit → predict → explain | |
+| 6 | Make every declared `ErrorCode` raisable, on every entry path | #263, #272 | — | yes | 20 `ErrorCode` members, executed; both `Model` entry paths | |
+| 7 | Decide the leakage validator's swallow | #267 | — | yes | caller can tell "clean" from "not checked" | |
+| 8 | Dispose of the 22 remaining unreachable knobs | #268 | — | yes | all 74 defaulted public knobs: reachable or written policy | |
+| **8b** | **Record what the fit applied, in the artifact** | **#281** | — | yes | every value a reporting surface answers for survives `load()` | **new in Revision 6** |
+| **8c** | **Ship the completion-measurement instrument** | — | — | — | Phase 3 completion measured rather than judged per PR | **moved earlier** (was: before PR 9) |
+| 9 | Fold the decided proposals into `BLUEPRINT.md` | #271 | — | yes | proposal on the contract surface ⇒ named in BLUEPRINT | |
 
 ## 4. Per PR
 
@@ -1669,3 +1678,149 @@ not gate #263 because `run_predict` already receives the `FitResult`
 fingerprint. Three DC classes it raised are addressed in place: DC1 in PR 8's
 unclassifiable-knob policy, DC2 in PR 9's exact-token matcher, DC6 in PR 7's
 measure-first structure.
+
+## 12. Revision 6 — why the byproducts, and what changes (2026-09-09)
+
+PRs 0-2 filed **12 issues the plan does not contain**: #276, #277, #279, #280,
+#281, #282, #283, #284, #285, #286, #287, #288. At one merged PR per four
+byproducts, the remaining PRs would add roughly thirty more. This section states
+the measured cause and the three changes that follow from it.
+
+### 12.1 The dominant generator is this run, not a gap in discovery
+
+Classified by whether the symbol each issue names existed at the base commit
+(`git grep <symbol> origin/develop -- lizyml/`):
+
+```
+_build_params                  PRE-EXISTING
+_validate_categorical_choices  PRE-EXISTING
+check_calibration_param_names  PRE-EXISTING
+normalise_and_check            CREATED BY THIS RUN
+overlay_params                 CREATED BY THIS RUN
+assert_plain_params            CREATED BY THIS RUN
+param_domain                   CREATED BY THIS RUN
+check_duplicate_identities     CREATED BY THIS RUN
+_pop_by_identity               CREATED BY THIS RUN
+```
+
+| Group | Count | Generator | Issues |
+|---|---|---|---|
+| **A** | **4** | **A new rule turned pre-existing code into a violation** | #280, #285, #286, #287 |
+| **B** | **3** | A defect in code this run wrote | #283, #284, #288 |
+| **C** | **4** | Genuinely pre-existing, found by reading neighbouring code | #277, #279, #281, #282 |
+| **D** | **1** | About the method rather than the code | #276 |
+
+**Seven of twelve are manufactured by the work itself.** Group A is the largest
+single generator and the one worth stopping:
+
+- **#285** — `_build_params` is pre-existing. H-0094 added a refusal at five
+  positions, which made the sixth an outlier.
+- **#287** — `_validate_categorical_choices` is pre-existing. H-0095 added
+  normalisation at four surfaces, which made the search space an outlier.
+- **#286** — the facade naming its surface is a rule H-0094 created, so the
+  adapter not naming its own became a defect.
+- **#280** — H-0093 created the collision check, so its matching literal names
+  only became a defect.
+
+None of the four was a defect before the rule existed. **A rule's scope is wider
+than the issue that motivated it, and every position inside that scope is
+thereafter either compliant or a defect.**
+
+The same generator already fires *inside* a PR. H-0094 decision 7 reads:
+
+> 決定 6 は「同じ層で 1 パラメーターが複数綴りなら拒否」と宣言したが、**呼び出しは
+> `fit(params=)` にしか無かった** … **さらに 4 つ目の層があった**
+
+Found during the PR it becomes a decision; found after, an issue. One generator,
+two output channels.
+
+### 12.2 The rate tracks review rounds, not defect density
+
+| PR | Rounds | Byproducts |
+|---|---|---|
+| 0 | 4 | 0 |
+| 1 | 6 | 1 |
+| 2 | **30** | **11** |
+
+About 0.37 per round. **The byproduct count measures how long the loop ran, not
+how defective the code is.**
+
+### 12.3 §1 overstated what this plan avoids
+
+§1 says:
+
+> This plan does **not** re-open discovery.
+
+That does not hold, and could not. Declaring a rule requires enumerating the
+positions it binds, and that enumeration is discovery by another route. The plan
+scopes PRs by issue and measures completion by issue population; it never
+enumerated **the positions a new rule creates obligations for**. §1 stands as
+written for what it meant — no fresh hunt for unrelated defects — and this
+section is the correction to the wider reading.
+
+### 12.4 Change 1 — a Proposal that declares a rule enumerates the rule's positions
+
+Before implementation, derived from source rather than listed, in the Proposal:
+
+```
+Rule positions: <n>, derived from <how>
+  complying     : ...
+  fixed here    : ...
+  dispositioned : ... (reason each)
+```
+
+The repository already uses this discipline twice — the Change Gate's measured
+firing rate, and #288's seam population read from the syntax tree. This applies
+it to the positions a rule binds. Under it, #285, #286, #287 and #280 would each
+have been a decision inside their PR rather than an issue found later, one round
+at a time.
+
+The derivation is bounded, and the bound is stated with it. Round 30 measured
+what #288's derivation actually catches, and the honest form is "a seam
+introduced under a new layer name in these modules", not "no seam can be
+uncovered".
+
+### 12.5 Change 2 — completion criteria are written when the PR opens
+
+PR 2 wrote them at round 28. `results/pr2_acceptance_criteria.md` is the
+template: frozen head, acceptance criterion → evidence table, limits of that
+evidence, explicit disposition of everything left open, compatibility
+consequences, the questions the review answers, **an exhaustive bucket rule for
+findings**, and the order of approval.
+
+**Building the table is itself a check.** In PR 2 it surfaced two DC3 drifts
+before the review ran. **A row with no pointer blocks opening the review.**
+
+### 12.6 Change 3 — a declared round budget
+
+**Eight rounds per PR**, then stop and decide against the criteria: accept,
+one scoped round, or split. PR 1 approved at six and PR 0 at four, so eight is
+inside the observed range. The stop is a decision point, not a limit — but it is
+declared before the first round rather than adopted at round 28.
+
+### 12.7 Where the byproducts go
+
+- **PR 2b** — #283, #284, #285, #286, #287. One surface (`param_domain`, the
+  adapter, and the rules H-0094/95/96 created), one reviewer context. Three of
+  them are Change Gate cases, so §12.6's stop at eight rounds matters here and
+  the split point is declared with the Proposal: adapter provenance (#285, #286)
+  separates cleanly from the accepted-set representation (#283, #284, #287).
+- **PR 3** absorbs **#279** and **#282** — both are search dimensions consumed by
+  something that then discards them, and PR 3 already opens the tuning surface.
+- **PR 3c** takes **#277** alone. `platt` and `beta` never touch LightGBM, so the
+  file set is disjoint from the parameter-domain layer, and the decision is one:
+  wire the params or refuse them at validation.
+- **PR 8b** takes **#281**. It is the only persistence-contract item: the artifact
+  has to record what the fit applied. Placed after every behavioural change has
+  landed, so the artifact format is touched **once**, with the final set of
+  values to record, rather than twice.
+- **#276** is about this plan and is answered by §12.3.
+- **#280** needs re-verification before it is scheduled. H-0094 decision 7 wired
+  `check_duplicate_identities` into `model.params`, which may already close it.
+
+### 12.8 What this does not fix
+
+Group B — defects in code this run writes — is not reducible by process, and
+should not be: it is what review is for. Group C, four issues, is the only
+evidence that discovery's population was open, and four across three PRs is a
+rate the plan can absorb.
