@@ -9507,7 +9507,7 @@ model.params = {"feature_contri": np.array([1.0, 1.0])}
    **レビュー round 27 がそれを欠陥として差し戻した**（値の印字が例外を出せば、
    約束した `CONFIG_INVALID` の代わりに別の例外が飛ぶ）ので訂正する。
    **adapter 側（`_pop_by_identity`）は surface を名指さない** —— 引数に取らないため。
-   これは既知の不一致で、処分は D14 の受け入れ基準文書に記録した。
+   これは既知の不一致で、処分は D14 の受け入れ基準文書に記録し、[#286](https://github.com/nbx-liz/LizyML/issues/286) として起票した。
 6. **`param_domain.py` の振る舞いが変わっていない**こと ——
    `test_param_domain.py` が無変更で通る。
 7. フルスイートが緑で、**`export_code` + ndarray の既存修復が保たれている**
