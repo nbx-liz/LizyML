@@ -1,5 +1,11 @@
 """Measure how often the `model.params` same-layer refusal would fire.
 
+ARCHIVED EVIDENCE -- does not run after H-0096. It imports
+`lizyml.core.value_equality.values_differ`, which H-0096 deleted; the refusal it
+measured now fires on any duplicate spelling rather than only on differing
+values. Reproducing its number needs a checkout at 251353d or earlier.
+
+
 The refusal added for review round 11 changes what an existing config does, so
 the Change Gate asks for a measured firing rate before it ships rather than an
 estimate from reading the condition.

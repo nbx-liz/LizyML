@@ -9251,7 +9251,7 @@ numpy scalar types (exact type; derived by np.dtype(k).type is k)
 | `export_code` | `codegen/artifact_writer.py` の `json.dump`（`config.json`） | **`json.dump` で書けること** | `test_every_accepted_value_can_be_written_as_json` |
 | **学習器と `export_code` の両方**（round 25 追加） | LightGBM の `_c_str` / `artifact_writer` の `encoding="utf-8"` | **書く文字が UTF-8 に encode できること** | `test_a_string_neither_consumer_can_encode_is_refused` |
 | 2 度正規化する経路 | `calibration.params`（検査側と calibrator dict 生成側） | **冪等** | `test_normalising_twice_is_normalising_once` |
-| 同一性比較 | `core/value_equality.py` | **受理集合の上で全域、どれでも raise しない** | `test_the_comparison_is_total_over_the_accepted_set`（`test_value_equality.py`） |
+| ~~同一性比較~~ **（H-0096 で消滅）** | ~~`core/value_equality.py`~~ | ~~受理集合の上で全域、どれでも raise しない~~ | **この行は superseded。** H-0096 が同一層の重複綴りを値によらず拒否するようにしたので、比較そのものが消え、モジュールごと削除した。要件が緩んだのではなく**消費者が居なくなった** |
 | 述語 | `is_accepted` / `is_plain` | 正規化関数と一致すること（**両向き**） | `test_the_predicate_and_the_normaliser_agree` / `test_every_accepted_value_normalises_into_the_closed_set` / `test_the_predicates_refuse_everything_the_normaliser_refuses` |
 
 **UTF-8 の行は round 25 が見つけた**（記録: `results/pr2_codex_round25.md` 指摘 1）。
@@ -9343,8 +9343,9 @@ raise しない）:
 
 ## H-0096: 同一層の重複綴りを値によらず拒否する（H-0094 決定の改訂 / D13 の帰結）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-09-09
+- **決定日**: 2026-09-09（決定の記録は `DECISIONS-PENDING.md` の **D13** = 経路 1）
 - **スコープ**: `lizyml/core/_model_factories.py`（`check_duplicate_identities`）, `lizyml/estimators/lgbm/adapter.py`（`_pop_by_identity`）, **`lizyml/core/value_equality.py`（削除）**, `tests/test_core/test_value_equality.py`（削除）, `tests/test_core/test_fit_params_override.py`（許容ケース → 拒否ケース）, **`BLUEPRINT.md` §14.4**, `CHANGELOG.md`。
 - **関連**: H-0094（決定 6 / round 5 で入れた同値許容）, H-0095（比較の領域を閉じる提案）, [#264](https://github.com/nbx-liz/LizyML/issues/264), `docs/audits/2026-09-defect-discovery/DECISIONS-PENDING.md` の **D13**, `results/pr2_why_no_approve.md`, `results/pr2_prior_art.md`。
 
@@ -9418,7 +9419,13 @@ Go yaml.v3 / Ruby Psych はエラー、PyYAML / PostgreSQL / dict / json は後�
 - 拒否メッセージは surface と綴りと値を名指す（現行の文面を流用し、「異なる値で」の
   条件節を落とす）。
 
-**`lizyml/core/param_domain.py` はこの提案では変更しない。** 理由を実測で述べる。
+**`lizyml/core/param_domain.py` の振る舞いはこの提案では変更しない**（`:11` の docstring が
+`values_differ` を存在理由として名指しているので、そこだけ再定義する）。理由を実測で述べる。
+
+**縮小の規模を正確に書いておく。** D13 の選択肢提示では「`param_domain` は消費者を失い、
+残るのは export だけで出口側で解ける」と書いたが、**本提案が実際に削るのは 157 行
+（`value_equality.py`）と「同じ値か」という問いであって、728 行ではない。**
+`param_domain` の 571 行は残る。
 
 比較（消費者行 7）は消えるが、**他の消費者は残り、そのうち `export_code` は本 PR とは
 独立の既存欠陥を直している**。`origin/develop`（`ccae32b`、本 PR 以前）で実行した:
@@ -9432,8 +9439,9 @@ model.params = {"feature_contri": np.array([1.0, 1.0])}
 `param_domain` を削ると再発する。また `is_accepted` / `_is_unchanged` は
 `assert_plain_params`（学習サイトの出口表明）にのみ仕えており、比較の消費者ではない。
 **縮小の範囲を「比較のために存在したもの」に限る**のが本提案の立場であり、
-`param_domain` の再設計は別提案とする（round 24/25/26 は、この境界を言い直すたびに
-指摘が出たことを示している）。
+`param_domain` の再設計は別提案とし、**[#284](https://github.com/nbx-liz/LizyML/issues/284)
+に起票済み**（構造走査が 3 つあり一致を保つ機構が無い＝DC3。round 24/25/26 は、
+この境界を言い直すたびに指摘が出たことを示している）。**繰り延べではなく追跡対象である。**
 
 ### 影響範囲
 
@@ -9458,8 +9466,12 @@ model.params = {"feature_contri": np.array([1.0, 1.0])}
   ただし `best_model_params` を含む復元経路は `tuning best_model_params` surface を
   通るため、**過去のバージョンが書いた重複綴りの `best_model_params` は
   読み込み時に拒否される** —— これは H-0094 決定 15 が既に「異なる値なら拒否」として
-  導入した経路であり、本提案はその条件を広げる。tune() は round 11 以降
-  重複次元を study 開始前に拒否するので、**新しい artifact はこの形を作れない**。
+  導入した経路であり、本提案はその条件を広げる。
+  **この母集団は測れない**（round 15 が既にそう記録している: 母集団は過去バージョンが
+  書いた artifact であり、本リポジトリはそれを保持していない）。**測る代わりに bound を
+  述べる**: `tune()` は round 11 以降、重複次元を study 開始前に拒否するので、
+  **新しい artifact はこの形を作れない**。影響を受けうるのは round 11 より前に
+  書かれた artifact に限られる。
 - 利用者にとっての回避は自明である（**綴りを 1 つに減らす**）。拒否メッセージが
   両方の綴りを名指す。
 

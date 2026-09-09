@@ -1,5 +1,11 @@
 """Measure the *tolerance* branch: same-layer duplicate spellings with EQUAL values.
 
+ARCHIVED EVIDENCE -- does not run after H-0096. It imports
+`lizyml.core.value_equality.values_differ`, and H-0096 deleted that module along
+with the tolerance branch this measured. The recorded numbers below are what the
+decision rested on; reproducing them needs a checkout at 251353d or earlier.
+
+
 The round-11 instrument reported only the refused (different-value) count.
 The question D13's analysis needs is the other branch: over the shipped suite,
 how often does one layer name one parameter under two accepted spellings with
