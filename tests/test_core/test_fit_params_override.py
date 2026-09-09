@@ -588,6 +588,141 @@ def test_two_search_dimensions_naming_one_parameter_are_refused() -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# A search-space choice is judged by exact type (#287, acceptance review)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "parameter,written",
+    [
+        ("eta", np.float64(0.5)),
+        ("boosting", np.str_("gbdt")),
+    ],
+    ids=["float64", "str_"],
+)
+def test_a_choice_subclassing_a_plain_scalar_is_refused_at_the_entrance(
+    parameter: str, written: Any
+) -> None:
+    """The two numpy types that pass an ``isinstance`` gate, refused at the door.
+
+    ``np.float64`` is a subclass of ``float`` and ``np.str_`` of ``str``, so a
+    membership test written with ``isinstance`` admits them. Nothing normalises a
+    sampled value, so each trial reached the exit assertion carrying the numpy
+    scalar, every trial failed, and the user was told ``TUNING_FAILED: All tuning
+    trials failed. Check parameter ranges.`` -- with ranges that were fine.
+
+    The other numpy scalar types were already refused here, which is what made
+    this two types rather than a general gap.
+    """
+    cfg = make_config("binary", n_estimators=3, n_splits=2, tuning_n_trials=1)
+    cfg["tuning"]["optuna"]["space"] = {
+        parameter: {"type": "categorical", "choices": [written], "category": "model"},
+    }
+
+    with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as exc:
+        Model(cfg, data=make_binary_df(n=120)).tune()
+
+    assert exc.value.code is not ErrorCode.TUNING_FAILED, (
+        "the refusal happened inside the study, so the user is told the trials "
+        "failed rather than which value was refused"
+    )
+    assert exc.value.code is ErrorCode.CONFIG_INVALID
+    assert parameter in exc.value.user_message, exc.value.user_message
+    assert not seen["train_params"], (
+        f"{len(seen['train_params'])} Booster(s) were trained; the refusal "
+        "belongs before the study starts"
+    )
+
+
+@pytest.mark.parametrize(
+    "parameter,written",
+    [
+        ("eta", np.float32(0.5)),
+        ("num_leaves", np.int64(3)),
+        ("boosting_type", np.bool_(True)),
+    ],
+    ids=["float32", "int64", "bool_"],
+)
+def test_a_choice_of_any_other_numpy_type_is_still_refused(
+    parameter: str, written: Any
+) -> None:
+    """The rows that already worked, kept so the change is a closure not a swap.
+
+    These types are not subclasses of a Python scalar, so they never reached the
+    study. Judging by exact type must leave them exactly where they were.
+    """
+    cfg = make_config("binary", n_estimators=3, n_splits=2, tuning_n_trials=1)
+    cfg["tuning"]["optuna"]["space"] = {
+        parameter: {"type": "categorical", "choices": [written], "category": "model"},
+    }
+
+    with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as exc:
+        Model(cfg, data=make_binary_df(n=120)).tune()
+
+    assert exc.value.code is ErrorCode.CONFIG_INVALID
+    assert parameter in exc.value.user_message, exc.value.user_message
+    assert not seen["train_params"], "a Booster trained before the refusal"
+
+
+def test_a_plain_choice_still_tunes() -> None:
+    """The control: without it, a gate that refuses everything passes the rows above."""
+    cfg = make_config(
+        "binary",
+        n_estimators=3,
+        n_splits=2,
+        tuning_n_trials=1,
+        num_threads=1,
+    )
+    cfg["tuning"]["optuna"]["space"] = {
+        "eta": {
+            "type": "categorical",
+            "choices": [OVERRIDE_VALUE],
+            "category": "model",
+        },
+    }
+    model = Model(cfg, data=make_binary_df(n=120))
+
+    result = model.tune()
+
+    assert result.best_model_params == {"eta": OVERRIDE_VALUE}
+
+
+def test_the_choice_gate_reads_the_type_and_not_the_callers_equality() -> None:
+    """A class can answer a membership test; it cannot change what it *is*.
+
+    ``type(x) in (...)`` is a hash-and-equality search over the tuple, and a
+    class's ``__hash__`` and ``__eq__`` come from its metaclass, which the caller
+    writes. BLUEPRINT 14.4 settled this for the accepted set at review round 23;
+    the same reasoning applies wherever a type decides admission.
+    """
+
+    class PretendsToBeFloat(type):
+        def __eq__(cls, other: object) -> bool:
+            return other is float
+
+        def __hash__(cls) -> int:
+            return hash(float)
+
+    class NotAFloat(metaclass=PretendsToBeFloat):
+        pass
+
+    cfg = make_config("binary", n_estimators=3, n_splits=2, tuning_n_trials=1)
+    cfg["tuning"]["optuna"]["space"] = {
+        "eta": {
+            "type": "categorical",
+            "choices": [NotAFloat()],
+            "category": "model",
+        },
+    }
+
+    with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as exc:
+        Model(cfg, data=make_binary_df(n=120)).tune()
+
+    assert exc.value.code is ErrorCode.CONFIG_INVALID
+    assert not seen["train_params"], "a Booster trained on a value with no text"
+
+
 def test_a_tuned_early_stopping_setting_reaches_the_conflict_gate() -> None:
     """The gate must read the effective setting, not the config alone.
 
