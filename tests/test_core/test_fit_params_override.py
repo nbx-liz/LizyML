@@ -13,6 +13,7 @@ against the **trained Booster** and against what ``lgb.train`` received.
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import inspect
 import json
@@ -1519,6 +1520,190 @@ def test_the_estimator_never_sees_two_spellings_of_one_parameter() -> None:
             f"lgb.train received {spellings}; it must receive exactly the "
             "spelling the caller used, with the other one removed"
         )
+
+
+# ---------------------------------------------------------------------------
+# One test per identity merge seam (#288)
+# ---------------------------------------------------------------------------
+#
+# H-0094 decision 5 made merging resolve by identity at four seams, and decision
+# 7 added the trial overlay as a fifth. The acceptance review of this pull
+# request (round 29) checked which test established that criterion and found the
+# coverage narrower than the claim: the test above exercises the config layer and
+# the ``fit(params=)`` override, and nothing wrote an alias at the other three.
+#
+# The seam that was actually wrong here was the trial overlay, and it was found
+# by widening a review round rather than by a test. Three seams stayed correct by
+# inspection. One test per seam is what makes the next change to any one of them
+# fail loudly instead of quietly reintroducing the asymmetry.
+#
+# The population is derived from the source below, not listed here, so a sixth
+# seam added later cannot be silently uncovered.
+
+#: The layer argument of each ``overlay_params`` call, mapped to the test that
+#: writes an alias at that layer. Checked against the source by
+#: ``test_every_identity_overlay_seam_has_a_test``.
+SEAM_TESTS = {
+    "fixed": "test_the_provider_fixed_seam_carries_one_spelling",
+    "best_model_params": "test_the_tuning_result_seam_sends_one_spelling",
+    "override": "test_the_estimator_never_sees_two_spellings_of_one_parameter",
+    "model_p": "test_the_trial_overlay_seam_sends_one_spelling",
+}
+
+#: The modules that overlay one parameter layer onto another.
+SEAM_MODULES = ("lizyml/core/model.py", "lizyml/core/_model_tuning.py")
+
+
+def _overlay_layers() -> set[str]:
+    """Return the layer argument of every ``overlay_params`` call in the source.
+
+    Read from the syntax tree rather than from a list, so a seam added later
+    appears here without anyone remembering to write it down.
+    """
+    layers: set[str] = set()
+    for module in SEAM_MODULES:
+        tree = ast.parse((REPO / module).read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            if getattr(node.func, "id", None) != "overlay_params":
+                continue
+            layer = node.args[2]
+            assert isinstance(layer, ast.Name), (
+                f"{module}:{node.lineno} overlays an expression rather than a "
+                "named layer; this derivation cannot name it"
+            )
+            layers.add(layer.id)
+    return layers
+
+
+def test_every_identity_overlay_seam_has_a_test() -> None:
+    """Every seam in the source is one this file writes an alias at.
+
+    Without this, the seam set is a list somebody has to maintain, which is the
+    failure the fourth seam already demonstrated once: the rule was declared for
+    every layer and wired at two of them.
+    """
+    derived = _overlay_layers()
+    assert derived == set(SEAM_TESTS), (
+        f"the source overlays {sorted(derived)} but this file covers "
+        f"{sorted(SEAM_TESTS)}; a seam is uncovered or a covered one is gone"
+    )
+
+    module = sys.modules[__name__]
+    missing = [name for name in SEAM_TESTS.values() if not hasattr(module, name)]
+    assert not missing, f"named as seam coverage but absent: {missing}"
+
+
+def test_the_tuning_result_seam_sends_one_spelling() -> None:
+    """The seam that arrives from disk, asserted on the spelling.
+
+    ``test_an_alias_in_the_tuning_result_wins_over_the_config`` asserts the
+    *value* the booster trained at, which passes while the dict still carries
+    both keys and LightGBM resolves them. This asserts the seam itself.
+    """
+    cfg = make_config("binary", n_estimators=5, n_splits=2, learning_rate=CONFIG_VALUE)
+    model = Model(cfg, data=make_binary_df(n=160))
+    model._tuning_result = TuningResult(
+        best_model_params={ALIAS: 0.25},
+        best_smart_params={},
+        best_training_params={},
+        best_score=0.0,
+        metric_name="auc",
+        direction="maximize",
+        trials=[],
+        rounds=(),
+    )
+
+    with record_lightgbm_calls() as seen:
+        model.fit()
+
+    assert seen["train_params"], "no lgb.train call was recorded"
+    for call in seen["train_params"]:
+        spellings = sorted({ALIAS, OVERRIDDEN} & set(call))
+        assert spellings == [ALIAS], (
+            f"lgb.train received {spellings}; the tuning result wrote "
+            f"{ALIAS!r}, so the config's {OVERRIDDEN!r} must be gone"
+        )
+
+
+def test_the_trial_overlay_seam_sends_one_spelling() -> None:
+    """The fifth seam, asserted per trial rather than on the selected value.
+
+    ``test_tuning_evaluates_the_parameters_it_then_selects`` asserts that the
+    trials trained at the value the study recorded. That is the defect this seam
+    caused, but it holds whichever spelling arrived. Here the claim is that each
+    trial was sent one.
+    """
+    cfg = make_config(
+        "binary",
+        n_estimators=3,
+        n_splits=2,
+        learning_rate=CONFIG_VALUE,
+        tuning_n_trials=1,
+        num_threads=1,
+    )
+    cfg["tuning"]["optuna"]["space"] = {
+        ALIAS: {
+            "type": "categorical",
+            "choices": [OVERRIDE_VALUE],
+            "category": "model",
+        }
+    }
+    model = Model(cfg, data=make_binary_df(n=120))
+
+    with record_lightgbm_calls() as seen:
+        model.tune()
+
+    assert seen["train_params"], "no trial trained"
+    for call in seen["train_params"]:
+        spellings = sorted({ALIAS, OVERRIDDEN} & set(call))
+        assert spellings == [ALIAS], (
+            f"a trial was sent {spellings}; the search dimension is {ALIAS!r}, "
+            f"so the config's {OVERRIDDEN!r} must be dropped from every trial"
+        )
+
+
+def test_the_provider_fixed_seam_carries_one_spelling() -> None:
+    """The seam whose layer the user does not write, so the config supplies the alias.
+
+    ``default_fixed_params`` carries ``metric``, and it is overlaid only when a
+    tuning result was produced from the default search space. A config naming
+    the same parameter ``metrics`` is therefore the collision this seam has to
+    resolve.
+
+    **The merged dict is the load-bearing assertion here**, not ``lgb.train``:
+    the adapter pops every spelling of ``metric`` by identity and writes the
+    canonical one back, so a seam that left both keys in place would still send
+    one spelling onward. That downstream repair is not this seam, and asserting
+    only on the call would pass whether the seam worked or not.
+    """
+    cfg = make_config(
+        "binary",
+        n_estimators=3,
+        n_splits=2,
+        tuning_n_trials=1,
+        metrics="auc",
+    )
+    model = Model(cfg, data=make_binary_df(n=120))
+    model._tuning_result = TuningResult(
+        best_model_params={},
+        best_smart_params={},
+        best_training_params={},
+        best_score=0.0,
+        metric_name="auc",
+        direction="maximize",
+        trials=[],
+        rounds=(),
+    )
+
+    merged, _ = model._merge_params(LGBMProvider())
+
+    spellings = sorted(set(accepted_spellings("metric")) & set(merged))
+    assert spellings == ["metric"], (
+        f"the merged dict carries {spellings}; the provider fixed layer wrote "
+        "'metric', so the config's 'metrics' must be dropped"
+    )
 
 
 def test_an_alias_in_the_tuning_result_wins_over_the_config() -> None:
