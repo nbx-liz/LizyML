@@ -2096,6 +2096,48 @@ def test_the_override_does_not_survive_a_load(tmp_path: pathlib.Path) -> None:
     )
 
 
+def test_export_code_writes_a_config_after_a_numpy_parameter(
+    tmp_path: pathlib.Path,
+) -> None:
+    """The pre-existing defect the accepted set is now justified by.
+
+    This is not about ``fit(params=)`` or about duplicate spellings. It is the
+    config surface, and it is broken on ``origin/develop`` at ``ccae32b``,
+    before any of this pull request::
+
+        model.params = {"feature_contri": np.array([1.0, 1.0])}
+          -> fit ok, export_code -> TypeError: Object of type ndarray is not
+             JSON serializable
+
+    Normalising at the surface fixes it, and H-0096 leaves that half in place --
+    which is precisely why ``param_domain`` stays after the comparison it was
+    first built for is gone. The claim was standing on an oracle that *mirrors*
+    ``artifact_writer`` by calling ``json.dumps`` with the same arguments
+    (``test_every_accepted_value_can_be_written_as_json``). A mirrored oracle is
+    written from the same assumption as the code it mirrors; review round 25
+    found one that had been wrong about UTF-8 for exactly that reason. This runs
+    the writer.
+
+    One case, not a parametrised set: an ndarray is the value that was measured
+    to reproduce the failure. A numpy *scalar* does not -- pydantic coerces it
+    to ``float`` while validating the config -- and asserting on cases that were
+    green before the fix would say nothing about it.
+    """
+    df = make_binary_df(n=160)
+    n_features = len([c for c in df.columns if c != "target"])
+    out = tmp_path / "generated"
+    cfg = make_config("binary", n_estimators=3, n_splits=2)
+    cfg["model"]["params"]["feature_contri"] = np.ones(n_features)
+    model = Model(cfg, data=df)
+    model.fit()
+
+    model.export_code(out)
+
+    config = json.loads((out / "config.json").read_text(encoding="utf-8"))
+    written = config["lgbm_params"]["feature_contri"]
+    assert written == [1.0] * n_features, written
+
+
 def test_export_code_generates_the_overridden_value(tmp_path: pathlib.Path) -> None:
     """The generated project must reproduce the model that was fitted.
 
