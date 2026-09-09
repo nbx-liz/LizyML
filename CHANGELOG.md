@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — H-0098
+
+- Derive parameter-domain predicates during normalization, removing duplicate
+  structural walks without changing accepted values or estimator wire bytes.
+- Pin the deliberate categorical-choice restriction and numeric-bound conversion
+  across all search dimension types; numpy choices remain entrance errors.
+
 ## Unreleased — H-0097
 
 - Identify the winning input and parameter spelling when merged LightGBM

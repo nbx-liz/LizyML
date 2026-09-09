@@ -29,9 +29,8 @@ The second is a defect that predates all of this work: measured on
 np.array([1.0, 1.0])}`` trains and then raises ``TypeError: Object of type
 ndarray is not JSON serializable`` out of ``export_code``.
 
-The three structural walks in this module state one boundary three times, with
-nothing keeping them in step, and collapsing them is filed separately as issue
-284 rather than folded into H-0096.
+One structural walk derives the normalized value, unchanged status and mapping
+presence together. Both boundary predicates consume those facts (H-0098).
 
 What "accepted" is derived from
 -------------------------------
@@ -60,6 +59,7 @@ failing loudly at the surface is the acceptable side to fall on.
 from __future__ import annotations
 
 import pathlib
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -351,158 +351,80 @@ def _element_candidates(value: Any, text: str) -> list[Any]:
     return candidates
 
 
-def _plain_member(member: Any) -> Any:
-    """The stand-in for one member of a top-level sequence.
+@dataclass(frozen=True)
+class _Normalization:
+    value: Any
+    unchanged: bool
+    contains_mapping: bool
 
-    A ``list`` member is the one nested form the serialiser gives meaning to:
-    ``_to_string`` writes it as its own elements joined with commas, which is
-    how ``interaction_constraints`` is spelled. A ``tuple``, ``set`` or array
-    in that position is written with Python's or numpy's repr instead --
-    ``(1, 2)``, ``[1 2]`` -- which LightGBM cannot read, and rewriting it to a
-    list would change the bytes. Both are refused rather than guessed at.
+
+def _walk(
+    value: Any, *, position: str = "value", allow_mappings: bool = True
+) -> _Normalization:
+    """Normalize and derive boundary facts in the same structural dispatch.
+
+    A top-level sequence uses member formatting. A nested list uses element
+    formatting; deeper containers are refused by that scalar formatter. Mapping
+    values restart at value position because adapters consume those mappings.
     """
-    if type(member) is list:
-        # One level, not recursion. `_to_string` writes a nested `list` with
-        # its own bracketed form and writes **that** list's members with
-        # `str`, so depth 2 is where the serialiser stops giving meaning. A
-        # third level is written by Python's list repr, where a normalised
-        # member prints differently from the value the caller wrote -- measured:
-        # `[[[numpy.float32(0.1)]]]` writes `[[np.float32(0.1)]]` and its
-        # normalised form writes `[[0.1]]`.
-        return [_plain_element(inner) for inner in member]
-    if type(member) is dict:
-        return _plain_mapping(member)
-    return _plain_element(member)
-
-
-def _plain_mapping(value: dict[Any, Any]) -> dict[str, Any]:
-    """The plain stand-in for a LizyML-level mapping value.
-
-    LightGBM has no mapping form -- ``_param_dict_to_str`` raises on a ``dict``
-    in scalar position and writes Python repr for one inside a sequence -- so
-    nothing here is about the wire. This is about LizyML values that the adapter
-    **consumes** before serialising: a metric entry is written as
-    ``{"precision_at_k": {"k": 15}}`` or inside a list beside plain names
-    (H-0065), and ``_build_params`` turns those into evaluation functions and
-    removes them.
-
-    So a mapping is accepted at the surface and refused at ``lgb.train``: the
-    two ends have different accepted sets on purpose, and the assertion there is
-    what says a mapping never survived the adapter. Keys must be exact ``str``,
-    and values are normalised like any other, so the closure holds through them.
-    """
-    normalised: dict[str, Any] = {}
-    for key, member in value.items():
-        if type(key) is not str:
-            raise _Unaccepted(value, f"a mapping key is a {_describe(key)}")
-        # The key is written into `config.json` beside the value, so the
-        # same encoding requirement reaches it.
-        _encodable_or_refused(value, key)
-        normalised[key] = normalise_value(member)
-    return normalised
-
-
-def _plain_sequence(value: Any) -> list[Any]:
-    """The plain stand-in for a sequence the serialiser joins with commas."""
-    if type(value) is np.ndarray:
-        # `len(shape)`, which is what `_is_numpy_1d_array` reads, rather than
-        # `ndim`: two attributes that agree on a numpy array and need not agree
-        # on anything else, and the serialiser reads the first.
-        if len(value.shape) != 1:
+    if position != "element" and type(value) is dict:
+        if not allow_mappings:
+            raise _Unaccepted(value, "a mapping cannot reach the estimator")
+        mapping: dict[str, Any] = {}
+        unchanged = True
+        for key, member in value.items():
+            if type(key) is not str:
+                raise _Unaccepted(value, f"a mapping key is a {_describe(key)}")
+            _encodable_or_refused(value, key)
+            child = _walk(member)
+            mapping[key] = child.value
+            unchanged = unchanged and child.unchanged
+        return _Normalization(mapping, unchanged, True)
+    sequence = position == "value" and (
+        type(value) is np.ndarray or _is_one_of(value, PLAIN_SEQUENCE_TYPES)
+    )
+    nested = position == "member" and type(value) is list
+    if sequence or nested:
+        if type(value) is np.ndarray and len(value.shape) != 1:
             raise _Unaccepted(
                 value, f"a {len(value.shape)}-D numpy array is not a parameter value"
             )
-        members: list[Any] = list(value)
-    else:
-        members = list(value)
-    return [_plain_member(member) for member in members]
+        members: list[Any] = []
+        unchanged = type(value) is list
+        contains_mapping = False
+        child_position = "element" if nested else "member"
+        for member in value:
+            child = _walk(
+                member, position=child_position, allow_mappings=allow_mappings
+            )
+            members.append(child.value)
+            unchanged = unchanged and child.unchanged
+            contains_mapping = contains_mapping or child.contains_mapping
+        return _Normalization(members, unchanged, contains_mapping)
+    plain = _plain_scalar(value) if position == "value" else _plain_element(value)
+    return _Normalization(plain, plain is value, False)
 
 
 def normalise_value(value: Any) -> Any:
-    """Return the plain stand-in for one parameter value.
-
-    Raises:
-        _Unaccepted: when the value is outside the accepted set.
-    """
-    if type(value) is np.ndarray or _is_one_of(value, PLAIN_SEQUENCE_TYPES):
-        return _plain_sequence(value)
-    if type(value) is dict:
-        return _plain_mapping(value)
-    return _plain_scalar(value)
-
-
-def _holds_a_mapping(value: Any) -> bool:
-    """Is there a mapping anywhere inside this value?"""
-    if type(value) is dict:
-        return True
-    if type(value) is list:
-        return any(_holds_a_mapping(member) for member in value)
-    return False
+    """Return the plain stand-in, raising _Unaccepted outside the domain."""
+    return _walk(value).value
 
 
 def is_plain(value: Any) -> bool:
-    """Whether ``value`` is one the **serialiser** can be handed as it is.
-
-    Narrower than what :func:`normalise_params` accepts, and deliberately: a
-    mapping is a LizyML-level value the adapter consumes (a metric entry), and
-    one that survives to the trainer is a defect, not a parameter.
-    """
-    return not _holds_a_mapping(value) and is_accepted(value)
+    """Whether the serializer can consume the value unchanged, without mappings."""
+    try:
+        result = _walk(value, allow_mappings=False)
+    except _Unaccepted:
+        return False
+    return result.unchanged and not result.contains_mapping
 
 
 def is_accepted(value: Any) -> bool:
-    """Whether ``value`` is already inside the **surface** set, unchanged.
-
-    Wider than :func:`is_plain`, by exactly the mapping: a metric entry is a
-    LizyML value the adapter consumes, so it passes here and is refused at the
-    trainer. Keeping the two predicates apart is what lets each say something
-    true; one predicate covering both ends would have to be the looser of them,
-    and the looser one is not the bound the trainer needs.
-
-    **Asked through the normaliser rather than beside it.** These predicates
-    used to restate the accepted set in their own terms, and round 24 then
-    narrowed the normaliser -- to values the serialiser can actually turn into
-    characters -- without narrowing them alongside it. ``10 ** 5000`` was the
-    result: accepted by both predicates, accepted by the assertion before
-    training, and refused by normalisation. Two statements of one boundary is
-    one too many, so there is now a single statement and the predicates ask it
-    (review round 25).
-
-    "Unchanged" is decided by **type and identity**, recursively. It was
-    decided by ``repr`` first, and ``repr`` is display text: numpy supports
-    ``printoptions(legacy="1.25")``, under which ``numpy.int64(1)`` and ``1``
-    print the same, and an unconverted numpy scalar then passed both predicates
-    and the assertion before training (review round 26). A comparison the
-    caller can configure is the shape this module removes everywhere else, so
-    it does not belong here either.
-    """
+    """Whether the value is already normalized at the wider surface boundary."""
     try:
-        normalised = normalise_value(value)
+        return _walk(value).unchanged
     except _Unaccepted:
         return False
-    return _is_unchanged(normalised, value)
-
-
-def _is_unchanged(normalised: Any, original: Any) -> bool:
-    """Did normalisation hand back what it was given?
-
-    A scalar it leaves alone is returned as **the same object**, so identity
-    answers it -- and ``is`` is the one comparison in Python that no caller can
-    take part in. A container is rebuilt, so its members are asked the same
-    question.
-    """
-    if type(normalised) is not type(original):
-        return False
-    if type(original) is list:
-        return len(normalised) == len(original) and all(
-            _is_unchanged(member, source)
-            for member, source in zip(normalised, original, strict=True)
-        )
-    if type(original) is dict:
-        return list(normalised) == list(original) and all(
-            _is_unchanged(normalised[key], original[key]) for key in original
-        )
-    return normalised is original
 
 
 def normalise_params(params: dict[str, Any], *, surface: str) -> dict[str, Any]:

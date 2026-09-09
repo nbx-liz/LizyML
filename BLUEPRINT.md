@@ -1257,6 +1257,16 @@ set_categorical_features(cols: list[str] | None) -> None  # デフォルト no-o
 
 ## 14.4 EstimatorProvider protocol（H-0053）
 
+H-0098: Parameter normalization and its boundary predicates derive from one
+structural walk. Each visited value produces its plain representation, unchanged
+status and mapping presence together. The surface predicate consumes unchanged
+status; the training predicate additionally excludes mappings. Scalar and element
+formatting retain their existing position-dependent byte-preservation rules.
+The training mode rejects a mapping at the shared dispatch before visiting its
+members, including cyclic mappings, so the assertion returns CONFIG_INVALID.
+Search-space categorical choices retain H-0095's deliberate plain-scalar-only
+restriction; numeric range bounds are converted before sampling.
+
 Fit-only boundary clarification: `Model.fit()` requests value validation after
 its final overlay. `Model.tune()` retains adapter validation after trial overlays;
 rejecting the base value before a valid sampled replacement would be a regression.
