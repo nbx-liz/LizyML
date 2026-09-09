@@ -57,6 +57,7 @@ from lizyml.core._model_factories import (
     canonicalise_calibration_params,
     check_calibration_param_names,
     check_param_names,
+    check_param_values,
     check_smart_managed_overrides,
     check_training_managed_overrides,
     effective_early_stopping_rounds,
@@ -224,7 +225,9 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         # `model.params` and reached nothing: `_merge_params`'s `override`
         # overlay was correct and had no caller, so an override was discarded
         # in silence and the booster trained on the config value (#264).
-        model_params, smart_params = self._merge_params(provider, override=params)
+        model_params, smart_params = self._merge_params(
+            provider, override=params, validate_values=True
+        )
         # Both parameter surfaces are checked here, before any training starts.
         # `_merge_params` gates `model.params`; the calibration surface is
         # checked beside it rather than at `_run_calibration`, which runs after
@@ -443,6 +446,8 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         self,
         provider: Any,
         override: dict[str, Any] | None = None,
+        *,
+        validate_values: bool = False,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Merge model and smart params with priority:
         Config defaults < tune best < fit() args.
@@ -450,6 +455,8 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         Args:
             provider: EstimatorProvider instance.
             override: Optional fit() arg overrides (highest priority).
+            validate_values: Validate final fit inputs. Tuning still overlays
+                sampled values later, so it keeps validation in the adapter.
 
         Returns:
             (model_params, smart_params) tuple.
@@ -576,6 +583,10 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             ),
         )
 
+        if validate_values:
+            check_param_values(
+                model_params, origins, model_name=model_cfg.name, task=cfg.task
+            )
         return model_params, smart_params
 
     def _build_train_components(

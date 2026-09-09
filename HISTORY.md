@@ -9620,3 +9620,187 @@ Firing rate: 0/37 of the tolerance branch's occurrences come from pre-existing c
 
 本提案は許容条件（`allow`）を**除去**するものであり、条件を追加しない。上の実測は
 「除去して壊れる母集団が空である」ことの証拠として記録する。
+
+---
+
+## H-0097: adapter の拒否が出所を名指す（#286 とその同クラス 2 件 / PR 2b）
+
+### Revision 2 — merged-input validation (2026-09-09)
+
+- Status: proposed. This revision supersedes the implementation direction and
+  acceptance criteria below; the original proposal remains as historical evidence.
+- Purpose: identify the winning input when an objective or metric is rejected.
+- Scope: the merged model parameters in `Model._merge_params`, shared LightGBM
+  validation helpers, adapter seed/verbosity duplicate handling, and regression tests.
+- Decision: validate objective and metric values after overlays, while per-key
+  `origins` still exists. Resolve aliases using the existing canonical-name table.
+  Attach the written parameter and its origin only to `CONFIG_INVALID` errors;
+  preserve existing context, debug information, and exception chaining.
+- Keep the same validators in the adapter for direct construction and trial
+  overlays. Share rule definitions rather than removing these protections.
+- Compatibility: no public constructor or provider Protocol change. Valid inputs
+  and precedence remain unchanged. Direct adapter calls with duplicate seed or
+  verbosity spellings now raise `CONFIG_INVALID`, regardless of equal values.
+- Alternatives: a single adapter-wide surface misattributes mixed inputs; per-key
+  adapter provenance would widen the public Protocol. Neither is required here.
+- Migration: write seed and verbosity once under any accepted spelling. No
+  persistence format change. #286 remains open pending disposition; six reproduced
+  facade cases refuse before the adapter. #284/#287 remain PR 2c.
+- Correction to the handoff: `test_seed_takes_priority_over_random_state` does
+  exist and dates to commit `6619d7eb` (2026-03-07). This revision intentionally
+  replaces that behavior; the original claim that no such test exists is false.
+- Acceptance: invalid objective/metric aliases name the winning input before
+  training; valid higher-priority replacements train; mixed origins stay distinct;
+  direct adapter protection and single-spelling conversion remain; unrelated
+  exceptions propagate unchanged. The updated PR 2b acceptance table is authoritative.
+- Limit: this revision covers parameters entering the merged model-input boundary,
+  not provenance for later sampled trial values or arbitrary future adapter errors.
+
+### Original proposal (superseded by Revision 2 above)
+
+Fit-only boundary clarification: `Model.fit()` requests value validation after
+its final overlay. `Model.tune()` retains adapter validation after trial overlays;
+rejecting the base value before a valid sampled replacement would be a regression.
+`test_tuning_validates_after_sampled_overlay` pins this compatibility case, which
+was reproduced as passing at the base and failing in the first local candidate.
+
+
+- **ステータス**: Proposed
+- **起票日**: 2026-09-09
+- **スコープ**: `lizyml/estimators/lgbm/adapter.py`（拒否の出所付与、`_build_params` の 6 か所目）, `tests/test_core/test_fit_params_override.py`, `tests/test_estimators/test_lgbm_defaults.py`, `CHANGELOG.md`。
+- **関連**: H-0094 決定 3（出所の名指し）, H-0096, [#286](https://github.com/nbx-liz/LizyML/issues/286), [#285](https://github.com/nbx-liz/LizyML/issues/285), 計画 `phase3-plan.md` §12.4, 導出結果 `results/pr2b_rule_positions.md`。
+
+### 目的（課題）
+
+H-0094 決定 3 は「拒否は利用者が直すべき入力を名指す」と宣言した。同じ誤りを
+`model.params` に書いた場合と `fit(params=)` に書いた場合で、**別の住所**が返ることが要件である。
+
+**規則は宣言より多くの位置を縛っていた。** 計画 Revision 6 §12.4 の手続きに従い、
+実装前にソースから位置を導出した（`instruments/refusal_surface_positions.py`）。
+
+```
+CONFIG_INVALID raising functions: 33
+  EVERY RAISE NAMES A SURFACE      6
+  SOME NAME AND SOME DO NOT        0
+  NO RAISE NAMES A SURFACE        27
+```
+
+27 のうち大半は単一入口からのみ到達するので出所は自明である。
+**パラメーター経路にあり、2 つの surface から同じメッセージを返すものが 3 つあった**
+（実測。同じ入力を両 surface から入れて全文比較した）:
+
+| 位置 | 実測 |
+|---|---|
+| `adapter.py:28 _pop_by_identity` | 両者バイト同一、surface 無し（**#286**） |
+| `adapter.py:86 _check_objective_compatible` | 両者バイト同一、surface 無し（**未起票**） |
+| `metric_bridge.py` の metric 検証 | 両者バイト同一、surface 無し（**未起票**） |
+
+対照 —— `check_param_names` は両者で**異なる**メッセージを返す（規則が働いている例）。
+
+**後の 2 つは起票していない。** §12.4 の手続きどおり、**本提案の中の位置として処分する**
+—— 後続のレビューラウンドが 1 件ずつ発見して issue にするのを避けるために導出した。
+
+### 対応方針（決定）
+
+1. **adapter は自分が構築された出所を保持し、拒否に付与する。**
+   `LGBMAdapter.__init__` に **`surface: str | None = None`** を追加する（追加のみ、既定値あり）。
+   facade は構築時に出所を渡す。**直接構築では `None` のままで、メッセージは住所を省く**
+   —— 直接構築に出所は存在しないので、無いものを名乗らせない。
+
+2. **付与は 1 か所で行う。** 3 つの署名を書き換えるのではなく、
+   **`_build_params()` と `fit()` の外周で `CONFIG_INVALID` を捕まえ、
+   まだ surface を名乗っていなければ住所を足して再送出する。**
+   `raise ... from error` で連鎖を保つ。**握り潰さない** —— 常に再送出する。
+
+   この形を選ぶ理由は**クラスを閉じるため**である。署名を 3 つ書き換えると 3 つの
+   インスタンスは直るが、**次に adapter へ足される拒否は同じ欠陥を持って生まれる**。
+   外周での付与は、**今後の拒否も含めて**規則を満たす。
+
+3. **`_build_params` の 6 か所目（`seed` / `verbosity`）を `_pop_by_identity` 経由にする（#285）。**
+
+   **この修正は既存の決定を撤回しない。** 実装時のコメントは「`seed` が `random_state` に
+   優先するという受理済みの決定があり、ヘルパー経由にすると撤回になる」と書いていたが、
+   **記録されているのは単一綴りの変換だけである** ——
+   `BLUEPRINT.md:1187` と `HISTORY.md:2527`（sklearn 名 → Booster API 名）、および
+   `test_lgbm_defaults.py:59-88`（`random_state=77` **だけ**を書くと `seed=77` になる）。
+   **2 綴りが同時に書かれたときどちらが勝つかを固定した文書もテストも存在しない。**
+   `_pop_by_identity` は 2 綴りあるときだけ拒否し、1 綴りなら pop して canonical で
+   書き戻すので、**単一綴りの変換は保たれる**。当該コメント自体も訂正する。
+
+### 影響範囲
+
+- **公開 API**: `LGBMAdapter.__init__` に既定値つきの引数が 1 つ増える（後方互換）。
+- **観測可能な振る舞い**: facade 経由の拒否メッセージが住所を含むようになる。
+  直接構築の拒否メッセージは**変わらない**。
+- **`_build_params` 直接構築で 2 綴りを書いた場合**、これまで黙って片方が選ばれていたのが
+  `CONFIG_INVALID` になる。
+
+### 互換性
+
+```
+Firing rate: 0 of every public surface -- {"seed": 7, "random_state": 7} and
+             {"verbose": -1, "verbosity": -1} are already CONFIG_INVALID through
+             model.params, fit(params=), calibration.params and the search space,
+             because every surface runs check_duplicate_identities first (measured
+             at 5715ee2, pinned by test_the_sixth_site_is_unreachable_from_every_surface).
+             The only caller that reaches the picking branch is direct construction
+             of LGBMAdapter, which is not a public entrance.
+```
+
+`allow` を**狭める**変更なので実測を記録する。**公開経路から到達可能な母集団は空である。**
+
+### 代替案（検討して棄却）
+
+1. **3 つの署名に `surface` を通す。** インスタンスは直るが**クラスが閉じない** ——
+   次に足される拒否が同じ欠陥を持って生まれる。棄却。
+2. **facade 側で objective / metric を先に検査する。** 1 つの境界に宣言を 2 つ持つことになり
+   `BLUEPRINT.md` §14.4（round 25 の指摘）に反する。棄却。
+3. **6 か所目を据え置く**（到達不能を根拠に）。到達不能は**現在の**facade についての測定であり、
+   新しい入口が増えれば黙って開く。**5 か所が拒否し 1 か所が選ぶ**という非一貫性は
+   DC4 の形そのものなので、閉じる。
+
+### 受け入れ基準（テスト観点）
+
+1. **3 つの位置すべてで、`model.params` と `fit(params=)` が別の住所を返す**
+   —— `_pop_by_identity` の重複拒否、`_check_objective_compatible` の task 不一致、
+   metric 検証の 3 つ。**メッセージが両 surface で異なることを主張する**
+   （同一でないことだけでなく、それぞれが正しい住所を名乗ること）。
+2. **直接構築では住所を名乗らない** —— 出所が無いのに名乗るのは偽である。
+3. **付与は握り潰さない** —— 外周が捕まえた `CONFIG_INVALID` は必ず再送出され、
+   `code` と `context` の既存キーが保たれる。**例外を出さない入力では何も変わらない。**
+4. **今後の拒否も規則を満たす** —— adapter に新しい `CONFIG_INVALID` を足したテスト用の
+   経路が、住所を明示的に書かなくても住所つきで届くこと（クラスが閉じている証拠）。
+5. **6 か所目が 2 綴りを拒否する** —— `LGBMAdapter(params={"verbose": -1, "verbosity": 0})`
+   が `CONFIG_INVALID`。
+6. **単一綴りの変換は保たれる**（回帰させない）—— `test_lgbm_defaults.py` の
+   `random_state` → `seed`、`verbose` → `verbosity` が無変更で通る。
+7. **導出が最新であること** —— `instruments/refusal_surface_positions.py` の出力が、
+   準拠 6 + 本提案で直す 3 を反映すること。
+
+### Rule positions
+
+```
+Rule positions (R4, surface naming): 33 CONFIG_INVALID raising functions,
+  derived by AST over lizyml/ (instruments/refusal_surface_positions.py)
+  complying     : 6 name a surface in every raise
+  fixed here    : 3 -- _pop_by_identity (#286), _check_objective_compatible,
+                  metric_bridge metric validation
+  dispositioned : 23 reachable from one entrance only (config reader, plots,
+                  dataframe builder, splitters, search space, calibrator
+                  construction), plus assert_plain_params which names its sink
+                  by design rather than its entrance
+```
+
+### 分割点（事前宣言）
+
+**本提案は PR 2 の残余のうち adapter 側だけを扱う。**
+`param_domain` 側（**#284** の三重走査、**#287** の探索空間と 4 surface の不整合）は
+**PR 2c で別提案**とする。理由は測定である —— PR 2 が 30 ラウンドを要したうち
+rounds 16-26 は受理集合の面で費やされており、その面の再構成を adapter の作業と
+束ねると同じ形が再現する。
+
+**ラウンド予算 8**（計画 Revision 6 §12.6）。8 で一度止めて、完了基準に照らして
+受け入れ／範囲限定でもう 1 回／さらなる分割 を判断する。
+
+**#283 は本提案に含まない** —— H-0096 が `values_differ` ごと削除したため再現せず、
+2026-09-09 に superseded として close した。

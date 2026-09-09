@@ -1,44 +1,77 @@
-# 次の一手 — 2026-09-09（PR 2 マージ済み、次は PR 2b）
+> Resume correction (2026-09-09): the historical statement below that no
+> seed-priority test exists is false. `test_lgbm_defaults.py` contained
+> `test_seed_takes_priority_over_random_state` since `6619d7eb` (2026-03-07).
+> H-0097 Revision 2 explicitly changes that behavior. Six duplicate-input facade
+> probes were reproduced; their reachability result is bounded to those cases.
+> The implementation now validates merged objective/metric values with per-key
+> origins and shares the adapter validators. See the revised acceptance criteria.
+> This is a local candidate, not a committed or accepted change.
+
+# 次の一手 — 2026-09-09（PR 2b、実装前に中断。**判断が 1 つ開いている**）
 
 このファイルだけ読めば次の作業に入れるように書いてある。
-**前版（マージ待ちの版）はこの版に置き換わる。**
+**前版（PR 2 マージ待ちの版）はこの版に置き換わる。**
 
 ---
 
-## 最初にやること —— **PR 2b を開く**
+## ⛔ 最初にやること —— **H-0097 の書き直し方針を決める。コードはまだ 1 行も書いていない。**
 
-**PR 2 は `develop` にマージ済み**（`0920c2a`、squash）。#264 と #288 は close 済み。
+**PR 2b は実装前に止まっている。** 規則の位置を導出したところ、
+**提案 H-0097 の前提が 3 つ実測で覆った**（下記）。**書き直しが要る。**
 
-**次は PR 2b = PR 2 のパラメーター層の後始末**（`phase3-plan.md` §3 と §12.7）。
-対象は **#283 / #284 / #285 / #286 / #287**。
+### 開いている判断
 
-### 開く前にやること（Revision 6 の 3 つの手続き変更、§12.4-12.6）
+**規則が実際に縛るのは 2 位置**（`_check_objective_compatible` と metric 検証）。
+どちらも「入口が見ない問い ＝ 値が task と両立するか」を扱い、
+`model.params` と `fit(params=)` から**バイト同一のメッセージ**を返して住所を名乗らない。
 
-1. **完了基準を先に書く。** 雛形は `results/pr2_acceptance_criteria.md`。
-   **ポインタの無い行が 1 つでもあればレビューを走らせない。**
-2. **Proposal に「規則が縛る位置」を書く** —— ソースから導出、実装前:
-   ```
-   Rule positions: <n>, derived from <how>
-     complying     : ...
-     fixed here    : ...
-     dispositioned : ... (理由つき)
-   ```
-   **これが副産物の最大の生成器を止める**（12 件中 4 件が「新しい規則が既存コードを
-   違反にした」もの）。
-3. **ラウンド予算 8 を宣言する。** 8 で一度止めて、受け入れ／範囲限定でもう 1 回／分割
-   を判断する。**PR 2b の分割点は Proposal に先に書く** ——
-   adapter provenance（#285 / #286）と受理集合の表現（#283 / #284 / #287）は
-   きれいに分かれる。
-
-### PR 2b の中身
-
-| | 内容 | 種別 |
+| | 内容 | 動く公開面 |
 |---|---|---|
-| **#284** | `param_domain` が 1 境界を 3 走査で述べる（DC3） | **Change Gate**（受理集合の表現） |
-| **#286** | adapter の拒否メッセージが surface を名指さない | **Change Gate**（公開コンストラクタに provenance） |
-| **#287** | 探索空間と 4 surface の整合（すり抜けは修正済み、不整合が残る） | 設計判断 1 つ |
-| **#285** | 6 か所目が重複綴りを黙って選ぶ。**公開 surface から到達不能**（テスト固定済み） | #286 と同じ場所 |
-| **#283** | スカラー vs 単一要素列 | 小 |
+| **(A)** | 出所を**パラメーターごとに** adapter まで通す | **`EstimatorProvider.build_estimator_factory`（公開 Protocol）+ `LGBMAdapter.__init__`** |
+| **(B)** ← 推奨 | **2 つの検査を入口へ移す** | **公開面は動かない** |
+
+**(B) を推す理由**: 入口は既に provider と task を持ち、**H-0095 は「値の検査を入口で行う」設計を確立している**ので (B) はその延長になる。
+**H-0097 が (B) を「1 つの境界に宣言を 2 つ持つ」として棄却したのは取り違えだった** ——
+入口の `check_param_names` は「**既知の名前か**」を見ており、「その**値**が task と両立するか」は別の問いである。
+
+**(B) を採る場合に残る小さい判断**: adapter 側の検査を**残すか**（多重防御）**消すか**（単一宣言）。
+
+---
+
+## 実測で覆った 3 つの前提（`results/pr2b_rule_positions.md` に全文）
+
+### 1. **#286 は欠陥ではない** —— 公開経路から到達不能
+
+`_pop_by_identity` を spy でくるみ、3 パラメーター × 2 surface で測った:
+
+```
+objective  via model.params   -> entrance  names surface: True
+objective  via fit(params=)   -> entrance  names surface: True
+metric     via model.params   -> entrance  names surface: True
+metric     via fit(params=)   -> entrance  names surface: True
+rounds     via model.params   -> entrance  names surface: True
+rounds     via fit(params=)   -> entrance  names surface: True
+Direct construction, the only caller left:  adapter fired: True
+```
+
+**6/6 で入口（`check_duplicate_identities`）が先に拒否し、住所を名指す。**
+adapter の重複拒否が発火するのは**直接構築だけ**で、そこに名指すべき出所は無い。
+**#285 と同じ形。** → **#286 の処分（close するか再スコープするか）が未決。**
+測定は issue にコメントとして記録済み。
+
+**教訓**: **起票済みという事実は、その位置が規則の対象であることを意味しない。**
+起票時に到達可能性を測っていれば #286 は立たなかった。
+
+### 2. **H-0097 の決定 1（単一の `surface` を渡す）は偽になる**
+
+マージ後の dict は複数入口から来る（config に `learning_rate`、`fit(params=)` に `eta`）。
+出所は**パラメーターごと**で、`_merge_params` は `origins` を持つが
+**`return model_params, smart_params` で捨てている**。
+
+### 3. **#283 は H-0096 で解消済み** → **close 済み**（superseded）
+
+`values_differ` ごと削除されているので再現しない。対照（同じ値を 2 綴り）も拒否されるので、
+**値を見ていない** = D13 で決めた振る舞いであって欠陥ではない。
 
 ---
 
@@ -46,35 +79,56 @@
 
 | 項目 | 状態 |
 |---|---|
-| `develop` | **`0920c2a`**（PR #278 の squash マージ） |
-| PR **#278** | **MERGED** |
-| Phase 3 | **14 本中 3 本完了**（PR 0 / 1 / 2）。Revision 6 で 4 本追加 |
-| フルスイート（マージ前 head） | 7721 passed / 230 skipped |
-| CI | 11/11 SUCCESS |
+| `develop` | **`53f6cbf`** |
+| ブランチ | **`fix/phase3-pr2b-parameter-domain-residue`**、head **`8dcf5bd`** + 本コミット |
+| PR | **未作成**（実装前なので開いていない） |
+| **production の変更** | **`adapter.py` のコメント 1 か所のみ**（記録に無い決定を主張していた箇所の訂正）。**振る舞いは無変更** |
+| PR #278 | **MERGED**（`0920c2a`）。#264 / #288 close |
+| PR #289 | **MERGED**（計画 Revision 6） |
+| ruff / mypy | clean |
 
 ---
 
-## 改訂後の順序（`phase3-plan.md` §3 が正）
+## PR 2b の残りスコープ（更新後）
 
-`0` ✅ → `1` ✅ → `2` ✅ → **`2b`** → `3`(+#279,#282) → `3b`(H-0024) → **`3c`**(#277)
-→ `4` → `5` → `6` → `7` → `8` → **`8b`**(#281) → **`8c`**(完了測定器) → `9`
+| | 内容 | 状態 |
+|---|---|---|
+| `_check_objective_compatible` の住所 | **未起票。H-0097 の位置として処分** | **(A)/(B) の判断待ち** |
+| metric 検証の住所 | 同上 | 同上 |
+| **#285** | 6 か所目を `_pop_by_identity` 経由に | **小。決定の撤回ではない**（実測で確認） |
+| ~~#286~~ | **到達不能。欠陥ではない** | 処分未決 |
+| ~~#283~~ | **close 済み** | —— |
 
-**新規 4 本の理由は `phase3-plan.md` §12.7 に書いてある。**
-`8c`（§8 の完了測定器）は **PR 9 の直前から前倒しした** —— #271 の母集団は run が
-進むごとに増え、既に宣言 92 に対しずれている。
+**#284 / #287 は PR 2c**（計画 §3 で分割済み）。
+
+---
+
+## 再開したら読むもの（この順）
+
+1. **本ファイル**（開いている判断）
+2. `results/pr2b_rule_positions.md` —— 4 規則の位置の導出と、**覆った 3 前提の実測全文**
+3. `HISTORY.md` の **H-0097** —— **書き直しが必要な提案**
+4. `results/pr2b_acceptance_criteria.md` —— 完了基準。**§2 の証拠列は空欄**（実装時に埋める。
+   **空欄が 1 行でも残ったらレビューを開かない**）
+5. `phase3-plan.md` **§3**（順序）と **§12**（Revision 6 の根拠）
+
+---
+
+## Phase 3 の順序（`phase3-plan.md` §3 が正）
+
+`0`✅ → `1`✅ → `2`✅ → **`2b`（ここ）** → `2c`(#284,#287) → `3`(+#279,#282) → `3b`(H-0024)
+→ `3c`(#277) → `4` → `5` → `6` → `7` → `8` → `8b`(#281) → `8c`(完了測定器) → `9`
 
 ---
 
 ## この run で確定した手続き（すべての PR に適用）
 
-- **完了基準は PR を開くときに書く**（PR 2 は round 28 で書いた）。
-  **対応表を作ること自体が検査**である —— PR 2 では作る過程で DC3 の drift が 2 件出た。
+- **完了基準は PR を開くときに書く。対応表を作ること自体が検査である。**
 - **規則を宣言する Proposal は、規則が縛る位置をソースから導出して列挙する**（§12.4）。
-- **ラウンド予算 8 を事前宣言する**（§12.6）。副産物は 1 ラウンドあたり約 0.37 件で、
-  **件数はコードの欠陥密度ではなくループの長さの関数**である。
+  **初回適用で、起票済み issue 1 件の前提と、提案自身の前提 2 つを覆した。**
+- **ラウンド予算 8 を事前宣言する**（§12.6）。副産物は約 0.37 件/ラウンド。
 - **発火した停止条件は自動ラウンドの停止を正当化するが、マージは許可しない。**
-- **監視の勧告への reconcile を無条件に先に書かない** —— 監視が次の一手に影響を与える
-  能力を落とす。適用条件を限定すること。
+- **監視の勧告への reconcile を無条件に先に書かない。** 適用条件を限定すること。
 - **繰り延べで解決しやすくなるものは無い。** 設計判断を要するかどうかで分けること。
 
 ---
@@ -83,34 +137,20 @@
 
 1. **BLUEPRINT を 1 節だけ見て「上位文書と非衝突」と判断した**（§5.3 だけ見て §14.4 を見落とし）。
 2. **`verbose: -1` を渡したまま「LightGBM は黙っている」と結論した**（交絡）。
-3. **「28 ラウンド」を完走 verdict 数のように書いた**（系列のラベルにすぎない）。
+3. **「28 ラウンド」を完走 verdict 数のように書いた。**
 4. **round 27 の指摘を `periphery` と誤記し、それを前提に選択肢を組んだ。**
-5. **§6 を「B1 が定める手順」と述べた** —— §6 は B3 を PR 内で直す手順を書いていない。
-   行っていたのは**承認された例外**。監視が訂正した。
-6. **「タプルの `in` はハッシュと等価による探索」と書いた** —— 偽。ハッシュを引くのは
-   `set`。round 30 が訂正し、実測で確認した。
+5. **§6 を「B1 が定める手順」と述べた** —— 実際は**承認された例外**。監視が訂正した。
+6. **「タプルの `in` はハッシュと等価による探索」と書いた** —— 偽。ハッシュを引くのは `set`。
 7. **`0/54` から「動いている config は存在しない」と書いた** —— 測定の範囲を超える。
-8. **監視の capsule に記録のパスを接頭辞なしで書いた** —— `INCONCLUSIVE` になった。
+8. **監視の capsule に記録のパスを接頭辞なしで書いた** → `INCONCLUSIVE`。
    **capsule のパスはリポジトリルートからのフルパスで書くこと。**
 9. **`import` を消す前に grep しなかった。**
-10. **`run-exclusive.sh` の第 1 引数がラベルであることを忘れた** ——
-    `run: command not found` で exit 127 になり、`tail` 越しには exit 0 に見えた。
-
----
-
-## 記録の所在
-
-- **計画（正）**: `phase3-plan.md`。**§3 が順序、§12 が Revision 6 の根拠**
-- **完了基準の雛形**: `results/pr2_acceptance_criteria.md`
-- ラウンド: `results/pr2_codex_round[1-30].md`
-- ループ監視: `results/pr2_monitor_round*.md`（直近は `pr2_monitor_round2930.md`）
-  ⚠️ `pr2_monitor_round23.md` は rounds 2-3 の監査であって round 23 のものではない
-- 状況評価: `results/pr2_situation_assessment.md` / `results/pr2_d14_assessment.md`
-- 原因解析と先行事例: `results/pr2_why_no_approve.md` / `results/pr2_prior_art.md`
-- 測定: `results/pr2_duplicate_tolerance_measurement.txt` /
-  `results/pr2_space_choice_measurement.txt`
-- 判断: `DECISIONS-PENDING.md` の **D7-D14**（**D14 は受け入れ宣言で閉じた**）
-- 提案: `HISTORY.md` の **H-0092** … **H-0096**
+10. **`run-exclusive.sh` の第 1 引数がラベルであることを忘れた**（exit 127 が `tail` 越しに 0 に見えた）。
+11. **計測器の判定をシグネチャで書いた** → 準拠している位置を非準拠と誤報告（DC1 の鏡像）。
+12. **probe がメッセージの先頭行だけを比較した** → 準拠している位置を「同一」と誤報告。
+13. **起票済みの #286 を「規則が縛る位置」として数えた** → 到達可能性を測っていなかった。
+14. **`adapter.py` のコメントの過大な主張をそのまま報告に引き継いだ**（#285 が
+    「受理済み決定の撤回」だと述べた）。**コード内コメントも一次資料ではない。**
 
 ---
 
@@ -121,12 +161,11 @@
 - **コマンドガードが引用符・アポストロフィを解析できずに拒否する** →
   Python は**スクリプトファイルにして実行**、コミットメッセージにアポストロフィを入れない
 - **`gh --body-file` は絶対パスで渡すこと**
-- **Codex は `instruments/setup_codex_home.py` で `CODEX_HOME` の書き込み可能コピーを
-  作ってから実行**。フォアグラウンドで `timeout` を長めに。
-  レビュー 1 ラウンドは effort medium、監視・状況評価は effort low
-- **git-manager の push が失敗しても、こちらで `git push` を叩くと通ることがある**
-- フルスイートは `instruments/run-exclusive.sh <label> <command...>` 経由
-  （**第 1 引数はラベル**）
+- **`gh issue close` に `--body-file` は無い** → `gh issue comment` してから `close --reason`
 - **`develop` へのマージは GitHub の自動 close を発火させない**（既定ブランチが `main`）
-  —— **`gh issue close` を手で叩くこと**
+- **git-manager の push が 3 度失敗したが、こちらで `git push` を叩くと毎回通った**
+  （`~/.config` 読み取り拒否と `localhost:3128` プロキシの一時失敗）
+- **Codex は `instruments/setup_codex_home.py` で `CODEX_HOME` の書き込み可能コピーを作る。**
+  レビュー 1 ラウンドは effort medium、監視・状況評価は effort low
+- フルスイートは `instruments/run-exclusive.sh <label> <command...>` 経由（**第 1 引数はラベル**）
 - **`import` を消す前に必ず grep すること**

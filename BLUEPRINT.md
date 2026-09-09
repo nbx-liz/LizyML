@@ -1257,6 +1257,21 @@ set_categorical_features(cols: list[str] | None) -> None  # デフォルト no-o
 
 ## 14.4 EstimatorProvider protocol（H-0053）
 
+Fit-only boundary clarification: `Model.fit()` requests value validation after
+its final overlay. `Model.tune()` retains adapter validation after trial overlays;
+rejecting the base value before a valid sampled replacement would be a regression.
+`test_tuning_validates_after_sampled_overlay` pins this compatibility case, which
+was reproduced as passing at the base and failing in the first local candidate.
+
+
+H-0097 Revision 2: objective and metric validation runs on merged model parameters,
+after precedence is resolved and while each written key still has an input origin.
+The facade and direct adapter use the same validation rules. The provider Protocol
+and adapter constructor do not acquire provenance arguments. Direct adapter calls
+must supply seed and verbosity under one spelling each; duplicates are rejected
+regardless of values, replacing the historical seed-priority behavior.
+
+
 各 estimator モジュールが実装する protocol。`model.py`（Facade）が estimator 固有の知識なしに TrainComponents を構築するための統一 IF。
 
 ```python

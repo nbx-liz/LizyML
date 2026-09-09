@@ -1,3 +1,9 @@
+> PR 2b resume update (2026-09-09): H-0097 Revision 2 replaces adapter-wide
+> provenance with validation of merged values using per-key origins. #285 changes
+> historical direct-adapter behavior: the seed-priority test does exist. #286 is
+> open pending disposition; the reproduced six facade cases refuse at the entrance.
+> PR 2c (#284/#287) remains separate. Older contrary statements below are superseded.
+
 # Phase 3 — repair plan for the 2026-09 defect discovery
 
 Phase 1 (discovery) and Phase 2 (filing) are complete and independently
@@ -126,7 +132,8 @@ acceptance (DC5) the audit exists to find; see §5.
 | 0 | Settle the two specification contradictions and the document rank | #265, #266 | — | decision record | doc-stated version constant vs code constant | **merged** (#274, H-0092) |
 | 1 | Close the LightGBM parameter-name boundary | #261, #262 | #270 | yes | every key reaching `lgb.train` / `lgb.Dataset`, from both `model.params` and the tuning space; the 27-cell category matrix | **merged** (#275, H-0093) |
 | 2 | Forward `Model.fit(params=...)` | #264, #288 | #270 | yes | documented argument reaches the trained model | **merged** (#278, H-0094/95/96, 30 rounds) |
-| **2b** | **The parameter-domain residue of PR 2** | **#283, #284, #285, #286, #287** | — | yes | every position the H-0094/95/96 rules bind, derived from source | **new in Revision 6** |
+| **2b** | **The adapter half of the PR 2 residue** | **#285, #286** | — | **H-0097** | every position the surface-naming rule binds, derived by AST; the class closed at the boundary rather than at three call sites | **new in Revision 6, split** |
+| **2c** | **The accepted-set half of the PR 2 residue** | **#284, #287** | — | yes | one declaration per boundary; the search space against the four normalisation surfaces | **new in Revision 6, split** |
 | 3 | Reconcile tuning direction with metric orientation | #258, **#279, #282** | — | yes | all 22 (task, metric) pairs; every search dimension a smart parameter or a training setting consumes | |
 | **3b** | **H-0024 search-space merge** | — | — | yes | a partial space does not silently drop the default dimensions | **carried from the run policy** |
 | **3c** | **`calibration.params` for `platt` and `beta`** | **#277** | — | yes | every calibrator: its declared params reach it, or are refused | **new in Revision 6** |
@@ -1799,6 +1806,26 @@ inside the observed range. The stop is a decision point, not a limit — but it 
 declared before the first round rather than adopted at round 28.
 
 ### 12.7 Where the byproducts go
+
+**Updated 2026-09-09, while deriving the rule positions.** Two entries changed
+before any code was written, which is the point of deriving first:
+
+- **#283 is closed, not scheduled.** H-0096 deleted `values_differ` and the
+  tolerance branch it served, so the reported input is still refused but not for
+  the reason the issue reports -- the control confirms it, because the same value
+  under both spellings is refused too. Superseded, and verified before closing.
+- **PR 2b splits into 2b and 2c.** The derivation showed #286 is three positions
+  rather than one, and #285 turned out smaller than recorded (see below), while
+  #284 remains a restructure of the surface that produced rounds 16-26 of PR 2.
+  Bundling them reproduces the shape the round budget exists to prevent, so the
+  split declared in H-0097 is taken up front rather than held in reserve.
+- **#285 was recorded as revoking an accepted decision. It does not.** The
+  comment at the site claimed `test_lgbm_defaults.py` pins `seed` taking priority
+  over `random_state`; what it pins is the conversion of a **single** spelling,
+  which the helper preserves. No document and no pre-existing test says which of
+  two spellings wins. The claim was found by reading the site in order to count
+  it, and the comment is corrected in PR 2b.
+
 
 - **PR 2b** — #283, #284, #285, #286, #287. One surface (`param_domain`, the
   adapter, and the rules H-0094/95/96 created), one reviewer context. Three of
