@@ -486,10 +486,26 @@ class LGBMAdapter(BaseEstimatorAdapter):
         # (H-0094 decision 10, named by the rounds 13-14 monitor.)
         # The existing priority is kept exactly: the canonical spelling wins
         # when both are written. `_pop_by_identity` is deliberately **not** used
-        # here -- it refuses two spellings with different values, and this
-        # module has an accepted decision that `seed` takes priority over
-        # `random_state` (`test_lgbm_defaults.py`). Changing a refusal as a side
-        # effect of a naming tidy-up is not this commit's business.
+        # here, and the reason has changed under H-0096, so it is restated
+        # rather than left to be read as it was: that helper used to refuse only
+        # two spellings carrying *different* values, and it now refuses any two
+        # spellings. This module has an accepted decision that `seed` takes
+        # priority over `random_state` (`test_lgbm_defaults.py`), so routing
+        # this site through the helper would revoke that decision rather than
+        # tidy a name -- which is beyond what H-0096 proposed, and it names five
+        # places rather than every site in this module.
+        #
+        # Reachability, measured rather than argued (2026-09-09, at `5715ee2`):
+        # from the facade this branch cannot see two spellings at all, because
+        # every surface runs `check_duplicate_identities` first --
+        # `{"seed": 7, "random_state": 7}` and `{"verbose": -1, "verbosity": -1}`
+        # are both `CONFIG_INVALID` through `model.params` and through
+        # `fit(params=)`. Constructing `LGBMAdapter(params=...)` directly does
+        # reach it, and there it resolves silently:
+        # `{"verbose": -1, "verbosity": 0}` builds `verbosity=0` and
+        # `{"seed": 7, "random_state": 9}` builds `seed=7`.
+        #
+        # That asymmetry is filed as issue #285 rather than closed here.
         for canonical in ("seed", "verbosity"):
             supplied = {
                 name: user_params.pop(name)

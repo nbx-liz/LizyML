@@ -3237,6 +3237,37 @@ def test_neither_refusal_needs_the_values_to_be_printable() -> None:
         repr(excinfo.value)
 
 
+@pytest.mark.parametrize(
+    "pair",
+    [{"seed": 7, "random_state": 7}, {"verbose": -1, "verbosity": -1}],
+    ids=["seed", "verbosity"],
+)
+def test_the_sixth_site_is_unreachable_from_every_surface(pair: dict[str, Any]) -> None:
+    """`seed` and `verbosity` do not reach the adapter site that picks.
+
+    `_build_params` resolves those two across their spellings by canonical-wins
+    instead of refusing, because this module carries an accepted decision that
+    `seed` beats `random_state`. H-0096 names five places and this is a sixth,
+    so the two disagree about what a duplicate spelling means -- tracked as
+    issue #285 rather than closed here, since routing it through the refusal
+    would revoke that decision rather than tidy a name.
+
+    What is asserted here is the reachability that makes the disagreement
+    invisible from outside: no surface can deliver two spellings to it, because
+    every surface refuses first. That claim is in a comment at the site, and a
+    comment is exactly what goes stale when a surface is added later.
+    """
+    for surface in ("model.params", "fit(params=)"):
+        cfg = make_config("binary", n_estimators=3, n_splits=2)
+        if surface == "model.params":
+            cfg["model"]["params"].update(pair)
+        with pytest.raises(LizyMLError) as excinfo:
+            Model(cfg, data=make_binary_df(n=120)).fit(
+                params=dict(pair) if surface == "fit(params=)" else None
+            )
+        assert excinfo.value.code is ErrorCode.CONFIG_INVALID, surface
+
+
 def test_no_production_module_imports_the_deleted_comparison() -> None:
     """H-0096 acceptance criterion 4, asked of the tree rather than of memory.
 
