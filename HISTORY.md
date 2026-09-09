@@ -9502,7 +9502,12 @@ model.params = {"feature_contri": np.array([1.0, 1.0])}
    カンマ形式の同一視を消したことで**単独の値**が壊れていないことを固定する。
 4. **`lizyml/core/value_equality.py` が存在せず、production に import が 1 つも残らない**
    （走査テストで固定する。DC4 の裏返し）。
-5. 拒否メッセージが **surface と、書かれた全綴りと、その値**を名指す。
+5. 拒否メッセージが **surface と、書かれた全綴り**を名指す。**値は名指さない** ——
+   message からも context からも外す。提案時は「その値」も名指すと書いていたが、
+   **レビュー round 27 がそれを欠陥として差し戻した**（値の印字が例外を出せば、
+   約束した `CONFIG_INVALID` の代わりに別の例外が飛ぶ）ので訂正する。
+   **adapter 側（`_pop_by_identity`）は surface を名指さない** —— 引数に取らないため。
+   これは既知の不一致で、処分は D14 の受け入れ基準文書に記録した。
 6. **`param_domain.py` の振る舞いが変わっていない**こと ——
    `test_param_domain.py` が無変更で通る。
 7. フルスイートが緑で、**`export_code` + ndarray の既存修復が保たれている**

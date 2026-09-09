@@ -282,7 +282,7 @@ def test_two_spellings_in_calibration_params_are_refused_before_training() -> No
     )
 
 
-def test_two_spellings_of_one_value_in_calibration_params_are_accepted() -> None:
+def test_two_spellings_of_one_value_in_calibration_params_are_refused() -> None:
     """The fourth layer refuses a duplicate spelling carrying equal values too.
 
     This asserted the opposite until H-0096. The control it used to provide --
