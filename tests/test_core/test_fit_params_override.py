@@ -3292,7 +3292,19 @@ def test_no_production_module_imports_the_deleted_comparison() -> None:
     A deleted module that something still imports is an import error; a deleted
     module that a *docstring* still names as the reason another module exists is
     the quieter half, and it is the one that survives a green suite.
+
+    Round 29 asked whether the scan pins what the criterion says, and it did
+    not: reading contents cannot see an *empty* file at the deleted path, which
+    would satisfy the scan and reinstate the module for every importer. So the
+    pathname is asserted too, separately from the references.
     """
+    surviving = [
+        path.relative_to(REPO)
+        for path in (REPO / "lizyml").rglob("value_equality*")
+        if "__pycache__" not in path.parts
+    ]
+    assert not surviving, f"the deleted module is back at: {surviving}"
+
     offenders = [
         path.relative_to(REPO)
         for path in (REPO / "lizyml").rglob("*.py")
