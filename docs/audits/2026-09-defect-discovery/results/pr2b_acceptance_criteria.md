@@ -1,3 +1,59 @@
+# PR 2b acceptance criteria — H-0097 Revision 2
+
+Status: implementation under local verification; not externally reviewed or accepted.
+Base: `8dcf5bd6437bbba074f9c4b07574523724392bb8` plus the preserved handoff files.
+The previous criteria below are historical and superseded by this section.
+
+## Scope and evidence
+
+| Criterion | Evidence |
+|---|---|
+| Objective and metric refusals identify the written alias and winning input at all three merged inputs, before training | `tests/test_core/test_param_refusal_origin.py::test_refusal_names_winning_input` |
+| Duplicate objective/metric/rounds inputs are refused before adapter extraction | `test_duplicate_is_refused_before_adapter` (six cases) |
+| Valid fit overrides replace invalid lower-priority values and train | `test_valid_override_replaces_invalid_config_before_validation` |
+| An unrelated override does not change the address of an invalid config value | `test_mixed_origins_do_not_blame_unrelated_override` |
+| Equal and unequal duplicate seed/verbosity spellings fail in direct construction | `test_direct_adapter_refuses_duplicate_spellings` |
+| Single spelling conversion and valid adapter behavior remain | `tests/test_estimators/test_lgbm_defaults.py` and estimator suite |
+| Non-config exceptions propagate unchanged | `test_other_errors_propagate_unchanged` |
+| Context, debug information and cause chain remain available | `test_config_error_preserves_details_and_cause` |
+
+Both caller boundaries use `param_validation.py`; objective compatibility and
+metric parsing/whitelists are not re-declared at the facade. The adapter keeps
+validation for direct construction and sampled trial overlays. The facade checks
+only the winning merged values, while it still owns per-key input origins.
+
+## Compatibility and limits
+
+Fit-only boundary clarification: `Model.fit()` requests value validation after
+its final overlay. `Model.tune()` retains adapter validation after trial overlays;
+rejecting the base value before a valid sampled replacement would be a regression.
+`test_tuning_validates_after_sampled_overlay` pins this compatibility case, which
+was reproduced as passing at the base and failing in the first local candidate.
+
+
+No public constructor, provider Protocol, or artifact format changes. Seed and
+verbosity duplicates in direct adapter calls now fail. This deliberately replaces
+the historical `test_seed_takes_priority_over_random_state`, present since
+`6619d7eb` (2026-03-07). The prior handoff's claim that it did not exist was wrong.
+Single-spelling inputs remain supported. Config, fit overrides and restored tuning
+best parameters are in scope; provenance for sampled trial overlays and arbitrary
+future adapter errors is not claimed. #284/#287 remain PR 2c. #286 remains open
+pending maintainer disposition; six facade cases alone do not prove every possible
+public path is unreachable.
+
+## Review and completion
+
+Run lint, format, mypy and the full non-slow suite before external review. Freeze
+the final file hashes with the results. Review this revision, not the superseded
+adapter-wide surface proposal. One initial review; any confirmed behavioral repair
+gets a bounded follow-up. The prior eight-round ceiling is a ceiling, not a target
+or an authorization for eight provider calls. Publication and acceptance remain
+separate from local validation.
+
+---
+
+## Superseded criteria (retained verbatim)
+
 # PR 2b — 完了基準（レビューを走らせる前に書いた、2026-09-09）
 
 計画 Revision 6 **§12.5** の初回適用。**PR を開くときに書く**（PR 2 は round 28 で書いた）。

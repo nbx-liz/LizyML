@@ -3592,19 +3592,9 @@ def test_neither_refusal_needs_the_values_to_be_printable() -> None:
     ids=["seed", "verbosity"],
 )
 def test_the_sixth_site_is_unreachable_from_every_surface(pair: dict[str, Any]) -> None:
-    """`seed` and `verbosity` do not reach the adapter site that picks.
+    """Facade entrances reject duplicates before adapter construction.
 
-    `_build_params` resolves those two across their spellings by canonical-wins
-    instead of refusing, because this module carries an accepted decision that
-    `seed` beats `random_state`. H-0096 names five places and this is a sixth,
-    so the two disagree about what a duplicate spelling means -- tracked as
-    issue #285 rather than closed here, since routing it through the refusal
-    would revoke that decision rather than tidy a name.
-
-    What is asserted here is the reachability that makes the disagreement
-    invisible from outside: no surface can deliver two spellings to it, because
-    every surface refuses first. That claim is in a comment at the site, and a
-    comment is exactly what goes stale when a surface is added later.
+    H-0097 now also rejects these duplicates on the direct-adapter path.
     """
     for surface in ("model.params", "fit(params=)"):
         cfg = make_config("binary", n_estimators=3, n_splits=2)

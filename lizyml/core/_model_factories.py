@@ -426,6 +426,39 @@ def get_provider(model_cfg: Any) -> Any:
     )
 
 
+def check_param_values(
+    params: dict[str, Any], origins: dict[str, str], *, model_name: str, task: TaskType
+) -> None:
+    """Check surviving values where their per-parameter origins are available."""
+    if model_name != "lgbm":
+        return
+    from lizyml.core.exceptions import ErrorCode, LizyMLError
+    from lizyml.estimators.lgbm.param_names import LGBM_CANONICAL_NAME
+    from lizyml.estimators.lgbm.param_validation import (
+        check_objective_compatible,
+        resolve_user_metric,
+    )
+
+    for written, value in params.items():
+        canonical = LGBM_CANONICAL_NAME.get(written, written)
+        try:
+            if canonical == "objective" and value is not None:
+                check_objective_compatible(task, value)
+            elif canonical == "metric":
+                resolve_user_metric(value, task)
+        except LizyMLError as error:
+            if error.code != ErrorCode.CONFIG_INVALID:
+                raise
+            surface = origins[written]
+            raise LizyMLError(
+                code=error.code,
+                user_message=f"{surface}: '{written}': {error.user_message}",
+                debug_message=error.debug_message,
+                cause=error,
+                context={**error.context, "surface": surface, "parameter": written},
+            ) from error
+
+
 def check_param_names(
     provider: Any,
     named: Iterable[tuple[str, str]],

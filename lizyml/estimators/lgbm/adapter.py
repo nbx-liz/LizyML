@@ -16,12 +16,16 @@ from lizyml.estimators.lgbm.defaults import (
     _COMMON_DEFAULTS,
     _TASK_METRIC,
     _TASK_OBJECTIVE,
-    TASK_COMPATIBLE_OBJECTIVES,
 )
-from lizyml.estimators.lgbm.metric_bridge import resolve_metrics
 from lizyml.estimators.lgbm.param_names import (
     LGBM_CANONICAL_NAME,
     accepted_spellings,
+)
+from lizyml.estimators.lgbm.param_validation import (
+    check_objective_compatible as _check_objective_compatible,
+)
+from lizyml.estimators.lgbm.param_validation import (
+    resolve_user_metric,
 )
 
 
@@ -81,29 +85,6 @@ def _pop_by_identity(
         )
     written, value = next(iter(supplied.items()))
     return value, written
-
-
-def _check_objective_compatible(task: str, objective: str) -> None:
-    """Raise CONFIG_INVALID when *objective* is not valid for *task* (H-0079).
-
-    Cross-task injection (e.g. ``objective='regression'`` for binary task)
-    used to be silently stripped pre-H-0079 — same defensive intent, but
-    explicit failure instead of a silent override that misled tuning_table.
-    """
-    valid = TASK_COMPATIBLE_OBJECTIVES.get(task, frozenset())
-    if objective not in valid:
-        raise LizyMLError(
-            code=ErrorCode.CONFIG_INVALID,
-            user_message=(
-                f"objective '{objective}' is not compatible with task "
-                f"'{task}'. Valid objectives: {sorted(valid)}."
-            ),
-            context={
-                "task": task,
-                "objective": objective,
-                "valid_objectives": sorted(valid),
-            },
-        )
 
 
 try:
@@ -464,67 +445,11 @@ class LGBMAdapter(BaseEstimatorAdapter):
         num_boost_round = int(
             _COMMON_DEFAULTS["n_estimators"] if rounds_value is None else rounds_value
         )
-        # Normalize sklearn param names → Booster API names, **by identity**.
-        # These read `user_params` by one literal spelling each, so
-        # `random_state` was renamed and `random_seed` -- the third spelling of
-        # the same parameter -- was not.
-        #
-        # **This is a consistency fix, not a defect fix, and the difference was
-        # executed rather than assumed.** `random_seed=7` reached `lgb.train`
-        # under its own name and LightGBM honoured it: the booster is identical
-        # to one trained with `seed=7` and differs from `seed=99`. So no value
-        # was lost. What this removes is the last literal-spelling read of a
-        # caller-owned dict in this module -- the construct that *did* cost a
-        # defect one file over, where `_extract_feval_metadata` read `"metric"`
-        # literally and dropped a custom metric from the export (decision 9).
-        #
-        # On the facade path the branch is unreachable anyway:
-        # `check_training_managed_overrides` claims every spelling of `seed`
-        # whenever `training.seed` is set, and it is always set (default 42; an
-        # explicit null is refused). `LGBMAdapter` is also constructed directly,
-        # which is the path this still governs.
-        # (H-0094 decision 10, named by the rounds 13-14 monitor.)
-        # The existing priority is kept exactly: the canonical spelling wins
-        # when both are written. `_pop_by_identity` is deliberately **not** used
-        # here, and the reason has changed under H-0096, so it is restated
-        # rather than left to be read as it was: that helper used to refuse only
-        # two spellings carrying *different* values, and it now refuses any two
-        # spellings, and H-0096 names five places rather than every site in this
-        # module.
-        #
-        # **Corrected while deriving the rule positions for PR 2b.** This comment
-        # used to say the module has an accepted decision that `seed` takes
-        # priority over `random_state`, and that routing the site through the
-        # helper would revoke it. That is not what is recorded. `BLUEPRINT.md`
-        # 1187 and `test_lgbm_defaults.py` pin the **conversion of a single
-        # spelling** -- `random_state` becomes `seed`, `verbose` becomes
-        # `verbosity` -- which the helper preserves, because it refuses only when
-        # *two* spellings are present and otherwise pops the one that is there.
-        # **No document and no pre-existing test says which of two spellings
-        # wins.** The only case asserting the current behaviour is the one this
-        # pull request added to pin the site as unreachable.
-        #
-        # Reachability, measured rather than argued (2026-09-09, at `5715ee2`):
-        # from the facade this branch cannot see two spellings at all, because
-        # every surface runs `check_duplicate_identities` first --
-        # `{"seed": 7, "random_state": 7}` and `{"verbose": -1, "verbosity": -1}`
-        # are both `CONFIG_INVALID` through `model.params` and through
-        # `fit(params=)`. Constructing `LGBMAdapter(params=...)` directly does
-        # reach it, and there it resolves silently:
-        # `{"verbose": -1, "verbosity": 0}` builds `verbosity=0` and
-        # `{"seed": 7, "random_state": 9}` builds `seed=7`.
-        #
-        # That asymmetry is filed as issue #285 rather than closed here.
+        # Direct construction follows the same duplicate-spelling rule.
         for canonical in ("seed", "verbosity"):
-            supplied = {
-                name: user_params.pop(name)
-                for name in list(user_params)
-                if name in accepted_spellings(canonical)
-            }
-            if supplied:
-                user_params[canonical] = supplied.get(
-                    canonical, next(iter(supplied.values()))
-                )
+            value, written = _pop_by_identity(user_params, canonical)
+            if written is not None:
+                user_params[canonical] = value
         # H-0079: respect user/Optuna-supplied objective when task-compatible.
         # Pre-H-0079 this value was silently stripped, so default_space
         # tune trials sampling e.g. "fair" actually trained with the task
@@ -538,18 +463,10 @@ class LGBMAdapter(BaseEstimatorAdapter):
         user_metric, _ = _pop_by_identity(user_params, "metric")
         feval_list: list[Any] = []
         feval_display_names: list[str] = []
-        if user_metric:
-            if isinstance(user_metric, (str, dict)):
-                user_metric = [user_metric]
-            # Filter out empty strings (dicts are always kept)
-            user_metric = [m for m in user_metric if m]
-            if user_metric:
-                # Resolve: translate LizyML names, split native vs feval,
-                # and validate against whitelist (H-0064, H-0065)
-                native, feval_list, feval_display_names = resolve_metrics(
-                    user_metric, self.task, num_class=self.num_class
-                )
-                params["metric"] = native if native else "None"
+        resolved = resolve_user_metric(user_metric, self.task, self.num_class)
+        if resolved is not None:
+            native, feval_list, feval_display_names = resolved
+            params["metric"] = native if native else "None"
         # H-0094: LightGBM resolves aliases and prefers the canonical spelling
         # when both are present, and the defaults above are canonical. So a
         # user parameter written as an alias was merged in beside its own

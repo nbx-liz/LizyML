@@ -1,3 +1,12 @@
+> Resume correction (2026-09-09): the historical statement below that no
+> seed-priority test exists is false. `test_lgbm_defaults.py` contained
+> `test_seed_takes_priority_over_random_state` since `6619d7eb` (2026-03-07).
+> H-0097 Revision 2 explicitly changes that behavior. Six duplicate-input facade
+> probes were reproduced; their reachability result is bounded to those cases.
+> The implementation now validates merged objective/metric values with per-key
+> origins and shares the adapter validators. See the revised acceptance criteria.
+> This is a local candidate, not a committed or accepted change.
+
 # PR 2b — 規則が縛る位置の導出（2026-09-09）
 
 計画 Revision 6 §12.4 が定めた手続きの**初回適用**。
@@ -58,7 +67,41 @@ NO RAISE NAMES A SURFACE (27)
 | `_model_factories.py:429 check_param_names` | **異なる** —— `model.params:` / `fit(params=):` を行頭に置く | **準拠** |
 | `adapter.py:86 _check_objective_compatible` | **完全に同一**、surface 無し | **非準拠。#286 と同クラス** |
 | `metric_bridge.py` の metric 検証 | **完全に同一**、surface 無し | **非準拠。#286 と同クラス** |
-| `adapter.py:28 _pop_by_identity` | 同上（**#286** として起票済み） | **非準拠** |
+| `adapter.py:28 _pop_by_identity` | **公開経路から到達不能**（下記の実測で判明） | **欠陥ではない** |
+
+### ⚠ 訂正 1 —— **#286 は公開経路から到達不能だった**（実測、2026-09-09）
+
+`_pop_by_identity` を spy でくるみ、重複綴りを 3 パラメーター × 2 surface で入れて
+**どちらの拒否が発火するか**を測った（`scratchpad/probe_286_reach.py`）:
+
+```
+objective  via model.params   -> entrance  names surface: True
+objective  via fit(params=)   -> entrance  names surface: True
+metric     via model.params   -> entrance  names surface: True
+metric     via fit(params=)   -> entrance  names surface: True
+rounds     via model.params   -> entrance  names surface: True
+rounds     via fit(params=)   -> entrance  names surface: True
+
+Direct construction, the only caller left:
+  adapter fired: True
+```
+
+**6 ケースすべてで入口（`check_duplicate_identities`）が先に拒否し、住所を名指している。**
+adapter の重複拒否が発火するのは**直接構築だけ**で、そこには名指すべき出所が存在しない。
+
+**したがって #286 は #285 と同じ形である** —— 振る舞いは正しく、公開 API から到達せず、
+「住所が無い」ことは**そこに住所が無いから**であって欠陥ではない。
+**規則が縛る位置ではない。**
+
+**この訂正は「規則の位置を数える」手続きが、起票済みの issue のほうを反証した例である。**
+起票時（2026-09-09）に到達可能性を測っていれば #286 は立たなかった。
+
+### 訂正 2 —— 実際に非準拠なのは**新発見の 2 件だけ**
+
+`_check_objective_compatible`（task 不一致）と metric 検証は、**入口が見ない問い**
+（名前ではなく値が task と両立するか）を扱うので、**入口をすり抜けて adapter で拒否される**。
+両者とも 2 surface からバイト同一のメッセージを返し、住所を名乗らない ——
+**こちらが規則の縛る位置である。**
 
 実測されたメッセージ:
 
@@ -181,12 +224,56 @@ issue にして後で拾うのではなく。
 
 ---
 
-## この導出で自分が 2 度間違えた点
+## ⚠ 訂正 3 —— H-0097 の決定 1（単一の `surface` を渡す）は成立しない
+
+提案は `LGBMAdapter.__init__` に **`surface: str | None`** を足すと書いた。
+**マージ後の dict は複数の入口から来るので、単一の住所は偽になる** ——
+config に `learning_rate`、`fit(params=)` に `eta` を書けば、
+adapter が持つ 1 つの dict の中に 2 つの出所が同居する。
+
+出所は**パラメーターごと**であり、`_merge_params` はそれを `origins` として持っている。
+**しかし返していない** —— `return model_params, smart_params` で捨てられる
+（`model.py:579` 付近）。adapter まで届けるには:
+
+```
+Model._merge_params            返り値を増やす（内部）
+Model._build_train_components  通す（内部）
+EstimatorProvider.build_estimator_factory   ← 公開 Protocol（8 メソッド）
+LGBMAdapter.__init__           ← 公開コンストラクタ
+```
+
+**提案が書いていない範囲まで公開面が動く。** 提案を書き直す必要がある。
+
+---
+
+## この導出で自分が 3 度間違えた点
 
 1. **計測器の判定をシグネチャで書いた** → `check_param_names` を非準拠と誤報告。
    **走査は「何を見たか」ではなく「何を主張したいか」で書くこと。**
 2. **probe がメッセージの先頭行だけを比較した** → 準拠している位置を「同一」と誤報告。
    **部分を見て全体を判定しない。**
 
-どちらも**フラグされた位置を実際に読んで**気づいた。
+3. **起票済みの #286 を「規則が縛る位置」として数えた** → 到達可能性を測っていなかった。
+   **起票されているという事実は、その位置が規則の対象であることを意味しない。**
+
+いずれも**フラグされた位置を実際に読み、実行して**気づいた。
 **導出は出発点であって結論ではない。**
+
+---
+
+## 提案の書き直しが要る点（管理者の判断）
+
+**規則が実際に縛るのは 2 位置**（`_check_objective_compatible` と metric 検証）で、
+どちらも「入口が見ない問い＝値が task と両立するか」を扱う。住所を持たせる道は 2 つ:
+
+| | 内容 | 動く公開面 |
+|---|---|---|
+| **(A)** | **出所をパラメーターごとに adapter まで通す** | `EstimatorProvider.build_estimator_factory`（Protocol）+ `LGBMAdapter.__init__` |
+| **(B)** | **2 つの検査を入口へ移す** —— 入口は既に provider と task を持ち、H-0095 が**値の検査**を入口で行う設計を確立している | 公開面は動かない。ただし adapter 側の検査を残すか消すかの判断が要る |
+
+**H-0097 が (B) を「1 つの境界に宣言を 2 つ持つ」として棄却したのは、
+名前の境界と値の境界を取り違えていた** —— 入口の `check_param_names` は
+「既知の名前か」を見ており、「その値が task と両立するか」は別の問いである。
+H-0095 の受理集合検査は**既に入口で値を見ている**ので、(B) はその延長になる。
+
+**#285 は独立して小さいまま**（6 か所目を `_pop_by_identity` 経由にする）。

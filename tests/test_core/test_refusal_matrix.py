@@ -44,6 +44,7 @@ from tests._train_spy import record_lightgbm_calls
 #: deliberate one without re-deriving either.
 REFUSAL_MATRIX: dict[str, dict[str, str]] = {
     "model.params": {
+        "check_param_values": "wired",
         "normalise_params": "wired",
         "check_param_names": "wired",
         "check_duplicate_identities": "wired",
@@ -52,6 +53,7 @@ REFUSAL_MATRIX: dict[str, dict[str, str]] = {
         "canonicalisation": "n/a: merged by identity, not by spelling",
     },
     "fit(params=)": {
+        "check_param_values": "wired",
         "normalise_params": "wired",
         "check_param_names": "wired",
         "check_duplicate_identities": "wired",
@@ -60,6 +62,7 @@ REFUSAL_MATRIX: dict[str, dict[str, str]] = {
         "canonicalisation": "n/a: merged by identity, not by spelling",
     },
     "tuning best_model_params": {
+        "check_param_values": "wired",
         "normalise_params": "wired",
         "check_param_names": "wired",
         "check_duplicate_identities": "wired",
@@ -68,6 +71,9 @@ REFUSAL_MATRIX: dict[str, dict[str, str]] = {
         "canonicalisation": "n/a: merged by identity, not by spelling",
     },
     "tuning.optuna.space": {
+        "check_param_values": (
+            "n/a: merged-value gate; trial overlays use adapter validation"
+        ),
         "normalise_params": (
             "n/a: dimensions carry bounds, and the values sampled from them "
             "arrive at `tuning best_model_params`"
@@ -79,6 +85,9 @@ REFUSAL_MATRIX: dict[str, dict[str, str]] = {
         "canonicalisation": "n/a: dimensions carry names, not values",
     },
     "calibration.params": {
+        "check_param_values": (
+            "n/a: separate calibrator boundary, not merged model inputs"
+        ),
         "normalise_params": "wired",
         "check_param_names": "wired",
         "check_duplicate_identities": "wired",
@@ -110,7 +119,7 @@ def test_the_refusal_matrix_covers_every_layer_and_every_check() -> None:
     found by review (H-0094 decision 10).
     """
     checks = {check for row in REFUSAL_MATRIX.values() for check in row}
-    assert len(checks) == 6, checks
+    assert len(checks) == 7, checks
     for layer, row in REFUSAL_MATRIX.items():
         assert set(row) == checks, f"{layer} is missing {checks - set(row)}"
         for check, state in row.items():
@@ -220,6 +229,16 @@ def _calibration(**params: Any) -> dict[str, Any]:
 
 #: ``(layer, check) -> (config, fit kwargs, the entry point to call)``.
 _CELL_INPUTS: dict[tuple[str, str], tuple[dict[str, Any], dict[str, Any], str]] = {
+    ("model.params", "check_param_values"): (
+        _model_params(application="regression"),
+        {},
+        "fit",
+    ),
+    ("fit(params=)", "check_param_values"): (
+        _base(),
+        {"params": {"metrics": "rmse"}},
+        "fit",
+    ),
     ("model.params", "check_param_names"): (
         _model_params(not_a_lightgbm_parameter=1),
         {},
@@ -350,6 +369,7 @@ def _with_tuning_result(config: dict[str, Any], best: dict[str, Any]) -> Model:
     "check,best",
     [
         ("check_param_names", {"not_a_lightgbm_parameter": 1}),
+        ("check_param_values", {"application": "regression"}),
         ("check_training_managed_overrides", {"seed": 7}),
         # Added in round 15, which falsified this cell's previous `n/a`.
         # `overlay_params` drops competing spellings from the layer it overlays
@@ -418,6 +438,7 @@ def test_the_executed_cells_are_exactly_the_wired_ones() -> None:
     pair deliberately absent: it is **open** (#280), and the table says so.
     """
     executed = set(_CELL_INPUTS) | {
+        ("tuning best_model_params", "check_param_values"),
         ("tuning best_model_params", "check_param_names"),
         ("tuning best_model_params", "check_training_managed_overrides"),
         ("tuning best_model_params", "check_duplicate_identities"),

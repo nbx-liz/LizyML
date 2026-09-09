@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased — H-0097
+
+- Identify the winning input and parameter spelling when merged LightGBM
+  objective or metric values are invalid, before training starts.
+- Reject duplicate seed or verbosity spellings in direct `LGBMAdapter` calls.
+  Migration: supply each parameter once; canonical-wins behavior is removed.
+  Single-spelling aliases remain supported.
+
 All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/),

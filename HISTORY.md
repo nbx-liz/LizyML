@@ -9625,6 +9625,46 @@ Firing rate: 0/37 of the tolerance branch's occurrences come from pre-existing c
 
 ## H-0097: adapter の拒否が出所を名指す（#286 とその同クラス 2 件 / PR 2b）
 
+### Revision 2 — merged-input validation (2026-09-09)
+
+- Status: proposed. This revision supersedes the implementation direction and
+  acceptance criteria below; the original proposal remains as historical evidence.
+- Purpose: identify the winning input when an objective or metric is rejected.
+- Scope: the merged model parameters in `Model._merge_params`, shared LightGBM
+  validation helpers, adapter seed/verbosity duplicate handling, and regression tests.
+- Decision: validate objective and metric values after overlays, while per-key
+  `origins` still exists. Resolve aliases using the existing canonical-name table.
+  Attach the written parameter and its origin only to `CONFIG_INVALID` errors;
+  preserve existing context, debug information, and exception chaining.
+- Keep the same validators in the adapter for direct construction and trial
+  overlays. Share rule definitions rather than removing these protections.
+- Compatibility: no public constructor or provider Protocol change. Valid inputs
+  and precedence remain unchanged. Direct adapter calls with duplicate seed or
+  verbosity spellings now raise `CONFIG_INVALID`, regardless of equal values.
+- Alternatives: a single adapter-wide surface misattributes mixed inputs; per-key
+  adapter provenance would widen the public Protocol. Neither is required here.
+- Migration: write seed and verbosity once under any accepted spelling. No
+  persistence format change. #286 remains open pending disposition; six reproduced
+  facade cases refuse before the adapter. #284/#287 remain PR 2c.
+- Correction to the handoff: `test_seed_takes_priority_over_random_state` does
+  exist and dates to commit `6619d7eb` (2026-03-07). This revision intentionally
+  replaces that behavior; the original claim that no such test exists is false.
+- Acceptance: invalid objective/metric aliases name the winning input before
+  training; valid higher-priority replacements train; mixed origins stay distinct;
+  direct adapter protection and single-spelling conversion remain; unrelated
+  exceptions propagate unchanged. The updated PR 2b acceptance table is authoritative.
+- Limit: this revision covers parameters entering the merged model-input boundary,
+  not provenance for later sampled trial values or arbitrary future adapter errors.
+
+### Original proposal (superseded by Revision 2 above)
+
+Fit-only boundary clarification: `Model.fit()` requests value validation after
+its final overlay. `Model.tune()` retains adapter validation after trial overlays;
+rejecting the base value before a valid sampled replacement would be a regression.
+`test_tuning_validates_after_sampled_overlay` pins this compatibility case, which
+was reproduced as passing at the base and failing in the first local candidate.
+
+
 - **ステータス**: Proposed
 - **起票日**: 2026-09-09
 - **スコープ**: `lizyml/estimators/lgbm/adapter.py`（拒否の出所付与、`_build_params` の 6 か所目）, `tests/test_core/test_fit_params_override.py`, `tests/test_estimators/test_lgbm_defaults.py`, `CHANGELOG.md`。

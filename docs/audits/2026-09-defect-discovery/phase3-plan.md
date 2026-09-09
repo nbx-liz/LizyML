@@ -1,3 +1,9 @@
+> PR 2b resume update (2026-09-09): H-0097 Revision 2 replaces adapter-wide
+> provenance with validation of merged values using per-key origins. #285 changes
+> historical direct-adapter behavior: the seed-priority test does exist. #286 is
+> open pending disposition; the reproduced six facade cases refuse at the entrance.
+> PR 2c (#284/#287) remains separate. Older contrary statements below are superseded.
+
 # Phase 3 — repair plan for the 2026-09 defect discovery
 
 Phase 1 (discovery) and Phase 2 (filing) are complete and independently
