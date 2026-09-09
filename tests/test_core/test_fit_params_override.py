@@ -2768,7 +2768,6 @@ def test_the_generated_project_trains_at_the_patience_the_run_used(
     is 7 and the run used 2.
     """
     import subprocess
-    import sys
 
     model = _training_report_model()
     model.tune()
@@ -3207,9 +3206,28 @@ def test_neither_refusal_needs_the_values_to_be_printable() -> None:
     normalises before either refusal runs. That is why this asserts on the two
     helpers directly. The claim being pinned is that the refusal does not depend
     on a property of the values, which is what the rule says about itself.
+
+    The value is an object that refuses to render, not the large integer the
+    round reported. Review round 28 found that version reading
+    ``sys.get_int_max_str_digits()``, which ``PYTHONINTMAXSTRDIGITS=0`` sets to
+    zero -- the conversion limit then does not exist, ``unprintable`` was
+    ``10``, and the test passed without reaching either helper. A test for
+    "the refusal does not read the values" should not itself depend on an
+    interpreter setting for a value to be unreadable.
     """
-    unprintable = 10 ** (sys.get_int_max_str_digits() + 1)
-    with pytest.raises(ValueError):
+
+    class RefusesToRender:
+        def __str__(self) -> str:
+            raise RuntimeError("this value has no text")
+
+        def __repr__(self) -> str:
+            raise RuntimeError("this value has no text")
+
+        def __format__(self, spec: str) -> str:
+            raise RuntimeError("this value has no text")
+
+    unprintable = RefusesToRender()
+    with pytest.raises(RuntimeError):
         str(unprintable)
 
     with pytest.raises(LizyMLError) as at_adapter:

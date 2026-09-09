@@ -75,7 +75,9 @@ Specifically:
 
 - Repository: `/home/rem/repos/LizyML`
 - Branch: `fix/phase3-pr2-fit-params-forwarding`, PR **#278** (draft)
-- **Head: `5715ee2`**, which is the current `HEAD` and matches `origin`.
+- **Head: `259c0ac`**, the current `HEAD`, matching `origin`. The commit
+  under review is `5715ee2`; `259c0ac` follows it with a documentation
+  correction, a comment, and a test, and is not the surface here.
 - Proposals: **H-0094**, **H-0095** (the section titled 契約の確定 is the
   settled contract) and **H-0096** in `HISTORY.md`; `BLUEPRINT.md` §14.4 carries
   the rule. The round-27 record is
