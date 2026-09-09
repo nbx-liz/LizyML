@@ -233,6 +233,14 @@ config = {
 
 `LGBMConfig` に以下のスマートパラメーターを提供する。これらは `fit()` 時に学習データに基づいて LightGBM ネイティブパラメーターに解決される。`params` の直接指定とは独立して機能し、`params` で同一パラメーターが指定されている場合は競合エラーとする。
 
+**この競合ルールが適用される入口（H-0094 / 実測）。** スマート解決はパラメーター dict のマージより後段で走り、その結果が勝つため、ルールが適用されない入口では「受理して黙って置換」になる。
+
+| 入口 | 状態 |
+|---|---|
+| `model.params`（config） | `LGBMConfig._validate_smart_params` が parse 時に拒否。ただし **(a) `auto_num_leaves` / 2 つの ratio の 3 件のみ**（`balanced`→`scale_pos_weight` と `feature_weights`→`feature_contri` / `feature_pre_filter` は対象外）、かつ **(b) 文字列一致のみ**でエイリアスを見ない。**面の全体を実行して数えた（H-0094 決定 8 / 18 通り = スマートパラメーター × 書き込む native 名 × 受理綴り）: 拒否 3 / 2 綴りが `lgb.train` に届く 12 / 黙って上書き 3。** `max_leaves` / `min_child_samples` は通過して置換され、`scale_pos_weight: 10.0` は `balanced` により `0.951` で学習する（[#280](https://github.com/nbx-liz/LizyML/issues/280)）。`config/` は層規約上 `estimators/` を import できず学習器の別名表に届かないため、修正は「どこで拒否するか」の設計判断になる |
+| `fit(params=...)` | **H-0094 で拒否する（5 件すべて）。** 有効なスマートパラメーターが書くネイティブ名は `CONFIG_INVALID` とし、どのスマートパラメーターが管理しているかを名指しする |
+| `tuning.optuna.space`（`category: model`） | **未対応（[#279](https://github.com/nbx-liz/LizyML/issues/279)）。** サンプルされた値は学習に届かず、`best_model_params` には届かなかった値が記録される。実測: 本リポジトリのスイートが構築する `category: model` 探索空間 67 件のうち **54 件**が該当（すべて `num_leaves`）。方向の決定は #279 |
+
 ### auto_num_leaves（葉の数の自動算出）
 
 - `auto_num_leaves: bool = True`: 有効時、`max_depth` から `num_leaves` を自動算出する。
@@ -784,6 +792,21 @@ SearchDim にカテゴリ属性を持たせ、Tuner がパラメーターの適�
 - `brier` / `precision_at_k` は LightGBM ネイティブ未対応のため除外。
 - Binary の `objective` は `[binary]` のみ（選択肢 1 つで実質固定）。
 
+### `categorical` の `choices` の型（H-0095 の決定、[#287](https://github.com/nbx-liz/LizyML/issues/287)）
+
+`choices` の各要素は**素の Python スカラー**（`None` / `bool` / `int` / `float` / `str`）で
+なければならず、**判定は型の同一性で行う**（`type(v) is t`。`isinstance` でも
+`type(v) in (...)` でもない —— 前者は `np.float64` / `np.str_` を通し、後者は
+**メタクラスが書ける `__eq__`** に依存する。**タプルの `in` はハッシュを引かない**ので、
+§14.4 が `set` について述べている `__hash__` の話はここには当たらない
+（round 30 の指摘、実測で確認）。残る理由 —— 呼び出し元が等価を書ける —— は同じである）。
+**numpy スカラーは拒否する** —— `choices` は 4 surface の正規化を通らないため、
+通せば adapter の出口表明が study の内側で拒否し、利用者には `TUNING_FAILED` しか見えない。
+
+`float` / `int` 次元の `low` / `high` は parse 時に `float()` / `int()` で強制変換するので
+この規則の対象外である。**なお 4 surface が numpy を受理するのに探索空間が拒否する
+という差は残っている** —— それを埋めるかどうかは #287 の判断。
+
 ## 11.4 Progress Callback（H-0048）
 
 `tune()` 実行時に外部ツール（Widget 等）が進捗情報をリアルタイムに取得するためのコールバック機構を提供する。
@@ -1016,6 +1039,7 @@ LizyML Core は callback + 結果型でデータを提供し、Widget/Studio が
 - `calibration.params` で上記デフォルト（`monotone_constraints` 以外）を上書き可能。
 - `validation_ratio` と `seed` も `calibration.params` 経由で指定可能。
 - **名前は fit 開始前に検査される（H-0093）。** `calibration.params` の中身は `lgb.train` にほぼそのまま渡るため、LightGBM が知らない名前は黙って捨てられる。Facade は LightGBM 自身の登録表に照らして不明な名前を `CONFIG_INVALID` で拒否する。calibrator 自身が消費する `num_boost_round` / `validation_ratio` / `min_data_in_leaf_ratio` は受理される（`seed` は LightGBM のネイティブ名なので登録表側で受理される）。この検査は LightGBM を使う calibrator（現在は `isotonic` のみ）に対してのみ働く。**発火は外側 CV が始まる前**であり、拒否される config で Booster が 1 本でも学習されることはない。
+- **`platt` / `beta` は `calibration.params` を受理して無視する（現状の記録、[#277](https://github.com/nbx-liz/LizyML/issues/277)）。** 両者は `params` をコンストラクタで受け取るが保持も参照もしない（`platt.py:23` / `beta.py:42`）。実測: `calibration.params` の有無だけが異なる 2 回の fit で calibrated メトリクスは完全一致し、警告も出ない。LightGBM を経由しないため上記の名前検査は意図的に適用されず、結果として無検査・無効果のまま通る。**「受理して無視」を解消する方向（拒否するか、実際に honour するか）は #277 で未決**であり、ここは決定ではなく現状の記録である。
 
 #### Booster API 固有の注意
 
@@ -1241,6 +1265,12 @@ class EstimatorProvider(Protocol):
     def extract_smart_params(self, model_cfg: Any) -> dict[str, Any]: ...
     def accepted_model_param_names(self) -> frozenset[str]: ...   # H-0093
     def smart_param_names(self) -> frozenset[str]: ...            # H-0093
+    def canonical_param_names(                                    # H-0094
+        self, names: Iterable[str],
+    ) -> dict[str, str]: ...               # name -> the parameter it identifies
+    def smart_managed_param_names(                                # H-0094
+        self, smart: dict[str, Any], task: str,
+    ) -> dict[str, tuple[str, str]]: ...   # spelling -> (canonical, smart)
     def resolve_smart_params(
         self, smart: dict, effective: dict, n_rows: int,
         feature_names: list[str], y: Series, task: str,
@@ -1270,9 +1300,24 @@ class EstimatorProvider(Protocol):
 - `runtime_deps()` はアルゴリズム固有の依存パッケージ名とバージョンを返す（例: `{"lightgbm": "4.5.0"}`）。`RunMeta.deps_versions` に使用。
 - `params_summary()` は `params_table()` 用のパラメータ行を返す。smart params + native model params（`metric` を含む、H-0061）の両方を含む。
 - `build_pipeline_factory` は estimator 固有の FeaturePipeline が必要な場合（例: EntityEmbedding のカテゴリ埋め込み）に対応する。デフォルトは `NativeFeaturePipeline` を返す。
-- `build_export_params` は codegen 経路（`Model.export_code()`）が必要とする native params / num_boost_round / feval metadata を `ExportParams` frozen dataclass で返す（H-0073）。`_model_persistence.py` から estimator 具象型（`LGBMAdapter` 等）への直接参照を排除するための入口。
+- `build_export_params` は codegen 経路（`Model.export_code()`）が必要とする native params / num_boost_round / early_stopping_rounds / feval metadata を `ExportParams` frozen dataclass で返す（H-0073）。`_model_persistence.py` から estimator 具象型（`LGBMAdapter` 等）への直接参照を排除するための入口。**「その fit が何を使ったか」を答える値は、config と現在の tuning result から再計算してはならない**（H-0094 決定 13）: `tune()` は tuning result を置き換えるが fit 済み adapter は置き換えないので、再計算する読み手は `fit → tune` の後に**存在しないモデルについて報告する**。実測: adapter が patience 7 で学習し、`params_table` / `export_code` はどちらも 2 と答えた。学習済み adapter は joblib で保存されるため、この経路は `load()` 後も正しい唯一の経路である（artifact が持つ tuning result は、どの fit も消費していないことがありうる）。`ExportParams.early_stopping_rounds` に **default を置かないこと** — 「provider が設定しなかった」と「early stopping が無効だった」が同じ値になるのは DC1 の形である。adapter に記録が無い値（`validation_ratio`）は `FitState.applied_training_params` から読み、`load()` 後は config に落ちる（この bound はテストで固定してある）。
 - `accepted_model_param_names()` / `smart_param_names()` は「その学習器が受理する名前」を宣言する（H-0093）。前者は**学習器自身から導出すること**（列挙しない）。学習器の更新で名前が増減したときに黙って古びる実装は、この IF が検出しようとしている欠陥をそれ自体が持つことになる。後者は `extract_smart_params` が返すキーと必ず一致させ、両者を単一の宣言から導くこと。
+- `canonical_param_names(names)` は「その名前がどのパラメーターを指すか」を返す（H-0094）。**パラメーター層のマージは綴りではなく同一性で行うこと**: 学習器がエイリアスを解決する以上、`{**base, **override}` は 1 つのパラメーターを 2 つの綴りで残し、どちらが効くかは学習器の規則次第になる。実測: config の `learning_rate` が `fit(params={"eta": ...})` に勝っていた。**学習器に 2 つの綴りを渡さない**こと。学習器が知らない名前は自分自身に写すこと（不明名の拒否は `accepted_model_param_names` の仕事であり、この写像が二重の門になってはならない）。**マージの継ぎ目は 4 か所あり、4 か所すべてを同一性で行うこと**: config / provider の既定 fixed / `best_model_params` / `fit(params=)` に加えて、**tuning の trial マージ**（`_model_tuning.py` の objective）がある。round 11 まで trial マージだけが綴りベースで、config の `learning_rate` と `eta` という探索次元がある場合、**trial は config の値で学習し、study には trial の値が best として記録され、その後の fit は記録された値で学習していた** — tuning が一度も評価していないモデルを選んでいた（DC1）。
+- **学習器 adapter が特別扱いするパラメーター**（検証する / 改名する / 呼び出し引数に変換する）は、**全綴りをまとめて取り出す**こと（H-0094 決定 6）。1 綴りだけを見ると、エイリアスで書かれた値はその特別扱いを迂回する。実測: `application`（`objective` のエイリアス）に task 非互換な値を書くと互換性検査を通らずに学習されていた。同じ層で 1 パラメーターが複数綴りで指定されたら、**値によらず** `CONFIG_INVALID` とすること（H-0096 で改訂。**それ以前は「異なる値のときだけ拒否し、同値は通す」だった**）。同値を通す規則は「2 つの綴りが同じ値か」という問いを生み、その問いは任意の Python 値の上で全域でなければならないので**入力領域が開く** —— H-0094 rounds 18-26 の 9 連続はその領域の中で起きた。**LightGBM 自身も値を比較せず、等しくても重複そのものを警告する**（実測）。拒否の根拠は「どちらが効くか不可視だから」ではなく（優先順位は決定的である）、**利用者が 1 つの設定を 2 度書いており、どちらを意図したか LizyML には決められないから**である。**この規則は宣言した層すべてに配線すること**: レビュー round 11 まで `fit(params=)` にしか配線されておらず、`model.params` に `learning_rate` と `eta` を両方書いた config は両方が `lgb.train` に届き、LightGBM が黙って canonical 側を採った（DC4 — 宣言はあるが呼び出し側が無い）。検査は facade（`_merge_params`）に置く。`config/` は層規約上 `estimators/` を import できず別名表に届かないためである。**配線先は 4 層**: `model.params` / `fit(params=)` / `calibration.params` / `tuning.optuna.space`。3 つ目は rounds 10-11 monitor が「どの層に配線したのか」を問うて見つかった（名前検査だけがあり同一性検査が無く、両綴りが calibrator の `lgbm.train` に届いていた）。4 つ目は rounds 11-12 monitor が名指しし、実行して確かめた: `sample_params` は次元ごとに `params[dim.name] = ...` を書くので、**互いにエイリアスである 2 次元は同じ trial dict に両綴りを入れる** — LightGBM が canonical を採るため、もう一方は sample され最適化されながらどの trial にも影響しない（`learning_rate` と `eta` を 2 次元にした study で実測）。**空間には同値による免除が無い**: 2 次元は独立に sample するので、1 パラメーターを 2 回名指しすることは境界に関わらず曖昧である（`check_duplicate_space_dimensions`、study 開始前）。スマート層は対象外で、その理由は**スマートパラメーター名に学習器のエイリアスが 1 つも無い**ことである（実測 0 件、テストで固定）。**`calibration.params` は同一性検査だけでは足りず、canonical 化も要る**（H-0094 決定 8）: calibrator は自分の既定値と**綴りで**マージするため、呼び出し元が**1 度しか書いていない**エイリアスが既定値と並んで `lgbm.train` に届き、LightGBM が既定値を採っていた（`{"eta": 0.5}` → `learning_rate: 0.03` で学習）。`lizyml/calibration/` は `lizyml/estimators/` を import できないので、書き換えは facade（`canonicalise_calibration_params`）で行う。**calibrator 自身が pop するキーは除外すること**（`num_boost_round` は `num_iterations` のエイリアスであり、canonical 化すると pop 先が消える）。**calibrator が強制する値は canonical 綴りで書くこと**: `verbose = -1` はエイリアス側の強制だったので `verbosity` を書いた呼び出しに負けていた。
+- **「あるパラメーター dict が別のパラメーター dict に出会う」場所を列挙し、1 行ずつ実行すること**（H-0094 決定 8）。この類の欠陥は round ごとに 1 つずつ出続けたので、当たりを付けて探すより列挙するほうが安い。走査は `instruments/parameter_merge_seams.py` として**出荷し**、表を再生成できるようにすること（散文に写した数は古びる）。候補 58 式。**走査の構文集合には `d[k] = v` を必ず含めること**: 最初の版はそれを宣言しておらず、その版が報告した 3 件の欠陥のうち 2 件がその構文に住んでいた（rounds 11-12 monitor）。**そして走査を「閉じた母集団」と呼ばないこと**: この主張は 2 回なされ、2 回とも 1 ラウンド以内に反証された（2 回目は round 13 のレビュアーが `config/loader.py:167` を名指しした — カーソル変数名が `node` で hint 語に当たらなかった）。hint 語による絞り込みは識別子テキストのヒューリスティックであって型解析ではない。**表が主張するのは実行した分だけである。** 開いた空間の走査を閉包と呼ぶことは、本 run が他人の宣言に見つけ続けている DC5 そのものである。
+- **「利用者が綴った dict を 1 つの綴りで読む」箇所も同じ類であり、継ぎ目走査は扱わない**（H-0094 決定 9）。実測: `_extract_feval_metadata` が `adapter.params.get("metric")` とリテラルで読んでいたため、`fit(params={"metrics": ...})` は正しく学習しながら `export_code` が評価関数を落とし、**生成コードが動かなかった**。学習側が `_pop_by_identity` で読む以上、読み手も同一性で読むこと。母集団は 4 件（`estimators/` / `persistence/` / `codegen/` / `core/` / `training/` を走査）。
+- **LizyML 自身が握っているネイティブパラメーターは、`model.params` / `fit(params=)` から重ねて指定させないこと**（H-0094 決定 9、`check_training_managed_overrides`）。`training.early_stopping.rounds` は `early_stopping_round` の、`training.seed` は `seed` の LizyML 側の綴りである。実測では**両方向に**壊れていた: 前者は上書きが `lgb.train` に届いても config 由来の callback が停止を決め（早期停止を切ると今度は LightGBM 自身が honour して検証セット不在で落ちる）、後者は上書きが `training.seed` に黙って勝っていた。**2 方向が食い違うからこそ、どちらかを選ぶのではなく拒否する。** 判定は canonical 名を全綴りに展開して行い、展開は provider の `canonical_param_names` を受理名の上で反転して得る（この層は学習器を知らない）。
+- `smart_managed_param_names(smart, task)` は「**有効なスマートパラメーターが上書きしてしまうネイティブ名**」を返す（H-0094）。スマート解決はパラメーター dict のマージより後段で走り、その結果が勝つため、ここに挙がる名前を手で指定しても黙って置き換えられる。呼び出し側はそれを**拒否**に使う（`CONFIG_INVALID`）。task を取るのは、同じスマートパラメーターでも task によって書くものが変わるためである（`balanced` は binary では `scale_pos_weight` を書くが、multiclass では sample weight を作る＝パラメーター名ではないので衝突しない）。宣言は**コードから閉じる**こと: 解決関数群を**実際に実行**し、宣言されていない名前が返ってきたら落ちるテストを持つ。以前はソースの `resolved[...] = ...` 代入を走査していたが、それは代入の**綴り方**についての仮説であり、`resolved.update({...})` で書かれた 4 つ目の名前は見えなかった（H-0094 レビュー round 9 の monitor）。実行には推測すべき綴りが無い。ただしこれは**有限個の実行**であって閉じた入力領域ではない — パラメーター**名**を列挙しても、解決関数が受け付ける**組み合わせ**は列挙できない（round 10）。各 activation が解決結果を変えることを個別に主張することで、activation が無効化されて何も観測しなくなる事態は防ぐ。
+- **エイリアスを展開すること（H-0094 レビュー round 2 の指摘）。** 学習器がエイリアスを同一パラメーターとして解決する場合、文字列一致の検査は同じパラメーターを別綴りで通してしまう。実測: `max_leaves`（LightGBM では `num_leaves` のエイリアス）は検査を通過し、スマート解決が入れた `num_leaves` を LightGBM が優先したため、上書きはまた黙って無視された（`[(12, 32), (12, 32), (12, 32)]`、booster は `[num_leaves: 32]`）。戻り値のキーは**学習器が受理する全綴り**とし、綴りの集合は学習器の登録表から導くこと（列挙しない）。
+- **パラメーター値の受理集合を入口で閉じること**（H-0095、**H-0096 で存在理由を再定義**）。この閉包はもともと `values_differ`（「2 つの綴りが同じ値か」）の入力を有界にするために入った — round 16-20 が **5 連続で「直前の修正が書いたコードの欠陥」**を出し、`__format__` / `__class__` / `tolist` / `__eq__` を任意に定義できる以上その領域は構成上開いていたためである。**H-0096 でその比較そのものが無くなった**ので、閉包が今仕えているのは残る消費者、すなわち**学習サイトの出口表明**（`assert_plain_params`）と **`export_code` の `json.dump` / UTF-8** である。後者は本 PR とは独立の既存欠陥を直している（`origin/develop` の `ccae32b` で `model.params={"feature_contri": np.array([1.0,1.0])}` が `TypeError: Object of type ndarray is not JSON serializable` を出すことを実測）。**4 surface の入口で 1 度だけ正規化し、受理集合の外は学習前に `CONFIG_INVALID` で拒否する**（`core/param_domain.py`）。受理集合は LightGBM の `_param_dict_to_str` から**導出**する（写さない）。**正規化は素の型へ行い、文字列化しないこと** — smart params の解決と boundary 展開が数値演算をする。**中心的な不変条件は wire 保存**: `_param_dict_to_str` が正規化の前後で同じ bytes を書くこと。シリアライザは**位置によってフォーマッタが違う**（スカラーは `__format__`、列の要素は `str`）ので、変換も位置ごとに分けること。実測: `np.array([0.1], dtype=float32)` は `0.1` と書かれるが `.tolist()` 後は `0.10000000149011612` になる。**素の代替が存在しない値（`str(np.float16(1e3))` = `1e+03`）は丸めずに拒否する** — 呼び出し元が書いていない bytes で学習するほうが悪い。型は**厳密一致**で見ること（サブクラスは `__format__` を上書きできる）。そして**4 surface で正規化することは配線についての主張にすぎない**ので、`lgb.train` の全サイトに `assert_plain_params` を置き、**学習サイトの母集団をソースから導出して**固定すること（DC4 の形）。**入口と出口で受理集合は異なる**: metric entry は `{"precision_at_k": {"k": 15}}` という LizyML の形（H-0065）を持ち adapter が消費するので、入口は mapping を受理し `lgb.train` の表明は拒否する。**`set` は拒否する** — シリアライザは join するが列パラメーターは位置依存であり、`list(set)` がリテラルのリストと一致するかはハッシュ順の偶然である。**リストの入れ子は深さ 2 まで** — 3 段目は Python の list repr で書かれ、正規化が wire を変えてしまう。 **numpy は厳密な型一致で受理し、型集合は numpy 自身の階層から導出すること**（レビュー round 21）。継承で受理すると `np.float64` のサブクラスが自前の `__format__` で通り、**`np.timedelta64` は `np.integer` のサブクラスなので**型集合の中に入る。実測: 前者は `0.9` と書いて `0.1` で学習し、後者は `1 nanoseconds` と書いて `1` で学習した。厳密型一致が買うのは「**正規化中に呼び出し元のコードが 1 行も走らない**」ことであり、それとは別に **`format(plain, "") == format(value, "")` を値ごとに検査すること** — `timedelta64` を捕まえるのは後者である。 **型集合は `vars(numpy)` から読むこと**（round 22）: `__subclasses__()` の走査は `__module__` という**呼び出し元が書ける属性**を信じることになり、しかも走査が import 時なので**そのクラスが定義された順序で答えが変わる**。「numpy がその名前で export しているか」は同一性の問いであり、どちらの穴も無い。**そして `format(value, "")` は `.item()` の前に読むこと** — 値は同じ問いに 2 度同じ答えを返す義務を負わない。 **型の判定は `is` で行うこと**（round 23）: `type(x) in <set/tuple>` は `__hash__` / `__eq__` による探索であり、クラスのそれらは**メタクラス**から来る＝呼び出し元が書ける。実測、メタクラスだけで numpy 継承なしに門を通過した。**そして採用の決め手は名前空間ではなく `np.dtype(kind).type is kind` の往復にすること** — `vars(numpy)` は書き込み可能で、import 前に 1 行書けば入る。**宣言する bound は「値に対して閉じる」であって「プロセス内で numpy を差し替えた呼び出し元に対する sandbox」ではない**（達成不能な宣言は DC7 であり、この run で 3 度書き直している）。 **そして受理した「型」が書ける「値」とは限らない**（round 24）: シリアライザは `isinstance(val, Path)` を見るので **pure path は通らず**、Python の `int` は十進変換上限を超えると `str()` が raise する。**型から推定せず、文字列を実際に要求すること** — scalar 位置は `format`、element 位置は `str`、書けなければ入口で拒否。
   - 検査の発火点は**学習器に渡す直前**（`_merge_params` の merge 後、および tuning study 開始前）であって構築時ではない。config は呼び出し側が参照を保持したまま変更でき、`best_model_params` は artifact から `__init__` 後に復元されるため、構築時の検査ではどちらも素通りする。`Model.load()` 自体は検査しない（artifact は起きた fit の記録であり、読めなくする理由がない）。
+  - **受理集合の正は生成物である**（H-0095 の「契約の確定」節）。散文に写した表は 19 回の補正のあいだに 2 度古びたので、位置（スカラー / 要素 / 列の member / mapping）× 厳密型の表は `docs/audits/2026-09-defect-discovery/instruments/param_domain_contract.py` が `param_domain.py` から生成し、`--check` が HISTORY.md との乖離で非零終了する（DC3）。**表の各行は、それを固定しているテストを名指すこと** — テストの無い行は次のラウンドが見つける行である。
+  - **消費者を全部名指すこと。** 学習器は唯一の消費者ではない: `lgb.train` 2 サイトに加えて **`export_code` が同じ値を `config.json` へ `json.dump` する**。提案がこれを名指していなかったため、受理集合の定義が実装のほうから動いた（path を型のまま通していて `TypeError: Object of type PosixPath is not JSON serializable` になり、path をテキストにする補正が入った）。**要件は消費者ごとに 1 つ立て、受理母集団全体の上で実行するオラクルを持たせること**: wire 保存 / 冪等 / `is_plain`（出口） / `json.dump` 可能 / UTF-8 encode 可能。**「比較が全域」は H-0096 で消えた** — 消費者だった `values_differ` ごと削除したためであり、要件が緩んだのではなく消費者が居なくなった。**閉じられるのは要件のリストであって消費者のリストではない** — sink 走査は候補生成であり、実際にこの走査も初版で calibrator の `lgbm.train` を別名ゆえに落とした。
+  - **消費者の要件は 1 つとは限らない**（レビュー round 25）。学習器も `export_code` も、シリアライズ／json 化の**あとで UTF-8 に encode する**。孤立サロゲートは受理型の `str` で、正規化・出口の表明・`json.dumps` オラクルを通ってから両消費者で `UnicodeEncodeError` になっていた。**書く文字が encode できることまでを入口で検査すること。**
+  - **「変わっていない」を表示テキストで判定しないこと**（レビュー round 26）。`repr` は numpy の `printoptions(legacy="1.25")` で変えられる＝**呼び出し元が参加できる比較**であり、その下では `np.int64(1)` と `1` が同じに印字されて変換されていない numpy 値が述語と出口の表明を通った。判定は**型の再帰的一致とスカラーの同一性（`is`）**で行うこと。**入口の門を `is` にした理由は、値の比較側にもそのまま効く。**
+  - **1 つの境界に対する宣言を 2 つ持たないこと**（レビュー round 25）。`is_accepted` / `is_plain` が受理集合を自分の言葉で言い直していたため、正規化だけを「実際に文字を書ける値」へ狭めた修正で置き去りになり、`10**5000` が両述語と出口の表明を通って正規化にだけ拒否された。**述語は正規化関数を呼ぶこと。** 一致テストは**両向き**で持つこと —— 受理母集団だけを走査するテストは、緩すぎる述語を構成上見られない。
+  - **母集団は領域ではない**（レビュー round 25）。値領域は無限（文字列・整数・コンテナの中身に上限が無い）であり、テストが主張できるのは**有限標本の上での網羅**である。標本は **(1) 型軸を受理型集合から導出**し（ベタ書きの版は 5 型を落としていた）、**(2) 拒否理由を閉じた列挙にして両向きに突き合わせる**ことで閉じる。理由は**位置ごとに**評価すること（同じ型が scalar 位置で拒否され element 位置で受理されることがある。実例 `longdouble`）。
+  - **スコープ外を事実として書くこと**（達成不能な宣言は DC7）。(1) プロセス内で numpy を差し替え済みの呼び出し元に対する sandbox ではない。(2) 閉じているのは「このプロセスで 4 surface を通って入った値」であり、**このバージョンより前に書かれた artifact** は受理集合の外の値を持つ adapter を復元しうる（実測: 復元後に `export_code` が `TypeError`。H-0095 の前と同じ振る舞い）。(3) 入口（mapping を受理）と出口（拒否）で受理集合が違うのは意図である。
 
 ディレクトリ構成（estimator ごとにサブパッケージ化）:
 
@@ -1442,7 +1487,9 @@ Config の各フィールドが最終的なコンポーネント（Booster param
 - Evaluator が Config 指定のメトリクスリストを受け取る。
 - Calibration が `cfg.calibration is not None` かつ `task="binary"` の場合のみ実行される。non-binary で `CALIBRATION_NOT_SUPPORTED` を返す。
 - `get_provider()` が model name で正しい provider を返す。未知の name で `CONFIG_INVALID`。
-- `_merge_params` の優先順位: Config defaults < tune best < fit() args。
+- `_merge_params` の優先順位: Config defaults < tune best < fit() args。**この 3 段目は宣言だけで実際には届いていなかった（H-0094 / #264）**ため、`fit(params=...)` を渡した fit と渡さない fit で**学習済み Booster が異なること**を主張する。マージ後の dict を突き合わせるだけでは、欠陥のあるコードでも成立した。
+- 不明な名前の拒否は**出所（`model.params` / `tuning best_model_params` / `fit(params=)`）を名指しする**（H-0094）。3 つの入口が 1 つの dict にマージされてから検査されるため、出所を持たないと 3 つのうち 2 つは誤った宛先を指す。
+- `fit(params=)` に**有効なスマートパラメーターが管理するネイティブ名**を渡した場合は拒否する（H-0094 決定 4、§5.3 の表）。テストは 2 方向で主張すること: 有効なら拒否かつ Booster 0 本、**無効化すれば同じ値が `lgb.train` に届く**。後者が無いと、管理表に何を書いても拒否テストは通る。
 
 ### 18.1.4 Artifact 互換テスト（H-0056 カテゴリ A）
 

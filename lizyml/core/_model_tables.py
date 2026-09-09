@@ -285,10 +285,39 @@ class ModelTablesMixin:
         rows.extend(state.provider.params_summary(fr.models[0], state.cfg.model))
 
         # --- Config training params ---
+        # Both rows answer "what did *this* fit use?", and neither may be
+        # recomputed from the config plus the model's current tuning result:
+        # `tune()` replaces that result without replacing the fitted adapters,
+        # so after `fit -> tune` such a recomputation reports a model that was
+        # never trained. Measured: the fold-0 adapter trained at patience 7 and
+        # this table said 2 (H-0094 decision 13, review round 16, which is a
+        # defect decision 12's own fix introduced).
+        #
+        # The patience comes from the trained adapter, through the provider --
+        # the only surface that survives both a later `tune()` and a `load()`.
+        # The ratio comes from the retained overlay, because nothing on the
+        # adapter records it; after `load()` that overlay is empty and the
+        # configured ratio is reported, which is the bound stated on
+        # `FitState.applied_training_params`.
+        from lizyml.core._model_factories import tuned_validation_ratio
+
         es = state.cfg.training.early_stopping
         if es is not None:
-            rows.append({"parameter": "early_stopping_rounds", "value": es.rounds})
-            rows.append({"parameter": "validation_ratio", "value": es.validation_ratio})
+            rows.append(
+                {
+                    "parameter": "early_stopping_rounds",
+                    "value": state.provider.build_export_params(
+                        fr.models[0]
+                    ).early_stopping_rounds,
+                }
+            )
+            ratio = tuned_validation_ratio(state.applied_training_params)
+            rows.append(
+                {
+                    "parameter": "validation_ratio",
+                    "value": es.validation_ratio if ratio is None else ratio,
+                }
+            )
 
         # --- Best iteration per fold ---
         for i, m in enumerate(fr.models):

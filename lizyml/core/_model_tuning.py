@@ -19,9 +19,12 @@ from lizyml.config.schema import OptunaParamsConfig
 from lizyml.core._model_factories import (
     build_splitter,
     check_calibration_param_names,
+    check_duplicate_space_dimensions,
     check_param_names,
+    check_training_managed_space,
     get_provider,
     model_space_names,
+    overlay_params,
 )
 from lizyml.core._model_metrics import _DEFAULT_METRICS
 from lizyml.core._model_state import TuningState
@@ -182,7 +185,6 @@ class ModelTuningMixin:
         # `provider.build_pipeline_factory()`.
         X, y, groups, _components = self._prepare_training_data(data)
         del _components
-        self._X, self._y = X, y
 
         provider = get_provider(cfg.model)
         self._provider = provider
@@ -201,6 +203,18 @@ class ModelTuningMixin:
         # nothing says so. Checked before the study starts; trial params
         # are drawn from these names, so covering the space covers them.
         check_param_names(provider, model_space_names(cfg), model_name=cfg.model.name)
+        # The same-layer rule, on the layer decision 6 had not reached. Two
+        # dimensions spelling one parameter both land in the trial dict, and
+        # LightGBM keeps the canonical one -- so the other is sampled and
+        # optimised over without affecting any trial (H-0094 decision 8).
+        check_duplicate_space_dimensions(provider, cfg)
+        # And the training-managed rule, on the same layer. `_merge_params`
+        # checks the three inputs that meet there; trial parameters overlay
+        # afterwards, so without this a study sampled a parameter
+        # `training.*` controls, trained on it, and returned a
+        # `best_model_params` the following `fit()` refused (H-0094 decision
+        # 10, review round 14).
+        check_training_managed_space(provider, cfg)
         # The calibration surface is checked here too, not only on the fit path.
         # `tune()` is its own entry point: without this, a config carrying a
         # dead `calibration.params` name completes a whole study and is refused
@@ -276,6 +290,13 @@ class ModelTuningMixin:
         )
 
         # --- Update internal state -----------------------------------------------
+        # Published together, and only once the study has finished. `_X` / `_y`
+        # used to be assigned right after the data was prepared, which meant a
+        # `tune()` that failed replaced the diagnostics data belonging to the
+        # retained fit with a frame no trained model had seen -- the same
+        # defect round 17 found in `fit()`, on the adjacent method (H-0094
+        # decision 14). Nothing between here and there reads them.
+        self._X, self._y = X, y
         self._tuning_result = final_result
         self._study = study
         self._round_number = round_number
@@ -444,7 +465,17 @@ class ModelTuningMixin:
             trial_params = suggest_params(trial, space)
             model_p, smart_p, training_p = split_by_category(trial_params, space)
 
-            merged_model = {**base_model_params, **fixed, **model_p}
+            # Overlaid by identity, the same way `_merge_params` overlays its
+            # three layers. A plain dict merge keeps both spellings: a config
+            # `learning_rate` and a search dimension named `eta` are one
+            # parameter to LightGBM, which then prefers the canonical name --
+            # so the trials trained at the config's value while the study
+            # recorded the trial's, and the fit afterwards used the recorded
+            # one. Tuning selected a model it had never evaluated (H-0094,
+            # review round 11). This is the fourth seam; the other three were
+            # made identity-aware in round 3.
+            merged_model = overlay_params(provider, base_model_params, fixed)
+            merged_model = overlay_params(provider, merged_model, model_p)
             merged_smart = {**base_smart_params, **smart_p}
 
             tc = self._build_train_components(

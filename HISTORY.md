@@ -7229,8 +7229,9 @@ mixin を 2 カテゴリに明示的に分ける:
 
 ## H-0093: LightGBM パラメータ名の境界を閉じる（#261 / #262 / #268 の一部）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-09-07
+- **決定日**: 2026-09-07（PR [#275](https://github.com/nbx-liz/LizyML/pull/275) merge。外部レビュー 6 ラウンド、blocking 4/4/2/1/1/0）
 - **スコープ**: `lizyml/estimators/provider.py`（`EstimatorProvider` に受理名を問う 2 メソッドを追加 = **公開 Protocol の変更**）, `lizyml/estimators/lgbm/provider.py`（実装）, `lizyml/estimators/lgbm/smart_params.py`（`feature_weights` → `feature_contri`）, `lizyml/core/_model_factories.py`（名前検証関数）, `lizyml/core/model.py`（`_merge_params` から呼ぶ）, `lizyml/core/_model_tuning.py`（study 開始前に探索空間を検査）, `lizyml/core/_model_persistence.py`（`export_code` の生成 params を検査）, `BLUEPRINT.md` §5.3 / §14.4, `tests/test_estimators/test_lightgbm_parameter_names.py`（新規）, `tests/test_tuning/test_search_space_name_validation.py`（新規）, `lizyml/calibration/isotonic.py`（自身が消費する名前の宣言）, `tests/test_calibration/test_calibration_param_names.py`（新規）, `tests/_ast_scan.py`（新規: LightGBM の束縛名を import から解決する走査ヘルパ）, `tests/test_estimators/test_param_behavioral_effect.py` / `tests/test_core/test_config_propagation.py`（既存テストの書き換え）。
 - **関連**: [Issue #261](https://github.com/nbx-liz/LizyML/issues/261), [#262](https://github.com/nbx-liz/LizyML/issues/262), [#268](https://github.com/nbx-liz/LizyML/issues/268), H-0053（`EstimatorProvider` 導入）, H-0036（ratio params）。
 
@@ -7371,3 +7372,2251 @@ Firing rate: 0/3 of configs carrying calibration.params (#262's calibration surf
 - **既存テストの書き換え（追加ではなく置換）**: `test_param_reaches_booster` は、値が学習済み Booster に届くことに加え、**その名前が LightGBM の定義に存在すること**を検査する。`Booster.params` は渡した dict の反響であって解析結果ではない（実測: 存在しないキーもそのまま保持され、LightGBM が既定値で埋めたパラメータは現れない）ため、到達だけを主張しても捨てられる名前で成立してしまう。列挙された 8 つの名前を権威と突き合わせる後者が、この主張を意味あるものにする。
 - `TestFeatureWeightsE2E::test_feature_weights_applied` は**差分**を主張する形に直す（現状の「2 つの列名が存在する」は重みの有無に関わらず成立する）。
 - 全スイート green、`ruff check .` / `ruff format --check .` / `mypy lizyml/` クリーン。
+
+
+## H-0094: `Model.fit(params=...)` を実際に転送し、不明名の出所を名指しする（#264）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-09-07
+- **決定日**: 2026-09-07
+- **スコープ**: `lizyml/core/model.py`（`fit()` から override を渡す / `_merge_params` が名前の出所を持つ）, `lizyml/core/_model_factories.py`（決定 4 の拒否）, `lizyml/estimators/lgbm/smart_params.py`（`SMART_PARAM_TARGETS` 宣言 + `smart_managed_names`）, `lizyml/estimators/provider.py`（**公開 Protocol に 1 メソッド追加**）, `lizyml/estimators/lgbm/provider.py`（実装）, `tests/test_core/test_fit_params_override.py`（新規）, `tests/_train_spy.py`（新規: `lgb.train` / `lgb.Dataset` の記録を 1 か所へ）, `tests/test_estimators/test_lightgbm_parameter_names.py`（自前の記録器を共有ヘルパへ置換）, `BLUEPRINT.md` §12.2 / §18.1.3, `CHANGELOG.md`。
+- **関連**: [Issue #264](https://github.com/nbx-liz/LizyML/issues/264), H-0093（名前検査の設置場所）, H-0050（`_merge_params` の優先順位）, [#277](https://github.com/nbx-liz/LizyML/issues/277)（本 PR で起票した calibration 側の同型欠陥）。
+
+### 目的（課題）
+
+`Model.fit(data=None, params=None)` は `params` を**公開シグネチャに持ち、docstring で「config の `model.params` を上書きする」と宣言している**。転送されていなかった。
+
+受け皿である `_merge_params(self, provider, override=None)` のオーバーレイ自体は正しく、**呼び出し側が override を渡していなかった**（`model.py:203`）。したがって上書きは例外も警告もなく捨てられ、Booster は config の値で学習される。
+
+出荷コードに対する実測（#264 より、本 PR で再現）:
+
+```
+Model._merge_params(override), declared default: None
+invocations observed: 2  (one plain fit, one fit(params=...))
+values it was bound to: [None, None]
+invocations binding a non-default: 0
+```
+
+```python
+dumps[0] == dumps[1]          # -> True   (booster texts identical)
+# '[learning_rate: 0.001]' in both — the 0.5 override never arrived
+```
+
+DC4（inert wiring）。配管はあり、公開の書き手が誰も到達しない。
+
+**この欠陥は「dict が正しいか」では捕まらない。** マージ後の dict は常に正しかった（誰も override を渡していないのだから）。だから受け入れ基準は**学習済み Booster** と `lgb.train` が実際に受け取った値に対して置く。
+
+### 対応方針（決定）
+
+1. **転送する（引数を削除するのではなく）。** `model.py` の呼び出しを
+   `self._merge_params(provider, override=params)` にする。#264 が挙げるもう一方の方向（引数と docstring の削除）は §代替案 を参照。
+
+2. **検査は転送先の dict の上に置く（H-0093 で既にそこにある）。** 転送だけを行うと H-0093 が閉じた境界が新しい入口から開く: `fit(params={"not_a_lightgbm_parameter": 1})` が無検査で `lgb.train` に届く。名前検査は `_merge_params` が返す dict に対して働くため、config・tune 結果・`fit()` 上書きの 3 入力すべてがそこを通る。
+
+   ただし**これは `lgb.train` への全経路ではない**。trial params は `_merge_params` の後にマージされ（探索空間の parse 時検査でカバー）、`LGBMAdapter(params=...)` の直接構築と codegen が出す `lgb.train` は別方向からカバーされる（H-0093 決定 8）。主張は「**利用者の Config または `fit()` 呼び出し**が `lgb.train` の前に置ける名前は必ず provider の検査を通る」であり、「パッケージ内の全呼び出しが 1 関数を通る」ではない。
+
+4. **スマートパラメーターが管理するネイティブ名は、上書きを受理せず拒否する（レビュー round 1 の指摘）。**
+
+   転送しただけでは足りなかった。スマート解決は `_merge_params` より**後段**で走り、その結果が勝つ（`core/model.py`: `resolved_model = {**resolved_model, **smart_resolved}`）。したがって「最優先」は嘘になる。round 1 の実測:
+
+   ```
+   fit(params={"scale_pos_weight": 10})  -> lgb.train received 0.9354838709677419
+   fit(params={"num_leaves": 12})        -> lgb.train received 32
+   fit(params={"min_data_in_leaf": 3})   -> lgb.train received 1
+   ```
+
+   **受理して置き換えるのは、この PR が直している欠陥そのものの再演である。** そこで `LGBMConfig._validate_smart_params` が config に対して既に適用している方針（衝突は競合エラー）を `fit()` 入力にも適用する: 有効なスマートパラメーターが書くネイティブ名は `CONFIG_INVALID` で拒否し、**どのスマートパラメーターが管理しているか**と**それを無効化する方法**を message に書く。
+
+   宣言（`SMART_PARAM_TARGETS`）は**コードから閉じる**。`resolve_smart_params` / `resolve_ratio_params` の `resolved[<文字列>] = ...` 代入を走査し、宣言と一致しなければ落ちるテストを置く。宣言だけの表は「4 つ目のネイティブ名を書き始めた日」に黙って古びる — それは本 PR が閉じている silence と同じ形である。
+
+   さらに**表が実在の上書きを指していること自体を実行で確かめる**: 各名前について、管理しているスマートパラメーターを**無効化すると同じ上書きが `lgb.train` に素通しで届く**ことを主張する。これが無いと表は何を書いても拒否テストが通ってしまう。`balanced` は multiclass では sample weight を作る（パラメーター名ではない）ため、multiclass の `scale_pos_weight` は管理対象外であることも実行で固定する。
+
+   **エイリアスまで閉じること（レビュー round 2 の指摘）。** ここまでの実装は文字列一致で、LightGBM がエイリアスを同一パラメーターとして解決することを見ていなかった。実測:
+
+   ```
+   auto_num_leaves=True   fit(params={"max_leaves": 12})
+       -> lgb.train received (max_leaves=12, num_leaves=32), booster [num_leaves: 32]
+   auto_num_leaves=False  fit(params={"max_leaves": 12})
+       -> booster [num_leaves: 12]
+   ```
+
+   `max_leaves` は受理名なので H-0093 の検査も通り、決定 4 の管理表にも無いので拒否もされず、**LightGBM が canonical 側を優先するため上書きはまた黙って捨てられた**。したがって管理表は canonical 名で宣言し、判定時に**学習器が受理する全綴りへ展開する**。綴りの集合は列挙せず `LGBM_DumpParamAliases`（H-0093 と同じ権威）から導く。管理対象 6 名の綴りは実測 18 通り（`num_leaves` に 4、`min_data_in_leaf` に 4、`feature_contri` に 4 のエイリアス）。テストは全 18 綴り × 2 方向で回し、エイリアス展開を外すと**エイリアス 12 セルだけが RED**、canonical 6 セルは green になることを確認済み — 見落としの形そのものである。
+
+   **適用範囲は `fit(params=)` のみ。** config 面の穴は round 12 で**面の全体を実行して**数えた（スマートパラメーター × 書き込む native 名 × LightGBM が受ける綴り = 18 通り）: **拒否 3 / 2 綴りが届く 12 / 黙って上書き 3**。「parse 時に 3 件が拒否済み」は**スマートパラメーターについては真、面については偽**であり、通過する 15 を数えていない（決定 8-3 で訂正）。実測済み、[#280](https://github.com/nbx-liz/LizyML/issues/280)。残り 2 件の衝突は出荷済み config に 0 件（上の firing rate）。`config/` から学習器の別名表へは層規約上届かないので、config 面の修正は「どこで拒否するか」の設計判断であり本 PR の入力ではない。探索空間面は 54/67 で該当するが、閉じると本リポジトリの 54 件が落ちるため #279 に分離した。**この非一貫性は認識したうえでの分離であり、H-0094 の主張は「`fit(params=)` について閉じた」までである。**
+
+3. **不明名の拒否は出所を名指しする。** 3 入力が 1 つの dict にマージされてから検査されるため、従来はすべて `model.params` として報告していた。3 つのうち 2 つは**利用者を誤ったファイルに送る**。`_merge_params` が `origins` を持ち、`model.params` / `provider default fixed params` / `tuning best_model_params` / `fit(params=)` を名前ごとに区別する。優先順位が上の入力が出所を上書きするので、同名が複数入力にある場合は**実際に効いている方**が報告される。
+
+5. **パラメーターの層は綴りではなく同一性でマージする（レビュー round 3 の指摘）。**
+
+   `{**base, **override}` は綴りが違えば両方を残す。LightGBM はエイリアスを解決し、**両方あるときは canonical を採る**ため、上書きが黙って負ける。実測（booster から読んだ値、`_COMMON_DEFAULTS` は `learning_rate=0.001` を常に注入する）:
+
+   | config | fit(params=) | 修正前 | 修正後 |
+   |---|---|---|---|
+   | `learning_rate: 0.07` | — | 0.07 | 0.07 |
+   | **`eta: 0.07`** | — | **0.001** | **0.07** |
+   | `learning_rate: 0.07` | `eta: 0.5` | **0.07** | **0.5** |
+   | （無し） | `eta: 0.5` | **0.001** | **0.5** |
+
+   2 行目が示すとおり、これは `fit(params=)` だけの問題ではない。**`_COMMON_DEFAULTS` は canonical 名で 11 個のパラメーターを毎回注入する**ので、そのどれかをエイリアスで書いた config は出荷以来ずっと無効だった。
+
+   したがって修正は 2 か所:
+
+   - `_merge_params` の 3 つの継ぎ目（config → provider 既定 fixed → tune best → `fit()` 上書き）を `overlay_params` に置き換える。上位層が名指すパラメーターの**別綴りを下位層から落とす**。
+   - `LGBMAdapter._build_params` で、**利用者がどれかの綴りで名指しているパラメーターの既定値を落とす**。ここを直さないと、facade で綴りを揃えても既定の canonical が後段で再注入されて上書きがまた負ける（実測済み）。
+
+   **学習器に 2 つの綴りを渡さない**形にしてあるので、結果は「LightGBM がどちらを優先するか」に依存しない。優先規則は実測したが、それに乗るのではなく、曖昧さを渡さないことで閉じている。
+
+   `overlay_params` は**学習器が知らない名前を落とさない**。落とすと H-0093 の拒否がその名前を見られなくなり、綴り間違いがまた無言の no-op に戻る。これはテストで固定した。
+
+6. **特別扱いされるパラメーターも同一性で取り出す（レビュー round 4 の指摘）。**
+
+   決定 5 が「利用者がどれかの綴りで名指したパラメーターの既定値を落とす」ようにした結果、**adapter が文字列一致で特別扱いしていた 3 つのパラメーターに穴が開いた**。それまでは canonical の既定値が隣にあってエイリアスに勝っていたので露見しなかった。実測（binary タスク）:
+
+   ```
+   fit(params={"objective": "regression"})    -> CONFIG_INVALID（task 不一致で拒否）
+   fit(params={"application": "regression"})  -> 学習された [objective: regression]
+   fit(params={"objective": "binary", "application": "binary"}) -> KeyError 'objective'
+   ```
+
+   1 件目と 2 件目は同じパラメーターであり、**エイリアスで書くと `_check_objective_compatible` を丸ごと迂回して誤った objective で学習していた**（DC2 → DC1）。3 件目は、adapter が検証済みの `objective` を `params` に置いた後、`application` が user 側に残っているため決定 5 の既定値落としがそれを既定値と誤認して消し、末尾の不変条件が消えたキーを読んで落ちる（DC2）。
+
+   したがって adapter の特別扱い（`objective` / `metric` / boosting round 数）は **`_pop_by_identity` で全綴りを取り出す**形にする。同じ層で 1 つのパラメーターが複数綴りで指定され、**値が異なる場合は `CONFIG_INVALID`** とする（同値なら無害なので通す）。どちらを採るかを dict の順序で決めるのは、本変更が消そうとしている欠陥そのものである。
+
+   **facade 側にも同じ拒否を置く**（`check_duplicate_identities`）。adapter の拒否は特別扱いされる 3 つしか見ないが、通常のパラメーターは誰も pop しないため両綴りが dict に残り、学習器がどちらかを選んでしまう。これが冗長でないことは RED で確かめてある: facade の拒否を外すと `objective` のケースは通ったまま**通常パラメーターのケースだけが落ちる**。
+
+   副次的に、`num_iterations` のエイリアス（`num_round` 等）で boosting 回数を指定できるようになった。従来は `n_estimators` という 1 綴りだけが `num_boost_round` に変換され、他の綴りは params に残って `lgb.train` の引数と食い違っていた。
+
+### Conditional-Activation Evidence
+
+**転送そのものには不要。** `if override:` は Change Gate が列挙する 6 つの目的（`skip` / `shorten` / `cache` / `select` / `allow` / `conditionally-activate`）のいずれでもなく、「上書きがあるかないか」という通常の必須動作の分岐である。`origins` も同様に、拒否メッセージの宛先を決めるだけで何かの発火条件ではない。
+
+**決定 4 の拒否には必要（`allow` 目的のゲート）。** レビュー round 1 の指摘で追加した「スマートパラメーターが管理するネイティブ名を拒否する」検査は入力を条件付きで通す門なので、同型の衝突が実際にどれだけ起きているかを、出荷済みスイートが構築する全 config（912 件、`LizyMLConfig` を記録する pytest plugin で計測）に対して測った。
+
+```
+Firing rate: 0/824 of configs carrying model.params
+Firing rate: 54/67 of configs carrying a category:model tuning space
+Firing rate: 0/0 of shipped calls passing fit(params=...) -- no call site exists
+```
+
+3 行の意味は同じではない。
+
+- **`model.params` は 0/824。** parse 時の既存チェックが 3 件を止めているうえ、残る 2 件（`balanced` / `feature_weights`）の衝突を書いている config が実際に無い。したがってこの面に検査を広げても、出荷済みの何も壊れない代わりに、何も捕まらない。
+- **探索空間は 54/67。** これは**生きている欠陥**であり、本 PR では**閉じない**。閉じると本リポジトリ自身の 54 件が落ち、方向（拒否する / チューニング値を勝たせる / smart 次元へ写像する）は保守者の判断である。[#279](https://github.com/nbx-liz/LizyML/issues/279) に実行証拠つきで起票し、BLUEPRINT §5.3 に入口ごとの状態表を置いた。
+- **`fit(params=)` は母集団 0。** 引数がこれまで何もしていなかったため、この引数を渡す呼び出しがコードベースに 1 つも存在しない（`grep` で新規テスト以外 0 件）。すなわち新しい拒否は**既存の何も拒否しない**。これは Change Gate が言う「測定不能」ではなく、母集団が空であることを測った結果である。
+
+### 影響範囲 / 互換性
+
+- **公開 API のシグネチャは不変**。`FitResult` / `PredictionResult` / `Artifacts` / `format_version` も不変。split / leakage 境界に触れない。
+- **振る舞いは変わる。** これまで無視されていた `fit(params=...)` が効くようになる。すでにこの引数を使っていた利用者は、**今まで意図と違うモデルを得ていた**ことになる。CHANGELOG に Fixed として明記する。
+- **「最優先」は 3 入力の中での最優先であって無条件ではない。** 有効なスマートパラメーターが管理するネイティブ名は、上書きされるのではなく**拒否される**（決定 4）。無条件の最優先を主張すると、決定 4 の前に実測された「受理して置換」を仕様として書くことになる。
+- 不正な名前を `fit(params=)` に渡していた場合は `CONFIG_INVALID` で拒否されるようになる（H-0093 と同じ理由: 黙って捨てられるより拒否される方がよい）。
+- `fit(params=)` は**その呼び出しに閉じる**。`_merge_params` は新しい dict を作るので利用者の config オブジェクトは書き換わらず、次の `fit()` は config の値に戻る。これはテストで固定する。
+
+### 代替案（不採用）
+
+- **引数と docstring を削除する。** #264 が挙げるもう一方の方向で、同じ公開 API 変更である。不採用の理由は `fit(params=tuning_result.best_model_params)` が文書化されたワークフローであり、**今日たまたま動いているのは tune 結果が別経路（`_tuning_result` オーバーレイ）で適用されるからにすぎない**こと。削除するとこのワークフローは書けなくなる。
+- **config だけを検査し、転送後は検査しない。** 実装は小さいが、`fit(params=)` という無検査の入口を新設することになる。H-0093 が閉じたばかりの境界を同じ PR で開くことになるため不採用。
+- **出所を持たず全て `model.params` と報告し続ける。** 追加コストは無いが、`fit(params=)` の綴り違いを config ファイルの問題として報告するため、利用者は存在しない行を探すことになる。
+
+### 受け入れ基準（テスト観点）
+
+`tests/test_core/test_fit_params_override.py`（新規、11 ケース）:
+
+- **学習済み Booster が変わること**: `params` だけが異なる 2 回の fit で booster テキストが**異なり**、上書き側が上書き値を、対照側が config 値を実際に持つこと（修正前は両者バイト同一で RED）。
+- **`lgb.train` が受け取った値**: 記録した全 `lgb.train` 呼び出しの `learning_rate` が上書き値のみであること。
+- **優先順位の 2 段**: `fit(params=)` が tune 結果に勝つこと、tune 結果が config に勝つこと。後者は修正前から green で、前者だけが RED — 欠陥の形そのもの。
+- **境界が開かないこと**: `fit(params={"not_a_lightgbm_parameter": 1})` が `CONFIG_INVALID` で拒否され、かつ **Booster が 1 本も学習されていないこと**。
+- **出所の名指し**: 例外メッセージと `context["unknown"]` の `surface` が `fit(params=)` であること。smart param 名の場合も専用メッセージを保ったまま出所を名乗ること。
+- **3 入力の同時判定**: `model.params` / `tuning best_model_params` / `fit(params=)` にそれぞれ不明名を置き、3 件が**それぞれの出所**で報告されること。
+- **誤って何かを変えないこと**: `params=None` と `params={}` がともに no-op であること、上書きが呼び出しをまたいで残らず利用者の config を書き換えないこと。
+- **決定 4（管理名の拒否、18 綴り × 2 方向）**: 学習器が受理する各綴りについて、(a) 管理するスマートパラメーターが有効なら `CONFIG_INVALID` で拒否され、書かれた綴り・canonical 名・スマートパラメーター名が message に現れ、**Booster が 1 本も学習されていない**こと。(b) そのスマートパラメーターを無効化すると、**同じ上書きが `lgb.train` に届く**こと。(b) が無ければ表は何を書いても (a) が通る。綴りの母集団は登録表から導出し、`accepted_spellings` が canonical しか返さなくなったら落ちるテストを別に置く（そうでないと全セルが通ったまま穴が戻る）。
+- **管理表がコードと一致すること**: 解決関数の `resolved[...] =` 代入の走査と `SMART_PARAM_TARGETS` が一致すること。両方向の RED 確認済み（宣言のみの名前 / 走査にだけ現れる名前）。
+- **スマート面の分割が閉じていること**: provider が申告する全スマートパラメーターが「ネイティブ名を書く」か「何も書かない」のどちらかに分類され、未分類が残らないこと。
+- **対照**: 管理対象でない名前（`learning_rate`）は拒否されず届くこと、multiclass の `scale_pos_weight` は届くこと。
+- **値の比較は順序を決めて行うこと**（レビュー round 6）: (1) 双方が長さを持つなら**長さ**（要素ごとの比較はブロードキャストし、空列は空の `all()` で何とでも一致する）、(2) 比較結果の**真偽値**（`np.float64(0.5) == 0.5` は `np.bool_` で `bool` ではないが `bool()` にはできる。ここを飛ばすと printed form に落ちて**有効な入力を拒否**する = round 5 の欠陥の再演）、(3) **要素ごと**、(4) 例外が出たものは **printed form**（比較そのものも handler の内側に入れること — `__eq__` が失敗する値がある）。テストは 25 の入力を「何についての事例か」でラベル付けし、**両方向**で主張する（2 つの拒否は逆順で比較するため、非対称な答えは同じ呼び出しを一方で拒否し他方で受理する）。3 つの指摘それぞれに対して RED 確認済み。
+- **値の等価性は 1 か所に置き、両方の拒否が共有すること**（round 5 の修正に対する自己レビューと rounds 4-5 監査が独立に発見）。素の `!=` は numpy 配列に対して配列を返し、`bool()` が例外になる。**綴りが 1 つしか無くても**自分自身と比較していたため落ちた: `fit(params={"feature_contri": np.array([1.0, 2.0])})` が `ValueError` になっていた（学習前・入口で無条件に通る経路）。`lizyml/core/value_equality.py`（Layer 0、import 無し）に `values_differ` を置き、facade と adapter の両方が使う。要素ごとの比較は「全要素が等しいこと」に還元し、還元できない値は printed form へフォールバックする（弱い答えだが例外にはならない）。値の定義域（配列 / list / tuple / `None` / bool / 空 list）を両方の拒否と実際の fit で確認し、素の `!=` に戻すと 5 セルが RED。
+- **決定 6 の重複拒否は printed form ではなく等価性で比較すること**（レビュー round 5）。`repr` 比較は `1` と `1.0` を別の値と見なし、**同じことを 2 度書いただけの呼び出しを拒否していた**（有効な入力を拒む = DC7 の向き）。`_pop_by_identity` は等価性で比較しているので、同じ入力がパラメーター名によって受理されたり拒否されたりしていた。テストは (a) 2 綴りの等価な値が実際の fit を通ること、(b) 2 つの拒否が同じ入力について一致すること（`True`/`1` を含む。LightGBM は bool を learning rate として解釈できないためこれはヘルパ層で確認）、(c) unhashable な値（`feature_contri` は list）で壊れないこと。RED 確認済み。
+- **決定 6（特別扱いの同一性）**: (a) `application`（`objective` のエイリアス）に task 不一致の値を渡すと **`CONFIG_INVALID` で拒否され、Booster が 1 本も学習されない**こと。(b) 互換な値なら学習されること。(c) 同一パラメーターの 2 綴りが**同値なら通る**こと（KeyError にならない）。(d) 値が異なれば拒否され、両方の綴りが message に現れること。(e) boosting 回数が `n_estimators` / `num_iterations` / `num_round` のいずれでも効くこと（`lgb.train` に渡る `num_boost_round` で確認）。(f) `metrics` が metric として扱われること。(g) **adapter が同一性で pop する名前の集合**が、テストが持つ別名ケースの集合と一致すること（走査で導出）。(h) facade の重複拒否が冗長でないこと — 外すと通常パラメーターのケースだけが RED になる。
+- **決定 5（同一性マージ）**: (a) config が canonical、`fit(params=)` がエイリアスのとき**上書きが勝つ**こと（booster から読む）。(b) config に無くても既定の canonical に勝つこと。(c) tune 結果がエイリアスでも config に勝つこと。(d) **`lgb.train` に渡る綴りが 1 つだけ**であること（結果だけを見るテストは、dict に両方残っていても通ってしまう）。(e) config だけにエイリアスがある場合も効くようになること（振る舞い変更、CHANGELOG に記載）。(f) 学習器が知らない名前は `overlay_params` に落とされないこと。両方の継ぎ目で RED 確認済み。
+
+### 決定 7: 同一性は 4 つ目の継ぎ目にも、同一層規則は宣言した層すべてに（レビュー round 11）
+
+11 ラウンド目は初めて**範囲を絞らず**、成果物の経路全体（`docs/` を除く diff 全体）に対して回した。直前 4 ラウンド（6 / 8 / 9 / 10）はいずれも「前ラウンドの修正」に絞られており、rounds 9-10 の monitor がその構造を指摘していた —
+**「新しく書かれた装置に向けたラウンドは、出荷コードが正しいかどうかに関係なく装置の欠陥を見つける。round 10 の『本番欠陥ゼロ』はスコープが機械的に生んだ結果であって、成果物の状態を示していない」**。
+範囲を広げた round 11 は**本番の欠陥を 3 件**返した。うち 2 件は、round 6 以降一度も変更されていないマージ経路そのものにあった。
+
+1. **tuning の trial マージが 4 つ目の継ぎ目だった（DC1）。** 決定 5 は 3 つの継ぎ目を同一性マージにしたが、`_model_tuning.py` の objective 内 `{**base_model_params, **fixed, **model_p}` は綴りベースのまま残っていた。config に `learning_rate=0.001`、探索次元に `eta` があると、**trial は 0.001 で学習し、study には `eta=0.5` が best として記録され、その後の fit は 0.5 で学習する**。tuning が一度も評価していないモデルを選んでいた。実測（booster の `[learning_rate: ...]` 行）:
+
+   ```
+   best: {'eta': 0.5}
+   tune: ['[learning_rate: 0.001]', '[learning_rate: 0.001]']
+   fit:  ['[learning_rate: 0.5]',   '[learning_rate: 0.5]', ...]
+   ```
+
+   `overlay_params` を同じ順序（base → fixed → trial）で適用する。**この修正は本 PR の diff の外**（`_model_tuning.py`）にあるが、非一貫性を作ったのは本 PR である — 片側だけを同一性にしたため、trial の評価と選択が食い違うようになった。#279（スマートパラメーターが解決する探索次元）とは別物で、あちらはスマート解決による上書き、こちらは通常のエイリアス衝突である。
+
+2. **同一層の重複拒否が 1 層にしか配線されていなかった（DC4）。** 決定 6 は「同じ層で 1 パラメーターが複数綴り・異なる値なら `CONFIG_INVALID`」と宣言したが、呼び出しは `fit(params=)` にしか無かった。`model.params` に `learning_rate` と `eta` を両方書いた config は両方が `lgb.train` に届き、LightGBM が黙って canonical 側を採る — 宣言はあり、実装もあり、その層には呼び出し側が無い。検査は facade（`_merge_params`）に置く。`config/` は層規約上 `estimators/` を import できないためである。
+
+   ```
+   Firing rate: 0/813 of pre-existing configs carrying model.params (本リポジトリの
+   スイートが構築する config を `check_duplicate_identities` の呼び出し点で観測。
+   814 件中 1 件が発火し、それは本変更と同時に足した回帰テストそのもの)
+   ```
+
+   出荷済み config は 1 件も壊れない。`allow` 目的の条件なので Change Gate の実測要件に従って測った。
+
+   **さらに 4 つ目の層があった（rounds 10-11 monitor の指摘）。** 決定 7 を「宣言した層すべてに」と書いたので、monitor に「どの層に配線したのか」を問われた。`check_duplicate_identities` の呼び出しは 2 か所しか無く、**`calibration.params` は名前検査だけで同一性検査が無かった** — H-0093 が「config 側のどの門も見ていない 4 つ目の経路」と呼んだ層である。実測: `calibration.params: {"learning_rate": 0.001, "eta": 0.5}` は**両綴りが calibrator の `lgbm.train` に届き**、LightGBM が黙って canonical 側を採っていた。`check_calibration_param_names` の中に配線した（名前検査と同じ入口・同じ provider）。
+
+   ```
+   Firing rate: 0/22 of pre-existing configs carrying calibration.params
+   (同じ観測。23 件中 1 件が発火し、それは本変更と同時に足した回帰テスト)
+   ```
+
+   **スマート層は綴りマージのままでよい（同 monitor の 2 つ目の候補、実測して否定）。** 他の全層を同一性でマージするのは学習器がエイリアスを解決するからであり、**スマートパラメーター名には学習器のエイリアスが 1 つも無い** — LizyML 自身の名前で、LightGBM はそれらを知らない。したがって 2 つ目の綴りで届く経路が存在しない。実測 0 件、テストで固定（名前が増えて古びる種類の主張なので、仮定ではなく主張として置く）。
+
+3. **等価な配列を拒否していた（DC7）。** round 8 で要素ごとの還元ステップを削除したとき、真偽値にできない比較は印字形で判定することにし、その代償（dtype の違う等値な配列は「異なる」と報告される）を docstring に明記した。round 11 はその代償を**本番入口で実測**した: `np.array([1, 2])` と `np.array([1.0, 2.0])` はそれぞれ単独では学習でき、2 綴りで同時に書くと `CONFIG_INVALID` で拒否される。**代償を書いたことは、有効な入力を拒まないという要求を満たさない。**
+
+   真偽値ステップと印字形の間に**変換ステップ**を入れる: 両辺に `tolist` があれば plain Python に変換し、**同じ**（ガード済みの）真偽値の問いをもう一度する。これは「任意のオブジェクトを反復すると何が出るか」という推測（round 8 が削除したもの）ではなく、文書化された変換のあとに通常の問いを繰り返すだけである。副次的に、印字形が要約で潰していた長い配列の差も正しく検出されるようになった。残る代償は plain Python への忠実な変換を持たない値（`DataFrame`、利用者独自のオブジェクト）だけで、ケース表がそこに到達する。
+
+その他:
+
+- `tests/_train_spy.py` は `lgb.train` / `lgb.Dataset` の記録器を 1 つにする。同じ計測器の 2 つ目の写しが既にあり、3 つ目を作る前に共有化した。`test_calibration_param_names.py` の `_TrainSpy` は**意図的に残す**: あれは `isotonic.lgbm` を名前で patch することで「calibrator の経路である」ことの証拠になっており、LightGBM 一般についての計測ではない。
+- 全スイート green、`ruff check .` / `ruff format --check .` / `mypy lizyml/` クリーン。
+
+### 決定 8: 綴りと容れ物は値ではない（レビュー round 12）
+
+round 12 は round 11 と同じく**範囲を絞らない**ラウンドとして回した。結果は
+`REQUEST_CHANGES` 2 件、どちらも `[P2]`、どちらも修正前にこちらで再現した。
+以下 3 件目は、その後に**継ぎ目の全数列挙**（round 11-12 monitor へ持ち込む
+問い）を実行して見つけたもので、レビュアーの指摘ではない。
+
+1. **等価な列を容れ物の違いで拒否していた（DC7）。** 決定 7 の 3 番目は
+   `np.array([1, 2])` と `np.array([1.0, 2.0])` の誤拒否を `tolist` 変換で閉じた。
+   round 12 はその 1 つ隣を実測した: `np.array([1., 2.])` と `(1., 2.)` は
+   `tolist` が配列だけを変え tuple を変えないので印字形まで落ち、`differ` になる。
+   `feature_contri` と `feature_penalty` は LightGBM の同一パラメーターなので、
+   同一層の同一性拒否が発火する — **`model.params` でも `fit(params=)` でも
+   `CONFIG_INVALID`、`train_calls = 0`**。
+
+   **これは round 11 が持ち込んだ退行ではない。** `tolist` ステップが無かった頃も
+   この組は印字形で判定され、同じく differ になっていた。
+
+   **受け入れ済みの判断を覆した。** `tests/test_core/test_value_equality.py` は
+   `("a list and an equal tuple", [1.0, 2.0], (1.0, 2.0), True)` を持ち、
+   「これは偶然ではなく判断である」と書いた test を添えていた。その判断は
+   Python から論じていた（`[1.0, 2.0] == (1.0, 2.0)` は `False`）が、**問いを
+   取り違えていた**。この関数が呼び出し元のために答える問いは「学習器は 2 つの値を
+   見るか」であって「呼び出し元は同じ容れ物に手を伸ばしたか」ではない。実行して
+   決めた:
+
+   ```
+   feature_contri        [1.0, 2.0] / (1.0, 2.0) / array([1., 2.]) / array([1, 2])
+                         -> [feature_contri: 1,2]        identical trees: True
+   monotone_constraints  [1, 0] / (1, 0) / array([1, 0])
+                         -> [monotone_constraints: 1,0]  identical trees: True
+   ```
+
+   黙って一方が選ばれるわけではない — **選ぶべき差が無い**。round 11 の 3 番目を
+   通したのと同じ論法である。
+
+   修正は**独立したステップ**として比較の前に置く: テキストでない `Sequence` を
+   `list` にする。`_as_plain_python` の拡張では足りない — `[1.0, 2.0] == (1.0, 2.0)`
+   は真っ当な `bool` なので真偽値ステップが先に答えてしまい、変換ステップに届かない。
+   `str` / `bytes` / `bytearray` は除外し、除外自体をケース表で固定した
+   （`"ab"` と `("a", "b")` は differ）。
+
+2. **calibration のエイリアスが、上書きしようとした既定値に負けていた（DC1）。**
+   `IsotonicCalibrator.__init__` は `{**_ISOTONIC_DEFAULTS, **user}` と**綴りで**
+   マージし、既定値は canonical で書かれている。したがって
+   `calibration.params = {"eta": 0.5}` は名前検査も同一性検査も通り（呼び出し元は
+   1 度しか書いていない）、`lgbm.train` には `learning_rate: 0.03` と並んで届き、
+   LightGBM が canonical を採った。実測:
+
+   ```
+   learning_rate: 0.5 -> calibrator は {'learning_rate': 0.5}
+   eta:           0.5 -> calibrator は {'learning_rate': 0.03, 'eta': 0.5}
+   ```
+
+   レビュアーは範囲を明示した — *「これは本 PR が触れた calibration 経路に残っていた
+   既存の下流マージであり、本 PR が導入したとは主張しない」*。
+
+   **修正の置き場所は層規約が決める。** `lizyml/calibration/` は
+   `lizyml/estimators/` を import できないので calibrator にエイリアスを教えられない。
+   `canonicalise_calibration_params` を facade 側（provider に既に届く場所）に置き、
+   dict を渡す前に綴りを canonical に書き換える。calibrator 自身のキーは除外し、
+   除外を assert で固定した: `num_boost_round` は `num_iterations` のエイリアスなので、
+   canonical 化すると calibrator が pop するキーが消える。`random_state` は facade が
+   供給する seed に対する同じ欠陥で、同じ書き換えで閉じた。
+
+   **その書き換えが 1 件の振る舞いを変えたので、そこも閉じた。** calibrator は
+   マージ後に `merged["verbose"] = -1` を強制していたが、**`verbose` は
+   エイリアスで canonical は `verbosity`** である。LightGBM は canonical を優先する
+   ので、`calibration.params = {"verbosity": 1}` は**本 PR 以前から**その強制を
+   破っていた。canonical 化により `verbose` も同じ経路を通るようになり、非一貫が
+   一貫した穴になる — なので強制を canonical 側に移した（`merged["verbosity"] = -1`、
+   他綴りは pop）。`monotone_constraints` の強制が効いていたのは、そちらが最初から
+   canonical だったからである。両方向をテストで固定した。
+
+3. **同一層規則の 6 つ目の継ぎ目は、既に起票済みの設計判断だった（#280）。**
+   継ぎ目の全数列挙で `check_smart_managed_overrides` に届いた。この検査は
+   `fit(params=)` にしか配線されておらず、docstring は根拠として「config 面は
+   parse 時に 5 件中 3 件が拒否済み」と書いていた。面の全体を実行した — スマート
+   パラメーター × 書き込む native 名 × LightGBM が受ける綴り:
+
+   ```
+   population: 18
+   DEFEATED   12/18   2 綴りが lgb.train に届き、LightGBM が canonical を採る
+   REPLACED    3/18   resolver が利用者の値を黙って上書きする
+   REFUSED     3/18
+   ```
+
+   **この欠陥は既知であり、BLUEPRINT.md §14.4 に正確に記載され、#280 として
+   maintainer の判断待ちである。**`config/` から別名表に届かないため「どこで拒否
+   するか」が設計判断になる、というのがその起票内容そのものである。したがって
+   **本 PR では実装しない**。本 PR のコードにある欠陥は宣言の側で、
+   「5 件中 3 件が拒否済み」はスマートパラメーターについては真だが**面については
+   偽** — canonical 3 件を数え、通過する 15 の綴りと対象を数えていない。docstring を
+   実測値に置き換え、#280 と BLUEPRINT §14.4 を指すようにした。**宣言を実態より広く
+   書くことは、この PR が扱っている形そのものである（DC5）。**
+
+   同じ類が calibration 層にもう 1 件ある（記録のみ、未修正）:
+   `calibration.params = {"min_data_in_leaf": 7}` は、`IsotonicCalibrator.fit` が
+   常在の既定 `min_data_in_leaf_ratio = 0.01` から `params["min_data_in_leaf"]` を
+   無条件に書くため、**全綴りで** 7 ではなく `ceil(n × 0.01)` で学習する。本 PR 前後で
+   結果は変わらない（canonical 綴りも以前から負けていた）。#280 と同じ設計判断に
+   属するので、実装せず記録する。
+
+#### 継ぎ目の全数列挙
+
+`lizyml/` の中で「あるパラメーター dict が別のパラメーター dict に出会う」場所を
+AST で列挙した（`{**a, **b}` / `.update` / `|` / 名前付きヘルパ 2 つ）。24 式。
+そのうち**出所の異なる** 2 つの dict が出会うのは以下で、各行は実行して確かめた:
+
+| 場所 | 解決 |
+|---|---|
+| `calibration/isotonic.py:97` | facade で canonical 化 — **決定 8-2** |
+| `config/loader.py:108` | 同一層どうし。実行済み: 値が違えば拒否、同じなら学習 |
+| `core/_model_factories.py:583` | `overlay_params` の中身、同一性を見る |
+| `core/_model_tuning.py:457,458` | `overlay_params`（決定 7） |
+| `core/_model_tuning.py:459` | スマート層。スマート名にエイリアスは無い（固定済み） |
+| `core/model.py:469,472,503` | `overlay_params` |
+| `core/model.py:481` | スマート層 |
+| `core/model.py:749` | `canonicalise_calibration_params`（新規） |
+| `estimators/lgbm/adapter.py:163` | ratio resolver が利用者の dict に出会う — **決定 8-3 / #280** |
+| `estimators/lgbm/adapter.py:499` | 同一性を見る（rounds 1-2） |
+| `estimators/lgbm/adapter.py:456,458` | `random_state` / `verbose`、上の重複排除に吸収される |
+| `estimators/lgbm/provider.py:265` | `{**_COMMON_DEFAULTS, **effective_params}`。resolver が読み戻す唯一のキーは `max_depth` で、**エイリアスが無い**。実測し、古びないよう固定した |
+
+残りの式はパラメーターのマージではない（`frozenset` の合併、行ビルダー 2 つ）。
+
+#### Firing rate
+
+スイートが構築する `LizyMLConfig` を全数記録し、**どのテストが作った config か**を
+併記して、本変更自身の回帰テストと既存母集団を区別できるようにした。
+
+```
+Firing rate: 0/22 of pre-existing configs carrying calibration.params
+             （calibrator が学習する値が変わるもの。24 件中 4 件が発火し、
+               うち 2 件は本変更の回帰テスト、残り 2 件は round 11 の
+               2 綴りテストで、潰れた側は同値か元々拒否される）
+Firing rate: 0/1009 of pre-existing configs carrying model.params
+             （本変更が解く拒否に掛かっていたもの。1010 件中 1 件が発火し、
+               それは本変更の回帰テスト）
+```
+
+その他:
+
+- `docs/audits/2026-09-defect-discovery/instruments/calibration_canonicalisation_firing_rate.py` を追加。
+- 全スイート green、`ruff check .` / `ruff format --check .` / `mypy lizyml/` クリーン。
+
+#### 決定 8 の追補: 探索空間もひとつの層だった（rounds 11-12 monitor の指摘 → 実行 → 修正）
+
+rounds 11-12 monitor は `CONVERGING` / `continue` を返しつつ、上の継ぎ目表に 3 点の
+反論を出した。verdict としてではなく finding として受け、3 点とも処理した。
+
+1. **走査が宣言していた構文の集合に、その走査自身の指摘が住んでいる構文が無かった。**
+   決定 8-2 の欠陥は `merged["verbose"] = -1`、8-3 の欠陥は
+   `resolved["num_leaves"] = ...` で、どちらも `d[k] = v` である。表はそれらを
+   *最寄りの宣言済み構文*の行に載せていた — つまり隣接コードを読んで見つけたので
+   あって、走査が見つけたのではない。**自分が報告した欠陥の形を見られない走査で
+   閉じた母集団は、近さで標本抽出しただけである。**
+
+   構文集合を広げた（`d[k] = v` / `dict(a, **b)` / `f(**x)`）。候補は 24 → **48**。
+
+2. **名指しされた継ぎ目は実在した。** `lizyml/tuning/search_space.py:215-223` は
+   `params[dim.name] = trial.suggest_*` を次元ごとに書くので、**互いにエイリアスで
+   ある 2 次元は同じ trial dict に両綴りを入れる**。`check_duplicate_identities` の
+   呼び出しは 3 か所（`model.py:456,493` / `_model_factories.py:870`）で、空間の上には
+   無い。実測:
+
+   ```
+   space = {learning_rate: [0.001, 0.01], eta: [0.4, 0.5]}
+   -> 全 trial で両綴りが lgb.train に届き、learning_rate の値で学習
+   -> best_model_params: {'learning_rate': 0.0064, 'eta': 0.4545}
+   ```
+
+   **`eta` 次元は sample され、Optuna が最適化し、どの trial にも影響しない。**
+   study は何もしない軸で trial を順位づけ、`best_model_params` が死んだ綴りを
+   記録するので、後続の `fit` もそれを運ぶ（DC1 + DC6）。
+
+   #279（次元 × スマートパラメーターの衝突）とも #280（`model.params` ×
+   スマートパラメーター）とも別物である。決定 6 が「宣言した層すべてに」と言う層で、
+   呼び出し側が無かった 3 つ目 — round 11 の 2 番目と同じ形。
+
+   `check_duplicate_space_dimensions` を study 開始前（名前検査の隣）に配線した。
+   **ここには同値による免除が無い**: 2 次元は独立に sample するので、境界が何であれ
+   1 パラメーターを 2 回名指しすることは曖昧である。両方向をテストで固定した。
+
+   ```
+   Firing rate: 0/69 of pre-existing configs carrying a category:model search space
+   （70 件中 1 件が発火し、それは本変更と同時に足した回帰テスト）
+   ```
+
+3. **instrument が出荷されていなかった。** 決定 8 の表は走査から作ったのに、走査は
+   scratchpad にしか無く、表を再生成できなかった — 本リポジトリ自身の規則で DC3。
+   `instruments/parameter_merge_seams.py` として出荷した。走査が**できないこと**も
+   明記してある: hint 語の絞り込みは識別子テキストのヒューリスティックであって型解析
+   ではないので、hint 語のどれにも当たらない変数に入ったパラメーター dict は見えない。
+   `HINTS` を定数として置いてあるのは、「走査が見落とした」を検証可能にするためである。
+
+monitor の予測も記録しておく（採用ではなく記録）: *範囲を絞らなかったラウンド
+（1-5, 7, 11, 12）はすべて `lizyml/` のファイルを名指ししている。round 13 は
+`APPROVE` を予測しない。*
+
+### 決定 9: 同じ値の別の書き方、そして LizyML 自身が握っているパラメーター（レビュー round 13）
+
+round 13 も範囲を絞らず回した。`REQUEST_CHANGES` 3 件、すべて本番コード、すべて
+修正前に再現した。**3 件とも round 12 が書いたコードではない** — 1 と 3 は、
+エイリアスと転送が効くようになったことで本 PR が**露出させた**既存の読み手であり、
+2 は本 PR が書いた関数の中だが、当該ケースは round 12 のステップより古い
+（長さ 2 対 3 で、そのステップが無かった頃も拒否されていた）。
+
+1. **エイリアスで書かれたカスタム metric が `export_code` で失われる（DC1）。**
+   `_extract_feval_metadata` は `adapter.params.get("metric")` と**リテラル綴りで**
+   読んでいた。`_build_params` は同じパラメーターを `_pop_by_identity` で読むので、
+   **学習したコードと出力したコードが「呼び出し元は何を指定したか」で食い違っていた**。
+   実測:
+
+   ```
+   metric        評価=['brier']  出力 metric='None'  feval=['brier']
+   metrics       評価=['brier']  出力 metric='None'  feval=[]
+   metric_types  評価=['brier']  出力 metric='None'  feval=[]
+   ```
+
+   生成コードは metric を失うだけでなく**動かない** — レビュアーが生成された
+   `train_lgbm` を実行し、`ValueError: For early stopping, at least one dataset and
+   eval metric is required` を得ている。同一性で読むよう直した。
+
+   **この構文の母集団を列挙した。** `estimators/` / `persistence/` / `codegen/` /
+   `core/` / `training/` でパラメーター dict をリテラル綴りで読む箇所は 4 件。
+   `provider.py:473` が生きた 1 件で、`adapter.py:234,507` は `_pop_by_identity` の
+   後（正規化済み）、`smart_params.py:146` は `max_depth`（エイリアス無し）。
+   **これは継ぎ目走査が扱っていない構文である** — 「dict が dict に出会う」ではなく
+   「利用者が綴った dict を 1 つの綴りで読む」。
+
+2. **列とそのカンマ区切り文字列が「2 つの値」として拒否されていた（DC7）。** 実測:
+
+   ```
+   {feature_contri: [1, 2]}                          -> 学習
+   {feature_penalty: "1,2"}                          -> 学習
+   {feature_contri: [1, 2], feature_penalty: "1,2"}  -> CONFIG_INVALID
+   2 つの単独ケースは同一の booster を学習する: True
+   ```
+
+   長さステップが `"1,2"` の**文字数**と `[1, 2]` の**要素数**を比べていた。
+
+   **これは同じ関数で 3 ラウンド連続の「次の等価クラス」である** — round 11: dtype、
+   round 12: 容れ物、round 13: テキスト文法。open grammar を 1 形式ずつ塞ぐ形なので、
+   **追いかけるのではなく閉じる**書き方にした。
+
+   **権威は推測せず読んだ。** `lightgbm/basic.py::_param_dict_to_str` は
+   `list` / `tuple` / `set` / 1 次元 ndarray の**すべて**を、パラメーター名に関わらず
+   `",".join(map(_to_string, val))` で書き、`str` はそのまま通す。つまり 2 つの形は
+   **ワイヤ上で 1 つの値**であり、これが「パラメーターごとの知識」ではなく一様な
+   ステップにできる理由である。テストは serialiser を**実行**する。
+
+   比較は**テキストではなく要素ごと**にした。ワイヤ形式は正規形ではないからである:
+   `[1.0, 2.0]` は `"1.0,2.0"`、`[1, 2]` は `"1,2"` になり、LightGBM はどちらも同じ
+   double に解釈する。連結文字列を比べるとこの組を拒否してしまい、**同じ誤拒否が
+   書式 1 段ずれて再発する**。
+
+   **明示する限界**: 入れ子の文法は**扱わない**。`interaction_constraints` は
+   `[[0, 1], [2]]` と `"[0,1],[2]"` を受けるが、それを読むには LightGBM が今後
+   拡張しうる文法のパーサが要る — DC1 が警告する open-grammar そのものである。
+   両者は「異なる」と報告し、ケース表で固定した。負のコントロール（`"1,2"` 対
+   `[5, 6]` / `[1, 2, 3]`、`"auc"` 対 `["auc", "logloss"]`）も実行済み。
+   **「同じ」の床には落とさない** — 落とすと、この門が存在する理由である DC1 を
+   そのまま通してしまう。
+
+3. **`training.*` が既に握っているネイティブパラメーター（DC1、両方向）。**
+   `adapter.py:223` は `training.early_stopping.rounds` から作った callback を常に
+   足す。実測: 上書きは毎回 `lgb.train` に届き、それでも config が停止を決めていた
+   （`rounds: 2` + 上書き `10` → 3 イテレーション）。
+
+   **修正方針を決めた実行**: callback を**切った**場合も inert ではない —
+   LightGBM 自身がそのパラメーターを honour し、LizyML は検証セットを作っていないので
+   `CONFIG_INVALID` が metric のせいにして落ちる。**安全に受理できる読みが存在しない。**
+
+   **母集団を列挙し、全綴りで実行した。**
+
+   ```
+   training.early_stopping.rounds -> early_stopping_round
+     early_stopping / early_stopping_round / early_stopping_rounds / n_iter_no_change
+     4 綴りすべて受理され、それでも callback が決めていた
+   training.seed -> seed
+     random_seed / random_state / seed
+     3 綴りすべて受理され、上書きが training.seed に黙って勝っていた
+   ```
+
+   `seed` は**逆方向**に失敗する（上書きが勝つ）ので、実行された run の再現性制御は
+   config が宣言しているものではなかった。**2 方向が食い違うからこそ、どちらかを
+   選ぶのではなく拒否する** — config のどこにも「どちらが効くか」は書いていない。
+   検査は merge 後の dict に `origins` 付きで当て、利用者が直すべき入力を名指しする。
+
+   ```
+   Firing rate: 0/916 of configs with early stopping enabled and model.params
+   Firing rate: 0/928 of configs with training.seed and model.params
+   ```
+
+#### 継ぎ目列挙の主張を格下げした
+
+round 13 のプロンプトはレビュアーに「広げた走査がまだ見落とす継ぎ目を名指しせよ」と
+明示的に求め、レビュアーは `config/loader.py:167`
+（`node[last] = _coerce_env_value(value)`、環境変数上書きの書き込み）を挙げた。
+カーソル変数名が `node` で hint 語に当たらなかったためである。実行して分類を確認した:
+綴りが 2 つで値が違えば拒否、同値なら学習 — **列挙の穴であって欠陥ではない**、という
+レビュアー自身の但し書きが正しい。hint 語に `node` / `cfg` / `config` を追加、候補
+48 → **58**。
+
+**そして主張自体を書き換えた。**「母集団を列挙した（閉じた）」は 2 回主張され、
+2 回とも主張の 1 ラウンド以内に反証された — round 12 版は自分の 3 件中 2 件が住む
+構文を宣言しておらず、round 13 版は `node` を見落とした。instrument の docstring は
+**候補を生成する**こと、表が主張するのは**実行した分だけ**であること、そして
+「開いた空間の走査を閉包と呼ぶこと」こそ本 run が他人の宣言に見つけ続けている DC5
+であることを明記する。
+
+その他:
+
+- 全スイート **2474 passed**、`ruff check .` / `ruff format --check .` /
+  `mypy lizyml/` クリーン。
+
+#### 決定 9 の追補: 「閉じた」と言った直後に、閉じていないことを実行で示された（rounds 12-13 monitor）
+
+決定 9-2 は「open grammar を追いかけるのではなく閉じた」と書いた。根拠は
+`_param_dict_to_str` が `list` / `tuple` / `set` / 1 次元 ndarray の**すべて**を
+一様に `","` で連結することであり、その一様な規則を適用したから、というものだった。
+
+**rounds 12-13 monitor はその主張を実行で反証した。本ラウンドで自分でも再実行して
+確認したうえで採用した。** `_comma_form_matches` は `isinstance(sequence, list)` で
+入り口を絞っており、`_as_plain_sequence` は `collections.abc.Sequence` しか正規化
+しない — ndarray はそれではなく、スカラーはそもそも列ではない。つまり
+**docstring が名指しした 4 型のうち 1 型にしか届いていなかった。**
+
+LightGBM 自身の serialiser を oracle にした再実行:
+
+```
+                        wire A          wire B          同一   結果
+ndarray とそのテキスト  'p=1.0,2.0'     'p=1.0,2.0'     True   REFUSED
+スカラーとそのテキスト  'p=0.5'         'p=0.5'         True   REFUSED
+set とその list         'p=1.0,2.0'     'p=1.0,2.0'     True   REFUSED
+list とそのテキスト     'p=1.0,2.0'     'p=1.0,2.0'     True   学習
+```
+
+**4 組中 3 組が LightGBM にバイト同一の文字列で届き、拒否されていた。**
+
+`_wire_elements` を入れ、「この値に対して LightGBM は何を連結するか」を型に依らず
+答えるようにした。スカラーは要素 1 個の wire 形式として扱う。テストは
+**serialiser そのものを oracle にして型集合全体を回す** — 決定 9-2 の主張は本来
+この形で検証されるべきだった。
+
+**2 つの除外は「漏れ」ではなく「判断」として書き、ケースで固定した。**
+
+- `set` / `frozenset`: LightGBM は連結するが、set に順序は無く、ここで列を取る
+  パラメーターはすべて位置依存である（`feature_contri` は要素 *i* を特徴 *i* と
+  読む）。同じに印字された 2 つの set は hash の偶然でそうなっただけであり、それを
+  「同じ値」と認めると答えが hash 順に依存する。
+- `None`: `_param_dict_to_str` は `None` を**送らない**。つまり「未指定」であって
+  文字列 `"None"` ではない。
+
+副産物として、仮定のままだった外部事実が 1 つ実行で確定した: **LightGBM は
+`pd.Series` をパラメーターとして連結しない — `TypeError` で拒否する。** テストで固定。
+
+**この追補自体が記録に値する形である。** 決定 9-2 は「閉じた」と書き、その主張は
+1 ラウンド以内に反証された — 継ぎ目列挙の主張と**同じ経過**である。違いは、今回は
+反証がループ外の monitor から来たこと、そして反証が具体的な値の組で来たことである。
+主張を実測で書くこと自体は正しいが、**「型集合全体に適用した」と言うときは型集合全体で
+実行すること**が、この 2 例から出る運用上の結論である。
+
+### 決定 10: 探索空間も「入力」である — study が自分の次の一手に拒否される結果を返していた（レビュー round 14）
+
+round 14 も範囲を絞らず回した。`REQUEST_CHANGES` **1 件（`[P1]`）** — round 5 以降で
+最少であり、単一指摘のラウンドとしても round 5 以来である。
+
+**指摘は、このラウンドのプロンプトが初めて投げた問いの答えだった。** rounds 12-13
+monitor が「集合全体に適用した」という主張を 2 ラウンド続けて反証したので、round 14 の
+プロンプトはレビュアーに *「この diff が集合を主張している箇所は、その集合の上で実行
+されたのか」* を明示的に問わせた。返ってきた 1 件はまさにその形である。
+
+**欠陥。** `check_training_managed_overrides` は `_merge_params` の中で走り、そこの
+コメントは「every input at once をカバーする」と書いていた。`_merge_params` で出会う
+**3 つの入力**については真だが、**4 つ目については偽**である — trial パラメーターは
+その後、tune の objective で重なる。
+
+したがって `category: model` の探索次元が `seed` や `early_stopping_round` を名乗ると、
+**受理され、sample され、学習される** — そして直後の `fit()` が、その study が今作った
+`best_model_params` を拒否する。両エントリの**全 7 綴り**で再現:
+
+```
+random_seed / random_state / seed / early_stopping / early_stopping_round /
+early_stopping_rounds / n_iter_no_change
+  -> いずれも booster を 2 個学習してから、次の fit が CONFIG_INVALID
+```
+
+**拒否が無かったのではなく、study が終わってから来ていた**のが欠陥である
+（DC1 + DC4 + DC5）。
+
+**修正。** `check_training_managed_space` を study 開始前、既にそこにある 2 つの
+空間レベルの拒否（`check_param_names` / `check_duplicate_space_dimensions`）の隣に
+配線した。空間も他と同じ 1 つの層であり、これは round 11 が
+`check_duplicate_identities` について見つけ、決定 8 の追補が空間自身について見つけた
+**同じ形の 3 例目**である。
+
+**偽の主張は、修正だけでなく主張がなされた場所でも訂正した**: `model.py` のコメントは
+merged-dict 検査がカバーする 3 入力を名指しし、カバーしない 1 つと、それがどこで
+検査されるかを書く。
+
+```
+Firing rate: 0/70 of pre-existing configs carrying a category:model search space
+（77 件中 7 件が発火し、それは本変更の回帰テストが 7 綴りを回した分）
+```
+
+#### レビュアーが「clean」と報告した内容（範囲付き）
+
+- `fit(params={"eta": 0.5})` を binary / multiclass / regression で実行し、**全 CV
+  booster と full-data refit booster**が `[learning_rate: 0.5]` を持つことを確認。
+- training-managed の全 7 綴りを `model.params` と `fit(params=)` の両面で実行し
+  **14/14 が学習前に拒否**。今回の指摘は tuning 層のみ。
+- 学習済み adapter からの export パラメーター抽出を `metric` / `metrics` /
+  `metric_types` で実行し、3 つとも Brier のメタデータを保持 — **round 13 の
+  指摘 1 が独立に再実行されて確認された**。
+
+レビュアー自身が「確立していない」と明記した範囲: フルスイート・lint・mypy は
+再実行しておらず、ディスクへの export、生成プロジェクトの実行、実際の `Model.load()`
+後の fit は read-only 制約下で実行していない。これらはこちらで実行した — フルスイート
+**2500 passed**、`ruff check .` / `ruff format --check .` / `mypy lizyml/` クリーン。
+
+#### 決定 10 の追補: D7 が発火していたのに記録が和らげていた（rounds 13-14 monitor）
+
+rounds 13-14 monitor は `CONVERGING` / `redirect` を返し、2 つの指摘をした。両方とも
+実行で確認したうえで採用した。
+
+**1. D7 の authorship 条件が発火していた。** `git show 92e3d51` — round 13 の修正
+コミットが `check_training_managed_overrides` **と**「every input at once をカバー」
+という偽の主張の**両方**を書いている。つまり **round 14 の指摘は round 13 の修正が
+書いたコードの欠陥**であり、これは D7 の authorship 条件の素直な読みで、この run で
+初めて明確に発火した。
+
+**round 14 の記録はそれを「同じ形の 3 例目」とだけ書き、発火したことを書いていなかった。**
+条件は maintainer が**撤回済み**なのでループは止めない。しかし「発火したら和らげずに
+記録する」はこの run 自身の基準であり、それを守れていなかった。monitor の指摘は正しい。
+
+**2. リテラル読みの母集団だけが散文だった。** round 13 の記録は「grep で 4 件」と
+書いたが、grep のパターンはどこにも残っておらず**再実行できない**。書き込み方向の
+走査は positive control 付きで出荷されているのに、読み取り方向には対応物が無い。
+この PR の他のすべての母集団は実行可能な宣言を持っていた。
+
+monitor はさらに `adapter.py:455-458` を名指しし、liveness の判定は別モジュールとの
+結合に依存するとして**判定を保留**した。**こちらで実行して判定した — 見た目より
+小さい**: `random_seed=7` は自分の名前のまま `lgb.train` に届き、LightGBM はそれを
+honour する（booster は `seed=7` と**バイト同一**、`seed=99` とは異なる）。**値は
+失われていないので、これは欠陥修正ではなく一貫性の修正である**、とそう書いた。
+facade 経路ではそもそも到達不能でもある（`training.seed` は常に設定される — 既定 42、
+明示的 null は拒否 — ので training-managed 拒否が全綴りを先に claim する）。
+
+**その整理が退行を 1 件生んだことも記録する。** 最初の版は `_pop_by_identity` を
+使ったが、これは 2 綴り異値を**拒否**するので、`seed` が `random_state` に優先すると
+いう受け入れ済みの決定（`test_lgbm_defaults.py`）を壊した。**命名の整理の副作用で
+拒否の意味論を変えるのはこのコミットの仕事ではない**ので、優先順位をそのまま保つ形に
+狭めた。
+
+#### 2 つの宣言を出荷した
+
+monitor の redirect は「層 × 検査の格子」と「読み取り方向の走査」を実行可能な宣言と
+して出荷せよ、というものである。両方とも round 15 の前に出荷した。
+
+- `tests/test_core/test_refusal_matrix.py` — 5 層 × 5 検査の格子。`wired` の各セルは
+  **実行される**（拒否が発火し、層を名指しし、その前に何も学習していない）。`open` の
+  セルは issue を名指しすることを要求し、表が矩形であることを要求し、
+  `_model_factories` に列を持たない検査が存在しないことを確認する。**書いた直後に、
+  wired と書きながら到達する入力が無いセルを 3 つ検出した** — 3 つとも入力を足した。
+- `tests/test_estimators/test_literal_parameter_reads.py` — 読み取り方向の走査。
+  エントリごとに理由を持つ許可リスト、両方向の陳腐化チェック、negative control 2 件を
+  含む 7 件の hostile source。**実行したところ、未宣言の読み 2 件と、陳腐化した
+  エントリ 2 件を検出した** — 許可リストは走査を回さずに読んで書いたものだったからで、
+  これは round 13 の母集団がどう作られたかと同じ誤りである。
+
+#### monitor の推奨のうち 1 点だけ採用しなかった
+
+monitor は「2 つの宣言を出荷し、**round 15 をそれらに絞って**開け」と推奨した。
+**絞ることは採用しない。** rounds 6 / 8 / 9 / 10 はいずれも直前ラウンドの修正に絞られ、
+いずれも本番欠陥を出さなかった — それは**コードではなく範囲が作った結果**だと
+この run 自身が確立している。monitor が名指しした作業の扱いとして確立している先例は
+逆で、**ラウンドの前に処理し、ラウンドは絞らない**（rounds 10-11 / 11-12 monitor の
+名指しした層はそれで「次ラウンドの指摘」ではなく「修正済みの欠陥」になった）。
+round 15 は範囲を絞らず、新しい宣言もその中に入る。
+
+全スイート **2529 passed**。
+
+### 決定 11: 宣言が反証された — 格子の `n/a` が偽だった（レビュー round 15）
+
+round 15 のプロンプトは、前ラウンドで出荷した 2 つの実行可能な宣言を**名指しで攻撃せよ**と
+求めた。レビュアーはそうし、**格子自身の `n/a` の 1 つを反証した**。これは宣言が
+意図どおり働いた結果である — 反証できる表は、反証できない散文より価値が高い。
+
+`REQUEST_CHANGES` 2 件（ブロッキング）+ 1 件（非ブロッキング）。すべて修正前に再現。
+
+1. **tuning が入れた早期停止設定が衝突ゲートから見えていなかった（DC1）。**
+   `check_training_managed_overrides` は `cfg.training.early_stopping.enabled`
+   だけを読んで `early_stopping_round` を claim するか決めていた。しかし
+   `_build_train_components` は `best_training_params["early_stopping_rounds"]`
+   があればそれを採る — **config が早期停止を無効にしていても**である。つまり
+   study が config の設定を覆して早期停止を有効にでき、ゲートはそれを見ていなかった。
+
+   実測（config 無効 / `category: training` で patience を 2 に tuning / `fit(params=)`
+   で 10 を上書き）:
+
+   ```
+   tuned training params: {'early_stopping_rounds': 2, 'validation_ratio': 0.2}
+   (上書き, callback rounds, iterations): [(10, [2], 4), (10, [2], 4), (10, [2], 4)]
+   ```
+
+   上書きは毎回 `lgb.train` に届き、全 booster が tuning 側の 2 で停止した。
+   round 13 の指摘 3 と同じクラスで、**発動源が 1 つ違う**だけである。
+
+   修正: `effective_early_stopping_rounds(cfg, training_overrides)` を
+   「早期停止は有効か、patience はいくつか」の**唯一の定義**にし、
+   `_build_train_components` と検査の**両方**がそれを使う。**この問いに 2 つの読みが
+   あったこと自体が欠陥だった**ので、修理は 1 つにすることである。
+
+2. **復元された `best_model_params` が同一層拒否をすり抜けていた（DC1 + DC4 + DC5）。**
+   `overlay_params` は「重ねられる側」から競合綴りを落とすが、**overlay 自身が
+   持っている**綴りはそのまま残す。`_merge_params` は overlay 内部の重複を検査して
+   いなかった。実測:
+
+   ```
+   best_model_params = {"learning_rate": 0.1, "eta": 0.8}
+     lgb.train には: [(0.1, 0.8), (0.1, 0.8), (0.1, 0.8)]
+     booster:        [learning_rate: 0.1]
+   ```
+
+   レビュアーは実際の `export()` / `load()` 往復でも再現し、**主張しないこと**も明記
+   した — 現在の `tune()` がそういう結果を作るとは言っていない。実際作れない
+   （`check_duplicate_space_dimensions` が 2 次元 1 パラメーターを拒否する）。
+   母集団は**本 PR より前に書かれた artifact** である。
+
+   **そして格子はこのセルを問題なしと書いていた。**
+   `tuning best_model_params × check_duplicate_identities` は
+   `"n/a: overlaid by identity into a checked dict"` だった。この理由付けは**偽**である:
+   overlay は「その下の層に対して」検査されるのであって、自分自身に対してではない。
+   セルを `wired` にし、実行される入力を足した。**`wired` のセルには到達する入力が
+   必要という harness が、この訂正を強制した。**
+
+   修正: overlay の前に `best_model_params` へ `check_duplicate_identities`。
+   `load()` 自体は依然としてその artifact を読む — artifact は「起きた fit の記録」で
+   あり、読めなくして得をする人はいない。拒否は**再 fit** に属する。
+
+3. **（非ブロッキング、ただし修正した）`params_table()` がエイリアス上書き後に
+   過少報告していた。** `params_summary` は canonical 名の固定リストを booster の
+   dict から**リテラル綴りで**読んでいた。実測:
+
+   ```
+   fit(params={"learning_rate": 0.5}) -> 表に learning_rate: 0.5
+   fit(params={"eta": 0.5})           -> 表にどちらの名前も無い
+                                         （booster はどちらでも 0.5 で学習）
+   ```
+
+   レビュアーは非ブロッキングとし「学習値ではなく報告の問題」と正しく限定した。
+   **それでも修正した**: **本変更が動くようにするためだけに存在する経路**で run を
+   誤報告するからであり、かつ round 13 の export 欠陥と**同じリテラル読み構文**だから
+   である。前ラウンドで出荷した読み取り走査はこれを捕まえていない — `_DICT_NAMES` に
+   `booster_params` が無く、キーがループ変数でリテラルでもない。レビュアーはそれを
+   名指しし、それはその走査の docstring が自ら宣言している限界そのものである。
+
+#### Firing rate
+
+```
+指摘 1: 出荷スイートで `category: training` の `early_stopping_rounds` 次元を持つ
+        config は 1 件（`test_tuner_extended.py:38`）で、model 層の早期停止名は
+        持たない。既存 config の拒否は 0 件。当該テストが通ることを確認済み。
+指摘 2: 本リポジトリからは測定不能（母集団は旧版が書いた artifact であり、ここには
+        無い）。代わりに境界を述べる: **`tune()` は今や重複綴りの
+        `best_model_params` を作れない**（2 次元 1 パラメーターが study 前に拒否
+        されるため）ので、これから書かれる artifact がこの拒否に掛かることはない。
+非ブロッキング: 拒否は増えていない。空だった報告が埋まるだけである。
+```
+
+#### レビュアーが実行して clean と報告した内容
+
+- **`_CELL_INPUTS` の 12 fixture すべてについて例外 traceback を検査**し、各々が
+  名指しした checker に到達していること（別の理由で失敗しているのではないこと）を
+  確認した。**これはこちらが自分の格子について実行できなかった検査である。**
+- RAM 上の artifact I/O で実際の `export()` / `load()` 往復を実行 — 上書き無しの再 fit は
+  config の `learning_rate=0.001` を復元し、新しい `eta=0.7` の上書きは 3 つの学習
+  呼び出しすべてに届いた。**この経路はレビュアーによる実行としては round 7 以来である。**
+- `export_code()` **と生成された `train_lgbm()`** を `metric` / `metrics` /
+  `metric_types` で実行し、いずれも Brier 評価を保持し `learning_rate=0.5` の booster を
+  学習した。
+
+レビュアー自身が述べた限界: ディスク I/O をメモリ実装で置換したのでファイルシステムの
+挙動は未検証、フルスイート・lint・mypy は再実行していない。こちらで実行 —
+**2533 passed**、`ruff` / `ruff format --check` / `mypy` クリーン。
+
+### 決定 12: 「唯一の定義」は 4 人の読み手を持っていた（rounds 14-15 monitor）
+
+rounds 14-15 monitor は `CONVERGING` / `redirect` を返し、2 つの有限な列挙を名指しした。
+**両方ともこちらで実行してから対応した。1 つは欠陥、1 つは clean。**
+
+monitor は verdict では言えないことを 1 文で言った。記録として採用する:
+
+> CONVERGING / DRIFTING の二分法が捉え損ねていて、15 ラウンド `APPROVE` が出ない実際の
+> 理由はこれである — **maker が毎ラウンド、集合の上で実行していない普遍的な宣言を
+> 出荷し、次のラウンドがそれを反証する。** 4 回連続である。
+
+これはコードについてではなく**こちらの流儀について**の指摘であり、正しい。
+
+#### 1 つ目の列挙 — 欠陥だった
+
+決定 11 は `effective_early_stopping_rounds` を「**唯一の定義**」と宣言し、docstring は
+trainer と検査が「食い違えない」と書いた。monitor はその問いの読み手を列挙した —
+**4 人いて、宣言は 2 人の上でしか実行されていなかった。**
+
+| 読み手 | 修正前 |
+|---|---|
+| `_model_factories.py` — 拒否 | 統一済み |
+| `model.py` — trainer | 統一済み |
+| `_model_persistence.py:239` — `export_code` へ | **config のみ** |
+| `_model_tables.py:290` — `params_table` へ | **config のみ** |
+
+実測（config patience 7、tuning patience 2）:
+
+```
+tuned patience  : 2
+params_table    : 7
+export_code     : 7
+実際に使われた値: 2
+```
+
+**報告の問題より重い。** `export_code` は学習を再現するプロジェクトを生成するものであり、
+**別のモデルを学習するプロジェクトを生成していた**。両方を共有定義に繋ぎ、4 人全員が
+一致することを確認した。
+
+monitor は帰結も明示した: この宣言はコミット `b737062`（round 15 の修正）にあるので、
+**round 16 でここに指摘が出れば D7 の authorship 条件が round 15 に対して発火する**。
+ラウンド前に処理することがそれを防ぐ、というのが rounds 10-11 / 11-12 で機能した先例
+である。
+
+#### 2 つ目の列挙 — 名指しされた死角のクラス、実行して clean
+
+> **正しい名前で `lgb.train` に届いたパラメーターが、params dict ではない経路に
+> 上書きされる。** この PR の計測器はすべて dict を読む。`adapter.py` は
+> `num_boost_round=` を keyword で、早期停止を callback で、
+> `categorical_feature=` / `weight=` を Dataset 構築時に渡す。
+> `TRAINING_MANAGED_PARAMS` は 2 件しかないので、`num_iterations` と
+> `categorical_feature` は**拒否も格子の列も持たない経路**である。
+
+monitor は探し方も指定した: それらの経路をエイリアス表と掛け合わせ、
+**booster が何をしたか**で判定せよ（`booster.params` ではなく — dict こそが見せない
+ものだから）。その通りに実行し、**clean**:
+
+```
+num_boost_round 全 7 綴り     -> booster は 17 本（要求 17、config 6）、dict は空
+categorical_feature 添字形式  -> booster に [categorical_feature: 0]
+categorical_feature "name:"   -> LightGBMError が列名を挙げて明示的に失敗
+```
+
+`num_boost_round` は rounds 1-2 の修正が全綴りで効き続けている結果であり、`name:` の
+失敗は**明示的**である（狩っているクラスは黙って負けることなので、明示的な失敗は
+許容される側）。両方をテストで固定した — **clean の結果を durable にする半分がこれ**
+である。
+
+monitor は 3 つ目の候補（`lgb.Dataset` が `params=` 無しで構築される件）については
+「`lgb.train` が未構築 Dataset に params を押し込む可能性があり、そうなら dead」として
+**主張を控えた**。この自制があるからこそ、実際にした 2 つの主張は実行する価値があった。
+
+#### 推奨は全面的に採用した
+
+> `redirect` — 2 つの有限な列挙をラウンド前に実行し、**round 16 は範囲を絞らないこと**。
+> probe-before-round は monitor が名指しした面を 2 度「指摘」ではなく「修正」に変えたが、
+> ラウンドを絞ることは 4 度とも何も生まなかった。
+
+**monitor の redirect が「絞るな」と推奨したのはこれが初めて**であり、しかもそれを
+この run 自身の記録から導いている。
+
+全スイート **2535 passed**。
+
+### 決定 13: 報告面は「fit した model」を答える — D7 の authorship 条件が発火した（review round 16）
+
+round 16（範囲を絞らない、head `bca3844`）は `REQUEST_CHANGES` を 2 件で返し、両方とも
+こちらで再現した。
+
+**1 件目は、決定 12 の修正自身が書いたコードの欠陥である。D7 の authorship 条件
+（「round N の修正が書いたコードの欠陥が round N+1 で出る」）は、コミット `be2795a`
+に対して発火した。** rounds 14-15 monitor はこの帰結を事前に明示していた。ここを弱めて
+書かない — それは rounds 13-14 monitor が一度捕まえた癖そのものである。
+
+#### 1 件目 — `params_table()` / `export_code()` が最新の tune を追いかけていた
+
+決定 12 は 4 人の読み手を「実効値を再計算する」形で揃えた。だが `tune()` は
+**tuning result を置き換えるだけで、fit 済み adapter は置き換えない**。実測:
+
+```
+fit した adapter が学習した patience : 7
+params_table（tune 前）              : 7
+tune 後、同じ adapter か             : True
+params_table（tune 後）              : 2
+export_code（tune 後）               : 2
+```
+
+**存在しない model について報告していた。** `export_code` は学習を再現するプロジェクトを
+生成するので、決定 12 が閉じたはずの欠陥が向きを変えて戻ってきた形である。
+
+reviewer の指示は明示的だった —「retained training state か、provider 経由で学習済み
+adapter から解決せよ」。**両方を使った。どちらを使うかは値ごとに実行して決めた。**
+
+#### 修正前に集合を列挙した — これがこの run の中心的な教訓
+
+決定 12 の欠陥は「読み元を変える修正を、それを生んだ 1 つの lifecycle でしか実行して
+いなかった」ことである。今回の集合は **lifecycle** であり、`export_code` が config から
+渡す全引数と `params_table` が config から作る全行を、5 つの順序で実行した。
+
+| 値 | 修正前 | 出所 |
+|---|---|---|
+| `early_stopping_rounds` | lifecycle 3 / 5b で誤り | **学習済み adapter**（`ExportParams` 経由） |
+| `validation_ratio` | **lifecycle 2 で誤り（develop 由来、この PR の混入ではない）** | 保持した overlay（`FitState.applied_training_params`） |
+| `seed` | 正しい | config のみ。trainer も `cfg.training.seed` しか読まない |
+| `num_boost_round` | 正しい | 既に adapter 由来 |
+
+5 つの lifecycle（`fit` / `tune→fit` / `fit→tune→report` / `fit→export→load` /
+`fit→tune→export→load`）を全て実行した。
+
+**`early_stopping_rounds` は adapter から読む。** `ExportParams` に
+`early_stopping_rounds`（**default なし** — 「provider が設定しなかった」と「early
+stopping が無効だった」を同じ値にするのは DC1 の形）を追加した。adapter は joblib で
+保存されるので、これは lifecycle 5b でも正しい — **tuning result 経由の修正なら間違えて
+いた唯一の lifecycle** である（artifact が持つ tuning result は、どの fit も消費していない）。
+
+**`validation_ratio` は adapter に無い。** `FitState.applied_training_params` に、その fit が
+実際に適用した overlay を保持する。実行して確認した内容:
+
+```
+inner-valid factory が呼ばれた ratio : [0.45]
+params_table の validation_ratio     : 0.2   ← 修正前
+```
+
+`tuned_validation_ratio()` を唯一の定義とし、読み手 3 人（trainer / `params_table` /
+`export_code`）を全て通した。
+
+**述べる bound**: `load()` 後、この overlay は空である。artifact は tuning result を
+記録するが「どの fit がそれを消費したか」を記録しないため、loaded model は config の
+ratio に落ちる。これは `metadata.json` のキー追加＝変更ゲート案件なので、この PR では
+やらない。**テストで固定し、issue に起票した。**
+
+#### 2 件目 — comma 形式の比較が例外を出しうる（宣言違反）
+
+`_comma_form_matches` の `float(element)` が `TypeError` / `ValueError` しか捕まえて
+いなかった。`__float__` が `RuntimeError` を投げる `float` サブクラスで再現:
+
+```
+{'learning_rate': 0.5}              TRAINED True
+{'eta': '0.5'}                      TRAINED True
+{'learning_rate': 0.5, 'eta': '0.5'} RuntimeError conversion unavailable
+```
+
+module の宣言は「**この関数は `Exception` を送出しない**」「呼び出し側の値に触れる式は
+すべて `try` の中にある」である。1 行下の `str(element)` は `try` の外にすらいなかった。
+両方を広げ、`BaseException` は従来どおり伝播させる。
+
+**durable な半分は、この cell が生まれた理由の方である。** 既存の cross product は
+awkward な値どうしを比較するので `text` が `str` になることがなく、comma 形式の step は
+要素に触れる前に `None` を返していた。**片側が文字列、片側が敵対的な要素の列** という
+cell が存在しなかった。`_ELEMENT_BEHAVIOURS`（`__float__` 3 × `__str__` 2）を追加して
+埋めた。
+
+#### 範囲外として起票したもの
+
+- **loaded model の `validation_ratio`**（上記 bound）— [#281](https://github.com/nbx-liz/LizyML/issues/281)。
+- **`category: training` の `seed` 次元**: 実行すると受理・サンプル・`best_training_params`
+  に格納されるが、trainer は `cfg.training.seed` しか読まないので**黙って無視される**
+  （実測: 次元 123、学習は 0）。develop 由来で、この PR の経路上にない — [#282](https://github.com/nbx-liz/LizyML/issues/282)。
+
+全スイート **2551 passed**。
+
+### 決定 14: 失敗した呼び出しは、残るモデルの状態を書き換えてはならない（review round 17）
+
+round 17（範囲を絞らない、head `04f3930`）は `REQUEST_CHANGES` を 2 件で返し、両方とも
+こちらで再現した。
+
+**2 件とも決定 13 の修正が書いたコードの欠陥である。D7 の authorship 条件はコミット
+`a7ac071` に対して発火し、これで 2 ラウンド連続、しかも今回は 100%（古い欠陥は 1 件も
+無い）。** この形は rounds 5-6 でも起きており、当時 D5 の停止条件判断の引き金になった。
+再発を記録として残す。判断は standing instruction の下で管理者のものであり、
+rounds 15-16 monitor の `escalate` は既に管理者へ上げてある。
+
+#### 2 件に共通する 1 文
+
+**どちらの修正も不変条件を宣言し、その不変条件の量化子ではなく「指摘が名指しした事例」
+の上でしか実行していなかった。**
+
+- 決定 13 の不変条件「`applied_training_params` は `fit_result` を記述する」は、
+  **成功する 5 つの lifecycle** の上で実行され、失敗遷移はゼロだった。
+- 決定 13 のもう 1 つ「呼び出し側の値に触れる式は guard の外に無い」は、
+  **element 側の被演算子**の上で実行され、text 側は実行されなかった。
+
+教訓は「もっと probe せよ」ではない。**実行すべき集合は不変条件自身の量化子**であり、
+その量化子が「きっかけになった例」に黙って狭められた場所を見つけるのに、maker は
+最も向いていない立場にいる、ということである。
+
+#### 1 件目 — 拒否された fit が、残るモデルの状態を上書きしていた
+
+`fit()` は各状態を「値が手に入った時点」で公開していた。それは fit が成功する前である。
+
+```
+その fit が学習した ratio : 0.2
+tune 前                   : (0.2, 0.2)
+tune 後                   : (0.2, 0.2)
+拒否された fit            : LizyMLError
+同じ adapter か           : True
+拒否された fit の後       : (0.45, 0.45)
+```
+
+**修正前に集合を列挙して実行した。** `fit()` が成功前に書く `self._*` すべてを、
+失敗点 2 つ（gate による拒否 / 学習中の例外）で実行した:
+
+| 書かれるもの | 拒否時（修正前） | 修正後 |
+|---|---|---|
+| `_applied_training_params` | **上書き** | 保持 |
+| `_X` / `_y` | **上書き** — 200 行が、残るモデルが見たことのない列を持つ 90 行に | 保持 |
+| `_metrics` | refit が失敗しうる前に公開 | 結果と一緒に commit |
+| `_provider` | 書き換わるが `cfg` 由来で、呼び出し間で変わりえない | 不変 |
+| `_run_dir` | 保持 | 保持 |
+
+`_applied_training_params` はこの PR のコードである。**`_X` / `_y` は既存**であり
+（SHAP と診断が読むデータ）、修正が同じ 1 行の移動であり `fit()` 内で mid-flight に
+読む箇所が無いので同梱した。
+
+同じ問いを隣のメソッドで実行すると `tune()` も同じことをしていた: `self._X, self._y`
+が study の前にあり、study が例外を投げると残る fit が見たことのない行を指していた。
+
+**修正は「結果と一緒に commit する」こと。** 報告面が「その fit について」読む値は、
+`fit()` の末尾で 1 かたまりとして、間に例外を投げうる文を置かずに公開する。`tune()` も
+同様。
+
+#### 2 件目 — text 側の被演算子が comma 形式の step を破れた
+
+round 16 は `float(element)` と `str(element)` を guard した。`text.split(",")` は
+一度も guard されておらず、**`str` サブクラスは `str` である**以上その override が走る。
+
+**修正は「もう 1 つの `try`」ではない。** サブクラスのメソッド呼び出しを `try` で包めば
+no-raise は満たすが、**正当な組（1 パラメーターを 2 通りに書いただけ）を拒否する**。
+それはこの module が防ごうとしている欠陥のもう半分である。この module 自身の idiom は
+**基底メソッドを unbound で呼ぶ**ことで、override を走らせない。
+
+書く前に 2 つの事実を実行した:
+
+```
+str.split unbound      : ['0.5'] ['str']
+element str() subclass : Text          <- str(element) はサブクラスを返しうる
+```
+
+2 つ目があるので `printed.strip()` も同じ扱いが要った。docstring は母集団を
+**式 × 所有者 × 閉じ方**の表として持ち、module の宣言も「`try` の中、**または**基底型の
+メソッドを unbound で」と書き換えた（後者は `_printed_forms_differ` で既に使われていた
+のに宣言が触れていなかった）。
+
+#### 計測器も拡張した — reviewer がその欠落を名指ししたため
+
+> 「lifecycle grid は失敗した fit の遷移を含まないので、その 48 cell はこの性質を
+> 確立できない。」
+
+正しい。しかも同じ失敗の 1 段上である: 6 つの lifecycle はすべて成功系列だった。
+`report_lifecycle_grid.py` は現在 8 lifecycle・**64 cell** を実行する。
+
+```
+cells: 64    agrees: 54   known-bound: 2   n/a: 8   DISAGREES: 0
+```
+
+#### 誤った理由で通っていた回帰テスト
+
+このラウンドの remedy の中に、狩っているクラスが出たので記録する。`_X` / `_y` の主張の
+最初の版は `fit → tune → 拒否された fit` を走らせていた。**`tune()` も `_X` / `_y` を
+代入する**ので、`fit()` が一度も代入しないビルドに対しても通っていた。RED 検証が
+「赤にならない」ことで捕まえた。現在は tune を挟まない独立したテストにしてある。
+
+RED harness 側も同じ形の誤りだった: 移動した代入を**削除**するのは「修正前」ではない
+（テストが直前の成功呼び出しの残りを読んでしまう）。両方とも元の位置へ**戻す**形にした。
+
+全スイート **2592 passed**。
+
+### 決定 15: 充足不能だったのは宣言のほうだった（review round 18、範囲限定）
+
+round 18 は**修正箇所に限定して**開いた。rounds 15-16 / 16-17 の monitor が 2 回連続で
+`DRIFTING` / `escalate` を返し、2 回目が「同じことを繰り返して今度はうまくいく、とは
+言えない」と明言したため、round 18 を開かずに管理者の判断を仰いだ結果である。判断は
+**「修正箇所に絞って開く」** — round 5 で管理者自身が出した第 4 の選択肢と同じ形。
+
+#### 範囲限定ラウンドが取りに行った成果は、実際に得られた
+
+**round 17 の状態公開の修正は、正面から攻撃されて持ちこたえた。** 3 ラウンドぶりに、
+修正が clean で返ってきた最初の例である。
+
+> CV 学習 / calibration / evaluation / full-data refit に失敗を注入。grouped fit
+> フィールド 6 個すべてが従前のオブジェクト同一性を保持。`_run_tune_round` と
+> `_assemble_tuning_result` での tune 失敗でも、検査した 12 フィールドすべて保持。
+> 成功パスでの属性アクセスも計測し、6 フィールドは実行中に読まれないことを確認。
+
+出荷した計測器も実行され、数字が完全に再現された（64 cells / 54 agree / 2 known-bound
+/ 8 n/a / exit 0）。新しい回帰ケースは mutation test にかけられ、各々が「固定すると
+主張している本番行」を実際に検出することが確認された。
+
+#### 指摘は 1 件、そして**それは D7 authorship の 3 ラウンド連続発火**（`d83af2b`）
+
+round 17 は `str.split` を unbound で呼ぶことでサブクラスの override を封じた。だが
+**`isinstance` は `__class__` を読み、unbound descriptor は `type()` を読む**。
+両者が食い違うのが **proxy**（`str` ではないが `__class__` に `str` を返す）である。
+
+```
+単独ではどちらも学習、booster 同一 : True
+組にすると                        : TypeError: descriptor 'split' ...
+```
+
+round 17 の指摘は「比較すべきところで**送出した**」。今回はその鏡像で「比較すべきところで
+**拒否した**」。bound の両半分とも効いており、round 17 の修正は前者を買って後者を売った。
+
+#### 根本原因は guard ではなく**宣言**だった
+
+reviewer は non-blocking として「`__class__` が raise する値は `isinstance` の時点で
+bound を破り、それは `04f3930` でも同じだった」と報告した。これが 3 ラウンド続いた理由を
+説明する: 宣言
+
+> *この関数は `Exception` を送出しない*
+
+は**あらゆる Python オブジェクト**を量化しており、**どんな実装でも充足できない**
+（`__getattribute__` や `__class__` を raise させれば任意の式が落ちる）。
+**これは宣言そのものに対する DC7 である。** だから毎ラウンド新しい dunder が見つかった。
+
+#### module 自身が名指ししている権威に訊いた
+
+docstring は `_param_dict_to_str` を値等価性の権威として既に名指ししている。推論ではなく
+実行した:
+
+```
+Proxy (isinstance は str、type は違う)  -> 'learning_rate=0.5'
+Rate (__class__ が raise)              -> RuntimeError: class unavailable
+Text (素の str サブクラス)              -> 'learning_rate=0.5'
+0.5                                    -> 'learning_rate=0.5'
+
+type(str(Text('0.5')))          : str
+type(str(SelfPrinting('0.5')))  : SelfPrinting
+str.split はサブクラスを受ける   : ['0.5']
+```
+
+- **proxy は admit しなければならない。** serialiser が `learning_rate=0.5` を出す以上、
+  LightGBM が学習する値である。`text` は unbound 呼び出しの前に `str()` で正規化する
+  （serialiser 自身がそれに対して行うのと同じ操作）。
+- **`__class__` が raise する値は bound の外であり、どんな guard でも変わらない。**
+  serialiser 自体が呼び出し側の例外を投げるので、その値はどの綴りでも**学習を完了できず**、
+  admit すべき組が存在しない。（当初この行は「`lgb.train` に届かない」と書いていた。
+  rounds 17-18 monitor が経路を実行して訂正した — 直列化は LightGBM の**内側**で起きるので
+  `lgb.train` には入り、そこで失敗する。支持できる主張はここに書いた形である。）
+
+**bound を serialiser 相対に書き換えた:**
+
+> *serialiser が受理する値については `Exception` を送出せず、serialiser が 1 つの値と
+> みなす組は admit する。*
+
+これは**閉じた、実行可能な母集団**である。旧来の宣言は開いており、3 ラウンドはそこに
+費やされた。`_comma_form_matches` の式の表には `isinstance` を「**ここでは閉じない**」
+という closure で 1 行加え、理由を書いた。
+
+#### テストを「列挙」から「オラクルとの関係」に変えた
+
+生成した cross product に対する `isinstance(result, bool)` は列挙であり、列挙こそが
+古び続けたものである。text 側に `__class__` 軸（`normal` / `proxy` / `raises`）を加えて
+108 通りにし、主張を**オラクルとの関係**にした:
+
+> `values_differ` が送出するのは、`_param_dict_to_str` が送出するときだけである。
+
+さらに「関係が空虚でないこと」を確かめる相棒テストを置いた。前件が一度も成立しない関係は
+どんな実装でも満たされる — **列挙から逃げるために書いたテストの中の DC6** である。
+
+宣言個数の guard は、新しい軸を初回実行で捕まえた（設計通り）。
+
+全スイート **2666 passed**、grid exit 0。
+
+### 決定 16: 欠けていたのは軸ではなく**関係**だった（review round 19、範囲限定）
+
+round 19 も**修正箇所に限定して**開いた（round 18 と同じ枠組み）。blocking 1 件、
+non-blocking 1 件。**2 件とも `fdf5cc2`（round 18 の修正）由来で、D7 authorship は
+4 ラウンド連続の発火である。**
+
+#### 1 件目 — 正規化が「別の formatter」を使っていた
+
+round 18 は `str` 側の被演算子を `str()` で正規化した。だが serialiser は
+**スカラー**を `f"{key}={val}"`（= `__format__`）で書き、**列の要素**は `_to_string`
+（= `str`）で書く。この 2 つは片方だけを override した値で食い違い、両方向に出た:
+
+```
+F1a  wire form : a=0.5 | a=0.5   -> 1 つの値なのに values_differ True（拒否）
+F1b  wire form : a=0.25 | a=0.5  -> 2 つの値なのに values_differ False（受理, DC1）
+```
+
+F1b が重い。`learning_rate=0.25` と `eta=0.5` が「同じ」と報告され、LightGBM が
+残した方で学習していた。
+
+**書く前に対応関係を実行した**（8 値 × 両 formatter）。`format` はスカラーの wire form に
+8/8 一致、`str` は要素の wire form に 8/8 一致。**LightGBM が 2 つの関数を使い分けている
+から、こちらも使い分ける**。下流の `str(element)` は要素用で正しく、揃えてはいけない。
+
+#### 2 件目 — non-blocking と報告されたが修正した
+
+`getattr(value, "tolist", None)` は `AttributeError` しか飲まないので、raise する
+`tolist` **プロパティ**はそのまま外に出ていた。reviewer は round 18 より前からある
+として non-blocking にしたが、**1 ラウンド前にこの PR が宣言した bound を反証する**ので
+修正した（serialiser はその値を受理し、学習もできる ＝ bound の内側。決定 15 が除外した
+`__class__` の raise とは違う）。
+
+#### 本当の修復 — 関係の欠けていた半分
+
+round 18 は列挙をオラクル関係に置き換えたが、**半分しか作っていなかった**:
+「serialiser が raise するときだけ raise する」。もう半分「serialiser が 1 つの値と
+みなす組は admit する」は一切主張していなかった。round 19 の両方向は、no-raise テストを
+**構成上必ず通る**。
+
+`__format__` を軸に足せば「この 1 例」は捕まる。**関係を足せばどの軸でも捕まる**:
+
+- wire form が同じ ⟹ `values_differ` は `False`
+- 両方が数値で異なる ⟹ `values_differ` は `True`
+
+**存在した瞬間に 3 件見つけた:**
+
+| 内容 | 処置 |
+|---|---|
+| `"0.5"` と proxy、両順（8 cell） | **修正** — 決定 15 自身の穴 |
+| スカラー と 単一要素の列（4 cell） | **[#283](https://github.com/nbx-liz/LizyML/issues/283) に起票** |
+
+proxy の穴は示唆的である: round 18 は `_comma_form_matches` の**中**で正規化しており、
+そこは相手が列のときしか走らない。だから proxy を素のテキストと比べる経路は素通りだった。
+**正規化は入口で 1 度、両方の被演算子に**行うようにした。
+
+スカラー/単一要素の件を直さないのは、**現在拒否している組を admit するのは振る舞いの拡大**
+（変更ゲートの `allow`）であり、実測 firing rate 付きの Proposal が要るからである。値は
+母集団に残し `KNOWN_BOUNDS` に issue 番号を書いた（関係の非空虚性の witness を失わない
+ため）。免除が不要になったら落ちる staleness 検査も置いた。
+
+#### 母集団を「宣言」から「導出」へ
+
+4 ラウンドかけて `__float__` → `__str__` → `split` → `__class__` → `__format__` /
+`tolist` と、毎回「前のラウンドが思いつかなかった軸」を足してきた。**すべて人が選んだので、
+すべて不完全だった。**
+
+`DERIVED_HOSTILE_NAMES` は、この module が扱う型に対する **Python 自身の dunder 一覧**と、
+module が文字列で引く属性名から導出する。各 1 個ずつ敵対化して関係に通す。導出が導出で
+あることを確かめる相棒テストも置いた（明示 lookup 名が module のソースに実在するかまで
+見るので、写しが古びれば落ちる）。**何も出なかった。それが走らせた意味である。**
+
+#### 赤にならなかった RED 検証
+
+記録しておく。最初の RED 実行で `format` を `str` に戻したのに**スイートは緑のままだった** —
+reviewer の再現値を 1 つもテストに固定していなかったので、母集団に「`format` と `str` が
+食い違う値」が存在しなかった。両方を、生成母集団にも出荷経路にも追加した。
+
+全スイート **2895 passed / 6 skipped**、grid exit 0。
+
+### 決定 17: formatter の返り値も呼び出し側のもの、そして関係が古い契約と矛盾していた（review round 20、範囲限定）
+
+round 20 も**修正箇所に限定**して開いた。問いは rounds 18-19 monitor が名指しした識別子で
+ある — **「強めた表明と宣言した bound は、直前の修正への再修正なしに独立の挑戦を生き延びるか」**。
+
+**答えは「否」。** blocking 2 件、両方とも round 19 の修正由来。
+
+#### 事前登録した停止条件が発火した
+
+> **D7 の authorship 条件は 5 ラウンド連続で発火し、5 件すべてが
+> `lizyml/core/value_equality.py` 内である**（rounds 16, 17, 18, 19, 20）。
+
+この条件は round 20 を回す**前に**登録し、管理者に伝え、rounds 18-19 monitor にも示して
+「適切である」と評価されていた。**判断は管理者に上げ、round 21 は開かない。**
+選択肢は `DECISIONS-PENDING.md` の D8 にある。ただし**指摘自体は実在するので修正した** —
+ループを止めるのは「次のラウンド」についての判断であって、既知の欠陥を出荷する理由ではない。
+
+#### 1 件目 — formatter の返り値が override 可能な振る舞いを保持していた
+
+round 19 は `format(value, "")` で正規化し、**返り値をそのまま返していた**。`format` は
+`str` の**サブクラス**を返しうるので、そのサブクラスの override が比較を決めてしまう。
+
+```
+wire form : k=0.25 | k=0.50   -> 2 つの値なのに values_differ False（DC1）
+wire form : k=0.5  | k=0.5    -> 1 つの値なのに values_differ True
+```
+
+前者は学習まで届く（両綴りを単独で学習させると booster は 0.25 と 0.5 で別物）。
+
+**修復は module 自身の idiom を 1 段先に適用すること。** formatter の返り値に対して
+`str.__str__` を unbound で呼ぶ。書く前に実行した:
+
+```
+str(x)          -> 'lied'   exact=False  len=99
+str.__str__(x)  -> '0.25'   exact=True   len=4
+```
+
+`str()` では足りない — `__str__` に dispatch し、同じオブジェクトがそれも override
+しうる。基底メソッドだけが LightGBM に実際に届く文字を返す。
+
+#### 2 件目 — 新しい関係が、古い意図的な契約と矛盾していた
+
+serialiser は `nan` を平然と書くので、「wire form が同じ ⟹ admit」は **2 つの NaN を
+1 つの値として admit せよ**と要求する。だが module は**意図的に**それらを「異なる」と
+報告し、理由も round 5 から書いてある（`nan != nan` なので、同じ値だと確立できるものが
+何もない）。
+
+round 19 は、serialiser を量化子に据えた関係を、**その量化子が指す契約と突き合わせずに**
+書いた。**それは関係を導入して終わらせようとした失敗そのものの 1 段上である。**
+
+NaN は理由付きの**宣言された例外**にした。そしてそのコストは論証ではなく実行で示した:
+`_fit(learning_rate=nan)` は LightGBM が拒否する（`Check failed: (learning_rate) > (0.0)`）
+ので、NaN の組にどんな verdict を出しても学習するモデルは変わらない。NaN は**例外だから
+こそ**母集団に入れてある（宣言だけあって誰も到達しない例外は、この run が狩っている形）。
+
+#### 3 度目の「誤った理由で通るテスト」
+
+この PR で 3 度目であり、毎回 RED 検証だけが捕まえた。記録しておく。
+
+1 件目の出荷経路の pin は、もう一方の綴りを最初 **float**（`eta: 0.50`）で書いていた。
+数値は comma 形式の step を通り、そこは修正を戻しても正しく拒否する — つまりテストは
+**何も固定しないまま通っていた**。reviewer 自身の再現に合わせてテキストにしたところ、
+revert で 2 件とも赤になった。
+
+#### 報告されたが直していないもの
+
+- **`values_differ([], "")` が `True`**（両方 `k=` を書く）。`0b45250` でも同じで、
+  範囲外。non-blocking。
+- **導出チェックが「新しく追加された文字列 lookup」を検出しない。** reviewer が module の
+  ソースをメモリ上で書き換えて lookup を 1 つ足したところ、相棒テストは通った。
+  「宣言済みの名前がまだ在るか」は見ているが「実際の lookup が全部宣言されているか」は
+  見ていない。現時点で欠けている lookup は無い。**こちらが書いた検査の実際の弱点である。**
+
+全スイート **2898 passed / 62 skipped**、grid exit 0。
+
+---
+
+## H-0095: パラメーター値を入口で正規化し、比較の領域を閉じる（#264 後継 / D8 の帰結）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-09-08
+- **決定日**: 2026-09-08
+- **スコープ**: `lizyml/core/_model_factories.py`（入口の正規化 + 受理集合の拒否）, `lizyml/core/value_equality.py`（閉じた型集合の上へ縮小）, `lizyml/core/model.py` / `lizyml/calibration/`（4 つの呼び出し元が正規化後の dict を使う）, `tests/test_core/test_value_equality.py`, `tests/test_core/test_fit_params_override.py`, `BLUEPRINT.md` §14.4, `CHANGELOG.md`。
+- **関連**: H-0094（PR 2、決定 1-17）, [#264](https://github.com/nbx-liz/LizyML/issues/264), [#283](https://github.com/nbx-liz/LizyML/issues/283), `docs/audits/2026-09-defect-discovery/DECISIONS-PENDING.md` の **D8**。
+
+### 目的（課題）
+
+PR 2（#278）のレビューは **20 ラウンド回って `APPROVE` に到達しなかった**。うち
+**rounds 16-20 は 5 連続で、直前のラウンドの修正が書いたコードに欠陥が出た**（D7 の
+authorship 条件が 5 回発火）。**5 件すべてが `lizyml/core/value_equality.py` 内**である。
+
+原因は個々の guard 漏れではなく、**この関数が判定しなければならない入力領域が開いている**
+ことである。そしてそれが開いているのには 2 つの理由があった:
+
+1. **型を名指せなかった。** このモジュールは自ら「標準ライブラリのみ」を課しており、
+   numpy を `isinstance` で判定できないので `tolist` を探す等の duck typing に頼っていた。
+   任意のオブジェクトが `__format__` / `__class__` / `tolist` / `__eq__` / `__len__` を
+   どうにでも定義できるので、領域は構成上開く。
+2. **誤拒否も欠陥だと、レビューが 2 度押し返した**（round 12 finding 1、round 13
+   finding 2、どちらも DC7）。admit を増やすほど、任意オブジェクトについて理解すべき
+   ことが増える。
+
+**訂正すべき前提が 1 つある。** 「Layer 0 = 標準ライブラリのみ」は**アーキテクチャの規則
+ではない**。`ARCHITECTURE.md` の「依存ゼロ」は*内部レイヤ*依存ゼロの意味で、Layer 0 の
+他モジュール（`core/types/fit_result.py`, `core/_model_factories.py` 等）は numpy も
+pandas も import している。**numpy を型として名指すことは最初から許されていた。**
+
+### 提案
+
+**パラメーター値を、surface の入口で 1 度だけ正規化する。** 受理集合の外は、学習が始まる
+前に `CONFIG_INVALID` で拒否する。
+
+受理集合は LightGBM 自身の受理集合から導出する（`lightgbm/basic.py`:
+`_NUMERIC_TYPES = (int, float, bool)`、スカラーは
+`isinstance(val, (str, Path, _NUMERIC_TYPES)) or _is_numeric(val)`、列は
+`list` / `tuple` / `set` / 1-D ndarray）:
+
+**⚠️ この表は superseded である。** 実装時の実測で 2 行が誤りと分かり（1-D ndarray /
+`str` サブクラス）、以後 19 件の補正が積み上がった。**受理集合の正は本節末尾の
+「契約の確定」であり、そこのブロックは生成物である。** 以下は提案が何を提案したかの
+記録として残す。
+
+| 入力 | 正規化後 |
+|---|---|
+| `None` / `bool` / `int` / `float` / `str` | そのまま（`str` サブクラスは厳密な `str` へ） |
+| `Path` | そのまま |
+| numpy スカラー | `.item()` |
+| 1-D `ndarray` | `.tolist()` |
+| `tuple` / `set` | `list` |
+| 上記の列 | 要素ごとに同じ正規化 |
+| **それ以外** | **`CONFIG_INVALID`（入口で、パラメーター名と受理集合を明示）** |
+
+**文字列化はしない。** 素の型のまま正規化する — smart params の解決や boundary 展開は
+数値演算をするので、文字列にすると壊れる。
+
+配線先は既にある。`check_duplicate_identities` は **4 つの surface すべてが通る唯一の絞り**
+として rounds 10-12 で配線・固定済みである（実測: `model.params` / `fit(params=)` /
+`calibration.params` / `tuning best_model_params`）。ここを「検査するだけ」から
+「検査して正規化した dict を返す」に変える。
+
+### 影響範囲
+
+`value_equality.py` は**閉じた素の型集合**の上でのみ動くようになり、劇的に縮む。
+`__format__` / `__class__` / `tolist` / `__eq__` の敵対的実装は**入口を通らない**ので、
+rounds 16-20 の指摘クラスは丸ごと消滅する。
+
+`fit(params=...)` の型注釈は `dict[str, Any]` のままだが、**実効的な入力契約が狭まる**
+ので公開 API の変更として扱う。
+
+### 互換性
+
+**LightGBM が受理するものの一部を、この提案は拒否する。** `_is_numeric` は `float(obj)`
+が通れば何でも受けるので、独自 `__float__` を持つオブジェクトは LightGBM 的には有効である。
+
+```
+Firing rate: 7/1430 of every parameter value the suite constructs
+             (measured by wrapping the shared identity check over the full
+             suite at head 1403ba8; 2898 passed, 62 skipped)
+```
+
+内訳: `int` 1082 / `float` 187 / `str` 78 / `list` 45 / `ndarray` 14 / `tuple` 8 /
+`bool` 6 / `None` 3 — **1423 件は受理集合の内側**。列の要素も全て素の型
+（`float` 52 / `str` 22 / `int` 2）。**残る 7 件は `Equivalent` 2 / `Proxy` 2 /
+`Conflicting` 1 / `FormatsToLiar` 1 / `Rate` 1 で、すべて rounds 16-20 が自分で構築した
+敵対オブジェクトである。** 現実的な config 由来のものは 1 件も無い。
+
+計測器は `docs/audits/2026-09-defect-discovery/instruments/parameter_value_type_census.py`
+として**出荷する**（散文に写した数は古びる）。
+
+**述べる bound**: これはこのリポジトリが構成する母集団であって、ライブラリのユーザー
+コードは観測できない。だから拒否は「現実には何も拒否しない」ではなく
+**「入口で、明示的に、学習前に拒否する」**として正当化する。**狩っているのは
+「黙って違う値で学習する」ことなので、大声で拒否する側は許容できる半分である。**
+
+### 代替案
+
+**E: 同一性判定を provider protocol の背後へ移し、`_param_dict_to_str` を同一性の定義に
+使う。** Codex（`gpt-6-astra`, effort medium）の評価では E > D > B > A > C で第 1 位
+だったが、**実行して却下した**:
+
+```
+pair                      wire A     wire B    wire一致  現状
+[1, 2]      vs '1,2'      1,2        1,2       True     admit
+[1.0, 2.0]  vs '1,2'      1.0,2.0    1,2       False    admit  <- E なら誤拒否
+(1.0, 2.0)  vs [1, 2]     1.0,2.0    1,2       False    admit  <- E なら誤拒否
+0.5         vs '0.50'     0.5        0.50      False    admit  <- E なら誤拒否
+```
+
+**wire form は正準形ではない。** `_comma_form_matches` の docstring が既にそう書いている
+—「比較が textual でなく elementwise なのは wire form が正準でないからで、joined string を
+比較すると**この関数が除去するために存在する誤拒否そのもの**を起こす」。E は
+**round 13 finding 2 の修正を、その理由が書いてある行ごと元に戻す**。数値を意識した比較を
+wire の上に足せば救えるが、それは再実装に戻ることで E の存在理由が消える。
+
+E の副次的コストも記録する: `_param_dict_to_str` は private であり `pyproject.toml` は
+`lightgbm>=4.0` を許すのでバージョン幅の検証が要る、公開 protocol が 18 → 19 メソッドに
+なる、実装を `estimators/` へ移す必要がある（F は `core/` のままでよい）。
+
+**B: contract を狭める（round 13 の admission 撤回）** — E と同じ理由で誤拒否を再導入する。
+**A: 範囲限定で続行** — rounds 18-19 monitor 自身が「blocking 数の減少はどちらの区別にも
+ならない」と述べ、round 20 はその monitor の識別子に不合格になった。
+**C: `APPROVE` を要求しない** — 受入要件を終わらせるだけで根拠を解決しない。
+**D: レビュアーへの問いを変える** — 失敗した成果物の作者が受入基準を書き換える利益相反。
+
+### 受け入れ基準（テスト観点）
+
+1. **正規化は wire form を保存する。** 受理集合の全要素について
+   `_param_dict_to_str({"k": normalise(x)}) == _param_dict_to_str({"k": x})`。
+   **閉じた実行可能な性質**であり、既にテストにあるオラクルでそのまま書ける。これが
+   本提案の中心的な受け入れ基準である。
+2. **受理集合は LightGBM の受理集合から導出し、写さない。** 導出が導出であることを
+   確かめるテストを置く（H-0094 決定 16 の `DERIVED_HOSTILE_NAMES` と同じ形）。
+3. **拒否は入口で、学習前に、パラメーター名と受理集合を挙げて起きる。** `CONFIG_INVALID`。
+4. **4 つの surface すべてで正規化が効く。** `model.params` / `fit(params=)` /
+   `calibration.params` / `tuning best_model_params` — 宣言ではなく実行で確認する。
+5. **rounds 16-20 の敵対オブジェクトが全て入口で拒否される。** 既存の回帰テストは
+   「学習する」から「入口で拒否される」へ意味が変わるので、**削除せず書き換える**。
+6. **`values_differ` は閉じた型集合の上で全域である。** 敵対母集団は入口を通らないので、
+   H-0094 決定 16 の導出母集団は「入口の拒否」を確かめる側へ移る。
+7. **#283（スカラー vs 単一要素の列）をこの提案で解決するかを明示的に決める。**
+   正規化後は両者とも素の型なので、判断材料が揃う。
+
+
+### 実装時の実測による提案の補正（2026-09-08）
+
+受け入れ基準 1（wire 保存）を先に書いて実行したところ、**提案の受理表が 2 か所間違って
+いた**。どちらも「型で正規化すれば bytes は変わらない」という暗黙の前提から来ており、
+実際にはシリアライザが**位置によって別のフォーマッタを使う**ことが効く。
+
+```
+_param_dict_to_str:  スカラー位置  -> f"{key}={val}"  = __format__
+                     要素位置      -> _to_string(v)   = str
+```
+
+1. **`1-D ndarray` → `.tolist()` は誤り。** 要素位置のフォーマッタは `str` であり、numpy の
+   `str` と Python の `str` は同じ数値に対して別のテキストを書く。実測（27 通り中 8 件が
+   不一致）:
+
+   ```
+   np.array([0.1], float32)   wire: 0.1     .tolist() 後: 0.10000000149011612
+   np.array([0.1], float16)   wire: 0.1     .tolist() 後: 0.0999755859375
+   ```
+
+   **正しい要素変換は「その要素と同じテキストを印字する素の値」**。多くは `.item()` が
+   それであり、そうでないところはテキストを parse し直す。スカラー位置は `.item()` で
+   全 dtype 一致（実測 0 件の不一致）。
+
+2. **`str` サブクラス → 厳密な `str` も誤り。** `__format__` を上書きしたサブクラスは
+   スカラー位置で別の bytes を書くので、`str()` に落とすと wire が変わる。**厳密な型一致
+   で受理し、サブクラスは拒否する**（rounds 18-20 の 3 オブジェクトがこれに当たる）。
+   実測コストは 0 件。
+
+3. **入れ子リストを受理表に追加。** `_to_string` は `list` 要素だけを
+   `[` + カンマ結合 + `]` として書く。これは `interaction_constraints` の綴りそのもの
+   なので受理する。要素位置の `tuple` / `set` / ndarray は Python や numpy の repr
+   （`(1, 2)` / `[1 2]`）になり LightGBM が読めないため拒否する。
+
+4. **素の代替が存在しない値は変換せずに拒否する。** `str(np.float16(1e3))` は `1e+03` で、
+   これを印字する Python の数値は存在しない。丸めて通せば**呼び出し元が書いていない bytes
+   で学習する**ことになるので、ここは拒否側に倒す。テストは「拒否が強制されたものである
+   こと」（＝どの素の値も同じテキストを印字しないこと）を毎ケース検査する。
+
+5. **受け入れ基準 8 を追加: 出口の表明。** 4 surface で正規化するのは**配線についての
+   主張**であり、5 つ目の経路が後から足されたときに黙って崩れる（DC4）。
+   `assert_plain_params` を `lgb.train` の 2 か所（`estimators/lgbm/adapter.py`、
+   `calibration/isotonic.py`）に置き、**学習サイトの母集団をソースから導出して**
+   全サイトが通っていることをテストで固定する。これで「閉じている」は主張ではなく性質に
+   なる。
+
+6. **`calibration.params` は 2 か所で正規化する。** 検査側（`check_calibration_param_names`）
+   と、calibrator に渡る dict を作る側（`canonicalise_calibration_params`）の両方。
+   calibrator は他の 3 surface を通らずに `lgbm.train` へ到達するため。正規化は冪等で
+   あることをテストで固定してある。
+
+7. **mapping を受理集合に加えた（実装中に発見）。** `metric` は
+   `{"precision_at_k": {"k": 15}}` および `["auc", {"precision_at_k": {"k": 20}}]`
+   という **LizyML の形**を持つ（H-0065）。提案の受理表にはこれが無く、そのままなら
+   **出荷済みの設定形式を入口で拒否していた**（DC7 を自分で作るところだった）。
+   `_build_params` がこれを feval に変換して除去するので、**入口と出口で受理集合が
+   異なる**のが正しい: 入口は mapping を受理し、`lgb.train` の表明は拒否する。
+   mapping のキーは厳密な `str`、値は再帰的に正規化する。
+
+8. **`set` は入口で拒否する（振る舞いの縮小）。** 旧 `values_differ` は
+   `{1.0, 2.0}` と `[1.0, 2.0]` を**別の値**として拒否していた。理由は「set に順序が
+   無く、ここの列パラメーターはすべて位置依存だから、認めると答えがハッシュ順に依存する」
+   というもので、**その理由は入口正規化でも消えない**。`list({1.0, 2.0})` は確かに
+   シリアライザが書いたはずの bytes を書くが、それが**リテラルの `[1.0, 2.0]` と一致
+   するかどうかはハッシュ順の偶然**である（実測: `list({3.0, 1.0, 2.0})` は
+   `[3.0, 1.0, 2.0]` ではない）。よって `set` / `frozenset` は受理集合から外し、
+   入口で `CONFIG_INVALID` にする。拒否は縮小側なので変更ゲートの `allow` には当たらない。
+   実測コスト **0/1518**（この repository が構成するパラメーター値に set は 1 件も無い）。
+
+8b. **リストの入れ子は深さ 2 まで（実装中に発見し、自己レビューで修正）。** mapping を
+   受理する過程で `_plain_member` を再帰にしたところ、深さ 3 のリストが受理された。
+   `_to_string` が意味を与えるのは深さ 2 まで（`interaction_constraints`）で、
+   3 段目は Python の list repr で書かれるため **wire が変わる**。実測:
+   `[[[np.float32(0.1)]]]` は `[[np.float32(0.1)]]` と書かれ、正規化後は `[[0.1]]`。
+   深さ 3 以上は拒否する。**母集団が深さ 3 を生成していなかったので wire 保存の性質
+   テストはこれを見られなかった** — 母集団に深さ 3 と set を加え、
+   「拒否は宣言した 3 つの理由のいずれかに当たる」ことを毎ケース検査するようにした。
+
+9. **`value_equality.py` を閉じた集合の上へ縮めた（受け入れ基準 6）。** 494 行 →
+   約 140 行。消えたのは敵対オブジェクト向けの防御だけである:
+   `_as_wire_text`（`__format__` / `__class__` プロキシ対策）、`_as_plain_python`
+   （`tolist` 探索）、`_as_plain_sequence`、`_length_or_none`、
+   `_printed_forms_differ`（`repr` の床）、および unbound な `str.split` /
+   `str.strip` / `str.__str__` 呼び出しと広い `except Exception`。**残したのは
+   round 12/13 が買った admission**（列とそのカンマ形は 1 つの値、比較は textual では
+   なく elementwise）である。宣言する bound は
+   **「`param_domain` が受理する値の上で全域であり、そのどれでも raise しない」**に
+   変わった。有限で列挙可能なので、**受理母集団を import して実行する**ことで確かめる
+   （散文で言い直さない ＝ DC3 回避）。
+
+#### 実装後の実測
+
+```
+Firing rate: 14/1518 of every parameter value the suite constructs
+             (measured by wrapping `normalise_params` over the full suite
+             after implementation)
+```
+
+14 件の内訳は rounds 16-20 の敵対オブジェクト 10 件と、拒否経路を実行するために
+`test_refusal_matrix.py` が構築した 4 件で、**すべてこの PR 自身のテストが作ったもの**。
+実運用の config 由来の値は 1 件も拒否されていない。計測器
+`instruments/parameter_value_type_census.py` は `normalise_params` を包むように更新済み。
+
+**スイート**: 7443 passed / 256 skipped、`ruff` / `mypy` clean。
+
+#### review round 21 が見つけた 3 件（2026-09-08、unscoped）
+
+**関係監視が事前に宣言した反証条件が、finding 1 でちょうど発火した** —
+「導出が生成しなかった形であって、受理すると `lgb.train` に届く bytes が変わるもの」。
+
+10. **numpy を継承で受理していた（DC1、`deliverable-path`）。** `isinstance(value,
+    np.generic)` は `np.float64` の**サブクラス**（`__format__` が嘘をつく）と
+    **`np.timedelta64`** を通した。後者が非自明で、実行して分かった:
+    **`np.timedelta64` は `np.integer` のサブクラスである。** 実測:
+
+    ```
+    値                                      caller の wire    学習に届く wire
+    np.float64 サブクラス（__format__ が嘘）    0.9              0.1
+    np.timedelta64(1, "ns")                  1 nanoseconds    1
+    ```
+
+    どちらも fit は完了する。出口の表明は変換**後**の素の値を見るので検出できない。
+    修正は **2 段の防御**で、それぞれ別のものを買う:
+    - **`NUMPY_SCALAR_TYPES` を numpy 自身の階層から導出し厳密型一致で受理** →
+      買うのは「**正規化中に呼び出し元のコードが 1 行も走らない**」こと。
+      `.item()` も `__format__` も numpy 自身の実装になり、rounds 16-20 の軸が
+      構成上消える。
+    - **`format(plain, "") != format(value, "")` なら拒否** → `timedelta64` を
+      捕まえるのはこちら（型集合の中にいるので 1 段目では捕まらない）。
+
+    RED 検証で 2 段が別々に効いていることを確認した。
+
+11. **`values_differ` が全域でなかった（DC7、`deliverable-path`）。** Python の `int` に
+    幅は無いので `10**400` は受理集合の内側のごく普通の値（シリアライザは桁を書く）だが、
+    `float()` は `OverflowError` を投げ、`(TypeError, ValueError)` しか囲っていなかった。
+    **「受理集合の上で全域」という宣言そのものを反証する** — 宣言は正しく、コードが
+    例外 1 つ足りなかった。
+
+12. **導出テストが「広がり」を検出できなかった（DC3、`periphery`）。** 列型のテストは
+    「こちらが受理する名前が join 分岐に現れるか」しか見ておらず、**シリアライザが新しい
+    列型を得ても永遠に通る**。レビュアーが in-memory で広げたソースを食わせて実証した。
+    join 分岐の `isinstance` タプルから**名前を抽出して集合として比較**するよう修正。
+    実測: `deque` / `array` の追加で落ち、`frozenset` の追加では通る（正しい —
+    `frozenset` は `REFUSED_SEQUENCE_TYPES` に記録済み）。
+
+**この 3 件は「同じサイクルの引っ越し」ではない。** 10 は DC1 だが**受理の入口の型判定**の
+欠陥であって「比較が値を理解し損ねた」欠陥ではなく、修正は個別の guard ではなく
+**呼び出し元コードが走らないようにする構成上の変更**である。11 と 12 は宣言と実装の
+ずれで、どちらも宣言のほうが正しかった。記録は `results/pr2_codex_round21.md`。
+
+13. **`np.ndarray` も厳密な型一致で受理する（rounds 20-22 監視が名指しし、こちらで
+    実測して見つけた）。** 監視は「`isinstance(value, np.ndarray)` が 2 か所残っており、
+    安全だと検証していない」と明示した。実行したところ **1 件出た**:
+
+    ```
+    値                                          caller の wire   正規化後の wire
+    1-D ndarray サブクラス（__iter__ が毎回変わる）   1.0,1.0          2.0,2.0
+    ```
+
+    **サブクラスを反復すると呼び出し元の `__iter__` が走り、呼び出し元のメソッドは
+    2 度同じものを返す義務を負わない。** `np.matrix` / masked array / `ndim` が嘘を
+    つくサブクラスは元から拒否されていたが、これは通っていた。修正はスカラーの門と
+    同じ形（**`type(value) is np.ndarray`**）。1-D 判定も**シリアライザ自身が読む
+    `len(shape)`** に合わせた（`ndim` と `shape` は numpy の配列では一致するが、
+    他では一致する保証がない）。
+
+14. **呼び出し元が numpy を自称できた（DC1、review round 22）。** 13 までの導出は
+    `np.integer` などの `__subclasses__()` を **import 時に**歩き、
+    `kind.__module__.split(".")[0] == "numpy"` で絞っていた。**`__module__` は
+    クラス本体に書けるただの属性である。** レビュアーは
+    `class Disguised(np.float64): __module__ = "numpy"` と書き、さらに
+    `__format__` が `item()` の立てるフラグで答えを変えるようにして、
+    **2 段の防御を同時に破った**:
+
+    ```
+                              caller が書く wire   学習に届く wire
+    model.params                learning_rate=0.9   0.1
+    fit(params=)                learning_rate=0.9   0.1
+    tuning best_model_params    learning_rate=0.9   0.1
+    calibration.params          learning_rate=0.9   0.1
+    ```
+
+    fit は完了する。加えて走査が import 時なので、**そのクラスが lizyml の import より
+    前に定義されたかどうかで答えが変わっていた**。
+
+    修正: **型集合を `vars(numpy)` から読む** — 「numpy がその名前で export している型か」
+    は**同一性**の問いであり、呼び出し元が主張できず、import 順にも依存しない。
+    加えて **`format(value, "")` を `.item()` の前に読む**（「もう一方の検査が効いている
+    ことに正しさが依存する検査」は 2 段目ではない）。
+
+    **RED 検証をやり直した。** 最初に書いたテストは**どちらの revert でも緑**だった —
+    witness をテスト本体で定義すると import より後になるので走査実装でも集合に入らず、
+    状態を持つ値は型集合を通れないので順序の検査に届かない。**導出関数を witness
+    定義後に呼び直す**形と、**型集合を monkeypatch で緩めて 2 段目だけを単独で試す**形に
+    書き直して両方 RED を確認した。**この run で「テストが別の理由で緑だった」のは 5 回目。**
+
+    なお **round 22 の verdict は取得できていない** — provider 側のコンテンツフィルタで
+    実行が中断された（敵対的オブジェクトを構築する手法自体が誤検知されたと見られる）。
+    上記はログに残っていた再現である。記録は `results/pr2_codex_round22.md`。
+
+15. **`in` は同一性ではなかった（DC1、round 23）。**
+    `type(value) in NUMPY_SCALAR_TYPES` は `frozenset` の探索であり、判定は
+    **呼び出し元の `__hash__` / `__eq__`** で行われる。クラスのそれらは**メタクラス**から
+    来るので呼び出し元が書ける。実測: `hash(np.float64)` を返し `__eq__` が真になる
+    メタクラスを持つクラスは、**numpy を継承せず、`__module__` も名乗らず、import 順にも
+    依存せずに**通過し、自前の `__format__` と `item()` が正規化の中で走った。
+    `PLAIN_SCALAR_TYPES`（tuple、`x is e or x == e`）にも同じ穴。
+    **修正: 全ての門を `is` 比較にする** — `is` は Python で唯一呼び出し元が参加できない
+    比較である。
+
+16. **`vars(numpy)` は書き込み可能（DC1、round 23）。** `np.Injected = Injected` を
+    import より前に 1 行書くだけで型集合に入る。checker の指摘の核心:
+    **「Python のどんな名前空間の読み取りも呼び出し元から独立ではない。『呼び出し元が
+    自称できない』は、どんな導出も提供できない性質である。」**
+
+    **修正: 決め手を名前空間から numpy 自身の dtype レジストリへ移す。** 候補は
+    `vars(np)` / `np.sctypeDict` から**列挙するだけ**（上位集合でよい）とし、採用は
+    **`np.dtype(kind).type is kind` の往復**で決める。サブクラスは基底に解決されるので
+    通らない（実測: `Injected -> float64`）。
+
+    **そして bound を書き直した。** これはパラメーターの**値**に対して領域を閉じる。
+    **プロセス内で既に numpy の一部を差し替えた呼び出し元に対する sandbox ではない** —
+    `numpy.dtype` を差し替えられる者は `numpy.float64` もこのモジュールも差し替えられる。
+    **この run で「宣言が達成不能だった」のは 3 度目**（round 18 の「何に対しても
+    raise しない」、round 20 の NaN、そして今回）。**達成可能な宣言に書き直すのが正しい
+    修復である。**
+
+17. **要素位置の門が未検証だった（round 23）。** `_plain_element` の厳密型一致を
+    `isinstance` に緩めてもファイル全体が緑のままだった（DC6 の形 — 防御は正しく、
+    それを行使するテストが無い）。振る舞いは実在する。テストを追加。
+
+    **なお round 23 は Codex ではなく `policy:fresh-checker` の read-only checker が
+    実行した。Codex は 3 回連続で provider 側のコンテンツフィルタに落ちており、
+    3 回目でプロンプトではなく `param_domain.py` の中身自体が反応していると判断して
+    経路を変えた（同一エラー 3 連続で approach を変える運用ルール）。
+    ⚠️ したがってマージゲートの「Codex APPROVE」は依然として未取得である。**
+    記録は `results/pr2_codex_round23.md`。
+
+18. **受理した型が「書ける値」とは限らない（DC1、round 24）。** 2 つの値が surface を
+    通り、学習前の表明も通り、**LightGBM の内側で raise した**:
+
+    - **`PurePosixPath` / `PureWindowsPath`** — シリアライザは
+      `isinstance(val, (str, Path, ...))` で判定するが、**pure path は `Path` では
+      ない**。受理集合に入れていたのがそのまま誤り。
+    - **`10**5000`** — Python の `int` に幅は無いが、**十進変換の上限（既定 4300 桁）を
+      超えると `str()` は桁を返さず raise する**。round 21 で `float()` の
+      `OverflowError` を直したが、`str()` の `ValueError` は別物だった。
+
+    **修正: 型からの推定をやめ、文字列を実際に要求する。** `_written_or_refused` を
+    scalar 位置（`format`）と element 位置（`str`）の両方に置き、書けない値は入口で
+    `CONFIG_INVALID`。path は `Path` のフレーバーだけに絞り、
+    **「受理する path 型はすべて `issubclass(kind, pathlib.Path)`」をテストで固定**する
+    （シリアライザ自身の判定から導出）。`values_differ` の `str(element)` も
+    例外ハンドラの中へ入れた。
+
+    **round 24 は Codex が完走した。** rounds 22-23 の中断はコードではなく
+    **レビュー依頼の書き方**が原因で、過去のすり抜けを並べた表・「呼び出し元のコードが
+    走る経路」という問い・煽りを外し、**契約の検証**として書き直したところ通った。
+    受け入れ基準 2/3/4/5/7/8/9 は合格しており、特に 8 は**レビュアーが AST で学習
+    サイトを列挙**して確認している。記録は `results/pr2_codex_round24.md`。
+
+19. **`export_code` は受理集合の 3 番目の消費者である（提案が名指していなかった）。**
+    実測: `fit(params={"forcedsplits_filename": Path("f.json")})` は**学習が通り**、
+    その後 `export_code` が `TypeError: Object of type PosixPath is not JSON
+    serializable` で落ちる。`json.dump` に path のエンコーダは無い。
+
+    **修正: path は入口でテキストにする。** シリアライザは path をスカラー
+    フォーマッタで書き、path のそれは自身のテキストなので **bytes は同じ**であり、
+    テキストは下流の全員が運べる唯一の形である。受理集合からは型が 1 つ減る。
+
+    **これは提案の補正であって、実装の詳細ではない。** H-0095 が宣言した消費者は
+    **4 surface と 2 つの `lgb.train` 表明サイト**だけで、`export_code` は
+    1 度も出てこない。rounds 23-25 の監視がこれを `DRIFTING` の根拠に挙げた ——
+    「受理集合の定義が、提案が名指していない第 3 の消費者によって決められている」。
+    **指摘は正しい。よってここに消費者として明記する**: 正規化後の値は
+    **`json.dump` できること**も要件である。
+
+    `_path_text` に置いた変換の検査は**到達不能だったので外した**（DC6）。
+    厳密型一致がサブクラスを弾くので、`__format__` を持つ path は入口に届かない。
+    `pathlib` は `__format__` を定義しないので、この 2 型については
+    `format(p, "") == str(p)` が構成上成り立つ —— **それをテストで固定した**。
+    最初に書いたテストは検査を外しても緑のままで、**この PR で「テストが別の理由で
+    緑」は 6 回目**である。
+
+#### 受け入れ基準 7 の決定: **#283 は H-0095 では解決しない**
+
+スカラー `0.5` と単一要素の列 `[0.5]` は同じ bytes を書くが、正規化後も `float` と `list`
+であり、依然として拒否される。**admit するには「学習器にどちらを渡すか」を決める必要が
+あり、それは別の決定である**（`allow` ＝振る舞いの拡大なので firing rate 付きの Proposal が
+要る）。#283 は open のままとし、`KNOWN_BOUNDS` の免除もそのまま残す。
+
+### 契約の確定（2026-09-08、D10 の帰結）
+
+**上の「提案」節の受理表と、それに続く補正 1-19 は、この節に置き換わる。**
+削除はしない（提案がどう動いたかの記録である）が、**受理集合と消費者の正は以下**であり、
+補正の列を読んで再構成する必要はない。
+
+書き直した理由は D10 に記録した。24 ラウンドで `APPROVE` が出なかったのは、
+受入基準が実質「**この検証を破る値は存在するか**」を問うていたからで、これは Python の
+あらゆるオブジェクトを渡る全称命題であり、**開いた領域に対する「反例なし」は有限の
+レビューでは示せない**。以下は「破れるか」ではなく「**契約通りか**」を判定できる形に
+書き直したものである。
+
+#### 1. 受理集合（位置 × 厳密型）
+
+**シリアライザは位置ごとに別のフォーマッタを使う**ので、集合も位置ごとに定義する
+（スカラー位置は `__format__`、列の要素位置は `str`）。以下のブロックは
+`lizyml/core/param_domain.py` から**生成**したものであり、散文に写した表ではない。
+
+再生成 / 差分検出:
+
+```
+uv run python docs/audits/2026-09-defect-discovery/instruments/param_domain_contract.py
+uv run python docs/audits/2026-09-defect-discovery/instruments/param_domain_contract.py --check
+```
+
+`--check` はこのブロックとモジュールを突き合わせ、乖離したら非零で終了する（DC3）。
+**乖離検出が実際に落ちることは確認済み**（numpy の版を 1 文字変えて exit 1）。
+
+ブロックが **numpy の版と platform を書いている**のは飾りではない。
+`longdouble` / `longlong` / `ulonglong` は C の型に対する別名であり、**platform に
+よっては別の型に解決されて集合から消える**。このブロックは「受理集合」ではなく
+「**この numpy・この platform での受理集合**」であり、別環境で `--check` が落ちるのは
+ドリフトではなく環境差である。
+
+**型集合は値集合より広い**、というのもブロックが**測って書いている**（散文の注ではない）。
+`timedelta64` は `numpy.integer` なので導出が型を通し、値は `format` 検査が拒否する。
+`longdouble` は 2 例目で、しかも**位置で非対称**である（`.item()` が Python の float を
+返さないのでスカラー位置は拒否、要素位置はテキストを parse し直して受理）。
+手で書いた注は 1 例目しか挙げておらず、2 例目は計測して初めて出た。
+
+なお `param_domain.ACCEPTED_DESCRIPTION` は**拒否メッセージに載せる利用者向けの要約**で
+あって契約ではない。契約はこのブロックと下の要件表である。
+
+<!-- param-domain-contract:begin -->
+```text
+numpy               2.4.2
+platform            linux x86_64
+
+scalar position     NoneType, bool, float, int, str
+  converted         PosixPath, WindowsPath -> str
+  converted         numpy scalar -> .item(), checked by format()
+element position    NoneType, bool, float, int, str
+  converted         PosixPath, WindowsPath -> str
+  converted         numpy scalar -> the plain value printing as str(x)
+sequence            list, tuple, 1-D ndarray
+  member            scalar, list (depth 2 only), dict
+mapping             dict with exact-str keys, values normalised
+refused sequence    frozenset, set
+
+numpy scalar types (exact type; derived by np.dtype(k).type is k)
+  numpy.bool, numpy.float16, numpy.float32, numpy.float64, numpy.int16, numpy.int32, numpy.int64, numpy.int8, numpy.longdouble, numpy.longlong, numpy.str_, numpy.timedelta64, numpy.uint16, numpy.uint32, numpy.uint64, numpy.uint8, numpy.ulonglong
+
+  the type set is wider than the value set, and by position:
+  refused in scalar position   numpy.longdouble, numpy.timedelta64
+  refused in element position  numpy.timedelta64
+  (one constructed value per type -- a measurement of these values,
+  not a proof about every value of the type)
+```
+<!-- param-domain-contract:end -->
+
+**各行を固定しているテスト**（テストの無い行は、次のラウンドが見つける行である）:
+
+| 受理集合の行 | 固定しているテスト（`tests/test_core/test_param_domain.py`） |
+|---|---|
+| スカラー位置の素の型 | `test_the_scalar_types_are_the_ones_the_serialiser_names` |
+| path を受理してテキストにする | `test_every_path_type_accepted_is_one_the_serialiser_accepts` / `test_a_path_is_carried_on_as_its_text` / `test_the_path_conversion_is_safe_because_of_the_types_admitted` |
+| numpy 型集合の導出 | `test_the_numpy_scalar_types_are_derived_from_numpy` / `test_the_numpy_type_set_is_what_numpy_resolves_to_itself` |
+| numpy 型集合が呼び出し元から独立であること | `test_a_caller_class_cannot_claim_to_be_a_numpy_type` / `test_a_class_put_into_the_numpy_namespace_is_still_refused` |
+| numpy スカラーの変換を `format` で検査すること | `test_a_numpy_value_whose_conversion_would_lose_bytes_is_refused` / `test_the_written_form_is_read_before_the_conversion` / `test_each_defence_is_load_bearing_for_something_different` |
+| 要素位置の門と、素の代替の探索 | `test_the_element_position_admits_by_identity_too` / `test_a_reduced_precision_element_that_does_have_a_stand_in_is_accepted` / `test_a_value_with_no_plain_stand_in_is_refused_rather_than_rounded` |
+| 列の型 | `test_the_sequence_types_are_the_ones_the_serialiser_joins` / `test_a_numpy_array_subclass_is_refused_for_the_same_reason_a_scalar_is` |
+| `set` の拒否 | `test_a_set_is_refused_rather_than_ordered_by_hash` |
+| リストの入れ子は深さ 2 まで | `test_the_one_nested_shape_lightgbm_reads_is_accepted` / `test_a_list_nested_deeper_than_the_serialiser_reads_is_refused` |
+| mapping は入口で受理し出口で拒否 | `test_a_metric_entry_written_as_a_mapping_is_accepted_at_the_surface` / `test_a_mapping_that_survived_to_the_trainer_is_a_defect` |
+| 門は `is` であること | `test_membership_is_identity_and_not_the_callers_own_equality` |
+| 受理した型が書ける値とは限らないこと | `test_an_accepted_type_is_not_by_itself_a_writable_value` / `test_an_integer_too_large_for_a_float_is_accepted_and_compared` |
+| 境界そのもの（受理と拒否の分割） | `test_the_refused_subset_is_exactly_the_declared_boundary` / `test_a_refusal_inside_the_candidate_set_is_forced_not_chosen` |
+| 書く文字が UTF-8 に encode できること（round 25 追加） | `test_a_string_neither_consumer_can_encode_is_refused` |
+| 「正規化が値を変えなかった」を**型と同一性**で判定すること（round 26 追加） | `test_unchanged_is_decided_by_type_and_not_by_printed_text` |
+| 母集団の型軸が受理型集合と一致すること（round 25 追加） | `test_the_population_covers_every_admitted_numpy_type` |
+
+#### 2. 消費者と、それぞれが課す要件
+
+**正規化した値の消費者は、学習器だけではない。** 提案は 4 surface と `lgb.train` 2 サイト
+しか名指しておらず、`export_code` は 19 番目の補正で**実装のほうから**現れた
+（rounds 23-25 監視が `DRIFTING` の根拠に挙げた）。ここで全部名指す。
+
+| 消費者 | sink | 課す要件 | 受理母集団の上で実行しているオラクル |
+|---|---|---|---|
+| 学習（adapter） | `estimators/lgbm/adapter.py` の `lgb.train` | 値が `is_plain`（mapping は adapter が消費済み） | `test_the_exit_assertion_passes_everything_the_normaliser_produces` / `test_the_exit_assertion_is_called_at_every_place_that_trains` |
+| 学習（calibrator） | `calibration/isotonic.py` の `lgbm.train` | 同上 | 同上（学習サイトの母集団はソースから導出） |
+| 学習に届く bytes | 上記 2 サイトのシリアライザ | **正規化の前後で wire が同じ** | `test_normalising_does_not_change_the_bytes_the_estimator_is_sent` |
+| `export_code` | `codegen/artifact_writer.py` の `json.dump`（`config.json`） | **`json.dump` で書けること** | `test_every_accepted_value_can_be_written_as_json` |
+| **学習器と `export_code` の両方**（round 25 追加） | LightGBM の `_c_str` / `artifact_writer` の `encoding="utf-8"` | **書く文字が UTF-8 に encode できること** | `test_a_string_neither_consumer_can_encode_is_refused` |
+| 2 度正規化する経路 | `calibration.params`（検査側と calibrator dict 生成側） | **冪等** | `test_normalising_twice_is_normalising_once` |
+| ~~同一性比較~~ **（H-0096 で消滅）** | ~~`core/value_equality.py`~~ | ~~受理集合の上で全域、どれでも raise しない~~ | **この行は superseded。** H-0096 が同一層の重複綴りを値によらず拒否するようにしたので、比較そのものが消え、モジュールごと削除した。要件が緩んだのではなく**消費者が居なくなった** |
+| 述語 | `is_accepted` / `is_plain` | 正規化関数と一致すること（**両向き**） | `test_the_predicate_and_the_normaliser_agree` / `test_every_accepted_value_normalises_into_the_closed_set` / `test_the_predicates_refuse_everything_the_normaliser_refuses` |
+
+**UTF-8 の行は round 25 が見つけた**（記録: `results/pr2_codex_round25.md` 指摘 1）。
+「学習器は `_param_dict_to_str` が書くものを読む」「`export_code` は json 化できれば
+よい」はどちらも真で、**どちらも足りていなかった** —— 両消費者ともそのあと UTF-8 に
+encode する。孤立サロゲート `"\ud800"` は受理型の `str` であり、正規化・出口の表明・
+`json.dumps` オラクルをすべて通ってから両消費者で `UnicodeEncodeError` になっていた。
+**要件を 1 つ持つ消費者を「1 つの要件で足りる」と読んだのが誤りである。**
+
+**round 26 が、この 2 つの修正の続きを 2 件出した**（記録: `results/pr2_codex_round26.md`）。
+
+- **UTF-8 検査は 1 か所を漏らしていた**: `_plain_element` の numpy 分岐が
+  テキストを直接読んでいたため、`np.str_` の孤立サロゲートが**素の文字列に正規化され**、
+  その結果を再び正規化すると拒否される（**冪等性違反**）。修正は他の位置と同じ門
+  （`_written_or_refused`）を通すこと。レビュアーは**サロゲート 2048 個 × 12 構成**を
+  列挙して、この 1 形だけが通っていたことを示した。
+- **`repr` で「変わっていない」を判定したのが誤りだった**（**こちらの修正が書いた欠陥**）。
+  `repr` は表示テキストであり、numpy が公式に持つ `printoptions(legacy="1.25")` の下で
+  `np.int64(1)` と `1` は同じに印字される。**この PR が 24 ラウンドかけて排除してきた
+  「呼び出し元が参加できる比較」を、値の比較側で開けた**ことになる。
+  判定は**型の再帰的な一致と、スカラーの同一性（`is`）**で行う形に直した。
+
+**述語の行も round 25 が見つけた**（指摘 2）。述語は受理集合を**自分の言葉で言い直して
+いた**ため、round 24 が正規化だけを「実際に文字を書ける値」へ狭めたときに置き去りに
+なり、`10**5000` が両述語と出口の表明を通って正規化にだけ拒否された。
+**1 つの境界に対する宣言が 2 つあったのが原因**なので、述語は**正規化関数を呼ぶ**形に
+した（`is_accepted` = 正規化が通り、かつ結果が入力と同じ）。
+一致テストも**両向きにした** —— 従来は受理母集団しか走査しておらず、
+**緩すぎる述語を構成上見られなかった**。
+
+**閉じられるのは「要件のリスト」であって「消費者のリスト」ではない。** 各要件は
+受理母集団**全体**の上で実行するオラクルを持ち、そこは閉じている。消費者のリストは
+各要件の**根拠**であって、走査で閉じたものではない。
+
+sink の走査は `instruments/param_domain_contract.py` として出荷するが、
+**それを閉包と呼ばない**。`parameter_merge_seams.py` の docstring が同じ主張を
+2 回して 2 回反証されたのと同じ理由であり、実際に**この走査も初版で 1 件落とした** ——
+calibrator は同じライブラリを `lgbm` という別名で import しており、
+`lgb` しか知らない版はその `train` を見なかった。既知のサイトと突き合わせて見つけた。
+
+**要件を課さない sink**（走査に出るが、パラメーター値を運ばない、あるいは運んでも
+raise しない）:
+
+- `persistence/exporter.py` の `joblib.dump` — pickle であり、素の値はすべて運べる
+- `persistence/exporter.py` の `json.dumps(metadata, default=str)` — 受け取るのは
+  config であって正規化後の dict ではなく、`default=str` があるので raise しない
+- `features/pipelines_native.py` の `json.dump` — pipeline state であってパラメーターではない
+
+#### 3. 宣言する bound（スコープ外を明示する）
+
+**達成不能な宣言を書くのは DC7 であり、この run で 3 度書き直している。** よって
+スコープ外を事実として書く。
+
+1. **プロセス内で numpy の一部を差し替え済みの呼び出し元に対する sandbox ではない。**
+   `numpy.dtype` を差し替えられる者は `numpy.float64` もこのモジュールも差し替えられる。
+   閉じるのはパラメーターの**値**に対してである。
+2. **`Model.load()` は検査しない。** artifact は起きた fit の記録であり、読めなく
+   する理由がない（§14.4 既定）。したがって**このバージョンより前に書かれた artifact**
+   は、受理集合の外の値を持つ adapter を復元しうる。**実測**: 復元した adapter の
+   params に path を入れて `export_code` を呼ぶと
+   `TypeError: Object of type PosixPath is not JSON serializable` になる
+   （H-0095 の前と同じ振る舞いであり、この提案が悪化させたものではない）。
+   閉じているのは「**このプロセスで 4 surface を通って入った値**」である。
+3. **入口と出口で受理集合が違う**のは意図である（mapping）。1 つの述語で両端を
+   賄うと、緩いほうに合わせることになり、学習器に必要な bound が言えなくなる。
+
+#### 4. この契約に対してレビューが答える問い
+
+「この検証を破る値はあるか」ではなく、**「1 の集合と 3 の bound の下で、2 の各要件が
+受理母集団の上で成り立っているか」**である。前者は Python のあらゆるオブジェクトを
+渡る全称命題で有限のレビューでは閉じない。後者は**実行可能で、実際に実行している**。
+
+**ただし「受理母集団」は領域そのものではない**（round 25 指摘 3 の後半による訂正）。
+§1 の値領域は**無限**である —— 文字列・整数・コンテナの中身に上限が無い。
+`ACCEPTED_POPULATION` は**その有限標本**であり、テストが主張しているのは
+**「この標本の上での網羅」**であって「すべての受理値について成り立つ」ではない。
+両者を書き分けること。**標本の閉じ方**は次の 2 つで担保する:
+
+- **型軸は受理型集合から導出する**（`_NUMPY_SCALAR_TYPES` はモジュールの
+  `NUMPY_SCALAR_TYPES` を読む。ベタ書きだった版は 5 型を落としていた ——
+  `test_the_population_covers_every_admitted_numpy_type` が固定する）。
+- **拒否の理由は閉じた列挙**であり、標本の中のどの拒否も 6 つの宣言理由のいずれかに
+  当たること、かつ理由が予測する値はすべて拒否されることを両向きで確かめる
+  （`test_the_refused_subset_is_exactly_the_declared_boundary`）。
+  理由は位置ごとに評価する —— **同じ型が scalar 位置で拒否され element 位置で
+  受理される**ことがあるためで、`longdouble` が実例である。
+
+### 決定: 探索空間の `choices` は型の同一性で判定する（受け入れレビュー round 29 / [#287](https://github.com/nbx-liz/LizyML/issues/287)）
+
+**この決定は探索空間を 5 つ目の正規化 surface にするものではない。** 探索空間は
+これまでどおり numpy スカラーを**すべて拒否**する。変わるのは、**Python のスカラーを
+継承している 2 型（`np.float64` / `np.str_`）が今まですり抜けていた**のを止める点だけである。
+
+#### 何が起きていたか
+
+`lizyml/tuning/search_space.py` の `_validate_categorical_choices` は
+`(NoneType, bool, int, float, str)` を **`isinstance`** で判定していた。
+`np.float64` は `float` のサブクラス、`np.str_` は `str` のサブクラスなので**通る**。
+サンプルされた値を正規化する場所は無いので、値は numpy のまま
+`_model_tuning.py` の trial overlay に載り、adapter の出口表明
+（`assert_plain_params`）が全トライアルで拒否する。Optuna は各トライアルを FAIL と
+記録し、全滅した結果**利用者が見るのは `TUNING_FAILED: All tuning trials failed.
+Check parameter ranges.`** —— range は正しいのに range を疑えと言われる。
+
+実測（numpy 2.4.2、`instruments/space_choice_normalisation.py`）:
+
+```
+  np.float64 (eta       ): TUNING_FAILED  All tuning trials failed. Check parameter ranges.
+  np.float32 (eta       ): CONFIG_INVALID Categorical dim 'eta' has invalid choice at index 0 ...
+    np.int64 (num_leaves): CONFIG_INVALID Categorical dim 'num_leaves' has invalid choice at index 0 ...
+     np.str_ (boosting  ): TUNING_FAILED  All tuning trials failed. Check parameter ranges.
+ plain float (eta       ): tuned
+```
+
+**範囲は `categorical` だけ。** `FloatDim` は `float(spec["low"])`、`IntDim` は
+`int(spec["low"])` と parse 時に強制変換するので、numpy の境界はサンプル前に素の値になる。
+リテラルをそのまま運ぶのは `choices` だけである。
+
+#### 対応方針（決定）
+
+**`isinstance` を型の同一性へ変える** ——
+`any(type(value) is plain for plain in _ALLOWED_CHOICE_TYPES)`。
+
+`type(value) in _ALLOWED_CHOICE_TYPES` **とは書かない**。`in` はタプルの各要素に
+「その型と**等しいか**」を尋ねるので、クラスの `__eq__` ——**メタクラス**から来る＝
+呼び出し元が書ける —— に依存する。テストで固定する。
+
+**訂正（round 30 の指摘、実測で確認）**: 初版は「ハッシュと等価による探索」と書いたが、
+**タプルの `in` はハッシュを引かない**。`__hash__` が呼ばれるのは `set` / `frozenset`
+の場合で、`BLUEPRINT.md` §14.4 の記述（round 23）はそちらについてのものである。
+実測: `float` と等価を返すメタクラスを持つクラスはタプルの `in` を通り、
+そのとき `__hash__` は一度も呼ばれない。**結論（`in` を避けて同一性で見る）は変わらないが、
+理由は「呼び出し元が書ける等価」だけである。**
+
+**この門は受理集合の言い直しではない。** 守っている境界が違う ——
+`param_domain` の受理集合は「LightGBM に書ける値」であり、**numpy スカラーを受理して
+変換する**。こちらは「Optuna の `CategoricalDistribution` が受け取れる値」かつ
+「正規化を経ずに出口表明へ到達しても通る値」であり、**素の Python スカラーだけ**である。
+1 つの境界に宣言を 2 つ持たないという規則（§14.4、round 25）に反しない。
+
+メッセージも直す。現行の「Each choice must be a scalar (str, int, float, bool, or
+None)」は、**まさに `float` である値を拒否したときに自己矛盾する**。
+「a plain Python scalar (not a numpy scalar)」と書く。
+
+#### Firing rate
+
+```
+Firing rate: 0/54 of the choices in the shipped suite would be newly refused
+             (42 categorical dimensions, 54 choices: 51 plain Python scalars,
+             3 already refused today and all three from tests asserting that
+             refusal, 0 subclassing a plain scalar; measured by
+             instruments/space_choice_type_firing_rate.py over the full suite at
+             22b11b3, report in results/pr2_space_choice_measurement.txt)
+```
+
+`allow` 条件を**狭める**変更なので、上の実測は「狭めて壊れる母集団が空である」ことの
+証拠として記録する。
+
+**この数値の bound（round 30 と監視が独立に指摘、そのまま記録する）**:
+`0/54` は**計測器がスイート上で観測した choice の出現回数**についての記述的な比率であり、
+そのうち 3 件は今日すでに無効な出現である。**一意な config についての比率でもなければ、
+ありうる全呼び出し元についての証拠でもない。** 狭める対象の 2 型が今日すでに
+`TUNING_FAILED` になることは実測しているが、それは**この 2 型を使う config が
+「動いている」とは言えない**という意味であって、**「そうした config が存在しない」ことを
+立証するものではない**（初版はそう書いていた。訂正する）。
+
+#### 残る不整合（この決定では閉じない）
+
+4 つの正規化 surface は numpy スカラーを**受理して変換する**のに、探索空間は**拒否する**。
+この決定はその差を**縮めない** —— すり抜けを止めるだけである。
+「`choices` も他の 4 surface と同じように numpy を受理すべきか」は別の判断で、
+そちらを採るなら trial overlay か parse 時のどちらかで正規化を走らせる提案が必要になる。
+**[#287](https://github.com/nbx-liz/LizyML/issues/287) をその問いのために開いたままにする。**
+
+#### 受け入れ基準（テスト観点）
+
+1. `np.float64` / `np.str_` を `choices` に書くと **`CONFIG_INVALID`** で、
+   **`TUNING_FAILED` ではなく**、次元名を名指し、**Booster が 1 本も学習されない**。
+2. `np.float32` / `np.int64` / `np.bool_` は**従来どおり**同じ形で拒否される（回帰させない）。
+3. 素の値は従来どおり tuning が通る（対照 —— 無いと「全部拒否」でも 1 と 2 が通る）。
+4. 門が**型の同一性**を見ていること —— `float` と等価を装うメタクラスを持つクラスが
+   通らない。
+
+---
+
+## H-0096: 同一層の重複綴りを値によらず拒否する（H-0094 決定の改訂 / D13 の帰結）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-09-09
+- **決定日**: 2026-09-09（決定の記録は `DECISIONS-PENDING.md` の **D13** = 経路 1）
+- **スコープ**: `lizyml/core/_model_factories.py`（`check_duplicate_identities`）, `lizyml/estimators/lgbm/adapter.py`（`_pop_by_identity`）, **`lizyml/core/value_equality.py`（削除）**, `tests/test_core/test_value_equality.py`（削除）, `tests/test_core/test_fit_params_override.py`（許容ケース → 拒否ケース）, **`BLUEPRINT.md` §14.4**, `CHANGELOG.md`。
+- **関連**: H-0094（決定 6 / round 5 で入れた同値許容）, H-0095（比較の領域を閉じる提案）, [#264](https://github.com/nbx-liz/LizyML/issues/264), `docs/audits/2026-09-defect-discovery/DECISIONS-PENDING.md` の **D13**, `results/pr2_why_no_approve.md`, `results/pr2_prior_art.md`。
+
+### 目的（課題）
+
+PR 2（#278）は **26 ラウンド回って `APPROVE` に到達しなかった**。原因解析
+（`results/pr2_why_no_approve.md`、実測）が特定した原因は 2 つで、独立している。
+
+**原因 A（設計）。** H-0094 round 5 が入れた「**同一層の重複綴りは、値が等しければ許し、
+違えば拒否する**」という 1 行が、**任意の Python 値についての全域な等価判定**を要求する。
+`values_differ` の呼び出し元は今も 2 か所しかなく、どちらもまさにこの問いである。
+その 1 つの述語が `value_equality.py` + `param_domain.py` = **728 行**、
+production commit **51 件中 30 件**、**rounds 18-26 の 9 連続**を生んでいる。
+そして「誤拒否も欠陥」（round 12/13 が 2 度押し返した DC7）なので、
+**正しくあるには領域を広げねばならず、証明可能であるには狭めねばならない** ——
+2 つは逆向きに引き、広げるたびに新しい位置が開く。
+
+**原因 B（手続き）。** round 21 以降、レビューの問いが「**どんな値でも門を破れないか**」
+という全称命題になった。反例でしか答えられないので `APPROVE` の出口が無い。
+**本提案は原因 A を除去する。原因 B はレビュー依頼の書き方で別に扱う。**
+
+### 実測（この提案が根拠にしているもの）
+
+**1. 許容分岐は出荷済み母集団で 0 回発火する。** 4 surface すべての呼び出し点を包んで
+スイート全体（`9731 passed`）を計測した
+（`docs/audits/2026-09-defect-discovery/instruments/duplicate_tolerance_firing_rate.py`）:
+
+```
+one parameter under two spellings: 51
+  REFUSED  (different values): 14
+  TOLERATED (equal values):    37
+帰属: 37/37 が tests/test_core/test_fit_params_override.py（本 PR が追加した file）
+      pre-existing のヒット: 0
+```
+
+round 11 の `0/811`、round 12 の `0/1009` / `0/22`、round 13 の `0/916` / `0/928`、
+round 14 の `0/70`、H-0093 の `0/736` / `0/52` / `0/3` と整合する。
+
+**2. LightGBM 自身は値を比較しない。** verbosity を既定に戻して fd レベルで捕捉すると、
+**等しくても違っても重複そのものを警告する**
+（`instruments/lgbm_duplicate_alias_behaviour.py`）:
+
+```
+[Warning] learning_rate is set=0.5, eta=0.5 will be ignored. Current value: learning_rate=0.5
+```
+
+優先順位は**決定的で dict の順序に依存しない**（`eta` はどちらの順でも `shrinkage_rate`
+に勝つ）。したがって round 4 の拒否理由「どの値が効くかは*書いたもの*ではなく*ライブラリ*
+で決まる」は**半分しか正しくない** —— 決定的であり、LightGBM 自身がそう言う。
+**拒否の根拠は「不可視だから」ではなく「利用者が 1 つの設定を 2 度書いており、
+どちらを意図したか LizyML には決められないから」に置き換わる。**
+
+**3. 先行事例に `values_differ` の形は無い**（`instruments/duplicate_key_prior_art.py`、
+`results/pr2_prior_art.md`）。調べた 9 処理系のうち意味的な値の等価で分岐するのは
+C プリプロセッサだけで、その C ですら**トークン列の同一性**（構文的）で判定する。
+Python の呼び出しは**等しくても `TypeError`**、pydantic は alias が無言で勝ち、
+Go yaml.v3 / Ruby Psych はエラー、PyYAML / PostgreSQL / dict / json は後勝ち。
+
+### 提案
+
+**同一層で 1 つのパラメーターが 2 つ以上の綴りで書かれていたら、値によらず
+`CONFIG_INVALID` で拒否する。**
+
+- `check_duplicate_identities`（4 surface）: canonical 名でグループ化し、**要素が 2 つ
+  以上のグループがあれば拒否**。値は読まない。
+- `_pop_by_identity`（adapter）: 受理綴りが 2 つ以上供給されていれば拒否。値は読まない。
+- **`lizyml/core/value_equality.py` を削除する。** 呼び出し元が消えるため。
+  カンマ形式の同一視（`feature_contri: [1,2]` と `feature_penalty: "1,2"` を 1 つの値と
+  みなす、round 13）も同時に消える —— **これは「同じ値か」を問うことをやめた帰結であり、
+  「2 つの綴り」であることに変わりはないので拒否側に入る。**
+- 拒否メッセージは surface と**綴り**を名指す。**値は名指さない**（提案時は「綴りと値を
+  名指す」と書いていたが、**レビュー round 27 がそれを欠陥として差し戻した**ので訂正する）。
+  規則は綴りの数だけで判定するのに、**報告**が値を読んでいた ——
+  `sys.get_int_max_str_digits()` 桁を超える `int` は十進テキストを持たないので `str()` が
+  raise し、約束した `CONFIG_INVALID` が素の `ValueError` になる。**値は context からも
+  外す**: `LizyMLError.__repr__` は context を `!r` で描画するので、そこに残せば
+  印字できない値を下流へ渡すことになる。綴りは `str` のキーであり必ず印字できる。
+
+**`lizyml/core/param_domain.py` の振る舞いはこの提案では変更しない**（`:11` の docstring が
+`values_differ` を存在理由として名指しているので、そこだけ再定義する）。理由を実測で述べる。
+
+**縮小の規模を正確に書いておく。** D13 の選択肢提示では「`param_domain` は消費者を失い、
+残るのは export だけで出口側で解ける」と書いたが、**本提案が実際に削るのは 157 行
+（`value_equality.py`）と「同じ値か」という問いであって、728 行ではない。**
+`param_domain` の 571 行は残る。
+
+比較（消費者行 7）は消えるが、**他の消費者は残り、そのうち `export_code` は本 PR とは
+独立の既存欠陥を直している**。`origin/develop`（`ccae32b`、本 PR 以前）で実行した:
+
+```
+model.params = {"feature_contri": np.array([1.0, 1.0])}
+  -> fit ok, export_code -> TypeError: Object of type ndarray is not JSON serializable
+```
+
+**この欠陥は config 面に元からあり、#264 とも重複検出とも関係が無い。**
+`param_domain` を削ると再発する。また `is_accepted` / `_is_unchanged` は
+`assert_plain_params`（学習サイトの出口表明）にのみ仕えており、比較の消費者ではない。
+**縮小の範囲を「比較のために存在したもの」に限る**のが本提案の立場であり、
+`param_domain` の再設計は別提案とし、**[#284](https://github.com/nbx-liz/LizyML/issues/284)
+に起票済み**（構造走査が 3 つあり一致を保つ機構が無い＝DC3。round 24/25/26 は、
+この境界を言い直すたびに指摘が出たことを示している）。**繰り延べではなく追跡対象である。**
+
+### 影響範囲
+
+- **公開 API のシグネチャは変わらない。** 変わるのは**受理される入力**である。
+- これまで通っていた「1 パラメーター × 2 綴り × 等しい値」が `CONFIG_INVALID` になる。
+  4 surface（`model.params` / `fit(params=)` / `calibration.params` /
+  `tuning.optuna.space`）と adapter の全部。
+- `FitResult` / `PredictionResult` / `Artifacts` の形と意味は変わらない。
+  `format_version` の変更は不要。
+- **`BLUEPRINT.md` §14.4（1291 行目）の改訂が必要。** 現行は
+  「同じ層で 1 パラメーターが複数綴り・異なる値で指定されたら `CONFIG_INVALID` とすること
+  （**同値は通す**）」と書いている。**この括弧を削る。**
+  （なお §5.3 が固定しているのはスマートパラメーターと `params` の競合であって
+  別名重複ではない。改訂対象は §14.4 だけである。）
+
+### 互換性
+
+**破壊的変更である。** ただし影響は以下に限られ、実測で裏づけがある。
+
+- **出荷済みの config / テストで壊れるものは 0 件**（上の実測 1、pre-existing 0/37）。
+- **保存済み Artifacts の読み込みには影響しない**: 検査は入口（fit 前）でのみ走る。
+  ただし `best_model_params` を含む復元経路は `tuning best_model_params` surface を
+  通るため、**過去のバージョンが書いた重複綴りの `best_model_params` は
+  読み込み時に拒否される** —— これは H-0094 決定 15 が既に「異なる値なら拒否」として
+  導入した経路であり、本提案はその条件を広げる。
+  **この母集団は測れない**（round 15 が既にそう記録している: 母集団は過去バージョンが
+  書いた artifact であり、本リポジトリはそれを保持していない）。**測る代わりに bound を
+  述べる**: `tune()` は round 11 以降、重複次元を study 開始前に拒否するので、
+  **新しい artifact はこの形を作れない**。影響を受けうるのは round 11 より前に
+  書かれた artifact に限られる。
+- 利用者にとっての回避は自明である（**綴りを 1 つに減らす**）。拒否メッセージが
+  両方の綴りを名指す。
+
+### 代替案（すべて検討し、実測で棄却した）
+
+| 案 | 棄却理由 |
+|---|---|
+| **現状維持 + 位置を計測**（D13 選択肢 1） | 原因 A が残る。領域の拡大↔閉包の綱引きが続く |
+| **wire 比較**（C のトークン同一性に相当） | numpy / ndarray / tuple / カンマ文字列は無料で解けるが、**`1` vs `1.0` は拒否に戻る**（実測）。round 5 の緊張は解消せず境界が構文的に移るだけ。さらに `_param_dict_to_str` の `_is_numeric` は `try: float(obj)` なので `__float__` を持つ任意クラスが通り、型の門は別途必要 |
+| **sink に型判定を委譲** | 同上の `_is_numeric` の穴に加え、実測で `set`(hash 順) / 入れ子の深さ / サロゲート str / `None` 無言脱落 の 4 つの誤受理。**「構成上閉じる」は成り立たない** |
+| **警告して決定的に選ぶ**（LightGBM / pydantic の答え） | **#264 はまさに「黙って上書きされた」ことの報告**であり、警告は利用者が読む前提の仕組みである。本リポジトリの最優先は再現性であり、`CONFIG_INVALID` の既存方針（BLUEPRINT §5.3）と整合しない |
+| **PR を分割**（D13 選択肢 2） | 併用可能だが、分割しても A の設計判断は残る。D13 は経路 1 を選んだ |
+
+### 受け入れ基準（テスト観点）
+
+1. **等しい値の重複綴りが、5 か所すべてで `CONFIG_INVALID` になる** ——
+   `model.params` / `fit(params=)` / `calibration.params` / `tuning.optuna.space` /
+   adapter の `_pop_by_identity`。**これが振る舞いの変更点であり、
+   既存の 37 件の許容ケースを拒否ケースへ書き換える。**
+2. **異なる値の重複綴りは、これまで通り拒否される**（回帰させない）。
+3. **1 つの綴りしか書かれていない場合は、これまで通り学習に届く**（対照）。
+   `feature_contri: [1,2]` 単独 / `feature_penalty: "1,2"` 単独のどちらも通ること ——
+   カンマ形式の同一視を消したことで**単独の値**が壊れていないことを固定する。
+4. **`lizyml/core/value_equality.py` が存在せず、production に import が 1 つも残らない**
+   （走査テストで固定する。DC4 の裏返し）。
+5. 拒否メッセージが **surface と、書かれた全綴り**を名指す。**値は名指さない** ——
+   message からも context からも外す。提案時は「その値」も名指すと書いていたが、
+   **レビュー round 27 がそれを欠陥として差し戻した**（値の印字が例外を出せば、
+   約束した `CONFIG_INVALID` の代わりに別の例外が飛ぶ）ので訂正する。
+   **adapter 側（`_pop_by_identity`）は surface を名指さない** —— 引数に取らないため。
+   これは既知の不一致で、処分は D14 の受け入れ基準文書に記録し、[#286](https://github.com/nbx-liz/LizyML/issues/286) として起票した。
+6. **`param_domain.py` の振る舞いが変わっていない**こと ——
+   `test_param_domain.py` が無変更で通る。
+7. フルスイートが緑で、**`export_code` + ndarray の既存修復が保たれている**
+   （`origin/develop` で再現した `TypeError` が本ブランチでは起きないことを固定する）。
+
+#### Firing rate
+
+```
+Firing rate: 0/37 of the tolerance branch's occurrences come from pre-existing code
+             (37/37 from tests/test_core/test_fit_params_override.py, a file this PR
+             adds; recorded by instruments/duplicate_tolerance_firing_rate.py over the
+             shipped suite at 251353d, wrapping all four surfaces plus the adapter)
+```
+
+本提案は許容条件（`allow`）を**除去**するものであり、条件を追加しない。上の実測は
+「除去して壊れる母集団が空である」ことの証拠として記録する。

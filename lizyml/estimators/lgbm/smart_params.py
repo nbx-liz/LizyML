@@ -11,6 +11,93 @@ import pandas as pd
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.task import TaskType
+from lizyml.estimators.lgbm.param_names import accepted_spellings
+
+#: The native LightGBM names each smart parameter writes when it is active
+#: (H-0094).
+#:
+#: Smart resolution runs *after* the parameter dict is merged and its result
+#: wins (``core/model.py``: ``resolved_model = {**resolved_model, **smart}``),
+#: so a native name listed here does not survive being set by hand -- it is
+#: replaced, without a word. ``LGBMConfig._validate_smart_params`` already
+#: refuses three of these combinations at config-parse time, which is the
+#: policy this table generalises: the conflict is an error, not a silent
+#: substitution.
+#:
+#: The names here are LightGBM's **canonical** ones. LightGBM accepts aliases
+#: and treats them as the same parameter, so a check comparing literal strings
+#: lets ``max_leaves`` through while ``auto_num_leaves`` supplies ``num_leaves``
+#: and LightGBM prefers the canonical one -- the override silently ignored
+#: again, which review round 2 measured. ``smart_managed_names`` expands each
+#: name to every spelling LightGBM accepts for it.
+#:
+#: The set is not asserted from reading the code once: a test **runs** both
+#: resolvers -- each smart parameter this provider declares on its own with
+#: whatever it needs beneath it, and all of them together, across the three
+#: tasks -- and fails when a name comes back that is not declared here. It used
+#: to read the source for ``resolved[...] = ...`` instead, which was a guess
+#: about how an assignment is written: a fourth name added through
+#: ``resolved.update({...})`` was invisible to it (H-0094, review round 9's
+#: monitor). Running the code has no spelling to guess.
+#:
+#: That is a bounded set of executions, not a closed input domain: enumerating
+#: the parameter *names* does not enumerate the combinations the resolvers
+#: accept, and claiming otherwise was itself a finding (review round 10). Each
+#: declared activation is separately asserted to change what the resolvers
+#: produce, so none of them can go inert and be observed writing nothing.
+SMART_PARAM_TARGETS: dict[str, frozenset[str]] = {
+    "auto_num_leaves": frozenset({"num_leaves"}),
+    "min_data_in_leaf_ratio": frozenset({"min_data_in_leaf"}),
+    "min_data_in_bin_ratio": frozenset({"min_data_in_bin"}),
+    "feature_weights": frozenset({"feature_contri", "feature_pre_filter"}),
+    "balanced": frozenset({"scale_pos_weight"}),
+}
+
+
+def smart_managed_names(
+    smart: dict[str, Any], task: TaskType
+) -> dict[str, tuple[str, str]]:
+    """Names an *active* smart parameter will write, every spelling of them.
+
+    Active is not the same as present: every smart parameter has a default that
+    switches it on or off, and ``balanced`` writes ``scale_pos_weight`` only
+    for binary -- multiclass gets a sample weight, which is not a parameter
+    name and so cannot collide with one.
+
+    Every alias LightGBM accepts is included, because LightGBM resolves an
+    alias to the same parameter: refusing ``num_leaves`` and admitting
+    ``max_leaves`` refuses nothing.
+
+    Args:
+        smart: Smart parameter values, as ``extract_smart_params`` returns them.
+        task: ML task type.
+
+    Returns:
+        ``{accepted spelling: (canonical name, the smart parameter writing it)}``.
+    """
+    managed: dict[str, tuple[str, str]] = {}
+
+    def claim(smart_name: str) -> None:
+        for native in SMART_PARAM_TARGETS[smart_name]:
+            for spelling in accepted_spellings(native):
+                managed[spelling] = (native, smart_name)
+
+    if smart.get("auto_num_leaves", False):
+        claim("auto_num_leaves")
+    if smart.get("min_data_in_leaf_ratio") is not None:
+        claim("min_data_in_leaf_ratio")
+    if smart.get("min_data_in_bin_ratio") is not None:
+        claim("min_data_in_bin_ratio")
+    if smart.get("feature_weights") is not None:
+        claim("feature_weights")
+
+    balanced = smart.get("balanced")
+    if balanced is None:
+        balanced = task != "regression"
+    if balanced and task == "binary":
+        claim("balanced")
+
+    return managed
 
 
 def _compute_num_leaves(max_depth: int | None, ratio: float) -> int:

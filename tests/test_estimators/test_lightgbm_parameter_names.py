@@ -28,7 +28,6 @@ import inspect
 import json
 import pathlib
 from collections.abc import Iterator
-from contextlib import contextmanager
 from typing import Any
 
 import lightgbm as lgb
@@ -46,6 +45,7 @@ from tests._helpers import (
     make_multiclass_df,
     make_regression_df,
 )
+from tests._train_spy import record_lightgbm_calls
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
 TASKS = ("regression", "binary", "multiclass")
@@ -149,38 +149,6 @@ def test_every_smart_parameter_has_a_case() -> None:
     )
 
 
-# --------------------------------------------------------------------------
-# Recording what actually reaches LightGBM
-# --------------------------------------------------------------------------
-@contextmanager
-def _record_lightgbm_calls() -> Iterator[dict[str, list[Any]]]:
-    """Capture every ``lgb.train`` params dict and ``lgb.Dataset`` keyword.
-
-    Patches the module attributes the adapter resolves at call time
-    (``lizyml/estimators/lgbm/adapter.py`` holds ``import lightgbm as lgb`` and
-    calls ``lgb.train`` / ``lgb.Dataset``), so the real functions still run.
-    """
-    seen: dict[str, list[Any]] = {"train_params": [], "dataset_kwargs": []}
-    real_train = lgb.train
-    real_dataset = lgb.Dataset
-
-    def spy_train(params: dict[str, Any], *args: Any, **kwargs: Any) -> Any:
-        seen["train_params"].append(dict(params))
-        return real_train(params, *args, **kwargs)
-
-    def spy_dataset(*args: Any, **kwargs: Any) -> Any:
-        seen["dataset_kwargs"].append(sorted(kwargs))
-        return real_dataset(*args, **kwargs)
-
-    lgb.train = spy_train  # type: ignore[assignment]
-    lgb.Dataset = spy_dataset  # type: ignore[assignment,misc]
-    try:
-        yield seen
-    finally:
-        lgb.train = real_train  # type: ignore[assignment]
-        lgb.Dataset = real_dataset  # type: ignore[assignment,misc]
-
-
 def _df_for(task: str) -> Any:
     if task == "regression":
         return make_regression_df(n=120)
@@ -196,7 +164,7 @@ def _fit_with_every_smart_parameter(task: str) -> dict[str, list[Any]]:
     }
     cfg = make_config(task, n_estimators=5, n_splits=2)
     cfg["model"].update(overrides)
-    with _record_lightgbm_calls() as seen:
+    with record_lightgbm_calls() as seen:
         Model(cfg, data=_df_for(task)).fit()
     return seen
 
@@ -262,7 +230,7 @@ def test_a_config_mutated_after_construction_is_still_checked(task: str) -> None
     model = Model(cfg, data=_df_for(task))
     cfg.model.params["not_a_lightgbm_parameter"] = 123
 
-    with _record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as exc:
+    with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as exc:
         model.fit()
     assert exc.value.code is ErrorCode.CONFIG_INVALID
     forwarded = [p for p in seen["train_params"] if "not_a_lightgbm_parameter" in p]
@@ -292,7 +260,7 @@ def test_restored_tuning_params_are_checked_before_refit(task: str) -> None:
         rounds=(),
     )
 
-    with _record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as exc:
+    with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as exc:
         model.fit()
     assert exc.value.code is ErrorCode.CONFIG_INVALID
     forwarded = [p for p in seen["train_params"] if "not_a_lightgbm_parameter" in p]

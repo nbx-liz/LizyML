@@ -6,7 +6,7 @@ model.py has zero LightGBM imports.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 import numpy as np
@@ -24,10 +24,15 @@ from lizyml.estimators.lgbm.defaults import (
     default_fixed_params,
     default_space,
 )
-from lizyml.estimators.lgbm.param_names import LGBM_PARAM_NAMES
+from lizyml.estimators.lgbm.param_names import (
+    LGBM_CANONICAL_NAME,
+    LGBM_PARAM_NAMES,
+    accepted_spellings,
+)
 from lizyml.estimators.lgbm.smart_params import (
     resolve_ratio_params,
     resolve_smart_params,
+    smart_managed_names,
 )
 from lizyml.estimators.provider import ExportParams, MetricChoices
 from lizyml.features.pipeline_base import BaseFeaturePipeline
@@ -235,6 +240,16 @@ class LGBMProvider:
         """Return the smart parameter names, from the same declaration as above."""
         return frozenset(_SMART_PARAM_NAMES)
 
+    def canonical_param_names(self, names: Iterable[str]) -> dict[str, str]:
+        """Map each name to the LightGBM parameter it identifies (H-0094)."""
+        return {name: LGBM_CANONICAL_NAME.get(name, name) for name in names}
+
+    def smart_managed_param_names(
+        self, smart: dict[str, Any], task: TaskType
+    ) -> dict[str, tuple[str, str]]:
+        """Return names an active smart parameter will overwrite (H-0094)."""
+        return smart_managed_names(smart, task)
+
     def resolve_smart_params(
         self,
         smart: dict[str, Any],
@@ -332,6 +347,24 @@ class LGBMProvider:
         # Resolved booster params (from fold 0)
         native = model.get_native_model()
         booster_params = getattr(native, "params", {})
+
+        def resolved(canonical: str) -> Any:
+            """The value under whichever spelling actually reached the booster.
+
+            The names below are canonical, and the booster carries whatever
+            spelling the caller wrote -- so reading them literally reported
+            nothing for a parameter that had been set. Measured: after
+            `fit(params={"eta": 0.5})` the booster trained at `learning_rate:
+            0.5` and this table listed neither name, while the same call written
+            as `learning_rate` listed it (H-0094 decision 11, review round 15,
+            reported as non-blocking and fixed because it misreports the run on
+            the very path this change exists to make work).
+            """
+            for spelling in accepted_spellings(canonical):
+                if spelling in booster_params:
+                    return booster_params[spelling]
+            return None
+
         for k in [
             "objective",
             "metric",
@@ -348,13 +381,13 @@ class LGBMProvider:
             "lambda_l2",
             "num_iterations",
         ]:
-            v = booster_params.get(k)
+            v = resolved(k)
             if v is not None:
                 rows.append({"parameter": k, "value": v})
 
         # Task-specific params
         for k in ["scale_pos_weight", "num_class"]:
-            v = booster_params.get(k)
+            v = resolved(k)
             if v is not None:
                 rows.append({"parameter": k, "value": v})
 
@@ -437,6 +470,11 @@ class LGBMProvider:
         return ExportParams(
             params=params,
             num_boost_round=num_boost_round,
+            # The adapter's own patience, which is what this booster trained
+            # with. Recomputing it from the config plus the *current* tuning
+            # result reported a different model's number after `fit -> tune`
+            # (H-0094 decision 13, review round 16).
+            early_stopping_rounds=adapter.early_stopping_rounds,
             feval_metadata=feval_metadata,
         )
 
@@ -456,7 +494,23 @@ def _extract_feval_metadata(
     from lizyml.estimators.lgbm.metric_bridge import _FEVAL_METRICS
     from lizyml.metrics.registry import get_metric, parse_metric_entries
 
-    user_metric = adapter.params.get("metric")
+    # Read by identity, not by the literal spelling. `adapter.params` is the
+    # caller's dict, so it carries whatever spelling was written -- and
+    # `_build_params` already reads the metric with `_pop_by_identity`, so a
+    # literal read here disagreed with the code that trained. Measured before
+    # this: `fit(params={"metrics": "brier"})` evaluated Brier correctly and
+    # exported `metric="None"` with no evaluation function, and the generated
+    # `train_lgbm` then refused to run at all -- "at least one dataset and eval
+    # metric is required" (H-0094 decision 9, review round 13). Not popped:
+    # this is a read of a dict the caller still owns.
+    user_metric = next(
+        (
+            adapter.params[spelling]
+            for spelling in accepted_spellings("metric")
+            if adapter.params.get(spelling)
+        ),
+        None,
+    )
     if not user_metric:
         return []
 

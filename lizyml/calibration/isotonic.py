@@ -17,6 +17,7 @@ import numpy.typing as npt
 
 from lizyml.calibration.base import BaseCalibratorAdapter
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.param_domain import assert_plain_params
 from lizyml.core.registries import CalibratorRegistry
 
 _ISOTONIC_DEFAULTS: dict[str, Any] = {
@@ -97,7 +98,14 @@ class IsotonicCalibrator(BaseCalibratorAdapter):
         merged = {**_ISOTONIC_DEFAULTS, **user}
         # Always enforce monotone constraint
         merged["monotone_constraints"] = [1]
-        merged["verbose"] = -1
+        # `verbosity`, not `verbose`: LightGBM treats the two as one parameter
+        # and prefers the canonical spelling, so forcing the alias left the
+        # force defeatable -- `calibration.params={"verbosity": 1}` reached
+        # `lgbm.train` beside `verbose: -1` and won (H-0094 decision 8, review
+        # round 12). `monotone_constraints` above is already canonical, which
+        # is why that force holds and this one did not.
+        merged.pop("verbose", None)
+        merged["verbosity"] = -1
         merged["seed"] = self._seed
         self._lgbm_params = merged
         self._model: lgbm.Booster | None = None
@@ -122,6 +130,12 @@ class IsotonicCalibrator(BaseCalibratorAdapter):
         train_ds, valid_sets, callbacks = self._prepare_training(
             X_cal, y_float, n_samples, params
         )
+        # H-0095: the domain is closed at the four surfaces, and this is
+        # where that becomes a property rather than a claim about wiring.
+        # A value that reached training without being normalised stops the
+        # run and names itself, instead of being serialised by whatever
+        # `__format__` it happens to carry.
+        assert_plain_params(params, where="the calibrator lgbm.train")
         self._model = lgbm.train(
             params,
             train_ds,

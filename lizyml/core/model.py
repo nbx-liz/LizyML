@@ -54,10 +54,17 @@ from lizyml.config.schema import (
 from lizyml.core._model_factories import (
     build_inner_valid,
     build_splitter,
+    canonicalise_calibration_params,
     check_calibration_param_names,
     check_param_names,
+    check_smart_managed_overrides,
+    check_training_managed_overrides,
+    effective_early_stopping_rounds,
     get_provider,
     make_inner_valid_factory,
+    normalise_and_check,
+    overlay_params,
+    tuned_validation_ratio,
 )
 from lizyml.core._model_metrics import (
     _DEFAULT_METRICS,
@@ -142,6 +149,13 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         self._refit_result: RefitResult | None = None
         self._metrics: dict[str, Any] | None = None
         self._tuning_result: TuningResult | None = None
+        # The training overlay the last fit() actually applied. Distinct from
+        # `_tuning_result`, which tune() replaces without replacing the fitted
+        # adapters -- so reporting surfaces that read it answered for a model
+        # that was never trained (H-0094 decision 13, review round 16).
+        # `Model.load()` leaves this empty: the artifact records the tuning
+        # result but not which fit consumed it.
+        self._applied_training_params: dict[str, Any] = {}
         self._y: pd.Series | None = None  # transient; not persisted
         self._X: pd.DataFrame | None = None  # transient; not persisted
         self._provider: EstimatorProvider | None = None  # set by fit/tune
@@ -167,7 +181,14 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         Args:
             data: Training DataFrame.  Overrides any ``data`` passed at
                 construction time and the ``data.path`` from config.
-            params: Model parameters to override the config ``model.params``.
+            params: Model parameters to override the config ``model.params``
+                for this call only.  Highest priority among the three inputs:
+                config defaults < tune best < these.  Two names are refused
+                with ``CONFIG_INVALID`` rather than silently doing nothing: one
+                the estimator does not define (H-0093), and one an active smart
+                parameter resolves, which would be overwritten downstream of
+                this merge (H-0094).  The config object the caller handed in is
+                not modified.
 
         Returns:
             The :class:`~lizyml.core.types.fit_result.FitResult` from CV.
@@ -193,14 +214,17 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
 
         # --- Load & prepare data ---------------------------------------------
         X, y, groups, components = self._prepare_training_data(data)
-        self._X, self._y = X, y
         fingerprint = fp_compute(X, file_path=None)
 
         # --- Build components (H-0050/H-0053: provider-based) ----------------
         provider = get_provider(cfg.model)
         self._provider = provider
         run_meta = self._build_run_meta(run_id)
-        model_params, smart_params = self._merge_params(provider)
+        # H-0094: `params` is forwarded here. It was documented as overriding
+        # `model.params` and reached nothing: `_merge_params`'s `override`
+        # overlay was correct and had no caller, so an override was discarded
+        # in silence and the booster trained on the config value (#264).
+        model_params, smart_params = self._merge_params(provider, override=params)
         # Both parameter surfaces are checked here, before any training starts.
         # `_merge_params` gates `model.params`; the calibration surface is
         # checked beside it rather than at `_run_calibration`, which runs after
@@ -272,8 +296,6 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         fit_result = dataclasses.replace(
             fit_result, metrics={**fit_result.metrics, **metrics}
         )
-        self._metrics = metrics
-
         # --- Full-data refit (for predict) -----------------------------------
         refit_trainer = RefitTrainer(
             inner_valid=tc.inner_valid,
@@ -282,8 +304,24 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             task=cfg.task,
             ratio_param_resolver=tc.ratio_resolver,
         )
-        self._refit_result = refit_trainer.fit(X, y, groups)
+        refit_result = refit_trainer.fit(X, y, groups)
 
+        # --- Commit, in one group, nothing between that can raise ------------
+        # Everything a reporting surface reads about "the fit" is published
+        # here, together, and only once the fit has succeeded. Assigning where
+        # the value happened to be available instead left a **rejected** call
+        # describing the model that was retained: measured, `fit -> tune ->
+        # refused fit` reported the refused attempt's inner-validation ratio
+        # while the fitted adapters were untouched, and `_X` / `_y` -- the data
+        # SHAP and the diagnostics read -- became a frame the retained model
+        # had never seen (H-0094 decision 14, review round 17). Reproduced at
+        # both failure points: refused by a gate, and raised mid-training.
+        self._X, self._y = X, y
+        self._metrics = metrics
+        # The only record of what *this* fit applied: a later tune() replaces
+        # `_tuning_result` and leaves the fitted adapters alone (decision 13).
+        self._applied_training_params = dict(training_overrides)
+        self._refit_result = refit_result
         self._fit_result = fit_result
         _log.info("event='fit.done' run_id=%s", run_id)
         # Return a selective deep copy (FitResult.__deepcopy__): mutating the
@@ -423,6 +461,29 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         model_params = provider.extract_model_params(model_cfg)
         smart_params = provider.extract_smart_params(model_cfg)
 
+        # H-0094: which input a name came from, so a rejection can name the
+        # file or the call the user has to change. Three inputs merge into one
+        # dict below and the merged dict is what is checked, so without this
+        # every name is reported as `model.params` -- true for one of the
+        # three, and a wrong address for the other two.
+        origins: dict[str, str] = dict.fromkeys(model_params, "model.params")
+
+        # The same-layer rule, applied to the layer it was declared for as well
+        # as to the one that introduced it. H-0094 decision 6 and BLUEPRINT
+        # 14.4 state that one parameter written twice under two spellings with
+        # different values is refused, and until now only `fit(params=)` was
+        # checked: a config carrying both `learning_rate` and `eta` sent both
+        # to `lgb.train`, which silently kept the canonical one (review round
+        # 11). The check lives here rather than in the schema because the alias
+        # table is in `estimators/`, which `config/` may not import.
+        # H-0095: normalised here as well as checked. Everything below --
+        # the overlays, the identity comparisons, the dict handed to the
+        # adapter -- then works on plain values only, which is what lets
+        # the comparison be total instead of one guard per exotic object.
+        model_params = normalise_and_check(
+            provider, model_params, surface="model.params"
+        )
+
         # --- Overlay tune best ---
         if self._tuning_result is not None:
             # Apply default fixed params when default space was used (#76).
@@ -434,12 +495,25 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             )
             if used_default_space:
                 fixed = provider.default_fixed_params(cfg.task)
-                model_params = {**model_params, **fixed}
+                model_params = overlay_params(provider, model_params, fixed)
+                origins.update(dict.fromkeys(fixed, "provider default fixed params"))
 
-            model_params = {
-                **model_params,
-                **self._tuning_result.best_model_params,
-            }
+            # The same-layer rule on the layer that arrives from disk.
+            # `overlay_params` drops competing spellings from the layer it
+            # overlays, and keeps whatever the **overlay itself** carries -- so
+            # a restored `best_model_params` naming one parameter twice sent
+            # both spellings to `lgb.train`, and LightGBM kept the canonical
+            # one. Measured: `{"learning_rate": 0.1, "eta": 0.8}` trained at
+            # 0.1 with both present (H-0094 decision 11, review round 15).
+            # `load()` itself still reads such an artifact; the refusal belongs
+            # on the re-fit, which is here.
+            best_model_params = normalise_and_check(
+                provider,
+                self._tuning_result.best_model_params,
+                surface="tuning best_model_params",
+            )
+            model_params = overlay_params(provider, model_params, best_model_params)
+            origins.update(dict.fromkeys(best_model_params, "tuning best_model_params"))
             if self._tuning_result.best_smart_params:
                 smart_params = {
                     **smart_params,
@@ -447,8 +521,24 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
                 }
 
         # --- Overlay fit() args (highest priority) ---
+        # "Highest priority" is highest among these three inputs. A native name
+        # an active smart parameter resolves is not one of them: smart
+        # resolution runs downstream of this merge and wins, so accepting such
+        # an override would be accepting a value that is then discarded. The
+        # config schema already refuses the same collision at parse time; this
+        # applies that policy to the `fit()` input (H-0094).
+        override = normalise_and_check(provider, override or {}, surface="fit(params=)")
+        check_smart_managed_overrides(
+            provider, override, smart_params, cfg.task, surface="fit(params=)"
+        )
         if override:
-            model_params = {**model_params, **override}
+            # Overlaid by identity: a config spelling `learning_rate` and an
+            # override spelling `eta` are one parameter, and a plain dict merge
+            # keeps both, after which LightGBM prefers the canonical one and
+            # the override loses. Measured before this: `fit(params={"eta":
+            # 0.5})` trained at the config's 0.001 (H-0094, review round 3).
+            model_params = overlay_params(provider, model_params, override)
+            origins.update(dict.fromkeys(override, "fit(params=)"))
 
         # H-0093: the merged dict is what reaches the estimator, so it is where
         # the names are checked. Every route into it is covered by construction
@@ -459,8 +549,31 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         # the search space before the study starts.
         check_param_names(
             provider,
-            (("model.params", name) for name in model_params),
+            ((origins.get(name, "model.params"), name) for name in model_params),
             model_name=model_cfg.name,
+        )
+        # A native parameter a `training.*` setting already controls. Checked on
+        # the merged dict with `origins`, so it covers **the three inputs that
+        # meet here** -- `model.params`, the tuning result, and `fit(params=)`
+        # -- and names the one the caller has to change (H-0094 decision 9).
+        #
+        # It does not cover the search space, and an earlier comment claiming it
+        # covered "every input at once" was wrong about exactly that: trial
+        # parameters overlay after this point, so a study sampled the parameter,
+        # trained on it, and returned a result this very check then refused
+        # (H-0094 decision 10, review round 14). The space is checked before the
+        # study starts, in `_model_tuning.py`, beside the other two space-level
+        # refusals.
+        check_training_managed_overrides(
+            provider,
+            model_params,
+            cfg,
+            origins=origins,
+            training_overrides=(
+                self._tuning_result.best_training_params
+                if self._tuning_result is not None
+                else None
+            ),
         )
 
         return model_params, smart_params
@@ -514,13 +627,11 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         ratio_resolver = provider.build_ratio_resolver(smart_params)
 
         # --- Resolve early stopping rounds (config < tune override) ---
-        esr: int | None
-        if "early_stopping_rounds" in tp:
-            esr = int(tp["early_stopping_rounds"])
-        elif cfg.training.early_stopping.enabled:
-            esr = cfg.training.early_stopping.rounds
-        else:
-            esr = None
+        # Shared with `check_training_managed_overrides`, which has to know
+        # whether early stopping will be on before it decides whether to claim
+        # `early_stopping_round`. Two readings of that question is exactly the
+        # defect this became (H-0094 decision 11).
+        esr = effective_early_stopping_rounds(cfg, tp)
 
         # --- Build estimator factory ---
         estimator_factory = provider.build_estimator_factory(
@@ -532,10 +643,14 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         )
 
         # --- Inner validation (config < tune override) ---
+        # Read through the shared definition, so the two reporting surfaces
+        # cannot answer this question differently from the trainer -- which
+        # they did, silently, until H-0094 decision 13.
         inner_valid: BaseInnerValidStrategy
-        if "validation_ratio" in tp:
+        tuned_ratio = tuned_validation_ratio(tp)
+        if tuned_ratio is not None:
             iv_factory = make_inner_valid_factory(cfg)
-            inner_valid = iv_factory(tp["validation_ratio"])
+            inner_valid = iv_factory(tuned_ratio)
         else:
             inner_valid = build_inner_valid(cfg)
 
@@ -689,7 +804,13 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         # Inherit training.seed for isotonic's internal validation split when
         # no explicit calibration seed is given (H-0080). Other calibrators
         # (platt / beta) do not use a seed, so leave their params untouched.
-        cal_params_dict = dict(cfg.calibration.params or {})
+        # Canonicalised before it reaches the calibrator, which merges it over
+        # its own defaults by spelling. An alias such as `eta` collided with the
+        # default `learning_rate` instead of replacing it, and LightGBM then
+        # kept the default (H-0094 decision 8, review round 12).
+        cal_params_dict = canonicalise_calibration_params(
+            dict(cfg.calibration.params or {})
+        )
         if method == "isotonic":
             cal_params_dict.setdefault("seed", cfg.training.seed)
         cal_params = cal_params_dict or None
@@ -770,6 +891,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             fit_result=fit_result,
             refit_result=self._refit_result,
             tuning_result=self._tuning_result,
+            applied_training_params=dict(self._applied_training_params),
             provider=self._provider,
             metrics=self._metrics,
             y=self._y,

@@ -35,6 +35,15 @@ __all__ = [
 
 
 _ALLOWED_CHOICE_TYPES = (type(None), bool, int, float, str)
+"""The exact types a categorical choice may have.
+
+Two boundaries meet here, and neither is ``param_domain``'s accepted set:
+Optuna's ``CategoricalDistribution`` takes a plain scalar, and a sampled value
+reaches ``lgb.train`` **without passing an entrance normaliser**, so it also has
+to be a value the exit assertion in the adapter accepts as it stands. The
+accepted set is the wider one -- it admits a numpy scalar and converts it -- and
+restating it here would be two declarations of one boundary (BLUEPRINT 14.4).
+"""
 
 
 def _validate_numeric_range(
@@ -71,23 +80,40 @@ def _validate_numeric_range(
 
 
 def _validate_categorical_choices(name: str, choices: list[Any]) -> None:
-    """Validate that every element in *choices* is a scalar type.
+    """Validate that every element in *choices* is a plain scalar.
 
-    Optuna's ``CategoricalDistribution`` requires each choice to be
-    ``None | bool | int | float | str``.  Non-scalar values (e.g. a nested
-    list produced by YAML ``- [a, b]``) are rejected early with a clear
-    error message.
+    Non-scalar values (e.g. a nested list produced by YAML ``- [a, b]``) are
+    rejected early with a clear error message. So is a numpy scalar, and the
+    reason is not cosmetic: a sampled value is overlaid onto the trial params
+    without passing an entrance normaliser, so a numpy one reached the exit
+    assertion in the adapter and failed **every** trial. The user was then told
+    ``TUNING_FAILED: All tuning trials failed. Check parameter ranges.`` with
+    ranges that were fine (#287).
+
+    The type is judged by **identity**, for two separate reasons:
+
+    * ``isinstance`` admits a subclass, and ``np.float64`` subclasses ``float``
+      while ``np.str_`` subclasses ``str``. Those two were the whole hole: every
+      other numpy scalar type was already refused here.
+    * ``type(val) in _ALLOWED_CHOICE_TYPES`` asks the tuple whether any member
+      *equals* the type, and a class's ``__eq__`` comes from its metaclass, which
+      the caller writes. Measured: a class whose metaclass returns ``True`` for
+      ``float`` passes that membership test, and ``__hash__`` is never consulted
+      because this container is a tuple -- a ``set`` would hash first (BLUEPRINT
+      14.4 states the ``set`` case, from review round 23).
     """
     for i, val in enumerate(choices):
-        if not isinstance(val, _ALLOWED_CHOICE_TYPES):
+        if not any(type(val) is allowed for allowed in _ALLOWED_CHOICE_TYPES):
             raise LizyMLError(
                 code=ErrorCode.CONFIG_INVALID,
                 user_message=(
                     f"Categorical dim '{name}' has invalid choice at index {i}: "
                     f"got {val!r} (type={type(val).__name__}). "
-                    f"Each choice must be a scalar (str, int, float, bool, or None). "
-                    f"Hint: flatten nested lists in your YAML config "
-                    f'— use "- value" instead of "- [value1, value2]".'
+                    f"Each choice must be a plain Python scalar (str, int, float, "
+                    f"bool, or None) -- a numpy scalar is refused because a "
+                    f"sampled choice is not normalised before training. "
+                    f"Hint: write float(x) or int(x), and flatten nested lists in "
+                    f'your YAML config — use "- value" instead of "- [v1, v2]".'
                 ),
                 context={"param": name, "index": i, "bad_value": str(val)},
             )

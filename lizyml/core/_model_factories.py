@@ -25,6 +25,7 @@ from lizyml.config.schema import (
     StratifiedKFoldConfig,
     TimeSeriesConfig,
 )
+from lizyml.core.param_domain import normalise_params
 from lizyml.core.types.task import TaskType
 from lizyml.splitters.base import BaseSplitter
 from lizyml.splitters.blocked_group_kfold import BlockedGroupKFoldSplitter
@@ -537,6 +538,279 @@ def model_space_names(cfg: LizyMLConfig) -> list[tuple[str, str]]:
     return out
 
 
+#: Native parameters that a ``training.*`` setting already controls.
+#:
+#: Each is one parameter under two names in two places -- LizyML's, and
+#: LightGBM's -- so a config naming both has said one thing twice, and which
+#: one applies is decided by machinery the caller cannot see. Measured before
+#: this check (H-0094 decision 9, review round 13):
+#:
+#: * ``early_stopping_round``: the override reached ``lgb.train`` on every call
+#:   and the callback built from ``training.early_stopping.rounds`` still
+#:   decided when to stop -- ``rounds: 2`` with an override of ``10`` trained 3
+#:   iterations. With the callback **off** it is not inert either: LightGBM
+#:   honours the parameter itself, and LizyML has built no validation set, so
+#:   the run dies with ``CONFIG_INVALID`` blaming the metric.
+#: * ``seed``: the override wins, silently, over the ``training.seed`` the
+#:   config states -- so a run's reproducibility control is not the one the
+#:   config appears to declare.
+#:
+#: The values are the config paths, because the message has to name the place
+#: the caller can change. The keys are canonical and expanded to every spelling
+#: at check time; a literal-name check would refuse ``seed`` and admit
+#: ``random_seed``, which refuses nothing.
+TRAINING_MANAGED_PARAMS: dict[str, str] = {
+    "early_stopping_round": "training.early_stopping.rounds",
+    "seed": "training.seed",
+}
+
+
+def effective_early_stopping_rounds(
+    cfg: LizyMLConfig, training_overrides: dict[str, Any] | None
+) -> int | None:
+    """The patience the trainer will actually use, or ``None`` when it is off.
+
+    A tuning result's ``best_training_params`` can supply
+    ``early_stopping_rounds``, and it does so **whether or not**
+    ``training.early_stopping.enabled`` is set -- so a study can switch early
+    stopping on for a config that disables it. Measured before this was one
+    definition: with the config disabled and a tuned patience of 2, the
+    conflict gate read only the config, admitted
+    ``fit(params={"early_stopping_round": 10})``, and the callback stopped at 2
+    while the override sat in the parameter dict doing nothing (H-0094 decision
+    11, review round 15).
+
+    This exists so the trainer and the gate cannot disagree about whether early
+    stopping is on. Two readings of that question is what the defect was.
+    """
+    overrides = training_overrides or {}
+    if "early_stopping_rounds" in overrides:
+        return int(overrides["early_stopping_rounds"])
+    if cfg.training.early_stopping.enabled:
+        rounds: int = cfg.training.early_stopping.rounds
+        return rounds
+    return None
+
+
+def tuned_validation_ratio(training_overrides: dict[str, Any] | None) -> float | None:
+    """The inner-validation ratio a tuning result overrides, or ``None``.
+
+    One definition with three readers: ``_build_train_components`` chooses the
+    inner-validation strategy from it, and ``params_table`` / ``export_code``
+    report it. Measured before this was one definition -- a
+    ``category: training`` ``validation_ratio`` dimension with choice ``0.45``
+    over a config of ``0.2``: the inner-validation factory was called with
+    ``0.45`` and both reporting surfaces said ``0.2``, so ``export_code``
+    generated a project holding out a different fraction than the run did
+    (H-0094 decision 13, review round 16).
+
+    Returns ``None`` -- meaning "no override, use the configured ratio" --
+    rather than falling back to the config here, because the trainer's two
+    branches are not the same call: an override goes through
+    ``make_inner_valid_factory``, and its absence through
+    ``build_inner_valid``, which also resolves explicit ``inner_valid`` config
+    and the early-stopping-off case.
+    """
+    overrides = training_overrides or {}
+    if "validation_ratio" not in overrides:
+        return None
+    return float(overrides["validation_ratio"])
+
+
+def check_training_managed_space(provider: Any, cfg: LizyMLConfig) -> None:
+    """Refuse a search dimension for a parameter a ``training.*`` setting controls.
+
+    The merged-dict check below runs inside ``_merge_params``, and **trial
+    parameters overlay after that**, so a ``category: model`` dimension naming
+    one of these was accepted, sampled, and trained. Measured over all seven
+    spellings of both entries (H-0094 decision 10, review round 14): each study
+    trained real boosters, returned a ``best_model_params`` carrying the name,
+    and **the following ``fit()`` then refused it** -- a study whose result its
+    own next step cannot consume.
+
+    A comment on the merged-dict call claimed it "covers every input at once".
+    That was true of the three inputs that meet in `_merge_params` and false of
+    the fourth, which arrives later. Checked here, before the study starts, the
+    way the other two space-level refusals are.
+    """
+    names = [name for _, name in model_space_names(cfg)]
+    if names:
+        check_training_managed_overrides(
+            provider,
+            dict.fromkeys(names),
+            cfg,
+            origins=dict.fromkeys(names, "tuning.optuna.space"),
+        )
+
+
+def check_training_managed_overrides(
+    provider: Any,
+    params: dict[str, Any],
+    cfg: LizyMLConfig,
+    *,
+    origins: dict[str, str] | None = None,
+    training_overrides: dict[str, Any] | None = None,
+) -> None:
+    """Refuse a native parameter that a ``training.*`` setting already controls.
+
+    This is the same policy the smart-managed check applies one layer over: the
+    conflict is an error, not a silent substitution. It differs in *which* way
+    the silence falls, and that difference is why refusing beats picking a
+    winner -- ``early_stopping_round`` loses to the config, ``seed`` beats it.
+    Nothing in the config says which.
+
+    Only an **active** setting claims its parameter: ``training.early_stopping``
+    claims ``early_stopping_round`` when it is enabled, and not otherwise.
+
+    Args:
+        provider: EstimatorProvider instance.
+        params: The merged model params.
+        cfg: The whole config, read for the ``training`` section.
+        origins: ``{name: the input it came from}``, so the message can address
+            the caller's own file or call rather than always saying
+            ``model.params``.
+
+    Raises:
+        LizyMLError: with ``CONFIG_INVALID``, naming the parameter, the spelling
+            written, and the ``training.*`` setting it collides with.
+    """
+    if not params:
+        return
+    from lizyml.core.exceptions import ErrorCode, LizyMLError
+
+    training = getattr(cfg, "training", None)
+    if training is None:
+        return
+
+    # Every spelling of each claimed parameter, derived from the provider
+    # rather than listed: the protocol answers "which parameter does this name
+    # identify", so inverting it over the accepted names gives the spellings
+    # without this module knowing which estimator is in play.
+    accepted = provider.accepted_model_param_names()
+    spellings_of: dict[str, set[str]] = {}
+    for name, canonical_name in provider.canonical_param_names(accepted).items():
+        spellings_of.setdefault(canonical_name, set()).add(name)
+
+    claimed: dict[str, str] = {}
+    for canonical, config_path in TRAINING_MANAGED_PARAMS.items():
+        if canonical == "early_stopping_round":
+            # Asked of the **effective** setting, not of the config alone: a
+            # tuning result can switch early stopping on for a config that
+            # disables it, and reading only the config let that combination
+            # through (H-0094 decision 11).
+            if effective_early_stopping_rounds(cfg, training_overrides) is None:
+                continue
+        elif getattr(training, "seed", None) is None:
+            continue
+        for spelling in spellings_of.get(canonical, {canonical}):
+            claimed[spelling] = config_path
+
+    hits = [(name, claimed[name]) for name in params if name in claimed]
+    if not hits:
+        return
+
+    origins = origins or {}
+    lines = [
+        f"  {origins.get(name, 'model.params')}: '{name}' is already set by "
+        f"'{config_path}', and the estimator treats those as one parameter."
+        for name, config_path in sorted(hits)
+    ]
+    raise LizyMLError(
+        code=ErrorCode.CONFIG_INVALID,
+        user_message=(
+            "Parameter(s) already controlled by a training setting:\n"
+            + "\n".join(lines)
+            + "\nWhich value applies would depend on how LizyML builds the "
+            "training call rather than on what you wrote. Set it in one place."
+        ),
+        context={
+            "conflicts": [
+                {
+                    "surface": origins.get(name, "model.params"),
+                    "name": name,
+                    "config_path": config_path,
+                }
+                for name, config_path in sorted(hits)
+            ]
+        },
+    )
+
+
+def check_duplicate_space_dimensions(provider: Any, cfg: LizyMLConfig) -> None:
+    """Refuse two ``category: model`` dimensions that name one parameter.
+
+    ``sample_params`` writes one key per dimension, so two dimensions spelling
+    one LightGBM parameter put both spellings in the same trial dict. LightGBM
+    resolves them to one parameter and prefers the canonical spelling, so the
+    other dimension is sampled, optimised over, and **has no effect on any
+    trial**. Measured before this check, with ``learning_rate`` and ``eta`` as
+    two dimensions:
+
+    ``lgb.train`` received both on every trial and trained at the
+    ``learning_rate`` value; ``best_model_params`` recorded both, so the ``fit``
+    afterwards carried the dead spelling too. Optuna ranked the trials on an
+    axis that did nothing (H-0094 decision 8, review round 12, named by the
+    rounds 11-12 monitor and reproduced before being fixed).
+
+    This is the same-layer rule on the layer decision 6 had not reached: the
+    space is one layer, and it was meeting itself. Unlike the dict surfaces
+    there is **no equal-values escape** -- two dimensions sample independently,
+    so naming one parameter twice is ambiguous whatever the bounds say.
+
+    Distinct from #279, which is a dimension colliding with a *smart parameter*,
+    and from #280, which is ``model.params`` colliding with one.
+
+    Args:
+        provider: EstimatorProvider instance.
+        cfg: The whole config; the space is read through ``model_space_names``
+            so this and the name check cannot disagree about which dimensions
+            are the estimator's.
+
+    Raises:
+        LizyMLError: with ``CONFIG_INVALID``, naming the dimensions and the
+            parameter they share.
+    """
+    names = [name for _, name in model_space_names(cfg)]
+    if len(names) < 2:
+        return
+    from lizyml.core.exceptions import ErrorCode, LizyMLError
+
+    canonical = provider.canonical_param_names(names)
+    grouped: dict[str, list[str]] = {}
+    for name in names:
+        grouped.setdefault(canonical[name], []).append(name)
+
+    conflicts = {
+        parameter: written for parameter, written in grouped.items() if len(written) > 1
+    }
+    if not conflicts:
+        return
+    lines = [
+        f"  tuning.optuna.space: {sorted(written)} are dimensions for the one "
+        f"parameter '{parameter}', so only one of them can reach the estimator."
+        for parameter, written in sorted(conflicts.items())
+    ]
+    raise LizyMLError(
+        code=ErrorCode.CONFIG_INVALID,
+        user_message=(
+            "Search space dimension(s) naming one parameter more than once:\n"
+            + "\n".join(lines)
+            + "\nThe other would be sampled and optimised over without "
+            "affecting any trial."
+        ),
+        context={
+            "conflicts": [
+                {
+                    "surface": "tuning.optuna.space",
+                    "parameter": parameter,
+                    "dimensions": sorted(written),
+                }
+                for parameter, written in sorted(conflicts.items())
+            ]
+        },
+    )
+
+
 #: Calibration methods whose ``params`` reach LightGBM.
 #:
 #: ``IsotonicCalibrator`` trains a single-feature Booster, so its params go to
@@ -550,6 +824,242 @@ def model_space_names(cfg: LizyMLConfig) -> list[tuple[str, str]]:
 LGBM_BACKED_CALIBRATORS: frozenset[str] = frozenset({"isotonic"})
 
 
+def overlay_params(
+    provider: Any, base: dict[str, Any], overlay: dict[str, Any]
+) -> dict[str, Any]:
+    """Overlay *overlay* onto *base* by parameter identity, not by spelling.
+
+    ``{**base, **overlay}`` keeps both spellings when the two layers name one
+    parameter differently, and the estimator then picks one of them -- measured
+    on LightGBM: a canonical name in the lower layer beat an alias in the
+    higher one, so the override silently lost. Dropping the losing spelling
+    here means the estimator never sees the ambiguity, so the outcome does not
+    depend on which spelling it happens to prefer.
+
+    Args:
+        provider: EstimatorProvider instance.
+        base: The lower-priority layer.
+        overlay: The higher-priority layer, which wins.
+
+    Returns:
+        A new dict; neither argument is modified.
+    """
+    if not overlay:
+        return dict(base)
+    canonical = provider.canonical_param_names([*base, *overlay])
+    overlaid = {canonical[name] for name in overlay}
+    merged = {
+        name: value
+        for name, value in base.items()
+        if name in overlay or canonical[name] not in overlaid
+    }
+    merged.update(overlay)
+    return merged
+
+
+def check_duplicate_identities(
+    provider: Any, params: dict[str, Any], *, surface: str
+) -> None:
+    """Refuse one layer naming a parameter under more than one spelling.
+
+    ``{"objective": "binary", "application": "binary"}`` is one parameter
+    written twice. **The values are not read** (H-0096).
+
+    Until H-0096 this allowed the pair through when the two values were equal,
+    which meant deciding *equal* for whatever a caller had written. That
+    question has no closed domain -- an object may define ``__format__``,
+    ``__eq__`` or ``tolist`` however it likes -- and rounds 18-26 of the H-0094
+    review each found one more object inside it. Asking nothing about the values
+    removes the question rather than bounding it.
+
+    Three measurements support dropping the tolerance rather than repairing it,
+    all recorded in H-0096: no pre-existing config or test in this repository
+    reaches the tolerated branch; LightGBM itself warns on the duplicate whether
+    or not the values agree, and resolves it by a precedence that does not
+    depend on dictionary order; and of nine surveyed systems only the C
+    preprocessor branches on agreement at all, comparing token sequences rather
+    than values.
+
+    So the refusal no longer rests on "which value applies is invisible" -- it
+    is in fact decided, and LightGBM says so. It rests on the caller having
+    written one setting twice, leaving LizyML nothing to say about which was
+    meant.
+
+    Raises:
+        LizyMLError: with ``CONFIG_INVALID``, naming the spellings and values.
+    """
+    if not params:
+        return
+    from lizyml.core.exceptions import ErrorCode, LizyMLError
+
+    canonical = provider.canonical_param_names(params)
+    grouped: dict[str, dict[str, Any]] = {}
+    for name, value in params.items():
+        grouped.setdefault(canonical[name], {})[name] = value
+
+    conflicts = {
+        parameter: written for parameter, written in grouped.items() if len(written) > 1
+    }
+    if not conflicts:
+        return
+    # Spellings, not values. A spelling is a `str` key and always prints; a
+    # value need not -- a Python `int` above `sys.get_int_max_str_digits()`
+    # digits has no decimal text, and formatting one here turned the promised
+    # `CONFIG_INVALID` into a bare `ValueError` (review round 27, reported
+    # against the adapter helper and present here identically). The rule
+    # decides on how many spellings were written, so reporting it must not
+    # depend on the values either.
+    lines = [
+        f"  {surface}: '{parameter}' is set as {sorted(written)}, and the "
+        "estimator treats those as one parameter."
+        for parameter, written in sorted(conflicts.items())
+    ]
+    raise LizyMLError(
+        code=ErrorCode.CONFIG_INVALID,
+        user_message=(
+            "Parameter(s) set more than once under different spellings:\n"
+            + "\n".join(lines)
+            + "\nWrite the parameter once, under one spelling."
+        ),
+        context={
+            "conflicts": [
+                {
+                    "surface": surface,
+                    "parameter": parameter,
+                    "spellings": sorted(written),
+                }
+                for parameter, written in sorted(conflicts.items())
+            ]
+        },
+    )
+
+
+def normalise_and_check(
+    provider: Any, params: dict[str, Any], *, surface: str
+) -> dict[str, Any]:
+    """Normalise one layer at its surface, then apply the same-layer rule.
+
+    This is the single narrow point every parameter dict passes through, so it
+    is where the domain is closed (H-0095). Normalisation runs **first**: the
+    identity check compares values, and comparing plain values is the whole
+    reason that comparison can be total. Callers must use the returned dict --
+    the value the estimator is given has to be the value that was checked.
+
+    Args:
+        provider: the estimator provider, which owns the alias table.
+        params: the parameters exactly as the caller wrote them.
+        surface: the input they arrived through, named in any refusal.
+
+    Returns:
+        A new dict of plain values, ready to overlay or to train on.
+
+    Raises:
+        LizyMLError: with ``CONFIG_INVALID``, for a value outside the accepted
+            set, or for one parameter written twice with different values.
+    """
+    normalised = normalise_params(params, surface=surface)
+    check_duplicate_identities(provider, normalised, surface=surface)
+    return normalised
+
+
+def check_smart_managed_overrides(
+    provider: Any,
+    override: dict[str, Any] | None,
+    smart: dict[str, Any],
+    task: Any,
+    *,
+    surface: str,
+) -> None:
+    """Refuse an override of a name a smart parameter is going to overwrite.
+
+    Smart resolution runs after the parameter dict is merged and its result
+    wins, so ``fit(params={"num_leaves": 12})`` trains at whatever
+    ``auto_num_leaves`` computes and reports nothing. Measured before this
+    check: ``num_leaves=12`` trained at 32, ``min_data_in_leaf=3`` at 1, and
+    ``scale_pos_weight=10`` at 0.935.
+
+    This is the policy ``LGBMConfig._validate_smart_params`` already applies to
+    the same collisions in the config: the conflict is an error, not a silent
+    substitution. **It applies here to the ``fit()`` override only**, because
+    that is the input this change introduces.
+
+    The other two surfaces are open, with their gaps measured rather than
+    described, so this bound is not read as wider than it is:
+
+    * ``model.params`` -- ``LGBMConfig._validate_smart_params`` compares
+      literal strings and covers three of the five smart parameters, so over
+      the whole surface (each smart parameter x each native name it writes x
+      each spelling LightGBM accepts) **3 of 18 are refused**; of the rest, 12
+      send two spellings to ``lgb.train`` and 3 are overwritten outright.
+      ``config/`` cannot import ``estimators/`` under the layer rule and so
+      cannot reach the alias table; where the refusal belongs is a design
+      decision the maintainer holds open as **#280**, recorded in
+      BLUEPRINT.md §14.4.
+    * the search space has its own measured gap (H-0094, **#279**).
+
+    An earlier wording of this docstring said the config surface "is refused at
+    parse time for three of the five", which is true of the smart parameters and
+    false of the surface: it counted the three canonical names and not the
+    fifteen spellings and targets that pass. A bound stated wider than it holds
+    is the shape this PR is about (H-0094 decision 8, review round 12).
+
+    Args:
+        provider: EstimatorProvider instance.
+        override: The ``fit()`` override, or ``None``.
+        smart: Merged smart params, as they will be resolved.
+        task: ML task type -- a smart parameter may write a native name for one
+            task and not for another.
+        surface: How to name the offending input in the message.
+
+    Raises:
+        LizyMLError: with ``CONFIG_INVALID``, naming every managed name given.
+    """
+    if not override:
+        return
+    from lizyml.core.exceptions import ErrorCode, LizyMLError
+
+    managed: dict[str, tuple[str, str]] = provider.smart_managed_param_names(
+        smart, task
+    )
+    hits = [(name, *managed[name]) for name in override if name in managed]
+    if not hits:
+        return
+
+    lines = []
+    for name, canonical, smart_name in hits:
+        # An alias is the same parameter to the estimator, so say which one it
+        # names -- otherwise the message talks about a name the user did not
+        # write, or about one whose connection to theirs is invisible.
+        subject = (
+            f"'{name}'"
+            if name == canonical
+            else f"'{name}', which names '{canonical}',"
+        )
+        lines.append(
+            f"  {surface}: {subject} is resolved from the smart parameter "
+            f"'{smart_name}' and would be replaced, so setting it here would "
+            f"have no effect. Disable 'model.{smart_name}' to set "
+            f"'{canonical}' directly."
+        )
+    raise LizyMLError(
+        code=ErrorCode.CONFIG_INVALID,
+        user_message=(
+            "Parameter name(s) managed by a smart parameter:\n" + "\n".join(lines)
+        ),
+        context={
+            "managed": [
+                {
+                    "surface": surface,
+                    "name": name,
+                    "canonical": canonical,
+                    "smart_param": smart_name,
+                }
+                for name, canonical, smart_name in hits
+            ]
+        },
+    )
+
+
 def check_calibration_param_names(calibration_cfg: Any) -> None:
     """Reject ``calibration.params`` names LightGBM would silently discard.
 
@@ -561,12 +1071,21 @@ def check_calibration_param_names(calibration_cfg: Any) -> None:
     Only the LightGBM-backed methods are checked; see
     ``LGBM_BACKED_CALIBRATORS``.
 
+    It is also a fourth **layer**, and the same-layer rule applies to it: one
+    parameter written twice under two spellings with different values is
+    refused. Until this was wired, ``{"learning_rate": 0.001, "eta": 0.5}``
+    sent both to the calibrator's ``lgbm.train``, which kept the canonical one
+    in silence -- the shape H-0094 decision 6 declares against, on the one layer
+    that had a name check and no identity check (H-0094 decision 7, found by the
+    rounds 10-11 monitor).
+
     Args:
         calibration_cfg: ``cfg.calibration``, or ``None`` when the run is not
             calibrated.
 
     Raises:
-        LizyMLError: with ``CONFIG_INVALID``, naming every offending name.
+        LizyMLError: with ``CONFIG_INVALID``, naming every offending name, and
+            naming both spellings when one parameter is written twice.
     """
     if calibration_cfg is None:
         return
@@ -583,9 +1102,64 @@ def check_calibration_param_names(calibration_cfg: Any) -> None:
     # The calibrator hardcodes LightGBM regardless of which estimator the model
     # uses, so the authority here is the LightGBM provider and not
     # ``get_provider(cfg.model)``.
+    provider = LGBMProvider()
     check_param_names(
-        LGBMProvider(),
+        provider,
         [("calibration.params", name) for name in params],
         model_name="lgbm",
         extra_accepted=CALIBRATOR_OWN_PARAM_NAMES,
     )
+    normalise_and_check(provider, dict(params), surface="calibration.params")
+
+
+def canonicalise_calibration_params(params: dict[str, Any]) -> dict[str, Any]:
+    """Rewrite ``calibration.params`` names to the spellings the calibrator merges by.
+
+    The calibrator merges the caller's parameters over its own defaults **by
+    spelling** -- ``{**_ISOTONIC_DEFAULTS, **user}`` -- and those defaults are
+    written in LightGBM's canonical names. So ``{"eta": 0.5}`` did not replace
+    anything: the merged dict carried ``learning_rate: 0.03`` from the defaults
+    *and* ``eta: 0.5`` from the caller, LightGBM resolved the two to one
+    parameter and kept the canonical one, and the override was defeated in
+    silence by the value it was written to override (H-0094 decision 8, review
+    round 12). ``random_state`` was the same defect against the seed the facade
+    supplies.
+
+    The same-layer identity refusal does not reach this, and should not: the
+    caller wrote the parameter **once**. The collision is between the caller's
+    layer and the calibrator's defaults, so it is resolved by putting both in
+    one spelling before they meet, rather than by teaching the calibrator about
+    aliases -- ``lizyml/calibration/`` may not import ``lizyml/estimators/``.
+
+    The calibrator's **own** parameters are left alone. ``num_boost_round`` is a
+    LightGBM alias of ``num_iterations``, and canonicalising it would rename the
+    key the calibrator pops for its boosting rounds; see
+    ``CALIBRATOR_OWN_PARAM_NAMES``.
+
+    Args:
+        params: ``cfg.calibration.params``, as the caller wrote it.
+
+    Returns:
+        A new dict with every LightGBM-known name in its canonical spelling.
+        When two of the caller's spellings canonicalise to one name they have
+        already been refused unless they carry the same value, so the surviving
+        entry means what both spellings meant.
+    """
+    if not params:
+        return dict(params)
+
+    from lizyml.calibration.isotonic import CALIBRATOR_OWN_PARAM_NAMES
+    from lizyml.estimators.lgbm.provider import LGBMProvider
+
+    # Normalised here as well as in `check_calibration_param_names`: that
+    # one refuses, this one produces the dict the calibrator is actually
+    # handed, and the calibrator reaches `lgbm.train` without passing the
+    # other three surfaces. Normalisation is idempotent, so running it
+    # twice costs a walk of a small dict and removes a route into training
+    # that is normalised nowhere (H-0095).
+    params = normalise_params(params, surface="calibration.params")
+    canonical = LGBMProvider().canonical_param_names(params)
+    return {
+        name if name in CALIBRATOR_OWN_PARAM_NAMES else canonical[name]: value
+        for name, value in params.items()
+    }
