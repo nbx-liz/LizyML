@@ -489,11 +489,20 @@ class LGBMAdapter(BaseEstimatorAdapter):
         # here, and the reason has changed under H-0096, so it is restated
         # rather than left to be read as it was: that helper used to refuse only
         # two spellings carrying *different* values, and it now refuses any two
-        # spellings. This module has an accepted decision that `seed` takes
-        # priority over `random_state` (`test_lgbm_defaults.py`), so routing
-        # this site through the helper would revoke that decision rather than
-        # tidy a name -- which is beyond what H-0096 proposed, and it names five
-        # places rather than every site in this module.
+        # spellings, and H-0096 names five places rather than every site in this
+        # module.
+        #
+        # **Corrected while deriving the rule positions for PR 2b.** This comment
+        # used to say the module has an accepted decision that `seed` takes
+        # priority over `random_state`, and that routing the site through the
+        # helper would revoke it. That is not what is recorded. `BLUEPRINT.md`
+        # 1187 and `test_lgbm_defaults.py` pin the **conversion of a single
+        # spelling** -- `random_state` becomes `seed`, `verbose` becomes
+        # `verbosity` -- which the helper preserves, because it refuses only when
+        # *two* spellings are present and otherwise pops the one that is there.
+        # **No document and no pre-existing test says which of two spellings
+        # wins.** The only case asserting the current behaviour is the one this
+        # pull request added to pin the site as unreachable.
         #
         # Reachability, measured rather than argued (2026-09-09, at `5715ee2`):
         # from the facade this branch cannot see two spellings at all, because
