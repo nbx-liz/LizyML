@@ -95,9 +95,12 @@ def _validate_categorical_choices(name: str, choices: list[Any]) -> None:
     * ``isinstance`` admits a subclass, and ``np.float64`` subclasses ``float``
       while ``np.str_`` subclasses ``str``. Those two were the whole hole: every
       other numpy scalar type was already refused here.
-    * ``type(val) in _ALLOWED_CHOICE_TYPES`` is a hash-and-equality search, and a
-      class's ``__hash__`` and ``__eq__`` come from its metaclass, which the
-      caller writes (BLUEPRINT 14.4, review round 23).
+    * ``type(val) in _ALLOWED_CHOICE_TYPES`` asks the tuple whether any member
+      *equals* the type, and a class's ``__eq__`` comes from its metaclass, which
+      the caller writes. Measured: a class whose metaclass returns ``True`` for
+      ``float`` passes that membership test, and ``__hash__`` is never consulted
+      because this container is a tuple -- a ``set`` would hash first (BLUEPRINT
+      14.4 states the ``set`` case, from review round 23).
     """
     for i, val in enumerate(choices):
         if not any(type(val) is allowed for allowed in _ALLOWED_CHOICE_TYPES):

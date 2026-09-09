@@ -691,10 +691,12 @@ def test_a_plain_choice_still_tunes() -> None:
 def test_the_choice_gate_reads_the_type_and_not_the_callers_equality() -> None:
     """A class can answer a membership test; it cannot change what it *is*.
 
-    ``type(x) in (...)`` is a hash-and-equality search over the tuple, and a
-    class's ``__hash__`` and ``__eq__`` come from its metaclass, which the caller
-    writes. BLUEPRINT 14.4 settled this for the accepted set at review round 23;
-    the same reasoning applies wherever a type decides admission.
+    ``type(x) in (...)`` asks each member of the tuple whether it *equals* the
+    type, and a class's ``__eq__`` comes from its metaclass, which the caller
+    writes. (A ``set`` would hash first; a tuple does not, which is the half of
+    BLUEPRINT 14.4's round-23 wording that does not apply here -- measured in
+    round 30.) The reasoning that does apply: wherever a type decides admission,
+    ask by identity.
     """
 
     class PretendsToBeFloat(type):
@@ -1672,8 +1674,17 @@ def test_the_estimator_never_sees_two_spellings_of_one_parameter() -> None:
 # inspection. One test per seam is what makes the next change to any one of them
 # fail loudly instead of quietly reintroducing the asymmetry.
 #
-# The population is derived from the source below, not listed here, so a sixth
-# seam added later cannot be silently uncovered.
+# The population is derived from the source below rather than listed here. What
+# that buys is bounded, and round 30 measured the bound: the scan collects the
+# *distinct layer names* passed to a bare `overlay_params(...)` call in the two
+# modules named below. It therefore catches a seam introduced under a **new layer
+# name** in those modules -- the likely shape of the next change -- and it does
+# **not** catch a second call reusing a covered name, a qualified or renamed call,
+# an overlay written as a plain dict merge, or a call in a third module. An
+# expression rather than a name does fail loudly, by the assertion in the scan.
+#
+# The first version of this comment claimed a sixth seam could not be silently
+# uncovered. That was more than the scan establishes.
 
 #: The layer argument of each ``overlay_params`` call, mapped to the test that
 #: writes an alias at that layer. Checked against the source by
