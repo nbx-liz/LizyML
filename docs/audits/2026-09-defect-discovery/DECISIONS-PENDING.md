@@ -1473,3 +1473,50 @@ D11 で固定した反証条件は発火していない。指摘は deliverable 
 2. **そのまま round 27 を範囲限定で回す**（D12 の決定を維持する）。
 3. **PR を分割する** —— #264 本体を先にマージし、H-0095 を別 PR に切り出す。
 4. **`APPROVE` を求めずマージする。**
+
+### 追記 — 原因解析（2026-09-09、ユーザー指示）
+
+D13 の 4 択を出す前に、**なぜ 26 ラウンドで `APPROVE` が出ないのか**を解析した。
+全文は `results/pr2_why_no_approve.md`、生の計測は
+`results/pr2_duplicate_tolerance_measurement.txt`、計測器は
+`instruments/duplicate_tolerance_firing_rate.py`（出荷済み、実行して確認済み）。
+
+**原因は 2 つあり、独立している。**
+
+- **A（設計）**: round 5 で決めた「同一層の重複綴りは**値が等しければ許す**」が、
+  任意の Python 値についての**全域な等価判定**を要求している。`values_differ` の
+  呼び出し元は今も 2 か所だけで、どちらもまさにこの問い。この 1 行の仕様が
+  `value_equality.py` + `param_domain.py` = **728 行**、production commit
+  **51 件中 30 件**、**rounds 18-26 の 9 連続**を生んでいる。
+  H-0095 はこの述語の入力を有界にするために存在する（`value_equality.py:9`）ので、
+  **独立した層ではなく A の下流**である。
+- **B（手続き）**: round 21 以降、問いが「**どんな値でも門を破れないか**」という
+  **全称命題**になった。反例でしか答えられないので **`APPROVE` の出口が無い**。
+  **A を除いても B は残る。**
+
+**新規実測 — A の許容分岐は出荷済み母集団で 0 回発火する。**
+4 surface すべての呼び出し点を包んでスイート全体（`9731 passed`）を計測した:
+
+```
+one parameter under two spellings: 51
+  REFUSED  (different values): 14
+  TOLERATED (equal values):    37
+帰属: 37/37 が tests/test_core/test_fit_params_override.py（本 PR が追加した file）
+      pre-existing のヒット: 0
+```
+
+round 11 の `0/811`、round 12 の `0/1009` / `0/22`、round 13 の `0/916` / `0/928`、
+round 14 の `0/70`、H-0093 の `0/736` / `0/52` / `0/3` と整合する。
+**「等しければ許す」は DC6 の形をした許容**であり、それが 30 commit を運んでいる。
+
+**同じ PR に厳しい側の前例がある**: `7f50c59` は探索空間 surface で
+**値を見ずに重複綴りを拒否**している。round 5 の許容は制約ではなく選択だった。
+
+### 追加された選択肢
+
+5. **仕様を狭める** —— **同一層の重複綴りは値によらず拒否する**（`7f50c59` と同じ規則を
+   残り 4 surface へ）。`values_differ` の 2 つの呼び出し元が消え、`param_domain.py` の
+   存在理由（比較の領域を閉じること）も消える。**レビューの問いが有限になる。**
+   —— **H-0094 round 5 の決定の改訂であり Change Gate 案件。** 上の実測が
+   firing rate 証拠になる。bound: 計測できたのは本リポジトリが構築する母集団だけで、
+   ユーザーが将来書く config は測れない（＝振る舞いの変更ではある）。
