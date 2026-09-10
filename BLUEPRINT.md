@@ -784,6 +784,9 @@ new fixed policy without inheriting the previous round's fixed defaults.
 Fresh studies also start from Config model/smart parameters rather than previous
 best parameters. Resume retains its successful tuning overlay and resolved space.
 Fresh-study training conflict checks likewise exclude prior training overrides.
+Admission also checks training ownership introduced by the current resolved
+space against effective native parameters and model dimensions before study
+creation, including inherited defaults and aliases.
 Export/load retains the effective policy independently of subsequent Config
 changes; an explicit empty policy differs from absent legacy metadata.
 Automatic boundary

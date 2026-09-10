@@ -404,3 +404,41 @@ def test_removed_training_dimension_admission(resume: bool) -> None:
         result = model.tune(data=data, resume=False, expand_boundary=False)
         assert not result.best_training_params
         model.fit(data=data)
+
+
+@pytest.mark.parametrize("mode", ["merge", "replace"])
+@pytest.mark.parametrize("surface", ["model", "space"])
+@pytest.mark.parametrize("native_name", ["early_stopping_round", "early_stopping"])
+def test_resolved_training_conflict_refused_before_study(
+    monkeypatch: pytest.MonkeyPatch, mode: str, surface: str, native_name: str
+) -> None:
+    from lizyml.core.exceptions import ErrorCode, LizyMLError
+    from lizyml.tuning.tuner import Tuner
+
+    space = {"num_iterations": {"type": "categorical", "choices": [5]}}
+    if mode == "replace":
+        space["early_stopping_rounds"] = {
+            "type": "categorical",
+            "choices": [2],
+            "category": "training",
+        }
+    config = _config(space, mode)
+    config["training"] = {"early_stopping": {"enabled": False}}
+    if surface == "model":
+        config["model"]["params"][native_name] = 0
+    else:
+        space[native_name] = {
+            "type": "categorical",
+            "choices": [0],
+            "category": "model",
+        }
+    model = Model(config)
+
+    def unexpected_study(*args: object, **kwargs: object) -> None:
+        pytest.fail("conflicting resolved space reached study creation")
+
+    monkeypatch.setattr(Tuner, "tune", unexpected_study)
+    with pytest.raises(LizyMLError) as caught:
+        model.tune(data=make_regression_df(n=60))
+    assert caught.value.code == ErrorCode.CONFIG_INVALID
+    assert "already controlled" in str(caught.value)

@@ -21,6 +21,7 @@ from lizyml.core._model_factories import (
     check_calibration_param_names,
     check_duplicate_space_dimensions,
     check_param_names,
+    check_training_managed_overrides,
     check_training_managed_space,
     get_provider,
     model_space_names,
@@ -249,6 +250,33 @@ class ModelTuningMixin:
         )
 
         validate_tuning_dimensions(provider, space, base_smart_params, cfg.task)
+
+        # Resolved defaults can introduce training ownership even when Config
+        # disables it. Check every native name the objective can send before
+        # creating a study. Early-stopping ownership depends on presence of a
+        # training override, not its sampled patience; 1 represents that state.
+        training_claims = (
+            {"early_stopping_rounds": 1}
+            if any(
+                dim.category == "training" and dim.name == "early_stopping_rounds"
+                for dim in space
+            )
+            else None
+        )
+        resolved_model = overlay_params(provider, base_model_params, fixed)
+        check_training_managed_overrides(
+            provider, resolved_model, cfg, training_overrides=training_claims
+        )
+        model_dimensions = dict.fromkeys(
+            dim.name for dim in space if dim.category == "model"
+        )
+        check_training_managed_overrides(
+            provider,
+            model_dimensions,
+            cfg,
+            origins=dict.fromkeys(model_dimensions, "tuning.optuna.space"),
+            training_overrides=training_claims,
+        )
 
         # --- Metric & evaluator setup --------------------------------------------
         metric_entries = cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task]

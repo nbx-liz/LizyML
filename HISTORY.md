@@ -10018,3 +10018,7 @@ would unnecessarily remove legitimate explicit-only tuning workflows.
   checking native parameter conflicts. A real tune-to-fit regression reproduces
   obsolete early-stopping settings incorrectly refusing a fresh study; resume
   and fit still reject conflicts with the retained successful training policy.
+- Resolved training dimensions can introduce ownership even when Config early
+  stopping is disabled. Admission now checks those dimensions against effective
+  native parameters and model dimensions before study creation. Regression cases
+  cover inherited merge defaults, explicit replacement dimensions and aliases.
