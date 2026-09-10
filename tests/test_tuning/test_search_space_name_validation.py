@@ -10,8 +10,9 @@ one that explores a meaningful one.
 The gate (H-0093) rejects such a name at ``Model(...)`` construction. This file
 is its population: three name classes x three ``category`` values x three tasks.
 The ``category`` axis matters because only ``model`` names reach LightGBM's
-parameter space -- ``smart`` and ``training`` names are LizyML's own, and
-rejecting those would be a false positive.
+parameter space -- ``smart`` and ``training`` names are LizyML's own.
+H-0099 additionally refuses training names without a consumer, and native
+model names in this matrix explicitly disable the conflicting smart owner.
 
 Two things are asserted for the rejected cells, not one: that the error is
 ``CONFIG_INVALID``, and that the name **never reaches** ``lgb.train``. The
@@ -43,7 +44,7 @@ CATEGORIES = ("model", "smart", "training")
 #: The three name classes. ``accepted_as_model`` says whether the gate should
 #: let the name through when it is declared with ``category: model``.
 NAMES: dict[str, dict[str, Any]] = {
-    # A real LightGBM parameter: always fine under category: model.
+    # A real LightGBM parameter when its smart owner is disabled.
     "num_leaves": {"accepted_as_model": True, "is_smart": False},
     # A LizyML smart parameter: not a LightGBM name, so wrong under
     # category: model -- and the diagnostic should say which category it wants.
@@ -92,6 +93,7 @@ def _record_train_params() -> Iterator[list[dict[str, Any]]]:
 
 def _config_with_space(task: str, name: str, category: str) -> dict[str, Any]:
     cfg = make_config(task, n_estimators=5, n_splits=2, tuning_n_trials=2)
+    cfg["model"]["auto_num_leaves"] = False
     cfg["tuning"]["optuna"]["space"] = {
         name: {"type": "int", "low": 4, "high": 8, "category": category}
         if name == "num_leaves"
@@ -102,13 +104,14 @@ def _config_with_space(task: str, name: str, category: str) -> dict[str, Any]:
 
 @pytest.mark.parametrize(("name", "category", "task"), CELLS)
 def test_search_space_name_is_gated(name: str, category: str, task: str) -> None:
-    """Reject an unknown ``category: model`` name; leave every other cell alone."""
+    """Reject unknown model names and training names with no consumer."""
     cfg = _config_with_space(task, name, category)
-    should_reject = category == "model" and not NAMES[name]["accepted_as_model"]
+    should_reject = category == "training" or (
+        category == "model" and not NAMES[name]["accepted_as_model"]
+    )
 
     if not should_reject:
-        # Tuning must not raise for a name this gate has no business judging --
-        # a smart or training dimension, or a real LightGBM one.
+        # This matrix retains the existing smart-category admission behavior.
         Model(cfg, data=_df_for(task)).tune()
         return
 
@@ -120,7 +123,7 @@ def test_search_space_name_is_gated(name: str, category: str, task: str) -> None
         f"got {err.code}"
     )
     assert name in str(err), f"the message must name the offending dimension: {err}"
-    if NAMES[name]["is_smart"]:
+    if category == "model" and NAMES[name]["is_smart"]:
         assert "smart" in str(err), (
             f"{name!r} is a smart parameter, so the message should point at "
             f"category: smart rather than only rejecting it. Got: {err}"

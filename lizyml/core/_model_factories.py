@@ -1013,10 +1013,10 @@ def check_smart_managed_overrides(
 
     This is the policy ``LGBMConfig._validate_smart_params`` already applies to
     the same collisions in the config: the conflict is an error, not a silent
-    substitution. **It applies here to the ``fit()`` override only**, because
-    that is the input this change introduces.
+    substitution. H-0099 also applies this authority to resolved tuning
+    model dimensions before the study starts.
 
-    The other two surfaces are open, with their gaps measured rather than
+    The config surface remains separately scoped, with its gap measured rather than
     described, so this bound is not read as wider than it is:
 
     * ``model.params`` -- ``LGBMConfig._validate_smart_params`` compares
@@ -1028,7 +1028,8 @@ def check_smart_managed_overrides(
       cannot reach the alias table; where the refusal belongs is a design
       decision the maintainer holds open as **#280**, recorded in
       BLUEPRINT.md §14.4.
-    * the search space has its own measured gap (H-0094, **#279**).
+    * the search-space gap (H-0094, **#279**) is closed by H-0099's resolved
+      dimension admission, using this same active-owner check.
 
     An earlier wording of this docstring said the config surface "is refused at
     parse time for three of the five", which is true of the smart parameters and

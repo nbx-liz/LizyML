@@ -495,7 +495,7 @@ class OptunaParamsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     n_trials: int = 50
-    direction: Literal["minimize", "maximize"] = "minimize"
+    direction: Literal["minimize", "maximize"] | None = None
     timeout: float | None = None
 
 

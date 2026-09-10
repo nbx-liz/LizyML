@@ -239,7 +239,8 @@ config = {
 |---|---|
 | `model.params`（config） | `LGBMConfig._validate_smart_params` が parse 時に拒否。ただし **(a) `auto_num_leaves` / 2 つの ratio の 3 件のみ**（`balanced`→`scale_pos_weight` と `feature_weights`→`feature_contri` / `feature_pre_filter` は対象外）、かつ **(b) 文字列一致のみ**でエイリアスを見ない。**面の全体を実行して数えた（H-0094 決定 8 / 18 通り = スマートパラメーター × 書き込む native 名 × 受理綴り）: 拒否 3 / 2 綴りが `lgb.train` に届く 12 / 黙って上書き 3。** `max_leaves` / `min_child_samples` は通過して置換され、`scale_pos_weight: 10.0` は `balanced` により `0.951` で学習する（[#280](https://github.com/nbx-liz/LizyML/issues/280)）。`config/` は層規約上 `estimators/` を import できず学習器の別名表に届かないため、修正は「どこで拒否するか」の設計判断になる |
 | `fit(params=...)` | **H-0094 で拒否する（5 件すべて）。** 有効なスマートパラメーターが書くネイティブ名は `CONFIG_INVALID` とし、どのスマートパラメーターが管理しているかを名指しする |
-| `tuning.optuna.space`（`category: model`） | **未対応（[#279](https://github.com/nbx-liz/LizyML/issues/279)）。** サンプルされた値は学習に届かず、`best_model_params` には届かなかった値が記録される。実測: 本リポジトリのスイートが構築する `category: model` 探索空間 67 件のうち **54 件**が該当（すべて `num_leaves`）。方向の決定は #279 |
+| `tuning.optuna.space` (`category: model`) | H-0099: reject names claimed by active smart parameters, including aliases, before study creation. Validate the resolved explicit/default/resumed space, including smart dimensions that can activate a conflicting owner. To tune native leaves directly, disable `model.auto_num_leaves`; sampled values then reach training. |
+| `tuning.optuna.space` (`category: training`) | H-0099: accept only `early_stopping_rounds` and `validation_ratio`, the two training override consumers. Reject other names with `CONFIG_INVALID` before study creation. |
 
 ### auto_num_leaves（葉の数の自動算出）
 
@@ -361,7 +362,7 @@ config = {
 | Key | Type | Required | Default | Notes |
 |---|---|---|---|---|
 | `optuna.params.n_trials` | `int` | No | `50` | |
-| `optuna.params.direction` | `"minimize" \| "maximize"` | No | `"minimize"` | |
+| `optuna.params.direction` | `"minimize" \| "maximize" \| null` | No | `null` | Automatic orientation from the first effective evaluation metric; contradictory explicit values are CONFIG_INVALID (H-0099). |
 | `optuna.params.timeout` | `float \| null` | No | `null` | |
 | `optuna.space` | `dict[str, Any]` | No | `{}` | 空ならデフォルト空間 |
 
@@ -973,7 +974,17 @@ LizyML Core は callback + 結果型でデータを提供し、Widget/Studio が
 
 - `storage is not None and study_name is None` → `LizyMLError(CONFIG_INVALID)`
 - `RoundSummary` / `BoundaryReport` 等のラウンドメタは journal には保存されない（trial 単位 resume のみが対象）。round 履歴の永続化は別 Proposal で扱う。
-- 利用者は study_name のユニーク性を担保する責任を持つ。同一 storage に異なる direction の study を同 study_name で作成することは Optuna 仕様上不可。
+- H-0099: supplied and persisted studies must match the resolved objective direction. Reject mismatches with `CONFIG_INVALID` before enqueue or optimization; use a new study name instead of relabeling an existing study.
+
+### Objective direction (H-0099)
+
+The first configured evaluation metric, or the first task default when omitted,
+is the objective. Omitted/null `tuning.optuna.params.direction` derives from that
+metric's `greater_is_better`, including parameterized metric entries. Explicit
+directions must agree or fail with `CONFIG_INVALID` before creating a study.
+Null remains automatic through Config dump/load; exported Result directions
+are always the resolved `minimize` or `maximize`. Historical configs containing
+contradictory explicit directions require migration; old explicitness is not guessed.
 
 ## 11.6 リーク回避方針（必須で明文化）
 

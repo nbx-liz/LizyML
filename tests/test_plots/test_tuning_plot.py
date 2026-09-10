@@ -23,6 +23,7 @@ from tests._helpers import make_config, make_regression_df
 
 def _reg_config_with_tuning() -> dict:
     cfg = make_config("regression", tuning_n_trials=3)
+    cfg["model"]["auto_num_leaves"] = False
     cfg["tuning"]["optuna"]["space"] = {
         "num_leaves": {"type": "int", "low": 8, "high": 32},
     }
