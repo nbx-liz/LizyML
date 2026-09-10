@@ -846,6 +846,7 @@ class TestBoundaryTable:
 
     def test_boundary_table_with_report(self) -> None:
         cfg = _reg_config_with_tuning(n_trials=2)
+        cfg["tuning"]["optuna"]["space_mode"] = "replace"
         df = make_regression_df()
         model = Model(cfg)
         model.tune(df)

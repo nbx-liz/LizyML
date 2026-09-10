@@ -102,9 +102,6 @@ from lizyml.metrics.registry import (
 from lizyml.training.cv_trainer import CVTrainer
 from lizyml.training.inner_valid import BaseInnerValidStrategy
 from lizyml.training.refit_trainer import RefitResult, RefitTrainer
-from lizyml.tuning.search_space import (
-    parse_space,
-)
 
 _log = get_logger("model")
 
@@ -167,6 +164,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         self._rounds: list[RoundSummary] = []  # round history
         self._space: list[Any] | None = None  # last search space used
         self._used_default_space: bool = False  # track for expand_boundary default
+        self._tuning_fixed_params: dict[str, Any] | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -497,11 +495,15 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             # cfg.tuning is always set when _tuning_result exists (tune() sets
             # both), but guard defensively for unit tests that inject
             # _tuning_result directly.
-            used_default_space = cfg.tuning is not None and not parse_space(
-                cfg.tuning.optuna.space
-            )
-            if used_default_space:
-                fixed = provider.default_fixed_params(cfg.task)
+            fixed = self._tuning_fixed_params
+            if fixed is None:
+                fixed = (
+                    provider.default_fixed_params(cfg.task)
+                    if cfg.tuning is not None
+                    and cfg.tuning.optuna.space_mode == "merge"
+                    else {}
+                )
+            if fixed:
                 model_params = overlay_params(provider, model_params, fixed)
                 origins.update(dict.fromkeys(fixed, "provider default fixed params"))
 

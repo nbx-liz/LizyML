@@ -293,6 +293,12 @@ class ModelPersistenceMixin:
 
         fit_result, refit_result, metadata, analysis_context = _load(path)
         config = metadata["config"]
+        # Pre-H-0100 artifacts used replacement for nonempty user spaces.
+        # Do not reinterpret their tuning policy when restoring for re-fit.
+        if config.get("tuning") is not None:
+            optuna = config["tuning"].get("optuna", {})
+            if "space_mode" not in optuna:
+                optuna["space_mode"] = "replace" if optuna.get("space") else "merge"
         # ``load`` is the canonical re-hydration path — direct private-attr
         # writes here are confined to this classmethod and intentionally
         # rebuild the Model body. The Mixin state-isolation guard targets

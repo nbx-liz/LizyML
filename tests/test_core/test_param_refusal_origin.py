@@ -115,6 +115,7 @@ def test_tuning_validates_after_sampled_overlay() -> None:
         objective="regression",
         tuning_n_trials=1,
     )
+    cfg["tuning"]["optuna"]["space_mode"] = "replace"
     cfg["tuning"]["optuna"]["space"] = {
         "application": {
             "type": "categorical",
