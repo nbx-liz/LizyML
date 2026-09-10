@@ -369,3 +369,38 @@ def test_failed_fresh_round_preserves_previous_fit_policy(
     params, _ = model._merge_params(LGBMProvider())
     assert params["learning_rate"] == 0.04
     assert params["first_metric_only"] is True
+
+
+@pytest.mark.parametrize("resume", [False, True])
+def test_removed_training_dimension_admission(resume: bool) -> None:
+    from lizyml.core.exceptions import LizyMLError
+
+    iterations = {"type": "categorical", "choices": [5]}
+    config = _config(
+        {
+            "num_iterations": iterations,
+            "early_stopping_rounds": {
+                "type": "categorical",
+                "choices": [2],
+                "category": "training",
+            },
+        },
+        "replace",
+    )
+    config["training"] = {"early_stopping": {"enabled": False}}
+    model = Model(config)
+    data = make_regression_df(n=60)
+    model.tune(data=data)
+    assert model._tuning_result.best_training_params["early_stopping_rounds"] == 2
+    model._cfg.model.params["early_stopping_round"] = 0
+    model._cfg.tuning.optuna.space = {"num_iterations": iterations}
+
+    if resume:
+        with pytest.raises(LizyMLError, match="already controlled"):
+            model.tune(data=data, resume=True, expand_boundary=False)
+        with pytest.raises(LizyMLError, match="already controlled"):
+            model.fit(data=data)
+    else:
+        result = model.tune(data=data, resume=False, expand_boundary=False)
+        assert not result.best_training_params
+        model.fit(data=data)

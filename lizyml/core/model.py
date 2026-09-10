@@ -590,7 +590,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             origins=origins,
             training_overrides=(
                 self._tuning_result.best_training_params
-                if self._tuning_result is not None
+                if include_tuning_result and self._tuning_result is not None
                 else None
             ),
         )

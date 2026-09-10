@@ -10014,3 +10014,7 @@ would unnecessarily remove legitimate explicit-only tuning workflows.
   into fresh trials through the prior best overlay. Actual-flow regressions
   reproduced both categories. Fresh studies now omit that entire prior tuning
   overlay; fit and resume continue to reuse the successful tuning result.
+- Fresh-study admission also excludes prior best training parameters when
+  checking native parameter conflicts. A real tune-to-fit regression reproduces
+  obsolete early-stopping settings incorrectly refusing a fresh study; resume
+  and fit still reject conflicts with the retained successful training policy.

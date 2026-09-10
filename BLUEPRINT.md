@@ -783,6 +783,7 @@ fixed-default policy of the previous successful round. Fresh rounds use their
 new fixed policy without inheriting the previous round's fixed defaults.
 Fresh studies also start from Config model/smart parameters rather than previous
 best parameters. Resume retains its successful tuning overlay and resolved space.
+Fresh-study training conflict checks likewise exclude prior training overrides.
 Export/load retains the effective policy independently of subsequent Config
 changes; an explicit empty policy differs from absent legacy metadata.
 Automatic boundary
