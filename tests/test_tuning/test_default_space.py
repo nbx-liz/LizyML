@@ -193,8 +193,8 @@ class TestDefaultSpaceE2E:
         assert "num_leaves_ratio" in result.best_params
         assert "early_stopping_rounds" in result.best_params
 
-    def test_user_space_overrides_default(self) -> None:
-        """When user provides space, it should be used instead of defaults."""
+    def test_replace_mode_uses_only_user_space(self) -> None:
+        """Explicit replacement preserves the pre-H-0100 small-space behavior."""
         config = {
             "config_version": 1,
             "task": "regression",
@@ -215,6 +215,7 @@ class TestDefaultSpaceE2E:
                 }
             },
         }
+        config["tuning"]["optuna"]["space_mode"] = "replace"
         m = Model(config)
         result = m.tune(data=make_regression_df(n=100))
         assert isinstance(result, TuningResult)

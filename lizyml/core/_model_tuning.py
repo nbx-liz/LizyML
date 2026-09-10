@@ -21,6 +21,7 @@ from lizyml.core._model_factories import (
     check_calibration_param_names,
     check_duplicate_space_dimensions,
     check_param_names,
+    check_training_managed_overrides,
     check_training_managed_space,
     get_provider,
     model_space_names,
@@ -94,6 +95,7 @@ class ModelTuningMixin:
         _rounds: list[RoundSummary]
         _space: list[Any] | None
         _used_default_space: bool
+        _tuning_fixed_params: dict[str, Any] | None
 
         # --- Facade methods this mixin delegates to (defined on Model) ---
         def _prepare_training_data(
@@ -103,7 +105,12 @@ class ModelTuningMixin:
         ]: ...
 
         def _merge_params(
-            self, provider: Any, override: dict[str, Any] | None = None
+            self,
+            provider: Any,
+            override: dict[str, Any] | None = None,
+            *,
+            tuning_fixed_params: dict[str, Any] | None = None,
+            include_tuning_result: bool = True,
         ) -> tuple[dict[str, Any], dict[str, Any]]: ...
 
         def _ensure_run_dir(self, run_id: str) -> None: ...
@@ -200,7 +207,6 @@ class ModelTuningMixin:
             task=cfg.task,
             seed=cfg.training.seed,
         )
-        base_model_params, base_smart_params = self._merge_params(provider)
 
         # H-0093: a `category: model` dimension whose name the estimator
         # does not know is sampled by Optuna, forwarded, and discarded --
@@ -232,6 +238,9 @@ class ModelTuningMixin:
         space, used_default, fixed = self._resolve_search_space(
             resume=resume, provider=provider
         )
+        base_model_params, base_smart_params = self._merge_params(
+            provider, tuning_fixed_params=fixed, include_tuning_result=resume
+        )
         space, boundary_report, expanded_names = self._maybe_expand_boundary(
             space,
             resume=resume,
@@ -241,6 +250,33 @@ class ModelTuningMixin:
         )
 
         validate_tuning_dimensions(provider, space, base_smart_params, cfg.task)
+
+        # Resolved defaults can introduce training ownership even when Config
+        # disables it. Check every native name the objective can send before
+        # creating a study. Early-stopping ownership depends on presence of a
+        # training override, not its sampled patience; 1 represents that state.
+        training_claims = (
+            {"early_stopping_rounds": 1}
+            if any(
+                dim.category == "training" and dim.name == "early_stopping_rounds"
+                for dim in space
+            )
+            else None
+        )
+        resolved_model = overlay_params(provider, base_model_params, fixed)
+        check_training_managed_overrides(
+            provider, resolved_model, cfg, training_overrides=training_claims
+        )
+        model_dimensions = dict.fromkeys(
+            dim.name for dim in space if dim.category == "model"
+        )
+        check_training_managed_overrides(
+            provider,
+            model_dimensions,
+            cfg,
+            origins=dict.fromkeys(model_dimensions, "tuning.optuna.space"),
+            training_overrides=training_claims,
+        )
 
         # --- Metric & evaluator setup --------------------------------------------
         metric_entries = cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task]
@@ -311,6 +347,7 @@ class ModelTuningMixin:
         self._rounds = list(all_rounds)
         self._space = space
         self._used_default_space = used_default
+        self._tuning_fixed_params = dict(fixed)
 
         _log.info(
             "event='tune.done' round=%d best_params=%s",
@@ -364,7 +401,7 @@ class ModelTuningMixin:
         """Return the search space for this tune call.
 
         Returns a tuple ``(space, used_default, fixed_params)`` where
-        ``used_default`` signals that no user-supplied space was provided
+        ``used_default`` signals merge mode with no user-supplied space
         (drives the H-0068 expand-boundary default).
 
         H-0078: ``provider.parameter_bounds(task)`` is attached to each
@@ -376,19 +413,35 @@ class ModelTuningMixin:
         if resume and self._space is not None:
             space = list(self._space)
             used_default = self._used_default_space
+            fixed = dict(self._tuning_fixed_params or {})
         else:
             user_space = parse_space(cfg.tuning.optuna.space)
-            if user_space:
+            if cfg.tuning.optuna.space_mode == "replace":
                 space = user_space
                 used_default = False
+                fixed = {}
             else:
-                space = provider.default_space(cfg.task)
-                used_default = True
-            space = attach_bounds(space, provider.parameter_bounds(cfg.task))
+                defaults = provider.default_space(cfg.task)
+                canonical = provider.canonical_param_names(
+                    [
+                        dim.name
+                        for dim in [*defaults, *user_space]
+                        if dim.category == "model"
+                    ]
+                )
 
-        fixed: dict[str, Any] = (
-            provider.default_fixed_params(cfg.task) if used_default else {}
-        )
+                def identity(dim: Any) -> tuple[str, str]:
+                    return (
+                        dim.category,
+                        canonical[dim.name] if dim.category == "model" else dim.name,
+                    )
+
+                overrides = {identity(dim): dim for dim in user_space}
+                space = [overrides.pop(identity(dim), dim) for dim in defaults]
+                space.extend(overrides.values())
+                used_default = not user_space
+                fixed = provider.default_fixed_params(cfg.task)
+            space = attach_bounds(space, provider.parameter_bounds(cfg.task))
         return space, used_default, fixed
 
     def _maybe_expand_boundary(

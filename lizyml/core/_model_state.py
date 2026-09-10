@@ -80,6 +80,8 @@ class FitState:
     X: pd.DataFrame | None
     run_dir: Path | None
     output_dir: str | Path | None
+    # None retains legacy config-based inference; {} is an explicit empty policy.
+    tuning_fixed_params: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

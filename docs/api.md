@@ -94,7 +94,7 @@ automatically expanded in the promising direction (H-0068).
 | `data` | `pd.DataFrame \| None` | Training DataFrame. |
 | `resume` | `bool` | If `True`, resume from the previous Study and add trials. Requires a prior `tune()` call. |
 | `n_trials` | `int \| None` | Number of trials. `None` uses the config value. |
-| `expand_boundary` | `bool \| None` | Auto-expand dims near boundary. `None` means `True` for default space, `False` for user-specified space. |
+| `expand_boundary` | `bool \| None` | Auto-expand dims near boundary. `None` means `True` for merge mode with empty/omitted space, otherwise `False`. |
 | `boundary_threshold` | `float` | Edge detection threshold (0.0–0.5). Best values within this fraction of the range from either edge trigger expansion. |
 | `progress_callback` | `TuneProgressCallback \| None` | Called after each trial with a `TuneProgressInfo`. Exceptions inside the callback are caught and emitted as `RuntimeWarning`; tuning is never aborted. |
 | `storage` | `str \| BaseStorage \| None` | Optional Optuna storage URL or `BaseStorage` for resumable tuning (H-0072). `None` keeps the in-memory behavior. Requires `study_name` when set. |

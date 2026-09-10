@@ -82,6 +82,7 @@ def export(
     *,
     analysis_context: AnalysisContext | None = None,
     tuning: TuningResult | None = None,
+    tuning_fixed_params: dict[str, Any] | None = None,
 ) -> None:
     """Serialize Model artifacts to *path*.
 
@@ -96,6 +97,8 @@ def export(
         tuning: Optional tuning result. When present, the tuned-param overlay
             is recorded under ``metadata["tuning"]`` so a re-``fit()`` after
             ``Model.load()`` reproduces the tuned params (H-0086, #215).
+        tuning_fixed_params: Effective fixed policy of the successful tuning
+            round. None omits metadata for legacy fallback; {} records no defaults.
 
     Raises:
         LizyMLError with SERIALIZATION_FAILED on any I/O or serialization error.
@@ -133,6 +136,8 @@ def export(
             # Additive (H-0086, #215): absent for non-tuned models and pre-#215
             # artifacts, which load with ``_tuning_result = None`` as before.
             metadata["tuning"] = _tuning_metadata(tuning)
+            if tuning_fixed_params is not None:
+                metadata["tuning"]["fixed_params"] = dict(tuning_fixed_params)
         (out / "metadata.json").write_text(
             json.dumps(metadata, indent=2, default=str), encoding="utf-8"
         )

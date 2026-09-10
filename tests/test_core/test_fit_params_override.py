@@ -208,6 +208,8 @@ def test_tuning_evaluates_the_parameters_it_then_selects() -> None:
             value for call in calls for name, value in call.items() if name in spellings
         }
 
+    # This regression isolates one sampled parameter, using explicit replacement.
+    model._cfg.tuning.optuna.space_mode = "replace"
     with record_lightgbm_calls() as seen:
         result = model.tune()
     tuned = rates(seen["train_params"])
@@ -674,6 +676,7 @@ def test_a_plain_choice_still_tunes() -> None:
         tuning_n_trials=1,
         num_threads=1,
     )
+    cfg["tuning"]["optuna"]["space_mode"] = "replace"
     cfg["tuning"]["optuna"]["space"] = {
         "eta": {
             "type": "categorical",

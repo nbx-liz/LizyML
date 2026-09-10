@@ -364,7 +364,8 @@ config = {
 | `optuna.params.n_trials` | `int` | No | `50` | |
 | `optuna.params.direction` | `"minimize" \| "maximize" \| null` | No | `null` | Automatic orientation from the first effective evaluation metric; contradictory explicit values are CONFIG_INVALID (H-0099). |
 | `optuna.params.timeout` | `float \| null` | No | `null` | |
-| `optuna.space` | `dict[str, Any]` | No | `{}` | 空ならデフォルト空間 |
+| `optuna.space` | `dict[str, Any]` | No | `{}` | Per-dimension overrides in merge mode |
+| `optuna.space_mode` | `merge \| replace` | No | `merge` | Merge provider defaults or use only explicit dimensions |
 
 ### evaluation
 
@@ -764,7 +765,34 @@ SearchDim にカテゴリ属性を持たせ、Tuner がパラメーターの適�
 
 ## 11.3 デフォルト Tuning Space
 
-`tuning.optuna.space` が空（`{}`）の場合、タスク別のデフォルト探索空間を自動適用する。ユーザーが `space` を指定した場合はユーザー指定を使用する。
+H-0100: `tuning.optuna.space_mode` defaults to `merge`. Start with task-specific
+provider dimensions, replace matching dimensions with complete user definitions,
+and retain unspecified defaults. Model dimensions match by provider parameter
+identity, so `eta` replaces `learning_rate`; smart/training dimensions match by
+category and name. Additional user dimensions are appended. User aliases for
+one parameter in the same space remain invalid.
+
+Set `space_mode: replace` for an explicit-only space, including an empty space.
+This is the migration path for pre-H-0100 nonempty spaces. Merge can increase
+training cost by adding default dimensions and retains the existing smart/native
+conflict refusals. Start a fresh study when changing space semantics.
+
+Merge applies provider fixed defaults with precedence base < fixed < sampled;
+replace applies no fixed defaults. Resume retains the resolved space, bounds and
+fixed-default policy of the previous successful round. Fresh rounds use their
+new fixed policy without inheriting the previous round's fixed defaults.
+Fresh studies also start from Config model/smart parameters rather than previous
+best parameters. Resume retains its successful tuning overlay and resolved space.
+Fresh-study training conflict checks likewise exclude prior training overrides.
+Admission also checks training ownership introduced by the current resolved
+space against effective native parameters and model dimensions before study
+creation, including inherited defaults and aliases.
+Export/load retains the effective policy independently of subsequent Config
+changes; an explicit empty policy differs from absent legacy metadata.
+Automatic boundary
+expansion remains enabled only for merge with an empty/omitted user space;
+partial spaces require explicit opt-in. Older saved artifacts without the mode
+retain replacement for nonempty spaces when loaded, preserving re-fit behavior.
 
 ### 探索次元
 

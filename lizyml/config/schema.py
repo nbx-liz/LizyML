@@ -504,6 +504,7 @@ class OptunaConfig(BaseModel):
 
     params: OptunaParamsConfig = OptunaParamsConfig()
     space: dict[str, Any] = {}
+    space_mode: Literal["merge", "replace"] = "merge"
 
 
 class TuningConfig(BaseModel):

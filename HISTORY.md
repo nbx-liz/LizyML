@@ -9928,3 +9928,97 @@ smart owner, and convert regression cases for discarded settings to refusals.
   still reach their consumers; unsupported names never start a study.
 - Existing valid default spaces and tune/fit identity remain covered. All
   applicable lint, format, type and test gates pass.
+
+## 2026-09-10: Merge partial tuning spaces with provider defaults
+
+- ID: `H-0100`
+- Status: `accepted`
+- Scope: `Config | Tuning`
+- Related: `H-0024`, `H-0068`, `H-0099`, `BLUEPRINT.md §11.3`
+
+### Purpose
+
+Resolve H-0024's contradictory replacement and per-dimension merge clauses.
+A partial space must retain unspecified provider dimensions. At develop
+`21c87c0cc02ce291c96f18989e8010cf19f98365`, all nine executed cases
+(three tasks times learning_rate/eta/shrinkage_rate) lose nine defaults.
+These are controlled regression cases, not natural usage prevalence.
+
+### Proposal
+
+- Add `tuning.optuna.space_mode: merge | replace`, default `merge`.
+- Merge starts with provider defaults. User dimensions replace whole default
+  dimensions by parameter identity; additional dimensions are appended. Model
+  identity uses the provider canonical-name map. Other identities use category
+  and name. Preserve the user's spelling and complete dimension specification.
+- Same-layer duplicate user identities remain invalid. Merge does not waive
+  category, training ownership or smart ownership checks.
+- Replace uses only the user space, including an empty space, with no default
+  fixed parameters. This preserves intentionally small/native-only spaces.
+- Merge keeps existing fixed-value precedence: base model < fixed < sampled.
+- Automatic boundary expansion still requires an empty/omitted user space in
+  merge mode. Partial spaces require explicit `expand_boundary=True`.
+- Resume reuses stored dimensions, bounds, expansion and fixed-default policy;
+  later Config mutations must not reintroduce defaults into the stored space.
+
+### Rule positions and scope
+
+Searching `default_space(` and `_resolve_search_space(` under `lizyml/` finds
+one operational call in tune, one resolver, the provider protocol/implementation
+and default factory. The fresh/resume resolver and objective fixed/sample
+overlays are the affected consumers. Factories still return provider defaults.
+Direct Tuner and parse_space consume explicit dimensions, not Config merge
+policy. This bounded inventory does not claim to cover downstream providers.
+
+### Compatibility and Migration
+
+Partial spaces inherit dimensions, potentially increasing training cost or
+exposing smart/native conflicts. Set `space_mode: replace` to preserve previous
+nonempty-space behavior. Empty/omitted spaces still use defaults. Config
+serialization retains the mode. Artifact format remains unchanged and older
+artifacts remain readable. Start a fresh study when changing space semantics;
+old trials are not observations of the new space.
+
+### Alternatives
+
+Implicit replacement violates partial-space retention. Removing replacement
+would unnecessarily remove legitimate explicit-only tuning workflows.
+
+### Acceptance criteria
+
+- All task defaults survive overrides, including model aliases; smart/training
+  overrides preserve category and additional dimensions survive.
+- Replace preserves explicit-only spaces and fixed-default policy.
+- Config mode round-trips and rejects unknown values.
+- Real Model.tune trials retain default dimensions and apply user overrides.
+- Resume preserves dimensions, bounds and original fixed-default policy.
+- Existing admission failures remain pre-study failures.
+- Ruff, mypy and regression/full suites pass.
+
+### Decision
+
+- Date: `2026-09-10`
+- Result: `accepted`
+- The approved PR 3b scope requires partial-space retention. Explicit replacement
+  preserves the old workflow without continuing silent default removal.
+- Source inspection additionally identified `Model._merge_params` as the fit
+  consumer of fixed defaults and `ModelPersistenceMixin.load` as the legacy
+  Config rehydration boundary. Both are updated in this change. Legacy nonempty
+  artifact spaces receive replace mode when the stored mode is absent.
+- Review found and reproduced fresh merge-to-replace trial/fit divergence and
+  loss of fixed policy after export/load with changed Config. Fresh trials now
+  receive the new round's policy explicitly. FitState and the existing exporter
+  carry optional effective fixed-policy metadata; load restores it while
+  retaining the legacy fallback for artifacts without the field.
+- A later review found that removed sampled model/smart dimensions still leaked
+  into fresh trials through the prior best overlay. Actual-flow regressions
+  reproduced both categories. Fresh studies now omit that entire prior tuning
+  overlay; fit and resume continue to reuse the successful tuning result.
+- Fresh-study admission also excludes prior best training parameters when
+  checking native parameter conflicts. A real tune-to-fit regression reproduces
+  obsolete early-stopping settings incorrectly refusing a fresh study; resume
+  and fit still reject conflicts with the retained successful training policy.
+- Resolved training dimensions can introduce ownership even when Config early
+  stopping is disabled. Admission now checks those dimensions against effective
+  native parameters and model dimensions before study creation. Regression cases
+  cover inherited merge defaults, explicit replacement dimensions and aliases.

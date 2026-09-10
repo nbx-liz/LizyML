@@ -102,9 +102,6 @@ from lizyml.metrics.registry import (
 from lizyml.training.cv_trainer import CVTrainer
 from lizyml.training.inner_valid import BaseInnerValidStrategy
 from lizyml.training.refit_trainer import RefitResult, RefitTrainer
-from lizyml.tuning.search_space import (
-    parse_space,
-)
 
 _log = get_logger("model")
 
@@ -167,6 +164,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         self._rounds: list[RoundSummary] = []  # round history
         self._space: list[Any] | None = None  # last search space used
         self._used_default_space: bool = False  # track for expand_boundary default
+        self._tuning_fixed_params: dict[str, Any] | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -448,6 +446,8 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         override: dict[str, Any] | None = None,
         *,
         validate_values: bool = False,
+        tuning_fixed_params: dict[str, Any] | None = None,
+        include_tuning_result: bool = True,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Merge model and smart params with priority:
         Config defaults < tune best < fit() args.
@@ -457,6 +457,10 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             override: Optional fit() arg overrides (highest priority).
             validate_values: Validate final fit inputs. Tuning still overlays
                 sampled values later, so it keeps validation in the adapter.
+            tuning_fixed_params: Current tuning round's fixed policy. An empty
+                dict explicitly suppresses a previous round's fixed defaults.
+            include_tuning_result: Reuse the successful tuning overlay for fit
+                and resume. Fresh studies start from Config instead.
 
         Returns:
             (model_params, smart_params) tuple.
@@ -492,16 +496,24 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         )
 
         # --- Overlay tune best ---
-        if self._tuning_result is not None:
+        if include_tuning_result and self._tuning_result is not None:
             # Apply default fixed params when default space was used (#76).
             # cfg.tuning is always set when _tuning_result exists (tune() sets
             # both), but guard defensively for unit tests that inject
             # _tuning_result directly.
-            used_default_space = cfg.tuning is not None and not parse_space(
-                cfg.tuning.optuna.space
+            fixed = (
+                tuning_fixed_params
+                if tuning_fixed_params is not None
+                else self._tuning_fixed_params
             )
-            if used_default_space:
-                fixed = provider.default_fixed_params(cfg.task)
+            if fixed is None:
+                fixed = (
+                    provider.default_fixed_params(cfg.task)
+                    if cfg.tuning is not None
+                    and cfg.tuning.optuna.space_mode == "merge"
+                    else {}
+                )
+            if fixed:
                 model_params = overlay_params(provider, model_params, fixed)
                 origins.update(dict.fromkeys(fixed, "provider default fixed params"))
 
@@ -578,7 +590,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             origins=origins,
             training_overrides=(
                 self._tuning_result.best_training_params
-                if self._tuning_result is not None
+                if include_tuning_result and self._tuning_result is not None
                 else None
             ),
         )
@@ -902,6 +914,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             fit_result=fit_result,
             refit_result=self._refit_result,
             tuning_result=self._tuning_result,
+            tuning_fixed_params=deepcopy(self._tuning_fixed_params),
             applied_training_params=dict(self._applied_training_params),
             provider=self._provider,
             metrics=self._metrics,
