@@ -447,6 +447,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         *,
         validate_values: bool = False,
         tuning_fixed_params: dict[str, Any] | None = None,
+        include_tuning_result: bool = True,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Merge model and smart params with priority:
         Config defaults < tune best < fit() args.
@@ -458,6 +459,8 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
                 sampled values later, so it keeps validation in the adapter.
             tuning_fixed_params: Current tuning round's fixed policy. An empty
                 dict explicitly suppresses a previous round's fixed defaults.
+            include_tuning_result: Reuse the successful tuning overlay for fit
+                and resume. Fresh studies start from Config instead.
 
         Returns:
             (model_params, smart_params) tuple.
@@ -493,7 +496,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         )
 
         # --- Overlay tune best ---
-        if self._tuning_result is not None:
+        if include_tuning_result and self._tuning_result is not None:
             # Apply default fixed params when default space was used (#76).
             # cfg.tuning is always set when _tuning_result exists (tune() sets
             # both), but guard defensively for unit tests that inject

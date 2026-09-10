@@ -259,6 +259,48 @@ def test_fresh_replace_trials_match_following_fit(
     )
 
 
+@pytest.mark.parametrize("resume", [False, True])
+@pytest.mark.parametrize(
+    ("name", "category", "configured", "sampled"),
+    [("learning_rate", "model", 0.01, 0.04), ("num_leaves_ratio", "smart", 0.6, 0.8)],
+)
+def test_removed_dimensions_match_trial_and_fit(
+    monkeypatch: pytest.MonkeyPatch,
+    resume: bool,
+    name: str,
+    category: str,
+    configured: float,
+    sampled: float,
+) -> None:
+    iterations = {"type": "categorical", "choices": [5]}
+    config = _config(
+        {
+            "num_iterations": iterations,
+            name: {"type": "categorical", "choices": [sampled], "category": category},
+        }
+    )
+    surface = config["model"]["params"] if category == "model" else config["model"]
+    surface[name] = configured
+    model = Model(config)
+    data = make_regression_df(n=60)
+    model.tune(data=data)
+    model._cfg.tuning.optuna.space_mode = "replace"
+    model._cfg.tuning.optuna.space = {"num_iterations": iterations}
+    observed = []
+    original = model._build_train_components
+
+    def capture(*args: object, **kwargs: object) -> object:
+        observed.append(dict(kwargs[category + "_params"]))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(model, "_build_train_components", capture)
+    result = model.tune(data=data, resume=resume, expand_boundary=False)
+    trial_value = observed[-1][name]
+    model.fit(data=data)
+    assert trial_value == observed[-1][name] == (sampled if resume else configured)
+    assert (name in result.best_params) is resume
+
+
 @pytest.mark.parametrize("mode", ["merge", "replace"])
 def test_export_load_refit_retains_fixed_policy(mode: str, tmp_path: Path) -> None:
     config = _config({"num_iterations": {"type": "categorical", "choices": [5]}}, mode)
@@ -293,3 +335,37 @@ def test_export_load_refit_retains_fixed_policy(mode: str, tmp_path: Path) -> No
     with pytest.raises(LizyMLError) as error:
         Model.load(destination)
     assert error.value.code == ErrorCode.DESERIALIZATION_FAILED
+
+
+def test_failed_fresh_round_preserves_previous_fit_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config(
+        {
+            "num_iterations": {"type": "categorical", "choices": [5]},
+            "learning_rate": {"type": "categorical", "choices": [0.04]},
+        }
+    )
+    config["model"]["params"]["learning_rate"] = 0.01
+    model = Model(config)
+    data = make_regression_df(n=60)
+    model.tune(data=data)
+    previous_result = model._tuning_result
+    previous_fixed = dict(model._tuning_fixed_params)
+    previous_space = list(model._space)
+    model._cfg.tuning.optuna.space_mode = "replace"
+    model._cfg.tuning.optuna.space = {}
+
+    def fail_round(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("controlled study failure")
+
+    monkeypatch.setattr(model, "_run_tune_round", fail_round)
+    with pytest.raises(RuntimeError, match="controlled study failure"):
+        model.tune(data=data, resume=False, expand_boundary=False)
+    assert model._tuning_result is previous_result
+    assert model._tuning_fixed_params == previous_fixed
+    assert model._space == previous_space
+    model.fit(data=data)
+    params, _ = model._merge_params(LGBMProvider())
+    assert params["learning_rate"] == 0.04
+    assert params["first_metric_only"] is True

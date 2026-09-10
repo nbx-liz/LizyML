@@ -109,6 +109,7 @@ class ModelTuningMixin:
             override: dict[str, Any] | None = None,
             *,
             tuning_fixed_params: dict[str, Any] | None = None,
+            include_tuning_result: bool = True,
         ) -> tuple[dict[str, Any], dict[str, Any]]: ...
 
         def _ensure_run_dir(self, run_id: str) -> None: ...
@@ -237,7 +238,7 @@ class ModelTuningMixin:
             resume=resume, provider=provider
         )
         base_model_params, base_smart_params = self._merge_params(
-            provider, tuning_fixed_params=fixed
+            provider, tuning_fixed_params=fixed, include_tuning_result=resume
         )
         space, boundary_report, expanded_names = self._maybe_expand_boundary(
             space,

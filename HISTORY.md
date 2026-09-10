@@ -10010,3 +10010,7 @@ would unnecessarily remove legitimate explicit-only tuning workflows.
   receive the new round's policy explicitly. FitState and the existing exporter
   carry optional effective fixed-policy metadata; load restores it while
   retaining the legacy fallback for artifacts without the field.
+- A later review found that removed sampled model/smart dimensions still leaked
+  into fresh trials through the prior best overlay. Actual-flow regressions
+  reproduced both categories. Fresh studies now omit that entire prior tuning
+  overlay; fit and resume continue to reuse the successful tuning result.
