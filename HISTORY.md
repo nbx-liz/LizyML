@@ -10005,3 +10005,8 @@ would unnecessarily remove legitimate explicit-only tuning workflows.
   consumer of fixed defaults and `ModelPersistenceMixin.load` as the legacy
   Config rehydration boundary. Both are updated in this change. Legacy nonempty
   artifact spaces receive replace mode when the stored mode is absent.
+- Review found and reproduced fresh merge-to-replace trial/fit divergence and
+  loss of fixed policy after export/load with changed Config. Fresh trials now
+  receive the new round's policy explicitly. FitState and the existing exporter
+  carry optional effective fixed-policy metadata; load restores it while
+  retaining the legacy fallback for artifacts without the field.

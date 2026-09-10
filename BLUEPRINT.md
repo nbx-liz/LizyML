@@ -779,7 +779,11 @@ conflict refusals. Start a fresh study when changing space semantics.
 
 Merge applies provider fixed defaults with precedence base < fixed < sampled;
 replace applies no fixed defaults. Resume retains the resolved space, bounds and
-fixed-default policy of the previous successful round. Automatic boundary
+fixed-default policy of the previous successful round. Fresh rounds use their
+new fixed policy without inheriting the previous round's fixed defaults.
+Export/load retains the effective policy independently of subsequent Config
+changes; an explicit empty policy differs from absent legacy metadata.
+Automatic boundary
 expansion remains enabled only for merge with an empty/omitted user space;
 partial spaces require explicit opt-in. Older saved artifacts without the mode
 retain replacement for nonempty spaces when loaded, preserving re-fit behavior.

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import pytest
 
 from lizyml import Model
@@ -229,3 +232,64 @@ def test_duplicate_user_aliases_still_refused_before_study(
     with pytest.raises(LizyMLError) as caught:
         model.tune(data=make_regression_df(n=60))
     assert caught.value.code.value == "CONFIG_INVALID"
+
+
+def test_fresh_replace_trials_match_following_fit(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    config = _config({"num_iterations": {"type": "categorical", "choices": [5]}})
+    config["model"]["params"]["first_metric_only"] = False
+    model = Model(config)
+    data = make_regression_df(n=60)
+    model.tune(data=data)
+    model._cfg.tuning.optuna.space_mode = "replace"
+    observed = []
+    original = model._build_train_components
+
+    def capture(*args: object, **kwargs: object) -> object:
+        observed.append(dict(kwargs["model_params"]))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(model, "_build_train_components", capture)
+    model.tune(data=data, resume=False, expand_boundary=False)
+    trial_params = observed[-1]
+    model.fit(data=data)
+    assert (
+        trial_params["first_metric_only"] == observed[-1]["first_metric_only"] is False
+    )
+
+
+@pytest.mark.parametrize("mode", ["merge", "replace"])
+def test_export_load_refit_retains_fixed_policy(mode: str, tmp_path: Path) -> None:
+    config = _config({"num_iterations": {"type": "categorical", "choices": [5]}}, mode)
+    config["model"]["params"]["first_metric_only"] = False
+    model = Model(config)
+    data = make_regression_df(n=60)
+    model.tune(data=data)
+    model._cfg.tuning.optuna.space_mode = "replace" if mode == "merge" else "merge"
+    model.tune(data=data, resume=True, expand_boundary=False)
+    model.fit(data=data)
+    expected, _ = model._merge_params(LGBMProvider())
+    destination = model.export(tmp_path / "export")
+    loaded = Model.load(destination)
+    assert loaded._cfg.tuning.optuna.space_mode == model._cfg.tuning.optuna.space_mode
+    loaded.fit(data=data)
+    actual, _ = loaded._merge_params(LGBMProvider())
+    assert actual["first_metric_only"] == expected["first_metric_only"]
+    assert actual.get("metric") == expected.get("metric")
+    assert loaded._tuning_fixed_params == model._tuning_fixed_params
+    metadata_path = destination / "metadata.json"
+    metadata = json.loads(metadata_path.read_text())
+    assert metadata["tuning"]["fixed_params"] == model._tuning_fixed_params
+    # Older artifacts omit the field and retain the config-based fallback.
+    metadata["tuning"].pop("fixed_params")
+    metadata_path.write_text(json.dumps(metadata))
+    legacy = Model.load(destination)
+    assert legacy._tuning_fixed_params is None
+    from lizyml.core.exceptions import ErrorCode, LizyMLError
+
+    metadata["tuning"]["fixed_params"] = []
+    metadata_path.write_text(json.dumps(metadata))
+    with pytest.raises(LizyMLError) as error:
+        Model.load(destination)
+    assert error.value.code == ErrorCode.DESERIALIZATION_FAILED

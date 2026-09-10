@@ -12,6 +12,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.logging import get_logger
 
 if TYPE_CHECKING:
@@ -155,6 +156,7 @@ class ModelPersistenceMixin:
             task=state.cfg.task,
             analysis_context=ctx,
             tuning=state.tuning_result,
+            tuning_fixed_params=state.tuning_fixed_params,
         )
         _log.info("event='export.done' path=%s", resolved_path)
         return resolved_path
@@ -321,6 +323,15 @@ class ModelPersistenceMixin:
         if tuning_meta is not None:
             from lizyml.core.types.tuning_result import TuningResult
 
+            if "fixed_params" in tuning_meta:
+                fixed_params = tuning_meta["fixed_params"]
+                if not isinstance(fixed_params, dict):
+                    raise LizyMLError(
+                        code=ErrorCode.DESERIALIZATION_FAILED,
+                        user_message="Stored tuning fixed_params must be an object.",
+                        context={"path": str(path)},
+                    )
+                instance._tuning_fixed_params = deepcopy(fixed_params)
             instance._tuning_result = TuningResult(
                 best_model_params=tuning_meta["best_model_params"],
                 best_smart_params=tuning_meta["best_smart_params"],

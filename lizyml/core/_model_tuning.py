@@ -104,7 +104,11 @@ class ModelTuningMixin:
         ]: ...
 
         def _merge_params(
-            self, provider: Any, override: dict[str, Any] | None = None
+            self,
+            provider: Any,
+            override: dict[str, Any] | None = None,
+            *,
+            tuning_fixed_params: dict[str, Any] | None = None,
         ) -> tuple[dict[str, Any], dict[str, Any]]: ...
 
         def _ensure_run_dir(self, run_id: str) -> None: ...
@@ -201,7 +205,6 @@ class ModelTuningMixin:
             task=cfg.task,
             seed=cfg.training.seed,
         )
-        base_model_params, base_smart_params = self._merge_params(provider)
 
         # H-0093: a `category: model` dimension whose name the estimator
         # does not know is sampled by Optuna, forwarded, and discarded --
@@ -232,6 +235,9 @@ class ModelTuningMixin:
 
         space, used_default, fixed = self._resolve_search_space(
             resume=resume, provider=provider
+        )
+        base_model_params, base_smart_params = self._merge_params(
+            provider, tuning_fixed_params=fixed
         )
         space, boundary_report, expanded_names = self._maybe_expand_boundary(
             space,
