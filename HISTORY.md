@@ -9853,3 +9853,78 @@ rounds 16-26 は受理集合の面で費やされており、その面の再構�
 
 **#283 は本提案に含まない** —— H-0096 が `values_differ` ごと削除したため再現せず、
 2026-09-09 に superseded として close した。
+
+## H-0099: Reconcile tuning direction and refuse unconsumed search dimensions
+
+- Status: accepted
+- Scope: Config and tuning admission (#258, #279, #282; Phase 3 PR 3)
+- Related: BLUEPRINT.md tuning and parameter ownership contracts
+
+### Purpose
+
+Every study must optimize the objective in its declared metric orientation.
+Every accepted model/training search dimension must reach its consumer rather
+than being silently discarded or overwritten by smart resolution.
+
+### Proposal and decision
+
+1. An omitted or null `tuning.optuna.params.direction` means automatic selection
+   from the first effective evaluation metric's `greater_is_better`. Explicit
+   `minimize`/`maximize` must agree or raise `CONFIG_INVALID` before study creation.
+   Use null as the serialized automatic value: `model_fields_set` alone loses
+   provenance on ordinary Config dump/load. This refines the Phase 3 plan's
+   implementation suggestion while preserving its intended behavior.
+2. Validate an existing or persisted Optuna study's direction before enqueue or
+   optimize. Refuse a mismatch instead of relabeling an already-created study.
+3. Refuse model dimensions claimed by active smart parameters, including native
+   aliases. Reuse the provider's smart ownership authority. Validate the resolved
+   space, including defaults/resume, before constructing the study. A search
+   dimension that can activate a conflicting smart owner is also refused.
+4. Refuse training dimensions other than `early_stopping_rounds` and
+   `validation_ratio`, the two overrides actually consumed by training. Errors
+   identify `tuning.optuna.space` and the offending name. Preserve valid default
+   spaces and actual consumption of both supported training overrides.
+
+### Scope and compatibility
+
+The Config schema, tuning orchestrator, search admission, study direction check,
+documentation and affected fixture declarations change. No estimator precedence
+rule, public Result shape, persistence format version or dependency changes.
+Matching explicit directions remain supported. Historical dumps containing an
+explicit contradictory direction are refused; their provenance cannot be guessed.
+Existing studies optimized in the wrong direction require a new study name.
+
+Firing rate: 55/88 model-space configs, 9/23 training-space configs, and 0/159 explicit-direction configs observed through LizyMLConfig.model_validate during the full shipped baseline suite at 5fb8a809 (162 accepted tuning configs; provider alias/active-owner checks and effective first-metric orientation; direct constructor calls outside this recorder are not counted).
+
+Baseline suite: 7756 passed, 230 skipped, 8 deselected. Added direction regressions
+before implementation: 32 failed, 12 passed over the 22 registry-derived pairs
+(10 wrong inferred orientations and 22 missing explicit-conflict refusals).
+
+### Alternatives
+
+- Keeping minimize as the automatic default silently picks the wrong extremum.
+- Remembering explicitness only in memory changes meaning after dump/load.
+- Letting sampled model values override smart settings changes existing
+  precedence; rewriting model dimensions as smart ones guesses user intent.
+- Sampling unused training settings creates misleading successful results.
+
+### Migration
+
+Omit direction or use null for automatic orientation. Remove contradictory
+explicit values. To tune native leaves directly, disable `model.auto_num_leaves`;
+otherwise declare the meaningful smart dimension. Remove unsupported training
+dimensions rather than treating their recorded values as applied settings.
+Update shipped fixtures intentionally requesting native leaves to disable their
+smart owner, and convert regression cases for discarded settings to refusals.
+
+### Acceptance criteria
+
+- Registry-derived tests execute all 22 task/metric pairs and select the correct
+  extremum; explicit contradictions fail before study creation.
+- Defaults, parameterized metrics, Config round trips and existing study
+  direction mismatches have regression coverage.
+- Every active smart owner/native spelling is refused before training; disabled
+  owners allow sampled model values to reach LightGBM. Supported training values
+  still reach their consumers; unsupported names never start a study.
+- Existing valid default spaces and tune/fit identity remain covered. All
+  applicable lint, format, type and test gates pass.

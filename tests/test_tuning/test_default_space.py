@@ -200,7 +200,11 @@ class TestDefaultSpaceE2E:
             "task": "regression",
             "data": {"target": "target"},
             "split": {"method": "kfold", "n_splits": 3, "random_state": 42},
-            "model": {"name": "lgbm", "params": {"n_estimators": 10}},
+            "model": {
+                "name": "lgbm",
+                "auto_num_leaves": False,
+                "params": {"n_estimators": 10},
+            },
             "training": {"seed": 0},
             "tuning": {
                 "optuna": {

@@ -13,7 +13,7 @@ H-0077 invariant applies only to the diagnostic mixins. See HISTORY H-0091 (#237
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from lizyml.config.schema import OptunaParamsConfig
 from lizyml.core._model_factories import (
@@ -28,6 +28,10 @@ from lizyml.core._model_factories import (
 )
 from lizyml.core._model_metrics import _DEFAULT_METRICS
 from lizyml.core._model_state import TuningState
+from lizyml.core._tuning_validation import (
+    resolve_tuning_direction,
+    validate_tuning_dimensions,
+)
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.logging import generate_run_id, get_logger
 from lizyml.core.train_components import TrainComponents
@@ -168,6 +172,7 @@ class ModelTuningMixin:
         """
         cfg = self._cfg
         self._validate_tune_inputs(resume=resume, boundary_threshold=boundary_threshold)
+        direction = resolve_tuning_direction(cfg)
 
         optuna_cfg = cfg.tuning.optuna.params  # type: ignore[union-attr]
         actual_n_trials = n_trials if n_trials is not None else optuna_cfg.n_trials
@@ -235,6 +240,8 @@ class ModelTuningMixin:
             boundary_threshold=boundary_threshold,
         )
 
+        validate_tuning_dimensions(provider, space, base_smart_params, cfg.task)
+
         # --- Metric & evaluator setup --------------------------------------------
         metric_entries = cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task]
 
@@ -269,6 +276,7 @@ class ModelTuningMixin:
             space=space,
             actual_n_trials=actual_n_trials,
             optuna_cfg=optuna_cfg,
+            direction=direction,
             metric_name=metric_name,
             progress_callback=progress_callback,
             storage=storage,
@@ -517,6 +525,7 @@ class ModelTuningMixin:
         space: list[Any],
         actual_n_trials: int,
         optuna_cfg: OptunaParamsConfig,
+        direction: Literal["minimize", "maximize"],
         metric_name: str,
         progress_callback: TuneProgressCallback | None,
         storage: str | BaseStorage | None,
@@ -544,7 +553,7 @@ class ModelTuningMixin:
         tuner = Tuner(
             dims=space,
             n_trials=actual_n_trials,
-            direction=optuna_cfg.direction,
+            direction=direction,
             timeout=optuna_cfg.timeout,
             seed=self._cfg.training.seed,
             progress_callback=progress_callback,

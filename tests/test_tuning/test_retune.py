@@ -662,6 +662,7 @@ class TestTuneProgressInfoExtensions:
 
 def _reg_config_with_tuning(n_trials: int = 3) -> dict[str, Any]:
     cfg = make_config("regression")
+    cfg["model"]["auto_num_leaves"] = False
     cfg["tuning"] = {
         "optuna": {
             "params": {"n_trials": n_trials, "direction": "minimize"},

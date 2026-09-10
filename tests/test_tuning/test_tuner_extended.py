@@ -96,6 +96,7 @@ class TestBackwardCompat:
                 }
             },
         }
+        config["model"]["auto_num_leaves"] = False
         m = Model(config)
         result = m.tune(data=make_regression_df(n=100))
         assert isinstance(result, TuningResult)
