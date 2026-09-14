@@ -132,10 +132,10 @@ acceptance (DC5) the audit exists to find; see §5.
 | 0 | Settle the two specification contradictions and the document rank | #265, #266 | — | decision record | doc-stated version constant vs code constant | **merged** (#274, H-0092) |
 | 1 | Close the LightGBM parameter-name boundary | #261, #262 | #270 | yes | every key reaching `lgb.train` / `lgb.Dataset`, from both `model.params` and the tuning space; the 27-cell category matrix | **merged** (#275, H-0093) |
 | 2 | Forward `Model.fit(params=...)` | #264, #288 | #270 | yes | documented argument reaches the trained model | **merged** (#278, H-0094/95/96, 30 rounds) |
-| **2b** | **The adapter half of the PR 2 residue** | **#285, #286** | — | **H-0097** | every position the surface-naming rule binds, derived by AST; the class closed at the boundary rather than at three call sites | **new in Revision 6, split** |
-| **2c** | **The accepted-set half of the PR 2 residue** | **#284, #287** | — | yes | one declaration per boundary; the search space against the four normalisation surfaces | **new in Revision 6, split** |
-| 3 | Reconcile tuning direction with metric orientation | #258, **#279, #282** | — | yes | all 22 (task, metric) pairs; every search dimension a smart parameter or a training setting consumes | |
-| **3b** | **H-0024 search-space merge** | — | — | yes | a partial space does not silently drop the default dimensions | **carried from the run policy** |
+| **2b** | **The adapter half of the PR 2 residue** | **#285, #286** | — | **H-0097 Revision 2** | merged objective and metric values validated after the overlays, naming the winning input; direct-construction duplicates refused | **merged** (#290). #285 fixed; #286 closed not planned (bounded, see the issue) |
+| **2c** | **The accepted-set half of the PR 2 residue** | **#284, #287** | — | **H-0098** | one declaration per boundary; the search space against the four normalisation surfaces | **merged** (#291) |
+| 3 | Reconcile tuning direction with metric orientation | #258, **#279, #282** | — | **H-0099** | all 22 (task, metric) pairs; every search dimension a smart parameter or a training setting consumes | **merged** (#292) |
+| **3b** | **H-0024 search-space merge** | — | — | HISTORY entry dated 2026-09-10 (no H-number) | a partial space does not silently drop the default dimensions | **merged** (#293) |
 | **3c** | **`calibration.params` for `platt` and `beta`** | **#277** | — | yes | every calibrator: its declared params reach it, or are refused | **new in Revision 6** |
 | 4 | Bring `RefitTrainer.fit` to `CVTrainer.fit` | #269 | — | yes | CV/refit input parity across 3 tasks | |
 | 5 | Make the feature-pipeline extension point usable as specified | #259, #260 | — | yes | `BaseFeaturePipeline` conformance through fit → predict → explain | |
@@ -1819,12 +1819,16 @@ before any code was written, which is the point of deriving first:
   #284 remains a restructure of the surface that produced rounds 16-26 of PR 2.
   Bundling them reproduces the shape the round budget exists to prevent, so the
   split declared in H-0097 is taken up front rather than held in reserve.
-- **#285 was recorded as revoking an accepted decision. It does not.** The
-  comment at the site claimed `test_lgbm_defaults.py` pins `seed` taking priority
-  over `random_state`; what it pins is the conversion of a **single** spelling,
-  which the helper preserves. No document and no pre-existing test says which of
-  two spellings wins. The claim was found by reading the site in order to count
-  it, and the comment is corrected in PR 2b.
+- **#285 does revoke a pinned behaviour, and this bullet first said it did not.**
+  **Corrected 2026-09-15.** The original text claimed no document and no
+  pre-existing test says which of two spellings wins. That was false:
+  `test_lgbm_defaults.py::test_seed_takes_priority_over_random_state` had pinned
+  `seed` winning over `random_state` since `6619d7e` (2026-03-07). The check that
+  produced the false claim read the file through `grep ... | head -8`, and the
+  test sat below the eighth line of output. The resumed PR 2b session found it.
+  H-0097 Revision 2 (#290) changes that behaviour deliberately and replaces the
+  test with `test_duplicate_seed_spellings_are_refused`; single-spelling
+  conversion is unchanged.
 
 
 - **PR 2b** — #283, #284, #285, #286, #287. One surface (`param_domain`, the
