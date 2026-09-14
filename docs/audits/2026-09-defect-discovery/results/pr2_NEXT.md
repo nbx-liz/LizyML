@@ -1,171 +1,126 @@
-> Resume correction (2026-09-09): the historical statement below that no
-> seed-priority test exists is false. `test_lgbm_defaults.py` contained
-> `test_seed_takes_priority_over_random_state` since `6619d7eb` (2026-03-07).
-> H-0097 Revision 2 explicitly changes that behavior. Six duplicate-input facade
-> probes were reproduced; their reachability result is bounded to those cases.
-> The implementation now validates merged objective/metric values with per-key
-> origins and shares the adapter validators. See the revised acceptance criteria.
-> This is a local candidate, not a committed or accepted change.
-
-# 次の一手 — 2026-09-09（PR 2b、実装前に中断。**判断が 1 つ開いている**）
+# 次の一手 — 2026-09-15（Phase 3: PR 3b まで完了。次は PR 3c）
 
 このファイルだけ読めば次の作業に入れるように書いてある。
-**前版（PR 2 マージ待ちの版）はこの版に置き換わる。**
+**前版（PR 2b 実装前に中断した 2026-09-09 版）はこの版に置き換わる。**
+前版の内容は git 履歴と `results/pr2b_rule_positions.md` に残っている。
 
 ---
 
-## ⛔ 最初にやること —— **H-0097 の書き直し方針を決める。コードはまだ 1 行も書いていない。**
+## 最初にやること —— **PR 3c（#277）を開く**
 
-**PR 2b は実装前に止まっている。** 規則の位置を導出したところ、
-**提案 H-0097 の前提が 3 つ実測で覆った**（下記）。**書き直しが要る。**
+`calibration.params` は全 calibrator について config 検証を通るが、
+**`platt` と `beta` はそれを捨てる**（コンストラクタで受け取り、どこにも保存しない）。
+`isotonic` は H-0093 で閉じ済み（LightGBM に届き、不明名は `CONFIG_INVALID`）。
 
-### 開いている判断
+**決定は 1 つ**: `platt` / `beta` に params を**配線する**か、config 検証で**拒否する**か。
+`platt` / `beta` は LightGBM に触れないので、ファイル集合は parameter-domain 層と分離している。
 
-**規則が実際に縛るのは 2 位置**（`_check_objective_compatible` と metric 検証）。
-どちらも「入口が見ない問い ＝ 値が task と両立するか」を扱い、
-`model.params` と `fit(params=)` から**バイト同一のメッセージ**を返して住所を名乗らない。
+### 開く前にやること（計画 Revision 6 §12.4-12.6）
 
-| | 内容 | 動く公開面 |
-|---|---|---|
-| **(A)** | 出所を**パラメーターごとに** adapter まで通す | **`EstimatorProvider.build_estimator_factory`（公開 Protocol）+ `LGBMAdapter.__init__`** |
-| **(B)** ← 推奨 | **2 つの検査を入口へ移す** | **公開面は動かない** |
-
-**(B) を推す理由**: 入口は既に provider と task を持ち、**H-0095 は「値の検査を入口で行う」設計を確立している**ので (B) はその延長になる。
-**H-0097 が (B) を「1 つの境界に宣言を 2 つ持つ」として棄却したのは取り違えだった** ——
-入口の `check_param_names` は「**既知の名前か**」を見ており、「その**値**が task と両立するか」は別の問いである。
-
-**(B) を採る場合に残る小さい判断**: adapter 側の検査を**残すか**（多重防御）**消すか**（単一宣言）。
+1. **完了基準を先に書く**（雛形: `results/pr2_acceptance_criteria.md`）。
+   **証拠のポインタが無い行が 1 つでもあればレビューを開かない。**
+2. **Proposal に「規則が縛る位置」を列挙する** —— ソースから導出、実装前。
+   **導出の bound も併記する。**
+3. **ラウンド予算 8 を宣言する**（上限であって目標ではない）。
 
 ---
 
-## 実測で覆った 3 つの前提（`results/pr2b_rule_positions.md` に全文）
-
-### 1. **#286 は欠陥ではない** —— 公開経路から到達不能
-
-`_pop_by_identity` を spy でくるみ、3 パラメーター × 2 surface で測った:
-
-```
-objective  via model.params   -> entrance  names surface: True
-objective  via fit(params=)   -> entrance  names surface: True
-metric     via model.params   -> entrance  names surface: True
-metric     via fit(params=)   -> entrance  names surface: True
-rounds     via model.params   -> entrance  names surface: True
-rounds     via fit(params=)   -> entrance  names surface: True
-Direct construction, the only caller left:  adapter fired: True
-```
-
-**6/6 で入口（`check_duplicate_identities`）が先に拒否し、住所を名指す。**
-adapter の重複拒否が発火するのは**直接構築だけ**で、そこに名指すべき出所は無い。
-**#285 と同じ形。** → **#286 の処分（close するか再スコープするか）が未決。**
-測定は issue にコメントとして記録済み。
-
-**教訓**: **起票済みという事実は、その位置が規則の対象であることを意味しない。**
-起票時に到達可能性を測っていれば #286 は立たなかった。
-
-### 2. **H-0097 の決定 1（単一の `surface` を渡す）は偽になる**
-
-マージ後の dict は複数入口から来る（config に `learning_rate`、`fit(params=)` に `eta`）。
-出所は**パラメーターごと**で、`_merge_params` は `origins` を持つが
-**`return model_params, smart_params` で捨てている**。
-
-### 3. **#283 は H-0096 で解消済み** → **close 済み**（superseded）
-
-`values_differ` ごと削除されているので再現しない。対照（同じ値を 2 綴り）も拒否されるので、
-**値を見ていない** = D13 で決めた振る舞いであって欠陥ではない。
-
----
-
-## 状態（2026-09-09、すべて実測）
+## 状態（2026-09-15、すべて実測）
 
 | 項目 | 状態 |
 |---|---|
-| `develop` | **`53f6cbf`** |
-| ブランチ | **`fix/phase3-pr2b-parameter-domain-residue`**、head **`8dcf5bd`** + 本コミット |
-| PR | **未作成**（実装前なので開いていない） |
-| **production の変更** | **`adapter.py` のコメント 1 か所のみ**（記録に無い決定を主張していた箇所の訂正）。**振る舞いは無変更** |
-| PR #278 | **MERGED**（`0920c2a`）。#264 / #288 close |
-| PR #289 | **MERGED**（計画 Revision 6） |
-| ruff / mypy | clean |
+| `develop` | **`1a12f65`**（CI success） |
+| Phase 3 | **16 本中 7 本完了**（0 / 1 / 2 / 2b / 2c / 3 / 3b） |
+| 直近のマージ | #290（2b, H-0097 Rev 2）/ #291（2c, H-0098）/ #292（3, H-0099）/ #293（3b） |
+| 2026-09-15 に close | **#285**（#290 で修正、実測確認）/ **#286**（not planned、bound つき） |
 
----
+### 2026-09-09〜10 に別セッションが進めた内容
 
-## PR 2b の残りスコープ（更新後）
+私（前回のセッション）が PR 2b の実装前に中断したあと、**別セッションが再開して 4 本をマージした**。
+その過程で**私のハンドオフの誤りを 1 件訂正している**（下記「間違えた点」の 15）。
 
-| | 内容 | 状態 |
-|---|---|---|
-| `_check_objective_compatible` の住所 | **未起票。H-0097 の位置として処分** | **(A)/(B) の判断待ち** |
-| metric 検証の住所 | 同上 | 同上 |
-| **#285** | 6 か所目を `_pop_by_identity` 経由に | **小。決定の撤回ではない**（実測で確認） |
-| ~~#286~~ | **到達不能。欠陥ではない** | 処分未決 |
-| ~~#283~~ | **close 済み** | —— |
-
-**#284 / #287 は PR 2c**（計画 §3 で分割済み）。
-
----
-
-## 再開したら読むもの（この順）
-
-1. **本ファイル**（開いている判断）
-2. `results/pr2b_rule_positions.md` —— 4 規則の位置の導出と、**覆った 3 前提の実測全文**
-3. `HISTORY.md` の **H-0097** —— **書き直しが必要な提案**
-4. `results/pr2b_acceptance_criteria.md` —— 完了基準。**§2 の証拠列は空欄**（実装時に埋める。
-   **空欄が 1 行でも残ったらレビューを開かない**）
-5. `phase3-plan.md` **§3**（順序）と **§12**（Revision 6 の根拠）
+- **PR 2b（#290）** —— 中断時に開いていた判断（A: 出所を adapter へ通す / B: 検査を入口へ移す）は
+  **B に近い形で決着**。`Model.fit()` の最終 overlay の後、パラメーターごとの `origins` がまだ
+  ある場所で objective / metric を検証する。adapter 側の検証は `param_validation.py` として
+  共有し、直接構築と trial overlay のために残す。**公開 Protocol もコンストラクタも変更なし。**
+  **`tune()` は adapter 側の検証のまま** —— 入口で基底値を拒否すると、有効な trial overlay が
+  それを置き換える場合を壊すため（`test_tuning_validates_after_sampled_overlay`）。
+- **PR 2c（#291）** —— `param_domain` の述語を 1 回の走査から導出（#284）。
+  循環する mapping を学習境界で拒否。#287 は探索空間の正規化を**実装せず** close。
+- **PR 3（#292）** —— tuning direction を metric の向きと整合（#258）、
+  消費されない探索次元を拒否（#279 / #282）。
+- **PR 3b（#293）** —— 部分探索空間を provider 既定とマージ（H-0024）。
+  HISTORY の見出しは H 番号ではなく日付（2026-09-10）。
 
 ---
 
 ## Phase 3 の順序（`phase3-plan.md` §3 が正）
 
-`0`✅ → `1`✅ → `2`✅ → **`2b`（ここ）** → `2c`(#284,#287) → `3`(+#279,#282) → `3b`(H-0024)
-→ `3c`(#277) → `4` → `5` → `6` → `7` → `8` → `8b`(#281) → `8c`(完了測定器) → `9`
+`0`✅ → `1`✅ → `2`✅ → `2b`✅ → `2c`✅ → `3`✅ → `3b`✅ → **`3c`(#277) ← ここ**
+→ `4`(#269) → `5`(#259,#260) → `6`(#263,#272) → `7`(#267) → `8`(#268)
+→ `8b`(#281) → `8c`(完了測定器) → `9`(#271)
+
+**未処分の副産物**: **#280**（着手前に再検証が必要 —— H-0094 決定 7 と H-0097 Rev 2 で
+既に閉じている可能性がある）、**#276**（計画書 §12.3 が答えている）、#270（177 件の
+hollow test、別スコープ）。
 
 ---
 
-## この run で確定した手続き（すべての PR に適用）
+## 再開したら読むもの（この順）
+
+1. **本ファイル**
+2. `phase3-plan.md` **§3**（順序と状態）と **§12**（Revision 6 の根拠と手続き）
+3. `results/pr2_acceptance_criteria.md` —— 完了基準の雛形
+4. PR 3c に関係する既存記録: `HISTORY.md` の H-0093（isotonic 側で閉じた経緯）
+
+---
+
+## この run で確定した手続き
 
 - **完了基準は PR を開くときに書く。対応表を作ること自体が検査である。**
 - **規則を宣言する Proposal は、規則が縛る位置をソースから導出して列挙する**（§12.4）。
-  **初回適用で、起票済み issue 1 件の前提と、提案自身の前提 2 つを覆した。**
 - **ラウンド予算 8 を事前宣言する**（§12.6）。副産物は約 0.37 件/ラウンド。
 - **発火した停止条件は自動ラウンドの停止を正当化するが、マージは許可しない。**
-- **監視の勧告への reconcile を無条件に先に書かない。** 適用条件を限定すること。
-- **繰り延べで解決しやすくなるものは無い。** 設計判断を要するかどうかで分けること。
+- **監視の勧告への reconcile を無条件に先に書かない。**
+- **繰り延べで解決しやすくなるものは無い。** 設計判断を要するかどうかで分ける。
 
 ---
 
 ## この run で自分が間違えた点（繰り返さない）
 
-1. **BLUEPRINT を 1 節だけ見て「上位文書と非衝突」と判断した**（§5.3 だけ見て §14.4 を見落とし）。
-2. **`verbose: -1` を渡したまま「LightGBM は黙っている」と結論した**（交絡）。
-3. **「28 ラウンド」を完走 verdict 数のように書いた。**
-4. **round 27 の指摘を `periphery` と誤記し、それを前提に選択肢を組んだ。**
-5. **§6 を「B1 が定める手順」と述べた** —— 実際は**承認された例外**。監視が訂正した。
-6. **「タプルの `in` はハッシュと等価による探索」と書いた** —— 偽。ハッシュを引くのは `set`。
-7. **`0/54` から「動いている config は存在しない」と書いた** —— 測定の範囲を超える。
-8. **監視の capsule に記録のパスを接頭辞なしで書いた** → `INCONCLUSIVE`。
-   **capsule のパスはリポジトリルートからのフルパスで書くこと。**
-9. **`import` を消す前に grep しなかった。**
-10. **`run-exclusive.sh` の第 1 引数がラベルであることを忘れた**（exit 127 が `tail` 越しに 0 に見えた）。
-11. **計測器の判定をシグネチャで書いた** → 準拠している位置を非準拠と誤報告（DC1 の鏡像）。
-12. **probe がメッセージの先頭行だけを比較した** → 準拠している位置を「同一」と誤報告。
-13. **起票済みの #286 を「規則が縛る位置」として数えた** → 到達可能性を測っていなかった。
-14. **`adapter.py` のコメントの過大な主張をそのまま報告に引き継いだ**（#285 が
-    「受理済み決定の撤回」だと述べた）。**コード内コメントも一次資料ではない。**
+1. BLUEPRINT を 1 節だけ見て「上位文書と非衝突」と判断した（§5.3 だけ見て §14.4 を見落とし）。
+2. `verbose: -1` を渡したまま「LightGBM は黙っている」と結論した（交絡）。
+3. 「28 ラウンド」を完走 verdict 数のように書いた。
+4. round 27 の指摘を `periphery` と誤記し、それを前提に選択肢を組んだ。
+5. §6 を「B1 が定める手順」と述べた —— 実際は承認された例外。監視が訂正した。
+6. 「タプルの `in` はハッシュと等価による探索」と書いた —— 偽。ハッシュを引くのは `set`。
+7. `0/54` から「動いている config は存在しない」と書いた —— 測定の範囲を超える。
+8. 監視の capsule に記録のパスを接頭辞なしで書いた → `INCONCLUSIVE`。
+9. `import` を消す前に grep しなかった。
+10. `run-exclusive.sh` の第 1 引数がラベルであることを忘れた。
+11. 計測器の判定をシグネチャで書いた → 準拠位置を非準拠と誤報告。
+12. probe がメッセージの先頭行だけを比較した → 準拠位置を「同一」と誤報告。
+13. 起票済みの #286 を「規則が縛る位置」として数えた → 到達可能性を測っていなかった。
+14. `adapter.py` のコメントの主張をそのまま報告に引き継いだ。
+15. **「2 綴りのどちらが勝つかを固定したテストは存在しない」と報告した —— 偽。**
+    `test_seed_takes_priority_over_random_state` は 2026-03-07 から存在した。
+    確認に使った `grep ... | head -8` が、97 行目のそのテストを出力から切り落としていた。
+    **別セッションが見つけて訂正した。** 12 と同じ「部分を見て全体を判定する」誤りで、
+    この run で 3 度目。**否定の主張（「存在しない」）は、出力を切り詰めずに確認すること。**
 
 ---
 
 ## 環境メモ（踏むと時間を失う）
 
-- `uv` は読み取り専用の既定キャッシュで落ちる → **`UV_CACHE_DIR="$TMPDIR/uv-cache"`**。
-  **git-manager にこの指示を毎回渡すこと**
-- **コマンドガードが引用符・アポストロフィを解析できずに拒否する** →
-  Python は**スクリプトファイルにして実行**、コミットメッセージにアポストロフィを入れない
-- **`gh --body-file` は絶対パスで渡すこと**
-- **`gh issue close` に `--body-file` は無い** → `gh issue comment` してから `close --reason`
+- `uv` は読み取り専用の既定キャッシュで落ちる → `UV_CACHE_DIR="$TMPDIR/uv-cache"`。
+  git-manager にこの指示を毎回渡すこと
+- コマンドガードが引用符・アポストロフィを解析できずに拒否する →
+  Python はスクリプトファイルにして実行、コミットメッセージにアポストロフィを入れない
+- `gh --body-file` は絶対パスで渡す。`gh issue close` に `--body-file` は無い →
+  `gh issue comment` してから `close --reason`
 - **`develop` へのマージは GitHub の自動 close を発火させない**（既定ブランチが `main`）
-- **git-manager の push が 3 度失敗したが、こちらで `git push` を叩くと毎回通った**
-  （`~/.config` 読み取り拒否と `localhost:3128` プロキシの一時失敗）
-- **Codex は `instruments/setup_codex_home.py` で `CODEX_HOME` の書き込み可能コピーを作る。**
+- **`gh` が `gh auth login` を求めて失敗することがある**（`~/.config` 読み取り拒否の一時失敗）。
+  同じコマンドの再実行で通る。git-manager の push 失敗も同様で、こちらで `git push` すると通る
+- Codex は `instruments/setup_codex_home.py` で `CODEX_HOME` の書き込み可能コピーを作る。
   レビュー 1 ラウンドは effort medium、監視・状況評価は effort low
-- フルスイートは `instruments/run-exclusive.sh <label> <command...>` 経由（**第 1 引数はラベル**）
-- **`import` を消す前に必ず grep すること**
+- フルスイートは `instruments/run-exclusive.sh <label> <command...>` 経由（第 1 引数はラベル）
