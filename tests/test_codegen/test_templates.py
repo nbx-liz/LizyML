@@ -13,23 +13,26 @@ from lizyml.codegen.templates import (
 
 
 class TestRenderRequirementsTxt:
-    """scipy is pinned only when the model uses beta calibration (#218)."""
+    """scipy is listed exactly when the generated code imports it (#218, H-0100).
+
+    Beta always optimised with scipy; since H-0100 Platt does too, so both list it.
+    """
 
     def test_base_deps_always_present(self) -> None:
         for reqs in (
             render_requirements_txt(),
-            render_requirements_txt(uses_beta_calibration=True),
+            render_requirements_txt(uses_scipy=True),
         ):
             assert "lightgbm" in reqs
             assert "numpy" in reqs
             assert "pandas" in reqs
             assert "scikit-learn" in reqs
 
-    def test_scipy_omitted_without_beta(self) -> None:
+    def test_scipy_omitted_without_a_scipy_calibrator(self) -> None:
         assert "scipy" not in render_requirements_txt()
 
-    def test_scipy_pinned_with_beta(self) -> None:
-        assert "scipy" in render_requirements_txt(uses_beta_calibration=True)
+    def test_scipy_listed_with_a_scipy_calibrator(self) -> None:
+        assert "scipy" in render_requirements_txt(uses_scipy=True)
 
 
 class TestRenderTrainPy:

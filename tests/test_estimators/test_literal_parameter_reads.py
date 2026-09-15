@@ -52,6 +52,14 @@ _DICT_NAMES = frozenset(
 #: only allowed here when the dict it reads has already been normalised, or when
 #: the parameter has exactly one accepted spelling.
 _ALLOWED: dict[tuple[str, str], str] = {
+    **{
+        ("lizyml/calibration/_optimizer.py", name): (
+            "a platt/beta optimiser setting (H-0100) with exactly one accepted "
+            "spelling; not a LightGBM parameter, and refused under any other name "
+            "by validate_optimizer_params before training"
+        )
+        for name in ("bounds", "method", "options", "tol", "x0")
+    },
     (
         "lizyml/estimators/lgbm/adapter.py",
         "metric",
