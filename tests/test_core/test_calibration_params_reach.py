@@ -153,6 +153,8 @@ REFUSED = [
     ("platt", {"method": "BFGS", "bounds": [[0, 1], [0, 1]]}),
     ("beta", {"x0": [1.0, 1.0]}),
     ("beta", {"options": {"not_an_option": 1}}),
+    # An unhashable method once escaped as TypeError instead of the refusal.
+    ("platt", {"method": []}),
 ]
 
 
@@ -187,6 +189,7 @@ def test_tune_refuses_before_any_study(method: str, params: dict[str, Any]) -> N
         Model(cfg, data=make_binary_df(n=240, seed=4)).tune()
 
     assert caught.value.code is ErrorCode.CONFIG_INVALID
+    assert "calibration.params" in caught.value.user_message
     assert not seen["train_params"], "a trial trained before the refusal"
 
 

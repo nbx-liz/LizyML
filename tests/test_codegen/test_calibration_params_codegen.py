@@ -26,6 +26,10 @@ from scipy.special import expit
 from lizyml import Model
 from lizyml.calibration.registry import get_calibrator
 from tests._helpers import make_binary_df, make_config
+from tests.test_calibration.test_calibration_param_contract import (
+    BETA_REFUSED,
+    PLATT_REFUSED,
+)
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -95,6 +99,35 @@ def test_generated_fitter_matches_the_runtime_calibrator(
             assert generated[key] == runtime[key]
         else:
             assert generated[key] == pytest.approx(runtime[key], abs=1e-6), key
+
+
+@pytest.fixture(scope="module")
+def generated_train(tmp_path_factory: pytest.TempPathFactory) -> ModuleType:
+    return _load_train(_export(tmp_path_factory.mktemp("refusal"), "platt", None, "r"))
+
+
+def _json_representable(params: dict[str, Any]) -> bool:
+    """``config.json`` cannot carry a tuple, so a tuple refusal has no JSON form."""
+    return bool(json.loads(json.dumps(params)) == params)
+
+
+@pytest.mark.parametrize(
+    "method,params,reason",
+    [("platt", p, r) for p, r in PLATT_REFUSED if _json_representable(p)]
+    + [("beta", p, r) for p, r in BETA_REFUSED if _json_representable(p)],
+)
+def test_generated_fitter_refuses_what_the_runtime_refuses(
+    generated_train: ModuleType, method: str, params: dict[str, Any], reason: str
+) -> None:
+    """``config.json`` is editable (H-0059), so an edit must not be silently dropped.
+
+    Every runtime refusal that ``config.json`` can express is also a refusal in the
+    generated project. Agreement on valid settings alone let a generated fitter read
+    the names it knew and discard the rest.
+    """
+    s, y = _scores(3)
+    with pytest.raises(ValueError, match="calibration_params"):
+        generated_train._CAL_FITTERS[method](s, y, params)
 
 
 def test_generated_isotonic_fitter_honours_its_params(tmp_path: Path) -> None:

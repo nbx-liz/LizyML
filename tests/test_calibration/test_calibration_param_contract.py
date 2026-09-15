@@ -72,40 +72,49 @@ def test_beta_accepts_its_surface(params: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize(
-    "params,reason",
-    [
-        ({"C": 0.001}, "LogisticRegression names are not Platt's surface"),
-        ({"not_a_real_option": 123}, "unknown name"),
-        ({"x0": [0.0]}, "x0 must have one value per coefficient"),
-        ({"bounds": [[None, None]]}, "bounds must have one pair per coefficient"),
-        (
-            {"bounds": [(None, None), (None, None)]},
-            "a bound pair is a list, not a tuple",
-        ),
-        ({"method": "Newton-CG"}, "method outside the table"),
-        ({"method": "BFGS", "bounds": [[0, 1], [0, 1]]}, "BFGS cannot honour bounds"),
-        ({"options": {"not_an_option": 1}}, "scipy does not know this option"),
-        ({"target_smoothing": "yes"}, "target_smoothing is a bool"),
-    ],
-)
+#: The refusal cases, shared with the generated-fitter equivalence test in
+#: ``tests/test_codegen/test_calibration_params_codegen.py`` so the two sides
+#: cannot be checked against different populations.
+PLATT_REFUSED: list[tuple[dict[str, Any], str]] = [
+    ({"C": 0.001}, "LogisticRegression names are not Platt's surface"),
+    ({"not_a_real_option": 123}, "unknown name"),
+    ({"x0": [0.0]}, "x0 must have one value per coefficient"),
+    ({"x0": [0.0, "1"]}, "x0 holds numbers"),
+    ({"bounds": [[None, None]]}, "bounds must have one pair per coefficient"),
+    (
+        {"bounds": [(None, None), (None, None)]},
+        "a bound pair is a list, not a tuple",
+    ),
+    ({"bounds": [[1.0, 0.0], [None, None]]}, "a lower bound above its upper"),
+    ({"method": "Newton-CG"}, "method outside the table"),
+    ({"method": []}, "a method is a string, and a list is not hashable"),
+    ({"method": {}}, "a method is a string, and a dict is not hashable"),
+    ({"method": "BFGS", "bounds": [[0, 1], [0, 1]]}, "BFGS cannot honour bounds"),
+    ({"tol": 0}, "tol is positive"),
+    ({"options": {"not_an_option": 1}}, "scipy does not know this option"),
+    ({"options": []}, "options is a mapping"),
+    ({"target_smoothing": "yes"}, "target_smoothing is a bool"),
+]
+
+BETA_REFUSED: list[tuple[dict[str, Any], str]] = [
+    ({"target_smoothing": False}, "not part of beta's approved surface"),
+    ({"x0": [1.0, 1.0]}, "beta has three coefficients"),
+    ({"bounds": [[0, None], [0, None]]}, "three pairs"),
+    ({"method": []}, "a method is a string, and a list is not hashable"),
+    (
+        {"method": "CG", "bounds": [[0, 1], [0, 1], [0, 1]]},
+        "CG cannot honour bounds",
+    ),
+    ({"fun": "x"}, "callables are outside the approved surface"),
+]
+
+
+@pytest.mark.parametrize("params,reason", PLATT_REFUSED)
 def test_platt_refuses(params: dict[str, Any], reason: str) -> None:
     _refused(PlattCalibrator, params)
 
 
-@pytest.mark.parametrize(
-    "params,reason",
-    [
-        ({"target_smoothing": False}, "not part of beta's approved surface"),
-        ({"x0": [1.0, 1.0]}, "beta has three coefficients"),
-        ({"bounds": [[0, None], [0, None]]}, "three pairs"),
-        (
-            {"method": "CG", "bounds": [[0, 1], [0, 1], [0, 1]]},
-            "CG cannot honour bounds",
-        ),
-        ({"fun": "x"}, "callables are outside the approved surface"),
-    ],
-)
+@pytest.mark.parametrize("params,reason", BETA_REFUSED)
 def test_beta_refuses(params: dict[str, Any], reason: str) -> None:
     _refused(BetaCalibrator, params)
 
