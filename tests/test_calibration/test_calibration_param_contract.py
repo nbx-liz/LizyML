@@ -91,6 +91,10 @@ PLATT_REFUSED: list[tuple[dict[str, Any], str]] = [
     ({"method": {}}, "a method is a string, and a dict is not hashable"),
     ({"method": "BFGS", "bounds": [[0, 1], [0, 1]]}, "BFGS cannot honour bounds"),
     ({"tol": 0}, "tol is positive"),
+    # Integers too large for a float once escaped as OverflowError.
+    ({"tol": 10**400}, "tol must fit a float"),
+    ({"x0": [10**400, 0.0]}, "x0 must fit a float"),
+    ({"bounds": [[0.0, 10**400], [None, None]]}, "a bound must fit a float"),
     ({"options": {"not_an_option": 1}}, "scipy does not know this option"),
     ({"options": []}, "options is a mapping"),
     ({"target_smoothing": "yes"}, "target_smoothing is a bool"),

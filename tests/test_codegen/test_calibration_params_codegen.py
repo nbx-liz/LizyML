@@ -82,6 +82,14 @@ def test_config_json_carries_the_effective_calibration_params(tmp_path: Path) ->
         ("platt", {"target_smoothing": False, "method": "TNC"}),
         ("beta", {}),
         ("beta", {"bounds": [[0.0, 0.2], [None, None], [None, None]]}),
+        # scipy warns that the start lies outside the bounds for these methods.
+        # That warning is not a refusal: the runtime fits, so the generated
+        # project must fit too.
+        (
+            "beta",
+            {"method": "Powell", "bounds": [[0.0, 0.2], [None, None], [None, None]]},
+        ),
+        ("platt", {"method": "Nelder-Mead", "bounds": [[None, None], [5.0, 6.0]]}),
     ],
 )
 def test_generated_fitter_matches_the_runtime_calibrator(
@@ -128,6 +136,25 @@ def test_generated_fitter_refuses_what_the_runtime_refuses(
     s, y = _scores(3)
     with pytest.raises(ValueError, match="calibration_params"):
         generated_train._CAL_FITTERS[method](s, y, params)
+
+
+@pytest.mark.parametrize("value", [[], 0, "", False, None, "x"])
+def test_generated_project_refuses_calibration_params_that_are_not_a_mapping(
+    generated_train: ModuleType, value: object
+) -> None:
+    """A falsy non-mapping must not quietly become ``{}`` and run the defaults."""
+    config = dict(generated_train.CFG)
+    config["calibration_params"] = value
+    with pytest.raises(ValueError, match="calibration_params"):
+        generated_train._calibration_params(config)
+
+
+def test_generated_project_reads_a_missing_calibration_params_as_empty(
+    generated_train: ModuleType,
+) -> None:
+    """An export from before H-0100 has no key, and ran the defaults."""
+    config = {k: v for k, v in generated_train.CFG.items() if k != "calibration_params"}
+    assert generated_train._calibration_params(config) == {}
 
 
 def test_generated_isotonic_fitter_honours_its_params(tmp_path: Path) -> None:

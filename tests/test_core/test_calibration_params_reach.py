@@ -155,6 +155,8 @@ REFUSED = [
     ("beta", {"options": {"not_an_option": 1}}),
     # An unhashable method once escaped as TypeError instead of the refusal.
     ("platt", {"method": []}),
+    # An integer too large for a float once escaped as OverflowError.
+    ("beta", {"tol": 10**400}),
 ]
 
 
