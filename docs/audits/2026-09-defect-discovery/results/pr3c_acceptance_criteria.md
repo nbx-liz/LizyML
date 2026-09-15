@@ -17,7 +17,7 @@
 
 | 対象 | 凍結先 |
 |---|---|
-| production | 実装コミット（PR を開くときに sha を記入） |
+| production | 実装コミット `1181e05`（テスト `33339cb`） |
 | 契約 | `HISTORY.md` **H-0100**、H-0030 / H-0031 / H-0047 / H-0058 / H-0059 / H-0090 / H-0093 / H-0094 決定 8 / H-0095 |
 | 上位文書 | `BLUEPRINT.md` §12.2 / §15.4、`CLAUDE.md` §3（保存互換性） |
 
@@ -53,7 +53,7 @@
 | 10c | 登録された calibrator すべてが受理契約を宣言し、生成 fitter を持つ（位置の導出） | `test_calibration_params_reach.py::test_every_registered_calibrator_declares_its_params_contract`、`::test_every_registered_calibrator_has_a_generated_fitter` |
 | 10d | README と生成 requirements の scipy の記述が一致 | `test_calibration_params_codegen.py::test_requirements_list_scipy_when_the_generated_code_imports_it`（platt / beta）、`::test_readme_names_both_calibrators_that_need_scipy`、`tests/test_codegen/test_templates.py::TestRenderRequirementsTxt` |
 | 11 | OOF-only・outer split 再利用・covered 行は不変 | 既存 `tests/test_calibration/test_calibration.py::TestCrossFitCalibrate`、`test_h0058_outer_reuse.py`、`test_cross_fit_nan_guard.py`（無変更で通ること） |
-| 12 | 最低依存（scikit-learn 1.3 / scipy 1.10）で同じテストが通り、警告なし | **未実施**（マイルストーン 5 で記入。解決されたバージョンを記録する） |
+| 12 | 最低依存（scikit-learn 1.3 / scipy 1.10）で同じテストが通り、警告なし | **充足（2026-09-15）**。`instruments/lowest_deps_calibration_check.sh` 相当を Python 3.11 で実行し、解決結果は scikit-learn 1.3.0 / scipy 1.10.0 / numpy 1.24.0 / pandas 2.0.0 / lightgbm 4.0.0。対象 6 ファイルで **122 passed**（`-W error::DeprecationWarning -W error::FutureWarning`）。残る 36 件の警告は LizyML 自身の `UserWarning`（binary + kfold の助言）で、依存ライブラリ由来ではない。**例外 1 点**: 宣言下限の pydantic 2.0 では `import lizyml.config.schema` が `TypeError`（discriminator）で失敗するため、pydantic だけ lock の 2.12.5 に上げた。これは PR 3c と無関係の既存欠陥（DC7）で、#295 に起票済み。Python 3.10 は uv の Python ストアが読み取り専用で作れず未確認（下限の検査対象は Python の minor ではない） |
 
 **12 行目が埋まるまでレビューを開かない。**
 

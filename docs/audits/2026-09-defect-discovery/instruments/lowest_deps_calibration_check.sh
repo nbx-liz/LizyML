@@ -26,10 +26,13 @@ uv venv --python 3.11 "$VENV" >"$OUT/venv.txt" 2>&1 || { echo "venv failed"; cat
 
 # The package with its calibration extra at the lowest direct versions, plus the
 # test tooling. scikit-learn 1.3 / scipy 1.10 are pinned explicitly so the run
-# cannot silently resolve upward.
+# cannot silently resolve upward. pydantic is held at the locked 2.12.5 because
+# the declared floor 2.0 cannot import the config schema at all (#295, not
+# caused by PR 3c); without this pin the run measures that defect instead.
 uv pip install --python "$VENV/bin/python" --resolution lowest-direct \
     -e ".[calibration]" \
     "scikit-learn==1.3.*" "scipy==1.10.*" \
+    "pydantic==2.12.5" \
     "pytest>=8.0" "pyarrow>=14.0" "optuna>=3.0" \
     >"$OUT/install.txt" 2>&1 || { echo "install failed"; tail -30 "$OUT/install.txt"; exit 1; }
 
