@@ -88,7 +88,18 @@ def refuse(calibrator: str, parameter: str, detail: str) -> LizyMLError:
 
 
 def _is_number(value: Any) -> bool:
-    return isinstance(value, int | float) and not isinstance(value, bool)
+    """A real number that scipy can hold as a float.
+
+    An integer too large for a float is refused here: ``math.isfinite`` would
+    raise ``OverflowError`` on it instead of letting the setting be refused.
+    """
+    if not isinstance(value, int | float) or isinstance(value, bool):
+        return False
+    try:
+        float(value)
+    except OverflowError:
+        return False
+    return True
 
 
 def validate_optimizer_params(

@@ -561,7 +561,13 @@ _CAL_TOL_KEYS = {
 
 
 def _is_cal_number(value) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        float(value)  # an integer too large for a float is refused, not raised
+    except OverflowError:
+        return False
+    return True
 
 
 def _check_cal_params(params: dict, n_coef: int, extra: tuple) -> None:
@@ -612,18 +618,33 @@ def _check_cal_params(params: dict, n_coef: int, extra: tuple) -> None:
 
 
 def _run_minimize(objective, jac, kwargs: dict):
-    """Run minimize, turning scipy's unknown-option warning into a refusal."""
+    """Run minimize, turning scipy's unknown-option warning into a refusal.
+
+    Only that warning is a refusal. Other OptimizeWarnings (a start outside the
+    bounds, for one) are warnings the LizyML fit also lets through.
+    """
     import warnings
     from scipy.optimize import OptimizeWarning, minimize
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always", OptimizeWarning)
         result = minimize(objective, jac=jac, **kwargs)
-    unknown = [w for w in caught if issubclass(w.category, OptimizeWarning)]
-    if unknown:
-        raise ValueError(f"calibration_params: 'options' {unknown[0].message}")
+    for w in caught:
+        if (issubclass(w.category, OptimizeWarning)
+                and str(w.message).startswith("Unknown solver options")):
+            raise ValueError(f"calibration_params: 'options' {w.message}")
     for w in caught:
         warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)
     return result
+
+
+def _calibration_params(config: dict) -> dict:
+    """calibration_params from config.json; an export from before H-0100 has none."""
+    params = config.get("calibration_params", {})
+    if not isinstance(params, dict):
+        raise ValueError(
+            f"calibration_params: must be a mapping; got {params!r}"
+        )
+    return params
 
 
 def _minimize_kwargs(params: dict, default_x0: list, default_options: dict) -> dict:
@@ -770,9 +791,7 @@ def fit_calibrator(X: np.ndarray, y: np.ndarray, df: pd.DataFrame) -> dict | Non
     # validation fold, so their OOF score stays NaN. Fit the calibrator on the
     # covered rows only (matches LizyML's cross-fit C_final; #228).
     covered = ~np.isnan(oof)
-    params = _CAL_FITTERS[method](
-        oof[covered], y[covered], CFG.get("calibration_params") or {}
-    )
+    params = _CAL_FITTERS[method](oof[covered], y[covered], _calibration_params(CFG))
     with open(ARTIFACTS / "calibrator.json", "w", encoding="utf-8") as f:
         json.dump(params, f, indent=2)
     log.info("    saved calibrator.json")
