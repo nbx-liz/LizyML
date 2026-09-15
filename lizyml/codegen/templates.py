@@ -30,7 +30,6 @@ from pathlib import Path
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import (
     GroupKFold,
     KFold,
@@ -541,14 +540,85 @@ def _generate_oof(X: np.ndarray, y: np.ndarray, folds) -> np.ndarray:
     return oof
 
 
-def _fit_platt(scores: np.ndarray, y: np.ndarray) -> dict:
-    lr = LogisticRegression(C=1.0, solver="lbfgs", max_iter=200)
-    lr.fit(scores.reshape(-1, 1), y)
-    return {"method": "platt",
-            "a": float(lr.coef_[0, 0]), "b": float(lr.intercept_[0])}
+# The calibrators are rebuilt with config.json["calibration_params"], prepared
+# exactly as the fit prepared them. Each fitter mirrors its LizyML counterpart
+# (lizyml/calibration/{platt,beta,isotonic}.py and _optimizer.py); the codegen
+# equivalence tests pin that the two agree.
+
+# minimize method -> (honours bounds, uses the analytic gradient)
+_CAL_METHODS = {
+    "L-BFGS-B": (True, True), "TNC": (True, True), "SLSQP": (True, True),
+    "trust-constr": (True, True), "Powell": (True, False),
+    "Nelder-Mead": (True, False), "BFGS": (False, True), "CG": (False, True),
+}
+# options keys scipy fills from tol, per method
+_CAL_TOL_KEYS = {
+    "L-BFGS-B": ("ftol", "gtol"), "TNC": ("xtol", "ftol", "gtol"),
+    "SLSQP": ("ftol",), "trust-constr": ("xtol", "gtol", "barrier_tol"),
+    "Powell": ("xtol", "ftol"), "Nelder-Mead": ("xatol", "fatol"),
+    "BFGS": ("gtol",), "CG": ("gtol",),
+}
 
 
-def _fit_beta(scores: np.ndarray, y: np.ndarray) -> dict:
+def _minimize_kwargs(params: dict, default_x0: list, default_options: dict) -> dict:
+    """Written options beat a written tol, which beats the per-method defaults."""
+    method = params.get("method", "L-BFGS-B")
+    options = dict(default_options.get(method, {}))
+    kwargs = {"method": method}
+    if "tol" in params:
+        for key in _CAL_TOL_KEYS[method]:
+            options.pop(key, None)
+        kwargs["tol"] = params["tol"]
+    options.update(params.get("options", {}))
+    kwargs["options"] = options
+    kwargs["x0"] = [float(v) for v in params.get("x0", default_x0)]
+    if "bounds" in params:
+        kwargs["bounds"] = [tuple(pair) for pair in params["bounds"]]
+    return kwargs
+
+
+def _fit_platt(scores: np.ndarray, y: np.ndarray, params: dict) -> dict:
+    """Platt (1999): slope and intercept by maximum likelihood, smoothed targets."""
+    from scipy.optimize import minimize
+    from scipy.special import expit
+    s = np.asarray(scores, dtype=float).ravel()
+    pos = np.asarray(y, dtype=float).ravel() > 0
+    n_pos = float(pos.sum())
+    n_neg = float(pos.size - n_pos)
+    if params.get("target_smoothing", True):
+        t = np.where(pos, (n_pos + 1.0) / (n_pos + 2.0), 1.0 / (n_neg + 2.0))
+    else:
+        t = pos.astype(float)
+    largest = float(np.max(np.abs(s))) if s.size else 0.0
+    scale = largest if largest >= 30.0 else 1.0
+    f = s / scale
+    kwargs = _minimize_kwargs(
+        params,
+        [0.0, -math.log((n_neg + 1.0) / (n_pos + 1.0))],
+        {"L-BFGS-B": {"gtol": 1e-6, "ftol": 64 * float(np.finfo(float).eps)}},
+    )
+    kwargs["x0"] = [kwargs["x0"][0] * scale, kwargs["x0"][1]]
+    if "bounds" in kwargs:
+        (lo, hi), b_bounds = kwargs["bounds"]
+        kwargs["bounds"] = [
+            (None if lo is None else lo * scale, None if hi is None else hi * scale),
+            b_bounds,
+        ]
+    gradient = _CAL_METHODS[kwargs["method"]][1]
+
+    def objective(c):
+        z = c[0] * f + c[1]
+        loss = float(np.sum(np.logaddexp(0.0, z) - t * z))
+        if not gradient:
+            return loss
+        r = expit(z) - t
+        return loss, np.array([r @ f, r.sum()])
+
+    res = minimize(objective, jac=True if gradient else None, **kwargs)
+    return {"method": "platt", "a": float(res.x[0]) / scale, "b": float(res.x[1])}
+
+
+def _fit_beta(scores: np.ndarray, y: np.ndarray, params: dict) -> dict:
     from scipy.optimize import minimize
     s = np.clip(_sigmoid(scores), 1e-10, 1 - 1e-10)
     yf = y.astype(float)
@@ -558,32 +628,55 @@ def _fit_beta(scores: np.ndarray, y: np.ndarray) -> dict:
         prob = np.clip(_sigmoid(p[0] * ls + p[1] * l1s + p[2]), 1e-10, 1 - 1e-10)
         return float(-np.sum(yf * np.log(prob) + (1 - yf) * np.log(1 - prob)))
 
-    r = minimize(nll, x0=[1, 1, 0], method="L-BFGS-B")
+    r = minimize(nll, **_minimize_kwargs(params, [1.0, 1.0, 0.0], {}))
     return {"method": "beta",
             "a": float(r.x[0]), "b": float(r.x[1]), "c": float(r.x[2])}
 
 
-def _fit_isotonic(scores: np.ndarray, y: np.ndarray) -> dict:
-    n = len(scores)
-    params = {
+def _fit_isotonic(scores: np.ndarray, y: np.ndarray, params: dict) -> dict:
+    user = dict(params)
+    num_boost_round = int(user.pop("num_boost_round", 1000))
+    validation_ratio = float(user.pop("validation_ratio", 0.1))
+    seed = int(user.pop("seed", CFG["seed"]))
+    leaf_ratio = user.pop("min_data_in_leaf_ratio", 0.01)
+    merged = {
         "objective": "binary", "metric": "binary_logloss",
         "monotone_constraints": [1], "monotone_constraints_method": "advanced",
         "num_leaves": 7, "max_depth": 3, "learning_rate": 0.03,
-        "lambda_l2": 5.0, "min_data_in_leaf": max(1, math.ceil(n * 0.01)),
-        "verbose": -1, "seed": CFG["seed"],
+        "lambda_l2": 5.0, "min_gain_to_split": 0.0, "feature_fraction": 1.0,
+        "bagging_fraction": 1.0, "bagging_freq": 0,
     }
-    rng = np.random.default_rng(CFG["seed"])
-    n_val = max(1, int(n * 0.1))
-    idx = rng.permutation(n)
-    X_cal = scores.reshape(-1, 1)
+    # calibration_params were checked against LightGBM's registry before the fit
+    # that produced this config (H-0093), so the overlay names only LightGBM
+    # parameters; the calibrator's own keys were popped above.
+    merged.update(user)
+    merged["monotone_constraints"] = [1]
+    merged.pop("verbose", None)
+    merged["verbosity"] = -1
+    merged["seed"] = seed
 
-    ds_t = lgb.Dataset(X_cal[idx[n_val:]], label=y[idx[n_val:]].astype(float))
-    ds_v = lgb.Dataset(X_cal[idx[:n_val]], label=y[idx[:n_val]].astype(float),
-                       reference=ds_t)
-    bst = lgb.train(params, ds_t, num_boost_round=1000,
-                    valid_sets=[ds_v], valid_names=["valid"],
-                    callbacks=[lgb.early_stopping(100, verbose=False),
-                               lgb.log_evaluation(0)])
+    n = len(scores)
+    if leaf_ratio is not None:
+        merged["min_data_in_leaf"] = max(1, math.ceil(n * leaf_ratio))
+    X_cal = scores.reshape(-1, 1)
+    yf = y.astype(float)
+
+    callbacks = [lgb.log_evaluation(period=-1)]
+    if n < 20:
+        ds_t = lgb.Dataset(X_cal, label=yf)
+        valid_sets = []
+    else:
+        rng = np.random.default_rng(seed)
+        n_val = max(1, int(n * validation_ratio))
+        idx = rng.permutation(n)
+        ds_t = lgb.Dataset(X_cal[idx[n_val:]], label=yf[idx[n_val:]])
+        valid_sets = [lgb.Dataset(X_cal[idx[:n_val]], label=yf[idx[:n_val]],
+                                  reference=ds_t)]
+        callbacks.insert(0, lgb.early_stopping(stopping_rounds=100, verbose=False))
+    bst = lgb.train(merged, ds_t, num_boost_round=num_boost_round,
+                    valid_sets=valid_sets,
+                    valid_names=["valid"] if valid_sets else None,
+                    callbacks=callbacks)
     bst.save_model(str(ARTIFACTS / "calibrator_model.txt"))
     return {"method": "isotonic", "model_file": "calibrator_model.txt"}
 
@@ -611,7 +704,9 @@ def fit_calibrator(X: np.ndarray, y: np.ndarray, df: pd.DataFrame) -> dict | Non
     # validation fold, so their OOF score stays NaN. Fit the calibrator on the
     # covered rows only (matches LizyML's cross-fit C_final; #228).
     covered = ~np.isnan(oof)
-    params = _CAL_FITTERS[method](oof[covered], y[covered])
+    params = _CAL_FITTERS[method](
+        oof[covered], y[covered], CFG.get("calibration_params") or {}
+    )
     with open(ARTIFACTS / "calibrator.json", "w", encoding="utf-8") as f:
         json.dump(params, f, indent=2)
     log.info("    saved calibrator.json")
@@ -1009,15 +1104,17 @@ def render_predict_py() -> str:
     return _PREDICT_PY
 
 
-def render_requirements_txt(*, uses_beta_calibration: bool = False) -> str:
+def render_requirements_txt(*, uses_scipy: bool = False) -> str:
     """Return the requirements.txt content.
 
-    ``scipy`` is pinned only when the model uses beta calibration -- the sole
-    generated code path that imports it (lazily, inside ``_fit_beta`` in
-    ``train.py``; the predict-time beta application is pure numpy). This keeps
-    the emitted dependency set matching the README claim (#218).
+    ``scipy`` is listed exactly when the generated code imports it: the platt and
+    beta fitters in ``train.py`` optimise with ``scipy.optimize.minimize`` (lazily,
+    inside ``_fit_platt`` / ``_fit_beta``; predict-time application is pure numpy).
+    Platt joined beta here in H-0100, when it moved from LogisticRegression to
+    Platt's own maximum-likelihood fit. This keeps the emitted dependency set
+    matching the README claim (#218).
     """
-    if uses_beta_calibration:
+    if uses_scipy:
         return _REQUIREMENTS_BASE + "scipy\n"
     return _REQUIREMENTS_BASE
 

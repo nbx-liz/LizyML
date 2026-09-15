@@ -79,6 +79,19 @@ class IsotonicCalibrator(BaseCalibratorAdapter):
             - ``seed``: random seed for validation split (default 42)
     """
 
+    @classmethod
+    def validate_params(cls, params: dict[str, Any]) -> None:
+        """Declared, and deliberately empty: the Facade checks these names.
+
+        ``calibration.params`` for isotonic is handed to ``lgbm.train``, so its
+        names are judged against LightGBM's own registry and its values
+        normalised, both in ``check_calibration_param_names`` before any training
+        (H-0093, H-0094 decision 8). That check needs the LightGBM provider, which
+        ``lizyml/calibration/`` may not import, so it cannot live here. Declaring
+        this method anyway keeps every registered calibrator explicit about where
+        its params are validated (H-0100).
+        """
+
     def __init__(self, params: dict[str, Any] | None = None) -> None:
         # Copy to avoid mutating the caller's dict
         user = dict(params) if params else {}

@@ -213,8 +213,16 @@ class ModelPersistenceMixin:
         calibration_method: str | None = None
         # Use outer CV n_splits for OOF calibration (H-0058: reuses outer splits)
         calibration_n_splits = get_outer_n_splits(cfg)
+        calibration_params: dict[str, Any] = {}
         if cfg.calibration is not None:
+            from lizyml.core._model_factories import prepare_calibration_params
+
             calibration_method = cfg.calibration.method
+            # The same preparation the fit applied (H-0100), so the generated
+            # train.py rebuilds the calibrator with those settings (H-0059).
+            calibration_params = prepare_calibration_params(
+                cfg.calibration, seed=cfg.training.seed
+            )
 
         # Extract c_final calibrator from CalibrationResult
         calibrator = None
@@ -264,6 +272,7 @@ class ModelPersistenceMixin:
             seed=cfg.training.seed,
             calibration_method=calibration_method,
             calibration_n_splits=calibration_n_splits,
+            calibration_params=calibration_params,
             model_adapter=adapter,
             pipeline_state=refit_result.pipeline_state,
             calibrator=calibrator,

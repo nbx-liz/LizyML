@@ -1124,10 +1124,21 @@ def check_calibration_param_names(calibration_cfg: Any) -> None:
     if calibration_cfg is None:
         return
     method: str = getattr(calibration_cfg, "method", "")
-    if method not in LGBM_BACKED_CALIBRATORS:
-        return
     params = getattr(calibration_cfg, "params", None) or {}
     if not params:
+        return
+
+    if method not in LGBM_BACKED_CALIBRATORS:
+        # H-0100: a calibrator that does not use LightGBM declares what it
+        # accepts, and this refuses the rest before any training. Values are
+        # normalised first (H-0095) -- the same form the calibrator and the
+        # exported config.json receive. Until H-0100 these params were accepted
+        # and ignored (#277).
+        import lizyml.calibration.registry  # noqa: F401  (registers calibrators)
+        from lizyml.core.registries import CalibratorRegistry
+
+        normalised = normalise_params(dict(params), surface="calibration.params")
+        CalibratorRegistry.get(method).validate_params(normalised)
         return
 
     from lizyml.calibration.isotonic import CALIBRATOR_OWN_PARAM_NAMES
@@ -1197,3 +1208,38 @@ def canonicalise_calibration_params(params: dict[str, Any]) -> dict[str, Any]:
         name if name in CALIBRATOR_OWN_PARAM_NAMES else canonical[name]: value
         for name, value in params.items()
     }
+
+
+def prepare_calibration_params(calibration_cfg: Any, *, seed: int) -> dict[str, Any]:
+    """Return ``calibration.params`` in the form the calibrator is handed (H-0100).
+
+    One function for both consumers -- the runtime cross-fit and the generated
+    ``config.json`` -- so a retrained export rebuilds the calibrator with exactly
+    the settings the fit used (H-0059).
+
+    The preparation is per method:
+
+    * Values are normalised for **every** calibrator (H-0095): the same accepted
+      set, and a form ``json.dump`` can write.
+    * LightGBM alias canonicalisation applies **only** to LightGBM-backed
+      calibrators (H-0094 decision 8). Applied to ``platt`` or ``beta`` it would
+      rename a setting before its consumer read it.
+    * Isotonic inherits ``training.seed`` for its validation split when the params
+      do not name one (H-0080).
+
+    Args:
+        calibration_cfg: ``cfg.calibration`` (not ``None``).
+        seed: ``cfg.training.seed``.
+
+    Returns:
+        A new dict; empty when no params were written and none are implied.
+    """
+    method: str = calibration_cfg.method
+    params = dict(calibration_cfg.params or {})
+    if method in LGBM_BACKED_CALIBRATORS:
+        prepared = canonicalise_calibration_params(params)
+        prepared.setdefault("seed", seed)
+        return prepared
+    if not params:
+        return {}
+    return normalise_params(params, surface="calibration.params")

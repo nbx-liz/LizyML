@@ -20,6 +20,7 @@ def build_config(
     feval_metrics: list[dict[str, Any]] | None = None,
     target_classes: list[Any] | None = None,
     split: dict[str, Any] | None = None,
+    calibration_params: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build config.json content as an ordered dict.
 
@@ -80,6 +81,9 @@ def build_config(
         # ── Calibration ──
         "calibration_method": calibration_method,
         "calibration_n_splits": calibration_n_splits,
+        # H-0100: the prepared calibration.params, so a retrain rebuilds the
+        # calibrator with the settings the fit used (H-0059).
+        "calibration_params": dict(calibration_params or {}),
         # ── Split reproduction for retrain OOF (#228) ──
         "split": split,
     }
