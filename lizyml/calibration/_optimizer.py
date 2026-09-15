@@ -122,7 +122,9 @@ def validate_optimizer_params(
             )
 
     method = params.get("method", DEFAULT_METHOD)
-    if method not in METHODS:
+    # The type is checked first: a list or dict survives value normalisation and
+    # is unhashable, so the membership test alone would escape as TypeError.
+    if not isinstance(method, str) or method not in METHODS:
         raise refuse(
             calibrator, "method", f"must be one of {sorted(METHODS)}; got {method!r}."
         )

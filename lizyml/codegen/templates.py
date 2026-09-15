@@ -560,6 +560,72 @@ _CAL_TOL_KEYS = {
 }
 
 
+def _is_cal_number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _check_cal_params(params: dict, n_coef: int, extra: tuple) -> None:
+    """Refuse what LizyML refuses, so an edited config.json is never ignored.
+
+    Mirrors lizyml/calibration/_optimizer.py::validate_optimizer_params. Unknown
+    options keys are refused when minimize runs (see _run_minimize).
+    """
+    def refuse(name, detail):
+        raise ValueError(f"calibration_params: {name!r} {detail}")
+
+    accepted = {"x0", "method", "bounds", "tol", "options", *extra}
+    for name in params:
+        if name not in accepted:
+            refuse(name, f"is not accepted; accepted: {sorted(accepted)}")
+    method = params.get("method", "L-BFGS-B")
+    if not isinstance(method, str) or method not in _CAL_METHODS:
+        refuse("method", f"must be one of {sorted(_CAL_METHODS)}; got {method!r}")
+    if "x0" in params:
+        x0 = params["x0"]
+        if (not isinstance(x0, list) or len(x0) != n_coef
+                or not all(_is_cal_number(v) and math.isfinite(v) for v in x0)):
+            refuse("x0", f"must be a list of {n_coef} finite numbers; got {x0!r}")
+    if "bounds" in params:
+        bounds = params["bounds"]
+        shape = f"must be {n_coef} [lower, upper] lists; got {bounds!r}"
+        if not _CAL_METHODS[method][0]:
+            refuse("bounds", f"cannot be honoured by method {method!r}")
+        if not isinstance(bounds, list) or len(bounds) != n_coef:
+            refuse("bounds", shape)
+        for pair in bounds:
+            if not isinstance(pair, list) or len(pair) != 2 or not all(
+                b is None or (_is_cal_number(b) and not math.isnan(b)) for b in pair
+            ):
+                refuse("bounds", shape)
+            if pair[0] is not None and pair[1] is not None and pair[0] > pair[1]:
+                refuse("bounds", f"has a lower bound above its upper bound: {pair!r}")
+    if "tol" in params:
+        tol = params["tol"]
+        if not _is_cal_number(tol) or not math.isfinite(tol) or tol <= 0:
+            refuse("tol", f"must be a positive finite number; got {tol!r}")
+    options = params.get("options", {})
+    if not isinstance(options, dict):
+        refuse("options", f"must be a mapping; got {options!r}")
+    smoothing = params.get("target_smoothing", True)
+    if not isinstance(smoothing, bool):
+        refuse("target_smoothing", f"must be true or false; got {smoothing!r}")
+
+
+def _run_minimize(objective, jac, kwargs: dict):
+    """Run minimize, turning scipy's unknown-option warning into a refusal."""
+    import warnings
+    from scipy.optimize import OptimizeWarning, minimize
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", OptimizeWarning)
+        result = minimize(objective, jac=jac, **kwargs)
+    unknown = [w for w in caught if issubclass(w.category, OptimizeWarning)]
+    if unknown:
+        raise ValueError(f"calibration_params: 'options' {unknown[0].message}")
+    for w in caught:
+        warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)
+    return result
+
+
 def _minimize_kwargs(params: dict, default_x0: list, default_options: dict) -> dict:
     """Written options beat a written tol, which beats the per-method defaults."""
     method = params.get("method", "L-BFGS-B")
@@ -579,8 +645,8 @@ def _minimize_kwargs(params: dict, default_x0: list, default_options: dict) -> d
 
 def _fit_platt(scores: np.ndarray, y: np.ndarray, params: dict) -> dict:
     """Platt (1999): slope and intercept by maximum likelihood, smoothed targets."""
-    from scipy.optimize import minimize
     from scipy.special import expit
+    _check_cal_params(params, 2, ("target_smoothing",))
     s = np.asarray(scores, dtype=float).ravel()
     pos = np.asarray(y, dtype=float).ravel() > 0
     n_pos = float(pos.sum())
@@ -614,12 +680,12 @@ def _fit_platt(scores: np.ndarray, y: np.ndarray, params: dict) -> dict:
         r = expit(z) - t
         return loss, np.array([r @ f, r.sum()])
 
-    res = minimize(objective, jac=True if gradient else None, **kwargs)
+    res = _run_minimize(objective, True if gradient else None, kwargs)
     return {"method": "platt", "a": float(res.x[0]) / scale, "b": float(res.x[1])}
 
 
 def _fit_beta(scores: np.ndarray, y: np.ndarray, params: dict) -> dict:
-    from scipy.optimize import minimize
+    _check_cal_params(params, 3, ())
     s = np.clip(_sigmoid(scores), 1e-10, 1 - 1e-10)
     yf = y.astype(float)
     ls, l1s = np.log(s), np.log(1 - s)
@@ -628,7 +694,7 @@ def _fit_beta(scores: np.ndarray, y: np.ndarray, params: dict) -> dict:
         prob = np.clip(_sigmoid(p[0] * ls + p[1] * l1s + p[2]), 1e-10, 1 - 1e-10)
         return float(-np.sum(yf * np.log(prob) + (1 - yf) * np.log(1 - prob)))
 
-    r = minimize(nll, **_minimize_kwargs(params, [1.0, 1.0, 0.0], {}))
+    r = _run_minimize(nll, None, _minimize_kwargs(params, [1.0, 1.0, 0.0], {}))
     return {"method": "beta",
             "a": float(r.x[0]), "b": float(r.x[1]), "c": float(r.x[2])}
 
