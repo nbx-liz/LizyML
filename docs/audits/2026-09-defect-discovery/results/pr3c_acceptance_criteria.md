@@ -36,9 +36,9 @@
 | 4d | 表の 8 手法すべてで警告なしに fit し、既定と同じ解に達する | `::test_every_method_in_the_table_fits_platt` |
 | 5a | 大きなスコアで `bounds` が書いた座標で効く | `test_platt_mle.py::test_bounds_on_the_slope_hold_in_the_written_coordinates_for_large_scores` |
 | 5b | 縮尺しても同じ問題になる（`x0` と `bounds` の座標変換） | `test_platt_mle.py::test_rescaling_is_the_same_problem` |
-| 6a | 受理範囲の外（未知名、`x0` / `bounds` の長さ、タプルの組、表外の手法、BFGS/CG + bounds、未知の option、型違い、beta への `target_smoothing`）が `CONFIG_INVALID`、出所 `calibration.params` | `test_calibration_param_contract.py::test_platt_refuses`（9 ケース）、`::test_beta_refuses`（5 ケース） |
+| 6a | 受理範囲の外（未知名、`x0` / `bounds` の長さ、タプルの組、表外の手法、BFGS/CG + bounds、未知の option、型違い、beta への `target_smoothing`）が `CONFIG_INVALID`、出所 `calibration.params` | `test_calibration_param_contract.py::test_platt_refuses`（15 ケース）、`::test_beta_refuses`（6 ケース）。ケースは `PLATT_REFUSED` / `BETA_REFUSED` に置き、生成 fitter の検査（8f）と共有する。round 1 で `method` がリスト / dict の場合（`TypeError` で抜けていた）を追加 |
 | 6b | 受理範囲の中は通る | `::test_platt_accepts_its_surface`（6）、`::test_beta_accepts_its_surface`（5） |
-| 6c | fit でも tune でも、Booster / study が学習される前に拒否 | `test_calibration_params_reach.py::test_fit_refuses_before_training`（4）、`::test_tune_refuses_before_any_study`（4） |
+| 6c | fit でも tune でも、Booster / study が学習される前に拒否 | `test_calibration_params_reach.py::test_fit_refuses_before_training`（5）、`::test_tune_refuses_before_any_study`（5、出所 `calibration.params` の文言も主張） |
 | 6d | LightGBM の登録表ではなく calibrator の宣言で拒否される | `tests/test_calibration/test_calibration_param_names.py::test_calibrators_that_do_not_use_lightgbm_are_checked_by_their_own_contract`（旧挙動を固定していたテストを書き直した。削除していない） |
 | 7 | platt / beta に LightGBM 正規名化が掛からず、isotonic には掛かる（H-0094 決定 8 の回帰なし） | `test_calibration_params_reach.py::test_platt_and_beta_are_not_given_lightgbm_canonicalisation`（呼び出しを spy で主張）、`::test_isotonic_is_given_lightgbm_canonicalisation`、既存 `tests/test_core/test_fit_params_override.py` の calibration 別名テスト群 |
 | 8a | `config.json` が前処理後の実効値を持つ | `tests/test_codegen/test_calibration_params_codegen.py::test_config_json_carries_the_effective_calibration_params` |
@@ -46,6 +46,7 @@
 | 8c | 生成 isotonic が params を反映し、実行時と同じ予測 | `::test_generated_isotonic_fitter_honours_its_params` |
 | 8d | 一致だけでなく、生成 fitter が params で変わる | `::test_generated_platt_fitter_is_changed_by_its_params` |
 | 8e | 生成コードで再学習が実際に走り、params が効く | `::test_generated_retrain_uses_the_params` |
+| 8f | 生成 fitter が実行時と同じものを拒否する（`config.json` は編集可能、H-0059）。round 1 で追加 | `test_calibration_params_codegen.py::test_generated_fitter_refuses_what_the_runtime_refuses`（実行時の拒否ケースのうち JSON で表せる 20 ケースすべて） |
 | 9a | 旧 platt calibrator が通常・極端なスコアで同じ predict を返す | `test_platt_mle.py::test_a_legacy_calibrator_predicts_as_it_did`（±1e3 まで、atol 1e-12） |
 | 9b | 未学習の旧状態と、新状態の再読込 | `::test_an_unfitted_legacy_calibrator_stays_unfitted`、`::test_a_current_calibrator_survives_a_pickle_round_trip` |
 | 10a | 既定の platt / beta の fit で警告なし | `test_platt_mle.py::test_default_fit_emits_no_warning`、`test_calibration_param_contract.py::test_beta_default_fit_emits_no_warning` |
@@ -76,3 +77,16 @@
 | **B4** | テスト / 文書 / 命名 | 妨げない | 直すか起票。再レビューしない |
 
 どのバケットにも落ちない指摘は、この文書の不備として管理者に戻す。
+
+## 5. レビューの記録
+
+### round 1（2026-09-15、head `f67f8c7`、`REQUEST_CHANGES`）
+
+記録: `results/pr3c_code_review_round1.md`。3 件とも主コンテキストで再現した。
+
+| 指摘 | バケット | 処分 |
+|---|---|---|
+| 1. `method` がリスト / dict のとき `CONFIG_INVALID` でなく `TypeError` | **B1**（6a / 6c） | 修正: 表の照合の前に文字列であることを確認。拒否ケースを 6a と fit / tune の検査に追加 |
+| 2. 生成 fitter が実行時の受理契約を持たず、編集した `config.json` の未知名などを黙って捨てる | **B3 の例外**（学習前に拒否されずに捨てられる形、DC1 / DC3） | 修正: 生成 platt / beta が実行時と同じものを拒否し、scipy の未知 option 警告を拒否にする。行 8f を追加 |
+| 3. 最適化の失敗（`success=False`）が初期値のまま学習済みとして通る | **B3**（§2 に失敗時の扱いが無い、DC1） | **#297 に起票**。scikit-learn の `_sigmoid_calibration` も `success` を見ていない（1.8.0 で確認） |
+| 証拠が主張より弱い行 | **B4** | 6a / 6c / 8b は上の修正のテストで補強。3c / 4a-4c / 5b / 8a / 9a-9b は **#298 に起票**（既知の production 欠陥ではない） |
