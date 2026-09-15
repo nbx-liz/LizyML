@@ -36,17 +36,17 @@
 | 4d | 表の 8 手法すべてで警告なしに fit し、既定と同じ解に達する | `::test_every_method_in_the_table_fits_platt` |
 | 5a | 大きなスコアで `bounds` が書いた座標で効く | `test_platt_mle.py::test_bounds_on_the_slope_hold_in_the_written_coordinates_for_large_scores` |
 | 5b | 縮尺しても同じ問題になる（`x0` と `bounds` の座標変換） | `test_platt_mle.py::test_rescaling_is_the_same_problem` |
-| 6a | 受理範囲の外（未知名、`x0` / `bounds` の長さ、タプルの組、表外の手法、BFGS/CG + bounds、未知の option、型違い、beta への `target_smoothing`）が `CONFIG_INVALID`、出所 `calibration.params` | `test_calibration_param_contract.py::test_platt_refuses`（15 ケース）、`::test_beta_refuses`（6 ケース）。ケースは `PLATT_REFUSED` / `BETA_REFUSED` に置き、生成 fitter の検査（8f）と共有する。round 1 で `method` がリスト / dict の場合（`TypeError` で抜けていた）を追加 |
+| 6a | 受理範囲の外（未知名、`x0` / `bounds` の長さ、タプルの組、表外の手法、BFGS/CG + bounds、未知の option、型違い、beta への `target_smoothing`）が `CONFIG_INVALID`、出所 `calibration.params` | `test_calibration_param_contract.py::test_platt_refuses`（18 ケース）、`::test_beta_refuses`（6 ケース）。ケースは `PLATT_REFUSED` / `BETA_REFUSED` に置き、生成 fitter の検査（8f）と共有する。round 1 で `method` がリスト / dict の場合（`TypeError` で抜けていた）、round 2 で float に収まらない整数（`OverflowError` で抜けていた）を追加 |
 | 6b | 受理範囲の中は通る | `::test_platt_accepts_its_surface`（6）、`::test_beta_accepts_its_surface`（5） |
-| 6c | fit でも tune でも、Booster / study が学習される前に拒否 | `test_calibration_params_reach.py::test_fit_refuses_before_training`（5）、`::test_tune_refuses_before_any_study`（5、出所 `calibration.params` の文言も主張） |
+| 6c | fit でも tune でも、Booster / study が学習される前に拒否 | `test_calibration_params_reach.py::test_fit_refuses_before_training`（6）、`::test_tune_refuses_before_any_study`（6、出所 `calibration.params` の文言も主張） |
 | 6d | LightGBM の登録表ではなく calibrator の宣言で拒否される | `tests/test_calibration/test_calibration_param_names.py::test_calibrators_that_do_not_use_lightgbm_are_checked_by_their_own_contract`（旧挙動を固定していたテストを書き直した。削除していない） |
 | 7 | platt / beta に LightGBM 正規名化が掛からず、isotonic には掛かる（H-0094 決定 8 の回帰なし） | `test_calibration_params_reach.py::test_platt_and_beta_are_not_given_lightgbm_canonicalisation`（呼び出しを spy で主張）、`::test_isotonic_is_given_lightgbm_canonicalisation`、既存 `tests/test_core/test_fit_params_override.py` の calibration 別名テスト群 |
 | 8a | `config.json` が前処理後の実効値を持つ | `tests/test_codegen/test_calibration_params_codegen.py::test_config_json_carries_the_effective_calibration_params` |
-| 8b | 生成 fitter が実行時と一致（platt 2 / beta 2） | `::test_generated_fitter_matches_the_runtime_calibrator`（4 ケース） |
+| 8b | 生成 fitter が実行時と一致（platt 3 / beta 3） | `::test_generated_fitter_matches_the_runtime_calibrator`（6 ケース。round 2 で開始点が bounds 外になる Powell / Nelder-Mead を追加） |
 | 8c | 生成 isotonic が params を反映し、実行時と同じ予測 | `::test_generated_isotonic_fitter_honours_its_params` |
 | 8d | 一致だけでなく、生成 fitter が params で変わる | `::test_generated_platt_fitter_is_changed_by_its_params` |
 | 8e | 生成コードで再学習が実際に走り、params が効く | `::test_generated_retrain_uses_the_params` |
-| 8f | 生成 fitter が実行時と同じものを拒否する（`config.json` は編集可能、H-0059）。round 1 で追加 | `test_calibration_params_codegen.py::test_generated_fitter_refuses_what_the_runtime_refuses`（実行時の拒否ケースのうち JSON で表せる 20 ケースすべて） |
+| 8f | 生成 fitter が実行時と同じものを拒否する（`config.json` は編集可能、H-0059）。round 1 で追加 | `test_calibration_params_codegen.py::test_generated_fitter_refuses_what_the_runtime_refuses`（実行時の拒否ケースのうち JSON で表せる 23 ケースすべて）、`::test_generated_project_refuses_calibration_params_that_are_not_a_mapping`（6）、`::test_generated_project_reads_a_missing_calibration_params_as_empty` |
 | 9a | 旧 platt calibrator が通常・極端なスコアで同じ predict を返す | `test_platt_mle.py::test_a_legacy_calibrator_predicts_as_it_did`（±1e3 まで、atol 1e-12） |
 | 9b | 未学習の旧状態と、新状態の再読込 | `::test_an_unfitted_legacy_calibrator_stays_unfitted`、`::test_a_current_calibrator_survives_a_pickle_round_trip` |
 | 10a | 既定の platt / beta の fit で警告なし | `test_platt_mle.py::test_default_fit_emits_no_warning`、`test_calibration_param_contract.py::test_beta_default_fit_emits_no_warning` |
@@ -104,3 +104,11 @@
 **§4 B1 の「限定検証 1 回。さらに出たら管理者に戻す」に該当 → 管理者に戻した。管理者の決定（2026-09-15）: 3 件を修正し、修正 3 件だけを対象に round 3。**
 
 検証: 関連 423 passed、フルスイート 7999 passed / 0 failed（環境由来のバージョン検査 1 件を除外）、ruff / format / mypy clean。**最低依存（scikit-learn 1.3.0 / scipy 1.10.0）で修正後のコードを再実行: 168 passed**（行 12 の実行は修正前だったため）。
+
+### round 3（2026-09-15、head `5fd59f1`、round 2 の修正に限定、`APPROVE`）
+
+記録: `results/pr3c_code_review_round3.md`。監視（relational、rounds 1-2）は `CONVERGING` / `continue`（`results/pr3c_code_monitor_round2.md`）。**事前宣言した停止条件（round 2 の修正が書いたコードの欠陥）は発火しなかった。**
+
+- 修正 A / B / C はそれぞれ指摘を閉じ、壊したものは無い。A は scipy 1.17.1 と 1.10.0 の両方で実行時と生成の 31 ケースが一致。
+- note 1 件（未知 option を拒否するとき同じ呼び出しの他の警告を再送出しない。結果は変わらない）と範囲外 3 件（生成 platt の bounds×scale の inf 化、`np.int64` の拒否、options probe が bounds なし）は **B4 / 観察として記録のみ**。いずれも fit か拒否かの結果を変えず、本 PR の修正で入ったものではない。
+- ラウンド使用: 予算 8 のうち 3。**受け入れは管理者の宣言（§0）。**
