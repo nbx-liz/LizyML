@@ -90,3 +90,17 @@
 | 2. 生成 fitter が実行時の受理契約を持たず、編集した `config.json` の未知名などを黙って捨てる | **B3 の例外**（学習前に拒否されずに捨てられる形、DC1 / DC3） | 修正: 生成 platt / beta が実行時と同じものを拒否し、scipy の未知 option 警告を拒否にする。行 8f を追加 |
 | 3. 最適化の失敗（`success=False`）が初期値のまま学習済みとして通る | **B3**（§2 に失敗時の扱いが無い、DC1） | **#297 に起票**。scikit-learn の `_sigmoid_calibration` も `success` を見ていない（1.8.0 で確認） |
 | 証拠が主張より弱い行 | **B4** | 6a / 6c / 8b は上の修正のテストで補強。3c / 4a-4c / 5b / 8a / 9a-9b は **#298 に起票**（既知の production 欠陥ではない） |
+
+### round 2（2026-09-15、head `761c05e`、round 1 の修正に限定、`REQUEST_CHANGES`）
+
+記録: `results/pr3c_code_review_round2.md`。運び手は Codex からサブエージェントに変更（Codex がメモリ監視で 3 回連続停止）。
+
+| 指摘 | 性質 | 状態 |
+|---|---|---|
+| A. 生成 `_run_minimize` がすべての `OptimizeWarning` を拒否にし、Powell / Nelder-Mead + bounds の正当な設定で生成 `train.py` が止まる | **round 1 の修正が書いたコードの欠陥**（回帰） | 修正: `Unknown solver options` の警告だけを拒否にし、他は再送出（文言は scipy 1.10.0 / 1.17.1 で実測一致）。8b に Powell / Nelder-Mead + 範囲外の開始点の 2 ケースを追加 |
+| B. 生成 `fit_calibrator` の `or {}` が偽値の非 dict を既定値で黙って走らせる | round 1 の差分の外（本 PR 由来） | 修正: `_calibration_params` が非 mapping を拒否、キー無し（H-0100 以前の export）は `{}`。テスト 7 件 |
+| C. 巨大整数の `tol` / `x0` / `bounds` が `OverflowError` で抜ける | round 1 の指摘 1 と同じ形の残り | 修正: 実行時と生成の数値判定が float に収まらない整数を拒否。6a（共有ケース 3 件、生成側にも流れる）と 6c に追加 |
+
+**§4 B1 の「限定検証 1 回。さらに出たら管理者に戻す」に該当 → 管理者に戻した。管理者の決定（2026-09-15）: 3 件を修正し、修正 3 件だけを対象に round 3。**
+
+検証: 関連 423 passed、フルスイート 7999 passed / 0 failed（環境由来のバージョン検査 1 件を除外）、ruff / format / mypy clean。**最低依存（scikit-learn 1.3.0 / scipy 1.10.0）で修正後のコードを再実行: 168 passed**（行 12 の実行は修正前だったため）。
