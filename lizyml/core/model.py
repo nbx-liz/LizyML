@@ -54,7 +54,6 @@ from lizyml.config.schema import (
 from lizyml.core._model_factories import (
     build_inner_valid,
     build_splitter,
-    canonicalise_calibration_params,
     check_calibration_param_names,
     check_param_names,
     check_param_values,
@@ -65,6 +64,7 @@ from lizyml.core._model_factories import (
     make_inner_valid_factory,
     normalise_and_check,
     overlay_params,
+    prepare_calibration_params,
     tuned_validation_ratio,
 )
 from lizyml.core._model_metrics import (
@@ -824,19 +824,13 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         from lizyml.calibration.registry import get_calibrator
 
         method = cfg.calibration.method
-        # Inherit training.seed for isotonic's internal validation split when
-        # no explicit calibration seed is given (H-0080). Other calibrators
-        # (platt / beta) do not use a seed, so leave their params untouched.
-        # Canonicalised before it reaches the calibrator, which merges it over
-        # its own defaults by spelling. An alias such as `eta` collided with the
-        # default `learning_rate` instead of replacing it, and LightGBM then
-        # kept the default (H-0094 decision 8, review round 12).
-        cal_params_dict = canonicalise_calibration_params(
-            dict(cfg.calibration.params or {})
+        # Prepared per method (H-0100): values normalised for every calibrator,
+        # LightGBM aliases canonicalised only for the LightGBM-backed one, and
+        # isotonic's seed inherited from training.seed (H-0080). export_code
+        # prepares the generated config.json with the same function.
+        cal_params = (
+            prepare_calibration_params(cfg.calibration, seed=cfg.training.seed) or None
         )
-        if method == "isotonic":
-            cal_params_dict.setdefault("seed", cfg.training.seed)
-        cal_params = cal_params_dict or None
         # Use raw scores (logits) for calibration (H-0030)
         cal_scores = (
             fit_result.oof_raw_scores

@@ -136,7 +136,7 @@ acceptance (DC5) the audit exists to find; see §5.
 | **2c** | **The accepted-set half of the PR 2 residue** | **#284, #287** | — | **H-0098** | one declaration per boundary; the search space against the four normalisation surfaces | **merged** (#291) |
 | 3 | Reconcile tuning direction with metric orientation | #258, **#279, #282** | — | **H-0099** | all 22 (task, metric) pairs; every search dimension a smart parameter or a training setting consumes | **merged** (#292) |
 | **3b** | **H-0024 search-space merge** | — | — | HISTORY entry dated 2026-09-10 (no H-number) | a partial space does not silently drop the default dimensions | **merged** (#293) |
-| **3c** | **`calibration.params` for `platt` and `beta`** | **#277** | — | yes | every calibrator: its declared params reach it, or are refused | **new in Revision 6** |
+| **3c** | **`calibration.params` honoured for every calibrator; Platt fitted as Platt defined it** | **#277** | — | **H-0100** | every calibrator, at runtime and in generated code: its declared params reach it, or are refused before training | **in progress** (maintainer chose honour over refuse, and moved the Platt defaults to the original method in this PR; split point declared in H-0100) |
 | 4 | Bring `RefitTrainer.fit` to `CVTrainer.fit` | #269 | — | yes | CV/refit input parity across 3 tasks | |
 | 5 | Make the feature-pipeline extension point usable as specified | #259, #260 | — | yes | `BaseFeaturePipeline` conformance through fit → predict → explain | |
 | 6 | Make every declared `ErrorCode` raisable, on every entry path | #263, #272 | — | yes | 20 `ErrorCode` members, executed; both `Model` entry paths | |
@@ -1840,7 +1840,11 @@ before any code was written, which is the point of deriving first:
   something that then discards them, and PR 3 already opens the tuning surface.
 - **PR 3c** takes **#277** alone. `platt` and `beta` never touch LightGBM, so the
   file set is disjoint from the parameter-domain layer, and the decision is one:
-  wire the params or refuse them at validation.
+  wire the params or refuse them at validation. **Decided 2026-09-15 (H-0100):
+  wire them, following the original design of `calibration.params` as
+  method-specific overrides; the generated code reproduces them too, and the
+  Platt defaults move to Platt's original method in the same PR, at the
+  maintainer's choice over a separate PR.**
 - **PR 8b** takes **#281**. It is the only persistence-contract item: the artifact
   has to record what the fit applied. Placed after every behavioural change has
   landed, so the artifact format is touched **once**, with the final set of

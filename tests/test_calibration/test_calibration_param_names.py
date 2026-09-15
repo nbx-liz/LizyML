@@ -425,15 +425,25 @@ def test_a_calibrated_run_still_succeeds() -> None:
 
 
 @pytest.mark.parametrize("method", ["platt", "beta"])
-def test_calibrators_that_do_not_use_lightgbm_are_not_checked(method: str) -> None:
-    """Their params are not LightGBM's, so LightGBM's registry cannot judge them.
+def test_calibrators_that_do_not_use_lightgbm_are_checked_by_their_own_contract(
+    method: str,
+) -> None:
+    """Their params are not LightGBM's, so LightGBM's registry must not judge them.
 
-    Note this says nothing good about those surfaces: ``PlattCalibrator``
-    ignores ``params`` entirely. That is a separate defect on a separate route
-    and is recorded as such; what is asserted here is only that this gate does
-    not refuse them.
+    Until H-0100 this asserted that the gate did not refuse them at all -- and
+    its docstring recorded why that said nothing good: ``platt`` and ``beta``
+    accepted ``calibration.params`` and ignored it (#277). They now declare what
+    they accept, so an unknown name is refused by that declaration rather than
+    by LightGBM's registry: the refusal names ``calibration.params`` and the
+    calibrator, and does not call the name a LightGBM parameter.
     """
-    check_calibration_param_names(_CalibrationCfg(method, {UNKNOWN_NAME: 7}))
+    with pytest.raises(LizyMLError) as caught:
+        check_calibration_param_names(_CalibrationCfg(method, {UNKNOWN_NAME: 7}))
+
+    assert caught.value.code is ErrorCode.CONFIG_INVALID
+    assert "calibration.params" in caught.value.user_message
+    assert f"calibrator '{method}'" in caught.value.user_message
+    assert "lgbm parameter" not in caught.value.user_message
 
 
 def test_no_calibration_and_no_params_are_no_ops() -> None:

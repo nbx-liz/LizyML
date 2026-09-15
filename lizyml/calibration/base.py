@@ -47,6 +47,30 @@ class BaseCalibratorAdapter(ABC):
             1-D array of calibrated probabilities in [0, 1].
         """
 
+    @classmethod
+    def validate_params(cls, params: dict[str, Any]) -> None:
+        """Refuse ``calibration.params`` this calibrator cannot honour (H-0100).
+
+        The Facade calls this before any training, so a setting the calibrator
+        would not read is refused instead of being accepted and ignored. Every
+        registered calibrator declares its own; this default accepts nothing,
+        so a calibrator that forgets to declare cannot silently discard params.
+
+        Raises:
+            LizyMLError: ``CONFIG_INVALID`` naming ``calibration.params``.
+        """
+        from lizyml.core.exceptions import ErrorCode, LizyMLError
+
+        if params:
+            raise LizyMLError(
+                code=ErrorCode.CONFIG_INVALID,
+                user_message=(
+                    f"calibration.params is not accepted by this calibrator; "
+                    f"got {sorted(params)}."
+                ),
+                context={"surface": "calibration.params", "parameters": sorted(params)},
+            )
+
     @property
     @abstractmethod
     def name(self) -> str:

@@ -7,6 +7,10 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
+from lizyml.calibration._optimizer import (
+    resolve_minimize_kwargs,
+    validate_optimizer_params,
+)
 from lizyml.calibration.base import BaseCalibratorAdapter
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.registries import CalibratorRegistry
@@ -18,6 +22,9 @@ try:
     _scipy = scipy
 except ImportError:
     pass
+
+_N_COEF = 3
+_DEFAULT_X0 = [1.0, 1.0, 0.0]
 
 
 def _sigmoid(x: npt.NDArray[np.float64]) -> npt.NDArray[np.float64]:
@@ -37,10 +44,23 @@ class BetaCalibrator(BaseCalibratorAdapter):
     via sigmoid, then applies the beta calibration model.
 
     Requires ``scipy`` (optional dependency).
+
+    Args:
+        params: ``calibration.params``. Accepted (H-0100): ``x0`` (``[a, b, c]``),
+            ``method``, ``bounds`` (three ``[low, high]`` lists), ``tol``,
+            ``options``. The likelihood and the three-coefficient form are fixed.
+            Scores are not rescaled: they become probabilities before the logs.
     """
 
     def __init__(self, params: dict[str, Any] | None = None) -> None:
+        self._settings: dict[str, Any] = dict(params) if params else {}
+        self.validate_params(self._settings)
         self._params: tuple[float, float, float] | None = None
+
+    @classmethod
+    def validate_params(cls, params: dict[str, Any]) -> None:
+        """Refuse any ``calibration.params`` entry Beta calibration cannot honour."""
+        validate_optimizer_params(params, calibrator="beta", n_coef=_N_COEF)
 
     @property
     def name(self) -> str:
@@ -75,11 +95,13 @@ class BetaCalibrator(BaseCalibratorAdapter):
             nll: float = float(-np.sum(y_f * np.log(p) + (1 - y_f) * np.log(1 - p)))
             return nll
 
-        result = minimize(
-            neg_log_likelihood,
-            x0=np.array([1.0, 1.0, 0.0]),
-            method="L-BFGS-B",
+        # The default call is unchanged from before H-0100 (numeric gradient,
+        # L-BFGS-B, x0 [1, 1, 0], scipy's default options), so an unconfigured
+        # beta fit returns the coefficients it always did.
+        kwargs = resolve_minimize_kwargs(
+            self._settings, n_coef=_N_COEF, default_x0=_DEFAULT_X0, default_options={}
         )
+        result = minimize(neg_log_likelihood, **kwargs)
         self._params = (float(result.x[0]), float(result.x[1]), float(result.x[2]))
         return self
 

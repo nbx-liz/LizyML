@@ -36,6 +36,7 @@ def generate_code(
     feval_metrics: list[dict[str, Any]] | None = None,
     target_classes: list[Any] | None = None,
     split: dict[str, Any] | None = None,
+    calibration_params: dict[str, Any] | None = None,
 ) -> Path:
     """Generate LizyML-independent training and prediction code.
 
@@ -95,6 +96,7 @@ def generate_code(
         feval_metrics=feval_metrics,
         target_classes=target_classes,
         split=split,
+        calibration_params=calibration_params,
     )
 
     # Write artifacts (config.json, model.txt, pipeline_state.json, calibrator)
@@ -118,7 +120,7 @@ def generate_code(
         render_test_equivalence_py(), encoding="utf-8"
     )
     (root / "requirements.txt").write_text(
-        render_requirements_txt(uses_beta_calibration=calibration_method == "beta"),
+        render_requirements_txt(uses_scipy=calibration_method in ("platt", "beta")),
         encoding="utf-8",
     )
 

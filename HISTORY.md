@@ -10022,3 +10022,137 @@ would unnecessarily remove legitimate explicit-only tuning workflows.
   stopping is disabled. Admission now checks those dimensions against effective
   native parameters and model dimensions before study creation. Regression cases
   cover inherited merge defaults, explicit replacement dimensions and aliases.
+
+---
+
+## H-0100: `calibration.params` を 3 手法すべてで反映し、Platt を原典の方法で推定する（#277 / PR 3c）
+
+- **ステータス**: Accepted（管理者決定 2026-09-15）
+- **起票日**: 2026-09-15
+- **決定日**: 2026-09-15
+- **スコープ**: `lizyml/calibration/{platt,beta,isotonic,base,_optimizer}.py`、`lizyml/core/_model_factories.py`（検査と前処理）、`lizyml/core/model.py`（calibration の配線）、`lizyml/core/_model_persistence.py`・`lizyml/codegen/{config_writer,generator,templates}.py`（生成コードでの再現）、`README.md`、`BLUEPRINT.md` §12.2 / §15.4、`CHANGELOG.md`、テスト。
+- **関連**: [#277](https://github.com/nbx-liz/LizyML/issues/277)、`b465240`（`calibration.params` 導入）、H-0030、H-0031、H-0047、H-0058、H-0059、H-0090、H-0093、H-0094 決定 8、H-0095。設計と記録: `docs/audits/2026-09-defect-discovery/results/pr3c_design.md`（改訂 3）、`pr3c_design_review_round1.md`、`pr3c_design_review_round2.md`、`pr3c_monitor_round1.md`、`pr3c_platt_intercept_research.md`、`pr3c_calibration_params_measurement.txt`。
+
+### 目的（課題）
+
+`CalibrationConfig.params` は `b465240` で「method-specific overrides」として導入され、`get_calibrator(name, params=None)` が 3 手法共通の入口になった。**`isotonic` は反映しているが、`platt` と `beta` はコンストラクタで受け取って捨てている**（#277 の実測: `{"not_a_real_option": 123, "C": 0.001}` を渡しても calibrated メトリクスは完全一致、警告なし。DC4）。
+
+さらに実装を読むと 2 つの欠落がある。
+
+1. **`export_code` の生成コードは 3 手法すべてで `calibration.params` を捨てる。** `config.json` に calibration params が無く、`_fit_platt` / `_fit_beta` / `_fit_isotonic` は既定値を直書きしている。H-0059 は「新データで同一設定のまま calibrator を再構築できる」ことを約束している。
+2. **facade は LightGBM の名前正規名化を method を問わず適用する**（`model.py` の `canonicalise_calibration_params`）。platt / beta の名前を反映し始めると、LightGBM の別名表で書き換えられて消費者に届かなくなる。
+
+### 管理者の決定
+
+1. **反映する**（#277 の選択肢 2。拒否ではない）。元の機能設計を重視する。
+2. beta の上書き範囲は `x0 / method / bounds / tol / options`。
+3. **platt の既定を原典の Platt（正則化なし・目標値平滑化）に寄せる。本 PR で行う。**
+4. **platt は自前の Platt 最尤推定で実装する**（`scipy.optimize.minimize`）。上書き範囲は `x0 / method / bounds / tol / options / target_smoothing`。
+5. intercept を正則化する経路（`liblinear`）は設けない —— 決定 4 で LogisticRegression を使わなくなるため、経路そのものが無くなる。
+
+### 対応方針（決定）
+
+#### 決定 1: Platt を原典どおりに推定する
+
+BLUEPRINT §12.2 が名指す「Platt Scaling」は Platt (1999) の方法である: `P(y=1|f) = 1/(1 + exp(A·f + B))`、**A（slope）と B（intercept）を同時に最尤推定**、目標値は平滑化（`t+ = (N+ + 1)/(N+ + 2)`, `t− = 1/(N− + 2)`）、正則化項なし。**intercept はモデルの定義に含まれ、外せない**（研究ノートの実測: intercept なしは offset のずれで ECE 0.02 → 0.13〜0.20）。
+
+LizyML の Phase 13 実装（`2ac4331`）は `LogisticRegression(C=1.0)`（L2・目標値 0/1）で、原典から逸脱していた。**本提案はこれを意図的に変える。** 利益を過大に書かない —— 実測の差は n=2000 で無し、n=100 で ECE 0.114 → 0.107 程度であり、変更の主な根拠は「BLUEPRINT が名指す手法の定義に合わせる」ことである。
+
+- 係数は export 形式 `sigmoid(a·s + b)` で持つ（`a = −A`, `b = −B`）。`export_params` と `predict` の式は変えない。
+- 既定: `target_smoothing=True`、`method="L-BFGS-B"`、初期値は Platt / scikit-learn と同じ `a=0`, `b=−log((N−+1)/(N++1))`、L-BFGS-B の options は scikit-learn `_sigmoid_calibration` と同じ `gtol=1e-6`, `ftol=64·eps`。
+- `max(|s|) ≥ 30` のときは scikit-learn と同じくスコアを `k = max(|s|)` で割って最適化する。**利用者の `x0` と `bounds` の slope 成分を `k` 倍してから解き、結果の slope を `k` で割って戻す**（制約付き問題を同じにするため）。beta はスコアを確率にしてから対数を取るので縮尺しない。
+
+#### 決定 2: 手法ごとの受理契約を calibrator が宣言し、facade が学習前に検査する
+
+- 各 calibrator が classmethod `validate_params(params)` で**受理名・値の形・最適化手法の契約**を宣言する（`lizyml/estimators/` を import しない）。
+- 利用者が書く `x0` と `bounds` は **`export_params` と同じ係数**で表す（platt `(a, b)`、beta `(a, b, c)`）。`bounds` は係数ごとの 2 要素**リスト**のリスト（H-0095 の受理集合で列の member は list であり tuple は拒否。受理集合は広げない）。
+- **受理する最適化手法は閉じた表**: `L-BFGS-B`（既定）/ `TNC` / `SLSQP` / `trust-constr` / `Powell` / `Nelder-Mead` は `bounds` 可、`BFGS` / `CG` は `bounds` 不可（併記は拒否）。ヘッセ行列を要する手法は受理しない。
+- **`tol` と `options` の優先順位**: 利用者の `options` のキー ＞ 利用者の `tol` ＞ LizyML の既定。scipy は `tol` を `options.setdefault` で渡すので、利用者が `tol` を書いたときは LizyML の既定 options のうち `tol` が設定するキーを入れない。既定の options は手法ごとに持つ（L-BFGS-B の `ftol` を BFGS に渡さない）。
+- **`options` のキーは実物の scipy で確かめる**: 検査時に小さな既知の問題に `minimize` を 1 回かけ、`OptimizeWarning: Unknown solver options` を拒否に変える（名前の表を写さない。scipy のバージョン差に追随する）。
+- facade の `check_calibration_param_names` が method ごとの宣言を呼ぶ。**位置は変えない**: `fit()` と `tune()` のマージ直後、Booster も study も学習する前（H-0093 決定 6）。**LightGBM 固有の名前検査は isotonic 限定のまま。**
+
+#### 決定 3: 前処理を method で分ける
+
+値の正規化（H-0095 `normalise_params`, `surface="calibration.params"`）は 3 手法すべて。**LightGBM の名前正規名化は isotonic のみ**（自前キー除外は従来どおり）。platt / beta の名前は書き換えない。実行時と `export_code` は同じ前処理を使う。
+
+#### 決定 4: 生成コードで再現する
+
+経路: `_model_persistence.export_code` → `generator.generate_code` → `config_writer.build_config` → `config.json` の `calibration_params`（前処理後の実効値）→ 生成 `train.py::fit_calibrator` → `_CAL_FITTERS[method](scores, y, params)`。生成 fitter は実行時と同じモデル・既定値・上書き・手法の契約・縮尺を使う。`_fit_isotonic` は `"verbosity": -1` に揃え、自前キーの上書きと 20 行未満で early stopping を切る振る舞い（H-0047）まで再現する。生成 `requirements.txt` は platt または beta のとき scipy を明示し、テンプレートの注記と README の依存の記述を同時に直す。
+
+#### 決定 5: 旧 artifact の platt calibrator を読み込み時に移行する
+
+`fit_result.pkl` は calibrator オブジェクトごと pickle されており、旧 `PlattCalibrator` は `_model: LogisticRegression` を持つ。`PlattCalibrator.__setstate__` が旧状態を `(a, b)` に変換する（`coef_[0, 0]`, `intercept_[0]`）。未学習の旧状態（`_model=None`）は新しい未学習状態に、新しい状態はそのまま。predict は数値的に安定な sigmoid で計算し、通常のスコアと極端なスコアで旧 predict と許容誤差内で一致させる。
+
+**`FORMAT_VERSION` は 2 のまま**: 公開の Artifact 契約（ディレクトリ構成・metadata・`Model.load()` の振る舞い）が変わらず、旧モデルの推論を保つ内部状態の変換であって、`CLAUDE.md` §3 の破壊的変更に当たらない。**保証範囲の外**: H-0030 より前（確率を入力にしていた時期）の artifact。
+
+#### 決定 6: 文書の食い違いを訂正する
+
+BLUEPRINT §12.2 と H-0047 は「isotonic の `Booster.predict()` は raw score を返すので sigmoid を適用する」と書くが、`objective="binary"` の `Booster.predict()` は確率を返し、実装（`isotonic.py` の predict）は sigmoid を適用しない。**実装が正しく、文書が古い。** BLUEPRINT を訂正する（H-0047 の本文は記録として残す）。
+
+### Rule positions
+
+```
+Rule positions (calibration.params reaches its consumer or is refused before training):
+  derived from CalibratorRegistry (3 calibrators) x consumers (runtime cross-fit +
+  C_final, generated _CAL_FITTERS) = 6, plus entrances fit/tune = 2, plus the
+  legacy-artifact reader = 1
+  complying     : 1 -- runtime isotonic (and the entrance check, for isotonic only)
+  fixed here    : runtime platt, runtime beta, generated platt/beta/isotonic,
+                  both entrances for platt/beta, the legacy platt reader
+  dispositioned : direct construction of a calibrator outside the registry, and any
+                  route that hands a calibrator values other than calibration.params
+  bound         : "3 x 2" names the categories to cover, not proof that values are
+                  carried -- the proof is the reach/effect tests; the derivation is
+                  pinned by tests requiring every registered calibrator to declare
+                  validate_params and to have a generated fitter
+```
+
+### Firing rate
+
+```
+Firing rate: 2/75 of the calibrated platt and beta configs the shipped suite builds
+             carry a non-empty calibration.params (platt 1/71, beta 1/4); both come from
+             test_calibrators_that_do_not_use_lightgbm_are_not_checked, which pins the
+             old accept-and-ignore behaviour and changes with this proposal. 0 from any
+             other test. (instruments/calibration_params_firing_rate.py, replayed over
+             the full suite at 92e32ee on branch fix/phase3-pr3c-calibration-params;
+             report in results/pr3c_calibration_params_measurement.txt)
+```
+
+### 影響範囲
+
+- 公開 API（`CalibrationConfig`、`get_calibrator` のシグネチャ）は変えない。`BaseCalibratorAdapter` に `validate_params` を追加する（既定は空でない params を拒否）。
+- **platt の既定が変わる** → 新しい fit の calibrated 結果が変わる。
+- **これまで無視されていた platt / beta の params が効く**。LogisticRegression の引数名（`C` 等）は未知名として拒否される（これまでも効いていなかった）。
+- 生成 `config.json` にキー `calibration_params` が増える。生成 `requirements.txt` と README に platt でも scipy が載る。
+
+### 互換性
+
+- **旧 artifact は読み込め、predict は変わらない**（決定 5）。`format_version` は 2。
+- 既に生成済みのコードは影響を受けない。
+- 依存: 新しいインストール要件は増えない（インストール済み scikit-learn 1.8.0 のメタデータは `scipy>=1.10.0` を必須にしている。scikit-learn の全バージョンの下限までは確認していない）。CI の lowest-direct レーンは `--frozen` なので、**scikit-learn 1.3 / scipy 1.10 を実際に入れた隔離環境で確認し、解決されたバージョンを記録する**。
+
+### 代替案（検討して棄却）
+
+1. **拒否する**（#277 の選択肢 1）。管理者が反映を選んだ。元の設計（`b465240` の method-specific overrides）とも反する。
+2. **LogisticRegression を使い続け、目標値平滑化を重み複製で再現する。** 数値は scikit-learn の Platt と許容誤差内で一致した（研究ノート §6.1）が、scikit-learn 1.8 で `penalty` が非推奨になり、正則化なしの指定がどう書いても警告を出す。受理名を LogisticRegression のシグネチャから導出すると、受理される config が scikit-learn のバージョンで変わる。
+3. **既定値の変更を別 PR にする**（ループ監視の `redirect` 勧告）。管理者が本 PR を選んだ。分割点は事前宣言した（下記）。
+
+### 分割点（事前宣言）
+
+「platt の既定値変更・自前 MLE・旧 artifact 移行」は「3 手法への params の反映・前処理の分離・入口検査・生成コードの再現」から分けてコミットできる塊として扱う。ラウンド予算 8 に達したとき、またはこの塊だけに検証の問題が残ったときは PR 3c-2 に切り出す。
+
+### 受け入れ基準（テスト観点）
+
+`docs/audits/2026-09-defect-discovery/results/pr3c_acceptance_criteria.md` の対応表を正とする。要旨:
+
+1. 既定の platt が scikit-learn の `_sigmoid_calibration` と許容誤差内で一致する（参照はテストでのみ使う）。
+2. offset のずれがあるスコアで intercept が推定され、intercept を 0 に固定した fit より損失が小さい。
+3. 3 手法で params が観測可能な効果を持ち、cross-fit の全 fold と C_final に届く。
+4. `tol` の効き目と `options` の優先、手法表の各手法での fit、組み合わせと未知 option の拒否。
+5. 大きなスコアで、`x0` / `bounds` が書いた座標で効き、縮尺しない解き方と同じ問題になる。
+6. 違反は fit でも tune でも Booster と study が学習される前に `CONFIG_INVALID`、出所 `calibration.params`。
+7. platt / beta の名前は正規名化されず、isotonic の別名は従来どおり正規名になる。
+8. 生成 fitter が実行時と一致し、params で変わり、生成コードで再学習が走る。`config.json` に実効値。
+9. 旧 platt calibrator の artifact が通常・極端なスコアで同じ predict を返す。未学習の旧状態、新状態の再読込も通る。
+10. 既定の platt / beta の fit で警告が出ない。登録された calibrator すべてに `validate_params` の宣言と生成 fitter がある。README と生成 requirements の scipy の記述が一致する。
