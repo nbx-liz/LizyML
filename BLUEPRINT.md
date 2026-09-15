@@ -1044,6 +1044,50 @@ contradictory explicit directions require migration; old explicitness is not gue
 - Beta Calibration
 - Isotonic Regression（LGBM の単調制約利用）
 
+**`calibration.params` は 3 手法すべてで、それを消費する calibrator に届くか、学習開始前に拒否される（H-0100）。** 各 calibrator が `validate_params` で受理契約を宣言し、Facade が `fit()` / `tune()` のマージ直後、Booster も study も学習する前に呼ぶ。値は 3 手法すべてで入口正規化される（H-0095）。LightGBM の別名の正規名化は isotonic のみ。生成コード（§15.4）も同じ設定で calibrator を再構築する。
+
+### Platt Scaling 詳細（H-0100）
+
+Platt (1999) の方法で推定する: `P(y=1|f) = 1/(1 + exp(A·f + B))`。**slope（A）と intercept（B）を同時に最尤推定**し、目標値は平滑化（`t+ = (N+ + 1)/(N+ + 2)`, `t− = 1/(N− + 2)`）、正則化項は置かない。**intercept はモデルの定義に含まれ、外せない** —— スコア 0 が確率 0.5 に対応しないずれを補正するのが役割である。係数は export 形式 `sigmoid(a·s + b)`（`a = −A`, `b = −B`）で持つ。
+
+H-0100 までは `LogisticRegression(C=1.0)`（L2・目標値 0/1）で、原典から逸脱していた。
+
+| パラメーター | デフォルト | 備考 |
+|---|---|---|
+| `target_smoothing` | `true` | `false` で目標値 0/1 |
+| `method` | `L-BFGS-B` | 下表の手法のいずれか |
+| `x0` | `[0, −log((N−+1)/(N++1))]` | `[a, b]`。Platt / scikit-learn と同じ初期値 |
+| `bounds` | なし | `[[a_low, a_high], [b_low, b_high]]`。各値は数値か `null` |
+| `tol` | なし | |
+| `options` | L-BFGS-B のとき `gtol=1e-6`, `ftol=64·eps` | scikit-learn の Platt と同じ |
+
+- `max(|s|) ≥ 30` のときはスコアを `k = max(|s|)` で割って最適化する（scikit-learn と同じ）。`x0` と `bounds` の slope 成分は `k` 倍してから解き、結果の slope を `k` で割って戻す。書いた座標で効く。
+
+### Beta Calibration 詳細（H-0031, H-0100）
+
+`sigmoid(a·log s + b·log(1 − s) + c)`（`s` はスコアの sigmoid）を負の対数尤度の最小化で推定する。尤度と 3 係数の形は固定。スコアは確率にしてから対数を取るので縮尺しない。
+
+| パラメーター | デフォルト | 備考 |
+|---|---|---|
+| `method` | `L-BFGS-B` | 下表の手法のいずれか |
+| `x0` | `[1, 1, 0]` | `[a, b, c]` |
+| `bounds` | なし | 3 つの `[low, high]`。各値は数値か `null` |
+| `tol` | なし | |
+| `options` | なし（scipy の既定） | |
+
+### Platt / Beta 共通の最適化の契約（H-0100）
+
+| `method` | `bounds` |
+|---|---|
+| `L-BFGS-B` / `TNC` / `SLSQP` / `trust-constr` / `Powell` / `Nelder-Mead` | 使える |
+| `BFGS` / `CG` | **使えない**（併記は拒否。scipy は bounds を警告つきで無視する） |
+
+- ヘッセ行列を要する手法は受理しない。表は scipy 1.10 で使える手法に限る。
+- **優先順位**: 書いた `options` のキー ＞ 書いた `tol` ＞ calibrator の手法ごとの既定。scipy は `tol` を `options.setdefault` で渡すので、`tol` を書いたときは既定の options のうち `tol` が設定するキーを入れない。
+- `options` のキーは検査時に実物の scipy で確かめる（小さな問題に `minimize` を 1 回かけ、`Unknown solver options` を拒否に変える）。
+- `bounds` の各組は**リスト**（H-0095 の受理集合で列の member は list であり、tuple は拒否）。
+- 上表以外の名前（例: LogisticRegression の `C`）は `CONFIG_INVALID`。旧 artifact の platt calibrator（`LogisticRegression` を保持）は読み込み時に `(a, b)` へ移行され、predict は変わらない。`format_version` は 2 のまま。
+
 ### Isotonic Regression 詳細（H-0047）
 
 `IsotonicCalibrator` は LightGBM Booster API（`lgb.train()`）を使用し、単一特徴（raw score）に対する単調非減少写像を学習する。
@@ -1078,11 +1122,11 @@ contradictory explicit directions require migration; old explicitness is not gue
 - `calibration.params` で上記デフォルト（`monotone_constraints` 以外）を上書き可能。
 - `validation_ratio` と `seed` も `calibration.params` 経由で指定可能。
 - **名前は fit 開始前に検査される（H-0093）。** `calibration.params` の中身は `lgb.train` にほぼそのまま渡るため、LightGBM が知らない名前は黙って捨てられる。Facade は LightGBM 自身の登録表に照らして不明な名前を `CONFIG_INVALID` で拒否する。calibrator 自身が消費する `num_boost_round` / `validation_ratio` / `min_data_in_leaf_ratio` は受理される（`seed` は LightGBM のネイティブ名なので登録表側で受理される）。この検査は LightGBM を使う calibrator（現在は `isotonic` のみ）に対してのみ働く。**発火は外側 CV が始まる前**であり、拒否される config で Booster が 1 本でも学習されることはない。
-- **`platt` / `beta` は `calibration.params` を受理して無視する（現状の記録、[#277](https://github.com/nbx-liz/LizyML/issues/277)）。** 両者は `params` をコンストラクタで受け取るが保持も参照もしない（`platt.py:23` / `beta.py:42`）。実測: `calibration.params` の有無だけが異なる 2 回の fit で calibrated メトリクスは完全一致し、警告も出ない。LightGBM を経由しないため上記の名前検査は意図的に適用されず、結果として無検査・無効果のまま通る。**「受理して無視」を解消する方向（拒否するか、実際に honour するか）は #277 で未決**であり、ここは決定ではなく現状の記録である。
+- **上記の LightGBM 固有の名前検査は isotonic 限定のまま。** `platt` / `beta` の `calibration.params` は、それぞれの calibrator が宣言する受理契約で検査される（上の Platt / Beta の節、H-0100）。H-0100 までは両者とも受理して無視していた（[#277](https://github.com/nbx-liz/LizyML/issues/277)）。
 
 #### Booster API 固有の注意
 
-- `objective="binary"` の `Booster.predict()` は raw score を返すため、predict 時に sigmoid 適用 + `np.clip(0, 1)` で確率に変換する。
+- `objective="binary"` の `Booster.predict()` は**確率を返す**（LightGBM が内部で sigmoid を適用する）ので、predict 時は `np.clip(0, 1)` だけを掛ける。**訂正（H-0100 決定 6）**: この項は H-0047 に倣って「raw score を返すため sigmoid を適用する」と書いていたが誤りで、実装（`lizyml/calibration/isotonic.py` の `predict`）は sigmoid を適用しておらず、それが正しい。
 
 ## 12.3 評価（推奨）
 
@@ -1447,6 +1491,7 @@ estimators/
 
 - `artifacts/` の初期内容は `export_code()` 実行時に元の FitResult/RefitResult から生成される
 - `train.py` で新データから再学習すると `artifacts/` が上書きされる
+- **calibration の再現（H-0100）**: `config.json` に `calibration_params`（fit が使ったのと同じ前処理を通した実効値）を持たせ、`train.py` の `_fit_platt` / `_fit_beta` / `_fit_isotonic` は LizyML の calibrator と同じモデル・既定値・上書き・最適化の契約で calibrator を再構築する。H-0100 までは 3 手法とも既定値を直書きしており、`isotonic` でも再学習で params が失われていた。`requirements.txt` は生成コードが scipy を import する `platt` / `beta` のとき scipy を載せる
 - **feval metric 対応（H-0066）**: `config.json` に `feval_metrics` フィールドを追加。各要素は `{"name": str, "params": dict, "greater_is_better": bool, "needs_proba": bool}` 形式。`train.py` が起動時にこのメタ情報から feval callable を再構築し、`lgb.train()` の `feval` パラメータに渡す
 
 ## 15.5 パッケージ配布（PyPI）

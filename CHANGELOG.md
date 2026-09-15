@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased — H-0100
+
+- **`calibration.params` now takes effect for `platt` and `beta`** ([#277](https://github.com/nbx-liz/LizyML/issues/277)). Both calibrators accepted the parameters and discarded them. They now accept `x0`, `method`, `bounds`, `tol` and `options` (and `target_smoothing` for `platt`), and refuse anything else with `CONFIG_INVALID` naming `calibration.params` before training starts, in `fit()` and in `tune()`. Measured: no config in this repository's suite passed params to either calibrator apart from the test that pinned the old accept-and-ignore behaviour.
+- **Changed -- results change for `platt`**: Platt scaling is now fitted as Platt defined it -- slope and intercept by maximum likelihood with smoothed targets and no penalty -- instead of `LogisticRegression(C=1.0)`, which added an L2 penalty and used 0/1 targets. Calibrated outputs of new `platt` fits change; the measured difference is small (none at n=2000, expected calibration error 0.114 to 0.107 at n=100). Artifacts saved earlier load and predict exactly as before.
+- **Migration**: a LogisticRegression name such as `C` in `calibration.params` for `platt` is now refused; it never had an effect.
+- **`export_code()` rebuilds the calibrator with the same settings**: `config.json` carries `calibration_params`, and the generated `train.py` applies them for all three calibrators. Previously a retrain ignored them even for `isotonic`. The generated `requirements.txt` lists `scipy` for `platt` as well as `beta`.
+
 ## Unreleased — H-0098
 
 - Derive parameter-domain predicates during normalization, removing duplicate
