@@ -22,19 +22,24 @@ Steps:
    read back as float32, and compared with the bound.
 
 The bound, per split gain g: rounding to six significant digits gives d with
-|d - g| <= 5e-6 |g|; reading d back into binary32 adds at most 2**-24 |d| while
-the result is normal, and at most 2**-150 (half the subnormal spacing) when it
-is subnormal, where a relative bound does not exist. So
-|after - g| <= 5.0596e-6 |g| + 2**-150, with 5.0596e-6 = (1 + 5e-6)(1 + 2**-24) - 1.
+|d - g| <= 5e-6 |g|. Reading d back into binary32 (round to nearest) satisfies,
+for every d in range, |fl(d) - d| <= 2**-24 |d| + 2**-150 -- the relative term
+for the normal range, the absolute term (half the subnormal spacing) for the
+subnormal range, where no relative bound exists. The lemma is stated for d, not
+for the result: d = 2**-126 - 2**-150 rounds up to the normal 2**-126 with a
+relative error just over 2**-24 (design review round 3), which the absolute term
+covers. Combining, |after - g| <= 2**-24 (1 + 5e-6) |g| + 5e-6 |g| + 2**-150 =
+C |g| + 2**-150 with C = (1 + 5e-6)(1 + 2**-24) - 1, approximately 5.0596e-6.
 A feature's gain is a sum of n non-negative split gains G, so it moves by at most
-5.0596e-6 G + n 2**-150, and n 2**-150 < 2**-126 (binary32's smallest normal)
-for any model with fewer than 2**24 splits.
+C G + n 2**-150, and n 2**-150 < 2**-126 (binary32's smallest normal) for any
+model with fewer than 2**24 splits.
 
 The review history of this bound: the first version said 5e-6 and left out the
 binary32 read (design review round 1 measured 5.054e-6); the second gave the
 relative term alone and swept normal values only (round 2 measured 5.602e-6 on a
-subnormal gain of about 1e-39). The absolute term is what the subnormal range
-needs.
+subnormal gain of about 1e-39); the third split the rounding lemma by whether
+the result was normal, which round 3 showed false at the boundary. The absolute
+term is what the subnormal range and the boundary need.
 
 Run:
 

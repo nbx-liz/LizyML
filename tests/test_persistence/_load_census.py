@@ -50,12 +50,14 @@ TUNED_RATIO = 0.45
 
 #: The tolerance for ``importance("gain")`` across load. LightGBM writes each
 #: split's gain with six significant digits and reads it back into a binary32
-#: ``float``. Per split gain g the loaded value moves by at most
-#: 5.0596e-6 |g| + 2**-150: (1 + 5e-6)(1 + 2**-24) - 1 for the decimal rounding
-#: and the binary32 read of a normal value, plus half the subnormal spacing for a
-#: subnormal one, where no relative bound exists. A feature's gain is a sum of n
-#: non-negative split gains, so it moves by at most 5.0596e-6 G + n 2**-150, and
-#: n 2**-150 < 2**-126 for fewer than 2**24 splits. ``pr8b_gain_precision.py``
+#: ``float``. The decimal rounding moves a split gain g by at most 5e-6 |g|;
+#: the binary32 read of a value d moves it by at most 2**-24 |d| + 2**-150 (the
+#: absolute term covers the subnormal range, where no relative bound exists, and
+#: the values just under 2**-126 that round up into the normal range). So the
+#: loaded gain moves by at most C |g| + 2**-150, C = (1 + 5e-6)(1 + 2**-24) - 1,
+#: approximately 5.0596e-6. A feature's gain is a sum of n non-negative split
+#: gains G, so it moves by at most C G + n 2**-150, and n 2**-150 < 2**-126 for
+#: fewer than 2**24 splits. ``pr8b_gain_precision.py``
 #: sweeps every decimal exponent of positive binary32, subnormals included, and
 #: finds every split gain of the models it trains, in three tasks, positive.
 GAIN_RTOL = 5.1e-6
