@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased — H-0108
+
+- **BLUEPRINT §5.5 states where every defaulted constructor setting gets its value** ([#268](https://github.com/nbx-liz/LizyML/issues/268)). #268 reported 25 such settings as unreachable from Config; executing each path shows most were reachable under a different name. The six `max_train_size` / `max_test_size` come from `split.train_size_max` / `split.test_size_max`, `PrecisionAtK.k` / `ECE.n_bins` / `HuberLoss.delta` from dict-form metric entries in `evaluation.metrics`, and `early_stopping_rounds` from `training.early_stopping.rounds`. Of all 74, 60 receive a Config key's value, 4 come from a public argument, 3 are derived, 2 are fixed by the library (`LGBMAdapter.verbose_eval = -1`, `StratifiedKFoldSplitter.shuffle = True`) and 5 are internal. The 14 that no Config key sets are listed with their source in §5.5, and a test keeps the list complete. No behaviour changes.
+- Found while checking: a dict-form entry for a LightGBM-native metric in `model.params["metric"]` (e.g. `{"huber": {"delta": 2.0}}`) drops its parameters without notice ([#313](https://github.com/nbx-liz/LizyML/issues/313)); in `evaluation.metrics` the parameters apply.
+
 ## Unreleased — H-0107
 
 - **`validate_no_target_leakage` no longer skips a column it cannot compare** ([#267](https://github.com/nbx-liz/LizyML/issues/267)). A column whose comparison with the target raised `TypeError` / `ValueError` was skipped, and the check returned the remaining columns' result -- `[]` if nothing else leaked, the same answer as a frame that was fully checked. Any other exception escaped raw, without the column name. Now any comparison failure raises `LizyMLError(DATA_SCHEMA_INVALID)` with `context["column"]` / `context["target"]` and the original error as `cause`, whatever `raise_on_violation` is. The reachable input is a numeric-declared pandas extension array whose `__array__` or `isna` raises. Measured: no ordinary column dtype reaches it (0 of 462 dtype x target cells, 0 of 13 calls in the test suite). Columns are still checked in order, so an earlier leaking column still raises `LEAKAGE_SUSPECTED` first.

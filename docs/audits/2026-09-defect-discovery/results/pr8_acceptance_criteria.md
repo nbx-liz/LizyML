@@ -61,3 +61,7 @@
 誤りだったので、直す対象が無い）。設計レビュー round 1 は、自動解決の経路の seed を定数に変える変異が初版の
 全テストを通ることを示した。改訂後のセルはその変異で失敗する（2b の `inner_auto_holdout` /
 `group_kfold_auto` / `stratified_kfold_auto` のセル）。
+
+RED の確認（`e64810e`、production コードは `91a698b` のまま、BLUEPRINT に §5.5 なし）: `tests/test_config/test_knob_reachability.py` は 84 passed / 1 failed で、失敗は RED と宣言した 4（`test_rows_outside_config_are_stated_in_blueprint`）だけ。他の行はガードで、修正前も通る。設計レビューは変異（自動解決の seed を定数に、自動解決の ratio を変える、§5.5 の行を消す・種類を変える、母集団を空にする、tune の較正セルに True を入れる）でガードが失敗することを確かめた。
+
+修正後（BLUEPRINT §5.5 を入れたコミット）: フルスイート 8550 passed。失敗は環境起因の `test_version_matches_package_metadata` の 1 件。ruff / ruff format / mypy `lizyml/` は通過。
