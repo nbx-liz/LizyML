@@ -3,8 +3,9 @@
 For built-in objectives LightGBM 4 hands a feval the **probabilities** --
 binary 1-D, multiclass and multiclassova 2-D ``(n, num_class)``. The bridge used
 to assume raw scores and applied ``sigmoid`` / ``softmax`` again: binary
-``accuracy`` and ``f1`` became constant (every row positive), early stopping
-stopped every fold at iteration 1, and probability metrics were distorted.
+``accuracy`` and ``f1`` became constant (every row positive), so early stopping
+ran out its patience and selected iteration 1 in every fold, and probability
+metrics were distorted.
 
 The tests below run the real ``lgb.train``. The expected value is computed from
 what LightGBM actually passed, with the evaluator's own prediction rule
@@ -84,8 +85,11 @@ def test_feval_value_is_the_metric_of_lightgbm_predictions(
         try:
             expected = metric(y_true, _pred_for_metric(metric, np.asarray(preds), task))  # type: ignore[arg-type]
         except Exception as exc:  # noqa: BLE001 -- the outcome is compared, not swallowed
-            with pytest.raises(type(exc)):
+            # Same type and same message: the same check failed, not an
+            # unrelated error of the same class.
+            with pytest.raises(type(exc)) as raised:
                 feval(preds, data)
+            assert str(raised.value) == str(exc)
             pairs.append((np.nan, np.nan))
             return name, 0.0, metric.greater_is_better
         out = feval(preds, data)

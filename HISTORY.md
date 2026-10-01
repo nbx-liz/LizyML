@@ -10346,7 +10346,7 @@ LightGBM 4 は、組み込みの目的関数では **feval に変換済みの予
 実測（`develop` `fc9d820`、lightgbm 4.6.0）:
 
 - feval が受け取る値（300 行、20 ラウンドの `lgb.train`）: binary は 0.058〜0.927 で形 `(300,)`、multiclass と multiclassova は 2 次元 `(300, 3)`。`cross_entropy` も確率（1 次元）。**例外は `cross_entropy_lambda`** で、出力は 1 を超える（400 行・15 ラウンドで 6 回目から 1 超、最大 2.03）。これは確率ではなく、LizyML 全体の扱いの問題として [#307](https://github.com/nbx-liz/LizyML/issues/307) に切り出した（feval とは無関係に `Model.fit` が評価器で失敗する）。LightGBM 4.0 の文書も、multiclass の feval 入力を 2 次元と定めている。
-- binary のラベル指標（`accuracy` / `f1`）: `sigmoid(p) >= 0.5` がすべての `p >= 0` で成り立つので、全行が陽性になり値が一定（400 行・40 ラウンドの一例で `accuracy` は陽性率のまま。実際の accuracy は 0.63 前後から 0.93 前後へ上がる。数値はデータに依存する）。LizyML は `first_metric_only` を設定しないので、LightGBM の early stopping は既定ですべての指標を監視し、一定の指標は改善しない。**その結果、待機回数（patience）を使い切った時点で 1 回目が最良として選ばれ、最終的なモデルは木 1 本になる**（`Model.fit`、binary、2000 行、3 fold、patience 20: best_iteration 1/1/1、OOF AUC 0.7645。`binary_logloss` なら 93/80/104、0.8672。設計レビューが同じ設定で全行を再現した。素の `lgb.train` で patience 20 なら 21 ラウンド評価して 1 回目を選ぶことも、レビューが確かめた）。
+- binary のラベル指標（`accuracy` / `f1`）: `sigmoid(p) >= 0.5` がすべての `p >= 0` で成り立つので、全行が陽性になり値が一定（400 行・40 ラウンドの一例で `accuracy` は陽性率のまま。実際の accuracy は 0.63 前後から 0.93 前後へ上がる。数値はデータに依存する）。LizyML の既定値は `first_metric_only` を `False` に設定し（`estimators/lgbm/defaults.py`）、adapter の early stopping コールバックも引数を省いて既定の `False` を使うので、すべての指標が監視され、一定の指標は改善しない。**その結果、待機回数（patience）を使い切った時点で 1 回目が最良として選ばれ、最終的なモデルは木 1 本になる**（`Model.fit`、binary、2000 行、3 fold、patience 20: best_iteration 1/1/1、OOF AUC 0.7645。`binary_logloss` なら 93/80/104、0.8672。設計レビューが同じ設定で全行を再現した。素の `lgb.train` で patience 20 なら 21 ラウンド評価して 1 回目を選ぶことも、レビューが確かめた）。
 - 確率の指標（binary の `brier` / `ece`、multiclass の `brier`）: 二重変換した確率で計算され、early stopping の位置と学習曲線がずれる（binary brier は報告 0.2123 対 実際 0.1087、multiclass brier は 0.1649 対 0.1043。`brier` を指定した fit の best_iteration は 180/100/201）。`logloss` は LightGBM ネイティブの指標に変換されるので feval を通らず、影響しない（#306 の本文にある logloss の数値は、橋渡しを直接呼んだ合成の例である）。
 - 順位だけで決まる指標（binary の `precision_at_k`、multiclass の argmax による `accuracy` / `f1`）は、変換が単調なので値が変わらなかった。回帰は変換していないので影響なし。
 
@@ -10374,7 +10374,7 @@ LightGBM 4 は、組み込みの目的関数では **feval に変換済みの予
 
 - **`model.params.metric` に feval に回る分類の指標（binary: `accuracy` / `f1` / `brier` / `ece`、multiclass: `brier`）を含み early stopping を使う config は、学習結果が変わりうる。** early stopping が選ぶ反復が正しい値に基づくようになるため（値が変わっても、選ばれる反復が変わらない場合もある）。特に `accuracy` / `f1` は 1 回目が選ばれていたものが学習するようになる。学習曲線（`history`）のこれらの値は、early stopping の有無によらず正しくなる。
 - `precision_at_k`、multiclass の `accuracy` / `f1`、回帰の feval 指標は値が変わらない。`logloss` / `auc` は feval を通らない（LightGBM ネイティブの指標に変換される。タスクで使えない組み合わせは検証で拒否される）。
-- `cross_entropy_lambda` で確率の指標を feval に指定した場合、以前は sigmoid で [0, 1] に押し込まれた値で黙って計算していたが、今は評価器と同じく失敗する（設計レビューが実測）。この目的関数はそもそも既定の指標でも `Model.fit` が失敗する（#307）。
+- `cross_entropy_lambda` で確率の指標を feval に指定した場合、以前は sigmoid で [0, 1] に押し込まれた値で黙って計算していたが、今は評価器と同じ値を渡すので、評価器と同じ振る舞いになる: 1 を超える値を拒否する `brier` は失敗し、`ece` と `precision_at_k` は 1 を超える値のまま数値を返す（設計レビューが実測: 最大 2.03 の出力で ece 0.0925、precision_at_k 1.0）。この目的関数はそもそも既定の指標でも `Model.fit` が失敗する（#307）。
 - 保存済み artifact はそのまま読め、predict も変わらない（保存された booster を使う）。`format_version` は据え置き。
 - 生成コード: 新しくエクスポートした `train.py` の feval が正しくなる。既にエクスポートしたファイルは変わらない。
 - Firing rate: 本 Proposal は skip / shorten / cache / select / allow / conditionally-activate の条件を新設しない。multiclass の形の検査は、LightGBM 4 の実際の出力では発火しない防御である。
