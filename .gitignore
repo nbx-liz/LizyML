@@ -166,3 +166,7 @@ __marimo__/
 *.json
 *.xlsx
 *.log
+# Audit archives keep their JSON inputs as evidence (the Phase 3 completion
+# manifest and the row files its measurements read). `*.json` above silently
+# kept the archived manifest out of every commit.
+!docs/audits/**/*.json

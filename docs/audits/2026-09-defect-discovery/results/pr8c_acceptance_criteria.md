@@ -97,7 +97,7 @@ disposition を regression 以外にした行の理由（manifest の `justifica
 
 | # | 基準 | 種別 | 証拠 |
 |---|---|---|---|
-| 1 | 出荷物: `instruments/phase3_gap.py`、`instruments/phase3_manifest.json`（§2 の 25 行）、`tests/test_docs/test_phase3_gap.py`。`deferred/` の 3 ファイル（`phase3_gap.py` / `phase3_manifest.json` / `test_phase3_gap.py`）は移すか置き換え、`check_derivations.py` は p5 が本体に入るので消す。`deferred/README.md` は「PR 8c で出荷した」と書く | — | diff |
+| 1 | 出荷物: `instruments/phase3_gap.py`、`instruments/phase3_manifest.json`（§2 の 25 行）、`tests/test_docs/test_phase3_gap.py`。`deferred/` の 3 ファイル（`phase3_gap.py` / `phase3_manifest.json` / `test_phase3_gap.py`）は移すか置き換え、`check_derivations.py` は p5 が本体に入るので消す。`deferred/README.md` は「PR 8c で出荷した」と書き、archive の manifest が `.gitignore` の `*.json` のため一度もコミットされていなかったこと（測定 7）を訂正する。`.gitignore` に `!docs/audits/**/*.json` を足し（`git add -f` は pre-commit hook が拒否する）、出荷する manifest が `git ls-files` に載っていることを確かめる | — | diff、`git ls-files` |
 | 2a | manifest の文法: 必須キー、disposition の値、regression 以外の justification、`population_test` か `population_note`、`github_prs` の型（正の整数のリスト）、数の型（正の整数）。違反はすべて `ManifestError` | 単体（偽の manifest） | `tests/test_docs/test_phase3_gap.py::test_a_malformed_row_is_refused[*]` |
 | 2b | 出荷した manifest は文法を通り、キーの集合 = 計画 §3 から導出した集合（25） | 単体（実ファイル） | `::test_the_shipped_manifest_covers_the_plan_issue_set` |
 | 2c | §3 の表の読み取りが閉じている: 列数が合わない行、Fixes / Refs 列が無い表は `ManifestError` | 単体 | `::test_the_plan_table_reader_refuses_a_malformed_table[*]` |

@@ -77,6 +77,17 @@ Every line below was produced by an executed instrument; the raw outputs sit bes
       regression in the proposition-2 sense; both need a non-regression disposition
       with that justification.
 
+7. The archived manifest was never committed
+   `.gitignore:166` ignores `*.json`. `git ls-files .../instruments/deferred` lists README.md,
+   check_derivations.py, phase3_gap.py and test_phase3_gap.py -- not phase3_manifest.json, which
+   exists only on this machine's disk. The deferred README describes it as archived.
+   `git add -f` is not a way round it: the repository's pre-commit hook refuses staged ignored
+   files ("BLOCKED: gitignored files are staged"). This PR adds `!docs/audits/**/*.json` to
+   `.gitignore`, so the shipped manifest and the two row files this PR's measurement reads
+   (`results/pr8c_rows_draft.json`, `results/pr8c_rows_parent.json`) are ordinary tracked files;
+   `git check-ignore` confirms `foo.json` at the root is still ignored. The shipped-manifest unit
+   test is what fails in CI if the manifest is ever not tracked.
+
 6. Proposition 4 with a growing population (#271)
    The archived #271 derivation counts HISTORY.md proposals; the archived value was 92
    at 5712f41 and the deferred README measured 93 with H-0092. Every PR in this run
