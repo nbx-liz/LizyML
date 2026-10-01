@@ -382,6 +382,34 @@ config = {
 | `method` | `"platt" \| "isotonic" \| "beta"` | No | `"platt"` | |
 | `n_splits` | `int` | No | `5` | **deprecated (H-0058)**: 無視される。calibration cross-fit は outer CV splits を再利用する。指定時は `UserWarning` を出力。 |
 
+## 5.5 Config のキーが設定しない構成値（H-0108）
+
+公開クラスの `__init__` の既定値付き引数（74 個、AST で数えた母集団）を、値の出どころで分類した。**Config のキーの値がそのまま渡る 60 個**は、どのキーから来るかを経路ごとに `tests/test_config/_knob_registry.py` の台帳に書く（§5.4 の表に行の無い `output_dir`（§17）と `calibration.params` も含む）。`tests/test_config/test_knob_reachability.py` は、経路ごとに本物の `fit` / `tune` を実行してコンストラクタが受け取る値を確かめ、どの行にも既定でない値を設定したセルが少なくとも 1 つある。残りの 14 個をこの表に書く。表と `tests/test_config/_knob_registry.py` の台帳は同じテストが照合する。
+
+分類は、そのクラスを構築するすべての本番の経路で読み、最初に当てはまるものを採る:
+
+- **api**: Config のキーは設定せず、公開の呼び出しの引数が設定する。
+- **derived**: ライブラリが、データから、または設定から 1 つの値を渡すのではない規則で決める。規則を書く。
+- **policy**: ライブラリが値を固定している（定数を渡すか既定値のままにする）。Config のキーも公開の引数も変えられない。理由を書く。
+- **internal**: 振る舞いの設定ではない（エラーの中身、部品どうしの配線）。
+
+| 構成値 | 種類 | 値の出どころ / 理由 |
+|---|---|---|
+| `Model.data` | api | `Model(config, data=...)` |
+| `Tuner.progress_callback` | api | `Model.tune(progress_callback=...)` |
+| `Tuner.storage` | api | `Model.tune(storage=...)` |
+| `Tuner.study_name` | api | `Model.tune(study_name=...)` |
+| `LGBMAdapter.num_class` | derived | 目的変数のクラス数。multiclass のときだけ渡し、それ以外は `None` |
+| `CVTrainer.n_classes` | derived | 目的変数のクラス数。multiclass のときだけ渡し、それ以外は `None` |
+| `CVTrainer.collect_raw_scores` | derived | `fit` では `calibration` が設定されているか（較正は生のスコアで学習する、H-0030）。`tune` の trial では常に `False`（trial の評価は較正しない） |
+| `LGBMAdapter.verbose_eval` | policy | `-1`: LightGBM の反復ごとの評価ログを出さない。学習曲線は `FitResult.history` に記録されるので、ログは情報を増やさず出力を埋める |
+| `StratifiedKFoldSplitter.shuffle` | policy | `True`（構築箇所が定数で渡す）: `stratified_kfold` は常に行をシャッフルしてから層化する（順序は `split.random_state`、それが無ければ `training.seed` が決める）。行の順序に意味があるデータには時系列の分割を使う |
+| `LizyMLError.debug_message` | internal | エラーの中身。各 raise 箇所が設定する |
+| `LizyMLError.cause` | internal | エラーの中身。各 raise 箇所が設定する |
+| `LizyMLError.context` | internal | エラーの中身。各 raise 箇所が設定する |
+| `CVTrainer.ratio_param_resolver` | internal | 配線: 比率で書いたスマートパラメーターを fold ごとに解決する |
+| `RefitTrainer.ratio_param_resolver` | internal | 配線: 比率で書いたスマートパラメーターを解決する |
+
 # 6. 実行フロー（概念）
 
 ## 6.1 `tune`

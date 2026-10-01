@@ -10574,3 +10574,84 @@ Firing rate: 10/10 of numeric-declared extension columns that raise in `__array_
 3. 普通の列では今日と同じ: 漏洩している列は `LEAKAGE_SUSPECTED`（`code` と `context["leaking_column"]` まで一致。`raise_on_violation=False` なら警告 1 件）、していない列は `[]`。漏洩の `LizyMLError` が包み直されないことはこの行で確かめる。
 4. `validators.py` に `except ...: pass` も「Non-comparable」のコメントも残っていない。
 5. 既存のテストは削除しない。
+
+## H-0108: 既定値付きの構成値の出どころを全数で分類し、Config のキーが設定しないものを BLUEPRINT に書く（#268 / PR 8）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-01
+- **決定日**: 2026-10-01（事実確認を含む外部レビュー: 設計レビュー 4 ラウンド（blocking 6 → 1 → 1 → 0。分類の規則と優先順位を明文化し、経路ごとのセルを足し、#313 を発見）、コードレビュー 3 ラウンド（blocking 6 → 1 → 0。回帰の代替経路のセル、§5.5 の位置の検査、#268 への訂正コメント）。各ラウンドの前に absolute / relational monitor。**#268 と計画の前提（名前の照合）が誤りだったので、承認済みの「9 個を公開」を置き換えた**）
+- **スコープ**: `BLUEPRINT.md`（§5.5 を新設）, `tests/test_config/_knob_registry.py` / `tests/test_config/test_knob_reachability.py`（新規）, `tests/test_plots/test_model_plot_options.py` / `tests/test_tuning/test_detect_boundary_threshold.py`（新規）, `docs/audits/2026-09-defect-discovery/phase3-plan.md`（§3 / §PR 8 / §6 / §7 の訂正）, `CHANGELOG.md`。**production コードは変えない。**
+- **関連**: [Issue #268](https://github.com/nbx-liz/LizyML/issues/268), [Issue #313](https://github.com/nbx-liz/LizyML/issues/313)（設計レビューで発見）, H-0065（指標を dict で書く形）, H-0104（`features.unseen_policy`）, H-0101（`TimeHoldoutInnerValid.gap` は自動解決だけが設定する）, H-0030（較正は生のスコア）
+- **実測の記録**: `docs/audits/2026-09-defect-discovery/results/pr8_measurements.txt`（`develop` `91a698b`。`../instruments/pr8_write_measurements.py` で再生成）
+
+### 目的（課題）
+
+#268 は、公開クラスの `__init__` の既定値付き引数 74 個のうち 25 個を「Config から届かない」とし、計画（`phase3-plan.md` §PR 8、§6 で承認済み）は「9 個を公開、13 個を方針として書く」とした。**この分類は、引数の名前と Config のフィールド名を照合して作られていた。** 実行して確かめると、名前が違うだけで届いているものが多い（`pr8_reachability_probe.py`: 既定でない値を Config に書いて fit / tune し、コンストラクタが受け取った値を記録した）:
+
+- 分割器の `max_train_size` / `max_test_size`（6 個）: `split.train_size_max` / `split.test_size_max` から届く。この 2 つのキーは 2026-03-07（`5daaffd`）から存在する。
+- `PrecisionAtK.k` / `ECE.n_bins` / `HuberLoss.delta`: 指標を dict で書く形（`{"precision_at_k": {"k": 20}}`、H-0065、2026-03-28 `0f37464`）で `evaluation.metrics` から届く。`k` と `n_bins` は `model.params` の `metric`（feval）からも届く。**`huber` は `model.params` の `metric` では LightGBM 組み込みの指標として扱われ、`delta` は黙って捨てられる**（無効な引数も検査されない。設計レビュー round 1 が発見し、#313 に切り出した）。
+- `LGBMAdapter.early_stopping_rounds`: `training.early_stopping.rounds` から届く。
+- `Tuner.progress_callback` / `.storage` / `.study_name`: `Model.tune(...)` の引数から届く。
+
+つまり計画の「公開する 9 個」は 9 個とも、計画を書いた時点ですでに Config から届いていた。**承認された決定（9 個の公開）を、その前提の計測が誤っていたので置き換える。** 逆に、#268 の一覧に無い `StratifiedKFoldSplitter.shuffle` は、構築箇所が常に定数 `True` を渡し、`StratifiedKFoldConfig` に `shuffle` が無いので変えられない。
+
+### 対応方針（決定）
+
+1. **74 個を、値の出どころで 5 種類に分類する**（`tests/test_config/_knob_registry.py`）。分類はそのクラスを構築するすべての本番の経路で読み、最初に当てはまるものを採る（設計レビュー round 1 の指摘で、規則と優先順位を明文化した）:
+   - **config（60）**: Config のキーの値がそのまま渡る（一部の経路だけでも）。経路によって出どころが違うもの（明示の inner valid か自動解決か、`split.random_state` が無いときの `training.seed` など）は、経路ごとに書く。`task` を受け取る 5 個、`Model.output_dir`（Config の `output_dir`。引数を渡せばそちらが優先）、自動解決で outer の `split.gap` を受け取る `TimeHoldoutInnerValid.gap`、代替経路で `validation_ratio` を受け取る `StratifiedTimeHoldoutInnerValid.ratio` もここに入る（後の 2 つは設計レビュー round 2 の指摘で derived から移した）。
+   - **api（4）**: Config のキーは設定せず、公開の呼び出しの引数が設定する（`Model(data=)`、`Model.tune(progress_callback=, storage=, study_name=)`）。利用者が選べるので、#268 の意図（利用者に知らせずに決めている値をなくす）を満たす。
+   - **derived（3）**: ライブラリがデータから、または設定から 1 つの値を渡すのではない規則で決める（クラス数の 2 つ、較正の有無）。規則を書く。
+   - **policy（2）**: ライブラリが値を固定している（定数を渡すか既定値のままにする）。Config のキーも公開の引数も変えられない: `LGBMAdapter.verbose_eval = -1`、`StratifiedKFoldSplitter.shuffle = True`（初版は「どの呼び出し元も渡さない」と書いたが、`shuffle` は構築箇所が定数で渡すので誤りだった）。
+   - **internal（5）**: 振る舞いの設定ではない（`LizyMLError` の 3 つ、2 つのトレーナーの `ratio_param_resolver`）。
+2. **Config に新しいキーは足さない。** policy の 2 個は方針として書く:
+   - `verbose_eval = -1`: LightGBM の反復ごとの評価ログを出さない。学習曲線は `FitResult.history` に記録されるので、ログは情報を増やさない。
+   - `StratifiedKFoldSplitter.shuffle = True`: `stratified_kfold` は常にシャッフルしてから層化し、順序は `split.random_state`（無ければ `training.seed`）が決める。行の順序に意味があるデータには時系列の分割を使う。公開すると、承認されていない Config の面を増やすことになる（代替案 1）。
+3. **Config のキーが設定しない 14 行（api / derived / policy / internal）を `BLUEPRINT.md` §5.5 の表に書く**（経路による条件を含めて）。表の行の集合と種類が台帳と一致することをテストで確かめる（行を読み取って集合で比べる）。
+4. **恒久検査**（`tests/test_config/test_knob_reachability.py`）:
+   - 母集団はテスト時に AST で数える（新しい構成値は分類されるまで失敗する）。台帳のキーが母集団と一致すること。数え方が壊れて空になった場合を「全部分類済み」と読まないよう、60 個以上を見つけることも確かめる。
+   - config の 60 行すべてに実行セルがあり（`Model.output_dir` だけは Config のキーを `Model.__init__` の中で解決するので、別のテストで確かめる）、**出どころが違う経路にはそれぞれセルがある**: 明示した inner valid と自動解決（`random_state` ← `training.seed`、`stratify` ← outer の分割手法、`ratio` ← `validation_ratio`）、`split.random_state` が無いときの `training.seed`、指標の `evaluation.metrics` と feval、`BlockedGroupInnerValid` の分類 / 回帰の代替経路（設計レビュー round 1 が、自動解決の経路の seed を定数に変える変異が初版の全テストを通ることを示し、コードレビュー round 1 が回帰の代替経路のセルが無いことを示した）。各セルは本物の `Model.fit` / `tune` でコンストラクタが受け取った値を確かめる。多くのセルは既定でない値を Config に書く。いくつかは既定値と同じ値になる分岐（回帰の task、自動解決の `stratify=False`）を確かめるもので、届いたことの証拠にはならないので、どの行にも既定でない値のセルが少なくとも 1 つあることを別のテストで確かめる（コードレビュー round 1 の指摘）。名前の照合はしない。
+   - api の行、derived の行（クラス数、`collect_raw_scores` の fit と tune。tune は較正を設定した場合も）、`TimeHoldoutInnerValid.gap` の明示の経路（0）、policy の 2 行（固定値のまま）を実行で確かめる。
+5. **#268 の「どこからも使われていない公開オプション 4 つ」**: `Model(data=)` は今のテストスイートで使われている。`detect_boundary(threshold=)` は既定値と同じ `0.05` でしか呼ばれていない（設計レビュー round 1 の指摘で、初版の「使われている」を訂正）。`Model.importance_plot(top_n=)` と `Model.plot_learning_curve(metrics=)`（`Model` のメソッドを通す形）は使われていない。この 3 つにテストを足す（`detect_boundary` は既定値では端にならず `threshold=0.2` では端になる値で、判定が変わることを確かめる）。
+
+### 規則が縛る位置（ソースから導出）
+
+規則: **公開クラスの既定値付き引数はすべて、Config のキーから実行で届くことが確かめてあるか、§5.5 に出どころが書いてある。** 導出: `lizyml/` 全体の AST（`ClassDef` で名前が `_` で始まらないもの、その `__init__` の既定値付き位置引数とキーワード専用引数）。構築箇所は `pr8_construction_sites.py` が列挙した。既定のままにする箇所とリテラルを渡す箇所は、1 つずつ読んだ:
+
+- `shap_explainer.py:160`: 保存済みの状態を `load_state` で読むので、`unseen_policy` は保存値に従う。
+- `_model_tuning.py:551`: tune の trial の CV では trial の評価を較正しないので、`collect_raw_scores` は既定の `False`。
+- `_model_factories.py:294` / `:301`: outer split の手法から `stratify` を決める、自動解決の経路。
+- `_model_factories.py:357` / `inner_valid.py:346`: gap を渡さない明示の経路と、代替の経路。
+- `_model_factories.py:118`: `StratifiedKFoldSplitter(shuffle=True)`。
+
+| # | 位置 | 本 PR |
+|---|---|---|
+| 1 | 74 個の構成値（台帳） | 分類し、テストで母集団と一致させる |
+| 2 | `BLUEPRINT.md` §5.5 | 新設（14 行） |
+
+### 互換性
+
+- production コードを変えないので、振る舞いは変わらない。追加するのはテストと文書だけ。
+- 新しい公開クラスや引数を足すと、台帳に分類するまで `test_registry_classifies_exactly_the_census` が失敗する。これは意図した変更（分類しないまま既定値で決める構成値を増やさない）。
+- #313（`model.params` の `metric` で、組み込みの指標の dict の引数が捨てられる）は別の PR で決める。
+
+**Firing rate**（台帳は「Config のキーが設定しなくてよい」構成値を許す `allow` の表である）:
+
+Firing rate: 14/74 of defaulted public constructor knobs are allowed without a Config key setting their value (api 4, derived 3, policy 2, internal 5), each stated with its source in BLUEPRINT §5.5; the other 60 receive a Config key's value on at least one path, each such path executed (`develop` `91a698b`; census by AST sweep, `pr8_knob_census.py`; executed by `pr8_reachability_probe.py` and by `test_knob_reachability.py`)
+
+### 代替案（検討して棄却）
+
+1. **`StratifiedKFoldConfig` に `shuffle` を足す。** sklearn の `StratifiedKFold` は `shuffle=False` を許すので、選べるようにすることはできる。しかし、これは計画も利用者も承認していない Config の面で、#268 にも挙がっていなかった。層化しつつ行の順序を保ちたい要求は今のところ無く、時系列の分割で表せる。方針として書き、要求が出たときに Proposal で公開する。
+2. **計画どおり 9 個を「公開する」。** 9 個ともすでに Config から届いているので、作業は存在しない。
+3. **#268 と同じく名前の照合で検査を作る。** 今回の誤りを生んだ方法そのものである（`max_train_size` と `train_size_max`、dict で書く指標の引数）。実行して値が届くことを確かめる。
+4. **derived / internal を Config に出す。** クラス数は他の設定やデータから決まり、別の値を選ぶと矛盾する。`LizyMLError` の中身は振る舞いではない。
+
+### 受け入れ基準（テスト観点）
+
+詳細と証拠のテスト名は `docs/audits/2026-09-defect-discovery/results/pr8_acceptance_criteria.md`。
+
+1. 台帳のキーの集合が AST の母集団と一致し、母集団は 60 個以上。
+2. config の 60 行すべてに実行セルがあり、出どころが違う経路にはそれぞれセルがある。各セルで、Config に書いた既定でない値がコンストラクタに届く（較正の `params` と `LGBMAdapter.params` は、書いた項目が含まれる）。`Model.output_dir` は Config のキーと引数の優先順位を確かめる。
+3. api の 4 行が本物の呼び出しで届く。
+4. `BLUEPRINT.md` §5.5 の表の行と種類が、台帳の config 以外の 14 行と一致する。修正前は §5.5 が無いので RED。
+5. derived の行（クラス数、`collect_raw_scores`）、`TimeHoldoutInnerValid.gap` の明示の経路、policy の 2 行が、実行で台帳の記述どおり。
+6. `Model.importance_plot(top_n=1)` が 1 特徴だけを描き、`Model.plot_learning_curve(metrics=[...])` が指定した指標だけを描き、`detect_boundary` の `threshold` が判定を変える。
