@@ -139,7 +139,8 @@ acceptance (DC5) the audit exists to find; see §5.
 | **3c** | **`calibration.params` honoured for every calibrator; Platt fitted as Platt defined it** | **#277** | — | **H-0100** | every calibrator, at runtime and in generated code: its declared params reach it, or are refused before training | **merged** (#296, 2026-09-15; maintainer chose honour over refuse, and moved the Platt defaults to the original method in this PR). #277 closed; byproducts #295, #297, #298 |
 | **3d** | **Close-review residue of PRs 0 and 1** | **#262, #265** | — | **H-0101** | the 27-cell tuning matrix asserts the dicts handed to `lgb.train`; HISTORY ids are unique | **merged** (#300, 2026-10-01; 2 review rounds, r2 APPROVE). #262 and #265 closed. The matrix exposed #299 (inert smart dimensions); the duplicated H-0100 became H-0102 |
 | 4 | Bring `RefitTrainer.fit` to `CVTrainer.fit` | #269 | — | **H-0103** | CV/refit input parity across 3 tasks | **merged** (#302, 2026-10-01; design r1 REQUEST_CHANGES, code r1 APPROVE). `sample_weight` forwarded; the other three inputs are written policy; #269 closed. Generated `train.py` deferred to #301 |
-| 5 | Make the feature-pipeline extension point usable as specified | #259, #260 | — | yes | `BaseFeaturePipeline` conformance through fit → predict → explain | |
+| 5 | Make the feature-pipeline extension point usable as specified | #259, #260 | — | **H-0104** | `BaseFeaturePipeline` conformance through fit → predict → explain | **merged** (#305, 2026-10-01; design r1 + code r1-r4, r2 fired the authorship stop, maintainer chose a broad r3). Filed #303, #304 |
+| **5b** | **Stop re-transforming LightGBM probabilities in the feval** | **#306** | — | **H-0105** | every feval-routed metric x every accepted objective against real `lgb.train` | **new and merged** (#308, 2026-10-01): found while preparing PR 6; the maintainer inserted it before PR 6 and asked for a fact-checking review (3 rounds, 6 corrections). Filed #307 |
 | 6 | Make every declared `ErrorCode` raisable, on every entry path | #263, #272 | — | yes | 20 `ErrorCode` members, executed; both `Model` entry paths | |
 | 7 | Decide the leakage validator's swallow | #267 | — | yes | caller can tell "clean" from "not checked" | |
 | 8 | Dispose of the 22 remaining unreachable knobs | #268 | — | yes | all 74 defaulted public knobs: reachable or written policy | |
@@ -772,9 +773,10 @@ that a `raise` *statement* exists; `if False: raise LizyMLError(code)` would
 satisfy it, which certifies inert wiring (DC4) — the class this repair is
 supposed to close. So the static scan is kept as a cheap guard and paired with
 `test_error_code_raising.py`, which **constructs the condition and asserts the
-raised `code` and `context`** for every member the enum declares. A member
-whose condition cannot be constructed goes in `RESERVED` with a reason and a
-removal plan, and a test asserts those fields are non-empty.
+raised `code` and `context`** for every member the enum declares. **No member
+is reserved**: `DATA_FINGERPRINT_MISMATCH` is deleted in this PR (the decision
+above, Revision 6 round 6). An earlier draft of this paragraph still described
+a `RESERVED` table; corrected 2026-10-01 when PR 6 opened.
 
 (b) both `Model` entry paths crossed with supported and unsupported versions —
 a 2 × 2 cell set, not one case.
