@@ -15,6 +15,13 @@ which is read for each of its three kinds. Non-default arguments of
 ``confusion_matrix(threshold=)``, ``importance_plot(kind=, top_n=)``,
 ``plot_learning_curve(metrics=)``, ``residuals_plot(kind=)``,
 ``evaluate(metrics=)`` and ``predict(return_shap=)`` are not exercised.
+
+**Projections.** Three readings compare a projection, not the whole object:
+``predict`` compares ``PredictionResult.pred``; ``fit_result`` compares every
+``FitResult`` field except ``models`` / ``pipeline_state`` / ``calibrator`` /
+``target_encoder``, which are compared by type name (their behaviour is what
+``predict`` and the other surfaces read); ``export_code`` compares the arguments
+passed to ``generate_code``, with its live-object arguments compared by type.
 """
 
 from __future__ import annotations
@@ -41,16 +48,18 @@ from tests._helpers import (
 CONFIG_RATIO = 0.2
 TUNED_RATIO = 0.45
 
-#: The relative tolerance for ``importance("gain")`` across load. LightGBM
-#: writes each split's gain with six significant digits (moving it by at most
-#: 5e-6 relative) and reads it back into a binary32 ``float`` (at most 2**-24
-#: relative more): (1 + 5e-6) * (1 + 2**-24) - 1 = 5.0596e-6. A feature's gain
-#: is a sum of non-negative split gains, so the sum moves by at most the same
-#: relative amount; the double-precision summation adds orders of magnitude
-#: less. ``pr8b_gain_precision.py`` sweeps the exponent range of binary32
-#: (reaching 5.0544e-6 at its worst case) and finds every split gain of the
-#: models it trains, in three tasks, positive.
+#: The tolerance for ``importance("gain")`` across load. LightGBM writes each
+#: split's gain with six significant digits and reads it back into a binary32
+#: ``float``. Per split gain g the loaded value moves by at most
+#: 5.0596e-6 |g| + 2**-150: (1 + 5e-6)(1 + 2**-24) - 1 for the decimal rounding
+#: and the binary32 read of a normal value, plus half the subnormal spacing for a
+#: subnormal one, where no relative bound exists. A feature's gain is a sum of n
+#: non-negative split gains, so it moves by at most 5.0596e-6 G + n 2**-150, and
+#: n 2**-150 < 2**-126 for fewer than 2**24 splits. ``pr8b_gain_precision.py``
+#: sweeps every decimal exponent of positive binary32, subnormals included, and
+#: finds every split gain of the models it trains, in three tasks, positive.
 GAIN_RTOL = 5.1e-6
+GAIN_ATOL = 2.0**-126
 
 SPACE: dict[str, Any] = {
     "early_stopping_rounds": {
@@ -244,7 +253,9 @@ def same(a: Any, b: Any) -> bool:
 def gain_within_bound(a: tuple[str, Any], b: tuple[str, Any]) -> bool:
     if a[0] != "ok" or b[0] != "ok" or a[1].keys() != b[1].keys():
         return False
-    return all(np.isclose(b[1][k], a[1][k], rtol=GAIN_RTOL, atol=0.0) for k in a[1])
+    return all(
+        np.isclose(b[1][k], a[1][k], rtol=GAIN_RTOL, atol=GAIN_ATOL) for k in a[1]
+    )
 
 
 def agrees(surface: str, before: tuple[str, Any], after: tuple[str, Any]) -> bool:

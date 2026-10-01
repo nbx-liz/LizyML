@@ -10677,7 +10677,7 @@ H-0094 決定 13 は、`params_table()` と `export_code()` が「この fit が
 | 面 | セル | 原因 | 本提案 |
 |---|---|---|---|
 | `params_table` / `export_code` | 12 / 12 | `validation_ratio`: tuned 0.45 → config 0.2（#281） | 直す |
-| `importance("gain")` | 20 | LightGBM のモデルテキストは `split_gain=` を有効数字 6 桁で書き、読み込みで binary32 に戻す。pickle した adapter の gain はテキスト往復の gain と完全に一致する。予測と OOF は、測った fixture では bit 単位で一致した（`pr8b_gain_precision.py`） | 直さず書く（相対誤差の上限 5.06e-6） |
+| `importance("gain")` | 20 | LightGBM のモデルテキストは `split_gain=` を有効数字 6 桁で書き、読み込みで binary32 に戻す。pickle した adapter の gain はテキスト往復の gain と完全に一致する。予測と OOF は、測った fixture では bit 単位で一致した（`pr8b_gain_precision.py`） | 直さず書く（split ごとに相対 5.06e-6 + 絶対 2^-150） |
 | `tuning_table` / `tuning_plot` / `boundary_table` | 16 / 16 / 4 | H-0086 が trial の履歴、round、境界の報告を保存しないと決めた。load 後は空の表、trace の無い図、「`tune(resume=True)` を実行せよ」という `MODEL_NOT_FIT` になる | #315 に切り出す |
 
 `evaluate` / `evaluate_table` / `fit_result` / `predict` を含む他の面は、測った 440 セルではすべて一致した。
@@ -10690,9 +10690,9 @@ H-0094 決定 13 は、`params_table()` と `export_code()` が「この fit が
 2. **「不明」と「overlay なし」を分ける。** `Model._applied_training_params` と `FitState.applied_training_params` を `dict[str, Any] | None` にする。`None` = 不明（記録の無い artifact から load した）、`{}` = fit は overlay を使わなかった、dict = 適用した overlay。export はキーを `None` でないときだけ書く。理由: 潰すと、記録の無い（修正前の）artifact を load して再 export したとき、`{}` という確定した記録を偽って書くことになる。状態の遷移: `__init__` は `{}`（fit 前は誰も読まない）。成功した `fit()` だけが記録を置き換える（決定 14 の commit の中）。`load()` はキーがあれば検査して復元し、無ければ `None`。`tune()`、拒否された `fit()`、学習中に失敗した `fit()` は記録を変えない（記録は保持しているモデルの fit を説明し続ける）。再 export は記録をそのまま書く（`None` なら書かない）。
 3. **`load()` で記録を検査してから復元する。** 拒否するもの（`DESERIALIZATION_FAILED`、context にキーと値の型）: dict でない、知らないキー（training の次元として消費される `early_stopping_rounds` / `validation_ratio` 以外）、bool、数でない値、非有限の値、`(0, 1)` の外の `validation_ratio`。理由: 受け入れて報告面の `float()` で落ちる、または生成コードに不可能な比率を渡すのは、読み込みで通して後で失敗する形（DC1 / DC7）である。比率の範囲は、inner valid の戦略がすべて `0 < ratio < 1` を要求する（`training/inner_valid.py` の 5 か所）ので、どの fit も範囲外の比率を適用できない。patience には範囲を設けない: 報告面は patience を記録ではなく adapter から読み、学習経路は `int()` するだけで範囲を検査しない（設計レビュー round 1 の非 blocking の指摘に従い、学習経路より厳しい規則を記録に置かない）。2 つの名前は `_tuning_validation.py` がすでに使っている集合で、1 つの定数にして両方から読む。キーが無い artifact は今までどおり読め、`None` になる（決定 13 の bound は、記録の無い artifact に限って残る）。
 4. **読み手は変えない。** `tuned_validation_ratio(None)` はすでに `None`（= config の比率）を返す。`params_table` と `export_code` は、記録があれば記録を、無ければ config を答える。
-5. **恒久検査**（`tests/test_persistence/test_reporting_surfaces_survive_load.py`、定義は `_load_census.py`）: 440 セルを実行し、`load()` 前後の読みを比べる。違うセルの集合が宣言した例外の集合と**等しい**ことを確かめる: gain 重要度は相対 5.1e-6 以内なら一致と数え、tuning の 3 面は #315 のセルだけが違ってよい。#315 を直すと、このテストがそれを知らせる。`INVENTORY` が `Model` の公開名と一致することも確かめる（新しい公開メソッドは、読むか理由を書くまで失敗する）。空振りの防止として、22 面それぞれに修正前のモデルが読みを返したセルがあること、tuned と config の比率が違うセルが 12 あることも確かめる。
+5. **恒久検査**（`tests/test_persistence/test_reporting_surfaces_survive_load.py`、定義は `_load_census.py`）: 440 セルを実行し、`load()` 前後の読みを比べる。違うセルの集合が宣言した例外の集合と**等しい**ことを確かめる: gain 重要度は相対 5.1e-6 + 絶対 2^-126 以内なら一致と数え、tuning の 3 面は #315 のセルだけが違ってよい。#315 を直すと、このテストがそれを知らせる。`INVENTORY` が `Model` の公開名と一致することも確かめる（新しい公開メソッドは、読むか理由を書くまで失敗する）。空振りの防止として、22 面それぞれに修正前のモデルが読みを返したセルがあること、tuned と config の比率が違うセルが 12 あることも確かめる。
 
-gain の許容差は観測からではなく形式から決める: 有効数字 6 桁への丸めは 1 つの split の gain を最大で 6 桁目の半単位、つまり相対 5e-6 動かし、binary32 への読み戻しがさらに最大 2^-24 動かす。(1 + 5e-6)(1 + 2^-24) − 1 = 5.0596e-6。特徴の gain は非負の split gain の和なので、和の相対誤差も同じ値を超えない（倍精度の和の誤差は桁違いに小さい）。初版は 5e-6 と書いたが、binary32 への読み戻しを落としていた: 設計レビュー round 1 が 1 split の合成モデルで 5.054e-6 を測った。`pr8b_gain_precision.py` は binary32 の指数の全範囲（1e-38〜1e38）で `%g` → binary32 の往復を掃き、最悪 5.0544e-6（上の反例と同じ値）で上限内に収まる。計測器が学習した 3 タスクのモデルでは、split gain はすべて正だった。テストの許容差 5.1e-6 はこの上限に余裕を足したもの。
+gain の許容差は観測からではなく形式から決める。split の gain g ごとに: 有効数字 6 桁への丸めは最大で 6 桁目の半単位、つまり相対 5e-6 動かす。binary32 への読み戻しは、結果が正規数なら相対 2^-24、非正規数なら絶対 2^-150（非正規数の間隔の半分。相対の上限は存在しない）動かす。したがって |after − g| ≤ 5.0596e-6·|g| + 2^-150（5.0596e-6 = (1 + 5e-6)(1 + 2^-24) − 1）。特徴の gain は n 個の非負の split gain の和 G なので、5.0596e-6·G + n·2^-150 を超えない。split が 2^24 個未満のモデルなら n·2^-150 < 2^-126（binary32 の最小の正規数）である（倍精度の和の誤差は桁違いに小さい）。テストの許容差は相対 5.1e-6 + 絶対 2^-126。経緯: 初版は 5e-6 と書いて binary32 への読み戻しを落とし（設計レビュー round 1 が 1 split の合成モデルで 5.054e-6 を測った）、第 2 版は相対の項だけを書いて正規数だけを掃いた（round 2 が約 1e-39 の非正規数の gain で 5.602e-6 を測った。新しい上限では 5.605e-45 ≤ 5.763e-45 で内側）。`pr8b_gain_precision.py` は正の有限な binary32 を 10 進の指数 1e-45〜1e38 で掃き（非正規数を含む 334,506 個）、誤差と上限の比の最大は 0.999 で、すべて上限内に収まる。正規数での相対誤差の最大は 5.0544e-6（round 1 の反例と同じ値）。計測器が学習した 3 タスクのモデルでは、split gain はすべて正だった。
 
 ### 規則が縛る位置（ソースから導出）
 
@@ -10738,5 +10738,5 @@ gain の許容差は観測からではなく形式から決める: 有効数字 
 3. 記録の無い artifact は読めて config に落ち、状態は `None` で、再 export してもキーを書かない。
 4. 不正な記録（dict でない、知らないキー、bool、文字列、null、非有限、範囲外の比率）は `load()` で `DESERIALIZATION_FAILED`。修正前は黙って無視されるので RED。
 5. `load()` の後の成功した `fit()` は、その fit が適用した overlay を記録する。`load()` の後の `tune()`、拒否された `fit()`、学習中に失敗した `fit()` は、記録（既知でも不明でも）を変えず、再 export もそれを保つ。
-6. 440 セルの恒久検査: 違うセルの集合 = 宣言した例外（gain は相対 5.1e-6 以内、tuning の 3 面は #315 のセル）。`INVENTORY` = `Model` の公開名。22 面すべてが読みを返したセルを持つ。修正前は #281 の 24 セルで RED。
+6. 440 セルの恒久検査: 違うセルの集合 = 宣言した例外（gain は相対 5.1e-6 + 絶対 2^-126 以内、tuning の 3 面は #315 のセル）。`INVENTORY` = `Model` の公開名。22 面すべてが読みを返したセルを持つ。修正前は #281 の 24 セルで RED。
 7. `report_lifecycle_grid.py` の `known-bound` の 2 セルが `agrees` になる。

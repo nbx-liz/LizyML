@@ -1,5 +1,6 @@
 PR 8b (#281, H-0109) measurements, develop 036cd18, 2026-10-01
-(revised after design review round 1: census population, gain bound, grep count)
+(revised after design review round 1: census population, gain bound, grep count;
+ and round 2: the gain bound's subnormal range)
 =================================================================
 
 All instruments live in ../instruments/ and run with `uv run python <file>`.
@@ -54,12 +55,20 @@ All instruments live in ../instruments/ and run with `uv run python <file>`.
    bit-identical after load in these fixtures. Largest relative gain error on
    the real models: 1.040e-06. All split gains of those models are positive
    (smallest 0.0144321).
-   Bound: (1 + 5e-6) * (1 + 2**-24) - 1 = 5.059605e-06. The first version
-   said 5e-6 and left out the binary32 read; design review round 1 measured
-   5.054e-6 on a synthetic one-split model. The sweep of %g -> float32 over
-   1e-38..1e38 (random mantissas plus leading-digit-1 values next to every
-   half-unit boundary) reaches 5.054398e-06, the reviewer's value, within the
-   bound. The test tolerance is 5.1e-6.
+   Bound, per split gain g: |after - g| <= 5.059605e-06 |g| + 2**-150, where
+   5.059605e-06 = (1 + 5e-6)(1 + 2**-24) - 1 covers the decimal rounding and
+   the binary32 read of a normal value, and 2**-150 is half the subnormal
+   spacing (no relative bound exists there). Summed over n non-negative split
+   gains: 5.059605e-06 G + n 2**-150, and n 2**-150 < 2**-126 for n < 2**24.
+   History: the first version said 5e-6 and left out the binary32 read
+   (round 1 measured 5.054e-6); the second gave the relative term alone and
+   swept normal values only (round 2 measured 5.602e-6 on a subnormal gain near
+   1e-39; under the new bound 5.605e-45 <= 5.763e-45).
+   Sweep of %g -> float32: 334,506 positive finite values at decimal exponents
+   1e-45..1e38, subnormals included, with leading-digit-1 values next to every
+   half-unit boundary: largest error / bound = 0.998971, all within; largest
+   relative error over normal values 5.054398e-06 (round 1's value).
+   The test tolerance is rtol 5.1e-6 + atol 2**-126.
 
 3. What a loaded model's tuning surfaces present
    instrument: pr8b_tuning_surfaces_after_load.py

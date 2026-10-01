@@ -1,4 +1,4 @@
-# PR 8b — 完了基準（レビューを開く前に書き、設計レビュー round 1 で改訂した、2026-10-01）
+# PR 8b — 完了基準（レビューを開く前に書き、設計レビュー round 1 / 2 で改訂した、2026-10-01）
 
 計画 Revision 6 §12.5。提案は **H-0109**。
 **証拠のポインタが無い行が 1 つでもあれば、レビューを開かない。** 証拠列のテスト名は実装前に宣言した
@@ -17,7 +17,8 @@
   残らない値は 3 種類あり、#281 だけをこの PR で直す。
   - **#281**（`validation_ratio`、24 セル）: この PR で直す。
   - **gain 重要度**（20 セル）: LightGBM のモデルテキストが `split_gain` を有効数字 6 桁で書き、binary32 で
-    読み戻すため（相対誤差の上限 5.0596e-6）。直さずに書いて、許容差で比べる。
+    読み戻すため（split ごとに相対 5.0596e-6 + 絶対 2^-150。非正規数には相対の上限が無い）。直さずに書いて、
+    許容差（相対 5.1e-6 + 絶対 2^-126）で比べる。
   - **tuning の 3 面**（36 セル）: H-0086 が trial の履歴を保存しないと決めた結果。→ **#315** に切り出した
     （DC1、判断が要る）。
 - 恒久検査は「すべての値が残る」の証明ではなく、上の母集団と bound の中で「違うセル = 宣言した例外」を
@@ -43,7 +44,7 @@
 |---|---|
 | 報告面の全数（`pr8b_load_census.py`、定義は `tests/test_persistence/_load_census.py`） | 440 セル中 80 セルが `load()` 後に違う: `params_table` 12 / `export_code` 12（#281）、`importance_gain` 20、`tuning_table` 16 / `tuning_plot` 16 / `boundary_table` 4（#315）。`evaluate` / `evaluate_table` / `fit_result` / `predict` を含む他の 16 面は全セル一致 |
 | #281 のセル | fit が tuning result を消費した lifecycle（`tune_fit` / `tune_fit_reexport` / `tune_resume_fit`）× 4 構成 × 2 面 = 24。`fit_tune` は一致する（その fit は overlay を使っておらず、config に落ちるのが正しい） |
-| gain の原因（`pr8b_gain_precision.py`） | `split_gain=` は有効数字 6 桁。pickle した adapter の gain = テキスト往復の gain（3 タスク）。実モデルの最大相対誤差 1.040e-06。`%g` → binary32 の往復を 1e-38〜1e38 で掃いた最悪 5.054398e-06（設計レビューの反例と同じ値）で、上限 5.059605e-06 の内側。split gain はすべて正（最小 0.0144）。予測と OOF は測った fixture で bit 単位で一致 |
+| gain の原因（`pr8b_gain_precision.py`） | `split_gain=` は有効数字 6 桁。pickle した adapter の gain = テキスト往復の gain（3 タスク）。実モデルの最大相対誤差 1.040e-06。`%g` → binary32 の往復を 10 進の指数 1e-45〜1e38 で掃いた（非正規数を含む 334,506 個）: 誤差と上限（相対 5.059605e-06 + 絶対 2^-150）の比の最大 0.999、正規数での相対誤差の最大 5.054398e-06（round 1 の反例と同じ値）。round 2 の非正規数の反例（相対 5.602e-6）も上限の内側。split gain はすべて正（最小 0.0144）。予測と OOF は測った fixture で bit 単位で一致 |
 | tuning の 3 面（`pr8b_tuning_surfaces_after_load.py`） | `tuning_table` (4, 14) → (0, 0)、`tuning_plot` 2 trace → 0 trace、`boundary_table` 表 → `MODEL_NOT_FIT`。一度も tuning していないモデルでは 3 面とも `MODEL_NOT_FIT`。#315 |
 | 修正前の `metadata.json` のキー（`pr8b_metadata_keys.py`） | `checksums config feature_names format_version lizyml_version metrics python_version run_id task timestamp`（tuning 後は `tuning` も）。`tuning.best_training_params` は `tune_fit` と `fit_tune` で同じ `{'early_stopping_rounds': 219, 'validation_ratio': 0.45}` → tuning ブロックからは、どの fit が消費したかが分からない |
 
@@ -61,7 +62,7 @@
 | 5 | 不正な記録は `load()` で `DESERIALIZATION_FAILED`（メッセージにキー名）: dict でない / 知らないキー / bool / 文字列 / null / NaN / inf / `validation_ratio` が 0 や 1 | RED（今は黙って無視） | `::test_a_malformed_record_is_refused_on_load[*]` |
 | 6a | `load()` の後に成功した `fit()` は、記録をその fit が適用した overlay に置き換える（tuned の artifact からは復元した tuning result を消費し、記録の無い未 tuning の artifact からは `{}`）。再 export がそれを書く | RED（再 export がキーを書かない） | `::test_a_fit_after_load_records_its_own_overlay[*]` |
 | 6b | `load()` の後の `tune()`、拒否された `fit()`、学習中に失敗した `fit()` は、記録（既知でも不明でも）を変えず、再 export もそれを保つ（既知 → 同じ dict、不明 → キーなし）。比率の報告も変わらない | RED（状態が `{}`） | `::test_a_loaded_record_survives_calls_that_do_not_replace_the_fit[*]`（3 × 2 セル） |
-| 7a | 恒久検査: 22 面 × 4 構成 × 5 lifecycle で、`load()` 前後の読みが一致する。例外は宣言した 2 つだけ: gain 重要度は相対 5.1e-6 以内、tuning の 3 面は #315 のセル。**違うセルの集合 = 宣言した例外の集合**（#315 を直すとテストがそれを知らせる） | RED（#281 の 24 セル） | `tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared` |
+| 7a | 恒久検査: 22 面 × 4 構成 × 5 lifecycle で、`load()` 前後の読みが一致する。例外は宣言した 2 つだけ: gain 重要度は相対 5.1e-6 + 絶対 2^-126 以内、tuning の 3 面は #315 のセル。**違うセルの集合 = 宣言した例外の集合**（#315 を直すとテストがそれを知らせる） | RED（#281 の 24 セル） | `tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared` |
 | 7b | 母集団: `INVENTORY` のキー = `Model` の公開名、読む面の集合 = `SURFACES` | ガード（新しい公開メソッドで失敗する） | `::test_the_inventory_classifies_every_public_name` |
 | 7c | 空振りの防止: 22 面それぞれに、修正前のモデルが読みを返したセルがある。tuned と config の比率が違うセルが 12 | ガード | `::test_every_surface_was_exercised` |
 | 8 | `report_lifecycle_grid.py` の `known-bound` の 2 セルが `agrees` になり、計測器の主張を書き換える | RED（計測器の assert） | 計測器の出力（`results/pr8b_lifecycle_grid_after.txt`） |

@@ -23,7 +23,9 @@
   split gains over all folds: 89, smallest 0.341369
   predict equal after load: True; OOF equal: True
 
-bound (1 + 5e-6) * (1 + 2**-24) - 1 = 5.059605e-06
+relative term (1 + 5e-6) * (1 + 2**-24) - 1 = 5.059605e-06; absolute term 2**-150
 largest relative gain error, real models: 1.040e-06
-largest relative error, %g -> float32 sweep 1e-38..1e38: 5.054398e-06
-sweep within bound: True
+sweep: 334506 positive finite float32 values, 1e-45..1e38, subnormals included
+  largest relative error over normal values: 5.054398e-06
+  largest error / (relative term * value + absolute term): 0.998971
+  every value within the bound: True

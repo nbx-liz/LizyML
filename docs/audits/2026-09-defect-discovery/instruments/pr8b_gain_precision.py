@@ -15,18 +15,26 @@ Steps:
    before export and after load (bit-identical in these fixtures -- an
    observation, not a guarantee this probe establishes); the smallest split gain
    in every tree (the bound needs them non-negative).
-2. The bound, swept across the binary32 exponent range: for float32 values with
-   random mantissas at every decimal exponent from 1e-38 to 1e38, format with
-   ``%g`` (six significant digits, as the text shows) and read back as float32,
-   and compare with the bound.
+2. The bound, swept over positive finite binary32 values: random mantissas at
+   every decimal exponent from 1e-45 to 1e38 (subnormals included), plus
+   leading-digit-1 values next to every half-unit boundary of the sixth digit.
+   Each is formatted with ``%g`` (six significant digits, as the text shows),
+   read back as float32, and compared with the bound.
 
-The bound: rounding to six significant digits moves a value by at most half a
-unit in the sixth digit, 5e-6 relative; reading it back into binary32 moves it by
-at most 2**-24 relative more. (1 + 5e-6) * (1 + 2**-24) - 1 = 5.0596e-6. A
-feature's gain is a sum of non-negative split gains, so the sum moves by at most
-the same relative amount. The design review measured 5.054e-6 on a synthetic
-one-split model, over the 5e-6 a first version of this bound stated, because it
-left out the binary32 read.
+The bound, per split gain g: rounding to six significant digits gives d with
+|d - g| <= 5e-6 |g|; reading d back into binary32 adds at most 2**-24 |d| while
+the result is normal, and at most 2**-150 (half the subnormal spacing) when it
+is subnormal, where a relative bound does not exist. So
+|after - g| <= 5.0596e-6 |g| + 2**-150, with 5.0596e-6 = (1 + 5e-6)(1 + 2**-24) - 1.
+A feature's gain is a sum of n non-negative split gains G, so it moves by at most
+5.0596e-6 G + n 2**-150, and n 2**-150 < 2**-126 (binary32's smallest normal)
+for any model with fewer than 2**24 splits.
+
+The review history of this bound: the first version said 5e-6 and left out the
+binary32 read (design review round 1 measured 5.054e-6); the second gave the
+relative term alone and swept normal values only (round 2 measured 5.602e-6 on a
+subnormal gain of about 1e-39). The absolute term is what the subnormal range
+needs.
 
 Run:
 
@@ -63,6 +71,7 @@ DATA = {
     "multiclass": make_multiclass_df,
 }
 BOUND = (1 + 5e-6) * (1 + 2.0**-24) - 1
+ABS_TERM = 2.0**-150
 
 
 def _split_gains(node: dict[str, Any]) -> list[float]:
@@ -131,35 +140,47 @@ def models() -> float:
     return worst
 
 
-def sweep() -> float:
+def sweep() -> tuple[float, float, int]:
+    """Return (worst relative error over normal values, worst ratio of error
+    to the bound over all values, number of values swept)."""
     rng = np.random.default_rng(0)
-    worst = 0.0
-    for exponent in range(-38, 39):
-        # Random mantissas, plus the worst case on purpose: a leading digit of 1
-        # (largest half-unit relative to the value) just off each half-unit
-        # boundary of the sixth digit, which is where the design review's
-        # 5.054e-6 counterexample sat.
-        near_half = 1.0 + (np.arange(1000) + 0.5) * 1e-5
+    worst_rel = 0.0
+    worst_ratio = 0.0
+    swept = 0
+    tiny = np.finfo(np.float32).tiny
+    near_half = 1.0 + (np.arange(1000) + 0.5) * 1e-5
+    for exponent in range(-45, 39):
+        # Random mantissas, plus the worst case on purpose: a leading digit of
+        # 1 (largest half-unit relative to the value) just off each half-unit
+        # boundary of the sixth digit, where round 1's counterexample sat.
         mantissas = np.concatenate(
             [rng.uniform(1.0, 10.0, size=2000), near_half * (1 - 1e-7), near_half]
         )
         values = (mantissas * 10.0**exponent).astype(np.float32)
         values = values[np.isfinite(values) & (values > 0)]
-        values = values[values >= np.finfo(np.float32).tiny]
+        if not len(values):
+            continue
+        swept += len(values)
+        wide = values.astype(np.float64)
         back = np.array([np.float32(float(f"{float(v):g}")) for v in values])
-        rel = np.abs(back.astype(np.float64) - values) / values.astype(np.float64)
-        worst = max(worst, float(rel.max(initial=0.0)))
-    return worst
+        err = np.abs(back.astype(np.float64) - wide)
+        normal = values >= tiny
+        if normal.any():
+            worst_rel = max(worst_rel, float((err[normal] / wide[normal]).max()))
+        worst_ratio = max(worst_ratio, float((err / (BOUND * wide + ABS_TERM)).max()))
+    return worst_rel, worst_ratio, swept
 
 
 def main() -> int:
     worst_models = models()
-    worst_sweep = sweep()
+    worst_rel, worst_ratio, swept = sweep()
     print()
-    print(f"bound (1 + 5e-6) * (1 + 2**-24) - 1 = {BOUND:.6e}")
+    print(f"relative term (1 + 5e-6) * (1 + 2**-24) - 1 = {BOUND:.6e}; absolute term 2**-150")
     print(f"largest relative gain error, real models: {worst_models:.3e}")
-    print(f"largest relative error, %g -> float32 sweep 1e-38..1e38: {worst_sweep:.6e}")
-    print(f"sweep within bound: {worst_sweep <= BOUND}")
+    print(f"sweep: {swept} positive finite float32 values, 1e-45..1e38, subnormals included")
+    print(f"  largest relative error over normal values: {worst_rel:.6e}")
+    print(f"  largest error / (relative term * value + absolute term): {worst_ratio:.6f}")
+    print(f"  every value within the bound: {worst_ratio <= 1.0}")
     return 0
 
 
