@@ -305,7 +305,9 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             task=cfg.task,
             ratio_param_resolver=tc.ratio_resolver,
         )
-        refit_result = refit_trainer.fit(X, y, groups)
+        # The same weights the CV folds trained with (H-0103, #269): without
+        # them a multiclass `balanced` refit trained unweighted.
+        refit_result = refit_trainer.fit(X, y, groups, sample_weight=tc.sample_weight)
 
         # --- Commit, in one group, nothing between that can raise ------------
         # Everything a reporting surface reads about "the fit" is published
