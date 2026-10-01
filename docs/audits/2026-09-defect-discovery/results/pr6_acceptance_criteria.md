@@ -50,7 +50,7 @@
 | 1a | `lizyml/` の `ast.Raise` の部分木に現れる `ErrorCode.X` の集合が `set(ErrorCode)` と一致 | RED | `tests/test_core/test_error_code_population.py::test_every_member_is_raised_in_production_code` |
 | 1b | 走査が 10 メンバー以上を見つける（空の走査を「全メンバー未発生」と読まない） | ガード | `::test_the_scan_finds_the_population` |
 | 1c | キーが `set(ErrorCode)` と等しい dict の各メンバーについて、条件を作ると `code` と context のキーが出る | RED | `tests/test_core/test_error_code_raising.py::test_the_conditions_cover_the_enum` / `::test_member_is_raised[*]` |
-| 1d | `DATA_FINGERPRINT_MISMATCH` が enum に無い。既存の一覧テストを更新（削除しない） | RED | `tests/test_core/test_exceptions.py::test_all_error_codes_are_defined` |
+| 1d | `DATA_FINGERPRINT_MISMATCH` が enum に無い。既存の一覧テストを更新（削除しない） | 更新（一覧は実装と同じコミットで直したので、修正前に RED を実行したのではない。enum の削除は 1a / 1c が RED で捉える） | `tests/test_core/test_exceptions.py::test_all_error_codes_are_defined` |
 | 2a | 学習時 float64 の列に 33 種の dtype で予測: 規則が受理 ⇒ 成功、拒否 ⇒ `INCOMPATIBLE_COLUMNS` と context `{"columns": [{"column", "fit_dtype", "predict_dtype"}]}` | RED | `tests/test_features/test_column_dtype_check.py::test_numeric_at_fit_arrival_matrix[*]` |
 | 2b | 学習時に数値の各 dtype（int64 / Int64 / bool / boolean / float32 / Sparse 等）で、`str` の到着が拒否される | RED | `::test_every_numeric_fit_dtype_is_checked[*]` |
 | 2c | 学習時 `category`（元が `str` / `object` / `category`）の列は dtype の規則で検査されず、33 種の到着で予測できる。例外は整数の category に `float16` / `longdouble` が届く 4 セルで、encoder の中の pandas の生の例外（RED テストの段で発見、#309、strict な xfail） | ガード | `::test_categorical_at_fit_is_not_dtype_checked[*]` |
@@ -79,3 +79,12 @@
 | 6 | `docs/DEPRECATIONS.md` に削除の行、`CHANGELOG.md` に H-0106、`BLUEPRINT.md` の `config_version` 行に定義の場所、`PLAN.md` から削除 | — | diff |
 | 7 | 計画 `phase3-plan.md` §PR 6 の `METRIC_REQUIRES_PROBA` の段落とファイル一覧、§7 の firing rate を実際の設計に合わせる | — | diff |
 | 8 | 品質ゲート: ruff / ruff format / mypy `lizyml/` / フルスイート / CI | — | PR 本文 |
+
+RED の確認（`1c2eebc`、production コードは `1abf7fb` のまま）: 新しい 6 ファイルを実行し、RED と宣言した行は
+すべて失敗した。1a（未発生 3 メンバー）、1c（enum の網羅 + 2 メンバー）、2a（15 セル）、2b（18）、2e、2f（2）、
+2g、2j、3a（42）、3d、3f（4）、4a（新しい入口の版 2: 6）、4b（6）、4d、5a、5b。ガードと宣言した行は修正前も
+通った（2c は #309 の 4 セルを除く。この 4 セルは RED の段で見つかり、strict な xfail にした）。
+
+修正後（`a170494`）: 新しい 6 ファイル + `test_exceptions.py` + feval の 2 ファイルで 666 passed / 4 xfailed。
+フルスイート 8408 passed。失敗は環境起因の `test_version_matches_package_metadata` の 1 件（インストール済みの
+パッケージメタデータが古い。CI では通る）。ruff / ruff format / mypy `lizyml/` は通過。
