@@ -910,11 +910,11 @@ with the code it described.
 > - `LGBMAdapter.early_stopping_rounds` is set by `training.early_stopping.rounds`.
 > - `Tuner.progress_callback` / `.storage` / `.study_name` are `Model.tune` arguments.
 >
-> Of all 74 knobs, 58 receive a Config key's value, 4 a public argument, 5 are derived
+> Of all 74 knobs, 60 receive a Config key's value, 4 a public argument, 3 are derived
 > from the data or by a rule, 5 are internal, and 2 are values the library fixes:
 > `LGBMAdapter.verbose_eval` (left at its default) and `StratifiedKFoldSplitter.shuffle`
 > (always passed `True`). The second is not in #268's list. **H-0108 replaces "expose
-> 9, write policy for 13":** nothing needs exposing, and the 16 knobs no Config key
+> 9, write policy for 13":** nothing needs exposing, and the 14 knobs no Config key
 > sets (api, derived, policy, internal) are stated in BLUEPRINT §5.5. A registry and an
 > executed test, with a cell per path whose source differs, keep the classification.
 > Of the "four documented options nothing exercises", `Model(data=)` is now exercised;
@@ -1098,7 +1098,7 @@ batched into a single question to the user rather than asked mid-run.
 | #267 | dead handler or reachable | **measured: reachable** (15/378, a numeric `ExtensionDtype`). Remove the swallow and let it propagate |
 | #271 | which of the 57 absent proposals owe BLUEPRINT an update | **52 fold-in / 5 no-obligation** — the plan's only judgement about your specification rather than a measurement of the code. The five exempt are `H-0000`, `H-0012`, `H-0025`, `H-0037`, `H-0067`, each with its reason in §7 |
 | **#EMBARGO** *(unfiled)* | what `embargo` should mean in `PurgedTimeSeriesSplitter` | **rename it.** Measured: the splitter is forward-chaining, no fold places training data after the validation block, and `purge_gap` and `embargo` move the same pre-valid gap — so `embargo` is a second purge under a name that means something else. Implementing it in its real direction needs interior test blocks this splitter does not produce; documenting the divergence keeps a term that will mislead anyone who knows it. See §4 PR 0 for the evidence |
-| #268 | 22 knobs | ~~expose 9, write policy for 13~~ **replaced by H-0108**: the classification was name-matched and wrong; executed, nothing needs exposing, and the 16 knobs no Config key sets are stated in BLUEPRINT §5.5 |
+| #268 | 22 knobs | ~~expose 9, write policy for 13~~ **replaced by H-0108**: the classification was name-matched and wrong; executed, nothing needs exposing, and the 14 knobs no Config key sets are stated in BLUEPRINT §5.5 |
 | #270 | close with the two gates, or keep open | keep open; 177 remain |
 | run | merge cadence | CI green ⇒ merge, per the Long-Run Kickoff rule |
 | run | scope | PRs 0–9 in one run, or stop after PR 6 |
@@ -1161,10 +1161,10 @@ Firing rate: 0/821 of configs constructed (#272 / PR 6; same recording, tested
 
 # The two exemption tables that ship (the PR 6 RESERVED table was removed in
 # round 6; its line, 1/20 of ErrorCode members, is withdrawn)
-Firing rate: 16/74 of defaulted public __init__ knobs (PR 8 registry, H-0108: the
-  knobs allowed without a Config key setting them -- api 4, derived 5, policy 2,
-  internal 5 -- each stated in BLUEPRINT 5.5; the other 58 receive a Config key's
-  value, each path executed.
+Firing rate: 14/74 of defaulted public __init__ knobs (PR 8 registry, H-0108: the
+  knobs allowed without a Config key setting them -- api 4, derived 3, policy 2,
+  internal 5 -- each stated in BLUEPRINT 5.5; the other 60 receive a Config key's
+  value on at least one path, each such path executed.
   Re-measured 2026-10-01 at 91a698b; the earlier 13/74 rested on a name match that
   #268 shared and execution disproved)
 Firing rate: 5/57 of the HISTORY proposals absent from BLUEPRINT judged to carry

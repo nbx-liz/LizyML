@@ -10597,19 +10597,19 @@ Firing rate: 10/10 of numeric-declared extension columns that raise in `__array_
 ### 対応方針（決定）
 
 1. **74 個を、値の出どころで 5 種類に分類する**（`tests/test_config/_knob_registry.py`）。分類はそのクラスを構築するすべての本番の経路で読み、最初に当てはまるものを採る（設計レビュー round 1 の指摘で、規則と優先順位を明文化した）:
-   - **config（58）**: Config のキーの値がそのまま渡る。経路によって出どころが違うもの（明示の inner valid か自動解決か、`split.random_state` が無いときの `training.seed` など）は、経路ごとに書く。`task` を受け取る 5 個と `Model.output_dir`（Config の `output_dir`。引数を渡せばそちらが優先）もここに入る。
+   - **config（60）**: Config のキーの値がそのまま渡る（一部の経路だけでも）。経路によって出どころが違うもの（明示の inner valid か自動解決か、`split.random_state` が無いときの `training.seed` など）は、経路ごとに書く。`task` を受け取る 5 個、`Model.output_dir`（Config の `output_dir`。引数を渡せばそちらが優先）、自動解決で outer の `split.gap` を受け取る `TimeHoldoutInnerValid.gap`、代替経路で `validation_ratio` を受け取る `StratifiedTimeHoldoutInnerValid.ratio` もここに入る（後の 2 つは設計レビュー round 2 の指摘で derived から移した）。
    - **api（4）**: Config のキーは設定せず、公開の呼び出しの引数が設定する（`Model(data=)`、`Model.tune(progress_callback=, storage=, study_name=)`）。利用者が選べるので、#268 の意図（利用者に知らせずに決めている値をなくす）を満たす。
-   - **derived（5）**: ライブラリがデータから、または設定から 1 つの値を渡すのではない規則で決める（クラス数、較正の有無、inner valid の gap、代替経路の ratio）。規則を書く。
+   - **derived（3）**: ライブラリがデータから、または設定から 1 つの値を渡すのではない規則で決める（クラス数の 2 つ、較正の有無）。規則を書く。
    - **policy（2）**: ライブラリが値を固定している（定数を渡すか既定値のままにする）。Config のキーも公開の引数も変えられない: `LGBMAdapter.verbose_eval = -1`、`StratifiedKFoldSplitter.shuffle = True`（初版は「どの呼び出し元も渡さない」と書いたが、`shuffle` は構築箇所が定数で渡すので誤りだった）。
    - **internal（5）**: 振る舞いの設定ではない（`LizyMLError` の 3 つ、2 つのトレーナーの `ratio_param_resolver`）。
 2. **Config に新しいキーは足さない。** policy の 2 個は方針として書く:
    - `verbose_eval = -1`: LightGBM の反復ごとの評価ログを出さない。学習曲線は `FitResult.history` に記録されるので、ログは情報を増やさない。
    - `StratifiedKFoldSplitter.shuffle = True`: `stratified_kfold` は常にシャッフルしてから層化し、順序は `split.random_state`（無ければ `training.seed`）が決める。行の順序に意味があるデータには時系列の分割を使う。公開すると、承認されていない Config の面を増やすことになる（代替案 1）。
-3. **Config のキーが設定しない 16 行（api / derived / policy / internal）を `BLUEPRINT.md` §5.5 の表に書く**（経路による条件を含めて）。表の行の集合と種類が台帳と一致することをテストで確かめる（行を読み取って集合で比べる）。
+3. **Config のキーが設定しない 14 行（api / derived / policy / internal）を `BLUEPRINT.md` §5.5 の表に書く**（経路による条件を含めて）。表の行の集合と種類が台帳と一致することをテストで確かめる（行を読み取って集合で比べる）。
 4. **恒久検査**（`tests/test_config/test_knob_reachability.py`）:
    - 母集団はテスト時に AST で数える（新しい構成値は分類されるまで失敗する）。台帳のキーが母集団と一致すること。数え方が壊れて空になった場合を「全部分類済み」と読まないよう、60 個以上を見つけることも確かめる。
-   - config の 58 行すべてに実行セルがあり（`Model.output_dir` だけは Config のキーを `Model.__init__` の中で解決するので、別のテストで確かめる）、**出どころが違う経路にはそれぞれセルがある**: 明示した inner valid と自動解決（`random_state` ← `training.seed`、`stratify` ← outer の分割手法、`ratio` ← `validation_ratio`）、`split.random_state` が無いときの `training.seed`、指標の `evaluation.metrics` と feval（設計レビュー round 1 が、自動解決の経路の seed を定数に変える変異が初版の全テストを通ることを示した）。各セルは既定でない値を Config に書き、本物の `Model.fit` / `tune` でコンストラクタが受け取った値を確かめる。名前の照合はしない。
-   - api の行、derived の行（クラス数、`collect_raw_scores` の fit と tune、`TimeHoldoutInnerValid.gap` の 3 経路）、policy の 2 行（固定値のまま）を実行で確かめる。
+   - config の 60 行すべてに実行セルがあり（`Model.output_dir` だけは Config のキーを `Model.__init__` の中で解決するので、別のテストで確かめる）、**出どころが違う経路にはそれぞれセルがある**: 明示した inner valid と自動解決（`random_state` ← `training.seed`、`stratify` ← outer の分割手法、`ratio` ← `validation_ratio`）、`split.random_state` が無いときの `training.seed`、指標の `evaluation.metrics` と feval（設計レビュー round 1 が、自動解決の経路の seed を定数に変える変異が初版の全テストを通ることを示した）。各セルは既定でない値を Config に書き、本物の `Model.fit` / `tune` でコンストラクタが受け取った値を確かめる。名前の照合はしない。
+   - api の行、derived の行（クラス数、`collect_raw_scores` の fit と tune。tune は較正を設定した場合も）、`TimeHoldoutInnerValid.gap` の明示の経路（0）、policy の 2 行（固定値のまま）を実行で確かめる。
 5. **#268 の「どこからも使われていない公開オプション 4 つ」**: `Model(data=)` は今のテストスイートで使われている。`detect_boundary(threshold=)` は既定値と同じ `0.05` でしか呼ばれていない（設計レビュー round 1 の指摘で、初版の「使われている」を訂正）。`Model.importance_plot(top_n=)` と `Model.plot_learning_curve(metrics=)`（`Model` のメソッドを通す形）は使われていない。この 3 つにテストを足す（`detect_boundary` は既定値では端にならず `threshold=0.2` では端になる値で、判定が変わることを確かめる）。
 
 ### 規則が縛る位置（ソースから導出）
@@ -10625,7 +10625,7 @@ Firing rate: 10/10 of numeric-declared extension columns that raise in `__array_
 | # | 位置 | 本 PR |
 |---|---|---|
 | 1 | 74 個の構成値（台帳） | 分類し、テストで母集団と一致させる |
-| 2 | `BLUEPRINT.md` §5.5 | 新設（16 行） |
+| 2 | `BLUEPRINT.md` §5.5 | 新設（14 行） |
 
 ### 互換性
 
@@ -10635,7 +10635,7 @@ Firing rate: 10/10 of numeric-declared extension columns that raise in `__array_
 
 **Firing rate**（台帳は「Config のキーが設定しなくてよい」構成値を許す `allow` の表である）:
 
-Firing rate: 16/74 of defaulted public constructor knobs are allowed without a Config key setting their value (api 4, derived 5, policy 2, internal 5), each stated with its source in BLUEPRINT §5.5; the other 58 receive a Config key's value, each path executed (`develop` `91a698b`; census by AST sweep, `pr8_knob_census.py`; executed by `pr8_reachability_probe.py` and by `test_knob_reachability.py`)
+Firing rate: 14/74 of defaulted public constructor knobs are allowed without a Config key setting their value (api 4, derived 3, policy 2, internal 5), each stated with its source in BLUEPRINT §5.5; the other 60 receive a Config key's value on at least one path, each such path executed (`develop` `91a698b`; census by AST sweep, `pr8_knob_census.py`; executed by `pr8_reachability_probe.py` and by `test_knob_reachability.py`)
 
 ### 代替案（検討して棄却）
 
@@ -10649,8 +10649,8 @@ Firing rate: 16/74 of defaulted public constructor knobs are allowed without a C
 詳細と証拠のテスト名は `docs/audits/2026-09-defect-discovery/results/pr8_acceptance_criteria.md`。
 
 1. 台帳のキーの集合が AST の母集団と一致し、母集団は 60 個以上。
-2. config の 58 行すべてに実行セルがあり、出どころが違う経路にはそれぞれセルがある。各セルで、Config に書いた既定でない値がコンストラクタに届く（較正の `params` と `LGBMAdapter.params` は、書いた項目が含まれる）。`Model.output_dir` は Config のキーと引数の優先順位を確かめる。
+2. config の 60 行すべてに実行セルがあり、出どころが違う経路にはそれぞれセルがある。各セルで、Config に書いた既定でない値がコンストラクタに届く（較正の `params` と `LGBMAdapter.params` は、書いた項目が含まれる）。`Model.output_dir` は Config のキーと引数の優先順位を確かめる。
 3. api の 4 行が本物の呼び出しで届く。
-4. `BLUEPRINT.md` §5.5 の表の行と種類が、台帳の config 以外の 16 行と一致する。修正前は §5.5 が無いので RED。
-5. derived の行（クラス数、`collect_raw_scores`、`TimeHoldoutInnerValid.gap` の 3 経路）と policy の 2 行が、実行で台帳の記述どおり。
+4. `BLUEPRINT.md` §5.5 の表の行と種類が、台帳の config 以外の 14 行と一致する。修正前は §5.5 が無いので RED。
+5. derived の行（クラス数、`collect_raw_scores`）、`TimeHoldoutInnerValid.gap` の明示の経路、policy の 2 行が、実行で台帳の記述どおり。
 6. `Model.importance_plot(top_n=1)` が 1 特徴だけを描き、`Model.plot_learning_curve(metrics=[...])` が指定した指標だけを描き、`detect_boundary` の `threshold` が判定を変える。
