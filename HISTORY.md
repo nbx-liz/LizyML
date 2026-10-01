@@ -10513,3 +10513,61 @@ Firing rate: 0/1253 of completed `Model.__init__` calls and 0/1375 of completed 
 4. `config_version`: 入口（`load_config(dict)`、`Model(dict)`、`model_validate`、`Model(model_validate)`、`Model(model_construct)`、`Model(代入)`、`Model(model_copy(update=))`、環境変数の上書き）× 版（`1` / `2`）のすべてのセルで、`1` は受理、`2` は `CONFIG_VERSION_UNSUPPORTED`。`False` はすべての入口で拒否され、検証を通らない 3 経路では `Model` が受け取る時点で拒否される（構築・代入・コピーの時点ではない）。`True` と `"1"` は受理される。`loader.SUPPORTED_CONFIG_VERSIONS is version.SUPPORTED_CONFIG_VERSIONS`。
 5. `docs/api.md` の例外コード表と `BLUEPRINT.md` §16.2 が `set(ErrorCode)` と一致する。
 6. 既存のテストは削除しない。`tests/test_core/test_exceptions.py` の一覧は `DATA_FINGERPRINT_MISMATCH` を除いて更新する（列挙の SSOT は enum。この一覧は削除の意図を固定する）。
+
+## H-0107: 漏洩検査が比較できない列を黙って飛ばさない（#267 / PR 7）
+
+- **ステータス**: Proposed
+- **起票日**: 2026-10-01
+- **スコープ**: `lizyml/data/validators.py`（`validate_no_target_leakage` の `except (TypeError, ValueError): pass` を置き換え）, `docs/api.md`（漏洩検査の節と `DATA_SCHEMA_INVALID` の行）, `CHANGELOG.md`, テスト（`tests/test_data/test_leakage_validator_unchecked_column.py`、新規）
+- **関連**: [Issue #267](https://github.com/nbx-liz/LizyML/issues/267), H-0087（漏洩検査を公開 API にした）, 計画 `phase3-plan.md` §PR 7
+- **実測の記録**: `docs/audits/2026-09-defect-discovery/results/pr7_measurements.txt`（`develop` `97381db`。スクリプトは `../instruments/pr7_*.py`）
+
+### 目的（課題）
+
+`lizyml.data.validate_no_target_leakage` は、各列を目的変数と比べる呼び出し（`_series_perfectly_correlated`）を `try` で囲み、`TypeError` / `ValueError` を捕まえて**何もせずに次の列へ進む**（コメントは「Non-comparable types; skip」）。比べられなかった列は検査されていないのに、呼び出し側には検査して漏洩が無かった場合と同じ空のリストが返る（DC1）。
+
+#267 の時点では、17 種の列でこの handler に入る入力が見つからず、「handler は死んでいる」のか「到達する入力を見つけていない」のかが決まっていなかった。計画の step 1（378 セル）で、**数値を名乗る `ExtensionDtype`（`_is_numeric = True`）で、配列が `__array__` か `isna` で例外を出すもの**が到達することがわかった（15/378）。その計測器はリポジトリに残っていないので、`develop` `97381db` で再現した（`pr7_hostile_numeric_probe.py`）: 2 つの形 × 目的変数 5 種（int64 / float64 / bool / Int64 / complex128）の 10 セルすべてで、比べる呼び出しが `TypeError` / `ValueError` を出し、`validate_no_target_leakage(..., raise_on_violation=True)` は `[]` を返した。
+
+一方、普通の列は到達しない: PR 6 の 33 種の dtype × 一致する列 / ずらした列 × 目的変数 7 種（int64 / float64 / bool / Int64 / object の文字列 / category / string）の 462 セルで、比べる呼び出しの例外は 0（`pr7_dtype_sweep.py`）。フルスイートでも、比べる呼び出し 13 回のうち例外は 0（`pr7_swallow_plugin.py`、8424 passed）。
+
+### 対応方針（決定）
+
+1. **比べられなかった列は黙って飛ばさず、列名を付けて報告する。** 比べる呼び出しが例外を出したら、`LizyMLError(DATA_SCHEMA_INVALID)` を出す。`context = {"column", "target"}`、`cause` に元の例外を付ける。`raise_on_violation` の値によらず出す: 警告のリストは「漏洩の疑い」を表すので、「検査できなかった」を同じリストに入れると、呼び出し側は 2 つを区別できない。
+2. **捕まえる範囲は比べる呼び出しだけにし、例外の型は限らない（`Exception`）。** 今日捕まえていた `TypeError` / `ValueError` に加え、拡張配列が出しうる他の例外（`OverflowError` / `AttributeError` 等）も、列名の無い生の例外として外に出るより、どの列で失敗したかを示す方がよい。漏洩を見つけたときの `LEAKAGE_SUSPECTED` は `try` の外で出す（今日は `try` の中にある。型が違うので捕まらないが、範囲を正しくする）。
+3. 古いコメント「Non-comparable types; skip」は、それが説明していたコードと一緒に消す。`_series_perfectly_correlated` の docstring（NaN の位置を先に比べる理由）はそのまま残す。
+
+**計画との違い**: 計画 §PR 7 は「handler を削除し、例外をそのまま伝える」としていた。削除だけでは、伝わる例外は拡張配列が出した生の例外（例: `TypeError: _HostileArray.__array__`）で、どの列で起きたかが分からない。#267 の DoD の「`n` 個の列が検査されなかったことを呼び出し側が区別できる」を満たすには列名が要るので、`ErrorCode` を付けて出し直す。黙って飛ばす経路は無くなる点は計画と同じ。
+
+### 規則が縛る位置（ソースから導出）
+
+規則: **漏洩検査は、検査できなかった列を検査済みとして扱わない。** 導出: `lizyml/data/validators.py` の `except` を grep した（`97381db`、1 か所）。他の 2 つの検査（`validate_time_series_order` / `validate_group_split`）に例外を捕まえる箇所は無い。
+
+| # | 位置 | 本 PR |
+|---|---|---|
+| 1 | `data/validators.py` `validate_no_target_leakage` の `except (TypeError, ValueError): pass` | 置き換え |
+
+### 互換性
+
+- 普通の列（462 セル）とテストスイートの入力では、振る舞いは変わらない（どれもこの経路に入らない）。
+- 比べられない列（数値を名乗り、比較で例外を出す拡張配列）を含む frame は、今日は `[]`（検査済みで漏洩なし）が返っていたが、本 PR の後は `DATA_SCHEMA_INVALID` で止まる。その列を落としてから検査し直せば今日と同じ結果になる。
+- 公開 API の形（引数・戻り値）は変わらない。`docs/api.md` の `DATA_SCHEMA_INVALID` の行に、この条件を足す。
+
+**Firing rate**: 本 Proposal は skip / shorten / cache / select / allow / conditionally-activate の条件を新設しない。今ある `skip`（例外の列を飛ばす）を取り除く。取り除く条件の発火の測定:
+
+Firing rate: 10/10 of numeric-declared extension columns that raise in `__array__` or `isna` (2 shapes x 5 target dtypes, `pr7_hostile_numeric_probe.py`), 0/462 of ordinary column x target cells (`pr7_dtype_sweep.py`), and 0/13 of the guarded calls in the full test suite (`pr7_swallow_plugin.py`) enter the handler being removed (`develop` `97381db`)
+
+### 代替案（検討して棄却）
+
+1. **handler を削除して例外をそのまま伝える（計画の案）。** 黙って飛ばす経路は無くなるが、生の例外は列名を持たないので、どの列が検査されなかったかが呼び出し側に分からない。
+2. **`raise_on_violation=False` のときは警告のリストに「列 X は検査できなかった」を入れて続ける。** リストは漏洩の疑いの一覧として使われるので、混ぜると「漏洩の疑い」と「検査できなかった」が区別できない。戻り値の型を変えて 2 つを分けるのは公開 API の変更で、到達する入力（意図的に壊れた拡張配列）に比べて大きすぎる。
+3. **新しい `ErrorCode`（例: `LEAKAGE_CHECK_FAILED`）を足す。** 列を目的変数と比べられないのは、列の型がこの検査に使えないという data schema の問題で、既存の `DATA_SCHEMA_INVALID` で表せる。メンバーを増やすと、PR 6 の母集団の検査（全メンバーが発生する）にも条件を 1 つ足すことになる。
+
+### 受け入れ基準（テスト観点）
+
+詳細と証拠のテスト名は `docs/audits/2026-09-defect-discovery/results/pr7_acceptance_criteria.md`。
+
+1. 比較で例外を出す 2 つの形（`__array__` / `isna`）× 目的変数 5 種 × `raise_on_violation` の 2 値で、`validate_no_target_leakage` が `DATA_SCHEMA_INVALID` を出し、`context` の `column` / `target` が正しく、`cause` が元の例外。修正前は `[]` が返るので RED。
+2. 比較できない列が漏洩している列より前にあっても後にあっても、比較できない列で止まる（黙って飛ばして次の列の結果を返すことはない）。
+3. 普通の列では今日と同じ: 漏洩している列は `LEAKAGE_SUSPECTED`（`raise_on_violation=False` なら警告 1 件）、していない列は `[]`。
+4. `validators.py` に `except ...: pass` も「Non-comparable」のコメントも残っていない。
+5. 既存のテストは削除しない。
