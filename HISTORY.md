@@ -10516,8 +10516,9 @@ Firing rate: 0/1253 of completed `Model.__init__` calls and 0/1375 of completed 
 
 ## H-0107: 漏洩検査が比較できない列を黙って飛ばさない（#267 / PR 7）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-01
+- **決定日**: 2026-10-01（事実確認を含む外部レビュー: 設計レビュー 3 ラウンド（blocking 4 → 1 → 0。報告の順序を決め、`TypeError` / `ValueError` 以外も包むことと `cause` の同一性を基準に加え、分母と母集団の記述を訂正）、コードレビュー 2 ラウンド（blocking 2 → 0。文書とコメントの文言）。各ラウンドの前に absolute / relational monitor。設計レビューの指摘で #311 を起票）
 - **スコープ**: `lizyml/data/validators.py`（`validate_no_target_leakage` の `except (TypeError, ValueError): pass` を置き換え）, `docs/api.md`（漏洩検査の節と `DATA_SCHEMA_INVALID` の行）, `CHANGELOG.md`, テスト（`tests/test_data/test_leakage_validator_unchecked_column.py`、新規）
 - **関連**: [Issue #267](https://github.com/nbx-liz/LizyML/issues/267), H-0087（漏洩検査を公開 API にした）, 計画 `phase3-plan.md` §PR 7
 - **実測の記録**: `docs/audits/2026-09-defect-discovery/results/pr7_measurements.txt`（`develop` `97381db`。スクリプトは `../instruments/pr7_*.py`）
