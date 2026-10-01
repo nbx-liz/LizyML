@@ -94,6 +94,53 @@ def _build_split_metadata(cfg: Any) -> dict[str, Any]:
     return block
 
 
+def _checked_applied_training_params(record: Any, path: str | Path) -> dict[str, Any]:
+    """Refuse a record no fit could have written (H-0109).
+
+    Accepting it would fail later and elsewhere: ``float()`` inside
+    ``params_table``, or an impossible ratio handed to the generated
+    ``train.py``. Names are the training dimensions training consumes; values
+    are finite real numbers, and the ratio lies in ``(0, 1)`` because every
+    inner-validation strategy requires that, so no fit can have applied another.
+    The patience gets no range: the reports read it from the adapter, and the
+    training path converts it with ``int()`` without one.
+    """
+    import math
+
+    from lizyml.core._tuning_validation import TRAINING_DIMENSION_NAMES
+
+    def refuse(reason: str, context: dict[str, Any]) -> LizyMLError:
+        return LizyMLError(
+            code=ErrorCode.DESERIALIZATION_FAILED,
+            user_message=f"Stored applied_training_params {reason}.",
+            context={"path": str(path), **context},
+        )
+
+    if not isinstance(record, dict):
+        raise refuse("must be an object", {"type": type(record).__name__})
+    for name, value in record.items():
+        if name not in TRAINING_DIMENSION_NAMES:
+            raise refuse(
+                f"names {name!r}, which is not a training dimension",
+                {"key": name, "accepted": sorted(TRAINING_DIMENSION_NAMES)},
+            )
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, int | float)
+            or not math.isfinite(value)
+        ):
+            raise refuse(
+                f"holds {value!r} for {name!r}, which is not a finite number",
+                {"key": name, "type": type(value).__name__},
+            )
+        if name == "validation_ratio" and not 0.0 < value < 1.0:
+            raise refuse(
+                f"holds validation_ratio={value!r}, outside (0, 1)",
+                {"key": name, "value": value},
+            )
+    return dict(record)
+
+
 class ModelPersistenceMixin:
     """Mixin providing export/load methods for :class:`Model`."""
 
@@ -157,6 +204,7 @@ class ModelPersistenceMixin:
             analysis_context=ctx,
             tuning=state.tuning_result,
             tuning_fixed_params=state.tuning_fixed_params,
+            applied_training_params=state.applied_training_params,
         )
         _log.info("event='export.done' path=%s", resolved_path)
         return resolved_path
@@ -264,9 +312,10 @@ class ModelPersistenceMixin:
             #
             # The patience is the trained adapter's, through the provider. The
             # ratio is the retained overlay's, because the adapter does not
-            # record it; after `load()` the overlay is empty and the configured
-            # ratio is used, the bound stated on
-            # `FitState.applied_training_params`.
+            # record it; the artifact records the overlay and `load()` restores
+            # it (H-0109). Only an artifact written before that record existed
+            # leaves it unknown, and then the configured ratio is used -- the
+            # bound stated on `FitState.applied_training_params`.
             early_stopping_rounds=export.early_stopping_rounds,
             validation_ratio=effective_ratio or 0.0,
             seed=cfg.training.seed,
@@ -350,6 +399,16 @@ class ModelPersistenceMixin:
                 metric_name=tuning_meta["metric_name"],
                 direction=tuning_meta["direction"],
             )
+        # The overlay the fit that produced this artifact applied (H-0109).
+        # Absent from artifacts written before the record existed: unknown,
+        # which is not the same as "applied none", and must stay unknown so a
+        # re-export does not write a record nobody measured.
+        if "applied_training_params" in metadata:
+            instance._applied_training_params = _checked_applied_training_params(
+                metadata["applied_training_params"], path
+            )
+        else:
+            instance._applied_training_params = None
         if analysis_context is not None:
             instance._y = analysis_context.y_true
             instance._X = analysis_context.X_for_explain

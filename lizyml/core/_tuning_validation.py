@@ -15,6 +15,11 @@ if TYPE_CHECKING:
     from lizyml.config.schema import LizyMLConfig
     from lizyml.estimators.provider import EstimatorProvider
 
+#: The ``category: training`` dimensions training consumes. Read here, to refuse
+#: any other name in a search space, and by ``Model.load()``, to refuse any
+#: other name in an artifact's record of the overlay a fit applied (H-0109).
+TRAINING_DIMENSION_NAMES = frozenset({"early_stopping_rounds", "validation_ratio"})
+
 
 def resolve_tuning_direction(cfg: LizyMLConfig) -> Literal["minimize", "maximize"]:
     """Resolve automatic orientation, refusing contradictory explicit input."""
@@ -58,8 +63,7 @@ def validate_tuning_dimensions(
     unsupported = sorted(
         dim.name
         for dim in space
-        if dim.category == "training"
-        and dim.name not in {"early_stopping_rounds", "validation_ratio"}
+        if dim.category == "training" and dim.name not in TRAINING_DIMENSION_NAMES
     )
     if unsupported:
         raise LizyMLError(

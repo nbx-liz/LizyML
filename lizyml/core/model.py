@@ -155,9 +155,9 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         # `_tuning_result`, which tune() replaces without replacing the fitted
         # adapters -- so reporting surfaces that read it answered for a model
         # that was never trained (H-0094 decision 13, review round 16).
-        # `Model.load()` leaves this empty: the artifact records the tuning
-        # result but not which fit consumed it.
-        self._applied_training_params: dict[str, Any] = {}
+        # `export()` records it and `Model.load()` restores it (H-0109); `None`
+        # means unknown -- a model loaded from an artifact without the record.
+        self._applied_training_params: dict[str, Any] | None = {}
         self._y: pd.Series | None = None  # transient; not persisted
         self._X: pd.DataFrame | None = None  # transient; not persisted
         self._provider: EstimatorProvider | None = None  # set by fit/tune
@@ -918,7 +918,11 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             refit_result=self._refit_result,
             tuning_result=self._tuning_result,
             tuning_fixed_params=deepcopy(self._tuning_fixed_params),
-            applied_training_params=dict(self._applied_training_params),
+            applied_training_params=(
+                None
+                if self._applied_training_params is None
+                else dict(self._applied_training_params)
+            ),
             provider=self._provider,
             metrics=self._metrics,
             y=self._y,

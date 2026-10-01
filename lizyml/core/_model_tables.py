@@ -296,9 +296,10 @@ class ModelTablesMixin:
         # The patience comes from the trained adapter, through the provider --
         # the only surface that survives both a later `tune()` and a `load()`.
         # The ratio comes from the retained overlay, because nothing on the
-        # adapter records it; after `load()` that overlay is empty and the
-        # configured ratio is reported, which is the bound stated on
-        # `FitState.applied_training_params`.
+        # adapter records it. The artifact records the overlay and `load()`
+        # restores it (H-0109); only an artifact written before that record
+        # existed leaves it unknown, and then the configured ratio is reported
+        # -- the bound stated on `FitState.applied_training_params`.
         from lizyml.core._model_factories import tuned_validation_ratio
 
         es = state.cfg.training.early_stopping

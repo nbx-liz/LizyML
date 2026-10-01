@@ -55,8 +55,8 @@ TUNED_RATIO = 0.45
 #: range moves it by at most 2**-24 |d| + 2**-150 (the absolute term covers the
 #: inputs where the usual relative bound 2**-24 does not hold: throughout the
 #: subnormal range, and just under 2**-126 where values round up into the normal
-#: range). So the
-#: loaded gain moves by at most C |g| + 2**-150, C = (1 + 5e-6)(1 + 2**-24) - 1,
+#: range). So the loaded gain moves by at most C |g| + 2**-150, with
+#: C = (1 + 5e-6)(1 + 2**-24) - 1,
 #: approximately 5.0596e-6. A feature's gain is a sum of n non-negative split
 #: gains G, so it moves by at most C G + n 2**-150, and n 2**-150 < 2**-126 for
 #: fewer than 2**24 splits. ``pr8b_gain_precision.py``
