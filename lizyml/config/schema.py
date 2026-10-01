@@ -42,6 +42,10 @@ class FeaturesConfig(BaseModel):
     exclude: list[str] = []
     auto_categorical: bool = True
     categorical: list[str] = []
+    # How a category unseen at fit is handled wherever data is transformed --
+    # each CV validation fold as well as prediction (H-0104). "mode" and "nan"
+    # substitute and report it in PredictionResult.warnings; "error" refuses.
+    unseen_policy: Literal["mode", "nan", "error"] = "mode"
 
 
 # ---------------------------------------------------------------------------

@@ -45,6 +45,7 @@
 | `exclude` | `list[str]` | No | `[]` | Columns excluded from training features. |
 | `auto_categorical` | `bool` | No | `True` | Automatically treats suitable columns as categorical. |
 | `categorical` | `list[str]` | No | `[]` | Explicit categorical feature names. |
+| `unseen_policy` | `"mode" \| "nan" \| "error"` | No | `"mode"` | Handling of a category not seen at fit (H-0104). `mode` replaces it with the training mode and `nan` with a missing value; both are reported in `PredictionResult.warnings`. `error` raises `DATA_SCHEMA_INVALID`. Applies to CV validation folds as well as prediction. |
 
 ## `split`
 

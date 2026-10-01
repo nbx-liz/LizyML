@@ -19,6 +19,7 @@ import pandas as pd
 from lizyml.core.types.search_dim import SearchDim
 from lizyml.core.types.task import TaskType
 from lizyml.estimators.base import BaseEstimatorAdapter
+from lizyml.features.encoders.categorical_encoder import UnseenPolicy
 from lizyml.features.pipeline_base import BaseFeaturePipeline
 
 # H-0079: forward-typed alias for ``metric_choices`` return value. The
@@ -193,8 +194,16 @@ class EstimatorProvider(Protocol):  # pragma: no cover
         """Return a zero-arg factory that creates a configured estimator."""
         ...
 
-    def build_pipeline_factory(self) -> Callable[[], BaseFeaturePipeline]:
-        """Return a zero-arg factory that creates the appropriate FeaturePipeline."""
+    def build_pipeline_factory(
+        self, unseen_policy: UnseenPolicy = "mode"
+    ) -> Callable[[], BaseFeaturePipeline]:
+        """Return a zero-arg factory that creates the appropriate FeaturePipeline.
+
+        Args:
+            unseen_policy: ``features.unseen_policy`` (H-0104). The facade passes
+                the configured value when it fits; a pipeline restored from a
+                saved state takes the policy recorded in that state instead.
+        """
         ...
 
     def default_space(self, task: TaskType) -> list[SearchDim]:

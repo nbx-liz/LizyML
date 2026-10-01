@@ -551,7 +551,9 @@ class ModelTuningMixin:
             cv_trainer = CVTrainer(
                 outer_splitter=splitter,
                 inner_valid=tc.inner_valid,
-                pipeline_factory=provider.build_pipeline_factory(),
+                pipeline_factory=provider.build_pipeline_factory(
+                    unseen_policy=cfg.features.unseen_policy
+                ),
                 estimator_factory=tc.estimator_factory,
                 task=cfg.task,
                 n_classes=n_classes,

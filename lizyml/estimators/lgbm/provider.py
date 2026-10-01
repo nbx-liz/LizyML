@@ -35,6 +35,7 @@ from lizyml.estimators.lgbm.smart_params import (
     smart_managed_names,
 )
 from lizyml.estimators.provider import ExportParams, MetricChoices
+from lizyml.features.encoders.categorical_encoder import UnseenPolicy
 from lizyml.features.pipeline_base import BaseFeaturePipeline
 from lizyml.features.pipelines_native import NativeFeaturePipeline
 
@@ -306,9 +307,15 @@ class LGBMProvider:
 
         return make_estimator
 
-    def build_pipeline_factory(self) -> Callable[[], BaseFeaturePipeline]:
-        """Return a factory that creates NativeFeaturePipeline."""
-        return NativeFeaturePipeline
+    def build_pipeline_factory(
+        self, unseen_policy: UnseenPolicy = "mode"
+    ) -> Callable[[], BaseFeaturePipeline]:
+        """Return a factory that creates NativeFeaturePipeline with *unseen_policy*."""
+
+        def make_pipeline() -> BaseFeaturePipeline:
+            return NativeFeaturePipeline(unseen_policy=unseen_policy)
+
+        return make_pipeline
 
     def default_space(self, task: TaskType) -> list[SearchDim]:
         """Return the default LightGBM search space."""

@@ -253,7 +253,10 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             seed=cfg.training.seed,
         )
         n_classes = int(y.nunique()) if cfg.task == "multiclass" else None
-        pipeline_factory = provider.build_pipeline_factory()
+        # H-0104: the configured policy governs every CV fold and the refit.
+        pipeline_factory = provider.build_pipeline_factory(
+            unseen_policy=cfg.features.unseen_policy
+        )
 
         # --- CV training -----------------------------------------------------
         cv_trainer = CVTrainer(

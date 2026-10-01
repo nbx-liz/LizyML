@@ -62,15 +62,23 @@ def fit_pipeline(df: pd.DataFrame) -> dict:
         raise ValueError(f"Missing columns: {missing}")
 
     mappings: dict[str, dict[str, int]] = {}
+    unseen_codes: dict[str, int] = {}
     for col in CFG["categorical_features"]:
         cats = sorted(str(v) for v in df[col].dropna().unique())
         mappings[col] = {v: i for i, v in enumerate(cats)}
+        # The training mode's code, for unseen_policy="mode" in predict.py.
+        modes = df[col].dropna().astype(str).mode()
+        if len(modes):
+            unseen_codes[col] = mappings[col][modes.iloc[0]]
         log.info("    %s: %d categories", col, len(cats))
 
     state = {
         "feature_names": expected,
         "categorical_features": CFG["categorical_features"],
         "category_mappings": mappings,
+        # Keep the exported policy: predict.py falls back to "nan" without it.
+        "unseen_policy": CFG.get("unseen_policy", "mode"),
+        "unseen_codes": unseen_codes,
     }
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
     with open(ARTIFACTS / "pipeline_state.json", "w", encoding="utf-8") as f:
@@ -928,13 +936,26 @@ def transform(df: pd.DataFrame) -> pd.DataFrame:
     for col, mapping in state.get("category_mappings", {}).items():
         if col in X.columns:
             codes = X[col].astype(str).map(mapping)  # unseen -> NaN
-            if policy == "mode" and col in unseen_codes:
-                # Match the runtime encoder: replace unseen with the training mode.
-                codes = codes.fillna(unseen_codes[col])
-            elif policy == "error" and codes.isna().any():
-                raise ValueError(
-                    f"Column '{col}' contains unseen categories "
-                    "(unseen_policy='error')"
+            # Only a present value can be unseen; a missing value stays
+            # missing under every policy, as in the runtime encoder.
+            unseen = codes.isna() & X[col].notna()
+            if unseen.any():
+                values = sorted(set(X.loc[unseen, col].astype(str)))
+                if policy == "error":
+                    raise ValueError(
+                        f"Column '{col}' contains unseen categories {values} "
+                        "(unseen_policy='error')"
+                    )
+                if policy == "mode" and col in unseen_codes:
+                    # Match the runtime encoder: replace with the training mode.
+                    codes = codes.mask(unseen, unseen_codes[col])
+                    replaced_by = "the training mode"
+                else:
+                    replaced_by = "a missing value"
+                log.warning(
+                    "Column '%s': %d row(s) with unseen categories %s replaced "
+                    "by %s (unseen_policy='%s')",
+                    col, int(unseen.sum()), values, replaced_by, policy,
                 )
             X[col] = codes
     return X
