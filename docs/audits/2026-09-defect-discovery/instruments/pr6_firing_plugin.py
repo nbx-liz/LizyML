@@ -81,6 +81,21 @@ import lizyml.core.model as _model_mod  # noqa: E402
 _model_mod.run_predict = _counting_run_predict
 
 
+def _proba_reason(y_true, y_pred) -> str | None:  # noqa: ANN001
+    """H-0106 decision 3's rule, exactly: None when *y_pred* is a probability."""
+    try:
+        p = np.asarray(y_pred, dtype=float)
+    except (TypeError, ValueError):
+        return "not numeric"
+    if not np.all(np.isfinite(p)):
+        return "non-finite"
+    if p.size and (p.min() < 0.0 or p.max() > 1.0):
+        return f"range {p.min():.3g}..{p.max():.3g}"
+    if p.ndim == 1 and len(np.unique(np.asarray(y_true))) > 2:
+        return "1-D for >2 classes"
+    return None
+
+
 def _wrap_metric(cls: type) -> None:
     real_call = cls.__call__
 
@@ -88,16 +103,9 @@ def _wrap_metric(cls: type) -> None:
         if not self.needs_proba:
             return real_call(self, y_true, y_pred)
         _calls["proba_metric"] += 1
-        p = np.asarray(y_pred, dtype=float) if np.asarray(y_pred).dtype != object else None
-        reason = None
-        if p is None:
-            reason = "object"
-        elif not np.all(np.isfinite(p)):
-            reason = "non-finite"
-        elif p.size and (p.min() < 0.0 or p.max() > 1.0):
-            reason = f"range {p.min():.3g}..{p.max():.3g}"
-        elif p.ndim == 1 and len(np.unique(np.asarray(y_true))) > 2:
-            reason = "1-D for >2 classes"
+        # Decided before the real call, so an input the metric then fails on
+        # is still recorded (ok=False).
+        reason = _proba_reason(y_true, y_pred)
         try:
             out = real_call(self, y_true, y_pred)
         except Exception:
@@ -126,44 +134,92 @@ for _cls in _all_subclasses(BaseMetric):
         _wrap_metric(_cls)
 
 
-# 3. config_version: a LizyMLConfig that reaches Model, or comes out of
-#    model_validate, holding a version outside the supported set. Each such
-#    success would be refused by H-0106's new check positions.
+# 3. config_version: a config that reaches Model, or that pydantic validation
+#    produces, holding a version H-0106's check rejects. Denominators count
+#    COMPLETED calls only; a call the loader already refused is not a success
+#    the new positions could refuse.
 from lizyml.config.loader import SUPPORTED_CONFIG_VERSIONS  # noqa: E402
 from lizyml.config.schema import LizyMLConfig  # noqa: E402
 
-_calls["model_init"] = 0
-_calls["model_validate"] = 0
+
+def _version_rejected(value: object) -> bool:
+    """H-0106 decision 4: int() coercion (so False -> 0, True -> 1), then membership."""
+    try:
+        return int(value) not in SUPPORTED_CONFIG_VERSIONS  # type: ignore[call-overload]
+    except (TypeError, ValueError):
+        return True
+
+
+_calls["model_init_completed"] = 0
+_calls["config_validated_completed"] = 0
 _real_model_init = _model_mod.Model.__init__
 
 
 def _counting_model_init(self, config, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003
-    _calls["model_init"] += 1
     _real_model_init(self, config, *args, **kwargs)
+    _calls["model_init_completed"] += 1
     version = getattr(self._cfg, "config_version", None)
-    if version not in SUPPORTED_CONFIG_VERSIONS:
+    if _version_rejected(version):
         _write("CONFIG_VERSION", {"entry": "Model.__init__",
                                   "instance": isinstance(config, LizyMLConfig),
                                   "version": repr(version)}, ok=True)
 
 
 _model_mod.Model.__init__ = _counting_model_init
-_real_model_validate = LizyMLConfig.model_validate.__func__  # type: ignore[attr-defined]
 
 
-def _counting_model_validate(cls, obj, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003
-    _calls["model_validate"] += 1
-    out = _real_model_validate(cls, obj, *args, **kwargs)
-    if out.config_version not in SUPPORTED_CONFIG_VERSIONS:
-        _write("CONFIG_VERSION", {"entry": "model_validate",
-                                  "version": repr(out.config_version)}, ok=True)
-    return out
+def _record_validated(entry: str, cfg: LizyMLConfig) -> None:
+    _calls["config_validated_completed"] += 1
+    if _version_rejected(cfg.config_version):
+        _write("CONFIG_VERSION", {"entry": entry, "version": repr(cfg.config_version)}, ok=True)
 
 
-LizyMLConfig.model_validate = classmethod(_counting_model_validate)  # type: ignore[method-assign,assignment]
+# Every pydantic validation entry point of the schema: the constructor and the
+# three model_validate* classmethods (model_validate does not call __init__).
+_real_init = LizyMLConfig.__init__
+
+
+def _counting_init(self, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003
+    _real_init(self, *args, **kwargs)
+    _record_validated("LizyMLConfig.__init__", self)
+
+
+LizyMLConfig.__init__ = _counting_init  # type: ignore[method-assign]
+
+for _name in ("model_validate", "model_validate_json", "model_validate_strings"):
+    _real = getattr(LizyMLConfig, _name).__func__  # type: ignore[attr-defined]
+
+    def _make(real, name):  # noqa: ANN001, ANN202
+        def counting(cls, obj, *args, **kwargs):  # noqa: ANN001, ANN002, ANN003
+            out = real(cls, obj, *args, **kwargs)
+            _record_validated(name, out)
+            return out
+
+        return classmethod(counting)
+
+    setattr(LizyMLConfig, _name, _make(_real, _name))
+
+
+def _controls() -> None:
+    """Positive and negative controls: the predicates fire where they must."""
+    assert _proba_reason([0, 1], np.array([0.1, 0.9], dtype=object)) is None
+    assert _proba_reason([0, 1], [0.0, 1.0]) is None
+    assert _proba_reason([0, 1], [0.1, 1.5]) is not None
+    assert _proba_reason([0, 1], ["a", "b"]) == "not numeric"
+    assert _proba_reason([0, 1], [np.nan, 0.5]) == "non-finite"
+    assert _proba_reason([0, 1, 2], [0.1, 0.2, 0.3]) == "1-D for >2 classes"
+    assert _numeric_dtype(pd.Series([1.0]).dtype)
+    assert _numeric_dtype(pd.Series([1]).astype("Int64").dtype)
+    assert not _numeric_dtype(pd.Series(["a"]).dtype)
+    assert not _numeric_dtype(pd.Series([1]).astype("int64[pyarrow]").dtype)
+    assert not _version_rejected(1)
+    assert _version_rejected(2)
+    assert _version_rejected(False)
+    assert not _version_rejected(True)
 
 
 def pytest_configure(config):  # noqa: ANN001, ARG001
+    _controls()
     if os.path.exists(LOG):
         os.remove(LOG)
 

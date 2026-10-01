@@ -252,3 +252,9 @@ fit=str           recorded=category  arrive=object_num    -> ok same=True
 fit=str           recorded=category  arrive=category_num  -> ok same=True
 fit=str           recorded=category  arrive=category_str  -> ok same=True
 fit=str           recorded=category  arrive=datetime      -> ok same=True
+
+## pr6_firing_plugin.py, corrected after design review round 1 (predicate = H-0106 rule exactly, object-numeric arrays accepted; config denominators = COMPLETED calls; LizyMLConfig.__init__ and all model_validate* wrapped; positive/negative controls run at configure). 8108 passed, same env-only failure.
+TOTALS {'kind': 'TOTALS', 'predict': 112, 'proba_metric': 7053, 'model_init_completed': 1253, 'config_validated_completed': 1375}
+('METRIC_REQUIRES_PROBA', False) 20
+('METRIC_REQUIRES_PROBA', True) 41
+(no CONFIG_VERSION and no INCOMPATIBLE_COLUMNS events). 'predict' counts run_predict calls (public predict calls that fail before delegation, e.g. MODEL_NOT_FIT, are not in it).

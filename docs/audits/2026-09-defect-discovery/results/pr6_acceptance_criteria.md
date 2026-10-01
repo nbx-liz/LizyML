@@ -37,8 +37,8 @@
 | float64 で学習した列に 33 種の dtype で予測 | 18 種は成功、15 種は生の例外（LightGBM の `ValueError` 2 種、numpy の `DTypePromotionError`）。numpy 型の規則との不一致 0/33 |
 | `needs_proba` の指標に binary の logit | `auc` / `auc_pr` / `ece` / `precision_at_k` は黙って計算、`brier` / `logloss` は scikit-learn の `ValueError` |
 | `cross_entropy_lambda` で指標を 1 つに限った `Model.fit`（#307 のデータ） | `auc` / `auc_pr` / `ece` / `precision_at_k` は成功し proba 最大 3.148。`logloss` / `brier` は `ValueError` |
-| `config_version` | `model_validate(v=2)` / `model_construct` / 代入 / `model_copy` / 環境変数 `2` / `False`（全経路で `0`）が受理 |
-| firing rate（フルスイート、8108 passed） | dtype 0/112 predict、確率 61/7053（すべて `test_feval_probabilities.py` の `cross_entropy_lambda`）、版 0/1254 `Model.__init__`・0/1280 `model_validate` |
+| `config_version` | `model_validate(v=2)` / `model_construct` / 代入 / `model_copy` / 環境変数 `2` が受理。`False` も全経路で受理（検証を通る経路では `0` に変換、`model_construct` / 代入 / `model_copy` では `bool` の `False` のまま。設計レビュー round 1 が訂正） |
+| firing rate（フルスイート、8108 passed、計測器は round 1 の指摘で修正済み） | dtype 0/112 `run_predict`、読み戻せない記録 0/23 dtype、確率 61/7053（すべて `test_feval_probabilities.py` の `cross_entropy_lambda`）、版 0/1253 完了した `Model.__init__`・0/1375 完了した `LizyMLConfig` の検証 |
 
 ## 3. 受け入れ基準 → 証拠の対応表
 
@@ -59,13 +59,18 @@
 | 2f | 自作 pipeline（列を検査しない）でも同じ例外 | RED | `::test_custom_pipeline_gets_the_same_check` |
 | 2g | `Model.load()` 後も同じ例外 | RED | `::test_check_survives_save_and_load` |
 | 2h | fit できる 23 種の dtype の `FitResult.dtypes` の文字列がすべて `pandas_dtype` で読み戻せる | ガード | `::test_every_fittable_dtype_records_a_parseable_string[*]` |
+| 2i | 記録が読み戻せない列は検査されず、予測が今日と同じに進む（免除の固定。設計レビュー round 1 の blocking 7） | ガード | `::test_unreadable_recorded_dtype_is_exempt` |
+| 2j | 予測時に文字列を数値へ変換する自作 pipeline でも、数値で学習した列に文字列が届けば `INCOMPATIBLE_COLUMNS`（意図した制約の固定。blocking 1） | RED | `::test_converting_custom_pipeline_is_refused` |
 | 3a | `needs_proba` の全指標（登録から読む）で、NaN / inf / 負 / 1 超 / 数値でない / 3 クラス以上で 1 次元が `METRIC_REQUIRES_PROBA`、context に `metric` と `reason` | RED | `tests/test_metrics/test_metric_requires_proba.py::test_non_probabilities_are_refused[*]` |
-| 3b | 同じ全指標で、正当な確率と 0/1 のハードラベルは通り、値は修正前と同じ | ガード | `::test_probabilities_and_hard_labels_pass[*]` |
+| 3b | 同じ全指標で、binary の正当な確率・0/1 のハードラベル・数値の object 配列は通り、値は修正前と同じ | ガード | `::test_probabilities_and_hard_labels_pass[*]` |
+| 3f | multiclass に対応する 4 指標（`logloss` / `auc` / `auc_pr` / `brier`）は 2 次元の正当な確率で通り、2 次元で [0, 1] の外は拒否 | RED（拒否側） | `::test_multiclass_matrices[*]` |
+| 3g | 0/1 以外の 2 値ラベル（`[3, 7]`）の binary は 1 次元の規則で拒否されない | ガード | `::test_two_class_labels_other_than_zero_one_pass[*]` |
 | 3c | 検査の対象が登録から読んだ 6 指標と一致（手書きの一覧ではない） | ガード | `::test_the_population_is_every_needs_proba_metric` |
 | 3d | `cross_entropy_lambda`、指標 `auc` の `Model.fit`（#307 のデータ）が `METRIC_REQUIRES_PROBA` | RED | `::test_cross_entropy_lambda_fit_reports_the_metric` |
 | 3e | feval のテストの「同じ失敗」分岐が新しい例外でも成り立つ | ガード | `tests/test_estimators/test_feval_probabilities.py`（変更なしで通る） |
 | 4a | 入口（`load_config(dict)` / `Model(dict)` / `model_validate` / `Model(model_validate(...))` / `model_construct` / 代入 / `model_copy(update=)` / 環境変数）× 版（`1` / `2`）: `1` は受理、`2` は `CONFIG_VERSION_UNSUPPORTED` | RED（`2` の新しい入口） | `tests/test_config/test_config_version_entry_paths.py::test_entry_path_by_version[*]` |
-| 4b | `config_version: False`（dict と環境変数 `"false"`）が `CONFIG_VERSION_UNSUPPORTED` | RED | `::test_false_is_not_version_zero[*]` |
+| 4b | `config_version: False` がすべての入口で `CONFIG_VERSION_UNSUPPORTED`（dict、`model_validate`、環境変数 `"false"`、`bool` を保持する `Model(model_construct)` / `Model(代入)` / `Model(model_copy)`）。検証を通らない 3 経路では、構築・代入・コピーは成功し `Model` が受け取る時点で拒否される（blocking 3） | RED | `::test_false_is_not_version_zero[*]` |
+| 4e | `True` と `"1"` はすべての入口で受理される | ガード | `::test_true_and_string_one_are_version_one[*]` |
 | 4c | loader の経路の context は利用者の綴り（`"2"`） | ガード | `::test_loader_context_keeps_the_raw_value` |
 | 4d | `lizyml.config.loader.SUPPORTED_CONFIG_VERSIONS is lizyml.config.version.SUPPORTED_CONFIG_VERSIONS` | RED（モジュールが無い） | `::test_supported_versions_is_one_object` |
 | 5a | `docs/api.md` の例外コード表 = `set(ErrorCode)` | RED | `tests/test_docs/test_error_code_docs.py::test_api_reference_lists_every_member` |

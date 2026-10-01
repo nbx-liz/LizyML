@@ -1149,10 +1149,14 @@ means two new `allow` predicates; H-0106 carries their lines, measured on
 `1abf7fb` over the full suite (8108 passed): **0/112** `Model.predict` calls
 for the predict-time dtype check, and **61/7053** calls to the six
 `needs_proba` metrics for the probability check (all 61 in
-`test_feval_probabilities.py`'s `cross_entropy_lambda` cells, #307). The #272
-line above was re-measured at the new check positions: **0/1254**
-`Model.__init__` and **0/1280** `model_validate` calls. So the plan now carries
-eight measured conditions, not six.
+`test_feval_probabilities.py`'s `cross_entropy_lambda` cells, #307). The dtype
+check carries one exemption (a recorded dtype string `pandas_dtype` cannot
+parse leaves its column unchecked), measured **0/23** fittable dtypes. The #272
+line above was re-measured at the new check positions: **0/1253** completed
+`Model.__init__` calls and **0/1375** completed `LizyMLConfig` validations. So
+the plan now carries nine measured conditions, not six. (The PR 6 design
+review corrected the instrument before these numbers were taken; H-0106 says
+how.)
 
 **Three conditions were removed rather than measured, and that was the better
 outcome each time:**
