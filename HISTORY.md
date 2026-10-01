@@ -10331,3 +10331,63 @@ Firing rate: 2/75 of the calibrated platt and beta configs the shipped suite bui
 5. `"error"` で検証 fold にだけ現れる値があると、`auto_categorical: false` では `fit` が `DATA_SCHEMA_INVALID`、`auto_categorical: true` では通る（決定 7 の固定）。スライディング窓の SHAP 重要度は `"error"` で `DATA_SCHEMA_INVALID`、`"mode"` で通る（決定 8 の固定）。
 6. 生成コード: `config.json` と `pipeline_state.json` に方針が載る。`predict.py` は `"mode"` / `"nan"` の置換でログを出し、欠損は欠損のまま（`"error"` でも拒否しない）。`train.py` で再学習しても方針と最頻値コードが保たれる。
 7. `BLUEPRINT.md` §5.4 / §9.2、`docs/config-reference.md`、`ARCHITECTURE.md` が基底クラスと一致する。
+
+## H-0105: LightGBM の feval に渡る確率を変換し直さない（#306 / PR 5b）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-01
+- **決定日**: 2026-10-01（管理者の指示で事実確認を含む外部レビューを 3 ラウンド実施。round 1・2 で文書の事実誤認を計 6 件訂正し、テストの母集団を受理される全目的関数に拡大。round 3 で APPROVE）
+- **スコープ**: `lizyml/estimators/lgbm/metric_bridge.py`（`_build_feval` の `feval_fn`、未使用になった `_sigmoid` / `_softmax` を削除）, `lizyml/codegen/templates.py`（生成 `train.py` の feval、未使用になった `_softmax` を削除）, `tests/test_estimators/test_feval_probabilities.py`（新規）, `tests/test_estimators/test_lgbm_metric_bridge.py` / `tests/test_codegen/test_feval_codegen.py`（誤った前提で書かれたテストの書き直し）
+- **関連**: [Issue #306](https://github.com/nbx-liz/LizyML/issues/306), H-0064（feval の導入）, H-0066（生成コードの feval）
+
+### 目的（課題）
+
+LightGBM 4 は、組み込みの目的関数では **feval に変換済みの予測を渡す**: binary は確率（1 次元）、multiclass と multiclassova は確率（2 次元 `(n, num_class)`）、回帰は値。`metric_bridge._build_feval` はこれを生のスコアと仮定し、binary に `sigmoid`、multiclass に `reshape` + `softmax` を**もう一度**掛けていた。docstring もその仮定を書いていた。
+
+実測（`develop` `fc9d820`、lightgbm 4.6.0）:
+
+- feval が受け取る値（300 行、20 ラウンドの `lgb.train`）: binary は 0.058〜0.927 で形 `(300,)`、multiclass と multiclassova は 2 次元 `(300, 3)`。`cross_entropy` も確率（1 次元）。**例外は `cross_entropy_lambda`** で、出力は 1 を超える（400 行・15 ラウンドで 6 回目から 1 超、最大 2.03）。これは確率ではなく、LizyML 全体の扱いの問題として [#307](https://github.com/nbx-liz/LizyML/issues/307) に切り出した（feval とは無関係に `Model.fit` が評価器で失敗する）。LightGBM 4.0 の文書も、multiclass の feval 入力を 2 次元と定めている。
+- binary のラベル指標（`accuracy` / `f1`）: `sigmoid(p) >= 0.5` がすべての `p >= 0` で成り立つので、全行が陽性になり値が一定（400 行・40 ラウンドの一例で `accuracy` は陽性率のまま。実際の accuracy は 0.63 前後から 0.93 前後へ上がる。数値はデータに依存する）。LizyML の既定値は `first_metric_only` を `False` に設定し（`estimators/lgbm/defaults.py`）、adapter の early stopping コールバックも引数を省いて既定の `False` を使うので、すべての指標が監視され、一定の指標は改善しない。**その結果、待機回数（patience）を使い切った時点で 1 回目が最良として選ばれ、最終的なモデルは木 1 本になる**（`Model.fit`、binary、2000 行、3 fold、patience 20: best_iteration 1/1/1、OOF AUC 0.7645。`binary_logloss` なら 93/80/104、0.8672。設計レビューが同じ設定で全行を再現した。素の `lgb.train` で patience 20 なら 21 ラウンド評価して 1 回目を選ぶことも、レビューが確かめた）。
+- 確率の指標（binary の `brier` / `ece`、multiclass の `brier`）: 二重変換した確率で計算され、early stopping の位置と学習曲線がずれる（binary brier は報告 0.2123 対 実際 0.1087、multiclass brier は 0.1649 対 0.1043。`brier` を指定した fit の best_iteration は 180/100/201）。`logloss` は LightGBM ネイティブの指標に変換されるので feval を通らず、影響しない（#306 の本文にある logloss の数値は、橋渡しを直接呼んだ合成の例である）。
+- 順位だけで決まる指標（binary の `precision_at_k`、multiclass の argmax による `accuracy` / `f1`）は、変換が単調なので値が変わらなかった。回帰は変換していないので影響なし。
+
+既存のテスト（`test_lgbm_metric_bridge.py`）は、feval に人工の logit を渡し、期待値も同じ変換で計算していた。**宣言（生のスコアが来る）と同じ前提で書いたフィクスチャ**なので、誤りを検出できなかった（DC7）。
+
+### 対応方針（決定）
+
+1. **feval は LightGBM が渡した値を変換し直さない。** 指標に渡す値は評価器と同じ規則（`evaluation.evaluator._pred_for_metric`）で作る: ラベルの指標には閾値 0.5（binary）または argmax（multiclass）、確率の分布を必要とする multiclass の指標（`needs_simplex`）には行で正規化した確率（multiclassova の行は合計が 1 にならない）、それ以外は渡された確率そのまま。これで同じ指標名が学習曲線と `FitResult.metrics` で同じ意味になる。
+2. **multiclass で 2 次元でない値が来たら、推測で並べ替えずに `EVALUATION_FAILED` で止める。** 依存の下限は `lightgbm>=4.0` であり、4.6.0 で 2 次元であることは実測し、LightGBM 4.0 の文書も 2 次元と定めている。**4.0.0 を実行しての確認はしていない**。最低依存の CI レーンは `--frozen` で動き下限を入れないので（#295）、CI でも測られていない。下限の版が 1 次元を渡すなら、この検査が `EVALUATION_FAILED` として止める（黙って誤った並べ替えをするより良い）。#295 が下限を実際に入れるようになった時点で測られる。
+3. **生成 `train.py` の feval も同じく変換しない**（同じ欠陥があった）。multiclass で 2 次元でなければ `ValueError`。生成 `config.json` の feval 情報は `needs_simplex` を持たないが、multiclass で feval に回る指標（`f1` / `brier` / `accuracy`）はどれも `needs_simplex` が偽なので、確率をそのまま渡せば実行時と一致する。
+4. **誤った前提のテストは削除せず書き直す。** 元のデータ（logit）を、LightGBM が渡す確率に変換してから feval に渡し、期待値はその確率から指標を直接計算する。生成コードの「`_softmax` を含む」というテストは「feval が変換し直さない」というテストに置き換える。
+5. **恒久検査**: feval に回る全指標（`_FEVAL_METRICS` から読む）× LizyML が受理するすべての目的関数（`TASK_COMPATIBLE_OBJECTIVES` から読む。設計レビューが、手書きの 4 種類では `cross_entropy` / `cross_entropy_lambda` が抜けていると指摘した）で、本物の `lgb.train` を回し、feval の値が「LightGBM が渡した値に評価器の規則を当てた指標値」と一致すること、**評価器の規則自体が失敗する場合（`cross_entropy_lambda` の 1 超の出力を確率の指標に渡す等）は feval も同じ型で失敗する**ことを主張する。学習曲線が、`FitResult.metrics` では計算できない数値を報告しないためである。期待値の側は手書きのフィクスチャではなく、LightGBM の実際の出力から作る。
+
+### 規則が縛る位置（ソースから導出）
+
+規則: **LightGBM が feval に渡す予測は、その目的関数の出力として扱い、変換し直さない。** 導出: `lizyml/` を `feval` / `_sigmoid` / `_softmax` で grep した（`fc9d820`）。
+
+| # | 位置 | 本 PR |
+|---|---|---|
+| 1 | `estimators/lgbm/metric_bridge.py` `_build_feval` | 修正 |
+| 2 | `codegen/templates.py` 生成 `train.py` の `build_feval_from_config` | 修正 |
+| 3 | `codegen/templates.py` の `_sigmoid`（生成コードの較正: beta / platt の生スコア） | 対象外（生スコアに掛ける正しい用途） |
+
+### 互換性
+
+- **`model.params.metric` に feval に回る分類の指標（binary: `accuracy` / `f1` / `brier` / `ece`、multiclass: `brier`）を含み early stopping を使う config は、学習結果が変わりうる。** early stopping が選ぶ反復が正しい値に基づくようになるため（値が変わっても、選ばれる反復が変わらない場合もある）。特に `accuracy` / `f1` は 1 回目が選ばれていたものが学習するようになる。学習曲線（`history`）のこれらの値は、early stopping の有無によらず正しくなる。
+- `precision_at_k`、multiclass の `accuracy` / `f1`、回帰の feval 指標は値が変わらない。`logloss` / `auc` は feval を通らない（LightGBM ネイティブの指標に変換される。タスクで使えない組み合わせは検証で拒否される）。
+- `cross_entropy_lambda` で確率の指標を feval に指定した場合、以前は sigmoid で [0, 1] に押し込まれた値で黙って計算していたが、今は評価器と同じ値を渡すので、評価器と同じ振る舞いになる: 1 を超える値を拒否する `brier` は失敗し、`ece` と `precision_at_k` は 1 を超える値のまま数値を返す（設計レビューが実測: 最大 2.03 の出力で ece 0.0925、precision_at_k 1.0）。この目的関数はそもそも既定の指標でも `Model.fit` が失敗する（#307）。
+- 保存済み artifact はそのまま読め、predict も変わらない（保存された booster を使う）。`format_version` は据え置き。
+- 生成コード: 新しくエクスポートした `train.py` の feval が正しくなる。既にエクスポートしたファイルは変わらない。
+- Firing rate: 本 Proposal は skip / shorten / cache / select / allow / conditionally-activate の条件を新設しない。multiclass の形の検査は、LightGBM 4 の実際の出力では発火しない防御である。
+
+### 代替案（検討して棄却）
+
+1. **生のスコアを受け取るよう LightGBM の設定を変える（`raw_score` 等）。** feval の入力形式は目的関数で決まり、利用者の指定する目的関数ごとに分岐が要る。確率をそのまま使う方が単純で、評価器と同じ値になる。
+2. **multiclass で 1 次元が来たら古い形式とみなして並べ替える。** 依存の下限は 4.0 で、旧形式（クラスごとに連結）を推測で並べ替えると誤りが黙って通る。止める方を選んだ。
+
+### 受け入れ基準（テスト観点）
+
+1. feval に回る全指標 × 受理されるすべての目的関数（`TASK_COMPATIBLE_OBJECTIVES`）で、本物の `lgb.train` の各ラウンドの feval の値が、LightGBM が渡した値に評価器の規則を当てた指標値と一致する。評価器の規則が失敗するセルでは feval も同じ型で失敗する。修正前は binary の `accuracy` / `f1` / `brier` / `ece` と multiclass / multiclassova の `brier` で RED。
+2. `Model.fit`（binary、`metric: accuracy` / `f1`、early stopping）で、どの fold の best_iteration も 1 より大きく、学習曲線の値が変化する。修正前は RED。
+3. 生成 `train.py` の feval が、確率を入力として指標を直接計算した値と一致する（binary `accuracy` / `brier`、multiclass `brier`）。修正前は RED。
+4. 書き直した既存テストのうち、**値が変わる指標**（binary の `accuracy` / `f1` / `brier` / `ece`、multiclass の `brier`）を扱うものは修正前の実装で失敗し、修正後に通る。**値が変わらない指標**（`precision_at_k`、multiclass の `accuracy` / `f1`、回帰）を扱うものは修正の前後どちらでも通る不変条件として残す（初版はすべてが失敗すると書いていたが誤りで、設計レビューが反証した）。

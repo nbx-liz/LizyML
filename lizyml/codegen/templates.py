@@ -156,12 +156,6 @@ def _sigmoid(x: np.ndarray) -> np.ndarray:
     return np.where(x >= 0, 1 / (1 + np.exp(-x)), np.exp(x) / (1 + np.exp(x)))
 
 
-def _softmax(x: np.ndarray) -> np.ndarray:
-    """Row-wise softmax for 2D array."""
-    e_x = np.exp(x - np.max(x, axis=1, keepdims=True))
-    return e_x / e_x.sum(axis=1, keepdims=True)
-
-
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  Custom feval metrics (H-0066)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -279,14 +273,15 @@ def build_feval_from_config() -> list:
         ):
             def feval(y_pred, dataset):
                 y_true = dataset.get_label()
-                if _task == "binary":
-                    proba = _sigmoid(y_pred)
-                elif _task == "multiclass":
-                    num_class = CFG["lgbm_params"].get("num_class", 2)
-                    proba = y_pred.reshape(-1, num_class)
-                    proba = _softmax(proba)
-                else:
-                    proba = y_pred
+                # LightGBM >= 4 passes the objective's own output: binary
+                # probabilities (1-D), multiclass probabilities (2-D). Do not
+                # transform them again (#306).
+                proba = np.asarray(y_pred)
+                if _task == "multiclass" and proba.ndim != 2:
+                    raise ValueError(
+                        "feval expected 2-D multiclass probabilities from "
+                        f"LightGBM, got shape {proba.shape}"
+                    )
                 # For metrics that don't need probabilities, convert to labels
                 if not _needs_proba and _task in ("binary", "multiclass"):
                     if proba.ndim == 2:
