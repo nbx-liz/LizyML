@@ -38,6 +38,7 @@ import pytest
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.model import Model
+from lizyml.core.types.tuning_result import TrialResult
 from tests._helpers import (
     make_binary_df,
     make_config,
@@ -64,8 +65,11 @@ NAMES: dict[str, dict[str, Any]] = {
 #: accepted, sampled, reported in ``best_params`` and consumed by nothing.
 #: These cells state the intended outcome (refusal) and fail until #299 lands;
 #: ``strict`` makes the fix flip them loudly instead of passing silently.
+#: ``raises`` narrows the expected failure to ``pytest.raises``' "DID NOT
+#: RAISE": an unrelated exception in these cells is a real failure, not #299.
 _INERT_SMART = pytest.mark.xfail(
     strict=True,
+    raises=pytest.fail.Exception,
     reason="#299: a smart-category name with no consumer is accepted and inert",
 )
 
@@ -135,42 +139,62 @@ def _config_with_space(
     return cfg
 
 
-def _num_leaves_bounds_from_ratio(max_depth: int | None) -> tuple[int, int]:
-    """The ``num_leaves`` range ``auto_num_leaves`` can derive from a ratio in
-    the cell's sampled interval [0.1, 0.9] (``smart_params._compute_num_leaves``).
+#: ``make_config(..., n_splits=2)``: each trial trains one booster per fold.
+_FOLDS_PER_TRIAL = 2
+
+
+def _num_leaves_from_ratio(max_depth: int | None, ratio: float) -> int:
+    """What ``auto_num_leaves`` must derive from *ratio*, written out here.
+
+    Deliberately not imported from ``smart_params._compute_num_leaves``: the
+    expectation must not move when the code under test moves.
     """
     base = 131072 if max_depth is None or max_depth < 0 else 2**max_depth
-    return (
-        max(8, min(131072, math.ceil(base * 0.1))),
-        max(8, min(131072, math.ceil(base * 0.9))),
-    )
+    return max(8, min(131072, math.ceil(base * ratio)))
 
 
 def _assert_effect_reached_lightgbm(
-    name: str, category: str, seen: list[dict[str, Any]]
+    name: str,
+    category: str,
+    seen: list[dict[str, Any]],
+    trials: list[TrialResult],
 ) -> None:
-    """An accepted dimension must be visible in what LightGBM received."""
-    assert seen, "the study trained nothing, so no dimension had an effect"
-    if category == "model":
-        # A native name reaches LightGBM under its own name, inside the
-        # declared range [4, 8], in every training call.
-        values = [p.get(name) for p in seen]
-        assert all(v is not None and 4 <= v <= 8 for v in values), (
-            f"{name!r} under category: model did not reach every lgb.train call "
-            f"within its declared range: {values}"
+    """Each training call must carry the value its own trial sampled.
+
+    A range check is not enough: a constant inside the range satisfies it while
+    every sampled value is discarded (review round 1 reproduced exactly that by
+    pinning the ratio to 0.5). So each ``lgb.train`` call is matched to the trial
+    that produced it -- trials run sequentially, one call per fold -- and must
+    carry that trial's value, and the study must contain at least two distinct
+    expected values, so no single constant can match every call.
+    """
+    assert trials, "the study recorded no trials"
+    assert len(seen) == len(trials) * _FOLDS_PER_TRIAL, (
+        f"expected {_FOLDS_PER_TRIAL} lgb.train calls per trial for "
+        f"{len(trials)} trials, recorded {len(seen)}"
+    )
+    expected: list[int] = []
+    for i, params in enumerate(seen):
+        sampled = trials[i // _FOLDS_PER_TRIAL].params[name]
+        if category == "model":
+            # A native name reaches LightGBM under its own name, unchanged.
+            want = sampled
+        else:
+            # A smart parameter never reaches LightGBM under its own name; its
+            # effect is the native parameter it resolves to.
+            assert name == "num_leaves_ratio", f"no expected effect for {name!r}"
+            assert name not in params, f"the smart name reached lgb.train: {params}"
+            want = _num_leaves_from_ratio(params.get("max_depth"), sampled)
+        assert params.get("num_leaves") == want, (
+            f"call {i}: trial {i // _FOLDS_PER_TRIAL} sampled {name}={sampled!r}, "
+            f"so lgb.train should have received num_leaves={want}; got "
+            f"{params.get('num_leaves')!r}"
         )
-        return
-    # A smart parameter never reaches LightGBM under its own name; its effect is
-    # the native parameter it resolves to.
-    assert name == "num_leaves_ratio", f"no expected effect declared for {name!r}"
-    forwarded = [p for p in seen if name in p]
-    assert not forwarded, f"the smart name itself reached lgb.train: {forwarded[:1]}"
-    for p in seen:
-        low, high = _num_leaves_bounds_from_ratio(p.get("max_depth"))
-        assert "num_leaves" in p and low <= p["num_leaves"] <= high, (
-            "num_leaves_ratio was sampled but lgb.train did not receive a "
-            f"num_leaves derived from it (expected {low}..{high}): {p}"
-        )
+        expected.append(want)
+    assert len(set(expected)) >= 2, (
+        f"every trial expects num_leaves={expected[0]}, so a constant would pass; "
+        "change the seed or the sampled interval until the trials differ"
+    )
 
 
 @pytest.mark.parametrize(("name", "category", "task"), CELLS)
@@ -185,8 +209,8 @@ def test_search_space_name_is_gated(name: str, category: str, task: str) -> None
 
     if not should_reject:
         with _record_train_params() as seen:
-            Model(cfg, data=_df_for(task)).tune()
-        _assert_effect_reached_lightgbm(name, category, seen)
+            result = Model(cfg, data=_df_for(task)).tune()
+        _assert_effect_reached_lightgbm(name, category, seen, result.trials)
         return
 
     with _record_train_params() as seen, pytest.raises(LizyMLError) as exc:
@@ -243,6 +267,7 @@ def test_accepted_name_does_reach_lightgbm(task: str) -> None:
 
 @pytest.mark.xfail(
     strict=True,
+    raises=pytest.fail.Exception,
     reason="#299: num_leaves_ratio is inert while auto_num_leaves is off",
 )
 @pytest.mark.parametrize("task", TASKS)
