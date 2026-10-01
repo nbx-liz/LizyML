@@ -275,6 +275,7 @@ config = {
 - `balanced: bool | None = None`: 学習データのクラス比率から自動的に重みを算出する。
   - `None`（デフォルト）: タスク依存で自動解決（regression→`False`, binary/multiclass→`True`）。
   - `True`: binary は `scale_pos_weight = neg_count / pos_count` を設定。multiclass は `sample_weight` でクラス逆頻度重み付け。
+    **重みは CV の各 fold と最終 refit の両方に同じ規則で掛かる**（H-0103）: 学習する行（inner valid があれば inner-train 行）だけが重みを持ち、inner-valid 行は重みなしの eval set である。
   - `False`: 重み均衡化を無効にする。
   - regression で `True` を指定した場合は `UNSUPPORTED_TASK`。
 
@@ -415,6 +416,7 @@ config = {
 7. 必要なら `Calibrator` を cross-fit 学習する（OOF 予測のみ使用）。
 8. 全データ Refit を実行する（同一の `TrainComponents` を使用し、CV との一貫性を構造的に保証する）。
    - `CVTrainer` と `RefitTrainer` は同じ `InnerValidStrategy` を共有する。
+   - `TrainComponents.sample_weight` も両方に渡す（H-0103）。`RefitTrainer.fit` が `CVTrainer.fit` から受け取らない入力は次の 3 つで、いずれも方針である: `time_values`（時間順の split では両 trainer の前に全行が並べ替え済みで、CV はこれを fold ごとの時間範囲の記録にしか使わない）、`data_fingerprint` と `run_meta`（fit 1 回につき 1 つ、同じデータから `FitResult` に記録する）。入力差は `tests/test_training/test_cv_refit_parity.py` が両方の signature から検査する。
 9. `FitResult` を返し、Artifacts を保持する。
 
 補足:
@@ -640,6 +642,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `FeaturePipeline.fit` は outer fold の `train` 全体に対して行う。inner valid は estimator の early stopping 用 evaluation set であり、FeaturePipeline の fit 境界は outer train のままとする。
 - estimator は inner valid が有効な場合 `inner_train` のみで学習し、`inner_valid` を eval set として early stopping を行う。OOF の割当先は引き続き outer fold の `valid` のみとする。
 - `RefitTrainer` でも同じ `InnerValidStrategy` を全データに適用して final model の early stopping 用 split を作る。
+  - `sample_weight` がある場合、estimator に渡すのは inner-train 行の重みだけで、inner-valid 行は重みなしのeval set とする（CVTrainer と同じ規則、H-0103）。inner valid が無い場合は全行の重みを渡す。
   - **pipeline は全データで 1 回のみ fit する**（H-0085）。CVTrainer が outer fold の `train` 全体で pipeline を fit するのと同じ境界であり、Refit における「outer train 全体」は全データに相当する。inner-train には狭めない。
   - estimator は inner valid がある場合、変換後データから slice した `inner_train` で学習し、`inner_valid` を eval set として early stopping を行う。
   - 最終的な `pipeline_state`（推論用）および `categorical_features` は、この全データ fit 済み pipeline から取得する（二重 fit は行わない）。

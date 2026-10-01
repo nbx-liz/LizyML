@@ -76,13 +76,25 @@ class RefitTrainer:
         X: pd.DataFrame,
         y: pd.Series,
         groups: npt.NDArray[Any] | None = None,
+        sample_weight: npt.NDArray[Any] | None = None,
     ) -> RefitResult:
         """Fit pipeline and estimator on the full dataset.
+
+        Takes the inputs of :meth:`CVTrainer.fit` that affect training, so the
+        final model is trained the way the CV folds were (H-0103). Three CV
+        inputs are absent by written policy: ``time_values`` (time-ordered
+        splits sort every row before both trainers, and CV reads it only to
+        record per-fold time ranges), ``data_fingerprint`` and ``run_meta``
+        (recorded once per fit on the ``FitResult``, from the same data).
 
         Args:
             X: Full feature DataFrame.
             y: Full target Series.
             groups: Optional group labels.
+            sample_weight: Optional per-row weights over all of *X* (e.g.
+                balanced multiclass). With an inner split, only the inner-train
+                rows' weights reach the estimator and the inner-valid rows stay
+                unweighted, exactly as in :meth:`CVTrainer.fit`.
 
         Returns:
             :class:`RefitResult` with the fitted model and pipeline state.
@@ -115,8 +127,13 @@ class RefitTrainer:
             n_inner = len(iv_result[0]) if iv_result is not None else n_samples
             estimator.update_params(self.ratio_param_resolver(n_inner))
 
+        # Same weighting rule as CVTrainer._fit_estimator: the rows trained on
+        # carry their weights; inner-valid rows are an unweighted eval set.
+        fit_kwargs: dict[str, Any] = {}
         if iv_result is not None:
             inner_train_rel, inner_valid_rel = iv_result
+            if sample_weight is not None:
+                fit_kwargs["sample_weight"] = sample_weight[inner_train_rel]
             X_iv_train = X_t.iloc[inner_train_rel].reset_index(drop=True)
             y_iv_train = y.iloc[inner_train_rel].reset_index(drop=True)
             X_iv_valid = X_t.iloc[inner_valid_rel].reset_index(drop=True)
@@ -126,11 +143,15 @@ class RefitTrainer:
                 y_iv_train,
                 X_iv_valid,
                 y_iv_valid,
+                **fit_kwargs,
             )
         else:
+            if sample_weight is not None:
+                fit_kwargs["sample_weight"] = sample_weight
             estimator.fit(
                 X_t,
                 y,
+                **fit_kwargs,
             )
 
         train_pred = get_fold_pred(estimator, X_t, self.task)
