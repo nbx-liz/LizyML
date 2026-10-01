@@ -1,0 +1,254 @@
+# PR 6 measurements at develop 1abf7fb (2026-10-01). Regenerate with the scripts in ../instruments/pr6_*.py
+
+## pr6_dtype_rule_probe.py
+== fit side: which dtypes fit, recorded string, parse-back, rule says numeric-at-fit
+FIT int8           : ok recorded='int8'                       parses -> numeric_at_fit=True
+FIT int16          : ok recorded='int16'                      parses -> numeric_at_fit=True
+FIT int32          : ok recorded='int32'                      parses -> numeric_at_fit=True
+FIT int64          : ok recorded='int64'                      parses -> numeric_at_fit=True
+FIT uint8          : ok recorded='uint8'                      parses -> numeric_at_fit=True
+FIT uint64         : ok recorded='uint64'                     parses -> numeric_at_fit=True
+FIT float16        : ok recorded='float16'                    parses -> numeric_at_fit=True
+FIT float32        : ok recorded='float32'                    parses -> numeric_at_fit=True
+FIT float64        : ok recorded='float64'                    parses -> numeric_at_fit=True
+FIT Int8           : ok recorded='Int8'                       parses -> numeric_at_fit=True
+FIT Int64          : ok recorded='Int64'                      parses -> numeric_at_fit=True
+FIT UInt32         : ok recorded='UInt32'                     parses -> numeric_at_fit=True
+FIT Float32        : ok recorded='Float32'                    parses -> numeric_at_fit=True
+FIT Float64        : ok recorded='Float64'                    parses -> numeric_at_fit=True
+FIT Int64_na       : ok recorded='Int64'                      parses -> numeric_at_fit=True
+FIT bool           : ok recorded='bool'                       parses -> numeric_at_fit=True
+FIT boolean        : ok recorded='boolean'                    parses -> numeric_at_fit=True
+FIT complex128     : FAILED ValueError: 'pandas dtypes must be int, float or bool.\nFields with bad pandas dtypes: a: comp'
+FIT timedelta      : FAILED DTypePromotionError: "The DType <class 'numpy.dtypes.TimeDelta64DType'> could not be promoted by <clas"
+FIT datetime       : FAILED DTypePromotionError: "The DType <class 'numpy.dtypes.DateTime64DType'> could not be promoted by <class"
+FIT datetime_tz    : FAILED ValueError: 'pandas dtypes must be int, float or bool.\nFields with bad pandas dtypes: a: date'
+FIT period         : FAILED ValueError: 'pandas dtypes must be int, float or bool.\nFields with bad pandas dtypes: a: peri'
+FIT interval       : FAILED ValueError: 'pandas dtypes must be int, float or bool.\nFields with bad pandas dtypes: a: inte'
+FIT sparse_float   : ok recorded='Sparse[float64, nan]'       parses -> numeric_at_fit=True
+FIT str            : ok recorded='category'                   parses -> numeric_at_fit=False
+FIT string_python  : ok recorded='category'                   parses -> numeric_at_fit=False
+FIT object_num     : ok recorded='category'                   parses -> numeric_at_fit=False
+FIT category       : ok recorded='category'                   parses -> numeric_at_fit=False
+FIT longdouble     : FAILED ValueError: 'pandas dtypes must be int, float or bool.\nFields with bad pandas dtypes: a: floa'
+FIT string_pyarrow : ok recorded='category'                   parses -> numeric_at_fit=False
+FIT int64_pyarrow  : FAILED ValueError: 'pandas dtypes must be int, float or bool.\nFields with bad pandas dtypes: a: int6'
+FIT float64_pyarrow: FAILED ValueError: 'pandas dtypes must be int, float or bool.\nFields with bad pandas dtypes: a: doub'
+FIT bool_pyarrow   : FAILED ValueError: 'pandas dtypes must be int, float or bool.\nFields with bad pandas dtypes: a: bool'
+== predict side: model fit on float64; arrival dtype; rule vs reality
+ARRIVE int8            dtype=int8                         rule_accept=True  real=ok  AGREE
+ARRIVE int16           dtype=int16                        rule_accept=True  real=ok  AGREE
+ARRIVE int32           dtype=int32                        rule_accept=True  real=ok  AGREE
+ARRIVE int64           dtype=int64                        rule_accept=True  real=ok  AGREE
+ARRIVE uint8           dtype=uint8                        rule_accept=True  real=ok  AGREE
+ARRIVE uint64          dtype=uint64                       rule_accept=True  real=ok  AGREE
+ARRIVE float16         dtype=float16                      rule_accept=True  real=ok  AGREE
+ARRIVE float32         dtype=float32                      rule_accept=True  real=ok  AGREE
+ARRIVE float64         dtype=float64                      rule_accept=True  real=ok  AGREE
+ARRIVE Int8            dtype=Int8                         rule_accept=True  real=ok  AGREE
+ARRIVE Int64           dtype=Int64                        rule_accept=True  real=ok  AGREE
+ARRIVE UInt32          dtype=UInt32                       rule_accept=True  real=ok  AGREE
+ARRIVE Float32         dtype=Float32                      rule_accept=True  real=ok  AGREE
+ARRIVE Float64         dtype=Float64                      rule_accept=True  real=ok  AGREE
+ARRIVE Int64_na        dtype=Int64                        rule_accept=True  real=ok  AGREE
+ARRIVE bool            dtype=bool                         rule_accept=True  real=ok  AGREE
+ARRIVE boolean         dtype=boolean                      rule_accept=True  real=ok  AGREE
+ARRIVE complex128      dtype=complex128                   rule_accept=False real=raw ValueError: 'pandas dtypes must be int, float or bool.\nFields with bad pa'  AGREE
+ARRIVE timedelta       dtype=timedelta64[s]               rule_accept=False real=raw DTypePromotionError: "The DType <class 'numpy.dtypes.TimeDelta64DType'> could not "  AGREE
+ARRIVE datetime        dtype=datetime64[s]                rule_accept=False real=raw DTypePromotionError: "The DType <class 'numpy.dtypes.DateTime64DType'> could not b"  AGREE
+ARRIVE datetime_tz     dtype=datetime64[s, UTC]           rule_accept=False real=raw ValueError: 'pandas dtypes must be int, float or bool.\nFields with bad pa'  AGREE
+ARRIVE period          dtype=period[M]                    rule_accept=False real=raw ValueError: 'pandas dtypes must be int, float or bool.\nFields with bad pa'  AGREE
+ARRIVE interval        dtype=interval[int64, right]       rule_accept=False real=raw ValueError: 'pandas dtypes must be int, float or bool.\nFields with bad pa'  AGREE
+ARRIVE sparse_float    dtype=Sparse[float64, nan]         rule_accept=True  real=ok  AGREE
+ARRIVE str             dtype=str                          rule_accept=False real=raw ValueError: 'pandas dtypes must be int, float or bool.\nFields with bad pa'  AGREE
+ARRIVE string_python   dtype=string                       rule_accept=False real=raw ValueError: 'pandas dtypes must be int, float or bool.\nFields with bad pa'  AGREE
+ARRIVE object_num      dtype=object                       rule_accept=False real=raw ValueError: 'pandas dtypes must be int, float or bool.\nFields with bad pa'  AGREE
+ARRIVE category        dtype=category                     rule_accept=False real=raw ValueError: 'train and valid dataset categorical_feature do not match.'  AGREE
+ARRIVE longdouble      dtype=float128                     rule_accept=False real=raw ValueError: 'pandas dtypes must be int, float or bool.\nFields with bad pa'  AGREE
+ARRIVE string_pyarrow  dtype=string                       rule_accept=False real=raw ValueError: 'pandas dtypes must be int, float or bool.\nFields with bad pa'  AGREE
+ARRIVE int64_pyarrow   dtype=int64[pyarrow]               rule_accept=False real=raw ValueError: 'pandas dtypes must be int, float or bool.\nFields with bad pa'  AGREE
+ARRIVE float64_pyarrow dtype=double[pyarrow]              rule_accept=False real=raw ValueError: 'pandas dtypes must be int, float or bool.\nFields with bad pa'  AGREE
+ARRIVE bool_pyarrow    dtype=bool[pyarrow]                rule_accept=False real=raw ValueError: 'pandas dtypes must be int, float or bool.\nFields with bad pa'  AGREE
+disagreements: 0 of 33
+
+## pr6_config_version_probe.py
+load_config(dict v=1)                                   -> accepted (config_version=1)
+LizyMLConfig.model_validate(v=1)                        -> accepted (config_version=1)
+Model(dict v=1)                                         -> accepted (config_version=1)
+load_config(dict v=2)                                   -> LizyMLError CONFIG_VERSION_UNSUPPORTED
+LizyMLConfig.model_validate(v=2)                        -> accepted (config_version=2)
+Model(dict v=2)                                         -> LizyMLError CONFIG_VERSION_UNSUPPORTED
+load_config(dict v=0)                                   -> LizyMLError CONFIG_VERSION_UNSUPPORTED
+LizyMLConfig.model_validate(v=0)                        -> accepted (config_version=0)
+Model(dict v=0)                                         -> LizyMLError CONFIG_VERSION_UNSUPPORTED
+load_config(dict v=-1)                                  -> LizyMLError CONFIG_VERSION_UNSUPPORTED
+LizyMLConfig.model_validate(v=-1)                       -> accepted (config_version=-1)
+Model(dict v=-1)                                        -> LizyMLError CONFIG_VERSION_UNSUPPORTED
+load_config(dict v='1')                                 -> accepted (config_version=1)
+LizyMLConfig.model_validate(v='1')                      -> accepted (config_version=1)
+Model(dict v='1')                                       -> accepted (config_version=1)
+load_config(dict v='2')                                 -> LizyMLError CONFIG_VERSION_UNSUPPORTED
+LizyMLConfig.model_validate(v='2')                      -> accepted (config_version=2)
+Model(dict v='2')                                       -> LizyMLError CONFIG_VERSION_UNSUPPORTED
+load_config(dict v=True)                                -> accepted (config_version=1)
+LizyMLConfig.model_validate(v=True)                     -> accepted (config_version=1)
+Model(dict v=True)                                      -> accepted (config_version=1)
+load_config(dict v=False)                               -> accepted (config_version=0)
+LizyMLConfig.model_validate(v=False)                    -> accepted (config_version=0)
+Model(dict v=False)                                     -> accepted (config_version=0)
+load_config(dict v=1.0)                                 -> accepted (config_version=1)
+LizyMLConfig.model_validate(v=1.0)                      -> accepted (config_version=1)
+Model(dict v=1.0)                                       -> accepted (config_version=1)
+load_config(dict v=2.0)                                 -> LizyMLError CONFIG_VERSION_UNSUPPORTED
+LizyMLConfig.model_validate(v=2.0)                      -> accepted (config_version=2)
+Model(dict v=2.0)                                       -> LizyMLError CONFIG_VERSION_UNSUPPORTED
+load_config(dict v=1.5)                                 -> LizyMLError CONFIG_INVALID
+LizyMLConfig.model_validate(v=1.5)                      -> ValidationError: 1 validation error for LizyMLConfig
+Model(dict v=1.5)                                       -> LizyMLError CONFIG_INVALID
+load_config(dict v=None)                                -> LizyMLError CONFIG_INVALID
+LizyMLConfig.model_validate(v=None)                     -> ValidationError: 1 validation error for LizyMLConfig
+Model(dict v=None)                                      -> LizyMLError CONFIG_INVALID
+load_config(dict v='x')                                 -> LizyMLError CONFIG_INVALID
+LizyMLConfig.model_validate(v='x')                      -> ValidationError: 1 validation error for LizyMLConfig
+Model(dict v='x')                                       -> LizyMLError CONFIG_INVALID
+model_construct(v=2) then Model(instance)               -> accepted (config_version=2)
+mutated instance v=2 then Model(instance)               -> accepted (config_version=2)
+model_copy(update v=2) then Model(instance)             -> accepted (config_version=2)
+pydantic validator raising LizyMLError                  -> LizyMLError CONFIG_VERSION_UNSUPPORTED
+pydantic 2.12.5
+
+## pr6_config_version_env_probe.py
+env LIZYML__config_version='2': accepted, config_version=2
+env LIZYML__config_version='1': accepted, config_version=1
+env LIZYML__config_version='0': accepted, config_version=0
+env LIZYML__config_version='false': accepted, config_version=0
+
+## pr6_xentlambda_metric_probe.py
+['auc'] fit OK {'auc': 0.9557498665717843} predict proba 0.027..3.148
+['auc_pr'] fit OK {'auc_pr': 0.9506829673244406} predict proba 0.027..3.148
+['ece'] fit OK {'ece': np.float64(0.042042816793605185)} predict proba 0.027..3.148
+['precision_at_k'] fit OK {'precision_at_k': 0.9866666666666667} predict proba 0.027..3.148
+['logloss'] FAILS ValueError y_prob contains values greater than 1: 16.49711801112061
+['brier'] FAILS ValueError y_prob contains values greater than 1: 16.49711801112061
+
+## pr6_firing_plugin.py over the full suite (8108 passed, 1 env-only failure: test_version metadata), summarize_pr6_firing.py
+TOTALS {'kind': 'TOTALS', 'predict': 112, 'proba_metric': 7053}
+('METRIC_REQUIRES_PROBA', False) 20
+    tests/test_estimators/test_feval_probabilities.py::test_feval_value_is_the_metric_of_lightgbm_predic {'metric': 'brier', 'reason': 'range 0.184..1.05'}
+    tests/test_estimators/test_feval_probabilities.py::test_feval_value_is_the_metric_of_lightgbm_predic {'metric': 'brier', 'reason': 'range 0.164..1.16'}
+
+## pr6_firing_plugin.py rerun with the config_version wrappers (8108 passed, same env-only failure)
+TOTALS {'kind': 'TOTALS', 'predict': 112, 'proba_metric': 7053, 'model_init': 1254, 'model_validate': 1280}
+('METRIC_REQUIRES_PROBA', False) 20
+('METRIC_REQUIRES_PROBA', True) 41
+(no CONFIG_VERSION events)
+
+## pr6_dtype_value_probe.py (fit dtype x arrival dtype; same= compares predict proba with the fit-dtype frame; bool arrivals change the values, so same=False there is expected)
+fit=int64         recorded=int64     arrive=int64         -> ok same=True
+fit=int64         recorded=int64     arrive=float64       -> ok same=True
+fit=int64         recorded=int64     arrive=float32       -> ok same=True
+fit=int64         recorded=int64     arrive=bool          -> ok same=False
+fit=int64         recorded=int64     arrive=Int64         -> ok same=True
+fit=int64         recorded=int64     arrive=Float64       -> ok same=True
+fit=int64         recorded=int64     arrive=boolean       -> ok same=False
+fit=int64         recorded=int64     arrive=str           -> ValueError: pandas dtypes must be int, float or bool.
+Fields with bad pandas dtypes: a: str
+fit=int64         recorded=int64     arrive=object_num    -> ValueError: pandas dtypes must be int, float or bool.
+Fields with bad pandas dtypes: a: object
+fit=int64         recorded=int64     arrive=category_num  -> ValueError: train and valid dataset categorical_feature do not match.
+fit=int64         recorded=int64     arrive=category_str  -> ValueError: train and valid dataset categorical_feature do not match.
+fit=int64         recorded=int64     arrive=datetime      -> DTypePromotionError: The DType <class 'numpy.dtypes.DateTime64DType'> could not be promoted by <class 'numpy.dt
+fit=float64       recorded=float64   arrive=int64         -> ok same=True
+fit=float64       recorded=float64   arrive=float64       -> ok same=True
+fit=float64       recorded=float64   arrive=float32       -> ok same=True
+fit=float64       recorded=float64   arrive=bool          -> ok same=False
+fit=float64       recorded=float64   arrive=Int64         -> ok same=True
+fit=float64       recorded=float64   arrive=Float64       -> ok same=True
+fit=float64       recorded=float64   arrive=boolean       -> ok same=False
+fit=float64       recorded=float64   arrive=str           -> ValueError: pandas dtypes must be int, float or bool.
+Fields with bad pandas dtypes: a: str
+fit=float64       recorded=float64   arrive=object_num    -> ValueError: pandas dtypes must be int, float or bool.
+Fields with bad pandas dtypes: a: object
+fit=float64       recorded=float64   arrive=category_num  -> ValueError: train and valid dataset categorical_feature do not match.
+fit=float64       recorded=float64   arrive=category_str  -> ValueError: train and valid dataset categorical_feature do not match.
+fit=float64       recorded=float64   arrive=datetime      -> DTypePromotionError: The DType <class 'numpy.dtypes.DateTime64DType'> could not be promoted by <class 'numpy.dt
+fit=bool          recorded=bool      arrive=int64         -> ok same=True
+fit=bool          recorded=bool      arrive=float64       -> ok same=True
+fit=bool          recorded=bool      arrive=float32       -> ok same=True
+fit=bool          recorded=bool      arrive=bool          -> ok same=True
+fit=bool          recorded=bool      arrive=Int64         -> ok same=True
+fit=bool          recorded=bool      arrive=Float64       -> ok same=True
+fit=bool          recorded=bool      arrive=boolean       -> ok same=True
+fit=bool          recorded=bool      arrive=str           -> ValueError: pandas dtypes must be int, float or bool.
+Fields with bad pandas dtypes: a: str
+fit=bool          recorded=bool      arrive=object_num    -> ValueError: pandas dtypes must be int, float or bool.
+Fields with bad pandas dtypes: a: object
+fit=bool          recorded=bool      arrive=category_num  -> ValueError: train and valid dataset categorical_feature do not match.
+fit=bool          recorded=bool      arrive=category_str  -> ValueError: train and valid dataset categorical_feature do not match.
+fit=bool          recorded=bool      arrive=datetime      -> DTypePromotionError: The DType <class 'numpy.dtypes.DateTime64DType'> could not be promoted by <class 'numpy.dt
+fit=Int64         recorded=Int64     arrive=int64         -> ok same=True
+fit=Int64         recorded=Int64     arrive=float64       -> ok same=True
+fit=Int64         recorded=Int64     arrive=float32       -> ok same=True
+fit=Int64         recorded=Int64     arrive=bool          -> ok same=False
+fit=Int64         recorded=Int64     arrive=Int64         -> ok same=True
+fit=Int64         recorded=Int64     arrive=Float64       -> ok same=True
+fit=Int64         recorded=Int64     arrive=boolean       -> ok same=False
+fit=Int64         recorded=Int64     arrive=str           -> ValueError: pandas dtypes must be int, float or bool.
+Fields with bad pandas dtypes: a: str
+fit=Int64         recorded=Int64     arrive=object_num    -> ValueError: pandas dtypes must be int, float or bool.
+Fields with bad pandas dtypes: a: object
+fit=Int64         recorded=Int64     arrive=category_num  -> ValueError: train and valid dataset categorical_feature do not match.
+fit=Int64         recorded=Int64     arrive=category_str  -> ValueError: train and valid dataset categorical_feature do not match.
+fit=Int64         recorded=Int64     arrive=datetime      -> DTypePromotionError: The DType <class 'numpy.dtypes.DateTime64DType'> could not be promoted by <class 'numpy.dt
+fit=Float64       recorded=Float64   arrive=int64         -> ok same=True
+fit=Float64       recorded=Float64   arrive=float64       -> ok same=True
+fit=Float64       recorded=Float64   arrive=float32       -> ok same=True
+fit=Float64       recorded=Float64   arrive=bool          -> ok same=False
+fit=Float64       recorded=Float64   arrive=Int64         -> ok same=True
+fit=Float64       recorded=Float64   arrive=Float64       -> ok same=True
+fit=Float64       recorded=Float64   arrive=boolean       -> ok same=False
+fit=Float64       recorded=Float64   arrive=str           -> ValueError: pandas dtypes must be int, float or bool.
+Fields with bad pandas dtypes: a: str
+fit=Float64       recorded=Float64   arrive=object_num    -> ValueError: pandas dtypes must be int, float or bool.
+Fields with bad pandas dtypes: a: object
+fit=Float64       recorded=Float64   arrive=category_num  -> ValueError: train and valid dataset categorical_feature do not match.
+fit=Float64       recorded=Float64   arrive=category_str  -> ValueError: train and valid dataset categorical_feature do not match.
+fit=Float64       recorded=Float64   arrive=datetime      -> DTypePromotionError: The DType <class 'numpy.dtypes.DateTime64DType'> could not be promoted by <class 'numpy.dt
+fit=boolean       recorded=boolean   arrive=int64         -> ok same=True
+fit=boolean       recorded=boolean   arrive=float64       -> ok same=True
+fit=boolean       recorded=boolean   arrive=float32       -> ok same=True
+fit=boolean       recorded=boolean   arrive=bool          -> ok same=True
+fit=boolean       recorded=boolean   arrive=Int64         -> ok same=True
+fit=boolean       recorded=boolean   arrive=Float64       -> ok same=True
+fit=boolean       recorded=boolean   arrive=boolean       -> ok same=True
+fit=boolean       recorded=boolean   arrive=str           -> ValueError: pandas dtypes must be int, float or bool.
+Fields with bad pandas dtypes: a: str
+fit=boolean       recorded=boolean   arrive=object_num    -> ValueError: pandas dtypes must be int, float or bool.
+Fields with bad pandas dtypes: a: object
+fit=boolean       recorded=boolean   arrive=category_num  -> ValueError: train and valid dataset categorical_feature do not match.
+fit=boolean       recorded=boolean   arrive=category_str  -> ValueError: train and valid dataset categorical_feature do not match.
+fit=boolean       recorded=boolean   arrive=datetime      -> DTypePromotionError: The DType <class 'numpy.dtypes.DateTime64DType'> could not be promoted by <class 'numpy.dt
+fit=category_num  recorded=category  arrive=int64         -> ok same=True
+fit=category_num  recorded=category  arrive=float64       -> ok same=True
+fit=category_num  recorded=category  arrive=float32       -> ok same=True
+fit=category_num  recorded=category  arrive=bool          -> ok same=True
+fit=category_num  recorded=category  arrive=Int64         -> ok same=True
+fit=category_num  recorded=category  arrive=Float64       -> ok same=True
+fit=category_num  recorded=category  arrive=boolean       -> ok same=True
+fit=category_num  recorded=category  arrive=str           -> ok same=True
+fit=category_num  recorded=category  arrive=object_num    -> ok same=True
+fit=category_num  recorded=category  arrive=category_num  -> ok same=True
+fit=category_num  recorded=category  arrive=category_str  -> ok same=True
+fit=category_num  recorded=category  arrive=datetime      -> ok same=True
+fit=str           recorded=category  arrive=int64         -> ok same=True
+fit=str           recorded=category  arrive=float64       -> ok same=True
+fit=str           recorded=category  arrive=float32       -> ok same=True
+fit=str           recorded=category  arrive=bool          -> ok same=True
+fit=str           recorded=category  arrive=Int64         -> ok same=True
+fit=str           recorded=category  arrive=Float64       -> ok same=True
+fit=str           recorded=category  arrive=boolean       -> ok same=True
+fit=str           recorded=category  arrive=str           -> ok same=True
+fit=str           recorded=category  arrive=object_num    -> ok same=True
+fit=str           recorded=category  arrive=category_num  -> ok same=True
+fit=str           recorded=category  arrive=category_str  -> ok same=True
+fit=str           recorded=category  arrive=datetime      -> ok same=True

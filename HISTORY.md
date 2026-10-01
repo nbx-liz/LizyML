@@ -10391,3 +10391,119 @@ LightGBM 4 は、組み込みの目的関数では **feval に変換済みの予
 2. `Model.fit`（binary、`metric: accuracy` / `f1`、early stopping）で、どの fold の best_iteration も 1 より大きく、学習曲線の値が変化する。修正前は RED。
 3. 生成 `train.py` の feval が、確率を入力として指標を直接計算した値と一致する（binary `accuracy` / `brier`、multiclass `brier`）。修正前は RED。
 4. 書き直した既存テストのうち、**値が変わる指標**（binary の `accuracy` / `f1` / `brier` / `ece`、multiclass の `brier`）を扱うものは修正前の実装で失敗し、修正後に通る。**値が変わらない指標**（`precision_at_k`、multiclass の `accuracy` / `f1`、回帰）を扱うものは修正の前後どちらでも通る不変条件として残す（初版はすべてが失敗すると書いていたが誤りで、設計レビューが反証した）。
+
+## H-0106: 宣言されたすべての `ErrorCode` を発生させ、`config_version` の検査をすべての入口に置く（#263 / #272 / PR 6）
+
+- **ステータス**: Proposed
+- **起票日**: 2026-10-01
+- **スコープ**: `lizyml/core/exceptions.py`（`DATA_FINGERPRINT_MISMATCH` を削除）, `lizyml/features/column_check.py`（dtype の検査 → `INCOMPATIBLE_COLUMNS`）, `lizyml/core/_model_predict.py`（呼び出し）, `lizyml/metrics/classification.py`（確率の検査 → `METRIC_REQUIRES_PROBA`）, `lizyml/config/version.py`（新規: 版の定義と検査を 1 か所に）, `lizyml/config/schema.py` / `lizyml/config/loader.py` / `lizyml/core/model.py`（版の検査を呼ぶ）, `BLUEPRINT.md` §4 の Config 表 / §16.2, `docs/api.md`, `docs/DEPRECATIONS.md`, `PLAN.md`, `CHANGELOG.md`, テスト（下記）
+- **関連**: [Issue #263](https://github.com/nbx-liz/LizyML/issues/263), [Issue #272](https://github.com/nbx-liz/LizyML/issues/272), [Issue #307](https://github.com/nbx-liz/LizyML/issues/307)（`cross_entropy_lambda`）, [Issue #271](https://github.com/nbx-liz/LizyML/issues/271)（`SUPPORTED_CONFIG_VERSIONS` は未文書の 8 名の 1 つ）, [Issue #295](https://github.com/nbx-liz/LizyML/issues/295)（依存の下限が CI で実行されない）, H-0104（推論時の列検査を facade に置いた）, H-0105, #210（文字列の版の迂回を閉じた）
+- **実測の記録**: `docs/audits/2026-09-defect-discovery/results/pr6_measurements.txt`（`develop` `1abf7fb`。再生成するスクリプトは同じディレクトリの `../instruments/pr6_*.py`）
+
+### 目的（課題）
+
+**#263**: `ErrorCode` の 20 メンバーのうち 3 つ（`DATA_FINGERPRINT_MISMATCH` / `INCOMPATIBLE_COLUMNS` / `METRIC_REQUIRES_PROBA`）は、`lizyml/` のどの `raise` も出さない（`ast.Raise` の部分木を走査して確認）。エラーコードは「その条件を検出する」という主張であり、文書化されて出ないコードは、検査が無いのに有ると書いていることになる（DC4 / DC5）。
+
+**#272**: `BLUEPRINT.md` の Config 表は `config_version` を「`1` のみサポート」とするが、検査は `config/loader.py` の `_check_config_version` にしかなく、`load_config` を通らない入口では効かない。実測（`pr6_config_version_probe.py` / `pr6_config_version_env_probe.py`、pydantic 2.12.5）:
+
+| 入口 | `config_version=2` | `config_version=False` |
+|---|---|---|
+| `load_config(dict)` / `Model(dict)` | `CONFIG_VERSION_UNSUPPORTED` | **受理され `0` として保存** |
+| `LizyMLConfig.model_validate(dict)` → `Model(instance)` | **受理** | **受理（`0`）** |
+| `LizyMLConfig.model_construct(...)` / 検証済みインスタンスへの代入 / `model_copy(update=...)` → `Model(instance)` | **受理** | — |
+| `load_config(dict v=1)` + 環境変数 `LIZYML__config_version=2` | **受理（`2`）** | `"false"` で **受理（`0`）** |
+
+#272 が書いた入口（インスタンス）に加え、**dict の経路にも 2 つの迂回がある**: loader の検査は `bool` を pydantic に任せて素通しし（`False` は `int` の `0` に変換される）、環境変数の上書き（`loader.py:244`）は版の検査（`loader.py:240`）の**後**に適用される。
+
+### 対応方針（決定）
+
+1. **`DATA_FINGERPRINT_MISMATCH` を削除する。** 予測時に照合できる、冗長でない条件が存在しない（計画 `phase3-plan.md` §PR 6 で実測済み）: `row_count` は正当な予測バッチごとに異なる。`file_hash` は `Model.fit(df)` では常に `None`（`fp_compute(X, file_path=None)`）で、`predict` はファイルを受け取らない。`column_hash` は列順に依存し、列順を入れ替えた frame は今日正しく予測できる。意味のある列のずれ（不足 → `DATA_SCHEMA_INVALID`、余剰 → 警告、dtype → 決定 2）は別の検査が報告する。`DataFingerprint` 型とその記録は変えない（来歴の記録として残す。予測時に照合しているとは主張しない）。`RESERVED` のような保留表は作らない（計画 round 6: 保留は処置ではなく受け入れ規則の変更であり DC5）。
+2. **`INCOMPATIBLE_COLUMNS`: 学習時に数値だった列が、予測時に数値でない dtype で届いたら拒否する。**
+   - **「数値」の定義（受理集合を閉じる）**: dtype の scalar 型が numpy の整数・浮動小数・bool 型のサブクラスで、`timedelta64` と `longdouble` を除くもの。LightGBM 4 が pandas の列に課す規則と同じ集合である。pandas の `is_numeric_dtype` は使わない: pyarrow の数値 dtype（`int64[pyarrow]` 等）を数値と判定するが LightGBM はそれを拒否するので、33 種の dtype で 3 件食い違った。numpy 型の規則では **33 種すべてで「規則が受理 ⇔ 本物の `predict` が成功」**（0 件の不一致、`pr6_dtype_rule_probe.py`）。
+   - **「学習時に数値」**: `FitResult.dtypes`（`str(X[col].dtype)`、`auto_categorical` の変換**後**に記録）を `pandas.api.types.pandas_dtype` で読み戻し、同じ規則で判定する。学習時に `category` だった列（`str` / `object` / `string` も既定の `auto_categorical` で `category` になる）は検査しない: encoder が予測時の値を扱い、未知値は `unseen_policy` に従う（H-0104）。
+   - **読み戻せない dtype 文字列**: その列は検査しない（今日の振る舞いのまま。下流の LightGBM が生の例外を出す）。**bound**: fit できる 23 種の dtype はすべて読み戻せる文字列を記録した（fit できない 10 種は LightGBM が fit で拒否する、`pr6_dtype_rule_probe.py`）。恒久テストがこの 23 種の読み戻しを主張するので、pandas が綴りを変えて読み戻せなくなれば、黙って検査が外れるのではなくテストが赤になる。
+   - **置き場所**: H-0104 の `select_training_columns` に省略可能な引数 `dtypes` を足し、`run_predict` が `fit_result.dtypes` を渡す。不足列の `DATA_SCHEMA_INVALID` を先に判定し、そのあと dtype を判定する。違反した列は 1 回の例外ですべて報告する（学習時の列順）。`context = {"columns": [{"column", "fit_dtype", "predict_dtype"}, ...]}`。
+   - **今日の振る舞いとの差**: 拒否する入力はすべて今日も失敗している（LightGBM の `pandas dtypes must be int, float or bool`、`category` で届くと `train and valid dataset categorical_feature do not match`、`datetime` / `timedelta` は numpy の `DTypePromotionError`）。成功している予測は 1 件も変わらない。変わるのは、列名と両方の dtype を持つ LizyML の例外になること。
+3. **`METRIC_REQUIRES_PROBA`: 確率を必要とする組み込み指標（`needs_proba` が真）が、確率でない値を受け取ったら拒否する。**
+   - **計画との違い**: 計画 `phase3-plan.md` §PR 6 は「確率を持たないタスクに `needs_proba` の指標が求められたとき、指標の dispatch で出す」としていた。**その条件は `UNSUPPORTED_METRIC` が先に拒否するので到達できない**（`metrics/registry.py` の `_TASK_METRICS`: 回帰に確率の指標は無い）。到達できる条件は、指標クラスに確率でない値が渡ることである。計画の該当段落とファイル一覧は本 PR の最初のコミットで直す。
+   - **規則**: 確率とは、数値に変換でき、すべて有限で、[0, 1] に収まる値。加えて、`y_true` のクラスが 3 つ以上なのに `y_pred` が 1 次元なら拒否する（多クラスの確率は 2 次元）。`context = {"metric", "reason", ...}`。**検出できないもの**: 0/1 のハードラベルは正当な確率でもあるので区別できない。
+   - **順位だけで決まる指標（`auc` / `auc_pr` / `precision_at_k`）も同じ規則で拒否する**（代替案 2 を参照）。
+   - **到達する経路**: (a) 公開の `lizyml.metrics` のクラスを直接呼ぶ利用者。今日、binary の logit を渡すと `auc` / `auc_pr` / `ece` / `precision_at_k` は黙って計算し、`brier` / `logloss` は scikit-learn の生の `ValueError`、多クラスに 1 次元のラベルを渡すと生の `ValueError`。(b) `objective: cross_entropy_lambda`（#307）: 出力が確率ではない。
+   - **対象外**: 利用者が自作した `BaseMetric` のサブクラスは検査されない（検査は組み込みの 6 クラスの `__call__` に置く。抽象基底の契約は変えない）。
+4. **`config_version`: 版の定義と検査を `lizyml/config/version.py` の 1 か所にし、`LizyMLConfig` ができるすべての入口から呼ぶ。**
+   - `SUPPORTED_CONFIG_VERSIONS` と `check_config_version(value)` をこのモジュールに置く（`schema.py` は `loader.py` を import できないため）。`lizyml.config.loader.SUPPORTED_CONFIG_VERSIONS` は同じオブジェクトの再 export として残す（公開名を壊さない。同一性をテストする）。型は今と同じ `list[int]`。
+   - **schema**: `LizyMLConfig.config_version` に field validator（after）を置き、検査を呼ぶ。`model_validate` / コンストラクタ / `load_config` の検証段（環境変数の上書きの後）を通るすべてが共有する。pydantic 2.12.5 では validator が投げた `LizyMLError` は `ValidationError` に包まれずにそのまま伝わる（実測）。依存の下限 `pydantic>=2.0` では実行していない（#295: 最低依存の CI レーンは下限を入れない）。下限の版が包むなら `load_config` は `CONFIG_INVALID` として報告することになり、#295 が下限を入れるようになった時点で測られる。
+   - **loader**: 生の値での検査（`loader.py:240`）は先頭に残す。利用者が書いた綴り（`"2"` 等）を `context["config_version"]` に保つため。検査関数は schema と同じものを呼ぶ。
+   - **`Model.__init__` のインスタンスの分岐**: 検証を通らないインスタンス（`model_construct`、代入、`model_copy(update=...)`）のため、`check_config_version(config.config_version)` を 1 行で呼ぶ（facade に判断を書かない。CLAUDE.md §3）。
+   - **`bool`**: `True` は lax な `int` 変換で `1` になり受理される（他のすべての `int` フィールドと同じ）。`False` は `0` になり、schema の検査が拒否する。
+   - **対象外**: `Model` に渡した**後**に呼び出し側がそのインスタンスを書き換えることは防がない（`Model` は渡されたオブジェクトを保持する。コピーは本 PR の範囲外）。
+   - `BLUEPRINT.md` の Config 表の `config_version` 行に、定義の場所（`lizyml.config.loader.SUPPORTED_CONFIG_VERSIONS`）を書く。#271 の 8 名のうち 1 名を処理する（#271 は閉じない）。
+5. **恒久検査**:
+   - `test_error_code_population.py`（静的）: `lizyml/` の `ast.Raise` の部分木に現れる `ErrorCode.X` を集め、`set(ErrorCode)` と一致すること。コメントや docstring の言及は数えない。自己検査として、走査が 10 メンバー以上を見つけることを主張する（誤った作業ディレクトリで走査対象が空になり、全 20 メンバーを「未発生」と報告した事例が計画の検証で起きた）。
+   - `test_error_code_raising.py`（振る舞い）: キーが `set(ErrorCode)` と等しい dict で、各メンバーについて条件を作り、出る `code` と、その raise 箇所が渡す `context` のキーを主張する。`if False: raise ...` のような到達しない raise は静的検査を通るが、こちらで落ちる。
+   - 文書の完全性: `docs/api.md` の例外コード表と `BLUEPRINT.md` §16.2 の一覧が `set(ErrorCode)` と一致すること（DC3）。今日 `docs/api.md` には `METRIC_REQUIRES_PROBA` / `TARGET_NOT_NUMERIC` / `TARGET_UNSEEN_LABEL` が無く、§16.2 は「例」と題して `EVALUATION_FAILED` / `CALIBRATION_NOT_FITTED` / `TARGET_NOT_NUMERIC` / `TARGET_UNSEEN_LABEL` を欠く。本 PR で両方を完全にし、§16.2 の題から「例」を外す。
+
+### 規則が縛る位置（ソースから導出）
+
+**規則 A（dtype）: Model facade が新しいデータを pipeline に渡す前に、学習時に数値だった列の dtype を検査する。** 導出: H-0104 と同じ grep（`transform_with_warnings` / `.load_state(` / `pipeline.transform(`、`1abf7fb`）。
+
+| # | 位置 | 本 PR |
+|---|---|---|
+| A1 | `core/_model_predict.py` `run_predict`（`Model.predict` の唯一の入口） | 検査を呼ぶ |
+| A2 | `explain/shap_explainer.py:161`（学習時のデータを変換する） | 対象外（新しいデータではない） |
+| A3 | `features/pipelines_native.py:106`（`NativeFeaturePipeline` を単体で使う場合） | 対象外（pipeline の状態は学習時の dtype を持たない。facade の経路は A1 が先に検査する） |
+
+**規則 B（確率）: `needs_proba` が真の組み込み指標は、確率でない値を拒否する。** 導出: 登録されたすべての指標を構築して `needs_proba` を読んだ（16 指標中 6）。
+
+| # | 位置 | 本 PR |
+|---|---|---|
+| B1-B6 | `metrics/classification.py` の `LogLoss` / `AUC` / `AUCPR` / `Brier` / `ECE` / `PrecisionAtK` の `__call__` | 先頭で検査 |
+| B7 | 呼び出し側: `evaluation/evaluator.py` `_compute_metrics`、`estimators/lgbm/metric_bridge.py:278`（feval） | 変更なし（例外を包まないので、同じ例外がそのまま伝わる） |
+| B8 | 呼び出し側: tuning（`tuning/tuner.py` の `study.optimize(..., catch=(LizyMLError, ValueError, RuntimeError))`） | 変更なし（その trial が失敗として記録され、全 trial が失敗すれば `TUNING_FAILED`。今日の scikit-learn の `ValueError` と同じ扱い） |
+
+**規則 C（版）: `LizyMLConfig` が `Model` に入るすべての経路で `config_version` を検査する。** 導出: `lizyml/` を `LizyMLConfig(` / `model_validate` / `model_construct` / `load_config(` で grep した。`Model.load()` は保存された dict を `Model(config)` に渡すので C2 を通る。
+
+| # | 位置 | 本 PR |
+|---|---|---|
+| C1 | `config/schema.py` `LizyMLConfig.config_version` の field validator | 新設 |
+| C2 | `config/loader.py:240` `load_config`（生の値） | 共通の検査関数を呼ぶ |
+| C3 | `core/model.py` `Model.__init__` のインスタンスの分岐 | 新設（1 行） |
+
+### 互換性
+
+- **`ErrorCode.DATA_FINGERPRINT_MISMATCH` が無くなる。** 何もこれを出したことがないので、コードで捕まえていた呼び出し側は存在しえない。消えるのは名前で、`ErrorCode.DATA_FINGERPRINT_MISMATCH` を参照するコードは `AttributeError` になる。enum のメンバーは `DeprecationWarning` を出せないので、v1.0 を待たずに削除し、`docs/DEPRECATIONS.md` に記録する（H-0079 の「already enforced」行と同じ扱い）。
+- **予測時の dtype**: 成功していた予測は変わらない（決定 2）。失敗していた予測は、生の例外ではなく `INCOMPATIBLE_COLUMNS` になる。`FitResult.dtypes` は既存の必須フィールドなので、保存済みの artifact にも同じ検査が効く。`format_version` は据え置き。
+- **指標**: 公開の指標クラスに logit 等を渡して `auc` / `auc_pr` / `ece` / `precision_at_k` の値を得ていた呼び出しは、`METRIC_REQUIRES_PROBA` になる。**`objective: cross_entropy_lambda` で指標を `auc` / `auc_pr` / `ece` / `precision_at_k` に限った `Model.fit` は、今日は成功し最大 3.148 の「確率」を返すが（#307 のデータで実測、`pr6_xentlambda_metric_probe.py`）、本 PR の後は評価器で `METRIC_REQUIRES_PROBA` になる。** これは意図した変更である（確率でない出力を確率として報告しなくなる）。目的関数そのものの扱いは #307 で決める。`logloss` / `brier` を含む場合は今日も scikit-learn の生の `ValueError` で失敗しており、名前の付いた例外に変わるだけ。`tune()` の trial の中でこの例外が出た場合は、その trial が失敗として記録され、全 trial が失敗すれば `TUNING_FAILED` になる（B8、tuner の `catch` による。`tune()` での発生は実行していない）。
+- **feval のテスト**: `tests/test_estimators/test_feval_probabilities.py` の「評価器の規則が失敗するなら feval も同じ型・同じ文言で失敗する」分岐は、そのまま成り立つ。feval は指標の例外を包まない（`metric_bridge.py:278` で指標を直接呼ぶ）ので、評価器側と同じ `LizyMLError` が出る。`cross_entropy_lambda` の `ece` / `precision_at_k` のセル（今日は計算できている 41 回）は、この分岐に移る。
+- **`config_version`**: `LizyMLConfig` インスタンスの入口、環境変数 `LIZYML__config_version`、`config_version: false` で、サポート外の版が拒否されるようになる。今日これらで受理されていたサポート外の版は、何の効果も持たなかった（#272: 版 2 で学習したモデルはバイト単位で同一）。`context["config_version"]` は loader の経路では利用者が書いた値（`"2"` 等）、schema の経路では変換後の `int`。
+- 生成コード（`export_code`）は変わらない。
+
+**Firing rate**（本 Proposal は `allow` の条件を 2 つ新設し（dtype、確率）、既存の 1 つ（版）を新しい位置に広げる。3 つとも測った）:
+
+Firing rate: 0/112 of `Model.predict` calls in the full test suite (`develop` `1abf7fb`; `pr6_firing_plugin.py` wraps `run_predict` and applies the numpy-scalar-type rule to `FitResult.dtypes` against the predict-time frame; 8108 passed)
+
+Firing rate: 61/7053 of calls to the six `needs_proba` metrics in the full test suite (same run; all 61 in `test_feval_probabilities.py`'s `cross_entropy_lambda` cells: 20 already raised, 41 `ece` / `precision_at_k` computed and would now be refused; no other test, and no `Model.fit` cell, passes a non-probability)
+
+Firing rate: 0/1254 of `Model.__init__` calls and 0/1280 of `LizyMLConfig.model_validate` calls in the full test suite produced a config holding an unsupported `config_version` (same plugin, a second run; these are the successes the new check positions would refuse — calls already refused by the loader are not successes and are not counted)
+
+`config_version` の検査は「サポート外の版を拒否する」という既存の規則の位置を増やすだけで、受理する集合（`[1]`）は変えない。
+
+### 代替案（検討して棄却）
+
+1. **`DATA_FINGERPRINT_MISMATCH` を残して予測時の照合を実装する。** 照合できる成分が無い（決定 1）。列の集合だけを比べる狭い照合は、既存の不足列・余剰列の検査と重複する。
+2. **確率の検査を、値の較正に依存する指標（`logloss` / `brier` / `ece`）だけにし、順位だけで決まる指標（`auc` / `auc_pr` / `precision_at_k`）にはスコアを許す。** scikit-learn の `roc_auc_score` は任意のスコアを受け取るので、利用者には便利である。しかし `needs_proba` は「確率が必要」という宣言で、LizyML の内部（評価器、feval）はこの宣言に従って確率を渡す。順位の指標に 1 を超える値が届くのは、常に上流の欠陥（#307 のように確率でない出力を確率として扱っている）であり、それを黙って計算したことが #307 の一部を隠していた。宣言を指標ごとに別の意味にしないため、6 指標に同じ規則を当てる。スコアで AUC を計算したい利用者は scikit-learn を直接使える。
+3. **`INCOMPATIBLE_COLUMNS` の判定に pandas の `is_numeric_dtype` を使う。** pyarrow の数値 dtype で LightGBM と食い違う（3/33）。
+4. **`INCOMPATIBLE_COLUMNS` を「学習時と完全に同じ dtype」とする。** `int64` で学習して `float64` で予測すると今日は正しく予測できる（実測で予測値も一致）。成功している予測を拒否することになる。
+5. **版の検査を schema の validator だけにし、loader の生の値の検査を削除する。** 利用者が書いた綴りが `context` から失われる。どちらも同じ検査関数を呼ぶので、規則は 1 か所のまま。
+6. **`LizyMLConfig` に `validate_assignment=True` を設定して代入を検査する。** 全フィールドの代入の振る舞いが変わる（範囲外）。`model_construct` は防げない。
+
+### 受け入れ基準（テスト観点）
+
+詳細と証拠のテスト名は `docs/audits/2026-09-defect-discovery/results/pr6_acceptance_criteria.md`。
+
+1. `ErrorCode` の全メンバーが `ast.Raise` に現れ（静的、10 メンバー以上を見つける自己検査付き）、かつ条件を作ると出る（振る舞い、キーが `set(ErrorCode)` の dict）。修正前は 3 メンバーで RED。
+2. 学習時に数値の列について、33 種の到着 dtype のすべてで「規則が受理 ⇒ `predict` 成功、規則が拒否 ⇒ `INCOMPATIBLE_COLUMNS` と `context`」。学習時に `category` の列は全 dtype を受理。不足列は dtype より先に `DATA_SCHEMA_INVALID`。自作 pipeline でも同じ。`Model.load()` 後も同じ。fit できる 23 種の dtype の記録文字列がすべて読み戻せる。
+3. `needs_proba` の全指標（登録から読む）について、有限でない値・[0, 1] の外・3 クラス以上で 1 次元・数値でない値が `METRIC_REQUIRES_PROBA` になり、正当な確率と 0/1 のハードラベルは通る。`cross_entropy_lambda` で `auc` に限った `Model.fit` が `METRIC_REQUIRES_PROBA` になる。
+4. `config_version`: 入口（`load_config(dict)`、`Model(dict)`、`model_validate`、`Model(instance)`、`model_construct`、代入、`model_copy(update=)`、環境変数の上書き）× 版（`1` / `2`、加えて `False`）のすべてのセルで、`1` は受理、それ以外は `CONFIG_VERSION_UNSUPPORTED`。`loader.SUPPORTED_CONFIG_VERSIONS is version.SUPPORTED_CONFIG_VERSIONS`。
+5. `docs/api.md` の例外コード表と `BLUEPRINT.md` §16.2 が `set(ErrorCode)` と一致する。
+6. 既存のテストは削除しない。`tests/test_core/test_exceptions.py` の一覧は `DATA_FINGERPRINT_MISMATCH` を除いて更新する（列挙の SSOT は enum。この一覧は削除の意図を固定する）。

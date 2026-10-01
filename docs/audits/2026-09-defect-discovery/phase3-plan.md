@@ -723,9 +723,14 @@ outcome.
   That is the code's documented promise about predict-time columns, and it is
   the RED test. Raised from the interface-level check PR 5 establishes, so a
   custom pipeline cannot bypass it.
-- `METRIC_REQUIRES_PROBA` — **keep and implement**, raised from metric dispatch
-  when a `needs_proba` metric is asked for a task or artifact that has no
-  probabilities.
+- `METRIC_REQUIRES_PROBA` — **keep and implement**, raised by the six built-in
+  `needs_proba` metric classes when the values they receive are not
+  probabilities (non-finite, outside [0, 1], or 1-D for more than two classes).
+  *Corrected 2026-10-01 when PR 6 opened:* this paragraph used to say "raised
+  from metric dispatch when a `needs_proba` metric is asked for a task that has
+  no probabilities". That condition is unreachable: `metrics/registry.py`
+  `_TASK_METRICS` refuses a probability metric on regression with
+  `UNSUPPORTED_METRIC` first. H-0106 decision 3 records the measured condition.
 - #272 — move the version constraint into the schema (a field validator on
   `config_version`) so both `Model` entry paths share it. Today
   `Model(LizyMLConfig.model_validate({...,"config_version": 2}))` is accepted
@@ -735,12 +740,17 @@ outcome.
   checking is separate (`persistence/loader.py:160`).
 
 **Files.** `lizyml/core/exceptions.py`, `lizyml/core/_model_predict.py`,
-`lizyml/features/pipeline_base.py`, `lizyml/metrics/registry.py`,
-`lizyml/config/schema.py` (:582), `lizyml/config/loader.py` (:190-193),
-`BLUEPRINT.md`, `docs/api.md`, `docs/DEPRECATIONS.md`, `HISTORY.md`,
+`lizyml/features/column_check.py` (the facade check H-0104 established),
+`lizyml/metrics/classification.py`, `lizyml/config/version.py` (new),
+`lizyml/config/schema.py`, `lizyml/config/loader.py`, `lizyml/core/model.py`,
+`BLUEPRINT.md`, `PLAN.md`, `docs/api.md`, `docs/DEPRECATIONS.md`,
+`CHANGELOG.md`, `HISTORY.md`,
 `tests/test_core/test_error_code_population.py` (new, static),
 `tests/test_core/test_error_code_raising.py` (new, behavioural),
-`tests/test_config/test_config_version_entry_paths.py` (new).
+`tests/test_config/test_config_version_entry_paths.py` (new), and the further
+tests named in `results/pr6_acceptance_criteria.md`. *Corrected 2026-10-01:*
+the list used to name `features/pipeline_base.py` and `metrics/registry.py`,
+which hold neither raise site.
 
 `core/types/artifacts.py` and `data/fingerprint.py` are **not** touched:
 `DataFingerprint` and its `matches` stay exactly as they are, recording
@@ -1121,10 +1131,8 @@ Firing rate: 0/71 of configs setting `direction` explicitly (#258 part 2 / PR 3;
 Firing rate: 0/821 of configs constructed (#272 / PR 6; same recording, tested
   against SUPPORTED_CONFIG_VERSIONS)
 
-# The two exemption tables that ship
-Firing rate: 1/20 of ErrorCode members (PR 6 RESERVED; DATA_FINGERPRINT_MISMATCH,
-  whose predict-time condition was measured unsatisfiable, with its reason and
-  a removal plan. A test asserts both fields are non-empty)
+# The two exemption tables that ship (the PR 6 RESERVED table was removed in
+# round 6; its line, 1/20 of ErrorCode members, is withdrawn)
 Firing rate: 13/74 of defaulted public __init__ knobs (PR 8 written-policy registry;
   AST sweep over every public class, independently reproducing #268's figure.
   Deliberately non-zero -- it is the split decided in PR 8)
@@ -1134,6 +1142,17 @@ Firing rate: 5/57 of the HISTORY proposals absent from BLUEPRINT judged to carry
   n/92 would understate the rate. Per-entry verdicts, an entry with none fails
   the check)
 ```
+
+**PR 6 adds two conditions this count did not have** (added 2026-10-01, when
+PR 6 opened). Implementing `INCOMPATIBLE_COLUMNS` and `METRIC_REQUIRES_PROBA`
+means two new `allow` predicates; H-0106 carries their lines, measured on
+`1abf7fb` over the full suite (8108 passed): **0/112** `Model.predict` calls
+for the predict-time dtype check, and **61/7053** calls to the six
+`needs_proba` metrics for the probability check (all 61 in
+`test_feval_probabilities.py`'s `cross_entropy_lambda` cells, #307). The #272
+line above was re-measured at the new check positions: **0/1254**
+`Model.__init__` and **0/1280** `model_validate` calls. So the plan now carries
+eight measured conditions, not six.
 
 **Three conditions were removed rather than measured, and that was the better
 outcome each time:**
