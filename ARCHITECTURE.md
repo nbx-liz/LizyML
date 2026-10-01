@@ -304,9 +304,9 @@ classDiagram
     %% === features/ ===
     class BaseFeaturePipeline:::ifClass {
         <<abstract>>
-        +fit(X, y) +transform(X)
+        +fit(X, y)* +transform(X)*
         +transform_with_warnings(X)
-        +get_state() +load_state()
+        +get_state()* +load_state()*
     }
     class NativeFeaturePipeline:::leafClass { }
     NativeFeaturePipeline --|> BaseFeaturePipeline

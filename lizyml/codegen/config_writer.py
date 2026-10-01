@@ -21,6 +21,7 @@ def build_config(
     target_classes: list[Any] | None = None,
     split: dict[str, Any] | None = None,
     calibration_params: dict[str, Any] | None = None,
+    unseen_policy: str = "mode",
 ) -> dict[str, Any]:
     """Build config.json content as an ordered dict.
 
@@ -42,6 +43,8 @@ def build_config(
         feval_metrics: List of feval metric descriptors (H-0066).  Each dict
             has keys ``name``, ``params``, ``greater_is_better``,
             ``needs_proba``.  Defaults to ``[]``.
+        unseen_policy: The encoder's ``unseen_policy`` from the fitted
+            pipeline state (H-0104).
 
     Returns:
         Dict ready for ``json.dump()``.
@@ -68,6 +71,10 @@ def build_config(
         # ── Features ──
         "feature_names": list(feature_names),
         "categorical_features": list(categorical_features),
+        # H-0104: the unseen-category policy the fit applied. The generated
+        # train.py writes it into the pipeline state it rebuilds, so a retrain
+        # does not fall back to predict.py's "nan" default.
+        "unseen_policy": unseen_policy,
         # ── LightGBM ──
         "lgbm_params": dict(lgbm_params),
         "num_boost_round": num_boost_round,

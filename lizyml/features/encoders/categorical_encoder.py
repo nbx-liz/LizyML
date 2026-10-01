@@ -59,6 +59,9 @@ class CategoricalEncoder:
     def transform(self, X: pd.DataFrame) -> pd.DataFrame:
         """Encode categorical columns using the fitted category dictionaries.
 
+        Substitutions are applied silently here; use
+        :meth:`transform_with_warnings` to learn which were made.
+
         Args:
             X: DataFrame to transform (may include unseen categories).
 
@@ -69,9 +72,32 @@ class CategoricalEncoder:
             LizyMLError: With ``DATA_SCHEMA_INVALID`` when ``unseen_policy="error"``
                 and an unseen category is encountered.
         """
+        result, _ = self.transform_with_warnings(X)
+        return result
+
+    def transform_with_warnings(
+        self, X: pd.DataFrame
+    ) -> tuple[pd.DataFrame, list[str]]:
+        """Encode, and report every unseen-category substitution (H-0104).
+
+        Under ``"mode"`` and ``"nan"`` an unseen category is a correction the
+        caller did not write, so each affected column yields one message naming
+        the column, the unseen values and what replaced them.
+
+        Args:
+            X: DataFrame to transform (may include unseen categories).
+
+        Returns:
+            Tuple of ``(encoded_df, warnings)``.
+
+        Raises:
+            LizyMLError: With ``DATA_SCHEMA_INVALID`` when ``unseen_policy="error"``
+                and an unseen category is encountered.
+        """
         if not self._fitted:
             raise RuntimeError("CategoricalEncoder must be fitted before transform.")
 
+        warnings: list[str] = []
         X = X.copy()
         for col, known_cats in self._categories.items():
             if col not in X.columns:
@@ -99,17 +125,30 @@ class CategoricalEncoder:
                     )
                 # Convert to object dtype first so replacement values are accepted
                 series = series.astype(object)
+                hit = series.isin(list(unseen))
+                n_rows = int(hit.sum())
+                # A category dtype can declare values no row holds; replacing
+                # nothing is not a correction, so only values present count.
+                present = sorted({str(v) for v in series[hit]})
                 if self.unseen_policy == "mode":
                     replacement = self._modes.get(col)
                     series = series.replace(list(unseen), replacement)
+                    replaced_by = f"the training mode {replacement!r}"
                 else:  # "nan"
                     series = series.replace(list(unseen), None)
+                    replaced_by = "a missing value"
+                if n_rows:
+                    warnings.append(
+                        f"Column '{col}': {n_rows} row(s) with unseen categories "
+                        f"{present} replaced by {replaced_by} "
+                        f"(unseen_policy='{self.unseen_policy}')"
+                    )
 
             # Set categories to the known list
             series = series.astype("category")
             series = series.cat.set_categories(known_cats)
             X[col] = series
-        return X
+        return X, warnings
 
     def get_state(self) -> dict[str, Any]:
         """Return serializable state."""

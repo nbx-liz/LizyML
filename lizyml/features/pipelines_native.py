@@ -8,7 +8,7 @@ from typing import Any
 
 import pandas as pd
 
-from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.features.column_check import select_training_columns
 from lizyml.features.encoders.categorical_encoder import (
     CategoricalEncoder,
     UnseenPolicy,
@@ -100,34 +100,18 @@ class NativeFeaturePipeline(BaseFeaturePipeline):
         if not self._fitted:
             raise RuntimeError("NativeFeaturePipeline must be fitted before transform.")
 
-        col_warnings: list[str] = []
-        expected = set(self._feature_names)
-        present = set(X.columns)
+        # The same check the prediction facade runs first (H-0104); on that
+        # path X already holds exactly the training columns, so nothing is
+        # reported twice.
+        X, col_warnings = select_training_columns(X, self._feature_names)
 
-        missing = expected - present
-        if missing:
-            raise LizyMLError(
-                ErrorCode.DATA_SCHEMA_INVALID,
-                user_message=f"Required feature columns missing: {sorted(missing)}",
-                context={"missing_columns": sorted(missing)},
-            )
-
-        extra = present - expected
-        if extra:
-            col_warnings.append(
-                f"Extra columns ignored during transform: {sorted(extra)}"
-            )
-
-        # Keep only expected columns in training order
-        X = X[self._feature_names].copy()
-
-        # Encode categoricals
-        X = self._encoder.transform(X)
+        # Encode categoricals; unseen-category substitutions are reported.
+        X, encoder_warnings = self._encoder.transform_with_warnings(X)
 
         # Feature-level transforms
         X = self._transformer.transform(X)
 
-        return X, col_warnings
+        return X, col_warnings + encoder_warnings
 
     def get_state(self) -> dict[str, Any]:
         """Return serializable pipeline state."""

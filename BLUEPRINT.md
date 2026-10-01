@@ -314,6 +314,7 @@ config = {
 | `exclude` | `list[str]` | No | `[]` | 除外列 |
 | `auto_categorical` | `bool` | No | `True` | 自動カテゴリ検出 |
 | `categorical` | `list[str]` | No | `[]` | 明示カテゴリ指定 |
+| `unseen_policy` | `"mode" \| "nan" \| "error"` | No | `"mode"` | fit 時に無かったカテゴリの扱い（H-0104）。`mode` = 学習時の最頻値に置換、`nan` = 欠損に置換し、どちらも推論時は `PredictionResult.warnings` に報告する。`error` = `DATA_SCHEMA_INVALID`。データを変換するすべての場所に効く。§9.2 を参照 |
 
 ### split
 
@@ -575,7 +576,12 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - 不足列: デフォルトエラー（安全側）
 - unseen category:
   - OneHot: unknown 用カテゴリ or all-zero（ポリシー選択）
-  - LGBM native categorical: 扱いを固定（未知カテゴリの扱い・dtype 強制）
+  - LGBM native categorical: `features.unseen_policy`（既定 `"mode"`、H-0104）で選ぶ。
+    - `mode` / `nan` の置換は**補正**であり、推論時は列・値・置換先を `PredictionResult.warnings` に報告する（§7.3）。欠損値は未知カテゴリではなく、どの方針でも欠損のまま残す。
+    - 方針は fit が適用したものを pipeline 状態に保存し、推論時と生成コード（`predict.py`、再学習後の `train.py` も）はその値に従う。
+    - **CV の検証 fold にも同じ方針が効く。** ただし既定の `auto_categorical: true`（または `categorical` 指定）の列はデータ構築時に全行の値で `category` 型になるため、どの fold でも未知にならない。fold ごとに未知カテゴリが生じるのは、`auto_categorical: false` で pipeline がカテゴリとして扱う文字列列だけである。その場合 `error` では fit が止まり、`mode` / `nan` の置換は fit 中は報告されない（`FitResult` に警告の通り道が無い）。
+    - SHAP 重要度は最後の CV fold の pipeline 状態で学習データ全体を変換する。上記の文字列列では、その fold に含まれない行（スライディング窓）の値が未知になりうる: `error` では SHAP 重要度が `DATA_SCHEMA_INVALID`、`mode` / `nan` では報告なしに置換される。
+- 推論時の列検査（不足列は `DATA_SCHEMA_INVALID`、余剰列は警告して除外）は pipeline に渡す**前**に facade（`Model.predict`）で行い、どの pipeline 実装でも省略されない（H-0104）。
 
 # 10. Split（`splitters/`）と InnerValidStrategy（`training/`）
 
@@ -1398,7 +1404,9 @@ class EstimatorProvider(Protocol):
         self, task: str, params: dict, n_classes: int | None,
         early_stopping_rounds: int | None, seed: int,
     ) -> Callable[[], BaseEstimatorAdapter]: ...
-    def build_pipeline_factory(self) -> Callable[[], BaseFeaturePipeline]: ...
+    def build_pipeline_factory(
+        self, unseen_policy: UnseenPolicy = "mode",
+    ) -> Callable[[], BaseFeaturePipeline]: ...  # H-0104
     def default_space(self, task: str) -> list[SearchDim]: ...
     def default_fixed_params(self, task: str) -> dict[str, Any]: ...
     def runtime_deps(self) -> dict[str, str]: ...

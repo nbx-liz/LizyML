@@ -97,6 +97,8 @@ def generate_code(
         target_classes=target_classes,
         split=split,
         calibration_params=calibration_params,
+        # H-0104: the policy the fit applied, so a retrain keeps it.
+        unseen_policy=pipeline_state.get("encoder", {}).get("unseen_policy", "mode"),
     )
 
     # Write artifacts (config.json, model.txt, pipeline_state.json, calibrator)
