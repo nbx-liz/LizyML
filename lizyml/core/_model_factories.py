@@ -650,6 +650,31 @@ def tuned_validation_ratio(training_overrides: dict[str, Any] | None) -> float |
     return float(overrides["validation_ratio"])
 
 
+def applied_training_overlay(
+    training_overrides: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """The training overlay as the fit applies it -- the record H-0109 persists.
+
+    Training reads two names from a tuning result's ``best_training_params``
+    and converts each as it reads it: the patience with ``int()``
+    (:func:`effective_early_stopping_rounds`) and the ratio with ``float()``
+    (:func:`tuned_validation_ratio`). The record holds the converted values,
+    because those are what the fit used. Storing the raw overlay instead let a
+    categorical choice of ``"0.45"`` or ``True`` -- which training accepts --
+    be written to an artifact that ``Model.load()`` then refused (code review
+    round 1). Any other name is not read by training (a search space naming
+    one is refused before the study starts), so it is not recorded.
+    """
+    overrides = training_overrides or {}
+    applied: dict[str, Any] = {}
+    if "early_stopping_rounds" in overrides:
+        applied["early_stopping_rounds"] = int(overrides["early_stopping_rounds"])
+    ratio = tuned_validation_ratio(overrides)
+    if ratio is not None:
+        applied["validation_ratio"] = ratio
+    return applied
+
+
 def check_training_managed_space(provider: Any, cfg: LizyMLConfig) -> None:
     """Refuse a search dimension for a parameter a ``training.*`` setting controls.
 

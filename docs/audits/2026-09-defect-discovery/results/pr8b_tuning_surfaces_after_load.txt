@@ -1,0 +1,8 @@
+[fitted]
+  tuning_table: DataFrame shape (4, 14), columns ['trial', 'round', 'logloss', 'objective']
+  tuning_plot: Figure with 2 trace(s), points per trace [4, 4]
+  boundary_table: returns a table
+[loaded]
+  tuning_table: DataFrame shape (0, 0), columns []
+  tuning_plot: Figure with 0 trace(s), points per trace []
+  boundary_table: raises MODEL_NOT_FIT: No boundary report available. Run tune(resume=True) to generate a boundary report.

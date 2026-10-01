@@ -51,11 +51,13 @@ class FitState:
             Anything asking "what did this fit use?" must read
             ``applied_training_params`` or the trained adapter, not this.
         applied_training_params: The ``best_training_params`` overlay that the
-            last :meth:`Model.fit` actually applied, as a plain dict. Empty
-            when the fit ran without a tuning result — and also empty after
-            :meth:`Model.load`, where it is *unknown*: the artifact records the
-            tuning result but not which fit consumed it, so a loaded model
-            falls back to the configured values (H-0094 decision 13).
+            last :meth:`Model.fit` actually applied, as a plain dict; ``{}``
+            when the fit ran without a tuning result. :meth:`export` records it
+            and :meth:`Model.load` restores it (H-0109). ``None`` means
+            *unknown*: the model was loaded from an artifact written before the
+            record existed, and the reporting surfaces fall back to the
+            configured values (the bound H-0094 decision 13 stated, which now
+            applies to such artifacts only).
         provider: The estimator provider used for the current model.
             Required for SHAP, params summary, and codegen export.
         metrics: Pre-computed metrics dict (``{"raw": {...}, "calibrated":
@@ -73,7 +75,7 @@ class FitState:
     fit_result: FitResult
     refit_result: RefitResult | None
     tuning_result: TuningResult | None
-    applied_training_params: dict[str, Any]
+    applied_training_params: dict[str, Any] | None
     provider: EstimatorProvider
     metrics: dict[str, Any] | None
     y: pd.Series | None

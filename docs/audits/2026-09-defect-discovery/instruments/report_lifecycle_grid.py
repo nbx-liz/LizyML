@@ -15,8 +15,10 @@ which is a gap in the table and not a disagreement.
 **Three lifecycles here are not decision 13's, and that is the running lesson.**
 A declared set is only as good as its declaration, and this one has been short
 twice. `tune_fit_export_load` is the only ordering the bound decision 13 *states*
-actually bites in, so without it the `known-bound` branch was code no input
-reached. `fit_tune_refused_fit` and `fit_tune_failed_training` are round 17's
+actually bit in: until H-0109 (#281) recorded the overlay the fit applied in the
+artifact, its two `validation_ratio` cells were a `known-bound` verdict, and
+without the lifecycle that verdict was code no input reached. H-0109 removed the
+verdict; the cells now have to agree like any other. `fit_tune_refused_fit` and `fit_tune_failed_training` are round 17's
 finding: decision 13's five are all **success** orderings, so none of them could
 establish what a model reports after a call that failed -- and it reported the
 failed call. Add the lifecycle when a round finds one, rather than trusting the
@@ -70,11 +72,9 @@ CONFIG_SEED = 0
 CONFIG_ROUNDS = 10
 
 VALUES = ("early_stopping_rounds", "validation_ratio", "seed", "num_boost_round")
-#: Decision 13's five, plus one. The sixth is the lifecycle issue #281 names,
-#: and it is here because without it the `known-bound` branch below is a branch
-#: no input reaches -- the DC6 shape, shipped inside the instrument whose whole
-#: job is to catch declarations nothing executes. Decision 13's own set does not
-#: contain the lifecycle its stated bound bites in.
+#: Decision 13's five, plus one. The sixth is the lifecycle issue #281 names:
+#: the only one decision 13's stated bound bit in, before H-0109 recorded the
+#: applied overlay in the artifact. Decision 13's own set did not contain it.
 LIFECYCLES = (
     "fit",
     "tune_then_fit",
@@ -289,17 +289,6 @@ def main() -> int:
                         verdict = "unmeasured"
                     elif float(expected) == float(actual):
                         verdict = "agrees"
-                    elif (
-                        value == "validation_ratio"
-                        and lifecycle == "tune_fit_export_load"
-                    ):
-                        # The bound decision 13 states and #281 tracks: nothing
-                        # in the artifact records which fit consumed the
-                        # overlay, so a loaded model falls back to the config.
-                        # This is the only cell it bites in -- and it is not in
-                        # decision 13's own five lifecycles, which is why the
-                        # sixth is here.
-                        verdict = "known-bound"
                     else:
                         verdict = "DISAGREES"
                     rows.append(
@@ -334,9 +323,8 @@ def main() -> int:
         print(f"  n/a {value} x {surface}: {reason}")
 
     assert len(rows) == expected_cells, (len(rows), expected_cells)
-    # A `known-bound` cell that no input reaches would be a declaration nothing
-    # executes, inside the instrument that exists to catch exactly that.
-    assert counts.get("known-bound", 0) == len(SURFACES), counts
+    # H-0109 removed the `known-bound` verdict: every executed cell agrees.
+    assert set(counts) <= {"agrees", "n/a"}, counts
     failures = counts.get("DISAGREES", 0) + counts.get("unmeasured", 0)
     return 1 if failures else 0
 

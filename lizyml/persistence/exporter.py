@@ -4,7 +4,8 @@ Directory layout (format_version=2)::
 
     {path}/
         metadata.json        — human-readable metadata + version info +
-                               SHA-256 checksums of each .pkl (H-0083)
+                               SHA-256 checksums of each .pkl (H-0083) +
+                               the training overlay the fit applied (H-0109)
         fit_result.pkl       — FitResult (joblib compressed)
         refit_model.pkl      — RefitResult (joblib compressed)
         analysis_context.pkl — (optional) y_true + X for diagnostic APIs
@@ -83,6 +84,7 @@ def export(
     analysis_context: AnalysisContext | None = None,
     tuning: TuningResult | None = None,
     tuning_fixed_params: dict[str, Any] | None = None,
+    applied_training_params: dict[str, Any] | None = None,
 ) -> None:
     """Serialize Model artifacts to *path*.
 
@@ -99,6 +101,13 @@ def export(
             ``Model.load()`` reproduces the tuned params (H-0086, #215).
         tuning_fixed_params: Effective fixed policy of the successful tuning
             round. None omits metadata for legacy fallback; {} records no defaults.
+        applied_training_params: The ``best_training_params`` overlay the fit
+            that produced *fit_result* applied -- ``{}`` when it applied none.
+            Recorded under ``metadata["applied_training_params"]`` (H-0109),
+            because the ``tuning`` block is the model's *current* tuning result
+            and may be one no fit consumed. ``None`` means unknown (a model
+            loaded from an artifact without the record) and omits the key, so
+            re-exporting such a model does not invent a record.
 
     Raises:
         LizyMLError with SERIALIZATION_FAILED on any I/O or serialization error.
@@ -138,6 +147,8 @@ def export(
             metadata["tuning"] = _tuning_metadata(tuning)
             if tuning_fixed_params is not None:
                 metadata["tuning"]["fixed_params"] = dict(tuning_fixed_params)
+        if applied_training_params is not None:
+            metadata["applied_training_params"] = dict(applied_training_params)
         (out / "metadata.json").write_text(
             json.dumps(metadata, indent=2, default=str), encoding="utf-8"
         )

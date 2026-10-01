@@ -3024,10 +3024,11 @@ def test_a_loaded_model_reports_the_patience_its_adapters_carry(
     exported after ``fit -> tune`` carries an overlay that no fit consumed.
     The patience survives that because it is read from the pickled adapter.
 
-    ``validation_ratio`` does **not**: nothing in the artifact records which
-    overlay the fit applied, so a loaded model falls back to the configured
-    ratio. That bound is stated on ``FitState.applied_training_params`` and
-    asserted here rather than left to be discovered.
+    ``validation_ratio`` survives through the artifact's record of the overlay
+    the fit applied (H-0109): here that fit applied none, so the record is
+    ``{}`` and the configured ratio is the right answer -- not the overlay the
+    tuning block carries. ``tests/test_persistence/test_applied_training_params.py``
+    covers the ordering where the fit did consume a tuning result.
     """
     model = _training_report_model()
     model.fit()

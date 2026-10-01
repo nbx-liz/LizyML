@@ -1,0 +1,31 @@
+[regression]
+  first tree's split_gain=4.87775 3.24358 1.94935 3.22611 1.34514 0.941334  ...
+  booster gain        [255.5582718   96.01727405]
+  text round trip     [255.55830998  96.01725426]
+  max relative error  2.061e-07
+  pickled adapter's gain == text round trip's: True
+  split gains over all folds: 195, smallest 0.0144321
+  predict equal after load: True; OOF equal: True
+[binary]
+  first tree's split_gain=4.12997 1.87446 4.42438 1.58259 5.67752 2.00099 ...
+  booster gain        [133.78434753  39.30154359]
+  text round trip     [133.78430176  39.30154967]
+  max relative error  3.422e-07
+  pickled adapter's gain == text round trip's: True
+  split gains over all folds: 24, smallest 0.535711
+  predict equal after load: True; OOF equal: True
+[multiclass]
+  first tree's split_gain=2.48927 2.24178 2.12656 1.8131 2.16823 0.640225 0 ...
+  booster gain        [134.77864075  71.20664158]
+  text round trip     [134.77850056  71.20665619]
+  max relative error  1.040e-06
+  pickled adapter's gain == text round trip's: True
+  split gains over all folds: 89, smallest 0.341369
+  predict equal after load: True; OOF equal: True
+
+relative term (1 + 5e-6) * (1 + 2**-24) - 1 = 5.059605e-06; absolute term 2**-150
+largest relative gain error, real models: 1.040e-06
+sweep: 334506 positive finite float32 values, 1e-45..1e38, subnormals included
+  largest relative error over normal values: 5.054398e-06
+  largest error / (relative term * value + absolute term): 0.998971
+  every value within the bound: True
