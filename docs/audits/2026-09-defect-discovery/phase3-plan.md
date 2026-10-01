@@ -145,7 +145,7 @@ acceptance (DC5) the audit exists to find; see §5.
 | 7 | Decide the leakage validator's swallow | #267 | — | H-0107 | caller can tell "clean" from "not checked" | **merged** (#312, 2026-10-01). Design 3 rounds, code 2, close review 2. Filed #311 |
 | 8 | Classify all 74 defaulted public knobs (the "22 unreachable" were mostly reachable) | #268 | — | H-0108 | all 74 defaulted public knobs: reachable or written policy | **merged** (#314, 2026-10-01). The premise was wrong: see §PR 8. Design 4 rounds, code 3, close review 2. Filed #313 |
 | **8b** | **Record what the fit applied, in the artifact** | **#281** | — | yes | every value a reporting surface answers for survives `load()` | **merged** (#316, 2026-10-01; H-0109). Design 6 rounds (blocking 4 → 1 → 1 → 2 → 1 → 0; rounds 2-5 on the gain-tolerance derivation), code 2 (4 → 0), close review 1. #281 closed. Filed #315 |
-| **8c** | **Ship the completion-measurement instrument** | — | — | — | Phase 3 completion measured rather than judged per PR | **in progress** (moved earlier; was: before PR 9) |
+| **8c** | **Ship the completion-measurement instrument** | — | — | — | Phase 3 completion measured rather than judged per PR | **this PR** (2026-10-02; moved earlier, was: before PR 9). Design review 3 rounds with a fact check, then an acceptance review. At `33a3f6e` the instrument reports 20 COMPLETE, 2 COMPLETE-RED-BY-MUTATION, #270 PARTIAL, #286 NOT-PLANNED, #271 INCOMPLETE (PR 9). **Phase 3 completion is decided by running `instruments/phase3_gap.py` after PR 9, not by this row.** No Proposal: the instrument is audit tooling outside `lizyml/` (H-0110 is the next free id) |
 | 9 | Fold the decided proposals into `BLUEPRINT.md` | #271 | — | yes | proposal on the contract surface ⇒ named in BLUEPRINT | |
 
 ## 4. Per PR
@@ -1280,6 +1280,19 @@ empty is not user input and is out of that population — it is covered from the
 other side, by PR 1's boundary test over every key that reaches `lgb.train`.
 
 ## 8. How completion is measured
+
+> **Revision 7 (2026-10-02, PR 8c) — the instrument is shipped.** It is
+> `instruments/phase3_gap.py`, `instruments/phase3_manifest.json` (25 rows: the
+> issues in §3's Fixes and Refs columns) and `tests/test_docs/test_phase3_gap.py`.
+> Its contract is `results/pr8c_acceptance_criteria.md` §3 (propositions p1-p6 as
+> revised in three design review rounds), its executable statement is the module
+> docstring of `phase3_gap.py`, and what it cannot read is §5 of the same criteria
+> file. At `33a3f6e` it reports COMPLETE 20, COMPLETE-RED-BY-MUTATION 2 (#264,
+> #288), PARTIAL 1 (#270), NOT-PLANNED 1 (#286) and INCOMPLETE 1 (#271, whose test
+> is PR 9's), exit 1 (`results/pr8c_completion_33a3f6e.txt`). **Everything below,
+> the Revision 5 banner included, describes earlier designs and is kept as
+> history; where it disagrees with those files, they win.** The propositions are
+> deliberately not restated here, so that there is one statement of them.
 
 > **Superseded in part (Revision 5) — this section describes an instrument that
 > is not shipped.** Everything below states what `phase3_gap.py`,

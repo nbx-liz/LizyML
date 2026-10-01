@@ -50,7 +50,8 @@ def main(after_ref: str, scratch: str) -> int:
                 differ.append(f"{f} absent")
             elif b.read_bytes() != (after / f).read_bytes():
                 differ.append(f"{f} differs")
-        print(f"    {len(helpers)} helper files; not identical: {differ or 'none'}")
+        print(f"    {len(helpers) - 1} staged helper files + unstaged tests/conftest.py; "
+              f"not identical: {differ or 'none'}")
     return 0
 
 

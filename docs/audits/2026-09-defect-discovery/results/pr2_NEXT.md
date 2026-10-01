@@ -1,13 +1,17 @@
-# 次の一手 — 2026-10-01（Phase 3: PR 8b まで完了。PR 8c 進行中）
+# 次の一手 — 2026-10-02（Phase 3: PR 8c の PR を作成。マージ後の次は PR 9）
 
 このファイルだけ読めば次の作業に入れるように書いてある。
 **前版（2026-09-15、「次は PR 3c」）はこの版に置き換わる。** 前版は git 履歴に残っている。
 
 ---
 
-## 最初にやること —— **PR 8c（完了測定器）を進める**
+## 最初にやること —— **PR 8c がマージされていれば PR 9（#271）**
 
-PR 8b（#316、H-0109）はマージ済み（`develop` = `33a3f6e`）、#281 は close 済み、#315 を起票。PR 8c は計画 §8 の完了測定器を出荷する（`instruments/deferred/` の 4 ファイルを、実際にマージされたテストに合わせて作り直す）。完了基準は `results/pr8c_acceptance_criteria.md`、実測は `results/pr8c_measurements.txt`。以下の PR 8b 以前の節は経緯として残す。
+PR 8c は計画 §8 の完了測定器を出荷する（`instruments/phase3_gap.py`、`instruments/phase3_manifest.json`、`tests/test_docs/test_phase3_gap.py`）。マージされたかは `gh pr list --state merged --head chore/phase3-pr8c-completion-instrument` で確かめる。次は PR 9: 決定済みの Proposal を BLUEPRINT.md に畳み込み、#271 のテスト（`tests/test_docs/test_proposal_blueprint_coverage.py`）を足す。PR 9 の後、`run-exclusive.sh` 経由で `phase3_gap.py --after origin/develop` を回し、exit 0（INCOMPLETE と UNKNOWN が 0）で Phase 3 の完了を判定する。manifest の #271 の行（`github_prs` が空）は PR 9 の番号で埋める。
+
+### PR 8c（完了測定器、この版を書いた時点で PR 作成中）
+
+PR 8b（#316、H-0109）はマージ済み（`develop` = `33a3f6e`）、#281 は close 済み、#315 を起票。PR 8c は計画 §8 の完了測定器を出荷する（`instruments/deferred/` に残っていた 3 ファイルを、実際にマージされたテストに合わせて作り直す。archive の manifest は `.gitignore` の `*.json` のため一度もコミットされていなかった）。完了基準は `results/pr8c_acceptance_criteria.md`、実測は `results/pr8c_measurements.txt`。以下の PR 8b 以前の節は経緯として残す。
 
 ### （済）PR 8b（#281）
 

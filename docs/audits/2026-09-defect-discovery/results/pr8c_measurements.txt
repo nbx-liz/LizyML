@@ -142,12 +142,16 @@ Every line below was produced by an executed instrument; the raw outputs sit bes
      instruments/pr8c_round2_checks.py -> pr8c_round2_checks.txt,
      instruments/pr8c_round2_staging.py -> pr8c_round2_staging.txt)
     - Reintroduction mutations at the after tree (33a3f6e): #264 (lizyml/core/model.py)
-      96 failed, 133 passed; #288 (lizyml/core/_model_factories.py) 13 failed,
-      216 passed. Unmutated, both suites are 229 passed.
-    - fix_text provenance: `override=params` (#264) and `return dict(base)` (#288) are
-      `+` lines of #278's merge. The whole #264 `old` line is not, because #290 later
-      added `validate_values=True` to it; and `canonical =` in #288's `old` was not
-      added by #278. So the manifest binds provenance to `fix_text`, not to `old`.
+      96 failed, 133 passed; #288's round 2 mutation (lizyml/core/_model_factories.py,
+      replaced after round 3 -- see item 11) 13 failed, 216 passed. Unmutated, both
+      suites are 229 passed.
+    - fix_text provenance: `override=params` (#264) and the round 2 #288 fix_text
+      `return dict(base)` are `+` lines of #278's merge. The whole #264 `old` line is
+      not, because #290 later added `validate_values=True` to it; and `canonical =`
+      in the round 2 #288 `old` was not added by #278. So the manifest binds
+      provenance to `fix_text`, not to `old`. (The current #288 fix_text,
+      `overlay_params(provider, model_params, fixed)`, is a `+` line of #278's merge
+      to lizyml/core/model.py; phase3_gap checks it on every run, trial 3.)
     - Closure comments: 22 comment ids pinned (every closed row with a fixing PR; #286
       is not-planned and has none). Each was written no earlier than every fixing
       PR's merge and no later than the close.
@@ -187,7 +191,8 @@ Every line below was produced by an executed instrument; the raw outputs sit bes
 
 11. #288's evidence, and the round 3 rule changes against the real trees
     (instruments/pr8c_round3_probe.py -> pr8c_round3_probe.txt,
-     instruments/pr8c_round2_staging.py re-run, pr8c_trial3.txt)
+     instruments/pr8c_round2_staging.py re-run -> pr8c_round3_staging.txt,
+     pr8c_trial3.txt = pr8c_completion_33a3f6e.txt)
     - #288 reported a coverage gap, not a defect; its fix is test-only (22b11b3 in
       #278: tests/test_core/test_fit_params_override.py and the PR 2 criteria). The
       round 2 manifest mutation (overlay_params merging every seam by spelling) is no
@@ -208,7 +213,9 @@ Every line below was produced by an executed instrument; the raw outputs sit bes
       not one of #288's seams; no test catches its spelling merge.
     - Staging references with string literals read over-inclusively (absolute,
       leading-dot relative, and under the file's package and every enclosing
-      package): still 0 in all 19 rows (13 distinct before commits).
+      package): still 0 in all 19 rows (13 distinct before commits)
+      (pr8c_round3_staging.txt, whose helper line now reads "25 staged helper
+      files + unstaged tests/conftest.py").
     - Full trial after the round 3 fixes (pr8c_trial3.txt, 220 s): the same split as
       trial 2 -- COMPLETE 20, COMPLETE-RED-BY-MUTATION 2, PARTIAL 1, NOT-PLANNED 1,
       INCOMPLETE 1 (#271), UNKNOWN 0, exit 1. With p3 now comparing node ids as a
