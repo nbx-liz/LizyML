@@ -38,7 +38,7 @@
 | `needs_proba` の指標に binary の logit | `auc` / `auc_pr` / `ece` / `precision_at_k` は黙って計算、`brier` / `logloss` は scikit-learn の `ValueError` |
 | `cross_entropy_lambda` で指標を 1 つに限った `Model.fit`（#307 のデータ） | `auc` / `auc_pr` / `ece` / `precision_at_k` は成功し proba 最大 3.148。`logloss` / `brier` は `ValueError` |
 | `config_version` | `model_validate(v=2)` / `model_construct` / 代入 / `model_copy` / 環境変数 `2` が受理。`False` も全経路で受理（検証を通る経路では `0` に変換、`model_construct` / 代入 / `model_copy` では `bool` の `False` のまま。設計レビュー round 1 が訂正） |
-| firing rate（フルスイート、8108 passed、計測器は round 1 の指摘で修正済み） | dtype 0/112 `run_predict`、読み戻せない記録 0/23 dtype、確率 61/7053（すべて `test_feval_probabilities.py` の `cross_entropy_lambda`）、版 0/1253 完了した `Model.__init__`・0/1375 完了した `LizyMLConfig` の検証 |
+| firing rate（フルスイート、8108 passed、計測器は round 1 の指摘で修正済み） | dtype 0/112 `run_predict`、読み戻せない記録 0/23 dtype、確率 61/7053（60 は `test_feval_probabilities.py` の `cross_entropy_lambda`、1 は `test_metric_entry_integration.py::test_feval_returns_display_name` の合成 logit。round 2 が帰属を訂正）、版 0/1253 完了した `Model.__init__`・0/1375 完了した `LizyMLConfig` の検証 |
 
 ## 3. 受け入れ基準 → 証拠の対応表
 
@@ -68,6 +68,7 @@
 | 3c | 検査の対象が登録から読んだ 6 指標と一致（手書きの一覧ではない） | ガード | `::test_the_population_is_every_needs_proba_metric` |
 | 3d | `cross_entropy_lambda`、指標 `auc` の `Model.fit`（#307 のデータ）が `METRIC_REQUIRES_PROBA` | RED | `::test_cross_entropy_lambda_fit_reports_the_metric` |
 | 3e | feval のテストの「同じ失敗」分岐が新しい例外でも成り立つ | ガード | `tests/test_estimators/test_feval_probabilities.py`（変更なしで通る） |
+| 3h | feval の表示名のテストが、LightGBM が実際に渡す確率を入力にして通る（H-0105 の誤った前提の合成 logit を確率に替える。主張は変えない） | 書き直し | `tests/test_metrics/test_metric_entry_integration.py::test_feval_returns_display_name` |
 | 4a | 入口（`load_config(dict)` / `Model(dict)` / `model_validate` / `Model(model_validate(...))` / `model_construct` / 代入 / `model_copy(update=)` / 環境変数）× 版（`1` / `2`）: `1` は受理、`2` は `CONFIG_VERSION_UNSUPPORTED` | RED（`2` の新しい入口） | `tests/test_config/test_config_version_entry_paths.py::test_entry_path_by_version[*]` |
 | 4b | `config_version: False` がすべての入口で `CONFIG_VERSION_UNSUPPORTED`（dict、`model_validate`、環境変数 `"false"`、`bool` を保持する `Model(model_construct)` / `Model(代入)` / `Model(model_copy)`）。検証を通らない 3 経路では、構築・代入・コピーは成功し `Model` が受け取る時点で拒否される（blocking 3） | RED | `::test_false_is_not_version_zero[*]` |
 | 4e | `True` と `"1"` はすべての入口で受理される | ガード | `::test_true_and_string_one_are_version_one[*]` |

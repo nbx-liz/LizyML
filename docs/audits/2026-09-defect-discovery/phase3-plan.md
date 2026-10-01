@@ -1148,8 +1148,9 @@ PR 6 opened). Implementing `INCOMPATIBLE_COLUMNS` and `METRIC_REQUIRES_PROBA`
 means two new `allow` predicates; H-0106 carries their lines, measured on
 `1abf7fb` over the full suite (8108 passed): **0/112** `Model.predict` calls
 for the predict-time dtype check, and **61/7053** calls to the six
-`needs_proba` metrics for the probability check (all 61 in
-`test_feval_probabilities.py`'s `cross_entropy_lambda` cells, #307). The dtype
+`needs_proba` metrics for the probability check (60 in
+`test_feval_probabilities.py`'s `cross_entropy_lambda` cells, #307, and 1 in a
+feval display-name test that still fed the feval synthetic logits). The dtype
 check carries one exemption (a recorded dtype string `pandas_dtype` cannot
 parse leaves its column unchecked), measured **0/23** fittable dtypes. The #272
 line above was re-measured at the new check positions: **0/1253** completed
