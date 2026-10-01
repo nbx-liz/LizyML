@@ -1,0 +1,73 @@
+PR 8b (#281, H-0109) measurements, develop 036cd18, 2026-10-01
+=================================================================
+
+All instruments live in ../instruments/ and run with `uv run python <file>`.
+
+1. Which reporting-surface readings do not survive export -> load
+   instrument: pr8b_load_census.py     output: pr8b_load_census.txt
+
+   19 public reporting surfaces x 4 configurations (regression, binary,
+   binary with platt calibration, multiclass) x 5 lifecycles (fit, tune_fit,
+   fit_tune, tune_fit_reexport, tune_resume_fit) = 380 cells; 80 differ.
+
+   | surface                    | differing cells | cause                                      |
+   |----------------------------|-----------------|--------------------------------------------|
+   | params_table               | 12              | validation_ratio: tuned 0.45 -> config 0.2 (#281) |
+   | export_code                | 12              | validation_ratio: tuned 0.45 -> config 0.2 (#281) |
+   | importance_gain            | 20              | LightGBM writes split_gain with 6 significant digits (item 2) |
+   | tuning_table               | 16              | trials not persisted (H-0086); empty frame -> #315 |
+   | tuning_plot                | 16              | trials not persisted (H-0086); empty figure -> #315 |
+   | boundary_table             | 4               | boundary report not persisted (H-0086); raises -> #315 |
+
+   The 12 + 12 #281 cells are exactly the lifecycles in which a fit consumed a
+   tuning result (tune_fit, tune_fit_reexport, tune_resume_fit) x 4
+   configurations. fit_tune agrees: the loaded model falls back to the config,
+   which is what that fit used.
+
+   Exercised cells (the fitted model returned a reading, so there was a value
+   to lose): every surface has at least 4. boundary_table has a reading only
+   in tune_resume_fit (4 cells); calibration_plot and
+   probability_histogram_plot only in binary_calibrated (5 each).
+   importance("shap") is in the census (20 exercised, 0 differing).
+
+2. Is the gain drift LightGBM's text format?
+   instrument: pr8b_gain_precision.py  output: pr8b_gain_precision.txt
+
+   The fold-0 booster against Booster(model_str=booster.model_to_string()):
+   the text writes split_gain= with at most 6 significant digits
+   ("4.87775 3.24358 ..."). The pickled adapter's gain equals the text round
+   trip's exactly in all three tasks; predictions and OOF are bit-identical
+   after load. Largest relative gain error observed: 1.040e-06. Bound from the
+   format: 5e-6 (half a unit in the 6th significant digit, carried through a
+   sum of non-negative split gains).
+
+3. What a loaded model's tuning surfaces present
+   instrument: pr8b_tuning_surfaces_after_load.py
+   output: pr8b_tuning_surfaces_after_load.txt
+
+   tuning_table (4, 14) -> (0, 0); tuning_plot 2 traces -> 0 traces;
+   boundary_table table -> raises MODEL_NOT_FIT "Run tune(resume=True) ...".
+   Filed as #315 (out of scope for #281; H-0086 rejected persisting trials).
+
+4. Legacy metadata key set (before H-0109)
+   instrument: pr8b_metadata_keys.py   output: pr8b_metadata_keys_before.txt
+
+   fit:      checksums config feature_names format_version lizyml_version
+             metrics python_version run_id task timestamp
+   tune_fit / fit_tune: the same plus tuning.
+   tuning.best_training_params is {'early_stopping_rounds': 219,
+   'validation_ratio': 0.45} in BOTH tune_fit and fit_tune, so the tuning
+   block cannot tell which fit consumed it (fit_tune's fit consumed nothing).
+   The early_stopping_rounds value is an int from the default space's IntDim
+   and reaches JSON as an int.
+
+5. Positions the rule binds (grep applied_training_params over lizyml/, all hits)
+   lizyml/core/model.py:160            initialised empty
+   lizyml/core/model.py:333            set in fit's commit group
+   lizyml/core/model.py:921            copied into FitState
+   lizyml/core/_model_state.py:53,76   FitState field + docstring
+   lizyml/core/_model_tables.py:301,314  params_table reader
+   lizyml/core/_model_persistence.py:211,269  export_code reader
+   plus the two persistence functions that must carry it:
+   lizyml/persistence/exporter.py export(), lizyml/core/_model_persistence.py
+   ModelPersistenceMixin.export() / load().

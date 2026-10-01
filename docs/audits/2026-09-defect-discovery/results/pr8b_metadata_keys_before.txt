@@ -1,0 +1,6 @@
+fit       keys=['checksums', 'config', 'feature_names', 'format_version', 'lizyml_version', 'metrics', 'python_version', 'run_id', 'task', 'timestamp']
+          tuning.best_training_params=None
+tune_fit  keys=['checksums', 'config', 'feature_names', 'format_version', 'lizyml_version', 'metrics', 'python_version', 'run_id', 'task', 'timestamp', 'tuning']
+          tuning.best_training_params={'early_stopping_rounds': 219, 'validation_ratio': 0.45}
+fit_tune  keys=['checksums', 'config', 'feature_names', 'format_version', 'lizyml_version', 'metrics', 'python_version', 'run_id', 'task', 'timestamp', 'tuning']
+          tuning.best_training_params={'early_stopping_rounds': 219, 'validation_ratio': 0.45}
