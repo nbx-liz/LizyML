@@ -97,13 +97,17 @@ def _build_split_metadata(cfg: Any) -> dict[str, Any]:
 def _checked_applied_training_params(record: Any, path: str | Path) -> dict[str, Any]:
     """Refuse a record no fit could have written (H-0109).
 
-    Accepting it would fail later and elsewhere: ``float()`` inside
-    ``params_table``, or an impossible ratio handed to the generated
-    ``train.py``. Names are the training dimensions training consumes; values
-    are finite real numbers, and the ratio lies in ``(0, 1)`` because every
-    inner-validation strategy requires that, so no fit can have applied another.
-    The patience gets no range: the reports read it from the adapter, and the
-    training path converts it with ``int()`` without one.
+    A fit records its overlay through ``applied_training_overlay``: the two
+    training dimensions, converted as training converts them -- the patience an
+    ``int``, the ratio a ``float`` in ``(0, 1)``, because every inner-validation
+    strategy requires that, so no fit can have applied another. Anything else
+    would fail later and elsewhere: ``float()`` inside ``params_table``, or an
+    impossible ratio handed to the generated ``train.py``. The patience gets no
+    range: the reports read it from the adapter, and training converts it with
+    ``int()`` without one.
+
+    Every refusal's context carries the path and the type of the offending
+    value, and the key when there is one.
     """
     import math
 
@@ -119,24 +123,30 @@ def _checked_applied_training_params(record: Any, path: str | Path) -> dict[str,
     if not isinstance(record, dict):
         raise refuse("must be an object", {"type": type(record).__name__})
     for name, value in record.items():
+        context = {"key": name, "type": type(value).__name__}
         if name not in TRAINING_DIMENSION_NAMES:
             raise refuse(
                 f"names {name!r}, which is not a training dimension",
-                {"key": name, "accepted": sorted(TRAINING_DIMENSION_NAMES)},
+                {**context, "accepted": sorted(TRAINING_DIMENSION_NAMES)},
             )
+        expected = int if name == "early_stopping_rounds" else float
+        # ``bool`` is an ``int`` subclass, and JSON integers are unbounded:
+        # ``math.isfinite(10**400)`` raises ``OverflowError``, so only floats
+        # are tested for finiteness (code review round 1).
         if (
             isinstance(value, bool)
-            or not isinstance(value, int | float)
-            or not math.isfinite(value)
+            or not isinstance(value, expected)
+            or (isinstance(value, float) and not math.isfinite(value))
         ):
             raise refuse(
-                f"holds {value!r} for {name!r}, which is not a finite number",
-                {"key": name, "type": type(value).__name__},
+                f"holds {value!r} for {name!r}, which is not a finite "
+                f"{expected.__name__}",
+                context,
             )
         if name == "validation_ratio" and not 0.0 < value < 1.0:
             raise refuse(
                 f"holds validation_ratio={value!r}, outside (0, 1)",
-                {"key": name, "value": value},
+                {**context, "value": value},
             )
     return dict(record)
 

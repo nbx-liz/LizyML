@@ -258,10 +258,19 @@ def test_an_unknown_record_is_not_rewritten_as_empty(tmp_path: Path) -> None:
         ["validation_ratio", 0.45],
         {"seed": 1},
         {"validation_ratio": True},
+        # The patience is an ``int``, and ``bool`` is an ``int`` subclass: this
+        # case is refused by the bool clause alone (the ratio case above is
+        # also outside (0, 1)).
+        {"early_stopping_rounds": True},
         {"validation_ratio": "0.45"},
         {"validation_ratio": None},
         {"validation_ratio": math.nan},
         {"early_stopping_rounds": math.inf},
+        # A fit records the patience as ``int()`` gives it.
+        {"early_stopping_rounds": 2.5},
+        # JSON integers are unbounded; ``math.isfinite(10**400)`` would raise
+        # ``OverflowError`` rather than the deserialization error.
+        {"validation_ratio": 10**400},
         # No inner-validation strategy accepts a ratio outside (0, 1), so no fit
         # can have applied one.
         {"validation_ratio": 0.0},
@@ -270,17 +279,24 @@ def test_an_unknown_record_is_not_rewritten_as_empty(tmp_path: Path) -> None:
     ids=[
         "not_a_dict",
         "unknown_key",
-        "bool",
+        "bool_ratio",
+        "bool_patience",
         "string",
         "null",
         "nan",
         "inf",
+        "float_patience",
+        "huge_int",
         "ratio_zero",
         "ratio_one",
     ],
 )
 def test_a_malformed_record_is_refused_on_load(record: Any, tmp_path: Path) -> None:
-    """Accepting it would fail later, inside a report, as a raw error."""
+    """Accepting it would fail later, inside a report, as a raw error.
+
+    The context names the path and the offending value's type, and the key
+    when there is one.
+    """
     out = _run(_model(), "fit").export(tmp_path / "artifact")
 
     def put(metadata: dict[str, Any]) -> None:
@@ -292,6 +308,48 @@ def test_a_malformed_record_is_refused_on_load(record: Any, tmp_path: Path) -> N
         Model.load(out)
     assert excinfo.value.code == ErrorCode.DESERIALIZATION_FAILED
     assert KEY in excinfo.value.user_message
+    context = excinfo.value.context
+    assert context["path"] == str(out)
+    if isinstance(record, dict):
+        (name, value), *_ = record.items()
+        assert context["key"] == name
+        assert context["type"] == type(value).__name__
+    else:
+        assert context["type"] == type(record).__name__
+
+
+@pytest.mark.parametrize(
+    ("dimension", "choice", "recorded"),
+    [
+        ("validation_ratio", "0.45", 0.45),
+        ("early_stopping_rounds", True, 1),
+        ("early_stopping_rounds", 3.0, 3),
+    ],
+    ids=["string_ratio", "bool_patience", "float_patience"],
+)
+def test_the_record_holds_what_training_applied(
+    dimension: str, choice: Any, recorded: Any, tmp_path: Path
+) -> None:
+    """Training converts each value as it reads it, and the record follows.
+
+    Recording the raw choice let a categorical ``"0.45"`` or ``True`` -- both
+    trained with -- reach an artifact ``Model.load()`` then refused (code review
+    round 1). The record is the converted value, so the artifact loads.
+    """
+    space = {
+        dimension: {"type": "categorical", "choices": [choice], "category": "training"}
+    }
+    model = _run(_model(space=space), "tune_fit")
+
+    out = model.export(tmp_path / "artifact")
+
+    record = _metadata(out)[KEY]
+    assert record == {dimension: recorded}
+    assert type(record[dimension]) is type(recorded)
+    loaded = Model.load(out)
+    assert loaded._get_fit_state().applied_training_params == {dimension: recorded}
+    if dimension == "validation_ratio":
+        assert _reported_ratio(loaded) == recorded
 
 
 @pytest.mark.parametrize(

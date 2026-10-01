@@ -53,6 +53,7 @@ from lizyml.config.schema import (
 )
 from lizyml.config.version import check_config_version
 from lizyml.core._model_factories import (
+    applied_training_overlay,
     build_inner_valid,
     build_splitter,
     check_calibration_param_names,
@@ -330,7 +331,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         self._metrics = metrics
         # The only record of what *this* fit applied: a later tune() replaces
         # `_tuning_result` and leaves the fitted adapters alone (decision 13).
-        self._applied_training_params = dict(training_overrides)
+        self._applied_training_params = applied_training_overlay(training_overrides)
         self._refit_result = refit_result
         self._fit_result = fit_result
         _log.info("event='fit.done' run_id=%s", run_id)

@@ -10686,9 +10686,9 @@ H-0094 決定 13 は、`params_table()` と `export_code()` が「この fit が
 
 ### 対応方針（決定）
 
-1. **`metadata.json` に最上位のキー `applied_training_params` を足す。** 値は、artifact のモデルを作った fit が適用した `best_training_params` の dict（overlay を使わなかった fit は `{}`）。`format_version` は 2 のまま（追加のキーだけで、H-0083 `checksums` / H-0086 `tuning` と同じ形）。
+1. **`metadata.json` に最上位のキー `applied_training_params` を足す。** 値は、artifact のモデルを作った fit が適用した overlay の dict で、training が読むときに変換した値を持つ（patience は `int()`、比率は `float()`。`_model_factories.applied_training_overlay`）。overlay を使わなかった fit は `{}`。生の `best_training_params` をそのまま記録すると、training が変換して受け入れる categorical の `"0.45"` や `True` を記録し、その artifact を `load()` が拒否した（コードレビュー round 1 が実行で示した）。`format_version` は 2 のまま（追加のキーだけで、H-0083 `checksums` / H-0086 `tuning` と同じ形）。
 2. **「不明」と「overlay なし」を分ける。** `Model._applied_training_params` と `FitState.applied_training_params` を `dict[str, Any] | None` にする。`None` = 不明（記録の無い artifact から load した）、`{}` = fit は overlay を使わなかった、dict = 適用した overlay。export はキーを `None` でないときだけ書く。理由: 潰すと、記録の無い（修正前の）artifact を load して再 export したとき、`{}` という確定した記録を偽って書くことになる。状態の遷移: `__init__` は `{}`（fit 前は誰も読まない）。成功した `fit()` だけが記録を置き換える（決定 14 の commit の中）。`load()` はキーがあれば検査して復元し、無ければ `None`。`tune()`、拒否された `fit()`、学習中に失敗した `fit()` は記録を変えない（記録は保持しているモデルの fit を説明し続ける）。再 export は記録をそのまま書く（`None` なら書かない）。
-3. **`load()` で記録を検査してから復元する。** 拒否するもの（`DESERIALIZATION_FAILED`、context にキーと値の型）: dict でない、知らないキー（training の次元として消費される `early_stopping_rounds` / `validation_ratio` 以外）、bool、数でない値、非有限の値、`(0, 1)` の外の `validation_ratio`。理由: 受け入れて報告面の `float()` で落ちる、または生成コードに不可能な比率を渡すのは、読み込みで通して後で失敗する形（DC1 / DC7）である。比率の範囲は、inner valid の戦略がすべて `0 < ratio < 1` を要求する（`training/inner_valid.py` の 5 か所）ので、どの fit も範囲外の比率を適用できない。patience には範囲を設けない: 報告面は patience を記録ではなく adapter から読み、学習経路は `int()` するだけで範囲を検査しない（設計レビュー round 1 の非 blocking の指摘に従い、学習経路より厳しい規則を記録に置かない）。2 つの名前は `_tuning_validation.py` がすでに使っている集合で、1 つの定数にして両方から読む。キーが無い artifact は今までどおり読め、`None` になる（決定 13 の bound は、記録の無い artifact に限って残る）。
+3. **`load()` で記録を検査してから復元する。** 拒否するもの（`DESERIALIZATION_FAILED`。context にはパスと値の型、キーがあればキー）: dict でない、知らないキー（training の次元として消費される `early_stopping_rounds` / `validation_ratio` 以外）、bool、`int` でない patience、`float` でない比率、非有限の値、`(0, 1)` の外の `validation_ratio`。JSON の整数は上限が無いので、有限性は `float` にだけ問う（`math.isfinite(10**400)` は `OverflowError` を出す。コードレビュー round 1）。理由: 受け入れて報告面の `float()` で落ちる、または生成コードに不可能な比率を渡すのは、読み込みで通して後で失敗する形（DC1 / DC7）である。比率の範囲は、inner valid の戦略がすべて `0 < ratio < 1` を要求する（`training/inner_valid.py` の 5 か所）ので、どの fit も範囲外の比率を適用できない。patience には範囲を設けない: 報告面は patience を記録ではなく adapter から読み、学習経路は `int()` するだけで範囲を検査しない（設計レビュー round 1 の非 blocking の指摘に従い、学習経路より厳しい規則を記録に置かない）。2 つの名前は `_tuning_validation.py` がすでに使っている集合で、1 つの定数にして両方から読む。キーが無い artifact は今までどおり読め、`None` になる（決定 13 の bound は、記録の無い artifact に限って残る）。
 4. **読み手は変えない。** `tuned_validation_ratio(None)` はすでに `None`（= config の比率）を返す。`params_table` と `export_code` は、記録があれば記録を、無ければ config を答える。
 5. **恒久検査**（`tests/test_persistence/test_reporting_surfaces_survive_load.py`、定義は `_load_census.py`）: 440 セルを実行し、`load()` 前後の読みを比べる。違うセルの集合が宣言した例外の集合と**等しい**ことを確かめる: gain 重要度は相対 5.1e-6 + 絶対 2^-126 以内なら一致と数え、tuning の 3 面は #315 のセルだけが違ってよい。#315 を直すと、このテストがそれを知らせる。`INVENTORY` が `Model` の公開名と一致することも確かめる（新しい公開メソッドは、読むか理由を書くまで失敗する）。空振りの防止として、22 面それぞれに修正前のモデルが読みを返したセルがあること、tuned と config の比率が違うセルが 12 あることも確かめる。
 
@@ -10701,7 +10701,7 @@ gain の許容差は観測からではなく形式から決める。split の ga
 | # | 位置 | 本 PR |
 |---|---|---|
 | 1 | `model.py:160`（初期値） | `{}` のまま（fit 前は読まれない） |
-| 2 | `model.py:333`（fit の commit） | 変えない（dict を入れる） |
+| 2 | `model.py:333`（fit の commit） | `applied_training_overlay` で変換した値を入れる（`_model_factories.py` に新設） |
 | 3 | `model.py:921`（`FitState` へ写す） | `None` を写せるようにする |
 | 4 | `_model_state.py:52, 53, 76`（`FitState` のフィールドと、`tuning_result` / `applied_training_params` の docstring） | 型を `dict | None` に、docstring の bound を書き換える |
 | 5 | `_model_tables.py:301, 314`（`params_table`） | コメントの bound を書き換える（読み方は変えない） |
@@ -10716,7 +10716,7 @@ gain の許容差は観測からではなく形式から決める。split の ga
 - **読み込み**: キーの無い artifact（修正前の export）は今までどおり読める。比率は config に落ちる（決定 13 の bound と同じ）。修正前の export が書く最上位のキー集合を測った（`pr8b_metadata_keys_before.txt`）。修正後の export がその集合にこのキーだけを足すことをテストで確かめ、テストではキーを消した artifact を修正前の artifact として使う（キー集合が同じことは確かめるが、他のキーの値は現行の exporter が書いたものである）。pickle は変わらない（`FitResult` / `RefitResult` に触れない）。
 - **書き込み**: 修正後の export は追加のキーを 1 つ書く。現行（`036cd18`）の loader は知らない最上位のキーを無視する（設計レビューが実行で確かめた。それより古いリリースは確かめていない）ので、新しい artifact を現行のライブラリで読むこともできる。
 - **振る舞いの変化**: `tune → fit → export → load` の後の `params_table()` の `validation_ratio` 行と `export_code()` が生成する比率が、config の値から fit が使った値に変わる。後者は生成される `train.py` の inner valid の比率を変える（#281 の修正そのもの）。
-- **新しく拒否するもの**: 不正な記録を持つ artifact。修正前のライブラリはこのキーを書かないので、拒否されうるのは手で編集された metadata だけである。
+- **新しく拒否するもの**: 不正な記録を持つ artifact。修正前のライブラリはこのキーを書かず、修正後のライブラリは training が変換した値（`int` の patience と `(0, 1)` の `float` の比率）だけを書くので、拒否されうるのは手で編集された metadata だけである。
 - **`FitState.applied_training_params` の型**: `dict` から `dict | None` に広がる。`FitState` は内部の型で、読み手は `tuned_validation_ratio` の 2 か所だけ（すでに `None` を受け取る）。
 
 **Firing rate**: 本提案の条件分岐（キーがあれば復元、無ければ `None`）は、互換性のための読み分けで、Change Gate の 6 つの目的（skip / shorten / cache / select / allow / conditionally-activate）のどれでもない。参考に、直す値の母集団を書く: 全数計測の 440 セル中、#281 のセルは 24（fit が tuning result を消費した 3 lifecycle × 4 構成 × 2 面）。
