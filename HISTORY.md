@@ -10577,8 +10577,9 @@ Firing rate: 10/10 of numeric-declared extension columns that raise in `__array_
 
 ## H-0108: 既定値付きの構成値の出どころを全数で分類し、Config のキーが設定しないものを BLUEPRINT に書く（#268 / PR 8）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-01
+- **決定日**: 2026-10-01（事実確認を含む外部レビュー: 設計レビュー 4 ラウンド（blocking 6 → 1 → 1 → 0。分類の規則と優先順位を明文化し、経路ごとのセルを足し、#313 を発見）、コードレビュー 3 ラウンド（blocking 6 → 1 → 0。回帰の代替経路のセル、§5.5 の位置の検査、#268 への訂正コメント）。各ラウンドの前に absolute / relational monitor。**#268 と計画の前提（名前の照合）が誤りだったので、承認済みの「9 個を公開」を置き換えた**）
 - **スコープ**: `BLUEPRINT.md`（§5.5 を新設）, `tests/test_config/_knob_registry.py` / `tests/test_config/test_knob_reachability.py`（新規）, `tests/test_plots/test_model_plot_options.py` / `tests/test_tuning/test_detect_boundary_threshold.py`（新規）, `docs/audits/2026-09-defect-discovery/phase3-plan.md`（§3 / §PR 8 / §6 / §7 の訂正）, `CHANGELOG.md`。**production コードは変えない。**
 - **関連**: [Issue #268](https://github.com/nbx-liz/LizyML/issues/268), [Issue #313](https://github.com/nbx-liz/LizyML/issues/313)（設計レビューで発見）, H-0065（指標を dict で書く形）, H-0104（`features.unseen_policy`）, H-0101（`TimeHoldoutInnerValid.gap` は自動解決だけが設定する）, H-0030（較正は生のスコア）
 - **実測の記録**: `docs/audits/2026-09-defect-discovery/results/pr8_measurements.txt`（`develop` `91a698b`。`../instruments/pr8_write_measurements.py` で再生成）
