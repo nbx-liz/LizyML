@@ -43,3 +43,7 @@
 | 4 | `validators.py` に `except ...: pass` と「Non-comparable」のコメントが無い | RED | `::test_no_silent_skip_remains` |
 | 5 | 既存テストを削除しない。`docs/api.md` の漏洩検査の節と `DATA_SCHEMA_INVALID` の行、`CHANGELOG.md` | — | diff |
 | 6 | 品質ゲート: ruff / ruff format / mypy `lizyml/` / フルスイート / CI | — | PR 本文 |
+
+RED の確認（`8c30b31`、production コードは `97381db` のまま）: 34 failed / 3 passed。RED と宣言した 1（30 セル: 3 つの形 × 目的変数 5 種 × 2 値。`OverflowError` の 10 セルは生の例外が漏れて失敗）、2（4 セル中 3。漏洩列が先で `True` のセルは今日も `LEAKAGE_SUSPECTED` で通る）、4 が失敗。ガードの 3 は通った。
+
+修正後（実装コミット）: `tests/test_data/` 85 passed。フルスイート 8461 passed、失敗は環境起因の `test_version_matches_package_metadata` の 1 件。ruff / ruff format / mypy `lizyml/` は通過。

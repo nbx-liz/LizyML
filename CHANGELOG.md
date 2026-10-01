@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased — H-0107
+
+- **`validate_no_target_leakage` no longer skips a column it cannot compare** ([#267](https://github.com/nbx-liz/LizyML/issues/267)). A column whose comparison with the target raised `TypeError` / `ValueError` was skipped, and the check returned the remaining columns' result -- `[]` if nothing else leaked, the same answer as a frame that was fully checked. Any other exception escaped raw, without the column name. Now any comparison failure raises `LizyMLError(DATA_SCHEMA_INVALID)` with `context["column"]` / `context["target"]` and the original error as `cause`, whatever `raise_on_violation` is. The reachable input is a numeric-declared pandas extension array whose `__array__` or `isna` raises. Measured: no ordinary column dtype reaches it (0 of 462 dtype x target cells, 0 of 13 calls in the test suite). Columns are still checked in order, so an earlier leaking column still raises `LEAKAGE_SUSPECTED` first.
+
 ## Unreleased — H-0106
 
 - **Breaking: `ErrorCode.DATA_FINGERPRINT_MISMATCH` is removed** ([#263](https://github.com/nbx-liz/LizyML/issues/263)). Nothing ever raised it: no prediction-time comparison against the recorded fingerprint is satisfiable (row counts differ between valid batches, `file_hash` is `None` for every `fit(df)`, `column_hash` depends on column order). Code that references the member now gets `AttributeError`. `DataFingerprint` is still recorded as provenance. Missing columns raise `DATA_SCHEMA_INVALID`, and a column numeric at fit that arrives with a non-numeric dtype raises `INCOMPATIBLE_COLUMNS` (a numeric arrival of another width, such as `int64` for a `float64` column, still predicts).
