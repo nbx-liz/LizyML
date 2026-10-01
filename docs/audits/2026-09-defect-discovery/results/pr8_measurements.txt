@@ -1,4 +1,4 @@
-# PR 8 measurements at develop 91a698b (2026-10-01). Regenerate with instruments/pr8_write_measurements.py
+# PR 8 measurements at 93e398a (production code as at develop 91a698b). Regenerate with instruments/pr8_write_measurements.py
 
 ## pr8_knob_census.py
 
@@ -130,7 +130,7 @@ tune                   Tuner.n_trials                               set=2       
 tune                   Tuner.direction                              set='maximize'   got='maximize'               OK
 tune                   Tuner.timeout                                set=600.0        got=600.0                    OK
 tune                   Tuner.seed                                   set=7            got=7                        OK
-tune                   Tuner.progress_callback                      set=<function _cb at 0x7d7d82c89bc0> got=<function _cb at 0x7d7d82c89bc0> OK
+tune                   Tuner.progress_callback                      set=<function _cb at 0x7c9268c95bc0> got=<function _cb at 0x7c9268c95bc0> OK
 tune                   Tuner.study_name                             set='probe'      got='probe'                  OK
 
 

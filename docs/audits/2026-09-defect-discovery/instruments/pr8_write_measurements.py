@@ -35,9 +35,13 @@ def literal_or_default_sites(text: str) -> str:
 
 
 def main() -> None:
+    head = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"], cwd=REPO, capture_output=True,
+        text=True, check=True,
+    ).stdout.strip()  # fmt: skip
     parts = [
-        "# PR 8 measurements at develop 91a698b (2026-10-01). Regenerate with "
-        "instruments/pr8_write_measurements.py",
+        f"# PR 8 measurements at {head} (production code as at develop 91a698b). "
+        "Regenerate with instruments/pr8_write_measurements.py",
         "## pr8_knob_census.py",
         run("pr8_knob_census.py", REPO),
         "## pr8_reachability_probe.py (executed: a non-default value set at the Config "
