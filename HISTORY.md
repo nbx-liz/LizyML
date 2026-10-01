@@ -10261,8 +10261,9 @@ Firing rate: 2/75 of the calibrated platt and beta configs the shipped suite bui
 
 ## H-0104: feature pipeline の拡張点を宣言どおり使えるようにし、未知カテゴリの置換を報告し方針を Config に出す（#259 / #260 / PR 5）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-01
+- **決定日**: 2026-10-01（設計レビュー round 1 の指摘で改訂。コードレビューは round 2 で authorship 停止条件が発火、管理者判断で広範な round 3、round 4 で APPROVE）
 - **スコープ**: `lizyml/features/pipeline_base.py`（`transform_with_warnings` の既定実装、`get_state` の `categorical_cols` を文書化）, `lizyml/features/column_check.py`（新規: 推論時の列検査の唯一の実装）, `lizyml/features/pipelines_native.py`, `lizyml/features/encoders/categorical_encoder.py`（置換の報告）, `lizyml/core/_model_predict.py`（facade で列検査）, `lizyml/config/schema.py`（`FeaturesConfig.unseen_policy`）, `lizyml/estimators/provider.py` / `lizyml/estimators/lgbm/provider.py`（`build_pipeline_factory(unseen_policy=...)` = **公開 Protocol の変更**）, `lizyml/core/model.py` / `lizyml/core/_model_tuning.py`（呼び出し）, `lizyml/codegen/templates.py` / `config_writer.py` / `generator.py`（生成 `predict.py` の置換ログと欠損の扱い、生成 `train.py` が方針を保つ）, `BLUEPRINT.md` §5.4 / §9.2, `docs/config-reference.md`, `ARCHITECTURE.md`, テスト（新規 `tests/test_features/test_pipeline_conformance.py` / `tests/test_features/test_unseen_policy.py` / `tests/test_codegen/test_unseen_policy_codegen.py`）
 - **関連**: [Issue #259](https://github.com/nbx-liz/LizyML/issues/259), [Issue #260](https://github.com/nbx-liz/LizyML/issues/260), H-0054（pipeline factory を provider 経由に）, H-0085（pipeline の fit 境界）, #205（生成 `predict.py` が `unseen_policy` を再現）, PR 6（#263: `INCOMPATIBLE_COLUMNS` をこの検査から出す）
 
