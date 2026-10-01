@@ -10660,8 +10660,8 @@ Firing rate: 14/74 of defaulted public constructor knobs are allowed without a C
 
 - **ステータス**: Proposed
 - **起票日**: 2026-10-01
-- **スコープ**: `lizyml/persistence/exporter.py`（`metadata.json` に `applied_training_params` を追加）, `lizyml/core/_model_persistence.py`（export で渡し、load で検査して復元）, `lizyml/core/model.py` / `lizyml/core/_model_state.py`（「不明」を `None` で表す）, `lizyml/core/_tuning_validation.py`（training の次元名を 1 つの定数に）, `BLUEPRINT.md`（§7.4 / §15.1 / l.1455 の bound）, テスト 2 ファイル（新規）と既存 1 件の docstring, `docs/audits/2026-09-defect-discovery/instruments/report_lifecycle_grid.py`, `CHANGELOG.md`
-- **関連**: [Issue #281](https://github.com/nbx-liz/LizyML/issues/281), [Issue #315](https://github.com/nbx-liz/LizyML/issues/315)（本 PR の全数計測で発見、対象外）, H-0094 決定 13（本提案が置き換える bound）, H-0086（`tuning` ブロック、trial を保存しない決定）, H-0083（追加のキーで `format_version` を上げない前例）
+- **スコープ**: `lizyml/persistence/exporter.py`（`metadata.json` に `applied_training_params` を追加）, `lizyml/core/_model_persistence.py`（export で渡し、load で検査して復元）, `lizyml/core/model.py` / `lizyml/core/_model_state.py`（「不明」を `None` で表す）, `lizyml/core/_tuning_validation.py`（training の次元名を 1 つの定数に）, `BLUEPRINT.md`（§7.4 / §15.1 / l.1455 の bound）, テスト（新規 2 ファイルと共有の全数計測モジュール `tests/test_persistence/_load_census.py`、既存 1 件の docstring）, `docs/audits/2026-09-defect-discovery/instruments/report_lifecycle_grid.py`, `CHANGELOG.md`
+- **関連**: [Issue #281](https://github.com/nbx-liz/LizyML/issues/281), [Issue #315](https://github.com/nbx-liz/LizyML/issues/315)（本 PR の全数計測で発見、対象外）, H-0094 決定 13（本提案が置き換える bound）と決定 14（fit の commit をまとめる）, H-0086（`tuning` ブロック、trial を保存しない決定）, H-0083（追加のキーで `format_version` を上げない前例）
 - **実測の記録**: `docs/audits/2026-09-defect-discovery/results/pr8b_measurements.txt`（`develop` `036cd18`。各計測器は `../instruments/pr8b_*.py`）
 
 ### 目的（課題）
@@ -10670,36 +10670,40 @@ H-0094 決定 13 は、`params_table()` と `export_code()` が「この fit が
 
 この bound が実際に誤った値を答える lifecycle は `tune → fit → export → load` である（#281）。`export()` は model の**現在の** tuning result を `tuning` ブロックに書くので、`fit → tune → export` の artifact も、どの fit も消費していない overlay を持つ。実測: `tuning.best_training_params` は `tune_fit` と `fit_tune` で同じ `{'early_stopping_rounds': 219, 'validation_ratio': 0.45}` だった。tuning ブロックから「fit が適用した値」を復元すると、`fit_tune` で誤る。だから記録が別に要る。
 
-計画 §3 の恒久検査は「報告面が答える値はすべて `load()` を越えて残る」である。範囲を #281 の 1 値に限らず、全数で測った（`pr8b_load_census.py`）: 公開の報告面 19（図 8 と、それ以外の 11。`importance` は split / gain / shap を 3 面に数え、`export_code` は `generate_code` に渡す引数で比べる）× 4 構成（regression / binary / platt 較正付き binary / multiclass）× 5 lifecycle（`fit` / `tune_fit` / `fit_tune` / `tune_fit_reexport` / `tune_resume_fit`）= 380 セル。80 セルが `load()` 後に違う:
+計画 §3 の恒久検査は「報告面が答える値はすべて `load()` を越えて残る」である。範囲を #281 の 1 値に限らず、全数で測った（`pr8b_load_census.py`。定義は `tests/test_persistence/_load_census.py` にあり、恒久検査と共有する）。母集団は `Model` の公開名 24 個で、そのうち 4 個（`fit` / `tune` / `export` / `load`）は報告面でない理由を書き、残り 20 個を 22 面として読む（`importance` は split / gain / shap の 3 面、`export_code` は `generate_code` に渡す引数、`fit_result` は `FitResult` のフィールド）。設計レビュー round 1 が `evaluate()` の欠落を指摘し、`fit_result` と `predict()` も加えた。**bound**: 各面は既定の引数で呼ぶ（`importance` の kind を除く）。`confusion_matrix(threshold=)` などの既定でない引数は測っていない。
+
+22 面 × 4 構成（regression / binary / platt 較正付き binary / multiclass）× 5 lifecycle（`fit` / `tune_fit` / `fit_tune` / `tune_fit_reexport` / `tune_resume_fit`）= 440 セル。80 セルが `load()` 後に違う:
 
 | 面 | セル | 原因 | 本提案 |
 |---|---|---|---|
 | `params_table` / `export_code` | 12 / 12 | `validation_ratio`: tuned 0.45 → config 0.2（#281） | 直す |
-| `importance("gain")` | 20 | LightGBM のモデルテキストは `split_gain=` を有効数字 6 桁で書く。pickle した adapter の gain はテキスト往復の gain と完全に一致し、予測と OOF は bit 単位で一致する（`pr8b_gain_precision.py`）。観測した最大相対誤差 1.04e-6 | 直さず書く（上限 5e-6） |
+| `importance("gain")` | 20 | LightGBM のモデルテキストは `split_gain=` を有効数字 6 桁で書き、読み込みで binary32 に戻す。pickle した adapter の gain はテキスト往復の gain と完全に一致する。予測と OOF は、測った fixture では bit 単位で一致した（`pr8b_gain_precision.py`） | 直さず書く（相対誤差の上限 5.06e-6） |
 | `tuning_table` / `tuning_plot` / `boundary_table` | 16 / 16 / 4 | H-0086 が trial の履歴、round、境界の報告を保存しないと決めた。load 後は空の表、trace の無い図、「`tune(resume=True)` を実行せよ」という `MODEL_NOT_FIT` になる | #315 に切り出す |
 
-#315 は判断が要る（trial を保存するか、保存しないことを面が言うか）ので本提案に含めない。繰り延べで覆われないまま残る保証は「load 後の報告面は、export 前と同じ値を答えるか、答えられないと言う」で、#315 にそう書いた。
+`evaluate` / `evaluate_table` / `fit_result` / `predict` を含む他の面は、測った 440 セルではすべて一致した。
+
+#315 は判断が要る（trial を保存するか、保存しないことを面が言うか）ので本提案に含めない。繰り延べで覆われないまま残る保証は「load 後の報告面は、export 前と同じ値を答えるか、答えられないと言う」で、#315 にそう書いた。したがって本提案の恒久検査は「すべての値が残る」の証明ではなく、**上の母集団と bound の中で、違うセルが宣言した例外と等しいことを固定する回帰の契約**である。
 
 ### 対応方針（決定）
 
 1. **`metadata.json` に最上位のキー `applied_training_params` を足す。** 値は、artifact のモデルを作った fit が適用した `best_training_params` の dict（overlay を使わなかった fit は `{}`）。`format_version` は 2 のまま（追加のキーだけで、H-0083 `checksums` / H-0086 `tuning` と同じ形）。
-2. **「不明」と「overlay なし」を分ける。** `Model._applied_training_params` と `FitState.applied_training_params` を `dict[str, Any] | None` にする。`None` = 不明（記録の無い artifact から load した）、`{}` = fit は overlay を使わなかった、dict = 適用した overlay。export はキーを `None` でないときだけ書く。理由: 潰すと、記録の無い（修正前の）artifact を load して再 export したとき、`{}` という確定した記録を偽って書くことになる。
-3. **`load()` で記録を検査してから復元する。** dict でない、知らないキー（training の次元として消費される `early_stopping_rounds` / `validation_ratio` 以外）、bool、数でない値、非有限の値は `DESERIALIZATION_FAILED`（context にキーと値の型）。理由: 受け入れて報告面の `float()` で落ちるのは、読み込みで通して報告で失敗する形（DC1 / DC7）である。2 つの名前は `_tuning_validation.py` がすでに使っている集合で、1 つの定数にして両方から読む。キーが無い artifact は今までどおり読め、`None` になる（決定 13 の bound は、記録の無い artifact に限って残る）。
+2. **「不明」と「overlay なし」を分ける。** `Model._applied_training_params` と `FitState.applied_training_params` を `dict[str, Any] | None` にする。`None` = 不明（記録の無い artifact から load した）、`{}` = fit は overlay を使わなかった、dict = 適用した overlay。export はキーを `None` でないときだけ書く。理由: 潰すと、記録の無い（修正前の）artifact を load して再 export したとき、`{}` という確定した記録を偽って書くことになる。状態の遷移: `__init__` は `{}`（fit 前は誰も読まない）。成功した `fit()` だけが記録を置き換える（決定 14 の commit の中）。`load()` はキーがあれば検査して復元し、無ければ `None`。`tune()`、拒否された `fit()`、学習中に失敗した `fit()` は記録を変えない（記録は保持しているモデルの fit を説明し続ける）。再 export は記録をそのまま書く（`None` なら書かない）。
+3. **`load()` で記録を検査してから復元する。** 拒否するもの（`DESERIALIZATION_FAILED`、context にキーと値の型）: dict でない、知らないキー（training の次元として消費される `early_stopping_rounds` / `validation_ratio` 以外）、bool、数でない値、非有限の値、`(0, 1)` の外の `validation_ratio`。理由: 受け入れて報告面の `float()` で落ちる、または生成コードに不可能な比率を渡すのは、読み込みで通して後で失敗する形（DC1 / DC7）である。比率の範囲は、inner valid の戦略がすべて `0 < ratio < 1` を要求する（`training/inner_valid.py` の 5 か所）ので、どの fit も範囲外の比率を適用できない。patience には範囲を設けない: 報告面は patience を記録ではなく adapter から読み、学習経路は `int()` するだけで範囲を検査しない（設計レビュー round 1 の非 blocking の指摘に従い、学習経路より厳しい規則を記録に置かない）。2 つの名前は `_tuning_validation.py` がすでに使っている集合で、1 つの定数にして両方から読む。キーが無い artifact は今までどおり読め、`None` になる（決定 13 の bound は、記録の無い artifact に限って残る）。
 4. **読み手は変えない。** `tuned_validation_ratio(None)` はすでに `None`（= config の比率）を返す。`params_table` と `export_code` は、記録があれば記録を、無ければ config を答える。
-5. **恒久検査**（`tests/test_persistence/test_reporting_surfaces_survive_load.py`）: 380 セルを実行し、`load()` 前後の読みを比べる。違うセルの集合が宣言した例外の集合と**等しい**ことを確かめる: gain 重要度は相対 5e-6 以内なら一致と数え、tuning の 3 面は #315 のセルだけが違ってよい。#315 を直すと、このテストがそれを知らせる。空振りの防止として、19 面それぞれに修正前のモデルが読みを返したセルがあること、tuned と config の比率が違うセルが 12 以上あることも確かめる。
+5. **恒久検査**（`tests/test_persistence/test_reporting_surfaces_survive_load.py`、定義は `_load_census.py`）: 440 セルを実行し、`load()` 前後の読みを比べる。違うセルの集合が宣言した例外の集合と**等しい**ことを確かめる: gain 重要度は相対 5.1e-6 以内なら一致と数え、tuning の 3 面は #315 のセルだけが違ってよい。#315 を直すと、このテストがそれを知らせる。`INVENTORY` が `Model` の公開名と一致することも確かめる（新しい公開メソッドは、読むか理由を書くまで失敗する）。空振りの防止として、22 面それぞれに修正前のモデルが読みを返したセルがあること、tuned と config の比率が違うセルが 12 あることも確かめる。
 
-gain の許容差 5e-6 は観測からではなく形式から決める: 有効数字 6 桁への丸めは 1 つの split の gain を最大で 6 桁目の半単位、つまり相対 5e-6 だけ動かす。特徴の gain は非負の split gain の和なので、和の相対誤差も 5e-6 を超えない。
+gain の許容差は観測からではなく形式から決める: 有効数字 6 桁への丸めは 1 つの split の gain を最大で 6 桁目の半単位、つまり相対 5e-6 動かし、binary32 への読み戻しがさらに最大 2^-24 動かす。(1 + 5e-6)(1 + 2^-24) − 1 = 5.0596e-6。特徴の gain は非負の split gain の和なので、和の相対誤差も同じ値を超えない（倍精度の和の誤差は桁違いに小さい）。初版は 5e-6 と書いたが、binary32 への読み戻しを落としていた: 設計レビュー round 1 が 1 split の合成モデルで 5.054e-6 を測った。`pr8b_gain_precision.py` は binary32 の指数の全範囲（1e-38〜1e38）で `%g` → binary32 の往復を掃き、最悪 5.0544e-6（上の反例と同じ値）で上限内に収まる。計測器が学習した 3 タスクのモデルでは、split gain はすべて正だった。テストの許容差 5.1e-6 はこの上限に余裕を足したもの。
 
 ### 規則が縛る位置（ソースから導出）
 
-規則: **fit が適用し、学習済み adapter が記録していない training の値は、artifact に記録され、`load()` 後の報告面はその記録を読む。** 導出: `lizyml/` 全体で `applied_training_params` を grep した全件（8 件、`pr8b_measurements.txt` §5）と、artifact を書く・読む 2 つの関数。adapter が記録していない training の値は、training の次元として消費される 2 つの名前のうち `validation_ratio` だけである（`early_stopping_rounds` は adapter の属性）。導出の bound: training の次元名は `_tuning_validation.py` の検査が 2 つに閉じている。
+規則: **fit が適用し、学習済み adapter が記録していない training の値は、artifact に記録され、`load()` 後の報告面はその記録を読む。** 導出: `lizyml/` 全体で `applied_training_params` を grep した全件（10 行、`pr8b_measurements.txt` §5）と、artifact を書く・読む 2 つの関数。adapter が記録していない training の値は、training の次元として消費される 2 つの名前のうち `validation_ratio` だけである（`early_stopping_rounds` は adapter の属性）。導出の bound: training の次元名は `_tuning_validation.py` の検査が 2 つに閉じている。
 
 | # | 位置 | 本 PR |
 |---|---|---|
 | 1 | `model.py:160`（初期値） | `{}` のまま（fit 前は読まれない） |
 | 2 | `model.py:333`（fit の commit） | 変えない（dict を入れる） |
 | 3 | `model.py:921`（`FitState` へ写す） | `None` を写せるようにする |
-| 4 | `_model_state.py:53, 76`（`FitState` のフィールドと docstring） | 型を `dict | None` に、docstring の bound を書き換える |
+| 4 | `_model_state.py:52, 53, 76`（`FitState` のフィールドと、`tuning_result` / `applied_training_params` の docstring） | 型を `dict | None` に、docstring の bound を書き換える |
 | 5 | `_model_tables.py:301, 314`（`params_table`） | コメントの bound を書き換える（読み方は変えない） |
 | 6 | `_model_persistence.py:211, 269`（`export_code`） | 同上 |
 | 7 | `_model_persistence.py` `export()` | 記録を exporter に渡す |
@@ -10709,13 +10713,13 @@ gain の許容差 5e-6 は観測からではなく形式から決める: 有効�
 
 ### 互換性
 
-- **読み込み**: キーの無い artifact（修正前の export）は今までどおり読める。比率は config に落ちる（決定 13 の bound と同じ）。キーを消した metadata は、修正前の export と同じキー集合になることを測った（`pr8b_metadata_keys_before.txt`）ので、テストではキーを消した artifact を修正前の artifact として使う。pickle は変わらない（`FitResult` / `RefitResult` に触れない）。
-- **書き込み**: 修正後の export は追加のキーを 1 つ書く。修正前のライブラリはこのキーを読まない（`load()` は知らない最上位のキーを無視する）ので、新しい artifact を古いライブラリで読むこともできる。
+- **読み込み**: キーの無い artifact（修正前の export）は今までどおり読める。比率は config に落ちる（決定 13 の bound と同じ）。修正前の export が書く最上位のキー集合を測った（`pr8b_metadata_keys_before.txt`）。修正後の export がその集合にこのキーだけを足すことをテストで確かめ、テストではキーを消した artifact を修正前の artifact として使う（キー集合が同じことは確かめるが、他のキーの値は現行の exporter が書いたものである）。pickle は変わらない（`FitResult` / `RefitResult` に触れない）。
+- **書き込み**: 修正後の export は追加のキーを 1 つ書く。現行（`036cd18`）の loader は知らない最上位のキーを無視する（設計レビューが実行で確かめた。それより古いリリースは確かめていない）ので、新しい artifact を現行のライブラリで読むこともできる。
 - **振る舞いの変化**: `tune → fit → export → load` の後の `params_table()` の `validation_ratio` 行と `export_code()` が生成する比率が、config の値から fit が使った値に変わる。後者は生成される `train.py` の inner valid の比率を変える（#281 の修正そのもの）。
 - **新しく拒否するもの**: 不正な記録を持つ artifact。修正前のライブラリはこのキーを書かないので、拒否されうるのは手で編集された metadata だけである。
 - **`FitState.applied_training_params` の型**: `dict` から `dict | None` に広がる。`FitState` は内部の型で、読み手は `tuned_validation_ratio` の 2 か所だけ（すでに `None` を受け取る）。
 
-**Firing rate**: 本提案の条件分岐（キーがあれば復元、無ければ `None`）は、互換性のための読み分けで、Change Gate の 6 つの目的（skip / shorten / cache / select / allow / conditionally-activate）のどれでもない。参考に、直す値の母集団を書く: 全数計測の 380 セル中、#281 のセルは 24（fit が tuning result を消費した 3 lifecycle × 4 構成 × 2 面）。
+**Firing rate**: 本提案の条件分岐（キーがあれば復元、無ければ `None`）は、互換性のための読み分けで、Change Gate の 6 つの目的（skip / shorten / cache / select / allow / conditionally-activate）のどれでもない。参考に、直す値の母集団を書く: 全数計測の 440 セル中、#281 のセルは 24（fit が tuning result を消費した 3 lifecycle × 4 構成 × 2 面）。
 
 ### 代替案（検討して棄却）
 
@@ -10729,10 +10733,10 @@ gain の許容差 5e-6 は観測からではなく形式から決める: 有効�
 
 詳細と証拠のテスト名は `docs/audits/2026-09-defect-discovery/results/pr8b_acceptance_criteria.md`。
 
-1. `export()` が `applied_training_params` を書く: `fit` → `{}`、`tune → fit` → `best_training_params` と等しい、`fit → tune` → `{}`。値の型は JSON の往復で変わらない。修正前はキーが無いので RED。
+1. `export()` が `applied_training_params` を書く: `fit` → `{}`、`tune → fit` → `best_training_params` と等しい、`fit → tune` → `{}`。値の型は JSON の往復で変わらない。修正前の最上位のキー集合にこのキーだけが加わる。修正前はキーが無いので RED。
 2. `tune → fit → export → load` の後、`params_table()` と `export_code()` が tuned の比率を答える（3 タスク）。`load → export → load` で記録が残る。修正前は RED。
-3. 記録の無い artifact は読めて config に落ち、再 export してもキーを書かない。
-4. 不正な記録（dict でない、知らないキー、bool、文字列、非有限）は `load()` で `DESERIALIZATION_FAILED`。修正前は黙って無視されるので RED。
-5. `load()` の後の `fit()` は、その fit が適用した overlay を記録する。
-6. 380 セルの恒久検査: 違うセルの集合 = 宣言した例外（gain は相対 5e-6 以内、tuning の 3 面は #315 のセル）。19 面すべてが読みを返したセルを持つ。修正前は #281 の 24 セルで RED。
+3. 記録の無い artifact は読めて config に落ち、状態は `None` で、再 export してもキーを書かない。
+4. 不正な記録（dict でない、知らないキー、bool、文字列、null、非有限、範囲外の比率）は `load()` で `DESERIALIZATION_FAILED`。修正前は黙って無視されるので RED。
+5. `load()` の後の成功した `fit()` は、その fit が適用した overlay を記録する。`load()` の後の `tune()`、拒否された `fit()`、学習中に失敗した `fit()` は、記録（既知でも不明でも）を変えず、再 export もそれを保つ。
+6. 440 セルの恒久検査: 違うセルの集合 = 宣言した例外（gain は相対 5.1e-6 以内、tuning の 3 面は #315 のセル）。`INVENTORY` = `Model` の公開名。22 面すべてが読みを返したセルを持つ。修正前は #281 の 24 セルで RED。
 7. `report_lifecycle_grid.py` の `known-bound` の 2 セルが `agrees` になる。

@@ -1,23 +1,32 @@
 """PR 8b: is the gain-importance drift across export -> load LightGBM's text format?
 
-``importance("gain")`` differs by about 1e-7 relative after ``Model.load()``
-(see ``pr8b_load_census.py``). This isolates the cause. A ``lightgbm.Booster``
-pickles through ``model_to_string``, and that text writes each tree's
-``split_gain=`` with six significant digits, so the gain importance a loaded
-booster sums is a sum of rounded gains. Predictions do not move, because leaf
-values are written at full precision.
+``importance("gain")`` differs by about 1e-7 to 1e-6 relative after
+``Model.load()`` (see ``pr8b_load_census.py``). This isolates the cause. A
+``lightgbm.Booster`` pickles through ``model_to_string``; that text writes each
+tree's ``split_gain=`` with six significant digits, and the loader reads it back
+into a binary32 ``float``. A loaded booster's gain importance is a sum of those
+twice-rounded gains.
 
-Steps, all on the fold-0 booster of a real ``Model.fit``:
+Steps:
 
-1. the booster against ``Booster(model_str=booster.model_to_string())``;
-2. the adapter against ``pickle.loads(pickle.dumps(adapter))``;
-3. ``Model.predict`` and the OOF predictions before export and after load.
+1. For the fold-0 booster of a real ``Model.fit`` in three tasks: the booster
+   against ``Booster(model_str=booster.model_to_string())``; the pickled adapter's
+   gain against the text round trip's; ``Model.predict`` and the OOF predictions
+   before export and after load (bit-identical in these fixtures -- an
+   observation, not a guarantee this probe establishes); the smallest split gain
+   in every tree (the bound needs them non-negative).
+2. The bound, swept across the binary32 exponent range: for float32 values with
+   random mantissas at every decimal exponent from 1e-38 to 1e38, format with
+   ``%g`` (six significant digits, as the text shows) and read back as float32,
+   and compare with the bound.
 
-The tolerance a permanent check may use follows from the format, not from the
-observation: six significant digits round each split's gain by at most half a
-unit in the sixth digit, a relative error of at most 5e-6, and a feature's gain
-is a sum of positive split gains, so its relative error is bounded by the same
-5e-6. The observed maximum is printed to show it sits under that bound.
+The bound: rounding to six significant digits moves a value by at most half a
+unit in the sixth digit, 5e-6 relative; reading it back into binary32 moves it by
+at most 2**-24 relative more. (1 + 5e-6) * (1 + 2**-24) - 1 = 5.0596e-6. A
+feature's gain is a sum of non-negative split gains, so the sum moves by at most
+the same relative amount. The design review measured 5.054e-6 on a synthetic
+one-split model, over the 5e-6 a first version of this bound stated, because it
+left out the binary32 read.
 
 Run:
 
@@ -31,6 +40,7 @@ import sys
 import tempfile
 import warnings
 from pathlib import Path
+from typing import Any
 
 import lightgbm as lgb
 import numpy as np
@@ -52,9 +62,20 @@ DATA = {
     "binary": make_binary_df,
     "multiclass": make_multiclass_df,
 }
+BOUND = (1 + 5e-6) * (1 + 2.0**-24) - 1
 
 
-def main() -> int:
+def _split_gains(node: dict[str, Any]) -> list[float]:
+    if "split_gain" not in node:
+        return []
+    return [
+        float(node["split_gain"]),
+        *_split_gains(node["left_child"]),
+        *_split_gains(node["right_child"]),
+    ]
+
+
+def models() -> float:
     worst = 0.0
     for task, make in DATA.items():
         df = make(n=200)
@@ -77,15 +98,25 @@ def main() -> int:
         worst = max(worst, float(rel.max(initial=0.0)))
 
         pickled = pickle.loads(pickle.dumps(adapter))
+        pickled_gain = np.array(list(pickled.importance("gain").values()))
+        all_gains = [
+            gain
+            for fold in model.fit_result.models
+            for tree in fold.get_native_model().dump_model()["tree_info"]
+            for gain in _split_gains(tree["tree_structure"])
+        ]
         print(f"[{task}]")
         print(f"  first tree's {gains[:60]} ...")
         print(f"  booster gain        {before}")
         print(f"  text round trip     {after}")
         print(f"  max relative error  {float(rel.max(initial=0.0)):.3e}")
-        pickled_gain = np.array(list(pickled.importance("gain").values()))
         print(
             "  pickled adapter's gain == text round trip's: "
             f"{bool(np.array_equal(pickled_gain, after))}"
+        )
+        print(
+            f"  split gains over all folds: {len(all_gains)}, "
+            f"smallest {min(all_gains):.6g}"
         )
 
         X = df.drop(columns=["target"])
@@ -97,9 +128,38 @@ def main() -> int:
             model.fit_result.oof_pred, loaded.fit_result.oof_pred
         )
         print(f"  predict equal after load: {same_pred}; OOF equal: {same_oof}")
+    return worst
 
+
+def sweep() -> float:
+    rng = np.random.default_rng(0)
+    worst = 0.0
+    for exponent in range(-38, 39):
+        # Random mantissas, plus the worst case on purpose: a leading digit of 1
+        # (largest half-unit relative to the value) just off each half-unit
+        # boundary of the sixth digit, which is where the design review's
+        # 5.054e-6 counterexample sat.
+        near_half = 1.0 + (np.arange(1000) + 0.5) * 1e-5
+        mantissas = np.concatenate(
+            [rng.uniform(1.0, 10.0, size=2000), near_half * (1 - 1e-7), near_half]
+        )
+        values = (mantissas * 10.0**exponent).astype(np.float32)
+        values = values[np.isfinite(values) & (values > 0)]
+        values = values[values >= np.finfo(np.float32).tiny]
+        back = np.array([np.float32(float(f"{float(v):g}")) for v in values])
+        rel = np.abs(back.astype(np.float64) - values) / values.astype(np.float64)
+        worst = max(worst, float(rel.max(initial=0.0)))
+    return worst
+
+
+def main() -> int:
+    worst_models = models()
+    worst_sweep = sweep()
     print()
-    print(f"largest relative gain error over all tasks: {worst:.3e}")
+    print(f"bound (1 + 5e-6) * (1 + 2**-24) - 1 = {BOUND:.6e}")
+    print(f"largest relative gain error, real models: {worst_models:.3e}")
+    print(f"largest relative error, %g -> float32 sweep 1e-38..1e38: {worst_sweep:.6e}")
+    print(f"sweep within bound: {worst_sweep <= BOUND}")
     return 0
 
 

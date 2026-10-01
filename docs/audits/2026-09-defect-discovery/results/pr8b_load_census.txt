@@ -79,19 +79,19 @@ multiclass        tune_resume_fit    params_table                rows validation
 multiclass        tune_resume_fit    export_code                 keys validation_ratio: 0.45 -> 0.2
 multiclass        tune_resume_fit    tuning_plot                 value differs
 
-cells: 380 (4 configurations x 5 lifecycles x 19 surfaces); differing: 80
-raised identically before and after (no reading to lose in that cell):
-  boundary_table: 16
-  calibration_plot: 15
-  confusion_matrix: 5
-  probability_histogram_plot: 15
-  residuals: 15
-  residuals_plot: 15
-  roc_curve_plot: 5
-  tuning_plot: 4
-  tuning_table: 4
+cells: 440 (4 configurations x 5 lifecycles x 22 surfaces); differing: 80
+  boundary_table: 4
+  export_code: 12
+  importance_gain: 20
+  params_table: 12
+  tuning_plot: 16
+  tuning_table: 16
+largest relative importance_gain error: 6.513e-07 (declared bound 5.1e-06)
 cells where the fitted model returned a reading (exercised):
+  evaluate: 20
   evaluate_table: 20
+  fit_result: 20
+  predict: 20
   residuals: 5
   confusion_matrix: 15
   importance_split: 20

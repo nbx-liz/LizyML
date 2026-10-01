@@ -4,6 +4,7 @@
   text round trip     [255.55830998  96.01725426]
   max relative error  2.061e-07
   pickled adapter's gain == text round trip's: True
+  split gains over all folds: 195, smallest 0.0144321
   predict equal after load: True; OOF equal: True
 [binary]
   first tree's split_gain=4.12997 1.87446 4.42438 1.58259 5.67752 2.00099 ...
@@ -11,6 +12,7 @@
   text round trip     [133.78430176  39.30154967]
   max relative error  3.422e-07
   pickled adapter's gain == text round trip's: True
+  split gains over all folds: 24, smallest 0.535711
   predict equal after load: True; OOF equal: True
 [multiclass]
   first tree's split_gain=2.48927 2.24178 2.12656 1.8131 2.16823 0.640225 0 ...
@@ -18,6 +20,10 @@
   text round trip     [134.77850056  71.20665619]
   max relative error  1.040e-06
   pickled adapter's gain == text round trip's: True
+  split gains over all folds: 89, smallest 0.341369
   predict equal after load: True; OOF equal: True
 
-largest relative gain error over all tasks: 1.040e-06
+bound (1 + 5e-6) * (1 + 2**-24) - 1 = 5.059605e-06
+largest relative gain error, real models: 1.040e-06
+largest relative error, %g -> float32 sweep 1e-38..1e38: 5.054398e-06
+sweep within bound: True

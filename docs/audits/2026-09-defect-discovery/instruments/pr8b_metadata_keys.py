@@ -1,10 +1,11 @@
 """PR 8b: the top-level ``metadata.json`` key set an export writes, per lifecycle.
 
-Run at ``develop`` before H-0109 this is the legacy key set. H-0109 adds one key,
-so an artifact exported now with that key deleted is byte-for-byte the metadata a
-pre-H-0109 export writes, which is what makes key deletion an exact legacy case
-in the tests rather than an approximation. The pickles do not change: H-0109
-touches neither ``FitResult`` nor ``RefitResult``.
+Run at ``develop`` before H-0109 this is the legacy key set. H-0109 adds one
+key, and ``test_the_record_is_the_only_new_key`` checks the implemented exporter
+adds nothing else, so an artifact with that key deleted has the key set a
+pre-H-0109 export writes. That is a statement about keys, not bytes: the values
+under the other keys come from whichever exporter wrote them. The pickles do not
+change: H-0109 touches neither ``FitResult`` nor ``RefitResult``.
 
 Run:
 
