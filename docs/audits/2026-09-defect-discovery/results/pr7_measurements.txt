@@ -17,3 +17,4 @@ cells raising TypeError/ValueError: 0/462
 
 ## pr7_swallow_plugin.py over the full suite (8424 passed, 1 env-only failure: test_version metadata)
 pr7 guarded calls: {'guarded': 13, 'raised': 0}
+(the plugin counts every call of the comparison helper: 9 through validate_no_target_leakage and 4 from tests that call the helper directly -- split confirmed by design review round 1)

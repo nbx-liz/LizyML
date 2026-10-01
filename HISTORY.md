@@ -10528,10 +10528,11 @@ Firing rate: 0/1253 of completed `Model.__init__` calls and 0/1375 of completed 
 
 #267 の時点では、17 種の列でこの handler に入る入力が見つからず、「handler は死んでいる」のか「到達する入力を見つけていない」のかが決まっていなかった。計画の step 1（378 セル）で、**数値を名乗る `ExtensionDtype`（`_is_numeric = True`）で、配列が `__array__` か `isna` で例外を出すもの**が到達することがわかった（15/378）。その計測器はリポジトリに残っていないので、`develop` `97381db` で再現した（`pr7_hostile_numeric_probe.py`）: 2 つの形 × 目的変数 5 種（int64 / float64 / bool / Int64 / complex128）の 10 セルすべてで、比べる呼び出しが `TypeError` / `ValueError` を出し、`validate_no_target_leakage(..., raise_on_violation=True)` は `[]` を返した。
 
-一方、普通の列は到達しない: PR 6 の 33 種の dtype × 一致する列 / ずらした列 × 目的変数 7 種（int64 / float64 / bool / Int64 / object の文字列 / category / string）の 462 セルで、比べる呼び出しの例外は 0（`pr7_dtype_sweep.py`）。フルスイートでも、比べる呼び出し 13 回のうち例外は 0（`pr7_swallow_plugin.py`、8424 passed）。
+一方、普通の列は到達しない: PR 6 の 33 種の dtype の列 × 元の順 / 逆順 × 目的変数 7 種（int64 / float64 / bool / Int64 / object の文字列 / category / string）の 462 セルで、比べる呼び出しの例外は 0（`pr7_dtype_sweep.py`。列は目的変数とは独立に作るので、どのセルでも目的変数と一致する列と一致しない列の両方を作ったわけではない。設計レビュー round 1 が表現を訂正）。フルスイートでも、比べる関数の呼び出し 13 回（検査を通る 9 回と、関数を直接呼ぶテストの 4 回）で例外は 0（`pr7_swallow_plugin.py`、8424 passed）。
 
 ### 対応方針（決定）
 
+0. **報告の順序は今日のまま。** 列は先頭から順に検査し、`raise_on_violation=True` で漏洩している列に先に当たれば、今日と同じくその場で `LEAKAGE_SUSPECTED` を出す（比較できない列がその後ろにあっても、漏洩の報告を後回しにしない）。保証するのは「戻り値（`[]` または警告のリスト）を返すのは、すべての列を比べられたときだけ」であり、比較できない列があれば戻り値は返らない。
 1. **比べられなかった列は黙って飛ばさず、列名を付けて報告する。** 比べる呼び出しが例外を出したら、`LizyMLError(DATA_SCHEMA_INVALID)` を出す。`context = {"column", "target"}`、`cause` に元の例外を付ける。`raise_on_violation` の値によらず出す: 警告のリストは「漏洩の疑い」を表すので、「検査できなかった」を同じリストに入れると、呼び出し側は 2 つを区別できない。
 2. **捕まえる範囲は比べる呼び出しだけにし、例外の型は限らない（`Exception`）。** 今日捕まえていた `TypeError` / `ValueError` に加え、拡張配列が出しうる他の例外（`OverflowError` / `AttributeError` 等）も、列名の無い生の例外として外に出るより、どの列で失敗したかを示す方がよい。漏洩を見つけたときの `LEAKAGE_SUSPECTED` は `try` の外で出す（今日は `try` の中にある。型が違うので捕まらないが、範囲を正しくする）。
 3. 古いコメント「Non-comparable types; skip」は、それが説明していたコードと一緒に消す。`_series_perfectly_correlated` の docstring（NaN の位置を先に比べる理由）はそのまま残す。
@@ -10549,25 +10550,26 @@ Firing rate: 0/1253 of completed `Model.__init__` calls and 0/1375 of completed 
 ### 互換性
 
 - 普通の列（462 セル）とテストスイートの入力では、振る舞いは変わらない（どれもこの経路に入らない）。
-- 比べられない列（数値を名乗り、比較で例外を出す拡張配列）を含む frame は、今日は `[]`（検査済みで漏洩なし）が返っていたが、本 PR の後は `DATA_SCHEMA_INVALID` で止まる。その列を落としてから検査し直せば今日と同じ結果になる。
+- 比べられない列（数値を名乗り、比較で例外を出す拡張配列）を含む frame は、今日はその列を除いた残りの列だけの結果（漏洩が無ければ `[]`、あれば `LEAKAGE_SUSPECTED` か警告）が返っていたが、本 PR の後は `DATA_SCHEMA_INVALID` で止まる（漏洩している列が先にあり `raise_on_violation=True` なら、今日と同じく先に `LEAKAGE_SUSPECTED`）。その列を落としてから検査し直せば今日と同じ結果になる。
+- **対象外: 目的変数が frame に無いとき `[]` を返す振る舞い**（`validators.py` の先頭の `if target not in df.columns: return []`）。これも「検査していない」を「漏洩なし」と同じ形で返すが、例外を握りつぶす #267 の handler とは別の経路で、既存のテスト `tests/test_data/test_validators_edge.py::test_leakage_missing_target` が意図した振る舞いとして固定している。変えるかどうかは公開 API の判断なので別の Issue に切り出す。
 - 公開 API の形（引数・戻り値）は変わらない。`docs/api.md` の `DATA_SCHEMA_INVALID` の行に、この条件を足す。
 
 **Firing rate**: 本 Proposal は skip / shorten / cache / select / allow / conditionally-activate の条件を新設しない。今ある `skip`（例外の列を飛ばす）を取り除く。取り除く条件の発火の測定:
 
-Firing rate: 10/10 of numeric-declared extension columns that raise in `__array__` or `isna` (2 shapes x 5 target dtypes, `pr7_hostile_numeric_probe.py`), 0/462 of ordinary column x target cells (`pr7_dtype_sweep.py`), and 0/13 of the guarded calls in the full test suite (`pr7_swallow_plugin.py`) enter the handler being removed (`develop` `97381db`)
+Firing rate: 10/10 of numeric-declared extension columns that raise in `__array__` or `isna` (2 shapes x 5 target dtypes, `pr7_hostile_numeric_probe.py`), 0/462 of ordinary cells (33 column dtypes x original / reversed order x 7 target dtypes, `pr7_dtype_sweep.py`), and 0/13 of the comparison-helper calls in the full test suite (9 through the validator, 4 direct helper tests; `pr7_swallow_plugin.py`) enter the handler being removed (`develop` `97381db`)
 
 ### 代替案（検討して棄却）
 
 1. **handler を削除して例外をそのまま伝える（計画の案）。** 黙って飛ばす経路は無くなるが、生の例外は列名を持たないので、どの列が検査されなかったかが呼び出し側に分からない。
-2. **`raise_on_violation=False` のときは警告のリストに「列 X は検査できなかった」を入れて続ける。** リストは漏洩の疑いの一覧として使われるので、混ぜると「漏洩の疑い」と「検査できなかった」が区別できない。戻り値の型を変えて 2 つを分けるのは公開 API の変更で、到達する入力（意図的に壊れた拡張配列）に比べて大きすぎる。
+2. **`raise_on_violation=False` のときは警告のリストに「列 X は検査できなかった」を入れて続ける。** 文言で書き分けることはできるが、リストは漏洩の疑いの一覧として使われるので、呼び出し側が文字列を読み分けない限り 2 つが混ざる（設計レビュー round 1 の指摘で「区別できない」から表現を改めた）。戻り値の型を変えて 2 つを分けるのは公開 API の変更で、到達する入力（意図的に壊れた拡張配列）に比べて大きすぎる。
 3. **新しい `ErrorCode`（例: `LEAKAGE_CHECK_FAILED`）を足す。** 列を目的変数と比べられないのは、列の型がこの検査に使えないという data schema の問題で、既存の `DATA_SCHEMA_INVALID` で表せる。メンバーを増やすと、PR 6 の母集団の検査（全メンバーが発生する）にも条件を 1 つ足すことになる。
 
 ### 受け入れ基準（テスト観点）
 
 詳細と証拠のテスト名は `docs/audits/2026-09-defect-discovery/results/pr7_acceptance_criteria.md`。
 
-1. 比較で例外を出す 2 つの形（`__array__` / `isna`）× 目的変数 5 種 × `raise_on_violation` の 2 値で、`validate_no_target_leakage` が `DATA_SCHEMA_INVALID` を出し、`context` の `column` / `target` が正しく、`cause` が元の例外。修正前は `[]` が返るので RED。
-2. 比較できない列が漏洩している列より前にあっても後にあっても、比較できない列で止まる（黙って飛ばして次の列の結果を返すことはない）。
-3. 普通の列では今日と同じ: 漏洩している列は `LEAKAGE_SUSPECTED`（`raise_on_violation=False` なら警告 1 件）、していない列は `[]`。
+1. 比較で例外を出す 3 つの形（`__array__` が `TypeError` / `isna` が `ValueError` / `__array__` が `OverflowError`。最後は `TypeError` / `ValueError` 以外も包むことの確認）× 目的変数 5 種 × `raise_on_violation` の 2 値で、`validate_no_target_leakage` が `DATA_SCHEMA_INVALID` を出し、`context` の `column` / `target` が正しく、`cause` が元の例外**そのもの**（同じオブジェクト）。修正前は `[]` が返る（`OverflowError` の形は生の例外が漏れる）ので RED。
+2. 比較できない列と漏洩している列の 2 つの順 × `raise_on_violation` の 2 値: 比較できない列が先なら `DATA_SCHEMA_INVALID`。漏洩列が先で `True` なら `LEAKAGE_SUSPECTED`（今日と同じ即時の報告）、`False` なら警告を溜めた後に比較できない列で `DATA_SCHEMA_INVALID`。どの場合も戻り値は返らない。
+3. 普通の列では今日と同じ: 漏洩している列は `LEAKAGE_SUSPECTED`（`code` と `context["leaking_column"]` まで一致。`raise_on_violation=False` なら警告 1 件）、していない列は `[]`。漏洩の `LizyMLError` が包み直されないことはこの行で確かめる。
 4. `validators.py` に `except ...: pass` も「Non-comparable」のコメントも残っていない。
 5. 既存のテストは削除しない。

@@ -1,7 +1,9 @@
 """#267: does any ordinary column x target dtype pair raise inside the guarded call?
 
 Columns: the 33 dtypes of PR 6's sweep (``tests/test_features/test_column_dtype_check.py``
-``_DTYPES``), each built twice -- equal to the target's values and not. Targets:
+``_DTYPES``), each in its original and its reversed row order. The columns are
+built independently of the targets, so a cell is not guaranteed to hold a column
+equal to its target. Targets:
 int64, float64, bool, Int64, object strings, category, string. A cell "raises"
 when ``_series_perfectly_correlated`` raises; those are the cells the handler
 swallows today and that would propagate once it is removed.
@@ -35,7 +37,7 @@ raised = 0
 cells = 0
 for cname, build in sorted(m._DTYPES.items()):
     col = build()
-    for variant, c in (("equal", col), ("shifted", col.iloc[::-1].reset_index(drop=True))):
+    for variant, c in (("original", col), ("reversed", col.iloc[::-1].reset_index(drop=True))):
         for tname, y in targets.items():
             cells += 1
             try:
