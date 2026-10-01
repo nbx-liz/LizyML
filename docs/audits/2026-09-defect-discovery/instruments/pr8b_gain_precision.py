@@ -23,9 +23,11 @@ Steps:
 
 The bound, per split gain g: rounding to six significant digits gives d with
 |d - g| <= 5e-6 |g|. Reading d back into binary32 (round to nearest) satisfies,
-for every d in range, |fl(d) - d| <= 2**-24 |d| + 2**-150 -- the relative term
-for the normal range, the absolute term (half the subnormal spacing) for the
-subnormal range, where no relative bound exists. The lemma is stated for d, not
+for every d in binary32's finite range, |fl(d) - d| <= 2**-24 |d| + 2**-150 --
+the relative term for the normal range, the absolute term (half the subnormal
+spacing) for the inputs where the usual relative bound 2**-24 does not hold:
+throughout the subnormal range, and just below the smallest normal where values
+round up to it. The lemma is stated for d, not
 for the result: d = 2**-126 - 2**-150 rounds up to the normal 2**-126 with a
 relative error just over 2**-24 (design review round 3), which the absolute term
 covers. Combining, |after - g| <= 2**-24 (1 + 5e-6) |g| + 5e-6 |g| + 2**-150 =

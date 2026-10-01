@@ -58,7 +58,8 @@ All instruments live in ../instruments/ and run with `uv run python <file>`.
    Bound, per split gain g: |after - g| <= C |g| + 2**-150, with
    C = (1 + 5e-6)(1 + 2**-24) - 1, approximately 5.059605e-06. It combines the
    decimal rounding (5e-6 |g|) with the binary32 read of the rounded value d,
-   |fl(d) - d| <= 2**-24 |d| + 2**-150 for every d: the absolute term is half
+   |fl(d) - d| <= 2**-24 |d| + 2**-150 for every d in binary32's finite
+   range, under round-to-nearest: the absolute term is half
    the subnormal spacing and also covers d just under 2**-126 rounding up into
    the normal range (round 3: d = 2**-126 - 2**-150 has relative error just
    over 2**-24). Summed over n non-negative split gains: C G + n 2**-150, and

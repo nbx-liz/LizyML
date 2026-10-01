@@ -51,9 +51,10 @@ TUNED_RATIO = 0.45
 #: The tolerance for ``importance("gain")`` across load. LightGBM writes each
 #: split's gain with six significant digits and reads it back into a binary32
 #: ``float``. The decimal rounding moves a split gain g by at most 5e-6 |g|;
-#: the binary32 read of a value d moves it by at most 2**-24 |d| + 2**-150 (the
-#: absolute term covers the subnormal range, where no relative bound exists, and
-#: the values just under 2**-126 that round up into the normal range). So the
+#: the binary32 read of a value d in binary32's finite range moves it by at most
+#: 2**-24 |d| + 2**-150 (the absolute term covers the inputs where the usual
+#: relative bound 2**-24 does not hold: throughout the subnormal range, and just
+#: under 2**-126 where values round up into the normal range). So the
 #: loaded gain moves by at most C |g| + 2**-150, C = (1 + 5e-6)(1 + 2**-24) - 1,
 #: approximately 5.0596e-6. A feature's gain is a sum of n non-negative split
 #: gains G, so it moves by at most C G + n 2**-150, and n 2**-150 < 2**-126 for
