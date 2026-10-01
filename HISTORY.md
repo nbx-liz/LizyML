@@ -10200,8 +10200,9 @@ Firing rate: 2/75 of the calibrated platt and beta configs the shipped suite bui
 
 ## H-0103: 最終 refit を CV fold と同じ重み付けで学習させ、`RefitTrainer.fit` の入力差を方針として固定する（#269 / PR 4）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-01
+- **決定日**: 2026-10-01（設計レビュー round 1 の指摘で受け入れ基準を改訂、コードレビュー round 1 で APPROVE）
 - **スコープ**: `lizyml/training/refit_trainer.py`（`fit` に `sample_weight` を追加し、inner valid があれば inner-train 行に絞る）, `lizyml/core/model.py`（`RefitTrainer.fit` の呼び出しに `sample_weight=tc.sample_weight` を渡す）, `BLUEPRINT.md` §5.3（`balanced`）/ §8 手順 8 / §10.3（refit の inner valid）, `tests/test_training/test_cv_refit_parity.py`（新規）
 - **関連**: [Issue #269](https://github.com/nbx-liz/LizyML/issues/269), H-0050（`TrainComponents` を CV と refit で共有）, H-0085（refit の pipeline fit 境界）, H-0036（ratio params を inner-train の大きさで解決）, [#301](https://github.com/nbx-liz/LizyML/issues/301)（生成コード側の同じ規則、繰り延べ）, [#263](https://github.com/nbx-liz/LizyML/issues/263) / [#272](https://github.com/nbx-liz/LizyML/issues/272)（fingerprint を誰も照合しない件、PR 6）
 
