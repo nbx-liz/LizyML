@@ -173,20 +173,6 @@ def validate_lgbm_metrics(
 # ---------------------------------------------------------------------------
 
 
-def _sigmoid(x: npt.NDArray[Any]) -> npt.NDArray[Any]:
-    """Numerically stable sigmoid using clip to avoid overflow warnings."""
-    clipped = np.clip(x, -500, 500)
-    result: npt.NDArray[Any] = 1.0 / (1.0 + np.exp(-clipped))
-    return result
-
-
-def _softmax(x: npt.NDArray[Any]) -> npt.NDArray[Any]:
-    """Row-wise softmax for 2D array."""
-    e_x = np.exp(x - np.max(x, axis=1, keepdims=True))
-    result: npt.NDArray[Any] = e_x / e_x.sum(axis=1, keepdims=True)
-    return result
-
-
 def _metric_display_name(metric: BaseMetric, kwargs: dict[str, Any]) -> str:
     """Build a display name for a metric, appending params if present.
 
@@ -213,9 +199,13 @@ def _build_feval(
 ) -> Callable[..., tuple[str, float, bool]]:
     """Create a LightGBM feval callable from a BaseMetric.
 
-    The callable transforms raw LightGBM predictions (logits for binary,
-    flattened logits for multiclass) into probabilities before delegating
-    to the metric's ``__call__``.
+    LightGBM 4 passes a feval the predictions of a built-in objective after
+    its own transform: binary probabilities (1-D), multiclass and
+    multiclassova probabilities (2-D ``(n, num_class)``), regression values.
+    The callable hands the metric those values under the same rule the
+    evaluator applies (``evaluation.evaluator._pred_for_metric``): labels for
+    a label metric, row-normalised probabilities for a multiclass metric that
+    needs a simplex, the probabilities as given otherwise (#306).
 
     Args:
         metric: A LizyML BaseMetric instance.
@@ -246,41 +236,42 @@ def _build_feval(
                 context={"metric": feval_name, "task": task},
             )
 
-        if task == "binary":
-            proba = _sigmoid(y_pred)
-        elif task == "multiclass":
-            if num_class is None:  # pragma: no cover
-                raise LizyMLError(
-                    code=ErrorCode.CONFIG_INVALID,
-                    user_message="num_class is required for multiclass feval.",
-                    context={"metric": feval_name, "task": task},
-                )
-            proba = y_pred.reshape(-1, num_class)
-            if proba.shape[0] != len(y_true):
-                raise LizyMLError(
-                    code=ErrorCode.CONFIG_INVALID,
-                    user_message=(
-                        f"feval reshape mismatch: expected ({len(y_true)}, "
-                        f"{num_class}), got {proba.shape}. "
-                        f"num_class may be incorrect."
-                    ),
-                    context={
-                        "metric": feval_name,
-                        "num_class": num_class,
-                        "pred_shape": list(proba.shape),
-                    },
-                )
-            proba = _softmax(proba)
-        else:
-            # regression: predictions are direct values
-            proba = y_pred
+        # #306: for built-in objectives LightGBM 4 passes a feval the
+        # predictions it has already transformed -- binary probabilities (1-D),
+        # multiclass / multiclassova probabilities (2-D, n x num_class),
+        # regression values. Applying sigmoid / softmax again made binary label
+        # metrics constant and distorted the probability metrics.
+        proba = np.asarray(y_pred)
+        if task == "multiclass" and (
+            proba.ndim != 2
+            or proba.shape[0] != len(y_true)
+            or (num_class is not None and proba.shape[1] != num_class)
+        ):
+            raise LizyMLError(
+                code=ErrorCode.EVALUATION_FAILED,
+                user_message=(
+                    f"feval expected multiclass probabilities of shape "
+                    f"({len(y_true)}, {num_class}) from LightGBM, got "
+                    f"{proba.shape}."
+                ),
+                context={
+                    "metric": feval_name,
+                    "num_class": num_class,
+                    "pred_shape": list(proba.shape),
+                },
+            )
 
-        # For metrics that don't need probabilities, convert to labels
+        # The evaluator's rule, so a metric means the same thing in the
+        # learning curve and in FitResult.metrics.
         if not metric.needs_proba and task in ("binary", "multiclass"):
             if proba.ndim == 2:
                 pred = proba.argmax(axis=1).astype(np.int64)
             else:
                 pred = (proba >= 0.5).astype(np.int64)
+        elif task == "multiclass" and metric.needs_simplex:
+            # multiclassova rows need not sum to 1.
+            sums = proba.sum(axis=1, keepdims=True)
+            pred = proba / np.where(sums == 0.0, 1.0, sums)
         else:
             pred = proba
 
