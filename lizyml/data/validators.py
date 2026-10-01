@@ -85,10 +85,11 @@ def validate_no_target_leakage(
         try:
             correlated = _series_perfectly_correlated(df[col], y)
         except Exception as exc:
-            # A column that cannot be compared was not checked. Reporting it
-            # is the only way the caller can tell it from a checked, clean
-            # column: a warning or an empty list would read as "no leakage"
-            # (#267, H-0107).
+            # A column that cannot be compared was not checked. Skipping it
+            # made it indistinguishable from a checked, clean column; adding
+            # it to the warnings would mix "not checked" into the list of
+            # suspected leaks, which callers would then have to tell apart by
+            # wording. So it raises (#267, H-0107).
             raise LizyMLError(
                 ErrorCode.DATA_SCHEMA_INVALID,
                 user_message=(

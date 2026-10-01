@@ -47,6 +47,7 @@ def test_unchecked_column_is_reported(
     assert exc.value.context["column"] == "x"
     assert exc.value.context["target"] == "y"
     assert exc.value.cause is array_type.error
+    assert exc.value.__cause__ is array_type.error  # chained with `from`
 
 
 @pytest.mark.parametrize("order", ["unchecked_first", "leaking_first"])

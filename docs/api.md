@@ -498,7 +498,8 @@ Optional, explicitly-called leakage checks (they are **not** auto-run by
 `validate_no_target_leakage` checks the columns in order. If a column cannot be
 compared with the target (for example an extension array whose comparison
 raises), it raises `LizyMLError(DATA_SCHEMA_INVALID)` naming the column, whatever
-`raise_on_violation` is: a returned list always means every column was compared.
+`raise_on_violation` is: when the target is in the frame, a returned list means
+every column was compared.
 A target column that is not in the frame returns `[]` (#311).
 
 ```python
