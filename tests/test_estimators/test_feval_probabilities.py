@@ -25,18 +25,19 @@ import pandas as pd
 import pytest
 
 from lizyml.core.model import Model
+from lizyml.estimators.lgbm.defaults import TASK_COMPATIBLE_OBJECTIVES
 from lizyml.estimators.lgbm.metric_bridge import _FEVAL_METRICS, _build_feval
 from lizyml.evaluation.evaluator import _pred_for_metric
 from lizyml.metrics.registry import get_metric
 from tests._helpers import make_config
 
-#: (task, LightGBM objective, extra params). The population is every objective
-#: LizyML trains a classification model with, plus regression.
+#: (task, LightGBM objective, extra params): every objective LizyML accepts for
+#: a task, read from its own table rather than listed here (review round 1 found
+#: a hand-written list that omitted ``cross_entropy`` / ``cross_entropy_lambda``).
 OBJECTIVES: list[tuple[str, str, dict[str, Any]]] = [
-    ("regression", "regression", {}),
-    ("binary", "binary", {}),
-    ("multiclass", "multiclass", {"num_class": 3}),
-    ("multiclass", "multiclassova", {"num_class": 3}),
+    (task, objective, {"num_class": 3} if task == "multiclass" else {})
+    for task, objectives in sorted(TASK_COMPATIBLE_OBJECTIVES.items())
+    for objective in sorted(objectives)
 ]
 
 CELLS = [
@@ -69,14 +70,25 @@ def _data(task: str, n: int = 400) -> tuple[np.ndarray, np.ndarray]:
 def test_feval_value_is_the_metric_of_lightgbm_predictions(
     task: str, objective: str, extra: dict[str, Any], name: str
 ) -> None:
+    """Same value as the evaluator's rule on LightGBM's output -- or, where that
+    rule itself fails (an objective whose output is not a probability, such as
+    ``cross_entropy_lambda`` above 1, fed to a probability metric), the same
+    failure: the learning curve must not report a number ``FitResult.metrics``
+    could not compute (H-0105 decision 1)."""
     metric = get_metric(name)
     feval = _build_feval(metric, task, num_class=extra.get("num_class"))  # type: ignore[arg-type]
     pairs: list[tuple[float, float]] = []
 
     def checked(preds: np.ndarray, data: lgb.Dataset) -> tuple[str, float, bool]:
-        out = feval(preds, data)
         y_true = np.asarray(data.get_label())
-        expected = metric(y_true, _pred_for_metric(metric, np.asarray(preds), task))  # type: ignore[arg-type]
+        try:
+            expected = metric(y_true, _pred_for_metric(metric, np.asarray(preds), task))  # type: ignore[arg-type]
+        except Exception as exc:  # noqa: BLE001 -- the outcome is compared, not swallowed
+            with pytest.raises(type(exc)):
+                feval(preds, data)
+            pairs.append((np.nan, np.nan))
+            return name, 0.0, metric.greater_is_better
+        out = feval(preds, data)
         pairs.append((out[1], expected))
         return out
 
@@ -91,7 +103,7 @@ def test_feval_value_is_the_metric_of_lightgbm_predictions(
     )
     assert pairs, "the feval was never called"
     got, want = np.array(pairs).T
-    np.testing.assert_allclose(got, want, rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(got, want, rtol=1e-12, atol=1e-12, equal_nan=True)
 
 
 def _binary_df(n: int = 2000) -> pd.DataFrame:
