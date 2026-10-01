@@ -9,15 +9,19 @@ Every proposition is executed:
       - before tree: the first parent of the earliest fixing PR's merge commit,
         with the row's after-tree tests, the tests/ helper modules, and the
         package files the before tree lacks staged into it. A new package file is
-        staged only if no before-tree module imports it (statically, by resolved
-        module name) -- otherwise staging it could change the before behaviour;
+        staged only if no before-tree module reaches it (an import statement, or a
+        string literal read over-inclusively; `new_module_references`) --
+        otherwise staging it could change the before behaviour;
       - reintroduction mutation (`red_mutation`): for a row whose tests cannot run
         in any before tree, a declared edit that puts the defect back into the
-        after tree. Its `fix_text` must be text the fixing PR added and text the
+        after tree -- or, for an issue that reported a coverage gap rather than a
+        defect (#288), the faulty behaviour the missing tests would not have
+        caught. Its `fix_text` must be text the fixing PR added and text the
         edit removes. Such a row is COMPLETE-RED-BY-MUTATION, never COMPLETE;
-  p3  at the after SHA every collected node of the row's tests passed, except the
-      non-passing nodes the row declares in `expected_nonpass`, each bound to a
-      test, an outcome, a reason and an exact count;
+  p3  at the after SHA JUnit reports exactly the collected node ids (compared as a
+      multiset, not a count), and every one passed, except the non-passing nodes
+      the row declares in `expected_nonpass`, each bound to a test, an outcome, a
+      reason and an exact count;
   p4  `population_test` collects exactly the declared (or derived) population;
       a `population_note` row needs its tests to collect, and its count is
       reported as declared, not measured;
@@ -168,11 +172,27 @@ def _node_from_junit(classname: str, name: str, tree: pathlib.Path) -> str:
     raise ManifestError(f"cannot map JUnit classname {classname!r} to a file")
 
 
+def _collection_error_node(name: str, tree: pathlib.Path) -> str:
+    """The file a JUnit collection error names (`classname=""`, dotted module in `name`)."""
+    path = name.replace(".", "/") + ".py"
+    if not (tree / path).exists():
+        raise ManifestError(f"cannot map JUnit collection error {name!r} to a file")
+    return path
+
+
 def parse_junit(xml_text: str, tree: pathlib.Path) -> list[Case]:
-    """Every JUnit case with its outcome: passed / failed / error / skipped / xfailed."""
+    """Every JUnit case with its outcome: passed / failed / error / skipped / xfailed.
+
+    A collection error is reported with an empty classname and the module's dotted
+    name; it becomes an `error` case on that file (design review round 3, finding 4).
+    """
     cases: list[Case] = []
     for case in ET.fromstring(xml_text).iter("testcase"):
         tags = {child.tag: child for child in case}
+        if not case.get("classname") and "error" in tags:
+            cases.append(Case(_collection_error_node(case.get("name", ""), tree), "error",
+                              tags["error"].get("message", "")))
+            continue
         node = _node_from_junit(case.get("classname", ""), case.get("name", ""), tree)
         if "failure" in tags:
             cases.append(Case(node, "failed", tags["failure"].get("message", "")))
@@ -219,14 +239,36 @@ def unexplained(cases: list[Case], expected: list[dict[str, Any]]) -> list[str]:
     return problems
 
 
+def unreconciled(cases: list[Case], collected: list[str]) -> list[str]:
+    """Collected nodes JUnit did not report, and reported nodes nobody collected.
+
+    Compared as multisets of node ids, not as counts: a substituted node or a
+    duplicate report keeps the count right (design review round 3, finding 2).
+    """
+    reported, wanted = Counter(c.node for c in cases), Counter(collected)
+    missing, extra = sorted((wanted - reported).elements()), sorted((reported - wanted).elements())
+    problems = []
+    if missing:
+        problems.append(f"{len(missing)} collected nodes not reported: {missing[:3]}")
+    if extra:
+        problems.append(f"{len(extra)} reported nodes not collected: {extra[:3]}")
+    return problems
+
+
 def new_module_references(before: pathlib.Path, new_files: list[str]) -> list[str]:
     """Before-tree modules that import one of `new_files`, resolved statically.
 
     A new package file can change the before tree's behaviour only if before-tree
-    code reaches it -- by an import (inside a `try` or not), or by its dotted name
-    as a string (an `import_module` argument). Both are found from the AST, with
-    relative imports resolved against the importing file's package, so a mention
-    in a comment or of an unrelated same-named module is not a reference.
+    code reaches it -- by an import statement (inside a `try` or not), or by a
+    string handed to `import_module` / `__import__`. Statements are resolved from
+    the AST, relative ones against the importing file's package. A string literal
+    is read over-inclusively, whatever call it is passed to: as an absolute dotted
+    name, as a relative name (`".new"`, resolved like `from .new`), and as a name
+    under the file's package or any enclosing package (what `__import__("new",
+    level=N)` and a `fromlist` entry resolve to). Over-inclusion can only refuse
+    staging, which makes p2 INCOMPLETE, never a false RED (design review round 3,
+    finding 1). A mention in a comment, or of an unrelated same-named module
+    elsewhere, is not a reference. Not seen: names built at run time (section 5).
     """
     targets = {f[:-3].replace("/", ".").removesuffix(".__init__") for f in new_files}
     if not targets:
@@ -239,6 +281,7 @@ def new_module_references(before: pathlib.Path, new_files: list[str]) -> list[st
             package = package.rsplit(".", 1)[0]
         else:
             package = package.removesuffix(".__init__")
+        parts = package.split(".")
         try:
             tree = ast.parse(src.read_text(encoding="utf-8"))
         except SyntaxError as exc:
@@ -250,13 +293,21 @@ def new_module_references(before: pathlib.Path, new_files: list[str]) -> list[st
             elif isinstance(node, ast.ImportFrom):
                 base = node.module or ""
                 if node.level:
-                    anchor = package.split(".")
-                    anchor = anchor[: len(anchor) - (node.level - 1)]
+                    anchor = parts[: len(parts) - (node.level - 1)]
                     base = ".".join([*anchor, base] if base else anchor)
                 reached.add(base)
                 reached.update(f"{base}.{alias.name}" for alias in node.names)
             elif isinstance(node, ast.Constant) and isinstance(node.value, str):
-                reached.add(node.value)
+                text = node.value
+                reached.add(text)
+                level = len(text) - len(text.lstrip("."))
+                if level:
+                    anchor = parts[: len(parts) - (level - 1)]
+                    rest = text[level:]
+                    reached.add(".".join([*anchor, rest] if rest else anchor))
+                else:
+                    reached.update(".".join([*parts[:cut], text])
+                                   for cut in range(1, len(parts) + 1))
         for t in sorted(targets & reached):
             refs.append(f"{rel} -> {t}")
     return refs
@@ -279,8 +330,10 @@ def validate_row(num: str, row: dict[str, Any]) -> None:
     """Refuse a row that does not state what each proposition needs."""
     if not num.isdigit():
         raise ManifestError(f"issue key is not a number: {num!r}")
+    # Every membership test below is preceded by a type check: an unhashable value
+    # must be a ManifestError, not a TypeError (design review round 3, finding 5).
     disp = row.get("disposition")
-    if disp not in DISPOSITIONS:
+    if not isinstance(disp, str) or disp not in DISPOSITIONS:
         raise ManifestError(f"issue {num}: disposition {disp!r} not in {sorted(DISPOSITIONS)}")
     prs = row.get("github_prs")
     if not isinstance(prs, list) or not all(_positive_int(p) for p in prs):
@@ -320,7 +373,8 @@ def validate_row(num: str, row: dict[str, Any]) -> None:
         raise ManifestError(f"issue {num}: expected_nonpass must be a list")
     for e in expected:
         if (not isinstance(e, dict) or set(e) != {"test", "outcome", "reason", "count"}
-                or e["outcome"] not in NONPASS or not _text(e["test"])
+                or not isinstance(e["outcome"], str) or e["outcome"] not in NONPASS
+                or not _text(e["test"])
                 or not _text(e["reason"]) or not _positive_int(e["count"])):
             raise ManifestError(f"issue {num}: malformed expected_nonpass entry {e!r}")
     mutation = row.get("red_mutation")
@@ -344,6 +398,8 @@ def load_manifest(path: pathlib.Path = MANIFEST,
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         raise ManifestError(f"cannot read manifest {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ManifestError("manifest is not a JSON object")
     issues = data.get("issues")
     if not isinstance(issues, dict) or not issues:
         raise ManifestError("manifest has no `issues` mapping")
@@ -664,8 +720,7 @@ def evaluate_row(num: int, row: dict[str, Any], runner: Runner,
     r["p3"] = dict(outcomes(cases))
     ids = runner.collect(after, tests)
     problems = unexplained(cases, row.get("expected_nonpass", []))
-    if len(cases) != len(ids):
-        problems.append(f"{len(cases)} reported cases for {len(ids)} collected nodes")
+    problems.extend(unreconciled(cases, ids))
     if not outcomes(cases)["passed"]:
         problems.append("nothing passed")
     if rc != 0:

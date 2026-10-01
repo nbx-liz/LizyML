@@ -420,11 +420,11 @@
       "population_name": "identity overlay seams",
       "closure_comment": 5599706837,
       "red_mutation": {
-        "file": "lizyml/core/_model_factories.py",
-        "old": "    if not overlay:\n        return dict(base)\n    canonical = ",
-        "new": "    return {**base, **overlay}\n    canonical = ",
-        "fix_text": "return dict(base)",
-        "why": "The defect: the overlay seams merged by spelling, so an alias in a higher layer could lose. Returning {**base, **overlay} -- the merge overlay_params' docstring describes it replacing -- puts that back. Same test module as #264."
+        "file": "lizyml/core/model.py",
+        "old": "model_params = overlay_params(provider, model_params, fixed)",
+        "new": "model_params = {**model_params, **fixed}",
+        "fix_text": "overlay_params(provider, model_params, fixed)",
+        "why": "#288 reported a coverage gap, not a defect: the provider fixed defaults and the tuning result were identity merge seams with no test writing an alias at that layer. Its fix is test-only (commit 22b11b3 in #278). This mutation is the faulty behaviour those missing tests would not have caught: a spelling-based merge at the provider-fixed seam alone. Measured at 33a3f6e (results/pr8c_round3_probe.txt): the row's tests as they were at 22b11b3^ add no failure under it; the shipped tests fail test_the_provider_fixed_seam_carries_one_spelling. Same test module as #264."
       }
     },
     "306": {

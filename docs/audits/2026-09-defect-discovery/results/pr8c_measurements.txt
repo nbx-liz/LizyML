@@ -158,7 +158,9 @@ Every line below was produced by an executed instrument; the raw outputs sit bes
       staging is never refused at this head. The earlier string-based check in pr8c_round2_probe.py reported 2
       references for 20 rows (`lizyml/config/version.py`); every one was a false
       positive on the word `version`, which is why the shipped check reads the AST.
-    - Helper identity: of the 26 staged tests/ helpers and package markers, every one
+    - Helper identity: of the 25 staged tests/ helpers and package markers (the
+      staging output's "26 helper files" also counts the unstaged
+      tests/conftest.py; corrected after round 3, fact 9), every one
       the before tree already has is byte-identical to the after copy, for all 19
       rows (13 distinct before commits); the only differences are helpers absent from
       the before tree (created by staging, removed afterwards). `tests/conftest.py`, which is not
@@ -180,3 +182,40 @@ Every line below was produced by an executed instrument; the raw outputs sit bes
       pr8c_round1_probe.py was aligned with phase3_gap (`(?<![\w/])`, so `abc#12`
       and `repo/#12` do not cite #12). Re-run at 33a3f6e: the closure_evidence output
       is byte-identical, and so is the round 1 closure section.
+
+--- Added after design review round 3 ---
+
+11. #288's evidence, and the round 3 rule changes against the real trees
+    (instruments/pr8c_round3_probe.py -> pr8c_round3_probe.txt,
+     instruments/pr8c_round2_staging.py re-run, pr8c_trial3.txt)
+    - #288 reported a coverage gap, not a defect; its fix is test-only (22b11b3 in
+      #278: tests/test_core/test_fit_params_override.py and the PR 2 criteria). The
+      round 2 manifest mutation (overlay_params merging every seam by spelling) is no
+      evidence for #288: the row's tests as they were at 22b11b3^ already fail 9 more
+      nodes under it (10 failed against 1 unmutated), so the tests before the fix
+      caught it. Seam by seam, at 33a3f6e, newly failed nodes:
+        seam mutated (spelling merge)          22b11b3^ tests   shipped tests
+        overlay_params, every seam (round 2)         9               13
+        tuning result (model.py)                     1                4
+        provider fixed (model.py)                    0                1
+        trial overlay (_model_tuning.py)             0                3
+        provider fixed (_model_tuning.py, tune)      0                0
+      The manifest now declares the provider-fixed seam in model.py: the tests before
+      the fix miss it, the shipped tests catch it
+      (test_the_provider_fixed_seam_carries_one_spelling). The last row is the
+      pre-study training-ownership check (`resolved_model` feeds only
+      check_training_managed_overrides), not a merge that reaches lgb.train, so it is
+      not one of #288's seams; no test catches its spelling merge.
+    - Staging references with string literals read over-inclusively (absolute,
+      leading-dot relative, and under the file's package and every enclosing
+      package): still 0 in all 19 rows (13 distinct before commits).
+    - Full trial after the round 3 fixes (pr8c_trial3.txt, 220 s): the same split as
+      trial 2 -- COMPLETE 20, COMPLETE-RED-BY-MUTATION 2, PARTIAL 1, NOT-PLANNED 1,
+      INCOMPLETE 1 (#271), UNKNOWN 0, exit 1. With p3 now comparing node ids as a
+      multiset, every real row's JUnit report matched its collection exactly. #288
+      under its new mutation: 1 failed, 228 passed.
+    - Criterion 10 (instruments/pr8c_mutations.py -> pr8c_mutations.txt, 90 s): 9 of
+      9 mutations caught. (a)-(h) INCOMPLETE; (f) now by p2 ("no failed node in the
+      before tree": the collection error is read as an error case, where before the
+      round 3 fix it was UNKNOWN); (i) UNKNOWN (collection fails without
+      `_version.py`), exit 1. Every worktree was clean afterwards.

@@ -1,0 +1,15 @@
+[run-exclusive] pr8c-round3-probe starting; load was 4.59
+tests/test_core/test_fit_params_override.py: shipped 3638 lines, at 22b11b3^ 3313 lines
+shipped tests, unmutated: {'passed': 229}
+    manifest (overlay_params merges by spelling): {'passed': 216, 'failed': 13}; newly failed 13: ['test_a_boosting_round_alias_sets_the_rounds[num_iterations]', 'test_a_boosting_round_alias_sets_the_rounds[num_round]', 'test_a_parameter_passed_as_a_keyword_is_honoured_under_every_spelling', 'test_an_alias_in_the_tuning_result_wins_over_the_config', 'test_an_alias_override_wins_over_a_canonical_config_value', 'test_closing_the_domain_did_not_close_it_on_the_values_callers_write', 'test_overlay_params_keeps_a_name_the_estimator_does_not_know', 'test_params_table_reports_the_value_whatever_spelling_reached_it[eta]', 'test_the_estimator_never_sees_two_spellings_of_one_parameter', 'test_the_provider_fixed_seam_carries_one_spelling', 'test_the_trial_overlay_seam_sends_one_spelling', 'test_the_tuning_result_seam_sends_one_spelling', 'test_tuning_evaluates_the_parameters_it_then_selects']
+    tuning-result seam only (model.py): {'passed': 225, 'failed': 4}; newly failed 4: ['test_an_alias_in_the_tuning_result_wins_over_the_config', 'test_every_identity_overlay_seam_has_a_test', 'test_the_tuning_result_seam_sends_one_spelling', 'test_tuning_evaluates_the_parameters_it_then_selects']
+    provider-fixed seam only (model.py): {'passed': 228, 'failed': 1}; newly failed 1: ['test_the_provider_fixed_seam_carries_one_spelling']
+    provider-fixed seam only (_model_tuning.py, tune): {'passed': 229}; newly failed 0: []
+    trial-overlay seam only (_model_tuning.py): {'passed': 226, 'failed': 3}; newly failed 3: ['test_every_identity_overlay_seam_has_a_test', 'test_the_trial_overlay_seam_sends_one_spelling', 'test_tuning_evaluates_the_parameters_it_then_selects']
+at 22b11b3^ tests, unmutated: {'passed': 217, 'failed': 1}
+    manifest (overlay_params merges by spelling): {'passed': 208, 'failed': 10}; newly failed 9: ['test_a_boosting_round_alias_sets_the_rounds[num_iterations]', 'test_a_boosting_round_alias_sets_the_rounds[num_round]', 'test_a_parameter_passed_as_a_keyword_is_honoured_under_every_spelling', 'test_an_alias_in_the_tuning_result_wins_over_the_config', 'test_an_alias_override_wins_over_a_canonical_config_value', 'test_closing_the_domain_did_not_close_it_on_the_values_callers_write', 'test_overlay_params_keeps_a_name_the_estimator_does_not_know', 'test_params_table_reports_the_value_whatever_spelling_reached_it[eta]', 'test_the_estimator_never_sees_two_spellings_of_one_parameter']
+    tuning-result seam only (model.py): {'passed': 216, 'failed': 2}; newly failed 1: ['test_an_alias_in_the_tuning_result_wins_over_the_config']
+    provider-fixed seam only (model.py): {'passed': 217, 'failed': 1}; newly failed 0: []
+    provider-fixed seam only (_model_tuning.py, tune): {'passed': 217, 'failed': 1}; newly failed 0: []
+    trial-overlay seam only (_model_tuning.py): {'passed': 217, 'failed': 1}; newly failed 0: []
+[run-exclusive] pr8c-round3-probe finished in 99s, exit 0

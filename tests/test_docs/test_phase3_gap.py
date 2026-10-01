@@ -185,6 +185,15 @@ def _bad_mutation(**change: str) -> Any:
     "mutate",
     [
         pytest.param(lambda r: r.update(disposition="done"), id="unknown-disposition"),
+        pytest.param(lambda r: r.update(disposition=[]), id="unhashable-disposition"),
+        pytest.param(
+            lambda r: r.update(
+                expected_nonpass=[
+                    {"test": "t", "outcome": ["skipped"], "reason": "x", "count": 1}
+                ]
+            ),
+            id="unhashable-nonpass-outcome",
+        ),
         pytest.param(lambda r: r.update(github_prs=500), id="prs-not-a-list"),
         pytest.param(lambda r: r.update(github_prs=[0]), id="pr-zero"),
         pytest.param(lambda r: r.update(github_prs=[True]), id="pr-bool"),
@@ -465,6 +474,32 @@ def test_p2_restores_the_before_tree(tmp_path: pathlib.Path) -> None:
             id="import-module-string",
         ),
         pytest.param(
+            {
+                "lizyml/a.py": "from importlib import import_module\n"
+                "Y = import_module('.new', __package__).Y\n"
+            },
+            True,
+            id="import-module-relative",
+        ),
+        pytest.param(
+            {
+                "lizyml/sub/__init__.py": "",
+                "lizyml/sub/a.py": "m = __import__('new', globals(), None, [], 2)\n",
+            },
+            True,
+            id="dunder-import-with-level",
+        ),
+        pytest.param(
+            {"lizyml/a.py": "m = __import__('lizyml', fromlist=['new'])\n"},
+            True,
+            id="dunder-import-fromlist",
+        ),
+        pytest.param(
+            {"lizyml/a.py": "X = 'renew'\nY = 'lizyml.newer'\n"},
+            False,
+            id="unrelated-strings",
+        ),
+        pytest.param(
             {"lizyml/a.py": "from importlib.metadata import version\n"},
             False,
             id="unrelated-same-stem",
@@ -516,18 +551,27 @@ def test_an_unused_import_of_a_new_module_is_not_red(tmp_path: pathlib.Path) -> 
     ) == Counter(passed=1)
 
 
+@pytest.mark.parametrize(
+    "before_code",
+    [
+        pytest.param(
+            "try:\n    from lizyml.new import Y\nexcept ImportError:\n    Y = 0\n",
+            id="round-2-guarded-import",
+        ),
+        pytest.param(
+            "from importlib import import_module\ntry:\n"
+            "    Y = import_module('.new', __package__).Y\n"
+            "except ImportError:\n    Y = 0\n",
+            id="round-3-relative-import-module",
+        ),
+    ],
+)
 def test_a_new_module_the_before_code_imports_is_refused(
-    tmp_path: pathlib.Path,
+    tmp_path: pathlib.Path, before_code: str
 ) -> None:
-    """Round 2's counterexample: a guarded import changes the before behaviour."""
+    """Rounds 2-3's counterexamples: a guarded import changes the before behaviour."""
     runner = FakeRunner(tmp_path)
-    _tree(
-        runner.before_tree,
-        {
-            "lizyml/a.py": "try:\n    from lizyml.new import Y\n"
-            "except ImportError:\n    Y = 0\n"
-        },
-    )
+    _tree(runner.before_tree, {"lizyml/a.py": before_code})
     _tree(runner.after_tree, {"lizyml/new.py": "Y = 1\n"})
     r = _evaluate(runner, copy.deepcopy(REGRESSION))
     assert r["verdict"] == "INCOMPLETE"
@@ -712,6 +756,18 @@ XF = "tests/test_x.py::test_cell"
         pytest.param(
             _passing(NODES[:2]), [], False, id="a-collected-node-not-reported"
         ),
+        pytest.param(
+            _passing([*NODES[:2], "tests/test_x.py::test_cell[substitute]"]),
+            [],
+            False,
+            id="a-substituted-node-with-the-same-count",
+        ),
+        pytest.param(
+            _passing([NODES[0], NODES[0], NODES[1]]),
+            [],
+            False,
+            id="a-duplicate-report-with-the-same-count",
+        ),
     ],
 )
 def test_p3_accounts_for_every_node(
@@ -740,6 +796,34 @@ def test_a_skip_in_a_real_run_is_seen(tmp_path: pathlib.Path) -> None:
     assert rc == 0
     assert cases == [gap.Case("tests/test_x.py::test_x", "skipped", "later")]
     assert gap.unexplained(cases, []) != []
+
+
+def test_a_collection_error_in_a_real_run_is_an_error_case(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Round 3's finding 4: pytest reports it with an empty classname."""
+    tree = _tree(
+        tmp_path / "t",
+        {
+            "tests/__init__.py": "",
+            "tests/sub/__init__.py": "",
+            "tests/sub/test_x.py": "from lizyml_absent import x\n\ndef test_x():\n"
+            "    pass\n",
+        },
+    )
+    rc, _, cases = _real_runner(tmp_path).run_tests(tree, ["tests/sub/test_x.py"])
+    assert rc != 0
+    assert cases == [gap.Case("tests/sub/test_x.py", "error", "collection failure")]
+    assert gap.outcomes(cases)["failed"] == 0
+
+
+def test_an_unmappable_collection_error_is_refused(tmp_path: pathlib.Path) -> None:
+    xml = (
+        "<testsuites><testsuite><testcase classname='' name='tests.absent'>"
+        "<error message='collection failure'/></testcase></testsuite></testsuites>"
+    )
+    with pytest.raises(gap.ManifestError):
+        gap.parse_junit(xml, tmp_path)
 
 
 def test_junit_cases_carry_node_ids(tmp_path: pathlib.Path) -> None:
@@ -1076,6 +1160,18 @@ def test_the_summary_keeps_each_verdict_separate() -> None:
         "NOT-PLANNED 1   INCOMPLETE 1"
     )
     assert "of 5" in last
+
+
+@pytest.mark.parametrize(
+    "text", ["[]", '"issues"', "3"], ids=["list", "string", "number"]
+)
+def test_a_manifest_that_is_not_an_object_is_refused(
+    tmp_path: pathlib.Path, text: str
+) -> None:
+    path = tmp_path / "manifest.json"
+    path.write_text(text)
+    with pytest.raises(gap.ManifestError):
+        gap.load_manifest(path)
 
 
 def test_the_shipped_manifest_is_valid_json_with_every_row_validated() -> None:
