@@ -10658,8 +10658,9 @@ Firing rate: 14/74 of defaulted public constructor knobs are allowed without a C
 
 ## H-0109: fit が適用した training overlay を artifact に記録し、`load()` 後の報告面が同じ値を答える（#281 / PR 8b）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-01
+- **決定日**: 2026-10-01（事実確認を含む外部レビュー: 設計レビュー 6 ラウンド（blocking 4 → 1 → 1 → 2 → 1 → 0。round 1 は全数計測への `evaluate()` などの追加、gain の誤差上限、事実誤認、状態遷移の受け入れ基準。round 2〜5 は gain の誤差上限の導出（binary32 への読み戻し、非正規数、丸めの補題の向き、限定句）。#315 を起票）、コードレビュー 2 ラウンド（blocking 4 → 0。round 1 は、学習が受け入れる categorical の `"0.45"` / `True` を生のまま記録すると `load()` が拒否する欠陥（DC7）、`10**400` の `OverflowError`、bool の節の単独の検査、context の記述）。各ラウンドの前に absolute / relational monitor）
 - **スコープ**: `lizyml/persistence/exporter.py`（`metadata.json` に `applied_training_params` を追加）, `lizyml/core/_model_persistence.py`（export で渡し、load で検査して復元）, `lizyml/core/model.py` / `lizyml/core/_model_state.py`（「不明」を `None` で表す）, `lizyml/core/_tuning_validation.py`（training の次元名を 1 つの定数に）, `BLUEPRINT.md`（§7.4 / §15.1 / l.1455 の bound）, テスト（新規 2 ファイルと共有の全数計測モジュール `tests/test_persistence/_load_census.py`、既存 1 件の docstring）, `docs/audits/2026-09-defect-discovery/instruments/report_lifecycle_grid.py`, `CHANGELOG.md`
 - **関連**: [Issue #281](https://github.com/nbx-liz/LizyML/issues/281), [Issue #315](https://github.com/nbx-liz/LizyML/issues/315)（本 PR の全数計測で発見、対象外）, H-0094 決定 13（本提案が置き換える bound）と決定 14（fit の commit をまとめる）, H-0086（`tuning` ブロック、trial を保存しない決定）, H-0083（追加のキーで `format_version` を上げない前例）
 - **実測の記録**: `docs/audits/2026-09-defect-discovery/results/pr8b_measurements.txt`（`develop` `036cd18`。各計測器は `../instruments/pr8b_*.py`）
