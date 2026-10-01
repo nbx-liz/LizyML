@@ -142,6 +142,12 @@ def test_retrain_keeps_the_policy(policy: str, tmp_path: Path) -> None:
             pd.Series(pd.Categorical(["b", "a", "b", "a"], categories=["b", "a"])),
             id="category-order-tie",
         ),
+        # Review round 2: the mode's str() ("0.1") differed from the mapping
+        # key built from the category values ("0.10000000149011612").
+        pytest.param(
+            pd.Series(pd.Categorical(np.array([0.1, 0.1, 0.2], dtype="float32"))),
+            id="categorical-float32",
+        ),
     ],
 )
 def test_retrain_picks_the_same_mode_as_the_runtime(
@@ -165,7 +171,8 @@ def test_retrain_picks_the_same_mode_as_the_runtime(
 
     rebuilt = train.fit_pipeline(frame)
     mapping = rebuilt["category_mappings"]["cat"]
-    assert rebuilt["unseen_codes"]["cat"] == mapping[str(runtime_mode)], (
-        runtime_mode,
-        mapping,
-    )
+    # Decode the chosen code back to the original value through the mapping's
+    # own keys; a str() of the runtime mode need not equal those keys.
+    key = {code: k for k, code in mapping.items()}[rebuilt["unseen_codes"]["cat"]]
+    chosen = next(v for v in frame["cat"].dropna().unique() if str(v) == key)
+    assert chosen == runtime_mode, (chosen, runtime_mode, mapping)

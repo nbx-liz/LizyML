@@ -64,15 +64,20 @@ def fit_pipeline(df: pd.DataFrame) -> dict:
     mappings: dict[str, dict[str, int]] = {}
     unseen_codes: dict[str, int] = {}
     for col in CFG["categorical_features"]:
-        cats = sorted(str(v) for v in df[col].dropna().unique())
+        values = list(df[col].dropna().unique())
+        cats = sorted(str(v) for v in values)
         mappings[col] = {v: i for i, v in enumerate(cats)}
         # The training mode's code, for unseen_policy="mode" in predict.py.
         # Take the mode on the original values, as the runtime encoder does:
         # on a tie pandas picks by the column's own order (numeric, or the
-        # category order), which stringifying first would change.
+        # category order), which stringifying first would change. Then look
+        # the key up through the same values the mapping was built from: the
+        # mode's own str() can differ (np.float32(0.1) prints as "0.1", the
+        # category value as "0.10000000149011612").
         modes = df[col].dropna().mode()
         if len(modes):
-            unseen_codes[col] = mappings[col][str(modes.iloc[0])]
+            mode_key = next(str(v) for v in values if v == modes.iloc[0])
+            unseen_codes[col] = mappings[col][mode_key]
         log.info("    %s: %d categories", col, len(cats))
 
     state = {
