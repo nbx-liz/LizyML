@@ -194,7 +194,7 @@ class TestDefaultSpaceE2E:
         assert "early_stopping_rounds" in result.best_params
 
     def test_replace_mode_uses_only_user_space(self) -> None:
-        """Explicit replacement preserves the pre-H-0100 small-space behavior."""
+        """Explicit replacement preserves the pre-H-0102 small-space behavior."""
         config = {
             "config_version": 1,
             "task": "regression",

@@ -304,7 +304,7 @@ class ModelPersistenceMixin:
 
         fit_result, refit_result, metadata, analysis_context = _load(path)
         config = metadata["config"]
-        # Pre-H-0100 artifacts used replacement for nonempty user spaces.
+        # Pre-H-0102 artifacts used replacement for nonempty user spaces.
         # Do not reinterpret their tuning policy when restoring for re-fit.
         if config.get("tuning") is not None:
             optuna = config["tuning"].get("optuna", {})
