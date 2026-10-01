@@ -10334,8 +10334,9 @@ Firing rate: 2/75 of the calibrated platt and beta configs the shipped suite bui
 
 ## H-0105: LightGBM の feval に渡る確率を変換し直さない（#306 / PR 5b）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-01
+- **決定日**: 2026-10-01（管理者の指示で事実確認を含む外部レビューを 3 ラウンド実施。round 1・2 で文書の事実誤認を計 6 件訂正し、テストの母集団を受理される全目的関数に拡大。round 3 で APPROVE）
 - **スコープ**: `lizyml/estimators/lgbm/metric_bridge.py`（`_build_feval` の `feval_fn`、未使用になった `_sigmoid` / `_softmax` を削除）, `lizyml/codegen/templates.py`（生成 `train.py` の feval、未使用になった `_softmax` を削除）, `tests/test_estimators/test_feval_probabilities.py`（新規）, `tests/test_estimators/test_lgbm_metric_bridge.py` / `tests/test_codegen/test_feval_codegen.py`（誤った前提で書かれたテストの書き直し）
 - **関連**: [Issue #306](https://github.com/nbx-liz/LizyML/issues/306), H-0064（feval の導入）, H-0066（生成コードの feval）
 
