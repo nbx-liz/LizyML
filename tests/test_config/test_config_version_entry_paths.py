@@ -68,7 +68,16 @@ def test_entry_path_by_version(
     assert exc.value.context["supported"] == loader.SUPPORTED_CONFIG_VERSIONS
 
 
-@pytest.mark.parametrize("entry", ["Model(dict)", "model_validate", "env override"])
+@pytest.mark.parametrize(
+    "entry",
+    [
+        "load_config(dict)",
+        "Model(dict)",
+        "model_validate",
+        "Model(model_validate)",
+        "env override",
+    ],
+)
 def test_false_is_not_version_zero(entry: str, monkeypatch: pytest.MonkeyPatch) -> None:
     value: Any = "false" if entry == "env override" else False
     with pytest.raises(LizyMLError) as exc:
