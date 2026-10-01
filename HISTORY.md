@@ -10532,8 +10532,8 @@ Firing rate: 0/1253 of completed `Model.__init__` calls and 0/1375 of completed 
 
 ### 対応方針（決定）
 
-0. **報告の順序は今日のまま。** 列は先頭から順に検査し、`raise_on_violation=True` で漏洩している列に先に当たれば、今日と同じくその場で `LEAKAGE_SUSPECTED` を出す（比較できない列がその後ろにあっても、漏洩の報告を後回しにしない）。保証するのは「戻り値（`[]` または警告のリスト）を返すのは、すべての列を比べられたときだけ」であり、比較できない列があれば戻り値は返らない。
-1. **比べられなかった列は黙って飛ばさず、列名を付けて報告する。** 比べる呼び出しが例外を出したら、`LizyMLError(DATA_SCHEMA_INVALID)` を出す。`context = {"column", "target"}`、`cause` に元の例外を付ける。`raise_on_violation` の値によらず出す: 警告のリストは「漏洩の疑い」を表すので、「検査できなかった」を同じリストに入れると、呼び出し側は 2 つを区別できない。
+0. **報告の順序は今日のまま。** 列は先頭から順に検査し、`raise_on_violation=True` で漏洩している列に先に当たれば、今日と同じくその場で `LEAKAGE_SUSPECTED` を出す（比較できない列がその後ろにあっても、漏洩の報告を後回しにしない）。保証するのは「目的変数が frame にあるとき、戻り値（`[]` または警告のリスト）を返すのは、すべての列を比べられたときだけ」であり、比較できない列があれば戻り値は返らない（目的変数が無いときの `[]` は #311、下記の対象外）。
+1. **比べられなかった列は黙って飛ばさず、列名を付けて報告する。** 比べる呼び出しが例外を出したら、`LizyMLError(DATA_SCHEMA_INVALID)` を出す。`context = {"column", "target"}`、`cause` に元の例外を付ける。`raise_on_violation` の値によらず出す: 警告のリストは「漏洩の疑い」を表すので、「検査できなかった」を同じリストに入れると、呼び出し側が文言を読み分けない限り 2 つが混ざる（代替案 2）。
 2. **捕まえる範囲は比べる呼び出しだけにし、例外の型は限らない（`Exception`）。** 今日捕まえていた `TypeError` / `ValueError` に加え、拡張配列が出しうる他の例外（`OverflowError` / `AttributeError` 等）も、列名の無い生の例外として外に出るより、どの列で失敗したかを示す方がよい。漏洩を見つけたときの `LEAKAGE_SUSPECTED` は `try` の外で出す（今日は `try` の中にある。型が違うので捕まらないが、範囲を正しくする）。
 3. 古いコメント「Non-comparable types; skip」は、それが説明していたコードと一緒に消す。`_series_perfectly_correlated` の docstring（NaN の位置を先に比べる理由）はそのまま残す。
 
@@ -10550,7 +10550,7 @@ Firing rate: 0/1253 of completed `Model.__init__` calls and 0/1375 of completed 
 ### 互換性
 
 - 普通の列（462 セル）とテストスイートの入力では、振る舞いは変わらない（どれもこの経路に入らない）。
-- 比べられない列（数値を名乗り、比較で例外を出す拡張配列）を含む frame は、今日はその列を除いた残りの列だけの結果（漏洩が無ければ `[]`、あれば `LEAKAGE_SUSPECTED` か警告）が返っていたが、本 PR の後は `DATA_SCHEMA_INVALID` で止まる（漏洩している列が先にあり `raise_on_violation=True` なら、今日と同じく先に `LEAKAGE_SUSPECTED`）。その列を落としてから検査し直せば今日と同じ結果になる。
+- 比べられない列（数値を名乗り、比較で例外を出す拡張配列）を含む frame の今日の振る舞いは、比較が出す例外の型で 2 つに分かれる。`TypeError` / `ValueError` なら handler がその列を飛ばし、残りの列だけの結果（漏洩が無ければ `[]`、あれば `LEAKAGE_SUSPECTED` か警告）が返る。それ以外（`OverflowError` 等）は handler が捕まえないので、列名の無い生の例外として外に出る。本 PR の後は、比較の例外の型によらず、その列に達した時点で `DATA_SCHEMA_INVALID` になる（漏洩している列が先にあり `raise_on_violation=True` なら、今日と同じく先に `LEAKAGE_SUSPECTED`）。`TypeError` / `ValueError` の場合はその列を落としてから検査し直せば今日と同じ結果になる（設計レビュー round 2 の指摘で、例外の型による違いを書き分けた）。
 - **対象外: 目的変数が frame に無いとき `[]` を返す振る舞い**（`validators.py` の先頭の `if target not in df.columns: return []`）。これも「検査していない」を「漏洩なし」と同じ形で返すが、例外を握りつぶす #267 の handler とは別の経路で、既存のテスト `tests/test_data/test_validators_edge.py::test_leakage_missing_target` が意図した振る舞いとして固定している。変えるかどうかは公開 API の判断なので [#311](https://github.com/nbx-liz/LizyML/issues/311) に切り出した。
 - 公開 API の形（引数・戻り値）は変わらない。`docs/api.md` の `DATA_SCHEMA_INVALID` の行に、この条件を足す。
 
