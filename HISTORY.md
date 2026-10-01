@@ -10263,7 +10263,7 @@ Firing rate: 2/75 of the calibrated platt and beta configs the shipped suite bui
 
 - **ステータス**: Proposed
 - **起票日**: 2026-10-01
-- **スコープ**: `lizyml/features/pipeline_base.py`（`transform_with_warnings` の既定実装、`get_state` の `categorical_cols` を文書化）, `lizyml/features/column_check.py`（新規: 推論時の列検査の唯一の実装）, `lizyml/features/pipelines_native.py`, `lizyml/features/encoders/categorical_encoder.py`（置換の報告）, `lizyml/core/_model_predict.py`（facade で列検査）, `lizyml/config/schema.py`（`FeaturesConfig.unseen_policy`）, `lizyml/estimators/provider.py` / `lizyml/estimators/lgbm/provider.py`（`build_pipeline_factory(unseen_policy=...)` = **公開 Protocol の変更**）, `lizyml/core/model.py` / `lizyml/core/_model_tuning.py`（呼び出し）, `lizyml/codegen/templates.py`（生成 `predict.py` の置換ログ）, `BLUEPRINT.md` §5.4 / §9.2, `docs/config-reference.md`, `ARCHITECTURE.md`, テスト（新規 `tests/test_features/test_pipeline_conformance.py` / `tests/test_features/test_unseen_policy.py`）
+- **スコープ**: `lizyml/features/pipeline_base.py`（`transform_with_warnings` の既定実装、`get_state` の `categorical_cols` を文書化）, `lizyml/features/column_check.py`（新規: 推論時の列検査の唯一の実装）, `lizyml/features/pipelines_native.py`, `lizyml/features/encoders/categorical_encoder.py`（置換の報告）, `lizyml/core/_model_predict.py`（facade で列検査）, `lizyml/config/schema.py`（`FeaturesConfig.unseen_policy`）, `lizyml/estimators/provider.py` / `lizyml/estimators/lgbm/provider.py`（`build_pipeline_factory(unseen_policy=...)` = **公開 Protocol の変更**）, `lizyml/core/model.py` / `lizyml/core/_model_tuning.py`（呼び出し）, `lizyml/codegen/templates.py` / `config_writer.py` / `generator.py`（生成 `predict.py` の置換ログと欠損の扱い、生成 `train.py` が方針を保つ）, `BLUEPRINT.md` §5.4 / §9.2, `docs/config-reference.md`, `ARCHITECTURE.md`, テスト（新規 `tests/test_features/test_pipeline_conformance.py` / `tests/test_features/test_unseen_policy.py` / `tests/test_codegen/test_unseen_policy_codegen.py`）
 - **関連**: [Issue #259](https://github.com/nbx-liz/LizyML/issues/259), [Issue #260](https://github.com/nbx-liz/LizyML/issues/260), H-0054（pipeline factory を provider 経由に）, H-0085（pipeline の fit 境界）, #205（生成 `predict.py` が `unseen_policy` を再現）, PR 6（#263: `INCOMPATIBLE_COLUMNS` をこの検査から出す）
 
 ### 目的（課題）
@@ -10278,13 +10278,14 @@ Firing rate: 2/75 of the calibrated platt and beta configs the shipped suite bui
 
 1. **`BaseFeaturePipeline.transform_with_warnings` を具体メソッドとして追加する。** 既定実装は `(self.transform(X), [])`。抽象にすると既存の外部サブクラスを壊すので取らない。`NativeFeaturePipeline` は従来どおり上書きする。
 2. **`get_state()` の `"categorical_cols"` キーは任意（既定は空）と文書化する。** trainer は既に `get_state().get("categorical_cols", [])` で読み、無ければ「カテゴリ列なし」として学習する。基底クラスの docstring と BLUEPRINT に、このキーが estimator に渡すカテゴリ列の宣言であることを書く。
-3. **推論時の列検査を facade に置く（計画 §PR 5 の「インターフェースの一部にする」の具体化）。** 計画がそう決めた理由は「自作の pipeline が検査をすり抜けられないように」（PR 6 が `INCOMPATIBLE_COLUMNS` を全経路で出すため）である。**基底クラスの上書き可能なメソッドに置いてもその理由は満たせない**（サブクラスが上書きすれば検査は消える）。pipeline に渡す**前**に facade で検査すれば、構成上すり抜けられない。実装は 1 つにする: `features/column_check.py` の純関数が `(X, feature_names)` を受け取り、不足列は `DATA_SCHEMA_INVALID`、余剰列は警告を返し、学習時の列順で選んだ `X` を返す。`run_predict` はこれを呼んでから pipeline に `X[feature_names]` を渡し、`NativeFeaturePipeline.transform_with_warnings` も単体利用のために同じ関数を呼ぶ（facade が先に列を選ぶので、推論経路で余剰列の警告が 2 度出ることはない — テストで確かめる）。fit 時の列は `RefitResult.feature_names` から取る。**範囲は今日の振る舞い（不足 / 余剰）だけ**で、dtype の不一致 → `INCOMPATIBLE_COLUMNS` は PR 6 の RED としてこの関数に足す。**bound**: 新しいデータを pipeline に通す公開の入口は `Model.predict` → `run_predict` の 1 か所だけ（`lizyml/` 全体を `transform_with_warnings` / `pipeline.transform(` / `.load_state(` で grep した。SHAP は学習時のデータを変換する）。
+3. **推論時の列検査を facade に置く（計画 §PR 5 の「インターフェースの一部にする」の具体化）。** 計画がそう決めた理由は「自作の pipeline が検査をすり抜けられないように」（PR 6 が `INCOMPATIBLE_COLUMNS` を全経路で出すため）である。**基底クラスの上書き可能なメソッドに置いてもその理由は満たせない**（サブクラスが上書きすれば検査は消える）。pipeline に渡す**前**に facade で検査すれば、構成上すり抜けられない。実装は 1 つにする: `features/column_check.py` の純関数が `(X, feature_names)` を受け取り、不足列は `DATA_SCHEMA_INVALID`、余剰列は警告を返し、学習時の列順で選んだ `X` を返す。`run_predict` はこれを呼んでから pipeline に `X[feature_names]` を渡し、`NativeFeaturePipeline.transform_with_warnings` も単体利用のために同じ関数を呼ぶ（facade が先に列を選ぶので、推論経路で余剰列の警告が 2 度出ることはない — テストで確かめる）。fit 時の列は `RefitResult.feature_names` から取る。**範囲は今日の振る舞い（不足 / 余剰）だけ**で、dtype の不一致 → `INCOMPATIBLE_COLUMNS` は PR 6 の RED としてこの関数に足す。**bound**: 新しいデータを pipeline に通す **`Model` facade の**公開の入口は `Model.predict` → `run_predict` の 1 か所だけ（pipeline を直接使う場合は、その pipeline 自身の検査に任される）（`lizyml/` 全体を `transform_with_warnings` / `pipeline.transform(` / `.load_state(` で grep した。SHAP は学習時のデータを変換する）。
 4. **`CategoricalEncoder` は行った置換を返す。** `transform_with_warnings(X) -> (X, warnings)` を足し、`transform` はそれに委ねる。`NativeFeaturePipeline.transform_with_warnings` が列ズレの警告に連結するので、`PredictionResult.warnings` に届く。
 5. **`"nan"` も警告する。** 未知カテゴリを欠損にするのも適用された補正である（§7.3）。方針ごとの観測結果は: `"mode"` = 警告 + 最頻値、`"nan"` = 警告 + 欠損、`"error"` = `DATA_SCHEMA_INVALID`。
 6. **`FeaturesConfig.unseen_policy: Literal["mode", "nan", "error"] = "mode"` を追加する。** 既定は現行の `"mode"` なので既存の config の挙動は変わらない。値は `EstimatorProvider.build_pipeline_factory(unseen_policy=...)`（キーワード引数、既定 `"mode"`）で pipeline に届ける。`fit` と `tune`（CV）は config の値を渡す。**推論時の方針は保存済みの pipeline 状態から復元される**（`CategoricalEncoder.get_state()` が `unseen_policy` を持つ）ので、`run_predict` は引数を渡さない。artifact は fit が適用した方針を記録しており、読み込み後の config ではなくそれに従う。
-7. **方針は CV の検証 fold にも同じく効く。** 同じ encoder の `transform` が各 outer-valid fold に掛かる。検証 fold は学習に使っていないデータであり、推論時と同じ状況だからである。したがって `"error"` では、学習 fold に無いカテゴリが検証 fold にだけ現れると **`fit` が `DATA_SCHEMA_INVALID` で止まる**。これを §5.4 の説明に書く。実測（`develop` `2d3bc54`、既定を `"error"` に差し替えてフルスイートを実行）: CV 中にこの拒否が起きたのは、それを起こすために作られたテスト（`test_valid_only_category_raises_proving_train_only_fit`）1 件だけで、自然な設定での発火は 0 件。
-8. **fit 中（CV の検証 fold）の置換は報告しない（範囲の外）。** `FitResult` に警告の通り道が無い。#260 の DoD は推論時の報告を求めている。**外れる保証**: `"mode"` / `"nan"` で CV の検証 fold に未知カテゴリがあると、OOF 指標はその置換を経た予測で計算され、利用者には知らされない。
-9. **生成 `predict.py` も置換をログに出す。** 生成コードは既に 3 方針を状態から再現している（#205）。報告の規則の位置として、余剰列と同じく `log.warning` を足す。
+7. **方針は CV の検証 fold にも同じく効く。** 同じ encoder の `transform` が各 outer-valid fold に掛かる。検証 fold は学習に使っていないデータであり、推論時と同じ状況だからである。**ただし fold ごとに未知カテゴリが生じる列は限られる**（実装中に実測）: 既定の `auto_categorical: true`、または `features.categorical` に挙げた列は、データ構築時（`data/dataframe_builder.py` `_apply_categorical`）に**全行の値で** `category` 型になり、encoder はその宣言済みカテゴリを学ぶので、どの fold でも未知にならない。fold ごとに未知が生じるのは、`auto_categorical: false` で、`NativeFeaturePipeline` が文字列型としてカテゴリ扱いする列だけである。その場合 `"error"` では、学習 fold に無い値が検証 fold にだけ現れると **`fit` が `DATA_SCHEMA_INVALID` で止まる**。これを §9.2 に書く。実測（`develop` `2d3bc54`、既定を `"error"` に差し替えてフルスイートを実行）: CV 中にこの拒否が起きたのは、それを起こすために作られたテスト（`test_valid_only_category_raises_proving_train_only_fit`）1 件だけで、自然な設定での発火は 0 件。
+8. **fit 中（CV の検証 fold）と SHAP 重要度での置換は報告しない（範囲の外）。** `FitResult` にも SHAP 重要度の戻り値にも警告の通り道が無い。#260 の DoD は推論時の報告を求めている。**SHAP 重要度は方針をそのまま適用する**（設計レビュー round 1 の blocking 1 で訂正）: SHAP 重要度は**最後の CV fold の** pipeline 状態（`FitResult.pipeline_state`）で学習データ全体を変換する。スライディング窓（`train_size_max`）では、その fold のどこにも属さない行があり、決定 7 の文字列列ではその行だけが持つ値が未知になる。実測: `"error"` では `fit` が通ったうえで `importance(kind="shap")` が `DATA_SCHEMA_INVALID`、`"mode"` では報告なしに置換する。利用者が `"error"` を選んだ以上、変換する場所で拒否するのは方針どおりであり、これを仕様として固定する（テスト: `test_shap_importance_applies_the_stored_policy_outside_the_last_fold`）。最後の fold の pipeline を全行に掛けること自体は本 PR 以前からの性質で、別 issue に切り出す。**外れる保証**: `"mode"` / `"nan"` で CV の検証 fold や SHAP 重要度の対象行に未知カテゴリがあると、OOF 指標と SHAP 重要度はその置換を経た値で計算され、利用者には知らされない（決定 7 の条件の列に限る）。
+9. **生成 `predict.py` も置換をログに出す。** 生成コードは既に 3 方針を状態から再現している（#205）。報告の規則の位置として、余剰列と同じく `log.warning` を足す。**あわせて欠損値を未知カテゴリとして扱わないようにする**（実装中に発見）: 生成コードは `astype(str)` で欠損を文字列 `"nan"` にしてから対応表を引くため、欠損が未知と区別されず、`"mode"` では最頻値に置き換わり、`"error"` では拒否されていた。実行時の encoder は欠損を欠損のまま残すので、方針は「値があり、対応表に無い」行だけに掛ける。
+10. **生成 `train.py` は方針を保ったまま pipeline 状態を書き直す**（設計レビュー round 1 の blocking 2）。生成 `train.py` の `fit_pipeline` は `pipeline_state.json` を作り直すが、`unseen_policy` も `unseen_codes` も書いていなかったので、再学習後の `predict.py` は既定の `"nan"` に落ちていた（エクスポート時の `"mode"` / `"error"` が失われる）。`config.json` に fit が適用した方針を載せ、`fit_pipeline` はそれと再学習データの最頻値のコードを状態に書く。
 
 ### 規則が縛る位置（ソースから導出、実装前）
 
@@ -10295,9 +10296,9 @@ Firing rate: 2/75 of the calibrated platt and beta configs the shipped suite bui
 | 1 | `core/model.py` fit の `pipeline_factory`（CV と refit が共有） | 今は既定の `"mode"` 固定 | — （fit に警告の通り道なし、決定 8） | config の値を渡す |
 | 2 | `core/_model_tuning.py` の CV | 同上 | — | config の値を渡す |
 | 3 | `core/_model_predict.py` `run_predict` | 保存状態から復元（適合） | 置換を報告しない | **報告する**（決定 4）、列検査を facade へ（決定 3） |
-| 4 | `core/_model_tables.py` → `explain/shap_explainer.py`（SHAP 重要度） | 保存状態から復元（適合） | `FitResult.pipeline_state` は**最後の CV fold の** pipeline（`cv_trainer.py` の `last_pipeline`）で、それを学習データ全体に掛ける。各行はその fold の学習側（既知）か検証側（CV で同じ変換を経た）なので**新しい未知カテゴリは生じず**、起きる置換は CV のものと同じ（決定 8 の範囲）。`"error"` なら fit が先に止まっている | 変更なし |
-| 5 | 生成 `predict.py` の `transform` | 状態から 3 方針を再現（#205、適合） | 余剰列はログ、置換はログなし | **置換をログに出す**（決定 9） |
-| 6 | 生成 `train.py` の `transform` | 全データで fit した対応表を同じデータに使うので未知カテゴリは出ない | — | 対象外 |
+| 4 | `core/_model_tables.py` → `explain/shap_explainer.py`（SHAP 重要度） | 保存状態（最後の CV fold の pipeline）から復元。方針は適用される | 報告の通り道なし。スライディング窓では最後の fold に属さない行の値が未知になりうる（初版の「新しい未知カテゴリは生じない」は誤り、設計レビューが反証） | 変更なし、決定 8 として仕様化しテストで固定 |
+| 5 | 生成 `predict.py` の `transform` | 状態から 3 方針を再現（#205）。ただし欠損を未知として扱っていた | 余剰列はログ、置換はログなし | **置換をログに出し、欠損は欠損のまま**（決定 9） |
+| 6 | 生成 `train.py` の `fit_pipeline`（`pipeline_state.json` を書き直す） | 方針と最頻値コードを書かず、再学習後の予測が `"nan"` に落ちる | — | **方針と最頻値コードを書く**（決定 10）。初版は「対象外」としていた（設計レビューが反証） |
 
 ### 互換性
 
@@ -10307,6 +10308,8 @@ Firing rate: 2/75 of the calibrated platt and beta configs the shipped suite bui
 - **公開 Protocol の変更**: `EstimatorProvider.build_pipeline_factory` に既定値つきのキーワード引数が増える。facade は fit / tune でこの引数を渡すので、引数を受け取らない provider 実装は fit で失敗する。本体の provider は `LGBMProvider` だけで、公開の登録手段は無い。
 - `BaseFeaturePipeline` に具体メソッドが 1 つ増える（既存サブクラスはそのまま動く）。
 - `format_version` は据え置き。pipeline 状態は既に `unseen_policy` を保存している。
+- **生成コード**: 新しくエクスポートした `config.json` に `unseen_policy` が増える。生成 `predict.py` は欠損値を未知として扱わなくなる（`"mode"` で欠損が最頻値に置き換わっていた・`"error"` で欠損が拒否されていた挙動が、実行時と同じく欠損のままになる）。既にエクスポート済みのファイルは変わらない。
+- **`"error"` を選んだ場合**、決定 7 の条件の列では `fit` が、スライディング窓ではさらに SHAP 重要度が `DATA_SCHEMA_INVALID` で止まりうる（既定の `"mode"` では起きない）。
 - Firing rate: 本 Proposal は skip / shorten / cache / select / allow / conditionally-activate の条件を新設しない。警告は置換が起きたときに必ず出る報告であり、`unseen_policy` は既存の encoder の分岐を Config から選べるようにするだけである。
 
 ### 代替案（検討して棄却）
@@ -10322,8 +10325,8 @@ Firing rate: 2/75 of the calibrated platt and beta configs the shipped suite bui
 
 1. 4 つの抽象メソッドだけを実装した pipeline（provider の factory に差し込む。公開の登録手段は無いので差し込みで代える）が、`fit` → `predict` → SHAP 重要度 / `predict(return_shap=True)` を通る。修正前は `predict` で `AttributeError`。`categorical_cols` を持たない状態でも学習できる。
 2. facade の列検査: 自作 pipeline（自分では列を検査しない）でも、不足列は `DATA_SCHEMA_INVALID`、余剰列は警告 1 件（`NativeFeaturePipeline` でも 1 件で、2 件にならない）。
-3. `UnseenPolicy` の全値（型の `__args__` から読む）を Config から指定して、推論時の観測結果がそれぞれ: `"mode"` = 警告 + 最頻値と同じ予測、`"nan"` = 警告 + 欠損と同じ予測、`"error"` = `DATA_SCHEMA_INVALID`。修正前は Config が `CONFIG_INVALID`、既定で警告が空。
+3. `UnseenPolicy` の全値（型から読む）を Config から指定して、推論時の観測結果がそれぞれ: `"mode"` = 警告 + 最頻値と同じ予測、`"nan"` = 警告 + 欠損と同じ予測（最頻値に置換した予測と欠損にした予測が異なる、識別できるデータで）、`"error"` = `DATA_SCHEMA_INVALID`。fit と tune が作る pipeline に指定した方針が載る。自作 pipeline が自分で出した警告は変えずに届く。Config の値の集合と `UnseenPolicy` が一致する。修正前は Config が `CONFIG_INVALID`、既定で警告が空。
 4. 指定した方針が refit の pipeline 状態に載り、`Model.load()` 後の `predict` でもその方針と警告が保たれる。
-5. `"error"` で検証 fold にだけ現れるカテゴリがあると `fit` が `DATA_SCHEMA_INVALID`（決定 7 の固定）。
-6. 生成 `predict.py`: 状態に設定した方針が載り、`"mode"` / `"nan"` の置換でログが出る。
+5. `"error"` で検証 fold にだけ現れる値があると、`auto_categorical: false` では `fit` が `DATA_SCHEMA_INVALID`、`auto_categorical: true` では通る（決定 7 の固定）。スライディング窓の SHAP 重要度は `"error"` で `DATA_SCHEMA_INVALID`、`"mode"` で通る（決定 8 の固定）。
+6. 生成コード: `config.json` と `pipeline_state.json` に方針が載る。`predict.py` は `"mode"` / `"nan"` の置換でログを出し、欠損は欠損のまま（`"error"` でも拒否しない）。`train.py` で再学習しても方針と最頻値コードが保たれる。
 7. `BLUEPRINT.md` §5.4 / §9.2、`docs/config-reference.md`、`ARCHITECTURE.md` が基底クラスと一致する。

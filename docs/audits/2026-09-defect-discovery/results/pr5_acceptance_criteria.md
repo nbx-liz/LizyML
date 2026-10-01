@@ -36,17 +36,31 @@
 
 ## 3. 受け入れ基準 → 証拠の対応表
 
-| # | 基準（H-0104） | 証拠 |
-|---|---|---|
-| 1a | 4 メソッドだけの pipeline（`categorical_cols` を持たない状態）で `fit` → `predict` が通る | `tests/test_features/test_pipeline_conformance.py::test_minimal_pipeline_survives_fit_and_predict` |
-| 1b | 同 pipeline で SHAP（`predict(return_shap=True)` と SHAP 重要度）が通る | `::test_minimal_pipeline_survives_shap` |
-| 1c | 1a / 1b は修正前に RED（`AttributeError`） | 実装前のコミットで実行した結果を PR 本文に記録 |
-| 2a | 自作 pipeline（列を検査しない）でも、推論時の不足列は `DATA_SCHEMA_INVALID` | `::test_facade_refuses_missing_columns_for_any_pipeline` |
-| 2b | 余剰列は警告ちょうど 1 件（自作 pipeline と `NativeFeaturePipeline` の両方で、2 件にならない） | `::test_extra_columns_warn_exactly_once[custom]` / `[native]` |
-| 3a | `UnseenPolicy` の全値（`typing.get_args` で読む）を Config から指定し、推論時の観測結果が `"mode"` = 警告 + 最頻値と同じ予測、`"nan"` = 警告 + 欠損と同じ予測、`"error"` = `DATA_SCHEMA_INVALID` | `tests/test_features/test_unseen_policy.py::test_every_policy_is_observable_end_to_end[*]` |
-| 3b | 既定（キー省略）は `"mode"` で、置換が警告として報告される（#260 の回帰テスト） | `::test_default_policy_reports_the_substitution` |
-| 4 | 指定した方針が refit の pipeline 状態に載り、`Model.load()` 後の `predict` でも方針と警告が保たれる | `::test_policy_survives_save_and_load` |
-| 5 | `"error"` で検証 fold にだけ現れるカテゴリがあると `fit` が `DATA_SCHEMA_INVALID`（決定 7） | `::test_error_policy_applies_to_cv_valid_folds` |
-| 6 | 生成 `predict.py`: 状態に設定した方針が載り、`"mode"` / `"nan"` の置換でログが出る | `tests/test_codegen/test_unseen_policy_codegen.py::test_generated_predict_logs_substitutions[*]` |
-| 7 | `BLUEPRINT.md` §5.4 / §9.2、`docs/config-reference.md`、`ARCHITECTURE.md` が基底クラスと一致する | diff |
-| 8 | 品質ゲート: ruff / ruff format / mypy `lizyml/` / フルスイート / CI | PR 本文 |
+設計レビュー round 1（REQUEST_CHANGES）を受けて改訂した。「種別」は RED（修正前に失敗した）か
+ガード（今日の挙動を固定する回帰ガード）か。RED の行は、修正前のコードに対して実行して失敗を確認した。
+
+| # | 基準（H-0104） | 種別 | 証拠 |
+|---|---|---|---|
+| 1a | 4 メソッドだけの pipeline（`categorical_cols` を持たない状態）で `fit` → `predict` が通る | RED | `tests/test_features/test_pipeline_conformance.py::test_minimal_pipeline_survives_fit_and_predict` |
+| 1b | 同 pipeline で SHAP（`predict(return_shap=True)` と SHAP 重要度）が通る | RED | `::test_minimal_pipeline_survives_shap` |
+| 2a | 自作 pipeline（列を検査しない）でも、推論時の不足列は `DATA_SCHEMA_INVALID` | RED | `::test_facade_refuses_missing_columns_for_any_pipeline` |
+| 2b | 余剰列は警告ちょうど 1 件（自作 / `NativeFeaturePipeline` の両方） | RED（custom）/ ガード（native） | `::test_extra_columns_warn_exactly_once[custom]` / `[native]` |
+| 2c | 自作 pipeline が自分で出した警告は変えずに届き、facade の列警告と並ぶ | RED | `::test_a_pipeline_reports_its_own_warnings_unchanged` |
+| 3a | `UnseenPolicy` の全値（`typing.get_args`）を Config から指定し、推論時に `"mode"` = 警告 + 最頻値と同じ予測、`"nan"` = 警告 + 欠損と同じ予測、`"error"` = `DATA_SCHEMA_INVALID`。最頻値に置換した予測と欠損にした予測が異なることを同じテストで確かめる（識別できるデータ） | RED | `tests/test_features/test_unseen_policy.py::test_every_policy_is_observable_end_to_end[*]` |
+| 3b | 既定（キー省略）は `"mode"` で、置換が警告として報告される（#260 の回帰テスト） | RED | `::test_default_policy_reports_the_substitution` |
+| 3c | 未知カテゴリが無ければ警告は空 | ガード | `::test_no_warning_without_unseen_categories` |
+| 3d | Config の値の集合と `UnseenPolicy` が一致する（層の規約上 2 か所に書くため） | RED | `::test_config_literal_is_the_encoder_type` |
+| 3e | `tune` が作るすべての pipeline に指定した方針が載る | RED | `::test_tune_applies_the_configured_policy[*]` |
+| 4 | 指定した方針が refit の pipeline 状態に載り、`Model.load()` 後の `predict` でも方針と警告が保たれる | RED | `::test_policy_survives_save_and_load` |
+| 5a | `"error"` で検証 fold にだけ現れる値: `auto_categorical: false` では `fit` が `DATA_SCHEMA_INVALID`、`true` では通る（決定 7） | RED | `::test_error_policy_applies_to_cv_valid_folds` |
+| 5b | スライディング窓で最後の fold に属さない行の値: `"error"` は SHAP 重要度が `DATA_SCHEMA_INVALID`、`"mode"` は通る（決定 8） | RED | `::test_shap_importance_applies_the_stored_policy_outside_the_last_fold` |
+| 6a | エクスポートした `config.json` と `pipeline_state.json` に、fit が適用した方針が載る | RED | `tests/test_codegen/test_unseen_policy_codegen.py::test_export_carries_the_policy_the_fit_applied[*]` |
+| 6b | 生成 `predict.py` が `"mode"` / `"nan"` の置換をログに出し、`"error"` は拒否し、欠損は欠損のまま | RED | `::test_generated_predict_logs_substitutions[*]` |
+| 6c | 生成 `predict.py` は `"error"` でも欠損値を拒否しない | RED | `::test_missing_values_are_not_refused_under_error` |
+| 6d | 生成 `train.py` で再学習しても方針と最頻値コードが保たれ、予測がそれに従う | RED | `::test_retrain_keeps_the_policy[*]` |
+| 7 | `BLUEPRINT.md` §5.4 / §9.2、`docs/config-reference.md`、`ARCHITECTURE.md` が基底クラスと一致する | — | diff |
+| 8 | 品質ゲート: ruff / ruff format / mypy `lizyml/` / フルスイート / CI | — | PR 本文 |
+
+RED の確認方法: 1a-3e と 4-5 は `develop` `2d3bc54` の production コードで実行して失敗（`AttributeError` /
+`CONFIG_INVALID` / 警告が空 / `DID NOT RAISE`）。6a-6d は Config と features の変更を入れたまま
+`lizyml/codegen/` だけを `2d3bc54` に戻して実行し、9 件すべて失敗した。
