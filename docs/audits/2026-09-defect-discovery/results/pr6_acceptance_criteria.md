@@ -47,7 +47,7 @@
 
 | # | 基準（H-0106） | 種別 | 証拠 |
 |---|---|---|---|
-| 1a | `lizyml/` の `ast.Raise` の部分木に現れる `ErrorCode.X` の集合が `set(ErrorCode)` と一致 | RED | `tests/test_core/test_error_code_population.py::test_every_member_is_raised_in_production_code` |
+| 1a | `lizyml/` の `ast.Raise` の部分木に現れる `ErrorCode.X` の集合が `set(ErrorCode)` と一致（両方向。初版は包含しか確かめていなかった、コードレビュー round 1） | RED | `tests/test_core/test_error_code_population.py::test_every_member_is_raised_in_production_code` |
 | 1b | 走査が 10 メンバー以上を見つける（空の走査を「全メンバー未発生」と読まない） | ガード | `::test_the_scan_finds_the_population` |
 | 1c | キーが `set(ErrorCode)` と等しい dict の各メンバーについて、条件を作ると `code` と context のキーが出る | RED | `tests/test_core/test_error_code_raising.py::test_the_conditions_cover_the_enum` / `::test_member_is_raised[*]` |
 | 1d | `DATA_FINGERPRINT_MISMATCH` が enum に無い。既存の一覧テストを更新（削除しない） | 更新（一覧は実装と同じコミットで直したので、修正前に RED を実行したのではない。enum の削除は 1a / 1c が RED で捉える） | `tests/test_core/test_exceptions.py::test_all_error_codes_are_defined` |
@@ -62,7 +62,7 @@
 | 2i | 記録が読み戻せない列は検査されず、予測が今日と同じに進む（免除の固定。設計レビュー round 1 の blocking 7） | ガード | `::test_unreadable_recorded_dtype_is_exempt` |
 | 2j | 予測時に文字列を数値へ変換する自作 pipeline でも、数値で学習した列に文字列が届けば `INCOMPATIBLE_COLUMNS`（意図した制約の固定。blocking 1） | RED | `::test_converting_custom_pipeline_is_refused` |
 | 3a | `needs_proba` の全指標（登録から読む）で、NaN / inf / 負 / 1 超 / 数値でない / 3 クラス以上で 1 次元が `METRIC_REQUIRES_PROBA`、context に `metric` と `reason` | RED | `tests/test_metrics/test_metric_requires_proba.py::test_non_probabilities_are_refused[*]` |
-| 3b | 同じ全指標で、binary の正当な確率・0/1 のハードラベル・数値の object 配列は通り、値は修正前と同じ | ガード | `::test_probabilities_and_hard_labels_pass[*]` |
+| 3b | 同じ全指標で、binary の正当な確率・0/1 のハードラベル・数値の object 配列は通り、確率の値は lizyml を使わず手で計算した期待値と一致する（初版は有限性しか確かめていなかった、コードレビュー round 1） | ガード | `::test_probabilities_and_hard_labels_pass[*]` |
 | 3f | multiclass に対応する 4 指標（`logloss` / `auc` / `auc_pr` / `brier`）は 2 次元の正当な確率で通り、2 次元で [0, 1] の外は拒否 | RED（拒否側） | `::test_multiclass_matrices[*]` |
 | 3g | 0/1 以外の 2 値ラベル（`[3, 7]`）の binary は 1 次元の規則で拒否されない | ガード | `::test_two_class_labels_other_than_zero_one_pass[*]` |
 | 3c | 検査の対象が登録から読んだ 6 指標と一致（手書きの一覧ではない） | ガード | `::test_the_population_is_every_needs_proba_metric` |
@@ -70,9 +70,10 @@
 | 3e | feval のテストの「同じ失敗」分岐が新しい例外でも成り立つ | ガード | `tests/test_estimators/test_feval_probabilities.py`（変更なしで通る） |
 | 3h | feval の表示名のテストが、LightGBM が実際に渡す確率を入力にして通る（H-0105 の誤った前提の合成 logit を確率に替える。主張は変えない） | 書き直し | `tests/test_metrics/test_metric_entry_integration.py::test_feval_returns_display_name` |
 | 4a | 入口（`load_config(dict)` / `Model(dict)` / `model_validate` / `Model(model_validate(...))` / `model_construct` / 代入 / `model_copy(update=)` / 環境変数）× 版（`1` / `2`）: `1` は受理、`2` は `CONFIG_VERSION_UNSUPPORTED` | RED（`2` の新しい入口） | `tests/test_config/test_config_version_entry_paths.py::test_entry_path_by_version[*]` |
-| 4b | `config_version: False` がすべての入口で `CONFIG_VERSION_UNSUPPORTED`（dict、`model_validate`、環境変数 `"false"`、`bool` を保持する `Model(model_construct)` / `Model(代入)` / `Model(model_copy)`）。検証を通らない 3 経路では、構築・代入・コピーは成功し `Model` が受け取る時点で拒否される（blocking 3） | RED | `::test_false_is_not_version_zero[*]` |
+| 4b | `config_version: False` がすべての入口で `CONFIG_VERSION_UNSUPPORTED`（dict、`model_validate`、環境変数 `"false"`、`bool` を保持する `Model(model_construct)` / `Model(代入)` / `Model(model_copy)`）。検証を通らない 3 経路では、構築・代入・コピーは成功し `Model` が受け取る時点で拒否される（blocking 3） | RED | `::test_false_is_not_version_zero[*]`（dict / `model_validate` / 環境変数）と `::test_false_is_refused_when_model_receives_it[*]`（検証を通らない 3 経路） |
 | 4e | `True` と `"1"` はすべての入口で受理される | ガード | `::test_true_and_string_one_are_version_one[*]` |
-| 4c | loader の経路の context は利用者の綴り（`"2"`） | ガード | `::test_loader_context_keeps_the_raw_value` |
+| 4c | loader が拒否する値の context は利用者の綴り（`"2"` / `"2.0"` / `" 2 "` / `2.5` / `-1.5` / `0.5`）。小数の float は今日と同じく切り捨てて判定 | RED（`"2.0"` は今日受理、小数は初版の実装で `CONFIG_INVALID`。コードレビュー round 1） | `::test_loader_context_keeps_the_raw_value[*]` |
+| 4f | 版でない値（`1.5` / `"1.5"` / `"x"` / `None` / `inf` / `nan`）は loader で `CONFIG_INVALID`。検証を通らないインスタンスの `1.5` / `"x"` / `None` は `CONFIG_VERSION_UNSUPPORTED`（切り捨てない） | ガード（`inf` は今日生の `OverflowError`） | `::test_values_that_are_not_versions_are_config_invalid[*]` / `::test_unvalidated_instance_with_a_non_version_is_refused[*]` |
 | 4d | `lizyml.config.loader.SUPPORTED_CONFIG_VERSIONS is lizyml.config.version.SUPPORTED_CONFIG_VERSIONS` | RED（モジュールが無い） | `::test_supported_versions_is_one_object` |
 | 5a | `docs/api.md` の例外コード表 = `set(ErrorCode)` | RED | `tests/test_docs/test_error_code_docs.py::test_api_reference_lists_every_member` |
 | 5b | `BLUEPRINT.md` §16.2 の一覧 = `set(ErrorCode)` | RED | `::test_blueprint_lists_every_member` |

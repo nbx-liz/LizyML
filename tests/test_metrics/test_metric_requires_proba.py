@@ -69,10 +69,26 @@ def test_non_probabilities_are_refused(name: str, case: str) -> None:
     assert exc.value.context["reason"]
 
 
+#: Each metric on (_Y_BIN, _P_BIN), computed by hand, not by lizyml. The
+#: classes are separated (positives 0.6-0.9, negatives 0.1-0.4), so the ranking
+#: metrics are 1; every bin of the ECE holds one label, so it is the mean of
+#: |y - p|; precision_at_k (k=10) takes the single top score, 0.9, a positive.
+_EXPECTED = {
+    "auc": 1.0,
+    "auc_pr": 1.0,
+    "brier": float(np.mean((_P_BIN - _Y_BIN) ** 2)),  # 0.075
+    "ece": float(np.mean(np.abs(_Y_BIN - _P_BIN))),  # 0.25
+    "logloss": float(
+        -np.mean(_Y_BIN * np.log(_P_BIN) + (1 - _Y_BIN) * np.log(1 - _P_BIN))
+    ),
+    "precision_at_k": 1.0,
+}
+
+
 @pytest.mark.parametrize("name", _PROBA_METRICS)
 def test_probabilities_and_hard_labels_pass(name: str) -> None:
     metric = get_metric(name)
-    assert np.isfinite(metric(_Y_BIN, _P_BIN))
+    assert metric(_Y_BIN, _P_BIN) == pytest.approx(_EXPECTED[name], rel=1e-12)
     assert np.isfinite(metric(_Y_BIN, _Y_BIN.astype(float)))
     assert np.isfinite(metric(_Y_BIN, _Y_BIN.astype(bool)))
     assert metric(_Y_BIN, _P_BIN.astype(object)) == metric(_Y_BIN, _P_BIN)

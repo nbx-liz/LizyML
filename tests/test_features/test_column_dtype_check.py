@@ -168,7 +168,9 @@ def categorical_models() -> dict[str, Model]:
             fit,
             arrival,
             marks=pytest.mark.xfail(
-                strict=True, reason="#309: raw pandas error in CategoricalEncoder"
+                strict=True,
+                raises=(NotImplementedError, ValueError),
+                reason="#309: raw pandas error in CategoricalEncoder",
             ),
         )
         if (fit, arrival) in _ENCODER_GAPS

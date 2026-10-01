@@ -47,5 +47,9 @@ def test_the_scan_finds_the_population() -> None:
 
 
 def test_every_member_is_raised_in_production_code() -> None:
-    unraised = sorted({m.name for m in ErrorCode} - _raised_members())
+    raised = _raised_members()
+    declared = {m.name for m in ErrorCode}
+    unraised = sorted(declared - raised)
+    undeclared = sorted(raised - declared)
     assert not unraised, f"ErrorCode members that no production site raises: {unraised}"
+    assert not undeclared, f"raise sites naming no ErrorCode member: {undeclared}"

@@ -76,10 +76,32 @@ def test_false_is_not_version_zero(entry: str, monkeypatch: pytest.MonkeyPatch) 
     assert exc.value.code == ErrorCode.CONFIG_VERSION_UNSUPPORTED
 
 
-def test_loader_context_keeps_the_raw_value() -> None:
+@pytest.mark.parametrize("value", ["2", "2.0", " 2 ", 2.5, -1.5, 0.5])
+def test_loader_context_keeps_the_raw_value(value: object) -> None:
+    """The loader refuses on the value as written, so the context keeps it.
+    Fractional floats are truncated there, as before H-0106 (2.5 -> 2)."""
     with pytest.raises(LizyMLError) as exc:
-        load_config(_raw("2"))
-    assert exc.value.context["config_version"] == "2"
+        load_config(_raw(value))
+    assert exc.value.code == ErrorCode.CONFIG_VERSION_UNSUPPORTED
+    assert exc.value.context["config_version"] == value
+
+
+@pytest.mark.parametrize("value", [1.5, "1.5", "x", None, float("inf"), float("nan")])
+def test_values_that_are_not_versions_are_config_invalid(value: object) -> None:
+    """Not a version at all: pydantic's type error, CONFIG_INVALID, as before
+    (``inf`` used to escape as a raw ``OverflowError``)."""
+    with pytest.raises(LizyMLError) as exc:
+        load_config(_raw(value))
+    assert exc.value.code == ErrorCode.CONFIG_INVALID
+
+
+@pytest.mark.parametrize("value", [1.5, "x", None])
+def test_unvalidated_instance_with_a_non_version_is_refused(value: object) -> None:
+    """No pydantic step follows Model's own check, so it refuses outright and
+    does not truncate 1.5 to version 1."""
+    with pytest.raises(LizyMLError) as exc:
+        Model(_assigned(value))
+    assert exc.value.code == ErrorCode.CONFIG_VERSION_UNSUPPORTED
 
 
 def test_supported_versions_is_one_object() -> None:
