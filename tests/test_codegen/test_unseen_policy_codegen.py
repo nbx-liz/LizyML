@@ -111,6 +111,42 @@ def test_missing_values_are_not_refused_under_error(tmp_path: Path) -> None:
     assert np.isnan(X["cat"].iloc[1])
 
 
+def test_export_keeps_the_mode_code_for_a_float32_category(tmp_path: Path) -> None:
+    """Review round 3, blocking 1: the exported state lost the training-mode
+    code when the mode's str() ("0.1") differed from the mapping key built from
+    the category values ("0.10000000149011612"), so ``"mode"`` silently became
+    ``"nan"`` in the generated predict.py."""
+    rng = np.random.default_rng(0)
+    n = 120
+    cat = pd.Categorical(np.where(rng.random(n) < 0.7, 0.1, 0.2).astype("float32"))
+    df = pd.DataFrame({"num": rng.normal(size=n), "cat": cat})
+    df["target"] = df["num"] + (df["cat"].astype(float) > 0.15).astype(float)
+    raw = make_config("regression", n_estimators=10)
+    raw["features"] = {"unseen_policy": "mode"}
+    model = Model(raw)
+    model.fit(data=df)
+    model.export_code(tmp_path / "f32")
+    assert model._refit_result is not None
+    runtime_mode = model._refit_result.pipeline_state["encoder"]["modes"]["cat"]
+
+    state = json.loads(
+        (tmp_path / "f32" / "artifacts" / "pipeline_state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert "cat" in state["unseen_codes"], state
+    mapping = state["category_mappings"]["cat"]
+    key = {code: k for k, code in mapping.items()}[state["unseen_codes"]["cat"]]
+    assert np.isclose(float(key), float(runtime_mode)), (key, runtime_mode)
+
+    predict = _load(tmp_path / "f32", "predict")
+    frame = pd.DataFrame(
+        {"num": [0.0], "cat": pd.Categorical(np.array([0.3], dtype="float32"))}
+    )
+    X = predict.transform(frame)
+    assert X["cat"].iloc[0] == state["unseen_codes"]["cat"]
+
+
 @pytest.mark.parametrize("policy", ["mode", "error"])
 def test_retrain_keeps_the_policy(policy: str, tmp_path: Path) -> None:
     """The generated ``train.py`` rewrites ``pipeline_state.json``; the policy

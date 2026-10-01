@@ -60,6 +60,7 @@
 | 6c | 生成 `predict.py` は `"error"` でも欠損値を拒否しない | RED | `::test_missing_values_are_not_refused_under_error` |
 | 6d | 生成 `train.py` の `fit_pipeline` が書き直す pipeline 状態に方針と最頻値コードが残り、生成 `predict.py` の変換がそれに従う（`train.py` 全体の再学習は実行していない） | RED | `::test_retrain_keeps_the_policy[*]` |
 | 6e | 同値の最頻値（数値 `[2, 10]`、カテゴリ順 `["b", "a"]`）で、生成 `fit_pipeline` が実行時の encoder と同じ値を選ぶ（コードレビュー round 1 の blocking 1） | RED（変異） | `::test_retrain_picks_the_same_mode_as_the_runtime[*]`。文字列化してから最頻値を取る旧実装で 2 件とも失敗することを確認 |
+| 6f | float32 の `category` 列でも、エクスポートした状態に最頻値コードが残り、生成 `predict.py` の未知値が実行時と同じ最頻値に置換される（コードレビュー round 3 の blocking 1。`2d3bc54` からの欠陥） | RED | `tests/test_codegen/test_unseen_policy_codegen.py::test_export_keeps_the_mode_code_for_a_float32_category` |
 | 7 | `BLUEPRINT.md` §5.4 / §9.2、`docs/config-reference.md`、`ARCHITECTURE.md` が基底クラスと一致する | — | diff |
 | 8 | 品質ゲート: ruff / ruff format / mypy `lizyml/` / フルスイート / CI | — | PR 本文 |
 
