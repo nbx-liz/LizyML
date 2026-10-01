@@ -53,7 +53,7 @@
 | 1d | `DATA_FINGERPRINT_MISMATCH` が enum に無い。既存の一覧テストを更新（削除しない） | RED | `tests/test_core/test_exceptions.py::test_all_error_codes_are_defined` |
 | 2a | 学習時 float64 の列に 33 種の dtype で予測: 規則が受理 ⇒ 成功、拒否 ⇒ `INCOMPATIBLE_COLUMNS` と context `{"columns": [{"column", "fit_dtype", "predict_dtype"}]}` | RED | `tests/test_features/test_column_dtype_check.py::test_numeric_at_fit_arrival_matrix[*]` |
 | 2b | 学習時に数値の各 dtype（int64 / Int64 / bool / boolean / float32 / Sparse 等）で、`str` の到着が拒否される | RED | `::test_every_numeric_fit_dtype_is_checked[*]` |
-| 2c | 学習時 `category`（元が `str` / `object` / `category`）の列はどの dtype でも受理 | ガード | `::test_categorical_at_fit_accepts_every_dtype[*]` |
+| 2c | 学習時 `category`（元が `str` / `object` / `category`）の列は dtype の規則で検査されず、33 種の到着で予測できる。例外は整数の category に `float16` / `longdouble` が届く 4 セルで、encoder の中の pandas の生の例外（RED テストの段で発見、#309、strict な xfail） | ガード | `::test_categorical_at_fit_is_not_dtype_checked[*]` |
 | 2d | 不足列は dtype より先に `DATA_SCHEMA_INVALID` | ガード | `::test_missing_column_is_reported_before_dtype` |
 | 2e | 違反列は 1 回の例外ですべて、学習時の列順で報告 | RED | `::test_every_offending_column_is_reported` |
 | 2f | 自作 pipeline（列を検査しない）でも同じ例外 | RED | `::test_custom_pipeline_gets_the_same_check` |
