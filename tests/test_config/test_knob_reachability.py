@@ -261,6 +261,19 @@ _SCENARIOS: dict[str, Callable[[], object]] = {
             training={"early_stopping": {"enabled": True, "validation_ratio": 0.3}},
         )  # fmt: skip
     ).fit(data=_frame("binary").assign(g=lambda d: d.index % 3)),
+    # The regression twin of the fallback above: BlockedGroupInnerValid falls
+    # back to TimeHoldoutInnerValid(ratio), with no gap.
+    "blocked_group_regression_fallback": lambda: Model(
+        _config(
+            "regression",
+            {
+                "method": "blocked_group_kfold",
+                "blocks": {"col": "blk", "cutoffs": [1, 2]},
+                "groups": {"col": "g", "n_splits": 2},
+            },
+            training={"early_stopping": {"enabled": True, "validation_ratio": 0.3}},
+        )  # fmt: skip
+    ).fit(data=_frame("regression").assign(g=lambda d: d.index % 3)),
     "tune_calibrated": lambda: Model(
         _config(
             "binary",
@@ -360,8 +373,12 @@ _SCENARIOS: dict[str, Callable[[], object]] = {
     ).tune(data=_frame("regression")),
 }
 
-#: knob -> [(scenario, the non-default value set there), ...], one cell per path
-#: whose source differs (explicit / automatic resolution, fallback, route).
+#: knob -> [(scenario, the value that path must deliver), ...], one cell per path
+#: whose source differs (explicit / automatic resolution, fallback, route). Most
+#: cells set a non-default value; a few check a branch whose value is the
+#: default (regression task, automatic stratify=False).
+#: ``test_every_config_row_has_a_non_default_witness`` keeps at least one
+#: non-default cell per row.
 _CELLS: dict[str, list[tuple[str, Any]]] = {
     "KFoldSplitter.n_splits": [("kfold", 3)],
     "KFoldSplitter.shuffle": [("kfold", False)],
@@ -426,7 +443,11 @@ _CELLS: dict[str, list[tuple[str, Any]]] = {
         ("inner_group_holdout", 7),
         ("group_kfold_auto", 17),
     ],
-    "TimeHoldoutInnerValid.ratio": [("inner_time_holdout", 0.2), ("time_series", 0.3)],
+    "TimeHoldoutInnerValid.ratio": [
+        ("inner_time_holdout", 0.2),
+        ("time_series", 0.3),
+        ("blocked_group_regression_fallback", 0.3),
+    ],
     "TimeHoldoutInnerValid.gap": [("time_series", 2), ("purged_time_series_auto", 3)],
     "StratifiedTimeHoldoutInnerValid.ratio": [("blocked_group_fallback", 0.3)],
     "ECE.n_bins": [("metrics_binary", 5), ("metrics_feval", 7)],
@@ -480,6 +501,18 @@ def test_every_config_row_has_an_executed_cell() -> None:
     assert not set(_CELLS) & _CHECKED_SEPARATELY
 
 
+def test_every_config_row_has_a_non_default_witness() -> None:
+    """A cell whose value equals the constructor default proves nothing about
+    reachability; every config row needs at least one that differs."""
+    classes = {cls.__name__: cls for cls in _SPIED}
+    for knob, cells in _CELLS.items():
+        cls_name, param = knob.split(".")
+        default = (
+            inspect.signature(classes[cls_name].__init__).parameters[param].default
+        )
+        assert any(value != default for _, value in cells), knob
+
+
 @pytest.mark.parametrize(
     ("knob", "index"), _CELL_IDS, ids=[f"{k}-{i}" for k, i in _CELL_IDS]
 )
@@ -526,12 +559,17 @@ def test_api_rows_reach_the_constructor(tmp_path: Path) -> None:
 
 
 def _blueprint_rows() -> dict[str, str]:
+    """The §5.5 table, read only from inside top-level section 5."""
     text = (_ROOT / "BLUEPRINT.md").read_text(encoding="utf-8")
-    start = text.index("## 5.5 ")
-    end = text.index("\n# 6.", start)
+    start = text.index("\n## 5.5 ")
+    parent = text.rindex("\n# ", 0, start)
+    assert text.startswith("\n# 5. ", parent), "§5.5 must sit under section 5"
+    end = text.index("\n# ", start)
+    assert text.startswith("\n# 6.", end), "§5.5 must be the last part of section 5"
     rows = re.findall(
         r"^\| `([A-Za-z]+\.[a-z_]+)` \| ([a-z]+) \|", text[start:end], re.M
     )
+    assert rows, "the §5.5 table is empty"
     return dict(rows)
 
 
@@ -542,8 +580,8 @@ def test_rows_outside_config_are_stated_in_blueprint() -> None:
 
 
 def test_derived_class_counts_are_set_only_for_multiclass() -> None:
-    for task, want in (("binary", None), ("multiclass", 3)):
-        df = _frame("binary")
+    for task, want in (("regression", None), ("binary", None), ("multiclass", 3)):
+        df = _frame("regression" if task == "regression" else "binary")
         if task == "multiclass":
             df["y"] = np.digitize(df["a"], [-0.5, 0.5])
         with _spying() as received:
@@ -577,6 +615,9 @@ def test_explicit_time_holdout_gets_no_gap(
     time_holdout passes none, so the constructor default 0 applies (H-0101)."""
     explicit = constructed["inner_time_holdout"]["TimeHoldoutInnerValid"]
     assert {c["gap"] for c in explicit} == {0}
+    fallback = constructed["blocked_group_regression_fallback"]["TimeHoldoutInnerValid"]
+    assert fallback
+    assert {c["gap"] for c in fallback} == {0}
 
 
 def test_policy_rows_hold_their_fixed_value(

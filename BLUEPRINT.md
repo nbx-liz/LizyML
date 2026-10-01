@@ -384,7 +384,7 @@ config = {
 
 ## 5.5 Config のキーが設定しない構成値（H-0108）
 
-公開クラスの `__init__` の既定値付き引数（74 個、AST で数えた母集団）を、値の出どころで分類した。**Config のキーの値がそのまま渡る 60 個**は §5.4 の各キーが設定する（経路によって出どころが違うものは、経路ごとに）。`tests/test_config/test_knob_reachability.py` は、そのそれぞれに既定でない値を設定し、本物の `fit` / `tune` で構築時に届くことを実行で確かめる。残りの 14 個をこの表に書く。表と `tests/test_config/_knob_registry.py` の台帳は同じテストが照合する。
+公開クラスの `__init__` の既定値付き引数（74 個、AST で数えた母集団）を、値の出どころで分類した。**Config のキーの値がそのまま渡る 60 個**は、どのキーから来るかを経路ごとに `tests/test_config/_knob_registry.py` の台帳に書く（§5.4 の表に行の無い `output_dir`（§17）と `calibration.params` も含む）。`tests/test_config/test_knob_reachability.py` は、経路ごとに本物の `fit` / `tune` を実行してコンストラクタが受け取る値を確かめ、どの行にも既定でない値を設定したセルが少なくとも 1 つある。残りの 14 個をこの表に書く。表と `tests/test_config/_knob_registry.py` の台帳は同じテストが照合する。
 
 分類は、そのクラスを構築するすべての本番の経路で読み、最初に当てはまるものを採る:
 

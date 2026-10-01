@@ -44,11 +44,11 @@
 |---|---|---|---|
 | 1 | 台帳のキー = AST の母集団、母集団は 60 個以上、種類は 5 つのどれか | ガード（新しい構成値で失敗する） | `tests/test_config/test_knob_reachability.py::test_registry_classifies_exactly_the_census` |
 | 2a | 台帳の config 行の集合 = 実行セルの集合 ∪ `Model.output_dir` | ガード | `::test_every_config_row_has_an_executed_cell` |
-| 2b | 各セル（出どころが違う経路ごと: 明示 / 自動解決の inner valid、inner valid の gap（`time_series` / `purged_time_series` の自動解決）、`BlockedGroupInnerValid` の分類の代替経路の ratio、`split.random_state` が無いときの `training.seed`、指標の `evaluation.metrics` / feval、task の regression / binary）で、Config に書いた既定でない値がコンストラクタに届く（`LGBMAdapter.params` / `IsotonicCalibrator.params` は書いた項目を含む） | ガード | `::test_config_value_reaches_the_constructor[*]` |
+| 2b | 各セル（出どころが違う経路ごと: 明示 / 自動解決の inner valid、inner valid の gap（`time_series` / `purged_time_series` の自動解決）、`BlockedGroupInnerValid` の分類 / 回帰の代替経路の ratio、`split.random_state` が無いときの `training.seed`、指標の `evaluation.metrics` / feval、task の regression / binary）で、その経路が渡すべき値がコンストラクタに届く（`LGBMAdapter.params` / `IsotonicCalibrator.params` は書いた項目を含む）。多くのセルは既定でない値を設定し、既定値と同じ値になる分岐（回帰の task、自動解決の `stratify=False`）も確かめる。どの行にも既定でない値のセルが少なくとも 1 つある | ガード | `::test_config_value_reaches_the_constructor[*]`、`::test_every_config_row_has_a_non_default_witness` |
 | 2c | `Model.output_dir` は Config の `output_dir` から、引数を渡せば引数から | ガード | `::test_output_dir_comes_from_config_unless_given` |
 | 3 | api 4 行が本物の呼び出しで届く | ガード | `::test_api_rows_reach_the_constructor` |
-| 4 | `BLUEPRINT.md` §5.5 の表の行と種類 = 台帳の config 以外の 14 行 | RED（§5.5 が無い） | `::test_rows_outside_config_are_stated_in_blueprint` |
-| 5a | derived: クラス数は multiclass だけ渡し、それ以外は `None` | ガード | `::test_derived_class_counts_are_set_only_for_multiclass` |
+| 4 | `BLUEPRINT.md` §5.5 が §5 の中（`# 5.` の下、`# 6.` の前）にあり、表の行と種類 = 台帳の config 以外の 14 行 | RED（§5.5 が無い） | `::test_rows_outside_config_are_stated_in_blueprint` |
+| 5a | derived: クラス数は multiclass だけ渡し、regression と binary は `None` | ガード | `::test_derived_class_counts_are_set_only_for_multiclass` |
 | 5b | derived: `collect_raw_scores` は fit では較正の有無、tune では（較正を設定しても）`False` | ガード | `::test_derived_collect_raw_scores_follows_calibration_on_fit_only` |
 | 5c | `TimeHoldoutInnerValid.gap` は自動解決で `split.gap` / `purge_gap + embargo`（2b のセル）、`time_holdout` 明示で 0 | ガード | `::test_explicit_time_holdout_gets_no_gap` |
 | 5d | policy の 2 行は Config を変えても固定値のまま | ガード | `::test_policy_rows_hold_their_fixed_value` |

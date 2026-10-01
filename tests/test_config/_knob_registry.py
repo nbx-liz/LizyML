@@ -171,7 +171,10 @@ REGISTRY: dict[str, tuple[str, str]] = {
     ),
     "GroupHoldoutInnerValid.ratio": ("config", _RATIO),
     "GroupHoldoutInnerValid.random_state": ("config", _AUTO_SEED),
-    "TimeHoldoutInnerValid.ratio": ("config", _RATIO),
+    "TimeHoldoutInnerValid.ratio": (
+        "config",
+        _RATIO + "; on BlockedGroupInnerValid's regression fallback: its ratio",
+    ),
     "TimeHoldoutInnerValid.gap": (
         "config",
         "resolved automatically: split.gap (time_series) or split.purge_gap +"
@@ -183,7 +186,11 @@ REGISTRY: dict[str, tuple[str, str]] = {
         "BlockedGroupInnerValid's ratio (early_stopping.validation_ratio),"
         " on its classification fallback",
     ),
-    "BlockedGroupInnerValid.ratio": ("config", _RATIO),
+    "BlockedGroupInnerValid.ratio": (
+        "config",
+        "selected automatically for blocked_group_kfold (no explicit inner_valid"
+        " method builds it): early_stopping.validation_ratio (0.1 when absent)",
+    ),
     "BlockedGroupInnerValid.task": ("config", "task"),
     # tuning
     "Tuner.n_trials": ("config", "tuning.optuna.params.n_trials"),
