@@ -37,13 +37,19 @@ Every line below was produced by an executed instrument; the raw outputs sit bes
 
 4. Archived manifest rows against develop (scout, executed collection; see table in
    pr8c_acceptance_criteria.md section 2)
-   - 4 of the 17 named test files do not exist; 7 population_test node names do not
-     exist; declared cardinalities disagree with what shipped (#261 3 not 21, #263 19,
+   - 4 of the 17 named test files do not exist. Of the population_test selectors in
+     files that do exist, 9 select nothing (pytest exit 4): #258 #260 #261 #262 #263
+     #266 #268 #269 #272; with the 4 selectors in absent files, every one of the 13 archived rows that carries a
+     population_test has a dead selector (corrected in design review round 1, which re-ran them; this
+     line first said 7). Declared cardinalities disagree with what shipped (#261 3 not 21, #263 19,
      #267 30 not 378, #272 16 not 4).
    - 9 issues have no node whose parametrisation is the population: #259 #264 #265
      #268 #269 #277 #281 #284 #288 (#270 is a whole-suite property).
    - Several populations are lists declared in the test, not derivable from code:
-     #266 #267 #272 #282 #285 #287.
+     #267 #272 #282 #285 #287. #266 is not one of them: its 7 sites come from the
+     test's scan of the documents, so a new version declaration in a document changes
+     the collected count (round 1 added one in scratch and got 8). This line first
+     listed #266 here.
    - #262: 6 of 27 cells are strict xfail (#299); pytest exits 0, so "passes" holds.
 
 5. Proposition 2: each row's shipped tests run in an older tree
@@ -90,6 +96,39 @@ Every line below was produced by an executed instrument; the raw outputs sit bes
 
 6. Proposition 4 with a growing population (#271)
    The archived #271 derivation counts HISTORY.md proposals; the archived value was 92
-   at 5712f41 and the deferred README measured 93 with H-0092. Every PR in this run
-   adds one, so a literal cannot match at the merge SHA. #271's test does not exist
-   yet (PR 9).
+   at 5712f41 and the deferred README measured 93 with H-0092; the same derivation
+   prints 110 at 33a3f6e. Growth is uneven, not one per PR (round 1 measured #278
+   94 -> 97, #296 unchanged at 101, #300 101 -> 103). A literal measured at a fixed SHA
+   can match there; what fails is a literal written before the population stops
+   moving. So the row may carry a derivation instead of a literal, to avoid keeping a
+   stale number, not because a literal is unsatisfiable. (This item first said every
+   PR adds one and that a literal cannot match.) #271's test does not exist yet (PR 9).
+
+--- Added after design review round 1 ---
+
+8. Supplying only NEW package files to the before tree
+   (instruments/pr8c_overlay_probe.py -> pr8c_overlay_probe.txt)
+   Copies into the before tree only the lizyml/*.py files the after tree has and the
+   before tree lacks (never a modified file), plus the row's tests and helpers.
+   - #277 at 5ac725e: 3 new files staged -> 102 failed, 27 passed. A behavioural RED.
+   - #264/#288 at ccae32b: 6 new files staged -> still a collection error:
+     cannot import name 'check_duplicate_identities' from 'lizyml.core._model_factories'.
+     The name was added to a module that already existed, so it cannot be supplied
+     without supplying the fix. PR #278's commit list has the fix (b97e30c) before the
+     first test commit (e255182), and PR #296's feat (1181e05) precedes its tests
+     (33339cb): neither PR has a tests-only commit to run instead.
+   - No dynamic module discovery: `pkgutil`, `import_module`, `iter_modules` and
+     `entry_points` occur nowhere in lizyml/ at 33a3f6e, ccae32b or 5ac725e, so a new file
+     the before code never imports cannot change its behaviour.
+
+9. Closure association and executed outcomes (instruments/pr8c_round1_probe.py ->
+   pr8c_round1_probe.txt; fixing PRs in results/pr8c_fixing_prs.json)
+   - The last comment at or before closedAt names every fixing PR of all 23 closed rows:
+     by digit-bounded #N for 20 rows, by the PR's exact title for #258/#279/#282 (#292).
+   - A keyword-anchored body citation (fix/close/resolve/ref + #N) is missing for 5 pairs:
+     #262<-#275, #272<-#310, #286<-#290, #287<-#291, #288<-#278. Requiring it would refuse
+     correct records (DC7), so p6 requires a plain digit-bounded citation plus the close
+     comment naming the PR.
+   - Executed outcomes at the after tree (JUnit, per node): every row's tests are all
+     passed, except #262 with 28 passed and 9 xfailed (strict, #299). No row has a skipped
+     node.
