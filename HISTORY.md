@@ -10394,8 +10394,9 @@ LightGBM 4 は、組み込みの目的関数では **feval に変換済みの予
 
 ## H-0106: 宣言されたすべての `ErrorCode` を発生させ、`config_version` の検査をすべての入口に置く（#263 / #272 / PR 6）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-01
+- **決定日**: 2026-10-01（事実確認を含む外部レビュー: 設計レビュー 3 ラウンド（blocking 7 → 1 → 0。文書の事実誤認を計 8 件訂正し、計測器を直した）、コードレビュー 2 ラウンド（blocking 6 → 0。旧 loader と異なっていた版の変換を戻し、`"2.0"` の迂回を発見、空振りしうる 2 つのテストを強化）。各ラウンドの前に absolute / relational monitor。RED テストの段で #309 を発見）
 - **スコープ**: `lizyml/core/exceptions.py`（`DATA_FINGERPRINT_MISMATCH` を削除）, `lizyml/features/column_check.py`（dtype の検査 → `INCOMPATIBLE_COLUMNS`）, `lizyml/core/_model_predict.py`（呼び出し）, `lizyml/metrics/classification.py`（確率の検査 → `METRIC_REQUIRES_PROBA`）, `lizyml/config/version.py`（新規: 版の定義と検査を 1 か所に）, `lizyml/config/schema.py` / `lizyml/config/loader.py` / `lizyml/core/model.py`（版の検査を呼ぶ）, `BLUEPRINT.md` §4 の Config 表 / §16.2, `docs/api.md`, `docs/DEPRECATIONS.md`, `PLAN.md`, `CHANGELOG.md`, テスト（下記）
 - **関連**: [Issue #263](https://github.com/nbx-liz/LizyML/issues/263), [Issue #272](https://github.com/nbx-liz/LizyML/issues/272), [Issue #307](https://github.com/nbx-liz/LizyML/issues/307)（`cross_entropy_lambda`）, [Issue #271](https://github.com/nbx-liz/LizyML/issues/271)（`SUPPORTED_CONFIG_VERSIONS` は未文書の 8 名の 1 つ）, [Issue #295](https://github.com/nbx-liz/LizyML/issues/295)（依存の下限が CI で実行されない）, H-0104（推論時の列検査を facade に置いた）, H-0105, #210（文字列の版の迂回を閉じた）
 - **実測の記録**: `docs/audits/2026-09-defect-discovery/results/pr6_measurements.txt`（`develop` `1abf7fb`。再生成するスクリプトは同じディレクトリの `../instruments/pr6_*.py`）
