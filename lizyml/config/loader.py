@@ -18,6 +18,8 @@ from pydantic import ValidationError
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 
 from .schema import LizyMLConfig
+from .version import SUPPORTED_CONFIG_VERSIONS as SUPPORTED_CONFIG_VERSIONS
+from .version import check_config_version
 
 # ---------------------------------------------------------------------------
 # Alias normalization
@@ -187,35 +189,18 @@ def _coerce_env_value(value: str) -> Any:
 # Version gate
 # ---------------------------------------------------------------------------
 
-SUPPORTED_CONFIG_VERSIONS: list[int] = [1]
-
 
 def _check_config_version(raw: dict[str, Any]) -> None:
     """Raise CONFIG_VERSION_UNSUPPORTED if config_version is unsupported.
 
-    The value is coerced to an ``int`` before the membership check so a string
-    like ``"999"`` cannot bypass the gate and then be lax-coerced by pydantic
-    (#210). A missing or non-integer value is left for pydantic to report.
+    Checked on the raw value, before pydantic coerces it, so the context keeps
+    the spelling the user wrote (a string like ``"999"`` cannot bypass the gate
+    either, #210). A missing or non-integer value is left for pydantic to
+    report. The schema's field validator applies the same check after
+    coercion -- and after environment overrides -- through the same function
+    (H-0106).
     """
-    version = raw.get("config_version")
-    if version is None or isinstance(version, bool):
-        return
-    try:
-        version_int = int(version)
-    except (TypeError, ValueError):
-        return  # non-coercible → pydantic reports the type error
-    if version_int not in SUPPORTED_CONFIG_VERSIONS:
-        raise LizyMLError(
-            ErrorCode.CONFIG_VERSION_UNSUPPORTED,
-            user_message=(
-                f"config_version={version!r} is not supported. "
-                f"Supported versions: {SUPPORTED_CONFIG_VERSIONS}"
-            ),
-            context={
-                "config_version": version,
-                "supported": SUPPORTED_CONFIG_VERSIONS,
-            },
-        )
+    check_config_version(raw.get("config_version"), allow_unparsed=True)
 
 
 # ---------------------------------------------------------------------------

@@ -55,7 +55,6 @@ class TestLizyMLError:
             "CONFIG_INVALID",
             "CONFIG_VERSION_UNSUPPORTED",
             "DATA_SCHEMA_INVALID",
-            "DATA_FINGERPRINT_MISMATCH",
             "LEAKAGE_SUSPECTED",
             "LEAKAGE_CONFIRMED",
             "OPTIONAL_DEP_MISSING",
