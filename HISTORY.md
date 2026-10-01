@@ -9931,7 +9931,7 @@ smart owner, and convert regression cases for discarded settings to refusals.
 
 ## 2026-09-10: Merge partial tuning spaces with provider defaults
 
-- ID: `H-0100`
+- ID: `H-0102`（2026-10-01 に `H-0100` から付け替え。PR 3c の `H-0100` と番号が重複していたため。参照の少ないこちらを動かした。H-0101 を参照）
 - Status: `accepted`
 - Scope: `Config | Tuning`
 - Related: `H-0024`, `H-0068`, `H-0099`, `BLUEPRINT.md §11.3`
@@ -10156,3 +10156,44 @@ Firing rate: 2/75 of the calibrated platt and beta configs the shipped suite bui
 8. 生成 fitter が実行時と一致し、params で変わり、生成コードで再学習が走る。`config.json` に実効値。
 9. 旧 platt calibrator の artifact が通常・極端なスコアで同じ predict を返す。未学習の旧状態、新状態の再読込も通る。
 10. 既定の platt / beta の fit で警告が出ない。登録された calibrator すべてに `validate_params` の宣言と生成 fitter がある。README と生成 requirements の scipy の記述が一致する。
+
+## H-0101: `TimeHoldoutInnerValid.gap` を「自動解決だけが設定する引数」と明文化し、HISTORY の ID 重複を解消する（#265 / PR 3d）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-01
+- **決定日**: 2026-10-01
+- **スコープ**: `BLUEPRINT.md` §10.3.3（明示指定時の gap の記述を訂正、`gap` が Config フィールドでないことを明記）, §11.3（H-0100 → H-0102）, `HISTORY.md`（2026-09-10 の探索空間マージ項目の ID を H-0102 に付け替え）, `lizyml/core/_model_persistence.py` / `tests/test_tuning/test_default_space.py`（コメント内の ID 参照のみ）, `tests/test_training/test_inner_valid_purge_embargo.py`（追加）, `tests/test_docs/test_history_ids.py`（新規）
+- **関連**: [Issue #265](https://github.com/nbx-liz/LizyML/issues/265), H-0092（#265 の本体を解決）, H-0085（gap 伝播）, [#268](https://github.com/nbx-liz/LizyML/issues/268)（Config から届かない構築子引数の一覧）, H-0100（calibration）, H-0102（旧 ID H-0100 の探索空間マージ）
+
+### 目的（課題）
+
+**1. #265 の close レビューで残った 2 点。** 2026-10-01 の独立した close レビューが、H-0092 の修復の後に残る次の 2 点を示した。
+
+- `BLUEPRINT.md` §10.3.3 は「`training.early_stopping.inner_valid` を明示指定した場合は継承せず、明示された値（既定 `gap=0`）を使う」と書いていた。**明示できる値は存在しない。** `TimeHoldoutInnerValidConfig` は `method` と `ratio` だけを持ち `extra="forbid"`（`lizyml/config/schema.py`）、明示指定の factory は `ratio` だけを渡す（`core/_model_factories.py`）。満たせる入力が無い宣言である（DC7 の形）。
+- #265 の DoD は「Config から届かない `TimeHoldoutInnerValid.gap` の処分を記録する」ことを求めていた。H-0092 は現状維持を暗に含むが、処分を明文では書いていない。
+
+**2. H-0100 の重複。** 2026-09-10 の探索空間マージ項目（PR 3b、#293）は本文の ID 行で `H-0100` を名乗り、2026-09-15 の calibration 項目（PR 3c、#296）も見出しで `H-0100` を名乗っていた。並行したブランチがそれぞれ次の空き番号を取り、両方がマージされた。ID は各ブランチ上で採番され、重複はマージ後にしか存在しないので、どちらのブランチの検査にも映らない。
+
+### 対応方針（決定）
+
+1. **`gap` は自動解決だけが設定する構築子引数とし、Config には出さない。** 明示指定の経路は常に `gap=0` である。`gap` キーは `extra="forbid"` により検証で拒否される（黙って捨てられはしない）。境界 gap が必要な利用者は outer split に `purge_gap` / `embargo` / `gap` を設定し、inner valid を自動解決に任せる。これで #268 の `TimeHoldoutInnerValid.gap` 行は「意図的に Config 外」として処分される。
+2. **§10.3.3 の記述を「明示指定時は常に `gap=0`」に訂正し、`gap` が Config フィールドでないことと、その代替手段を明記する。**
+3. **ID の重複は、参照の少ない探索空間マージ項目を `H-0102` に付け替えて解消する。** 参照は探索空間側が 5 か所（HISTORY 本文 1、BLUEPRINT 2、コードとテストのコメント 2）、calibration 側が約 60 か所だった。付け替えた項目の ID 行に旧番号と理由を残す。
+4. **HISTORY の各項目が ID をちょうど 1 つ宣言し、同じ ID を 2 項目が宣言しないことをテストで固定する**（`tests/test_docs/test_history_ids.py`）。文法は閉じる: 項目は fenced code の外の `## ` 見出し、ID の綴りは実測した 2 種（見出しの `## H-NNNN` と本文の ``- ID: `H-NNNN` ``）。ID が 0 個・2 個の項目は名前つきで失敗にし、読み飛ばさない。実測: 2026-10-01 の HISTORY.md は 102 項目、全項目がどちらかの綴りでちょうど 1 つを宣言し、重複は H-0100 の 1 件のみ。
+
+### 互換性
+
+- 振る舞いの変更は無い。`gap` キーは以前から検証で拒否されており、明示指定の経路は以前から `gap=0` だった。今回はそれを仕様に書き、テストで固定した。
+- `format_version` / 公開 API / Result の形と意味は変わらない。
+- `H-0100` を探索空間マージの意味で引用していた外部の記録は `H-0102` と読み替える。リポジトリ内の参照はすべて付け替えた。
+
+### 代替案（検討して棄却）
+
+1. **`gap` を Config に公開する。** 新機能であり、#265 の残作業の範囲を超える。outer split の設定で同じ目的を達成できる。必要になれば別の Proposal で扱う。
+2. **ID を付け替えず、両項目に注記を付ける。** 「H-0100」が 2 つの決定を指し続け、引用のたびに曖昧になる。
+3. **calibration 側を付け替える。** 参照が約 60 か所あり、コード・テスト・監査記録の変更が大きい。
+
+### 受け入れ基準（テスト観点）
+
+- `tests/test_training/test_inner_valid_purge_embargo.py::TestExplicitInnerValidDoesNotInheritGap::test_gap_is_not_a_config_field`: 明示指定の inner valid に `gap` を書くと `CONFIG_INVALID`（pydantic の `extra_forbidden`、対象は `gap` キー）。既存の `test_explicit_time_holdout_gets_no_gap` / `test_auto_and_explicit_differ_for_the_same_outer_split` は不変のまま green。
+- `tests/test_docs/test_history_ids.py`: 現在の HISTORY.md で違反 0 件、100 項目以上を解析（空回りの防止）。重複・ID 無し・ID 2 個・fenced code 内の見出しの 4 形を合成入力で検査する。**付け替え前の HISTORY.md では H-0100 の重複を報告して失敗することを確認した。**

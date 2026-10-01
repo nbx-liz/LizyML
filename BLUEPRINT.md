@@ -661,8 +661,13 @@ LizyML 非依存の学習・推論コードを自動生成する。
   - `gap > 0` のとき、inner-train と inner-valid の境界で `gap` 行を purge する。purge された行は
     inner-train にも inner-valid にも属さない。
   - `gap` の値は §10.3.1 の解決規則が決める。**自動解決時**は outer split の境界 gap を継承する
-    （H-0085）。**`training.early_stopping.inner_valid` を明示指定した場合は継承せず**、明示された
-    値（既定 `gap=0`）を使う。§10.3.1 の「明示指定した場合は外側 `split.method` を参照しない」に従う。
+    （H-0085）。**`training.early_stopping.inner_valid` を明示指定した場合は継承せず、常に
+    `gap=0`** である。§10.3.1 の「明示指定した場合は外側 `split.method` を参照しない」に従う。
+  - **`gap` は Config のフィールドではない（H-0101）。** `TimeHoldoutInnerValidConfig` は
+    `method` と `ratio` だけを持ち（`extra="forbid"`）、`gap` を書けば検証で拒否される。`gap` は
+    自動解決だけが設定する構築子引数であり、利用者が inner valid の境界 gap を直接指定する手段は
+    意図的に設けていない。境界 gap が必要な場合は、outer split に `purge_gap` / `embargo` / `gap` を
+    設定し、inner valid を自動解決に任せる。
   - `n_valid + gap >= n_samples` の場合は `ValueError` を発出する（空の train set 防止）。
 - `BlockedGroupInnerValid(ratio=0.1, task="regression")`:
   - `blocked_group_kfold` 専用。グループ分離 + 時間順序 + 層化（分類時）を同時に満たす。
@@ -765,7 +770,7 @@ SearchDim にカテゴリ属性を持たせ、Tuner がパラメーターの適�
 
 ## 11.3 デフォルト Tuning Space
 
-H-0100: `tuning.optuna.space_mode` defaults to `merge`. Start with task-specific
+H-0102: `tuning.optuna.space_mode` defaults to `merge`. Start with task-specific
 provider dimensions, replace matching dimensions with complete user definitions,
 and retain unspecified defaults. Model dimensions match by provider parameter
 identity, so `eta` replaces `learning_rate`; smart/training dimensions match by
@@ -773,7 +778,7 @@ category and name. Additional user dimensions are appended. User aliases for
 one parameter in the same space remain invalid.
 
 Set `space_mode: replace` for an explicit-only space, including an empty space.
-This is the migration path for pre-H-0100 nonempty spaces. Merge can increase
+This is the migration path for pre-H-0102 nonempty spaces. Merge can increase
 training cost by adding default dimensions and retains the existing smart/native
 conflict refusals. Start a fresh study when changing space semantics.
 

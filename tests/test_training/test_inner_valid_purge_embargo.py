@@ -17,6 +17,7 @@ import pytest
 
 from lizyml.config.loader import load_config
 from lizyml.core._model_factories import build_inner_valid
+from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.training.inner_valid import TimeHoldoutInnerValid
 
 
@@ -129,3 +130,19 @@ class TestExplicitInnerValidDoesNotInheritGap:
         assert isinstance(explicit, TimeHoldoutInnerValid)
         assert auto.gap == 5  # purge_gap 3 + embargo 2
         assert explicit.gap == 0
+
+    def test_gap_is_not_a_config_field(self) -> None:
+        """``gap`` is resolver-only (H-0101): an explicit spec cannot carry one.
+
+        BLUEPRINT 10.3.3 once said an explicit inner valid uses "the given gap,
+        default 0" -- a value no Config can give. The disposition is that the
+        explicit path always gets 0, and a ``gap`` key is refused rather than
+        silently dropped.
+        """
+        with pytest.raises(LizyMLError) as exc:
+            self._cfg(self.SPLIT, {"method": "time_holdout", "ratio": 0.1, "gap": 4})
+        assert exc.value.code is ErrorCode.CONFIG_INVALID
+        # The refusal is pydantic's extra-forbid on the gap key itself, not some
+        # other invalid value in the spec.
+        detail = repr(exc.value)
+        assert "gap" in detail and "extra_forbidden" in detail, detail
