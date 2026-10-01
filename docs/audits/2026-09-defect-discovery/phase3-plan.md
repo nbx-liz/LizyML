@@ -142,8 +142,8 @@ acceptance (DC5) the audit exists to find; see §5.
 | 5 | Make the feature-pipeline extension point usable as specified | #259, #260 | — | **H-0104** | `BaseFeaturePipeline` conformance through fit → predict → explain | **merged** (#305, 2026-10-01; design r1 + code r1-r4, r2 fired the authorship stop, maintainer chose a broad r3). Filed #303, #304 |
 | **5b** | **Stop re-transforming LightGBM probabilities in the feval** | **#306** | — | **H-0105** | every feval-routed metric x every accepted objective against real `lgb.train` | **new and merged** (#308, 2026-10-01): found while preparing PR 6; the maintainer inserted it before PR 6 and asked for a fact-checking review (3 rounds, 6 corrections). Filed #307 |
 | 6 | Make every declared `ErrorCode` raisable, on every entry path | #263, #272 | — | H-0106 | 20 `ErrorCode` members, executed; both `Model` entry paths | **merged** (#310, 2026-10-01). Design 3 rounds, code 2, close review 2, all with a fact check. Filed #309 |
-| 7 | Decide the leakage validator's swallow | #267 | — | H-0107 | caller can tell "clean" from "not checked" | **in progress** |
-| 8 | Dispose of the 22 remaining unreachable knobs | #268 | — | yes | all 74 defaulted public knobs: reachable or written policy | |
+| 7 | Decide the leakage validator's swallow | #267 | — | H-0107 | caller can tell "clean" from "not checked" | **merged** (#312, 2026-10-01). Design 3 rounds, code 2, close review 2. Filed #311 |
+| 8 | Classify all 74 defaulted public knobs (the "22 unreachable" were mostly reachable) | #268 | — | H-0108 | all 74 defaulted public knobs: reachable or written policy | **in progress**. The premise was wrong: see §PR 8 |
 | **8b** | **Record what the fit applied, in the artifact** | **#281** | — | yes | every value a reporting surface answers for survives `load()` | **new in Revision 6** |
 | **8c** | **Ship the completion-measurement instrument** | — | — | — | Phase 3 completion measured rather than judged per PR | **moved earlier** (was: before PR 9) |
 | 9 | Fold the decided proposals into `BLUEPRINT.md` | #271 | — | yes | proposal on the contract surface ⇒ named in BLUEPRINT | |
@@ -894,6 +894,30 @@ with the code it described.
 
 ### PR 8 — the 22 remaining unreachable knobs
 
+> **Corrected 2026-10-01, when PR 8 opened: the premise below is wrong, and the decision
+> it led to is replaced.** #268 and this section classified knobs by matching parameter
+> names against Config field names. Executing each path (a non-default value set at the
+> Config path, the constructor's arguments spied; `results/pr8_measurements.txt`) shows
+> all nine knobs in the "Expose" list below already reachable, and three of the
+> "Written policy" knobs reachable too:
+>
+> - The six `max_train_size` / `max_test_size` are set by `split.train_size_max` /
+>   `split.test_size_max`, present since 2026-03-07 (`5daaffd`).
+> - `PrecisionAtK.k`, `ECE.n_bins` and `HuberLoss.delta` are set by the dict form of a
+>   metric entry (H-0065, 2026-03-28), in `evaluation.metrics` and in a feval `metric`.
+> - `LGBMAdapter.early_stopping_rounds` is set by `training.early_stopping.rounds`.
+> - `Tuner.progress_callback` / `.storage` / `.study_name` are `Model.tune` arguments.
+>
+> Of all 74 knobs, 52 are set by Config, 5 by a public argument, 10 are derived from
+> the data or other settings, 5 are internal, and 2 are policy defaults no caller
+> passes: `LGBMAdapter.verbose_eval` and `StratifiedKFoldSplitter.shuffle`. The second is
+> not in #268's list. **H-0108 replaces "expose 9, write policy for 13":** nothing
+> needs exposing, and the 22 rows that Config does not set (api, derived, policy,
+> internal) are stated in BLUEPRINT §5.5. A registry and an executed test keep the
+> classification. Of the "four documented options nothing exercises", two are now
+> exercised (`detect_boundary(threshold=)`, `Model(data=)`); the other two get tests.
+> The text below is kept as the record of what was planned.
+
 **Decision.** Per row, not one blanket answer. 25 knobs were found; two
 (`CategoricalEncoder.unseen_policy`, `NativeFeaturePipeline.unseen_policy`) are
 repaired in PR 5, and `TimeHoldoutInnerValid.gap` is disposed of by PR 0's
@@ -1070,7 +1094,7 @@ batched into a single question to the user rather than asked mid-run.
 | #267 | dead handler or reachable | **measured: reachable** (15/378, a numeric `ExtensionDtype`). Remove the swallow and let it propagate |
 | #271 | which of the 57 absent proposals owe BLUEPRINT an update | **52 fold-in / 5 no-obligation** — the plan's only judgement about your specification rather than a measurement of the code. The five exempt are `H-0000`, `H-0012`, `H-0025`, `H-0037`, `H-0067`, each with its reason in §7 |
 | **#EMBARGO** *(unfiled)* | what `embargo` should mean in `PurgedTimeSeriesSplitter` | **rename it.** Measured: the splitter is forward-chaining, no fold places training data after the validation block, and `purge_gap` and `embargo` move the same pre-valid gap — so `embargo` is a second purge under a name that means something else. Implementing it in its real direction needs interior test blocks this splitter does not produce; documenting the divergence keeps a term that will mislead anyone who knows it. See §4 PR 0 for the evidence |
-| #268 | 22 knobs | expose 9, write policy for 13 |
+| #268 | 22 knobs | ~~expose 9, write policy for 13~~ **replaced by H-0108**: the classification was name-matched and wrong; executed, nothing needs exposing, and the 22 knobs Config does not set are stated in BLUEPRINT §5.5 |
 | #270 | close with the two gates, or keep open | keep open; 177 remain |
 | run | merge cadence | CI green ⇒ merge, per the Long-Run Kickoff rule |
 | run | scope | PRs 0–9 in one run, or stop after PR 6 |
@@ -1133,9 +1157,11 @@ Firing rate: 0/821 of configs constructed (#272 / PR 6; same recording, tested
 
 # The two exemption tables that ship (the PR 6 RESERVED table was removed in
 # round 6; its line, 1/20 of ErrorCode members, is withdrawn)
-Firing rate: 13/74 of defaulted public __init__ knobs (PR 8 written-policy registry;
-  AST sweep over every public class, independently reproducing #268's figure.
-  Deliberately non-zero -- it is the split decided in PR 8)
+Firing rate: 22/74 of defaulted public __init__ knobs (PR 8 registry, H-0108: the
+  knobs allowed without a Config path -- api 5, derived 10, policy 2, internal 5 --
+  each stated in BLUEPRINT 5.5; the other 52 are executed through their Config path.
+  Re-measured 2026-10-01 at 91a698b; the earlier 13/74 rested on a name match that
+  #268 shared and execution disproved)
 Firing rate: 5/57 of the HISTORY proposals absent from BLUEPRINT judged to carry
   no obligation (PR 9; the triaged population. The other 35 of the 92 in the
   register are already named in BLUEPRINT and were never candidates, so quoting

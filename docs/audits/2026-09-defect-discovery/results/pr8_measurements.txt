@@ -1,0 +1,154 @@
+# PR 8 measurements at develop 91a698b (2026-10-01). Regenerate with instruments/pr8_write_measurements.py
+
+## pr8_knob_census.py
+
+BetaCalibrator.params                            lizyml/calibration/beta.py:55                           None
+IsotonicCalibrator.params                        lizyml/calibration/isotonic.py:95                       None
+PlattCalibrator.params                           lizyml/calibration/platt.py:63                          None
+LizyMLError.debug_message                        lizyml/core/exceptions.py:50                            None
+LizyMLError.cause                                lizyml/core/exceptions.py:51                            None
+LizyMLError.context                              lizyml/core/exceptions.py:52                            None
+Model.data                                       lizyml/core/model.py:134                                None
+Model.output_dir                                 lizyml/core/model.py:135                                None
+LGBMAdapter.task                                 lizyml/estimators/lgbm/adapter.py:124                   'regression'
+LGBMAdapter.params                               lizyml/estimators/lgbm/adapter.py:125                   None
+LGBMAdapter.num_class                            lizyml/estimators/lgbm/adapter.py:126                   None
+LGBMAdapter.early_stopping_rounds                lizyml/estimators/lgbm/adapter.py:127                   50
+LGBMAdapter.verbose_eval                         lizyml/estimators/lgbm/adapter.py:128                   -1
+LGBMAdapter.random_state                         lizyml/estimators/lgbm/adapter.py:129                   42
+Evaluator.task                                   lizyml/evaluation/evaluator.py:104                      'regression'
+CategoricalEncoder.unseen_policy                 lizyml/features/encoders/categorical_encoder.py:24      'mode'
+NativeFeaturePipeline.unseen_policy              lizyml/features/pipelines_native.py:39                  'mode'
+ECE.n_bins                                       lizyml/metrics/classification.py:330                    10
+PrecisionAtK.k                                   lizyml/metrics/classification.py:370                    10
+HuberLoss.delta                                  lizyml/metrics/regression.py:172                        1.0
+BlockedGroupKFoldSplitter.mode                   lizyml/splitters/blocked_group_kfold.py:42              'expanding'
+BlockedGroupKFoldSplitter.train_window           lizyml/splitters/blocked_group_kfold.py:43              None
+BlockedGroupKFoldSplitter.n_splits               lizyml/splitters/blocked_group_kfold.py:44              3
+BlockedGroupKFoldSplitter.stratify               lizyml/splitters/blocked_group_kfold.py:45              False
+BlockedGroupKFoldSplitter.shuffle                lizyml/splitters/blocked_group_kfold.py:46              True
+BlockedGroupKFoldSplitter.random_state           lizyml/splitters/blocked_group_kfold.py:47              None
+BlockedGroupKFoldSplitter.min_train_rows         lizyml/splitters/blocked_group_kfold.py:48              1
+BlockedGroupKFoldSplitter.min_valid_rows         lizyml/splitters/blocked_group_kfold.py:49              1
+GroupKFoldSplitter.n_splits                      lizyml/splitters/group_kfold.py:22                      5
+StratifiedGroupKFoldSplitter.n_splits            lizyml/splitters/group_kfold.py:50                      5
+StratifiedGroupKFoldSplitter.shuffle             lizyml/splitters/group_kfold.py:51                      True
+StratifiedGroupKFoldSplitter.random_state        lizyml/splitters/group_kfold.py:52                      42
+GroupTimeSeriesSplitter.n_splits                 lizyml/splitters/group_time_series.py:29                5
+GroupTimeSeriesSplitter.gap                      lizyml/splitters/group_time_series.py:30                0
+GroupTimeSeriesSplitter.max_train_size           lizyml/splitters/group_time_series.py:31                None
+GroupTimeSeriesSplitter.max_test_size            lizyml/splitters/group_time_series.py:32                None
+KFoldSplitter.n_splits                           lizyml/splitters/kfold.py:26                            5
+KFoldSplitter.shuffle                            lizyml/splitters/kfold.py:27                            True
+KFoldSplitter.random_state                       lizyml/splitters/kfold.py:28                            42
+StratifiedKFoldSplitter.n_splits                 lizyml/splitters/kfold.py:57                            5
+StratifiedKFoldSplitter.shuffle                  lizyml/splitters/kfold.py:58                            True
+StratifiedKFoldSplitter.random_state             lizyml/splitters/kfold.py:59                            42
+PurgedTimeSeriesSplitter.n_splits                lizyml/splitters/purged_time_series.py:36               5
+PurgedTimeSeriesSplitter.purge_gap               lizyml/splitters/purged_time_series.py:37               0
+PurgedTimeSeriesSplitter.embargo                 lizyml/splitters/purged_time_series.py:38               0
+PurgedTimeSeriesSplitter.max_train_size          lizyml/splitters/purged_time_series.py:39               None
+PurgedTimeSeriesSplitter.max_test_size           lizyml/splitters/purged_time_series.py:40               None
+TimeSeriesSplitter.n_splits                      lizyml/splitters/time_series.py:30                      5
+TimeSeriesSplitter.gap                           lizyml/splitters/time_series.py:31                      0
+TimeSeriesSplitter.max_train_size                lizyml/splitters/time_series.py:32                      None
+TimeSeriesSplitter.max_test_size                 lizyml/splitters/time_series.py:33                      None
+CVTrainer.task                                   lizyml/training/cv_trainer.py:56                        'regression'
+CVTrainer.n_classes                              lizyml/training/cv_trainer.py:57                        None
+CVTrainer.ratio_param_resolver                   lizyml/training/cv_trainer.py:59                        None
+CVTrainer.collect_raw_scores                     lizyml/training/cv_trainer.py:60                        False
+HoldoutInnerValid.ratio                          lizyml/training/inner_valid.py:72                       0.1
+HoldoutInnerValid.random_state                   lizyml/training/inner_valid.py:73                       42
+HoldoutInnerValid.stratify                       lizyml/training/inner_valid.py:74                       False
+GroupHoldoutInnerValid.ratio                     lizyml/training/inner_valid.py:128                      0.1
+GroupHoldoutInnerValid.random_state              lizyml/training/inner_valid.py:128                      42
+TimeHoldoutInnerValid.ratio                      lizyml/training/inner_valid.py:181                      0.1
+TimeHoldoutInnerValid.gap                        lizyml/training/inner_valid.py:181                      0
+StratifiedTimeHoldoutInnerValid.ratio            lizyml/training/inner_valid.py:226                      0.1
+BlockedGroupInnerValid.ratio                     lizyml/training/inner_valid.py:300                      0.1
+BlockedGroupInnerValid.task                      lizyml/training/inner_valid.py:300                      'regression'
+RefitTrainer.task                                lizyml/training/refit_trainer.py:64                     'regression'
+RefitTrainer.ratio_param_resolver                lizyml/training/refit_trainer.py:66                     None
+Tuner.n_trials                                   lizyml/tuning/tuner.py:68                               50
+Tuner.direction                                  lizyml/tuning/tuner.py:69                               'minimize'
+Tuner.timeout                                    lizyml/tuning/tuner.py:70                               None
+Tuner.seed                                       lizyml/tuning/tuner.py:71                               42
+Tuner.progress_callback                          lizyml/tuning/tuner.py:73                               None
+Tuner.storage                                    lizyml/tuning/tuner.py:74                               None
+Tuner.study_name                                 lizyml/tuning/tuner.py:75                               None
+total: 74
+
+
+## pr8_reachability_probe.py (executed: a non-default value set at the Config path or public argument; constructor arguments spied)
+
+kfold                  KFoldSplitter.n_splits                       set=3            got=3                        OK
+kfold                  KFoldSplitter.shuffle                        set=False        got=False                    OK
+kfold                  KFoldSplitter.random_state                   set=7            got=7                        OK
+stratified_kfold       StratifiedKFoldSplitter.n_splits             set=3            got=3                        OK
+stratified_kfold       StratifiedKFoldSplitter.random_state         set=7            got=7                        OK
+group_kfold            GroupKFoldSplitter.n_splits                  set=3            got=3                        OK
+strat_group_kfold      StratifiedGroupKFoldSplitter.n_splits        set=3            got=3                        OK
+strat_group_kfold      StratifiedGroupKFoldSplitter.shuffle         set=False        got=False                    OK
+strat_group_kfold      StratifiedGroupKFoldSplitter.random_state    set=7            got=7                        OK
+time_series            TimeSeriesSplitter.n_splits                  set=3            got=3                        OK
+time_series            TimeSeriesSplitter.gap                       set=2            got=2                        OK
+time_series            TimeSeriesSplitter.max_train_size            set=100          got=100                      OK
+time_series            TimeSeriesSplitter.max_test_size             set=30           got=30                       OK
+purged_time_series     PurgedTimeSeriesSplitter.n_splits            set=3            got=3                        OK
+purged_time_series     PurgedTimeSeriesSplitter.purge_gap           set=2            got=2                        OK
+purged_time_series     PurgedTimeSeriesSplitter.embargo             set=1            got=1                        OK
+purged_time_series     PurgedTimeSeriesSplitter.max_train_size      set=100          got=100                      OK
+purged_time_series     PurgedTimeSeriesSplitter.max_test_size       set=30           got=30                       OK
+group_time_series      GroupTimeSeriesSplitter.n_splits             set=3            got=3                        OK
+group_time_series      GroupTimeSeriesSplitter.gap                  set=1            got=1                        OK
+group_time_series      GroupTimeSeriesSplitter.max_train_size       set=12           got=12                       OK
+group_time_series      GroupTimeSeriesSplitter.max_test_size        set=4            got=4                        OK
+blocked_group_kfold    BlockedGroupKFoldSplitter.mode               set='sliding'    got='sliding'                OK
+blocked_group_kfold    BlockedGroupKFoldSplitter.train_window       set=2            got=2                        OK
+blocked_group_kfold    BlockedGroupKFoldSplitter.n_splits           set=2            got=2                        OK
+blocked_group_kfold    BlockedGroupKFoldSplitter.shuffle            set=False        got=False                    OK
+blocked_group_kfold    BlockedGroupKFoldSplitter.min_train_rows     set=3            got=3                        OK
+blocked_group_kfold    BlockedGroupKFoldSplitter.min_valid_rows     set=2            got=2                        OK
+inner holdout + lgbm   HoldoutInnerValid.ratio                      set=0.2          got=0.2                      OK
+inner holdout + lgbm   HoldoutInnerValid.random_state               set=7            got=7                        OK
+inner holdout + lgbm   HoldoutInnerValid.stratify                   set=True         got=True                     OK
+inner holdout + lgbm   LGBMAdapter.early_stopping_rounds            set=7            got=7                        OK
+inner holdout + lgbm   LGBMAdapter.random_state                     set=7            got=7                        OK
+inner group_holdout    GroupHoldoutInnerValid.ratio                 set=0.2          got=0.2                      OK
+inner group_holdout    GroupHoldoutInnerValid.random_state          set=7            got=7                        OK
+inner time_holdout     TimeHoldoutInnerValid.ratio                  set=0.2          got=0.2                      OK
+metrics (binary)       ECE.n_bins                                   set=5            got=5                        OK
+metrics (binary)       PrecisionAtK.k                               set=20           got=20                       OK
+metrics (regression)   HuberLoss.delta                              set=2.0          got=2.0                      OK
+metric via feval       PrecisionAtK.k                               set=15           got=15                       OK
+calibration platt      PlattCalibrator.params                       set={'tol': 1e-07} got={'tol': 1e-07}           OK
+calibration isotonic   IsotonicCalibrator.params                    set={'num_leaves': 7} got={'num_leaves': 7, 'seed': 42} MISMATCH
+calibration beta       BetaCalibrator.params                        set={'tol': 1e-07} got={'tol': 1e-07}           OK
+unseen_policy          CategoricalEncoder.unseen_policy             set='nan'        got='nan'                    OK
+unseen_policy          NativeFeaturePipeline.unseen_policy          set='nan'        got='nan'                    OK
+tune                   Tuner.n_trials                               set=2            got=2                        OK
+tune                   Tuner.direction                              set='maximize'   got='maximize'               OK
+tune                   Tuner.timeout                                set=600.0        got=600.0                    OK
+tune                   Tuner.seed                                   set=7            got=7                        OK
+tune                   Tuner.progress_callback                      set=<function _cb at 0x7d7d82c89bc0> got=<function _cb at 0x7d7d82c89bc0> OK
+tune                   Tuner.study_name                             set='probe'      got='probe'                  OK
+
+
+(IsotonicCalibrator.params MISMATCH: the configured items arrive and the calibrator adds 'seed', so they are contained rather than equal.)
+
+## pr8_construction_sites.py: sites that pass a literal or leave the default
+
+LGBMAdapter.verbose_eval  [default -1]
+    lizyml/estimators/lgbm/provider.py:300 -> DEFAULT
+NativeFeaturePipeline.unseen_policy  [default 'mode']
+    lizyml/explain/shap_explainer.py:160 -> DEFAULT
+StratifiedKFoldSplitter.shuffle  [default True]
+    lizyml/core/_model_factories.py:118 -> True
+CVTrainer.collect_raw_scores  [default False]
+    lizyml/core/_model_tuning.py:551 -> DEFAULT
+HoldoutInnerValid.stratify  [default False]
+    lizyml/core/_model_factories.py:301 -> False
+    lizyml/core/_model_factories.py:294 -> True
+TimeHoldoutInnerValid.gap  [default 0]
+    lizyml/core/_model_factories.py:357 -> DEFAULT
+    lizyml/training/inner_valid.py:346 -> DEFAULT
