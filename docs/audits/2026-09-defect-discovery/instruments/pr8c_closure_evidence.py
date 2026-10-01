@@ -63,11 +63,11 @@ def gh_graphql(query: str, number: int) -> dict:
 
 
 def cites(text: str, number: int) -> bool:
-    return re.search(rf"(?<![\d/])#{number}(?!\d)", text) is not None
+    return re.search(rf"(?<![\w/])#{number}(?!\d)", text) is not None
 
 
 def cited_prs(text: str) -> list[int]:
-    return sorted({int(m) for m in re.findall(r"(?<![\d/])#(\d+)(?!\d)", text)})
+    return sorted({int(m) for m in re.findall(r"(?<![\w/])#(\d+)(?!\d)", text)})
 
 
 def is_ancestor(sha: str, head: str) -> bool:

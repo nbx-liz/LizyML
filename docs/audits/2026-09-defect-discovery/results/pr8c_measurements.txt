@@ -131,4 +131,52 @@ Every line below was produced by an executed instrument; the raw outputs sit bes
      comment naming the PR.
    - Executed outcomes at the after tree (JUnit, per node): every row's tests are all
      passed, except #262 with 28 passed and 9 xfailed (strict, #299). No row has a skipped
-     node.
+     node -- on the input this probe read (results/pr8c_rows_parent.json), which gave #284
+     only test_param_domain_cycles.py. The declared #284 row also has
+     test_param_domain.py, which has 230 skipped nodes (corrected in item 10).
+
+--- Added after design review round 2 ---
+
+10. Mutation, closure-comment and staging checks for the round 2 redesign
+    (instruments/pr8c_round2_probe.py -> pr8c_round2_probe.txt,
+     instruments/pr8c_round2_checks.py -> pr8c_round2_checks.txt,
+     instruments/pr8c_round2_staging.py -> pr8c_round2_staging.txt)
+    - Reintroduction mutations at the after tree (33a3f6e): #264 (lizyml/core/model.py)
+      96 failed, 133 passed; #288 (lizyml/core/_model_factories.py) 13 failed,
+      216 passed. Unmutated, both suites are 229 passed.
+    - fix_text provenance: `override=params` (#264) and `return dict(base)` (#288) are
+      `+` lines of #278's merge. The whole #264 `old` line is not, because #290 later
+      added `validate_values=True` to it; and `canonical =` in #288's `old` was not
+      added by #278. So the manifest binds provenance to `fix_text`, not to `old`.
+    - Closure comments: 22 comment ids pinned (every closed row with a fixing PR; #286
+      is not-planned and has none). Each was written no earlier than every fixing
+      PR's merge and no later than the close.
+    - Staging (AST `new_module_references`, the check phase3_gap ships): for each of
+      the 19 regression rows with a fixing PR, no before-tree module imports, by
+      resolved module name or by a dotted-name string, any package file only the
+      after tree has. 0 references in all 19 rows (13 distinct before commits), so
+      staging is never refused at this head. The earlier string-based check in pr8c_round2_probe.py reported 2
+      references for 20 rows (`lizyml/config/version.py`); every one was a false
+      positive on the word `version`, which is why the shipped check reads the AST.
+    - Helper identity: of the 26 staged tests/ helpers and package markers, every one
+      the before tree already has is byte-identical to the after copy, for all 19
+      rows (13 distinct before commits); the only differences are helpers absent from
+      the before tree (created by staging, removed afterwards). `tests/conftest.py`, which is not
+      staged, is identical in all 13 before commits too. So staging changes no existing
+      before-tree test file.
+    - Item 9's note and §2 measured the #284 outcomes on `test_param_domain_cycles.py`
+      only. The declared #284 row also has `test_param_domain.py`. phase3_gap at
+      33a3f6e over both files (pr8c_trial2.txt): 5,265 passed and 230 skipped, the 2
+      cycles nodes included. The manifest declares that skip (`expected_nonpass`, bound
+      to one test function, reason `holds a mapping`, count 230) and the row is
+      COMPLETE with no unexplained node.
+    - Full trial of phase3_gap at 33a3f6e (pr8c_trial2.txt, 229 s): COMPLETE 20,
+      COMPLETE-RED-BY-MUTATION 2 (#264, #288), PARTIAL 1 (#270), NOT-PLANNED 1 (#286),
+      INCOMPLETE 1 (#271: its test does not exist yet, PR 9), UNKNOWN 0; exit 1. Every
+      before-tree row's p2 has at least one failed node; no row was refused staging.
+      The first trial, before the round 2 redesign, is
+      pr8c_trial1_before_round2_redesign.txt.
+    - The digit-boundary lookbehind in pr8c_closure_evidence.py and
+      pr8c_round1_probe.py was aligned with phase3_gap (`(?<![\w/])`, so `abc#12`
+      and `repo/#12` do not cite #12). Re-run at 33a3f6e: the closure_evidence output
+      is byte-identical, and so is the round 1 closure section.

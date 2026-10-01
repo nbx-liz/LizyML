@@ -63,7 +63,7 @@ def closure(fixing: dict[str, list[int]]) -> None:
             p = gh(pr)
             body_kw = re.search(rf"\b{KEYWORD}\s+#{issue}(?!\d)", p["body"], re.I) is not None
             title = re.sub(r"\s+\(#\d+\)$", "", p["title"])
-            by_number = re.search(rf"(?<![\d/])#{pr}(?!\d)", last) is not None
+            by_number = re.search(rf"(?<![\w/])#{pr}(?!\d)", last) is not None
             by_title = title in last
             print(f"#{issue} <- #{pr}: body_keyword_cites={body_kw} "
                   f"close_comment_by_number={by_number} by_title={by_title}")
