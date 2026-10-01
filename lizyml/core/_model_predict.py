@@ -44,8 +44,11 @@ def run_predict(
     # H-0104: check the columns here, before any pipeline runs, so a pipeline
     # that does not check (or overrides the method that would) cannot let a
     # missing column through. The pipeline then sees exactly the training
-    # columns, so drift is reported once, by this check.
-    X_sel, warnings = select_training_columns(X, refit_result.feature_names)
+    # columns, so drift is reported once, by this check. H-0106: a column
+    # numeric at fit must also arrive numeric (INCOMPATIBLE_COLUMNS).
+    X_sel, warnings = select_training_columns(
+        X, refit_result.feature_names, fit_result.dtypes
+    )
 
     # Restore the fitted pipeline from saved state via the provider. The
     # unseen-category policy comes from that state (what the fit applied).

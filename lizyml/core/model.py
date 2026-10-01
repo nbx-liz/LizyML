@@ -51,6 +51,7 @@ from lizyml.config.schema import (
     BlockedGroupKFoldConfig,
     LizyMLConfig,
 )
+from lizyml.config.version import check_config_version
 from lizyml.core._model_factories import (
     build_inner_valid,
     build_splitter,
@@ -134,6 +135,9 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         output_dir: str | Path | None = None,
     ) -> None:
         if isinstance(config, LizyMLConfig):
+            # An instance may never have been validated (model_construct,
+            # assignment, model_copy(update=...)); H-0106.
+            check_config_version(config.config_version)
             self._cfg = config
         else:
             self._cfg = load_config(config)

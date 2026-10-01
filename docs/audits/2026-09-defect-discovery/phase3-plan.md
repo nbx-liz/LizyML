@@ -139,7 +139,8 @@ acceptance (DC5) the audit exists to find; see §5.
 | **3c** | **`calibration.params` honoured for every calibrator; Platt fitted as Platt defined it** | **#277** | — | **H-0100** | every calibrator, at runtime and in generated code: its declared params reach it, or are refused before training | **merged** (#296, 2026-09-15; maintainer chose honour over refuse, and moved the Platt defaults to the original method in this PR). #277 closed; byproducts #295, #297, #298 |
 | **3d** | **Close-review residue of PRs 0 and 1** | **#262, #265** | — | **H-0101** | the 27-cell tuning matrix asserts the dicts handed to `lgb.train`; HISTORY ids are unique | **merged** (#300, 2026-10-01; 2 review rounds, r2 APPROVE). #262 and #265 closed. The matrix exposed #299 (inert smart dimensions); the duplicated H-0100 became H-0102 |
 | 4 | Bring `RefitTrainer.fit` to `CVTrainer.fit` | #269 | — | **H-0103** | CV/refit input parity across 3 tasks | **merged** (#302, 2026-10-01; design r1 REQUEST_CHANGES, code r1 APPROVE). `sample_weight` forwarded; the other three inputs are written policy; #269 closed. Generated `train.py` deferred to #301 |
-| 5 | Make the feature-pipeline extension point usable as specified | #259, #260 | — | yes | `BaseFeaturePipeline` conformance through fit → predict → explain | |
+| 5 | Make the feature-pipeline extension point usable as specified | #259, #260 | — | **H-0104** | `BaseFeaturePipeline` conformance through fit → predict → explain | **merged** (#305, 2026-10-01; design r1 + code r1-r4, r2 fired the authorship stop, maintainer chose a broad r3). Filed #303, #304 |
+| **5b** | **Stop re-transforming LightGBM probabilities in the feval** | **#306** | — | **H-0105** | every feval-routed metric x every accepted objective against real `lgb.train` | **new and merged** (#308, 2026-10-01): found while preparing PR 6; the maintainer inserted it before PR 6 and asked for a fact-checking review (3 rounds, 6 corrections). Filed #307 |
 | 6 | Make every declared `ErrorCode` raisable, on every entry path | #263, #272 | — | yes | 20 `ErrorCode` members, executed; both `Model` entry paths | |
 | 7 | Decide the leakage validator's swallow | #267 | — | yes | caller can tell "clean" from "not checked" | |
 | 8 | Dispose of the 22 remaining unreachable knobs | #268 | — | yes | all 74 defaulted public knobs: reachable or written policy | |
@@ -722,9 +723,14 @@ outcome.
   That is the code's documented promise about predict-time columns, and it is
   the RED test. Raised from the interface-level check PR 5 establishes, so a
   custom pipeline cannot bypass it.
-- `METRIC_REQUIRES_PROBA` — **keep and implement**, raised from metric dispatch
-  when a `needs_proba` metric is asked for a task or artifact that has no
-  probabilities.
+- `METRIC_REQUIRES_PROBA` — **keep and implement**, raised by the six built-in
+  `needs_proba` metric classes when the values they receive are not
+  probabilities (non-finite, outside [0, 1], or 1-D for more than two classes).
+  *Corrected 2026-10-01 when PR 6 opened:* this paragraph used to say "raised
+  from metric dispatch when a `needs_proba` metric is asked for a task that has
+  no probabilities". That condition is unreachable: `metrics/registry.py`
+  `_TASK_METRICS` refuses a probability metric on regression with
+  `UNSUPPORTED_METRIC` first. H-0106 decision 3 records the measured condition.
 - #272 — move the version constraint into the schema (a field validator on
   `config_version`) so both `Model` entry paths share it. Today
   `Model(LizyMLConfig.model_validate({...,"config_version": 2}))` is accepted
@@ -734,12 +740,17 @@ outcome.
   checking is separate (`persistence/loader.py:160`).
 
 **Files.** `lizyml/core/exceptions.py`, `lizyml/core/_model_predict.py`,
-`lizyml/features/pipeline_base.py`, `lizyml/metrics/registry.py`,
-`lizyml/config/schema.py` (:582), `lizyml/config/loader.py` (:190-193),
-`BLUEPRINT.md`, `docs/api.md`, `docs/DEPRECATIONS.md`, `HISTORY.md`,
+`lizyml/features/column_check.py` (the facade check H-0104 established),
+`lizyml/metrics/classification.py`, `lizyml/config/version.py` (new),
+`lizyml/config/schema.py`, `lizyml/config/loader.py`, `lizyml/core/model.py`,
+`BLUEPRINT.md`, `PLAN.md`, `docs/api.md`, `docs/DEPRECATIONS.md`,
+`CHANGELOG.md`, `HISTORY.md`,
 `tests/test_core/test_error_code_population.py` (new, static),
 `tests/test_core/test_error_code_raising.py` (new, behavioural),
-`tests/test_config/test_config_version_entry_paths.py` (new).
+`tests/test_config/test_config_version_entry_paths.py` (new), and the further
+tests named in `results/pr6_acceptance_criteria.md`. *Corrected 2026-10-01:*
+the list used to name `features/pipeline_base.py` and `metrics/registry.py`,
+which hold neither raise site.
 
 `core/types/artifacts.py` and `data/fingerprint.py` are **not** touched:
 `DataFingerprint` and its `matches` stay exactly as they are, recording
@@ -772,9 +783,10 @@ that a `raise` *statement* exists; `if False: raise LizyMLError(code)` would
 satisfy it, which certifies inert wiring (DC4) — the class this repair is
 supposed to close. So the static scan is kept as a cheap guard and paired with
 `test_error_code_raising.py`, which **constructs the condition and asserts the
-raised `code` and `context`** for every member the enum declares. A member
-whose condition cannot be constructed goes in `RESERVED` with a reason and a
-removal plan, and a test asserts those fields are non-empty.
+raised `code` and `context`** for every member the enum declares. **No member
+is reserved**: `DATA_FINGERPRINT_MISMATCH` is deleted in this PR (the decision
+above, Revision 6 round 6). An earlier draft of this paragraph still described
+a `RESERVED` table; corrected 2026-10-01 when PR 6 opened.
 
 (b) both `Model` entry paths crossed with supported and unsupported versions —
 a 2 × 2 cell set, not one case.
@@ -1119,10 +1131,8 @@ Firing rate: 0/71 of configs setting `direction` explicitly (#258 part 2 / PR 3;
 Firing rate: 0/821 of configs constructed (#272 / PR 6; same recording, tested
   against SUPPORTED_CONFIG_VERSIONS)
 
-# The two exemption tables that ship
-Firing rate: 1/20 of ErrorCode members (PR 6 RESERVED; DATA_FINGERPRINT_MISMATCH,
-  whose predict-time condition was measured unsatisfiable, with its reason and
-  a removal plan. A test asserts both fields are non-empty)
+# The two exemption tables that ship (the PR 6 RESERVED table was removed in
+# round 6; its line, 1/20 of ErrorCode members, is withdrawn)
 Firing rate: 13/74 of defaulted public __init__ knobs (PR 8 written-policy registry;
   AST sweep over every public class, independently reproducing #268's figure.
   Deliberately non-zero -- it is the split decided in PR 8)
@@ -1132,6 +1142,22 @@ Firing rate: 5/57 of the HISTORY proposals absent from BLUEPRINT judged to carry
   n/92 would understate the rate. Per-entry verdicts, an entry with none fails
   the check)
 ```
+
+**PR 6 adds two conditions this count did not have** (added 2026-10-01, when
+PR 6 opened). Implementing `INCOMPATIBLE_COLUMNS` and `METRIC_REQUIRES_PROBA`
+means two new `allow` predicates; H-0106 carries their lines, measured on
+`1abf7fb` over the full suite (8108 passed): **0/112** `Model.predict` calls
+for the predict-time dtype check, and **61/7053** calls to the six
+`needs_proba` metrics for the probability check (60 in
+`test_feval_probabilities.py`'s `cross_entropy_lambda` cells, #307, and 1 in a
+feval display-name test that still fed the feval synthetic logits). The dtype
+check carries one exemption (a recorded dtype string `pandas_dtype` cannot
+parse leaves its column unchecked), measured **0/23** fittable dtypes. The #272
+line above was re-measured at the new check positions: **0/1253** completed
+`Model.__init__` calls and **0/1375** completed `LizyMLConfig` validations. So
+the plan now carries nine measured conditions, not six. (The PR 6 design
+review corrected the instrument before these numbers were taken; H-0106 says
+how.)
 
 **Three conditions were removed rather than measured, and that was the better
 outcome each time:**

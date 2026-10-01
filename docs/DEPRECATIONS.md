@@ -19,6 +19,7 @@ a removal-version suffix matching the pattern `Will be removed in v\d+\.\d+`.
 | `purged_time_series.gap` | `embargo` | **v1.0** | H-0021 |
 | `lizyml.core._model_factories.build_calibration_splitter` | (removed; outer split is reused) | **v1.0** | H-0058 |
 | `LGBMConfig.params["objective"]` silently stripped (cross-task) | Raise `LizyMLError(CONFIG_INVALID)` at fit time | **already enforced** | H-0079 (2026-05) |
+| `ErrorCode.DATA_FINGERPRINT_MISMATCH` | (none -- nothing ever raised it; missing columns raise `DATA_SCHEMA_INVALID`, numeric columns arriving non-numeric raise `INCOMPATIBLE_COLUMNS`) | **removed** (breaking: code that references the member gets `AttributeError`) | H-0106 (2026-10) |
 
 ## Migration notes
 

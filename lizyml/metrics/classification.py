@@ -44,6 +44,49 @@ def _require_1d_same_len(
         )
 
 
+def _require_probabilities(
+    y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any], name: str
+) -> None:
+    """Refuse *y_pred* unless it is probabilities (H-0106).
+
+    Probabilities are numeric, finite and inside [0, 1]; for more than two
+    classes in *y_true* they are 2-D. LizyML's own callers pass probabilities,
+    so a refusal here means an upstream defect (#307's ``cross_entropy_lambda``
+    output) or a direct caller passing scores. Hard 0/1 labels are valid
+    probabilities and cannot be told apart.
+
+    Raises:
+        LizyMLError: With ``METRIC_REQUIRES_PROBA``.
+    """
+
+    reason: str | None = None
+    extra: dict[str, float] = {}
+    try:
+        proba = np.asarray(y_pred, dtype=np.float64)
+    except (TypeError, ValueError):
+        proba = None
+        reason = "not numeric"
+    if proba is not None:
+        if not np.all(np.isfinite(proba)):
+            reason = "non-finite values"
+        elif proba.size and (proba.min() < 0.0 or proba.max() > 1.0):
+            reason = "values outside [0, 1]"
+            extra = {"min": float(proba.min()), "max": float(proba.max())}
+        elif proba.ndim == 1 and np.unique(np.asarray(y_true)).size > 2:
+            reason = "1-D predictions for more than two classes"
+    if reason is not None:
+        # The code is named in the raise statement itself, which is what
+        # tests/test_core/test_error_code_population.py scans for.
+        raise LizyMLError(
+            code=ErrorCode.METRIC_REQUIRES_PROBA,
+            user_message=(
+                f"Metric '{name}' requires predicted probabilities; got values "
+                f"that are not probabilities ({reason})."
+            ),
+            context={"metric": name, "reason": reason, **extra},
+        )
+
+
 def _multiclass_ovr_macro(
     y_true: npt.NDArray[Any],
     y_pred: npt.NDArray[Any],
@@ -129,6 +172,7 @@ class LogLoss(BaseMetric):
         return False
 
     def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
+        _require_probabilities(y_true, y_pred, self.name)
         _require_1d_same_len(y_true, y_pred, self.name)
         return float(log_loss(y_true, y_pred))
 
@@ -154,6 +198,7 @@ class AUC(BaseMetric):
         return True
 
     def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
+        _require_probabilities(y_true, y_pred, self.name)
         if y_pred.ndim == 2:
             # Multiclass OvR: macro-average per-class ROC AUC over classes
             # present in y_true (needs >= 2 so each OvR split has pos + neg).
@@ -185,6 +230,7 @@ class AUCPR(BaseMetric):
         return True
 
     def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
+        _require_probabilities(y_true, y_pred, self.name)
         if y_pred.ndim == 2:
             # Multiclass OvR: macro-average per-class average precision over
             # classes present in y_true (each present class has >= 1 positive).
@@ -262,6 +308,7 @@ class Brier(BaseMetric):
         return False
 
     def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
+        _require_probabilities(y_true, y_pred, self.name)
         if y_pred.ndim == 2:
             # Multiclass OvR: macro-average per-class Brier over classes
             # present in y_true.
@@ -296,6 +343,7 @@ class ECE(BaseMetric):
         return False
 
     def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
+        _require_probabilities(y_true, y_pred, self.name)
         _require_1d_same_len(y_true, y_pred, self.name)
         bin_edges = np.linspace(0.0, 1.0, self.n_bins + 1)
         n = len(y_true)
@@ -337,6 +385,7 @@ class PrecisionAtK(BaseMetric):
         return True
 
     def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
+        _require_probabilities(y_true, y_pred, self.name)
         _require_1d_same_len(y_true, y_pred, self.name)
         n = len(y_true)
         n_top = max(1, int(n * self.k / 100))

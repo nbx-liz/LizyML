@@ -469,22 +469,24 @@ except LizyMLError as e:
 | Code | When raised |
 |------|-------------|
 | `CONFIG_INVALID` | Missing required config fields; `tuning` section absent when `tune()` is called. |
-| `CONFIG_VERSION_UNSUPPORTED` | `config_version` value is not supported. |
+| `CONFIG_VERSION_UNSUPPORTED` | `config_version` value is not supported, on every path a config reaches `Model` (dict, file, `LizyMLConfig` instance, environment override). |
 | `DATA_SCHEMA_INVALID` | Target or feature columns not found in the DataFrame. |
-| `DATA_FINGERPRINT_MISMATCH` | DataFrame does not match the fingerprint recorded at fit time. |
 | `LEAKAGE_SUSPECTED` | A split or calibration invariant that could indicate leakage was violated. |
 | `LEAKAGE_CONFIRMED` | A confirmed leakage condition (e.g. same row in train and validation). |
 | `OPTIONAL_DEP_MISSING` | An optional dependency (`shap`, `optuna`) is not installed. |
 | `MODEL_NOT_FIT` | A method requiring a trained model was called before `fit()`. |
-| `INCOMPATIBLE_COLUMNS` | Prediction data columns do not match training columns. |
+| `INCOMPATIBLE_COLUMNS` | A column that was numeric (or bool) at fit arrives at `predict()` with a non-numeric dtype (string, object, category, datetime, ...). `context["columns"]` names each one with its fit and predict dtypes. A missing column raises `DATA_SCHEMA_INVALID`; an extra column is dropped with a warning. |
 | `UNSUPPORTED_TASK` | A method is not applicable to the configured task type. |
 | `UNSUPPORTED_METRIC` | An unknown or task-incompatible metric name was provided. |
+| `METRIC_REQUIRES_PROBA` | A probability metric (`logloss`, `auc`, `auc_pr`, `brier`, `ece`, `precision_at_k`) received values that are not probabilities: non-numeric, non-finite, outside [0, 1], or 1-D for more than two classes. |
 | `TUNING_FAILED` | The Optuna study encountered an unrecoverable failure. |
 | `EVALUATION_FAILED` | OOF predictions contain NaN in covered rows, or feval construction failed. |
 | `CALIBRATION_NOT_SUPPORTED` | Calibration was requested for a non-binary task or unsupported config. |
 | `CALIBRATION_NOT_FITTED` | A calibrator's `predict()` / `export_params()` was called before `fit()`. |
 | `SERIALIZATION_FAILED` | `export()` encountered an I/O error or could not resolve a path. |
 | `DESERIALIZATION_FAILED` | `load()` encountered a validation or I/O error. |
+| `TARGET_NOT_NUMERIC` | `task: regression` with a non-numeric target column. |
+| `TARGET_UNSEEN_LABEL` | The target encoder is given a classification label it was not fitted on, or a class code outside the fitted classes to decode. |
 
 ## Leakage validators (`lizyml.data`)
 

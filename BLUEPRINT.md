@@ -287,7 +287,7 @@ config = {
 
 | Key | Type | Required | Default | Notes |
 |---|---|---|---|---|
-| `config_version` | `int` | Yes | - | `1` のみサポート |
+| `config_version` | `int` | Yes | - | `1` のみサポート（`lizyml.config.loader.SUPPORTED_CONFIG_VERSIONS`、定義は `lizyml/config/version.py`）。dict / ファイル / `LizyMLConfig` インスタンス / 環境変数の上書きのどの経路でも検査し、サポート外は `CONFIG_VERSION_UNSUPPORTED`（H-0106）。`False` は `0` として拒否、`True` は `1` |
 | `task` | `"regression" \| "binary" \| "multiclass"` | Yes | - | |
 | `data` | `object` | Yes | - | |
 | `features` | `object` | No | `{}` | |
@@ -1535,12 +1535,13 @@ estimators/
 YourLibError(code, user_message, debug_message=None, cause=None)
 ```
 
-## 16.2 例外コード（例）
+## 16.2 例外コード
+
+`ErrorCode` の全メンバー。どのメンバーも本番コードのどこかが、到達できる条件で発生させる（H-0106。`tests/test_core/test_error_code_population.py` が `raise` の存在を、`test_error_code_raising.py` が条件を実行して確かめる。この一覧と `docs/api.md` の表は `tests/test_docs/test_error_code_docs.py` が enum と照合する）。`DATA_FINGERPRINT_MISMATCH` は予測時に照合できる条件が無いため H-0106 で削除した（`DataFingerprint` は来歴の記録として残る）。
 
 - `CONFIG_INVALID`
 - `CONFIG_VERSION_UNSUPPORTED`
 - `DATA_SCHEMA_INVALID`
-- `DATA_FINGERPRINT_MISMATCH`
 - `LEAKAGE_SUSPECTED`
 - `LEAKAGE_CONFIRMED`
 - `OPTIONAL_DEP_MISSING`
@@ -1550,9 +1551,13 @@ YourLibError(code, user_message, debug_message=None, cause=None)
 - `UNSUPPORTED_METRIC`
 - `METRIC_REQUIRES_PROBA`
 - `TUNING_FAILED`
+- `EVALUATION_FAILED`
 - `CALIBRATION_NOT_SUPPORTED`
+- `CALIBRATION_NOT_FITTED`
 - `SERIALIZATION_FAILED`
 - `DESERIALIZATION_FAILED`
+- `TARGET_NOT_NUMERIC`
+- `TARGET_UNSEEN_LABEL`
 
 # 17. Logging / Run 管理（`core/logging.py`）
 

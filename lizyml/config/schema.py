@@ -14,8 +14,11 @@ from pydantic import (
     Field,
     PrivateAttr,
     computed_field,
+    field_validator,
     model_validator,
 )
+
+from lizyml.config.version import check_config_version
 
 # ---------------------------------------------------------------------------
 # DataConfig
@@ -595,3 +598,11 @@ class LizyMLConfig(BaseModel):
     evaluation: EvaluationConfig = EvaluationConfig()
     calibration: CalibrationConfig | None = None
     output_dir: str | None = None
+
+    @field_validator("config_version")
+    @classmethod
+    def _supported_config_version(cls, value: int) -> int:
+        # Every validation path shares the check: model_validate, the
+        # constructor, and load_config after environment overrides (H-0106).
+        check_config_version(value)
+        return value
