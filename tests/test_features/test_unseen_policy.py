@@ -109,6 +109,37 @@ def test_no_warning_without_unseen_categories() -> None:
     assert model.predict(_new_rows(df)).warnings == []
 
 
+def test_predict_follows_the_saved_policy_not_the_current_config(
+    tmp_path: Path,
+) -> None:
+    """The policy the fit applied is recorded in the pipeline state, and predict
+    follows that record even when the config now says something else (H-0104
+    decision 6; code review round 1, blocking 2). Checked on the live model and
+    on a loaded one, against a discriminating fixture: "nan" and "mode" predict
+    differently, and "error" would raise."""
+    df = _df()
+    model = Model(_config("nan"))
+    model.fit(data=df)
+    X = _new_rows(df)
+    unseen = _with_cat(X, ["TYPO", "a", "b"])
+    as_missing = model.predict(_with_cat(X, [None, "a", "b"])).pred
+    as_mode = model.predict(_with_cat(X, [df["cat"].mode().iloc[0], "a", "b"])).pred
+    assert not np.isclose(as_missing[0], as_mode[0])
+
+    for conflicting in ("mode", "error"):
+        model._cfg.features.unseen_policy = conflicting  # type: ignore[assignment]
+        result = model.predict(unseen)
+        np.testing.assert_allclose(result.pred, as_missing)
+        assert len(result.warnings) == 1 and "unseen_policy='nan'" in result.warnings[0]
+
+    model._cfg.features.unseen_policy = "nan"
+    path = model.export(tmp_path / "artifact")
+    loaded = Model.load(path)
+    for conflicting in ("mode", "error"):
+        loaded._cfg.features.unseen_policy = conflicting  # type: ignore[assignment]
+        np.testing.assert_allclose(loaded.predict(unseen).pred, as_missing)
+
+
 def test_policy_survives_save_and_load(tmp_path: Path) -> None:
     df = _df()
     model = Model(_config("nan"))

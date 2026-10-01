@@ -51,13 +51,15 @@
 | 3c | 未知カテゴリが無ければ警告は空 | ガード | `::test_no_warning_without_unseen_categories` |
 | 3d | Config の値の集合と `UnseenPolicy` が一致する（層の規約上 2 か所に書くため） | RED | `::test_config_literal_is_the_encoder_type` |
 | 3e | `tune` が作るすべての pipeline に指定した方針が載る | RED | `::test_tune_applies_the_configured_policy[*]` |
+| 3f | 予測は保存済みの pipeline 状態の方針に従い、現在の Config の方針には従わない（生きたモデルと `load()` 後の両方、識別できるデータで。コードレビュー round 1 の blocking 2） | RED（変異） | `::test_predict_follows_the_saved_policy_not_the_current_config`。「予測直前に Config の方針で上書きする」変異で失敗することを確認 |
 | 4 | 指定した方針が refit の pipeline 状態に載り、`Model.load()` 後の `predict` でも方針と警告が保たれる | RED | `::test_policy_survives_save_and_load` |
 | 5a | `"error"` で検証 fold にだけ現れる値: `auto_categorical: false` では `fit` が `DATA_SCHEMA_INVALID`、`true` では通る（決定 7） | RED | `::test_error_policy_applies_to_cv_valid_folds` |
 | 5b | スライディング窓で最後の fold に属さない行の値: `"error"` は SHAP 重要度が `DATA_SCHEMA_INVALID`、`"mode"` は通る（決定 8） | RED | `::test_shap_importance_applies_the_stored_policy_outside_the_last_fold` |
 | 6a | エクスポートした `config.json` と `pipeline_state.json` に、fit が適用した方針が載る | RED | `tests/test_codegen/test_unseen_policy_codegen.py::test_export_carries_the_policy_the_fit_applied[*]` |
 | 6b | 生成 `predict.py` が `"mode"` / `"nan"` の置換をログに出し、`"error"` は拒否し、欠損は欠損のまま | RED | `::test_generated_predict_logs_substitutions[*]` |
 | 6c | 生成 `predict.py` は `"error"` でも欠損値を拒否しない | RED | `::test_missing_values_are_not_refused_under_error` |
-| 6d | 生成 `train.py` で再学習しても方針と最頻値コードが保たれ、予測がそれに従う | RED | `::test_retrain_keeps_the_policy[*]` |
+| 6d | 生成 `train.py` の `fit_pipeline` が書き直す pipeline 状態に方針と最頻値コードが残り、生成 `predict.py` の変換がそれに従う（`train.py` 全体の再学習は実行していない） | RED | `::test_retrain_keeps_the_policy[*]` |
+| 6e | 同値の最頻値（数値 `[2, 10]`、カテゴリ順 `["b", "a"]`）で、生成 `fit_pipeline` が実行時の encoder と同じ値を選ぶ（コードレビュー round 1 の blocking 1） | RED（変異） | `::test_retrain_picks_the_same_mode_as_the_runtime[*]`。文字列化してから最頻値を取る旧実装で 2 件とも失敗することを確認 |
 | 7 | `BLUEPRINT.md` §5.4 / §9.2、`docs/config-reference.md`、`ARCHITECTURE.md` が基底クラスと一致する | — | diff |
 | 8 | 品質ゲート: ruff / ruff format / mypy `lizyml/` / フルスイート / CI | — | PR 本文 |
 

@@ -132,3 +132,40 @@ def test_retrain_keeps_the_policy(policy: str, tmp_path: Path) -> None:
     else:
         X = predict.transform(_frame(["TYPO"]))
         assert X["cat"].iloc[0] == rebuilt["unseen_codes"]["cat"]
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        pytest.param(pd.Series([2, 10, 2, 10, 2, 10]), id="numeric-tie"),
+        pytest.param(
+            pd.Series(pd.Categorical(["b", "a", "b", "a"], categories=["b", "a"])),
+            id="category-order-tie",
+        ),
+    ],
+)
+def test_retrain_picks_the_same_mode_as_the_runtime(
+    values: pd.Series, tmp_path: Path
+) -> None:
+    """On a tie the runtime encoder takes the first mode in the column's own
+    order (numeric, or category order). The generated ``fit_pipeline`` must pick
+    the same value, not the first after converting to strings (code review
+    round 1, blocking 1)."""
+    from lizyml.features.encoders.categorical_encoder import CategoricalEncoder
+
+    root = _export("mode", tmp_path / "mode")
+    train = _load(root, "train")
+    frame = pd.DataFrame({"num": [0.0] * len(values), "cat": values})
+
+    # The runtime path: the data builder casts to category, the encoder learns.
+    as_category = pd.DataFrame({"cat": frame["cat"].astype("category")})
+    runtime_mode = (
+        CategoricalEncoder().fit(as_category, ["cat"]).get_state()["modes"]["cat"]
+    )
+
+    rebuilt = train.fit_pipeline(frame)
+    mapping = rebuilt["category_mappings"]["cat"]
+    assert rebuilt["unseen_codes"]["cat"] == mapping[str(runtime_mode)], (
+        runtime_mode,
+        mapping,
+    )

@@ -67,9 +67,12 @@ def fit_pipeline(df: pd.DataFrame) -> dict:
         cats = sorted(str(v) for v in df[col].dropna().unique())
         mappings[col] = {v: i for i, v in enumerate(cats)}
         # The training mode's code, for unseen_policy="mode" in predict.py.
-        modes = df[col].dropna().astype(str).mode()
+        # Take the mode on the original values, as the runtime encoder does:
+        # on a tie pandas picks by the column's own order (numeric, or the
+        # category order), which stringifying first would change.
+        modes = df[col].dropna().mode()
         if len(modes):
-            unseen_codes[col] = mappings[col][modes.iloc[0]]
+            unseen_codes[col] = mappings[col][str(modes.iloc[0])]
         log.info("    %s: %d categories", col, len(cats))
 
     state = {

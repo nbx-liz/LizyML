@@ -77,7 +77,7 @@ LightGBM の実装 (`lizyml/estimators/lgbm/`) が全項目のリファレンス
 | メソッド | 説明 |
 |---------|------|
 | `build_estimator_factory(task, params, n_classes, early_stopping_rounds, seed)` → `Callable[[], Adapter]` | fold ごとに新規インスタンスを生成する 0 引数ファクトリ |
-| `build_pipeline_factory()` → `Callable[[], Pipeline]` | FeaturePipeline のファクトリ |
+| `build_pipeline_factory(unseen_policy="mode")` → `Callable[[], Pipeline]` | FeaturePipeline のファクトリ。fit / tune は `features.unseen_policy` を渡す。推論時は保存済みの pipeline 状態の方針が優先される（H-0104） |
 
 ### 3.4 Tuning
 
