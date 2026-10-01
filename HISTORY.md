@@ -10197,3 +10197,63 @@ Firing rate: 2/75 of the calibrated platt and beta configs the shipped suite bui
 
 - `tests/test_training/test_inner_valid_purge_embargo.py::TestExplicitInnerValidDoesNotInheritGap::test_gap_is_not_a_config_field`: 明示指定の inner valid に `gap` を書くと `CONFIG_INVALID`（pydantic の `extra_forbidden`、対象は `gap` キー）。既存の `test_explicit_time_holdout_gets_no_gap` / `test_auto_and_explicit_differ_for_the_same_outer_split` は不変のまま green。
 - `tests/test_docs/test_history_ids.py`: 現在の HISTORY.md で違反 0 件、100 項目以上を解析（空回りの防止）。重複・ID 無し・ID 2 個・fenced code 内の見出しの 4 形を合成入力で検査する。**付け替え前の HISTORY.md では H-0100 の重複を報告して失敗することを確認した。**
+
+## H-0103: 最終 refit を CV fold と同じ重み付けで学習させ、`RefitTrainer.fit` の入力差を方針として固定する（#269 / PR 4）
+
+- **ステータス**: Proposed
+- **起票日**: 2026-10-01
+- **スコープ**: `lizyml/training/refit_trainer.py`（`fit` に `sample_weight` を追加し、inner valid があれば inner-train 行に絞る）, `lizyml/core/model.py`（`RefitTrainer.fit` の呼び出しに `sample_weight=tc.sample_weight` を渡す）, `BLUEPRINT.md` §5.3（`balanced`）/ §8 手順 8 / §10.3（refit の inner valid）, `tests/test_training/test_cv_refit_parity.py`（新規）
+- **関連**: [Issue #269](https://github.com/nbx-liz/LizyML/issues/269), H-0050（`TrainComponents` を CV と refit で共有）, H-0085（refit の pipeline fit 境界）, H-0036（ratio params を inner-train の大きさで解決）, [#301](https://github.com/nbx-liz/LizyML/issues/301)（生成コード側の同じ規則、繰り延べ）, [#263](https://github.com/nbx-liz/LizyML/issues/263) / [#272](https://github.com/nbx-liz/LizyML/issues/272)（fingerprint を誰も照合しない件、PR 6）
+
+### 目的（課題）
+
+`RefitTrainer.fit` は `CVTrainer.fit` の 7 つの入力のうち 3 つ（`X` / `y` / `groups`）しか受け取らない。欠けている 4 つ（`sample_weight` / `time_values` / `data_fingerprint` / `run_meta`）について、受け取るか、受け取らない理由を方針として書くかを決める。
+
+**実害があるのは `sample_weight` だけで、multiclass に限られる。** `balanced` はタスクごとに解決の仕方が違う（`BLUEPRINT.md` §5.3、`estimators/lgbm/smart_params.py`）: regression は `UNSUPPORTED_TASK`、binary は native パラメーター `scale_pos_weight` になって estimator factory 経由で両 trainer に届く、multiclass だけが行ごとの `sample_weight` 配列になる。実測（`develop` `96171da`、クラス不均衡な 575 行、3 fold、early stopping なし）: `balanced: true` では **CV の 3 fold の学習 Dataset はすべて重み付き、refit の学習 Dataset（575 行）は重みなし**。`balanced: false` ではどれも重みなし。
+
+つまり **multiclass の `balanced` では、利用者に OOF 指標として見せたモデル群と、predict / export に使う最終モデルが違う重み付けで学習されている。** `BLUEPRINT.md` §8 手順 8 は「同一の `TrainComponents` を使用し、CV との一貫性を構造的に保証する」と書くが、`TrainComponents.sample_weight` を refit は読んでいないので、この記述は今の実装では偽である。
+
+### 対応方針（決定）
+
+1. **`sample_weight` は refit に渡す。** `CVTrainer._fit_estimator` と同じ規則に揃える: inner valid があれば inner-train 行の重み（`sample_weight[inner_train_rel]`）だけを estimator に渡し、inner-valid 行には重みを付けない。inner valid が無ければ全行の重みを渡す。重みは `Model.fit` が `TrainComponents.sample_weight`（全データの `y` から計算済み）として既に持っているので、新しい計算はしない。呼び出し側は `core/model.py` の `refit_trainer.fit(X, y, groups)` に `sample_weight=tc.sample_weight` を足す。
+2. **`time_values` は渡さない（方針）。** 時間順の outer split（`time_series` / `purged_time_series` / `group_time_series`）では、`data/dataframe_builder.py` が CV の前に全行（`X` / `y` / `groups` / 時間列）を時間列で並べ替える。refit はその並べ替え済みの `X` / `y` を受け取り、inner valid の各 strategy は行順で分割する（時間値を読まない）。`CVTrainer` も inner split に `time_values` を渡しておらず、使い道は fold ごとの時間範囲を `FitResult.splits.time_range` に記録することだけで、全データを 1 回学習する refit にはそれに当たる記録が無い。**#269 の「refit は時間列を見られないので時間順の inner split ができない」は成り立たない**: 並べ替えが両 trainer の前に済んでいる。この根拠はテストで固定する（行をシャッフルして渡しても、refit に届く `y` が時間順であること）。**根拠の範囲**: 並べ替えは `core/model.py` の `_TS_METHODS`（上記 3 手法）に限られる。時間順でない outer split に `time_holdout` の inner valid を明示指定した場合は並べ替えが起きず、**CV も refit も入力の行順の末尾を** inner-valid にする（`validate_time_series_order` は公開されているが `Model.fit` からは呼ばれない）。これは CV と refit の差ではないので本 Proposal の範囲外である。
+3. **`data_fingerprint` は渡さない（方針）。** `Model.fit` が 1 回の呼び出しの中で、両 trainer に渡す同じ `X` から 1 度だけ計算し（`fp_compute(X)`）、`FitResult.data_fingerprint` に記録する。refit は同じ呼び出しの中で同じ `X` から作られ、artifact には `FitResult` と一緒に保存される。refit に渡しても同じ値をもう 1 つ持つだけである。**fingerprint を誰も照合していないこと**（`lizyml/` の中で `data_fingerprint` を読むのは記録する 2 か所だけ）は #263 / #272（PR 6）の範囲であり、本 Proposal では扱わない。
+4. **`run_meta` は渡さない（方針）。** fit 呼び出し 1 回につき 1 つの記録（バージョンと config）であり、`FitResult` が持つ。refit はその fit の一部である。
+5. **2 つの trainer の入力差を恒久検査にする。** `inspect.signature` で両方の `fit` を読み、一方だけが受け取る入力はすべて「もう一方も受け取る」か「本 Proposal の決定番号を持つ方針」のどちらかであることを主張する。方針に登録した名前が実際に `RefitTrainer.fit` に無く `CVTrainer.fit` に有ることも主張する（誰かが後で渡し始めたら、登録が古びたことが落ちて分かる）。
+6. **生成コード（`export_code` の `train.py`）は本 PR で直さず、#301 に繰り延べる。** 下記「規則が縛る位置」の 2。
+
+### 規則が縛る位置（ソースから導出、実装前）
+
+規則: **最終モデルは、CV の各 fold と同じ重み付けで学習する。** 位置の導出: `lizyml/` 全体を `lgb.train(` / `lgbm.train(` / `lgb.Dataset(` / `estimator.fit(` で grep し、学習を行う呼び出しを列挙した（2026-10-01、`96171da`）。bound: この 4 綴りで呼ばない学習経路は列挙の外にある。ただし H-0093 の `tests/_ast_scan.py` が LightGBM への経路の母集団を別途 AST で固定しており、新しい経路はそちらで検出される。
+
+| # | 位置 | 規則との関係 | 本 PR |
+|---|---|---|---|
+| 1 | `training/refit_trainer.py` `fit` → `estimator.fit` | 最終モデルを学習する。重みを受け取っていない | **修正** |
+| 2 | `codegen/templates.py` `train_lgbm`（生成 `train.py`） | 生成プロジェクトでの再学習。multiclass の重みを一切計算しない（実測: `config.json` / `train.py` に重みに当たるものが無い。binary は `lgbm_params.scale_pos_weight` で届く） | **繰り延べ #301**。生成 `train_lgbm` は早期停止の分割からして LizyML の refit と異なる（`InnerValidStrategy` ではなくシード付きランダム holdout）ので、「LizyML と同じく学習する」は今の生成コードが約束していない保証であり、重みだけ直しても約束にならない。**繰り延べで外れる保証**: 生成コードから再学習した multiclass `balanced` モデルは重みなしで学習される。`predict.py` は export された booster を読むので影響しない |
+| 3 | `training/cv_trainer.py` `_fit_estimator` | 規則の基準側（既に重み付き） | 変更なし |
+| 4 | `core/_model_tuning.py` の `CVTrainer` | tune は CV だけを回し refit しない。既に重みを渡している | 変更なし |
+| 5 | `calibration/isotonic.py` `lgbm.train`、`codegen/templates.py` `_generate_oof` / `_fit_isotonic` | calibration は binary 専用（multiclass は `CALIBRATION_NOT_SUPPORTED`）。binary の `balanced` は重み配列を作らない | 対象外 |
+
+### 互換性
+
+- **multiclass で `balanced` が有効な fit（`balanced: null` の既定も含む）は、最終モデルが変わる。** refit が重み付きで学習するので、`predict` / `export` の結果が変わる。CV の各 fold と OOF 指標は変わらない。これは欠陥の修正であり、利用者が見てきた OOF 指標を出したモデルに、最終モデルが揃う方向の変化である。
+- regression / binary、および `balanced: false` の multiclass は変わらない（実測で確認する。受け入れ基準 2）。
+- `format_version` / `FitResult` / `RefitResult` / `PredictionResult` の形と意味は変わらない。保存済み artifact はそのまま読め、predict も変わらない（保存された booster を使う）。
+- `RefitTrainer.fit` に省略可能なキーワード引数が 1 つ増える。既存の呼び出しはそのまま動く（`RefitTrainer` は `lizyml.training` から公開されている）。
+- Firing rate: 本 Proposal は skip / shorten / cache / select / allow / conditionally-activate のいずれの条件も新設しない。既に計算されて CV に渡っている重みを refit にも渡すだけであり、重みが有るかどうかの分岐は既存の `balanced` の解決（`smart_params.py`）が決める。
+
+### 代替案（検討して棄却）
+
+1. **`time_values` / `data_fingerprint` / `run_meta` も渡す（対称性のため）。** 受け取っても使い道が無い引数になる。`time_values` は refit に記録先が無く、fingerprint と run_meta は同じ値の複製である。使われない入力を足すことは、#268 が数えた「届かない knob」を増やすことになる。
+2. **refit で重みを inner-train ではなく全行に付ける。** CV の規則（inner-valid 行には重みを付けず eval set として使う）とずれ、「CV と同じ重み付け」にならない。
+3. **生成コードも本 PR で直す。** 上記の位置 2 の理由で、何を再現すると約束するかの決定が先に要る。#301 で Proposal を立てる。
+
+### 受け入れ基準（テスト観点）
+
+`docs/audits/2026-09-defect-discovery/results/pr4_acceptance_criteria.md` の対応表を正とする。要旨:
+
+1. multiclass + `balanced: true` で、refit の学習 Dataset が受け取る重みが `compute_sample_weight("balanced", y)` の該当行と**値で**一致する。early stopping あり（inner-train 行に絞る）と、なし（全行）の両方。CV fold の重みも同じ規則で一致する。修正前は RED。
+2. 3 タスク × `balanced` の真偽で、重み配列がどの学習にも現れないこと: regression は `UNSUPPORTED_TASK` で学習 0 回、binary は重み配列なし（`scale_pos_weight` は両 trainer の params に同じ値で載る）、multiclass `balanced: false` は重み配列なし。
+3. 時間順の split に行をシャッフルして渡したとき、`RefitTrainer.fit` に届く `y` が時間順に並んでいる（決定 2 の根拠を実行で固定する）。
+4. 入力差の恒久検査（決定 5）: `inspect.signature` から読んだ差がすべて受理済みか方針登録済みで、登録名は実際に `RefitTrainer.fit` に無く `CVTrainer.fit` に有る。
+5. `BLUEPRINT.md` §5.3 / §8 手順 8 / §10.3 が、refit の重み付けと 3 つの方針を述べる。
