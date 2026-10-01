@@ -470,7 +470,7 @@ except LizyMLError as e:
 |------|-------------|
 | `CONFIG_INVALID` | Missing required config fields; `tuning` section absent when `tune()` is called. |
 | `CONFIG_VERSION_UNSUPPORTED` | `config_version` value is not supported, on every path a config reaches `Model` (dict, file, `LizyMLConfig` instance, environment override). |
-| `DATA_SCHEMA_INVALID` | Target or feature columns not found in the DataFrame. |
+| `DATA_SCHEMA_INVALID` | Target or feature columns not found in the DataFrame; or `validate_no_target_leakage` could not compare a column with the target (`context` names `column` and `target`, `cause` is the original error). |
 | `LEAKAGE_SUSPECTED` | A split or calibration invariant that could indicate leakage was violated. |
 | `LEAKAGE_CONFIRMED` | A confirmed leakage condition (e.g. same row in train and validation). |
 | `OPTIONAL_DEP_MISSING` | An optional dependency (`shap`, `optuna`) is not installed. |
@@ -494,6 +494,13 @@ Optional, explicitly-called leakage checks (they are **not** auto-run by
 `Model.fit`). Each returns a list of warning messages, or raises
 `LizyMLError(LEAKAGE_SUSPECTED / LEAKAGE_CONFIRMED)` when `raise_on_violation=True`
 (the default).
+
+`validate_no_target_leakage` checks the columns in order. If a column cannot be
+compared with the target (for example an extension array whose comparison
+raises), it raises `LizyMLError(DATA_SCHEMA_INVALID)` naming the column, whatever
+`raise_on_violation` is: when the target is in the frame, a returned list means
+every column was compared.
+A target column that is not in the frame returns `[]` (#311).
 
 ```python
 from lizyml.data import (

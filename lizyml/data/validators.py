@@ -68,7 +68,11 @@ def validate_no_target_leakage(
         List of warning messages.
 
     Raises:
-        LizyMLError: With ``LEAKAGE_SUSPECTED`` when a perfect correlation is found.
+        LizyMLError: With ``LEAKAGE_SUSPECTED`` when a perfect correlation is
+            found and ``raise_on_violation`` is true, and with
+            ``DATA_SCHEMA_INVALID`` (whatever ``raise_on_violation`` is) when a
+            column cannot be compared with the target. Columns are checked in
+            order, so the first of these conditions met is the one raised.
     """
     if target not in df.columns:
         return []
@@ -79,21 +83,34 @@ def validate_no_target_leakage(
         if col == target:
             continue
         try:
-            if _series_perfectly_correlated(df[col], y):
-                msg = (
-                    f"Column '{col}' is perfectly correlated with target '{target}'. "
-                    "This is a strong signal of target leakage."
+            correlated = _series_perfectly_correlated(df[col], y)
+        except Exception as exc:
+            # A column that cannot be compared was not checked. Skipping it
+            # made it indistinguishable from a checked, clean column; adding
+            # it to the warnings would mix "not checked" into the list of
+            # suspected leaks, which callers would then have to tell apart by
+            # wording. So it raises (#267, H-0107).
+            raise LizyMLError(
+                ErrorCode.DATA_SCHEMA_INVALID,
+                user_message=(
+                    f"Column '{col}' could not be compared with target "
+                    f"'{target}' for the leakage check: {type(exc).__name__}: {exc}"
+                ),
+                context={"column": col, "target": target},
+                cause=exc,
+            ) from exc
+        if correlated:
+            msg = (
+                f"Column '{col}' is perfectly correlated with target '{target}'. "
+                "This is a strong signal of target leakage."
+            )
+            if raise_on_violation:
+                raise LizyMLError(
+                    ErrorCode.LEAKAGE_SUSPECTED,
+                    user_message=msg,
+                    context={"leaking_column": col, "target": target},
                 )
-                if raise_on_violation:
-                    raise LizyMLError(
-                        ErrorCode.LEAKAGE_SUSPECTED,
-                        user_message=msg,
-                        context={"leaking_column": col, "target": target},
-                    )
-                warnings.append(msg)
-        except (TypeError, ValueError):
-            # Non-comparable types; skip
-            pass
+            warnings.append(msg)
     return warnings
 
 

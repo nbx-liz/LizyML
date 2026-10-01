@@ -141,8 +141,8 @@ acceptance (DC5) the audit exists to find; see §5.
 | 4 | Bring `RefitTrainer.fit` to `CVTrainer.fit` | #269 | — | **H-0103** | CV/refit input parity across 3 tasks | **merged** (#302, 2026-10-01; design r1 REQUEST_CHANGES, code r1 APPROVE). `sample_weight` forwarded; the other three inputs are written policy; #269 closed. Generated `train.py` deferred to #301 |
 | 5 | Make the feature-pipeline extension point usable as specified | #259, #260 | — | **H-0104** | `BaseFeaturePipeline` conformance through fit → predict → explain | **merged** (#305, 2026-10-01; design r1 + code r1-r4, r2 fired the authorship stop, maintainer chose a broad r3). Filed #303, #304 |
 | **5b** | **Stop re-transforming LightGBM probabilities in the feval** | **#306** | — | **H-0105** | every feval-routed metric x every accepted objective against real `lgb.train` | **new and merged** (#308, 2026-10-01): found while preparing PR 6; the maintainer inserted it before PR 6 and asked for a fact-checking review (3 rounds, 6 corrections). Filed #307 |
-| 6 | Make every declared `ErrorCode` raisable, on every entry path | #263, #272 | — | yes | 20 `ErrorCode` members, executed; both `Model` entry paths | |
-| 7 | Decide the leakage validator's swallow | #267 | — | yes | caller can tell "clean" from "not checked" | |
+| 6 | Make every declared `ErrorCode` raisable, on every entry path | #263, #272 | — | H-0106 | 20 `ErrorCode` members, executed; both `Model` entry paths | **merged** (#310, 2026-10-01). Design 3 rounds, code 2, close review 2, all with a fact check. Filed #309 |
+| 7 | Decide the leakage validator's swallow | #267 | — | H-0107 | caller can tell "clean" from "not checked" | **in progress** |
 | 8 | Dispose of the 22 remaining unreachable knobs | #268 | — | yes | all 74 defaulted public knobs: reachable or written policy | |
 | **8b** | **Record what the fit applied, in the artifact** | **#281** | — | yes | every value a reporting surface answers for survives `load()` | **new in Revision 6** |
 | **8c** | **Ship the completion-measurement instrument** | — | — | — | Phase 3 completion measured rather than judged per PR | **moved earlier** (was: before PR 9) |

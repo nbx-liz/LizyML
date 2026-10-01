@@ -1,0 +1,20 @@
+# PR 7 measurements at develop 97381db (2026-10-01). Regenerate with ../instruments/pr7_*.py
+
+## pr7_hostile_numeric_probe.py
+array  target=int64      guarded call: TypeError: _HostileArray.__array__       validator returned []
+array  target=float64    guarded call: TypeError: _HostileArray.__array__       validator returned []
+array  target=bool       guarded call: TypeError: _HostileArray.__array__       validator returned []
+array  target=Int64      guarded call: TypeError: _HostileArray.__array__       validator returned []
+array  target=complex128 guarded call: TypeError: _HostileArray.__array__       validator returned []
+isna   target=int64      guarded call: ValueError: _HostileArray.isna           validator returned []
+isna   target=float64    guarded call: ValueError: _HostileArray.isna           validator returned []
+isna   target=bool       guarded call: ValueError: _HostileArray.isna           validator returned []
+isna   target=Int64      guarded call: ValueError: _HostileArray.isna           validator returned []
+isna   target=complex128 guarded call: ValueError: _HostileArray.isna           validator returned []
+
+## pr7_dtype_sweep.py
+cells raising TypeError/ValueError: 0/462
+
+## pr7_swallow_plugin.py over the full suite (8424 passed, 1 env-only failure: test_version metadata)
+pr7 guarded calls: {'guarded': 13, 'raised': 0}
+(the plugin counts every call of the comparison helper: 9 through validate_no_target_leakage and 4 from tests that call the helper directly -- split confirmed by design review round 1)
