@@ -10551,7 +10551,7 @@ Firing rate: 0/1253 of completed `Model.__init__` calls and 0/1375 of completed 
 
 - 普通の列（462 セル）とテストスイートの入力では、振る舞いは変わらない（どれもこの経路に入らない）。
 - 比べられない列（数値を名乗り、比較で例外を出す拡張配列）を含む frame は、今日はその列を除いた残りの列だけの結果（漏洩が無ければ `[]`、あれば `LEAKAGE_SUSPECTED` か警告）が返っていたが、本 PR の後は `DATA_SCHEMA_INVALID` で止まる（漏洩している列が先にあり `raise_on_violation=True` なら、今日と同じく先に `LEAKAGE_SUSPECTED`）。その列を落としてから検査し直せば今日と同じ結果になる。
-- **対象外: 目的変数が frame に無いとき `[]` を返す振る舞い**（`validators.py` の先頭の `if target not in df.columns: return []`）。これも「検査していない」を「漏洩なし」と同じ形で返すが、例外を握りつぶす #267 の handler とは別の経路で、既存のテスト `tests/test_data/test_validators_edge.py::test_leakage_missing_target` が意図した振る舞いとして固定している。変えるかどうかは公開 API の判断なので別の Issue に切り出す。
+- **対象外: 目的変数が frame に無いとき `[]` を返す振る舞い**（`validators.py` の先頭の `if target not in df.columns: return []`）。これも「検査していない」を「漏洩なし」と同じ形で返すが、例外を握りつぶす #267 の handler とは別の経路で、既存のテスト `tests/test_data/test_validators_edge.py::test_leakage_missing_target` が意図した振る舞いとして固定している。変えるかどうかは公開 API の判断なので [#311](https://github.com/nbx-liz/LizyML/issues/311) に切り出した。
 - 公開 API の形（引数・戻り値）は変わらない。`docs/api.md` の `DATA_SCHEMA_INVALID` の行に、この条件を足す。
 
 **Firing rate**: 本 Proposal は skip / shorten / cache / select / allow / conditionally-activate の条件を新設しない。今ある `skip`（例外の列を飛ばす）を取り除く。取り除く条件の発火の測定:
