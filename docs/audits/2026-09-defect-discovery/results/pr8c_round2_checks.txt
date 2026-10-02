@@ -1,0 +1,27 @@
+== mutation provenance
+#264: 0/1 lines of `old` were added by #278 (lizyml/core/model.py); not added: ['provider, override=params, validate_values=True']
+#288: 2/3 lines of `old` were added by #278 (lizyml/core/_model_factories.py); not added: ['canonical =']
+== pinned closure comment written after every fixing merge
+#258: comment 2026-09-10T04:39:44Z; merges {292: '2026-09-10T04:38:51Z'}; OK
+#259: comment 2026-10-01T04:37:54Z; merges {305: '2026-10-01T04:37:32Z'}; OK
+#260: comment 2026-10-01T04:37:56Z; merges {305: '2026-10-01T04:37:32Z'}; OK
+#261: comment 2026-10-01T01:35:39Z; merges {275: '2026-09-07T05:52:19Z'}; OK
+#262: comment 2026-10-01T02:14:29Z; merges {275: '2026-09-07T05:52:19Z', 300: '2026-10-01T02:14:07Z'}; OK
+#263: comment 2026-10-01T07:31:32Z; merges {310: '2026-10-01T07:28:20Z'}; OK
+#264: comment 2026-09-09T09:36:49Z; merges {278: '2026-09-09T09:35:38Z'}; OK
+#265: comment 2026-10-01T02:14:30Z; merges {274: '2026-09-06T17:09:14Z', 300: '2026-10-01T02:14:07Z'}; OK
+#266: comment 2026-10-01T01:35:41Z; merges {274: '2026-09-06T17:09:14Z'}; OK
+#267: comment 2026-10-01T08:24:47Z; merges {312: '2026-10-01T08:18:11Z'}; OK
+#268: comment 2026-10-01T09:50:10Z; merges {314: '2026-10-01T09:44:01Z'}; OK
+#269: comment 2026-10-01T02:50:23Z; merges {302: '2026-10-01T02:50:07Z'}; OK
+#272: comment 2026-10-01T07:31:33Z; merges {310: '2026-10-01T07:28:20Z'}; OK
+#277: comment 2026-09-15T08:31:25Z; merges {296: '2026-09-15T08:31:13Z'}; OK
+#279: comment 2026-09-10T04:40:10Z; merges {292: '2026-09-10T04:38:51Z'}; OK
+#281: comment 2026-10-01T11:29:50Z; merges {316: '2026-10-01T11:26:26Z'}; OK
+#282: comment 2026-09-10T04:40:38Z; merges {292: '2026-09-10T04:38:51Z'}; OK
+#284: comment 2026-09-09T17:30:31Z; merges {291: '2026-09-09T17:29:47Z'}; OK
+#285: comment 2026-09-14T18:01:29Z; merges {290: '2026-09-09T16:52:18Z'}; OK
+#286: no pinned comment (not-planned)
+#287: comment 2026-09-09T17:30:43Z; merges {291: '2026-09-09T17:29:47Z'}; OK
+#288: comment 2026-09-09T09:36:51Z; merges {278: '2026-09-09T09:35:38Z'}; OK
+#306: comment 2026-10-01T05:25:58Z; merges {308: '2026-10-01T05:25:44Z'}; OK

@@ -1,0 +1,86 @@
+#258 CLOSED COMPLETED closedBy=[] closer=None
+    last comment before close (2026-09-10T04:39:44Z) cites []
+#259 CLOSED COMPLETED closedBy=[] closer=None
+    last comment before close (2026-10-01T04:37:54Z) cites [305]
+      #305: MERGED base=develop merge=fc9d820 ancestor_of_head=True body_cites_issue=True
+#260 CLOSED COMPLETED closedBy=[] closer=None
+    last comment before close (2026-10-01T04:37:56Z) cites [303, 304, 305]
+      #303: not a pull request
+      #304: not a pull request
+      #305: MERGED base=develop merge=fc9d820 ancestor_of_head=True body_cites_issue=True
+#261 CLOSED COMPLETED closedBy=[] closer=None
+    last comment before close (2026-10-01T01:35:39Z) cites [262, 275]
+      #262: not a pull request
+      #275: MERGED base=develop merge=ccae32b ancestor_of_head=True body_cites_issue=True
+#262 CLOSED COMPLETED closedBy=[] closer=None
+    last comment before close (2026-10-01T02:14:29Z) cites [275, 299, 300]
+      #275: MERGED base=develop merge=ccae32b ancestor_of_head=True body_cites_issue=True
+      #299: not a pull request
+      #300: MERGED base=develop merge=96171da ancestor_of_head=True body_cites_issue=True
+#263 CLOSED COMPLETED closedBy=[] closer=None
+    last comment before close (2026-10-01T07:31:32Z) cites [307, 309, 310]
+      #307: not a pull request
+      #309: not a pull request
+      #310: MERGED base=develop merge=97381db ancestor_of_head=True body_cites_issue=True
+#264 CLOSED COMPLETED closedBy=[] closer=None
+    last comment before close (2026-09-09T09:36:49Z) cites [278]
+      #278: MERGED base=develop merge=0920c2a ancestor_of_head=True body_cites_issue=True
+#265 CLOSED COMPLETED closedBy=[] closer=None
+    last comment before close (2026-10-01T02:14:30Z) cites [268, 274, 300]
+      #268: not a pull request
+      #274: MERGED base=develop merge=1d7c4e2 ancestor_of_head=True body_cites_issue=True
+      #300: MERGED base=develop merge=96171da ancestor_of_head=True body_cites_issue=True
+#266 CLOSED COMPLETED closedBy=[] closer=None
+    last comment before close (2026-10-01T01:35:41Z) cites [274]
+      #274: MERGED base=develop merge=1d7c4e2 ancestor_of_head=True body_cites_issue=True
+#267 CLOSED COMPLETED closedBy=[] closer=None
+    last comment before close (2026-10-01T08:24:47Z) cites [311, 312]
+      #311: not a pull request
+      #312: MERGED base=develop merge=91a698b ancestor_of_head=True body_cites_issue=True
+#268 CLOSED COMPLETED closedBy=[] closer=None
+    last comment before close (2026-10-01T09:50:10Z) cites [313, 314]
+      #313: not a pull request
+      #314: MERGED base=develop merge=036cd18 ancestor_of_head=True body_cites_issue=True
+#269 CLOSED COMPLETED closedBy=[] closer=None
+    last comment before close (2026-10-01T02:50:23Z) cites [301, 302]
+      #301: not a pull request
+      #302: MERGED base=develop merge=2d3bc54 ancestor_of_head=True body_cites_issue=True
+#270 OPEN None closedBy=[] closer=None
+#271 OPEN None closedBy=[] closer=None
+#272 CLOSED COMPLETED closedBy=[] closer=None
+    last comment before close (2026-10-01T07:31:33Z) cites [271, 310]
+      #271: not a pull request
+      #310: MERGED base=develop merge=97381db ancestor_of_head=True body_cites_issue=True
+#277 CLOSED COMPLETED closedBy=[] closer=None
+    last comment before close (2026-09-15T08:31:25Z) cites [295, 296, 297, 298]
+      #295: not a pull request
+      #296: MERGED base=develop merge=7d67d1e ancestor_of_head=True body_cites_issue=True
+      #297: not a pull request
+      #298: not a pull request
+#279 CLOSED COMPLETED closedBy=[] closer=None
+    last comment before close (2026-09-10T04:40:10Z) cites []
+#281 CLOSED COMPLETED closedBy=[] closer=None
+    last comment before close (2026-10-01T11:29:50Z) cites [315, 316]
+      #315: not a pull request
+      #316: MERGED base=develop merge=33a3f6e ancestor_of_head=True body_cites_issue=True
+#282 CLOSED COMPLETED closedBy=[] closer=None
+    last comment before close (2026-09-10T04:40:38Z) cites []
+#284 CLOSED COMPLETED closedBy=[] closer=None
+    last comment before close (2026-09-09T17:30:31Z) cites [291]
+      #291: MERGED base=develop merge=5fb8a80 ancestor_of_head=True body_cites_issue=True
+#285 CLOSED COMPLETED closedBy=[] closer=None
+    last comment before close (2026-09-14T18:01:29Z) cites [290]
+      #290: MERGED base=develop merge=2436a66 ancestor_of_head=True body_cites_issue=True
+#286 CLOSED NOT_PLANNED closedBy=[] closer=None
+    last comment before close (2026-09-14T18:01:31Z) cites [290]
+      #290: MERGED base=develop merge=2436a66 ancestor_of_head=True body_cites_issue=True
+#287 CLOSED COMPLETED closedBy=[] closer=None
+    last comment before close (2026-09-09T17:30:43Z) cites [291]
+      #291: MERGED base=develop merge=5fb8a80 ancestor_of_head=True body_cites_issue=True
+#288 CLOSED COMPLETED closedBy=[] closer=None
+    last comment before close (2026-09-09T09:36:51Z) cites [278]
+      #278: MERGED base=develop merge=0920c2a ancestor_of_head=True body_cites_issue=True
+#306 CLOSED COMPLETED closedBy=[] closer=None
+    last comment before close (2026-10-01T05:25:58Z) cites [307, 308]
+      #307: not a pull request
+      #308: MERGED base=develop merge=1abf7fb ancestor_of_head=True body_cites_issue=True

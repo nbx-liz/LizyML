@@ -1,0 +1,171 @@
+{
+ "258": {
+  "tests": [
+   "tests/test_tuning/test_direction_reconciliation.py"
+  ],
+  "before": "5fb8a80",
+  "fixing_pr": 292
+ },
+ "259": {
+  "tests": [
+   "tests/test_features/test_pipeline_conformance.py"
+  ],
+  "before": "2d3bc54",
+  "fixing_pr": 305
+ },
+ "260": {
+  "tests": [
+   "tests/test_features/test_unseen_policy.py",
+   "tests/test_codegen/test_unseen_policy_codegen.py"
+  ],
+  "before": "2d3bc54",
+  "fixing_pr": 305
+ },
+ "261": {
+  "tests": [
+   "tests/test_estimators/test_lightgbm_parameter_names.py"
+  ],
+  "before": "1d7c4e2",
+  "fixing_pr": 275
+ },
+ "262": {
+  "tests": [
+   "tests/test_tuning/test_search_space_name_validation.py"
+  ],
+  "before": "1d7c4e2",
+  "fixing_pr": 275
+ },
+ "263": {
+  "tests": [
+   "tests/test_core/test_error_code_raising.py",
+   "tests/test_core/test_error_code_population.py",
+   "tests/test_docs/test_error_code_docs.py"
+  ],
+  "before": "1abf7fb",
+  "fixing_pr": 310
+ },
+ "264": {
+  "tests": [
+   "tests/test_core/test_fit_params_override.py"
+  ],
+  "before": "ccae32b",
+  "fixing_pr": 278
+ },
+ "265": {
+  "tests": [
+   "tests/test_training/test_inner_valid_purge_embargo.py"
+  ],
+  "before": "3abb6c4",
+  "fixing_pr": 274
+ },
+ "266": {
+  "tests": [
+   "tests/test_docs/test_declared_versions.py"
+  ],
+  "before": "3abb6c4",
+  "fixing_pr": 274
+ },
+ "267": {
+  "tests": [
+   "tests/test_data/test_leakage_validator_unchecked_column.py"
+  ],
+  "before": "97381db",
+  "fixing_pr": 312
+ },
+ "268": {
+  "tests": [
+   "tests/test_config/test_knob_reachability.py"
+  ],
+  "before": "91a698b",
+  "fixing_pr": 314
+ },
+ "269": {
+  "tests": [
+   "tests/test_training/test_cv_refit_parity.py"
+  ],
+  "before": "96171da",
+  "fixing_pr": 302
+ },
+ "270": {
+  "tests": [
+   "tests/test_estimators/test_param_behavioral_effect.py",
+   "tests/test_core/test_config_propagation.py"
+  ],
+  "before": "1d7c4e2",
+  "fixing_pr": 275
+ },
+ "272": {
+  "tests": [
+   "tests/test_config/test_config_version_entry_paths.py"
+  ],
+  "before": "1abf7fb",
+  "fixing_pr": 310
+ },
+ "277": {
+  "tests": [
+   "tests/test_core/test_calibration_params_reach.py",
+   "tests/test_calibration/test_calibration_param_contract.py",
+   "tests/test_calibration/test_platt_mle.py",
+   "tests/test_codegen/test_calibration_params_codegen.py"
+  ],
+  "before": "5ac725e",
+  "fixing_pr": 296
+ },
+ "279": {
+  "tests": [
+   "tests/test_tuning/test_dimension_consumption.py"
+  ],
+  "before": "5fb8a80",
+  "fixing_pr": 292
+ },
+ "281": {
+  "tests": [
+   "tests/test_persistence/test_reporting_surfaces_survive_load.py",
+   "tests/test_persistence/test_applied_training_params.py"
+  ],
+  "before": "036cd18",
+  "fixing_pr": 316
+ },
+ "282": {
+  "tests": [
+   "tests/test_tuning/test_dimension_consumption.py"
+  ],
+  "before": "5fb8a80",
+  "fixing_pr": 292
+ },
+ "284": {
+  "tests": [
+   "tests/test_core/test_param_domain_cycles.py"
+  ],
+  "before": "2436a66",
+  "fixing_pr": 291
+ },
+ "285": {
+  "tests": [
+   "tests/test_core/test_param_refusal_origin.py"
+  ],
+  "before": "53f6cbf",
+  "fixing_pr": 290
+ },
+ "287": {
+  "tests": [
+   "tests/test_tuning/test_literal_domain_contract.py"
+  ],
+  "before": "2436a66",
+  "fixing_pr": 291
+ },
+ "288": {
+  "tests": [
+   "tests/test_core/test_fit_params_override.py"
+  ],
+  "before": "ccae32b",
+  "fixing_pr": 278
+ },
+ "306": {
+  "tests": [
+   "tests/test_estimators/test_feval_probabilities.py"
+  ],
+  "before": "fc9d820",
+  "fixing_pr": 308
+ }
+}

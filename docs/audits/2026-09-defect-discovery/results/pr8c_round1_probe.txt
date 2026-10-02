@@ -1,0 +1,55 @@
+[run-exclusive] pr8c-round1-probe starting; load was 2.19
+== closure association
+#258 <- #292: body_keyword_cites=True close_comment_by_number=False by_title=True
+#259 <- #305: body_keyword_cites=True close_comment_by_number=True by_title=False
+#260 <- #305: body_keyword_cites=True close_comment_by_number=True by_title=False
+#261 <- #275: body_keyword_cites=True close_comment_by_number=True by_title=False
+#262 <- #275: body_keyword_cites=False close_comment_by_number=True by_title=False
+#262 <- #300: body_keyword_cites=True close_comment_by_number=True by_title=False
+#263 <- #310: body_keyword_cites=True close_comment_by_number=True by_title=False
+#264 <- #278: body_keyword_cites=True close_comment_by_number=True by_title=False
+#265 <- #274: body_keyword_cites=True close_comment_by_number=True by_title=False
+#265 <- #300: body_keyword_cites=True close_comment_by_number=True by_title=False
+#266 <- #274: body_keyword_cites=True close_comment_by_number=True by_title=False
+#267 <- #312: body_keyword_cites=True close_comment_by_number=True by_title=False
+#268 <- #314: body_keyword_cites=True close_comment_by_number=True by_title=False
+#269 <- #302: body_keyword_cites=True close_comment_by_number=True by_title=False
+#270: OPEN (not judged)
+#272 <- #310: body_keyword_cites=False close_comment_by_number=True by_title=False
+#277 <- #296: body_keyword_cites=True close_comment_by_number=True by_title=False
+#279 <- #292: body_keyword_cites=True close_comment_by_number=False by_title=True
+#281 <- #316: body_keyword_cites=True close_comment_by_number=True by_title=False
+#282 <- #292: body_keyword_cites=True close_comment_by_number=False by_title=True
+#284 <- #291: body_keyword_cites=True close_comment_by_number=True by_title=False
+#285 <- #290: body_keyword_cites=True close_comment_by_number=True by_title=False
+#286 <- #290: body_keyword_cites=False close_comment_by_number=True by_title=False
+#287 <- #291: body_keyword_cites=False close_comment_by_number=True by_title=False
+#288 <- #278: body_keyword_cites=False close_comment_by_number=True by_title=False
+#306 <- #308: body_keyword_cites=True close_comment_by_number=True by_title=False
+== executed outcomes at the current tree
+#258: {'passed': 51}
+#259: {'passed': 6}
+#260: {'passed': 27}
+#261: {'passed': 39}
+#262: {'passed': 28, 'xfailed': 9}
+#263: {'passed': 24}
+#264: {'passed': 229}
+#265: {'passed': 9}
+#266: {'passed': 13}
+#267: {'passed': 37}
+#268: {'passed': 87}
+#269: {'passed': 13}
+#270: {'passed': 78}
+#272: {'passed': 56}
+#277: {'passed': 129}
+#279: {'passed': 23}
+#281: {'passed': 40}
+#282: {'passed': 23}
+#284: {'passed': 2}
+#285: {'passed': 22}
+#287: {'passed': 8}
+#288: {'passed': 229}
+#306: {'passed': 63}
+[run-exclusive] pr8c-round1-probe finished in 114s, exit 0
+
+[exited with code 0]

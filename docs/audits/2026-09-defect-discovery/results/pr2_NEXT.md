@@ -1,11 +1,19 @@
-# 次の一手 — 2026-10-01（Phase 3: PR 8 まで完了。PR 8b 進行中）
+# 次の一手 — 2026-10-02（Phase 3: PR 8c の PR を作成。マージ後の次は PR 9）
 
 このファイルだけ読めば次の作業に入れるように書いてある。
 **前版（2026-09-15、「次は PR 3c」）はこの版に置き換わる。** 前版は git 履歴に残っている。
 
 ---
 
-## 最初にやること —— **PR 8b（#281）を進める**
+## 最初にやること —— **PR 8c がマージされていれば PR 9（#271）**
+
+PR 8c は計画 §8 の完了測定器を出荷する（`instruments/phase3_gap.py`、`instruments/phase3_manifest.json`、`tests/test_docs/test_phase3_gap.py`）。マージされたかは `gh pr list --state merged --head chore/phase3-pr8c-completion-instrument` で確かめる。次は PR 9: 決定済みの Proposal を BLUEPRINT.md に畳み込み、#271 のテスト（`tests/test_docs/test_proposal_blueprint_coverage.py`）を足す。PR 9 の後、`run-exclusive.sh` 経由で `phase3_gap.py --after origin/develop` を回し、exit 0（INCOMPLETE と UNKNOWN が 0）で Phase 3 の完了を判定する。manifest の #271 の行（`github_prs` が空）は PR 9 の番号で埋める。
+
+### PR 8c（完了測定器、この版を書いた時点で PR 作成中）
+
+PR 8b（#316、H-0109）はマージ済み（`develop` = `33a3f6e`）、#281 は close 済み、#315 を起票。PR 8c は計画 §8 の完了測定器を出荷する（`instruments/deferred/` に残っていた 3 ファイルを、実際にマージされたテストに合わせて作り直す。archive の manifest は `.gitignore` の `*.json` のため一度もコミットされていなかった）。完了基準は `results/pr8c_acceptance_criteria.md`、実測は `results/pr8c_measurements.txt`。以下の PR 8b 以前の節は経緯として残す。
+
+### （済）PR 8b（#281）
 
 PR 8（#314、H-0108）はマージ済み（`develop` = `036cd18`）、#268 は close 済み。PR 8b は H-0109（fit が適用した training overlay を artifact に記録し、`load()` 後も報告面が同じ値を答える）。完了基準は `results/pr8b_acceptance_criteria.md`、実測は`results/pr8b_measurements.txt`。以下の PR 8 以前の節は経緯として残す。
 
@@ -51,8 +59,8 @@ PR 3d（#300）はマージ済み（`develop` = `96171da`）。
 
 | 項目 | 状態 |
 |---|---|
-| `develop` | **`036cd18`**（#314 = PR 8） |
-| Phase 3 | **18 本中 15 本完了**（0 / 1 / 2 / 2b / 2c / 3 / 3b / 3c / 3d / 4 / 5 / 5b / 6 / 7 / 8）、8b 進行中 |
+| `develop` | **`33a3f6e`**（#316 = PR 8b） |
+| Phase 3 | **18 本中 16 本完了**（0 / 1 / 2 / 2b / 2c / 3 / 3b / 3c / 3d / 4 / 5 / 5b / 6 / 7 / 8 / 8b）、8c 進行中 |
 | 2026-10-01 に close | **#261**（#275 で修正）/ **#266**（#274 で修正）。どちらも独立した close レビューで確認 |
 | close レビューで残作業ありとした 2 件 | **#262** / **#265** → PR 3d（#300）で処理し、2026-10-01 に close |
 | 新規起票 | **#299**（`category: smart` の次元は消費されなくても受理される。#262 の行列を dict で検査して発見） |
@@ -62,10 +70,10 @@ PR 3d（#300）はマージ済み（`develop` = `96171da`）。
 ## Phase 3 の順序（`phase3-plan.md` §3 が正）
 
 `0`✅ → `1`✅ → `2`✅ → `2b`✅ → `2c`✅ → `3`✅ → `3b`✅ → `3c`✅ → `3d`✅
-→ `4`✅ → `5`✅ → `5b`✅ → `6`✅ → `7`✅ → `8`✅
-→ **`8b`(#281) ← ここ** → `8c`(完了測定器) → `9`(#271)
+→ `4`✅ → `5`✅ → `5b`✅ → `6`✅ → `7`✅ → `8`✅ → `8b`✅
+→ **`8c`(完了測定器) ← ここ** → `9`(#271)
 
-**未処分の副産物**: **#299**（smart 次元、Change Gate 案件）、**#295**（pydantic の下限、DC7）、
+**未処分の副産物**: **#315**（load 後のモデルの tuning 面が、保存しない試行履歴を空の study として示す、判断待ち）、#309 / #311 / #313（PR 6-8 で起票）、**#299**（smart 次元、Change Gate 案件）、**#295**（pydantic の下限、DC7）、
 **#297**（platt/beta が最適化の失敗を学習済みとして通す、仕様判断待ち）、**#298**（PR 3c の
 完了基準で証拠が主張より弱い行）、**#280**（着手前に再検証が必要）、**#273**（`embargo` の意味、
 仕様判断待ち）、**#276**（計画書 §12.3 が答えている）、#270（177 件の hollow test、別スコープ）。
