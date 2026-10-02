@@ -267,7 +267,7 @@ Every line below was produced by an executed instrument; the raw outputs sit bes
       such a literal would be refused: p2 INCOMPLETE, visible in the trial, never
       a false RED.
     - Full trial with the round 5 guard (pr8c_trial4.txt, 222 s; also saved as
-      pr8c_completion_33a3f6e.txt): identical to trial 3 apart from the timing line.
+      pr8c_completion_33a3f6e.txt): identical to trial 3 apart from the run-exclusive wrapper lines.
 
 --- Added after the acceptance review (round 6) and the maintainer's option C ---
 
@@ -309,7 +309,7 @@ Every line below was produced by an executed instrument; the raw outputs sit bes
       hundredth would read as absent (round 7, finding 2; no shipped issue has that
       many). It is now fetched by id (`gh api repos/nbx-liz/LizyML/issues/comments/<id>`)
       and its issue_url must name the row's issue.
-    - Full trial (pr8c_trial6.txt): identical to trial 5 apart from the timing line;
+    - Full trial (pr8c_trial6.txt): identical to trial 5 apart from the run-exclusive wrapper lines;
       all 22 pinned comments are found by id. Criterion 10: 9 of 9 caught; (h) now
       reads "pinned comment 5924845155 is not on #258" from the comment's own issue.
 
@@ -327,5 +327,5 @@ Every line below was produced by an executed instrument; the raw outputs sit bes
     - Round 8 also corrected two statements: the review prompt said the instrument
       has 145 unit tests where it had 125 (145 was all of tests/test_docs; now 128
       and 148), and the test module claimed real-pytest runs for round 7's checks.
-    - Full trial (pr8c_trial7.txt): identical to trial 6 apart from the timing
-      line. Criterion 10: 9 of 9 caught.
+    - Full trial (pr8c_trial7.txt): identical to trial 6 apart from the run-exclusive
+      wrapper lines. Criterion 10: 9 of 9 caught.
