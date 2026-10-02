@@ -312,3 +312,20 @@ Every line below was produced by an executed instrument; the raw outputs sit bes
     - Full trial (pr8c_trial6.txt): identical to trial 5 apart from the timing line;
       all 22 pinned comments are found by id. Criterion 10: 9 of 9 caught; (h) now
       reads "pinned comment 5924845155 is not on #258" from the comment's own issue.
+
+--- Added after the acceptance review (round 8, the last of the budget) ---
+
+16. Staging confined to real files under tests/
+    (pr8c_trial7.txt = pr8c_completion_33a3f6e.txt; pr8c_mutations.txt re-run)
+    - Round 8 staged an ordinary after-tree helper over a before-tree
+      `tests/_alias.py -> ../lizyml/a.py`, overwriting package code and
+      manufacturing RED. `staged` now checks every path in both trees before
+      copying anything: under tests/, no symlink on the file or any parent, and
+      resolving inside tests/; otherwise ManifestError and nothing is copied.
+    - No symlink exists in the repository at HEAD, at 33a3f6e, or in the before
+      commits 5fb8a80, 1d7c4e2, ccae32b, fc9d820 (`git ls-tree -r`, mode 120000).
+    - Round 8 also corrected two statements: the review prompt said the instrument
+      has 145 unit tests where it had 125 (145 was all of tests/test_docs; now 128
+      and 148), and the test module claimed real-pytest runs for round 7's checks.
+    - Full trial (pr8c_trial7.txt): identical to trial 6 apart from the timing
+      line. Criterion 10: 9 of 9 caught.

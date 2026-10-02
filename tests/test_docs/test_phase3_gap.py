@@ -6,9 +6,10 @@ These tests cover what could report a wrong verdict without erroring: the
 manifest grammar, the plan's issue set, node-id counting, staging the before
 tree (tests and helpers only, never a package file), the reintroduction
 mutation, per-node outcomes and their declared exceptions, the closure
-association, and the verdict arithmetic. A fake runner drives each proposition;
-staging and the counterexamples of design review rounds 1-7 run real pytest in
-temporary trees.
+association, and the verdict arithmetic. A fake runner drives each proposition.
+The counterexamples of design review rounds 1-6 that need an execution run real
+pytest in temporary trees; those of rounds 7-8 (test paths, symlinks, the
+comment read by id) are checked on real files or a stubbed `gh`, without pytest.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import importlib.util
 import io
 import json
 import pathlib
+import shutil
 import sys
 from collections import Counter
 from typing import Any
@@ -444,6 +446,42 @@ def test_staging_refuses_a_path_outside_tests(tmp_path: pathlib.Path) -> None:
         gap.files_to_stage(after, ["tests/test_x.py", "lizyml/new.py"])
 
 
+@pytest.mark.parametrize(
+    ("link", "target", "staged_file"),
+    [
+        pytest.param(
+            "tests/_alias.py", "../lizyml/a.py", "tests/_alias.py", id="file-symlink"
+        ),
+        pytest.param("tests/sub", "../lizyml", "tests/sub/a.py", id="parent-symlink"),
+    ],
+)
+def test_staging_refuses_a_symlink_in_the_before_tree(
+    tmp_path: pathlib.Path, link: str, target: str, staged_file: str
+) -> None:
+    """Round 8: a symlink under tests/ must not let staging write a package file."""
+    before = _tree(tmp_path / "b", {"lizyml/a.py": "Y = 0\n", "tests/__init__.py": ""})
+    (before / link).symlink_to(target)
+    after = _tree(tmp_path / "a", {staged_file: "Y = 1\n", "tests/test_x.py": ""})
+    with (
+        pytest.raises(gap.ManifestError),
+        gap.staged(before, after, ["tests/test_x.py", staged_file]),
+    ):
+        pass
+    assert (before / "lizyml/a.py").read_text() == "Y = 0\n"
+
+
+def test_staging_refuses_a_symlink_in_the_after_tree(tmp_path: pathlib.Path) -> None:
+    before = _tree(tmp_path / "b", {"tests/__init__.py": ""})
+    after = _tree(tmp_path / "a", {"lizyml/a.py": "Y = 1\n", "tests/test_x.py": ""})
+    (after / "tests/_alias.py").symlink_to("../lizyml/a.py")
+    with (
+        pytest.raises(gap.ManifestError),
+        gap.staged(before, after, ["tests/test_x.py", "tests/_alias.py"]),
+    ):
+        pass
+    assert not (before / "tests/_alias.py").exists()
+
+
 def test_p2_restores_the_before_tree(tmp_path: pathlib.Path) -> None:
     before = _tree(tmp_path / "b", {"tests/_helpers.py": "OLD = 1\n"})
     after = _tree(
@@ -587,9 +625,19 @@ def test_staging_cannot_manufacture_red(
     )
     tests = ["tests/test_x.py"]
     runner = _real_runner(tmp_path)
-    with gap.staged(before, after, [*tests, new_file]):
-        _, _, old_rule = runner.run_tests(before, tests)
+    # The old rule, reproduced by hand: `staged` now refuses any path outside tests/.
+    old_tree = tmp_path / "old-rule"
+    shutil.copytree(before, old_tree)
+    for f in [*tests, new_file]:
+        (old_tree / f).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(after / f, old_tree / f)
+    _, _, old_rule = runner.run_tests(old_tree, tests)
     assert gap.outcomes(old_rule) == Counter(failed=1)
+    with (
+        pytest.raises(gap.ManifestError),
+        gap.staged(before, after, [*tests, new_file]),
+    ):
+        pass
     with gap.staged(before, after, gap.files_to_stage(after, tests)):
         _, _, cases = runner.run_tests(before, tests)
     assert gap.outcomes(cases) == Counter(passed=1)

@@ -115,7 +115,7 @@ disposition を regression 以外にした行の理由（manifest の `justifica
 | 2c | §3 の表の読み取りが閉じている | 単体 | `::test_the_plan_table_reader_reads_both_columns`, `::test_the_plan_table_reader_refuses_a_malformed_table[*]` |
 | 3 | 収集行の文法が閉じている: node id でない `::` 行と重複 id は `ManifestError`。パラメータ id に `::` や空白を含む行を数え損なわない | 単体 | `::test_node_ids_are_counted[*]`, `::test_node_ids_are_parsed_with_a_closed_grammar[*]` |
 | 4a | p2 (a): FAILED が 1 つ以上なら赤。全部通る、collection error だけ、は赤でない。実 pytest の collection error（JUnit の classname が空）は UNKNOWN でなく、そのファイルの `error` として読む（round 3 指摘 4）。before は最も古い修正のマージの第 1 親 | 単体（偽と実の両方） | `::test_p2_red_by_a_failed_node`, `::test_p2_not_red[*]`, `::test_a_collection_error_in_a_real_run_is_an_error_case`, `::test_an_unmappable_collection_error_is_refused`, `::test_p2_runs_at_the_first_parent_of_the_earliest_fix` |
-| 4b | p2 (a) の準備: 行のテストと `tests/` の補助だけを写し、`lizyml/` のファイルは写さない。実行後に before が元に戻る | 単体（一時ディレクトリの木） | `::test_p2_stages_no_package_file`, `::test_staging_refuses_a_path_outside_tests`, `::test_p2_restores_the_before_tree` |
+| 4b | p2 (a) の準備: 行のテストと `tests/` の補助だけを写し、`lizyml/` のファイルは写さない。写す前に、両方の木で各パスが `tests/` の中に解決され、ファイルにも親のフォルダにもシンボリックリンクが無いことを確かめ、1 つでも外れれば何も写さず `ManifestError`（round 8 指摘 1: before の `tests/_alias.py -> ../lizyml/a.py` を通じて本体が上書きされた）。実行後に before が元に戻る | 単体（一時ディレクトリの木） | `::test_p2_stages_no_package_file`, `::test_staging_refuses_a_path_outside_tests`, `::test_staging_refuses_a_symlink_in_the_before_tree[*]`, `::test_staging_refuses_a_symlink_in_the_after_tree`, `::test_p2_restores_the_before_tree` |
 | 4c | round 2〜6 の写す規則への反例 8 形（guarded import、相対 `import_module`、明示したパッケージ、`fromlist`、相対 `__import__`、`__all__` のスライス代入、10 段の `exec`、実行時に組み立てる名前）のどれも、新しいモジュールを写せば（round 1〜6 の規則）通るテストを落とし、写さなければ（option C）通る。写さない規則では偽の赤が作れない（実 pytest） | 単体（実 pytest） | `::test_staging_cannot_manufacture_red[*]`（8 ケース） |
 | 4d | round 1 の反例: 新しいモジュールの未使用 import と自明な assert は、before の木で collection error になり、赤と数えない（実 pytest） | 単体（実 pytest） | `::test_an_unused_import_of_a_new_module_is_not_red` |
 | 4e | p2 (b): 変異でテストが落ちれば `COMPLETE-RED-BY-MUTATION`。after のファイルは元に戻る。テストが通る、`fix_text` が修正 PR の追加行に無い、変異で collection が壊れる → INCOMPLETE。`old` が 1 回でない → `ManifestError`（UNKNOWN） | 単体 | `::test_a_mutation_that_reddens_the_tests_is_its_own_verdict`, `::test_a_mutation_is_not_red_evidence_when[*]`, `::test_a_mutation_must_match_exactly_once` |
@@ -146,6 +146,7 @@ disposition を regression 以外にした行の理由（manifest の `justifica
   補助と `tests/conftest.py` は after とバイト単位で同一で、違いは before に無い補助（写して作り、後で消す）だけ
   （測定 10）。
 - **パッケージファイルを写さない**（option C）ことの代償: after の新しいモジュールを import するテストは before の木で collection error になり、その行は (b) の変異でしか赤を示せない（いまは #264 #277 #288）。変異が欠陥を戻していることは上の項のとおり宣言で、レビューが確かめる。round 1〜6 の写す規則とその参照検査は削除した。その測定（`pr8c_round2_staging.py` と `results/pr8c_round{2,3,4,5,5b}_staging.txt`）は記録として残す。
+- **レビュー予算（8 回）を使い切った後の扱い**: round 8 の指摘 3 件（シンボリックリンク経由の書き込み、レビュー依頼文の件数の誤り、テスト説明の言い過ぎ）は直したうえで、新しい指摘を探すラウンドではなく、その 3 件が直ったかだけを確かめる事実確認を 1 回行う（管理者の決定）。したがって round 8 の後に足したコードは、設計・受け入れの全面レビューを受けていない。リポジトリにも測った before の木にもシンボリックリンクは無い。
 - 2 つの PR を持つ行のうち、#262（regression）の p2 は最初の PR の前と後の全体の比較で、各 PR が単独で赤から緑にしたことは示さない。#265 は decision-only なので p2 を走らせない（§3 の適用表のとおり。round 4 指摘 2 で訂正）。
 - 母集団がテスト自身の宣言による行（#264 #265 #267 #268 #272 #279 #281 #282 #284 #285 #287 #288）は、コードが
   変わって母集団が増えても manifest は気づかない。気づくのはテスト側の census（例: #268 の

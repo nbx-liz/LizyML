@@ -531,9 +531,37 @@ def files_to_stage(after: pathlib.Path, tests: list[str]) -> list[str]:
     return list(dict.fromkeys(staged))
 
 
+def _confined_to_tests(tree: pathlib.Path, rel: str) -> None:
+    """Refuse `rel` unless it is under `tree`/tests/ with no symlink on the way.
+
+    A symlink in either tree -- the file or any parent -- could make a copy read
+    from, or write to, a package file (design review round 8, finding 1:
+    before-tree `tests/_alias.py -> ../lizyml/a.py` was overwritten).
+    """
+    root = tree / "tests"
+    path = tree / rel
+    try:
+        inner = path.relative_to(root)
+    except ValueError as exc:
+        raise ManifestError(f"refusing to stage outside tests/: {rel}") from exc
+    step = root
+    for p in [root, *(step := step / part for part in inner.parts)]:
+        if p.is_symlink():
+            raise ManifestError(f"refusing to stage through a symlink: {p}")
+    if not path.resolve().is_relative_to(root.resolve()):
+        raise ManifestError(f"refusing to stage outside tests/: {path}")
+
+
 @contextlib.contextmanager
 def staged(before: pathlib.Path, after: pathlib.Path, files: list[str]) -> Iterator[None]:
-    """Copy `files` from after into before, and put before back exactly afterwards."""
+    """Copy `files` from after into before, and put before back exactly afterwards.
+
+    Every path is checked in both trees before anything is copied
+    (`_confined_to_tests`).
+    """
+    for f in files:
+        _confined_to_tests(after, f)
+        _confined_to_tests(before, f)
     saved = {f: (before / f).read_bytes() for f in files if (before / f).exists()}
     created: list[str] = []
     try:
