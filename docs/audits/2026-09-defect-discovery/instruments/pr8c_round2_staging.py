@@ -1,5 +1,10 @@
 """PR 8c measurement after design review round 2: what staging would put into each before tree.
 
+Historical: it measures the staging guard that option C removed after round 6
+(no package file is staged any more). It imports the guard's functions, so it runs
+only against phase3_gap.py as of 1f155e2 (e.g. `git show 1f155e2:<path>` into a
+scratch copy). Its outputs, pr8c_round{2,3,4,5,5b}_staging.txt, stay as the record.
+
 For every manifest row whose proposition 2 runs in a before tree (a regression row
 without a `red_mutation`), and for the mutation rows as well so the table is
 complete, at the before tree phase3_gap would build:

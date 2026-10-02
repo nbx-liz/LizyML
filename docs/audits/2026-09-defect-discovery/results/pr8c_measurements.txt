@@ -268,3 +268,31 @@ Every line below was produced by an executed instrument; the raw outputs sit bes
       a false RED.
     - Full trial with the round 5 guard (pr8c_trial4.txt, 222 s; also saved as
       pr8c_completion_33a3f6e.txt): identical to trial 3 apart from the timing line.
+
+--- Added after the acceptance review (round 6) and the maintainer's option C ---
+
+14. p2 without staging any package file (option C)
+    (instruments/pr8c_round6_probe.py -> pr8c_round6_probe.txt; pr8c_trial5.txt =
+     pr8c_completion_33a3f6e.txt; pr8c_mutations.txt re-run)
+    - Round 6 found two more forms the staging guard missed (`__all__[:] = [...]` in
+      a package, ten nested `exec` literals past the recursion limit, where the guard
+      stopped looking silently: DC1). The declared stop rule fired; the maintainer
+      had an external analysis written (pr8c_options_analysis_after_round6.md) and
+      chose option C: stage only the row's tests and tests/ helpers, never a
+      `lizyml/` file, and delete the guard.
+    - With nothing from `lizyml/` staged, the 16 rows that run p2 in a before tree
+      keep a failed node and collect cleanly; their outcome counts are the same as
+      with staging. #277 cannot collect in 5ac725e: 2 collection errors, both from
+      lizyml/calibration/_optimizer.py, which #296 added
+      (test_calibration_param_contract.py imports it; test_calibration_params_codegen.py
+      imports that test module). #264 and #288, which already used `red_mutation`,
+      cannot collect there either.
+    - #277 moved to `red_mutation`: `prepare_calibration_params` returning {} for
+      platt and beta instead of the normalised params (#296 added the returned line).
+      At 33a3f6e: unmutated 129 passed; mutated 6 failed, 123 passed, all six
+      params-reach tests (test_calibration_params_reach.py, 4;
+      test_calibration_params_codegen.py, 2).
+    - Full trial (pr8c_trial5.txt, 215 s): COMPLETE 19, COMPLETE-RED-BY-MUTATION 3
+      (#264, #277, #288), PARTIAL 1, NOT-PLANNED 1, INCOMPLETE 1 (#271), UNKNOWN 0,
+      exit 1. Against trial 4, only #277's lines and the summary changed.
+    - Criterion 10 re-run (pr8c_mutations.txt): 9 of 9 mutations caught.

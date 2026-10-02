@@ -7,11 +7,9 @@ Every proposition is executed:
   p1  the row's tests exist at the after SHA;
   p2  red before the fix, shown one of two ways, and only by a FAILED node:
       - before tree: the first parent of the earliest fixing PR's merge commit,
-        with the row's after-tree tests, the tests/ helper modules, and the
-        package files the before tree lacks staged into it. A new package file is
-        staged only if no before-tree module reaches it (an import statement, or a
-        string literal read over-inclusively; `new_module_references`) --
-        otherwise staging it could change the before behaviour;
+        with the row's after-tree tests and the tests/ helper modules staged into
+        it. No package file is ever staged, so the system under test is exactly
+        the before commit;
       - reintroduction mutation (`red_mutation`): for a row whose tests cannot run
         in any before tree, a declared edit that puts the defect back into the
         after tree -- or, for an issue that reported a coverage gap rather than a
@@ -50,7 +48,6 @@ CI test -- it creates git worktrees and runs pytest in each. Its unit tests are
 from __future__ import annotations
 
 import argparse
-import ast
 import contextlib
 import json
 import os
@@ -253,158 +250,6 @@ def unreconciled(cases: list[Case], collected: list[str]) -> list[str]:
     if extra:
         problems.append(f"{len(extra)} reported nodes not collected: {extra[:3]}")
     return problems
-
-
-# Names through which code can load a module other than by an import statement:
-# the import machinery and code execution. `compile` counts only as a bare name,
-# so `re.compile` does not.
-MACHINERY = frozenset({
-    "importlib", "import_module", "__import__", "pkgutil", "runpy",
-    "spec_from_file_location", "spec_from_loader", "find_spec", "module_from_spec",
-    "SourceFileLoader", "exec", "eval",
-})
-DOTTED_NAME = re.compile(r"^\.*[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$")
-SOURCE_PATH = re.compile(r"^[\w./-]+\.py$")
-
-
-def _uses_machinery(tree: ast.AST) -> bool:
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Name) and (node.id in MACHINERY or node.id == "compile"):
-            return True
-        if isinstance(node, ast.Attribute) and node.attr in MACHINERY:
-            return True
-        if isinstance(node, ast.alias) and node.name.split(".")[0] in MACHINERY:
-            return True
-        if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] in MACHINERY:
-            return True
-        if isinstance(node, ast.Constant) and node.value in MACHINERY:
-            return True
-    return False
-
-
-def _statement_imports(tree: ast.AST, parts: list[str]) -> set[str]:
-    """Module names the import statements in `tree` load, relative ones resolved."""
-    reached: set[str] = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import):
-            reached.update(alias.name for alias in node.names)
-        elif isinstance(node, ast.ImportFrom):
-            base = node.module or ""
-            if node.level:
-                anchor = parts[: len(parts) - (node.level - 1)]
-                base = ".".join([*anchor, base] if base else anchor)
-            reached.add(base)
-            reached.update(f"{base}.{alias.name}" for alias in node.names)
-    return reached
-
-
-def _literals(node: ast.AST) -> list[str]:
-    """String and bytes literals under `node`; bytes decoded (`exec(b"...")` is legal)."""
-    found: list[str] = []
-    for n in ast.walk(node):
-        if isinstance(n, ast.Constant) and isinstance(n.value, str):
-            found.append(n.value)
-        elif isinstance(n, ast.Constant) and isinstance(n.value, bytes):
-            found.append(n.value.decode("utf-8", errors="ignore"))
-    return found
-
-
-def _named_by_literals(tree: ast.AST, parts: list[str], depth: int = 0) -> tuple[set[str], set[str]]:
-    """Modules the literals under `tree` can name: (resolved imports, name components).
-
-    A dotted-name literal (leading dots allowed) or a `.py` path literal gives its
-    components. A literal that parses as Python code gives its import statements,
-    and is read again for its own literals (`eval("__import__('lizyml.x')")`),
-    to a depth no real code reaches.
-    """
-    reached: set[str] = set()
-    words: set[str] = set()
-    for lit in _literals(tree):
-        if DOTTED_NAME.match(lit):
-            words.update(w for w in lit.split(".") if w)
-        elif SOURCE_PATH.match(lit):
-            words.update(p.removesuffix(".py") for p in lit.split("/") if p)
-        elif depth < 8:
-            try:
-                code = ast.parse(lit)
-            except (SyntaxError, ValueError):
-                continue  # not code: prose, a format string, a message
-            reached |= _statement_imports(code, parts)
-            inner_reached, inner_words = _named_by_literals(code, parts, depth + 1)
-            reached |= inner_reached
-            words |= inner_words
-    return reached, words
-
-
-def _package_all(tree: ast.AST, package: str) -> set[str]:
-    """Submodules a star import of this package loads: the names its `__all__` lists."""
-    names: list[str] = []
-    for node in ast.walk(tree):
-        targets = (node.targets if isinstance(node, ast.Assign)
-                   else [node.target] if isinstance(node, ast.AugAssign | ast.AnnAssign)
-                   else [])
-        if any(isinstance(t, ast.Name) and t.id == "__all__" for t in targets):
-            names.extend(_literals(node.value) if node.value is not None else [])
-        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                and isinstance(node.func.value, ast.Name) and node.func.value.id == "__all__"):
-            names.extend(lit for a in node.args for lit in _literals(a))
-    return {f"{package}.{n}" for n in names}
-
-
-def new_module_references(before: pathlib.Path, new_files: list[str]) -> list[str]:
-    """Before-tree modules that can load one of `new_files`, read from the AST.
-
-    A new package file can change the before tree's behaviour only if before-tree
-    code loads it. Enumerating the call shapes of the import machinery was refuted
-    three times (design review rounds 3-5: a relative `import_module`, an explicit
-    package argument, a relative `__import__` with a `fromlist`), so a file that
-    uses the machinery is read by what its literals name, not by how it calls:
-
-    - import statements, relative ones resolved against the file's package
-      (`try` blocks included);
-    - a package's `__all__`: a star import loads the submodules it lists;
-    - a file that names the import machinery (`MACHINERY`, as a name, an
-      attribute, an imported module or a string) is taken to reach every new
-      module whose last name component is a component of any dotted-name literal
-      (leading dots allowed) or of any `.py` path literal in it, whatever call or
-      argument position the literal is in; a literal that parses as Python code
-      is read for its import statements and, recursively, its own literals (what
-      `exec` / `eval` would run). Bytes literals count as text.
-
-    Over-inclusion can only refuse staging, which makes p2 INCOMPLETE, never a
-    false RED. Not seen (section 5): a name built at run time (concatenation,
-    formatting), and one that reaches the machinery in another file through a
-    variable or an argument.
-    """
-    targets = {f[:-3].replace("/", ".").removesuffix(".__init__") for f in new_files}
-    if not targets:
-        return []
-    refs: list[str] = []
-    for src in sorted((before / "lizyml").rglob("*.py")):
-        rel = src.relative_to(before).as_posix()
-        package = rel[:-3].replace("/", ".")
-        if not rel.endswith("__init__.py"):
-            package = package.rsplit(".", 1)[0]
-        else:
-            package = package.removesuffix(".__init__")
-        parts = package.split(".")
-        try:
-            tree = ast.parse(src.read_text(encoding="utf-8"))
-        except SyntaxError as exc:
-            raise ManifestError(f"cannot parse {rel}: {exc}") from exc
-        reached = _statement_imports(tree, parts)
-        if rel.endswith("__init__.py"):
-            reached |= _package_all(tree, package)
-        words: set[str] = set()
-        if _uses_machinery(tree):
-            code_reached, words = _named_by_literals(tree, parts)
-            reached |= code_reached
-        for t in sorted(targets):
-            if t in reached:
-                refs.append(f"{rel} -> {t}")
-            elif t.rsplit(".", 1)[-1] in words:
-                refs.append(f"{rel} -> {t} (import machinery and a literal naming it)")
-    return refs
 
 
 # --------------------------------------------------------------------------
@@ -642,24 +487,21 @@ class Runner:
 # --------------------------------------------------------------------------
 
 
-def new_package_files(before: pathlib.Path, after: pathlib.Path) -> list[str]:
-    return [p.relative_to(after).as_posix() for p in sorted((after / "lizyml").rglob("*.py"))
-            if "__pycache__" not in p.parts and p.name != "_version.py"
-            and not (before / p.relative_to(after)).exists()]
-
-
-def files_to_stage(before: pathlib.Path, after: pathlib.Path, tests: list[str]) -> list[str]:
-    """The row's tests, every tests/ helper and package marker, and new package files.
+def files_to_stage(after: pathlib.Path, tests: list[str]) -> list[str]:
+    """The row's tests and every tests/ helper and package marker -- never a package file.
 
     tests/ helpers count as part of the test: proposition 2 asks whether the after
-    test fails against the before system. A package file the before tree already
-    has is never staged -- that would put part of the fix into the before tree.
+    test fails against the before system. No `lizyml/` file is ever staged, so the
+    before system is exactly the before commit. Staging the package files only the
+    after tree had (rounds 1-6) could manufacture a false RED through a guarded
+    import, and the guard meant to see that was refuted six times; it was removed
+    (maintainer decision after round 6, results/pr8c_options_analysis_after_round6.md).
+    A row whose tests cannot run in its before tree shows RED by `red_mutation`.
     """
     staged = list(tests)
     for p in sorted((after / "tests").rglob("*.py")):
         if "__pycache__" not in p.parts and (p.name == "__init__.py" or p.name.startswith("_")):
             staged.append(p.relative_to(after).as_posix())
-    staged.extend(new_package_files(before, after))
     return list(dict.fromkeys(staged))
 
 
@@ -713,11 +555,7 @@ def _p2_before_tree(row: dict[str, Any], runner: Runner, after: pathlib.Path,
     """Run the row's tests in the before tree; return why it is not red, or None."""
     before = runner.worktree(runner.first_parent(_merges(row, runner)[0][1]))
     r["before"] = before.name[:7]
-    new = new_package_files(before, after)
-    refs = new_module_references(before, new)
-    if refs:
-        return f"staging a new package file could change the before tree: {refs[:3]}"
-    with staged(before, after, files_to_stage(before, after, row["tests"])):
+    with staged(before, after, files_to_stage(after, row["tests"])):
         _, _, cases = runner.run_tests(before, row["tests"])
     r["p2"] = dict(outcomes(cases))
     return None if outcomes(cases)["failed"] else "no failed node in the before tree"

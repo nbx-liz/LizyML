@@ -301,7 +301,14 @@
       "population": 3,
       "population_name": "registered calibrators",
       "derived_from": "from lizyml.calibration.registry import CalibratorRegistry\nprint(len(CalibratorRegistry.keys()))",
-      "closure_comment": 5677178764
+      "closure_comment": 5677178764,
+      "red_mutation": {
+        "file": "lizyml/core/_model_factories.py",
+        "old": "    if not params:\n        return {}\n    return normalise_params(params, surface=\"calibration.params\")",
+        "new": "    return {}",
+        "fix_text": "return normalise_params(params, surface=\"calibration.params\")",
+        "why": "The defect (#277): calibration.params was accepted and ignored for platt and beta. prepare_calibration_params, added by #296, hands the normalised params to the non-LightGBM calibrators; returning {} instead puts the ignoring back, while the refusal of unknown names #296 also added stays. Measured at 33a3f6e (results/pr8c_round6_probe.txt): 6 failed, 123 passed, all six in test_calibration_params_reach.py and test_calibration_params_codegen.py, the params-reach tests. The row's tests cannot run in its before tree (5ac725e): test_calibration_param_contract.py imports lizyml/calibration/_optimizer.py, which #296 added, and test_calibration_params_codegen.py imports that test module; package files are no longer staged (option C after design review round 6)."
+      }
     },
     "279": {
       "plan_pr": "3",

@@ -395,20 +395,12 @@ def test_p2_runs_at_the_first_parent_of_the_earliest_fix(
     assert r["verdict"] == "COMPLETE", r["reasons"]
 
 
-def test_p2_stages_only_new_package_files(tmp_path: pathlib.Path) -> None:
-    before = _tree(
-        tmp_path / "b",
-        {
-            "lizyml/__init__.py": "",
-            "lizyml/old.py": "X = 1\n",
-            "tests/_helpers.py": "OLD = 1\n",
-        },
-    )
+def test_p2_stages_no_package_file(tmp_path: pathlib.Path) -> None:
+    """Option C (after design review round 6): only tests and tests/ helpers."""
     after = _tree(
         tmp_path / "a",
         {
             "lizyml/__init__.py": "",
-            "lizyml/old.py": "X = 2\n",
             "lizyml/new.py": "Y = 1\n",
             "lizyml/_version.py": "",
             "tests/__init__.py": "",
@@ -418,16 +410,11 @@ def test_p2_stages_only_new_package_files(tmp_path: pathlib.Path) -> None:
             "tests/test_other.py": "",
         },
     )
-    staged = gap.files_to_stage(before, after, ["tests/test_x.py"])
+    staged = gap.files_to_stage(after, ["tests/test_x.py"])
     assert sorted(staged) == sorted(
-        [
-            "tests/test_x.py",
-            "tests/__init__.py",
-            "tests/_helpers.py",
-            "tests/_spy.py",
-            "lizyml/new.py",
-        ]
+        ["tests/test_x.py", "tests/__init__.py", "tests/_helpers.py", "tests/_spy.py"]
     )
+    assert not [f for f in staged if f.startswith("lizyml/")]
 
 
 def test_p2_restores_the_before_tree(tmp_path: pathlib.Path) -> None:
@@ -444,216 +431,27 @@ def test_p2_restores_the_before_tree(tmp_path: pathlib.Path) -> None:
     assert not (before / "tests/sub/test_new.py").exists()
 
 
-@pytest.mark.parametrize(
-    ("before_files", "hit"),
-    [
-        pytest.param(
-            {
-                "lizyml/a.py": "try:\n    from lizyml.new import Y\n"
-                "except ImportError:\n"
-                "    Y = 0\n"
-            },
-            True,
-            id="guarded-absolute-import",
-        ),
-        pytest.param(
-            {"lizyml/a.py": "from . import new\n"}, True, id="relative-import"
-        ),
-        pytest.param({"lizyml/a.py": "from .new import Y\n"}, True, id="relative-from"),
-        pytest.param(
-            {"lizyml/sub/__init__.py": "", "lizyml/sub/a.py": "from ..new import Y\n"},
-            True,
-            id="parent-relative",
-        ),
-        pytest.param(
-            {
-                "lizyml/a.py": "import importlib\nm = importlib.import_module("
-                "'lizyml.new')\n"
-            },
-            True,
-            id="import-module-string",
-        ),
-        pytest.param(
-            {
-                "lizyml/a.py": "from importlib import import_module\n"
-                "Y = import_module('.new', __package__).Y\n"
-            },
-            True,
-            id="import-module-relative",
-        ),
-        pytest.param(
-            {
-                "lizyml/sub/__init__.py": "",
-                "lizyml/sub/a.py": "m = __import__('new', globals(), None, [], 2)\n",
-            },
-            True,
-            id="dunder-import-with-level",
-        ),
-        pytest.param(
-            {"lizyml/a.py": "m = __import__('lizyml', fromlist=['new'])\n"},
-            True,
-            id="dunder-import-fromlist",
-        ),
-        pytest.param(
-            {"lizyml/a.py": "X = 'renew'\nY = 'lizyml.newer'\n"},
-            False,
-            id="unrelated-strings",
-        ),
-        pytest.param(
-            {"lizyml/a.py": "from importlib.metadata import version\n"},
-            False,
-            id="unrelated-same-stem",
-        ),
-        pytest.param(
-            {"lizyml/a.py": "# see lizyml.new for the replacement\nX = 1\n"},
-            False,
-            id="comment-mention",
-        ),
-    ],
-)
-def test_new_module_references_are_resolved_statically(
-    tmp_path: pathlib.Path,
-    before_files: dict[str, str],
-    hit: bool,
-) -> None:
-    before = _tree(tmp_path / "b", {"lizyml/__init__.py": "", **before_files})
-    refs = gap.new_module_references(before, ["lizyml/new.py"])
-    assert bool(refs) is hit, refs
+def _nested_exec(depth: int = 10) -> str:
+    """Round 6: an import wrapped in `depth` literal `exec` calls."""
+    code = "from lizyml.other.new import Y"
+    for _ in range(depth):
+        code = f"exec({code!r})"
+    return code
 
 
-@pytest.mark.parametrize(
-    ("before_files", "new_file", "hit"),
-    [
-        pytest.param(
-            {
-                "lizyml/other/__init__.py": "",
-                "lizyml/a.py": "Y = __import__('other', globals(), None, ['new'], 1)"
-                ".new.Y\n",
-            },
-            "lizyml/other/new.py",
-            True,
-            id="round-5-relative-package-with-fromlist",
-        ),
-        pytest.param(
-            {"lizyml/other/__init__.py": "__all__ = ['new']\n"},
-            "lizyml/other/new.py",
-            True,
-            id="star-import-through-all",
-        ),
-        pytest.param(
-            {"lizyml/a.py": "exec('from lizyml.other import new')\n"},
-            "lizyml/other/new.py",
-            True,
-            id="exec-of-a-literal",
-        ),
-        pytest.param(
-            {
-                "lizyml/a.py": "import builtins\n"
-                "m = vars(builtins)['__import__']('lizyml.other', fromlist=['new'])\n"
-            },
-            "lizyml/other/new.py",
-            True,
-            id="machinery-named-by-a-string",
-        ),
-        pytest.param(
-            {"lizyml/a.py": "import importlib\nm = importlib.import_module(NAME)\n"},
-            "lizyml/other/new.py",
-            False,
-            id="machinery-without-a-literal-naming-it",
-        ),
-        pytest.param(
-            {"lizyml/a.py": "import re\nP = re.compile('new')\n"},
-            "lizyml/other/new.py",
-            False,
-            id="re-compile-is-not-machinery",
-        ),
-        pytest.param(
-            {
-                "lizyml/a.py": "import importlib.util as u\n"
-                "s = u.spec_from_file_location('m', 'lizyml/other/new.py')\n"
-            },
-            "lizyml/other/new.py",
-            True,
-            id="source-path-literal",
-        ),
-        pytest.param(
-            {
-                "lizyml/a.py": "import importlib\n"
-                "MSG = 'the new value is not a valid version'\n"
-            },
-            "lizyml/other/new.py",
-            False,
-            id="prose-in-a-machinery-file-is-not-a-name",
-        ),
-        pytest.param(
-            {"lizyml/a.py": "__all__ = ['new']\n"},
-            "lizyml/other/new.py",
-            False,
-            id="all-of-a-module-loads-no-submodule",
-        ),
-        pytest.param(
-            {"lizyml/a.py": "m = eval(\"__import__('lizyml.other.new')\")\n"},
-            "lizyml/other/new.py",
-            True,
-            id="eval-of-an-import-call",
-        ),
-        pytest.param(
-            {
-                "lizyml/a.py": 'exec("import importlib\\n'
-                "m = importlib.import_module('lizyml.other.new')\")\n"
-            },
-            "lizyml/other/new.py",
-            True,
-            id="exec-of-an-import-module-call",
-        ),
-        pytest.param(
-            {"lizyml/a.py": "exec(b'import lizyml.other.new')\n"},
-            "lizyml/other/new.py",
-            True,
-            id="exec-of-a-bytes-literal",
-        ),
-    ],
-)
-def test_import_machinery_reaches_a_module_a_literal_names(
-    tmp_path: pathlib.Path, before_files: dict[str, str], new_file: str, hit: bool
-) -> None:
-    """Round 5: the guard no longer enumerates call shapes (see its docstring)."""
-    before = _tree(tmp_path / "b", {"lizyml/__init__.py": "", **before_files})
-    refs = gap.new_module_references(before, [new_file])
-    assert bool(refs) is hit, refs
-
-
-def test_the_round_5_counterexample_is_refused(tmp_path: pathlib.Path) -> None:
-    runner = FakeRunner(tmp_path)
-    _tree(
-        runner.before_tree,
-        {
-            "lizyml/other/__init__.py": "",
-            "lizyml/a.py": "try:\n"
-            "    Y = __import__('other', globals(), None, ['new'], 1).new.Y\n"
-            "except (ImportError, AttributeError):\n    Y = 0\n",
-        },
-    )
-    _tree(runner.after_tree, {"lizyml/other/new.py": "Y = 1\n"})
-    r = _evaluate(runner, copy.deepcopy(REGRESSION))
-    assert r["verdict"] == "INCOMPLETE"
-    assert any("could change the before tree" in why for why in r["reasons"])
+_NESTED_EXEC = _nested_exec()
 
 
 def _real_runner(tmp_path: pathlib.Path) -> Any:
     return gap.Runner(tmp_path, pathlib.Path(sys.executable), tmp_path / "scratch")
 
 
-def _red_before(
-    runner: Any, before: pathlib.Path, after: pathlib.Path, tests: list[str]
-) -> Counter[str]:
-    with gap.staged(before, after, gap.files_to_stage(before, after, tests)):
-        _, _, cases = runner.run_tests(before, tests)
-    return gap.outcomes(cases)
-
-
 def test_an_unused_import_of_a_new_module_is_not_red(tmp_path: pathlib.Path) -> None:
-    """Design review round 1's counterexample: an unrelated import of a new module."""
+    """Design review round 1's counterexample: an unrelated import of a new module.
+
+    No package file is staged, so the test cannot collect in the before tree: a
+    collection error, which p2 never counts as RED.
+    """
     before = _tree(tmp_path / "b", {"lizyml/__init__.py": "", "tests/__init__.py": ""})
     after = _tree(
         tmp_path / "a",
@@ -665,51 +463,109 @@ def test_an_unused_import_of_a_new_module_is_not_red(tmp_path: pathlib.Path) -> 
             "    assert 1 + 1 == 2\n",
         },
     )
-    assert _red_before(
-        _real_runner(tmp_path), before, after, ["tests/test_x.py"]
-    ) == Counter(passed=1)
+    tests = ["tests/test_x.py"]
+    with gap.staged(before, after, gap.files_to_stage(after, tests)):
+        _, _, cases = _real_runner(tmp_path).run_tests(before, tests)
+    assert gap.outcomes(cases) == Counter(error=1)
+
+
+_GUARDED = "except (ImportError, AttributeError, NameError):\n    Y = 0\n"
+_OTHER = {"lizyml/other/__init__.py": ""}
 
 
 @pytest.mark.parametrize(
-    ("before_code", "new_file"),
+    ("before_files", "new_file"),
     [
         pytest.param(
-            "try:\n    from lizyml.new import Y\nexcept ImportError:\n    Y = 0\n",
+            {"lizyml/a.py": "try:\n    from lizyml.new import Y\n" + _GUARDED},
             "lizyml/new.py",
             id="round-2-guarded-import",
         ),
         pytest.param(
-            "from importlib import import_module\ntry:\n"
-            "    Y = import_module('.new', __package__).Y\n"
-            "except ImportError:\n    Y = 0\n",
+            {
+                "lizyml/a.py": "from importlib import import_module\ntry:\n"
+                "    Y = import_module('.new', __package__).Y\n" + _GUARDED
+            },
             "lizyml/new.py",
             id="round-3-relative-import-module",
         ),
         pytest.param(
-            "from importlib import import_module\ntry:\n"
-            "    Y = import_module('.new', 'lizyml.other').Y\n"
-            "except ImportError:\n    Y = 0\n",
+            {
+                **_OTHER,
+                "lizyml/a.py": "from importlib import import_module\ntry:\n"
+                "    Y = import_module('.new', 'lizyml.other').Y\n" + _GUARDED,
+            },
             "lizyml/other/new.py",
-            id="round-4-relative-name-explicit-package",
+            id="round-4-explicit-package",
         ),
         pytest.param(
-            "try:\n    Y = __import__('lizyml.other', fromlist=['new']).new.Y\n"
-            "except (ImportError, AttributeError):\n    Y = 0\n",
+            {
+                **_OTHER,
+                "lizyml/a.py": "try:\n"
+                "    Y = __import__('lizyml.other', fromlist=['new']).new.Y\n"
+                + _GUARDED,
+            },
             "lizyml/other/new.py",
-            id="round-4-fromlist-of-another-package",
+            id="round-4-fromlist",
+        ),
+        pytest.param(
+            {
+                **_OTHER,
+                "lizyml/a.py": "try:\n"
+                "    Y = __import__('other', globals(), None, ['new'], 1).new.Y\n"
+                + _GUARDED,
+            },
+            "lizyml/other/new.py",
+            id="round-5-relative-dunder-import",
+        ),
+        pytest.param(
+            {
+                "lizyml/other/__init__.py": "__all__ = []\n__all__[:] = ['new']\n",
+                "lizyml/a.py": "try:\n    from .other import *\n    Y = new.Y\n"
+                + _GUARDED,
+            },
+            "lizyml/other/new.py",
+            id="round-6-all-slice-assignment",
+        ),
+        pytest.param(
+            {**_OTHER, "lizyml/a.py": "try:\n    " + _NESTED_EXEC + "\n" + _GUARDED},
+            "lizyml/other/new.py",
+            id="round-6-nested-exec",
+        ),
+        pytest.param(
+            {
+                **_OTHER,
+                "lizyml/a.py": "from importlib import import_module\ntry:\n"
+                "    Y = import_module('lizyml.other.' + 'new').Y\n" + _GUARDED,
+            },
+            "lizyml/other/new.py",
+            id="runtime-built-name",
         ),
     ],
 )
-def test_a_new_module_the_before_code_imports_is_refused(
-    tmp_path: pathlib.Path, before_code: str, new_file: str
+def test_staging_cannot_manufacture_red(
+    tmp_path: pathlib.Path, before_files: dict[str, str], new_file: str
 ) -> None:
-    """Rounds 2-4's counterexamples: a guarded import changes the before behaviour."""
-    runner = FakeRunner(tmp_path)
-    _tree(runner.before_tree, {"lizyml/a.py": before_code})
-    _tree(runner.after_tree, {new_file: "Y = 1\n"})
-    r = _evaluate(runner, copy.deepcopy(REGRESSION))
-    assert r["verdict"] == "INCOMPLETE"
-    assert any("could change the before tree" in why for why in r["reasons"])
+    """Every staging counterexample of design review rounds 2-6, under option C.
+
+    The before code reaches a module only the after tree has, falling back to 0.
+    Staging that module (the rule rounds 1-6 used) turns the passing test RED with
+    no defect behind it; staging only the tests leaves it passing.
+    """
+    base = {"lizyml/__init__.py": "", "tests/__init__.py": "", **before_files}
+    test = "from lizyml.a import Y\n\ndef test_y():\n    assert Y == 0\n"
+    before = _tree(tmp_path / "b", base)
+    after = _tree(
+        tmp_path / "a", {**base, new_file: "Y = 1\n", "tests/test_x.py": test}
+    )
+    tests = ["tests/test_x.py"]
+    runner = _real_runner(tmp_path)
+    with gap.staged(before, after, [*tests, new_file]):
+        _, _, old_rule = runner.run_tests(before, tests)
+    assert gap.outcomes(old_rule) == Counter(failed=1)
+    with gap.staged(before, after, gap.files_to_stage(after, tests)):
+        _, _, cases = runner.run_tests(before, tests)
+    assert gap.outcomes(cases) == Counter(passed=1)
 
 
 # --------------------------------------------------------------------------
