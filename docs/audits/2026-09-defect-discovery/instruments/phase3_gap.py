@@ -299,8 +299,41 @@ def _statement_imports(tree: ast.AST, parts: list[str]) -> set[str]:
 
 
 def _literals(node: ast.AST) -> list[str]:
-    return [n.value for n in ast.walk(node)
-            if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+    """String and bytes literals under `node`; bytes decoded (`exec(b"...")` is legal)."""
+    found: list[str] = []
+    for n in ast.walk(node):
+        if isinstance(n, ast.Constant) and isinstance(n.value, str):
+            found.append(n.value)
+        elif isinstance(n, ast.Constant) and isinstance(n.value, bytes):
+            found.append(n.value.decode("utf-8", errors="ignore"))
+    return found
+
+
+def _named_by_literals(tree: ast.AST, parts: list[str], depth: int = 0) -> tuple[set[str], set[str]]:
+    """Modules the literals under `tree` can name: (resolved imports, name components).
+
+    A dotted-name literal (leading dots allowed) or a `.py` path literal gives its
+    components. A literal that parses as Python code gives its import statements,
+    and is read again for its own literals (`eval("__import__('lizyml.x')")`),
+    to a depth no real code reaches.
+    """
+    reached: set[str] = set()
+    words: set[str] = set()
+    for lit in _literals(tree):
+        if DOTTED_NAME.match(lit):
+            words.update(w for w in lit.split(".") if w)
+        elif SOURCE_PATH.match(lit):
+            words.update(p.removesuffix(".py") for p in lit.split("/") if p)
+        elif depth < 8:
+            try:
+                code = ast.parse(lit)
+            except (SyntaxError, ValueError):
+                continue  # not code: prose, a format string, a message
+            reached |= _statement_imports(code, parts)
+            inner_reached, inner_words = _named_by_literals(code, parts, depth + 1)
+            reached |= inner_reached
+            words |= inner_words
+    return reached, words
 
 
 def _package_all(tree: ast.AST, package: str) -> set[str]:
@@ -334,8 +367,9 @@ def new_module_references(before: pathlib.Path, new_files: list[str]) -> list[st
       attribute, an imported module or a string) is taken to reach every new
       module whose last name component is a component of any dotted-name literal
       (leading dots allowed) or of any `.py` path literal in it, whatever call or
-      argument position the literal is in; and a literal that parses as Python
-      code is read for its import statements (what `exec` would run).
+      argument position the literal is in; a literal that parses as Python code
+      is read for its import statements and, recursively, its own literals (what
+      `exec` / `eval` would run). Bytes literals count as text.
 
     Over-inclusion can only refuse staging, which makes p2 INCOMPLETE, never a
     false RED. Not seen (section 5): a name built at run time (concatenation,
@@ -363,16 +397,8 @@ def new_module_references(before: pathlib.Path, new_files: list[str]) -> list[st
             reached |= _package_all(tree, package)
         words: set[str] = set()
         if _uses_machinery(tree):
-            for lit in _literals(tree):
-                if DOTTED_NAME.match(lit):
-                    words.update(w for w in lit.split(".") if w)
-                elif SOURCE_PATH.match(lit):
-                    words.update(p.removesuffix(".py") for p in lit.split("/") if p)
-                else:
-                    try:
-                        reached |= _statement_imports(ast.parse(lit), parts)
-                    except (SyntaxError, ValueError):
-                        pass  # not code: prose, a format string, a message
+            code_reached, words = _named_by_literals(tree, parts)
+            reached |= code_reached
         for t in sorted(targets):
             if t in reached:
                 refs.append(f"{rel} -> {t}")

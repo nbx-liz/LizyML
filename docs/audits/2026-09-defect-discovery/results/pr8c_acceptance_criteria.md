@@ -145,7 +145,7 @@ disposition を regression 以外にした行の理由（manifest の `justifica
   システムに対して落ちるか」を問うので、補助はテストの一部として扱う。19 行（before のコミットは 13 個）すべてで、before に既にある
   補助と `tests/conftest.py` は after とバイト単位で同一で、違いは before に無い補助（写して作り、後で消す）だけ
   （測定 10）。
-- **新しいモジュールを写す規則** が見ない経路: 実行時に組み立てる名前（連結、format、f-string）と、別のファイルにある仕組みへ変数や引数を通って渡る名前（`lizyml/a.py` の `load("new")` が `lizyml/util.py` の `import_module(n, ...)` に渡る、など）。同じファイルの中なら、変数を経由しても（`pkg = "lizyml.other"; import_module(".new", pkg)`）名前の形のリテラル `.new` があるので拒否される。測った 3 つの before の木に `pkgutil` / `import_module` / `iter_modules` /
+- **新しいモジュールを写す規則** が見ない経路: 実行時に組み立てる名前（連結、format、f-string）と、別のファイルにある仕組みへ変数や引数を通って渡る名前（`lizyml/a.py` の `load("new")` が `lizyml/util.py` の `import_module(n, ...)` に渡る、など）。同じファイルの中なら、変数を経由しても（`pkg = "lizyml.other"; import_module(".new", pkg)`）名前の形のリテラル `.new` があるので拒否される。コードとして解析できるリテラルは中のリテラルまで再帰的に読み（`eval("__import__('lizyml.other.new')")`）、bytes のリテラルも読む。広めに読む代償として、仕組みを使うファイル（測った before の木ではどれも `lizyml/core/model.py` と `lizyml/estimators/lgbm/provider.py` の 2 つ、`importlib.metadata` のため）が新しいモジュールの名前の形のリテラルを持てば写すことを拒否する。その結果は p2 の INCOMPLETE で trial に見え、偽の赤にはならない（測定 13）。測った 3 つの before の木に `pkgutil` / `import_module` / `iter_modules` /
   `entry_points` は無い（測定 8）。ast で見える参照は 19 行（before のコミットは 13 個）すべてで 0 件で、round 5 の規則（仕組みのファイルを名前の形のリテラルで読む）でも 0 件（測定 10〜13）。
 - 2 つの PR を持つ行のうち、#262（regression）の p2 は最初の PR の前と後の全体の比較で、各 PR が単独で赤から緑にしたことは示さない。#265 は decision-only なので p2 を走らせない（§3 の適用表のとおり。round 4 指摘 2 で訂正）。
 - 母集団がテスト自身の宣言による行（#264 #265 #267 #268 #272 #279 #281 #282 #284 #285 #287 #288）は、コードが

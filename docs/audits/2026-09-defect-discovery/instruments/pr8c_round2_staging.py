@@ -18,6 +18,7 @@ complete, at the before tree phase3_gap would build:
 
 from __future__ import annotations
 
+import ast
 import pathlib
 import sys
 
@@ -39,8 +40,11 @@ def main(after_ref: str, scratch: str) -> int:
         new = g.new_package_files(before, after)
         refs = g.new_module_references(before, new)
         how = "mutation" if row.get("red_mutation") else "before tree"
+        machinery = [p.relative_to(before).as_posix()
+                     for p in sorted((before / "lizyml").rglob("*.py"))
+                     if g._uses_machinery(ast.parse(p.read_text(encoding="utf-8")))]
         print(f"#{key} ({how}) before={before.name[:7]}: {len(new)} new package files, "
-              f"references {refs}")
+              f"references {refs}; files naming the import machinery: {machinery}")
         helpers = [f for f in g.files_to_stage(before, after, row["tests"])
                    if f not in row["tests"] and f not in new] + ["tests/conftest.py"]
         differ = []

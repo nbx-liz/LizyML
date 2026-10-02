@@ -255,5 +255,16 @@ Every line below was produced by an executed instrument; the raw outputs sit bes
       lizyml/config/version.py). Restricted to name-shaped literals and to a
       package's own `__all__`, it finds 0 references in all 19 rows (13 distinct
       before commits), pr8c_round5_staging.txt.
+    - Before round 6, two IN-kind gaps of that guard were closed: a literal that
+      parses as code is now read recursively for its own literals
+      (`eval("__import__('lizyml.other.new')")`), and bytes literals count
+      (`exec(b"import lizyml.other.new")`). Re-run (pr8c_round5b_staging.txt):
+      still 0 references in all 19 rows. The files that name the import
+      machinery are the same two in every before tree, lizyml/core/model.py and
+      lizyml/estimators/lgbm/provider.py, both through `importlib.metadata`; none
+      of their name-shaped literals is the last component of a staged module, so
+      the margin is that set. A later file that names the machinery and holds
+      such a literal would be refused: p2 INCOMPLETE, visible in the trial, never
+      a false RED.
     - Full trial with the round 5 guard (pr8c_trial4.txt, 222 s; also saved as
       pr8c_completion_33a3f6e.txt): identical to trial 3 apart from the timing line.

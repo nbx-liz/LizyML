@@ -591,6 +591,27 @@ def test_new_module_references_are_resolved_statically(
             False,
             id="all-of-a-module-loads-no-submodule",
         ),
+        pytest.param(
+            {"lizyml/a.py": "m = eval(\"__import__('lizyml.other.new')\")\n"},
+            "lizyml/other/new.py",
+            True,
+            id="eval-of-an-import-call",
+        ),
+        pytest.param(
+            {
+                "lizyml/a.py": 'exec("import importlib\\n'
+                "m = importlib.import_module('lizyml.other.new')\")\n"
+            },
+            "lizyml/other/new.py",
+            True,
+            id="exec-of-an-import-module-call",
+        ),
+        pytest.param(
+            {"lizyml/a.py": "exec(b'import lizyml.other.new')\n"},
+            "lizyml/other/new.py",
+            True,
+            id="exec-of-a-bytes-literal",
+        ),
     ],
 )
 def test_import_machinery_reaches_a_module_a_literal_names(
