@@ -51,7 +51,7 @@
 #267: https://github.com/nbx-liz/LizyML/issues/267#issuecomment-5927643516
     Fixed by #312 (H-0107), squash-merged into `develop`.
 #268: https://github.com/nbx-liz/LizyML/issues/268#issuecomment-5928972201
-    Fixed by #314 (H-0108), squash-merged into `develop`. The correction comment above records why the premise of 
+    Fixed by #314 (H-0108), squash-merged into `develop`. The correction comment above records why the premise of
 #269: https://github.com/nbx-liz/LizyML/issues/269#issuecomment-5923745761
     Closing: fixed by #302 (squash `2d3bc54` on `develop`, H-0103).
 #270: OPEN

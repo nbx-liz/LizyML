@@ -552,27 +552,42 @@ def test_an_unused_import_of_a_new_module_is_not_red(tmp_path: pathlib.Path) -> 
 
 
 @pytest.mark.parametrize(
-    "before_code",
+    ("before_code", "new_file"),
     [
         pytest.param(
             "try:\n    from lizyml.new import Y\nexcept ImportError:\n    Y = 0\n",
+            "lizyml/new.py",
             id="round-2-guarded-import",
         ),
         pytest.param(
             "from importlib import import_module\ntry:\n"
             "    Y = import_module('.new', __package__).Y\n"
             "except ImportError:\n    Y = 0\n",
+            "lizyml/new.py",
             id="round-3-relative-import-module",
+        ),
+        pytest.param(
+            "from importlib import import_module\ntry:\n"
+            "    Y = import_module('.new', 'lizyml.other').Y\n"
+            "except ImportError:\n    Y = 0\n",
+            "lizyml/other/new.py",
+            id="round-4-relative-name-explicit-package",
+        ),
+        pytest.param(
+            "try:\n    Y = __import__('lizyml.other', fromlist=['new']).new.Y\n"
+            "except (ImportError, AttributeError):\n    Y = 0\n",
+            "lizyml/other/new.py",
+            id="round-4-fromlist-of-another-package",
         ),
     ],
 )
 def test_a_new_module_the_before_code_imports_is_refused(
-    tmp_path: pathlib.Path, before_code: str
+    tmp_path: pathlib.Path, before_code: str, new_file: str
 ) -> None:
-    """Rounds 2-3's counterexamples: a guarded import changes the before behaviour."""
+    """Rounds 2-4's counterexamples: a guarded import changes the before behaviour."""
     runner = FakeRunner(tmp_path)
     _tree(runner.before_tree, {"lizyml/a.py": before_code})
-    _tree(runner.after_tree, {"lizyml/new.py": "Y = 1\n"})
+    _tree(runner.after_tree, {new_file: "Y = 1\n"})
     r = _evaluate(runner, copy.deepcopy(REGRESSION))
     assert r["verdict"] == "INCOMPLETE"
     assert any("could change the before tree" in why for why in r["reasons"])

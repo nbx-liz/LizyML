@@ -226,3 +226,15 @@ Every line below was produced by an executed instrument; the raw outputs sit bes
       before tree": the collection error is read as an error case, where before the
       round 3 fix it was UNKNOWN); (i) UNKNOWN (collection fails without
       `_version.py`), exit 1. Every worktree was clean afterwards.
+
+--- Added after the acceptance review (round 4) ---
+
+12. Literal imports combined within a call, against the real trees
+    (instruments/pr8c_round2_staging.py -> pr8c_round4_staging.txt)
+    - new_module_references now also resolves each string literal in one call's
+      arguments against each other one taken as a package, and every relative
+      literal against every `lizyml` literal in the file (round 4, finding 1:
+      `import_module(".new", "lizyml.other")` and
+      `__import__("lizyml.other", fromlist=["new"])` had produced a false RED).
+      Still 0 references in all 19 rows (13 distinct before commits); the row
+      lines of pr8c_round4_staging.txt equal pr8c_round3_staging.txt's.

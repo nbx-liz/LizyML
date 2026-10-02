@@ -255,6 +255,30 @@ def unreconciled(cases: list[Case], collected: list[str]) -> list[str]:
     return problems
 
 
+def _resolve_literal(text: str, parts: list[str]) -> set[str]:
+    """Every module name a string literal can name, read from package `parts`."""
+    names = {text}
+    level = len(text) - len(text.lstrip("."))
+    if level:
+        anchor = parts[: len(parts) - (level - 1)]
+        rest = text[level:]
+        names.add(".".join([*anchor, rest] if rest else anchor))
+    else:
+        names.update(".".join([*parts[:cut], text]) for cut in range(1, len(parts) + 1))
+    return names
+
+
+def _call_literals(call: ast.Call) -> list[str]:
+    """String literals among a call's arguments, list/tuple/set elements included."""
+    values: list[ast.expr] = [*call.args, *(k.value for k in call.keywords)]
+    found: list[str] = []
+    for v in values:
+        for e in v.elts if isinstance(v, ast.List | ast.Tuple | ast.Set) else [v]:
+            if isinstance(e, ast.Constant) and isinstance(e.value, str):
+                found.append(e.value)
+    return found
+
+
 def new_module_references(before: pathlib.Path, new_files: list[str]) -> list[str]:
     """Before-tree modules that import one of `new_files`, resolved statically.
 
@@ -265,10 +289,15 @@ def new_module_references(before: pathlib.Path, new_files: list[str]) -> list[st
     is read over-inclusively, whatever call it is passed to: as an absolute dotted
     name, as a relative name (`".new"`, resolved like `from .new`), and as a name
     under the file's package or any enclosing package (what `__import__("new",
-    level=N)` and a `fromlist` entry resolve to). Over-inclusion can only refuse
-    staging, which makes p2 INCOMPLETE, never a false RED (design review round 3,
-    finding 1). A mention in a comment, or of an unrelated same-named module
-    elsewhere, is not a reference. Not seen: names built at run time (section 5).
+    level=N)` and a `fromlist` entry resolve to). Literals are also combined:
+    within one call's arguments, each literal is resolved against each other one
+    taken as a package (`import_module(".new", "lizyml.other")`,
+    `__import__("lizyml.other", fromlist=["new"])`; design review round 4,
+    finding 1), and a relative literal is resolved against every `lizyml` literal
+    in the file. Over-inclusion can only refuse staging, which makes p2
+    INCOMPLETE, never a false RED (round 3, finding 1). A mention in a comment, or
+    of an unrelated same-named module elsewhere, is not a reference. Not seen:
+    names built at run time or passed through a variable (section 5).
     """
     targets = {f[:-3].replace("/", ".").removesuffix(".__init__") for f in new_files}
     if not targets:
@@ -298,16 +327,20 @@ def new_module_references(before: pathlib.Path, new_files: list[str]) -> list[st
                 reached.add(base)
                 reached.update(f"{base}.{alias.name}" for alias in node.names)
             elif isinstance(node, ast.Constant) and isinstance(node.value, str):
-                text = node.value
-                reached.add(text)
-                level = len(text) - len(text.lstrip("."))
-                if level:
-                    anchor = parts[: len(parts) - (level - 1)]
-                    rest = text[level:]
-                    reached.add(".".join([*anchor, rest] if rest else anchor))
-                else:
-                    reached.update(".".join([*parts[:cut], text])
-                                   for cut in range(1, len(parts) + 1))
+                reached |= _resolve_literal(node.value, parts)
+            if isinstance(node, ast.Call):
+                literals = _call_literals(node)
+                for a in literals:
+                    for b in literals:
+                        if a != b and b:
+                            reached |= _resolve_literal(a, b.split("."))
+        file_literals = [n.value for n in ast.walk(tree)
+                         if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+        packages = [b for b in file_literals if b == "lizyml" or b.startswith("lizyml.")]
+        for a in file_literals:
+            if a.startswith("."):
+                for b in packages:
+                    reached |= _resolve_literal(a, b.split("."))
         for t in sorted(targets & reached):
             refs.append(f"{rel} -> {t}")
     return refs
