@@ -47,7 +47,7 @@ Pytest, staging, collection, and verdict evaluation were executed. Synthetic Git
 
 **Blocking findings**
 
-1. **Package `__all__` slice assignment manufactures false RED.**  
+1. **Package `__all__` slice assignment manufactures false RED.**
    [`_package_all`](/home/rem/repos/LizyML/docs/audits/2026-09-defect-discovery/instruments/phase3_gap.py:346) accepts assignment targets only when they are an `ast.Name`. It misses this package initializer:
 
    ```python
@@ -69,7 +69,7 @@ Pytest, staging, collection, and verdict evaluation were executed. Synthetic Git
 
    Staging after-only `lizyml/other/new.py` containing `Y = 1` makes a test asserting `Y == 0` fail. An after implementation containing `Y = 0` passes. The instrument incorrectly returns `COMPLETE`. This is explicitly IN under the package-`__all__` boundary. [Actual assertion failure](/tmp/pr8c-round6-probes-0dpxhc21/all-slice-IN/staged-before.txt).
 
-2. **The recursion limit silently accepts an uninspected code literal.**  
+2. **The recursion limit silently accepts an uninspected code literal.**
    [`_named_by_literals`](/home/rem/repos/LizyML/docs/audits/2026-09-defect-discovery/instruments/phase3_gap.py:327) stops parsing at depth 8 without refusing staging. A serialized source fixture containing ten nested literal `exec` calls around `from lizyml.other.new import Y` executes successfully but produces no reference. Staging again creates the sole failed assertion and a false `COMPLETE`. The nesting was generated when constructing the fixture; the executed before file contains literal code, not runtime string construction. [Source fixture](/tmp/pr8c-round6-probes-0dpxhc21/recursive-code-IN/before/lizyml/a.py), [assertion failure](/tmp/pr8c-round6-probes-0dpxhc21/recursive-code-IN/staged-before.txt).
 
 **Non-blocking**

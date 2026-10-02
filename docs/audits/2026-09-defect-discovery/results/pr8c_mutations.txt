@@ -1,4 +1,4 @@
-[run-exclusive] pr8c-mutations2 starting; load was 13.73
+[run-exclusive] pr8c-mutations3 starting; load was 14.01
 (a) #258: INCOMPLETE, exit 1 -> caught
     ! p4: tests/test_tuning/test_direction_reconciliation.py::test_inferred_direction_selects_correct_extremum collects 22, declared 23
     ! p5: derived 22 != declared 23
@@ -43,5 +43,5 @@
     ! collection failed (exit 2): s/test_tuning/test_direction_reconciliation.py
 
 9 of 9 mutations caught
-[run-exclusive] pr8c-mutations2 finished in 91s, exit 0
+[run-exclusive] pr8c-mutations3 finished in 93s, exit 0
 exit=0

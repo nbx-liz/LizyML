@@ -296,3 +296,19 @@ Every line below was produced by an executed instrument; the raw outputs sit bes
       (#264, #277, #288), PARTIAL 1, NOT-PLANNED 1, INCOMPLETE 1 (#271), UNKNOWN 0,
       exit 1. Against trial 4, only #277's lines and the summary changed.
     - Criterion 10 re-run (pr8c_mutations.txt): 9 of 9 mutations caught.
+
+--- Added after the acceptance review (round 7) ---
+
+15. Test-path grammar and the pinned comment read by id
+    (pr8c_trial6.txt = pr8c_completion_33a3f6e.txt; pr8c_mutations.txt re-run)
+    - A row listing `lizyml/new.py` among its tests passed validation and was staged,
+      bypassing option C (round 7, finding 1). Every `tests` entry must now match
+      `tests/(dir/)*test_*.py`; validate_row and files_to_stage both refuse anything
+      else. All 25 shipped rows match.
+    - p6 read the pinned comment from `comments(first:100)`, so a comment past the
+      hundredth would read as absent (round 7, finding 2; no shipped issue has that
+      many). It is now fetched by id (`gh api repos/nbx-liz/LizyML/issues/comments/<id>`)
+      and its issue_url must name the row's issue.
+    - Full trial (pr8c_trial6.txt): identical to trial 5 apart from the timing line;
+      all 22 pinned comments are found by id. Criterion 10: 9 of 9 caught; (h) now
+      reads "pinned comment 5924845155 is not on #258" from the comment's own issue.

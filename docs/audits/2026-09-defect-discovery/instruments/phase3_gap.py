@@ -72,6 +72,8 @@ NONPASS = {"skipped", "xfailed"}
 VERDICTS = ("COMPLETE", "COMPLETE-RED-BY-MUTATION", "PARTIAL", "NOT-PLANNED",
             "INCOMPLETE", "UNKNOWN")
 NODE_ID = re.compile(r"^(?P<file>[^:\s]+\.py)::(?P<rest>\S.*)$")
+# A row's test file: under tests/, named test_*.py, no `..`, no absolute path.
+TEST_PATH = re.compile(r"^tests/(?:[A-Za-z0-9_]+/)*test_[A-Za-z0-9_]+\.py$")
 
 
 class ManifestError(Exception):
@@ -287,6 +289,9 @@ def validate_row(num: str, row: dict[str, Any]) -> None:
     tests = row.get("tests")
     if not isinstance(tests, list) or not all(_text(t) for t in tests):
         raise ManifestError(f"issue {num}: tests must be a list of paths")
+    bad = [t for t in tests if not TEST_PATH.match(t)]
+    if bad:
+        raise ManifestError(f"issue {num}: not a test file under tests/: {bad}")
     if disp == "not-planned":
         if tests:
             raise ManifestError(f"issue {num}: a not-planned row names no tests")
@@ -466,12 +471,30 @@ class Runner:
 
     def issue(self, number: int) -> dict[str, Any]:
         q = ("query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name)"
-             "{issue(number:$n){state stateReason closedAt "
-             "comments(first:100){nodes{databaseId createdAt body}}}}}")
+             "{issue(number:$n){state stateReason closedAt}}}")
         data = self.graphql(q, number)["issue"]
         if data is None:
             raise ManifestError(f"#{number} is not an issue")
         return data
+
+    def comment(self, comment_id: int) -> dict[str, Any] | None:
+        """An issue comment by id: its issue number, time and body; None if it does not exist.
+
+        Read directly, not from the issue's comment list, so its position in a long
+        thread does not matter (design review round 7, finding 2).
+        """
+        rc, out = self.sh(["gh", "api", f"repos/{OWNER}/{NAME}/issues/comments/{comment_id}"],
+                          self.repo)
+        if rc != 0:
+            if "HTTP 404" in out:
+                return None
+            raise ManifestError(f"gh query for comment {comment_id} failed: {out.strip()[:200]}")
+        data = json.loads(out)
+        m = re.search(r"/issues/(\d+)$", data.get("issue_url") or "")
+        if not m:
+            raise ManifestError(f"comment {comment_id} has no issue_url")
+        return {"issue": int(m.group(1)), "createdAt": data["created_at"],
+                "body": data.get("body") or ""}
 
     def pull(self, number: int) -> dict[str, Any]:
         q = ("query($owner:String!,$name:String!,$n:Int!){repository(owner:$owner,name:$name)"
@@ -498,6 +521,9 @@ def files_to_stage(after: pathlib.Path, tests: list[str]) -> list[str]:
     (maintainer decision after round 6, results/pr8c_options_analysis_after_round6.md).
     A row whose tests cannot run in its before tree shows RED by `red_mutation`.
     """
+    outside = [t for t in tests if not TEST_PATH.match(t)]
+    if outside:
+        raise ManifestError(f"refusing to stage paths outside tests/: {outside}")
     staged = list(tests)
     for p in sorted((after / "tests").rglob("*.py")):
         if "__pycache__" not in p.parts and (p.name == "__init__.py" or p.name.startswith("_")):
@@ -591,11 +617,9 @@ def _p6(num: int, row: dict[str, Any], runner: Runner, after_sha: str) -> tuple[
         return False, f"issue {issue['state']}/{issue['stateReason']}, want CLOSED/{want}"
     if not row["github_prs"]:
         return True, f"closed {want}"
-    pinned = [c for c in issue["comments"]["nodes"]
-              if c["databaseId"] == row["closure_comment"]]
-    if len(pinned) != 1:
+    comment = runner.comment(row["closure_comment"])
+    if comment is None or comment["issue"] != num:
         return False, f"pinned comment {row['closure_comment']} is not on #{num}"
-    comment = pinned[0]
     if comment["createdAt"] > issue["closedAt"]:
         return False, "the pinned comment was written after the close"
     for pr_num in row["github_prs"]:

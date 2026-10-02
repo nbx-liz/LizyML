@@ -4,11 +4,11 @@
 it creates git worktrees and runs pytest in each, so the suite does not run it.
 These tests cover what could report a wrong verdict without erroring: the
 manifest grammar, the plan's issue set, node-id counting, staging the before
-tree, the new-module reference check, the reintroduction mutation, per-node
-outcomes and their declared exceptions, the closure association, and the
-verdict arithmetic. A fake runner drives each proposition; staging, the
-reference check and the round 1-2 counterexamples run real pytest in temporary
-trees.
+tree (tests and helpers only, never a package file), the reintroduction
+mutation, per-node outcomes and their declared exceptions, the closure
+association, and the verdict arithmetic. A fake runner drives each proposition;
+staging and the counterexamples of design review rounds 1-7 run real pytest in
+temporary trees.
 """
 
 from __future__ import annotations
@@ -119,6 +119,7 @@ class FakeRunner(gap.Runner):
         }
         self.ancestors = {MERGE}
         self.first_parent_of: dict[str, str] = {MERGE: PARENT}
+        self.comment_issue = 42
 
     def rev(self, ref: str) -> str:
         return AFTER_SHA
@@ -155,6 +156,12 @@ class FakeRunner(gap.Runner):
 
     def issue(self, number: int) -> dict[str, Any]:
         return self.issue_data
+
+    def comment(self, comment_id: int) -> dict[str, Any] | None:
+        for c in self.issue_data["comments"]["nodes"]:
+            if c["databaseId"] == comment_id:
+                return {"issue": self.comment_issue, **c}
+        return None
 
     def pull(self, number: int) -> dict[str, Any]:
         return self.prs[number]
@@ -205,6 +212,19 @@ def _bad_mutation(**change: str) -> Any:
         pytest.param(lambda r: r.update(tests=[]), id="no-tests"),
         pytest.param(
             lambda r: r.update(tests="tests/test_x.py"), id="tests-not-a-list"
+        ),
+        pytest.param(
+            lambda r: r.update(tests=["tests/test_x.py", "lizyml/new.py"]),
+            id="round-7-package-file-as-a-test",
+        ),
+        pytest.param(
+            lambda r: r.update(tests=["tests/../lizyml/new.py"]), id="test-path-escapes"
+        ),
+        pytest.param(
+            lambda r: r.update(tests=["/abs/tests/test_x.py"]), id="test-path-absolute"
+        ),
+        pytest.param(
+            lambda r: r.update(tests=["tests/_helpers.py"]), id="test-path-not-a-test"
         ),
         pytest.param(lambda r: r.pop("population_test"), id="neither-test-nor-note"),
         pytest.param(
@@ -415,6 +435,13 @@ def test_p2_stages_no_package_file(tmp_path: pathlib.Path) -> None:
         ["tests/test_x.py", "tests/__init__.py", "tests/_helpers.py", "tests/_spy.py"]
     )
     assert not [f for f in staged if f.startswith("lizyml/")]
+
+
+def test_staging_refuses_a_path_outside_tests(tmp_path: pathlib.Path) -> None:
+    """Round 7: a package file listed as a row's test is never copied."""
+    after = _tree(tmp_path / "a", {"lizyml/new.py": "Y = 1\n", "tests/test_x.py": ""})
+    with pytest.raises(gap.ManifestError):
+        gap.files_to_stage(after, ["tests/test_x.py", "lizyml/new.py"])
 
 
 def test_p2_restores_the_before_tree(tmp_path: pathlib.Path) -> None:
@@ -937,6 +964,10 @@ def _comment(runner: FakeRunner) -> dict[str, Any]:
             lambda r: _comment(r).update(body="Closing: no longer relevant."),
             id="pinned-comment-names-no-pr",
         ),
+        pytest.param(
+            lambda r: setattr(r, "comment_issue", 43),
+            id="pinned-comment-on-another-issue",
+        ),
     ],
 )
 def test_p6_requires_every_condition(tmp_path: pathlib.Path, mutate: Any) -> None:
@@ -1092,6 +1123,44 @@ def test_runner_prepares_each_worktree(tmp_path: pathlib.Path) -> None:
     assert calls[-1][0] == [str(venv / "python"), "-c", "print(1)"]
     assert calls[-1][1] == tree
     assert calls[-1][2]["PYTHONDONTWRITEBYTECODE"] == "1"
+
+
+@pytest.mark.parametrize(
+    ("rc", "out", "expected"),
+    [
+        pytest.param(
+            0,
+            json.dumps(
+                {
+                    "issue_url": "https://api.github.com/repos/o/r/issues/277",
+                    "created_at": "2026-09-15T08:31:25Z",
+                    "body": "Fixed by #296.",
+                }
+            ),
+            {
+                "issue": 277,
+                "createdAt": "2026-09-15T08:31:25Z",
+                "body": "Fixed by #296.",
+            },
+            id="found",
+        ),
+        pytest.param(1, "gh: Not Found (HTTP 404)", None, id="absent"),
+    ],
+)
+def test_runner_reads_a_comment_by_id(
+    tmp_path: pathlib.Path, rc: int, out: str, expected: Any
+) -> None:
+    """Round 7: read directly, so a comment past the hundredth is still found."""
+    runner = gap.Runner(tmp_path, pathlib.Path(sys.executable), tmp_path / "scratch")
+    calls: list[list[str]] = []
+
+    def sh(cmd: list[str], cwd: pathlib.Path) -> tuple[int, str]:
+        calls.append(cmd)
+        return rc, out
+
+    runner.sh = sh  # type: ignore[method-assign]
+    assert runner.comment(5677178764) == expected
+    assert calls == [["gh", "api", "repos/nbx-liz/LizyML/issues/comments/5677178764"]]
 
 
 def test_runner_refuses_a_worktree_at_the_wrong_commit(tmp_path: pathlib.Path) -> None:
