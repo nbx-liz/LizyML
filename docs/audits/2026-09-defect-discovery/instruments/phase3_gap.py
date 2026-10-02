@@ -255,49 +255,92 @@ def unreconciled(cases: list[Case], collected: list[str]) -> list[str]:
     return problems
 
 
-def _resolve_literal(text: str, parts: list[str]) -> set[str]:
-    """Every module name a string literal can name, read from package `parts`."""
-    names = {text}
-    level = len(text) - len(text.lstrip("."))
-    if level:
-        anchor = parts[: len(parts) - (level - 1)]
-        rest = text[level:]
-        names.add(".".join([*anchor, rest] if rest else anchor))
-    else:
-        names.update(".".join([*parts[:cut], text]) for cut in range(1, len(parts) + 1))
-    return names
+# Names through which code can load a module other than by an import statement:
+# the import machinery and code execution. `compile` counts only as a bare name,
+# so `re.compile` does not.
+MACHINERY = frozenset({
+    "importlib", "import_module", "__import__", "pkgutil", "runpy",
+    "spec_from_file_location", "spec_from_loader", "find_spec", "module_from_spec",
+    "SourceFileLoader", "exec", "eval",
+})
+DOTTED_NAME = re.compile(r"^\.*[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*$")
+SOURCE_PATH = re.compile(r"^[\w./-]+\.py$")
 
 
-def _call_literals(call: ast.Call) -> list[str]:
-    """String literals among a call's arguments, list/tuple/set elements included."""
-    values: list[ast.expr] = [*call.args, *(k.value for k in call.keywords)]
-    found: list[str] = []
-    for v in values:
-        for e in v.elts if isinstance(v, ast.List | ast.Tuple | ast.Set) else [v]:
-            if isinstance(e, ast.Constant) and isinstance(e.value, str):
-                found.append(e.value)
-    return found
+def _uses_machinery(tree: ast.AST) -> bool:
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and (node.id in MACHINERY or node.id == "compile"):
+            return True
+        if isinstance(node, ast.Attribute) and node.attr in MACHINERY:
+            return True
+        if isinstance(node, ast.alias) and node.name.split(".")[0] in MACHINERY:
+            return True
+        if isinstance(node, ast.ImportFrom) and (node.module or "").split(".")[0] in MACHINERY:
+            return True
+        if isinstance(node, ast.Constant) and node.value in MACHINERY:
+            return True
+    return False
+
+
+def _statement_imports(tree: ast.AST, parts: list[str]) -> set[str]:
+    """Module names the import statements in `tree` load, relative ones resolved."""
+    reached: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            reached.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            base = node.module or ""
+            if node.level:
+                anchor = parts[: len(parts) - (node.level - 1)]
+                base = ".".join([*anchor, base] if base else anchor)
+            reached.add(base)
+            reached.update(f"{base}.{alias.name}" for alias in node.names)
+    return reached
+
+
+def _literals(node: ast.AST) -> list[str]:
+    return [n.value for n in ast.walk(node)
+            if isinstance(n, ast.Constant) and isinstance(n.value, str)]
+
+
+def _package_all(tree: ast.AST, package: str) -> set[str]:
+    """Submodules a star import of this package loads: the names its `__all__` lists."""
+    names: list[str] = []
+    for node in ast.walk(tree):
+        targets = (node.targets if isinstance(node, ast.Assign)
+                   else [node.target] if isinstance(node, ast.AugAssign | ast.AnnAssign)
+                   else [])
+        if any(isinstance(t, ast.Name) and t.id == "__all__" for t in targets):
+            names.extend(_literals(node.value) if node.value is not None else [])
+        if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name) and node.func.value.id == "__all__"):
+            names.extend(lit for a in node.args for lit in _literals(a))
+    return {f"{package}.{n}" for n in names}
 
 
 def new_module_references(before: pathlib.Path, new_files: list[str]) -> list[str]:
-    """Before-tree modules that import one of `new_files`, resolved statically.
+    """Before-tree modules that can load one of `new_files`, read from the AST.
 
     A new package file can change the before tree's behaviour only if before-tree
-    code reaches it -- by an import statement (inside a `try` or not), or by a
-    string handed to `import_module` / `__import__`. Statements are resolved from
-    the AST, relative ones against the importing file's package. A string literal
-    is read over-inclusively, whatever call it is passed to: as an absolute dotted
-    name, as a relative name (`".new"`, resolved like `from .new`), and as a name
-    under the file's package or any enclosing package (what `__import__("new",
-    level=N)` and a `fromlist` entry resolve to). Literals are also combined:
-    within one call's arguments, each literal is resolved against each other one
-    taken as a package (`import_module(".new", "lizyml.other")`,
-    `__import__("lizyml.other", fromlist=["new"])`; design review round 4,
-    finding 1), and a relative literal is resolved against every `lizyml` literal
-    in the file. Over-inclusion can only refuse staging, which makes p2
-    INCOMPLETE, never a false RED (round 3, finding 1). A mention in a comment, or
-    of an unrelated same-named module elsewhere, is not a reference. Not seen:
-    names built at run time or passed through a variable (section 5).
+    code loads it. Enumerating the call shapes of the import machinery was refuted
+    three times (design review rounds 3-5: a relative `import_module`, an explicit
+    package argument, a relative `__import__` with a `fromlist`), so a file that
+    uses the machinery is read by what its literals name, not by how it calls:
+
+    - import statements, relative ones resolved against the file's package
+      (`try` blocks included);
+    - a package's `__all__`: a star import loads the submodules it lists;
+    - a file that names the import machinery (`MACHINERY`, as a name, an
+      attribute, an imported module or a string) is taken to reach every new
+      module whose last name component is a component of any dotted-name literal
+      (leading dots allowed) or of any `.py` path literal in it, whatever call or
+      argument position the literal is in; and a literal that parses as Python
+      code is read for its import statements (what `exec` would run).
+
+    Over-inclusion can only refuse staging, which makes p2 INCOMPLETE, never a
+    false RED. Not seen (section 5): a name built at run time (concatenation,
+    formatting), and one that reaches the machinery in another file through a
+    variable or an argument.
     """
     targets = {f[:-3].replace("/", ".").removesuffix(".__init__") for f in new_files}
     if not targets:
@@ -315,34 +358,26 @@ def new_module_references(before: pathlib.Path, new_files: list[str]) -> list[st
             tree = ast.parse(src.read_text(encoding="utf-8"))
         except SyntaxError as exc:
             raise ManifestError(f"cannot parse {rel}: {exc}") from exc
-        reached: set[str] = set()
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Import):
-                reached.update(alias.name for alias in node.names)
-            elif isinstance(node, ast.ImportFrom):
-                base = node.module or ""
-                if node.level:
-                    anchor = parts[: len(parts) - (node.level - 1)]
-                    base = ".".join([*anchor, base] if base else anchor)
-                reached.add(base)
-                reached.update(f"{base}.{alias.name}" for alias in node.names)
-            elif isinstance(node, ast.Constant) and isinstance(node.value, str):
-                reached |= _resolve_literal(node.value, parts)
-            if isinstance(node, ast.Call):
-                literals = _call_literals(node)
-                for a in literals:
-                    for b in literals:
-                        if a != b and b:
-                            reached |= _resolve_literal(a, b.split("."))
-        file_literals = [n.value for n in ast.walk(tree)
-                         if isinstance(n, ast.Constant) and isinstance(n.value, str)]
-        packages = [b for b in file_literals if b == "lizyml" or b.startswith("lizyml.")]
-        for a in file_literals:
-            if a.startswith("."):
-                for b in packages:
-                    reached |= _resolve_literal(a, b.split("."))
-        for t in sorted(targets & reached):
-            refs.append(f"{rel} -> {t}")
+        reached = _statement_imports(tree, parts)
+        if rel.endswith("__init__.py"):
+            reached |= _package_all(tree, package)
+        words: set[str] = set()
+        if _uses_machinery(tree):
+            for lit in _literals(tree):
+                if DOTTED_NAME.match(lit):
+                    words.update(w for w in lit.split(".") if w)
+                elif SOURCE_PATH.match(lit):
+                    words.update(p.removesuffix(".py") for p in lit.split("/") if p)
+                else:
+                    try:
+                        reached |= _statement_imports(ast.parse(lit), parts)
+                    except (SyntaxError, ValueError):
+                        pass  # not code: prose, a format string, a message
+        for t in sorted(targets):
+            if t in reached:
+                refs.append(f"{rel} -> {t}")
+            elif t.rsplit(".", 1)[-1] in words:
+                refs.append(f"{rel} -> {t} (import machinery and a literal naming it)")
     return refs
 
 

@@ -521,6 +521,104 @@ def test_new_module_references_are_resolved_statically(
     assert bool(refs) is hit, refs
 
 
+@pytest.mark.parametrize(
+    ("before_files", "new_file", "hit"),
+    [
+        pytest.param(
+            {
+                "lizyml/other/__init__.py": "",
+                "lizyml/a.py": "Y = __import__('other', globals(), None, ['new'], 1)"
+                ".new.Y\n",
+            },
+            "lizyml/other/new.py",
+            True,
+            id="round-5-relative-package-with-fromlist",
+        ),
+        pytest.param(
+            {"lizyml/other/__init__.py": "__all__ = ['new']\n"},
+            "lizyml/other/new.py",
+            True,
+            id="star-import-through-all",
+        ),
+        pytest.param(
+            {"lizyml/a.py": "exec('from lizyml.other import new')\n"},
+            "lizyml/other/new.py",
+            True,
+            id="exec-of-a-literal",
+        ),
+        pytest.param(
+            {
+                "lizyml/a.py": "import builtins\n"
+                "m = vars(builtins)['__import__']('lizyml.other', fromlist=['new'])\n"
+            },
+            "lizyml/other/new.py",
+            True,
+            id="machinery-named-by-a-string",
+        ),
+        pytest.param(
+            {"lizyml/a.py": "import importlib\nm = importlib.import_module(NAME)\n"},
+            "lizyml/other/new.py",
+            False,
+            id="machinery-without-a-literal-naming-it",
+        ),
+        pytest.param(
+            {"lizyml/a.py": "import re\nP = re.compile('new')\n"},
+            "lizyml/other/new.py",
+            False,
+            id="re-compile-is-not-machinery",
+        ),
+        pytest.param(
+            {
+                "lizyml/a.py": "import importlib.util as u\n"
+                "s = u.spec_from_file_location('m', 'lizyml/other/new.py')\n"
+            },
+            "lizyml/other/new.py",
+            True,
+            id="source-path-literal",
+        ),
+        pytest.param(
+            {
+                "lizyml/a.py": "import importlib\n"
+                "MSG = 'the new value is not a valid version'\n"
+            },
+            "lizyml/other/new.py",
+            False,
+            id="prose-in-a-machinery-file-is-not-a-name",
+        ),
+        pytest.param(
+            {"lizyml/a.py": "__all__ = ['new']\n"},
+            "lizyml/other/new.py",
+            False,
+            id="all-of-a-module-loads-no-submodule",
+        ),
+    ],
+)
+def test_import_machinery_reaches_a_module_a_literal_names(
+    tmp_path: pathlib.Path, before_files: dict[str, str], new_file: str, hit: bool
+) -> None:
+    """Round 5: the guard no longer enumerates call shapes (see its docstring)."""
+    before = _tree(tmp_path / "b", {"lizyml/__init__.py": "", **before_files})
+    refs = gap.new_module_references(before, [new_file])
+    assert bool(refs) is hit, refs
+
+
+def test_the_round_5_counterexample_is_refused(tmp_path: pathlib.Path) -> None:
+    runner = FakeRunner(tmp_path)
+    _tree(
+        runner.before_tree,
+        {
+            "lizyml/other/__init__.py": "",
+            "lizyml/a.py": "try:\n"
+            "    Y = __import__('other', globals(), None, ['new'], 1).new.Y\n"
+            "except (ImportError, AttributeError):\n    Y = 0\n",
+        },
+    )
+    _tree(runner.after_tree, {"lizyml/other/new.py": "Y = 1\n"})
+    r = _evaluate(runner, copy.deepcopy(REGRESSION))
+    assert r["verdict"] == "INCOMPLETE"
+    assert any("could change the before tree" in why for why in r["reasons"])
+
+
 def _real_runner(tmp_path: pathlib.Path) -> Any:
     return gap.Runner(tmp_path, pathlib.Path(sys.executable), tmp_path / "scratch")
 
