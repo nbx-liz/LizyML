@@ -7,7 +7,7 @@
 
 ## 状態 —— **Phase 3 完了（測定済み）**
 
-PR 9（#320、H-0110）は `21db071` でマージ済み、#271 は close レビュー（APPROVE）を経て close 済み（close コメント 6010100067）。PR 9b は manifest の #271 行に `github_prs: [320]` と `closure_comment` を入れ、#266 行の母集団を定数 7 から `derived_from`（`SITES` の件数）に変えた。PR 9 が BLUEPRINT §15.2 に `format_version` の記述を 2 つ足したため、宣言の走査が 8 件を集め、定数 7 の行が INCOMPLETE になったからである（DC3: 派生した件数を定数で持っていた）。
+PR 9（#320、H-0110）は `21db071` でマージ済み、#271 は close レビュー（APPROVE）を経て close 済み（close コメント 6010100067）。PR 9b は manifest の #271 行に `github_prs: [320]` と `closure_comment` を入れ、#266 行の母集団を定数 7 から `derived_from`（`SITES` の件数）に変えた。PR 9 が BLUEPRINT §15.2 に `FORMAT_VERSION = 2` の宣言を 1 つ足したため（1605 行。1604 行は元からあった宣言が移動したもの）、宣言の走査が 8 件を集め、定数 7 の行が INCOMPLETE になったからである（DC3: 派生した件数を定数で持っていた）。`derived_from` だけでは件数の出どころがテストと同じになり、宣言が 1 つ見えなくなっても通るので、`test_declared_versions.py` の `MIN_SITES` を 8 に上げて独立の下限にした（PR 9b レビュー）。
 
 `phase3_gap.py --after origin/develop`（`21db071`、PR 9b の manifest）: COMPLETE 19 / COMPLETE-RED-BY-MUTATION 4 / PARTIAL 1（#270、計画どおり open）/ NOT-PLANNED 1 / INCOMPLETE 0 / UNKNOWN 0、exit 0（`results/phase3_completion_21db071.txt`）。
 

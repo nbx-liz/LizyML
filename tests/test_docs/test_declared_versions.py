@@ -104,9 +104,12 @@ ALLOWED: dict[str, set[int]] = {
 #: the drift this check exists for (DC1).
 MUST_CONTRIBUTE: tuple[str, ...] = ("ARCHITECTURE.md", "BLUEPRINT.md")
 
-#: Sites present when this check was written. Fewer means the scan stopped
-#: looking; this is the coarse guard, MUST_CONTRIBUTE is the sharp one.
-MIN_SITES = 7
+#: Sites present now (7 when this check was written; H-0110 added the BLUEPRINT
+#: section 15.2 one). Fewer means the scan stopped looking; this is the coarse
+#: guard, MUST_CONTRIBUTE is the sharp one. It is also the independent floor
+#: under the Phase 3 manifest's #266 row, whose population is derived from
+#: ``len(SITES)`` and so could not see a site disappear by itself (PR 9b review).
+MIN_SITES = 8
 
 
 def _is_excluded_dir(path: Path) -> bool:
