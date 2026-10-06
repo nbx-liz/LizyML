@@ -70,7 +70,7 @@
 | A3 | 文法の拒否: 上位文字列 5 例、境界のある一致 4 例、不正な行 15 種、`[names]` の不正 4 種 | `test_a_superstring_is_not_a_token_match`、`test_a_bounded_occurrence_is_a_token_match`、`test_a_malformed_row_is_refused`、`test_a_malformed_name_row_is_refused` |
 | A4 | RED: 未編集の BLUEPRINT で 20 件が失敗する（書き足しが要る entry 18 件 + H-0110 自身の行 + `CHECKSUM_ALGORITHM`）。書き足しの要らない既存の提案の行は失敗しない | `pr9_measurements.txt` item 6、RED コミットでのテスト実行 |
 | A5 | 書き足しが要る 46 件すべてが、`13fb9d7` に無かった anchor を持つ | `instruments/pr9_discriminating_anchors.py --base 13fb9d7` exit 0 |
-| A6 | 畳み込む 127 clause、5 件の決定、H-0110 決定 4 の 2 点（重なる clause はその行で示す）、方針 8 の 1 行のそれぞれに、それを述べる BLUEPRINT の行がある | `results/pr9_fold_map.md`（レビューで確かめる） |
+| A6 | 畳み込む 127 clause、5 件の決定、H-0110 決定 4 の 2 点（重なる clause はその行で示す）、方針 8 の 1 行のそれぞれに、それを述べる BLUEPRINT の行がある | `results/pr9_fold_map.md`。機械的な半分（行の id = 書き足しが要る clause + 宣言した決定の行、両方向で一致し重複なし、引用が BLUEPRINT に実在）は `instruments/pr9_fold_map_check.py` と `tests/test_docs/test_pr9_fold_map_check.py`。引用が clause を述べているかはレビューで確かめる |
 | A7 | `[names]` の行 = #271 の 6 名（両方向）で、6 名すべてが成り立つ | `test_public_name_dispositions_hold` |
 | A8 | HISTORY の id の検査は文法の移設の前後で同じ結果 | `test_history_ids.py` 5 passed（移設の前後） |
 | A9 | phase3 manifest の #271 行: `population_test` が 111 件を集め（`derived_from` で HISTORY から導出）、`red_mutation` が H-0083 の checksum の記述を消して失敗する | `instruments/phase3_gap.py`（PR 9b で `closure_comment` を埋めて exit 0） |
