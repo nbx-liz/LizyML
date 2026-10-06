@@ -624,7 +624,8 @@ LizyML 非依存の学習・推論コードを自動生成する。
   - 列を順に target と比べる。`raise_on_violation=True` では最初に見つかった漏洩列で `LEAKAGE_SUSPECTED` を即座に送出する。戻り値（`[]` か警告のリスト）が返るのは、全列を比べ終えたときだけである。
   - 比較が例外を出した列は、`raise_on_violation` に関わらず `LizyMLError(DATA_SCHEMA_INVALID)`（context `column` / `target`、`cause` は元の例外）。検査できなかった列を検査済みとして扱わない。
   - 捕まえる範囲は比較の呼び出し 1 つだけで、例外の型は問わない（拡張配列の `OverflowError` / `AttributeError` も `DATA_SCHEMA_INVALID` になる）。`LEAKAGE_SUSPECTED` はその範囲の外で送出する。
-  - target 列が `df` に無いときに `[]` を返す振る舞いは決定していない（#311）。
+  - target 列が `df` に無ければ（有無は完全なラベルで調べる。`MultiIndex` の部分キーは無い列として扱う）、どの列も比べずに、`raise_on_violation` に関わらず `LizyMLError(DATA_SCHEMA_INVALID)`（context `target` / `missing_columns` / `available_columns`）を送出する。したがって戻り値が返るのは、target 列があり、全列を比べ終えたときだけである（H-0112）。
+- `validate_time_series_order(df, time_col, *, raise_on_violation=True)` も、`time_col` が `df` に無ければ並びを調べずに、`raise_on_violation` に関わらず `DATA_SCHEMA_INVALID`（context `time_col` / `missing_columns` / `available_columns`）を送出する。並びが非減少でなければ `LEAKAGE_SUSPECTED`（`raise_on_violation=False` なら警告のリスト）、非減少なら `[]`（H-0112）。
 
 ## 8.3 Data fingerprint（必須）
 

@@ -459,6 +459,10 @@ anchors = ["proposal_dispositions.toml"]
 disposition = "specified"
 anchors = ["expanded_names", "RoundSummary.expanded_dims", "clamped_to_bound"]
 
+[proposals."H-0112"]
+disposition = "specified"
+anchors = ["missing_columns", "available_columns"]
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 
