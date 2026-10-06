@@ -455,6 +455,10 @@ anchors = ["applied_training_params", "FitState.applied_training_params"]
 disposition = "specified"
 anchors = ["proposal_dispositions.toml"]
 
+[proposals."H-0111"]
+disposition = "specified"
+anchors = ["expanded_names", "RoundSummary.expanded_dims", "clamped_to_bound"]
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 
