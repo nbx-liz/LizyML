@@ -1143,7 +1143,7 @@ contradictory explicit directions require migration; old explicitness is not gue
 
 **`calibration.params` は 3 手法すべてで、それを消費する calibrator に届くか、学習開始前に拒否される（H-0100）。** 各 calibrator が `validate_params` で受理契約を宣言し、Facade が `fit()` / `tune()` のマージ直後、Booster も study も学習する前に呼ぶ。値は 3 手法すべてで入口正規化される（H-0095）。LightGBM の別名の正規名化は isotonic のみ。生成コード（§15.4）も同じ設定で calibrator を再構築する。
 
-**最適化が収束しなかった校正は使わない（H-0113）。** Platt / Beta の `minimize` が `success` を偽で返したら（反復や関数評価の上限、線探索の失敗。理由は区別しない）、その係数を校正器に残さずに `LizyMLError(CALIBRATION_FAILED)` を送出する（context `calibrator` / `method` / `message` / `status` / `nit`）。cross-fit は fold の失敗に `stage="cross_fit"` と `fold`、C_final の失敗に `stage="c_final"` を加える。生成される `train.py` の校正器は同じ場合に `RuntimeError` を送出する。
+**最適化が収束しなかった校正は使わない（H-0113）。** Platt / Beta の `minimize` が `success` を偽で返したら（反復や関数評価の上限、線探索の失敗。理由は区別しない）、その係数を校正器に残さずに（refit なら前の fit の係数も消して）`LizyMLError(CALIBRATION_FAILED)` を送出する（context `calibrator` / `method` / `message` / `status` / `nit`）。cross-fit は fold の失敗に `stage="cross_fit"` と `fold`、C_final の失敗に `stage="c_final"` を加える。生成される `train.py` の校正器は同じ場合に `RuntimeError` を送出する。
 
 ### Platt Scaling 詳細（H-0100）
 

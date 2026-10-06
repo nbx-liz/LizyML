@@ -85,6 +85,8 @@ class PlattCalibrator(BaseCalibratorAdapter):
     ) -> PlattCalibrator:
         from scipy.optimize import minimize
 
+        # A refit that fails must not leave an earlier fit usable (H-0113).
+        self._coef = None
         scores = np.asarray(oof_scores, dtype=np.float64).ravel()
         positive = np.asarray(y, dtype=np.float64).ravel() > 0
         n_pos = float(positive.sum())

@@ -52,6 +52,32 @@ def test_failed_minimize_raises_and_leaves_no_coefficients(name: str) -> None:
 
 
 @pytest.mark.parametrize("name", sorted(_CALIBRATORS))
+def test_failed_refit_does_not_keep_the_earlier_fit(name: str) -> None:
+    """A success followed by a failed refit leaves the calibrator unfitted (review r1).
+
+    The first fit's data make the start point the optimum, so ``maxiter=1``
+    converges; the refit on informative scores needs more iterations and fails.
+    """
+    calibrator = _CALIBRATORS[name](_STOP_EARLY)
+    s, y = _scores()
+    if name == "platt":
+        # x0 = [0, prior log-odds]: constant scores, balanced labels.
+        calibrator.fit(np.zeros(400), (np.arange(400) % 2).astype(float))
+    else:
+        # x0 = [1, 1, 0]: soft labels equal to the start point's prediction.
+        p = np.clip(expit(s), 1e-10, 1 - 1e-10)
+        calibrator.fit(s, expit(np.log(p) + np.log(1 - p)))
+    calibrator.export_params()  # the first fit succeeded
+    with pytest.raises(LizyMLError) as exc:
+        calibrator.fit(s, y)
+    assert exc.value.code == ErrorCode.CALIBRATION_FAILED
+    for call in (lambda: calibrator.predict(s), calibrator.export_params):
+        with pytest.raises(LizyMLError) as not_fitted:
+            call()
+        assert not_fitted.value.code == ErrorCode.CALIBRATION_NOT_FITTED
+
+
+@pytest.mark.parametrize("name", sorted(_CALIBRATORS))
 def test_default_settings_still_fit(name: str) -> None:
     s, y = _scores()
     probs = _CALIBRATORS[name]().fit(s, y).predict(s)

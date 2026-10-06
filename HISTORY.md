@@ -10968,7 +10968,7 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 
 ### 対応方針（決定）
 
-1. **`minimize` の `success` が偽なら `LizyMLError(CALIBRATION_FAILED)` を送出し、その係数を校正器に残さない。** Platt と Beta の両方。理由（反復の上限、関数評価の上限、線探索の失敗）は区別しない: どれも、返った係数が尤度の最大点であることを示していないので、校正として使えない。`context` は `calibrator`（`"platt"` / `"beta"`）、`method`、scipy の `message` と `status`、`nit`（反復回数）を持つ。`user_message` は、`calibration.params` の `options` が最適化を制限しているなら緩めるよう書く。
+1. **`minimize` の `success` が偽なら `LizyMLError(CALIBRATION_FAILED)` を送出し、その係数を校正器に残さない。**`fit()` は始めに前の係数を消すので、成功した fit のあとの refit が失敗した場合も、前の fit の係数で `predict()` / `export_params()` が動くことはない（コードレビュー round 1 が、成功のあとの失敗で前の係数が残ることを実行で示した）。 Platt と Beta の両方。理由（反復の上限、関数評価の上限、線探索の失敗）は区別しない: どれも、返った係数が尤度の最大点であることを示していないので、校正として使えない。`context` は `calibrator`（`"platt"` / `"beta"`）、`method`、scipy の `message` と `status`、`nit`（反復回数）を持つ。`user_message` は、`calibration.params` の `options` が最適化を制限しているなら緩めるよう書く。
 2. **`ErrorCode.CALIBRATION_FAILED` を新設する。** 既存の code は意味が合わない: `CONFIG_INVALID` は設定の誤りで、既定の設定での失敗には当たらない。`CALIBRATION_NOT_FITTED` は fit 前の呼び出しを表す。enum への追加だけで、既存の code は変わらない。
 3. **cross-fit では、どこで失敗したかを付ける。** `cross_fit` は fold の校正器の失敗に `context["stage"] = "cross_fit"` と `context["fold"]`（0 始まりの fold 番号）を、C_final の失敗に `context["stage"] = "c_final"` を加えて送出し直す（`cause` は元の例外）。他の `LizyMLError` と例外はそのまま通す。
 4. **生成される `train.py` も同じ規則に従う。** 生成コードは LizyML に依存しないので、`_run_minimize` が `success` の偽を `RuntimeError`（`calibration (<method>) did not converge: <message>`）にする。生成コードの他の拒否（`ValueError`）は設定の誤りを表し、これは実行時の失敗なので型を分ける。
@@ -11000,7 +11000,7 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 
 ### 受け入れ基準（テスト観点）
 
-1. 本物の失敗した `minimize`（`{"options": {"maxiter": 1}}`、Platt と Beta）で `fit()` が `CALIBRATION_FAILED` を送出し、`context` に `calibrator` / `method` / `message` / `status` / `nit` を持つ。係数は設定されず、`predict()` は `CALIBRATION_NOT_FITTED`。修正前は fit が成功するので RED。
+1. 本物の失敗した `minimize`（`{"options": {"maxiter": 1}}`、Platt と Beta）で `fit()` が `CALIBRATION_FAILED` を送出し、`context` に `calibrator` / `method` / `message` / `status` / `nit` を持つ。係数は設定されず、`predict()` は `CALIBRATION_NOT_FITTED`。成功した fit のあとに同じ校正器で失敗した refit も、`predict()` / `export_params()` を `CALIBRATION_NOT_FITTED` にする。修正前は fit が成功するので RED。
 2. `cross_fit_calibrate` で fold の失敗は `stage="cross_fit"` と `fold` を、C_final の失敗は `stage="c_final"` を持つ（fold の校正器だけを失敗させる factory と、C_final だけを失敗させる factory で確かめる）。修正前は RED。
 3. `Model.fit` で、`calibration.params` に `{"options": {"maxiter": 1}}` を付けた binary の Platt と Beta が `CALIBRATION_FAILED` を送出する。修正前は RED。
 4. 生成される `train.py` の Platt と Beta の校正器は、同じ設定で `RuntimeError` を送出する。修正前は RED。

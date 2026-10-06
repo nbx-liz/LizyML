@@ -81,6 +81,8 @@ class BetaCalibrator(BaseCalibratorAdapter):
             )
         from scipy.optimize import minimize
 
+        # A refit that fails must not leave an earlier fit usable (H-0113).
+        self._params = None
         s = _sigmoid(oof_scores)
         s = np.clip(s, 1e-10, 1 - 1e-10)
         y_f = y.astype(np.float64)
