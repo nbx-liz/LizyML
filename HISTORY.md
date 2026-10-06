@@ -10883,3 +10883,55 @@ H-0110 の畳み込みは、決定済みで実装済みの節を BLUEPRINT に�
 4. `IntDim(low=2)` の下端の拡張は `max(1, ...)` で `new_low == 1` になる（ガードのテストを保つ）。
 5. manifest の #279 行は `derived_from` を持ち `population` を持たない。そのスニペットは HEAD で `18` を出す。`test_claimed_spellings_are_found` は綴りが 18 未満になると落ちる。
 6. `tests/test_docs/test_history_ids.py` と `test_proposal_blueprint_coverage.py` が緑のまま（H-0111 の処分の行を含む）。
+
+## H-0112: 漏洩検査は、名指しされた列が無いときに「問題なし」と答えない（#311）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-06
+- **決定日**: 2026-10-06（管理者の判断: target 列が無いときは `DATA_SCHEMA_INVALID` を送出する。同じ形の `validate_time_series_order` の `time_col` も同じ PR で扱う）
+- **スコープ**: `lizyml/data/validators.py`（`validate_no_target_leakage` と `validate_time_series_order` の早期 `return []`）, `BLUEPRINT.md` §8.2, `docs/api.md`（漏洩検査の節と `DATA_SCHEMA_INVALID` の行）, `CHANGELOG.md`, テスト（`tests/test_data/test_validators_edge.py` の 2 件を決定に合わせて更新、`tests/test_data/test_leakage_validator_missing_column.py` を新規）, 計測器 `docs/audits/2026-09-defect-discovery/instruments/h0112_missing_column_plugin.py`
+- **関連**: [Issue #311](https://github.com/nbx-liz/LizyML/issues/311), H-0087（3 つの検査を公開 API にした）, H-0107（比較できない列を `DATA_SCHEMA_INVALID` にした。`raise_on_violation` によらず送出する前例）
+
+### 目的（課題）
+
+`lizyml.data.validate_no_target_leakage(df, target)` は、`target` が `df` の列に無いと最初の行で `return []` する。全列を比べて漏洩が無かったときと同じ `[]` なので、目的変数の名前を打ち間違えた呼び出しや、目的変数を含まない frame を渡した呼び出しは、何も比べていない検査から「問題なし」を受け取る（DC1）。H-0107 は比較できない列についてこれを塞ぎ、「target が frame にあるとき、戻り値が返るのは全列を比べたときだけ」を保証したが、target が無いときは #311 に残した。
+
+`validate_time_series_order(df, time_col)` も、`time_col` が列に無いと `return []` する。並びを何も調べていないのに、並んでいたときと同じ `[]` を返す。同じ形なので、管理者の判断で同じ提案で扱う。3 つ目の `validate_group_split(groups, train_idx, valid_idx)` は列名を取らないので対象外。
+
+### 対応方針（決定）
+
+1. **名指しされた列が `df` に無ければ `LizyMLError(DATA_SCHEMA_INVALID)` を送出する。** `validate_no_target_leakage` は `target`、`validate_time_series_order` は `time_col` について。`user_message` は列名と、検査が何も調べていないことを書く。`context` は `dataframe_builder` の列の欠落と同じ形 `{"missing_columns": [<name>], "available_columns": list(df.columns)}` に、役割のキー（`"target"` / `"time_col"`）を加える。
+2. **`raise_on_violation` によらず送出する。** `raise_on_violation=False` の戻り値は「漏洩の疑い」の警告のリストで、「検査できなかった」を同じリストに入れると、呼び出し側が文言を読み分けない限り 2 つが混ざる（H-0107 決定 1 と同じ理由）。
+3. **検査は列の有無を最初に確かめる。** 列が無ければ、どの列も比べず、並びも調べずに送出する。したがって、2 つの検査の戻り値（`[]` か警告のリスト）は「名指しされた列があり、検査を最後まで行った」ことを意味する。
+
+### 規則が縛る位置（ソースから導出）
+
+規則: **漏洩検査は、名指しされた列が無いことを「問題なし」として返さない。** 導出: `lizyml/data/validators.py` で `not in df.columns` と `return []` を grep した全件（`fe20bf6`）。`not in df.columns` は 2 か所で、どちらも直後に `return []` する。残りの `return []` は 2 つで、`validate_time_series_order` が並びを確かめたあと（`:48`）と、`validate_group_split` が重なりを確かめたあと（`:173`）の、検査を終えた正常な戻り値である。`lizyml/` の中にこの 2 つの検査を呼ぶ箇所は無い（`Model.fit` には配線しない、H-0087）。
+
+| # | 位置 | 本 PR |
+|---|---|---|
+| 1 | `data/validators.py` `validate_time_series_order` の `if time_col not in df.columns: return []` | 送出に置き換える |
+| 2 | `data/validators.py` `validate_no_target_leakage` の `if target not in df.columns: return []` | 送出に置き換える |
+
+### 互換性
+
+- **振る舞いの変化**: 名指しされた列の無い frame を渡すと、`[]` が返っていたところで `DATA_SCHEMA_INVALID` が送出される。`raise_on_violation=False` でも同じ。列がある呼び出しの振る舞いは変わらない。
+- **影響を受ける呼び出し（計測）**: フルスイートで 2 つの検査の呼び出しを数えた（`instruments/h0112_missing_column_plugin.py`、`fe20bf6`）。`validate_no_target_leakage` 46 回中 1 回、`validate_time_series_order` 5 回中 1 回で列が無く、その 2 回はどちらも今日の `[]` を固定しているテスト（`tests/test_data/test_validators_edge.py::test_leakage_missing_target` / `test_time_series_missing_col`）である。この 2 件は削除せず、決定に合わせて書き換える。
+- **Firing rate**: 本提案の条件（列が無ければ送出）は入力の検証であり、Change Gate の 6 つの目的（skip / shorten / cache / select / allow / conditionally-activate）のどれでもない。参考の計測は上のとおり 2/51。
+- `format_version` / Config / `Model` の公開 API は変わらない。2 つの関数のシグネチャも変わらない。
+
+### 代替案（検討して棄却）
+
+1. **`[]` を返したまま docstring と `docs/api.md` に書く。** 呼び出し側は戻り値だけでは「検査した」と「検査しなかった」を区別できず、文書を読まない呼び出しには DC1 が残る。
+2. **`raise_on_violation=False` のときは警告をリストに入れる。** H-0107 決定 1 と同じ理由で、「漏洩の疑い」と「検査できなかった」が 1 つのリストに混ざる。
+3. **`LEAKAGE_SUSPECTED` で送出する。** 列が無いのは漏洩の疑いではなく、入力の形の誤りである。他の列の欠落（`dataframe_builder`、`column_check`）と同じ `DATA_SCHEMA_INVALID` にそろえる。
+4. **`validate_no_target_leakage` だけを直す。** `validate_time_series_order` に同じ形が残る。管理者が両方を選んだ。
+
+### 受け入れ基準（テスト観点）
+
+1. `validate_no_target_leakage(df, "<無い列>")` は `raise_on_violation` が `True` でも `False` でも `DATA_SCHEMA_INVALID` を送出し、`context["target"]` と `context["missing_columns"] == [<名前>]`、`context["available_columns"] == list(df.columns)` を持つ。修正前は `[]` を返すので RED。
+2. `validate_time_series_order(df, "<無い列>")` も同じ（`context["time_col"]`）。修正前は RED。
+3. 大文字小文字だけが違う名前（`"Y"` と `"y"`）は無い列として扱う（打ち間違いの例。#311 の再現）。
+4. 列があるときの振る舞いは変わらない: 漏洩・並びの乱れがあれば今日と同じ `LEAKAGE_SUSPECTED` か警告、無ければ `[]`。
+5. `tests/test_data/test_validators_edge.py` の 2 件は削除せず、決定に合わせて送出を確かめる形に書き換える。
+6. `docs/api.md` の `ErrorCode` の表と漏洩検査の節、BLUEPRINT §8.2 が新しい振る舞いを書き、`tests/test_docs/` が緑のまま（H-0112 の処分の行を含む）。
