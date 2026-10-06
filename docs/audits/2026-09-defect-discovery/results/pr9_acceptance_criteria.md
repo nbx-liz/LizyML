@@ -82,7 +82,7 @@ Accept/reject matrix:
 
 | 入力 | 受理 | 拒否（失敗。読み飛ばさない） |
 |---|---|---|
-| HISTORY の entry | `## ` 見出し（fence の外）で、id を `## H-xxxx`（直後が `:` か行末）か `` - ID: `H-xxxx` `` のちょうど 1 つで宣言 | id が 0 / 2 個の entry、2 つの entry が宣言する id、`## H-0042-extra` のような接尾辞つきの見出し（0 id として失敗）（H-0101 の文法、`_history_grammar.py`） |
+| HISTORY の entry | `## ` 見出し（fence の外）で、id を `## H-xxxx`（直後が `:` か行末）か `` - ID: `H-xxxx` `` で宣言する。見出しと 1 行の `- ID:` が同じ id を名指す形は 1 つの宣言として受理する（実測: H-0054〜H-0060 の 7 件） | id が 0 / 2 個の entry、`- ID:` 行が 2 行以上の entry（同じ id でも。`grammar_violations`、設計レビュー round 2）、2 つの entry が宣言する id、`## H-0042-extra` のような接尾辞つきの見出し（0 id として失敗）（H-0101 の文法、`_history_grammar.py`） |
 | fence | 3 個以上の `` ` `` か `~` で開き（字下げは任意）、**同じ文字で同じ長さ以上**の行だけで閉じる | 閉じないまま終わるファイル（`fence_violations`）。`` ``` `` の中の `~~~` は閉じない（設計レビュー round 1） |
 | 処分ファイルの最上位 | `[proposals]` と `[names]` の 2 表だけ | それ以外の表、TOML として読めないファイル（`tomllib` の例外） |
 | `[proposals."H-xxxx"]` | `disposition` が 4 種のいずれかで、その種の必須 key がそろい、任意 key 以外が無い | 知らない disposition、必須 key の欠落、知らない key、空の文字列、表でない値 |
@@ -97,6 +97,6 @@ Domain closure: 処分の行の集合は HISTORY の id の集合と両方向で
 
 1. **anchor が決定を述べる行を指すか。** 計測器は語の存在しか読めない。`results/pr9_fold_map.md` が行を示し、レビューが読む。#271 の再監査 調整 2 と同じ、機械化できない 1 点。
 2. **処分のみ決めた 68 件の clause は監査していない。** 恒久検査は「すべての決定が書かれている」ではなく「すべての提案に内容で確かめられる処分がある」の検査である。
-3. **調査の判定そのもの**（`stated` の 111 件、`off_surface` の 48 件、`superseded` の 17 件）は再検査していない。正解 3 件の対照が 3/3 で、`stated` には行と引用がある。
+3. **調査の判定そのもの**（`stated` の 111 件、`off_surface` の 46 件、`superseded` の 17 件）は全数では再検査していない。正解 3 件の対照が 3/3 で、`stated` には行と引用がある。設計レビュー round 1 が 30 clause を抜き取って 29 件に同意し、残る 1 件（H-0002 の dataclass）と同じ形の H-0082 の 1 件を `off_surface` から `missed` に直した（`results/pr9_measurements.txt` item 7）。
 4. **畳み込んだ後に BLUEPRINT の文が消えても、anchor の語が別の場所に残れば検査は通る。** 恒久検査が守るのは語の存在であって文ではない。
 5. **本 PR で直さず Issue にするもの**: BLUEPRINT か提案が書いていてコードがしない 6 件（H-0110「本 PR で直さず Issue にするもの」）、HISTORY の Status 行のずれ 5 件以上、H-0080 の entry に入った無関係な節。

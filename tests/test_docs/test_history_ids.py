@@ -19,7 +19,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from tests.test_docs._history_grammar import (
-    fence_violations,
+    grammar_violations,
     id_violations,
     parse_entries,
 )
@@ -33,7 +33,7 @@ def test_history_ids_are_unique_and_one_per_entry() -> None:
     # Vacuity guard: the file has over a hundred entries; a parser that found
     # none would report no violations.
     assert len(entries) >= 100, f"only {len(entries)} entries parsed"
-    problems = fence_violations(text) + id_violations(entries)
+    problems = grammar_violations(text) + id_violations(entries)
     assert not problems, "\n".join(problems)
 
 
@@ -84,6 +84,24 @@ def test_a_heading_id_with_a_suffix_is_not_an_id() -> None:
 
 
 def test_an_unclosed_fence_is_reported() -> None:
-    assert fence_violations("## H-0001: a\n\n```\nnever closed\n") == [
+    assert grammar_violations("## H-0001: a\n\n```\nnever closed\n") == [
         "fence opened at line 3 is never closed"
     ]
+
+
+def test_a_heading_and_one_id_line_may_name_the_same_id() -> None:
+    # The measured spelling of H-0054 .. H-0060: both, naming one id.
+    text = "## H-0055: a\n\n- ID: `H-0055`\n"
+    assert grammar_violations(text) == []
+    assert id_violations(parse_entries(text)) == []
+
+
+def test_a_repeated_id_line_is_reported() -> None:
+    # H-0110 design review round 2: a set of ids collapsed the repeat silently.
+    text = "## 2026-01-01: a\n\n- ID: `H-0001`\n- ID: `H-0001`\n"
+    assert grammar_violations(text) == ["'## 2026-01-01: a' has 2 '- ID:' lines"]
+
+
+def test_an_id_line_inside_a_fence_is_not_counted() -> None:
+    text = "## H-0001: a\n\n- ID: `H-0001`\n\n```\n- ID: `H-0001`\n```\n"
+    assert grammar_violations(text) == []

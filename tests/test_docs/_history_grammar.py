@@ -12,7 +12,7 @@ more backticks or tildes at any indentation (HISTORY.md indents fences 0, 3 and 
 spaces inside list items), and closes only on a line of the **same** character,
 at least as long, with nothing after it. A ``~~~`` inside a backtick fence does
 not close it. A fence still open at the end of the file is reported by
-``fence_violations``, because it would silently swallow every entry after it
+``grammar_violations``, because it would silently swallow every entry after it
 (design review round 1 of H-0110 executed both failures).
 
 One grammar, one module: ``test_history_ids.py`` checks the register's ids and
@@ -36,12 +36,16 @@ def _fence_close(line: str, opener: str) -> bool:
     return len(stripped) >= len(opener) and set(stripped) == {opener[0]}
 
 
-def _scan(text: str) -> tuple[list[tuple[str, set[str], list[str]]], int | None]:
-    """``(entries, line number of a fence left open or None)``.
+def _scan(
+    text: str,
+) -> tuple[list[tuple[str, set[str], list[str]]], int | None, list[int]]:
+    """``(entries, line of a fence left open or None, '- ID:' lines per entry)``.
 
-    Each entry is ``(heading, declared ids, lines)``.
+    Each entry is ``(heading, declared ids, lines)``; ``lines`` includes fenced
+    lines, the per-entry ``- ID:`` count does not.
     """
     entries: list[tuple[str, set[str], list[str]]] = []
+    metas: list[int] = []
     opener: str | None = None
     opened_at: int | None = None
     for number, line in enumerate(text.splitlines(), start=1):
@@ -59,6 +63,7 @@ def _scan(text: str) -> tuple[list[tuple[str, set[str], list[str]]], int | None]
             continue
         if line.startswith("## "):
             entries.append((line, set(), [line]))
+            metas.append(0)
             match = _HEADING_ID.match(line)
             if match:
                 entries[-1][1].add(match.group(1))
@@ -69,7 +74,8 @@ def _scan(text: str) -> tuple[list[tuple[str, set[str], list[str]]], int | None]
         match = _META_ID.match(line)
         if match:
             entries[-1][1].add(match.group(1))
-    return entries, opened_at
+            metas[-1] += 1
+    return entries, opened_at, metas
 
 
 def parse_entries(text: str) -> list[tuple[str, set[str]]]:
@@ -90,12 +96,22 @@ def entry_texts(text: str) -> dict[str, str]:
     }
 
 
-def fence_violations(text: str) -> list[str]:
-    """A fence left open at the end of the file, by the line that opened it."""
-    opened_at = _scan(text)[1]
-    if opened_at is None:
-        return []
-    return [f"fence opened at line {opened_at} is never closed"]
+def grammar_violations(text: str) -> list[str]:
+    """A fence left open at the end of the file, and a repeated ``- ID:`` line.
+
+    The heading and one metadata line may name the same id: that is a measured
+    spelling (H-0054 .. H-0060 carry both). Two metadata lines in one entry are
+    not, even when they name the same id -- a set of ids would collapse them
+    silently (H-0110 design review round 2).
+    """
+    entries, opened_at, metas = _scan(text)
+    problems = []
+    if opened_at is not None:
+        problems.append(f"fence opened at line {opened_at} is never closed")
+    for (heading, _, _), count in zip(entries, metas, strict=True):
+        if count > 1:
+            problems.append(f"{heading!r} has {count} '- ID:' lines")
+    return problems
 
 
 def id_violations(entries: list[tuple[str, set[str]]]) -> list[str]:

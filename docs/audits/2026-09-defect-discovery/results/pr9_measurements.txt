@@ -69,3 +69,13 @@ PR 9 (#271, H-0110) measurements — base develop 13fb9d7 (PR 8c = #317), 2026-1
      HISTORY.md the new grammar returns entries and entry texts identical to the
      old one (111 entries, compared with the 0655e05 module).
    - [names] is now closed: rows must equal #271's six names in both directions.
+
+8. Design review round 2 (results/pr9_design_review_round2.md) corrections
+   - A repeated '- ID:' line naming the same id collapsed into one (set semantics).
+     The heading plus one '- ID:' line naming the same id is a measured spelling
+     (7 entries: H-0054..H-0060) and stays accepted; two or more '- ID:' lines in
+     one entry are now a grammar violation. Measured on HISTORY.md: 0 entries with
+     two '- ID:' lines, so no real entry changes verdict. fence_violations is renamed
+     grammar_violations (both rules).
+   - Text: criteria section 5 item 3 now says off_surface 46 and records the round 1
+     sample; H-0110's issue list no longer contradicts the H-0005 cal_fold fold.

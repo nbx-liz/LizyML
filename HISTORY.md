@@ -10816,6 +10816,6 @@ Firing rate: 4/110 of HISTORY proposals at 13fb9d7 carry an exempt disposition (
 
 ### 本 PR で直さず Issue にするもの
 
-- BLUEPRINT か提案が書いていてコードがしないもの（`not_in_force` の 6 件のうち、決定 4 で扱う multiclass の `proba` を除く 5 件）: `embargo_pct` の `int()` 変換（コードは端数を拒否、#210）、plot を `{output_dir}/{run_id}/` に保存（コードは `run.log` だけ書く）、`migrations/v1_to_v2.py` の追加（load 時の自動 migration の半分は H-0070 で有効）、Metric の `supports_task` 属性（BLUEPRINT は Metric IF の属性として挙げるがコードに無い）、`METRIC_NOT_FOUND`（その ErrorCode は無く、実際は `UNSUPPORTED_METRIC`）。なお `evaluate_table()` の `cal_fold_*` 列は BLUEPRINT にだけあり、H-0005 は `cal_oof` 列だけを決め、コードもそうしているので、これは畳み込みとして BLUEPRINT を直す。どちらが正しいかは判断なので、BLUEPRINT は直さない。
+- BLUEPRINT か提案が書いていてコードがしないもの（`not_in_force` の 6 件のうち、決定 4 で扱う multiclass の `proba` を除く 5 件）: `embargo_pct` の `int()` 変換（コードは端数を拒否、#210）、plot を `{output_dir}/{run_id}/` に保存（コードは `run.log` だけ書く）、`migrations/v1_to_v2.py` の追加（load 時の自動 migration の半分は H-0070 で有効）、Metric の `supports_task` 属性（BLUEPRINT は Metric IF の属性として挙げるがコードに無い）、`METRIC_NOT_FOUND`（その ErrorCode は無く、実際は `UNSUPPORTED_METRIC`）。この 5 件は、どちらが正しいかが判断なので、BLUEPRINT は直さない。これとは別に、`evaluate_table()` の `cal_fold_*` 列は BLUEPRINT にだけあり、H-0005 は `cal_oof` 列だけを決め、コードもそうしているので、この 1 件は Issue にせず、畳み込みとして BLUEPRINT を直す。
 - HISTORY の Status 行が実態とずれている 5 件（H-0009〜H-0012、H-0056）。
 - H-0080 の entry の中に、seed と関係の無いパラメーター名の経路の節（HISTORY 6664〜6681 行）が入っている。

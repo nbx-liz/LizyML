@@ -50,7 +50,7 @@ import pytest
 
 from tests.test_docs._history_grammar import (
     entry_texts,
-    fence_violations,
+    grammar_violations,
     id_violations,
     parse_entries,
 )
@@ -203,7 +203,7 @@ def coverage_problems(history_ids: set[str], rows: dict[str, Any]) -> list[str]:
 def _register() -> tuple[frozenset[str], dict[str, str]]:
     text = HISTORY.read_text(encoding="utf-8")
     entries = parse_entries(text)
-    problems = fence_violations(text) + id_violations(entries)
+    problems = grammar_violations(text) + id_violations(entries)
     assert not problems, "\n".join(problems)
     return frozenset(i for _, ids in entries for i in ids), entry_texts(text)
 
