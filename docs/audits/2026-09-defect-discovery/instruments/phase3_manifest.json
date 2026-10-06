@@ -198,8 +198,8 @@
         "tests/test_docs/test_declared_versions.py"
       ],
       "population_test": "tests/test_docs/test_declared_versions.py::test_declared_version_matches_code",
-      "population": 7,
       "population_name": "version declarations found by scanning the documents",
+      "derived_from": "from tests.test_docs.test_declared_versions import SITES\nprint(len(SITES))",
       "closure_comment": 5922951570
     },
     "267": {
@@ -263,7 +263,9 @@
     },
     "271": {
       "plan_pr": "9",
-      "github_prs": [],
+      "github_prs": [
+        320
+      ],
       "disposition": "regression",
       "tests": [
         "tests/test_docs/test_proposal_blueprint_coverage.py"
@@ -278,7 +280,8 @@
         "new": "そのバイト列を復元する",
         "fix_text": "`joblib.load(io.BytesIO(...))`",
         "why": "The defect (#271): H-0083's checksum verification was decided and implemented and BLUEPRINT did not state it. Removing the folded verification text puts that back for one anchor of H-0083, and test_proposal_disposition_holds[H-0083] fails. The row's tests cannot show RED in a before tree: the before tree has no docs/proposal_dispositions.toml (a .toml file is never staged), so the test would fail for a missing file, not for the defect."
-      }
+      },
+      "closure_comment": 6010100067
     },
     "272": {
       "plan_pr": "6",
