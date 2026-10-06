@@ -17,8 +17,14 @@ def _require_column(
     Returning ``[]`` here would answer like a check that ran and found nothing
     (#311, H-0112), so the absence is reported whatever ``raise_on_violation``
     is. ``context`` follows ``dataframe_builder``'s missing-column shape.
+
+    Membership is tested against complete labels: on ``MultiIndex`` columns
+    ``"a" in df.columns`` is true for a partial key, which would let a check
+    run on a sub-frame (or answer ``[]``) for a column that does not exist.
     """
-    if name in df.columns:
+    # pandas-stubs types ``df.columns`` as ``Index[str]`` without
+    # ``to_flat_index``; at runtime every Index has it (identity unless Multi).
+    if name in df.columns.to_flat_index():  # type: ignore[attr-defined]
         return
     raise LizyMLError(
         ErrorCode.DATA_SCHEMA_INVALID,

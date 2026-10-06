@@ -10902,7 +10902,7 @@ H-0110 の畳み込みは、決定済みで実装済みの節を BLUEPRINT に�
 
 1. **名指しされた列が `df` に無ければ `LizyMLError(DATA_SCHEMA_INVALID)` を送出する。** `validate_no_target_leakage` は `target`、`validate_time_series_order` は `time_col` について。`user_message` は列名と、検査が何も調べていないことを書く。`context` は `dataframe_builder` の列の欠落と同じ形 `{"missing_columns": [<name>], "available_columns": list(df.columns)}` に、役割のキー（`"target"` / `"time_col"`）を加える。
 2. **`raise_on_violation` によらず送出する。** `raise_on_violation=False` の戻り値は「漏洩の疑い」の警告のリストで、「検査できなかった」を同じリストに入れると、呼び出し側が文言を読み分けない限り 2 つが混ざる（H-0107 決定 1 と同じ理由）。
-3. **検査は列の有無を最初に確かめる。** 列が無ければ、どの列も比べず、並びも調べずに送出する。したがって、2 つの検査の戻り値（`[]` か警告のリスト）は「名指しされた列があり、検査を最後まで行った」ことを意味する。
+3. **検査は列の有無を最初に、完全なラベルで確かめる。** 列が無ければ、どの列も比べず、並びも調べずに送出する。有無は `df.columns.to_flat_index()` に対して調べる: `MultiIndex` の列では `"a" in df.columns` が部分キーで真になり、存在しない列について部分 frame を検査して `[]` を返していた（コードレビュー round 1 が実行で示した）。したがって、2 つの検査の戻り値（`[]` か警告のリスト）は「名指しされた列があり、検査を最後まで行った」ことを意味する。
 
 ### 規則が縛る位置（ソースから導出）
 
@@ -10931,7 +10931,7 @@ H-0110 の畳み込みは、決定済みで実装済みの節を BLUEPRINT に�
 
 1. `validate_no_target_leakage(df, "<無い列>")` は `raise_on_violation` が `True` でも `False` でも `DATA_SCHEMA_INVALID` を送出し、`context["target"]` と `context["missing_columns"] == [<名前>]`、`context["available_columns"] == list(df.columns)` を持つ。修正前は `[]` を返すので RED。
 2. `validate_time_series_order(df, "<無い列>")` も同じ（`context["time_col"]`）。修正前は RED。
-3. 大文字小文字だけが違う名前（`"Y"` と `"y"`）は無い列として扱う（打ち間違いの例。#311 の再現）。
+3. 大文字小文字だけが違う名前（`"Y"` と `"y"`）は無い列として扱う（打ち間違いの例。#311 の再現）。`MultiIndex` の列で部分キー（`"a"`）は無い列として扱い、完全なラベル（`("a", "x")`）は今日と同じく検査する。
 4. 列があるときの振る舞いは変わらない: 漏洩・並びの乱れがあれば今日と同じ `LEAKAGE_SUSPECTED` か警告、無ければ `[]`。
 5. `tests/test_data/test_validators_edge.py` の 2 件は削除せず、決定に合わせて送出を確かめる形に書き換える。
 6. `docs/api.md` の `ErrorCode` の表と漏洩検査の節、BLUEPRINT §8.2 が新しい振る舞いを書き、`tests/test_docs/` が緑のまま（H-0112 の処分の行を含む）。

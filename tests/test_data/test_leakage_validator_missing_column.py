@@ -8,6 +8,8 @@ got a "clean" result from a check that compared nothing.
 
 from __future__ import annotations
 
+from typing import Any
+
 import pandas as pd
 import pytest
 
@@ -44,6 +46,40 @@ def test_missing_time_col_raises(time_col: str, raise_on_violation: bool) -> Non
     assert exc.value.context["missing_columns"] == [time_col]
     assert exc.value.context["available_columns"] == ["t", "x"]
     assert time_col in exc.value.user_message
+
+
+_MULTI = pd.DataFrame(
+    [[1, 1], [2, 2], [3, 3]],
+    columns=pd.MultiIndex.from_tuples([("a", "x"), ("b", "y")]),
+)
+
+
+@pytest.mark.parametrize("raise_on_violation", [True, False])
+@pytest.mark.parametrize(
+    "validator, role",
+    [
+        (validate_no_target_leakage, "target"),
+        (validate_time_series_order, "time_col"),
+    ],
+    ids=["leakage", "time_order"],
+)
+def test_partial_multiindex_key_is_missing(
+    validator: Any, role: str, raise_on_violation: bool
+) -> None:
+    """``"a" in df.columns`` is true for a partial MultiIndex key (review r1)."""
+    with pytest.raises(LizyMLError) as exc:
+        validator(_MULTI, "a", raise_on_violation=raise_on_violation)
+    assert exc.value.code == ErrorCode.DATA_SCHEMA_INVALID
+    assert exc.value.context[role] == "a"
+    assert exc.value.context["missing_columns"] == ["a"]
+    assert exc.value.context["available_columns"] == [("a", "x"), ("b", "y")]
+
+
+def test_complete_multiindex_label_is_present() -> None:
+    with pytest.raises(LizyMLError) as exc:
+        validate_no_target_leakage(_MULTI, ("a", "x"))
+    assert exc.value.code == ErrorCode.LEAKAGE_SUSPECTED
+    assert validate_time_series_order(_MULTI, ("a", "x")) == []
 
 
 def test_present_target_behaviour_unchanged() -> None:
