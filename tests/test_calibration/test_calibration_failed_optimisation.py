@@ -78,6 +78,37 @@ def test_failed_refit_does_not_keep_the_earlier_fit(name: str) -> None:
 
 
 @pytest.mark.parametrize("name", sorted(_CALIBRATORS))
+def test_refit_failing_before_minimize_does_not_keep_the_earlier_fit(
+    name: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A refit that fails before ``minimize`` (scipy missing) also clears the fit.
+
+    Review round 2: the reset ran after the scipy import / check, so a refit
+    that failed there left the earlier coefficients usable.
+    """
+    import sys
+
+    from lizyml.calibration import beta as beta_module
+
+    s, y = _scores()
+    calibrator = _CALIBRATORS[name]().fit(s, y)
+    calibrator.export_params()  # the first fit succeeded
+    if name == "platt":
+        monkeypatch.setitem(sys.modules, "scipy.optimize", None)
+        expected: type[BaseException] = ImportError
+    else:
+        monkeypatch.setattr(beta_module, "_scipy", None)
+        expected = LizyMLError
+    with pytest.raises(expected):
+        calibrator.fit(s, y)
+    monkeypatch.undo()
+    for call in (lambda: calibrator.predict(s), calibrator.export_params):
+        with pytest.raises(LizyMLError) as not_fitted:
+            call()
+        assert not_fitted.value.code == ErrorCode.CALIBRATION_NOT_FITTED
+
+
+@pytest.mark.parametrize("name", sorted(_CALIBRATORS))
 def test_default_settings_still_fit(name: str) -> None:
     s, y = _scores()
     probs = _CALIBRATORS[name]().fit(s, y).predict(s)

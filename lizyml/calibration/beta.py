@@ -70,6 +70,9 @@ class BetaCalibrator(BaseCalibratorAdapter):
     def fit(
         self, oof_scores: npt.NDArray[np.float64], y: npt.NDArray[Any]
     ) -> BetaCalibrator:
+        # A refit that fails -- for any reason, including a missing scipy --
+        # must not leave an earlier fit usable (H-0113). First statement.
+        self._params = None
         if _scipy is None:
             raise LizyMLError(
                 code=ErrorCode.OPTIONAL_DEP_MISSING,
@@ -81,8 +84,6 @@ class BetaCalibrator(BaseCalibratorAdapter):
             )
         from scipy.optimize import minimize
 
-        # A refit that fails must not leave an earlier fit usable (H-0113).
-        self._params = None
         s = _sigmoid(oof_scores)
         s = np.clip(s, 1e-10, 1 - 1e-10)
         y_f = y.astype(np.float64)

@@ -83,10 +83,11 @@ class PlattCalibrator(BaseCalibratorAdapter):
     def fit(
         self, oof_scores: npt.NDArray[np.float64], y: npt.NDArray[Any]
     ) -> PlattCalibrator:
+        # A refit that fails -- for any reason, including a missing scipy --
+        # must not leave an earlier fit usable (H-0113). First statement.
+        self._coef = None
         from scipy.optimize import minimize
 
-        # A refit that fails must not leave an earlier fit usable (H-0113).
-        self._coef = None
         scores = np.asarray(oof_scores, dtype=np.float64).ravel()
         positive = np.asarray(y, dtype=np.float64).ravel() > 0
         n_pos = float(positive.sum())
