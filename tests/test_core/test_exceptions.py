@@ -67,6 +67,7 @@ class TestLizyMLError:
             "EVALUATION_FAILED",
             "CALIBRATION_NOT_SUPPORTED",
             "CALIBRATION_NOT_FITTED",
+            "CALIBRATION_FAILED",
             "SERIALIZATION_FAILED",
             "DESERIALIZATION_FAILED",
             "TARGET_NOT_NUMERIC",

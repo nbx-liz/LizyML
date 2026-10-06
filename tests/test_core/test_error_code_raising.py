@@ -148,6 +148,14 @@ CONDITIONS: dict[ErrorCode, tuple[Callable[[Path], object], set[str]]] = {
         lambda p: PlattCalibrator().predict(np.array([0.1, 0.9])),
         {"calibrator"},
     ),
+    ErrorCode.CALIBRATION_FAILED: (
+        # maxiter=1 stops L-BFGS-B with success=False (H-0113).
+        lambda p: PlattCalibrator({"options": {"maxiter": 1}}).fit(
+            np.random.default_rng(0).normal(0.0, 2.0, 200),
+            (np.random.default_rng(1).random(200) < 0.4).astype(float),
+        ),
+        {"calibrator", "method", "message", "status", "nit"},
+    ),
     ErrorCode.SERIALIZATION_FAILED: (lambda p: _fitted().export(), set()),
     ErrorCode.DESERIALIZATION_FAILED: (lambda p: Model.load(p / "missing"), {"path"}),
     ErrorCode.TARGET_NOT_NUMERIC: (
