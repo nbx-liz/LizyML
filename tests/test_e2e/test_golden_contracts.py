@@ -37,6 +37,7 @@ class TestFitResultContract:
             "run_meta",
             "oof_raw_scores",
             "target_encoder",
+            "pipeline_state_per_fold",
         }
         actual = {f.name for f in dataclasses.fields(FitResult)}
         assert required == actual

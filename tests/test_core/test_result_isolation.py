@@ -73,6 +73,18 @@ def test_fit_result_shares_trained_estimators_by_reference(
     assert returned.models[0] is internal.models[0]
     assert returned.calibrator is internal.calibrator
     assert returned.pipeline_state is internal.pipeline_state
+    # H-0114: the per-fold states are shared; only the list is new.
+    assert returned.pipeline_state_per_fold is not None
+    assert internal.pipeline_state_per_fold is not None
+    assert returned.pipeline_state_per_fold is not internal.pipeline_state_per_fold
+    assert all(
+        a is b
+        for a, b in zip(
+            returned.pipeline_state_per_fold,
+            internal.pipeline_state_per_fold,
+            strict=True,
+        )
+    )
     # Mutable data is copied, not shared.
     assert returned.metrics is not internal.metrics
 
