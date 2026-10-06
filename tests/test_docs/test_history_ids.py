@@ -10,59 +10,17 @@ heading (``## ``) outside fenced code. It declares its id in exactly one of two
 measured spellings: the heading itself (``## H-0093: ...``) or a metadata line
 (``- ID: `H-0102` ...``). An entry with no id, or with two different ids, is a
 failure reported by name -- never skipped -- so a third spelling cannot widen
-the population silently.
+the population silently. The grammar lives in ``_history_grammar.py``, shared
+with the BLUEPRINT coverage check (H-0110).
 """
 
 from __future__ import annotations
 
-import re
-from collections import defaultdict
 from pathlib import Path
 
+from tests.test_docs._history_grammar import id_violations, parse_entries
+
 HISTORY = Path(__file__).resolve().parents[2] / "HISTORY.md"
-
-_FENCE = re.compile(r"^(```|~~~)")
-_HEADING_ID = re.compile(r"^## (H-\d{4})\b")
-_META_ID = re.compile(r"^- ID: `(H-\d{4})`")
-
-
-def parse_entries(text: str) -> list[tuple[str, set[str]]]:
-    """Return ``(heading, declared ids)`` for every level-2 entry."""
-    entries: list[tuple[str, set[str]]] = []
-    in_fence = False
-    for line in text.splitlines():
-        if _FENCE.match(line):
-            in_fence = not in_fence
-            continue
-        if in_fence:
-            continue
-        if line.startswith("## "):
-            entries.append((line, set()))
-            match = _HEADING_ID.match(line)
-            if match:
-                entries[-1][1].add(match.group(1))
-            continue
-        match = _META_ID.match(line)
-        if match and entries:
-            entries[-1][1].add(match.group(1))
-    return entries
-
-
-def id_violations(entries: list[tuple[str, set[str]]]) -> list[str]:
-    """Entries without exactly one id, and ids declared by more than one entry."""
-    problems: list[str] = []
-    owners: dict[str, list[str]] = defaultdict(list)
-    for heading, ids in entries:
-        if len(ids) != 1:
-            problems.append(f"{heading!r} declares {len(ids)} ids: {sorted(ids)}")
-        for proposal_id in ids:
-            owners[proposal_id].append(heading)
-    for proposal_id, headings in sorted(owners.items()):
-        if len(headings) > 1:
-            problems.append(
-                f"{proposal_id} is declared by {len(headings)} entries: {headings}"
-            )
-    return problems
 
 
 def test_history_ids_are_unique_and_one_per_entry() -> None:
