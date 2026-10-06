@@ -74,7 +74,7 @@
 | A7 | `[names]` の行 = #271 の 6 名（両方向）で、6 名すべてが成り立つ | `test_public_name_dispositions_hold` |
 | A8 | HISTORY の id の検査は文法の移設の前後で同じ結果 | `test_history_ids.py` 5 passed（移設の前後） |
 | A9 | phase3 manifest の #271 行: `population_test` が 111 件を集め（`derived_from` で HISTORY から導出）、`red_mutation` が H-0083 の checksum の記述を消して失敗する | `instruments/phase3_gap.py`（PR 9b で `closure_comment` を埋めて exit 0） |
-| A10 | 本 PR で直さないもの（§5）を Issue にする | Issue 番号を PR 本文に書く |
+| A10 | 本 PR で直さないもの（§5）を Issue にする | #318（コードがしない 6 件）、#319（HISTORY の記録のずれ） |
 
 ## 4. 受理/拒否の表（Accept/reject matrix）と領域の閉じ方（Domain closure）
 

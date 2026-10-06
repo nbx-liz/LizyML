@@ -10744,8 +10744,9 @@ gain の許容差は観測からではなく形式から決める。split の ga
 
 ## H-0110: 決定済みの提案を BLUEPRINT に畳み込み、全提案の処分を内容で検査する（#271 / PR 9）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-06
+- **決定日**: 2026-10-06（事実確認を含む外部レビュー: 設計レビュー 3 ラウンド（blocking 5 → 3 → 1。round 1 は HISTORY の fence の文法、`[names]` の母集団、決定 4 の受け入れ基準、dataclass の 2 clause、RED の件数。round 2 は同じ id の `- ID:` 行の重複と文書の 2 点。round 3 は形の崩れた `- ID:` 行）で予算を使い切り、最後の修正だけの狭い事実確認が APPROVE。round 2 の前に absolute monitor、round 3 の前に relational monitor（いずれも continue）。記録は `results/pr9_design_review_round{1,2,3}.md`、`pr9_design_monitor_round{2,3}.md`、`pr9_design_fixcheck.md`）
 - **スコープ**: `BLUEPRINT.md`（§4〜§19 の 32 節）, `docs/proposal_dispositions.toml`（新規）, `tests/test_docs/test_proposal_blueprint_coverage.py`（新規）, `tests/test_docs/_history_grammar.py`（新規。`test_history_ids.py` の文法を移す）, `tests/test_docs/test_history_ids.py`（import のみ）, `docs/audits/2026-09-defect-discovery/`（計測器・結果・計画・manifest）
 - **関連**: [Issue #271](https://github.com/nbx-liz/LizyML/issues/271)（本文と 2026-09-06 のコメント）, 計画 §4 PR 9（Revision 5）, H-0101（HISTORY の id の文法）, H-0083（代表例）
 - **実測の記録**: `docs/audits/2026-09-defect-discovery/results/pr9_census_13fb9d7.txt`, `results/pr9_clause_inventory.md`（`results/pr9_inventory_{A,B}.json` から生成）, `results/pr9_dispositions_C.json`
@@ -10816,6 +10817,5 @@ Firing rate: 4/110 of HISTORY proposals at 13fb9d7 carry an exempt disposition (
 
 ### 本 PR で直さず Issue にするもの
 
-- BLUEPRINT か提案が書いていてコードがしないもの（`not_in_force` の 6 件のうち、決定 4 で扱う multiclass の `proba` を除く 5 件）: `embargo_pct` の `int()` 変換（コードは端数を拒否、#210）、plot を `{output_dir}/{run_id}/` に保存（コードは `run.log` だけ書く）、`migrations/v1_to_v2.py` の追加（load 時の自動 migration の半分は H-0070 で有効）、Metric の `supports_task` 属性（BLUEPRINT は Metric IF の属性として挙げるがコードに無い）、`METRIC_NOT_FOUND`（その ErrorCode は無く、実際は `UNSUPPORTED_METRIC`）。この 5 件は、どちらが正しいかが判断なので、BLUEPRINT は直さない。これとは別に、`evaluate_table()` の `cal_fold_*` 列は BLUEPRINT にだけあり、H-0005 は `cal_oof` 列だけを決め、コードもそうしているので、この 1 件は Issue にせず、畳み込みとして BLUEPRINT を直す。
-- HISTORY の Status 行が実態とずれている 5 件（H-0009〜H-0012、H-0056）。
-- H-0080 の entry の中に、seed と関係の無いパラメーター名の経路の節（HISTORY 6664〜6681 行）が入っている。
+- **[#318](https://github.com/nbx-liz/LizyML/issues/318)**: BLUEPRINT か提案が書いていてコードがしないもの（`not_in_force` の 6 件のうち、決定 4 で扱う multiclass の `proba` を除く 5 件と、畳み込みの作業で見つかった H-0078 の 1 件: 両側が境界に当たったときに `expanded=False` を再判定するという約束を `detect_boundary` が守らない）: `embargo_pct` の `int()` 変換（コードは端数を拒否、#210）、plot を `{output_dir}/{run_id}/` に保存（コードは `run.log` だけ書く）、`migrations/v1_to_v2.py` の追加（load 時の自動 migration の半分は H-0070 で有効）、Metric の `supports_task` 属性（BLUEPRINT は Metric IF の属性として挙げるがコードに無い）、`METRIC_NOT_FOUND`（その ErrorCode は無く、実際は `UNSUPPORTED_METRIC`）。この 5 件は、どちらが正しいかが判断なので、BLUEPRINT は直さない。これとは別に、`evaluate_table()` の `cal_fold_*` 列は BLUEPRINT にだけあり、H-0005 は `cal_oof` 列だけを決め、コードもそうしているので、この 1 件は Issue にせず、畳み込みとして BLUEPRINT を直す。
+- **[#319](https://github.com/nbx-liz/LizyML/issues/319)**: HISTORY の Status 行が実態とずれている 7 件（H-0009〜H-0012、H-0056、H-0097、H-0098）、コードが送出しないエラー名を書く 2 件（H-0057 の `ValueError`、H-0009 の `INVALID_CONFIG`。BLUEPRINT にはコードどおり `EVALUATION_FAILED` / `CONFIG_INVALID` を書いた）、H-0080 の entry の中にある、seed と関係の無いパラメーター名の経路の節（HISTORY 6664〜6681 行）。

@@ -79,3 +79,17 @@ PR 9 (#271, H-0110) measurements — base develop 13fb9d7 (PR 8c = #317), 2026-1
      grammar_violations (both rules).
    - Text: criteria section 5 item 3 now says off_surface 46 and records the round 1
      sample; H-0110's issue list no longer contradicts the H-0005 cal_fold fold.
+
+9. The fold (commits 32cbd2a, 0e37052, 128dcb9; dispositions f48e412)
+   - results/pr9_fold_map.md: 141 rows = folded 124 / already_stated 16 (section 15,
+     written by the main context) / not_folded 1 (H-0078 item 4b, not in force -> #318).
+     instruments/pr9_fold_map_check.py: every quote is a verbatim substring of
+     BLUEPRINT.md (exit 0); the inventory has 127 owed clauses.
+   - instruments/pr9_discriminating_anchors.py --base 13fb9d7: 46/46 owing entries carry
+     an anchor absent at 13fb9d7 and present now (exit 0).
+   - tests/test_docs: 303 passed (the coverage check, the id grammar, the gap tool).
+   - Phase 3 manifest row #271: derived_from prints 111; the red_mutation (remove
+     `joblib.load(io.BytesIO(...))` from the section 15.2 verification text) fails
+     exactly test_proposal_disposition_holds[H-0083] (1 failed, 143 passed), and the
+     restored file is byte-identical.
+   - Issues filed for what the fold does not write: #318, #319.
