@@ -694,6 +694,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `training.early_stopping.inner_valid` を明示指定した場合は、その method / ratio / random_state をそのまま使う。外側 `split.method` は参照しない。ただし、shuffle を伴う `method: holdout` を time-ordered な outer split（`time_series` / `purged_time_series`）と組み合わせた場合は、early stopping split が時間順を守らず temporally leak し得るため `UserWarning` を発する（挙動は変えず明示指定を尊重する。H-0085 / #210）。
 - `training.early_stopping.validation_ratio` は legacy 入力ショートハンドであり、method 指定ではない。`inner_valid` を明示指定していない場合、ratio は `validation_ratio` から取り、method は外側 `split.method` から自動解決する。H-0069 以降、`validation_ratio` は `inner_valid.ratio` から派生する read-only の computed field。出力 (`model_dump()`) には常に同値の `validation_ratio` が含まれる。
 - `validation_ratio` と `inner_valid` を同時に明示指定した場合、ratio が一致しなければ `CONFIG_INVALID`、一致すれば許容する（round-trip 互換）。一致しない場合の検知は維持される。
+- `inner_valid` を明示したかどうかは dump / reload と export → load → fit を越えて保たれる（H-0086）。`LizyMLConfig.model_dump()` は computed field の `inner_valid_explicit` を書き、検証はこのキーを（`validation_ratio` と同じく）取り除いて、明示性の正とする。キーが無い入力では上記の推定（`inner_valid` があり `validation_ratio` が無ければ明示）に戻る。設定できるフィールドは増やさない。明示した time / group の inner valid が再読込で自動解決に化けないための規則である。
 - 自動解決時に inner valid が継承する outer CV 設定は `split.method` と、look-ahead 防止のための境界 gap である。すなわち `purged_time_series` では `purge_gap + embargo`、`time_series` では `gap` を inner valid（`TimeHoldoutInnerValid`）の inner-train と inner-valid の間に purge する（H-0085 / #212）。`n_splits` / `shuffle` / `random_state` / `train_size_max` / `test_size_max` は inner valid に伝搬しない。
 - 自動解決時の seed は `training.seed` を使う。outer split の `random_state` は inner valid に伝搬しない。
 
@@ -778,6 +779,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `calibration.n_splits` は **deprecated**（指定時 `UserWarning` を出力し、値は無視する）。
 - calibration の入力は `(oof_scores, y)` のみで X は使わない（§12.1）。outer splits を再利用しても同一行リークは発生しない（各行の OOF score はその行を含まないモデルが生成したものであり、cross-fit 構造がさらにリークを防ぐ）。
 - これにより calibrated OOF の coverage は raw OOF の coverage と構造的に一致する。
+- validation 行のスコアに NaN が混じる fold では、有限の行だけを校正し、NaN の行には fallback（未校正の OOF 確率）を書く。validation 行がすべて NaN の fold では全行に fallback を書く（`calibration/cross_fit.py`、H-0067）。outer splits を再利用する現行の構成では validation 行はすべて covered なのでこの経路は通らず、calibration split が outer split と異なる場合の防御である。fallback の行数は §12.1 の報告に含まれる。
 
 ## 10.6 blocked_group_kfold（2軸交差検証、H-0060）
 
@@ -841,6 +843,7 @@ outer fold の train データ（特定期間 × 特定ユーザー）に対し�
 ## 11.1 SearchSpace 表現の統一
 
 - Optuna に依存しない space 表現（離散・連続・対数・カテゴリ）を使う。
+- `parse_space` は `float` / `int` 次元の範囲を parse 時に検査する（H-0078）: `low >= high` は `CONFIG_INVALID`、`log=True` で `low <= 0` も `CONFIG_INVALID`（context `param` / `low` / `high` / `log`）。Optuna が trial の中で出す汎用のエラーより前に、設定の誤りとして名指す。
 
 ## 11.2 SearchDim カテゴリ
 
@@ -849,6 +852,8 @@ SearchDim にカテゴリ属性を持たせ、Tuner がパラメーターの適�
 - `model`: `LGBMAdapter.params` に直接渡す（既存 SearchDim の挙動）
 - `smart`: スマートパラメーター（`num_leaves_ratio` 等）として `resolve_smart_params()` に渡す。fit / tune で同一の dict ベース `resolve_smart_params()` を使用する（H-0050）
 - `training`: trial ごとに `EarlyStoppingConfig` / `InnerValidStrategy` を再構築する
+
+`FloatDim` / `IntDim` は任意の `min_allowed` / `max_allowed`（既定 `None`）を持つ。パラメーターとして意味のある範囲で、境界拡張（§11.5）がこれを超えないようにする。`Model.tune` は既定の空間にも利用者の空間にも `provider.parameter_bounds(task)`（§14.4）を付ける（H-0078）。
 
 ## 11.3 デフォルト Tuning Space
 
@@ -989,6 +994,7 @@ result = model.tune(progress_callback=on_progress)
 - linear: 端方向に `(high - low)` を追加（range 2 倍）
 - log: 端方向に対数空間で 3 倍に拡張
 - `IntDim`: `max(1, new_low)` で下限ガード
+- 拡張後の `new_low` / `new_high` は次元の `min_allowed` / `max_allowed`（§11.2）でクランプする。クランプが効いたら `BoundaryDimStatus.clamped_to_bound` を `True` にする（H-0078）
 - 反対側の端は据え置き
 
 ### RoundSummary / BoundaryReport
@@ -1014,6 +1020,7 @@ class BoundaryDimStatus:
     expanded: bool
     new_low: float | int | None
     new_high: float | int | None
+    clamped_to_bound: bool = False   # H-0078: 拡張が min_allowed / max_allowed に当たった
 
 @dataclass(frozen=True)
 class BoundaryReport:
@@ -1122,7 +1129,8 @@ contradictory explicit directions require migration; old explicitness is not gue
 - 校正性能評価は、校正器も OOF（cross-fit）で生成した値で行う。
 - 校正 cross-fit は outer CV splits をそのまま再利用する（§10.5, H-0058）。これにより raw OOF と calibrated OOF の coverage が構造的に一致する。
 - 校正器は元の特徴量 `X` を使わない（入力は `s_oof`（生スコア）と `y` のみ）。
-- 推論時は保存された `C_final` を使用する。
+- 推論時は保存された `C_final` を使用する。入力は `predict_raw(X)` の生スコアで、`BaseCalibratorAdapter.predict()` は生スコアを受け取り校正済み確率を返す（H-0030）。`oof_raw_scores=None` の旧 artifact では確率を入力にする（§18.1.4）。
+- cross-fit で校正できない行は未校正の OOF 確率を fallback として受け取る: その fold の学習行に covered なスコアが無い、学習行が 1 クラスだけ、validation のスコアが NaN（§10.5）。fallback の行は `calibrated_oof` と calibrated metrics に含まれたまま残り（値は H-0089 で変わらない）、その数を `CalibrationResult.n_fallback_rows` と `metrics["calibrated"]["fallback_row_count"]` が報告する（H-0089）。
 - Calibration が未指定の場合は従来どおり `predict_proba`（確率値）を OOF/IF 予測に使用する。Calibration 有効時のみ生スコアベースの校正パスに入る。
 
 ## 12.2 方法
@@ -1201,7 +1209,7 @@ H-0100 までは `LogisticRegression(C=1.0)`（L2・目標値 0/1）で、原典
 #### Early Stopping
 
 - `patience=100`（`lgb.early_stopping(stopping_rounds=100)` コールバック）。
-- validation データ: calibration 学習データから 10% をランダムサンプリング（`validation_ratio=0.1`, `seed=42` デフォルト）。
+- validation データ: calibration 学習データから 10% をランダムサンプリング（`validation_ratio=0.1`）。`seed` は `calibration.params` に無ければ `training.seed` を継承する（既定の `training.seed` が 42 なので、既定どおりなら 42。H-0080）。
 - calibration データが少数（< 20 行）の場合は Early Stopping を無効化し、全データで学習する。
 
 #### ユーザー上書き
@@ -1221,6 +1229,7 @@ H-0100 までは `LogisticRegression(C=1.0)`（L2・目標値 0/1）で、原典
 - `Brier score`（必須推奨）
 - `ECE`（equal-width binning, M=10。各 bin の accuracy = `mean(y_true[mask])`（正例割合）、confidence = `mean(y_pred[mask])`。ECE = Σ (|bin| / N) × |accuracy − confidence|）
 - `ROC-AUC / PR-AUC`（ランキング監視）
+- fallback の記録（H-0089）: `CalibrationResult` は `fallback_fold_flags: list[bool]`（fold ごと、split の順。その fold の validation 行全体が未校正の OOF に fallback したとき `True`）と `n_fallback_rows: int = 0`（未校正の fallback を受けた validation 行の総数。校正した fold の中の NaN 行を含む）を持つ。`fit_result.calibrator` が保持するので `FitResult` の契約の一部である。
 
 ## 12.4 MUST NOT
 
@@ -1234,10 +1243,23 @@ H-0100 までは `LogisticRegression(C=1.0)`（L2・目標値 0/1）で、原典
 
 - Metric IF
 - `needs_proba / greater_is_better / supports_task`
+- `BaseMetric.needs_simplex` は既定 `False` の具体プロパティで、multiclass の予測が確率分布（行和 1）でなければならない指標が `True` に上書きする: `auc` と `logloss`。`auc_pr` / `brier` はクラスごとの値を使うので `False` のまま（H-0049）。
 - 回帰: `rmse / mae / r2 ...`
+  - `mape`: `y_true` に 0 を含むと `UNSUPPORTED_METRIC`（H-0004）。
+  - `huber`: 誤差 `e` について `|e| <= delta` で `0.5 e^2`、それより大きいと `delta(|e| - delta/2)`。`HuberLoss` の `delta` は既定 `1.0` でコンストラクタ引数（MetricEntry `{huber: {delta: ...}}`、§13.1.1）。文字列 `"huber"` は `delta=1.0` を意味する（H-0004）。
+  - `smape`: `mean(2|y - ŷ| / (|y| + |ŷ|)) × 100`、範囲 `[0, 200]`。`y = ŷ = 0` の行は 0 として数える（H-0071）。
+  - `wape`: `sum|y - ŷ| / sum|y| × 100`。`UNSUPPORTED_METRIC` になるのは `sum(|y_true|) == 0` のときだけ（H-0071）。
+  - `smape` / `wape` はどちらも `greater_is_better=False`、`needs_proba=False`。
 - 分類（binary）: `logloss / auc / auc_pr / f1 / accuracy / brier / ece / precision_at_k ...`
+  - `precision_at_k`: 予測確率の上位 `k`% の行の precision。`needs_proba=True`（確率で上位を選ぶ）、`greater_is_better=True`。既定は `k=10`（上位 10%、`1 <= k <= 100`）で、MetricEntry ごとに指定できる（§13.1.1、H-0014）。
 - 分類（multiclass）: `logloss / auc(OvR) / auc_pr(OvR) / f1(macro) / accuracy / brier(OvR) ...`
-- multiclass の `auc / auc_pr / brier` は One-vs-Rest 展開 + macro 平均で計算する。メトリクス名は binary と共通（`__call__` 内で `y_pred.ndim` により分岐）。
+- multiclass の `auc / auc_pr / brier` は One-vs-Rest 展開 + macro 平均で計算する。メトリクス名は binary と共通（`__call__` 内で `y_pred.ndim` により分岐）。`auc` は `roc_auc_score(..., multi_class='ovr', average='macro')`、`auc_pr` / `brier` はクラスごとの `average_precision_score` / `brier_score_loss` の macro 平均である（H-0018）。
+- **task との整合**: 指標名は `metrics/registry.py` の `_TASK_METRICS` が task ごとに持つ集合で検査し、集合に無い名前は `UNSUPPORTED_METRIC`（`Model.evaluate(metrics=...)` と Config の `evaluation.metrics` の両方）。
+  - `_TASK_METRICS["regression"]` = `rmse` / `mae` / `r2` / `rmsle` / `mape` / `huber` / `smape` / `wape`（H-0071）。
+  - binary = `logloss` / `auc` / `auc_pr` / `f1` / `accuracy` / `brier` / `ece` / `precision_at_k`。multiclass = `logloss` / `f1` / `accuracy` / `auc` / `auc_pr` / `brier`。
+  - したがって、`mape` / `huber` を回帰以外で（H-0004）、`precision_at_k` を回帰か multiclass で（H-0014）、multiclass 対応の `auc` / `auc_pr` / `brier` を回帰で（H-0018）指定すると `UNSUPPORTED_METRIC` になる。
+- **確率の検査**: `needs_proba` が真の組み込み指標は、確率でない値（数値でない、有限でない、`[0, 1]` の外、3 クラス以上なのに 1 次元）を受け取ると `METRIC_REQUIRES_PROBA` を送出する（H-0106）。0/1 のハードラベルは正当な確率として通る。`objective: cross_entropy_lambda` の出力が 1 を超えた場合もこれになる（#307）。
+- **evaluator が指標に渡す値**（`evaluation/evaluator.py` の `_pred_for_metric()`、H-0049）: `needs_proba` かつ `needs_simplex` の指標には、multiclass の 2 次元予測を行和で正規化して渡す（全 0 の行は割らない）。それ以外の確率指標には予測をそのまま渡す。ラベル指標には binary で 0.5 閾値、multiclass で argmax のラベルを渡す。正規化は `predict_proba()` ではなく evaluator の責務である（§14.1）。
 
 ### 13.1.1 パラメータ付き MetricEntry（H-0065）
 
@@ -1270,25 +1292,31 @@ model:
 - `evaluate_table()` は `evaluate()` が返す固定構造 dict を `pd.DataFrame` に変換する純粋フォーマッタ。ロジックは `evaluation/table_formatter.py` に配置する。
   - 行 = メトリクス名。
   - `oof`: OOF 集約値（**covered 行ベース**。split で valid に一度も含まれない行は除外。KFold では全行=covered、TimeSeriesCV では先頭行が non-covered）。
+    - covered 行の OOF に NaN があれば、構造的な未カバーではなくパイプラインの欠陥なので `Evaluator.evaluate()` は `LizyMLError(EVALUATION_FAILED)`（context `nan_count` / `nan_indices` / `task`）を送出する（H-0057。H-0057 の決定は `ValueError` と書くが、実装は `EVALUATION_FAILED` を送出する）。
   - `fold_0`...`fold_N-1`: 各 outer fold の OOF（valid_idx）値。
   - `if_mean`: IF（train_idx）指標の fold 平均（参考値として保持）。
-  - calibrated がある場合は `cal_oof` 列と `cal_fold_0`...`cal_fold_N-1` 列を追加。calibrated ブランチの metrics 構造は `{"oof": {...}, "oof_per_fold": [...]}`。IF metrics は leakage リスクのため含めない。`oof_coverage` は raw と構造的に一致する（H-0058: outer splits 再利用）ため、`calibrated` に別途含めない。
+  - calibrated がある場合は `cal_oof` 列だけを追加する（fold 別の calibrated 列は無い、H-0005）。
+  - 列の順は `if_mean, oof, fold_0...fold_N-1, cal_oof` で固定する（H-0011）。index 名は `metric`。
+  - calibrated ブランチの metrics 構造は `{"oof": {...}, "oof_per_fold": [...], "fallback_row_count": int}`。`fallback_row_count`（= `CalibrationResult.n_fallback_rows`、fallback が無ければ `0`）は未校正の fallback で採点した OOF 行の数である（§12.1、H-0089）。IF metrics は leakage リスクのため含めない。`oof_coverage` は raw と構造的に一致する（H-0058: outer splits 再利用）ため、`calibrated` に別途含めない。
   - `df.attrs["oof_coverage"]`: float (0.0–1.0)。covered 行の割合。KFold では常に `1.0`。TimeSeriesCV では `< 1.0` になりうる。
 
 ## 13.3 可視化
 
-全プロットを Plotly ベースに統一する。Plotly は optional dependency（`pip install 'lizyml[plots]'`）。未インストール時は `OPTIONAL_DEP_MISSING` を返す。
+全プロットを Plotly ベースに統一する。Plotly は optional dependency（`pip install 'lizyml[plots]'`）。未インストール時は `OPTIONAL_DEP_MISSING` を返す。公開の plot メソッドはすべて `plotly.graph_objects.Figure` を返す（H-0008）。
 
 実装済み:
 - `importance_plot(kind="split|gain")`: fold 平均の特徴量重要度（横棒グラフ）
 - `importance_plot(kind="shap")`: fold 平均の mean(|SHAP|)（横棒グラフ）。shap optional dependency も必要。
+  - `Model.importance(kind="shap")` とこの plot は、fold ごとにその fold の validation 行（`valid_idx`）で SHAP を計算し、特徴量ごとの mean(|SHAP|) を fold で平均する（`compute_shap_importance()`、H-0007）。shap が未導入なら `OPTIONAL_DEP_MISSING`。
 - `plot_learning_curve(*, metrics=None)`: fold ごとの train/valid loss 推移（折れ線グラフ）。`metrics: list[str] | None` で表示 metric をフィルタ可能（H-0062）。`None` で全 metric、指定時は `/` 以降の metric 名で一致するもののみ表示。一致なしで `LizyMLError`。
 - `plot_oof_distribution()`: OOF 予測値の分布（ヒストグラム）
 - `residuals_plot(kind="scatter|histogram|qq|all")`: 回帰専用。IS/OOS 比較対応。`kind` で表示プロットを選択。デフォルト `kind="all"` で scatter + histogram + QQ の 3 パネル。scatter は Actual vs Predicted（x=predicted, y=actual, y=x 参照線）。IS サンプルは OOS 数に合わせてダウンサンプリング（`_downsample_is()`、seed=0 で再現可能）。
+  - QQ パネルは OOS 残差だけを使う（IS は使わない、H-0009）。実体は `plots/residuals.py` の `plot_residuals()`。
+  - 未知の `kind` は `CONFIG_INVALID`（H-0009 は `INVALID_CONFIG` と書いたが、その code は存在せず、実装は `CONFIG_INVALID` を送出する）。
 
 追加で用意したい可視化（一部実装済み）:
-- binary/multiclass: `roc_curve_plot()`（binary: IS/OOS の 2 本の ROC Curve 重ね描き。multiclass: IS/OOS を subplot 横並びにし、クラスごとの OvR ROC Curve を描画。各クラスの AUC 値を凡例に表示、macro 平均 AUC も表示）
-- binary/multiclass: `confusion_matrix(threshold=0.5)`（IS/OOS の Confusion Matrix テーブル。`{"is": DataFrame, "oos": DataFrame}` を返す。binary は threshold、multiclass は argmax でクラスラベル変換。OOS は `compute_oof_valid_mask()` でカバー済み行のみを対象とする — NaN の構造的未カバー行は除外）
+- binary/multiclass: `roc_curve_plot()`（binary: IS/OOS の 2 本の ROC Curve 重ね描き。multiclass: IS/OOS を subplot 横並びにし、クラスごとの OvR ROC Curve を描画。各クラスの AUC 値を凡例に表示、macro 平均 AUC も表示。実体は `plots/classification.py` の `plot_roc_curve`。regression では `UNSUPPORTED_TASK`、H-0019）
+- binary/multiclass: `confusion_matrix(threshold=0.5)`（IS/OOS の Confusion Matrix テーブル。`{"is": DataFrame, "oos": DataFrame}` を返す。binary は threshold、multiclass は argmax でクラスラベル変換。OOS は `compute_oof_valid_mask()` でカバー済み行のみを対象とする — NaN の構造的未カバー行は除外。各 DataFrame は scikit-learn の `confusion_matrix` の形で、行 = 真のラベル、列 = 予測ラベル、index / columns は整数（H-0016））
 - calibration: `calibration_plot()`（Raw/Calibrated の Reliability Diagram。bin 数デフォルト 10。理想線 y=x を参照線として描画。データソースは cross-fit 由来の `calibrated_oof`、`c_final` は使用しない）
 - calibration: `probability_histogram_plot()`（Raw/Calibrated の確率分布ヒストグラム重ね描き。校正前後の分布シフトを視覚的に確認）
 - tuning: `tuning_plot()`（trial ごとのスコア推移。X 軸 = trial 番号、Y 軸 = スコア。完了/枝刈り/失敗を色分け。最良スコア推移ラインを重ね描き）
