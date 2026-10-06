@@ -59,7 +59,7 @@ PR 0 のレビュー記録は `results/pr0_codex_round1.md` / `pr0_codex_round2.
 
 ### 未充足の保証（PR 0 で繰り延べ、PR 8c で出荷）
 
-**PR 8c で出荷した（2026-10-02）。** 計測器は `instruments/phase3_gap.py`、manifest は `instruments/phase3_manifest.json`（25 行）、単体テストは `tests/test_docs/test_phase3_gap.py`。契約は `results/pr8c_acceptance_criteria.md` §3。「出荷された測定手段が無い」という未充足はこれで閉じる。ただし完了のすべてが測定になったわけではない。同じファイルの §5 が、計測器に読めず宣言とレビューに残るものを挙げている: 固定した close コメントが修正を肯定していること、`red_mutation` が欠陥（#288 では欠けていたテストが見逃す振る舞い）を戻していること、2 つの PR を持つ行の PR ごとの赤、テスト自身が宣言する母集団。#271 は PR 9 まで INCOMPLETE。**Phase 3 の完了は PR 9 の後にこの計測器を回して決める。**以下の段落は PR 0 の時点の記述で、経緯として残す。
+**PR 8c で出荷した（2026-10-02）。** 計測器は `instruments/phase3_gap.py`、manifest は `instruments/phase3_manifest.json`（25 行）、単体テストは `tests/test_docs/test_phase3_gap.py`。契約は `results/pr8c_acceptance_criteria.md` §3。「出荷された測定手段が無い」という未充足はこれで閉じる。ただし完了のすべてが測定になったわけではない。同じファイルの §5 が、計測器に読めず宣言とレビューに残るものを挙げている: 固定した close コメントが修正を肯定していること、`red_mutation` が欠陥（#288 では欠けていたテストが見逃す振る舞い）を戻していること、2 つの PR を持つ行の PR ごとの赤、テスト自身が宣言する母集団。#271 は PR 9 まで INCOMPLETE だった。**PR 9 の後、PR 9b（#322、`c873146`）でこの計測器を回し、INCOMPLETE 0 / UNKNOWN 0、exit 0 で Phase 3 の完了を測った**（`results/phase3_completion_21db071.txt`）。以下の段落は PR 0 の時点の記述で、経緯として残す。
 
 `phase3-plan.md` §8 が定める**Phase 3 完了の測定手段は、まだ出荷されていない**。
 `phase3_gap.py` / `phase3_manifest.json` / その単体テストは PR 0 の Files に挙がって

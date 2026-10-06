@@ -332,8 +332,8 @@
         "tests/test_tuning/test_dimension_consumption.py"
       ],
       "population_test": "tests/test_tuning/test_dimension_consumption.py::test_every_smart_owned_native_spelling_refused_before_study",
-      "population": 18,
       "population_name": "native spellings claimed by the smart parameters the test activates",
+      "derived_from": "from tests.test_tuning.test_dimension_consumption import CLAIMED\nprint(len(CLAIMED))",
       "closure_comment": 5613266788
     },
     "281": {

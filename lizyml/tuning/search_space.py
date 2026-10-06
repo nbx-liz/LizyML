@@ -327,6 +327,41 @@ def _expand_range(
     return new_low, new_high, clamped
 
 
+def _expand_int_range(
+    low: int,
+    high: int,
+    edge: str,
+    *,
+    log: bool,
+    min_allowed: int | None = None,
+    max_allowed: int | None = None,
+) -> tuple[int, int, bool]:
+    """Integer counterpart of :func:`_expand_range` for ``IntDim`` (H-0111).
+
+    Same rules, in integer arithmetic so that the result -- and the H-0111
+    "range unchanged" comparison -- stays exact beyond ``2**53``, where a
+    float round trip merges neighbouring integers. The low edge is floored
+    and guarded by ``max(1, ...)``, the high edge ceiled, as before.
+    """
+    factor = int(_LOG_EXPANSION_FACTOR)
+    new_low: int | float = low
+    new_high: int | float = high
+    if edge == "lower":
+        new_low = low // factor if log and low > 0 else max(0, low - (high - low))
+    elif edge == "upper":
+        new_high = high * factor if log and high > 0 else high + (high - low)
+
+    clamped = False
+    if min_allowed is not None and new_low < min_allowed:
+        new_low = min_allowed
+        clamped = True
+    if max_allowed is not None and new_high > max_allowed:
+        new_high = max_allowed
+        clamped = True
+
+    return max(1, math.floor(new_low)), math.ceil(new_high), clamped
+
+
 def detect_boundary(
     dims: list[SearchDim],
     best_params: dict[str, Any],
@@ -380,26 +415,42 @@ def detect_boundary(
         new_high: float | int | None = None
         clamped = False
         if should_expand:
-            min_allowed = (
-                float(dim.min_allowed) if dim.min_allowed is not None else None
-            )
-            max_allowed = (
-                float(dim.max_allowed) if dim.max_allowed is not None else None
-            )
-            nl, nh, clamped = _expand_range(
-                low,
-                high,
-                edge,
-                log=is_log,
-                min_allowed=min_allowed,
-                max_allowed=max_allowed,
-            )
+            nl: float | int
+            nh: float | int
             if isinstance(dim, IntDim):
-                nl = max(1, int(math.floor(nl)))
-                nh = int(math.ceil(nh))
-            new_low = nl
-            new_high = nh
-            expanded_names.append(dim.name)
+                nl, nh, clamped = _expand_int_range(
+                    dim.low,
+                    dim.high,
+                    edge,
+                    log=is_log,
+                    min_allowed=dim.min_allowed,
+                    max_allowed=dim.max_allowed,
+                )
+                unchanged = (nl, nh) == (dim.low, dim.high)
+            else:
+                nl, nh, clamped = _expand_range(
+                    low,
+                    high,
+                    edge,
+                    log=is_log,
+                    min_allowed=(
+                        float(dim.min_allowed) if dim.min_allowed is not None else None
+                    ),
+                    max_allowed=(
+                        float(dim.max_allowed) if dim.max_allowed is not None else None
+                    ),
+                )
+                unchanged = (nl, nh) == (low, high)
+            # H-0078 item 4 (H-0111): an expansion that leaves the range
+            # unchanged -- the edge already sits on a clamp (min/max_allowed,
+            # the linear 0.0 floor, the IntDim max(1, ...) guard) -- is not an
+            # expansion. Reporting it would repeat the same no-op every round.
+            if unchanged:
+                should_expand = False
+            else:
+                new_low = nl
+                new_high = nh
+                expanded_names.append(dim.name)
 
         statuses.append(
             BoundaryDimStatus(

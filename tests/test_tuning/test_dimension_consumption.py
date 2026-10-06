@@ -19,6 +19,18 @@ SMART = {
 }
 CLAIMED = sorted(LGBMProvider().smart_managed_param_names(SMART, "binary"))
 
+#: Native spellings claimed now (18). The Phase 3 manifest's #279 row derives
+#: its population from ``len(CLAIMED)`` (H-0111, #321), so it cannot see a
+#: spelling disappear by itself; this floor can.
+MIN_CLAIMED = 18
+
+
+def test_claimed_spellings_are_found():
+    assert len(CLAIMED) >= MIN_CLAIMED, (
+        f"expected at least {MIN_CLAIMED} smart-claimed native spellings, found "
+        f"{len(CLAIMED)}: {CLAIMED}. The provider's alias tables lost entries."
+    )
+
 
 def config_for(name, category="model"):
     config = make_config("binary", n_estimators=5, n_splits=2, tuning_n_trials=1)

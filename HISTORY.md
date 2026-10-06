@@ -440,7 +440,7 @@ Phase 14 で `Model.export()` / `Model.load()` を実装する前に、保存フ
 
 ### Migration
 
-- `format_version=1` から `format_version=2` への移行が必要になった場合、`lizyml/persistence/migrations/v1_to_v2.py` を追加し、ロード時に自動マイグレーションを試みる（または明示的エラーで移行を促す）。
+- `format_version=1` から `format_version=2` への移行が必要になった場合、`lizyml/persistence/migrations/v1_to_v2.py` を追加し、ロード時に自動マイグレーションを試みる（または明示的エラーで移行を促す）。（H-0111 注記: `migrations/` パッケージは作られなかった。v1 の artifact は `lizyml/persistence/loader.py` の中でメモリ上で v2 に引き上げる（H-0070、BLUEPRINT §15.2）。#318）
 
 ---
 
@@ -695,7 +695,7 @@ matplotlib ベースのプロットは静的で Notebook 上での視認性・�
 ## 2026-03-04: residuals_plot() の拡張（散布図追加・kind 引数・IS/OOS 比較）
 
 - ID: `H-0009`
-- Status: `proposed`
+- Status: `accepted`（実装済み。H-0111 で Status を訂正、#319）
 - Scope: `Public API | Plots`
 - Related: `BLUEPRINT.md §4.1, §13.3`
 
@@ -716,7 +716,7 @@ H-0006 で `residuals_plot()` を実装したが、以下の不足がある。
   - `"all"`: 上記 3 つを横並びサブプロットで表示（デフォルト）。
 - 内部関数 `plot_residuals()` のシグネチャを変更し、`FitResult` + `y_true` を受け取る形式に統一する（他の plot 関数と同じパターン）。
 - IS データは `fit_result.if_pred_per_fold[i]` + `fit_result.splits.outer[i][0]`（train_idx）から組み立てる。
-- `kind` の値が不正な場合は `LizyMLError(INVALID_CONFIG)` を返す。
+- `kind` の値が不正な場合は `LizyMLError(INVALID_CONFIG)` を返す。（H-0111 注記: `INVALID_CONFIG` という `ErrorCode` は無く、実装は `CONFIG_INVALID` を送出する。#319）
 
 ### Impact
 
@@ -741,14 +741,14 @@ H-0006 で `residuals_plot()` を実装したが、以下の不足がある。
 - `model.residuals_plot(kind="qq")` が QQ plot を返す。
 - `model.residuals_plot(kind="all")` が 3 サブプロットの Figure を返す。
 - `model.residuals_plot()` がデフォルトで `kind="all"` として動作する。
-- 不正な kind 値で `INVALID_CONFIG` エラーが返る。
+- 不正な kind 値で `INVALID_CONFIG` エラーが返る。（H-0111 注記: `CONFIG_INVALID`。#319）
 
 ---
 
 ## 2026-03-04: EarlyStoppingConfig に validation_ratio エイリアス追加
 
 - ID: `H-0010`
-- Status: `proposed`
+- Status: `superseded`（実装後、H-0069 が置き換えた。H-0111 で Status を訂正、#319）
 - Scope: `Config`
 - Related: `BLUEPRINT.md §5.2, HISTORY.md H-0001`
 
@@ -792,7 +792,7 @@ Config 例（新しい簡略記法）:
 ## 2026-03-04: evaluate_table() の列順変更
 
 - ID: `H-0011`
-- Status: `proposed`
+- Status: `accepted`（実装済み。H-0111 で Status を訂正、#319）
 - Scope: `Evaluation | Public API`
 - Related: `BLUEPRINT.md §13.2, HISTORY.md H-0005`
 
@@ -828,7 +828,7 @@ Config 例（新しい簡略記法）:
 ## 2026-03-04: residuals_plot() の IS/OOS サンプル数バランシング
 
 - ID: `H-0012`
-- Status: `proposed`
+- Status: `accepted`（実装済み。H-0111 で Status を訂正、#319）
 - Scope: `Plots`
 - Related: `BLUEPRINT.md §13.3, HISTORY.md H-0009`
 
@@ -2138,7 +2138,7 @@ BLUEPRINT §17 で規定されている「`run_id` に基づく出力先（logs 
 ### Proposal
 
 1. `Model` に `output_dir` オプションを追加する（`Config` の `output` セクション or コンストラクタ引数）。
-2. `output_dir` 指定時、`run_id` ベースのサブディレクトリ（`{output_dir}/{run_id}/`）を自動作成し、ログ・plot 保存先とする。
+2. `output_dir` 指定時、`run_id` ベースのサブディレクトリ（`{output_dir}/{run_id}/`）を自動作成し、ログ・plot 保存先とする。（H-0111 注記: `fit()` / `tune()` がこのディレクトリに自動で書くのは `run.log` だけで、path 無しの `export()` は `{run_dir}/export` に書く（H-0039）。plot API は plotly の Figure を返すだけで、plot をファイルに書く経路は無い。BLUEPRINT §17 はこの実装を書く。#318）
 3. `output_dir` 未指定時は現行動作（ログは標準出力、plot は返却のみ）を維持する。
 
 ### 影響範囲
@@ -3551,7 +3551,7 @@ H-0053 で `EstimatorProvider` protocol を導入し、`model.py` のゼロ LGBM
 ## H-0056: テスト基盤の体系的補強
 
 - ID: `H-0056`
-- Status: `proposed`
+- Status: `accepted`（実装: 9bfeaf7、PR #33。H-0111 で Status を訂正、#319）
 - Scope: `Testing`
 - Related: `BLUEPRINT.md §18.1, §14.4, §15.2, §11`
 
@@ -3710,7 +3710,7 @@ TimeSeriesCV（expanding window）使用時に、最初の期間のサンプル�
 
 2. **`Evaluator.evaluate()` の OOF メトリクス計算を変更**。
    - mask の True 行のみで `oof` メトリクスを計算。
-   - **カバー行に NaN がある場合は `ValueError`**（予測パイプラインのバグとして検知）。
+   - **カバー行に NaN がある場合は `ValueError`**（予測パイプラインのバグとして検知）。（H-0111 注記: 実装は `LizyMLError(EVALUATION_FAILED)` を送出する。BLUEPRINT §13 は実装を書く。#319）
    - `oof_per_fold` / IF メトリクスは変更なし。
 
 3. **`metrics["raw"]["oof_coverage"]`** を追加（float, 0.0–1.0）。
@@ -3741,7 +3741,7 @@ TimeSeriesCV（expanding window）使用時に、最初の期間のサンプル�
 ### 受け入れ基準
 
 - `compute_oof_valid_mask` が split indices から正しい bool mask を返す（unit test）。
-- カバー行に NaN → `ValueError`（バグ検知テスト）。
+- カバー行に NaN → `ValueError`（バグ検知テスト）。（H-0111 注記: 実装とテストは `EVALUATION_FAILED`。#319）
 - 非カバー行の NaN は正常スキップ。
 - KFold で `oof_coverage == 1.0`、TimeSeriesCV で `oof_coverage < 1.0`。
 - TimeSeriesCV の OOF メトリクスが finite（NaN でない）。
@@ -5574,7 +5574,7 @@ LizyML Core は callback + 結果型でデータを提供し、Widget/Studio が
 | INV-1 | `SMAPE(y, y) == 0.0`（恒等予測でゼロ） |
 | INV-2 | `SMAPE` 出力範囲 `[0, 200]`、`y_true == y_pred == 0` の行は寄与 0 |
 | INV-3 | `WAPE(y, y) == 0.0`、`sum(|y_true|) == 0` でのみ `UNSUPPORTED_METRIC` raise（per-row 0 では raise しない） |
-| INV-4 | `MetricRegistry.get("smape", "regression")` と `("wape", "regression")` が成功、binary / multiclass では `LizyMLError(METRIC_NOT_FOUND)` |
+| INV-4 | `MetricRegistry.get("smape", "regression")` と `("wape", "regression")` が成功、binary / multiclass では `LizyMLError(METRIC_NOT_FOUND)`（H-0111 注記: `METRIC_NOT_FOUND` という `ErrorCode` は無く、レジストリは `UNSUPPORTED_METRIC` を送出する。#318） |
 | INV-5 | `params={"metric": "smape"}` で `lgb.train` の `eval_results` に `smape` キーが現れる（feval 経由）|
 | INV-6 | `greater_is_better=False`、`needs_proba=False`（両 metric 共通） |
 
@@ -6662,6 +6662,8 @@ Issue #159 で要求された全 7 層を Phase に分散して実装する。
 代替案 Option D（`split.random_state` を computed mirror 化して seed を単一化）は、既存の明示指定ユーザー向け legacy 吸収が必要で破壊度が高く、独立 split seed の能力を失うため不採用。
 
 ### 経路の母集団（散文ではなく検査で閉じる）
+
+> H-0111 注記（#319）: この節は `training.seed` の伝搬（H-0080）とは関係が無く、LightGBM のパラメーター名の経路についての検討である。経路の一覧 `ESTIMATOR_ROUTES` を決めたのは H-0093 で、H-0093 はこの節の 3 か所を、走査を直したうえで 6 か所に改めた。この節は経緯として残し、移動しない。
 
 独立レビューが 2 ラウンド続けて「全経路を覆う」という主張を反証した。1 回目は構築後の config 変更と artifact 由来の `best_model_params`、2 回目は `export_code` の生成 params である。**どちらも回答は「呼び出し点を 1 つ足して文を 1 つ足す」だった** — 同じ形の主張が同じ形で 2 回破れており、3 回目が無いと考える理由が無い。
 
@@ -9439,7 +9441,7 @@ Firing rate: 0/54 of the choices in the shipped suite would be newly refused
 
 ## H-0098: Derive parameter-domain predicates from one structural walk
 
-- Status: proposed
+- Status: accepted -- implemented in 5fb8a80 (#291); corrected in H-0111 (#319)
 - Date: 2026-09-10
 - Related: BLUEPRINT §14.4; H-0095; issues #284 and #287.
 
@@ -9676,7 +9678,7 @@ Firing rate: 0/37 of the tolerance branch's occurrences come from pre-existing c
 
 ### Revision 2 — merged-input validation (2026-09-09)
 
-- Status: proposed. This revision supersedes the implementation direction and
+- Status: accepted -- implemented by PR #290 (merge 2436a66); corrected in H-0111 (#319). This revision supersedes the implementation direction and
   acceptance criteria below; the original proposal remains as historical evidence.
 - Purpose: identify the winning input when an objective or metric is rejected.
 - Scope: the merged model parameters in `Model._merge_params`, shared LightGBM
@@ -9714,7 +9716,7 @@ rejecting the base value before a valid sampled replacement would be a regressio
 was reproduced as passing at the base and failing in the first local candidate.
 
 
-- **ステータス**: Proposed
+- **ステータス**: Superseded（上の Revision 2 が実装の方向と受け入れ基準を置き換え、Revision 2 が PR #290 で実装された。H-0111 で訂正、#319）
 - **起票日**: 2026-09-09
 - **スコープ**: `lizyml/estimators/lgbm/adapter.py`（拒否の出所付与、`_build_params` の 6 か所目）, `tests/test_core/test_fit_params_override.py`, `tests/test_estimators/test_lgbm_defaults.py`, `CHANGELOG.md`。
 - **関連**: H-0094 決定 3（出所の名指し）, H-0096, [#286](https://github.com/nbx-liz/LizyML/issues/286), [#285](https://github.com/nbx-liz/LizyML/issues/285), 計画 `phase3-plan.md` §12.4, 導出結果 `results/pr2b_rule_positions.md`。
@@ -10819,3 +10821,65 @@ Firing rate: 4/110 of HISTORY proposals at 13fb9d7 carry an exempt disposition (
 
 - **[#318](https://github.com/nbx-liz/LizyML/issues/318)**: BLUEPRINT か提案が書いていてコードがしないもの（`not_in_force` の 6 件のうち、決定 4 で扱う multiclass の `proba` を除く 5 件と、畳み込みの作業で見つかった H-0078 の 1 件: 両側が境界に当たったときに `expanded=False` を再判定するという約束を `detect_boundary` が守らない）: `embargo_pct` の `int()` 変換（コードは端数を拒否、#210）、plot を `{output_dir}/{run_id}/` に保存（コードは `run.log` だけ書く）、`migrations/v1_to_v2.py` の追加（load 時の自動 migration の半分は H-0070 で有効）、Metric の `supports_task` 属性（BLUEPRINT は Metric IF の属性として挙げるがコードに無い）、`METRIC_NOT_FOUND`（その ErrorCode は無く、実際は `UNSUPPORTED_METRIC`）。この 5 件は、どちらが正しいかが判断なので、BLUEPRINT は直さない。これとは別に、`evaluate_table()` の `cal_fold_*` 列は BLUEPRINT にだけあり、H-0005 は `cal_oof` 列だけを決め、コードもそうしているので、この 1 件は Issue にせず、畳み込みとして BLUEPRINT を直す。
 - **[#319](https://github.com/nbx-liz/LizyML/issues/319)**: HISTORY の Status 行が実態とずれている 7 件（H-0009〜H-0012、H-0056、H-0097、H-0098）、コードが送出しないエラー名を書く 2 件（H-0057 の `ValueError`、H-0009 の `INVALID_CONFIG`。BLUEPRINT にはコードどおり `EVALUATION_FAILED` / `CONFIG_INVALID` を書いた）、H-0080 の entry の中にある、seed と関係の無いパラメーター名の経路の節（HISTORY 6664〜6681 行）。
+
+## H-0111: 仕様とコードのずれ 6 件を決着させ、HISTORY の記録のずれを直す（#318 / #319 / #321）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-06
+- **決定日**: 2026-10-06（管理者の判断: #318 は「行 1〜5 は文書をコードに合わせ、行 6 はコードを H-0078 に合わせる」、#321 は選択肢 (a)）
+- **スコープ**: `lizyml/tuning/search_space.py`（`detect_boundary` の再判定）, `lizyml/core/_model_tuning.py`（ログの文言）, `BLUEPRINT.md`（§10 の `embargo_pct`、§11 の境界拡張、§13.1 の Metric IF、§17 の `output_dir`）, `HISTORY.md`（H-0003 / H-0009〜H-0012 / H-0034 / H-0056 / H-0057 / H-0071 / H-0080 / H-0097 / H-0098 への注記と Status の訂正）, `docs/proposal_dispositions.toml`, テスト（`tests/test_tuning/test_retune.py`、`tests/test_tuning/test_dimension_consumption.py`）, `docs/audits/2026-09-defect-discovery/`（manifest の #279 行、`MANIFEST.md`、`phase3-plan.md` §8、計測器 `instruments/h0111_pinned_dims.py`）, `CHANGELOG.md`
+- **関連**: [Issue #318](https://github.com/nbx-liz/LizyML/issues/318), [Issue #319](https://github.com/nbx-liz/LizyML/issues/319), [Issue #321](https://github.com/nbx-liz/LizyML/issues/321), H-0078（項目 4: 両側が境界に当たったときの `expanded=False` の再判定）, H-0110（本提案の 3 件を Issue に切り出した畳み込み）
+
+### 目的（課題）
+
+H-0110 の畳み込みは、決定済みで実装済みの節を BLUEPRINT に写した。そのとき、BLUEPRINT か提案が書いていてコードがしない 6 件（#318）と、HISTORY 自身の記録のずれ（#319）を、どちらが正しいかの判断が要るので Issue に切り出した。PR 9b の後に、Phase 3 の manifest の母集団を定数で宣言した行が、文書やコードの成長で古くなりうること（#321、DC3）も分かった。本提案はこの 3 件を決着させる。
+
+### 対応方針（決定）
+
+1. **#318 行 1〜5: 文書をコードに合わせる。** どれもコードの挙動が意図どおりで、文書だけが古い。
+   - 行 1（H-0040）: 旧キー `embargo_pct` は `int()` で変換しない。整数値（`3` / `3.0`）は受理し、端数（`0.05`）と bool は `CONFIG_INVALID` で拒否する（#210。切り捨てると漏洩防止の gap が `0` に潰れる）。BLUEPRINT §10 を直す。
+   - 行 2（H-0034）: `fit()` / `tune()` が `{output_dir}/{run_id}/` に自動で書くのは `run.log` だけ（path 無しの `export()` は `{run_dir}/export` に書く、H-0039）で、plot は保存しない（plot API は plotly の Figure を返す。`lizyml/` に `write_html` / `write_image` は無い）。BLUEPRINT §17 を直し、H-0034 に注記する。
+   - 行 3（H-0003）: `migrations/` パッケージは無い。v1 の artifact は loader の中でメモリ上で引き上げる（H-0070、BLUEPRINT §15.2 は既にそう書く）。H-0003 に注記する。
+   - 行 4（H-0014）: `BaseMetric` に `supports_task` は無い。タスクとの対応はレジストリが持ち、扱わないタスクで引くと `UNSUPPORTED_METRIC`。BLUEPRINT §13.1 の Metric IF の属性一覧から外す。
+   - 行 5（H-0071 INV-4）: `METRIC_NOT_FOUND` という `ErrorCode` は無く、送出されるのは `UNSUPPORTED_METRIC`。BLUEPRINT は H-0110 で既に正しい。H-0071 に注記する。
+2. **#318 行 6: コードを H-0078 項目 4 に合わせる。** H-0078 は「両側がぶつかった場合は元値のまま返し、無限ループ防止のため `expanded=False` を上位で再判定する」と決めたが、`detect_boundary` は端に近い次元をクランプのあとも `expanded=True` とし、`expanded_names` に入れていた。既に `min_allowed` / `max_allowed` に貼り付いた次元は、`tune(resume=True)` のたびに範囲の変わらない「拡張」として報告され続ける。これは新しい決定ではなく、H-0078 の決定の実行である。規則: **クランプと `IntDim` の丸めのあとで `(new_low, new_high)` が元の `(low, high)` と等しいなら、`expanded=False`、`new_low` / `new_high` は `None`、`expanded_names`（したがって `RoundSummary.expanded_dims`）に入れない。** `clamped_to_bound` は変えない: `min_allowed` / `max_allowed` のクランプが効いたなら `True` のまま残す（下流 UI の「上限に達した」表示の根拠）。linear の `0.0` 下限と `IntDim` の `max(1, ...)` はもともと `clamped_to_bound` を立てないので `False` のまま。`IntDim` の拡張は整数で計算する（コードレビュー round 1: float を経由すると `2**53` を超える `high` と `high + 1` が同じ値になり、まだ 1 つ広げられる次元を「範囲が変わらない」と誤判定した）。
+   - **適用範囲を H-0078 の文面より広げる。** H-0078 は `min_allowed` / `max_allowed` だけを書くが、同じ理由（範囲の変わらない拡張を毎ラウンド繰り返さない）は、それより古い 2 つのクランプにも当てはまる: linear の下限 `0.0`（#110）と `IntDim` の `max(1, ...)`。原因を問わず「範囲が変わらない」で判定する。`tests/test_tuning/test_retune.py::test_int_dim_lower_guard` は `IntDim(low=1)` の空の拡張を `expanded=True` として固定していたので、ガードが効きつつ範囲が動く `low=2` に変え、`low=1` は新しいテストで `expanded=False` を固定する。
+3. **#319: HISTORY の記録を注記で直し、本文は書き換えない。** Status 行の 7 件（H-0009 / H-0011 / H-0012 / H-0056 / H-0098 は `accepted`、H-0010 は `superseded`（H-0069）、H-0097 は Revision 2 が `accepted`（PR #290、merge `2436a66`）で元の提案は Revision 2 に置き換えられた）。コードが送出しないエラー名の 2 件（H-0057 の `ValueError` → `EVALUATION_FAILED`、H-0009 の `INVALID_CONFIG` → `CONFIG_INVALID`）は、該当行に「H-0111 注記」を付ける。H-0080 の中にある LightGBM のパラメーター名の経路の節は、H-0093 の検討の一部で、H-0093 が `ESTIMATOR_ROUTES` を決めてこの節の 3 か所を 6 か所に改めた。節は移動せず、冒頭に注記を置く（移すと H-0093 の改訂済みの記述と古い 3 か所の表が並ぶため）。
+4. **#321: 選択肢 (a)。** 定数の `population` を持つ 6 行のうち、5 行はテスト自身が宣言する設計上の件数で、文書やコードの成長では変わらない。残る #279 の行（smart parameter が主張する native の綴り 18 個）は、provider の alias 表から数えるので、#266 と同じ形で古くなりうる。これを `derived_from`（`len(CLAIMED)`）に変える。導出は自分自身を数えるので、綴りが減っても気づけない。PR 9b が #266 で `MIN_SITES` を置いたのと同じく、`MIN_CLAIMED = 18` の下限をテストに置く。
+
+### 規則が縛る位置（ソースから導出）
+
+規則 2 が縛るのは、境界の報告を作る位置と、それを読む位置である。導出: `lizyml/` 全体で `expanded_names` / `.expanded` / `detect_boundary` / `expand_dims` を grep した全件。
+
+| # | 位置 | 本 PR |
+|---|---|---|
+| 1 | `tuning/search_space.py` `detect_boundary` | 再判定を足す（唯一の書き手） |
+| 2 | `tuning/search_space.py` `expand_dims` | 変えない（`expanded=True` の次元だけを読むので、再判定した次元は素通しになる） |
+| 3 | `core/_model_tuning.py` `_maybe_expand_boundary` | ログの文言を「端に近い次元が無い」から「拡張した次元が無い」に変える（端に近くても貼り付いた次元だけのときに偽になるため） |
+| 4 | `tuning/rounds.py` / `core/_model_tuning.py`（`RoundSummary.expanded_dims`、進捗の `expanded_dims`） | 変えない（`expanded_names` を写すだけ） |
+| 5 | `core/_model_tables.py` `boundary_table` | 変えない（`expanded` 列は再判定後の値を表示する） |
+
+### 互換性
+
+- **振る舞いの変化**: 端に近く、かつ既に境界に貼り付いた次元について、`BoundaryDimStatus.expanded` が `True` から `False` に、`new_low` / `new_high` が元の値から `None` に変わり、`expanded_names`・`RoundSummary.expanded_dims`・`boundary_table()` の `expanded` 列・進捗コールバックの `expanded_dims` から消える。探索空間そのものは変わらない（範囲が変わらない拡張を素通しにするのは修正前の `expand_dims` の結果と同じ）。
+- **該当する次元の数（参考）**: LightGBM の既定の探索空間に provider の境界を付けると、3 タスクとも数値の 9 次元のうち 2 次元（`feature_fraction` と `bagging_fraction` の上限 1.0）が最初から上限に貼り付いている（`instruments/h0111_pinned_dims.py`）。最良値がその上端に来た `tune(resume=True)` で、修正前は毎ラウンド報告されていた。
+- **Firing rate**: 本提案の分岐は、拡張と非拡張という通常の 2 つの振る舞いのどちらを報告するかの訂正で、Change Gate の 6 つの目的（skip / shorten / cache / select / allow / conditionally-activate）のどれでもない。
+- `format_version` / Config / 公開 API の形は変わらない。文書の訂正（方針 1・3）は振る舞いを変えない。
+- **bound（宣言）**: 規則 2 は「拡張の結果が元の範囲と等しいか」を厳密に判定する（`IntDim` は整数で計算する）。その前段の端の検出（`_position_pct` / `_detect_edge`）は H-0068 のまま float で行い、本提案は変えない。したがって、`2**53` を超える `IntDim` の範囲（例: `[2**53, 2**53 + 1]`）では、最良値が端にあっても位置が潰れて端を検出しないことがある（コードレビュー round 2 が実行で示した。修正前から同じで、本提案が持ち込んだものではない）。LightGBM のパラメーターの境界は `seed` の `2**31 - 1` が最大だが、provider の境界は拡張だけを縛り、利用者が書いた初期の範囲は検証もクランプもしない（`parse_space` と `attach_bounds` は `seed` の `[2**53, 2**53 + 1]` を受け取ったまま `max_allowed=2147483647` を付ける。コードレビュー round 3 が実行で示した）。したがって、利用者が `2**53` を超える整数の範囲を書けば、境界の有無に関わらずこの限界に届く。provider の境界が付いた名前では、その範囲はすでに意味のある範囲の外である。端の検出を整数で厳密にすることは本提案の範囲外とする。
+
+### 代替案（検討して棄却）
+
+1. **行 6 も文書をコードに合わせる。** H-0078 の再判定は、無限ループと誤った報告を防ぐために決めたもので、それを外す理由が無い。
+2. **H-0078 の文面どおり `min_allowed` / `max_allowed` だけを再判定する。** `IntDim(low=1)` と linear の `low=0.0` の空の拡張は報告され続ける。理由が同じなので規則を分けない。
+3. **再判定した次元の `new_low` / `new_high` に元の値を入れる。** 端に近くない次元と categorical は `None` を入れており、「`expanded=False` なら `None`」の形に揃える。
+4. **#319 の H-0080 の節を H-0093 に移す。** H-0093 は同じ経路を走査の修正後の 6 か所で書いており、古い 3 か所の表を並べると矛盾した記述が 1 つの entry に入る。
+5. **#321 で (b)（PR ごとに `phase3_gap.py` を回す）も行う。** 計測器は worktree と GitHub API を使うので CI で回せず、手作業の規則になる。(a) で古くなりうる行が無くなるので、管理者は (a) だけを選んだ。
+
+### 受け入れ基準（テスト観点）
+
+1. `max_allowed` / `min_allowed` に貼り付いた次元（float の上限・下限、log の上限、int の上限）で、端に近い最良値を与えると `expanded=False`、`clamped_to_bound=True`、`new_low` / `new_high` は `None`、`expanded_names == ()`、`expand_dims` は次元をそのまま返す（`TestNoOpExpansionIsNotExpanded`）。修正前は RED。
+2. linear の `low=0.0` と `IntDim(low=1)` の下端で `expanded=False`、`clamped_to_bound=False`。修正前は RED。
+3. クランプが効いても端が動く次元は `expanded=True`、`clamped_to_bound=True`。貼り付いた次元と動く次元が混ざると、`expanded_names` は動く次元だけ。
+4. `IntDim(low=2)` の下端の拡張は `max(1, ...)` で `new_low == 1` になる（ガードのテストを保つ）。
+5. manifest の #279 行は `derived_from` を持ち `population` を持たない。そのスニペットは HEAD で `18` を出す。`test_claimed_spellings_are_found` は綴りが 18 未満になると落ちる。
+6. `tests/test_docs/test_history_ids.py` と `test_proposal_blueprint_coverage.py` が緑のまま（H-0111 の処分の行を含む）。

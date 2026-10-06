@@ -679,7 +679,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `task` が `binary` または `multiclass` かつ `split.method` が未指定の場合、`StratifiedKFold` をデフォルトとする。分類タスクで `method: "kfold"` を明示指定した場合は警告を出す。回帰タスクのデフォルトは `KFold` のまま。
 - `time_series` / `purged_time_series` / `group_time_series` は共通で `data.time_col` を基準に昇順へ並べてから分割する。
 - `time_series` / `group_time_series` は `gap`、`purged_time_series` は `purge_gap` を持つ（いずれも train と valid の間のギャップ）。
-- `PurgedTimeSeries` は `embargo`（train と valid の間に設ける追加除外 Obs 数、`int`、`gap` / `purge_gap` と同じ単位）を持つ。`embargo_pct` は移行期間のみ後方互換キーとする（`int()` で変換）。
+- `PurgedTimeSeries` は `embargo`（train と valid の間に設ける追加除外 Obs 数、`int`、`gap` / `purge_gap` と同じ単位）を持つ。`embargo_pct` は移行期間のみ後方互換キーとする。値は観測数として読む: 整数値（`3` / `3.0`）は受理し、端数のある値（`0.05`）と bool は `CONFIG_INVALID` で拒否する（`int()` で切り捨てると漏洩防止の gap が `0` に潰れるため、#210。H-0040 は `int()` で変換すると書いた。H-0111）。
 - 3 メソッドは共通で `train_size_max` / `test_size_max` を持つ。
 - `GroupTimeSeries` は group 列の出現順と `time_col` 順を整合させて時系列的にグループを分割する。
 
@@ -995,6 +995,7 @@ result = model.tune(progress_callback=on_progress)
 - log: 端方向に対数空間で 3 倍に拡張
 - `IntDim`: `max(1, new_low)` で下限ガード
 - 拡張後の `new_low` / `new_high` は次元の `min_allowed` / `max_allowed`（§11.2）でクランプする。クランプが効いたら `BoundaryDimStatus.clamped_to_bound` を `True` にする（H-0078）
+- 範囲を変えない拡張は拡張ではない: クランプ（`min_allowed` / `max_allowed`、linear の `0.0` 下限、`IntDim` の `max(1, ...)`）と `IntDim` の丸めのあとで `(new_low, new_high)` が元の `(low, high)` と等しい次元は、端に近くても `expanded=False`・`new_low` / `new_high` は `None` とし、`expanded_names` にも `RoundSummary.expanded_dims` にも入れない。`clamped_to_bound` は `min_allowed` / `max_allowed` のクランプが効いたときだけ `True` で、再判定のあとも `True` のまま残る（linear の `0.0` 下限と `IntDim` の `max(1, ...)` は `clamped_to_bound` を立てないので `False` のまま）。`IntDim` の拡張と比較は整数で計算する（`2**53` を超える値でも隣の整数と混ざらない）。端の検出（位置の計算）は H-0068 のとおり float で行うので、`2**53` を超える `IntDim` の範囲では端を見落としうる（H-0111 の bound）。毎ラウンド同じ空の拡張を報告し続けないため（H-0078 項目 4、H-0111）
 - 反対側の端は据え置き
 
 ### RoundSummary / BoundaryReport
@@ -1242,7 +1243,7 @@ H-0100 までは `LogisticRegression(C=1.0)`（L2・目標値 0/1）で、原典
 ## 13.1 Metrics
 
 - Metric IF
-- `needs_proba / greater_is_better / supports_task`
+- `needs_proba / greater_is_better`。指標がどのタスクを扱うかは指標のプロパティではなく、レジストリが持つ（`lizyml/metrics/registry.py`。扱わないタスクで引くと `UNSUPPORTED_METRIC`）。H-0014 は Metric IF の属性として `supports_task` を挙げたが、`BaseMetric` にその属性は無い（H-0111）
 - `BaseMetric.needs_simplex` は既定 `False` の具体プロパティで、multiclass の予測が確率分布（行和 1）でなければならない指標が `True` に上書きする: `auc` と `logloss`。`auc_pr` / `brier` はクラスごとの値を使うので `False` のまま（H-0049）。
 - 回帰: `rmse / mae / r2 ...`
   - `mape`: `y_true` に 0 を含むと `UNSUPPORTED_METRIC`（H-0004）。
@@ -1696,11 +1697,11 @@ LizyMLError(code, user_message, *, debug_message=None, cause=None, context=None)
 
 # 17. Logging / Run 管理（`core/logging.py`）
 
-- `run_id` を生成し、出力先（`logs / artifacts / plots`）を統一する。
+- `run_id` を生成し、出力先（`logs / artifacts`）を統一する。
 - 重要イベントを構造化ログで出す（config hash, data fingerprint, split hash 等）。
 - エラー時は `code` を必ずログに残す。
-- `output_dir` オプション（Config or コンストラクタ引数）指定時、`{output_dir}/{run_id}/` にログ・plot 保存先を統一する。
-- `output_dir` 未指定時は現行動作（ログは標準出力、plot は返却のみ）を維持する。
+- `output_dir` オプション（Config or コンストラクタ引数）指定時、`{output_dir}/{run_id}/` をログの保存先にする。plot はファイルに保存しない: plot API は plotly の Figure を返すだけで、`output_dir` の有無で変わらない（H-0034 は plot の保存先もここにすると書いたが、plot を書く経路は無い。H-0111）。
+- `output_dir` 未指定時はログを標準出力に出す。
 - `output_dir` の優先順位は constructor > config > 未指定（`Model(..., output_dir=...)` が Config の `output_dir` に勝つ。H-0039）。解決は `or` なので、偽値のコンストラクタ引数は Config に落ちる。
 - `output_dir` があれば `fit()` / `tune()` はそれぞれ新しい `run_id` で `{output_dir}/{run_id}/` を作り、`run.log` を書く（ログファイルが出力先に保存される、H-0034）。
 - `export()` を path 無しで呼ぶと、直前の run のディレクトリがあれば `{run_dir}/export` に、無ければ `output_dir` の下に新しい run ディレクトリを作ってその `export` に書く。どちらも無ければ `SERIALIZATION_FAILED`（H-0039）。
