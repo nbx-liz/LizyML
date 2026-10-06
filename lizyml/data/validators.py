@@ -9,6 +9,31 @@ import pandas as pd
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 
 
+def _require_column(
+    df: pd.DataFrame, name: str, *, role: str, label: str, check: str
+) -> None:
+    """Raise ``DATA_SCHEMA_INVALID`` when the column a check is named for is absent.
+
+    Returning ``[]`` here would answer like a check that ran and found nothing
+    (#311, H-0112), so the absence is reported whatever ``raise_on_violation``
+    is. ``context`` follows ``dataframe_builder``'s missing-column shape.
+    """
+    if name in df.columns:
+        return
+    raise LizyMLError(
+        ErrorCode.DATA_SCHEMA_INVALID,
+        user_message=(
+            f"{label} column '{name}' is not in the DataFrame, so the "
+            f"{check} checked nothing."
+        ),
+        context={
+            role: name,
+            "missing_columns": [name],
+            "available_columns": list(df.columns),
+        },
+    )
+
+
 def validate_time_series_order(
     df: pd.DataFrame,
     time_col: str,
@@ -26,11 +51,14 @@ def validate_time_series_order(
         List of warning messages (empty if no violations).
 
     Raises:
-        LizyMLError: With ``LEAKAGE_SUSPECTED`` when ``raise_on_violation=True``
-            and the time column is not sorted.
+        LizyMLError: With ``DATA_SCHEMA_INVALID`` (whatever
+            ``raise_on_violation`` is) when ``time_col`` is not a column of
+            ``df``, and with ``LEAKAGE_SUSPECTED`` when
+            ``raise_on_violation=True`` and the time column is not sorted.
     """
-    if time_col not in df.columns:
-        return []
+    _require_column(
+        df, time_col, role="time_col", label="Time", check="time-order check"
+    )
     col = df[time_col]
     is_sorted = col.is_monotonic_increasing
     if not is_sorted:
@@ -68,14 +96,16 @@ def validate_no_target_leakage(
         List of warning messages.
 
     Raises:
-        LizyMLError: With ``LEAKAGE_SUSPECTED`` when a perfect correlation is
-            found and ``raise_on_violation`` is true, and with
-            ``DATA_SCHEMA_INVALID`` (whatever ``raise_on_violation`` is) when a
-            column cannot be compared with the target. Columns are checked in
-            order, so the first of these conditions met is the one raised.
+        LizyMLError: With ``DATA_SCHEMA_INVALID`` (whatever
+            ``raise_on_violation`` is) when ``target`` is not a column of
+            ``df``, before any column is compared. Then, with
+            ``LEAKAGE_SUSPECTED`` when a perfect correlation is found and
+            ``raise_on_violation`` is true, and with ``DATA_SCHEMA_INVALID``
+            (whatever ``raise_on_violation`` is) when a column cannot be
+            compared with the target. Columns are checked in order, so the
+            first of these conditions met is the one raised.
     """
-    if target not in df.columns:
-        return []
+    _require_column(df, target, role="target", label="Target", check="leakage check")
 
     y = df[target]
     warnings: list[str] = []
