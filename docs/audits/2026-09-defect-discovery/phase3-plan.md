@@ -145,7 +145,7 @@ acceptance (DC5) the audit exists to find; see §5.
 | 7 | Decide the leakage validator's swallow | #267 | — | H-0107 | caller can tell "clean" from "not checked" | **merged** (#312, 2026-10-01). Design 3 rounds, code 2, close review 2. Filed #311 |
 | 8 | Classify all 74 defaulted public knobs (the "22 unreachable" were mostly reachable) | #268 | — | H-0108 | all 74 defaulted public knobs: reachable or written policy | **merged** (#314, 2026-10-01). The premise was wrong: see §PR 8. Design 4 rounds, code 3, close review 2. Filed #313 |
 | **8b** | **Record what the fit applied, in the artifact** | **#281** | — | yes | every value a reporting surface answers for survives `load()` | **merged** (#316, 2026-10-01; H-0109). Design 6 rounds (blocking 4 → 1 → 1 → 2 → 1 → 0; rounds 2-5 on the gain-tolerance derivation), code 2 (4 → 0), close review 1. #281 closed. Filed #315 |
-| **8c** | **Ship the completion-measurement instrument** | — | — | — | Phase 3 completion measured rather than judged per PR | **merged (#317, `13fb9d7`)** (2026-10-02; moved earlier, was: before PR 9). Design review 3 rounds and acceptance review 3+ rounds, each with a fact check; after round 6 the maintainer chose to stop staging package files into before trees (option C). At `33a3f6e` the instrument reports 19 COMPLETE, 3 COMPLETE-RED-BY-MUTATION, #270 PARTIAL, #286 NOT-PLANNED, #271 INCOMPLETE (PR 9). **Phase 3 completion is decided by running `instruments/phase3_gap.py` after PR 9, not by this row.** No Proposal: the instrument is audit tooling outside `lizyml/` (H-0110 is the next free id) |
+| **8c** | **Ship the completion-measurement instrument** | — | — | — | Phase 3 completion measured rather than judged per PR | **merged (#317, `13fb9d7`)** (2026-10-02; moved earlier, was: before PR 9). Design review 3 rounds and acceptance review 3+ rounds, each with a fact check; after round 6 the maintainer chose to stop staging package files into before trees (option C). At `33a3f6e` the instrument reports 19 COMPLETE, 3 COMPLETE-RED-BY-MUTATION, #270 PARTIAL, #286 NOT-PLANNED, #271 INCOMPLETE (PR 9). **Phase 3 completion was decided by running `instruments/phase3_gap.py` after PR 9, not by this row: PR 9b (#322, `c873146`) ran it and it exited 0 (`results/phase3_completion_21db071.txt`).** No Proposal: the instrument is audit tooling outside `lizyml/` (H-0110 is the next free id) |
 | 9 | Fold the decided proposals into `BLUEPRINT.md` | #271 | H-0110 | yes | every HISTORY proposal has a content-checked BLUEPRINT disposition (`docs/proposal_dispositions.toml`, `tests/test_docs/test_proposal_blueprint_coverage.py`) | **merged (#320, `21db071`)** (2026-10-06); #271 closed after a close review. Re-measured at `13fb9d7` instead of the unrecoverable 2026-09-06 inventory: 42 entries / 307 clauses, 127 owed (`results/pr9_clause_inventory.md`). H-0110 Accepted after design review 3 rounds + a narrow fix check. Deferred, not folded: #318 (six behaviours the code does not have), #319 (HISTORY record drift). PR 9b records #320 and the pinned close comment in the #271 manifest row; `phase3_gap.py` then decides Phase 3 |
 
 ## 4. Per PR
@@ -1280,6 +1280,12 @@ empty is not user input and is out of that population — it is covered from the
 other side, by PR 1's boundary test over every key that reaches `lgb.train`.
 
 ## 8. How completion is measured
+
+> **Revision 8 (2026-10-06, PR 9b) -- completion measured.** After PR 9 the
+> instrument reports COMPLETE 19, COMPLETE-RED-BY-MUTATION 4, PARTIAL 1 (#270),
+> NOT-PLANNED 1 (#286), INCOMPLETE 0, UNKNOWN 0 of 25, exit 0
+> (`results/phase3_completion_21db071.txt`, committed in PR 9b `c873146`). Phase 3
+> is complete. The Revision 7 banner below records the state at `33a3f6e`.
 
 > **Revision 7 (2026-10-02, PR 8c) — the instrument is shipped.** It is
 > `instruments/phase3_gap.py`, `instruments/phase3_manifest.json` (25 rows: the
