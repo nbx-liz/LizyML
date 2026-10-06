@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased — H-0113
+
+- **Changed — action may be required: a Platt or Beta calibration whose optimiser did not converge now fails** ([#297](https://github.com/nbx-liz/LizyML/issues/297)). Both calibrators used `scipy.optimize.minimize`'s coefficients without checking `success`. An optimisation that stopped at an iteration or evaluation limit, or after a failed line search, therefore shipped its intermediate or initial coefficients as a fitted calibrator, with no warning. Such a fit now raises `LizyMLError(CALIBRATION_FAILED)`, a new `ErrorCode`. `context` holds `calibrator`, `method`, scipy's `message` / `status` and `nit`. `Model.fit` adds `stage` (`"cross_fit"` with the `fold`, or `"c_final"`). The generated `train.py` raises `RuntimeError` in the same case. Measured over the test suite, no default-setting fit reaches this path (0 of 397 calls). A `calibration.params` `options` limit such as `{"maxiter": 1}` does.
+
 ## Unreleased — H-0112
 
 - **Changed — action may be required: the leakage checks refuse a frame without the column they are named for** ([#311](https://github.com/nbx-liz/LizyML/issues/311)). `validate_no_target_leakage(df, target)` used to return `[]` when `target` was not a column of `df`, and `validate_time_series_order(df, time_col)` did the same for `time_col`. That is the same answer as a frame that was checked and found clean, so a misspelt name got a clean result from a check that compared nothing. Both now raise `LizyMLError(DATA_SCHEMA_INVALID)` before checking anything, whatever `raise_on_violation` is. `context` holds `target` / `time_col`, `missing_columns` and `available_columns`. Calls whose column is present behave as before. In the test suite, 2 of 51 calls passed a missing column, and both were the tests that pinned the old `[]`.

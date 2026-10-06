@@ -483,6 +483,7 @@ except LizyMLError as e:
 | `EVALUATION_FAILED` | OOF predictions contain NaN in covered rows, or feval construction failed. |
 | `CALIBRATION_NOT_SUPPORTED` | Calibration was requested for a non-binary task or unsupported config. |
 | `CALIBRATION_NOT_FITTED` | A calibrator's `predict()` / `export_params()` was called before `fit()`. |
+| `CALIBRATION_FAILED` | The Platt or Beta calibrator's `minimize` did not converge (`success` false), so its coefficients are not used. `context` has `calibrator`, `method`, `message`, `status` and `nit`, plus `stage` (`"cross_fit"` with `fold`, or `"c_final"`) when raised from `Model.fit`. |
 | `SERIALIZATION_FAILED` | `export()` encountered an I/O error or could not resolve a path. |
 | `DESERIALIZATION_FAILED` | `load()` encountered a validation or I/O error. |
 | `TARGET_NOT_NUMERIC` | `task: regression` with a non-numeric target column. |

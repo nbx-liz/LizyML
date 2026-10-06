@@ -24,6 +24,7 @@ import numpy.typing as npt
 
 from lizyml.calibration._optimizer import (
     METHODS,
+    require_converged,
     resolve_minimize_kwargs,
     validate_optimizer_params,
 )
@@ -132,6 +133,7 @@ class PlattCalibrator(BaseCalibratorAdapter):
             return loss, np.array([residual @ rescaled, residual.sum()])
 
         result = minimize(objective, jac=True if gradient else None, **kwargs)
+        require_converged(result, calibrator="platt", method=kwargs["method"])
         self._coef = (float(result.x[0]) / scale, float(result.x[1]))
         return self
 
