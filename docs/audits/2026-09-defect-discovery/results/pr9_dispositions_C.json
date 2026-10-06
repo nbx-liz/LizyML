@@ -1,0 +1,1443 @@
+{
+ "head": "13fb9d7",
+ "entries": {
+  "H-0000": {
+   "disposition": "specified",
+   "anchors": [
+    "[build-system]",
+    "[project.optional-dependencies]",
+    "py.typed",
+    "twine check"
+   ],
+   "anchor_lines": {
+    "[build-system]": [
+     1545
+    ],
+    "[project.optional-dependencies]": [
+     1555
+    ],
+    "py.typed": [
+     1557
+    ],
+    "twine check": [
+     1716
+    ]
+   },
+   "reason": "Sections 15.5 and 18.2 state the packaging and CI distribution checks."
+  },
+  "H-0010": {
+   "disposition": "superseded",
+   "superseded_by": "H-0069",
+   "reason": "H-0010 added validation_ratio as a stored input alias that generated a holdout inner_valid and refused any co-specification. H-0069 removed the stored field: validation_ratio is a read-only value derived from inner_valid.ratio, legacy input is converted, and co-specification is refused only when the ratios differ (BLUEPRINT 359, 651-652). The method now comes from outer-split auto-resolution (H-0020). H-0069 does not cite H-0010 by id."
+  },
+  "H-0012": {
+   "disposition": "specified",
+   "anchors": [
+    "_downsample_is()"
+   ],
+   "anchor_lines": {
+    "_downsample_is()": [
+     1243
+    ]
+   },
+   "reason": "Implemented (lizyml/plots/residuals.py:53) despite status proposed; section 13.3 states the IS downsampling with seed=0."
+  },
+  "H-0013": {
+   "disposition": "specified",
+   "anchors": [
+    "method: \"kfold\"",
+    "stratified_kfold"
+   ],
+   "anchor_lines": {
+    "method: \"kfold\"": [
+     635
+    ],
+    "stratified_kfold": [
+     294
+    ]
+   },
+   "reason": "Section 10.2 note and the 5.4 split default state the classification default and the kfold warning."
+  },
+  "H-0015": {
+   "disposition": "specified",
+   "anchors": [
+    "model.roc_curve_plot()",
+    "roc_curve_plot()"
+   ],
+   "anchor_lines": {
+    "model.roc_curve_plot()": [
+     147
+    ],
+    "roc_curve_plot()": [
+     147,
+     1246
+    ]
+   },
+   "reason": "Sections 4.1 and 13.3 state the binary IS/OOS ROC curve API (later extended to multiclass)."
+  },
+  "H-0020": {
+   "disposition": "specified",
+   "anchors": [
+    "holdout(stratify=True)",
+    "group_holdout",
+    "time_holdout"
+   ],
+   "anchor_lines": {
+    "holdout(stratify=True)": [
+     658,
+     670
+    ],
+    "group_holdout": [
+     659,
+     660,
+     663
+    ],
+    "time_holdout": [
+     661,
+     662
+    ]
+   },
+   "reason": "Section 10.3.1 default-resolution table states the inner-valid method per outer split."
+  },
+  "H-0021": {
+   "disposition": "specified",
+   "anchors": [
+    "auto_num_leaves",
+    "min_data_in_leaf_ratio",
+    "feature_weights",
+    "feature_pre_filter",
+    "scale_pos_weight"
+   ],
+   "anchor_lines": {
+    "auto_num_leaves": [
+     245,
+     247,
+     253
+    ],
+    "min_data_in_leaf_ratio": [
+     259
+    ],
+    "feature_weights": [
+     265,
+     267,
+     269
+    ],
+    "feature_pre_filter": [
+     270
+    ],
+    "scale_pos_weight": [
+     277
+    ]
+   },
+   "reason": "Section 5.3 states all four smart parameters (balanced default later changed by H-0027, ratio basis by H-0036)."
+  },
+  "H-0022": {
+   "disposition": "specified",
+   "anchors": [
+    "[huber, mae, mape]",
+    "[auc, binary_logloss]",
+    "[auc_mu, multi_logloss]",
+    "first_metric_only",
+    "bagging_freq"
+   ],
+   "anchor_lines": {
+    "[huber, mae, mape]": [
+     1325
+    ],
+    "[auc, binary_logloss]": [
+     1325
+    ],
+    "[auc_mu, multi_logloss]": [
+     1325
+    ],
+    "first_metric_only": [
+     1365
+    ],
+    "bagging_freq": [
+     1372
+    ]
+   },
+   "reason": "Section 14.3 states task defaults, common defaults and training defaults."
+  },
+  "H-0023": {
+   "disposition": "specified",
+   "anchors": [
+    "TrialResult",
+    "tuning_table()",
+    "TuningResult.trials"
+   ],
+   "anchor_lines": {
+    "TrialResult": [
+     138,
+     534,
+     535
+    ],
+    "tuning_table()": [
+     140
+    ],
+    "TuningResult.trials": [
+     140
+    ]
+   },
+   "reason": "Sections 4.1 and 7.2 state TuningResult, TrialResult and tuning_table() (best_params later split by H-0050)."
+  },
+  "H-0027": {
+   "disposition": "specified",
+   "anchors": [
+    "Config Reference",
+    "min_data_in_leaf_ratio",
+    "min_data_in_bin_ratio",
+    "balanced"
+   ],
+   "anchor_lines": {
+    "Config Reference": [
+     282
+    ],
+    "min_data_in_leaf_ratio": [
+     347
+    ],
+    "min_data_in_bin_ratio": [
+     348
+    ],
+    "balanced": [
+     350
+    ]
+   },
+   "reason": "Section 5.4 is the Config Reference this proposal added; it states the decided defaults (ratios 0.01, balanced null)."
+  },
+  "H-0029": {
+   "disposition": "specified",
+   "anchors": [
+    "model.fit_result"
+   ],
+   "anchor_lines": {
+    "model.fit_result": [
+     154
+    ]
+   },
+   "reason": "Section 4.1 states the read-only property and MODEL_NOT_FIT."
+  },
+  "H-0031": {
+   "disposition": "specified",
+   "anchors": [
+    "\"beta\"",
+    "BetaCalibrator"
+   ],
+   "anchor_lines": {
+    "\"beta\"": [
+     382
+    ],
+    "BetaCalibrator": [
+     1809
+    ]
+   },
+   "reason": "Section 5.4 calibration.method and the section 19 calibrator list state Beta; the 12.2 Beta section details it."
+  },
+  "H-0033": {
+   "disposition": "specified",
+   "anchors": [
+    "time_range",
+    "model.split_summary()",
+    "train_start",
+    "train_end"
+   ],
+   "anchor_lines": {
+    "time_range": [
+     514
+    ],
+    "model.split_summary()": [
+     152
+    ],
+    "train_start": [
+     1251
+    ],
+    "train_end": [
+     1251
+    ]
+   },
+   "reason": "Section 7.1 splits.time_range and 4.1 / 13.3 split_summary()."
+  },
+  "H-0036": {
+   "disposition": "specified",
+   "anchors": [
+    "min_data_in_leaf_ratio",
+    "min_data_in_bin_ratio"
+   ],
+   "anchor_lines": {
+    "min_data_in_leaf_ratio": [
+     259
+    ],
+    "min_data_in_bin_ratio": [
+     260
+    ]
+   },
+   "reason": "Section 5.3 states the n_rows_inner_train basis per fold (lines 257-262)."
+  },
+  "H-0037": {
+   "disposition": "no_obligation",
+   "reason": "Document-consistency fix only; its Decision says the change gate does not apply (wording, a notebook cell, a test). The balanced/ratio defaults it aligns were decided by H-0027 and are anchored there."
+  },
+  "H-0041": {
+   "disposition": "specified",
+   "anchors": [
+    "lgb.train()",
+    "LGBMRegressor",
+    "keep_training_booster=True",
+    "lgb.Dataset"
+   ],
+   "anchor_lines": {
+    "lgb.train()": [
+     1302,
+     1309
+    ],
+    "LGBMRegressor": [
+     1302
+    ],
+    "keep_training_booster=True": [
+     1306
+    ],
+    "lgb.Dataset": [
+     1309
+    ]
+   },
+   "reason": "Section 14.2.1 states the Booster API migration."
+  },
+  "H-0042": {
+   "disposition": "specified",
+   "anchors": [
+    "_model_plots.py",
+    "_model_tables.py",
+    "_model_persistence.py"
+   ],
+   "anchor_lines": {
+    "_model_plots.py": [
+     1750,
+     1940
+    ],
+    "_model_tables.py": [
+     1751,
+     1940
+    ],
+    "_model_persistence.py": [
+     1753,
+     1940
+    ]
+   },
+   "reason": "Appendix B and section 19 state the mixin split."
+  },
+  "H-0043": {
+   "disposition": "specified",
+   "anchors": [
+    "make_regression_df()",
+    "@pytest.mark.slow",
+    "--cov-fail-under=95"
+   ],
+   "anchor_lines": {
+    "make_regression_df()": [
+     1703
+    ],
+    "@pytest.mark.slow": [
+     1705
+    ],
+    "--cov-fail-under=95": [
+     1706
+    ]
+   },
+   "reason": "Section 18.1 test infrastructure policy states helpers, slow split and coverage gate."
+  },
+  "H-0044": {
+   "disposition": "superseded",
+   "superseded_by": "H-0058",
+   "reason": "H-0044 built calibration splits from split.method with calibration.n_splits overriding the fold count. H-0058 replaced that: calibration reuses fit_result.splits.outer and calibration.n_splits is deprecated and ignored (BLUEPRINT 383, 622, 733-734)."
+  },
+  "H-0045": {
+   "disposition": "specified",
+   "anchors": [
+    "oof_per_fold",
+    "if_per_fold",
+    "if_mean"
+   ],
+   "anchor_lines": {
+    "oof_per_fold": [
+     461
+    ],
+    "if_per_fold": [
+     463
+    ],
+    "if_mean": [
+     462,
+     1230
+    ]
+   },
+   "reason": "Sections 6.3 and 13.2 state fold columns as OOF-per-fold, IF kept as reference."
+  },
+  "H-0046": {
+   "disposition": "specified",
+   "anchors": [
+    "汎化監視",
+    "学習過程監視",
+    "plot_learning_curve()"
+   ],
+   "anchor_lines": {
+    "汎化監視": [
+     1260,
+     1261,
+     1266,
+     1267,
+     1268,
+     1269,
+     1271
+    ],
+    "学習過程監視": [
+     1265,
+     1273
+    ],
+    "plot_learning_curve()": [
+     1265
+    ]
+   },
+   "reason": "Section 13.4 is the classification table this proposal added."
+  },
+  "H-0047": {
+   "disposition": "specified",
+   "anchors": [
+    "IsotonicCalibrator",
+    "monotone_constraints_method",
+    "patience=100",
+    "validation_ratio=0.1"
+   ],
+   "anchor_lines": {
+    "IsotonicCalibrator": [
+     1136
+    ],
+    "monotone_constraints_method": [
+     1145
+    ],
+    "patience=100": [
+     1159
+    ],
+    "validation_ratio=0.1": [
+     1160
+    ]
+   },
+   "reason": "Section 12.2 Isotonic states defaults and early stopping; its decision 6 (sigmoid on predict) was corrected by H-0100 and BLUEPRINT line 1172 records the correction."
+  },
+  "H-0048": {
+   "disposition": "specified",
+   "anchors": [
+    "TuneProgressInfo",
+    "TuneProgressCallback",
+    "progress_callback"
+   ],
+   "anchor_lines": {
+    "TuneProgressInfo": [
+     139,
+     886,
+     903,
+     909,
+     922
+    ],
+    "TuneProgressCallback": [
+     139,
+     900,
+     903,
+     922
+    ],
+    "progress_callback": [
+     139,
+     914,
+     919
+    ]
+   },
+   "reason": "Sections 4.1 and 11.4 state the callback contract."
+  },
+  "H-0050": {
+   "disposition": "specified",
+   "anchors": [
+    "best_model_params",
+    "best_smart_params",
+    "best_training_params",
+    "TrainComponents",
+    "resolve_smart_params"
+   ],
+   "anchor_lines": {
+    "best_model_params": [
+     126,
+     138,
+     530,
+     538
+    ],
+    "best_smart_params": [
+     126,
+     138,
+     531,
+     538
+    ],
+    "best_training_params": [
+     126,
+     138,
+     532,
+     538
+    ],
+    "TrainComponents": [
+     431,
+     446,
+     448
+    ],
+    "resolve_smart_params": [
+     806
+    ]
+   },
+   "reason": "Sections 6.2 / 7.2 / 11.2 state the category split and the shared TrainComponents path."
+  },
+  "H-0051": {
+   "disposition": "specified",
+   "anchors": [
+    "DataFingerprint",
+    "MetricRegistry",
+    "CalibratorRegistry"
+   ],
+   "anchor_lines": {
+    "DataFingerprint": [
+     1741,
+     1768
+    ],
+    "MetricRegistry": [
+     1736
+    ],
+    "CalibratorRegistry": [
+     1736
+    ]
+   },
+   "reason": "Section 19 states the retained registries and DataFingerprint in core/types (the dead-code deletions carry no contract)."
+  },
+  "H-0052": {
+   "disposition": "specified",
+   "anchors": [
+    "training/oof_assembly.py",
+    "fill_oof",
+    "get_fold_pred",
+    "evaluator.py"
+   ],
+   "anchor_lines": {
+    "training/oof_assembly.py": [
+     443,
+     1931
+    ],
+    "fill_oof": [
+     1815
+    ],
+    "get_fold_pred": [
+     1815
+    ],
+    "evaluator.py": [
+     1818,
+     1932
+    ]
+   },
+   "reason": "Sections 6.2, 19 and Appendix B state OOF helpers in training/ and the raw-only evaluator."
+  },
+  "H-0053": {
+   "disposition": "specified",
+   "anchors": [
+    "EstimatorProvider",
+    "build_estimator_factory",
+    "build_pipeline_factory",
+    "default_fixed_params",
+    "LGBMProvider"
+   ],
+   "anchor_lines": {
+    "EstimatorProvider": [
+     61,
+     63,
+     65,
+     1384,
+     1414,
+     1451,
+     1480,
+     1484
+    ],
+    "build_estimator_factory": [
+     1432
+    ],
+    "build_pipeline_factory": [
+     1436,
+     1455
+    ],
+    "default_fixed_params": [
+     1440
+    ],
+    "LGBMProvider": [
+     1482,
+     1484
+    ]
+   },
+   "reason": "Sections 2.2 and 14.4 state the provider protocol."
+  },
+  "H-0054": {
+   "disposition": "specified",
+   "anchors": [
+    "set_categorical_features",
+    "runtime_deps",
+    "search_dim.py"
+   ],
+   "anchor_lines": {
+    "set_categorical_features": [
+     1288,
+     1291
+    ],
+    "runtime_deps": [
+     1441,
+     1453
+    ],
+    "search_dim.py": [
+     1744
+    ]
+   },
+   "reason": "Sections 14.1 / 14.4 / 19 state the adapter hook, runtime_deps and SearchDim in Foundation."
+  },
+  "H-0056": {
+   "disposition": "specified",
+   "anchors": [
+    "oof_raw_scores=None",
+    "model_from_string()",
+    "check_estimator",
+    "all_x_types"
+   ],
+   "anchor_lines": {
+    "oof_raw_scores=None": [
+     1659
+    ],
+    "model_from_string()": [
+     1662
+    ],
+    "check_estimator": [
+     1666
+    ],
+    "all_x_types": [
+     1686
+    ]
+   },
+   "reason": "Status proposed but folded: sections 18.1.3-18.1.8 state categories A-E."
+  },
+  "H-0057": {
+   "disposition": "specified",
+   "anchors": [
+    "oof_coverage",
+    "compute_oof_valid_mask",
+    "df.attrs[\"oof_coverage\"]"
+   ],
+   "anchor_lines": {
+    "oof_coverage": [
+     502,
+     503,
+     1232
+    ],
+    "compute_oof_valid_mask": [
+     1247
+    ],
+    "df.attrs[\"oof_coverage\"]": [
+     1232
+    ]
+   },
+   "reason": "Sections 7.1 and 13.2 state split-derived coverage.",
+   "flag": "Decision 2 (HISTORY.md:3713, 3744) says a NaN in a covered OOF row raises ValueError (a pipeline-bug assertion). BLUEPRINT line 1228 states only covered-row aggregation, not the refusal. The code raises LizyMLError(EVALUATION_FAILED), not ValueError, so HISTORY and the code also disagree on the error type. Code: lizyml/evaluation/evaluator.py:140-152."
+  },
+  "H-0058": {
+   "disposition": "specified",
+   "anchors": [
+    "fit_result.splits.outer",
+    "calibration.n_splits",
+    "(oof_scores, y)"
+   ],
+   "anchor_lines": {
+    "fit_result.splits.outer": [
+     733
+    ],
+    "calibration.n_splits": [
+     622,
+     734
+    ],
+    "(oof_scores, y)": [
+     735
+    ]
+   },
+   "reason": "Section 10.5 states outer-split reuse and n_splits deprecation."
+  },
+  "H-0059": {
+   "disposition": "specified",
+   "anchors": [
+    "export_code()",
+    "test_equivalence.py",
+    "pipeline_state.json",
+    "requirements.txt"
+   ],
+   "anchor_lines": {
+    "export_code()": [
+     1538
+    ],
+    "test_equivalence.py": [
+     485,
+     490,
+     1530
+    ],
+    "pipeline_state.json": [
+     1533
+    ],
+    "requirements.txt": [
+     485,
+     1529,
+     1540
+    ]
+   },
+   "reason": "Sections 6.6 and 15.4 state the codegen output."
+  },
+  "H-0060": {
+   "disposition": "specified",
+   "anchors": [
+    "blocked_group_kfold",
+    "train_window",
+    "cutoffs",
+    "BlockedGroupInnerValid"
+   ],
+   "anchor_lines": {
+    "blocked_group_kfold": [
+     738,
+     746
+    ],
+    "train_window": [
+     751,
+     761,
+     772
+    ],
+    "cutoffs": [
+     749,
+     761,
+     770,
+     772
+    ],
+    "BlockedGroupInnerValid": [
+     776
+    ]
+   },
+   "reason": "Section 10.6 states config, fold generation and inner valid."
+  },
+  "H-0061": {
+   "disposition": "specified",
+   "anchors": [
+    "params_summary()"
+   ],
+   "anchor_lines": {
+    "params_summary()": [
+     1454
+    ]
+   },
+   "reason": "Section 14.4 line 1454 states metric in params_summary(); 14.3 line 1329 states the user-metric priority (no distinctive token there besides metric)."
+  },
+  "H-0062": {
+   "disposition": "specified",
+   "anchors": [
+    "metrics=None",
+    "plot_learning_curve()"
+   ],
+   "anchor_lines": {
+    "metrics=None": [
+     1241
+    ],
+    "plot_learning_curve()": [
+     1265
+    ]
+   },
+   "reason": "Section 13.3 states the metrics filter and LizyMLError on no match."
+  },
+  "H-0063": {
+   "disposition": "specified",
+   "anchors": [
+    "early_stopping.random_state",
+    "auto_categorical",
+    "scale_pos_weight"
+   ],
+   "anchor_lines": {
+    "early_stopping.random_state": [
+     1638
+    ],
+    "auto_categorical": [
+     1639
+    ],
+    "scale_pos_weight": [
+     1635
+    ]
+   },
+   "reason": "Section 18.1.2 states the propagation/effectiveness test design."
+  },
+  "H-0064": {
+   "disposition": "specified",
+   "anchors": [
+    "average_precision",
+    "feval",
+    "logloss",
+    "metric_bridge.py"
+   ],
+   "anchor_lines": {
+    "average_precision": [
+     1340
+    ],
+    "feval": [
+     1344,
+     1346,
+     1357,
+     1358
+    ],
+    "logloss": [
+     1339
+    ],
+    "metric_bridge.py": [
+     1333
+    ]
+   },
+   "reason": "Section 14.3 Metric Bridge states mapping, whitelist and feval."
+  },
+  "H-0065": {
+   "disposition": "specified",
+   "anchors": [
+    "EvaluationConfig.metrics",
+    "model.lgbm.params.metric",
+    "dict[str, dict[str, Any]]",
+    "MetricEntry"
+   ],
+   "anchor_lines": {
+    "EvaluationConfig.metrics": [
+     1209
+    ],
+    "model.lgbm.params.metric": [
+     1209
+    ],
+    "dict[str, dict[str, Any]]": [
+     1200,
+     1203
+    ],
+    "MetricEntry": [
+     1198,
+     1200,
+     1203
+    ]
+   },
+   "reason": "Section 13.1.1 states MetricEntry."
+  },
+  "H-0066": {
+   "disposition": "specified",
+   "anchors": [
+    "feval_metrics",
+    "greater_is_better",
+    "needs_proba"
+   ],
+   "anchor_lines": {
+    "feval_metrics": [
+     493,
+     1541
+    ],
+    "greater_is_better": [
+     1541
+    ],
+    "needs_proba": [
+     1541
+    ]
+   },
+   "reason": "Sections 6.6 and 15.4 state the feval_metrics contract."
+  },
+  "H-0068": {
+   "disposition": "specified",
+   "anchors": [
+    "expand_boundary",
+    "boundary_threshold",
+    "resume=True",
+    "RoundSummary",
+    "BoundaryReport"
+   ],
+   "anchor_lines": {
+    "expand_boundary": [
+     934
+    ],
+    "boundary_threshold": [
+     935
+    ],
+    "resume=True": [
+     1022
+    ],
+    "RoundSummary": [
+     950,
+     954,
+     984
+    ],
+    "BoundaryReport": [
+     950,
+     975,
+     985,
+     1000
+    ]
+   },
+   "reason": "Section 11.5 states re-tune."
+  },
+  "H-0069": {
+   "disposition": "specified",
+   "anchors": [
+    "inner_valid.ratio",
+    "validation_ratio",
+    "round-trip"
+   ],
+   "anchor_lines": {
+    "inner_valid.ratio": [
+     359,
+     651
+    ],
+    "validation_ratio": [
+     359,
+     651,
+     652
+    ],
+    "round-trip": [
+     652
+    ]
+   },
+   "reason": "Sections 5.4 and 10.3.1 state validation_ratio as a read-only derived value and the equal-value round-trip rule."
+  },
+  "H-0070": {
+   "disposition": "specified",
+   "anchors": [
+    "TargetEncoder",
+    "FitResult.target_encoder",
+    "TARGET_NOT_NUMERIC",
+    "TARGET_UNSEEN_LABEL"
+   ],
+   "anchor_lines": {
+    "TargetEncoder": [
+     522,
+     576,
+     1511
+    ],
+    "FitResult.target_encoder": [
+     552
+    ],
+    "TARGET_NOT_NUMERIC": [
+     586,
+     1589
+    ],
+    "TARGET_UNSEEN_LABEL": [
+     1590
+    ]
+   },
+   "reason": "Sections 7.1 / 7.3 / 8 / 15.2 state target encoding and format_version 2."
+  },
+  "H-0072": {
+   "disposition": "specified",
+   "anchors": [
+    "JournalStorage",
+    "study_name",
+    "load_if_exists=True",
+    "storage is not None and study_name is None"
+   ],
+   "anchor_lines": {
+    "JournalStorage": [
+     1027
+    ],
+    "study_name": [
+     1034,
+     1036,
+     1046
+    ],
+    "load_if_exists=True": [
+     1036,
+     1040
+    ],
+    "storage is not None and study_name is None": [
+     1046
+    ]
+   },
+   "reason": "Section 11.5.1 states persistent storage."
+  },
+  "H-0073": {
+   "disposition": "specified",
+   "anchors": [
+    "build_export_params",
+    "_model_persistence.py"
+   ],
+   "anchor_lines": {
+    "build_export_params": [
+     1445,
+     1456
+    ],
+    "_model_persistence.py": [
+     1456
+    ]
+   },
+   "reason": "Section 14.4 states build_export_params as the codegen entry."
+  },
+  "H-0074": {
+   "disposition": "specified",
+   "anchors": [
+    "FitState",
+    "Model._get_fit_state()"
+   ],
+   "anchor_lines": {
+    "FitState": [
+     1754,
+     1943
+    ],
+    "Model._get_fit_state()": [
+     1943
+    ]
+   },
+   "reason": "Appendix B states FitState as the single mixin entry (facade responsibility separation)."
+  },
+  "H-0075": {
+   "disposition": "no_obligation",
+   "reason": "Internal refactor (TaskType annotations, dispatch dicts); the entry states public API, return meanings and TaskType values are unchanged. Only BLUEPRINT trace is the section 19 tree line 1742. Unifying the unknown-task path to UNSUPPORTED_TASK is internal cleanup of a code already in 16.2."
+  },
+  "H-0077": {
+   "disposition": "specified",
+   "anchors": [
+    "TuningState",
+    "Model._get_fit_state()"
+   ],
+   "anchor_lines": {
+    "TuningState": [
+     1754
+    ],
+    "Model._get_fit_state()": [
+     1943
+    ]
+   },
+   "reason": "Appendix B states all mixins migrated to the state snapshots."
+  },
+  "H-0081": {
+   "disposition": "specified",
+   "anchors": [
+    "(num_threads, CPU)",
+    "num_threads"
+   ],
+   "anchor_lines": {
+    "(num_threads, CPU)": [
+     34,
+     1609
+    ],
+    "num_threads": [
+     34,
+     1609
+    ]
+   },
+   "reason": "Sections 2 and 18.1.1 state the reproducibility scope."
+  },
+  "H-0084": {
+   "disposition": "specified",
+   "anchors": [
+    "core/_model_state.py",
+    "_model_state.py"
+   ],
+   "anchor_lines": {
+    "core/_model_state.py": [
+     1943
+    ],
+    "_model_state.py": [
+     1754,
+     1943
+    ]
+   },
+   "reason": "Section 19 and Appendix B state the facade-adjacent location."
+  },
+  "H-0085": {
+   "disposition": "specified",
+   "anchors": [
+    "TimeHoldoutInnerValid",
+    "purge_gap + embargo",
+    "UserWarning"
+   ],
+   "anchor_lines": {
+    "TimeHoldoutInnerValid": [
+     653,
+     697
+    ],
+    "purge_gap + embargo": [
+     653
+    ],
+    "UserWarning": [
+     650
+    ]
+   },
+   "reason": "Sections 10.3.1-10.3.3 state gap propagation, the refit pipeline boundary (line 681) and the shuffled-holdout warning.",
+   "flag": "Decision for #207 item 4 (HISTORY.md:6889): a NaN in a numeric target is refused at Model.fit with LizyMLError(DATA_SCHEMA_INVALID), context nan_count. BLUEPRINT states no target-NaN rule (section 8.2 and 16 have none). Code: lizyml/core/types/target_encoder.py:123-135."
+  },
+  "H-0087": {
+   "disposition": "specified",
+   "anchors": [
+    "validators.py"
+   ],
+   "anchor_lines": {
+    "validators.py": [
+     1769
+    ]
+   },
+   "reason": "Only the section 19 tree line 1769 marks the validators as public API.",
+   "flag": "HISTORY.md:6971 makes validate_time_series_order / validate_no_target_leakage / validate_group_split public via lizyml.data and decides they are NOT wired into Model.fit. BLUEPRINT names neither the three functions nor the no-auto-wiring rule (only the section 19 tree note, line 1769). docs/api.md:507 documents them. Code: lizyml/data/__init__.py:16-22."
+  },
+  "H-0088": {
+   "disposition": "specified",
+   "anchors": [
+    "codegen/",
+    "templates.py",
+    "lgbm_params="
+   ],
+   "anchor_lines": {
+    "codegen/": [
+     1843
+    ],
+    "templates.py": [
+     1847,
+     1850
+    ],
+    "lgbm_params=": [
+     1850
+    ]
+   },
+   "reason": "Section 19 states codegen as Layer 3 and the declared seam deviation."
+  },
+  "H-0092": {
+   "disposition": "specified",
+   "anchors": [
+    "ARCHITECTURE.md",
+    "tests/test_docs/test_declared_versions.py",
+    "TimeHoldoutInnerValid"
+   ],
+   "anchor_lines": {
+    "ARCHITECTURE.md": [
+     7,
+     8
+    ],
+    "tests/test_docs/test_declared_versions.py": [
+     9
+    ],
+    "TimeHoldoutInnerValid": [
+     697
+    ]
+   },
+   "reason": "Section 0.1 states ARCHITECTURE.md is derived; 10.3.3 rewritten."
+  },
+  "H-0093": {
+   "disposition": "specified",
+   "anchors": [
+    "accepted_model_param_names",
+    "smart_param_names",
+    "feature_contri",
+    "verbose=-1"
+   ],
+   "anchor_lines": {
+    "accepted_model_param_names": [
+     1417,
+     1457
+    ],
+    "smart_param_names": [
+     1418,
+     1457
+    ],
+    "feature_contri": [
+     269
+    ],
+    "verbose=-1": [
+     1637
+    ]
+   },
+   "reason": "Sections 5.3 / 12.2 / 14.4 / 18.1.2 state the name boundary."
+  },
+  "H-0094": {
+   "disposition": "specified",
+   "anchors": [
+    "fit(params=...)",
+    "_merge_params",
+    "check_training_managed_overrides",
+    "tuning best_model_params"
+   ],
+   "anchor_lines": {
+    "fit(params=...)": [
+     241,
+     1650
+    ],
+    "_merge_params": [
+     1650
+    ],
+    "check_training_managed_overrides": [
+     1462
+    ],
+    "tuning best_model_params": [
+     1651
+    ]
+   },
+   "reason": "The 5.3 table and 14.4 / 18.1 state forwarding, origin naming and managed-name refusal. Its value-equality decisions were revised by H-0096 (BLUEPRINT 1459/1465 record that)."
+  },
+  "H-0095": {
+   "disposition": "specified",
+   "anchors": [
+    "param_domain.py",
+    "assert_plain_params",
+    "_param_dict_to_str"
+   ],
+   "anchor_lines": {
+    "param_domain.py": [
+     1465,
+     1467
+    ],
+    "assert_plain_params": [
+     1465
+    ],
+    "_param_dict_to_str": [
+     1465
+    ]
+   },
+   "reason": "Section 14.4 states entry normalization and the derived acceptance set (choices rule at 11.3 lines 867-880)."
+  },
+  "H-0096": {
+   "disposition": "specified",
+   "anchors": [
+    "値によらず",
+    "_pop_by_identity",
+    "values_differ"
+   ],
+   "anchor_lines": {
+    "値によらず": [
+     1459
+    ],
+    "_pop_by_identity": [
+     1461
+    ],
+    "values_differ": [
+     1465
+    ]
+   },
+   "reason": "Section 14.4 line 1459 states the value-independent duplicate-spelling refusal; 1465 records the removal of values_differ."
+  },
+  "H-0097": {
+   "disposition": "specified",
+   "anchors": [
+    "Revision 2",
+    "merged model parameters",
+    "verbosity"
+   ],
+   "anchor_lines": {
+    "Revision 2": [
+     1403
+    ],
+    "merged model parameters": [
+     1403
+    ],
+    "verbosity": [
+     1407
+    ]
+   },
+   "reason": "Status proposed but implemented (121a70f, PR #290); section 14.4 lines 1403-1408 state Revision 2."
+  },
+  "H-0098": {
+   "disposition": "specified",
+   "anchors": [
+    "structural walk",
+    "core/param_domain.py"
+   ],
+   "anchor_lines": {
+    "structural walk": [
+     1387
+    ],
+    "core/param_domain.py": [
+     1465
+    ]
+   },
+   "reason": "Status proposed but implemented (5fb8a80, PR #291; lizyml/core/param_domain.py:33); section 14.4 lines 1386-1394 state it."
+  },
+  "H-0099": {
+   "disposition": "specified",
+   "anchors": [
+    "tuning.optuna.params.direction",
+    "greater_is_better",
+    "early_stopping_rounds"
+   ],
+   "anchor_lines": {
+    "tuning.optuna.params.direction": [
+     1053
+    ],
+    "greater_is_better": [
+     1054
+    ],
+    "early_stopping_rounds": [
+     243
+    ]
+   },
+   "reason": "Objective direction (11.5.1) and the 5.3 table state direction reconciliation and inert-dimension refusal."
+  },
+  "H-0100": {
+   "disposition": "specified",
+   "anchors": [
+    "validate_params",
+    "_fit_platt",
+    "target_smoothing",
+    "calibration.params"
+   ],
+   "anchor_lines": {
+    "validate_params": [
+     1090
+    ],
+    "_fit_platt": [
+     1540
+    ],
+    "target_smoothing": [
+     1100
+    ],
+    "calibration.params": [
+     1090
+    ]
+   },
+   "reason": "Section 12.2 Platt/Beta/common optimizer sections and 15.4 state the decisions."
+  },
+  "H-0101": {
+   "disposition": "specified",
+   "anchors": [
+    "TimeHoldoutInnerValidConfig",
+    "gap=0"
+   ],
+   "anchor_lines": {
+    "TimeHoldoutInnerValidConfig": [
+     704
+    ],
+    "gap=0": [
+     697,
+     703
+    ]
+   },
+   "reason": "Section 10.3.3 states gap is not a Config field and explicit inner_valid uses gap=0."
+  },
+  "H-0102": {
+   "disposition": "specified",
+   "anchors": [
+    "space_mode",
+    "space_mode: replace"
+   ],
+   "anchor_lines": {
+    "space_mode": [
+     370,
+     811,
+     818
+    ],
+    "space_mode: replace": [
+     818
+    ]
+   },
+   "reason": "Sections 11.3 and 5.4 state the merge default and the replace migration."
+  },
+  "H-0103": {
+   "disposition": "specified",
+   "anchors": [
+    "TrainComponents.sample_weight",
+    "RefitTrainer.fit",
+    "tests/test_training/test_cv_refit_parity.py"
+   ],
+   "anchor_lines": {
+    "TrainComponents.sample_weight": [
+     448
+    ],
+    "RefitTrainer.fit": [
+     448
+    ],
+    "tests/test_training/test_cv_refit_parity.py": [
+     448
+    ]
+   },
+   "reason": "Sections 5.3 / 6.2 / 10.3.2 state refit weighting and the input-difference policy."
+  },
+  "H-0104": {
+   "disposition": "specified",
+   "anchors": [
+    "unseen_policy",
+    "PredictionResult.warnings",
+    "build_pipeline_factory"
+   ],
+   "anchor_lines": {
+    "unseen_policy": [
+     317,
+     608,
+     1437
+    ],
+    "PredictionResult.warnings": [
+     317,
+     609
+    ],
+    "build_pipeline_factory": [
+     1436
+    ]
+   },
+   "reason": "Sections 5.4 / 9.2 / 14.4 state unseen_policy, its reporting and the facade column check.",
+   "flag": "Decisions 1-2 (HISTORY.md:10280-10281): BaseFeaturePipeline.transform_with_warnings is a concrete method defaulting to (transform(X), []), and the get_state() key \"categorical_cols\" is optional and declares the estimator categorical columns. BLUEPRINT contains neither transform_with_warnings nor categorical_cols. Code: lizyml/features/pipeline_base.py:50,76."
+  },
+  "H-0106": {
+   "disposition": "specified",
+   "anchors": [
+    "SUPPORTED_CONFIG_VERSIONS",
+    "DATA_FINGERPRINT_MISMATCH",
+    "lizyml/config/version.py",
+    "METRIC_REQUIRES_PROBA",
+    "INCOMPATIBLE_COLUMNS"
+   ],
+   "anchor_lines": {
+    "SUPPORTED_CONFIG_VERSIONS": [
+     290
+    ],
+    "DATA_FINGERPRINT_MISMATCH": [
+     1570
+    ],
+    "lizyml/config/version.py": [
+     290
+    ],
+    "METRIC_REQUIRES_PROBA": [
+     1582
+    ],
+    "INCOMPATIBLE_COLUMNS": [
+     1579
+    ]
+   },
+   "reason": "The 5.4 config_version row and 16.2 state version checking on every path and the ErrorCode population.",
+   "flag": "Raising conditions are absent from BLUEPRINT (16.2 lists only the names): INCOMPATIBLE_COLUMNS when a column numeric at fit arrives non-numeric at predict (HISTORY.md:10422; lizyml/features/column_check.py:102), and METRIC_REQUIRES_PROBA when a needs_proba built-in metric receives non-probabilities (HISTORY.md:10428; lizyml/metrics/classification.py:81). Section 9.2 line 613 covers only missing/extra columns."
+  },
+  "H-0108": {
+   "disposition": "specified",
+   "anchors": [
+    "tests/test_config/_knob_registry.py",
+    "StratifiedKFoldSplitter.shuffle",
+    "Tuner.progress_callback"
+   ],
+   "anchor_lines": {
+    "tests/test_config/_knob_registry.py": [
+     387
+    ],
+    "StratifiedKFoldSplitter.shuffle": [
+     406
+    ],
+    "Tuner.progress_callback": [
+     399
+    ]
+   },
+   "reason": "Section 5.5 is the table this proposal added."
+  },
+  "H-0109": {
+   "disposition": "specified",
+   "anchors": [
+    "applied_training_params",
+    "FitState.applied_training_params"
+   ],
+   "anchor_lines": {
+    "applied_training_params": [
+     564,
+     1456,
+     1505
+    ],
+    "FitState.applied_training_params": [
+     1456
+    ]
+   },
+   "reason": "Sections 7.4 / 14.4 / 15.1 state the record and load() validation."
+  }
+ }
+}

@@ -139,19 +139,29 @@ model.export_code("path/to/codegen_dir")  # LizyML 非依存の学習・推論�
 - `tune()` は `progress_callback: TuneProgressCallback | None = None` を受け取り、各 trial 完了時に `TuneProgressInfo`（`current_trial / total_trials / elapsed_seconds / best_score / latest_score / latest_state`）をコールバックに渡す（H-0048）。コールバック内例外は catch して warning に変換し、tuning を中断させない。
 - `tuning_table()` は `TuningResult.trials` を `pd.DataFrame` に変換して返す（列: `trial`, メトリクス名, 探索パラメーター名）。`tune()` 未実行時は `MODEL_NOT_FIT`。
 - 学習後は、以下の補助 API を提供する。
-  - `model.importance(kind="split|gain|shap")`（特徴量重要度。`shap` は optional dependency）
+  - `model.importance(kind="split|gain|shap")`（特徴量重要度。全特徴量をキーに持つ `dict[str, float]` を返す。`shap` は optional dependency。`Model.importance(kind="shap")` の計算は §13.3）
   - `model.importance_plot(kind="split|gain|shap", top_n=20)`（特徴量重要度の可視化、Plotly）
   - `model.residuals()`（回帰専用。OOF 残差 `y - oof_pred` を `np.ndarray` で返す）
   - `model.residuals_plot(kind="scatter|histogram|qq|all")`（回帰専用。残差可視化、Plotly。IS/OOS 比較対応。デフォルト `kind="all"` で scatter + histogram + QQ の 3 パネル。scatter は Actual vs Predicted（x=predicted, y=actual）。IS サンプルは OOS 数に合わせてダウンサンプリング）
   - `model.evaluate_table()`（評価結果を `pd.DataFrame` で返す）
-  - `model.roc_curve_plot()`（binary 専用。IS/OOS の ROC Curve を重ね描き、Plotly）
+  - `model.roc_curve_plot()`（binary/multiclass。binary は IS/OOS の ROC Curve を重ね描き、multiclass はクラスごとの OvR ROC Curve を IS/OOS の subplot に並べる（§13.3、H-0019）、Plotly）
   - `model.confusion_matrix(threshold=0.5)`（binary/multiclass。IS/OOS の Confusion Matrix を `{"is": DataFrame, "oos": DataFrame}` で返す）
   - `model.calibration_plot()`（binary + calibration 有効時。Raw/Calibrated の Reliability Diagram、Plotly）
   - `model.probability_histogram_plot()`（binary + calibration 有効時。Raw/Calibrated の確率分布ヒストグラム、Plotly）
   - `model.tuning_plot()`（`tune()` 後。trial ごとのスコア推移と最良スコア推移を重ね描き、Plotly。完了/枝刈り/失敗を色分け）
   - `model.split_summary()`（fold ごとの分割情報を `pd.DataFrame` で返す。時系列分割時は期間情報を含む）
   - `model.params_table()`（解決済みパラメーターテーブル。Config smart params + resolved booster params + fold ごとの `best_iteration` を単一 `pd.DataFrame` で返す。`fit()` 未実行時は `MODEL_NOT_FIT`）
-  - `model.fit_result`（read-only プロパティ。`fit()` 後の `FitResult` を返す。`fit()` 未実行時は `MODEL_NOT_FIT`）
+    - 形: index は `parameter`、単一列は `value`（H-0035）。
+    - 行の順: Config の smart params（`auto_num_leaves` / `num_leaves_ratio` / ratio 等）、fold 0 の学習済み booster から読んだ解決済みネイティブパラメーター（`objective` / `metric` / `learning_rate` / `max_depth` / `num_leaves` / `min_data_in_leaf` / `min_data_in_bin` / `max_bin` / `feature_fraction` / `bagging_fraction` / `bagging_freq` / `lambda_l1` / `lambda_l2` / `num_iterations`。booster に無い名前は行を作らない。あれば `scale_pos_weight` / `num_class` / `feval_metrics` も）、training 設定（`early_stopping_rounds` / `validation_ratio`。その fit が使った値で、§14.4 の `build_export_params` と `applied_training_params` から読む）、fold ごとの `best_iteration_{i}`。
+    - ratio の smart params と解決された絶対値は名前が違うので同じ表に並び、「指定した ratio」と「解決された絶対値」を対比確認できる。
+  - `model.fit_result`（read-only プロパティ。`fit()` 後の `FitResult` の選択的 deep copy を返す（§7.1、H-0082）。`fit()` 未実行時は `MODEL_NOT_FIT`）
+- 前提を満たさない呼び出しは `LizyMLError` で失敗する:
+  - `Model.evaluate_table()` を `fit()` の前に呼ぶと `MODEL_NOT_FIT`（H-0005）。
+  - `Model.residuals()` / `Model.residuals_plot()` は binary / multiclass で `UNSUPPORTED_TASK`（H-0006）。
+  - `model.confusion_matrix()` は regression で `UNSUPPORTED_TASK`（H-0016）。`roc_curve_plot()` も regression で `UNSUPPORTED_TASK`（H-0019）。
+  - `calibration_plot()` / `probability_histogram_plot()` は binary 以外の task で `UNSUPPORTED_TASK`、Calibration 未有効時に呼び出した場合は `CALIBRATION_NOT_SUPPORTED`（H-0017）。
+  - `Model.tuning_plot()` を `tune()` の前に呼ぶと `MODEL_NOT_FIT`（H-0028）。
+- `evaluate(metrics=None)` は内部の metrics dict の deep copy（`copy.deepcopy`）を返し、内部状態への参照を返さない。呼び出し側が戻り値を変更しても内部状態と後の `export()` は変わらない（H-0082）。
 - `residuals()` / `residuals_plot()` / `importance(kind="shap")` / `roc_curve_plot()` / `confusion_matrix()` / `calibration_plot()` / `probability_histogram_plot()` は、`fit()` 後と `Model.load()` 後の両方で利用可能とする。
 - `Model.load()` 後の上記 API は、Artifact に含める `analysis_context`（`y_true`, `X_for_explain`）を参照して動作させる。
 
@@ -165,6 +175,9 @@ eval_result = loaded_model.evaluate()
 pred_result = loaded_model.predict(X_new)
 ```
 
+- `load()` は内部の metrics を `fit_result.metrics` の deep copy として持ち、`fit_result` プロパティが返す `FitResult` と可変オブジェクトを共有しない（`fit()` / `fit_result` と同じ隔離、H-0086）。
+- tune 済みモデルの artifact では、`metadata.json` の `tuning` ブロックから trial の無い最小の `TuningResult` を復元し、load 後の再 `fit()` が tuned params を再現する。ブロックの無い artifact は tuning result 無しで読む（§15.1、H-0086）。
+
 # 5. Config 設計
 
 ## 5.1 方針
@@ -175,6 +188,10 @@ pred_result = loaded_model.predict(X_new)
   - 読込: `dict / JSON / YAML`
   - override: CLI / 環境変数（例: `LIZYML__model__lgbm__params__learning_rate=0.05`）
   - 正規化: 表記揺れの吸収（例: `k-fold` と `kfold`）、deprecated key の警告 / 拒否方針
+    - `split.method` の別名は `config/loader.py` の表で正規化する（大文字小文字は区別しない）: `k-fold` / `stratified-kfold` / `stratifiedkfold` / `group-kfold` / `groupkfold` / `stratified-group-kfold` / `stratifiedgroupkfold`（→ `stratified_group_kfold`、H-0055）/ `time-series` / `timeseries` / `purged-time-series` / `purgedtimeseries`（→ `purged_time_series`）/ `group-time-series` / `grouptimeseries`（→ `group_time_series`、H-0032）。
+    - deprecated key は受理して警告を出す（`calibration.n_splits` は `UserWarning`、他の Config キーは `DeprecationWarning`。文面は削除目標の版を明記する）。非推奨の面（`validation_ratio` の入力、`calibration.n_splits`、`purged_time_series` の `purge_window` / `embargo_pct` / `gap`、`build_calibration_splitter`）はいずれも v1.0 で削除する。削除目標の登録簿は `docs/DEPRECATIONS.md`（§15.2、H-0076）。
+- 不正な Config は pydantic の `ValidationError` を包んだ `LizyMLError(CONFIG_INVALID)` になる（`cause` に元の例外、context `validation_errors`。`config/loader.py`）。どの入口（dict / ファイル / `Model(dict)`）でも同じである。
+  - smart ratio の範囲バリデーション（`min_data_in_leaf_ratio` / `min_data_in_bin_ratio` は `(0,1)` の開区間、§5.3）に外れた値もこの経路で `CONFIG_INVALID` になる（早期エラー、H-0025）。
 
 ## 5.2 Config 例（dict）
 
@@ -292,11 +309,12 @@ config = {
 | `data` | `object` | Yes | - | |
 | `features` | `object` | No | `{}` | |
 | `split` | `object` | No | タスク依存 | binary/multiclass→stratified_kfold, regression→kfold |
-| `model` | `object` | Yes | - | LightGBM のみ |
+| `model` | `object` | Yes | - | LightGBM のみ。`name` を判別キーとする discriminated union（`Field(discriminator="name")`、`LGBMConfig` は `name: Literal["lgbm"]` と `params` と smart params を持つ）。§5.2 の `{"lgbm": {...}}` 形は loader が `name` 形に変換し、`model_dump()` / `config_normalized` は `name` 形を書く（H-0001） |
 | `training` | `object` | No | `{}` | seed=42, early stopping 有効 |
 | `tuning` | `object \| null` | No | `null` | `tune()` 呼び出し時のみ必要 |
 | `evaluation` | `object` | No | `{}` | |
 | `calibration` | `object \| null` | No | `null` | binary 専用 |
+| `output_dir` | `str \| null` | No | `null` | run ごとの出力先の基底ディレクトリ（§17）。コンストラクタ引数 `Model(..., output_dir=...)` が優先する（H-0039）。H-0034 は「`Config` の `output` セクション」と書いたが、実装は最上位のキー `output_dir` である（H-0034） |
 
 ### data
 
@@ -305,7 +323,7 @@ config = {
 | `path` | `str \| null` | No | `null` | CSV/Parquet パス |
 | `target` | `str` | Yes | - | 目的変数列名 |
 | `time_col` | `str \| null` | No | `null` | 時系列列名（`time_series` / `purged_time_series` / `group_time_series` では必須） |
-| `group_col` | `str \| null` | No | `null` | グループ列名 |
+| `group_col` | `str \| null` | No | `null` | グループ列名（`group_kfold` / `stratified_group_kfold` / `group_time_series` では必須。未指定だと splitter が groups 無しで `ValueError` を送出する、H-0001） |
 
 ### features
 
@@ -322,10 +340,10 @@ config = {
 
 | method | 固有キー |
 |---|---|
-| `kfold` | `n_splits=5`, `random_state=42`, `shuffle=True` |
-| `stratified_kfold` | `n_splits=5`, `random_state=42` |
+| `kfold` | `n_splits=5`, `random_state=null`, `shuffle=True` |
+| `stratified_kfold` | `n_splits=5`, `random_state=null` |
 | `group_kfold` | `n_splits=5` |
-| `stratified_group_kfold` | `n_splits=5`, `random_state=42`, `shuffle=True` |
+| `stratified_group_kfold` | `n_splits=5`, `random_state=null`, `shuffle=True` |
 | `time_series` | `n_splits=5`, `gap=0`, `train_size_max=null`, `test_size_max=null` |
 | `purged_time_series` | `n_splits=5`, `purge_gap=0`, `embargo=0`, `train_size_max=null`, `test_size_max=null` |
 | `group_time_series` | `n_splits=5`, `gap=0`, `train_size_max=null`, `test_size_max=null` |
@@ -335,6 +353,8 @@ config = {
 - `time_series` / `purged_time_series` / `group_time_series` は共通で `data.time_col` 必須。
 - 3 メソッドは共通で `train_size_max` / `test_size_max` を受け取り、学習窓・検証窓の上限を制御する。
 - `purged_time_series` の旧キー `embargo_pct` は移行期間のみ後方互換として扱い、`embargo` に正規化する。
+- `purged_time_series` の旧キーは移行期間のみ警告付きで受理し（`DeprecationWarning`、v1.0 で削除、H-0076）、正規化する: `purge_window` → `purge_gap`（H-0038）、`embargo_pct` → `embargo`（H-0040）、`gap` → `embargo`（H-0038 は `embargo_pct` に写すと決めたが、H-0040 で `embargo` が観測数の単位になってからは `embargo` に写す）。
+- `random_state` の型は `int | None`（`KFoldConfig` / `StratifiedKFoldConfig` / `StratifiedGroupKFoldConfig`）。`null`（既定）なら splitter を構築するときに `training.seed` を継承し、明示した値はそれに勝つ。継承した値は Config に書き戻さない（`model_dump()` は `null` のまま、H-0080）。
 - `blocked_group_kfold` は2軸交差検証（期間 × グループ）。`blocks.col` で期間を `cutoffs` で区切り、`groups.col` で KFold する。詳細は §10.6 参照。
 
 ### model（LightGBM）
@@ -384,7 +404,7 @@ config = {
 
 ## 5.5 Config のキーが設定しない構成値（H-0108）
 
-公開クラスの `__init__` の既定値付き引数（74 個、AST で数えた母集団）を、値の出どころで分類した。**Config のキーの値がそのまま渡る 60 個**は、どのキーから来るかを経路ごとに `tests/test_config/_knob_registry.py` の台帳に書く（§5.4 の表に行の無い `output_dir`（§17）と `calibration.params` も含む）。`tests/test_config/test_knob_reachability.py` は、経路ごとに本物の `fit` / `tune` を実行してコンストラクタが受け取る値を確かめ、どの行にも既定でない値を設定したセルが少なくとも 1 つある。残りの 14 個をこの表に書く。表と `tests/test_config/_knob_registry.py` の台帳は同じテストが照合する。
+公開クラスの `__init__` の既定値付き引数（74 個、AST で数えた母集団）を、値の出どころで分類した。**Config のキーの値がそのまま渡る 60 個**は、どのキーから来るかを経路ごとに `tests/test_config/_knob_registry.py` の台帳に書く（§17 の `output_dir` と、§5.4 の表に行の無い `calibration.params` も含む）。`tests/test_config/test_knob_reachability.py` は、経路ごとに本物の `fit` / `tune` を実行してコンストラクタが受け取る値を確かめ、どの行にも既定でない値を設定したセルが少なくとも 1 つある。残りの 14 個をこの表に書く。表と `tests/test_config/_knob_registry.py` の台帳は同じテストが照合する。
 
 分類は、そのクラスを構築するすべての本番の経路で読み、最初に当てはまるものを採る:
 
@@ -447,6 +467,7 @@ config = {
    - `CVTrainer` と `RefitTrainer` は同じ `InnerValidStrategy` を共有する。
    - `TrainComponents.sample_weight` も両方に渡す（H-0103）。`RefitTrainer.fit` が `CVTrainer.fit` から受け取らない入力は次の 3 つで、いずれも方針である: `time_values`（時間順の split では両 trainer の前に全行が並べ替え済みで、CV はこれを fold ごとの時間範囲の記録にしか使わない）、`data_fingerprint` と `run_meta`（fit 1 回につき 1 つ、同じデータから `FitResult` に記録する）。入力差は `tests/test_training/test_cv_refit_parity.py` が両方の signature から検査する。
 9. `FitResult` を返し、Artifacts を保持する。
+   - 返すのは内部の `FitResult` ではなく、その選択的 deep copy（`FitResult.__deepcopy__`、§7.1）である。戻り値を変更しても内部状態と後の `export()` は変わらない（H-0086）。
 
 補足:
 
@@ -483,23 +504,26 @@ config = {
 LizyML 非依存の学習・推論コードを自動生成する。
 
 - **出力構造**: `config.json` + `train.py` + `predict.py` + `artifacts/` + `requirements.txt` + `test_equivalence.py`
-- **train.py**: Feature pipeline fit → LightGBM refit（全データ学習）→ OOF 生成（軽量 CV）→ Calibrator fit
+- **train.py**: Feature pipeline fit → LightGBM refit（全データ学習）→ OOF 生成（軽量 CV。fold は `config.json` の `split` ブロックから outer CV を再現する、§15.4）→ Calibrator fit
 - **predict.py**: Feature transform → LightGBM predict → Calibration apply
 - **config.json**: ハイパーパラメータ・特徴量定義・校正設定を集約。コード編集なしでパラメータ変更可能
 - 生成コードは `import lizyml` を含まない。依存は `lightgbm` / `numpy` / `pandas` / `scikit-learn`（学習時のみ）
 - `test_equivalence.py` で `Model.predict()` と codegen 出力の一致を `rtol=1e-7` で検証
 - 初期実装は LightGBM のみ対応。将来の EstimatorProvider 拡張で他アルゴリズムにも対応可能
 - Calibrator 保存形式: Platt → JSON (a, b)、Beta → JSON (a, b, c)、Isotonic → Booster テキスト
-- **feval metric 対応（H-0066）**: ユーザー指定の feval metric（f1, brier, ece, precision_at_k, accuracy, rmsle, r2）を `config.json` の `feval_metrics` フィールドに記録し、`train.py` 内に pure numpy で再実装する。feval metric 未使用時は `feval_metrics: []` で後方互換を維持
+- **feval metric 対応（H-0066）**: ユーザー指定の feval metric（f1, brier, ece, precision_at_k, accuracy, rmsle, r2, smape, wape。`smape` / `wape` は H-0071）を `config.json` の `feval_metrics` フィールドに記録し、`train.py` 内に pure numpy で再実装する。feval metric 未使用時は `feval_metrics: []` で後方互換を維持
 
 # 7. Artifacts（戻り値と保存対象の固定）
 
 ## 7.1 FitResult（固定スキーマ）
 
-- `oof_pred`（`np.ndarray / pd.Series`）
-- `if_pred_per_fold`（`list[np.ndarray]`）
+`FitResult` / `PredictionResult` / `SplitIndices` / `RunMeta` は `dataclass` であり、契約を固定する golden test は `dataclasses.fields` でフィールドの集合を照合する（H-0002）。
+
+- `oof_pred`（`np.ndarray`。shape は regression / binary で `(n_samples,)`、multiclass で `(n_samples, n_classes)`）
+- `if_pred_per_fold`（`list[np.ndarray]`。長さは `n_splits`、各要素はその fold の学習行（`train_idx`）全体に対する予測）
 - `metrics`（階層固定）
   - 例: `{"raw": {"oof": {...}, "oof_per_fold": [...], "if_mean": {...}, "if_per_fold": [...], "oof_coverage": 1.0}, "calibrated": {...}}`
+  - `oof_per_fold` / `if_per_fold` の長さは `n_splits`（fold の順）。
   - `oof_coverage`（float, 0.0–1.0）: validation fold に覆われた行の割合（H-0057）。KFold では常に `1.0`、TimeSeriesCV では `< 1.0` になりうる。`calibrated` は raw と構造一致のため別途含めない（H-0058）。
 - `models`
   - fold ごとのモデル
@@ -507,6 +531,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `history`
   - fold ごとの eval history / best_iteration
 - `feature_names / dtypes / categorical_features`
+  - `feature_names`: 学習に使った特徴量名の順序付き `list[str]`。`dtypes`: 特徴量名 → dtype 文字列の `dict[str, str]`。`categorical_features`: カテゴリとして扱った特徴量名の `list[str]`。
 - `splits`
   - 外側 CV indices（必須、元データ基準の absolute index）
   - inner valid indices（有効時必須。各 outer fold train に対する 0-based 相対 index）
@@ -517,13 +542,21 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `pipeline_state`（`FeaturePipeline` の状態、必須）
 - `calibrator`（有効時）
 - `run_meta`
-  - `yourlib_version / python_version / deps_version / config_normalized / config_version`
+  - `lizyml_version / python_version / deps_versions / config_normalized / config_version / run_id / timestamp`
+  - 型: `lizyml_version`（`str`）、`python_version`（`str`）、`deps_versions`（`dict[str, str]`）、`config_normalized`（`dict`）、`config_version`（`int`）、`run_id`（`str`、UUID 文字列）、`timestamp`（`str`、ISO 8601、UTC）。
 - `target_encoder`（H-0070, format_version=2）
   - `TargetEncoder(classes_: tuple[Any, ...], needs_encoding: bool, original_dtype: str)`
   - 数値 y / regression では `needs_encoding=False` の no-op
   - 非数値 classification y では `classes_` に **lexicographically** sorted な元ラベルを保持
     （`sorted(unique, key=str)`、numeric-string では自然順とは一致しない: `["1","10","2"]` → `("1","10","2")`）
   - `predict()` / codegen / persistence migration で利用
+
+公開の戻り値（`Model.fit()` と `Model.fit_result`）は選択的 deep copy（`FitResult.__deepcopy__`）である（H-0082 / H-0086）:
+
+- data フィールド（`metrics` / `history` / `splits` / 配列など）は deep copy する。呼び出し側が変更しても内部状態と後の `export()` は変わらない。
+- 学習済みの `models` / `calibrator` / `pipeline_state` は参照を共有し、慣例として read-only とする（LightGBM Booster の deep copy はモデル文字列を往復して `params` を失うため）。`models` はリストの容器だけを新しくする。
+- 呼び出すたびに別のオブジェクトを返す（同一性は保たない）。
+- `FitResult` は frozen でない `dataclass` のままにする。内部状態は戻り値を copy することで守り、型を frozen にはしない（H-0082）。
 
 ## 7.2 TuningResult（固定スキーマ）
 
@@ -539,10 +572,11 @@ LizyML 非依存の学習・推論コードを自動生成する。
 
 ## 7.3 PredictionResult（固定スキーマ）
 
-- `pred`（回帰: float、分類: class / proba）
-- `proba`（binary の場合）
-- `shap_values`（要求時のみ、形は統一）
-- `used_features`（列ズレ検知用）
+- `pred`（`np.ndarray`、shape `(n_samples,)`。回帰: 予測値、分類: クラスラベル。binary は `proba >= 0.5`、multiclass は `proba` の argmax を元のラベルに戻したもの）
+- `proba`（binary: 正例の確率、shape `(n_samples,)`。校正が有効なら `C_final` を通した値。multiclass: shape `(n_samples, n_classes)`。regression: `None`）
+  - multiclass の `(n_samples, n_classes)` は実装が返していた公開の振る舞いで、提案なしに広がっていたものを H-0110 で決定として記録した。
+- `shap_values`（要求時のみ（`return_shap=True`）、それ以外は `None`。shape は task を問わず `(n_samples, n_features)` に統一し、multiclass はクラス方向の mean(|SHAP|) で縮約する）
+- `used_features`（予測に使った特徴量名。refit が学習した `feature_names`。列ズレ検知用）
 - `warnings`（補正が走った場合の通知）
 
 補足:
@@ -584,6 +618,13 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - group: group 跨ぎ、分割条件の不整合
 - leakage: target リーク疑い（例: target と完全一致の列、時間逆転など）
 - target dtype: regression × 非数値 y は `TARGET_NOT_NUMERIC`（H-0070）
+- target の欠損: 数値 target に NaN があれば `Model.fit` の入口で `LizyMLError(DATA_SCHEMA_INVALID)`（context `nan_count`）を送出する（H-0085）。分類 target の NaN も同じ code で拒否する。
+- 公開 API: `lizyml.data` が `validate_time_series_order` / `validate_no_target_leakage` / `validate_group_split` を公開する（H-0087）。**`Model.fit` には自動配線しない**。利用者が明示的に呼ぶ（自動配線は通過中の config に新たに警告や例外を出す挙動変更なので、別の提案で扱う）。
+- `validate_no_target_leakage(df, target, *, raise_on_violation=True)` の規則（H-0107）:
+  - 列を順に target と比べる。`raise_on_violation=True` では最初に見つかった漏洩列で `LEAKAGE_SUSPECTED` を即座に送出する。戻り値（`[]` か警告のリスト）が返るのは、全列を比べ終えたときだけである。
+  - 比較が例外を出した列は、`raise_on_violation` に関わらず `LizyMLError(DATA_SCHEMA_INVALID)`（context `column` / `target`、`cause` は元の例外）。検査できなかった列を検査済みとして扱わない。
+  - 捕まえる範囲は比較の呼び出し 1 つだけで、例外の型は問わない（拡張配列の `OverflowError` / `AttributeError` も `DATA_SCHEMA_INVALID` になる）。`LEAKAGE_SUSPECTED` はその範囲の外で送出する。
+  - target 列が `df` に無いときに `[]` を返す振る舞いは決定していない（#311）。
 
 ## 8.3 Data fingerprint（必須）
 
@@ -598,6 +639,8 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `fit(X, y) / transform(X) / fit_transform(X, y)` の IF を固定する。
 - 状態（state）の永続化を必須にする。
 - OneHot のカテゴリ辞書、欠損補完統計量、target transform パラメータ等を保持する。
+- `BaseFeaturePipeline.transform_with_warnings(X)` は具体メソッドで、既定の実装は `(self.transform(X), [])` である（H-0104）。推論経路と SHAP はこれを呼び、返した警告は `PredictionResult.warnings` に届く。入力を補正する pipeline（列を落とす、値を置換する）は上書きして報告する。抽象にしないのは既存の外部サブクラスを壊さないためである。
+- `get_state()` の `"categorical_cols"` キーは任意で、estimator にカテゴリとして渡す出力列の宣言である。trainer はこのキーだけを読み、無ければカテゴリ列なしとして学習する（H-0104）。
 
 ## 9.2 列ズレ方針（仕様として固定）
 
@@ -611,6 +654,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
     - **CV の検証 fold にも同じ方針が効く。** ただし既定の `auto_categorical: true`（または `categorical` 指定）の列はデータ構築時に全行の値で `category` 型になるため、どの fold でも未知にならない。fold ごとに未知カテゴリが生じるのは、`auto_categorical: false` で pipeline がカテゴリとして扱う文字列列だけである。その場合 `error` では fit が止まり、`mode` / `nan` の置換は fit 中は報告されない（`FitResult` に警告の通り道が無い）。
     - SHAP 重要度は最後の CV fold の pipeline 状態で学習データ全体を変換する。上記の文字列列では、その fold に含まれない行（スライディング窓）の値が未知になりうる: `error` では SHAP 重要度が `DATA_SCHEMA_INVALID`、`mode` / `nan` では報告なしに置換される。
 - 推論時の列検査（不足列は `DATA_SCHEMA_INVALID`、余剰列は警告して除外）は pipeline に渡す**前**に facade（`Model.predict`）で行い、どの pipeline 実装でも省略されない（H-0104）。
+- 同じ検査で、学習時に数値だった列（`FitResult.dtypes` の記録）が予測時に数値でない dtype で届いたら `INCOMPATIBLE_COLUMNS` を送出する（context `columns` の各要素は `column` / `fit_dtype` / `predict_dtype`。H-0106）。不足列の `DATA_SCHEMA_INVALID` が先に効く。学習時に `category` だった列はこの dtype の規則で検査しない。
 
 # 10. Split（`splitters/`）と InnerValidStrategy（`training/`）
 
@@ -650,6 +694,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `training.early_stopping.inner_valid` を明示指定した場合は、その method / ratio / random_state をそのまま使う。外側 `split.method` は参照しない。ただし、shuffle を伴う `method: holdout` を time-ordered な outer split（`time_series` / `purged_time_series`）と組み合わせた場合は、early stopping split が時間順を守らず temporally leak し得るため `UserWarning` を発する（挙動は変えず明示指定を尊重する。H-0085 / #210）。
 - `training.early_stopping.validation_ratio` は legacy 入力ショートハンドであり、method 指定ではない。`inner_valid` を明示指定していない場合、ratio は `validation_ratio` から取り、method は外側 `split.method` から自動解決する。H-0069 以降、`validation_ratio` は `inner_valid.ratio` から派生する read-only の computed field。出力 (`model_dump()`) には常に同値の `validation_ratio` が含まれる。
 - `validation_ratio` と `inner_valid` を同時に明示指定した場合、ratio が一致しなければ `CONFIG_INVALID`、一致すれば許容する（round-trip 互換）。一致しない場合の検知は維持される。
+- `inner_valid` を明示したかどうかは dump / reload と export → load → fit を越えて保たれる（H-0086）。`LizyMLConfig.model_dump()` は computed field の `inner_valid_explicit` を書き、検証はこのキーを（`validation_ratio` と同じく）取り除いて、明示性の正とする。キーが無い入力では上記の推定（`inner_valid` があり `validation_ratio` が無ければ明示）に戻る。設定できるフィールドは増やさない。明示した time / group の inner valid が再読込で自動解決に化けないための規則である。
 - 自動解決時に inner valid が継承する outer CV 設定は `split.method` と、look-ahead 防止のための境界 gap である。すなわち `purged_time_series` では `purge_gap + embargo`、`time_series` では `gap` を inner valid（`TimeHoldoutInnerValid`）の inner-train と inner-valid の間に purge する（H-0085 / #212）。`n_splits` / `shuffle` / `random_state` / `train_size_max` / `test_size_max` は inner valid に伝搬しない。
 - 自動解決時の seed は `training.seed` を使う。outer split の `random_state` は inner valid に伝搬しない。
 
@@ -734,6 +779,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `calibration.n_splits` は **deprecated**（指定時 `UserWarning` を出力し、値は無視する）。
 - calibration の入力は `(oof_scores, y)` のみで X は使わない（§12.1）。outer splits を再利用しても同一行リークは発生しない（各行の OOF score はその行を含まないモデルが生成したものであり、cross-fit 構造がさらにリークを防ぐ）。
 - これにより calibrated OOF の coverage は raw OOF の coverage と構造的に一致する。
+- validation 行のスコアに NaN が混じる fold では、有限の行だけを校正し、NaN の行には fallback（未校正の OOF 確率）を書く。validation 行がすべて NaN の fold では全行に fallback を書く（`calibration/cross_fit.py`、H-0067）。outer splits を再利用する現行の構成では validation 行はすべて covered なのでこの経路は通らず、calibration split が outer split と異なる場合の防御である。fallback の行数は §12.1 の報告に含まれる。
 
 ## 10.6 blocked_group_kfold（2軸交差検証、H-0060）
 
@@ -797,6 +843,7 @@ outer fold の train データ（特定期間 × 特定ユーザー）に対し�
 ## 11.1 SearchSpace 表現の統一
 
 - Optuna に依存しない space 表現（離散・連続・対数・カテゴリ）を使う。
+- `parse_space` は `float` / `int` 次元の範囲を parse 時に検査する（H-0078）: `low >= high` は `CONFIG_INVALID`、`log=True` で `low <= 0` も `CONFIG_INVALID`（context `param` / `low` / `high` / `log`）。Optuna が trial の中で出す汎用のエラーより前に、設定の誤りとして名指す。
 
 ## 11.2 SearchDim カテゴリ
 
@@ -805,6 +852,8 @@ SearchDim にカテゴリ属性を持たせ、Tuner がパラメーターの適�
 - `model`: `LGBMAdapter.params` に直接渡す（既存 SearchDim の挙動）
 - `smart`: スマートパラメーター（`num_leaves_ratio` 等）として `resolve_smart_params()` に渡す。fit / tune で同一の dict ベース `resolve_smart_params()` を使用する（H-0050）
 - `training`: trial ごとに `EarlyStoppingConfig` / `InnerValidStrategy` を再構築する
+
+`FloatDim` / `IntDim` は任意の `min_allowed` / `max_allowed`（既定 `None`）を持つ。パラメーターとして意味のある範囲で、境界拡張（§11.5）がこれを超えないようにする。`Model.tune` は既定の空間にも利用者の空間にも `provider.parameter_bounds(task)`（§14.4）を付ける（H-0078）。
 
 ## 11.3 デフォルト Tuning Space
 
@@ -945,6 +994,7 @@ result = model.tune(progress_callback=on_progress)
 - linear: 端方向に `(high - low)` を追加（range 2 倍）
 - log: 端方向に対数空間で 3 倍に拡張
 - `IntDim`: `max(1, new_low)` で下限ガード
+- 拡張後の `new_low` / `new_high` は次元の `min_allowed` / `max_allowed`（§11.2）でクランプする。クランプが効いたら `BoundaryDimStatus.clamped_to_bound` を `True` にする（H-0078）
 - 反対側の端は据え置き
 
 ### RoundSummary / BoundaryReport
@@ -970,6 +1020,7 @@ class BoundaryDimStatus:
     expanded: bool
     new_low: float | int | None
     new_high: float | int | None
+    clamped_to_bound: bool = False   # H-0078: 拡張が min_allowed / max_allowed に当たった
 
 @dataclass(frozen=True)
 class BoundaryReport:
@@ -1078,7 +1129,8 @@ contradictory explicit directions require migration; old explicitness is not gue
 - 校正性能評価は、校正器も OOF（cross-fit）で生成した値で行う。
 - 校正 cross-fit は outer CV splits をそのまま再利用する（§10.5, H-0058）。これにより raw OOF と calibrated OOF の coverage が構造的に一致する。
 - 校正器は元の特徴量 `X` を使わない（入力は `s_oof`（生スコア）と `y` のみ）。
-- 推論時は保存された `C_final` を使用する。
+- 推論時は保存された `C_final` を使用する。入力は `predict_raw(X)` の生スコアで、`BaseCalibratorAdapter.predict()` は生スコアを受け取り校正済み確率を返す（H-0030）。`oof_raw_scores=None` の旧 artifact では確率を入力にする（§18.1.4）。
+- cross-fit で校正できない行は未校正の OOF 確率を fallback として受け取る: その fold の学習行に covered なスコアが無い、学習行が 1 クラスだけ、validation のスコアが NaN（§10.5）。fallback の行は `calibrated_oof` と calibrated metrics に含まれたまま残り（値は H-0089 で変わらない）、その数を `CalibrationResult.n_fallback_rows` と `metrics["calibrated"]["fallback_row_count"]` が報告する（H-0089）。
 - Calibration が未指定の場合は従来どおり `predict_proba`（確率値）を OOF/IF 予測に使用する。Calibration 有効時のみ生スコアベースの校正パスに入る。
 
 ## 12.2 方法
@@ -1157,7 +1209,7 @@ H-0100 までは `LogisticRegression(C=1.0)`（L2・目標値 0/1）で、原典
 #### Early Stopping
 
 - `patience=100`（`lgb.early_stopping(stopping_rounds=100)` コールバック）。
-- validation データ: calibration 学習データから 10% をランダムサンプリング（`validation_ratio=0.1`, `seed=42` デフォルト）。
+- validation データ: calibration 学習データから 10% をランダムサンプリング（`validation_ratio=0.1`）。`seed` は `calibration.params` に無ければ `training.seed` を継承する（既定の `training.seed` が 42 なので、既定どおりなら 42。H-0080）。
 - calibration データが少数（< 20 行）の場合は Early Stopping を無効化し、全データで学習する。
 
 #### ユーザー上書き
@@ -1177,6 +1229,7 @@ H-0100 までは `LogisticRegression(C=1.0)`（L2・目標値 0/1）で、原典
 - `Brier score`（必須推奨）
 - `ECE`（equal-width binning, M=10。各 bin の accuracy = `mean(y_true[mask])`（正例割合）、confidence = `mean(y_pred[mask])`。ECE = Σ (|bin| / N) × |accuracy − confidence|）
 - `ROC-AUC / PR-AUC`（ランキング監視）
+- fallback の記録（H-0089）: `CalibrationResult` は `fallback_fold_flags: list[bool]`（fold ごと、split の順。その fold の validation 行全体が未校正の OOF に fallback したとき `True`）と `n_fallback_rows: int = 0`（未校正の fallback を受けた validation 行の総数。校正した fold の中の NaN 行を含む）を持つ。`fit_result.calibrator` が保持するので `FitResult` の契約の一部である。
 
 ## 12.4 MUST NOT
 
@@ -1190,10 +1243,23 @@ H-0100 までは `LogisticRegression(C=1.0)`（L2・目標値 0/1）で、原典
 
 - Metric IF
 - `needs_proba / greater_is_better / supports_task`
+- `BaseMetric.needs_simplex` は既定 `False` の具体プロパティで、multiclass の予測が確率分布（行和 1）でなければならない指標が `True` に上書きする: `auc` と `logloss`。`auc_pr` / `brier` はクラスごとの値を使うので `False` のまま（H-0049）。
 - 回帰: `rmse / mae / r2 ...`
+  - `mape`: `y_true` に 0 を含むと `UNSUPPORTED_METRIC`（H-0004）。
+  - `huber`: 誤差 `e` について `|e| <= delta` で `0.5 e^2`、それより大きいと `delta(|e| - delta/2)`。`HuberLoss` の `delta` は既定 `1.0` でコンストラクタ引数（MetricEntry `{huber: {delta: ...}}`、§13.1.1）。文字列 `"huber"` は `delta=1.0` を意味する（H-0004）。
+  - `smape`: `mean(2|y - ŷ| / (|y| + |ŷ|)) × 100`、範囲 `[0, 200]`。`y = ŷ = 0` の行は 0 として数える（H-0071）。
+  - `wape`: `sum|y - ŷ| / sum|y| × 100`。`UNSUPPORTED_METRIC` になるのは `sum(|y_true|) == 0` のときだけ（H-0071）。
+  - `smape` / `wape` はどちらも `greater_is_better=False`、`needs_proba=False`。
 - 分類（binary）: `logloss / auc / auc_pr / f1 / accuracy / brier / ece / precision_at_k ...`
+  - `precision_at_k`: 予測確率の上位 `k`% の行の precision。`needs_proba=True`（確率で上位を選ぶ）、`greater_is_better=True`。既定は `k=10`（上位 10%、`1 <= k <= 100`）で、MetricEntry ごとに指定できる（§13.1.1、H-0014）。
 - 分類（multiclass）: `logloss / auc(OvR) / auc_pr(OvR) / f1(macro) / accuracy / brier(OvR) ...`
-- multiclass の `auc / auc_pr / brier` は One-vs-Rest 展開 + macro 平均で計算する。メトリクス名は binary と共通（`__call__` 内で `y_pred.ndim` により分岐）。
+- multiclass の `auc / auc_pr / brier` は One-vs-Rest 展開 + macro 平均で計算する。メトリクス名は binary と共通（`__call__` 内で `y_pred.ndim` により分岐）。`auc` は `roc_auc_score(..., multi_class='ovr', average='macro')`、`auc_pr` / `brier` はクラスごとの `average_precision_score` / `brier_score_loss` の macro 平均である（H-0018）。
+- **task との整合**: 指標名は `metrics/registry.py` の `_TASK_METRICS` が task ごとに持つ集合で検査し、集合に無い名前は `UNSUPPORTED_METRIC`（`Model.evaluate(metrics=...)` と Config の `evaluation.metrics` の両方）。
+  - `_TASK_METRICS["regression"]` = `rmse` / `mae` / `r2` / `rmsle` / `mape` / `huber` / `smape` / `wape`（H-0071）。
+  - binary = `logloss` / `auc` / `auc_pr` / `f1` / `accuracy` / `brier` / `ece` / `precision_at_k`。multiclass = `logloss` / `f1` / `accuracy` / `auc` / `auc_pr` / `brier`。
+  - したがって、`mape` / `huber` を回帰以外で（H-0004）、`precision_at_k` を回帰か multiclass で（H-0014）、multiclass 対応の `auc` / `auc_pr` / `brier` を回帰で（H-0018）指定すると `UNSUPPORTED_METRIC` になる。
+- **確率の検査**: `needs_proba` が真の組み込み指標は、確率でない値（数値でない、有限でない、`[0, 1]` の外、3 クラス以上なのに 1 次元）を受け取ると `METRIC_REQUIRES_PROBA` を送出する（H-0106）。0/1 のハードラベルは正当な確率として通る。`objective: cross_entropy_lambda` の出力が 1 を超えた場合もこれになる（#307）。
+- **evaluator が指標に渡す値**（`evaluation/evaluator.py` の `_pred_for_metric()`、H-0049）: `needs_proba` かつ `needs_simplex` の指標には、multiclass の 2 次元予測を行和で正規化して渡す（全 0 の行は割らない）。それ以外の確率指標には予測をそのまま渡す。ラベル指標には binary で 0.5 閾値、multiclass で argmax のラベルを渡す。正規化は `predict_proba()` ではなく evaluator の責務である（§14.1）。
 
 ### 13.1.1 パラメータ付き MetricEntry（H-0065）
 
@@ -1226,25 +1292,31 @@ model:
 - `evaluate_table()` は `evaluate()` が返す固定構造 dict を `pd.DataFrame` に変換する純粋フォーマッタ。ロジックは `evaluation/table_formatter.py` に配置する。
   - 行 = メトリクス名。
   - `oof`: OOF 集約値（**covered 行ベース**。split で valid に一度も含まれない行は除外。KFold では全行=covered、TimeSeriesCV では先頭行が non-covered）。
+    - covered 行の OOF に NaN があれば、構造的な未カバーではなくパイプラインの欠陥なので `Evaluator.evaluate()` は `LizyMLError(EVALUATION_FAILED)`（context `nan_count` / `nan_indices` / `task`）を送出する（H-0057。H-0057 の決定は `ValueError` と書くが、実装は `EVALUATION_FAILED` を送出する）。
   - `fold_0`...`fold_N-1`: 各 outer fold の OOF（valid_idx）値。
   - `if_mean`: IF（train_idx）指標の fold 平均（参考値として保持）。
-  - calibrated がある場合は `cal_oof` 列と `cal_fold_0`...`cal_fold_N-1` 列を追加。calibrated ブランチの metrics 構造は `{"oof": {...}, "oof_per_fold": [...]}`。IF metrics は leakage リスクのため含めない。`oof_coverage` は raw と構造的に一致する（H-0058: outer splits 再利用）ため、`calibrated` に別途含めない。
+  - calibrated がある場合は `cal_oof` 列だけを追加する（fold 別の calibrated 列は無い、H-0005）。
+  - 列の順は `if_mean, oof, fold_0...fold_N-1, cal_oof` で固定する（H-0011）。index 名は `metric`。
+  - calibrated ブランチの metrics 構造は `{"oof": {...}, "oof_per_fold": [...], "fallback_row_count": int}`。`fallback_row_count`（= `CalibrationResult.n_fallback_rows`、fallback が無ければ `0`）は未校正の fallback で採点した OOF 行の数である（§12.1、H-0089）。IF metrics は leakage リスクのため含めない。`oof_coverage` は raw と構造的に一致する（H-0058: outer splits 再利用）ため、`calibrated` に別途含めない。
   - `df.attrs["oof_coverage"]`: float (0.0–1.0)。covered 行の割合。KFold では常に `1.0`。TimeSeriesCV では `< 1.0` になりうる。
 
 ## 13.3 可視化
 
-全プロットを Plotly ベースに統一する。Plotly は optional dependency（`pip install 'lizyml[plots]'`）。未インストール時は `OPTIONAL_DEP_MISSING` を返す。
+全プロットを Plotly ベースに統一する。Plotly は optional dependency（`pip install 'lizyml[plots]'`）。未インストール時は `OPTIONAL_DEP_MISSING` を返す。公開の plot メソッドはすべて `plotly.graph_objects.Figure` を返す（H-0008）。
 
 実装済み:
 - `importance_plot(kind="split|gain")`: fold 平均の特徴量重要度（横棒グラフ）
 - `importance_plot(kind="shap")`: fold 平均の mean(|SHAP|)（横棒グラフ）。shap optional dependency も必要。
+  - `Model.importance(kind="shap")` とこの plot は、fold ごとにその fold の validation 行（`valid_idx`）で SHAP を計算し、特徴量ごとの mean(|SHAP|) を fold で平均する（`compute_shap_importance()`、H-0007）。shap が未導入なら `OPTIONAL_DEP_MISSING`。
 - `plot_learning_curve(*, metrics=None)`: fold ごとの train/valid loss 推移（折れ線グラフ）。`metrics: list[str] | None` で表示 metric をフィルタ可能（H-0062）。`None` で全 metric、指定時は `/` 以降の metric 名で一致するもののみ表示。一致なしで `LizyMLError`。
 - `plot_oof_distribution()`: OOF 予測値の分布（ヒストグラム）
 - `residuals_plot(kind="scatter|histogram|qq|all")`: 回帰専用。IS/OOS 比較対応。`kind` で表示プロットを選択。デフォルト `kind="all"` で scatter + histogram + QQ の 3 パネル。scatter は Actual vs Predicted（x=predicted, y=actual, y=x 参照線）。IS サンプルは OOS 数に合わせてダウンサンプリング（`_downsample_is()`、seed=0 で再現可能）。
+  - QQ パネルは OOS 残差だけを使う（IS は使わない、H-0009）。実体は `plots/residuals.py` の `plot_residuals()`。
+  - 未知の `kind` は `CONFIG_INVALID`（H-0009 は `INVALID_CONFIG` と書いたが、その code は存在せず、実装は `CONFIG_INVALID` を送出する）。
 
 追加で用意したい可視化（一部実装済み）:
-- binary/multiclass: `roc_curve_plot()`（binary: IS/OOS の 2 本の ROC Curve 重ね描き。multiclass: IS/OOS を subplot 横並びにし、クラスごとの OvR ROC Curve を描画。各クラスの AUC 値を凡例に表示、macro 平均 AUC も表示）
-- binary/multiclass: `confusion_matrix(threshold=0.5)`（IS/OOS の Confusion Matrix テーブル。`{"is": DataFrame, "oos": DataFrame}` を返す。binary は threshold、multiclass は argmax でクラスラベル変換。OOS は `compute_oof_valid_mask()` でカバー済み行のみを対象とする — NaN の構造的未カバー行は除外）
+- binary/multiclass: `roc_curve_plot()`（binary: IS/OOS の 2 本の ROC Curve 重ね描き。multiclass: IS/OOS を subplot 横並びにし、クラスごとの OvR ROC Curve を描画。各クラスの AUC 値を凡例に表示、macro 平均 AUC も表示。実体は `plots/classification.py` の `plot_roc_curve`。regression では `UNSUPPORTED_TASK`、H-0019）
+- binary/multiclass: `confusion_matrix(threshold=0.5)`（IS/OOS の Confusion Matrix テーブル。`{"is": DataFrame, "oos": DataFrame}` を返す。binary は threshold、multiclass は argmax でクラスラベル変換。OOS は `compute_oof_valid_mask()` でカバー済み行のみを対象とする — NaN の構造的未カバー行は除外。各 DataFrame は scikit-learn の `confusion_matrix` の形で、行 = 真のラベル、列 = 予測ラベル、index / columns は整数（H-0016））
 - calibration: `calibration_plot()`（Raw/Calibrated の Reliability Diagram。bin 数デフォルト 10。理想線 y=x を参照線として描画。データソースは cross-fit 由来の `calibrated_oof`、`c_final` は使用しない）
 - calibration: `probability_histogram_plot()`（Raw/Calibrated の確率分布ヒストグラム重ね描き。校正前後の分布シフトを視覚的に確認）
 - tuning: `tuning_plot()`（trial ごとのスコア推移。X 軸 = trial 番号、Y 軸 = スコア。完了/枝刈り/失敗を色分け。最良スコア推移ラインを重ね描き）
@@ -1288,11 +1360,13 @@ get_native_model()  # export用途
 set_categorical_features(cols: list[str] | None) -> None  # デフォルト no-op (H-0054)
 ```
 
+- `predict_proba()` は学習器の確率をそのまま返す。`objective: multiclassova` ではクラスごとの独立 sigmoid の出力なので、行和は 1 とは限らない。指標のための正規化は evaluator が `needs_simplex` の指標についてだけ行う（§13.1、H-0049）。
 - `set_categorical_features()` は `fit()` 呼び出し前に CVTrainer が呼ぶ。categorical feature の扱いはアダプタの責務であり、`cv_trainer.py` に estimator 固有の kwarg を漏洩させない。
 
 ## 14.2 LGBM adapter の責務
 
 - `objective / metric` 整合
+  - 利用者または trial が書いた `objective`（エイリアスの綴りを含む）は、task の `TASK_COMPATIBLE_OBJECTIVES`（`estimators/lgbm/defaults.py`。LightGBM の canonical 名で regression 9 / binary 3 / multiclass 2）に含まれればそのまま `lgb.train` に渡し、含まれなければ `CONFIG_INVALID` とする（H-0079）。H-0079 より前は黙ってタスク既定に置き換えていた。
 - categorical の扱い統一
 - early stopping の設定吸収
 - SHAP（内蔵寄り）対応
@@ -1340,20 +1414,26 @@ set_categorical_features(cols: list[str] | None) -> None  # デフォルト no-o
 | `auc_pr` | `average_precision` | binary / multiclass |
 
 2. **ホワイトリストバリデーション**: マッピング後の名前をタスク別ホワイトリストで事前検証。無効な metric 名は `LizyMLError(CONFIG_INVALID)` で即座に拒否する（LightGBM 呼び出し前）。
+   - multiclass のネイティブ whitelist に `auc` は無い（LightGBM 4 は multiclass の objective と `auc` の組を拒否する）。学習時の指標には `auc_mu` を使い、multiclass の AUC は事後評価の `evaluate(metrics=["auc"])`（scikit-learn の OvR、§13.1）で得る（H-0079）。
 
 3. **feval カスタム関数**: LightGBM ネイティブ未対応の metric は `lgb.train(feval=...)` 経由でカスタム評価関数として注入する。
 
-| feval Metric | Regression | Binary | Multiclass | y_pred 変換 |
+| feval Metric | Regression | Binary | Multiclass | metric に渡す値 |
 |-------------|:---:|:---:|:---:|------------|
-| `rmsle` | ✅ | | | そのまま |
-| `f1` | | ✅ | ✅ | sigmoid / softmax → 閾値 / argmax |
-| `brier` | | ✅ | ✅ | sigmoid / softmax |
-| `ece` | | ✅ | | sigmoid |
-| `precision_at_k` | | ✅ | | sigmoid |
-| `accuracy` | | ✅ | ✅ | sigmoid / softmax → 閾値 / argmax |
+| `rmsle` | ✅ | | | 予測値そのまま |
+| `r2` | ✅ | | | 予測値そのまま |
+| `smape` | ✅ | | | 予測値そのまま（H-0071） |
+| `wape` | ✅ | | | 予測値そのまま（H-0071） |
+| `f1` | | ✅ | ✅ | 閾値 0.5 / argmax のラベル |
+| `brier` | | ✅ | ✅ | 確率そのまま |
+| `ece` | | ✅ | | 確率そのまま |
+| `precision_at_k` | | ✅ | | 確率そのまま |
+| `accuracy` | | ✅ | ✅ | 閾値 0.5 / argmax のラベル |
 
-- binary: `y_pred` は raw logits → `sigmoid` で確率に変換
-- multiclass: `y_pred` は flatten `(n * k,)` → `reshape(-1, k)` + `softmax` で確率に変換
+- `smape` / `wape` は回帰の feval 指標なので、`params.metric` に書けば early stopping と学習曲線を駆動する（H-0071）。
+- **feval は LightGBM が渡す予測を再変換しない**（H-0105）。LightGBM 4 は組み込み objective の変換後の値を feval に渡す: binary は 1 次元の確率、multiclass / multiclassova は 2 次元 `(n, num_class)` の確率、regression は予測値。sigmoid / softmax をもう一度掛けると binary のラベル指標が定数になり確率指標が歪むので、掛けない。
+- feval は evaluator と同じ規則（`evaluation.evaluator._pred_for_metric`、§13.1）で metric に値を渡す: ラベル指標には binary で 0.5 閾値、multiclass で argmax、multiclass の `needs_simplex` 指標には行和で正規化した確率、それ以外は確率をそのまま。学習曲線と `FitResult.metrics` で同じ名前の指標が同じ意味になる（H-0105）。
+- multiclass の feval 入力が 2 次元 `(n, num_class)` でなければ reshape せず `EVALUATION_FAILED` を送出する（H-0105）。
 - native metric と feval metric の混在指定が可能（例: `["auc", "f1"]`）
 - feval-only 指定時も early stopping が正常に機能する
 
@@ -1445,12 +1525,20 @@ class EstimatorProvider(Protocol):
     def build_export_params(
         self, adapter: BaseEstimatorAdapter,
     ) -> ExportParams: ...
+    def parameter_bounds(                                         # H-0078
+        self, task: TaskType,
+    ) -> dict[str, dict[str, float | int]]: ...  # name -> {"min": ..., "max": ...}
+    def objective_choices(self, task: TaskType) -> tuple[str, ...]: ...  # H-0079
+    def metric_choices(self, task: TaskType) -> MetricChoices: ...      # H-0079: {"native": (...), "feval": (...)}
 ```
 
 制約:
 - `EstimatorProvider` は `config/` の具象型（`LGBMConfig` 等）を参照してよい（provider は Facade 層から呼ばれるため、Leaf → Leaf の依存にはならない）。
 - `model_cfg` 引数は `Any` 型で受け取るが、各 provider 内部で `isinstance` チェックして具象型にキャストする。
 - `runtime_deps()` はアルゴリズム固有の依存パッケージ名とバージョンを返す（例: `{"lightgbm": "4.5.0"}`）。`RunMeta.deps_versions` に使用。
+- `parameter_bounds(task)` は境界拡張（§11.5）をクランプするための、パラメーターとして意味のある範囲 `{name: {"min": ..., "max": ...}}` を返す（H-0078）。表に無いパラメーターは無制限、空の dict は宣言なし。`LGBMProvider` は task によらない 15 パラメーターの表（`learning_rate` / `feature_fraction` / `bagging_fraction` / `num_leaves_ratio` / `min_data_in_leaf_ratio` / `min_data_in_bin_ratio` / `validation_ratio` / `lambda_l1` / `lambda_l2` / `n_estimators` / `max_depth` / `max_bin` / `bagging_freq` / `early_stopping_rounds` / `seed`）を返す。`Model.tune` は既定の空間にも利用者の空間にもこれを付ける（§11.2）。
+- `objective_choices(task)` は task で有効な objective の canonical 名を、決まった順の tuple で返す（エイリアスは含めない。H-0079）。`default_space` の `objective` 次元と UI の選択肢の元であり、集合は adapter が受理する `TASK_COMPATIBLE_OBJECTIVES`（§14.2）と同じ。未知の task は空の tuple。
+- `metric_choices(task)` は `{"native": tuple, "feval": tuple}` を返す（H-0079）。`native` は学習器が評価する指標、`feval` は LizyML が feval として注入する指標（§14.3）。どちらも canonical 名で、順は決定的、2 つの tuple の間に重複は無い。
 - `params_summary()` は `params_table()` 用のパラメータ行を返す。smart params + native model params（`metric` を含む、H-0061）の両方を含む。
 - `build_pipeline_factory` は estimator 固有の FeaturePipeline が必要な場合（例: EntityEmbedding のカテゴリ埋め込み）に対応する。デフォルトは `NativeFeaturePipeline` を返す。
 - `build_export_params` は codegen 経路（`Model.export_code()`）が必要とする native params / num_boost_round / early_stopping_rounds / feval metadata を `ExportParams` frozen dataclass で返す（H-0073）。`_model_persistence.py` から estimator 具象型（`LGBMAdapter` 等）への直接参照を排除するための入口。**「その fit が何を使ったか」を答える値は、config と現在の tuning result から再計算してはならない**（H-0094 決定 13）: `tune()` は tuning result を置き換えるが fit 済み adapter は置き換えないので、再計算する読み手は `fit → tune` の後に**存在しないモデルについて報告する**。実測: adapter が patience 7 で学習し、`params_table` / `export_code` はどちらも 2 と答えた。学習済み adapter は joblib で保存されるため、この経路は `load()` 後も正しい唯一の経路である（artifact が持つ tuning result は、どの fit も消費していないことがありうる）。`ExportParams.early_stopping_rounds` に **default を置かないこと** — 「provider が設定しなかった」と「early stopping が無効だった」が同じ値になるのは DC1 の形である。adapter に記録が無い値（`validation_ratio`）は `FitState.applied_training_params` から読む。この overlay は `metadata.json` の `applied_training_params` として記録され、`load()` が検査して復元する（H-0109）。記録の無い（H-0109 以前の）artifact では不明（`None`）となり config に落ち、再 export しても記録を書かない。
@@ -1493,7 +1581,7 @@ estimators/
 
 - `format_version` を必須にする。
 - 保存対象:
-  - `yourlib_version`
+  - `lizyml_version`
   - `python_version`
   - 依存 versions（`lgbm / sklearn / optuna ...`）
   - `config_normalized`
@@ -1503,16 +1591,28 @@ estimators/
   - `pipeline_state`
   - `models, calibrator`
   - fit が適用した training overlay（`applied_training_params`。`tuning` ブロックはモデルの現在の tuning result で、どの fit も消費していないことがあるので別に記録する。H-0109）
+- `metadata.json` のキー（`persistence/exporter.py`）:
+  - 常に書く: `format_version` / `lizyml_version` / `python_version` / `timestamp` / `run_id` / `config` / `metrics` / `feature_names` / `task` / `checksums`。
+  - `checksums` は `{"algorithm": "sha256", "files": {<ファイル名>: <16 進の digest>}}` で、`files` は `fit_result.pkl` / `refit_model.pkl` と、あれば `analysis_context.pkl` の SHA-256 を持つ。アルゴリズム名は `persistence/exporter.py` の `CHECKSUM_ALGORITHM`（H-0083）。
+  - tune 済みのモデルだけ: `tuning` ブロック（`best_model_params` / `best_smart_params` / `best_training_params` / `best_score` / `metric_name` / `direction`、成功した tuning round の `fixed_params`）。`load()` はこれを tuning result として復元し、load 後の再 `fit()` が tuned params を再現する（H-0086）。trial の履歴は保存しない。
+  - fit が overlay を記録したモデルだけ: `applied_training_params`（上記、H-0109）。
 
 ## 15.2 互換性ポリシー（必須）
 
 - `format_version` が読めない場合は明示的に拒否する（黙って壊れた復元をしない）。
 - 将来 migration を実装できる前提で serializer に拡張点を残す。
 - 現行 `FORMAT_VERSION = 2`（H-0070）。`{1, 2}` の両方を loader が受理し、v1 artifact には no-op `TargetEncoder` を in-memory で注入して contract を整合させる（INV-5）。
+- **フィールドの追加は後方互換の変更で、`format_version` を上げない。** フィールドの削除、型や意味の変更は破壊的変更で、`format_version` を上げる（H-0003）。`checksums`（H-0083）、`tuning`（H-0086）、`applied_training_params`（H-0109）はいずれも追加として `FORMAT_VERSION = 2` のまま入った。旧 loader は知らないキーを無視する。
+- `load()` は毎回 `metadata.json` を検査する。必須キー（`_REQUIRED_METADATA_KEYS` = `format_version` / `task` / `feature_names` / `config` / `run_id`）が欠けていれば `DESERIALIZATION_FAILED`。
+- **完全性の検査（H-0083）**: `load()` は各 `.pkl` のバイト列を 1 回だけ読み、`checksums` に記録された digest と照合してから、そのバイト列を `joblib.load(io.BytesIO(...))` で復元する（ファイルを再 open しないので、検査と復元の間の TOCTOU が無い）。`algorithm` が `sha256` でない、または digest が一致しないときは pickle を実行する前に `DESERIALIZATION_FAILED`（context: `file` / `expected` / `actual`、アルゴリズム違いでは `file` / `algorithm`）。`checksums` を持たない artifact（H-0083 以前）と、`files` に載っていないファイルは検査せずに読む。
+- **脅威モデル**: `metadata.json` 自体は署名しない。書き込み権限を持つ者は `checksums` を書き換えたり消したりできる。`checksums` が検出するのは破損と改竄であり、悪意ある作成者に対して pickle を安全にするものではない。artifact は信頼できる出どころからだけ読む。
+- `analysis_context.pkl` を持たない artifact（H-0026 以前）でも `predict()` と `evaluate()` は使える。load 後の診断 API（`residuals()` など）は、必要なデータが無いと `MODEL_NOT_FIT` で明示的に失敗し、最新版での再 export を促す（H-0026）。
+- 非推奨の面とその削除目標（v1.0）の唯一の登録簿は `docs/DEPRECATIONS.md` である。非推奨の警告文は削除目標の版を明記する（H-0076）。
 
 ## 15.3 `export`（`Model Artifact`）
 
-- `Model Artifact` を 1 ディレクトリにまとめる。
+- `Model Artifact` を 1 ディレクトリにまとめる。中身は `metadata.json`、`fit_result.pkl`（`FitResult`）、`refit_model.pkl`（`RefitResult`）と、任意の `analysis_context.pkl`（load 後の診断 API が使う `y_true` と `X_for_explain`。無ければ load 時に `None`、H-0026）。`.pkl` は joblib（圧縮）で書く（H-0003）。
+- `.pkl` は pickle なので、読み込むと任意の Python を実行しうる。`Model.load()` は信頼できる出どころの artifact だけに使う（H-0003、上記の脅威モデル）。
 - `Model.load()` で復元し、推論と評価情報参照に加えて診断 API（残差/SHAP/分類・校正可視化）も利用可能にする。
 
 ## 15.4 `export_code`（Codegen Export, H-0059）
@@ -1523,7 +1623,7 @@ estimators/
 
 ```
 {path}/
-├── config.json             # 全設定（ハイパーパラメータ / 特徴量 / 校正）
+├── config.json             # 全設定（ハイパーパラメータ / 特徴量 / 校正 / split）
 ├── train.py                # 学習（pipeline fit → refit → calibration）
 ├── predict.py              # 推論（transform → predict → calibrate）
 ├── requirements.txt        # 最小依存
@@ -1537,6 +1637,11 @@ estimators/
 
 - `artifacts/` の初期内容は `export_code()` 実行時に元の FitResult/RefitResult から生成される
 - `train.py` で新データから再学習すると `artifacts/` が上書きされる
+- **校正用 OOF の fold の再現（H-0090）**: `config.json` は `split` ブロック（`config.json["split"]`）を持ち、outer split の method 固有のパラメーターを解決済みの値で書く（`_build_split_metadata(cfg)`。`stratify="auto"` は bool に畳み、`random_state` が無ければ `training.seed` を書く）。生成 `train.py` は校正用 OOF の CV fold をこのブロックから作り、`split.method` を再現する: `kfold` / `stratified_kfold` / `time_series` / `group_kfold` / `stratified_group_kfold` は scikit-learn の splitter、`purged_time_series` / `group_time_series` / `blocked_group_kfold` は LizyML のロジックを numpy に移したもの。
+  - 時間の method では `time_col`、`blocked_group_kfold` では `blocks.col` で pandas の `argsort()` により並べてから分割し、fold を元の行順に戻す。
+  - 生成 calibrator は covered な（OOF が NaN でない）行だけで学習する（LizyML の cross-fit の `C_final` と同じ）。
+  - `split` ブロックを持たない export（H-0090 以前）は、従来の task 別のシャッフル K-fold（binary は `StratifiedKFold`、それ以外は `KFold`）に戻る。
+- 生成 `train.py` の feval も LightGBM が渡す予測を再変換しない（§14.3、H-0105）。multiclass の入力が 2 次元でなければ `ValueError` を送出する。
 - **calibration の再現（H-0100）**: `config.json` に `calibration_params`（fit が使ったのと同じ前処理を通した実効値）を持たせ、`train.py` の `_fit_platt` / `_fit_beta` / `_fit_isotonic` は LizyML の calibrator と同じモデル・既定値・上書き・最適化の契約で calibrator を再構築する。H-0100 までは 3 手法とも既定値を直書きしており、`isotonic` でも再学習で params が失われていた。`requirements.txt` は生成コードが scipy を import する `platt` / `beta` のとき scipy を載せる
 - **feval metric 対応（H-0066）**: `config.json` に `feval_metrics` フィールドを追加。各要素は `{"name": str, "params": dict, "greater_is_better": bool, "needs_proba": bool}` 形式。`train.py` が起動時にこのメタ情報から feval callable を再構築し、`lgb.train()` の `feval` パラメータに渡す
 
@@ -1562,7 +1667,7 @@ estimators/
 ## 16.1 統一例外
 
 ```python
-YourLibError(code, user_message, debug_message=None, cause=None)
+LizyMLError(code, user_message, *, debug_message=None, cause=None, context=None)
 ```
 
 ## 16.2 例外コード
@@ -1596,6 +1701,9 @@ YourLibError(code, user_message, debug_message=None, cause=None)
 - エラー時は `code` を必ずログに残す。
 - `output_dir` オプション（Config or コンストラクタ引数）指定時、`{output_dir}/{run_id}/` にログ・plot 保存先を統一する。
 - `output_dir` 未指定時は現行動作（ログは標準出力、plot は返却のみ）を維持する。
+- `output_dir` の優先順位は constructor > config > 未指定（`Model(..., output_dir=...)` が Config の `output_dir` に勝つ。H-0039）。解決は `or` なので、偽値のコンストラクタ引数は Config に落ちる。
+- `output_dir` があれば `fit()` / `tune()` はそれぞれ新しい `run_id` で `{output_dir}/{run_id}/` を作り、`run.log` を書く（ログファイルが出力先に保存される、H-0034）。
+- `export()` を path 無しで呼ぶと、直前の run のディレクトリがあれば `{run_dir}/export` に、無ければ `output_dir` の下に新しい run ディレクトリを作ってその `export` に書く。どちらも無ければ `SERIALIZATION_FAILED`（H-0039）。
 
 # 18. テスト / CI（必須）
 
@@ -1612,6 +1720,7 @@ YourLibError(code, user_message, debug_message=None, cause=None)
 - **例外テスト**: 全 `ErrorCode` に対して少なくとも 1 テストが存在し、`context` dict の必須キーを検証する。
 - **optional dependency テスト**: 未導入時の例外コード / メッセージが崩れない。全 optional dependency（optuna, shap, plotly, scipy）について "missing" パスを検証する。
 - **Public API surface テスト**: `from lizyml import Model` 等のトップレベル公開面が壊れていないことを検証する。
+- **提案の処分テスト**: `docs/proposal_dispositions.toml` が HISTORY の全提案について BLUEPRINT での処分（`specified` + anchors / `no_obligation` / `superseded` / `pending`）を 1 行ずつ持ち、`tests/test_docs/test_proposal_blueprint_coverage.py` が anchor を BLUEPRINT と提案自身の HISTORY entry の両方で全単語一致として検査する（H-0110）。新しい提案を足す PR は、その行を同じ PR で `proposal_dispositions.toml` に足す。
 - **バージョン一致テスト**: `lizyml.__version__` と配布メタデータのバージョンが一致することを検証する。
 - **README サンプルコードテスト**: `README.md` に記載された最短利用例が `SyntaxError` / `ImportError` なく実行可能であることを検証する（データ依存部分はモック可）。
 
@@ -1627,7 +1736,7 @@ Config の各フィールドが最終的なコンポーネント（Booster param
 - Config → evaluation: `metrics` リストが FitResult.metrics のキーに反映される。
 - Config → split: `n_splits` が fold 数に反映。`random_state` で fold が決定的に再現。`group_col` で group 制約が機能。
 - Config → smart params: `auto_num_leaves` + `num_leaves_ratio` + `max_depth` の計算結果が Booster に到達。
-- Config → task-locked: `objective` がタスクから固定。`num_class` が multiclass で自動注入。`verbosity` が `-1` 固定。
+- Config → task-locked: `objective` は task 互換なら利用者 / trial の値がそのまま Booster に届き、task 非互換なら `CONFIG_INVALID`（H-0079。それ以前はタスクから固定し黙って置換していた）。`num_class` が multiclass で自動注入。`verbosity` が `-1` 固定。
 
 **実効性テスト**（値が動作に反映されること）:
 
@@ -1728,7 +1837,10 @@ LightGBM/XGBoost が `all_x_types` / `all_y_types` で実施しているコン�
 ```text
 lizyml/
 │
-├── __init__.py                     公開面 (Model, FitResult, PredictionResult, ...)
+├── __init__.py                     公開面 (`__all__`: Model, FitResult, PredictionResult, TuningResult,
+│                                   LizyMLError, ErrorCode, load_config, TaskType, RoundSummary,
+│                                   BoundaryReport, BoundaryDimStatus, TuneProgressInfo,
+│                                   TuneProgressCallback, __version__, __version_tuple__。H-0086)
 │
 ├── core/                           ── Layer 0: Foundation ──
 │   ├── exceptions.py               LizyMLError + ErrorCode
@@ -1751,6 +1863,7 @@ lizyml/
 │   ├── _model_tables.py            ModelTablesMixin (EstimatorProvider 経由)
 │   ├── _model_metrics.py           _has_metric_content, _filter_metrics
 │   ├── _model_persistence.py       ModelPersistenceMixin
+│   ├── _model_tuning.py            ModelTuningMixin (tune orchestration、唯一の writer mixin、H-0091)
 │   ├── _model_state.py             FitState / TuningState frozen snapshot (H-0074/H-0084)
 │   ├── train_components.py         TrainComponents (frozen dataclass)
 │   ├── seed.py                     seed 固定ユーティリティ
@@ -1937,7 +2050,8 @@ loaded_model.probability_histogram_plot()
 ## 実装メモ
 
 - `core/model.py` は組み立て専用とし、ロジックを持たせない。
-- `Model` クラスは mixin で構成する（H-0042）。plot 系は `_model_plots.py`、table/accessor 系は `_model_tables.py`、persistence 系は `_model_persistence.py` に分割し、`model.py` には core lifecycle（`__init__`, `fit`, `predict`, `evaluate`, `tune`）とプライベートヘルパーのみを残す。
+- `Model` クラスは mixin で構成する（H-0042）。plot 系は `_model_plots.py`、table/accessor 系は `_model_tables.py`、persistence 系は `_model_persistence.py`、tune の orchestration は `_model_tuning.py`（`ModelTuningMixin`、H-0091）に分割し、`model.py` には core lifecycle（`__init__`, `fit`, `predict`, `evaluate`）とプライベートヘルパーのみを残す。`model.py` は `tune` を持たない（H-0091）。
+- mixin は 2 種類に分ける（H-0091）: **診断用の read-only mixin**（`_model_plots` / `_model_tables` / `_model_persistence`）と、**orchestrator の writer mixin**（`_model_tuning`。変更を伴う `tune()` の lifecycle を走らせるので `self._*` に書く）。writer mixin はちょうど 1 つで、`tests/test_core/test_mixin_state_isolation.py` の read-only の静的検査（`_MIXIN_FILES`）から除外される（INV-2）。
 - mixin は `_` プレフィックスの非公開モジュールとし、`Model` の import パス（`lizyml.core.model.Model`）は変更しない。
 - 依存関係の切り離しが必要な箇所では Lazy Import を許容する。
 - `Model._get_fit_state()` が返す `FitState` frozen dataclass を mixin の唯一の入口とする（H-0074 型定義 + factory + テスト、H-0077 で全 mixin 移行完了、H-0084 で `core/_model_state.py` へ移設）。`FitState` は `cfg / fit_result / refit_result / tuning_result / provider / metrics / y / X / run_dir / output_dir` の post-fit snapshot を持ち、mixin 本体からの `self._*` 直接アクセスを置換済み（plots / tables / persistence の 3 mixin は `_get_fit_state()` / `_get_tuning_state()` 経由）。

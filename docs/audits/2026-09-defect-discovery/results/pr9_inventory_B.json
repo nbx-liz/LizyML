@@ -1,0 +1,2446 @@
+{
+ "batch": "B",
+ "head": "13fb9d7",
+ "entries": {
+  "H-0002": {
+   "history_lines": "247-359",
+   "clauses": [
+    {
+     "text": "FitResult carries oof_pred, if_pred_per_fold, metrics, models, history, feature_names, dtypes, categorical_features, splits, data_fingerprint, pipeline_state, calibrator, run_meta.",
+     "history_line": 264,
+     "verdict": "stated",
+     "blueprint_lines": [
+      497
+     ],
+     "blueprint_quote": "## 7.1 FitResult（固定スキーマ）",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "§7.1 (BLUEPRINT:497-526) enumerates every one of these fields as bullets."
+    },
+    {
+     "text": "FitResult / PredictionResult / SplitIndices / RunMeta are dataclasses.",
+     "history_line": 263,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "Reclassified off_surface -> missed by the main context after H-0110 design review round 1: the dataclass representation is observable and fixed by golden tests (tests/test_e2e/test_golden_contracts.py:41,110 call dataclasses.fields). Implementation form not observable as contract (capsule example).",
+     "prior_text": [
+      "FitResult is a dataclass.",
+      "PredictionResult is a dataclass.",
+      "SplitIndices is a dataclass.",
+      "RunMeta is a dataclass."
+     ],
+     "target_section": "7.1 FitResult（固定スキーマ）"
+    },
+    {
+     "text": "oof_pred is an np.ndarray.",
+     "history_line": 265,
+     "verdict": "contradicted",
+     "blueprint_lines": [
+      499
+     ],
+     "blueprint_quote": "`oof_pred`（`np.ndarray / pd.Series`）",
+     "code": "lizyml/core/types/fit_result.py:63",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "BLUEPRINT admits pd.Series (wider type); the field is npt.NDArray[np.float64].",
+     "prior_text": "oof_pred is an np.ndarray.",
+     "proposed_anchor": "oof_pred",
+     "target_section": "7.1 FitResult（固定スキーマ）"
+    },
+    {
+     "text": "oof_pred shape is (n_samples,) for regression/binary and (n_samples, n_classes) for multiclass.",
+     "history_line": 265,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/core/types/fit_result.py:23-25",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "§7.1 gives no shape for oof_pred.",
+     "prior_text": "oof_pred has shape (n_samples,) for regression/binary and (n_samples,n_classes) for multiclass.",
+     "proposed_anchor": "n_classes",
+     "target_section": "7.1 FitResult（固定スキーマ）"
+    },
+    {
+     "text": "if_pred_per_fold has length n_splits and each element predicts the complete training fold.",
+     "history_line": 266,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/core/types/fit_result.py:26-27; lizyml/evaluation/confusion.py:68-71",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "§7.1 states only the type list[np.ndarray]; §13.4 says IS = IF(train_idx) 集約値 but not the per-element/length contract.",
+     "prior_text": [
+      "if_pred_per_fold length equals n_splits and each element predicts the complete training fold."
+     ],
+     "proposed_anchor": "if_pred_per_fold",
+     "target_section": "7.1 FitResult（固定スキーマ）"
+    },
+    {
+     "text": "metrics hierarchy is fixed: raw/oof, raw/if_mean, raw/if_per_fold always exist.",
+     "history_line": 317,
+     "verdict": "stated",
+     "blueprint_lines": [
+      502
+     ],
+     "blueprint_quote": "`{\"raw\": {\"oof\": {...}, \"oof_per_fold\": [...], \"if_mean\": {...}, \"if_per_fold\": [...], \"oof_coverage\": 1.0}, \"calibrated\": {...}}`",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Later additions oof_per_fold (H-0045) and oof_coverage (H-0057) are also stated."
+    },
+    {
+     "text": "raw/if_per_fold has len == n_splits.",
+     "history_line": 266,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/evaluation/evaluator.py:173-178,191",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "§7.1 / §6.3 name if_per_fold but never its length.",
+     "prior_text": "if_per_fold length equals n_splits.",
+     "proposed_anchor": "if_per_fold",
+     "target_section": "7.1 FitResult（固定スキーマ）"
+    },
+    {
+     "text": "metrics['calibrated'] exists only for binary + calibrator and mirrors raw as {oof, if_mean, if_per_fold}.",
+     "history_line": 326,
+     "verdict": "superseded",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": "H-0067",
+     "from_prior": false,
+     "note": "H-0067 (HISTORY:5037) fixed the calibrated branch to {oof, oof_per_fold} with IF metrics excluded for leakage; BLUEPRINT:1231 states the H-0067 form."
+    },
+    {
+     "text": "models is a per-fold list of trained models wrapping EstimatorAdapter.",
+     "history_line": 269,
+     "verdict": "stated",
+     "blueprint_lines": [
+      505
+     ],
+     "blueprint_quote": "fold ごとのモデル",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "Element type (EstimatorAdapter wrapper) is not named; per-fold list meaning is.",
+     "prior_text": "models is list[Any], with each model containing an EstimatorAdapter."
+    },
+    {
+     "text": "history is a per-fold list of dicts carrying eval_history and best_iteration (int).",
+     "history_line": 270,
+     "verdict": "stated",
+     "blueprint_lines": [
+      508
+     ],
+     "blueprint_quote": "fold ごとの eval history / best_iteration",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "",
+     "prior_text": "history is list[dict] and best_iteration is int."
+    },
+    {
+     "text": "feature_names is the ordered list[str] of features used in training; dtypes maps feature name -> dtype string; categorical_features lists categorical feature names.",
+     "history_line": 271,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/core/types/fit_result.py:45-47,67-69",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "§7.1 line 509 names the three fields only; order fixation and value types are not stated.",
+     "prior_text": [
+      "feature_names is an ordered list[str] of training-used features.",
+      "dtypes is dict[str,str] mapping feature names to dtype strings.",
+      "categorical_features is list[str] of categorical feature names."
+     ],
+     "proposed_anchor": "feature_names",
+     "target_section": "7.1 FitResult（固定スキーマ）"
+    },
+    {
+     "text": "splits is a SplitIndices holding outer / inner / calibration index records.",
+     "history_line": 274,
+     "verdict": "stated",
+     "blueprint_lines": [
+      511
+     ],
+     "blueprint_quote": "外側 CV indices（必須、元データ基準の absolute index）",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "Content stated in §7.1:510-514; type name SplitIndices appears only in the §19 tree (BLUEPRINT:1741).",
+     "prior_text": "splits has type SplitIndices."
+    },
+    {
+     "text": "data_fingerprint is a DataFingerprint (row_count / column_hash / file_hash).",
+     "history_line": 275,
+     "verdict": "stated",
+     "blueprint_lines": [
+      516
+     ],
+     "blueprint_quote": "`row_count / column_hash / optional: file_hash` 等",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "",
+     "prior_text": "data_fingerprint has type DataFingerprint."
+    },
+    {
+     "text": "pipeline_state holds the FeaturePipeline state.",
+     "history_line": 276,
+     "verdict": "stated",
+     "blueprint_lines": [
+      517
+     ],
+     "blueprint_quote": "`pipeline_state`（`FeaturePipeline` の状態、必須）",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "calibrator is present only for binary + calibration enabled (else None).",
+     "history_line": 277,
+     "verdict": "stated",
+     "blueprint_lines": [
+      518
+     ],
+     "blueprint_quote": "`calibrator`（有効時）",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "SplitIndices.outer is a per-fold list of (train_idx, valid_idx) tuples.",
+     "history_line": 298,
+     "verdict": "stated",
+     "blueprint_lines": [
+      726
+     ],
+     "blueprint_quote": "外側 CV: fold ごとの `train_idx / valid_idx`",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "",
+     "prior_text": "outer is list[tuple[np.ndarray,np.ndarray]]."
+    },
+    {
+     "text": "SplitIndices.inner is per-fold inner-valid indices or None when unused.",
+     "history_line": 299,
+     "verdict": "stated",
+     "blueprint_lines": [
+      512
+     ],
+     "blueprint_quote": "inner valid indices（有効時必須。各 outer fold train に対する 0-based 相対 index）",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "",
+     "prior_text": "inner is list[tuple[np.ndarray,np.ndarray]]|None."
+    },
+    {
+     "text": "SplitIndices.calibration is calibration CV indices or None when unused.",
+     "history_line": 300,
+     "verdict": "stated",
+     "blueprint_lines": [
+      513
+     ],
+     "blueprint_quote": "calibration CV indices（有効時必須）",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "",
+     "prior_text": "calibration is list[tuple[np.ndarray,np.ndarray]]|None."
+    },
+    {
+     "text": "RunMeta fields are lizyml_version (str), python_version, deps_versions (dict[str,str]), config_normalized, config_version.",
+     "history_line": 308,
+     "verdict": "contradicted",
+     "blueprint_lines": [
+      520
+     ],
+     "blueprint_quote": "`yourlib_version / python_version / deps_version / config_normalized / config_version`",
+     "code": "lizyml/core/types/artifacts.py:73-77",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "§7.1 names yourlib_version / deps_version; the fields are lizyml_version / deps_versions (BLUEPRINT:1453 does name RunMeta.deps_versions correctly). §15.1:1496 repeats yourlib_version. Convention question: BLUEPRINT uses yourlib as a doc-wide placeholder (§16.1 YourLibError), so the fix is a rename-everywhere decision, not one stale identifier.",
+     "prior_text": [
+      "RunMeta.lizyml_version is str.",
+      "RunMeta.deps_versions is dict[str,str]."
+     ],
+     "proposed_anchor": "lizyml_version",
+     "target_section": "7.1 FitResult（固定スキーマ）"
+    },
+    {
+     "text": "RunMeta.run_id is a UUID string and RunMeta.timestamp an ISO-8601 string.",
+     "history_line": 313,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/core/types/artifacts.py:78-79; lizyml/core/logging.py:13; lizyml/core/model.py:802",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "§7.1 run_meta bullet omits run_id and timestamp; §17 mentions run_id generation only for logging.",
+     "prior_text": [
+      "RunMeta.run_id is a UUID string.",
+      "RunMeta.timestamp is an ISO-8601 string."
+     ],
+     "proposed_anchor": "RunMeta.run_id",
+     "target_section": "7.1 FitResult（固定スキーマ）"
+    },
+    {
+     "text": "PredictionResult carries pred, proba, shap_values, used_features, warnings.",
+     "history_line": 285,
+     "verdict": "stated",
+     "blueprint_lines": [
+      540
+     ],
+     "blueprint_quote": "## 7.3 PredictionResult（固定スキーマ）",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "PredictionResult.pred is an np.ndarray of shape (n_samples,).",
+     "history_line": 286,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/core/types/predict_result.py:16,27",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "BLUEPRINT:542 says 'pred（回帰: float、分類: class / proba）' — no shape, and 'proba' is ambiguous (pred is always labels for classification, _model_predict.py:83-90).",
+     "prior_text": "pred is np.ndarray with shape (n_samples,).",
+     "proposed_anchor": "pred",
+     "target_section": "7.3 PredictionResult（固定スキーマ）"
+    },
+    {
+     "text": "Binary PredictionResult.proba is the positive-class probability with shape (n_samples,).",
+     "history_line": 287,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/core/_model_predict.py:69-82",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "BLUEPRINT:543 'proba（binary の場合）' gives no shape (BLUEPRINT:1311 (n, 2) is the adapter's predict_proba, a different object).",
+     "prior_text": "Binary proba has shape (n_samples,).",
+     "proposed_anchor": "proba",
+     "target_section": "7.3 PredictionResult（固定スキーマ）"
+    },
+    {
+     "text": "PredictionResult.proba is binary-only (None otherwise).",
+     "history_line": 287,
+     "verdict": "not_in_force",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/core/_model_predict.py:87-89 (multiclass proba (n, k) is returned)",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "UNDOCUMENTED CONTRACT WIDENING: multiclass returns proba (n, k) but no HISTORY proposal records the widening; HISTORY H-0002 and BLUEPRINT:543 still say binary-only while BLUEPRINT:552 describes multiclass proba column order. Needs a main-context decision (Proposal vs contradicted edit)."
+    },
+    {
+     "text": "PredictionResult.shap_values is None unless requested; shape (n_samples, n_features).",
+     "history_line": 288,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/explain/shap_explainer.py:73-106; lizyml/core/types/predict_result.py:20",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "BLUEPRINT:544 '要求時のみ、形は統一' states the None-unless-requested part only; the (n, p) shape (multiclass reduced by mean |SHAP| over classes) is not stated.",
+     "prior_text": "shap_values is ndarray|None with shape (n_samples,n_features).",
+     "proposed_anchor": "shap_values",
+     "target_section": "7.3 PredictionResult（固定スキーマ）"
+    },
+    {
+     "text": "used_features lists the features actually used for prediction.",
+     "history_line": 289,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/core/_model_predict.py:101 (refit_result.feature_names)",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "BLUEPRINT:545 says only '列ズレ検知用' (purpose), not what the list contains.",
+     "prior_text": "used_features identifies actually used features and is list[str].",
+     "proposed_anchor": "used_features",
+     "target_section": "7.3 PredictionResult（固定スキーマ）"
+    },
+    {
+     "text": "warnings is a list[str] of correction / column-drift notices.",
+     "history_line": 290,
+     "verdict": "stated",
+     "blueprint_lines": [
+      546
+     ],
+     "blueprint_quote": "`warnings`（補正が走った場合の通知）",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "",
+     "prior_text": "warnings contains correction/column-drift notices and is list[str]."
+    },
+    {
+     "text": "Golden tests pin FitResult/PredictionResult field names/types and the metrics hierarchy.",
+     "history_line": 354,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Process/test requirement."
+    },
+    {
+     "text": "Adding a future field bumps format_version and records a migration.",
+     "history_line": 345,
+     "verdict": "superseded",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": "H-0003",
+     "from_prior": false,
+     "note": "H-0003 (HISTORY:400) decided additions are minor and do not bump format_version."
+    }
+   ],
+   "anchors": [
+    "oof_pred",
+    "if_pred_per_fold",
+    "pipeline_state",
+    "SplitIndices",
+    "used_features",
+    "warnings"
+   ],
+   "obligation": true
+  },
+  "H-0003": {
+   "history_lines": "360-446",
+   "clauses": [
+    {
+     "text": "An artifact is a directory of metadata.json + fit_result.pkl (FitResult) + refit_model.pkl (RefitResult), the .pkl written with joblib (compressed).",
+     "history_line": 378,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/persistence/exporter.py:121-122,152; lizyml/persistence/loader.py:120-122",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Issue #271 PARTIAL entry, still absent: §15.3 says only '1 ディレクトリにまとめる'; fit_result.pkl / refit_model.pkl have 0 full-token hits. analysis_context.pkl (H-0026) is equally unnamed.",
+     "proposed_anchor": "fit_result.pkl",
+     "target_section": "15.3 `export`（`Model Artifact`）"
+    },
+    {
+     "text": "metadata.json v1 keys: format_version, lizyml_version, python_version, timestamp, run_id, config, metrics, feature_names, task.",
+     "history_line": 386,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/persistence/exporter.py:129-138",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "metadata.json is named only for applied_training_params (BLUEPRINT:564,1456); its key set is never listed.",
+     "proposed_anchor": "metadata.json",
+     "target_section": "15.1 保存の基本方針"
+    },
+    {
+     "text": "format_version = 1 is the initial version.",
+     "history_line": 400,
+     "verdict": "superseded",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": "H-0070",
+     "from_prior": false,
+     "note": "H-0070 bumped to FORMAT_VERSION=2; BLUEPRINT:1511 states the current value."
+    },
+    {
+     "text": "Adding fields is a minor, backward-compatible change that does not bump format_version; removing a field or changing its type/meaning is breaking and bumps it.",
+     "history_line": 401,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/persistence/exporter.py:13-17,144-151 (checksums / tuning / applied_training_params added at FORMAT_VERSION=2)",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "§15.2 states rejection of unreadable versions and the current value, not the additive-vs-breaking rule; H-0083/H-0086/H-0089/H-0109 each rely on it.",
+     "proposed_anchor": "format_version",
+     "target_section": "15.2 互換性ポリシー（必須）"
+    },
+    {
+     "text": "Unknown format_version on load raises DESERIALIZATION_FAILED.",
+     "history_line": 403,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1660
+     ],
+     "blueprint_quote": "**format_version rejection**: 未知の version（`99`, `0` 等）で `DESERIALIZATION_FAILED`。",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Also §15.2:1509 (明示的に拒否する). Stated in the §18 test section, not in §15."
+    },
+    {
+     "text": ".pkl files are saved/restored with joblib and Model.load() documents 'load only from trusted sources'.",
+     "history_line": 408,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/persistence/loader.py:3-4,116-117; lizyml/persistence/exporter.py:13",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "BLUEPRINT has no trusted-source / pickle security statement for Model.load (only §15.4:1521 says codegen uses no pickle).",
+     "proposed_anchor": "trusted",
+     "target_section": "15.3 `export`（`Model Artifact`）"
+    },
+    {
+     "text": "metadata.json is validated on every load; a missing required field raises DESERIALIZATION_FAILED (required: format_version / task / feature_names, now also config / run_id).",
+     "history_line": 409,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/persistence/loader.py:28-30,149-156",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "BLUEPRINT:1661 says a test removes '必須フィールド' one by one but never lists them nor the error code.",
+     "proposed_anchor": "_REQUIRED_METADATA_KEYS",
+     "target_section": "15.2 互換性ポリシー（必須）"
+    },
+    {
+     "text": "A v1 -> v2 move adds lizyml/persistence/migrations/v1_to_v2.py and auto-migrates on load (or errors explicitly).",
+     "history_line": 443,
+     "verdict": "not_in_force",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/persistence/loader.py:38-55 (in-loader _migrate_fit_result; no migrations/ package exists)",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "The auto-migrate-on-load half is in force and stated at BLUEPRINT:1511 (H-0070, in-memory TargetEncoder injection); the migrations/ file layout is not implemented."
+    },
+    {
+     "text": "Acceptance: export creates the three files; load→predict round-trips.",
+     "history_line": 430,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Test requirement; the file-name content is carried by clause 1."
+    }
+   ],
+   "anchors": [
+    "FORMAT_VERSION",
+    "DESERIALIZATION_FAILED"
+   ],
+   "obligation": true
+  },
+  "H-0004": {
+   "history_lines": "447-495",
+   "clauses": [
+    {
+     "text": "Regression metrics mape and huber are registered (TASK_METRICS['regression']).",
+     "history_line": 463,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1800
+     ],
+     "blueprint_quote": "RMSE, MAE, R2, RMSLE, MAPE, Huber",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Only the §19 tree names them (BLUEPRINT:1800); §13.1:1193 lists 'rmse / mae / r2 ...' (open list)."
+    },
+    {
+     "text": "MAPE raises UNSUPPORTED_METRIC when y_true contains zero.",
+     "history_line": 461,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/metrics/regression.py:150-157",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "mape appears in BLUEPRINT only as a LightGBM metric name (BLUEPRINT:861,1325).",
+     "prior_text": "MAPE rejects zero in y_true with UNSUPPORTED_METRIC.",
+     "proposed_anchor": "mape",
+     "target_section": "13.1 Metrics"
+    },
+    {
+     "text": "HuberLoss delta defaults to 1.0, is constructor-configurable, and the plain 'huber' string means delta=1.0.",
+     "history_line": 462,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/metrics/regression.py:172-173; lizyml/metrics/registry.py:104-137 (MetricEntry kwargs)",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "Two prior claims merged. 'delta' has 0 full-token hits in BLUEPRINT.",
+     "prior_text": [
+      "Huber delta is configurable and defaults to 1.0.",
+      "Plain `huber` configuration uses delta=1.0."
+     ],
+     "proposed_anchor": "delta",
+     "target_section": "13.1.1 パラメータ付き MetricEntry（H-0065）"
+    },
+    {
+     "text": "Huber loss is quadratic (0.5 e^2) for |e| <= delta and linear (delta(|e| - delta/2)) above.",
+     "history_line": 486,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/metrics/regression.py:165-166,190-195",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "Metric definition; BLUEPRINT gives none. Low-severity (standard definition).",
+     "prior_text": "Huber loss is quadratic at or below delta and linear above it.",
+     "proposed_anchor": "huber",
+     "target_section": "13.1 Metrics"
+    },
+    {
+     "text": "Selecting mape/huber for a non-regression task raises UNSUPPORTED_METRIC.",
+     "history_line": 463,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/metrics/registry.py:160-171",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "One BLUEPRINT edit covers H-0004/H-0014/H-0018/H-0071: BLUEPRINT never states that a task-incompatible metric name raises UNSUPPORTED_METRIC (§16.2 only lists the code).",
+     "proposed_anchor": "UNSUPPORTED_METRIC",
+     "target_section": "13.1 Metrics"
+    },
+    {
+     "text": "format_version unchanged; no effect on existing metrics.",
+     "history_line": 476,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Compatibility note."
+    }
+   ],
+   "anchors": [
+    "MAPE",
+    "Huber"
+   ],
+   "obligation": true
+  },
+  "H-0005": {
+   "history_lines": "496-541",
+   "clauses": [
+    {
+     "text": "Model.evaluate_table() returns the evaluate() dict formatted as a pd.DataFrame.",
+     "history_line": 509,
+     "verdict": "stated",
+     "blueprint_lines": [
+      146
+     ],
+     "blueprint_quote": "`model.evaluate_table()`（評価結果を `pd.DataFrame` で返す）",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "Rows are metric names; columns include oof, if_mean, fold_0..fold_N-1.",
+     "history_line": 510,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1227
+     ],
+     "blueprint_quote": "  - 行 = メトリクス名。",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Column meanings at BLUEPRINT:1228-1230 (fold_n meaning later fixed to OOF by H-0045)."
+    },
+    {
+     "text": "When calibrated, a cal_oof column is added (cal_oof only).",
+     "history_line": 510,
+     "verdict": "contradicted",
+     "blueprint_lines": [
+      1231
+     ],
+     "blueprint_quote": "calibrated がある場合は `cal_oof` 列と `cal_fold_0`...`cal_fold_N-1` 列を追加。",
+     "code": "lizyml/evaluation/table_formatter.py:45-49",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "BLUEPRINT:1231 promises cal_fold_0..cal_fold_N-1 columns; the formatter adds only cal_oof and 'cal_fold' occurs nowhere in HISTORY or lizyml/.",
+     "proposed_anchor": "cal_oof",
+     "target_section": "13.2 評価出力（固定）"
+    },
+    {
+     "text": "Formatting logic lives in evaluation/table_formatter.py; Model only delegates.",
+     "history_line": 511,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1226
+     ],
+     "blueprint_quote": "ロジックは `evaluation/table_formatter.py` に配置する。",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "evaluate_table() before fit raises MODEL_NOT_FIT.",
+     "history_line": 532,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/core/_model_tables.py:45 (_get_fit_state, lizyml/core/model.py:893-903)",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "BLUEPRINT:146 states the return type only; contrast tuning_table / params_table / fit_result which state MODEL_NOT_FIT.",
+     "prior_text": "evaluate_table is available after fit and raises MODEL_NOT_FIT before fit.",
+     "proposed_anchor": "MODEL_NOT_FIT",
+     "target_section": "4.1 Model（学習・評価・推論の Facade）"
+    },
+    {
+     "text": "No change to FitResult/PredictionResult/Artifacts/format_version.",
+     "history_line": 521,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    }
+   ],
+   "anchors": [
+    "evaluate_table",
+    "table_formatter.py"
+   ],
+   "obligation": true
+  },
+  "H-0006": {
+   "history_lines": "542-591",
+   "clauses": [
+    {
+     "text": "Model.residuals() is regression-only and returns y - oof_pred as np.ndarray of shape (n_samples,).",
+     "history_line": 555,
+     "verdict": "stated",
+     "blueprint_lines": [
+      144
+     ],
+     "blueprint_quote": "`model.residuals()`（回帰専用。OOF 残差 `y - oof_pred` を `np.ndarray` で返す）",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "Shape (n_samples,) follows from the stated elementwise y - oof_pred; not written as a shape.",
+     "prior_text": "residuals() returns shape (n_samples,)."
+    },
+    {
+     "text": "residuals()/residuals_plot() on binary/multiclass raise UNSUPPORTED_TASK.",
+     "history_line": 559,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/core/_model_tables.py:63-71; lizyml/core/_model_plots.py:58",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "BLUEPRINT says '回帰専用' (BLUEPRINT:144-145) but never names the error raised.",
+     "prior_text": "Calling either residual API for binary/multiclass raises UNSUPPORTED_TASK.",
+     "proposed_anchor": "UNSUPPORTED_TASK",
+     "target_section": "4.1 Model（学習・評価・推論の Facade）"
+    },
+    {
+     "text": "residuals_plot() shows histogram + QQ (2 panels).",
+     "history_line": 556,
+     "verdict": "superseded",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": "H-0009",
+     "from_prior": false,
+     "note": "H-0009 (HISTORY:712-716) replaced it with kind= and a 3-panel default."
+    },
+    {
+     "text": "y is held transiently on the Model and excluded from export; after Model.load() residual APIs raise MODEL_NOT_FIT.",
+     "history_line": 558,
+     "verdict": "superseded",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": "H-0026",
+     "from_prior": false,
+     "note": "H-0026 (HISTORY:1758-1760) put y_true into analysis_context so the APIs work after load."
+    },
+    {
+     "text": "Plot implementation lives in plots/residuals.py.",
+     "history_line": 560,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1834
+     ],
+     "blueprint_quote": "│   ├── residuals.py                scatter / histogram / QQ",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    }
+   ],
+   "anchors": [
+    "residuals",
+    "residuals.py"
+   ],
+   "obligation": true
+  },
+  "H-0007": {
+   "history_lines": "592-642",
+   "clauses": [
+    {
+     "text": "importance(kind='shap') computes SHAP on each fold's validation rows and fold-averages mean(|SHAP|).",
+     "history_line": 605,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/explain/shap_explainer.py:165-174",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "BLUEPRINT:1240 says 'fold 平均の mean(|SHAP|)' but not which rows; that the per-fold rows are the fold's valid_idx (a data-boundary statement) is absent. BLUEPRINT:612 covers only the pipeline-state caveat.",
+     "prior_text": "SHAP is computed separately on each fold's validation data.",
+     "proposed_anchor": "importance",
+     "target_section": "13.3 可視化"
+    },
+    {
+     "text": "importance(kind='shap') returns dict[str, float] containing every feature.",
+     "history_line": 605,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/explain/shap_explainer.py:174; lizyml/core/_model_tables.py:131",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "BLUEPRINT:142 gives no return type for importance().",
+     "prior_text": "importance(kind=shap) returns dict[str,float] containing all features.",
+     "proposed_anchor": "importance",
+     "target_section": "4.1 Model（学習・評価・推論の Facade）"
+    },
+    {
+     "text": "importance_plot(kind='shap') renders the dict as a Plotly horizontal bar chart.",
+     "history_line": 606,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1240
+     ],
+     "blueprint_quote": "`importance_plot(kind=\"shap\")`: fold 平均の mean(|SHAP|)（横棒グラフ）",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "X held transiently, excluded from export; after load importance(kind='shap') raises MODEL_NOT_FIT.",
+     "history_line": 608,
+     "verdict": "superseded",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": "H-0026",
+     "from_prior": false,
+     "note": "H-0026 (HISTORY:1758-1761) stores X_for_explain in analysis_context."
+    },
+    {
+     "text": "compute_shap_importance() lives in explain/shap_explainer.py; plot_importance_from_dict() in plots/importance.py.",
+     "history_line": 609,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1828
+     ],
+     "blueprint_quote": "compute_shap_values / compute_shap_importance",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "plot_importance_from_dict is not named; plots/importance.py is (BLUEPRINT:1831)."
+    },
+    {
+     "text": "shap is an optional dependency; missing shap raises OPTIONAL_DEP_MISSING.",
+     "history_line": 611,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/explain/shap_explainer.py:57-64,139-146",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "Optional status is stated (BLUEPRINT:142,1240); the OPTIONAL_DEP_MISSING sentence at BLUEPRINT:1236 is about Plotly. BLUEPRINT:88 says only '未導入時エラーも統一する'. Low severity.",
+     "prior_text": "Missing shap raises OPTIONAL_DEP_MISSING.",
+     "proposed_anchor": "OPTIONAL_DEP_MISSING",
+     "target_section": "13.3 可視化"
+    }
+   ],
+   "anchors": [
+    "importance_plot",
+    "compute_shap_importance"
+   ],
+   "obligation": true
+  },
+  "H-0008": {
+   "history_lines": "643-694",
+   "clauses": [
+    {
+     "text": "All plots use Plotly; the 'plots' extra installs plotly (>=5.0).",
+     "history_line": 656,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1236
+     ],
+     "blueprint_quote": "全プロットを Plotly ベースに統一する。Plotly は optional dependency（`pip install 'lizyml[plots]'`）。",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Version floor lives in pyproject.toml:35 only."
+    },
+    {
+     "text": "Public plot methods return plotly.graph_objects.Figure.",
+     "history_line": 661,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/core/_model_plots.py:37-248 (every docstring 'Returns: plotly.graph_objects.Figure')",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "BLUEPRINT says 'Plotly ベース' / '..., Plotly' per method but never names the return type.",
+     "prior_text": "Public plot return types specifically change to plotly.graph_objects.Figure.",
+     "proposed_anchor": "plotly.graph_objects.Figure",
+     "target_section": "13.3 可視化"
+    },
+    {
+     "text": "Missing plotly raises OPTIONAL_DEP_MISSING.",
+     "history_line": 684,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1236
+     ],
+     "blueprint_quote": "未インストール時は `OPTIONAL_DEP_MISSING` を返す。",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "dev group / sentinel rename (_mpl -> _plotly) / mypy overrides.",
+     "history_line": 660,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    }
+   ],
+   "anchors": [
+    "Plotly",
+    "OPTIONAL_DEP_MISSING"
+   ],
+   "obligation": true
+  },
+  "H-0009": {
+   "history_lines": "695-747",
+   "clauses": [
+    {
+     "text": "residuals_plot(kind=...) with kind in scatter|histogram|qq|all, default 'all' = three panels.",
+     "history_line": 712,
+     "verdict": "stated",
+     "blueprint_lines": [
+      145,
+      1243
+     ],
+     "blueprint_quote": "デフォルト `kind=\"all\"` で scatter + histogram + QQ の 3 パネル",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Status in HISTORY is still 'proposed' but the code implements it (lizyml/plots/residuals.py:245-290)."
+    },
+    {
+     "text": "scatter = Actual vs Predicted (x=predicted, y=actual) overlaying IS and OOS, with y=x reference.",
+     "history_line": 713,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1243
+     ],
+     "blueprint_quote": "scatter は Actual vs Predicted（x=predicted, y=actual, y=x 参照線）",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "histogram overlays IS and OOS residuals.",
+     "history_line": 714,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1264
+     ],
+     "blueprint_quote": "`residuals_plot()` | IS + OOS | 残差パターンの確認（IS/OOS 比較）",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Data-source part; the IS/OOS split per panel is stated only at the plot level."
+    },
+    {
+     "text": "histogram annotates mean/std of OOS only.",
+     "history_line": 714,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "Annotation = presentation.",
+     "prior_text": "histogram annotates the OOS-only mean and standard deviation."
+    },
+    {
+     "text": "QQ plot uses OOS residuals only.",
+     "history_line": 715,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/plots/residuals.py:190-212,282-284",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "Which data the QQ panel reads (OOS, never IS) is a data-source decision; BLUEPRINT says only IS/OOS 比較対応 for the whole plot.",
+     "prior_text": "QQ uses OOS residuals only.",
+     "proposed_anchor": "residuals_plot",
+     "target_section": "13.3 可視化"
+    },
+    {
+     "text": "QQ plot draws a 45-degree reference line.",
+     "history_line": 715,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "Reference line = presentation.",
+     "prior_text": "QQ includes a 45-degree reference line."
+    },
+    {
+     "text": "kind='all' arranges the three plots side by side.",
+     "history_line": 716,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "Layout = presentation.",
+     "prior_text": "all arranges the plots horizontally."
+    },
+    {
+     "text": "plot_residuals takes FitResult + y_true like other plot functions.",
+     "history_line": 717,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Internal signature."
+    },
+    {
+     "text": "IS data is assembled from if_pred_per_fold[i] + splits.outer[i][0] (train_idx).",
+     "history_line": 718,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1256
+     ],
+     "blueprint_quote": "IS(In-Sample) = IF(train_idx) の集約値、OOS(Out-of-Sample) = OOF(valid_idx) の値",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "Invalid kind raises LizyMLError(INVALID_CONFIG).",
+     "history_line": 719,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/plots/residuals.py:271-279 (raises CONFIG_INVALID)",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "INVALID_CONFIG does not exist; the code raises CONFIG_INVALID. BLUEPRINT states no error for an unknown kind.",
+     "prior_text": "Invalid kind raises LizyMLError with the invalid-config code.",
+     "proposed_anchor": "CONFIG_INVALID",
+     "target_section": "13.3 可視化"
+    }
+   ],
+   "anchors": [
+    "residuals_plot",
+    "scatter",
+    "qq"
+   ],
+   "obligation": true
+  },
+  "H-0011": {
+   "history_lines": "792-827",
+   "clauses": [
+    {
+     "text": "evaluate_table() column order is if_mean, oof, fold_0..fold_N-1, cal_oof.",
+     "history_line": 801,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/evaluation/table_formatter.py:36-49",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Issue #271 PARTIAL entry, still open. §13.2 bullets (BLUEPRINT:1228-1231) list oof, fold_n, if_mean, cal_oof without declaring an order. HISTORY Status is still 'proposed' though implemented.",
+     "proposed_anchor": "evaluate_table",
+     "target_section": "13.2 評価出力（固定）"
+    }
+   ],
+   "anchors": [
+    "evaluate_table"
+   ],
+   "obligation": true
+  },
+  "H-0014": {
+   "history_lines": "909-951",
+   "clauses": [
+    {
+     "text": "precision_at_k is a binary metric registered in TASK_METRICS['binary'].",
+     "history_line": 928,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1194
+     ],
+     "blueprint_quote": "分類（binary）: `logloss / auc / auc_pr / f1 / accuracy / brier / ece / precision_at_k ...`",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "precision_at_k has needs_proba=True (uses probabilities to pick the top K%).",
+     "history_line": 924,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/metrics/classification.py:363-395",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "",
+     "prior_text": "precision_at_k requires probability predictions.",
+     "proposed_anchor": "precision_at_k",
+     "target_section": "13.1 Metrics"
+    },
+    {
+     "text": "precision_at_k has greater_is_better=True.",
+     "history_line": 925,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/metrics/classification.py:363-395",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "Direction feeds tuning direction (BLUEPRINT §11.5.1 objective direction) — contract-relevant.",
+     "prior_text": "precision_at_k has greater_is_better=true.",
+     "proposed_anchor": "precision_at_k",
+     "target_section": "13.1 Metrics"
+    },
+    {
+     "text": "k defaults to 10 (top 10%) and is configurable per metric entry.",
+     "history_line": 927,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/metrics/classification.py:367-373,391",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "Configurability is stated (BLUEPRINT:1198-1220, H-0065); the default k=10 and its 'percent of rows' meaning are not.",
+     "prior_text": "Default k is the top 10 percent.",
+     "proposed_anchor": "precision_at_k",
+     "target_section": "13.1.1 パラメータ付き MetricEntry（H-0065）"
+    },
+    {
+     "text": "Selecting precision_at_k for regression or multiclass raises UNSUPPORTED_METRIC.",
+     "history_line": 948,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/metrics/registry.py:160-171",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "One BLUEPRINT edit covers H-0004/H-0014/H-0018/H-0071: BLUEPRINT never states that a task-incompatible metric name raises UNSUPPORTED_METRIC (§16.2 only lists the code).",
+     "prior_text": "Selecting precision_at_k for regression or multiclass raises UNSUPPORTED_METRIC.",
+     "proposed_anchor": "UNSUPPORTED_METRIC",
+     "target_section": "13.1 Metrics"
+    },
+    {
+     "text": "supports_task=['binary'] as a metric property.",
+     "history_line": 926,
+     "verdict": "not_in_force",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/metrics/base.py:11-54 (BaseMetric has no supports_task; task support is lizyml/metrics/registry.py:25-33)",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "BLUEPRINT:1192 still lists supports_task as a Metric IF property; no such property exists (relevant to H-0049's IF list edit)."
+    }
+   ],
+   "anchors": [
+    "precision_at_k"
+   ],
+   "obligation": true
+  },
+  "H-0016": {
+   "history_lines": "999-1044",
+   "clauses": [
+    {
+     "text": "Model.confusion_matrix(threshold=0.5) returns {'is': DataFrame, 'oos': DataFrame}.",
+     "history_line": 1014,
+     "verdict": "stated",
+     "blueprint_lines": [
+      148
+     ],
+     "blueprint_quote": "`model.confusion_matrix(threshold=0.5)`（binary/multiclass。IS/OOS の Confusion Matrix を `{\"is\": DataFrame, \"oos\": DataFrame}` で返す）",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "Each DataFrame is sklearn confusion_matrix form (rows = true label, columns = predicted label, integer-indexed).",
+     "history_line": 1015,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/evaluation/confusion.py:61-62,82-83",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "",
+     "prior_text": "Each DataFrame has sklearn confusion-matrix matrix form.",
+     "proposed_anchor": "confusion_matrix",
+     "target_section": "13.3 可視化"
+    },
+    {
+     "text": "IS from if_pred_per_fold + outer train_idx; OOS from oof_pred.",
+     "history_line": 1016,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1247
+     ],
+     "blueprint_quote": "OOS は `compute_oof_valid_mask()` でカバー済み行のみを対象とする",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Combined with the IS definition at BLUEPRINT:1256; the covered-row restriction is a later refinement."
+    },
+    {
+     "text": "binary converts with threshold; multiclass with argmax.",
+     "history_line": 1018,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1247
+     ],
+     "blueprint_quote": "binary は threshold、multiclass は argmax でクラスラベル変換",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "Logic lives in evaluation/confusion.py; Model.confusion_matrix() is a facade.",
+     "history_line": 1012,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1820
+     ],
+     "blueprint_quote": "confusion_matrix_table",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "Calling confusion_matrix() for regression raises LizyMLError (UNSUPPORTED_TASK).",
+     "history_line": 1041,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/core/_model_tables.py:115-120; lizyml/evaluation/confusion.py:41-46",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "BLUEPRINT:148 says 'binary/multiclass' (precondition) but not what a regression call does.",
+     "prior_text": "Regression calls raise LizyMLError.",
+     "proposed_anchor": "UNSUPPORTED_TASK",
+     "target_section": "4.1 Model（学習・評価・推論の Facade）"
+    }
+   ],
+   "anchors": [
+    "confusion_matrix",
+    "confusion_matrix_table"
+   ],
+   "obligation": true
+  },
+  "H-0017": {
+   "history_lines": "1045-1094",
+   "clauses": [
+    {
+     "text": "calibration_plot() draws Raw OOF (oof_pred) and Calibrated OOF (calibrator.calibrated_oof) reliability diagrams from cross-fit data, never c_final.",
+     "history_line": 1060,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1248
+     ],
+     "blueprint_quote": "データソースは cross-fit 由来の `calibrated_oof`、`c_final` は使用しない",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "Ideal y=x line and default 10 bins.",
+     "history_line": 1062,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Presentation; BLUEPRINT:1248 states it anyway."
+    },
+    {
+     "text": "probability_histogram_plot() overlays raw and calibrated OOF probability histograms.",
+     "history_line": 1064,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1249
+     ],
+     "blueprint_quote": "calibration: `probability_histogram_plot()`（Raw/Calibrated の確率分布ヒストグラム重ね描き。",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "Implementation in plots/calibration.py; Model methods delegate.",
+     "history_line": 1058,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1836
+     ],
+     "blueprint_quote": "reliability diagram + probability histogram",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "Calling either API with calibration disabled raises LizyMLError (CALIBRATION_NOT_SUPPORTED).",
+     "history_line": 1089,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/plots/calibration.py:29-42",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "BLUEPRINT:149-150 state the precondition 'binary + calibration 有効時' only; CALIBRATION_NOT_SUPPORTED is named only for non-binary fit at BLUEPRINT:1648.",
+     "prior_text": "Calibration-disabled calls raise LizyMLError.",
+     "proposed_anchor": "CALIBRATION_NOT_SUPPORTED",
+     "target_section": "4.1 Model（学習・評価・推論の Facade）"
+    },
+    {
+     "text": "Calling either API for a non-binary task raises LizyMLError (UNSUPPORTED_TASK).",
+     "history_line": 1090,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/core/_model_plots.py:124-130,159-165",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "",
+     "prior_text": "Non-binary calls raise LizyMLError.",
+     "proposed_anchor": "UNSUPPORTED_TASK",
+     "target_section": "4.1 Model（学習・評価・推論の Facade）"
+    }
+   ],
+   "anchors": [
+    "calibration_plot",
+    "probability_histogram_plot",
+    "calibrated_oof"
+   ],
+   "obligation": true
+  },
+  "H-0018": {
+   "history_lines": "1095-1142",
+   "clauses": [
+    {
+     "text": "auc / auc_pr / brier support multiclass via One-vs-Rest + macro average, under the same metric names, branching on y_pred.ndim.",
+     "history_line": 1108,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1196
+     ],
+     "blueprint_quote": "multiclass の `auc / auc_pr / brier` は One-vs-Rest 展開 + macro 平均で計算する。",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Code now averages over classes present in the fold's y_true (classification.py:98-151); identical when all classes are present. That refinement is not stated (outside this proposal)."
+    },
+    {
+     "text": "TASK_METRICS['multiclass'] gains auc, auc_pr, brier.",
+     "history_line": 1119,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1195
+     ],
+     "blueprint_quote": "分類（multiclass）: `logloss / auc(OvR) / auc_pr(OvR) / f1(macro) / accuracy / brier(OvR) ...`",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "Selecting these metrics for regression raises UNSUPPORTED_METRIC.",
+     "history_line": 1139,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/metrics/registry.py:160-171",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "One BLUEPRINT edit covers H-0004/H-0014/H-0018/H-0071: BLUEPRINT never states that a task-incompatible metric name raises UNSUPPORTED_METRIC (§16.2 only lists the code).",
+     "prior_text": "Selecting these metrics for regression raises UNSUPPORTED_METRIC.",
+     "proposed_anchor": "UNSUPPORTED_METRIC",
+     "target_section": "13.1 Metrics"
+    },
+    {
+     "text": "_require_1d_same_len guard skipped on the 2-D path.",
+     "history_line": 1114,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Internal guard."
+    }
+   ],
+   "anchors": [
+    "OvR",
+    "macro"
+   ],
+   "obligation": true
+  },
+  "H-0019": {
+   "history_lines": "1143-1191",
+   "clauses": [
+    {
+     "text": "roc_curve_plot() supports multiclass: per-class OvR ROC curves, IS and OOS as side-by-side subplots, per-class AUC in the legend and macro AUC shown.",
+     "history_line": 1158,
+     "verdict": "contradicted",
+     "blueprint_lines": [
+      147
+     ],
+     "blueprint_quote": "`model.roc_curve_plot()`（binary 専用。IS/OOS の ROC Curve を重ね描き、Plotly）",
+     "code": "lizyml/plots/classification.py:216-218; lizyml/core/_model_plots.py:64-97",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Issue #271 PARTIAL entry, still open: BLUEPRINT:147 says 'binary 専用' while BLUEPRINT:1246 states the multiclass OvR behaviour.",
+     "proposed_anchor": "roc_curve_plot",
+     "target_section": "4.1 Model（学習・評価・推論の Facade）"
+    },
+    {
+     "text": "IS from 2-D if_pred_per_fold + outer train_idx; OOS from 2-D oof_pred.",
+     "history_line": 1159,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1256
+     ],
+     "blueprint_quote": "IS(In-Sample) = IF(train_idx) の集約値、OOS(Out-of-Sample) = OOF(valid_idx) の値",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "Binary keeps the H-0015 behaviour (two IS/OOS curves).",
+     "history_line": 1164,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1246
+     ],
+     "blueprint_quote": "binary: IS/OOS の 2 本の ROC Curve 重ね描き",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "Subplot layout / legend content (per-class AUC, macro AUC).",
+     "history_line": 1162,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Presentation; BLUEPRINT:1246 states it anyway."
+    },
+    {
+     "text": "Binary and multiclass branch inside the same function.",
+     "history_line": 1169,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Implementation form."
+    },
+    {
+     "text": "Calling roc_curve_plot() for regression raises LizyMLError (UNSUPPORTED_TASK).",
+     "history_line": 1188,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/core/_model_plots.py:86-92; lizyml/plots/classification.py:210-215",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "UNSUPPORTED_TASK",
+     "target_section": "4.1 Model（学習・評価・推論の Facade）"
+    }
+   ],
+   "anchors": [
+    "roc_curve_plot",
+    "OvR"
+   ],
+   "obligation": true
+  },
+  "H-0026": {
+   "history_lines": "1734-1797",
+   "clauses": [
+    {
+     "text": "residuals / residuals_plot / importance(kind='shap') / roc_curve_plot / confusion_matrix / calibration_plot / probability_histogram_plot work after Model.load() as after fit().",
+     "history_line": 1758,
+     "verdict": "stated",
+     "blueprint_lines": [
+      155
+     ],
+     "blueprint_quote": "は、`fit()` 後と `Model.load()` 後の両方で利用可能とする。",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "Exported artifacts include analysis_context (y_true, X_for_explain).",
+     "history_line": 1759,
+     "verdict": "stated",
+     "blueprint_lines": [
+      561
+     ],
+     "blueprint_quote": "`analysis_context`（`y_true`, `X_for_explain`。load 後に診断 API を実行するための最小データ）",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "Model.load() restores analysis_context so the diagnostics need no extra input.",
+     "history_line": 1762,
+     "verdict": "stated",
+     "blueprint_lines": [
+      156
+     ],
+     "blueprint_quote": "`Model.load()` 後の上記 API は、Artifact に含める `analysis_context`（`y_true`, `X_for_explain`）を参照して動作させる。",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "analysis_context is stored as the optional file analysis_context.pkl (absent -> None on load).",
+     "history_line": 1759,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/persistence/exporter.py:125-127; lizyml/persistence/loader.py:204-217",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Same edit as H-0003 clause 1 (artifact file names).",
+     "proposed_anchor": "analysis_context.pkl",
+     "target_section": "15.3 `export`（`Model Artifact`）"
+    },
+    {
+     "text": "Legacy artifacts without analysis_context remain usable for predict() and evaluate().",
+     "history_line": 1775,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/persistence/loader.py:204-217; lizyml/core/_model_persistence.py:422-424",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "",
+     "prior_text": "Legacy artifacts without analysis_context remain usable for predict and evaluate.",
+     "proposed_anchor": "analysis_context",
+     "target_section": "15.2 互換性ポリシー（必須）"
+    },
+    {
+     "text": "On such legacy artifacts the added diagnostics fail explicitly (MODEL_NOT_FIT with a re-export message).",
+     "history_line": 1776,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/core/_model_tables.py:72-84,154-166; lizyml/core/_model_plots.py:75-83",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "",
+     "prior_text": "Legacy artifacts lacking analysis_context make the added diagnostics fail explicitly or request re-export.",
+     "proposed_anchor": "analysis_context",
+     "target_section": "15.2 互換性ポリシー（必須）"
+    }
+   ],
+   "anchors": [
+    "analysis_context",
+    "X_for_explain"
+   ],
+   "obligation": true
+  },
+  "H-0028": {
+   "history_lines": "1840-1888",
+   "clauses": [
+    {
+     "text": "Model.tuning_plot() is public and plots trial-score history after tune().",
+     "history_line": 1853,
+     "verdict": "stated",
+     "blueprint_lines": [
+      151
+     ],
+     "blueprint_quote": "`model.tuning_plot()`（`tune()` 後。trial ごとのスコア推移と最良スコア推移を重ね描き、Plotly。完了/枝刈り/失敗を色分け）",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "tuning_plot() before tune() raises MODEL_NOT_FIT.",
+     "history_line": 1853,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/core/_model_tuning.py:659-680; lizyml/core/_model_plots.py:245",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "BLUEPRINT:151 says '（tune() 後。…）' (precondition) without the error; tuning_table states it at BLUEPRINT:140.",
+     "proposed_anchor": "MODEL_NOT_FIT",
+     "target_section": "4.1 Model（学習・評価・推論の Facade）"
+    },
+    {
+     "text": "X = trial number, Y = score, colour by complete/pruned/fail, best-score line.",
+     "history_line": 1854,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Presentation; stated anyway at BLUEPRINT:1250."
+    },
+    {
+     "text": "Implementation lives in plots/tuning.py; Model only delegates.",
+     "history_line": 1855,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1837
+     ],
+     "blueprint_quote": "│   └── tuning.py                   tuning history plot",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "Plotly optional; missing -> OPTIONAL_DEP_MISSING.",
+     "history_line": 1856,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1236
+     ],
+     "blueprint_quote": "未インストール時は `OPTIONAL_DEP_MISSING` を返す。",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "`model.params_table()` called before `fit()` raises `MODEL_NOT_FIT`",
+     "history_line": 1878,
+     "verdict": "stated",
+     "blueprint_lines": [
+      153
+     ],
+     "blueprint_quote": "`fit()` 未実行時は `MODEL_NOT_FIT`）",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "Prior claim is misattributed: H-0028 decides nothing about params_table (that is H-0035, HISTORY ~2172). The claim itself is stated at BLUEPRINT:153 and in force (_model_tables.py:271-281). history_line points at H-0028's analogous tuning_plot clause.",
+     "prior_text": "`model.params_table()` called before `fit()` raises `MODEL_NOT_FIT`"
+    }
+   ],
+   "anchors": [
+    "tuning_plot",
+    "tuning.py"
+   ],
+   "obligation": true
+  },
+  "H-0049": {
+   "history_lines": "3055-3112",
+   "clauses": [
+    {
+     "text": "predict_proba() is unchanged: multiclassova returns the raw independent-sigmoid outputs (rows need not sum to 1).",
+     "history_line": 3070,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/estimators/lgbm/adapter.py:329-336",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "BLUEPRINT:1284 '（sigmoid/softmax 適用後の確率値）' does not say multiclassova rows are left unnormalised.",
+     "proposed_anchor": "multiclassova",
+     "target_section": "14.1 EstimatorAdapter IF"
+    },
+    {
+     "text": "The evaluator row-normalises 2-D multiclass predictions for needs_proba metrics whose needs_simplex is True, with an all-zero-row guard; binary / regression / label metrics are untouched.",
+     "history_line": 3072,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/evaluation/evaluator.py:21-57",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Responsibility (evaluator, not predict_proba, owns normalisation) and metric-input meaning; 0 hits for needs_simplex in BLUEPRINT.",
+     "proposed_anchor": "needs_simplex",
+     "target_section": "13.1 Metrics"
+    },
+    {
+     "text": "BaseMetric.needs_simplex is a concrete property defaulting to False; AUC and LogLoss override True; AUCPR / Brier keep False (raw per-class values).",
+     "history_line": 3109,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/metrics/base.py:39-52; lizyml/metrics/classification.py:166-168,192-194",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Issue #271 MISSING entry, still open: BLUEPRINT:1192 enumerates the Metric IF as 'needs_proba / greater_is_better / supports_task' — omits needs_simplex (and lists supports_task, which BaseMetric does not have).",
+     "proposed_anchor": "needs_simplex",
+     "target_section": "13.1 Metrics"
+    }
+   ],
+   "anchors": [],
+   "obligation": true
+  },
+  "H-0071": {
+   "history_lines": "5517-5662",
+   "clauses": [
+    {
+     "text": "smape is a regression metric: mean(2|y-ŷ|/(|y|+|ŷ|))*100, range [0,200], rows with y=ŷ=0 contribute 0.",
+     "history_line": 5534,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/metrics/regression.py:199-237",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Issue #271 MISSING entry, still open: 0 full-token hits for smape in BLUEPRINT; §19 BLUEPRINT:1800 lists 'RMSE, MAE, R2, RMSLE, MAPE, Huber' only.",
+     "proposed_anchor": "smape",
+     "target_section": "13.1 Metrics"
+    },
+    {
+     "text": "wape is a regression metric: sum|y-ŷ|/sum|y|*100; raises UNSUPPORTED_METRIC only when sum(|y_true|)==0.",
+     "history_line": 5538,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/metrics/regression.py:239-279",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "wape",
+     "target_section": "13.1 Metrics"
+    },
+    {
+     "text": "Both have greater_is_better=False and needs_proba=False.",
+     "history_line": 5537,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/metrics/regression.py:199-279",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "smape",
+     "target_section": "13.1 Metrics"
+    },
+    {
+     "text": "_TASK_METRICS['regression'] includes smape and wape.",
+     "history_line": 5544,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/metrics/registry.py:26-28",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "smape",
+     "target_section": "13.1 Metrics"
+    },
+    {
+     "text": "smape / wape are feval metrics for regression, so params.metric=smape|wape drives early stopping / learning curves.",
+     "history_line": 5547,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/estimators/lgbm/metric_bridge.py:124",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "The feval table at BLUEPRINT:1346-1353 lists rmsle as the only regression feval metric (r2, smape, wape omitted).",
+     "proposed_anchor": "smape",
+     "target_section": "14.3 LightGBM デフォルトパラメータープロファイル"
+    },
+    {
+     "text": "Generated code (codegen) reproduces smape / wape feval functions.",
+     "history_line": 5555,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/codegen/templates.py:219-241",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "BLUEPRINT:493 lists the codegen feval metrics as 'f1, brier, ece, precision_at_k, accuracy, rmsle, r2'.",
+     "proposed_anchor": "smape",
+     "target_section": "6.6 `export_code`（Codegen Export, H-0059）"
+    },
+    {
+     "text": "lizyml.metrics re-exports SMAPE and WAPE.",
+     "history_line": 5552,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/metrics/__init__.py:23",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "lizyml.metrics is a subpackage, not the top-level public surface (BLUEPRINT:1731)."
+    },
+    {
+     "text": "INV-4: smape/wape requested for binary/multiclass raise LizyMLError(METRIC_NOT_FOUND).",
+     "history_line": 5577,
+     "verdict": "not_in_force",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/metrics/registry.py:160-171 (raises UNSUPPORTED_METRIC; METRIC_NOT_FOUND is not an ErrorCode)",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "The in-force behaviour (UNSUPPORTED_METRIC) is unstated in BLUEPRINT; see H-0004/H-0014/H-0018 UNSUPPORTED_METRIC clauses."
+    },
+    {
+     "text": "format_version unchanged; no artifact change.",
+     "history_line": 5584,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    }
+   ],
+   "anchors": [],
+   "obligation": true
+  },
+  "H-0082": {
+   "history_lines": "6733-6776",
+   "clauses": [
+    {
+     "text": "evaluate(metrics=None) returns a deep copy of the internal metrics dict (not a live reference).",
+     "history_line": 6749,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/core/model.py:372-375",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Issue #271 MISSING entry, still open: 0 hits for deepcopy / deep-copy / deep copy in BLUEPRINT.",
+     "proposed_anchor": "evaluate",
+     "target_section": "4.1 Model（学習・評価・推論の Facade）"
+    },
+    {
+     "text": "Model.fit_result returns a selective deep copy: data fields copied, models / calibrator / pipeline_state shared by reference and read-only by convention; identity is not preserved.",
+     "history_line": 6750,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/core/model.py:433-447; lizyml/core/types/fit_result.py:80-104",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "BLUEPRINT:154 says 'read-only プロパティ。fit() 後の FitResult を返す' — 'read-only property' is about the attribute, not the aliasing boundary.",
+     "proposed_anchor": "fit_result",
+     "target_section": "7.1 FitResult（固定スキーマ）"
+    },
+    {
+     "text": "FitResult stays a non-frozen dataclass.",
+     "history_line": 6738,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Reclassified off_surface -> missed by the main context after H-0110 design review round 1: the dataclass representation is observable and fixed by golden tests (tests/test_e2e/test_golden_contracts.py:41,110 call dataclasses.fields). Implementation form.",
+     "target_section": "7.1 FitResult（固定スキーマ）"
+    },
+    {
+     "text": "Internal paths (mixins / plots / persistence) keep using live references.",
+     "history_line": 6754,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Not observable."
+    },
+    {
+     "text": "Result shape/meaning and format_version unchanged.",
+     "history_line": 6764,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    }
+   ],
+   "anchors": [],
+   "obligation": true
+  },
+  "H-0083": {
+   "history_lines": "6777-6828",
+   "clauses": [
+    {
+     "text": "metadata.json records checksums = {algorithm: 'sha256', files: {fit_result.pkl, refit_model.pkl, analysis_context.pkl (if present): hex digest}}.",
+     "history_line": 6795,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/persistence/exporter.py:60-66,139-142",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Issue #271 canonical instance, still open: 0 full-token hits for checksums / sha256 / SHA-256 / CHECKSUM_ALGORITHM.",
+     "proposed_anchor": "CHECKSUM_ALGORITHM",
+     "target_section": "15.1 保存の基本方針"
+    },
+    {
+     "text": "load() verifies each listed digest before joblib.load; an unknown algorithm or a mismatch raises DESERIALIZATION_FAILED with context file / expected / actual.",
+     "history_line": 6805,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/persistence/loader.py:58-99,183-187,208",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "checksums",
+     "target_section": "15.2 互換性ポリシー（必須）"
+    },
+    {
+     "text": "Artifacts without checksums (or a file not listed) load without verification.",
+     "history_line": 6806,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/persistence/loader.py:70-75; lizyml/persistence/exporter.py:13-17",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "checksums",
+     "target_section": "15.2 互換性ポリシー（必須）"
+    },
+    {
+     "text": "FORMAT_VERSION stays 2 (checksums are additive).",
+     "history_line": 6782,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1511
+     ],
+     "blueprint_quote": "現行 `FORMAT_VERSION = 2`（H-0070）。",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "The .pkl bytes are read once, verified in memory and deserialised from that buffer (no re-open; closes TOCTOU).",
+     "history_line": 6818,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/persistence/loader.py:58-70,189-191",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Part of what 'verified before deserialisation' means; one edit with the clause above.",
+     "proposed_anchor": "checksums",
+     "target_section": "15.2 互換性ポリシー（必須）"
+    },
+    {
+     "text": "Threat model: metadata.json is unsigned; checksums detect corruption/tampering and do not make pickle safe against a malicious producer.",
+     "history_line": 6819,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/persistence/exporter.py:13-17",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "checksums",
+     "target_section": "15.3 `export`（`Model Artifact`）"
+    },
+    {
+     "text": "export writes the .pkl files before metadata.json.",
+     "history_line": 6804,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Write order not observable after export."
+    }
+   ],
+   "anchors": [
+    "FORMAT_VERSION"
+   ],
+   "obligation": true
+  },
+  "H-0086": {
+   "history_lines": "6912-6956",
+   "clauses": [
+    {
+     "text": "fit() returns a selective deep copy (FitResult.__deepcopy__) instead of the internal FitResult.",
+     "history_line": 6931,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/core/model.py:338-342",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Issue #271 PARTIAL item, still open. One edit with H-0082 (aliasing boundary of returned Results).",
+     "proposed_anchor": "fit_result",
+     "target_section": "6.2 `fit`（CV）"
+    },
+    {
+     "text": "After load(), the internal metrics are a deep copy of fit_result.metrics (no sharing with the returned FitResult).",
+     "history_line": 6931,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/core/_model_persistence.py:379-382",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "fit_result",
+     "target_section": "4.2 `Model.load()`（Artifact 読込）"
+    },
+    {
+     "text": "metadata.json carries an additive 'tuning' block (best_model_params / best_smart_params / best_training_params / best_score / metric_name / direction).",
+     "history_line": 6932,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/persistence/exporter.py:42-57,144-149",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "BLUEPRINT:1505 mentions the tuning block in passing (as the reason applied_training_params is separate) but never states its keys; the §15.1 save list omits it. The block now also carries fixed_params (exporter.py:148-149, later proposal).",
+     "proposed_anchor": "tuning",
+     "target_section": "15.1 保存の基本方針"
+    },
+    {
+     "text": "load() restores a minimal TuningResult (trials empty) from the tuning block so a re-fit after load reproduces the tuned params; artifacts without the block load with no tuning result.",
+     "history_line": 6932,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/core/_model_persistence.py:387-410",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "tuning",
+     "target_section": "4.2 `Model.load()`（Artifact 読込）"
+    },
+    {
+     "text": "Full tune(resume=True) from a loaded model (study/trials) is out of scope.",
+     "history_line": 6932,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Non-goal."
+    },
+    {
+     "text": "LizyMLConfig.model_dump() emits a computed inner_valid_explicit marker that validation pops and treats as the source of truth for inner_valid explicitness (falling back to the heuristic when absent); no settable field is added.",
+     "history_line": 6933,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/config/schema.py:385,415-422,460-486; lizyml/core/_model_factories.py:329",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Issue #271 PARTIAL item, still open; leakage-relevant (explicit time/group inner_valid survives dump/reload and export->load->fit). 0 hits in BLUEPRINT.",
+     "proposed_anchor": "inner_valid_explicit",
+     "target_section": "10.3.1 設定の解決規則"
+    },
+    {
+     "text": "lizyml top-level __all__ re-exports FitResult, PredictionResult, TuningResult, LizyMLError, ErrorCode, load_config, TaskType (in addition to Model and the tuning types).",
+     "history_line": 6934,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/__init__.py:3-36",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "BLUEPRINT:1731 '公開面 (Model, FitResult, PredictionResult, ...)' is open-ended; TuningResult/LizyMLError/ErrorCode/TaskType appear only as module contents, load_config has 0 hits.",
+     "proposed_anchor": "load_config",
+     "target_section": "19. ディレクトリ構成"
+    },
+    {
+     "text": "core/types/__init__ re-exports DataFingerprint.",
+     "history_line": 6934,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/core/types/__init__.py",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "H-0086 itself declines to make lizyml.core.* a public path."
+    },
+    {
+     "text": "format_version stays 2 (tuning block and marker are additive).",
+     "history_line": 6946,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1511
+     ],
+     "blueprint_quote": "現行 `FORMAT_VERSION = 2`（H-0070）。",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "Golden test pins the top-level export set.",
+     "history_line": 6934,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Test requirement."
+    }
+   ],
+   "anchors": [
+    "FORMAT_VERSION"
+   ],
+   "obligation": true
+  },
+  "H-0089": {
+   "history_lines": "7024-7061",
+   "clauses": [
+    {
+     "text": "CalibrationResult gains fallback_fold_flags: list[bool] (per fold, split order; True when the whole fold fell back to uncalibrated OOF).",
+     "history_line": 7039,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/calibration/cross_fit.py:36-51,95-121",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "CalibrationResult is what FitResult.calibrator holds (_model_metrics.py:83-88), so it is part of the FitResult contract. 0 hits.",
+     "proposed_anchor": "fallback_fold_flags",
+     "target_section": "12.3 評価（推奨）"
+    },
+    {
+     "text": "CalibrationResult gains n_fallback_rows: int = 0 (validation rows given the uncalibrated fallback, incl. partial-NaN rows).",
+     "history_line": 7040,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/calibration/cross_fit.py:41-52",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "n_fallback_rows",
+     "target_section": "12.3 評価（推奨）"
+    },
+    {
+     "text": "metrics['calibrated'] gains fallback_row_count: int (= n_fallback_rows; 0 when no fallback).",
+     "history_line": 7042,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/core/_model_metrics.py:96-108",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Issue #271 MISSING entry, still open: BLUEPRINT:1231 gives the calibrated branch as {\"oof\": {...}, \"oof_per_fold\": [...]} and omits this key.",
+     "proposed_anchor": "fallback_row_count",
+     "target_section": "13.2 評価出力（固定）"
+    },
+    {
+     "text": "Fallback rows (no covered train scores / single-class train fold / NaN val rows) receive the uncalibrated raw OOF probability and stay in calibrated_oof and the calibrated metrics (values unchanged by H-0089).",
+     "history_line": 7041,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/calibration/cross_fit.py:100-121",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "The fallback itself predates H-0089 (H-0058/H-0067 per HISTORY:7030,5034); BLUEPRINT never says calibrated OOF can contain uncalibrated rows. Could be attributed to H-0058 instead.",
+     "proposed_anchor": "calibrated_oof",
+     "target_section": "12.1 MUST（リーク禁止）"
+    },
+    {
+     "text": "format_version unchanged; loaded pre-#218 CalibrationResult read with getattr default 0.",
+     "history_line": 7047,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/core/_model_metrics.py:101",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    }
+   ],
+   "anchors": [],
+   "obligation": true
+  },
+  "H-0090": {
+   "history_lines": "7062-7100",
+   "clauses": [
+    {
+     "text": "The generated train.py rebuilds the calibration-OOF CV folds from config.json['split'], reproducing split.method (sklearn for time_series/group_kfold/stratified_group_kfold, ported numpy logic for purged_time_series/group_time_series/blocked_group_kfold).",
+     "history_line": 7076,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/codegen/templates.py:465-536,792",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Issue #271 PARTIAL entry, still open: BLUEPRINT:486 describes train.py's OOF step only as 'OOF 生成（軽量 CV）'; leakage boundary of an export format (CLAUDE.md §2).",
+     "proposed_anchor": "split",
+     "target_section": "6.6 `export_code`（Codegen Export, H-0059）"
+    },
+    {
+     "text": "The generated code sorts by time_col (time methods) or blocks.col (blocked_group_kfold) with pandas argsort before splitting and maps folds back to original row order.",
+     "history_line": 7078,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/codegen/templates.py:493-500,536",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "split",
+     "target_section": "6.6 `export_code`（Codegen Export, H-0059）"
+    },
+    {
+     "text": "config.json gains a 'split' block with method-specific parameters serialized as resolved values (stratify bool, random_state -> training.seed fallback).",
+     "history_line": 7079,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/core/_model_persistence.py:25-35,340; lizyml/codegen/config_writer.py:95",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "BLUEPRINT:1526 describes config.json as '全設定（ハイパーパラメータ / 特徴量 / 校正）' — split not listed.",
+     "proposed_anchor": "split",
+     "target_section": "15.4 `export_code`（Codegen Export, H-0059）"
+    },
+    {
+     "text": "The generated calibrator is fitted on covered (non-NaN OOF) rows only.",
+     "history_line": 7080,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/codegen/templates.py:801-805",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "calibrator.json",
+     "target_section": "15.4 `export_code`（Codegen Export, H-0059）"
+    },
+    {
+     "text": "Exports without a split block fall back to the legacy task-based shuffled K-fold.",
+     "history_line": 7086,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/codegen/templates.py:470-483",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "split",
+     "target_section": "15.4 `export_code`（Codegen Export, H-0059）"
+    },
+    {
+     "text": "The #206 shuffle-leak banner / UserWarning is removed.",
+     "history_line": 7081,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/codegen/generator.py:117",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Warning wording / removal."
+    },
+    {
+     "text": "generate_code(split_method: str) is replaced by generate_code(split: dict | None).",
+     "history_line": 7088,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Internal codegen API."
+    },
+    {
+     "text": "format_version unchanged (codegen output is separate from Model artifacts).",
+     "history_line": 7087,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1521
+     ],
+     "blueprint_quote": "`format_version` とは無関係（pickle を使用せず、テキスト/JSON のみ）。",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    }
+   ],
+   "anchors": [
+    "export_code"
+   ],
+   "obligation": true
+  },
+  "H-0105": {
+   "history_lines": "10335-10394",
+   "clauses": [
+    {
+     "text": "feval does not re-transform the predictions LightGBM passes (binary 1-D probabilities, multiclass/multiclassova 2-D (n, num_class) probabilities, regression values).",
+     "history_line": 10358,
+     "verdict": "contradicted",
+     "blueprint_lines": [
+      1355
+     ],
+     "blueprint_quote": "- binary: `y_pred` は raw logits → `sigmoid` で確率に変換",
+     "code": "lizyml/estimators/lgbm/metric_bridge.py:200-209,238-243",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "BLUEPRINT:1346-1357 (the 'y_pred 変換' column: sigmoid / softmax, and the two bullets) still states the pre-#306 double transform.",
+     "proposed_anchor": "feval",
+     "target_section": "14.3 LightGBM デフォルトパラメータープロファイル"
+    },
+    {
+     "text": "feval hands the metric values under the evaluator's rule: 0.5 threshold (binary) / argmax (multiclass) for label metrics, row-normalised probabilities for multiclass needs_simplex metrics, probabilities as given otherwise.",
+     "history_line": 10358,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/estimators/lgbm/metric_bridge.py:264-280",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Guarantees a metric name means the same in the learning curve and FitResult.metrics.",
+     "proposed_anchor": "_pred_for_metric",
+     "target_section": "14.3 LightGBM デフォルトパラメータープロファイル"
+    },
+    {
+     "text": "A multiclass feval input that is not 2-D (n, num_class) raises EVALUATION_FAILED instead of being reshaped.",
+     "history_line": 10359,
+     "verdict": "contradicted",
+     "blueprint_lines": [
+      1356
+     ],
+     "blueprint_quote": "- multiclass: `y_pred` は flatten `(n * k,)` → `reshape(-1, k)` + `softmax` で確率に変換",
+     "code": "lizyml/estimators/lgbm/metric_bridge.py:245-262",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "EVALUATION_FAILED",
+     "target_section": "14.3 LightGBM デフォルトパラメータープロファイル"
+    },
+    {
+     "text": "The generated train.py feval also does not re-transform; a non-2-D multiclass input raises ValueError.",
+     "history_line": 10360,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": "lizyml/codegen/templates.py:274-284",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "BLUEPRINT:1541 says train.py rebuilds the feval callable; the input convention is not stated.",
+     "proposed_anchor": "feval_metrics",
+     "target_section": "15.4 `export_code`（Codegen Export, H-0059）"
+    },
+    {
+     "text": "Wrong-premise tests are rewritten, not deleted.",
+     "history_line": 10361,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Process."
+    },
+    {
+     "text": "Permanent check over every feval metric x every accepted objective (TASK_COMPATIBLE_OBJECTIVES) with real lgb.train.",
+     "history_line": 10362,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Test requirement."
+    },
+    {
+     "text": "Unused _sigmoid / _softmax helpers removed.",
+     "history_line": 10340,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": null,
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    }
+   ],
+   "anchors": [
+    "feval"
+   ],
+   "obligation": true
+  }
+ }
+}

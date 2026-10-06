@@ -1,0 +1,137 @@
+ref                        : origin/develop
+HISTORY entries (## )      : 110
+entry/id violations        : 0
+proposal ids               : 110  (H-0000 .. H-0109)
+ids without a body         : 0 []
+cited in BLUEPRINT         : 53
+absent from BLUEPRINT      : 57
+BLUEPRINT ids not in HISTORY: 0 []
+ids beyond #271's register : 18 (register was 92)
+
+status class   count
+  accepted     89
+  implemented  14
+  proposed     7
+
+status spellings: 9
+   44  '`accepted`'
+   43  'Accepted'
+   13  '`implemented`'
+    5  '`proposed`'
+    1  'Done（PR #60）'
+    1  'proposed. This revision supersedes the implementation direction and'
+    1  'proposed'
+    1  'accepted'
+    1  'Accepted（管理者決定 2026-09-15）'
+
+per proposal: id  cited  status-class
+  H-0000  -  accepted
+  H-0001  -  accepted
+  H-0002  -  accepted
+  H-0003  -  accepted
+  H-0004  -  accepted
+  H-0005  -  accepted
+  H-0006  -  accepted
+  H-0007  -  accepted
+  H-0008  -  accepted
+  H-0009  -  proposed
+  H-0010  -  proposed
+  H-0011  -  proposed
+  H-0012  -  proposed
+  H-0013  -  implemented
+  H-0014  -  implemented
+  H-0015  -  implemented
+  H-0016  -  implemented
+  H-0017  -  implemented
+  H-0018  -  implemented
+  H-0019  -  implemented
+  H-0020  -  implemented
+  H-0021  -  implemented
+  H-0022  -  implemented
+  H-0023  -  accepted
+  H-0024  -  accepted
+  H-0025  -  accepted
+  H-0026  -  accepted
+  H-0027  -  accepted
+  H-0028  -  accepted
+  H-0029  -  accepted
+  H-0030  Y  accepted
+  H-0031  Y  accepted
+  H-0032  -  accepted
+  H-0033  -  accepted
+  H-0034  -  accepted
+  H-0035  -  accepted
+  H-0036  Y  accepted
+  H-0037  -  accepted
+  H-0038  -  accepted
+  H-0039  -  accepted
+  H-0040  -  accepted
+  H-0041  Y  accepted
+  H-0042  Y  accepted
+  H-0043  Y  accepted
+  H-0044  -  accepted
+  H-0045  -  accepted
+  H-0046  -  accepted
+  H-0047  Y  accepted
+  H-0048  Y  accepted
+  H-0049  -  accepted
+  H-0050  Y  accepted
+  H-0051  Y  accepted
+  H-0052  Y  accepted
+  H-0053  Y  accepted
+  H-0054  Y  accepted
+  H-0055  -  implemented
+  H-0056  Y  proposed
+  H-0057  Y  implemented
+  H-0058  Y  implemented
+  H-0059  Y  accepted
+  H-0060  Y  accepted
+  H-0061  Y  accepted
+  H-0062  Y  accepted
+  H-0063  Y  accepted
+  H-0064  Y  implemented
+  H-0065  Y  accepted
+  H-0066  Y  accepted
+  H-0067  -  accepted
+  H-0068  Y  accepted
+  H-0069  Y  accepted
+  H-0070  Y  accepted
+  H-0071  -  accepted
+  H-0072  Y  accepted
+  H-0073  Y  accepted
+  H-0074  Y  accepted
+  H-0075  Y  accepted
+  H-0076  -  accepted
+  H-0077  Y  accepted
+  H-0078  -  accepted
+  H-0079  -  accepted
+  H-0080  -  accepted
+  H-0081  Y  accepted
+  H-0082  -  accepted
+  H-0083  -  accepted
+  H-0084  Y  accepted
+  H-0085  Y  accepted
+  H-0086  -  accepted
+  H-0087  Y  accepted
+  H-0088  Y  accepted
+  H-0089  -  accepted
+  H-0090  -  accepted
+  H-0091  -  accepted
+  H-0092  Y  accepted
+  H-0093  Y  accepted
+  H-0094  Y  accepted
+  H-0095  Y  accepted
+  H-0096  Y  accepted
+  H-0097  Y  proposed
+  H-0098  Y  proposed
+  H-0099  Y  accepted
+  H-0100  Y  accepted
+  H-0101  Y  accepted
+  H-0102  Y  accepted
+  H-0103  Y  accepted
+  H-0104  Y  accepted
+  H-0105  -  accepted
+  H-0106  Y  accepted
+  H-0107  -  accepted
+  H-0108  Y  accepted
+  H-0109  Y  accepted

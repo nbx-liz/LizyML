@@ -1,9 +1,15 @@
-# 次の一手 — 2026-10-02（Phase 3: PR 8c の PR を作成。マージ後の次は PR 9）
+# 次の一手 — 2026-10-06（Phase 3: PR 9 の PR を作成。マージ後は PR 9b で Phase 3 を判定する）
 
 このファイルだけ読めば次の作業に入れるように書いてある。
-**前版（2026-09-15、「次は PR 3c」）はこの版に置き換わる。** 前版は git 履歴に残っている。
+**前版（2026-10-02、「PR 8c の PR を作成。マージ後の次は PR 9」）はこの版に置き換わる。** 前版は git 履歴に残っている。
 
 ---
+
+## 最初にやること —— **PR 9（#271、H-0110）がマージされていれば PR 9b**
+
+PR 9 は決定済みの提案を BLUEPRINT.md に畳み込み、全提案の処分を内容で検査する（`docs/proposal_dispositions.toml`、`tests/test_docs/test_proposal_blueprint_coverage.py`）。マージされたかは `gh pr list --state merged --head docs/phase3-pr9-blueprint-fold` で確かめる。マージ後: (1) close レビューを経て #271 に close コメントを書いて close する。(2) PR 9b で `instruments/phase3_manifest.json` の #271 行に `github_prs: [320]` と `closure_comment` の id を同時に入れる（`phase3_gap.py` は `github_prs` があると `closure_comment` を必須にするので、PR 9 では `github_prs` を空のままにした）。(3) `run-exclusive.sh` 経由で `phase3_gap.py --after origin/develop` を回し、exit 0（INCOMPLETE と UNKNOWN が 0）で Phase 3 の完了を判定する。PR 9 で畳み込まなかったものは #318 / #319。完了基準は `results/pr9_acceptance_criteria.md`。
+以下の PR 8c 以前の節は経緯として残す。
+
 
 ## 最初にやること —— **PR 8c がマージされていれば PR 9（#271）**
 
