@@ -114,11 +114,17 @@ def compute_shap_importance(
     feature_names: list[str],
     pipeline_state: Any,
     pipeline_factory: Callable[[], Any] | None = None,
+    pipeline_state_per_fold: list[Any] | None = None,
 ) -> dict[str, float]:
     """Compute fold-averaged SHAP-based feature importance.
 
     For each CV fold, SHAP values are computed on the validation subset.
     The per-feature importance is ``mean(|SHAP|)`` averaged across folds.
+
+    With ``pipeline_state_per_fold``, fold k's validation rows are encoded by
+    fold k's own pipeline state, as they were when that fold's model was
+    trained and predicted its OOF rows (H-0114). Without it, every row is
+    encoded by ``pipeline_state``.
 
     Args:
         models: List of fitted estimator adapters (one per fold).
@@ -126,15 +132,20 @@ def compute_shap_importance(
         splits_outer: Outer CV split indices ``(train_idx, valid_idx)`` per fold.
         task: ML task type.
         feature_names: Ordered feature names from training.
-        pipeline_state: Serialized FeaturePipeline state for transformation.
+        pipeline_state: Serialized FeaturePipeline state, used for every fold
+            when ``pipeline_state_per_fold`` is not given.
         pipeline_factory: Optional factory to create the pipeline (H-0054).
             Falls back to ``NativeFeaturePipeline`` when not provided.
+        pipeline_state_per_fold: Each fold's serialized pipeline state, in
+            fold order (``FitResult.pipeline_state_per_fold``).
 
     Returns:
         Dict mapping feature name → importance score.
 
     Raises:
         LizyMLError with ``OPTIONAL_DEP_MISSING`` when shap is not installed.
+        ValueError: When ``pipeline_state_per_fold`` and ``models`` differ in
+            length.
     """
     if _shap is None:
         raise LizyMLError(
@@ -151,21 +162,37 @@ def compute_shap_importance(
     if n_folds == 0:
         return {name: 0.0 for name in feature_names}
 
-    # Reconstruct pipeline and transform X (H-0054: use factory when provided)
-    if pipeline_factory is not None:
-        pipeline = pipeline_factory()
-    else:
-        from lizyml.features.pipelines_native import NativeFeaturePipeline
+    if pipeline_state_per_fold is not None and len(pipeline_state_per_fold) != n_folds:
+        raise ValueError(
+            f"pipeline_state_per_fold has {len(pipeline_state_per_fold)} states "
+            f"for {n_folds} fold models."
+        )
 
-        pipeline = NativeFeaturePipeline()
-    pipeline.load_state(pipeline_state)
-    X_t, _ = pipeline.transform_with_warnings(X)
+    def load_pipeline(state: Any) -> Any:
+        # H-0054: use the provider's factory when given.
+        if pipeline_factory is not None:
+            pipeline = pipeline_factory()
+        else:
+            from lizyml.features.pipelines_native import NativeFeaturePipeline
+
+            pipeline = NativeFeaturePipeline()
+        pipeline.load_state(state)
+        return pipeline
+
+    X_t: pd.DataFrame | None = None
+    if pipeline_state_per_fold is None:
+        X_t, _ = load_pipeline(pipeline_state).transform_with_warnings(X)
 
     agg = np.zeros(n_features)
 
     for fold_idx, model in enumerate(models):
         _, valid_idx = splits_outer[fold_idx]
-        X_valid = X_t.iloc[valid_idx]
+        if pipeline_state_per_fold is None:
+            assert X_t is not None  # noqa: S101
+            X_valid = X_t.iloc[valid_idx]
+        else:
+            fold_pipeline = load_pipeline(pipeline_state_per_fold[fold_idx])
+            X_valid, _ = fold_pipeline.transform_with_warnings(X.iloc[valid_idx])
         shap_vals = compute_shap_values(model, X_valid, task)
         # mean(|SHAP|) per feature for this fold
         fold_importance: npt.NDArray[np.float64] = np.mean(np.abs(shap_vals), axis=0)

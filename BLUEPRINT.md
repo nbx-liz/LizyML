@@ -539,7 +539,8 @@ LizyML 非依存の学習・推論コードを自動生成する。
   - `time_range`（時系列分割時。fold ごとの train/valid の期間情報 `list[dict] | None`）
 - `data_fingerprint`
   - `row_count / column_hash / optional: file_hash` 等
-- `pipeline_state`（`FeaturePipeline` の状態、必須）
+- `pipeline_state`（最後の CV fold の `FeaturePipeline` の状態、必須）
+- `pipeline_state_per_fold`（`list | None`。各 CV fold の `FeaturePipeline` の状態を fold の順に持つ。`CVTrainer` は常に埋め、長さは外側 CV の fold 数、最後の要素は `pipeline_state` と同じ。`None` は fold ごとの状態が無いこと（H-0114 より前の artifact、またはこのフィールドを省いて構築した `FitResult`）を表す。H-0114）
 - `calibrator`（有効時）
 - `run_meta`
   - `lizyml_version / python_version / deps_versions / config_normalized / config_version / run_id / timestamp`
@@ -555,6 +556,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
 
 - data フィールド（`metrics` / `history` / `splits` / 配列など）は deep copy する。呼び出し側が変更しても内部状態と後の `export()` は変わらない。
 - 学習済みの `models` / `calibrator` / `pipeline_state` は参照を共有し、慣例として read-only とする（LightGBM Booster の deep copy はモデル文字列を往復して `params` を失うため）。`models` はリストの容器だけを新しくする。
+- `pipeline_state_per_fold` も同じく各 fold の状態を参照で共有し、慣例として read-only とする。リストの容器だけを新しくする（H-0114）。
 - 呼び出すたびに別のオブジェクトを返す（同一性は保たない）。
 - `FitResult` は frozen でない `dataclass` のままにする。内部状態は戻り値を copy することで守り、型を frozen にはしない（H-0082）。
 
@@ -653,7 +655,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
     - `mode` / `nan` の置換は**補正**であり、推論時は列・値・置換先を `PredictionResult.warnings` に報告する（§7.3）。欠損値は未知カテゴリではなく、どの方針でも欠損のまま残す。
     - 方針は fit が適用したものを pipeline 状態に保存し、推論時と生成コード（`predict.py`、再学習後の `train.py` も）はその値に従う。
     - **CV の検証 fold にも同じ方針が効く。** ただし既定の `auto_categorical: true`（または `categorical` 指定）の列はデータ構築時に全行の値で `category` 型になるため、どの fold でも未知にならない。fold ごとに未知カテゴリが生じるのは、`auto_categorical: false` で pipeline がカテゴリとして扱う文字列列だけである。その場合 `error` では fit が止まり、`mode` / `nan` の置換は fit 中は報告されない（`FitResult` に警告の通り道が無い）。
-    - SHAP 重要度は最後の CV fold の pipeline 状態で学習データ全体を変換する。上記の文字列列では、その fold に含まれない行（スライディング窓）の値が未知になりうる: `error` では SHAP 重要度が `DATA_SCHEMA_INVALID`、`mode` / `nan` では報告なしに置換される。
+    - SHAP 重要度は、fold k の検証行を fold k 自身の pipeline 状態（`FitResult.pipeline_state_per_fold`）で変換して fold k のモデルを説明する（H-0114）。上記の文字列列でも、SHAP 重要度が見る符号化と置換は OOF 予測が見たものと同じで、fit 中と同じく報告しない。`error` では未知の値があれば fit が先に止まるので、fit が通ったモデルの SHAP 重要度はこの理由で送出しない。
 - 推論時の列検査（不足列は `DATA_SCHEMA_INVALID`、余剰列は警告して除外）は pipeline に渡す**前**に facade（`Model.predict`）で行い、どの pipeline 実装でも省略されない（H-0104）。
 - 同じ検査で、学習時に数値だった列（`FitResult.dtypes` の記録）が予測時に数値でない dtype で届いたら `INCOMPATIBLE_COLUMNS` を送出する（context `columns` の各要素は `column` / `fit_dtype` / `predict_dtype`。H-0106）。不足列の `DATA_SCHEMA_INVALID` が先に効く。学習時に `category` だった列はこの dtype の規則で検査しない。
 
@@ -1311,7 +1313,7 @@ model:
 実装済み:
 - `importance_plot(kind="split|gain")`: fold 平均の特徴量重要度（横棒グラフ）
 - `importance_plot(kind="shap")`: fold 平均の mean(|SHAP|)（横棒グラフ）。shap optional dependency も必要。
-  - `Model.importance(kind="shap")` とこの plot は、fold ごとにその fold の validation 行（`valid_idx`）で SHAP を計算し、特徴量ごとの mean(|SHAP|) を fold で平均する（`compute_shap_importance()`、H-0007）。shap が未導入なら `OPTIONAL_DEP_MISSING`。
+  - `Model.importance(kind="shap")` とこの plot は、fold ごとにその fold の validation 行（`valid_idx`）で SHAP を計算し、特徴量ごとの mean(|SHAP|) を fold で平均する（`compute_shap_importance()`、H-0007）。fold k の validation 行は fold k の pipeline 状態（`pipeline_state_per_fold` の k 番目）で変換する（H-0114）。shap が未導入なら `OPTIONAL_DEP_MISSING`。
 - `plot_learning_curve(*, metrics=None)`: fold ごとの train/valid loss 推移（折れ線グラフ）。`metrics: list[str] | None` で表示 metric をフィルタ可能（H-0062）。`None` で全 metric、指定時は `/` 以降の metric 名で一致するもののみ表示。一致なしで `LizyMLError`。
 - `plot_oof_distribution()`: OOF 予測値の分布（ヒストグラム）
 - `residuals_plot(kind="scatter|histogram|qq|all")`: 回帰専用。IS/OOS 比較対応。`kind` で表示プロットを選択。デフォルト `kind="all"` で scatter + histogram + QQ の 3 パネル。scatter は Actual vs Predicted（x=predicted, y=actual, y=x 参照線）。IS サンプルは OOS 数に合わせてダウンサンプリング（`_downsample_is()`、seed=0 で再現可能）。
@@ -1592,7 +1594,7 @@ estimators/
   - `schema`（`feature_names / dtypes / categorical policy`）
   - split indices
   - `data_fingerprint`
-  - `pipeline_state`
+  - `pipeline_state`、`pipeline_state_per_fold`（`fit_result.pkl` の中。H-0114）
   - `models, calibrator`
   - fit が適用した training overlay（`applied_training_params`。`tuning` ブロックはモデルの現在の tuning result で、どの fit も消費していないことがあるので別に記録する。H-0109）
 - `metadata.json` のキー（`persistence/exporter.py`）:
@@ -1611,6 +1613,7 @@ estimators/
 - **完全性の検査（H-0083）**: `load()` は各 `.pkl` のバイト列を 1 回だけ読み、`checksums` に記録された digest と照合してから、そのバイト列を `joblib.load(io.BytesIO(...))` で復元する（ファイルを再 open しないので、検査と復元の間の TOCTOU が無い）。`algorithm` が `sha256` でない、または digest が一致しないときは pickle を実行する前に `DESERIALIZATION_FAILED`（context: `file` / `expected` / `actual`、アルゴリズム違いでは `file` / `algorithm`）。`checksums` を持たない artifact（H-0083 以前）と、`files` に載っていないファイルは検査せずに読む。
 - **脅威モデル**: `metadata.json` 自体は署名しない。書き込み権限を持つ者は `checksums` を書き換えたり消したりできる。`checksums` が検出するのは破損と改竄であり、悪意ある作成者に対して pickle を安全にするものではない。artifact は信頼できる出どころからだけ読む。
 - `analysis_context.pkl` を持たない artifact（H-0026 以前）でも `predict()` と `evaluate()` は使える。load 後の診断 API（`residuals()` など）は、必要なデータが無いと `MODEL_NOT_FIT` で明示的に失敗し、最新版での再 export を促す（H-0026）。
+- `pipeline_state_per_fold` を持たない `FitResult`（H-0114 より前の artifact。`format_version` は 2 のまま）は、そのまま読める（既定値 `None` がクラス属性として残るので、属性は `None` を返す）。`importance(kind="shap")` / `importance_plot(kind="shap")` だけが `MODEL_NOT_FIT`（context `task` / `kind` / `method` / `missing="pipeline_state_per_fold"`）で失敗し、`fit()` し直すことを促す。再 export では状態は作られない。この検査は `analysis_context` が無い場合の検査より先に行う。split / gain の重要度と他の API は変わらない（H-0114）。
 - 非推奨の面とその削除目標（v1.0）の唯一の登録簿は `docs/DEPRECATIONS.md` である。非推奨の警告文は削除目標の版を明記する（H-0076）。
 
 ## 15.3 `export`（`Model Artifact`）

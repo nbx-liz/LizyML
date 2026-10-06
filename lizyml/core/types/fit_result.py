@@ -17,7 +17,8 @@ from .target_encoder import TargetEncoder
 class FitResult:
     """Complete output of a CV training run.
 
-    All fields are required; no field may be ``None`` except ``calibrator``.
+    All fields are populated by training; only ``calibrator``,
+    ``oof_raw_scores`` and ``pipeline_state_per_fold`` may be ``None``.
 
     Attributes:
         oof_pred: Out-of-fold predictions.
@@ -47,8 +48,9 @@ class FitResult:
         categorical_features: Names of features encoded as categorical.
         splits: Full index record for outer/inner/calibration splits.
         data_fingerprint: Fingerprint of the training dataset.
-        pipeline_state: Serializable state of the FeaturePipeline. Shared by
-            reference across copies (read-only by convention).
+        pipeline_state: Serializable state of the last CV fold's
+            FeaturePipeline. Shared by reference across copies (read-only by
+            convention).
         calibrator: Fitted calibrator (``None`` when calibration is disabled).
             Shared by reference across copies (read-only by convention).
         run_meta: Version and config metadata captured at fit time.
@@ -58,6 +60,12 @@ class FitResult:
         target_encoder: Encoder applied to y at fit time. ``no_op()`` for
             numeric targets / regression. Carries ``classes_`` so consumers
             can map predicted int codes back to original labels (H-0070).
+        pipeline_state_per_fold: Serializable state of each CV fold's
+            FeaturePipeline, in fold order (H-0114). ``CVTrainer`` always fills
+            it (``[-1]`` equals ``pipeline_state``). ``None`` means the states
+            are unavailable: an artifact written before H-0114 or a
+            ``FitResult`` constructed without the field. The states are shared
+            by reference across copies (read-only by convention).
     """
 
     oof_pred: npt.NDArray[np.float64]
@@ -75,9 +83,18 @@ class FitResult:
     run_meta: RunMeta
     oof_raw_scores: npt.NDArray[np.float64] | None = None
     target_encoder: TargetEncoder = field(default_factory=TargetEncoder.no_op)
+    # A plain ``None`` default (not a ``default_factory``) stays a class
+    # attribute, so a FitResult unpickled from an older artifact without this
+    # attribute still reads ``None`` (H-0114).
+    pipeline_state_per_fold: list[Any] | None = None
 
     #: Trained-estimator fields shared by reference on copy (see ``__deepcopy__``).
-    _SHARED_ON_COPY = ("models", "calibrator", "pipeline_state")
+    _SHARED_ON_COPY = (
+        "models",
+        "calibrator",
+        "pipeline_state",
+        "pipeline_state_per_fold",
+    )
 
     def __deepcopy__(self, memo: dict[int, Any]) -> FitResult:
         """Selective deep copy used by the public ``Model.fit_result`` return.
@@ -86,19 +103,20 @@ class FitResult:
         ...) are deep-copied so a caller mutating the returned ``FitResult``
         cannot corrupt internal state — and thereby a later ``export()`` (the
         export-contamination vector flows through ``metrics``). Trained
-        estimators (``models`` / ``calibrator`` / ``pipeline_state``) are shared
-        by reference: deep-copying a LightGBM ``Booster`` round-trips through its
-        model string and drops ``params`` fidelity (e.g. ``objective`` becomes
-        ``None``), which would degrade the metadata reachable via
-        ``fit_result.models``. Those shared objects are read-only by convention
-        (H-0082).
+        estimators (``models`` / ``calibrator`` / ``pipeline_state`` /
+        ``pipeline_state_per_fold``) are shared by reference: deep-copying a
+        LightGBM ``Booster`` round-trips through its model string and drops
+        ``params`` fidelity (e.g. ``objective`` becomes ``None``), which would
+        degrade the metadata reachable via ``fit_result.models``. Those shared
+        objects are read-only by convention (H-0082, H-0114).
         """
         shared = set(self._SHARED_ON_COPY)
         init_kwargs: dict[str, Any] = {}
         for f in fields(self):
             value = getattr(self, f.name)
             if f.name in shared:
-                # New list container for ``models`` (defensive against list-level
+                # New list container for ``models`` and
+                # ``pipeline_state_per_fold`` (defensive against list-level
                 # mutation) while keeping the trained adapters themselves shared.
                 init_kwargs[f.name] = list(value) if isinstance(value, list) else value
             else:
