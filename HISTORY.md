@@ -10741,3 +10741,79 @@ gain の許容差は観測からではなく形式から決める。split の ga
 5. `load()` の後の成功した `fit()` は、その fit が適用した overlay を記録する。`load()` の後の `tune()`、拒否された `fit()`、学習中に失敗した `fit()` は、記録（既知でも不明でも）を変えず、再 export もそれを保つ。
 6. 440 セルの恒久検査: 違うセルの集合 = 宣言した例外（gain は相対 5.1e-6 + 絶対 2^-126 以内、tuning の 3 面は #315 のセル）。`INVENTORY` = `Model` の公開名。22 面すべてが読みを返したセルを持つ。修正前は #281 の 24 セルで RED。
 7. `report_lifecycle_grid.py` の `known-bound` の 2 セルが `agrees` になる。
+
+## H-0110: 決定済みの提案を BLUEPRINT に畳み込み、全提案の処分を内容で検査する（#271 / PR 9）
+
+- **ステータス**: Proposed
+- **起票日**: 2026-10-06
+- **スコープ**: `BLUEPRINT.md`（§4〜§19 の 32 節）, `docs/proposal_dispositions.toml`（新規）, `tests/test_docs/test_proposal_blueprint_coverage.py`（新規）, `tests/test_docs/_history_grammar.py`（新規。`test_history_ids.py` の文法を移す）, `tests/test_docs/test_history_ids.py`（import のみ）, `docs/audits/2026-09-defect-discovery/`（計測器・結果・計画・manifest）
+- **関連**: [Issue #271](https://github.com/nbx-liz/LizyML/issues/271)（本文と 2026-09-06 のコメント）, 計画 §4 PR 9（Revision 5）, H-0101（HISTORY の id の文法）, H-0083（代表例）
+- **実測の記録**: `docs/audits/2026-09-defect-discovery/results/pr9_census_13fb9d7.txt`, `results/pr9_clause_inventory.md`（`results/pr9_inventory_{A,B}.json` から生成）, `results/pr9_dispositions_C.json`
+- **管理者決定（2026-10-06、キックオフ）**: 処分は別の TOML ファイルに置く / 検査の対象は Status を問わず全提案 / PR は 1 本で BLUEPRINT の節ごとにコミット / レビュー予算は設計 3 回 + 受け入れ 4 回
+
+### 目的（課題）
+
+HISTORY.md で決まり、実装され、BLUEPRINT.md に畳み込まれなかった決定がある（#271）。代表例は H-0083 で、artifact の `.pkl` ごとの SHA-256 を `metadata.json` に書き、load 時に検証する。`13fb9d7` でも BLUEPRINT は `checksum` / `sha256` / `CHECKSUM_ALGORITHM` に 1 度も触れない。
+
+#271 の母集団（40 entries / 129 clauses / 77 edits、2026-09-06）は、そのまま実行できなかった。129 clause のうち 65 は記録が残っておらず復元できない（`instruments/extract_missed_clauses.py`）。残る 64 も 2026-09-06 の BLUEPRINT に対する判定で、その後 Phase 3 の PR が BLUEPRINT を編集した。HISTORY は 92 件から 110 件に増え、BLUEPRINT が id を引用しない提案は 57 件のままだが中身が変わった（H-0030 / H-0031 が引用され、H-0105 / H-0107 が引用されない）。
+
+そこで `13fb9d7` に対して洗い直した。対象は #271 の義務ありの 40 件と、新たに引用されない H-0105 / H-0107 の 42 件。2 つの read-only の調査が、提案ごとに clause を先に列挙し、BLUEPRINT の行を引いて判定した。正解の分かっている clause 3 件をラベルなしで混ぜ、3 件とも正しい行で `stated` と返った。
+
+| | |
+|---|---|
+| entries / clauses | 42 / 307 |
+| stated / missed / contradicted / superseded / not_in_force / off_surface | 111 / 111 / 14 / 17 / 6 / 48 |
+| BLUEPRINT の編集が要る entry | 41（H-0024 だけは義務なし: 7 clause は書かれており、3 clause は H-0099（最適化の向き）と H-0102（space の merge）が置き換えた） |
+| 編集が要る clause | 125（32 節） |
+
+#271 の 129 より多いのは、列挙をやり直して clause の粒度が細かくなったことと、2 件が加わったためである。どの clause がどの節に入るかは `results/pr9_clause_inventory.md` が一覧にしている。
+
+### 対応方針（決定）
+
+1. **処分ファイル `docs/proposal_dispositions.toml`**。最上位は `[proposals]` と `[names]` の 2 表だけ。`[proposals."H-xxxx"]` は HISTORY の id ごとに 1 行で、`disposition` は次の 4 つのどれか:
+   - `specified` + `anchors`（1 個以上）+ 任意の `note`: 各 anchor は BLUEPRINT.md と、その提案自身の HISTORY entry の**両方**に全単語一致で現れる。全単語一致は、前後に `[A-Za-z0-9_]` が無いこと（`checksum` は `checksum_algorithm` に一致しない。DC2）。提案の id は anchor にならない（id の存在は内容の存在ではない。#271）。
+   - `no_obligation` + `reason`: CLAUDE.md §3 の面で、いま有効な決定を何もしていない。
+   - `superseded` + `superseded_by`（別の提案の id）+ `reason`。
+   - `pending` + `reason`: まだ決まっていない。
+   知らない key、知らない disposition、空の文字列は失敗にする（読み飛ばさない）。
+2. **母集団は HISTORY の登録簿そのもの**。処分の行の集合は HISTORY が宣言する id の集合と両方向で等しい。提案ごとのテストは HISTORY の id で parametrize するので、件数は保存せず HISTORY から毎回再生成する。id の文法は H-0101 の `test_history_ids.py` と同じものを `tests/test_docs/_history_grammar.py` に移して共有する（解析器を 2 つにしない）。Status 行は使わない: 書き方が 9 通りあり、H-0009〜H-0012 と H-0056 は実装済みなのに `proposed` のままである。
+3. **洗い直しで `missed` / `contradicted` の 125 clause を BLUEPRINT に書く**（`cal_fold_*` の 1 件を除く 124）。BLUEPRINT とコードが食い違うときは、コードが提案どおりなら BLUEPRINT を直す。BLUEPRINT か提案が書いていてコードがしないものは、どちらが正しいかが判断なので直さず Issue にする（下記）。
+4. **提案の無い実装を BLUEPRINT に合わせる 2 点を、ここで決定として記録する**（doc-hierarchy の「仕様が古く実装が正しい場合は HISTORY に記録して BLUEPRINT を更新する」）:
+   - multiclass の `PredictionResult.proba` は `(n, k)` を返す。BLUEPRINT §7.3 と H-0002 は binary だけを書いていた。広げた提案は見つからなかった。公開の振る舞いであり、変えれば破壊的になるので、BLUEPRINT を実装に合わせる。
+   - BLUEPRINT に残っていたテンプレートの仮名を実際の名前にする: `yourlib_version` → `lizyml_version`、`deps_version` → `deps_versions`（`core/types/artifacts.py`）、`YourLibError` → `LizyMLError`（`core/exceptions.py`、`lizyml/__init__.py` が公開）。
+5. **#271 が挙げた未文書化の公開名**は `[names]` 表に置く。`documented`（`where` = `BLUEPRINT.md` か `docs/api.md` に全単語一致）か `internal` + `reason`。`CHECKSUM_ALGORITHM` は H-0083 の畳み込みで BLUEPRINT に書く。`SUPPORTED_CONFIG_VERSIONS` はすでに BLUEPRINT にある。`TASK_TYPES` は `lizyml` から再公開されず、公開名は `TaskType` なので internal。`plots/_theme.py` の 3 定数はモジュール自体が private なので internal。
+6. **洗い直しの対象外の 68 件**は clause ごとには監査しない。処分と anchor を決める（`results/pr9_dispositions_C.json`。specified 64 / superseded 2 / no_obligation 2 / pending 0）。ただし、その調査が「決まっていて BLUEPRINT に無い」と報告した 5 件（H-0057 の covered OOF の NaN 拒否、H-0085 の数値 target の NaN 拒否、H-0087 の 3 つの validator と fit に配線しない規則、H-0104 の `transform_with_warnings` と `get_state` の `categorical_cols`、H-0106 の `INCOMPATIBLE_COLUMNS` / `METRIC_REQUIRES_PROBA` を出す条件）は #271 と同じ欠陥なので、あわせて BLUEPRINT に書く。
+7. **anchor は畳み込みを示せるものを選ぶ。** BLUEPRINT にすでにある語だけを anchor にすると、畳み込みの前後どちらでも検査が通る。`13fb9d7` で実測すると、書き足しが要る 41 件のうち 23 件がそうだった。そこで、書き足しが要る 46 件（41 件 + 上の 5 件）は、それぞれ少なくとも 1 つ、`13fb9d7` の BLUEPRINT に無く、畳み込みが書く anchor を持つ（`instruments/pr9_discriminating_anchors.py --base 13fb9d7` が exit 0）。
+8. **H-0110 自身の行**は `specified` で、anchor は BLUEPRINT に書く `proposal_dispositions.toml`。以後、新しい提案を足す PR は、その提案の行を同じ PR で足す。
+
+Firing rate: 4/110 of HISTORY proposals at 13fb9d7 carry an exempt disposition (H-0010, H-0044 superseded; H-0037, H-0075 no_obligation; counted from `docs/proposal_dispositions.toml`, `results/pr9_measurements.txt` item 5)
+
+### 影響範囲 / 互換性
+
+- コードは変えない。公開 API / Config / FitResult / PredictionResult / Artifacts の形と意味は変わらない。BLUEPRINT が実装を述べるようになるだけである。`format_version` は変えない。
+- 新しい依存は無い。TOML は Python 3.11 以上で標準の `tomllib`、3.10 では `tomli` で読む。`tomli` は 3.10 で pytest 自身が依存している（`uv.lock`）ので、テストが走る環境には必ずある。
+- 新しい提案を足す PR は、`docs/proposal_dispositions.toml` に 1 行足さないと CI が落ちる。これが恒久検査の意図である。
+
+### 代替案（不採用）
+
+- **#271 の 129 clause をそのまま実行する**: 65 clause は記録が無く、残りも古い BLUEPRINT に対する判定である。
+- **id の引用を検査する**: #271 が示したとおり、33 件は id 無しで完全に書かれ、`(H-0083)` を 1 つ足せば checksum が書かれないまま通る。
+- **処分を HISTORY の各 entry に 1 行ずつ書く**: 110 entry を編集し、HISTORY の文法が開く（管理者決定で不採用）。
+- **Status が accepted / implemented の提案だけを検査する**: Status の文法と、実態とずれた Status に依存する（管理者決定で不採用）。
+- **anchor を BLUEPRINT にだけ求める**: BLUEPRINT にある無関係な語で通る。提案自身の entry にも求めれば、anchor が提案の決定と結びつく。
+
+### 受け入れ基準（テスト観点）
+
+1. `test_every_proposal_has_exactly_one_row`: 処分の行 = HISTORY の id（両方向）。行の無い提案、提案の無い行はそれぞれ名前付きで失敗する。
+2. `test_proposal_disposition_holds[H-xxxx]`: HISTORY の id ごとに 1 件で、件数は HISTORY から導出する（`13fb9d7` で 110）。全件が通る。
+3. 文法の拒否（単体）: 上位文字列の不一致（`checksum` / `checksum_algorithm` など 5 例）、境界のある一致（4 例）、不正な行 15 種、両方向の差、`[names]` の不正 4 種。
+4. **RED**: `13fb9d7` の BLUEPRINT に対して、提案の行 18 件（すべて書き足しが要る entry）と `[names]` の `CHECKSUM_ALGORITHM` が失敗する。書き足しの要らない行は 1 件も失敗しない（`results/pr9_measurements.txt` item 6）。畳み込みの後は、書き足しが要る 46 件すべてが、`13fb9d7` に無かった anchor を持つ（方針 7）。マージ後の木では、H-0083 の checksum の記述を BLUEPRINT から消す変更で失敗する（phase3 manifest の `red_mutation`。マージ前の木で走らせる RED は、`.py` でない `docs/proposal_dispositions.toml` が before tree に入らないため、欠陥ではなくファイルが無いことで失敗するだけになる）。
+5. `test_public_name_dispositions_hold`: `[names]` の 6 名すべてが成り立つ。
+6. 畳み込む 124 clause（と方針 6 の 5 件）それぞれについて、BLUEPRINT のどの行が述べるかを `results/pr9_fold_map.md` が示す（レビューで確かめる宣言。計測器は anchor の存在までしか読めない）。
+7. `instruments/pr9_discriminating_anchors.py --base 13fb9d7` が exit 0（46/46）。
+
+### 本 PR で直さず Issue にするもの
+
+- BLUEPRINT か提案が書いていてコードがしないもの（`not_in_force` の 6 件のうち、決定 4 で扱う multiclass の `proba` を除く 5 件と、`contradicted` のうち提案もコードも持たない `cal_fold_*` 列）: `embargo_pct` の `int()` 変換（コードは端数を拒否、#210）、plot を `{output_dir}/{run_id}/` に保存（コードは `run.log` だけ書く）、`migrations/v1_to_v2.py` の追加（load 時の自動 migration の半分は H-0070 で有効）、Metric の `supports_task` 属性（BLUEPRINT は Metric IF の属性として挙げるがコードに無い）、`METRIC_NOT_FOUND`（その ErrorCode は無く、実際は `UNSUPPORTED_METRIC`）、`cal_fold_*` 列（BLUEPRINT にだけある）。どちらが正しいかは判断なので、BLUEPRINT は直さない。
+- HISTORY の Status 行が実態とずれている 5 件（H-0009〜H-0012、H-0056）。
+- H-0080 の entry の中に、seed と関係の無いパラメーター名の経路の節（HISTORY 6664〜6681 行）が入っている。
