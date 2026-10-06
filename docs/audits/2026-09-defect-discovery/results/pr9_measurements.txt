@@ -29,8 +29,8 @@ PR 9 (#271, H-0110) measurements — base develop 13fb9d7 (PR 8c = #317), 2026-1
      652; params_table before fit -> MODEL_NOT_FIT at 153).
    - Result (pr9_inventory_{A,B}.json -> pr9_clause_inventory.md via
      instruments/pr9_inventory_report.py): 42 entries, 307 clauses:
-     stated 111 / missed 111 / contradicted 14 / superseded 17 / not_in_force 6 /
-     off_surface 48. Owing entries 41 (H-0024 only has none). Owed clauses 125 in 32
+     stated 111 / missed 113 / contradicted 14 / superseded 17 / not_in_force 6 /
+     off_surface 46. Owing entries 41 (H-0024 only has none). Owed clauses 127 in 32
      BLUEPRINT sections.
 
 4. Dispositions of the other 68 (scout C -> pr9_dispositions_C.json)
@@ -44,7 +44,10 @@ PR 9 (#271, H-0110) measurements — base develop 13fb9d7 (PR 8c = #317), 2026-1
 6. RED of the check at 13fb9d7 (docs/proposal_dispositions.toml from
    instruments/pr9_build_dispositions.py; anchors = scouts' stated anchors present in
    both documents + owed clauses' proposed anchors present in the HISTORY entry)
-   - 18 proposal rows fail + 1 [names] row (CHECKSUM_ALGORITHM). All 18 are owing
+   - Measured before the H-0110 row existed: 18 proposal rows + 1 [names] row
+     (CHECKSUM_ALGORITHM). At commit 0655e05 (H-0110 row added): 20 failures =
+     18 owing rows + the H-0110 row (its anchor proposal_dispositions.toml is not
+     in BLUEPRINT yet) + CHECKSUM_ALGORITHM. All 18 audited rows are owing
      entries; no non-owing row fails.
    - 23 of the 41 owing entries are GREEN at 13fb9d7: their anchors already occur in
      BLUEPRINT, so the check could not tell whether the fold happened. Before the fold,
@@ -54,3 +57,15 @@ PR 9 (#271, H-0110) measurements — base develop 13fb9d7 (PR 8c = #317), 2026-1
      is written).
    - Acceptance target: after the fold, every owing entry (41 + the 5 of item 4 = 46)
      has at least one anchor that is absent from BLUEPRINT at 13fb9d7.
+
+7. Design review round 1 (results/pr9_design_review_round1.md) corrections
+   - Inventory: H-0002 clause 1 and H-0082 clause 2 (dataclass representation)
+     reclassified off_surface -> missed (golden tests call dataclasses.fields).
+     Totals now: missed 113 / off_surface 46; owed clauses 127.
+   - Grammar: a ~~~ line closed a backtick fence and `## H-0042-extra` parsed as
+     H-0042 (both executed by the reviewer). The fence now closes only on the same
+     character at least as long, at any indentation; the heading id must be followed
+     by ':' or the end of line; an unclosed fence is a violation. On the real
+     HISTORY.md the new grammar returns entries and entry texts identical to the
+     old one (111 entries, compared with the 0655e05 module).
+   - [names] is now closed: rows must equal #271's six names in both directions.

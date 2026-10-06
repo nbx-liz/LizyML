@@ -18,17 +18,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tests.test_docs._history_grammar import id_violations, parse_entries
+from tests.test_docs._history_grammar import (
+    fence_violations,
+    id_violations,
+    parse_entries,
+)
 
 HISTORY = Path(__file__).resolve().parents[2] / "HISTORY.md"
 
 
 def test_history_ids_are_unique_and_one_per_entry() -> None:
-    entries = parse_entries(HISTORY.read_text(encoding="utf-8"))
+    text = HISTORY.read_text(encoding="utf-8")
+    entries = parse_entries(text)
     # Vacuity guard: the file has over a hundred entries; a parser that found
     # none would report no violations.
     assert len(entries) >= 100, f"only {len(entries)} entries parsed"
-    problems = id_violations(entries)
+    problems = fence_violations(text) + id_violations(entries)
     assert not problems, "\n".join(problems)
 
 
@@ -53,3 +58,32 @@ def test_an_entry_with_two_ids_is_reported() -> None:
 def test_headings_inside_code_fences_are_not_entries() -> None:
     text = "## H-0001: a\n\n```\n## H-0001: quoted\n```\n"
     assert id_violations(parse_entries(text)) == []
+
+
+def test_a_tilde_line_does_not_close_a_backtick_fence() -> None:
+    # H-0110 design review round 1: the fence closed on "~~~", the fenced
+    # example became an entry and the real H-0003 vanished with no violation.
+    text = "## H-0001: a\n\n```\n~~~\n## H-0002: fake\n```\n\n## H-0003: real\n"
+    entries = parse_entries(text)
+    assert [ids for _, ids in entries] == [{"H-0001"}, {"H-0003"}]
+
+
+def test_an_indented_fence_hides_its_headings() -> None:
+    text = "## H-0001: a\n\n1. item\n   ```\n## H-0002: fake\n   ```\n"
+    assert [ids for _, ids in parse_entries(text)] == [{"H-0001"}]
+
+
+def test_a_longer_fence_closes_only_on_a_run_at_least_as_long() -> None:
+    text = "## H-0001: a\n\n````\n```\n## H-0002: fake\n````\n\n## H-0003: real\n"
+    assert [ids for _, ids in parse_entries(text)] == [{"H-0001"}, {"H-0003"}]
+
+
+def test_a_heading_id_with_a_suffix_is_not_an_id() -> None:
+    problems = id_violations(parse_entries("## H-0042-extra\n"))
+    assert problems == ["'## H-0042-extra' declares 0 ids: []"]
+
+
+def test_an_unclosed_fence_is_reported() -> None:
+    assert fence_violations("## H-0001: a\n\n```\nnever closed\n") == [
+        "fence opened at line 3 is never closed"
+    ]

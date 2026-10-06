@@ -21,19 +21,20 @@
     {
      "text": "FitResult / PredictionResult / SplitIndices / RunMeta are dataclasses.",
      "history_line": 263,
-     "verdict": "off_surface",
+     "verdict": "missed",
      "blueprint_lines": [],
      "blueprint_quote": null,
      "code": null,
      "superseded_by": null,
      "from_prior": true,
-     "note": "Implementation form not observable as contract (capsule example).",
+     "note": "Reclassified off_surface -> missed by the main context after H-0110 design review round 1: the dataclass representation is observable and fixed by golden tests (tests/test_e2e/test_golden_contracts.py:41,110 call dataclasses.fields). Implementation form not observable as contract (capsule example).",
      "prior_text": [
       "FitResult is a dataclass.",
       "PredictionResult is a dataclass.",
       "SplitIndices is a dataclass.",
       "RunMeta is a dataclass."
-     ]
+     ],
+     "target_section": "7.1 FitResult（固定スキーマ）"
     },
     {
      "text": "oof_pred is an np.ndarray.",
@@ -1898,13 +1899,14 @@
     {
      "text": "FitResult stays a non-frozen dataclass.",
      "history_line": 6738,
-     "verdict": "off_surface",
+     "verdict": "missed",
      "blueprint_lines": [],
      "blueprint_quote": null,
      "code": null,
      "superseded_by": null,
      "from_prior": false,
-     "note": "Implementation form."
+     "note": "Reclassified off_surface -> missed by the main context after H-0110 design review round 1: the dataclass representation is observable and fixed by golden tests (tests/test_e2e/test_golden_contracts.py:41,110 call dataclasses.fields). Implementation form.",
+     "target_section": "7.1 FitResult（固定スキーマ）"
     },
     {
      "text": "Internal paths (mixins / plots / persistence) keep using live references.",

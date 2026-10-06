@@ -48,7 +48,12 @@ from typing import Any
 
 import pytest
 
-from tests.test_docs._history_grammar import entry_texts, id_violations, parse_entries
+from tests.test_docs._history_grammar import (
+    entry_texts,
+    fence_violations,
+    id_violations,
+    parse_entries,
+)
 
 if sys.version_info >= (3, 11):
     import tomllib
@@ -73,6 +78,20 @@ _NAME_KEYS: dict[str, tuple[frozenset[str], frozenset[str]]] = {
     "internal": (frozenset({"reason"}), frozenset()),
 }
 _NAME_DOCUMENTS = frozenset({"BLUEPRINT.md", "docs/api.md"})
+# #271 found eight implemented public names documented nowhere; two
+# (ErrorCode.EVALUATION_FAILED, ErrorCode.CALIBRATION_NOT_FITTED) were documented
+# in docs/api.md before PR 9. The [names] table must hold exactly the other six,
+# so dropping a row cannot turn the check green.
+PUBLIC_NAMES_271 = frozenset(
+    {
+        "CHECKSUM_ALGORITHM",
+        "SUPPORTED_CONFIG_VERSIONS",
+        "TASK_TYPES",
+        "DEFAULT_TEMPLATE",
+        "DEFAULT_HEIGHT",
+        "DEFAULT_WIDTH",
+    }
+)
 
 
 def has_token(token: str, text: str) -> bool:
@@ -159,6 +178,18 @@ def name_problems(name: str, row: Any, documents: dict[str, str]) -> list[str]:
     return []
 
 
+def name_coverage_problems(names: dict[str, Any]) -> list[str]:
+    """The [names] rows must equal #271's six names in both directions."""
+    problems = [
+        f"{n}: #271 name has no row" for n in sorted(PUBLIC_NAMES_271 - set(names))
+    ]
+    problems += [
+        f"{n}: row is not one of #271's names"
+        for n in sorted(set(names) - PUBLIC_NAMES_271)
+    ]
+    return problems
+
+
 def coverage_problems(history_ids: set[str], rows: dict[str, Any]) -> list[str]:
     """Rows must equal the register in both directions."""
     missing = sorted(history_ids - set(rows))
@@ -172,7 +203,7 @@ def coverage_problems(history_ids: set[str], rows: dict[str, Any]) -> list[str]:
 def _register() -> tuple[frozenset[str], dict[str, str]]:
     text = HISTORY.read_text(encoding="utf-8")
     entries = parse_entries(text)
-    problems = id_violations(entries)
+    problems = fence_violations(text) + id_violations(entries)
     assert not problems, "\n".join(problems)
     return frozenset(i for _, ids in entries for i in ids), entry_texts(text)
 
@@ -218,8 +249,8 @@ def test_proposal_disposition_holds(proposal_id: str) -> None:
 def test_public_name_dispositions_hold() -> None:
     documents = {d: (ROOT / d).read_text(encoding="utf-8") for d in _NAME_DOCUMENTS}
     names = _dispositions()["names"]
-    assert names, "the [names] table is empty"
-    problems = [
+    problems = name_coverage_problems(names)
+    problems += [
         p for name, row in names.items() for p in name_problems(name, row, documents)
     ]
     assert not problems, "\n".join(problems)
@@ -332,3 +363,17 @@ def test_a_malformed_name_row_is_refused(row: Any, expected: str) -> None:
     documents = {"BLUEPRINT.md": "TASK_TYPES_LEGACY only", "docs/api.md": ""}
     problems = name_problems("TASK_TYPES", row, documents)
     assert any(expected in p for p in problems), problems
+
+
+def test_the_names_table_must_hold_exactly_the_six_names() -> None:
+    # H-0110 design review round 1: deleting the CHECKSUM_ALGORITHM row left the
+    # other five rows passing.
+    six = {
+        name: {"disposition": "internal", "reason": "x"} for name in PUBLIC_NAMES_271
+    }
+    del six["CHECKSUM_ALGORITHM"]
+    six["EXTRA_NAME"] = {"disposition": "internal", "reason": "x"}
+    assert name_coverage_problems(six) == [
+        "CHECKSUM_ALGORITHM: #271 name has no row",
+        "EXTRA_NAME: row is not one of #271's names",
+    ]

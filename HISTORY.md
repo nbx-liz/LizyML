@@ -10762,9 +10762,11 @@ HISTORY.md で決まり、実装され、BLUEPRINT.md に畳み込まれなか�
 | | |
 |---|---|
 | entries / clauses | 42 / 307 |
-| stated / missed / contradicted / superseded / not_in_force / off_surface | 111 / 111 / 14 / 17 / 6 / 48 |
+| stated / missed / contradicted / superseded / not_in_force / off_surface | 111 / 113 / 14 / 17 / 6 / 46 |
 | BLUEPRINT の編集が要る entry | 41（H-0024 だけは義務なし: 7 clause は書かれており、3 clause は H-0099（最適化の向き）と H-0102（space の merge）が置き換えた） |
-| 編集が要る clause | 125（32 節） |
+| 編集が要る clause | 127（32 節） |
+
+表の数は設計レビュー round 1 の後の値である。調査は H-0002 の「`FitResult` / `PredictionResult` / `SplitIndices` / `RunMeta` は dataclass」と H-0082 の「`FitResult` は frozen でない dataclass」を `off_surface` としたが、dataclass であることは golden test が `dataclasses.fields` で固定している公開の表現なので（`tests/test_e2e/test_golden_contracts.py`）、`missed` に直した（round 1 の指摘）。
 
 #271 の 129 より多いのは、列挙をやり直して clause の粒度が細かくなったことと、2 件が加わったためである。どの clause がどの節に入るかは `results/pr9_clause_inventory.md` が一覧にしている。
 
@@ -10777,7 +10779,7 @@ HISTORY.md で決まり、実装され、BLUEPRINT.md に畳み込まれなか�
    - `pending` + `reason`: まだ決まっていない。
    知らない key、知らない disposition、空の文字列は失敗にする（読み飛ばさない）。
 2. **母集団は HISTORY の登録簿そのもの**。処分の行の集合は HISTORY が宣言する id の集合と両方向で等しい。提案ごとのテストは HISTORY の id で parametrize するので、件数は保存せず HISTORY から毎回再生成する。id の文法は H-0101 の `test_history_ids.py` と同じものを `tests/test_docs/_history_grammar.py` に移して共有する（解析器を 2 つにしない）。Status 行は使わない: 書き方が 9 通りあり、H-0009〜H-0012 と H-0056 は実装済みなのに `proposed` のままである。
-3. **洗い直しで `missed` / `contradicted` の 125 clause を BLUEPRINT に書く**（`cal_fold_*` の 1 件を除く 124）。BLUEPRINT とコードが食い違うときは、コードが提案どおりなら BLUEPRINT を直す。BLUEPRINT か提案が書いていてコードがしないものは、どちらが正しいかが判断なので直さず Issue にする（下記）。
+3. **洗い直しで `missed` / `contradicted` の 127 clause を BLUEPRINT に書く**。BLUEPRINT とコードが食い違うときは、コードが提案どおりなら BLUEPRINT を直す。BLUEPRINT か提案が書いていてコードがしないものは、どちらが正しいかが判断なので直さず Issue にする（下記）。
 4. **提案の無い実装を BLUEPRINT に合わせる 2 点を、ここで決定として記録する**（doc-hierarchy の「仕様が古く実装が正しい場合は HISTORY に記録して BLUEPRINT を更新する」）:
    - multiclass の `PredictionResult.proba` は `(n, k)` を返す。BLUEPRINT §7.3 と H-0002 は binary だけを書いていた。広げた提案は見つからなかった。公開の振る舞いであり、変えれば破壊的になるので、BLUEPRINT を実装に合わせる。
    - BLUEPRINT に残っていたテンプレートの仮名を実際の名前にする: `yourlib_version` → `lizyml_version`、`deps_version` → `deps_versions`（`core/types/artifacts.py`）、`YourLibError` → `LizyMLError`（`core/exceptions.py`、`lizyml/__init__.py` が公開）。
@@ -10807,13 +10809,13 @@ Firing rate: 4/110 of HISTORY proposals at 13fb9d7 carry an exempt disposition (
 1. `test_every_proposal_has_exactly_one_row`: 処分の行 = HISTORY の id（両方向）。行の無い提案、提案の無い行はそれぞれ名前付きで失敗する。
 2. `test_proposal_disposition_holds[H-xxxx]`: HISTORY の id ごとに 1 件で、件数は HISTORY から導出する（`13fb9d7` で 110）。全件が通る。
 3. 文法の拒否（単体）: 上位文字列の不一致（`checksum` / `checksum_algorithm` など 5 例）、境界のある一致（4 例）、不正な行 15 種、両方向の差、`[names]` の不正 4 種。
-4. **RED**: `13fb9d7` の BLUEPRINT に対して、提案の行 18 件（すべて書き足しが要る entry）と `[names]` の `CHECKSUM_ALGORITHM` が失敗する。書き足しの要らない行は 1 件も失敗しない（`results/pr9_measurements.txt` item 6）。畳み込みの後は、書き足しが要る 46 件すべてが、`13fb9d7` に無かった anchor を持つ（方針 7）。マージ後の木では、H-0083 の checksum の記述を BLUEPRINT から消す変更で失敗する（phase3 manifest の `red_mutation`。マージ前の木で走らせる RED は、`.py` でない `docs/proposal_dispositions.toml` が before tree に入らないため、欠陥ではなくファイルが無いことで失敗するだけになる）。
+4. **RED**: 未編集の BLUEPRINT（`13fb9d7`）に対して、提案の行 19 件と `[names]` の `CHECKSUM_ALGORITHM` の 20 件が失敗する（`0655e05` で実測）。19 件の内訳は、書き足しが要る entry 18 件と H-0110 自身の行（anchor `proposal_dispositions.toml` がまだ BLUEPRINT に無い）。書き足しの要らない既存の提案の行は 1 件も失敗しない（`results/pr9_measurements.txt` item 6）。畳み込みの後は、書き足しが要る 46 件すべてが、`13fb9d7` に無かった anchor を持つ（方針 7）。マージ後の木では、H-0083 の checksum の記述を BLUEPRINT から消す変更で失敗する（phase3 manifest の `red_mutation`。マージ前の木で走らせる RED は、`.py` でない `docs/proposal_dispositions.toml` が before tree に入らないため、欠陥ではなくファイルが無いことで失敗するだけになる）。
 5. `test_public_name_dispositions_hold`: `[names]` の 6 名すべてが成り立つ。
-6. 畳み込む 124 clause（と方針 6 の 5 件）それぞれについて、BLUEPRINT のどの行が述べるかを `results/pr9_fold_map.md` が示す（レビューで確かめる宣言。計測器は anchor の存在までしか読めない）。
+6. 畳み込む 127 clause、方針 6 の 5 件、決定 4 の 2 点（multiclass の `proba`、仮名 3 つの改名。`lizyml_version` / `deps_versions` は H-0002 の RunMeta の clause と重なるので、その行で両方を示す）、方針 8 の 1 行、それぞれについて、BLUEPRINT のどの行が述べるかを `results/pr9_fold_map.md` が示す（レビューで確かめる宣言。計測器は anchor の存在までしか読めない）。
 7. `instruments/pr9_discriminating_anchors.py --base 13fb9d7` が exit 0（46/46）。
 
 ### 本 PR で直さず Issue にするもの
 
-- BLUEPRINT か提案が書いていてコードがしないもの（`not_in_force` の 6 件のうち、決定 4 で扱う multiclass の `proba` を除く 5 件と、`contradicted` のうち提案もコードも持たない `cal_fold_*` 列）: `embargo_pct` の `int()` 変換（コードは端数を拒否、#210）、plot を `{output_dir}/{run_id}/` に保存（コードは `run.log` だけ書く）、`migrations/v1_to_v2.py` の追加（load 時の自動 migration の半分は H-0070 で有効）、Metric の `supports_task` 属性（BLUEPRINT は Metric IF の属性として挙げるがコードに無い）、`METRIC_NOT_FOUND`（その ErrorCode は無く、実際は `UNSUPPORTED_METRIC`）、`cal_fold_*` 列（BLUEPRINT にだけある）。どちらが正しいかは判断なので、BLUEPRINT は直さない。
+- BLUEPRINT か提案が書いていてコードがしないもの（`not_in_force` の 6 件のうち、決定 4 で扱う multiclass の `proba` を除く 5 件）: `embargo_pct` の `int()` 変換（コードは端数を拒否、#210）、plot を `{output_dir}/{run_id}/` に保存（コードは `run.log` だけ書く）、`migrations/v1_to_v2.py` の追加（load 時の自動 migration の半分は H-0070 で有効）、Metric の `supports_task` 属性（BLUEPRINT は Metric IF の属性として挙げるがコードに無い）、`METRIC_NOT_FOUND`（その ErrorCode は無く、実際は `UNSUPPORTED_METRIC`）。なお `evaluate_table()` の `cal_fold_*` 列は BLUEPRINT にだけあり、H-0005 は `cal_oof` 列だけを決め、コードもそうしているので、これは畳み込みとして BLUEPRINT を直す。どちらが正しいかは判断なので、BLUEPRINT は直さない。
 - HISTORY の Status 行が実態とずれている 5 件（H-0009〜H-0012、H-0056）。
 - H-0080 の entry の中に、seed と関係の無いパラメーター名の経路の節（HISTORY 6664〜6681 行）が入っている。

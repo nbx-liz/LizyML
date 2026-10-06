@@ -52,9 +52,9 @@
 |---|---|---|
 | HISTORY の提案 | 110（H-0110 を足して 111） | `pr9_census_13fb9d7.txt` |
 | clause を洗い直した entry | 42（#271 の 40 + H-0105 / H-0107） | `pr9_inventory_{A,B}.json` |
-| その clause | 307（stated 111 / missed 111 / contradicted 14 / superseded 17 / not_in_force 6 / off_surface 48） | `pr9_clause_inventory.md` |
+| その clause | 307（stated 111 / missed 113 / contradicted 14 / superseded 17 / not_in_force 6 / off_surface 46） | `pr9_clause_inventory.md` |
 | 書き足しが要る entry | 41 + 調査 C が報告した 5 = 46 | 同上、`pr9_dispositions_C.json` |
-| 畳み込む clause | 124（125 から、提案もコードも持たない `cal_fold_*` 列を除く）+ 5 件の決定 | 同上 |
+| 畳み込む clause | 127 + 5 件の決定 + H-0110 決定 4 の 2 点 + 方針 8 の 1 行 | 同上 |
 | 処分のみ決めた entry | 68（specified 64 / superseded 2 / no_obligation 2） | `pr9_dispositions_C.json` |
 | 免除の処分 | 4/110 | 処分ファイル |
 | 未文書化の公開名 | 6（#271 の 8 から、文書化済みの 2 を除く） | #271 本文 |
@@ -68,10 +68,10 @@
 | A1 | 処分の行 = HISTORY の id（両方向） | `test_every_proposal_has_exactly_one_row`、`test_rows_must_equal_the_register_in_both_directions` |
 | A2 | HISTORY の id ごとに 1 件で、件数は HISTORY から導出し、全件が通る | `test_proposal_disposition_holds[H-xxxx]`（111 件） |
 | A3 | 文法の拒否: 上位文字列 5 例、境界のある一致 4 例、不正な行 15 種、`[names]` の不正 4 種 | `test_a_superstring_is_not_a_token_match`、`test_a_bounded_occurrence_is_a_token_match`、`test_a_malformed_row_is_refused`、`test_a_malformed_name_row_is_refused` |
-| A4 | RED: `13fb9d7` の BLUEPRINT で提案の行 18 件 + `CHECKSUM_ALGORITHM` が失敗し、書き足しの要らない行は失敗しない | `pr9_measurements.txt` item 6、RED コミットでのテスト実行 |
+| A4 | RED: 未編集の BLUEPRINT で 20 件が失敗する（書き足しが要る entry 18 件 + H-0110 自身の行 + `CHECKSUM_ALGORITHM`）。書き足しの要らない既存の提案の行は失敗しない | `pr9_measurements.txt` item 6、RED コミットでのテスト実行 |
 | A5 | 書き足しが要る 46 件すべてが、`13fb9d7` に無かった anchor を持つ | `instruments/pr9_discriminating_anchors.py --base 13fb9d7` exit 0 |
-| A6 | 畳み込む 124 clause + 5 件の決定それぞれに、それを述べる BLUEPRINT の行がある | `results/pr9_fold_map.md`（レビューで確かめる） |
-| A7 | `[names]` の 6 名が成り立つ | `test_public_name_dispositions_hold` |
+| A6 | 畳み込む 127 clause、5 件の決定、H-0110 決定 4 の 2 点（重なる clause はその行で示す）、方針 8 の 1 行のそれぞれに、それを述べる BLUEPRINT の行がある | `results/pr9_fold_map.md`（レビューで確かめる） |
+| A7 | `[names]` の行 = #271 の 6 名（両方向）で、6 名すべてが成り立つ | `test_public_name_dispositions_hold` |
 | A8 | HISTORY の id の検査は文法の移設の前後で同じ結果 | `test_history_ids.py` 5 passed（移設の前後） |
 | A9 | phase3 manifest の #271 行: `population_test` が 111 件を集め（`derived_from` で HISTORY から導出）、`red_mutation` が H-0083 の checksum の記述を消して失敗する | `instruments/phase3_gap.py`（PR 9b で `closure_comment` を埋めて exit 0） |
 | A10 | 本 PR で直さないもの（§5）を Issue にする | Issue 番号を PR 本文に書く |
@@ -82,7 +82,8 @@ Accept/reject matrix:
 
 | 入力 | 受理 | 拒否（失敗。読み飛ばさない） |
 |---|---|---|
-| HISTORY の entry | `## ` 見出し（fence の外）で、id を `## H-xxxx` か `` - ID: `H-xxxx` `` のちょうど 1 つで宣言 | id が 0 / 2 個の entry、2 つの entry が宣言する id（H-0101 の文法、`_history_grammar.py`） |
+| HISTORY の entry | `## ` 見出し（fence の外）で、id を `## H-xxxx`（直後が `:` か行末）か `` - ID: `H-xxxx` `` のちょうど 1 つで宣言 | id が 0 / 2 個の entry、2 つの entry が宣言する id、`## H-0042-extra` のような接尾辞つきの見出し（0 id として失敗）（H-0101 の文法、`_history_grammar.py`） |
+| fence | 3 個以上の `` ` `` か `~` で開き（字下げは任意）、**同じ文字で同じ長さ以上**の行だけで閉じる | 閉じないまま終わるファイル（`fence_violations`）。`` ``` `` の中の `~~~` は閉じない（設計レビュー round 1） |
 | 処分ファイルの最上位 | `[proposals]` と `[names]` の 2 表だけ | それ以外の表、TOML として読めないファイル（`tomllib` の例外） |
 | `[proposals."H-xxxx"]` | `disposition` が 4 種のいずれかで、その種の必須 key がそろい、任意 key 以外が無い | 知らない disposition、必須 key の欠落、知らない key、空の文字列、表でない値 |
 | `anchors` | 1 個以上の、重複の無い空でない文字列で、それぞれ BLUEPRINT と提案自身の entry の両方に全単語一致 | 空のリスト、重複、提案 id を含む文字列、どちらかの文書に無い語 |
