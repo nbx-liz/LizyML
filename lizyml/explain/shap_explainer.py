@@ -159,14 +159,15 @@ def compute_shap_importance(
 
     n_features = len(feature_names)
     n_folds = len(models)
-    if n_folds == 0:
-        return {name: 0.0 for name in feature_names}
-
+    # Checked before the zero-fold return so a mismatch is never answered
+    # with an all-zero importance.
     if pipeline_state_per_fold is not None and len(pipeline_state_per_fold) != n_folds:
         raise ValueError(
             f"pipeline_state_per_fold has {len(pipeline_state_per_fold)} states "
             f"for {n_folds} fold models."
         )
+    if n_folds == 0:
+        return {name: 0.0 for name in feature_names}
 
     def load_pipeline(state: Any) -> Any:
         # H-0054: use the provider's factory when given.

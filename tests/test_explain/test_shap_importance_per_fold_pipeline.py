@@ -344,3 +344,17 @@ def test_per_fold_states_of_the_wrong_length_are_refused() -> None:
         compute_shap_importance(
             *_direct_call_inputs(model), pipeline_state_per_fold=states[:-1]
         )
+
+
+def test_per_fold_states_without_fold_models_are_refused() -> None:
+    """The length check runs before the zero-fold shortcut (PR #327 review r1)."""
+    with pytest.raises(ValueError, match="pipeline_state_per_fold"):
+        compute_shap_importance(
+            [],
+            pd.DataFrame({"x": []}),
+            [],
+            "regression",
+            ["x"],
+            {},
+            pipeline_state_per_fold=[{}],
+        )
