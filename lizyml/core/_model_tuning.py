@@ -475,7 +475,9 @@ class ModelTuningMixin:
         )
         expanded_names = boundary_report.expanded_names
         if not expanded_names:
-            _log.info("event='tune.resume' no dims near boundary")
+            # Either no dim is near an edge, or every near-edge dim already
+            # sits on a clamp and cannot move (H-0111).
+            _log.info("event='tune.resume' no dims expanded")
             return space, boundary_report, expanded_names
 
         new_space = expand_dims(space, boundary_report)

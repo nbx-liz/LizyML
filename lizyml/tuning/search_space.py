@@ -397,9 +397,16 @@ def detect_boundary(
             if isinstance(dim, IntDim):
                 nl = max(1, int(math.floor(nl)))
                 nh = int(math.ceil(nh))
-            new_low = nl
-            new_high = nh
-            expanded_names.append(dim.name)
+            # H-0078 item 4 (H-0111): an expansion that leaves the range
+            # unchanged -- the edge already sits on a clamp (min/max_allowed,
+            # the linear 0.0 floor, the IntDim max(1, ...) guard) -- is not an
+            # expansion. Reporting it would repeat the same no-op every round.
+            if (nl, nh) == (low, high):
+                should_expand = False
+            else:
+                new_low = nl
+                new_high = nh
+                expanded_names.append(dim.name)
 
         statuses.append(
             BoundaryDimStatus(
