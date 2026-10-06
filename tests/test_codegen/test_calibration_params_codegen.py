@@ -213,6 +213,22 @@ def test_requirements_list_scipy_when_the_generated_code_imports_it(
     assert "scipy" in lines
 
 
+@pytest.mark.parametrize("method", ["platt", "beta"])
+def test_generated_fitter_refuses_a_non_converged_optimisation(
+    generated_train: ModuleType, method: str
+) -> None:
+    """The generated fitter follows H-0113: no coefficients from a failed minimize.
+
+    ``maxiter=1`` makes L-BFGS-B stop with ``success=False`` on this data; the
+    runtime raises ``CALIBRATION_FAILED``, the generated project ``RuntimeError``.
+    """
+    s, y = _scores()
+    with pytest.raises(
+        RuntimeError, match=rf"calibration \({method}\) did not converge"
+    ):
+        generated_train._CAL_FITTERS[method](s, y, {"options": {"maxiter": 1}})
+
+
 def test_readme_names_both_calibrators_that_need_scipy() -> None:
     readme = (REPO / "README.md").read_text(encoding="utf-8")
     line = next(ln for ln in readme.splitlines() if ln.startswith("Dependencies:"))

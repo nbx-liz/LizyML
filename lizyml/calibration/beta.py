@@ -8,6 +8,7 @@ import numpy as np
 import numpy.typing as npt
 
 from lizyml.calibration._optimizer import (
+    require_converged,
     resolve_minimize_kwargs,
     validate_optimizer_params,
 )
@@ -69,6 +70,9 @@ class BetaCalibrator(BaseCalibratorAdapter):
     def fit(
         self, oof_scores: npt.NDArray[np.float64], y: npt.NDArray[Any]
     ) -> BetaCalibrator:
+        # A refit that fails -- for any reason, including a missing scipy --
+        # must not leave an earlier fit usable (H-0113). First statement.
+        self._params = None
         if _scipy is None:
             raise LizyMLError(
                 code=ErrorCode.OPTIONAL_DEP_MISSING,
@@ -102,6 +106,7 @@ class BetaCalibrator(BaseCalibratorAdapter):
             self._settings, n_coef=_N_COEF, default_x0=_DEFAULT_X0, default_options={}
         )
         result = minimize(neg_log_likelihood, **kwargs)
+        require_converged(result, calibrator="beta", method=kwargs["method"])
         self._params = (float(result.x[0]), float(result.x[1]), float(result.x[2]))
         return self
 

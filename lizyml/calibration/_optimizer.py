@@ -285,3 +285,32 @@ def resolve_minimize_kwargs(
     if "bounds" in params:
         kwargs["bounds"] = [tuple(pair) for pair in params["bounds"]]
     return kwargs
+
+
+def require_converged(result: Any, *, calibrator: str, method: str) -> None:
+    """Raise ``CALIBRATION_FAILED`` unless ``minimize`` reported success (H-0113).
+
+    A result whose ``success`` is false -- an iteration or evaluation limit, a
+    failed line search -- holds coefficients that are not the likelihood
+    maximum, so the calibrator must not keep them (#297). A result without a
+    ``success`` attribute is treated as failed rather than assumed converged.
+    """
+    if bool(getattr(result, "success", False)):
+        return
+    message = str(getattr(result, "message", ""))
+    raise LizyMLError(
+        ErrorCode.CALIBRATION_FAILED,
+        user_message=(
+            f"The {calibrator} calibrator's optimiser ({method}) did not converge: "
+            f"{message}. Its coefficients are not the maximum-likelihood fit, so "
+            "they are not used. If calibration.params limits the optimiser "
+            "(options such as maxiter, maxfun or maxls), relax the limit."
+        ),
+        context={
+            "calibrator": calibrator,
+            "method": method,
+            "message": message,
+            "status": int(getattr(result, "status", -1)),
+            "nit": getattr(result, "nit", None),
+        },
+    )

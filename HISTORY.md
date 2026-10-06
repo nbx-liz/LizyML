@@ -10935,3 +10935,73 @@ H-0110 の畳み込みは、決定済みで実装済みの節を BLUEPRINT に�
 4. 列があるときの振る舞いは変わらない: 漏洩・並びの乱れがあれば今日と同じ `LEAKAGE_SUSPECTED` か警告、無ければ `[]`。
 5. `tests/test_data/test_validators_edge.py` の 2 件は削除せず、決定に合わせて送出を確かめる形に書き換える。
 6. `docs/api.md` の `ErrorCode` の表と漏洩検査の節、BLUEPRINT §8.2 が新しい振る舞いを書き、`tests/test_docs/` が緑のまま（H-0112 の処分の行を含む）。
+
+## H-0113: 確率校正の最適化が収束しなかったら、その係数を使わずに送出する（#297）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-06
+- **決定日**: 2026-10-06（管理者の判断: 既定の設定での発火率を測り、0 なら送出する。送出する code は新設の `ErrorCode.CALIBRATION_FAILED`）
+- **スコープ**: `lizyml/core/exceptions.py`（`CALIBRATION_FAILED` を追加）, `lizyml/calibration/_optimizer.py`（収束の検査）, `lizyml/calibration/platt.py` / `beta.py`（検査を呼ぶ）, `lizyml/calibration/cross_fit.py`（失敗した fold を context に付ける）, `lizyml/codegen/templates.py`（生成される `train.py` の校正器）, `BLUEPRINT.md`（§12 の校正、§16.2 の `ErrorCode` 一覧）, `docs/api.md`, `CHANGELOG.md`, テスト（`tests/test_calibration/test_calibration_failed_optimisation.py` 新規、`tests/test_codegen/test_calibration_params_codegen.py` 追記、`ErrorCode` の一覧を固定する `tests/test_core/test_exceptions.py` と、各 code を実際に送出させる `tests/test_core/test_error_code_raising.py` に 1 行ずつ追加）, 計測器 `docs/audits/2026-09-defect-discovery/instruments/i297_minimize_census_plugin.py`
+- **関連**: [Issue #297](https://github.com/nbx-liz/LizyML/issues/297), H-0100（`calibration.params` で最適化の設定を受け付けた）, H-0058（校正は outer split を使う cross-fit）
+
+### 目的（課題）
+
+`PlattCalibrator.fit` と `BetaCalibrator.fit` は `scipy.optimize.minimize` の結果の `x` を、`success` を見ずに係数として使う。最適化が収束しなかったとき（反復の上限、関数評価の上限、線探索の失敗）、校正器は途中の係数、最悪の場合は初期値（Platt なら `a = 0` と事前確率の対数オッズ）を持ったまま、成功した校正器として `fit()` から返り、C_final として export される。警告は出ない（DC1）。生成される `train.py` の校正器も同じ形である。
+
+#297 は `calibration_params={"options": {"maxls": 1}}` で Platt の 3 fold と C_final がすべて `success=False`（`ABNORMAL:`）のまま初期値を出荷したことを示した。scikit-learn の `_sigmoid_calibration` も `success` を見ないので、既定の振る舞いは参照実装と同じだが、失敗した fit を成功として扱うことに変わりはない。
+
+### 発火率（実装前に計測）
+
+`instruments/i297_minimize_census_plugin.py` で、フルスイート（`113d20a`）の `minimize` の呼び出しをすべて記録し、呼び出し元と `success` を数えた。校正器が利用者の `calibration.params` を持つ呼び出しを「custom」、持たない呼び出しを「default」とした。
+
+```
+platt  default  360 呼び出し  失敗 0
+beta   default   37 呼び出し  失敗 0
+platt  custom    50 呼び出し  失敗 0
+beta   custom    27 呼び出し  失敗 0
+生成コード        12 呼び出し  失敗 0
+```
+
+Firing rate: 0/397 of default-setting calibrator minimize calls in the full test suite (`instruments/i297_minimize_census_plugin.py` at `113d20a`; 0/77 custom, 0/12 generated)
+
+既定の設定で今日成功している fit を、送出に変えて壊すことはこの母集団では起きない。一方、利用者が `options` で反復の上限などを付ければ失敗は起きる: 同じデータで `{"options": {"maxiter": 1}}` は Platt と Beta の両方で `success=False`（`STOP: TOTAL NO. OF ITERATIONS REACHED LIMIT`）、`{"options": {"maxls": 1}}` は Beta で `ABNORMAL:` になる（計測器の確認用の実行）。テストのデータは合成データで、実データのスコア分布で既定の設定が失敗するかは測っていない。
+
+### 対応方針（決定）
+
+1. **`minimize` の `success` が偽なら `LizyMLError(CALIBRATION_FAILED)` を送出し、その係数を校正器に残さない。**`fit()` は始めに前の係数を消すので、成功した fit のあとの refit が失敗した場合も、前の fit の係数で `predict()` / `export_params()` が動くことはない（コードレビュー round 1 が、成功のあとの失敗で前の係数が残ることを実行で示した）。 Platt と Beta の両方。理由（反復の上限、関数評価の上限、線探索の失敗）は区別しない: どれも、返った係数が尤度の最大点であることを示していないので、校正として使えない。`context` は `calibrator`（`"platt"` / `"beta"`）、`method`、scipy の `message` と `status`、`nit`（反復回数）を持つ。`user_message` は、`calibration.params` の `options` が最適化を制限しているなら緩めるよう書く。
+2. **`ErrorCode.CALIBRATION_FAILED` を新設する。** 既存の code は意味が合わない: `CONFIG_INVALID` は設定の誤りで、既定の設定での失敗には当たらない。`CALIBRATION_NOT_FITTED` は fit 前の呼び出しを表す。enum への追加だけで、既存の code は変わらない。
+3. **cross-fit では、どこで失敗したかを付ける。** `cross_fit` は fold の校正器の失敗に `context["stage"] = "cross_fit"` と `context["fold"]`（0 始まりの fold 番号）を、C_final の失敗に `context["stage"] = "c_final"` を加えて送出し直す（`cause` は元の例外）。他の `LizyMLError` と例外はそのまま通す。
+4. **生成される `train.py` も同じ規則に従う。** 生成コードは LizyML に依存しないので、`_run_minimize` が `success` の偽を `RuntimeError`（`calibration (<method>) did not converge: <message>`）にする。生成コードの他の拒否（`ValueError`）は設定の誤りを表し、これは実行時の失敗なので型を分ける。
+5. **isotonic は対象外。** `minimize` を使わない。
+
+### 規則が縛る位置（ソースから導出）
+
+規則: **確率校正の係数は、`minimize` が成功を報告したときだけ使う。** 導出: `lizyml/` で `minimize(` を grep した全件（`113d20a`）。
+
+| # | 位置 | 本 PR |
+|---|---|---|
+| 1 | `calibration/platt.py` `PlattCalibrator.fit` | 検査を足す |
+| 2 | `calibration/beta.py` `BetaCalibrator.fit` | 検査を足す |
+| 3 | `codegen/templates.py` `_run_minimize`（生成コードの Platt と Beta の両方が通る） | 検査を足す |
+| 4 | `calibration/_optimizer.py` の `options` の名前の検査（小さな 2 次の問題で 1 回 `minimize` を実行し、未知の option の警告を拒否に変える。結果の係数は使わない） | 変えない: この呼び出しは校正の係数を作らない |
+
+### 互換性
+
+- **振る舞いの変化**: `minimize` が収束しなかった Platt / Beta の校正は、今日は途中の係数で成功していたところで `CALIBRATION_FAILED` を送出する（`Model.fit` の校正の段階で、cross-fit の fold か C_final か）。上の計測では、既定の設定でもテストの `calibration.params` でもこの分岐に入る呼び出しは 0 件である。入るのは、利用者が `options` で最適化を強く制限した場合と、既定の設定で収束しない（未測定の）実データの場合である。後者で今日得ていたのは、尤度の最大点ではない係数である。
+- **生成コード**: 同じ場合に、生成される `train.py` は `RuntimeError` で止まる。
+- **公開 API**: `ErrorCode` に `CALIBRATION_FAILED` が加わる。`docs/api.md` と BLUEPRINT §16.2 の一覧を更新する（`tests/test_docs/test_error_code_docs.py` が enum と一致させる）。`format_version` / Config は変わらない。
+
+### 代替案（検討して棄却）
+
+1. **警告して結果を使う。** 校正済みの指標と C_final が、尤度の最大点でない係数で計算・出荷される。警告は読まれないことがあり、#297 の「失敗した fit を成功として扱う」が残る。
+2. **警告して、文書化した形（未校正の確率）に落とす。** cross-fit にはすでに fold の fallback（単一クラス、学習行なし）があるが、それはデータの構造で校正できない場合のためで、最適化の失敗を同じ扱いにすると、利用者の設定ミスが「一部の fold は未校正」という目立たない結果に変わる。
+3. **反復の上限で止まった場合だけは許す。** 上限で止まった係数も最大点ではない。利用者が上限を付けたのが意図でも、校正としての品質を保証できない。上限を緩めるよう `user_message` で示す。
+4. **`CONFIG_INVALID` を使う。** 既定の設定での失敗まで「設定の誤り」になる。
+
+### 受け入れ基準（テスト観点）
+
+1. 本物の失敗した `minimize`（`{"options": {"maxiter": 1}}`、Platt と Beta）で `fit()` が `CALIBRATION_FAILED` を送出し、`context` に `calibrator` / `method` / `message` / `status` / `nit` を持つ。係数は設定されず、`predict()` は `CALIBRATION_NOT_FITTED`。成功した fit のあとに同じ校正器で失敗した refit も、`predict()` / `export_params()` を `CALIBRATION_NOT_FITTED` にする。修正前は fit が成功するので RED。
+2. `cross_fit_calibrate` で fold の失敗は `stage="cross_fit"` と `fold` を、C_final の失敗は `stage="c_final"` を持つ（fold の校正器だけを失敗させる factory と、C_final だけを失敗させる factory で確かめる）。修正前は RED。
+3. `Model.fit` で、`calibration.params` に `{"options": {"maxiter": 1}}` を付けた binary の Platt と Beta が `CALIBRATION_FAILED` を送出する。修正前は RED。
+4. 生成される `train.py` の Platt と Beta の校正器は、同じ設定で `RuntimeError` を送出する。修正前は RED。
+5. 既定の設定の校正（既存のテスト）は変わらず通る。`docs/api.md` と BLUEPRINT §16.2 の `ErrorCode` 一覧が enum と一致する（`test_error_code_docs.py`）。

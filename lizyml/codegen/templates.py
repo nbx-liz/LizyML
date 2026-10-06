@@ -628,11 +628,12 @@ def _check_cal_params(params: dict, n_coef: int, extra: tuple) -> None:
         refuse("target_smoothing", f"must be true or false; got {smoothing!r}")
 
 
-def _run_minimize(objective, jac, kwargs: dict):
+def _run_minimize(objective, jac, kwargs: dict, name: str):
     """Run minimize, turning scipy's unknown-option warning into a refusal.
 
     Only that warning is a refusal. Other OptimizeWarnings (a start outside the
-    bounds, for one) are warnings the LizyML fit also lets through.
+    bounds, for one) are warnings the LizyML fit also lets through. A result
+    that did not converge is not used (LizyML raises CALIBRATION_FAILED).
     """
     import warnings
     from scipy.optimize import OptimizeWarning, minimize
@@ -645,6 +646,12 @@ def _run_minimize(objective, jac, kwargs: dict):
             raise ValueError(f"calibration_params: 'options' {w.message}")
     for w in caught:
         warnings.warn_explicit(w.message, w.category, w.filename, w.lineno)
+    if not result.success:
+        raise RuntimeError(
+            f"calibration ({name}) did not converge: {result.message}. Its "
+            "coefficients are not the maximum-likelihood fit; relax any "
+            "optimiser limit in calibration_params (maxiter, maxfun, maxls)."
+        )
     return result
 
 
@@ -712,7 +719,7 @@ def _fit_platt(scores: np.ndarray, y: np.ndarray, params: dict) -> dict:
         r = expit(z) - t
         return loss, np.array([r @ f, r.sum()])
 
-    res = _run_minimize(objective, True if gradient else None, kwargs)
+    res = _run_minimize(objective, True if gradient else None, kwargs, "platt")
     return {"method": "platt", "a": float(res.x[0]) / scale, "b": float(res.x[1])}
 
 
@@ -726,7 +733,9 @@ def _fit_beta(scores: np.ndarray, y: np.ndarray, params: dict) -> dict:
         prob = np.clip(_sigmoid(p[0] * ls + p[1] * l1s + p[2]), 1e-10, 1 - 1e-10)
         return float(-np.sum(yf * np.log(prob) + (1 - yf) * np.log(1 - prob)))
 
-    r = _run_minimize(nll, None, _minimize_kwargs(params, [1.0, 1.0, 0.0], {}))
+    r = _run_minimize(
+        nll, None, _minimize_kwargs(params, [1.0, 1.0, 0.0], {}), "beta"
+    )
     return {"method": "beta",
             "a": float(r.x[0]), "b": float(r.x[1]), "c": float(r.x[2])}
 

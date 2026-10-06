@@ -24,6 +24,7 @@ import numpy.typing as npt
 
 from lizyml.calibration._optimizer import (
     METHODS,
+    require_converged,
     resolve_minimize_kwargs,
     validate_optimizer_params,
 )
@@ -82,6 +83,9 @@ class PlattCalibrator(BaseCalibratorAdapter):
     def fit(
         self, oof_scores: npt.NDArray[np.float64], y: npt.NDArray[Any]
     ) -> PlattCalibrator:
+        # A refit that fails -- for any reason, including a missing scipy --
+        # must not leave an earlier fit usable (H-0113). First statement.
+        self._coef = None
         from scipy.optimize import minimize
 
         scores = np.asarray(oof_scores, dtype=np.float64).ravel()
@@ -132,6 +136,7 @@ class PlattCalibrator(BaseCalibratorAdapter):
             return loss, np.array([residual @ rescaled, residual.sum()])
 
         result = minimize(objective, jac=True if gradient else None, **kwargs)
+        require_converged(result, calibrator="platt", method=kwargs["method"])
         self._coef = (float(result.x[0]) / scale, float(result.x[1]))
         return self
 
