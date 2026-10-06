@@ -28,6 +28,9 @@ from collections import defaultdict
 _FENCE_OPEN = re.compile(r"^\s*(`{3,}|~{3,})")
 _HEADING_ID = re.compile(r"^## (H-\d{4})(?::|\s*$)")
 _META_ID = re.compile(r"^- ID: `(H-\d{4})`")
+# Anything that starts like a metadata id line, in any case or spacing. A line
+# matching this but not _META_ID is malformed and fails (design review round 3).
+_META_LINE = re.compile(r"^\s*[-*+]\s*ID\s*[:：]", re.IGNORECASE)
 
 
 def _fence_close(line: str, opener: str) -> bool:
@@ -39,13 +42,14 @@ def _fence_close(line: str, opener: str) -> bool:
 def _scan(
     text: str,
 ) -> tuple[list[tuple[str, set[str], list[str]]], int | None, list[int]]:
-    """``(entries, line of a fence left open or None, '- ID:' lines per entry)``.
+    """``(entries, line of a fence left open or None, ID lines per entry)``.
 
     Each entry is ``(heading, declared ids, lines)``; ``lines`` includes fenced
-    lines, the per-entry ``- ID:`` count does not.
+    lines. The per-entry ID lines are the unfenced lines that start like one
+    (``_META_LINE``), well-formed or not.
     """
     entries: list[tuple[str, set[str], list[str]]] = []
-    metas: list[int] = []
+    metas: list[list[str]] = []
     opener: str | None = None
     opened_at: int | None = None
     for number, line in enumerate(text.splitlines(), start=1):
@@ -63,7 +67,7 @@ def _scan(
             continue
         if line.startswith("## "):
             entries.append((line, set(), [line]))
-            metas.append(0)
+            metas.append([])
             match = _HEADING_ID.match(line)
             if match:
                 entries[-1][1].add(match.group(1))
@@ -71,10 +75,11 @@ def _scan(
         if not entries:
             continue
         entries[-1][2].append(line)
+        if _META_LINE.match(line):
+            metas[-1].append(line)
         match = _META_ID.match(line)
         if match:
             entries[-1][1].add(match.group(1))
-            metas[-1] += 1
     return entries, opened_at, metas
 
 
@@ -102,15 +107,22 @@ def grammar_violations(text: str) -> list[str]:
     The heading and one metadata line may name the same id: that is a measured
     spelling (H-0054 .. H-0060 carry both). Two metadata lines in one entry are
     not, even when they name the same id -- a set of ids would collapse them
-    silently (H-0110 design review round 2).
+    silently (H-0110 design review round 2). A line that starts like an ID line
+    in any case or spacing but is not the measured spelling is malformed and
+    fails, rather than being ignored (round 3).
     """
     entries, opened_at, metas = _scan(text)
     problems = []
     if opened_at is not None:
         problems.append(f"fence opened at line {opened_at} is never closed")
-    for (heading, _, _), count in zip(entries, metas, strict=True):
-        if count > 1:
-            problems.append(f"{heading!r} has {count} '- ID:' lines")
+    for (heading, _, _), lines in zip(entries, metas, strict=True):
+        if len(lines) > 1:
+            problems.append(f"{heading!r} has {len(lines)} '- ID:' lines")
+        problems += [
+            f"{heading!r} has a malformed ID line: {line!r}"
+            for line in lines
+            if not _META_ID.match(line)
+        ]
     return problems
 
 

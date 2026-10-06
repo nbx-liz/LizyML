@@ -82,8 +82,8 @@ Accept/reject matrix:
 
 | 入力 | 受理 | 拒否（失敗。読み飛ばさない） |
 |---|---|---|
-| HISTORY の entry | `## ` 見出し（fence の外）で、id を `## H-xxxx`（直後が `:` か行末）か `` - ID: `H-xxxx` `` で宣言する。見出しと 1 行の `- ID:` が同じ id を名指す形は 1 つの宣言として受理する（実測: H-0054〜H-0060 の 7 件） | id が 0 / 2 個の entry、`- ID:` 行が 2 行以上の entry（同じ id でも。`grammar_violations`、設計レビュー round 2）、2 つの entry が宣言する id、`## H-0042-extra` のような接尾辞つきの見出し（0 id として失敗）（H-0101 の文法、`_history_grammar.py`） |
-| fence | 3 個以上の `` ` `` か `~` で開き（字下げは任意）、**同じ文字で同じ長さ以上**の行だけで閉じる | 閉じないまま終わるファイル（`fence_violations`）。`` ``` `` の中の `~~~` は閉じない（設計レビュー round 1） |
+| HISTORY の entry | `## ` 見出し（fence の外）で、id を `## H-xxxx`（直後が `:` か行末）か `` - ID: `H-xxxx` `` で宣言する。見出しと 1 行の `- ID:` が同じ id を名指す形は 1 つの宣言として受理する（実測: H-0054〜H-0060 の 7 件） | id が 0 / 2 個の entry、`- ID:` 行が 2 行以上の entry（同じ id でも。`grammar_violations`、設計レビュー round 2）、ID 行のように始まるが受理する綴りでない行（大文字小文字や空白の違いを含む。round 3）、2 つの entry が宣言する id、`## H-0042-extra` のような接尾辞つきの見出し（0 id として失敗）（H-0101 の文法、`_history_grammar.py`） |
+| fence | 3 個以上の `` ` `` か `~` で開き（字下げは任意）、**同じ文字で同じ長さ以上**の行だけで閉じる | 閉じないまま終わるファイル（`grammar_violations`）。`` ``` `` の中の `~~~` は閉じない（設計レビュー round 1） |
 | 処分ファイルの最上位 | `[proposals]` と `[names]` の 2 表だけ | それ以外の表、TOML として読めないファイル（`tomllib` の例外） |
 | `[proposals."H-xxxx"]` | `disposition` が 4 種のいずれかで、その種の必須 key がそろい、任意 key 以外が無い | 知らない disposition、必須 key の欠落、知らない key、空の文字列、表でない値 |
 | `anchors` | 1 個以上の、重複の無い空でない文字列で、それぞれ BLUEPRINT と提案自身の entry の両方に全単語一致 | 空のリスト、重複、提案 id を含む文字列、どちらかの文書に無い語 |

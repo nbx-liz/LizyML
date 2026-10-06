@@ -105,3 +105,19 @@ def test_a_repeated_id_line_is_reported() -> None:
 def test_an_id_line_inside_a_fence_is_not_counted() -> None:
     text = "## H-0001: a\n\n- ID: `H-0001`\n\n```\n- ID: `H-0001`\n```\n"
     assert grammar_violations(text) == []
+
+
+def test_a_malformed_id_line_next_to_a_heading_id_is_reported() -> None:
+    # H-0110 design review round 3: an unbackticked ID line was ignored silently.
+    text = "## H-0001: migrated\n\n- ID: H-0002\n"
+    assert grammar_violations(text) == [
+        "'## H-0001: migrated' has a malformed ID line: '- ID: H-0002'"
+    ]
+
+
+def test_a_malformed_id_line_after_a_valid_one_is_reported() -> None:
+    text = "## 2026-01-01: a\n\n- ID: `H-0001`\n- id : H-0002\n"
+    assert grammar_violations(text) == [
+        "'## 2026-01-01: a' has 2 '- ID:' lines",
+        "'## 2026-01-01: a' has a malformed ID line: '- id : H-0002'",
+    ]
