@@ -219,54 +219,27 @@ def test_tune_applies_the_configured_policy(
     assert set(built) == {policy}, built
 
 
-def _sliding_window_df(n: int = 60) -> pd.DataFrame:
-    """A string column whose value "early" exists only in the first rows."""
-    rng = np.random.default_rng(2)
-    cat = np.array(["a"] * n, dtype=object)
-    cat[:3] = "early"
-    df = pd.DataFrame(
-        {
-            "t": pd.date_range("2024-01-01", periods=n, freq="D"),
-            "num": rng.normal(size=n),
-            "cat": cat,
-        }
-    )
-    df["target"] = df["num"] + rng.normal(scale=0.1, size=n)
-    return df
+def test_shap_importance_uses_each_fold_pipeline_outside_the_last_fold() -> None:
+    """H-0114 (#303), replacing the H-0104 decision 8 pin of the last-fold pipeline.
 
-
-def _sliding_window_config(policy: str) -> dict[str, Any]:
-    raw = make_config(
-        "regression",
-        n_estimators=5,
-        n_splits=2,
-        split_method="time_series",
-        time_col="t",
-        split_overrides={"train_size_max": 20},
-    )
-    raw["features"] = {"unseen_policy": policy, "auto_categorical": False}
-    return raw
-
-
-def test_shap_importance_applies_the_stored_policy_outside_the_last_fold() -> None:
-    """H-0104 decision 8 (design review round 1, blocking 1).
-
-    SHAP importance transforms all training rows with the **last** CV fold's
-    pipeline. Under a sliding window some rows belong to no part of that fold,
-    so a value only they hold is unseen there: ``"error"`` refuses SHAP
-    importance although ``fit`` succeeded, and ``"mode"`` substitutes without a
-    report. Pinned as the documented behaviour; the last-fold pipeline itself
-    is a separate issue.
+    Under a sliding window the last fold does not know a value that an earlier
+    fold trained on and validated with. SHAP importance now explains each fold
+    model on rows its own pipeline encoded, so ``"error"`` -- which let ``fit``
+    succeed -- no longer refuses ``importance(kind="shap")``, and the value
+    equals an independent fold-by-fold replay. Before H-0114 this raised
+    ``DATA_SCHEMA_INVALID`` naming the value.
     """
-    df = _sliding_window_df()
+    pytest.importorskip("shap")
+    from tests.test_explain.test_shap_importance_per_fold_pipeline import (
+        _assert_affected_folds_split_on_cat,
+        _assert_matches,
+        _config,
+        _replay_fold_own,
+        _sliding_df,
+    )
 
-    strict = Model(_sliding_window_config("error"))
-    strict.fit(data=df)
-    with pytest.raises(LizyMLError) as exc:
-        strict.importance(kind="shap")
-    assert exc.value.code is ErrorCode.DATA_SCHEMA_INVALID
-    assert "early" in str(exc.value)
+    strict = Model(_config("regression", "error", sliding=True))
+    strict.fit(data=_sliding_df())
+    _assert_affected_folds_split_on_cat(strict, "error")
 
-    lenient = Model(_sliding_window_config("mode"))
-    lenient.fit(data=df)
-    assert set(lenient.importance(kind="shap")) == {"num", "cat"}
+    _assert_matches(strict.importance(kind="shap"), _replay_fold_own(strict, "error"))

@@ -467,6 +467,10 @@ anchors = ["missing_columns", "available_columns"]
 disposition = "specified"
 anchors = ["CALIBRATION_FAILED", "c_final"]
 
+[proposals."H-0114"]
+disposition = "specified"
+anchors = ["pipeline_state_per_fold", "compute_shap_importance", "MODEL_NOT_FIT"]
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 

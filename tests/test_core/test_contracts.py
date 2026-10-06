@@ -171,6 +171,7 @@ class TestFitResultSchema:
             "run_meta",
             "oof_raw_scores",
             "target_encoder",
+            "pipeline_state_per_fold",
         ]
         assert _field_names(FitResult) == expected
 

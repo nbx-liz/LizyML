@@ -151,6 +151,26 @@ class ModelTablesMixin:
         state = self._get_fit_state()
 
         if kind == "shap":
+            # H-0114: checked before the missing-X case, so an artifact that
+            # lacks both reports the per-fold states; refitting restores both.
+            if state.fit_result.pipeline_state_per_fold is None:
+                raise LizyMLError(
+                    code=ErrorCode.MODEL_NOT_FIT,
+                    user_message=(
+                        "This FitResult has no per-fold pipeline states "
+                        "(pipeline_state_per_fold): it comes from an artifact "
+                        "written before H-0114, or it was constructed without "
+                        "the field. SHAP importance explains each fold model on "
+                        "rows its own fold pipeline encoded. Call fit() again "
+                        "with the current version, then export."
+                    ),
+                    context={
+                        "task": state.cfg.task,
+                        "kind": kind,
+                        "method": "importance",
+                        "missing": "pipeline_state_per_fold",
+                    },
+                )
             if state.X is None:
                 raise LizyMLError(
                     code=ErrorCode.MODEL_NOT_FIT,
@@ -175,6 +195,7 @@ class ModelTablesMixin:
                 feature_names=state.fit_result.feature_names,
                 pipeline_state=state.fit_result.pipeline_state,
                 pipeline_factory=state.provider.build_pipeline_factory(),
+                pipeline_state_per_fold=state.fit_result.pipeline_state_per_fold,
             )
 
         models = state.fit_result.models

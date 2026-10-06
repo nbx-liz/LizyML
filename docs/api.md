@@ -223,12 +223,12 @@ Returns averaged feature importance across all CV fold models.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `kind` | `str` | `"split"`, `"gain"`, or `"shap"`. `"shap"` computes `mean(|SHAP|)` per feature across folds. |
+| `kind` | `str` | `"split"`, `"gain"`, or `"shap"`. `"shap"` computes `mean(|SHAP|)` per feature across folds, explaining each fold model on its validation rows encoded by that fold's own feature pipeline (H-0114). |
 
 **Returns:** `{feature_name: importance_score}`
 
 **Raises:**
-- `LizyMLError(MODEL_NOT_FIT)` — called before `fit()` or (for `"shap"`) after `load()` without `analysis_context`.
+- `LizyMLError(MODEL_NOT_FIT)` — called before `fit()`; or, for `"shap"`, when the `FitResult` has no per-fold pipeline states (an artifact written before H-0114, or a `FitResult` constructed without `pipeline_state_per_fold`; `context["missing"] == "pipeline_state_per_fold"`, checked first; call `fit()` again), or after `load()` without `analysis_context`.
 - `LizyMLError(OPTIONAL_DEP_MISSING)` — `kind="shap"` and `shap` not installed.
 
 ---
@@ -290,7 +290,9 @@ def load(cls, path: str | Path) -> Model
 
 Restores a `Model` from a directory created by `export()`. The returned
 instance supports `predict()`, `evaluate()`, and (when `analysis_context` was
-saved) `confusion_matrix()`, `importance()`, and `residuals()`.
+saved) `confusion_matrix()`, `importance()`, and `residuals()`. An artifact
+written before H-0114 has no per-fold pipeline states, so on it
+`importance(kind="shap")` raises `MODEL_NOT_FIT`; the other kinds still work.
 
 **Raises:** `LizyMLError(DESERIALIZATION_FAILED)` — validation or I/O error.
 
@@ -333,8 +335,8 @@ artifact).
 
 ### FitResult
 
-Complete output of a CV training run. All fields are populated; only
-`calibrator` and `oof_raw_scores` may be `None`.
+Complete output of a CV training run. All fields are populated by training;
+only `calibrator`, `oof_raw_scores` and `pipeline_state_per_fold` may be `None`.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -348,10 +350,11 @@ Complete output of a CV training run. All fields are populated; only
 | `categorical_features` | `list[str]` | Feature names encoded as categorical. |
 | `splits` | `SplitIndices` | Full index record for outer/inner/calibration splits. |
 | `data_fingerprint` | `DataFingerprint` | Fingerprint of the training dataset. |
-| `pipeline_state` | `Any` | Serializable state of the `FeaturePipeline`. |
+| `pipeline_state` | `Any` | Serializable state of the last CV fold's `FeaturePipeline`. |
 | `calibrator` | `CalibrationResult \| None` | Fitted calibrator; `None` when calibration is disabled. |
 | `run_meta` | `RunMeta` | Version and config metadata captured at fit time. |
 | `oof_raw_scores` | `NDArray[float64] \| None` | OOF raw logit scores for calibration. `None` when calibration is not enabled. |
+| `pipeline_state_per_fold` | `list \| None` | Serializable state of each CV fold's `FeaturePipeline`, in fold order; the last equals `pipeline_state`. `None` when unavailable (an artifact written before H-0114, or a `FitResult` constructed without it). Shared by reference across copies (H-0114). |
 
 ---
 
@@ -474,7 +477,7 @@ except LizyMLError as e:
 | `LEAKAGE_SUSPECTED` | A split or calibration invariant that could indicate leakage was violated. |
 | `LEAKAGE_CONFIRMED` | A confirmed leakage condition (e.g. same row in train and validation). |
 | `OPTIONAL_DEP_MISSING` | An optional dependency (`shap`, `optuna`) is not installed. |
-| `MODEL_NOT_FIT` | A method requiring a trained model was called before `fit()`. |
+| `MODEL_NOT_FIT` | A method requiring a trained model was called before `fit()`, or a diagnostic needs state the loaded model lacks (`analysis_context`, or per-fold pipeline states for SHAP importance with `context["missing"]`). |
 | `INCOMPATIBLE_COLUMNS` | A column that was numeric (or bool) at fit arrives at `predict()` with a non-numeric dtype (string, object, category, datetime, ...). `context["columns"]` names each one with its fit and predict dtypes. A missing column raises `DATA_SCHEMA_INVALID`; an extra column is dropped with a warning. |
 | `UNSUPPORTED_TASK` | A method is not applicable to the configured task type. |
 | `UNSUPPORTED_METRIC` | An unknown or task-incompatible metric name was provided. |

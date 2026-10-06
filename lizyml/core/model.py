@@ -436,8 +436,9 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         Returns an independent copy each call: mutable data fields are
         deep-copied so mutating the result cannot corrupt internal state (or a
         later ``export()``). Trained estimators (``models`` / ``calibrator`` /
-        ``pipeline_state``) are shared by reference and must be treated as
-        read-only — see :meth:`FitResult.__deepcopy__` (H-0082).
+        ``pipeline_state`` / ``pipeline_state_per_fold``) are shared by
+        reference and must be treated as read-only — see
+        :meth:`FitResult.__deepcopy__` (H-0082, H-0114).
 
         Raises:
             LizyMLError with ``MODEL_NOT_FIT`` when ``fit()`` has not been called.
