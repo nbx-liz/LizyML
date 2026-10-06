@@ -11005,3 +11005,85 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 3. `Model.fit` で、`calibration.params` に `{"options": {"maxiter": 1}}` を付けた binary の Platt と Beta が `CALIBRATION_FAILED` を送出する。修正前は RED。
 4. 生成される `train.py` の Platt と Beta の校正器は、同じ設定で `RuntimeError` を送出する。修正前は RED。
 5. 既定の設定の校正（既存のテスト）は変わらず通る。`docs/api.md` と BLUEPRINT §16.2 の `ErrorCode` 一覧が enum と一致する（`test_error_code_docs.py`）。
+
+## H-0114: SHAP 重要度は、各 fold のモデルをその fold の pipeline で変換した行で説明する（#303）
+
+- **ステータス**: Proposed
+- **起票日**: 2026-10-06
+- **決定日**: —（管理者の判断 2026-10-06: 方針 A = fold ごとの pipeline 状態を `FitResult` に記録して SHAP 重要度で使う。本 Proposal は設計レビュー後に実装する）
+- **スコープ**: `lizyml/core/types/fit_result.py`（フィールド追加、`_SHARED_ON_COPY`、docstring）, `lizyml/training/cv_trainer.py`（fold ごとの状態を記録）, `lizyml/explain/shap_explainer.py`（`compute_shap_importance` が fold ごとの状態を使う）, `lizyml/core/_model_tables.py`（呼び出しと、状態を持たない artifact の拒否）, `BLUEPRINT.md`（§7 の FitResult、§9.2、§13 の SHAP 重要度、§15.2）, `docs/api.md`（FitResult の表）, `docs/proposal_dispositions.toml`, `CHANGELOG.md`, テスト（`tests/test_features/test_unseen_policy.py` の固定テストを新しい契約に書き換え、`tests/test_explain/test_shap_importance_per_fold_pipeline.py` 新規、`tests/test_persistence/` に旧 artifact の読み込み、`tests/test_core/test_contracts.py` / `tests/test_e2e/test_golden_contracts.py` / `tests/test_core/test_result_isolation.py` のフィールド一覧と共有の検査）
+- **関連**: [Issue #303](https://github.com/nbx-liz/LizyML/issues/303)（測定と独立 critique はコメント 6013323756）, H-0104（決定 8 の SHAP の節を本 Proposal が置き換える）, H-0007（fold 平均の SHAP 重要度）, H-0054（provider の pipeline factory）, H-0082（selective deep copy）, H-0026（`analysis_context` の無い artifact の診断 API を `MODEL_NOT_FIT` にした前例）, H-0003（format_version の規則）
+
+### 目的（課題）
+
+`Model.importance(kind="shap")` は `FitResult.pipeline_state`（**最後の** CV fold の pipeline の `get_state()`、`cv_trainer.py` `_build_result`）で学習データの全行を変換し、各 fold のモデルをその fold の検証行で説明する。各 fold のモデルはその fold の pipeline で変換したデータで学習し、OOF もその pipeline で変換した検証行で予測している。最後の fold の pipeline が知っているカテゴリの集合が fold の pipeline と違うと、SHAP 重要度は、モデルが学習でも OOF でも見なかった符号化の行を説明する。
+
+対象は `features.auto_categorical: false` で pipeline がカテゴリとして扱う文字列列だけである（既定の `auto_categorical: true` と `categorical` 指定の列はデータ構築時に全行の値で `category` 型になり、どの fold の pipeline も同じ値を知る）。
+
+### 測定（#303 コメント 6013323756、`113d20a`、Codex の read-only critique 1 round を経た値）
+
+`Model.fit` → fold のモデル → `compute_shap_values` を通しで実行した。各 fold の検証行を「最後の fold の pipeline」（現状）と「fold 自身の pipeline」（`CVTrainer` と同じく `X[train]` で fit し直したもの）で変換して比べた。fold 自身の pipeline で再現した予測は保存された OOF と完全に一致した（最大誤差 0、regression / binary / multiclass）。
+
+| 場合 | 結果 |
+|---|---|
+| 両方の pipeline が知る値（category の code の並びだけが違う） | 差 0（442 行）。LightGBM は学習時の category の並びで値ごとに remap する（`lightgbm/basic.py:852-856`、4.6.0）。陰性対照（remap を効かなくした入力）は最大差 0.0323 を出すので、probe は差を検出できる |
+| fold が知らず最後の fold が知る値（後の時期に現れるカテゴリ、expanding window、`unseen_policy: mode`） | 480 行中 38 行で SHAP が違う。OOF では fold のモデルは最頻値への置換を見たが、SHAP 重要度は LightGBM の remap 後の欠損を見る。binary / multiclass でも同じ |
+| fold が知り最後の fold が知らない値（sliding window、`train_size_max`） | `mode` / `nan` で 33 行が違う（最大差 0.072）。`error` では `fit` が通ったうえで `importance(kind="shap")` が `DATA_SCHEMA_INVALID` |
+| 戻り値への影響 | `cat` の重要度（現状 / fold 自身）: regression 0.01181 / 0.01114、binary 0.02576 / 0.02746、multiclass 0.02444 / 0.02526（約 3〜6 %）。sliding window の例で 0.03107 / 0.03043 |
+| 影響なし | `auto_categorical: true`、`categorical` 指定、数値列だけ: 差 0 |
+
+### 対応方針
+
+1. **`FitResult` に `pipeline_state_per_fold: list[Any] | None = None` を追加する。** 名前は既存の `if_pred_per_fold` に揃える。`CVTrainer` は fold ごとに fit した pipeline の `get_state()` を順に記録し、常に埋める（`len == len(splits.outer)`、`[-1]` は `pipeline_state` と同じ状態）。`None` は本 Proposal 以前に作られた `FitResult`（旧 artifact）だけを表す。最後のフィールドの後ろに置き、既定値を持つので、既存の位置引数・キーワード引数の構築は変わらない。
+2. **`pipeline_state` の意味は変えない**（最後の fold の状態のまま）。`pipeline_state_per_fold[-1]` と重複するが、削除や型の変更は破壊的変更で `format_version` を上げる（H-0003）。本 Proposal では残し、削除は扱わない。lizyml 内の読み手は SHAP 重要度だけである（下の表）。
+3. **`compute_shap_importance` は fold k のモデルを、fold k の状態を load した pipeline で `X.iloc[valid_idx_k]` だけを変換した行で説明する。** 引数に `pipeline_state_per_fold: list[Any] | None = None` を足す。与えられたときは長さが `models` と一致しなければ `ValueError`（内部の不整合）。与えられないときは従来どおり `pipeline_state` 1 つで全行を変換する（この関数を直接呼ぶ利用者の互換。どの状態で変換するかは呼び出し側が渡す状態が決める）。facade は常に fold ごとの状態を渡す。
+   - 結果: SHAP 重要度が説明する行の符号化は、OOF 予測が使った符号化と同じになる。`unseen_policy` の置換も OOF と同じ置換になる（fit 中と同じく報告しない。H-0104 決定 8 の「報告しない」は変わらない）。
+   - `error`: fold の検証行に fold 自身が知らない値があれば `fit` が先に `DATA_SCHEMA_INVALID` で止まるので、`fit` が通ったモデルの `importance(kind="shap")` はこの理由で送出しない。
+4. **`pipeline_state_per_fold` を `_SHARED_ON_COPY` に加える。** `pipeline_state` と同じ理由（学習済みの状態、read-only の慣例。H-0082）。リストの容器だけを新しくする（`models` と同じ扱い）。
+5. **保存形式: `FORMAT_VERSION` は 2 のまま。** `fit_result.pkl` は `FitResult` 全体の pickle なので、新しいフィールドは exporter / `metadata.json` / `checksums` を変えずに保存される。BLUEPRINT §15.2 の「フィールドの追加は後方互換の変更で `format_version` を上げない」に当たる。
+6. **旧 artifact（フィールドを持たない `fit_result.pkl`）の読み込み。** 旧 pickle は `__dict__` をそのまま復元するので属性が無い。`= None` の既定値はクラス属性として残るため、属性アクセスは `None` を返す（`default_factory` にするとクラス属性が無く `AttributeError` になる。H-0070 が `hasattr` を要した理由）。loader は変えない。`predict()` / `evaluate()` / 他の診断 API は従来どおり動く。
+7. **旧 artifact の `importance(kind="shap")` は `MODEL_NOT_FIT` で拒否する（推奨、設計レビューで判断を仰ぐ）。** `pipeline_state_per_fold is None` のとき、facade は `LizyMLError(MODEL_NOT_FIT)` を送出する。`user_message` は「この artifact は fold ごとの pipeline 状態を持たない。現在の版で `fit()` し直して export する」（再 export だけでは状態は作られない）。`context` は `task` / `kind` / `method` / `missing="pipeline_state_per_fold"`。前例は H-0026（`analysis_context` の無い artifact の診断 API を `MODEL_NOT_FIT` で明示的に失敗させる）。`importance_plot(kind="shap")` は `importance()` を通るので同じ。
+
+### 規則が縛る位置（ソースから導出）
+
+規則: **fold のモデルに渡す行は、その fold の pipeline 状態で変換する。** 導出: `lizyml/` で `pipeline_state` / `load_state(` / `fit_result.models` / `compute_shap_importance` / `importance(kind` を grep した全件（`5d04d08`）。
+
+| # | 位置 | fold のモデルに変換した行を渡すか | 本 PR |
+|---|---|---|---|
+| 1 | `explain/shap_explainer.py` `compute_shap_importance`（呼び出し元 `core/_model_tables.py:170`） | 渡す（最後の fold の状態で変換） | fold ごとの状態に変える |
+| 2 | `core/_model_plots.py:185` `importance_plot(kind="shap")` | #1 を `importance()` 経由で呼ぶ | 変えない（#1 で直る） |
+| 3 | `core/_model_tables.py:180-187` / `plots/importance.py:85` の split / gain 重要度 | 渡さない（モデル内部の値） | 変えない |
+| 4 | `core/_model_predict.py:56` の推論と `return_shap=True` | 渡さない（refit モデルと refit pipeline の組） | 変えない |
+| 5 | `core/_model_persistence.py:336` の `export_code` | 渡さない（refit の状態を書き出す） | 変えない |
+| 6 | `training/cv_trainer.py` の fold 学習と OOF | その fold の pipeline で変換済み（規則の基準） | 状態を記録するだけ |
+
+### 互換性
+
+- **振る舞いの変化（新しく fit したモデル）**: `auto_categorical: false` でカテゴリとして扱う文字列列があり、fold ごとの pipeline が知る値の集合が違う場合だけ、`importance(kind="shap")` の値が変わる（測定で 3〜6 %）。sliding window + `unseen_policy: "error"` では、今日 `DATA_SCHEMA_INVALID` を送出する `importance(kind="shap")` が値を返す。上の測定で、既定の `auto_categorical: true`、`categorical` 指定、数値列だけの場合は差 0。
+- **旧 artifact**: `importance(kind="shap")` / `importance_plot(kind="shap")` が、今日の値（最後の fold の状態による）を返す代わりに `MODEL_NOT_FIT` を送出する（決定 7）。他の API は変わらない。
+- **公開 API**: `FitResult` にフィールドが 1 つ加わる（追加のみ、既定値あり）。`compute_shap_importance` に省略可能な引数が 1 つ加わる。`format_version` / Config / `PredictionResult` / `metadata.json` は変わらない。
+- **H-0104 決定 8 の SHAP の節を置き換える**: 「SHAP 重要度は最後の CV fold の pipeline 状態で学習データ全体を変換する…これを仕様として固定する」と、その固定テスト `test_shap_importance_applies_the_stored_policy_outside_the_last_fold` は本 Proposal の契約に書き換える（テストは削除せず、同じデータで新しい振る舞いを固定する）。BLUEPRINT §9.2 の該当行も書き換える。
+
+### 代替案（検討して棄却）
+
+1. **`pipeline_state` を fold ごとの状態のリストに変える。** 型と意味の変更で `format_version` を上げ、v2 → v3 の migration が要る。重複は消えるが、`pipeline_state` を読む外部コードを壊す。追加で足りるので採らない。
+2. **旧 artifact では最後の fold の状態に戻して警告する。** 旧 artifact だけ #303 の欠陥を出し続け、値が新しい fit と黙って食い違う（警告は読まれないことがある）。採らない。
+3. **旧 artifact では fold ごとの状態を作り直す。** `analysis_context` の `X` と `splits.outer` から、`provider.build_pipeline_factory()`（`unseen_policy` は保存された状態から）で fold ごとに fit し直す。#303 の critique は、この再現が OOF と完全に一致することを確かめた（最大誤差 0）。旧 artifact でも正しい値が出る利点があるが、説明の経路に pipeline の fit を持ち込み、artifact の内容ではなく**読み込んだ時点の版の** pipeline の実装で状態を作る（後の版で pipeline の fit が変わると、学習時の状態と黙って食い違う）。決定 7 の拒否より利用者に優しいので、設計レビューで判断を仰ぐ代替として残す。
+4. **SHAP 重要度の対象を、どの fold にも共通して知られた値の行に限る。** 重要度の母集団が変わり、fold の検証行の平均という H-0007 の定義から外れる。採らない。
+5. **記録せずに、毎回 fold ごとに pipeline を fit し直す（新しい fit でも）。** 代替案 3 と同じ問題（読み込み時の版の実装に依存）を新しい artifact にも持ち込む。記録は fold あたり状態 1 つ（カテゴリの一覧と最頻値）で小さい。採らない。
+
+### 設計レビューで判断を仰ぐ点
+
+- 決定 7（旧 artifact は拒否）と代替案 3（作り直す）のどちらにするか。
+- `categorical_features` は最後の fold の `categorical_cols` から取る。`NativeFeaturePipeline` では列の dtype（`category` か文字列か）で決まり、どの fold でも同じ DataFrame の行の部分集合なので一致する。独自の pipeline（H-0054）では fold ごとに違いうるが、本 Proposal は扱わない。この扱いでよいか。
+
+### 受け入れ基準（テスト観点）
+
+1. **fold が知らず最後の fold が知る値**（expanding window、`auto_categorical: false`、`unseen_policy: "mode"`、LightGBM のカテゴリ既定を緩めて `cat` で分岐させる。#303 の probe のデータ）: `importance(kind="shap")` が、fold ごとに `X[train]` で fit し直した pipeline で検証行を変換して計算した値と一致し、最後の fold の状態で計算した値とは違う。陽性の確認として `importance(kind="split")["cat"] > 0`。修正前は RED。
+2. **fold が知り最後の fold が知らない値**（sliding window、`train_size_max`）: `unseen_policy: "error"` で `fit` が通ったモデルの `importance(kind="shap")` が値を返す（修正前は `DATA_SCHEMA_INVALID` で RED）。`"mode"` でも 1 と同じ独立の再計算と一致する。既存の `test_shap_importance_applies_the_stored_policy_outside_the_last_fold` をこの契約に書き換える。
+3. **影響しない場合の回帰**: `auto_categorical: true` と数値列だけの設定で、`importance(kind="shap")` が最後の fold の状態で計算した値と一致する（変更前と同じ値）。
+4. **記録の契約**: regression / binary / multiclass で `len(pipeline_state_per_fold) == len(splits.outer)`、`pipeline_state_per_fold[-1] == pipeline_state`、各要素が fold の `X[train]` で fit し直した pipeline の `get_state()` と等しい。
+5. **保存**: export → load で `pipeline_state_per_fold` が保たれ、`importance(kind="shap")` が export 前と一致する。`FORMAT_VERSION == 2` のまま。
+6. **旧 artifact**: 属性を `__dict__` から消した `FitResult` を `fit_result.pkl` として書き（`checksums` を書き直す）、`Model.load()` が通り、`predict()` が export 前と一致し、`importance(kind="shap")` が `MODEL_NOT_FIT`（`context["missing"] == "pipeline_state_per_fold"`）を送出する。修正前は値を返すので RED。
+7. **copy**: `Model.fit_result` の戻り値で `pipeline_state_per_fold` の要素は内部と同一オブジェクト、リストは別オブジェクト（`test_result_isolation.py`）。
+8. **フィールド一覧**: `test_contracts.py` / `test_golden_contracts.py` の `FitResult` のフィールド一覧と `docs/api.md` の表に `pipeline_state_per_fold` が加わる。

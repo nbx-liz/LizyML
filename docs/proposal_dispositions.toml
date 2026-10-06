@@ -467,6 +467,10 @@ anchors = ["missing_columns", "available_columns"]
 disposition = "specified"
 anchors = ["CALIBRATION_FAILED", "c_final"]
 
+[proposals."H-0114"]
+disposition = "pending"
+reason = "Design review of the per-fold pipeline state proposal (#303) precedes implementation"
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 
