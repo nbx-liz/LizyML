@@ -1,9 +1,19 @@
-# 次の一手 — 2026-10-06（Phase 3: PR 9 の PR を作成。マージ後は PR 9b で Phase 3 を判定する）
+# 次の一手 — 2026-10-06（Phase 3 は測定で完了。PR 9b で記録する）
 
 このファイルだけ読めば次の作業に入れるように書いてある。
-**前版（2026-10-02、「PR 8c の PR を作成。マージ後の次は PR 9」）はこの版に置き換わる。** 前版は git 履歴に残っている。
+**前版（2026-10-06、「PR 9 の PR を作成」）はこの版に置き換わる。** 前版は git 履歴に残っている。
 
 ---
+
+## 状態 —— **Phase 3 完了（測定済み）**
+
+PR 9（#320、H-0110）は `21db071` でマージ済み、#271 は close レビュー（APPROVE）を経て close 済み（close コメント 6010100067）。PR 9b は manifest の #271 行に `github_prs: [320]` と `closure_comment` を入れ、#266 行の母集団を定数 7 から `derived_from`（`SITES` の件数）に変えた。PR 9 が BLUEPRINT §15.2 に `FORMAT_VERSION = 2` の宣言を 1 つ足したため（1605 行。1604 行は元からあった宣言が移動したもの）、宣言の走査が 8 件を集め、定数 7 の行が INCOMPLETE になったからである（DC3: 派生した件数を定数で持っていた）。`derived_from` だけでは件数の出どころがテストと同じになり、宣言が 1 つ見えなくなっても通るので、`test_declared_versions.py` の `MIN_SITES` を 8 に上げて独立の下限にした（PR 9b レビュー）。
+
+`phase3_gap.py --after origin/develop`（`21db071`、PR 9b の manifest）: COMPLETE 19 / COMPLETE-RED-BY-MUTATION 4 / PARTIAL 1（#270、計画どおり open）/ NOT-PLANNED 1 / INCOMPLETE 0 / UNKNOWN 0、exit 0（`results/phase3_completion_21db071.txt`）。
+
+残る派生: #270（177 件の hollow test、別の母集団修復として起票予定）、#318（コードがしない 6 件の判断）、#319（HISTORY の記録のずれ）、#309 / #311 / #313 / #315、#299 / #301 / #303 / #304 / #307 / #295 / #297 / #298 / #273 / #276 / #280。develop は Phase 3 の変更を未リリースで多数保持している（CHANGELOG の H-0102 記載漏れあり）。
+以下の PR 9 以前の節は経緯として残す。
+
 
 ## 最初にやること —— **PR 9（#271、H-0110）がマージされていれば PR 9b**
 

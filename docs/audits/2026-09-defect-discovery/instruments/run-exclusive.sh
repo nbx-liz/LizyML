@@ -25,12 +25,18 @@ LOCK="/tmp/lizyml-discovery-plan/.heavy.lock"
 LABEL="${1:?usage: run-exclusive.sh <label> <command...>}"
 shift
 
-exec 9>"$LOCK"
+# The lock's directory may not exist (it lived in a scratch tree that was later
+# removed). Without it the redirect below failed, flock reported a bad file
+# descriptor, and the job ran with no lock at all -- a guard that silently
+# disabled itself (DC1, found in PR 9b review). Create it, and refuse to run
+# rather than run unlocked.
+mkdir -p "$(dirname "$LOCK")" || { echo "[run-exclusive] cannot create $(dirname "$LOCK")" >&2; exit 125; }
+exec 9>"$LOCK" || { echo "[run-exclusive] cannot open $LOCK" >&2; exit 125; }
 
 if ! flock -n 9; then
     holder="$(cat "${LOCK}.owner" 2>/dev/null || echo unknown)"
     echo "[run-exclusive] waiting: '$holder' holds the lock" >&2
-    flock 9
+    flock 9 || { echo "[run-exclusive] cannot acquire $LOCK" >&2; exit 125; }
 fi
 
 printf '%s (pid %s, since %s)\n' "$LABEL" "$$" "$(date -Is)" > "${LOCK}.owner"
