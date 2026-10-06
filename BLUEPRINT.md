@@ -995,7 +995,7 @@ result = model.tune(progress_callback=on_progress)
 - log: 端方向に対数空間で 3 倍に拡張
 - `IntDim`: `max(1, new_low)` で下限ガード
 - 拡張後の `new_low` / `new_high` は次元の `min_allowed` / `max_allowed`（§11.2）でクランプする。クランプが効いたら `BoundaryDimStatus.clamped_to_bound` を `True` にする（H-0078）
-- 範囲を変えない拡張は拡張ではない: クランプ（`min_allowed` / `max_allowed`、linear の `0.0` 下限、`IntDim` の `max(1, ...)`）と `IntDim` の丸めのあとで `(new_low, new_high)` が元の `(low, high)` と等しい次元は、端に近くても `expanded=False`・`new_low` / `new_high` は `None` とし、`expanded_names` にも `RoundSummary.expanded_dims` にも入れない。`clamped_to_bound` は `min_allowed` / `max_allowed` のクランプが効いたときだけ `True` で、再判定のあとも `True` のまま残る（linear の `0.0` 下限と `IntDim` の `max(1, ...)` は `clamped_to_bound` を立てないので `False` のまま）。`IntDim` の拡張と比較は整数で計算する（`2**53` を超える値でも隣の整数と混ざらない）。毎ラウンド同じ空の拡張を報告し続けないため（H-0078 項目 4、H-0111）
+- 範囲を変えない拡張は拡張ではない: クランプ（`min_allowed` / `max_allowed`、linear の `0.0` 下限、`IntDim` の `max(1, ...)`）と `IntDim` の丸めのあとで `(new_low, new_high)` が元の `(low, high)` と等しい次元は、端に近くても `expanded=False`・`new_low` / `new_high` は `None` とし、`expanded_names` にも `RoundSummary.expanded_dims` にも入れない。`clamped_to_bound` は `min_allowed` / `max_allowed` のクランプが効いたときだけ `True` で、再判定のあとも `True` のまま残る（linear の `0.0` 下限と `IntDim` の `max(1, ...)` は `clamped_to_bound` を立てないので `False` のまま）。`IntDim` の拡張と比較は整数で計算する（`2**53` を超える値でも隣の整数と混ざらない）。端の検出（位置の計算）は H-0068 のとおり float で行うので、`2**53` を超える `IntDim` の範囲では端を見落としうる（H-0111 の bound）。毎ラウンド同じ空の拡張を報告し続けないため（H-0078 項目 4、H-0111）
 - 反対側の端は据え置き
 
 ### RoundSummary / BoundaryReport
