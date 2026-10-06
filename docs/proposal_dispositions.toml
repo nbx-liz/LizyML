@@ -15,7 +15,7 @@ anchors = ["[build-system]", "[project.optional-dependencies]", "py.typed", "twi
 
 [proposals."H-0001"]
 disposition = "specified"
-anchors = ["config_version", "extra", "LIZYML__model__lgbm__params__learning_rate", "kfold", "name", "group_col", "CONFIG_INVALID"]
+anchors = ["config_version", "extra", "LIZYML__model__lgbm__params__learning_rate", "kfold", "name", "group_col", "CONFIG_INVALID", "discriminator", "Literal[\"lgbm\"]", "ValidationError"]
 
 [proposals."H-0002"]
 disposition = "specified"
@@ -27,19 +27,19 @@ anchors = ["DESERIALIZATION_FAILED", "fit_result.pkl", "metadata.json", "format_
 
 [proposals."H-0004"]
 disposition = "specified"
-anchors = ["MAPE", "Huber", "mape", "delta", "huber", "UNSUPPORTED_METRIC"]
+anchors = ["MAPE", "Huber", "mape", "delta", "huber", "UNSUPPORTED_METRIC", "HuberLoss", "delta=1.0"]
 
 [proposals."H-0005"]
 disposition = "specified"
-anchors = ["evaluate_table", "table_formatter.py", "cal_oof", "MODEL_NOT_FIT"]
+anchors = ["evaluate_table", "table_formatter.py", "cal_oof", "MODEL_NOT_FIT", "Model.evaluate_table()"]
 
 [proposals."H-0006"]
 disposition = "specified"
-anchors = ["residuals", "residuals.py", "UNSUPPORTED_TASK"]
+anchors = ["residuals", "residuals.py", "UNSUPPORTED_TASK", "Model.residuals()"]
 
 [proposals."H-0007"]
 disposition = "specified"
-anchors = ["importance_plot", "compute_shap_importance", "importance", "OPTIONAL_DEP_MISSING"]
+anchors = ["importance_plot", "compute_shap_importance", "importance", "OPTIONAL_DEP_MISSING", "Model.importance(kind=\"shap\")"]
 
 [proposals."H-0008"]
 disposition = "specified"
@@ -47,7 +47,7 @@ anchors = ["Plotly", "OPTIONAL_DEP_MISSING", "plotly.graph_objects.Figure"]
 
 [proposals."H-0009"]
 disposition = "specified"
-anchors = ["residuals_plot", "scatter", "qq"]
+anchors = ["residuals_plot", "scatter", "qq", "plot_residuals()"]
 
 [proposals."H-0010"]
 disposition = "superseded"
@@ -56,7 +56,7 @@ reason = "H-0010 added validation_ratio as a stored input alias that generated a
 
 [proposals."H-0011"]
 disposition = "specified"
-anchors = ["evaluate_table"]
+anchors = ["evaluate_table", "if_mean, oof, fold_0...fold_N-1, cal_oof"]
 
 [proposals."H-0012"]
 disposition = "specified"
@@ -68,7 +68,7 @@ anchors = ["method: \"kfold\"", "stratified_kfold"]
 
 [proposals."H-0014"]
 disposition = "specified"
-anchors = ["precision_at_k", "UNSUPPORTED_METRIC"]
+anchors = ["precision_at_k", "UNSUPPORTED_METRIC", "k=10"]
 
 [proposals."H-0015"]
 disposition = "specified"
@@ -76,19 +76,19 @@ anchors = ["model.roc_curve_plot()", "roc_curve_plot()"]
 
 [proposals."H-0016"]
 disposition = "specified"
-anchors = ["confusion_matrix", "confusion_matrix_table"]
+anchors = ["confusion_matrix", "confusion_matrix_table", "model.confusion_matrix()"]
 
 [proposals."H-0017"]
 disposition = "specified"
-anchors = ["calibration_plot", "probability_histogram_plot", "calibrated_oof"]
+anchors = ["calibration_plot", "probability_histogram_plot", "calibrated_oof", "Calibration 未有効時"]
 
 [proposals."H-0018"]
 disposition = "specified"
-anchors = ["OvR", "macro", "UNSUPPORTED_METRIC"]
+anchors = ["OvR", "macro", "UNSUPPORTED_METRIC", "average_precision_score", "brier_score_loss"]
 
 [proposals."H-0019"]
 disposition = "specified"
-anchors = ["roc_curve_plot", "OvR"]
+anchors = ["roc_curve_plot", "OvR", "plot_roc_curve"]
 
 [proposals."H-0020"]
 disposition = "specified"
@@ -112,11 +112,11 @@ anchors = ["first_metric_only", "num_leaves_ratio", "early_stopping_rounds", "gr
 
 [proposals."H-0025"]
 disposition = "specified"
-anchors = ["GroupHoldoutInnerValid", "min_data_in_leaf_ratio", "min_data_in_bin_ratio", "CONFIG_INVALID"]
+anchors = ["GroupHoldoutInnerValid", "min_data_in_leaf_ratio", "min_data_in_bin_ratio", "CONFIG_INVALID", "範囲バリデーション", "(0,1)", "早期エラー"]
 
 [proposals."H-0026"]
 disposition = "specified"
-anchors = ["analysis_context", "X_for_explain"]
+anchors = ["analysis_context", "X_for_explain", "再 export を促す"]
 
 [proposals."H-0027"]
 disposition = "specified"
@@ -124,7 +124,7 @@ anchors = ["Config Reference", "min_data_in_leaf_ratio", "min_data_in_bin_ratio"
 
 [proposals."H-0028"]
 disposition = "specified"
-anchors = ["tuning_plot", "tuning.py", "MODEL_NOT_FIT"]
+anchors = ["tuning_plot", "tuning.py", "MODEL_NOT_FIT", "Model.tuning_plot()"]
 
 [proposals."H-0029"]
 disposition = "specified"
@@ -132,7 +132,7 @@ anchors = ["model.fit_result"]
 
 [proposals."H-0030"]
 disposition = "specified"
-anchors = ["predict_raw", "predict_proba"]
+anchors = ["predict_raw", "predict_proba", "BaseCalibratorAdapter.predict()"]
 
 [proposals."H-0031"]
 disposition = "specified"
@@ -148,11 +148,11 @@ anchors = ["time_range", "model.split_summary()", "train_start", "train_end"]
 
 [proposals."H-0034"]
 disposition = "specified"
-anchors = ["output_dir", "run_id"]
+anchors = ["output_dir", "run_id", "ログファイルが出力先に保存される"]
 
 [proposals."H-0035"]
 disposition = "specified"
-anchors = ["params_table", "best_iteration", "early_stopping_rounds"]
+anchors = ["params_table", "best_iteration", "early_stopping_rounds", "単一列", "解決された絶対値"]
 
 [proposals."H-0036"]
 disposition = "specified"
@@ -168,11 +168,11 @@ anchors = ["purge_gap", "purged_time_series", "purge_window"]
 
 [proposals."H-0039"]
 disposition = "specified"
-anchors = ["output_dir", "run_id"]
+anchors = ["output_dir", "run_id", "constructor > config > 未指定", "Model(..., output_dir=...)"]
 
 [proposals."H-0040"]
 disposition = "specified"
-anchors = ["time_col", "train_size_max", "test_size_max", "embargo_pct", "embargo"]
+anchors = ["time_col", "train_size_max", "test_size_max", "embargo_pct", "embargo", "警告付きで受理"]
 
 [proposals."H-0041"]
 disposition = "specified"
@@ -209,7 +209,7 @@ anchors = ["TuneProgressInfo", "TuneProgressCallback", "progress_callback"]
 
 [proposals."H-0049"]
 disposition = "specified"
-anchors = ["multiclassova", "needs_simplex"]
+anchors = ["multiclassova", "needs_simplex", "_pred_for_metric()", "BaseMetric.needs_simplex"]
 
 [proposals."H-0050"]
 disposition = "specified"
@@ -241,7 +241,7 @@ anchors = ["oof_raw_scores=None", "model_from_string()", "check_estimator", "all
 
 [proposals."H-0057"]
 disposition = "specified"
-anchors = ["oof_coverage", "compute_oof_valid_mask", "df.attrs[\"oof_coverage\"]"]
+anchors = ["oof_coverage", "compute_oof_valid_mask", "df.attrs[\"oof_coverage\"]", "Evaluator.evaluate()"]
 
 [proposals."H-0058"]
 disposition = "specified"
@@ -281,7 +281,7 @@ anchors = ["feval_metrics", "greater_is_better", "needs_proba"]
 
 [proposals."H-0067"]
 disposition = "specified"
-anchors = ["ECE", "compute_oof_valid_mask", "oof_per_fold", "n_valid", "fallback"]
+anchors = ["ECE", "compute_oof_valid_mask", "oof_per_fold", "n_valid", "fallback", "calibration/cross_fit.py"]
 
 [proposals."H-0068"]
 disposition = "specified"
@@ -317,7 +317,7 @@ reason = "Internal refactor (TaskType annotations, dispatch dicts); the entry st
 
 [proposals."H-0076"]
 disposition = "specified"
-anchors = ["DEPRECATIONS"]
+anchors = ["DEPRECATIONS", "build_calibration_splitter", "docs/DEPRECATIONS.md"]
 
 [proposals."H-0077"]
 disposition = "specified"
@@ -333,7 +333,7 @@ anchors = ["objective", "TASK_COMPATIBLE_OBJECTIVES", "objective_choices", "metr
 
 [proposals."H-0080"]
 disposition = "specified"
-anchors = ["random_state", "training.seed"]
+anchors = ["random_state", "training.seed", "KFoldConfig", "StratifiedKFoldConfig", "StratifiedGroupKFoldConfig"]
 
 [proposals."H-0081"]
 disposition = "specified"
@@ -341,11 +341,11 @@ anchors = ["(num_threads, CPU)", "num_threads"]
 
 [proposals."H-0082"]
 disposition = "specified"
-anchors = ["evaluate", "fit_result"]
+anchors = ["evaluate", "fit_result", "deepcopy", "__deepcopy__"]
 
 [proposals."H-0083"]
 disposition = "specified"
-anchors = ["FORMAT_VERSION", "checksums"]
+anchors = ["FORMAT_VERSION", "checksums", "sha256", "joblib.load(io.BytesIO(...))"]
 
 [proposals."H-0084"]
 disposition = "specified"
@@ -353,7 +353,7 @@ anchors = ["core/_model_state.py", "_model_state.py"]
 
 [proposals."H-0085"]
 disposition = "specified"
-anchors = ["TimeHoldoutInnerValid", "purge_gap + embargo", "UserWarning"]
+anchors = ["TimeHoldoutInnerValid", "purge_gap + embargo", "UserWarning", "nan_count", "LizyMLError(DATA_SCHEMA_INVALID)"]
 
 [proposals."H-0086"]
 disposition = "specified"
@@ -361,7 +361,7 @@ anchors = ["fit_result", "tuning", "inner_valid_explicit", "load_config"]
 
 [proposals."H-0087"]
 disposition = "specified"
-anchors = ["validators.py"]
+anchors = ["validators.py", "validate_time_series_order", "validate_group_split", "lizyml.data"]
 
 [proposals."H-0088"]
 disposition = "specified"
@@ -373,11 +373,11 @@ anchors = ["fallback_fold_flags", "n_fallback_rows", "fallback_row_count", "cali
 
 [proposals."H-0090"]
 disposition = "specified"
-anchors = ["export_code", "split", "calibrator.json"]
+anchors = ["export_code", "split", "calibrator.json", "config.json[\"split\"]", "argsort()", "_build_split_metadata(cfg)"]
 
 [proposals."H-0091"]
 disposition = "specified"
-anchors = ["_model_tuning"]
+anchors = ["_model_tuning", "ModelTuningMixin", "_MIXIN_FILES"]
 
 [proposals."H-0092"]
 disposition = "specified"
@@ -429,19 +429,19 @@ anchors = ["TrainComponents.sample_weight", "RefitTrainer.fit", "tests/test_trai
 
 [proposals."H-0104"]
 disposition = "specified"
-anchors = ["unseen_policy", "PredictionResult.warnings", "build_pipeline_factory"]
+anchors = ["unseen_policy", "PredictionResult.warnings", "build_pipeline_factory", "transform_with_warnings", "categorical_cols"]
 
 [proposals."H-0105"]
 disposition = "specified"
-anchors = ["feval", "_pred_for_metric", "EVALUATION_FAILED"]
+anchors = ["feval", "_pred_for_metric", "EVALUATION_FAILED", "evaluation.evaluator._pred_for_metric"]
 
 [proposals."H-0106"]
 disposition = "specified"
-anchors = ["SUPPORTED_CONFIG_VERSIONS", "DATA_FINGERPRINT_MISMATCH", "lizyml/config/version.py", "METRIC_REQUIRES_PROBA", "INCOMPATIBLE_COLUMNS"]
+anchors = ["SUPPORTED_CONFIG_VERSIONS", "DATA_FINGERPRINT_MISMATCH", "lizyml/config/version.py", "METRIC_REQUIRES_PROBA", "INCOMPATIBLE_COLUMNS", "FitResult.dtypes", "fit_dtype", "predict_dtype", "cross_entropy_lambda"]
 
 [proposals."H-0107"]
 disposition = "specified"
-anchors = ["validate_no_target_leakage"]
+anchors = ["validate_no_target_leakage", "raise_on_violation"]
 
 [proposals."H-0108"]
 disposition = "specified"

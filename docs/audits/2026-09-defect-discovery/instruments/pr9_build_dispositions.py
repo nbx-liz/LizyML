@@ -42,7 +42,31 @@ OWED = ("missed", "contradicted")
 # Line numbers drift with every BLUEPRINT edit (DC3); reasons keep the prose only.
 _LINE_REF = re.compile(r"\s*\((?:BLUEPRINT|BP)[ :]?\d[\d,\s\-–]*\)")
 
-EXTRA_ANCHORS: dict[str, list[str]] = {}
+FOLD_MAP = RESULTS / "pr9_fold_map.md"
+# `output` passes the rule for H-0034 but names the proposal's unimplemented
+# `output` section, not where BLUEPRINT states the decision (maker's note).
+EXCLUDED_ANCHORS = {("H-0034", "output")}
+
+
+def fold_anchors() -> dict[str, list[str]]:
+    """The fold's introduced anchors, read from the fold map's closing list."""
+    text = FOLD_MAP.read_text(encoding="utf-8")
+    head = "## Introduced anchors per proposal"
+    if head not in text:
+        raise SystemExit(f"{FOLD_MAP.name}: no {head!r} section")
+    anchors: dict[str, list[str]] = {}
+    for line in text.split(head, 1)[1].splitlines():
+        match = re.match(r"^- (H-\d{4}): (.+)$", line)
+        if match:
+            pid = match.group(1)
+            tokens = re.findall(r"`([^`]+)`", match.group(2))
+            if not tokens:
+                raise SystemExit(f"{FOLD_MAP.name}: {pid} lists no backticked anchor")
+            anchors[pid] = [t for t in tokens if (pid, t) not in EXCLUDED_ANCHORS]
+    return anchors
+
+
+EXTRA_ANCHORS: dict[str, list[str]] = fold_anchors()
 
 # Scout C's reasons that cite a BLUEPRINT line number in prose the regex cannot strip.
 REASON_OVERRIDES = {
