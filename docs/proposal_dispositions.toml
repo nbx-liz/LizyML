@@ -463,6 +463,10 @@ anchors = ["expanded_names", "RoundSummary.expanded_dims", "clamped_to_bound"]
 disposition = "specified"
 anchors = ["missing_columns", "available_columns"]
 
+[proposals."H-0113"]
+disposition = "specified"
+anchors = ["CALIBRATION_FAILED", "c_final"]
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 
