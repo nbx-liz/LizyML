@@ -2138,7 +2138,7 @@ BLUEPRINT §17 で規定されている「`run_id` に基づく出力先（logs 
 ### Proposal
 
 1. `Model` に `output_dir` オプションを追加する（`Config` の `output` セクション or コンストラクタ引数）。
-2. `output_dir` 指定時、`run_id` ベースのサブディレクトリ（`{output_dir}/{run_id}/`）を自動作成し、ログ・plot 保存先とする。（H-0111 注記: 実装はこのディレクトリに `run.log` だけを書く。plot API は plotly の Figure を返すだけで、plot をファイルに書く経路は無い。BLUEPRINT §17 はこの実装を書く。#318）
+2. `output_dir` 指定時、`run_id` ベースのサブディレクトリ（`{output_dir}/{run_id}/`）を自動作成し、ログ・plot 保存先とする。（H-0111 注記: `fit()` / `tune()` がこのディレクトリに自動で書くのは `run.log` だけで、path 無しの `export()` は `{run_dir}/export` に書く（H-0039）。plot API は plotly の Figure を返すだけで、plot をファイルに書く経路は無い。BLUEPRINT §17 はこの実装を書く。#318）
 3. `output_dir` 未指定時は現行動作（ログは標準出力、plot は返却のみ）を維持する。
 
 ### 影響範囲
@@ -10838,11 +10838,11 @@ H-0110 の畳み込みは、決定済みで実装済みの節を BLUEPRINT に�
 
 1. **#318 行 1〜5: 文書をコードに合わせる。** どれもコードの挙動が意図どおりで、文書だけが古い。
    - 行 1（H-0040）: 旧キー `embargo_pct` は `int()` で変換しない。整数値（`3` / `3.0`）は受理し、端数（`0.05`）と bool は `CONFIG_INVALID` で拒否する（#210。切り捨てると漏洩防止の gap が `0` に潰れる）。BLUEPRINT §10 を直す。
-   - 行 2（H-0034）: `output_dir` の `{output_dir}/{run_id}/` に書くのは `run.log` だけで、plot は保存しない（plot API は plotly の Figure を返す。`lizyml/` に `write_html` / `write_image` は無い）。BLUEPRINT §17 を直し、H-0034 に注記する。
+   - 行 2（H-0034）: `fit()` / `tune()` が `{output_dir}/{run_id}/` に自動で書くのは `run.log` だけ（path 無しの `export()` は `{run_dir}/export` に書く、H-0039）で、plot は保存しない（plot API は plotly の Figure を返す。`lizyml/` に `write_html` / `write_image` は無い）。BLUEPRINT §17 を直し、H-0034 に注記する。
    - 行 3（H-0003）: `migrations/` パッケージは無い。v1 の artifact は loader の中でメモリ上で引き上げる（H-0070、BLUEPRINT §15.2 は既にそう書く）。H-0003 に注記する。
    - 行 4（H-0014）: `BaseMetric` に `supports_task` は無い。タスクとの対応はレジストリが持ち、扱わないタスクで引くと `UNSUPPORTED_METRIC`。BLUEPRINT §13.1 の Metric IF の属性一覧から外す。
    - 行 5（H-0071 INV-4）: `METRIC_NOT_FOUND` という `ErrorCode` は無く、送出されるのは `UNSUPPORTED_METRIC`。BLUEPRINT は H-0110 で既に正しい。H-0071 に注記する。
-2. **#318 行 6: コードを H-0078 項目 4 に合わせる。** H-0078 は「両側がぶつかった場合は元値のまま返し、無限ループ防止のため `expanded=False` を上位で再判定する」と決めたが、`detect_boundary` は端に近い次元をクランプのあとも `expanded=True` とし、`expanded_names` に入れていた。既に `min_allowed` / `max_allowed` に貼り付いた次元は、`tune(resume=True)` のたびに範囲の変わらない「拡張」として報告され続ける。これは新しい決定ではなく、H-0078 の決定の実行である。規則: **クランプと `IntDim` の丸めのあとで `(new_low, new_high)` が元の `(low, high)` と等しいなら、`expanded=False`、`new_low` / `new_high` は `None`、`expanded_names`（したがって `RoundSummary.expanded_dims`）に入れない。** `clamped_to_bound` は `True` のまま残す（クランプが効いた事実で、下流 UI の「上限に達した」表示の根拠）。
+2. **#318 行 6: コードを H-0078 項目 4 に合わせる。** H-0078 は「両側がぶつかった場合は元値のまま返し、無限ループ防止のため `expanded=False` を上位で再判定する」と決めたが、`detect_boundary` は端に近い次元をクランプのあとも `expanded=True` とし、`expanded_names` に入れていた。既に `min_allowed` / `max_allowed` に貼り付いた次元は、`tune(resume=True)` のたびに範囲の変わらない「拡張」として報告され続ける。これは新しい決定ではなく、H-0078 の決定の実行である。規則: **クランプと `IntDim` の丸めのあとで `(new_low, new_high)` が元の `(low, high)` と等しいなら、`expanded=False`、`new_low` / `new_high` は `None`、`expanded_names`（したがって `RoundSummary.expanded_dims`）に入れない。** `clamped_to_bound` は変えない: `min_allowed` / `max_allowed` のクランプが効いたなら `True` のまま残す（下流 UI の「上限に達した」表示の根拠）。linear の `0.0` 下限と `IntDim` の `max(1, ...)` はもともと `clamped_to_bound` を立てないので `False` のまま。`IntDim` の拡張は整数で計算する（コードレビュー round 1: float を経由すると `2**53` を超える `high` と `high + 1` が同じ値になり、まだ 1 つ広げられる次元を「範囲が変わらない」と誤判定した）。
    - **適用範囲を H-0078 の文面より広げる。** H-0078 は `min_allowed` / `max_allowed` だけを書くが、同じ理由（範囲の変わらない拡張を毎ラウンド繰り返さない）は、それより古い 2 つのクランプにも当てはまる: linear の下限 `0.0`（#110）と `IntDim` の `max(1, ...)`。原因を問わず「範囲が変わらない」で判定する。`tests/test_tuning/test_retune.py::test_int_dim_lower_guard` は `IntDim(low=1)` の空の拡張を `expanded=True` として固定していたので、ガードが効きつつ範囲が動く `low=2` に変え、`low=1` は新しいテストで `expanded=False` を固定する。
 3. **#319: HISTORY の記録を注記で直し、本文は書き換えない。** Status 行の 7 件（H-0009 / H-0011 / H-0012 / H-0056 / H-0098 は `accepted`、H-0010 は `superseded`（H-0069）、H-0097 は Revision 2 が `accepted`（PR #290、merge `2436a66`）で元の提案は Revision 2 に置き換えられた）。コードが送出しないエラー名の 2 件（H-0057 の `ValueError` → `EVALUATION_FAILED`、H-0009 の `INVALID_CONFIG` → `CONFIG_INVALID`）は、該当行に「H-0111 注記」を付ける。H-0080 の中にある LightGBM のパラメーター名の経路の節は、H-0093 の検討の一部で、H-0093 が `ESTIMATOR_ROUTES` を決めてこの節の 3 か所を 6 か所に改めた。節は移動せず、冒頭に注記を置く（移すと H-0093 の改訂済みの記述と古い 3 か所の表が並ぶため）。
 4. **#321: 選択肢 (a)。** 定数の `population` を持つ 6 行のうち、5 行はテスト自身が宣言する設計上の件数で、文書やコードの成長では変わらない。残る #279 の行（smart parameter が主張する native の綴り 18 個）は、provider の alias 表から数えるので、#266 と同じ形で古くなりうる。これを `derived_from`（`len(CLAIMED)`）に変える。導出は自分自身を数えるので、綴りが減っても気づけない。PR 9b が #266 で `MIN_SITES` を置いたのと同じく、`MIN_CLAIMED = 18` の下限をテストに置く。

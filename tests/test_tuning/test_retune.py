@@ -359,8 +359,9 @@ class TestNoOpExpansionIsNotExpanded:
     re-judged to ``False`` so ``tune(resume=True)`` does not report (and
     re-run) the same no-op expansion every round (#318 row 6). The rule is
     cause-agnostic: ``max_allowed`` / ``min_allowed``, the linear ``0.0``
-    floor (#110) and the IntDim ``max(1, ...)`` guard all count. The clamp
-    signal stays, so a UI can still show "bound reached".
+    floor (#110) and the IntDim ``max(1, ...)`` guard all count. A
+    ``min_allowed`` / ``max_allowed`` clamp keeps ``clamped_to_bound=True``, so
+    a UI can still show "bound reached"; the floor and the guard never set it.
     """
 
     @pytest.mark.parametrize(
@@ -425,6 +426,34 @@ class TestNoOpExpansionIsNotExpanded:
         assert status.clamped_to_bound is True
         assert status.new_high == 1.0
         assert report.expanded_names == ("ff",)
+
+    @pytest.mark.parametrize("log", [False, True], ids=["linear", "log"])
+    def test_int_dim_beyond_2_53_one_step_left_is_expanded(self, log: bool) -> None:
+        """IntDim expansion is exact integer arithmetic (review round 1).
+
+        Above ``2**53`` a float round trip merges ``high`` and ``high + 1``,
+        which would report the one remaining permitted step as a no-op.
+        """
+        high = 2**53
+        # A log range must be wide enough for log-space edge detection.
+        low = 2**40 if log else high - 10
+        dim = IntDim("big", low=low, high=high, log=log, max_allowed=high + 1)
+        report = detect_boundary([dim], {"big": high}, threshold=0.05)
+        status = report.dims[0]
+        assert status.edge == "upper"
+        assert status.expanded is True
+        assert status.new_high == high + 1
+        assert status.new_low == low
+        assert report.expanded_names == ("big",)
+
+    @pytest.mark.parametrize("log", [False, True], ids=["linear", "log"])
+    def test_int_dim_beyond_2_53_pinned_is_not_expanded(self, log: bool) -> None:
+        high = 2**53 + 1
+        low = 2**40 if log else high - 10
+        dim = IntDim("big", low=low, high=high, log=log, max_allowed=high)
+        report = detect_boundary([dim], {"big": high}, threshold=0.05)
+        assert report.dims[0].expanded is False
+        assert report.expanded_names == ()
 
     def test_mixed_report_lists_only_moving_dims(self) -> None:
         dims = [
