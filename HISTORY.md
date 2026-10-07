@@ -11105,9 +11105,9 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 
 ## H-0115: `purged_time_series` の `embargo` を `purge_gap` に統合する（#273）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-07
-- **決定日**: —（管理者の判断 2026-10-07: `embargo` を `purge_gap` に統合する。中立な名前の 2 つ目の gap への改名と、inner split を `purge_gap` だけにする案は採らない。本 Proposal は設計レビュー後に実装する）
+- **決定日**: 2026-10-07（管理者の判断 2026-10-07: `embargo` を `purge_gap` に統合する。中立な名前の 2 つ目の gap への改名と、inner split を `purge_gap` だけにする案は採らない。Codex の設計レビュー 3 round の後、修正の確認 2 回の 2 回目で APPROVE）
 - **スコープ**: `lizyml/config/schema.py`（`PurgedTimeSeriesConfig` の `embargo` フィールドを外し、旧キーとして `purge_gap` に加算）, `lizyml/splitters/purged_time_series.py`（`embargo` 引数の非推奨化）, `lizyml/core/_model_factories.py`（splitter の構築と `_auto_inner_gap`）, `lizyml/training/inner_valid.py`（docstring とエラー文）, `lizyml/core/_model_persistence.py` と `lizyml/codegen/templates.py`（生成コードの split 設定）, `BLUEPRINT.md`（§5 の既定値表と旧キーの規則、§5.5 の構成値の表と件数、§10.2、§10.3.1、§10.3 の inner gap の説明）, `docs/config-reference.md`（既定値表、gap の表、図）, `docs/DEPRECATIONS.md`（行の追加と、旧キーの出典 H-0021 の誤りの訂正）, `notebooks/tutorial_time_series_lgbm.ipynb`（`embargo` を使うセルと説明）, `docs/proposal_dispositions.toml`, `CHANGELOG.md`, テスト（`tests/test_config/_knob_registry.py` の `PurgedTimeSeriesSplitter.embargo` を `api` に分類し直し、`test_knob_reachability.py` の `embargo` の `config` のセルを外して `api` の到達の証拠を足す、`tests/test_splitters/`、`tests/test_config/`、`tests/test_training/test_inner_valid_purge_embargo.py`、`tests/test_e2e/test_time_series_*`、`tests/test_codegen/test_split_reproduction.py`、`tests/test_calibration/test_calibration_split.py` の `embargo` を使う箇所を新しい契約に書き換え、統合の新規テストを追加）
 - **関連**: [Issue #273](https://github.com/nbx-liz/LizyML/issues/273), H-0038（`purge_window` → `purge_gap`、`gap` の旧キー）, H-0040（`embargo` を観測数にし、`embargo_pct` を旧キーにした）, H-0076（非推奨の登録簿と v1.0 削除）, H-0085（outer の境界 gap を inner valid に伝える）, H-0111（旧キーの端数を拒否）, [#265](https://github.com/nbx-liz/LizyML/issues/265)（inner gap の伝搬規則の矛盾。close 済み）
 
@@ -11191,3 +11191,8 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 8. **以前の artifact**: export した artifact の `metadata.json` の `config.split` を `{"purge_gap": 5, "embargo": 2}` に書き換える（`purge_gap: 7` で fit したモデル）。`load()` は `DeprecationWarning` を出し、読み込んだモデルの Config が `purge_gap == 7` で `embargo` を持たない。分割を使う経路で確かめる: 読み込んだモデルの `export_code` の split ブロックが `purge_gap: 7` で、読み込んだモデルで `fit` し直した `splits` が元のモデルと一致する。`predict()` は export 前と一致する。`embargo: 0` の artifact も読める。
 9. **生成コード**: `export_code` の split ブロックに `embargo` が無く、生成された `train.py` の fold が `purge_gap` の合計で再現される（`test_split_reproduction.py`）。
 10. **文書と登録簿**: BLUEPRINT §10.2 が決定 11 の幾何を述べ、§5 の Config の表と旧キーの規則、§10.3.1、§10.3 に `embargo` が Config の旧キーとしてしか現れない（§5.5 の構成値の表の `PurgedTimeSeriesSplitter.embargo` の `api` の行は、非推奨の構築子引数を述べるもので、これに当たらない）。`docs/config-reference.md` の図と表に `embargo` の列が無い。`docs/DEPRECATIONS.md` に `embargo` → `purge_gap`、`embargo_pct` / `gap` → `purge_gap`、splitter の引数、v1.0 の読み込み経路の注記があり、旧キーの出典が H-0038 / H-0040。チュートリアル notebook が `embargo` を使わない。knob registry の `PurgedTimeSeriesSplitter.embargo` が `api` で、直接構築で値が届くことを実行で確かめるセルがあり、`test_knob_reachability.py` の網羅の照合が通り、BLUEPRINT §5.5 の表と件数（59 個 / 15 個）が台帳と一致する（同じテストが照合する）。`docs/proposal_dispositions.toml` の H-0115 は `specified`。
+
+### 実装時の記録
+
+- **BLUEPRINT の引用の固定**: Phase 3 の fold map（`test_pr9_fold_map_check.py`）は §5 の「`gap` → `embargo`（H-0038 は `embargo_pct` に写すと決めたが」を、H-0085 の disposition は「`purge_gap + embargo`」を、それぞれ BLUEPRINT の文として固定している。過去の監査記録は書き換えず、BLUEPRINT ではそれらを H-0115 より前の規則として残した（§5 の旧キーの規則、§10.3.1）。
+- **`PurgedTimeSeriesConfig` の検証**: `mode="wrap"` の validator で、`purge_gap` を含む残りのフィールドを先に検証してから、合計を `purge_gap` に入れて検証し直す（結果は `purge_gap` を直接書いた入力と同じ作り方になり、`model_fields_set` にも入る）。

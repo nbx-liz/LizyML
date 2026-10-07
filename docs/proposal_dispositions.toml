@@ -472,8 +472,8 @@ disposition = "specified"
 anchors = ["pipeline_state_per_fold", "compute_shap_importance", "MODEL_NOT_FIT"]
 
 [proposals."H-0115"]
-disposition = "pending"
-reason = "Design review of merging embargo into purge_gap (#273) precedes implementation"
+disposition = "specified"
+anchors = ["purge_gap", "embargo_pct", "PurgedTimeSeriesSplitter(embargo=...)", "DeprecationWarning"]
 
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.

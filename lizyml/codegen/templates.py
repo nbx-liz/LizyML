@@ -320,7 +320,7 @@ def _kfold_folds(n, y, method, shuffle, random_state, n_splits):
     return list(kf.split(np.arange(n), y))
 
 
-def _purged_ts_folds(n, n_splits, purge_gap, embargo, max_train, max_test):
+def _purged_ts_folds(n, n_splits, purge_gap, max_train, max_test):
     idx = np.arange(n)
     fold_size = n // (n_splits + 1)
     if fold_size == 0:
@@ -331,7 +331,7 @@ def _purged_ts_folds(n, n_splits, purge_gap, embargo, max_train, max_test):
         valid_end = min((k + 2) * fold_size, n)
         if valid_start >= valid_end:
             continue
-        train_end = (k + 1) * fold_size - purge_gap - embargo
+        train_end = (k + 1) * fold_size - purge_gap
         if train_end <= 0:
             continue
         tr = idx[:train_end]
@@ -511,7 +511,7 @@ def _resolve_folds(df: pd.DataFrame, y: np.ndarray):
         folds = list(tss.split(np.arange(n)))
     elif method == "purged_time_series":
         folds = _purged_ts_folds(
-            n, n_splits, sp.get("purge_gap", 0), sp.get("embargo", 0),
+            n, n_splits, sp.get("purge_gap", 0),
             sp.get("train_size_max"), sp.get("test_size_max"),
         )
     elif method == "group_time_series":
