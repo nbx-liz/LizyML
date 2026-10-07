@@ -10,7 +10,8 @@
    "tests/test_calibration/test_platt_mle.py::test_the_intercept_is_estimated_and_it_matters",
    "tests/test_config/test_knob_reachability.py::test_derived_collect_raw_scores_follows_calibration_on_fit_only",
    "tests/test_core/test_model_metrics_calibrated.py::TestCalibratedMetricsOofPerFold::test_calibrated_has_oof_per_fold"
-  ]
+  ],
+  "unresolved": []
  },
  "api": {
   "producers_disabled": 23,
@@ -19,19 +20,22 @@
   "downgraded": [
    "tests/test_codegen/test_calibration_params_codegen.py::test_generated_project_reads_a_missing_calibration_params_as_empty",
    "tests/test_codegen/test_calibration_params_codegen.py::test_generated_project_refuses_calibration_params_that_are_not_a_mapping"
-  ]
+  ],
+  "unresolved": []
  },
  "metric": {
   "producers_disabled": 32,
   "node_ids": 44,
   "confirmed_hollow": 44,
-  "downgraded": []
+  "downgraded": [],
+  "unresolved": []
  },
  "split": {
   "producers_disabled": 21,
   "node_ids": 39,
   "confirmed_hollow": 39,
-  "downgraded": []
+  "downgraded": [],
+  "unresolved": []
  },
  "train": {
   "producers_disabled": 1,
@@ -43,6 +47,15 @@
    "tests/test_core/test_result_isolation.py::test_fit_result_shares_trained_estimators_by_reference",
    "tests/test_features/test_column_dtype_check.py::test_categorical_at_fit_is_not_dtype_checked",
    "tests/test_features/test_column_dtype_check.py::test_numeric_at_fit_arrival_matrix"
-  ]
+  ],
+  "unresolved": []
+ },
+ "control": {
+  "none": "passed",
+  "train": "failed with ProducerRan",
+  "api": "failed with ProducerRan",
+  "metric": "failed with ProducerRan",
+  "split": "failed with ProducerRan",
+  "all": "failed with ProducerRan"
  }
 }

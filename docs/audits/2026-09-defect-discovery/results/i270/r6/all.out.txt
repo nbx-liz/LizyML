@@ -1,0 +1,223 @@
+
+[kill_producers] MODE='all': disabled 77 producers
+F...FF.......FFE..F......                                                [100%]
+==================================== ERRORS ====================================
+_ ERROR at setup of test_derived_collect_raw_scores_follows_calibration_on_fit_only _
+
+    @pytest.fixture(scope="module")
+    def constructed() -> dict[str, dict[str, list[dict[str, Any]]]]:
+        out: dict[str, dict[str, list[dict[str, Any]]]] = {}
+        for name, call in _SCENARIOS.items():
+            with _spying() as received:
+>               call()
+
+tests/test_config/test_knob_reachability.py:482: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_config/test_knob_reachability.py:137: in <lambda>
+    return lambda: Model(_config(task, split, **extra)).fit(data=_frame(task))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+a = (<lizyml.core.model.Model object at 0x78ebb80c1b10>,)
+k = {'data':             a         b   g    t  blk         y
+0    0.125730  1.296915   0    0    0  0.399278
+1   -0.132105...38 -3.106337 -3.899422  23  238    3 -2.832093
+239 -1.142279  0.463330  23  239    3 -0.683443
+
+[240 rows x 6 columns]}
+
+    def boom(*a: object, **k: object):
+>       raise ProducerRan(f"producer disabled for the hollowness check: {label}")
+E       kill_producers.ProducerRan: producer disabled for the hollowness check: Model.fit
+
+docs/audits/2026-09-defect-discovery/instruments/kill_producers.py:49: ProducerRan
+=================================== FAILURES ===================================
+_____________________ TestBetaCalibrator.test_fit_predict ______________________
+
+self = <tests.test_calibration.test_beta_calibration.TestBetaCalibrator object at 0x78ebb3f38490>
+
+    def test_fit_predict(self) -> None:
+        logits, y = _oof_logits()
+        cal = BetaCalibrator()
+>       cal.fit(logits, y)
+
+tests/test_calibration/test_beta_calibration.py:44: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+a = (<lizyml.calibration.beta.BetaCalibrator object at 0x78ebb834eb10>, array([ 9.45542636e-01,  5.98134076e-01,  1.540081...., 1., 1., 1., 1., 1., 1., 0., 0., 1., 0., 1., 0., 1., 1., 0., 1.,
+       0., 0., 1., 1., 0., 1., 1., 1., 0., 1., 1.]))
+k = {}
+
+    def boom(*a: object, **k: object):
+>       raise ProducerRan(f"producer disabled for the hollowness check: {label}")
+E       kill_producers.ProducerRan: producer disabled for the hollowness check: lizyml.calibration.beta.BetaCalibrator.fit
+
+docs/audits/2026-09-defect-discovery/instruments/kill_producers.py:49: ProducerRan
+____________ test_failed_refit_does_not_keep_the_earlier_fit[beta] _____________
+
+name = 'beta'
+
+    @pytest.mark.parametrize("name", sorted(_CALIBRATORS))
+    def test_failed_refit_does_not_keep_the_earlier_fit(name: str) -> None:
+        """A success followed by a failed refit leaves the calibrator unfitted (review r1).
+    
+        The first fit's data make the start point the optimum, so ``maxiter=1``
+        converges; the refit on informative scores needs more iterations and fails.
+        """
+        calibrator = _CALIBRATORS[name](_STOP_EARLY)
+        s, y = _scores()
+        if name == "platt":
+            # x0 = [0, prior log-odds]: constant scores, balanced labels.
+            calibrator.fit(np.zeros(400), (np.arange(400) % 2).astype(float))
+        else:
+            # x0 = [1, 1, 0]: soft labels equal to the start point's prediction.
+            p = np.clip(expit(s), 1e-10, 1 - 1e-10)
+>           calibrator.fit(s, expit(np.log(p) + np.log(1 - p)))
+
+tests/test_calibration/test_calibration_failed_optimisation.py:69: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+a = (<lizyml.calibration.beta.BetaCalibrator object at 0x78ebb364a450>, array([ 0.25146044, -0.26420973,  1.2808453 ,  0.2...1, 0.16676177, 0.19326244, 0.15362476, 0.16027714,
+       0.19873573, 0.03664514, 0.08294994, 0.18021059, 0.17118283]))
+k = {}
+
+    def boom(*a: object, **k: object):
+>       raise ProducerRan(f"producer disabled for the hollowness check: {label}")
+E       kill_producers.ProducerRan: producer disabled for the hollowness check: lizyml.calibration.beta.BetaCalibrator.fit
+
+docs/audits/2026-09-defect-discovery/instruments/kill_producers.py:49: ProducerRan
+____________ test_failed_refit_does_not_keep_the_earlier_fit[platt] ____________
+
+name = 'platt'
+
+    @pytest.mark.parametrize("name", sorted(_CALIBRATORS))
+    def test_failed_refit_does_not_keep_the_earlier_fit(name: str) -> None:
+        """A success followed by a failed refit leaves the calibrator unfitted (review r1).
+    
+        The first fit's data make the start point the optimum, so ``maxiter=1``
+        converges; the refit on informative scores needs more iterations and fails.
+        """
+        calibrator = _CALIBRATORS[name](_STOP_EARLY)
+        s, y = _scores()
+        if name == "platt":
+            # x0 = [0, prior log-odds]: constant scores, balanced labels.
+>           calibrator.fit(np.zeros(400), (np.arange(400) % 2).astype(float))
+
+tests/test_calibration/test_calibration_failed_optimisation.py:65: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+a = (<lizyml.calibration.platt.PlattCalibrator object at 0x78ebb3d51650>, array([0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0...       0., 1., 0., 1., 0., 1., 0., 1., 0., 1., 0., 1., 0., 1., 0., 1., 0.,
+       1., 0., 1., 0., 1., 0., 1., 0., 1.]))
+k = {}
+
+    def boom(*a: object, **k: object):
+>       raise ProducerRan(f"producer disabled for the hollowness check: {label}")
+E       kill_producers.ProducerRan: producer disabled for the hollowness check: lizyml.calibration.platt.PlattCalibrator.fit
+
+docs/audits/2026-09-defect-discovery/instruments/kill_producers.py:49: ProducerRan
+______________________ test_rescaling_is_the_same_problem ______________________
+
+    def test_rescaling_is_the_same_problem() -> None:
+        """Halving every score and doubling the slope's start and bounds is the same fit."""
+        s, y = _scores(2000, slope=0.03, offset=-0.3, scale=80.0, seed=5)
+        one = PlattCalibrator({"x0": [0.01, 0.1], "bounds": [[0.0, 0.025], [-2, 2]]})
+        two = PlattCalibrator({"x0": [0.02, 0.1], "bounds": [[0.0, 0.05], [-2, 2]]})
+    
+>       a1, b1 = (one.fit(s, y).export_params()[k] for k in ("a", "b"))
+        ^^^^^^
+
+tests/test_calibration/test_platt_mle.py:149: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_calibration/test_platt_mle.py:149: in <genexpr>
+    a1, b1 = (one.fit(s, y).export_params()[k] for k in ("a", "b"))
+              ^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+a = (<lizyml.calibration.platt.PlattCalibrator object at 0x78ebb34d7750>, array([ -64.15451402, -105.94871965,  -19.868929...32.8598692 ,
+        133.65457388,   15.94770042], shape=(2000,)), array([1., 0., 0., ..., 0., 1., 0.], shape=(2000,)))
+k = {}
+
+    def boom(*a: object, **k: object):
+>       raise ProducerRan(f"producer disabled for the hollowness check: {label}")
+E       kill_producers.ProducerRan: producer disabled for the hollowness check: lizyml.calibration.platt.PlattCalibrator.fit
+
+docs/audits/2026-09-defect-discovery/instruments/kill_producers.py:49: ProducerRan
+________________ test_the_intercept_is_estimated_and_it_matters ________________
+
+    def test_the_intercept_is_estimated_and_it_matters() -> None:
+        """A score whose zero is not probability one half needs the intercept.
+    
+        Fixing ``b`` at zero through ``bounds`` is the only way to remove it now, and
+        doing so on offset data must fit worse -- which is what the intercept is for.
+        """
+        s, y = _scores(2000, slope=0.5, offset=1.0)
+>       free = PlattCalibrator().fit(s, y)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_calibration/test_platt_mle.py:76: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+a = (<lizyml.calibration.platt.PlattCalibrator object at 0x78ebb3f70d50>, array([ 0.25146044, -0.26420973,  1.2808453 , ..., -4.03762324,
+       -1.81885512,  0.73845866], shape=(2000,)), array([1., 1., 1., ..., 0., 0., 1.], shape=(2000,)))
+k = {}
+
+    def boom(*a: object, **k: object):
+>       raise ProducerRan(f"producer disabled for the hollowness check: {label}")
+E       kill_producers.ProducerRan: producer disabled for the hollowness check: lizyml.calibration.platt.PlattCalibrator.fit
+
+docs/audits/2026-09-defect-discovery/instruments/kill_producers.py:49: ProducerRan
+_______ TestCalibratedMetricsOofPerFold.test_calibrated_has_oof_per_fold _______
+
+self = <tests.test_core.test_model_metrics_calibrated.TestCalibratedMetricsOofPerFold object at 0x78ebb309fcd0>
+
+    def test_calibrated_has_oof_per_fold(self) -> None:
+        fr, y = _make_fit_result_with_calibrator()
+        evaluator = Evaluator(task="binary")
+>       raw_metrics = evaluator.evaluate(fr, y, ["auc", "logloss"])
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_core/test_model_metrics_calibrated.py:65: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+lizyml/evaluation/evaluator.py:126: in evaluate
+    metrics = get_metrics_for_task(metric_entries, self.task)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+lizyml/metrics/registry.py:162: in get_metrics_for_task
+    name, kwargs = parse_metric_entry(entry)
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+a = ('auc',), k = {}
+
+    def boom(*a: object, **k: object):
+>       raise ProducerRan(f"producer disabled for the hollowness check: {label}")
+E       kill_producers.ProducerRan: producer disabled for the hollowness check: lizyml.metrics.registry.parse_metric_entry
+
+docs/audits/2026-09-defect-discovery/instruments/kill_producers.py:49: ProducerRan
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED tests/test_calibration/test_beta_calibration.py::TestBetaCalibrator::test_predict_before_fit_raises
+PASSED tests/test_calibration/test_calibration.py::TestIsotonicCalibrator::test_predict_before_fit_raises
+PASSED tests/test_calibration/test_calibration.py::TestPlattCalibrator::test_predict_before_fit_raises
+PASSED tests/test_calibration/test_calibration_param_names.py::test_the_entry_point_split_covers_the_public_surface
+PASSED tests/test_calibration/test_calibrator_not_fitted.py::test_predict_before_fit_raises_lizyml_error[PlattCalibrator-platt]
+PASSED tests/test_calibration/test_calibrator_not_fitted.py::test_predict_before_fit_raises_lizyml_error[BetaCalibrator-beta]
+PASSED tests/test_calibration/test_calibrator_not_fitted.py::test_predict_before_fit_raises_lizyml_error[IsotonicCalibrator-isotonic]
+PASSED tests/test_calibration/test_isotonic_calibration.py::TestIsotonicCalibrator::test_a_forced_parameter_is_forced_under_its_canonical_name[monotone_constraints]
+PASSED tests/test_calibration/test_isotonic_calibration.py::TestIsotonicCalibrator::test_a_forced_parameter_is_forced_under_its_canonical_name[verbosity]
+PASSED tests/test_calibration/test_platt_mle.py::test_predict_before_fit_raises
+PASSED tests/test_core/test_fit_params_override.py::test_every_calibration_alias_is_canonical_before_the_defaults_merge
+PASSED tests/test_core/test_fit_params_override.py::test_the_adapter_refuses_a_duplicate_spelling_carrying_equal_values
+PASSED tests/test_core/test_task_type.py::TestTaskTypeReExports::test_oof_assembly_re_export
+PASSED tests/test_estimators/test_lgbm_metric_bridge.py::TestValidateLgbmMetrics::test_auc_rejected_for_multiclass_native
+PASSED tests/test_estimators/test_metric_choices_registry_coverage.py::TestMetricRegistryFitTimeCoverage::test_fit_time_registered_metrics_surfaced[regression]
+PASSED tests/test_estimators/test_metric_choices_registry_coverage.py::TestMetricRegistryFitTimeCoverage::test_fit_time_registered_metrics_surfaced[binary]
+PASSED tests/test_estimators/test_metric_choices_registry_coverage.py::TestMetricRegistryFitTimeCoverage::test_fit_time_registered_metrics_surfaced[multiclass]
+PASSED tests/test_estimators/test_provider_choice_apis.py::TestMetricChoicesContent::test_native_subset_of_validation_whitelist
+ERROR tests/test_config/test_knob_reachability.py::test_derived_collect_raw_scores_follows_calibration_on_fit_only
+FAILED tests/test_calibration/test_beta_calibration.py::TestBetaCalibrator::test_fit_predict
+FAILED tests/test_calibration/test_calibration_failed_optimisation.py::test_failed_refit_does_not_keep_the_earlier_fit[beta]
+FAILED tests/test_calibration/test_calibration_failed_optimisation.py::test_failed_refit_does_not_keep_the_earlier_fit[platt]
+FAILED tests/test_calibration/test_platt_mle.py::test_rescaling_is_the_same_problem
+FAILED tests/test_calibration/test_platt_mle.py::test_the_intercept_is_estimated_and_it_matters
+FAILED tests/test_core/test_model_metrics_calibrated.py::TestCalibratedMetricsOofPerFold::test_calibrated_has_oof_per_fold
+6 failed, 18 passed, 1 error in 0.35s

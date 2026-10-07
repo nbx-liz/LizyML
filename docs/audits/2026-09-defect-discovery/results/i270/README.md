@@ -8,14 +8,19 @@ population was measured again at the current head.
 ## What was run
 
 1. `instruments/trace_plugin.py` over the default suite (`-m 'not slow'`):
-   `trace_run.log`, 9296 traced items. The trace file itself is not kept (large).
+   `trace_run.txt` (the pytest output), 9296 traced items. The trace file itself is not kept (large).
 2. `instruments/d6_classify.py` → `d6_rows.jsonl`: 2335 test functions,
    CANDIDATE-HOLLOW 244 / SOUND 495 / STRUCTURAL 264 / CANNOT-TELL 1332.
 3. `instruments/d6_kill_confirm.py` + `d6_tally.py` → `r6/`: with each
-   candidate's producer set patched to raise, 231 still pass (confirmed
-   "never executes the producer") and 13 fail. The control test
+   candidate's producer set patched to raise, 231 pass (confirmed "never
+   executes the producer") and 13 fail. "Confirmed" requires a `PASSED` line
+   for every item of the id (`-rA`); an id with no result is UNRESOLVED and
+   fails the tally (0 here). The control test
    (`TestFeatureWeightsE2E::test_feature_weights_applied`) passes normally and
-   fails with `ProducerRan` under every mode — executed, see `r6/tally.json`.
+   fails with `ProducerRan` under every mode — executed; its verdicts are the
+   `control` entry of `r6/tally.json`. The `r6/` records were produced by the
+   committed instruments run against an archive of `1d41b66` (the commit
+   measured), so paths in the logs point at that scratch copy.
    `confirmed.json` lists the 231 with their kill mode and age relative to
    `3abb6c4` (176 unchanged, 54 new, 1 modified).
 
@@ -48,12 +53,15 @@ read:
 The 16 non-UNIT/NEGATIVE rows are repaired in the same PR; each row says how
 (`action`, `repaired_at`). Acceptance:
 
-- `instruments/i270_kill_repaired.py`: every repaired boundary test fails under
-  the kill that made it hollow (exit 0 = all fail).
+- `instruments/i270_kill_repaired.py`: every repaired boundary test passes
+  unkilled and fails with `ProducerRan` under the kill that made it hollow
+  (exit 0 only if all do).
 - `instruments/i270_mutations.py`: seven mutations of the code each repaired
-  test claims to cover; the repaired test fails and the pre-repair version of
-  it (from `1d41b66`) passes, except `filter_metrics`, where the old test also
-  caught the mutated shape.
+  test claims to cover. For each, the repaired test must pass unmutated and
+  fail (pytest's tests-failed exit, no errors) mutated, and the pre-repair
+  version (from `1d41b66`) must pass mutated — except `filter_metrics`, where
+  the old test also caught the mutated shape and is expected to fail. Exit 0
+  only if every expectation holds.
 
 Repairing `test_dict_form_objective_raises` exposed a real defect (a dict or
 list `objective` raised a raw `TypeError`), fixed under H-0116.

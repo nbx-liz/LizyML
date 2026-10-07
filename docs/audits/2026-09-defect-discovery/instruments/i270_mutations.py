@@ -19,6 +19,9 @@ PY = str(ROOT / ".venv/bin/python")
 MUTATIONS = [
     {
         "name": "filter_metrics keeps emptied branches",
+        # The old test caught this shape too ({"oof": {}}); it was WEAK for an
+        # emptied or missing branch, which the new assertions pin.
+        "base_also_fails": True,
         "file": "lizyml/core/_model_metrics.py",
         "old": "        if _has_metric_content(filtered_top):\n            result[top_key] = filtered_top",
         "new": "        result[top_key] = filtered_top",
@@ -77,13 +80,23 @@ MUTATIONS = [
 ]
 
 
-def run(ids: list[str]) -> str:
+def run(ids: list[str]) -> tuple[str, str]:
+    """Run pytest; return ("passed" | "failed" | "broken", the summary line).
+
+    "failed" requires pytest's tests-failed exit code and no errors, so a
+    collection, fixture or start-up error is never read as a killed mutation.
+    """
     proc = subprocess.run(  # noqa: S603
         [PY, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--no-cov", *ids],
         cwd=ROOT, capture_output=True, text=True, timeout=900,
     )
-    tail = [l for l in proc.stdout.splitlines() if l.strip()][-1:] or [proc.stderr[-200:]]
-    return tail[0]
+    lines = [l for l in proc.stdout.splitlines() if l.strip()]
+    tail = lines[-1] if lines else proc.stderr.strip()[-300:]
+    if proc.returncode == 0 and "passed" in tail:
+        return "passed", tail
+    if proc.returncode == 1 and "failed" in tail and "error" not in tail:
+        return "failed", tail
+    return "broken", f"rc={proc.returncode}: {tail}"
 
 
 def old_copy(test_id: str) -> tuple[pathlib.Path, str]:
@@ -116,25 +129,36 @@ for m in MUTATIONS:
         failures += 1
         continue
     temps: list[pathlib.Path] = []
+    print(f"== {m['name']}  ({m['file']}, {'every site' if m.get('all') else 'site 1'} of {count})")
+    # Each repaired test must pass before the mutation, or its failure under
+    # the mutation says nothing about the mutation.
+    for t in m["tests"]:
+        state, tail = run([t])
+        if state != "passed":
+            failures += 1
+            print(f"   unmutated: {tail}   <- REPAIRED TEST DOES NOT PASS")
     try:
         mutated = (text.replace(m["old"], m["new"]) if m.get("all")
                    else text.replace(m["old"], m["new"], 1))
         f.write_text(mutated, encoding="utf-8")
-        print(f"== {m['name']}  ({m['file']}, site 1 of {count})")
         for t in m["tests"]:
-            new = run([t])
+            state, tail = run([t])
+            ok = state == "failed"
+            failures += 0 if ok else 1
+            print(f"   repaired: {tail}   <- {'OK (fails)' if ok else 'NOT KILLED'}")
             leaf = t.split("::", 1)[1]
             base_leaf = OLD_NAME.get(leaf.split("::")[-1], OLD_NAME.get(leaf, leaf))
             if base_leaf is None:
-                old = "(new test, no base version)"
-            else:
-                tmp, old_id = old_copy(t.split("::")[0] + "::" + base_leaf)
-                temps.append(tmp)
-                old = run([old_id])
-            ok = "failed" in new or "error" in new
-            failures += 0 if ok else 1
-            print(f"   repaired: {new}   <- {'OK (fails)' if ok else 'NOT KILLED'}")
-            print(f"   base    : {old}")
+                print("   base    : (new test, no base version)")
+                continue
+            tmp, old_id = old_copy(t.split("::")[0] + "::" + base_leaf)
+            temps.append(tmp)
+            base_state, base_tail = run([old_id])
+            expected = "failed" if m.get("base_also_fails") else "passed"
+            base_ok = base_state == expected
+            failures += 0 if base_ok else 1
+            print(f"   base    : {base_tail}   <- "
+                  f"{'as expected' if base_ok else f'EXPECTED {expected.upper()}'}")
     finally:
         f.write_bytes(original)
         for tmp in temps:

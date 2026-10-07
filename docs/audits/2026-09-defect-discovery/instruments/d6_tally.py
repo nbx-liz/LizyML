@@ -31,24 +31,42 @@ SET_OF = {
 }
 
 out: dict[str, dict] = {}
+unresolved_total: list[str] = []
 for mode in ("all", "api", "metric", "split", "train"):
-    log = (WORK / f"{mode}.log").read_text(encoding="utf-8", errors="replace")
+    # `.out.txt`, not `.log`: the repository ignores *.log, so a log the
+    # tally reads would never be committed beside its result.
+    log = (WORK / f"{mode}.out.txt").read_text(encoding="utf-8", errors="replace")
     disabled = re.search(r"disabled (\d+) producers", log)
-    # A node id that appears on a FAILED/ERROR line used a producer.
-    used = set(re.findall(r"^(?:FAILED|ERROR) (\S+?)(?:\[|\s|$)", log, re.M))
+    if not disabled:
+        raise SystemExit(f"{mode}: the kill plugin did not report arming")
+    # One -rA line per collected item: `PASSED|FAILED|ERROR <node id>[params]`.
+    status: dict[str, set[str]] = {}
+    # Parametrize ids may contain spaces (``[round 16]``).
+    for verdict, item in re.findall(r"^(PASSED|FAILED|ERROR) ([^\s\[]+::[^\s\[]+)(?:\[[^\]]*\])?",
+                                    log, re.M):
+        status.setdefault(item, set()).add(verdict)
     ids = (WORK / f"{mode}.txt").read_text(encoding="utf-8").split()
-    conf = [i for i in ids if i not in used]
+    # Confirmed means every item of the id was seen PASSING with its producers
+    # disabled. An id with no line at all (not found, not collected) is
+    # unresolved, never confirmed: "not seen failing" is not "seen passing".
+    conf = [i for i in ids if status.get(i) == {"PASSED"}]
+    used = [i for i in ids if status.get(i, set()) & {"FAILED", "ERROR"}]
+    unresolved = [i for i in ids if i not in status]
+    unresolved_total += unresolved
     out[mode] = {
-        "producers_disabled": int(disabled.group(1)) if disabled else 0,
+        "producers_disabled": int(disabled.group(1)),
         "node_ids": len(ids),
         "confirmed_hollow": len(conf),
-        "downgraded": sorted(used & set(ids)) or sorted(used),
+        "downgraded": sorted(used),
+        "unresolved": unresolved,
     }
     print(f"{mode:7s} producers disabled={out[mode]['producers_disabled']:3d}  "
           f"node ids={len(ids):3d}  confirmed hollow={len(conf):3d}  "
-          f"downgraded={len(out[mode]['downgraded'])}")
-    for d in out[mode]["downgraded"]:
+          f"downgraded={len(used)}  unresolved={len(unresolved)}")
+    for d in used:
         print(f"          downgraded: {d}")
+    for d in unresolved:
+        print(f"          UNRESOLVED: {d}")
 
 tot_ids = sum(v["node_ids"] for v in out.values())
 tot_conf = sum(v["confirmed_hollow"] for v in out.values())
@@ -90,3 +108,5 @@ inert = control["none"] != "passed" or any(v != "failed with ProducerRan"
 (WORK / "tally.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
 if inert:
     raise SystemExit("control did not behave: the confirmed counts above mean nothing")
+if unresolved_total:
+    raise SystemExit(f"{len(unresolved_total)} node id(s) produced no result; see UNRESOLVED")

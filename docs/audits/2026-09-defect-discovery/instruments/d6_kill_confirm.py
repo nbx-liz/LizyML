@@ -34,6 +34,7 @@ RES = _out_dir()
 WORK = _out_dir() / "r6"
 WORK.mkdir(parents=True, exist_ok=True)
 PY = sys.executable
+ROOT = pathlib.Path(__file__).resolve().parents[4]
 
 SET_OF = {
     ("D1a.boundary_operations",): "train",
@@ -70,7 +71,9 @@ for mode, tests in sorted(groups.items()):
     ids = sorted({nodeid(t) for t in tests})
     f = WORK / f"{mode}.txt"
     f.write_text("\n".join(ids) + "\n", encoding="utf-8")
-    cmd = [PY, "-m", "pytest", "-p", "no:cacheprovider", "--no-cov", "-q",
+    # -rA prints a PASSED / FAILED / ERROR line per item, so d6_tally can
+    # require a positive PASSED for "confirmed" instead of "not seen failing".
+    cmd = [PY, "-m", "pytest", "-p", "no:cacheprovider", "--no-cov", "-q", "-rA",
            "-p", "kill_producers", "--continue-on-collection-errors",
            *ids]
     env = {"LIZYML_KILL": mode,
@@ -81,12 +84,10 @@ for mode, tests in sorted(groups.items()):
         env={**dict(__import__("os").environ), **env}, timeout=3600,
     )
     out = proc.stdout + proc.stderr
-    (WORK / f"{mode}.log").write_text(out, encoding="utf-8")
-    passed = set(re.findall(r"^(\S+::\S+) PASSED", out, re.M))
-    m = re.search(r"(?:(\d+) failed[, ])?.*?(\d+) passed", out)
-    summary = re.findall(r"^\d+ (?:failed|passed|error).*$", out, re.M)
-    tail = [l for l in out.splitlines() if re.match(r"^\d+ (failed|passed|error)", l)]
-    results[mode] = {"node_ids": len(ids), "summary": tail[-1] if tail else out.strip()[-200:]}
+    (WORK / f"{mode}.out.txt").write_text(out, encoding="utf-8")
+    tail = [l for l in out.splitlines() if re.match(r"^=* ?\d+ (failed|passed|error)", l)]
+    results[mode] = {"node_ids": len(ids), "returncode": proc.returncode,
+                     "summary": tail[-1] if tail else out.strip()[-200:]}
     print(f"  -> {results[mode]['summary']}")
 
 (WORK / "summary.json").write_text(json.dumps(results, indent=1), encoding="utf-8")

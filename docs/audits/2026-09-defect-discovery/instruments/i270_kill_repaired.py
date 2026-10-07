@@ -4,6 +4,7 @@ import json
 import os
 import pathlib
 import subprocess
+import sys
 
 ROOT = pathlib.Path(__file__).resolve().parents[4]
 INS = pathlib.Path(__file__).resolve().parent
@@ -35,15 +36,26 @@ for base, now in REPAIRED.items():
     mode = MODE_OVERRIDE.get(base, modes[base])
     node = now or base
     env = {**os.environ, "LIZYML_KILL": mode, "PYTHONPATH": str(INS)}
+    cmd = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
+           "--no-cov", "-p", "kill_producers", node]
+    # Unkilled first: the test must pass, or a failure under the kill says
+    # nothing about the producer.
+    plain = subprocess.run(  # noqa: S603
+        cmd, cwd=ROOT, capture_output=True, text=True, timeout=600,
+        env={**env, "LIZYML_KILL": ""},
+    )
     proc = subprocess.run(  # noqa: S603
-        [str(ROOT / ".venv/bin/python"), "-m", "pytest", "-q", "-p", "no:cacheprovider",
-         "--no-cov", "-p", "kill_producers", node],
-        cwd=ROOT, capture_output=True, text=True, env=env, timeout=600,
+        cmd, cwd=ROOT, capture_output=True, text=True, env=env, timeout=600,
     )
     out = proc.stdout + proc.stderr
-    tail = [l for l in proc.stdout.splitlines() if l.strip()][-1]
-    killed = bool(proc.returncode) and "ProducerRan" in out
+    lines = [l for l in proc.stdout.splitlines() if l.strip()]
+    tail = lines[-1] if lines else f"no output; stderr: {proc.stderr.strip()[-200:]}"
+    armed = f"[kill_producers] MODE={mode!r}: disabled" in out
+    killed = plain.returncode == 0 and proc.returncode == 1 and armed and "ProducerRan" in out
     failures += 0 if killed else 1
-    verdict = "fails with ProducerRan" if killed else "STILL HOLLOW"
+    if plain.returncode != 0:
+        verdict = "DOES NOT PASS UNKILLED"
+    else:
+        verdict = "fails with ProducerRan" if killed else "STILL HOLLOW OR BROKEN"
     print(f"{mode:6s} {verdict:22s} {tail:40s} {node.split('::')[-1]}")
 raise SystemExit(1 if failures else 0)
