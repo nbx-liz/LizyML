@@ -590,11 +590,12 @@ def test_blueprint_counts_match_the_registry() -> None:
     """§5.5's prose counts follow the registry (H-0115 moved one row to api)."""
     text = (_ROOT / "BLUEPRINT.md").read_text(encoding="utf-8")
     start = text.index("\n## 5.5 ")
-    section = text[start : text.index("\n# ", start)]
+    # Emphasis markers are styling, not part of the claim.
+    section = text[start : text.index("\n# ", start)].replace("**", "")
     total = len(REGISTRY)
     config = sum(1 for kind, _ in REGISTRY.values() if kind == "config")
     assert f"（{total} 個、AST で数えた母集団）" in section
-    assert f"**Config のキーの値がそのまま渡る {config} 個**" in section
+    assert f"Config のキーの値がそのまま渡る {config} 個" in section
     assert f"残りの {total - config} 個" in section
 
 
