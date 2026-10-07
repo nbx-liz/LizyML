@@ -16,15 +16,26 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import pathlib
 import sys
 import threading
 
-ROOT = pathlib.Path("/home/rem/repos/LizyML")
-OUT = pathlib.Path("/tmp/lizyml-discovery-plan/results")
+
+def _out_dir() -> pathlib.Path:
+    """The D6 work directory, from LIZYML_D6_OUT. Refuses to guess one."""
+    value = os.environ.get("LIZYML_D6_OUT")
+    if not value:
+        raise SystemExit("set LIZYML_D6_OUT to the D6 work directory")
+    path = pathlib.Path(value)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+ROOT = pathlib.Path(__file__).resolve().parents[4]
+OUT = _out_dir()
 OUT.mkdir(parents=True, exist_ok=True)
 
-sys.path.insert(0, "/tmp/lizyml-discovery-plan")
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from measure_extra import defaulted_param_declarations, operation_schema  # noqa: E402
 
 

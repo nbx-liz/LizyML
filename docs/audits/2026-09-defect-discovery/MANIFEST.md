@@ -32,6 +32,9 @@ Issue #258–#273 を生んだ調査の作業一式。**この作業は `/tmp` �
 | `results/r16_summary.md` ほか | 各探索の中間集計 |
 | `instruments/kill_producers.py` | 変異注入。テストが実際に落ちるかを測る |
 | `instruments/trace_plugin.py` | 実行経路トレース。到達可能性の測定に使う |
+| `instruments/d6_classify.py` / `d6_kill_confirm.py` / `d6_tally.py` / `measure_extra.py` | D6（中身の無いテスト）の分類・producer を止めての確認・集計。#270 の再計測（2026-10-07）で transcript から復元し、出力先を `LIZYML_D6_OUT` に変えて収めた。`d6_tally.py` は対照を実行する（以前は文字列で印字していた） |
+| `instruments/i270_mutations.py` / `i270_kill_repaired.py` | #270 で直したテストの受け入れ確認: 主張する仕組みを壊すと落ちること、元の kill mode で落ちること |
+| `results/i270/` | #270 の再計測の結果。231 件の処分（`dispositions.json`）、kill の記録、Codex のレビュー 5 本。読み方は同じディレクトリの `README.md` |
 | `instruments/firing_rate_plugin.py` | 条件の発火率測定（`change-gate.md` の Firing rate 用） |
 | `instruments/run-exclusive.sh` | CPU 競合を避けて重いジョブを直列化する |
 | `instruments/recover_from_transcript.py` | transcript から `Write`/`Edit` を再生してファイルを復元する。**この archive 自体がこれで作られた** |
@@ -50,7 +53,9 @@ Issue #258–#273 を生んだ調査の作業一式。**この作業は `/tmp` �
 ## この調査が今どこにあるか
 
 Phase 1（発見）と Phase 2（起票）は完了。Phase 3（修復）は `phase3-plan.md` の PR 0 から
-着手した（H-0092 がその最初の Proposal）。**`phase3-plan.md` の PR 9 の数値は旧版で、
+着手し（H-0092 がその最初の Proposal）、PR 9b（#322）で完了を測った（下記）。Phase 3 の後、
+#270 の母集団を 2026-10-07 に現在の head で測り直し、231 件の中身の無いテストの候補を処分した
+（`results/i270/`）。**`phase3-plan.md` の PR 9 の数値は旧版で、
 現在の母集団は 40 entries / 129 clauses / 77 edits**（#271 の 2026-09-06 コメント、および
 `phase3-plan.md` 冒頭の Revision 5 バナー参照）。
 

@@ -1,0 +1,48 @@
+{
+ "all": {
+  "producers_disabled": 77,
+  "node_ids": 19,
+  "confirmed_hollow": 13,
+  "downgraded": [
+   "tests/test_calibration/test_beta_calibration.py::TestBetaCalibrator::test_fit_predict",
+   "tests/test_calibration/test_calibration_failed_optimisation.py::test_failed_refit_does_not_keep_the_earlier_fit",
+   "tests/test_calibration/test_platt_mle.py::test_rescaling_is_the_same_problem",
+   "tests/test_calibration/test_platt_mle.py::test_the_intercept_is_estimated_and_it_matters",
+   "tests/test_config/test_knob_reachability.py::test_derived_collect_raw_scores_follows_calibration_on_fit_only",
+   "tests/test_core/test_model_metrics_calibrated.py::TestCalibratedMetricsOofPerFold::test_calibrated_has_oof_per_fold"
+  ]
+ },
+ "api": {
+  "producers_disabled": 23,
+  "node_ids": 81,
+  "confirmed_hollow": 79,
+  "downgraded": [
+   "tests/test_codegen/test_calibration_params_codegen.py::test_generated_project_reads_a_missing_calibration_params_as_empty",
+   "tests/test_codegen/test_calibration_params_codegen.py::test_generated_project_refuses_calibration_params_that_are_not_a_mapping"
+  ]
+ },
+ "metric": {
+  "producers_disabled": 32,
+  "node_ids": 44,
+  "confirmed_hollow": 44,
+  "downgraded": []
+ },
+ "split": {
+  "producers_disabled": 21,
+  "node_ids": 39,
+  "confirmed_hollow": 39,
+  "downgraded": []
+ },
+ "train": {
+  "producers_disabled": 1,
+  "node_ids": 61,
+  "confirmed_hollow": 56,
+  "downgraded": [
+   "tests/test_core/test_result_isolation.py::test_fit_result_property_distinct_objects",
+   "tests/test_core/test_result_isolation.py::test_fit_result_property_returns_independent_copy",
+   "tests/test_core/test_result_isolation.py::test_fit_result_shares_trained_estimators_by_reference",
+   "tests/test_features/test_column_dtype_check.py::test_categorical_at_fit_is_not_dtype_checked",
+   "tests/test_features/test_column_dtype_check.py::test_numeric_at_fit_arrival_matrix"
+  ]
+ }
+}

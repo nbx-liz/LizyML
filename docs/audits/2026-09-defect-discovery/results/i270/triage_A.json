@@ -1,0 +1,866 @@
+[
+ {
+  "test": "tests/test_calibration/test_beta_calibration.py::TestBetaCalibrator::test_predict_before_fit_raises",
+  "category": "NEGATIVE",
+  "claim": "Beta calibrator predict before fit raises not-fitted",
+  "observes": "pytest.raises LizyMLError, code CALIBRATION_NOT_FITTED",
+  "evidence": "tests/test_calibration/test_beta_calibration.py:62",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_calibration/test_beta_calibration.py::TestBetaCrossFit::test_cross_fit_leakage",
+  "category": "UNIT",
+  "claim": "Beta cross-fit OOF differs from C_final predictions",
+  "observes": "cross_fit_calibrate output shape and calibrated_oof != c_final.predict",
+  "evidence": "tests/test_calibration/test_beta_calibration.py:85",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_calibration/test_calibration.py::TestPlattCalibrator::test_predict_before_fit_raises",
+  "category": "NEGATIVE",
+  "claim": "Platt predict before fit raises not-fitted",
+  "observes": "pytest.raises LizyMLError, code CALIBRATION_NOT_FITTED",
+  "evidence": "tests/test_calibration/test_calibration.py:74",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_calibration/test_calibration.py::TestIsotonicCalibrator::test_predict_before_fit_raises",
+  "category": "NEGATIVE",
+  "claim": "Isotonic predict before fit raises not-fitted",
+  "observes": "pytest.raises LizyMLError, code CALIBRATION_NOT_FITTED",
+  "evidence": "tests/test_calibration/test_calibration.py:99",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_calibration/test_calibration_failed_optimisation.py::test_refit_failing_before_minimize_does_not_keep_the_earlier_fit",
+  "category": "NEGATIVE",
+  "claim": "Refit failing before minimize leaves calibrator unfitted",
+  "observes": "refit raises; predict/export_params then raise CALIBRATION_NOT_FITTED",
+  "evidence": "tests/test_calibration/test_calibration_failed_optimisation.py:81",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_calibration/test_calibration_failed_optimisation.py::test_default_settings_still_fit",
+  "category": "UNIT",
+  "claim": "Platt/Beta default settings still fit",
+  "observes": "calibrator.fit().predict() probabilities in (0,1)",
+  "evidence": "tests/test_calibration/test_calibration_failed_optimisation.py:112",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_calibration/test_calibration_failed_optimisation.py::test_cross_fit_names_c_final",
+  "category": "NEGATIVE",
+  "claim": "cross_fit_calibrate failure in C_final names stage c_final",
+  "observes": "raises CALIBRATION_FAILED, context stage=c_final, no fold key",
+  "evidence": "tests/test_calibration/test_calibration_failed_optimisation.py:145",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_calibration/test_calibration_param_contract.py::test_beta_default_fit_emits_no_warning",
+  "category": "UNIT",
+  "claim": "BetaCalibrator default fit emits no warning",
+  "observes": "BetaCalibrator().fit under warnings-as-errors does not raise",
+  "evidence": "tests/test_calibration/test_calibration_param_contract.py:218",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_calibration/test_calibration_param_names.py::test_the_entry_point_split_covers_the_public_surface",
+  "category": "UNIT",
+  "claim": "Training/non-training entry-point sets partition Model public callables",
+  "observes": "set algebra over dir(Model) vs two static sets",
+  "evidence": "tests/test_calibration/test_calibration_param_names.py:215",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_calibration/test_calibration_param_names.py::test_non_training_entry_points_really_do_not_train",
+  "category": "NEGATIVE",
+  "claim": "Non-training Model methods do not train a Booster from unfitted state",
+  "observes": "args bind; spy on isotonic lgbm.train records zero calls",
+  "evidence": "tests/test_calibration/test_calibration_param_names.py:245",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_calibration/test_calibrator_not_fitted.py::test_predict_before_fit_raises_lizyml_error",
+  "category": "NEGATIVE",
+  "claim": "Each calibrator predict before fit raises LizyMLError",
+  "observes": "raises CALIBRATION_NOT_FITTED with context calibrator tag",
+  "evidence": "tests/test_calibration/test_calibrator_not_fitted.py:30",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_calibration/test_h0058_outer_reuse.py::TestNSplitsDeprecation::test_explicit_n_splits_warns",
+  "category": "UNIT",
+  "claim": "Explicit calibration n_splits emits deprecation warning",
+  "observes": "pytest.warns UserWarning on CalibrationConfig construction",
+  "evidence": "tests/test_calibration/test_h0058_outer_reuse.py:35",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_calibration/test_h0058_outer_reuse.py::TestNSplitsDeprecation::test_default_n_splits_no_warning",
+  "category": "UNIT",
+  "claim": "Omitting calibration n_splits emits no warning",
+  "observes": "CalibrationConfig(method=platt) under warnings-as-errors",
+  "evidence": "tests/test_calibration/test_h0058_outer_reuse.py:40",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_calibration/test_h0058_outer_reuse.py::TestNSplitsDeprecation::test_model_dump_roundtrip_no_warning",
+  "category": "UNIT",
+  "claim": "CalibrationConfig model_dump round-trip emits no warning",
+  "observes": "n_splits in dump; re-parse under warnings-as-errors",
+  "evidence": "tests/test_calibration/test_h0058_outer_reuse.py:46",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_calibration/test_isotonic_calibration.py::TestIsotonicCalibrator::test_a_forced_parameter_is_forced_under_its_canonical_name",
+  "category": "UNIT",
+  "claim": "Isotonic calibrator forces monotone_constraints/verbosity under canonical name",
+  "observes": "IsotonicCalibrator._lgbm_params[forced] != 99; name canonical",
+  "evidence": "tests/test_calibration/test_isotonic_calibration.py:93",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_calibration/test_platt_mle.py::test_target_smoothing_can_be_turned_off_and_changes_the_fit",
+  "category": "UNIT",
+  "claim": "Platt target_smoothing=False changes fitted coefficients",
+  "observes": "PlattCalibrator.export_params a,b differ with/without smoothing",
+  "evidence": "tests/test_calibration/test_platt_mle.py:84",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_calibration/test_platt_mle.py::test_default_fit_emits_no_warning",
+  "category": "UNIT",
+  "claim": "PlattCalibrator default fit emits no warning",
+  "observes": "PlattCalibrator().fit under warnings-as-errors",
+  "evidence": "tests/test_calibration/test_platt_mle.py:94",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_calibration/test_platt_mle.py::test_predict_before_fit_raises",
+  "category": "NEGATIVE",
+  "claim": "Platt predict before fit raises",
+  "observes": "raises LizyMLError CALIBRATION_NOT_FITTED",
+  "evidence": "tests/test_calibration/test_platt_mle.py:116",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_codegen/test_templates.py::TestRenderTrainPy::test_contains_oof_generation",
+  "category": "UNIT",
+  "claim": "Rendered train.py source contains OOF generation",
+  "observes": "substring _generate_oof and StratifiedKFold in render_train_py()",
+  "evidence": "tests/test_codegen/test_templates.py:77",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_config/test_schema.py::TestEnvOverride::test_override_training_seed",
+  "category": "UNIT",
+  "claim": "Env var LIZYML__training__seed overrides config seed",
+  "observes": "load_config(...).training.seed == 999",
+  "evidence": "tests/test_config/test_schema.py:268",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_config/test_stratified_default.py::TestStratifiedDefault::test_binary_no_split_defaults_to_stratified",
+  "category": "UNIT",
+  "claim": "Binary config without split defaults to stratified_kfold",
+  "observes": "load_config(...).split.method == stratified_kfold",
+  "evidence": "tests/test_config/test_stratified_default.py:16",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_config/test_stratified_default.py::TestStratifiedDefault::test_multiclass_no_split_defaults_to_stratified",
+  "category": "UNIT",
+  "claim": "Multiclass config without split defaults to stratified_kfold",
+  "observes": "load_config(...).split.method == stratified_kfold",
+  "evidence": "tests/test_config/test_stratified_default.py:26",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_config/test_stratified_default.py::TestStratifiedDefault::test_regression_no_split_defaults_to_kfold",
+  "category": "UNIT",
+  "claim": "Regression config without split defaults to kfold",
+  "observes": "load_config(...).split.method == kfold",
+  "evidence": "tests/test_config/test_stratified_default.py:36",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_blocked_group_config.py::TestBlockedGroupKFoldConfigParsing::test_split_config_union_dispatches",
+  "category": "UNIT",
+  "claim": "SplitConfig union dispatches blocked_group_kfold type",
+  "observes": "cfg.split has blocks and groups attributes",
+  "evidence": "tests/test_core/test_blocked_group_config.py:110",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_calibration_params_reach.py::test_fit_refuses_before_training",
+  "category": "NEGATIVE",
+  "claim": "Invalid calibration.params refused by fit before any training",
+  "observes": "raises CONFIG_INVALID naming calibration.params; no lgb.train params recorded",
+  "evidence": "tests/test_core/test_calibration_params_reach.py:164",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_contracts.py::TestFitResultSchema::test_oof_pred_is_ndarray",
+  "category": "HOLLOW",
+  "claim": "FitResult contract: oof_pred is an ndarray",
+  "observes": "isinstance on a hand-built FitResult fixture whose oof_pred the test set",
+  "evidence": "tests/test_core/test_contracts.py:199",
+  "repair": "Assert isinstance(Model(...).fit().oof_pred, np.ndarray) on a real fit; golden test_oof_pred_shape_* check only .shape"
+ },
+ {
+  "test": "tests/test_core/test_contracts.py::TestFitResultSchema::test_if_pred_per_fold_len_equals_n_splits",
+  "category": "OVERCLAIM",
+  "claim": "FitResult contract: len(if_pred_per_fold) equals number of outer splits",
+  "observes": "len on hand-built FitResult fixture ([oof] vs 1 split)",
+  "evidence": "tests/test_core/test_contracts.py:202",
+  "repair": "tests/test_core/test_config_propagation.py::TestNSplitsPropagation::test_n_splits_controls_fold_count"
+ },
+ {
+  "test": "tests/test_core/test_exceptions.py::TestSeed::test_derive_seed_differs_across_folds",
+  "category": "UNIT",
+  "claim": "derive_seed gives distinct seeds across fold indices",
+  "observes": "len(set(derive_seed(42, i) for i in 0..4)) == 5",
+  "evidence": "tests/test_core/test_exceptions.py:118",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_two_spellings_in_the_config_are_refused_before_training",
+  "category": "NEGATIVE",
+  "claim": "Two config spellings of one param refused before training",
+  "observes": "raises CONFIG_INVALID naming model.params; no train calls recorded",
+  "evidence": "tests/test_core/test_fit_params_override.py:233",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_two_search_dimensions_naming_one_parameter_are_refused",
+  "category": "NEGATIVE",
+  "claim": "Two search dimensions naming one parameter refused before study",
+  "observes": "tune raises CONFIG_INVALID naming tuning.optuna.space; no train calls",
+  "evidence": "tests/test_core/test_fit_params_override.py:558",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_a_search_dimension_a_training_setting_controls_is_refused",
+  "category": "NEGATIVE",
+  "claim": "Search dimension controlled by a training setting refused before study",
+  "observes": "every spelling: tune raises CONFIG_INVALID; no train calls",
+  "evidence": "tests/test_core/test_fit_params_override.py:777",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_every_calibration_alias_is_canonical_before_the_defaults_merge",
+  "category": "UNIT",
+  "claim": "Every calibration alias canonicalised before calibrator defaults merge",
+  "observes": "canonicalise_calibration_params output over all default spellings",
+  "evidence": "tests/test_core/test_fit_params_override.py:956",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_two_spellings_of_one_value_in_the_config_are_refused",
+  "category": "NEGATIVE",
+  "claim": "Config duplicate spelling with equal values refused before training",
+  "observes": "fit raises CONFIG_INVALID; no train calls recorded",
+  "evidence": "tests/test_core/test_fit_params_override.py:1025",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_an_unknown_name_in_fit_params_is_refused_before_training",
+  "category": "NEGATIVE",
+  "claim": "Unknown name in fit(params=) refused before training",
+  "observes": "fit raises CONFIG_INVALID; no train calls recorded",
+  "evidence": "tests/test_core/test_fit_params_override.py:1070",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_the_refusal_names_the_fit_params_surface",
+  "category": "NEGATIVE",
+  "claim": "Unknown fit(params=) name refusal names the fit(params=) surface",
+  "observes": "raises; message and context surface == fit(params=)",
+  "evidence": "tests/test_core/test_fit_params_override.py:1090",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_a_smart_name_in_fit_params_is_reported_as_smart",
+  "category": "NEGATIVE",
+  "claim": "Smart name in fit(params=) refused and reported as smart",
+  "observes": "raises; message contains smart parameter and fit(params=)",
+  "evidence": "tests/test_core/test_fit_params_override.py:1112",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_each_input_is_named_by_its_own_surface",
+  "category": "NEGATIVE",
+  "claim": "Unknown-name refusal attributes each name to its own surface",
+  "observes": "raises; context unknown maps three names to three surfaces",
+  "evidence": "tests/test_core/test_fit_params_override.py:1125",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_the_alias_review_round_2_measured_is_refused",
+  "category": "NEGATIVE",
+  "claim": "max_leaves alias in fit(params=) refused before training",
+  "observes": "raises CONFIG_INVALID; no train calls; context managed names num_leaves",
+  "evidence": "tests/test_core/test_fit_params_override.py:1347",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_an_objective_alias_gets_the_same_task_check",
+  "category": "NEGATIVE",
+  "claim": "Cross-task objective via alias application is refused",
+  "observes": "raises CONFIG_INVALID mentioning regression; no train calls",
+  "evidence": "tests/test_core/test_fit_params_override.py:1956",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_two_spellings_with_different_values_are_refused",
+  "category": "NEGATIVE",
+  "claim": "Two spellings with different values refused, naming both",
+  "observes": "raises CONFIG_INVALID naming objective and application; no train calls",
+  "evidence": "tests/test_core/test_fit_params_override.py:2010",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_the_objects_rounds_16_to_20_found_never_reach_training",
+  "category": "NEGATIVE",
+  "claim": "Hostile objects from rounds 16-20 refused before training",
+  "observes": "raises CONFIG_INVALID naming fit(params=) and learning_rate; no train calls",
+  "evidence": "tests/test_core/test_fit_params_override.py:3229",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_a_hostile_value_is_refused_beside_a_second_spelling_too",
+  "category": "NEGATIVE",
+  "claim": "Hostile value beside a second spelling refused",
+  "observes": "raises CONFIG_INVALID naming learning_rate; no train calls",
+  "evidence": "tests/test_core/test_fit_params_override.py:3256",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_the_adapter_refuses_a_duplicate_spelling_carrying_equal_values",
+  "category": "NEGATIVE",
+  "claim": "Adapter _pop_by_identity refuses duplicate spelling with equal values",
+  "observes": "_pop_by_identity raises CONFIG_INVALID naming both spellings",
+  "evidence": "tests/test_core/test_fit_params_override.py:3456",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_a_duplicate_spelling_carrying_equal_values_is_refused_before_training",
+  "category": "NEGATIVE",
+  "claim": "Duplicate spelling with equal values refused before training end to end",
+  "observes": "fit raises CONFIG_INVALID; no train calls recorded",
+  "evidence": "tests/test_core/test_fit_params_override.py:3472",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_param_domain.py::test_a_caller_class_cannot_claim_to_be_a_numpy_type",
+  "category": "NEGATIVE",
+  "claim": "Caller class claiming numpy __module__ is refused",
+  "observes": "not in derived numpy types; normalise_params raises CONFIG_INVALID",
+  "evidence": "tests/test_core/test_param_domain.py:681",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_param_domain.py::test_an_accepted_type_is_not_by_itself_a_writable_value",
+  "category": "NEGATIVE",
+  "claim": "Non-serialisable values of accepted types are refused",
+  "observes": "normalise_params raises for pure paths and 10**5000; neighbours pass",
+  "evidence": "tests/test_core/test_param_domain.py:805",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_param_domain.py::test_the_exit_assertion_refuses_a_value_that_skipped_the_surfaces",
+  "category": "NEGATIVE",
+  "claim": "Exit assertion refuses an unnormalised value",
+  "observes": "assert_plain_params raises CONFIG_INVALID with context unnormalised",
+  "evidence": "tests/test_core/test_param_domain.py:1464",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_param_domain.py::test_the_exit_assertion_is_called_at_every_place_that_trains",
+  "category": "UNIT",
+  "claim": "Every lgb.train call site in package calls assert_plain_params",
+  "observes": "regex source scan of lizyml/ for guarded training sites",
+  "evidence": "tests/test_core/test_param_domain.py:1480",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_param_domain_cycles.py::test_cyclic_mapping_is_a_controlled_training_refusal",
+  "category": "NEGATIVE",
+  "claim": "Cyclic mapping param is a controlled refusal",
+  "observes": "is_plain false; assert_plain_params raises CONFIG_INVALID",
+  "evidence": "tests/test_core/test_param_domain_cycles.py:10",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_refusal_matrix.py::test_each_wired_cell_refuses_before_training",
+  "category": "NEGATIVE",
+  "claim": "Each wired refusal-matrix cell refuses before training",
+  "observes": "fit/tune raises CONFIG_INVALID naming layer; no train calls",
+  "evidence": "tests/test_core/test_refusal_matrix.py:321",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_refusal_matrix.py::test_a_restored_tuning_result_is_refused_too",
+  "category": "NEGATIVE",
+  "claim": "Restored tuning best_model_params refused on re-fit",
+  "observes": "fit raises CONFIG_INVALID; no train calls recorded",
+  "evidence": "tests/test_core/test_refusal_matrix.py:387",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_seed_propagation.py::TestBuildSplitterSeedResolution::test_default_inherits_training_seed_backward_compat",
+  "category": "UNIT",
+  "claim": "Default random_state inherits training.seed in outer splitter",
+  "observes": "build_splitter(...).split folds equal for seed=42 vs random_state=42",
+  "evidence": "tests/test_core/test_seed_propagation.py:29",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_seed_propagation.py::TestBuildSplitterSeedResolution::test_training_seed_propagates_to_splitter",
+  "category": "UNIT",
+  "claim": "training.seed propagates to outer splitter",
+  "observes": "build_splitter(...).split folds differ for seed 42 vs 123",
+  "evidence": "tests/test_core/test_seed_propagation.py:40",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_seed_propagation.py::TestBuildSplitterSeedResolution::test_explicit_random_state_overrides_training_seed",
+  "category": "UNIT",
+  "claim": "Explicit random_state overrides training.seed",
+  "observes": "build_splitter(...).split folds equal across seeds with random_state=7",
+  "evidence": "tests/test_core/test_seed_propagation.py:50",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_splitter_dispatch.py::TestUnhandledSplitConfigRaises::test_unknown_split_config_raises_lizyml_error",
+  "category": "NEGATIVE",
+  "claim": "Unknown split config refused by splitter dispatch",
+  "observes": "_build_splitter_for_method raises CONFIG_INVALID",
+  "evidence": "tests/test_core/test_splitter_dispatch.py:24",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_task_type.py::TestTaskTypeReExports::test_oof_assembly_re_export",
+  "category": "UNIT",
+  "claim": "oof_assembly re-exports the canonical TaskType",
+  "observes": "identity OOFTaskType is TaskType",
+  "evidence": "tests/test_core/test_task_type.py:45",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_core/test_train_components.py::TestMergeParams::test_fit_args_override_tune_best",
+  "category": "OVERCLAIM",
+  "claim": "fit() override params outrank tuning best params",
+  "observes": "private _merge_params returned dict learning_rate == 0.2",
+  "evidence": "tests/test_core/test_train_components.py:102",
+  "repair": "tests/test_core/test_fit_params_override.py::test_fit_params_outrank_the_tuning_result"
+ },
+ {
+  "test": "tests/test_data/test_data_layer.py::TestValidators::test_clean_group_split_passes",
+  "category": "UNIT",
+  "claim": "validate_group_split passes a clean group split",
+  "observes": "validators.validate_group_split returns []",
+  "evidence": "tests/test_data/test_data_layer.py:338",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_e2e/test_public_api.py::TestPublicImports::test_fit_result_importable",
+  "category": "UNIT",
+  "claim": "FitResult is importable",
+  "observes": "import succeeds and FitResult is not None",
+  "evidence": "tests/test_e2e/test_public_api.py:21",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestValidateLgbmMetrics::test_auc_rejected_for_multiclass_native",
+  "category": "NEGATIVE",
+  "claim": "auc rejected as multiclass native metric pre-fit",
+  "observes": "validate_lgbm_metrics raises CONFIG_INVALID",
+  "evidence": "tests/test_estimators/test_lgbm_metric_bridge.py:92",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestResolveMetrics::test_lizyml_name_translated_before_split",
+  "category": "UNIT",
+  "claim": "logloss translated to binary_logloss and classified native",
+  "observes": "resolve_metrics returns native [binary_logloss], fevals []",
+  "evidence": "tests/test_estimators/test_lgbm_metric_bridge.py:170",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_estimators/test_lightgbm_parameter_names.py::test_model_params_names_are_lightgbm_names",
+  "category": "NEGATIVE",
+  "claim": "Unknown model.params key refused at fit",
+  "observes": "fit raises CONFIG_INVALID naming the key",
+  "evidence": "tests/test_estimators/test_lightgbm_parameter_names.py:201",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_estimators/test_lightgbm_parameter_names.py::test_loading_an_artifact_is_not_blocked_by_the_gate",
+  "category": "NEGATIVE",
+  "claim": "Bad param name in config does not block artifact load",
+  "observes": "Model(cfg, data) construction (load's step) does not raise",
+  "evidence": "tests/test_estimators/test_lightgbm_parameter_names.py:299",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_estimators/test_lightgbm_parameter_names.py::test_every_route_into_the_estimator_is_inventoried",
+  "category": "UNIT",
+  "claim": "Every estimator route in package is inventoried",
+  "observes": "AST scan found routes == ESTIMATOR_ROUTES, non-empty",
+  "evidence": "tests/test_estimators/test_lightgbm_parameter_names.py:702",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_estimators/test_literal_parameter_reads.py::test_every_literal_parameter_read_is_declared",
+  "category": "UNIT",
+  "claim": "Every literal parameter read in package is declared",
+  "observes": "source scan reads minus _ALLOWED is empty",
+  "evidence": "tests/test_estimators/test_literal_parameter_reads.py:160",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_estimators/test_metric_choices_registry_coverage.py::TestMetricRegistryFitTimeCoverage::test_fit_time_registered_metrics_surfaced",
+  "category": "UNIT",
+  "claim": "Fit-time reachable registered metrics appear in metric_choices",
+  "observes": "provider.metric_choices vs whitelists membership",
+  "evidence": "tests/test_estimators/test_metric_choices_registry_coverage.py:58",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_estimators/test_param_behavioral_effect.py::TestSmartParamsBehavior::test_feature_weights_resolves_to_an_ordered_list",
+  "category": "UNIT",
+  "claim": "feature_weights resolves to positional feature_contri list",
+  "observes": "resolve_smart_params output feature_contri ordering",
+  "evidence": "tests/test_estimators/test_param_behavioral_effect.py:411",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_estimators/test_provider_choice_apis.py::TestObjectiveChoicesContent::test_aligned_with_task_compatible_objectives",
+  "category": "UNIT",
+  "claim": "objective_choices equals TASK_COMPATIBLE_OBJECTIVES per task",
+  "observes": "set equality of two registries",
+  "evidence": "tests/test_estimators/test_provider_choice_apis.py:124",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_estimators/test_provider_choice_apis.py::TestMetricChoicesContent::test_no_duplicates_across_branches",
+  "category": "UNIT",
+  "claim": "metric_choices native and feval branches disjoint",
+  "observes": "set intersection of provider.metric_choices branches empty",
+  "evidence": "tests/test_estimators/test_provider_choice_apis.py:201",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_estimators/test_provider_choice_apis.py::TestMetricChoicesContent::test_native_subset_of_validation_whitelist",
+  "category": "UNIT",
+  "claim": "metric_choices native names are in validation whitelist",
+  "observes": "subset check against _LGBM_NATIVE_METRICS",
+  "evidence": "tests/test_estimators/test_provider_choice_apis.py:257",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_evaluation/test_oof_coverage_eval.py::TestEvaluatorFullCoverageKFold::test_oof_coverage_is_one",
+  "category": "UNIT",
+  "claim": "Evaluator reports oof_coverage 1.0 for full-coverage splits",
+  "observes": "Evaluator.evaluate on synthetic FitResult, raw oof_coverage == 1.0",
+  "evidence": "tests/test_evaluation/test_oof_coverage_eval.py:101",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_evaluation/test_oof_coverage_eval.py::TestEvaluatorFullCoverageKFold::test_raw_keys_include_oof_coverage",
+  "category": "UNIT",
+  "claim": "Evaluator raw metrics include oof_coverage key",
+  "observes": "oof_coverage in Evaluator.evaluate raw output",
+  "evidence": "tests/test_evaluation/test_oof_coverage_eval.py:107",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_evaluation/test_oof_coverage_eval.py::TestEvaluatorFullCoverageKFold::test_oof_per_fold_unchanged",
+  "category": "UNIT",
+  "claim": "Evaluator oof_per_fold still computed per valid fold",
+  "observes": "3 finite per-fold rmse entries from Evaluator.evaluate",
+  "evidence": "tests/test_evaluation/test_oof_coverage_eval.py:113",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_evaluation/test_oof_coverage_eval.py::TestEvaluatorPartialCoverageTimeSeries::test_oof_coverage_less_than_one",
+  "category": "UNIT",
+  "claim": "Evaluator oof_coverage < 1 for partial-coverage splits",
+  "observes": "Evaluator.evaluate on synthetic TS-like FitResult, coverage 9/12",
+  "evidence": "tests/test_evaluation/test_oof_coverage_eval.py:166",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_evaluation/test_table_formatter.py::TestFormatMetricsTable::test_per_fold_columns",
+  "category": "UNIT",
+  "claim": "Metrics table has fold_i columns",
+  "observes": "format_metrics_table columns contain fold_0..fold_4",
+  "evidence": "tests/test_evaluation/test_table_formatter.py:78",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_evaluation/test_table_formatter.py::TestFormatMetricsTable::test_oof_coverage_in_attrs",
+  "category": "UNIT",
+  "claim": "Metrics table surfaces oof_coverage in attrs",
+  "observes": "format_metrics_table df.attrs oof_coverage == 0.75",
+  "evidence": "tests/test_evaluation/test_table_formatter.py:112",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_evaluation/test_table_formatter.py::TestFormatMetricsTable::test_oof_coverage_absent_when_not_provided",
+  "category": "UNIT",
+  "claim": "Metrics table omits oof_coverage attr when absent",
+  "observes": "oof_coverage not in df.attrs",
+  "evidence": "tests/test_evaluation/test_table_formatter.py:127",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_evaluation/test_table_formatter.py::TestFormatMetricsTable::test_fold_columns_use_oof_per_fold",
+  "category": "UNIT",
+  "claim": "Metrics table fold columns use oof_per_fold values",
+  "observes": "df.loc rmse fold_0/fold_1 equal oof_per_fold values",
+  "evidence": "tests/test_evaluation/test_table_formatter.py:140",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_explain/test_shap_importance_per_fold_pipeline.py::test_per_fold_states_without_fold_models_are_refused",
+  "category": "NEGATIVE",
+  "claim": "SHAP per-fold states without fold models refused",
+  "observes": "compute_shap_importance raises ValueError matching pipeline_state_per_fold",
+  "evidence": "tests/test_explain/test_shap_importance_per_fold_pipeline.py:349",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_features/test_categorical_encoder_edge.py::TestCategoricalEncoder::test_fit_missing_column",
+  "category": "UNIT",
+  "claim": "CategoricalEncoder fit ignores missing column",
+  "observes": "nonexistent not in enc._categories",
+  "evidence": "tests/test_features/test_categorical_encoder_edge.py:12",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_features/test_categorical_encoder_edge.py::TestCategoricalEncoder::test_fit_object_dtype",
+  "category": "UNIT",
+  "claim": "CategoricalEncoder fit records sorted object categories",
+  "observes": "enc._categories col == [a, b, c]",
+  "evidence": "tests/test_features/test_categorical_encoder_edge.py:17",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_features/test_categorical_encoder_edge.py::TestCategoricalEncoder::test_fit_all_na_column",
+  "category": "UNIT",
+  "claim": "CategoricalEncoder all-NA column has mode None",
+  "observes": "enc._modes col is None",
+  "evidence": "tests/test_features/test_categorical_encoder_edge.py:22",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_features/test_categorical_encoder_edge.py::TestCategoricalEncoder::test_transform_before_fit",
+  "category": "NEGATIVE",
+  "claim": "CategoricalEncoder transform before fit raises",
+  "observes": "pytest.raises RuntimeError must be fitted",
+  "evidence": "tests/test_features/test_categorical_encoder_edge.py:27",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_features/test_feature_pipeline.py::TestCategoricalEncoder::test_fit_records_categories",
+  "category": "UNIT",
+  "claim": "CategoricalEncoder fit records categories",
+  "observes": "enc._categories cat == {a, b, c}",
+  "evidence": "tests/test_features/test_feature_pipeline.py:38",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_features/test_feature_pipeline.py::TestCategoricalEncoder::test_transform_restricts_to_training_categories",
+  "category": "UNIT",
+  "claim": "CategoricalEncoder transform restricts to training categories",
+  "observes": "transformed cat categories == training set",
+  "evidence": "tests/test_features/test_feature_pipeline.py:49",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_features/test_feature_pipeline.py::TestNativeFeaturePipelineBasic::test_fit_records_feature_names",
+  "category": "UNIT",
+  "claim": "NativeFeaturePipeline fit records feature names",
+  "observes": "pipe._feature_names == train columns",
+  "evidence": "tests/test_features/test_feature_pipeline.py:98",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_features/test_feature_pipeline.py::TestNativeFeaturePipelineBasic::test_fit_transform_consistent",
+  "category": "UNIT",
+  "claim": "NativeFeaturePipeline fit_transform equals fit then transform",
+  "observes": "assert_frame_equal of two pipeline outputs",
+  "evidence": "tests/test_features/test_feature_pipeline.py:121",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_metrics/test_multiclass_ovr_metrics.py::TestMulticlassMissingClass::test_aucpr_single_class_fold_no_crash",
+  "category": "UNIT",
+  "claim": "AUCPR/Brier defined on single-class multiclass fold",
+  "observes": "metric callables return float without error",
+  "evidence": "tests/test_metrics/test_multiclass_ovr_metrics.py:205",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_notebooks/test_notebook_cells.py::test_time_series_has_split_summary",
+  "category": "UNIT",
+  "claim": "Time-series notebook calls split_summary()",
+  "observes": "substring in notebook code cells",
+  "evidence": "tests/test_notebooks/test_notebook_cells.py:81",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_notebooks/test_notebook_cells.py::test_time_series_has_time_series_method",
+  "category": "UNIT",
+  "claim": "Time-series notebook uses time_series split method",
+  "observes": "substring time_series in notebook code cells",
+  "evidence": "tests/test_notebooks/test_notebook_cells.py:89",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_persistence/test_export_load_errors.py::TestLoadErrors::test_corrupt_fit_result_pkl",
+  "category": "NEGATIVE",
+  "claim": "Loading corrupt fit_result.pkl raises deserialization error",
+  "observes": "loader.load raises DESERIALIZATION_FAILED",
+  "evidence": "tests/test_persistence/test_export_load_errors.py:55",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_plots/test_helpers.py::TestCollectIsData::test_empty_folds_return_empty_arrays",
+  "category": "UNIT",
+  "claim": "collect_is_data returns empty arrays for empty folds",
+  "observes": "pred/actual size 0, dtype matches y",
+  "evidence": "tests/test_plots/test_helpers.py:44",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_splitters/test_splitters.py::TestGroupTimeSeriesSplitter::test_max_train_size",
+  "category": "UNIT",
+  "claim": "GroupTimeSeriesSplitter max_train_size limits training groups",
+  "observes": "real splitter.split train groups <= 2",
+  "evidence": "tests/test_splitters/test_splitters.py:319",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_training/test_blocked_group_inner_valid.py::TestStratifiedTimeHoldout::test_regression_fallback_raises_when_ratio_consumes_all",
+  "category": "NEGATIVE",
+  "claim": "Stratified time holdout fallback refuses ratio consuming all rows",
+  "observes": "strategy.split(1) raises ValueError would consume all",
+  "evidence": "tests/test_training/test_blocked_group_inner_valid.py:215",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_training/test_inner_valid_purge_embargo.py::TestExplicitInnerValidDoesNotInheritGap::test_auto_and_explicit_differ_for_the_same_outer_split",
+  "category": "UNIT",
+  "claim": "Auto-resolved inner valid inherits gap; explicit one does not",
+  "observes": "build_inner_valid(...).gap == 5 vs 0",
+  "evidence": "tests/test_training/test_inner_valid_purge_embargo.py:136",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_training/test_oof_coverage.py::TestComputeOofValidMask::test_full_coverage_kfold",
+  "category": "UNIT",
+  "claim": "OOF valid mask all True for full KFold coverage",
+  "observes": "compute_oof_valid_mask dtype/shape/all",
+  "evidence": "tests/test_training/test_oof_coverage.py:29",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_training/test_oof_coverage.py::TestComputeOofValidMask::test_empty_splits",
+  "category": "UNIT",
+  "claim": "OOF valid mask all False for empty splits",
+  "observes": "compute_oof_valid_mask([]) shape 5, none True",
+  "evidence": "tests/test_training/test_oof_coverage.py:76",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_training/test_oof_coverage.py::TestComputeOofValidMask::test_single_fold",
+  "category": "UNIT",
+  "claim": "OOF valid mask marks single-fold valid rows",
+  "observes": "compute_oof_valid_mask equals expected boolean array",
+  "evidence": "tests/test_training/test_oof_coverage.py:82",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_training/test_training.py::TestOOFHelpers::test_init_oof_regression",
+  "category": "UNIT",
+  "claim": "init_oof regression gives NaN vector",
+  "observes": "init_oof shape (100,) all NaN",
+  "evidence": "tests/test_training/test_training.py:140",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_training/test_training.py::TestOOFHelpers::test_init_oof_binary",
+  "category": "UNIT",
+  "claim": "init_oof binary gives 1-d vector",
+  "observes": "init_oof shape (50,)",
+  "evidence": "tests/test_training/test_training.py:145",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_training/test_training.py::TestOOFHelpers::test_init_oof_multiclass",
+  "category": "UNIT",
+  "claim": "init_oof multiclass gives (n, k) array",
+  "observes": "init_oof shape (60, 3)",
+  "evidence": "tests/test_training/test_training.py:149",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_training/test_training.py::TestOOFHelpers::test_init_oof_multiclass_requires_n_classes",
+  "category": "NEGATIVE",
+  "claim": "init_oof multiclass without n_classes refused",
+  "observes": "pytest.raises ValueError",
+  "evidence": "tests/test_training/test_training.py:153",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_training/test_training.py::TestOOFHelpers::test_fill_oof_correct_indices",
+  "category": "UNIT",
+  "claim": "fill_oof writes predictions at valid indices only",
+  "observes": "values at 2,5,7 set, others NaN",
+  "evidence": "tests/test_training/test_training.py:157",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_training/test_training.py::TestOOFHelpers::test_fill_oof_shape_mismatch",
+  "category": "NEGATIVE",
+  "claim": "fill_oof refuses shape mismatch",
+  "observes": "pytest.raises ValueError",
+  "evidence": "tests/test_training/test_training.py:168",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_tuning/test_default_space.py::TestDefaultSpace::test_training_dims_ranges",
+  "category": "UNIT",
+  "claim": "Default tuning space training dims have expected ranges",
+  "observes": "default_space dims bounds and category",
+  "evidence": "tests/test_tuning/test_default_space.py:99",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_tuning/test_default_space.py::TestSplitByCategory::test_splits_correctly",
+  "category": "UNIT",
+  "claim": "split_by_category routes params into model/smart/training",
+  "observes": "membership of keys in three returned dicts",
+  "evidence": "tests/test_tuning/test_default_space.py:141",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_tuning/test_dimension_consumption.py::test_unconsumed_training_dimension_refused",
+  "category": "NEGATIVE",
+  "claim": "Unconsumed training dimension refused before study creation",
+  "observes": "tune raises CONFIG_INVALID naming dim; optuna.create_study not called",
+  "evidence": "tests/test_tuning/test_dimension_consumption.py:58",
+  "repair": ""
+ },
+ {
+  "test": "tests/test_tuning/test_space_merge.py::test_resolved_training_conflict_refused_before_study",
+  "category": "NEGATIVE",
+  "claim": "Resolved training conflict refused before study",
+  "observes": "tune raises CONFIG_INVALID already controlled; Tuner.tune not reached",
+  "evidence": "tests/test_tuning/test_space_merge.py:412",
+  "repair": ""
+ }
+]
