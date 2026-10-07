@@ -11108,8 +11108,8 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 - **ステータス**: Proposed
 - **起票日**: 2026-10-07
 - **決定日**: —（管理者の判断 2026-10-07: `embargo` を `purge_gap` に統合する。中立な名前の 2 つ目の gap への改名と、inner split を `purge_gap` だけにする案は採らない。本 Proposal は設計レビュー後に実装する）
-- **スコープ**: `lizyml/config/schema.py`（`PurgedTimeSeriesConfig` の `embargo` フィールドを外し、旧キーとして `purge_gap` に加算）, `lizyml/splitters/purged_time_series.py`（`embargo` 引数の非推奨化）, `lizyml/core/_model_factories.py`（splitter の構築と `_auto_inner_gap`）, `lizyml/training/inner_valid.py`（docstring とエラー文）, `lizyml/core/_model_persistence.py` と `lizyml/codegen/templates.py`（生成コードの split 設定）, `BLUEPRINT.md`（§5 の既定値表と旧キーの規則、§10.2、§10.3.1、§10.3 の inner gap の説明）, `docs/config-reference.md`（既定値表、gap の表、図）, `docs/DEPRECATIONS.md`, `docs/proposal_dispositions.toml`, `CHANGELOG.md`, テスト（`tests/test_splitters/`、`tests/test_config/`、`tests/test_training/test_inner_valid_purge_embargo.py`、`tests/test_e2e/test_time_series_*`、`tests/test_codegen/test_split_reproduction.py`、`tests/test_calibration/test_calibration_split.py` の `embargo` を使う箇所を新しい契約に書き換え、統合の新規テストを追加）
-- **関連**: [Issue #273](https://github.com/nbx-liz/LizyML/issues/273), H-0021（旧キーの表）, H-0038（`purge_window` → `purge_gap`）, H-0040（`embargo` を観測数にした）, H-0076（非推奨の登録簿と v1.0 削除）, H-0085（outer の境界 gap を inner valid に伝える）, H-0111（旧キーの端数を拒否）, [#265](https://github.com/nbx-liz/LizyML/issues/265)（inner gap の伝搬規則の矛盾。close 済み）
+- **スコープ**: `lizyml/config/schema.py`（`PurgedTimeSeriesConfig` の `embargo` フィールドを外し、旧キーとして `purge_gap` に加算）, `lizyml/splitters/purged_time_series.py`（`embargo` 引数の非推奨化）, `lizyml/core/_model_factories.py`（splitter の構築と `_auto_inner_gap`）, `lizyml/training/inner_valid.py`（docstring とエラー文）, `lizyml/core/_model_persistence.py` と `lizyml/codegen/templates.py`（生成コードの split 設定）, `BLUEPRINT.md`（§5 の既定値表と旧キーの規則、§10.2、§10.3.1、§10.3 の inner gap の説明）, `docs/config-reference.md`（既定値表、gap の表、図）, `docs/DEPRECATIONS.md`（行の追加と、旧キーの出典 H-0021 の誤りの訂正）, `notebooks/tutorial_time_series_lgbm.ipynb`（`embargo` を使うセルと説明）, `docs/proposal_dispositions.toml`, `CHANGELOG.md`, テスト（`tests/test_config/_knob_registry.py` と `test_knob_reachability.py` の `embargo` の登録を外す、`tests/test_splitters/`、`tests/test_config/`、`tests/test_training/test_inner_valid_purge_embargo.py`、`tests/test_e2e/test_time_series_*`、`tests/test_codegen/test_split_reproduction.py`、`tests/test_calibration/test_calibration_split.py` の `embargo` を使う箇所を新しい契約に書き換え、統合の新規テストを追加）
+- **関連**: [Issue #273](https://github.com/nbx-liz/LizyML/issues/273), H-0038（`purge_window` → `purge_gap`、`gap` の旧キー）, H-0040（`embargo` を観測数にし、`embargo_pct` を旧キーにした）, H-0076（非推奨の登録簿と v1.0 削除）, H-0085（outer の境界 gap を inner valid に伝える）, H-0111（旧キーの端数を拒否）, [#265](https://github.com/nbx-liz/LizyML/issues/265)（inner gap の伝搬規則の矛盾。close 済み）
 
 ### 目的（課題）
 
@@ -11122,17 +11122,25 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 ### 対応方針
 
 1. **つまみを `purge_gap` 1 つにする。** `PurgedTimeSeriesConfig` から `embargo` フィールドを外す。`purge_gap` は「学習の末尾と検証の先頭の間で除く観測数」で、検証の前にだけ働く。
-2. **`embargo` キーは旧キーとして受理し、値を `purge_gap` に加算する。** `DeprecationWarning`（v1.0 で削除、H-0076）。文面は、`embargo` が `purge_gap` と同じ位置を広げていたこと、値を `purge_gap` に足したこと、`purge_gap` に合計を書くことを述べる。値は既存の `_legacy_obs_count` と同じく観測数として読む（整数値は受理、端数と bool は拒否）。負の値は拒否する（加算で `purge_gap` を減らせてしまうため）。拒否はどれも Config 検証の失敗（`CONFIG_INVALID`）。
-3. **旧キー `embargo_pct` と `gap`（`purged_time_series`）も `purge_gap` に加算する。** 今日は `embargo` に写している（H-0040）。`embargo` / `embargo_pct` / `gap` は同じ 2 つ目の gap の 3 つの綴りなので、**同時に指定できるのは 1 つまで**（2 つ以上は `CONFIG_INVALID`）。今日も `embargo` があるときの `gap` / `embargo_pct` は残って `extra="forbid"` で拒否されるので、受理する入力の集合は変わらない。`purge_window` → `purge_gap` の規則（H-0038）は変えない。
-4. **除外の量は変わらない。** どの入力でも、新しい `purge_gap` は今日の `purge_gap + embargo` に等しい。outer の fold も、H-0085 で inner valid に伝える境界 gap も、今日と同じ行になる。
-5. **inner valid の境界 gap の規則は `purge_gap` だけで述べる。** `_auto_inner_gap` は `purged_time_series` で `purge_gap` を返す（`time_series` の `gap` は変えない）。outer の splitter と inner の gap はどちらも Config の `purge_gap` 1 つから作るので、2 つが食い違う余地が無い。BLUEPRINT §10.3.1 の「`purge_gap + embargo`」は「outer split の境界 gap（`purged_time_series` では `purge_gap`）」と書き換える。
-6. **`PurgedTimeSeriesSplitter(embargo=...)` 引数も非推奨にする。** `lizyml.splitters` から公開されているため。0 でない値は `DeprecationWarning` を出して `purge_gap` に加算し、負の値は今日どおり `ValueError`。属性 `embargo` は持たない（`purge_gap` が合計を持つ）。
-7. **生成コード（`export_code`）**: split 設定のブロックは `embargo` を書かず、生成される `_purged_ts_folds` は `purge_gap` だけを引く。
-8. **BLUEPRINT §10.2 に幾何の事実を書く**: `purged_time_series` は前向き連鎖で、どの fold でも学習の最大 index は検証の最小 index より小さい。検証の後ろに学習行が無いので、検証の後ろを除く embargo の置き場所は無い。後ろ向きの embargo が必要になれば、検証ブロックの後ろに学習行を持つ別の splitter が要る（本 Proposal の範囲外）。
+2. **`embargo` キーは旧キーとして受理し、値を `purge_gap` に加算する。** 値が `0` でも、キーがあれば `DeprecationWarning`（v1.0 で削除、H-0076）。文面は、`embargo` が `purge_gap` と同じ位置を広げていたこと、値を `purge_gap` に足したこと、`purge_gap` に合計を書くことを述べ、`purge_gap` の名前を含む。
+3. **旧キー `embargo_pct` と `gap`（`purged_time_series`）も `purge_gap` に加算する。** 今日は `embargo` に写している（H-0040）。`embargo` / `embargo_pct` / `gap` は同じ 2 つ目の gap の 3 つの綴りなので、**同時に指定できるのは 1 つまで**（2 つ以上は `CONFIG_INVALID`）。今日も 2 つ目以降の綴りは残って `extra="forbid"` で拒否される（`embargo_pct` → `embargo` の後の `gap` も同じ）ので、この点で受理する集合は変わらない。`purge_window` → `purge_gap` の規則（H-0038）は変えない。
+4. **値の検査と順序**（受理する値の集合はここで変わる。round 1 の実測に基づく）:
+   1. `purge_window` を `purge_gap` に写す（今日どおり）。
+   2. 2 つ目の gap の綴り（3 つのうち 1 つ）を取り出し、既存の `_legacy_obs_count` で観測数として読む: 整数、整数値の float、整数値を表す文字列は受理し、端数と bool は拒否する。**変化**: 今日 `embargo` は pydantic の int として検証され、`True` は `1` として受理されていた（round 1 の実測）。これを拒否に変える（観測数に bool を書く正当な入力は無い）。`embargo_pct` / `gap` は今日も `_legacy_obs_count` で bool を拒否している。
+   3. `purge_gap` は今日どおり pydantic の int として検証する（`"5"` や `5.0` の受理は変えない）。そのうえで、**`purge_gap` と 2 つ目の gap はそれぞれ独立に 0 以上**でなければならない。**変化**: 今日、負の `purge_gap` / `embargo` は Config の検証を通り、fit で splitter が `ValueError` を送出していた。これを Config 検証の失敗（`CONFIG_INVALID`）に早める。加算の前に検査するので、`purge_gap: -1, embargo: 2` のように負の値を加算で隠すことはできない（今日も fit で拒否されている）。
+   4. 加算する: `purge_gap = purge_gap + (2 つ目の gap)`。
+   実装は `mode="wrap"` などの validator で、`purge_gap` の型の検証の後に 3〜4 を行う。拒否はどれも Config 検証の失敗（`CONFIG_INVALID`）。
+5. **除外の量は変わらない。** 今日受理されて fit できた入力（`True` の `embargo` を除く）では、新しい `purge_gap` は今日の `purge_gap + embargo` に等しい。outer の fold も、H-0085 で inner valid に伝える境界 gap も、今日と同じ行になる。
+6. **inner valid の境界 gap の規則は `purge_gap` だけで述べる。** `_auto_inner_gap` は `purged_time_series` で `purge_gap` を返す（`time_series` の `gap` は変えない）。outer の splitter と inner の gap はどちらも Config の `purge_gap` 1 つから作るので、2 つが食い違う余地が無い。BLUEPRINT §10.3.1 の「`purge_gap + embargo`」は「outer split の境界 gap（`purged_time_series` では `purge_gap`）」と書き換える。
+7. **`PurgedTimeSeriesSplitter(embargo=...)` 引数も非推奨にする。** `lizyml.splitters` から公開されているため。引数の既定値を `None`（指定なし）にし、**指定されれば `0` でも** `DeprecationWarning` を出して `purge_gap` に加算する（省略と明示の `0` を区別するため）。`purge_gap` と `embargo` はそれぞれ負なら今日どおり `ValueError`（加算の前に検査）。属性 `embargo` は持たない（`purge_gap` が合計を持つ）。
+8. **生成コード（`export_code`）**: split 設定のブロックは `embargo` を書かず、生成される `_purged_ts_folds` は `purge_gap` だけを引く。
+9. **チュートリアルとテストの登録簿**: `notebooks/tutorial_time_series_lgbm.ipynb` の `"embargo": 50` を `purge_gap` に足した値に、校正が `embargo` を継承するという説明を `purge_gap` に書き換える。`tests/test_config/_knob_registry.py` の `PurgedTimeSeriesSplitter.embargo` の登録と、`test_knob_reachability.py` の対応する行を外す（つまみが無くなるため）。
+10. **`docs/DEPRECATIONS.md` の出典を訂正する**: 旧キー `purge_window` / `embargo_pct` / `gap` の出典は H-0021（LightGBM の smart parameter の Proposal）ではなく、H-0038（`purge_window`、`gap`）と H-0040（`embargo_pct`）である。H-0076 の本文の表も同じ誤りを持つが、HISTORY の記録は書き換えず、`docs/DEPRECATIONS.md` を正す。
+11. **BLUEPRINT §10.2 に幾何の事実を書く**: `purged_time_series` は前向き連鎖で、どの fold でも学習の最大 index は検証の最小 index より小さい。検証の後ろに学習行が無いので、検証の後ろを除く embargo の置き場所は無い。後ろ向きの embargo が必要になれば、検証ブロックの後ろに学習行を持つ別の splitter が要る（本 Proposal の範囲外）。
 
 ### 規則が縛る位置（ソースから導出）
 
-規則: **`purged_time_series` の除外は `purge_gap` 1 つで表し、`embargo` は旧キーとしてだけ受理して `purge_gap` に加算する。** 導出: `lizyml/` と `docs/` と `BLUEPRINT.md` で `embargo` を grep した全件（`6d4c799`）。
+規則: **`purged_time_series` の除外は `purge_gap` 1 つで表し、`embargo` は旧キーとしてだけ受理して `purge_gap` に加算する。** 導出: リポジトリ全体で `rg -l -i '\bembargo(?:_pct)?\b' .` の全件（`6d4c799`。round 1 で notebook と knob registry の漏れを指摘されて取り直した）。HISTORY の過去の記録と `docs/audits/` の監査記録は書き換えない。
 
 | # | 位置 | 本 PR |
 |---|---|---|
@@ -11145,11 +11153,15 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 | 7 | `codegen/templates.py:323, 334, 514`（生成される fold の再現） | `embargo` を引かない |
 | 8 | `BLUEPRINT.md` §5（既定値表 l.348、旧キー l.355-356）、§10.2（l.685）、§10.3.1（l.701）、§10.3（l.755） | 書き換える |
 | 9 | `docs/config-reference.md`（l.80, 98, 108, 116, 142-148, 572） | 書き換える（図の誤りを含む） |
-| 10 | `docs/DEPRECATIONS.md`（l.18-19, 76-82） | `embargo` / `embargo_pct` / `gap` → `purge_gap`、splitter の引数を登録 |
+| 10 | `docs/DEPRECATIONS.md`（l.17-19, 76-82） | `embargo` / `embargo_pct` / `gap` → `purge_gap`、splitter の引数を登録、出典を H-0038 / H-0040 に訂正 |
+| 11 | `notebooks/tutorial_time_series_lgbm.ipynb`（l.335, 371） | `purge_gap` に書き換える |
+| 12 | `tests/test_config/_knob_registry.py`（l.130, 181）、`tests/test_config/test_knob_reachability.py`（l.212, 248, 409） | `embargo` のつまみの登録を外す |
+| 13 | 既存のテストで `embargo` を書くもの（`tests/test_splitters/`、`tests/test_config/test_config_hardening.py`、`tests/test_training/test_inner_valid_purge_embargo.py`、`tests/test_e2e/test_time_series_*`、`tests/test_codegen/test_split_reproduction.py`、`tests/test_calibration/test_calibration_split.py`） | 旧キーの契約を確かめるもの以外は `purge_gap` に書き換える（削除しない） |
 
 ### 互換性
 
-- **除外の量と分割は変わらない**（決定 4）。`fit` / `tune` / OOF / inner valid / 校正の cross-fit（outer split を再利用、H-0058）の行は、どの入力でも今日と同じ。
+- **受理する値の変化**（決定 4）: `embargo: true` は今日 `1` として受理されたが、`CONFIG_INVALID` になる。負の `purge_gap` / `embargo` は今日 fit で splitter の `ValueError` だったが、Config 検証の `CONFIG_INVALID` になる（早くなるだけで、受理されていた入力ではない）。
+- **除外の量と分割は変わらない**（決定 5）。`fit` / `tune` / OOF / inner valid / 校正の cross-fit（outer split を再利用、H-0058）の行は、どの入力でも今日と同じ。
 - **警告**: `embargo`（0 を含む）を書いた Config は `DeprecationWarning` を出す。`embargo_pct` / `gap` の警告文は移行先が `purge_gap` に変わる。
 - **`model_dump()` / `config_normalized`**: `embargo` キーが無くなり、`purge_gap` が合計を持つ。Config を dump して読み直す往復は、警告なしに同じ分割を再現する。
 - **保存済みの artifact**: 以前の `metadata.json` の `config` は `embargo`（多くは `0`）を持つ。`Model.load()` は Config を検証し直すので、`purged_time_series` の artifact は `DeprecationWarning` を出し、値を `purge_gap` に加算して同じ分割を得る。`predict()` の結果は変わらない。`format_version` は変えない（保存形式は変わらない）。**v1.0 で `embargo` キーを削除するときは、読み込みの経路でこの旧キーを正規化し続ける必要がある**（さもないと以前の artifact が `extra="forbid"` で読めなくなる）。これを `docs/DEPRECATIONS.md` に注記する。
@@ -11165,12 +11177,15 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 
 ### 受け入れ基準（テスト観点）
 
+2〜4、7〜10 は修正前に RED になる（`embargo` が `purge_gap` に足されない、属性や `model_dump()` の `embargo` が残る、値の検査が無い、文書と登録簿が古い）。1・5・6 は修正前から通る互換の固定で、除外の量が変わらないこと（決定 5）を守る。
+
 1. **幾何の事実**（修正前から GREEN、固定）: `PurgedTimeSeriesSplitter` の全 fold で、学習の最大 index が検証の最小 index より小さい。`n_samples`、`n_splits`、`purge_gap`、`max_train_size` / `max_test_size` の組み合わせで確かめる。将来の splitter の変更でこれが崩れたら落ちる。
 2. **統合**: `{"purge_gap": 5, "embargo": 2}` は `DeprecationWarning` を出し、`purge_gap == 7`、`model_dump()` に `embargo` が無い。`n=240, n_splits=4` の fold が #273 の実測（fold 0: 学習 `0..40`、検証 `48..95`、…、除外 7）と一致し、`{"purge_gap": 7}` の fold とも一致する。修正前は `purge_gap == 5` のままなので RED。
-3. **旧キー**: `embargo_pct: 2` と `gap: 2` も `purge_gap` に加算し、移行先に `purge_gap` を名指す警告を出す。`embargo` / `embargo_pct` / `gap` のうち 2 つ以上は `CONFIG_INVALID`。`embargo` の bool / 端数 / 負の値は `CONFIG_INVALID`。
-4. **splitter**: `PurgedTimeSeriesSplitter(purge_gap=5, embargo=2)` は `DeprecationWarning` を出し、`PurgedTimeSeriesSplitter(purge_gap=7)` と同じ fold を返す。`embargo=0`（既定）は警告しない。負の `embargo` は `ValueError`。
+3. **旧キーと値の検査**: `embargo: 0` も `DeprecationWarning` を出す。`embargo_pct: 2` と `gap: 2` も `purge_gap` に加算する。3 つの綴りの警告文はどれも `purge_gap` を名指す（文面を正規表現で確かめる）。3 つのうち 2 つ以上は `CONFIG_INVALID`。2 つ目の gap の `True` / 端数（`0.5`）/ 負の値、負の `purge_gap`（`purge_gap: -1, embargo: 2` を含む）は `CONFIG_INVALID`（`embargo: true` と負の値は修正前は Config 検証を通るので RED）。`purge_gap: "5"` と `embargo: "2"` は今日どおり受理され、`purge_gap == 7`。
+4. **splitter**: `PurgedTimeSeriesSplitter(purge_gap=5, embargo=2)` は `DeprecationWarning` を出し、`PurgedTimeSeriesSplitter(purge_gap=7)` と同じ fold を返す。`PurgedTimeSeriesSplitter(embargo=0)` も警告し、`embargo` を省いた構築は警告しない。`purge_gap=-1, embargo=2` と負の `embargo` は `ValueError`。構築した splitter に `embargo` 属性が無い。
 5. **inner valid**: `embargo` を書いた Config の自動解決された inner valid の gap が、outer の除外（`purge_gap` の合計）と等しい。#273 の例（outer 学習 192 行、ratio 0.1）で inner-train は今日と同じ 166 行。
-6. **end-to-end**: `{"purge_gap": 5, "embargo": 2}` と `{"purge_gap": 7}` の `fit` は同じ `splits` と OOF を返す。
-7. **以前の artifact**: `metadata.json` の `config` に `embargo: 2` を書き戻した artifact（`purge_gap: 5`）は、`load()` で `DeprecationWarning` を出し、`predict()` が export 前と一致する。`embargo: 0` の artifact も読める。
-8. **生成コード**: `export_code` の split ブロックに `embargo` が無く、生成された `train.py` の fold が `purge_gap` の合計で再現される（`test_split_reproduction.py`）。
-9. **文書**: BLUEPRINT §10.2 が決定 8 の幾何を述べ、§5 / §10.3.1 / §10.3 に `embargo` が旧キーとしてしか現れない。`docs/config-reference.md` の図と表に `embargo` の列が無い。`docs/DEPRECATIONS.md` に `embargo` → `purge_gap`、`embargo_pct` / `gap` → `purge_gap`、splitter の引数、v1.0 の読み込み経路の注記がある。`docs/proposal_dispositions.toml` の H-0115 は `specified`。
+6. **end-to-end**: `{"purge_gap": 5, "embargo": 2}` と `{"purge_gap": 7}` で、`fit` は同じ `splits` と OOF を返し、binary の Platt 校正つきの `fit` は同じ校正の fold の index を返し（`test_calibration_split.py` の「`purge_gap` より大きい」という緩い比較を、一致の比較に書き換える）、`tune`（少数の trial、seed 固定）は同じ trial の score を返す。
+7. **Config の往復**: 旧キーで作った Config の `model_dump()` に `embargo` が無く、それを読み直すと警告を出さず（警告をエラーにして確かめる）同じ `purge_gap` になる。`PurgedTimeSeriesConfig` に `embargo` 属性が無い。
+8. **以前の artifact**: export した artifact の `metadata.json` の `config.split` を `{"purge_gap": 5, "embargo": 2}` に書き換える（`purge_gap: 7` で fit したモデル）。`load()` は `DeprecationWarning` を出し、読み込んだモデルの Config が `purge_gap == 7` で `embargo` を持たない。分割を使う経路で確かめる: 読み込んだモデルの `export_code` の split ブロックが `purge_gap: 7` で、読み込んだモデルで `fit` し直した `splits` が元のモデルと一致する。`predict()` は export 前と一致する。`embargo: 0` の artifact も読める。
+9. **生成コード**: `export_code` の split ブロックに `embargo` が無く、生成された `train.py` の fold が `purge_gap` の合計で再現される（`test_split_reproduction.py`）。
+10. **文書と登録簿**: BLUEPRINT §10.2 が決定 11 の幾何を述べ、§5 / §10.3.1 / §10.3 に `embargo` が旧キーとしてしか現れない。`docs/config-reference.md` の図と表に `embargo` の列が無い。`docs/DEPRECATIONS.md` に `embargo` → `purge_gap`、`embargo_pct` / `gap` → `purge_gap`、splitter の引数、v1.0 の読み込み経路の注記があり、旧キーの出典が H-0038 / H-0040。チュートリアル notebook と knob registry に `embargo` のつまみが無い（`rg -i '\bembargo\b' notebooks/ tests/test_config/_knob_registry.py` が旧キーの説明以外に当たらない）。`docs/proposal_dispositions.toml` の H-0115 は `specified`。
