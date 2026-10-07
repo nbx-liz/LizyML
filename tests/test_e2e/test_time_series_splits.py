@@ -71,10 +71,16 @@ def _base_config(method: str, **extra: object) -> dict:
 
 class TestPurgedTimeSeriesConfig:
     def test_valid_config(self) -> None:
-        cfg = load_config(_base_config("purged_time_series", purge_gap=5, embargo=2))
+        cfg = load_config(_base_config("purged_time_series", purge_gap=5))
         assert cfg.split.method == "purged_time_series"
         assert cfg.split.purge_gap == 5  # type: ignore[union-attr]
-        assert cfg.split.embargo == 2  # type: ignore[union-attr]
+
+    def test_deprecated_embargo_is_added_to_purge_gap(self) -> None:
+        with pytest.warns(DeprecationWarning, match="purge_gap"):
+            cfg = load_config(
+                _base_config("purged_time_series", purge_gap=5, embargo=2)
+            )
+        assert cfg.split.purge_gap == 7  # type: ignore[union-attr]
 
     def test_fit_runs(self) -> None:
         df = _ts_df()
@@ -92,8 +98,7 @@ class TestPurgedTimeSeriesConfig:
             warnings.simplefilter("always")
             cfg = load_config(_base_config("purged_time_series", purge_window=5, gap=2))
         assert cfg.split.method == "purged_time_series"
-        assert cfg.split.purge_gap == 5  # type: ignore[union-attr]
-        assert cfg.split.embargo == 2  # type: ignore[union-attr]
+        assert cfg.split.purge_gap == 7  # type: ignore[union-attr]  # 5 + 2
         deprecation_msgs = [
             str(x.message) for x in w if issubclass(x.category, DeprecationWarning)
         ]
@@ -119,7 +124,7 @@ class TestPurgedTimeSeriesConfig:
             cfg = load_config(
                 _base_config("purged_time_series", purge_gap=5, embargo_pct=3.0)
             )
-        assert cfg.split.embargo == 3  # type: ignore[union-attr]
+        assert cfg.split.purge_gap == 8  # type: ignore[union-attr]  # 5 + 3
         deprecation_msgs = [
             str(x.message) for x in w if issubclass(x.category, DeprecationWarning)
         ]

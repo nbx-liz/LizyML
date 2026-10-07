@@ -189,7 +189,7 @@ pred_result = loaded_model.predict(X_new)
   - override: CLI / 環境変数（例: `LIZYML__model__lgbm__params__learning_rate=0.05`）
   - 正規化: 表記揺れの吸収（例: `k-fold` と `kfold`）、deprecated key の警告 / 拒否方針
     - `split.method` の別名は `config/loader.py` の表で正規化する（大文字小文字は区別しない）: `k-fold` / `stratified-kfold` / `stratifiedkfold` / `group-kfold` / `groupkfold` / `stratified-group-kfold` / `stratifiedgroupkfold`（→ `stratified_group_kfold`、H-0055）/ `time-series` / `timeseries` / `purged-time-series` / `purgedtimeseries`（→ `purged_time_series`）/ `group-time-series` / `grouptimeseries`（→ `group_time_series`、H-0032）。
-    - deprecated key は受理して警告を出す（`calibration.n_splits` は `UserWarning`、他の Config キーは `DeprecationWarning`。文面は削除目標の版を明記する）。非推奨の面（`validation_ratio` の入力、`calibration.n_splits`、`purged_time_series` の `purge_window` / `embargo_pct` / `gap`、`build_calibration_splitter`）はいずれも v1.0 で削除する。削除目標の登録簿は `docs/DEPRECATIONS.md`（§15.2、H-0076）。
+    - deprecated key は受理して警告を出す（`calibration.n_splits` は `UserWarning`、他の Config キーは `DeprecationWarning`。文面は削除目標の版を明記する）。非推奨の面（`validation_ratio` の入力、`calibration.n_splits`、`purged_time_series` の `purge_window` / `embargo` / `embargo_pct` / `gap`、`PurgedTimeSeriesSplitter(embargo=...)` の引数、`build_calibration_splitter`）はいずれも v1.0 で削除する。削除目標の登録簿は `docs/DEPRECATIONS.md`（§15.2、H-0076）。
 - 不正な Config は pydantic の `ValidationError` を包んだ `LizyMLError(CONFIG_INVALID)` になる（`cause` に元の例外、context `validation_errors`。`config/loader.py`）。どの入口（dict / ファイル / `Model(dict)`）でも同じである。
   - smart ratio の範囲バリデーション（`min_data_in_leaf_ratio` / `min_data_in_bin_ratio` は `(0,1)` の開区間、§5.3）に外れた値もこの経路で `CONFIG_INVALID` になる（早期エラー、H-0025）。
 
@@ -345,15 +345,15 @@ config = {
 | `group_kfold` | `n_splits=5` |
 | `stratified_group_kfold` | `n_splits=5`, `random_state=null`, `shuffle=True` |
 | `time_series` | `n_splits=5`, `gap=0`, `train_size_max=null`, `test_size_max=null` |
-| `purged_time_series` | `n_splits=5`, `purge_gap=0`, `embargo=0`, `train_size_max=null`, `test_size_max=null` |
+| `purged_time_series` | `n_splits=5`, `purge_gap=0`, `train_size_max=null`, `test_size_max=null` |
 | `group_time_series` | `n_splits=5`, `gap=0`, `train_size_max=null`, `test_size_max=null` |
 | `blocked_group_kfold` | `blocks={col, cutoffs, mode, train_window}`, `groups={col, n_splits, stratify, shuffle}`, `min_train_rows=10`, `min_valid_rows=5` |
 
 注記:
 - `time_series` / `purged_time_series` / `group_time_series` は共通で `data.time_col` 必須。
 - 3 メソッドは共通で `train_size_max` / `test_size_max` を受け取り、学習窓・検証窓の上限を制御する。
-- `purged_time_series` の旧キー `embargo_pct` は移行期間のみ後方互換として扱い、`embargo` に正規化する。
-- `purged_time_series` の旧キーは移行期間のみ警告付きで受理し（`DeprecationWarning`、v1.0 で削除、H-0076）、正規化する: `purge_window` → `purge_gap`（H-0038）、`embargo_pct` → `embargo`（H-0040）、`gap` → `embargo`（H-0038 は `embargo_pct` に写すと決めたが、H-0040 で `embargo` が観測数の単位になってからは `embargo` に写す）。
+- `purged_time_series` の 2 つ目の gap の綴り `embargo` / `embargo_pct` / `gap` は、移行期間のみ旧キーとして受理し、値を `purge_gap` に**加算**する（H-0115）。`embargo` は `purge_gap` と同じ位置（学習の末尾）を引いていたため、つまみは `purge_gap` 1 つである。3 つの綴りは同時に 1 つまで（2 つ以上は `CONFIG_INVALID`）。値はキーがあれば `0` でも `DeprecationWarning`（文面は `purge_gap` を名指す）。値の読み方は綴りごとに以前と同じで、`embargo` は pydantic の int（bool は拒否）、`embargo_pct` / `gap` は観測数（下記）。`purge_gap` と 2 つ目の gap はそれぞれ 0 以上でなければならず（負は `CONFIG_INVALID`）、検査の後に加算する。`model_dump()` は `embargo` を書かず、`purge_gap` が合計を持つ。
+- `purged_time_series` の旧キーは移行期間のみ警告付きで受理し（`DeprecationWarning`、v1.0 で削除、H-0076）、正規化する: `purge_window` → `purge_gap`（H-0038）。`embargo` / `embargo_pct` / `gap` は上記のとおり `purge_gap` に加算する（H-0115）。それ以前の正規化は `embargo_pct` → `embargo`（H-0040）、`gap` → `embargo`（H-0038 は `embargo_pct` に写すと決めたが、H-0040 で `embargo` が観測数の単位になってからは `embargo` に写した）だった。
 - `random_state` の型は `int | None`（`KFoldConfig` / `StratifiedKFoldConfig` / `StratifiedGroupKFoldConfig`）。`null`（既定）なら splitter を構築するときに `training.seed` を継承し、明示した値はそれに勝つ。継承した値は Config に書き戻さない（`model_dump()` は `null` のまま、H-0080）。
 - `blocked_group_kfold` は2軸交差検証（期間 × グループ）。`blocks.col` で期間を `cutoffs` で区切り、`groups.col` で KFold する。詳細は §10.6 参照。
 
@@ -404,7 +404,7 @@ config = {
 
 ## 5.5 Config のキーが設定しない構成値（H-0108）
 
-公開クラスの `__init__` の既定値付き引数（74 個、AST で数えた母集団）を、値の出どころで分類した。**Config のキーの値がそのまま渡る 60 個**は、どのキーから来るかを経路ごとに `tests/test_config/_knob_registry.py` の台帳に書く（§17 の `output_dir` と、§5.4 の表に行の無い `calibration.params` も含む）。`tests/test_config/test_knob_reachability.py` は、経路ごとに本物の `fit` / `tune` を実行してコンストラクタが受け取る値を確かめ、どの行にも既定でない値を設定したセルが少なくとも 1 つある。残りの 14 個をこの表に書く。表と `tests/test_config/_knob_registry.py` の台帳は同じテストが照合する。
+公開クラスの `__init__` の既定値付き引数（74 個、AST で数えた母集団）を、値の出どころで分類した。**Config のキーの値がそのまま渡る 59 個**は、どのキーから来るかを経路ごとに `tests/test_config/_knob_registry.py` の台帳に書く（§17 の `output_dir` と、§5.4 の表に行の無い `calibration.params` も含む）。`tests/test_config/test_knob_reachability.py` は、経路ごとに本物の `fit` / `tune` を実行してコンストラクタが受け取る値を確かめ、どの行にも既定でない値を設定したセルが少なくとも 1 つある。残りの 15 個をこの表に書く。表と `tests/test_config/_knob_registry.py` の台帳は同じテストが照合する。
 
 分類は、そのクラスを構築するすべての本番の経路で読み、最初に当てはまるものを採る:
 
@@ -419,6 +419,7 @@ config = {
 | `Tuner.progress_callback` | api | `Model.tune(progress_callback=...)` |
 | `Tuner.storage` | api | `Model.tune(storage=...)` |
 | `Tuner.study_name` | api | `Model.tune(study_name=...)` |
+| `PurgedTimeSeriesSplitter.embargo` | api | `PurgedTimeSeriesSplitter(embargo=...)` を直接構築したときだけ。非推奨で、`purge_gap` に加算され、v1.0 で削除する。Config のどのキーも渡さない（H-0115） |
 | `LGBMAdapter.num_class` | derived | 目的変数のクラス数。multiclass のときだけ渡し、それ以外は `None` |
 | `CVTrainer.n_classes` | derived | 目的変数のクラス数。multiclass のときだけ渡し、それ以外は `None` |
 | `CVTrainer.collect_raw_scores` | derived | `fit` では `calibration` が設定されているか（較正は生のスコアで学習する、H-0030）。`tune` の trial では常に `False`（trial の評価は較正しない） |
@@ -682,7 +683,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `task` が `binary` または `multiclass` かつ `split.method` が未指定の場合、`StratifiedKFold` をデフォルトとする。分類タスクで `method: "kfold"` を明示指定した場合は警告を出す。回帰タスクのデフォルトは `KFold` のまま。
 - `time_series` / `purged_time_series` / `group_time_series` は共通で `data.time_col` を基準に昇順へ並べてから分割する。
 - `time_series` / `group_time_series` は `gap`、`purged_time_series` は `purge_gap` を持つ（いずれも train と valid の間のギャップ）。
-- `PurgedTimeSeries` は `embargo`（train と valid の間に設ける追加除外 Obs 数、`int`、`gap` / `purge_gap` と同じ単位）を持つ。`embargo_pct` は移行期間のみ後方互換キーとする。値は観測数として読む: 整数値（`3` / `3.0`）は受理し、端数のある値（`0.05`）と bool は `CONFIG_INVALID` で拒否する（`int()` で切り捨てると漏洩防止の gap が `0` に潰れるため、#210。H-0040 は `int()` で変換すると書いた。H-0111）。
+- `purged_time_series` は前向き連鎖（expanding window）で、どの fold でも学習の最大 index は検証の最小 index より小さい（H-0115、`tests/test_splitters/test_purged_embargo_merge.py` が固定する）。検証の後ろに学習行が無いので、文献の embargo（検証ブロックの**後ろ**にある学習行の先頭を除く）を置く場所は無い。以前の `embargo` は `purge_gap` と同じ位置を引く 2 つ目のつまみだったので、`purge_gap` に統合した（§5 の旧キーの規則）。後ろ向きの embargo が必要になれば、検証ブロックの後ろに学習行を持つ別の splitter が要る。`PurgedTimeSeriesSplitter(embargo=...)` の引数も非推奨で、指定されれば `0` でも警告して `purge_gap` に加算する（負は `ValueError`、v1.0 で削除）。旧キー `embargo_pct` / `gap` の値は観測数として読む: 整数値（`3` / `3.0`）は受理し、端数のある値（`0.05`）と bool は `CONFIG_INVALID` で拒否する（`int()` で切り捨てると漏洩防止の gap が `0` に潰れるため、#210。H-0040 は `int()` で変換すると書いた。H-0111）。
 - 3 メソッドは共通で `train_size_max` / `test_size_max` を持つ。
 - `GroupTimeSeries` は group 列の出現順と `time_col` 順を整合させて時系列的にグループを分割する。
 
@@ -698,7 +699,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `training.early_stopping.validation_ratio` は legacy 入力ショートハンドであり、method 指定ではない。`inner_valid` を明示指定していない場合、ratio は `validation_ratio` から取り、method は外側 `split.method` から自動解決する。H-0069 以降、`validation_ratio` は `inner_valid.ratio` から派生する read-only の computed field。出力 (`model_dump()`) には常に同値の `validation_ratio` が含まれる。
 - `validation_ratio` と `inner_valid` を同時に明示指定した場合、ratio が一致しなければ `CONFIG_INVALID`、一致すれば許容する（round-trip 互換）。一致しない場合の検知は維持される。
 - `inner_valid` を明示したかどうかは dump / reload と export → load → fit を越えて保たれる（H-0086）。`LizyMLConfig.model_dump()` は computed field の `inner_valid_explicit` を書き、検証はこのキーを（`validation_ratio` と同じく）取り除いて、明示性の正とする。キーが無い入力では上記の推定（`inner_valid` があり `validation_ratio` が無ければ明示）に戻る。設定できるフィールドは増やさない。明示した time / group の inner valid が再読込で自動解決に化けないための規則である。
-- 自動解決時に inner valid が継承する outer CV 設定は `split.method` と、look-ahead 防止のための境界 gap である。すなわち `purged_time_series` では `purge_gap + embargo`、`time_series` では `gap` を inner valid（`TimeHoldoutInnerValid`）の inner-train と inner-valid の間に purge する（H-0085 / #212）。`n_splits` / `shuffle` / `random_state` / `train_size_max` / `test_size_max` は inner valid に伝搬しない。
+- 自動解決時に inner valid が継承する outer CV 設定は `split.method` と、look-ahead 防止のための境界 gap である。すなわち `purged_time_series` では `purge_gap`（H-0085 の時点では `purge_gap + embargo` だったが、H-0115 で `embargo` を `purge_gap` に加算する旧キーにしたので、量は同じ）、`time_series` では `gap` を inner valid（`TimeHoldoutInnerValid`）の inner-train と inner-valid の間に purge する（H-0085 / #212）。`n_splits` / `shuffle` / `random_state` / `train_size_max` / `test_size_max` は inner valid に伝搬しない。
 - 自動解決時の seed は `training.seed` を使う。outer split の `random_state` は inner valid に伝搬しない。
 
 | 外側 split.method | inner_valid のデフォルト |
@@ -752,7 +753,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
   - **`gap` は Config のフィールドではない（H-0101）。** `TimeHoldoutInnerValidConfig` は
     `method` と `ratio` だけを持ち（`extra="forbid"`）、`gap` を書けば検証で拒否される。`gap` は
     自動解決だけが設定する構築子引数であり、利用者が inner valid の境界 gap を直接指定する手段は
-    意図的に設けていない。境界 gap が必要な場合は、outer split に `purge_gap` / `embargo` / `gap` を
+    意図的に設けていない。境界 gap が必要な場合は、outer split に `purge_gap` / `gap` を
     設定し、inner valid を自動解決に任せる。
   - `n_valid + gap >= n_samples` の場合は `ValueError` を発出する（空の train set 防止）。
 - `BlockedGroupInnerValid(ratio=0.1, task="regression")`:

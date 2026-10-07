@@ -77,7 +77,7 @@ Method-specific keys:
 | `stratified_kfold` | `n_splits=5`, `random_state=null` (inherits `training.seed`, default `42`) |
 | `group_kfold` | `n_splits=5` |
 | `time_series` | `n_splits=5`, `gap=0`, `train_size_max=null`, `test_size_max=null` |
-| `purged_time_series` | `n_splits=5`, `purge_gap=0`, `embargo=0`, `train_size_max=null`, `test_size_max=null` |
+| `purged_time_series` | `n_splits=5`, `purge_gap=0`, `train_size_max=null`, `test_size_max=null` |
 | `group_time_series` | `n_splits=5`, `gap=0`, `train_size_max=null`, `test_size_max=null` |
 | `blocked_group_kfold` | `blocks={col, cutoffs, mode, train_window}`, `groups={col, n_splits, stratify, shuffle}`, `min_train_rows=10`, `min_valid_rows=5` |
 
@@ -95,7 +95,7 @@ Time-series notes:
 
 - `time_series`, `purged_time_series`, and `group_time_series` all sort rows by `data.time_col` in ascending order before fold generation.
 - `train_size_max` and `test_size_max` are shared across all three methods and cap training/validation window sizes.
-- `purged_time_series` uses `embargo` as the canonical key (`embargo_pct` is accepted only as a legacy alias during migration).
+- `purged_time_series` has one exclusion knob, `purge_gap`. The deprecated keys `embargo`, `embargo_pct` and `gap` are accepted until v1.0 and **added** to `purge_gap` with a `DeprecationWarning` (at most one of the three; H-0115).
 
 ### TimeSeries CV Guide (3 Methods)
 
@@ -105,16 +105,16 @@ Shared index-building rules:
 
 1. Sort rows by `data.time_col` in ascending order.
 2. Build each fold in chronological order (`train` always before `valid`).
-3. Apply method-specific exclusion (`gap` / `purge_gap` / `embargo`).
+3. Apply method-specific exclusion (`gap` / `purge_gap`).
 4. Apply `train_size_max` / `test_size_max` caps when configured.
 
 Quick comparison:
 
-| method | boundary key | extra exclusion key | group-safe split | typical use |
-|---|---|---|---|---|
-| `time_series` | `gap` | - | No | Standard forward CV |
-| `purged_time_series` | `purge_gap` | `embargo` | No | Leakage-sensitive time labels/features |
-| `group_time_series` | `gap` | - | Yes | Entity blocks + chronology |
+| method | boundary key | group-safe split | typical use |
+|---|---|---|---|
+| `time_series` | `gap` | No | Standard forward CV |
+| `purged_time_series` | `purge_gap` | No | Leakage-sensitive time labels (look-forward targets) |
+| `group_time_series` | `gap` | Yes | Entity blocks + chronology |
 
 #### 1) `time_series`
 
@@ -133,19 +133,18 @@ Fold k:
 
 #### 2) `purged_time_series`
 
-Use this when labels/features can leak across nearby timestamps and you need stronger exclusion.
+Use this when a label is built from a look-forward window, so the last training rows overlap the validation period.
 
 ```text
 time ---> older ........................................ newer
 
 Fold k:
-[      candidate train region      ][purge_gap][ valid ][embargo]
-         \____________ train kept _______________/   \__ excluded __/
+[        train kept        ][purge_gap][    valid    ]
+                (optional train_size_max / test_size_max caps)
 ```
 
-- `purge_gap` separates train and validation.
-- `embargo` additionally excludes rows adjacent to the validation window.
-- In migration periods, `embargo_pct` is normalized to `embargo`.
+- `purge_gap` removes the last training rows before validation.
+- Training is always entirely before validation, so there is no embargo after the validation block. The former `embargo` key subtracted at the same position as `purge_gap`; it is deprecated and its value is added to `purge_gap` (H-0115). `embargo_pct` and `gap` are older spellings of the same key.
 
 #### 3) `group_time_series`
 
@@ -569,7 +568,7 @@ Runtime notes:
 
 - Calibration is supported only for `task="binary"`.
 - `method="beta"` is supported (install optional dependency: `pip install 'lizyml[calibration]'`).
-- Calibration cross-fit reuses outer CV split indices directly (H-0058). The fold count and split boundaries (group / time / purge / embargo) are inherited from the outer CV configuration.
+- Calibration cross-fit reuses outer CV split indices directly (H-0058). The fold count and split boundaries (group / time / purge) are inherited from the outer CV configuration.
 
 ## Loader/Override Behavior
 

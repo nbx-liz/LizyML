@@ -148,16 +148,16 @@ class TestCalibrationLeakageRegression:
 
 
 class TestCalibrationSplitPurgedTimeSeries:
-    """purged_time_series: calibration respects purge_gap + embargo."""
+    """purged_time_series: calibration respects purge_gap (embargo merged, H-0115)."""
 
     def test_train_before_valid_with_gap(self) -> None:
-        purge_gap, embargo = 5, 3
+        purge_gap = 8
         cfg = make_config(
             "binary",
             n_splits=3,
             split_method="purged_time_series",
             time_col="ts",
-            split_overrides={"purge_gap": purge_gap, "embargo": embargo},
+            split_overrides={"purge_gap": purge_gap},
             calibration="platt",
         )
         df = make_binary_df(n=200, time_col="ts")

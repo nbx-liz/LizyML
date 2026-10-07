@@ -172,7 +172,7 @@ class TimeHoldoutInnerValid(BaseInnerValidStrategy):
         ratio: Fraction of rows to assign to validation (from the end).
         gap: Number of rows to purge between inner-train and inner-valid
             (H-0085 / #212). Propagated from the outer split's
-            ``purge_gap + embargo`` (``purged_time_series``) or ``gap``
+            ``purge_gap`` (``purged_time_series``) or ``gap``
             (``time_series``) so the early-stopping boundary gets the same
             look-ahead guard as the outer split. The purged rows belong to
             neither inner-train nor inner-valid.
@@ -198,7 +198,7 @@ class TimeHoldoutInnerValid(BaseInnerValidStrategy):
                 f"Inner validation would consume all {n_samples} sample(s) "
                 f"(n_valid={n_valid}, gap={self.gap}, ratio={self.ratio}). "
                 "Increase training data, decrease validation_ratio, "
-                "or reduce purge_gap/embargo."
+                "or reduce purge_gap / gap."
             )
         all_idx = np.arange(n_samples, dtype=np.intp)
         valid_idx = all_idx[-n_valid:]

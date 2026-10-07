@@ -232,26 +232,28 @@ class TestPurgedTimeSeriesSplitter:
         with pytest.raises(ValueError, match="purge_gap must be >= 0"):
             PurgedTimeSeriesSplitter(purge_gap=-1)
 
-    def test_embargo_shrinks_train(self) -> None:
-        folds_no_embargo = _collect(PurgedTimeSeriesSplitter(n_splits=5, embargo=0))
-        folds_embargo = _collect(PurgedTimeSeriesSplitter(n_splits=5, embargo=12))
-        for (t_no, _), (t_e, _) in zip(folds_no_embargo, folds_embargo, strict=False):
+    # The former embargo tests, rewritten to purge_gap: embargo was merged
+    # into purge_gap (H-0115); test_purged_embargo_merge.py covers the
+    # deprecated argument itself.
+    def test_larger_purge_gap_shrinks_train(self) -> None:
+        folds_small = _collect(PurgedTimeSeriesSplitter(n_splits=5, purge_gap=0))
+        folds_large = _collect(PurgedTimeSeriesSplitter(n_splits=5, purge_gap=12))
+        for (t_no, _), (t_e, _) in zip(folds_small, folds_large, strict=False):
             assert len(t_e) < len(t_no)
 
-    def test_embargo_gap_boundary(self) -> None:
+    def test_purge_gap_boundary(self) -> None:
         n = 120
-        purge_gap = 2
-        embargo = 6
-        sp = PurgedTimeSeriesSplitter(n_splits=5, purge_gap=purge_gap, embargo=embargo)
+        purge_gap = 8
+        sp = PurgedTimeSeriesSplitter(n_splits=5, purge_gap=purge_gap)
         for train, valid in sp.split(n):
             gap = valid.min() - train.max()
-            assert gap >= purge_gap + embargo
+            assert gap >= purge_gap
 
-    def test_embargo_no_leakage(self) -> None:
-        _no_leakage(_collect(PurgedTimeSeriesSplitter(n_splits=5, embargo=12)))
+    def test_large_purge_gap_no_leakage(self) -> None:
+        _no_leakage(_collect(PurgedTimeSeriesSplitter(n_splits=5, purge_gap=12)))
 
-    def test_large_embargo_skips_folds(self) -> None:
-        sp = PurgedTimeSeriesSplitter(n_splits=3, embargo=20)
+    def test_large_purge_gap_skips_folds(self) -> None:
+        sp = PurgedTimeSeriesSplitter(n_splits=3, purge_gap=20)
         folds = list(sp.split(40))
         assert len(folds) < 3
 

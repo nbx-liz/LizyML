@@ -147,7 +147,6 @@ def _build_splitter_for_method(
         return PurgedTimeSeriesSplitter(
             n_splits=n_splits,
             purge_gap=split_cfg.purge_gap,
-            embargo=split_cfg.embargo,
             max_train_size=split_cfg.train_size_max,
             max_test_size=split_cfg.test_size_max,
         )
@@ -261,14 +260,14 @@ def _auto_inner_gap(split_cfg: Any) -> int:
     """Look-ahead gap to purge at the inner-valid boundary (H-0085 / #212).
 
     Propagated from the outer split so the early-stopping split gets the same
-    guard: ``purge_gap + embargo`` for ``purged_time_series``, ``gap`` for
-    ``time_series``. Other methods contribute no inner gap.
+    guard: ``purge_gap`` for ``purged_time_series`` (which also holds any
+    deprecated ``embargo``, H-0115), ``gap`` for ``time_series``. Other
+    methods contribute no inner gap. The outer splitter reads the same
+    Config field, so the two gaps cannot differ.
     """
     method = getattr(split_cfg, "method", None)
     if method == "purged_time_series":
-        return int(getattr(split_cfg, "purge_gap", 0)) + int(
-            getattr(split_cfg, "embargo", 0)
-        )
+        return int(getattr(split_cfg, "purge_gap", 0))
     if method == "time_series":
         return int(getattr(split_cfg, "gap", 0))
     return 0

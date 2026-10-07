@@ -127,7 +127,11 @@ REGISTRY: dict[str, tuple[str, str]] = {
     "TimeSeriesSplitter.max_test_size": ("config", "split.test_size_max"),
     "PurgedTimeSeriesSplitter.n_splits": ("config", "split.n_splits"),
     "PurgedTimeSeriesSplitter.purge_gap": ("config", "split.purge_gap"),
-    "PurgedTimeSeriesSplitter.embargo": ("config", "split.embargo"),
+    "PurgedTimeSeriesSplitter.embargo": (
+        "api",
+        "PurgedTimeSeriesSplitter(embargo=...): deprecated, added to purge_gap"
+        " (H-0115); no Config key passes it",
+    ),
     "PurgedTimeSeriesSplitter.max_train_size": ("config", "split.train_size_max"),
     "PurgedTimeSeriesSplitter.max_test_size": ("config", "split.test_size_max"),
     "GroupTimeSeriesSplitter.n_splits": ("config", "split.n_splits"),
@@ -177,8 +181,8 @@ REGISTRY: dict[str, tuple[str, str]] = {
     ),
     "TimeHoldoutInnerValid.gap": (
         "config",
-        "resolved automatically: split.gap (time_series) or split.purge_gap +"
-        " split.embargo (purged_time_series); 0 for an explicit time_holdout"
+        "resolved automatically: split.gap (time_series) or split.purge_gap"
+        " (purged_time_series); 0 for an explicit time_holdout"
         " (H-0101) and on BlockedGroupInnerValid's regression fallback",
     ),
     "StratifiedTimeHoldoutInnerValid.ratio": (

@@ -63,7 +63,6 @@ def _build_split_metadata(cfg: Any) -> dict[str, Any]:
         block["test_size_max"] = sc.test_size_max
     elif isinstance(sc, PurgedTimeSeriesConfig):
         block["purge_gap"] = sc.purge_gap
-        block["embargo"] = sc.embargo
         block["train_size_max"] = sc.train_size_max
         block["test_size_max"] = sc.test_size_max
     elif isinstance(sc, StratifiedGroupKFoldConfig):

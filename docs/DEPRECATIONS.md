@@ -14,9 +14,11 @@ a removal-version suffix matching the pattern `Will be removed in v\d+\.\d+`.
 |---|---|---|---|
 | `EarlyStoppingConfig.validation_ratio` (input) | `inner_valid.ratio` | **v1.0** | H-0069 (2026-04, made `computed_field` in #111) |
 | `CalibrationConfig.n_splits` | (removed; outer split is reused) | **v1.0** | H-0058 (2026-04) |
-| `purged_time_series.purge_window` | `purge_gap` | **v1.0** | H-0021 |
-| `purged_time_series.embargo_pct` | `embargo` (int, observation count) | **v1.0** | H-0021 |
-| `purged_time_series.gap` | `embargo` | **v1.0** | H-0021 |
+| `purged_time_series.purge_window` | `purge_gap` | **v1.0** | H-0038 |
+| `purged_time_series.embargo` | `purge_gap` (the value is added to it) | **v1.0** | H-0115 (2026-10) |
+| `purged_time_series.embargo_pct` | `purge_gap` (int, observation count; added) | **v1.0** | H-0040 (target changed from `embargo` to `purge_gap` by H-0115) |
+| `purged_time_series.gap` | `purge_gap` (added) | **v1.0** | H-0038 (target changed from `embargo` to `purge_gap` by H-0115) |
+| `PurgedTimeSeriesSplitter(embargo=...)` | `purge_gap` (the value is added to it) | **v1.0** | H-0115 (2026-10) |
 | `lizyml.core._model_factories.build_calibration_splitter` | (removed; outer split is reused) | **v1.0** | H-0058 |
 | `LGBMConfig.params["objective"]` silently stripped (cross-task) | Raise `LizyMLError(CONFIG_INVALID)` at fit time | **already enforced** | H-0079 (2026-05) |
 | `ErrorCode.DATA_FINGERPRINT_MISMATCH` | (none -- nothing ever raised it; missing columns raise `DATA_SCHEMA_INVALID`, numeric columns arriving non-numeric raise `INCOMPATIBLE_COLUMNS`) | **removed** (breaking: code that references the member gets `AttributeError`) | H-0106 (2026-10) |
@@ -78,9 +80,26 @@ split:
 # After
 split:
   method: purged_time_series
-  purge_gap: 5
-  embargo: 10        # explicit observation count, not a fraction
+  purge_gap: 15      # 5 + 10: explicit observation counts, not a fraction
 ```
+
+### `purged_time_series.embargo` merged into `purge_gap` (H-0115)
+
+`embargo` subtracted at the same position as `purge_gap` (the end of each
+training block), so the two were one knob, and the splitter never places
+training rows after the validation block, where an embargo would act. Write
+the total in `purge_gap`: `{purge_gap: 5, embargo: 2}` becomes
+`{purge_gap: 7}`. The folds, the inner-validation gap and the calibration
+folds are unchanged for every input that fitted before, except
+`embargo: true` (formerly read as `1`), which is now refused. Until v1.0, `embargo` (and `embargo_pct` / `gap`) is
+accepted with a `DeprecationWarning`, even when `0`, and added to
+`purge_gap`; at most one of the three may be given.
+
+**Removal note for v1.0.** `metadata.json` of every `purged_time_series`
+artifact exported before H-0115 stores `embargo` (usually `0`) in its
+config, and `Model.load()` re-validates that config. When the key is
+removed, the load path must keep normalizing it into `purge_gap`, or those
+artifacts will be refused by `extra="forbid"`.
 
 ### `LGBMConfig.params["objective"]` cross-task injection (H-0079)
 

@@ -12,7 +12,10 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    ModelWrapValidatorHandler,
     PrivateAttr,
+    TypeAdapter,
+    ValidationError,
     computed_field,
     field_validator,
     model_validator,
@@ -123,14 +126,55 @@ def _legacy_obs_count(key: str, value: Any) -> int:
             f"purged_time_series '{key}' must be an integer observation count, "
             f"got {value!r}."
         ) from None
-    if as_float != int(as_float):
+    try:
+        as_int = int(as_float)
+    except OverflowError:
+        # ``float("1e400")`` is ``inf``; surface it as a config error instead of
+        # an uncaught OverflowError (H-0115).
+        raise ValueError(
+            f"purged_time_series '{key}' must be a finite integer observation "
+            f"count, got {value!r}."
+        ) from None
+    if as_float != as_int:
         raise ValueError(
             f"purged_time_series legacy '{key}'={value!r} is fractional; "
-            "'embargo' is an integer observation count, not a fraction. It must "
+            "the gap is an integer observation count, not a fraction. It must "
             "not silently truncate to 0. Compute the row count explicitly "
             "(e.g. int(round(fraction * n_rows)))."
         )
-    return int(as_float)
+    return as_int
+
+
+# The deprecated spellings of the second gap. ``embargo`` subtracted at the same
+# position as ``purge_gap``; all three are added to ``purge_gap`` (H-0115).
+_SECOND_GAP_KEYS = ("embargo", "embargo_pct", "gap")
+_INT = TypeAdapter(int)
+
+
+def _second_gap(key: str, value: Any) -> int:
+    """Read a deprecated second-gap value with that spelling's own coercion.
+
+    ``embargo`` keeps the pydantic ``int`` coercion its field had, except that a
+    bool is refused; ``embargo_pct`` / ``gap`` keep ``_legacy_obs_count``.
+    """
+    if key != "embargo":
+        count = _legacy_obs_count(key, value)
+    elif isinstance(value, bool):
+        raise ValueError(
+            f"purged_time_series 'embargo' must be an integer observation "
+            f"count, got {value!r}."
+        )
+    else:
+        try:
+            count = _INT.validate_python(value)
+        except ValidationError as exc:
+            raise ValueError(
+                f"purged_time_series 'embargo' must be an integer observation "
+                f"count, got {value!r}."
+            ) from exc
+    if count < 0:
+        raise ValueError(f"purged_time_series '{key}' must be >= 0, got {count}.")
+    return count
 
 
 class PurgedTimeSeriesConfig(BaseModel):
@@ -138,19 +182,24 @@ class PurgedTimeSeriesConfig(BaseModel):
 
     method: Literal["purged_time_series"]
     n_splits: int = 5
-    purge_gap: int = 0
-    embargo: int = 0
+    purge_gap: int = Field(default=0, ge=0)
     train_size_max: int | None = None
     test_size_max: int | None = None
 
-    @model_validator(mode="before")
+    @model_validator(mode="wrap")
     @classmethod
-    def _normalize_legacy_keys(cls, data: Any) -> Any:
-        """Accept legacy keys with deprecation warning."""
-        if not isinstance(data, dict):
-            return data
-        import warnings
+    def _merge_second_gap(
+        cls, data: Any, handler: ModelWrapValidatorHandler[PurgedTimeSeriesConfig]
+    ) -> PurgedTimeSeriesConfig:
+        """Accept legacy keys; add any second-gap spelling to ``purge_gap``.
 
+        ``purge_gap`` is validated by its own field first (an integer >= 0), the
+        second gap independently, and only then are they added, so a negative
+        value can never be hidden by the sum (H-0115).
+        """
+        if not isinstance(data, dict):
+            return handler(data)
+        data = dict(data)
         if "purge_window" in data and "purge_gap" not in data:
             warnings.warn(
                 "purged_time_series key 'purge_window' is deprecated; "
@@ -159,24 +208,31 @@ class PurgedTimeSeriesConfig(BaseModel):
                 stacklevel=2,
             )
             data["purge_gap"] = data.pop("purge_window")
-        if "embargo_pct" in data and "embargo" not in data:
+        given = [key for key in _SECOND_GAP_KEYS if key in data]
+        if len(given) > 1:
+            raise ValueError(
+                f"purged_time_series accepts at most one of {list(_SECOND_GAP_KEYS)} "
+                f"(deprecated spellings of one gap), got {given}. Put the total "
+                "in 'purge_gap'."
+            )
+        extra = 0
+        if given:
+            key = given[0]
             warnings.warn(
-                "purged_time_series key 'embargo_pct' is deprecated; "
-                "use 'embargo' (int, obs count) instead. "
+                f"purged_time_series key '{key}' is deprecated: it widened the "
+                "same gap between train and valid as 'purge_gap', and its value "
+                "is now added to 'purge_gap'. Put the total in 'purge_gap'. "
                 "Will be removed in v1.0.",
                 DeprecationWarning,
                 stacklevel=2,
             )
-            data["embargo"] = _legacy_obs_count("embargo_pct", data.pop("embargo_pct"))
-        if "gap" in data and "embargo" not in data:
-            warnings.warn(
-                "purged_time_series key 'gap' is deprecated; "
-                "use 'embargo' instead. Will be removed in v1.0.",
-                DeprecationWarning,
-                stacklevel=2,
-            )
-            data["embargo"] = _legacy_obs_count("gap", data.pop("gap"))
-        return data
+            extra = _second_gap(key, data.pop(key))
+        model = handler(data)
+        if not given:
+            return model
+        # Re-validate with the total so the result is built like any input
+        # that wrote it in 'purge_gap' (also in model_fields_set).
+        return handler({**data, "purge_gap": model.purge_gap + extra})
 
 
 class GroupTimeSeriesConfig(BaseModel):

@@ -209,7 +209,6 @@ _SCENARIOS: dict[str, Callable[[], object]] = {
             "method": "purged_time_series",
             "n_splits": 3,
             "purge_gap": 2,
-            "embargo": 1,
             "train_size_max": 100,
             "test_size_max": 30,
         },
@@ -245,7 +244,7 @@ _SCENARIOS: dict[str, Callable[[], object]] = {
     ),  # fmt: skip
     "purged_time_series_auto": _fit(
         "regression",
-        {"method": "purged_time_series", "n_splits": 3, "purge_gap": 2, "embargo": 1},
+        {"method": "purged_time_series", "n_splits": 3, "purge_gap": 3},
         training={"early_stopping": _ES_AUTO},
     ),
     # Three groups: every training fold has fewer than the four groups
@@ -406,7 +405,6 @@ _CELLS: dict[str, list[tuple[str, Any]]] = {
     "TimeSeriesSplitter.max_test_size": [("time_series", 30)],
     "PurgedTimeSeriesSplitter.n_splits": [("purged_time_series", 3)],
     "PurgedTimeSeriesSplitter.purge_gap": [("purged_time_series", 2)],
-    "PurgedTimeSeriesSplitter.embargo": [("purged_time_series", 1)],
     "PurgedTimeSeriesSplitter.max_train_size": [("purged_time_series", 100)],
     "PurgedTimeSeriesSplitter.max_test_size": [("purged_time_series", 30)],
     "GroupTimeSeriesSplitter.n_splits": [("group_time_series", 3)],
@@ -558,6 +556,15 @@ def test_api_rows_reach_the_constructor(tmp_path: Path) -> None:
     assert call["study_name"] == "knobs"
 
 
+def test_deprecated_splitter_embargo_reaches_the_splitter() -> None:
+    """The api row: only direct construction sets it, and it is added (H-0115)."""
+    from lizyml.splitters import PurgedTimeSeriesSplitter
+
+    with pytest.warns(DeprecationWarning, match="purge_gap"):
+        splitter = PurgedTimeSeriesSplitter(n_splits=3, purge_gap=2, embargo=1)
+    assert splitter.purge_gap == 3
+
+
 def _blueprint_rows() -> dict[str, str]:
     """The §5.5 table, read only from inside top-level section 5."""
     text = (_ROOT / "BLUEPRINT.md").read_text(encoding="utf-8")
@@ -577,6 +584,19 @@ def test_rows_outside_config_are_stated_in_blueprint() -> None:
     stated = _blueprint_rows()
     expected = {k: kind for k, (kind, _) in REGISTRY.items() if kind != "config"}
     assert stated == expected
+
+
+def test_blueprint_counts_match_the_registry() -> None:
+    """§5.5's prose counts follow the registry (H-0115 moved one row to api)."""
+    text = (_ROOT / "BLUEPRINT.md").read_text(encoding="utf-8")
+    start = text.index("\n## 5.5 ")
+    # Emphasis markers are styling, not part of the claim.
+    section = text[start : text.index("\n# ", start)].replace("**", "")
+    total = len(REGISTRY)
+    config = sum(1 for kind, _ in REGISTRY.values() if kind == "config")
+    assert f"（{total} 個、AST で数えた母集団）" in section
+    assert f"Config のキーの値がそのまま渡る {config} 個" in section
+    assert f"残りの {total - config} 個" in section
 
 
 def test_derived_class_counts_are_set_only_for_multiclass() -> None:

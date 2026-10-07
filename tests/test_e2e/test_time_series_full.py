@@ -74,7 +74,7 @@ class TestTimeSeriesOuterSplits:
         df = _make_time_regression_df()
         overrides = {}
         if split_method == "purged_time_series":
-            overrides = {"purge_gap": 2, "embargo": 1}
+            overrides = {"purge_gap": 3}
         cfg = make_config(
             "regression",
             split_method=split_method,
@@ -100,7 +100,7 @@ class TestTimeSeriesOuterSplits:
             split_method="purged_time_series",
             n_splits=3,
             time_col="time",
-            split_overrides={"purge_gap": purge_gap, "embargo": 0},
+            split_overrides={"purge_gap": purge_gap},
         )
         m = Model(cfg)
         result = m.fit(data=df)
@@ -182,13 +182,15 @@ class TestTimeSeriesCalibrationSplitter:
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
+            warnings.simplefilter("ignore", DeprecationWarning)
             cfg = load_config(cfg_dict)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
             splitter = build_calibration_splitter(cfg)
         assert isinstance(splitter, PurgedTimeSeriesSplitter)
-        assert splitter.purge_gap == 10
-        assert splitter.embargo == 5
+        # The deprecated embargo is merged into purge_gap (H-0115).
+        assert splitter.purge_gap == 15
+        assert not hasattr(splitter, "embargo")
 
 
 # ===========================================================================
