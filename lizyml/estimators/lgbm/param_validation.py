@@ -8,10 +8,15 @@ from lizyml.estimators.lgbm.defaults import TASK_COMPATIBLE_OBJECTIVES
 from lizyml.estimators.lgbm.metric_bridge import resolve_metrics
 
 
-def check_objective_compatible(task: str, objective: str) -> None:
-    """Reject an objective incompatible with the task."""
+def check_objective_compatible(task: str, objective: Any) -> None:
+    """Reject an objective incompatible with the task.
+
+    Every accepted objective is a string, so any other value is refused before
+    the membership test: a dict or list there raised a raw ``TypeError``
+    (unhashable) instead of ``CONFIG_INVALID`` (H-0116).
+    """
     valid = TASK_COMPATIBLE_OBJECTIVES.get(task, frozenset())
-    if objective not in valid:
+    if not isinstance(objective, str) or objective not in valid:
         raise LizyMLError(
             code=ErrorCode.CONFIG_INVALID,
             user_message=(

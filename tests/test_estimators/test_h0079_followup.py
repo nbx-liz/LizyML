@@ -198,13 +198,36 @@ class TestG3ObjectiveCompatibilityEdgeInputs:
         from lizyml.estimators.lgbm.adapter import LGBMAdapter
 
         adapter = LGBMAdapter(task="regression", params={"objective": {"huber": {}}})
-        with pytest.raises((LizyMLError, TypeError)) as excinfo:
+        # CONFIG_INVALID only (H-0116, #270). The test used to accept a
+        # TypeError as well, which is the cryptic error this class exists to
+        # rule out, so it passed while the unhashable value escaped raw.
+        with pytest.raises(LizyMLError) as excinfo:
             adapter._build_params()
-        # Either raises CONFIG_INVALID (clean) or TypeError (acceptable
-        # — non-hashable dict cannot be in a frozenset). The contract
-        # is "do not silently use the wrong objective".
-        if isinstance(excinfo.value, LizyMLError):
-            assert excinfo.value.code.name == "CONFIG_INVALID"
+        assert excinfo.value.code.name == "CONFIG_INVALID"
+        assert excinfo.value.context["objective"] == {"huber": {}}
+
+    @pytest.mark.parametrize("objective", [{"huber": {}}, ["huber"], {"huber"}])
+    @pytest.mark.parametrize("surface", ["config", "fit_params"])
+    def test_unhashable_objective_through_model_fit_is_config_invalid(
+        self, objective: object, surface: str
+    ) -> None:
+        """The shipped path: ``Model.fit`` refuses it before training (H-0116)."""
+        from lizyml import Model
+        from tests._helpers import make_config, make_regression_df
+        from tests._train_spy import record_lightgbm_calls
+
+        if surface == "config":
+            model = Model(make_config("regression", objective=objective))
+            fit_params = None
+        else:
+            model = Model(make_config("regression"))
+            fit_params = {"objective": objective}
+
+        with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as excinfo:
+            model.fit(data=make_regression_df(n=80), params=fit_params)
+        assert excinfo.value.code.name == "CONFIG_INVALID"
+        assert "objective" in excinfo.value.user_message
+        assert not seen["train_params"]
 
     def test_non_string_int_objective_raises(self) -> None:
         from lizyml.estimators.lgbm.adapter import LGBMAdapter
