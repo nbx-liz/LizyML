@@ -167,8 +167,7 @@ class TestSplitReproduction:
             "split": {
                 "method": "purged_time_series",
                 "n_splits": 3,
-                "purge_gap": 3,
-                "embargo": 2,
+                "purge_gap": 5,
             },
             "model": {"name": "lgbm", "params": {"n_estimators": 5}},
             "training": {"seed": 3},

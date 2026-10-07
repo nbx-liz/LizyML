@@ -209,7 +209,6 @@ _SCENARIOS: dict[str, Callable[[], object]] = {
             "method": "purged_time_series",
             "n_splits": 3,
             "purge_gap": 2,
-            "embargo": 1,
             "train_size_max": 100,
             "test_size_max": 30,
         },
@@ -245,7 +244,7 @@ _SCENARIOS: dict[str, Callable[[], object]] = {
     ),  # fmt: skip
     "purged_time_series_auto": _fit(
         "regression",
-        {"method": "purged_time_series", "n_splits": 3, "purge_gap": 2, "embargo": 1},
+        {"method": "purged_time_series", "n_splits": 3, "purge_gap": 3},
         training={"early_stopping": _ES_AUTO},
     ),
     # Three groups: every training fold has fewer than the four groups
@@ -406,7 +405,6 @@ _CELLS: dict[str, list[tuple[str, Any]]] = {
     "TimeSeriesSplitter.max_test_size": [("time_series", 30)],
     "PurgedTimeSeriesSplitter.n_splits": [("purged_time_series", 3)],
     "PurgedTimeSeriesSplitter.purge_gap": [("purged_time_series", 2)],
-    "PurgedTimeSeriesSplitter.embargo": [("purged_time_series", 1)],
     "PurgedTimeSeriesSplitter.max_train_size": [("purged_time_series", 100)],
     "PurgedTimeSeriesSplitter.max_test_size": [("purged_time_series", 30)],
     "GroupTimeSeriesSplitter.n_splits": [("group_time_series", 3)],
@@ -556,6 +554,15 @@ def test_api_rows_reach_the_constructor(tmp_path: Path) -> None:
     assert call["progress_callback"] is _callback
     assert call["storage"] == storage
     assert call["study_name"] == "knobs"
+
+
+def test_deprecated_splitter_embargo_reaches_the_splitter() -> None:
+    """The api row: only direct construction sets it, and it is added (H-0115)."""
+    from lizyml.splitters import PurgedTimeSeriesSplitter
+
+    with pytest.warns(DeprecationWarning, match="purge_gap"):
+        splitter = PurgedTimeSeriesSplitter(n_splits=3, purge_gap=2, embargo=1)
+    assert splitter.purge_gap == 3
 
 
 def _blueprint_rows() -> dict[str, str]:

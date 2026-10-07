@@ -1,13 +1,15 @@
-"""purge_gap / embargo propagation into the auto-resolved inner valid (#212).
+"""purge_gap propagation into the auto-resolved inner valid (#212).
 
-H-0085 decision (b): ``purge_gap`` + ``embargo`` (and ``gap`` for
-``time_series``) propagate into the auto-resolved inner-valid split so the
+H-0085 decision (b): ``purge_gap`` (and ``gap`` for ``time_series``)
+propagates into the auto-resolved inner-valid split so the
 early-stopping boundary gets the same look-ahead guard as the outer split.
 Previously ``TimeHoldoutInnerValid`` placed inner-valid directly adjacent to
 inner-train (zero gap), leaking look-ahead-constructed targets at the boundary
 and biasing ``best_iteration`` for every fold.
 
 These tests fail closed on a regression to the zero-gap inner boundary.
+H-0115 merged the deprecated ``embargo`` into ``purge_gap``, so the
+propagated gap is ``purge_gap`` alone and still includes any ``embargo``.
 """
 
 from __future__ import annotations
@@ -62,12 +64,22 @@ class TestAutoResolvePropagatesGap:
         }
         return load_config(raw)
 
-    def test_purged_time_series_propagates_purge_gap_plus_embargo(self) -> None:
-        cfg = self._cfg({"method": "purged_time_series", "purge_gap": 3, "embargo": 2})
+    def test_purged_time_series_propagates_purge_gap(self) -> None:
+        cfg = self._cfg({"method": "purged_time_series", "purge_gap": 5})
         iv = build_inner_valid(cfg)
         assert isinstance(iv, TimeHoldoutInnerValid)
         train_idx, valid_idx = iv.split(100)
-        assert _gap_between(train_idx, valid_idx) == 5  # 3 + 2
+        assert _gap_between(train_idx, valid_idx) == 5
+
+    def test_deprecated_embargo_is_propagated_inside_purge_gap(self) -> None:
+        with pytest.warns(DeprecationWarning, match="purge_gap"):
+            cfg = self._cfg(
+                {"method": "purged_time_series", "purge_gap": 3, "embargo": 2}
+            )
+        iv = build_inner_valid(cfg)
+        assert isinstance(iv, TimeHoldoutInnerValid)
+        train_idx, valid_idx = iv.split(100)
+        assert _gap_between(train_idx, valid_idx) == 5  # 3 + 2, merged (H-0115)
 
     def test_time_series_propagates_gap(self) -> None:
         cfg = self._cfg({"method": "time_series", "gap": 4})
@@ -111,7 +123,7 @@ class TestExplicitInnerValidDoesNotInheritGap:
         return load_config(raw)
 
     #: One outer configuration whose auto-resolved inner gap is non-zero.
-    SPLIT = {"method": "purged_time_series", "purge_gap": 3, "embargo": 2}
+    SPLIT = {"method": "purged_time_series", "purge_gap": 5}
 
     def test_explicit_time_holdout_gets_no_gap(self) -> None:
         cfg = self._cfg(self.SPLIT, {"method": "time_holdout", "ratio": 0.1})
@@ -128,7 +140,7 @@ class TestExplicitInnerValidDoesNotInheritGap:
         )
         assert isinstance(auto, TimeHoldoutInnerValid)
         assert isinstance(explicit, TimeHoldoutInnerValid)
-        assert auto.gap == 5  # purge_gap 3 + embargo 2
+        assert auto.gap == 5
         assert explicit.gap == 0
 
     def test_gap_is_not_a_config_field(self) -> None:

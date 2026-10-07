@@ -73,7 +73,7 @@ class TestLegacyEmbargoFractional:
         raw = _base({"method": "purged_time_series", "embargo_pct": 3})
         with pytest.warns(DeprecationWarning):
             cfg = load_config(raw)
-        assert cfg.split.embargo == 3
+        assert cfg.split.purge_gap == 3  # added to purge_gap (H-0115)
 
     def test_fractional_legacy_gap_rejected(self) -> None:
         raw = _base({"method": "purged_time_series", "gap": 1.5})
