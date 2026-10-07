@@ -17,6 +17,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from lizyml.config.schema import LizyMLConfig
 from lizyml.core._model_factories import build_splitter
@@ -179,6 +180,45 @@ class TestSplitReproduction:
             cfg, df, y, time_col="t", group_col=None, blocks_col=None
         )
         _assert_folds_equal(gen, gt, "purged_time_series")
+
+    def test_purged_time_series_with_deprecated_embargo(self, tmp_path: Path) -> None:
+        """H-0115: generated folds use the merged total, purge_gap 3 + embargo 2."""
+        df = _make_df(100, time=True, seed=2)
+        base = {
+            "config_version": 1,
+            "task": "binary",
+            "data": {"target": "target", "time_col": "t"},
+            "model": {"name": "lgbm", "params": {"n_estimators": 5}},
+            "training": {"seed": 3},
+        }
+        legacy = {
+            **base,
+            "split": {
+                "method": "purged_time_series",
+                "n_splits": 3,
+                "purge_gap": 3,
+                "embargo": 2,
+            },
+        }
+        with pytest.warns(DeprecationWarning, match="purge_gap"):
+            mod, cfg = _export_and_resolve(tmp_path, legacy, df, "purged_legacy")
+        merged = LizyMLConfig(
+            **{
+                **base,
+                "split": {
+                    "method": "purged_time_series",
+                    "n_splits": 3,
+                    "purge_gap": 5,
+                },
+            }
+        )
+        y = df["target"].to_numpy()
+        gen = mod._resolve_folds(df, y)
+        gt = _ground_truth_folds(
+            merged, df, y, time_col="t", group_col=None, blocks_col=None
+        )
+        assert cfg.split.purge_gap == 5  # type: ignore[union-attr]
+        _assert_folds_equal(gen, gt, "purged_time_series (embargo merged)")
 
     def test_group_time_series(self, tmp_path: Path) -> None:
         df = _make_df(120, time=True, group=8, seed=4)
