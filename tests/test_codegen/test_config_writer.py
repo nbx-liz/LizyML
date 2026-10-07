@@ -203,8 +203,13 @@ class TestBuildConfig:
         # lgbm before calibration
         assert keys.index("lgbm_params") < keys.index("calibration_method")
 
-    def test_multiclass_keeps_calibration_keys_as_none(self) -> None:
-        """Multiclass should still include calibration keys (as None)."""
+    def test_multiclass_keeps_both_calibration_keys(self) -> None:
+        """Multiclass still writes both calibration keys, with the values given.
+
+        ``calibration_method`` is None (calibration is binary only) and
+        ``calibration_n_splits`` keeps the value passed in; neither key is
+        dropped from the config.
+        """
         cfg = build_config(
             run_meta=_make_run_meta(task="multiclass"),
             feature_names=["x"],

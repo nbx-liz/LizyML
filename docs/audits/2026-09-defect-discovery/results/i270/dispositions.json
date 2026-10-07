@@ -572,7 +572,7 @@
   "evidence": "tests/test_core/test_train_components.py:102",
   "final": "OVERCLAIM",
   "action": "rename",
-  "repaired_at": "tests/test_core/test_train_components.py::TestMergeParams::test_merge_override_outranks_tune_best; boundary: tests/test_core/test_fit_params_override.py::test_fit_params_outrank_the_tuning_result"
+  "repaired_at": "tests/test_core/test_train_components.py::TestMergeParams::test_merge_override_outranks_tune_best; boundary: tests/test_core/test_fit_params_override.py::test_fit_params_outrank_the_tuning_result[binary,regression]"
  },
  {
   "test": "tests/test_data/test_data_layer.py::TestValidators::test_clean_group_split_passes",
@@ -1236,7 +1236,7 @@
   "evidence": "tests/test_codegen/test_config_writer.py:206",
   "final": "WEAK",
   "action": "rename",
-  "repaired_at": "tests/test_codegen/test_config_writer.py::TestBuildConfig::test_multiclass_keeps_calibration_keys_as_none"
+  "repaired_at": "tests/test_codegen/test_config_writer.py::TestBuildConfig::test_multiclass_keeps_both_calibration_keys"
  },
  {
   "test": "tests/test_codegen/test_export_params.py::TestPlattExportParams::test_export_params_returns_correct_keys",

@@ -43,7 +43,12 @@ from lizyml.estimators.lgbm.smart_params import (
     resolve_ratio_params,
     resolve_smart_params,
 )
-from tests._helpers import make_binary_df, make_config, make_multiclass_df
+from tests._helpers import (
+    make_binary_df,
+    make_config,
+    make_multiclass_df,
+    make_regression_df,
+)
 from tests._train_spy import record_lightgbm_calls
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
@@ -121,22 +126,33 @@ def test_the_override_reaches_lgb_train_itself() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_fit_params_outrank_the_tuning_result() -> None:
+@pytest.mark.parametrize(
+    ("task", "make_df", "metric_name", "direction"),
+    [
+        ("binary", make_binary_df, "auc", "maximize"),
+        ("regression", make_regression_df, "rmse", "minimize"),
+    ],
+    ids=["binary", "regression"],
+)
+def test_fit_params_outrank_the_tuning_result(
+    task: str, make_df: Any, metric_name: str, direction: str
+) -> None:
     """``fit(params=)`` is documented as the highest priority. Execute that.
 
     A tuned model whose user re-fits with an explicit override must get the
     override, not the tuned value. This is the one ordering claim that cannot
-    be read off the config.
+    be read off the config. Regression is covered too: it is the task
+    ``TestMergeParams`` in ``test_train_components.py`` cites this test for.
     """
-    cfg = make_config("binary", n_estimators=5, n_splits=2, learning_rate=CONFIG_VALUE)
-    model = Model(cfg, data=make_binary_df(n=120))
+    cfg = make_config(task, n_estimators=5, n_splits=2, learning_rate=CONFIG_VALUE)
+    model = Model(cfg, data=make_df(n=120))
     model._tuning_result = TuningResult(
         best_model_params={OVERRIDDEN: 0.25},
         best_smart_params={},
         best_training_params={},
         best_score=0.0,
-        metric_name="auc",
-        direction="maximize",
+        metric_name=metric_name,
+        direction=direction,
         trials=(),
         rounds=(),
     )
