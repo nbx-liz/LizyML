@@ -246,6 +246,31 @@ class TestG3ObjectiveCompatibilityEdgeInputs:
         # Default for regression
         assert params["objective"] == "huber"
 
+    @pytest.mark.parametrize("surface", ["config", "fit_params"])
+    def test_none_objective_through_model_fit_trains_on_the_default(
+        self, surface: str
+    ) -> None:
+        """None is the one non-string value H-0116 does not refuse.
+
+        Both ``Model.fit`` surfaces treat it as "no override", so
+        ``lgb.train`` receives the task default.
+        """
+        from lizyml import Model
+        from tests._helpers import make_config, make_regression_df
+        from tests._train_spy import record_lightgbm_calls
+
+        if surface == "config":
+            model = Model(make_config("regression", n_estimators=5, objective=None))
+            fit_params = None
+        else:
+            model = Model(make_config("regression", n_estimators=5))
+            fit_params = {"objective": None}
+
+        with record_lightgbm_calls() as seen:
+            model.fit(data=make_regression_df(n=80), params=fit_params)
+        assert seen["train_params"], "no lgb.train call was recorded"
+        assert {call["objective"] for call in seen["train_params"]} == {"huber"}
+
 
 # ---------------------------------------------------------------------------
 # G4 — Calibration on top of non-default binary objective

@@ -11197,7 +11197,7 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 - **BLUEPRINT の引用の固定**: Phase 3 の fold map（`test_pr9_fold_map_check.py`）は §5 の「`gap` → `embargo`（H-0038 は `embargo_pct` に写すと決めたが」を、H-0085 の disposition は「`purge_gap + embargo`」を、それぞれ BLUEPRINT の文として固定している。過去の監査記録は書き換えず、BLUEPRINT ではそれらを H-0115 より前の規則として残した（§5 の旧キーの規則、§10.3.1）。
 - **`PurgedTimeSeriesConfig` の検証**: `mode="wrap"` の validator で、`purge_gap` を含む残りのフィールドを先に検証してから、合計を `purge_gap` に入れて検証し直す（結果は `purge_gap` を直接書いた入力と同じ作り方になり、`model_fields_set` にも入る）。
 
-## H-0116: 文字列でない `objective` を `CONFIG_INVALID` で拒否する（#270）
+## H-0116: `None` 以外の文字列でない `objective` を `CONFIG_INVALID` で拒否する（#270）
 
 - **ステータス**: Accepted
 - **起票日**: 2026-10-07
@@ -11213,7 +11213,7 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 
 ### 対応方針（決定）
 
-1. **`check_objective_compatible` は、文字列でない値を包含の検査より前に `CONFIG_INVALID` で拒否する。** 受理される objective はすべて文字列なので、文字列でない値はどれも互換ではない。`user_message` と `context`（`task` / `objective` / `valid_objectives`）は task 非互換のときと同じ形にする。
+1. **`check_objective_compatible` は、文字列でない値を包含の検査より前に `CONFIG_INVALID` で拒否する。** 受理される objective はすべて文字列なので、文字列でない値はどれも互換ではない。ただし明示の `None` は今日どおり「上書きなし」で、拒否しない: 2 つの呼び出し元（`_model_factories.py` の `check_param_values` と `adapter.py` の `_build_params`）は `None` をこの検査に渡さず、task の既定の objective で学習する。`user_message` と `context`（`task` / `objective` / `valid_objectives`）は task 非互換のときと同じ形にする。
 2. 呼び出し元は変えない。facade（`check_param_values`）は今日どおり `CONFIG_INVALID` に入力の層の名前を付けて送出し直す。
 
 ### 規則が縛る位置（ソースから導出）
@@ -11228,7 +11228,7 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 
 ### 互換性
 
-- **振る舞いの変化**: dict / list などハッシュできない `objective` は、`TypeError` だったところで `CONFIG_INVALID` になる。ハッシュできる文字列でない値（`42` など）は今日も `CONFIG_INVALID` で、変わらない。文字列の値の振る舞いは変わらない。
+- **振る舞いの変化**: dict / list などハッシュできない `objective` は、`TypeError` だったところで `CONFIG_INVALID` になる。ハッシュできる文字列でない値（`42` など）は今日も `CONFIG_INVALID` で、変わらない。文字列の値の振る舞いは変わらない。明示の `None` は今日どおり「上書きなし」（task の既定）で、変わらない。
 - どちらの場合も学習の前に止まる（今日の `TypeError` も学習の前）。学習できていた入力で拒否されるものは無い。
 - **Firing rate**: 本提案の条件は入力の検証であり、Change Gate の 6 つの目的のどれでもない。
 - `format_version` / Config のスキーマ / 公開 API のシグネチャは変わらない。
@@ -11245,3 +11245,4 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 2. `Model.fit` の `model.params` と `fit(params=)` の両方で、dict と list の `objective` は `CONFIG_INVALID` で、`lgb.train` は一度も呼ばれない。修正前は dict / list で RED。set は Python が包含の検査で frozenset に変えるので修正前から `CONFIG_INVALID`（同じテストで固定）。
 3. 既存の `objective` のテスト（`test_h0079_followup.py`、`tests/test_estimators/`）が緑のまま。
 4. BLUEPRINT §14.2 が文字列でない値の扱いを書き、`tests/test_docs/` が緑のまま（H-0116 の処分の行を含む）。
+5. 明示の `None` は拒否されない: `model.params` と `fit(params=)` の両方で `lgb.train` は task の既定の objective を受け取る（`test_none_objective_through_model_fit_trains_on_the_default`）。adapter を直接作る経路は `test_none_objective_falls_back_to_default` が固定する。

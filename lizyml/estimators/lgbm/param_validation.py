@@ -13,7 +13,8 @@ def check_objective_compatible(task: str, objective: Any) -> None:
 
     Every accepted objective is a string, so any other value is refused before
     the membership test: a dict or list there raised a raw ``TypeError``
-    (unhashable) instead of ``CONFIG_INVALID`` (H-0116).
+    (unhashable) instead of ``CONFIG_INVALID`` (H-0116). ``None`` never
+    reaches here: both callers treat it as "no override" and skip the check.
     """
     valid = TASK_COMPATIBLE_OBJECTIVES.get(task, frozenset())
     if not isinstance(objective, str) or objective not in valid:
