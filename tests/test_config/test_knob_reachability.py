@@ -586,6 +586,18 @@ def test_rows_outside_config_are_stated_in_blueprint() -> None:
     assert stated == expected
 
 
+def test_blueprint_counts_match_the_registry() -> None:
+    """§5.5's prose counts follow the registry (H-0115 moved one row to api)."""
+    text = (_ROOT / "BLUEPRINT.md").read_text(encoding="utf-8")
+    start = text.index("\n## 5.5 ")
+    section = text[start : text.index("\n# ", start)]
+    total = len(REGISTRY)
+    config = sum(1 for kind, _ in REGISTRY.values() if kind == "config")
+    assert f"（{total} 個、AST で数えた母集団）" in section
+    assert f"**Config のキーの値がそのまま渡る {config} 個**" in section
+    assert f"残りの {total - config} 個" in section
+
+
 def test_derived_class_counts_are_set_only_for_multiclass() -> None:
     for task, want in (("regression", None), ("binary", None), ("multiclass", 3)):
         df = _frame("regression" if task == "regression" else "binary")

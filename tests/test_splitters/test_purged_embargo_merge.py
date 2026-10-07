@@ -2,7 +2,9 @@
 
 The splitter subtracted ``purge_gap`` and ``embargo`` at the same position, so
 the two were one knob. ``embargo`` is now a deprecated spelling whose value is
-added to ``purge_gap``; the excluded rows do not change for any input.
+added to ``purge_gap``; the excluded rows do not change for any input that
+fitted before, except ``embargo: true`` (formerly read as ``1``), which is now
+refused.
 """
 
 from __future__ import annotations
