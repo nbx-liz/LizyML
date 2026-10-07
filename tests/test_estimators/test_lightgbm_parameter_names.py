@@ -296,19 +296,33 @@ def test_export_code_refuses_a_name_the_generated_script_would_discard(
     assert "not_a_lightgbm_parameter" in str(exc.value)
 
 
-def test_loading_an_artifact_is_not_blocked_by_the_gate() -> None:
+def test_loading_an_artifact_is_not_blocked_by_the_gate(tmp_path: pathlib.Path) -> None:
     """A saved artifact must still load even if its config carries a bad name.
 
     An artifact records a fit that happened. Refusing to read one back because
     it names a parameter LightGBM ignored helps nobody, and would break every
     artifact written before this gate existed (H-0093 decision 4). Training
     from it is a different matter and is refused above.
+
+    The artifact is a real export whose recorded config is then given the bad
+    name, standing in for one written before the gate; ``Model.load`` and a
+    prediction from the loaded model must both succeed (#270).
     """
-    cfg = load_config(make_config("regression", n_estimators=5, n_splits=2))
-    cfg.model.params["not_a_lightgbm_parameter"] = 123
-    # Construction is the operation `Model.load()` performs to rebuild the
-    # instance; it must not raise.
-    Model(cfg, data=make_regression_df(n=120))
+    df = make_regression_df(n=120)
+    model = Model(make_config("regression", n_estimators=5, n_splits=2))
+    model.fit(data=df)
+    expected = model.predict(df.drop(columns=["target"])).pred
+    path = model.export(tmp_path / "artifact")
+
+    meta_path = path / "metadata.json"
+    metadata = json.loads(meta_path.read_text(encoding="utf-8"))
+    metadata["config"]["model"]["params"]["not_a_lightgbm_parameter"] = 123
+    meta_path.write_text(json.dumps(metadata), encoding="utf-8")
+
+    loaded = Model.load(path)
+    assert loaded._cfg.model.params["not_a_lightgbm_parameter"] == 123
+    restored = loaded.predict(df.drop(columns=["target"])).pred
+    assert restored.tolist() == expected.tolist()
 
 
 # --------------------------------------------------------------------------

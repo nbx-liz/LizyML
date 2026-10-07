@@ -996,6 +996,70 @@ def test_every_calibration_alias_is_canonical_before_the_defaults_merge() -> Non
         )
 
 
+#: A legal value for each calibrator default that differs from the default
+#: where the calibrator lets it (the forced ones keep their forced value).
+_CALIBRATION_ALIAS_VALUES: dict[str, Any] = {
+    "objective": "binary",
+    "metric": "auc",
+    "monotone_constraints": [1],
+    "monotone_constraints_method": "basic",
+    "num_leaves": 5,
+    "max_depth": 2,
+    "learning_rate": 0.07,
+    "lambda_l2": 3.0,
+    "min_gain_to_split": 0.001,
+    "feature_fraction": 0.9,
+    "bagging_fraction": 0.8,
+    "bagging_freq": 1,
+}
+
+
+def test_every_calibration_default_written_as_an_alias_reaches_training() -> None:
+    """The quantified property above, at ``lgb.train`` (#270).
+
+    The test above checks every spelling of every default against the
+    canonicaliser; the boundary test before it trains with ``learning_rate``
+    only. This one writes **every** default the calibrator carries under an
+    alias, in one ``fit``, and reads the calibrator Boosters' params: each must
+    arrive once, under its canonical name, with the written value.
+    """
+    from lizyml.calibration.isotonic import (
+        _ISOTONIC_DEFAULTS,
+        CALIBRATOR_OWN_PARAM_NAMES,
+    )
+
+    canonical = LGBMProvider().canonical_param_names(_ISOTONIC_DEFAULTS)
+    written: dict[str, Any] = {}
+    expected: dict[str, Any] = {}
+    for default_name in _ISOTONIC_DEFAULTS:
+        if default_name in CALIBRATOR_OWN_PARAM_NAMES:
+            continue
+        name = canonical[default_name]
+        aliases = sorted(accepted_spellings(name) - {name})
+        if not aliases:
+            continue
+        written[aliases[0]] = _CALIBRATION_ALIAS_VALUES[name]
+        expected[name] = _CALIBRATION_ALIAS_VALUES[name]
+    assert len(expected) >= 8, f"the alias population collapsed: {sorted(expected)}"
+
+    cfg = make_config("binary", n_estimators=3, n_splits=2, num_threads=1)
+    cfg["calibration"] = {"method": "isotonic", "params": written}
+    with record_lightgbm_calls() as seen:
+        Model(cfg, data=make_binary_df(n=160)).fit()
+
+    calibrator_calls = [
+        call for call in seen["train_params"] if call.get("monotone_constraints") == [1]
+    ]
+    assert calibrator_calls, "no calibrator Booster was trained"
+    for call in calibrator_calls:
+        for name, value in expected.items():
+            present = sorted(s for s in accepted_spellings(name) if s in call)
+            assert present == [name], f"{name} reached lgb.train as {present}"
+            assert call[name] == value, (
+                f"{name}: trained {call[name]!r}, wrote {value!r}"
+            )
+
+
 def test_no_smart_parameter_name_has_an_estimator_alias() -> None:
     """Why the smart layer is merged by spelling and needs no identity overlay.
 
@@ -3274,6 +3338,15 @@ def test_a_hostile_value_is_refused_beside_a_second_spelling_too(
     assert excinfo.value.code is ErrorCode.CONFIG_INVALID
     assert "learning_rate" in excinfo.value.user_message
     assert not seen["train_params"]
+    # Which gate refused (#270): the duplicate-spelling gate refuses any pair,
+    # so the assertions above would hold if it were the one that fired. The
+    # value gate reports ``rejected``; the duplicate gate reports ``conflicts``.
+    assert "rejected" in excinfo.value.context
+    assert "conflicts" not in excinfo.value.context
+
+    with pytest.raises(LizyMLError) as control:
+        model.fit(params={"learning_rate": 0.3, "eta": 0.5})
+    assert "conflicts" in control.value.context
 
 
 def test_closing_the_domain_did_not_close_it_on_the_values_callers_write() -> None:

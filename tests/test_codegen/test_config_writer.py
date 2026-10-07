@@ -203,7 +203,7 @@ class TestBuildConfig:
         # lgbm before calibration
         assert keys.index("lgbm_params") < keys.index("calibration_method")
 
-    def test_multiclass_no_calibration_fields(self) -> None:
+    def test_multiclass_keeps_calibration_keys_as_none(self) -> None:
         """Multiclass should still include calibration keys (as None)."""
         cfg = build_config(
             run_meta=_make_run_meta(task="multiclass"),

@@ -135,6 +135,17 @@ When specifications conflict, priority is:
 - **Contract tests** for public API / Config / Result shape changes
 - **Leak detection tests** for split / calibration changes (must include "should-fail" cases)
 - **Reproducibility tests** with seed pinning for new features
+- **A test named for an effect asserts it where it happens** (#270). If the name or
+  docstring claims that training changes, a parameter reaches the Booster, a public
+  `Model` method behaves a certain way, or an export loads back, observe that: the
+  params `lgb.train` received (`tests/_train_spy.py`), the trained Booster, or what
+  `Model.fit` / `predict` / `load` returned. A test of a helper is named for the helper
+  and points at the boundary test in its docstring. A refusal test checks which gate
+  refused when its input would trip another one too, and no assertion sits inside an
+  `if` that skips it when the thing claimed is missing. To check a test, break the code
+  it claims to cover and see it fail;
+  `docs/audits/2026-09-defect-discovery/instruments/kill_producers.py` does that for
+  `lgb.train`, `Model`'s public methods, metrics and splitters (`LIZYML_KILL=...`).
 
 ## Language Convention
 
