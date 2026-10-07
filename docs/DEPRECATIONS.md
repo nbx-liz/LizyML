@@ -90,7 +90,8 @@ training block), so the two were one knob, and the splitter never places
 training rows after the validation block, where an embargo would act. Write
 the total in `purge_gap`: `{purge_gap: 5, embargo: 2}` becomes
 `{purge_gap: 7}`. The folds, the inner-validation gap and the calibration
-folds are unchanged. Until v1.0, `embargo` (and `embargo_pct` / `gap`) is
+folds are unchanged for every input that fitted before, except
+`embargo: true` (formerly read as `1`), which is now refused. Until v1.0, `embargo` (and `embargo_pct` / `gap`) is
 accepted with a `DeprecationWarning`, even when `0`, and added to
 `purge_gap`; at most one of the three may be given.
 

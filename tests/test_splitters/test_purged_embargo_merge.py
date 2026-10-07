@@ -164,6 +164,11 @@ def test_two_spellings_of_the_second_gap_are_refused(spellings: dict[str, int]) 
     "split",
     [
         {"embargo": True},
+        {"embargo_pct": True},
+        {"gap": True},
+        {"purge_gap": 5, "embargo": -1},
+        {"purge_gap": 5, "embargo_pct": -1},
+        {"purge_gap": 5, "gap": -1},
         {"embargo": 0.5},
         {"embargo": -1},
         {"purge_gap": -1, "embargo": 2},

@@ -219,6 +219,14 @@ class TestSplitReproduction:
         )
         assert cfg.split.purge_gap == 5  # type: ignore[union-attr]
         _assert_folds_equal(gen, gt, "purged_time_series (embargo merged)")
+        # The generated code reads purge_gap only; a template that still
+        # subtracted an embargo would produce the same folds here (the merged
+        # config carries none), so pin the source itself (PR #328 review r2).
+        generated = Path(str(mod.__file__)).read_text(encoding="utf-8")
+        assert "embargo" not in generated
+        assert "_purged_ts_folds(n, n_splits, purge_gap, max_train, max_test)" in (
+            generated
+        )
 
     def test_group_time_series(self, tmp_path: Path) -> None:
         df = _make_df(120, time=True, group=8, seed=4)
