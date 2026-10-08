@@ -1,59 +1,62 @@
 # Notebook Index
 
 All notebooks are located in the `notebooks/` directory. They can be run
-with any Jupyter-compatible environment. Install the required extras before
-running (see the table below).
+with any Jupyter-compatible environment. Install the extras each notebook
+lists before running it (see [Installing Extras](#installing-extras)).
 
 ## Available Notebooks
 
 ### `tutorial_regression_lgbm.ipynb`
 
-End-to-end regression walkthrough: config definition, `fit()`, `evaluate()`,
-`importance()`, `residuals_plot()`, and `export()`. Good starting point if
-you are new to LizyML.
+End-to-end regression walkthrough: config definition, `fit()`,
+`evaluate_table()`, `plot_learning_curve()`, `residuals_plot()`,
+`importance()` / `importance_plot()` by split, gain and SHAP, and
+`params_table()`. Good starting point if you are new to LizyML.
 
-**Extras required:** none (base install)
+**Extras required:** `pip install 'lizyml[plots,explain]'`
 
 ---
 
 ### `tutorial_binary_lgbm.ipynb`
 
-Binary classification with LightGBM: ROC curve, confusion matrix, probability
-histogram, and OOF coverage interpretation. Covers the full `evaluate()`
-output including the `"calibrated"` section.
+Binary classification with LightGBM and isotonic calibration:
+`evaluate_table()` with raw and calibrated metrics, `roc_curve_plot()`,
+`confusion_matrix()`, `probability_histogram_plot()`, `calibration_plot()`,
+and feature importance.
 
-**Extras required:** none (base install)
+**Extras required:** `pip install 'lizyml[plots,explain]'`
 
 ---
 
 ### `tutorial_multiclass_lgbm.ipynb`
 
-Multiclass classification: per-class metrics, `confusion_matrix()`,
-`roc_curve_plot()`, and `importance_plot()`. Demonstrates how to interpret
-`oof_per_fold` across multiple classes.
+Multiclass classification with stratified CV: `evaluate_table()`,
+`confusion_matrix()`, `roc_curve_plot()` (one-vs-rest, per-class AUC),
+`importance_plot()`, and `plot_learning_curve()`.
 
-**Extras required:** none (base install)
+**Extras required:** `pip install 'lizyml[plots,explain]'`
 
 ---
 
 ### `tutorial_regression_tuning_lgbm.ipynb`
 
 Hyperparameter tuning with Optuna: `tune()` → `fit()` workflow,
-`tuning_table()`, `tuning_plot()`, and `params_table()`. Includes a
-`TuneProgressCallback` example for tracking trial progress.
+`tuning_table()`, `tuning_plot()`, `boundary_table()` and `params_table()`.
+Includes a `progress_callback` example (`TuneProgressInfo`) for tracking
+trial progress.
 
-**Extras required:** `pip install 'lizyml[tuning]'`
+**Extras required:** `pip install 'lizyml[tuning,plots]'`
 
 ---
 
 ### `tutorial_time_series_lgbm.ipynb`
 
-Time-series cross-validation: `time_series` and `purged_time_series`
-splitters, `split_summary()`, `oof_coverage` interpretation, and
-`plot_learning_curve()`. Demonstrates expanding-window CV and how to
-detect temporal leakage with OOF coverage.
+Time-series cross-validation: the `time_series` splitter (expanding-window
+CV) and `purged_time_series` with `purge_gap`, `split_summary()`,
+`evaluate_table()`, `plot_learning_curve()`, and `predict()` on the last 100
+rows of the frame.
 
-**Extras required:** none (base install)
+**Extras required:** `pip install 'lizyml[plots]'`
 
 ---
 
@@ -63,17 +66,18 @@ SHAP value computation and interpretation: `predict(return_shap=True)` for
 per-sample explanations, `importance_plot(kind="shap")` for global
 feature importance, and comparison of split vs gain vs SHAP rankings.
 
-**Extras required:** `pip install 'lizyml[explain]'`
+**Extras required:** `pip install 'lizyml[plots,explain]'`
 
 ---
 
 ### `tutorial_calibration.ipynb`
 
-Probability calibration for binary classification: Platt, Isotonic, and
-Beta methods. Compares raw vs calibrated metrics (logloss, brier, ece),
-visualizes with `calibration_plot()` and `probability_histogram_plot()`.
+Probability calibration for binary classification with Platt and Isotonic
+(Beta is listed as a third option and selected the same way). Compares raw
+vs calibrated metrics with `evaluate()` / `evaluate_table()`, and visualizes
+them with `calibration_plot()` and `probability_histogram_plot()`.
 
-**Extras required:** `pip install 'lizyml[calibration]'` (for Beta method)
+**Extras required:** `pip install 'lizyml[plots]'`
 
 ---
 
@@ -91,15 +95,19 @@ Shows generated file structure and equivalence verification with
 ## Installing Extras
 
 ```bash
-# Tuning support (Optuna)
-pip install 'lizyml[tuning]'
+# Plots (plotly): every *_plot method
+pip install 'lizyml[plots]'
 
-# SHAP explanations
+# SHAP: importance(kind="shap") and predict(return_shap=True)
 pip install 'lizyml[explain]'
 
-# Calibration (Beta method requires scipy)
-pip install 'lizyml[calibration]'
+# Tuning (Optuna): tune()
+pip install 'lizyml[tuning]'
 
 # All extras
 pip install 'lizyml[tuning,explain,plots,calibration]'
 ```
+
+Platt and Beta calibration are fitted with scipy, which the base install
+already brings in through scikit-learn; the `calibration` extra declares it
+explicitly.

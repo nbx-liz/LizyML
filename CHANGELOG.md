@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Documentation
+
+- **`docs/examples.md` describes what each notebook does and needs.** The index named methods several notebooks never call (`evaluate()` and `export()` in the regression tutorial, OOF coverage in the binary and time-series tutorials, `oof_per_fold` in the multiclass tutorial, a Beta run in the calibration tutorial) and told readers that seven notebooks need no extras, while they plot (`lizyml[plots]`) and four also compute SHAP (`lizyml[explain]`). The binary tutorial's text said Platt scaling where its config uses isotonic calibration, and the calibration tutorial said Beta needs `lizyml[calibration]`, while scikit-learn already installs scipy. A test now checks the index against each notebook's code.
+
 ## [0.18.0] - 2026-10-08
 
 Phase 3 of the defect-discovery audit (`docs/audits/2026-09-defect-discovery/`): parameters reach LightGBM under one spelling or are refused, refusals name their source, and checks that answered "clean" without looking now fail loudly. Read *Removed* and *Changed* before upgrading; `docs/migration.md` lists what to change.
