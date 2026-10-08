@@ -11,7 +11,7 @@ Config-driven ML library that unifies **tune / fit / predict / evaluate / export
 
 - **One config, full pipeline** -- A single dict/YAML/JSON drives splitting, training, tuning, evaluation, and export. No boilerplate orchestration code.
 - **Reproducibility by default** -- Seed, split indices, params, library versions, and data fingerprint are captured automatically in every run.
-- **Leakage-aware CV and calibration** -- OOF predictions never see their own training rows. Calibration uses cross-fit on the same outer splits. Time and group constraints propagate to inner validation.
+- **Leakage-aware CV and calibration** -- OOF predictions never see their own training rows. Calibration uses cross-fit on the same outer splits. Time and group constraints propagate to the inner validation LizyML chooses automatically.
 - **8 CV strategies** -- KFold, Stratified, Group, StratifiedGroup, TimeSeries, Purged TimeSeries, Group TimeSeries, and 2-axis Blocked Group KFold.
 - **Stable result contracts** -- `FitResult`, `PredictionResult`, and artifact formats have fixed schemas. Downstream code never breaks on shape changes.
 - **Codegen export** -- Generate standalone `train.py` + `predict.py` that run without LizyML installed.
@@ -139,7 +139,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for full diagrams and module layout.
 
 **Reproducibility** -- Same config + seed = same splits, same OOF predictions, same metrics, **within a fixed `(num_threads, CPU)` environment**. (LightGBM's histogram construction is thread-count sensitive, so bit-identical results across machines with different CPU/thread counts are out of scope.) Every run captures seed, split indices, params, library versions, and a data fingerprint.
 
-**Leakage prevention** -- OOF rows are never seen during training. Calibration cross-fit reuses outer CV splits. Time and group constraints propagate to inner validation (early stopping) and calibration.
+**Leakage prevention** -- OOF rows are never seen during training. Calibration cross-fit reuses outer CV splits. Time and group constraints propagate to the automatically chosen inner validation (early stopping) and to calibration; an inner validation you configure explicitly is used as written.
 
 **Contract stability** -- `FitResult`, `PredictionResult`, and artifact formats have fixed schemas. Breaking changes require a `format_version` bump and migration path.
 

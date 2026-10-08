@@ -190,7 +190,10 @@ must be: `Model(config)` → `fit(data)` → any diagnostic method.
 After `Model.load(path)`, methods that need `analysis_context` (such as
 `confusion_matrix()`, `importance(kind="shap")`, `residuals()`) will also
 raise this error if the artifact was exported before `analysis_context`
-support was added. Re-export with the current version to restore access.
+support was added. Re-exporting a loaded artifact does not restore it: fit the
+model again with the current version and export that. `importance(kind="shap")`
+on an artifact exported before v0.18.0 needs a new fit as well, for the per-fold
+pipeline states (H-0114).
 
 ---
 
