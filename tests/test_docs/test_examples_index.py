@@ -5,10 +5,21 @@ for seven of eight notebooks. These tests parse each notebook's code cells with
 ``ast`` (comments and strings are not calls) and check the index against them:
 the listed notebooks are exactly the notebooks on disk, every method the index
 names for a notebook is called in it, and the extras it lists are exactly the
-ones the notebook's imports and calls need. Anything the derivation cannot
-decide -- a non-literal ``kind=``, an import outside the standard library, the
-base install and the extras, a model name rebound, a relevant call on a path
-that may not run -- fails the test instead of passing it.
+ones the notebook's imports and calls need. Some cases the derivation cannot
+decide fail the test instead of passing it: a non-literal ``kind=``, an import
+outside the standard library, the base install and the extras, a model name
+rebound, and an import or extra-implying call inside a compound statement or a
+function, lambda or class body.
+
+The analysis works at statement level and is not complete. It does not model
+conditional execution inside an expression (operands after the first in
+``and`` / ``or``, conditional-expression branches, comprehension elements),
+which therefore count as calls. It cannot tell whether a top-level statement
+runs after an earlier ``raise`` or ``sys.exit()``, and it drops IPython magic
+lines before parsing. In the current notebooks no model call or
+extra-implying call sits in such a position, and none has a magic line, a
+top-level ``raise`` or an exit call. #334 replaces this check with a closed
+index contract.
 """
 
 from __future__ import annotations
@@ -87,11 +98,13 @@ _COMPOUND = (
 
 
 def _uncertain(tree: ast.Module) -> set[int]:
-    """``id()`` of every node whose execution the text cannot decide.
+    """``id()`` of every node this check treats as possibly not running.
 
-    That is everything inside a compound statement (a branch, loop, ``try`` or
-    ``with`` body) and everything inside a function, lambda or class body. Only
-    nodes in plain top-level statements are certain to run, in order.
+    That is the whole of every top-level compound statement (branch, loop,
+    ``try``, ``with``, ``match``), its condition and header included, which is
+    conservative since a condition always runs, and everything inside a
+    function, lambda or class body. Conditional execution inside an expression
+    is not modelled (see the module docstring).
     """
     found: set[int] = set()
     for statement in tree.body:
@@ -151,10 +164,12 @@ def _model_calls(name: str, tree: ast.Module) -> set[str]:
 
     A name counts as a model from the top-level ``x = Model(...)`` (or
     ``Model.load(...)``) that binds it, for the statements after it. Only calls
-    in plain top-level statements count: a call in a branch, loop, ``try`` or
-    ``with`` body, or in a function, lambda or class body, may never run, so it
-    cannot back a claim that the notebook makes it. Anything that would make the
-    receiver undecidable fails instead of passing: a ``Model(...)`` bound
+    in plain top-level statements count: a call anywhere in a compound statement
+    (its condition included), or in a function, lambda or class body, is not
+    counted. Within a counted statement every call counts, including one an
+    ``and`` / ``or``, a conditional expression or a comprehension may skip (see
+    the module docstring). These forms of an unknown receiver fail instead of
+    passing: a ``Model(...)`` bound
     anywhere but a top-level assignment to plain names, and a model name that is
     rebound in any way (assignment, ``def`` / ``class``, ``except ... as``,
     ``match`` capture, ``del``, an import) or declared ``global``.
@@ -238,9 +253,11 @@ def _literal(
 def _needed_extras(name: str, tree: ast.Module) -> set[str]:
     """Extras the notebook's imports and calls need.
 
-    An import, or a call that implies an extra, inside a branch, loop, ``try`` /
-    ``with`` body or a function / lambda / class body fails: whether it runs,
-    and so whether the extra is needed, cannot be decided from the text.
+    An import, or a call that implies an extra, anywhere in a compound statement
+    (its condition included) or in a function / lambda / class body fails, so
+    that a conditional dependency is never silently counted or dropped.
+    Conditional execution inside an expression is not modelled (see the module
+    docstring).
     """
     uncertain = _uncertain(tree)
     needed = set()
