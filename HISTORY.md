@@ -11286,7 +11286,7 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 | 2 | `scripts/release.py`（`gh pr create --base main --head develop`） | 残す。タイトルを `release: vX.Y.Z` に揃える |
 | 3 | `.github/workflows/auto-release.yml`（`git tag` と `git push origin <tag>`） | 形の検査の後に、`merge_commit_sha` に付ける |
 | 4 | `.github/workflows/release.yml`（PyPI 公開。3 からの `workflow_dispatch` のほか、GitHub Release の `published` と手動の `workflow_dispatch` でも起動する） | 変更なし。3 が拒否すればこの経路からは起動しない。手動で Release を公開する経路と手動の起動は運用者の操作で、本提案の範囲外 |
-| 5 | `CONTRIBUTING.md` の Release 節 | 変更なし（すでに正しい手順） |
+| 5 | `CONTRIBUTING.md` の Release 節 | 手順そのものは変えない（すでに正しい）。手順 2 に `release.py` で同じ PR を作れることと、その拒否条件を、手順 5 に `auto-release.yml` の検査を書き足す |
 
 ### 互換性
 

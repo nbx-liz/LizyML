@@ -66,6 +66,13 @@ def release(tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch) -> ModuleTy
     return _load()
 
 
+def _fetched_before_comparing(ran: list[str]) -> bool:
+    """origin/develop is refreshed before it is read, or a stale ref passes."""
+    fetch = "git fetch origin develop"
+    read = "git rev-parse origin/develop"
+    return fetch in ran and read in ran and ran.index(fetch) < ran.index(read)
+
+
 def _mutating(ran: list[str]) -> list[str]:
     return [c for c in ran if c.startswith(("git commit", "git push", "git add"))]
 
@@ -92,6 +99,7 @@ def test_a_develop_out_of_sync_with_origin_is_refused(
     assert exc.value.code == 1
     assert _mutating(ran) == []
     assert not any(c.startswith("gh pr create") for c in ran)
+    assert _fetched_before_comparing(ran)
 
 
 def test_the_happy_path_only_opens_the_release_pr(
@@ -101,6 +109,7 @@ def test_the_happy_path_only_opens_the_release_pr(
     monkeypatch.setattr(release, "run", run)
     release.main()
     assert _mutating(ran) == []
+    assert _fetched_before_comparing(ran)
     created = [c for c in ran if c.startswith("gh pr create")]
     assert len(created) == 1
     assert "--base main --head develop" in created[0]

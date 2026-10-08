@@ -121,7 +121,13 @@ def test_the_guard_runs_before_the_tag_and_the_tag_is_the_merge_commit() -> None
     assert guard_env["HEAD_REF"] == "${{ github.event.pull_request.head.ref }}"
     assert guard_env["MERGE_SHA"] == "${{ github.event.pull_request.merge_commit_sha }}"
     tag_step = steps[tag_at]
-    assert "$MERGE_SHA" in str(tag_step["run"])
+    tag_lines = [
+        line.strip()
+        for line in str(tag_step["run"]).splitlines()
+        if line.strip().startswith("git tag ")
+    ]
+    # The version tag first, the commit it names second: `git tag <name> <commit>`.
+    assert tag_lines == ['git tag "${{ steps.version.outputs.tag }}" "$MERGE_SHA"']
     assert isinstance(tag_step.get("env"), dict)
     assert (
         tag_step["env"]["MERGE_SHA"]
