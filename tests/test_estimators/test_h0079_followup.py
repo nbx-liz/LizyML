@@ -181,6 +181,12 @@ class TestG3ObjectiveCompatibilityEdgeInputs:
     """Edge inputs to the user-objective handling path must produce
     clear ``LizyMLError(CONFIG_INVALID)`` instead of cryptic
     ``TypeError`` / ``KeyError``.
+
+    The refused edge inputs are ordinary values (empty string, dict, list,
+    set, int) and the two operations H-0116 decision 2 bounds. An explicit
+    ``None`` is not refused: it means "no override" and trains on the task
+    default (pinned below). A value whose type lookups raise, and rendering
+    the error afterwards, are outside H-0116's guarantee.
     """
 
     def test_empty_string_objective_raises(self) -> None:
@@ -194,17 +200,107 @@ class TestG3ObjectiveCompatibilityEdgeInputs:
 
     def test_dict_form_objective_raises(self) -> None:
         """Dict-form ``{"huber": {}}`` is illegal for objective (only
-        valid for metric MetricEntry per H-0065). Must reject."""
+        valid for metric MetricEntry per H-0065). Must reject.
+
+        This is the adapter's ``_build_params`` only. That ``Model.fit``
+        refuses it before training is asserted by
+        ``test_unhashable_objective_through_model_fit_is_config_invalid``.
+        """
         from lizyml.estimators.lgbm.adapter import LGBMAdapter
 
         adapter = LGBMAdapter(task="regression", params={"objective": {"huber": {}}})
-        with pytest.raises((LizyMLError, TypeError)) as excinfo:
+        # CONFIG_INVALID only (H-0116, #270). The test used to accept a
+        # TypeError as well, which is the cryptic error this class exists to
+        # rule out, so it passed while the unhashable value escaped raw.
+        with pytest.raises(LizyMLError) as excinfo:
             adapter._build_params()
-        # Either raises CONFIG_INVALID (clean) or TypeError (acceptable
-        # — non-hashable dict cannot be in a frozenset). The contract
-        # is "do not silently use the wrong objective".
-        if isinstance(excinfo.value, LizyMLError):
-            assert excinfo.value.code.name == "CONFIG_INVALID"
+        assert excinfo.value.code.name == "CONFIG_INVALID"
+        assert excinfo.value.context["objective"] == {"huber": {}}
+
+    @pytest.mark.parametrize("objective", [{"huber": {}}, ["huber"], {"huber"}])
+    @pytest.mark.parametrize("surface", ["config", "fit_params"])
+    def test_unhashable_objective_through_model_fit_is_config_invalid(
+        self, objective: object, surface: str
+    ) -> None:
+        """The shipped path: ``Model.fit`` refuses it before training (H-0116)."""
+        from lizyml import Model
+        from tests._helpers import make_config, make_regression_df
+        from tests._train_spy import record_lightgbm_calls
+
+        if surface == "config":
+            model = Model(make_config("regression", objective=objective))
+            fit_params = None
+        else:
+            model = Model(make_config("regression"))
+            fit_params = {"objective": objective}
+
+        with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as excinfo:
+            model.fit(data=make_regression_df(n=80), params=fit_params)
+        assert excinfo.value.code.name == "CONFIG_INVALID"
+        assert "objective" in excinfo.value.user_message
+        assert not seen["train_params"]
+
+    @pytest.mark.parametrize("surface", ["adapter", "fit_params"])
+    def test_an_unprintable_objective_is_still_config_invalid(
+        self, surface: str
+    ) -> None:
+        """Building the refusal must not format the rejected value.
+
+        A dict whose key cannot be printed escaped as that key's own error
+        while the adapter built its message, before ``CONFIG_INVALID`` (#270).
+        Through ``Model.fit`` the value-domain gate refuses it first; either
+        way the refusal is ``CONFIG_INVALID`` and nothing trains.
+        """
+        from lizyml import Model
+        from lizyml.estimators.lgbm.adapter import LGBMAdapter
+        from tests._helpers import make_config, make_regression_df
+        from tests._train_spy import record_lightgbm_calls
+
+        class Unprintable:
+            def __repr__(self) -> str:
+                raise RuntimeError("repr must not run")
+
+            __str__ = __format__ = __repr__  # type: ignore[assignment]
+
+        objective = {Unprintable(): 1}
+        with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as excinfo:
+            if surface == "adapter":
+                LGBMAdapter(
+                    task="regression", params={"objective": objective}
+                )._build_params()
+            else:
+                Model(make_config("regression")).fit(
+                    data=make_regression_df(n=80), params={"objective": objective}
+                )
+        assert excinfo.value.code.name == "CONFIG_INVALID"
+        assert "objective" in excinfo.value.user_message
+        if surface == "adapter":
+            assert "of type 'dict'" in excinfo.value.user_message
+        assert not seen["train_params"]
+
+    def test_a_hostile_string_objective_is_judged_by_its_text(self) -> None:
+        """A ``str`` subclass is judged by its plain text.
+
+        The membership test and the message use none of the overrides it
+        defines (``__hash__``, ``__eq__``, ``__format__``, ``__str__``,
+        ``__repr__``).
+        """
+        from lizyml.estimators.lgbm.param_validation import check_objective_compatible
+
+        class Hostile(str):
+            def _boom(self, *args: object) -> object:
+                raise RuntimeError("a str subclass method ran")
+
+            __hash__ = __eq__ = __format__ = __str__ = __repr__ = _boom  # type: ignore[assignment]
+
+        with pytest.raises(LizyMLError) as excinfo:
+            check_objective_compatible("regression", Hostile("not_an_objective"))
+        assert excinfo.value.code.name == "CONFIG_INVALID"
+        assert (
+            "objective 'not_an_objective' is not compatible"
+            in excinfo.value.user_message
+        )
+        check_objective_compatible("regression", Hostile("huber"))  # accepted
 
     def test_non_string_int_objective_raises(self) -> None:
         from lizyml.estimators.lgbm.adapter import LGBMAdapter
@@ -222,6 +318,31 @@ class TestG3ObjectiveCompatibilityEdgeInputs:
         params, *_ = adapter._build_params()
         # Default for regression
         assert params["objective"] == "huber"
+
+    @pytest.mark.parametrize("surface", ["config", "fit_params"])
+    def test_none_objective_through_model_fit_trains_on_the_default(
+        self, surface: str
+    ) -> None:
+        """None is the one non-string value H-0116 does not refuse.
+
+        Both ``Model.fit`` surfaces treat it as "no override", so
+        ``lgb.train`` receives the task default.
+        """
+        from lizyml import Model
+        from tests._helpers import make_config, make_regression_df
+        from tests._train_spy import record_lightgbm_calls
+
+        if surface == "config":
+            model = Model(make_config("regression", n_estimators=5, objective=None))
+            fit_params = None
+        else:
+            model = Model(make_config("regression", n_estimators=5))
+            fit_params = {"objective": None}
+
+        with record_lightgbm_calls() as seen:
+            model.fit(data=make_regression_df(n=80), params=fit_params)
+        assert seen["train_params"], "no lgb.train call was recorded"
+        assert {call["objective"] for call in seen["train_params"]} == {"huber"}
 
 
 # ---------------------------------------------------------------------------

@@ -11196,3 +11196,55 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 
 - **BLUEPRINT の引用の固定**: Phase 3 の fold map（`test_pr9_fold_map_check.py`）は §5 の「`gap` → `embargo`（H-0038 は `embargo_pct` に写すと決めたが」を、H-0085 の disposition は「`purge_gap + embargo`」を、それぞれ BLUEPRINT の文として固定している。過去の監査記録は書き換えず、BLUEPRINT ではそれらを H-0115 より前の規則として残した（§5 の旧キーの規則、§10.3.1）。
 - **`PurgedTimeSeriesConfig` の検証**: `mode="wrap"` の validator で、`purge_gap` を含む残りのフィールドを先に検証してから、合計を `purge_gap` に入れて検証し直す（結果は `purge_gap` を直接書いた入力と同じ作り方になり、`model_fields_set` にも入る）。
+
+## H-0116: `None` 以外の文字列でない `objective` を `CONFIG_INVALID` で拒否する（#270）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-07
+- **決定日**: 2026-10-07（管理者の判断: #270 の PR で直す）
+- **スコープ**: `lizyml/estimators/lgbm/param_validation.py`（`check_objective_compatible`）, `BLUEPRINT.md` §14.2, `CHANGELOG.md`, テスト（`tests/test_estimators/test_h0079_followup.py`）
+- **関連**: [Issue #270](https://github.com/nbx-liz/LizyML/issues/270), H-0079（task 非互換の `objective` を `CONFIG_INVALID` にした。G3 は端の入力でも未加工の `TypeError` / `KeyError` を出さないと定めた）
+
+### 目的（課題）
+
+`check_objective_compatible(task, objective)` は `objective not in TASK_COMPATIBLE_OBJECTIVES[task]` で互換性を調べる。集合の包含はハッシュを使うので、dict や list の値はそこで `TypeError: unhashable type` を送出し、`CONFIG_INVALID` にならない。`Model.fit` の 2 つの経路（`model.params` と `fit(params=)`）で再現した（`1d41b66`）。facade の `check_param_values` は `LizyMLError` だけを捕まえるので、`TypeError` はそのまま利用者に届く。
+
+これを固定するはずのテスト `test_dict_form_objective_raises` は `pytest.raises((LizyMLError, TypeError))` で、`TypeError` も「許容」していた。#270 の再点検で WEAK と判定し、`CONFIG_INVALID` だけを受け入れる形に締めたところ RED になった。
+
+### 対応方針（決定）
+
+1. **`check_objective_compatible` は、文字列でない値を包含の検査より前に `CONFIG_INVALID` で拒否する。** 受理される objective はすべて文字列なので、文字列でない値はどれも互換ではない。ただし明示の `None` は今日どおり「上書きなし」で、拒否しない: 2 つの呼び出し元（`_model_factories.py` の `check_param_values` と `adapter.py` の `_build_params`）は `None` をこの検査に渡さず、task の既定の objective で学習する。`context`（`task` / `objective` / `valid_objectives`）は task 非互換のときと同じ形にする。`user_message` は、文字列なら今日どおりその値を、文字列でない値なら型名（`objective of type 'dict'`）を示す。
+2. **包含の検査とメッセージの組み立てでは、拒否する値を書式化もハッシュもしない。** 文字列でない値は型名だけで示し、文字列は `str` の素の複製（`str.__str__`）で包含を調べて表示する。値を書式化すると、その `__repr__` / `__format__` が例外を出したとき、`CONFIG_INVALID` の前に未加工の例外が漏れる（キーが表示できない dict で再現）。`str` の部分クラスが上書きした `__hash__` / `__eq__` / `__format__` / `__str__` / `__repr__` も同じ理由で使わない。保証はこの 2 つの操作に限る。**範囲外**: 値の型の参照やその属性の参照が例外を出すもの（`isinstance` が読む `__class__`、`__name__` で例外を出すメタクラスなど。`Model.fit` の経路では手前の値の型の検査が先に型名を読むので、そこで漏れる）と、送出した後にエラーを表示すること（`context["objective"]` は書いた値を保つので、`repr(error)` はその値の `__repr__` を呼ぶ）。拒否した値の報告で値のコードが一切動かないことは、Python では保証できない（traceback が局所変数を表示するときも `repr` を呼ぶ）ので約束しない。
+3. 呼び出し元は変えない。facade（`check_param_values`）は今日どおり `CONFIG_INVALID` に入力の層の名前を付けて送出し直す。
+
+### 規則が縛る位置（ソースから導出）
+
+規則: **組み込みの型の `objective`（dict / list / set / int など）が、互換性の検査の包含で未加工の `TypeError` / `KeyError` を出さない。** 導出: `lizyml/` で `check_objective_compatible` と `TASK_COMPATIBLE_OBJECTIVES` を grep した全件（`1d41b66`）。包含を調べるのは `check_objective_compatible` 1 か所で、それを呼ぶのは 2 か所。`provider.py` の `TASK_COMPATIBLE_OBJECTIVES` は `objective_choices` の一致の確認と choices の生成で、利用者の値を包含で調べない。
+
+| # | 位置 | 本 PR |
+|---|---|---|
+| 1 | `estimators/lgbm/param_validation.py` `check_objective_compatible` | 文字列でない値を先に拒否する |
+| 2 | `core/_model_factories.py` `check_param_values`（`model.params` / `fit(params=)` の facade の経路） | 変更なし（1 の結果を層の名前付きで送出し直す） |
+| 3 | `estimators/lgbm/adapter.py` `_build_params`（adapter を直接作る経路） | 変更なし（1 の結果がそのまま届く） |
+
+### 互換性
+
+- **振る舞いの変化**: dict / list などハッシュできない `objective` は、`TypeError` だったところで `CONFIG_INVALID` になる。ハッシュできる文字列でない値（`42` など）は今日も `CONFIG_INVALID` で、変わらない（`user_message` は値の代わりに型名を示す）。通常の `str` の値の振る舞いは変わらない。`str` の部分クラスは、上書きしたメソッドを使わず文字列の内容で判定する。明示の `None` は今日どおり「上書きなし」（task の既定）で、変わらない。
+- どちらの場合も学習の前に止まる（今日の `TypeError` も学習の前）。学習できていた通常の入力（文字列と組み込みの型の値）で拒否されるものは無い。決定 2 の範囲外の値は、この評価の対象でもない。
+- **Firing rate**: 本提案の条件は入力の検証であり、Change Gate の 6 つの目的のどれでもない。
+- `format_version` / Config のスキーマ / 公開 API のシグネチャは変わらない。
+
+### 代替案（検討して棄却）
+
+1. **`TypeError` を捕まえて `CONFIG_INVALID` に変える。** 包含の検査が別の理由で出す例外まで同じ扱いになる。値の型で先に分けるほうが、何を拒否したかが明確である。
+2. **Config のスキーマ（pydantic）で `objective` を文字列に限る。** `fit(params=)` と adapter の直接構築は Config を通らないので、穴が残る。
+3. **テストを元の「`TypeError` も可」に戻す。** H-0079 G3 の契約（未加工の `TypeError` を出さない）と矛盾する。
+
+### 受け入れ基準（テスト観点）
+
+1. adapter を直接作る経路で `{"objective": {"huber": {}}}` は `CONFIG_INVALID` で、`context["objective"]` に書いた値が入る。修正前は `TypeError` で RED。
+2. `Model.fit` の `model.params` と `fit(params=)` の両方で、dict と list の `objective` は `CONFIG_INVALID` で、`lgb.train` は一度も呼ばれない。修正前は dict / list で RED。set は Python が包含の検査で frozenset に変えるので修正前から `CONFIG_INVALID`（同じテストで固定）。
+3. 既存の `objective` のテスト（`test_h0079_followup.py`、`tests/test_estimators/`）が緑のまま。
+4. BLUEPRINT §14.2 が文字列でない値の扱いを書き、`tests/test_docs/` が緑のまま（H-0116 の処分の行を含む）。
+5. 明示の `None` は拒否されない: `model.params` と `fit(params=)` の両方で `lgb.train` は task の既定の objective を受け取る（`test_none_objective_through_model_fit_trains_on_the_default`）。adapter を直接作る経路は `test_none_objective_falls_back_to_default` が固定する。
+6. 包含の検査とメッセージの組み立てで、決定 2 が挙げた操作が値に対して走らない（範囲外の 2 つは固定しない）: 表示できないキーを持つ dict は adapter を直接作る経路で `CONFIG_INVALID`（`objective of type 'dict'`）で、修正前はキーの例外が漏れて RED（`test_an_unprintable_objective_is_still_config_invalid[adapter]`。`Model.fit` の経路は値の型の検査が先に `CONFIG_INVALID` で止めるので、同じテストの `[fit_params]` はそれを固定する）。`__hash__` / `__eq__` / `__format__` / `__str__` / `__repr__` が例外を出す `str` の部分クラスは、互換でない内容なら `CONFIG_INVALID`、互換な内容なら受理（`test_a_hostile_string_objective_is_judged_by_its_text`。修正前は RED）。

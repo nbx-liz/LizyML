@@ -135,7 +135,12 @@ class TestTimeSeriesOuterSplits:
 
 
 class TestTimeSeriesCalibrationSplitter:
-    """Calibration inherits time_series splitter type from outer split config."""
+    """The deprecated ``build_calibration_splitter`` shim (H-0058) only.
+
+    Calibration no longer builds a splitter: it reuses the outer folds. That
+    path is asserted by ``tests/test_splitters/test_purged_embargo_merge.py::
+    test_calibration_folds_match_the_merged_purge_gap`` (#270).
+    """
 
     def test_calibration_splitter_is_time_series(self) -> None:
         """Deprecated build_calibration_splitter still returns correct type."""
@@ -163,8 +168,14 @@ class TestTimeSeriesCalibrationSplitter:
         folds = list(splitter.split(100))
         assert len(folds) == 4
 
-    def test_calibration_splitter_inherits_purged_params(self) -> None:
-        """Deprecated build_calibration_splitter preserves purge params."""
+    def test_deprecated_calibration_splitter_shim_keeps_purge_params(self) -> None:
+        """Deprecated build_calibration_splitter preserves purge params.
+
+        This is the deprecated helper only; ``Model.fit`` no longer calls it.
+        That the calibration folds of a fit honour the merged ``purge_gap`` is
+        asserted by ``tests/test_splitters/test_purged_embargo_merge.py::
+        test_calibration_folds_match_the_merged_purge_gap``.
+        """
         import warnings
 
         from lizyml.config.loader import load_config

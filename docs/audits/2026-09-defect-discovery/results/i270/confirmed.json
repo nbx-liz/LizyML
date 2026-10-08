@@ -1,0 +1,1388 @@
+[
+ {
+  "test": "tests/test_calibration/test_beta_calibration.py::TestBetaCalibrator::test_predict_before_fit_raises",
+  "mode": "all",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_calibration/test_beta_calibration.py::TestBetaCrossFit::test_cross_fit_leakage",
+  "mode": "train",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_calibration/test_calibration.py::TestPlattCalibrator::test_predict_before_fit_raises",
+  "mode": "all",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_calibration/test_calibration.py::TestIsotonicCalibrator::test_predict_before_fit_raises",
+  "mode": "all",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_calibration/test_calibration_failed_optimisation.py::test_refit_failing_before_minimize_does_not_keep_the_earlier_fit",
+  "mode": "train",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_calibration/test_calibration_failed_optimisation.py::test_default_settings_still_fit",
+  "mode": "train",
+  "age": "new",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_calibration/test_calibration_failed_optimisation.py::test_cross_fit_names_c_final",
+  "mode": "train",
+  "age": "new",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_calibration/test_calibration_param_contract.py::test_beta_default_fit_emits_no_warning",
+  "mode": "train",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_calibration/test_calibration_param_names.py::test_the_entry_point_split_covers_the_public_surface",
+  "mode": "all",
+  "age": "new",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_calibration/test_calibration_param_names.py::test_non_training_entry_points_really_do_not_train",
+  "mode": "train",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_calibration/test_calibration_param_names.py::test_calibrators_that_do_not_use_lightgbm_are_checked_by_their_own_contract",
+  "mode": "api",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_calibration/test_calibration_param_names.py::test_no_calibration_and_no_params_are_no_ops",
+  "mode": "api",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_calibration/test_calibrator_not_fitted.py::test_predict_before_fit_raises_lizyml_error",
+  "mode": "all",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_calibration/test_h0058_outer_reuse.py::TestNSplitsDeprecation::test_explicit_n_splits_warns",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_calibration/test_h0058_outer_reuse.py::TestNSplitsDeprecation::test_default_n_splits_no_warning",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_calibration/test_h0058_outer_reuse.py::TestNSplitsDeprecation::test_model_dump_roundtrip_no_warning",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_calibration/test_h0058_outer_reuse.py::TestBuildCalibrationSplitterDeprecated::test_build_calibration_splitter_warns",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_calibration/test_isotonic_calibration.py::TestIsotonicCalibrator::test_monotone",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_calibration/test_isotonic_calibration.py::TestIsotonicCalibrator::test_a_forced_parameter_is_forced_under_its_canonical_name",
+  "mode": "all",
+  "age": "new",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_calibration/test_isotonic_calibration.py::TestIsotonicCalibrator::test_reproducibility_with_seed",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_calibration/test_isotonic_calibration.py::TestIsotonicCalibrator::test_output_range_not_compressed",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_calibration/test_isotonic_calibration.py::TestIsotonicCalibrator::test_extreme_scores_produce_extreme_probabilities",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_calibration/test_platt_mle.py::test_target_smoothing_can_be_turned_off_and_changes_the_fit",
+  "mode": "train",
+  "age": "new",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_calibration/test_platt_mle.py::test_default_fit_emits_no_warning",
+  "mode": "train",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_calibration/test_platt_mle.py::test_export_form_and_predict_agree",
+  "mode": "api",
+  "age": "new",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_calibration/test_platt_mle.py::test_predict_before_fit_raises",
+  "mode": "all",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_calibration/test_platt_mle.py::test_bounds_on_the_slope_hold_in_the_written_coordinates_for_large_scores",
+  "mode": "metric",
+  "age": "new",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_calibration/test_raw_score_calibration.py::TestPredictRaw::test_predict_raw_returns_logits_for_binary",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_calibration/test_raw_score_calibration.py::TestPredictRaw::test_predict_raw_regression_same_as_predict",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_codegen/test_config_writer.py::TestBuildConfig::test_calibration_method_binary",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_codegen/test_config_writer.py::TestBuildConfig::test_calibration_none_when_no_calibrator",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_codegen/test_config_writer.py::TestBuildConfig::test_key_ordering",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_codegen/test_config_writer.py::TestBuildConfig::test_multiclass_no_calibration_fields",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_codegen/test_export_params.py::TestPlattExportParams::test_export_params_returns_correct_keys",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_codegen/test_export_params.py::TestPlattExportParams::test_export_params_roundtrip",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_codegen/test_export_params.py::TestPlattExportParams::test_export_params_json_serializable",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_codegen/test_export_params.py::TestBetaExportParams::test_export_params_returns_correct_keys",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_codegen/test_export_params.py::TestBetaExportParams::test_export_params_roundtrip",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_codegen/test_export_params.py::TestIsotonicExportParams::test_export_params_returns_correct_keys",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_codegen/test_export_params.py::TestLGBMAdapterSaveModelText::test_roundtrip_predictions",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_codegen/test_feval_codegen.py::TestConfigFeval::test_feval_metrics_present_in_config",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_codegen/test_feval_codegen.py::TestConfigFeval::test_feval_metrics_empty_when_none",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_codegen/test_feval_codegen.py::TestConfigFeval::test_feval_metrics_empty_list_explicit",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_codegen/test_feval_codegen.py::TestConfigFeval::test_feval_metrics_json_serializable",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_codegen/test_feval_codegen.py::TestConfigFeval::test_feval_metrics_key_ordering",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_codegen/test_feval_codegen.py::TestExtractFevalMetadata::test_no_metric_returns_empty",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_codegen/test_feval_codegen.py::TestBuildFevalFromConfig::test_empty_feval_metrics_returns_empty",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_codegen/test_feval_codegen.py::TestBuildFevalFromConfig::test_missing_feval_metrics_key_returns_empty",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_codegen/test_feval_codegen.py::TestBuildFevalFromConfig::test_unknown_metric_skipped",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_codegen/test_templates.py::TestRenderTrainPy::test_contains_calibration_methods",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_codegen/test_templates.py::TestRenderTrainPy::test_contains_oof_generation",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_codegen/test_templates.py::TestRenderPredictPy::test_valid_python",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_codegen/test_templates.py::TestRenderPredictPy::test_no_sklearn_dependency",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_codegen/test_templates.py::TestRenderPredictPy::test_contains_calibration_apply",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_codegen/test_templates.py::TestRenderTestEquivalencePy::test_imports_and_calls_predict_module",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_codegen/test_templates.py::TestRenderTestEquivalencePy::test_no_second_prediction_implementation",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_config/test_schema.py::TestEnvOverride::test_override_training_seed",
+  "mode": "train",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_config/test_stratified_default.py::TestStratifiedDefault::test_binary_no_split_defaults_to_stratified",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_config/test_stratified_default.py::TestStratifiedDefault::test_multiclass_no_split_defaults_to_stratified",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_config/test_stratified_default.py::TestStratifiedDefault::test_regression_no_split_defaults_to_kfold",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_blocked_group_config.py::TestBlockedGroupKFoldConfigParsing::test_split_config_union_dispatches",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_core/test_calibration_params_reach.py::test_fit_refuses_before_training",
+  "mode": "train",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_contracts.py::TestSplitIndicesSchema::test_instantiation_no_inner_no_calibration",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_contracts.py::TestSplitIndicesSchema::test_instantiation_with_inner_and_calibration",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_core/test_contracts.py::TestFitResultSchema::test_metrics_raw_structure",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_core/test_contracts.py::TestFitResultSchema::test_calibrated_key_absent_when_no_calibrator",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_contracts.py::TestFitResultSchema::test_oof_pred_is_ndarray",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_core/test_contracts.py::TestFitResultSchema::test_if_pred_per_fold_len_equals_n_splits",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_core/test_contracts.py::TestPredictionResultSchema::test_proba_optional",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_core/test_contracts.py::TestPredictionResultSchema::test_shap_values_optional",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_core/test_exceptions.py::TestSeed::test_derive_seed_differs_across_folds",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_two_spellings_in_the_config_are_refused_before_training",
+  "mode": "train",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_two_search_dimensions_naming_one_parameter_are_refused",
+  "mode": "train",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_a_search_dimension_a_training_setting_controls_is_refused",
+  "mode": "train",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_every_calibration_alias_is_canonical_before_the_defaults_merge",
+  "mode": "all",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_two_spellings_of_one_value_in_the_config_are_refused",
+  "mode": "train",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_an_unknown_name_in_fit_params_is_refused_before_training",
+  "mode": "train",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_the_refusal_names_the_fit_params_surface",
+  "mode": "train",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_a_smart_name_in_fit_params_is_reported_as_smart",
+  "mode": "train",
+  "age": "new",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_each_input_is_named_by_its_own_surface",
+  "mode": "train",
+  "age": "new",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_the_alias_review_round_2_measured_is_refused",
+  "mode": "train",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_the_provider_fixed_seam_carries_one_spelling",
+  "mode": "metric",
+  "age": "new",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_an_objective_alias_gets_the_same_task_check",
+  "mode": "train",
+  "age": "new",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_two_spellings_with_different_values_are_refused",
+  "mode": "train",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_the_objects_rounds_16_to_20_found_never_reach_training",
+  "mode": "train",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_a_hostile_value_is_refused_beside_a_second_spelling_too",
+  "mode": "train",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_the_adapter_refuses_a_duplicate_spelling_carrying_equal_values",
+  "mode": "all",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_a_duplicate_spelling_carrying_equal_values_is_refused_before_training",
+  "mode": "train",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_model_metrics_calibrated.py::TestFilterMetricsNoBranches::test_no_empty_calibrated_branch",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once",
+  "mode": "api",
+  "age": "new",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_core/test_param_domain.py::test_the_refused_subset_is_exactly_the_declared_boundary",
+  "mode": "api",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_param_domain.py::test_a_caller_class_cannot_claim_to_be_a_numpy_type",
+  "mode": "train",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_param_domain.py::test_an_accepted_type_is_not_by_itself_a_writable_value",
+  "mode": "train",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_param_domain.py::test_a_string_neither_consumer_can_encode_is_refused",
+  "mode": "api",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_param_domain.py::test_a_metric_entry_written_as_a_mapping_is_accepted_at_the_surface",
+  "mode": "metric",
+  "age": "new",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_core/test_param_domain.py::test_the_exit_assertion_refuses_a_value_that_skipped_the_surfaces",
+  "mode": "train",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_param_domain.py::test_the_exit_assertion_is_called_at_every_place_that_trains",
+  "mode": "train",
+  "age": "new",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_core/test_param_domain_cycles.py::test_cyclic_mapping_is_a_controlled_training_refusal",
+  "mode": "train",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_refusal_matrix.py::test_each_wired_cell_refuses_before_training",
+  "mode": "train",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_refusal_matrix.py::test_a_restored_tuning_result_is_refused_too",
+  "mode": "train",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_seed_propagation.py::TestBuildSplitterSeedResolution::test_default_inherits_training_seed_backward_compat",
+  "mode": "train",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_core/test_seed_propagation.py::TestBuildSplitterSeedResolution::test_training_seed_propagates_to_splitter",
+  "mode": "train",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_core/test_seed_propagation.py::TestBuildSplitterSeedResolution::test_explicit_random_state_overrides_training_seed",
+  "mode": "train",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_core/test_splitter_dispatch.py::TestUnhandledSplitConfigRaises::test_unknown_split_config_raises_lizyml_error",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_core/test_task_type.py::TestTaskTypeReExports::test_target_encoder_re_export",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_core/test_task_type.py::TestTaskTypeReExports::test_evaluator_re_export",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_core/test_task_type.py::TestTaskTypeReExports::test_oof_assembly_re_export",
+  "mode": "all",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_core/test_task_type.py::TestTaskTypeReExports::test_lgbm_adapter_re_export",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_core/test_train_components.py::TestMergeParams::test_fit_args_override_tune_best",
+  "mode": "train",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_data/test_data_layer.py::TestValidators::test_clean_group_split_passes",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_e2e/test_leakage_all.py::TestCalibrationLeakage::test_calibration_result_structure",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_e2e/test_public_api.py::TestPublicImports::test_fit_result_importable",
+  "mode": "train",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_e2e/test_public_api.py::TestPublicImports::test_prediction_result_importable",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_e2e/test_public_api.py::TestPublicImports::test_explain_importable",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_e2e/test_time_series_full.py::TestTimeSeriesCalibrationSplitter::test_calibration_splitter_inherits_purged_params",
+  "mode": "api",
+  "age": "modified",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_check_provider.py::TestProtocolReturnTypes::test_build_export_params_returns_export_params",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_check_provider.py::TestFactoryFitPredictRoundtrip::test_predict_proba_binary_shape",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_check_provider.py::TestFactoryFitPredictRoundtrip::test_predict_proba_multiclass_shape",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_check_provider.py::TestFactoryFitPredictRoundtrip::test_predict_proba_regression_raises",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_estimators/test_check_provider.py::TestFactoryFitPredictRoundtrip::test_predict_raw_shape",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_estimators.py::TestLGBMRegression::test_predict_proba_raises",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_estimators/test_estimators.py::TestLGBMBinary::test_predict_shape",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_estimators.py::TestLGBMBinary::test_predict_proba_shape",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_estimators.py::TestLGBMMulticlass::test_predict_proba_shape",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_estimators.py::TestLGBMMulticlass::test_predict_labels",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_feval_probabilities.py::test_the_population_is_every_feval_metric",
+  "mode": "metric",
+  "age": "new",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_h0079_followup.py::TestG3ObjectiveCompatibilityEdgeInputs::test_dict_form_objective_raises",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_defaults.py::TestTaskDefaults::test_regression_metric_list",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_defaults.py::TestTaskDefaults::test_binary_metric_list",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_defaults.py::TestTaskDefaults::test_multiclass_metric_list",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestTranslateMetric::test_unknown_metric_passthrough",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestValidateLgbmMetrics::test_valid_native_metrics_pass",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestValidateLgbmMetrics::test_auc_rejected_for_multiclass_native",
+  "mode": "all",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestValidateLgbmMetrics::test_invalid_metric_raises",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestValidateLgbmMetrics::test_regression_metric_invalid_for_binary",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestValidateLgbmMetrics::test_feval_metric_bypasses_validation",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestValidateLgbmMetrics::test_mixed_native_and_feval",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestResolveMetrics::test_lizyml_name_translated_before_split",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestR2FevalMigration::test_r2_not_in_native_whitelist",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestR2FevalMigration::test_r2_in_feval_metrics",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestR2FevalMigration::test_r2_feval_perfect_predictions",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestR2FevalMigration::test_r2_validate_lgbm_metrics_rejects",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_user_metric.py::TestUserMetricOverride::test_fallback_to_task_default_when_no_user_metric",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_user_metric.py::TestUserMetricBehavioral::test_default_metric_shows_all_task_metrics",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_user_metric.py::TestInvalidMetricError::test_empty_string_metric_falls_back",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_user_metric.py::TestInvalidMetricError::test_string_metric_with_empty_falls_back",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_user_metric.py::TestParamsSummaryMetric::test_metric_in_params_summary",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_lightgbm_parameter_names.py::test_model_params_names_are_lightgbm_names",
+  "mode": "train",
+  "age": "new",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_lightgbm_parameter_names.py::test_loading_an_artifact_is_not_blocked_by_the_gate",
+  "mode": "train",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_estimators/test_lightgbm_parameter_names.py::test_every_route_into_the_estimator_is_inventoried",
+  "mode": "train",
+  "age": "new",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_literal_parameter_reads.py::test_every_literal_parameter_read_is_declared",
+  "mode": "train",
+  "age": "new",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_metric_choices_registry_coverage.py::TestMetricRegistryFitTimeCoverage::test_fit_time_registered_metrics_surfaced",
+  "mode": "all",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_metric_choices_registry_coverage.py::TestMetricRegistryTranslation::test_no_registered_metrics_lost_in_translation",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_estimators/test_metric_choices_registry_coverage.py::TestProviderSurfaceReverseSubset::test_feval_subset_of_feval_metrics",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_param_behavioral_effect.py::TestBoosterParamPropagation::test_metric_default_per_task",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_param_behavioral_effect.py::TestBehavioralEffect::test_scale_pos_weight_changes_predictions",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_param_behavioral_effect.py::TestSmartParamsBehavior::test_balanced_binary_shifts_predictions",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_param_behavioral_effect.py::TestSmartParamsBehavior::test_feature_weights_resolves_to_an_ordered_list",
+  "mode": "train",
+  "age": "new",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_param_behavioral_effect.py::TestMulticlassParams::test_multiclass_predict_proba_shape",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_provider_choice_apis.py::TestObjectiveChoicesContent::test_aligned_with_task_compatible_objectives",
+  "mode": "train",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_provider_choice_apis.py::TestMetricChoicesSignature::test_non_empty_native_branch",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_provider_choice_apis.py::TestMetricChoicesContent::test_no_duplicates_across_branches",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_estimators/test_provider_choice_apis.py::TestMetricChoicesContent::test_regression_native_includes_core_metrics",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_provider_choice_apis.py::TestMetricChoicesContent::test_native_subset_of_validation_whitelist",
+  "mode": "all",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_estimators/test_provider_choice_apis.py::TestMetricChoicesContent::test_feval_subset_of_feval_metrics",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_evaluation/test_evaluation.py::TestEvaluatorStructureRegression::test_no_calibrated_key_without_calibrator",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_evaluation/test_evaluation.py::TestMulticlassOvaNormalization::test_softmax_pred_unchanged_for_simplex",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_evaluation/test_evaluation.py::TestMulticlassOvaNormalization::test_auc_pr_receives_raw_values",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_evaluation/test_evaluation.py::TestMulticlassOvaNormalization::test_brier_receives_raw_values",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_evaluation/test_evaluation.py::TestMulticlassOvaNormalization::test_binary_not_affected",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_evaluation/test_evaluation.py::TestMulticlassOvaNormalization::test_regression_not_affected",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_evaluation/test_oof_coverage_eval.py::TestEvaluatorFullCoverageKFold::test_oof_coverage_is_one",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_evaluation/test_oof_coverage_eval.py::TestEvaluatorFullCoverageKFold::test_raw_keys_include_oof_coverage",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_evaluation/test_oof_coverage_eval.py::TestEvaluatorFullCoverageKFold::test_oof_per_fold_unchanged",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_evaluation/test_oof_coverage_eval.py::TestEvaluatorPartialCoverageTimeSeries::test_oof_coverage_less_than_one",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_evaluation/test_table_formatter.py::TestFormatMetricsTable::test_with_calibrated",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_evaluation/test_table_formatter.py::TestFormatMetricsTable::test_no_calibrated",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_evaluation/test_table_formatter.py::TestFormatMetricsTable::test_per_fold_columns",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_evaluation/test_table_formatter.py::TestFormatMetricsTable::test_oof_coverage_in_attrs",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_evaluation/test_table_formatter.py::TestFormatMetricsTable::test_oof_coverage_absent_when_not_provided",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_evaluation/test_table_formatter.py::TestFormatMetricsTable::test_fold_columns_use_oof_per_fold",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_explain/test_shap_importance_per_fold_pipeline.py::test_per_fold_states_without_fold_models_are_refused",
+  "mode": "split",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_features/test_categorical_encoder_edge.py::TestCategoricalEncoder::test_fit_missing_column",
+  "mode": "train",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_features/test_categorical_encoder_edge.py::TestCategoricalEncoder::test_fit_object_dtype",
+  "mode": "train",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_features/test_categorical_encoder_edge.py::TestCategoricalEncoder::test_fit_all_na_column",
+  "mode": "train",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_features/test_categorical_encoder_edge.py::TestCategoricalEncoder::test_transform_before_fit",
+  "mode": "train",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_features/test_feature_pipeline.py::TestCategoricalEncoder::test_fit_records_categories",
+  "mode": "train",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_features/test_feature_pipeline.py::TestCategoricalEncoder::test_transform_restricts_to_training_categories",
+  "mode": "train",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_features/test_feature_pipeline.py::TestNativeFeaturePipelineBasic::test_fit_records_feature_names",
+  "mode": "train",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_features/test_feature_pipeline.py::TestNativeFeaturePipelineBasic::test_fit_transform_consistent",
+  "mode": "train",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_metrics/test_metric_regressions.py::TestECEFormula::test_low_confidence_bin_well_calibrated",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_metrics/test_metric_regressions.py::TestECEFormula::test_high_confidence_bin_poorly_calibrated",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_metrics/test_metric_regressions.py::TestLogLossMulticlass::test_2d_good_predictions_lower_loss",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_metrics/test_metric_requires_proba.py::test_the_population_is_every_needs_proba_metric",
+  "mode": "metric",
+  "age": "new",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_metrics/test_metrics.py::TestF1::test_with_proba",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_metrics/test_metrics.py::TestECE::test_perfect_calibration",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_metrics/test_multiclass_ovr_metrics.py::TestAUCMulticlassOvR::test_good_predictions_high_auc",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_metrics/test_multiclass_ovr_metrics.py::TestBrierMulticlassOvR::test_good_predictions_low_brier",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_metrics/test_multiclass_ovr_metrics.py::TestMulticlassMissingClass::test_aucpr_single_class_fold_no_crash",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_metrics/test_regression_metrics.py::TestMAPE::test_perfect_prediction_is_zero",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_metrics/test_regression_metrics.py::TestHuberLoss::test_perfect_prediction_is_zero",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_metrics/test_regression_metrics.py::TestSMAPE::test_perfect_prediction_is_zero",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_metrics/test_regression_metrics.py::TestWAPE::test_perfect_prediction_is_zero",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_notebooks/test_notebook_cells.py::test_time_series_has_split_summary",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_notebooks/test_notebook_cells.py::test_time_series_has_time_series_method",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_notebooks/test_notebook_cells.py::test_time_series_has_predict",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_persistence/test_export_load_errors.py::TestLoadErrors::test_corrupt_fit_result_pkl",
+  "mode": "train",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_plots/test_helpers.py::TestCollectIsData::test_empty_folds_return_empty_arrays",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_plots/test_theme.py::TestThemeAppliedToAllPlots::test_every_plot_module_imports_apply_default_layout",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_plots/test_tuning_plot.py::TestTuningPlotUnit::test_best_score_line_present",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_splitters/test_splitters.py::TestGroupTimeSeriesSplitter::test_max_train_size",
+  "mode": "train",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_training/test_blocked_group_inner_valid.py::TestStratifiedTimeHoldout::test_regression_fallback_raises_when_ratio_consumes_all",
+  "mode": "train",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_training/test_inner_valid_purge_embargo.py::TestExplicitInnerValidDoesNotInheritGap::test_auto_and_explicit_differ_for_the_same_outer_split",
+  "mode": "split",
+  "age": "new",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_training/test_oof_coverage.py::TestComputeOofValidMask::test_full_coverage_kfold",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_training/test_oof_coverage.py::TestComputeOofValidMask::test_empty_splits",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_training/test_oof_coverage.py::TestComputeOofValidMask::test_single_fold",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_training/test_training.py::TestOOFHelpers::test_init_oof_regression",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_training/test_training.py::TestOOFHelpers::test_init_oof_binary",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_training/test_training.py::TestOOFHelpers::test_init_oof_multiclass",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_training/test_training.py::TestOOFHelpers::test_init_oof_multiclass_requires_n_classes",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_training/test_training.py::TestOOFHelpers::test_fill_oof_correct_indices",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_training/test_training.py::TestOOFHelpers::test_fill_oof_shape_mismatch",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_training/test_training.py::TestCVTrainerRegression::test_metrics_empty",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_training/test_training.py::TestRefitTrainer::test_refit_model_can_predict",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_tuning/test_default_space.py::TestDefaultSpace::test_training_dims_ranges",
+  "mode": "train",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_tuning/test_default_space.py::TestSplitByCategory::test_splits_correctly",
+  "mode": "split",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_tuning/test_dimension_consumption.py::test_unconsumed_training_dimension_refused",
+  "mode": "train",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_tuning/test_retune.py::TestPlotTuningHistoryRounds::test_plot_with_failed_trials",
+  "mode": "api",
+  "age": "unchanged",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_tuning/test_retune.py::TestPlotTuningHistoryRounds::test_plot_maximize_direction",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ },
+ {
+  "test": "tests/test_tuning/test_space_merge.py::test_resolved_training_conflict_refused_before_study",
+  "mode": "train",
+  "age": "new",
+  "polarity": "negative"
+ },
+ {
+  "test": "tests/test_tuning/test_tuning_progress.py::TestTuneProgressInfo::test_none_scores",
+  "mode": "metric",
+  "age": "unchanged",
+  "polarity": "positive"
+ }
+]

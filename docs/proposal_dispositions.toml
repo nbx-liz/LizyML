@@ -475,6 +475,10 @@ anchors = ["pipeline_state_per_fold", "compute_shap_importance", "MODEL_NOT_FIT"
 disposition = "specified"
 anchors = ["purge_gap", "embargo_pct", "PurgedTimeSeriesSplitter(embargo=...)", "DeprecationWarning"]
 
+[proposals."H-0116"]
+disposition = "specified"
+anchors = ["check_objective_compatible", "CONFIG_INVALID", "TypeError"]
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 

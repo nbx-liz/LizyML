@@ -31,7 +31,7 @@ import ast
 import os
 import pathlib
 
-ROOT = pathlib.Path("/home/rem/repos/LizyML")
+ROOT = pathlib.Path(__file__).resolve().parents[4]
 MODE = os.environ.get("LIZYML_KILL", "")
 
 
@@ -40,13 +40,15 @@ class ProducerRan(RuntimeError):
 
 
 def _kill(obj: object, name: str, label: str) -> None:
+    """Replace a producer with one that raises.
+
+    A kill that cannot be applied stops the run: it used to be swallowed, and a
+    producer left live makes "still passes" read as "never ran it" (#270).
+    """
     def boom(*a: object, **k: object):
         raise ProducerRan(f"producer disabled for the hollowness check: {label}")
 
-    try:
-        setattr(obj, name, boom)
-    except Exception:  # noqa: BLE001, S110
-        pass
+    setattr(obj, name, boom)
 
 
 def _stage_and_splitter_targets() -> list[tuple[str, str]]:
@@ -83,11 +85,8 @@ def pytest_configure(config) -> None:  # noqa: ANN001, ARG001
         _kill(lightgbm, "train", "lightgbm.train")
         killed.append("lightgbm.train")
         for modname in ("lizyml.estimators.lgbm.adapter",):
-            try:
-                mod = __import__(modname, fromlist=["x"])
-                _kill(mod.lgb, "train", "lightgbm.train (adapter alias)")
-            except Exception:  # noqa: BLE001, S110
-                pass
+            mod = __import__(modname, fromlist=["x"])
+            _kill(mod.lgb, "train", "lightgbm.train (adapter alias)")
 
     if MODE in ("api", "all"):
         from lizyml.core.model import Model
@@ -103,10 +102,7 @@ def pytest_configure(config) -> None:  # noqa: ANN001, ARG001
             base = ROOT / pkgname.replace(".", "/")
             for p in sorted(base.rglob("*.py")):
                 modname = p.relative_to(ROOT).as_posix()[:-3].replace("/", ".")
-                try:
-                    mod = __import__(modname, fromlist=["x"])
-                except Exception:  # noqa: BLE001
-                    continue
+                mod = __import__(modname, fromlist=["x"])
                 for name in dir(mod):
                     obj = getattr(mod, name, None)
                     if callable(obj) and getattr(obj, "__module__", "") == modname:
@@ -121,11 +117,8 @@ def pytest_configure(config) -> None:  # noqa: ANN001, ARG001
     if MODE in ("split", "all"):
         for qual, meth in _stage_and_splitter_targets():
             modname, cls = qual.rsplit(".", 1)
-            try:
-                mod = __import__(modname, fromlist=["x"])
-                _kill(getattr(mod, cls), meth, f"{qual}.{meth}")
-                killed.append(f"{qual}.{meth}")
-            except Exception:  # noqa: BLE001, S110
-                pass
+            mod = __import__(modname, fromlist=["x"])
+            _kill(getattr(mod, cls), meth, f"{qual}.{meth}")
+            killed.append(f"{qual}.{meth}")
 
     print(f"\n[kill_producers] MODE={MODE!r}: disabled {len(killed)} producers")

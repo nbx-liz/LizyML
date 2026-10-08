@@ -169,12 +169,34 @@ class TestBoosterParamPropagation:
         params, *_ = adapter._build_params()
         assert "num_class" not in params
 
-    def test_metric_default_per_task(self) -> None:
-        for task in ("regression", "binary"):
-            kwargs: dict[str, Any] = {"task": task}
-            adapter = LGBMAdapter(**kwargs)
-            params, *_ = adapter._build_params()
-            assert params["metric"] == _TASK_METRIC[task]
+    @pytest.mark.parametrize(
+        "task,evaluated",
+        [
+            # LightGBM reports ``mae`` under its canonical name ``l1``.
+            ("regression", {"huber", "l1", "mape"}),
+            ("binary", {"auc", "binary_logloss"}),
+        ],
+    )
+    def test_metric_default_per_task(self, task: str, evaluated: set[str]) -> None:
+        """With no metric given, LightGBM evaluates the task's default set (#270).
+
+        The previous version read the adapter's ``_build_params`` dict and never
+        trained. This one trains and reads what LightGBM computed on the
+        validation set, which is the effect the default exists for.
+        """
+        X_train, y_train, X_valid, y_valid = (
+            _binary_data() if task == "binary" else _regression_data()
+        )
+        adapter = LGBMAdapter(
+            task=task,  # type: ignore[arg-type]
+            params={"n_estimators": 5},
+            random_state=42,
+        )
+        adapter.fit(X_train, y_train, X_valid, y_valid)
+
+        assert adapter._model is not None
+        assert adapter._model.params["metric"] == _TASK_METRIC[task]
+        assert set(adapter.eval_results["valid_0"]) == evaluated
 
     def test_user_metric_reaches_booster(self) -> None:
         adapter = LGBMAdapter(task="binary", params={"metric": ["auc"]})
@@ -304,7 +326,44 @@ class TestSmartParamsBehavior:
     """Smart params must produce observable behavioral changes."""
 
     def test_balanced_binary_shifts_predictions(self) -> None:
-        """balanced=True should apply scale_pos_weight on imbalanced data."""
+        """``balanced: true`` raises the predicted positive rate of a fit (#270).
+
+        The resolution step below only shows that ``scale_pos_weight`` is
+        emitted. This trains through ``Model.fit`` twice on imbalanced binary
+        data and compares what the models predict, which is the claim.
+        """
+        from lizyml import Model
+        from tests._helpers import make_config
+
+        rng = np.random.default_rng(7)
+        df = pd.DataFrame(
+            {"f1": rng.standard_normal(600), "f2": rng.standard_normal(600)}
+        )
+        df["target"] = ((df["f1"] + rng.normal(0, 1.0, 600)) > 1.6).astype(int)
+        assert 0.05 < df["target"].mean() < 0.2
+
+        mean_proba: dict[bool, float] = {}
+        for balanced in (False, True):
+            # The default learning_rate (0.001) moves 30 trees too little to
+            # show a shift; scale_pos_weight reaches training either way.
+            cfg = make_config(
+                "binary", n_estimators=30, n_splits=3, learning_rate=0.1, num_threads=1
+            )
+            cfg["model"]["balanced"] = balanced
+            model = Model(cfg)
+            model.fit(data=df)
+            proba = model.predict(df[["f1", "f2"]]).proba
+            assert proba is not None
+            mean_proba[balanced] = float(np.mean(proba))
+
+        assert mean_proba[True] > mean_proba[False] + 0.05, mean_proba
+
+    def test_balanced_binary_resolves_scale_pos_weight(self) -> None:
+        """balanced=True resolves to scale_pos_weight on imbalanced data.
+
+        This is ``resolve_smart_params`` only. That a fit's predictions shift
+        is asserted by ``test_balanced_binary_shifts_predictions``.
+        """
         from lizyml.estimators.lgbm.smart_params import resolve_smart_params
 
         X_train, y_train, _, _ = _binary_data(imbalance_ratio=0.1)

@@ -1373,7 +1373,7 @@ set_categorical_features(cols: list[str] | None) -> None  # デフォルト no-o
 ## 14.2 LGBM adapter の責務
 
 - `objective / metric` 整合
-  - 利用者または trial が書いた `objective`（エイリアスの綴りを含む）は、task の `TASK_COMPATIBLE_OBJECTIVES`（`estimators/lgbm/defaults.py`。LightGBM の canonical 名で regression 9 / binary 3 / multiclass 2）に含まれればそのまま `lgb.train` に渡し、含まれなければ `CONFIG_INVALID` とする（H-0079）。H-0079 より前は黙ってタスク既定に置き換えていた。
+  - 利用者または trial が書いた `objective`（エイリアスの綴りを含む）は、task の `TASK_COMPATIBLE_OBJECTIVES`（`estimators/lgbm/defaults.py`。LightGBM の canonical 名で regression 9 / binary 3 / multiclass 2）に含まれればそのまま `lgb.train` に渡し、含まれなければ `CONFIG_INVALID` とする（H-0079）。H-0079 より前は黙ってタスク既定に置き換えていた。`None` 以外の文字列でない値（dict / list など）も、包含を調べる前に `CONFIG_INVALID` とする（`check_objective_compatible`、H-0116。それ以前は dict / list が未加工の `TypeError` で落ちていた）。包含の検査とメッセージは値を書式化もハッシュもしないが、値の型やその属性の参照が例外を出すもの（`__class__`、メタクラスなど）と、送出後のエラーの表示（`context` は書いた値を保つ）は範囲外（H-0116 決定 2）。明示の `None` は「上書きなし」で、task の既定の objective で学習する。
 - categorical の扱い統一
 - early stopping の設定吸収
 - SHAP（内蔵寄り）対応

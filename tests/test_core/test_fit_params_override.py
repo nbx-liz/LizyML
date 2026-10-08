@@ -43,7 +43,12 @@ from lizyml.estimators.lgbm.smart_params import (
     resolve_ratio_params,
     resolve_smart_params,
 )
-from tests._helpers import make_binary_df, make_config, make_multiclass_df
+from tests._helpers import (
+    make_binary_df,
+    make_config,
+    make_multiclass_df,
+    make_regression_df,
+)
 from tests._train_spy import record_lightgbm_calls
 
 REPO = pathlib.Path(__file__).resolve().parents[2]
@@ -121,22 +126,33 @@ def test_the_override_reaches_lgb_train_itself() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_fit_params_outrank_the_tuning_result() -> None:
+@pytest.mark.parametrize(
+    ("task", "make_df", "metric_name", "direction"),
+    [
+        ("binary", make_binary_df, "auc", "maximize"),
+        ("regression", make_regression_df, "rmse", "minimize"),
+    ],
+    ids=["binary", "regression"],
+)
+def test_fit_params_outrank_the_tuning_result(
+    task: str, make_df: Any, metric_name: str, direction: str
+) -> None:
     """``fit(params=)`` is documented as the highest priority. Execute that.
 
     A tuned model whose user re-fits with an explicit override must get the
     override, not the tuned value. This is the one ordering claim that cannot
-    be read off the config.
+    be read off the config. Regression is covered too: it is the task
+    ``TestMergeParams`` in ``test_train_components.py`` cites this test for.
     """
-    cfg = make_config("binary", n_estimators=5, n_splits=2, learning_rate=CONFIG_VALUE)
-    model = Model(cfg, data=make_binary_df(n=120))
+    cfg = make_config(task, n_estimators=5, n_splits=2, learning_rate=CONFIG_VALUE)
+    model = Model(cfg, data=make_df(n=120))
     model._tuning_result = TuningResult(
         best_model_params={OVERRIDDEN: 0.25},
         best_smart_params={},
         best_training_params={},
         best_score=0.0,
-        metric_name="auc",
-        direction="maximize",
+        metric_name=metric_name,
+        direction=direction,
         trials=(),
         rounds=(),
     )
@@ -964,6 +980,10 @@ def test_every_calibration_alias_is_canonical_before_the_defaults_merge() -> Non
     ``CALIBRATOR_OWN_PARAM_NAMES`` are excluded deliberately and asserted to be
     excluded: ``num_boost_round`` is a LightGBM alias of ``num_iterations``, and
     renaming it would take the key the calibrator pops for its boosting rounds.
+
+    This is the helper only. That every such alias reaches training through
+    ``Model.fit`` is asserted by
+    ``test_every_calibration_default_written_as_an_alias_reaches_training``.
     """
     from lizyml.calibration.isotonic import (
         _ISOTONIC_DEFAULTS,
@@ -994,6 +1014,87 @@ def test_every_calibration_alias_is_canonical_before_the_defaults_merge() -> Non
             f"'{own}' is the calibrator's own key and was renamed, which takes "
             "it away from the code that pops it"
         )
+
+
+#: A legal value for each calibrator default that differs from the default
+#: where the calibrator lets it (the forced ones keep their forced value).
+_CALIBRATION_ALIAS_VALUES: dict[str, Any] = {
+    "objective": "binary",
+    "metric": "auc",
+    "monotone_constraints": [1],
+    "monotone_constraints_method": "basic",
+    "num_leaves": 5,
+    "max_depth": 2,
+    "learning_rate": 0.07,
+    "lambda_l2": 3.0,
+    "min_gain_to_split": 0.001,
+    "feature_fraction": 0.9,
+    "bagging_fraction": 0.8,
+    "bagging_freq": 1,
+}
+
+
+def test_every_calibration_default_written_as_an_alias_reaches_training() -> None:
+    """The quantified property above, at ``lgb.train`` (#270).
+
+    The test above checks every spelling of every default against the
+    canonicaliser; the boundary test before it trains with ``learning_rate``
+    only. This one writes **every** alias of every default the calibrator
+    carries: fit ``k`` writes each default under its ``k``-th alias (defaults
+    with fewer aliases sit out), until every alias has been through a ``fit``.
+    In each, it reads the calibrator Boosters' params: each written default
+    must arrive once, under its canonical name, with the written value.
+    """
+    from lizyml.calibration.isotonic import (
+        _ISOTONIC_DEFAULTS,
+        CALIBRATOR_OWN_PARAM_NAMES,
+    )
+
+    canonical = LGBMProvider().canonical_param_names(_ISOTONIC_DEFAULTS)
+    aliases_of: dict[str, list[str]] = {}
+    for default_name in _ISOTONIC_DEFAULTS:
+        if default_name in CALIBRATOR_OWN_PARAM_NAMES:
+            continue
+        name = canonical[default_name]
+        aliases = sorted(accepted_spellings(name) - {name})
+        if aliases:
+            aliases_of[name] = aliases
+    assert len(aliases_of) >= 8, f"the alias population collapsed: {sorted(aliases_of)}"
+
+    exercised: set[str] = set()
+    for k in range(max(len(a) for a in aliases_of.values())):
+        expected = {
+            name: _CALIBRATION_ALIAS_VALUES[name]
+            for name, aliases in aliases_of.items()
+            if k < len(aliases)
+        }
+        written = {aliases_of[name][k]: value for name, value in expected.items()}
+        exercised.update(written)
+
+        cfg = make_config("binary", n_estimators=3, n_splits=2, num_threads=1)
+        cfg["calibration"] = {"method": "isotonic", "params": written}
+        with record_lightgbm_calls() as seen:
+            Model(cfg, data=make_binary_df(n=160)).fit()
+
+        calibrator_calls = [
+            call
+            for call in seen["train_params"]
+            if call.get("monotone_constraints") == [1]
+        ]
+        assert calibrator_calls, f"fit {k}: no calibrator Booster was trained"
+        for call in calibrator_calls:
+            for name, value in expected.items():
+                present = sorted(s for s in accepted_spellings(name) if s in call)
+                assert present == [name], (
+                    f"fit {k}: {name} written as {aliases_of[name][k]!r} "
+                    f"reached lgb.train as {present}"
+                )
+                assert call[name] == value, (
+                    f"fit {k}: {name}: trained {call[name]!r}, wrote {value!r}"
+                )
+
+    every_alias = {a for aliases in aliases_of.values() for a in aliases}
+    assert exercised == every_alias, sorted(every_alias - exercised)
 
 
 def test_no_smart_parameter_name_has_an_estimator_alias() -> None:
@@ -3274,6 +3375,15 @@ def test_a_hostile_value_is_refused_beside_a_second_spelling_too(
     assert excinfo.value.code is ErrorCode.CONFIG_INVALID
     assert "learning_rate" in excinfo.value.user_message
     assert not seen["train_params"]
+    # Which gate refused (#270): the duplicate-spelling gate refuses any pair,
+    # so the assertions above would hold if it were the one that fired. The
+    # value gate reports ``rejected``; the duplicate gate reports ``conflicts``.
+    assert "rejected" in excinfo.value.context
+    assert "conflicts" not in excinfo.value.context
+
+    with pytest.raises(LizyMLError) as control:
+        model.fit(params={"learning_rate": 0.3, "eta": 0.5})
+    assert "conflicts" in control.value.context
 
 
 def test_closing_the_domain_did_not_close_it_on_the_values_callers_write() -> None:
