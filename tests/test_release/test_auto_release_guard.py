@@ -118,8 +118,14 @@ def test_the_guard_runs_before_the_tag_and_the_tag_is_the_merge_commit() -> None
     assert guard_at < tag_at
     guard_env = steps[guard_at]["env"]
     assert isinstance(guard_env, dict)
-    assert guard_env["HEAD_REF"] == "${{ github.event.pull_request.head.ref }}"
-    assert guard_env["MERGE_SHA"] == "${{ github.event.pull_request.merge_commit_sha }}"
+    # Every input, exactly: HEAD_REPO wired to github.repository would make a
+    # fork's `develop` look like this repository's and pass the fork check.
+    assert guard_env == {
+        "HEAD_REF": "${{ github.event.pull_request.head.ref }}",
+        "HEAD_REPO": "${{ github.event.pull_request.head.repo.full_name }}",
+        "BASE_REPO": "${{ github.repository }}",
+        "MERGE_SHA": "${{ github.event.pull_request.merge_commit_sha }}",
+    }
     tag_step = steps[tag_at]
     tag_lines = [
         line.strip()
