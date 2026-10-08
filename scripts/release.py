@@ -7,9 +7,10 @@ Usage:
 What it does:
     1. Validates version format and semver increment
     2. Extracts release notes from CHANGELOG.md
-    3. Commits CHANGELOG (if uncommitted changes exist)
-    4. Pushes develop to origin
-    5. Creates a PR from develop → main with release title and notes
+    3. Refuses if CHANGELOG.md has uncommitted changes, or if local develop
+       differs from origin/develop. It never commits or pushes: CHANGELOG
+       lands on develop through a feature PR first (CONTRIBUTING.md, H-0117)
+    4. Creates a PR from develop → main titled ``release: vX.Y.Z``
 
 After the PR is merged on GitHub, the auto-release.yml workflow will:
     - Create a git tag
@@ -116,6 +117,36 @@ def check_changelog_has_version(version: str) -> None:
         sys.exit(1)
 
 
+def check_changelog_committed() -> None:
+    """Refuse a dirty CHANGELOG.md instead of committing it on develop (H-0117)."""
+    if run("git status --porcelain CHANGELOG.md", check=False):
+        print(
+            "ERROR: CHANGELOG.md has uncommitted changes. Land them on develop "
+            "through a feature PR first (CONTRIBUTING.md, Release step 1); "
+            "this script never commits or pushes.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
+def check_develop_matches_origin() -> None:
+    """Refuse when local develop is not exactly origin/develop (H-0117).
+
+    The release PR is opened from the remote branch, so a local-only commit
+    would be silently left out, and pushing develop directly is forbidden.
+    """
+    run("git fetch origin develop")
+    local = run("git rev-parse HEAD")
+    remote = run("git rev-parse origin/develop")
+    if local != remote:
+        print(
+            f"ERROR: local develop ({local[:7]}) differs from origin/develop "
+            f"({remote[:7]}). Sync develop through PRs before releasing.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+
 def main() -> None:
     if len(sys.argv) != 2:
         print("Usage: uv run python scripts/release.py v0.5.0", file=sys.stderr)
@@ -134,21 +165,11 @@ def main() -> None:
     print(f"New version:     {new_version} ({bump_type})")
     print(f"Release notes:\n{notes}\n")
 
-    # Commit CHANGELOG if there are uncommitted changes
-    status = run("git status --porcelain CHANGELOG.md", check=False)
-    if status:
-        ver = new_version.lstrip("v")
-        msg = f"docs: update CHANGELOG for v{ver} release"
-        run(f'git add CHANGELOG.md && git commit -m "{msg}"')
-        print("Committed CHANGELOG.md")
-
-    # Push develop
-    run("git push origin develop")
-    print("Pushed develop to origin")
+    check_changelog_committed()
+    check_develop_matches_origin()
 
     # Create PR
-    ver = new_version.lstrip("v")
-    pr_title = f"release: {new_version} — LizyML {ver}"
+    pr_title = f"release: {new_version}"
 
     pr_body = f"""## Summary
 {notes}
