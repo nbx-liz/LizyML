@@ -146,3 +146,29 @@ def test_no_step_expands_pull_request_fields_inside_its_script() -> None:
         assert "${{ github.event.pull_request" not in str(step.get("run", "")), (
             step.get("name")
         )
+
+
+#: Every step's whole ``env`` mapping, by step name. A step not listed must have
+#: none. Pinning only some inputs let a miswiring through twice in review: a
+#: ``TITLE`` read from the PR body would tag whatever version the body names.
+EXPECTED_ENV: dict[str, dict[str, str]] = {
+    "Verify the release is a merge commit of develop": {
+        "HEAD_REF": "${{ github.event.pull_request.head.ref }}",
+        "HEAD_REPO": "${{ github.event.pull_request.head.repo.full_name }}",
+        "BASE_REPO": "${{ github.repository }}",
+        "MERGE_SHA": "${{ github.event.pull_request.merge_commit_sha }}",
+    },
+    "Extract version from PR title": {
+        "TITLE": "${{ github.event.pull_request.title }}",
+    },
+    "Create tag": {
+        "MERGE_SHA": "${{ github.event.pull_request.merge_commit_sha }}",
+    },
+    "Create GitHub Release": {"GH_TOKEN": "${{ secrets.GITHUB_TOKEN }}"},
+    "Trigger PyPI publish workflow": {"GH_TOKEN": "${{ secrets.GITHUB_TOKEN }}"},
+}
+
+
+def test_every_step_reads_exactly_the_inputs_it_should() -> None:
+    actual = {str(s.get("name")): s.get("env") for s in _steps()}
+    assert {name: env for name, env in actual.items() if env} == EXPECTED_ENV
