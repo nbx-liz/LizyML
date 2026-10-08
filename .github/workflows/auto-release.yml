@@ -30,10 +30,20 @@ jobs:
         with:
           fetch-depth: 0
 
+      # H-0117: only a two-parent merge of develop into main is a release.
+      - name: Verify the release is a merge commit of develop
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BASE_REPO: ${{ github.repository }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+        run: bash .github/scripts/check_release_merge.sh
+
       - name: Extract version from PR title
         id: version
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
         run: |
-          TITLE="${{ github.event.pull_request.title }}"
           VERSION=$(echo "$TITLE" | grep -oP 'v\d+\.\d+\.\d+')
           if [ -z "$VERSION" ]; then
             echo "::error::No version found in PR title: $TITLE"
@@ -66,8 +76,10 @@ jobs:
           cat /tmp/release-notes.md
 
       - name: Create tag
+        env:
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
         run: |
-          git tag "${{ steps.version.outputs.tag }}"
+          git tag "${{ steps.version.outputs.tag }}" "$MERGE_SHA"
           git push origin "${{ steps.version.outputs.tag }}"
 
       - name: Create GitHub Release
