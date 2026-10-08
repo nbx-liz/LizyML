@@ -1,24 +1,46 @@
 """``docs/examples.md`` describes the notebooks it lists (DC3).
 
-The index named methods its notebooks never called and told readers that seven
-notebooks needed no extras while they plot (``plots``) or compute SHAP
-(``explain``). These tests read each notebook's code cells and check the index
-against them: the listed notebooks are exactly the notebooks on disk, every
-method the index names for a notebook is called in it, and the extras it lists
-are the ones the notebook's calls need.
+The index named methods its notebooks never called and listed the wrong extras
+for seven of eight notebooks. These tests parse each notebook's code cells with
+``ast`` (comments and strings are not calls) and check the index against them:
+the listed notebooks are exactly the notebooks on disk, every method the index
+names for a notebook is called in it, and the extras it lists are exactly the
+ones the notebook's imports and calls need. Anything the derivation cannot
+decide -- a non-literal ``kind=``, an import outside the standard library, the
+base install and the extras -- fails the test instead of passing it.
 """
 
 from __future__ import annotations
 
+import ast
 import json
 import pathlib
 import re
+import sys
 
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 INDEX = ROOT / "docs" / "examples.md"
 NOTEBOOKS = ROOT / "notebooks"
+
+#: Top-level modules the base install provides (``pyproject.toml``
+#: ``dependencies``, and scipy through scikit-learn).
+BASE_MODULES = frozenset(
+    {
+        "lizyml",
+        "numpy",
+        "pandas",
+        "sklearn",
+        "lightgbm",
+        "yaml",
+        "joblib",
+        "pydantic",
+        "scipy",
+    }
+)
+#: Extra name for each top-level module an extra provides.
+EXTRA_MODULES = {"plotly": "plots", "shap": "explain", "optuna": "tuning"}
 
 
 def _sections() -> dict[str, str]:
@@ -31,23 +53,80 @@ def _sections() -> dict[str, str]:
     }
 
 
-def _code(name: str) -> str:
+def _tree(name: str) -> ast.Module:
     nb = json.loads((NOTEBOOKS / name).read_text(encoding="utf-8"))
-    return "\n".join(
-        "".join(cell.get("source", []))
-        for cell in nb["cells"]
-        if cell["cell_type"] == "code"
-    )
+    body: list[ast.stmt] = []
+    for cell in nb["cells"]:
+        if cell["cell_type"] != "code":
+            continue
+        source = "".join(cell.get("source", []))
+        # IPython magics and shell escapes are not Python.
+        source = "\n".join(
+            "" if line.lstrip().startswith(("%", "!")) else line
+            for line in source.splitlines()
+        )
+        body.extend(ast.parse(source, filename=name).body)
+    return ast.Module(body=body, type_ignores=[])
 
 
-def _needed_extras(code: str) -> set[str]:
+def _called(tree: ast.Module) -> set[str]:
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            if isinstance(node.func, ast.Attribute):
+                names.add(node.func.attr)
+            elif isinstance(node.func, ast.Name):
+                names.add(node.func.id)
+    return names
+
+
+def _literal(name: str, call: ast.Call, keyword: str) -> object:
+    for kw in call.keywords:
+        if kw.arg == keyword:
+            assert isinstance(kw.value, ast.Constant), (
+                f"{name}: `{keyword}=` is not a literal, so the extras it needs "
+                "cannot be decided; write the value literally"
+            )
+            return kw.value.value
+    return None
+
+
+def _needed_extras(name: str, tree: ast.Module) -> set[str]:
     needed = set()
-    if re.search(r"\.\w*plot\w*\(", code):
-        needed.add("plots")
-    if re.search(r"""kind\s*=\s*["']shap["']|return_shap\s*=\s*True""", code):
-        needed.add("explain")
-    if re.search(r"\.tune\(", code):
-        needed.add("tuning")
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import | ast.ImportFrom):
+            modules = (
+                [a.name for a in node.names]
+                if isinstance(node, ast.Import)
+                else [node.module or ""]
+            )
+            for module in modules:
+                top = module.split(".")[0]
+                if top in EXTRA_MODULES:
+                    needed.add(EXTRA_MODULES[top])
+                else:
+                    assert (
+                        top in BASE_MODULES
+                        or top in sys.stdlib_module_names
+                        or top == "__future__"
+                    ), f"{name}: imports {top!r}, which no install declares"
+        elif isinstance(node, ast.Call):
+            func = node.func
+            called = (
+                func.attr
+                if isinstance(func, ast.Attribute)
+                else getattr(func, "id", "")
+            )
+            if "plot" in called:
+                needed.add("plots")
+            if called == "tune":
+                needed.add("tuning")
+            if _literal(name, node, "kind") == "shap":
+                needed.add("explain")
+            if _literal(name, node, "return_shap") is True:
+                needed.add("explain")
+        elif isinstance(node, ast.Constant) and node.value == "pytest":
+            raise AssertionError(f"{name}: runs pytest, a dev-only dependency")
     return needed
 
 
@@ -72,13 +151,12 @@ def test_the_index_lists_exactly_the_notebooks_on_disk() -> None:
 
 @pytest.mark.parametrize("name", sorted(SECTIONS))
 def test_every_method_the_index_names_is_called_in_the_notebook(name: str) -> None:
-    code = _code(name)
-    named = re.findall(r"`(\w+)\(", SECTIONS[name])
+    named = set(re.findall(r"`(\w+)\(", SECTIONS[name]))
     assert named, f"{name}: the entry names no method"
-    missing = sorted({m for m in named if not re.search(rf"\b{m}\(", code)})
+    missing = sorted(named - _called(_tree(name)))
     assert not missing, f"{name}: named but never called: {missing}"
 
 
 @pytest.mark.parametrize("name", sorted(SECTIONS))
 def test_the_listed_extras_are_the_ones_the_notebook_needs(name: str) -> None:
-    assert _listed_extras(SECTIONS[name]) == _needed_extras(_code(name))
+    assert _listed_extras(SECTIONS[name]) == _needed_extras(name, _tree(name))

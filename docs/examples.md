@@ -85,8 +85,8 @@ them with `calibration_plot()` and `probability_histogram_plot()`.
 
 Codegen export walkthrough: `export_code()` generates standalone
 `train.py` + `predict.py` + `config.json` that run without LizyML.
-Shows generated file structure and equivalence verification with
-`test_equivalence.py`.
+Shows the generated file structure, runs `predict.py`, and checks it with
+`test_equivalence.py` against `predict()` reference predictions.
 
 **Extras required:** none (base install)
 
