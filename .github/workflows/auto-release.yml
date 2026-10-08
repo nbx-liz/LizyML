@@ -43,28 +43,13 @@ jobs:
         id: version
         env:
           TITLE: ${{ github.event.pull_request.title }}
-        run: |
-          VERSION=$(echo "$TITLE" | grep -oP 'v\d+\.\d+\.\d+')
-          if [ -z "$VERSION" ]; then
-            echo "::error::No version found in PR title: $TITLE"
-            exit 1
-          fi
-          echo "tag=$VERSION" >> "$GITHUB_OUTPUT"
-          # Strip 'v' prefix for CHANGELOG lookup
-          echo "version=${VERSION#v}" >> "$GITHUB_OUTPUT"
-          echo "Detected version: $VERSION"
-
-      - name: Check tag does not already exist
-        run: |
-          if git rev-parse "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
-            echo "::error::Tag ${{ steps.version.outputs.tag }} already exists"
-            exit 1
-          fi
+        run: bash .github/scripts/release_version.sh
 
       - name: Extract release notes from CHANGELOG.md
         id: notes
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
           # Extract the section for this version (between ## [X.Y.Z] and the next ## [)
           NOTES=$(awk "/^## \[${VERSION}\]/{flag=1; next} /^## \[/{flag=0} flag" CHANGELOG.md)
           if [ -z "$NOTES" ]; then
@@ -75,24 +60,27 @@ jobs:
           echo "Release notes extracted:"
           cat /tmp/release-notes.md
 
+      # Idempotent: a re-run after a later step failed reuses a tag that already
+      # names the merge commit, and refuses one that names anything else.
       - name: Create tag
         env:
+          TAG: ${{ steps.version.outputs.tag }}
           MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
-        run: |
-          git tag "${{ steps.version.outputs.tag }}" "$MERGE_SHA"
-          git push origin "${{ steps.version.outputs.tag }}"
+        run: bash .github/scripts/create_release_tag.sh
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
         run: |
-          gh release create "${{ steps.version.outputs.tag }}" \
-            --title "${{ steps.version.outputs.tag }}" \
-            --notes-file /tmp/release-notes.md
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "GitHub Release $TAG already exists; reusing it"
+          else
+            gh release create "$TAG" --title "$TAG" --notes-file /tmp/release-notes.md
+          fi
 
       - name: Trigger PyPI publish workflow
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh workflow run release.yml \
-            -f tag=${{ steps.version.outputs.tag }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: gh workflow run release.yml -f tag="$TAG"

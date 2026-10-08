@@ -30,7 +30,9 @@ git config core.hooksPath .githooks
 4. Merge with **Create a merge commit** (NOT squash — squash breaks history sync)
 5. `auto-release.yml` auto-creates tag + GitHub Release. It first checks that the
    PR's head is `develop` in this repository and that its merge commit has two
-   parents, and refuses to tag anything else (H-0117)
+   parents, and refuses to tag anything else. The title must be exactly
+   `release: vX.Y.Z`. If a later step fails, re-run the workflow: a tag that
+   already names the merge commit is reused (H-0117)
 6. No post-release sync PR needed
 
 ### Commit Types

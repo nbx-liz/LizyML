@@ -11254,7 +11254,7 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 - **ステータス**: Accepted
 - **起票日**: 2026-10-08
 - **決定日**: 2026-10-08（管理者の判断: v0.18.0 の前に、リリース経路と文書の役割を直す計画を承認）
-- **スコープ**: `scripts/release.py`, `.github/workflows/auto-release.yml`, `.github/scripts/check_release_merge.sh`（新規）, `CONTRIBUTING.md`, テスト（`tests/test_release/`）, `docs/proposal_dispositions.toml`
+- **スコープ**: `scripts/release.py`, `.github/workflows/auto-release.yml`, `.github/scripts/`（`check_release_merge.sh` / `release_version.sh` / `create_release_tag.sh`、いずれも新規）, `CONTRIBUTING.md`, テスト（`tests/test_release/`）, `docs/proposal_dispositions.toml`
 - **関連**: Codex の設計レビュー `lizyml-agents-critique`（2026-10-08、指示ファイルの整理の検討で見つかった）、`CONTRIBUTING.md` の Release 節
 
 ### 目的（課題）
@@ -11273,7 +11273,13 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
    2. head が同じリポジトリのものであること。
    3. merge commit（`merge_commit_sha`）の親がちょうど 2 つであること。
 
-   1 つでも満たさなければ、タグも Release も作らずに失敗する。タグは checkout の HEAD ではなく `merge_commit_sha` に付ける。PR のタイトルなど利用者が書ける値は、`env:` を経由してシェルに渡す。
+   1 つでも満たさなければ、タグも Release も作らずに失敗する。
+
+   加えて、次の 3 つを定める。
+
+   - **バージョンは、タイトル全体が `release: vX.Y.Z` と一致するときだけ読む**（`.github/scripts/release_version.sh`）。`-rc1` などの接尾辞、2 つ目のバージョン、後ろに続く文字列があれば拒否する。部分一致で読むと、`release: v0.18.0-rc1` から正式版のタグ `v0.18.0` を作ってしまう。
+   - **タグは checkout の HEAD ではなく `merge_commit_sha` に付け、再実行に耐える形で作る**（`.github/scripts/create_release_tag.sh`）。同じタグが既に `merge_commit_sha` を指していれば再利用して push し直し、別の commit を指していれば拒否する。タグを push した後に GitHub Release の作成や PyPI の起動が失敗しても、workflow を再実行すれば同じリリースを完了できる。GitHub Release も、既にあれば作り直さない。
+   - PR のタイトルなど利用者が書ける値と、前の step の出力は、`env:` を経由してシェルに渡し、`run:` の中で `${{ }}` を展開しない。
 3. **git 管理下の運用ルールの正を `CONTRIBUTING.md` にする。** 文書の優先順位は `BLUEPRINT.md` > `HISTORY.md` > `CONTRIBUTING.md` > 実装コードとする。エージェント向けの指示ファイル（`CLAUDE.md`, `.claude/AGENTS.md`, `.claude/skills/`）はローカルで git の管理外にあり、このリポジトリの規則を要約するだけで上書きしないと書く。`PLAN.md` は予定と進捗の文書であって仕様ではないと書く。言語の規約の `CLAUDE.md` を、指示ファイル全般を指す書き方に直す。
 
 ### 規則が縛る位置（ソースから導出）
@@ -11284,16 +11290,19 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 |---|---|---|
 | 1 | `scripts/release.py`（CHANGELOG の commit と develop の push） | 拒否に置き換える |
 | 2 | `scripts/release.py`（`gh pr create --base main --head develop`） | 残す。タイトルを `release: vX.Y.Z` に揃える |
-| 3 | `.github/workflows/auto-release.yml`（`git tag` と `git push origin <tag>`） | 形の検査の後に、`merge_commit_sha` に付ける |
+| 3 | `.github/workflows/auto-release.yml`（`git tag` と `git push origin <tag>`、タイトルからのバージョンの読み取り、`gh release create`） | 形の検査の後に、完全一致のタイトルから読んだバージョンで、`merge_commit_sha` に再実行に耐える形でタグを付ける。Release も既にあれば作り直さない |
 | 4 | `.github/workflows/release.yml`（PyPI 公開。3 からの `workflow_dispatch` のほか、GitHub Release の `published` と手動の `workflow_dispatch` でも起動する） | 変更なし。3 が拒否すればこの経路からは起動しない。手動で Release を公開する経路と手動の起動は運用者の操作で、本提案の範囲外 |
-| 5 | `CONTRIBUTING.md` の Release 節 | 手順そのものは変えない（すでに正しい）。手順 2 に `release.py` で同じ PR を作れることと、その拒否条件を、手順 5 に `auto-release.yml` の検査を書き足す |
+| 5 | `CONTRIBUTING.md` の Release 節 | 手順そのものは変えない（すでに正しい）。手順 2 に `release.py` で同じ PR を作れることと、その拒否条件を、手順 5 に `auto-release.yml` の検査（PR の形、タイトルの完全一致）と、再実行でタグを再利用することを書き足す |
+| 6 | `.githooks/protected-refs.sh`（`develop` を保護ブランチに含める）と `.githooks/pre-push`（保護ブランチへの push を拒否する） | 変更なし。develop への直接 push をローカルで拒否する仕組みで、決定 1 と同じ規則を git の側で支える。届くのは hooks を入れた clone だけ |
+| 7 | `PLAN.md` の 25-G（v0.1.1 のリリース手順。「main に `git tag v0.1.1` を打つ」） | 変更なし。v0.1.1 当時の作業記録で、決定 3 のとおり `PLAN.md` は仕様ではない。現在の手順は `CONTRIBUTING.md` が定める |
 
 ### 互換性
 
 - ライブラリの公開 API、Config、Result、`format_version` は変わらない。
-- **`scripts/release.py` の振る舞いが変わる。** これまで代わりに行っていた CHANGELOG の commit と develop の push をしなくなる。運用者は、`CONTRIBUTING.md` のとおり CHANGELOG の feature PR を先に merge しておく必要がある。PR のタイトルから `— LizyML X.Y.Z` が消えるが、`auto-release.yml` はタイトル中の `vX.Y.Z` しか読まないので影響しない。
-- **`auto-release.yml` は、形の違うリリース PR を拒否するようになる。** その場合はタグも Release も PyPI 公開も起きない。
-- **Firing rate**: 13/15 of release-titled PRs merged into main whose merge commit is still in history (replayed with `gh pr list --base main --state merged` and `git rev-list --parents`; the 2 refused are the 2026-04-02 `release/v0.7.3-fix` and `release/v0.8.0` squash merges under the superseded rule; the 14 release PRs before the 2026-04-02 history rewrite have no merge commit left to inspect).
+- **`scripts/release.py` の振る舞いが変わる。** これまで代わりに行っていた CHANGELOG の commit と develop の push をしなくなる。運用者は、`CONTRIBUTING.md` のとおり CHANGELOG の feature PR を先に merge しておく必要がある。PR のタイトルから `— LizyML X.Y.Z` が消え、`CONTRIBUTING.md` の `release: vX.Y.Z` と一致する。
+- **`auto-release.yml` は、形の違うリリース PR と、タイトルが `release: vX.Y.Z` と完全に一致しないリリース PR を拒否するようになる。** その場合はタグも Release も PyPI 公開も起きない。過去に `scripts/release.py` が作っていた `release: vX.Y.Z — LizyML X.Y.Z` という形のタイトルも拒否される。この PR で `release.py` はその形を作らなくなる。
+- 既にタグがある状態での再実行は、これまで「Tag already exists」で止まっていた。タグが `merge_commit_sha` を指していれば続行するようになる。
+- **Firing rate**: 13/15 for the head and parent checks, and 8/15 with the exact-title check added, of release-titled PRs merged into main whose merge commit is still in history (replayed with `gh pr list --base main --state merged` and `git rev-list --parents`). The head and parent checks refuse the 2 `release/v0.7.3-fix` and `release/v0.8.0` squash merges of 2026-04-02 under the superseded rule. The title check also refuses 5 legitimate releases (#97, #100, #104, #151, #158) whose titles carried the `— LizyML X.Y.Z` suffix that `scripts/release.py` generated until this PR; with the suffix removed here, every release made by the documented procedure passes. The 14 release PRs before the 2026-04-02 history rewrite have no merge commit left to inspect.
 
 ### 代替案（検討して棄却）
 
@@ -11306,6 +11315,8 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 1. `release.py` は、`CHANGELOG.md` に未 commit の変更があると終了コード 1 で止まり、`git commit` も `git push` も実行しない（実行したコマンドを記録して確かめる）。
 2. `release.py` は、ローカルの develop と `origin/develop` が一致しないと終了コード 1 で止まり、`gh pr create` を実行しない。
 3. `release.py` の正常系は、`git push` を一度も実行せず、`gh pr create --base main --head develop` をタイトル `release: vX.Y.Z` で 1 回だけ実行する。
-4. `check_release_merge.sh` を実際のリポジトリで実行し、2 つの親を持つ merge commit と head `develop` の組では成功し、親が 1 つの commit、head が `develop` 以外、head が別リポジトリの 3 通りでは失敗する。
-5. `auto-release.yml` は、検査の step を「Create tag」より前に置き、タグを `merge_commit_sha` に付け、どの `run:` も `github.event.pull_request` の値を `${{ }}` で直接展開しない（YAML を読んで確かめる）。
-6. `CONTRIBUTING.md` の文書の優先順位と言語の規約が決定 3 のとおりで、`tests/test_docs/` が緑のまま。
+4. `check_release_merge.sh` を実際のリポジトリで実行し、2 つの親を持つ merge commit と head `develop` の組では成功し、親が 1 つの commit、親が 3 つの commit（octopus merge）、head が `develop` 以外、head が別リポジトリ、merge commit が checkout に無い、merge commit が空の 6 通りでは失敗する。
+5. `release_version.sh` は `release: v0.18.0` から `tag=v0.18.0` と `version=0.18.0` を出力し、接尾辞付き、バージョン 2 つ、改行入り、`— LizyML` 付き、`v` なし、大文字始まり、先頭の空白、バージョンなし、空文字列のタイトルでは失敗して何も出力しない。
+6. `create_release_tag.sh` を `origin` を持つ実際のリポジトリで実行し、新規のタグは merge commit に付いて push される。再実行は成功してタグを変えない。push されていないタグは再実行で push される。別の commit を指す既存のタグは拒否して何も push しない。checkout に無い merge commit は拒否する。
+7. `auto-release.yml` は、検査・バージョン・タグの step をこの順に置いて上の 3 つのスクリプトを実行し、各 step の `env:` は期待どおりの対応表と完全に一致し、どの `run:` も `${{ }}` を展開しない（YAML を読んで確かめる）。
+8. `CONTRIBUTING.md` の文書の優先順位と言語の規約が決定 3 のとおりで、`tests/test_docs/` が緑のまま。
