@@ -71,38 +71,90 @@ def _tree(name: str) -> ast.Module:
     return ast.Module(body=body, type_ignores=[])
 
 
-def _models(tree: ast.Module) -> set[str]:
-    """Names bound to a LizyML model: ``x = Model(...)`` or ``x = Model.load(...)``."""
-    bound = set()
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
-            func = node.value.func
-            is_model = (isinstance(func, ast.Name) and func.id == "Model") or (
-                isinstance(func, ast.Attribute)
-                and func.attr == "load"
-                and isinstance(func.value, ast.Name)
-                and func.value.id == "Model"
-            )
-            if is_model:
-                bound.update(t.id for t in node.targets if isinstance(t, ast.Name))
-    return bound
+_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
 
 
-def _model_calls(tree: ast.Module) -> set[str]:
-    """Methods called on a name bound to a LizyML model, not on any object."""
-    models = _models(tree)
-    assert models, (
-        "the notebook binds no `Model(...)`; the receiver check has no anchor"
+def _is_model_call(node: ast.AST) -> bool:
+    """``Model(...)`` or ``Model.load(...)``."""
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    return (isinstance(func, ast.Name) and func.id == "Model") or (
+        isinstance(func, ast.Attribute)
+        and func.attr == "load"
+        and isinstance(func.value, ast.Name)
+        and func.value.id == "Model"
     )
-    called = set()
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and isinstance(node.func.value, ast.Name)
-            and node.func.value.id in models
-        ):
-            called.add(node.func.attr)
+
+
+def _outside_scopes(node: ast.AST) -> list[ast.AST]:
+    """``node`` and its descendants, not descending into a function or class body."""
+    found = [node]
+    for child in ast.iter_child_nodes(node):
+        if isinstance(child, _SCOPES):
+            continue
+        found.extend(_outside_scopes(child))
+    return found
+
+
+def _model_calls(name: str, tree: ast.Module) -> set[str]:
+    """Methods called on a LizyML model, read in execution order.
+
+    A name counts as a model from the top-level ``x = Model(...)`` (or
+    ``Model.load(...)``) that binds it, for the statements after it. Calls
+    inside a function, lambda or class body are not counted: which object their
+    receiver is cannot be told from the text. Anything that would make the
+    receiver undecidable fails instead of passing: a ``Model(...)`` bound
+    anywhere but a top-level assignment to plain names, and a model name that is
+    rebound, deleted, imported over or declared ``global``.
+    """
+    bound: set[str] = set()
+    called: set[str] = set()
+    for statement in tree.body:
+        nodes = _outside_scopes(statement)
+        for node in nodes:
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id in bound
+            ):
+                called.add(node.func.attr)
+        fresh = (
+            isinstance(statement, ast.Assign)
+            and _is_model_call(statement.value)
+            and all(isinstance(t, ast.Name) for t in statement.targets)
+        )
+        for node in ast.walk(statement):
+            if _is_model_call(node) and not fresh:
+                parent_assigns = [
+                    n
+                    for n in ast.walk(statement)
+                    if isinstance(n, ast.Assign | ast.AnnAssign | ast.NamedExpr)
+                    and getattr(n, "value", None) is node
+                ]
+                assert not parent_assigns, (
+                    f"{name}: a model is bound outside a top-level `x = Model(...)`; "
+                    "the receiver check cannot follow it"
+                )
+            if isinstance(node, ast.Global):
+                rebound = sorted(set(node.names) & bound)
+                assert not rebound, f"{name}: model name declared global: {rebound}"
+        targets = (
+            {t.id for t in statement.targets if isinstance(t, ast.Name)}
+            if fresh
+            else set()
+        )
+        for node in nodes:
+            stored = None
+            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store | ast.Del):
+                stored = node.id
+            elif isinstance(node, ast.alias):
+                stored = (node.asname or node.name).split(".")[0]
+            if stored in bound and stored not in targets:
+                raise AssertionError(f"{name}: model name {stored!r} is rebound")
+        bound |= targets
+    assert bound, f"{name}: binds no `Model(...)`; the receiver check has no anchor"
     return called
 
 
@@ -198,7 +250,7 @@ def test_the_index_lists_exactly_the_notebooks_on_disk() -> None:
 def test_every_method_the_index_names_is_called_in_the_notebook(name: str) -> None:
     named = set(re.findall(r"`(\w+)\(", SECTIONS[name]))
     assert named, f"{name}: the entry names no method"
-    missing = sorted(named - _model_calls(_tree(name)))
+    missing = sorted(named - _model_calls(name, _tree(name)))
     assert not missing, f"{name}: named but never called on the model: {missing}"
 
 
