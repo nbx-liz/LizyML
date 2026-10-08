@@ -181,6 +181,10 @@ class TestG3ObjectiveCompatibilityEdgeInputs:
     """Edge inputs to the user-objective handling path must produce
     clear ``LizyMLError(CONFIG_INVALID)`` instead of cryptic
     ``TypeError`` / ``KeyError``.
+
+    The edge inputs are ordinary values (empty string, dict, list, set, int,
+    None) and the two operations H-0116 decision 2 bounds. A value whose own
+    type raises, and rendering the error afterwards, are outside it.
     """
 
     def test_empty_string_objective_raises(self) -> None:
@@ -238,7 +242,7 @@ class TestG3ObjectiveCompatibilityEdgeInputs:
     def test_an_unprintable_objective_is_still_config_invalid(
         self, surface: str
     ) -> None:
-        """Reporting the refusal must not run the rejected value's methods.
+        """Building the refusal must not format the rejected value.
 
         A dict whose key cannot be printed escaped as that key's own error
         while the adapter built its message, before ``CONFIG_INVALID`` (#270).
@@ -273,7 +277,12 @@ class TestG3ObjectiveCompatibilityEdgeInputs:
         assert not seen["train_params"]
 
     def test_a_hostile_string_objective_is_judged_by_its_text(self) -> None:
-        """A ``str`` subclass is read as its plain text: none of its methods run."""
+        """A ``str`` subclass is judged by its plain text.
+
+        The membership test and the message use none of the overrides it
+        defines (``__hash__``, ``__eq__``, ``__format__``, ``__str__``,
+        ``__repr__``).
+        """
         from lizyml.estimators.lgbm.param_validation import check_objective_compatible
 
         class Hostile(str):

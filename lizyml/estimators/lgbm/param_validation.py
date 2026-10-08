@@ -16,14 +16,19 @@ def check_objective_compatible(task: str, objective: Any) -> None:
     (unhashable) instead of ``CONFIG_INVALID`` (H-0116). ``None`` never
     reaches here: both callers treat it as "no override" and skip the check.
 
-    No method of the rejected value runs: a non-string is described by its
-    type name, and a string is read through a plain ``str`` copy, so an
-    overridden ``__hash__``, ``__eq__``, ``__format__`` or ``__repr__`` cannot
-    turn the refusal into a raw exception.
+    The membership test and the message do not format or hash the rejected
+    value: a non-string is described by its type name, and a string is read
+    through a plain ``str`` copy, so a ``str`` subclass's overridden
+    ``__hash__``, ``__eq__``, ``__format__``, ``__str__`` or ``__repr__`` is
+    not used. That is the whole guarantee. A value whose type lookups raise
+    (a ``__class__`` that ``isinstance`` reads, a metaclass that raises on
+    ``__name__``) is outside it, and so is
+    rendering the error afterwards: ``context["objective"]`` keeps the value
+    as written, so ``repr(error)`` runs that value's ``__repr__``.
     """
     valid = TASK_COMPATIBLE_OBJECTIVES.get(task, frozenset())
     if isinstance(objective, str):
-        name = str.__str__(objective)  # an exact str: subclass methods stay out
+        name = str.__str__(objective)  # an exact str: no subclass override is used
         shown = f"'{name}'"
         compatible = name in valid
     else:
