@@ -408,6 +408,23 @@ _HEADING = re.compile(r"^#{1,6}\s")
 _NB_HEADING = re.compile(r"^### `([A-Za-z0-9_.-]+\.ipynb)`$")
 _BEGIN = re.compile(r"^<!-- index:begin ([A-Za-z0-9_.-]+\.ipynb) -->$")
 _END = "<!-- index:end -->"
+#: A CommonMark fence opener: up to three spaces, then three or more backticks
+#: (no backtick in the info string) or three or more tildes.
+_FENCE_OPEN = re.compile(r"^ {0,3}(?:(`{3,})[^`]*|(~{3,}).*)$")
+
+
+def _closes(line: str, fence: str) -> bool:
+    """Whether ``line`` closes a fence opened with ``fence``.
+
+    The closer uses the same character, at least as many of it, and nothing
+    after it but spaces, so a shorter inner fence or one of the other
+    character leaves the outer fence open.
+    """
+    stripped = line.lstrip(" ")
+    if len(line) - len(stripped) > 3:
+        return False
+    run = len(stripped) - len(stripped.lstrip(fence[0]))
+    return run >= len(fence) and not stripped[run:].strip()
 
 
 def render_block(name: str, declaration: Declaration) -> list[str]:
@@ -435,12 +452,21 @@ def _blocks(
     blocks: dict[str, tuple[int, int]] = {}
     section: str | None = None
     begin: int | None = None
-    fenced = False
+    fence: str | None = None
+    fence_line = 0
     for i, line in enumerate(lines):
         where = f"docs/examples.md:{i + 1}"
-        if line.lstrip().startswith(("```", "~~~")):
-            fenced = not fenced
-        elif not fenced and _HEADING.match(line):
+        if fence is not None:
+            if _closes(line, fence):
+                fence = None
+            opened = False
+        else:
+            opener = _FENCE_OPEN.match(line)
+            opened = opener is not None
+            if opener is not None:
+                fence = opener.group(1) or opener.group(2)
+                fence_line = i
+        if fence is None and not opened and _HEADING.match(line):
             if begin is not None:
                 errors.append(
                     f"{where}: the block opened at line {begin + 1} is not closed"
@@ -495,6 +521,11 @@ def _blocks(
         errors.append(f"{name}: listed in docs/examples.md but not a notebook")
     for name in sorted(set(sections) & set(names) - set(blocks)):
         errors.append(f"{name}: the section has no generated block")
+    if fence is not None:
+        errors.append(
+            f"docs/examples.md:{fence_line + 1}: "
+            "the code fence opened here is not closed"
+        )
     return blocks, errors
 
 

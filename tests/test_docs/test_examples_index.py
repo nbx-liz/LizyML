@@ -583,6 +583,32 @@ def test_index_mutations_fail(text: str, match: str) -> None:
     assert match in _errors(text) or pytest.fail(_errors(text))
 
 
+@pytest.mark.parametrize(
+    "fence",
+    [
+        # An inner, shorter fence must not close the outer one (review round 2).
+        "````md\n```\n{section}```\n````\n",
+        "~~~~md\n~~~\n{section}~~~\n~~~~\n",
+        # A fence of the other character never closes it either.
+        "```md\n~~~\n{section}~~~\n```\n",
+    ],
+)
+def test_a_section_inside_a_code_fence_is_not_a_section(fence: str) -> None:
+    text = _doc(
+        _section("a.ipynb"), tail="\n" + fence.format(section=_section("b.ipynb"))
+    )
+    assert "missing" in _errors(text)
+
+
+def test_a_heading_inside_a_nested_fence_is_ignored() -> None:
+    example = "\n````md\n```bash\n# x\n```\n### `c.ipynb`\n````\n"
+    assert ix.check_index(DOC + example, DECLS) == []
+
+
+def test_an_unclosed_fence_fails() -> None:
+    assert "fence" in _errors(DOC + "\n````md\n```\n")
+
+
 def test_changing_a_declaration_fails_the_index() -> None:
     changed = {**DECLS, "b.ipynb": _decl(methods=["fit", "predict"], extras=[])}
     assert "differs" in _errors(DOC, changed)
