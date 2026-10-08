@@ -48,6 +48,8 @@ def _sections() -> dict[str, str]:
         r"^### `(tutorial_\w+\.ipynb)`\n", INDEX.read_text(encoding="utf-8"), flags=re.M
     )
     names, bodies = parts[1::2], parts[2::2]
+    duplicated = sorted({n for n in names if names.count(n) > 1})
+    assert not duplicated, f"notebooks listed twice: {duplicated}"
     return {
         name: body.split("\n---")[0] for name, body in zip(names, bodies, strict=True)
     }
@@ -69,18 +71,59 @@ def _tree(name: str) -> ast.Module:
     return ast.Module(body=body, type_ignores=[])
 
 
-def _called(tree: ast.Module) -> set[str]:
-    names = set()
+def _models(tree: ast.Module) -> set[str]:
+    """Names bound to a LizyML model: ``x = Model(...)`` or ``x = Model.load(...)``."""
+    bound = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.Call):
-            if isinstance(node.func, ast.Attribute):
-                names.add(node.func.attr)
-            elif isinstance(node.func, ast.Name):
-                names.add(node.func.id)
-    return names
+        if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call):
+            func = node.value.func
+            is_model = (isinstance(func, ast.Name) and func.id == "Model") or (
+                isinstance(func, ast.Attribute)
+                and func.attr == "load"
+                and isinstance(func.value, ast.Name)
+                and func.value.id == "Model"
+            )
+            if is_model:
+                bound.update(t.id for t in node.targets if isinstance(t, ast.Name))
+    return bound
 
 
-def _literal(name: str, call: ast.Call, keyword: str) -> object:
+def _model_calls(tree: ast.Module) -> set[str]:
+    """Methods called on a name bound to a LizyML model, not on any object."""
+    models = _models(tree)
+    assert models, (
+        "the notebook binds no `Model(...)`; the receiver check has no anchor"
+    )
+    called = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and isinstance(node.func.value, ast.Name)
+            and node.func.value.id in models
+        ):
+            called.add(node.func.attr)
+    return called
+
+
+def _literal(
+    name: str, call: ast.Call, keyword: str, position: int | None = None
+) -> object:
+    """The literal value passed as ``keyword`` (or at ``position``), else None.
+
+    A value that is not a literal, or a ``**`` mapping that could carry the
+    keyword, fails: the extras it implies cannot be decided.
+    """
+    for kw in call.keywords:
+        assert kw.arg is not None, (
+            f"{name}: a `**` argument may carry `{keyword}=`; pass it literally"
+        )
+    if position is not None and len(call.args) > position:
+        arg = call.args[position]
+        assert isinstance(arg, ast.Constant), (
+            f"{name}: positional `{keyword}` is not a literal; write it literally"
+        )
+        return arg.value
     for kw in call.keywords:
         if kw.arg == keyword:
             assert isinstance(kw.value, ast.Constant), (
@@ -121,7 +164,9 @@ def _needed_extras(name: str, tree: ast.Module) -> set[str]:
                 needed.add("plots")
             if called == "tune":
                 needed.add("tuning")
-            if _literal(name, node, "kind") == "shap":
+            # `importance(kind)` and `importance_plot(kind)` take `kind` first.
+            position = 0 if called in {"importance", "importance_plot"} else None
+            if _literal(name, node, "kind", position) == "shap":
                 needed.add("explain")
             if _literal(name, node, "return_shap") is True:
                 needed.add("explain")
@@ -153,8 +198,8 @@ def test_the_index_lists_exactly_the_notebooks_on_disk() -> None:
 def test_every_method_the_index_names_is_called_in_the_notebook(name: str) -> None:
     named = set(re.findall(r"`(\w+)\(", SECTIONS[name]))
     assert named, f"{name}: the entry names no method"
-    missing = sorted(named - _called(_tree(name)))
-    assert not missing, f"{name}: named but never called: {missing}"
+    missing = sorted(named - _model_calls(_tree(name)))
+    assert not missing, f"{name}: named but never called on the model: {missing}"
 
 
 @pytest.mark.parametrize("name", sorted(SECTIONS))
