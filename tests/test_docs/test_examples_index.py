@@ -605,6 +605,14 @@ def test_a_heading_inside_a_nested_fence_is_ignored() -> None:
     assert ix.check_index(DOC + example, DECLS) == []
 
 
+def test_a_generated_block_inside_a_code_fence_fails() -> None:
+    # The block would render as a code sample, not as the section's content
+    # (implementation review round 3).
+    fenced = "```md\n" + _block("b.ipynb") + "\n```"
+    text = _doc(_section("a.ipynb"), _section("b.ipynb", block=fenced))
+    assert "fence" in _errors(text)
+
+
 def test_an_unclosed_fence_fails() -> None:
     assert "fence" in _errors(DOC + "\n````md\n```\n")
 

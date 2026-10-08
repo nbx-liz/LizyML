@@ -481,6 +481,13 @@ def _blocks(
                 section = None
             elif len(line) - len(line.lstrip("#")) <= 3:
                 section = None
+        if ("index:begin" in line or "index:end" in line) and (
+            fence is not None or opened
+        ):
+            # A marker in a fence would render as a code sample, not as the
+            # section's content, so it fails rather than counting.
+            errors.append(f"{where}: an index marker inside a code fence")
+            continue
         if "index:begin" in line or "index:end" in line:
             match = _BEGIN.match(line)
             if match is None and line != _END:
