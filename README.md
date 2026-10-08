@@ -148,7 +148,7 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for full diagrams and module layout.
 | Object | Key fields |
 |---|---|
 | `FitResult` | `oof_pred`, `if_pred_per_fold`, `metrics`, `models`, `splits`, `run_meta` |
-| `PredictionResult` | `pred`, `proba` (binary), `shap_values` (optional), `warnings` |
+| `PredictionResult` | `pred`, `proba` (classification), `shap_values` (optional), `used_features`, `warnings` |
 | `Model Artifact` | Trained models, pipeline state, calibrator, config, `format_version` |
 
 `model.evaluate()` returns structured metrics:

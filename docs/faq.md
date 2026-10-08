@@ -47,7 +47,9 @@ If you still see a discrepancy, ensure you are on v0.7.3 or later.
 
 As a rule of thumb: if your features involve any rolling computation or if
 the target at time _t_ depends on data at time _t+k_, use `purged_time_series`
-and set the `gap` parameter to at least the maximum look-ahead in your features.
+and set `split.purge_gap` to at least the maximum look-ahead in your features.
+(`embargo`, `embargo_pct` and `gap` are deprecated spellings that are added to
+`purge_gap`; see `docs/DEPRECATIONS.md`.)
 
 ---
 
@@ -137,14 +139,16 @@ are not extrapolated or imputed.
 Inner validation (early stopping) requires a minimum number of samples to
 form both a training split and a validation split. This error means the
 training fold in one outer CV split is too small to satisfy the configured
-`validation_ratio`.
+inner-validation ratio (`training.early_stopping.inner_valid.ratio`).
 
 Solutions:
 
 - Increase the dataset size.
-- Reduce `early_stopping.validation_ratio` (e.g. `0.1` instead of `0.2`).
+- Reduce `training.early_stopping.inner_valid.ratio` (e.g. `0.1` instead of
+  `0.2`). The legacy `training.early_stopping.validation_ratio` key still maps
+  to it.
 - Reduce `split.n_splits` so each outer fold has more training rows.
-- Disable early stopping (`early_stopping.enabled: false`) if sample count
+- Disable early stopping (`training.early_stopping.enabled: false`) if sample count
   is genuinely too small for validation.
 
 ---

@@ -1,5 +1,11 @@
 # Phase 3 — decisions awaiting the maintainer
 
+> **Historical record (2026-10-08).** Written during the early Phase 3 PRs
+> (2026-09). The later PRs settled these items (for example D4 by H-0100, which
+> made `calibration.params` take effect for `platt` and `beta`).
+> The decisions in force are the ones in `HISTORY.md` and on the GitHub issues,
+> not the recommendations below.
+
 One place to read every judgement call made during the autonomous run, so they
 can be confirmed or reversed in a single pass rather than one interruption at a
 time.
