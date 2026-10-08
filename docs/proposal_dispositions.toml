@@ -487,6 +487,10 @@ reason = "Release tooling and contributor documentation only: no public API, Con
 disposition = "specified"
 anchors = ["oof_raw_scores", "target_encoder", "dataclasses.fields"]
 
+[proposals."H-0119"]
+disposition = "pending"
+reason = "Proposed 2026-10-09 (#334); under review before implementation."
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 
