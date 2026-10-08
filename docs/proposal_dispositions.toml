@@ -483,6 +483,10 @@ anchors = ["check_objective_compatible", "CONFIG_INVALID", "TypeError"]
 disposition = "no_obligation"
 reason = "Release tooling and contributor documentation only: no public API, Config, Result, Artifacts, split or leakage surface changes, so BLUEPRINT has nothing to state."
 
+[proposals."H-0118"]
+disposition = "specified"
+anchors = ["oof_raw_scores", "target_encoder", "dataclasses.fields"]
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 
