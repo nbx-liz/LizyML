@@ -11415,6 +11415,10 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 
    タグの無いセルには制約を置かない。
 
+   現行のノートブックには、2 つの文の形に収まらない呼び出しがあり、例として示す場合は書き直す。たとえば次の 2 つである（2026-10-09 時点、round 2 の指摘）。
+   - `model.plot_learning_curve().show()`（回帰）→ タグ付きセルで `fig = model.plot_learning_curve()` とし、`fig.show()` はタグの無いセルに置く。
+   - `pd.DataFrame({"pred": model.predict(X_new).pred})`（codegen）→ タグ付きセルで `result = model.predict(X_new)` とし、残りはタグの無いセルに置く。
+
 4. **メソッドから extra への対応表をパッケージ内に置く**（`lizyml/_extras.py`、非公開）。
 
    項目は、現行コード（2026-10-09、`d72b20a`）から調べたものである。
@@ -11533,4 +11537,16 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
    - 受け手を `Model` でないものにする
 
    各ジョブの所要時間を記録する。
-7. **review**: 新しい review run を 1 回、Codex APPROVE まで通す。
+7. **記録用の仕組みの単体テスト**: notebook を実行せずに `Model` を直接使い、次のことを確かめる。
+   - 包んだ後も、`Model.load` が classmethod として、クラスからもインスタンスからも同じように束縛されて呼べる。ほかの classmethod / staticmethod / property があれば、それも同じように扱われる。
+   - 包んだ後も、`Model` の公開メソッドの名前、signature、docstring が変わらない。
+   - 公開メソッドの中から別の公開メソッドが呼ばれた場合（`importance_plot(kind="shap")` が中で `importance` を呼ぶ）、記録はちょうど `[("importance_plot", id)]` の 1 件になる。中の呼び出しは記録されない。
+   - 例外で抜けた呼び出しの後も、深さの数え方が崩れない。
+   - 記録を外した後は、`Model` が元のメソッドに戻る。
+8. **再試行の単体テスト**: 実行部分を差し替えられる形にし、本物のカーネルを使わずに次のことを確かめる。
+   - 1 回目で成功すると、試行は 1 回で終わる。
+   - マーカーに当たる失敗の次に成功すると、試行は 2 回で、成功として終わる。
+   - マーカーに当たる失敗が 3 回続くと、試行は 3 回で失敗として終わり、skip にはならない。
+   - マーカーに当たらない失敗は、1 回で失敗として終わる。
+   - 試行ごとに、カーネルと作業ディレクトリが別のものになる（識別子が試行の間で異なる）。
+9. **review**: 新しい review run を 1 回、Codex APPROVE まで通す。
