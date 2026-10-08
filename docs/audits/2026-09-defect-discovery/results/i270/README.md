@@ -60,7 +60,9 @@ The 16 non-UNIT/NEGATIVE rows are repaired in the same PR; each row says how
   test claims to cover. For each, the repaired test must pass unmutated and
   fail (pytest's tests-failed exit, no errors) mutated, and the pre-repair
   version (from `1d41b66`) must pass mutated — except `filter_metrics`, where
-  the old test also caught the mutated shape and is expected to fail. Exit 0
+  the old test also caught the mutated shape and is expected to fail, and
+  `test_every_calibration_default_written_as_an_alias_reaches_training`, which
+  is new and has no pre-repair version, so its base run is skipped. Exit 0
   only if every expectation holds.
 
 Repairing `test_dict_form_objective_raises` exposed a real defect (a dict or

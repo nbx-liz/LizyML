@@ -980,6 +980,10 @@ def test_every_calibration_alias_is_canonical_before_the_defaults_merge() -> Non
     ``CALIBRATOR_OWN_PARAM_NAMES`` are excluded deliberately and asserted to be
     excluded: ``num_boost_round`` is a LightGBM alias of ``num_iterations``, and
     renaming it would take the key the calibrator pops for its boosting rounds.
+
+    This is the helper only. That every such alias reaches training through
+    ``Model.fit`` is asserted by
+    ``test_every_calibration_default_written_as_an_alias_reaches_training``.
     """
     from lizyml.calibration.isotonic import (
         _ISOTONIC_DEFAULTS,

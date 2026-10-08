@@ -3,7 +3,7 @@
 ## Unreleased — H-0116
 
 - **A non-string `objective` other than `None` is refused with `CONFIG_INVALID`** ([#270](https://github.com/nbx-liz/LizyML/issues/270)). A dict or list `objective`, written in `model.params`, in `fit(params=)` or to the LightGBM adapter directly, raised a raw `TypeError: unhashable type` from the task-compatibility check instead of the `CONFIG_INVALID` that H-0079 promises for an incompatible objective. It now raises `LizyMLError(CONFIG_INVALID)` before training, with the same message and `context` as an incompatible string. String objectives behave as before, and an explicit `None` still means "no override" and trains on the task default.
-- Tests only: 16 tests whose names claimed an effect they did not observe now assert it where it happens, or name the unit they test. The re-measured population and the instruments that produced it are under `docs/audits/2026-09-defect-discovery/` (#270). No behaviour changes.
+- Tests only: 16 tests are repaired. Eleven whose names claimed an effect they did not observe now assert it where it happens, or name the unit they test. Five that observed their outcome without isolating it (they could pass vacuously, credited the wrong gate, or carried a name contradicting their assertion) are tightened or renamed. The re-measured population and the instruments that produced it are under `docs/audits/2026-09-defect-discovery/` (#270). No behaviour changes.
 
 ## Unreleased — H-0115
 
