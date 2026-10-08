@@ -11382,7 +11382,7 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 
 2. **ノートブックごとの宣言を正にする。** 各ノートブックの `metadata.lizyml.index` は、JSON object で、キーは `models`、`methods`、`extras` のちょうど 3 つとする。ほかのキーがあれば失敗し、キーが欠けても失敗する。3 つの値はどれも、文字列の JSON 配列で、重複が無く、昇順に並んでいなければならない。
    - `models`: 空でない。各要素は Python の識別子で、キーワードではない。例の受け手になる変数名を並べる。
-   - `methods`: 空でない。各要素は `Model` の公開メソッド名で、`_` で始まらず、`inspect.getmembers(Model)` に callable として存在する。継承した mixin のメソッドも含む。
+   - `methods`: 空でない。各要素は `Model` の公開メソッド名で、`_` で始まらず、`inspect.getmembers(Model)` に callable として存在する。継承した mixin のメソッドも含む。公開メソッドは instance method（`Model` の MRO 上の関数）に限り、classmethod / staticmethod / property は除く。受け手の検査がインスタンスに束縛するためである（実装時に追加、2026-10-09、実装 review round 1）。
    - `extras`: 空でもよい。各要素は対応表（4.）に現れる extra 名で、現行では `explain`、`plots`、`tuning` のどれかである。
 
    宣言が無いノートブックや、型・キー・並びのどれかが規則に反するノートブックは失敗させる。
@@ -11494,7 +11494,7 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
      - 再試行するのは、失敗の `CellExecutionError` の文字列に、既存のマーカー一覧（`tests/test_notebooks/test_notebook_execution.py` の `_NETWORK_ERROR_MARKERS`）のどれかが含まれる場合だけとする。その一覧は新しいモジュールに移し、既存のテストはそこから読む。
      - それ以外の失敗は、再試行せずに落とす。3 回とも上記の失敗なら落とし、skip しない（DC1）。
 
-   **起動条件**（管理者の決定、2026-10-08）: main 向けの PR では常に走らせる。develop 向けの PR では、`notebooks/**`、`docs/examples.md`、`lizyml/_extras.py`、`scripts/examples_index.py`、`tests/test_notebooks/**`、`.github/workflows/ci.yml` のどれかが変わったときだけ走らせる。
+   **起動条件**（管理者の決定、2026-10-08）: main 向けの PR では常に走らせる。develop 向けの PR では、`notebooks/**`、`docs/examples.md`、`lizyml/_extras.py`、`scripts/examples_index.py`、`tests/test_notebooks/**`、`.github/workflows/ci.yml` のどれかが変わったときだけ走らせる。最後に常に走る gate ジョブを置き、起動判定が成功して (a)(b) がともに成功した場合と、起動判定が成功して (a)(b) がともに skip された場合（run=false）だけを通す。必須にする check はこの gate 1 つとする（実装時に追加、2026-10-09、実装 review round 1）。
 
 7. **PR #335 の静的な検査を置き換える。** これまでの review で見つかった反例をすべて新しい仕組みで再生し、どれも失敗することを確かめる。
 

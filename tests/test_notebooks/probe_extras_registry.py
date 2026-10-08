@@ -16,6 +16,15 @@ guard is not evidence for the row.
 
 Every registry row must be exercised by at least one call form, so a row added
 to ``lizyml/_extras.py`` without a probe fails here as well.
+
+The conditional rows carry predicates that mirror the runtime checks
+(``bool(return_shap)``, ``kind == "shap"``). Two kinds of form pin them to the
+running code: ``predict(return_shap=1)`` is a positive form (truthy, so it must
+reach the shap guard), and :data:`NEGATIVE_FORMS` hold values the predicates
+reject (``kind="SHAP"``, ``kind=None``, ``return_shap=0``). A negative form runs
+in every environment whose removed extra its registry extras do not include,
+and must not raise ``OPTIONAL_DEP_MISSING`` naming the removed package; any
+other outcome (success or another error) is reported and accepted.
 """
 
 from __future__ import annotations
@@ -27,7 +36,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from lizyml import Model
-from lizyml._extras import EXTRA_PACKAGES, RULES, condition_value, extras_for
+from lizyml._extras import EXTRA_PACKAGES, RULES, extras_for, rule_applies
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from tests._helpers import make_binary_df, make_config, make_regression_df
 from tests.test_notebooks.check_installed_extras import assert_installed
@@ -96,6 +105,7 @@ X_NEW = make_regression_df(n=20).drop(columns=["target"])
 FORMS: tuple[CallForm, ...] = (
     CallForm("tune", _tuning, {"data": make_regression_df(n=150)}),
     CallForm("predict", _regression, {"return_shap": True}, (X_NEW,)),
+    CallForm("predict", _regression, {"return_shap": 1}, (X_NEW,)),
     CallForm("importance", _regression, {"kind": "shap"}),
     CallForm("importance_plot", _regression),
     CallForm("importance_plot", _regression, {"kind": "shap"}),
@@ -108,21 +118,22 @@ FORMS: tuple[CallForm, ...] = (
     CallForm("tuning_plot", _tuned),
 )
 
+NEGATIVE_FORMS: tuple[CallForm, ...] = (
+    CallForm("predict", _regression, {"return_shap": 0}, (X_NEW,)),
+    CallForm("importance", _regression, {"kind": "SHAP"}),
+    CallForm("importance", _regression, {"kind": None}),
+    CallForm("importance_plot", _regression, {"kind": "SHAP"}),
+)
+
 
 def uncovered_rules() -> list[str]:
     """Registry rows no call form triggers."""
     missing = []
     for rule in RULES:
-        covered = False
-        for form in FORMS:
-            if form.method != rule.method:
-                continue
-            if rule.condition is None:
-                covered = True
-            else:
-                argument, value = rule.condition
-                actual = condition_value(form.method, argument, form.conditions)
-                covered = covered or (type(actual) is type(value) and actual == value)
+        covered = any(
+            form.method == rule.method and rule_applies(rule, form.conditions)
+            for form in FORMS
+        )
         if not covered:
             missing.append(f"{rule.method} -> {rule.extra} when {rule.condition}")
     return missing
@@ -149,6 +160,31 @@ def probe(form: CallForm, removed: str) -> str | None:
     return f"{form.label()}: succeeded without {removed!r}; the row is not needed"
 
 
+def probe_negative(form: CallForm, removed: str) -> tuple[str | None, str]:
+    """Run a negative form; return (failure or ``None``, the observed outcome)."""
+    try:
+        model = form.prerequisite()
+    except Exception as exc:  # noqa: BLE001 - any prerequisite failure is reported
+        return f"{form.label()}: the prerequisite failed with {exc!r}", "-"
+    try:
+        getattr(model, form.method)(*form.args, **form.kwargs)
+    except LizyMLError as exc:
+        package = exc.context.get("package")
+        if (
+            exc.code is ErrorCode.OPTIONAL_DEP_MISSING
+            and package == EXTRA_PACKAGES[removed]
+        ):
+            return (
+                f"{form.label()}: reached the {package} guard, which the registry "
+                "predicate says it does not",
+                str(exc.code),
+            )
+        return None, f"raised {exc.code}"
+    except Exception as exc:  # noqa: BLE001 - another error is not the guard
+        return None, f"raised {type(exc).__name__}"
+    return None, "succeeded"
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--without", required=True, choices=sorted(EXTRA_PACKAGES))
@@ -173,6 +209,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         if failure:
             failures.append(failure)
     print(f"{len(selected) - len(failures)}/{len(selected)} rows raised as declared")
+    negatives = [
+        f for f in NEGATIVE_FORMS if removed not in extras_for(f.method, f.conditions)
+    ]
+    for form in negatives:
+        failure, outcome = probe_negative(form, removed)
+        print(f"{'FAIL' if failure else 'ok  '} not needed: {form.label()} ({outcome})")
+        if failure:
+            failures.append(failure)
     return 1 if failures else 0
 
 

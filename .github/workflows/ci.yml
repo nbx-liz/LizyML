@@ -165,7 +165,8 @@ jobs:
   # scripts/examples_index.py, tests/test_notebooks/**, .github/workflows/ci.yml.
   # The filter is `git diff --name-only <base>...<head>` against the PR base, so
   # it needs no third-party action. A failing diff fails the job; it never
-  # falls back to "nothing changed".
+  # falls back to "nothing changed". The notebook-index-gate job at the end
+  # checks the combination of results and is the one check to require.
   notebook-index-scope:
     name: Notebook index (scope)
     runs-on: ubuntu-latest
@@ -271,3 +272,24 @@ jobs:
 
       - name: Execute the notebook and record its index examples
         run: uv run --no-sync --no-dev python -m pytest tests/test_notebooks/test_index_execution.py -m slow -k "$NOTEBOOK"
+
+  notebook-index-gate:
+    # The single check to require for the notebook index (H-0119 6.). It always
+    # runs and passes only when the scope succeeded and either both index jobs
+    # succeeded (run=true) or both were skipped (run=false); a failed or
+    # cancelled scope, which would otherwise leave the index jobs "skipped",
+    # fails here. The decision is scripts/notebook_index_gate.py (unit-tested).
+    name: Notebook index (gate)
+    needs: [notebook-index-scope, extras-registry, notebook-index-execution]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Decide from the index job results
+        env:
+          SCOPE_RESULT: ${{ needs.notebook-index-scope.result }}
+          SCOPE_RUN: ${{ needs.notebook-index-scope.outputs.run }}
+          REGISTRY_RESULT: ${{ needs.extras-registry.result }}
+          EXECUTION_RESULT: ${{ needs.notebook-index-execution.result }}
+        run: python3 scripts/notebook_index_gate.py

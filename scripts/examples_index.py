@@ -70,10 +70,16 @@ class Declaration:
 
 @dataclass(frozen=True)
 class ModelSurface:
-    """The public callables of ``Model`` and the signatures calls bind to."""
+    """The public instance methods of ``Model`` and the signatures calls bind to.
+
+    ``others`` names the public members that are not instance methods (a
+    classmethod, staticmethod or property) by their kind, so a declaration or
+    an example that uses one fails with a clear message.
+    """
 
     methods: frozenset[str]
     signatures: Mapping[str, inspect.Signature]
+    others: Mapping[str, str]
 
 
 @dataclass(frozen=True)
@@ -90,21 +96,31 @@ class Statement:
 
 
 def model_surface() -> ModelSurface:
-    """Public callable members of ``Model``, inherited mixin methods included."""
+    """Public instance methods of ``Model``, inherited mixin methods included.
+
+    An instance method is a plain function found on ``Model``'s MRO. The
+    receiver check binds each example to a ``Model`` instance, so a
+    classmethod, staticmethod or property cannot be an example (H-0119 2.).
+    """
     from lizyml import Model
 
     signatures: dict[str, inspect.Signature] = {}
-    for name, value in inspect.getmembers(Model):
-        if name.startswith("_") or not callable(value):
+    others: dict[str, str] = {}
+    for name, _ in inspect.getmembers(Model):
+        if name.startswith("_"):
             continue
-        signature = inspect.signature(value)
-        if not isinstance(
-            inspect.getattr_static(Model, name), classmethod | staticmethod
-        ):
-            parameters = list(signature.parameters.values())[1:]  # drop ``self``
-            signature = signature.replace(parameters=parameters)
-        signatures[name] = signature
-    return ModelSurface(frozenset(signatures), signatures)
+        raw = inspect.getattr_static(Model, name)
+        if inspect.isfunction(raw):
+            parameters = list(inspect.signature(raw).parameters.values())[1:]
+            signatures[name] = inspect.signature(raw).replace(parameters=parameters)
+        elif isinstance(raw, classmethod | staticmethod | property):
+            others[name] = type(raw).__name__
+    return ModelSurface(frozenset(signatures), signatures, others)
+
+
+def _not_instance_method(name: str, surface: ModelSurface) -> str | None:
+    kind = surface.others.get(name)
+    return None if kind is None else f"{name!r} is a {kind}, not an instance method"
 
 
 # --- The declaration (section 2) ----------------------------------------------
@@ -121,14 +137,17 @@ def _string_array(index: Mapping[str, Any], key: str) -> tuple[str, ...]:
     return tuple(value)
 
 
-def parse_declaration(metadata: Any, methods: frozenset[str] | None) -> Declaration:
+def parse_declaration(metadata: Any, surface: ModelSurface | None) -> Declaration:
     """Validate ``metadata.lizyml.index``.
+
+    Only ``metadata.lizyml.index`` is closed; other keys under
+    ``metadata.lizyml`` are not part of the contract.
 
     Args:
         metadata: The notebook's ``metadata`` object.
-        methods: Public ``Model`` methods. ``None`` skips only the membership
-            check of ``methods``, for the CI helpers that run before the
-            package is installed (the full check runs in the test suite and
+        surface: ``Model``'s public instance methods. ``None`` skips only the
+            membership check of ``methods``, for the CI helpers that run before
+            the package is installed (the full check runs in the test suite and
             before each notebook execution).
     """
     if type(metadata) is not dict or "lizyml" not in metadata:
@@ -136,11 +155,8 @@ def parse_declaration(metadata: Any, methods: frozenset[str] | None) -> Declarat
     container = metadata["lizyml"]
     if type(container) is not dict:
         raise ContractError("metadata.lizyml must be an object")
-    if set(container) != {"index"}:
-        raise ContractError(
-            "metadata.lizyml must hold exactly the key 'index', "
-            f"got {sorted(container)}"
-        )
+    if "index" not in container:
+        raise ContractError("no metadata.lizyml.index declaration")
     index = container["index"]
     if type(index) is not dict:
         raise ContractError("metadata.lizyml.index must be a JSON object")
@@ -160,7 +176,12 @@ def parse_declaration(metadata: Any, methods: frozenset[str] | None) -> Declarat
     for name in names:
         if name.startswith("_"):
             raise ContractError(f"methods: {name!r} is not public")
-        if methods is not None and name not in methods:
+        if surface is None:
+            continue
+        problem = _not_instance_method(name, surface)
+        if problem is not None:
+            raise ContractError(f"methods: {problem}")
+        if name not in surface.methods:
             raise ContractError(f"methods: {name!r} is not a public Model method")
     for extra in extras:
         if extra not in REGISTRY.EXTRA_PACKAGES:
@@ -194,6 +215,12 @@ def _is_value(node: ast.expr) -> bool:
 
 
 def _tags(cell: Mapping[str, Any]) -> list[str]:
+    """The cell's tags.
+
+    Any cell, tagged or not, fails when its ``metadata`` is not an object or its
+    ``tags`` is not a list of strings: whether the cell is an ``index-example``
+    cell is then undecidable. Other metadata and other tags are not constrained.
+    """
     metadata = cell.get("metadata", {})
     if type(metadata) is not dict:
         raise ContractError("a cell's metadata is not an object")
@@ -212,10 +239,19 @@ def _source(cell: Mapping[str, Any]) -> str:
     return source
 
 
-def _conditions(
+def bind_call(
     call: ast.Call, method: str, signature: inspect.Signature, where: str
 ) -> dict[str, object]:
-    """Bind the call to ``signature`` and read its extras-related arguments."""
+    """Bind the call to ``signature`` and read its extras-related arguments.
+
+    A repeated keyword fails before binding (binding a dict would keep only the
+    last value). Each extras-related argument the call passes must be a
+    constant; an omitted one is left out, so the registry uses the default.
+    """
+    names = [kw.arg for kw in call.keywords]
+    repeated = sorted({n for n in names if n is not None and names.count(n) > 1})
+    if repeated:
+        raise ContractError(f"{where}: keyword argument repeated: {repeated}")
     try:
         signature.bind(
             *call.args, **{kw.arg: kw.value for kw in call.keywords if kw.arg}
@@ -243,10 +279,6 @@ def _conditions(
         if not isinstance(node, ast.Constant):
             raise ContractError(f"{where}: `{argument}` must be a constant")
         found[argument] = node.value
-    try:
-        REGISTRY.extras_for(method, found)
-    except ValueError as exc:
-        raise ContractError(f"{where}: {exc}") from exc
     return found
 
 
@@ -286,6 +318,9 @@ def _statement(
     receiver, method = call.func.value.id, call.func.attr
     if receiver not in declaration.models:
         raise ContractError(f"{where}: {receiver!r} is not a declared model")
+    problem = _not_instance_method(method, surface)
+    if problem is not None:
+        raise ContractError(f"{where}: {problem}")
     if method not in declaration.methods or method not in surface.methods:
         raise ContractError(f"{where}: {method!r} is not a declared method")
     if any(isinstance(a, ast.Starred) for a in call.args):
@@ -295,7 +330,7 @@ def _statement(
     for value in [*call.args, *(kw.value for kw in call.keywords)]:
         if not _is_value(value):
             raise ContractError(f"{where}: {ast.unparse(value)!r} is not a value")
-    conditions = _conditions(call, method, surface.signatures[method], where)
+    conditions = bind_call(call, method, surface.signatures[method], where)
     segment = ast.get_source_segment(text, node)
     assert segment is not None
     return Statement(cell, number, receiver, method, target, conditions, segment)
@@ -342,7 +377,7 @@ def check_notebook(
 ) -> Declaration:
     """All notebook-side rules of sections 2-4; returns the declaration."""
     surface = model_surface() if surface is None else surface
-    declaration = parse_declaration(nb.get("metadata"), surface.methods)
+    declaration = parse_declaration(nb.get("metadata"), surface)
     statements = tagged_statements(nb, declaration, surface)
     if not statements:
         raise ContractError(f"has no {TAG} cell")

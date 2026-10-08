@@ -16,6 +16,7 @@ are replayed below (static) and in ``tests/test_notebooks/test_index_recording.p
 
 from __future__ import annotations
 
+import ast
 import copy
 import importlib.util
 import json
@@ -86,7 +87,7 @@ GOOD = _nb(
 
 
 def _declaration(index: Any) -> Any:
-    return ix.parse_declaration({"lizyml": {"index": index}}, SURFACE.methods)
+    return ix.parse_declaration({"lizyml": {"index": index}}, SURFACE)
 
 
 def _fails(call: Callable[[], object], match: str) -> None:
@@ -108,17 +109,26 @@ def test_empty_extras_pass() -> None:
     assert _declaration({**INDEX, "extras": []}).extras == ()
 
 
+def test_other_keys_beside_the_index_pass() -> None:
+    """Only ``metadata.lizyml.index`` is closed (review round 1, finding 1)."""
+    metadata = {
+        "kernelspec": {"name": "python3"},
+        "lizyml": {"index": INDEX, "other": 1, "notes": {"any": ["thing"]}},
+    }
+    assert ix.parse_declaration(metadata, SURFACE) == _declaration(INDEX)
+
+
 @pytest.mark.parametrize(
     ("metadata", "match"),
     [
         ({}, "no metadata.lizyml"),
         ({"lizyml": []}, "metadata.lizyml must be an object"),
-        ({"lizyml": {"index": INDEX, "other": 1}}, "exactly the key 'index'"),
+        ({"lizyml": {"other": 1}}, "no metadata.lizyml.index"),
         ({"lizyml": {"index": [INDEX]}}, "must be a JSON object"),
     ],
 )
 def test_the_metadata_container_is_closed(metadata: Any, match: str) -> None:
-    _fails(lambda: ix.parse_declaration(metadata, SURFACE.methods), match)
+    _fails(lambda: ix.parse_declaration(metadata, SURFACE), match)
 
 
 @pytest.mark.parametrize(
@@ -145,7 +155,8 @@ def test_the_metadata_container_is_closed(metadata: Any, match: str) -> None:
         # Methods.
         ({"methods": ["_get_fit_state"]}, "public"),
         ({"methods": ["train"]}, "not a public Model method"),
-        ({"methods": ["fit_result"]}, "not a public Model method"),
+        ({"methods": ["fit_result"]}, "property, not an instance method"),
+        ({"methods": ["load"]}, "classmethod, not an instance method"),
         # Extras.
         ({"extras": ["calibration"]}, "unknown extra"),
         ({"extras": ["shap"]}, "unknown extra"),
@@ -203,8 +214,6 @@ def _statements(*cells: dict[str, Any], index: Any = None) -> list[Any]:
         "model.fit(data={1, b.c})",
         'model.fit(params={"num_leaves": 7, key: [1, -2]})',
         "model.evaluate(metrics=[])",
-        # A classmethod is called on the declared receiver too.
-        "loaded = model.load(path)",
         # Comments and several statements in one cell.
         "# fit, then explain\nmodel.fit(df)\nfig = model.importance_plot(kind='shap')",
         # A statement spanning lines.
@@ -269,16 +278,15 @@ def test_each_allowed_form_passes(source: str) -> None:
         # The receiver, the method and the target.
         ("other.fit(df)", "not a declared model"),
         ("model.train(df)", "not a declared method"),
-        ("model.fit_result(df)", "not a declared method"),
+        ("model.fit_result(df)", "property, not an instance method"),
+        # A classmethod is not an instance method (review round 1, finding 4).
+        ("loaded = model.load(path)", "classmethod, not an instance method"),
         ("model = model.fit(df)", "names a declared model"),
         # The extras-related arguments are constants.
         ("model.importance(kind=k)", "constant"),
         ("model.importance(k)", "constant"),
         ("model.predict(X, return_shap=flag)", "constant"),
-        ('model.importance(kind="SHAP")', "cannot decide"),
-        ("model.predict(X, return_shap=1)", "cannot decide"),
         ("model.importance_plot(kind=-1)", "constant"),
-        ("model.importance_plot(kind=True)", "cannot decide"),
         # The call matches the method's signature.
         ("model.fit(1, 2, 3)", "signature"),
         ("model.predict(X, True)", "signature"),
@@ -292,10 +300,47 @@ def test_each_allowed_form_passes(source: str) -> None:
         ("# model.fit(df)", "no statement"),
         # Not Python.
         ("model.fit(", "does not parse"),
+        # `ast.parse` accepts a repeated keyword (only `compile` refuses it, on
+        # 3.11-3.13); binding it as a dict would keep the last value silently.
+        ('model.importance(kind="split", kind="gain")', "keyword argument repeated"),
     ],
 )
 def test_each_rejected_form_fails(source: str, match: str) -> None:
     _fails(lambda: _statements(_code(source)), match)
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ('model.importance(kind="SHAP")', set()),
+        ("model.importance(kind=None)", set()),
+        ('model.importance("shap")', {"explain"}),
+        ("model.predict(X, return_shap=1)", {"explain"}),
+        ('model.predict(X, return_shap="")', set()),
+        ('model.importance_plot(kind="SHAP")', {"plots"}),
+        ("model.importance_plot(kind=True)", {"plots"}),
+    ],
+)
+def test_conditions_follow_the_runtime_predicates(
+    source: str, expected: set[str]
+) -> None:
+    (statement,) = _statements(_code(source))
+    derived = ix.REGISTRY.extras_for(statement.method, statement.conditions)
+    assert derived == frozenset(expected)
+
+
+def test_a_repeated_keyword_fails_in_the_binder() -> None:
+    """The binder itself refuses a repeated keyword (review round 1, finding 2)."""
+    call = ast.Call(
+        func=ast.Attribute(ast.Name("model"), "importance"),
+        args=[],
+        keywords=[
+            ast.keyword("kind", ast.Constant("split")),
+            ast.keyword("kind", ast.Constant("shap")),
+        ],
+    )
+    signature = SURFACE.signatures["importance"]
+    _fails(lambda: ix.bind_call(call, "importance", signature, "here"), "repeated")
 
 
 def test_the_tags_of_a_cell_are_a_list_of_strings() -> None:
@@ -306,6 +351,24 @@ def test_the_tags_of_a_cell_are_a_list_of_strings() -> None:
 def test_a_tagged_cell_is_a_code_cell() -> None:
     cell = {"cell_type": "markdown", "metadata": {"tags": [ix.TAG]}, "source": "x"}
     _fails(lambda: _statements(cell), "code cell")
+
+
+def test_an_untagged_cell_with_other_tags_and_metadata_passes() -> None:
+    other = _code("print(model)", tags=["hide-input"])
+    other["metadata"].update({"collapsed": True, "jupyter": {"source_hidden": True}})
+    statements = _statements(other, _code("model.fit(df)"))
+    assert [s.method for s in statements] == ["fit"]
+
+
+def test_a_cell_whose_tags_are_undecidable_fails_even_untagged() -> None:
+    """Whether such a cell is tagged cannot be decided, so it fails."""
+    bad = _code("print(model)", tagged=False)
+    bad["metadata"] = ["tags"]
+    _fails(lambda: _statements(bad, _code("model.fit(df)")), "metadata")
+    _fails(
+        lambda: _statements(_code("x", tags="hide-input"), _code("model.fit(df)")),
+        "tags",
+    )
 
 
 def test_untagged_cells_are_not_constrained() -> None:
