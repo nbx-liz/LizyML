@@ -1039,9 +1039,11 @@ def test_every_calibration_default_written_as_an_alias_reaches_training() -> Non
 
     The test above checks every spelling of every default against the
     canonicaliser; the boundary test before it trains with ``learning_rate``
-    only. This one writes **every** default the calibrator carries under an
-    alias, in one ``fit``, and reads the calibrator Boosters' params: each must
-    arrive once, under its canonical name, with the written value.
+    only. This one writes **every** alias of every default the calibrator
+    carries: fit ``k`` writes each default under its ``k``-th alias (defaults
+    with fewer aliases sit out), until every alias has been through a ``fit``.
+    In each, it reads the calibrator Boosters' params: each written default
+    must arrive once, under its canonical name, with the written value.
     """
     from lizyml.calibration.isotonic import (
         _ISOTONIC_DEFAULTS,
@@ -1049,35 +1051,50 @@ def test_every_calibration_default_written_as_an_alias_reaches_training() -> Non
     )
 
     canonical = LGBMProvider().canonical_param_names(_ISOTONIC_DEFAULTS)
-    written: dict[str, Any] = {}
-    expected: dict[str, Any] = {}
+    aliases_of: dict[str, list[str]] = {}
     for default_name in _ISOTONIC_DEFAULTS:
         if default_name in CALIBRATOR_OWN_PARAM_NAMES:
             continue
         name = canonical[default_name]
         aliases = sorted(accepted_spellings(name) - {name})
-        if not aliases:
-            continue
-        written[aliases[0]] = _CALIBRATION_ALIAS_VALUES[name]
-        expected[name] = _CALIBRATION_ALIAS_VALUES[name]
-    assert len(expected) >= 8, f"the alias population collapsed: {sorted(expected)}"
+        if aliases:
+            aliases_of[name] = aliases
+    assert len(aliases_of) >= 8, f"the alias population collapsed: {sorted(aliases_of)}"
 
-    cfg = make_config("binary", n_estimators=3, n_splits=2, num_threads=1)
-    cfg["calibration"] = {"method": "isotonic", "params": written}
-    with record_lightgbm_calls() as seen:
-        Model(cfg, data=make_binary_df(n=160)).fit()
+    exercised: set[str] = set()
+    for k in range(max(len(a) for a in aliases_of.values())):
+        expected = {
+            name: _CALIBRATION_ALIAS_VALUES[name]
+            for name, aliases in aliases_of.items()
+            if k < len(aliases)
+        }
+        written = {aliases_of[name][k]: value for name, value in expected.items()}
+        exercised.update(written)
 
-    calibrator_calls = [
-        call for call in seen["train_params"] if call.get("monotone_constraints") == [1]
-    ]
-    assert calibrator_calls, "no calibrator Booster was trained"
-    for call in calibrator_calls:
-        for name, value in expected.items():
-            present = sorted(s for s in accepted_spellings(name) if s in call)
-            assert present == [name], f"{name} reached lgb.train as {present}"
-            assert call[name] == value, (
-                f"{name}: trained {call[name]!r}, wrote {value!r}"
-            )
+        cfg = make_config("binary", n_estimators=3, n_splits=2, num_threads=1)
+        cfg["calibration"] = {"method": "isotonic", "params": written}
+        with record_lightgbm_calls() as seen:
+            Model(cfg, data=make_binary_df(n=160)).fit()
+
+        calibrator_calls = [
+            call
+            for call in seen["train_params"]
+            if call.get("monotone_constraints") == [1]
+        ]
+        assert calibrator_calls, f"fit {k}: no calibrator Booster was trained"
+        for call in calibrator_calls:
+            for name, value in expected.items():
+                present = sorted(s for s in accepted_spellings(name) if s in call)
+                assert present == [name], (
+                    f"fit {k}: {name} written as {aliases_of[name][k]!r} "
+                    f"reached lgb.train as {present}"
+                )
+                assert call[name] == value, (
+                    f"fit {k}: {name}: trained {call[name]!r}, wrote {value!r}"
+                )
+
+    every_alias = {a for aliases in aliases_of.values() for a in aliases}
+    assert exercised == every_alias, sorted(every_alias - exercised)
 
 
 def test_no_smart_parameter_name_has_an_estimator_alias() -> None:

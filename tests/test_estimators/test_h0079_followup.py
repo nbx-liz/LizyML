@@ -182,9 +182,11 @@ class TestG3ObjectiveCompatibilityEdgeInputs:
     clear ``LizyMLError(CONFIG_INVALID)`` instead of cryptic
     ``TypeError`` / ``KeyError``.
 
-    The edge inputs are ordinary values (empty string, dict, list, set, int,
-    None) and the two operations H-0116 decision 2 bounds. A value whose own
-    type raises, and rendering the error afterwards, are outside it.
+    The refused edge inputs are ordinary values (empty string, dict, list,
+    set, int) and the two operations H-0116 decision 2 bounds. An explicit
+    ``None`` is not refused: it means "no override" and trains on the task
+    default (pinned below). A value whose type lookups raise, and rendering
+    the error afterwards, are outside H-0116's guarantee.
     """
 
     def test_empty_string_objective_raises(self) -> None:
