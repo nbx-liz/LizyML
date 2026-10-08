@@ -7,7 +7,7 @@ BLUEPRINT.md に基づき、Config駆動のML分析ライブラリ LizyML をゼ
 
 ## 現在の位置づけ（2026-10 時点）
 
-- 本計画のフェーズ表は Phase 29（v0.1 系）までを記録しており、それ以降の作業はここに追記していない。本ファイルは予定と進捗の記録であって仕様ではない（H-0117）。仕様の正は BLUEPRINT.md と HISTORY.md、運用ルールの正は CONTRIBUTING.md である。
+- 本計画のフェーズ表は Phase 28 まで（末尾に Phase 29 の手順 29-B〜29-G が見出しなしで続く。いずれも v0.1 系）を記録しており、それ以降の作業はここに追記していない。本ファイルは予定と進捗の記録であって仕様ではない（H-0117）。仕様の正は BLUEPRINT.md と HISTORY.md、運用ルールの正は CONTRIBUTING.md である。
 - v0.2 以降の変更は、提案と決定を HISTORY.md に、リリースごとの内容を CHANGELOG.md に、個々の作業を GitHub の issue に記録している。
 - 2026-09〜10 の欠陥修復（Phase 1〜3）は `docs/audits/2026-09-defect-discovery/` にあり、計画は `phase3-plan.md`、完了の計測は `MANIFEST.md` にある。その成果は v0.18.0 として出す。
 

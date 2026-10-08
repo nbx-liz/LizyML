@@ -14,10 +14,6 @@ before.
 
 ### Configs that now raise `LizyMLError(CONFIG_INVALID)`
 
-Each refusal names the parameter and the surface it came from (`model.params`,
-`fit(params=...)`, `calibration.params`, `tuning.optuna.space`, or a restored
-tuning result), and happens before training starts.
-
 | You wrote | Write instead |
 |-----------|---------------|
 | `feature_weights` in `model.params` | `feature_contri` (`feature_weights` is not a LightGBM parameter and never had an effect) |
@@ -28,10 +24,9 @@ tuning result), and happens before training starts.
 | A native parameter an active smart parameter resolves, e.g. `num_leaves` with `auto_num_leaves` on | Turn the smart parameter off to set the native one |
 | `tuning.optuna.params.direction` that contradicts the metric | Omit it, or set `null` (it is taken from the metric) |
 | A `category: model` search dimension an active smart parameter overwrites, two dimensions for one parameter, or a `category: training` dimension other than `early_stopping_rounds` / `validation_ratio` | Remove it, or turn the smart parameter off |
-| `calibration.params` for `platt` / `beta` with names other than `x0`, `method`, `bounds`, `tol`, `options` (and `target_smoothing` for `platt`), e.g. `C` | Remove them (they never had an effect) |
+| `calibration.params` for `platt` / `beta` with names other than `x0`, `method`, `bounds`, `tol`, `options` (and `target_smoothing` for `platt`), e.g. `C`, or a value those names do not accept (an unknown `method` or solver option, an `x0` of the wrong length, malformed `bounds`, a non-positive `tol`, a non-boolean `target_smoothing`) | Remove them, or fix the value (before, all of these were ignored) |
 | A dict or list `objective` | A string |
 | `embargo: true` in a `purged_time_series` split | An integer in `purge_gap` |
-| A `config_version` other than `1` | `config_version: 1` (now checked on every path into `Model`, including `model_validate`, `model_construct` and environment variables) |
 
 ### Code that needs changes
 
@@ -40,14 +35,24 @@ tuning result), and happens before training starts.
 - `validate_no_target_leakage` and `validate_time_series_order` raise
   `LizyMLError(DATA_SCHEMA_INVALID)` when the column they are named for is
   missing, and `validate_no_target_leakage` does the same for a column it cannot
-  compare, whatever `raise_on_violation` is. Before, both answered `[]`.
-- New error codes you may want to handle: `CALIBRATION_FAILED` (a Platt or Beta
-  optimiser did not converge), `INCOMPATIBLE_COLUMNS` (a column numeric at fit
-  arrives non-numeric at `predict`), `METRIC_REQUIRES_PROBA` (a probability
-  metric received values that are not probabilities).
+  compare, whatever `raise_on_violation` is. Before, a missing column got `[]`
+  and an uncomparable column was skipped.
+- Error codes you may now receive: `CALIBRATION_FAILED` is new (a Platt or Beta
+  optimiser did not converge). `INCOMPATIBLE_COLUMNS` (a column numeric at fit
+  arrives non-numeric at `predict`) and `METRIC_REQUIRES_PROBA` (a probability
+  metric received values that are not probabilities) were declared before but
+  never raised.
+- A `config_version` other than `1` raises `CONFIG_VERSION_UNSUPPORTED` on every
+  path into `Model`, including `model_validate`, `model_construct`, assignment
+  and `LIZYML__config_version`; before, several of those paths accepted it.
 - `PredictionResult.warnings` lists categories that were not seen at fit.
-- A third-party `EstimatorProvider` must accept the new keyword argument of
-  `build_pipeline_factory(unseen_policy=...)`.
+- A third-party `EstimatorProvider` must implement `accepted_model_param_names()`,
+  `smart_param_names()`, `smart_managed_param_names()` and
+  `canonical_param_names()`, and accept `build_pipeline_factory(unseen_policy=...)`.
+- `PurgedTimeSeriesConfig` and `PurgedTimeSeriesSplitter` no longer have an
+  `embargo` attribute, and `model_dump()` has no `embargo` key: read
+  `purge_gap`, which includes it. `PurgedTimeSeriesSplitter(embargo=...)` is
+  deprecated like the config key.
 
 ### Deprecated: `embargo` in `purged_time_series`
 
