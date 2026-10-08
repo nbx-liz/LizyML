@@ -179,8 +179,13 @@ def checkout(tmp_path: pathlib.Path) -> dict[str, object]:
     _git(repo, "remote", "add", "origin", str(remote))
     _commit(repo, "a")
     other = _git(repo, "rev-parse", "HEAD")
+    _git(repo, "checkout", "-q", "-b", "feature")
     _commit(repo, "b")
+    _git(repo, "checkout", "-q", "base")
+    _git(repo, "merge", "-q", "--no-ff", "-m", "merge", "feature")
     merge = _git(repo, "rev-parse", "HEAD")
+    # The production shape: what the guard admits is a two-parent merge.
+    assert len(_git(repo, "rev-list", "--parents", "-n", "1", merge).split()) == 3
     return {"repo": repo, "remote": remote, "MERGE": merge, "OTHER": other}
 
 
