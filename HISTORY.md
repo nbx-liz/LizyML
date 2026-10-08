@@ -11359,7 +11359,7 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 
 - **ステータス**: Proposed
 - **起票日**: 2026-10-09
-- **スコープ**: `notebooks/*.ipynb`（メタデータとセルのタグ）, `docs/examples.md`（生成する部分）, `lizyml/_extras.py`（新規・非公開）, `scripts/examples_index.py`（新規）, `tests/test_docs/test_examples_index.py`（置き換え）, `tests/test_notebooks/`（実行の記録）, `.github/workflows/ci.yml`（ジョブ 2 つを追加）, `pyproject.toml` / `uv.lock`（依存グループ `notebooks` を追加）, `docs/proposal_dispositions.toml`
+- **スコープ**: `notebooks/*.ipynb`（メタデータとセルのタグ）, `docs/examples.md`（生成する部分）, `lizyml/_extras.py`（新規・非公開）, `scripts/examples_index.py`（新規）, `tests/test_docs/test_examples_index.py`（置き換え）, `tests/test_notebooks/`（実行の記録、`test_index_execution.py` を新設、ネットワーク失敗のマーカー一覧を共有モジュールへ移す）, `.github/workflows/ci.yml`（ジョブ 2 つを追加）, `pyproject.toml` / `uv.lock`（依存グループ `notebooks` を追加）, `docs/proposal_dispositions.toml`
 - **関連**: [Issue #334](https://github.com/nbx-liz/LizyML/issues/334), PR #335（索引の修正と静的な検査）, H-0118（文書の一覧を実装と照合する、同じ DC3 の型）, H-0117（運用ルールの正は `CONTRIBUTING.md`）
 
 ### 目的（課題）
@@ -11377,24 +11377,47 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 
 ### 対応方針（提案）
 
-1. **索引の約束を狭める。** 索引が保証するのは「各ノートブックが例として示すメソッド」と「そのノートブックの実行に必要な extras」である。ノートブックの全呼び出しの一覧ではない。各節の説明文は手書きで、約束の外に置く。
+1. **索引の約束を狭める。** 索引が保証するのは「各ノートブックが例として示すメソッド」と「そのノートブックの実行に必要な extras」の 2 つだけである。ノートブックの全呼び出しの一覧ではない。各節の説明文は手書きとし、約束の外に置く。
 
-2. **ノートブックごとの宣言を正にする。** 各ノートブックの `metadata.lizyml.index` に次の 3 つを書く。
-   - `models`: 例の受け手になる変数名
-   - `methods`: 例として示すメソッド名
-   - `extras`: 必要な extras
+2. **ノートブックごとの宣言を正にする。** 各ノートブックの `metadata.lizyml.index` は、JSON object で、キーは `models`、`methods`、`extras` のちょうど 3 つとする。ほかのキーがあれば失敗し、キーが欠けても失敗する。3 つの値はどれも、文字列の JSON 配列で、重複が無く、昇順に並んでいなければならない。
+   - `models`: 空でない。各要素は Python の識別子で、キーワードではない。例の受け手になる変数名を並べる。
+   - `methods`: 空でない。各要素は `Model` の公開メソッド名で、`_` で始まらず、`inspect.getmembers(Model)` に callable として存在する。継承した mixin のメソッドも含む。
+   - `extras`: 空でもよい。各要素は対応表（4.）に現れる extra 名で、現行では `explain`、`plots`、`tuning` のどれかである。
 
-3. **例は `index-example` タグのセルに置き、閉じた文法で書く。** タグ付きセルで許す文は次の 2 つだけとする。
-   - 式文 `R.m(引数)`
-   - 代入 `N = R.m(引数)`
+   宣言が無いノートブックや、型・キー・並びのどれかが規則に反するノートブックは失敗させる。
 
-   `R` は `models` の名前で、`N` は `models` に含まれない単純な名前。引数のうち、対応表（4.）が条件に使うもの（`kind`、`return_shap`）は定数リテラルで書く。`*` / `**` の展開は認めない。
+3. **例は `index-example` タグのセルに置き、閉じた文法で書く。** タグ付きセルを `ast` で読み、次の文法に当てはまらないものはすべて失敗させる。
 
-   それ以外の文と式は、タグ付きセルの中ではすべて拒否する。import、制御構文、関数定義、`R` 以外の受け手、IPython のマジック行が含まれる。タグ付きセルに現れる `m` の集合は `methods` と一致しなければならない。タグの無いセルには制約を置かない。
+   - **セル**: `%` / `!` で始まる行を含まない。文が 1 つ以上ある。
+   - **文**: 次の 2 つだけを許す。
+     - 式文 `R.m(引数…)`
+     - 代入 `N = R.m(引数…)`
+
+     条件は次のとおり。
+     - `R` は `models` の名前、`m` は `methods` の名前である。
+     - `N` は単純な名前で、`models` に含まれない。
+     - 代入の左辺はちょうど 1 つ。
+   - **引数**: 位置引数とキーワード引数（`*` / `**` の展開は不可）。値は次の「値」に限る。
+   - **値**: 次のどれか。それ以外の式は拒否する。
+     - 定数
+     - 名前
+     - 名前と属性の連鎖（`a.b.c`）
+     - 値を添字にした値の添字（`a["x"]`、`a[0]`）
+     - 単項マイナスの定数
+     - 値の list / tuple / set / dict
+
+     したがって、関数呼び出し、`lambda`、内包表記、`and` / `or`、条件式、代入式、`await` などは拒否される。
+   - **extras に関わる引数**（対応表が条件に使う `kind` と `return_shap`）は、定数で書く。`importance` と `importance_plot` の `kind` は、位置引数 0 で渡してもよい。
+
+   セルとメソッドの対応は、次の 2 つで照合する。
+   - タグ付きセルに現れる `m` の集合は `methods` と一致する。
+   - タグ付きセルが 1 つも無いノートブックは失敗する。
+
+   タグの無いセルには制約を置かない。
 
 4. **メソッドから extra への対応表をパッケージ内に置く**（`lizyml/_extras.py`、非公開）。
 
-   項目は現行コードから調べたもの（2026-10-09、`d72b20a`）である。
+   項目は、現行コード（2026-10-09、`d72b20a`）から調べたものである。
 
    | メソッド | 条件 | extra |
    |---|---|---|
@@ -11405,53 +11428,109 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
    | `importance_plot` | `kind="shap"` | `explain`（`plots` に加えて） |
    | `residuals_plot`、`roc_curve_plot`、`calibration_plot`、`probability_histogram_plot`、`plot_learning_curve`、`plot_oof_distribution`、`tuning_plot` | 常に | `plots` |
 
-   scipy は scikit-learn と lightgbm が無条件で要求するため、base install に必ず入っている。そのため `calibration` extra（Beta）と `residuals_plot` の qq は対応表に入れない。
+   条件に使う引数の既定値は、`predict(return_shap=False)`、`importance(kind="split")`、`importance_plot(kind="split")`、`residuals_plot(kind="all")` である。引数を省いた場合は、この既定値で判定する。
+
+   scipy は scikit-learn と lightgbm が無条件で要求するため、base install に必ず入っている。そのため、`calibration` extra（Beta）も、`residuals_plot` の qq / all が使う scipy も、対応表には入れない。
 
    宣言の `extras` は、タグ付きセルの呼び出しから対応表で導いた集合と一致しなければならない。
 
-5. **`docs/examples.md` の機械可読な部分を生成する。** 各節の「示すメソッド」と「必要な extras」の行を、メタデータから生成してマーカーの間に置く。`scripts/examples_index.py --check` と同じ関数をテストが呼び、生成し直した結果とファイルの一致を確かめる。
+5. **`docs/examples.md` の機械可読な部分を生成する。**
 
-   節の見出しの集合は、`notebooks/*.ipynb` の集合と一致しなければならない。
+   - **見出し**: 節の見出しは `` ### `<名前>.ipynb` `` の形とする。見出しの集合は `notebooks/*.ipynb` の集合と一致し、同じ見出しが 2 回現れれば失敗する。`.ipynb` を含むそれ以外の形の見出しも失敗とする。
+   - **生成ブロックの位置**: 各節には、生成ブロックがちょうど 1 つある。ブロックは `<!-- index:begin <名前>.ipynb -->` の行で始まり、`<!-- index:end -->` の行で終わる。begin の名前は、その節の見出しと一致しなければならない。節の外にマーカーがある場合、マーカーが対になっていない場合、1 つの節に 2 つある場合は、いずれも失敗する。
+   - **ブロックの中身**: 次の 2 行と完全に一致しなければならない。
+     - `` **Demonstrates:** `m1()`, `m2()` ``（`methods` の順）
+     - `` **Extras required:** `pip install 'lizyml[e1,e2]'` ``（`extras` の順）。`extras` が空なら `**Extras required:** none (base install)` とする。
+
+   `scripts/examples_index.py` は `--write` で生成ブロックを書き換え、`--check` で不一致を報告する。テストは `--check` と同じ関数を呼ぶ。
 
 6. **CI に 2 つのジョブを足す。**
-   - **対応表の検査**: extras を入れない環境で、対応表の各項目を実際に呼び、`OPTIONAL_DEP_MISSING` が出て、`context` の package が対応表の extra のものであることを確かめる。これで対応表の過大な記載（要らない extra）を防ぐ。
-   - **ノートブックの実行**: ノートブックごとの matrix で、そのノートブックが宣言した extras だけを入れた環境で実行する（`uv sync --frozen --no-dev --group notebooks --extra …`）。
-     - 実行前に、メモリ上の notebook の先頭と末尾に記録用のセルを足す（ファイルは変えない）。これで `Model` インスタンスで実際に呼ばれた公開メソッドを記録し、`methods` がすべて実際に呼ばれたことを確かめる。
-     - extras が足りなければ実行が失敗するので、対応表の漏れと宣言の不足もここで捕まる。
-     - データ取得の失敗はノートブック全体を最大 2 回再実行し、それでも失敗すれば落とす。skip しない（DC1）。
-   - **起動条件**（管理者の決定、2026-10-08）: main 向けの PR では常に走らせる。develop 向けの PR では、`notebooks/**`、`docs/examples.md`、`lizyml/_extras.py`、`scripts/examples_index.py`、`ci.yml` のどれかが変わったときだけ走らせる。
 
-7. **PR #335 の静的な検査を置き換える。** これまでの review で見つかった反例をすべて新しい仕組みで再生し、失敗することを確かめる。
+   **(a) 対応表の検査。** extras は `explain`、`plots`、`tuning` の 3 つで、それぞれについて「その extra だけを除いた環境」を作る（matrix 3）。環境ごとに、その extra を要る対応表の項目を全部呼ぶ。そして `OPTIONAL_DEP_MISSING` が出ること、`context["package"]` がその extra のパッケージであることを確かめる。
 
-   宣言（2.）の無いノートブックや、`index-example` セルが 1 つも無いノートブックは失敗させる（宣言なしでは通さない）。
+   環境は `uv sync --frozen --no-dev --group notebooks --extra <残りの 2 つ>` で作る。実行は `uv run --no-sync --no-dev …` で行い、作った環境を作り直させない。実行の前に、除いたパッケージが import できないこと、残した 2 つが import できることを確かめる。
 
-   既存の slow な実行テスト（`tests/test_notebooks/test_notebook_execution.py`、ネットワークの失敗で skip する）は範囲外とし、手を付けない。
+   各項目の前提は次のとおり。どれも、前提の検査で別のエラーが出た時点で失敗とする（依存の guard まで届かなかったものを通さない）。
+
+   | 項目 | 前提 |
+   |---|---|
+   | `tune` | `tuning:` を持つ回帰の Config（`n_trials: 2`）で、`tune()` を呼ぶ |
+   | `predict(return_shap=True)`、`importance(kind="shap")`、`importance_plot`、`residuals_plot(kind="scatter")`、`plot_oof_distribution` | 小さな合成データで fit した回帰モデル |
+   | `plot_learning_curve` | inner valid を使う early stopping で fit した回帰モデル |
+   | `roc_curve_plot` | fit した二値分類モデル |
+   | `calibration_plot`、`probability_histogram_plot` | isotonic の校正付きで fit した二値分類モデル |
+   | `tuning_plot` | `tuning` を残し `plots` を除いた環境で `tune()` を終えたモデル |
+   | `importance_plot(kind="shap")` | `explain` を除いた環境（shap が先に検査される）と、`plots` を除いた環境の両方で確かめる |
+
+   この検査は、対応表の過大な記載（要らない extra）を防ぐ。
+
+   **(b) ノートブックの実行。** ノートブックごとの matrix（8）で行う。
+   - **環境**: そのノートブックが宣言した extras だけを入れた環境を作る（`uv sync --frozen --no-dev --group notebooks` に、宣言した extra ごとに `--extra <e>`）。実行は `uv run --no-sync --no-dev python -m pytest tests/test_notebooks/test_index_execution.py -k <名前>` で行う。
+   - **環境の確認**: 実行の前に、`explain`、`plots`、`tuning` の各パッケージについて、宣言した extra のものは import でき、宣言していないものは import できないことを確かめる。
+   - **カーネル**: ipykernel の native kernel を使い、テストプロセスの `sys.executable` で起動する。codegen のノートブックは `python` を PATH から探して起動しているので、`sys.executable` に変える。
+   - **呼び出しの記録**: 実行する notebook の内容は、メモリ上でだけ書き換える（ファイルは変えない）。
+     - 先頭に記録用のセルを足す。このセルは `Model` の公開メソッドを、継承した mixin のものも含めて包み、呼び出しを記録する。記録の対象は、ほかの `Model` メソッドの中から呼ばれたものを除いた、一番外側の呼び出しだけである。
+     - タグ付きセルの各文について、その直前に「受け手 `R` が `Model` のインスタンスであることを確かめ、`(id(R), m)` を待つ」処理を挟む。直後には、「その呼び出しが一番外側で記録されたことを確かめる」処理を挟む。
+     - 末尾のセルで、すべてのタグ付きの文がこの確認を通ったことを確かめる。
+
+     これで、宣言した受け手の `Model` で、宣言したメソッドが、その場所で実際に実行されたことを保証する。
+   - **extras の不足**: extras が足りなければ実行が失敗するので、対応表の漏れと宣言の不足もここで捕まる。
+   - **データ取得の失敗**:
+     - 実行は最大 3 回（初回と再試行 2 回）。毎回、新しいカーネルで、notebooks ディレクトリを新しい一時ディレクトリに写したものを作業ディレクトリにして実行する。
+     - 再試行するのは、失敗の `CellExecutionError` の文字列に、既存のマーカー一覧（`tests/test_notebooks/test_notebook_execution.py` の `_NETWORK_ERROR_MARKERS`）のどれかが含まれる場合だけとする。その一覧は新しいモジュールに移し、既存のテストはそこから読む。
+     - それ以外の失敗は、再試行せずに落とす。3 回とも上記の失敗なら落とし、skip しない（DC1）。
+
+   **起動条件**（管理者の決定、2026-10-08）: main 向けの PR では常に走らせる。develop 向けの PR では、`notebooks/**`、`docs/examples.md`、`lizyml/_extras.py`、`scripts/examples_index.py`、`tests/test_notebooks/**`、`.github/workflows/ci.yml` のどれかが変わったときだけ走らせる。
+
+7. **PR #335 の静的な検査を置き換える。** これまでの review で見つかった反例をすべて新しい仕組みで再生し、どれも失敗することを確かめる。
+
+   既存の slow な実行テスト（`tests/test_notebooks/test_notebook_execution.py`）は、マーカー一覧の移動以外は範囲外とする。
 
 ### 互換性
 
 - 公開 API、Config、結果の型は変わらない。`lizyml/_extras.py` は非公開で、既存のエラーメッセージや guard は変えない。
-- ノートブックのメタデータとセルのタグは、表示にも実行にも影響しない。
+- ノートブックのメタデータとセルのタグは、表示にも実行にも影響しない。codegen のノートブックが子プロセスを起動するコマンドだけを `sys.executable` に変える。
 - 依存グループ `notebooks`（`nbconvert`、`ipykernel`、`pytest`）を新設する。新しいパッケージは追加しない（どれも `dev` に入っている）。`uv.lock` が更新される。
-- **Firing rate**: 6. の起動条件は `select`（条件を満たす PR でだけ実行する）にあたる。develop 向け PR での発火率は **5/134 of develop の first-parent commit、2026-04-02 以降**（`git log --first-parent origin/develop --since=2026-04-01 -- notebooks docs/examples.md` で測定。新設する 2 ファイルは過去に存在しない）。
+- **Firing rate**: 6. の起動条件は `select`（条件を満たす PR でだけ実行する）にあたる。develop 向け PR での発火率は **11/134 of develop の first-parent commit、2026-04-02 以降**。
+  - 分子は `git log --first-parent --format=%h origin/develop --since=2026-04-01 -- notebooks docs/examples.md .github/workflows/ci.yml tests/test_notebooks | wc -l`、分母は同じコマンドからパスを除いたもので測った（`d72b20a`、2026-10-09）。
+  - 新設する `lizyml/_extras.py`、`scripts/examples_index.py`、`tests/test_notebooks/test_index_execution.py` は過去に存在しない。
   - 発火しない PR でも、コードの変更でメソッドが必要とする extra が変わることがある。それは main 向けの PR で必ず検出する。
-  - 範囲を `lizyml/plots`、`explain`、`tuning`、`calibration` と関連する mixin、`pyproject.toml` まで広げると 44/134 になる。
+  - 範囲を `lizyml/plots lizyml/explain lizyml/tuning lizyml/calibration lizyml/core/_model_plots.py lizyml/core/_model_tables.py lizyml/core/_model_tuning.py lizyml/core/_model_predict.py pyproject.toml` まで広げると、同じコマンドで 48/134 になる。
 
 ### 代替案（検討して棄却）
 
 1. **`ast` の全ノードを「必ず実行される／されないかもしれない」に分類し、未分類のノードで失敗させる**（案 D）。上記の批評のとおり、実行されるかは位置と、それより前の文の結果で決まるので閉じない。
 2. **索引の検査を「ノートブックの一覧の一致」と「import から導く extras」に絞る**（案 B）。8 本ともオプションのパッケージを直接 import していないので、extras はすべて空と導かれる。その結果、今回の不具合（extras の誤り）を捕まえられなくなる。
-3. **静的な検査をやめ、実行の記録だけで照合する**（案 C 単独）。正しさは保てるが、普段の PR で走る速い検査が無くなり、索引のずれに気づくのが実行ジョブの起動時まで遅れる。
+3. **静的な検査をやめ、実行の記録だけで照合する**（案 C 単独）。正しさは保てるが、普段の PR で走る速い検査が無くなり、索引のずれに気づくのが実行ジョブの起動時まで遅れる（develop 向け PR では 11/134 しか起動しない）。
 4. **対応表をテストのデータとして `tests/` に置く。** 対応表はパッケージの振る舞い（どのメソッドがどの extra を要るか）を述べるので、コードの隣で変更されるべきである。生成スクリプトもテストもそこから読む。
 5. **`sys.modules` から extras を導く。** `import lizyml` の時点で optuna の import が試みられ、scipy は scikit-learn と lightgbm が必ず読み込むので、過大にも過小にもなる（DC6）。
 
 ### 受け入れ基準（テスト観点）
 
-1. タグ付きセルの文法について、許す各形が通るテストと、それ以外の各形が拒否されるテストがある。
-2. これまでの反例をすべて再生し、どれも失敗する。対象は、`and` / `or` の後ろの呼び出し、空の内包表記、条件式、到達しない分岐、再代入、`def` / `class` の再代入、重複見出し、マジック行、一覧に無いノートブック、コメントだけの呼び出しである。
-3. 8 本すべてで、生成し直した `docs/examples.md` の部分とファイルが一致する。どれか 1 本のメタデータを変えると不一致で落ちる。
-4. 対応表の各項目が、extras を入れない環境で `OPTIONAL_DEP_MISSING` を出す。
-5. 8 本すべてが、宣言した extras だけの環境で skip なしに実行でき、宣言した `methods` がすべて `Model` で実際に呼ばれる。
-   - extras を宣言しているノートブックで、宣言から 1 つ減らすと失敗する。
-   - 宣言にあるメソッドの呼び出しを、実行されない位置に移すと失敗する。
-   - 各ジョブの所要時間を記録する。
-6. 新しい review run を 1 回、Codex APPROVE まで通す。
+1. **宣言（2.）の検査**: 各規則について、守った宣言が通るテストと、破った宣言が失敗するテストがある。対象は、キーの過不足、型、重複、並び、空、識別子、存在しないメソッド、未知の extra である。
+2. **タグ付きセルの文法（3.）の検査**: 許す各形（2 つの文、「値」の各形、位置引数の `kind`）が通るテストがある。拒否する各形（ほかの文、ほかの式、`*` / `**`、`models` 以外の受け手、`N` が `models` の名前、マジック行、空のセル）が失敗するテストがある。
+3. **これまでの反例の再生**: すべてを新しい仕組みで再生し、どれも失敗する。静的な検査か実行の記録のどちらかで落ちればよい。対象は次のとおり。
+   - `and` / `or` の後ろの呼び出し
+   - 空の内包表記
+   - 条件式
+   - 到達しない分岐
+   - 再代入
+   - `def` / `class` の再代入
+   - 重複見出し
+   - マジック行
+   - 一覧に無いノートブック
+   - コメントだけの呼び出し
+   - `Model` に見せかけた別の受け手
+4. **`docs/examples.md` の照合**: 8 本すべてで、生成し直したブロックとファイルが一致する。次の操作をしたときは、それぞれ失敗する。
+   - どれか 1 本のメタデータを変える
+   - マーカーを重複させる
+   - マーカーの対を崩す
+   - マーカーの名前を別の節にする
+5. **対応表の検査（6.(a)）**: 対応表の全項目が、その extra を除いた環境で、期待どおりのパッケージ名つきの `OPTIONAL_DEP_MISSING` を出す。前提の検査で別のエラーが出た場合は失敗する。
+6. **ノートブックの実行（6.(b)）**: 8 本すべてが、宣言した extras だけの環境で skip なしに実行できる。タグ付きの文はすべて、宣言した受け手の `Model` で実行されたと記録される。次の場合は、それぞれ失敗する。
+   - extras を宣言しているノートブックで、宣言から 1 つ減らす
+   - 宣言にある呼び出しを、実行されない位置に移す
+   - 受け手を `Model` でないものにする
+
+   各ジョブの所要時間を記録する。
+7. **review**: 新しい review run を 1 回、Codex APPROVE まで通す。
