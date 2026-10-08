@@ -354,6 +354,7 @@ only `calibrator`, `oof_raw_scores` and `pipeline_state_per_fold` may be `None`.
 | `calibrator` | `CalibrationResult \| None` | Fitted calibrator; `None` when calibration is disabled. |
 | `run_meta` | `RunMeta` | Version and config metadata captured at fit time. |
 | `oof_raw_scores` | `NDArray[float64] \| None` | OOF raw logit scores for calibration. `None` when calibration is not enabled. |
+| `target_encoder` | `TargetEncoder` | Maps non-numeric classification labels to integer codes and back. A no-op (`needs_encoding=False`) for numeric targets and regression; otherwise `classes_` holds the original labels sorted lexicographically by their string form (H-0070). |
 | `pipeline_state_per_fold` | `list \| None` | Serializable state of each CV fold's `FeaturePipeline`, in fold order; the last equals `pipeline_state`. `None` when unavailable (an artifact written before H-0114, or a `FitResult` constructed without it). Shared by reference across copies (H-0114). |
 
 ---

@@ -543,6 +543,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `pipeline_state`（最後の CV fold の `FeaturePipeline` の状態、必須）
 - `pipeline_state_per_fold`（`list | None`。各 CV fold の `FeaturePipeline` の状態を fold の順に持つ。`CVTrainer` は常に埋め、長さは外側 CV の fold 数、最後の要素は `pipeline_state` と同じ。`None` は fold ごとの状態が無いこと（H-0114 より前の artifact、またはこのフィールドを省いて構築した `FitResult`）を表す。H-0114）
 - `calibrator`（有効時）
+- `oof_raw_scores`（`np.ndarray | None`。校正が有効なとき、OOF の生スコア（`predict_raw` の出力、ロジット）を `oof_pred` と同じ形・同じ行の順で持つ。validation fold に覆われない行は `oof_pred` と同じく NaN。校正の cross-fit と `C_final` はこれを入力にし、`predict()` も生スコアを `C_final` に渡す（H-0030）。校正が無効なら `None`。校正が有効でもこれが `None` の旧形式 artifact は、`predict()` で確率を `C_final` に渡す（§18.1 の Legacy calibration path）。校正の規則は §12.1）
 - `run_meta`
   - `lizyml_version / python_version / deps_versions / config_normalized / config_version / run_id / timestamp`
   - 型: `lizyml_version`（`str`）、`python_version`（`str`）、`deps_versions`（`dict[str, str]`）、`config_normalized`（`dict`）、`config_version`（`int`）、`run_id`（`str`、UUID 文字列）、`timestamp`（`str`、ISO 8601、UTC）。
