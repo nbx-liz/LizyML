@@ -479,6 +479,10 @@ anchors = ["purge_gap", "embargo_pct", "PurgedTimeSeriesSplitter(embargo=...)", 
 disposition = "specified"
 anchors = ["check_objective_compatible", "CONFIG_INVALID", "TypeError"]
 
+[proposals."H-0117"]
+disposition = "no_obligation"
+reason = "Release tooling and contributor documentation only: no public API, Config, Result, Artifacts, split or leakage surface changes, so BLUEPRINT has nothing to state."
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 

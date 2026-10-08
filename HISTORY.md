@@ -11248,3 +11248,64 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 4. BLUEPRINT §14.2 が文字列でない値の扱いを書き、`tests/test_docs/` が緑のまま（H-0116 の処分の行を含む）。
 5. 明示の `None` は拒否されない: `model.params` と `fit(params=)` の両方で `lgb.train` は task の既定の objective を受け取る（`test_none_objective_through_model_fit_trains_on_the_default`）。adapter を直接作る経路は `test_none_objective_falls_back_to_default` が固定する。
 6. 包含の検査とメッセージの組み立てで、決定 2 が挙げた操作が値に対して走らない（範囲外の 2 つは固定しない）: 表示できないキーを持つ dict は adapter を直接作る経路で `CONFIG_INVALID`（`objective of type 'dict'`）で、修正前はキーの例外が漏れて RED（`test_an_unprintable_objective_is_still_config_invalid[adapter]`。`Model.fit` の経路は値の型の検査が先に `CONFIG_INVALID` で止めるので、同じテストの `[fit_params]` はそれを固定する）。`__hash__` / `__eq__` / `__format__` / `__str__` / `__repr__` が例外を出す `str` の部分クラスは、互換でない内容なら `CONFIG_INVALID`、互換な内容なら受理（`test_a_hostile_string_objective_is_judged_by_its_text`。修正前は RED）。
+
+## H-0117: リリースを develop → main の Merge commit に限り、git 管理下の運用ルールを CONTRIBUTING.md に置く
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-08
+- **決定日**: 2026-10-08（管理者の判断: v0.18.0 の前に、リリース経路と文書の役割を直す計画を承認）
+- **スコープ**: `scripts/release.py`, `.github/workflows/auto-release.yml`, `.github/scripts/check_release_merge.sh`（新規）, `CONTRIBUTING.md`, テスト（`tests/test_release/`）, `docs/proposal_dispositions.toml`
+- **関連**: Codex の設計レビュー `lizyml-agents-critique`（2026-10-08、指示ファイルの整理の検討で見つかった）、`CONTRIBUTING.md` の Release 節
+
+### 目的（課題）
+
+リリースの手順は `CONTRIBUTING.md` が「develop から main への PR を Merge commit で統合し、`auto-release.yml` がタグを作る」と定めている。v0.8.1 以降の 13 回のリリースはすべてこの形だった。しかし、手順を実行する道具と、手順を説明する文書の両方に、この形から外れる道が残っている。
+
+1. **`scripts/release.py` が develop に直接 commit して push する。** `CHANGELOG.md` に未 commit の変更があると、develop の上で commit し、続けて `git push origin develop` を実行する。`CONTRIBUTING.md` は develop への直接 commit と直接 push を禁じ、CHANGELOG は feature PR で入れると定めている。
+2. **`auto-release.yml` がリリースの形を確かめない。** 起動条件は「main に merge された PR のタイトルが `release:` で始まる」だけである。head が develop でない PR（2026-04-02 までの `release/vX.Y.Z` ブランチ）や、Squash merge された PR でもタグを作る。Squash merge は main だけにある commit を作り、main と develop の履歴を切り離す。加えて、PR のタイトルを `run:` の中で `${{ github.event.pull_request.title }}` として直接展開しているので、タイトルの文字列がシェルとして解釈される。
+3. **`CONTRIBUTING.md` の文書の優先順位が、この public リポジトリでは git 管理下にないファイルを挙げている。** 3 位の `AGENTS.md` と 4 位の `skills/*` は、エージェントへの指示のためのローカルファイルで、`.gitignore` の対象である（管理者の方針: public リポジトリでは指示ファイルを git で管理しない）。新しい clone、CI、commit を読むレビューのどれにも届かない文書が、運用ルールの正として挙がっている。`PLAN.md` の位置づけは書かれていない。言語の規約も `CLAUDE.md` を挙げている。
+
+### 対応方針（決定）
+
+1. **`scripts/release.py` は commit も push もしない。** `CHANGELOG.md` に未 commit の変更があれば、feature PR で入れるよう案内して終了コード 1 で止める。ローカルの develop が `origin/develop` と一致しなければ（未 push の commit がある、または遅れている）、同じく止める。どちらも満たせば、`release: vX.Y.Z` というタイトルで develop → main の PR を作るだけにする。
+2. **`auto-release.yml` は、タグを作る前に PR の形を確かめる。** 確かめる内容は 3 つで、`.github/scripts/check_release_merge.sh` に置く。
+   1. PR の head ブランチが `develop` であること。
+   2. head が同じリポジトリのものであること。
+   3. merge commit（`merge_commit_sha`）の親がちょうど 2 つであること。
+
+   1 つでも満たさなければ、タグも Release も作らずに失敗する。タグは checkout の HEAD ではなく `merge_commit_sha` に付ける。PR のタイトルなど利用者が書ける値は、`env:` を経由してシェルに渡す。
+3. **git 管理下の運用ルールの正を `CONTRIBUTING.md` にする。** 文書の優先順位は `BLUEPRINT.md` > `HISTORY.md` > `CONTRIBUTING.md` > 実装コードとする。エージェント向けの指示ファイル（`CLAUDE.md`, `.claude/AGENTS.md`, `.claude/skills/`）はローカルで git の管理外にあり、このリポジトリの規則を要約するだけで上書きしないと書く。`PLAN.md` は予定と進捗の文書であって仕様ではないと書く。言語の規約の `CLAUDE.md` を、指示ファイル全般を指す書き方に直す。
+
+### 規則が縛る位置（ソースから導出）
+
+規則: **リリースのタグは、develop を Merge commit で main に統合した commit にだけ付き、その過程で develop に直接 commit も push もしない。** 導出: リポジトリで `git push`、`git commit`、`git tag`、`gh pr create --base main`、`release:` を grep した全件（`ac6c67d`）。
+
+| # | 位置 | 本 PR |
+|---|---|---|
+| 1 | `scripts/release.py`（CHANGELOG の commit と develop の push） | 拒否に置き換える |
+| 2 | `scripts/release.py`（`gh pr create --base main --head develop`） | 残す。タイトルを `release: vX.Y.Z` に揃える |
+| 3 | `.github/workflows/auto-release.yml`（`git tag` と `git push origin <tag>`） | 形の検査の後に、`merge_commit_sha` に付ける |
+| 4 | `.github/workflows/release.yml`（PyPI 公開。3 からの `workflow_dispatch` のほか、GitHub Release の `published` と手動の `workflow_dispatch` でも起動する） | 変更なし。3 が拒否すればこの経路からは起動しない。手動で Release を公開する経路と手動の起動は運用者の操作で、本提案の範囲外 |
+| 5 | `CONTRIBUTING.md` の Release 節 | 変更なし（すでに正しい手順） |
+
+### 互換性
+
+- ライブラリの公開 API、Config、Result、`format_version` は変わらない。
+- **`scripts/release.py` の振る舞いが変わる。** これまで代わりに行っていた CHANGELOG の commit と develop の push をしなくなる。運用者は、`CONTRIBUTING.md` のとおり CHANGELOG の feature PR を先に merge しておく必要がある。PR のタイトルから `— LizyML X.Y.Z` が消えるが、`auto-release.yml` はタイトル中の `vX.Y.Z` しか読まないので影響しない。
+- **`auto-release.yml` は、形の違うリリース PR を拒否するようになる。** その場合はタグも Release も PyPI 公開も起きない。
+- **Firing rate**: 13/15 of release-titled PRs merged into main whose merge commit is still in history (replayed with `gh pr list --base main --state merged` and `git rev-list --parents`; the 2 refused are the 2026-04-02 `release/v0.7.3-fix` and `release/v0.8.0` squash merges under the superseded rule; the 14 release PRs before the 2026-04-02 history rewrite have no merge commit left to inspect).
+
+### 代替案（検討して棄却）
+
+1. **GitHub の ruleset で main への merge 方式を Merge commit だけに制限する。** サーバー側で効く点は強いが、設定はリポジトリの外にあり、PR の差分としてレビューできない。リポジトリ全体の merge 方式の設定では、develop への Squash merge と main への Merge commit を両立できない。補完として後で検討できるが、本提案の代わりにはしない。
+2. **`release.py` が CHANGELOG 用のブランチを切って PR まで作る。** 自動化は進むが、手順が 2 本の PR にまたがり、途中で止まったときの扱いが増える。手順書どおりの「先に feature PR」を守らせる方が単純である。
+3. **`CONTRIBUTING.md` の優先順位に指示ファイルを残す。** 新しい clone や CI に届かない文書が正として挙がり続ける。今回それらが黙ってリンク切れになっていたことが、この形の弱さを示している。
+
+### 受け入れ基準（テスト観点）
+
+1. `release.py` は、`CHANGELOG.md` に未 commit の変更があると終了コード 1 で止まり、`git commit` も `git push` も実行しない（実行したコマンドを記録して確かめる）。
+2. `release.py` は、ローカルの develop と `origin/develop` が一致しないと終了コード 1 で止まり、`gh pr create` を実行しない。
+3. `release.py` の正常系は、`git push` を一度も実行せず、`gh pr create --base main --head develop` をタイトル `release: vX.Y.Z` で 1 回だけ実行する。
+4. `check_release_merge.sh` を実際のリポジトリで実行し、2 つの親を持つ merge commit と head `develop` の組では成功し、親が 1 つの commit、head が `develop` 以外、head が別リポジトリの 3 通りでは失敗する。
+5. `auto-release.yml` は、検査の step を「Create tag」より前に置き、タグを `merge_commit_sha` に付け、どの `run:` も `github.event.pull_request` の値を `${{ }}` で直接展開しない（YAML を読んで確かめる）。
+6. `CONTRIBUTING.md` の文書の優先順位と言語の規約が決定 3 のとおりで、`tests/test_docs/` が緑のまま。
