@@ -11213,8 +11213,9 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 
 ### 対応方針（決定）
 
-1. **`check_objective_compatible` は、文字列でない値を包含の検査より前に `CONFIG_INVALID` で拒否する。** 受理される objective はすべて文字列なので、文字列でない値はどれも互換ではない。ただし明示の `None` は今日どおり「上書きなし」で、拒否しない: 2 つの呼び出し元（`_model_factories.py` の `check_param_values` と `adapter.py` の `_build_params`）は `None` をこの検査に渡さず、task の既定の objective で学習する。`user_message` と `context`（`task` / `objective` / `valid_objectives`）は task 非互換のときと同じ形にする。
-2. 呼び出し元は変えない。facade（`check_param_values`）は今日どおり `CONFIG_INVALID` に入力の層の名前を付けて送出し直す。
+1. **`check_objective_compatible` は、文字列でない値を包含の検査より前に `CONFIG_INVALID` で拒否する。** 受理される objective はすべて文字列なので、文字列でない値はどれも互換ではない。ただし明示の `None` は今日どおり「上書きなし」で、拒否しない: 2 つの呼び出し元（`_model_factories.py` の `check_param_values` と `adapter.py` の `_build_params`）は `None` をこの検査に渡さず、task の既定の objective で学習する。`context`（`task` / `objective` / `valid_objectives`）は task 非互換のときと同じ形にする。`user_message` は、文字列なら今日どおりその値を、文字列でない値なら型名（`objective of type 'dict'`）を示す。
+2. **拒否を報告するときも、値のメソッドを呼ばない。** 文字列でない値は型名だけで示し、文字列は `str` の素の複製（`str.__str__`）で包含を調べて表示する。値を書式化すると、その `__repr__` / `__format__` が例外を出したとき、`CONFIG_INVALID` の前に未加工の例外が漏れる（キーが表示できない dict で再現）。`str` の部分クラスが上書きした `__hash__` / `__eq__` も同じ理由で使わない。
+3. 呼び出し元は変えない。facade（`check_param_values`）は今日どおり `CONFIG_INVALID` に入力の層の名前を付けて送出し直す。
 
 ### 規則が縛る位置（ソースから導出）
 
@@ -11228,7 +11229,7 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 
 ### 互換性
 
-- **振る舞いの変化**: dict / list などハッシュできない `objective` は、`TypeError` だったところで `CONFIG_INVALID` になる。ハッシュできる文字列でない値（`42` など）は今日も `CONFIG_INVALID` で、変わらない。文字列の値の振る舞いは変わらない。明示の `None` は今日どおり「上書きなし」（task の既定）で、変わらない。
+- **振る舞いの変化**: dict / list などハッシュできない `objective` は、`TypeError` だったところで `CONFIG_INVALID` になる。ハッシュできる文字列でない値（`42` など）は今日も `CONFIG_INVALID` で、変わらない（`user_message` は値の代わりに型名を示す）。通常の `str` の値の振る舞いは変わらない。`str` の部分クラスは、上書きしたメソッドを使わず文字列の内容で判定する。明示の `None` は今日どおり「上書きなし」（task の既定）で、変わらない。
 - どちらの場合も学習の前に止まる（今日の `TypeError` も学習の前）。学習できていた入力で拒否されるものは無い。
 - **Firing rate**: 本提案の条件は入力の検証であり、Change Gate の 6 つの目的のどれでもない。
 - `format_version` / Config のスキーマ / 公開 API のシグネチャは変わらない。
@@ -11246,3 +11247,4 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 3. 既存の `objective` のテスト（`test_h0079_followup.py`、`tests/test_estimators/`）が緑のまま。
 4. BLUEPRINT §14.2 が文字列でない値の扱いを書き、`tests/test_docs/` が緑のまま（H-0116 の処分の行を含む）。
 5. 明示の `None` は拒否されない: `model.params` と `fit(params=)` の両方で `lgb.train` は task の既定の objective を受け取る（`test_none_objective_through_model_fit_trains_on_the_default`）。adapter を直接作る経路は `test_none_objective_falls_back_to_default` が固定する。
+6. 拒否の報告で値のメソッドが走らない: 表示できないキーを持つ dict は adapter を直接作る経路で `CONFIG_INVALID`（`objective of type 'dict'`）で、修正前はキーの例外が漏れて RED（`test_an_unprintable_objective_is_still_config_invalid[adapter]`。`Model.fit` の経路は値の型の検査が先に `CONFIG_INVALID` で止めるので、同じテストの `[fit_params]` はそれを固定する）。`__hash__` / `__eq__` / `__format__` / `__str__` / `__repr__` が例外を出す `str` の部分クラスは、互換でない内容なら `CONFIG_INVALID`、互換な内容なら受理（`test_a_hostile_string_objective_is_judged_by_its_text`。修正前は RED）。

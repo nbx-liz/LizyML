@@ -234,6 +234,63 @@ class TestG3ObjectiveCompatibilityEdgeInputs:
         assert "objective" in excinfo.value.user_message
         assert not seen["train_params"]
 
+    @pytest.mark.parametrize("surface", ["adapter", "fit_params"])
+    def test_an_unprintable_objective_is_still_config_invalid(
+        self, surface: str
+    ) -> None:
+        """Reporting the refusal must not run the rejected value's methods.
+
+        A dict whose key cannot be printed escaped as that key's own error
+        while the adapter built its message, before ``CONFIG_INVALID`` (#270).
+        Through ``Model.fit`` the value-domain gate refuses it first; either
+        way the refusal is ``CONFIG_INVALID`` and nothing trains.
+        """
+        from lizyml import Model
+        from lizyml.estimators.lgbm.adapter import LGBMAdapter
+        from tests._helpers import make_config, make_regression_df
+        from tests._train_spy import record_lightgbm_calls
+
+        class Unprintable:
+            def __repr__(self) -> str:
+                raise RuntimeError("repr must not run")
+
+            __str__ = __format__ = __repr__  # type: ignore[assignment]
+
+        objective = {Unprintable(): 1}
+        with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as excinfo:
+            if surface == "adapter":
+                LGBMAdapter(
+                    task="regression", params={"objective": objective}
+                )._build_params()
+            else:
+                Model(make_config("regression")).fit(
+                    data=make_regression_df(n=80), params={"objective": objective}
+                )
+        assert excinfo.value.code.name == "CONFIG_INVALID"
+        assert "objective" in excinfo.value.user_message
+        if surface == "adapter":
+            assert "of type 'dict'" in excinfo.value.user_message
+        assert not seen["train_params"]
+
+    def test_a_hostile_string_objective_is_judged_by_its_text(self) -> None:
+        """A ``str`` subclass is read as its plain text: none of its methods run."""
+        from lizyml.estimators.lgbm.param_validation import check_objective_compatible
+
+        class Hostile(str):
+            def _boom(self, *args: object) -> object:
+                raise RuntimeError("a str subclass method ran")
+
+            __hash__ = __eq__ = __format__ = __str__ = __repr__ = _boom  # type: ignore[assignment]
+
+        with pytest.raises(LizyMLError) as excinfo:
+            check_objective_compatible("regression", Hostile("not_an_objective"))
+        assert excinfo.value.code.name == "CONFIG_INVALID"
+        assert (
+            "objective 'not_an_objective' is not compatible"
+            in excinfo.value.user_message
+        )
+        check_objective_compatible("regression", Hostile("huber"))  # accepted
+
     def test_non_string_int_objective_raises(self) -> None:
         from lizyml.estimators.lgbm.adapter import LGBMAdapter
 

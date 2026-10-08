@@ -15,13 +15,25 @@ def check_objective_compatible(task: str, objective: Any) -> None:
     the membership test: a dict or list there raised a raw ``TypeError``
     (unhashable) instead of ``CONFIG_INVALID`` (H-0116). ``None`` never
     reaches here: both callers treat it as "no override" and skip the check.
+
+    No method of the rejected value runs: a non-string is described by its
+    type name, and a string is read through a plain ``str`` copy, so an
+    overridden ``__hash__``, ``__eq__``, ``__format__`` or ``__repr__`` cannot
+    turn the refusal into a raw exception.
     """
     valid = TASK_COMPATIBLE_OBJECTIVES.get(task, frozenset())
-    if not isinstance(objective, str) or objective not in valid:
+    if isinstance(objective, str):
+        name = str.__str__(objective)  # an exact str: subclass methods stay out
+        shown = f"'{name}'"
+        compatible = name in valid
+    else:
+        shown = f"of type '{type(objective).__name__}'"
+        compatible = False
+    if not compatible:
         raise LizyMLError(
             code=ErrorCode.CONFIG_INVALID,
             user_message=(
-                f"objective '{objective}' is not compatible with task "
+                f"objective {shown} is not compatible with task "
                 f"'{task}'. Valid objectives: {sorted(valid)}."
             ),
             context={
