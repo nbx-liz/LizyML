@@ -11450,7 +11450,7 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 
    - **見出し**: 節の見出しは `` ### `<名前>.ipynb` `` の形とする。見出しの集合は `notebooks/*.ipynb` の集合と一致し、同じ見出しが 2 回現れれば失敗する。`.ipynb` を含むそれ以外の形の見出しも失敗とする。
    - **生成ブロックの位置**: 各節には、生成ブロックがちょうど 1 つある。ブロックは `<!-- index:begin <名前>.ipynb -->` の行で始まり、`<!-- index:end -->` の行で終わる。begin の名前は、その節の見出しと一致しなければならない。節の外にマーカーがある場合、マーカーが対になっていない場合、1 つの節に 2 つある場合は、いずれも失敗する。
-   - **ブロックの中身**: 次の 2 行と完全に一致しなければならない。
+   - **ブロックの中身**: 次の 2 行と完全に一致しなければならない。2 行の間には空行を 1 つ挟む（Markdown で別の段落として表示させるため。実装時に追加、2026-10-09）。
      - `` **Demonstrates:** `m1()`, `m2()` ``（`methods` の順）
      - `` **Extras required:** `pip install 'lizyml[e1,e2]'` ``（`extras` の順）。`extras` が空なら `**Extras required:** none (base install)` とする。
 

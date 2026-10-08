@@ -18,6 +18,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_notebooks.network_markers import NETWORK_ERROR_MARKERS
+
 nbformat = pytest.importorskip("nbformat")
 nbconvert_pp = pytest.importorskip(
     "nbconvert.preprocessors",
@@ -29,16 +31,8 @@ NOTEBOOKS_DIR = Path(__file__).resolve().parents[2] / "notebooks"
 # Some tutorials fetch a remote dataset (e.g. OpenML credit-g). When the CI
 # runner cannot reach the network, that is an environment outage, not a
 # notebook regression — skip rather than fail the (release-gating) slow run.
-_NETWORK_ERROR_MARKERS = (
-    "HTTPError",
-    "URLError",
-    "OpenMLError",
-    "api.openml.org",
-    "Max retries",
-    "ConnectionError",
-    "Temporary failure in name resolution",
-    "network error",
-)
+# The list is shared with the index execution (H-0119 6.(b)).
+_NETWORK_ERROR_MARKERS = NETWORK_ERROR_MARKERS
 
 _ALL_NOTEBOOKS = sorted(p.name for p in NOTEBOOKS_DIR.glob("*.ipynb"))
 

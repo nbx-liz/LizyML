@@ -57,6 +57,13 @@ dev = [
     "ipykernel>=6.0",
     "vulture>=2.15",
 ]
+# The per-extras CI environments of the notebook index (H-0119 6.): no extras,
+# only what runs the notebooks, the registry probe and their pytest entry.
+notebooks = [
+    "pytest>=8.0",
+    "nbconvert>=7.0",
+    "ipykernel>=6.0",
+]
 
 [tool.uv]
 # Forward-compat lane guard (#180 lane): `uv sync --upgrade` prefers the newest

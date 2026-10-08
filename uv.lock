@@ -1091,6 +1091,11 @@ dev = [
     { name = "types-pyyaml" },
     { name = "vulture" },
 ]
+notebooks = [
+    { name = "ipykernel" },
+    { name = "nbconvert" },
+    { name = "pytest" },
+]
 
 [package.metadata]
 requires-dist = [
@@ -1126,6 +1131,11 @@ dev = [
     { name = "twine", specifier = ">=7.0" },
     { name = "types-pyyaml", specifier = ">=6.0" },
     { name = "vulture", specifier = ">=2.15" },
+]
+notebooks = [
+    { name = "ipykernel", specifier = ">=6.0" },
+    { name = "nbconvert", specifier = ">=7.0" },
+    { name = "pytest", specifier = ">=8.0" },
 ]
 
 [[package]]

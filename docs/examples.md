@@ -13,7 +13,11 @@ End-to-end regression walkthrough: config definition, `fit()`,
 `importance()` / `importance_plot()` by split, gain and SHAP, and
 `params_table()`. Good starting point if you are new to LizyML.
 
-**Extras required:** `pip install 'lizyml[plots,explain]'`
+<!-- index:begin tutorial_regression_lgbm.ipynb -->
+**Demonstrates:** `evaluate_table()`, `fit()`, `importance()`, `importance_plot()`, `params_table()`, `plot_learning_curve()`, `residuals_plot()`
+
+**Extras required:** `pip install 'lizyml[explain,plots]'`
+<!-- index:end -->
 
 ---
 
@@ -24,7 +28,11 @@ Binary classification with LightGBM and isotonic calibration:
 `confusion_matrix()`, `probability_histogram_plot()`, `calibration_plot()`,
 and feature importance.
 
-**Extras required:** `pip install 'lizyml[plots,explain]'`
+<!-- index:begin tutorial_binary_lgbm.ipynb -->
+**Demonstrates:** `calibration_plot()`, `confusion_matrix()`, `evaluate_table()`, `importance_plot()`, `probability_histogram_plot()`, `roc_curve_plot()`
+
+**Extras required:** `pip install 'lizyml[explain,plots]'`
+<!-- index:end -->
 
 ---
 
@@ -34,7 +42,11 @@ Multiclass classification with stratified CV: `evaluate_table()`,
 `confusion_matrix()`, `roc_curve_plot()` (one-vs-rest, per-class AUC),
 `importance_plot()`, and `plot_learning_curve()`.
 
-**Extras required:** `pip install 'lizyml[plots,explain]'`
+<!-- index:begin tutorial_multiclass_lgbm.ipynb -->
+**Demonstrates:** `confusion_matrix()`, `evaluate_table()`, `importance_plot()`, `plot_learning_curve()`, `roc_curve_plot()`
+
+**Extras required:** `pip install 'lizyml[explain,plots]'`
+<!-- index:end -->
 
 ---
 
@@ -45,7 +57,11 @@ Hyperparameter tuning with Optuna: `tune()` → `fit()` workflow,
 Includes a `progress_callback` example (`TuneProgressInfo`) for tracking
 trial progress.
 
-**Extras required:** `pip install 'lizyml[tuning,plots]'`
+<!-- index:begin tutorial_regression_tuning_lgbm.ipynb -->
+**Demonstrates:** `boundary_table()`, `fit()`, `params_table()`, `tune()`, `tuning_plot()`, `tuning_table()`
+
+**Extras required:** `pip install 'lizyml[plots,tuning]'`
+<!-- index:end -->
 
 ---
 
@@ -56,7 +72,11 @@ CV) and `purged_time_series` with `purge_gap`, `split_summary()`,
 `evaluate_table()`, `plot_learning_curve()`, and `predict()` on the last 100
 rows of the frame.
 
+<!-- index:begin tutorial_time_series_lgbm.ipynb -->
+**Demonstrates:** `evaluate_table()`, `plot_learning_curve()`, `predict()`, `split_summary()`
+
 **Extras required:** `pip install 'lizyml[plots]'`
+<!-- index:end -->
 
 ---
 
@@ -66,7 +86,11 @@ SHAP value computation and interpretation: `predict(return_shap=True)` for
 per-sample explanations, `importance_plot(kind="shap")` for global
 feature importance, and comparison of split vs gain vs SHAP rankings.
 
-**Extras required:** `pip install 'lizyml[plots,explain]'`
+<!-- index:begin tutorial_shap_explanations.ipynb -->
+**Demonstrates:** `importance_plot()`, `predict()`
+
+**Extras required:** `pip install 'lizyml[explain,plots]'`
+<!-- index:end -->
 
 ---
 
@@ -77,7 +101,11 @@ Probability calibration for binary classification with Platt and Isotonic
 vs calibrated metrics with `evaluate()` / `evaluate_table()`, and visualizes
 them with `calibration_plot()` and `probability_histogram_plot()`.
 
+<!-- index:begin tutorial_calibration.ipynb -->
+**Demonstrates:** `calibration_plot()`, `evaluate()`, `evaluate_table()`, `probability_histogram_plot()`
+
 **Extras required:** `pip install 'lizyml[plots]'`
+<!-- index:end -->
 
 ---
 
@@ -88,7 +116,11 @@ Codegen export walkthrough: `export_code()` generates standalone
 Shows the generated file structure, runs `predict.py`, and checks it with
 `test_equivalence.py` against `predict()` reference predictions.
 
+<!-- index:begin tutorial_codegen_export.ipynb -->
+**Demonstrates:** `export_code()`, `predict()`
+
 **Extras required:** none (base install)
+<!-- index:end -->
 
 ---
 

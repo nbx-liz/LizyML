@@ -1,340 +1,601 @@
-"""``docs/examples.md`` describes the notebooks it lists (DC3).
+"""The notebook index is a closed contract (H-0119, #334).
 
-The index named methods its notebooks never called and listed the wrong extras
-for seven of eight notebooks. These tests parse each notebook's code cells with
-``ast`` (comments and strings are not calls) and check the index against them:
-the listed notebooks are exactly the notebooks on disk, every method the index
-names for a notebook is called in it, and the extras it lists are exactly the
-ones the notebook's imports and calls need. Some cases the derivation cannot
-decide fail the test instead of passing it: a non-literal ``kind=``, an import
-outside the standard library, the base install and the extras, a model name
-rebound, and an import or extra-implying call inside a compound statement or a
-function, lambda or class body.
+``docs/examples.md`` promises two things per notebook: the ``Model`` methods it
+demonstrates and the extras it needs. Each notebook declares both in
+``metadata.lizyml.index``; its ``index-example`` cells hold the examples in a
+closed grammar; the method-to-extra registry (``lizyml/_extras.py``) derives
+the extras from them; and ``scripts/examples_index.py`` generates the index's
+machine-readable blocks. These tests call the same functions as
+``scripts/examples_index.py --check``.
 
-The analysis works at statement level and is not complete. It does not model
-conditional execution inside an expression (operands after the first in
-``and`` / ``or``, conditional-expression branches, comprehension elements),
-which therefore count as calls. It cannot tell whether a top-level statement
-runs after an earlier ``raise`` or ``sys.exit()``, and it drops IPython magic
-lines before parsing. In the current notebooks no model call or
-extra-implying call sits in such a position, and none has a magic line, a
-top-level ``raise`` or an exit call. #334 replaces this check with a closed
-index contract.
+This replaces PR #335's static ``ast`` reading of whole notebooks, whose review
+kept finding forms it could not decide. The counterexamples from that review
+are replayed below (static) and in ``tests/test_notebooks/test_index_recording.py``
+(runtime recording); each must fail one of the two.
 """
 
 from __future__ import annotations
 
-import ast
+import copy
+import importlib.util
 import json
 import pathlib
-import re
 import sys
+from collections.abc import Callable
+from types import ModuleType
+from typing import Any
 
 import pytest
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-INDEX = ROOT / "docs" / "examples.md"
-NOTEBOOKS = ROOT / "notebooks"
-
-#: Top-level modules the base install provides (``pyproject.toml``
-#: ``dependencies``, and scipy through scikit-learn).
-BASE_MODULES = frozenset(
-    {
-        "lizyml",
-        "numpy",
-        "pandas",
-        "sklearn",
-        "lightgbm",
-        "yaml",
-        "joblib",
-        "pydantic",
-        "scipy",
-    }
-)
-#: Extra name for each top-level module an extra provides.
-EXTRA_MODULES = {"plotly": "plots", "shap": "explain", "optuna": "tuning"}
 
 
-def _sections() -> dict[str, str]:
-    parts = re.split(
-        r"^### `([^`\n]+\.ipynb)`\n", INDEX.read_text(encoding="utf-8"), flags=re.M
+def _load() -> ModuleType:
+    spec = importlib.util.spec_from_file_location(
+        "lizyml_examples_index", ROOT / "scripts" / "examples_index.py"
     )
-    names, bodies = parts[1::2], parts[2::2]
-    duplicated = sorted({n for n in names if names.count(n) > 1})
-    assert not duplicated, f"notebooks listed twice: {duplicated}"
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # dataclasses resolve their module by name
+    spec.loader.exec_module(module)
+    return module
+
+
+ix = _load()
+SURFACE = ix.model_surface()
+
+INDEX = {
+    "models": ["model"],
+    "methods": ["fit", "importance_plot"],
+    "extras": ["explain", "plots"],
+}
+
+
+def _code(source: str, *, tagged: bool = True, tags: Any = None) -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    if tags is not None:
+        metadata["tags"] = tags
+    elif tagged:
+        metadata["tags"] = [ix.TAG]
     return {
-        name: body.split("\n---")[0] for name, body in zip(names, bodies, strict=True)
+        "cell_type": "code",
+        "metadata": metadata,
+        "source": source,
+        "outputs": [],
+        "execution_count": None,
     }
 
 
-def _tree(name: str) -> ast.Module:
-    nb = json.loads((NOTEBOOKS / name).read_text(encoding="utf-8"))
-    body: list[ast.stmt] = []
-    for cell in nb["cells"]:
-        if cell["cell_type"] != "code":
-            continue
-        source = "".join(cell.get("source", []))
-        # IPython magics and shell escapes are not Python.
-        source = "\n".join(
-            "" if line.lstrip().startswith(("%", "!")) else line
-            for line in source.splitlines()
-        )
-        body.extend(ast.parse(source, filename=name).body)
-    return ast.Module(body=body, type_ignores=[])
+def _nb(*cells: dict[str, Any], index: Any = None) -> dict[str, Any]:
+    return {
+        "cells": list(cells),
+        "metadata": {
+            "lizyml": {"index": copy.deepcopy(INDEX if index is None else index)}
+        },
+        "nbformat": 4,
+        "nbformat_minor": 5,
+    }
 
 
-_SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
-#: Statements whose body may run zero, one or many times.
-_COMPOUND = (
-    ast.If,
-    ast.For,
-    ast.AsyncFor,
-    ast.While,
-    ast.Try,
-    ast.With,
-    ast.AsyncWith,
-    ast.Match,
+GOOD = _nb(
+    _code("model = Model(config)", tagged=False),
+    _code("model.fit(data=df)"),
+    _code('fig = model.importance_plot(kind="shap")'),
+    _code("fig.show()", tagged=False),
 )
 
 
-def _uncertain(tree: ast.Module) -> set[int]:
-    """``id()`` of every node this check treats as possibly not running.
-
-    That is the whole of every top-level compound statement (branch, loop,
-    ``try``, ``with``, ``match``), its condition and header included, which is
-    conservative since a condition always runs, and everything inside a
-    function, lambda or class body. Conditional execution inside an expression
-    is not modelled (see the module docstring).
-    """
-    found: set[int] = set()
-    for statement in tree.body:
-        if isinstance(statement, _COMPOUND + _SCOPES):
-            found.update(id(n) for n in ast.walk(statement))
-            continue
-        for node in ast.walk(statement):
-            if isinstance(node, _SCOPES):
-                found.update(id(n) for n in ast.walk(node))
-    return found
+def _declaration(index: Any) -> Any:
+    return ix.parse_declaration({"lizyml": {"index": index}}, SURFACE.methods)
 
 
-def _is_model_call(node: ast.AST) -> bool:
-    """``Model(...)`` or ``Model.load(...)``."""
-    if not isinstance(node, ast.Call):
-        return False
-    func = node.func
-    return (isinstance(func, ast.Name) and func.id == "Model") or (
-        isinstance(func, ast.Attribute)
-        and func.attr == "load"
-        and isinstance(func.value, ast.Name)
-        and func.value.id == "Model"
+def _fails(call: Callable[[], object], match: str) -> None:
+    with pytest.raises(ix.ContractError, match=match):
+        call()
+
+
+# --- 1. The declaration (H-0119 section 2) -----------------------------------
+
+
+def test_a_valid_declaration_passes() -> None:
+    declaration = _declaration(INDEX)
+    assert declaration.models == ("model",)
+    assert declaration.methods == ("fit", "importance_plot")
+    assert declaration.extras == ("explain", "plots")
+
+
+def test_empty_extras_pass() -> None:
+    assert _declaration({**INDEX, "extras": []}).extras == ()
+
+
+@pytest.mark.parametrize(
+    ("metadata", "match"),
+    [
+        ({}, "no metadata.lizyml"),
+        ({"lizyml": []}, "metadata.lizyml must be an object"),
+        ({"lizyml": {"index": INDEX, "other": 1}}, "exactly the key 'index'"),
+        ({"lizyml": {"index": [INDEX]}}, "must be a JSON object"),
+    ],
+)
+def test_the_metadata_container_is_closed(metadata: Any, match: str) -> None:
+    _fails(lambda: ix.parse_declaration(metadata, SURFACE.methods), match)
+
+
+@pytest.mark.parametrize(
+    ("change", "match"),
+    [
+        # Missing and extra keys.
+        ({"models": None}, "exactly the keys"),
+        ({"note": ["x"]}, "exactly the keys"),
+        # Types.
+        ({"methods": "fit"}, "array of strings"),
+        ({"models": [1]}, "array of strings"),
+        ({"extras": [["plots"]]}, "array of strings"),
+        # Duplicates and order.
+        ({"methods": ["fit", "fit"]}, "duplicate"),
+        ({"methods": ["importance_plot", "fit"]}, "sorted"),
+        ({"extras": ["plots", "explain"]}, "sorted"),
+        # Empty.
+        ({"models": []}, "must not be empty"),
+        ({"methods": []}, "must not be empty"),
+        # Identifiers.
+        ({"models": ["1model"]}, "not a Python identifier"),
+        ({"models": ["my-model"]}, "not a Python identifier"),
+        ({"models": ["class"]}, "keyword"),
+        # Methods.
+        ({"methods": ["_get_fit_state"]}, "public"),
+        ({"methods": ["train"]}, "not a public Model method"),
+        ({"methods": ["fit_result"]}, "not a public Model method"),
+        # Extras.
+        ({"extras": ["calibration"]}, "unknown extra"),
+        ({"extras": ["shap"]}, "unknown extra"),
+    ],
+)
+def test_each_declaration_rule_fails_when_broken(
+    change: dict[str, Any], match: str
+) -> None:
+    index = {**INDEX, **change}
+    index = {k: v for k, v in index.items() if v is not None}
+    _fails(lambda: _declaration(index), match)
+
+
+# --- 2. The tagged-cell grammar (H-0119 section 3) ---------------------------
+
+PERMISSIVE = {
+    "models": ["model"],
+    "methods": sorted(SURFACE.methods),
+    "extras": [],
+}
+
+
+def _statements(*cells: dict[str, Any], index: Any = None) -> list[Any]:
+    nb = _nb(*cells, index=PERMISSIVE if index is None else index)
+    return ix.tagged_statements(nb, _declaration(nb["metadata"]["lizyml"]["index"]))
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        # The two statements.
+        "model.fit(data=df)",
+        "result = model.predict(X_new)",
+        # Values: constants.
+        "model.fit(data=None)",
+        'model.importance("gain")',
+        "model.confusion_matrix(0.25)",
+        # Positional `kind` at position 0, for importance and importance_plot.
+        'model.importance_plot("shap", 5)',
+        'model.importance("shap")',
+        # Values: names, attribute chains, subscripts.
+        "model.fit(df)",
+        "model.predict(data.frames.test)",
+        'model.fit(data=frames["train"])',
+        "model.fit(frames[0])",
+        "model.fit(frames[key.name])",
+        'model.fit(frames["a"][0])',
+        "model.fit(frames.parts[0])",
+        # Values: unary minus of a constant.
+        "model.importance_plot(top_n=-1)",
+        "model.confusion_matrix(threshold=-0.5)",
+        # Values: list / tuple / set / dict of values.
+        'model.plot_learning_curve(metrics=["rmse", name])',
+        "model.fit(data=(a, 1))",
+        "model.fit(data={1, b.c})",
+        'model.fit(params={"num_leaves": 7, key: [1, -2]})',
+        "model.evaluate(metrics=[])",
+        # A classmethod is called on the declared receiver too.
+        "loaded = model.load(path)",
+        # Comments and several statements in one cell.
+        "# fit, then explain\nmodel.fit(df)\nfig = model.importance_plot(kind='shap')",
+        # A statement spanning lines.
+        "model.fit(\n    data=df,\n)",
+    ],
+)
+def test_each_allowed_form_passes(source: str) -> None:
+    assert _statements(_code(source))
+
+
+@pytest.mark.parametrize(
+    ("source", "match"),
+    [
+        # Other statements.
+        ("import lizyml", "statement"),
+        ("x = 1", "statement"),
+        ("pass", "statement"),
+        ("if True:\n    model.fit(df)", "statement"),
+        ("for _ in [1]:\n    model.fit(df)", "statement"),
+        ("while False:\n    model.fit(df)", "statement"),
+        ("try:\n    model.fit(df)\nexcept Exception:\n    pass", "statement"),
+        ("with ctx:\n    model.fit(df)", "statement"),
+        ("def f():\n    model.fit(df)", "statement"),
+        ("class C:\n    x = model.fit(df)", "statement"),
+        ("del df", "statement"),
+        ("n += model.fit(df)", "statement"),
+        ("n: int = model.fit(df)", "statement"),
+        ("a = b = model.fit(df)", "exactly one target"),
+        ("a, b = model.fit(df)", "simple name"),
+        ("x.y = model.fit(df)", "simple name"),
+        ("x[0] = model.fit(df)", "simple name"),
+        # Other expressions as the statement.
+        ("model.evaluate_table().round(4)", "R.m"),
+        ("model.plot_learning_curve().show()", "R.m"),
+        ("print(model.fit(df))", "R.m"),
+        ("model.fit", "R.m"),
+        ("Model(config)", "R.m"),
+        ("fit(df)", "R.m"),
+        ("self.model.fit(df)", "R.m"),
+        ('"model.fit(df)"', "R.m"),
+        # Other expressions as values.
+        ("model.fit(data=load())", "not a value"),
+        ("model.fit(data=lambda: df)", "not a value"),
+        ("model.fit(data=[d for d in dfs])", "not a value"),
+        ("model.fit(data=a or b)", "not a value"),
+        ("model.fit(data=a if c else b)", "not a value"),
+        ("model.fit(data=(d := df))", "not a value"),
+        ("model.fit(data=await df)", "not a value"),
+        ("model.fit(data=a + b)", "not a value"),
+        ("model.fit(data=not a)", "not a value"),
+        ("model.fit(data=-a)", "not a value"),
+        ("model.fit(data=a < b)", "not a value"),
+        ('model.fit(data=f"{a}")', "not a value"),
+        ("model.fit(data=a[1:2])", "not a value"),
+        ("model.fit(data=load()[0])", "not a value"),
+        ('model.fit(data=a["x"].b)', "not a value"),
+        ("model.fit(data=[*a])", "not a value"),
+        ("model.fit(params={**a})", "not a value"),
+        # `*` / `**` in the call.
+        ("model.fit(*args)", r"\*"),
+        ("model.fit(**kwargs)", r"\*\*"),
+        # The receiver, the method and the target.
+        ("other.fit(df)", "not a declared model"),
+        ("model.train(df)", "not a declared method"),
+        ("model.fit_result(df)", "not a declared method"),
+        ("model = model.fit(df)", "names a declared model"),
+        # The extras-related arguments are constants.
+        ("model.importance(kind=k)", "constant"),
+        ("model.importance(k)", "constant"),
+        ("model.predict(X, return_shap=flag)", "constant"),
+        ('model.importance(kind="SHAP")', "cannot decide"),
+        ("model.predict(X, return_shap=1)", "cannot decide"),
+        ("model.importance_plot(kind=-1)", "constant"),
+        ("model.importance_plot(kind=True)", "cannot decide"),
+        # The call matches the method's signature.
+        ("model.fit(1, 2, 3)", "signature"),
+        ("model.predict(X, True)", "signature"),
+        ("model.fit(dat=df)", "signature"),
+        ('model.importance_plot("split", kind="shap")', "signature"),
+        # Magic lines and empty cells.
+        ("%time model.fit(df)", "magic"),
+        ("!ls\nmodel.fit(df)", "magic"),
+        ("model.fit(df)\n  %matplotlib inline", "magic"),
+        ("", "no statement"),
+        ("# model.fit(df)", "no statement"),
+        # Not Python.
+        ("model.fit(", "does not parse"),
+    ],
+)
+def test_each_rejected_form_fails(source: str, match: str) -> None:
+    _fails(lambda: _statements(_code(source)), match)
+
+
+def test_the_tags_of_a_cell_are_a_list_of_strings() -> None:
+    _fails(lambda: _statements(_code("model.fit(df)", tags="index-example")), "tags")
+    _fails(lambda: _statements(_code("model.fit(df)", tags=[1])), "tags")
+
+
+def test_a_tagged_cell_is_a_code_cell() -> None:
+    cell = {"cell_type": "markdown", "metadata": {"tags": [ix.TAG]}, "source": "x"}
+    _fails(lambda: _statements(cell), "code cell")
+
+
+def test_untagged_cells_are_not_constrained() -> None:
+    statements = _statements(
+        _code("%time x = [model.tune() for _ in []]\nprint(1)", tagged=False),
+        _code("model.fit(df)"),
+    )
+    assert [(s.receiver, s.method) for s in statements] == [("model", "fit")]
+
+
+def test_a_cell_source_may_be_a_list_of_lines() -> None:
+    cell = _code("")
+    cell["source"] = ["model.fit(df)\n", "model.evaluate_table()"]
+    assert [s.method for s in _statements(cell)] == ["fit", "evaluate_table"]
+
+
+def test_statements_carry_their_conditions_and_source() -> None:
+    (first, second) = _statements(
+        _code('fig = model.importance_plot("shap", top_n=3)\nmodel.fit(df)')
+    )
+    assert first.conditions == {"kind": "shap"}
+    assert first.target == "fig"
+    assert first.source == 'fig = model.importance_plot("shap", top_n=3)'
+    assert second.conditions == {}
+    assert (second.cell, second.number) == (0, 1)
+
+
+# --- The notebook as a whole (sections 2-4) ----------------------------------
+
+
+def test_a_valid_notebook_passes() -> None:
+    assert ix.check_notebook(GOOD, SURFACE) == _declaration(INDEX)
+
+
+def _good_with(**changes: Any) -> dict[str, Any]:
+    nb = copy.deepcopy(GOOD)
+    nb["metadata"]["lizyml"]["index"].update(changes)
+    return nb
+
+
+@pytest.mark.parametrize(
+    ("nb", "match"),
+    [
+        (_good_with(methods=["fit", "importance_plot", "predict"]), "methods"),
+        (_good_with(methods=["fit"]), "not a declared method"),
+        (_good_with(models=["fig", "model"]), "names a declared model"),
+        (_good_with(models=["model", "other"]), "models"),
+        (_good_with(extras=["plots"]), "extras"),
+        (_good_with(extras=["explain", "plots", "tuning"]), "extras"),
+        (_nb(_code("model.fit(df)", tagged=False)), "no index-example cell"),
+    ],
+)
+def test_the_notebook_must_match_its_declaration(
+    nb: dict[str, Any], match: str
+) -> None:
+    _fails(lambda: ix.check_notebook(nb, SURFACE), match)
+
+
+def test_extras_are_derived_with_defaults() -> None:
+    nb = _nb(
+        _code("model.importance_plot()\nmodel.predict(X)\nmodel.importance()"),
+        index={
+            "models": ["model"],
+            "methods": ["importance", "importance_plot", "predict"],
+            "extras": ["plots"],
+        },
+    )
+    assert ix.check_notebook(nb, SURFACE).extras == ("plots",)
+
+
+# --- 3. Replays of the counterexamples PR #335's review found ----------------
+# Each of these passed (or could pass) the replaced `ast` check. Runtime
+# replays (a receiver rebound outside the tagged cells, a look-alike receiver)
+# are in tests/test_notebooks/test_index_recording.py.
+
+REPLAYS = {
+    "a call after `and`": "model.fit(df) and model.importance_plot(kind='shap')",
+    "a call after `or`": "model.fit(df) or model.importance_plot(kind='shap')",
+    "an empty comprehension": "[model.importance_plot(kind='shap') for _ in []]",
+    "a conditional expression": "model.importance_plot(kind='shap') if False else 0",
+    "an unreachable branch": "if False:\n    model.importance_plot(kind='shap')",
+    "a reassignment in the tagged cell": "model = Model(config)",
+    "a `def` rebinding the model": "def model():\n    pass",
+    "a `class` rebinding the model": "class model:\n    pass",
+    "a magic line": "%time model.fit(df)",
+    "a call only in a comment": "# model.importance_plot(kind='shap')",
+    "a look-alike receiver": "fake.importance_plot(kind='shap')",
+}
+
+
+@pytest.mark.parametrize("case", sorted(REPLAYS))
+def test_counterexample_replays_fail(case: str) -> None:
+    nb = _nb(_code("model.fit(df)"), _code(REPLAYS[case]))
+    with pytest.raises(ix.ContractError):
+        ix.check_notebook(nb, SURFACE)
+
+
+def test_a_call_only_in_a_comment_beside_a_real_one_fails() -> None:
+    nb = _nb(_code("model.fit(df)\n# fig = model.importance_plot(kind='shap')"))
+    _fails(lambda: ix.check_notebook(nb, SURFACE), "methods")
+
+
+# --- 4. docs/examples.md (section 5) ------------------------------------------
+
+
+def _decl(**index: Any) -> Any:
+    return _declaration({**INDEX, **index})
+
+
+DECLS = {
+    "a.ipynb": _decl(),
+    "b.ipynb": _decl(methods=["fit"], extras=[]),
+}
+
+
+def _block(name: str) -> str:
+    return "\n".join(ix.render_block(name, DECLS[name]))
+
+
+def _doc(*sections: str, tail: str = "") -> str:
+    return "# Notebook Index\n\nIntro.\n\n" + "\n".join(sections) + tail
+
+
+def _section(name: str, block: str | None = None) -> str:
+    body = _block(name) if block is None else block
+    return f"### `{name}`\n\nProse with `fit()`.\n\n{body}\n\n---\n"
+
+
+DOC = _doc(
+    _section("a.ipynb"), _section("b.ipynb"), tail="\n## Other\n\n```bash\n# x\n```\n"
+)
+
+
+def test_render_block() -> None:
+    assert ix.render_block("a.ipynb", DECLS["a.ipynb"]) == [
+        "<!-- index:begin a.ipynb -->",
+        "**Demonstrates:** `fit()`, `importance_plot()`",
+        "",
+        "**Extras required:** `pip install 'lizyml[explain,plots]'`",
+        "<!-- index:end -->",
+    ]
+    assert ix.render_block("b.ipynb", DECLS["b.ipynb"])[3] == (
+        "**Extras required:** none (base install)"
     )
 
 
-def _outside_scopes(node: ast.AST) -> list[ast.AST]:
-    """``node`` and its descendants, not descending into a function or class body.
-
-    A function or class definition is itself included, because it binds its
-    name in the enclosing scope.
-    """
-    found = [node]
-    if isinstance(node, _SCOPES):
-        return found
-    for child in ast.iter_child_nodes(node):
-        found.extend(_outside_scopes(child))
-    return found
+def test_a_matching_index_passes() -> None:
+    assert ix.check_index(DOC, DECLS) == []
 
 
-def _bound_name(node: ast.AST) -> str | None:
-    """The name ``node`` binds or unbinds in its scope, if any."""
-    if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store | ast.Del):
-        return node.id
-    if isinstance(node, ast.alias):
-        return (node.asname or node.name).split(".")[0]
-    if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
-        return node.name
-    if isinstance(node, ast.ExceptHandler | ast.MatchAs | ast.MatchStar):
-        return node.name
-    if isinstance(node, ast.MatchMapping):
-        return node.rest
-    return None
+def _errors(text: str, decls: Any = None) -> str:
+    errors = ix.check_index(text, DECLS if decls is None else decls)
+    assert errors, "the mutation was not detected"
+    return "\n".join(errors)
 
 
-def _model_calls(name: str, tree: ast.Module) -> set[str]:
-    """Methods called on a LizyML model, read in execution order.
-
-    A name counts as a model from the top-level ``x = Model(...)`` (or
-    ``Model.load(...)``) that binds it, for the statements after it. Only calls
-    in plain top-level statements count: a call anywhere in a compound statement
-    (its condition included), or in a function, lambda or class body, is not
-    counted. Within a counted statement every call counts, including one an
-    ``and`` / ``or``, a conditional expression or a comprehension may skip (see
-    the module docstring). These forms of an unknown receiver fail instead of
-    passing: a ``Model(...)`` bound
-    anywhere but a top-level assignment to plain names, and a model name that is
-    rebound in any way (assignment, ``def`` / ``class``, ``except ... as``,
-    ``match`` capture, ``del``, an import) or declared ``global``.
-    """
-    uncertain = _uncertain(tree)
-    bound: set[str] = set()
-    called: set[str] = set()
-    for statement in tree.body:
-        nodes = _outside_scopes(statement)
-        for node in nodes:
-            if (
-                id(node) not in uncertain
-                and isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Attribute)
-                and isinstance(node.func.value, ast.Name)
-                and node.func.value.id in bound
-            ):
-                called.add(node.func.attr)
-        fresh = (
-            isinstance(statement, ast.Assign)
-            and _is_model_call(statement.value)
-            and all(isinstance(t, ast.Name) for t in statement.targets)
-        )
-        for node in ast.walk(statement):
-            if _is_model_call(node) and not fresh:
-                parent_assigns = [
-                    n
-                    for n in ast.walk(statement)
-                    if isinstance(n, ast.Assign | ast.AnnAssign | ast.NamedExpr)
-                    and getattr(n, "value", None) is node
-                ]
-                assert not parent_assigns, (
-                    f"{name}: a model is bound outside a top-level `x = Model(...)`; "
-                    "the receiver check cannot follow it"
-                )
-            if isinstance(node, ast.Global):
-                rebound = sorted(set(node.names) & bound)
-                assert not rebound, f"{name}: model name declared global: {rebound}"
-        targets = (
-            {t.id for t in statement.targets if isinstance(t, ast.Name)}
-            if fresh
-            else set()
-        )
-        for node in nodes:
-            stored = _bound_name(node)
-            if stored in bound and stored not in targets:
-                raise AssertionError(f"{name}: model name {stored!r} is rebound")
-        bound |= targets
-    assert bound, f"{name}: binds no `Model(...)`; the receiver check has no anchor"
-    return called
+@pytest.mark.parametrize(
+    ("text", "match"),
+    [
+        # Headings.
+        (_doc(_section("a.ipynb")), "missing"),
+        (_doc(_section("a.ipynb"), _section("b.ipynb"), _section("b.ipynb")), "twice"),
+        (DOC.replace("### `b.ipynb`", "## `b.ipynb`"), "heading"),
+        (DOC.replace("### `b.ipynb`", "### b.ipynb"), "heading"),
+        (DOC.replace("### `b.ipynb`", "### `b.ipynb` (new)"), "heading"),
+        (DOC + "\n### `c.ipynb`\n", "not a notebook"),
+        # Markers.
+        (
+            DOC.replace(
+                "<!-- index:end -->", "<!-- index:end -->\n<!-- index:end -->", 1
+            ),
+            "end",
+        ),
+        (DOC.replace("<!-- index:end -->\n", "", 1), "not closed"),
+        (
+            DOC.replace("<!-- index:begin b.ipynb -->", "<!-- index:begin a.ipynb -->"),
+            "section",
+        ),
+        (
+            DOC.replace("<!-- index:begin b.ipynb -->", "<!--index:begin b.ipynb-->"),
+            "marker",
+        ),
+        (
+            _doc(
+                _section("a.ipynb", block=_block("a.ipynb") + "\n" + _block("a.ipynb")),
+                _section("b.ipynb"),
+            ),
+            "more than one",
+        ),
+        (
+            _doc(_section("a.ipynb", block="no block"), _section("b.ipynb")),
+            "no generated block",
+        ),
+        ("<!-- index:begin a.ipynb -->\n<!-- index:end -->\n" + DOC, "outside"),
+        (DOC + "\n<!-- index:begin b.ipynb -->\n<!-- index:end -->\n", "outside"),
+        # Content.
+        (
+            DOC.replace(
+                "`pip install 'lizyml[explain,plots]'`", "`pip install 'lizyml[plots]'`"
+            ),
+            "differs",
+        ),
+        (
+            DOC.replace(
+                "**Demonstrates:** `fit()`\n\n", "**Demonstrates:** `fit()`\n", 1
+            ),
+            "differs",
+        ),
+    ],
+)
+def test_index_mutations_fail(text: str, match: str) -> None:
+    assert match in _errors(text) or pytest.fail(_errors(text))
 
 
-def _literal(
-    name: str, call: ast.Call, keyword: str, position: int | None = None
-) -> object:
-    """The literal value passed as ``keyword`` (or at ``position``), else None.
-
-    A value that is not a literal, or a ``**`` mapping that could carry the
-    keyword, fails: the extras it implies cannot be decided.
-    """
-    for kw in call.keywords:
-        assert kw.arg is not None, (
-            f"{name}: a `**` argument may carry `{keyword}=`; pass it literally"
-        )
-    if position is not None and len(call.args) > position:
-        arg = call.args[position]
-        assert isinstance(arg, ast.Constant), (
-            f"{name}: positional `{keyword}` is not a literal; write it literally"
-        )
-        return arg.value
-    for kw in call.keywords:
-        if kw.arg == keyword:
-            assert isinstance(kw.value, ast.Constant), (
-                f"{name}: `{keyword}=` is not a literal, so the extras it needs "
-                "cannot be decided; write the value literally"
-            )
-            return kw.value.value
-    return None
+def test_changing_a_declaration_fails_the_index() -> None:
+    changed = {**DECLS, "b.ipynb": _decl(methods=["fit", "predict"], extras=[])}
+    assert "differs" in _errors(DOC, changed)
 
 
-def _needed_extras(name: str, tree: ast.Module) -> set[str]:
-    """Extras the notebook's imports and calls need.
-
-    An import, or a call that implies an extra, anywhere in a compound statement
-    (its condition included) or in a function / lambda / class body fails, so
-    that a conditional dependency is never silently counted or dropped.
-    Conditional execution inside an expression is not modelled (see the module
-    docstring).
-    """
-    uncertain = _uncertain(tree)
-    needed = set()
-
-    def need(node: ast.AST, extra: str) -> None:
-        assert id(node) not in uncertain, (
-            f"{name}: needs {extra!r} only on a path that may not run; "
-            "move it to a plain top-level statement"
-        )
-        needed.add(extra)
-
-    for node in ast.walk(tree):
-        if isinstance(node, ast.Import | ast.ImportFrom):
-            modules = (
-                [a.name for a in node.names]
-                if isinstance(node, ast.Import)
-                else [node.module or ""]
-            )
-            for module in modules:
-                top = module.split(".")[0]
-                if top in EXTRA_MODULES:
-                    need(node, EXTRA_MODULES[top])
-                else:
-                    assert (
-                        top in BASE_MODULES
-                        or top in sys.stdlib_module_names
-                        or top == "__future__"
-                    ), f"{name}: imports {top!r}, which no install declares"
-        elif isinstance(node, ast.Call):
-            func = node.func
-            called = (
-                func.attr
-                if isinstance(func, ast.Attribute)
-                else getattr(func, "id", "")
-            )
-            if "plot" in called:
-                need(node, "plots")
-            if called == "tune":
-                need(node, "tuning")
-            # `importance(kind)` and `importance_plot(kind)` take `kind` first.
-            position = 0 if called in {"importance", "importance_plot"} else None
-            if _literal(name, node, "kind", position) == "shap":
-                need(node, "explain")
-            if _literal(name, node, "return_shap") is True:
-                need(node, "explain")
-        elif isinstance(node, ast.Constant) and node.value == "pytest":
-            raise AssertionError(f"{name}: runs pytest, a dev-only dependency")
-    return needed
+def test_markers_and_headings_inside_fences() -> None:
+    fenced = DOC + "\n```\n### `b.ipynb`\n```\n"
+    assert ix.check_index(fenced, DECLS) == [], "a fenced heading is not a heading"
+    marker = DOC + "\n```\n<!-- index:end -->\n```\n"
+    assert "marker" in _errors(marker), "a marker counts even in a fence"
 
 
-def _listed_extras(body: str) -> set[str]:
-    line = re.search(r"\*\*Extras required:\*\* (.*)", body)
-    assert line, "a notebook entry has no 'Extras required' line"
-    if line.group(1).startswith("none"):
-        return set()
-    extras = re.search(r"lizyml\[([a-z,]+)\]", line.group(1))
-    assert extras, f"unparseable extras line: {line.group(1)!r}"
-    return set(extras.group(1).split(","))
+def test_write_rewrites_only_the_blocks() -> None:
+    stale = DOC.replace("`fit()`, `importance_plot()`", "`fit()`")
+    assert ix.rewrite_index(stale, DECLS) == DOC
+    with pytest.raises(ix.ContractError, match="missing"):
+        ix.rewrite_index(_doc(_section("a.ipynb")), DECLS)
 
 
-SECTIONS = _sections()
+# --- The repository ------------------------------------------------------------
 
 
-def test_the_index_lists_exactly_the_notebooks_on_disk() -> None:
-    on_disk = {p.name for p in NOTEBOOKS.glob("*.ipynb")}
+def test_the_repository_passes_the_check() -> None:
+    assert ix.check(ROOT) == []
+
+
+def test_every_notebook_on_disk_is_checked() -> None:
+    on_disk = sorted(p.name for p in (ROOT / "notebooks").glob("*.ipynb"))
     assert on_disk, "no notebooks found; the glob lost its anchor"
-    assert set(SECTIONS) == on_disk
+    assert [p.name for p in ix.notebook_paths(ROOT)] == on_disk
+    assert len(on_disk) == 8
 
 
-@pytest.mark.parametrize("name", sorted(SECTIONS))
-def test_every_method_the_index_names_is_called_in_the_notebook(name: str) -> None:
-    named = set(re.findall(r"`(\w+)\(", SECTIONS[name]))
-    assert named, f"{name}: the entry names no method"
-    missing = sorted(named - _model_calls(name, _tree(name)))
-    assert not missing, f"{name}: named but never called on the model: {missing}"
+def test_changing_one_notebook_declaration_fails_the_repository_check(
+    tmp_path: pathlib.Path,
+) -> None:
+    (tmp_path / "notebooks").mkdir()
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "examples.md").write_text(
+        (ROOT / "docs" / "examples.md").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    for path in ix.notebook_paths(ROOT):
+        (tmp_path / "notebooks" / path.name).write_bytes(path.read_bytes())
+    assert ix.check(tmp_path) == []
+    target = tmp_path / "notebooks" / "tutorial_calibration.ipynb"
+    nb = json.loads(target.read_text(encoding="utf-8"))
+    nb["metadata"]["lizyml"]["index"]["extras"] = []
+    target.write_text(json.dumps(nb), encoding="utf-8")
+    assert ix.check(tmp_path)
 
 
-@pytest.mark.parametrize("name", sorted(SECTIONS))
-def test_the_listed_extras_are_the_ones_the_notebook_needs(name: str) -> None:
-    assert _listed_extras(SECTIONS[name]) == _needed_extras(name, _tree(name))
+def test_no_notebook_name_selects_another_with_pytest_k() -> None:
+    """CI selects one notebook with ``-k <stem>``; no stem may contain another."""
+    stems = [p.stem for p in ix.notebook_paths(ROOT)]
+    clashes = [(a, b) for a in stems for b in stems if a != b and a in b]
+    assert not clashes
+
+
+def test_ci_helpers_report_the_declared_extras() -> None:
+    assert ix.uv_extra_flags_for(ROOT, "tutorial_codegen_export") == []
+    assert ix.uv_extra_flags_for(ROOT, "tutorial_regression_tuning_lgbm") == [
+        "--extra",
+        "plots",
+        "--extra",
+        "tuning",
+    ]
+    assert ix.uv_extra_flags_without(ROOT, "plots") == [
+        "--extra",
+        "explain",
+        "--extra",
+        "tuning",
+    ]
+    with pytest.raises(ix.ContractError):
+        ix.uv_extra_flags_without(ROOT, "calibration")
+    with pytest.raises(ix.ContractError):
+        ix.uv_extra_flags_for(ROOT, "tutorial_missing")
+    matrix = ix.ci_matrix(ROOT)
+    assert matrix["removed"] == ["explain", "plots", "tuning"]
+    assert matrix["notebook"] == [p.stem for p in ix.notebook_paths(ROOT)]
