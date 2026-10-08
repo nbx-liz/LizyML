@@ -605,6 +605,41 @@ def test_a_heading_inside_a_nested_fence_is_ignored() -> None:
     assert ix.check_index(DOC + example, DECLS) == []
 
 
+@pytest.mark.parametrize(
+    "extra",
+    [
+        # CommonMark renders each of these as a heading, so a parser that only
+        # knows column-0 ATX headings would miss it (review run 2, round 1).
+        " ### `a.ipynb`\n",
+        "   ## Other\n",
+        "> ### `a.ipynb`\n",
+        "- ### `a.ipynb`\n",
+        "1. ## Other\n",
+        "missing.ipynb\n--------------\n",
+        "Other\n=====\n",
+        "Other\n-\n",
+    ],
+)
+def test_a_non_canonical_heading_fails(extra: str) -> None:
+    errors = _errors(DOC + "\n" + extra)
+    assert "heading" in errors or "indent" in errors
+
+
+def test_an_indented_heading_before_a_block_fails() -> None:
+    text = DOC.replace(
+        "<!-- index:begin b.ipynb -->", " ## Other\n\n<!-- index:begin b.ipynb -->"
+    )
+    assert "heading" in _errors(text)
+
+
+def test_a_thematic_break_after_a_blank_line_is_not_a_heading() -> None:
+    assert ix.check_index(DOC + "\nText.\n\n---\n\n***\n", DECLS) == []
+
+
+def test_a_hash_inside_a_fence_is_not_a_heading() -> None:
+    assert ix.check_index(DOC + "\n```bash\n  # comment\n> # x\n```\n", DECLS) == []
+
+
 def test_a_generated_block_inside_a_code_fence_fails() -> None:
     # The block would render as a code sample, not as the section's content
     # (implementation review round 3).

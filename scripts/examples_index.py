@@ -413,6 +413,39 @@ _END = "<!-- index:end -->"
 _FENCE_OPEN = re.compile(r"^ {0,3}(?:(`{3,})[^`]*|(~{3,}).*)$")
 
 
+_LIST_MARKER = re.compile(r"(?:[-+*]|\d{1,9}[.)])[ \t]+")
+_ATX = re.compile(r"#{1,6}(?:[ \t]|$)")
+_SETEXT_UNDERLINE = re.compile(r"^ {0,3}(?:=+|-+)[ \t]*$")
+
+
+def _hidden_heading(line: str) -> bool:
+    """Whether ``line`` is an ATX heading in any form but the canonical one.
+
+    The canonical form starts at column 0. CommonMark also renders a heading
+    indented by one to three spaces, or inside a block quote or list item;
+    those are refused rather than parsed, so that no heading escapes the
+    section and census rules. A line indented by four or more spaces with no
+    container is an indented code block, not a heading.
+    """
+    if _HEADING.match(line):
+        return False
+    rest = line
+    contained = False
+    while True:
+        stripped = rest.lstrip(" \t")
+        indent = rest[: len(rest) - len(stripped)]
+        if not contained and (indent.count(" ") >= 4 or "\t" in indent):
+            return False
+        if stripped.startswith(">"):
+            rest, contained = stripped[1:], True
+            continue
+        marker = _LIST_MARKER.match(stripped)
+        if marker:
+            rest, contained = stripped[marker.end() :], True
+            continue
+        return bool(_ATX.match(stripped))
+
+
 def _closes(line: str, fence: str) -> bool:
     """Whether ``line`` closes a fence opened with ``fence``.
 
@@ -454,8 +487,12 @@ def _blocks(
     begin: int | None = None
     fence: str | None = None
     fence_line = 0
+    # Whether the previous line could be continued by a setext underline:
+    # non-blank text outside a fence that is not a heading, marker or fence.
+    paragraph = False
     for i, line in enumerate(lines):
         where = f"docs/examples.md:{i + 1}"
+        was_fenced = fence is not None
         if fence is not None:
             if _closes(line, fence):
                 fence = None
@@ -466,6 +503,25 @@ def _blocks(
             if opener is not None:
                 fence = opener.group(1) or opener.group(2)
                 fence_line = i
+        outside = not was_fenced and not opened
+        if outside and _hidden_heading(line):
+            errors.append(
+                f"{where}: a heading must start at column 0, outside quotes and "
+                "lists (an indented, quoted or listed heading is not parsed)"
+            )
+        if outside and paragraph and _SETEXT_UNDERLINE.match(line):
+            errors.append(
+                f"{where}: a setext heading is not parsed; use a ### heading, or "
+                "put a blank line before a thematic break"
+            )
+        paragraph = (
+            outside
+            and bool(line.strip())
+            and not _HEADING.match(line)
+            and not _SETEXT_UNDERLINE.match(line)
+            and "index:begin" not in line
+            and "index:end" not in line
+        )
         if fence is None and not opened and _HEADING.match(line):
             if begin is not None:
                 errors.append(
