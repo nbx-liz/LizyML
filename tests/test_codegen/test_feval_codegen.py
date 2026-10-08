@@ -398,11 +398,14 @@ class TestTemplateFevalContent:
         src = render_train_py()
         assert "build_feval_from_config" in src
 
-    def test_contains_softmax(self) -> None:
+    def test_feval_does_not_transform_lightgbm_probabilities(self) -> None:
+        """LightGBM 4 passes probabilities to a feval; the generated feval must
+        not apply softmax or sigmoid to them again (#306)."""
         from lizyml.codegen.templates import render_train_py
 
         src = render_train_py()
-        assert "_softmax" in src
+        assert "_softmax" not in src
+        assert "proba = np.asarray(y_pred)" in src
 
     def test_train_lgbm_uses_feval(self) -> None:
         from lizyml.codegen.templates import render_train_py

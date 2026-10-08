@@ -74,7 +74,7 @@ class TestTimeSeriesOuterSplits:
         df = _make_time_regression_df()
         overrides = {}
         if split_method == "purged_time_series":
-            overrides = {"purge_gap": 2, "embargo": 1}
+            overrides = {"purge_gap": 3}
         cfg = make_config(
             "regression",
             split_method=split_method,
@@ -100,7 +100,7 @@ class TestTimeSeriesOuterSplits:
             split_method="purged_time_series",
             n_splits=3,
             time_col="time",
-            split_overrides={"purge_gap": purge_gap, "embargo": 0},
+            split_overrides={"purge_gap": purge_gap},
         )
         m = Model(cfg)
         result = m.fit(data=df)
@@ -135,7 +135,12 @@ class TestTimeSeriesOuterSplits:
 
 
 class TestTimeSeriesCalibrationSplitter:
-    """Calibration inherits time_series splitter type from outer split config."""
+    """The deprecated ``build_calibration_splitter`` shim (H-0058) only.
+
+    Calibration no longer builds a splitter: it reuses the outer folds. That
+    path is asserted by ``tests/test_splitters/test_purged_embargo_merge.py::
+    test_calibration_folds_match_the_merged_purge_gap`` (#270).
+    """
 
     def test_calibration_splitter_is_time_series(self) -> None:
         """Deprecated build_calibration_splitter still returns correct type."""
@@ -163,8 +168,14 @@ class TestTimeSeriesCalibrationSplitter:
         folds = list(splitter.split(100))
         assert len(folds) == 4
 
-    def test_calibration_splitter_inherits_purged_params(self) -> None:
-        """Deprecated build_calibration_splitter preserves purge params."""
+    def test_deprecated_calibration_splitter_shim_keeps_purge_params(self) -> None:
+        """Deprecated build_calibration_splitter preserves purge params.
+
+        This is the deprecated helper only; ``Model.fit`` no longer calls it.
+        That the calibration folds of a fit honour the merged ``purge_gap`` is
+        asserted by ``tests/test_splitters/test_purged_embargo_merge.py::
+        test_calibration_folds_match_the_merged_purge_gap``.
+        """
         import warnings
 
         from lizyml.config.loader import load_config
@@ -182,13 +193,15 @@ class TestTimeSeriesCalibrationSplitter:
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
+            warnings.simplefilter("ignore", DeprecationWarning)
             cfg = load_config(cfg_dict)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", DeprecationWarning)
             splitter = build_calibration_splitter(cfg)
         assert isinstance(splitter, PurgedTimeSeriesSplitter)
-        assert splitter.purge_gap == 10
-        assert splitter.embargo == 5
+        # The deprecated embargo is merged into purge_gap (H-0115).
+        assert splitter.purge_gap == 15
+        assert not hasattr(splitter, "embargo")
 
 
 # ===========================================================================

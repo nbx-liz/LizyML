@@ -99,7 +99,14 @@ class TestMergeParams:
         model_params, _ = m._merge_params(_provider_for(m))
         assert model_params["learning_rate"] == 0.05
 
-    def test_fit_args_override_tune_best(self) -> None:
+    def test_merge_override_outranks_tune_best(self) -> None:
+        """``_merge_params`` ranks an override above the tuning result.
+
+        This is the merge helper only. That ``Model.fit(params=...)`` reaches
+        it and the value arrives at ``lgb.train`` is asserted by
+        ``tests/test_core/test_fit_params_override.py::
+        test_fit_params_outrank_the_tuning_result`` (#270).
+        """
         m = self._make_model(learning_rate=0.1)
         m._tuning_result = TuningResult(
             best_model_params={"learning_rate": 0.05},

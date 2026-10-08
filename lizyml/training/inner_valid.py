@@ -172,7 +172,7 @@ class TimeHoldoutInnerValid(BaseInnerValidStrategy):
         ratio: Fraction of rows to assign to validation (from the end).
         gap: Number of rows to purge between inner-train and inner-valid
             (H-0085 / #212). Propagated from the outer split's
-            ``purge_gap + embargo`` (``purged_time_series``) or ``gap``
+            ``purge_gap`` (``purged_time_series``) or ``gap``
             (``time_series``) so the early-stopping boundary gets the same
             look-ahead guard as the outer split. The purged rows belong to
             neither inner-train nor inner-valid.
@@ -198,7 +198,7 @@ class TimeHoldoutInnerValid(BaseInnerValidStrategy):
                 f"Inner validation would consume all {n_samples} sample(s) "
                 f"(n_valid={n_valid}, gap={self.gap}, ratio={self.ratio}). "
                 "Increase training data, decrease validation_ratio, "
-                "or reduce purge_gap/embargo."
+                "or reduce purge_gap / gap."
             )
         all_idx = np.arange(n_samples, dtype=np.intp)
         valid_idx = all_idx[-n_valid:]
@@ -214,6 +214,10 @@ class StratifiedTimeHoldoutInnerValid(BaseInnerValidStrategy):
     while preserving time ordering within each class.
 
     Falls back to simple tail holdout when ``y`` is ``None``.
+
+    Raises ``ValueError`` when per-class tail selection would leave
+    inner-train empty, which is what a near-continuous target does: use
+    :class:`TimeHoldoutInnerValid` for regression instead.
 
     Args:
         ratio: Fraction of each class to assign to validation.
@@ -256,6 +260,14 @@ class StratifiedTimeHoldoutInnerValid(BaseInnerValidStrategy):
         all_idx = np.arange(n_samples, dtype=np.intp)
         valid_idx = all_idx[valid_mask]
         train_idx = all_idx[~valid_mask]
+        if train_idx.size == 0:
+            raise ValueError(
+                f"Stratified inner validation would consume all {n_samples} "
+                f"sample(s) (ratio={self.ratio}, {len(valid_indices)} rows "
+                f"selected across {len(np.unique(y))} distinct target values). "
+                "A near-continuous target cannot be stratified; use a "
+                "time-ordered inner valid for regression."
+            )
         return train_idx, valid_idx
 
 
@@ -265,8 +277,12 @@ class BlockedGroupInnerValid(BaseInnerValidStrategy):
     For ``blocked_group_kfold``: selects tail groups (by last appearance)
     for inner validation, with per-class stratification for classification.
 
-    Falls back to :class:`StratifiedTimeHoldoutInnerValid` when fewer than
-    4 unique groups are available.
+    Falls back when fewer than 4 unique groups are available. ``task``
+    picks the fallback: classification uses
+    :class:`StratifiedTimeHoldoutInnerValid`, regression uses
+    :class:`TimeHoldoutInnerValid` — a continuous target has one distinct
+    value per row, so stratifying it would leave inner-train empty
+    (BLUEPRINT 10.3.3 / 10.6.2).
 
     .. note::
 
@@ -313,13 +329,21 @@ class BlockedGroupInnerValid(BaseInnerValidStrategy):
         n_unique = len(ordered_groups)
 
         if n_unique < self._MIN_GROUPS_FOR_ISOLATION:
+            # Regression must not stratify: a continuous target has one distinct
+            # value per row, so per-class tail selection would put every row in
+            # validation and leave inner-train empty. BLUEPRINT 10.3.3 fixes the
+            # regression fallback as equivalent to TimeHoldoutInnerValid.
+            is_regression = self.task == "regression"
+            fallback = "TimeHoldout" if is_regression else "StratifiedTimeHoldout"
             warnings.warn(
                 f"Too few groups ({n_unique}) for group-isolated inner "
                 f"valid (need >= {self._MIN_GROUPS_FOR_ISOLATION}). "
-                f"Falling back to StratifiedTimeHoldout.",
+                f"Falling back to {fallback}.",
                 UserWarning,
                 stacklevel=2,
             )
+            if is_regression:
+                return TimeHoldoutInnerValid(self.ratio).split(n_samples)
             return StratifiedTimeHoldoutInnerValid(self.ratio).split(
                 n_samples, y=y, groups=groups
             )

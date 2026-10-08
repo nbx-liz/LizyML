@@ -16,6 +16,7 @@ import numpy as np
 import numpy.typing as npt
 
 from lizyml.core.types.predict_result import PredictionResult
+from lizyml.features.column_check import select_training_columns
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -40,10 +41,21 @@ def run_predict(
     pipeline restore, per-task branching, calibration, label inverse-mapping
     (H-0070), and optional SHAP — so the public output is unchanged.
     """
-    # Restore the fitted pipeline from saved state via the provider.
+    # H-0104: check the columns here, before any pipeline runs, so a pipeline
+    # that does not check (or overrides the method that would) cannot let a
+    # missing column through. The pipeline then sees exactly the training
+    # columns, so drift is reported once, by this check. H-0106: a column
+    # numeric at fit must also arrive numeric (INCOMPATIBLE_COLUMNS).
+    X_sel, warnings = select_training_columns(
+        X, refit_result.feature_names, fit_result.dtypes
+    )
+
+    # Restore the fitted pipeline from saved state via the provider. The
+    # unseen-category policy comes from that state (what the fit applied).
     pipeline = provider.build_pipeline_factory()()
     pipeline.load_state(refit_result.pipeline_state)
-    X_t, warnings = pipeline.transform_with_warnings(X)
+    X_t, pipeline_warnings = pipeline.transform_with_warnings(X_sel)
+    warnings = warnings + pipeline_warnings
 
     model = refit_result.model
 

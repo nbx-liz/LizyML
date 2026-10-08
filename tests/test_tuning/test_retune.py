@@ -92,14 +92,18 @@ class TestDetectBoundary:
         assert s.new_high > 256
 
     def test_int_dim_lower_guard(self) -> None:
-        """IntDim lower bound cannot go below 1."""
-        dims = [IntDim("x", low=1, high=10)]
-        report = detect_boundary(dims, {"x": 1}, threshold=0.05)
+        """IntDim lower bound cannot go below 1.
+
+        ``low=2`` makes the guard bite (2 - 8 = -6 -> 1) while the range still
+        moves; ``low=1``, where the guard leaves the range unchanged, is
+        covered by ``TestNoOpExpansionIsNotExpanded`` (H-0111).
+        """
+        dims = [IntDim("x", low=2, high=10)]
+        report = detect_boundary(dims, {"x": 2}, threshold=0.05)
         s = report.dims[0]
         assert s.edge == "lower"
         assert s.expanded is True
-        assert s.new_low is not None
-        assert s.new_low >= 1  # Guard: min(1, ...)
+        assert s.new_low == 1  # Guard: max(1, ...)
 
     def test_categorical_no_expand(self) -> None:
         dims = [CategoricalDim("obj", choices=("huber", "fair"))]
@@ -346,6 +350,118 @@ class TestExpandWithBounds:
             assert dims[0].max_allowed == 1.0  # bound is propagated
         # After 10 rounds it should be saturated at exactly 1.0
         assert dims[0].high == 1.0
+
+
+class TestNoOpExpansionIsNotExpanded:
+    """An expansion that leaves the range unchanged is not reported (H-0111).
+
+    H-0078 item 4: when a clamp leaves nothing to expand, ``expanded`` is
+    re-judged to ``False`` so ``tune(resume=True)`` does not report (and
+    re-run) the same no-op expansion every round (#318 row 6). The rule is
+    cause-agnostic: ``max_allowed`` / ``min_allowed``, the linear ``0.0``
+    floor (#110) and the IntDim ``max(1, ...)`` guard all count. A
+    ``min_allowed`` / ``max_allowed`` clamp keeps ``clamped_to_bound=True``, so
+    a UI can still show "bound reached"; the floor and the guard never set it.
+    """
+
+    @pytest.mark.parametrize(
+        ("dim", "best"),
+        [
+            pytest.param(
+                FloatDim("ff", low=0.5, high=1.0, max_allowed=1.0),
+                0.99,
+                id="float-upper-at-max_allowed",
+            ),
+            pytest.param(
+                FloatDim("vr", low=0.05, high=0.3, min_allowed=0.05),
+                0.051,
+                id="float-lower-at-min_allowed",
+            ),
+            pytest.param(
+                FloatDim("lr", low=0.001, high=1.0, log=True, max_allowed=1.0),
+                0.99,
+                id="log-upper-at-max_allowed",
+            ),
+            pytest.param(
+                IntDim("depth", low=3, high=30, max_allowed=30),
+                30,
+                id="int-upper-at-max_allowed",
+            ),
+        ],
+    )
+    def test_pinned_at_bound_is_not_expanded(self, dim: Any, best: Any) -> None:
+        report = detect_boundary([dim], {dim.name: best}, threshold=0.05)
+        status = report.dims[0]
+        assert status.edge != "none"
+        assert status.expanded is False
+        assert status.clamped_to_bound is True
+        assert status.new_low is None
+        assert status.new_high is None
+        assert report.expanded_names == ()
+        assert expand_dims([dim], report) == [dim]
+
+    @pytest.mark.parametrize(
+        ("dim", "best"),
+        [
+            pytest.param(
+                FloatDim("l1", low=0.0, high=10.0), 0.01, id="linear-zero-floor"
+            ),
+            pytest.param(IntDim("x", low=1, high=10), 1, id="int-max1-guard"),
+        ],
+    )
+    def test_floor_guard_noop_is_not_expanded(self, dim: Any, best: Any) -> None:
+        report = detect_boundary([dim], {dim.name: best}, threshold=0.05)
+        status = report.dims[0]
+        assert status.edge == "lower"
+        assert status.expanded is False
+        assert status.clamped_to_bound is False
+        assert report.expanded_names == ()
+
+    def test_one_side_still_moves_is_expanded(self) -> None:
+        """A clamp that still moves the edge is an expansion."""
+        dims = [FloatDim("ff", low=0.5, high=0.9, max_allowed=1.0)]
+        report = detect_boundary(dims, {"ff": 0.89}, threshold=0.05)
+        status = report.dims[0]
+        assert status.expanded is True
+        assert status.clamped_to_bound is True
+        assert status.new_high == 1.0
+        assert report.expanded_names == ("ff",)
+
+    @pytest.mark.parametrize("log", [False, True], ids=["linear", "log"])
+    def test_int_dim_beyond_2_53_one_step_left_is_expanded(self, log: bool) -> None:
+        """IntDim expansion is exact integer arithmetic (review round 1).
+
+        Above ``2**53`` a float round trip merges ``high`` and ``high + 1``,
+        which would report the one remaining permitted step as a no-op.
+        """
+        high = 2**53
+        # A log range must be wide enough for log-space edge detection.
+        low = 2**40 if log else high - 10
+        dim = IntDim("big", low=low, high=high, log=log, max_allowed=high + 1)
+        report = detect_boundary([dim], {"big": high}, threshold=0.05)
+        status = report.dims[0]
+        assert status.edge == "upper"
+        assert status.expanded is True
+        assert status.new_high == high + 1
+        assert status.new_low == low
+        assert report.expanded_names == ("big",)
+
+    @pytest.mark.parametrize("log", [False, True], ids=["linear", "log"])
+    def test_int_dim_beyond_2_53_pinned_is_not_expanded(self, log: bool) -> None:
+        high = 2**53 + 1
+        low = 2**40 if log else high - 10
+        dim = IntDim("big", low=low, high=high, log=log, max_allowed=high)
+        report = detect_boundary([dim], {"big": high}, threshold=0.05)
+        assert report.dims[0].expanded is False
+        assert report.expanded_names == ()
+
+    def test_mixed_report_lists_only_moving_dims(self) -> None:
+        dims = [
+            FloatDim("ff", low=0.5, high=1.0, max_allowed=1.0),
+            FloatDim("lr", low=0.01, high=0.1, log=True, max_allowed=1.0),
+        ]
+        report = detect_boundary(dims, {"ff": 0.99, "lr": 0.099}, threshold=0.05)
+        assert report.expanded_names == ("lr",)
 
 
 class TestSearchDimMinMaxAllowed:
@@ -662,6 +778,7 @@ class TestTuneProgressInfoExtensions:
 
 def _reg_config_with_tuning(n_trials: int = 3) -> dict[str, Any]:
     cfg = make_config("regression")
+    cfg["model"]["auto_num_leaves"] = False
     cfg["tuning"] = {
         "optuna": {
             "params": {"n_trials": n_trials, "direction": "minimize"},
@@ -845,6 +962,7 @@ class TestBoundaryTable:
 
     def test_boundary_table_with_report(self) -> None:
         cfg = _reg_config_with_tuning(n_trials=2)
+        cfg["tuning"]["optuna"]["space_mode"] = "replace"
         df = make_regression_df()
         model = Model(cfg)
         model.tune(df)

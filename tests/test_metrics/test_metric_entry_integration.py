@@ -90,8 +90,11 @@ class TestResolveMetricsWithDict:
 
         # Create minimal dataset
         y = np.array([1, 0, 1, 0, 1, 0, 1, 0, 1, 0], dtype=np.float64)
-        # Binary: raw logits (will be passed through sigmoid)
-        preds = np.array([2.0, -2.0, 1.5, -1.5, 1.0, -1.0, 0.5, -0.5, 0.0, 0.0])
+        # Binary: LightGBM hands a feval probabilities (H-0105), so these are
+        # the sigmoid of the logits this test first used. Probability metrics
+        # refuse anything else (H-0106).
+        logits = np.array([2.0, -2.0, 1.5, -1.5, 1.0, -1.0, 0.5, -0.5, 0.0, 0.0])
+        preds = 1.0 / (1.0 + np.exp(-logits))
         ds = lgb.Dataset(np.zeros((10, 1)), label=y)
         ds.construct()
 

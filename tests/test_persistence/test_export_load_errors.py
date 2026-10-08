@@ -67,11 +67,16 @@ class TestLoadErrors:
             (Path(tmpdir) / "metadata.json").write_text(
                 json.dumps(meta), encoding="utf-8"
             )
+            # Only fit_result.pkl is corrupt (#270): with both corrupt, a
+            # failure on refit_model.pkl would satisfy the same assertion.
+            import joblib
+
             (Path(tmpdir) / "fit_result.pkl").write_bytes(b"corrupt data")
-            (Path(tmpdir) / "refit_model.pkl").write_bytes(b"corrupt data")
+            joblib.dump({"dummy": True}, Path(tmpdir) / "refit_model.pkl")
             with pytest.raises(LizyMLError) as exc_info:
                 load(tmpdir)
             assert exc_info.value.code == ErrorCode.DESERIALIZATION_FAILED
+            assert exc_info.value.__cause__ is not None
 
     def test_corrupt_analysis_context(self) -> None:
         import joblib

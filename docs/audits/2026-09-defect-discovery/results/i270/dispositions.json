@@ -1,0 +1,2329 @@
+[
+ {
+  "test": "tests/test_calibration/test_beta_calibration.py::TestBetaCalibrator::test_predict_before_fit_raises",
+  "kill_mode": "all",
+  "triage": "NEGATIVE",
+  "claim": "Beta calibrator predict before fit raises not-fitted",
+  "observes": "pytest.raises LizyMLError, code CALIBRATION_NOT_FITTED",
+  "evidence": "tests/test_calibration/test_beta_calibration.py:62",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_beta_calibration.py::TestBetaCrossFit::test_cross_fit_leakage",
+  "kill_mode": "train",
+  "triage": "UNIT",
+  "claim": "Beta cross-fit OOF differs from C_final predictions",
+  "observes": "cross_fit_calibrate output shape and calibrated_oof != c_final.predict",
+  "evidence": "tests/test_calibration/test_beta_calibration.py:85",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_calibration.py::TestPlattCalibrator::test_predict_before_fit_raises",
+  "kill_mode": "all",
+  "triage": "NEGATIVE",
+  "claim": "Platt predict before fit raises not-fitted",
+  "observes": "pytest.raises LizyMLError, code CALIBRATION_NOT_FITTED",
+  "evidence": "tests/test_calibration/test_calibration.py:74",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_calibration.py::TestIsotonicCalibrator::test_predict_before_fit_raises",
+  "kill_mode": "all",
+  "triage": "NEGATIVE",
+  "claim": "Isotonic predict before fit raises not-fitted",
+  "observes": "pytest.raises LizyMLError, code CALIBRATION_NOT_FITTED",
+  "evidence": "tests/test_calibration/test_calibration.py:99",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_calibration_failed_optimisation.py::test_refit_failing_before_minimize_does_not_keep_the_earlier_fit",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Refit failing before minimize leaves calibrator unfitted",
+  "observes": "refit raises; predict/export_params then raise CALIBRATION_NOT_FITTED",
+  "evidence": "tests/test_calibration/test_calibration_failed_optimisation.py:81",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_calibration_failed_optimisation.py::test_default_settings_still_fit",
+  "kill_mode": "train",
+  "triage": "UNIT",
+  "claim": "Platt/Beta default settings still fit",
+  "observes": "calibrator.fit().predict() probabilities in (0,1)",
+  "evidence": "tests/test_calibration/test_calibration_failed_optimisation.py:112",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_calibration_failed_optimisation.py::test_cross_fit_names_c_final",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "cross_fit_calibrate failure in C_final names stage c_final",
+  "observes": "raises CALIBRATION_FAILED, context stage=c_final, no fold key",
+  "evidence": "tests/test_calibration/test_calibration_failed_optimisation.py:145",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_calibration_param_contract.py::test_beta_default_fit_emits_no_warning",
+  "kill_mode": "train",
+  "triage": "UNIT",
+  "claim": "BetaCalibrator default fit emits no warning",
+  "observes": "BetaCalibrator().fit under warnings-as-errors does not raise",
+  "evidence": "tests/test_calibration/test_calibration_param_contract.py:218",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_calibration_param_names.py::test_the_entry_point_split_covers_the_public_surface",
+  "kill_mode": "all",
+  "triage": "UNIT",
+  "claim": "Training/non-training entry-point sets partition Model public callables",
+  "observes": "set algebra over dir(Model) vs two static sets",
+  "evidence": "tests/test_calibration/test_calibration_param_names.py:215",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_calibration_param_names.py::test_non_training_entry_points_really_do_not_train",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Non-training Model methods do not train a Booster from unfitted state",
+  "observes": "args bind; spy on isotonic lgbm.train records zero calls",
+  "evidence": "tests/test_calibration/test_calibration_param_names.py:245",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_calibrator_not_fitted.py::test_predict_before_fit_raises_lizyml_error",
+  "kill_mode": "all",
+  "triage": "NEGATIVE",
+  "claim": "Each calibrator predict before fit raises LizyMLError",
+  "observes": "raises CALIBRATION_NOT_FITTED with context calibrator tag",
+  "evidence": "tests/test_calibration/test_calibrator_not_fitted.py:30",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_h0058_outer_reuse.py::TestNSplitsDeprecation::test_explicit_n_splits_warns",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "Explicit calibration n_splits emits deprecation warning",
+  "observes": "pytest.warns UserWarning on CalibrationConfig construction",
+  "evidence": "tests/test_calibration/test_h0058_outer_reuse.py:35",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_h0058_outer_reuse.py::TestNSplitsDeprecation::test_default_n_splits_no_warning",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "Omitting calibration n_splits emits no warning",
+  "observes": "CalibrationConfig(method=platt) under warnings-as-errors",
+  "evidence": "tests/test_calibration/test_h0058_outer_reuse.py:40",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_h0058_outer_reuse.py::TestNSplitsDeprecation::test_model_dump_roundtrip_no_warning",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "CalibrationConfig model_dump round-trip emits no warning",
+  "observes": "n_splits in dump; re-parse under warnings-as-errors",
+  "evidence": "tests/test_calibration/test_h0058_outer_reuse.py:46",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_isotonic_calibration.py::TestIsotonicCalibrator::test_a_forced_parameter_is_forced_under_its_canonical_name",
+  "kill_mode": "all",
+  "triage": "UNIT",
+  "claim": "Isotonic calibrator forces monotone_constraints/verbosity under canonical name",
+  "observes": "IsotonicCalibrator._lgbm_params[forced] != 99; name canonical",
+  "evidence": "tests/test_calibration/test_isotonic_calibration.py:93",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_platt_mle.py::test_target_smoothing_can_be_turned_off_and_changes_the_fit",
+  "kill_mode": "train",
+  "triage": "UNIT",
+  "claim": "Platt target_smoothing=False changes fitted coefficients",
+  "observes": "PlattCalibrator.export_params a,b differ with/without smoothing",
+  "evidence": "tests/test_calibration/test_platt_mle.py:84",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_platt_mle.py::test_default_fit_emits_no_warning",
+  "kill_mode": "train",
+  "triage": "UNIT",
+  "claim": "PlattCalibrator default fit emits no warning",
+  "observes": "PlattCalibrator().fit under warnings-as-errors",
+  "evidence": "tests/test_calibration/test_platt_mle.py:94",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_platt_mle.py::test_predict_before_fit_raises",
+  "kill_mode": "all",
+  "triage": "NEGATIVE",
+  "claim": "Platt predict before fit raises",
+  "observes": "raises LizyMLError CALIBRATION_NOT_FITTED",
+  "evidence": "tests/test_calibration/test_platt_mle.py:116",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_templates.py::TestRenderTrainPy::test_contains_oof_generation",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "Rendered train.py source contains OOF generation",
+  "observes": "substring _generate_oof and StratifiedKFold in render_train_py()",
+  "evidence": "tests/test_codegen/test_templates.py:77",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_config/test_schema.py::TestEnvOverride::test_override_training_seed",
+  "kill_mode": "train",
+  "triage": "UNIT",
+  "claim": "Env var LIZYML__training__seed overrides config seed",
+  "observes": "load_config(...).training.seed == 999",
+  "evidence": "tests/test_config/test_schema.py:268",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_config/test_stratified_default.py::TestStratifiedDefault::test_binary_no_split_defaults_to_stratified",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "Binary config without split defaults to stratified_kfold",
+  "observes": "load_config(...).split.method == stratified_kfold",
+  "evidence": "tests/test_config/test_stratified_default.py:16",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_config/test_stratified_default.py::TestStratifiedDefault::test_multiclass_no_split_defaults_to_stratified",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "Multiclass config without split defaults to stratified_kfold",
+  "observes": "load_config(...).split.method == stratified_kfold",
+  "evidence": "tests/test_config/test_stratified_default.py:26",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_config/test_stratified_default.py::TestStratifiedDefault::test_regression_no_split_defaults_to_kfold",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "Regression config without split defaults to kfold",
+  "observes": "load_config(...).split.method == kfold",
+  "evidence": "tests/test_config/test_stratified_default.py:36",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_blocked_group_config.py::TestBlockedGroupKFoldConfigParsing::test_split_config_union_dispatches",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "SplitConfig union dispatches blocked_group_kfold type",
+  "observes": "cfg.split has blocks and groups attributes",
+  "evidence": "tests/test_core/test_blocked_group_config.py:110",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_calibration_params_reach.py::test_fit_refuses_before_training",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Invalid calibration.params refused by fit before any training",
+  "observes": "raises CONFIG_INVALID naming calibration.params; no lgb.train params recorded",
+  "evidence": "tests/test_core/test_calibration_params_reach.py:164",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_contracts.py::TestFitResultSchema::test_oof_pred_is_ndarray",
+  "kill_mode": "split",
+  "triage": "HOLLOW",
+  "claim": "FitResult contract: oof_pred is an ndarray",
+  "observes": "isinstance on a hand-built FitResult fixture whose oof_pred the test set",
+  "evidence": "tests/test_core/test_contracts.py:199",
+  "final": "HOLLOW",
+  "action": "reach",
+  "repaired_at": "tests/test_core/test_contracts.py::TestFitResultSchema::test_oof_pred_is_ndarray (now on a real Model.fit)"
+ },
+ {
+  "test": "tests/test_core/test_contracts.py::TestFitResultSchema::test_if_pred_per_fold_len_equals_n_splits",
+  "kill_mode": "split",
+  "triage": "OVERCLAIM",
+  "claim": "FitResult contract: len(if_pred_per_fold) equals number of outer splits",
+  "observes": "len on hand-built FitResult fixture ([oof] vs 1 split)",
+  "evidence": "tests/test_core/test_contracts.py:202",
+  "final": "OVERCLAIM",
+  "action": "reach",
+  "repaired_at": "tests/test_core/test_contracts.py::TestFitResultSchema::test_if_pred_per_fold_len_equals_n_splits (now on a real Model.fit)"
+ },
+ {
+  "test": "tests/test_core/test_exceptions.py::TestSeed::test_derive_seed_differs_across_folds",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "derive_seed gives distinct seeds across fold indices",
+  "observes": "len(set(derive_seed(42, i) for i in 0..4)) == 5",
+  "evidence": "tests/test_core/test_exceptions.py:118",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_two_spellings_in_the_config_are_refused_before_training",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Two config spellings of one param refused before training",
+  "observes": "raises CONFIG_INVALID naming model.params; no train calls recorded",
+  "evidence": "tests/test_core/test_fit_params_override.py:233",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_two_search_dimensions_naming_one_parameter_are_refused",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Two search dimensions naming one parameter refused before study",
+  "observes": "tune raises CONFIG_INVALID naming tuning.optuna.space; no train calls",
+  "evidence": "tests/test_core/test_fit_params_override.py:558",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_a_search_dimension_a_training_setting_controls_is_refused",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Search dimension controlled by a training setting refused before study",
+  "observes": "every spelling: tune raises CONFIG_INVALID; no train calls",
+  "evidence": "tests/test_core/test_fit_params_override.py:777",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_every_calibration_alias_is_canonical_before_the_defaults_merge",
+  "kill_mode": "all",
+  "triage": "UNIT",
+  "claim": "Every calibration alias canonicalised before calibrator defaults merge",
+  "observes": "canonicalise_calibration_params output over all default spellings",
+  "evidence": "tests/test_core/test_fit_params_override.py:956",
+  "final": "HOLLOW",
+  "action": "add-boundary",
+  "repaired_at": "tests/test_core/test_fit_params_override.py::test_every_calibration_default_written_as_an_alias_reaches_training"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_two_spellings_of_one_value_in_the_config_are_refused",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Config duplicate spelling with equal values refused before training",
+  "observes": "fit raises CONFIG_INVALID; no train calls recorded",
+  "evidence": "tests/test_core/test_fit_params_override.py:1025",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_an_unknown_name_in_fit_params_is_refused_before_training",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Unknown name in fit(params=) refused before training",
+  "observes": "fit raises CONFIG_INVALID; no train calls recorded",
+  "evidence": "tests/test_core/test_fit_params_override.py:1070",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_the_refusal_names_the_fit_params_surface",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Unknown fit(params=) name refusal names the fit(params=) surface",
+  "observes": "raises; message and context surface == fit(params=)",
+  "evidence": "tests/test_core/test_fit_params_override.py:1090",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_a_smart_name_in_fit_params_is_reported_as_smart",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Smart name in fit(params=) refused and reported as smart",
+  "observes": "raises; message contains smart parameter and fit(params=)",
+  "evidence": "tests/test_core/test_fit_params_override.py:1112",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_each_input_is_named_by_its_own_surface",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Unknown-name refusal attributes each name to its own surface",
+  "observes": "raises; context unknown maps three names to three surfaces",
+  "evidence": "tests/test_core/test_fit_params_override.py:1125",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_the_alias_review_round_2_measured_is_refused",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "max_leaves alias in fit(params=) refused before training",
+  "observes": "raises CONFIG_INVALID; no train calls; context managed names num_leaves",
+  "evidence": "tests/test_core/test_fit_params_override.py:1347",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_an_objective_alias_gets_the_same_task_check",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Cross-task objective via alias application is refused",
+  "observes": "raises CONFIG_INVALID mentioning regression; no train calls",
+  "evidence": "tests/test_core/test_fit_params_override.py:1956",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_two_spellings_with_different_values_are_refused",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Two spellings with different values refused, naming both",
+  "observes": "raises CONFIG_INVALID naming objective and application; no train calls",
+  "evidence": "tests/test_core/test_fit_params_override.py:2010",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_the_objects_rounds_16_to_20_found_never_reach_training",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Hostile objects from rounds 16-20 refused before training",
+  "observes": "raises CONFIG_INVALID naming fit(params=) and learning_rate; no train calls",
+  "evidence": "tests/test_core/test_fit_params_override.py:3229",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_a_hostile_value_is_refused_beside_a_second_spelling_too",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Hostile value beside a second spelling refused",
+  "observes": "raises CONFIG_INVALID naming learning_rate; no train calls",
+  "evidence": "tests/test_core/test_fit_params_override.py:3256",
+  "final": "WEAK",
+  "action": "tighten",
+  "repaired_at": "same name; asserts the value gate (context 'rejected') refused, with a duplicate-gate control"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_the_adapter_refuses_a_duplicate_spelling_carrying_equal_values",
+  "kill_mode": "all",
+  "triage": "NEGATIVE",
+  "claim": "Adapter _pop_by_identity refuses duplicate spelling with equal values",
+  "observes": "_pop_by_identity raises CONFIG_INVALID naming both spellings",
+  "evidence": "tests/test_core/test_fit_params_override.py:3456",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_a_duplicate_spelling_carrying_equal_values_is_refused_before_training",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Duplicate spelling with equal values refused before training end to end",
+  "observes": "fit raises CONFIG_INVALID; no train calls recorded",
+  "evidence": "tests/test_core/test_fit_params_override.py:3472",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_param_domain.py::test_a_caller_class_cannot_claim_to_be_a_numpy_type",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Caller class claiming numpy __module__ is refused",
+  "observes": "not in derived numpy types; normalise_params raises CONFIG_INVALID",
+  "evidence": "tests/test_core/test_param_domain.py:681",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_param_domain.py::test_an_accepted_type_is_not_by_itself_a_writable_value",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Non-serialisable values of accepted types are refused",
+  "observes": "normalise_params raises for pure paths and 10**5000; neighbours pass",
+  "evidence": "tests/test_core/test_param_domain.py:805",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_param_domain.py::test_the_exit_assertion_refuses_a_value_that_skipped_the_surfaces",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Exit assertion refuses an unnormalised value",
+  "observes": "assert_plain_params raises CONFIG_INVALID with context unnormalised",
+  "evidence": "tests/test_core/test_param_domain.py:1464",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_param_domain.py::test_the_exit_assertion_is_called_at_every_place_that_trains",
+  "kill_mode": "train",
+  "triage": "UNIT",
+  "claim": "Every lgb.train call site in package calls assert_plain_params",
+  "observes": "regex source scan of lizyml/ for guarded training sites",
+  "evidence": "tests/test_core/test_param_domain.py:1480",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_param_domain_cycles.py::test_cyclic_mapping_is_a_controlled_training_refusal",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Cyclic mapping param is a controlled refusal",
+  "observes": "is_plain false; assert_plain_params raises CONFIG_INVALID",
+  "evidence": "tests/test_core/test_param_domain_cycles.py:10",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_refusal_matrix.py::test_each_wired_cell_refuses_before_training",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Each wired refusal-matrix cell refuses before training",
+  "observes": "fit/tune raises CONFIG_INVALID naming layer; no train calls",
+  "evidence": "tests/test_core/test_refusal_matrix.py:321",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_refusal_matrix.py::test_a_restored_tuning_result_is_refused_too",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Restored tuning best_model_params refused on re-fit",
+  "observes": "fit raises CONFIG_INVALID; no train calls recorded",
+  "evidence": "tests/test_core/test_refusal_matrix.py:387",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_seed_propagation.py::TestBuildSplitterSeedResolution::test_default_inherits_training_seed_backward_compat",
+  "kill_mode": "train",
+  "triage": "UNIT",
+  "claim": "Default random_state inherits training.seed in outer splitter",
+  "observes": "build_splitter(...).split folds equal for seed=42 vs random_state=42",
+  "evidence": "tests/test_core/test_seed_propagation.py:29",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_seed_propagation.py::TestBuildSplitterSeedResolution::test_training_seed_propagates_to_splitter",
+  "kill_mode": "train",
+  "triage": "UNIT",
+  "claim": "training.seed propagates to outer splitter",
+  "observes": "build_splitter(...).split folds differ for seed 42 vs 123",
+  "evidence": "tests/test_core/test_seed_propagation.py:40",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_seed_propagation.py::TestBuildSplitterSeedResolution::test_explicit_random_state_overrides_training_seed",
+  "kill_mode": "train",
+  "triage": "UNIT",
+  "claim": "Explicit random_state overrides training.seed",
+  "observes": "build_splitter(...).split folds equal across seeds with random_state=7",
+  "evidence": "tests/test_core/test_seed_propagation.py:50",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_splitter_dispatch.py::TestUnhandledSplitConfigRaises::test_unknown_split_config_raises_lizyml_error",
+  "kill_mode": "split",
+  "triage": "NEGATIVE",
+  "claim": "Unknown split config refused by splitter dispatch",
+  "observes": "_build_splitter_for_method raises CONFIG_INVALID",
+  "evidence": "tests/test_core/test_splitter_dispatch.py:24",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_task_type.py::TestTaskTypeReExports::test_oof_assembly_re_export",
+  "kill_mode": "all",
+  "triage": "UNIT",
+  "claim": "oof_assembly re-exports the canonical TaskType",
+  "observes": "identity OOFTaskType is TaskType",
+  "evidence": "tests/test_core/test_task_type.py:45",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_train_components.py::TestMergeParams::test_fit_args_override_tune_best",
+  "kill_mode": "train",
+  "triage": "OVERCLAIM",
+  "claim": "fit() override params outrank tuning best params",
+  "observes": "private _merge_params returned dict learning_rate == 0.2",
+  "evidence": "tests/test_core/test_train_components.py:102",
+  "final": "OVERCLAIM",
+  "action": "rename",
+  "repaired_at": "tests/test_core/test_train_components.py::TestMergeParams::test_merge_override_outranks_tune_best; boundary: tests/test_core/test_fit_params_override.py::test_fit_params_outrank_the_tuning_result[binary], tests/test_core/test_fit_params_override.py::test_fit_params_outrank_the_tuning_result[regression]"
+ },
+ {
+  "test": "tests/test_data/test_data_layer.py::TestValidators::test_clean_group_split_passes",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "validate_group_split passes a clean group split",
+  "observes": "validators.validate_group_split returns []",
+  "evidence": "tests/test_data/test_data_layer.py:338",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_e2e/test_public_api.py::TestPublicImports::test_fit_result_importable",
+  "kill_mode": "train",
+  "triage": "UNIT",
+  "claim": "FitResult is importable",
+  "observes": "import succeeds and FitResult is not None",
+  "evidence": "tests/test_e2e/test_public_api.py:21",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestValidateLgbmMetrics::test_auc_rejected_for_multiclass_native",
+  "kill_mode": "all",
+  "triage": "NEGATIVE",
+  "claim": "auc rejected as multiclass native metric pre-fit",
+  "observes": "validate_lgbm_metrics raises CONFIG_INVALID",
+  "evidence": "tests/test_estimators/test_lgbm_metric_bridge.py:92",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestResolveMetrics::test_lizyml_name_translated_before_split",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "logloss translated to binary_logloss and classified native",
+  "observes": "resolve_metrics returns native [binary_logloss], fevals []",
+  "evidence": "tests/test_estimators/test_lgbm_metric_bridge.py:170",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_lightgbm_parameter_names.py::test_model_params_names_are_lightgbm_names",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Unknown model.params key refused at fit",
+  "observes": "fit raises CONFIG_INVALID naming the key",
+  "evidence": "tests/test_estimators/test_lightgbm_parameter_names.py:201",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_lightgbm_parameter_names.py::test_loading_an_artifact_is_not_blocked_by_the_gate",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Bad param name in config does not block artifact load",
+  "observes": "Model(cfg, data) construction (load's step) does not raise",
+  "evidence": "tests/test_estimators/test_lightgbm_parameter_names.py:299",
+  "final": "HOLLOW",
+  "action": "reach",
+  "repaired_at": "same name; real export -> metadata edit -> Model.load -> predict"
+ },
+ {
+  "test": "tests/test_estimators/test_lightgbm_parameter_names.py::test_every_route_into_the_estimator_is_inventoried",
+  "kill_mode": "train",
+  "triage": "UNIT",
+  "claim": "Every estimator route in package is inventoried",
+  "observes": "AST scan found routes == ESTIMATOR_ROUTES, non-empty",
+  "evidence": "tests/test_estimators/test_lightgbm_parameter_names.py:702",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_literal_parameter_reads.py::test_every_literal_parameter_read_is_declared",
+  "kill_mode": "train",
+  "triage": "UNIT",
+  "claim": "Every literal parameter read in package is declared",
+  "observes": "source scan reads minus _ALLOWED is empty",
+  "evidence": "tests/test_estimators/test_literal_parameter_reads.py:160",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_metric_choices_registry_coverage.py::TestMetricRegistryFitTimeCoverage::test_fit_time_registered_metrics_surfaced",
+  "kill_mode": "all",
+  "triage": "UNIT",
+  "claim": "Fit-time reachable registered metrics appear in metric_choices",
+  "observes": "provider.metric_choices vs whitelists membership",
+  "evidence": "tests/test_estimators/test_metric_choices_registry_coverage.py:58",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_param_behavioral_effect.py::TestSmartParamsBehavior::test_feature_weights_resolves_to_an_ordered_list",
+  "kill_mode": "train",
+  "triage": "UNIT",
+  "claim": "feature_weights resolves to positional feature_contri list",
+  "observes": "resolve_smart_params output feature_contri ordering",
+  "evidence": "tests/test_estimators/test_param_behavioral_effect.py:411",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_provider_choice_apis.py::TestObjectiveChoicesContent::test_aligned_with_task_compatible_objectives",
+  "kill_mode": "train",
+  "triage": "UNIT",
+  "claim": "objective_choices equals TASK_COMPATIBLE_OBJECTIVES per task",
+  "observes": "set equality of two registries",
+  "evidence": "tests/test_estimators/test_provider_choice_apis.py:124",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_provider_choice_apis.py::TestMetricChoicesContent::test_no_duplicates_across_branches",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "metric_choices native and feval branches disjoint",
+  "observes": "set intersection of provider.metric_choices branches empty",
+  "evidence": "tests/test_estimators/test_provider_choice_apis.py:201",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_provider_choice_apis.py::TestMetricChoicesContent::test_native_subset_of_validation_whitelist",
+  "kill_mode": "all",
+  "triage": "UNIT",
+  "claim": "metric_choices native names are in validation whitelist",
+  "observes": "subset check against _LGBM_NATIVE_METRICS",
+  "evidence": "tests/test_estimators/test_provider_choice_apis.py:257",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_evaluation/test_oof_coverage_eval.py::TestEvaluatorFullCoverageKFold::test_oof_coverage_is_one",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "Evaluator reports oof_coverage 1.0 for full-coverage splits",
+  "observes": "Evaluator.evaluate on synthetic FitResult, raw oof_coverage == 1.0",
+  "evidence": "tests/test_evaluation/test_oof_coverage_eval.py:101",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_evaluation/test_oof_coverage_eval.py::TestEvaluatorFullCoverageKFold::test_raw_keys_include_oof_coverage",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "Evaluator raw metrics include oof_coverage key",
+  "observes": "oof_coverage in Evaluator.evaluate raw output",
+  "evidence": "tests/test_evaluation/test_oof_coverage_eval.py:107",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_evaluation/test_oof_coverage_eval.py::TestEvaluatorFullCoverageKFold::test_oof_per_fold_unchanged",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "Evaluator oof_per_fold still computed per valid fold",
+  "observes": "3 finite per-fold rmse entries from Evaluator.evaluate",
+  "evidence": "tests/test_evaluation/test_oof_coverage_eval.py:113",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_evaluation/test_oof_coverage_eval.py::TestEvaluatorPartialCoverageTimeSeries::test_oof_coverage_less_than_one",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "Evaluator oof_coverage < 1 for partial-coverage splits",
+  "observes": "Evaluator.evaluate on synthetic TS-like FitResult, coverage 9/12",
+  "evidence": "tests/test_evaluation/test_oof_coverage_eval.py:166",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_evaluation/test_table_formatter.py::TestFormatMetricsTable::test_per_fold_columns",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "Metrics table has fold_i columns",
+  "observes": "format_metrics_table columns contain fold_0..fold_4",
+  "evidence": "tests/test_evaluation/test_table_formatter.py:78",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_evaluation/test_table_formatter.py::TestFormatMetricsTable::test_oof_coverage_in_attrs",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "Metrics table surfaces oof_coverage in attrs",
+  "observes": "format_metrics_table df.attrs oof_coverage == 0.75",
+  "evidence": "tests/test_evaluation/test_table_formatter.py:112",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_evaluation/test_table_formatter.py::TestFormatMetricsTable::test_oof_coverage_absent_when_not_provided",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "Metrics table omits oof_coverage attr when absent",
+  "observes": "oof_coverage not in df.attrs",
+  "evidence": "tests/test_evaluation/test_table_formatter.py:127",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_evaluation/test_table_formatter.py::TestFormatMetricsTable::test_fold_columns_use_oof_per_fold",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "Metrics table fold columns use oof_per_fold values",
+  "observes": "df.loc rmse fold_0/fold_1 equal oof_per_fold values",
+  "evidence": "tests/test_evaluation/test_table_formatter.py:140",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_explain/test_shap_importance_per_fold_pipeline.py::test_per_fold_states_without_fold_models_are_refused",
+  "kill_mode": "split",
+  "triage": "NEGATIVE",
+  "claim": "SHAP per-fold states without fold models refused",
+  "observes": "compute_shap_importance raises ValueError matching pipeline_state_per_fold",
+  "evidence": "tests/test_explain/test_shap_importance_per_fold_pipeline.py:349",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_features/test_categorical_encoder_edge.py::TestCategoricalEncoder::test_fit_missing_column",
+  "kill_mode": "train",
+  "triage": "UNIT",
+  "claim": "CategoricalEncoder fit ignores missing column",
+  "observes": "nonexistent not in enc._categories",
+  "evidence": "tests/test_features/test_categorical_encoder_edge.py:12",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_features/test_categorical_encoder_edge.py::TestCategoricalEncoder::test_fit_object_dtype",
+  "kill_mode": "train",
+  "triage": "UNIT",
+  "claim": "CategoricalEncoder fit records sorted object categories",
+  "observes": "enc._categories col == [a, b, c]",
+  "evidence": "tests/test_features/test_categorical_encoder_edge.py:17",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_features/test_categorical_encoder_edge.py::TestCategoricalEncoder::test_fit_all_na_column",
+  "kill_mode": "train",
+  "triage": "UNIT",
+  "claim": "CategoricalEncoder all-NA column has mode None",
+  "observes": "enc._modes col is None",
+  "evidence": "tests/test_features/test_categorical_encoder_edge.py:22",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_features/test_categorical_encoder_edge.py::TestCategoricalEncoder::test_transform_before_fit",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "CategoricalEncoder transform before fit raises",
+  "observes": "pytest.raises RuntimeError must be fitted",
+  "evidence": "tests/test_features/test_categorical_encoder_edge.py:27",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_features/test_feature_pipeline.py::TestCategoricalEncoder::test_fit_records_categories",
+  "kill_mode": "train",
+  "triage": "UNIT",
+  "claim": "CategoricalEncoder fit records categories",
+  "observes": "enc._categories cat == {a, b, c}",
+  "evidence": "tests/test_features/test_feature_pipeline.py:38",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_features/test_feature_pipeline.py::TestCategoricalEncoder::test_transform_restricts_to_training_categories",
+  "kill_mode": "train",
+  "triage": "UNIT",
+  "claim": "CategoricalEncoder transform restricts to training categories",
+  "observes": "transformed cat categories == training set",
+  "evidence": "tests/test_features/test_feature_pipeline.py:49",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_features/test_feature_pipeline.py::TestNativeFeaturePipelineBasic::test_fit_records_feature_names",
+  "kill_mode": "train",
+  "triage": "UNIT",
+  "claim": "NativeFeaturePipeline fit records feature names",
+  "observes": "pipe._feature_names == train columns",
+  "evidence": "tests/test_features/test_feature_pipeline.py:98",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_features/test_feature_pipeline.py::TestNativeFeaturePipelineBasic::test_fit_transform_consistent",
+  "kill_mode": "train",
+  "triage": "UNIT",
+  "claim": "NativeFeaturePipeline fit_transform equals fit then transform",
+  "observes": "assert_frame_equal of two pipeline outputs",
+  "evidence": "tests/test_features/test_feature_pipeline.py:121",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_metrics/test_multiclass_ovr_metrics.py::TestMulticlassMissingClass::test_aucpr_single_class_fold_no_crash",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "AUCPR/Brier defined on single-class multiclass fold",
+  "observes": "metric callables return float without error",
+  "evidence": "tests/test_metrics/test_multiclass_ovr_metrics.py:205",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_notebooks/test_notebook_cells.py::test_time_series_has_split_summary",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "Time-series notebook calls split_summary()",
+  "observes": "substring in notebook code cells",
+  "evidence": "tests/test_notebooks/test_notebook_cells.py:81",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_notebooks/test_notebook_cells.py::test_time_series_has_time_series_method",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "Time-series notebook uses time_series split method",
+  "observes": "substring time_series in notebook code cells",
+  "evidence": "tests/test_notebooks/test_notebook_cells.py:89",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_persistence/test_export_load_errors.py::TestLoadErrors::test_corrupt_fit_result_pkl",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Loading corrupt fit_result.pkl raises deserialization error",
+  "observes": "loader.load raises DESERIALIZATION_FAILED",
+  "evidence": "tests/test_persistence/test_export_load_errors.py:55",
+  "final": "WEAK",
+  "action": "tighten",
+  "repaired_at": "same name; only fit_result.pkl is corrupt"
+ },
+ {
+  "test": "tests/test_plots/test_helpers.py::TestCollectIsData::test_empty_folds_return_empty_arrays",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "collect_is_data returns empty arrays for empty folds",
+  "observes": "pred/actual size 0, dtype matches y",
+  "evidence": "tests/test_plots/test_helpers.py:44",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_splitters/test_splitters.py::TestGroupTimeSeriesSplitter::test_max_train_size",
+  "kill_mode": "train",
+  "triage": "UNIT",
+  "claim": "GroupTimeSeriesSplitter max_train_size limits training groups",
+  "observes": "real splitter.split train groups <= 2",
+  "evidence": "tests/test_splitters/test_splitters.py:319",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_training/test_blocked_group_inner_valid.py::TestStratifiedTimeHoldout::test_regression_fallback_raises_when_ratio_consumes_all",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Stratified time holdout fallback refuses ratio consuming all rows",
+  "observes": "strategy.split(1) raises ValueError would consume all",
+  "evidence": "tests/test_training/test_blocked_group_inner_valid.py:215",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_training/test_inner_valid_purge_embargo.py::TestExplicitInnerValidDoesNotInheritGap::test_auto_and_explicit_differ_for_the_same_outer_split",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "Auto-resolved inner valid inherits gap; explicit one does not",
+  "observes": "build_inner_valid(...).gap == 5 vs 0",
+  "evidence": "tests/test_training/test_inner_valid_purge_embargo.py:136",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_training/test_oof_coverage.py::TestComputeOofValidMask::test_full_coverage_kfold",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "OOF valid mask all True for full KFold coverage",
+  "observes": "compute_oof_valid_mask dtype/shape/all",
+  "evidence": "tests/test_training/test_oof_coverage.py:29",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_training/test_oof_coverage.py::TestComputeOofValidMask::test_empty_splits",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "OOF valid mask all False for empty splits",
+  "observes": "compute_oof_valid_mask([]) shape 5, none True",
+  "evidence": "tests/test_training/test_oof_coverage.py:76",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_training/test_oof_coverage.py::TestComputeOofValidMask::test_single_fold",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "OOF valid mask marks single-fold valid rows",
+  "observes": "compute_oof_valid_mask equals expected boolean array",
+  "evidence": "tests/test_training/test_oof_coverage.py:82",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_training/test_training.py::TestOOFHelpers::test_init_oof_regression",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "init_oof regression gives NaN vector",
+  "observes": "init_oof shape (100,) all NaN",
+  "evidence": "tests/test_training/test_training.py:140",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_training/test_training.py::TestOOFHelpers::test_init_oof_binary",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "init_oof binary gives 1-d vector",
+  "observes": "init_oof shape (50,)",
+  "evidence": "tests/test_training/test_training.py:145",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_training/test_training.py::TestOOFHelpers::test_init_oof_multiclass",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "init_oof multiclass gives (n, k) array",
+  "observes": "init_oof shape (60, 3)",
+  "evidence": "tests/test_training/test_training.py:149",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_training/test_training.py::TestOOFHelpers::test_init_oof_multiclass_requires_n_classes",
+  "kill_mode": "split",
+  "triage": "NEGATIVE",
+  "claim": "init_oof multiclass without n_classes refused",
+  "observes": "pytest.raises ValueError",
+  "evidence": "tests/test_training/test_training.py:153",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_training/test_training.py::TestOOFHelpers::test_fill_oof_correct_indices",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "fill_oof writes predictions at valid indices only",
+  "observes": "values at 2,5,7 set, others NaN",
+  "evidence": "tests/test_training/test_training.py:157",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_training/test_training.py::TestOOFHelpers::test_fill_oof_shape_mismatch",
+  "kill_mode": "split",
+  "triage": "NEGATIVE",
+  "claim": "fill_oof refuses shape mismatch",
+  "observes": "pytest.raises ValueError",
+  "evidence": "tests/test_training/test_training.py:168",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_tuning/test_default_space.py::TestDefaultSpace::test_training_dims_ranges",
+  "kill_mode": "train",
+  "triage": "UNIT",
+  "claim": "Default tuning space training dims have expected ranges",
+  "observes": "default_space dims bounds and category",
+  "evidence": "tests/test_tuning/test_default_space.py:99",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_tuning/test_default_space.py::TestSplitByCategory::test_splits_correctly",
+  "kill_mode": "split",
+  "triage": "UNIT",
+  "claim": "split_by_category routes params into model/smart/training",
+  "observes": "membership of keys in three returned dicts",
+  "evidence": "tests/test_tuning/test_default_space.py:141",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_tuning/test_dimension_consumption.py::test_unconsumed_training_dimension_refused",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Unconsumed training dimension refused before study creation",
+  "observes": "tune raises CONFIG_INVALID naming dim; optuna.create_study not called",
+  "evidence": "tests/test_tuning/test_dimension_consumption.py:58",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_tuning/test_space_merge.py::test_resolved_training_conflict_refused_before_study",
+  "kill_mode": "train",
+  "triage": "NEGATIVE",
+  "claim": "Resolved training conflict refused before study",
+  "observes": "tune raises CONFIG_INVALID already controlled; Tuner.tune not reached",
+  "evidence": "tests/test_tuning/test_space_merge.py:412",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_calibration_param_names.py::test_calibrators_that_do_not_use_lightgbm_are_checked_by_their_own_contract",
+  "kill_mode": "api",
+  "triage": "NEGATIVE",
+  "claim": "platt/beta unknown calibration.params refused by own contract, not LightGBM registry",
+  "observes": "check_calibration_param_names raises CONFIG_INVALID naming calibration.params and calibrator",
+  "evidence": "tests/test_calibration/test_calibration_param_names.py:440",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_calibration_param_names.py::test_no_calibration_and_no_params_are_no_ops",
+  "kill_mode": "api",
+  "triage": "NEGATIVE",
+  "claim": "no calibration, or empty/None params, are accepted without refusal",
+  "observes": "implicit: check_calibration_param_names raises no exception (no assert)",
+  "evidence": "tests/test_calibration/test_calibration_param_names.py:449",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_h0058_outer_reuse.py::TestBuildCalibrationSplitterDeprecated::test_build_calibration_splitter_warns",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "deprecated build_calibration_splitter emits DeprecationWarning",
+  "observes": "pytest.warns(DeprecationWarning) around build_calibration_splitter(cfg)",
+  "evidence": "tests/test_calibration/test_h0058_outer_reuse.py:179",
+  "final": "UNIT",
+  "action": "none",
+  "note": "build_calibration_splitter has no production caller by design: H-0058 deprecation shim, removal tracked in docs/DEPRECATIONS.md and #148"
+ },
+ {
+  "test": "tests/test_calibration/test_isotonic_calibration.py::TestIsotonicCalibrator::test_monotone",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "IsotonicCalibrator predictions are monotone in score",
+  "observes": "IsotonicCalibrator.fit/predict on sorted scores; np.diff >= -1e-10",
+  "evidence": "tests/test_calibration/test_isotonic_calibration.py:53",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_isotonic_calibration.py::TestIsotonicCalibrator::test_reproducibility_with_seed",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "IsotonicCalibrator with same seed gives identical predictions",
+  "observes": "two IsotonicCalibrator(seed=123) fits produce equal predictions",
+  "evidence": "tests/test_calibration/test_isotonic_calibration.py:139",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_isotonic_calibration.py::TestIsotonicCalibrator::test_output_range_not_compressed",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "IsotonicCalibrator output range not compressed (no double sigmoid)",
+  "observes": "IsotonicCalibrator predict min<0.3 and max>0.7",
+  "evidence": "tests/test_calibration/test_isotonic_calibration.py:183",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_isotonic_calibration.py::TestIsotonicCalibrator::test_extreme_scores_produce_extreme_probabilities",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "IsotonicCalibrator maps extreme logits to extreme probabilities",
+  "observes": "IsotonicCalibrator.predict([-10,10]) gives <0.1 and >0.9",
+  "evidence": "tests/test_calibration/test_isotonic_calibration.py:197",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_platt_mle.py::test_export_form_and_predict_agree",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "PlattCalibrator export_params form agrees with its predict",
+  "observes": "export_params keys {method,a,b}; expit(a*s+b) == cal.predict(s)",
+  "evidence": "tests/test_calibration/test_platt_mle.py:106",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_platt_mle.py::test_bounds_on_the_slope_hold_in_the_written_coordinates_for_large_scores",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "Platt slope bounds hold in user coordinates under score rescaling",
+  "observes": "PlattCalibrator fit with bounds; exported a within [0.01,0.02], ==0.02",
+  "evidence": "tests/test_calibration/test_platt_mle.py:127",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_raw_score_calibration.py::TestPredictRaw::test_predict_raw_returns_logits_for_binary",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "LGBMAdapter.predict_raw returns logits for binary",
+  "observes": "LGBMAdapter fit; predict_raw shape (n,), differs from proba, outside [0,1]",
+  "evidence": "tests/test_calibration/test_raw_score_calibration.py:26",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_calibration/test_raw_score_calibration.py::TestPredictRaw::test_predict_raw_regression_same_as_predict",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "LGBMAdapter.predict_raw equals predict for regression",
+  "observes": "LGBMAdapter fit; predict_raw array_equal predict",
+  "evidence": "tests/test_calibration/test_raw_score_calibration.py:44",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_config_writer.py::TestBuildConfig::test_calibration_method_binary",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "codegen build_config records calibration method and n_splits",
+  "observes": "build_config dict has calibration_method=='platt', n_splits==5",
+  "evidence": "tests/test_codegen/test_config_writer.py:135",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_config_writer.py::TestBuildConfig::test_calibration_none_when_no_calibrator",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "build_config writes calibration_method None without calibrator",
+  "observes": "build_config dict calibration_method is None",
+  "evidence": "tests/test_codegen/test_config_writer.py:151",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_config_writer.py::TestBuildConfig::test_key_ordering",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "build_config key order: meta, feature, lgbm, calibration",
+  "observes": "index ordering of keys in build_config output",
+  "evidence": "tests/test_codegen/test_config_writer.py:184",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_config_writer.py::TestBuildConfig::test_multiclass_no_calibration_fields",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "multiclass config keeps calibration keys as None (name says 'no fields': contradicts docstring)",
+  "observes": "build_config dict calibration_method None, calibration_n_splits==5",
+  "evidence": "tests/test_codegen/test_config_writer.py:206",
+  "final": "WEAK",
+  "action": "rename",
+  "repaired_at": "tests/test_codegen/test_config_writer.py::TestBuildConfig::test_multiclass_keeps_both_calibration_keys"
+ },
+ {
+  "test": "tests/test_codegen/test_export_params.py::TestPlattExportParams::test_export_params_returns_correct_keys",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "PlattCalibrator.export_params returns method/a/b floats",
+  "observes": "export_params keys and float types after Platt fit",
+  "evidence": "tests/test_codegen/test_export_params.py:34",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_export_params.py::TestPlattExportParams::test_export_params_roundtrip",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "Platt exported a,b reproduce predict()",
+  "observes": "sigmoid(a*s+b) allclose cal.predict on linspace",
+  "evidence": "tests/test_codegen/test_export_params.py:46",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_export_params.py::TestPlattExportParams::test_export_params_json_serializable",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "Platt export_params is JSON-serialisable",
+  "observes": "json.dumps(export_params) does not raise",
+  "evidence": "tests/test_codegen/test_export_params.py:65",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_export_params.py::TestBetaExportParams::test_export_params_returns_correct_keys",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "BetaCalibrator.export_params returns method/a/b/c floats",
+  "observes": "export_params keys and float types after Beta fit",
+  "evidence": "tests/test_codegen/test_export_params.py:78",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_export_params.py::TestBetaExportParams::test_export_params_roundtrip",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "Beta exported a,b,c reproduce predict()",
+  "observes": "manual beta formula allclose cal.predict",
+  "evidence": "tests/test_codegen/test_export_params.py:92",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_export_params.py::TestIsotonicExportParams::test_export_params_returns_correct_keys",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "IsotonicCalibrator.export_params method is isotonic",
+  "observes": "export_params()['method']=='isotonic'",
+  "evidence": "tests/test_codegen/test_export_params.py:121",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_export_params.py::TestLGBMAdapterSaveModelText::test_roundtrip_predictions",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "LGBMAdapter.save_model_text round-trips predictions",
+  "observes": "lgb.Booster(model_file) predict allclose adapter.predict",
+  "evidence": "tests/test_codegen/test_export_params.py:192",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_feval_codegen.py::TestConfigFeval::test_feval_metrics_present_in_config",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "build_config carries feval_metrics entries",
+  "observes": "build_config feval_metrics length 2, names and params",
+  "evidence": "tests/test_codegen/test_feval_codegen.py:72",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_feval_codegen.py::TestConfigFeval::test_feval_metrics_empty_when_none",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "build_config feval_metrics defaults to empty list",
+  "observes": "build_config()['feval_metrics']==[] when omitted",
+  "evidence": "tests/test_codegen/test_feval_codegen.py:93",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_feval_codegen.py::TestConfigFeval::test_feval_metrics_empty_list_explicit",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "build_config feval_metrics explicit empty list stays empty",
+  "observes": "build_config(feval_metrics=[])['feval_metrics']==[]",
+  "evidence": "tests/test_codegen/test_feval_codegen.py:108",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_feval_codegen.py::TestConfigFeval::test_feval_metrics_json_serializable",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "build_config with feval_metrics is JSON round-trippable",
+  "observes": "json dumps/loads of config preserves feval_metrics",
+  "evidence": "tests/test_codegen/test_feval_codegen.py:124",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_feval_codegen.py::TestConfigFeval::test_feval_metrics_key_ordering",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "feval_metrics key sits after seed, before calibration_method",
+  "observes": "key index ordering in build_config output",
+  "evidence": "tests/test_codegen/test_feval_codegen.py:144",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_feval_codegen.py::TestExtractFevalMetadata::test_no_metric_returns_empty",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "_extract_feval_metadata returns [] for adapter with no metric",
+  "observes": "_extract_feval_metadata(adapter(params={}))==[]",
+  "evidence": "tests/test_codegen/test_feval_codegen.py:455",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_feval_codegen.py::TestBuildFevalFromConfig::test_empty_feval_metrics_returns_empty",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "generated build_feval_from_config returns [] for empty list",
+  "observes": "exec'd template block returns [] for feval_metrics=[]",
+  "evidence": "tests/test_codegen/test_feval_codegen.py:577",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_feval_codegen.py::TestBuildFevalFromConfig::test_missing_feval_metrics_key_returns_empty",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "generated build_feval_from_config returns [] when key missing",
+  "observes": "exec'd template block with CFG lacking feval_metrics returns []",
+  "evidence": "tests/test_codegen/test_feval_codegen.py:581",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_feval_codegen.py::TestBuildFevalFromConfig::test_unknown_metric_skipped",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "generated build_feval_from_config skips unknown metric names",
+  "observes": "exec'd template block returns [] for nonexistent metric",
+  "evidence": "tests/test_codegen/test_feval_codegen.py:605",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_templates.py::TestRenderTrainPy::test_contains_calibration_methods",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "rendered train.py contains the three calibrator fit functions",
+  "observes": "substring check for _fit_platt/_fit_beta/_fit_isotonic in render_train_py()",
+  "evidence": "tests/test_codegen/test_templates.py:71",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_templates.py::TestRenderPredictPy::test_valid_python",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "rendered predict.py is valid Python",
+  "observes": "ast.parse(render_predict_py()) succeeds",
+  "evidence": "tests/test_codegen/test_templates.py:89",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_templates.py::TestRenderPredictPy::test_no_sklearn_dependency",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "rendered predict.py has no sklearn/scipy dependency",
+  "observes": "'sklearn' and 'scipy' absent from render_predict_py() text",
+  "evidence": "tests/test_codegen/test_templates.py:115",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_templates.py::TestRenderPredictPy::test_contains_calibration_apply",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "rendered predict.py applies platt/beta/isotonic calibration",
+  "observes": "substring check for platt/beta/isotonic in render_predict_py()",
+  "evidence": "tests/test_codegen/test_templates.py:121",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_templates.py::TestRenderTestEquivalencePy::test_imports_and_calls_predict_module",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "generated test_equivalence.py imports and calls predict.py",
+  "observes": "AST import set has 'predict'; 'predict.predict(' in source",
+  "evidence": "tests/test_codegen/test_templates.py:162",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_codegen/test_templates.py::TestRenderTestEquivalencePy::test_no_second_prediction_implementation",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "generated test_equivalence.py has no second prediction implementation",
+  "observes": "forbidden function names absent; no 'import lightgbm' in rendered source",
+  "evidence": "tests/test_codegen/test_templates.py:176",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_contracts.py::TestSplitIndicesSchema::test_instantiation_no_inner_no_calibration",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "SplitIndices accepts inner=None and calibration=None",
+  "observes": "constructed SplitIndices fields None, outer length 1",
+  "evidence": "tests/test_core/test_contracts.py:109",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_contracts.py::TestSplitIndicesSchema::test_instantiation_with_inner_and_calibration",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "SplitIndices accepts inner and calibration index lists",
+  "observes": "constructed SplitIndices inner/calibration not None",
+  "evidence": "tests/test_core/test_contracts.py:119",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_contracts.py::TestFitResultSchema::test_metrics_raw_structure",
+  "kill_mode": "metric",
+  "triage": "OVERCLAIM",
+  "claim": "FitResult.metrics['raw'] key set is pinned (catches dropped key)",
+  "observes": "asserts key set of a hand-built fixture FitResult whose metrics the test wrote",
+  "evidence": "tests/test_core/test_contracts.py:178",
+  "final": "OVERCLAIM",
+  "action": "reach",
+  "repaired_at": "tests/test_core/test_contracts.py::TestFitResultSchema::test_metrics_raw_structure (now on a real Model.fit)"
+ },
+ {
+  "test": "tests/test_core/test_contracts.py::TestFitResultSchema::test_calibrated_key_absent_when_no_calibrator",
+  "kill_mode": "api",
+  "triage": "OVERCLAIM",
+  "claim": "no 'calibrated' metrics key when no calibrator",
+  "observes": "asserts on hand-built fixture FitResult (calibrator=None, metrics written by test)",
+  "evidence": "tests/test_core/test_contracts.py:193",
+  "final": "OVERCLAIM",
+  "action": "reach",
+  "repaired_at": "tests/test_core/test_contracts.py::TestFitResultSchema::test_calibrated_key_absent_when_no_calibrator (now on a real Model.fit)"
+ },
+ {
+  "test": "tests/test_core/test_contracts.py::TestPredictionResultSchema::test_proba_optional",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "PredictionResult.proba may be None",
+  "observes": "constructed PredictionResult(proba=None).proba is None",
+  "evidence": "tests/test_core/test_contracts.py:239",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_contracts.py::TestPredictionResultSchema::test_shap_values_optional",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "PredictionResult.shap_values may be None",
+  "observes": "fixture-constructed PredictionResult.shap_values is None",
+  "evidence": "tests/test_core/test_contracts.py:249",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_fit_params_override.py::test_the_provider_fixed_seam_carries_one_spelling",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "Model._merge_params seam keeps one metric spelling with provider fixed layer",
+  "observes": "Model._merge_params(LGBMProvider()) merged dict has only 'metric' spelling; docstring scopes claim to seam",
+  "evidence": "tests/test_core/test_fit_params_override.py:1816",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_model_metrics_calibrated.py::TestFilterMetricsNoBranches::test_no_empty_calibrated_branch",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "filter_metrics leaves no empty calibrated branch",
+  "observes": "assert inside 'if calibrated in result' -> passes trivially if key dropped",
+  "evidence": "tests/test_core/test_model_metrics_calibrated.py:85",
+  "final": "WEAK",
+  "action": "tighten",
+  "repaired_at": "same name; unconditional assertions"
+ },
+ {
+  "test": "tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "normalise_value is idempotent",
+  "observes": "normalise_value(normalise_value(v)) repr equals once; is_accepted",
+  "evidence": "tests/test_core/test_param_domain.py:298",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_param_domain.py::test_the_refused_subset_is_exactly_the_declared_boundary",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "param_domain refused set equals declared refusal reasons",
+  "observes": "measured REFUSED_POPULATION ids == predicted ids; reasons subset of declared",
+  "evidence": "tests/test_core/test_param_domain.py:502",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_param_domain.py::test_a_string_neither_consumer_can_encode_is_refused",
+  "kill_mode": "api",
+  "triage": "NEGATIVE",
+  "claim": "lone-surrogate string refused by normalise_params",
+  "observes": "normalise_params raises CONFIG_INVALID for surrogate in str/list/dict",
+  "evidence": "tests/test_core/test_param_domain.py:1311",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_param_domain.py::test_a_metric_entry_written_as_a_mapping_is_accepted_at_the_surface",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "metric mapping entry accepted and normalised at param surface",
+  "observes": "normalise_params metric mapping -> plain int; list form preserved",
+  "evidence": "tests/test_core/test_param_domain.py:1384",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_task_type.py::TestTaskTypeReExports::test_target_encoder_re_export",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "TaskType re-exported from target_encoder module is the same object",
+  "observes": "identity check TET is TaskType",
+  "evidence": "tests/test_core/test_task_type.py:35",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_task_type.py::TestTaskTypeReExports::test_evaluator_re_export",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "TaskType re-exported from evaluator module is the same object",
+  "observes": "identity check EvalT is TaskType",
+  "evidence": "tests/test_core/test_task_type.py:40",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_core/test_task_type.py::TestTaskTypeReExports::test_lgbm_adapter_re_export",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "TaskType re-exported from lgbm adapter is the same object",
+  "observes": "identity check LGBMT is TaskType",
+  "evidence": "tests/test_core/test_task_type.py:50",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_e2e/test_leakage_all.py::TestCalibrationLeakage::test_calibration_result_structure",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "cross_fit_calibrate returns CalibrationResult with OOF shape and c_final",
+  "observes": "cross_fit_calibrate on synthetic scores: type, shape (100,), c_final set",
+  "evidence": "tests/test_e2e/test_leakage_all.py:182",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_e2e/test_public_api.py::TestPublicImports::test_prediction_result_importable",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "PredictionResult importable from public path",
+  "observes": "import succeeds; object not None",
+  "evidence": "tests/test_e2e/test_public_api.py:26",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_e2e/test_public_api.py::TestPublicImports::test_explain_importable",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "compute_shap_values importable and callable",
+  "observes": "import succeeds; callable",
+  "evidence": "tests/test_e2e/test_public_api.py:48",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_e2e/test_time_series_full.py::TestTimeSeriesCalibrationSplitter::test_calibration_splitter_inherits_purged_params",
+  "kill_mode": "api",
+  "triage": "OVERCLAIM",
+  "claim": "calibration splitter inherits purged params (embargo merged into purge_gap)",
+  "observes": "deprecated build_calibration_splitter (no production caller) purge_gap==15",
+  "evidence": "tests/test_e2e/test_time_series_full.py:166",
+  "final": "OVERCLAIM",
+  "action": "rename",
+  "repaired_at": "tests/test_e2e/test_time_series_full.py::TestTimeSeriesCalibrationSplitter::test_deprecated_calibration_splitter_shim_keeps_purge_params; boundary: tests/test_splitters/test_purged_embargo_merge.py::test_calibration_folds_match_the_merged_purge_gap"
+ },
+ {
+  "test": "tests/test_estimators/test_check_provider.py::TestProtocolReturnTypes::test_build_export_params_returns_export_params",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "provider.build_export_params returns populated ExportParams",
+  "observes": "ExportParams type, params dict, num_boost_round>0, feval list",
+  "evidence": "tests/test_estimators/test_check_provider.py:121",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_check_provider.py::TestFactoryFitPredictRoundtrip::test_predict_proba_binary_shape",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "provider-built adapter predict_proba binary shape (n,2), rows sum 1",
+  "observes": "adapter.predict_proba shape and row sums",
+  "evidence": "tests/test_estimators/test_check_provider.py:212",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_check_provider.py::TestFactoryFitPredictRoundtrip::test_predict_proba_multiclass_shape",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "provider-built adapter predict_proba multiclass shape, rows sum 1",
+  "observes": "adapter.predict_proba shape (n,k) and row sums",
+  "evidence": "tests/test_estimators/test_check_provider.py:224",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_check_provider.py::TestFactoryFitPredictRoundtrip::test_predict_proba_regression_raises",
+  "kill_mode": "api",
+  "triage": "NEGATIVE",
+  "claim": "predict_proba refused for regression adapter",
+  "observes": "pytest.raises LizyMLError code UNSUPPORTED_TASK",
+  "evidence": "tests/test_estimators/test_check_provider.py:237",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_check_provider.py::TestFactoryFitPredictRoundtrip::test_predict_raw_shape",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "provider-built adapter predict_raw shape (n,)",
+  "observes": "adapter.predict_raw shape",
+  "evidence": "tests/test_estimators/test_check_provider.py:249",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_estimators.py::TestLGBMRegression::test_predict_proba_raises",
+  "kill_mode": "api",
+  "triage": "NEGATIVE",
+  "claim": "LGBMAdapter regression predict_proba refused",
+  "observes": "pytest.raises LizyMLError code UNSUPPORTED_TASK",
+  "evidence": "tests/test_estimators/test_estimators.py:71",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_estimators.py::TestLGBMBinary::test_predict_shape",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "LGBMAdapter binary predict shape (n,)",
+  "observes": "fitted adapter predict shape",
+  "evidence": "tests/test_estimators/test_estimators.py:147",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_estimators.py::TestLGBMBinary::test_predict_proba_shape",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "LGBMAdapter binary predict_proba shape (n,2), valid probs",
+  "observes": "proba shape, row sums 1, in [0,1]",
+  "evidence": "tests/test_estimators/test_estimators.py:154",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_estimators.py::TestLGBMMulticlass::test_predict_proba_shape",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "LGBMAdapter multiclass predict_proba shape (n,k), rows sum 1",
+  "observes": "proba shape and row sums",
+  "evidence": "tests/test_estimators/test_estimators.py:181",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_estimators.py::TestLGBMMulticlass::test_predict_labels",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "LGBMAdapter multiclass predict returns labels",
+  "observes": "preds shape (n,), values subset {0,1,2}",
+  "evidence": "tests/test_estimators/test_estimators.py:191",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_feval_probabilities.py::test_the_population_is_every_feval_metric",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "parametrized CELLS cover every feval metric per task",
+  "observes": "set of (task,name) in CELLS equals _FEVAL_METRICS population",
+  "evidence": "tests/test_estimators/test_feval_probabilities.py:51",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_h0079_followup.py::TestG3ObjectiveCompatibilityEdgeInputs::test_dict_form_objective_raises",
+  "kill_mode": "metric",
+  "triage": "NEGATIVE",
+  "claim": "dict-form objective refused by adapter._build_params",
+  "observes": "raises LizyMLError(CONFIG_INVALID) or TypeError (weak: TypeError accepted)",
+  "evidence": "tests/test_estimators/test_h0079_followup.py:195",
+  "final": "WEAK",
+  "action": "tighten+fix",
+  "repaired_at": "CONFIG_INVALID only; exposed a raw TypeError fixed by H-0116; boundary: test_unhashable_objective_through_model_fit_is_config_invalid"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_defaults.py::TestTaskDefaults::test_regression_metric_list",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "regression default metric list in adapter params",
+  "observes": "_build_params()['metric']==['huber','mae','mape']",
+  "evidence": "tests/test_estimators/test_lgbm_defaults.py:15",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_defaults.py::TestTaskDefaults::test_binary_metric_list",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "binary default metric list in adapter params",
+  "observes": "_build_params()['metric']==['auc','binary_logloss']",
+  "evidence": "tests/test_estimators/test_lgbm_defaults.py:23",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_defaults.py::TestTaskDefaults::test_multiclass_metric_list",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "multiclass default metric list in adapter params",
+  "observes": "_build_params()['metric']==['auc_mu','multi_logloss']",
+  "evidence": "tests/test_estimators/test_lgbm_defaults.py:31",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestTranslateMetric::test_unknown_metric_passthrough",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "translate_metric passes unknown names through",
+  "observes": "translate_metric('some_custom_thing')== same string",
+  "evidence": "tests/test_estimators/test_lgbm_metric_bridge.py:63",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestValidateLgbmMetrics::test_valid_native_metrics_pass",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "validate_lgbm_metrics accepts valid native metrics",
+  "observes": "implicit: no exception raised (no assert)",
+  "evidence": "tests/test_estimators/test_lgbm_metric_bridge.py:89",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestValidateLgbmMetrics::test_invalid_metric_raises",
+  "kill_mode": "metric",
+  "triage": "NEGATIVE",
+  "claim": "validate_lgbm_metrics refuses unknown metric",
+  "observes": "raises LizyMLError CONFIG_INVALID naming the metric",
+  "evidence": "tests/test_estimators/test_lgbm_metric_bridge.py:104",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestValidateLgbmMetrics::test_regression_metric_invalid_for_binary",
+  "kill_mode": "metric",
+  "triage": "NEGATIVE",
+  "claim": "regression metric refused for binary task",
+  "observes": "validate_lgbm_metrics(['rmse'],'binary') raises LizyMLError",
+  "evidence": "tests/test_estimators/test_lgbm_metric_bridge.py:118",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestValidateLgbmMetrics::test_feval_metric_bypasses_validation",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "feval-listed metric bypasses native whitelist",
+  "observes": "implicit: no exception raised (no assert)",
+  "evidence": "tests/test_estimators/test_lgbm_metric_bridge.py:124",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestValidateLgbmMetrics::test_mixed_native_and_feval",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "mixed native and feval metrics validate",
+  "observes": "implicit: no exception raised (no assert)",
+  "evidence": "tests/test_estimators/test_lgbm_metric_bridge.py:128",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestR2FevalMigration::test_r2_not_in_native_whitelist",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "r2 absent from native LightGBM metric whitelist",
+  "observes": "'r2' not in _LGBM_NATIVE_METRICS['regression']",
+  "evidence": "tests/test_estimators/test_lgbm_metric_bridge.py:734",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestR2FevalMigration::test_r2_in_feval_metrics",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "r2 registered as regression feval metric",
+  "observes": "'r2' in _FEVAL_METRICS['regression']",
+  "evidence": "tests/test_estimators/test_lgbm_metric_bridge.py:740",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestR2FevalMigration::test_r2_feval_perfect_predictions",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "r2 feval returns 1.0 for perfect predictions",
+  "observes": "resolve_metrics feval fn on lgb.Dataset returns 1.0",
+  "evidence": "tests/test_estimators/test_lgbm_metric_bridge.py:786",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_metric_bridge.py::TestR2FevalMigration::test_r2_validate_lgbm_metrics_rejects",
+  "kill_mode": "metric",
+  "triage": "NEGATIVE",
+  "claim": "r2 without feval bypass refused by validate_lgbm_metrics",
+  "observes": "pytest.raises LizyMLError",
+  "evidence": "tests/test_estimators/test_lgbm_metric_bridge.py:826",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_user_metric.py::TestUserMetricOverride::test_fallback_to_task_default_when_no_user_metric",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "adapter falls back to task default metric without user metric",
+  "observes": "_build_params()['metric']==_TASK_METRIC['binary']",
+  "evidence": "tests/test_estimators/test_lgbm_user_metric.py:40",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_user_metric.py::TestUserMetricBehavioral::test_default_metric_shows_all_task_metrics",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "default binary metric yields auc and binary_logloss in booster history",
+  "observes": "adapter.fit then eval_results['valid_0'] has auc, binary_logloss",
+  "evidence": "tests/test_estimators/test_lgbm_user_metric.py:89",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_user_metric.py::TestInvalidMetricError::test_empty_string_metric_falls_back",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "metric=[''] filtered, falls back to task default",
+  "observes": "_build_params()['metric']==_TASK_METRIC['binary']",
+  "evidence": "tests/test_estimators/test_lgbm_user_metric.py:164",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_user_metric.py::TestInvalidMetricError::test_string_metric_with_empty_falls_back",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "metric='' treated as empty, falls back",
+  "observes": "_build_params()['metric']==_TASK_METRIC['binary']",
+  "evidence": "tests/test_estimators/test_lgbm_user_metric.py:175",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_lgbm_user_metric.py::TestParamsSummaryMetric::test_metric_in_params_summary",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "provider.params_summary includes metric row",
+  "observes": "params_summary rows contain 'metric' with str/list value",
+  "evidence": "tests/test_estimators/test_lgbm_user_metric.py:195",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_metric_choices_registry_coverage.py::TestMetricRegistryTranslation::test_no_registered_metrics_lost_in_translation",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "no registered metric translates to empty value",
+  "observes": "translate_metric(name, task) truthy for each registered metric",
+  "evidence": "tests/test_estimators/test_metric_choices_registry_coverage.py:91",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_metric_choices_registry_coverage.py::TestProviderSurfaceReverseSubset::test_feval_subset_of_feval_metrics",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "provider feval choices subset of _FEVAL_METRICS",
+  "observes": "set(metric_choices feval) - whitelist empty",
+  "evidence": "tests/test_estimators/test_metric_choices_registry_coverage.py:124",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_param_behavioral_effect.py::TestBoosterParamPropagation::test_metric_default_per_task",
+  "kill_mode": "metric",
+  "triage": "OVERCLAIM",
+  "claim": "class claims default metric reaches LightGBM Booster per task",
+  "observes": "_build_params()['metric']==_TASK_METRIC[task]; no Booster built",
+  "evidence": "tests/test_estimators/test_param_behavioral_effect.py:172",
+  "final": "HOLLOW",
+  "action": "reach",
+  "repaired_at": "same name; trains and reads LightGBM's eval_results (its producer is lightgbm.train, not the metric set the noun matched)"
+ },
+ {
+  "test": "tests/test_estimators/test_param_behavioral_effect.py::TestBehavioralEffect::test_scale_pos_weight_changes_predictions",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "scale_pos_weight changes adapter binary predictions",
+  "observes": "two adapter fits differ; higher weight raises mean positive proba",
+  "evidence": "tests/test_estimators/test_param_behavioral_effect.py:273",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_param_behavioral_effect.py::TestSmartParamsBehavior::test_balanced_binary_shifts_predictions",
+  "kill_mode": "api",
+  "triage": "OVERCLAIM",
+  "claim": "balanced=True shifts binary predictions",
+  "observes": "resolve_smart_params dict has scale_pos_weight>1; no fit or predict",
+  "evidence": "tests/test_estimators/test_param_behavioral_effect.py:306",
+  "final": "HOLLOW",
+  "action": "reach+split",
+  "repaired_at": "same name now fits through Model twice; the resolution check moved to test_balanced_binary_resolves_scale_pos_weight"
+ },
+ {
+  "test": "tests/test_estimators/test_param_behavioral_effect.py::TestMulticlassParams::test_multiclass_predict_proba_shape",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "multiclass adapter predict_proba shape (n,4), rows sum 1",
+  "observes": "adapter fit; proba shape and row sums",
+  "evidence": "tests/test_estimators/test_param_behavioral_effect.py:621",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_provider_choice_apis.py::TestMetricChoicesSignature::test_non_empty_native_branch",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "metric_choices lists at least one native metric per task",
+  "observes": "len(provider.metric_choices(task)['native'])>=1",
+  "evidence": "tests/test_estimators/test_provider_choice_apis.py:172",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_provider_choice_apis.py::TestMetricChoicesContent::test_regression_native_includes_core_metrics",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "regression native metric choices include rmse/mae/mape",
+  "observes": "subset check on metric_choices('regression')['native']",
+  "evidence": "tests/test_estimators/test_provider_choice_apis.py:243",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_estimators/test_provider_choice_apis.py::TestMetricChoicesContent::test_feval_subset_of_feval_metrics",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "metric_choices feval names registered in _FEVAL_METRICS",
+  "observes": "set difference empty for every task",
+  "evidence": "tests/test_estimators/test_provider_choice_apis.py:276",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_evaluation/test_evaluation.py::TestEvaluatorStructureRegression::test_no_calibrated_key_without_calibrator",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "Evaluator output has no calibrated key without calibrator",
+  "observes": "real CV fit_result; Evaluator.evaluate output lacks 'calibrated'",
+  "evidence": "tests/test_evaluation/test_evaluation.py:188",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_evaluation/test_evaluation.py::TestMulticlassOvaNormalization::test_softmax_pred_unchanged_for_simplex",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "_pred_for_metric returns simplex softmax preds unchanged",
+  "observes": "_pred_for_metric output allclose input",
+  "evidence": "tests/test_evaluation/test_evaluation.py:431",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_evaluation/test_evaluation.py::TestMulticlassOvaNormalization::test_auc_pr_receives_raw_values",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "AUCPR (needs_simplex False) receives raw multiclass values",
+  "observes": "AUCPR flags; _pred_for_metric output equals input",
+  "evidence": "tests/test_evaluation/test_evaluation.py:469",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_evaluation/test_evaluation.py::TestMulticlassOvaNormalization::test_brier_receives_raw_values",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "Brier (needs_simplex False) receives raw multiclass values",
+  "observes": "Brier flags; _pred_for_metric output equals input",
+  "evidence": "tests/test_evaluation/test_evaluation.py:481",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_evaluation/test_evaluation.py::TestMulticlassOvaNormalization::test_binary_not_affected",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "binary predictions not row-normalised by _pred_for_metric",
+  "observes": "_pred_for_metric binary output equals input",
+  "evidence": "tests/test_evaluation/test_evaluation.py:495",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_evaluation/test_evaluation.py::TestMulticlassOvaNormalization::test_regression_not_affected",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "regression predictions returned as-is by _pred_for_metric",
+  "observes": "_pred_for_metric regression output equals input",
+  "evidence": "tests/test_evaluation/test_evaluation.py:507",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_evaluation/test_table_formatter.py::TestFormatMetricsTable::test_with_calibrated",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "format_metrics_table adds cal_oof column with calibrated metrics",
+  "observes": "cal_oof column present with value 0.48",
+  "evidence": "tests/test_evaluation/test_table_formatter.py:50",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_evaluation/test_table_formatter.py::TestFormatMetricsTable::test_no_calibrated",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "format_metrics_table omits cal_oof without calibrated metrics",
+  "observes": "'cal_oof' not in columns",
+  "evidence": "tests/test_evaluation/test_table_formatter.py:66",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_metrics/test_metric_regressions.py::TestECEFormula::test_low_confidence_bin_well_calibrated",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "ECE small for well-calibrated low-confidence predictions",
+  "observes": "ECE(n_bins=10) < 0.05 on synthetic data",
+  "evidence": "tests/test_metrics/test_metric_regressions.py:24",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_metrics/test_metric_regressions.py::TestECEFormula::test_high_confidence_bin_poorly_calibrated",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "ECE ~0.4 for overconfident 0.9 predictions",
+  "observes": "0.3 < ECE < 0.5",
+  "evidence": "tests/test_metrics/test_metric_regressions.py:35",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_metrics/test_metric_regressions.py::TestLogLossMulticlass::test_2d_good_predictions_lower_loss",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "multiclass LogLoss lower for good 2D predictions",
+  "observes": "LogLoss(good) < LogLoss(bad)",
+  "evidence": "tests/test_metrics/test_metric_regressions.py:77",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_metrics/test_metric_requires_proba.py::test_the_population_is_every_needs_proba_metric",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "needs_proba metric population is the expected list",
+  "observes": "_PROBA_METRICS equals hard-coded six names",
+  "evidence": "tests/test_metrics/test_metric_requires_proba.py:50",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_metrics/test_metrics.py::TestF1::test_with_proba",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "F1 thresholds probabilities at 0.5",
+  "observes": "F1()(y, proba) == 1.0",
+  "evidence": "tests/test_metrics/test_metrics.py:192",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_metrics/test_metrics.py::TestECE::test_perfect_calibration",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "ECE small for perfectly calibrated predictions",
+  "observes": "ECE < 0.1 on synthetic 0.8 data",
+  "evidence": "tests/test_metrics/test_metrics.py:241",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_metrics/test_multiclass_ovr_metrics.py::TestAUCMulticlassOvR::test_good_predictions_high_auc",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "multiclass OvR AUC high for good predictions",
+  "observes": "AUC()(y, pred) > 0.8",
+  "evidence": "tests/test_metrics/test_multiclass_ovr_metrics.py:43",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_metrics/test_multiclass_ovr_metrics.py::TestBrierMulticlassOvR::test_good_predictions_low_brier",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "multiclass OvR Brier low for good predictions",
+  "observes": "Brier()(y, pred) < 0.3",
+  "evidence": "tests/test_metrics/test_multiclass_ovr_metrics.py:89",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_metrics/test_regression_metrics.py::TestMAPE::test_perfect_prediction_is_zero",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "MAPE of perfect prediction is zero",
+  "observes": "MAPE()(y,y)==0",
+  "evidence": "tests/test_metrics/test_regression_metrics.py:34",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_metrics/test_regression_metrics.py::TestHuberLoss::test_perfect_prediction_is_zero",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "Huber loss of perfect prediction is zero",
+  "observes": "HuberLoss()(y,y)==0",
+  "evidence": "tests/test_metrics/test_regression_metrics.py:88",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_metrics/test_regression_metrics.py::TestSMAPE::test_perfect_prediction_is_zero",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "SMAPE of perfect prediction is zero",
+  "observes": "SMAPE()(y,y)==0",
+  "evidence": "tests/test_metrics/test_regression_metrics.py:154",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_metrics/test_regression_metrics.py::TestWAPE::test_perfect_prediction_is_zero",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "WAPE of perfect prediction is zero",
+  "observes": "WAPE()(y,y)==0",
+  "evidence": "tests/test_metrics/test_regression_metrics.py:245",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_notebooks/test_notebook_cells.py::test_time_series_has_predict",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "time-series notebook demonstrates predict",
+  "observes": "'.predict(' substring in notebook code cells",
+  "evidence": "tests/test_notebooks/test_notebook_cells.py:97",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_plots/test_theme.py::TestThemeAppliedToAllPlots::test_every_plot_module_imports_apply_default_layout",
+  "kill_mode": "api",
+  "triage": "HOLLOW",
+  "claim": "theme applied to all plots (class/module: modules import and use helper)",
+  "observes": "hasattr(module, 'apply_default_layout') only; no figure layout.template checked",
+  "evidence": "tests/test_plots/test_theme.py:87",
+  "final": "HOLLOW",
+  "action": "add-boundary",
+  "repaired_at": "tests/test_plots/test_theme.py::TestThemeAppliedToAllPlots::test_every_public_plot_figure_passes_through_the_helper"
+ },
+ {
+  "test": "tests/test_plots/test_tuning_plot.py::TestTuningPlotUnit::test_best_score_line_present",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "plot_tuning_history draws one Best Score line",
+  "observes": "plot_tuning_history fig has one lines trace named Best Score",
+  "evidence": "tests/test_plots/test_tuning_plot.py:85",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_training/test_training.py::TestCVTrainerRegression::test_metrics_empty",
+  "kill_mode": "metric",
+  "triage": "NEGATIVE",
+  "claim": "CVTrainer does not populate metrics (Evaluator does)",
+  "observes": "CVTrainer.fit result.metrics == {}",
+  "evidence": "tests/test_training/test_training.py:241",
+  "final": "NEGATIVE",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_training/test_training.py::TestRefitTrainer::test_refit_model_can_predict",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "RefitTrainer model can predict on transformed new rows",
+  "observes": "RefitTrainer.fit; pipeline transform; model.predict shape (5,)",
+  "evidence": "tests/test_training/test_training.py:433",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_tuning/test_retune.py::TestPlotTuningHistoryRounds::test_plot_with_failed_trials",
+  "kill_mode": "api",
+  "triage": "UNIT",
+  "claim": "plot_tuning_history handles failed trials",
+  "observes": "hand-built TuningResult with fail trial; fig.data length >= 2",
+  "evidence": "tests/test_tuning/test_retune.py:1186",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_tuning/test_retune.py::TestPlotTuningHistoryRounds::test_plot_maximize_direction",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "plot_tuning_history best line non-decreasing for maximize",
+  "observes": "Best Score trace y[1] >= y[0]",
+  "evidence": "tests/test_tuning/test_retune.py:1207",
+  "final": "UNIT",
+  "action": "none"
+ },
+ {
+  "test": "tests/test_tuning/test_tuning_progress.py::TestTuneProgressInfo::test_none_scores",
+  "kill_mode": "metric",
+  "triage": "UNIT",
+  "claim": "TuneProgressInfo accepts None scores",
+  "observes": "constructed dataclass fields None and state 'fail'",
+  "evidence": "tests/test_tuning/test_tuning_progress.py:55",
+  "final": "UNIT",
+  "action": "none"
+ }
+]

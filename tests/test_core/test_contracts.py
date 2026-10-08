@@ -12,8 +12,12 @@ import dataclasses
 import numpy as np
 import pytest
 
+from lizyml import Model
 from lizyml.core.types import FitResult, PredictionResult, RunMeta, SplitIndices
 from lizyml.data.fingerprint import DataFingerprint
+from tests._helpers import make_config, make_regression_df
+
+_FITTED_N_SPLITS = 3
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -83,6 +87,17 @@ def fit_result(
         calibrator=None,
         run_meta=run_meta,
     )
+
+
+@pytest.fixture(scope="module")
+def fitted_result() -> FitResult:
+    """A FitResult produced by a real ``Model.fit`` (#270).
+
+    The value claims below are about what ``fit`` returns, so they are asserted
+    on what ``fit`` returned rather than on a hand-built instance.
+    """
+    cfg = make_config("regression", n_estimators=5, n_splits=_FITTED_N_SPLITS)
+    return Model(cfg).fit(data=make_regression_df(n=100))
 
 
 @pytest.fixture()
@@ -171,11 +186,12 @@ class TestFitResultSchema:
             "run_meta",
             "oof_raw_scores",
             "target_encoder",
+            "pipeline_state_per_fold",
         ]
         assert _field_names(FitResult) == expected
 
-    def test_metrics_raw_structure(self, fit_result: FitResult) -> None:
-        raw = fit_result.metrics["raw"]
+    def test_metrics_raw_structure(self, fitted_result: FitResult) -> None:
+        raw = fitted_result.metrics["raw"]
         # Exact key set — pins the raw metrics contract (incl. oof_coverage,
         # H-0057) so a dropped or renamed key is caught, not silently tolerated.
         assert set(raw) == {
@@ -190,16 +206,19 @@ class TestFitResultSchema:
         assert isinstance(raw["oof_coverage"], float)
 
     def test_calibrated_key_absent_when_no_calibrator(
-        self, fit_result: FitResult
+        self, fitted_result: FitResult
     ) -> None:
-        assert fit_result.calibrator is None
-        assert "calibrated" not in fit_result.metrics
+        assert fitted_result.calibrator is None
+        assert "calibrated" not in fitted_result.metrics
 
-    def test_oof_pred_is_ndarray(self, fit_result: FitResult) -> None:
-        assert isinstance(fit_result.oof_pred, np.ndarray)
+    def test_oof_pred_is_ndarray(self, fitted_result: FitResult) -> None:
+        assert isinstance(fitted_result.oof_pred, np.ndarray)
 
-    def test_if_pred_per_fold_len_equals_n_splits(self, fit_result: FitResult) -> None:
-        assert len(fit_result.if_pred_per_fold) == len(fit_result.splits.outer)
+    def test_if_pred_per_fold_len_equals_n_splits(
+        self, fitted_result: FitResult
+    ) -> None:
+        assert len(fitted_result.if_pred_per_fold) == _FITTED_N_SPLITS
+        assert len(fitted_result.splits.outer) == _FITTED_N_SPLITS
 
     def test_splits_type(self, fit_result: FitResult) -> None:
         assert isinstance(fit_result.splits, SplitIndices)

@@ -197,9 +197,8 @@ class TestResolveMetrics:
         import lightgbm as lgb
 
         y_true = np.array([0, 1, 1, 0, 1], dtype=np.float64)
-        # For binary, y_pred from LightGBM is raw logits
-        # logits > 0 → prob > 0.5 → predict 1
-        y_pred = np.array([-2.0, 2.0, 2.0, -2.0, 2.0])
+        # LightGBM 4 passes binary probabilities to a feval (#306).
+        y_pred = np.array([0.1, 0.9, 0.9, 0.1, 0.9])
         dataset = lgb.Dataset(np.zeros((5, 1)), label=y_true, free_raw_data=False)
         dataset.construct()
 
@@ -213,14 +212,14 @@ class TestResolveMetrics:
         assert value == pytest.approx(1.0, abs=0.01)  # Perfect predictions
 
     def test_feval_brier_binary(self) -> None:
-        """Brier feval for binary should sigmoid raw logits."""
+        """Brier feval for binary scores the probabilities LightGBM passes (#306)."""
         _, fevals, _ = resolve_metrics(["brier"], "binary")
         feval_fn = fevals[0]
         import lightgbm as lgb
 
         y_true = np.array([0, 1, 1, 0], dtype=np.float64)
-        # logits close to 0 → prob ≈ 0.5 → Brier ≈ 0.25
-        y_pred = np.array([0.0, 0.0, 0.0, 0.0])
+        # probabilities of 0.5 → Brier = 0.25 (no second sigmoid, #306)
+        y_pred = np.array([0.5, 0.5, 0.5, 0.5])
         dataset = lgb.Dataset(np.zeros((4, 1)), label=y_true, free_raw_data=False)
         dataset.construct()
 
@@ -253,8 +252,8 @@ class TestResolveMetrics:
         import lightgbm as lgb
 
         y_true = np.array([1, 1, 1, 0, 0], dtype=np.float64)
-        # High confidence logits: sigmoid(5) ≈ 0.993, sigmoid(-5) ≈ 0.007
-        y_pred = np.array([5.0, 5.0, 5.0, -5.0, -5.0])
+        # High-confidence probabilities, as LightGBM passes them (#306)
+        y_pred = np.array([0.993, 0.993, 0.993, 0.007, 0.007])
         dataset = lgb.Dataset(np.zeros((5, 1)), label=y_true, free_raw_data=False)
         dataset.construct()
 
@@ -266,18 +265,17 @@ class TestResolveMetrics:
         assert 0.0 <= value <= 1.0
 
     def test_feval_multiclass_f1(self) -> None:
-        """F1 feval for multiclass — y_pred is flattened (n * k)."""
+        """F1 feval for multiclass — LightGBM 4 passes 2-D probabilities (#306)."""
         _, fevals, _ = resolve_metrics(["f1"], "multiclass", num_class=3)
         feval_fn = fevals[0]
         import lightgbm as lgb
 
         n = 6
         y_true = np.array([0, 1, 2, 0, 1, 2], dtype=np.float64)
-        # Flattened softmax-pre logits: (n * n_classes,)
-        # Each row: high logit for correct class
-        logits = np.zeros(n * 3)
+        # (n, n_classes) probabilities; most mass on the correct class
+        logits = np.full((n, 3), 0.05)
         for i, c in enumerate(y_true.astype(int)):
-            logits[i * 3 + c] = 5.0  # Strong signal for correct class
+            logits[i, c] = 0.9
         dataset = lgb.Dataset(np.zeros((n, 1)), label=y_true, free_raw_data=False)
         dataset.construct()
 
@@ -301,9 +299,10 @@ class TestFevalNumericalCorrectness:
     """Verify feval values match direct BaseMetric computation.
 
     For each metric, we:
-    1. Create known raw LightGBM predictions (logits for binary)
-    2. Run the feval callable
-    3. Manually apply the same transform (sigmoid/softmax) and call the metric
+    1. Start from known logits and convert them to the probabilities LightGBM 4
+       actually passes a feval for a built-in objective (#306)
+    2. Run the feval callable on those probabilities
+    3. Call the metric on the same probabilities -- no second transform
     4. Assert the values match exactly
     """
 
@@ -313,7 +312,8 @@ class TestFevalNumericalCorrectness:
         import lightgbm as lgb
 
         yt = np.array(y_true, dtype=np.float64)
-        yp = np.array(logits, dtype=np.float64)
+        # What LightGBM hands the feval: probabilities, not logits (#306).
+        yp = self._sigmoid(np.array(logits, dtype=np.float64))
         ds = lgb.Dataset(np.zeros((len(yt), 1)), label=yt, free_raw_data=False)
         ds.construct()
         return yt, yp, ds
@@ -324,7 +324,7 @@ class TestFevalNumericalCorrectness:
     # -- F1 (binary) --
 
     def test_f1_binary_numerical(self) -> None:
-        """F1: logits → sigmoid → threshold 0.5 → f1_score."""
+        """F1: probabilities → threshold 0.5 → f1_score."""
         from sklearn.metrics import f1_score
 
         _, fevals, _ = resolve_metrics(["f1"], "binary")
@@ -336,7 +336,7 @@ class TestFevalNumericalCorrectness:
         name, feval_val, is_higher = fevals[0](yp, ds)
 
         # Manual: sigmoid → threshold
-        proba = self._sigmoid(yp)
+        proba = yp  # already probabilities
         pred_labels = (proba >= 0.5).astype(int)
         expected = f1_score(yt, pred_labels, zero_division=0)
 
@@ -347,7 +347,7 @@ class TestFevalNumericalCorrectness:
     # -- Accuracy (binary) --
 
     def test_accuracy_binary_numerical(self) -> None:
-        """Accuracy: logits → sigmoid → threshold 0.5 → accuracy_score."""
+        """Accuracy: probabilities → threshold 0.5 → accuracy_score."""
         from sklearn.metrics import accuracy_score
 
         _, fevals, _ = resolve_metrics(["accuracy"], "binary")
@@ -357,7 +357,7 @@ class TestFevalNumericalCorrectness:
 
         name, feval_val, is_higher = fevals[0](yp, ds)
 
-        proba = self._sigmoid(yp)
+        proba = yp  # already probabilities
         pred_labels = (proba >= 0.5).astype(int)
         expected = accuracy_score(yt, pred_labels)
 
@@ -368,7 +368,7 @@ class TestFevalNumericalCorrectness:
     # -- Brier (binary) --
 
     def test_brier_binary_numerical(self) -> None:
-        """Brier: logits → sigmoid → brier_score_loss."""
+        """Brier: probabilities → brier_score_loss."""
         from sklearn.metrics import brier_score_loss
 
         _, fevals, _ = resolve_metrics(["brier"], "binary")
@@ -378,7 +378,7 @@ class TestFevalNumericalCorrectness:
 
         name, feval_val, is_higher = fevals[0](yp, ds)
 
-        proba = self._sigmoid(yp)
+        proba = yp  # already probabilities
         expected = brier_score_loss(yt, proba)
 
         assert name == "brier"
@@ -390,7 +390,7 @@ class TestFevalNumericalCorrectness:
     # -- ECE (binary) --
 
     def test_ece_binary_numerical(self) -> None:
-        """ECE: logits → sigmoid → equal-width bins → weighted |acc - conf|."""
+        """ECE: probabilities → equal-width bins → weighted |acc - conf|."""
         from lizyml.metrics.classification import ECE
 
         _, fevals, _ = resolve_metrics(["ece"], "binary")
@@ -400,7 +400,7 @@ class TestFevalNumericalCorrectness:
 
         name, feval_val, is_higher = fevals[0](yp, ds)
 
-        proba = self._sigmoid(yp)
+        proba = yp  # already probabilities
         expected = ECE()(yt, proba)
 
         assert name == "ece"
@@ -410,7 +410,7 @@ class TestFevalNumericalCorrectness:
     # -- PrecisionAtK (binary) --
 
     def test_precision_at_k_binary_numerical(self) -> None:
-        """PrecisionAtK: logits → sigmoid → top-K% → precision."""
+        """PrecisionAtK: probabilities → top-K% → precision."""
         from lizyml.metrics.classification import PrecisionAtK
 
         _, fevals, _ = resolve_metrics(["precision_at_k"], "binary")
@@ -420,7 +420,7 @@ class TestFevalNumericalCorrectness:
 
         name, feval_val, is_higher = fevals[0](yp, ds)
 
-        proba = self._sigmoid(yp)
+        proba = yp  # already probabilities
         expected = PrecisionAtK(k=10)(np.array(yt), proba)
 
         assert name == "precision_at_k"
@@ -511,7 +511,7 @@ class TestFevalNumericalCorrectness:
     # -- F1 (multiclass) --
 
     def test_f1_multiclass_numerical(self) -> None:
-        """F1 multiclass: flattened logits → reshape → softmax → argmax → f1."""
+        """F1 multiclass: 2-D probabilities → argmax → f1."""
         from sklearn.metrics import f1_score
 
         _, fevals, _ = resolve_metrics(["f1"], "multiclass", num_class=3)
@@ -545,7 +545,11 @@ class TestFevalNumericalCorrectness:
         ds = lgb.Dataset(np.zeros((n, 1)), label=y_true, free_raw_data=False)
         ds.construct()
 
-        name, feval_val, is_higher = fevals[0](logits, ds)
+        # What LightGBM 4 hands the feval: 2-D probabilities (#306).
+        as_proba = logits.reshape(-1, 3)
+        as_proba = np.exp(as_proba - as_proba.max(axis=1, keepdims=True))
+        as_proba = as_proba / as_proba.sum(axis=1, keepdims=True)
+        name, feval_val, is_higher = fevals[0](as_proba, ds)
 
         # Manual: reshape → softmax → argmax
         reshaped = logits.reshape(-1, 3)
@@ -561,7 +565,7 @@ class TestFevalNumericalCorrectness:
     # -- Brier (multiclass) --
 
     def test_brier_multiclass_numerical(self) -> None:
-        """Brier multiclass: flattened logits → reshape → softmax → per-class brier."""
+        """Brier multiclass: 2-D probabilities → per-class brier."""
         from sklearn.metrics import brier_score_loss
         from sklearn.preprocessing import label_binarize
 
@@ -589,7 +593,11 @@ class TestFevalNumericalCorrectness:
         ds = lgb.Dataset(np.zeros((n, 1)), label=y_true, free_raw_data=False)
         ds.construct()
 
-        name, feval_val, is_higher = fevals[0](logits, ds)
+        # What LightGBM 4 hands the feval: 2-D probabilities (#306).
+        as_proba = logits.reshape(-1, 3)
+        as_proba = np.exp(as_proba - as_proba.max(axis=1, keepdims=True))
+        as_proba = as_proba / as_proba.sum(axis=1, keepdims=True)
+        name, feval_val, is_higher = fevals[0](as_proba, ds)
 
         # Manual
         reshaped = logits.reshape(-1, 3)
@@ -607,7 +615,7 @@ class TestFevalNumericalCorrectness:
     # -- Accuracy (multiclass) --
 
     def test_accuracy_multiclass_numerical(self) -> None:
-        """Accuracy multiclass: reshape → softmax → argmax → accuracy."""
+        """Accuracy multiclass: 2-D probabilities → argmax → accuracy."""
         from sklearn.metrics import accuracy_score
 
         _, fevals, _ = resolve_metrics(["accuracy"], "multiclass", num_class=3)
@@ -633,7 +641,11 @@ class TestFevalNumericalCorrectness:
         ds = lgb.Dataset(np.zeros((4, 1)), label=y_true, free_raw_data=False)
         ds.construct()
 
-        name, feval_val, is_higher = fevals[0](logits, ds)
+        # What LightGBM 4 hands the feval: 2-D probabilities (#306).
+        as_proba = logits.reshape(-1, 3)
+        as_proba = np.exp(as_proba - as_proba.max(axis=1, keepdims=True))
+        as_proba = as_proba / as_proba.sum(axis=1, keepdims=True)
+        name, feval_val, is_higher = fevals[0](as_proba, ds)
 
         reshaped = logits.reshape(-1, 3)
         e_x = np.exp(reshaped - reshaped.max(axis=1, keepdims=True))
@@ -647,20 +659,19 @@ class TestFevalNumericalCorrectness:
 
     # -- Sigmoid edge cases --
 
-    def test_sigmoid_extreme_logits(self) -> None:
-        """Extreme logits should not cause overflow or NaN."""
+    def test_extreme_probabilities(self) -> None:
+        """Probabilities at 0 and 1 score cleanly (no overflow or NaN)."""
         _, fevals, _ = resolve_metrics(["brier"], "binary")
         import lightgbm as lgb
 
         y_true = np.array([1, 0, 1, 0], dtype=np.float64)
-        logits = np.array([1000.0, -1000.0, 500.0, -500.0])
+        proba = np.array([1.0, 0.0, 1.0, 0.0])
         ds = lgb.Dataset(np.zeros((4, 1)), label=y_true, free_raw_data=False)
         ds.construct()
 
-        name, feval_val, is_higher = fevals[0](logits, ds)
+        name, feval_val, is_higher = fevals[0](proba, ds)
 
-        # sigmoid(1000) ≈ 1.0, sigmoid(-1000) ≈ 0.0
-        # Brier for perfect predictions ≈ 0.0
+        # Brier for perfect predictions is 0.0
         assert not np.isnan(feval_val)
         assert not np.isinf(feval_val)
         assert feval_val == pytest.approx(0.0, abs=1e-6)

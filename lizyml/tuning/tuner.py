@@ -149,6 +149,27 @@ class Tuner:
                     load_if_exists=True,
                 )
 
+        # A persisted name or an explicitly supplied study can already carry
+        # another direction. Never enqueue or evaluate against that objective.
+        if (
+            len(study.directions) != 1
+            or study.directions[0].name.lower() != self.direction
+        ):
+            raise LizyMLError(
+                code=ErrorCode.CONFIG_INVALID,
+                user_message=(
+                    "tuning study direction disagrees with the objective. "
+                    "Use a new study with the correct direction."
+                ),
+                context={
+                    "surface": "tuning.study",
+                    "expected_direction": self.direction,
+                    "study_directions": [
+                        item.name.lower() for item in study.directions
+                    ],
+                },
+            )
+
         # Enqueue previous best as initial trial (H-0068)
         if enqueue_params is not None:
             study.enqueue_trial(enqueue_params)

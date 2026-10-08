@@ -39,10 +39,15 @@ def _convert_pipeline_state(
         mapping = {str(v): i for i, v in enumerate(cats)}
         mappings[col] = mapping
         mode_val = modes.get(col)
-        # The mode is always one of the known categories, so its str form is a
-        # key in ``mapping`` — record its code as the unseen replacement.
-        if mode_val is not None and str(mode_val) in mapping:
-            unseen_codes[col] = mapping[str(mode_val)]
+        # The mode is always one of the known categories. Find its key through
+        # the category values the mapping was built from: the mode's own str()
+        # can differ (np.float32(0.1) prints "0.1", the category value
+        # "0.10000000149011612"), and a miss would silently drop the
+        # replacement, turning "mode" into "nan" in predict.py (H-0104).
+        if mode_val is not None:
+            key = next((str(v) for v in cats if v == mode_val), None)
+            if key is not None:
+                unseen_codes[col] = mapping[key]
 
     return {
         "feature_names": feature_names,

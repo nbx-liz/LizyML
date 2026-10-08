@@ -1,0 +1,47 @@
+[run-exclusive] pr8c-mutations4 starting; load was 15.87
+(a) #258: INCOMPLETE, exit 1 -> caught
+    ! p4: tests/test_tuning/test_direction_reconciliation.py::test_inferred_direction_selects_correct_extremum collects 22, declared 23
+    ! p5: derived 22 != declared 23
+(b) #259: INCOMPLETE, exit 1 -> caught
+    ! p5: derived 4 != declared 5
+(c) #258: INCOMPLETE, exit 1 -> caught
+    ! p2: no failed node in the before tree
+    ! p6: #305 body does not cite #258
+(d) #258: INCOMPLETE, exit 1 -> caught
+    ! p3: skipped tests/test_tuning/test_direction_reconciliation.py::test_inferred_direction_selects_correct_extremum[regression-huber]: 'pr8c mutation d' matches 0 declared entries
+    ! p3: skipped tests/test_tuning/test_direction_reconciliation.py::test_inferred_direction_selects_correct_extremum[regression-mae]: 'pr8c mutation d' matches 0 declared entries
+    ! p3: skipped tests/test_tuning/test_direction_reconciliation.py::test_inferred_direction_selects_correct_extremum[regression-mape]: 'pr8c mutation d' matches 0 declared entries
+    ! p3: skipped tests/test_tuning/test_direction_reconciliation.py::test_inferred_direction_selects_correct_extremum[regression-r2]: 'pr8c mutation d' matches 0 declared entries
+    ! p3: skipped tests/test_tuning/test_direction_reconciliation.py::test_inferred_direction_selects_correct_extremum[regression-rmse]: 'pr8c mutation d' matches 0 declared entries
+    ! p3: skipped tests/test_tuning/test_direction_reconciliation.py::test_inferred_direction_selects_correct_extremum[regression-rmsle]: 'pr8c mutation d' matches 0 declared entries
+    ! p3: skipped tests/test_tuning/test_direction_reconciliation.py::test_inferred_direction_selects_correct_extremum[regression-smape]: 'pr8c mutation d' matches 0 declared entries
+    ! p3: skipped tests/test_tuning/test_direction_reconciliation.py::test_inferred_direction_selects_correct_extremum[regression-wape]: 'pr8c mutation d' matches 0 declared entries
+    ! p3: skipped tests/test_tuning/test_direction_reconciliation.py::test_inferred_direction_selects_correct_extremum[binary-accuracy]: 'pr8c mutation d' matches 0 declared entries
+    ! p3: skipped tests/test_tuning/test_direction_reconciliation.py::test_inferred_direction_selects_correct_extremum[binary-auc]: 'pr8c mutation d' matches 0 declared entries
+    ! p3: skipped tests/test_tuning/test_direction_reconciliation.py::test_inferred_direction_selects_correct_extremum[binary-auc_pr]: 'pr8c mutation d' matches 0 declared entries
+    ! p3: skipped tests/test_tuning/test_direction_reconciliation.py::test_inferred_direction_selects_correct_extremum[binary-brier]: 'pr8c mutation d' matches 0 declared entries
+    ! p3: skipped tests/test_tuning/test_direction_reconciliation.py::test_inferred_direction_selects_correct_extremum[binary-ece]: 'pr8c mutation d' matches 0 declared entries
+    ! p3: skipped tests/test_tuning/test_direction_reconciliation.py::test_inferred_direction_selects_correct_extremum[binary-f1]: 'pr8c mutation d' matches 0 declared entries
+    ! p3: skipped tests/test_tuning/test_direction_reconciliation.py::test_inferred_direction_selects_correct_extremum[binary-logloss]: 'pr8c mutation d' matches 0 declared entries
+    ! p3: skipped tests/test_tuning/test_direction_reconciliation.py::test_inferred_direction_selects_correct_extremum[binary-precision_at_k]: 'pr8c mutation d' matches 0 declared entries
+    ! p3: skipped tests/test_tuning/test_direction_reconciliation.py::test_inferred_direction_selects_correct_extremum[multiclass-accuracy]: 'pr8c mutation d' matches 0 declared entries
+    ! p3: skipped tests/test_tuning/test_direction_reconciliation.py::test_inferred_direction_selects_correct_extremum[multiclass-auc]: 'pr8c mutation d' matches 0 declared entries
+    ! p3: skipped tests/test_tuning/test_direction_reconciliation.py::test_inferred_direction_selects_correct_extremum[multiclass-auc_pr]: 'pr8c mutation d' matches 0 declared entries
+    ! p3: skipped tests/test_tuning/test_direction_reconciliation.py::test_inferred_direction_selects_correct_extremum[multiclass-brier]: 'pr8c mutation d' matches 0 declared entries
+    ! p3: skipped tests/test_tuning/test_direction_reconciliation.py::test_inferred_direction_selects_correct_extremum[multiclass-f1]: 'pr8c mutation d' matches 0 declared entries
+    ! p3: skipped tests/test_tuning/test_direction_reconciliation.py::test_inferred_direction_selects_correct_extremum[multiclass-logloss]: 'pr8c mutation d' matches 0 declared entries
+(e) #262: INCOMPLETE, exit 1 -> caught
+    ! p3: xfailed tests/test_tuning/test_search_space_name_validation.py::test_search_space_name_is_gated[num_leaves-smart-regression]: '#299: a smart-category name with no consumer is accepted and inert' matches 0 declared entries
+    ! p3: declared 1 xfailed for tests/test_tuning/test_search_space_name_validation.py::test_the_population_is_the_declared_cross_product, saw 0
+(f) #264: INCOMPLETE, exit 1 -> caught
+    ! p2: no failed node in the before tree
+(g) #264: INCOMPLETE, exit 1 -> caught
+    ! p2: fix_text 'params, validate_values' is not text the fixing PRs added to lizyml/core/model.py
+(h) #258: INCOMPLETE, exit 1 -> caught
+    ! p6: pinned comment 5924845155 is not on #258
+(i) #258: UNKNOWN, exit 1 -> caught
+    ! collection failed (exit 2): s/test_tuning/test_direction_reconciliation.py
+
+9 of 9 mutations caught
+[run-exclusive] pr8c-mutations4 finished in 101s, exit 0
+exit=0

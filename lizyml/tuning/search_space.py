@@ -35,6 +35,15 @@ __all__ = [
 
 
 _ALLOWED_CHOICE_TYPES = (type(None), bool, int, float, str)
+"""The exact types a categorical choice may have.
+
+Two boundaries meet here, and neither is ``param_domain``'s accepted set:
+Optuna's ``CategoricalDistribution`` takes a plain scalar, and a sampled value
+reaches ``lgb.train`` **without passing an entrance normaliser**, so it also has
+to be a value the exit assertion in the adapter accepts as it stands. The
+accepted set is the wider one -- it admits a numpy scalar and converts it -- and
+restating it here would be two declarations of one boundary (BLUEPRINT 14.4).
+"""
 
 
 def _validate_numeric_range(
@@ -71,23 +80,40 @@ def _validate_numeric_range(
 
 
 def _validate_categorical_choices(name: str, choices: list[Any]) -> None:
-    """Validate that every element in *choices* is a scalar type.
+    """Validate that every element in *choices* is a plain scalar.
 
-    Optuna's ``CategoricalDistribution`` requires each choice to be
-    ``None | bool | int | float | str``.  Non-scalar values (e.g. a nested
-    list produced by YAML ``- [a, b]``) are rejected early with a clear
-    error message.
+    Non-scalar values (e.g. a nested list produced by YAML ``- [a, b]``) are
+    rejected early with a clear error message. So is a numpy scalar, and the
+    reason is not cosmetic: a sampled value is overlaid onto the trial params
+    without passing an entrance normaliser, so a numpy one reached the exit
+    assertion in the adapter and failed **every** trial. The user was then told
+    ``TUNING_FAILED: All tuning trials failed. Check parameter ranges.`` with
+    ranges that were fine (#287).
+
+    The type is judged by **identity**, for two separate reasons:
+
+    * ``isinstance`` admits a subclass, and ``np.float64`` subclasses ``float``
+      while ``np.str_`` subclasses ``str``. Those two were the whole hole: every
+      other numpy scalar type was already refused here.
+    * ``type(val) in _ALLOWED_CHOICE_TYPES`` asks the tuple whether any member
+      *equals* the type, and a class's ``__eq__`` comes from its metaclass, which
+      the caller writes. Measured: a class whose metaclass returns ``True`` for
+      ``float`` passes that membership test, and ``__hash__`` is never consulted
+      because this container is a tuple -- a ``set`` would hash first (BLUEPRINT
+      14.4 states the ``set`` case, from review round 23).
     """
     for i, val in enumerate(choices):
-        if not isinstance(val, _ALLOWED_CHOICE_TYPES):
+        if not any(type(val) is allowed for allowed in _ALLOWED_CHOICE_TYPES):
             raise LizyMLError(
                 code=ErrorCode.CONFIG_INVALID,
                 user_message=(
                     f"Categorical dim '{name}' has invalid choice at index {i}: "
                     f"got {val!r} (type={type(val).__name__}). "
-                    f"Each choice must be a scalar (str, int, float, bool, or None). "
-                    f"Hint: flatten nested lists in your YAML config "
-                    f'— use "- value" instead of "- [value1, value2]".'
+                    f"Each choice must be a plain Python scalar (str, int, float, "
+                    f"bool, or None) -- a numpy scalar is refused because a "
+                    f"sampled choice is not normalised before training. "
+                    f"Hint: write float(x) or int(x), and flatten nested lists in "
+                    f'your YAML config — use "- value" instead of "- [v1, v2]".'
                 ),
                 context={"param": name, "index": i, "bad_value": str(val)},
             )
@@ -301,6 +327,41 @@ def _expand_range(
     return new_low, new_high, clamped
 
 
+def _expand_int_range(
+    low: int,
+    high: int,
+    edge: str,
+    *,
+    log: bool,
+    min_allowed: int | None = None,
+    max_allowed: int | None = None,
+) -> tuple[int, int, bool]:
+    """Integer counterpart of :func:`_expand_range` for ``IntDim`` (H-0111).
+
+    Same rules, in integer arithmetic so that the result -- and the H-0111
+    "range unchanged" comparison -- stays exact beyond ``2**53``, where a
+    float round trip merges neighbouring integers. The low edge is floored
+    and guarded by ``max(1, ...)``, the high edge ceiled, as before.
+    """
+    factor = int(_LOG_EXPANSION_FACTOR)
+    new_low: int | float = low
+    new_high: int | float = high
+    if edge == "lower":
+        new_low = low // factor if log and low > 0 else max(0, low - (high - low))
+    elif edge == "upper":
+        new_high = high * factor if log and high > 0 else high + (high - low)
+
+    clamped = False
+    if min_allowed is not None and new_low < min_allowed:
+        new_low = min_allowed
+        clamped = True
+    if max_allowed is not None and new_high > max_allowed:
+        new_high = max_allowed
+        clamped = True
+
+    return max(1, math.floor(new_low)), math.ceil(new_high), clamped
+
+
 def detect_boundary(
     dims: list[SearchDim],
     best_params: dict[str, Any],
@@ -354,26 +415,42 @@ def detect_boundary(
         new_high: float | int | None = None
         clamped = False
         if should_expand:
-            min_allowed = (
-                float(dim.min_allowed) if dim.min_allowed is not None else None
-            )
-            max_allowed = (
-                float(dim.max_allowed) if dim.max_allowed is not None else None
-            )
-            nl, nh, clamped = _expand_range(
-                low,
-                high,
-                edge,
-                log=is_log,
-                min_allowed=min_allowed,
-                max_allowed=max_allowed,
-            )
+            nl: float | int
+            nh: float | int
             if isinstance(dim, IntDim):
-                nl = max(1, int(math.floor(nl)))
-                nh = int(math.ceil(nh))
-            new_low = nl
-            new_high = nh
-            expanded_names.append(dim.name)
+                nl, nh, clamped = _expand_int_range(
+                    dim.low,
+                    dim.high,
+                    edge,
+                    log=is_log,
+                    min_allowed=dim.min_allowed,
+                    max_allowed=dim.max_allowed,
+                )
+                unchanged = (nl, nh) == (dim.low, dim.high)
+            else:
+                nl, nh, clamped = _expand_range(
+                    low,
+                    high,
+                    edge,
+                    log=is_log,
+                    min_allowed=(
+                        float(dim.min_allowed) if dim.min_allowed is not None else None
+                    ),
+                    max_allowed=(
+                        float(dim.max_allowed) if dim.max_allowed is not None else None
+                    ),
+                )
+                unchanged = (nl, nh) == (low, high)
+            # H-0078 item 4 (H-0111): an expansion that leaves the range
+            # unchanged -- the edge already sits on a clamp (min/max_allowed,
+            # the linear 0.0 floor, the IntDim max(1, ...) guard) -- is not an
+            # expansion. Reporting it would repeat the same no-op every round.
+            if unchanged:
+                should_expand = False
+            else:
+                new_low = nl
+                new_high = nh
+                expanded_names.append(dim.name)
 
         statuses.append(
             BoundaryDimStatus(

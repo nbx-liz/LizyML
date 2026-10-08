@@ -47,9 +47,35 @@ class BaseFeaturePipeline(ABC):
         """Fit then transform in one step."""
         return self.fit(X, y).transform(X)
 
+    def transform_with_warnings(
+        self, X: pd.DataFrame
+    ) -> tuple[pd.DataFrame, list[str]]:
+        """Transform and report any corrections the pipeline applied (H-0104).
+
+        The prediction path calls this, and the messages reach
+        ``PredictionResult.warnings``. The default reports nothing; a pipeline
+        that corrects its input (drops a column, substitutes a value) should
+        override it and say so.
+
+        The columns are checked before this is called: on the prediction path
+        the facade has already refused missing columns and reduced ``X`` to the
+        training columns in training order, whichever pipeline runs.
+
+        Args:
+            X: Feature DataFrame to transform.
+
+        Returns:
+            Tuple of ``(transformed_df, warnings)``.
+        """
+        return self.transform(X), []
+
     @abstractmethod
     def get_state(self) -> dict[str, Any]:
         """Return a serializable snapshot of the pipeline state.
+
+        The trainers read one optional key from it: ``"categorical_cols"``, the
+        list of output columns the estimator should treat as categorical. When
+        the key is absent no column is treated as categorical (H-0104).
 
         Returns:
             A dict that can be passed to ``load_state`` to restore the pipeline.

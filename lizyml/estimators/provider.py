@@ -8,7 +8,7 @@ See BLUEPRINT §14.4 for the full specification.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
@@ -19,6 +19,7 @@ import pandas as pd
 from lizyml.core.types.search_dim import SearchDim
 from lizyml.core.types.task import TaskType
 from lizyml.estimators.base import BaseEstimatorAdapter
+from lizyml.features.encoders.categorical_encoder import UnseenPolicy
 from lizyml.features.pipeline_base import BaseFeaturePipeline
 
 # H-0079: forward-typed alias for ``metric_choices`` return value. The
@@ -39,6 +40,16 @@ class ExportParams:
     Attributes:
         params: Native model parameters (e.g. LightGBM Booster API names).
         num_boost_round: Total training iterations actually used.
+        early_stopping_rounds: The patience the fitted estimator actually
+            trained with, or ``None`` when early stopping was off. Read from
+            the trained adapter, not recomputed from config plus the current
+            tuning result: ``tune()`` replaces the tuning result without
+            replacing the fitted adapters, so the fitted estimator is the only
+            surface that still answers what *this* model was trained with
+            (H-0094 decision 13, review round 16).
+            Deliberately carries **no default** -- a defaulted ``None`` would
+            make "the provider did not set it" indistinguishable from "early
+            stopping was off", which is the DC1 shape.
         feval_metadata: User-specified ``feval`` metric descriptors needed
             by the generated train.py to recompute custom metrics. Each
             dict has ``name``, ``params``, ``greater_is_better``,
@@ -47,6 +58,7 @@ class ExportParams:
 
     params: dict[str, Any]
     num_boost_round: int
+    early_stopping_rounds: int | None
     feval_metadata: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -66,6 +78,83 @@ class EstimatorProvider(Protocol):  # pragma: no cover
 
     def extract_smart_params(self, model_cfg: Any) -> dict[str, Any]:
         """Extract smart parameter fields from a pydantic Config object."""
+        ...
+
+    def accepted_model_param_names(self) -> frozenset[str]:
+        """Return every native parameter name this estimator accepts (H-0093).
+
+        Used by the Facade to reject a ``model.params`` key, or a
+        ``tuning.optuna.space`` dimension declared ``category: model``, that the
+        estimator would silently discard. LightGBM drops an unknown key without
+        raising, so an unchecked typo produces a run that looks successful and
+        in which the parameter did nothing.
+
+        Implementations must derive this from the library rather than list it,
+        so that an upstream rename is caught instead of being papered over.
+
+        Returns:
+            The accepted names, including any aliases the library honours.
+        """
+        ...
+
+    def smart_param_names(self) -> frozenset[str]:
+        """Return the names of this estimator's smart parameters (H-0093).
+
+        These are LizyML's own parameters, not the library's. They are declared
+        separately from :meth:`accepted_model_param_names` so that a smart name
+        written where a native one belongs gets a diagnostic naming the category
+        it wants, rather than the generic "unknown parameter" message -- writing
+        ``num_leaves_ratio`` under ``category: model`` is a category mistake,
+        not a typo.
+
+        Must agree with the keys :meth:`extract_smart_params` returns; deriving
+        both from one declaration is the way to keep that true.
+        """
+        ...
+
+    def smart_managed_param_names(
+        self, smart: dict[str, Any], task: TaskType
+    ) -> dict[str, tuple[str, str]]:
+        """Return names an *active* smart parameter will overwrite (H-0094).
+
+        :meth:`resolve_smart_params` runs after the parameter dict is merged and
+        its result wins, so a native name it writes cannot be set by hand: the
+        value is replaced without a word. The caller uses this to refuse such a
+        name instead, which is the policy the config schema already applies to
+        the same collisions at parse time.
+
+        Args:
+            smart: Smart parameter values, as :meth:`extract_smart_params`
+                returns them.
+            task: ML task type -- a smart parameter may write a native name for
+                one task and something that is not a parameter for another.
+
+        Returns:
+            ``{accepted spelling: (canonical name, the smart parameter)}``,
+            empty when no smart parameter is active. Every spelling the library
+            accepts must be a key: a library that resolves aliases makes a
+            literal-name check admit the same parameter under another name.
+        """
+        ...
+
+    def canonical_param_names(self, names: Iterable[str]) -> dict[str, str]:
+        """Map each name to the parameter it identifies (H-0094).
+
+        A library that accepts aliases treats two spellings as one parameter,
+        so any code that merges parameter layers by dictionary key is merging
+        by spelling rather than by identity: a lower-priority layer spelling it
+        canonically survives beside a higher-priority layer spelling it as an
+        alias, and the library then picks one of them. The caller uses this to
+        drop the losing spelling before the estimator ever sees it.
+
+        Args:
+            names: Names to resolve. A name the estimator does not define maps
+                to itself -- refusing it is :meth:`accepted_model_param_names`
+                work, and this method must not double as that gate.
+
+        Returns:
+            ``{name: canonical name}`` for every name given.
+        """
         ...
 
     def resolve_smart_params(
@@ -105,8 +194,16 @@ class EstimatorProvider(Protocol):  # pragma: no cover
         """Return a zero-arg factory that creates a configured estimator."""
         ...
 
-    def build_pipeline_factory(self) -> Callable[[], BaseFeaturePipeline]:
-        """Return a zero-arg factory that creates the appropriate FeaturePipeline."""
+    def build_pipeline_factory(
+        self, unseen_policy: UnseenPolicy = "mode"
+    ) -> Callable[[], BaseFeaturePipeline]:
+        """Return a zero-arg factory that creates the appropriate FeaturePipeline.
+
+        Args:
+            unseen_policy: ``features.unseen_policy`` (H-0104). The facade passes
+                the configured value when it fits; a pipeline restored from a
+                saved state takes the policy recorded in that state instead.
+        """
         ...
 
     def default_space(self, task: TaskType) -> list[SearchDim]:

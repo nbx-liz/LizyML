@@ -1,0 +1,30 @@
+[run-exclusive] pr8c-round6-probe starting; load was 0.10
+== p2 in the before tree, no package file staged
+#258 (before tree) before=5fb8a80: {'passed': 13, 'failed': 38}, collects
+#259 (before tree) before=2d3bc54: {'failed': 5, 'passed': 1}, collects
+#260 (before tree) before=2d3bc54: {'passed': 2, 'failed': 25}, collects
+#261 (before tree) before=1d7c4e2: {'passed': 25, 'failed': 14}, collects
+#262 (before tree) before=1d7c4e2: {'passed': 10, 'xfailed': 9, 'failed': 18}, collects
+#263 (before tree) before=1abf7fb: {'failed': 6, 'passed': 18}, collects
+#264 (has red_mutation) before=ccae32b: {'error': 1}, collection error
+#266 (before tree) before=3abb6c4: {'passed': 9, 'failed': 4}, collects
+#267 (before tree) before=97381db: {'failed': 34, 'passed': 3}, collects
+#268 (before tree) before=91a698b: {'passed': 86, 'failed': 1}, collects
+#269 (before tree) before=96171da: {'failed': 7, 'passed': 6}, collects
+#272 (before tree) before=1abf7fb: {'passed': 36, 'failed': 20}, collects
+#277 (has red_mutation) before=5ac725e: {'error': 2}, collection error
+#279 (before tree) before=5fb8a80: {'failed': 22, 'passed': 1}, collects
+#281 (before tree) before=036cd18: {'passed': 3, 'failed': 37}, collects
+#282 (before tree) before=5fb8a80: {'failed': 22, 'passed': 1}, collects
+#285 (before tree) before=53f6cbf: {'failed': 15, 'passed': 7}, collects
+#288 (has red_mutation) before=ccae32b: {'error': 1}, collection error
+#306 (before tree) before=fc9d820: {'passed': 44, 'failed': 19}, collects
+== #277 red_mutation at the after tree
+unmutated {'passed': 129}; mutated {'failed': 6, 'passed': 123}
+    failed: tests/test_codegen/test_calibration_params_codegen.py::test_config_json_carries_the_effective_calibration_params
+    failed: tests/test_codegen/test_calibration_params_codegen.py::test_generated_retrain_uses_the_params
+    failed: tests/test_core/test_calibration_params_reach.py::test_beta_params_change_the_fitted_calibrator
+    failed: tests/test_core/test_calibration_params_reach.py::test_every_calibrator_built_is_given_the_params[beta-params1]
+    failed: tests/test_core/test_calibration_params_reach.py::test_every_calibrator_built_is_given_the_params[platt-params0]
+    failed: tests/test_core/test_calibration_params_reach.py::test_platt_params_change_the_fitted_calibrator
+[run-exclusive] pr8c-round6-probe finished in 74s, exit 0

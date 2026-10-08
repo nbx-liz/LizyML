@@ -6,7 +6,7 @@ model.py has zero LightGBM imports.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from typing import Any
 
 import numpy as np
@@ -24,13 +24,32 @@ from lizyml.estimators.lgbm.defaults import (
     default_fixed_params,
     default_space,
 )
+from lizyml.estimators.lgbm.param_names import (
+    LGBM_CANONICAL_NAME,
+    LGBM_PARAM_NAMES,
+    accepted_spellings,
+)
 from lizyml.estimators.lgbm.smart_params import (
     resolve_ratio_params,
     resolve_smart_params,
+    smart_managed_names,
 )
 from lizyml.estimators.provider import ExportParams, MetricChoices
+from lizyml.features.encoders.categorical_encoder import UnseenPolicy
 from lizyml.features.pipeline_base import BaseFeaturePipeline
 from lizyml.features.pipelines_native import NativeFeaturePipeline
+
+# H-0093: the single declaration of which fields are smart parameters.
+# `extract_smart_params` reads the config through it and `smart_param_names`
+# reports it, so the two cannot disagree about what a smart parameter is.
+_SMART_PARAM_NAMES: tuple[str, ...] = (
+    "auto_num_leaves",
+    "num_leaves_ratio",
+    "min_data_in_leaf_ratio",
+    "min_data_in_bin_ratio",
+    "feature_weights",
+    "balanced",
+)
 
 # H-0078: LightGBM-meaningful per-parameter bounds for boundary expansion.
 # Values reflect LightGBM's documented limits and physically-meaningful
@@ -207,14 +226,30 @@ class LGBMProvider:
 
     def extract_smart_params(self, model_cfg: Any) -> dict[str, Any]:
         """Extract smart parameter fields from LGBMConfig as a plain dict."""
-        return {
-            "auto_num_leaves": model_cfg.auto_num_leaves,
-            "num_leaves_ratio": model_cfg.num_leaves_ratio,
-            "min_data_in_leaf_ratio": model_cfg.min_data_in_leaf_ratio,
-            "min_data_in_bin_ratio": model_cfg.min_data_in_bin_ratio,
-            "feature_weights": model_cfg.feature_weights,
-            "balanced": model_cfg.balanced,
-        }
+        return {name: getattr(model_cfg, name) for name in _SMART_PARAM_NAMES}
+
+    def accepted_model_param_names(self) -> frozenset[str]:
+        """Return LightGBM's own parameter names (H-0093).
+
+        Read from ``LGBM_DumpParamAliases`` at import, not listed here: a copy
+        would go stale exactly when LightGBM renames something, which is the
+        drift the gate consuming this exists to catch.
+        """
+        return LGBM_PARAM_NAMES
+
+    def smart_param_names(self) -> frozenset[str]:
+        """Return the smart parameter names, from the same declaration as above."""
+        return frozenset(_SMART_PARAM_NAMES)
+
+    def canonical_param_names(self, names: Iterable[str]) -> dict[str, str]:
+        """Map each name to the LightGBM parameter it identifies (H-0094)."""
+        return {name: LGBM_CANONICAL_NAME.get(name, name) for name in names}
+
+    def smart_managed_param_names(
+        self, smart: dict[str, Any], task: TaskType
+    ) -> dict[str, tuple[str, str]]:
+        """Return names an active smart parameter will overwrite (H-0094)."""
+        return smart_managed_names(smart, task)
 
     def resolve_smart_params(
         self,
@@ -272,9 +307,15 @@ class LGBMProvider:
 
         return make_estimator
 
-    def build_pipeline_factory(self) -> Callable[[], BaseFeaturePipeline]:
-        """Return a factory that creates NativeFeaturePipeline."""
-        return NativeFeaturePipeline
+    def build_pipeline_factory(
+        self, unseen_policy: UnseenPolicy = "mode"
+    ) -> Callable[[], BaseFeaturePipeline]:
+        """Return a factory that creates NativeFeaturePipeline with *unseen_policy*."""
+
+        def make_pipeline() -> BaseFeaturePipeline:
+            return NativeFeaturePipeline(unseen_policy=unseen_policy)
+
+        return make_pipeline
 
     def default_space(self, task: TaskType) -> list[SearchDim]:
         """Return the default LightGBM search space."""
@@ -313,6 +354,24 @@ class LGBMProvider:
         # Resolved booster params (from fold 0)
         native = model.get_native_model()
         booster_params = getattr(native, "params", {})
+
+        def resolved(canonical: str) -> Any:
+            """The value under whichever spelling actually reached the booster.
+
+            The names below are canonical, and the booster carries whatever
+            spelling the caller wrote -- so reading them literally reported
+            nothing for a parameter that had been set. Measured: after
+            `fit(params={"eta": 0.5})` the booster trained at `learning_rate:
+            0.5` and this table listed neither name, while the same call written
+            as `learning_rate` listed it (H-0094 decision 11, review round 15,
+            reported as non-blocking and fixed because it misreports the run on
+            the very path this change exists to make work).
+            """
+            for spelling in accepted_spellings(canonical):
+                if spelling in booster_params:
+                    return booster_params[spelling]
+            return None
+
         for k in [
             "objective",
             "metric",
@@ -329,13 +388,13 @@ class LGBMProvider:
             "lambda_l2",
             "num_iterations",
         ]:
-            v = booster_params.get(k)
+            v = resolved(k)
             if v is not None:
                 rows.append({"parameter": k, "value": v})
 
         # Task-specific params
         for k in ["scale_pos_weight", "num_class"]:
-            v = booster_params.get(k)
+            v = resolved(k)
             if v is not None:
                 rows.append({"parameter": k, "value": v})
 
@@ -418,6 +477,11 @@ class LGBMProvider:
         return ExportParams(
             params=params,
             num_boost_round=num_boost_round,
+            # The adapter's own patience, which is what this booster trained
+            # with. Recomputing it from the config plus the *current* tuning
+            # result reported a different model's number after `fit -> tune`
+            # (H-0094 decision 13, review round 16).
+            early_stopping_rounds=adapter.early_stopping_rounds,
             feval_metadata=feval_metadata,
         )
 
@@ -437,7 +501,23 @@ def _extract_feval_metadata(
     from lizyml.estimators.lgbm.metric_bridge import _FEVAL_METRICS
     from lizyml.metrics.registry import get_metric, parse_metric_entries
 
-    user_metric = adapter.params.get("metric")
+    # Read by identity, not by the literal spelling. `adapter.params` is the
+    # caller's dict, so it carries whatever spelling was written -- and
+    # `_build_params` already reads the metric with `_pop_by_identity`, so a
+    # literal read here disagreed with the code that trained. Measured before
+    # this: `fit(params={"metrics": "brier"})` evaluated Brier correctly and
+    # exported `metric="None"` with no evaluation function, and the generated
+    # `train_lgbm` then refused to run at all -- "at least one dataset and eval
+    # metric is required" (H-0094 decision 9, review round 13). Not popped:
+    # this is a read of a dict the caller still owns.
+    user_metric = next(
+        (
+            adapter.params[spelling]
+            for spelling in accepted_spellings("metric")
+            if adapter.params.get(spelling)
+        ),
+        None,
+    )
     if not user_metric:
         return []
 

@@ -1,7 +1,8 @@
-"""PurgedTimeSeriesSplitter — time series split with purge gap and embargo."""
+"""PurgedTimeSeriesSplitter — forward-chaining time series split with a purge gap."""
 
 from __future__ import annotations
 
+import warnings
 from collections.abc import Iterator
 from typing import Any
 
@@ -12,40 +13,47 @@ from .base import BaseSplitter
 
 
 class PurgedTimeSeriesSplitter(BaseSplitter):
-    """Expanding-window time series splitter with purge gap and embargo.
+    """Expanding-window time series splitter with a purge gap.
 
-    After each train/valid split:
-    - ``purge_gap`` samples at the *end* of the training set are removed.
-      This prevents label leakage when the target is constructed from a
-      look-forward window (e.g. future returns).
-    - ``embargo`` defines the number of observations to exclude as an
-      additional gap between training and validation on top of
-      ``purge_gap`` (BLUEPRINT §10.2).  The effective dead zone between
-      train and valid is ``purge_gap + embargo``.
+    Each fold trains on the rows before its validation block, minus the last
+    ``purge_gap`` rows. This prevents label leakage when the target is built
+    from a look-forward window (e.g. future returns). Training is always
+    entirely before validation, so there is no position for an embargo after
+    the validation block (BLUEPRINT §10.2, H-0115).
 
     Args:
         n_splits: Number of folds.
         purge_gap: Number of samples purged from the tail of each training
             set (gap between train and valid).
-        embargo: Number of observations to exclude after the purge gap
-            (additional buffer between train and valid).
+        embargo: Deprecated (H-0115). It subtracted at the same position as
+            ``purge_gap``; when given (even ``0``) it warns and is added to
+            ``purge_gap``. Will be removed in v1.0.
     """
 
     def __init__(
         self,
         n_splits: int = 5,
         purge_gap: int = 0,
-        embargo: int = 0,
+        embargo: int | None = None,
         max_train_size: int | None = None,
         max_test_size: int | None = None,
     ) -> None:
         if purge_gap < 0:
             raise ValueError("purge_gap must be >= 0.")
-        if embargo < 0:
-            raise ValueError("embargo must be >= 0.")
+        if embargo is not None:
+            if embargo < 0:
+                raise ValueError("embargo must be >= 0.")
+            warnings.warn(
+                "PurgedTimeSeriesSplitter(embargo=...) is deprecated: it widened "
+                "the same gap between train and valid as 'purge_gap', and its "
+                "value is now added to 'purge_gap'. Pass the total as "
+                "'purge_gap'. Will be removed in v1.0.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            purge_gap += embargo
         self.n_splits = n_splits
         self.purge_gap = purge_gap
-        self.embargo = embargo
         self.max_train_size = max_train_size
         self.max_test_size = max_test_size
 
@@ -76,7 +84,7 @@ class PurgedTimeSeriesSplitter(BaseSplitter):
             if valid_start >= valid_end:
                 continue
 
-            train_end = (k + 1) * fold_size - self.purge_gap - self.embargo
+            train_end = (k + 1) * fold_size - self.purge_gap
             if train_end <= 0:
                 continue
 

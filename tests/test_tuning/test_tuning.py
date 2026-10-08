@@ -31,6 +31,7 @@ from tests._helpers import make_config, make_regression_df
 
 def _reg_config_with_tuning(n_trials: int = 3) -> dict:
     cfg = make_config("regression")
+    cfg["model"]["auto_num_leaves"] = False
     cfg["tuning"] = {
         "optuna": {
             "params": {"n_trials": n_trials, "direction": "minimize"},
@@ -328,6 +329,9 @@ class TestModelTune:
         # patch _optuna (the module-level variable) so study.optimize raises
         with patch("lizyml.tuning.tuner._optuna") as mock_optuna:
             mock_study = MagicMock()
+            direction = MagicMock()
+            direction.name = "MINIMIZE"
+            mock_study.directions = [direction]
             mock_study.optimize.side_effect = RuntimeError("boom")
             mock_optuna.samplers.TPESampler.return_value = MagicMock()
             mock_optuna.create_study.return_value = mock_study

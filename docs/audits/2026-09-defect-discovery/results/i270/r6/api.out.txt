@@ -1,0 +1,1196 @@
+
+[kill_producers] MODE='api': disabled 23 producers
+..........EEEEEEE....................................................... [  7%]
+........................................................................ [ 14%]
+........................................................................ [ 21%]
+........................................................................ [ 28%]
+........................................................................ [ 35%]
+........................................................................ [ 42%]
+........................................................................ [ 49%]
+........................................................................ [ 56%]
+........................................................................ [ 63%]
+........................................................................ [ 70%]
+........................................................................ [ 78%]
+........................................................................ [ 85%]
+........................................................................ [ 92%]
+........................................................................ [ 99%]
+.......                                                                  [100%]
+==================================== ERRORS ====================================
+_ ERROR at setup of test_generated_project_reads_a_missing_calibration_params_as_empty _
+
+tmp_path_factory = TempPathFactory(_given_basetemp=None, _trace=<pluggy._tracing.TagTracerSub object at 0x7a4b6edda190>, _basetemp=PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-21'), _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def generated_train(tmp_path_factory: pytest.TempPathFactory) -> ModuleType:
+>       return _load_train(_export(tmp_path_factory.mktemp("refusal"), "platt", None, "r"))
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_codegen/test_calibration_params_codegen.py:114: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_codegen/test_calibration_params_codegen.py:48: in _export
+    model.fit()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+a = (<lizyml.core.model.Model object at 0x7a4b6ccaa510>,), k = {}
+
+    def boom(*a: object, **k: object):
+>       raise ProducerRan(f"producer disabled for the hollowness check: {label}")
+E       kill_producers.ProducerRan: producer disabled for the hollowness check: Model.fit
+
+docs/audits/2026-09-defect-discovery/instruments/kill_producers.py:49: ProducerRan
+_ ERROR at setup of test_generated_project_refuses_calibration_params_that_are_not_a_mapping[value0] _
+
+tmp_path_factory = TempPathFactory(_given_basetemp=None, _trace=<pluggy._tracing.TagTracerSub object at 0x7a4b6edda190>, _basetemp=PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-21'), _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def generated_train(tmp_path_factory: pytest.TempPathFactory) -> ModuleType:
+>       return _load_train(_export(tmp_path_factory.mktemp("refusal"), "platt", None, "r"))
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_codegen/test_calibration_params_codegen.py:114: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_codegen/test_calibration_params_codegen.py:48: in _export
+    model.fit()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+a = (<lizyml.core.model.Model object at 0x7a4b6ccaa510>,), k = {}
+
+    def boom(*a: object, **k: object):
+>       raise ProducerRan(f"producer disabled for the hollowness check: {label}")
+E       kill_producers.ProducerRan: producer disabled for the hollowness check: Model.fit
+
+docs/audits/2026-09-defect-discovery/instruments/kill_producers.py:49: ProducerRan
+_ ERROR at setup of test_generated_project_refuses_calibration_params_that_are_not_a_mapping[0] _
+
+tmp_path_factory = TempPathFactory(_given_basetemp=None, _trace=<pluggy._tracing.TagTracerSub object at 0x7a4b6edda190>, _basetemp=PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-21'), _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def generated_train(tmp_path_factory: pytest.TempPathFactory) -> ModuleType:
+>       return _load_train(_export(tmp_path_factory.mktemp("refusal"), "platt", None, "r"))
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_codegen/test_calibration_params_codegen.py:114: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_codegen/test_calibration_params_codegen.py:48: in _export
+    model.fit()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+a = (<lizyml.core.model.Model object at 0x7a4b6ccaa510>,), k = {}
+
+    def boom(*a: object, **k: object):
+>       raise ProducerRan(f"producer disabled for the hollowness check: {label}")
+E       kill_producers.ProducerRan: producer disabled for the hollowness check: Model.fit
+
+docs/audits/2026-09-defect-discovery/instruments/kill_producers.py:49: ProducerRan
+_ ERROR at setup of test_generated_project_refuses_calibration_params_that_are_not_a_mapping[] _
+
+tmp_path_factory = TempPathFactory(_given_basetemp=None, _trace=<pluggy._tracing.TagTracerSub object at 0x7a4b6edda190>, _basetemp=PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-21'), _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def generated_train(tmp_path_factory: pytest.TempPathFactory) -> ModuleType:
+>       return _load_train(_export(tmp_path_factory.mktemp("refusal"), "platt", None, "r"))
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_codegen/test_calibration_params_codegen.py:114: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_codegen/test_calibration_params_codegen.py:48: in _export
+    model.fit()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+a = (<lizyml.core.model.Model object at 0x7a4b6ccaa510>,), k = {}
+
+    def boom(*a: object, **k: object):
+>       raise ProducerRan(f"producer disabled for the hollowness check: {label}")
+E       kill_producers.ProducerRan: producer disabled for the hollowness check: Model.fit
+
+docs/audits/2026-09-defect-discovery/instruments/kill_producers.py:49: ProducerRan
+_ ERROR at setup of test_generated_project_refuses_calibration_params_that_are_not_a_mapping[False] _
+
+tmp_path_factory = TempPathFactory(_given_basetemp=None, _trace=<pluggy._tracing.TagTracerSub object at 0x7a4b6edda190>, _basetemp=PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-21'), _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def generated_train(tmp_path_factory: pytest.TempPathFactory) -> ModuleType:
+>       return _load_train(_export(tmp_path_factory.mktemp("refusal"), "platt", None, "r"))
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_codegen/test_calibration_params_codegen.py:114: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_codegen/test_calibration_params_codegen.py:48: in _export
+    model.fit()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+a = (<lizyml.core.model.Model object at 0x7a4b6ccaa510>,), k = {}
+
+    def boom(*a: object, **k: object):
+>       raise ProducerRan(f"producer disabled for the hollowness check: {label}")
+E       kill_producers.ProducerRan: producer disabled for the hollowness check: Model.fit
+
+docs/audits/2026-09-defect-discovery/instruments/kill_producers.py:49: ProducerRan
+_ ERROR at setup of test_generated_project_refuses_calibration_params_that_are_not_a_mapping[None] _
+
+tmp_path_factory = TempPathFactory(_given_basetemp=None, _trace=<pluggy._tracing.TagTracerSub object at 0x7a4b6edda190>, _basetemp=PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-21'), _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def generated_train(tmp_path_factory: pytest.TempPathFactory) -> ModuleType:
+>       return _load_train(_export(tmp_path_factory.mktemp("refusal"), "platt", None, "r"))
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_codegen/test_calibration_params_codegen.py:114: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_codegen/test_calibration_params_codegen.py:48: in _export
+    model.fit()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+a = (<lizyml.core.model.Model object at 0x7a4b6ccaa510>,), k = {}
+
+    def boom(*a: object, **k: object):
+>       raise ProducerRan(f"producer disabled for the hollowness check: {label}")
+E       kill_producers.ProducerRan: producer disabled for the hollowness check: Model.fit
+
+docs/audits/2026-09-defect-discovery/instruments/kill_producers.py:49: ProducerRan
+_ ERROR at setup of test_generated_project_refuses_calibration_params_that_are_not_a_mapping[x] _
+
+tmp_path_factory = TempPathFactory(_given_basetemp=None, _trace=<pluggy._tracing.TagTracerSub object at 0x7a4b6edda190>, _basetemp=PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-21'), _retention_count=3, _retention_policy='all')
+
+    @pytest.fixture(scope="module")
+    def generated_train(tmp_path_factory: pytest.TempPathFactory) -> ModuleType:
+>       return _load_train(_export(tmp_path_factory.mktemp("refusal"), "platt", None, "r"))
+                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_codegen/test_calibration_params_codegen.py:114: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_codegen/test_calibration_params_codegen.py:48: in _export
+    model.fit()
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+a = (<lizyml.core.model.Model object at 0x7a4b6ccaa510>,), k = {}
+
+    def boom(*a: object, **k: object):
+>       raise ProducerRan(f"producer disabled for the hollowness check: {label}")
+E       kill_producers.ProducerRan: producer disabled for the hollowness check: Model.fit
+
+docs/audits/2026-09-defect-discovery/instruments/kill_producers.py:49: ProducerRan
+=============================== warnings summary ===============================
+tests/test_core/test_param_domain.py:146
+  /tmp/claude-1000/-home-rem-repos-LizyML/e1612d43-a3df-4ff3-849b-8f1591799376/scratchpad/base1d4/tests/test_core/test_param_domain.py:146: RuntimeWarning: overflow encountered in cast
+    atoms.append(dtype(value))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+=========================== short test summary info ============================
+PASSED tests/test_calibration/test_calibration_param_names.py::test_calibrators_that_do_not_use_lightgbm_are_checked_by_their_own_contract[platt]
+PASSED tests/test_calibration/test_calibration_param_names.py::test_calibrators_that_do_not_use_lightgbm_are_checked_by_their_own_contract[beta]
+PASSED tests/test_calibration/test_calibration_param_names.py::test_no_calibration_and_no_params_are_no_ops
+PASSED tests/test_calibration/test_h0058_outer_reuse.py::TestBuildCalibrationSplitterDeprecated::test_build_calibration_splitter_warns
+PASSED tests/test_calibration/test_isotonic_calibration.py::TestIsotonicCalibrator::test_monotone
+PASSED tests/test_calibration/test_isotonic_calibration.py::TestIsotonicCalibrator::test_output_range_not_compressed
+PASSED tests/test_calibration/test_isotonic_calibration.py::TestIsotonicCalibrator::test_reproducibility_with_seed
+PASSED tests/test_calibration/test_platt_mle.py::test_export_form_and_predict_agree
+PASSED tests/test_calibration/test_raw_score_calibration.py::TestPredictRaw::test_predict_raw_regression_same_as_predict
+PASSED tests/test_calibration/test_raw_score_calibration.py::TestPredictRaw::test_predict_raw_returns_logits_for_binary
+PASSED tests/test_codegen/test_config_writer.py::TestBuildConfig::test_calibration_method_binary
+PASSED tests/test_codegen/test_config_writer.py::TestBuildConfig::test_calibration_none_when_no_calibrator
+PASSED tests/test_codegen/test_config_writer.py::TestBuildConfig::test_key_ordering
+PASSED tests/test_codegen/test_config_writer.py::TestBuildConfig::test_multiclass_no_calibration_fields
+PASSED tests/test_codegen/test_export_params.py::TestBetaExportParams::test_export_params_returns_correct_keys
+PASSED tests/test_codegen/test_export_params.py::TestBetaExportParams::test_export_params_roundtrip
+PASSED tests/test_codegen/test_export_params.py::TestIsotonicExportParams::test_export_params_returns_correct_keys
+PASSED tests/test_codegen/test_export_params.py::TestLGBMAdapterSaveModelText::test_roundtrip_predictions
+PASSED tests/test_codegen/test_export_params.py::TestPlattExportParams::test_export_params_json_serializable
+PASSED tests/test_codegen/test_export_params.py::TestPlattExportParams::test_export_params_returns_correct_keys
+PASSED tests/test_codegen/test_export_params.py::TestPlattExportParams::test_export_params_roundtrip
+PASSED tests/test_codegen/test_templates.py::TestRenderPredictPy::test_contains_calibration_apply
+PASSED tests/test_codegen/test_templates.py::TestRenderPredictPy::test_no_sklearn_dependency
+PASSED tests/test_codegen/test_templates.py::TestRenderPredictPy::test_valid_python
+PASSED tests/test_codegen/test_templates.py::TestRenderTestEquivalencePy::test_imports_and_calls_predict_module
+PASSED tests/test_codegen/test_templates.py::TestRenderTestEquivalencePy::test_no_second_prediction_implementation
+PASSED tests/test_codegen/test_templates.py::TestRenderTrainPy::test_contains_calibration_methods
+PASSED tests/test_core/test_contracts.py::TestFitResultSchema::test_calibrated_key_absent_when_no_calibrator
+PASSED tests/test_core/test_contracts.py::TestPredictionResultSchema::test_proba_optional
+PASSED tests/test_core/test_contracts.py::TestPredictionResultSchema::test_shap_values_optional
+PASSED tests/test_core/test_contracts.py::TestSplitIndicesSchema::test_instantiation_no_inner_no_calibration
+PASSED tests/test_core/test_contracts.py::TestSplitIndicesSchema::test_instantiation_with_inner_and_calibration
+PASSED tests/test_core/test_model_metrics_calibrated.py::TestFilterMetricsNoBranches::test_no_empty_calibrated_branch
+PASSED tests/test_core/test_param_domain.py::test_a_string_neither_consumer_can_encode_is_refused
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[NoneType:None]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[None]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[None, None]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(None,)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[None, None]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': None}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': None}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[bool:True]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[True]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[True, True]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(True,)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[True, True]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': True}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': True}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[bool:False]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[False]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[False, False]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(False,)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[False, False]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': False}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': False}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[str:'']
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['']]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['', '']]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:('',)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[['', '']]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': ''}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': ''}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[str:'text']
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['text']]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['text', 'text']]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:('text',)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[['text', 'text']]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': 'text'}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': 'text'}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[str:'0.50']
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['0.50']]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['0.50', '0.50']]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:('0.50',)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[['0.50', '0.50']]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': '0.50'}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': '0.50'}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[str:'1,2']
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['1,2']]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['1,2', '1,2']]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:('1,2',)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[['1,2', '1,2']]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': '1,2'}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': '1,2'}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[int:0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[0]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[0, 0]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(0,)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[0, 0]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': 0}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': 0}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[int:1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[1]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[1, 1]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(1,)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[1, 1]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': 1}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': 1}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[int:3]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[3]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[3, 3]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(3,)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[3, 3]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': 3}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': 3}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[int:100]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[100]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[100, 100]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(100,)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[100, 100]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': 100}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': 100}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[int:-7]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[-7]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[-7, -7]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(-7,)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[-7, -7]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': -7}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': -7}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[int:1099511627776]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[1099511627776]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[1099511627776, 1099511627776]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(1099511627776,)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[1099511627776, 1099511627776]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': 1099511627776}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': 1099511627776}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float:0.0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[0.0]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[0.0, 0.0]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(0.0,)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[0.0, 0.0]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': 0.0}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': 0.0}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float:-0.0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[-0.0]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[-0.0, -0.0]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(-0.0,)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[-0.0, -0.0]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': -0.0}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': -0.0}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float:0.1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[0.1]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[0.1, 0.1]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(0.1,)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[0.1, 0.1]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': 0.1}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': 0.1}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float:0.5]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[0.5]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[0.5, 0.5]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(0.5,)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[0.5, 0.5]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': 0.5}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': 0.5}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float:1.0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[1.0]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[1.0, 1.0]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(1.0,)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[1.0, 1.0]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': 1.0}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': 1.0}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float:-1.0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[-1.0]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[-1.0, -1.0]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(-1.0,)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[-1.0, -1.0]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': -1.0}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': -1.0}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float:3.14159265358979]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[3.14159265358979]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[3.14159265358979, 3.14159265358979]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(3.14159265358979,)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[3.14159265358979, 3.14159265358979]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': 3.14159265358979}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': 3.14159265358979}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float:1e-08]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[1e-08]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[1e-08, 1e-08]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(1e-08,)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[1e-08, 1e-08]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': 1e-08}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': 1e-08}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float:0.0001]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[0.0001]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[0.0001, 0.0001]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(0.0001,)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[0.0001, 0.0001]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': 0.0001}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': 0.0001}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float:1000.0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[1000.0]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[1000.0, 1000.0]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(1000.0,)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[1000.0, 1000.0]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': 1000.0}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': 1000.0}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float:123456.789]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[123456.789]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[123456.789, 123456.789]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(123456.789,)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[123456.789, 123456.789]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': 123456.789}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': 123456.789}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float:inf]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[inf]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[inf, inf]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(inf,)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[inf, inf]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': inf}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': inf}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float:-inf]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[-inf]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[-inf, -inf]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(-inf,)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[-inf, -inf]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': -inf}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': -inf}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float:nan]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[nan]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[nan, nan]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(nan,)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[nan, nan]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': nan}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': nan}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[PosixPath:PosixPath('models/out.txt')]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[PosixPath('models/out.txt')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[PosixPath('models/out.txt'), PosixPath('models/out.txt')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(PosixPath('models/out.txt'),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[PosixPath('models/out.txt'), PosixPath('models/out.txt')]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': PosixPath('models/out.txt')}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': PosixPath('models/out.txt')}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[bool:np.True_]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.True_]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.True_, np.True_]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.True_,)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.True_, np.True_]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.True_}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.True_}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([ True,  True])]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[bool:np.False_]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.False_]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.False_, np.False_]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.False_,)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.False_, np.False_]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.False_}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.False_}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([False, False])]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float16:np.float16(0.0)0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(0.0)]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(0.0), np.float16(0.0)]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float16(0.0),)0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float16(0.0), np.float16(0.0)]]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float16(0.0)}0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float16(0.0)}]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([0., 0.], dtype=float16)0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float16:np.float16(-0.0)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(-0.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(-0.0), np.float16(-0.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float16(-0.0),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float16(-0.0), np.float16(-0.0)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float16(-0.0)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float16(-0.0)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([-0., -0.], dtype=float16)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float16:np.float16(0.1)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(0.1)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(0.1), np.float16(0.1)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float16(0.1),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float16(0.1), np.float16(0.1)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float16(0.1)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float16(0.1)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([0.1, 0.1], dtype=float16)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float16:np.float16(0.5)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(0.5)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(0.5), np.float16(0.5)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float16(0.5),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float16(0.5), np.float16(0.5)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float16(0.5)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float16(0.5)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([0.5, 0.5], dtype=float16)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float16:np.float16(1.0)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(1.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(1.0), np.float16(1.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float16(1.0),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float16(1.0), np.float16(1.0)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float16(1.0)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float16(1.0)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([1., 1.], dtype=float16)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float16:np.float16(-1.0)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(-1.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(-1.0), np.float16(-1.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float16(-1.0),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float16(-1.0), np.float16(-1.0)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float16(-1.0)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float16(-1.0)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([-1., -1.], dtype=float16)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float16:np.float16(3.14)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(3.14)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(3.14), np.float16(3.14)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float16(3.14),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float16(3.14), np.float16(3.14)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float16(3.14)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float16(3.14)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([3.14, 3.14], dtype=float16)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float16:np.float16(0.0)1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(0.0)]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(0.0), np.float16(0.0)]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float16(0.0),)1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float16(0.0), np.float16(0.0)]]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float16(0.0)}1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float16(0.0)}]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([0., 0.], dtype=float16)1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float16:np.float16(0.0001)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(0.0001)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(0.0001), np.float16(0.0001)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float16(0.0001),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float16(0.0001), np.float16(0.0001)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float16(0.0001)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float16(0.0001)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([0.0001, 0.0001], dtype=float16)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float16:np.float16(1e+03)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float16(1e+03)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float16(1e+03)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float16:np.float16(inf)0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(inf)]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(inf), np.float16(inf)]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float16(inf),)0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float16(inf), np.float16(inf)]]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float16(inf)}0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float16(inf)}]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([inf, inf], dtype=float16)0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float16:np.float16(inf)1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(inf)]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(inf), np.float16(inf)]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float16(inf),)1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float16(inf), np.float16(inf)]]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float16(inf)}1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float16(inf)}]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([inf, inf], dtype=float16)1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float16:np.float16(-inf)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(-inf)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(-inf), np.float16(-inf)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float16(-inf),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float16(-inf), np.float16(-inf)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float16(-inf)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float16(-inf)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([-inf, -inf], dtype=float16)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float16:np.float16(nan)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(nan)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float16(nan), np.float16(nan)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float16(nan),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float16(nan), np.float16(nan)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float16(nan)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float16(nan)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([nan, nan], dtype=float16)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float32:np.float32(0.0)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(0.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(0.0), np.float32(0.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float32(0.0),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float32(0.0), np.float32(0.0)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float32(0.0)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float32(0.0)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([0., 0.], dtype=float32)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float32:np.float32(-0.0)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(-0.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(-0.0), np.float32(-0.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float32(-0.0),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float32(-0.0), np.float32(-0.0)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float32(-0.0)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float32(-0.0)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([-0., -0.], dtype=float32)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float32:np.float32(0.1)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(0.1)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(0.1), np.float32(0.1)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float32(0.1),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float32(0.1), np.float32(0.1)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float32(0.1)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float32(0.1)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([0.1, 0.1], dtype=float32)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float32:np.float32(0.5)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(0.5)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(0.5), np.float32(0.5)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float32(0.5),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float32(0.5), np.float32(0.5)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float32(0.5)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float32(0.5)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([0.5, 0.5], dtype=float32)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float32:np.float32(1.0)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(1.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(1.0), np.float32(1.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float32(1.0),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float32(1.0), np.float32(1.0)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float32(1.0)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float32(1.0)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([1., 1.], dtype=float32)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float32:np.float32(-1.0)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(-1.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(-1.0), np.float32(-1.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float32(-1.0),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float32(-1.0), np.float32(-1.0)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float32(-1.0)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float32(-1.0)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([-1., -1.], dtype=float32)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float32:np.float32(3.1415927)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(3.1415927)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(3.1415927), np.float32(3.1415927)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float32(3.1415927),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float32(3.1415927), np.float32(3.1415927)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float32(3.1415927)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float32(3.1415927)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([3.1415927, 3.1415927], dtype=float32)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float32:np.float32(1e-08)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(1e-08)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(1e-08), np.float32(1e-08)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float32(1e-08),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float32(1e-08), np.float32(1e-08)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float32(1e-08)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float32(1e-08)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([1.e-08, 1.e-08], dtype=float32)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float32:np.float32(1e-04)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float32(1e-04)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float32(1e-04)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float32:np.float32(1000.0)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(1000.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(1000.0), np.float32(1000.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float32(1000.0),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float32(1000.0), np.float32(1000.0)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float32(1000.0)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float32(1000.0)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([1000., 1000.], dtype=float32)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float32:np.float32(123456.79)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(123456.79)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(123456.79), np.float32(123456.79)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float32(123456.79),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float32(123456.79), np.float32(123456.79)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float32(123456.79)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float32(123456.79)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([123456.79, 123456.79], dtype=float32)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float32:np.float32(inf)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(inf)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(inf), np.float32(inf)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float32(inf),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float32(inf), np.float32(inf)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float32(inf)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float32(inf)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([inf, inf], dtype=float32)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float32:np.float32(-inf)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(-inf)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(-inf), np.float32(-inf)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float32(-inf),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float32(-inf), np.float32(-inf)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float32(-inf)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float32(-inf)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([-inf, -inf], dtype=float32)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float32:np.float32(nan)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(nan)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float32(nan), np.float32(nan)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float32(nan),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float32(nan), np.float32(nan)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float32(nan)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float32(nan)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([nan, nan], dtype=float32)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float64:np.float64(0.0)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(0.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(0.0), np.float64(0.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float64(0.0),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float64(0.0), np.float64(0.0)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float64(0.0)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float64(0.0)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([0., 0.])]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float64:np.float64(-0.0)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(-0.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(-0.0), np.float64(-0.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float64(-0.0),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float64(-0.0), np.float64(-0.0)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float64(-0.0)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float64(-0.0)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([-0., -0.])]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float64:np.float64(0.1)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(0.1)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(0.1), np.float64(0.1)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float64(0.1),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float64(0.1), np.float64(0.1)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float64(0.1)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float64(0.1)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([0.1, 0.1])]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float64:np.float64(0.5)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(0.5)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(0.5), np.float64(0.5)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float64(0.5),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float64(0.5), np.float64(0.5)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float64(0.5)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float64(0.5)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([0.5, 0.5])]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float64:np.float64(1.0)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(1.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(1.0), np.float64(1.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float64(1.0),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float64(1.0), np.float64(1.0)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float64(1.0)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float64(1.0)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([1., 1.])]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float64:np.float64(-1.0)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(-1.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(-1.0), np.float64(-1.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float64(-1.0),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float64(-1.0), np.float64(-1.0)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float64(-1.0)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float64(-1.0)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([-1., -1.])]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float64:np.float64(3.14159265358979)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(3.14159265358979)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(3.14159265358979), np.float64(3.14159265358979)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float64(3.14159265358979),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float64(3.14159265358979), np.float64(3.14159265358979)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float64(3.14159265358979)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float64(3.14159265358979)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([3.14159265, 3.14159265])]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float64:np.float64(1e-08)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(1e-08)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(1e-08), np.float64(1e-08)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float64(1e-08),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float64(1e-08), np.float64(1e-08)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float64(1e-08)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float64(1e-08)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([1.e-08, 1.e-08])]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float64:np.float64(0.0001)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(0.0001)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(0.0001), np.float64(0.0001)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float64(0.0001),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float64(0.0001), np.float64(0.0001)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float64(0.0001)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float64(0.0001)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([0.0001, 0.0001])]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float64:np.float64(1000.0)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(1000.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(1000.0), np.float64(1000.0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float64(1000.0),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float64(1000.0), np.float64(1000.0)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float64(1000.0)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float64(1000.0)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([1000., 1000.])]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float64:np.float64(123456.789)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(123456.789)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(123456.789), np.float64(123456.789)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float64(123456.789),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float64(123456.789), np.float64(123456.789)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float64(123456.789)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float64(123456.789)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([123456.789, 123456.789])]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float64:np.float64(inf)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(inf)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(inf), np.float64(inf)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float64(inf),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float64(inf), np.float64(inf)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float64(inf)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float64(inf)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([inf, inf])]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float64:np.float64(-inf)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(-inf)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(-inf), np.float64(-inf)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float64(-inf),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float64(-inf), np.float64(-inf)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float64(-inf)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float64(-inf)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([-inf, -inf])]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[float64:np.float64(nan)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(nan)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.float64(nan), np.float64(nan)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.float64(nan),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.float64(nan), np.float64(nan)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.float64(nan)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.float64(nan)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([nan, nan])]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[int16:np.int16(0)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int16(0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int16(0), np.int16(0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.int16(0),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.int16(0), np.int16(0)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.int16(0)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.int16(0)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([0, 0], dtype=int16)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[int16:np.int16(1)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int16(1)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int16(1), np.int16(1)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.int16(1),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.int16(1), np.int16(1)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.int16(1)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.int16(1)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([1, 1], dtype=int16)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[int16:np.int16(3)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int16(3)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int16(3), np.int16(3)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.int16(3),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.int16(3), np.int16(3)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.int16(3)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.int16(3)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([3, 3], dtype=int16)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[int16:np.int16(100)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int16(100)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int16(100), np.int16(100)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.int16(100),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.int16(100), np.int16(100)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.int16(100)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.int16(100)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([100, 100], dtype=int16)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[int32:np.int32(0)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int32(0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int32(0), np.int32(0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.int32(0),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.int32(0), np.int32(0)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.int32(0)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.int32(0)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([0, 0], dtype=int32)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[int32:np.int32(1)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int32(1)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int32(1), np.int32(1)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.int32(1),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.int32(1), np.int32(1)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.int32(1)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.int32(1)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([1, 1], dtype=int32)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[int32:np.int32(3)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int32(3)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int32(3), np.int32(3)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.int32(3),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.int32(3), np.int32(3)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.int32(3)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.int32(3)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([3, 3], dtype=int32)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[int32:np.int32(100)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int32(100)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int32(100), np.int32(100)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.int32(100),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.int32(100), np.int32(100)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.int32(100)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.int32(100)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([100, 100], dtype=int32)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[int64:np.int64(0)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int64(0)]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int64(0), np.int64(0)]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.int64(0),)0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.int64(0), np.int64(0)]]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.int64(0)}0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.int64(0)}]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([0, 0])]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[int64:np.int64(1)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int64(1)]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int64(1), np.int64(1)]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.int64(1),)0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.int64(1), np.int64(1)]]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.int64(1)}0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.int64(1)}]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([1, 1])]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[int64:np.int64(3)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int64(3)]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int64(3), np.int64(3)]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.int64(3),)0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.int64(3), np.int64(3)]]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.int64(3)}0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.int64(3)}]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([3, 3])]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[int64:np.int64(100)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int64(100)]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int64(100), np.int64(100)]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.int64(100),)0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.int64(100), np.int64(100)]]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.int64(100)}0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.int64(100)}]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([100, 100])]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[int8:np.int8(0)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int8(0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int8(0), np.int8(0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.int8(0),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.int8(0), np.int8(0)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.int8(0)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.int8(0)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([0, 0], dtype=int8)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[int8:np.int8(1)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int8(1)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int8(1), np.int8(1)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.int8(1),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.int8(1), np.int8(1)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.int8(1)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.int8(1)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([1, 1], dtype=int8)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[int8:np.int8(3)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int8(3)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int8(3), np.int8(3)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.int8(3),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.int8(3), np.int8(3)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.int8(3)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.int8(3)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([3, 3], dtype=int8)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[int8:np.int8(100)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int8(100)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int8(100), np.int8(100)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.int8(100),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.int8(100), np.int8(100)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.int8(100)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.int8(100)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([100, 100], dtype=int8)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.longdouble('0.0')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.longdouble('0.0'), np.longdouble('0.0')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.longdouble('0.0'),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.longdouble('0.0'), np.longdouble('0.0')]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([0., 0.], dtype=float128)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.longdouble('-0.0')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.longdouble('-0.0'), np.longdouble('-0.0')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.longdouble('-0.0'),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.longdouble('-0.0'), np.longdouble('-0.0')]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([-0., -0.], dtype=float128)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.longdouble('0.5')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.longdouble('0.5'), np.longdouble('0.5')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.longdouble('0.5'),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.longdouble('0.5'), np.longdouble('0.5')]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([0.5, 0.5], dtype=float128)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.longdouble('1.0')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.longdouble('1.0'), np.longdouble('1.0')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.longdouble('1.0'),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.longdouble('1.0'), np.longdouble('1.0')]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([1., 1.], dtype=float128)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.longdouble('-1.0')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.longdouble('-1.0'), np.longdouble('-1.0')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.longdouble('-1.0'),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.longdouble('-1.0'), np.longdouble('-1.0')]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([-1., -1.], dtype=float128)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.longdouble('1000.0')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.longdouble('1000.0'), np.longdouble('1000.0')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.longdouble('1000.0'),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.longdouble('1000.0'), np.longdouble('1000.0')]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([1000., 1000.], dtype=float128)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.longdouble('inf')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.longdouble('inf'), np.longdouble('inf')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.longdouble('inf'),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.longdouble('inf'), np.longdouble('inf')]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([inf, inf], dtype=float128)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.longdouble('-inf')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.longdouble('-inf'), np.longdouble('-inf')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.longdouble('-inf'),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.longdouble('-inf'), np.longdouble('-inf')]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([-inf, -inf], dtype=float128)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.longdouble('nan')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.longdouble('nan'), np.longdouble('nan')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.longdouble('nan'),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.longdouble('nan'), np.longdouble('nan')]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([nan, nan], dtype=float128)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[longlong:np.int64(0)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int64(0)]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int64(0), np.int64(0)]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.int64(0),)1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.int64(0), np.int64(0)]]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.int64(0)}1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.int64(0)}]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([0, 0], dtype=int64)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[longlong:np.int64(1)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int64(1)]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int64(1), np.int64(1)]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.int64(1),)1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.int64(1), np.int64(1)]]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.int64(1)}1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.int64(1)}]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([1, 1], dtype=int64)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[longlong:np.int64(3)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int64(3)]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int64(3), np.int64(3)]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.int64(3),)1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.int64(3), np.int64(3)]]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.int64(3)}1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.int64(3)}]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([3, 3], dtype=int64)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[longlong:np.int64(100)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int64(100)]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.int64(100), np.int64(100)]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.int64(100),)1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.int64(100), np.int64(100)]]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.int64(100)}1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.int64(100)}]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([100, 100], dtype=int64)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[str_:np.str_('')]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.str_('')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.str_(''), np.str_('')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.str_(''),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.str_(''), np.str_('')]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.str_('')}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.str_('')}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array(['', ''], dtype='<U1')]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[str_:np.str_('text')]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.str_('text')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.str_('text'), np.str_('text')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.str_('text'),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.str_('text'), np.str_('text')]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.str_('text')}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.str_('text')}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array(['text', 'text'], dtype='<U4')]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[str_:np.str_('0.50')]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.str_('0.50')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.str_('0.50'), np.str_('0.50')]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.str_('0.50'),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.str_('0.50'), np.str_('0.50')]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.str_('0.50')}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.str_('0.50')}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array(['0.50', '0.50'], dtype='<U4')]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[uint16:np.uint16(0)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint16(0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint16(0), np.uint16(0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.uint16(0),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.uint16(0), np.uint16(0)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.uint16(0)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.uint16(0)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([0, 0], dtype=uint16)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[uint16:np.uint16(1)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint16(1)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint16(1), np.uint16(1)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.uint16(1),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.uint16(1), np.uint16(1)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.uint16(1)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.uint16(1)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([1, 1], dtype=uint16)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[uint16:np.uint16(3)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint16(3)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint16(3), np.uint16(3)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.uint16(3),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.uint16(3), np.uint16(3)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.uint16(3)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.uint16(3)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([3, 3], dtype=uint16)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[uint16:np.uint16(100)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint16(100)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint16(100), np.uint16(100)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.uint16(100),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.uint16(100), np.uint16(100)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.uint16(100)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.uint16(100)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([100, 100], dtype=uint16)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[uint32:np.uint32(0)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint32(0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint32(0), np.uint32(0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.uint32(0),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.uint32(0), np.uint32(0)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.uint32(0)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.uint32(0)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([0, 0], dtype=uint32)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[uint32:np.uint32(1)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint32(1)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint32(1), np.uint32(1)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.uint32(1),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.uint32(1), np.uint32(1)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.uint32(1)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.uint32(1)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([1, 1], dtype=uint32)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[uint32:np.uint32(3)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint32(3)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint32(3), np.uint32(3)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.uint32(3),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.uint32(3), np.uint32(3)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.uint32(3)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.uint32(3)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([3, 3], dtype=uint32)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[uint32:np.uint32(100)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint32(100)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint32(100), np.uint32(100)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.uint32(100),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.uint32(100), np.uint32(100)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.uint32(100)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.uint32(100)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([100, 100], dtype=uint32)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[uint64:np.uint64(0)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint64(0)]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint64(0), np.uint64(0)]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.uint64(0),)0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.uint64(0), np.uint64(0)]]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.uint64(0)}0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.uint64(0)}]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([0, 0], dtype=uint64)0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[uint64:np.uint64(1)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint64(1)]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint64(1), np.uint64(1)]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.uint64(1),)0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.uint64(1), np.uint64(1)]]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.uint64(1)}0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.uint64(1)}]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([1, 1], dtype=uint64)0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[uint64:np.uint64(3)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint64(3)]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint64(3), np.uint64(3)]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.uint64(3),)0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.uint64(3), np.uint64(3)]]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.uint64(3)}0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.uint64(3)}]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([3, 3], dtype=uint64)0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[uint64:np.uint64(100)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint64(100)]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint64(100), np.uint64(100)]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.uint64(100),)0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.uint64(100), np.uint64(100)]]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.uint64(100)}0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.uint64(100)}]0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([100, 100], dtype=uint64)0]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[uint8:np.uint8(0)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint8(0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint8(0), np.uint8(0)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.uint8(0),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.uint8(0), np.uint8(0)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.uint8(0)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.uint8(0)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([0, 0], dtype=uint8)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[uint8:np.uint8(1)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint8(1)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint8(1), np.uint8(1)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.uint8(1),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.uint8(1), np.uint8(1)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.uint8(1)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.uint8(1)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([1, 1], dtype=uint8)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[uint8:np.uint8(3)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint8(3)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint8(3), np.uint8(3)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.uint8(3),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.uint8(3), np.uint8(3)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.uint8(3)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.uint8(3)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([3, 3], dtype=uint8)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[uint8:np.uint8(100)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint8(100)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint8(100), np.uint8(100)]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.uint8(100),)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.uint8(100), np.uint8(100)]]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.uint8(100)}]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.uint8(100)}]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([100, 100], dtype=uint8)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ulonglong:np.uint64(0)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint64(0)]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint64(0), np.uint64(0)]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.uint64(0),)1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.uint64(0), np.uint64(0)]]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.uint64(0)}1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.uint64(0)}]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([0, 0], dtype=uint64)1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ulonglong:np.uint64(1)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint64(1)]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint64(1), np.uint64(1)]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.uint64(1),)1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.uint64(1), np.uint64(1)]]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.uint64(1)}1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.uint64(1)}]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([1, 1], dtype=uint64)1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ulonglong:np.uint64(3)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint64(3)]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint64(3), np.uint64(3)]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.uint64(3),)1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.uint64(3), np.uint64(3)]]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.uint64(3)}1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.uint64(3)}]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([3, 3], dtype=uint64)1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ulonglong:np.uint64(100)]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint64(100)]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[np.uint64(100), np.uint64(100)]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:(np.uint64(100),)1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[[np.uint64(100), np.uint64(100)]]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[dict:{'entry': np.uint64(100)}1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:['auc', {'entry': np.uint64(100)}]1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[ndarray:array([100, 100], dtype=uint64)1]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[list:[]]
+PASSED tests/test_core/test_param_domain.py::test_normalising_twice_is_normalising_once[tuple:()]
+PASSED tests/test_core/test_param_domain.py::test_the_refused_subset_is_exactly_the_declared_boundary
+PASSED tests/test_core/test_task_type.py::TestTaskTypeReExports::test_evaluator_re_export
+PASSED tests/test_core/test_task_type.py::TestTaskTypeReExports::test_lgbm_adapter_re_export
+PASSED tests/test_core/test_task_type.py::TestTaskTypeReExports::test_target_encoder_re_export
+PASSED tests/test_e2e/test_leakage_all.py::TestCalibrationLeakage::test_calibration_result_structure
+PASSED tests/test_e2e/test_public_api.py::TestPublicImports::test_explain_importable
+PASSED tests/test_e2e/test_public_api.py::TestPublicImports::test_prediction_result_importable
+PASSED tests/test_e2e/test_time_series_full.py::TestTimeSeriesCalibrationSplitter::test_calibration_splitter_inherits_purged_params
+PASSED tests/test_estimators/test_check_provider.py::TestFactoryFitPredictRoundtrip::test_predict_proba_binary_shape[lgbm]
+PASSED tests/test_estimators/test_check_provider.py::TestFactoryFitPredictRoundtrip::test_predict_proba_multiclass_shape[lgbm]
+PASSED tests/test_estimators/test_check_provider.py::TestFactoryFitPredictRoundtrip::test_predict_proba_regression_raises[lgbm]
+PASSED tests/test_estimators/test_check_provider.py::TestFactoryFitPredictRoundtrip::test_predict_raw_shape[lgbm]
+PASSED tests/test_estimators/test_check_provider.py::TestProtocolReturnTypes::test_build_export_params_returns_export_params[lgbm]
+PASSED tests/test_estimators/test_estimators.py::TestLGBMBinary::test_predict_proba_shape
+PASSED tests/test_estimators/test_estimators.py::TestLGBMBinary::test_predict_shape
+PASSED tests/test_estimators/test_estimators.py::TestLGBMMulticlass::test_predict_labels
+PASSED tests/test_estimators/test_estimators.py::TestLGBMMulticlass::test_predict_proba_shape
+PASSED tests/test_estimators/test_estimators.py::TestLGBMRegression::test_predict_proba_raises
+PASSED tests/test_estimators/test_lgbm_metric_bridge.py::TestR2FevalMigration::test_r2_feval_perfect_predictions
+PASSED tests/test_estimators/test_param_behavioral_effect.py::TestBehavioralEffect::test_scale_pos_weight_changes_predictions
+PASSED tests/test_estimators/test_param_behavioral_effect.py::TestMulticlassParams::test_multiclass_predict_proba_shape
+PASSED tests/test_estimators/test_param_behavioral_effect.py::TestSmartParamsBehavior::test_balanced_binary_shifts_predictions
+PASSED tests/test_evaluation/test_evaluation.py::TestEvaluatorStructureRegression::test_no_calibrated_key_without_calibrator
+PASSED tests/test_evaluation/test_evaluation.py::TestMulticlassOvaNormalization::test_auc_pr_receives_raw_values
+PASSED tests/test_evaluation/test_evaluation.py::TestMulticlassOvaNormalization::test_binary_not_affected
+PASSED tests/test_evaluation/test_evaluation.py::TestMulticlassOvaNormalization::test_brier_receives_raw_values
+PASSED tests/test_evaluation/test_evaluation.py::TestMulticlassOvaNormalization::test_regression_not_affected
+PASSED tests/test_evaluation/test_evaluation.py::TestMulticlassOvaNormalization::test_softmax_pred_unchanged_for_simplex
+PASSED tests/test_evaluation/test_table_formatter.py::TestFormatMetricsTable::test_no_calibrated
+PASSED tests/test_evaluation/test_table_formatter.py::TestFormatMetricsTable::test_with_calibrated
+PASSED tests/test_metrics/test_metric_regressions.py::TestECEFormula::test_high_confidence_bin_poorly_calibrated
+PASSED tests/test_metrics/test_metric_regressions.py::TestECEFormula::test_low_confidence_bin_well_calibrated
+PASSED tests/test_metrics/test_metric_regressions.py::TestLogLossMulticlass::test_2d_good_predictions_lower_loss
+PASSED tests/test_metrics/test_metrics.py::TestECE::test_perfect_calibration
+PASSED tests/test_metrics/test_metrics.py::TestF1::test_with_proba
+PASSED tests/test_metrics/test_multiclass_ovr_metrics.py::TestAUCMulticlassOvR::test_good_predictions_high_auc
+PASSED tests/test_metrics/test_multiclass_ovr_metrics.py::TestBrierMulticlassOvR::test_good_predictions_low_brier
+PASSED tests/test_metrics/test_regression_metrics.py::TestHuberLoss::test_perfect_prediction_is_zero
+PASSED tests/test_metrics/test_regression_metrics.py::TestMAPE::test_perfect_prediction_is_zero
+PASSED tests/test_metrics/test_regression_metrics.py::TestSMAPE::test_perfect_prediction_is_zero
+PASSED tests/test_metrics/test_regression_metrics.py::TestWAPE::test_perfect_prediction_is_zero
+PASSED tests/test_notebooks/test_notebook_cells.py::test_time_series_has_predict
+PASSED tests/test_plots/test_theme.py::TestThemeAppliedToAllPlots::test_every_plot_module_imports_apply_default_layout
+PASSED tests/test_training/test_training.py::TestRefitTrainer::test_refit_model_can_predict
+PASSED tests/test_tuning/test_retune.py::TestPlotTuningHistoryRounds::test_plot_with_failed_trials
+ERROR tests/test_codegen/test_calibration_params_codegen.py::test_generated_project_reads_a_missing_calibration_params_as_empty
+ERROR tests/test_codegen/test_calibration_params_codegen.py::test_generated_project_refuses_calibration_params_that_are_not_a_mapping[value0]
+ERROR tests/test_codegen/test_calibration_params_codegen.py::test_generated_project_refuses_calibration_params_that_are_not_a_mapping[0]
+ERROR tests/test_codegen/test_calibration_params_codegen.py::test_generated_project_refuses_calibration_params_that_are_not_a_mapping[]
+ERROR tests/test_codegen/test_calibration_params_codegen.py::test_generated_project_refuses_calibration_params_that_are_not_a_mapping[False]
+ERROR tests/test_codegen/test_calibration_params_codegen.py::test_generated_project_refuses_calibration_params_that_are_not_a_mapping[None]
+ERROR tests/test_codegen/test_calibration_params_codegen.py::test_generated_project_refuses_calibration_params_that_are_not_a_mapping[x]
+1008 passed, 1 warning, 7 errors in 6.81s

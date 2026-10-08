@@ -1,0 +1,515 @@
+# BLUEPRINT.md disposition of every HISTORY.md proposal (H-0110, #271).
+#
+# Checked by tests/test_docs/test_proposal_blueprint_coverage.py; its module
+# docstring defines the grammar. A new proposal adds its row here in the same PR.
+#
+#   specified      anchors = [...]  each anchor occurs by full token in BLUEPRINT.md
+#                                   AND in the proposal's own HISTORY.md entry
+#   no_obligation  reason           nothing on the CLAUDE.md section 3 surface in force
+#   superseded     superseded_by, reason
+#   pending        reason           not decided yet
+
+[proposals."H-0000"]
+disposition = "specified"
+anchors = ["[build-system]", "[project.optional-dependencies]", "py.typed", "twine check"]
+
+[proposals."H-0001"]
+disposition = "specified"
+anchors = ["config_version", "extra", "LIZYML__model__lgbm__params__learning_rate", "kfold", "name", "group_col", "CONFIG_INVALID", "discriminator", "Literal[\"lgbm\"]", "ValidationError"]
+
+[proposals."H-0002"]
+disposition = "specified"
+anchors = ["oof_pred", "if_pred_per_fold", "pipeline_state", "SplitIndices", "used_features", "warnings", "n_classes", "if_per_fold", "feature_names", "lizyml_version", "pred", "proba", "shap_values"]
+
+[proposals."H-0003"]
+disposition = "specified"
+anchors = ["DESERIALIZATION_FAILED", "fit_result.pkl", "metadata.json", "format_version"]
+
+[proposals."H-0004"]
+disposition = "specified"
+anchors = ["MAPE", "Huber", "mape", "delta", "huber", "UNSUPPORTED_METRIC", "HuberLoss", "delta=1.0"]
+
+[proposals."H-0005"]
+disposition = "specified"
+anchors = ["evaluate_table", "table_formatter.py", "cal_oof", "MODEL_NOT_FIT", "Model.evaluate_table()"]
+
+[proposals."H-0006"]
+disposition = "specified"
+anchors = ["residuals", "residuals.py", "UNSUPPORTED_TASK", "Model.residuals()"]
+
+[proposals."H-0007"]
+disposition = "specified"
+anchors = ["importance_plot", "compute_shap_importance", "importance", "OPTIONAL_DEP_MISSING", "Model.importance(kind=\"shap\")"]
+
+[proposals."H-0008"]
+disposition = "specified"
+anchors = ["Plotly", "OPTIONAL_DEP_MISSING", "plotly.graph_objects.Figure"]
+
+[proposals."H-0009"]
+disposition = "specified"
+anchors = ["residuals_plot", "scatter", "qq", "plot_residuals()"]
+
+[proposals."H-0010"]
+disposition = "superseded"
+superseded_by = "H-0069"
+reason = "H-0010 added validation_ratio as a stored input alias that generated a holdout inner_valid and refused any co-specification. H-0069 removed the stored field: validation_ratio is a read-only value derived from inner_valid.ratio, legacy input is converted, and co-specification is refused only when the ratios differ. The method now comes from outer-split auto-resolution (H-0020). H-0069 does not cite H-0010 by id."
+
+[proposals."H-0011"]
+disposition = "specified"
+anchors = ["evaluate_table", "if_mean, oof, fold_0...fold_N-1, cal_oof"]
+
+[proposals."H-0012"]
+disposition = "specified"
+anchors = ["_downsample_is()"]
+
+[proposals."H-0013"]
+disposition = "specified"
+anchors = ["method: \"kfold\"", "stratified_kfold"]
+
+[proposals."H-0014"]
+disposition = "specified"
+anchors = ["precision_at_k", "UNSUPPORTED_METRIC", "k=10"]
+
+[proposals."H-0015"]
+disposition = "specified"
+anchors = ["model.roc_curve_plot()", "roc_curve_plot()"]
+
+[proposals."H-0016"]
+disposition = "specified"
+anchors = ["confusion_matrix", "confusion_matrix_table", "model.confusion_matrix()"]
+
+[proposals."H-0017"]
+disposition = "specified"
+anchors = ["calibration_plot", "probability_histogram_plot", "calibrated_oof", "Calibration 未有効時"]
+
+[proposals."H-0018"]
+disposition = "specified"
+anchors = ["OvR", "macro", "UNSUPPORTED_METRIC", "average_precision_score", "brier_score_loss"]
+
+[proposals."H-0019"]
+disposition = "specified"
+anchors = ["roc_curve_plot", "OvR", "plot_roc_curve"]
+
+[proposals."H-0020"]
+disposition = "specified"
+anchors = ["holdout(stratify=True)", "group_holdout", "time_holdout"]
+
+[proposals."H-0021"]
+disposition = "specified"
+anchors = ["auto_num_leaves", "min_data_in_leaf_ratio", "feature_weights", "feature_pre_filter", "scale_pos_weight"]
+
+[proposals."H-0022"]
+disposition = "specified"
+anchors = ["[huber, mae, mape]", "[auc, binary_logloss]", "[auc_mu, multi_logloss]", "first_metric_only", "bagging_freq"]
+
+[proposals."H-0023"]
+disposition = "specified"
+anchors = ["TrialResult", "tuning_table()", "TuningResult.trials"]
+
+[proposals."H-0024"]
+disposition = "specified"
+anchors = ["first_metric_only", "num_leaves_ratio", "early_stopping_rounds", "greater_is_better"]
+
+[proposals."H-0025"]
+disposition = "specified"
+anchors = ["GroupHoldoutInnerValid", "min_data_in_leaf_ratio", "min_data_in_bin_ratio", "CONFIG_INVALID", "範囲バリデーション", "(0,1)", "早期エラー"]
+
+[proposals."H-0026"]
+disposition = "specified"
+anchors = ["analysis_context", "X_for_explain", "再 export を促す"]
+
+[proposals."H-0027"]
+disposition = "specified"
+anchors = ["Config Reference", "min_data_in_leaf_ratio", "min_data_in_bin_ratio", "balanced"]
+
+[proposals."H-0028"]
+disposition = "specified"
+anchors = ["tuning_plot", "tuning.py", "MODEL_NOT_FIT", "Model.tuning_plot()"]
+
+[proposals."H-0029"]
+disposition = "specified"
+anchors = ["model.fit_result"]
+
+[proposals."H-0030"]
+disposition = "specified"
+anchors = ["predict_raw", "predict_proba", "BaseCalibratorAdapter.predict()"]
+
+[proposals."H-0031"]
+disposition = "specified"
+anchors = ["\"beta\"", "BetaCalibrator"]
+
+[proposals."H-0032"]
+disposition = "specified"
+anchors = ["purged_time_series", "group_time_series", "time_holdout", "group_holdout", "purged-time-series"]
+
+[proposals."H-0033"]
+disposition = "specified"
+anchors = ["time_range", "model.split_summary()", "train_start", "train_end"]
+
+[proposals."H-0034"]
+disposition = "specified"
+anchors = ["output_dir", "run_id", "ログファイルが出力先に保存される"]
+
+[proposals."H-0035"]
+disposition = "specified"
+anchors = ["params_table", "best_iteration", "early_stopping_rounds", "単一列", "解決された絶対値"]
+
+[proposals."H-0036"]
+disposition = "specified"
+anchors = ["min_data_in_leaf_ratio", "min_data_in_bin_ratio"]
+
+[proposals."H-0037"]
+disposition = "no_obligation"
+reason = "Document-consistency fix only; its Decision says the change gate does not apply (wording, a notebook cell, a test). The balanced/ratio defaults it aligns were decided by H-0027 and are anchored there."
+
+[proposals."H-0038"]
+disposition = "specified"
+anchors = ["purge_gap", "purged_time_series", "purge_window"]
+
+[proposals."H-0039"]
+disposition = "specified"
+anchors = ["output_dir", "run_id", "constructor > config > 未指定", "Model(..., output_dir=...)"]
+
+[proposals."H-0040"]
+disposition = "specified"
+anchors = ["time_col", "train_size_max", "test_size_max", "embargo_pct", "embargo", "警告付きで受理"]
+
+[proposals."H-0041"]
+disposition = "specified"
+anchors = ["lgb.train()", "LGBMRegressor", "keep_training_booster=True", "lgb.Dataset"]
+
+[proposals."H-0042"]
+disposition = "specified"
+anchors = ["_model_plots.py", "_model_tables.py", "_model_persistence.py"]
+
+[proposals."H-0043"]
+disposition = "specified"
+anchors = ["make_regression_df()", "@pytest.mark.slow", "--cov-fail-under=95"]
+
+[proposals."H-0044"]
+disposition = "superseded"
+superseded_by = "H-0058"
+reason = "H-0044 built calibration splits from split.method with calibration.n_splits overriding the fold count. H-0058 replaced that: calibration reuses fit_result.splits.outer and calibration.n_splits is deprecated and ignored."
+
+[proposals."H-0045"]
+disposition = "specified"
+anchors = ["oof_per_fold", "if_per_fold", "if_mean"]
+
+[proposals."H-0046"]
+disposition = "specified"
+anchors = ["汎化監視", "学習過程監視", "plot_learning_curve()"]
+
+[proposals."H-0047"]
+disposition = "specified"
+anchors = ["IsotonicCalibrator", "monotone_constraints_method", "patience=100", "validation_ratio=0.1"]
+
+[proposals."H-0048"]
+disposition = "specified"
+anchors = ["TuneProgressInfo", "TuneProgressCallback", "progress_callback"]
+
+[proposals."H-0049"]
+disposition = "specified"
+anchors = ["multiclassova", "needs_simplex", "_pred_for_metric()", "BaseMetric.needs_simplex"]
+
+[proposals."H-0050"]
+disposition = "specified"
+anchors = ["best_model_params", "best_smart_params", "best_training_params", "TrainComponents", "resolve_smart_params"]
+
+[proposals."H-0051"]
+disposition = "specified"
+anchors = ["DataFingerprint", "MetricRegistry", "CalibratorRegistry"]
+
+[proposals."H-0052"]
+disposition = "specified"
+anchors = ["training/oof_assembly.py", "fill_oof", "get_fold_pred", "evaluator.py"]
+
+[proposals."H-0053"]
+disposition = "specified"
+anchors = ["EstimatorProvider", "build_estimator_factory", "build_pipeline_factory", "default_fixed_params", "LGBMProvider"]
+
+[proposals."H-0054"]
+disposition = "specified"
+anchors = ["set_categorical_features", "runtime_deps", "search_dim.py"]
+
+[proposals."H-0055"]
+disposition = "specified"
+anchors = ["stratified_group_kfold", "group_holdout", "stratified-group-kfold"]
+
+[proposals."H-0056"]
+disposition = "specified"
+anchors = ["oof_raw_scores=None", "model_from_string()", "check_estimator", "all_x_types"]
+
+[proposals."H-0057"]
+disposition = "specified"
+anchors = ["oof_coverage", "compute_oof_valid_mask", "df.attrs[\"oof_coverage\"]", "Evaluator.evaluate()"]
+
+[proposals."H-0058"]
+disposition = "specified"
+anchors = ["fit_result.splits.outer", "calibration.n_splits", "(oof_scores, y)"]
+
+[proposals."H-0059"]
+disposition = "specified"
+anchors = ["export_code()", "test_equivalence.py", "pipeline_state.json", "requirements.txt"]
+
+[proposals."H-0060"]
+disposition = "specified"
+anchors = ["blocked_group_kfold", "train_window", "cutoffs", "BlockedGroupInnerValid"]
+
+[proposals."H-0061"]
+disposition = "specified"
+anchors = ["params_summary()"]
+
+[proposals."H-0062"]
+disposition = "specified"
+anchors = ["metrics=None", "plot_learning_curve()"]
+
+[proposals."H-0063"]
+disposition = "specified"
+anchors = ["early_stopping.random_state", "auto_categorical", "scale_pos_weight"]
+
+[proposals."H-0064"]
+disposition = "specified"
+anchors = ["average_precision", "feval", "logloss", "metric_bridge.py"]
+
+[proposals."H-0065"]
+disposition = "specified"
+anchors = ["EvaluationConfig.metrics", "model.lgbm.params.metric", "dict[str, dict[str, Any]]", "MetricEntry"]
+
+[proposals."H-0066"]
+disposition = "specified"
+anchors = ["feval_metrics", "greater_is_better", "needs_proba"]
+
+[proposals."H-0067"]
+disposition = "specified"
+anchors = ["ECE", "compute_oof_valid_mask", "oof_per_fold", "n_valid", "fallback", "calibration/cross_fit.py"]
+
+[proposals."H-0068"]
+disposition = "specified"
+anchors = ["expand_boundary", "boundary_threshold", "resume=True", "RoundSummary", "BoundaryReport"]
+
+[proposals."H-0069"]
+disposition = "specified"
+anchors = ["inner_valid.ratio", "validation_ratio", "round-trip"]
+
+[proposals."H-0070"]
+disposition = "specified"
+anchors = ["TargetEncoder", "FitResult.target_encoder", "TARGET_NOT_NUMERIC", "TARGET_UNSEEN_LABEL"]
+
+[proposals."H-0071"]
+disposition = "specified"
+anchors = ["smape", "wape"]
+
+[proposals."H-0072"]
+disposition = "specified"
+anchors = ["JournalStorage", "study_name", "load_if_exists=True", "storage is not None and study_name is None"]
+
+[proposals."H-0073"]
+disposition = "specified"
+anchors = ["build_export_params", "_model_persistence.py"]
+
+[proposals."H-0074"]
+disposition = "specified"
+anchors = ["FitState", "Model._get_fit_state()"]
+
+[proposals."H-0075"]
+disposition = "no_obligation"
+reason = "Internal refactor (TaskType annotations, dispatch dicts); the entry states public API, return meanings and TaskType values are unchanged. Unifying the unknown-task path to UNSUPPORTED_TASK is internal cleanup of a code BLUEPRINT already lists in section 16.2."
+
+[proposals."H-0076"]
+disposition = "specified"
+anchors = ["DEPRECATIONS", "build_calibration_splitter", "docs/DEPRECATIONS.md"]
+
+[proposals."H-0077"]
+disposition = "specified"
+anchors = ["TuningState", "Model._get_fit_state()"]
+
+[proposals."H-0078"]
+disposition = "specified"
+anchors = ["BoundaryDimStatus", "expand_boundary", "parse_space", "parameter_bounds", "clamped_to_bound", "min_allowed"]
+
+[proposals."H-0079"]
+disposition = "specified"
+anchors = ["objective", "TASK_COMPATIBLE_OBJECTIVES", "objective_choices", "metric_choices"]
+
+[proposals."H-0080"]
+disposition = "specified"
+anchors = ["random_state", "training.seed", "KFoldConfig", "StratifiedKFoldConfig", "StratifiedGroupKFoldConfig"]
+
+[proposals."H-0081"]
+disposition = "specified"
+anchors = ["(num_threads, CPU)", "num_threads"]
+
+[proposals."H-0082"]
+disposition = "specified"
+anchors = ["evaluate", "fit_result", "deepcopy", "__deepcopy__"]
+
+[proposals."H-0083"]
+disposition = "specified"
+anchors = ["FORMAT_VERSION", "checksums", "sha256", "joblib.load(io.BytesIO(...))"]
+
+[proposals."H-0084"]
+disposition = "specified"
+anchors = ["core/_model_state.py", "_model_state.py"]
+
+[proposals."H-0085"]
+disposition = "specified"
+anchors = ["TimeHoldoutInnerValid", "purge_gap + embargo", "UserWarning", "nan_count", "LizyMLError(DATA_SCHEMA_INVALID)"]
+
+[proposals."H-0086"]
+disposition = "specified"
+anchors = ["fit_result", "tuning", "inner_valid_explicit", "load_config"]
+
+[proposals."H-0087"]
+disposition = "specified"
+anchors = ["validators.py", "validate_time_series_order", "validate_group_split", "lizyml.data"]
+
+[proposals."H-0088"]
+disposition = "specified"
+anchors = ["codegen/", "templates.py", "lgbm_params="]
+
+[proposals."H-0089"]
+disposition = "specified"
+anchors = ["fallback_fold_flags", "n_fallback_rows", "fallback_row_count", "calibrated_oof"]
+
+[proposals."H-0090"]
+disposition = "specified"
+anchors = ["export_code", "split", "calibrator.json", "config.json[\"split\"]", "argsort()", "_build_split_metadata(cfg)"]
+
+[proposals."H-0091"]
+disposition = "specified"
+anchors = ["_model_tuning", "ModelTuningMixin", "_MIXIN_FILES"]
+
+[proposals."H-0092"]
+disposition = "specified"
+anchors = ["ARCHITECTURE.md", "tests/test_docs/test_declared_versions.py", "TimeHoldoutInnerValid"]
+
+[proposals."H-0093"]
+disposition = "specified"
+anchors = ["accepted_model_param_names", "smart_param_names", "feature_contri", "verbose=-1"]
+
+[proposals."H-0094"]
+disposition = "specified"
+anchors = ["fit(params=...)", "_merge_params", "check_training_managed_overrides", "tuning best_model_params"]
+
+[proposals."H-0095"]
+disposition = "specified"
+anchors = ["param_domain.py", "assert_plain_params", "_param_dict_to_str"]
+
+[proposals."H-0096"]
+disposition = "specified"
+anchors = ["値によらず", "_pop_by_identity", "values_differ"]
+
+[proposals."H-0097"]
+disposition = "specified"
+anchors = ["Revision 2", "merged model parameters", "verbosity"]
+
+[proposals."H-0098"]
+disposition = "specified"
+anchors = ["structural walk", "core/param_domain.py"]
+
+[proposals."H-0099"]
+disposition = "specified"
+anchors = ["tuning.optuna.params.direction", "greater_is_better", "early_stopping_rounds"]
+
+[proposals."H-0100"]
+disposition = "specified"
+anchors = ["validate_params", "_fit_platt", "target_smoothing", "calibration.params"]
+
+[proposals."H-0101"]
+disposition = "specified"
+anchors = ["TimeHoldoutInnerValidConfig", "gap=0"]
+
+[proposals."H-0102"]
+disposition = "specified"
+anchors = ["space_mode", "space_mode: replace"]
+
+[proposals."H-0103"]
+disposition = "specified"
+anchors = ["TrainComponents.sample_weight", "RefitTrainer.fit", "tests/test_training/test_cv_refit_parity.py"]
+
+[proposals."H-0104"]
+disposition = "specified"
+anchors = ["unseen_policy", "PredictionResult.warnings", "build_pipeline_factory", "transform_with_warnings", "categorical_cols"]
+
+[proposals."H-0105"]
+disposition = "specified"
+anchors = ["feval", "_pred_for_metric", "EVALUATION_FAILED", "evaluation.evaluator._pred_for_metric"]
+
+[proposals."H-0106"]
+disposition = "specified"
+anchors = ["SUPPORTED_CONFIG_VERSIONS", "DATA_FINGERPRINT_MISMATCH", "lizyml/config/version.py", "METRIC_REQUIRES_PROBA", "INCOMPATIBLE_COLUMNS", "FitResult.dtypes", "fit_dtype", "predict_dtype", "cross_entropy_lambda"]
+
+[proposals."H-0107"]
+disposition = "specified"
+anchors = ["validate_no_target_leakage", "raise_on_violation"]
+
+[proposals."H-0108"]
+disposition = "specified"
+anchors = ["tests/test_config/_knob_registry.py", "StratifiedKFoldSplitter.shuffle", "Tuner.progress_callback"]
+
+[proposals."H-0109"]
+disposition = "specified"
+anchors = ["applied_training_params", "FitState.applied_training_params"]
+
+[proposals."H-0110"]
+disposition = "specified"
+anchors = ["proposal_dispositions.toml"]
+
+[proposals."H-0111"]
+disposition = "specified"
+anchors = ["expanded_names", "RoundSummary.expanded_dims", "clamped_to_bound"]
+
+[proposals."H-0112"]
+disposition = "specified"
+anchors = ["missing_columns", "available_columns"]
+
+[proposals."H-0113"]
+disposition = "specified"
+anchors = ["CALIBRATION_FAILED", "c_final"]
+
+[proposals."H-0114"]
+disposition = "specified"
+anchors = ["pipeline_state_per_fold", "compute_shap_importance", "MODEL_NOT_FIT"]
+
+[proposals."H-0115"]
+disposition = "specified"
+anchors = ["purge_gap", "embargo_pct", "PurgedTimeSeriesSplitter(embargo=...)", "DeprecationWarning"]
+
+[proposals."H-0116"]
+disposition = "specified"
+anchors = ["check_objective_compatible", "CONFIG_INVALID", "TypeError"]
+
+[proposals."H-0117"]
+disposition = "no_obligation"
+reason = "Release tooling and contributor documentation only: no public API, Config, Result, Artifacts, split or leakage surface changes, so BLUEPRINT has nothing to state."
+
+[proposals."H-0118"]
+disposition = "specified"
+anchors = ["oof_raw_scores", "target_encoder", "dataclasses.fields"]
+
+# Public names #271 found documented nowhere: documented (full token in
+# `where`) or internal with a reason.
+
+[names."CHECKSUM_ALGORITHM"]
+disposition = "documented"
+where = "BLUEPRINT.md"
+
+[names."SUPPORTED_CONFIG_VERSIONS"]
+disposition = "documented"
+where = "BLUEPRINT.md"
+
+[names."TASK_TYPES"]
+disposition = "internal"
+reason = "A module constant of lizyml/core/types/task.py that lizyml does not re-export: lizyml/__init__.py __all__ lists TaskType, not TASK_TYPES. The three task values are documented through TaskType."
+
+[names."DEFAULT_TEMPLATE"]
+disposition = "internal"
+reason = "Defined in the private module lizyml/plots/_theme.py."
+
+[names."DEFAULT_HEIGHT"]
+disposition = "internal"
+reason = "Defined in the private module lizyml/plots/_theme.py."
+
+[names."DEFAULT_WIDTH"]
+disposition = "internal"
+reason = "Defined in the private module lizyml/plots/_theme.py."

@@ -94,6 +94,7 @@ class CVTrainer:
         history: list[dict[str, Any]] = []
         time_ranges: list[dict[str, Any]] = []
         last_pipeline: BaseFeaturePipeline | None = None
+        pipeline_state_per_fold: list[Any] = []
 
         fold_iter = list(self.outer_splitter.split(n_samples, y=y_arr, groups=groups))
 
@@ -110,6 +111,9 @@ class CVTrainer:
             pipeline = self.pipeline_factory()
             pipeline.fit(X_train, y_train)
             last_pipeline = pipeline
+            # H-0114: SHAP importance explains this fold's model on rows this
+            # fold's pipeline encodes, so its state is kept per fold.
+            pipeline_state_per_fold.append(pipeline.get_state())
 
             X_train_t = pipeline.transform(X_train)
             iv_subsets = self._build_iv_subsets(X_train_t, y_train, iv_result)
@@ -167,6 +171,7 @@ class CVTrainer:
             history,
             time_ranges,
             last_pipeline,
+            pipeline_state_per_fold,
             data_fingerprint,
             run_meta,
         )
@@ -277,6 +282,7 @@ class CVTrainer:
         history: list[dict[str, Any]],
         time_ranges: list[dict[str, Any]],
         last_pipeline: BaseFeaturePipeline,
+        pipeline_state_per_fold: list[Any],
         data_fingerprint: DataFingerprint,
         run_meta: RunMeta,
     ) -> FitResult:
@@ -307,4 +313,5 @@ class CVTrainer:
             calibrator=None,
             run_meta=run_meta,
             oof_raw_scores=oof_raw,
+            pipeline_state_per_fold=pipeline_state_per_fold,
         )

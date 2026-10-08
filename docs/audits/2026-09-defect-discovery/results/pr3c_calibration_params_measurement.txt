@@ -1,0 +1,10 @@
+beta: calibrated configs at the entrance: 4
+beta: with non-empty calibration.params: 1
+isotonic: calibrated configs at the entrance: 48
+isotonic: with non-empty calibration.params: 40
+platt: calibrated configs at the entrance: 71
+platt: with non-empty calibration.params: 1
+
+NON-EMPTY calibration.params by method: {'isotonic': 40, 'platt': 1, 'beta': 1}
+  PLATT/BETA  platt  ['num_leave']  tests/test_calibration/test_calibration_param_names.py::test_calibrators_that_do_not_use_lightgbm_are_not_checked[platt]
+  PLATT/BETA  beta  ['num_leave']  tests/test_calibration/test_calibration_param_names.py::test_calibrators_that_do_not_use_lightgbm_are_not_checked[beta]

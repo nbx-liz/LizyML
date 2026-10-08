@@ -1,0 +1,61 @@
+adapter: REFUSED (different values): 2
+adapter: TOLERATED (equal values): 12
+adapter: dicts observed: 3938
+adapter: one parameter under two spellings: 14
+factories[calibration.params]: REFUSED (different values): 2
+factories[calibration.params]: TOLERATED (equal values): 1
+factories[calibration.params]: dicts observed: 33
+factories[calibration.params]: one parameter under two spellings: 3
+factories[fit(params=)]: REFUSED (different values): 4
+factories[fit(params=)]: TOLERATED (equal values): 7
+factories[fit(params=)]: dicts observed: 108
+factories[fit(params=)]: one parameter under two spellings: 11
+factories[model.params]: REFUSED (different values): 2
+factories[model.params]: TOLERATED (equal values): 7
+factories[model.params]: dicts observed: 919
+factories[model.params]: one parameter under two spellings: 9
+factories[probe]: REFUSED (different values): 3
+factories[probe]: TOLERATED (equal values): 10
+factories[probe]: dicts observed: 19
+factories[probe]: one parameter under two spellings: 13
+factories[tuning best_model_params]: REFUSED (different values): 1
+factories[tuning best_model_params]: dicts observed: 47
+factories[tuning best_model_params]: one parameter under two spellings: 1
+EQUAL-VALUE DUPLICATES: 37
+  ('tests/test_core/test_fit_params_override.py::test_two_spellings_of_one_value_in_calibration_params_are_accepted', 'factories[calibration.params]', 'learning_rate', {'learning_rate': 0.5, 'eta': 0.5})
+  ('tests/test_core/test_fit_params_override.py::test_a_value_and_its_text_form_are_not_refused[written0-1.0,2.0]', 'factories[model.params]', 'feature_contri', {'feature_contri': [1.0, 2.0], 'feature_penalty': '1.0,2.0'})
+  ('tests/test_core/test_fit_params_override.py::test_a_value_and_its_text_form_are_not_refused[written1-1.0,2.0]', 'factories[model.params]', 'feature_contri', {'feature_contri': [1.0, 2.0], 'feature_penalty': '1.0,2.0'})
+  ('tests/test_core/test_fit_params_override.py::test_a_value_and_its_text_form_are_not_refused[written2-1.0,2.0]', 'factories[model.params]', 'feature_contri', {'feature_contri': [1.0, 2.0], 'feature_penalty': '1.0,2.0'})
+  ('tests/test_core/test_fit_params_override.py::test_a_value_and_its_text_form_are_not_refused[written3-1,2]', 'factories[model.params]', 'feature_contri', {'feature_contri': [1, 2], 'feature_penalty': '1,2'})
+  ('tests/test_core/test_fit_params_override.py::test_a_scalar_and_its_text_form_are_not_refused', 'factories[model.params]', 'learning_rate', {'learning_rate': 0.5, 'eta': '0.5'})
+  ('tests/test_core/test_fit_params_override.py::test_one_sequence_written_in_two_containers_is_not_refused[model.params]', 'factories[model.params]', 'feature_contri', {'feature_contri': [1.0, 2.0], 'feature_penalty': [1.0, 2.0]})
+  ('tests/test_core/test_fit_params_override.py::test_one_sequence_written_in_two_containers_is_not_refused[fit(params=)]', 'factories[fit(params=)]', 'feature_contri', {'feature_contri': [1.0, 2.0], 'feature_penalty': [1.0, 2.0]})
+  ('tests/test_core/test_fit_params_override.py::test_two_spellings_of_one_value_in_the_config_are_accepted', 'factories[model.params]', 'learning_rate', {'learning_rate': 0.5, 'eta': 0.5})
+  ('tests/test_core/test_fit_params_override.py::test_two_spellings_of_one_parameter_with_the_same_value_are_fine', 'factories[fit(params=)]', 'objective', {'objective': 'binary', 'application': 'binary'})
+  ('tests/test_core/test_fit_params_override.py::test_two_spellings_of_one_parameter_with_the_same_value_are_fine', 'adapter', 'objective', {'objective': 'binary', 'application': 'binary'})
+  ('tests/test_core/test_fit_params_override.py::test_two_spellings_of_one_parameter_with_the_same_value_are_fine', 'adapter', 'objective', {'objective': 'binary', 'application': 'binary'})
+  ('tests/test_core/test_fit_params_override.py::test_two_spellings_of_one_parameter_with_the_same_value_are_fine', 'adapter', 'objective', {'objective': 'binary', 'application': 'binary'})
+  ('tests/test_core/test_fit_params_override.py::test_the_same_ordinary_value_under_two_spellings_is_accepted', 'factories[fit(params=)]', 'learning_rate', {'learning_rate': 0.2, 'eta': 0.2})
+  ('tests/test_core/test_fit_params_override.py::test_equal_values_under_two_spellings_are_accepted_whatever_the_type[1-1.0]', 'factories[fit(params=)]', 'learning_rate', {'learning_rate': 1, 'eta': 1.0})
+  ('tests/test_core/test_fit_params_override.py::test_equal_values_under_two_spellings_are_accepted_whatever_the_type[0.5-0.5]', 'factories[fit(params=)]', 'learning_rate', {'learning_rate': 0.5, 'eta': 0.5})
+  ('tests/test_core/test_fit_params_override.py::test_the_two_refusals_agree_about_what_equal_means', 'factories[probe]', 'learning_rate', {'learning_rate': 1, 'eta': 1.0})
+  ('tests/test_core/test_fit_params_override.py::test_the_two_refusals_agree_about_what_equal_means', 'adapter', 'objective', {'objective': 1, 'application': 1.0})
+  ('tests/test_core/test_fit_params_override.py::test_the_two_refusals_agree_about_what_equal_means', 'factories[probe]', 'learning_rate', {'learning_rate': 0.5, 'eta': 0.5})
+  ('tests/test_core/test_fit_params_override.py::test_the_two_refusals_agree_about_what_equal_means', 'adapter', 'objective', {'objective': 0.5, 'application': 0.5})
+  ('tests/test_core/test_fit_params_override.py::test_the_two_refusals_agree_about_what_equal_means', 'factories[probe]', 'learning_rate', {'learning_rate': True, 'eta': 1})
+  ('tests/test_core/test_fit_params_override.py::test_the_two_refusals_agree_about_what_equal_means', 'adapter', 'objective', {'objective': True, 'application': 1})
+  ('tests/test_core/test_fit_params_override.py::test_an_unhashable_value_does_not_break_the_refusal', 'factories[probe]', 'feature_contri', {'feature_contri': [1.0, 2.0], 'feature_contrib': [1.0, 2.0]})
+  ('tests/test_core/test_fit_params_override.py::test_equal_values_of_any_shape_are_accepted_under_two_spellings[bool]', 'factories[probe]', 'feature_contri', {'feature_contri': True, 'feature_contrib': True})
+  ('tests/test_core/test_fit_params_override.py::test_equal_values_of_any_shape_are_accepted_under_two_spellings[bool]', 'adapter', 'feature_contri', {'feature_contri': True, 'feature_contrib': True})
+  ('tests/test_core/test_fit_params_override.py::test_equal_values_of_any_shape_are_accepted_under_two_spellings[empty', 'factories[probe]', 'feature_contri', {'feature_contri': [], 'feature_contrib': []})
+  ('tests/test_core/test_fit_params_override.py::test_equal_values_of_any_shape_are_accepted_under_two_spellings[empty', 'adapter', 'feature_contri', {'feature_contri': [], 'feature_contrib': []})
+  ('tests/test_core/test_fit_params_override.py::test_equal_values_of_any_shape_are_accepted_under_two_spellings[list]', 'factories[probe]', 'feature_contri', {'feature_contri': [1.0, 2.0], 'feature_contrib': [1.0, 2.0]})
+  ('tests/test_core/test_fit_params_override.py::test_equal_values_of_any_shape_are_accepted_under_two_spellings[list]', 'adapter', 'feature_contri', {'feature_contri': [1.0, 2.0], 'feature_contrib': [1.0, 2.0]})
+  ('tests/test_core/test_fit_params_override.py::test_equal_values_of_any_shape_are_accepted_under_two_spellings[none]', 'factories[probe]', 'feature_contri', {'feature_contri': None, 'feature_contrib': None})
+  ('tests/test_core/test_fit_params_override.py::test_equal_values_of_any_shape_are_accepted_under_two_spellings[none]', 'adapter', 'feature_contri', {'feature_contri': None, 'feature_contrib': None})
+  ('tests/test_core/test_fit_params_override.py::test_equal_values_of_any_shape_are_accepted_under_two_spellings[numpy', 'factories[probe]', 'feature_contri', {'feature_contri': [1.0, 2.0], 'feature_contrib': [1.0, 2.0]})
+  ('tests/test_core/test_fit_params_override.py::test_equal_values_of_any_shape_are_accepted_under_two_spellings[numpy', 'adapter', 'feature_contri', {'feature_contri': [1.0, 2.0], 'feature_contrib': [1.0, 2.0]})
+  ('tests/test_core/test_fit_params_override.py::test_equal_values_of_any_shape_are_accepted_under_two_spellings[tuple]', 'factories[probe]', 'feature_contri', {'feature_contri': [1.0, 2.0], 'feature_contrib': [1.0, 2.0]})
+  ('tests/test_core/test_fit_params_override.py::test_equal_values_of_any_shape_are_accepted_under_two_spellings[tuple]', 'adapter', 'feature_contri', {'feature_contri': [1.0, 2.0], 'feature_contrib': [1.0, 2.0]})
+  ('tests/test_core/test_fit_params_override.py::test_equal_arrays_of_different_dtypes_are_one_value', 'factories[fit(params=)]', 'feature_contri', {'feature_contri': [1, 2], 'feature_contrib': [1.0, 2.0]})
+  ('tests/test_core/test_fit_params_override.py::test_closing_the_domain_did_not_close_it_on_the_values_callers_write', 'factories[fit(params=)]', 'learning_rate', {'learning_rate': '0.5', 'eta': 0.5})

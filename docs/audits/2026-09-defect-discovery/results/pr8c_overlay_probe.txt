@@ -1,0 +1,7 @@
+#264/288 before=ccae32b new lizyml files staged: 6
+    1 error in 0.91s
+    still missing: cannot import name 'check_duplicate_identities' from 'lizyml.core._model_factories' (/tmp/claude-1000/pr8c/trees/ccae32b/lizyml/core/_model_factories.py)
+    tree clean after restore: True
+#277 before=5ac725e new lizyml files staged: 3
+    102 failed, 27 passed, 36 warnings in 8.64s
+    tree clean after restore: True

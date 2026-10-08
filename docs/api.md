@@ -94,7 +94,7 @@ automatically expanded in the promising direction (H-0068).
 | `data` | `pd.DataFrame \| None` | Training DataFrame. |
 | `resume` | `bool` | If `True`, resume from the previous Study and add trials. Requires a prior `tune()` call. |
 | `n_trials` | `int \| None` | Number of trials. `None` uses the config value. |
-| `expand_boundary` | `bool \| None` | Auto-expand dims near boundary. `None` means `True` for default space, `False` for user-specified space. |
+| `expand_boundary` | `bool \| None` | Auto-expand dims near boundary. `None` means `True` for merge mode with empty/omitted space, otherwise `False`. |
 | `boundary_threshold` | `float` | Edge detection threshold (0.0–0.5). Best values within this fraction of the range from either edge trigger expansion. |
 | `progress_callback` | `TuneProgressCallback \| None` | Called after each trial with a `TuneProgressInfo`. Exceptions inside the callback are caught and emitted as `RuntimeWarning`; tuning is never aborted. |
 | `storage` | `str \| BaseStorage \| None` | Optional Optuna storage URL or `BaseStorage` for resumable tuning (H-0072). `None` keeps the in-memory behavior. Requires `study_name` when set. |
@@ -223,12 +223,12 @@ Returns averaged feature importance across all CV fold models.
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `kind` | `str` | `"split"`, `"gain"`, or `"shap"`. `"shap"` computes `mean(|SHAP|)` per feature across folds. |
+| `kind` | `str` | `"split"`, `"gain"`, or `"shap"`. `"shap"` computes `mean(|SHAP|)` per feature across folds, explaining each fold model on its validation rows encoded by that fold's own feature pipeline (H-0114). |
 
 **Returns:** `{feature_name: importance_score}`
 
 **Raises:**
-- `LizyMLError(MODEL_NOT_FIT)` — called before `fit()` or (for `"shap"`) after `load()` without `analysis_context`.
+- `LizyMLError(MODEL_NOT_FIT)` — called before `fit()`; or, for `"shap"`, when the `FitResult` has no per-fold pipeline states (an artifact written before H-0114, or a `FitResult` constructed without `pipeline_state_per_fold`; `context["missing"] == "pipeline_state_per_fold"`, checked first; call `fit()` again), or after `load()` without `analysis_context`.
 - `LizyMLError(OPTIONAL_DEP_MISSING)` — `kind="shap"` and `shap` not installed.
 
 ---
@@ -290,7 +290,9 @@ def load(cls, path: str | Path) -> Model
 
 Restores a `Model` from a directory created by `export()`. The returned
 instance supports `predict()`, `evaluate()`, and (when `analysis_context` was
-saved) `confusion_matrix()`, `importance()`, and `residuals()`.
+saved) `confusion_matrix()`, `importance()`, and `residuals()`. An artifact
+written before H-0114 has no per-fold pipeline states, so on it
+`importance(kind="shap")` raises `MODEL_NOT_FIT`; the other kinds still work.
 
 **Raises:** `LizyMLError(DESERIALIZATION_FAILED)` — validation or I/O error.
 
@@ -333,8 +335,8 @@ artifact).
 
 ### FitResult
 
-Complete output of a CV training run. All fields are populated; only
-`calibrator` and `oof_raw_scores` may be `None`.
+Complete output of a CV training run. All fields are populated by training;
+only `calibrator`, `oof_raw_scores` and `pipeline_state_per_fold` may be `None`.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -348,10 +350,12 @@ Complete output of a CV training run. All fields are populated; only
 | `categorical_features` | `list[str]` | Feature names encoded as categorical. |
 | `splits` | `SplitIndices` | Full index record for outer/inner/calibration splits. |
 | `data_fingerprint` | `DataFingerprint` | Fingerprint of the training dataset. |
-| `pipeline_state` | `Any` | Serializable state of the `FeaturePipeline`. |
+| `pipeline_state` | `Any` | Serializable state of the last CV fold's `FeaturePipeline`. |
 | `calibrator` | `CalibrationResult \| None` | Fitted calibrator; `None` when calibration is disabled. |
 | `run_meta` | `RunMeta` | Version and config metadata captured at fit time. |
 | `oof_raw_scores` | `NDArray[float64] \| None` | OOF raw logit scores for calibration. `None` when calibration is not enabled. |
+| `target_encoder` | `TargetEncoder` | Maps non-numeric classification labels to integer codes and back. A no-op (`needs_encoding=False`) for numeric targets and regression; otherwise `classes_` holds the original labels sorted lexicographically by their string form (H-0070). |
+| `pipeline_state_per_fold` | `list \| None` | Serializable state of each CV fold's `FeaturePipeline`, in fold order; the last equals `pipeline_state`. `None` when unavailable (an artifact written before H-0114, or a `FitResult` constructed without it). Shared by reference across copies (H-0114). |
 
 ---
 
@@ -469,22 +473,25 @@ except LizyMLError as e:
 | Code | When raised |
 |------|-------------|
 | `CONFIG_INVALID` | Missing required config fields; `tuning` section absent when `tune()` is called. |
-| `CONFIG_VERSION_UNSUPPORTED` | `config_version` value is not supported. |
-| `DATA_SCHEMA_INVALID` | Target or feature columns not found in the DataFrame. |
-| `DATA_FINGERPRINT_MISMATCH` | DataFrame does not match the fingerprint recorded at fit time. |
+| `CONFIG_VERSION_UNSUPPORTED` | `config_version` value is not supported, on every path a config reaches `Model` (dict, file, `LizyMLConfig` instance, environment override). |
+| `DATA_SCHEMA_INVALID` | Target or feature columns not found in the DataFrame. Also raised when `validate_no_target_leakage` / `validate_time_series_order` is given a `target` / `time_col` that is not in the frame (`context` has `missing_columns` / `available_columns`), or when `validate_no_target_leakage` cannot compare a column with the target (`context` names `column` and `target`, `cause` is the original error). |
 | `LEAKAGE_SUSPECTED` | A split or calibration invariant that could indicate leakage was violated. |
 | `LEAKAGE_CONFIRMED` | A confirmed leakage condition (e.g. same row in train and validation). |
 | `OPTIONAL_DEP_MISSING` | An optional dependency (`shap`, `optuna`) is not installed. |
-| `MODEL_NOT_FIT` | A method requiring a trained model was called before `fit()`. |
-| `INCOMPATIBLE_COLUMNS` | Prediction data columns do not match training columns. |
+| `MODEL_NOT_FIT` | A method requiring a trained model was called before `fit()`, or a diagnostic needs state the loaded model lacks (`analysis_context`, or per-fold pipeline states for SHAP importance with `context["missing"]`). |
+| `INCOMPATIBLE_COLUMNS` | A column that was numeric (or bool) at fit arrives at `predict()` with a non-numeric dtype (string, object, category, datetime, ...). `context["columns"]` names each one with its fit and predict dtypes. A missing column raises `DATA_SCHEMA_INVALID`; an extra column is dropped with a warning. |
 | `UNSUPPORTED_TASK` | A method is not applicable to the configured task type. |
 | `UNSUPPORTED_METRIC` | An unknown or task-incompatible metric name was provided. |
+| `METRIC_REQUIRES_PROBA` | A probability metric (`logloss`, `auc`, `auc_pr`, `brier`, `ece`, `precision_at_k`) received values that are not probabilities: non-numeric, non-finite, outside [0, 1], or 1-D for more than two classes. |
 | `TUNING_FAILED` | The Optuna study encountered an unrecoverable failure. |
 | `EVALUATION_FAILED` | OOF predictions contain NaN in covered rows, or feval construction failed. |
 | `CALIBRATION_NOT_SUPPORTED` | Calibration was requested for a non-binary task or unsupported config. |
 | `CALIBRATION_NOT_FITTED` | A calibrator's `predict()` / `export_params()` was called before `fit()`. |
+| `CALIBRATION_FAILED` | The Platt or Beta calibrator's `minimize` did not converge (`success` false), so its coefficients are not used. `context` has `calibrator`, `method`, `message`, `status` and `nit`, plus `stage` (`"cross_fit"` with `fold`, or `"c_final"`) when raised from `Model.fit`. |
 | `SERIALIZATION_FAILED` | `export()` encountered an I/O error or could not resolve a path. |
 | `DESERIALIZATION_FAILED` | `load()` encountered a validation or I/O error. |
+| `TARGET_NOT_NUMERIC` | `task: regression` with a non-numeric target column. |
+| `TARGET_UNSEEN_LABEL` | The target encoder is given a classification label it was not fitted on, or a class code outside the fitted classes to decode. |
 
 ## Leakage validators (`lizyml.data`)
 
@@ -492,6 +499,19 @@ Optional, explicitly-called leakage checks (they are **not** auto-run by
 `Model.fit`). Each returns a list of warning messages, or raises
 `LizyMLError(LEAKAGE_SUSPECTED / LEAKAGE_CONFIRMED)` when `raise_on_violation=True`
 (the default).
+
+`validate_no_target_leakage` checks the columns in order. If a column cannot be
+compared with the target (for example an extension array whose comparison
+raises), it raises `LizyMLError(DATA_SCHEMA_INVALID)` naming the column, whatever
+`raise_on_violation` is.
+
+Both `validate_no_target_leakage` and `validate_time_series_order` first check
+that the column they are named for (`target` / `time_col`) is in the frame. If
+it is not, they raise `LizyMLError(DATA_SCHEMA_INVALID)` before checking
+anything, whatever `raise_on_violation` is. `context` names the column under
+`target` / `time_col`, together with `missing_columns` and `available_columns`
+(#311). So a returned list (`[]` or warnings) always means the check ran to the
+end.
 
 ```python
 from lizyml.data import (

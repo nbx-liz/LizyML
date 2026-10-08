@@ -1,0 +1,104 @@
+PR 9 (#271, H-0110) measurements — base develop 13fb9d7 (PR 8c = #317), 2026-10-06
+=============================================================================
+
+1. Register census (instruments/pr9_proposal_census.py --ref origin/develop -> pr9_census_13fb9d7.txt)
+   - HISTORY entries 110, id violations 0, ids H-0000..H-0109.
+   - Cited in BLUEPRINT by id: 53. Absent: 57 (as in #271, but a different set:
+     H-0030 / H-0031 are now cited; H-0105 / H-0107 are not).
+   - Status classes: accepted 89 / implemented 14 / proposed 7, in 9 spellings.
+     Implemented-but-"proposed": H-0009..H-0012, H-0056 (scouts), H-0097, H-0098 (scout C).
+   - The entry grammar is the one H-0101 ships, moved unchanged to
+     tests/test_docs/_history_grammar.py (test_history_ids.py: 5 passed before and after).
+
+2. What survives of #271's 2026-09-06 inventory (40 entries / 129 clauses / 77 edits)
+   - 64 clauses recoverable from the eaa33b04 transcript
+     (instruments/extract_missed_clauses.py -> pr9_recovered_missed_clauses_2026-09-06.json:
+     38 entries, the "missed" lists as printed by the re-audit batches).
+   - 65 clauses (the 19 entries obligated before the re-audit): not recoverable.
+   - The 40 obligation entries reproduce as (57 absent at the 92-entry register) minus
+     the 17 no-obligation survivors.
+
+3. Clause re-audit at 13fb9d7 (two read-only scouts, split by surface)
+   - Population: the 40 entries + H-0105, H-0107 (newly absent) = 42.
+     A = config/split/training/tuning/leakage/provider (18), B = results/artifacts/
+     metrics/plots/export (24). Each enumerated clauses from HISTORY first, then judged
+     each against BLUEPRINT with a cited line; prior claims (64 recovered + #271's body
+     tables) were merged in afterwards.
+   - Positive controls, unlabelled among the prior claims: 3/3 returned `stated` at the
+     right line (balanced bool|None -> 275; validation_ratio vs inner_valid mismatch ->
+     652; params_table before fit -> MODEL_NOT_FIT at 153).
+   - Result (pr9_inventory_{A,B}.json -> pr9_clause_inventory.md via
+     instruments/pr9_inventory_report.py): 42 entries, 307 clauses:
+     stated 111 / missed 113 / contradicted 14 / superseded 17 / not_in_force 6 /
+     off_surface 46. Owing entries 41 (H-0024 only has none). Owed clauses 127 in 32
+     BLUEPRINT sections.
+
+4. Dispositions of the other 68 (scout C -> pr9_dispositions_C.json)
+   - specified 64 / superseded 2 (H-0010 by H-0069, H-0044 by H-0058) /
+     no_obligation 2 (H-0037, H-0075) / pending 0.
+   - Flagged decided-but-unstated: H-0057, H-0085, H-0087, H-0104, H-0106 -> folded too.
+
+5. Exempt dispositions (Firing rate line of H-0110)
+   - 4/110: H-0010, H-0044 superseded; H-0037, H-0075 no_obligation.
+
+6. RED of the check at 13fb9d7 (docs/proposal_dispositions.toml from
+   instruments/pr9_build_dispositions.py; anchors = scouts' stated anchors present in
+   both documents + owed clauses' proposed anchors present in the HISTORY entry)
+   - Measured before the H-0110 row existed: 18 proposal rows + 1 [names] row
+     (CHECKSUM_ALGORITHM). At commit 0655e05 (H-0110 row added): 20 failures =
+     18 owing rows + the H-0110 row (its anchor proposal_dispositions.toml is not
+     in BLUEPRINT yet) + CHECKSUM_ALGORITHM. All 18 audited rows are owing
+     entries; no non-owing row fails.
+   - 23 of the 41 owing entries are GREEN at 13fb9d7: their anchors already occur in
+     BLUEPRINT, so the check could not tell whether the fold happened. Before the fold,
+     instruments/pr9_fold_tokens.py finds a discriminating candidate (in the HISTORY
+     entry, absent from BLUEPRINT at 13fb9d7) for 38 of 41 owing entries; none for
+     H-0017, H-0026, H-0035 (their anchor is chosen from HISTORY prose when the fold
+     is written).
+   - Acceptance target: after the fold, every owing entry (41 + the 5 of item 4 = 46)
+     has at least one anchor that is absent from BLUEPRINT at 13fb9d7.
+
+7. Design review round 1 (results/pr9_design_review_round1.md) corrections
+   - Inventory: H-0002 clause 1 and H-0082 clause 2 (dataclass representation)
+     reclassified off_surface -> missed (golden tests call dataclasses.fields).
+     Totals now: missed 113 / off_surface 46; owed clauses 127.
+   - Grammar: a ~~~ line closed a backtick fence and `## H-0042-extra` parsed as
+     H-0042 (both executed by the reviewer). The fence now closes only on the same
+     character at least as long, at any indentation; the heading id must be followed
+     by ':' or the end of line; an unclosed fence is a violation. On the real
+     HISTORY.md the new grammar returns entries and entry texts identical to the
+     old one (111 entries, compared with the 0655e05 module).
+   - [names] is now closed: rows must equal #271's six names in both directions.
+
+8. Design review round 2 (results/pr9_design_review_round2.md) corrections
+   - A repeated '- ID:' line naming the same id collapsed into one (set semantics).
+     The heading plus one '- ID:' line naming the same id is a measured spelling
+     (7 entries: H-0054..H-0060) and stays accepted; two or more '- ID:' lines in
+     one entry are now a grammar violation. Measured on HISTORY.md: 0 entries with
+     two '- ID:' lines, so no real entry changes verdict. fence_violations is renamed
+     grammar_violations (both rules).
+   - Text: criteria section 5 item 3 now says off_surface 46 and records the round 1
+     sample; H-0110's issue list no longer contradicts the H-0005 cal_fold fold.
+
+9. The fold (commits 32cbd2a, 0e37052, 128dcb9; dispositions f48e412)
+   - results/pr9_fold_map.md: 141 rows = folded 124 / already_stated 16 (section 15,
+     written by the main context) / not_folded 1 (H-0078 item 4b, not in force -> #318).
+     instruments/pr9_fold_map_check.py: every quote is a verbatim substring of
+     BLUEPRINT.md (exit 0); the inventory has 127 owed clauses.
+   - instruments/pr9_discriminating_anchors.py --base 13fb9d7: 46/46 owing entries carry
+     an anchor absent at 13fb9d7 and present now (exit 0).
+   - tests/test_docs: 303 passed (the coverage check, the id grammar, the gap tool).
+   - Phase 3 manifest row #271: derived_from prints 111; the red_mutation (remove
+     `joblib.load(io.BytesIO(...))` from the section 15.2 verification text) fails
+     exactly test_proposal_disposition_holds[H-0083] (1 failed, 143 passed), and the
+     restored file is byte-identical.
+   - Issues filed for what the fold does not write: #318, #319.
+
+10. Acceptance review round 1 (results/pr9_acceptance_review_round1.md)
+   - Fold fact-check sample 49/49 true (all of C1-C5 and D1-D3 included); A1-A5 and
+     A7-A9 met. Blocking: pr9_fold_map_check.py never compared the map's ids with the
+     inventory (deleting H-0083#0 in memory still exited 0) - DC1 in the instrument.
+   - Fixed: the expected ids are the 127 owed clauses (H-0078#4 mapped as #4a / #4b)
+     plus 13 declared decision rows = 141; missing, extra and duplicated ids fail.
+     tests/test_docs/test_pr9_fold_map_check.py pins the shipped map (0 problems), a
+     deleted owed row, a duplicate plus an unowed row, and a quote absent from BLUEPRINT.

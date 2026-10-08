@@ -12,6 +12,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.logging import get_logger
 
 if TYPE_CHECKING:
@@ -62,7 +63,6 @@ def _build_split_metadata(cfg: Any) -> dict[str, Any]:
         block["test_size_max"] = sc.test_size_max
     elif isinstance(sc, PurgedTimeSeriesConfig):
         block["purge_gap"] = sc.purge_gap
-        block["embargo"] = sc.embargo
         block["train_size_max"] = sc.train_size_max
         block["test_size_max"] = sc.test_size_max
     elif isinstance(sc, StratifiedGroupKFoldConfig):
@@ -91,6 +91,63 @@ def _build_split_metadata(cfg: Any) -> dict[str, Any]:
         block["min_train_rows"] = sc.min_train_rows
         block["min_valid_rows"] = sc.min_valid_rows
     return block
+
+
+def _checked_applied_training_params(record: Any, path: str | Path) -> dict[str, Any]:
+    """Refuse a record no fit could have written (H-0109).
+
+    A fit records its overlay through ``applied_training_overlay``: the two
+    training dimensions, converted as training converts them -- the patience an
+    ``int``, the ratio a ``float`` in ``(0, 1)``, because every inner-validation
+    strategy requires that, so no fit can have applied another. Anything else
+    would fail later and elsewhere: ``float()`` inside ``params_table``, or an
+    impossible ratio handed to the generated ``train.py``. The patience gets no
+    range: the reports read it from the adapter, and training converts it with
+    ``int()`` without one.
+
+    Every refusal's context carries the path and the type of the offending
+    value, and the key when there is one.
+    """
+    import math
+
+    from lizyml.core._tuning_validation import TRAINING_DIMENSION_NAMES
+
+    def refuse(reason: str, context: dict[str, Any]) -> LizyMLError:
+        return LizyMLError(
+            code=ErrorCode.DESERIALIZATION_FAILED,
+            user_message=f"Stored applied_training_params {reason}.",
+            context={"path": str(path), **context},
+        )
+
+    if not isinstance(record, dict):
+        raise refuse("must be an object", {"type": type(record).__name__})
+    for name, value in record.items():
+        context = {"key": name, "type": type(value).__name__}
+        if name not in TRAINING_DIMENSION_NAMES:
+            raise refuse(
+                f"names {name!r}, which is not a training dimension",
+                {**context, "accepted": sorted(TRAINING_DIMENSION_NAMES)},
+            )
+        expected = int if name == "early_stopping_rounds" else float
+        # ``bool`` is an ``int`` subclass, and JSON integers are unbounded:
+        # ``math.isfinite(10**400)`` raises ``OverflowError``, so only floats
+        # are tested for finiteness (code review round 1).
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, expected)
+            or (isinstance(value, float) and not math.isfinite(value))
+        ):
+            raise refuse(
+                f"holds {value!r} for {name!r}, which is not a finite "
+                f"{expected.__name__}",
+                context,
+            )
+        if name == "validation_ratio" and not 0.0 < value < 1.0:
+            raise refuse(
+                f"holds validation_ratio={value!r}, outside (0, 1)",
+                {**context, "value": value},
+            )
+    return dict(record)
 
 
 class ModelPersistenceMixin:
@@ -155,6 +212,8 @@ class ModelPersistenceMixin:
             task=state.cfg.task,
             analysis_context=ctx,
             tuning=state.tuning_result,
+            tuning_fixed_params=state.tuning_fixed_params,
+            applied_training_params=state.applied_training_params,
         )
         _log.info("event='export.done' path=%s", resolved_path)
         return resolved_path
@@ -178,7 +237,11 @@ class ModelPersistenceMixin:
         refit_result = self._require_refit()
 
         from lizyml.codegen.generator import generate_code
-        from lizyml.core._model_factories import get_outer_n_splits
+        from lizyml.core._model_factories import (
+            check_param_names,
+            get_outer_n_splits,
+            tuned_validation_ratio,
+        )
 
         adapter = refit_result.model
 
@@ -187,13 +250,36 @@ class ModelPersistenceMixin:
         # estimator-agnostic (H-0073).
         export = state.provider.build_export_params(adapter)
 
+        # H-0093: the generated `train.py` hands these straight to `lgb.train`
+        # and gets the same silent discard the library gives any unknown name.
+        # They come from the fitted adapter, not from the config, so neither
+        # gate on the training path sees them -- and `Model.load()` is
+        # deliberately permissive, so an artifact written before that gate
+        # existed can carry a name LightGBM never honoured right into the
+        # exported script.
+        check_param_names(
+            state.provider,
+            (("exported lgbm_params", name) for name in export.params),
+            model_name=state.cfg.model.name,
+        )
+
         cfg = state.cfg
         es = cfg.training.early_stopping
+        tuned_ratio = tuned_validation_ratio(state.applied_training_params)
+        effective_ratio = es.validation_ratio if tuned_ratio is None else tuned_ratio
         calibration_method: str | None = None
         # Use outer CV n_splits for OOF calibration (H-0058: reuses outer splits)
         calibration_n_splits = get_outer_n_splits(cfg)
+        calibration_params: dict[str, Any] = {}
         if cfg.calibration is not None:
+            from lizyml.core._model_factories import prepare_calibration_params
+
             calibration_method = cfg.calibration.method
+            # The same preparation the fit applied (H-0100), so the generated
+            # train.py rebuilds the calibrator with those settings (H-0059).
+            calibration_params = prepare_calibration_params(
+                cfg.calibration, seed=cfg.training.seed
+            )
 
         # Extract c_final calibrator from CalibrationResult
         calibrator = None
@@ -223,11 +309,28 @@ class ModelPersistenceMixin:
             categorical_features=refit_result.categorical_features,
             lgbm_params=export.params,
             num_boost_round=export.num_boost_round,
-            early_stopping_rounds=(es.rounds if es.enabled else None),
-            validation_ratio=es.validation_ratio or 0.0,
+            # Both of these describe the run the generated project must
+            # reproduce, so both come from what the fit applied -- never from
+            # the config plus the model's *current* tuning result. Reading the
+            # config alone generated a project training a different model after
+            # a tune (decision 12); recomputing from the current tuning result
+            # generated one training a different model after `fit -> tune`,
+            # because `tune()` replaces that result and leaves the fitted
+            # adapters alone (decision 13, review round 16 -- a defect decision
+            # 12's own fix introduced).
+            #
+            # The patience is the trained adapter's, through the provider. The
+            # ratio is the retained overlay's, because the adapter does not
+            # record it; the artifact records the overlay and `load()` restores
+            # it (H-0109). Only an artifact written before that record existed
+            # leaves it unknown, and then the configured ratio is used -- the
+            # bound stated on `FitState.applied_training_params`.
+            early_stopping_rounds=export.early_stopping_rounds,
+            validation_ratio=effective_ratio or 0.0,
             seed=cfg.training.seed,
             calibration_method=calibration_method,
             calibration_n_splits=calibration_n_splits,
+            calibration_params=calibration_params,
             model_adapter=adapter,
             pipeline_state=refit_result.pipeline_state,
             calibrator=calibrator,
@@ -259,6 +362,12 @@ class ModelPersistenceMixin:
 
         fit_result, refit_result, metadata, analysis_context = _load(path)
         config = metadata["config"]
+        # Pre-H-0102 artifacts used replacement for nonempty user spaces.
+        # Do not reinterpret their tuning policy when restoring for re-fit.
+        if config.get("tuning") is not None:
+            optuna = config["tuning"].get("optuna", {})
+            if "space_mode" not in optuna:
+                optuna["space_mode"] = "replace" if optuna.get("space") else "merge"
         # ``load`` is the canonical re-hydration path — direct private-attr
         # writes here are confined to this classmethod and intentionally
         # rebuild the Model body. The Mixin state-isolation guard targets
@@ -281,6 +390,15 @@ class ModelPersistenceMixin:
         if tuning_meta is not None:
             from lizyml.core.types.tuning_result import TuningResult
 
+            if "fixed_params" in tuning_meta:
+                fixed_params = tuning_meta["fixed_params"]
+                if not isinstance(fixed_params, dict):
+                    raise LizyMLError(
+                        code=ErrorCode.DESERIALIZATION_FAILED,
+                        user_message="Stored tuning fixed_params must be an object.",
+                        context={"path": str(path)},
+                    )
+                instance._tuning_fixed_params = deepcopy(fixed_params)
             instance._tuning_result = TuningResult(
                 best_model_params=tuning_meta["best_model_params"],
                 best_smart_params=tuning_meta["best_smart_params"],
@@ -290,6 +408,16 @@ class ModelPersistenceMixin:
                 metric_name=tuning_meta["metric_name"],
                 direction=tuning_meta["direction"],
             )
+        # The overlay the fit that produced this artifact applied (H-0109).
+        # Absent from artifacts written before the record existed: unknown,
+        # which is not the same as "applied none", and must stay unknown so a
+        # re-export does not write a record nobody measured.
+        if "applied_training_params" in metadata:
+            instance._applied_training_params = _checked_applied_training_params(
+                metadata["applied_training_params"], path
+            )
+        else:
+            instance._applied_training_params = None
         if analysis_context is not None:
             instance._y = analysis_context.y_true
             instance._X = analysis_context.X_for_explain

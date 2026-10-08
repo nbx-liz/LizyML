@@ -1,0 +1,369 @@
+{
+  "H-0022": {
+    "before": "SPECIFIED",
+    "after": "SPECIFIED",
+    "clauses_total": 10,
+    "reversed": false,
+    "missed": []
+  },
+  "H-0023": {
+    "before": "SPECIFIED",
+    "after": "SPECIFIED",
+    "clauses_total": 7,
+    "reversed": false,
+    "missed": []
+  },
+  "H-0024": {
+    "before": "SPECIFIED",
+    "after": "PARTIAL",
+    "clauses_total": 14,
+    "reversed": true,
+    "missed": [
+      "The optimization metric is evaluation.metrics[0], otherwise rmse/auc/logloss by task.",
+      "Regression direction is minimize; classification direction follows the metric's greater_is_better property.",
+      "Supplying selected keys merges those dimensions over the remaining default space."
+    ]
+  },
+  "H-0026": {
+    "before": "SPECIFIED",
+    "after": "PARTIAL",
+    "clauses_total": 8,
+    "reversed": true,
+    "missed": [
+      "Legacy artifacts without analysis_context remain usable for predict and evaluate.",
+      "Legacy artifacts lacking analysis_context make the added diagnostics fail explicitly or request re-export."
+    ]
+  },
+  "H-0027": {
+    "before": "SPECIFIED",
+    "after": "SPECIFIED",
+    "clauses_total": 5,
+    "reversed": false,
+    "missed": []
+  },
+  "H-0028": {
+    "before": "SPECIFIED",
+    "after": "SPECIFIED",
+    "clauses_total": 5,
+    "reversed": false,
+    "missed": []
+  },
+  "H-0029": {
+    "before": "SPECIFIED",
+    "after": "SPECIFIED",
+    "clauses_total": 3,
+    "reversed": false,
+    "missed": []
+  },
+  "H-0030": {
+    "before": "SPECIFIED",
+    "after": "PARTIAL",
+    "clauses_total": 6,
+    "reversed": true,
+    "missed": [
+      "BaseCalibratorAdapter.predict consumes raw scores and returns calibrated probabilities."
+    ]
+  },
+  "H-0031": {
+    "before": "SPECIFIED",
+    "after": "SPECIFIED",
+    "clauses_total": 4,
+    "reversed": false,
+    "missed": []
+  },
+  "H-0032": {
+    "before": "SPECIFIED",
+    "after": "PARTIAL",
+    "clauses_total": 4,
+    "reversed": true,
+    "missed": [
+      "Hyphenated and equivalent aliases normalize to purged_time_series and group_time_series."
+    ]
+  },
+  "H-0033": {
+    "before": "SPECIFIED",
+    "after": "SPECIFIED",
+    "clauses_total": 4,
+    "reversed": false,
+    "missed": []
+  },
+  "H-0035": {
+    "before": "SPECIFIED",
+    "after": "PARTIAL",
+    "clauses_total": 9,
+    "reversed": true,
+    "missed": [
+      "The DataFrame index is parameter and its sole column is value.",
+      "The table includes smart params auto_num_leaves, num_leaves_ratio, min_data_in_leaf_ratio, min_data_in_bin_ratio, balanced, and feature_weights.",
+      "The table includes training settings early_stopping.rounds and validation_ratio.",
+      "The table includes fold-0 resolved native objective, metric, learning_rate, max_depth, num_leaves, min_data_in_leaf, min_data_in_bin, and max_bin.",
+      "The table includes fold-0 feature_fraction, bagging_fraction, bagging_freq, lambda_l1, lambda_l2, and num_iterations.",
+      "Smart ratio values and resolved absolute values coexist under distinct parameter names."
+    ]
+  },
+  "H-0040": {
+    "before": "SPECIFIED",
+    "after": "PARTIAL",
+    "clauses_total": 6,
+    "reversed": true,
+    "missed": [
+      "During migration embargo_pct remains accepted, is converted with int(), and emits a warning."
+    ]
+  },
+  "H-0045": {
+    "before": "SPECIFIED",
+    "after": "SPECIFIED",
+    "clauses_total": 5,
+    "reversed": false,
+    "missed": []
+  },
+  "H-0046": {
+    "before": "SPECIFIED",
+    "after": "SPECIFIED",
+    "clauses_total": 6,
+    "reversed": false,
+    "missed": []
+  },
+  "H-0055": {
+    "before": "SPECIFIED",
+    "after": "PARTIAL",
+    "clauses_total": 4,
+    "reversed": true,
+    "missed": [
+      "Hyphenated and compact StratifiedGroupKFold aliases normalize to stratified_group_kfold."
+    ]
+  },
+  "H-0002": {
+    "before": "SPECIFIED",
+    "after": "PARTIAL",
+    "clauses_total": 50,
+    "reversed": true,
+    "missed": [
+      "FitResult is a dataclass.",
+      "oof_pred is an np.ndarray.",
+      "oof_pred has shape (n_samples,) for regression/binary and (n_samples,n_classes) for multiclass.",
+      "if_pred_per_fold length equals n_splits and each element predicts the complete training fold.",
+      "if_per_fold length equals n_splits.",
+      "models is list[Any], with each model containing an EstimatorAdapter.",
+      "history is list[dict] and best_iteration is int.",
+      "feature_names is an ordered list[str] of training-used features.",
+      "dtypes is dict[str,str] mapping feature names to dtype strings.",
+      "categorical_features is list[str] of categorical feature names.",
+      "splits has type SplitIndices.",
+      "data_fingerprint has type DataFingerprint.",
+      "PredictionResult is a dataclass.",
+      "pred is np.ndarray with shape (n_samples,).",
+      "Binary proba has shape (n_samples,).",
+      "shap_values is ndarray|None with shape (n_samples,n_features).",
+      "used_features identifies actually used features and is list[str].",
+      "warnings contains correction/column-drift notices and is list[str].",
+      "SplitIndices is a dataclass.",
+      "outer is list[tuple[np.ndarray,np.ndarray]].",
+      "inner is list[tuple[np.ndarray,np.ndarray]]|None.",
+      "calibration is list[tuple[np.ndarray,np.ndarray]]|None.",
+      "RunMeta is a dataclass.",
+      "RunMeta.lizyml_version is str.",
+      "RunMeta.deps_versions is dict[str,str].",
+      "RunMeta.run_id is a UUID string.",
+      "RunMeta.timestamp is an ISO-8601 string."
+    ]
+  },
+  "H-0004": {
+    "before": "SPECIFIED",
+    "after": "PARTIAL",
+    "clauses_total": 7,
+    "reversed": true,
+    "missed": [
+      "MAPE rejects zero in y_true with UNSUPPORTED_METRIC.",
+      "Huber delta is configurable and defaults to 1.0.",
+      "Plain `huber` configuration uses delta=1.0.",
+      "Huber loss is quadratic at or below delta and linear above it."
+    ]
+  },
+  "H-0005": {
+    "before": "SPECIFIED",
+    "after": "PARTIAL",
+    "clauses_total": 9,
+    "reversed": true,
+    "missed": [
+      "evaluate_table is available after fit and raises MODEL_NOT_FIT before fit."
+    ]
+  },
+  "H-0006": {
+    "before": "SPECIFIED",
+    "after": "PARTIAL",
+    "clauses_total": 8,
+    "reversed": true,
+    "missed": [
+      "residuals() returns shape (n_samples,).",
+      "Calling either residual API for binary/multiclass raises UNSUPPORTED_TASK."
+    ]
+  },
+  "H-0007": {
+    "before": "SPECIFIED",
+    "after": "PARTIAL",
+    "clauses_total": 10,
+    "reversed": true,
+    "missed": [
+      "SHAP is computed separately on each fold's validation data.",
+      "importance(kind=shap) returns dict[str,float] containing all features.",
+      "Missing shap raises OPTIONAL_DEP_MISSING."
+    ]
+  },
+  "H-0008": {
+    "before": "SPECIFIED",
+    "after": "PARTIAL",
+    "clauses_total": 7,
+    "reversed": true,
+    "missed": [
+      "Public plot return types specifically change to plotly.graph_objects.Figure."
+    ]
+  },
+  "H-0009": {
+    "before": "SPECIFIED",
+    "after": "PARTIAL",
+    "clauses_total": 11,
+    "reversed": true,
+    "missed": [
+      "histogram annotates the OOS-only mean and standard deviation.",
+      "QQ uses OOS residuals only.",
+      "QQ includes a 45-degree reference line.",
+      "all arranges the plots horizontally.",
+      "Invalid kind raises LizyMLError with the invalid-config code."
+    ]
+  },
+  "H-0010": {
+    "before": "SPECIFIED",
+    "after": "SPECIFIED",
+    "clauses_total": 5,
+    "reversed": false,
+    "missed": []
+  },
+  "H-0013": {
+    "before": "SPECIFIED",
+    "after": "PARTIAL",
+    "clauses_total": 4,
+    "reversed": true,
+    "missed": [
+      "The warning specifically recommends StratifiedKFold."
+    ]
+  },
+  "H-0014": {
+    "before": "SPECIFIED",
+    "after": "PARTIAL",
+    "clauses_total": 9,
+    "reversed": true,
+    "missed": [
+      "precision_at_k requires probability predictions.",
+      "precision_at_k has greater_is_better=true.",
+      "Default k is the top 10 percent.",
+      "Selecting precision_at_k for regression or multiclass raises UNSUPPORTED_METRIC."
+    ]
+  },
+  "H-0015": {
+    "before": "SPECIFIED",
+    "after": "PARTIAL",
+    "clauses_total": 8,
+    "reversed": true,
+    "missed": [
+      "Binary IS and OOS AUC values appear in the legend."
+    ]
+  },
+  "H-0016": {
+    "before": "SPECIFIED",
+    "after": "PARTIAL",
+    "clauses_total": 7,
+    "reversed": true,
+    "missed": [
+      "Each DataFrame has sklearn confusion-matrix matrix form.",
+      "Regression calls raise LizyMLError."
+    ]
+  },
+  "H-0017": {
+    "before": "SPECIFIED",
+    "after": "PARTIAL",
+    "clauses_total": 8,
+    "reversed": true,
+    "missed": [
+      "Calibration-disabled calls raise LizyMLError.",
+      "Non-binary calls raise LizyMLError."
+    ]
+  },
+  "H-0018": {
+    "before": "SPECIFIED",
+    "after": "PARTIAL",
+    "clauses_total": 7,
+    "reversed": true,
+    "missed": [
+      "Selecting these metrics for regression raises UNSUPPORTED_METRIC."
+    ]
+  },
+  "H-0020": {
+    "before": "SPECIFIED",
+    "after": "PARTIAL",
+    "clauses_total": 21,
+    "reversed": true,
+    "missed": [
+      "Holdout inner-valid ratio defaults to 0.1.",
+      "Holdout inner-valid random_state defaults to 42.",
+      "Group inner-valid ratio defaults to 0.1.",
+      "Group inner-valid random_state defaults to 42.",
+      "Time inner-valid ratio defaults to 0.1."
+    ]
+  },
+  "H-0021": {
+    "before": "SPECIFIED",
+    "after": "SPECIFIED",
+    "clauses_total": 20,
+    "reversed": false,
+    "missed": []
+  },
+  "H-0000": {
+    "before": "NO_SURFACE",
+    "after": "NO_SURFACE",
+    "clauses_total": 16,
+    "reversed": false,
+    "missed": []
+  },
+  "H-0012": {
+    "before": "NO_SURFACE",
+    "after": "NO_SURFACE",
+    "clauses_total": 7,
+    "reversed": false,
+    "missed": []
+  },
+  "H-0025": {
+    "before": "NO_SURFACE",
+    "after": "PARTIAL",
+    "clauses_total": 12,
+    "reversed": true,
+    "missed": [
+      "An out-of-range min_data_in_leaf_ratio must fail with CONFIG_INVALID.",
+      "An out-of-range min_data_in_bin_ratio must fail with CONFIG_INVALID."
+    ]
+  },
+  "H-0037": {
+    "before": "NO_SURFACE",
+    "after": "SPECIFIED",
+    "clauses_total": 8,
+    "reversed": true,
+    "missed": []
+  },
+  "H-0044": {
+    "before": "SUPERSEDED",
+    "after": "SUPERSEDED",
+    "clauses_total": 16,
+    "reversed": false,
+    "missed": []
+  },
+  "H-0067": {
+    "before": "NO_SURFACE",
+    "after": "PARTIAL",
+    "clauses_total": 15,
+    "reversed": true,
+    "missed": [
+      "With mixed finite and NaN calibration validation scores, cross_fit calibrates finite rows and writes fallback values for NaN rows.",
+      "With entirely NaN calibration validation scores, cross_fit writes fallback values for every validation row."
+    ]
+  }
+}

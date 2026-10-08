@@ -1,0 +1,2238 @@
+{
+ "batch": "A",
+ "head": "13fb9d7",
+ "entries": {
+  "H-0001": {
+   "history_lines": "54-246",
+   "clauses": [
+    {
+     "text": "LizyMLConfig top-level field set: config_version, task, data, features, split, model, training, tuning, evaluation, calibration",
+     "history_line": 72,
+     "verdict": "stated",
+     "blueprint_lines": [
+      290,
+      291,
+      292,
+      293,
+      294,
+      295,
+      296,
+      297,
+      298,
+      299
+     ],
+     "blueprint_quote": "| `config_version` | `int` | Yes | ... | `task` | ... | `calibration` | `object \\| null` | No | `null` | binary 専用 |",
+     "code": "lizyml/config/schema.py:587-600",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Field set stated. output_dir (added later by H-0039) is the one omission; recorded under H-0034/H-0039."
+    },
+    {
+     "text": "features / split / training / evaluation are required (no default) at top level",
+     "history_line": 75,
+     "verdict": "superseded",
+     "blueprint_lines": [
+      293,
+      294,
+      296,
+      298
+     ],
+     "blueprint_quote": "| `features` | `object` | No | `{}` |",
+     "code": "lizyml/config/schema.py:591-596",
+     "superseded_by": "H-0013",
+     "from_prior": false,
+     "note": "H-0013 (HISTORY 869) made split default task-dependent; features/training/evaluation now have defaults in code. BLUEPRINT already matches code; no obligation."
+    },
+    {
+     "text": "Every config model uses extra='forbid' so typos are errors",
+     "history_line": 211,
+     "verdict": "stated",
+     "blueprint_lines": [
+      172
+     ],
+     "blueprint_quote": "`pydantic`（`extra=\"forbid\"`）で typo を確実にエラー化する。",
+     "code": "lizyml/config/schema.py:587-588",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "config_version is a required int; unsupported versions rejected with CONFIG_VERSION_UNSUPPORTED",
+     "history_line": 212,
+     "verdict": "stated",
+     "blueprint_lines": [
+      173,
+      290
+     ],
+     "blueprint_quote": "`config_version` | `int` | Yes | - | `1` のみサポート ... サポート外は `CONFIG_VERSION_UNSUPPORTED`（H-0106）",
+     "code": "lizyml/config/schema.py:590,602-608",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "task is Literal regression | binary | multiclass",
+     "history_line": 75,
+     "verdict": "stated",
+     "blueprint_lines": [
+      291
+     ],
+     "blueprint_quote": "| `task` | `\"regression\" \\| \"binary\" \\| \"multiclass\"` | Yes | - |",
+     "code": "lizyml/config/schema.py:591",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "model is a discriminated union keyed by `name` (Literal 'lgbm'); LGBMConfig has name + params",
+     "history_line": 148,
+     "verdict": "missed",
+     "blueprint_lines": [
+      295,
+      344
+     ],
+     "blueprint_quote": "| `model` | `object` | Yes | - | LightGBM のみ |  (model table lists params..balanced but no `name` row)",
+     "code": "lizyml/config/schema.py:278,325",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "BLUEPRINT only shows the {\"lgbm\": {...}} form (§5.2), which loader.py:117-124 converts to name form; the canonical `name` key that model_dump/config_normalized emits is absent from the 'complete key list'.",
+     "proposed_anchor": "name",
+     "target_section": "## 5.4 Config Reference（全キー一覧）"
+    },
+    {
+     "text": "DataConfig: path, target (required), time_col, group_col",
+     "history_line": 89,
+     "verdict": "stated",
+     "blueprint_lines": [
+      305,
+      306,
+      307,
+      308
+     ],
+     "blueprint_quote": "| `path` | ... | `target` | `str` | Yes | ... | `time_col` | ... | `group_col` | `str \\| null` | No | `null` | グループ列名 |",
+     "code": "lizyml/config/schema.py:28-35",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "group_col is required when a group split is used",
+     "history_line": 94,
+     "verdict": "missed",
+     "blueprint_lines": [
+      308
+     ],
+     "blueprint_quote": "| `group_col` | `str \\| null` | No | `null` | グループ列名 |",
+     "code": "lizyml/splitters/group_kfold.py:31-32",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Enforced only as ValueError inside group splitters (group_kfold.py:31,68; group_time_series.py:47). time_col's requirement is stated at 307; group_col's is not.",
+     "proposed_anchor": "group_col",
+     "target_section": "## 5.4 Config Reference（全キー一覧）"
+    },
+    {
+     "text": "FeaturesConfig: exclude=[], auto_categorical=True, categorical=[]",
+     "history_line": 100,
+     "verdict": "stated",
+     "blueprint_lines": [
+      314,
+      315,
+      316
+     ],
+     "blueprint_quote": "| `exclude` | `list[str]` | No | `[]` | ... | `auto_categorical` | `bool` | No | `True` | ... | `categorical` | `list[str]` | No | `[]` |",
+     "code": "lizyml/config/schema.py:42-50",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "SplitConfig is a discriminated union on `method`",
+     "history_line": 136,
+     "verdict": "stated",
+     "blueprint_lines": [
+      321
+     ],
+     "blueprint_quote": "`split.method` は以下のいずれか: `kfold` / `stratified_kfold` / ...",
+     "code": "lizyml/config/schema.py:59-260",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "kfold/stratified_kfold random_state: int = 42",
+     "history_line": 114,
+     "verdict": "superseded",
+     "blueprint_lines": [
+      325,
+      326
+     ],
+     "blueprint_quote": "`random_state=42`",
+     "code": "lizyml/config/schema.py:65,75",
+     "superseded_by": "H-0080",
+     "from_prior": false,
+     "note": "H-0080 (HISTORY 6656) made it int|None=None; BLUEPRINT 325-326 still says 42 (contradiction recorded under H-0080)."
+    },
+    {
+     "text": "kfold n_splits=5 shuffle=True; group_kfold n_splits=5; time_series n_splits=5 gap=0",
+     "history_line": 113,
+     "verdict": "stated",
+     "blueprint_lines": [
+      325,
+      327,
+      329
+     ],
+     "blueprint_quote": "| `kfold` | `n_splits=5`, `random_state=42`, `shuffle=True` | ... | `group_kfold` | `n_splits=5` | ... | `time_series` | `n_splits=5`, `gap=0`",
+     "code": "lizyml/config/schema.py:62-100",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "LGBMConfig.params: dict = {}",
+     "history_line": 146,
+     "verdict": "stated",
+     "blueprint_lines": [
+      344
+     ],
+     "blueprint_quote": "| `params` | `dict[str, Any]` | No | `{}` | LightGBM パラメーター。",
+     "code": "lizyml/config/schema.py:279",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "HoldoutInnerValidConfig: method 'holdout', ratio=0.1, random_state=42",
+     "history_line": 154,
+     "verdict": "stated",
+     "blueprint_lines": [
+      650,
+      689
+     ],
+     "blueprint_quote": "明示指定した場合は、その method / ratio / random_state をそのまま使う / `HoldoutInnerValid(ratio=0.1, random_state=42, stratify=False)`",
+     "code": "lizyml/config/schema.py:333-339",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "EarlyStoppingConfig defaults enabled=False, rounds=50",
+     "history_line": 162,
+     "verdict": "superseded",
+     "blueprint_lines": [
+      357,
+      358
+     ],
+     "blueprint_quote": "| `early_stopping.enabled` | `bool` | No | `True` | / `early_stopping.rounds` | `int` | No | `150` |",
+     "code": "lizyml/config/schema.py:382-383",
+     "superseded_by": "H-0022",
+     "from_prior": false,
+     "note": "H-0022 (HISTORY 1414-1415) changed defaults to True / 150; BLUEPRINT matches the current values."
+    },
+    {
+     "text": "EarlyStoppingConfig.validation_ratio is an alias of inner_valid.ratio",
+     "history_line": 164,
+     "verdict": "stated",
+     "blueprint_lines": [
+      359,
+      651
+     ],
+     "blueprint_quote": "`inner_valid.ratio` の computed alias（H-0069）",
+     "code": "lizyml/config/schema.py:368-430",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Form refined by H-0069 (computed field)."
+    },
+    {
+     "text": "TrainingConfig.seed = 42",
+     "history_line": 169,
+     "verdict": "stated",
+     "blueprint_lines": [
+      356
+     ],
+     "blueprint_quote": "| `seed` | `int` | No | `42` | グローバルシード |",
+     "code": "lizyml/config/schema.py:489-499",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "OptunaParamsConfig: n_trials=50, timeout=None",
+     "history_line": 178,
+     "verdict": "stated",
+     "blueprint_lines": [
+      366,
+      368
+     ],
+     "blueprint_quote": "| `optuna.params.n_trials` | `int` | No | `50` | / `optuna.params.timeout` | `float \\| null` | No | `null` |",
+     "code": "lizyml/config/schema.py:501-507",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "OptunaParamsConfig.direction defaults to 'minimize'",
+     "history_line": 179,
+     "verdict": "superseded",
+     "blueprint_lines": [
+      367
+     ],
+     "blueprint_quote": "`\"minimize\" \\| \"maximize\" \\| null` | No | `null` | Automatic orientation ...",
+     "code": "lizyml/config/schema.py:505",
+     "superseded_by": "H-0099",
+     "from_prior": false,
+     "note": "H-0099 (HISTORY 9871): null = automatic."
+    },
+    {
+     "text": "OptunaConfig.space: dict = {}",
+     "history_line": 184,
+     "verdict": "stated",
+     "blueprint_lines": [
+      369
+     ],
+     "blueprint_quote": "| `optuna.space` | `dict[str, Any]` | No | `{}` |",
+     "code": "lizyml/config/schema.py:509-515",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "EvaluationConfig.metrics: list[str] = []",
+     "history_line": 197,
+     "verdict": "stated",
+     "blueprint_lines": [
+      376
+     ],
+     "blueprint_quote": "| `metrics` | `list[str]` | No | `[]` | ランタイムデフォルトあり |",
+     "code": "lizyml/config/schema.py:528-540",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "CalibrationConfig.method platt|isotonic|beta default platt",
+     "history_line": 205,
+     "verdict": "stated",
+     "blueprint_lines": [
+      382
+     ],
+     "blueprint_quote": "| `method` | `\"platt\" \\| \"isotonic\" \\| \"beta\"` | No | `\"platt\"` |",
+     "code": "lizyml/config/schema.py:552",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "CalibrationConfig.n_splits = 5 drives calibration cross-fit folds",
+     "history_line": 206,
+     "verdict": "superseded",
+     "blueprint_lines": [
+      383,
+      622
+     ],
+     "blueprint_quote": "**deprecated (H-0058)**: 無視される。",
+     "code": "lizyml/config/schema.py:553",
+     "superseded_by": "H-0058",
+     "from_prior": false,
+     "note": "H-0058 (HISTORY 3763) reuses outer splits."
+    },
+    {
+     "text": "Invalid Config is raised as LizyMLError(CONFIG_INVALID) wrapping pydantic ValidationError",
+     "history_line": 213,
+     "verdict": "missed",
+     "blueprint_lines": [
+      172,
+      1572
+     ],
+     "blueprint_quote": "§5.1 says only 'typo を確実にエラー化する'; §16.2 lists `CONFIG_INVALID` without its condition",
+     "code": "lizyml/config/loader.py:280-291",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Same one-sentence edit closes H-0025's two range-error prior claims.",
+     "proposed_anchor": "CONFIG_INVALID",
+     "target_section": "## 5.1 方針"
+    },
+    {
+     "text": "loader normalizes aliases (k-fold -> kfold) before schema validation",
+     "history_line": 214,
+     "verdict": "stated",
+     "blueprint_lines": [
+      177
+     ],
+     "blueprint_quote": "正規化: 表記揺れの吸収（例: `k-fold` と `kfold`）",
+     "code": "lizyml/config/loader.py:28-43,80-90",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "The general rule is stated; the per-method alias set is recorded under H-0032/H-0055."
+    },
+    {
+     "text": "Env override with LIZYML__ prefix and __ nesting",
+     "history_line": 215,
+     "verdict": "stated",
+     "blueprint_lines": [
+      176
+     ],
+     "blueprint_quote": "override: CLI / 環境変数（例: `LIZYML__model__lgbm__params__learning_rate=0.05`）",
+     "code": "lizyml/config/loader.py:45-46,142-160",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    }
+   ],
+   "anchors": [
+    "config_version",
+    "extra",
+    "LIZYML__model__lgbm__params__learning_rate",
+    "kfold",
+    "early_stopping.rounds",
+    "optuna.space"
+   ],
+   "obligation": true
+  },
+  "H-0024": {
+   "history_lines": "1543-1657",
+   "clauses": [
+    {
+     "text": "Empty tuning.optuna.space applies the task-specific default space",
+     "history_line": 1560,
+     "verdict": "stated",
+     "blueprint_lines": [
+      811,
+      812
+     ],
+     "blueprint_quote": "`tuning.optuna.space_mode` defaults to `merge`. Start with task-specific provider dimensions",
+     "code": "lizyml/core/_model_tuning.py:440-444",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Refined by H-0102: with space_mode=replace an empty space stays empty."
+    },
+    {
+     "text": "Default space dimensions table (objective..validation_ratio with ranges and categories)",
+     "history_line": 1566,
+     "verdict": "stated",
+     "blueprint_lines": [
+      842,
+      843,
+      844,
+      845,
+      846,
+      847,
+      848,
+      849,
+      850,
+      851,
+      852,
+      853
+     ],
+     "blueprint_quote": "| `objective` | categorical | regression: `[huber, fair]` ... | `validation_ratio` | float | `[0.1, 0.3]` | training |",
+     "code": "lizyml/estimators/lgbm/defaults.py:22-26",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "Fixed params: auto_num_leaves=True, first_metric_only=True, task metric lists",
+     "history_line": 1581,
+     "verdict": "stated",
+     "blueprint_lines": [
+      859,
+      860,
+      861
+     ],
+     "blueprint_quote": "| `auto_num_leaves` | `True` | / | `first_metric_only` | `True` | / | `metric` | regression: `[huber, mae, mape]` ...",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "brier / precision_at_k excluded (not LightGBM native); binary objective effectively fixed",
+     "history_line": 1586,
+     "verdict": "stated",
+     "blueprint_lines": [
+      864,
+      865
+     ],
+     "blueprint_quote": "`brier` / `precision_at_k` は LightGBM ネイティブ未対応のため除外。",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "The optimization metric is evaluation.metrics[0], otherwise rmse/auc/logloss by task.",
+     "history_line": 1594,
+     "verdict": "superseded",
+     "blueprint_lines": [
+      1052,
+      1053,
+      376
+     ],
+     "blueprint_quote": "The first configured evaluation metric, or the first task default when omitted, is the objective.",
+     "code": "lizyml/core/_model_metrics.py:19-23",
+     "superseded_by": "H-0099",
+     "from_prior": true,
+     "note": "metrics[0] half is stated (1052). The named defaults are not what runs: _DEFAULT_METRICS['binary'] = ['logloss','auc'] so the binary default objective is logloss, not auc. H-0099 (HISTORY 9871) stopped naming defaults. BLUEPRINT never states the task-default metric list (§5.4 evaluation says only 'ランタイムデフォルトあり'); owner of _DEFAULT_METRICS is outside this batch."
+    },
+    {
+     "text": "Regression direction is minimize; classification direction follows the metric's greater_is_better property.",
+     "history_line": 1594,
+     "verdict": "superseded",
+     "blueprint_lines": [
+      1053,
+      1054
+     ],
+     "blueprint_quote": "Omitted/null `tuning.optuna.params.direction` derives from that metric's `greater_is_better`",
+     "code": "lizyml/core/_tuning_validation.py",
+     "superseded_by": "H-0099",
+     "from_prior": true,
+     "note": "H-0099 (HISTORY 9871) derives direction from greater_is_better for every task, including regression (e.g. r2 -> maximize)."
+    },
+    {
+     "text": "SearchDim category attribute: model / smart / training with distinct application",
+     "history_line": 1598,
+     "verdict": "stated",
+     "blueprint_lines": [
+      805,
+      806,
+      807
+     ],
+     "blueprint_quote": "`model`: `LGBMAdapter.params` に直接渡す / `smart`: ... `resolve_smart_params()` に渡す / `training`: trial ごとに `EarlyStoppingConfig` / `InnerValidStrategy` を再構築する",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "validation_ratio dim rebuilds InnerValidStrategy per trial; early_stopping_rounds changes the adapter per trial",
+     "history_line": 1609,
+     "verdict": "stated",
+     "blueprint_lines": [
+      807
+     ],
+     "blueprint_quote": "`training`: trial ごとに `EarlyStoppingConfig` / `InnerValidStrategy` を再構築する",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "Tuner estimator_factory signature extended / inner_valid_factory pattern",
+     "history_line": 1608,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": "",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Internal Tuner wiring, not consumer-observable."
+    },
+    {
+     "text": "A specified tuning.optuna.space is used as-is (current behaviour)",
+     "history_line": 1615,
+     "verdict": "superseded",
+     "blueprint_lines": [
+      811,
+      812,
+      813
+     ],
+     "blueprint_quote": "replace matching dimensions with complete user definitions, and retain unspecified defaults.",
+     "code": null,
+     "superseded_by": "H-0102",
+     "from_prior": false,
+     "note": "H-0102 (HISTORY 9932) made merge the default; replace-only requires space_mode: replace."
+    },
+    {
+     "text": "Supplying selected keys merges those dimensions over the remaining default space.",
+     "history_line": 1616,
+     "verdict": "stated",
+     "blueprint_lines": [
+      811,
+      812,
+      813
+     ],
+     "blueprint_quote": "Start with task-specific provider dimensions, replace matching dimensions with complete user definitions, and retain unspecified defaults.",
+     "code": "lizyml/core/_model_tuning.py:440-444",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "Stated through H-0102's text."
+    }
+   ],
+   "anchors": [
+    "space_mode",
+    "first_metric_only",
+    "num_leaves_ratio",
+    "early_stopping_rounds",
+    "greater_is_better"
+   ],
+   "obligation": false
+  },
+  "H-0025": {
+   "history_lines": "1659-1732",
+   "clauses": [
+    {
+     "text": "probability_histogram_plot() after load raises MODEL_NOT_FIT like other target-requiring APIs",
+     "history_line": 1681,
+     "verdict": "superseded",
+     "blueprint_lines": [
+      155
+     ],
+     "blueprint_quote": "`... probability_histogram_plot()` は、`fit()` 後と `Model.load()` 後の両方で利用可能とする。",
+     "code": null,
+     "superseded_by": "H-0026",
+     "from_prior": false,
+     "note": "H-0026 (HISTORY 1740) 'Supersedes: H-0025 の 1.'"
+    },
+    {
+     "text": "GroupHoldoutInnerValid assigns the trailing groups in input order to validation (no shuffle), no group overlap",
+     "history_line": 1686,
+     "verdict": "stated",
+     "blueprint_lines": [
+      693,
+      694,
+      695,
+      696
+     ],
+     "blueprint_quote": "group overlap を禁止する。 / validation には、入力順（group の first appearance 順）の末尾 ... 個の group を割り当てる。 / shuffle は行わない",
+     "code": "lizyml/training/inner_valid.py",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "min_data_in_leaf_ratio and min_data_in_bin_ratio must lie in (0, 1)",
+     "history_line": 1692,
+     "verdict": "stated",
+     "blueprint_lines": [
+      259,
+      260,
+      347,
+      348
+     ],
+     "blueprint_quote": "`min_data_in_leaf_ratio: float | None = 0.01`（`0 < ratio < 1`） / `min_data_in_bin_ratio: float | None = 0.01`（`0 < ratio < 1`）",
+     "code": "lizyml/config/schema.py:309-315",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "An out-of-range min_data_in_leaf_ratio must fail with CONFIG_INVALID.",
+     "history_line": 1694,
+     "verdict": "missed",
+     "blueprint_lines": [
+      259,
+      347
+     ],
+     "blueprint_quote": "range stated; the failure code is not",
+     "code": "lizyml/config/schema.py:265-272,310-312; lizyml/config/loader.py:283-291",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "ValueError in the validator becomes ValidationError, wrapped as CONFIG_INVALID by loader._validate. Closed by the same sentence as H-0001's CONFIG_INVALID clause.",
+     "proposed_anchor": "CONFIG_INVALID",
+     "target_section": "## 5.1 方針"
+    },
+    {
+     "text": "An out-of-range min_data_in_bin_ratio must fail with CONFIG_INVALID.",
+     "history_line": 1694,
+     "verdict": "missed",
+     "blueprint_lines": [
+      260,
+      348
+     ],
+     "blueprint_quote": "range stated; the failure code is not",
+     "code": "lizyml/config/schema.py:265-272,313-315; lizyml/config/loader.py:283-291",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "Same edit as above.",
+     "proposed_anchor": "CONFIG_INVALID",
+     "target_section": "## 5.1 方針"
+    },
+    {
+     "text": "Notebook parameter-check cells cover all smart params",
+     "history_line": 1698,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": "",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Notebook/process item."
+    }
+   ],
+   "anchors": [
+    "GroupHoldoutInnerValid",
+    "min_data_in_leaf_ratio",
+    "min_data_in_bin_ratio"
+   ],
+   "obligation": true
+  },
+  "H-0030": {
+   "history_lines": "1932-1985",
+   "clauses": [
+    {
+     "text": "Calibrator input is the base model's OOF raw score (logits, before sigmoid/softmax)",
+     "history_line": 1945,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1076,
+      1080
+     ],
+     "blueprint_quote": "校正器学習は、必ず Base モデルの OOF 生スコア（raw score / logits。sigmoid/softmax 適用前）のみを使う。",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "EstimatorAdapter.predict_raw(X) returns pre-sigmoid/softmax raw scores",
+     "history_line": 1946,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1077,
+      1285
+     ],
+     "blueprint_quote": "`EstimatorAdapter.predict_raw(X)` で生スコアを取得する / predict_raw(X)    # 分類（sigmoid/softmax 適用前の生スコア / logits。Calibration 用）",
+     "code": "lizyml/estimators/base.py",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "BaseCalibratorAdapter.fit takes raw scores",
+     "history_line": 1947,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1076,
+      1080
+     ],
+     "blueprint_quote": "入力は `s_oof`（生スコア）と `y` のみ",
+     "code": "lizyml/calibration/base.py:24-32",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "BaseCalibratorAdapter.predict consumes raw scores and returns calibrated probabilities.",
+     "history_line": 1948,
+     "verdict": "missed",
+     "blueprint_lines": [
+      1081,
+      471
+     ],
+     "blueprint_quote": "推論時は保存された `C_final` を使用する。 / 校正器を適用する（binary）。 (neither says what the calibrator is applied to)",
+     "code": "lizyml/calibration/base.py:40-44; lizyml/core/_model_predict.py:77-79",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "At predict time C_final.predict(model.predict_raw(X)) produces PredictionResult.proba; BLUEPRINT §6.4/§12.1 never say the predict-time input is the raw score (legacy artifacts with oof_raw_scores=None use probabilities, _model_predict.py:80-82).",
+     "proposed_anchor": "predict_raw",
+     "target_section": "## 12.1 MUST（リーク禁止）"
+    },
+    {
+     "text": "Platt / Isotonic / Beta all take raw-score input",
+     "history_line": 1949,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1076,
+      1136
+     ],
+     "blueprint_quote": "校正器学習は、必ず ... 生スコア ... のみを使う / 単一特徴（raw score）に対する単調非減少写像",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "Without calibration, OOF/IF predictions use predict_proba; raw path only when calibration is on",
+     "history_line": 1950,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1082
+     ],
+     "blueprint_quote": "Calibration が未指定の場合は従来どおり `predict_proba`（確率値）を OOF/IF 予測に使用する。Calibration 有効時のみ生スコアベースの校正パスに入る。",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    }
+   ],
+   "anchors": [
+    "predict_raw",
+    "C_final",
+    "predict_proba"
+   ],
+   "obligation": true
+  },
+  "H-0032": {
+   "history_lines": "2033-2078",
+   "clauses": [
+    {
+     "text": "purged_time_series and group_time_series are Config split methods (SplitConfig union)",
+     "history_line": 2046,
+     "verdict": "stated",
+     "blueprint_lines": [
+      321,
+      330,
+      331
+     ],
+     "blueprint_quote": "`split.method` は以下のいずれか: ... `purged_time_series` / `group_time_series` / ...",
+     "code": "lizyml/config/schema.py:136,182",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "Model._build_splitter routes the two methods",
+     "history_line": 2048,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": "",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Internal routing (now _model_factories.build_splitter)."
+    },
+    {
+     "text": "Inner valid auto-resolution: purged_time_series -> time_holdout, group_time_series -> group_holdout",
+     "history_line": 2049,
+     "verdict": "stated",
+     "blueprint_lines": [
+      662,
+      663
+     ],
+     "blueprint_quote": "| `purged_time_series` | `time_holdout` | / | `group_time_series` | `group_holdout` |",
+     "code": "lizyml/core/_model_factories.py:297-300",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "Hyphenated and equivalent aliases normalize to purged_time_series and group_time_series.",
+     "history_line": 2050,
+     "verdict": "missed",
+     "blueprint_lines": [
+      177
+     ],
+     "blueprint_quote": "正規化: 表記揺れの吸収（例: `k-fold` と `kfold`）  (only the kfold example; the accepted alias set is not stated)",
+     "code": "lizyml/config/loader.py:39-42",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "Accepted spellings: purged-time-series, purgedtimeseries, group-time-series, grouptimeseries (case-insensitive via .lower(), loader.py:86).",
+     "proposed_anchor": "purged-time-series",
+     "target_section": "## 5.4 Config Reference（全キー一覧）"
+    }
+   ],
+   "anchors": [
+    "purged_time_series",
+    "group_time_series",
+    "time_holdout",
+    "group_holdout"
+   ],
+   "obligation": true
+  },
+  "H-0034": {
+   "history_lines": "2127-2168",
+   "clauses": [
+    {
+     "text": "Model accepts an output_dir option, from Config or constructor",
+     "history_line": 2140,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1597
+     ],
+     "blueprint_quote": "`output_dir` オプション（Config or コンストラクタ引数）指定時",
+     "code": "lizyml/core/model.py:136,148",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "output_dir is a top-level Config key (str | None, default None)",
+     "history_line": 2140,
+     "verdict": "missed",
+     "blueprint_lines": [
+      288,
+      290,
+      299,
+      387
+     ],
+     "blueprint_quote": "§5.4 top-level table (declared complete: '全 Config キー') has no `output_dir` row; §5.5 says '§5.4 の表に行の無い `output_dir`（§17）'",
+     "code": "lizyml/config/schema.py:600",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "Proposal said 'Config の output セクション'; implementation is a flat top-level key. §5.5 acknowledges the missing row instead of supplying it.",
+     "proposed_anchor": "output_dir",
+     "target_section": "## 5.4 Config Reference（全キー一覧）"
+    },
+    {
+     "text": "With output_dir set, {output_dir}/{run_id}/ is created and log output goes there",
+     "history_line": 2141,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1597
+     ],
+     "blueprint_quote": "`{output_dir}/{run_id}/` にログ・plot 保存先を統一する。",
+     "code": "lizyml/core/logging.py:45-71",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "Plots are saved under {output_dir}/{run_id}/",
+     "history_line": 2141,
+     "verdict": "not_in_force",
+     "blueprint_lines": [
+      1597
+     ],
+     "blueprint_quote": "`{output_dir}/{run_id}/` にログ・plot 保存先を統一する。",
+     "code": "lizyml/core/logging.py:58-71",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "STALE SPEC: BLUEPRINT 1597 asserts plots are saved there, but no code path writes a plot (no write_html/write_image/run_dir use in lizyml/plots or _model_plots.py); only run.log is written (logging.py:61) and export defaults to {run_dir}/export."
+    },
+    {
+     "text": "Without output_dir, logs go to stdout and plots are only returned",
+     "history_line": 2142,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1598
+     ],
+     "blueprint_quote": "`output_dir` 未指定時は現行動作（ログは標準出力、plot は返却のみ）を維持する。",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    }
+   ],
+   "anchors": [
+    "output_dir",
+    "run_id"
+   ],
+   "obligation": true
+  },
+  "H-0035": {
+   "history_lines": "2172-2242",
+   "clauses": [
+    {
+     "text": "Model.params_table() returns a pd.DataFrame; MODEL_NOT_FIT before fit",
+     "history_line": 2185,
+     "verdict": "stated",
+     "blueprint_lines": [
+      153
+     ],
+     "blueprint_quote": "`model.params_table()`（解決済みパラメーターテーブル。... 単一 `pd.DataFrame` で返す。`fit()` 未実行時は `MODEL_NOT_FIT`）",
+     "code": "lizyml/core/_model_tables.py:260-280",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "The DataFrame index is parameter and its sole column is value.",
+     "history_line": 2186,
+     "verdict": "missed",
+     "blueprint_lines": [
+      153
+     ],
+     "blueprint_quote": "単一 `pd.DataFrame` で返す  (index/column names not stated)",
+     "code": "lizyml/core/_model_tables.py:327-328",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "",
+     "proposed_anchor": "params_table",
+     "target_section": "## 4.1 Model（学習・評価・推論の Facade）"
+    },
+    {
+     "text": "The table includes smart params auto_num_leaves, num_leaves_ratio, min_data_in_leaf_ratio, min_data_in_bin_ratio, balanced, and feature_weights.",
+     "history_line": 2187,
+     "verdict": "stated",
+     "blueprint_lines": [
+      153,
+      234
+     ],
+     "blueprint_quote": "Config smart params + resolved booster params + fold ごとの `best_iteration` / `LGBMConfig` に以下のスマートパラメーターを提供する。",
+     "code": "lizyml/estimators/lgbm/provider.py:227-229,349-352",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "'Config smart params' is the §5.3 set, which enumerates exactly these six."
+    },
+    {
+     "text": "The table includes training settings early_stopping.rounds and validation_ratio.",
+     "history_line": 2187,
+     "verdict": "missed",
+     "blueprint_lines": [
+      153
+     ],
+     "blueprint_quote": "Config smart params + resolved booster params + fold ごとの `best_iteration`  (no training rows mentioned)",
+     "code": "lizyml/core/_model_tables.py:303-321",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "Row names are early_stopping_rounds and validation_ratio; values come from the trained adapter / applied overlay (H-0094, H-0109).",
+     "proposed_anchor": "early_stopping_rounds",
+     "target_section": "## 4.1 Model（学習・評価・推論の Facade）"
+    },
+    {
+     "text": "The table includes fold-0 resolved native objective, metric, learning_rate, max_depth, num_leaves, min_data_in_leaf, min_data_in_bin, and max_bin.",
+     "history_line": 2188,
+     "verdict": "missed",
+     "blueprint_lines": [
+      153,
+      1454
+     ],
+     "blueprint_quote": "resolved booster params / `params_summary()` は ... smart params + native model params（`metric` を含む、H-0061）の両方を含む。  (fold 0 and the list not stated)",
+     "code": "lizyml/estimators/lgbm/provider.py:354-392",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "",
+     "proposed_anchor": "params_summary",
+     "target_section": "## 14.4 EstimatorProvider protocol（H-0053）"
+    },
+    {
+     "text": "The table includes fold-0 feature_fraction, bagging_fraction, bagging_freq, lambda_l1, lambda_l2, and num_iterations.",
+     "history_line": 2188,
+     "verdict": "missed",
+     "blueprint_lines": [
+      153,
+      1454
+     ],
+     "blueprint_quote": "same as above",
+     "code": "lizyml/estimators/lgbm/provider.py:375-392",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "Also scale_pos_weight / num_class / feval_metrics rows when present (provider.py:395-408).",
+     "proposed_anchor": "params_summary",
+     "target_section": "## 14.4 EstimatorProvider protocol（H-0053）"
+    },
+    {
+     "text": "Smart ratio values and resolved absolute values coexist under distinct parameter names.",
+     "history_line": 2189,
+     "verdict": "stated",
+     "blueprint_lines": [
+      153
+     ],
+     "blueprint_quote": "Config smart params + resolved booster params + fold ごとの `best_iteration` を単一 `pd.DataFrame` で返す",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": true,
+     "note": ""
+    },
+    {
+     "text": "Per-fold best_iteration rows appended",
+     "history_line": 2190,
+     "verdict": "stated",
+     "blueprint_lines": [
+      153
+     ],
+     "blueprint_quote": "fold ごとの `best_iteration`",
+     "code": "lizyml/core/_model_tables.py:323-325",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "`balanced` is typed `bool | None` and defaults to `None` (task-dependent automatic)",
+     "history_line": null,
+     "verdict": "stated",
+     "blueprint_lines": [
+      275,
+      350
+     ],
+     "blueprint_quote": "`balanced: bool | None = None` / | `balanced` | `bool \\| null` | No | `null` |",
+     "code": "lizyml/config/schema.py:288",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "MIS-ATTRIBUTED prior claim: not a decision H-0035 made (H-0021 smart params)."
+    }
+   ],
+   "anchors": [
+    "params_table",
+    "best_iteration",
+    "params_summary"
+   ],
+   "obligation": true
+  },
+  "H-0038": {
+   "history_lines": "2336-2389",
+   "clauses": [
+    {
+     "text": "purged_time_series official key purge_gap",
+     "history_line": 2352,
+     "verdict": "stated",
+     "blueprint_lines": [
+      330,
+      637
+     ],
+     "blueprint_quote": "| `purged_time_series` | `n_splits=5`, `purge_gap=0`, `embargo=0`, ...",
+     "code": "lizyml/config/schema.py:141",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "purged_time_series official key embargo_pct",
+     "history_line": 2352,
+     "verdict": "superseded",
+     "blueprint_lines": [
+      330,
+      638
+     ],
+     "blueprint_quote": "`embargo`（... `int` ...）",
+     "code": null,
+     "superseded_by": "H-0040",
+     "from_prior": false,
+     "note": "H-0040 (HISTORY 2458) renamed embargo_pct -> embargo (int)."
+    },
+    {
+     "text": "Legacy key purge_window accepted during migration with a warning, normalized to purge_gap",
+     "history_line": 2354,
+     "verdict": "missed",
+     "blueprint_lines": [
+      330,
+      337
+     ],
+     "blueprint_quote": "`purged_time_series` の旧キー `embargo_pct` は移行期間のみ後方互換として扱い  (purge_window: 0 hits)",
+     "code": "lizyml/config/schema.py:154-161",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "",
+     "proposed_anchor": "purge_window",
+     "target_section": "## 5.4 Config Reference（全キー一覧）"
+    },
+    {
+     "text": "Legacy key gap accepted for purged_time_series with a warning (now normalized to embargo)",
+     "history_line": 2354,
+     "verdict": "missed",
+     "blueprint_lines": [
+      330,
+      637
+     ],
+     "blueprint_quote": "purged_time_series row lists no `gap`; 637 says `purged_time_series` は `purge_gap` を持つ",
+     "code": "lizyml/config/schema.py:171-178",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "H-0038 mapped gap->embargo_pct; after H-0040 code maps gap->embargo. docs/DEPRECATIONS.md:19 lists it.",
+     "proposed_anchor": "purge_window",
+     "target_section": "## 5.4 Config Reference（全キー一覧）"
+    },
+    {
+     "text": "embargo split behaviour fixed by test; leakage boundary made explicit",
+     "history_line": 2355,
+     "verdict": "stated",
+     "blueprint_lines": [
+      638
+     ],
+     "blueprint_quote": "`embargo`（train と valid の間に設ける追加除外 Obs 数、`int`、`gap` / `purge_gap` と同じ単位）",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    }
+   ],
+   "anchors": [
+    "purge_gap",
+    "embargo",
+    "purged_time_series"
+   ],
+   "obligation": true
+  },
+  "H-0039": {
+   "history_lines": "2391-2439",
+   "clauses": [
+    {
+     "text": "output_dir can be given in Config",
+     "history_line": 2405,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1597
+     ],
+     "blueprint_quote": "`output_dir` オプション（Config or コンストラクタ引数）",
+     "code": "lizyml/config/schema.py:600",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "Precedence constructor > config > unset for output_dir",
+     "history_line": 2405,
+     "verdict": "missed",
+     "blueprint_lines": [
+      1597
+     ],
+     "blueprint_quote": "`output_dir` オプション（Config or コンストラクタ引数）指定時  (no precedence)",
+     "code": "lizyml/core/model.py:147-148",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "Code comment at model.py:147 cites 'BLUEPRINT §17' for a precedence §17 does not state. Resolution uses `or`, so a falsy constructor value falls through to Config.",
+     "proposed_anchor": "output_dir",
+     "target_section": "# 17. Logging / Run 管理（`core/logging.py`）"
+    },
+    {
+     "text": "fit, tune and export each create {output_dir}/{run_id}/ with log output; export() without a path writes {run_dir}/export",
+     "history_line": 2406,
+     "verdict": "missed",
+     "blueprint_lines": [
+      1597,
+      131
+     ],
+     "blueprint_quote": "§17 states the run dir but not which calls create it; §4.1 shows export('path/to/export_dir') only",
+     "code": "lizyml/core/model.py:203,956-968; lizyml/core/_model_tuning.py:194",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "export(path=None) resolves to {run_dir}/export, else a new run dir under output_dir, else raises (model.py:967).",
+     "proposed_anchor": "output_dir",
+     "target_section": "# 17. Logging / Run 管理（`core/logging.py`）"
+    },
+    {
+     "text": "Unset behaviour (stdout logs, returned plots) preserved",
+     "history_line": 2407,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1598
+     ],
+     "blueprint_quote": "`output_dir` 未指定時は現行動作（ログは標準出力、plot は返却のみ）を維持する。",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "When both `validation_ratio` and an explicit `inner_valid` are given and their ratios differ, the config raises `CONFIG_INVALID`; equal ratios are accepted",
+     "history_line": null,
+     "verdict": "stated",
+     "blueprint_lines": [
+      652
+     ],
+     "blueprint_quote": "`validation_ratio` と `inner_valid` を同時に明示指定した場合、ratio が一致しなければ `CONFIG_INVALID`、一致すれば許容する",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "MIS-ATTRIBUTED prior claim: not a decision H-0039 made (H-0010/H-0069 territory)."
+    }
+   ],
+   "anchors": [
+    "output_dir",
+    "run_id"
+   ],
+   "obligation": true
+  },
+  "H-0040": {
+   "history_lines": "2441-2499",
+   "clauses": [
+    {
+     "text": "time_series / purged_time_series / group_time_series require data.time_col (CONFIG_INVALID when missing)",
+     "history_line": 2455,
+     "verdict": "stated",
+     "blueprint_lines": [
+      307,
+      334
+     ],
+     "blueprint_quote": "時系列列名（`time_series` / `purged_time_series` / `group_time_series` では必須） / 共通で `data.time_col` 必須",
+     "code": "lizyml/core/_model_factories.py",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Requirement stated; the error code is not, covered by the general CONFIG_INVALID edit (H-0001)."
+    },
+    {
+     "text": "The three methods sort ascending by time_col before splitting",
+     "history_line": 2455,
+     "verdict": "stated",
+     "blueprint_lines": [
+      636
+     ],
+     "blueprint_quote": "`data.time_col` を基準に昇順へ並べてから分割する。",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "The three methods share train_size_max / test_size_max",
+     "history_line": 2456,
+     "verdict": "stated",
+     "blueprint_lines": [
+      335,
+      639
+     ],
+     "blueprint_quote": "3 メソッドは共通で `train_size_max` / `test_size_max` を持つ。",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "gap for time_series/group_time_series, purge_gap for purged_time_series",
+     "history_line": 2457,
+     "verdict": "stated",
+     "blueprint_lines": [
+      637
+     ],
+     "blueprint_quote": "`time_series` / `group_time_series` は `gap`、`purged_time_series` は `purge_gap` を持つ",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "embargo_pct (float) renamed to embargo (int, observation count)",
+     "history_line": 2458,
+     "verdict": "stated",
+     "blueprint_lines": [
+      330,
+      638
+     ],
+     "blueprint_quote": "`embargo`（train と valid の間に設ける追加除外 Obs 数、`int`、`gap` / `purge_gap` と同じ単位）",
+     "code": "lizyml/config/schema.py:142",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "During migration embargo_pct remains accepted and is normalized to embargo",
+     "history_line": 2459,
+     "verdict": "stated",
+     "blueprint_lines": [
+      337,
+      638
+     ],
+     "blueprint_quote": "`purged_time_series` の旧キー `embargo_pct` は移行期間のみ後方互換として扱い、`embargo` に正規化する。",
+     "code": "lizyml/config/schema.py:162-170",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": ""
+    },
+    {
+     "text": "embargo_pct is converted with int()",
+     "history_line": 2459,
+     "verdict": "not_in_force",
+     "blueprint_lines": [
+      638
+     ],
+     "blueprint_quote": "`embargo_pct` は移行期間のみ後方互換キーとする（`int()` で変換）。",
+     "code": "lizyml/config/schema.py:105-130",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "STALE SPEC: _legacy_obs_count rejects fractional values (e.g. 0.05) instead of int()-truncating them (#210, no HISTORY proposal found); BLUEPRINT 638 still says int(). Integer-valued inputs (3, 3.0) are accepted."
+    },
+    {
+     "text": "Using embargo_pct emits a deprecation warning",
+     "history_line": 2459,
+     "verdict": "missed",
+     "blueprint_lines": [
+      337,
+      638
+     ],
+     "blueprint_quote": "後方互換として扱い、`embargo` に正規化する  (no warning stated)",
+     "code": "lizyml/config/schema.py:162-169",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "DeprecationWarning 'Will be removed in v1.0.' (H-0076). Same edit as H-0038/H-0076 legacy-key rows.",
+     "proposed_anchor": "embargo_pct",
+     "target_section": "## 5.4 Config Reference（全キー一覧）"
+    }
+   ],
+   "anchors": [
+    "time_col",
+    "train_size_max",
+    "test_size_max",
+    "embargo_pct",
+    "embargo"
+   ],
+   "obligation": true
+  },
+  "H-0055": {
+   "history_lines": "3515-3549",
+   "clauses": [
+    {
+     "text": "stratified_group_kfold is a Config split method",
+     "history_line": 3528,
+     "verdict": "stated",
+     "blueprint_lines": [
+      321,
+      328
+     ],
+     "blueprint_quote": "| `stratified_group_kfold` | `n_splits=5`, `random_state=42`, `shuffle=True` |",
+     "code": "lizyml/config/schema.py:85-92",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "random_state default is contradicted per H-0080."
+    },
+    {
+     "text": "Hyphenated and compact StratifiedGroupKFold aliases normalize to stratified_group_kfold.",
+     "history_line": 3529,
+     "verdict": "missed",
+     "blueprint_lines": [
+      177
+     ],
+     "blueprint_quote": "正規化: 表記揺れの吸収（例: `k-fold` と `kfold`）",
+     "code": "lizyml/config/loader.py:35-36",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "stratified-group-kfold, stratifiedgroupkfold.",
+     "proposed_anchor": "stratified-group-kfold",
+     "target_section": "## 5.4 Config Reference（全キー一覧）"
+    },
+    {
+     "text": "Inner valid auto-resolution for stratified_group_kfold selects group_holdout",
+     "history_line": 3546,
+     "verdict": "stated",
+     "blueprint_lines": [
+      660
+     ],
+     "blueprint_quote": "| `stratified_group_kfold` | `group_holdout` |",
+     "code": "lizyml/core/_model_factories.py:295-296",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "_build_splitter_for_method dispatch entry",
+     "history_line": 3530,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": "",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Internal dispatch."
+    }
+   ],
+   "anchors": [
+    "stratified_group_kfold",
+    "group_holdout"
+   ],
+   "obligation": true
+  },
+  "H-0067": {
+   "history_lines": "5006-5069",
+   "clauses": [
+    {
+     "text": "ECE bin accuracy is the fraction of positives mean(y_true)",
+     "history_line": 5018,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1178
+     ],
+     "blueprint_quote": "各 bin の accuracy = `mean(y_true[mask])`（正例割合）",
+     "code": "lizyml/metrics/classification.py",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "OOS confusion matrix excludes structurally uncovered (NaN) rows via compute_oof_valid_mask()",
+     "history_line": 5021,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1247
+     ],
+     "blueprint_quote": "OOS は `compute_oof_valid_mask()` でカバー済み行のみを対象とする — NaN の構造的未カバー行は除外",
+     "code": "lizyml/evaluation/confusion.py",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "Leakage check compares NaN positions before allclose so a ValueError no longer skips detection",
+     "history_line": 5024,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": "",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Internal evaluation order; the swallowing handler it worked around was replaced by H-0107 (DATA_SCHEMA_INVALID)."
+    },
+    {
+     "text": "Isotonic log_evaluation period=-1",
+     "history_line": 5027,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": "",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Logging implementation detail."
+    },
+    {
+     "text": "RefitTrainer fits the pipeline on inner-train only; final pipeline_state from a separate full-data fit",
+     "history_line": 5030,
+     "verdict": "superseded",
+     "blueprint_lines": [
+      681
+     ],
+     "blueprint_quote": "**pipeline は全データで 1 回のみ fit する**（H-0085）。... inner-train には狭めない。",
+     "code": null,
+     "superseded_by": "H-0085",
+     "from_prior": false,
+     "note": "H-0085 (HISTORY 6867)."
+    },
+    {
+     "text": "With mixed finite and NaN calibration validation scores, cross_fit calibrates finite rows and writes fallback values for NaN rows.",
+     "history_line": 5033,
+     "verdict": "missed",
+     "blueprint_lines": [
+      1078,
+      735
+     ],
+     "blueprint_quote": "校正性能評価は、校正器も OOF（cross-fit）で生成した値で行う。  (NaN guard not stated)",
+     "code": "lizyml/calibration/cross_fit.py:130-135",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "Likely dead-in-practice (DC6): under H-0058 outer-split reuse every validation row is covered, so NaN val scores do not occur (code comment cross_fit.py:126-127 says 'if calibration splits differ ... in future'). Rows count toward n_fallback_rows (H-0089).",
+     "proposed_anchor": "fallback",
+     "target_section": "## 10.5 Calibration CV の分割規約（必須）"
+    },
+    {
+     "text": "With entirely NaN calibration validation scores, cross_fit writes fallback values for every validation row.",
+     "history_line": 5033,
+     "verdict": "missed",
+     "blueprint_lines": [
+      1078,
+      735
+     ],
+     "blueprint_quote": "(not stated)",
+     "code": "lizyml/calibration/cross_fit.py:136-139",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "Same DC6 note as above.",
+     "proposed_anchor": "fallback",
+     "target_section": "## 10.5 Calibration CV の分割規約（必須）"
+    },
+    {
+     "text": "metrics['calibrated'] = {'oof', 'oof_per_fold'}; IF metrics excluded",
+     "history_line": 5036,
+     "verdict": "stated",
+     "blueprint_lines": [
+      1231
+     ],
+     "blueprint_quote": "calibrated ブランチの metrics 構造は `{\"oof\": {...}, \"oof_per_fold\": [...]}`。IF metrics は leakage リスクのため含めない。",
+     "code": "lizyml/core/_model_metrics.py",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Enumeration later extended by H-0089 (fallback_row_count) - outside this batch."
+    },
+    {
+     "text": "HoldoutInnerValid raises ValueError when n_valid >= n_samples",
+     "history_line": 5039,
+     "verdict": "stated",
+     "blueprint_lines": [
+      692
+     ],
+     "blueprint_quote": "`n_valid >= n_samples` の場合は `ValueError` を発出する（空の train set 防止）。",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "TimeHoldoutInnerValid raises ValueError on an empty train set",
+     "history_line": 5042,
+     "verdict": "stated",
+     "blueprint_lines": [
+      709
+     ],
+     "blueprint_quote": "`n_valid + gap >= n_samples` の場合は `ValueError` を発出する（空の train set 防止）。",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    }
+   ],
+   "anchors": [
+    "ECE",
+    "compute_oof_valid_mask",
+    "oof_per_fold",
+    "n_valid"
+   ],
+   "obligation": true
+  },
+  "H-0076": {
+   "history_lines": "6169-6258",
+   "clauses": [
+    {
+     "text": "Deprecated surfaces (validation_ratio input, calibration.n_splits, purge_window, embargo_pct, purged gap, build_calibration_splitter) are scheduled for removal in v1.0",
+     "history_line": 6202,
+     "verdict": "missed",
+     "blueprint_lines": [
+      177,
+      383,
+      622
+     ],
+     "blueprint_quote": "only per-key 'deprecated' notes for calibration.n_splits; no removal target anywhere (0 hits for v1.0)",
+     "code": "docs/DEPRECATIONS.md:13-20; lizyml/config/schema.py:157,166,174",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Compatibility-policy decision (when a Config key stops being accepted).",
+     "proposed_anchor": "DEPRECATIONS",
+     "target_section": "## 15.2 互換性ポリシー（必須）"
+    },
+    {
+     "text": "docs/DEPRECATIONS.md is the single registry of deprecations and removal targets",
+     "history_line": 6202,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": "0 hits for DEPRECATIONS in BLUEPRINT",
+     "code": "docs/DEPRECATIONS.md:1-5",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Borderline process item; #271 lists it as MISSING.",
+     "proposed_anchor": "DEPRECATIONS",
+     "target_section": "## 15.2 互換性ポリシー（必須）"
+    },
+    {
+     "text": "Every deprecation message carries 'Will be removed in v1.0.'",
+     "history_line": 6191,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": "",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Warning wording."
+    },
+    {
+     "text": "Tests use pytest.warns; CI test enforces the removal-version suffix",
+     "history_line": 6213,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": "",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Test/process."
+    },
+    {
+     "text": "New deprecations must add a DEPRECATIONS.md row and the message format",
+     "history_line": 6252,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": "",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Contributor process rule."
+    }
+   ],
+   "anchors": [],
+   "obligation": true
+  },
+  "H-0078": {
+   "history_lines": "6348-6489",
+   "clauses": [
+    {
+     "text": "parse_space rejects low >= high with CONFIG_INVALID",
+     "history_line": 6372,
+     "verdict": "missed",
+     "blueprint_lines": [
+      797,
+      801
+     ],
+     "blueprint_quote": "§11.1/11.2 describe the representation only",
+     "code": "lizyml/tuning/search_space.py:56-70",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "parse_space",
+     "target_section": "## 11.1 SearchSpace 表現の統一"
+    },
+    {
+     "text": "parse_space rejects log=True with low <= 0 with CONFIG_INVALID",
+     "history_line": 6373,
+     "verdict": "missed",
+     "blueprint_lines": [
+      797
+     ],
+     "blueprint_quote": "(not stated)",
+     "code": "lizyml/tuning/search_space.py:71-80",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "parse_space",
+     "target_section": "## 11.1 SearchSpace 表現の統一"
+    },
+    {
+     "text": "EstimatorProvider Protocol has parameter_bounds(task) -> dict[str, dict[str, float|int]]",
+     "history_line": 6379,
+     "verdict": "contradicted",
+     "blueprint_lines": [
+      1414,
+      1415,
+      1416,
+      1417,
+      1418,
+      1419,
+      1420,
+      1421,
+      1422,
+      1423,
+      1424,
+      1425,
+      1426,
+      1427,
+      1428,
+      1429,
+      1430,
+      1431,
+      1432,
+      1433,
+      1434,
+      1435,
+      1436,
+      1437,
+      1438,
+      1439,
+      1440,
+      1441,
+      1442,
+      1443,
+      1444,
+      1445,
+      1446,
+      1447
+     ],
+     "blueprint_quote": "class EstimatorProvider(Protocol): ... (17 methods printed; parameter_bounds absent)",
+     "code": "lizyml/estimators/provider.py:254",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "§14.4 prints the Protocol as a code block; the real Protocol has 3 more methods (parameter_bounds, objective_choices, metric_choices).",
+     "proposed_anchor": "parameter_bounds",
+     "target_section": "## 14.4 EstimatorProvider protocol（H-0053）"
+    },
+    {
+     "text": "LGBMProvider.parameter_bounds returns the 15-parameter LightGBM bounds table",
+     "history_line": 6389,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": "0 hits",
+     "code": "lizyml/estimators/lgbm/provider.py:58-74,412-421",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "parameter_bounds",
+     "target_section": "## 14.4 EstimatorProvider protocol（H-0053）"
+    },
+    {
+     "text": "Boundary expansion clamps new_low/new_high to provider bounds; both sides blocked -> no expansion",
+     "history_line": 6417,
+     "verdict": "missed",
+     "blueprint_lines": [
+      943,
+      944,
+      945,
+      946,
+      947
+     ],
+     "blueprint_quote": "非対称拡張ルール: linear ... log ... `IntDim`: `max(1, new_low)` で下限ガード  (no bound clamp)",
+     "code": "lizyml/tuning/search_space.py:400-420",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "clamped_to_bound",
+     "target_section": "## 11.5 Re-tune: Study Resume + 境界検知拡張（H-0068）"
+    },
+    {
+     "text": "BoundaryDimStatus.clamped_to_bound: bool = False",
+     "history_line": 6421,
+     "verdict": "contradicted",
+     "blueprint_lines": [
+      963,
+      964,
+      965,
+      966,
+      967,
+      968,
+      969,
+      970,
+      971,
+      972
+     ],
+     "blueprint_quote": "@dataclass(frozen=True) class BoundaryDimStatus: name ... new_high: float | int | None  (no clamped_to_bound)",
+     "code": "lizyml/core/types/tuning_result.py:44",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "clamped_to_bound",
+     "target_section": "## 11.5 Re-tune: Study Resume + 境界検知拡張（H-0068）"
+    },
+    {
+     "text": "SearchDim FloatDim/IntDim carry optional min_allowed/max_allowed",
+     "history_line": 6413,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": "0 hits for min_allowed",
+     "code": "lizyml/core/types/search_dim.py",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Internal type but appears in RoundSummary.space_snapshot (public result).",
+     "proposed_anchor": "min_allowed",
+     "target_section": "## 11.5 Re-tune: Study Resume + 境界検知拡張（H-0068）"
+    },
+    {
+     "text": "Model.tune attaches provider.parameter_bounds(task) to both default and user-supplied spaces",
+     "history_line": 6487,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": "(not stated)",
+     "code": "lizyml/core/_model_tuning.py:407,444",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "parameter_bounds",
+     "target_section": "## 11.5 Re-tune: Study Resume + 境界検知拡張（H-0068）"
+    },
+    {
+     "text": "Error context includes param/low/high/log",
+     "history_line": 6375,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": "",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Error message/context detail."
+    }
+   ],
+   "anchors": [
+    "BoundaryDimStatus",
+    "expand_boundary"
+   ],
+   "obligation": true
+  },
+  "H-0079": {
+   "history_lines": "6491-6633",
+   "clauses": [
+    {
+     "text": "A task-compatible user/trial objective passes through to lgb.train; a task-incompatible one raises CONFIG_INVALID (replaces silent override)",
+     "history_line": 6514,
+     "verdict": "contradicted",
+     "blueprint_lines": [
+      1630,
+      1295
+     ],
+     "blueprint_quote": "Config → task-locked: `objective` がタスクから固定。",
+     "code": "lizyml/estimators/lgbm/adapter.py:459; lizyml/estimators/lgbm/defaults.py:38",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "BLUEPRINT 1630 (test category description) still describes the retired silent override; §14.2 '`objective / metric` 整合' gives no rule. 1459 mentions a 互換性検査 only in passing.",
+     "proposed_anchor": "TASK_COMPATIBLE_OBJECTIVES",
+     "target_section": "## 14.2 LGBM adapter の責務"
+    },
+    {
+     "text": "TASK_COMPATIBLE_OBJECTIVES: canonical LightGBM objectives per task (regression 9 / binary 3 / multiclass 2)",
+     "history_line": 6520,
+     "verdict": "missed",
+     "blueprint_lines": [],
+     "blueprint_quote": "0 hits",
+     "code": "lizyml/estimators/lgbm/defaults.py:38-60",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "TASK_COMPATIBLE_OBJECTIVES",
+     "target_section": "## 14.2 LGBM adapter の責務"
+    },
+    {
+     "text": "EstimatorProvider.objective_choices(task) -> tuple[str, ...] (canonical, ordered)",
+     "history_line": 6529,
+     "verdict": "contradicted",
+     "blueprint_lines": [
+      1414,
+      1415,
+      1416,
+      1417,
+      1418,
+      1419,
+      1420,
+      1421,
+      1422,
+      1423,
+      1424,
+      1425,
+      1426,
+      1427,
+      1428,
+      1429,
+      1430,
+      1431,
+      1432,
+      1433,
+      1434,
+      1435,
+      1436,
+      1437,
+      1438,
+      1439,
+      1440,
+      1441,
+      1442,
+      1443,
+      1444,
+      1445,
+      1446,
+      1447
+     ],
+     "blueprint_quote": "class EstimatorProvider(Protocol): ... (objective_choices absent)",
+     "code": "lizyml/estimators/provider.py:268; lizyml/estimators/lgbm/provider.py:423-431",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "objective_choices",
+     "target_section": "## 14.4 EstimatorProvider protocol（H-0053）"
+    },
+    {
+     "text": "EstimatorProvider.metric_choices(task) -> {'native': tuple, 'feval': tuple} (canonical, no duplicates)",
+     "history_line": 6533,
+     "verdict": "contradicted",
+     "blueprint_lines": [
+      1414,
+      1415,
+      1416,
+      1417,
+      1418,
+      1419,
+      1420,
+      1421,
+      1422,
+      1423,
+      1424,
+      1425,
+      1426,
+      1427,
+      1428,
+      1429,
+      1430,
+      1431,
+      1432,
+      1433,
+      1434,
+      1435,
+      1436,
+      1437,
+      1438,
+      1439,
+      1440,
+      1441,
+      1442,
+      1443,
+      1444,
+      1445,
+      1446,
+      1447
+     ],
+     "blueprint_quote": "class EstimatorProvider(Protocol): ... (metric_choices absent)",
+     "code": "lizyml/estimators/provider.py:287; lizyml/estimators/lgbm/provider.py:433-445",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "metric_choices",
+     "target_section": "## 14.4 EstimatorProvider protocol（H-0053）"
+    },
+    {
+     "text": "default_space uses a conservative tune-safe objective subset (_DEFAULT_TUNE_OBJECTIVES)",
+     "history_line": 6631,
+     "verdict": "stated",
+     "blueprint_lines": [
+      844
+     ],
+     "blueprint_quote": "| `objective` | categorical | regression: `[huber, fair]`, binary: `[binary]`, multiclass: `[multiclass, multiclassova]` | model |",
+     "code": "lizyml/estimators/lgbm/defaults.py:22-26",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": ""
+    },
+    {
+     "text": "multiclass native metric whitelist excludes auc (use auc_mu at fit time or evaluate(metrics=['auc']))",
+     "history_line": 6631,
+     "verdict": "missed",
+     "blueprint_lines": [
+      1342
+     ],
+     "blueprint_quote": "ホワイトリストバリデーション: マッピング後の名前をタスク別ホワイトリストで事前検証。  (whitelist content not stated)",
+     "code": "lizyml/estimators/lgbm/metric_bridge.py:100-110",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "metric_choices",
+     "target_section": "#### Metric Bridge（H-0064）"
+    },
+    {
+     "text": "Import-time drift check between TASK_COMPATIBLE_OBJECTIVES and provider choices",
+     "history_line": 6629,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": "",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Implementation guard."
+    },
+    {
+     "text": "docs/config-reference.md task-objective table; CHANGELOG / DEPRECATIONS rows; drift tests",
+     "history_line": 6551,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": "",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Docs/test process."
+    }
+   ],
+   "anchors": [
+    "objective",
+    "multiclassova"
+   ],
+   "obligation": true
+  },
+  "H-0080": {
+   "history_lines": "6635-6696",
+   "clauses": [
+    {
+     "text": "split.random_state for kfold / stratified_kfold / stratified_group_kfold is int | None, default None",
+     "history_line": 6656,
+     "verdict": "contradicted",
+     "blueprint_lines": [
+      325,
+      326,
+      328
+     ],
+     "blueprint_quote": "| `kfold` | `n_splits=5`, `random_state=42`, `shuffle=True` | / | `stratified_kfold` | `n_splits=5`, `random_state=42` | / | `stratified_group_kfold` | ... `random_state=42` ...",
+     "code": "lizyml/config/schema.py:65,75,91",
+     "superseded_by": null,
+     "from_prior": true,
+     "note": "",
+     "proposed_anchor": "random_state",
+     "target_section": "## 5.4 Config Reference（全キー一覧）"
+    },
+    {
+     "text": "random_state None inherits training.seed at splitter build; an explicit value wins; not written back (model_dump keeps None)",
+     "history_line": 6654,
+     "verdict": "missed",
+     "blueprint_lines": [
+      406,
+      654
+     ],
+     "blueprint_quote": "406 says (stratified_kfold only) 順序は `split.random_state`、それが無ければ `training.seed` が決める; 654 covers inner valid only",
+     "code": "lizyml/core/_model_factories.py:81-83,113-135,228-236",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Partially stated for stratified_kfold in §5.5's table; not stated for kfold / stratified_group_kfold or as a rule.",
+     "proposed_anchor": "training.seed",
+     "target_section": "## 5.4 Config Reference（全キー一覧）"
+    },
+    {
+     "text": "Loader's default split no longer injects random_state=42",
+     "history_line": 6657,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": "",
+     "code": "lizyml/config/loader.py:56-58",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Implementation of the sentinel rule above."
+    },
+    {
+     "text": "Isotonic calibrator inherits training.seed when calibration.params has no seed",
+     "history_line": 6660,
+     "verdict": "contradicted",
+     "blueprint_lines": [
+      1160
+     ],
+     "blueprint_quote": "validation データ: calibration 学習データから 10% をランダムサンプリング（`validation_ratio=0.1`, `seed=42` デフォルト）。",
+     "code": "lizyml/core/_model_factories.py:1252-1266",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Coincides with 42 only while training.seed is default.",
+     "proposed_anchor": "training.seed",
+     "target_section": "### Isotonic Regression 詳細（H-0047）"
+    },
+    {
+     "text": "ESTIMATOR_ROUTES census of parameter-dict routes enforced by a test",
+     "history_line": 6676,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": "",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "SUSPECTED SPLICE: HISTORY 6664-6681 ('経路の母集団' / backstop) concern LightGBM parameter-name routes (H-0093/H-0094 subject), not seeds; it sits inside H-0080's block. A census parser may be reading a wrong block boundary or the text was mis-pasted."
+    },
+    {
+     "text": "No backstop re-check inside build_estimator_factory",
+     "history_line": 6680,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": "",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Same suspected splice; implementation-form decision."
+    }
+   ],
+   "anchors": [
+    "random_state",
+    "training.seed"
+   ],
+   "obligation": true
+  },
+  "H-0091": {
+   "history_lines": "7101-7153",
+   "clauses": [
+    {
+     "text": "tune() orchestration lives in _model_tuning.py (ModelTuningMixin); model.py no longer holds tune",
+     "history_line": 7120,
+     "verdict": "contradicted",
+     "blueprint_lines": [
+      1940
+     ],
+     "blueprint_quote": "`model.py` には core lifecycle（`__init__`, `fit`, `predict`, `evaluate`, `tune`）とプライベートヘルパーのみを残す。",
+     "code": "lizyml/core/_model_tuning.py:131; lizyml/core/model.py:114",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "_model_tuning",
+     "target_section": "## 実装メモ"
+    },
+    {
+     "text": "Mixins are split into diagnostic read-only (_model_plots/_model_tables/_model_persistence) and orchestrator writer-exempt (_model_tuning)",
+     "history_line": 7117,
+     "verdict": "missed",
+     "blueprint_lines": [
+      1943
+     ],
+     "blueprint_quote": "`FitState` frozen dataclass を mixin の唯一の入口とする（... H-0077 で全 mixin 移行完了 ...）  (states the read-only rule as universal)",
+     "code": "tests/test_core/test_mixin_state_isolation.py:108-112; lizyml/core/model.py:23-27",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "1943 reads as 'all mixins' are read-only; it does not name the writer-exempt category.",
+     "proposed_anchor": "_model_tuning",
+     "target_section": "## 実装メモ"
+    },
+    {
+     "text": "INV-2: exactly one writer mixin (_model_tuning), excluded from the read-only guard",
+     "history_line": 7127,
+     "verdict": "missed",
+     "blueprint_lines": [
+      1943
+     ],
+     "blueprint_quote": "(not stated)",
+     "code": "tests/test_core/test_mixin_state_isolation.py:108-112",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "_model_tuning",
+     "target_section": "## 実装メモ"
+    },
+    {
+     "text": "§19 directory tree lists _model_tuning (orchestrator/writer)",
+     "history_line": 7141,
+     "verdict": "missed",
+     "blueprint_lines": [
+      1748,
+      1749,
+      1750,
+      1751,
+      1752,
+      1753,
+      1754
+     ],
+     "blueprint_quote": "tree lists _model_factories, _model_predict, _model_plots, _model_tables, _model_metrics, _model_persistence, _model_state (no _model_tuning)",
+     "code": "lizyml/core/_model_tuning.py",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Proposal itself names this BLUEPRINT edit. BLUEPRINT 1458 mentions `_model_tuning.py` only in passing (H-0094 trial-merge seam), not as a mixin or its category.",
+     "proposed_anchor": "_model_tuning",
+     "target_section": "# 19. ディレクトリ構成"
+    },
+    {
+     "text": "Extraction is behaviour-preserving (INV-3)",
+     "history_line": 7128,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": "",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Pure refactor."
+    },
+    {
+     "text": "core/model.py < 800 lines",
+     "history_line": 7150,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": "",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Process target (not met: model.py is >800 lines per project memory)."
+    }
+   ],
+   "anchors": [
+    "_model_plots.py",
+    "_model_tables.py",
+    "_model_persistence.py"
+   ],
+   "obligation": true
+  },
+  "H-0107": {
+   "history_lines": "10517-10576",
+   "clauses": [
+    {
+     "text": "Columns are checked in order; with raise_on_violation=True a leaking column met first raises LEAKAGE_SUSPECTED immediately; a return value ([] or warnings) is produced only when every column was compared",
+     "history_line": 10536,
+     "verdict": "missed",
+     "blueprint_lines": [
+      585
+     ],
+     "blueprint_quote": "leakage: target リーク疑い（例: target と完全一致の列、時間逆転など）",
+     "code": "lizyml/data/validators.py:51-115",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "The target-absent -> [] behaviour (validators.py:77) is explicitly NOT decided here (deferred to #311).",
+     "proposed_anchor": "validate_no_target_leakage",
+     "target_section": "## 8.2 Validators（危険検知）"
+    },
+    {
+     "text": "A column whose comparison raises -> LizyMLError(DATA_SCHEMA_INVALID), context {column, target}, cause = original exception, regardless of raise_on_violation",
+     "history_line": 10537,
+     "verdict": "missed",
+     "blueprint_lines": [
+      585,
+      1574
+     ],
+     "blueprint_quote": "§16.2 lists `DATA_SCHEMA_INVALID` without this condition",
+     "code": "lizyml/data/validators.py:87-100",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "",
+     "proposed_anchor": "validate_no_target_leakage",
+     "target_section": "## 8.2 Validators（危険検知）"
+    },
+    {
+     "text": "Catch scope is the comparison call only, any Exception type; LEAKAGE_SUSPECTED raised outside the try",
+     "history_line": 10538,
+     "verdict": "missed",
+     "blueprint_lines": [
+      585
+     ],
+     "blueprint_quote": "(not stated)",
+     "code": "lizyml/data/validators.py:85-112",
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Observable consequence: OverflowError/AttributeError from extension arrays are also reported as DATA_SCHEMA_INVALID.",
+     "proposed_anchor": "validate_no_target_leakage",
+     "target_section": "## 8.2 Validators（危険検知）"
+    },
+    {
+     "text": "Remove the 'Non-comparable types; skip' comment",
+     "history_line": 10539,
+     "verdict": "off_surface",
+     "blueprint_lines": [],
+     "blueprint_quote": "",
+     "code": null,
+     "superseded_by": null,
+     "from_prior": false,
+     "note": "Code comment."
+    }
+   ],
+   "anchors": [],
+   "obligation": true
+  }
+ }
+}

@@ -1,0 +1,112 @@
+regression        fit                importance_gain             keys feat_a: 224.34941560751759 -> 224.34939003142063, feat_b: 96.55650697741657 -> 96.5564900720492
+regression        tune_fit           importance_gain             keys feat_a: 24083.933611996472 -> 24083.932853527367, feat_b: 338.41716367407935 -> 338.41718875296647
+regression        tune_fit           tuning_table                frame shape (1, 14) -> (0, 0)
+regression        tune_fit           params_table                rows validation_ratio: [0.45] -> [0.2]
+regression        tune_fit           export_code                 keys validation_ratio: 0.45 -> 0.2
+regression        tune_fit           tuning_plot                 value differs
+regression        fit_tune           importance_gain             keys feat_a: 224.34941560751759 -> 224.34939003142063, feat_b: 96.55650697741657 -> 96.5564900720492
+regression        fit_tune           tuning_table                frame shape (1, 14) -> (0, 0)
+regression        fit_tune           tuning_plot                 value differs
+regression        tune_fit_reexport  importance_gain             keys feat_a: 24083.933611996472 -> 24083.932853527367, feat_b: 338.41716367407935 -> 338.41718875296647
+regression        tune_fit_reexport  tuning_table                frame shape (1, 14) -> (0, 0)
+regression        tune_fit_reexport  params_table                rows validation_ratio: [0.45] -> [0.2]
+regression        tune_fit_reexport  export_code                 keys validation_ratio: 0.45 -> 0.2
+regression        tune_fit_reexport  tuning_plot                 value differs
+regression        tune_resume_fit    importance_gain             keys feat_a: 24083.933611996472 -> 24083.932853527367, feat_b: 338.41716367407935 -> 338.41718875296647
+regression        tune_resume_fit    tuning_table                frame shape (2, 14) -> (0, 0)
+regression        tune_resume_fit    boundary_table              ok: -> raises:MODEL_NOT_FIT
+regression        tune_resume_fit    params_table                rows validation_ratio: [0.45] -> [0.2]
+regression        tune_resume_fit    export_code                 keys validation_ratio: 0.45 -> 0.2
+regression        tune_resume_fit    tuning_plot                 value differs
+binary            fit                importance_gain             keys feat_a: 177.38489106834788 -> 177.3849063271635, feat_b: 129.74501836299896 -> 129.74501839280128
+binary            tune_fit           importance_gain             keys feat_a: 41.000022888183594 -> 41.00004959106445
+binary            tune_fit           tuning_table                frame shape (1, 14) -> (0, 0)
+binary            tune_fit           params_table                rows validation_ratio: [0.45] -> [0.2]
+binary            tune_fit           export_code                 keys validation_ratio: 0.45 -> 0.2
+binary            tune_fit           tuning_plot                 value differs
+binary            fit_tune           importance_gain             keys feat_a: 177.38489106834788 -> 177.3849063271635, feat_b: 129.74501836299896 -> 129.74501839280128
+binary            fit_tune           tuning_table                frame shape (1, 14) -> (0, 0)
+binary            fit_tune           tuning_plot                 value differs
+binary            tune_fit_reexport  importance_gain             keys feat_a: 41.000022888183594 -> 41.00004959106445
+binary            tune_fit_reexport  tuning_table                frame shape (1, 14) -> (0, 0)
+binary            tune_fit_reexport  params_table                rows validation_ratio: [0.45] -> [0.2]
+binary            tune_fit_reexport  export_code                 keys validation_ratio: 0.45 -> 0.2
+binary            tune_fit_reexport  tuning_plot                 value differs
+binary            tune_resume_fit    importance_gain             keys feat_a: 41.000022888183594 -> 41.00004959106445
+binary            tune_resume_fit    tuning_table                frame shape (2, 14) -> (0, 0)
+binary            tune_resume_fit    boundary_table              ok: -> raises:MODEL_NOT_FIT
+binary            tune_resume_fit    params_table                rows validation_ratio: [0.45] -> [0.2]
+binary            tune_resume_fit    export_code                 keys validation_ratio: 0.45 -> 0.2
+binary            tune_resume_fit    tuning_plot                 value differs
+binary_calibrated fit                importance_gain             keys feat_a: 177.38489106834788 -> 177.3849063271635, feat_b: 129.74501836299896 -> 129.74501839280128
+binary_calibrated tune_fit           importance_gain             keys feat_a: 41.000022888183594 -> 41.00004959106445
+binary_calibrated tune_fit           tuning_table                frame shape (1, 14) -> (0, 0)
+binary_calibrated tune_fit           params_table                rows validation_ratio: [0.45] -> [0.2]
+binary_calibrated tune_fit           export_code                 keys validation_ratio: 0.45 -> 0.2
+binary_calibrated tune_fit           tuning_plot                 value differs
+binary_calibrated fit_tune           importance_gain             keys feat_a: 177.38489106834788 -> 177.3849063271635, feat_b: 129.74501836299896 -> 129.74501839280128
+binary_calibrated fit_tune           tuning_table                frame shape (1, 14) -> (0, 0)
+binary_calibrated fit_tune           tuning_plot                 value differs
+binary_calibrated tune_fit_reexport  importance_gain             keys feat_a: 41.000022888183594 -> 41.00004959106445
+binary_calibrated tune_fit_reexport  tuning_table                frame shape (1, 14) -> (0, 0)
+binary_calibrated tune_fit_reexport  params_table                rows validation_ratio: [0.45] -> [0.2]
+binary_calibrated tune_fit_reexport  export_code                 keys validation_ratio: 0.45 -> 0.2
+binary_calibrated tune_fit_reexport  tuning_plot                 value differs
+binary_calibrated tune_resume_fit    importance_gain             keys feat_a: 41.000022888183594 -> 41.00004959106445
+binary_calibrated tune_resume_fit    tuning_table                frame shape (2, 14) -> (0, 0)
+binary_calibrated tune_resume_fit    boundary_table              ok: -> raises:MODEL_NOT_FIT
+binary_calibrated tune_resume_fit    params_table                rows validation_ratio: [0.45] -> [0.2]
+binary_calibrated tune_resume_fit    export_code                 keys validation_ratio: 0.45 -> 0.2
+binary_calibrated tune_resume_fit    tuning_plot                 value differs
+multiclass        fit                importance_gain             keys feat_a: 120.95295190811157 -> 120.95300006866455, feat_b: 59.539635576307774 -> 59.539634205400944
+multiclass        tune_fit           importance_gain             keys feat_a: 126.5014181137085 -> 126.50149869918823
+multiclass        tune_fit           tuning_table                frame shape (1, 14) -> (0, 0)
+multiclass        tune_fit           params_table                rows validation_ratio: [0.45] -> [0.2]
+multiclass        tune_fit           export_code                 keys validation_ratio: 0.45 -> 0.2
+multiclass        tune_fit           tuning_plot                 value differs
+multiclass        fit_tune           importance_gain             keys feat_a: 120.95295190811157 -> 120.95300006866455, feat_b: 59.539635576307774 -> 59.539634205400944
+multiclass        fit_tune           tuning_table                frame shape (1, 14) -> (0, 0)
+multiclass        fit_tune           tuning_plot                 value differs
+multiclass        tune_fit_reexport  importance_gain             keys feat_a: 126.5014181137085 -> 126.50149869918823
+multiclass        tune_fit_reexport  tuning_table                frame shape (1, 14) -> (0, 0)
+multiclass        tune_fit_reexport  params_table                rows validation_ratio: [0.45] -> [0.2]
+multiclass        tune_fit_reexport  export_code                 keys validation_ratio: 0.45 -> 0.2
+multiclass        tune_fit_reexport  tuning_plot                 value differs
+multiclass        tune_resume_fit    importance_gain             keys feat_a: 126.5014181137085 -> 126.50149869918823
+multiclass        tune_resume_fit    tuning_table                frame shape (2, 14) -> (0, 0)
+multiclass        tune_resume_fit    boundary_table              ok: -> raises:MODEL_NOT_FIT
+multiclass        tune_resume_fit    params_table                rows validation_ratio: [0.45] -> [0.2]
+multiclass        tune_resume_fit    export_code                 keys validation_ratio: 0.45 -> 0.2
+multiclass        tune_resume_fit    tuning_plot                 value differs
+
+cells: 440 (4 configurations x 5 lifecycles x 22 surfaces); differing: 80
+  boundary_table: 4
+  export_code: 12
+  importance_gain: 20
+  params_table: 12
+  tuning_plot: 16
+  tuning_table: 16
+largest relative importance_gain error: 6.513e-07 (declared bound 5.1e-06)
+cells where the fitted model returned a reading (exercised):
+  evaluate: 20
+  evaluate_table: 20
+  fit_result: 20
+  predict: 20
+  residuals: 5
+  confusion_matrix: 15
+  importance_split: 20
+  importance_gain: 20
+  importance_shap: 20
+  tuning_table: 16
+  boundary_table: 4
+  params_table: 20
+  split_summary: 20
+  export_code: 20
+  residuals_plot: 5
+  roc_curve_plot: 15
+  calibration_plot: 5
+  probability_histogram_plot: 5
+  importance_plot: 20
+  plot_learning_curve: 20
+  plot_oof_distribution: 20
+  tuning_plot: 16

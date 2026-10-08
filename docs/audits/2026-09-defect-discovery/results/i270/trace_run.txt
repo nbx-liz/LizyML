@@ -1,0 +1,347 @@
+[run-exclusive] i270-trace starting; load was 0.66
+........................................................................ [  0%]
+........................................................................ [  1%]
+........................................................................ [  2%]
+........................................................................ [  3%]
+........................................................................ [  3%]
+........................................................................ [  4%]
+........................................................................ [  5%]
+........................................................................ [  6%]
+........................................................................ [  6%]
+........................................................................ [  7%]
+........................................................................ [  8%]
+........................................................................ [  9%]
+........................................................................ [ 10%]
+........................................................................ [ 10%]
+........................................................................ [ 11%]
+...........................................ss.....ss.....ss.....ss.....s [ 12%]
+s.....ss.....ss.....ss.....ss.....ss.....ss.....ss.....ss.....ss.....ss. [ 13%]
+....ss.....ss.....ss.....ss.....ss.....ss.....ss.....ss.....ss.....ss... [ 13%]
+..ss.....ss.....ss.....ss......ss......ss......ss......ss......ss......s [ 14%]
+s......ss......ss......ss......ss..ss.....ss......ss......ss......ss.... [ 15%]
+..ss......ss......ss......ss......ss......ss......ss......ss..ss.....ss. [ 16%]
+.....ss......ss......ss......ss......ss......ss......ss......ss......ss. [ 17%]
+.....ss......ss......ss......ss......ss......ss......ss......ss......ss. [ 17%]
+.....ss......ss......ss......ss......ss......ss......ss......ss......ss. [ 18%]
+.....ss......ss......ss......ss......ss......ss......ss................. [ 19%]
+..................................ss......ss......ss......ss......ss.... [ 20%]
+..ss......ss......ss......ss......ss......ss......ss......ss......ss.... [ 20%]
+..ss......ss......ss......ss......ss......ss......ss......ss......ss.... [ 21%]
+..ss......ss......ss......ss............................................ [ 22%]
+........................................................................ [ 23%]
+........................................................................ [ 24%]
+........................................................................ [ 24%]
+........................................................................ [ 25%]
+........................................................................ [ 26%]
+........................................................................ [ 27%]
+........................................................................ [ 27%]
+........................................................................ [ 28%]
+........................................................................ [ 29%]
+........................................................................ [ 30%]
+........................................................................ [ 30%]
+........................................................................ [ 31%]
+........................................................................ [ 32%]
+........................................................................ [ 33%]
+........................................................................ [ 34%]
+........................................................................ [ 34%]
+........................................................................ [ 35%]
+........................................................................ [ 36%]
+........................................................................ [ 37%]
+........................................................................ [ 37%]
+........................................................................ [ 38%]
+........................................................................ [ 39%]
+........................................................................ [ 40%]
+........................................................................ [ 41%]
+........................................................................ [ 41%]
+........................................................................ [ 42%]
+........................................................................ [ 43%]
+........................................................................ [ 44%]
+........................................................................ [ 44%]
+........................................................................ [ 45%]
+........................................................................ [ 46%]
+........................................................................ [ 47%]
+........................................................................ [ 48%]
+........................................................................ [ 48%]
+........................................................................ [ 49%]
+........................................................................ [ 50%]
+........................................................................ [ 51%]
+........................................................................ [ 51%]
+........................................................................ [ 52%]
+........................................................................ [ 53%]
+........................................................................ [ 54%]
+........................................................................ [ 54%]
+........................................................................ [ 55%]
+........................................................................ [ 56%]
+........................................................................ [ 57%]
+........................................................................ [ 58%]
+........................................................................ [ 58%]
+........................................................................ [ 59%]
+........................................................................ [ 60%]
+........................................................................ [ 61%]
+........................................................................ [ 61%]
+........................................................................ [ 62%]
+........................................................................ [ 63%]
+........................................................................ [ 64%]
+........................................................................ [ 65%]
+........................................................................ [ 65%]
+........................................................................ [ 66%]
+........................................................................ [ 67%]
+........................................................................ [ 68%]
+........................................................................ [ 68%]
+........................................................................ [ 69%]
+........................................................................ [ 70%]
+........................................................................ [ 71%]
+........................................................................ [ 72%]
+........................................................................ [ 72%]
+........................................................................ [ 73%]
+........................................................................ [ 74%]
+........................................................................ [ 75%]
+........................................................................ [ 75%]
+........................................................................ [ 76%]
+........................................................................ [ 77%]
+........................................................................ [ 78%]
+........................................................................ [ 79%]
+.............................................F.......................... [ 79%]
+........................................................................ [ 80%]
+........................................................................ [ 81%]
+........................................................................ [ 82%]
+........................................................................ [ 82%]
+........................................................................ [ 83%]
+........................................................................ [ 84%]
+........................................................................ [ 85%]
+........................................................................ [ 85%]
+........................................................................ [ 86%]
+......x.........x......................x.........x...................... [ 87%]
+........................................................................ [ 88%]
+........................................................................ [ 89%]
+........................................................................ [ 89%]
+........................................................................ [ 90%]
+........................................................................ [ 91%]
+........................................................................ [ 92%]
+........................................................................ [ 92%]
+........................................................................ [ 93%]
+........................................................................ [ 94%]
+........................................................................ [ 95%]
+........................................................................ [ 96%]
+........................................................................ [ 96%]
+........................................................................ [ 97%]
+...........................................................xxx.......... [ 98%]
+.....xxx.........xxx.................................................... [ 99%]
+........................................................................ [ 99%]
+........                                                                 [100%]
+=================================== FAILURES ===================================
+______________ TestVersion.test_version_matches_package_metadata _______________
+
+self = <tests.test_e2e.test_version.TestVersion object at 0x7a666dcb2e50>
+
+    def test_version_matches_package_metadata(self) -> None:
+        """__version__ must match the installed package metadata."""
+        installed_version = pkg_version("lizyml")
+>       assert lizyml.__version__ == installed_version
+E       AssertionError: assert '0.8.1.dev124...e70.d20260915' == '0.8.1.dev112...25a.d20260906'
+E         
+E         - 0.8.1.dev112+g1d7c4e25a.d20260906
+E         + 0.8.1.dev124+g92e32ee70.d20260915
+
+tests/test_e2e/test_version.py:23: AssertionError
+=============================== warnings summary ===============================
+tests/test_core/test_param_domain.py:146
+  /home/rem/repos/LizyML/tests/test_core/test_param_domain.py:146: RuntimeWarning: overflow encountered in cast
+    atoms.append(dtype(value))
+
+tests/test_calibration/test_beta_calibration.py: 1 warning
+tests/test_calibration/test_calibration.py: 10 warnings
+tests/test_calibration/test_calibration_failed_optimisation.py: 2 warnings
+tests/test_calibration/test_calibration_param_names.py: 1 warning
+tests/test_calibration/test_calibration_split.py: 2 warnings
+tests/test_calibration/test_h0058_outer_reuse.py: 2 warnings
+tests/test_calibration/test_raw_score_calibration.py: 4 warnings
+tests/test_codegen/test_calibration_params_codegen.py: 14 warnings
+tests/test_config/test_knob_reachability.py: 8 warnings
+tests/test_core/test_calibration_params_reach.py: 10 warnings
+tests/test_core/test_config_propagation.py: 5 warnings
+tests/test_core/test_error_code_raising.py: 4 warnings
+tests/test_core/test_facade_orchestration.py: 7 warnings
+tests/test_core/test_fit_params_override.py: 126 warnings
+tests/test_core/test_fit_smoke_regressions.py: 1 warning
+tests/test_core/test_param_refusal_origin.py: 1 warning
+tests/test_core/test_refusal_matrix.py: 1 warning
+tests/test_core/test_seed_propagation.py: 8 warnings
+tests/test_e2e/test_binary_full.py: 8 warnings
+tests/test_e2e/test_column_drift.py: 1 warning
+tests/test_e2e/test_leakage_all.py: 4 warnings
+tests/test_e2e/test_model_facade.py: 7 warnings
+tests/test_e2e/test_pairwise.py: 2 warnings
+tests/test_e2e/test_readme_example.py: 1 warning
+tests/test_e2e/test_reproducibility.py: 4 warnings
+tests/test_estimators/test_feval_probabilities.py: 4 warnings
+tests/test_estimators/test_lgbm_objective_identity.py: 3 warnings
+tests/test_estimators/test_lightgbm_parameter_names.py: 2 warnings
+tests/test_estimators/test_provider_protocol_drift.py: 10 warnings
+tests/test_evaluation/test_confusion.py: 5 warnings
+tests/test_evaluation/test_evaluation.py: 1 warning
+tests/test_explain/test_explain.py: 3 warnings
+tests/test_features/test_column_dtype_check.py: 49 warnings
+tests/test_metrics/test_metric_requires_proba.py: 1 warning
+tests/test_persistence/test_applied_training_params.py: 40 warnings
+tests/test_persistence/test_artifact_compat.py: 2 warnings
+tests/test_persistence/test_persistence.py: 8 warnings
+tests/test_plots/test_calibration_plots.py: 10 warnings
+tests/test_plots/test_classification_plots.py: 4 warnings
+tests/test_plots/test_plots.py: 2 warnings
+tests/test_plots/test_residuals.py: 2 warnings
+tests/test_training/test_cv_refit_parity.py: 2 warnings
+tests/test_tuning/test_dimension_consumption.py: 1 warning
+tests/test_tuning/test_tune_fit_identity.py: 1 warning
+  /home/rem/repos/LizyML/lizyml/core/model.py:254: UserWarning: task='binary' with split.method='kfold' does not preserve class distribution. Consider using 'stratified_kfold' instead.
+    splitter = build_splitter(
+
+tests/test_calibration/test_calibration_param_names.py::test_unknown_calibration_param_is_refused_before_any_training
+tests/test_calibration/test_calibration_param_names.py::test_a_calibrated_run_still_succeeds
+  /home/rem/repos/LizyML/.venv/lib/python3.11/site-packages/pydantic/main.py:716: UserWarning: calibration.n_splits is deprecated and will be ignored. Calibration cross-fit now reuses outer CV splits (H-0058). Will be removed in v1.0.
+    return cls.__pydantic_validator__.validate_python(
+
+tests/test_calibration/test_calibration_param_names.py: 1 warning
+tests/test_core/test_calibration_params_reach.py: 6 warnings
+tests/test_core/test_fit_params_override.py: 28 warnings
+tests/test_core/test_param_refusal_origin.py: 1 warning
+tests/test_core/test_refusal_matrix.py: 3 warnings
+tests/test_persistence/test_applied_training_params.py: 22 warnings
+tests/test_tuning/test_dimension_consumption.py: 23 warnings
+tests/test_tuning/test_direction_reconciliation.py: 11 warnings
+tests/test_tuning/test_search_space_name_validation.py: 12 warnings
+tests/test_tuning/test_tune_fit_identity.py: 1 warning
+  /home/rem/repos/LizyML/lizyml/core/_model_tuning.py:204: UserWarning: task='binary' with split.method='kfold' does not preserve class distribution. Consider using 'stratified_kfold' instead.
+    splitter = build_splitter(
+
+tests/test_codegen/test_calibration_params_codegen.py::test_generated_fitter_matches_the_runtime_calibrator[beta-params4]
+tests/test_codegen/test_calibration_params_codegen.py::test_generated_fitter_matches_the_runtime_calibrator[beta-params4]
+  /home/rem/repos/LizyML/lizyml/calibration/beta.py:108: OptimizeWarning: Initial guess is not within the specified bounds
+    result = minimize(neg_log_likelihood, **kwargs)
+
+tests/test_codegen/test_calibration_params_codegen.py::test_generated_fitter_matches_the_runtime_calibrator[beta-params4]
+  /tmp/claude-1000/pytest-of-rem/pytest-0/test_generated_fitter_matches_4/eq_beta_2/train.py:637: OptimizeWarning: Initial guess is not within the specified bounds
+    result = minimize(objective, jac=jac, **kwargs)
+
+tests/test_codegen/test_calibration_params_codegen.py::test_generated_fitter_matches_the_runtime_calibrator[platt-params5]
+tests/test_codegen/test_calibration_params_codegen.py::test_generated_fitter_matches_the_runtime_calibrator[platt-params5]
+  /home/rem/repos/LizyML/lizyml/calibration/platt.py:138: OptimizeWarning: Initial guess is not within the specified bounds
+    result = minimize(objective, jac=True if gradient else None, **kwargs)
+
+tests/test_codegen/test_calibration_params_codegen.py::test_generated_fitter_matches_the_runtime_calibrator[platt-params5]
+  /tmp/claude-1000/pytest-of-rem/pytest-0/test_generated_fitter_matches_5/eq_platt_2/train.py:637: OptimizeWarning: Initial guess is not within the specified bounds
+    result = minimize(objective, jac=jac, **kwargs)
+
+tests/test_codegen/test_equivalence.py: 1 warning
+tests/test_codegen/test_predict_subprocess_equivalence.py: 1 warning
+tests/test_config/test_knob_reachability.py: 1 warning
+tests/test_core/test_facade_orchestration.py: 4 warnings
+tests/test_core/test_fit_params_override.py: 1 warning
+tests/test_e2e/test_golden_contracts.py: 1 warning
+tests/test_e2e/test_model_facade.py: 6 warnings
+tests/test_e2e/test_multiclass_full.py: 7 warnings
+tests/test_e2e/test_pairwise.py: 2 warnings
+tests/test_e2e/test_reproducibility.py: 4 warnings
+tests/test_estimators/test_feval_probabilities.py: 1 warning
+tests/test_estimators/test_lgbm_objective_identity.py: 2 warnings
+tests/test_estimators/test_lightgbm_parameter_names.py: 2 warnings
+tests/test_estimators/test_provider_protocol_drift.py: 6 warnings
+tests/test_evaluation/test_confusion.py: 1 warning
+tests/test_explain/test_explain.py: 3 warnings
+tests/test_persistence/test_applied_training_params.py: 1 warning
+tests/test_plots/test_classification_plots.py: 3 warnings
+tests/test_plots/test_plots.py: 1 warning
+tests/test_training/test_cv_refit_parity.py: 7 warnings
+  /home/rem/repos/LizyML/lizyml/core/model.py:254: UserWarning: task='multiclass' with split.method='kfold' does not preserve class distribution. Consider using 'stratified_kfold' instead.
+    splitter = build_splitter(
+
+tests/test_config/test_inner_valid_roundtrip.py::test_legacy_validation_ratio_stays_auto_resolve
+  /home/rem/repos/LizyML/.venv/lib/python3.11/site-packages/pydantic/main.py:250: DeprecationWarning: `validation_ratio` is deprecated; use `inner_valid.ratio` instead. Will be removed in v1.0.
+    validated_self = self.__pydantic_validator__.validate_python(data, self_instance=self)
+
+tests/test_config/test_knob_reachability.py: 8 warnings
+tests/test_core/test_config_propagation.py: 2 warnings
+tests/test_core/test_fit_params_override.py: 12 warnings
+tests/test_e2e/test_model_facade.py: 1 warning
+tests/test_e2e/test_pairwise.py: 9 warnings
+tests/test_persistence/test_applied_training_params.py: 37 warnings
+  /home/rem/repos/LizyML/.venv/lib/python3.11/site-packages/pydantic/main.py:716: DeprecationWarning: `validation_ratio` is deprecated; use `inner_valid.ratio` instead. Will be removed in v1.0.
+    return cls.__pydantic_validator__.validate_python(
+
+tests/test_config/test_knob_reachability.py::test_config_value_reaches_the_constructor[BetaCalibrator.params-0]
+tests/test_config/test_knob_reachability.py::test_config_value_reaches_the_constructor[BetaCalibrator.params-0]
+tests/test_config/test_knob_reachability.py::test_config_value_reaches_the_constructor[BetaCalibrator.params-0]
+  /home/rem/repos/LizyML/lizyml/training/cv_trainer.py:195: UserWarning: Too few groups (1) for group-isolated inner valid (need >= 4). Falling back to StratifiedTimeHoldout.
+    iv_result = self.inner_valid.split(
+
+tests/test_config/test_knob_reachability.py::test_config_value_reaches_the_constructor[BetaCalibrator.params-0]
+tests/test_config/test_knob_reachability.py::test_config_value_reaches_the_constructor[BetaCalibrator.params-0]
+tests/test_config/test_knob_reachability.py::test_config_value_reaches_the_constructor[BetaCalibrator.params-0]
+  /home/rem/repos/LizyML/lizyml/training/cv_trainer.py:195: UserWarning: Too few groups (2) for group-isolated inner valid (need >= 4). Falling back to StratifiedTimeHoldout.
+    iv_result = self.inner_valid.split(
+
+tests/test_config/test_knob_reachability.py::test_config_value_reaches_the_constructor[BetaCalibrator.params-0]
+  /home/rem/repos/LizyML/lizyml/training/refit_trainer.py:105: UserWarning: Too few groups (3) for group-isolated inner valid (need >= 4). Falling back to StratifiedTimeHoldout.
+    iv_result = self.inner_valid.split(n_samples, y=y.to_numpy(), groups=groups)
+
+tests/test_config/test_knob_reachability.py::test_config_value_reaches_the_constructor[BetaCalibrator.params-0]
+tests/test_config/test_knob_reachability.py::test_config_value_reaches_the_constructor[BetaCalibrator.params-0]
+  /home/rem/repos/LizyML/lizyml/training/cv_trainer.py:195: UserWarning: Too few groups (1) for group-isolated inner valid (need >= 4). Falling back to TimeHoldout.
+    iv_result = self.inner_valid.split(
+
+tests/test_config/test_knob_reachability.py::test_config_value_reaches_the_constructor[BetaCalibrator.params-0]
+tests/test_config/test_knob_reachability.py::test_config_value_reaches_the_constructor[BetaCalibrator.params-0]
+  /home/rem/repos/LizyML/lizyml/training/cv_trainer.py:195: UserWarning: Too few groups (2) for group-isolated inner valid (need >= 4). Falling back to TimeHoldout.
+    iv_result = self.inner_valid.split(
+
+tests/test_config/test_knob_reachability.py::test_config_value_reaches_the_constructor[BetaCalibrator.params-0]
+  /home/rem/repos/LizyML/lizyml/training/refit_trainer.py:105: UserWarning: Too few groups (3) for group-isolated inner valid (need >= 4). Falling back to TimeHoldout.
+    iv_result = self.inner_valid.split(n_samples, y=y.to_numpy(), groups=groups)
+
+tests/test_core/test_fit_params_override.py::test_categorical_feature_from_fit_params_reaches_the_dataset
+tests/test_core/test_fit_params_override.py::test_categorical_feature_from_fit_params_reaches_the_dataset
+tests/test_core/test_fit_params_override.py::test_categorical_feature_from_fit_params_reaches_the_dataset
+tests/test_core/test_fit_params_override.py::test_categorical_feature_from_fit_params_reaches_the_dataset
+tests/test_core/test_fit_params_override.py::test_categorical_feature_from_fit_params_reaches_the_dataset
+tests/test_core/test_fit_params_override.py::test_categorical_feature_from_fit_params_reaches_the_dataset
+tests/test_core/test_fit_params_override.py::test_categorical_feature_from_fit_params_reaches_the_dataset
+  /home/rem/repos/LizyML/.venv/lib/python3.11/site-packages/lightgbm/basic.py:2137: UserWarning: categorical_feature keyword has been found in `params` and will be ignored.
+  Please use categorical_feature argument of the Dataset constructor to pass this parameter.
+    _log_warning(
+
+tests/test_core/test_param_domain.py::test_a_numpy_array_subclass_is_refused_for_the_same_reason_a_scalar_is
+  /home/rem/repos/LizyML/tests/test_core/test_param_domain.py:1030: PendingDeprecationWarning: the matrix subclass is not the recommended way to represent matrices or deal with linear algebra (see https://docs.scipy.org/doc/numpy/user/numpy-for-matlab-users.html). Please adjust your code to use regular ndarray.
+    ("numpy matrix", np.matrix([[1.0, 2.0]])),
+
+tests/test_explain/test_explain.py: 5 warnings
+tests/test_explain/test_shap_importance_per_fold_pipeline.py: 12 warnings
+  /home/rem/repos/LizyML/.venv/lib/python3.11/site-packages/shap/explainers/_tree.py:586: UserWarning: LightGBM binary classifier with TreeExplainer shap values output has changed to a list of ndarray
+    warnings.warn(
+
+tests/test_persistence/test_applied_training_params.py: 1 warning
+tests/test_tuning/test_direction_reconciliation.py: 7 warnings
+tests/test_tuning/test_search_space_name_validation.py: 12 warnings
+  /home/rem/repos/LizyML/lizyml/core/_model_tuning.py:204: UserWarning: task='multiclass' with split.method='kfold' does not preserve class distribution. Consider using 'stratified_kfold' instead.
+    splitter = build_splitter(
+
+tests/test_splitters/test_blocked_group_kfold.py::TestFoldCount::test_single_cutoff
+  /home/rem/repos/LizyML/tests/test_splitters/test_blocked_group_kfold.py:119: UserWarning: Skipping fold: train=0 rows, valid=4 rows (min_train=1, min_valid=1)
+    folds = list(splitter.split(len(block_values), y=y, groups=groups))
+
+tests/test_splitters/test_blocked_group_kfold.py::TestLeakPrevention::test_no_temporal_leak
+  /home/rem/repos/LizyML/tests/test_splitters/test_blocked_group_kfold.py:168: UserWarning: Skipping fold: train=0 rows, valid=4 rows (min_train=1, min_valid=1)
+    for train_idx, valid_idx in splitter.split(
+
+tests/test_splitters/test_blocked_group_kfold.py::TestEdgeCases::test_index_dtype_is_intp
+  /home/rem/repos/LizyML/tests/test_splitters/test_blocked_group_kfold.py:461: UserWarning: Skipping fold: train=0 rows, valid=4 rows (min_train=1, min_valid=1)
+    for train_idx, valid_idx in splitter.split(
+
+tests/test_training/test_blocked_group_inner_valid.py::TestBlockedGroupInnerValidFallback::test_fallback_with_2_groups
+  /home/rem/repos/LizyML/tests/test_training/test_blocked_group_inner_valid.py:159: UserWarning: Too few groups (2) for group-isolated inner valid (need >= 4). Falling back to StratifiedTimeHoldout.
+    result = strategy.split(len(y), y=y, groups=groups)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_e2e/test_version.py::TestVersion::test_version_matches_package_metadata
+1 failed, 9052 passed, 230 skipped, 8 deselected, 13 xfailed, 687 warnings in 416.49s (0:06:56)
+[run-exclusive] i270-trace finished in 422s, exit 1

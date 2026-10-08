@@ -10,37 +10,81 @@ import numpy.typing as npt
 import pandas as pd
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.param_domain import assert_plain_params
 from lizyml.estimators.base import BaseEstimatorAdapter, ImportanceKind
 from lizyml.estimators.lgbm.defaults import (
     _COMMON_DEFAULTS,
     _TASK_METRIC,
     _TASK_OBJECTIVE,
-    TASK_COMPATIBLE_OBJECTIVES,
 )
-from lizyml.estimators.lgbm.metric_bridge import resolve_metrics
+from lizyml.estimators.lgbm.param_names import (
+    LGBM_CANONICAL_NAME,
+    accepted_spellings,
+)
+from lizyml.estimators.lgbm.param_validation import (
+    check_objective_compatible as _check_objective_compatible,
+)
+from lizyml.estimators.lgbm.param_validation import (
+    resolve_user_metric,
+)
 
 
-def _check_objective_compatible(task: str, objective: str) -> None:
-    """Raise CONFIG_INVALID when *objective* is not valid for *task* (H-0079).
+def _pop_by_identity(
+    user_params: dict[str, Any], canonical: str
+) -> tuple[Any, str | None]:
+    """Pop every spelling of one parameter, and return its single value.
 
-    Cross-task injection (e.g. ``objective='regression'`` for binary task)
-    used to be silently stripped pre-H-0079 — same defensive intent, but
-    explicit failure instead of a silent override that misled tuning_table.
+    The special handling below (objective, metric, boosting rounds) used to
+    match one literal name, so the same parameter written under an alias was
+    left in the ordinary parameter dict: it skipped the validation the literal
+    name gets, and -- once identity-aware merging removed the shadowing default
+    -- became the value that trained (H-0094, review round 4). Measured on a
+    binary task: ``fit(params={"application": "regression"})`` trained a
+    regression objective.
+
+    Args:
+        user_params: Mutated in place; every spelling found is removed.
+        canonical: The canonical parameter name.
+
+    Returns:
+        ``(value, the spelling it was written as)``, or ``(None, None)``.
+
+    Raises:
+        LizyMLError: with ``CONFIG_INVALID`` when one layer names the parameter
+            under more than one spelling. **The values are not read** (H-0096);
+            picking one silently is the class of defect this whole change exists
+            to remove, and deciding whether two values are "the same" is the
+            question that had no closed domain. Kept in step with
+            ``check_duplicate_identities`` by asking the same thing -- how many
+            spellings -- rather than by sharing a comparison.
     """
-    valid = TASK_COMPATIBLE_OBJECTIVES.get(task, frozenset())
-    if objective not in valid:
+    supplied = {
+        name: user_params.pop(name)
+        for name in list(user_params)
+        if name in accepted_spellings(canonical)
+    }
+    if not supplied:
+        return None, None
+    if len(supplied) > 1:
+        # The message names the **spellings** and not the values. A spelling is
+        # a `str` key and always prints; a value need not -- a Python `int`
+        # above `sys.get_int_max_str_digits()` digits has no decimal text, and
+        # formatting one here turned the promised `CONFIG_INVALID` into a bare
+        # `ValueError` (review round 27). The rule decides on how many spellings
+        # were written, so reporting it must not depend on the values either.
+        # `check_duplicate_identities` carries the same correction; the defect
+        # was reported at one of the two and was present at both.
         raise LizyMLError(
             code=ErrorCode.CONFIG_INVALID,
             user_message=(
-                f"objective '{objective}' is not compatible with task "
-                f"'{task}'. Valid objectives: {sorted(valid)}."
+                f"'{canonical}' is set more than once, under the spellings "
+                f"{sorted(supplied)}. LightGBM treats these as one parameter. "
+                "Write it once, under one spelling."
             ),
-            context={
-                "task": task,
-                "objective": objective,
-                "valid_objectives": sorted(valid),
-            },
+            context={"parameter": canonical, "spellings": sorted(supplied)},
         )
+    written, value = next(iter(supplied.items()))
+    return value, written
 
 
 try:
@@ -176,6 +220,12 @@ class LGBMAdapter(BaseEstimatorAdapter):
         callbacks.append(lgb.record_evaluation(self._eval_results))
 
         user_metric = params.get("metric")
+        # H-0095: the domain is closed at the four surfaces, and this is
+        # where that becomes a property rather than a claim about wiring.
+        # A value that reached training without being normalised stops the
+        # run and names itself, instead of being serialised by whatever
+        # `__format__` it happens to carry.
+        assert_plain_params(params, where="lgb.train")
         try:
             self._model = lgb.train(
                 params,
@@ -391,39 +441,47 @@ class LGBMAdapter(BaseEstimatorAdapter):
 
         # Extract num_boost_round from user params (n_estimators) or use default
         user_params = dict(self.params)
+        rounds_value, _ = _pop_by_identity(user_params, "num_iterations")
         num_boost_round = int(
-            user_params.pop("n_estimators", _COMMON_DEFAULTS["n_estimators"])
+            _COMMON_DEFAULTS["n_estimators"] if rounds_value is None else rounds_value
         )
-        # Normalize sklearn param names → Booster API names
-        if "random_state" in user_params:
-            user_params.setdefault("seed", user_params.pop("random_state"))
-        if "verbose" in user_params:
-            user_params.setdefault("verbosity", user_params.pop("verbose"))
+        # Direct construction follows the same duplicate-spelling rule.
+        for canonical in ("seed", "verbosity"):
+            value, written = _pop_by_identity(user_params, canonical)
+            if written is not None:
+                user_params[canonical] = value
         # H-0079: respect user/Optuna-supplied objective when task-compatible.
         # Pre-H-0079 this value was silently stripped, so default_space
         # tune trials sampling e.g. "fair" actually trained with the task
         # default. Reject cross-task injections explicitly with CONFIG_INVALID.
-        user_objective = user_params.pop("objective", None)
+        user_objective, _ = _pop_by_identity(user_params, "objective")
         if user_objective is not None:
             _check_objective_compatible(self.task, user_objective)
             params["objective"] = user_objective
         # Allow user-specified metric; fall back to task default if absent/empty
         # Accepts str, list[str], or list[str | dict] (H-0065 MetricEntry).
-        user_metric = user_params.pop("metric", None)
+        user_metric, _ = _pop_by_identity(user_params, "metric")
         feval_list: list[Any] = []
         feval_display_names: list[str] = []
-        if user_metric:
-            if isinstance(user_metric, (str, dict)):
-                user_metric = [user_metric]
-            # Filter out empty strings (dicts are always kept)
-            user_metric = [m for m in user_metric if m]
-            if user_metric:
-                # Resolve: translate LizyML names, split native vs feval,
-                # and validate against whitelist (H-0064, H-0065)
-                native, feval_list, feval_display_names = resolve_metrics(
-                    user_metric, self.task, num_class=self.num_class
-                )
-                params["metric"] = native if native else "None"
+        resolved = resolve_user_metric(user_metric, self.task, self.num_class)
+        if resolved is not None:
+            native, feval_list, feval_display_names = resolved
+            params["metric"] = native if native else "None"
+        # H-0094: LightGBM resolves aliases and prefers the canonical spelling
+        # when both are present, and the defaults above are canonical. So a
+        # user parameter written as an alias was merged in beside its own
+        # default and then ignored -- measured: `model.params {"eta": 0.07}`
+        # trained at 0.001, the default. Drop a default the user has named
+        # under any spelling, so LightGBM never sees two spellings of one
+        # parameter and the result does not depend on which it prefers.
+        user_identities = {LGBM_CANONICAL_NAME.get(name, name) for name in user_params}
+        for key in [
+            key
+            for key in params
+            if key not in user_params
+            and LGBM_CANONICAL_NAME.get(key, key) in user_identities
+        ]:
+            del params[key]
         params.update(user_params)
 
         # H-0079 L5: invariant guard — if a user objective was supplied and

@@ -1,0 +1,187 @@
+# PR 2b acceptance criteria — H-0097 Revision 2
+
+Status: implementation under local verification; not externally reviewed or accepted.
+Base: `8dcf5bd6437bbba074f9c4b07574523724392bb8` plus the preserved handoff files.
+The previous criteria below are historical and superseded by this section.
+
+## Scope and evidence
+
+| Criterion | Evidence |
+|---|---|
+| Objective and metric refusals identify the written alias and winning input at all three merged inputs, before training | `tests/test_core/test_param_refusal_origin.py::test_refusal_names_winning_input` |
+| Duplicate objective/metric/rounds inputs are refused before adapter extraction | `test_duplicate_is_refused_before_adapter` (six cases) |
+| Valid fit overrides replace invalid lower-priority values and train | `test_valid_override_replaces_invalid_config_before_validation` |
+| An unrelated override does not change the address of an invalid config value | `test_mixed_origins_do_not_blame_unrelated_override` |
+| Equal and unequal duplicate seed/verbosity spellings fail in direct construction | `test_direct_adapter_refuses_duplicate_spellings` |
+| Single spelling conversion and valid adapter behavior remain | `tests/test_estimators/test_lgbm_defaults.py` and estimator suite |
+| Non-config exceptions propagate unchanged | `test_other_errors_propagate_unchanged` |
+| Context, debug information and cause chain remain available | `test_config_error_preserves_details_and_cause` |
+
+Both caller boundaries use `param_validation.py`; objective compatibility and
+metric parsing/whitelists are not re-declared at the facade. The adapter keeps
+validation for direct construction and sampled trial overlays. The facade checks
+only the winning merged values, while it still owns per-key input origins.
+
+## Compatibility and limits
+
+Fit-only boundary clarification: `Model.fit()` requests value validation after
+its final overlay. `Model.tune()` retains adapter validation after trial overlays;
+rejecting the base value before a valid sampled replacement would be a regression.
+`test_tuning_validates_after_sampled_overlay` pins this compatibility case, which
+was reproduced as passing at the base and failing in the first local candidate.
+
+
+No public constructor, provider Protocol, or artifact format changes. Seed and
+verbosity duplicates in direct adapter calls now fail. This deliberately replaces
+the historical `test_seed_takes_priority_over_random_state`, present since
+`6619d7eb` (2026-03-07). The prior handoff's claim that it did not exist was wrong.
+Single-spelling inputs remain supported. Config, fit overrides and restored tuning
+best parameters are in scope; provenance for sampled trial overlays and arbitrary
+future adapter errors is not claimed. #284/#287 remain PR 2c. #286 remains open
+pending maintainer disposition; six facade cases alone do not prove every possible
+public path is unreachable.
+
+## Review and completion
+
+Run lint, format, mypy and the full non-slow suite before external review. Freeze
+the final file hashes with the results. Review this revision, not the superseded
+adapter-wide surface proposal. One initial review; any confirmed behavioral repair
+gets a bounded follow-up. The prior eight-round ceiling is a ceiling, not a target
+or an authorization for eight provider calls. Publication and acceptance remain
+separate from local validation.
+
+---
+
+## Superseded criteria (retained verbatim)
+
+# PR 2b — 完了基準（レビューを走らせる前に書いた、2026-09-09）
+
+計画 Revision 6 **§12.5** の初回適用。**PR を開くときに書く**（PR 2 は round 28 で書いた）。
+雛形は `results/pr2_acceptance_criteria.md`。
+
+提案は **H-0097**。導出は `results/pr2b_rule_positions.md`。
+
+---
+
+## 0. これは何で、何ではないか
+
+**PR 2 の残余のうち adapter 側だけを扱う。** `param_domain` 側（#284 / #287）は **PR 2c**。
+分割点は H-0097 に事前宣言してある。
+
+**ラウンド予算 8。** 8 で一度止めて、この文書に照らして
+「受け入れ／範囲限定でもう 1 回／さらなる分割」を判断する。
+
+**レビュアーは受け入れを宣言しない。** 返すのは基準ごとの成立可否であって、
+PR 全体の承認ではない。**受け入れは管理者の宣言。**
+
+---
+
+## 1. 凍結する head と契約
+
+| 対象 | 凍結先 |
+|---|---|
+| production | 実装コミット（本文書の更新時に sha を書く） |
+| 契約 | `HISTORY.md` **H-0097**、および H-0094 決定 3（規則の出所）、H-0096 |
+| 上位文書 | `BLUEPRINT.md` §14.4、§1187（単一綴りの変換） |
+
+検査:
+
+```
+git diff <base> <head> -- lizyml/   # adapter.py と metric_bridge.py のみ
+```
+
+---
+
+## 2. 受け入れ基準 → 証拠の対応表
+
+**ポインタの無い行が 1 つでもあれば、レビューを走らせない。**
+（PR 2 では表を作る過程で DC3 の drift が 2 件出た。作ること自体が検査である。）
+
+| # | 基準（H-0097） | 証拠 |
+|---|---|---|
+| 1 | 3 位置すべてで `model.params` と `fit(params=)` が**別の住所**を返す | *実装時に記入* |
+| 2 | 直接構築では住所を名乗らない | *実装時に記入* |
+| 3 | 付与は握り潰さない（必ず再送出、`code` と既存 `context` を保つ） | *実装時に記入* |
+| 4 | **クラスが閉じている** —— adapter に新しい `CONFIG_INVALID` を足しても住所つきで届く | *実装時に記入* |
+| 5 | 6 か所目が 2 綴りを拒否する（#285） | *実装時に記入* |
+| 6 | 単一綴りの変換は保たれる（回帰させない） | `test_lgbm_defaults.py`（**無変更で通ること**） |
+| 7 | 導出が最新（準拠 6 + 修正 3 を反映） | `instruments/refusal_surface_positions.py` の出力 |
+
+---
+
+## 3. 明示的な処分
+
+| 項目 | 処分 | 理由 |
+|---|---|---|
+| **#284**（`param_domain` の三重走査） | **PR 2c** | 受理集合の表現の再構成。rounds 16-26 を生んだ面であり、adapter の作業と束ねない |
+| **#287**（探索空間と 4 surface の不整合） | **PR 2c** | 同じ面の設計判断 |
+| **R4 の非名指し 23 件** | **対象外** | 単一入口からのみ到達し出所が自明。`assert_plain_params` は**出口**なので sink を名乗るのが正しい |
+| **#283** | **close 済み** | H-0096 が `values_differ` ごと削除、再現せず（superseded） |
+
+**この 2 件（#284 / #287）が OPEN のまま PR 2b がマージされることを、管理者が引き受ける。**
+
+---
+
+## 4. 証拠の限界
+
+- **`0/公開 surface` は現在の facade についての測定**である。新しい入口が増えれば
+  6 か所目は再び到達可能になりうる。だから据え置かず閉じる。
+- **「クラスが閉じている」は外周での付与についての主張**であって、
+  adapter の**外**で raise される拒否には及ばない。
+- 導出は **`lizyml/` 内の `LizyMLError(CONFIG_INVALID)` の raise** を母集団とする。
+  別の code で拒否する経路、および例外以外で失敗を報告する経路は含まない。
+- **到達可能性は AST では導いていない** —— 23 件の「単一入口」判定は読んだ結果であり、
+  機械的な証明ではない。
+
+---
+
+## 5. レビューが答える問い
+
+**(a)** 実装は H-0097 の決定 1-3 どおりか。
+**(b)** §2 の各行のポインタは、**この head で**その基準を実際に成立させているか。
+**(c)** **外周での付与が握り潰しになっていないか** —— `CONFIG_INVALID` 以外の例外、
+`CONFIG_INVALID` だがすでに住所を持つもの、例外を出さない経路、の 3 つで挙動が
+変わらないこと。**DC1 の形を直接狙う。**
+
+verdict は基準ごとの成立可否。**`APPROVE` / `REQUEST_CHANGES` を求めない。**
+
+---
+
+## 6. 指摘が出た場合（事前宣言）
+
+| バケット | 条件 | 受け入れを妨げるか | 何が起きるか |
+|---|---|---|---|
+| **B1** | §2 の基準に反する | **妨げる** | 修正 1 件 + その修正だけの限定検証 1 回。さらに指摘が出たら**管理者に戻す** |
+| **B2** | #284 / #287 の別の現れ方 | 妨げない | PR 2c へ記録 |
+| **B3** | §2 の外の新しい production 欠陥。**例外**: 外周の付与が例外を握り潰す形（DC1）なら**妨げる** | 原則妨げない | 起票。妨げる場合は B1 と同じ |
+| **B4** | テスト / 文書 / 命名 | 妨げない | 直すか起票。**再レビューしない** |
+
+**どのバケットにも落ちない指摘が出たら、この文書の不備として管理者に戻す。**
+
+**範囲限定の clean は、それ自体では PR の承認にならない。**
+承認になるのは「(a) clean、かつ (b) 全行成立、かつ (c) 3 経路すべてで挙動不変、
+かつ §3 の処分を管理者が受け入れる」が揃ったときだけ。
+
+---
+
+## 7. 互換性の帰結
+
+- `LGBMAdapter.__init__` に既定値つき引数が 1 つ増える（**後方互換**）。
+- facade 経由の拒否メッセージに住所が付く。**直接構築のメッセージは変わらない。**
+- **`LGBMAdapter` を直接構築して 2 綴りを書いた場合**、これまで黙って片方が選ばれていたのが
+  `CONFIG_INVALID` になる。公開 surface からは到達不能なので、出荷済み config は壊れない。
+- `format_version` は上げない —— 保存形式は変わらない。
+
+---
+
+## 8. 承認欄
+
+1. 実装 → §2 の表を埋める（**空欄が残ったらレビューを開かない**）
+2. relational monitor（rounds 29-30 を観測）→ 主コンテキストが reconcile
+3. レビュー 1 回（ラウンド予算 8 の 1 本目）
+4. §6 に従って処分
+5. **管理者が受け入れを宣言**
+
+**監視の勧告への reconcile を無条件に先に書かない**（PR 2 で監視に指摘された）。
+`DRIFTING`、または**この完了基準そのものが不健全だという指摘**が出た場合は、
+**レビューを開かずに管理者へ戻す。**

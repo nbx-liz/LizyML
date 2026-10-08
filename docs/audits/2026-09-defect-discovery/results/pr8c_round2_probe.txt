@@ -1,0 +1,80 @@
+[run-exclusive] waiting: 'pr8c-gap-trial (pid 4, since 2026-10-01T22:18:03+09:00)' holds the lock
+[run-exclusive] pr8c-round2-probe starting; load was 22.13
+== reintroduction mutations at the after tree
+#264: lizyml/core/model.py mutated -> 96 failed, 133 passed, 189 warnings in 7.55s
+    unmutated -> 229 passed, 174 warnings in 4.88s
+#288: lizyml/core/_model_factories.py mutated -> 13 failed, 216 passed, 159 warnings in 5.00s
+    unmutated -> 229 passed, 174 warnings in 4.87s
+== before-tree imports of package files only the after tree has
+#258 before=5fb8a80: 4 new files, 2 before-tree references ['lizyml/estimators/lgbm/provider.py -> lizyml/config/version.py', 'lizyml/core/model.py -> lizyml/config/version.py']
+#259 before=2d3bc54: 2 new files, 2 before-tree references ['lizyml/estimators/lgbm/provider.py -> lizyml/config/version.py', 'lizyml/core/model.py -> lizyml/config/version.py']
+#260 before=2d3bc54: 2 new files, 2 before-tree references ['lizyml/estimators/lgbm/provider.py -> lizyml/config/version.py', 'lizyml/core/model.py -> lizyml/config/version.py']
+#261 before=1d7c4e2: 7 new files, 2 before-tree references ['lizyml/estimators/lgbm/provider.py -> lizyml/config/version.py', 'lizyml/core/model.py -> lizyml/config/version.py']
+#262 before=1d7c4e2: 7 new files, 2 before-tree references ['lizyml/estimators/lgbm/provider.py -> lizyml/config/version.py', 'lizyml/core/model.py -> lizyml/config/version.py']
+#263 before=1abf7fb: 1 new files, 2 before-tree references ['lizyml/estimators/lgbm/provider.py -> lizyml/config/version.py', 'lizyml/core/model.py -> lizyml/config/version.py']
+#264 before=ccae32b: 6 new files, 2 before-tree references ['lizyml/estimators/lgbm/provider.py -> lizyml/config/version.py', 'lizyml/core/model.py -> lizyml/config/version.py']
+#265 before=3abb6c4: 7 new files, 2 before-tree references ['lizyml/estimators/lgbm/provider.py -> lizyml/config/version.py', 'lizyml/core/model.py -> lizyml/config/version.py']
+#266 before=3abb6c4: 7 new files, 2 before-tree references ['lizyml/estimators/lgbm/provider.py -> lizyml/config/version.py', 'lizyml/core/model.py -> lizyml/config/version.py']
+#267 before=97381db: 0 new files, 0 before-tree references []
+#268 before=91a698b: 0 new files, 0 before-tree references []
+#269 before=96171da: 2 new files, 2 before-tree references ['lizyml/estimators/lgbm/provider.py -> lizyml/config/version.py', 'lizyml/core/model.py -> lizyml/config/version.py']
+#270 before=1d7c4e2: 7 new files, 2 before-tree references ['lizyml/estimators/lgbm/provider.py -> lizyml/config/version.py', 'lizyml/core/model.py -> lizyml/config/version.py']
+#272 before=1abf7fb: 1 new files, 2 before-tree references ['lizyml/estimators/lgbm/provider.py -> lizyml/config/version.py', 'lizyml/core/model.py -> lizyml/config/version.py']
+#277 before=5ac725e: 3 new files, 2 before-tree references ['lizyml/estimators/lgbm/provider.py -> lizyml/config/version.py', 'lizyml/core/model.py -> lizyml/config/version.py']
+#279 before=5fb8a80: 4 new files, 2 before-tree references ['lizyml/estimators/lgbm/provider.py -> lizyml/config/version.py', 'lizyml/core/model.py -> lizyml/config/version.py']
+#281 before=036cd18: 0 new files, 0 before-tree references []
+#282 before=5fb8a80: 4 new files, 2 before-tree references ['lizyml/estimators/lgbm/provider.py -> lizyml/config/version.py', 'lizyml/core/model.py -> lizyml/config/version.py']
+#284 before=2436a66: 4 new files, 2 before-tree references ['lizyml/estimators/lgbm/provider.py -> lizyml/config/version.py', 'lizyml/core/model.py -> lizyml/config/version.py']
+#285 before=53f6cbf: 5 new files, 2 before-tree references ['lizyml/estimators/lgbm/provider.py -> lizyml/config/version.py', 'lizyml/core/model.py -> lizyml/config/version.py']
+#287 before=2436a66: 4 new files, 2 before-tree references ['lizyml/estimators/lgbm/provider.py -> lizyml/config/version.py', 'lizyml/core/model.py -> lizyml/config/version.py']
+#288 before=ccae32b: 6 new files, 2 before-tree references ['lizyml/estimators/lgbm/provider.py -> lizyml/config/version.py', 'lizyml/core/model.py -> lizyml/config/version.py']
+#306 before=fc9d820: 1 new files, 2 before-tree references ['lizyml/estimators/lgbm/provider.py -> lizyml/config/version.py', 'lizyml/core/model.py -> lizyml/config/version.py']
+== closure comments to pin
+#258: https://github.com/nbx-liz/LizyML/issues/258#issuecomment-5613263234
+    Completed by H-0099, following the merged PR titled `fix(tuning): reconcile direction and reject inert dimensi
+#259: https://github.com/nbx-liz/LizyML/issues/259#issuecomment-5924845155
+    Closing: fixed by #305 (squash `fc9d820` on `develop`, H-0104).
+#260: https://github.com/nbx-liz/LizyML/issues/260#issuecomment-5924845419
+    Closing: fixed by #305 (squash `fc9d820` on `develop`, H-0104).
+#261: https://github.com/nbx-liz/LizyML/issues/261#issuecomment-5922951205
+    Closing: fixed by #275 (H-0093), verified at `develop` `7d67d1e` before closing.
+#262: https://github.com/nbx-liz/LizyML/issues/262#issuecomment-5923365294
+    Closing: the remaining DoD item is delivered by #300 (squash `96171da` on `develop`); the production fix was #
+#263: https://github.com/nbx-liz/LizyML/issues/263#issuecomment-5926847668
+    Fixed by #310 (H-0106), squash-merged into `develop`. Each member was decided separately, as the DoD asks.
+#264: https://github.com/nbx-liz/LizyML/issues/264#issuecomment-5599706420
+    Fixed in PR #278, squash-merged into `develop` as `0920c2a`. Proposals H-0094, H-0095 and H-0096. Thirty revie
+#265: https://github.com/nbx-liz/LizyML/issues/265#issuecomment-5923365543
+    Closing: the remaining items are delivered by #300 (squash `96171da` on `develop`, H-0101); both contradiction
+#266: https://github.com/nbx-liz/LizyML/issues/266#issuecomment-5922951570
+    Closing: fixed by #274 (H-0092), verified at `develop` `7d67d1e` before closing.
+#267: https://github.com/nbx-liz/LizyML/issues/267#issuecomment-5927643516
+    Fixed by #312 (H-0107), squash-merged into `develop`.
+#268: https://github.com/nbx-liz/LizyML/issues/268#issuecomment-5928972201
+    Fixed by #314 (H-0108), squash-merged into `develop`. The correction comment above records why the premise of
+#269: https://github.com/nbx-liz/LizyML/issues/269#issuecomment-5923745761
+    Closing: fixed by #302 (squash `2d3bc54` on `develop`, H-0103).
+#270: OPEN
+#272: https://github.com/nbx-liz/LizyML/issues/272#issuecomment-5926848025
+    Fixed by #310 (H-0106), squash-merged into `develop`.
+#277: https://github.com/nbx-liz/LizyML/issues/277#issuecomment-5677178764
+    Fixed by #296 (squash merge 7d67d1e into develop, H-0100). calibration.params is honoured by platt, beta and i
+#279: https://github.com/nbx-liz/LizyML/issues/279#issuecomment-5613266788
+    Completed by H-0099, following the merged PR titled `fix(tuning): reconcile direction and reject inert dimensi
+#281: https://github.com/nbx-liz/LizyML/issues/281#issuecomment-5930404069
+    Fixed by #316 (H-0109), squash-merged into `develop` as `33a3f6e`. This closes against "What closing it needs"
+#282: https://github.com/nbx-liz/LizyML/issues/282#issuecomment-5613270618
+    Completed by H-0099, following the merged PR titled `fix(tuning): reconcile direction and reject inert dimensi
+#284: https://github.com/nbx-liz/LizyML/issues/284#issuecomment-5606053798
+    Completed in PR #291, squash-merged to develop as
+#285: https://github.com/nbx-liz/LizyML/issues/285#issuecomment-5668402175
+    Fixed by PR #290 (H-0097 Revision 2), squash-merged into `develop` as `2436a66`. `develop` does not auto-close
+#287: https://github.com/nbx-liz/LizyML/issues/287#issuecomment-5606056205
+    Disposition completed in PR #291, squash-merged to develop as
+#288: https://github.com/nbx-liz/LizyML/issues/288#issuecomment-5599706837
+    Fixed in PR #278 (commit `22b11b3`), squash-merged into `develop` as `0920c2a`. The closure claim is bounded —
+#306: https://github.com/nbx-liz/LizyML/issues/306#issuecomment-5925321349
+    Closing: fixed by #308 (squash `1abf7fb` on `develop`, H-0105).
+[run-exclusive] pr8c-round2-probe finished in 37s, exit 0
+
+[exited with code 0]

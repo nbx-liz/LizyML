@@ -151,6 +151,26 @@ class ModelTablesMixin:
         state = self._get_fit_state()
 
         if kind == "shap":
+            # H-0114: checked before the missing-X case, so an artifact that
+            # lacks both reports the per-fold states; refitting restores both.
+            if state.fit_result.pipeline_state_per_fold is None:
+                raise LizyMLError(
+                    code=ErrorCode.MODEL_NOT_FIT,
+                    user_message=(
+                        "This FitResult has no per-fold pipeline states "
+                        "(pipeline_state_per_fold): it comes from an artifact "
+                        "written before H-0114, or it was constructed without "
+                        "the field. SHAP importance explains each fold model on "
+                        "rows its own fold pipeline encoded. Call fit() again "
+                        "with the current version, then export."
+                    ),
+                    context={
+                        "task": state.cfg.task,
+                        "kind": kind,
+                        "method": "importance",
+                        "missing": "pipeline_state_per_fold",
+                    },
+                )
             if state.X is None:
                 raise LizyMLError(
                     code=ErrorCode.MODEL_NOT_FIT,
@@ -175,6 +195,7 @@ class ModelTablesMixin:
                 feature_names=state.fit_result.feature_names,
                 pipeline_state=state.fit_result.pipeline_state,
                 pipeline_factory=state.provider.build_pipeline_factory(),
+                pipeline_state_per_fold=state.fit_result.pipeline_state_per_fold,
             )
 
         models = state.fit_result.models
@@ -285,10 +306,40 @@ class ModelTablesMixin:
         rows.extend(state.provider.params_summary(fr.models[0], state.cfg.model))
 
         # --- Config training params ---
+        # Both rows answer "what did *this* fit use?", and neither may be
+        # recomputed from the config plus the model's current tuning result:
+        # `tune()` replaces that result without replacing the fitted adapters,
+        # so after `fit -> tune` such a recomputation reports a model that was
+        # never trained. Measured: the fold-0 adapter trained at patience 7 and
+        # this table said 2 (H-0094 decision 13, review round 16, which is a
+        # defect decision 12's own fix introduced).
+        #
+        # The patience comes from the trained adapter, through the provider --
+        # the only surface that survives both a later `tune()` and a `load()`.
+        # The ratio comes from the retained overlay, because nothing on the
+        # adapter records it. The artifact records the overlay and `load()`
+        # restores it (H-0109); only an artifact written before that record
+        # existed leaves it unknown, and then the configured ratio is reported
+        # -- the bound stated on `FitState.applied_training_params`.
+        from lizyml.core._model_factories import tuned_validation_ratio
+
         es = state.cfg.training.early_stopping
         if es is not None:
-            rows.append({"parameter": "early_stopping_rounds", "value": es.rounds})
-            rows.append({"parameter": "validation_ratio", "value": es.validation_ratio})
+            rows.append(
+                {
+                    "parameter": "early_stopping_rounds",
+                    "value": state.provider.build_export_params(
+                        fr.models[0]
+                    ).early_stopping_rounds,
+                }
+            )
+            ratio = tuned_validation_ratio(state.applied_training_params)
+            rows.append(
+                {
+                    "parameter": "validation_ratio",
+                    "value": es.validation_ratio if ratio is None else ratio,
+                }
+            )
 
         # --- Best iteration per fold ---
         for i, m in enumerate(fr.models):

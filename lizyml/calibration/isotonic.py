@@ -17,6 +17,7 @@ import numpy.typing as npt
 
 from lizyml.calibration.base import BaseCalibratorAdapter
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.param_domain import assert_plain_params
 from lizyml.core.registries import CalibratorRegistry
 
 _ISOTONIC_DEFAULTS: dict[str, Any] = {
@@ -34,6 +35,26 @@ _ISOTONIC_DEFAULTS: dict[str, Any] = {
     "bagging_fraction": 1.0,
     "bagging_freq": 0,
 }
+
+#: Names this calibrator consumes itself and never forwards to LightGBM.
+#:
+#: ``calibration.params`` is handed to ``lgbm.train`` almost verbatim, so a
+#: misspelled name there is discarded in silence exactly as it is on the model
+#: surface (H-0093). The Facade refuses unknown names against LightGBM's own
+#: registry, and these three are the exceptions: the first two are popped in
+#: ``__init__``, the third in ``fit``, where it is resolved into LightGBM's
+#: ``min_data_in_leaf``.
+#:
+#: ``seed`` is deliberately absent. It is popped in ``__init__`` too, but
+#: ``merged["seed"]`` puts it straight back, so it does reach the Booster --
+#: and LightGBM knows the name, so the base registry already accepts it.
+#: Listing it here would have been harmless but false, and
+#: ``test_calibration_param_names.py`` asserts by execution that every name in
+#: this set really is consumed here rather than forwarded. Declaring the set
+#: beside the code that pops the names is what keeps that check honest.
+CALIBRATOR_OWN_PARAM_NAMES: frozenset[str] = frozenset(
+    {"num_boost_round", "validation_ratio", "min_data_in_leaf_ratio"}
+)
 
 _NUM_BOOST_ROUND = 1000
 _EARLY_STOPPING_ROUNDS = 100
@@ -58,6 +79,19 @@ class IsotonicCalibrator(BaseCalibratorAdapter):
             - ``seed``: random seed for validation split (default 42)
     """
 
+    @classmethod
+    def validate_params(cls, params: dict[str, Any]) -> None:
+        """Declared, and deliberately empty: the Facade checks these names.
+
+        ``calibration.params`` for isotonic is handed to ``lgbm.train``, so its
+        names are judged against LightGBM's own registry and its values
+        normalised, both in ``check_calibration_param_names`` before any training
+        (H-0093, H-0094 decision 8). That check needs the LightGBM provider, which
+        ``lizyml/calibration/`` may not import, so it cannot live here. Declaring
+        this method anyway keeps every registered calibrator explicit about where
+        its params are validated (H-0100).
+        """
+
     def __init__(self, params: dict[str, Any] | None = None) -> None:
         # Copy to avoid mutating the caller's dict
         user = dict(params) if params else {}
@@ -77,7 +111,14 @@ class IsotonicCalibrator(BaseCalibratorAdapter):
         merged = {**_ISOTONIC_DEFAULTS, **user}
         # Always enforce monotone constraint
         merged["monotone_constraints"] = [1]
-        merged["verbose"] = -1
+        # `verbosity`, not `verbose`: LightGBM treats the two as one parameter
+        # and prefers the canonical spelling, so forcing the alias left the
+        # force defeatable -- `calibration.params={"verbosity": 1}` reached
+        # `lgbm.train` beside `verbose: -1` and won (H-0094 decision 8, review
+        # round 12). `monotone_constraints` above is already canonical, which
+        # is why that force holds and this one did not.
+        merged.pop("verbose", None)
+        merged["verbosity"] = -1
         merged["seed"] = self._seed
         self._lgbm_params = merged
         self._model: lgbm.Booster | None = None
@@ -102,6 +143,12 @@ class IsotonicCalibrator(BaseCalibratorAdapter):
         train_ds, valid_sets, callbacks = self._prepare_training(
             X_cal, y_float, n_samples, params
         )
+        # H-0095: the domain is closed at the four surfaces, and this is
+        # where that becomes a property rather than a claim about wiring.
+        # A value that reached training without being normalised stops the
+        # run and names itself, instead of being serialised by whatever
+        # `__format__` it happens to carry.
+        assert_plain_params(params, where="the calibrator lgbm.train")
         self._model = lgbm.train(
             params,
             train_ds,

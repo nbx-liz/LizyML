@@ -1,0 +1,465 @@
+{
+  "note": "Per-issue completion contract for Phase 3 (plan section 8, Revision 7; rebuilt in PR 8c from the tests that actually merged -- results/pr8c_acceptance_criteria.md section 2). The row set must equal the issues in plan section 3's Fixes and Refs columns. `github_prs` are the PRs whose merges fixed the issue; the before tree for proposition 2 is the first parent of the earliest one's merge commit. `population_test` names the node whose collected cases are the population; a row whose population is not a parametrisation carries `population_note` instead, and its `population` is reported as declared, not measured. `derived_from` is a snippet run with `python -c` inside the after worktree. `red_mutation` puts the defect back into the after tree for a row whose tests cannot run in any before tree; its fix_text must be text the fixing PR added, and such rows are COMPLETE-RED-BY-MUTATION, never COMPLETE. `expected_nonpass` binds each non-passing node the row's tests may report after the fix to a test, an outcome, a reason and an exact count. `closure_comment` pins the issue comment that records the fix; that it affirms the fix is a reviewed declaration.",
+  "issues": {
+    "258": {
+      "plan_pr": "3",
+      "github_prs": [
+        292
+      ],
+      "disposition": "regression",
+      "tests": [
+        "tests/test_tuning/test_direction_reconciliation.py"
+      ],
+      "population_test": "tests/test_tuning/test_direction_reconciliation.py::test_inferred_direction_selects_correct_extremum",
+      "population": 22,
+      "population_name": "(task, metric) pairs",
+      "derived_from": "from lizyml.metrics.registry import _TASK_METRICS\nprint(sum(len(v) for v in _TASK_METRICS.values()))",
+      "closure_comment": 5613263234
+    },
+    "259": {
+      "plan_pr": "5",
+      "github_prs": [
+        305
+      ],
+      "disposition": "regression",
+      "tests": [
+        "tests/test_features/test_pipeline_conformance.py"
+      ],
+      "population_note": "One minimal subclass implements the abstract surface and is driven through fit, predict and SHAP; the population is that surface, not a parametrisation.",
+      "population": 4,
+      "population_name": "BaseFeaturePipeline abstract methods",
+      "derived_from": "from lizyml.features.pipeline_base import BaseFeaturePipeline\nprint(len(BaseFeaturePipeline.__abstractmethods__))",
+      "closure_comment": 5924845155
+    },
+    "260": {
+      "plan_pr": "5",
+      "github_prs": [
+        305
+      ],
+      "disposition": "regression",
+      "tests": [
+        "tests/test_features/test_unseen_policy.py",
+        "tests/test_codegen/test_unseen_policy_codegen.py"
+      ],
+      "population_test": "tests/test_features/test_unseen_policy.py::test_every_policy_is_observable_end_to_end",
+      "population": 3,
+      "population_name": "UnseenPolicy values",
+      "derived_from": "import typing\nfrom lizyml.features.encoders.categorical_encoder import UnseenPolicy\nprint(len(typing.get_args(UnseenPolicy)))",
+      "closure_comment": 5924845419
+    },
+    "261": {
+      "plan_pr": "1",
+      "github_prs": [
+        275
+      ],
+      "disposition": "regression",
+      "tests": [
+        "tests/test_estimators/test_lightgbm_parameter_names.py"
+      ],
+      "population_test": "tests/test_estimators/test_lightgbm_parameter_names.py::test_train_param_names_are_lightgbm_names",
+      "population": 3,
+      "population_name": "tasks, each fitted with every declared smart parameter active",
+      "derived_from": "from lizyml.core.types.task import TASK_TYPES\nprint(len(TASK_TYPES))",
+      "closure_comment": 5922951205
+    },
+    "262": {
+      "plan_pr": "1, 3d",
+      "github_prs": [
+        275,
+        300
+      ],
+      "disposition": "regression",
+      "tests": [
+        "tests/test_tuning/test_search_space_name_validation.py"
+      ],
+      "population_test": "tests/test_tuning/test_search_space_name_validation.py::test_search_space_name_is_gated",
+      "population": 27,
+      "population_name": "3 name classes x 3 categories x 3 tasks",
+      "derived_from": "import typing\nfrom lizyml.core.types.task import TASK_TYPES\nfrom lizyml.core.types.search_dim import DimCategory\nprint(3 * len(typing.get_args(DimCategory)) * len(TASK_TYPES))",
+      "closure_comment": 5923365294,
+      "expected_nonpass": [
+        {
+          "test": "tests/test_tuning/test_search_space_name_validation.py::test_search_space_name_is_gated[num_leaves-smart-regression]",
+          "outcome": "xfailed",
+          "reason": "#299",
+          "count": 1
+        },
+        {
+          "test": "tests/test_tuning/test_search_space_name_validation.py::test_search_space_name_is_gated[num_leaves-smart-binary]",
+          "outcome": "xfailed",
+          "reason": "#299",
+          "count": 1
+        },
+        {
+          "test": "tests/test_tuning/test_search_space_name_validation.py::test_search_space_name_is_gated[num_leaves-smart-multiclass]",
+          "outcome": "xfailed",
+          "reason": "#299",
+          "count": 1
+        },
+        {
+          "test": "tests/test_tuning/test_search_space_name_validation.py::test_search_space_name_is_gated[not_a_lightgbm_parameter-smart-regression]",
+          "outcome": "xfailed",
+          "reason": "#299",
+          "count": 1
+        },
+        {
+          "test": "tests/test_tuning/test_search_space_name_validation.py::test_search_space_name_is_gated[not_a_lightgbm_parameter-smart-binary]",
+          "outcome": "xfailed",
+          "reason": "#299",
+          "count": 1
+        },
+        {
+          "test": "tests/test_tuning/test_search_space_name_validation.py::test_search_space_name_is_gated[not_a_lightgbm_parameter-smart-multiclass]",
+          "outcome": "xfailed",
+          "reason": "#299",
+          "count": 1
+        },
+        {
+          "test": "tests/test_tuning/test_search_space_name_validation.py::test_smart_dimension_with_inactive_consumer_is_refused[regression]",
+          "outcome": "xfailed",
+          "reason": "#299",
+          "count": 1
+        },
+        {
+          "test": "tests/test_tuning/test_search_space_name_validation.py::test_smart_dimension_with_inactive_consumer_is_refused[binary]",
+          "outcome": "xfailed",
+          "reason": "#299",
+          "count": 1
+        },
+        {
+          "test": "tests/test_tuning/test_search_space_name_validation.py::test_smart_dimension_with_inactive_consumer_is_refused[multiclass]",
+          "outcome": "xfailed",
+          "reason": "#299",
+          "count": 1
+        }
+      ]
+    },
+    "263": {
+      "plan_pr": "6",
+      "github_prs": [
+        310
+      ],
+      "disposition": "regression",
+      "tests": [
+        "tests/test_core/test_error_code_raising.py",
+        "tests/test_core/test_error_code_population.py",
+        "tests/test_docs/test_error_code_docs.py"
+      ],
+      "population_test": "tests/test_core/test_error_code_raising.py::test_member_is_raised",
+      "population": 19,
+      "population_name": "ErrorCode members",
+      "derived_from": "from lizyml.core.exceptions import ErrorCode\nprint(len(ErrorCode.__members__))",
+      "closure_comment": 5926847668
+    },
+    "264": {
+      "plan_pr": "2",
+      "github_prs": [
+        278
+      ],
+      "disposition": "regression",
+      "tests": [
+        "tests/test_core/test_fit_params_override.py"
+      ],
+      "population_note": "The three priority levels (config < tune result < fit argument) are each pinned by a named test, not a parametrisation.",
+      "population": 3,
+      "population_name": "priority levels",
+      "closure_comment": 5599706420,
+      "red_mutation": {
+        "file": "lizyml/core/model.py",
+        "old": "provider, override=params, validate_values=True",
+        "new": "provider, override=None, validate_values=True",
+        "fix_text": "override=params",
+        "why": "The defect: fit(params=...) was accepted and never forwarded. Passing None puts that back. The test module imports check_duplicate_identities, which #278 added to the existing lizyml.core._model_factories, so it cannot run in a before tree; #278 committed its fix (b97e30c) before its first test (e255182)."
+      }
+    },
+    "265": {
+      "plan_pr": "0, 3d",
+      "github_prs": [
+        274,
+        300
+      ],
+      "disposition": "decision-only",
+      "justification": "The defect was two incompatible BLUEPRINT rules; the implementation already followed the one made authoritative. The pin is green before and after (9 passed at 3abb6c4, the merge parent of #274).",
+      "tests": [
+        "tests/test_training/test_inner_valid_purge_embargo.py"
+      ],
+      "population_note": "A pin of the adopted rule (TestExplicitInnerValidDoesNotInheritGap), not a parametrisation.",
+      "population": 1,
+      "population_name": "the adopted rule",
+      "closure_comment": 5923365543
+    },
+    "266": {
+      "plan_pr": "0",
+      "github_prs": [
+        274
+      ],
+      "disposition": "regression",
+      "tests": [
+        "tests/test_docs/test_declared_versions.py"
+      ],
+      "population_test": "tests/test_docs/test_declared_versions.py::test_declared_version_matches_code",
+      "population_name": "version declarations found by scanning the documents",
+      "derived_from": "from tests.test_docs.test_declared_versions import SITES\nprint(len(SITES))",
+      "closure_comment": 5922951570
+    },
+    "267": {
+      "plan_pr": "7",
+      "github_prs": [
+        312
+      ],
+      "disposition": "regression",
+      "tests": [
+        "tests/test_data/test_leakage_validator_unchecked_column.py"
+      ],
+      "population_test": "tests/test_data/test_leakage_validator_unchecked_column.py::test_unchecked_column_is_reported",
+      "population": 30,
+      "population_name": "3 hostile column shapes x 5 target dtypes x 2 raise settings, declared in the test",
+      "closure_comment": 5927643516
+    },
+    "268": {
+      "plan_pr": "8",
+      "github_prs": [
+        314
+      ],
+      "disposition": "regression",
+      "tests": [
+        "tests/test_config/test_knob_reachability.py"
+      ],
+      "population_note": "One node compares the knob registry with the census of defaulted public constructor parameters; the census is computed by tests/test_config/_knob_registry.py.",
+      "population": 74,
+      "population_name": "defaulted or keyword-only public constructor parameters",
+      "closure_comment": 5928972201
+    },
+    "269": {
+      "plan_pr": "4",
+      "github_prs": [
+        302
+      ],
+      "disposition": "regression",
+      "tests": [
+        "tests/test_training/test_cv_refit_parity.py"
+      ],
+      "population_note": "One node checks every parameter of the two fit methods against the written policy.",
+      "population": 7,
+      "population_name": "the union of CVTrainer.fit and RefitTrainer.fit parameters",
+      "derived_from": "import inspect\nfrom lizyml.training.cv_trainer import CVTrainer\nfrom lizyml.training.refit_trainer import RefitTrainer\na = set(inspect.signature(CVTrainer.fit).parameters) - {'self'}\nb = set(inspect.signature(RefitTrainer.fit).parameters) - {'self'}\nprint(len(a | b))",
+      "closure_comment": 5923745761
+    },
+    "270": {
+      "plan_pr": "1, 2 (Refs)",
+      "github_prs": [
+        275,
+        278
+      ],
+      "disposition": "partial",
+      "justification": "Two of 179 hollow tests were repaired, as the regression tests of PR 1 and PR 2. The remaining 177 are a separately scoped population repair and the issue stays open.",
+      "tests": [
+        "tests/test_estimators/test_param_behavioral_effect.py",
+        "tests/test_core/test_config_propagation.py"
+      ],
+      "population_note": "A property of the whole suite, measured by instruments/kill_producers.py; these files hold the two repaired tests.",
+      "population": 179,
+      "population_name": "test functions that claim a behaviour they never execute"
+    },
+    "271": {
+      "plan_pr": "9",
+      "github_prs": [
+        320
+      ],
+      "disposition": "regression",
+      "tests": [
+        "tests/test_docs/test_proposal_blueprint_coverage.py"
+      ],
+      "population_test": "tests/test_docs/test_proposal_blueprint_coverage.py::test_proposal_disposition_holds",
+      "population": 111,
+      "population_name": "HISTORY.md proposals, one disposition test each",
+      "derived_from": "from tests.test_docs._history_grammar import parse_entries\ntext = open('HISTORY.md', encoding='utf-8').read()\nprint(len({i for _, ids in parse_entries(text) for i in ids}))",
+      "red_mutation": {
+        "file": "BLUEPRINT.md",
+        "old": "そのバイト列を `joblib.load(io.BytesIO(...))` で復元する",
+        "new": "そのバイト列を復元する",
+        "fix_text": "`joblib.load(io.BytesIO(...))`",
+        "why": "The defect (#271): H-0083's checksum verification was decided and implemented and BLUEPRINT did not state it. Removing the folded verification text puts that back for one anchor of H-0083, and test_proposal_disposition_holds[H-0083] fails. The row's tests cannot show RED in a before tree: the before tree has no docs/proposal_dispositions.toml (a .toml file is never staged), so the test would fail for a missing file, not for the defect."
+      },
+      "closure_comment": 6010100067
+    },
+    "272": {
+      "plan_pr": "6",
+      "github_prs": [
+        310
+      ],
+      "disposition": "regression",
+      "tests": [
+        "tests/test_config/test_config_version_entry_paths.py"
+      ],
+      "population_test": "tests/test_config/test_config_version_entry_paths.py::test_entry_path_by_version",
+      "population": 16,
+      "population_name": "8 entry paths x 2 versions, declared in the test",
+      "closure_comment": 5926848025
+    },
+    "277": {
+      "plan_pr": "3c",
+      "github_prs": [
+        296
+      ],
+      "disposition": "regression",
+      "tests": [
+        "tests/test_core/test_calibration_params_reach.py",
+        "tests/test_calibration/test_calibration_param_contract.py",
+        "tests/test_calibration/test_platt_mle.py",
+        "tests/test_codegen/test_calibration_params_codegen.py"
+      ],
+      "population_note": "One node checks that every registered calibrator declares its params contract; the population is the registry.",
+      "population": 3,
+      "population_name": "registered calibrators",
+      "derived_from": "from lizyml.calibration.registry import CalibratorRegistry\nprint(len(CalibratorRegistry.keys()))",
+      "closure_comment": 5677178764,
+      "red_mutation": {
+        "file": "lizyml/core/_model_factories.py",
+        "old": "    if not params:\n        return {}\n    return normalise_params(params, surface=\"calibration.params\")",
+        "new": "    return {}",
+        "fix_text": "return normalise_params(params, surface=\"calibration.params\")",
+        "why": "The defect (#277): calibration.params was accepted and ignored for platt and beta. prepare_calibration_params, added by #296, hands the normalised params to the non-LightGBM calibrators; returning {} instead puts the ignoring back, while the refusal of unknown names #296 also added stays. Measured at 33a3f6e (results/pr8c_round6_probe.txt): 6 failed, 123 passed, all six in test_calibration_params_reach.py and test_calibration_params_codegen.py, the params-reach tests. The row's tests cannot run in its before tree (5ac725e): test_calibration_param_contract.py imports lizyml/calibration/_optimizer.py, which #296 added, and test_calibration_params_codegen.py imports that test module; package files are no longer staged (option C after design review round 6)."
+      }
+    },
+    "279": {
+      "plan_pr": "3",
+      "github_prs": [
+        292
+      ],
+      "disposition": "regression",
+      "tests": [
+        "tests/test_tuning/test_dimension_consumption.py"
+      ],
+      "population_test": "tests/test_tuning/test_dimension_consumption.py::test_every_smart_owned_native_spelling_refused_before_study",
+      "population_name": "native spellings claimed by the smart parameters the test activates",
+      "derived_from": "from tests.test_tuning.test_dimension_consumption import CLAIMED\nprint(len(CLAIMED))",
+      "closure_comment": 5613266788
+    },
+    "281": {
+      "plan_pr": "8b",
+      "github_prs": [
+        316
+      ],
+      "disposition": "regression",
+      "tests": [
+        "tests/test_persistence/test_reporting_surfaces_survive_load.py",
+        "tests/test_persistence/test_applied_training_params.py"
+      ],
+      "population_note": "One node walks 22 surfaces x 4 configurations x 5 lifecycles from tests/test_persistence/_load_census.py.",
+      "population": 440,
+      "population_name": "reporting cells read before export and after load",
+      "closure_comment": 5930404069
+    },
+    "282": {
+      "plan_pr": "3",
+      "github_prs": [
+        292
+      ],
+      "disposition": "regression",
+      "tests": [
+        "tests/test_tuning/test_dimension_consumption.py"
+      ],
+      "population_test": "tests/test_tuning/test_dimension_consumption.py::test_unconsumed_training_dimension_refused",
+      "population": 3,
+      "population_name": "training dimension names nothing consumes, declared in the test",
+      "closure_comment": 5613270618
+    },
+    "284": {
+      "plan_pr": "2c",
+      "github_prs": [
+        291
+      ],
+      "disposition": "decision-only",
+      "justification": "A structural consolidation: the accepted set stated by three structural walks became one. The accepted set did not change (2 passed at 2436a66, the merge parent); the cyclic-mapping test failed against the PR's own first candidate, not the base (results/pr2c_acceptance_criteria.md).",
+      "tests": [
+        "tests/test_core/test_param_domain_cycles.py",
+        "tests/test_core/test_param_domain.py"
+      ],
+      "population_note": "The accepted-value population of test_param_domain.py is shared by several nodes; the consolidation is checked structurally.",
+      "population": 1,
+      "population_name": "the single structural walk",
+      "closure_comment": 5606053798,
+      "expected_nonpass": [
+        {
+          "test": "tests/test_core/test_param_domain.py::test_normalising_does_not_change_the_bytes_the_estimator_is_sent",
+          "outcome": "skipped",
+          "reason": "holds a mapping",
+          "count": 230
+        }
+      ]
+    },
+    "285": {
+      "plan_pr": "2b",
+      "github_prs": [
+        290
+      ],
+      "disposition": "regression",
+      "tests": [
+        "tests/test_core/test_param_refusal_origin.py"
+      ],
+      "population_test": "tests/test_core/test_param_refusal_origin.py::test_direct_adapter_refuses_duplicate_spellings",
+      "population": 4,
+      "population_name": "seed and verbosity duplicate-spelling pairs, declared in the test",
+      "closure_comment": 5668402175
+    },
+    "286": {
+      "plan_pr": "2b",
+      "github_prs": [],
+      "disposition": "not-planned",
+      "justification": "Closed not planned in PR 2b: the adapter duplicate-spelling refusal is bounded as recorded in the issue.",
+      "tests": []
+    },
+    "287": {
+      "plan_pr": "2c",
+      "github_prs": [
+        291
+      ],
+      "disposition": "decision-only",
+      "justification": "The original symptom was already fixed at the PR's base (results/pr2c_acceptance_criteria.md: 'The original #287 symptom is historical and already fixed at this base'); the PR recorded and tested the remaining policy (8 passed at 2436a66).",
+      "tests": [
+        "tests/test_tuning/test_literal_domain_contract.py"
+      ],
+      "population_test": "tests/test_tuning/test_literal_domain_contract.py::test_numpy_choices_are_refused_at_the_named_entrance",
+      "population": 5,
+      "population_name": "numpy scalar choices, declared in the test",
+      "closure_comment": 5606056205
+    },
+    "288": {
+      "plan_pr": "2",
+      "github_prs": [
+        278
+      ],
+      "disposition": "regression",
+      "tests": [
+        "tests/test_core/test_fit_params_override.py"
+      ],
+      "population_note": "Four identity-overlay seams, each with a test, and one node that counts the seams from the source.",
+      "population": 4,
+      "population_name": "identity overlay seams",
+      "closure_comment": 5599706837,
+      "red_mutation": {
+        "file": "lizyml/core/model.py",
+        "old": "model_params = overlay_params(provider, model_params, fixed)",
+        "new": "model_params = {**model_params, **fixed}",
+        "fix_text": "overlay_params(provider, model_params, fixed)",
+        "why": "#288 reported a coverage gap, not a defect: the provider fixed defaults and the tuning result were identity merge seams with no test writing an alias at that layer. Its fix is test-only (commit 22b11b3 in #278). This mutation is the faulty behaviour those missing tests would not have caught: a spelling-based merge at the provider-fixed seam alone. Measured at 33a3f6e (results/pr8c_round3_probe.txt): the row's tests as they were at 22b11b3^ add no failure under it; the shipped tests fail test_the_provider_fixed_seam_carries_one_spelling. Same test module as #264."
+      }
+    },
+    "306": {
+      "plan_pr": "5b",
+      "github_prs": [
+        308
+      ],
+      "disposition": "regression",
+      "tests": [
+        "tests/test_estimators/test_feval_probabilities.py"
+      ],
+      "population_test": "tests/test_estimators/test_feval_probabilities.py::test_feval_value_is_the_metric_of_lightgbm_predictions",
+      "population": 57,
+      "population_name": "(objective, feval metric) pairs over the three tasks",
+      "derived_from": "from lizyml.estimators.lgbm.defaults import TASK_COMPATIBLE_OBJECTIVES\nfrom lizyml.estimators.lgbm.metric_bridge import _FEVAL_METRICS\nprint(sum(len(TASK_COMPATIBLE_OBJECTIVES[t]) * len(_FEVAL_METRICS[t]) for t in TASK_COMPATIBLE_OBJECTIVES))",
+      "closure_comment": 5925321349
+    }
+  }
+}

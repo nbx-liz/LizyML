@@ -1,0 +1,70 @@
+
+[kill_producers] MODE='metric': disabled 32 producers
+.......................................................                  [100%]
+=============================== warnings summary ===============================
+tests/test_core/test_param_domain.py:146
+  /tmp/claude-1000/-home-rem-repos-LizyML/e1612d43-a3df-4ff3-849b-8f1591799376/scratchpad/base1d4/tests/test_core/test_param_domain.py:146: RuntimeWarning: overflow encountered in cast
+    atoms.append(dtype(value))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+==================================== PASSES ====================================
+_____________ TestBuildFevalFromConfig.test_unknown_metric_skipped _____________
+------------------------------ Captured log call -------------------------------
+WARNING  test:<feval>:106 Unknown feval metric: nonexistent_metric — skipping
+=========================== short test summary info ============================
+PASSED tests/test_calibration/test_isotonic_calibration.py::TestIsotonicCalibrator::test_extreme_scores_produce_extreme_probabilities
+PASSED tests/test_calibration/test_platt_mle.py::test_bounds_on_the_slope_hold_in_the_written_coordinates_for_large_scores
+PASSED tests/test_codegen/test_feval_codegen.py::TestBuildFevalFromConfig::test_empty_feval_metrics_returns_empty
+PASSED tests/test_codegen/test_feval_codegen.py::TestBuildFevalFromConfig::test_missing_feval_metrics_key_returns_empty
+PASSED tests/test_codegen/test_feval_codegen.py::TestBuildFevalFromConfig::test_unknown_metric_skipped
+PASSED tests/test_codegen/test_feval_codegen.py::TestConfigFeval::test_feval_metrics_empty_list_explicit
+PASSED tests/test_codegen/test_feval_codegen.py::TestConfigFeval::test_feval_metrics_empty_when_none
+PASSED tests/test_codegen/test_feval_codegen.py::TestConfigFeval::test_feval_metrics_json_serializable
+PASSED tests/test_codegen/test_feval_codegen.py::TestConfigFeval::test_feval_metrics_key_ordering
+PASSED tests/test_codegen/test_feval_codegen.py::TestConfigFeval::test_feval_metrics_present_in_config
+PASSED tests/test_codegen/test_feval_codegen.py::TestExtractFevalMetadata::test_no_metric_returns_empty
+PASSED tests/test_core/test_contracts.py::TestFitResultSchema::test_metrics_raw_structure
+PASSED tests/test_core/test_fit_params_override.py::test_the_provider_fixed_seam_carries_one_spelling
+PASSED tests/test_core/test_param_domain.py::test_a_metric_entry_written_as_a_mapping_is_accepted_at_the_surface
+PASSED tests/test_estimators/test_feval_probabilities.py::test_the_population_is_every_feval_metric
+PASSED tests/test_estimators/test_h0079_followup.py::TestG3ObjectiveCompatibilityEdgeInputs::test_dict_form_objective_raises
+PASSED tests/test_estimators/test_lgbm_defaults.py::TestTaskDefaults::test_binary_metric_list
+PASSED tests/test_estimators/test_lgbm_defaults.py::TestTaskDefaults::test_multiclass_metric_list
+PASSED tests/test_estimators/test_lgbm_defaults.py::TestTaskDefaults::test_regression_metric_list
+PASSED tests/test_estimators/test_lgbm_metric_bridge.py::TestR2FevalMigration::test_r2_in_feval_metrics
+PASSED tests/test_estimators/test_lgbm_metric_bridge.py::TestR2FevalMigration::test_r2_not_in_native_whitelist
+PASSED tests/test_estimators/test_lgbm_metric_bridge.py::TestR2FevalMigration::test_r2_validate_lgbm_metrics_rejects
+PASSED tests/test_estimators/test_lgbm_metric_bridge.py::TestTranslateMetric::test_unknown_metric_passthrough
+PASSED tests/test_estimators/test_lgbm_metric_bridge.py::TestValidateLgbmMetrics::test_feval_metric_bypasses_validation
+PASSED tests/test_estimators/test_lgbm_metric_bridge.py::TestValidateLgbmMetrics::test_invalid_metric_raises
+PASSED tests/test_estimators/test_lgbm_metric_bridge.py::TestValidateLgbmMetrics::test_mixed_native_and_feval
+PASSED tests/test_estimators/test_lgbm_metric_bridge.py::TestValidateLgbmMetrics::test_regression_metric_invalid_for_binary
+PASSED tests/test_estimators/test_lgbm_metric_bridge.py::TestValidateLgbmMetrics::test_valid_native_metrics_pass[metrics0-regression]
+PASSED tests/test_estimators/test_lgbm_metric_bridge.py::TestValidateLgbmMetrics::test_valid_native_metrics_pass[metrics1-regression]
+PASSED tests/test_estimators/test_lgbm_metric_bridge.py::TestValidateLgbmMetrics::test_valid_native_metrics_pass[metrics2-regression]
+PASSED tests/test_estimators/test_lgbm_metric_bridge.py::TestValidateLgbmMetrics::test_valid_native_metrics_pass[metrics3-binary]
+PASSED tests/test_estimators/test_lgbm_metric_bridge.py::TestValidateLgbmMetrics::test_valid_native_metrics_pass[metrics4-binary]
+PASSED tests/test_estimators/test_lgbm_metric_bridge.py::TestValidateLgbmMetrics::test_valid_native_metrics_pass[metrics5-multiclass]
+PASSED tests/test_estimators/test_lgbm_user_metric.py::TestInvalidMetricError::test_empty_string_metric_falls_back
+PASSED tests/test_estimators/test_lgbm_user_metric.py::TestInvalidMetricError::test_string_metric_with_empty_falls_back
+PASSED tests/test_estimators/test_lgbm_user_metric.py::TestParamsSummaryMetric::test_metric_in_params_summary
+PASSED tests/test_estimators/test_lgbm_user_metric.py::TestUserMetricBehavioral::test_default_metric_shows_all_task_metrics
+PASSED tests/test_estimators/test_lgbm_user_metric.py::TestUserMetricOverride::test_fallback_to_task_default_when_no_user_metric
+PASSED tests/test_estimators/test_metric_choices_registry_coverage.py::TestMetricRegistryTranslation::test_no_registered_metrics_lost_in_translation[regression]
+PASSED tests/test_estimators/test_metric_choices_registry_coverage.py::TestMetricRegistryTranslation::test_no_registered_metrics_lost_in_translation[binary]
+PASSED tests/test_estimators/test_metric_choices_registry_coverage.py::TestMetricRegistryTranslation::test_no_registered_metrics_lost_in_translation[multiclass]
+PASSED tests/test_estimators/test_metric_choices_registry_coverage.py::TestProviderSurfaceReverseSubset::test_feval_subset_of_feval_metrics[regression]
+PASSED tests/test_estimators/test_metric_choices_registry_coverage.py::TestProviderSurfaceReverseSubset::test_feval_subset_of_feval_metrics[binary]
+PASSED tests/test_estimators/test_metric_choices_registry_coverage.py::TestProviderSurfaceReverseSubset::test_feval_subset_of_feval_metrics[multiclass]
+PASSED tests/test_estimators/test_param_behavioral_effect.py::TestBoosterParamPropagation::test_metric_default_per_task
+PASSED tests/test_estimators/test_provider_choice_apis.py::TestMetricChoicesContent::test_feval_subset_of_feval_metrics
+PASSED tests/test_estimators/test_provider_choice_apis.py::TestMetricChoicesContent::test_regression_native_includes_core_metrics
+PASSED tests/test_estimators/test_provider_choice_apis.py::TestMetricChoicesSignature::test_non_empty_native_branch[regression]
+PASSED tests/test_estimators/test_provider_choice_apis.py::TestMetricChoicesSignature::test_non_empty_native_branch[binary]
+PASSED tests/test_estimators/test_provider_choice_apis.py::TestMetricChoicesSignature::test_non_empty_native_branch[multiclass]
+PASSED tests/test_metrics/test_metric_requires_proba.py::test_the_population_is_every_needs_proba_metric
+PASSED tests/test_plots/test_tuning_plot.py::TestTuningPlotUnit::test_best_score_line_present
+PASSED tests/test_training/test_training.py::TestCVTrainerRegression::test_metrics_empty
+PASSED tests/test_tuning/test_retune.py::TestPlotTuningHistoryRounds::test_plot_maximize_direction
+PASSED tests/test_tuning/test_tuning_progress.py::TestTuneProgressInfo::test_none_scores
+55 passed, 1 warning in 0.94s

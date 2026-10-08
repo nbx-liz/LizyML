@@ -13,12 +13,26 @@ H-0077 invariant applies only to the diagnostic mixins. See HISTORY H-0091 (#237
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from lizyml.config.schema import OptunaParamsConfig
-from lizyml.core._model_factories import build_splitter, get_provider
+from lizyml.core._model_factories import (
+    build_splitter,
+    check_calibration_param_names,
+    check_duplicate_space_dimensions,
+    check_param_names,
+    check_training_managed_overrides,
+    check_training_managed_space,
+    get_provider,
+    model_space_names,
+    overlay_params,
+)
 from lizyml.core._model_metrics import _DEFAULT_METRICS
 from lizyml.core._model_state import TuningState
+from lizyml.core._tuning_validation import (
+    resolve_tuning_direction,
+    validate_tuning_dimensions,
+)
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.logging import generate_run_id, get_logger
 from lizyml.core.train_components import TrainComponents
@@ -81,6 +95,7 @@ class ModelTuningMixin:
         _rounds: list[RoundSummary]
         _space: list[Any] | None
         _used_default_space: bool
+        _tuning_fixed_params: dict[str, Any] | None
 
         # --- Facade methods this mixin delegates to (defined on Model) ---
         def _prepare_training_data(
@@ -90,7 +105,12 @@ class ModelTuningMixin:
         ]: ...
 
         def _merge_params(
-            self, provider: Any, override: dict[str, Any] | None = None
+            self,
+            provider: Any,
+            override: dict[str, Any] | None = None,
+            *,
+            tuning_fixed_params: dict[str, Any] | None = None,
+            include_tuning_result: bool = True,
         ) -> tuple[dict[str, Any], dict[str, Any]]: ...
 
         def _ensure_run_dir(self, run_id: str) -> None: ...
@@ -159,6 +179,7 @@ class ModelTuningMixin:
         """
         cfg = self._cfg
         self._validate_tune_inputs(resume=resume, boundary_threshold=boundary_threshold)
+        direction = resolve_tuning_direction(cfg)
 
         optuna_cfg = cfg.tuning.optuna.params  # type: ignore[union-attr]
         actual_n_trials = n_trials if n_trials is not None else optuna_cfg.n_trials
@@ -176,7 +197,6 @@ class ModelTuningMixin:
         # `provider.build_pipeline_factory()`.
         X, y, groups, _components = self._prepare_training_data(data)
         del _components
-        self._X, self._y = X, y
 
         provider = get_provider(cfg.model)
         self._provider = provider
@@ -187,10 +207,39 @@ class ModelTuningMixin:
             task=cfg.task,
             seed=cfg.training.seed,
         )
-        base_model_params, base_smart_params = self._merge_params(provider)
+
+        # H-0093: a `category: model` dimension whose name the estimator
+        # does not know is sampled by Optuna, forwarded, and discarded --
+        # so every trial in the study really explores the other axes, and
+        # nothing says so. Checked before the study starts; trial params
+        # are drawn from these names, so covering the space covers them.
+        check_param_names(provider, model_space_names(cfg), model_name=cfg.model.name)
+        # The same-layer rule, on the layer decision 6 had not reached. Two
+        # dimensions spelling one parameter both land in the trial dict, and
+        # LightGBM keeps the canonical one -- so the other is sampled and
+        # optimised over without affecting any trial (H-0094 decision 8).
+        check_duplicate_space_dimensions(provider, cfg)
+        # And the training-managed rule, on the same layer. `_merge_params`
+        # checks the three inputs that meet there; trial parameters overlay
+        # afterwards, so without this a study sampled a parameter
+        # `training.*` controls, trained on it, and returned a
+        # `best_model_params` the following `fit()` refused (H-0094 decision
+        # 10, review round 14).
+        check_training_managed_space(provider, cfg)
+        # The calibration surface is checked here too, not only on the fit path.
+        # `tune()` is its own entry point: without this, a config carrying a
+        # dead `calibration.params` name completes a whole study and is refused
+        # only by the `fit()` that follows, having already trained. Calibration
+        # itself does not run during tuning -- what this buys is the ordering
+        # H-0093 decision 6 and BLUEPRINT 12.2 declare, on every entry point
+        # rather than on one of them.
+        check_calibration_param_names(cfg.calibration)
 
         space, used_default, fixed = self._resolve_search_space(
             resume=resume, provider=provider
+        )
+        base_model_params, base_smart_params = self._merge_params(
+            provider, tuning_fixed_params=fixed, include_tuning_result=resume
         )
         space, boundary_report, expanded_names = self._maybe_expand_boundary(
             space,
@@ -198,6 +247,35 @@ class ModelTuningMixin:
             used_default=used_default,
             expand_boundary=expand_boundary,
             boundary_threshold=boundary_threshold,
+        )
+
+        validate_tuning_dimensions(provider, space, base_smart_params, cfg.task)
+
+        # Resolved defaults can introduce training ownership even when Config
+        # disables it. Check every native name the objective can send before
+        # creating a study. Early-stopping ownership depends on presence of a
+        # training override, not its sampled patience; 1 represents that state.
+        training_claims = (
+            {"early_stopping_rounds": 1}
+            if any(
+                dim.category == "training" and dim.name == "early_stopping_rounds"
+                for dim in space
+            )
+            else None
+        )
+        resolved_model = overlay_params(provider, base_model_params, fixed)
+        check_training_managed_overrides(
+            provider, resolved_model, cfg, training_overrides=training_claims
+        )
+        model_dimensions = dict.fromkeys(
+            dim.name for dim in space if dim.category == "model"
+        )
+        check_training_managed_overrides(
+            provider,
+            model_dimensions,
+            cfg,
+            origins=dict.fromkeys(model_dimensions, "tuning.optuna.space"),
+            training_overrides=training_claims,
         )
 
         # --- Metric & evaluator setup --------------------------------------------
@@ -234,6 +312,7 @@ class ModelTuningMixin:
             space=space,
             actual_n_trials=actual_n_trials,
             optuna_cfg=optuna_cfg,
+            direction=direction,
             metric_name=metric_name,
             progress_callback=progress_callback,
             storage=storage,
@@ -255,12 +334,20 @@ class ModelTuningMixin:
         )
 
         # --- Update internal state -----------------------------------------------
+        # Published together, and only once the study has finished. `_X` / `_y`
+        # used to be assigned right after the data was prepared, which meant a
+        # `tune()` that failed replaced the diagnostics data belonging to the
+        # retained fit with a frame no trained model had seen -- the same
+        # defect round 17 found in `fit()`, on the adjacent method (H-0094
+        # decision 14). Nothing between here and there reads them.
+        self._X, self._y = X, y
         self._tuning_result = final_result
         self._study = study
         self._round_number = round_number
         self._rounds = list(all_rounds)
         self._space = space
         self._used_default_space = used_default
+        self._tuning_fixed_params = dict(fixed)
 
         _log.info(
             "event='tune.done' round=%d best_params=%s",
@@ -314,7 +401,7 @@ class ModelTuningMixin:
         """Return the search space for this tune call.
 
         Returns a tuple ``(space, used_default, fixed_params)`` where
-        ``used_default`` signals that no user-supplied space was provided
+        ``used_default`` signals merge mode with no user-supplied space
         (drives the H-0068 expand-boundary default).
 
         H-0078: ``provider.parameter_bounds(task)`` is attached to each
@@ -326,19 +413,35 @@ class ModelTuningMixin:
         if resume and self._space is not None:
             space = list(self._space)
             used_default = self._used_default_space
+            fixed = dict(self._tuning_fixed_params or {})
         else:
             user_space = parse_space(cfg.tuning.optuna.space)
-            if user_space:
+            if cfg.tuning.optuna.space_mode == "replace":
                 space = user_space
                 used_default = False
+                fixed = {}
             else:
-                space = provider.default_space(cfg.task)
-                used_default = True
-            space = attach_bounds(space, provider.parameter_bounds(cfg.task))
+                defaults = provider.default_space(cfg.task)
+                canonical = provider.canonical_param_names(
+                    [
+                        dim.name
+                        for dim in [*defaults, *user_space]
+                        if dim.category == "model"
+                    ]
+                )
 
-        fixed: dict[str, Any] = (
-            provider.default_fixed_params(cfg.task) if used_default else {}
-        )
+                def identity(dim: Any) -> tuple[str, str]:
+                    return (
+                        dim.category,
+                        canonical[dim.name] if dim.category == "model" else dim.name,
+                    )
+
+                overrides = {identity(dim): dim for dim in user_space}
+                space = [overrides.pop(identity(dim), dim) for dim in defaults]
+                space.extend(overrides.values())
+                used_default = not user_space
+                fixed = provider.default_fixed_params(cfg.task)
+            space = attach_bounds(space, provider.parameter_bounds(cfg.task))
         return space, used_default, fixed
 
     def _maybe_expand_boundary(
@@ -372,7 +475,9 @@ class ModelTuningMixin:
         )
         expanded_names = boundary_report.expanded_names
         if not expanded_names:
-            _log.info("event='tune.resume' no dims near boundary")
+            # Either no dim is near an edge, or every near-edge dim already
+            # sits on a clamp and cannot move (H-0111).
+            _log.info("event='tune.resume' no dims expanded")
             return space, boundary_report, expanded_names
 
         new_space = expand_dims(space, boundary_report)
@@ -423,7 +528,17 @@ class ModelTuningMixin:
             trial_params = suggest_params(trial, space)
             model_p, smart_p, training_p = split_by_category(trial_params, space)
 
-            merged_model = {**base_model_params, **fixed, **model_p}
+            # Overlaid by identity, the same way `_merge_params` overlays its
+            # three layers. A plain dict merge keeps both spellings: a config
+            # `learning_rate` and a search dimension named `eta` are one
+            # parameter to LightGBM, which then prefers the canonical name --
+            # so the trials trained at the config's value while the study
+            # recorded the trial's, and the fit afterwards used the recorded
+            # one. Tuning selected a model it had never evaluated (H-0094,
+            # review round 11). This is the fourth seam; the other three were
+            # made identity-aware in round 3.
+            merged_model = overlay_params(provider, base_model_params, fixed)
+            merged_model = overlay_params(provider, merged_model, model_p)
             merged_smart = {**base_smart_params, **smart_p}
 
             tc = self._build_train_components(
@@ -438,7 +553,9 @@ class ModelTuningMixin:
             cv_trainer = CVTrainer(
                 outer_splitter=splitter,
                 inner_valid=tc.inner_valid,
-                pipeline_factory=provider.build_pipeline_factory(),
+                pipeline_factory=provider.build_pipeline_factory(
+                    unseen_policy=cfg.features.unseen_policy
+                ),
                 estimator_factory=tc.estimator_factory,
                 task=cfg.task,
                 n_classes=n_classes,
@@ -465,6 +582,7 @@ class ModelTuningMixin:
         space: list[Any],
         actual_n_trials: int,
         optuna_cfg: OptunaParamsConfig,
+        direction: Literal["minimize", "maximize"],
         metric_name: str,
         progress_callback: TuneProgressCallback | None,
         storage: str | BaseStorage | None,
@@ -492,7 +610,7 @@ class ModelTuningMixin:
         tuner = Tuner(
             dims=space,
             n_trials=actual_n_trials,
-            direction=optuna_cfg.direction,
+            direction=direction,
             timeout=optuna_cfg.timeout,
             seed=self._cfg.training.seed,
             progress_callback=progress_callback,

@@ -9,7 +9,8 @@ Design invariants (from SKILL calibration):
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -17,6 +18,30 @@ import numpy as np
 import numpy.typing as npt
 
 from lizyml.calibration.base import BaseCalibratorAdapter
+from lizyml.core.exceptions import ErrorCode, LizyMLError
+
+
+@contextmanager
+def _locate_failure(*, stage: str, fold: int | None = None) -> Iterator[None]:
+    """Add where a ``CALIBRATION_FAILED`` happened to its context (H-0113).
+
+    ``stage`` is ``"cross_fit"`` (with the 0-based ``fold``) or ``"c_final"``.
+    Every other exception passes through unchanged.
+    """
+    try:
+        yield
+    except LizyMLError as exc:
+        if exc.code is not ErrorCode.CALIBRATION_FAILED:
+            raise
+        where: dict[str, Any] = {"stage": stage}
+        if fold is not None:
+            where["fold"] = fold
+        raise LizyMLError(
+            ErrorCode.CALIBRATION_FAILED,
+            user_message=exc.user_message,
+            context={**exc.context, **where},
+            cause=exc,
+        ) from exc
 
 
 @dataclass
@@ -95,7 +120,7 @@ def cross_fit_calibrate(
     fallback_fold_flags: list[bool] = []
     n_fallback_rows = 0
 
-    for train_idx, val_idx in split_indices:
+    for fold, (train_idx, val_idx) in enumerate(split_indices):
         # Skip structurally uncovered rows (NaN OOF scores) from
         # calibrator training.  With H-0058 (outer splits reused),
         # TimeSeriesCV train_idx may include first-period rows that
@@ -121,7 +146,8 @@ def cross_fit_calibrate(
             n_fallback_rows += len(val_idx)
             continue
         cal = calibrator_factory()
-        cal.fit(train_scores[finite_mask], train_y[finite_mask])
+        with _locate_failure(stage="cross_fit", fold=fold):
+            cal.fit(train_scores[finite_mask], train_y[finite_mask])
         fallback_fold_flags.append(False)
 
         # Guard: val_idx may include structurally uncovered rows (NaN OOF)
@@ -142,7 +168,8 @@ def cross_fit_calibrate(
     # C_final: trained on ALL covered data — for inference only
     c_final = calibrator_factory()
     covered = ~np.isnan(oof_scores)
-    c_final.fit(oof_scores[covered], y[covered])
+    with _locate_failure(stage="c_final"):
+        c_final.fit(oof_scores[covered], y[covered])
 
     return CalibrationResult(
         c_final=c_final,

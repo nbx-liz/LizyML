@@ -5,6 +5,111 @@ release from v0.5.0 onward.
 
 ---
 
+## v0.18.0
+
+Most configs need no edits. Go through the sections below and act on the items
+that apply; `CHANGELOG.md` (`[0.18.0]`) has the details and the measurements
+behind each one. Saved artifacts keep `format_version` 2 and load and predict as
+before.
+
+### Configs that now raise `LizyMLError(CONFIG_INVALID)`
+
+| You wrote | Write instead |
+|-----------|---------------|
+| `feature_weights` in `model.params` | `feature_contri` (`feature_weights` is not a LightGBM parameter and never had an effect) |
+| One parameter under two spellings, e.g. `learning_rate` and `eta`, even with equal values | One spelling |
+| A name LightGBM does not define | The LightGBM name |
+| A `set`, an arbitrary object, `numpy.timedelta64`, an `ndarray` subclass or a pure path as a value | `None`, `bool`, `int`, `float`, `str`, `pathlib.Path`, a numpy scalar, a list / tuple / 1-D array of those, or a dict with str keys holding those |
+| `seed` or `early_stopping_round` (any spelling) in `model.params` or `fit(params=...)` | `training.seed`, `training.early_stopping.rounds` |
+| A native parameter an active smart parameter resolves, e.g. `num_leaves` with `auto_num_leaves` on | Turn the smart parameter off to set the native one |
+| `tuning.optuna.params.direction` that contradicts the metric | Omit it, or set `null` (it is taken from the metric) |
+| A `category: model` search dimension an active smart parameter overwrites, two dimensions for one parameter, or a `category: training` dimension other than `early_stopping_rounds` / `validation_ratio` | Remove it, or turn the smart parameter off |
+| `calibration.params` for `platt` / `beta` with names other than `x0`, `method`, `bounds`, `tol`, `options` (and `target_smoothing` for `platt`), e.g. `C`, or a value those names do not accept (an unknown `method` or solver option, an `x0` of the wrong length, malformed `bounds`, a non-positive `tol`, a non-boolean `target_smoothing`) | Remove them, or fix the value (before, all of these were ignored) |
+| A dict or list `objective` | A string |
+| `embargo: true` in a `purged_time_series` split | An integer in `purge_gap` |
+
+### Code that needs changes
+
+- `ErrorCode.DATA_FINGERPRINT_MISMATCH` is removed; a reference to it raises
+  `AttributeError`. Nothing ever raised it.
+- `validate_no_target_leakage` and `validate_time_series_order` raise
+  `LizyMLError(DATA_SCHEMA_INVALID)` when the column they are named for is
+  missing, and `validate_no_target_leakage` does the same for a column it cannot
+  compare, whatever `raise_on_violation` is. Before, a missing column got `[]`
+  and an uncomparable column was skipped.
+- Error codes you may now receive: `CALIBRATION_FAILED` is new (a Platt or Beta
+  optimiser did not converge). `INCOMPATIBLE_COLUMNS` (a column numeric at fit
+  arrives non-numeric at `predict`) and `METRIC_REQUIRES_PROBA` (a probability
+  metric received values that are not probabilities) were declared before but
+  never raised.
+- A `config_version` other than `1` raises `CONFIG_VERSION_UNSUPPORTED` on every
+  path into `Model`, including `model_validate`, `model_construct`, assignment
+  and `LIZYML__config_version`; before, several of those paths accepted it.
+- `PredictionResult.warnings` lists categories that were not seen at fit.
+- A third-party `EstimatorProvider` must implement `accepted_model_param_names()`,
+  `smart_param_names()`, `smart_managed_param_names()` and
+  `canonical_param_names()`, and accept `build_pipeline_factory(unseen_policy=...)`.
+- `PurgedTimeSeriesConfig` and `PurgedTimeSeriesSplitter` no longer have an
+  `embargo` attribute, and `model_dump()` has no `embargo` key: read
+  `purge_gap`, which includes it. `PurgedTimeSeriesSplitter(embargo=...)` is
+  deprecated like the config key.
+
+### Deprecated: `embargo` in `purged_time_series`
+
+`embargo`, `embargo_pct` and `gap` still work until v1.0, with a
+`DeprecationWarning`, and are **added** to `purge_gap`. The folds do not change:
+
+```yaml
+split:
+  method: purged_time_series
+  purge_gap: 5
+  embargo: 2      # before
+```
+
+```yaml
+split:
+  method: purged_time_series
+  purge_gap: 7    # after: the same folds
+```
+
+### Results that change without a config edit
+
+Re-run, and re-check metrics, if any of these applies to you:
+
+- You set `model.feature_weights`: it now takes effect (it is sent to LightGBM
+  as `feature_contri`). Before, LightGBM discarded it.
+- You passed `fit(params=...)`: it is now applied. Before, the model trained on
+  the config values.
+- You wrote a parameter under a LightGBM alias (`eta`, `max_leaves`, ...) in
+  `model.params` or `calibration.params`: it now takes effect. Before, the
+  default or the calibrator's default won.
+- You use `platt` calibration: it is fitted as Platt defined it (no L2 penalty,
+  smoothed targets). The measured change is small.
+- Multiclass with `balanced` active (the default `balanced: null` included): the
+  final refit trains with the same class weights as the CV folds, so predictions
+  and exports change.
+- Early stopping on a metric LizyML computes itself (binary `accuracy`, `f1`,
+  `brier`, `ece`; multiclass `brier`): the metric now sees real probabilities,
+  so a different iteration may be selected.
+- A partial `tuning.optuna.space`: the other default dimensions are kept now
+  (`space_mode: merge`). Set `space_mode: replace` for the previous behaviour.
+- `tune()` without an explicit `direction`: the direction now follows the
+  metric. A study tuned the wrong way needs a new study name.
+- SHAP importance with `features.auto_categorical: false`: each fold model is
+  explained with its own pipeline.
+
+### Artifacts and exported code
+
+- `importance(kind="shap")` on a model exported before v0.18.0 raises
+  `MODEL_NOT_FIT`; call `fit()` again to record the per-fold pipeline states.
+- Re-fitting a restored tuning result that names one parameter twice raises
+  `CONFIG_INVALID`.
+- Regenerate an `export_code()` project if you exported after setting `metrics`
+  / `metric_types`, or after a `tune()` that changed the early-stopping
+  patience; the old project trains a different model.
+
+---
+
 ## v0.15.0
 
 ### `LGBMConfig.params["objective"]` is now respected when task-compatible

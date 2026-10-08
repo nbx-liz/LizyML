@@ -89,6 +89,33 @@ class TestIsotonicCalibrator:
         diffs = np.diff(pred)
         assert np.all(diffs >= -1e-10)
 
+    @pytest.mark.parametrize("forced", ["monotone_constraints", "verbosity"])
+    def test_a_forced_parameter_is_forced_under_its_canonical_name(
+        self, forced: str
+    ) -> None:
+        """The calibrator forces the name LightGBM resolves every alias to.
+
+        LightGBM treats aliases as one parameter and prefers the canonical
+        spelling when both reach it, so forcing an alias does not force
+        anything. `monotone_constraints` was already canonical;
+        `verbose` was not, and `params={"verbosity": 1}` reached `lgbm.train`
+        beside the forced `verbose: -1` and won -- the calibrator's "always
+        quiet" silently off (H-0094 decision 8, review round 12).
+
+        This is the calibrator's own guarantee, asserted at the calibrator.
+        `lizyml/calibration/` cannot import the alias table under the layer
+        rule, so it cannot drop a *user's* alias; the facade canonicalises
+        every spelling before the merge, and the test beside it in
+        `tests/test_core/test_fit_params_override.py` asserts that end to end.
+        """
+        from lizyml.estimators.lgbm.param_names import LGBM_CANONICAL_NAME
+
+        assert LGBM_CANONICAL_NAME.get(forced, forced) == forced, (
+            f"'{forced}' is not the canonical spelling, so forcing it forces nothing"
+        )
+        params = IsotonicCalibrator(params={forced: 99})._lgbm_params
+        assert params[forced] != 99
+
     def test_uses_booster_api(self) -> None:
         """After fit, _model should be a lgb.Booster, not LGBMRegressor."""
         import lightgbm as lgbm

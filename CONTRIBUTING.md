@@ -22,10 +22,17 @@ git config core.hooksPath .githooks
 ### Release (develop → main)
 
 1. Add a CHANGELOG entry on develop (via a feature PR)
-2. `gh pr create --base main --head develop --title "release: vX.Y.Z"`
+2. `gh pr create --base main --head develop --title "release: vX.Y.Z"`, or
+   `uv run python scripts/release.py vX.Y.Z`, which opens the same PR and refuses
+   (without committing or pushing) when `CHANGELOG.md` is dirty or local develop
+   differs from `origin/develop`
 3. Verify CI passes: `gh pr checks <PR#>`
 4. Merge with **Create a merge commit** (NOT squash — squash breaks history sync)
-5. `auto-release.yml` auto-creates tag + GitHub Release
+5. `auto-release.yml` auto-creates tag + GitHub Release. It first checks that the
+   PR's head is `develop` in this repository and that its merge commit has two
+   parents, and refuses to tag anything else. The title must be exactly
+   `release: vX.Y.Z`. If a later step fails, re-run the workflow: a tag that
+   already names the merge commit is reused (H-0117)
 6. No post-release sync PR needed
 
 ### Commit Types
@@ -125,9 +132,13 @@ When specifications conflict, priority is:
 
 1. `BLUEPRINT.md` (structure, contracts, invariants)
 2. `HISTORY.md` (proposals and decisions)
-3. `AGENTS.md` (operational principles)
-4. `skills/*` (implementation procedures)
-5. Implementation code
+3. `CONTRIBUTING.md` (this file: workflow, release and review rules)
+4. Implementation code
+
+`PLAN.md` is a roadmap and status document, not a specification. Agent
+instruction files (`CLAUDE.md`, `.claude/AGENTS.md`, `.claude/skills/`) are local
+and not tracked in this public repository: they summarise the rules above for an
+agent session and never override them (H-0117).
 
 ## Testing Requirements
 
@@ -135,10 +146,21 @@ When specifications conflict, priority is:
 - **Contract tests** for public API / Config / Result shape changes
 - **Leak detection tests** for split / calibration changes (must include "should-fail" cases)
 - **Reproducibility tests** with seed pinning for new features
+- **A test named for an effect asserts it where it happens** (#270). If the name or
+  docstring claims that training changes, a parameter reaches the Booster, a public
+  `Model` method behaves a certain way, or an export loads back, observe that: the
+  params `lgb.train` received (`tests/_train_spy.py`), the trained Booster, or what
+  `Model.fit` / `predict` / `load` returned. A test of a helper is named for the helper
+  and points at the boundary test in its docstring. A refusal test checks which gate
+  refused when its input would trip another one too, and no assertion sits inside an
+  `if` that skips it when the thing claimed is missing. To check a test, break the code
+  it claims to cover and see it fail;
+  `docs/audits/2026-09-defect-discovery/instruments/kill_producers.py` does that for
+  `lgb.train`, `Model`'s public methods, metrics and splitters (`LIZYML_KILL=...`).
 
 ## Language Convention
 
-- `BLUEPRINT.md`, `HISTORY.md`, `PLAN.md`, `CLAUDE.md`: Japanese
+- `BLUEPRINT.md`, `HISTORY.md`, `PLAN.md`, and the local agent instruction files: Japanese
 - Code, docstrings, commit messages, PR descriptions: English
 
 ## Running Tests

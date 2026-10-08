@@ -87,8 +87,12 @@ class TestFilterMetricsNoBranches:
             "raw": {"oof": {"rmse": 0.5, "mae": 0.3}, "if_mean": {"rmse": 0.4}},
             "calibrated": {"oof": {"logloss": 0.2}},
         }
+        # Unconditional (#270): the assertion used to sit inside
+        # ``if "calibrated" in result``, so an empty branch the filter left
+        # behind and a branch it dropped could not be told apart.
         result = filter_metrics(metrics, {"rmse"})
-        if "calibrated" in result:
-            for k, v in result["calibrated"].items():
-                if isinstance(v, dict):
-                    assert len(v) > 0, f"Empty branch: calibrated.{k}"
+        assert "calibrated" not in result, result
+        assert result["raw"] == {"oof": {"rmse": 0.5}, "if_mean": {"rmse": 0.4}}
+
+        kept = filter_metrics(metrics, {"rmse", "logloss"})
+        assert kept["calibrated"] == {"oof": {"logloss": 0.2}}

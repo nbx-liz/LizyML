@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from lizyml.estimators.lgbm import LGBMAdapter
 
 
@@ -94,12 +96,15 @@ class TestUserOverride:
         assert params["verbosity"] == 1
         assert "verbose" not in params
 
-    def test_seed_takes_priority_over_random_state(self) -> None:
-        params, *_ = LGBMAdapter(
-            task="regression", params={"random_state": 77, "seed": 88}
-        )._build_params()
-        assert params["seed"] == 88
-        assert "random_state" not in params
+    def test_duplicate_seed_spellings_are_refused(self) -> None:
+        """H-0097 replaces the historical canonical-wins behavior explicitly."""
+        from lizyml.core.exceptions import ErrorCode, LizyMLError
+
+        with pytest.raises(LizyMLError) as caught:
+            LGBMAdapter(
+                task="regression", params={"random_state": 77, "seed": 88}
+            )._build_params()
+        assert caught.value.code == ErrorCode.CONFIG_INVALID
 
     def test_no_deprecated_keys_in_output(self) -> None:
         params, *_ = LGBMAdapter(
