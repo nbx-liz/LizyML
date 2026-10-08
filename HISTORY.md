@@ -11420,6 +11420,13 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
    - `model.plot_learning_curve().show()`（回帰）→ タグ付きセルで `fig = model.plot_learning_curve()` とし、`fig.show()` はタグの無いセルに置く。
    - `pd.DataFrame({"pred": model.predict(X_new).pred})`（codegen）→ タグ付きセルで `result = model.predict(X_new)` とし、残りはタグの無いセルに置く。
 
+   書き直しは次の 3 つの形に限る。
+   - 呼び出しの連鎖を代入とタグの無いセルに分ける。
+   - 式の中の呼び出しを先に代入する。
+   - 2 つの形の文と、それ以外の文（`print` など）が同じセルにあれば、セルを分ける。
+
+   どのノートブックも、実行に要る extra のそれぞれについて、それを導くタグ付きの文を少なくとも 1 つ持つ必要がある（4. と 6.(b) から従う）。実装時の調べ（2026-10-09）では、8 本で約 10 か所の書き直しが要る。
+
 4. **メソッドから extra への対応表をパッケージ内に置く**（`lizyml/_extras.py`、非公開）。
 
    項目は、現行コード（2026-10-09、`d72b20a`）から調べたものである。
@@ -11470,8 +11477,10 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
    この検査は、対応表の過大な記載（要らない extra）を防ぐ。
 
    **(b) ノートブックの実行。** ノートブックごとの matrix（8）で行う。
-   - **環境**: そのノートブックが宣言した extras だけを入れた環境を作る（`uv sync --frozen --no-dev --group notebooks` に、宣言した extra ごとに `--extra <e>`）。実行は `uv run --no-sync --no-dev python -m pytest tests/test_notebooks/test_index_execution.py -k <名前>` で行う。
-   - **環境の確認**: 実行の前に、`explain`、`plots`、`tuning` の各パッケージについて、宣言した extra のものは import でき、宣言していないものは import できないことを確かめる。
+   - **環境**: そのノートブックが宣言した extras だけを入れた環境を作る（`uv sync --frozen --no-dev --group notebooks` に、宣言した extra ごとに `--extra <e>`）。実行は `uv run --no-sync --no-dev python -m pytest tests/test_notebooks/test_index_execution.py -m slow -k <名前>` で行う。このテストには `slow` を付ける。`pyproject.toml` の `addopts` が `-m 'not slow'` なので、`-m slow` を明示しないと選ばれない（実装時の調べで判明、2026-10-09）。
+     - develop 向けの通常の lane では、このテストは走らない。
+     - main 向けの quality lane（`-m ""`）では、既存の slow な実行テストと同じく dev 環境でも走る。その場合は呼び出しの記録だけを確かめ、extras の分離は確かめない。
+   - **環境の確認**: pytest を起動する前の別の CI step で、`explain`、`plots`、`tuning` の各パッケージについて、宣言した extra のものは import でき、宣言していないものは import できないことを確かめる。テストの中に置かないのは、dev 環境（main 向けの quality lane）では宣言していない extra も入っているためである。
    - **カーネル**: ipykernel の native kernel を使い、テストプロセスの `sys.executable` で起動する。codegen のノートブックは `python` を PATH から探して起動しているので、`sys.executable` に変える。
    - **呼び出しの記録**: 実行する notebook の内容は、メモリ上でだけ書き換える（ファイルは変えない）。
      - 先頭に記録用のセルを足す。このセルは `Model` の公開メソッドを、継承した mixin のものも含めて包み、呼び出しを記録する。記録の対象は、ほかの `Model` メソッドの中から呼ばれたものを除いた、一番外側の呼び出しだけである。
