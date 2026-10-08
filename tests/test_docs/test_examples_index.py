@@ -7,7 +7,8 @@ the listed notebooks are exactly the notebooks on disk, every method the index
 names for a notebook is called in it, and the extras it lists are exactly the
 ones the notebook's imports and calls need. Anything the derivation cannot
 decide -- a non-literal ``kind=``, an import outside the standard library, the
-base install and the extras -- fails the test instead of passing it.
+base install and the extras, a model name rebound, a relevant call on a path
+that may not run -- fails the test instead of passing it.
 """
 
 from __future__ import annotations
@@ -45,7 +46,7 @@ EXTRA_MODULES = {"plotly": "plots", "shap": "explain", "optuna": "tuning"}
 
 def _sections() -> dict[str, str]:
     parts = re.split(
-        r"^### `(tutorial_\w+\.ipynb)`\n", INDEX.read_text(encoding="utf-8"), flags=re.M
+        r"^### `([^`\n]+\.ipynb)`\n", INDEX.read_text(encoding="utf-8"), flags=re.M
     )
     names, bodies = parts[1::2], parts[2::2]
     duplicated = sorted({n for n in names if names.count(n) > 1})
@@ -72,6 +73,35 @@ def _tree(name: str) -> ast.Module:
 
 
 _SCOPES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)
+#: Statements whose body may run zero, one or many times.
+_COMPOUND = (
+    ast.If,
+    ast.For,
+    ast.AsyncFor,
+    ast.While,
+    ast.Try,
+    ast.With,
+    ast.AsyncWith,
+    ast.Match,
+)
+
+
+def _uncertain(tree: ast.Module) -> set[int]:
+    """``id()`` of every node whose execution the text cannot decide.
+
+    That is everything inside a compound statement (a branch, loop, ``try`` or
+    ``with`` body) and everything inside a function, lambda or class body. Only
+    nodes in plain top-level statements are certain to run, in order.
+    """
+    found: set[int] = set()
+    for statement in tree.body:
+        if isinstance(statement, _COMPOUND + _SCOPES):
+            found.update(id(n) for n in ast.walk(statement))
+            continue
+        for node in ast.walk(statement):
+            if isinstance(node, _SCOPES):
+                found.update(id(n) for n in ast.walk(node))
+    return found
 
 
 def _is_model_call(node: ast.AST) -> bool:
@@ -88,33 +118,56 @@ def _is_model_call(node: ast.AST) -> bool:
 
 
 def _outside_scopes(node: ast.AST) -> list[ast.AST]:
-    """``node`` and its descendants, not descending into a function or class body."""
+    """``node`` and its descendants, not descending into a function or class body.
+
+    A function or class definition is itself included, because it binds its
+    name in the enclosing scope.
+    """
     found = [node]
+    if isinstance(node, _SCOPES):
+        return found
     for child in ast.iter_child_nodes(node):
-        if isinstance(child, _SCOPES):
-            continue
         found.extend(_outside_scopes(child))
     return found
+
+
+def _bound_name(node: ast.AST) -> str | None:
+    """The name ``node`` binds or unbinds in its scope, if any."""
+    if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store | ast.Del):
+        return node.id
+    if isinstance(node, ast.alias):
+        return (node.asname or node.name).split(".")[0]
+    if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+        return node.name
+    if isinstance(node, ast.ExceptHandler | ast.MatchAs | ast.MatchStar):
+        return node.name
+    if isinstance(node, ast.MatchMapping):
+        return node.rest
+    return None
 
 
 def _model_calls(name: str, tree: ast.Module) -> set[str]:
     """Methods called on a LizyML model, read in execution order.
 
     A name counts as a model from the top-level ``x = Model(...)`` (or
-    ``Model.load(...)``) that binds it, for the statements after it. Calls
-    inside a function, lambda or class body are not counted: which object their
-    receiver is cannot be told from the text. Anything that would make the
+    ``Model.load(...)``) that binds it, for the statements after it. Only calls
+    in plain top-level statements count: a call in a branch, loop, ``try`` or
+    ``with`` body, or in a function, lambda or class body, may never run, so it
+    cannot back a claim that the notebook makes it. Anything that would make the
     receiver undecidable fails instead of passing: a ``Model(...)`` bound
     anywhere but a top-level assignment to plain names, and a model name that is
-    rebound, deleted, imported over or declared ``global``.
+    rebound in any way (assignment, ``def`` / ``class``, ``except ... as``,
+    ``match`` capture, ``del``, an import) or declared ``global``.
     """
+    uncertain = _uncertain(tree)
     bound: set[str] = set()
     called: set[str] = set()
     for statement in tree.body:
         nodes = _outside_scopes(statement)
         for node in nodes:
             if (
-                isinstance(node, ast.Call)
+                id(node) not in uncertain
+                and isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Attribute)
                 and isinstance(node.func.value, ast.Name)
                 and node.func.value.id in bound
@@ -146,11 +199,7 @@ def _model_calls(name: str, tree: ast.Module) -> set[str]:
             else set()
         )
         for node in nodes:
-            stored = None
-            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store | ast.Del):
-                stored = node.id
-            elif isinstance(node, ast.alias):
-                stored = (node.asname or node.name).split(".")[0]
+            stored = _bound_name(node)
             if stored in bound and stored not in targets:
                 raise AssertionError(f"{name}: model name {stored!r} is rebound")
         bound |= targets
@@ -187,7 +236,22 @@ def _literal(
 
 
 def _needed_extras(name: str, tree: ast.Module) -> set[str]:
+    """Extras the notebook's imports and calls need.
+
+    An import, or a call that implies an extra, inside a branch, loop, ``try`` /
+    ``with`` body or a function / lambda / class body fails: whether it runs,
+    and so whether the extra is needed, cannot be decided from the text.
+    """
+    uncertain = _uncertain(tree)
     needed = set()
+
+    def need(node: ast.AST, extra: str) -> None:
+        assert id(node) not in uncertain, (
+            f"{name}: needs {extra!r} only on a path that may not run; "
+            "move it to a plain top-level statement"
+        )
+        needed.add(extra)
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Import | ast.ImportFrom):
             modules = (
@@ -198,7 +262,7 @@ def _needed_extras(name: str, tree: ast.Module) -> set[str]:
             for module in modules:
                 top = module.split(".")[0]
                 if top in EXTRA_MODULES:
-                    needed.add(EXTRA_MODULES[top])
+                    need(node, EXTRA_MODULES[top])
                 else:
                     assert (
                         top in BASE_MODULES
@@ -213,15 +277,15 @@ def _needed_extras(name: str, tree: ast.Module) -> set[str]:
                 else getattr(func, "id", "")
             )
             if "plot" in called:
-                needed.add("plots")
+                need(node, "plots")
             if called == "tune":
-                needed.add("tuning")
+                need(node, "tuning")
             # `importance(kind)` and `importance_plot(kind)` take `kind` first.
             position = 0 if called in {"importance", "importance_plot"} else None
             if _literal(name, node, "kind", position) == "shap":
-                needed.add("explain")
+                need(node, "explain")
             if _literal(name, node, "return_shap") is True:
-                needed.add("explain")
+                need(node, "explain")
         elif isinstance(node, ast.Constant) and node.value == "pytest":
             raise AssertionError(f"{name}: runs pytest, a dev-only dependency")
     return needed
@@ -241,7 +305,7 @@ SECTIONS = _sections()
 
 
 def test_the_index_lists_exactly_the_notebooks_on_disk() -> None:
-    on_disk = {p.name for p in NOTEBOOKS.glob("tutorial_*.ipynb")}
+    on_disk = {p.name for p in NOTEBOOKS.glob("*.ipynb")}
     assert on_disk, "no notebooks found; the glob lost its anchor"
     assert set(SECTIONS) == on_disk
 
