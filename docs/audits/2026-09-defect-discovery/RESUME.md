@@ -1,5 +1,12 @@
 # LizyML defect-discovery plan — state
 
+> **Historical record (2026-10-08).** This file was the resume note while the
+> discovery plan was being written, at `5712f41`, before any repair. It is not
+> the current state. Phases 1-3 are complete: see `MANIFEST.md` for what was
+> measured, `phase3-plan.md` §8 for completion, and `CHANGELOG.md` `[0.18.0]`
+> for what shipped. The `/tmp/lizyml-discovery-plan/` paths below no longer
+> exist; the instruments and results live in this directory.
+
 - Head under discovery: `5712f41`. Working tree clean throughout.
 - Discovery plan: `discovery-plan.md` v12, APPROVED at review round 11.
 - **Repair plan: `phase3-plan.md` revision 8. Codex round 7: zero blocking

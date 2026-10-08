@@ -1286,6 +1286,9 @@ other side, by PR 1's boundary test over every key that reaches `lgb.train`.
 > NOT-PLANNED 1 (#286), INCOMPLETE 0, UNKNOWN 0 of 25, exit 0
 > (`results/phase3_completion_21db071.txt`, committed in PR 9b `c873146`). Phase 3
 > is complete. The Revision 7 banner below records the state at `33a3f6e`.
+> The one PARTIAL row, #270, was finished after Phase 3: PR #329 re-measured
+> its population, dispositioned all 231 candidates and repaired 16 tests
+> (`results/i270/README.md`), and #270 is closed.
 
 > **Revision 7 (2026-10-02, PR 8c) — the instrument is shipped.** It is
 > `instruments/phase3_gap.py`, `instruments/phase3_manifest.json` (25 rows: the

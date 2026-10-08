@@ -11320,3 +11320,37 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 6. `create_release_tag.sh` を `origin` を持つ実際のリポジトリで実行し、新規のタグは merge commit に付いて push される。再実行は成功してタグを変えない。push されていないタグは再実行で push される。別の commit を指す既存のタグは拒否して何も push しない。checkout に無い merge commit は拒否する。
 7. `auto-release.yml` は、検査・バージョン・タグの step をこの順に置いて上の 3 つのスクリプトを実行し、各 step の `env:` は期待どおりの対応表と完全に一致し、どの `run:` も `${{ }}` を展開しない（YAML を読んで確かめる）。
 8. `CONTRIBUTING.md` の文書の優先順位と言語の規約が決定 3 のとおりで、`tests/test_docs/` が緑のまま。
+
+## H-0118: 結果フィールドの一覧を dataclass に揃え、テストで固定する（#326）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-08
+- **決定日**: 2026-10-08（管理者の判断: v0.18.0 の前の文書更新に #326 を含める）
+- **スコープ**: `BLUEPRINT.md` §7.1, `docs/api.md`（FitResult の表）, テスト（`tests/test_docs/test_result_field_inventories.py`、新規）, `docs/proposal_dispositions.toml`
+- **関連**: [Issue #326](https://github.com/nbx-liz/LizyML/issues/326), H-0002（結果の型をゴールデンテストで固定）, H-0030（校正の入力を生スコアにした）, H-0070（`target_encoder`）, H-0114（`pipeline_state_per_fold` を両方の一覧に足した）
+
+### 目的（課題）
+
+`FitResult` のフィールドを文章で並べた一覧が 2 つあり、どちらも dataclass（`lizyml/core/types/fit_result.py`）とずれていた。`BLUEPRINT.md` §7.1 には `oof_raw_scores` が無く、`docs/api.md` の FitResult の表には `target_encoder` が無い。ゴールデンテストは dataclass を固定するだけなので、文書がずれても CI は緑のままだった（DC3）。
+
+### 対応方針（決定）
+
+1. **実装が正で、文書を実装に揃える。** §7.1 に `oof_raw_scores` を足し、`docs/api.md` の表に `target_encoder` を足す。フィールドの形も意味も変えない。
+2. **一覧と dataclass の照合をテストにする。** 各文書の一覧からフィールド名の集合を読み取り、`dataclasses.fields` と比べる。対象は `FitResult`（§7.1 と `docs/api.md`）と `PredictionResult`（§7.3 と `docs/api.md`）の 4 組。一覧を読み取れなかった場合も失敗させる（空の集合で通さない）。
+
+### 互換性
+
+- コードも公開 API も変わらない。文書の記述と、それを検査するテストだけが増える。
+- 今後 `FitResult` か `PredictionResult` にフィールドを足すときは、2 つの文書の一覧にも足さないとテストが落ちる。
+- **Firing rate**: 本提案の条件は文書の検査であり、Change Gate の 6 つの目的のどれでもない。
+
+### 代替案（検討して棄却）
+
+1. **文書の一覧をやめ、dataclass の docstring を参照させる。** 一覧は仕様の一部（BLUEPRINT）と利用者向けの説明（api.md）を兼ねており、消すと読み手が型の定義を読みに行く必要がある。
+2. **`SplitIndices` と `RunMeta` も同じテストに含める。** #326 は検討を勧めているが、§7.1 では両者を入れ子の箇条書きで説明しており、決まった形の一覧になっていない。照合のために書き方を変えるのは本提案の範囲を超えるので、今回は入れない。
+
+### 受け入れ基準（テスト観点）
+
+1. `test_result_field_inventories.py` の 4 組がすべて緑。修正前は `FitResult` の 2 組が赤（§7.1 に `oof_raw_scores` が無い、`docs/api.md` に `target_encoder` が無い）。
+2. どちらかの文書から 1 つのフィールドを消すと、その組が赤になる。
+3. `tests/test_docs/` が緑のまま。
