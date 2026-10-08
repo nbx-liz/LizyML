@@ -219,8 +219,16 @@ with (RES / "d6_rows.jsonl").open("w", encoding="utf-8") as f:
 
 CTRL = "tests/test_estimators/test_param_behavioral_effect.py::TestSmartParamsBehavior::test_feature_weights_changes_importance"
 c = next((r for r in rows if r["test"] == CTRL), None)
-print("positive control")
-print(f"  {'HIT ' if c and c['verdict'] == 'CANDIDATE-HOLLOW' else 'MISS'} "
+# The control trains, so a working trace records lightgbm.train for it and the
+# classifier must call it SOUND. Anything else means the trace or the noun map
+# is broken, and the run fails below instead of printing a label.
+ctrl_ok = (
+    c is not None
+    and c["verdict"] == "SOUND"
+    and "lightgbm.train" in TRACES.get(CTRL, set())
+)
+print("positive control (trains: must be SOUND with lightgbm.train traced)")
+print(f"  {'OK  ' if ctrl_ok else 'FAIL'} "
       f"{c['verdict'] if c else 'ABSENT'} - {c['why'] if c else ''}")
 print()
 print("resolved population sizes")
@@ -233,3 +241,6 @@ ch = sorted((r for r in rows if r["verdict"] == "CANDIDATE-HOLLOW"),
 for r in ch[:25]:
     print(f"  {r['test']}")
     print(f"      {r['why']}")
+
+if not ctrl_ok:
+    raise SystemExit("positive control failed: " + CTRL)

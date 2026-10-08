@@ -11,6 +11,11 @@ population was measured again at the current head.
    `trace_run.txt` (the pytest output), 9296 traced items. The trace file itself is not kept (large).
 2. `instruments/d6_classify.py` → `d6_rows.jsonl`: 2335 test functions,
    CANDIDATE-HOLLOW 244 / SOUND 495 / STRUCTURAL 264 / CANNOT-TELL 1332.
+   Its positive control (`test_feature_weights_changes_importance`, which
+   trains) must come out SOUND with `lightgbm.train` traced, or the run exits
+   non-zero; its row in `d6_rows.jsonl` is SOUND with that hit. The version
+   that produced these rows printed this check inverted and never failed on
+   it; the rows themselves do not depend on it.
 3. `instruments/d6_kill_confirm.py` + `d6_tally.py` → `r6/`: with each
    candidate's producer set patched to raise, 231 pass (confirmed "never
    executes the producer") and 13 fail. "Confirmed" requires a `PASSED` line

@@ -169,7 +169,13 @@ class TestTimeSeriesCalibrationSplitter:
         assert len(folds) == 4
 
     def test_deprecated_calibration_splitter_shim_keeps_purge_params(self) -> None:
-        """Deprecated build_calibration_splitter preserves purge params."""
+        """Deprecated build_calibration_splitter preserves purge params.
+
+        This is the deprecated helper only; ``Model.fit`` no longer calls it.
+        That the calibration folds of a fit honour the merged ``purge_gap`` is
+        asserted by ``tests/test_splitters/test_purged_embargo_merge.py::
+        test_calibration_folds_match_the_merged_purge_gap``.
+        """
         import warnings
 
         from lizyml.config.loader import load_config

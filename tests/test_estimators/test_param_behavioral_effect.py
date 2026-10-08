@@ -359,7 +359,11 @@ class TestSmartParamsBehavior:
         assert mean_proba[True] > mean_proba[False] + 0.05, mean_proba
 
     def test_balanced_binary_resolves_scale_pos_weight(self) -> None:
-        """balanced=True resolves to scale_pos_weight on imbalanced data."""
+        """balanced=True resolves to scale_pos_weight on imbalanced data.
+
+        This is ``resolve_smart_params`` only. That a fit's predictions shift
+        is asserted by ``test_balanced_binary_shifts_predictions``.
+        """
         from lizyml.estimators.lgbm.smart_params import resolve_smart_params
 
         X_train, y_train, _, _ = _binary_data(imbalance_ratio=0.1)

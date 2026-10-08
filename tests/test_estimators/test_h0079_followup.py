@@ -194,7 +194,12 @@ class TestG3ObjectiveCompatibilityEdgeInputs:
 
     def test_dict_form_objective_raises(self) -> None:
         """Dict-form ``{"huber": {}}`` is illegal for objective (only
-        valid for metric MetricEntry per H-0065). Must reject."""
+        valid for metric MetricEntry per H-0065). Must reject.
+
+        This is the adapter's ``_build_params`` only. That ``Model.fit``
+        refuses it before training is asserted by
+        ``test_unhashable_objective_through_model_fit_is_config_invalid``.
+        """
         from lizyml.estimators.lgbm.adapter import LGBMAdapter
 
         adapter = LGBMAdapter(task="regression", params={"objective": {"huber": {}}})
