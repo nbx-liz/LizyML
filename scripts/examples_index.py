@@ -404,7 +404,11 @@ def check_notebook(
 
 # --- docs/examples.md (section 5) ----------------------------------------------
 
-_HEADING = re.compile(r"^#{1,6}\s")
+#: CommonMark's whitespace for blank lines, indentation, heading markers and
+#: fence closers is a space or a tab only; Python's ``str.strip()`` and ``\s``
+#: also take U+00A0 and other characters that CommonMark reads as text.
+_SPACE_TAB = " \t"
+_HEADING = re.compile(r"^#{1,6}[ \t]")
 _NB_HEADING = re.compile(r"^### `([A-Za-z0-9_.-]+\.ipynb)`$")
 _BEGIN = re.compile(r"^<!-- index:begin ([A-Za-z0-9_.-]+\.ipynb) -->$")
 _END = "<!-- index:end -->"
@@ -425,15 +429,19 @@ def _grammar_error(line: str, previous_blank: bool) -> str | None:
     """Why ``line``, outside a code fence, is not in the index's line grammar.
 
     docs/examples.md is restricted to lines whose Markdown reading is fixed:
-    a blank line, a column-0 ATX heading, an index marker, a column-0 code
-    fence, a thematic break after a blank line, and a paragraph line that does
-    not start with whitespace, ``>``, ``<``, ``=``, ``|``, ``#`` or a list
-    marker. With no indentation, block quote, list, HTML block or setext
-    underline possible, a heading can only be a column-0 ATX heading, which
-    the section rules read. Anything else fails instead of being parsed
-    (H-0119 section 5). Returns ``None`` for a line in the grammar.
+    a blank line (empty, or only spaces and tabs), a column-0 ATX heading
+    (one to six ``#`` then a space or a tab), an exact index marker, a column-0
+    code fence, a thematic break after a blank line, and a paragraph line that
+    does not start with a space, a tab, ``>``, ``<``, ``=``, ``|``, ``#`` or a
+    list marker. Whitespace here is CommonMark's, a space or a tab only. With
+    no indentation, block quote, list, HTML block or setext underline possible,
+    a heading can only be a column-0 ATX heading, which the section rules
+    read. Anything else fails instead of being parsed (H-0119 section 5).
+    Marker candidates are classified by ``_blocks``; otherwise a paragraph
+    line is admitted by its start alone, so ``index:begin`` and ``index:end``
+    are not reserved in prose. Returns ``None`` for an admitted line.
     """
-    if not line.strip():
+    if not line.strip(_SPACE_TAB):
         return None
     if _HEADING.match(line) or _BEGIN.match(line) or line == _END:
         return None
@@ -457,18 +465,32 @@ def _grammar_error(line: str, previous_blank: bool) -> str | None:
     return None
 
 
+def _is_marker_candidate(line: str) -> bool:
+    """Whether ``line`` is shaped like an index marker.
+
+    A candidate starts with ``<!--`` once leading whitespace (Python's, so
+    U+00A0 and the like as well) is removed, and contains the ASCII text
+    ``index:begin`` or ``index:end``. Reserving the marker shape rather than
+    the bare text keeps near-miss markers failing while prose and code may
+    mention the text.
+    """
+    return line.lstrip().startswith("<!--") and (
+        "index:begin" in line or "index:end" in line
+    )
+
+
 def _closes(line: str, fence: str) -> bool:
     """Whether ``line`` closes a fence opened with ``fence``.
 
     The closer uses the same character, at least as many of it, and nothing
-    after it but spaces, so a shorter inner fence or one of the other
-    character leaves the outer fence open.
+    after it but spaces or tabs, so a shorter inner fence, one of the other
+    character, or any other trailing character leaves the outer fence open.
     """
     stripped = line.lstrip(" ")
     if len(line) - len(stripped) > 3:
         return False
     run = len(stripped) - len(stripped.lstrip(fence[0]))
-    return run >= len(fence) and not stripped[run:].strip()
+    return run >= len(fence) and not stripped[run:].strip(_SPACE_TAB)
 
 
 def render_block(name: str, declaration: Declaration) -> list[str]:
@@ -490,7 +512,14 @@ def render_block(name: str, declaration: Declaration) -> list[str]:
 def _blocks(
     lines: Sequence[str], names: Sequence[str]
 ) -> tuple[dict[str, tuple[int, int]], list[str]]:
-    """Locate each section's generated block; return it and the structure errors."""
+    """Locate each section's generated block; return it and the structure errors.
+
+    Outside a code fence, only an exact ``_BEGIN`` or ``_END`` line counts as a
+    marker and every other marker candidate (``_is_marker_candidate``) fails.
+    Inside a code fence, every candidate fails, so a generated block cannot be
+    hidden as code. Non-candidate prose and fenced content may contain the
+    marker text.
+    """
     errors: list[str] = []
     sections: list[str] = []
     blocks: dict[str, tuple[int, int]] = {}
@@ -506,7 +535,7 @@ def _blocks(
                 fence = None
                 if line.startswith(" "):
                     errors.append(f"{where}: a code fence must close at column 0")
-            if "index:begin" in line or "index:end" in line:
+            if _is_marker_candidate(line):
                 # A marker in a fence renders as a code sample, not as the
                 # section's content, so it fails rather than counting.
                 errors.append(f"{where}: an index marker inside a code fence")
@@ -516,14 +545,12 @@ def _blocks(
         if opener is not None:
             fence = opener.group(1) or opener.group(2)
             fence_line = i
-            if "index:begin" in line or "index:end" in line:
-                errors.append(f"{where}: an index marker inside a code fence")
             previous_blank = False
             continue
         problem = _grammar_error(line, previous_blank)
         if problem is not None:
             errors.append(f"{where}: not in the index line grammar: {problem}")
-        previous_blank = not line.strip()
+        previous_blank = not line.strip(_SPACE_TAB)
         if _HEADING.match(line):
             if begin is not None:
                 errors.append(
@@ -539,7 +566,7 @@ def _blocks(
                 section = None
             elif len(line) - len(line.lstrip("#")) <= 3:
                 section = None
-        if "index:begin" in line or "index:end" in line:
+        if _is_marker_candidate(line):
             match = _BEGIN.match(line)
             if match is None and line != _END:
                 errors.append(f"{where}: malformed index marker {line!r}")

@@ -630,6 +630,9 @@ def test_a_heading_inside_a_nested_fence_is_ignored() -> None:
         " ```\n### `ghost.ipynb`\n```\n",
         "Text.\n---\n",
         "#hashtag\n",
+        # Not blank: only spaces and tabs make a blank line (run 2, round 3).
+        "  \n",
+        "\t　\n",
     ],
 )
 def test_a_line_outside_the_index_grammar_fails(extra: str) -> None:
@@ -659,6 +662,78 @@ def test_a_fence_closed_by_an_indented_closer_fails() -> None:
 )
 def test_ordinary_prose_is_in_the_grammar(prose: str) -> None:
     assert ix.check_index(DOC + "\n" + prose, DECLS) == []
+
+
+#: Every character Python treats as whitespace that CommonMark does not: only
+#: a space and a tab make a line blank, indent it, or end a heading marker or
+#: a fence closer (review run 2, round 3).
+_NON_COMMONMARK_SPACES = [
+    chr(c) for c in range(0x110000) if chr(c).isspace() and chr(c) not in " \t\n"
+]
+
+
+@pytest.mark.parametrize(
+    "space", _NON_COMMONMARK_SPACES, ids=lambda s: f"U+{ord(s):04X}"
+)
+def test_a_line_of_other_whitespace_is_not_blank(space: str) -> None:
+    # CommonMark reads such a line as paragraph text, so the break underlines
+    # it as a setext heading.
+    assert "grammar" in _errors(DOC + "\n" + space + "\n---\n")
+
+
+@pytest.mark.parametrize(
+    "space", _NON_COMMONMARK_SPACES, ids=lambda s: f"U+{ord(s):04X}"
+)
+def test_other_whitespace_after_a_fence_closer_keeps_the_fence_open(space: str) -> None:
+    # CommonMark keeps the fence open, so section b and its block render as code.
+    fence = "```\ncode\n```" + space + "\n"
+    text = _doc(_section("a.ipynb"), fence, _section("b.ipynb"))
+    assert "fence" in _errors(text)
+
+
+@pytest.mark.parametrize(
+    "space", _NON_COMMONMARK_SPACES, ids=lambda s: f"U+{ord(s):04X}"
+)
+def test_other_whitespace_after_hashes_is_not_a_heading(space: str) -> None:
+    assert "grammar" in _errors(DOC + "\n####" + space + "x\n")
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "This prose mentions index:end safely.\n",
+        "Inline `<!-- index:begin a.ipynb -->` in prose.\n",
+        "```\nliteral index:end token\n```\n",
+        "```text\n# index:begin and index:end\n```\n",
+    ],
+)
+def test_marker_text_outside_a_marker_candidate_passes(text: str) -> None:
+    # Only a line that starts with `<!--` is a marker candidate.
+    assert ix.check_index(DOC + "\n" + text, DECLS) == []
+
+
+_NEAR_MISS_MARKERS = [
+    "<!--index:begin b.ipynb-->",
+    "<!-- index:begin b.ipynb-->",
+    "<!-- index:begin b.ipynb -->",
+    " <!-- index:begin b.ipynb -->",
+    "<!-- index:end --> ",
+    "<!-- index:begin b.ipynb --> trailing",
+]
+
+
+@pytest.mark.parametrize("marker", _NEAR_MISS_MARKERS)
+def test_a_near_miss_marker_outside_a_fence_fails(marker: str) -> None:
+    assert "malformed index marker" in _errors(DOC + "\n" + marker + "\n")
+
+
+@pytest.mark.parametrize(
+    "marker",
+    ["<!-- index:begin b.ipynb -->", "<!-- index:end -->", "  <!-- index:end -->"]
+    + _NEAR_MISS_MARKERS,
+)
+def test_a_marker_candidate_inside_a_fence_fails(marker: str) -> None:
+    assert "inside a code fence" in _errors(DOC + "\n```\n" + marker + "\n```\n")
 
 
 def test_a_thematic_break_after_a_blank_line_is_not_a_heading() -> None:
