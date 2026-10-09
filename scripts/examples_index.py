@@ -408,42 +408,53 @@ _HEADING = re.compile(r"^#{1,6}\s")
 _NB_HEADING = re.compile(r"^### `([A-Za-z0-9_.-]+\.ipynb)`$")
 _BEGIN = re.compile(r"^<!-- index:begin ([A-Za-z0-9_.-]+\.ipynb) -->$")
 _END = "<!-- index:end -->"
-#: A CommonMark fence opener: up to three spaces, then three or more backticks
-#: (no backtick in the info string) or three or more tildes.
-_FENCE_OPEN = re.compile(r"^ {0,3}(?:(`{3,})[^`]*|(~{3,}).*)$")
+#: A fence opener. Only column 0 is in the line grammar; an indented one is
+#: refused by ``_grammar_error``.
+_FENCE_OPEN = re.compile(r"^(?:(`{3,})[^`]*|(~{3,}).*)$")
+_THEMATIC_BREAK = re.compile(r"^(?:-{3,}|\*{3,}|_{3,})$")
+_UNDERLINE_LIKE = re.compile(r"^(?:=+|-+)[ \t]*$")
+_LIST_ITEM = re.compile(r"^(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)")
+#: A paragraph line may not start with these: each makes the line something
+#: other than plain paragraph text (indentation or indented code, a block
+#: quote, an HTML block, a setext underline, a table) or is reserved for a
+#: recognised line (``#`` headings).
+_NOT_PROSE = (" ", "\t", ">", "<", "=", "|", "#")
 
 
-_LIST_MARKER = re.compile(r"(?:[-+*]|\d{1,9}[.)])[ \t]+")
-_ATX = re.compile(r"#{1,6}(?:[ \t]|$)")
-_SETEXT_UNDERLINE = re.compile(r"^ {0,3}(?:=+|-+)[ \t]*$")
+def _grammar_error(line: str, previous_blank: bool) -> str | None:
+    """Why ``line``, outside a code fence, is not in the index's line grammar.
 
-
-def _hidden_heading(line: str) -> bool:
-    """Whether ``line`` is an ATX heading in any form but the canonical one.
-
-    The canonical form starts at column 0. CommonMark also renders a heading
-    indented by one to three spaces, or inside a block quote or list item;
-    those are refused rather than parsed, so that no heading escapes the
-    section and census rules. A line indented by four or more spaces with no
-    container is an indented code block, not a heading.
+    docs/examples.md is restricted to lines whose Markdown reading is fixed:
+    a blank line, a column-0 ATX heading, an index marker, a column-0 code
+    fence, a thematic break after a blank line, and a paragraph line that does
+    not start with whitespace, ``>``, ``<``, ``=``, ``|``, ``#`` or a list
+    marker. With no indentation, block quote, list, HTML block or setext
+    underline possible, a heading can only be a column-0 ATX heading, which
+    the section rules read. Anything else fails instead of being parsed
+    (H-0119 section 5). Returns ``None`` for a line in the grammar.
     """
-    if _HEADING.match(line):
-        return False
-    rest = line
-    contained = False
-    while True:
-        stripped = rest.lstrip(" \t")
-        indent = rest[: len(rest) - len(stripped)]
-        if not contained and (indent.count(" ") >= 4 or "\t" in indent):
-            return False
-        if stripped.startswith(">"):
-            rest, contained = stripped[1:], True
-            continue
-        marker = _LIST_MARKER.match(stripped)
-        if marker:
-            rest, contained = stripped[marker.end() :], True
-            continue
-        return bool(_ATX.match(stripped))
+    if not line.strip():
+        return None
+    if _HEADING.match(line) or _BEGIN.match(line) or line == _END:
+        return None
+    if _THEMATIC_BREAK.match(line):
+        if previous_blank:
+            return None
+        return (
+            "a thematic break must follow a blank line (else it underlines a heading)"
+        )
+    if _UNDERLINE_LIKE.match(line):
+        return "a line of only '=' or '-' (a setext heading underline)"
+    if line.startswith(("```", "~~~")):
+        return "a malformed code fence"
+    if _LIST_ITEM.match(line):
+        return "a list item"
+    if line.startswith(_NOT_PROSE):
+        return (
+            "a line starting with whitespace, '>', '<', '=', '|' or '#' "
+            "(other than a heading or an index marker)"
+        )
+    return None
 
 
 def _closes(line: str, fence: str) -> bool:
@@ -487,42 +498,33 @@ def _blocks(
     begin: int | None = None
     fence: str | None = None
     fence_line = 0
-    # Whether the previous line could be continued by a setext underline:
-    # non-blank text outside a fence that is not a heading, marker or fence.
-    paragraph = False
+    previous_blank = True
     for i, line in enumerate(lines):
         where = f"docs/examples.md:{i + 1}"
-        was_fenced = fence is not None
         if fence is not None:
             if _closes(line, fence):
                 fence = None
-            opened = False
-        else:
-            opener = _FENCE_OPEN.match(line)
-            opened = opener is not None
-            if opener is not None:
-                fence = opener.group(1) or opener.group(2)
-                fence_line = i
-        outside = not was_fenced and not opened
-        if outside and _hidden_heading(line):
-            errors.append(
-                f"{where}: a heading must start at column 0, outside quotes and "
-                "lists (an indented, quoted or listed heading is not parsed)"
-            )
-        if outside and paragraph and _SETEXT_UNDERLINE.match(line):
-            errors.append(
-                f"{where}: a setext heading is not parsed; use a ### heading, or "
-                "put a blank line before a thematic break"
-            )
-        paragraph = (
-            outside
-            and bool(line.strip())
-            and not _HEADING.match(line)
-            and not _SETEXT_UNDERLINE.match(line)
-            and "index:begin" not in line
-            and "index:end" not in line
-        )
-        if fence is None and not opened and _HEADING.match(line):
+                if line.startswith(" "):
+                    errors.append(f"{where}: a code fence must close at column 0")
+            if "index:begin" in line or "index:end" in line:
+                # A marker in a fence renders as a code sample, not as the
+                # section's content, so it fails rather than counting.
+                errors.append(f"{where}: an index marker inside a code fence")
+            previous_blank = False
+            continue
+        opener = _FENCE_OPEN.match(line)
+        if opener is not None:
+            fence = opener.group(1) or opener.group(2)
+            fence_line = i
+            if "index:begin" in line or "index:end" in line:
+                errors.append(f"{where}: an index marker inside a code fence")
+            previous_blank = False
+            continue
+        problem = _grammar_error(line, previous_blank)
+        if problem is not None:
+            errors.append(f"{where}: not in the index line grammar: {problem}")
+        previous_blank = not line.strip()
+        if _HEADING.match(line):
             if begin is not None:
                 errors.append(
                     f"{where}: the block opened at line {begin + 1} is not closed"
@@ -537,13 +539,6 @@ def _blocks(
                 section = None
             elif len(line) - len(line.lstrip("#")) <= 3:
                 section = None
-        if ("index:begin" in line or "index:end" in line) and (
-            fence is not None or opened
-        ):
-            # A marker in a fence would render as a code sample, not as the
-            # section's content, so it fails rather than counting.
-            errors.append(f"{where}: an index marker inside a code fence")
-            continue
         if "index:begin" in line or "index:end" in line:
             match = _BEGIN.match(line)
             if match is None and line != _END:

@@ -618,18 +618,47 @@ def test_a_heading_inside_a_nested_fence_is_ignored() -> None:
         "missing.ipynb\n--------------\n",
         "Other\n=====\n",
         "Other\n-\n",
+        "Other\n--\n",
+        # Container continuations and quoted setext (review run 2, round 2).
+        "- item\n\n    ### `ghost.ipynb`\n",
+        "- > item\n    > ### `ghost.ipynb`\n",
+        "> ghost.ipynb\n> ===\n",
+        # HTML blocks, indented code and other shapes outside the line grammar.
+        "<div>\n\n### `ghost.ipynb`\n\n</div>\n",
+        "    ### `ghost.ipynb`\n",
+        "| a | b |\n",
+        " ```\n### `ghost.ipynb`\n```\n",
+        "Text.\n---\n",
+        "#hashtag\n",
     ],
 )
-def test_a_non_canonical_heading_fails(extra: str) -> None:
-    errors = _errors(DOC + "\n" + extra)
-    assert "heading" in errors or "indent" in errors
+def test_a_line_outside_the_index_grammar_fails(extra: str) -> None:
+    assert "grammar" in _errors(DOC + "\n" + extra)
 
 
 def test_an_indented_heading_before_a_block_fails() -> None:
     text = DOC.replace(
         "<!-- index:begin b.ipynb -->", " ## Other\n\n<!-- index:begin b.ipynb -->"
     )
-    assert "heading" in _errors(text)
+    assert "grammar" in _errors(text)
+
+
+def test_a_fence_closed_by_an_indented_closer_fails() -> None:
+    # CommonMark closes the fence here, so the parser must not stay fenced.
+    assert "column 0" in _errors(DOC + "\n```\ncode\n  ```\n")
+
+
+@pytest.mark.parametrize(
+    "prose",
+    [
+        "**Bold** text and `code()` and _emphasis_.\n",
+        "[ref]: https://example.com\n",
+        "2026 is a year.\n",
+        "Text.\n\n***\n\n___\n",
+    ],
+)
+def test_ordinary_prose_is_in_the_grammar(prose: str) -> None:
+    assert ix.check_index(DOC + "\n" + prose, DECLS) == []
 
 
 def test_a_thematic_break_after_a_blank_line_is_not_a_heading() -> None:
