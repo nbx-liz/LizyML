@@ -633,6 +633,9 @@ def test_a_heading_inside_a_nested_fence_is_ignored() -> None:
         # Not blank: only spaces and tabs make a blank line (run 2, round 3).
         "  \n",
         "\t　\n",
+        # Not a fence in CommonMark (a backtick in the info string), and a
+        # line starting with three backticks or tildes is reserved for fences.
+        "```bad`info\n",
     ],
 )
 def test_a_line_outside_the_index_grammar_fails(extra: str) -> None:
@@ -658,6 +661,9 @@ def test_a_fence_closed_by_an_indented_closer_fails() -> None:
         "[ref]: https://example.com\n",
         "2026 is a year.\n",
         "Text.\n\n***\n\n___\n",
+        # CommonMark list markers use ASCII digits only (review run 3, round 1).
+        "١. Arabic-Indic digit.\n",
+        "１２. Fullwidth digits.\n",
     ],
 )
 def test_ordinary_prose_is_in_the_grammar(prose: str) -> None:
@@ -666,10 +672,23 @@ def test_ordinary_prose_is_in_the_grammar(prose: str) -> None:
 
 #: Every character Python treats as whitespace that CommonMark does not: only
 #: a space and a tab make a line blank, indent it, or end a heading marker or
-#: a fence closer (review run 2, round 3).
+#: a fence closer (review run 2, round 3). A carriage return is excluded:
+#: CommonMark reads it as a line ending (review run 3, round 1).
 _NON_COMMONMARK_SPACES = [
-    chr(c) for c in range(0x110000) if chr(c).isspace() and chr(c) not in " \t\n"
+    chr(c) for c in range(0x110000) if chr(c).isspace() and chr(c) not in " \t\n\r"
 ]
+
+
+@pytest.mark.parametrize("ending", ["\r\n", "\r"], ids=["CRLF", "CR"])
+def test_carriage_return_line_endings_read_as_line_feeds(ending: str) -> None:
+    assert ix.check_index(DOC.replace("\n", ending), DECLS) == []
+    # Each CommonMark reading: the fence closes, and "####" is its own line.
+    closed = _doc(_section("a.ipynb"), "```\ncode\n```" + ending, _section("b.ipynb"))
+    assert ix.check_index(closed, DECLS) == []
+    assert ix.check_index(DOC + "\n#### x" + ending + "After.\n", DECLS) == []
+    assert "grammar" in _errors(DOC + "\nText." + ending + "---\n")
+    rewritten = ix.rewrite_index(DOC.replace("\n", ending), DECLS)
+    assert rewritten == DOC
 
 
 @pytest.mark.parametrize(

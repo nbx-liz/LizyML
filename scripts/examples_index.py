@@ -417,7 +417,7 @@ _END = "<!-- index:end -->"
 _FENCE_OPEN = re.compile(r"^(?:(`{3,})[^`]*|(~{3,}).*)$")
 _THEMATIC_BREAK = re.compile(r"^(?:-{3,}|\*{3,}|_{3,})$")
 _UNDERLINE_LIKE = re.compile(r"^(?:=+|-+)[ \t]*$")
-_LIST_ITEM = re.compile(r"^(?:[-+*]|\d{1,9}[.)])(?:[ \t]|$)")
+_LIST_ITEM = re.compile(r"^(?:[-+*]|[0-9]{1,9}[.)])(?:[ \t]|$)")
 #: A paragraph line may not start with these: each makes the line something
 #: other than plain paragraph text (indentation or indented code, a block
 #: quote, an HTML block, a setext underline, a table) or is reserved for a
@@ -432,8 +432,10 @@ def _grammar_error(line: str, previous_blank: bool) -> str | None:
     a blank line (empty, or only spaces and tabs), a column-0 ATX heading
     (one to six ``#`` then a space or a tab), an exact index marker, a column-0
     code fence, a thematic break after a blank line, and a paragraph line that
-    does not start with a space, a tab, ``>``, ``<``, ``=``, ``|``, ``#`` or a
-    list marker. Whitespace here is CommonMark's, a space or a tab only. With
+    does not start with a space, a tab, ``>``, ``<``, ``=``, ``|``, ``#``, a
+    list marker (``-``, ``+``, ``*``, or one to nine ASCII digits and ``.`` or
+    ``)``), or three backticks or tildes that do not open a fence.
+    Whitespace here is CommonMark's, a space or a tab only. With
     no indentation, block quote, list, HTML block or setext underline possible,
     a heading can only be a column-0 ATX heading, which the section rules
     read. Anything else fails instead of being parsed (H-0119 section 5).
@@ -614,8 +616,13 @@ def _blocks(
     return blocks, errors
 
 
+def _split_lines(text: str) -> list[str]:
+    """Split ``text`` at CommonMark's line endings: LF, CRLF and a bare CR."""
+    return text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+
+
 def check_index(text: str, declarations: Mapping[str, Declaration]) -> list[str]:
-    lines = text.split("\n")
+    lines = _split_lines(text)
     blocks, errors = _blocks(lines, list(declarations))
     if errors:
         return errors
@@ -629,7 +636,7 @@ def check_index(text: str, declarations: Mapping[str, Declaration]) -> list[str]
 
 
 def rewrite_index(text: str, declarations: Mapping[str, Declaration]) -> str:
-    lines = text.split("\n")
+    lines = _split_lines(text)
     blocks, errors = _blocks(lines, list(declarations))
     if errors:
         raise ContractError("\n".join(errors))
