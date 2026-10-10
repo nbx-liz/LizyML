@@ -14,8 +14,11 @@
 # because the default output quotes a path holding a non-ASCII character, a
 # quote or a backslash ("notebooks/caf\303\251.ipynb"), and each NUL-delimited
 # record is matched whole, so a newline inside a name can neither hide nor
-# fake a match. The diff goes to a file first: a failing diff fails the script
-# (set -e) instead of reporting that nothing changed.
+# fake a match. --no-renames lists a rename as its deleted source and its
+# added target: with rename detection (Git's default), --name-only names only
+# the target, so a rename out of an index path would go unseen. The diff goes
+# to a file first: a failing diff fails the script (set -e) instead of
+# reporting that nothing changed.
 set -euo pipefail
 
 if [ "${EVENT:-}" != "pull_request" ] || [ "${BASE_REF:-}" != "develop" ]; then
@@ -29,7 +32,7 @@ fi
 
 changed=$(mktemp)
 trap 'rm -f "$changed"' EXIT
-git diff --name-only -z "$BASE_SHA...$HEAD_SHA" >"$changed"
+git diff --name-only --no-renames -z "$BASE_SHA...$HEAD_SHA" >"$changed"
 tr '\0' '\n' <"$changed" >&2
 
 run=false

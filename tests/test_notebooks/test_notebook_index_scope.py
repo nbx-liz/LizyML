@@ -132,6 +132,55 @@ def test_anything_but_a_pr_to_develop_runs_the_jobs(
     assert result.stdout == "run=true\n"
 
 
+def _moved(
+    tmp_path: pathlib.Path, source: str, target: str, remove: bool = False
+) -> tuple[pathlib.Path, str, str]:
+    """A repository whose head commit renames (or deletes) an unchanged file."""
+    repo, _, base = _repo(tmp_path, [source])
+    # Enough identical content for Git's rename detection to pair the two.
+    (repo / source).write_text("".join(f"line {i}\n" for i in range(50)))
+    _git(repo, "commit", "-q", "-am", "content")
+    base = _git(repo, "rev-parse", "HEAD")
+    if remove:
+        _git(repo, "rm", "-q", source)
+    else:
+        (repo / target).parent.mkdir(parents=True, exist_ok=True)
+        _git(repo, "mv", source, target)
+    _git(repo, "commit", "-q", "-m", "move")
+    return repo, base, _git(repo, "rev-parse", "HEAD")
+
+
+@pytest.mark.parametrize(
+    ("source", "target"),
+    [
+        # Out of the index paths: only the source is an index path (review
+        # run 4, round 3).
+        (
+            "tests/test_notebooks/test_index_recording.py",
+            "tests/test_index_recording.py",
+        ),
+        ("notebooks/tutorial_x.ipynb", "archive/tutorial_x.ipynb"),
+        ("docs/examples.md", "docs/old_examples.md"),
+        # Into them: only the target is.
+        ("archive/tutorial_x.ipynb", "notebooks/tutorial_x.ipynb"),
+    ],
+)
+def test_a_rename_across_the_index_paths_runs_the_jobs(
+    tmp_path: pathlib.Path, source: str, target: str
+) -> None:
+    repo, base, head = _moved(tmp_path, source, target)
+    result = _scope(repo, base, head)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "run=true\n"
+
+
+def test_deleting_an_index_path_runs_the_jobs(tmp_path: pathlib.Path) -> None:
+    repo, base, head = _moved(tmp_path, "lizyml/_extras.py", "", remove=True)
+    result = _scope(repo, base, head)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout == "run=true\n"
+
+
 def test_a_failing_diff_fails_instead_of_skipping(tmp_path: pathlib.Path) -> None:
     repo, base, _ = _repo(tmp_path, ["notebooks/a.ipynb"])
     result = _scope(repo, base, "0" * 40)
