@@ -38,6 +38,31 @@ if TYPE_CHECKING:
 
 FORMAT_VERSION = 2
 
+_JSON_SCALARS = (str, int, float, bool)
+
+
+def _plain_declared(
+    declared: dict[str, list[Any]] | None,
+) -> dict[str, list[Any]] | None:
+    """The declared-categories record as typed JSON values, or ``None``.
+
+    numpy scalars become the Python value their ``.item()`` returns when it is
+    equal; any other value makes the whole record ``None`` (omitted), never a
+    ``str`` (H-0120 amendment 4).
+    """
+    if declared is None:
+        return None
+    out: dict[str, list[Any]] = {}
+    for col, cats in declared.items():
+        values: list[Any] = []
+        for value in cats:
+            plain = value.item() if hasattr(value, "item") else value
+            if type(plain) not in _JSON_SCALARS or plain != value:
+                return None
+            values.append(plain)
+        out[col] = values
+    return out
+
 
 def _tuning_metadata(tuning: TuningResult) -> dict[str, Any]:
     """Serialize the tuned-param overlay for ``metadata.json`` (H-0086, #215).
@@ -85,6 +110,8 @@ def export(
     tuning: TuningResult | None = None,
     tuning_fixed_params: dict[str, Any] | None = None,
     applied_training_params: dict[str, Any] | None = None,
+    applied_sample_weight: str | None = None,
+    declared_categories: dict[str, list[Any]] | None = None,
 ) -> None:
     """Serialize Model artifacts to *path*.
 
@@ -108,6 +135,17 @@ def export(
             and may be one no fit consumed. ``None`` means unknown (a model
             loaded from an artifact without the record) and omits the key, so
             re-exporting such a model does not invent a record.
+        applied_sample_weight: The row-weight rule that fit's refit applied,
+            ``"balanced"`` or ``"none"``, recorded under
+            ``metadata["applied_sample_weight"]`` (H-0120 amendment 1).
+            ``None`` means unknown and omits the key, as above.
+        declared_categories: The features the fit's input frame held as
+            ``category``, with their categories, recorded under
+            ``metadata["declared_categories"]`` (H-0120 amendment 4). ``None``
+            means unknown and omits the key. A record holding a value JSON
+            cannot return with its type is omitted too rather than written as
+            ``str``: ``export_code`` refuses such a model anyway, because the
+            encoder holds the same values.
 
     Raises:
         LizyMLError with SERIALIZATION_FAILED on any I/O or serialization error.
@@ -149,6 +187,11 @@ def export(
                 metadata["tuning"]["fixed_params"] = dict(tuning_fixed_params)
         if applied_training_params is not None:
             metadata["applied_training_params"] = dict(applied_training_params)
+        if applied_sample_weight is not None:
+            metadata["applied_sample_weight"] = applied_sample_weight
+        declared = _plain_declared(declared_categories)
+        if declared is not None:
+            metadata["declared_categories"] = declared
         (out / "metadata.json").write_text(
             json.dumps(metadata, indent=2, default=str), encoding="utf-8"
         )

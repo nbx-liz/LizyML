@@ -195,6 +195,58 @@ def get_outer_n_splits(cfg: LizyMLConfig) -> int:
     return cfg.split.n_splits
 
 
+def check_regression_stratification(cfg: LizyMLConfig) -> None:
+    """Refuse a regression config that asks to stratify on the target.
+
+    Stratification keeps each fold's **class** proportions; a regression target
+    has no classes (H-0120 amendment 2, following the 2026-03-05 stratified
+    default, H-0060's ``stratify: auto`` and H-0092 decision 6). Left to
+    scikit-learn, a continuous target raised its own ``ValueError`` and an
+    integer-valued one was silently treated as class labels -- an outcome
+    decided by the data, not the config. Every config position that stratifies
+    on the target is checked:
+
+    - ``split.method`` ``stratified_kfold`` / ``stratified_group_kfold``;
+    - an explicit ``split.groups.stratify: true`` (``blocked_group_kfold``;
+      ``auto`` already resolves to no stratification for regression);
+    - an explicit ``training.early_stopping.inner_valid`` with
+      ``stratify: true``.
+
+    Raises:
+        LizyMLError: With ``CONFIG_INVALID``, naming the position.
+    """
+    if cfg.task != "regression":
+        return
+    from lizyml.core.exceptions import ErrorCode, LizyMLError
+
+    positions: list[str] = []
+    if cfg.split.method in ("stratified_kfold", "stratified_group_kfold"):
+        positions.append(f"split.method={cfg.split.method!r}")
+    if (
+        isinstance(cfg.split, BlockedGroupKFoldConfig)
+        and cfg.split.groups.stratify is True
+    ):
+        positions.append("split.groups.stratify=true")
+    es = cfg.training.early_stopping
+    if (
+        es._inner_valid_explicit
+        and isinstance(es.inner_valid, HoldoutInnerValidConfig)
+        and es.inner_valid.stratify
+    ):
+        positions.append("training.early_stopping.inner_valid.stratify=true")
+    if positions:
+        raise LizyMLError(
+            code=ErrorCode.CONFIG_INVALID,
+            user_message=(
+                f"task='regression' cannot stratify on the target "
+                f"({', '.join(positions)}): stratification keeps class "
+                "proportions, and a regression target has no classes. Use "
+                "split.method='kfold' or 'group_kfold', or stratify: false."
+            ),
+            context={"task": cfg.task, "positions": positions},
+        )
+
+
 def build_splitter(
     cfg: LizyMLConfig,
     *,
@@ -202,8 +254,15 @@ def build_splitter(
     task: TaskType | None = None,
     seed: int | None = None,
 ) -> BaseSplitter:
-    """Instantiate outer CV splitter from config."""
+    """Instantiate outer CV splitter from config.
+
+    Raises:
+        LizyMLError: With ``CONFIG_INVALID`` when a regression config asks to
+            stratify on the target (:func:`check_regression_stratification`).
+    """
     split_cfg = cfg.split
+    # Both `fit` and `tune` build the outer splitter here before any training.
+    check_regression_stratification(cfg)
 
     # Warn if classification task explicitly uses kfold (H-0013)
     if split_cfg.method == "kfold" and cfg.task in ("binary", "multiclass"):
@@ -388,6 +447,25 @@ def make_inner_valid_factory(
         return _resolve_auto_inner_valid(split_method, ratio, seed, task=task, gap=gap)
 
     return factory
+
+
+def resolve_inner_valid(
+    cfg: LizyMLConfig, training_overrides: dict[str, Any] | None
+) -> InnerValidType:
+    """The inner-validation strategy a fit trains with, from the fit's inputs.
+
+    One function with two callers: ``Model._build_train_components`` builds the
+    strategy the trainers use, and ``export_code`` rebuilds it from the same
+    persisted inputs -- the config and the training overlay the fit applied
+    (H-0109) -- so the generated ``train.py`` is handed the split the refit
+    used (H-0120). A tuned ratio goes through ``make_inner_valid_factory``;
+    without one, ``build_inner_valid`` also resolves explicit ``inner_valid``
+    config and the early-stopping-off case (H-0094 decision 13).
+    """
+    tuned_ratio = tuned_validation_ratio(training_overrides)
+    if tuned_ratio is not None:
+        return make_inner_valid_factory(cfg)(tuned_ratio)
+    return build_inner_valid(cfg)
 
 
 # ------------------------------------------------------------------

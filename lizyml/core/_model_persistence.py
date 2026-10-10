@@ -93,6 +93,60 @@ def _build_split_metadata(cfg: Any) -> dict[str, Any]:
     return block
 
 
+_SAMPLE_WEIGHT_RULES = ("balanced", "none")
+
+
+def _checked_applied_sample_weight(record: Any, path: str | Path) -> str:
+    """Refuse a weight-rule record no fit could have written (H-0120).
+
+    A fit records ``"balanced"`` or ``"none"``; any other value -- ``null``,
+    ``true``, another spelling -- would hand the generated ``train.py`` a rule
+    nobody measured.
+    """
+    if not isinstance(record, str) or record not in _SAMPLE_WEIGHT_RULES:
+        raise LizyMLError(
+            code=ErrorCode.DESERIALIZATION_FAILED,
+            user_message=(
+                f"Stored applied_sample_weight must be one of "
+                f"{list(_SAMPLE_WEIGHT_RULES)}, got {record!r}."
+            ),
+            context={"path": str(path), "type": type(record).__name__},
+        )
+    return record
+
+
+def _checked_declared_categories(record: Any, path: str | Path) -> dict[str, list[Any]]:
+    """Refuse a declared-categories record no export could have written (H-0120).
+
+    ``Model.export`` writes an object mapping column names to lists of plain
+    JSON scalars (str, int, float, bool); anything else would hand the
+    generated ``train.py`` categories nobody recorded.
+    """
+
+    def refuse(reason: str, context: dict[str, Any]) -> LizyMLError:
+        return LizyMLError(
+            code=ErrorCode.DESERIALIZATION_FAILED,
+            user_message=f"Stored declared_categories {reason}.",
+            context={"path": str(path), **context},
+        )
+
+    if not isinstance(record, dict):
+        raise refuse("must be an object", {"type": type(record).__name__})
+    for col, cats in record.items():
+        if not isinstance(cats, list):
+            raise refuse(
+                f"holds a {type(cats).__name__} for {col!r}, not a list",
+                {"key": col, "type": type(cats).__name__},
+            )
+        for value in cats:
+            if type(value) not in (str, int, float, bool):
+                raise refuse(
+                    f"holds {value!r} for {col!r}, not a str, int, float or bool",
+                    {"key": col, "type": type(value).__name__},
+                )
+    return {col: list(cats) for col, cats in record.items()}
+
+
 def _checked_applied_training_params(record: Any, path: str | Path) -> dict[str, Any]:
     """Refuse a record no fit could have written (H-0109).
 
@@ -214,6 +268,8 @@ class ModelPersistenceMixin:
             tuning=state.tuning_result,
             tuning_fixed_params=state.tuning_fixed_params,
             applied_training_params=state.applied_training_params,
+            applied_sample_weight=state.applied_sample_weight,
+            declared_categories=state.declared_categories,
         )
         _log.info("event='export.done' path=%s", resolved_path)
         return resolved_path
@@ -267,6 +323,35 @@ class ModelPersistenceMixin:
         es = cfg.training.early_stopping
         tuned_ratio = tuned_validation_ratio(state.applied_training_params)
         effective_ratio = es.validation_ratio if tuned_ratio is None else tuned_ratio
+
+        # H-0120: what the refit trained on, so the generated train.py
+        # reproduces it -- the inner split rebuilt by the function the fit used
+        # from the inputs it used, the weight rule the fit recorded, and the
+        # features the fit's input declared `category` (amendment 4).
+        from lizyml.core._codegen_inputs import (
+            derived_sample_weight,
+            exported_inner_valid,
+        )
+
+        inner_valid = exported_inner_valid(cfg, state.applied_training_params)
+        if state.applied_sample_weight is not None:
+            sample_weight = (
+                "balanced" if state.applied_sample_weight == "balanced" else None
+            )
+        else:
+            # Unknown (an artifact written before the record): derived from the
+            # config and the current tuning result, outside the promise.
+            sample_weight = derived_sample_weight(
+                cfg,
+                state.provider,
+                state.tuning_result.best_smart_params
+                if state.tuning_result is not None
+                else None,
+            )
+        # Unknown (an artifact without the record): nothing is restored, so a
+        # CSV retrain of such a model is outside the promise; parquet keeps the
+        # dtype itself.
+        declared = state.declared_categories or {}
         calibration_method: str | None = None
         # Use outer CV n_splits for OOF calibration (H-0058: reuses outer splits)
         calibration_n_splits = get_outer_n_splits(cfg)
@@ -337,6 +422,13 @@ class ModelPersistenceMixin:
             feval_metrics=export.feval_metadata,
             target_classes=target_classes,
             split=_build_split_metadata(cfg),
+            inner_valid=inner_valid,
+            sample_weight=sample_weight,
+            declared_categories=declared,
+            categorical_rule={
+                "explicit": list(cfg.features.categorical),
+                "auto": cfg.features.auto_categorical,
+            },
         )
         _log.info("event='export_code.done' path=%s", result)
         return result
@@ -418,6 +510,21 @@ class ModelPersistenceMixin:
             )
         else:
             instance._applied_training_params = None
+        # The row-weight rule that fit applied (H-0120 amendment 1); absent
+        # from older artifacts, which stay unknown for the same reason.
+        if "applied_sample_weight" in metadata:
+            instance._applied_sample_weight = _checked_applied_sample_weight(
+                metadata["applied_sample_weight"], path
+            )
+        else:
+            instance._applied_sample_weight = None
+        # The features the fit's input declared `category` (amendment 4).
+        if "declared_categories" in metadata:
+            instance._declared_categories = _checked_declared_categories(
+                metadata["declared_categories"], path
+            )
+        else:
+            instance._declared_categories = None
         if analysis_context is not None:
             instance._y = analysis_context.y_true
             instance._X = analysis_context.X_for_explain

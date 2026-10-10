@@ -25,18 +25,22 @@ import json
 import logging
 import math
 import sys
+import warnings
 from pathlib import Path
 
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
+import sklearn
 from sklearn.model_selection import (
     GroupKFold,
     KFold,
     StratifiedGroupKFold,
     StratifiedKFold,
+    StratifiedShuffleSplit,
     TimeSeriesSplit,
 )
+from sklearn.utils.class_weight import compute_sample_weight
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s  %(message)s", datefmt="%H:%M:%S",
@@ -54,39 +58,69 @@ with open(ROOT / "config.json", encoding="utf-8") as _f:
 #  Feature Pipeline
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+def _plain(value):
+    """A category value as written to JSON: numpy scalars become Python values."""
+    return value.item() if isinstance(value, np.generic) else value
+
+
+def cast_categoricals(X: pd.DataFrame) -> pd.DataFrame:
+    """Cast columns to ``category`` as LizyML's data builder does.
+
+    The columns listed in ``features.categorical`` and, when
+    ``auto_categorical`` is on, every string or object column, are cast with
+    ``astype("category")`` before the pipeline is fitted (H-0120).
+    """
+    rule = CFG["categorical_rule"]
+    X = X.copy()
+    cast = set(rule["explicit"])
+    if rule["auto"]:
+        for col in X.columns:
+            if pd.api.types.is_string_dtype(X[col]) or X[col].dtype == object:
+                cast.add(col)
+    for col in cast:
+        if col in X.columns:
+            X[col] = X[col].astype("category")
+    return X
+
+
 def fit_pipeline(df: pd.DataFrame) -> dict:
-    """Learn category mappings and save pipeline state."""
+    """Learn the category codes and save the pipeline state.
+
+    The same calls as LizyML's CategoricalEncoder.fit, on the frame
+    ``cast_categoricals`` returns: a ``category`` column keeps its categories
+    in order (declared, or as pandas inferred them); a string column left
+    uncast takes ``sorted(unique, key=str)``. Values are kept as values, never
+    as str, and a value's code is its position in the list (H-0120).
+    """
     expected = CFG["feature_names"]
     missing = sorted(set(expected) - set(df.columns))
     if missing:
         raise ValueError(f"Missing columns: {missing}")
 
-    mappings: dict[str, dict[str, int]] = {}
-    unseen_codes: dict[str, int] = {}
+    categories: dict[str, dict] = {}
     for col in CFG["categorical_features"]:
-        values = list(df[col].dropna().unique())
-        cats = sorted(str(v) for v in values)
-        mappings[col] = {v: i for i, v in enumerate(cats)}
-        # The training mode's code, for unseen_policy="mode" in predict.py.
-        # Take the mode on the original values, as the runtime encoder does:
-        # on a tie pandas picks by the column's own order (numeric, or the
-        # category order), which stringifying first would change. Then look
-        # the key up through the same values the mapping was built from: the
-        # mode's own str() can differ (np.float32(0.1) prints as "0.1", the
-        # category value as "0.10000000149011612").
-        modes = df[col].dropna().mode()
-        if len(modes):
-            mode_key = next(str(v) for v in values if v == modes.iloc[0])
-            unseen_codes[col] = mappings[col][mode_key]
+        series = df[col]
+        if hasattr(series, "cat"):
+            cats = list(series.cat.categories)
+        else:
+            cats = sorted(series.dropna().unique().tolist(), key=str)
+        if cats:
+            modes = series.mode()
+            mode = modes.iloc[0] if len(modes) > 0 else cats[0]
+        else:
+            mode = None
+        categories[col] = {
+            "categories": [_plain(v) for v in cats],
+            "mode": _plain(mode),
+        }
         log.info("    %s: %d categories", col, len(cats))
 
     state = {
         "feature_names": expected,
         "categorical_features": CFG["categorical_features"],
-        "category_mappings": mappings,
-        # Keep the exported policy: predict.py falls back to "nan" without it.
-        "unseen_policy": CFG.get("unseen_policy", "mode"),
-        "unseen_codes": unseen_codes,
+        "categories": categories,
+        # Keep the exported policy so predict.py applies it (H-0104).
+        "unseen_policy": CFG["unseen_policy"],
     }
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
     with open(ARTIFACTS / "pipeline_state.json", "w", encoding="utf-8") as f:
@@ -94,46 +128,243 @@ def fit_pipeline(df: pd.DataFrame) -> dict:
     return state
 
 
+def encode_column(series: pd.Series, entry: dict, policy: str, col: str) -> np.ndarray:
+    """Category codes for one column, as LizyML's CategoricalEncoder.transform.
+
+    Unseen values follow ``unseen_policy``; the column is then cast to the
+    known categories, and LightGBM receives the position in that list (a
+    missing value or an unknown one is NaN).
+    """
+    known = entry["categories"]
+    if hasattr(series, "cat"):
+        current = set(series.cat.categories.tolist())
+    else:
+        current = set(series.dropna().unique().tolist())
+    unseen = current - set(known)
+    if unseen:
+        if policy == "error":
+            raise ValueError(
+                f"Column '{col}' contains unseen categories: "
+                f"{sorted(str(v) for v in unseen)} (unseen_policy='error')"
+            )
+        series = series.astype(object)
+        n_rows = int(series.isin(list(unseen)).sum())
+        if policy == "mode":
+            series = series.replace(list(unseen), entry["mode"])
+            replaced_by = "the training mode"
+        else:
+            series = series.replace(list(unseen), None)
+            replaced_by = "a missing value"
+        if n_rows:
+            log.warning(
+                "Column '%s': %d row(s) with unseen categories replaced by %s "
+                "(unseen_policy='%s')", col, n_rows, replaced_by, policy,
+            )
+    series = series.astype("category").cat.set_categories(known)
+    codes = series.cat.codes.to_numpy().astype(np.float64)
+    codes[codes < 0] = np.nan
+    return codes
+
+
 def transform(df: pd.DataFrame, state: dict) -> pd.DataFrame:
-    """Apply fitted pipeline to a DataFrame."""
+    """Apply the fitted pipeline to a DataFrame."""
     X = df[state["feature_names"]].copy()
-    for col, mapping in state.get("category_mappings", {}).items():
+    for col, entry in state["categories"].items():
         if col in X.columns:
-            X[col] = X[col].astype(str).map(mapping)  # unseen -> NaN
+            X[col] = encode_column(X[col], entry, state["unseen_policy"], col)
     return X
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  LightGBM Training
+#  Reproducing the LizyML refit (H-0120)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def train_lgbm(X: pd.DataFrame, y: pd.Series, cat_cols: list[str]) -> lgb.Booster:
-    """Train LightGBM with optional early stopping via holdout."""
-    ds_full = lgb.Dataset(X, label=y, categorical_feature=cat_cols or "auto")
+def check_versions() -> None:
+    """Warn for each library whose version differs from the export (H-0120).
+
+    The split, the sort and the category codes depend on these versions, so a
+    different one may train a different model. Training continues.
+    """
+    installed = {
+        "lightgbm": lgb.__version__,
+        "numpy": np.__version__,
+        "pandas": pd.__version__,
+        "scikit-learn": sklearn.__version__,
+    }
+    for name, recorded in CFG["_versions"].items():
+        if installed.get(name) != recorded:
+            message = (
+                f"{name} {installed.get(name)} differs from {recorded}, the "
+                "version at export; the retrained model may not match LizyML's."
+            )
+            warnings.warn(message, UserWarning, stacklevel=2)
+            log.warning(message)
+
+
+def apply_declared_categories(df: pd.DataFrame) -> pd.DataFrame:
+    """Restore the ``category`` dtype of the columns declared at fit.
+
+    A CSV keeps neither the dtype nor the declared categories; the codes of a
+    declared column are positions in its declared list, so it is restored
+    before the pipeline is fitted.
+    """
+    declared = CFG["declared_categories"]
+    if not declared:
+        return df
+    df = df.copy()
+    for col, cats in declared.items():
+        if col in df.columns:
+            df[col] = df[col].astype(pd.CategoricalDtype(categories=cats))
+    return df
+
+
+def training_order(df: pd.DataFrame) -> np.ndarray:
+    """The row order LizyML trains in: time-ordered and blocked splits sort
+    every row first, with the same ``Series.argsort()`` call."""
+    sp = CFG.get("split") or {}
+    method = sp.get("method")
+    if method in ("time_series", "purged_time_series", "group_time_series"):
+        return np.asarray(df[sp["time_col"]].argsort())
+    if method == "blocked_group_kfold":
+        return np.asarray(df[sp["blocks"]["col"]].argsort())
+    return np.arange(len(df))
+
+
+def _time_holdout(n: int, ratio: float, gap: int):
+    n_valid = max(1, int(n * ratio))
+    if n_valid + gap >= n:
+        raise ValueError(
+            f"Inner validation would consume all {n} sample(s) "
+            f"(n_valid={n_valid}, gap={gap}, ratio={ratio})."
+        )
+    idx = np.arange(n, dtype=np.intp)
+    return idx[: n - n_valid - gap], idx[-n_valid:]
+
+
+def _stratified_time_holdout(n: int, ratio: float, y):
+    valid: list[int] = []
+    for cls in np.unique(y):
+        cls_idx = np.where(y == cls)[0]
+        n_valid = max(1, int(len(cls_idx) * ratio))
+        valid.extend(cls_idx[-n_valid:].tolist())
+    mask = np.zeros(n, dtype=bool)
+    mask[np.asarray(valid, dtype=np.intp)] = True
+    idx = np.arange(n, dtype=np.intp)
+    if not (~mask).any():
+        raise ValueError("Stratified inner validation would consume all samples.")
+    return idx[~mask], idx[mask]
+
+
+def _blocked_group_split(n: int, ratio: float, task: str, y, groups):
+    ordered = list(dict.fromkeys(groups.tolist()))
+    if len(ordered) < 4:
+        log.warning("Too few groups (%d) for a group-isolated split.", len(ordered))
+        if task == "regression":
+            return _time_holdout(n, ratio, 0)
+        return _stratified_time_holdout(n, ratio, y)
+    last: dict = {}
+    for i, g in enumerate(groups.tolist()):
+        last[g] = i
+    by_last = sorted(ordered, key=lambda g: last[g])
+    if task in ("binary", "multiclass"):
+        labels = {}
+        for g in by_last:
+            values, counts = np.unique(y[groups == g], return_counts=True)
+            labels[g] = values[counts.argmax()]
+        classes = np.unique(y)
+        per_class: dict = {c: [] for c in classes}
+        for g in by_last:
+            per_class[labels[g]].append(g)
+        valid_groups: set = set()
+        for cls in classes:
+            cls_groups = per_class[cls]
+            if not cls_groups:
+                continue
+            n_valid = max(1, int(len(cls_groups) * ratio))
+            valid_groups.update(cls_groups[-n_valid:])
+    else:
+        n_valid = max(1, int(len(by_last) * ratio))
+        valid_groups = set(by_last[-n_valid:])
+    idx = np.arange(n, dtype=np.intp)
+    mask = np.isin(groups, list(valid_groups))
+    return idx[~mask], idx[mask]
+
+
+def inner_split(n: int, y: np.ndarray, groups, iv: dict):
+    """The early-stopping split LizyML's refit made, from ``config.json``.
+
+    Each branch mirrors one strategy of lizyml/training/inner_valid.py with the
+    same numpy and scikit-learn calls and the same rounding.
+    """
+    method, ratio = iv["method"], iv["ratio"]
+    if method == "holdout":
+        if iv["stratify"]:
+            sss = StratifiedShuffleSplit(
+                n_splits=1, test_size=ratio, random_state=iv["random_state"],
+            )
+            tr, va = next(sss.split(np.arange(n), y))
+            return np.sort(tr.astype(np.intp)), np.sort(va.astype(np.intp))
+        rng = np.random.default_rng(iv["random_state"])
+        n_valid = max(1, int(np.ceil(n * ratio)))
+        if n_valid >= n:
+            raise ValueError(f"Inner validation would consume all {n} sample(s).")
+        perm = rng.permutation(n)
+        return np.sort(perm[n_valid:]), np.sort(perm[:n_valid])
+    if method == "group_holdout":
+        ordered = list(dict.fromkeys(groups.tolist()))
+        n_valid_groups = max(1, int(len(ordered) * ratio))
+        mask = np.isin(groups, ordered[-n_valid_groups:])
+        idx = np.arange(n, dtype=np.intp)
+        return idx[~mask], idx[mask]
+    if method == "time_holdout":
+        return _time_holdout(n, ratio, iv["gap"])
+    if method == "blocked_group":
+        return _blocked_group_split(n, ratio, iv["task"], y, groups)
+    raise ValueError(f"Unknown inner_valid method: {method!r}")
+
+
+def train_lgbm(
+    X: pd.DataFrame, y: pd.Series, cat_cols: list[str], groups,
+) -> lgb.Booster:
+    """Train LightGBM as LizyML's refit does (LGBMAdapter.fit).
+
+    ``inner_valid`` and ``early_stopping_rounds`` are read without defaults:
+    a validation set exists when ``inner_valid`` is not null, and the
+    early-stopping callback only when ``early_stopping_rounds`` is not null
+    as well. Row weights reach the inner-train rows only.
+    """
+    iv = CFG["inner_valid"]
+    es_rounds = CFG["early_stopping_rounds"]
+    weight = None
+    if CFG["sample_weight"] == "balanced":
+        weight = compute_sample_weight("balanced", y.to_numpy())
+    cat = cat_cols or "auto"
     callbacks: list = [lgb.log_evaluation(period=200)]
-    train_set = ds_full
-    valid_sets, valid_names = [ds_full], ["train"]
-
-    ratio = CFG.get("validation_ratio", 0)
-    es_rounds = CFG.get("early_stopping_rounds")
-    if ratio > 0 and es_rounds:
-        n = len(y)
-        rng = np.random.default_rng(CFG["seed"])
-        idx = rng.permutation(n)
-        n_val = max(1, int(n * ratio))
-
+    valid_sets = None
+    valid_names = None
+    if iv is not None:
+        tr, va = inner_split(len(y), y.to_numpy(), groups, iv)
         train_set = lgb.Dataset(
-            X.iloc[idx[n_val:]], label=y.iloc[idx[n_val:]],
-            categorical_feature=cat_cols or "auto",
+            X.iloc[tr].reset_index(drop=True),
+            label=y.iloc[tr].reset_index(drop=True),
+            weight=None if weight is None else weight[tr],
+            categorical_feature=cat, free_raw_data=False,
         )
-        valid_ds = lgb.Dataset(
-            X.iloc[idx[:n_val]], label=y.iloc[idx[:n_val]],
-            reference=train_set,
+        valid_set = lgb.Dataset(
+            X.iloc[va].reset_index(drop=True),
+            label=y.iloc[va].reset_index(drop=True),
+            reference=train_set, categorical_feature=cat, free_raw_data=False,
         )
-        valid_sets = [train_set, valid_ds]
-        valid_names = ["train", "valid"]
-        callbacks.insert(0, lgb.early_stopping(es_rounds, verbose=True))
-        log.info("    holdout: %d train / %d valid", n - n_val, n_val)
+        valid_sets, valid_names = [valid_set], ["valid_0"]
+        if es_rounds is not None:
+            callbacks.append(
+                lgb.early_stopping(stopping_rounds=es_rounds, verbose=False)
+            )
+        log.info("    inner valid: %d train / %d valid", len(tr), len(va))
+    else:
+        train_set = lgb.Dataset(
+            X, label=y, weight=weight, categorical_feature=cat, free_raw_data=False,
+        )
 
     fevals = build_feval_from_config()
     booster = lgb.train(
@@ -142,6 +373,7 @@ def train_lgbm(X: pd.DataFrame, y: pd.Series, cat_cols: list[str]) -> lgb.Booste
         valid_sets=valid_sets, valid_names=valid_names,
         feval=fevals if fevals else None,
         callbacks=callbacks,
+        keep_training_booster=True,
     )
     booster.save_model(str(ARTIFACTS / "model.txt"))
     log.info("    saved model.txt (best_iteration=%d)", booster.best_iteration)
@@ -839,9 +1071,11 @@ def _encode_target(y: pd.Series) -> pd.Series:
 
 
 def train(df: pd.DataFrame, *, calibrate: bool = True) -> None:
+    check_versions()
+    df = apply_declared_categories(df)
     target = CFG["_target_col"]
     y = _encode_target(df[target])
-    X_raw = df.drop(columns=[target])
+    X_raw = cast_categoricals(df[CFG["feature_names"]])
 
     log.info("[1/4] Fitting feature pipeline ...")
     state = fit_pipeline(X_raw)
@@ -849,7 +1083,18 @@ def train(df: pd.DataFrame, *, calibrate: bool = True) -> None:
 
     log.info("[2/4] Training LightGBM ...")
     cat_cols = [c for c in CFG["categorical_features"] if c in X.columns]
-    train_lgbm(X, y, cat_cols)
+    # The refit trains on the rows in LizyML's order; the calibration below
+    # keeps the input order, as its folds are mapped back to it (H-0090).
+    order = training_order(df)
+    iv = CFG["inner_valid"]
+    group_col = iv.get("group_col") if iv else None
+    groups = df[group_col].to_numpy()[order] if group_col else None
+    train_lgbm(
+        X.iloc[order].reset_index(drop=True),
+        y.iloc[order].reset_index(drop=True),
+        cat_cols,
+        groups,
+    )
 
     if calibrate:
         fit_calibrator(X.values, y.values, df)
@@ -926,6 +1171,46 @@ def _load_pipeline() -> dict:
         return json.load(f)
 
 
+def encode_column(series: pd.Series, entry: dict, policy: str, col: str) -> np.ndarray:
+    """Category codes for one column, as LizyML's CategoricalEncoder.transform.
+
+    Unseen values follow ``unseen_policy``; the column is then cast to the
+    known categories, and LightGBM receives the position in that list (a
+    missing value or an unknown one is NaN). Values are compared as values,
+    never as str (H-0120).
+    """
+    known = entry["categories"]
+    if hasattr(series, "cat"):
+        current = set(series.cat.categories.tolist())
+    else:
+        current = set(series.dropna().unique().tolist())
+    unseen = current - set(known)
+    if unseen:
+        if policy == "error":
+            raise ValueError(
+                f"Column '{col}' contains unseen categories "
+                f"{sorted(str(v) for v in unseen)} (unseen_policy='error')"
+            )
+        series = series.astype(object)
+        n_rows = int(series.isin(list(unseen)).sum())
+        if policy == "mode":
+            series = series.replace(list(unseen), entry["mode"])
+            replaced_by = "the training mode"
+        else:
+            series = series.replace(list(unseen), None)
+            replaced_by = "a missing value"
+        if n_rows:
+            log.warning(
+                "Column '%s': %d row(s) with unseen categories %s replaced "
+                "by %s (unseen_policy='%s')",
+                col, n_rows, sorted(str(v) for v in unseen), replaced_by, policy,
+            )
+    series = series.astype("category").cat.set_categories(known)
+    codes = series.cat.codes.to_numpy().astype(np.float64)
+    codes[codes < 0] = np.nan
+    return codes
+
+
 def transform(df: pd.DataFrame) -> pd.DataFrame:
     """Select expected columns and apply categorical encoding."""
     state = _load_pipeline()
@@ -943,33 +1228,10 @@ def transform(df: pd.DataFrame) -> pd.DataFrame:
         log.warning("Ignoring %d extra column(s): %s", len(extra), extra)
 
     X = df[expected].copy()
-    policy = state.get("unseen_policy", "nan")
-    unseen_codes = state.get("unseen_codes", {})
-    for col, mapping in state.get("category_mappings", {}).items():
+    policy = state["unseen_policy"]
+    for col, entry in state["categories"].items():
         if col in X.columns:
-            codes = X[col].astype(str).map(mapping)  # unseen -> NaN
-            # Only a present value can be unseen; a missing value stays
-            # missing under every policy, as in the runtime encoder.
-            unseen = codes.isna() & X[col].notna()
-            if unseen.any():
-                values = sorted(set(X.loc[unseen, col].astype(str)))
-                if policy == "error":
-                    raise ValueError(
-                        f"Column '{col}' contains unseen categories {values} "
-                        "(unseen_policy='error')"
-                    )
-                if policy == "mode" and col in unseen_codes:
-                    # Match the runtime encoder: replace with the training mode.
-                    codes = codes.mask(unseen, unseen_codes[col])
-                    replaced_by = "the training mode"
-                else:
-                    replaced_by = "a missing value"
-                log.warning(
-                    "Column '%s': %d row(s) with unseen categories %s replaced "
-                    "by %s (unseen_policy='%s')",
-                    col, int(unseen.sum()), values, replaced_by, policy,
-                )
-            X[col] = codes
+            X[col] = encode_column(X[col], entry, policy, col)
     return X
 
 
@@ -1204,10 +1466,12 @@ if __name__ == "__main__":
     main()
 '''
 
+#: ``pyarrow`` reads the parquet training data H-0120's promise is stated for.
 _REQUIREMENTS_BASE = """\
 lightgbm>=4.0
 numpy
 pandas
+pyarrow
 scikit-learn
 """
 

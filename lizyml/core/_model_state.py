@@ -84,6 +84,15 @@ class FitState:
     output_dir: str | Path | None
     # None retains legacy config-based inference; {} is an explicit empty policy.
     tuning_fixed_params: dict[str, Any] | None = None
+    # The row-weight rule the last fit's refit applied, "balanced" or "none";
+    # recorded by `export` and restored by `Model.load` (H-0120 amendment 1).
+    # None means unknown: an artifact written before the record, for which
+    # `export_code` derives the rule from the config and the current tuning
+    # result.
+    applied_sample_weight: str | None = None
+    # The features the last fit's input frame held as `category`, with their
+    # categories (H-0120 amendment 4); None means unknown.
+    declared_categories: dict[str, list[Any]] | None = None
 
 
 @dataclass(frozen=True)

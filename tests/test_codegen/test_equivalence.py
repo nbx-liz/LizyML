@@ -111,10 +111,15 @@ def _predict_via_codegen(
     expected = state["feature_names"]
     Xp = X[expected].copy()
 
-    # Replicate predict.py transform: use category_mappings (str→int)
-    for col, mapping in state.get("category_mappings", {}).items():
+    # Replicate predict.py transform: a value's code is its position in the
+    # column's typed category list (H-0120); unseen or missing -> NaN.
+    for col, entry in state["categories"].items():
         if col in Xp.columns:
-            Xp[col] = Xp[col].astype(str).map(mapping)
+            codes = pd.Categorical(
+                Xp[col].astype(object), categories=entry["categories"]
+            ).codes.astype(np.float64)
+            codes[codes < 0] = np.nan
+            Xp[col] = codes
     # Ensure all columns are numeric for Booster.predict()
     for col in Xp.columns:
         if not np.issubdtype(Xp[col].dtype, np.number):

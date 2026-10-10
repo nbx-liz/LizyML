@@ -338,6 +338,8 @@ config = {
 
 `split.method` は以下のいずれか: `kfold` / `stratified_kfold` / `group_kfold` / `stratified_group_kfold` / `time_series` / `purged_time_series` / `group_time_series` / `blocked_group_kfold`。
 
+**regression は目的変数で層化しない（H-0120 改訂 2）**: 層化はクラスの比率を保つための手法で、回帰の目的変数にはクラスが無い。`task: regression` で `split.method: stratified_kfold` / `stratified_group_kfold`、明示した `split.groups.stratify: true`（`blocked_group_kfold`）、明示した `training.early_stopping.inner_valid` の `stratify: true` のどれかを指定すると、`fit` と `tune` は学習の前に `CONFIG_INVALID` で拒否する（`build_splitter` の `check_regression_stratification`）。目的変数の値（連続値か整数値か）によらない。
+
 | method | 固有キー |
 |---|---|
 | `kfold` | `n_splits=5`, `random_state=null`, `shuffle=True` |
@@ -505,10 +507,10 @@ config = {
 LizyML 非依存の学習・推論コードを自動生成する。
 
 - **出力構造**: `config.json` + `train.py` + `predict.py` + `artifacts/` + `requirements.txt` + `test_equivalence.py`
-- **train.py**: Feature pipeline fit → LightGBM refit（全データ学習）→ OOF 生成（軽量 CV。fold は `config.json` の `split` ブロックから outer CV を再現する、§15.4）→ Calibrator fit
+- **train.py**: Feature pipeline fit → LightGBM refit（全データ学習。LizyML の refit と同じ inner valid の分割・行の並び・重み・カテゴリの符号で学習し、同じデータなら校正前の予測が一致する、§15.4 の H-0120）→ OOF 生成（軽量 CV。fold は `config.json` の `split` ブロックから outer CV を再現する、§15.4）→ Calibrator fit
 - **predict.py**: Feature transform → LightGBM predict → Calibration apply
 - **config.json**: ハイパーパラメータ・特徴量定義・校正設定を集約。コード編集なしでパラメータ変更可能
-- 生成コードは `import lizyml` を含まない。依存は `lightgbm` / `numpy` / `pandas` / `scikit-learn`（学習時のみ）
+- 生成コードは `import lizyml` を含まない。依存は `lightgbm` / `numpy` / `pandas` / `scikit-learn`（学習時のみ）/ `pyarrow`（parquet の読み込み、H-0120）
 - `test_equivalence.py` で `Model.predict()` と codegen 出力の一致を `rtol=1e-7` で検証
 - 初期実装は LightGBM のみ対応。将来の EstimatorProvider 拡張で他アルゴリズムにも対応可能
 - Calibrator 保存形式: Platt → JSON (a, b)、Beta → JSON (a, b, c)、Isotonic → Booster テキスト
@@ -600,6 +602,8 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `config_normalized`
 - `format_version / versions`
 - `applied_training_params`（`metadata.json` の最上位キー。artifact のモデルを作った fit が適用した training overlay。overlay を使わなかった fit は `{}`。H-0109）
+- `applied_sample_weight`（`metadata.json` の最上位キー。その fit の refit が使った行ごとの重みの規則、`"balanced"` か `"none"`。H-0120 改訂 1）
+- `declared_categories`（`metadata.json` の最上位キー。その fit の入力の DataFrame で `category` dtype だった特徴量の列と、そのカテゴリ。H-0120 改訂 4）
 
 目的:
 
@@ -1604,13 +1608,14 @@ estimators/
   - `checksums` は `{"algorithm": "sha256", "files": {<ファイル名>: <16 進の digest>}}` で、`files` は `fit_result.pkl` / `refit_model.pkl` と、あれば `analysis_context.pkl` の SHA-256 を持つ。アルゴリズム名は `persistence/exporter.py` の `CHECKSUM_ALGORITHM`（H-0083）。
   - tune 済みのモデルだけ: `tuning` ブロック（`best_model_params` / `best_smart_params` / `best_training_params` / `best_score` / `metric_name` / `direction`、成功した tuning round の `fixed_params`）。`load()` はこれを tuning result として復元し、load 後の再 `fit()` が tuned params を再現する（H-0086）。trial の履歴は保存しない。
   - fit が overlay を記録したモデルだけ: `applied_training_params`（上記、H-0109）。
+  - fit が記録したモデルだけ: `applied_sample_weight`（`"balanced"` / `"none"`）と `declared_categories`（列名 → 型付きの値の配列。JSON が型のまま戻せない値を含む記録は書かない）。`load()` はどちらも検査し、規則に合わない値は `DESERIALIZATION_FAILED`、キーが無ければ「分からない」（`None`）として読み、再 export でもキーを書かない（H-0120 改訂 1・4）。
 
 ## 15.2 互換性ポリシー（必須）
 
 - `format_version` が読めない場合は明示的に拒否する（黙って壊れた復元をしない）。
 - 将来 migration を実装できる前提で serializer に拡張点を残す。
 - 現行 `FORMAT_VERSION = 2`（H-0070）。`{1, 2}` の両方を loader が受理し、v1 artifact には no-op `TargetEncoder` を in-memory で注入して contract を整合させる（INV-5）。
-- **フィールドの追加は後方互換の変更で、`format_version` を上げない。** フィールドの削除、型や意味の変更は破壊的変更で、`format_version` を上げる（H-0003）。`checksums`（H-0083）、`tuning`（H-0086）、`applied_training_params`（H-0109）はいずれも追加として `FORMAT_VERSION = 2` のまま入った。旧 loader は知らないキーを無視する。
+- **フィールドの追加は後方互換の変更で、`format_version` を上げない。** フィールドの削除、型や意味の変更は破壊的変更で、`format_version` を上げる（H-0003）。`checksums`（H-0083）、`tuning`（H-0086）、`applied_training_params`（H-0109）、`applied_sample_weight` / `declared_categories`（H-0120）はいずれも追加として `FORMAT_VERSION = 2` のまま入った。旧 loader は知らないキーを無視する。
 - `load()` は毎回 `metadata.json` を検査する。必須キー（`_REQUIRED_METADATA_KEYS` = `format_version` / `task` / `feature_names` / `config` / `run_id`）が欠けていれば `DESERIALIZATION_FAILED`。
 - **完全性の検査（H-0083）**: `load()` は各 `.pkl` のバイト列を 1 回だけ読み、`checksums` に記録された digest と照合してから、そのバイト列を `joblib.load(io.BytesIO(...))` で復元する（ファイルを再 open しないので、検査と復元の間の TOCTOU が無い）。`algorithm` が `sha256` でない、または digest が一致しないときは pickle を実行する前に `DESERIALIZATION_FAILED`（context: `file` / `expected` / `actual`、アルゴリズム違いでは `file` / `algorithm`）。`checksums` を持たない artifact（H-0083 以前）と、`files` に載っていないファイルは検査せずに読む。
 - **脅威モデル**: `metadata.json` 自体は署名しない。書き込み権限を持つ者は `checksums` を書き換えたり消したりできる。`checksums` が検出するのは破損と改竄であり、悪意ある作成者に対して pickle を安全にするものではない。artifact は信頼できる出どころからだけ読む。
@@ -1646,6 +1651,14 @@ estimators/
 
 - `artifacts/` の初期内容は `export_code()` 実行時に元の FitResult/RefitResult から生成される
 - `train.py` で新データから再学習すると `artifacts/` が上書きされる
+- **refit の再現の約束（H-0120、H-0059 の約束を戻す）**: `Model.fit(df)` の後の `export_code(path)` で生成したプロジェクトで、同じデータを parquet で保存して `python train.py <data>` を実行すると、`artifacts/` による校正前の予測（regression の予測値、binary の陽性クラスの確率、multiclass の各クラスの確率）が、LizyML の refit モデルの校正前の予測とどの入力行でも `rtol=1e-7` で一致する。
+  - **前提**: 同じ計算機。同じ版の LightGBM / numpy / pandas / scikit-learn（export 時の版を `config.json` の `_versions` に記録し、生成 `train.py` は違う版ごとに名前を挙げて警告し、学習は続ける）。LightGBM の決定性は `model.params` の `deterministic: true` / `force_col_wise: true` / `num_threads: 1` で固定でき、これらは `lgbm_params` に書かれて両側に効く。
+  - **CSV**: 生成 `train.py` が `pd.read_csv` で読み、`declared_categories` を当てた後の、学習に使うすべての列（目的変数・特徴量・時間・グループ）の値と dtype が fit 時と等しい場合に限って約束する（型の混じった列、文字列として読まれる時刻、`"01"` のような文字列の目的変数は満たさない）。
+  - **約束しないもの**: 校正器（fold のモデルは再現しない）、異なるデータでの再学習、H-0120 より前に生成したプロジェクト、`applied_training_params` / `applied_sample_weight` / `declared_categories` の記録が無い artifact を load したモデルからの export の該当部分、型の混じった列を持つ fit の再学習（export 直後の `predict.py` は LizyML と同じ符号を使う）。
+  - **`config.json` が持つ値**: `inner_valid`（refit が使った strategy。`export_code` が fit と同じ `resolve_inner_valid` を、config と `applied_training_params` から呼び直して作る。検証集合が無ければ `null`）と `early_stopping_rounds`（adapter の patience、無ければ `null`）を独立に必ず書き、生成 `train.py` は既定値なしで読む。callback は両方があるときだけ付く。`sample_weight`（`"balanced"` か `null`、fit の記録から）、`declared_categories`（入力で `category` だった列）、`categorical_rule`（データの組み立てが `category` に変える列の規則、`{"explicit": [...], "auto": bool}`）、`_versions`。
+  - **生成 `train.py` の学習**: 時間順の split と `blocked_group_kfold` は `Series.argsort()` で行を並べてから学習する。inner valid は 4 つの strategy を同じ numpy / scikit-learn の呼び出しで移したもので分割する。multiclass の `balanced` の重みは並べた後の全行で `compute_sample_weight("balanced", y)` と同じ値を作り、inner-train の行にだけ付ける。`LGBMAdapter.fit` と同じ Dataset と callback の組み立てで `lgb.train` を呼ぶ。
+  - **カテゴリの符号（#304）**: 生成 `train.py` は `categorical_rule` で LizyML と同じ `astype("category")` を当ててから、`CategoricalEncoder.fit` と同じ 2 つの分岐でカテゴリと最頻値を決める。`pipeline_state.json` は列ごとに `{"categories": [型付きの値, ...], "mode": 値}` を持ち、配列の位置が符号である（`str` をキーにしない）。`predict.py` も同じ値で符号を引く。
+  - **拒否**: カテゴリ・最頻値・目的変数のラベルが `str` / `int` / `float` / `bool` と、`.item()` がそれらになり元の値と等しい numpy のスカラーの外にあるとき、`export_code` は何も書く前に `SERIALIZATION_FAILED` で拒否する（黙って `str` にしない）。
 - **校正用 OOF の fold の再現（H-0090）**: `config.json` は `split` ブロック（`config.json["split"]`）を持ち、outer split の method 固有のパラメーターを解決済みの値で書く（`_build_split_metadata(cfg)`。`stratify="auto"` は bool に畳み、`random_state` が無ければ `training.seed` を書く）。生成 `train.py` は校正用 OOF の CV fold をこのブロックから作り、`split.method` を再現する: `kfold` / `stratified_kfold` / `time_series` / `group_kfold` / `stratified_group_kfold` は scikit-learn の splitter、`purged_time_series` / `group_time_series` / `blocked_group_kfold` は LizyML のロジックを numpy に移したもの。
   - 時間の method では `time_col`、`blocked_group_kfold` では `blocks.col` で pandas の `argsort()` により並べてから分割し、fold を元の行順に戻す。
   - 生成 calibrator は covered な（OOF が NaN でない）行だけで学習する（LizyML の cross-fit の `C_final` と同じ）。
