@@ -636,6 +636,13 @@ def test_a_heading_inside_a_nested_fence_is_ignored() -> None:
         # Not a fence in CommonMark (a backtick in the info string), and a
         # line starting with three backticks or tildes is reserved for fences.
         "```bad`info\n",
+        # Stated in H-0119 section 5 (review run 3, round 2): a line of only
+        # hyphens other than a thematic break after a blank line, and a
+        # thematic break that does not follow a blank line.
+        "--\n",
+        "--  \n",
+        "Text.\n***\n",
+        "Text.\n___\n",
     ],
 )
 def test_a_line_outside_the_index_grammar_fails(extra: str) -> None:
@@ -687,8 +694,25 @@ def test_carriage_return_line_endings_read_as_line_feeds(ending: str) -> None:
     assert ix.check_index(closed, DECLS) == []
     assert ix.check_index(DOC + "\n#### x" + ending + "After.\n", DECLS) == []
     assert "grammar" in _errors(DOC + "\nText." + ending + "---\n")
-    rewritten = ix.rewrite_index(DOC.replace("\n", ending), DECLS)
-    assert rewritten == DOC
+
+
+_STALE = DOC.replace("`fit()`, `importance_plot()`", "`fit()`")
+
+
+@pytest.mark.parametrize("ending", ["\n", "\r\n", "\r"], ids=["LF", "CRLF", "CR"])
+def test_write_keeps_every_line_ending(ending: str) -> None:
+    # --write changes the generated blocks only (review run 3, round 2).
+    assert ix.rewrite_index(_STALE.replace("\n", ending), DECLS) == DOC.replace(
+        "\n", ending
+    )
+
+
+def test_write_keeps_mixed_line_endings_outside_the_blocks() -> None:
+    head, _, tail = _STALE.partition("<!-- index:begin a.ipynb -->")
+    mixed = head.replace("\n", "\r\n") + "<!-- index:begin a.ipynb -->" + tail
+    rewritten = ix.rewrite_index(mixed, DECLS)
+    assert rewritten.startswith(head.replace("\n", "\r\n"))
+    assert rewritten.endswith(DOC.partition("<!-- index:begin a.ipynb -->")[2])
 
 
 @pytest.mark.parametrize(
@@ -824,6 +848,23 @@ def test_changing_one_notebook_declaration_fails_the_repository_check(
     nb["metadata"]["lizyml"]["index"]["extras"] = []
     target.write_text(json.dumps(nb), encoding="utf-8")
     assert ix.check(tmp_path)
+
+
+def test_write_keeps_the_file_line_endings(tmp_path: pathlib.Path) -> None:
+    (tmp_path / "notebooks").mkdir()
+    (tmp_path / "docs").mkdir()
+    for path in ix.notebook_paths(ROOT):
+        (tmp_path / "notebooks" / path.name).write_bytes(path.read_bytes())
+    good = (ROOT / "docs" / "examples.md").read_bytes().replace(b"\n", b"\r\n")
+    target = tmp_path / "docs" / "examples.md"
+    target.write_bytes(
+        good.replace(
+            b"**Demonstrates:** `evaluate_table()`, ", b"**Demonstrates:** ", 1
+        )
+    )
+    assert ix.check(tmp_path), "the stale block was not detected"
+    ix.write(tmp_path)
+    assert target.read_bytes() == good
 
 
 def test_no_notebook_name_selects_another_with_pytest_k() -> None:

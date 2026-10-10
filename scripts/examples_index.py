@@ -434,7 +434,8 @@ def _grammar_error(line: str, previous_blank: bool) -> str | None:
     code fence, a thematic break after a blank line, and a paragraph line that
     does not start with a space, a tab, ``>``, ``<``, ``=``, ``|``, ``#``, a
     list marker (``-``, ``+``, ``*``, or one to nine ASCII digits and ``.`` or
-    ``)``), or three backticks or tildes that do not open a fence.
+    ``)``), or three backticks or tildes that do not open a fence, and that is
+    not a line of only ``-`` (with optional trailing spaces or tabs).
     Whitespace here is CommonMark's, a space or a tab only. With
     no indentation, block quote, list, HTML block or setext underline possible,
     a heading can only be a column-0 ATX heading, which the section rules
@@ -616,9 +617,28 @@ def _blocks(
     return blocks, errors
 
 
+_LINE_ENDING = re.compile(r"\r\n|\r|\n")
+
+
+def _split_with_endings(text: str) -> tuple[list[str], list[str]]:
+    """Split ``text`` at CommonMark's line endings (LF, CRLF, a bare CR).
+
+    Returns the lines and the ending after each; the last line's is ``""``.
+    """
+    lines: list[str] = []
+    endings: list[str] = []
+    start = 0
+    for match in _LINE_ENDING.finditer(text):
+        lines.append(text[start : match.start()])
+        endings.append(match.group())
+        start = match.end()
+    lines.append(text[start:])
+    endings.append("")
+    return lines, endings
+
+
 def _split_lines(text: str) -> list[str]:
-    """Split ``text`` at CommonMark's line endings: LF, CRLF and a bare CR."""
-    return text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    return _split_with_endings(text)[0]
 
 
 def check_index(text: str, declarations: Mapping[str, Declaration]) -> list[str]:
@@ -636,13 +656,20 @@ def check_index(text: str, declarations: Mapping[str, Declaration]) -> list[str]
 
 
 def rewrite_index(text: str, declarations: Mapping[str, Declaration]) -> str:
-    lines = _split_lines(text)
+    """``text`` with each generated block replaced and everything else kept.
+
+    The new block's lines end with the ending of the old begin line, except
+    the last, which keeps the ending of the old end line.
+    """
+    lines, endings = _split_with_endings(text)
     blocks, errors = _blocks(lines, list(declarations))
     if errors:
         raise ContractError("\n".join(errors))
     for name, (begin, end) in sorted(blocks.items(), key=lambda kv: -kv[1][0]):
-        lines[begin : end + 1] = render_block(name, declarations[name])
-    return "\n".join(lines)
+        block = render_block(name, declarations[name])
+        lines[begin : end + 1] = block
+        endings[begin : end + 1] = [endings[begin]] * (len(block) - 1) + [endings[end]]
+    return "".join(line + ending for line, ending in zip(lines, endings, strict=True))
 
 
 # --- The repository --------------------------------------------------------------
@@ -688,9 +715,11 @@ def write(root: Path = ROOT) -> None:
     if errors:
         raise ContractError("\n".join(errors))
     path = root / "docs" / "examples.md"
-    path.write_text(
-        rewrite_index(path.read_text(encoding="utf-8"), declarations), encoding="utf-8"
-    )
+    # newline="" both ways, so the file's line endings pass through unchanged.
+    with path.open(encoding="utf-8", newline="") as handle:
+        text = handle.read()
+    with path.open("w", encoding="utf-8", newline="") as handle:
+        handle.write(rewrite_index(text, declarations))
 
 
 # --- CI helpers (standard library only) ----------------------------------------------
