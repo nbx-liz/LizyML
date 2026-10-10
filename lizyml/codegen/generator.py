@@ -40,6 +40,7 @@ def generate_code(
     inner_valid: dict[str, Any] | None = None,
     sample_weight: str | None = None,
     declared_categories: dict[str, list[Any]] | None = None,
+    categorical_rule: dict[str, Any] | None = None,
 ) -> Path:
     """Generate LizyML-independent training and prediction code.
 
@@ -112,6 +113,7 @@ def generate_code(
         inner_valid=inner_valid,
         sample_weight=sample_weight,
         declared_categories=declared_categories,
+        categorical_rule=categorical_rule,
     )
 
     # Write artifacts (config.json, model.txt, pipeline_state.json, calibrator)

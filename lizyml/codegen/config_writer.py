@@ -46,6 +46,7 @@ def build_config(
     inner_valid: dict[str, Any] | None = None,
     sample_weight: str | None = None,
     declared_categories: dict[str, list[Any]] | None = None,
+    categorical_rule: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Build config.json content as an ordered dict.
 
@@ -75,6 +76,10 @@ def build_config(
             balanced weights, else ``None`` (H-0120).
         declared_categories: Columns that were ``category`` dtype at fit, with
             their declared categories (H-0120).
+        categorical_rule: The data builder's cast rule, ``{"explicit": [...],
+            "auto": bool}`` from ``features.categorical`` and
+            ``features.auto_categorical``; defaults to LizyML's defaults
+            (H-0120 amendment 3).
 
     Returns:
         Dict ready for ``json.dump()``.
@@ -122,6 +127,12 @@ def build_config(
         # H-0120: restored before the pipeline is fitted, so a CSV that lost
         # the dtype gets the declared codes back.
         "declared_categories": declared,
+        # H-0120 amendment 3: which columns LizyML's data builder casts to
+        # `category` before the encoder.
+        "categorical_rule": {
+            "explicit": list((categorical_rule or {}).get("explicit", [])),
+            "auto": bool((categorical_rule or {}).get("auto", True)),
+        },
         # ── LightGBM ──
         "lgbm_params": dict(lgbm_params),
         "num_boost_round": num_boost_round,

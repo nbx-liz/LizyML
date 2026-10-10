@@ -18,7 +18,7 @@ import pandas as pd
 import pytest
 
 from lizyml import Model
-from lizyml.core.exceptions import LizyMLError
+from lizyml.core.exceptions import ErrorCode, LizyMLError
 from tests.test_codegen._retrain_harness import (
     SPLIT_METHODS,
     TASKS,
@@ -29,8 +29,8 @@ from tests.test_codegen._retrain_harness import (
 
 pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")
 
-#: Outer splits that stratify on the target: a continuous regression target
-#: cannot be stratified, and ``Model.fit`` stops (measured 2026-10-10).
+#: Outer splits that stratify on the target: a regression target has no
+#: classes, and ``Model.fit`` refuses them whatever its values (amendment 2).
 _FIT_REFUSES = {
     ("regression", "stratified_kfold"),
     ("regression", "stratified_group_kfold"),
@@ -54,8 +54,11 @@ def test_task_by_split(task: str, method: str, tmp_path: Path) -> None:
     df = make_frame(task)
     cfg = make_config(task, method)
     if (task, method) in _FIT_REFUSES:
-        with pytest.raises((LizyMLError, ValueError)):
-            Model(cfg).fit(data=df)
+        integer_valued = df.assign(target=np.clip(np.round(df["target"]), -2, 2))
+        for frame in (df, integer_valued):
+            with pytest.raises(LizyMLError) as info:
+                Model(cfg).fit(data=frame)
+            assert info.value.code == ErrorCode.CONFIG_INVALID
         return
     assert_retrain_reproduces(_fit(cfg, df), df, tmp_path / "gen")
 
@@ -384,6 +387,25 @@ def _assert_state_matches_encoder(model: Model, project: Path) -> None:
         assert entry["mode"] == (mode.item() if isinstance(mode, np.generic) else mode)
 
 
+@pytest.mark.parametrize("fmt", ["parquet", "csv"])
+def test_auto_categorical_off_keeps_the_string_column_uncast(
+    fmt: str, tmp_path: Path
+) -> None:
+    """With ``auto_categorical: false`` the builder leaves a string column
+    alone and the encoder takes ``sorted(unique, key=str)`` (amendment 3)."""
+    df = _with_categories("string")
+    cfg = _category_config("string")
+    cfg["features"] = {"auto_categorical": False}
+    model = _fit(cfg, df)
+    assert model.fit_result.dtypes["c"] != "category"
+    assert "c" in model._refit_result.categorical_features  # type: ignore[union-attr]
+    project = tmp_path / "gen"
+    assert_retrain_reproduces(model, df, project, fmt=fmt)
+    _assert_state_matches_encoder(model, project)
+    config = json.loads((project / "config.json").read_text(encoding="utf-8"))
+    assert config["categorical_rule"] == {"explicit": [], "auto": False}
+
+
 def test_mixed_type_column_predict_py_matches(tmp_path: Path) -> None:
     """A column holding ``"1"`` and ``1`` cannot be saved with its types, so it
     is outside the retrain promise; the exported predict.py must still use the
@@ -425,7 +447,31 @@ def test_csv_within_the_stated_condition(tmp_path: Path) -> None:
         (df["d"].astype(str) == "v") ^ (df["s"] == "k") ^ (df["f0"] > 1.5)
     ).astype(np.int64)
     cfg = _category_config("csv", "time_series")
-    assert_retrain_reproduces(_fit(cfg, df), df, tmp_path / "gen", fmt="csv")
+    model = _fit(cfg, df)
+    project = tmp_path / "gen"
+    assert_retrain_reproduces(model, df, project, fmt="csv")
+    _assert_state_matches_encoder(model, project)
+
+
+def test_new_data_keeps_a_new_category_of_an_inferred_column(tmp_path: Path) -> None:
+    """Only the input's own ``category`` columns are restored (amendment 4): a
+    string column is re-inferred, so a category the fit never saw is learned on
+    a retrain with new data instead of becoming a missing value."""
+    from tests.test_codegen._retrain_harness import run_train, write_data
+
+    df = make_frame("binary")
+    rng = np.random.default_rng(9)
+    df["s"] = rng.choice(["k", "j"], len(df))
+    model = _fit(_category_config("csv"), df)
+    project = tmp_path / "gen"
+    model.export_code(project)
+    new = df.copy()
+    new.loc[new.index[:40], "s"] = "new"
+    run_train(project, write_data(new, project, "csv"))
+    state = json.loads(
+        (project / "artifacts" / "pipeline_state.json").read_text(encoding="utf-8")
+    )
+    assert "new" in state["categories"]["s"]["categories"]
 
 
 # ---------------------------------------------------------------------------

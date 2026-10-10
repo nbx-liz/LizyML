@@ -63,14 +63,34 @@ def _plain(value):
     return value.item() if isinstance(value, np.generic) else value
 
 
+def cast_categoricals(X: pd.DataFrame) -> pd.DataFrame:
+    """Cast columns to ``category`` as LizyML's data builder does.
+
+    The columns listed in ``features.categorical`` and, when
+    ``auto_categorical`` is on, every string or object column, are cast with
+    ``astype("category")`` before the pipeline is fitted (H-0120).
+    """
+    rule = CFG["categorical_rule"]
+    X = X.copy()
+    cast = set(rule["explicit"])
+    if rule["auto"]:
+        for col in X.columns:
+            if pd.api.types.is_string_dtype(X[col]) or X[col].dtype == object:
+                cast.add(col)
+    for col in cast:
+        if col in X.columns:
+            X[col] = X[col].astype("category")
+    return X
+
+
 def fit_pipeline(df: pd.DataFrame) -> dict:
     """Learn the category codes and save the pipeline state.
 
-    The same calls as LizyML: its data builder casts every categorical column
-    with ``astype("category")`` before the encoder, and CategoricalEncoder.fit
-    then takes the column's categories in order (declared, or as pandas
-    inferred them). Values are kept as values, never as str, and a value's code
-    is its position in the list (H-0120).
+    The same calls as LizyML's CategoricalEncoder.fit, on the frame
+    ``cast_categoricals`` returns: a ``category`` column keeps its categories
+    in order (declared, or as pandas inferred them); a string column left
+    uncast takes ``sorted(unique, key=str)``. Values are kept as values, never
+    as str, and a value's code is its position in the list (H-0120).
     """
     expected = CFG["feature_names"]
     missing = sorted(set(expected) - set(df.columns))
@@ -80,9 +100,10 @@ def fit_pipeline(df: pd.DataFrame) -> dict:
     categories: dict[str, dict] = {}
     for col in CFG["categorical_features"]:
         series = df[col]
-        if not hasattr(series, "cat"):
-            series = series.astype("category")
-        cats = list(series.cat.categories)
+        if hasattr(series, "cat"):
+            cats = list(series.cat.categories)
+        else:
+            cats = sorted(series.dropna().unique().tolist(), key=str)
         if cats:
             modes = series.mode()
             mode = modes.iloc[0] if len(modes) > 0 else cats[0]
@@ -1054,7 +1075,7 @@ def train(df: pd.DataFrame, *, calibrate: bool = True) -> None:
     df = apply_declared_categories(df)
     target = CFG["_target_col"]
     y = _encode_target(df[target])
-    X_raw = df.drop(columns=[target])
+    X_raw = cast_categoricals(df[CFG["feature_names"]])
 
     log.info("[1/4] Fitting feature pipeline ...")
     state = fit_pipeline(X_raw)

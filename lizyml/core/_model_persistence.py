@@ -425,6 +425,10 @@ class ModelPersistenceMixin:
             inner_valid=inner_valid,
             sample_weight=sample_weight,
             declared_categories=declared,
+            categorical_rule={
+                "explicit": list(cfg.features.categorical),
+                "auto": cfg.features.auto_categorical,
+            },
         )
         _log.info("event='export_code.done' path=%s", result)
         return result
