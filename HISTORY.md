@@ -11707,13 +11707,14 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 - binary: 陽性クラスの確率（校正前）
 - multiclass: 各クラスの確率
 
-**「同じデータ」の定義**: `Model.fit` に渡した DataFrame と同じ行・同じ列・同じ行順のデータを、parquet で保存したもの。
+**「同じデータ」の定義**: `Model.fit` に渡した DataFrame と同じ行・同じ列・同じ行順のデータを、parquet で保存したもの。生成される `requirements.txt` に、parquet を読むための `pyarrow` を加える（方針 7）。
 
-**CSV の場合**（管理者の判断、2026-10-10）: CSV は値の型を保てない（文字列の `"1"` と整数の `1` は区別できず、`category` dtype も失われる）。CSV で保存したデータについては、次の 2 つをどちらも満たす場合に限って約束する。この限定は BLUEPRINT §15.4 に書く。
-- カテゴリ列が、型の混じった値（例: 文字列と整数）を持たない。
-- カテゴリ列、時間の列、グループの列の値と dtype が、`pd.read_csv` で読み戻したときに fit 時のものと等しい。
+**型の混じった列**: 1 つの列に型の混じった値（例: 文字列の `"1"` と整数の `1`）を持つ DataFrame は、parquet（pyarrow）でも CSV でも、元の型のまま保存できない。そのような列を持つ fit は、再学習の約束の外とする。ただし export 直後の `predict.py` は型付きの状態（方針 5）を読むので、LizyML と同じ符号を使う（受け入れ基準 1）。
 
-宣言されたカテゴリ（`category` dtype のカテゴリ）は `config.json` に書くので、CSV でも失われない（方針 5）。
+**CSV の場合**（管理者の判断、2026-10-10）: CSV は値の型と `category` dtype を保てない。CSV で保存したデータについては、次の条件を満たす場合に限って約束する。この限定は BLUEPRINT §15.4 に書く。
+- 生成 `train.py` が `pd.read_csv` で読み、宣言されたカテゴリ（`config.json` の `declared_categories`、方針 5）を当てた後の、カテゴリ列、時間の列、グループの列の値と dtype が、fit 時のものと等しい。
+
+この条件を満たさない例は、型の混じった列、文字列として読まれる時刻の列である。
 
 **前提**:
 - 同じ計算機で実行する。
@@ -11721,7 +11722,7 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 - LightGBM 自身の決定性に依存する設定（`num_threads`、`force_col_wise` / `force_row_wise`、`deterministic`）は、どちらの側でも LightGBM の既定のままである。この場合、約束は LightGBM 自身の決定性の範囲で成り立つ（LightGBM は既定では col-wise と row-wise を所要時間で選ぶ）。`model.params` で `deterministic: true`、`force_col_wise: true`、`num_threads: 1` を指定すると、これらは `config.json` の `lgbm_params` に書かれるので、両方の側が同じ設定で学習する。受け入れ基準のテストは、この指定で実行する。
 
 **約束しないもの**（明記する）:
-- `Model.load()` で読み込んだモデルからの export のうち、`applied_training_params` の無い（H-0109 より前の）artifact のもの。このとき、tune が決めた `ratio` と patience は分からない（H-0109）。
+- `Model.load()` で読み込んだモデルからの export のうち、`applied_training_params` の無い（H-0109 より前の）artifact のもの。このとき、tune が決めた `ratio` は分からない（H-0109）。patience は、保存された adapter が持つので分かる（`build_export_params` が adapter から読む、BLUEPRINT §14.4）。
 - 校正器。H-0059 の約束は「校正器が作り直される」までで、値の一致は約束していない。生成 `train.py` の校正用 OOF は fold の分割だけを再現し（H-0090）、fold のモデルは再現しない。そのため、binary の校正後の確率は一致しない。
 - 異なるデータで学習し直した場合。このときは同じ規則で学習するが、比較の対象となる LizyML のモデルは無い。
 - 本 Proposal より前の版が生成したプロジェクト。生成されたコードはそのプロジェクトの中で完結しているので、古いプロジェクトは古い動作のままである。
@@ -11731,14 +11732,17 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 約束を崩していた原因は 7 つで、ソースから導出した（「規則が縛る位置」）。それぞれを次のように直す。
 
 1. **早期停止の分割を再現する。**
-   - **2 つの値を独立に書く。** LizyML の refit では、inner valid の分割（検証集合があるか）と early stopping の patience（callback があるか）が別々に決まる。callback が付くのは、検証集合があり、かつ patience が `None` でない場合だけである（`estimators/lgbm/adapter.py` の callback の構築）。tune が `validation_ratio` だけを変えた fit では、検証集合はあるが callback は無い。tune が patience だけを決め、config で early stopping を無効にした fit では、どちらも無い。そこで `config.json` には次の 2 つを、どちらも必ず書く。
+   - **2 つの値を独立に書く。** LizyML の refit では、inner valid の分割（検証集合があるか）と early stopping の patience（callback があるか）が別々に決まる。callback が付くのは、検証集合があり、かつ patience が `None` でない場合だけである（`estimators/lgbm/adapter.py` の callback の構築）。tune が `validation_ratio` だけを変えた fit では、検証集合はあるが callback は無い。tune が patience だけを決め、config で early stopping を無効にした fit では、adapter は patience を持つが検証集合は無いので、callback は無い（`effective_early_stopping_rounds` は config の `enabled` に関わらず tune の patience を返し、`model.py` がそれを adapter に入れる。inner valid は作られない）。そこで `config.json` には次の 2 つを、どちらも必ず書く。
      - `inner_valid`: refit が実際に使った strategy の設定。refit に検証集合が無かった fit では `null`。
      - `early_stopping_rounds`: refit の adapter が実際に持っていた patience（`ExportParams`）。無かった場合は `null`。
 
      生成 `train.py` は 2 つとも既定値なしで読む（キーが無ければ失敗する）。そして LizyML と同じ規則で使う。`inner_valid` が `null` でなければ、分割して学習行だけで学習し、検証集合を渡す。callback を付けるのは、それに加えて `early_stopping_rounds` が `null` でない場合だけである。「書かれていない」と「無効」を同じ値にしない（BLUEPRINT §14.4 の `ExportParams.early_stopping_rounds` と同じ理由）。
-   - **`inner_valid` の値は、refit が実際に使った strategy のオブジェクトから読む。** config から計算し直さない。中身は、strategy の種類、`ratio`、`random_state`、`stratify`、`gap`、グループの列名、時間の列名である。
-     - 例: 明示した `time_holdout` の strategy は、outer split が `purge_gap` を持っていても `gap=0` で作られる（`_model_factories.py` の明示指定の経路）。この場合、書く値は `0` であり、outer の `purge_gap` ではない。
-     - `ratio` は、tune が変えうる（H-0109）。strategy のオブジェクトが fit の適用した値を持つので、そこから読む（H-0094 決定 13 と同じ理由）。
+   - **`inner_valid` の値の出どころ。** refit が使った strategy のオブジェクトは保存されていない（`Model.fit` の中の局所変数で、`RefitResult` にも `FitState` にも無い）。そのため export 時に、fit が strategy を作ったのと**同じ関数**（`_model_factories.py` の自動解決と明示指定の経路）を、fit と同じ入力で呼び直して作る。入力は次のとおりで、どれも保存されている。
+     - config から: outer split の method と inner gap（`purge_gap` / `gap`）、明示した `inner_valid`（method、`random_state`、`stratify`）、`training.seed`、タスク。
+     - fit が適用した値から: `ratio`。tune が変えうるので、H-0109 の `applied_training_params` から読む（H-0094 決定 13 と同じ理由）。
+     - 列名（グループの列、時間の列）: strategy のオブジェクトは列名を持たないので、config のデータの指定から読む。
+
+     書く中身は、こうして作った strategy の種類と、その `ratio`、`random_state`、`stratify`、`gap`、および列名である。例: 明示した `time_holdout` は、outer split が `purge_gap` を持っていても、同じ関数が `gap=0` で作るので、書く値は `0` になる。
    - 生成 `train.py` は、`lizyml/training/inner_valid.py` の 4 つの strategy を移した関数で、同じ分割を作る（H-0090 が outer split で行ったのと同じ方法）。対象は `HoldoutInnerValid`（層化あり／なし）、`GroupHoldoutInnerValid`、`TimeHoldoutInnerValid`（`gap` を含む）、`BlockedGroupInnerValid` の 4 つである。LizyML と同じ numpy と scikit-learn の呼び出しを使い、検証行の数の丸め方（切り上げ／切り捨て）と学習行の並び順も合わせる。
 2. **学習前の行の並び順を再現する。** LizyML は、時間順の outer split（`time_series`、`purged_time_series`、`group_time_series`）と `blocked_group_kfold` で、学習の前に行を並べ替える（`data/dataframe_builder.py`）。生成 `train.py` も、学習の前に LizyML と同じ呼び出し（同じ列の `Series.argsort()`、既定の `kind="quicksort"`）で並べ替える。これは安定ソートではないので、同じ値の時刻やブロックの間の順序は、ソートの実装（numpy の版）で決まる。同じ版で同じ入力なら同じ順序になる（前提を参照）。
 3. **multiclass の `balanced` の重みを再現する。** export 時に、refit が重みを使ったかどうかと、その規則（`balanced`）を `config.json` に書く。生成 `train.py` は LizyML と同じ式（`compute_sample_weight("balanced", y)` と同じ値）で行ごとの重みを計算し、inner valid の学習行にだけ付ける。検証行には付けない。binary は、これまでどおり `scale_pos_weight` で届く。
@@ -11747,7 +11751,7 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
    - **生成 `train.py` の `fit_pipeline` は、`CategoricalEncoder.fit` と同じ呼び出しでカテゴリと最頻値を決める**（`features/encoders/categorical_encoder.py`）。
      - `category` dtype の列では、`series.cat.categories`（宣言された順）を使う。
      - それ以外の列では、`sorted(series.dropna().unique().tolist(), key=str)` を使う。
-     - 最頻値は `series.mode().iloc[0]` とする。
+     - 最頻値も同じ規則で決める。カテゴリが 1 つ以上あれば、`series.mode()` が空でなければその先頭、空なら（宣言されたカテゴリはあるが、値がすべて欠損の列など）カテゴリの先頭とする。カテゴリが 1 つも無ければ `None` とする。
      - 値は `str` にせず、値のまま区別する。符号は、カテゴリの並びの中の位置である。
    - **宣言されたカテゴリを `config.json` に書く。** fit 時に `category` dtype だった列について、そのカテゴリの並びを `config.json` の `declared_categories`（列名 → 値の配列）に書く。生成 `train.py` は、読んだデータのその列を、このカテゴリで `category` dtype に直してから `fit_pipeline` に渡す。CSV で dtype が失われても、宣言されたカテゴリは失われない。
    - **`pipeline_state.json` の形**: カテゴリ列ごとに `{"categories": [値, ...], "mode": 値}` と書く。配列の位置が符号である。値は型付きの JSON の値（文字列、数、真偽値）とし、JSON のオブジェクトのキー（常に文字列）には使わない。`config.json` の `declared_categories` も同じ表し方をする。
@@ -11759,6 +11763,7 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
    - #309（`CategoricalEncoder` 自身が float16 / longdouble で出す生の例外）は、LizyML 側のエラーの契約の問題なので、本 Proposal の範囲外とする。
    - 生成 `predict.py` の `transform` も、同じ符号を使う。
 6. **実行の決定性と版**: 約束の前提（同じ計算機、4 つのライブラリの同じ版、決定性の設定）を BLUEPRINT §15.4 に書く。export 時の LightGBM、numpy、pandas、scikit-learn の版を `config.json` の `_versions` に記録する。生成 `train.py` は、実行時の版が記録と違えば、どの版が違うかを警告し、学習は続ける。テストは `model.params` に `deterministic: true`、`force_col_wise: true`、`num_threads: 1` を指定して実行する。
+7. **parquet を読めるようにする。** 生成 `train.py` は parquet を `pd.read_parquet` で読むが、生成される `requirements.txt` には parquet の読み込みに要る `pyarrow` が無い。`requirements.txt` に `pyarrow` を加える。
 
 ### 規則が縛る位置（ソースから導出、実装前）
 
@@ -11807,11 +11812,15 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
    - **検証集合と callback の組み合わせ**: 両方ある（既定）、両方ない（early stopping 無効）、検証集合だけある（tune が `validation_ratio` だけを変えた fit）、patience だけある（tune が patience を決め、config で early stopping を無効にした fit）の 4 つ。
    - **同じ値の時刻**: `time_series` で、時間の列に同じ値が複数ある fit。
    - **評価関数**: 生成コードが再実装する 9 つ（`rmsle`、`r2`、`f1`、`brier`、`ece`、`precision_at_k`、`accuracy`、`smape`、`wape`）と 3 つのタスクの組み合わせのすべて。LizyML がそのタスクでその評価関数を受け付けない場合は、拒否されることを確かめる。
-   - **カテゴリ**（parquet で行う）: 文字列、整数、宣言だけされたカテゴリ（`category` dtype）、`"1"` と `1` が混じった object 列、欠損値を含む列。
-   - **CSV**: 文字列のカテゴリ列、宣言されたカテゴリを持つ列、数値の時間の列を持つ fit を、CSV で保存して `train.py` に渡す（約束の CSV の条件を満たすケース）。
+   - **カテゴリ**（parquet で行う）: 文字列、整数、宣言だけされたカテゴリ（`category` dtype）、宣言されたカテゴリを持ち値がすべて欠損の列（最頻値がカテゴリの先頭になる）、欠損値を含む列。
+   - **型の混じった列**: `"1"` と `1` が混じった object 列を持つ fit で、export 直後の `predict.py`（再学習の前）の予測が `Model.predict` と一致する。この列は保存できないので、再学習の行列には入れない（約束の外）。
+   - **CSV**: 文字列のカテゴリ列、宣言されたカテゴリを持つ列、数値の時間の列を持つ fit を、CSV で保存して `train.py` に渡す（`declared_categories` を当てた後に約束の CSV の条件を満たすケース）。
+   - **生成プロジェクトの依存**: 生成される `requirements.txt` が `pyarrow` を含む。
 2. **拒否**: 受け付ける型の判定の各分岐をテストする。
    - 受け付ける: `str`、`int`、`float`、`bool`、`np.int64`、`np.float64`、`np.bool_`、`np.str_`。
-   - 拒否する: `tuple`、`bytes`、`pd.Timestamp`、`decimal.Decimal`。`export_code` が `LizyMLError` を送出し、出力先に何も書かない。
+   - 拒否する（numpy 以外）: `tuple`、`bytes`、`pd.Timestamp`、`decimal.Decimal`。
+   - 拒否する（numpy のスカラーで、`.item()` が受け付ける型にならないもの）: `np.bytes_`、`np.datetime64`、`np.complex128`。
+   - 拒否されたどの場合も、`export_code` が `LizyMLError` を送出し、出力先に何も書かない。
 3. **版の警告**: `config.json` の `_versions` を実行環境と違う値にしたとき、生成 `train.py` が違う版を挙げて警告し、学習は最後まで行う。
 4. **負の対照**: 方針 1、2、3、5 の修正と、`declared_categories` の復元を 1 つずつ元に戻すと、行列のどれかのケースが失敗する。方針 4 は確認だけで修正を伴わないので、負の対照の対象にしない。
 5. **既存の照合**: `test_equivalence.py`（export した booster を `predict.py` が読んだ予測の一致）と H-0090 の fold の再現は、引き続き通る。
