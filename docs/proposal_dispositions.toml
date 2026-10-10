@@ -491,6 +491,10 @@ anchors = ["oof_raw_scores", "target_encoder", "dataclasses.fields"]
 disposition = "no_obligation"
 reason = "Notebook index contract, a private method-to-extra registry and CI jobs: no public API, Config, Result, Artifacts, split or leakage surface changes, so BLUEPRINT has nothing to state."
 
+[proposals."H-0120"]
+disposition = "pending"
+reason = "Proposed: the export_code promise (BLUEPRINT 6.6 / 15.4) is restated by the implementation PR once the Proposal is accepted."
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 
