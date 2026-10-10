@@ -1,5 +1,20 @@
 # Notebook Index
 
+<!-- Generated from each notebook's metadata.lizyml.index by scripts/examples_index.py. Do not edit this region by hand. rows=8 sha256=6ed9207d0f7a2932e1b3b5b6aa38876478af9cc0050cb94b3d87ef75f64feb14 -->
+
+| Notebook | Demonstrates | Extras required |
+|---|---|---|
+| `tutorial_binary_lgbm.ipynb` | `calibration_plot()`, `confusion_matrix()`, `evaluate_table()`, `importance_plot()`, `probability_histogram_plot()`, `roc_curve_plot()` | `pip install 'lizyml[explain,plots]'` |
+| `tutorial_calibration.ipynb` | `calibration_plot()`, `evaluate()`, `evaluate_table()`, `probability_histogram_plot()` | `pip install 'lizyml[plots]'` |
+| `tutorial_codegen_export.ipynb` | `export_code()`, `predict()` | none (base install) |
+| `tutorial_multiclass_lgbm.ipynb` | `confusion_matrix()`, `evaluate_table()`, `importance_plot()`, `plot_learning_curve()`, `roc_curve_plot()` | `pip install 'lizyml[explain,plots]'` |
+| `tutorial_regression_lgbm.ipynb` | `evaluate_table()`, `fit()`, `importance()`, `importance_plot()`, `params_table()`, `plot_learning_curve()`, `residuals_plot()` | `pip install 'lizyml[explain,plots]'` |
+| `tutorial_regression_tuning_lgbm.ipynb` | `boundary_table()`, `fit()`, `params_table()`, `tune()`, `tuning_plot()`, `tuning_table()` | `pip install 'lizyml[plots,tuning]'` |
+| `tutorial_shap_explanations.ipynb` | `importance_plot()`, `predict()` | `pip install 'lizyml[explain,plots]'` |
+| `tutorial_time_series_lgbm.ipynb` | `evaluate_table()`, `plot_learning_curve()`, `predict()`, `split_summary()` | `pip install 'lizyml[plots]'` |
+
+<!-- index:end -->
+
 All notebooks are located in the `notebooks/` directory. They can be run
 with any Jupyter-compatible environment. Install the extras each notebook
 lists before running it (see [Installing Extras](#installing-extras)).
@@ -13,8 +28,6 @@ End-to-end regression walkthrough: config definition, `fit()`,
 `importance()` / `importance_plot()` by split, gain and SHAP, and
 `params_table()`. Good starting point if you are new to LizyML.
 
-**Extras required:** `pip install 'lizyml[plots,explain]'`
-
 ---
 
 ### `tutorial_binary_lgbm.ipynb`
@@ -24,8 +37,6 @@ Binary classification with LightGBM and isotonic calibration:
 `confusion_matrix()`, `probability_histogram_plot()`, `calibration_plot()`,
 and feature importance.
 
-**Extras required:** `pip install 'lizyml[plots,explain]'`
-
 ---
 
 ### `tutorial_multiclass_lgbm.ipynb`
@@ -33,8 +44,6 @@ and feature importance.
 Multiclass classification with stratified CV: `evaluate_table()`,
 `confusion_matrix()`, `roc_curve_plot()` (one-vs-rest, per-class AUC),
 `importance_plot()`, and `plot_learning_curve()`.
-
-**Extras required:** `pip install 'lizyml[plots,explain]'`
 
 ---
 
@@ -45,8 +54,6 @@ Hyperparameter tuning with Optuna: `tune()` → `fit()` workflow,
 Includes a `progress_callback` example (`TuneProgressInfo`) for tracking
 trial progress.
 
-**Extras required:** `pip install 'lizyml[tuning,plots]'`
-
 ---
 
 ### `tutorial_time_series_lgbm.ipynb`
@@ -56,8 +63,6 @@ CV) and `purged_time_series` with `purge_gap`, `split_summary()`,
 `evaluate_table()`, `plot_learning_curve()`, and `predict()` on the last 100
 rows of the frame.
 
-**Extras required:** `pip install 'lizyml[plots]'`
-
 ---
 
 ### `tutorial_shap_explanations.ipynb`
@@ -65,8 +70,6 @@ rows of the frame.
 SHAP value computation and interpretation: `predict(return_shap=True)` for
 per-sample explanations, `importance_plot(kind="shap")` for global
 feature importance, and comparison of split vs gain vs SHAP rankings.
-
-**Extras required:** `pip install 'lizyml[plots,explain]'`
 
 ---
 
@@ -77,8 +80,6 @@ Probability calibration for binary classification with Platt and Isotonic
 vs calibrated metrics with `evaluate()` / `evaluate_table()`, and visualizes
 them with `calibration_plot()` and `probability_histogram_plot()`.
 
-**Extras required:** `pip install 'lizyml[plots]'`
-
 ---
 
 ### `tutorial_codegen_export.ipynb`
@@ -87,8 +88,6 @@ Codegen export walkthrough: `export_code()` generates standalone
 `train.py` + `predict.py` + `config.json` that run without LizyML.
 Shows the generated file structure, runs `predict.py`, and checks it with
 `test_equivalence.py` against `predict()` reference predictions.
-
-**Extras required:** none (base install)
 
 ---
 

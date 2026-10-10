@@ -157,3 +157,106 @@ jobs:
         run: |
           pip install dist/*.whl --quiet
           python -c "from lizyml import Model; print('import ok:', Model)"
+
+  # --- Notebook index contract (H-0119 6.) -------------------------------------
+  # Trigger rule (decision 1, 2026-10-10): the jobs below run whenever this
+  # workflow runs (every PR to main or develop and every push to main); nothing
+  # selects them by changed paths. The
+  # notebook-index-gate job at the end passes only when the matrix job and both
+  # index jobs succeeded, and is the one check to require.
+  notebook-index-matrix:
+    name: Notebook index (matrix)
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Read the notebooks and extras to test
+        id: matrix
+        # Standard library only: runs before anything is installed.
+        run: |
+          matrix=$(python3 scripts/examples_index.py --ci-matrix)
+          echo "$matrix"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  extras-registry:
+    # 6.(a): every row of lizyml/_extras.py raises OPTIONAL_DEP_MISSING, naming
+    # the extra's package, in an environment without that extra.
+    name: Extras registry (without ${{ matrix.removed }})
+    needs: notebook-index-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        removed: ${{ fromJSON(needs.notebook-index-matrix.outputs.matrix).removed }}
+    env:
+      REMOVED: ${{ matrix.removed }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install every extra but the removed one
+        run: |
+          flags=$(python3 scripts/examples_index.py --uv-flags-without "$REMOVED")
+          uv sync --frozen --no-dev --group notebooks $flags
+
+      - name: Call every registry row that needs the removed extra
+        run: uv run --no-sync --no-dev python -m tests.test_notebooks.probe_extras_registry --without "$REMOVED"
+
+  notebook-index-execution:
+    # 6.(b): each notebook runs with only the extras it declares, and every
+    # index-example statement is recorded as run on the declared Model.
+    name: Notebook index (${{ matrix.notebook }})
+    needs: notebook-index-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        notebook: ${{ fromJSON(needs.notebook-index-matrix.outputs.matrix).notebook }}
+    env:
+      NOTEBOOK: ${{ matrix.notebook }}
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install the declared extras only
+        run: |
+          flags=$(python3 scripts/examples_index.py --uv-flags-for "$NOTEBOOK")
+          echo "extras: ${flags:-none}"
+          uv sync --frozen --no-dev --group notebooks $flags
+
+      - name: Check that exactly the declared extras are installed
+        run: uv run --no-sync --no-dev python -m tests.test_notebooks.check_installed_extras "$NOTEBOOK"
+
+      - name: Execute the notebook and record its index examples
+        run: uv run --no-sync --no-dev python -m pytest tests/test_notebooks/test_index_execution.py -m slow -k "$NOTEBOOK"
+
+  notebook-index-gate:
+    # The single check to require for the notebook index (H-0119 6.). It always
+    # runs and passes only when the matrix job and both index jobs succeeded; a
+    # failed, cancelled or skipped job fails it. The decision is
+    # scripts/notebook_index_gate.py (unit-tested).
+    name: Notebook index (gate)
+    needs: [notebook-index-matrix, extras-registry, notebook-index-execution]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Decide from the index job results
+        env:
+          MATRIX_RESULT: ${{ needs.notebook-index-matrix.result }}
+          REGISTRY_RESULT: ${{ needs.extras-registry.result }}
+          EXECUTION_RESULT: ${{ needs.notebook-index-execution.result }}
+        run: python3 scripts/notebook_index_gate.py
