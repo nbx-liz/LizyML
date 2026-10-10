@@ -32,7 +32,7 @@ HISTORY に入れる Proposal の草案（HISTORY に合わせて日本語）。
 - **INV-R2（最良値の再現）**: 採用する最良値は study 全体の最良の試行である。その試行のパラメーターで `fit` すると、その試行と同じ学習になる（`config ⊕ fixed ⊕ その試行のサンプル値`）。
 - **INV-R3（空間の変更は観測を消さない）**: 探索空間を変えても、古い試行は同じ目的関数の観測として残り、最良値の候補であり続ける。
 - **INV-R4（拒否は study を変える前）**: 拒否は、enqueue・試行の追加・study の属性の書き込みより前に行い、study と Model の状態を変えない。
-- **INV-R5（再接続は継続と同じ）**: 落ちたあとに再接続した結果は、同じプロセスで続けた場合と同じ空間・系譜・round 番号になる。
+- **INV-R5（再接続は継続と同じ）**: 落ちたあとに再接続した結果は、同じプロセスで続けた場合と同じ空間・系譜・round 番号になる。`timeout` で区切る round の試行の数だけは、この保証の外（7.2）。
 
 ## 3. 呼び出しの種類
 
@@ -67,7 +67,7 @@ HISTORY に入れる Proposal の草案（HISTORY に合わせて日本語）。
 
 ### 4.1 含めるもの
 
-- **データ**: tune に渡した DataFrame の正規化した要約。次の全部を含める。
+- **データ**: tune が実際に使う DataFrame の正規化した要約。DataFrame は今の優先順位（`tune(data=...)` > コンストラクターの `data` > config の `data.path` を読んだもの、`model.py:712-719`）で決めたもので、どの経路でも読んだ後の中身を要約する（`data.path` の文字列だけでは、同じ場所のファイルの中身の変更を見落とすため）。次の全部を含める。
   - 列名と列の順序
   - 各列の dtype
   - categorical の列の categories とその順序、ordered かどうか
@@ -190,9 +190,16 @@ H-0068 は前回の最良値を無条件に enqueue する。この案はそれ�
 - `lizyml:versions`: ライブラリの版（4.3）
 - `lizyml:space_mode`、`lizyml:fixed`: study を作ったときの値
 - `lizyml:origin_space`: study を作ったときの config の探索空間（5.1 の比較用）
-- `lizyml:round:<k>`: round k の系譜（宣言空間、実効空間、拡張した次元とその結果、`expand_boundary` の値、要求した `n_trials`、開始時の試行数、開始時の最良値）。round を始めるときに書く。
+- `lizyml:round:<k>`: round k の系譜。round の準備（5.2・5.3・6.2 の判断）がすべて済んでから、試行を足す前に一度だけ書く。中身:
+  - その round の宣言の元の形（`space=` の dict、無ければ「直前の宣言のまま」）と、次元ごとの出どころ（利用者 / 既定）。`expand_boundary=None` の判断（5.3）と H-0121 の出どころの規則を、再接続のあとも同じに決めるため。
+  - 宣言空間、実効空間、拡張した次元とその結果、解決した `expand_boundary` の値
+  - 予算: 要求した `n_trials` と `timeout`、round を始めた時刻
+  - 開始時の試行数（その round の試行は、これ以上の番号）、開始時の最良値
+  - enqueue の判断（する / しない）と、する場合はその値
 - `lizyml:round:<k>:end`: 終了時の最良値と、終わった時刻。正常に終わったときだけ書く。
-- 各試行の `lizyml:round`（試行の user attr）
+- 各試行の `lizyml:round`（試行の user attr）。enqueue した試行には `lizyml:enqueued` も付ける（Optuna 4.7.0 の `enqueue_trial(params, user_attrs=...)` で、待ち行列に入れるときに付けられる）。
+
+**書く順序**: (1) round の準備をすべて決める、(2) `lizyml:round:<k>` を書く、(3) 判断が「する」なら enqueue する、(4) 試行を足す、(5) `lizyml:round:<k>:end` を書く。(2) より前に落ちたら、study には round k の跡が何も無い。再開は、round k を最初から始める普通の resume になる（何も足されていないので、続けた場合と同じ）。
 
 ### 7.2 再接続（P2）
 
@@ -200,8 +207,12 @@ H-0068 は前回の最良値を無条件に enqueue する。この案はそれ�
 
 - **最後の round が終わっている**（`:end` がある）: 同じプロセスで `resume=True` を呼んだ場合と同じ。最後の round の実効空間を直前の空間として、5.2 から新しい round を始める。
 - **最後の round が途中で落ちている**（`:end` が無い）: INV-R5 に従い、**同じ round を残りの予算で終える**（Q-D、決定済み）。
-  - round 番号は変えない。その round を始めたときの実効空間をそのまま使う。境界の分析・拡張・enqueue は行わない（round の始めに済んでいる）。
-  - 残りの予算は、その round で要求した `n_trials` から、その round で終わった試行（COMPLETE、FAIL、PRUNED）の数を引いたもの。0 なら試行を足さずに round を閉じる（最適化は終わったが `:end` を書く前に落ちた場合）。
+  - round 番号は変えない。その round の記録にある実効空間をそのまま使う。境界の分析と拡張はやり直さない（記録に決まっている）。
+  - enqueue: 記録の判断が「する」で、その round に `lizyml:enqueued` の付いた試行（どの状態でも）が無いときだけ、記録した値で enqueue する（(2) と (3) の間で落ちた場合）。あれば何もしない。こうして enqueue は一度だけになる。
+  - 残りの試行数は、記録した `n_trials` から、その round で終わった試行（COMPLETE、FAIL、PRUNED）の数を引いたもの。
+  - 記録に `timeout` があるとき、残りの時間は `timeout` から、round を始めた時刻からその round の最後に終わった試行の終了時刻までの時間を引いたもの。落ちていた間の時間は数えない。
+  - 残りの試行数か残りの時間が 0 以下なら、試行を足さずに round を閉じる（最適化は試行数か時間で終わったが、`:end` を書く前に落ちた場合を含む）。
+  - 時間による予算の限界: 残りの時間は試行の記録から求めるので、落ちる直前に走っていた試行の時間は数えない。時間で区切る round では、続けた場合と同じ試行の数になることは保証しない（時間による打ち切りは、同じプロセスでも試行の数を決めないため）。試行の数による予算では INV-R5 を満たす。
   - 落ちたときに RUNNING のまま残った試行は、再接続のときに FAIL として記録し、予算に数える。一つの study に試行を足すプロセスは一つという前提（3）による。
   - この呼び出しでは `space=`、`n_trials`、`expand_boundary` を渡さない。渡したら `CONFIG_INVALID`（途中の round の空間と予算は決まっているため）。
   - 代わりの案: 中断した round を閉じ、次の round として始める（今の LizyStudio は残りの試行数を自分で数えて渡しており、こちらに近い）。INV-R5 を満たさないため推奨しない。
@@ -316,7 +327,15 @@ C11 だけはこの仕様が決める。
 10. `resume=True` で別の storage → `CONFIG_INVALID`。
 11. config の探索空間を変えて `resume=True`（`space=` なし） → `CONFIG_INVALID`。
 12. `study_name` だけ、`storage` だけを渡す → `resume` に依らず `CONFIG_INVALID`。読めない `lizyml:schema` → `CONFIG_INVALID`。既にある次元のカテゴリーを変える宣言 → `CONFIG_INVALID`。
-13. データの列名を変える、categorical の categories の順序を変える → 同一性の違いとして `CONFIG_INVALID`。
-14. 既存のテストのうち今の挙動を固定しているもの（`test_space_merge.py:183, 262, 305, 375`、`test_tuner_persistence.py:252`、`test_retune.py:807`、`test_error_code_raising.py:57`）は、新しい規則を固定するように書き直す（消さない）。
+13. データの列名を変える、categorical の categories の順序を変える → 同一性の違いとして `CONFIG_INVALID`。データをコンストラクターの `data` で渡した場合と、`data.path` の場所のファイルの中身だけを変えた場合も、同じく `CONFIG_INVALID`。
+14. 呼び出しの表（3）の各行: 
+    - 同じ `storage`（URL の文字列が等しい、または同じ `BaseStorage` のオブジェクト）と同じ `study_name` を渡した `resume=True` → 継続する（試行が増え、round が進む）。`storage` と `study_name` を省いた `resume=True` → 継続する。
+    - `study_name` だけが違う、URL の文字列が違う（同じファイルを指す別の書き方を含む）、同じ backend を指す別の `BaseStorage` のオブジェクト → `CONFIG_INVALID`、試行が増えない。
+    - 新しい `Model` で、storage に既にある study を `resume=True` で指す → 再接続して続く（P2 の成功）。
+15. round の準備の途中で落ちた場合（`lizyml:round:<k>` を書いた後、enqueue の前で止めたもの、enqueue の後で止めたもの）→ 再接続のあと、enqueue した試行がその round にちょうど一つある。`lizyml:round:<k>` を書く前に止めたもの → 普通の resume として round k が始まる。
+16. `timeout` のある round を途中で落とした場合 → 再開で足す時間は、記録から求めた残りの時間を超えない。時間を使い切ってから `:end` の前に落とした場合 → 試行を足さずに閉じる。
+17. `space=` で `merge` の宣言に利用者の次元を足した round のあと、再接続して次の round を `expand_boundary=None` で始める → 同じプロセスで続けた場合と同じ拡張の判断になる。
+一つの study に試行を足すプロセスは一つという前提（3）は、利用者に求める前提で、ライブラリは強制しない（lease などの仕組みは入れない）。テストは、再接続のときに残った RUNNING の試行が FAIL になること（8）だけを確かめる。
+18. 既存のテストのうち今の挙動を固定しているもの（`test_space_merge.py:183, 262, 305, 375`、`test_tuner_persistence.py:252`、`test_retune.py:807`、`test_error_code_raising.py:57`）は、新しい規則を固定するように書き直す（消さない）。
 
 Firing rate: Proposal を書く段で測る（テストのうち resume と再接続を呼ぶものと、`design-vs-implementation.md` の probe P1-P7 を再生し、拒否の数を数える）。
