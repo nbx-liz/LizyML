@@ -11687,7 +11687,7 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 
 - **ステータス**: Accepted
 - **起票日**: 2026-10-10
-- **決定日**: 2026-10-10（管理者の判断: H-0059 の約束に戻し、#304 を含める。Codex の Proposal review は 2 回の run で行い、2 回目の run の round 3 で APPROVE）。改訂: 2026-10-10（重みの規則の記録、管理者の判断。下の「改訂 1」）。改訂: 2026-10-10（regression で目的変数による層化を拒否、管理者の判断。下の「改訂 2」）
+- **決定日**: 2026-10-10（管理者の判断: H-0059 の約束に戻し、#304 を含める。Codex の Proposal review は 2 回の run で行い、2 回目の run の round 3 で APPROVE）。改訂: 2026-10-10（重みの規則の記録、管理者の判断。下の「改訂 1」）。改訂: 2026-10-10（regression で目的変数による層化を拒否、管理者の判断。下の「改訂 2」）。改訂 1・2 は Codex の改訂レビュー（1 round ずつ、3 回）を経て、3 回目で APPROVE。訂正: 2026-10-10（方針 5 の事実の訂正。下の「改訂 3」）。改訂: 2026-10-10（入力で宣言されたカテゴリ列の記録、管理者の判断。下の「改訂 4」）
 - **スコープ**: `lizyml/codegen/`（`config_writer.py`、`templates.py`、`artifact_writer.py`、`generator.py`）、`lizyml/core/_model_persistence.py`（export に渡す値）、`BLUEPRINT.md` §6.6 / §15.4、`tests/test_codegen/`（再現の行列テストを新設）、`CHANGELOG.md`、`docs/proposal_dispositions.toml`
 - **関連**: [Issue #301](https://github.com/nbx-liz/LizyML/issues/301)、[Issue #304](https://github.com/nbx-liz/LizyML/issues/304)、H-0059（codegen）、H-0073、H-0090（OOF の fold の再現）、H-0103（inner valid）、H-0105（feval）、#269 の決定（refit の重み。HISTORY の #269 の項が、生成 `train.py` が何を再現するかの決定を #301 に先送りしている）
 
@@ -11727,6 +11727,7 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 - 校正器。H-0059 の約束は「校正器が作り直される」までで、値の一致は約束していない。生成 `train.py` の校正用 OOF は fold の分割だけを再現し（H-0090）、fold のモデルは再現しない。そのため、binary の校正後の確率は一致しない。
 - 異なるデータで学習し直した場合。このときは同じ規則で学習するが、比較の対象となる LizyML のモデルは無い。
 - 本 Proposal より前の版が生成したプロジェクト。生成されたコードはそのプロジェクトの中で完結しているので、古いプロジェクトは古い動作のままである。
+- CSV で学習し直す場合のうち、`declared_categories` の記録が無い（本 Proposal より前の）artifact を `Model.load()` したモデルから export したもの（改訂 4）。このとき `config.json` の `declared_categories` は空で、宣言されたカテゴリは戻らない。parquet は dtype を保つので、この限定を受けない。
 - `Model.load()` で読み込んだモデルからの export のうち、`applied_sample_weight` の記録が無い（本 Proposal より前の）artifact のもの（改訂 1）。このとき重みの規則は、config と現在の tune の結果から決める。fit の後に実行した tune が `balanced` を変えた場合は、fit が使った規則と違いうる。
 
 ### 対応方針（提案）
@@ -11752,7 +11753,7 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 5. **カテゴリの符号を再現する（#304）。**
    - **生成 `train.py` の `fit_pipeline` は、`CategoricalEncoder.fit` と同じ呼び出しでカテゴリと最頻値を決める**（`features/encoders/categorical_encoder.py`）。
      - `category` dtype の列では、`series.cat.categories`（宣言された順）を使う。
-     - それ以外の列では、`sorted(series.dropna().unique().tolist(), key=str)` を使う。
+     - それ以外の列では、`sorted(series.dropna().unique().tolist(), key=str)` を使う。ただし `Model.fit` の経路では、この分岐に届かない（改訂 3）。
      - 最頻値も同じ規則で決める。カテゴリが 1 つ以上あれば、`series.mode()` が空でなければその先頭、空なら（宣言されたカテゴリはあるが、値がすべて欠損の列など）カテゴリの先頭とする。カテゴリが 1 つも無ければ `None` とする。
      - 値は `str` にせず、値のまま区別する。符号は、カテゴリの並びの中の位置である。
    - **宣言されたカテゴリを `config.json` に書く。** fit 時に `category` dtype だった列について、そのカテゴリの並びを `config.json` の `declared_categories`（列名 → 値の配列）に書く。生成 `train.py` は、読んだデータのその列を、このカテゴリで `category` dtype に直してから `fit_pipeline` に渡す。CSV で dtype が失われても、宣言されたカテゴリは失われない。
@@ -11786,7 +11787,7 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 
 ### 互換性
 
-- **公開 API、Config、`FitResult`、`PredictionResult` は変わらない。LizyML の artifact は `format_version` を変えず、`metadata.json` に任意のキー `applied_sample_weight` が 1 つ増える（改訂 1）。** このキーの無い artifact は、これまでどおり読める（H-0109 の `applied_training_params` と同じ扱い）。
+- **公開 API、Config、`FitResult`、`PredictionResult` は変わらない。LizyML の artifact は `format_version` を変えず、`metadata.json` に任意のキー `applied_sample_weight`（改訂 1）と `declared_categories`（改訂 4）が増える。** このキーの無い artifact は、これまでどおり読める（H-0109 の `applied_training_params` と同じ扱い）。
 - **`export_code` の出力は変わる。**
   - `config.json` に、`inner_valid`（または `null`）、`early_stopping_rounds`（または `null`）、重みの設定、`declared_categories`、`_versions` が増える。
   - `pipeline_state.json` のカテゴリは、列ごとの `{"categories": [...], "mode": ...}` として型付きで書かれる。
@@ -11896,3 +11897,28 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 **Firing rate**: この拒否は `allow` の条件にあたる。
 - **Firing rate: 0/1287 of `build_splitter` の呼び出し（`Model.fit` と `Model.tune` が outer split を作るたびに 1 回。うち regression 573）、テストスイート全体（`lizyml/` は `fabac47` と同じ、9526 passed。本 Proposal の新しいテストファイル `tests/test_codegen/test_retrain_reproduction.py` は除いた）**。測り方: `build_splitter` を包む pytest プラグイン（`docs/audits/2026-09-defect-discovery/instruments/h0120_stratified_census.py`）で、呼び出しごとに、regression で位置 1〜4 のどれかを指定しているかを数えた（2026-10-10）。陽性対照: 位置 1〜4 のそれぞれを指定した regression の config をプラグインの判定に渡すと、その位置が数えられ、`stratify: auto` と `kfold` は数えられない。
 - 発火は 0 件である。ノートブックと `docs/` にも、regression で層化を指定した例は無い。この拒否は、設計原理に反する指定を学習の前に止めるための安全側の拒否なので、発火しないことは欠陥ではない。拒否の各位置は、受け入れ基準への追加のテストで直接確かめる。
+
+### 改訂 3: 方針 5 の事実の訂正 — カテゴリ列は encoder の前に `category` dtype になる（2026-10-10）
+
+**経緯**: 実装中に、既存のテスト（`tests/test_codegen/test_unseen_policy_codegen.py` の「the data builder casts to category」）とソースから分かった。`Model.fit` では、データの組み立て（`data/dataframe_builder.py` の `_apply_categorical`）が、カテゴリとして扱う列（`features.categorical` で指定した列と、`auto_categorical` が文字列・object の列から選んだ列）をすべて `astype("category")` で `category` dtype にしてから、`CategoricalEncoder.fit` に渡す。そのため `CategoricalEncoder.fit` は `Model.fit` の経路では常に `series.cat.categories` の分岐を通り、`sorted(..., key=str)` の分岐には届かない。カテゴリの並びは、宣言された順か、`astype("category")` が推定した順（整数なら数の順、たとえば `[1, 2, 3, 10]`）である。方針 5 の「それ以外の列では `sorted(..., key=str)`」は、`CategoricalEncoder.fit` の分岐の説明としては正しいが、`Model.fit` の経路の説明としては誤りだった。
+
+**訂正後の規則**: 生成 `train.py` の `fit_pipeline` は、`categorical_features` の列のうち `category` dtype でないものを、LizyML と同じ `astype("category")` で `category` dtype にしてから、`series.cat.categories` と `series.mode()` でカテゴリと最頻値を決める。規則（「LizyML と同じ呼び出しで決める」）は変わらず、その呼び出しの範囲を `Model.fit` の経路に合わせて正しく書き直すだけである。
+
+**テスト**: LightGBM のカテゴリの分割は符号の番号の付け方によらないので、予測の一致だけではこの違いを検出できない（実測: `sorted(..., key=str)` のままでも、受け入れ基準 1 のカテゴリのケースは予測が一致した）。受け入れ基準 1 のカテゴリのケースは、予測の一致に加えて、`train.py` が書いた `pipeline_state.json` のカテゴリと最頻値が LizyML の encoder のものと、順序と型も含めて等しいことを確かめる（受け入れ基準 4 と同じ比較）。
+
+### 改訂 4: 入力で `category` と宣言された列を fit 時に記録する（2026-10-10、管理者の判断）
+
+**経緯**: 実装中のテスト（受け入れ基準 4 の `declared_categories` の形）で分かった。方針 5 は「fit 時に `category` dtype だった列」を `config.json` の `declared_categories` に書くとしていたが、その判定に使える記録が無かった。`FitResult.dtypes` は、データの組み立て（`_apply_categorical`）がカテゴリとして扱う列をすべて `category` に変えた**後**の dtype なので（改訂 3）、利用者が宣言した列と、文字列から推定された列を区別できない。すべてのカテゴリ列を宣言扱いにすると、同じデータでは一致するが、新しいデータで学習し直すときに、fit の時に無かったカテゴリが黙って欠損値になる（LizyML は新しいカテゴリとして学ぶ）。これは H-0059 の目的 1（新データでの再学習）に反する。
+
+**規則**:
+- **記録**: `Model.fit` は、入力の DataFrame で `category` dtype だった特徴量の列と、そのカテゴリ（宣言された順、未使用のものを含む）を記録する。データの組み立ての前の DataFrame から読む。記録は、`applied_training_params` と同じく、fit が成功したときにだけ更新する。
+- **保存と読み込み**: `Model.export` は、この記録を `metadata.json` の任意のキー `declared_categories`（列名 → 値の配列）に書く。値は方針 5 の受け付ける型に直して書き、受け付けない値を含む記録は書かない（その場合 `export_code` は、同じ値を持つ encoder のカテゴリで拒否する）。`Model.load` はそれを戻し、オブジェクトでない、配列でない、`str`・`int`・`float`・`bool` 以外の値を含む記録は `LizyMLError`（`DESERIALIZATION_FAILED`）で拒否する。キーが無い artifact は、記録が「分からない」として読み込む。
+- **export**: `export_code` は、記録を `config.json` の `declared_categories` に書く。記録が「分からない」ときは空にする（CSV での再学習は約束の外。上の「約束しないもの」）。
+
+**受け入れ基準への追加**（1 つのテストファイルで直接テストする）:
+- 入力で `category` だった列だけが記録される。同じ fit の文字列の列（`astype("category")` で推定される列）は記録されない。
+- 記録は `Model.export` で書かれ、`Model.load` で戻り、再び export すると同じ値が書かれる。キーが無い artifact は読み込め、記録は「分からない」で、再 export でキーを書かず、`export_code` の `declared_categories` は空である。
+- 拒否されたり途中で失敗した fit、後の `tune()` では、記録は変わらない。
+- 受け入れ基準 1 の CSV のケースに、文字列の列を新しいカテゴリを含む新しいデータで学習し直しても、そのカテゴリが欠損値にならない（生成 `train.py` の `pipeline_state.json` のカテゴリに入る）ことを加える。
+
+**Firing rate**: 本改訂は新しい条件を加えない（記録の有無による分岐は、改訂 1 と同じく古い artifact のための読み方）。
