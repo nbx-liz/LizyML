@@ -11858,7 +11858,7 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 **受け入れ基準への追加**: 受け入れ基準 1 の「重みの規則と fit・tune の順序」の 2 ケースと、受け入れ基準 5 の負の対照。加えて、次を 1 つのテストファイルで直接テストする（H-0109 の `applied_training_params` のテストと同じ形）。
 - **2 つの値**: multiclass で重みを使った fit（`balanced` が既定）は `"balanced"` を、使っていない fit（multiclass で `balanced: false`、binary、regression）は `"none"` を記録する。どちらも `Model.export` が `metadata.json` に書き、`Model.load` が同じ値に戻し、再び `Model.export` すると同じ値が書かれる。
 - **更新の時点**: 記録のあるモデル（fit したもの、load したもの）に対して、規則の違う fit が成功すると、記録はその fit の規則に置き換わる。後の `tune()`、拒否された fit（fit の前の検査で止まるもの）、学習の途中で失敗した fit の後では、記録は変わらない（記録が「分からない」モデルでは「分からない」のまま）。
-- **キーが無い artifact**: 読み込める。読み込んだモデルの記録は「分からない」であり、`"none"` とは区別される。そのモデルを再び `Model.export` すると、`applied_sample_weight` のキーを書かない。`export_code` は、config と現在の tune の結果から重みの設定を書く（`balanced` が既定の multiclass なら重みあり、`balanced: false` なら重みなし。2 ケース）。
+- **キーが無い artifact**: 読み込める。読み込んだモデルの記録は「分からない」であり、`"none"` とは区別される。そのモデルを再び `Model.export` すると、`applied_sample_weight` のキーを書かない。`export_code` は、config と現在の tune の結果から重みの設定を書く。config と tune の結果が食い違う 2 ケースで、tune の結果が勝つことを確かめる（config だけを見る実装を落とすため）: config の `balanced` が既定（重みあり）で、記録の無い artifact の tune の結果が `balanced: false` なら重みなし。config が `balanced: false` で、tune の結果が `balanced: true` なら重みあり。
 - **拒否**: `applied_sample_weight` が `"balanced"` / `"none"` 以外の値（例: `true`、`null`、`"Balanced"`、数）のとき、`Model.load` が `LizyMLError`（`DESERIALIZATION_FAILED`）で拒否する。
 
 **Firing rate**: 本改訂は新しい条件を加えない。記録の有無による分岐（キーが無いときの取り方）は、H-0109 と同じく古い artifact のための読み方で、`skip` / `select` / `allow` などの条件にはあたらない。
@@ -11889,7 +11889,8 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 
 **受け入れ基準への追加**:
 - 受け入れ基準 1 の 24 の組み合わせのうち、regression × `stratified_kfold` と regression × `stratified_group_kfold` の 2 つが「`Model.fit` が拒否する」に入り、`LizyMLError`（`CONFIG_INVALID`）を確かめる。目的変数が連続値の場合と整数値の場合の両方で確かめる（目的変数の値によらないことの確認）。
-- 位置 1〜4 のそれぞれについて、regression の `Model.fit` と `Model.tune` が学習の前に `LizyMLError`（`CONFIG_INVALID`）で拒否する（学習が始まらないことを、`lgb.train` が呼ばれないことで確かめる）。同じ指定の binary と multiclass は、これまでどおり受け付ける。
+- 位置 1〜4 のそれぞれについて、目的変数が連続値の場合と整数値の場合の両方で、regression の `Model.fit` と `Model.tune` が学習の前に `LizyMLError`（`CONFIG_INVALID`）で拒否する（4 位置 × 2 種類の目的変数 × 2 つの呼び出し。学習が始まらないことを、`lgb.train` が呼ばれないことで確かめる）。同じ指定の binary と multiclass は、これまでどおり受け付ける。
+- 拒否のメッセージ: 位置ごとに、メッセージがその位置の名前（`split.method='stratified_kfold'`、`split.method='stratified_group_kfold'`、`split.groups.stratify=true`、`training.early_stopping.inner_valid.stratify=true`）と、層化しない代わりの指定（`kfold`、`group_kfold`、`stratify: false`）を含むことを確かめる。
 - 負の対照: 検査を外すと、位置 1〜4 のテストが失敗する。
 
 **Firing rate**: この拒否は `allow` の条件にあたる。
