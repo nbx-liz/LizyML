@@ -11687,7 +11687,7 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 
 - **ステータス**: Accepted
 - **起票日**: 2026-10-10
-- **決定日**: 2026-10-10（管理者の判断: H-0059 の約束に戻し、#304 を含める。Codex の Proposal review は 2 回の run で行い、2 回目の run の round 3 で APPROVE）。改訂: 2026-10-10（重みの規則の記録、管理者の判断。下の「改訂 1」）
+- **決定日**: 2026-10-10（管理者の判断: H-0059 の約束に戻し、#304 を含める。Codex の Proposal review は 2 回の run で行い、2 回目の run の round 3 で APPROVE）。改訂: 2026-10-10（重みの規則の記録、管理者の判断。下の「改訂 1」）。改訂: 2026-10-10（regression で目的変数による層化を拒否、管理者の判断。下の「改訂 2」）
 - **スコープ**: `lizyml/codegen/`（`config_writer.py`、`templates.py`、`artifact_writer.py`、`generator.py`）、`lizyml/core/_model_persistence.py`（export に渡す値）、`BLUEPRINT.md` §6.6 / §15.4、`tests/test_codegen/`（再現の行列テストを新設）、`CHANGELOG.md`、`docs/proposal_dispositions.toml`
 - **関連**: [Issue #301](https://github.com/nbx-liz/LizyML/issues/301)、[Issue #304](https://github.com/nbx-liz/LizyML/issues/304)、H-0059（codegen）、H-0073、H-0090（OOF の fold の再現）、H-0103（inner valid）、H-0105（feval）、#269 の決定（refit の重み。HISTORY の #269 の項が、生成 `train.py` が何を再現するかの決定を #301 に先送りしている）
 
@@ -11791,6 +11791,7 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
   - `config.json` に、`inner_valid`（または `null`）、`early_stopping_rounds`（または `null`）、重みの設定、`declared_categories`、`_versions` が増える。
   - `pipeline_state.json` のカテゴリは、列ごとの `{"categories": [...], "mode": ...}` として型付きで書かれる。
   - 生成されるプロジェクトはその中で完結しているので、既存のプロジェクトはそのまま動く。
+- **`Model.fit` と `Model.tune` が新しく拒否する場合がある（改訂 2）。** regression で目的変数による層化を指定した config である。これまでは、目的変数が連続値なら scikit-learn の生の `ValueError` で止まり、整数値なら回帰の目的変数をクラスとみなして黙って層化していた。
 - **`export_code` が新しく拒否する場合がある。** 方針 5 の受け付ける型の外のカテゴリを持つ fit である。これまでは `str` にして黙ってずれていた。
 - **生成 `train.py` で再学習した結果が変わる。** LizyML と一致するようになる。
 - **Firing rate**: export の拒否（方針 5）は `allow` の条件にあたる。その他の分岐（分割の種類、並べ替えの有無、重みの有無、検証集合と callback の有無）は、LizyML の fit が既に下した判断を生成コードに写すだけで、新しい条件ではない。拒否の発火率は次のとおりである。
@@ -11854,6 +11855,43 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 - **export**: `export_code` は、記録があれば記録から、`config.json` の重みの設定を書く。記録が「分からない」ときに限って、config と現在の tune の結果から、fit と同じ規則（`balanced` が `None` なら分類で有効、multiclass だけが行ごとの重みを使う）で決める。この場合は「約束しないもの」に入る。
 - binary の `balanced` は `scale_pos_weight` として params に入り、adapter から書かれるので、本改訂の対象ではない。
 
-**受け入れ基準への追加**: 受け入れ基準 1 の「重みの規則と fit・tune の順序」の 2 ケースと、受け入れ基準 5 の負の対照。加えて、`metadata.json` の `applied_sample_weight` が `"balanced"` / `"none"` 以外の値（例: `true`、`"Balanced"`、数）のときに `Model.load` が拒否すること、キーが無い artifact を読めることを、受け入れ基準 2 の拒否のテストと同じファイルで直接テストする。
+**受け入れ基準への追加**: 受け入れ基準 1 の「重みの規則と fit・tune の順序」の 2 ケースと、受け入れ基準 5 の負の対照。加えて、次を 1 つのテストファイルで直接テストする（H-0109 の `applied_training_params` のテストと同じ形）。
+- **2 つの値**: multiclass で重みを使った fit（`balanced` が既定）は `"balanced"` を、使っていない fit（multiclass で `balanced: false`、binary、regression）は `"none"` を記録する。どちらも `Model.export` が `metadata.json` に書き、`Model.load` が同じ値に戻し、再び `Model.export` すると同じ値が書かれる。
+- **更新の時点**: 記録のあるモデル（fit したもの、load したもの）に対して、規則の違う fit が成功すると、記録はその fit の規則に置き換わる。後の `tune()`、拒否された fit（fit の前の検査で止まるもの）、学習の途中で失敗した fit の後では、記録は変わらない（記録が「分からない」モデルでは「分からない」のまま）。
+- **キーが無い artifact**: 読み込める。読み込んだモデルの記録は「分からない」であり、`"none"` とは区別される。そのモデルを再び `Model.export` すると、`applied_sample_weight` のキーを書かない。`export_code` は、config と現在の tune の結果から重みの設定を書く（`balanced` が既定の multiclass なら重みあり、`balanced: false` なら重みなし。2 ケース）。
+- **拒否**: `applied_sample_weight` が `"balanced"` / `"none"` 以外の値（例: `true`、`null`、`"Balanced"`、数）のとき、`Model.load` が `LizyMLError`（`DESERIALIZATION_FAILED`）で拒否する。
 
 **Firing rate**: 本改訂は新しい条件を加えない。記録の有無による分岐（キーが無いときの取り方）は、H-0109 と同じく古い artifact のための読み方で、`skip` / `select` / `allow` などの条件にはあたらない。
+
+### 改訂 2: regression で目的変数による層化を拒否する（2026-10-10、管理者の判断）
+
+**経緯**: 受け入れ基準 1 の行列（タスク × outer split の 24 の組み合わせ）を作る際に実測した（`fabac47` の `lizyml/`）。regression で `split.method` に `stratified_kfold` または `stratified_group_kfold` を指定すると、LizyML は止めずに scikit-learn の splitter に渡す。目的変数が連続値なら scikit-learn が `ValueError`（"Supported target types are: ('binary', 'multiclass'). Got 'continuous' instead."）を送出し、整数値なら scikit-learn が値を多クラスのラベルと推定して層化する（`stratified_group_kfold` で fit が成功した）。どちらになるかは組み合わせではなくデータで決まり、受け入れ基準 1 の「`Model.fit` がその組み合わせを拒否する場合は `LizyMLError` を確かめる」はこの 2 つで満たせなかった。
+
+**設計原理からの判断**（管理者の指示: 現在の実装の挙動ではなく、アルゴリズムの元々の設計原理から判断する）:
+- 層化 k-fold は、各 fold で**クラスの比率**を保つための手法であり、離散のクラスラベルを前提にする。回帰の目的変数にはクラスが無い。scikit-learn が整数値の目的変数を受け付けるのは、値の型から多クラスのラベルと推定するためで、回帰を層化する設計ではない。
+- LizyML の記録も同じ原理に立つ。「2026-03-05: Binary/Multiclass で StratifiedKFold をデフォルト化 + KFold 警告」は層化を「クラス比率を保持する」分類の既定とし、regression は `kfold` とした。H-0060 は `groups.stratify: auto` を分類では層化あり、regression では層化なしとした。H-0092 決定 6 は、連続値の目的変数を層化して inner-train が空になることを「記述すべき仕様ではない」不具合とした。
+- したがって、regression で目的変数による層化を指定した config は、目的変数の値によらず設定の誤りである。
+
+**規則**: `task` が `regression` で、次のどれかを指定した config について、`Model.fit` と `Model.tune` は学習の前に `LizyMLError`（`CONFIG_INVALID`）で拒否する。メッセージは指定の位置を挙げ、層化しない代わりの指定（`kfold`、`group_kfold`、`stratify: false`）を示す。
+
+**規則が縛る位置**（ソースから導出、実装前。bound: config のうち、目的変数による層化を指定できるすべてのフィールド。`stratify` と `stratified_*` を `lizyml/` から列挙した）:
+
+| # | config の位置 | 層化する場所 | 本改訂 |
+|---|---|---|---|
+| 1 | `split.method: stratified_kfold` | `splitters/kfold.py` `StratifiedKFoldSplitter`。自動解決の inner valid も `HoldoutInnerValid(stratify=True)` になる（`_model_factories.py` `_resolve_auto_inner_valid`） | **拒否** |
+| 2 | `split.method: stratified_group_kfold` | `splitters/group_kfold.py` `StratifiedGroupKFoldSplitter` | **拒否** |
+| 3 | `split.groups.stratify: true`（`blocked_group_kfold`、明示した `true`） | `splitters/blocked_group_kfold.py` の代表ラベルによる層化（`auto` は regression で層化なしに解決される、`_resolve_stratify`） | **拒否** |
+| 4 | `training.early_stopping.inner_valid` の `holdout` で `stratify: true`（明示） | `training/inner_valid.py` `HoldoutInnerValid` の `StratifiedShuffleSplit` | **拒否** |
+| 5 | `BlockedGroupInnerValid` のフォールバック | `task` で分岐し、regression は層化しない（H-0092 決定 6） | 変更なし |
+| 6 | 校正の分割 | 校正は binary だけ（BLUEPRINT §11） | 対象外 |
+
+**検査の位置**: 拒否は、fit と tune の両方が outer split を作る前に通る `build_splitter`（`core/_model_factories.py`。H-0013 の `kfold` の警告と同じ関数）で行う。
+
+**受け入れ基準への追加**:
+- 受け入れ基準 1 の 24 の組み合わせのうち、regression × `stratified_kfold` と regression × `stratified_group_kfold` の 2 つが「`Model.fit` が拒否する」に入り、`LizyMLError`（`CONFIG_INVALID`）を確かめる。目的変数が連続値の場合と整数値の場合の両方で確かめる（目的変数の値によらないことの確認）。
+- 位置 1〜4 のそれぞれについて、regression の `Model.fit` と `Model.tune` が学習の前に `LizyMLError`（`CONFIG_INVALID`）で拒否する（学習が始まらないことを、`lgb.train` が呼ばれないことで確かめる）。同じ指定の binary と multiclass は、これまでどおり受け付ける。
+- 負の対照: 検査を外すと、位置 1〜4 のテストが失敗する。
+
+**Firing rate**: この拒否は `allow` の条件にあたる。
+- **Firing rate: 0/1287 of `build_splitter` の呼び出し（`Model.fit` と `Model.tune` が outer split を作るたびに 1 回。うち regression 573）、テストスイート全体（`lizyml/` は `fabac47` と同じ、9526 passed。本 Proposal の新しいテストファイル `tests/test_codegen/test_retrain_reproduction.py` は除いた）**。測り方: `build_splitter` を包む pytest プラグイン（`docs/audits/2026-09-defect-discovery/instruments/h0120_stratified_census.py`）で、呼び出しごとに、regression で位置 1〜4 のどれかを指定しているかを数えた（2026-10-10）。陽性対照: 位置 1〜4 のそれぞれを指定した regression の config をプラグインの判定に渡すと、その位置が数えられ、`stratify: auto` と `kfold` は数えられない。
+- 発火は 0 件である。ノートブックと `docs/` にも、regression で層化を指定した例は無い。この拒否は、設計原理に反する指定を学習の前に止めるための安全側の拒否なので、発火しないことは欠陥ではない。拒否の各位置は、受け入れ基準への追加のテストで直接確かめる。
