@@ -52,6 +52,7 @@ from lizyml.config.schema import (
     LizyMLConfig,
 )
 from lizyml.config.version import check_config_version
+from lizyml.core._codegen_inputs import input_categories
 from lizyml.core._model_factories import (
     applied_training_overlay,
     build_splitter,
@@ -163,6 +164,11 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         # `balanced` the config and tuning result would imply. `None` means
         # unknown -- a model loaded from an artifact without the record.
         self._applied_sample_weight: str | None = "none"
+        # The feature columns the last fit's input frame held as `category`,
+        # with their categories (H-0120 amendment 4); `None` means unknown.
+        # `_input_categories` is the per-call transient `fit` commits from.
+        self._declared_categories: dict[str, list[Any]] | None = {}
+        self._input_categories: dict[str, list[Any]] = {}
         self._y: pd.Series | None = None  # transient; not persisted
         self._X: pd.DataFrame | None = None  # transient; not persisted
         self._provider: EstimatorProvider | None = None  # set by fit/tune
@@ -222,6 +228,9 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
 
         # --- Load & prepare data ---------------------------------------------
         X, y, groups, components = self._prepare_training_data(data)
+        # Taken now: a later call (tune) replaces the transient, and only a
+        # successful fit commits it below (H-0120 amendment 4).
+        declared_at_fit = dict(self._input_categories)
         fingerprint = fp_compute(X, file_path=None)
 
         # --- Build components (H-0050/H-0053: provider-based) ----------------
@@ -337,6 +346,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         # `_tuning_result` and leaves the fitted adapters alone (decision 13).
         self._applied_training_params = applied_training_overlay(training_overrides)
         self._applied_sample_weight = "none" if tc.sample_weight is None else "balanced"
+        self._declared_categories = declared_at_fit
         self._refit_result = refit_result
         self._fit_result = fit_result
         _log.info("event='fit.done' run_id=%s", run_id)
@@ -746,6 +756,10 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         )
 
         components = dataframe_builder.build(df, problem_spec, feature_spec)
+        # H-0120 amendment 4: the builder casts every categorical column to
+        # `category`, so which features the input itself declared `category`
+        # is visible only here. `fit` commits it with the rest of its record.
+        self._input_categories = input_categories(df, list(components.X.columns))
         groups: npt.NDArray[Any] | None = (
             components.group_col.to_numpy()
             if components.group_col is not None
@@ -926,6 +940,11 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
                 else dict(self._applied_training_params)
             ),
             applied_sample_weight=self._applied_sample_weight,
+            declared_categories=(
+                None
+                if self._declared_categories is None
+                else {c: list(v) for c, v in self._declared_categories.items()}
+            ),
             provider=self._provider,
             metrics=self._metrics,
             y=self._y,

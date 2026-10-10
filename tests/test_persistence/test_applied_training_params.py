@@ -229,8 +229,9 @@ def test_the_record_is_the_only_new_key(lifecycle: str, tmp_path: Path) -> None:
     out = _run(_model(), lifecycle).export(tmp_path / "artifact")
     tuning = {"tuning"} if lifecycle == "tune_fit" else set()
 
-    # H-0120 amendment 1 adds its own optional record beside this one.
-    assert set(_metadata(out)) == LEGACY_KEYS | tuning | {KEY, "applied_sample_weight"}
+    # H-0120 amendments 1 and 4 add their own optional records beside this one.
+    h0120 = {"applied_sample_weight", "declared_categories"}
+    assert set(_metadata(out)) == LEGACY_KEYS | tuning | {KEY} | h0120
 
 
 def test_an_artifact_without_the_record_falls_back_to_the_config(

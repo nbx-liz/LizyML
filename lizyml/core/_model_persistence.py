@@ -115,6 +115,38 @@ def _checked_applied_sample_weight(record: Any, path: str | Path) -> str:
     return record
 
 
+def _checked_declared_categories(record: Any, path: str | Path) -> dict[str, list[Any]]:
+    """Refuse a declared-categories record no export could have written (H-0120).
+
+    ``Model.export`` writes an object mapping column names to lists of plain
+    JSON scalars (str, int, float, bool); anything else would hand the
+    generated ``train.py`` categories nobody recorded.
+    """
+
+    def refuse(reason: str, context: dict[str, Any]) -> LizyMLError:
+        return LizyMLError(
+            code=ErrorCode.DESERIALIZATION_FAILED,
+            user_message=f"Stored declared_categories {reason}.",
+            context={"path": str(path), **context},
+        )
+
+    if not isinstance(record, dict):
+        raise refuse("must be an object", {"type": type(record).__name__})
+    for col, cats in record.items():
+        if not isinstance(cats, list):
+            raise refuse(
+                f"holds a {type(cats).__name__} for {col!r}, not a list",
+                {"key": col, "type": type(cats).__name__},
+            )
+        for value in cats:
+            if type(value) not in (str, int, float, bool):
+                raise refuse(
+                    f"holds {value!r} for {col!r}, not a str, int, float or bool",
+                    {"key": col, "type": type(value).__name__},
+                )
+    return {col: list(cats) for col, cats in record.items()}
+
+
 def _checked_applied_training_params(record: Any, path: str | Path) -> dict[str, Any]:
     """Refuse a record no fit could have written (H-0109).
 
@@ -237,6 +269,7 @@ class ModelPersistenceMixin:
             tuning_fixed_params=state.tuning_fixed_params,
             applied_training_params=state.applied_training_params,
             applied_sample_weight=state.applied_sample_weight,
+            declared_categories=state.declared_categories,
         )
         _log.info("event='export.done' path=%s", resolved_path)
         return resolved_path
@@ -294,9 +327,8 @@ class ModelPersistenceMixin:
         # H-0120: what the refit trained on, so the generated train.py
         # reproduces it -- the inner split rebuilt by the function the fit used
         # from the inputs it used, the weight rule the fit recorded, and the
-        # columns that were declared `category` at fit.
+        # features the fit's input declared `category` (amendment 4).
         from lizyml.core._codegen_inputs import (
-            declared_categories,
             derived_sample_weight,
             exported_inner_valid,
         )
@@ -316,9 +348,10 @@ class ModelPersistenceMixin:
                 if state.tuning_result is not None
                 else None,
             )
-        declared = declared_categories(
-            state.fit_result.dtypes, refit_result.pipeline_state
-        )
+        # Unknown (an artifact without the record): nothing is restored, so a
+        # CSV retrain of such a model is outside the promise; parquet keeps the
+        # dtype itself.
+        declared = state.declared_categories or {}
         calibration_method: str | None = None
         # Use outer CV n_splits for OOF calibration (H-0058: reuses outer splits)
         calibration_n_splits = get_outer_n_splits(cfg)
@@ -481,6 +514,13 @@ class ModelPersistenceMixin:
             )
         else:
             instance._applied_sample_weight = None
+        # The features the fit's input declared `category` (amendment 4).
+        if "declared_categories" in metadata:
+            instance._declared_categories = _checked_declared_categories(
+                metadata["declared_categories"], path
+            )
+        else:
+            instance._declared_categories = None
         if analysis_context is not None:
             instance._y = analysis_context.y_true
             instance._X = analysis_context.X_for_explain

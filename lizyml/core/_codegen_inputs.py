@@ -12,6 +12,8 @@ from __future__ import annotations
 import warnings
 from typing import Any
 
+import pandas as pd
+
 from lizyml.config.schema import BlockedGroupKFoldConfig, LizyMLConfig
 from lizyml.core._model_factories import resolve_inner_valid
 from lizyml.core.exceptions import ErrorCode, LizyMLError
@@ -96,20 +98,21 @@ def exported_inner_valid(
     return describe_inner_valid(strategy, cfg)
 
 
-def declared_categories(
-    dtypes: dict[str, str], pipeline_state: dict[str, Any]
+def input_categories(
+    df: pd.DataFrame, feature_names: list[str]
 ) -> dict[str, list[Any]]:
-    """Columns that were ``category`` dtype at fit, with their categories.
+    """The features the input frame itself holds as ``category``, with categories.
 
-    The encoder keeps a ``category`` column's own categories in declared order
-    (``CategoricalEncoder.fit``); ``FitResult.dtypes`` tells which columns were
-    declared, so a CSV that loses the dtype can restore it.
+    Read before anything else touches the frame: LizyML's data builder casts
+    every categorical column to ``category``, so after it ``FitResult.dtypes``
+    marks inferred columns and declared ones alike (H-0120 amendment 4). Only a
+    declared column's categories -- order and unused ones included -- must be
+    restored when a CSV loses the dtype; an inferred column is re-inferred.
     """
-    categories = pipeline_state.get("encoder", {}).get("categories", {})
     return {
-        col: list(cats)
-        for col, cats in categories.items()
-        if dtypes.get(col) == "category"
+        col: list(df[col].cat.categories)
+        for col in feature_names
+        if col in df.columns and isinstance(df[col].dtype, pd.CategoricalDtype)
     }
 
 
