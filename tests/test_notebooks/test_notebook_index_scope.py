@@ -71,6 +71,7 @@ INDEX_PATHS = [
     "notebooks/café.ipynb",
     'notebooks/a"b.ipynb',
     "notebooks/a\\b.ipynb",
+    "notebooks/a\nb.ipynb",
     "docs/examples.md",
     "lizyml/_extras.py",
     "scripts/examples_index.py",
@@ -89,7 +90,17 @@ def test_a_changed_index_path_runs_the_jobs(tmp_path: pathlib.Path, path: str) -
 
 @pytest.mark.parametrize(
     "path",
-    ["README.md", "docs/examples.md.bak", "xnotebooks/a.ipynb", "docs/api.md"],
+    [
+        "README.md",
+        "docs/examples.md.bak",
+        "xnotebooks/a.ipynb",
+        "docs/api.md",
+        # One unrelated path whose name holds a newline: each NUL-delimited
+        # record is matched whole, so no part of it starts a record (review
+        # run 4, round 2).
+        "other/a\nnotebooks/fake.ipynb",
+        "other/a\ndocs/examples.md",
+    ],
 )
 def test_no_index_path_skips_the_jobs(tmp_path: pathlib.Path, path: str) -> None:
     repo, base, head = _repo(tmp_path, [path])
