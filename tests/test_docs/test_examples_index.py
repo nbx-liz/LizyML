@@ -643,6 +643,16 @@ def test_a_heading_inside_a_nested_fence_is_ignored() -> None:
         "--  \n",
         "Text.\n***\n",
         "Text.\n___\n",
+        # Every other CommonMark thematic break, anywhere (review run 4,
+        # round 1): spaces or tabs inside or after the run.
+        "Text.\n*** \n",
+        "Text.\n_ _ _\n",
+        "Text.\n*\t*\t*\n",
+        "\n_ _ _\n",
+        "\n***\t\n",
+        "\n___ \n",
+        "\n* * *\n",
+        "\n- - -\n",
     ],
 )
 def test_a_line_outside_the_index_grammar_fails(extra: str) -> None:

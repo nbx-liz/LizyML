@@ -11455,7 +11455,7 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
      - 1 列目から始まる ATX 見出し（1〜6 個の `#` の後に半角スペースかタブ）
      - 索引のマーカー（下の「マーカー候補」の規則に従う）
      - 1 列目から始まるコードブロックの開始行（閉じる行も 1 列目に置く。閉じる行の後ろに書けるのは半角スペースとタブだけ。中身は、マーカー候補を除いて自由）
-     - 空行の直後かファイルの先頭にある区切り線（3 個以上の `-`、`*`、`_` のどれか 1 種類だけからなり、後ろに空白を含まない行）。それ以外の位置の区切り線は失敗とする（ファイルの先頭は実装 review run 3 の round 3 で明記、2026-10-10）
+     - 空行の直後かファイルの先頭にある区切り線（3 個以上の `-`、`*`、`_` のどれか 1 種類だけからなり、空白を含まない行）。CommonMark で区切り線になる行（3 個以上の同じ記号の間や後ろに半角スペースやタブがあるものを含む）は、この形とこの位置のとき以外はすべて失敗とする（ファイルの先頭は実装 review run 3 の round 3、空白を含む形は実装 review run 4 の round 1 で明記、2026-10-10）
      - 地の文の行。ただし、上の形に当たらない行のうち、次のどれかに当たる行は失敗とする（実装 review run 3 の round 1 と round 2 で、実装が拒否していた形をすべて書き出した。2026-10-10）
        - 半角スペース、タブ、`>`、`<`、`=`、`|`、`#` で始まる行
        - リストの記号で始まる行。リストの記号は `-`、`+`、`*`、または 1〜9 桁の ASCII の数字の後に `.` か `)` で、どれもその後に半角スペース、タブ、行末が続くもの
@@ -11514,7 +11514,7 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
      - 再試行するのは、失敗の `CellExecutionError` の文字列に、既存のマーカー一覧（`tests/test_notebooks/test_notebook_execution.py` の `_NETWORK_ERROR_MARKERS`）のどれかが含まれる場合だけとする。その一覧は新しいモジュールに移し、既存のテストはそこから読む。
      - それ以外の失敗は、再試行せずに落とす。3 回とも上記の失敗なら落とし、skip しない（DC1）。
 
-   **起動条件**（管理者の決定、2026-10-08）: main 向けの PR では常に走らせる。develop 向けの PR では、`notebooks/**`、`docs/examples.md`、`lizyml/_extras.py`、`scripts/examples_index.py`、`tests/test_notebooks/**`、`.github/workflows/ci.yml` のどれかが変わったときだけ走らせる。最後に常に走る gate ジョブを置き、起動判定が成功して (a)(b) がともに成功した場合と、起動判定が成功して (a)(b) がともに skip された場合（run=false）だけを通す。必須にする check はこの gate 1 つとする（実装時に追加、2026-10-09、実装 review round 1）。
+   **起動条件**（管理者の決定、2026-10-08）: main 向けの PR では常に走らせる。develop 向けの PR では、`notebooks/**`、`docs/examples.md`、`lizyml/_extras.py`、`scripts/examples_index.py`、`tests/test_notebooks/**`、`.github/workflows/ci.yml` のどれかが変わったときだけ走らせる。最後に常に走る gate ジョブを置き、起動判定が成功して (a)(b) がともに成功した場合と、起動判定が成功して (a)(b) がともに skip された場合（run=false）だけを通す。必須にする check はこの gate 1 つとする（実装時に追加、2026-10-09、実装 review round 1）。変わったパスの判定は `.github/scripts/notebook_index_scope.sh` が行い、`git diff --name-only -z` の NUL 区切りの出力を読む。既定の出力は、ASCII 以外の文字、`"`、`\` を含むパスを引用符で囲んでエスケープするため、そうしたパスのノートブックが変わっても起動判定がそれを見落としていた（実装 review run 4 の round 1、2026-10-10）。
 
 7. **PR #335 の静的な検査を置き換える。** これまでの review で見つかった反例をすべて新しい仕組みで再生し、どれも失敗することを確かめる。
 

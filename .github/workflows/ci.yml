@@ -163,9 +163,10 @@ jobs:
   # main (and for pushes to main). For PRs to develop they run only when one of
   # these paths changed: notebooks/**, docs/examples.md, lizyml/_extras.py,
   # scripts/examples_index.py, tests/test_notebooks/**, .github/workflows/ci.yml.
-  # The filter is `git diff --name-only <base>...<head>` against the PR base, so
-  # it needs no third-party action. A failing diff fails the job; it never
-  # falls back to "nothing changed". The notebook-index-gate job at the end
+  # The filter is .github/scripts/notebook_index_scope.sh: a NUL-delimited
+  # `git diff --name-only -z <base>...<head>` against the PR base, so it needs
+  # no third-party action and reads every path verbatim. A failing diff fails
+  # the job; it never falls back to "nothing changed". The notebook-index-gate job at the end
   # checks the combination of results and is the one check to require.
   notebook-index-scope:
     name: Notebook index (scope)
@@ -185,21 +186,7 @@ jobs:
           BASE_REF: ${{ github.base_ref }}
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          if [ "$EVENT" != "pull_request" ] || [ "$BASE_REF" != "develop" ]; then
-            echo "Not a PR to develop: always run."
-            echo "run=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          changed=$(git diff --name-only "$BASE_SHA...$HEAD_SHA")
-          printf '%s\n' "$changed"
-          pattern='^(notebooks/|tests/test_notebooks/|docs/examples\.md$|lizyml/_extras\.py$|scripts/examples_index\.py$|\.github/workflows/ci\.yml$)'
-          if printf '%s\n' "$changed" | grep -Eq "$pattern"; then
-            echo "run=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "No index path changed: the notebook index jobs are skipped."
-            echo "run=false" >> "$GITHUB_OUTPUT"
-          fi
+        run: bash .github/scripts/notebook_index_scope.sh >> "$GITHUB_OUTPUT"
 
       - name: Read the notebooks and extras to test
         id: matrix

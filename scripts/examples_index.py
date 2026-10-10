@@ -418,6 +418,11 @@ _END = "<!-- index:end -->"
 #: refused by ``_grammar_error``.
 _FENCE_OPEN = re.compile(r"^(?:(`{3,})[^`]*|(~{3,}).*)$")
 _THEMATIC_BREAK = re.compile(r"^(?:-{3,}|\*{3,}|_{3,})$")
+#: Every column-0 line CommonMark reads as a thematic break: three or more of
+#: one of ``-``, ``*``, ``_``, with spaces or tabs anywhere between or after.
+_ANY_THEMATIC_BREAK = re.compile(
+    r"^(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$"
+)
 _UNDERLINE_LIKE = re.compile(r"^(?:=+|-+)[ \t]*$")
 _LIST_ITEM = re.compile(r"^(?:[-+*]|[0-9]{1,9}[.)])(?:[ \t]|$)")
 #: A paragraph line may not start with these: each makes the line something
@@ -451,11 +456,12 @@ def _grammar_error(line: str, previous_blank: bool) -> str | None:
         return None
     if _HEADING.match(line) or _BEGIN.match(line) or line == _END:
         return None
-    if _THEMATIC_BREAK.match(line):
-        if previous_blank:
+    if _ANY_THEMATIC_BREAK.match(line):
+        if _THEMATIC_BREAK.match(line) and previous_blank:
             return None
         return (
-            "a thematic break must follow a blank line (else it underlines a heading)"
+            "a thematic break must be '---', '***' or '___' with no spaces, "
+            "after a blank line or on the first line"
         )
     if _UNDERLINE_LIKE.match(line):
         return "a line of only '=' or '-' (a setext heading underline)"
