@@ -269,6 +269,12 @@ Generates LizyML-independent Python code for training and inference. Output:
 `train.py`, `predict.py`, `test_equivalence.py`, `config.json`,
 `requirements.txt`, `artifacts/`.
 
+Run on the same data saved as parquet, the generated `train.py` retrains the
+refit model: its uncalibrated predictions match `Model.predict` at `rtol=1e-7`,
+given the same machine and the same LightGBM, numpy, pandas and scikit-learn
+versions (H-0120; the calibrator is rebuilt, not reproduced). BLUEPRINT §15.4
+states the premises and the CSV condition.
+
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `path` | `str \| Path` | Output directory (created if absent). |
@@ -278,6 +284,9 @@ Generates LizyML-independent Python code for training and inference. Output:
 **Raises:**
 - `LizyMLError(MODEL_NOT_FIT)` — called before `fit()`.
 - `LizyMLError(UNSUPPORTED_TASK)` — non-LGBM estimator (not yet supported).
+- `LizyMLError(SERIALIZATION_FAILED)` — a category, mode or target label that
+  JSON cannot return with its type (for example a `tuple`, `bytes`, a timestamp
+  or a `Decimal`). Nothing is written.
 
 ---
 
