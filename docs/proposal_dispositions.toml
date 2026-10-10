@@ -493,7 +493,7 @@ reason = "Notebook index contract, a private method-to-extra registry and CI job
 
 [proposals."H-0120"]
 disposition = "pending"
-reason = "Proposed: the export_code promise (BLUEPRINT 6.6 / 15.4) is restated by the implementation PR once the Proposal is accepted."
+reason = "Accepted: the export_code promise (BLUEPRINT 6.6 / 15.4) is restated by the implementation commit, which then sets the disposition to specified."
 
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
