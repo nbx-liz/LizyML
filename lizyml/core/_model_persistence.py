@@ -93,6 +93,28 @@ def _build_split_metadata(cfg: Any) -> dict[str, Any]:
     return block
 
 
+_SAMPLE_WEIGHT_RULES = ("balanced", "none")
+
+
+def _checked_applied_sample_weight(record: Any, path: str | Path) -> str:
+    """Refuse a weight-rule record no fit could have written (H-0120).
+
+    A fit records ``"balanced"`` or ``"none"``; any other value -- ``null``,
+    ``true``, another spelling -- would hand the generated ``train.py`` a rule
+    nobody measured.
+    """
+    if not isinstance(record, str) or record not in _SAMPLE_WEIGHT_RULES:
+        raise LizyMLError(
+            code=ErrorCode.DESERIALIZATION_FAILED,
+            user_message=(
+                f"Stored applied_sample_weight must be one of "
+                f"{list(_SAMPLE_WEIGHT_RULES)}, got {record!r}."
+            ),
+            context={"path": str(path), "type": type(record).__name__},
+        )
+    return record
+
+
 def _checked_applied_training_params(record: Any, path: str | Path) -> dict[str, Any]:
     """Refuse a record no fit could have written (H-0109).
 
@@ -214,6 +236,7 @@ class ModelPersistenceMixin:
             tuning=state.tuning_result,
             tuning_fixed_params=state.tuning_fixed_params,
             applied_training_params=state.applied_training_params,
+            applied_sample_weight=state.applied_sample_weight,
         )
         _log.info("event='export.done' path=%s", resolved_path)
         return resolved_path
@@ -267,6 +290,35 @@ class ModelPersistenceMixin:
         es = cfg.training.early_stopping
         tuned_ratio = tuned_validation_ratio(state.applied_training_params)
         effective_ratio = es.validation_ratio if tuned_ratio is None else tuned_ratio
+
+        # H-0120: what the refit trained on, so the generated train.py
+        # reproduces it -- the inner split rebuilt by the function the fit used
+        # from the inputs it used, the weight rule the fit recorded, and the
+        # columns that were declared `category` at fit.
+        from lizyml.core._codegen_inputs import (
+            declared_categories,
+            derived_sample_weight,
+            exported_inner_valid,
+        )
+
+        inner_valid = exported_inner_valid(cfg, state.applied_training_params)
+        if state.applied_sample_weight is not None:
+            sample_weight = (
+                "balanced" if state.applied_sample_weight == "balanced" else None
+            )
+        else:
+            # Unknown (an artifact written before the record): derived from the
+            # config and the current tuning result, outside the promise.
+            sample_weight = derived_sample_weight(
+                cfg,
+                state.provider,
+                state.tuning_result.best_smart_params
+                if state.tuning_result is not None
+                else None,
+            )
+        declared = declared_categories(
+            state.fit_result.dtypes, refit_result.pipeline_state
+        )
         calibration_method: str | None = None
         # Use outer CV n_splits for OOF calibration (H-0058: reuses outer splits)
         calibration_n_splits = get_outer_n_splits(cfg)
@@ -337,6 +389,9 @@ class ModelPersistenceMixin:
             feval_metrics=export.feval_metadata,
             target_classes=target_classes,
             split=_build_split_metadata(cfg),
+            inner_valid=inner_valid,
+            sample_weight=sample_weight,
+            declared_categories=declared,
         )
         _log.info("event='export_code.done' path=%s", result)
         return result
@@ -418,6 +473,14 @@ class ModelPersistenceMixin:
             )
         else:
             instance._applied_training_params = None
+        # The row-weight rule that fit applied (H-0120 amendment 1); absent
+        # from older artifacts, which stay unknown for the same reason.
+        if "applied_sample_weight" in metadata:
+            instance._applied_sample_weight = _checked_applied_sample_weight(
+                metadata["applied_sample_weight"], path
+            )
+        else:
+            instance._applied_sample_weight = None
         if analysis_context is not None:
             instance._y = analysis_context.y_true
             instance._X = analysis_context.X_for_explain

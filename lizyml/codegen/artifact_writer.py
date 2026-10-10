@@ -7,54 +7,45 @@ from pathlib import Path
 from typing import Any
 
 from lizyml.calibration.base import BaseCalibratorAdapter
+from lizyml.codegen.values import plain_value, plain_values
 from lizyml.estimators.base import BaseEstimatorAdapter
 
 
-def _convert_pipeline_state(
+def convert_pipeline_state(
     state: dict[str, Any], config: dict[str, Any]
 ) -> dict[str, Any]:
-    """Convert LizyML pipeline state to codegen-compatible format.
+    """Convert LizyML pipeline state to the codegen ``pipeline_state.json``.
 
-    LizyML stores ``encoder.categories`` (list of known categories per column).
-    Codegen ``predict.py`` expects ``category_mappings`` (str→int dicts).
+    Per categorical column the encoder's categories and mode are written as
+    typed JSON values, ``{"categories": [...], "mode": ...}``: a value's code
+    is its position in the list, as in ``CategoricalEncoder`` (H-0120, #304).
+    Keying by ``str`` merged values such as ``"1"`` and ``1``. The encoder's
+    ``unseen_policy`` goes with them, so ``predict.py`` replaces an unseen
+    value as the runtime encoder does (#205, H-0104).
 
-    Also exports the encoder's ``unseen_policy`` and, per column, the integer
-    code of the training mode (``unseen_codes``) so the generated ``predict.py``
-    can reproduce the runtime ``unseen_policy="mode"`` behavior (#205). Without
-    these, ``predict.py`` mapped unseen categories to NaN while the runtime
-    ``CategoricalEncoder`` replaced them with the most frequent training
-    category — a silent prediction divergence.
+    Raises:
+        LizyMLError: With ``SERIALIZATION_FAILED`` when a category or mode is
+            outside the accepted value types (:mod:`lizyml.codegen.values`).
     """
     feature_names = state.get("feature_names", config.get("feature_names", []))
-    categorical_features = config.get("categorical_features", [])
-
-    # Build integer mappings from encoder categories
     encoder = state.get("encoder", {})
-    categories = encoder.get("categories", {})
     modes = encoder.get("modes", {})
-    unseen_policy = encoder.get("unseen_policy", "mode")
-    mappings: dict[str, dict[str, int]] = {}
-    unseen_codes: dict[str, int] = {}
-    for col, cats in categories.items():
-        mapping = {str(v): i for i, v in enumerate(cats)}
-        mappings[col] = mapping
-        mode_val = modes.get(col)
-        # The mode is always one of the known categories. Find its key through
-        # the category values the mapping was built from: the mode's own str()
-        # can differ (np.float32(0.1) prints "0.1", the category value
-        # "0.10000000149011612"), and a miss would silently drop the
-        # replacement, turning "mode" into "nan" in predict.py (H-0104).
-        if mode_val is not None:
-            key = next((str(v) for v in cats if v == mode_val), None)
-            if key is not None:
-                unseen_codes[col] = mapping[key]
-
+    categories: dict[str, dict[str, Any]] = {}
+    for col, cats in encoder.get("categories", {}).items():
+        mode = modes.get(col)
+        categories[col] = {
+            "categories": plain_values(
+                list(cats), where=f"categories of column {col!r}"
+            ),
+            "mode": None
+            if mode is None
+            else plain_value(mode, where=f"mode of column {col!r}"),
+        }
     return {
         "feature_names": feature_names,
-        "categorical_features": categorical_features,
-        "category_mappings": mappings,
-        "unseen_policy": unseen_policy,
-        "unseen_codes": unseen_codes,
+        "categorical_features": config.get("categorical_features", []),
+        "categories": categories,
+        "unseen_policy": encoder.get("unseen_policy", "mode"),
     }
 
 
@@ -81,6 +72,10 @@ def write_artifacts(
     Returns:
         The resolved output directory path.
     """
+    # Converted first: a refused value stops the export before anything is
+    # written (H-0120).
+    codegen_state = convert_pipeline_state(pipeline_state, config)
+
     root = Path(output_dir)
     artifacts = root / "artifacts"
     artifacts.mkdir(parents=True, exist_ok=True)
@@ -93,8 +88,7 @@ def write_artifacts(
     # model.txt
     model_adapter.save_model_text(artifacts / "model.txt")
 
-    # pipeline_state.json — convert LizyML format to codegen format
-    codegen_state = _convert_pipeline_state(pipeline_state, config)
+    # pipeline_state.json — the codegen format converted above
     with open(artifacts / "pipeline_state.json", "w", encoding="utf-8") as f:
         json.dump(codegen_state, f, indent=2, ensure_ascii=False)
 

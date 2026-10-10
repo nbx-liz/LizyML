@@ -85,6 +85,7 @@ def export(
     tuning: TuningResult | None = None,
     tuning_fixed_params: dict[str, Any] | None = None,
     applied_training_params: dict[str, Any] | None = None,
+    applied_sample_weight: str | None = None,
 ) -> None:
     """Serialize Model artifacts to *path*.
 
@@ -108,6 +109,10 @@ def export(
             and may be one no fit consumed. ``None`` means unknown (a model
             loaded from an artifact without the record) and omits the key, so
             re-exporting such a model does not invent a record.
+        applied_sample_weight: The row-weight rule that fit's refit applied,
+            ``"balanced"`` or ``"none"``, recorded under
+            ``metadata["applied_sample_weight"]`` (H-0120 amendment 1).
+            ``None`` means unknown and omits the key, as above.
 
     Raises:
         LizyMLError with SERIALIZATION_FAILED on any I/O or serialization error.
@@ -149,6 +154,8 @@ def export(
                 metadata["tuning"]["fixed_params"] = dict(tuning_fixed_params)
         if applied_training_params is not None:
             metadata["applied_training_params"] = dict(applied_training_params)
+        if applied_sample_weight is not None:
+            metadata["applied_sample_weight"] = applied_sample_weight
         (out / "metadata.json").write_text(
             json.dumps(metadata, indent=2, default=str), encoding="utf-8"
         )

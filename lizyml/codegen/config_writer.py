@@ -4,6 +4,27 @@ from __future__ import annotations
 
 from typing import Any
 
+from lizyml.codegen.values import plain_values
+
+#: The libraries whose versions decide the split, the sort and the category
+#: codes (H-0120 premises), by distribution name.
+VERSIONED_LIBRARIES = ("lightgbm", "numpy", "pandas", "scikit-learn")
+
+
+def library_versions() -> dict[str, str]:
+    """The installed versions of :data:`VERSIONED_LIBRARIES`."""
+    import lightgbm
+    import numpy
+    import pandas
+    import sklearn
+
+    return {
+        "lightgbm": lightgbm.__version__,
+        "numpy": numpy.__version__,
+        "pandas": pandas.__version__,
+        "scikit-learn": sklearn.__version__,
+    }
+
 
 def build_config(
     *,
@@ -22,6 +43,9 @@ def build_config(
     split: dict[str, Any] | None = None,
     calibration_params: dict[str, Any] | None = None,
     unseen_policy: str = "mode",
+    inner_valid: dict[str, Any] | None = None,
+    sample_weight: str | None = None,
+    declared_categories: dict[str, list[Any]] | None = None,
 ) -> dict[str, Any]:
     """Build config.json content as an ordered dict.
 
@@ -45,9 +69,20 @@ def build_config(
             ``needs_proba``.  Defaults to ``[]``.
         unseen_policy: The encoder's ``unseen_policy`` from the fitted
             pipeline state (H-0104).
+        inner_valid: The refit's inner-validation split, or ``None`` when the
+            refit had no validation set (H-0120).
+        sample_weight: ``"balanced"`` when the refit trained with per-row
+            balanced weights, else ``None`` (H-0120).
+        declared_categories: Columns that were ``category`` dtype at fit, with
+            their declared categories (H-0120).
 
     Returns:
         Dict ready for ``json.dump()``.
+
+    Raises:
+        LizyMLError: With ``SERIALIZATION_FAILED`` when a target label or a
+            declared category is outside the accepted value types
+            (:mod:`lizyml.codegen.values`).
     """
     config_norm = run_meta.get("config_normalized", {})
     task = config_norm.get("task", "regression")
@@ -56,9 +91,16 @@ def build_config(
 
     # H-0070: serialise target encoder so train.py can re-encode and
     # predict.py can decode int codes back to original labels.
+    # H-0120: the labels must come back from JSON as the same values.
     target_encoder_block: dict[str, Any] = {
         "needs_encoding": bool(target_classes),
-        "classes": list(target_classes) if target_classes else [],
+        "classes": plain_values(list(target_classes), where="target labels")
+        if target_classes
+        else [],
+    }
+    declared = {
+        col: plain_values(list(cats), where=f"declared categories of column {col!r}")
+        for col, cats in (declared_categories or {}).items()
     }
 
     return {
@@ -68,6 +110,8 @@ def build_config(
         "_task": task,
         "_target_col": target_col,
         "_timestamp": run_meta["timestamp"],
+        # H-0120: the generated train.py warns when a version differs.
+        "_versions": library_versions(),
         # ── Features ──
         "feature_names": list(feature_names),
         "categorical_features": list(categorical_features),
@@ -75,11 +119,19 @@ def build_config(
         # train.py writes it into the pipeline state it rebuilds, so a retrain
         # does not fall back to predict.py's "nan" default.
         "unseen_policy": unseen_policy,
+        # H-0120: restored before the pipeline is fitted, so a CSV that lost
+        # the dtype gets the declared codes back.
+        "declared_categories": declared,
         # ── LightGBM ──
         "lgbm_params": dict(lgbm_params),
         "num_boost_round": num_boost_round,
+        # H-0120: the refit's validation split and patience, each written
+        # always (null when absent) and read without a default; the callback
+        # exists only when both are present.
+        "inner_valid": dict(inner_valid) if inner_valid is not None else None,
         "early_stopping_rounds": early_stopping_rounds,
         "validation_ratio": validation_ratio,
+        "sample_weight": sample_weight,
         "seed": seed,
         # ── Feval metrics (H-0066) ──
         "feval_metrics": list(feval_metrics) if feval_metrics else [],

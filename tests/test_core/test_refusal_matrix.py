@@ -160,6 +160,10 @@ def test_no_refusal_exists_that_the_matrix_does_not_name() -> None:
     # The space-level wrappers delegate to the row they belong to.
     refusals -= {"check_duplicate_space_dimensions", "check_training_managed_space"}
     refusals -= {"check_calibration_param_names"}
+    # Not a parameter-layer refusal: it reads the split and inner-valid config
+    # (H-0120 amendment 2), and its cases live in
+    # tests/test_core/test_regression_stratification.py.
+    refusals -= {"check_regression_stratification"}
     refusals |= {"check_param_names", "canonicalisation"}
     assert refusals <= named, (
         f"refusals with no column in the matrix: {refusals - named}"

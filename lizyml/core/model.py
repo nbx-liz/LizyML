@@ -54,7 +54,6 @@ from lizyml.config.schema import (
 from lizyml.config.version import check_config_version
 from lizyml.core._model_factories import (
     applied_training_overlay,
-    build_inner_valid,
     build_splitter,
     check_calibration_param_names,
     check_param_names,
@@ -63,11 +62,10 @@ from lizyml.core._model_factories import (
     check_training_managed_overrides,
     effective_early_stopping_rounds,
     get_provider,
-    make_inner_valid_factory,
     normalise_and_check,
     overlay_params,
     prepare_calibration_params,
-    tuned_validation_ratio,
+    resolve_inner_valid,
 )
 from lizyml.core._model_metrics import (
     _DEFAULT_METRICS,
@@ -159,6 +157,12 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         # `export()` records it and `Model.load()` restores it (H-0109); `None`
         # means unknown -- a model loaded from an artifact without the record.
         self._applied_training_params: dict[str, Any] | None = {}
+        # The row-weight rule the last fit's refit applied: "balanced" or
+        # "none" (H-0120 amendment 1). Multiclass `balanced` weights leave no
+        # trace in the fitted adapter, and a later tune() can change the
+        # `balanced` the config and tuning result would imply. `None` means
+        # unknown -- a model loaded from an artifact without the record.
+        self._applied_sample_weight: str | None = "none"
         self._y: pd.Series | None = None  # transient; not persisted
         self._X: pd.DataFrame | None = None  # transient; not persisted
         self._provider: EstimatorProvider | None = None  # set by fit/tune
@@ -332,6 +336,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         # The only record of what *this* fit applied: a later tune() replaces
         # `_tuning_result` and leaves the fitted adapters alone (decision 13).
         self._applied_training_params = applied_training_overlay(training_overrides)
+        self._applied_sample_weight = "none" if tc.sample_weight is None else "balanced"
         self._refit_result = refit_result
         self._fit_result = fit_result
         _log.info("event='fit.done' run_id=%s", run_id)
@@ -679,14 +684,9 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         # --- Inner validation (config < tune override) ---
         # Read through the shared definition, so the two reporting surfaces
         # cannot answer this question differently from the trainer -- which
-        # they did, silently, until H-0094 decision 13.
-        inner_valid: BaseInnerValidStrategy
-        tuned_ratio = tuned_validation_ratio(tp)
-        if tuned_ratio is not None:
-            iv_factory = make_inner_valid_factory(cfg)
-            inner_valid = iv_factory(tuned_ratio)
-        else:
-            inner_valid = build_inner_valid(cfg)
+        # they did, silently, until H-0094 decision 13. `export_code` rebuilds
+        # the same strategy through the same function (H-0120).
+        inner_valid: BaseInnerValidStrategy = resolve_inner_valid(cfg, tp)
 
         return TrainComponents(
             estimator_factory=estimator_factory,
@@ -925,6 +925,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
                 if self._applied_training_params is None
                 else dict(self._applied_training_params)
             ),
+            applied_sample_weight=self._applied_sample_weight,
             provider=self._provider,
             metrics=self._metrics,
             y=self._y,

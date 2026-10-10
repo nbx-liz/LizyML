@@ -61,6 +61,11 @@ def _frame(values: list[Any]) -> pd.DataFrame:
     return pd.DataFrame({"num": [0.0] * len(values), "cat": values})
 
 
+def _code(entry: dict[str, Any], value: Any) -> int:
+    """A value's code: its position in the column's typed list (H-0120)."""
+    return list(entry["categories"]).index(value)
+
+
 @pytest.mark.parametrize("policy", POLICIES)
 def test_export_carries_the_policy_the_fit_applied(policy: str, tmp_path: Path) -> None:
     root = _export(policy, tmp_path / policy)
@@ -94,12 +99,12 @@ def test_generated_predict_logs_substitutions(
     state = json.loads(
         (root / "artifacts" / "pipeline_state.json").read_text(encoding="utf-8")
     )
-    mapping = state["category_mappings"]["cat"]
+    entry = state["categories"]["cat"]
     if policy == "mode":
-        assert X["cat"].iloc[0] == state["unseen_codes"]["cat"]
+        assert X["cat"].iloc[0] == _code(entry, entry["mode"])
     else:
         assert np.isnan(X["cat"].iloc[0])
-    assert X["cat"].iloc[1] == mapping["a"]
+    assert X["cat"].iloc[1] == _code(entry, "a")
     # A missing value is not unseen: it stays missing and is not reported.
     assert np.isnan(X["cat"].iloc[2])
 
@@ -134,17 +139,16 @@ def test_export_keeps_the_mode_code_for_a_float32_category(tmp_path: Path) -> No
             encoding="utf-8"
         )
     )
-    assert "cat" in state["unseen_codes"], state
-    mapping = state["category_mappings"]["cat"]
-    key = {code: k for k, code in mapping.items()}[state["unseen_codes"]["cat"]]
-    assert np.isclose(float(key), float(runtime_mode)), (key, runtime_mode)
+    entry = state["categories"]["cat"]
+    assert entry["mode"] is not None, state
+    assert np.isclose(float(entry["mode"]), float(runtime_mode)), (entry, runtime_mode)
 
     predict = _load(tmp_path / "f32", "predict")
     frame = pd.DataFrame(
         {"num": [0.0], "cat": pd.Categorical(np.array([0.3], dtype="float32"))}
     )
     X = predict.transform(frame)
-    assert X["cat"].iloc[0] == state["unseen_codes"]["cat"]
+    assert X["cat"].iloc[0] == _code(entry, entry["mode"])
 
 
 @pytest.mark.parametrize("policy", ["mode", "error"])
@@ -159,7 +163,7 @@ def test_retrain_keeps_the_policy(policy: str, tmp_path: Path) -> None:
 
     rebuilt = train.fit_pipeline(_df().drop(columns=["target"]))
     assert rebuilt["unseen_policy"] == policy
-    assert rebuilt["unseen_codes"] == exported["unseen_codes"]
+    assert rebuilt["categories"] == exported["categories"]
 
     predict = _load(root, "predict")
     if policy == "error":
@@ -167,7 +171,8 @@ def test_retrain_keeps_the_policy(policy: str, tmp_path: Path) -> None:
             predict.transform(_frame(["TYPO"]))
     else:
         X = predict.transform(_frame(["TYPO"]))
-        assert X["cat"].iloc[0] == rebuilt["unseen_codes"]["cat"]
+        entry = rebuilt["categories"]["cat"]
+        assert X["cat"].iloc[0] == _code(entry, entry["mode"])
 
 
 @pytest.mark.parametrize(
@@ -206,9 +211,6 @@ def test_retrain_picks_the_same_mode_as_the_runtime(
     )
 
     rebuilt = train.fit_pipeline(frame)
-    mapping = rebuilt["category_mappings"]["cat"]
-    # Decode the chosen code back to the original value through the mapping's
-    # own keys; a str() of the runtime mode need not equal those keys.
-    key = {code: k for k, code in mapping.items()}[rebuilt["unseen_codes"]["cat"]]
-    chosen = next(v for v in frame["cat"].dropna().unique() if str(v) == key)
-    assert chosen == runtime_mode, (chosen, runtime_mode, mapping)
+    # H-0120: the mode is written as a typed value, so it compares directly.
+    chosen = rebuilt["categories"]["cat"]["mode"]
+    assert chosen == runtime_mode, (chosen, runtime_mode, rebuilt["categories"])
