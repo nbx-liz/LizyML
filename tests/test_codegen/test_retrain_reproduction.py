@@ -406,6 +406,37 @@ def test_auto_categorical_off_keeps_the_string_column_uncast(
     assert config["categorical_rule"] == {"explicit": [], "auto": False}
 
 
+@pytest.mark.parametrize(
+    ("features", "cast"),
+    [
+        ({"auto_categorical": False}, set()),
+        ({"auto_categorical": True}, {"c", "s"}),
+        ({"auto_categorical": False, "categorical": ["k"]}, {"k"}),
+    ],
+    ids=["auto-off", "auto-on", "explicit-only"],
+)
+def test_generated_cast_follows_the_builder_rule(
+    features: dict[str, Any], cast: set[str], tmp_path: Path
+) -> None:
+    """For plain strings both encoder branches give the same categories, so the
+    cast decision is asserted on the generated function itself (amendment 3)."""
+    from tests.test_codegen._retrain_harness import load_module
+
+    df = make_frame("binary")
+    rng = np.random.default_rng(4)
+    df["c"] = rng.choice(["b", "a"], len(df))
+    df["s"] = pd.Series(rng.choice(["y", "x"], len(df)), dtype="string")
+    df["k"] = rng.choice([3, 1, 2], len(df))
+    cfg = make_config("binary", "kfold")
+    cfg["features"] = features
+    project = tmp_path / "gen"
+    _fit(cfg, df).export_code(project)
+    train = load_module(project / "train.py", f"gen_train_{tmp_path.name}")
+    X = train.cast_categoricals(df[train.CFG["feature_names"]])
+    casted = {c for c in X.columns if isinstance(X[c].dtype, pd.CategoricalDtype)}
+    assert casted == cast
+
+
 def test_mixed_type_column_predict_py_matches(tmp_path: Path) -> None:
     """A column holding ``"1"`` and ``1`` cannot be saved with its types, so it
     is outside the retrain promise; the exported predict.py must still use the

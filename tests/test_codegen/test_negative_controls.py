@@ -178,6 +178,23 @@ def test_policy_5_cast_reverted_to_sorted_by_str(
     _fails(lambda: _state_matches_encoder(model, project))
 
 
+def test_amendment_3_auto_flag_ignored(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Casting strings whatever ``auto_categorical`` says fails the direct
+    assertion on the generated cast."""
+    from tests.test_codegen.test_retrain_reproduction import (
+        test_generated_cast_follows_the_builder_rule,
+    )
+
+    _revert(monkeypatch, "_TRAIN_PY", 'if rule["auto"]:', "if True:")
+    _fails(
+        lambda: test_generated_cast_follows_the_builder_rule(
+            {"auto_categorical": False}, set(), tmp_path
+        )
+    )
+
+
 def test_policy_5_codes_reverted_to_str_keys(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

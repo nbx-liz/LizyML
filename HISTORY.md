@@ -11904,7 +11904,7 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 
 **訂正後の規則**: 生成 `train.py` は、組み立ての変換を移す。export は `features.categorical` と `features.auto_categorical` を `config.json` の `categorical_rule`（`{"explicit": [...], "auto": bool}`）に書き、生成 `train.py` は特徴量の列に同じ規則で `astype("category")` を当ててから、`fit_pipeline` で `CategoricalEncoder.fit` の 2 つの分岐（`category` dtype なら `series.cat.categories`、それ以外は `sorted(..., key=str)`）と `series.mode()` でカテゴリと最頻値を決める。規則（「LizyML と同じ呼び出しで決める」）は変わらず、その呼び出しの範囲を `Model.fit` の経路に合わせて書き直すだけである。
 
-**テスト**: LightGBM のカテゴリの分割は符号の番号の付け方によらないので、予測の一致だけではこの違いを検出できない（実測: `sorted(..., key=str)` のままでも、受け入れ基準 1 のカテゴリのケースは予測が一致した）。受け入れ基準 1 のカテゴリのケースは、予測の一致に加えて、`train.py` が書いた `pipeline_state.json` のカテゴリと最頻値が LizyML の encoder のものと、順序と型も含めて等しいことを確かめる（受け入れ基準 4 と同じ比較）。受け入れ基準 1 に、`auto_categorical: false` で文字列の列を持つ fit（parquet と CSV の 2 ケース。`sorted(..., key=str)` の分岐）を加え、同じ比較をする。負の対照: 組み立ての変換を外すと、整数のカテゴリを `features.categorical` に挙げたケースで比較が失敗する。
+**テスト**: LightGBM のカテゴリの分割は符号の番号の付け方によらないので、予測の一致だけではこの違いを検出できない（実測: `sorted(..., key=str)` のままでも、受け入れ基準 1 のカテゴリのケースは予測が一致した）。受け入れ基準 1 のカテゴリのケースは、予測の一致に加えて、`train.py` が書いた `pipeline_state.json` のカテゴリと最頻値が LizyML の encoder のものと、順序と型も含めて等しいことを確かめる（受け入れ基準 4 と同じ比較）。受け入れ基準 1 に、`auto_categorical: false` で文字列の列を持つ fit（parquet と CSV の 2 ケース。`sorted(..., key=str)` の分岐）を加え、同じ比較をする。文字列だけの列では 2 つの分岐が同じカテゴリと最頻値を返すので、この比較では変換の有無を区別できない。そこで、生成 `train.py` の変換の関数（`cast_categoricals`）を直接呼び、`auto_categorical: false` では文字列の列を `category` にしないこと、`true` では文字列の列を `category` にすること、`features.categorical` に挙げた列は `auto` によらず `category` にすることを確かめる。負の対照: 組み立ての変換を外すと、整数のカテゴリを `features.categorical` に挙げたケースで比較が失敗する。`auto` を無視して常に変換すると、変換の関数を直接確かめるテストが失敗する。
 
 ### 改訂 4: 入力で `category` と宣言された列を fit 時に記録する（2026-10-10、管理者の判断）
 
