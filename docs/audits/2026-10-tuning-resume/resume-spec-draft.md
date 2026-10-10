@@ -44,7 +44,7 @@ HISTORY に入れる Proposal の草案（HISTORY に合わせて日本語）。
 | True | ある | なし、またはその study と同じもの | — | 継続（P1） |
 | True | ある | **その study と同じと示せないもの** | — | **`CONFIG_INVALID`**（今は storage を黙って無視している） |
 | True | 無い | あり | ある | 再接続（P2）。保存した系譜と実効空間を復元して継続 |
-| True | 無い | あり | 無い | `TUNING_FAILED`（続ける study が無い） |
+| True | 無い | あり | 無い | 新しい study（storage）を作り、round 1 から始める（U3）。作ったことを INFO のログに出す。`resume=False` で作った場合と同じ（config の探索空間を使い、この呼び出しで `space=` を渡したら `CONFIG_INVALID`） |
 | True | 無い | なし | — | `TUNING_FAILED`（今と同じ。`Model.load` のあとも含む） |
 
 表の前に、次の二つを先に検査する（どちらも `CONFIG_INVALID`、`resume` の値に依らない）:
@@ -198,6 +198,7 @@ H-0068 は前回の最良値を無条件に enqueue する。この案はそれ�
   - その round の宣言の元の形（`space=` の dict、無ければ「直前の宣言のまま」）と、次元ごとの出どころ（利用者 / 既定）。`expand_boundary=None` の判断（5.3）と H-0121 の出どころの規則を、再接続のあとも同じに決めるため。
   - 宣言空間、実効空間、拡張した次元とその結果、解決した `expand_boundary` の値
   - 予算: 要求した `n_trials` と `timeout`、round を始めた時刻
+  - round を始めた呼び出しで渡された引数そのもの（`n_trials`、`expand_boundary`（`None` を含む）、`space=` の正規化した値。渡されなかったものは「なし」）。U2 の比較に使う。
   - 開始時の試行数（その round の試行は、これ以上の番号）、開始時の最良値
   - enqueue の判断（する / しない）と、する場合はその値
   - その round で増えた次元の経路（4.1b）
@@ -224,9 +225,10 @@ H-0068 は前回の最良値を無条件に enqueue する。この案はそれ�
   - 途中の round の予算は記録が決める。config の `tuning.optuna.params.n_trials` は、途中の round の再開では使わない（新しい round にだけ使う）。config の値が記録と違えば、無視したことを警告に出す。
   - 時間による予算の限界: 残りの時間は試行の記録から求めるので、落ちる直前に走っていた試行の時間は数えない。時間で区切る round では、続けた場合と同じ試行の数になることは保証しない（時間による打ち切りは、同じプロセスでも試行の数を決めないため）。試行の数による予算では INV-R5 を満たす。
   - 落ちたときに RUNNING のまま残った試行は、再接続のときに FAIL として記録し、予算に数える。一つの study に試行を足すプロセスは一つという前提（3）による。
-  - この呼び出しでは `space=`、`n_trials`、`expand_boundary` を渡さない。渡したら `CONFIG_INVALID`（途中の round の空間と予算は決まっているため）。
+  - 引数（U2）: 途中の round の空間と予算は記録が決めている。`n_trials`、`expand_boundary`、`space=` を渡したときは、その round の記録にある、round を始めたときに渡された値と比べる。同じなら通し、違えば `CONFIG_INVALID`（「この round は記録の値で始まっている」）。省いた引数は比べない。同じスクリプトを流し直す場合は同じ値が渡るので通る。この規則は途中の round の再開だけに当てる。終わった round のあとの `resume=True`（新しい round、再探索）では、これらの引数は自由に変えられる。
   - 代わりの案: 中断した round を閉じ、次の round として始める（今の LizyStudio は残りの試行数を自分で数えて渡しており、こちらに近い）。INV-R5 を満たさないため推奨しない。
 - 再接続した Model は、系譜から `rounds`、round 番号、実効空間を復元する。
+- `failed` で閉じた round は、系譜には残るが `TuningResult.rounds` には入れない（`RoundSummary` は最良値を数値で持つ型で、失敗した round を正しく表せないため。公開の型は変えない）。round の番号はそのまま続くので、`rounds` が round 2 から始まることがある。その round の試行は `TuningResult.trials` に、記録した round 番号で残る。次の round の `best_score_before` は `None`。これを docs/api.md の `rounds` の説明に書く。
 - 同じプロセスで round が例外で止まったあとの `resume=True` にも、同じ規則を当てる。失敗した tune は Model の状態を変えない（H-0094 決定 14）が、メモリ上の study には途中の試行と `:end` の無い round が残るため。
 
 ### 7.3 変えないもの
@@ -240,7 +242,8 @@ H-0068 は前回の最良値を無条件に enqueue する。この案はそれ�
 |---|---|
 | `resume=False`、storage に同じ名前の study がある | `CONFIG_INVALID`（新規） |
 | `resume=True`、メモリ上の study と別の storage / study_name | `CONFIG_INVALID`（新規） |
-| `resume=True`、メモリ上の study が無い、storage にその study が無い | `TUNING_FAILED`（新規） |
+| 新しい study を作る呼び出し（`resume=False`、または U3 の `resume=True`）で `space=` を渡した | `CONFIG_INVALID`（新規。初回の空間は config で宣言する） |
+| 途中の round の再開で、記録と違う `n_trials` / `expand_boundary` / `space=` を渡した | `CONFIG_INVALID`（新規、U2） |
 | 目的関数の同一性が違う | `CONFIG_INVALID`（新規） |
 | study に照合の記録が無い | `CONFIG_INVALID`（新規） |
 | resume で `space_mode` を変えた | `CONFIG_INVALID`（新規） |
@@ -263,12 +266,13 @@ H-0068 は前回の最良値を無条件に enqueue する。この案はそれ�
 | H-0102 の決定（HISTORY.md:10015-10018）、BLUEPRINT.md:885-886 | fit と resume は成功した tuning の結果（overlay）を使い続ける | resume の試行の基に前回の最良値は重ねない（6.1）。fit が tuning の結果を使う点はそのまま |
 | H-0102（HISTORY.md:9981-9982）、BLUEPRINT.md:879、CHANGELOG.md:61 | 空間の意味を変えるなら新しい study。古い試行は新しい空間の観測ではない | 目的関数が同じなら、古い試行は観測である（INV-R3）。新しい study が要るのは、Optuna が受け付けない変更（5.2-3）、カテゴリーの変更（4.1b）、`space_mode` の変更だけ |
 | H-0068（HISTORY.md:5119、5310）、BLUEPRINT.md:1082 | `resume=False` は今と同じ動作（完全な後方互換） | storage に既にある study を `resume=False` で指すと拒否。新しい study の系譜は round 1 から（今は前の study の round を積み増す） |
-| H-0068（HISTORY.md:5120、受け入れ基準 13 :5337）、BLUEPRINT.md:1083、docs/api.md:95、108 | `resume=True` で tune 前なら `TUNING_FAILED` | storage で既にある study を指すときは再接続（D5）。それ以外は `TUNING_FAILED` のまま |
+| H-0068（HISTORY.md:5120、受け入れ基準 13 :5337）、BLUEPRINT.md:1083、docs/api.md:95、108 | `resume=True` で tune 前なら `TUNING_FAILED` | storage を指すときは、study があれば再接続（D5）、無ければ新しく作る（U3）。storage も メモリ上の study も無いときは `TUNING_FAILED` のまま |
 | H-0068（HISTORY.md:5161、ログ :5269）、CHANGELOG.md:383、docs/api.md:86-90 | 前回の最良値を必ず enqueue する | 今の実効空間の点のときだけ enqueue（6.2） |
 | H-0072（HISTORY.md:5804、INV-3 :5769）、BLUEPRINT.md:1097・1101、CHANGELOG.md:346、docs/api.md:100-101 | `resume=False` と storage で、既にある study に再接続する | 再接続は `resume=True`（D5）。`resume=False` で既にある study は拒否 |
 | H-0072（HISTORY.md:5736） | `resume=True` で `_study` があれば、storage を渡しても in-memory の study を続ける | 渡した storage / study_name がその study と同じと示せなければ拒否（3） |
 | H-0072（HISTORY.md:5736） | `resume=True`、study が無い、storage あり → 自動で再接続 | 採用する（D5）。BLUEPRINT.md:1083・1101-1102 との矛盾がこれで解ける |
 | H-0072（HISTORY.md:5740）、BLUEPRINT.md:1108 | 再接続後の round は 1 から。round の記録は journal に保存しない（別の Proposal で扱う） | round の系譜を study の属性に保存し、再接続で続ける（7.1、7.2）。この Proposal が「別の Proposal」にあたる |
+| H-0068（HISTORY.md:5202）、BLUEPRINT.md:1045 | `rounds` の既定は `(RoundSummary(round=1, ...),)`（初回の tune でも 1 要素） | `failed` で閉じた round は `rounds` に入らないので、`rounds` が round 2 以降から始まることがある（7.2） |
 | H-0121（Proposed）の resume の条項（HISTORY.md:11973、11977-11978、受け入れ基準 6 :12045） | resume で今の config の smart の値を読み、無効な既定の次元を外す | H-0121 から外す（A1）。smart の値の変更は目的関数の変更として 4.3 で拒否される |
 
 ### 9.2 矛盾しないもの（拡張、または前提の明示）
@@ -313,12 +317,12 @@ C11 だけはこの仕様が決める。
 - 移行が要る（明示のエラーと、決まった直し方がある）: LizyStudio の unpause と failed ジョブの resume、Widget の別プロセスの Retune。LizyStudio は `lizyml<0.18.0`、Widget は `<0.17` に固定しているので、版の上限を上げるときに直す。
 - 致命的に近いもの: 「落ちたら同じスクリプトを流し直す」書き方（P2 の基本の使い方）が、1 回の呼び出しで書けない（初回は `resume=False`、流し直しは `resume=True`。途中の round では `n_trials` を渡せない）。U2・U3 で解く。
 
-### 10.2 管理者の判断待ち（U2・U3）
+### 10.2 利用者への影響から決めたこと（2026-10-11、管理者が決定）
 
-レビューでは、どちらも入れた場合の健全さを見てもらう。
+- **U1**: v0.18 以前の study は拒否のまま（D4）。CHANGELOG と migration に、続けられないこと、一時停止中のジョブはアップグレードの前に終えることを書く。
 
-- **U2（途中の round の引数）**: 途中で落ちた round を再開するとき、`n_trials`・`expand_boundary`・`space=` は、記録した値と同じなら通し、違えば `CONFIG_INVALID` にする（Q-D の「渡したら拒否」を緩める）。`n_trials` を引数で省いたときは config の値と比べる。同じスクリプトの流し直しなら同じ値が渡るので通る。
-- **U3（作るか続けるか）**: `resume=True` で storage の study を指し、その study がまだ無ければ、新しい study を作って round 1 から始める（作ったことを INFO のログに出す）。3 の表の「True / 無い / あり / 無い」の行が `TUNING_FAILED` から変わる。メモリ上の study も storage も無い `resume=True` は `TUNING_FAILED` のまま。名前の打ち間違いは新しい study になるが、目的関数の違う試行は混ざらない。
+- **U2（途中の round の引数）**: 途中で落ちた round を再開するとき、`n_trials`・`expand_boundary`・`space=` は、記録した値と同じなら通し、違えば `CONFIG_INVALID` にする（Q-D の「渡したら拒否」を緩める）。省いた引数は比べず、config の `n_trials` は警告だけ（7.2）。途中の round の再開だけに当て、新しい round（再探索）には当てない。規則は 7.2。
+- **U3（作るか続けるか）**: `resume=True` で storage の study を指し、その study がまだ無ければ、新しい study を作って round 1 から始める（作ったことを INFO のログに出す）。3 の表に反映した。メモリ上の study も storage も無い `resume=True` は `TUNING_FAILED` のまま。名前の打ち間違いは新しい study になるが、目的関数の違う試行は混ざらない。
 
 ## 11. 決定（2026-10-11、管理者がすべて推奨どおりに決定）
 
@@ -347,7 +351,8 @@ C11 だけはこの仕様が決める。
 6. 次元を外して resume → 以後の試行はその次元を config の値で学習する。外した smart の次元が最良の試行にあれば、smart として `fit` に渡る（LightGBM の params に入らない）。
 7. 分布の種類・`log`・選択肢の変更（`True` を `1` に、`1` を `1.0` に変えるものを含む）、`space_mode` の変更 → study を変える前に `CONFIG_INVALID`。
 8. storage で round 2 の途中に落とした（プロセスを止めた）あと、新しい `Model` で `resume=True` → round 2 の残りの予算を、round 2 の実効空間で走らせて閉じる。round 2 の試行の総数、`rounds`、試行の round が、落とさずに走らせた場合と同じ。RUNNING のまま残った試行は FAIL になり、予算に数えられる。境界の拡張と enqueue は起きない。`:end` を書く直前に落とした場合は、試行を足さずに round 2 を閉じる。同じプロセスで round が例外で止まった場合も同じ。
-8a. `n_trials=1` の round 1 で、ただ一つの試行が RUNNING のまま落ちた study に再接続 → その試行が FAIL になり、round 1 が `failed` で閉じ、`TUNING_FAILED`。もう一度 `resume=True` → round 2 が始まり、拡張と enqueue は無い。
+8a. `n_trials=1` の round 1 で、ただ一つの試行が RUNNING のまま落ちた study に再接続 → その試行が FAIL になり、round 1 が `failed` で閉じ、`TUNING_FAILED`。もう一度 `resume=True` → round 2 が始まり、拡張と enqueue は無い。round 2 が終わったあとの `TuningResult.rounds` は round 2 だけで、その `best_score_before` は `None`。`trials` には round 1 の FAIL の試行が round 1 として残る。
+8b. 途中の round の再開（U2）: round を始めたときと同じ `n_trials` を渡す → 通り、残りの試行を走らせる。違う `n_trials`、違う `expand_boundary`、違う `space=` → それぞれ `CONFIG_INVALID`、試行が増えない。引数を省く → 通る。config の `n_trials` だけが記録と違う → 警告が出て、記録の予算で終える。終わった round のあとの `resume=True` で違う `n_trials` を渡す → 新しい round がその値で始まる。
 9. `resume=False` で既存の study → `CONFIG_INVALID`、試行が増えない。
 10. `resume=True` で別の storage → `CONFIG_INVALID`。
 11. config の探索空間を変えて `resume=True`（`space=` なし） → `CONFIG_INVALID`。
@@ -357,7 +362,8 @@ C11 だけはこの仕様が決める。
     - 同じ `storage`（URL の文字列が等しい、または同じ `BaseStorage` のオブジェクト）と同じ `study_name` を渡した `resume=True` → 継続する（試行が増え、round が進む）。`storage` と `study_name` を省いた `resume=True` → 継続する。
     - `study_name` だけが違う、URL の文字列が違う（同じファイルを指す別の書き方を含む）、同じ backend を指す別の `BaseStorage` のオブジェクト → `CONFIG_INVALID`、試行が増えない。
     - 新しい `Model` で、storage に既にある study を `resume=True` で指す → 再接続して続く（P2 の成功）。
-    - 新しい `Model` で、正しい `storage` と、storage に無い `study_name` を `resume=True` で指す → `TUNING_FAILED`。storage に study も属性も作られない（U3 を採れば、この項目は「新しい study ができ、round 1 から始まる」に変わる）。
+    - 新しい `Model` で、正しい `storage` と、storage に無い `study_name` を `resume=True` で指す → 新しい study ができ、`lizyml:study` が書かれ、round 1 から始まる（U3）。INFO のログが出る。同じ呼び出しで `space=` を渡す → `CONFIG_INVALID`、study は作られない。
+    - メモリ上の study も `storage` も無い `resume=True` → `TUNING_FAILED`。
 15. round の準備の途中で落ちた場合（`lizyml:round:<k>` を書いた後、enqueue の前で止めたもの、enqueue の後で止めたもの）→ 再接続のあと、enqueue した試行がその round にちょうど一つある。`lizyml:round:<k>` を書く前に止めたもの → 普通の resume として round k が始まる。
 16. `timeout` のある round を途中で落とした場合 → 再開では、記録から求めた残りの時間を Optuna の `timeout` に渡す（Optuna の timeout は新しい試行を始めないだけで、走っている試行は止めない。今の tune と同じ意味）。残りの時間を使い切っていれば、試行を一つも始めずに round を閉じる。時間を使い切ってから `:end` の前に落とした場合も同じ。
 17. `space=` で `merge` の宣言に利用者の次元を足した round のあと、再接続して次の round を `expand_boundary=None` で始める → 同じプロセスで続けた場合と同じ拡張の判断になる。
