@@ -6,9 +6,11 @@ import logging
 import sys
 import tempfile
 import warnings
+from pathlib import Path
 
-sys.path.insert(0, "/tmp/claude-1000/-home-rem-repos-LizyML/d536b2c8-f474-4f26-86db-5077863e45d9/scratchpad")
-sys.path.insert(0, "/home/rem/repos/LizyML")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+# Repository-relative: the checkout this file belongs to.
+sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
 warnings.filterwarnings("ignore")
 logging.disable(logging.WARNING)
 
