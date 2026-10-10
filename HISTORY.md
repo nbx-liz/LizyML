@@ -11712,9 +11712,9 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 **型の混じった列**: 1 つの列に型の混じった値（例: 文字列の `"1"` と整数の `1`）を持つ DataFrame は、parquet（pyarrow）でも CSV でも、元の型のまま保存できない。そのような列を持つ fit は、再学習の約束の外とする。ただし export 直後の `predict.py` は型付きの状態（方針 5）を読むので、LizyML と同じ符号を使う（受け入れ基準 1）。
 
 **CSV の場合**（管理者の判断、2026-10-10）: CSV は値の型と `category` dtype を保てない。CSV で保存したデータについては、次の条件を満たす場合に限って約束する。この限定は BLUEPRINT §15.4 に書く。
-- 生成 `train.py` が `pd.read_csv` で読み、宣言されたカテゴリ（`config.json` の `declared_categories`、方針 5）を当てた後の、カテゴリ列、時間の列、グループの列の値と dtype が、fit 時のものと等しい。
+- 生成 `train.py` が `pd.read_csv` で読み、宣言されたカテゴリ（`config.json` の `declared_categories`、方針 5）を当てた後の、学習に使うすべての列の値と dtype が、fit 時のものと等しい。学習に使う列とは、目的変数、特徴量の列、時間の列、グループの列である。
 
-この条件を満たさない例は、型の混じった列、文字列として読まれる時刻の列である。
+この条件を満たさない例は、型の混じった列、文字列として読まれる時刻の列、`"01"` のような文字列の目的変数（CSV では整数の `1` として読まれる）である。
 
 **前提**:
 - 同じ計算機で実行する。
@@ -11811,6 +11811,9 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
    - **inner gap**: `purged_time_series` で `purge_gap` を 0 以外にした、自動解決の fit（gap が inner valid に渡る）。同じ outer 設定に `time_holdout` を明示した fit（gap は 0）。
    - **検証集合と callback の組み合わせ**: 両方ある（既定）、両方ない（early stopping 無効）、検証集合だけある（tune が `validation_ratio` だけを変えた fit）、patience だけある（tune が patience を決め、config で early stopping を無効にした fit）の 4 つ。
    - **同じ値の時刻**: `time_series` で、時間の列に同じ値が複数ある fit。
+   - **fit と tune の順序、load**: export の値を、保存された入力から作り直す経路（方針 1）を、通しで確かめる。どちらも明示した既定以外の `inner_valid` を持ち、tune の結果が `validation_ratio` と patience を変える設定で行う。
+     - `fit` → `tune` → `export_code`。fit の後の tune は adapter を置き換えないので、export は fit が使った値を書かなければならない（H-0094 決定 13）。
+     - `tune` → `fit` → `export` → `Model.load` → `export_code`。load した artifact の `applied_training_params` と adapter から、fit と同じ値を書かなければならない（H-0109）。
    - **評価関数**: 生成コードが再実装する 9 つ（`rmsle`、`r2`、`f1`、`brier`、`ece`、`precision_at_k`、`accuracy`、`smape`、`wape`）と 3 つのタスクの組み合わせのすべて。LizyML がそのタスクでその評価関数を受け付けない場合は、拒否されることを確かめる。
    - **カテゴリ**（parquet で行う）: 文字列、整数、宣言だけされたカテゴリ（`category` dtype）、宣言されたカテゴリを持ち値がすべて欠損の列（最頻値がカテゴリの先頭になる）、欠損値を含む列。
    - **型の混じった列**: `"1"` と `1` が混じった object 列を持つ fit で、export 直後の `predict.py`（再学習の前）の予測が `Model.predict` と一致する。この列は保存できないので、再学習の行列には入れない（約束の外）。
