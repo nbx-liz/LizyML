@@ -24,6 +24,7 @@ from lizyml import Model
 from lizyml.codegen.config_writer import library_versions
 from lizyml.codegen.values import plain_value
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from tests._train_spy import record_lightgbm_calls
 from tests.test_codegen._retrain_harness import (
     make_config,
     make_frame,
@@ -127,11 +128,93 @@ def test_export_refuses_a_target_label_outside_the_set(
 ) -> None:
     df = _target_frame(_REFUSED_LABEL_DATA[name])
     model = Model(make_config("binary", "kfold"))
-    try:
-        model.fit(data=df)
-    except LizyMLError:
-        pytest.skip(f"Model.fit refuses a {name} target before export is reached")
+    model.fit(data=df)  # every one of these labels is accepted by fit
     _assert_refused_and_nothing_written(model, tmp_path / "gen")
+
+
+# Every branch through both export surfaces: the categories of a feature
+# (pipeline_state.json) and the target labels (config.json), driven through
+# generate_code -- the function export_code hands them to -- with the
+# fitted adapter of a real model.
+
+_SURFACES = ("feature-category", "target-label")
+
+
+@pytest.fixture(scope="module")
+def _fitted() -> Model:
+    model = Model(make_config("binary", "kfold"))
+    model.fit(data=make_frame("binary"))
+    return model
+
+
+def _generate(model: Model, out: Path, surface: str, value: Any) -> None:
+    from lizyml.codegen.generator import generate_code
+
+    refit = model._refit_result
+    assert refit is not None
+    state = {
+        "feature_names": ["c"],
+        "encoder": {
+            "unseen_policy": "mode",
+            "categories": {"c": [value]} if surface == "feature-category" else {},
+            "modes": {"c": value} if surface == "feature-category" else {},
+        },
+    }
+    generate_code(
+        output_dir=out,
+        run_meta={
+            "lizyml_version": "test",
+            "run_id": "r",
+            "timestamp": "t",
+            "config_normalized": {"task": "binary", "data": {"target": "y"}},
+        },
+        feature_names=["c"],
+        categorical_features=["c"] if surface == "feature-category" else [],
+        lgbm_params={"objective": "binary"},
+        num_boost_round=1,
+        early_stopping_rounds=None,
+        validation_ratio=0.0,
+        seed=0,
+        calibration_method=None,
+        calibration_n_splits=2,
+        model_adapter=refit.model,
+        pipeline_state=state,
+        calibrator=None,
+        target_classes=[value] if surface == "target-label" else None,
+    )
+
+
+@pytest.mark.parametrize("surface", _SURFACES)
+@pytest.mark.parametrize("name", sorted(_ACCEPTED))
+def test_every_accepted_type_is_written_plain_on_both_surfaces(
+    name: str, surface: str, _fitted: Model, tmp_path: Path
+) -> None:
+    value, expected_type = _ACCEPTED[name]
+    out = tmp_path / "gen"
+    _generate(_fitted, out, surface, value)
+    if surface == "feature-category":
+        state = json.loads(
+            (out / "artifacts" / "pipeline_state.json").read_text(encoding="utf-8")
+        )
+        written = state["categories"]["c"]["categories"]
+        assert state["categories"]["c"]["mode"] == written[0]
+    else:
+        config = json.loads((out / "config.json").read_text(encoding="utf-8"))
+        written = config["target_encoder"]["classes"]
+    assert written == [value]
+    assert type(written[0]) is expected_type
+
+
+@pytest.mark.parametrize("surface", _SURFACES)
+@pytest.mark.parametrize("name", sorted(_REFUSED))
+def test_every_refused_type_writes_nothing_on_both_surfaces(
+    name: str, surface: str, _fitted: Model, tmp_path: Path
+) -> None:
+    out = tmp_path / "gen"
+    with pytest.raises(LizyMLError) as info:
+        _generate(_fitted, out, surface, _REFUSED[name])
+    assert info.value.code == ErrorCode.SERIALIZATION_FAILED
+    assert not out.exists()
 
 
 def test_accepted_labels_and_categories_export(tmp_path: Path) -> None:
@@ -228,8 +311,10 @@ def test_a_missing_mandatory_key_fails_before_training(
     _write_config(project, config)
     (project / "artifacts" / "model.txt").unlink()
     data = write_data(df, project, "parquet")
-    with pytest.raises(KeyError, match=key):
+    # The generated script imports the same lightgbm module the spy patches.
+    with record_lightgbm_calls() as seen, pytest.raises(KeyError, match=key):
         run_train(project, data)
+    assert seen["train_params"] == [], "lgb.train ran before the key was read"
     assert not (project / "artifacts" / "model.txt").exists()
 
 

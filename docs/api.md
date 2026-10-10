@@ -270,9 +270,11 @@ Generates LizyML-independent Python code for training and inference. Output:
 `requirements.txt`, `artifacts/`.
 
 Run on the same data saved as parquet, the generated `train.py` retrains the
-refit model: its uncalibrated predictions match `Model.predict` at `rtol=1e-7`,
-given the same machine and the same LightGBM, numpy, pandas and scikit-learn
-versions (H-0120; the calibrator is rebuilt, not reproduced). BLUEPRINT §15.4
+refit model: its uncalibrated predictions match the LizyML refit model's
+uncalibrated predictions at `rtol=1e-7`, given the same machine and the same
+LightGBM, numpy, pandas and scikit-learn versions (H-0120). With calibration
+configured, `Model.predict` returns calibrated probabilities, and those are not
+part of the promise: the calibrator is rebuilt, not reproduced. BLUEPRINT §15.4
 states the premises and the CSV condition.
 
 | Parameter | Type | Description |
