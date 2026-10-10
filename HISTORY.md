@@ -11359,7 +11359,7 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 
 - **ステータス**: Accepted
 - **起票日**: 2026-10-09
-- **決定日**: 2026-10-09（管理者の判断: 案 E を 2 PR で、CI の起動条件は 6. のとおり。Codex の Proposal review 3 round の最終 round で APPROVE）。改訂: 2026-10-10（決定 1、管理者の判断）
+- **決定日**: 2026-10-09（管理者の判断: 案 E を 2 PR で、CI の起動条件は 6. のとおり。Codex の Proposal review 3 round の最終 round で APPROVE）。改訂: 2026-10-10（決定 1、管理者の判断。Codex の改訂レビューは 3 回の run で行い、3 回目の run の round 1 で APPROVE）
 - **スコープ**: `notebooks/*.ipynb`（メタデータとセルのタグ）, `docs/examples.md`（生成する部分）, `lizyml/_extras.py`（新規・非公開）, `scripts/examples_index.py`（新規）, `tests/test_docs/test_examples_index.py`（置き換え）, `tests/test_notebooks/`（実行の記録、`test_index_execution.py` を新設、ネットワーク失敗のマーカー一覧を共有モジュールへ移す）, `.github/workflows/ci.yml`（matrix を作るジョブ、(a)(b) の 2 つのジョブ、gate ジョブを追加）, `scripts/notebook_index_gate.py`（gate の判定、新規）, `.github/scripts/notebook_index_scope.sh`（決定 1 で削除）, `pyproject.toml` / `uv.lock`（依存グループ `notebooks` を追加）, `docs/proposal_dispositions.toml`
 - **関連**: [Issue #334](https://github.com/nbx-liz/LizyML/issues/334), PR #335（索引の修正と静的な検査）, H-0118（文書の一覧を実装と照合する、同じ DC3 の型）, H-0117（運用ルールの正は `CONTRIBUTING.md`）
 

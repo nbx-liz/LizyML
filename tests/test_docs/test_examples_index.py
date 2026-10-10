@@ -4,8 +4,8 @@
 demonstrates and the extras it needs. Each notebook declares both in
 ``metadata.lizyml.index``; its ``index-example`` cells hold the examples in a
 closed grammar; the method-to-extra registry (``lizyml/_extras.py``) derives
-the extras from them; and ``scripts/examples_index.py`` generates the index's
-machine-readable blocks. These tests call the same functions as
+the extras from them; and ``scripts/examples_index.py`` generates the region
+at the top of ``docs/examples.md``. These tests call the same functions as
 ``scripts/examples_index.py --check``.
 
 This replaces PR #335's static ``ast`` reading of whole notebooks, whose review
@@ -18,8 +18,10 @@ from __future__ import annotations
 
 import ast
 import copy
+import hashlib
 import importlib.util
 import json
+import os
 import pathlib
 import sys
 from collections.abc import Callable
@@ -472,6 +474,10 @@ def test_a_call_only_in_a_comment_beside_a_real_one_fails() -> None:
 
 
 # --- 4. docs/examples.md (section 5) ------------------------------------------
+#
+# The generated region is the first K = N + 8 lines of docs/examples.md. The
+# checker compares physical lines only; it reads nothing after the region and
+# promises nothing about how the file renders (H-0119 decision 1).
 
 
 def _decl(**index: Any) -> Any:
@@ -482,41 +488,35 @@ DECLS = {
     "a.ipynb": _decl(),
     "b.ipynb": _decl(methods=["fit"], extras=[]),
 }
+ROWS = [
+    "| `a.ipynb` | `fit()`, `importance_plot()` "
+    "| `pip install 'lizyml[explain,plots]'` |",
+    "| `b.ipynb` | `fit()` | none (base install) |",
+]
+SUFFIX = "\n## Notes\n\nHandwritten text.\n"
 
 
-def _block(name: str) -> str:
-    return "\n".join(ix.render_block(name, DECLS[name]))
-
-
-def _doc(*sections: str, tail: str = "") -> str:
-    return "# Notebook Index\n\nIntro.\n\n" + "\n".join(sections) + tail
-
-
-def _section(name: str, block: str | None = None) -> str:
-    body = _block(name) if block is None else block
-    return f"### `{name}`\n\nProse with `fit()`.\n\n{body}\n\n---\n"
-
-
-DOC = _doc(
-    _section("a.ipynb"), _section("b.ipynb"), tail="\n## Other\n\n```bash\n# x\n```\n"
-)
-
-
-def test_render_block() -> None:
-    assert ix.render_block("a.ipynb", DECLS["a.ipynb"]) == [
-        "<!-- index:begin a.ipynb -->",
-        "**Demonstrates:** `fit()`, `importance_plot()`",
-        "",
-        "**Extras required:** `pip install 'lizyml[explain,plots]'`",
-        "<!-- index:end -->",
-    ]
-    assert ix.render_block("b.ipynb", DECLS["b.ipynb"])[3] == (
-        "**Extras required:** none (base install)"
+def _comment(rows: list[str]) -> str:
+    digest = hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()
+    return (
+        "<!-- Generated from each notebook's metadata.lizyml.index by "
+        "scripts/examples_index.py. Do not edit this region by hand. "
+        f"rows={len(rows)} sha256={digest} -->"
     )
 
 
-def test_a_matching_index_passes() -> None:
-    assert ix.check_index(DOC, DECLS) == []
+REGION = [
+    "# Notebook Index",
+    "",
+    _comment(ROWS),
+    "",
+    "| Notebook | Demonstrates | Extras required |",
+    "|---|---|---|",
+    *ROWS,
+    "",
+    "<!-- index:end -->",
+]
+DOC = "\n".join(REGION) + "\n" + SUFFIX
 
 
 def _errors(text: str, decls: Any = None) -> str:
@@ -525,321 +525,262 @@ def _errors(text: str, decls: Any = None) -> str:
     return "\n".join(errors)
 
 
-@pytest.mark.parametrize(
-    ("text", "match"),
-    [
-        # Headings.
-        (_doc(_section("a.ipynb")), "missing"),
-        (_doc(_section("a.ipynb"), _section("b.ipynb"), _section("b.ipynb")), "twice"),
-        (DOC.replace("### `b.ipynb`", "## `b.ipynb`"), "heading"),
-        (DOC.replace("### `b.ipynb`", "### b.ipynb"), "heading"),
-        (DOC.replace("### `b.ipynb`", "### `b.ipynb` (new)"), "heading"),
-        (DOC + "\n### `c.ipynb`\n", "not a notebook"),
-        # Markers.
-        (
-            DOC.replace(
-                "<!-- index:end -->", "<!-- index:end -->\n<!-- index:end -->", 1
-            ),
-            "end",
-        ),
-        (DOC.replace("<!-- index:end -->\n", "", 1), "not closed"),
-        (
-            DOC.replace("<!-- index:begin b.ipynb -->", "<!-- index:begin a.ipynb -->"),
-            "section",
-        ),
-        (
-            DOC.replace("<!-- index:begin b.ipynb -->", "<!--index:begin b.ipynb-->"),
-            "marker",
-        ),
-        (
-            _doc(
-                _section("a.ipynb", block=_block("a.ipynb") + "\n" + _block("a.ipynb")),
-                _section("b.ipynb"),
-            ),
-            "more than one",
-        ),
-        (
-            _doc(_section("a.ipynb", block="no block"), _section("b.ipynb")),
-            "no generated block",
-        ),
-        ("<!-- index:begin a.ipynb -->\n<!-- index:end -->\n" + DOC, "outside"),
-        (DOC + "\n<!-- index:begin b.ipynb -->\n<!-- index:end -->\n", "outside"),
-        # Content.
-        (
-            DOC.replace(
-                "`pip install 'lizyml[explain,plots]'`", "`pip install 'lizyml[plots]'`"
-            ),
-            "differs",
-        ),
-        (
-            DOC.replace(
-                "**Demonstrates:** `fit()`\n\n", "**Demonstrates:** `fit()`\n", 1
-            ),
-            "differs",
-        ),
-    ],
-)
-def test_index_mutations_fail(text: str, match: str) -> None:
-    assert match in _errors(text) or pytest.fail(_errors(text))
+def test_render_index() -> None:
+    assert ix.render_index(DECLS) == REGION
 
 
-@pytest.mark.parametrize(
-    "fence",
-    [
-        # An inner, shorter fence must not close the outer one (review round 2).
-        "````md\n```\n{section}```\n````\n",
-        "~~~~md\n~~~\n{section}~~~\n~~~~\n",
-        # A fence of the other character never closes it either.
-        "```md\n~~~\n{section}~~~\n```\n",
-    ],
-)
-def test_a_section_inside_a_code_fence_is_not_a_section(fence: str) -> None:
-    text = _doc(
-        _section("a.ipynb"), tail="\n" + fence.format(section=_section("b.ipynb"))
+def test_the_digest_matches_the_known_vector() -> None:
+    rows = [
+        "| `a.ipynb` | `fit()` | none (base install) |",
+        "| `b.ipynb` | `predict()` | café |",
+    ]
+    assert ix.rows_digest(rows) == (
+        "9fa91b360618931dd5717f9cf60c166f0058cc92734b624f9c49800d3676ab92"
     )
-    assert "missing" in _errors(text)
 
 
-def test_a_heading_inside_a_nested_fence_is_ignored() -> None:
-    example = "\n````md\n```bash\n# x\n```\n### `c.ipynb`\n````\n"
-    assert ix.check_index(DOC + example, DECLS) == []
+def test_rows_follow_code_point_order() -> None:
+    decls = {name: _decl() for name in ["b.ipynb", "a.ipynb", "_x.ipynb", "B.ipynb"]}
+    names = [row.split("`")[1] for row in ix.render_index(decls)[6:-2]]
+    assert names == ["B.ipynb", "_x.ipynb", "a.ipynb", "b.ipynb"]
 
 
-@pytest.mark.parametrize(
-    "extra",
-    [
-        # CommonMark renders each of these as a heading, so a parser that only
-        # knows column-0 ATX headings would miss it (review run 2, round 1).
-        " ### `a.ipynb`\n",
-        "   ## Other\n",
-        "> ### `a.ipynb`\n",
-        "- ### `a.ipynb`\n",
-        "1. ## Other\n",
-        "missing.ipynb\n--------------\n",
-        "Other\n=====\n",
-        "Other\n-\n",
-        "Other\n--\n",
-        # Container continuations and quoted setext (review run 2, round 2).
-        "- item\n\n    ### `ghost.ipynb`\n",
-        "- > item\n    > ### `ghost.ipynb`\n",
-        "> ghost.ipynb\n> ===\n",
-        # HTML blocks, indented code and other shapes outside the line grammar.
-        "<div>\n\n### `ghost.ipynb`\n\n</div>\n",
-        "    ### `ghost.ipynb`\n",
-        "| a | b |\n",
-        " ```\n### `ghost.ipynb`\n```\n",
-        "Text.\n---\n",
-        "#hashtag\n",
-        # Not blank: only spaces and tabs make a blank line (run 2, round 3).
-        "  \n",
-        "\t　\n",
-        # Not a fence in CommonMark (a backtick in the info string), and a
-        # line starting with three backticks or tildes is reserved for fences.
-        "```bad`info\n",
-        # Stated in H-0119 section 5 (review run 3, round 2): a line of only
-        # hyphens other than a thematic break after a blank line, and a
-        # thematic break that does not follow a blank line.
-        "--\n",
-        "--  \n",
-        "Text.\n***\n",
-        "Text.\n___\n",
-        # Every other CommonMark thematic break, anywhere (review run 4,
-        # round 1): spaces or tabs inside or after the run.
-        "Text.\n*** \n",
-        "Text.\n_ _ _\n",
-        "Text.\n*\t*\t*\n",
-        "\n_ _ _\n",
-        "\n***\t\n",
-        "\n___ \n",
-        "\n* * *\n",
-        "\n- - -\n",
-    ],
-)
-def test_a_line_outside_the_index_grammar_fails(extra: str) -> None:
-    assert "grammar" in _errors(DOC + "\n" + extra)
+def test_a_matching_index_passes() -> None:
+    assert ix.check_index(DOC, DECLS) == []
 
 
-def test_an_indented_heading_before_a_block_fails() -> None:
-    text = DOC.replace(
-        "<!-- index:begin b.ipynb -->", " ## Other\n\n<!-- index:begin b.ipynb -->"
-    )
-    assert "grammar" in _errors(text)
+def _region_mutations() -> dict[str, list[str]]:
+    """Every way to delete, add, reorder or change one line of the region."""
+    cases: dict[str, list[str]] = {}
+    for i in range(len(REGION)):
+        cases[f"delete line {i + 1}"] = REGION[:i] + REGION[i + 1 :]
+        cases[f"change line {i + 1}"] = REGION[:i] + [REGION[i] + "x"] + REGION[i + 1 :]
+        cases[f"add a line before {i + 1}"] = REGION[:i] + [""] + REGION[i:]
+    cases["swap the rows"] = REGION[:6] + [REGION[7], REGION[6]] + REGION[8:]
+    return cases
 
 
-def test_a_fence_closed_by_an_indented_closer_fails() -> None:
-    # CommonMark closes the fence here, so the parser must not stay fenced.
-    assert "column 0" in _errors(DOC + "\n```\ncode\n  ```\n")
+@pytest.mark.parametrize("case", sorted(_region_mutations()))
+def test_a_changed_region_line_fails(case: str) -> None:
+    _errors("\n".join(_region_mutations()[case]) + "\n" + SUFFIX)
+
+
+def test_the_end_marker_only_in_the_handwritten_part_fails() -> None:
+    region = REGION[:-1]
+    _errors("\n".join(region) + "\n" + SUFFIX + "\n<!-- index:end -->\n")
 
 
 @pytest.mark.parametrize(
-    "prose",
+    "decls",
     [
-        "**Bold** text and `code()` and _emphasis_.\n",
-        "[ref]: https://example.com\n",
-        "2026 is a year.\n",
-        "Text.\n\n***\n\n___\n",
-        # CommonMark list markers use ASCII digits only (review run 3, round 1).
-        "١. Arabic-Indic digit.\n",
-        "１２. Fullwidth digits.\n",
+        {**DECLS, "a.ipynb": _decl(methods=["fit"])},
+        {**DECLS, "c.ipynb": _decl()},
+        {"a.ipynb": DECLS["a.ipynb"]},
+    ],
+    ids=["changed declaration", "added notebook", "removed notebook"],
+)
+def test_a_declaration_or_census_change_fails(decls: Any) -> None:
+    _errors(DOC, decls)
+
+
+@pytest.mark.parametrize("name", ["café.ipynb", "a b.ipynb", "a+b.ipynb", "a|b.ipynb"])
+def test_a_notebook_name_outside_the_name_characters_fails(name: str) -> None:
+    decls = {**DECLS, name: _decl()}
+    assert "name" in _errors(DOC, decls)
+    with pytest.raises(ix.ContractError, match="name"):
+        ix.rewrite_index(DOC, decls)
+
+
+def test_no_notebook_fails() -> None:
+    assert "no notebooks" in _errors(DOC, {})
+    with pytest.raises(ix.ContractError, match="no notebooks"):
+        ix.rewrite_index(DOC, {})
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        "",
+        "```\nunclosed fence\n",
+        "<!-- index:end -->\n| `x.ipynb` | `y()` | z |\n",
+        " \n---\n### `ghost.ipynb`\n",
+        "\r\n\r\n",
     ],
 )
-def test_ordinary_prose_is_in_the_grammar(prose: str) -> None:
-    assert ix.check_index(DOC + "\n" + prose, DECLS) == []
-
-
-#: Every character Python treats as whitespace that CommonMark does not: only
-#: a space and a tab make a line blank, indent it, or end a heading marker or
-#: a fence closer (review run 2, round 3). A carriage return is excluded:
-#: CommonMark reads it as a line ending (review run 3, round 1).
-_NON_COMMONMARK_SPACES = [
-    chr(c) for c in range(0x110000) if chr(c).isspace() and chr(c) not in " \t\n\r"
-]
-
-
-@pytest.mark.parametrize("ending", ["\r\n", "\r"], ids=["CRLF", "CR"])
-def test_carriage_return_line_endings_read_as_line_feeds(ending: str) -> None:
-    assert ix.check_index(DOC.replace("\n", ending), DECLS) == []
-    # Each CommonMark reading: the fence closes, and "####" is its own line.
-    closed = _doc(_section("a.ipynb"), "```\ncode\n```" + ending, _section("b.ipynb"))
-    assert ix.check_index(closed, DECLS) == []
-    assert ix.check_index(DOC + "\n#### x" + ending + "After.\n", DECLS) == []
-    assert "grammar" in _errors(DOC + "\nText." + ending + "---\n")
-
-
-_STALE = DOC.replace("`fit()`, `importance_plot()`", "`fit()`")
+def test_nothing_after_the_region_is_read(suffix: str) -> None:
+    assert ix.check_index("\n".join(REGION) + "\n" + suffix, DECLS) == []
 
 
 @pytest.mark.parametrize("ending", ["\n", "\r\n", "\r"], ids=["LF", "CRLF", "CR"])
-def test_write_keeps_every_line_ending(ending: str) -> None:
-    # --write changes the generated blocks only (review run 3, round 2).
-    assert ix.rewrite_index(_STALE.replace("\n", ending), DECLS) == DOC.replace(
-        "\n", ending
+def test_every_line_ending_reads_the_same(ending: str) -> None:
+    assert ix.check_index(DOC.replace("\n", ending), DECLS) == []
+    assert ix.check_index(DOC.replace("\n", ending), {"a.ipynb": DECLS["a.ipynb"]})
+
+
+# --- --write (section 5) -------------------------------------------------------
+
+STALE_DECLS = {**DECLS, "b.ipynb": _decl(methods=["fit", "predict"], extras=[])}
+
+
+@pytest.mark.parametrize(
+    "decls",
+    [STALE_DECLS, {**DECLS, "c.ipynb": _decl()}, {"a.ipynb": DECLS["a.ipynb"]}],
+    ids=["same count", "added notebook", "removed notebook"],
+)
+def test_write_repairs_an_intact_old_region(decls: Any) -> None:
+    rewritten = ix.rewrite_index(DOC, decls)
+    assert rewritten == "\n".join(ix.render_index(decls)) + "\n" + SUFFIX
+    assert ix.check_index(rewritten, decls) == []
+
+
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        "| `x.ipynb` | `y()` | z |\n\n<!-- index:end -->\n",
+        "\n\n<!-- index:end -->\n<!-- index:end -->\r\n| row\r",
+        "",
+    ],
+)
+def test_write_keeps_everything_after_the_old_region(suffix: str) -> None:
+    rewritten = ix.rewrite_index("\n".join(REGION) + "\n" + suffix, STALE_DECLS)
+    assert rewritten == "\n".join(ix.render_index(STALE_DECLS)) + "\n" + suffix
+
+
+@pytest.mark.parametrize("ending", ["\n", "\r\n", "\r"], ids=["LF", "CRLF", "CR"])
+def test_write_uses_the_first_line_ending_for_the_region(ending: str) -> None:
+    mixed = ending.join(REGION) + ending + "a\nb\r\nc\rd"
+    rewritten = ix.rewrite_index(mixed, STALE_DECLS)
+    region = ending.join(ix.render_index(STALE_DECLS)) + ending
+    assert rewritten == region + "a\nb\r\nc\rd"
+
+
+# The base file of acceptance criterion 4: a two-row old region whose rows are
+# the known digest vector, then a blank line and a handwritten heading.
+VECTOR_ROWS = [
+    "| `a.ipynb` | `fit()` | none (base install) |",
+    "| `b.ipynb` | `predict()` | café |",
+]
+VECTOR_D = "9fa91b360618931dd5717f9cf60c166f0058cc92734b624f9c49800d3676ab92"
+COUNTER_ROW = "| `c.ipynb` | `x()` | none (base install) |"
+
+
+def _base() -> list[str]:
+    return [
+        "# Notebook Index",
+        "",
+        _comment(VECTOR_ROWS),
+        "",
+        "| Notebook | Demonstrates | Extras required |",
+        "|---|---|---|",
+        *VECTOR_ROWS,
+        "",
+        "<!-- index:end -->",
+        "",
+        "## Notes",
+    ]
+
+
+def _header(
+    lines: list[str], rows: str | None = None, digest: str | None = None
+) -> None:
+    head, _, tail = lines[2].partition(" rows=")
+    old_rows, _, rest = tail.partition(" sha256=")
+    old_digest = rest.removesuffix(" -->")
+    lines[2] = (
+        f"{head} rows={old_rows if rows is None else rows} "
+        f"sha256={old_digest if digest is None else digest} -->"
     )
 
 
-def test_write_keeps_mixed_line_endings_outside_the_blocks() -> None:
-    head, _, tail = _STALE.partition("<!-- index:begin a.ipynb -->")
-    mixed = head.replace("\n", "\r\n") + "<!-- index:begin a.ipynb -->" + tail
-    rewritten = ix.rewrite_index(mixed, DECLS)
-    assert rewritten.startswith(head.replace("\n", "\r\n"))
-    assert rewritten.endswith(DOC.partition("<!-- index:begin a.ipynb -->")[2])
+def _counterexample(lines: list[str]) -> None:
+    lines[8:10] = [COUNTER_ROW, "", "<!-- index:end -->"]
 
 
-@pytest.mark.parametrize(
-    "space", _NON_COMMONMARK_SPACES, ids=lambda s: f"U+{ord(s):04X}"
-)
-def test_a_line_of_other_whitespace_is_not_blank(space: str) -> None:
-    # CommonMark reads such a line as paragraph text, so the break underlines
-    # it as a setext heading.
-    assert "grammar" in _errors(DOC + "\n" + space + "\n---\n")
+def _row_without_prefix(lines: list[str]) -> None:
+    lines[7] = "x" + lines[7]
+    _header(lines, digest=ix.rows_digest(lines[6:8]))
 
 
-@pytest.mark.parametrize(
-    "space", _NON_COMMONMARK_SPACES, ids=lambda s: f"U+{ord(s):04X}"
-)
-def test_other_whitespace_after_a_fence_closer_keeps_the_fence_open(space: str) -> None:
-    # CommonMark keeps the fence open, so section b and its block render as code.
-    fence = "```\ncode\n```" + space + "\n"
-    text = _doc(_section("a.ipynb"), fence, _section("b.ipynb"))
-    assert "fence" in _errors(text)
+# Acceptance criterion 4: each mutation of the base file and the one reason
+# --write must report for it.
+REFUSALS: dict[str, tuple[Callable[[list[str]], object], str]] = {
+    "rows=0 with the empty digest": (
+        lambda lines: _header(lines, rows="0", digest=hashlib.sha256(b"").hexdigest()),
+        "header-format",
+    ),
+    "rows=02": (lambda lines: _header(lines, rows="02"), "header-format"),
+    "uppercase D": (
+        lambda lines: _header(lines, digest=VECTOR_D.upper()),
+        "header-format",
+    ),
+    "63-character D": (
+        lambda lines: _header(lines, digest=VECTOR_D[:-1]),
+        "header-format",
+    ),
+    "non-hex D": (
+        lambda lines: _header(lines, digest="g" + VECTOR_D[1:]),
+        "header-format",
+    ),
+    "changed wrapper text": (
+        lambda lines: lines.__setitem__(2, lines[2].replace("Do not edit", "Do edit")),
+        "header-format",
+    ),
+    "changed fixed line 5": (
+        lambda lines: lines.__setitem__(4, lines[4].replace("Demonstrates", "Methods")),
+        "fixed-lines",
+    ),
+    "row without the prefix, D recomputed": (_row_without_prefix, "row-prefix"),
+    "N=3": (lambda lines: _header(lines, rows="3"), "row-prefix"),
+    "N=1": (lambda lines: _header(lines, rows="1"), "boundary"),
+    "deleted blank line": (lambda lines: lines.__delitem__(8), "boundary"),
+    "changed end marker": (
+        lambda lines: lines.__setitem__(9, "<!-- end -->"),
+        "boundary",
+    ),
+    "review counterexample": (_counterexample, "boundary"),
+    "review counterexample with N=3": (
+        lambda lines: (_counterexample(lines), _header(lines, rows="3")),
+        "digest-mismatch",
+    ),
+    "another valid D": (
+        lambda lines: _header(lines, digest="0" * 64),
+        "digest-mismatch",
+    ),
+    "changed row, same D": (
+        lambda lines: lines.__setitem__(6, lines[6].replace("fit()", "fit2()")),
+        "digest-mismatch",
+    ),
+}
 
 
-@pytest.mark.parametrize(
-    "space", _NON_COMMONMARK_SPACES, ids=lambda s: f"U+{ord(s):04X}"
-)
-def test_other_whitespace_after_hashes_is_not_a_heading(space: str) -> None:
-    assert "grammar" in _errors(DOC + "\n####" + space + "x\n")
+def test_every_refusal_reason_has_a_case() -> None:
+    assert sorted({reason for _, reason in REFUSALS.values()}) == sorted(ix.REASONS)
 
 
-@pytest.mark.parametrize(
-    "text",
-    [
-        "This prose mentions index:end safely.\n",
-        "Inline `<!-- index:begin a.ipynb -->` in prose.\n",
-        "```\nliteral index:end token\n```\n",
-        "```text\n# index:begin and index:end\n```\n",
-    ],
-)
-def test_marker_text_outside_a_marker_candidate_passes(text: str) -> None:
-    # Only a line that starts with `<!--` is a marker candidate.
-    assert ix.check_index(DOC + "\n" + text, DECLS) == []
+def test_write_accepts_the_base_file() -> None:
+    text = "\n".join(_base()) + "\n"
+    assert ix.rewrite_index(text, DECLS) == "\n".join(REGION) + "\n\n## Notes\n"
 
 
-_NEAR_MISS_MARKERS = [
-    "<!--index:begin b.ipynb-->",
-    "<!-- index:begin b.ipynb-->",
-    "<!-- index:begin b.ipynb -->",
-    " <!-- index:begin b.ipynb -->",
-    "<!-- index:end --> ",
-    "<!-- index:begin b.ipynb --> trailing",
-]
+@pytest.mark.parametrize("case", sorted(REFUSALS))
+def test_write_refuses_with_one_reason(case: str) -> None:
+    mutate, reason = REFUSALS[case]
+    lines = _base()
+    mutate(lines)
+    with pytest.raises(ix.RegionError) as caught:
+        ix.rewrite_index("\n".join(lines) + "\n", DECLS)
+    assert caught.value.reason == reason
+    assert "version control" in str(caught.value)
 
 
-@pytest.mark.parametrize("marker", _NEAR_MISS_MARKERS)
-def test_a_near_miss_marker_outside_a_fence_fails(marker: str) -> None:
-    assert "malformed index marker" in _errors(DOC + "\n" + marker + "\n")
-
-
-@pytest.mark.parametrize(
-    "marker",
-    ["<!-- index:begin b.ipynb -->", "<!-- index:end -->", "  <!-- index:end -->"]
-    + _NEAR_MISS_MARKERS,
-)
-def test_a_marker_candidate_inside_a_fence_fails(marker: str) -> None:
-    assert "inside a code fence" in _errors(DOC + "\n```\n" + marker + "\n```\n")
-
-
-def test_a_thematic_break_after_a_blank_line_is_not_a_heading() -> None:
-    assert ix.check_index(DOC + "\nText.\n\n---\n\n***\n", DECLS) == []
-
-
-def test_a_thematic_break_on_the_first_line_is_not_a_heading() -> None:
-    # Nothing precedes it to underline, as after a blank line (H-0119 section 5).
-    assert ix.check_index("---\n" + DOC, DECLS) == []
-
-
-@pytest.mark.parametrize("name", ["café.ipynb", "a b.ipynb", "a+b.ipynb"])
-def test_a_notebook_name_outside_the_name_characters_fails(name: str) -> None:
-    # Names are ASCII letters, digits, "_", "." and "-" only (H-0119 section 5).
-    heading = DOC + f"\n### `{name}`\n"
-    assert "### `<name>.ipynb`" in _errors(heading)
-    marker = DOC.replace("<!-- index:begin b.ipynb -->", f"<!-- index:begin {name} -->")
-    assert "malformed index marker" in _errors(marker)
-
-
-def test_a_hash_inside_a_fence_is_not_a_heading() -> None:
-    assert ix.check_index(DOC + "\n```bash\n  # comment\n> # x\n```\n", DECLS) == []
-
-
-def test_a_generated_block_inside_a_code_fence_fails() -> None:
-    # The block would render as a code sample, not as the section's content
-    # (implementation review round 3).
-    fenced = "```md\n" + _block("b.ipynb") + "\n```"
-    text = _doc(_section("a.ipynb"), _section("b.ipynb", block=fenced))
-    assert "fence" in _errors(text)
-
-
-def test_an_unclosed_fence_fails() -> None:
-    assert "fence" in _errors(DOC + "\n````md\n```\n")
-
-
-def test_changing_a_declaration_fails_the_index() -> None:
-    changed = {**DECLS, "b.ipynb": _decl(methods=["fit", "predict"], extras=[])}
-    assert "differs" in _errors(DOC, changed)
-
-
-def test_markers_and_headings_inside_fences() -> None:
-    fenced = DOC + "\n```\n### `b.ipynb`\n```\n"
-    assert ix.check_index(fenced, DECLS) == [], "a fenced heading is not a heading"
-    marker = DOC + "\n```\n<!-- index:end -->\n```\n"
-    assert "marker" in _errors(marker), "a marker counts even in a fence"
-
-
-def test_write_rewrites_only_the_blocks() -> None:
-    stale = DOC.replace("`fit()`, `importance_plot()`", "`fit()`")
-    assert ix.rewrite_index(stale, DECLS) == DOC
-    with pytest.raises(ix.ContractError, match="missing"):
-        ix.rewrite_index(_doc(_section("a.ipynb")), DECLS)
+def test_a_recomputed_count_and_digest_redefine_the_region() -> None:
+    # The integrity boundary: N and D recomputed together claim the
+    # handwritten row as part of the region, and --write replaces it.
+    lines = _base()
+    _counterexample(lines)
+    _header(lines, rows="3", digest=ix.rows_digest([*VECTOR_ROWS, COUNTER_ROW]))
+    rewritten = ix.rewrite_index("\n".join(lines) + "\n", DECLS)
+    assert rewritten == "\n".join(REGION) + "\n\n## Notes\n"
 
 
 # --- The repository ------------------------------------------------------------
@@ -874,40 +815,123 @@ def test_changing_one_notebook_declaration_fails_the_repository_check(
     assert ix.check(tmp_path)
 
 
-def test_write_keeps_the_file_line_endings(tmp_path: pathlib.Path) -> None:
+def _repo_copy(tmp_path: pathlib.Path, doc: bytes) -> pathlib.Path:
+    """A copy of the notebooks with ``doc`` as docs/examples.md; returns its path."""
     (tmp_path / "notebooks").mkdir()
     (tmp_path / "docs").mkdir()
     for path in ix.notebook_paths(ROOT):
         (tmp_path / "notebooks" / path.name).write_bytes(path.read_bytes())
-    good = (ROOT / "docs" / "examples.md").read_bytes().replace(b"\n", b"\r\n")
     target = tmp_path / "docs" / "examples.md"
-    target.write_bytes(
-        good.replace(
-            b"**Demonstrates:** `evaluate_table()`, ", b"**Demonstrates:** ", 1
-        )
-    )
-    assert ix.check(tmp_path), "the stale block was not detected"
+    target.write_bytes(doc)
+    return target
+
+
+def _stale(doc: bytes, ending: bytes) -> bytes:
+    """``doc`` with an intact but outdated region: one row edited, D recomputed."""
+    separator = ending.decode()
+    lines = doc.decode("utf-8").split(separator)
+    count = int(lines[2].split(" rows=")[1].split(" ")[0])
+    lines[6] = lines[6].replace(" | `", " | `stale_", 1)
+    head = lines[2].split(" sha256=")[0]
+    lines[2] = f"{head} sha256={ix.rows_digest(lines[6 : 6 + count])} -->"
+    return separator.join(lines).encode("utf-8")
+
+
+def _left_alone(target: pathlib.Path, before: bytes) -> None:
+    assert target.read_bytes() == before
+    assert sorted(p.name for p in target.parent.iterdir()) == ["examples.md"]
+
+
+def test_write_repairs_a_stale_region_and_keeps_the_file_line_endings(
+    tmp_path: pathlib.Path,
+) -> None:
+    good = (ROOT / "docs" / "examples.md").read_bytes().replace(b"\n", b"\r\n")
+    stale = _stale(good, b"\r\n")
+    assert stale != good
+    target = _repo_copy(tmp_path, stale)
+    assert ix.check(tmp_path), "the stale region was not detected"
     ix.write(tmp_path)
     assert target.read_bytes() == good
+    assert ix.check(tmp_path) == []
 
 
-def test_write_leaves_a_malformed_file_unchanged(tmp_path: pathlib.Path) -> None:
-    # The rewrite is validated before the file is opened for writing
-    # (review run 3, round 3).
-    (tmp_path / "notebooks").mkdir()
-    (tmp_path / "docs").mkdir()
-    for path in ix.notebook_paths(ROOT):
-        (tmp_path / "notebooks" / path.name).write_bytes(path.read_bytes())
+def test_write_leaves_a_refused_file_unchanged(tmp_path: pathlib.Path) -> None:
     broken = (
         (ROOT / "docs" / "examples.md")
         .read_bytes()
         .replace(b"<!-- index:end -->\n", b"", 1)
     )
-    target = tmp_path / "docs" / "examples.md"
-    target.write_bytes(broken)
-    with pytest.raises(ix.ContractError, match="not closed"):
+    target = _repo_copy(tmp_path, broken)
+    with pytest.raises(ix.RegionError):
         ix.write(tmp_path)
-    assert target.read_bytes() == broken
+    _left_alone(target, broken)
+
+
+def test_write_leaves_the_file_unchanged_when_writing_fails(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stale = _stale((ROOT / "docs" / "examples.md").read_bytes(), b"\n")
+    target = _repo_copy(tmp_path, stale)
+
+    class Failing:
+        def __init__(self, handle: Any) -> None:
+            self.handle = handle
+
+        def __enter__(self) -> Failing:
+            return self
+
+        def __exit__(self, *exc: object) -> None:
+            self.handle.close()
+
+        def write(self, text: str) -> int:
+            self.handle.write(text[: len(text) // 2])
+            raise OSError("disk full")
+
+    monkeypatch.setattr(
+        ix,
+        "open",
+        # The wrapper owns the handle and closes it in __exit__.
+        lambda *a, **k: Failing(open(*a, **k)),  # noqa: SIM115
+        raising=False,
+    )
+    with pytest.raises(OSError, match="disk full"):
+        ix.write(tmp_path)
+    _left_alone(target, stale)
+
+
+def test_write_leaves_the_file_unchanged_when_the_replace_fails(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stale = _stale((ROOT / "docs" / "examples.md").read_bytes(), b"\n")
+    target = _repo_copy(tmp_path, stale)
+
+    def failing_replace(src: str, dst: str) -> None:
+        raise OSError("replace failed")
+
+    monkeypatch.setattr(ix.os, "replace", failing_replace)
+    with pytest.raises(OSError, match="replace failed"):
+        ix.write(tmp_path)
+    _left_alone(target, stale)
+
+
+def test_write_replaces_with_a_finished_sibling_file(
+    tmp_path: pathlib.Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    good = (ROOT / "docs" / "examples.md").read_bytes()
+    target = _repo_copy(tmp_path, _stale(good, b"\n"))
+    calls: list[tuple[pathlib.Path, bytes]] = []
+    real_replace = os.replace
+
+    def spy(src: str, dst: str) -> None:
+        calls.append((pathlib.Path(src), pathlib.Path(src).read_bytes()))
+        real_replace(src, dst)
+
+    monkeypatch.setattr(ix.os, "replace", spy)
+    ix.write(tmp_path)
+    ((src, content),) = calls
+    assert src.parent == target.parent
+    assert content == good, "the temporary file was not finished before the replace"
+    assert target.read_bytes() == good
 
 
 def test_no_notebook_name_selects_another_with_pytest_k() -> None:

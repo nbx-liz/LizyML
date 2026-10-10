@@ -159,34 +159,17 @@ jobs:
           python -c "from lizyml import Model; print('import ok:', Model)"
 
   # --- Notebook index contract (H-0119 6.) -------------------------------------
-  # Trigger rule (decided 2026-10-08): the two jobs below always run for PRs to
-  # main (and for pushes to main). For PRs to develop they run only when one of
-  # these paths changed: notebooks/**, docs/examples.md, lizyml/_extras.py,
-  # scripts/examples_index.py, tests/test_notebooks/**, .github/workflows/ci.yml.
-  # The filter is .github/scripts/notebook_index_scope.sh: a NUL-delimited
-  # `git diff --name-only -z <base>...<head>` against the PR base, so it needs
-  # no third-party action and reads every path verbatim. A failing diff fails
-  # the job; it never falls back to "nothing changed". The notebook-index-gate job at the end
-  # checks the combination of results and is the one check to require.
-  notebook-index-scope:
-    name: Notebook index (scope)
+  # Trigger rule (decision 1, 2026-10-10): the jobs below run on every PR and
+  # every push to main; nothing selects them by changed paths. The
+  # notebook-index-gate job at the end passes only when the matrix job and both
+  # index jobs succeeded, and is the one check to require.
+  notebook-index-matrix:
+    name: Notebook index (matrix)
     runs-on: ubuntu-latest
     outputs:
-      run: ${{ steps.scope.outputs.run }}
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
-      - name: Decide whether the notebook index jobs run
-        id: scope
-        env:
-          EVENT: ${{ github.event_name }}
-          BASE_REF: ${{ github.base_ref }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: bash .github/scripts/notebook_index_scope.sh >> "$GITHUB_OUTPUT"
 
       - name: Read the notebooks and extras to test
         id: matrix
@@ -200,13 +183,12 @@ jobs:
     # 6.(a): every row of lizyml/_extras.py raises OPTIONAL_DEP_MISSING, naming
     # the extra's package, in an environment without that extra.
     name: Extras registry (without ${{ matrix.removed }})
-    needs: notebook-index-scope
-    if: needs.notebook-index-scope.outputs.run == 'true'
+    needs: notebook-index-matrix
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        removed: ${{ fromJSON(needs.notebook-index-scope.outputs.matrix).removed }}
+        removed: ${{ fromJSON(needs.notebook-index-matrix.outputs.matrix).removed }}
     env:
       REMOVED: ${{ matrix.removed }}
 
@@ -230,13 +212,12 @@ jobs:
     # 6.(b): each notebook runs with only the extras it declares, and every
     # index-example statement is recorded as run on the declared Model.
     name: Notebook index (${{ matrix.notebook }})
-    needs: notebook-index-scope
-    if: needs.notebook-index-scope.outputs.run == 'true'
+    needs: notebook-index-matrix
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        notebook: ${{ fromJSON(needs.notebook-index-scope.outputs.matrix).notebook }}
+        notebook: ${{ fromJSON(needs.notebook-index-matrix.outputs.matrix).notebook }}
     env:
       NOTEBOOK: ${{ matrix.notebook }}
 
@@ -262,12 +243,11 @@ jobs:
 
   notebook-index-gate:
     # The single check to require for the notebook index (H-0119 6.). It always
-    # runs and passes only when the scope succeeded and either both index jobs
-    # succeeded (run=true) or both were skipped (run=false); a failed or
-    # cancelled scope, which would otherwise leave the index jobs "skipped",
-    # fails here. The decision is scripts/notebook_index_gate.py (unit-tested).
+    # runs and passes only when the matrix job and both index jobs succeeded; a
+    # failed, cancelled or skipped job fails it. The decision is
+    # scripts/notebook_index_gate.py (unit-tested).
     name: Notebook index (gate)
-    needs: [notebook-index-scope, extras-registry, notebook-index-execution]
+    needs: [notebook-index-matrix, extras-registry, notebook-index-execution]
     if: always()
     runs-on: ubuntu-latest
     steps:
@@ -275,8 +255,7 @@ jobs:
 
       - name: Decide from the index job results
         env:
-          SCOPE_RESULT: ${{ needs.notebook-index-scope.result }}
-          SCOPE_RUN: ${{ needs.notebook-index-scope.outputs.run }}
+          MATRIX_RESULT: ${{ needs.notebook-index-matrix.result }}
           REGISTRY_RESULT: ${{ needs.extras-registry.result }}
           EXECUTION_RESULT: ${{ needs.notebook-index-execution.result }}
         run: python3 scripts/notebook_index_gate.py

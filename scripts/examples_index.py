@@ -4,9 +4,10 @@ Each notebook declares, in ``metadata.lizyml.index``, the ``Model`` methods it
 demonstrates and the extras it needs. Its ``index-example`` cells hold the
 examples in a closed grammar (``R.m(...)`` or ``N = R.m(...)`` with plain
 values as arguments); anything outside the grammar fails. The extras are
-derived from those calls through ``lizyml/_extras.py``, and each section of
-``docs/examples.md`` carries one generated block that must equal the
-declaration.
+derived from those calls through ``lizyml/_extras.py``. The first lines of
+``docs/examples.md`` are a generated region, a table of every notebook with
+its methods and extras; ``--check`` compares them line for line and
+``--write`` regenerates them (H-0119 section 5).
 
 Usage::
 
@@ -24,12 +25,16 @@ from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import importlib.util
 import inspect
 import json
 import keyword
+import os
 import re
+import stat
 import sys
+import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -403,234 +408,78 @@ def check_notebook(
 
 
 # --- docs/examples.md (section 5) ----------------------------------------------
+#
+# The generated region is the first K = N + 8 lines of docs/examples.md, made
+# only from the sorted notebook names and their declarations. --check compares
+# those physical lines and reads nothing after them; nothing here parses or
+# promises how the file renders (H-0119 decision 1).
 
-#: CommonMark's whitespace for blank lines, indentation, heading markers and
-#: fence closers is a space or a tab only; Python's ``str.strip()`` and ``\s``
-#: also take U+00A0 and other characters that CommonMark reads as text.
-_SPACE_TAB = " \t"
-_HEADING = re.compile(r"^#{1,6}[ \t]")
-#: Notebook names in headings and markers: ASCII letters, digits, "_", "."
-#: and "-" only (H-0119 section 5).
-_NB_HEADING = re.compile(r"^### `([A-Za-z0-9_.-]+\.ipynb)`$")
-_BEGIN = re.compile(r"^<!-- index:begin ([A-Za-z0-9_.-]+\.ipynb) -->$")
-_END = "<!-- index:end -->"
-#: A fence opener. Only column 0 is in the line grammar; an indented one is
-#: refused by ``_grammar_error``.
-_FENCE_OPEN = re.compile(r"^(?:(`{3,})[^`]*|(~{3,}).*)$")
-_THEMATIC_BREAK = re.compile(r"^(?:-{3,}|\*{3,}|_{3,})$")
-#: Every column-0 line CommonMark reads as a thematic break: three or more of
-#: one of ``-``, ``*``, ``_``, with spaces or tabs anywhere between or after.
-_ANY_THEMATIC_BREAK = re.compile(
-    r"^(?:(?:-[ \t]*){3,}|(?:\*[ \t]*){3,}|(?:_[ \t]*){3,})$"
+_TITLE = "# Notebook Index"
+_COMMENT = (
+    "<!-- Generated from each notebook's metadata.lizyml.index by "
+    "scripts/examples_index.py. Do not edit this region by hand. "
+    "rows={rows} sha256={digest} -->"
 )
-_UNDERLINE_LIKE = re.compile(r"^(?:=+|-+)[ \t]*$")
-_LIST_ITEM = re.compile(r"^(?:[-+*]|[0-9]{1,9}[.)])(?:[ \t]|$)")
-#: A paragraph line may not start with these: each makes the line something
-#: other than plain paragraph text (indentation or indented code, a block
-#: quote, an HTML block, a setext underline, a table) or is reserved for a
-#: recognised line (``#`` headings).
-_NOT_PROSE = (" ", "\t", ">", "<", "=", "|", "#")
+_HEADER = re.compile(
+    r"<!-- Generated from each notebook's metadata\.lizyml\.index by "
+    r"scripts/examples_index\.py\. Do not edit this region by hand\. "
+    r"rows=([1-9][0-9]*) sha256=([0-9a-f]{64}) -->"
+)
+_TABLE_HEAD = "| Notebook | Demonstrates | Extras required |"
+_TABLE_RULE = "|---|---|---|"
+_END = "<!-- index:end -->"
+#: The fixed lines of the region, by 0-based index (lines 1, 2, 4, 5 and 6).
+_FIXED = {0: _TITLE, 1: "", 3: "", 4: _TABLE_HEAD, 5: _TABLE_RULE}
+_NAME = re.compile(r"[A-Za-z0-9_.-]+\.ipynb")
+#: The reasons --write gives for refusing an old region, in checking order.
+REASONS = ("header-format", "fixed-lines", "row-prefix", "boundary", "digest-mismatch")
 
 
-def _grammar_error(line: str, previous_blank: bool) -> str | None:
-    """Why ``line``, outside a code fence, is not in the index's line grammar.
+class RegionError(ContractError):
+    """--write refused the old generated region; ``reason`` is one of REASONS."""
 
-    docs/examples.md is restricted to lines whose Markdown reading is fixed:
-    a blank line (empty, or only spaces and tabs), a column-0 ATX heading
-    (one to six ``#`` then a space or a tab), an exact index marker, a column-0
-    code fence, a thematic break after a blank line or on the first line, and a
-    paragraph line that
-    does not start with a space, a tab, ``>``, ``<``, ``=``, ``|``, ``#``, a
-    list marker (``-``, ``+``, ``*``, or one to nine ASCII digits and ``.`` or
-    ``)``), or three backticks or tildes that do not open a fence, and that is
-    not a line of only ``-`` (with optional trailing spaces or tabs).
-    Whitespace here is CommonMark's, a space or a tab only. With
-    no indentation, block quote, list, HTML block or setext underline possible,
-    a heading can only be a column-0 ATX heading, which the section rules
-    read. Anything else fails instead of being parsed (H-0119 section 5).
-    Marker candidates are classified by ``_blocks``; otherwise a paragraph
-    line is admitted by its start alone, so ``index:begin`` and ``index:end``
-    are not reserved in prose. Returns ``None`` for an admitted line.
-    """
-    if not line.strip(_SPACE_TAB):
-        return None
-    if _HEADING.match(line) or _BEGIN.match(line) or line == _END:
-        return None
-    if _ANY_THEMATIC_BREAK.match(line):
-        if _THEMATIC_BREAK.match(line) and previous_blank:
-            return None
-        return (
-            "a thematic break must be '---', '***' or '___' with no spaces, "
-            "after a blank line or on the first line"
+    def __init__(self, reason: str, detail: str) -> None:
+        super().__init__(
+            f"docs/examples.md: {reason}: {detail}. Restore the generated region "
+            "from version control and run scripts/examples_index.py --write again."
         )
-    if _UNDERLINE_LIKE.match(line):
-        return "a line of only '=' or '-' (a setext heading underline)"
-    if line.startswith(("```", "~~~")):
-        return "a malformed code fence"
-    if _LIST_ITEM.match(line):
-        return "a list item"
-    if line.startswith(_NOT_PROSE):
-        return (
-            "a line starting with whitespace, '>', '<', '=', '|' or '#' "
-            "(other than a heading or an index marker)"
-        )
-    return None
+        self.reason = reason
 
 
-def _is_marker_candidate(line: str) -> bool:
-    """Whether ``line`` is shaped like an index marker.
-
-    A candidate starts with ``<!--`` once leading whitespace (Python's, so
-    U+00A0 and the like as well) is removed, and contains the ASCII text
-    ``index:begin`` or ``index:end``. Reserving the marker shape rather than
-    the bare text keeps near-miss markers failing while prose and code may
-    mention the text.
-    """
-    return line.lstrip().startswith("<!--") and (
-        "index:begin" in line or "index:end" in line
-    )
+def rows_digest(rows: Sequence[str]) -> str:
+    """D of line 3: SHA-256 of the rows joined by LF, as UTF-8, in lowercase hex."""
+    return hashlib.sha256("\n".join(rows).encode("utf-8")).hexdigest()
 
 
-def _closes(line: str, fence: str) -> bool:
-    """Whether ``line`` closes a fence opened with ``fence``.
-
-    The closer uses the same character, at least as many of it, and nothing
-    after it but spaces or tabs, so a shorter inner fence, one of the other
-    character, or any other trailing character leaves the outer fence open.
-    """
-    stripped = line.lstrip(" ")
-    if len(line) - len(stripped) > 3:
-        return False
-    run = len(stripped) - len(stripped.lstrip(fence[0]))
-    return run >= len(fence) and not stripped[run:].strip(_SPACE_TAB)
-
-
-def render_block(name: str, declaration: Declaration) -> list[str]:
+def _row(name: str, declaration: Declaration) -> str:
     methods = ", ".join(f"`{m}()`" for m in declaration.methods)
     extras = (
         f"`pip install 'lizyml[{','.join(declaration.extras)}]'`"
         if declaration.extras
         else "none (base install)"
     )
-    return [
-        f"<!-- index:begin {name} -->",
-        f"**Demonstrates:** {methods}",
-        "",
-        f"**Extras required:** {extras}",
-        _END,
-    ]
+    return f"| `{name}` | {methods} | {extras} |"
 
 
-def _blocks(
-    lines: Sequence[str], names: Sequence[str]
-) -> tuple[dict[str, tuple[int, int]], list[str]]:
-    """Locate each section's generated block; return it and the structure errors.
-
-    Outside a code fence, only an exact ``_BEGIN`` or ``_END`` line counts as a
-    marker and every other marker candidate (``_is_marker_candidate``) fails.
-    Inside a code fence, every candidate fails, so a generated block cannot be
-    hidden as code. Non-candidate prose and fenced content may contain the
-    marker text.
-    """
-    errors: list[str] = []
-    sections: list[str] = []
-    blocks: dict[str, tuple[int, int]] = {}
-    section: str | None = None
-    begin: int | None = None
-    fence: str | None = None
-    fence_line = 0
-    previous_blank = True
-    for i, line in enumerate(lines):
-        where = f"docs/examples.md:{i + 1}"
-        if fence is not None:
-            if _closes(line, fence):
-                fence = None
-                if line.startswith(" "):
-                    errors.append(f"{where}: a code fence must close at column 0")
-            if _is_marker_candidate(line):
-                # A marker in a fence renders as a code sample, not as the
-                # section's content, so it fails rather than counting.
-                errors.append(f"{where}: an index marker inside a code fence")
-            previous_blank = False
-            continue
-        opener = _FENCE_OPEN.match(line)
-        if opener is not None:
-            fence = opener.group(1) or opener.group(2)
-            fence_line = i
-            previous_blank = False
-            continue
-        problem = _grammar_error(line, previous_blank)
-        if problem is not None:
-            errors.append(f"{where}: not in the index line grammar: {problem}")
-        previous_blank = not line.strip(_SPACE_TAB)
-        if _HEADING.match(line):
-            if begin is not None:
-                errors.append(
-                    f"{where}: the block opened at line {begin + 1} is not closed"
-                )
-                begin = None
-            match = _NB_HEADING.match(line)
-            if match:
-                section = match.group(1)
-                sections.append(section)
-            elif ".ipynb" in line:
-                errors.append(f"{where}: a notebook heading must be ### `<name>.ipynb`")
-                section = None
-            elif len(line) - len(line.lstrip("#")) <= 3:
-                section = None
-        if _is_marker_candidate(line):
-            match = _BEGIN.match(line)
-            if match is None and line != _END:
-                errors.append(f"{where}: malformed index marker {line!r}")
-            elif match is not None:
-                if begin is not None:
-                    errors.append(f"{where}: a begin marker inside an open block")
-                elif section is None:
-                    errors.append(f"{where}: a marker outside a notebook section")
-                elif match.group(1) != section:
-                    errors.append(
-                        f"{where}: the marker names {match.group(1)} "
-                        f"in the {section} section"
-                    )
-                elif section in blocks:
-                    errors.append(
-                        f"{where}: {section} has more than one generated block"
-                    )
-                else:
-                    begin = i
-            elif begin is None:
-                errors.append(
-                    f"{where}: an end marker without a begin marker"
-                    if section
-                    else f"{where}: a marker outside a notebook section"
-                )
-            else:
-                assert section is not None
-                blocks[section] = (begin, i)
-                begin = None
-    if begin is not None:
-        errors.append(f"docs/examples.md:{begin + 1}: the block is not closed")
-    for name in sorted({s for s in sections if sections.count(s) > 1}):
-        errors.append(f"{name}: listed twice")
-    for name in sorted(set(names) - set(sections)):
-        errors.append(f"{name}: missing from docs/examples.md")
-    for name in sorted(set(sections) - set(names)):
-        errors.append(f"{name}: listed in docs/examples.md but not a notebook")
-    for name in sorted(set(sections) & set(names) - set(blocks)):
-        errors.append(f"{name}: the section has no generated block")
-    if fence is not None:
-        errors.append(
-            f"docs/examples.md:{fence_line + 1}: "
-            "the code fence opened here is not closed"
+def render_index(declarations: Mapping[str, Declaration]) -> list[str]:
+    """The K lines of the generated region, in code-point order of the names."""
+    if not declarations:
+        raise ContractError("no notebooks to index")
+    bad = sorted(name for name in declarations if not _NAME.fullmatch(name))
+    if bad:
+        raise ContractError(
+            f"notebook names may use only ASCII letters, digits, '_', '.', '-': {bad}"
         )
-    return blocks, errors
+    rows = [_row(name, declarations[name]) for name in sorted(declarations)]
+    comment = _COMMENT.format(rows=len(rows), digest=rows_digest(rows))
+    return [_TITLE, "", comment, "", _TABLE_HEAD, _TABLE_RULE, *rows, "", _END]
 
 
 _LINE_ENDING = re.compile(r"\r\n|\r|\n")
 
 
 def _split_with_endings(text: str) -> tuple[list[str], list[str]]:
-    """Split ``text`` at CommonMark's line endings (LF, CRLF, a bare CR).
+    """Split ``text`` at LF, CRLF and a bare CR.
 
     Returns the lines and the ending after each; the last line's is ``""``.
     """
@@ -646,39 +495,73 @@ def _split_with_endings(text: str) -> tuple[list[str], list[str]]:
     return lines, endings
 
 
-def _split_lines(text: str) -> list[str]:
-    return _split_with_endings(text)[0]
-
-
 def check_index(text: str, declarations: Mapping[str, Declaration]) -> list[str]:
-    lines = _split_lines(text)
-    blocks, errors = _blocks(lines, list(declarations))
-    if errors:
-        return errors
-    for name, (begin, end) in sorted(blocks.items()):
-        if lines[begin : end + 1] != render_block(name, declarations[name]):
-            errors.append(
-                f"{name}: the generated block differs; "
-                "run scripts/examples_index.py --write"
-            )
-    return errors
+    """Every error in the generated region of ``text`` (empty when it matches)."""
+    try:
+        expected = render_index(declarations)
+    except ContractError as exc:
+        return [str(exc)]
+    actual = _split_with_endings(text)[0][: len(expected)]
+    if actual == expected:
+        return []
+    # The first differing line; past the end of a short file, the first missing one.
+    index = next(
+        (i for i, line in enumerate(actual) if line != expected[i]), len(actual)
+    )
+    found = actual[index] if index < len(actual) else "<end of file>"
+    number, wanted = index + 1, expected[index]
+    return [
+        f"docs/examples.md:{number}: the generated region differs "
+        f"(expected {wanted!r}, found {found!r}); "
+        "run scripts/examples_index.py --write"
+    ]
+
+
+def _old_region_length(lines: Sequence[str]) -> int:
+    """The length N + 8 of the old region at the top of ``lines``.
+
+    The count N and digest D come from line 3; nothing is searched for. The
+    conditions are checked in the order of REASONS and the first unmet one is
+    raised. A file that ends before the counted rows or the closing lines
+    are complete is a ``boundary`` failure.
+    """
+    match = _HEADER.fullmatch(lines[2]) if len(lines) > 2 else None
+    if match is None:
+        raise RegionError("header-format", "line 3 is not the generated comment")
+    for index, fixed in _FIXED.items():
+        if index >= len(lines) or lines[index] != fixed:
+            raise RegionError("fixed-lines", f"line {index + 1} is not {fixed!r}")
+    count, digest = int(match.group(1)), match.group(2)
+    rows = lines[6 : 6 + count]
+    for offset, row in enumerate(rows):
+        if not row.startswith("| "):
+            raise RegionError("row-prefix", f"line {7 + offset} is not a table row")
+    end = 6 + count
+    if len(rows) < count or list(lines[end : end + 2]) != ["", _END]:
+        raise RegionError(
+            "boundary",
+            f"lines {end + 1} and {end + 2} are not a blank line and {_END!r}",
+        )
+    if rows_digest(rows) != digest:
+        raise RegionError(
+            "digest-mismatch", "the rows do not match the sha256 on line 3"
+        )
+    return end + 2
 
 
 def rewrite_index(text: str, declarations: Mapping[str, Declaration]) -> str:
-    """``text`` with each generated block replaced and everything else kept.
+    """``text`` with its old generated region replaced and everything after kept.
 
-    The new block's lines end with the ending of the old begin line, except
-    the last, which keeps the ending of the old end line.
+    The new region's lines all end with the old first line's ending.
     """
+    region = render_index(declarations)
     lines, endings = _split_with_endings(text)
-    blocks, errors = _blocks(lines, list(declarations))
-    if errors:
-        raise ContractError("\n".join(errors))
-    for name, (begin, end) in sorted(blocks.items(), key=lambda kv: -kv[1][0]):
-        block = render_block(name, declarations[name])
-        lines[begin : end + 1] = block
-        endings[begin : end + 1] = [endings[begin]] * (len(block) - 1) + [endings[end]]
-    return "".join(line + ending for line, ending in zip(lines, endings, strict=True))
+    old = _old_region_length(lines)
+    ending = endings[0]
+    rest = "".join(
+        line + end for line, end in zip(lines[old:], endings[old:], strict=True)
+    )
+    return "".join(line + ending for line in region) + rest
 
 
 # --- The repository --------------------------------------------------------------
@@ -715,8 +598,8 @@ def check(root: Path = ROOT) -> list[str]:
     declarations, errors = _declarations(root)
     if errors:
         return errors
-    text = (root / "docs" / "examples.md").read_text(encoding="utf-8")
-    return check_index(text, declarations)
+    with (root / "docs" / "examples.md").open(encoding="utf-8", newline="") as handle:
+        return check_index(handle.read(), declarations)
 
 
 def write(root: Path = ROOT) -> None:
@@ -727,11 +610,29 @@ def write(root: Path = ROOT) -> None:
     # newline="" both ways, so the file's line endings pass through unchanged.
     with path.open(encoding="utf-8", newline="") as handle:
         text = handle.read()
-    # Rewrite (and validate) before opening for writing, which truncates the
-    # file: a malformed index raises and leaves the file as it was.
-    rewritten = rewrite_index(text, declarations)
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        handle.write(rewritten)
+    # Every check runs before anything is written.
+    _replace(path, rewrite_index(text, declarations))
+
+
+def _replace(path: Path, text: str) -> None:
+    """Write ``text`` to a sibling temporary file, close it, then ``os.replace``.
+
+    A failure before the replace removes the temporary file and leaves
+    ``path`` unchanged. The file keeps its permission bits. No durability
+    against power loss is promised.
+    """
+    descriptor, name = tempfile.mkstemp(
+        dir=path.parent, prefix=f".{path.name}.", suffix=".tmp"
+    )
+    temporary = Path(name)
+    try:
+        with open(descriptor, "w", encoding="utf-8", newline="") as handle:
+            handle.write(text)
+        os.chmod(temporary, stat.S_IMODE(path.stat().st_mode))
+        os.replace(temporary, path)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 # --- CI helpers (standard library only) ----------------------------------------------
