@@ -409,6 +409,8 @@ def check_notebook(
 #: also take U+00A0 and other characters that CommonMark reads as text.
 _SPACE_TAB = " \t"
 _HEADING = re.compile(r"^#{1,6}[ \t]")
+#: Notebook names in headings and markers: ASCII letters, digits, "_", "."
+#: and "-" only (H-0119 section 5).
 _NB_HEADING = re.compile(r"^### `([A-Za-z0-9_.-]+\.ipynb)`$")
 _BEGIN = re.compile(r"^<!-- index:begin ([A-Za-z0-9_.-]+\.ipynb) -->$")
 _END = "<!-- index:end -->"
@@ -431,7 +433,8 @@ def _grammar_error(line: str, previous_blank: bool) -> str | None:
     docs/examples.md is restricted to lines whose Markdown reading is fixed:
     a blank line (empty, or only spaces and tabs), a column-0 ATX heading
     (one to six ``#`` then a space or a tab), an exact index marker, a column-0
-    code fence, a thematic break after a blank line, and a paragraph line that
+    code fence, a thematic break after a blank line or on the first line, and a
+    paragraph line that
     does not start with a space, a tab, ``>``, ``<``, ``=``, ``|``, ``#``, a
     list marker (``-``, ``+``, ``*``, or one to nine ASCII digits and ``.`` or
     ``)``), or three backticks or tildes that do not open a fence, and that is
@@ -718,8 +721,11 @@ def write(root: Path = ROOT) -> None:
     # newline="" both ways, so the file's line endings pass through unchanged.
     with path.open(encoding="utf-8", newline="") as handle:
         text = handle.read()
+    # Rewrite (and validate) before opening for writing, which truncates the
+    # file: a malformed index raises and leaves the file as it was.
+    rewritten = rewrite_index(text, declarations)
     with path.open("w", encoding="utf-8", newline="") as handle:
-        handle.write(rewrite_index(text, declarations))
+        handle.write(rewritten)
 
 
 # --- CI helpers (standard library only) ----------------------------------------------

@@ -783,6 +783,20 @@ def test_a_thematic_break_after_a_blank_line_is_not_a_heading() -> None:
     assert ix.check_index(DOC + "\nText.\n\n---\n\n***\n", DECLS) == []
 
 
+def test_a_thematic_break_on_the_first_line_is_not_a_heading() -> None:
+    # Nothing precedes it to underline, as after a blank line (H-0119 section 5).
+    assert ix.check_index("---\n" + DOC, DECLS) == []
+
+
+@pytest.mark.parametrize("name", ["café.ipynb", "a b.ipynb", "a+b.ipynb"])
+def test_a_notebook_name_outside_the_name_characters_fails(name: str) -> None:
+    # Names are ASCII letters, digits, "_", "." and "-" only (H-0119 section 5).
+    heading = DOC + f"\n### `{name}`\n"
+    assert "### `<name>.ipynb`" in _errors(heading)
+    marker = DOC.replace("<!-- index:begin b.ipynb -->", f"<!-- index:begin {name} -->")
+    assert "malformed index marker" in _errors(marker)
+
+
 def test_a_hash_inside_a_fence_is_not_a_heading() -> None:
     assert ix.check_index(DOC + "\n```bash\n  # comment\n> # x\n```\n", DECLS) == []
 
@@ -865,6 +879,25 @@ def test_write_keeps_the_file_line_endings(tmp_path: pathlib.Path) -> None:
     assert ix.check(tmp_path), "the stale block was not detected"
     ix.write(tmp_path)
     assert target.read_bytes() == good
+
+
+def test_write_leaves_a_malformed_file_unchanged(tmp_path: pathlib.Path) -> None:
+    # The rewrite is validated before the file is opened for writing
+    # (review run 3, round 3).
+    (tmp_path / "notebooks").mkdir()
+    (tmp_path / "docs").mkdir()
+    for path in ix.notebook_paths(ROOT):
+        (tmp_path / "notebooks" / path.name).write_bytes(path.read_bytes())
+    broken = (
+        (ROOT / "docs" / "examples.md")
+        .read_bytes()
+        .replace(b"<!-- index:end -->\n", b"", 1)
+    )
+    target = tmp_path / "docs" / "examples.md"
+    target.write_bytes(broken)
+    with pytest.raises(ix.ContractError, match="not closed"):
+        ix.write(tmp_path)
+    assert target.read_bytes() == broken
 
 
 def test_no_notebook_name_selects_another_with_pytest_k() -> None:
