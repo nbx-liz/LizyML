@@ -11760,6 +11760,7 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
      - numpy のスカラー（`np.generic`）のうち、`.item()` がこれらのどれかになり、元の値と等しいもの（`np.int64`、`np.float64`、`np.bool_`、`np.str_` など）。書く前に `.item()` で直す。
      - 欠損値（`None`、`NaN`）はカテゴリにならない（`CategoricalEncoder` と同じ）ので、この判定の対象外である。
    - **拒否**: 受け付ける型の外のカテゴリを持つ fit では、`export_code` が `LizyMLError` で拒否し、何も書かない。たとえば `tuple`（JSON の配列にはなるが、受け付けない）、`bytes`、`pd.Timestamp`、`decimal.Decimal` である。黙って `str` にすることはしない。
+   - **目的変数のラベル**（分類で、ラベルが数値でない場合）: `TargetEncoder.fit` はラベルを `sorted(unique, key=str)` で並べた `classes` として持ち（`core/types/target_encoder.py`）、export はそれを `config.json` の `target_encoder.classes` に書く。この値にも、上の受け付ける値の型と拒否を同じように当てる。受け付ける型の外のラベル（例: `pd.Timestamp`、`tuple`）を持つ fit では、`export_code` が `LizyMLError` で拒否し、何も書かない。拒否しないと、JSON にできずに export が失敗するか、`tuple` が JSON の配列になって学習し直す側で区別できなくなる。
    - #309（`CategoricalEncoder` 自身が float16 / longdouble で出す生の例外）は、LizyML 側のエラーの契約の問題なので、本 Proposal の範囲外とする。
    - 生成 `predict.py` の `transform` も、同じ符号を使う。
 6. **実行の決定性と版**: 約束の前提（同じ計算機、4 つのライブラリの同じ版、決定性の設定）を BLUEPRINT §15.4 に書く。export 時の LightGBM、numpy、pandas、scikit-learn の版を `config.json` の `_versions` に記録する。生成 `train.py` は、実行時の版が記録と違えば、どの版が違うかを警告し、学習は続ける。テストは `model.params` に `deterministic: true`、`force_col_wise: true`、`num_threads: 1` を指定して実行する。
@@ -11791,8 +11792,9 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 - **`export_code` が新しく拒否する場合がある。** 方針 5 の受け付ける型の外のカテゴリを持つ fit である。これまでは `str` にして黙ってずれていた。
 - **生成 `train.py` で再学習した結果が変わる。** LizyML と一致するようになる。
 - **Firing rate**: export の拒否（方針 5）は `allow` の条件にあたる。その他の分岐（分割の種類、並べ替えの有無、重みの有無、検証集合と callback の有無）は、LizyML の fit が既に下した判断を生成コードに写すだけで、新しい条件ではない。拒否の発火率は次のとおりである。
-  - **Firing rate: 0/4559 of `CategoricalEncoder.fit` の呼び出し（うちカテゴリを 1 つ以上持つもの 390）、テストスイート全体（`fabac47`、9526 passed）**。測り方: `CategoricalEncoder.fit` を包む pytest プラグインで、fit ごとに、受け付ける型の外のカテゴリがある列を数えた（2026-10-10）。
-  - 発火は 0 件である。この拒否は最適化ではなく、黙ってずれる export を止めるための安全側の拒否なので、発火しないことは欠陥ではない。テストスイートの母集団は、受け付けない型をほとんど含まないと考えられる。そのため、拒否の各分岐は受け入れ基準 2 で直接テストする。
+  - **Firing rate: 0/4559 of `CategoricalEncoder.fit` の呼び出し（うちカテゴリを 1 つ以上持つもの 390）、テストスイート全体（`fabac47`、9526 passed）**。測り方: `CategoricalEncoder.fit` を包む pytest プラグインで、fit ごとに、受け付ける型の外のカテゴリがある列を数えた（2026-10-10）。プラグインは `docs/audits/2026-09-defect-discovery/instruments/h0120_category_census.py` にある。
+  - **目的変数のラベルの拒否の発火率**: 同じプラグインが `TargetEncoder.fit` も包んで数える。測定は実行中で、結果は次のコミットでこの行に書く（2026-10-10）。
+  - 特徴量のカテゴリの発火は 0 件である。この拒否は最適化ではなく、黙ってずれる export を止めるための安全側の拒否なので、発火しないことは欠陥ではない。テストスイートの母集団は、受け付けない型をほとんど含まないと考えられる。そのため、拒否の各分岐は受け入れ基準 2 で直接テストする。
 
 ### 代替案（検討して棄却）
 
@@ -11819,13 +11821,19 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
    - **型の混じった列**: `"1"` と `1` が混じった object 列を持つ fit で、export 直後の `predict.py`（再学習の前）の予測が `Model.predict` と一致する。この列は保存できないので、再学習の行列には入れない（約束の外）。
    - **CSV**: 文字列のカテゴリ列、宣言されたカテゴリを持つ列、数値の時間の列を持つ fit を、CSV で保存して `train.py` に渡す（`declared_categories` を当てた後に約束の CSV の条件を満たすケース）。
    - **生成プロジェクトの依存**: 生成される `requirements.txt` が `pyarrow` を含む。
-2. **拒否**: 受け付ける型の判定の各分岐をテストする。
+2. **拒否**: 受け付ける型の判定の各分岐を、特徴量のカテゴリ（方針 5）と目的変数のラベル（方針 5 の目的変数の項）の両方についてテストする。
    - 受け付ける: `str`、`int`、`float`、`bool`、`np.int64`、`np.float64`、`np.bool_`、`np.str_`。
    - 拒否する（numpy 以外）: `tuple`、`bytes`、`pd.Timestamp`、`decimal.Decimal`。
    - 拒否する（numpy のスカラーで、`.item()` が受け付ける型にならないもの）: `np.bytes_`、`np.datetime64`、`np.complex128`。
    - 拒否されたどの場合も、`export_code` が `LizyMLError` を送出し、出力先に何も書かない。
-3. **版の警告**: `config.json` の `_versions` を実行環境と違う値にしたとき、生成 `train.py` が違う版を挙げて警告し、学習は最後まで行う。
-4. **負の対照**: 方針 1、2、3、5 の修正と、`declared_categories` の復元を 1 つずつ元に戻すと、行列のどれかのケースが失敗する。方針 4 は確認だけで修正を伴わないので、負の対照の対象にしない。
-5. **既存の照合**: `test_equivalence.py`（export した booster を `predict.py` が読んだ予測の一致）と H-0090 の fold の再現は、引き続き通る。
-6. **文書**: BLUEPRINT §6.6 / §15.4 に、約束、前提（計算機、4 つの版、決定性の設定）、CSV の条件、約束しないものを書く。
-7. **review**: Codex の review run を APPROVE まで通す。review が確かめるのは、上の約束、規則が縛る位置、受け入れ基準 1〜6 の各項目にテストがあり、そのテストが通り、違反すれば失敗するかである。約束の範囲の外にある形を探すことは求めない。
+3. **版の記録と警告**:
+   - `config.json` の `_versions` のキーが、ちょうど `lightgbm`、`numpy`、`pandas`、`scikit-learn` の 4 つで、それぞれの値が export を実行した環境の版と等しい。
+   - 4 つのライブラリのそれぞれについて（パラメータ化して 4 ケース）、その 1 つだけを実行環境と違う値にしたとき、生成 `train.py` がそのライブラリの名前を挙げて警告し、学習は最後まで行う。
+4. **生成される設定の形**: 次をそれぞれ直接テストする。
+   - `config.json` から `inner_valid` のキーを消すと、生成 `train.py` が学習の前に失敗する。`early_stopping_rounds` のキーを消した場合も同じである（既定値で読んでいないことの確認）。
+   - `config.json` の `declared_categories` が、列名から型付きの値の配列への対応であり、値が fit 時のカテゴリと型も含めて等しい。
+   - `pipeline_state.json` のカテゴリ列ごとの値が、ちょうど `categories`（型付きの値の配列）と `mode` の 2 つのキーを持ち、`CategoricalEncoder` のカテゴリと最頻値に型も含めて等しい。
+5. **負の対照**: 方針 1、2、3、5 の修正と、`declared_categories` の復元を 1 つずつ元に戻すと、行列のどれかのケースが失敗する。方針 4 は確認だけで修正を伴わないので、負の対照の対象にしない。
+6. **既存の照合**: `test_equivalence.py`（export した booster を `predict.py` が読んだ予測の一致）と H-0090 の fold の再現は、引き続き通る。
+7. **文書**: BLUEPRINT §6.6 / §15.4 に、約束、前提（計算機、4 つの版、決定性の設定）、CSV の条件、約束しないものを書く。
+8. **review**: Codex の review run を APPROVE まで通す。review が確かめるのは、上の約束、規則が縛る位置、受け入れ基準 1〜7 の各項目にテストがあり、そのテストが通り、違反すれば失敗するかである。約束の範囲の外にある形を探すことは求めない。
