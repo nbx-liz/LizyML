@@ -11687,7 +11687,7 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 
 - **ステータス**: Accepted
 - **起票日**: 2026-10-10
-- **決定日**: 2026-10-10（管理者の判断: H-0059 の約束に戻し、#304 を含める。Codex の Proposal review は 2 回の run で行い、2 回目の run の round 3 で APPROVE）
+- **決定日**: 2026-10-10（管理者の判断: H-0059 の約束に戻し、#304 を含める。Codex の Proposal review は 2 回の run で行い、2 回目の run の round 3 で APPROVE）。改訂: 2026-10-10（重みの規則の記録、管理者の判断。下の「改訂 1」）
 - **スコープ**: `lizyml/codegen/`（`config_writer.py`、`templates.py`、`artifact_writer.py`、`generator.py`）、`lizyml/core/_model_persistence.py`（export に渡す値）、`BLUEPRINT.md` §6.6 / §15.4、`tests/test_codegen/`（再現の行列テストを新設）、`CHANGELOG.md`、`docs/proposal_dispositions.toml`
 - **関連**: [Issue #301](https://github.com/nbx-liz/LizyML/issues/301)、[Issue #304](https://github.com/nbx-liz/LizyML/issues/304)、H-0059（codegen）、H-0073、H-0090（OOF の fold の再現）、H-0103（inner valid）、H-0105（feval）、#269 の決定（refit の重み。HISTORY の #269 の項が、生成 `train.py` が何を再現するかの決定を #301 に先送りしている）
 
@@ -11727,6 +11727,7 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 - 校正器。H-0059 の約束は「校正器が作り直される」までで、値の一致は約束していない。生成 `train.py` の校正用 OOF は fold の分割だけを再現し（H-0090）、fold のモデルは再現しない。そのため、binary の校正後の確率は一致しない。
 - 異なるデータで学習し直した場合。このときは同じ規則で学習するが、比較の対象となる LizyML のモデルは無い。
 - 本 Proposal より前の版が生成したプロジェクト。生成されたコードはそのプロジェクトの中で完結しているので、古いプロジェクトは古い動作のままである。
+- `Model.load()` で読み込んだモデルからの export のうち、`applied_sample_weight` の記録が無い（本 Proposal より前の）artifact のもの（改訂 1）。このとき重みの規則は、config と現在の tune の結果から決める。fit の後に実行した tune が `balanced` を変えた場合は、fit が使った規則と違いうる。
 
 ### 対応方針（提案）
 
@@ -11746,7 +11747,7 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
      書く中身は、こうして作った strategy の種類と、その `ratio`、`random_state`、`stratify`、`gap`、および列名である。例: 明示した `time_holdout` は、outer split が `purge_gap` を持っていても、同じ関数が `gap=0` で作るので、書く値は `0` になる。
    - 生成 `train.py` は、`lizyml/training/inner_valid.py` の 4 つの strategy を移した関数で、同じ分割を作る（H-0090 が outer split で行ったのと同じ方法）。対象は `HoldoutInnerValid`（層化あり／なし）、`GroupHoldoutInnerValid`、`TimeHoldoutInnerValid`（`gap` を含む）、`BlockedGroupInnerValid` の 4 つである。LizyML と同じ numpy と scikit-learn の呼び出しを使い、検証行の数の丸め方（切り上げ／切り捨て）と学習行の並び順も合わせる。
 2. **学習前の行の並び順を再現する。** LizyML は、時間順の outer split（`time_series`、`purged_time_series`、`group_time_series`）と `blocked_group_kfold` で、学習の前に行を並べ替える（`data/dataframe_builder.py`）。生成 `train.py` も、学習の前に LizyML と同じ呼び出し（同じ列の `Series.argsort()`、既定の `kind="quicksort"`）で並べ替える。これは安定ソートではないので、同じ値の時刻やブロックの間の順序は、ソートの実装（numpy の版）で決まる。同じ版で同じ入力なら同じ順序になる（前提を参照）。
-3. **multiclass の `balanced` の重みを再現する。** export 時に、refit が重みを使ったかどうかと、その規則（`balanced`）を `config.json` に書く。生成 `train.py` は LizyML と同じ式（`compute_sample_weight("balanced", y)` と同じ値）で行ごとの重みを計算し、inner valid の学習行にだけ付ける。検証行には付けない。binary は、これまでどおり `scale_pos_weight` で届く。
+3. **multiclass の `balanced` の重みを再現する。** export 時に、refit が重みを使ったかどうかと、その規則（`balanced`）を `config.json` に書く。値の出どころは、fit が記録した規則である（改訂 1）。生成 `train.py` は LizyML と同じ式（`compute_sample_weight("balanced", y)` と同じ値）で行ごとの重みを計算し、inner valid の学習行にだけ付ける。検証行には付けない。binary は、これまでどおり `scale_pos_weight` で届く。
 4. **評価関数（feval）の一致を確かめる。** 生成 `train.py` の評価関数が、LizyML の評価関数と同じ値を返し、同じ round で早期停止させることを、受け入れ基準 1 の行列で確かめる。現時点で既知のずれは無い。multiclass で使える評価関数（`f1`、`brier`、`accuracy`）はどれも `needs_simplex` を使わない（H-0105 に記録済み。`metrics/classification.py`）。行列でずれが見つかった場合に限って直す。
 5. **カテゴリの符号を再現する（#304）。**
    - **生成 `train.py` の `fit_pipeline` は、`CategoricalEncoder.fit` と同じ呼び出しでカテゴリと最頻値を決める**（`features/encoders/categorical_encoder.py`）。
@@ -11777,7 +11778,7 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 |---|---|---|---|---|
 | 1 | inner valid の分割 | `training/inner_valid.py`、`core/_model_factories.py` の自動解決と明示指定、inner gap | `templates.py` `train_lgbm`（全 method で乱数の holdout） | **修正**（方針 1） |
 | 2 | 学習前の行の並び順 | `data/dataframe_builder.py`（時間順と blocked） | `templates.py` `train()`（入力の順のまま） | **修正**（方針 2） |
-| 3 | 行ごとの重み | `training/refit_trainer.py`、`estimators/lgbm/smart_params.py` | 無い | **修正**（方針 3） |
+| 3 | 行ごとの重み | `training/refit_trainer.py`、`estimators/lgbm/smart_params.py`、`core/model.py`（fit が規則を記録する。改訂 1） | 無い | **修正**（方針 3、改訂 1） |
 | 4 | 検証集合があるか、callback があるか | `_model_factories.py` の inner valid の構築と `effective_early_stopping_rounds`、`estimators/lgbm/adapter.py` の callback の構築 | `config.json` の `validation_ratio` と `early_stopping_rounds`（`ratio > 0 and rounds` で両方を一緒に決める） | **修正**（方針 1 の最初の項） |
 | 5 | 評価関数 | `estimators/lgbm/metric_bridge.py` | `templates.py` の評価関数 | **確認**（方針 4。既知のずれは無い） |
 | 6 | カテゴリの符号 | `features/encoders/categorical_encoder.py` | `templates.py` `fit_pipeline` / `transform`、`artifact_writer.py` | **修正**（方針 5） |
@@ -11785,7 +11786,7 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 
 ### 互換性
 
-- **公開 API、Config、`FitResult`、`PredictionResult`、LizyML の artifact（`format_version`）は変わらない。**
+- **公開 API、Config、`FitResult`、`PredictionResult` は変わらない。LizyML の artifact は `format_version` を変えず、`metadata.json` に任意のキー `applied_sample_weight` が 1 つ増える（改訂 1）。** このキーの無い artifact は、これまでどおり読める（H-0109 の `applied_training_params` と同じ扱い）。
 - **`export_code` の出力は変わる。**
   - `config.json` に、`inner_valid`（または `null`）、`early_stopping_rounds`（または `null`）、重みの設定、`declared_categories`、`_versions` が増える。
   - `pipeline_state.json` のカテゴリは、列ごとの `{"categories": [...], "mode": ...}` として型付きで書かれる。
@@ -11818,6 +11819,9 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
    - **fit と tune の順序、load**: export の値を、保存された入力から作り直す経路（方針 1）を、通しで確かめる。どちらも明示した既定以外の `inner_valid` を持ち、tune の結果が `validation_ratio` と patience を変える設定で行う。
      - `fit` → `tune` → `export_code`。fit の後の tune は adapter を置き換えないので、export は fit が使った値を書かなければならない（H-0094 決定 13）。
      - `tune` → `fit` → `export` → `Model.load` → `export_code`。load した artifact の `applied_training_params` と adapter から、fit と同じ値を書かなければならない（H-0109）。
+   - **重みの規則と fit・tune の順序**（改訂 1）: multiclass で、`balanced` を tune の探索空間（`category: smart`）に入れた設定で行う。
+     - `fit`（`balanced` は既定で、重みあり）→ `balanced` に `false` だけを選ばせる `tune` → `export_code`。export は fit の記録から重みありを書かなければならない。
+     - 同じ `fit` → `tune` → `export` → `Model.load` → `export_code`。load した artifact の `applied_sample_weight` から、重みありを書かなければならない。
    - **評価関数**: 生成コードが再実装する 9 つ（`rmsle`、`r2`、`f1`、`brier`、`ece`、`precision_at_k`、`accuracy`、`smape`、`wape`）と 3 つのタスクの組み合わせのすべて。LizyML がそのタスクでその評価関数を受け付けない場合は、拒否されることを確かめる。
    - **カテゴリ**（parquet で行う）: 文字列、整数、宣言だけされたカテゴリ（`category` dtype）、宣言されたカテゴリを持ち値がすべて欠損の列（最頻値がカテゴリの先頭になる）、欠損値を含む列。
    - **型の混じった列**: `"1"` と `1` が混じった object 列を持つ fit で、export 直後の `predict.py`（再学習の前）の予測が `Model.predict` と一致する。この列は保存できないので、再学習の行列には入れない（約束の外）。
@@ -11835,7 +11839,21 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
    - `config.json` から `inner_valid` のキーを消すと、生成 `train.py` が学習の前に失敗する。`early_stopping_rounds` のキーを消した場合も同じである（既定値で読んでいないことの確認）。
    - `config.json` の `declared_categories` が、列名から型付きの値の配列への対応であり、JSON から読み戻した値が、fit 時のカテゴリを方針 5 で直した値（numpy のスカラーは `.item()` の値、Python の値はそのまま）と、値も型も等しい。
    - `pipeline_state.json` のカテゴリ列ごとの値が、ちょうど `categories`（型付きの値の配列）と `mode` の 2 つのキーを持ち、JSON から読み戻した値が、`CategoricalEncoder` のカテゴリと最頻値を方針 5 で直した値と、値も型も等しい。
-5. **負の対照**: 方針 1、2、3、5 の修正と、`declared_categories` の復元を 1 つずつ元に戻すと、行列のどれかのケースが失敗する。方針 4 は確認だけで修正を伴わないので、負の対照の対象にしない。
+5. **負の対照**: 方針 1、2、3、5 の修正と、`declared_categories` の復元を 1 つずつ元に戻すと、行列のどれかのケースが失敗する。重みの規則を fit の記録ではなく config と現在の tune の結果から読むように戻すと、改訂 1 の 2 つのケースが失敗する。方針 4 は確認だけで修正を伴わないので、負の対照の対象にしない。
 6. **既存の照合**: `test_equivalence.py`（export した booster を `predict.py` が読んだ予測の一致）と H-0090 の fold の再現は、引き続き通る。
 7. **文書**: BLUEPRINT §6.6 / §15.4 に、約束、前提（計算機、4 つの版、決定性の設定）、CSV の条件、約束しないものを書く。
 8. **review**: Codex の review run を APPROVE まで通す。review が確かめるのは、上の約束、規則が縛る位置、受け入れ基準 1〜7 の各項目にテストがあり、そのテストが通り、違反すれば失敗するかである。約束の範囲の外にある形を探すことは求めない。
+
+### 改訂 1: fit が使った重みの規則を記録する（2026-10-10、管理者の判断）
+
+**経緯**: 実装の前に、方針 3 の値の出どころに穴が見つかった（実測）。multiclass の `balanced` の重みは、LightGBM の params ではなく行ごとの重みの配列として `lgb.Dataset(weight=...)` に渡り（`estimators/lgbm/smart_params.py`、`training/refit_trainer.py`）、fit 済みの adapter に痕跡を残さない。export が重みの有無を決める材料は config と現在の tune の結果だけだが、`balanced` は tune の探索空間（`category: smart`）に入れられ、`tune()` は fit 済みのモデルを残したまま tune の結果を置き換える。実測（`fabac47` の `lizyml/`）: multiclass で `fit`（`balanced` は既定で、重みあり）→ `balanced` に `false` だけを選ばせる `tune` の後、tune の結果は `balanced: False` で、fit が使った規則と違う。H-0094 決定 13 が `validation_ratio` で見つけたのと同じ型であり、H-0109 は `early_stopping_rounds` と `validation_ratio` だけを記録している。
+
+**規則**:
+- **記録**: `Model.fit` は、refit が使った重みの規則を記録する。値は `"balanced"`（行ごとの重みを使った）か `"none"`（使っていない）の 2 つである。記録は、`applied_training_params` と同じく、fit が成功したときにだけ、他の fit の状態と一緒に更新する。
+- **保存と読み込み**: `Model.export` は、この記録を `metadata.json` の任意のキー `applied_sample_weight` に書く。`Model.load` はそれを戻す。値が上の 2 つ以外なら、`LizyMLError`（`DESERIALIZATION_FAILED`）で拒否する。キーが無い artifact（本改訂より前のもの）は、記録が「分からない」として読み込む。`format_version` は変えない。
+- **export**: `export_code` は、記録があれば記録から、`config.json` の重みの設定を書く。記録が「分からない」ときに限って、config と現在の tune の結果から、fit と同じ規則（`balanced` が `None` なら分類で有効、multiclass だけが行ごとの重みを使う）で決める。この場合は「約束しないもの」に入る。
+- binary の `balanced` は `scale_pos_weight` として params に入り、adapter から書かれるので、本改訂の対象ではない。
+
+**受け入れ基準への追加**: 受け入れ基準 1 の「重みの規則と fit・tune の順序」の 2 ケースと、受け入れ基準 5 の負の対照。加えて、`metadata.json` の `applied_sample_weight` が `"balanced"` / `"none"` 以外の値（例: `true`、`"Balanced"`、数）のときに `Model.load` が拒否すること、キーが無い artifact を読めることを、受け入れ基準 2 の拒否のテストと同じファイルで直接テストする。
+
+**Firing rate**: 本改訂は新しい条件を加えない。記録の有無による分岐（キーが無いときの取り方）は、H-0109 と同じく古い artifact のための読み方で、`skip` / `select` / `allow` などの条件にはあたらない。
