@@ -11792,8 +11792,9 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 - **`export_code` が新しく拒否する場合がある。** 方針 5 の受け付ける型の外のカテゴリを持つ fit である。これまでは `str` にして黙ってずれていた。
 - **生成 `train.py` で再学習した結果が変わる。** LizyML と一致するようになる。
 - **Firing rate**: export の拒否（方針 5）は `allow` の条件にあたる。その他の分岐（分割の種類、並べ替えの有無、重みの有無、検証集合と callback の有無）は、LizyML の fit が既に下した判断を生成コードに写すだけで、新しい条件ではない。拒否の発火率は次のとおりである。
-  - **Firing rate: 0/4559 of `CategoricalEncoder.fit` の呼び出し（うちカテゴリを 1 つ以上持つもの 390）、テストスイート全体（`fabac47`、9526 passed）**。測り方: `CategoricalEncoder.fit` を包む pytest プラグインで、fit ごとに、受け付ける型の外のカテゴリがある列を数えた（2026-10-10）。プラグインは `docs/audits/2026-09-defect-discovery/instruments/h0120_category_census.py` にある。
-  - **Firing rate: 0/1453 of `TargetEncoder.fit` の呼び出し（うち数値でないラベルを `classes` に持つもの 40）、テストスイート全体（`e676388`、`lizyml/` は `fabac47` と同じ、9526 passed）**。測り方: 同じプラグインが `TargetEncoder.fit` も包み、fit ごとに、受け付ける型の外のラベルが `classes` にあるかを数えた（2026-10-10）。
+  - **Firing rate: 0/4559 of 正常に戻った `CategoricalEncoder.fit` の呼び出し（うちカテゴリを 1 つ以上持つもの 390）、テストスイート全体（`fabac47`、9526 passed）**。測り方: `CategoricalEncoder.fit` を包む pytest プラグインで、fit ごとに、受け付ける型の外のカテゴリがある列を数えた（2026-10-10）。プラグインは `docs/audits/2026-09-defect-discovery/instruments/h0120_category_census.py` にある。
+  - **Firing rate: 0/1453 of 正常に戻った `TargetEncoder.fit` の呼び出し（うち数値でないラベルを `classes` に持つもの 40）、テストスイート全体（`e676388`、`lizyml/` は `fabac47` と同じ、9526 passed）**。測り方: 同じプラグインが `TargetEncoder.fit` も包み、fit ごとに、受け付ける型の外のラベルが `classes` にあるかを数えた（2026-10-10）。
+  - 2 つの母集団はどちらも、例外で終わった fit を数えない（プラグインは元の `fit` が戻った後に数える）。テストには、数値でない回帰の目的変数のように、わざと例外を起こす fit がある。export は fit が成功したモデルにしか行えないので、拒否が判定する母集団は正常に戻った fit である。
   - 特徴量のカテゴリも目的変数のラベルも、発火は 0 件である。この拒否は最適化ではなく、黙ってずれる export を止めるための安全側の拒否なので、発火しないことは欠陥ではない。テストスイートの母集団は、受け付けない型をほとんど含まないと考えられる。そのため、拒否の各分岐は受け入れ基準 2 で直接テストする。
 
 ### 代替案（検討して棄却）
@@ -11831,8 +11832,8 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
    - 4 つのライブラリのそれぞれについて（パラメータ化して 4 ケース）、その 1 つだけを実行環境と違う値にしたとき、生成 `train.py` がそのライブラリの名前を挙げて警告し、学習は最後まで行う。
 4. **生成される設定の形**: 次をそれぞれ直接テストする。
    - `config.json` から `inner_valid` のキーを消すと、生成 `train.py` が学習の前に失敗する。`early_stopping_rounds` のキーを消した場合も同じである（既定値で読んでいないことの確認）。
-   - `config.json` の `declared_categories` が、列名から型付きの値の配列への対応であり、値が fit 時のカテゴリと型も含めて等しい。
-   - `pipeline_state.json` のカテゴリ列ごとの値が、ちょうど `categories`（型付きの値の配列）と `mode` の 2 つのキーを持ち、`CategoricalEncoder` のカテゴリと最頻値に型も含めて等しい。
+   - `config.json` の `declared_categories` が、列名から型付きの値の配列への対応であり、JSON から読み戻した値が、fit 時のカテゴリを方針 5 で直した値（numpy のスカラーは `.item()` の値、Python の値はそのまま）と、値も型も等しい。
+   - `pipeline_state.json` のカテゴリ列ごとの値が、ちょうど `categories`（型付きの値の配列）と `mode` の 2 つのキーを持ち、JSON から読み戻した値が、`CategoricalEncoder` のカテゴリと最頻値を方針 5 で直した値と、値も型も等しい。
 5. **負の対照**: 方針 1、2、3、5 の修正と、`declared_categories` の復元を 1 つずつ元に戻すと、行列のどれかのケースが失敗する。方針 4 は確認だけで修正を伴わないので、負の対照の対象にしない。
 6. **既存の照合**: `test_equivalence.py`（export した booster を `predict.py` が読んだ予測の一致）と H-0090 の fold の再現は、引き続き通る。
 7. **文書**: BLUEPRINT §6.6 / §15.4 に、約束、前提（計算機、4 つの版、決定性の設定）、CSV の条件、約束しないものを書く。
