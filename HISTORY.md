@@ -11753,7 +11753,7 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 5. **カテゴリの符号を再現する（#304）。**
    - **生成 `train.py` の `fit_pipeline` は、`CategoricalEncoder.fit` と同じ呼び出しでカテゴリと最頻値を決める**（`features/encoders/categorical_encoder.py`）。
      - `category` dtype の列では、`series.cat.categories`（宣言された順）を使う。
-     - それ以外の列では、`sorted(series.dropna().unique().tolist(), key=str)` を使う。ただし `Model.fit` の経路では、この分岐に届かない（改訂 3）。
+     - それ以外の列では、`sorted(series.dropna().unique().tolist(), key=str)` を使う。`Model.fit` の経路でこの分岐に届くのは、`features.auto_categorical: false` で、文字列の列を `features.categorical` に挙げない場合だけである（改訂 3）。
      - 最頻値も同じ規則で決める。カテゴリが 1 つ以上あれば、`series.mode()` が空でなければその先頭、空なら（宣言されたカテゴリはあるが、値がすべて欠損の列など）カテゴリの先頭とする。カテゴリが 1 つも無ければ `None` とする。
      - 値は `str` にせず、値のまま区別する。符号は、カテゴリの並びの中の位置である。
    - **宣言されたカテゴリを `config.json` に書く。** fit 時に `category` dtype だった列について、そのカテゴリの並びを `config.json` の `declared_categories`（列名 → 値の配列）に書く。生成 `train.py` は、読んだデータのその列を、このカテゴリで `category` dtype に直してから `fit_pipeline` に渡す。CSV で dtype が失われても、宣言されたカテゴリは失われない。
@@ -11900,15 +11900,15 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 
 ### 改訂 3: 方針 5 の事実の訂正 — カテゴリ列は encoder の前に `category` dtype になる（2026-10-10）
 
-**経緯**: 実装中に、既存のテスト（`tests/test_codegen/test_unseen_policy_codegen.py` の「the data builder casts to category」）とソースから分かった。`Model.fit` では、データの組み立て（`data/dataframe_builder.py` の `_apply_categorical`）が、カテゴリとして扱う列（`features.categorical` で指定した列と、`auto_categorical` が文字列・object の列から選んだ列）をすべて `astype("category")` で `category` dtype にしてから、`CategoricalEncoder.fit` に渡す。そのため `CategoricalEncoder.fit` は `Model.fit` の経路では常に `series.cat.categories` の分岐を通り、`sorted(..., key=str)` の分岐には届かない。カテゴリの並びは、宣言された順か、`astype("category")` が推定した順（整数なら数の順、たとえば `[1, 2, 3, 10]`）である。方針 5 の「それ以外の列では `sorted(..., key=str)`」は、`CategoricalEncoder.fit` の分岐の説明としては正しいが、`Model.fit` の経路の説明としては誤りだった。
+**経緯**: 実装中に、既存のテスト（`tests/test_codegen/test_unseen_policy_codegen.py` の「the data builder casts to category」）とソースから分かった。`Model.fit` では、データの組み立て（`data/dataframe_builder.py` の `_apply_categorical`）が、`features.categorical` で指定した列と、`features.auto_categorical` が有効（既定）なら文字列・object の列を、`astype("category")` で `category` dtype にしてから、`CategoricalEncoder.fit` に渡す。その列のカテゴリは、宣言された順か、`astype("category")` が推定した順（整数なら数の順、たとえば `[1, 2, 3, 10]`）である。`sorted(..., key=str)` の分岐に届くのは、`auto_categorical: false` で、文字列の列を `features.categorical` に挙げない場合だけである（pipeline は文字列の列をカテゴリとして扱うが、組み立ては変えない。`features/pipelines_native.py`、`tests/test_features/test_unseen_policy.py` がこの経路を使う）。方針 5 は、組み立ての変換を書いていなかったので、既定の設定でのカテゴリの並びの説明として誤りだった。
 
-**訂正後の規則**: 生成 `train.py` の `fit_pipeline` は、`categorical_features` の列のうち `category` dtype でないものを、LizyML と同じ `astype("category")` で `category` dtype にしてから、`series.cat.categories` と `series.mode()` でカテゴリと最頻値を決める。規則（「LizyML と同じ呼び出しで決める」）は変わらず、その呼び出しの範囲を `Model.fit` の経路に合わせて正しく書き直すだけである。
+**訂正後の規則**: 生成 `train.py` は、組み立ての変換を移す。export は `features.categorical` と `features.auto_categorical` を `config.json` の `categorical_rule`（`{"explicit": [...], "auto": bool}`）に書き、生成 `train.py` は特徴量の列に同じ規則で `astype("category")` を当ててから、`fit_pipeline` で `CategoricalEncoder.fit` の 2 つの分岐（`category` dtype なら `series.cat.categories`、それ以外は `sorted(..., key=str)`）と `series.mode()` でカテゴリと最頻値を決める。規則（「LizyML と同じ呼び出しで決める」）は変わらず、その呼び出しの範囲を `Model.fit` の経路に合わせて書き直すだけである。
 
-**テスト**: LightGBM のカテゴリの分割は符号の番号の付け方によらないので、予測の一致だけではこの違いを検出できない（実測: `sorted(..., key=str)` のままでも、受け入れ基準 1 のカテゴリのケースは予測が一致した）。受け入れ基準 1 のカテゴリのケースは、予測の一致に加えて、`train.py` が書いた `pipeline_state.json` のカテゴリと最頻値が LizyML の encoder のものと、順序と型も含めて等しいことを確かめる（受け入れ基準 4 と同じ比較）。
+**テスト**: LightGBM のカテゴリの分割は符号の番号の付け方によらないので、予測の一致だけではこの違いを検出できない（実測: `sorted(..., key=str)` のままでも、受け入れ基準 1 のカテゴリのケースは予測が一致した）。受け入れ基準 1 のカテゴリのケースは、予測の一致に加えて、`train.py` が書いた `pipeline_state.json` のカテゴリと最頻値が LizyML の encoder のものと、順序と型も含めて等しいことを確かめる（受け入れ基準 4 と同じ比較）。受け入れ基準 1 に、`auto_categorical: false` で文字列の列を持つ fit（parquet と CSV の 2 ケース。`sorted(..., key=str)` の分岐）を加え、同じ比較をする。負の対照: 組み立ての変換を外すと、整数のカテゴリを `features.categorical` に挙げたケースで比較が失敗する。
 
 ### 改訂 4: 入力で `category` と宣言された列を fit 時に記録する（2026-10-10、管理者の判断）
 
-**経緯**: 実装中のテスト（受け入れ基準 4 の `declared_categories` の形）で分かった。方針 5 は「fit 時に `category` dtype だった列」を `config.json` の `declared_categories` に書くとしていたが、その判定に使える記録が無かった。`FitResult.dtypes` は、データの組み立て（`_apply_categorical`）がカテゴリとして扱う列をすべて `category` に変えた**後**の dtype なので（改訂 3）、利用者が宣言した列と、文字列から推定された列を区別できない。すべてのカテゴリ列を宣言扱いにすると、同じデータでは一致するが、新しいデータで学習し直すときに、fit の時に無かったカテゴリが黙って欠損値になる（LizyML は新しいカテゴリとして学ぶ）。これは H-0059 の目的 1（新データでの再学習）に反する。
+**経緯**: 実装中のテスト（受け入れ基準 4 の `declared_categories` の形）で分かった。方針 5 は「fit 時に `category` dtype だった列」を `config.json` の `declared_categories` に書くとしていたが、その判定に使える記録が無かった。`FitResult.dtypes` は、データの組み立て（`_apply_categorical`）が列を `category` に変えた**後**の dtype なので（改訂 3。既定では文字列の列も変わる）、利用者が宣言した列と、組み立てが変えた列を区別できない。すべてのカテゴリ列を宣言扱いにすると、同じデータでは一致するが、新しいデータで学習し直すときに、fit の時に無かったカテゴリが黙って欠損値になる（LizyML は新しいカテゴリとして学ぶ）。これは H-0059 の目的 1（新データでの再学習）に反する。
 
 **規則**:
 - **記録**: `Model.fit` は、入力の DataFrame で `category` dtype だった特徴量の列と、そのカテゴリ（宣言された順、未使用のものを含む）を記録する。データの組み立ての前の DataFrame から読む。記録は、`applied_training_params` と同じく、fit が成功したときにだけ更新する。
@@ -11919,6 +11919,8 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 - 入力で `category` だった列だけが記録される。同じ fit の文字列の列（`astype("category")` で推定される列）は記録されない。
 - 記録は `Model.export` で書かれ、`Model.load` で戻り、再び export すると同じ値が書かれる。キーが無い artifact は読み込め、記録は「分からない」で、再 export でキーを書かず、`export_code` の `declared_categories` は空である。
 - 拒否されたり途中で失敗した fit、後の `tune()` では、記録は変わらない。
+- 受け付けない値を含む記録（例: `tuple` のカテゴリ）は `Model.export` が `metadata.json` に書かず（`str` にして書かない）、そのモデルの `export_code` は `SERIALIZATION_FAILED` で拒否する。
+- `Model.load` は、`declared_categories` がオブジェクトでない、列の値が配列でない、配列の値が `str`・`int`・`float`・`bool` でない（`null`、入れ子の配列、オブジェクト）記録を、それぞれ `DESERIALIZATION_FAILED` で拒否する。
 - 受け入れ基準 1 の CSV のケースに、文字列の列を新しいカテゴリを含む新しいデータで学習し直しても、そのカテゴリが欠損値にならない（生成 `train.py` の `pipeline_state.json` のカテゴリに入る）ことを加える。
 
 **Firing rate**: 本改訂は新しい条件を加えない（記録の有無による分岐は、改訂 1 と同じく古い artifact のための読み方）。
