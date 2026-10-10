@@ -159,8 +159,9 @@ jobs:
           python -c "from lizyml import Model; print('import ok:', Model)"
 
   # --- Notebook index contract (H-0119 6.) -------------------------------------
-  # Trigger rule (decision 1, 2026-10-10): the jobs below run on every PR and
-  # every push to main; nothing selects them by changed paths. The
+  # Trigger rule (decision 1, 2026-10-10): the jobs below run whenever this
+  # workflow runs (every PR to main or develop and every push to main); nothing
+  # selects them by changed paths. The
   # notebook-index-gate job at the end passes only when the matrix job and both
   # index jobs succeeded, and is the one check to require.
   notebook-index-matrix:

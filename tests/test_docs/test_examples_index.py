@@ -919,19 +919,85 @@ def test_write_replaces_with_a_finished_sibling_file(
 ) -> None:
     good = (ROOT / "docs" / "examples.md").read_bytes()
     target = _repo_copy(tmp_path, _stale(good, b"\n"))
-    calls: list[tuple[pathlib.Path, bytes]] = []
+    calls: list[tuple[pathlib.Path, bytes, bool]] = []
+    opened: list[Any] = []
     real_replace = os.replace
 
+    def recording_open(*args: Any, **kwargs: Any) -> Any:
+        handle = open(*args, **kwargs)  # noqa: SIM115 - the module closes it
+        opened.append(handle)
+        return handle
+
     def spy(src: str, dst: str) -> None:
-        calls.append((pathlib.Path(src), pathlib.Path(src).read_bytes()))
+        closed = bool(opened) and all(handle.closed for handle in opened)
+        calls.append((pathlib.Path(src), pathlib.Path(src).read_bytes(), closed))
         real_replace(src, dst)
 
+    monkeypatch.setattr(ix, "open", recording_open, raising=False)
     monkeypatch.setattr(ix.os, "replace", spy)
     ix.write(tmp_path)
-    ((src, content),) = calls
+    ((src, content, closed),) = calls
     assert src.parent == target.parent
+    assert closed, "the temporary file was still open at the replace"
     assert content == good, "the temporary file was not finished before the replace"
     assert target.read_bytes() == good
+
+
+def test_write_accepts_the_base_file_on_disk(tmp_path: pathlib.Path) -> None:
+    target = _repo_copy(tmp_path, ("\n".join(_base()) + "\n").encode("utf-8"))
+    ix.write(tmp_path)
+    declarations, errors = ix._declarations(tmp_path)
+    assert not errors
+    region = "\n".join(ix.render_index(declarations))
+    assert target.read_bytes() == (region + "\n\n## Notes\n").encode("utf-8")
+
+
+@pytest.mark.parametrize("case", sorted(REFUSALS))
+def test_write_refuses_on_disk_without_touching_the_file(
+    tmp_path: pathlib.Path, case: str
+) -> None:
+    mutate, reason = REFUSALS[case]
+    lines = _base()
+    mutate(lines)
+    before = ("\n".join(lines) + "\n").encode("utf-8")
+    target = _repo_copy(tmp_path, before)
+    with pytest.raises(ix.RegionError) as caught:
+        ix.write(tmp_path)
+    assert caught.value.reason == reason
+    _left_alone(target, before)
+
+
+def _bad_name(notebooks: pathlib.Path) -> None:
+    first = sorted(notebooks.iterdir())[0]
+    (notebooks / "café.ipynb").write_bytes(first.read_bytes())
+
+
+def _bad_declaration(notebooks: pathlib.Path) -> None:
+    target = notebooks / "tutorial_calibration.ipynb"
+    nb = json.loads(target.read_text(encoding="utf-8"))
+    nb["metadata"]["lizyml"]["index"]["extras"] = ["unknown"]
+    target.write_text(json.dumps(nb), encoding="utf-8")
+
+
+def _no_notebooks(notebooks: pathlib.Path) -> None:
+    for path in notebooks.iterdir():
+        path.unlink()
+
+
+@pytest.mark.parametrize(
+    "spoil",
+    [_bad_name, _bad_declaration, _no_notebooks],
+    ids=["name", "declaration", "no notebooks"],
+)
+def test_write_checks_the_notebooks_before_touching_the_file(
+    tmp_path: pathlib.Path, spoil: Callable[[pathlib.Path], None]
+) -> None:
+    before = (ROOT / "docs" / "examples.md").read_bytes()
+    target = _repo_copy(tmp_path, before)
+    spoil(tmp_path / "notebooks")
+    with pytest.raises(ix.ContractError):
+        ix.write(tmp_path)
+    _left_alone(target, before)
 
 
 def test_no_notebook_name_selects_another_with_pytest_k() -> None:

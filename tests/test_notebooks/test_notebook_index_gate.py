@@ -1,9 +1,10 @@
 """The notebook index gate and the CI graph around it (H-0119 6., decision 1).
 
-The index jobs run on every PR and every push to main; nothing selects them by
-changed paths. The gate job always runs and passes only when the matrix job,
-the registry probe and the notebook execution all succeeded. A failed,
-cancelled or skipped job fails it, so no job can drop out silently.
+The index jobs run whenever ci.yml runs (every PR to main or develop and every
+push to main); nothing selects them by changed paths. The gate job always runs
+and passes only when the matrix job, the registry probe and the notebook
+execution all succeeded. A failed, cancelled or skipped job fails it, so no job
+can drop out silently.
 """
 
 from __future__ import annotations

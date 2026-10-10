@@ -2,8 +2,9 @@
 
 The ``notebook-index-gate`` job runs with ``if: always()`` after the matrix
 job and the two substantive jobs (the registry probe and the notebook
-execution), and is the single check to require. The index jobs run on every PR
-and push to main, so the gate passes only when all three succeeded. Anything
+execution), and is the single check to require. The index jobs run whenever
+ci.yml runs (every PR to main or develop and every push to main), so the gate
+passes only when all three succeeded. Anything
 else fails: a failed, cancelled or skipped job, or a result outside the known
 ones.
 
