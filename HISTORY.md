@@ -11929,7 +11929,7 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 
 - **ステータス**: Proposed
 - **起票日**: 2026-10-10
-- **スコープ**: `lizyml/core/model.py`（`_merge_params`）、`lizyml/config/schema.py`（`LGBMConfig._validate_smart_params`）、`lizyml/core/_tuning_validation.py`（`validate_tuning_dimensions`）、`lizyml/core/_model_tuning.py`（`_resolve_search_space`）、`lizyml/estimators/lgbm/`（smart パラメーターの消費条件の宣言）、`BLUEPRINT.md` §5.3 と探索空間の節
+- **スコープ**: `lizyml/core/model.py`（`_merge_params`）、`lizyml/config/schema.py`（`LGBMConfig._validate_smart_params`）、`lizyml/core/_tuning_validation.py`（`validate_tuning_dimensions`）、`lizyml/core/_model_tuning.py`（`_resolve_search_space`）、`lizyml/estimators/provider.py`（`EstimatorProvider` Protocol に 1 メソッド追加）、`lizyml/estimators/lgbm/`（smart パラメーターの消費条件の宣言）、`BLUEPRINT.md` §5.3、§14.4、探索空間の節
 - **関連**: [Issue #280](https://github.com/nbx-liz/LizyML/issues/280)、[Issue #299](https://github.com/nbx-liz/LizyML/issues/299)、H-0093、H-0094、H-0096、H-0099、H-0120 改訂 1
 
 ### 目的（課題）
@@ -11969,14 +11969,14 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 2. **#299: 宣言されていない smart の名前を拒否する。** `validate_tuning_dimensions`（`core/_tuning_validation.py`。study を作る前に、解決済みの空間に対して呼ばれる）で、`category: smart` の次元の名前が `provider.smart_param_names()` に無ければ `CONFIG_INVALID` で拒否する。ネイティブの LightGBM の名前なら、メッセージで `category: model` を案内する。
 
 3. **#299: 利用者が書いた、消費者が無効な smart の次元を拒否する。**
-   - provider は、smart パラメーターごとに消費の条件を宣言する。現在の条件があるのは `num_leaves_ratio` だけで、`auto_num_leaves` が有効なときに読まれる（`smart_params.py`）。
-   - 有効かどうかは、config の値と、同じ空間の smart の次元が取りうる値で決める。たとえば `auto_num_leaves` の次元が `True` を取りうるなら、有効になりうるとみなす。
+   - **provider の宣言（`EstimatorProvider` Protocol に追加するメソッド）**: `smart_param_owners() -> dict[str, str]`。smart パラメーターの名前から、それが読まれるために真でなければならない smart パラメーター（所有者）の名前への対応を返す。所有者の無い smart パラメーターは含めない。LightGBM の provider は `{"num_leaves_ratio": "auto_num_leaves"}` を返す（`smart_params.py` の `resolve_smart_params` が `auto_num_leaves` が真のときだけ `num_leaves_ratio` を読む）。
+   - **無効の判定**（provider に依らない共通の規則）: smart の次元は、所有者が有効な smart の値で偽（`None` を含む）であり、かつ同じ空間に所有者の名前の smart の次元が無いか、その次元が真の値を取りえない（categorical の選択肢がすべて偽、数値の範囲が 0 だけ）とき、無効とする。有効な smart の値は `tune` が `_merge_params` から受け取るもので、新しい tune では config の値、`resume` では config の値に tune の結果の `best_smart_params` を重ねたものである。
    - 利用者の空間から来た次元（`replace` の空間、または `merge` で利用者が書いた次元）で消費者が無効なら、study の前に `CONFIG_INVALID` で拒否する。
 
 4. **#299: 既定の空間から来た、消費者が無効な smart の次元は落とす。**
-   - `_resolve_search_space`（`core/_model_tuning.py`。既定の空間と利用者の空間を合わせる場所で、出どころが分かる）で、利用者が上書きしていない既定の次元のうち消費者が無効なものを、空間から外す。
+   - **出どころの記録**: `_resolve_search_space`（`core/_model_tuning.py`）は、`merge` で利用者が上書きしていない既定の次元の名前（出どころが既定の次元）を、空間と一緒に返す。`tune` はこれを空間と一緒に保存し（`_space` の隣）、`resume` は保存した空間と出どころの両方を使う。
+   - **判定と落とす位置**: `tune` は `_merge_params` の後、`validate_tuning_dimensions` の前で、方針 3 の規則により無効な smart の次元を求める。出どころが既定の次元は空間から外し、利用者の次元は方針 3 のとおり拒否する。新しい tune と `resume` の両方に同じ規則を当てる。たとえば `auto_num_leaves: true` で解決した空間を、config を `auto_num_leaves: false` に変えてから `resume` すると、既定の `num_leaves_ratio` は外される。
    - 外した次元の名前をログに残し（INFO）、この方針を BLUEPRINT に書く。
-   - `resume` は、前の tune が解決した空間をそのまま使う。本 Proposal の後の tune が解決した空間には、外した次元は入っていない。
 
 ### 規則が縛る位置（ソースから導出、実装前）
 
@@ -11998,12 +11998,10 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 | `tuning.optuna.space`（`category: model`） | H-0099 で検査済み | 変更なし |
 
 **#299**: smart の次元が学習に届く位置（bound: `split_by_category` が smart に振り分けたすべての次元）。
-- smart の各パラメーターの消費は `smart_params.resolve_smart_params` にある。
-  - `auto_num_leaves` は常に読まれる。
-  - `num_leaves_ratio` は `auto_num_leaves` が有効なときだけ読まれる。
-  - 2 つの ratio は値があれば fold ごとに読まれる。
-  - `balanced` は分類で読まれる。
-  - `feature_weights` は値があれば読まれる。
+- smart の各パラメーターを読む位置は 2 つある。
+  - `smart_params.resolve_smart_params`（データの大きさに依らない値。`_build_train_components` が呼ぶ）: `auto_num_leaves` は常に読まれ、`num_leaves_ratio` は `auto_num_leaves` が真のときだけ読まれる。`balanced` は分類で、`feature_weights` は値があれば読まれる。2 つの ratio はここでは読まれない（`smart_params.py` の除外）。
+  - `smart_params.resolve_ratio_params`（fold ごとの値）: `min_data_in_leaf_ratio` と `min_data_in_bin_ratio` は値があれば読まれる。`LGBMProvider.build_ratio_resolver` を経て、`cv_trainer.py` と `refit_trainer.py` の `update_params(ratio_resolver(n))` が呼ぶ。
+  - 所有者のある smart パラメーターは `num_leaves_ratio` だけである。
 - 探索空間が study に入る前の位置は、`_resolve_search_space`（出どころが分かる）と `validate_tuning_dimensions`（解決済みの空間）の 2 つである。
 
 範囲外（記録のみ）:
@@ -12013,14 +12011,14 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 
 ### 互換性
 
-- **公開 API、`FitResult`、`PredictionResult`、artifact の形式は変わらない。**
+- **`FitResult`、`PredictionResult`、artifact の形式は変わらない。`EstimatorProvider` Protocol にメソッド `smart_param_owners()` が 1 つ増える**（H-0093 の分類では Protocol の変更）。リポジトリの中の provider は LightGBM の 1 つだけで、そこに実装する。外部で Protocol を実装しているコードは、このメソッドを足す必要がある（smart パラメーターを持たない provider は `{}` を返せばよい）。BLUEPRINT §14.4 に書く。
 - **#280 で新しく拒否される config がある。** スマートパラメーターが管理する名前を、別名を含めて `model.params` に書いた config である。これまでは黙って置き換えられていた。文字どおりの 3 つの名前の拒否は、config の構築時から `fit` / `tune` の時に移る。
 - **#299 で新しく拒否される探索空間がある。** 宣言されていない smart の名前と、利用者が書いた消費者が無効な smart の次元である。既定の空間の `num_leaves_ratio` は、`auto_num_leaves: false` のとき黙って何もしない代わりに外される。H-0099 の案内どおりの設定は、これまでどおり動く。
 - **Firing rate**:
   - **Firing rate: 0/220 of `model.params` を持つ、テストスイートが組み立てた別個の `Model` の config（`Model.__init__` と `Model._merge_params` を包む pytest プラグイン、実際のタスクで判定、`6273d39`、全スイート `-m 'not slow'`）**。陽性対照 4/4（`max_leaves`、`min_child_samples`、`scale_pos_weight`、`feature_weights` と `feature_contri`）、陰性対照 2/2（衝突なし、`auto_num_leaves: false` と `max_leaves`）。（方針 1、`allow`）
   - **Firing rate: 0/233 of `validate_tuning_dimensions` の呼び出し（#299 の xfail のセルを除く。含めると 6/239、6 件とも #299 を確かめる xfail）、テストスイート全体（`6273d39`、9747 passed）**。測り方: `validate_tuning_dimensions` を包む pytest プラグインで、宣言されていない smart の名前を数えた。（方針 2、`allow`）
   - **Firing rate: 0/236 of 同じ呼び出し（xfail を除く。含めると 3/239、3 件とも #299 の inactive-consumer の xfail）**。利用者の空間の、消費者が無効な smart の次元を数えた。（方針 3、`allow`）
-  - **Firing rate: 55/239 of 同じ呼び出し（43 テスト）**。既定の空間の、消費者が無効な smart の次元を数えた。55 件すべてが `num_leaves_ratio` で、すべて `space_mode: merge`。タスク別は regression 51、binary 4、multiclass 3。（方針 4、`select`。外される）
+  - **Firing rate: 55/239 of 同じ呼び出し（43 テスト）**。既定の空間の、消費者が無効な smart の次元を数えた。55 件すべてが `num_leaves_ratio` で、すべて `space_mode: merge`。タスク別は regression 50、binary 3、multiclass 2（同じ記録を集計し直した。2026-10-11）。（方針 4、`select`。外される）
   - 方針 1〜3 の拒否は安全側の拒否で、発火しないことは欠陥ではない。拒否の各分岐は受け入れ基準で直接テストする。
 
 ### 代替案（検討して棄却）
@@ -12035,11 +12033,17 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 1. **#280 の両方向**: binary・multiclass・regression で、6 つのスマートパラメーターが書く名前のすべての綴り（`LGBM_DumpParamAliases` から読む。列挙しない）について確かめる。
    - スマートパラメーターが有効なとき: その綴りを `model.params` に書いた `fit` と `tune` が、学習の前に `CONFIG_INVALID` で拒否する（`lgb.train` が呼ばれない）。メッセージは綴りと、管理しているスマートパラメーターと、名前の来た層を挙げる。
    - スマートパラメーターが無効なとき（例: `auto_num_leaves: false`、`balanced: false`、`feature_weights` なし、regression の `balanced`）: その綴りが受け付けられ、書いた値が `lgb.train` に届く。
-2. **層**: `model.params` のほか、tune の結果の `best_model_params` から来た衝突も、来た層を名指しして拒否する。`fit(params=)` の既存の H-0094 のテストは引き続き通る。
+2. **層**: 4 つの層のそれぞれで、衝突が来た層を名指しして拒否されることを直接確かめる。
+   - `model.params`（基準 1）。
+   - 既定の固定パラメーター: provider の `default_fixed_params` が衝突する名前（例: `max_leaves`）を返すように差し替えた、既定の空間の `tune` → `fit`。
+   - tune の結果の `best_model_params`: 復元した tune の結果が `best_model_params={"max_leaves": 12}` を持つ fit。
+   - `fit(params=)`: H-0094 の既存のテストが引き続き通る。
+   - **`best_smart_params` による有効化**: config が `auto_num_leaves: false` で、復元した tune の結果が `best_smart_params={"auto_num_leaves": True}` と `best_model_params={"max_leaves": 12}` を持つ fit が拒否される（config の smart の値だけを見る実装は通してしまう）。
 3. **構築時の検査の削除**: 文字どおりの 3 つの名前を持つ config は、構築時には拒否されず、`fit` で拒否される（`tests/test_config/test_lgbm_smart_params.py` をこの契約に書き直す）。`tests/test_core/test_refusal_matrix.py` の `model.params` × `check_smart_managed_overrides` のセルは `wired` になる。
 4. **#299 の宣言されていない名前**: 3 タスクで、`category: smart` の宣言されていない名前（ネイティブ名と、存在しない名前）が study の前に `CONFIG_INVALID` で拒否される（`lgb.train` が呼ばれない）。ネイティブ名では、メッセージが `category: model` を案内する。`tests/test_tuning/test_search_space_name_validation.py` の #299 の strict xfail 9 件は、通る assertion になる。
 5. **#299 の利用者の無効な次元**: `auto_num_leaves: false` で、利用者の空間に `num_leaves_ratio` を書いた tune が拒否される（`replace` と、`merge` で利用者が上書きした場合の両方）。同じ空間に `auto_num_leaves` の次元があって `True` を取りうるときは受け付ける。
-6. **#299 の既定の空間**: `auto_num_leaves: false` で既定の空間を使う tune では、`num_leaves_ratio` が空間から外され、study の探索次元と `best_params` に入らない。外した名前が INFO のログに残る。`auto_num_leaves: true` では外されない。
+6. **#299 の既定の空間**: `auto_num_leaves: false` で既定の空間を使う tune では、`num_leaves_ratio` が空間から外され、study の探索次元と `best_params` に入らない。外した名前が INFO のログに残る。`auto_num_leaves: true` では外されない。`resume` の 2 ケース: `auto_num_leaves: true` で tune した後、config を `auto_num_leaves: false` に変えて `resume` すると、既定の `num_leaves_ratio` は外され、study に入らない。同じ手順で、利用者が書いた `num_leaves_ratio` は `resume` で拒否される。
+   - **provider の宣言**: `LGBMProvider.smart_param_owners()` が `{"num_leaves_ratio": "auto_num_leaves"}` を返し、宣言から外すと基準 5 と 6 のテストが失敗する（負の対照）。
 7. **負の対照**: 方針 1〜4 を 1 つずつ外すと、受け入れ基準 1〜6 のどれかが失敗する。
 8. **文書**: BLUEPRINT §5.3 の入口の表と探索空間の節を更新する。
 9. **review**: Codex の review run を APPROVE まで通す。review が確かめるのは、上の規則、規則が縛る位置、受け入れ基準 1〜8 の各項目にテストがあり、そのテストが通り、違反すれば失敗するかである。約束の範囲の外にある形を探すことは求めない。
