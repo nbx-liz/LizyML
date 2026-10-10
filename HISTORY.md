@@ -11359,7 +11359,7 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 
 - **ステータス**: Accepted
 - **起票日**: 2026-10-09
-- **決定日**: 2026-10-09（管理者の判断: 案 E を 2 PR で、CI の起動条件は 6. のとおり。Codex の Proposal review 3 round の最終 round で APPROVE）
+- **決定日**: 2026-10-09（管理者の判断: 案 E を 2 PR で、CI の起動条件は 6. のとおり。Codex の Proposal review 3 round の最終 round で APPROVE）。改訂: 2026-10-10（決定 1、管理者の判断）
 - **スコープ**: `notebooks/*.ipynb`（メタデータとセルのタグ）, `docs/examples.md`（生成する部分）, `lizyml/_extras.py`（新規・非公開）, `scripts/examples_index.py`（新規）, `tests/test_docs/test_examples_index.py`（置き換え）, `tests/test_notebooks/`（実行の記録、`test_index_execution.py` を新設、ネットワーク失敗のマーカー一覧を共有モジュールへ移す）, `.github/workflows/ci.yml`（ジョブ 2 つを追加）, `pyproject.toml` / `uv.lock`（依存グループ `notebooks` を追加）, `docs/proposal_dispositions.toml`
 - **関連**: [Issue #334](https://github.com/nbx-liz/LizyML/issues/334), PR #335（索引の修正と静的な検査）, H-0118（文書の一覧を実装と照合する、同じ DC3 の型）, H-0117（運用ルールの正は `CONTRIBUTING.md`）
 
@@ -11446,35 +11446,31 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 
    宣言の `extras` は、タグ付きセルの呼び出しから対応表で導いた集合と一致しなければならない。
 
-5. **`docs/examples.md` の機械可読な部分を生成する。**
+5. **`docs/examples.md` の先頭を生成領域にする**（決定 1 で改訂、2026-10-10）。
 
-   - **見出し**: 節の見出しは `` ### `<名前>.ipynb` `` の形とする。`<名前>` に使える文字は ASCII の英字と数字、`_`、`.`、`-` だけとする（見出しとマーカーで同じ。これ以外の文字を含む名前のノートブックは索引に載せられず、失敗する。実装 review run 3 の round 3 で明記、2026-10-10）。見出しの集合は `notebooks/*.ipynb` の集合と一致し、同じ見出しが 2 回現れれば失敗する。`.ipynb` を含むそれ以外の形の見出しも失敗とする。
+   - **生成領域**: `docs/examples.md` は、先頭の行から最初の `<!-- index:end -->` の行までを生成領域とする。生成領域は `notebooks/*.ipynb` の名前の昇順と、各ノートブックの宣言（2.）だけから作り、次の行と完全に一致しなければならない。
+     1. `# Notebook Index`
+     2. 空行
+     3. `<!-- Generated from each notebook's metadata.lizyml.index by scripts/examples_index.py. Do not edit this region by hand. -->`
+     4. 空行
+     5. `| Notebook | Demonstrates | Extras required |`
+     6. `|---|---|---|`
+     7. ノートブックごとに 1 行。`` | `<名前>.ipynb` | `m1()`, `m2()` | `pip install 'lizyml[e1,e2]'` | ``。メソッドは `methods` の順、extras は `extras` の順に並べる。`extras` が空なら、3 列目は `none (base install)` とする。
+     8. 空行
+     9. `<!-- index:end -->`
+   - **名前**: `<名前>` に使える文字は、ASCII の英字と数字、`_`、`.`、`-` だけとする。これ以外の文字を含む名前のノートブックがあれば、`--check` は失敗する。
+   - **行の区切り**: 行は LF、CRLF、CR のどれで区切られていてもよい。照合するのは各行の中身で、区切りの種類は照合しない。
+   - **検査の範囲**: `--check` が見るのは生成領域の行だけである。生成領域より後ろの手書きの部分（ノートブックごとの説明、extras の入れ方など）は読まず、書き方も制限しない。また、その表示も保証しない。Markdown として解釈せず、物理的な行が一致するかだけを見る。
+   - **失敗する場合**: 次の場合、`--check` は失敗する。
+     - `<!-- index:end -->` の行が無い
+     - 生成領域の行が上の行と 1 行でも一致しない。これには、行の欠け、余分な行、行の順序の違い、古い内容、ノートブックの増減を含む。
+   - **`--write`**:
+     - 生成領域だけを、上の行に置き換える。生成領域より後ろの部分は、行の区切りも含めて 1 バイトも変えない。
+     - 置き換えた行の区切りには、元の生成領域の最初の行の区切りを使う。
+     - `<!-- index:end -->` の行が無ければ失敗し、ファイルを変えない。
+     - 書き込みは、同じディレクトリの一時ファイルに書いて閉じた後、`os.replace` で置き換える。置き換えより前に起きた失敗（検証の失敗、書き込みの失敗）では、ファイルは変わらない。電源断などへの耐久性は約束しない。
 
-     **行の文法**: `docs/examples.md` のコードブロックの外に書ける行を、次の形に限る。それ以外の行は失敗とする。
-     - 空行（何もない行か、半角スペースとタブだけの行）
-     - 1 列目から始まる ATX 見出し（1〜6 個の `#` の後に半角スペースかタブ）
-     - 索引のマーカー（下の「マーカー候補」の規則に従う）
-     - 1 列目から始まるコードブロックの開始行（閉じる行も 1 列目に置く。閉じる行の後ろに書けるのは半角スペースとタブだけ。中身は、マーカー候補を除いて自由）
-     - 空行の直後かファイルの先頭にある区切り線（3 個以上の `-`、`*`、`_` のどれか 1 種類だけからなり、空白を含まない行）。CommonMark で区切り線になる行（3 個以上の同じ記号の間や後ろに半角スペースやタブがあるものを含む）は、この形とこの位置のとき以外はすべて失敗とする（ファイルの先頭は実装 review run 3 の round 3、空白を含む形は実装 review run 4 の round 1 で明記、2026-10-10）
-     - 地の文の行。ただし、上の形に当たらない行のうち、次のどれかに当たる行は失敗とする（実装 review run 3 の round 1 と round 2 で、実装が拒否していた形をすべて書き出した。2026-10-10）
-       - 半角スペース、タブ、`>`、`<`、`=`、`|`、`#` で始まる行
-       - リストの記号で始まる行。リストの記号は `-`、`+`、`*`、または 1〜9 桁の ASCII の数字の後に `.` か `)` で、どれもその後に半角スペース、タブ、行末が続くもの
-       - `` ``` `` や `~~~` で始まる行（コードブロックの開始行にならないもの）
-       - `-` だけからなる行（後ろに半角スペースやタブがあってもよい）
-
-     行の区切りは、CommonMark と同じく LF、CRLF、CR とする。`--write` は生成ブロックだけを書き換え、それ以外の行と行の区切りは変えない。
-
-     この文法でいう空白は、CommonMark と同じく半角スペースとタブだけとする。U+00A0 などその他の空白文字は、地の文の文字として扱う（実装 review run 2 の round 3 で、U+00A0 だけの行を空行として扱っていたために setext の見出しがすり抜け、閉じる行の後ろの U+00A0 でコードブロックを閉じていたために節がコードブロックに隠れることが分かった。実装時に追加、2026-10-10）。
-
-     **マーカー候補**: 先頭の空白（Unicode の空白を含む）を除いた行が `<!--` で始まり、ASCII の文字列 `index:begin` または `index:end` を含む行をマーカー候補とする。コードブロックの外では、`<!-- index:begin <名前>.ipynb -->` または `<!-- index:end -->` の行に完全一致する候補だけを索引マーカーとして数え、それ以外の候補は失敗させる。コードブロックの中では候補をすべて失敗させ、生成ブロックをコード例として隠せないようにする。候補でない地の文とコードブロックの行では、`index:begin` と `index:end` という文字列を予約しない（実装時に追加、2026-10-10、管理者の判断。それまでの実装はこの文字列を含む行をファイルのどこでも失敗させていたが、その規則は契約に書かれていなかった）。
-
-     字下げ、引用、リスト、HTML ブロック、setext の下線は書けない。そのため、見出しになりうるのは 1 列目の ATX 見出しだけになり、節と一覧の照合をすり抜ける見出しは作れない。Markdown の見出しの書き方を 1 つずつ見分ける方法では、review のたびに新しい書き方が見つかった（実装 review run 2 の round 1 と round 2）。そのため、書ける行の形を閉じる方法に変えた（実装時に追加、2026-10-09、管理者の判断）。
-   - **生成ブロックの位置**: 各節には、生成ブロックがちょうど 1 つある。ブロックは `<!-- index:begin <名前>.ipynb -->` の行で始まり、`<!-- index:end -->` の行で終わる。begin の名前は、その節の見出しと一致しなければならない。節の外にマーカーがある場合、マーカーが対になっていない場合、1 つの節に 2 つある場合は、いずれも失敗する。
-   - **ブロックの中身**: 次の 2 行と完全に一致しなければならない。2 行の間には空行を 1 つ挟む（Markdown で別の段落として表示させるため。実装時に追加、2026-10-09）。
-     - `` **Demonstrates:** `m1()`, `m2()` ``（`methods` の順）
-     - `` **Extras required:** `pip install 'lizyml[e1,e2]'` ``（`extras` の順）。`extras` が空なら `**Extras required:** none (base install)` とする。
-
-   `scripts/examples_index.py` は `--write` で生成ブロックを書き換え、`--check` で不一致を報告する。テストは `--check` と同じ関数を呼ぶ。
+   `scripts/examples_index.py` は、`--write` で生成領域を書き換え、`--check` で不一致を報告する。テストは `--check` と同じ関数を呼ぶ。
 
 6. **CI に 2 つのジョブを足す。**
 
@@ -11514,7 +11510,7 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
      - 再試行するのは、失敗の `CellExecutionError` の文字列に、既存のマーカー一覧（`tests/test_notebooks/test_notebook_execution.py` の `_NETWORK_ERROR_MARKERS`）のどれかが含まれる場合だけとする。その一覧は新しいモジュールに移し、既存のテストはそこから読む。
      - それ以外の失敗は、再試行せずに落とす。3 回とも上記の失敗なら落とし、skip しない（DC1）。
 
-   **起動条件**（管理者の決定、2026-10-08）: main 向けの PR では常に走らせる。develop 向けの PR では、`notebooks/**`、`docs/examples.md`、`lizyml/_extras.py`、`scripts/examples_index.py`、`tests/test_notebooks/**`、`.github/workflows/ci.yml` のどれかが変わったときだけ走らせる。最後に常に走る gate ジョブを置き、起動判定が成功して (a)(b) がともに成功した場合と、起動判定が成功して (a)(b) がともに skip された場合（run=false）だけを通す。必須にする check はこの gate 1 つとする（実装時に追加、2026-10-09、実装 review round 1）。変わったパスの判定は `.github/scripts/notebook_index_scope.sh` が行い、`git diff --name-only -z` の NUL 区切りの出力を読み、各パスを分割せずにそのまま照合する（名前に改行を含むパスも 1 つのパスとして扱う。実装 review run 4 の round 2、2026-10-10）。rename は `--no-renames` で移動元の削除と移動先の追加に分けて数える。既定の rename 検出では `--name-only` が移動先しか出さず、対象パスの外への rename を見落としていた（実装 review run 4 の round 3、2026-10-10）。既定の出力は、ASCII 以外の文字、`"`、`\` を含むパスを引用符で囲んでエスケープするため、そうしたパスのノートブックが変わっても起動判定がそれを見落としていた（実装 review run 4 の round 1、2026-10-10）。
+   **起動条件**（決定 1 で改訂、2026-10-10）: (a)(b) は、base や変わったパスに関係なく、ci.yml が走るすべての PR と main への push で走らせる。最後に常に走る gate ジョブを置き、matrix を作るジョブと (a)(b) がすべて成功した場合だけを通す。失敗、skip、cancel はどれも gate を失敗させる。必須にする check はこの gate 1 つとする。変わったパスで実行を絞る仕組みは置かない（それまでの起動判定 `.github/scripts/notebook_index_scope.sh` は削除する）。
 
 7. **PR #335 の静的な検査を置き換える。** これまでの review で見つかった反例をすべて新しい仕組みで再生し、どれも失敗することを確かめる。
 
@@ -11525,11 +11521,7 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 - 公開 API、Config、結果の型は変わらない。`lizyml/_extras.py` は非公開で、既存のエラーメッセージや guard は変えない。
 - ノートブックのメタデータとセルのタグは、表示にも実行にも影響しない。codegen のノートブックが子プロセスを起動するコマンドだけを `sys.executable` に変える。
 - 依存グループ `notebooks`（`nbconvert`、`ipykernel`、`pytest`）を新設する。新しいパッケージは追加しない（どれも `dev` に入っている）。`uv.lock` が更新される。
-- **Firing rate**: 6. の起動条件は `select`（条件を満たす PR でだけ実行する）にあたる。develop 向け PR での発火率は **11/134 of develop の first-parent commit、2026-04-02 以降**。
-  - 分子は `git log --first-parent --format=%h origin/develop --since=2026-04-01 -- notebooks docs/examples.md .github/workflows/ci.yml tests/test_notebooks | wc -l`、分母は同じコマンドからパスを除いたもので測った（`d72b20a`、2026-10-09）。
-  - 新設する `lizyml/_extras.py`、`scripts/examples_index.py`、`tests/test_notebooks/test_index_execution.py` は過去に存在しない。
-  - 発火しない PR でも、コードの変更でメソッドが必要とする extra が変わることがある。それは main 向けの PR で必ず検出する。
-  - 範囲を `lizyml/plots lizyml/explain lizyml/tuning lizyml/calibration lizyml/core/_model_plots.py lizyml/core/_model_tables.py lizyml/core/_model_tuning.py lizyml/core/_model_predict.py pyproject.toml` まで広げると、同じコマンドで 48/134 になる。
+- **Firing rate**: 決定 1 の改訂で、6. の起動条件は無条件になった。`skip` / `select` にあたる条件は無いので、発火率の記録は要らない。改訂前の条件（develop 向け PR では index のパスが変わったときだけ実行する）の発火率は、**11/134 of develop の first-parent commit、2026-04-02 以降**だった（`d72b20a`、2026-10-09 に測定）。
 
 ### 代替案（検討して棄却）
 
@@ -11538,6 +11530,11 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
 3. **静的な検査をやめ、実行の記録だけで照合する**（案 C 単独）。正しさは保てるが、普段の PR で走る速い検査が無くなり、索引のずれに気づくのが実行ジョブの起動時まで遅れる（develop 向け PR では 11/134 しか起動しない）。
 4. **対応表をテストのデータとして `tests/` に置く。** 対応表はパッケージの振る舞い（どのメソッドがどの extra を要るか）を述べるので、コードの隣で変更されるべきである。生成スクリプトもテストもそこから読む。
 5. **`sys.modules` から extras を導く。** `import lizyml` の時点で optuna の import が試みられ、scipy は scikit-learn と lightgbm が必ず読み込むので、過大にも過小にもなる（DC6）。
+6. **起動判定を残して直し続ける**（決定 1 の案 S2）。merge base が複数ある場合とサブモジュールの設定の 2 点を塞いでも、git が変更を報告する形と設定は開いたままで、review が次の形を見つける。
+7. **起動判定を「ほぼ正しい最適化」と契約に書く**（案 S3）。main 向け PR が最後の守りになるが、develop の貢献者に、変更を検査していない緑の gate を見せることになる。省けるのは runner の時間だけで、待ち時間は省けない。
+8. **`docs/examples.md` を markdown-it-py で読む**（案 M1）。手書きの文法よりは閉じるが、GitHub の表示（GFM）との一致は保証できない。また、dev 依存を直接足すことになる。
+9. **行の文法を直し続ける**（案 M2）。CommonMark を手書きで真似る限り、review は次の形を見つける（実装 review run 2〜5 で 15 件）。
+10. **`docs/examples.md` 全体をメタデータから生成する**（案 M4）。説明文を構造化データに移す手間がかかる。また、説明文を差し込む形にすると、また文法が要る。
 
 ### 受け入れ基準（テスト観点）
 
@@ -11550,23 +11547,30 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
    - 到達しない分岐
    - 再代入
    - `def` / `class` の再代入
-   - 重複見出し
+   - 重複見出し（生成領域の行が重複すると失敗する）
    - マジック行
-   - 一覧に無いノートブック
+   - 一覧に無いノートブック（生成領域に行が無いノートブックがあると失敗する）
    - コメントだけの呼び出し
    - `Model` に見せかけた別の受け手
-4. **`docs/examples.md` の照合**: 8 本すべてで、生成し直したブロックとファイルが一致する。次の操作をしたときは、それぞれ失敗する。
+4. **`docs/examples.md` の照合（5.）**: リポジトリの `docs/examples.md` で、生成領域が生成し直した行と一致する。次の操作をしたときは、それぞれ失敗する。
    - どれか 1 本のメタデータを変える
-   - マーカーを重複させる
-   - マーカーの対を崩す
-   - マーカーの名前を別の節にする
+   - ノートブックを 1 本足す、または消す
+   - 行を消す、足す、並べ替える、書き換える（題、生成元のコメント、表の見出し、表の区切り、ノートブックの行、空行、`<!-- index:end -->`）
+   - `<!-- index:end -->` の行を消す
+   - 名前に使えない文字を含むノートブックを置く
+
+   次のことを確かめるテストもある。
+   - 生成領域より後ろに何を書いても、`--check` の結果は変わらない。
+   - LF、CRLF、CR のどれで区切っても、同じ結果になる。
+   - `--write` は生成領域だけを書き換え、後ろの部分は行の区切りも含めて 1 バイトも変えない。
+   - `<!-- index:end -->` が無いときと、書き込みの途中で失敗させたときは、`--write` がファイルを変えない。
 5. **対応表の検査（6.(a)）**: 対応表の全項目が、その extra を除いた環境で、期待どおりのパッケージ名つきの `OPTIONAL_DEP_MISSING` を出す。前提の検査で別のエラーが出た場合は失敗する。
 6. **ノートブックの実行（6.(b)）**: 8 本すべてが、宣言した extras だけの環境で skip なしに実行できる。タグ付きの文はすべて、宣言した受け手の `Model` で実行されたと記録される。次の場合は、それぞれ失敗する。
    - extras を宣言しているノートブックで、宣言から 1 つ減らす
    - 宣言にある呼び出しを、実行されない位置に移す
    - 受け手を `Model` でないものにする
 
-   各ジョブの所要時間を記録する。
+   各ジョブの所要時間を記録する。CI の gate は、matrix を作るジョブと (a)(b) がすべて成功した場合だけを通し、失敗、skip、cancel の各場合で失敗する。この判定の全組み合わせを、テストで確かめる。
 7. **記録用の仕組みの単体テスト**: notebook を実行せずに `Model` を直接使い、次のことを確かめる。
    - 包んだ後も、`Model.load` が classmethod として、クラスからもインスタンスからも同じように束縛されて呼べる。ほかの classmethod / staticmethod / property があれば、それも同じように扱われる。
    - 包んだ後も、`Model` の公開メソッドの名前、signature、docstring が変わらない。
@@ -11579,4 +11583,26 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
    - マーカーに当たる失敗が 3 回続くと、試行は 3 回で失敗として終わり、skip にはならない。
    - マーカーに当たらない失敗は、1 回で失敗として終わる。
    - 試行ごとに、カーネルと作業ディレクトリが別のものになる（識別子が試行の間で異なる）。
-9. **review**: 新しい review run を 1 回、Codex APPROVE まで通す。
+9. **review**: 新しい review run を 1 回、Codex APPROVE まで通す。review が確かめるのは、5. と 6. の各条文、受け入れ基準 1〜8 の各項目にテストがあるかと、そのテストが通るかである。条文に無い形（CommonMark や GFM の書き方、git のパスの表し方など）を探すことは求めない。条文に無い形が見つかっても、それは次の round に進む理由にならない。保証を広げたい場合は、別の Proposal とする。各条文にテストがあり、どの major の指摘も、改訂後の条文に反することを示していなければ、run を止める。
+
+### 決定 1: 外部の仕組みとの完全一致をやめ、生成した行と無条件の実行に絞る（実装 review run 1〜5 の後、2026-10-10、管理者の判断）
+
+- **経緯**: 実装 review は 5 つの run で、major の指摘を 29 件出した。指摘のあった場所は次のとおり。
+  - 本体（宣言、タグ付きセル、対応表、記録、実行ジョブ、gate）: 5 件で、すべて run 1 の round 1
+  - `docs/examples.md` の検査: 15 件
+  - develop 向け PR の起動判定: 5 件
+  - `--write`: 3 件
+  - CHANGELOG: 1 件
+
+  各 run の最後では、受け入れ基準 1〜8 が成り立っていると報告されていた。
+- **状況の批評**（run `h0119-situation-critique`、head `4cf5af2`）による原因は次のとおり。
+  - 20 件は、外部の仕組みとの完全一致を約束したことから生じた。5. は「CommonMark の表示どおりに読む」、6. は「git がどう報告しても、変わった index のパスを見落とさない」と約束していた。どちらも手書きのコードで真似ていた。
+  - review の依頼は、あらゆる形を探すことを求めていた。また、指摘のたびに契約を書き足したので、目標が動いた。
+  - 修正そのものが新しい欠陥を生んだ例が、少なくとも 6 件ある。
+- **`docs/examples.md` の目的**（同じ批評で確認）: README から「Jupyter notebook index」としてリンクされた、利用者向けの案内である。ノートブックを選び、必要な extras を入れるために使う。ドキュメントサイトは無く、GitHub 上で GFM として表示される。守るべきなのは、メソッドの一覧、extras、ノートブックの漏れの 3 つが正しいことである。手書きの Markdown が、表示どおりに読まれることまでの証明は要らない。
+- **決定**:
+  - 5. は、ファイル先頭の生成領域の物理的な行が完全に一致することだけを検査する。CommonMark の解釈と、表示の保証をやめる（案 M3 を強化した形）。
+  - 6. の起動条件は無条件にし、起動判定を削除する（案 S1）。待ち時間は増えない。index のジョブは 14〜66 秒で、Quality ジョブ（最長 258 秒）と並列に走る。増えるのは runner の時間で、1 PR あたり約 5 分である（`4cf5af2` の CI で観測。保証ではない）。
+  - `--write` は、一時ファイルを経由して置き換える。
+  - それまでの行の文法、マーカー候補、空白と行の区切りの規則、起動判定に関する、実装時の注記は削除する。それらを確かめていたテストも、条文と一緒に取り除く。
+- **互換性**: 公開 API には影響しない。`docs/examples.md` の構成は変わる。各ノートブックの説明の節の前に、生成された一覧の表が来る。
