@@ -135,7 +135,7 @@ A-1 での config の扱い: resume のとき、config の探索空間が study 
 3. **同じ study で受け付けない変更**: 同じ名前の次元で、分布の種類（float と int）、`log` の有無、categorical の選択肢を変えること。LizyML が study を変える前に自分で比べ、`CONFIG_INVALID`（「新しい study で」）にする。
    - categorical の選択肢は、値と型の両方で比べる（並びも含めて同じでなければ変更とみなす）。Optuna 4.7.0 は選択肢を Python の等しさで比べるので、`True` と `1`、`1` と `1.0` の入れ替えを通してしまう（実行で確認）。LizyML は bool・int・float の選択肢を受け付ける（`search_space.py:37, 105-119`）ので、Optuna の検査には頼らない。
    - 分布の種類と `log` の変更は、Optuna 4.7.0 も `ValueError` で拒否する（実行で確認）が、同じく LizyML が先に拒否する。
-   - 範囲（`low` / `high`）と `step` の変更は受け付ける。
+   - 範囲（`low` / `high`）の変更は受け付ける。LizyML の探索空間には `step` が無い（`search_dim.py:20-52`、`parse_space` は読まない）ので、この仕様も `step` を扱わない。
 4. **受け付けの検査**: この round の宣言空間に、新しい tune と同じ受け付けの検査を当てる（H-0093、H-0099、H-0102、H-0121）。`space=` の次元は利用者の宣言として扱う。
 5. **provider の境界**: 拡張だけを縛る（H-0078、H-0111）。利用者が宣言した範囲は検査もクランプもしない（H-0111 の bound のまま）。
 
@@ -201,7 +201,9 @@ H-0068 は前回の最良値を無条件に enqueue する。この案はそれ�
   - 開始時の試行数（その round の試行は、これ以上の番号）、開始時の最良値
   - enqueue の判断（する / しない）と、する場合はその値
   - その round で増えた次元の経路（4.1b）
-- `lizyml:round:<k>:end`: 終了時の最良値と、終わった時刻。正常に終わったときだけ書く。
+- `lizyml:round:<k>:end`: round を閉じたときに書く。中身は、終わり方（`completed` / `failed`）、終了時の最良値（study に COMPLETE の試行が一つも無ければ空）、終わった時刻。
+  - round の試行を足し終えて、study に COMPLETE の試行が一つ以上あれば `completed`。
+  - study に COMPLETE の試行が一つも無いまま round が終われば `failed` と書いたうえで、今と同じく `TUNING_FAILED` を送出する（Model の状態は変えない）。閉じた round は再開の対象にならず、次の `resume=True` は新しい round を始める。前回の最良値が無いので、境界の拡張と enqueue は行わない。
 - 各試行の `lizyml:round`（試行の user attr）。enqueue した試行には `lizyml:enqueued` も付ける（Optuna 4.7.0 の `enqueue_trial(params, user_attrs=...)` で、待ち行列に入れるときに付けられる）。
 
 **study を作るとき**: (a) study を作る、(b) `lizyml:study` を書く。(a) と (b) の間で落ちると、試行が 0 件で `lizyml:study` の無い study が残る。再接続でこれを見つけたら、まだ何の観測も無いので、作りかけの study として (b) からやり直す（新しい study を作ったのと同じ）。試行が 1 件以上あって `lizyml:study` が無い study は、この変更より前に作った study として拒否する（4.3）。
@@ -218,7 +220,8 @@ H-0068 は前回の最良値を無条件に enqueue する。この案はそれ�
   - enqueue: 記録の判断が「する」で、その round に `lizyml:enqueued` の付いた試行（どの状態でも）が無いときだけ、記録した値で enqueue する（(2) と (3) の間で落ちた場合）。あれば何もしない。こうして enqueue は一度だけになる。
   - 残りの試行数は、記録した `n_trials` から、その round で終わった試行（COMPLETE、FAIL、PRUNED）の数を引いたもの。
   - 記録に `timeout` があるとき（意味は Optuna と同じで、新しい試行を始めない期限。走っている試行は止めない）、残りの時間は `timeout` から、round を始めた時刻からその round の最後に終わった試行の終了時刻までの時間を引いたもの。落ちていた間の時間は数えない。
-  - 残りの試行数か残りの時間が 0 以下なら、試行を足さずに round を閉じる（最適化は試行数か時間で終わったが、`:end` を書く前に落ちた場合を含む）。
+  - 残りの試行数か残りの時間が 0 以下なら、試行を足さずに round を閉じる（最適化は試行数か時間で終わったが、`:end` を書く前に落ちた場合を含む）。閉じ方は 7.1 の `:end` の規則に従う。たとえば `n_trials=1` の round 1 で、ただ一つの試行が RUNNING のまま落ちた場合は、その試行を FAIL にして `failed` で閉じ、`TUNING_FAILED` を送出する。
+  - 途中の round の予算は記録が決める。config の `tuning.optuna.params.n_trials` は、途中の round の再開では使わない（新しい round にだけ使う）。config の値が記録と違えば、無視したことを警告に出す。
   - 時間による予算の限界: 残りの時間は試行の記録から求めるので、落ちる直前に走っていた試行の時間は数えない。時間で区切る round では、続けた場合と同じ試行の数になることは保証しない（時間による打ち切りは、同じプロセスでも試行の数を決めないため）。試行の数による予算では INV-R5 を満たす。
   - 落ちたときに RUNNING のまま残った試行は、再接続のときに FAIL として記録し、予算に数える。一つの study に試行を足すプロセスは一つという前提（3）による。
   - この呼び出しでは `space=`、`n_trials`、`expand_boundary` を渡さない。渡したら `CONFIG_INVALID`（途中の round の空間と予算は決まっているため）。
@@ -298,7 +301,7 @@ C11 だけはこの仕様が決める。
 
 ## 10. 利用側への影響
 
-- **LizyStudio**: 障害からの再開（`services/training.py:440-449`）は、新しい `Model` で `resume` を付けずに `storage` と `study_name` を渡している。この仕様では `CONFIG_INVALID` になる。`resume=True` を渡すよう直す必要がある。v0.18 以前に作った study は照合の記録が無いので、再接続できない（D4）。また LizyStudio は、残りの試行数を自分で数えて `n_trials` に渡している（`training.py:383-422`）。Q-D の決定では、途中の round の再開で `n_trials` を渡すと拒否されるので、この計算をやめる必要がある。
+- **LizyStudio**: 障害からの再開（`services/training.py:440-449`）は、新しい `Model` で `resume` を付けずに `storage` と `study_name` を渡している。この仕様では `CONFIG_INVALID` になる。`resume=True` を渡すよう直す必要がある。v0.18 以前に作った study は照合の記録が無いので、再接続できない（D4）。また LizyStudio は、残りの試行数を自分で数えて config の `tuning.optuna.params.n_trials` に書き込み（`training.py:383-425`）、tune には `n_trials` の引数を渡さない（`lifecycle_mixin.py:173-181`）。この仕様では、途中の round の再開で config の値は使われず（警告が出る）、記録した予算で round を終える。この計算は不要になるので、やめる必要がある。
 - **LizyStudio の retune**（`training_retune.py:86-105`）: Model 全体を cloudpickle したものを読み、`resume=True` を呼ぶ。新しい版で作った checkpoint なら study の属性ごと運ばれる。古い版の checkpoint は照合の記録が無いので拒否される。
 - **LizyML-Widget**（`adapter.py:767-800`）: `_study`、`_space`、`_used_default_space`、`_round_number`、`_rounds` を pickle して別プロセスで戻している。同一性と系譜を study の属性に置くので、`_study` が運ばれれば足りる。`_study` を落とした場合（RDB）は、再接続（7.2）の経路を使う必要がある。
 - 公開 API: `tune()` に `space=` を足す（A-1 の場合）。エラーの条件が増える（8）。CHANGELOG と migration に書く。
@@ -344,6 +347,7 @@ C11 だけはこの仕様が決める。
 6. 次元を外して resume → 以後の試行はその次元を config の値で学習する。外した smart の次元が最良の試行にあれば、smart として `fit` に渡る（LightGBM の params に入らない）。
 7. 分布の種類・`log`・選択肢の変更（`True` を `1` に、`1` を `1.0` に変えるものを含む）、`space_mode` の変更 → study を変える前に `CONFIG_INVALID`。
 8. storage で round 2 の途中に落とした（プロセスを止めた）あと、新しい `Model` で `resume=True` → round 2 の残りの予算を、round 2 の実効空間で走らせて閉じる。round 2 の試行の総数、`rounds`、試行の round が、落とさずに走らせた場合と同じ。RUNNING のまま残った試行は FAIL になり、予算に数えられる。境界の拡張と enqueue は起きない。`:end` を書く直前に落とした場合は、試行を足さずに round 2 を閉じる。同じプロセスで round が例外で止まった場合も同じ。
+8a. `n_trials=1` の round 1 で、ただ一つの試行が RUNNING のまま落ちた study に再接続 → その試行が FAIL になり、round 1 が `failed` で閉じ、`TUNING_FAILED`。もう一度 `resume=True` → round 2 が始まり、拡張と enqueue は無い。
 9. `resume=False` で既存の study → `CONFIG_INVALID`、試行が増えない。
 10. `resume=True` で別の storage → `CONFIG_INVALID`。
 11. config の探索空間を変えて `resume=True`（`space=` なし） → `CONFIG_INVALID`。
@@ -353,6 +357,7 @@ C11 だけはこの仕様が決める。
     - 同じ `storage`（URL の文字列が等しい、または同じ `BaseStorage` のオブジェクト）と同じ `study_name` を渡した `resume=True` → 継続する（試行が増え、round が進む）。`storage` と `study_name` を省いた `resume=True` → 継続する。
     - `study_name` だけが違う、URL の文字列が違う（同じファイルを指す別の書き方を含む）、同じ backend を指す別の `BaseStorage` のオブジェクト → `CONFIG_INVALID`、試行が増えない。
     - 新しい `Model` で、storage に既にある study を `resume=True` で指す → 再接続して続く（P2 の成功）。
+    - 新しい `Model` で、正しい `storage` と、storage に無い `study_name` を `resume=True` で指す → `TUNING_FAILED`。storage に study も属性も作られない（U3 を採れば、この項目は「新しい study ができ、round 1 から始まる」に変わる）。
 15. round の準備の途中で落ちた場合（`lizyml:round:<k>` を書いた後、enqueue の前で止めたもの、enqueue の後で止めたもの）→ 再接続のあと、enqueue した試行がその round にちょうど一つある。`lizyml:round:<k>` を書く前に止めたもの → 普通の resume として round k が始まる。
 16. `timeout` のある round を途中で落とした場合 → 再開では、記録から求めた残りの時間を Optuna の `timeout` に渡す（Optuna の timeout は新しい試行を始めないだけで、走っている試行は止めない。今の tune と同じ意味）。残りの時間を使い切っていれば、試行を一つも始めずに round を閉じる。時間を使い切ってから `:end` の前に落とした場合も同じ。
 17. `space=` で `merge` の宣言に利用者の次元を足した round のあと、再接続して次の round を `expand_boundary=None` で始める → 同じプロセスで続けた場合と同じ拡張の判断になる。
