@@ -35,7 +35,9 @@ _original = _model_tuning.check_round_space
 def _values(dim: Any) -> tuple[Any, ...]:
     if isinstance(dim, CategoricalDim):
         return tuple(dim.choices)
-    return (dim.low, dim.high)
+    # Endpoints, plus 0 when the range straddles it (amendment 1, review round 1).
+    zero = (0,) if dim.low <= 0 <= dim.high else ()
+    return (dim.low, dim.high, *zero)
 
 
 def _predicate(cfg: Any, plan: Any, provider: Any, base_model: dict[str, Any],

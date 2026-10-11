@@ -1,4 +1,4 @@
-# firing_rate_341.py output: suite at 3deabe7 (fix/h0121-smart-dim-collisions, before the amendment), 2026-10-12
+# firing_rate_341.py output: suite at 3deabe7 (fix/h0121-smart-dim-collisions, before the amendment), 2026-10-12; predicate revised in proposal review round 1 (0 added when a numeric range straddles it)
 # columns: nodeid, fired, names
 # total tune rounds: 624; fired: 0
 # positive control (scratch probes probe_gap.py / probe_ratio.py, the #341 reproductions): probe_gap 1 max_leaves; probe_ratio 1 min_child_samples
