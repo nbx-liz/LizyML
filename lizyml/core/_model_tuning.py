@@ -545,7 +545,11 @@ class ModelTuningMixin:
         # The tuning-config and argument checks of `tune`; the threshold is
         # its default, since a restore reports the recorded one.
         validate_tune_args(
-            cfg, boundary_threshold=0.05, storage=storage, study_name=study_name
+            cfg,
+            boundary_threshold=0.05,
+            storage=storage,
+            study_name=study_name,
+            caller="restore_tuning",
         )
         require_stored_study_args(storage, study_name, caller="restore_tuning")
         _tuner.require_optuna()  # before data or storage (extras registry)

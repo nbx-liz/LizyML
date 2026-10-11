@@ -191,8 +191,14 @@ def test_storage_object_is_accepted(tmp_path: Path, templates: dict[str, Path]) 
 @pytest.mark.parametrize(
     ("kwargs", "surface"),
     [
-        ({"storage": "<url>", "study_name": None}, "tune(storage=)"),
-        ({"storage": None, "study_name": "s"}, "tune(study_name=)"),
+        (
+            {"storage": "<url>", "study_name": None},
+            "read_study_lineage(storage=)",
+        ),
+        (
+            {"storage": None, "study_name": "s"},
+            "read_study_lineage(study_name=)",
+        ),
         (
             {"storage": None, "study_name": None},
             "read_study_lineage(storage=, study_name=)",
@@ -203,8 +209,8 @@ def test_storage_object_is_accepted(tmp_path: Path, templates: dict[str, Path]) 
 def test_precheck(tmp_path: Path, kwargs: dict[str, Any], surface: str) -> None:
     """Refused before the storage is contacted: no SQLite file is created.
 
-    The ``storage=``/``study_name=`` surfaces are ``Model.tune``'s: the
-    precheck is shared (§7.6, "the same precheck as tune").
+    The precheck is ``Model.tune``'s (§7.6, "the same precheck as tune"),
+    but the reported surface names the function that was called.
     """
     if kwargs["storage"] == "<url>":
         kwargs = {**kwargs, "storage": url(tmp_path)}

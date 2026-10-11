@@ -136,7 +136,7 @@ def require_stored_study_args(
     ``Model.tune``; neither given is refused too, since there is no study to
     read (H-0122 design R-5).
     """
-    _tuner.precheck_study_args(storage, study_name)
+    _tuner.precheck_study_args(storage, study_name, caller=caller)
     if storage is None:
         raise LizyMLError(
             code=ErrorCode.CONFIG_INVALID,

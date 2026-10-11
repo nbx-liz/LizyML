@@ -62,12 +62,16 @@ def require_optuna() -> Any:
 
 
 def precheck_study_args(
-    storage: str | BaseStorage | None, study_name: str | None
+    storage: str | BaseStorage | None,
+    study_name: str | None,
+    *,
+    caller: str = "tune",
 ) -> None:
     """Refuse ``storage`` without ``study_name`` and the reverse (H-0122 §3).
 
-    Shared by ``Model.tune`` and the lineage reader, so it lives with the
-    storage helpers in Layer 2.
+    Shared by ``Model.tune``, ``Model.restore_tuning`` and the lineage reader,
+    so it lives with the storage helpers in Layer 2. *caller* names the public
+    function in the error's ``surface`` (``tune`` unless given).
 
     Checked first, whatever ``resume`` is: before this, a ``resume=True`` on a
     Model without a study raised ``TUNING_FAILED`` for the first, and the
@@ -80,7 +84,7 @@ def precheck_study_args(
                 "study_name is required when storage is provided. "
                 "Pass a unique identifier so the study can be re-attached."
             ),
-            context={"surface": "tune(storage=)", "study_name_given": False},
+            context={"surface": f"{caller}(storage=)", "study_name_given": False},
         )
     if study_name is not None and storage is None:
         raise LizyMLError(
@@ -91,7 +95,7 @@ def precheck_study_args(
                 "an in-memory study."
             ),
             context={
-                "surface": "tune(study_name=)",
+                "surface": f"{caller}(study_name=)",
                 "study_name": study_name,
                 "storage_given": False,
             },

@@ -56,8 +56,12 @@ def validate_tune_args(
     boundary_threshold: float,
     storage: str | BaseStorage | None,
     study_name: str | None,
+    caller: str = "tune",
 ) -> None:
-    """Validate cfg + tune-call invariants. Raises ``LizyMLError`` on violation."""
+    """Validate cfg + tune-call invariants. Raises ``LizyMLError`` on violation.
+
+    *caller* names the public method in the argument errors' ``surface``.
+    """
     if cfg.tuning is None:
         raise LizyMLError(
             code=ErrorCode.CONFIG_INVALID,
@@ -68,7 +72,7 @@ def validate_tune_args(
             context={"task": cfg.task, "model": getattr(cfg.model, "name", None)},
         )
 
-    precheck_study_args(storage, study_name)
+    precheck_study_args(storage, study_name, caller=caller)
 
     if not 0.0 < boundary_threshold < 0.5:
         raise LizyMLError(

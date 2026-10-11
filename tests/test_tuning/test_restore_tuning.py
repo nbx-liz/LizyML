@@ -329,8 +329,8 @@ def test_threshold_report_reused(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("args", "surface"),
     [
-        (("<url>", None), "tune(storage=)"),
-        ((None, "s"), "tune(study_name=)"),
+        (("<url>", None), "restore_tuning(storage=)"),
+        ((None, "s"), "restore_tuning(study_name=)"),
         ((None, None), "restore_tuning(storage=, study_name=)"),
     ],
     ids=["storage_only", "name_only", "neither"],
