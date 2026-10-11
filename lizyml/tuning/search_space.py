@@ -8,7 +8,7 @@ re-exported here for backward compatibility.
 from __future__ import annotations
 
 import math
-from typing import Any
+from typing import Any, TypeVar
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.search_dim import (
@@ -258,6 +258,8 @@ def suggest_params(trial: Any, dims: list[SearchDim]) -> dict[str, Any]:
 _LOG_EXPANSION_FACTOR = 3.0
 """Expansion factor for log-scale dimensions (applied in log space)."""
 
+_Num = TypeVar("_Num", int, float)
+
 
 def _position_pct(best: float, low: float, high: float, *, log: bool) -> float:
     """Compute relative position of *best* within [low, high] as 0.0–1.0."""
@@ -303,6 +305,11 @@ def _expand_range(
     expansion is additionally clamped to those parameter-meaningful
     bounds. The third return value is ``True`` iff such a clamp actually
     bit (i.e. the natural expansion would have crossed the bound).
+
+    Expansion never narrows (#342): a user range may lie outside the bounds
+    (H-0111), and neither a bound nor the ``0.0`` floor moves an edge inward
+    past the declared one. Such an edge stays where it is, and the caller
+    reports the unchanged range as the H-0111 no-op.
     """
     new_low = low
     new_high = high
@@ -310,20 +317,36 @@ def _expand_range(
         if log and low > 0:
             new_low = low / _LOG_EXPANSION_FACTOR
         else:
-            new_low = max(0.0, low - (high - low))
+            new_low = min(low, max(0.0, low - (high - low)))
     elif edge == "upper":
         new_high = (
             high * _LOG_EXPANSION_FACTOR if log and high > 0 else high + (high - low)
         )
+    return _clamp_outward(low, high, new_low, new_high, min_allowed, max_allowed)
 
+
+def _clamp_outward(
+    low: _Num,
+    high: _Num,
+    new_low: _Num,
+    new_high: _Num,
+    min_allowed: _Num | None,
+    max_allowed: _Num | None,
+) -> tuple[_Num, _Num, bool]:
+    """Clamp an expanded edge to its bound, never inward past *low* / *high*.
+
+    Only an edge the expansion moved outward is clamped, and only as far as
+    the declared edge: a user ``low`` already below ``min_allowed`` stays
+    (#342). ``clamped`` is ``True`` iff a bound stopped an outward move.
+    Exact for ints: ``min`` / ``max`` return one of their arguments.
+    """
     clamped = False
-    if min_allowed is not None and new_low < min_allowed:
-        new_low = min_allowed
+    if min_allowed is not None and new_low < low and new_low < min_allowed:
+        new_low = min(low, min_allowed)
         clamped = True
-    if max_allowed is not None and new_high > max_allowed:
-        new_high = max_allowed
+    if max_allowed is not None and new_high > high and new_high > max_allowed:
+        new_high = max(high, max_allowed)
         clamped = True
-
     return new_low, new_high, clamped
 
 
@@ -341,25 +364,19 @@ def _expand_int_range(
     Same rules, in integer arithmetic so that the result -- and the H-0111
     "range unchanged" comparison -- stays exact beyond ``2**53``, where a
     float round trip merges neighbouring integers. The low edge is floored
-    and guarded by ``max(1, ...)``, the high edge ceiled, as before.
+    and guarded by ``max(1, ...)``, the high edge ceiled, as before. Neither
+    the guard nor a bound moves an edge inward past the declared one (#342):
+    ``max_depth`` keeps ``-1`` and ``bagging_freq`` keeps ``0``.
     """
     factor = int(_LOG_EXPANSION_FACTOR)
-    new_low: int | float = low
-    new_high: int | float = high
+    new_low: int = low
+    new_high: int = high
     if edge == "lower":
         new_low = low // factor if log and low > 0 else max(0, low - (high - low))
+        new_low = min(low, max(1, new_low))
     elif edge == "upper":
         new_high = high * factor if log and high > 0 else high + (high - low)
-
-    clamped = False
-    if min_allowed is not None and new_low < min_allowed:
-        new_low = min_allowed
-        clamped = True
-    if max_allowed is not None and new_high > max_allowed:
-        new_high = max_allowed
-        clamped = True
-
-    return max(1, math.floor(new_low)), math.ceil(new_high), clamped
+    return _clamp_outward(low, high, new_low, new_high, min_allowed, max_allowed)
 
 
 def detect_boundary(
@@ -541,7 +558,9 @@ def expand_dims(
     """Return a new list of SearchDim with boundary-expanded ranges (H-0068).
 
     Only dimensions flagged ``expanded=True`` in *report* are modified.
-    Non-expanded dimensions are returned unchanged.
+    Non-expanded dimensions are returned unchanged. An expanded range only
+    ever widens (#342): each edge is the outer of the old and the reported
+    one, so even a hand-made report cannot narrow or invert a range.
 
     Args:
         dims: Original search space dimensions.
@@ -568,8 +587,8 @@ def expand_dims(
             new_dims.append(
                 FloatDim(
                     name=dim.name,
-                    low=float(status.new_low),
-                    high=float(status.new_high),
+                    low=min(dim.low, float(status.new_low)),
+                    high=max(dim.high, float(status.new_high)),
                     log=dim.log,
                     category=dim.category,
                     min_allowed=dim.min_allowed,
@@ -584,8 +603,8 @@ def expand_dims(
             new_dims.append(
                 IntDim(
                     name=dim.name,
-                    low=int(status.new_low),
-                    high=int(status.new_high),
+                    low=min(dim.low, int(status.new_low)),
+                    high=max(dim.high, int(status.new_high)),
                     log=dim.log,
                     category=dim.category,
                     min_allowed=dim.min_allowed,

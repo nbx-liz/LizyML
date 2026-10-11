@@ -17,24 +17,25 @@ refused call changes neither the study nor the Model (INV-R4).
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from lizyml.core._model_factories import (
     build_splitter,
-    check_calibration_param_names,
-    check_duplicate_space_dimensions,
-    check_param_names,
-    check_training_managed_overrides,
-    check_training_managed_space,
     get_provider,
-    model_space_names,
     overlay_params,
 )
 from lizyml.core._model_metrics import _DEFAULT_METRICS
 from lizyml.core._model_state import TuningState
+from lizyml.core._tuning_admission import (
+    check_round_space,
+    check_space_names,
+    parse_space_arg,
+    refuse_space_on_create,
+    validate_tune_args,
+)
 from lizyml.core._tuning_identity import (
     build_identity,
     config_parts,
@@ -42,27 +43,17 @@ from lizyml.core._tuning_identity import (
     provider_default_params,
     summarise_frame,
 )
-from lizyml.core._tuning_plan import (
-    RoundPlan,
-    plan_first_round,
-    plan_next_round,
-    plan_open_round,
-    resolve_config_space,
-)
+from lizyml.core._tuning_plan import RoundPlan, plan_round
 from lizyml.core._tuning_resume import (
-    StudyTarget,
     check_against_record,
     locate_study,
-    precheck_study_args,
     refuse_state,
     resolve_call_row,
     round_record_payload,
     study_record_payload,
 )
-from lizyml.core._tuning_validation import (
-    resolve_tuning_direction,
-    validate_tuning_dimensions,
-)
+from lizyml.core._tuning_space import SPACE_ARG, admit_space_routes
+from lizyml.core._tuning_validation import resolve_tuning_direction
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.logging import generate_run_id, get_logger
 from lizyml.core.train_components import TrainComponents
@@ -191,6 +182,7 @@ class ModelTuningMixin:
         progress_callback: TuneProgressCallback | None = None,
         storage: str | BaseStorage | None = None,
         study_name: str | None = None,
+        space: Mapping[str, Any] | None = None,
     ) -> TuningResult:
         """Run one round of hyperparameter search with optuna (H-0068, H-0072,
         H-0122).
@@ -228,6 +220,15 @@ class ModelTuningMixin:
             study_name: Study identifier used together with ``storage``, and
                 only with it. With ``resume=False`` the name must be new in
                 the storage; continuing a stored study takes ``resume=True``.
+            space: This round's search space, in the form of
+                ``tuning.optuna.space``, resolved by the study's
+                ``space_mode`` (``merge`` lays it over the provider's
+                defaults; ``replace`` declares exactly it). Only for a round
+                after the first (``resume=True`` on a study with a round);
+                ``None`` keeps the previous round's space. A dimension whose
+                declaration changes is not expanded this round; its
+                distribution kind, ``log`` and choices cannot change within a
+                study. An open round only accepts its recorded space.
 
         Returns:
             :class:`~lizyml.core.types.tuning_result.TuningResult` with
@@ -239,18 +240,29 @@ class ModelTuningMixin:
                 ``resume=False`` onto a stored study, for a target that is not
                 the held study, for a study whose record is missing,
                 unreadable or inconsistent, or whose objective or config space
-                differs from this call's.
+                differs from this call's, and for a ``space=`` that is
+                malformed, given to a call that creates a study, changes a
+                dimension's category, distribution kind, ``log`` or choices,
+                or differs from an open round's recorded space.
             LizyMLError with OPTIONAL_DEP_MISSING when optuna is not installed.
             LizyMLError with TUNING_FAILED on study failure, or ``resume=True``
                 with neither a held study nor a storage.
         """
         cfg = self._cfg
         # --- Phase A: arguments (no I/O) --------------------------------------
-        self._validate_tune_inputs(
+        validate_tune_args(
+            cfg,
             boundary_threshold=boundary_threshold,
             storage=storage,
             study_name=study_name,
         )
+        # `space=` before the call matrix: an argument error wins over the
+        # row-8 TUNING_FAILED, and a `resume=False` call is refused before any
+        # storage is contacted (H-0122 design D-c).
+        space_plain, space_dims = (
+            parse_space_arg(space) if space is not None else (None, None)
+        )
+        refuse_space_on_create(space is not None, resume=resume)
         direction = resolve_tuning_direction(cfg)
         # Read with getattr: a Model pickled before H-0122 lacks the fields;
         # its study has no record either, so it reaches state L and is refused.
@@ -299,6 +311,13 @@ class ModelTuningMixin:
             trials = list(target.study.trials)
             lineage = classify_study(target.study.user_attrs, trials)
             refuse_state(lineage, shown_name, len(trials))
+        refuse_space_on_create(
+            space is not None,
+            resume=resume,
+            target_kind=target.kind,
+            state=lineage.state if lineage is not None else None,
+        )
+        if target.study is not None:
             _tuner.check_study_direction(target.study, direction)
         assert cfg.tuning is not None  # noqa: S101 -- phase A
         current_fixed = (
@@ -327,22 +346,30 @@ class ModelTuningMixin:
         # this call's -- so it equals the recomputed value up to the
         # identity's canonical form (a list and a tuple are the same).
         fixed = dict(recorded.fixed) if recorded is not None else current_fixed
-        self._check_config_space_names(provider)
+        check_space_names(provider, cfg)
+        if space_dims is not None:
+            assert lineage is not None  # noqa: S101 -- C-s1 refused E / N / U3
+            # The category rule first (4.1b), so a smart or training dimension
+            # re-declared as `model` is told so, not "unknown parameter".
+            admit_space_routes(space_dims, lineage.routes, provider)
+            check_space_names(provider, cfg, space=space_plain, surface=SPACE_ARG)
         base_model_params, base_smart_params = self._merge_params(
             provider, tuning_fixed_params=fixed, include_tuning_result=False
         )
-        plan = self._plan_round(
-            lineage,
-            trials,
-            target,
-            provider=provider,
+        plan = plan_round(
+            cfg,
+            provider,
+            lineage=lineage,
+            trials=trials,
+            study=target.study,
             fixed=fixed,
             base_smart=base_smart_params,
             n_trials=n_trials,
             expand_boundary=expand_boundary,
             boundary_threshold=boundary_threshold,
+            space_dims=space_dims,
         )
-        self._check_round_space(plan, provider, base_model_params, base_smart_params)
+        check_round_space(cfg, plan, provider, base_model_params, base_smart_params)
         study_payload = (
             study_record_payload(
                 cfg,
@@ -479,166 +506,6 @@ class ModelTuningMixin:
         return result
 
     # --- tune() helpers (#114 — split god method) -------------------------------
-
-    def _validate_tune_inputs(
-        self,
-        *,
-        boundary_threshold: float,
-        storage: str | BaseStorage | None,
-        study_name: str | None,
-    ) -> None:
-        """Validate cfg + tune-call invariants. Raises ``LizyMLError`` on
-        violation."""
-        cfg = self._cfg
-        if cfg.tuning is None:
-            raise LizyMLError(
-                code=ErrorCode.CONFIG_INVALID,
-                user_message=(
-                    "No tuning configuration found. "
-                    "Add a 'tuning' section to the config to enable tuning."
-                ),
-                context={"task": cfg.task, "model": getattr(cfg.model, "name", None)},
-            )
-
-        precheck_study_args(storage, study_name)
-
-        if not 0.0 < boundary_threshold < 0.5:
-            raise LizyMLError(
-                code=ErrorCode.CONFIG_INVALID,
-                user_message=(
-                    f"boundary_threshold must be in (0.0, 0.5), "
-                    f"got {boundary_threshold}."
-                ),
-                context={"boundary_threshold": boundary_threshold},
-            )
-
-    def _check_config_space_names(self, provider: EstimatorProvider) -> None:
-        """The config-level space and calibration name checks.
-
-        Run after the study's record has been checked (§5.1), so an edited
-        config space gets that message first. Every round's space is the
-        config space or inherits from it, so checking it covers the round.
-        """
-        cfg = self._cfg
-        # H-0093: a `category: model` dimension whose name the estimator
-        # does not know is sampled by Optuna, forwarded, and discarded --
-        # so every trial in the study really explores the other axes, and
-        # nothing says so. Checked before the study starts; trial params
-        # are drawn from these names, so covering the space covers them.
-        check_param_names(provider, model_space_names(cfg), model_name=cfg.model.name)
-        # The same-layer rule, on the layer decision 6 had not reached. Two
-        # dimensions spelling one parameter both land in the trial dict, and
-        # LightGBM keeps the canonical one -- so the other is sampled and
-        # optimised over without affecting any trial (H-0094 decision 8).
-        check_duplicate_space_dimensions(provider, cfg)
-        # And the training-managed rule, on the same layer. `_merge_params`
-        # checks the three inputs that meet there; trial parameters overlay
-        # afterwards, so without this a study sampled a parameter
-        # `training.*` controls, trained on it, and returned a
-        # `best_model_params` the following `fit()` refused (H-0094 decision
-        # 10, review round 14).
-        check_training_managed_space(provider, cfg)
-        # The calibration surface is checked here too, not only on the fit path.
-        # `tune()` is its own entry point: without this, a config carrying a
-        # dead `calibration.params` name completes a whole study and is refused
-        # only by the `fit()` that follows, having already trained. Calibration
-        # itself does not run during tuning -- what this buys is the ordering
-        # H-0093 decision 6 and BLUEPRINT 12.2 declare, on every entry point
-        # rather than on one of them.
-        check_calibration_param_names(cfg.calibration)
-
-    def _plan_round(
-        self,
-        lineage: Lineage | None,
-        trials: list[Any],
-        target: StudyTarget,
-        *,
-        provider: EstimatorProvider,
-        fixed: dict[str, Any],
-        base_smart: dict[str, Any],
-        n_trials: int | None,
-        expand_boundary: bool | None,
-        boundary_threshold: float,
-    ) -> RoundPlan:
-        """Dispatch to the planner for the study's state (§7.4)."""
-        cfg = self._cfg
-        state = lineage.state if lineage is not None else "absent"
-        if state == "open":
-            assert lineage is not None  # noqa: S101
-            return plan_open_round(
-                cfg,
-                lineage=lineage,
-                trials=trials,
-                n_trials=n_trials,
-                expand_boundary=expand_boundary,
-                boundary_threshold=boundary_threshold,
-            )
-        if state in ("completed", "failed"):
-            assert lineage is not None and target.study is not None  # noqa: S101
-            # The previous best comes from the study, never from the Model's
-            # `_tuning_result` (§5.3): a loaded Model's may be another study's.
-            complete = any(t.state.name == "COMPLETE" for t in trials)
-            best = target.study.best_trial if complete else None
-            return plan_next_round(
-                cfg,
-                lineage=lineage,
-                n_study_trials=len(trials),
-                best_params=best.params if best is not None else None,
-                best_value=best.value if best is not None else None,
-                n_trials=n_trials,
-                expand_boundary=expand_boundary,
-                boundary_threshold=boundary_threshold,
-            )
-        # absent (a new study), uninitialized (E) or no_round (N).
-        return plan_first_round(
-            cfg,
-            provider,
-            resolved=resolve_config_space(cfg, provider),
-            fixed=fixed,
-            base_smart=base_smart,
-            n_trials=n_trials,
-            expand_boundary=expand_boundary,
-            boundary_threshold=boundary_threshold,
-        )
-
-    def _check_round_space(
-        self,
-        plan: RoundPlan,
-        provider: EstimatorProvider,
-        base_model_params: dict[str, Any],
-        base_smart_params: dict[str, Any],
-    ) -> None:
-        """Admission checks on the space the round samples (H-0094, H-0099)."""
-        cfg = self._cfg
-        space = list(plan.effective)
-        validate_tuning_dimensions(provider, space, base_smart_params, cfg.task)
-        # Resolved defaults can introduce training ownership even when Config
-        # disables it. Check every native name the objective can send before
-        # creating a study. Early-stopping ownership depends on presence of a
-        # training override, not its sampled patience; 1 represents that state.
-        training_claims = (
-            {"early_stopping_rounds": 1}
-            if any(
-                dim.category == "training" and dim.name == "early_stopping_rounds"
-                for dim in space
-            )
-            else None
-        )
-        fixed = dict(plan.fixed)
-        resolved_model = overlay_params(provider, base_model_params, fixed)
-        check_training_managed_overrides(
-            provider, resolved_model, cfg, training_overrides=training_claims
-        )
-        model_dimensions = dict.fromkeys(
-            dim.name for dim in space if dim.category == "model"
-        )
-        check_training_managed_overrides(
-            provider,
-            model_dimensions,
-            cfg,
-            origins=dict.fromkeys(model_dimensions, "tuning.optuna.space"),
-            training_overrides=training_claims,
-        )
 
     def _build_tune_objective(
         self,

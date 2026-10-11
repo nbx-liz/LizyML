@@ -365,6 +365,39 @@ def test_no_round_starts_round1(
     assert _summary(result) == ([(1, 2)], [1, 1])
 
 
+@pytest.mark.parametrize(
+    ("key", "state"),
+    [(STUDY_KEY, "uninitialized"), (round_key(1), "no_round")],
+    ids=["uninitialised", "no_round"],
+)
+def test_space_on_e_or_n_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, key: str, state: str
+) -> None:
+    """Criterion 19 (``space=``): states E and N start round 1 from the
+    config, so ``space=`` is refused, and neither ``lizyml:study`` (E) nor a
+    round record (N) is written (INV-R4)."""
+    storage = url(tmp_path)
+    die_at_attr(monkeypatch, key)
+    with pytest.raises(ProcessDeath):
+        Model(fast_config(), data=frame()).tune(storage=storage, study_name="s")
+    monkeypatch.undo()
+    assert _state(storage) == state
+    model = Model(fast_config(), data=frame())
+    before = (snapshot_study(storage, "s"), snapshot_model(model))
+    with pytest.raises(LizyMLError) as caught:
+        model.tune(
+            resume=True,
+            storage=storage,
+            study_name="s",
+            space={"learning_rate": {"type": "float", "low": 0.05, "high": 0.2}},
+        )
+    assert caught.value.code is ErrorCode.CONFIG_INVALID
+    assert caught.value.context["surface"] == "tune(space=)"
+    assert caught.value.context["reason"] == state
+    assert (snapshot_study(storage, "s"), snapshot_model(model)) == before
+    assert _state(storage) == state
+
+
 @pytest.fixture(scope="module")
 def two_rounds(tmp_path_factory: pytest.TempPathFactory) -> Path:
     """A stored study in state C with two rounds."""

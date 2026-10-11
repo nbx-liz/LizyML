@@ -7,7 +7,7 @@ Provider dispatch added in H-0053.
 from __future__ import annotations
 
 import warnings
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from typing import Any
 
 import numpy.typing as npt
@@ -631,20 +631,33 @@ def check_param_names(
     )
 
 
-def model_space_names(cfg: LizyMLConfig) -> list[tuple[str, str]]:
-    """Return the ``category: model`` dimensions of the tuning search space.
+def model_space_names(
+    cfg: LizyMLConfig,
+    *,
+    space: Mapping[str, Any] | None = None,
+    surface: str = "tuning.optuna.space",
+) -> list[tuple[str, str]]:
+    """Return the ``category: model`` dimensions of a tuning search space.
 
     ``smart`` and ``training`` dimensions are LizyML's own namespaces and are
     never handed to the estimator as parameters, so they are out of scope.
+
+    Args:
+        cfg: The config, whose ``tuning.optuna.space`` is read when *space*
+            is ``None``.
+        space: A raw space of the same form to read instead -- a
+            ``tune(space=...)`` declaration (H-0122 5.2-4).
+        surface: Where the space was written, quoted back with each name.
     """
-    tuning = getattr(cfg, "tuning", None)
-    optuna = getattr(tuning, "optuna", None) if tuning is not None else None
-    space = getattr(optuna, "space", None) if optuna is not None else None
+    if space is None:
+        tuning = getattr(cfg, "tuning", None)
+        optuna = getattr(tuning, "optuna", None) if tuning is not None else None
+        space = getattr(optuna, "space", None) if optuna is not None else None
     out: list[tuple[str, str]] = []
     for dim_name, spec in (space or {}).items():
         category = spec.get("category", "model") if isinstance(spec, dict) else "model"
         if category == "model":
-            out.append(("tuning.optuna.space", dim_name))
+            out.append((surface, dim_name))
     return out
 
 
@@ -752,7 +765,13 @@ def applied_training_overlay(
     return applied
 
 
-def check_training_managed_space(provider: Any, cfg: LizyMLConfig) -> None:
+def check_training_managed_space(
+    provider: Any,
+    cfg: LizyMLConfig,
+    *,
+    space: Mapping[str, Any] | None = None,
+    surface: str = "tuning.optuna.space",
+) -> None:
     """Refuse a search dimension for a parameter a ``training.*`` setting controls.
 
     The merged-dict check below runs inside ``_merge_params``, and **trial
@@ -767,14 +786,17 @@ def check_training_managed_space(provider: Any, cfg: LizyMLConfig) -> None:
     That was true of the three inputs that meet in `_merge_params` and false of
     the fourth, which arrives later. Checked here, before the study starts, the
     way the other two space-level refusals are.
+
+    *space* / *surface* check a ``tune(space=...)`` declaration instead of
+    the config's space (H-0122 5.2-4), as :func:`model_space_names` reads it.
     """
-    names = [name for _, name in model_space_names(cfg)]
+    names = [name for _, name in model_space_names(cfg, space=space, surface=surface)]
     if names:
         check_training_managed_overrides(
             provider,
             dict.fromkeys(names),
             cfg,
-            origins=dict.fromkeys(names, "tuning.optuna.space"),
+            origins=dict.fromkeys(names, surface),
         )
 
 
@@ -871,7 +893,13 @@ def check_training_managed_overrides(
     )
 
 
-def check_duplicate_space_dimensions(provider: Any, cfg: LizyMLConfig) -> None:
+def check_duplicate_space_dimensions(
+    provider: Any,
+    cfg: LizyMLConfig,
+    *,
+    space: Mapping[str, Any] | None = None,
+    surface: str = "tuning.optuna.space",
+) -> None:
     """Refuse two ``category: model`` dimensions that name one parameter.
 
     ``sample_params`` writes one key per dimension, so two dimensions spelling
@@ -900,12 +928,16 @@ def check_duplicate_space_dimensions(provider: Any, cfg: LizyMLConfig) -> None:
         cfg: The whole config; the space is read through ``model_space_names``
             so this and the name check cannot disagree about which dimensions
             are the estimator's.
+        space: A ``tune(space=...)`` declaration to check instead, in its
+            raw form -- before resolution, which would keep one of the two
+            spellings silently (H-0122 5.2-4).
+        surface: Where the space was written, quoted in the message.
 
     Raises:
         LizyMLError: with ``CONFIG_INVALID``, naming the dimensions and the
             parameter they share.
     """
-    names = [name for _, name in model_space_names(cfg)]
+    names = [name for _, name in model_space_names(cfg, space=space, surface=surface)]
     if len(names) < 2:
         return
     from lizyml.core.exceptions import ErrorCode, LizyMLError
@@ -921,7 +953,7 @@ def check_duplicate_space_dimensions(provider: Any, cfg: LizyMLConfig) -> None:
     if not conflicts:
         return
     lines = [
-        f"  tuning.optuna.space: {sorted(written)} are dimensions for the one "
+        f"  {surface}: {sorted(written)} are dimensions for the one "
         f"parameter '{parameter}', so only one of them can reach the estimator."
         for parameter, written in sorted(conflicts.items())
     ]
@@ -936,7 +968,7 @@ def check_duplicate_space_dimensions(provider: Any, cfg: LizyMLConfig) -> None:
         context={
             "conflicts": [
                 {
-                    "surface": "tuning.optuna.space",
+                    "surface": surface,
                     "parameter": parameter,
                     "dimensions": sorted(written),
                 }

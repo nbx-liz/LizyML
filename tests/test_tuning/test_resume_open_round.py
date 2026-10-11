@@ -3,7 +3,7 @@
 Criteria 8 (a crash mid-round is finished on resume, in-process, by a new
 Model, and after a real process kill; a crash before ``:end`` closes the round
 without trials), 8a (a round whose only trial was left RUNNING closes as
-``failed``), 8b without ``space=`` (U2: ``n_trials`` / ``expand_boundary`` are
+``failed``), 8b (U2: ``n_trials`` / ``expand_boundary`` / ``space=`` are
 compared with the record), 16 (the remaining timeout), 18 (progress continues
 at K+1) and 31 (``RoundSummary.n_trials`` is the actual count).
 
@@ -27,8 +27,7 @@ import pytest
 from lizyml import Model
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.tuning_result import TuneProgressInfo
-from lizyml.tuning.lineage import classify_study, end_key, round_key
-from lizyml.tuning.lineage_codec import decode_round_end
+from lizyml.tuning.lineage import classify_study, decode_round_end, end_key, round_key
 from tests.test_tuning._resume_helpers import (
     CRASHED_TRIAL,
     ROUND_1_TRIALS,
@@ -325,6 +324,139 @@ def test_after_closed_round_n_trials_free(storage: str) -> None:
     result = model.tune(resume=True, n_trials=ROUND_2_TRIALS + 1)
     assert [(r.round, r.n_trials) for r in result.rounds][-1] == (3, 4)
     assert _record(load(storage, "s"), 3).n_trials == ROUND_2_TRIALS + 1
+
+
+# ---------------------------------------------------------------------------
+# Criterion 8b, the space= part (PR 2): an open round started with space=
+# ---------------------------------------------------------------------------
+
+#: Round 2's ``space=``: the edge config's space with a moved learning rate
+#: and a new categorical dim.
+OPEN_SPACE: dict[str, Any] = {
+    "num_leaves": {"type": "int", "low": 4, "high": 5},
+    "learning_rate": {"type": "float", "low": 0.05, "high": 0.25, "log": True},
+    "lambda_l1": {"type": "categorical", "choices": [0.0, 1.0]},
+}
+
+
+def _open_with_space(root: Path, space: dict[str, Any]) -> str:
+    """A stored study in state O whose round 2 was started with *space*."""
+    storage = url(root)
+    model = Model(edge_config(), data=frame())
+    model.tune(n_trials=ROUND_1_TRIALS, storage=storage, study_name="s")
+    with pytest.MonkeyPatch.context() as mp:
+        die_in_objective(mp, model, at_call=2)
+        with pytest.raises(ProcessDeath):
+            model.tune(resume=True, expand_boundary=True, space=space)
+    study = load(storage, "s")
+    _assert_round_2_open(study)
+    assert _round_2_record(study).source == "space_arg"
+    return storage
+
+
+@pytest.fixture(scope="module")
+def space_template(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    root = tmp_path_factory.mktemp("open_space")
+    _open_with_space(root, OPEN_SPACE)
+    return root / "s.db"
+
+
+@pytest.fixture
+def space_storage(space_template: Path, tmp_path: Path) -> str:
+    shutil.copy(space_template, tmp_path / "s.db")
+    return url(tmp_path)
+
+
+def _finished_round_2(storage: str) -> None:
+    study = load(storage, "s")
+    assert len(study.trials) == TOTAL
+    assert study.trials[CRASHED_TRIAL].state.name == "FAIL"
+    assert decode_round_end(study.user_attrs[end_key(2)]).status == "completed"
+
+
+SAME_SPACE = {
+    "same": OPEN_SPACE,
+    "reordered_omitted_log": {
+        "lambda_l1": OPEN_SPACE["lambda_l1"],
+        "learning_rate": OPEN_SPACE["learning_rate"],
+        "num_leaves": {**OPEN_SPACE["num_leaves"], "log": False},
+    },
+    "alias": {
+        "num_leaves": OPEN_SPACE["num_leaves"],
+        "eta": OPEN_SPACE["learning_rate"],
+        "lambda_l1": OPEN_SPACE["lambda_l1"],
+    },
+}
+
+
+@pytest.mark.parametrize("variant", list(SAME_SPACE))
+def test_u2_space_same_passes(space_storage: str, variant: str) -> None:
+    model = Model(edge_config(), data=frame())
+    model.tune(
+        resume=True, storage=space_storage, study_name="s", space=SAME_SPACE[variant]
+    )
+    _finished_round_2(space_storage)
+
+
+DIFFERENT_SPACE = {
+    "range": {
+        **OPEN_SPACE,
+        "learning_rate": {**OPEN_SPACE["learning_rate"], "high": 0.3},
+    },
+    "choice_type": {
+        **OPEN_SPACE,
+        "lambda_l1": {"type": "categorical", "choices": [0, 1.0]},
+    },
+}
+
+
+@pytest.mark.parametrize("variant", list(DIFFERENT_SPACE))
+def test_u2_space_different_refused(space_storage: str, variant: str) -> None:
+    model = Model(edge_config(), data=frame())
+    before = (snapshot_study(space_storage, "s"), snapshot_model(model))
+    with pytest.raises(LizyMLError) as caught:
+        model.tune(
+            resume=True,
+            storage=space_storage,
+            study_name="s",
+            space=DIFFERENT_SPACE[variant],
+        )
+    assert caught.value.code is ErrorCode.CONFIG_INVALID
+    assert caught.value.context["surface"] == "tune(space=)"
+    assert caught.value.context["round"] == 2
+    # The context names what differs, not only which dims there are.
+    assert caught.value.context["recorded"] != caught.value.context["given"]
+    assert (snapshot_study(space_storage, "s"), snapshot_model(model)) == before
+    _assert_round_2_open(load(space_storage, "s"))
+
+
+def test_u2_space_omitted_passes(space_storage: str) -> None:
+    """Without ``space=`` the open round finishes with its recorded space."""
+    Model(edge_config(), data=frame()).tune(
+        resume=True, storage=space_storage, study_name="s"
+    )
+    _finished_round_2(space_storage)
+
+
+def test_u2_space_nan_choice_resumes(tmp_path: Path) -> None:
+    """A NaN choice survives the record (design D-a) and compares equal."""
+    space = {
+        **OPEN_SPACE,
+        "max_delta_step": {"type": "categorical", "choices": [0.0, float("nan")]},
+    }
+    storage = _open_with_space(tmp_path, space)
+    record = _round_2_record(load(storage, "s"))
+    assert record.space_arg is not None
+    (stored,) = [d for d in record.space_arg if d.name == "max_delta_step"]
+    assert stored.choices[0] == 0.0 and stored.choices[1] != stored.choices[1]
+    reattach = {
+        **OPEN_SPACE,
+        "max_delta_step": {"type": "categorical", "choices": [0.0, float("nan")]},
+    }
+    Model(edge_config(), data=frame()).tune(
+        resume=True, storage=storage, study_name="s", space=reattach
+    )
+    _finished_round_2(storage)
 
 
 def _record(study: Any, k: int) -> Any:

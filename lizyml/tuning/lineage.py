@@ -12,7 +12,7 @@ A study carries three kinds of ``lizyml:`` attribute, each written once:
 This module holds the pure reader :func:`classify_study`, which judges a
 study's state by the closed §7.4 table, and the arithmetic over a lineage
 (round membership, routes, remaining budget). The record types and their
-codecs live in :mod:`lizyml.tuning.lineage_codec` and are re-exported here.
+codecs live in :mod:`lizyml.tuning.lineage_records` and are re-exported here.
 It imports no Optuna: trials are read through :class:`TrialLike`. It sits in
 Layer 2 and must not import ``config`` or a concrete provider.
 
@@ -30,11 +30,10 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal, Protocol
 
-from lizyml.tuning.lineage_codec import (
-    SCHEMA_VERSION,
-    STUDY_KEY,
-    LineageCodecError,
+from lizyml.tuning.lineage_codec import SCHEMA_VERSION, STUDY_KEY, LineageCodecError
+from lizyml.tuning.lineage_records import (
     Provenance,
+    RoundSource,
     Route,
     StoredRound,
     StoredRoundEnd,
@@ -58,6 +57,7 @@ __all__ = [
     "LineageState",
     "Provenance",
     "Route",
+    "RoundSource",
     "RouteConflict",
     "StoredRound",
     "StoredRoundEnd",

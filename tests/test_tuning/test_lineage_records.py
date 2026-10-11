@@ -33,7 +33,7 @@ from lizyml.tuning.lineage import (
     objective_digest,
     round_key,
 )
-from lizyml.tuning.lineage_codec import LineageCodecError, to_attr_value
+from lizyml.tuning.lineage_codec import LineageCodecError, dim_signature, to_attr_value
 from tests.test_tuning._lineage_fixtures import (
     LR,
     LR_BOUNDED,
@@ -86,6 +86,45 @@ class TestRecordCodecs:
             effective=(replace(LR_BOUNDED, high=0.9), IntDim("x", 1, 2)),
         )
         assert decode_round(to_attr_value(encode_round(record))) == record
+
+    def test_round_round_trip_with_space_arg(self) -> None:
+        """H-0122 PR 2 design D-a: ``space_arg`` is stored as encoded dims.
+
+        A raw dict could not carry a NaN choice through the strict JSON round
+        trip; the tagged codec carries NaN, ``True``, ``1`` and ``1.0`` apart.
+        """
+        space_arg = (
+            CategoricalDim("lambda_l1", (0.0, float("nan"))),
+            CategoricalDim("b", (True, 1, 1.0)),
+            replace(LR, name="eta"),
+        )
+        record = stored_round(2, 3, source="space_arg", space_arg=space_arg)
+        decoded = decode_round(to_attr_value(encode_round(record)))
+        assert decoded.source == "space_arg"
+        assert decoded.space_arg is not None
+        assert [dim_signature(d) for d in decoded.space_arg] == [
+            dim_signature(d) for d in space_arg
+        ]
+        assert replace(decoded, space_arg=None) == replace(record, space_arg=None)
+
+    @pytest.mark.parametrize(
+        ("source", "space_arg"),
+        [("space_arg", None), ("previous", (LR,)), ("config", (LR,))],
+    )
+    def test_space_arg_is_present_iff_the_source_says_so(
+        self, source: str, space_arg: Any
+    ) -> None:
+        """A record breaking ``(source == "space_arg") == (space_arg set)`` is X."""
+        good = to_attr_value(
+            encode_round(stored_round(2, 3, source="space_arg", space_arg=(LR,)))
+        )
+        good["declaration"]["source"] = source
+        if space_arg is None:
+            good["declaration"]["space_arg"] = None
+        with pytest.raises(LineageCodecError, match="space_arg"):
+            decode_round(good)
+        with pytest.raises(LineageCodecError, match="space_arg"):
+            encode_round(stored_round(2, 3, source=source, space_arg=space_arg))
 
     def test_study_whose_fixed_disagrees_with_its_identity_is_refused(self) -> None:
         # The stored `fixed` is what every trial trains on (§5.3); the record's
@@ -200,6 +239,8 @@ class TestRecordCodecs:
             lambda: encode_study(stored_study(objective_digest="0" * 64)),
             lambda: encode_study(stored_study(fixed={"x": float("nan")})),
             lambda: encode_round(stored_round(1, 0, n_trials=-1)),
+            # A "space_arg" round without its space_arg: refused for the iff
+            # rule (PR 2), no longer for an unknown source (PR 1).
             lambda: encode_round(stored_round(1, 0, source="space_arg")),
             lambda: encode_round(stored_round(1, 0, best_before="x")),
             lambda: encode_round_end(StoredRoundEnd("completed", None, "t")),

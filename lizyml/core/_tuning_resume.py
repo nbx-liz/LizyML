@@ -1,7 +1,8 @@
 """The ``tune()`` call matrix and the checks against a study's record (H-0122).
 
-* §3 -- which study a call targets (:func:`precheck_study_args`,
-  :func:`resolve_call_row`, :func:`locate_study`), including the rule for
+* §3 -- which study a call targets (:func:`precheck_study_args`, which lives
+  in ``lizyml.tuning.tuner`` and is re-exported here, :func:`resolve_call_row`,
+  :func:`locate_study`), including the rule for
   "the same study" (:func:`same_study`).
 * §7.4 -- the states that are refused outright (:func:`refuse_state`).
 * §5.1 / §4.3 -- what a stored study's record must still agree with
@@ -17,7 +18,6 @@ attribute writes themselves happen in ``Model.tune`` phase E.
 
 from __future__ import annotations
 
-import json
 import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -38,8 +38,9 @@ from lizyml.tuning.lineage import (
     encode_round,
     encode_study,
 )
-from lizyml.tuning.lineage_codec import LineageCodecError, encode_dim
+from lizyml.tuning.lineage_codec import LineageCodecError, dim_signature
 from lizyml.tuning.search_space import parse_space
+from lizyml.tuning.tuner import precheck_study_args as precheck_study_args
 
 if TYPE_CHECKING:
     from optuna.storages import BaseStorage
@@ -61,40 +62,6 @@ def _shown(study_name: str | None) -> str:
 # ---------------------------------------------------------------------------
 # §3 -- the call matrix
 # ---------------------------------------------------------------------------
-
-
-def precheck_study_args(
-    storage: str | BaseStorage | None, study_name: str | None
-) -> None:
-    """Refuse ``storage`` without ``study_name`` and the reverse (§3).
-
-    Checked first, whatever ``resume`` is: before this, a ``resume=True`` on a
-    Model without a study raised ``TUNING_FAILED`` for the first, and the
-    second was ignored without notice.
-    """
-    if storage is not None and study_name is None:
-        raise LizyMLError(
-            code=ErrorCode.CONFIG_INVALID,
-            user_message=(
-                "study_name is required when storage is provided. "
-                "Pass a unique identifier so the study can be re-attached."
-            ),
-            context={"surface": "tune(storage=)", "study_name_given": False},
-        )
-    if study_name is not None and storage is None:
-        raise LizyMLError(
-            code=ErrorCode.CONFIG_INVALID,
-            user_message=(
-                f"study_name={study_name!r} names a study in a storage, but no "
-                "storage was given. Pass storage as well, or drop study_name for "
-                "an in-memory study."
-            ),
-            context={
-                "surface": "tune(study_name=)",
-                "study_name": study_name,
-                "storage_given": False,
-            },
-        )
 
 
 def same_study(
@@ -281,9 +248,7 @@ def _space_by_key(dims: tuple[SearchDim, ...] | list[SearchDim]) -> dict[Any, st
     The encoded form keeps ``True`` / ``1`` / ``1.0`` apart and makes NaN equal
     to NaN, which dataclass equality would not.
     """
-    return {
-        (d.category, d.name): json.dumps(encode_dim(d), sort_keys=True) for d in dims
-    }
+    return {(d.category, d.name): dim_signature(d) for d in dims}
 
 
 def _check_config_space(cfg: LizyMLConfig, record: StoredStudy, name: str) -> None:

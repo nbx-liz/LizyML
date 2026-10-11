@@ -13,6 +13,9 @@
   ``__main__``).
 * :func:`spy_tuner`, :func:`study_record_for` -- what the round runs with, and
   a ``lizyml:study`` record built for a given config (states E/N by hand).
+* :func:`space_of`, :func:`round_record`, :func:`round_trials`,
+  :func:`spy_fit_params` -- a config space as a ``space=`` base, a decoded
+  round record, a round's trials, and what ``fit`` / a trial trains on.
 """
 
 from __future__ import annotations
@@ -312,6 +315,47 @@ def spy_tuner(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
 
     monkeypatch.setattr(Tuner, "__init__", init)
     monkeypatch.setattr(Tuner, "run", run)
+    return seen
+
+
+def space_of(cfg_dict: dict[str, Any]) -> dict[str, Any]:
+    """A deep copy of the config's space, as a base for ``tune(space=...)``."""
+    return copy.deepcopy(cfg_dict["tuning"]["optuna"]["space"])
+
+
+def round_record(study_or_url: Any, k: int, name: str = "s") -> Any:
+    """Decode ``lizyml:round:<k>`` from a study object or a storage URL."""
+    from lizyml.tuning.lineage import decode_round
+
+    study = load(study_or_url, name) if isinstance(study_or_url, str) else study_or_url
+    return decode_round(study.user_attrs[round_key(k)])
+
+
+def round_trials(study_or_url: Any, k: int, name: str = "s") -> list[Any]:
+    """The trials whose number falls in round *k*'s range."""
+    from lizyml.tuning.lineage import classify_study, trials_of_round
+
+    study = load(study_or_url, name) if isinstance(study_or_url, str) else study_or_url
+    lineage = classify_study(study.user_attrs, study.trials)
+    return list(trials_of_round(lineage, k, study.trials))
+
+
+def spy_fit_params(
+    monkeypatch: pytest.MonkeyPatch, model: Model
+) -> list[dict[str, Any]]:
+    """Record the keyword arguments of every ``_build_train_components`` call.
+
+    It runs once per tune trial and once per ``fit``, so install it after the
+    tune to see what ``fit`` trains on.
+    """
+    seen: list[dict[str, Any]] = []
+    real = model._build_train_components
+
+    def build(*args: Any, **kwargs: Any) -> Any:
+        seen.append(copy.deepcopy(kwargs))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(model, "_build_train_components", build)
     return seen
 
 
