@@ -499,6 +499,10 @@ anchors = ["applied_sample_weight", "declared_categories", "categorical_rule", "
 disposition = "specified"
 anchors = ["check_smart_managed_overrides", "validate_tuning_dimensions", "smart_param_owners", "get_all_study_names"]
 
+[proposals."H-0122"]
+disposition = "pending"
+reason = "Proposed: the resume and reattach rules (BLUEPRINT 11.5, 11.5.1) are restated by the implementation PR once the Proposal is accepted."
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 

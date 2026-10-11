@@ -226,6 +226,21 @@ class EstimatorProvider(Protocol):  # pragma: no cover
         """Return fixed params applied to every trial when using default space."""
         ...
 
+    def default_params(self, task: TaskType) -> dict[str, Any]:
+        """Return the native parameters every estimator for *task* starts from.
+
+        The provider-decided defaults the adapter lays under the user's
+        parameters (H-0122 spec 4.3). ``tune`` records them in the study's
+        objective identity (``config.provider_defaults``), so a default that
+        changes between rounds -- for instance with a LizyML upgrade -- refuses
+        the resume instead of mixing two objectives in one study.
+
+        Optional at runtime: ``tune`` reads it with ``getattr``, and a provider
+        written before H-0122 without it contributes an empty mapping, i.e.
+        its defaults are not checked. Implement it to have them checked.
+        """
+        ...
+
     def runtime_deps(self) -> dict[str, str]:
         """Return algorithm-specific dependency names and their versions.
 

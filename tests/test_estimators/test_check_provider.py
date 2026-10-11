@@ -162,6 +162,20 @@ class TestProtocolReturnTypes:
         "provider_name,provider", PROVIDERS, ids=[p[0] for p in PROVIDERS]
     )
     @pytest.mark.parametrize("task", ["regression", "binary", "multiclass"])
+    def test_default_params_returns_dict(
+        self, provider_name: str, provider: Any, task: str
+    ) -> None:
+        # H-0122 spec 4.3: the tune identity records these. A registered
+        # provider implements the method, so its defaults are checked.
+        result = provider.default_params(task)
+        assert isinstance(result, dict)
+        assert result
+        assert result == provider.default_params(task)
+
+    @pytest.mark.parametrize(
+        "provider_name,provider", PROVIDERS, ids=[p[0] for p in PROVIDERS]
+    )
+    @pytest.mark.parametrize("task", ["regression", "binary", "multiclass"])
     def test_parameter_bounds_returns_dict(
         self, provider_name: str, provider: Any, task: str
     ) -> None:

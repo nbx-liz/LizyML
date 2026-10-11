@@ -20,6 +20,8 @@ from lizyml.estimators.base import BaseEstimatorAdapter
 from lizyml.estimators.lgbm.adapter import LGBMAdapter
 from lizyml.estimators.lgbm.defaults import (
     _COMMON_DEFAULTS,
+    _TASK_METRIC,
+    _TASK_OBJECTIVE,
     TASK_COMPATIBLE_OBJECTIVES,
     default_fixed_params,
     default_space,
@@ -329,6 +331,23 @@ class LGBMProvider:
     def default_fixed_params(self, task: TaskType) -> dict[str, Any]:
         """Return fixed params for default search space."""
         return default_fixed_params(task)
+
+    def default_params(self, task: TaskType) -> dict[str, Any]:
+        """Return the parameters every LightGBM estimator starts from for *task*.
+
+        What ``LGBMAdapter._build_params`` lays under the user's parameters:
+        the task's objective and metric and ``_COMMON_DEFAULTS``, whose
+        ``n_estimators`` is the default ``num_boost_round`` (the smart-param
+        resolver reads the same mapping). Read from the module tables at call
+        time, so it reports what a trial would train on now. The tune identity
+        records it (H-0122 spec 4.3): a default that changes with the LizyML
+        version changes the objective.
+        """
+        return {
+            "objective": _TASK_OBJECTIVE[task],
+            "metric": list(_TASK_METRIC[task]),
+            **_COMMON_DEFAULTS,
+        }
 
     def runtime_deps(self) -> dict[str, str]:
         """Return LightGBM package version."""

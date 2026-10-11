@@ -54,7 +54,7 @@ def _tuning_config() -> dict[str, Any]:
     return make_config("regression", n_estimators=5, n_splits=2, tuning_n_trials=1)
 
 
-def _resume_without_a_study() -> None:
+def _resume_without_study_or_storage() -> None:
     Model(_tuning_config()).tune(data=_regression_df(), resume=True)
 
 
@@ -131,8 +131,8 @@ CONDITIONS: dict[ErrorCode, tuple[Callable[[Path], object], set[str]]] = {
         {"metric", "reason"},
     ),
     ErrorCode.TUNING_FAILED: (
-        lambda p: _resume_without_a_study(),
-        {"resume", "round_number"},
+        lambda p: _resume_without_study_or_storage(),
+        {"resume", "round_number", "storage_given"},
     ),
     ErrorCode.EVALUATION_FAILED: (
         lambda p: _multiclass_feval_gets_1d(),

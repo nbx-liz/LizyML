@@ -812,6 +812,23 @@ class TestModelRetuneResume:
         assert exc_info.value.code == ErrorCode.TUNING_FAILED
         assert "resume" in str(exc_info.value.user_message).lower()
 
+    def test_resume_with_storage_but_no_name_is_config_invalid_first(
+        self, tmp_path: Any
+    ) -> None:
+        """H-0122 §3: the argument pre-check runs before the call-matrix row.
+
+        A Model without a study used to raise TUNING_FAILED here, before the
+        missing study_name was ever looked at.
+        """
+        cfg = _reg_config_with_tuning(n_trials=2)
+        model = Model(cfg)
+        with pytest.raises(LizyMLError) as exc_info:
+            model.tune(
+                make_regression_df(), resume=True, storage=f"sqlite:///{tmp_path}/s.db"
+            )
+        assert exc_info.value.code == ErrorCode.CONFIG_INVALID
+        assert "study_name" in exc_info.value.user_message
+
     @pytest.mark.parametrize("threshold", [0.0, 0.5, 1.0, -0.1])
     def test_invalid_boundary_threshold_raises(self, threshold: float) -> None:
         cfg = _reg_config_with_tuning(n_trials=2)
@@ -831,8 +848,8 @@ class TestModelRetuneResume:
         assert r1.rounds[0].round == 1
 
         r2 = model.tune(df, resume=True, n_trials=2)
-        # Round 1: 3 trials. Round 2: optimize(n_trials=2) — enqueue counts
-        # as 1 of the 2 trials. Total: 3 + 2 = 5 trials.
+        # Round 1: 3 trials. Round 2: exactly n_trials=2 TPE trials; the
+        # previous best is not enqueued (H-0122 §6.2). Total: 3 + 2 = 5.
         assert len(r2.trials) == 5
         assert len(r2.rounds) == 2
         assert r2.rounds[1].round == 2

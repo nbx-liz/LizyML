@@ -515,4 +515,4 @@ LizyStudio（`src/lizystudio`）と LizyML-Widget（`src/lizyml_widget`）で、
 
 この仕様の規則は `Model.tune` に置く。`Tuner`（`lizyml.tuning` にあるが、トップレベルにも docs/api.md にも無い）は今と同じく study を作る・読むだけの層とし、`resume` の意味や同一性の照合は持たない（BLUEPRINT.md:448 の責務分離）。
 
-Firing rate: Proposal を書く段で測る（テストのうち resume と再接続を呼ぶものと、`design-vs-implementation.md` の probe P1-P7 を再生し、拒否の数を数える）。
+Firing rate: unmeasurable before implementation (拒否の条件は 4.1 の同一性の要約と 7.1 の記録を読み、それを書く実装がまだ無いので再生できない; measurable when PR 1 の実装で、`tune(resume=True)` か `storage` を使う既存のテストと `design-vs-implementation.md` の probe P1-P7 を新しい検査に通したとき。拒否の数を PR 1 の決定の記録に書く)

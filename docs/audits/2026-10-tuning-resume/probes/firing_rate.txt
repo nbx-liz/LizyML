@@ -1,0 +1,81 @@
+H-0122 firing rate, measured against lizyml/ of the working tree (old tests from 3a36b02)
+lizyml/: HEAD 3291444, no uncommitted changes
+
+imports: lizyml=/tmp/claude-1000/h0122-firing/lizyml/__init__.py tests=/tmp/claude-1000/h0122-firing/tests/__init__.py
+
+population N = 27 test cases calling Model.tune with resume=True or storage (setup-time calls are attributed to the test being set up)
+refused n = 8
+Firing rate: 8/27 of test cases at 3a36b02 that call Model.tune with resume=True or storage (old suite run against the current lizyml/ with a Model.tune-wrapping pytest plugin; a refusal is a new-rule LizyMLError raised from _tuning_resume.py or _tuning_plan.py)
+
+Refusal kinds (test cases per kind; one test can have several):
+- _check_config_space (tuning.optuna.space): 1
+- _check_config_space (tuning.optuna.space_mode): 5
+- locate_study (tuning.study): 2
+Old test outcome of the refused cases: {'failed': 8}
+Relocated pre-H-0122 refusals (same code as before H-0122), not in n: 3 ['tests/test_core/test_error_code_raising.py::test_member_is_raised[ErrorCode.TUNING_FAILED]', 'tests/test_tuning/test_retune.py::TestModelRetuneResume::test_resume_without_prior_tune_raises', 'tests/test_tuning/test_tuner_persistence.py::TestFailFastValidation::test_model_tune_storage_without_study_name_raises']
+
+Per test case (old test outcome against the current code; 'refusals' = new-rule refusals, 'other' = other errors):
+- [passes ] tests/test_config/test_knob_reachability.py::test_api_rows_reach_the_constructor  (test passed)
+- [passes ] tests/test_core/test_error_code_raising.py::test_member_is_raised[ErrorCode.TUNING_FAILED]  (test passed)
+    other: LizyMLError TUNING_FAILED at lizyml/core/_tuning_resume.py:resolve_call_row
+- [passes ] tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared  (test passed)
+- [passes ] tests/test_tuning/test_retune.py::TestBoundaryEdgeCases::test_multiple_rounds_three_rounds  (test passed)
+- [passes ] tests/test_tuning/test_retune.py::TestBoundaryEdgeCases::test_round_summary_best_score_before  (test passed)
+- [passes ] tests/test_tuning/test_retune.py::TestBoundaryTable::test_boundary_table_with_report  (test passed)
+- [passes ] tests/test_tuning/test_retune.py::TestModelRetuneBoundaryExpansion::test_expand_boundary_explicit_true_user_space  (test passed)
+- [passes ] tests/test_tuning/test_retune.py::TestModelRetuneBoundaryExpansion::test_expand_boundary_false_no_report  (test passed)
+- [passes ] tests/test_tuning/test_retune.py::TestModelRetuneBoundaryExpansion::test_expand_boundary_none_user_space_no_expand  (test passed)
+- [passes ] tests/test_tuning/test_retune.py::TestModelRetuneResume::test_resume_accumulates_trials  (test passed)
+- [passes ] tests/test_tuning/test_retune.py::TestModelRetuneResume::test_resume_best_score_monotonic  (test passed)
+- [passes ] tests/test_tuning/test_retune.py::TestModelRetuneResume::test_resume_progress_callback  (test passed)
+- [passes ] tests/test_tuning/test_retune.py::TestModelRetuneResume::test_resume_trial_round_numbers  (test passed)
+- [passes ] tests/test_tuning/test_retune.py::TestModelRetuneResume::test_resume_without_prior_tune_raises  (test passed)
+    other: LizyMLError TUNING_FAILED at lizyml/core/_tuning_resume.py:resolve_call_row
+- [passes ] tests/test_tuning/test_retune.py::TestModelTuneWiresParameterBounds::test_re_tune_clamps_learning_rate_at_one  (test passed)
+- [passes ] tests/test_tuning/test_retune.py::TestTuningTableRetune::test_tuning_table_has_round_and_state  (test passed)
+- [passes ] tests/test_tuning/test_smart_dimension_admission.py::test_a_new_name_in_storage_is_a_new_study_and_drops  (test passed)
+- [REFUSED] tests/test_tuning/test_smart_dimension_admission.py::test_reattaching_to_a_stored_study_is_out_of_scope  (test failed)
+    refusal: CONFIG_INVALID at lizyml/core/_tuning_resume.py:locate_study (tuning.study)
+      study 'kept' already exists in this storage. Use resume=True to continue it, or another study_name to start a new one.
+- [REFUSED] tests/test_tuning/test_space_merge.py::test_export_load_refit_retains_fixed_policy[merge]  (test failed)
+    refusal: CONFIG_INVALID at lizyml/core/_tuning_resume.py:_check_config_space (tuning.optuna.space_mode)
+      tuning.optuna.space_mode is 'replace', but study '<in-memory>' was created with 'merge'. The space a study was created with cannot be changed through the config
+- [REFUSED] tests/test_tuning/test_space_merge.py::test_export_load_refit_retains_fixed_policy[replace]  (test failed)
+    refusal: CONFIG_INVALID at lizyml/core/_tuning_resume.py:_check_config_space (tuning.optuna.space_mode)
+      tuning.optuna.space_mode is 'merge', but study '<in-memory>' was created with 'replace'. The space a study was created with cannot be changed through the config
+- [REFUSED] tests/test_tuning/test_space_merge.py::test_real_tune_retains_defaults_and_resume_policy  (test failed)
+    refusal: CONFIG_INVALID at lizyml/core/_tuning_resume.py:_check_config_space (tuning.optuna.space_mode)
+      tuning.optuna.space_mode is 'replace', but study '<in-memory>' was created with 'merge'. The space a study was created with cannot be changed through the config
+- [REFUSED] tests/test_tuning/test_space_merge.py::test_removed_dimensions_match_trial_and_fit[learning_rate-model-0.01-0.04-True]  (test failed)
+    refusal: CONFIG_INVALID at lizyml/core/_tuning_resume.py:_check_config_space (tuning.optuna.space_mode)
+      tuning.optuna.space_mode is 'replace', but study '<in-memory>' was created with 'merge'. The space a study was created with cannot be changed through the config
+- [REFUSED] tests/test_tuning/test_space_merge.py::test_removed_dimensions_match_trial_and_fit[num_leaves_ratio-smart-0.6-0.8-True]  (test failed)
+    refusal: CONFIG_INVALID at lizyml/core/_tuning_resume.py:_check_config_space (tuning.optuna.space_mode)
+      tuning.optuna.space_mode is 'replace', but study '<in-memory>' was created with 'merge'. The space a study was created with cannot be changed through the config
+- [REFUSED] tests/test_tuning/test_space_merge.py::test_removed_training_dimension_admission[True]  (test failed)
+    refusal: CONFIG_INVALID at lizyml/core/_tuning_resume.py:_check_config_space (tuning.optuna.space)
+      tuning.optuna.space differs from the space study '<in-memory>' was created with (changed: training:early_stopping_rounds). The space a study was created with ca
+- [passes ] tests/test_tuning/test_tuner_persistence.py::TestFailFastValidation::test_model_tune_storage_without_study_name_raises  (test passed)
+    other: LizyMLError CONFIG_INVALID at lizyml/core/_tuning_resume.py:precheck_study_args
+- [REFUSED] tests/test_tuning/test_tuner_persistence.py::TestModelTunePassThrough::test_model_tune_load_if_exists_resumes_across_instances  (test failed)
+    refusal: CONFIG_INVALID at lizyml/core/_tuning_resume.py:locate_study (tuning.study)
+      study 'shared-job' already exists in this storage. Use resume=True to continue it, or another study_name to start a new one.
+- [passes ] tests/test_tuning/test_tuner_persistence.py::TestModelTunePassThrough::test_model_tune_persists_via_sqlite  (test passed)
+
+P1-P7 (design-vs-implementation.md), driven one by one:
+
+| Scenario | Now | Spec |
+|---|---|---|
+| P1 in-process resume after a data change | CONFIG_INVALID at lizyml/core/_tuning_resume.py:check_against_record (['data.values']) | CONFIG_INVALID, identity (data.*) -- §4.3 |
+| P2 in-process resume after rmse -> mae | CONFIG_INVALID at lizyml/core/_tuning_resume.py:check_against_record (['metric']) | CONFIG_INVALID, identity (metric) -- §4.3 |
+| P3 resume after editing the config space | CONFIG_INVALID at lizyml/core/_tuning_resume.py:_check_config_space (tuning.optuna.space) | CONFIG_INVALID, config space -- §5.1 |
+| P4 new Model, other metric + space, resume=False onto the stored study | CONFIG_INVALID at lizyml/core/_tuning_resume.py:locate_study (tuning.study) | CONFIG_INVALID, study already exists -- §3 row 3 |
+| P4b reattach a mae study under rmse + other space, resume=False | CONFIG_INVALID at lizyml/core/_tuning_resume.py:locate_study (tuning.study) | CONFIG_INVALID, study already exists -- §3 row 3 |
+| P4b' the same with resume=True | CONFIG_INVALID at lizyml/core/_tuning_resume.py:_check_config_space (tuning.optuna.space) | CONFIG_INVALID, config space or identity -- §5.1 / §4.3 |
+| P5 resume=True with another storage on an in-memory study | CONFIG_INVALID at lizyml/core/_tuning_resume.py:resolve_call_row (tuning.study) | CONFIG_INVALID, not the held study -- §3 row 5 |
+| P6 Model.load, then resume=True without storage | TUNING_FAILED at lizyml/core/_tuning_resume.py:resolve_call_row (None) | TUNING_FAILED (unchanged) -- §3 row 8, §7.5 |
+| P7 auto_num_leaves true -> false, then resume | CONFIG_INVALID at lizyml/core/_tuning_resume.py:check_against_record (['config.model']) | CONFIG_INVALID, identity (config.model) -- §4.3 |
+
+The probe scripts as they are:
+- probe_resume.py: exit=1; scenarios started: ['P1']; stopped by: lizyml.core.exceptions.LizyMLError: [CONFIG_INVALID] this call's objective differs from the one study '<in-memory>' observes (changed: data.values). The trials of one study must all observe the same o
+- probe_p4b.py: exit=1; scenarios started: []; stopped by: lizyml.core.exceptions.LizyMLError: [CONFIG_INVALID] study 'job' already exists in this storage. Use resume=True to continue it, or another study_name to start a new one.
