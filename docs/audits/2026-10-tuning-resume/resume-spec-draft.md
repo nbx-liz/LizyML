@@ -203,6 +203,7 @@ H-0068、H-0078、H-0111 の規則のまま。変える点:
 - `lizyml:round:<k>`: round k の系譜。round の準備（5.2・5.3・6.2 の判断）がすべて済んでから、試行を足す前に一度だけ書く。中身:
   - その round の宣言の元の形（`space=` の dict、無ければ「直前の宣言のまま」）と、次元ごとの出どころ（利用者 / 既定）。`expand_boundary=None` の判断（5.3）と H-0121 の出どころの規則を、再接続のあとも同じに決めるため。
   - 宣言空間、実効空間、拡張した次元とその結果、解決した `expand_boundary` の値
+  - その round の `BoundaryReport` の全体（次元ごとの判定、使った `boundary_threshold`）。拡張した次元だけでは、閾値の違いで判定が変わり拡張は変わらない場合（境界に当たって範囲が変わらない場合）を区別できないため。再開と `restore_tuning` は、これをそのまま返す。
   - 予算: 要求した `n_trials` と `timeout`
   - 開始時の試行数（その round の試行は、これ以上の番号）、開始時の最良値
   - その round で増えた次元の経路（4.1b）
@@ -508,7 +509,7 @@ LizyStudio（`src/lizystudio`）と LizyML-Widget（`src/lizyml_widget`）で、
 
 35. 系譜を読む関数（7.6）: 7.4 の各状態の study（storage に無いもの、旧 study、作りかけ、読めない、round が無い、壊れている、開いた round、完了、失敗）に `read_study_lineage` → `state` がそれぞれの値になり、`rounds` と `open_round` が系譜どおり（`failed` の round も入る）。呼ぶ前と後で、study の試行の数と状態（RUNNING の試行を含む）と属性が同じ。`storage` だけ、`study_name` だけを渡すと `CONFIG_INVALID`。`lizyml.tuning.__all__` に `read_study_lineage` と `StudyLineage` があり、トップレベルの `lizyml.__all__` は変わらない。`StudyLineage` と `RoundRecord` の欄に代入すると `FrozenInstanceError` になり、`rounds` は tuple である。
 
-36. 結果を取り戻す（7.7）: storage で round 2 を閉じた（`:end` を書いた）直後に止めた study に、新しい Model で `restore_tuning` → 返る `TuningResult` が、止めずに走らせた tune の返したものと同じ（三つに分けた最良値、`best_score`、`rounds`、試行の round、`boundary_report`）。続く `fit()` は最良の試行と同じパラメーター（`fixed` を含む）で学習する。study の試行の数と状態と属性は変わらず、round は増えない。そのあと `tune(resume=True)` → round 3 が始まる。状態 O → `CONFIG_INVALID`、状態 F・E・N と study が無い場合 → `TUNING_FAILED`、データを変えた Model → `CONFIG_INVALID`、状態 L・S・X → `CONFIG_INVALID`。どの拒否でも、study と Model の状態は変わらない（22 と同じ確かめ方）。`docs/api.md` と BLUEPRINT §11 に `restore_tuning` が書かれている。
+36. 結果を取り戻す（7.7）。`boundary_threshold` を既定以外にした round（たとえば範囲 [0, 1]、前回の最良値 0.08、閾値 0.10 で、下限が 0 で抑えられて範囲が変わらず、判定だけが `lower` になるもの）を含めて確かめる: storage で round 2 を閉じた（`:end` を書いた）直後に止めた study に、新しい Model で `restore_tuning` → 返る `TuningResult` が、止めずに走らせた tune の返したものと同じ（三つに分けた最良値、`best_score`、`rounds`、試行の round、`boundary_report`）。続く `fit()` は最良の試行と同じパラメーター（`fixed` を含む）で学習する。study の試行の数と状態と属性は変わらず、round は増えない。そのあと `tune(resume=True)` → round 3 が始まる。状態 O → `CONFIG_INVALID`、状態 F・E・N と study が無い場合 → `TUNING_FAILED`、データを変えた Model → `CONFIG_INVALID`、状態 L・S・X → `CONFIG_INVALID`。どの拒否でも、study と Model の状態は変わらない（22 と同じ確かめ方）。fit 済みの Model で `restore_tuning` → fit の結果・学習済みのモデル・評価・`params_table` などの fit の記録は変わらず、tune の結果だけが置き換わる（H-0094 決定 13）。版の記録を書き換えた study に `restore_tuning` → 警告が出て結果を取り戻す。`docs/api.md` と BLUEPRINT §11 に `restore_tuning` が書かれている。
 
 一つの study に試行を足すプロセスは一つという前提（3）は、利用者に求める前提で、ライブラリは強制しない（lease などの仕組みは入れない）。テストは、再接続のときに残った RUNNING の試行が FAIL になること（8）だけを確かめる。
 
