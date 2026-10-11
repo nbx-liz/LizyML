@@ -106,6 +106,9 @@ from lizyml.training.refit_trainer import RefitResult, RefitTrainer
 
 _log = get_logger("model")
 
+#: How a refusal names the provider's default fixed parameters (H-0121).
+_FIXED_LAYER = "provider default fixed params"
+
 _TS_METHODS = frozenset({"time_series", "purged_time_series", "group_time_series"})
 _BLOCK_METHODS = frozenset({"blocked_group_kfold"})
 
@@ -520,6 +523,10 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         model_params = normalise_and_check(
             provider, model_params, surface="model.params"
         )
+        # H-0121: every layer as it was written, each checked below against
+        # the smart parameters that will be resolved. Kept separately because
+        # the merged dict no longer says which layer a spelling came from.
+        layers: list[tuple[str, dict[str, Any]]] = [("model.params", model_params)]
 
         # --- Overlay tune best ---
         if include_tuning_result and self._tuning_result is not None:
@@ -541,7 +548,8 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
                 )
             if fixed:
                 model_params = overlay_params(provider, model_params, fixed)
-                origins.update(dict.fromkeys(fixed, "provider default fixed params"))
+                origins.update(dict.fromkeys(fixed, _FIXED_LAYER))
+                layers.append((_FIXED_LAYER, fixed))
 
             # The same-layer rule on the layer that arrives from disk.
             # `overlay_params` drops competing spellings from the layer it
@@ -559,23 +567,36 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             )
             model_params = overlay_params(provider, model_params, best_model_params)
             origins.update(dict.fromkeys(best_model_params, "tuning best_model_params"))
+            layers.append(("tuning best_model_params", best_model_params))
             if self._tuning_result.best_smart_params:
                 smart_params = {
                     **smart_params,
                     **self._tuning_result.best_smart_params,
                 }
+        elif tuning_fixed_params:
+            # A fresh study: the objective overlays this layer on every trial
+            # (`_model_tuning.py`), so it is checked here although it is not
+            # overlaid here (H-0121 decision 1).
+            layers.append((_FIXED_LAYER, tuning_fixed_params))
 
         # --- Overlay fit() args (highest priority) ---
-        # "Highest priority" is highest among these three inputs. A native name
-        # an active smart parameter resolves is not one of them: smart
-        # resolution runs downstream of this merge and wins, so accepting such
-        # an override would be accepting a value that is then discarded. The
-        # config schema already refuses the same collision at parse time; this
-        # applies that policy to the `fit()` input (H-0094).
         override = normalise_and_check(provider, override or {}, surface="fit(params=)")
-        check_smart_managed_overrides(
-            provider, override, smart_params, cfg.task, surface="fit(params=)"
-        )
+        layers.append(("fit(params=)", override))
+
+        # "Highest priority" is highest among the layers. A native name an
+        # active smart parameter resolves is not one of them: smart resolution
+        # runs downstream of this merge and wins, so accepting such a name in
+        # any layer would be accepting a value that is then discarded (H-0094
+        # for `fit(params=)`, H-0121 for the other layers). Checked once every
+        # layer is known, against the effective smart parameters -- the
+        # config's values with the tuning result's `best_smart_params` laid
+        # over them -- so a tuning result that switches an owner on is seen.
+        # The check is alias-aware; the literal-string check `LGBMConfig` used
+        # to carry covered three of the eighteen spellings (#280).
+        for surface, layer in layers:
+            check_smart_managed_overrides(
+                provider, layer, smart_params, cfg.task, surface=surface
+            )
         if override:
             # Overlaid by identity: a config spelling `learning_rate` and an
             # override spelling `eta` are one parameter, and a plain dict merge

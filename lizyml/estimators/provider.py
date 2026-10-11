@@ -112,6 +112,18 @@ class EstimatorProvider(Protocol):  # pragma: no cover
         """
         ...
 
+    def smart_param_owners(self) -> dict[str, str]:
+        """Return ``{smart parameter: owner}`` for conditionally read ones (H-0121).
+
+        The owner is the smart parameter that must be true for the first to be
+        read by :meth:`resolve_smart_params`. A search dimension on a smart
+        parameter whose owner cannot be true in a tune changes nothing, so the
+        tuning layer refuses it (written by the user) or drops it (from the
+        default space). Smart parameters read unconditionally are omitted; a
+        provider without such parameters returns ``{}``.
+        """
+        ...
+
     def smart_managed_param_names(
         self, smart: dict[str, Any], task: TaskType
     ) -> dict[str, tuple[str, str]]:
@@ -120,8 +132,8 @@ class EstimatorProvider(Protocol):  # pragma: no cover
         :meth:`resolve_smart_params` runs after the parameter dict is merged and
         its result wins, so a native name it writes cannot be set by hand: the
         value is replaced without a word. The caller uses this to refuse such a
-        name instead, which is the policy the config schema already applies to
-        the same collisions at parse time.
+        name instead, on every parameter layer at ``fit`` / ``tune`` (H-0094,
+        H-0121).
 
         Args:
             smart: Smart parameter values, as :meth:`extract_smart_params`

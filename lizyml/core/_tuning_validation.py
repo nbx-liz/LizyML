@@ -78,6 +78,7 @@ def validate_tuning_dimensions(
                 "category": "training",
             },
         )
+    _refuse_undeclared_smart_dimensions(provider, space)
     model_names = dict.fromkeys(dim.name for dim in space if dim.category == "model")
     check_smart_managed_overrides(
         provider, model_names, smart, task, surface="tuning.optuna.space"
@@ -94,3 +95,148 @@ def validate_tuning_dimensions(
                 task,
                 surface="tuning.optuna.space",
             )
+
+
+def _refuse_undeclared_smart_dimensions(
+    provider: EstimatorProvider, space: list[SearchDim]
+) -> None:
+    """Refuse a ``category: smart`` dimension that names no smart parameter.
+
+    Smart resolution reads only the smart parameters the provider declares, so
+    any other name is sampled, recorded in ``best_params`` and read by nothing
+    (#299, H-0121 decision 2). A native estimator name is the likely intent, so
+    the message points it at ``category: model``.
+    """
+    declared = provider.smart_param_names()
+    undeclared = [
+        dim.name
+        for dim in space
+        if dim.category == "smart" and dim.name not in declared
+    ]
+    if not undeclared:
+        return
+    native = provider.accepted_model_param_names()
+    lines = []
+    for name in undeclared:
+        if name in native:
+            lines.append(
+                f"  '{name}' is a native model parameter, not a smart "
+                "parameter. Declare it with category: model."
+            )
+        else:
+            lines.append(f"  '{name}' is not a smart parameter.")
+    raise LizyMLError(
+        code=ErrorCode.CONFIG_INVALID,
+        user_message=(
+            "tuning.optuna.space: category: smart dimension(s) that no smart "
+            "parameter reads, so they would have had no effect:\n" + "\n".join(lines)
+        ),
+        context={
+            "surface": "tuning.optuna.space",
+            "names": undeclared,
+            "category": "smart",
+        },
+    )
+
+
+def _owner_can_be_true(
+    owner: str, smart_dims: dict[str, SearchDim], smart: dict[str, Any]
+) -> bool:
+    """Whether *owner* can be true in some trial of this tune (H-0121).
+
+    A dimension on the owner overlays its sampled value on every trial, so its
+    possible values decide; otherwise the effective smart value does.
+    """
+    dim = smart_dims.get(owner)
+    if dim is None:
+        return bool(smart.get(owner))
+    if isinstance(dim, CategoricalDim):
+        return any(bool(choice) for choice in dim.choices)
+    return not (dim.low == 0 and dim.high == 0)
+
+
+def inactive_smart_dimensions(
+    provider: EstimatorProvider,
+    space: list[SearchDim],
+    smart: dict[str, Any],
+) -> list[SearchDim]:
+    """Return the smart dimensions whose owner cannot be true (H-0121).
+
+    Provider-independent: the provider declares only which smart parameter
+    owns which (``EstimatorProvider.smart_param_owners``).
+
+    Args:
+        provider: Declares the owners.
+        space: The resolved search space.
+        smart: The effective smart parameter values the tune starts from.
+
+    Returns:
+        The dimensions, in space order, that no trial would read.
+    """
+    owners = provider.smart_param_owners()
+    smart_dims = {dim.name: dim for dim in space if dim.category == "smart"}
+    return [
+        dim
+        for dim in space
+        if dim.category == "smart"
+        and dim.name in owners
+        and not _owner_can_be_true(owners[dim.name], smart_dims, smart)
+    ]
+
+
+def admit_smart_dimensions(
+    provider: EstimatorProvider,
+    space: list[SearchDim],
+    smart: dict[str, Any],
+    default_dims: frozenset[tuple[str, str]],
+) -> tuple[list[SearchDim], list[SearchDim]]:
+    """Refuse or drop the smart dimensions nothing would read (H-0121).
+
+    For a tune that creates a new study only. A dimension the user wrote is
+    refused (decision 3): the user asked for it and would otherwise not learn
+    that it did nothing. One that came from the provider's default space is
+    dropped (decision 4): ``auto_num_leaves: false`` is the documented way to
+    tune native leaves, and refusing would break that configuration.
+
+    Args:
+        provider: Declares the owners.
+        space: The resolved search space.
+        smart: The effective smart parameter values the tune starts from.
+        default_dims: ``(category, name)`` of the dimensions that came from
+            the default space and were not overridden by the user.
+
+    Returns:
+        ``(space without the dropped dimensions, the dropped dimensions)``.
+
+    Raises:
+        LizyMLError: ``CONFIG_INVALID`` naming each user-written dimension
+            and its owner.
+    """
+    inactive = inactive_smart_dimensions(provider, space, smart)
+    if not inactive:
+        return space, []
+    owners = provider.smart_param_owners()
+    written = [dim for dim in inactive if (dim.category, dim.name) not in default_dims]
+    if written:
+        lines = []
+        for dim in written:
+            owner = owners[dim.name]
+            lines.append(
+                f"  '{dim.name}' is read only while '{owner}' is true, and "
+                f"'{owner}' cannot be true in this tune. Set 'model.{owner}: "
+                f"true', give a category: smart '{owner}' dimension a true "
+                f"choice, or remove '{dim.name}'."
+            )
+        raise LizyMLError(
+            code=ErrorCode.CONFIG_INVALID,
+            user_message=(
+                "tuning.optuna.space: smart dimension(s) that nothing would "
+                "read, so they would have had no effect:\n" + "\n".join(lines)
+            ),
+            context={
+                "surface": "tuning.optuna.space",
+                "names": [dim.name for dim in written],
+                "owners": {dim.name: owners[dim.name] for dim in written},
+            },
+        )
+    return [dim for dim in space if dim not in inactive], inactive

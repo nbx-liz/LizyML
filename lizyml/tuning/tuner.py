@@ -42,6 +42,33 @@ except ImportError:  # pragma: no cover
 _log = get_logger("tuner")
 
 
+def _require_optuna() -> Any:
+    if _optuna is None:  # pragma: no cover
+        raise LizyMLError(
+            code=ErrorCode.OPTIONAL_DEP_MISSING,
+            user_message=(
+                "Optuna is required for tuning. "
+                "Install with: pip install 'lizyml[tuning]'"
+            ),
+            context={"package": "optuna"},
+        )
+    return _optuna
+
+
+def stored_study_exists(storage: str | BaseStorage, study_name: str | None) -> bool:
+    """Whether *storage* already holds a study named *study_name* (H-0121).
+
+    ``Tuner`` creates its study with ``load_if_exists=True``, so this decides
+    whether a ``resume=False`` tune starts a new study or reattaches to a
+    stored one. Asked before the study is created; a second process creating
+    the same name in between is not considered (one writer per study).
+    """
+    if study_name is None:
+        return False
+    names: list[str] = _require_optuna().get_all_study_names(storage)
+    return study_name in names
+
+
 class Tuner:
     """Optuna-backed hyperparameter tuner (study management only).
 

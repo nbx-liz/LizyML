@@ -250,13 +250,18 @@ config = {
 
 `LGBMConfig` に以下のスマートパラメーターを提供する。これらは `fit()` 時に学習データに基づいて LightGBM ネイティブパラメーターに解決される。`params` の直接指定とは独立して機能し、`params` で同一パラメーターが指定されている場合は競合エラーとする。
 
-**この競合ルールが適用される入口（H-0094 / 実測）。** スマート解決はパラメーター dict のマージより後段で走り、その結果が勝つため、ルールが適用されない入口では「受理して黙って置換」になる。
+**この競合ルールが適用される入口（H-0094 / H-0121）。** スマート解決はパラメーター dict のマージより後段で走り、その結果が勝つため、ルールが適用されない入口では「受理して黙って置換」になる。
+
+**H-0121 で、モデルパラメーターの 4 つの層の検査を `fit` / `tune` の学習前の 1 か所（`Model._merge_params`、`fit` と `tune` の両方が通る）に一本化した。** 各層を、有効なスマートパラメーター（config の値に、tune の結果の `best_smart_params` を重ねたもの）に対して `check_smart_managed_overrides` で検査する。検査は alias 対応で、綴りは LightGBM の `LGBM_DumpParamAliases` から導く。ネイティブの名前を書く 5 つのスマートパラメーター（`SMART_PARAM_TARGETS`）の 6 つの正規名と、その 18 の綴りのすべてを覆う: `auto_num_leaves` → `num_leaves`、`min_data_in_leaf_ratio` → `min_data_in_leaf`、`min_data_in_bin_ratio` → `min_data_in_bin`、`feature_weights` → `feature_contri` と `feature_pre_filter`、`balanced` → `scale_pos_weight`（binary のみ）。`num_leaves_ratio` は `auto_num_leaves` の修飾子で、自分では名前を書かない。拒否は `CONFIG_INVALID` で、綴り・管理しているスマートパラメーター・名前の来た層を挙げる。H-0121 以前は `model.params` に `LGBMConfig._validate_smart_params` の文字列一致の検査しかなく、18 の綴りのうち拒否されたのは文字どおりの 3 つ（`num_leaves`、`min_data_in_leaf`、`min_data_in_bin`）だけだった（12 は別名とスマートの値の両方が `lgb.train` に届き、3 は黙って置き換わった。例: `scale_pos_weight: 10` が `0.951` で学習した、[#280](https://github.com/nbx-liz/LizyML/issues/280)）。その文字列一致の 3 件の拒否は削除した（覆う範囲の違う 2 か所の検査はずれる、DC3）。そのため、この 3 件の拒否の時期は config の構築時から `fit` / `tune` の時に移った。
 
 | 入口 | 状態 |
 |---|---|
-| `model.params`（config） | `LGBMConfig._validate_smart_params` が parse 時に拒否。ただし **(a) `auto_num_leaves` / 2 つの ratio の 3 件のみ**（`balanced`→`scale_pos_weight` と `feature_weights`→`feature_contri` / `feature_pre_filter` は対象外）、かつ **(b) 文字列一致のみ**でエイリアスを見ない。**面の全体を実行して数えた（H-0094 決定 8 / 18 通り = スマートパラメーター × 書き込む native 名 × 受理綴り）: 拒否 3 / 2 綴りが `lgb.train` に届く 12 / 黙って上書き 3。** `max_leaves` / `min_child_samples` は通過して置換され、`scale_pos_weight: 10.0` は `balanced` により `0.951` で学習する（[#280](https://github.com/nbx-liz/LizyML/issues/280)）。`config/` は層規約上 `estimators/` を import できず学習器の別名表に届かないため、修正は「どこで拒否するか」の設計判断になる |
-| `fit(params=...)` | **H-0094 で拒否する（5 件すべて）。** 有効なスマートパラメーターが書くネイティブ名は `CONFIG_INVALID` とし、どのスマートパラメーターが管理しているかを名指しする |
+| `model.params`（config） | **H-0121**: `_merge_params` で alias 対応、6 つの正規名・18 の綴りすべてを `fit` / `tune` の学習前に拒否する（層名 `model.params`）。config の構築時には拒否しない |
+| 既定の固定パラメーター（`first_metric_only`、`metric`） | **H-0121**: 同じ検査に入る（層名 `provider default fixed params`）。新しい study の `tune` では `_merge_params` はこの層を重ねない（objective が trial ごとに重ねる）が、検査はする |
+| tune の結果の `best_model_params` | **H-0121**: 同じ検査に入る（層名 `tuning best_model_params`）。復元した tune の結果にも当たる。有効なスマートパラメーターは `best_smart_params` を重ねた後の値なので、config が `auto_num_leaves: false` でも `best_smart_params` が `auto_num_leaves: true` なら `max_leaves` は拒否される |
+| `fit(params=...)` | **H-0094 で拒否する（5 件すべて）。** 有効なスマートパラメーターが書くネイティブ名は `CONFIG_INVALID` とし、どのスマートパラメーターが管理しているかを名指しする。H-0121 で他の層と同じ 1 か所の検査になった（挙動は変わらない） |
 | `tuning.optuna.space` (`category: model`) | H-0099: reject names claimed by active smart parameters, including aliases, before study creation. Validate the resolved explicit/default/resumed space, including smart dimensions that can activate a conflicting owner. To tune native leaves directly, disable `model.auto_num_leaves`; sampled values then reach training. |
+| `tuning.optuna.space` (`category: smart`) | **H-0121**: smart パラメーターとして宣言されていない名前は study の前に `CONFIG_INVALID`（ネイティブ名ならメッセージで `category: model` を案内する）。所有者が真になりえない smart の次元（`auto_num_leaves` が真になりえないときの `num_leaves_ratio`）は、利用者が書いたものなら拒否し、既定の空間から来たものなら落とす（§11.3） |
 | `tuning.optuna.space` (`category: training`) | H-0099: accept only `early_stopping_rounds` and `validation_ratio`, the two training override consumers. Reject other names with `CONFIG_INVALID` before study creation. |
 
 ### auto_num_leaves（葉の数の自動算出）
@@ -267,7 +272,7 @@ config = {
   - `params.max_depth` が未指定または負値（制限なし）→ 基準値 = `131072`
   - `params.max_depth` が指定されている → 基準値 = `2 ^ max_depth`
   - `num_leaves = clamp(ceil(基準値 × num_leaves_ratio), 8, 131072)`
-- 制約: `auto_num_leaves=True` 時に `params.num_leaves` の直接指定は `CONFIG_INVALID`。
+- 制約: `auto_num_leaves` が有効なとき、`num_leaves` を別名（`max_leaves` など）を含めてどの層に書いても `fit` / `tune` の学習前に `CONFIG_INVALID`（H-0121。config の構築時には拒否しない）。`num_leaves_ratio` は `auto_num_leaves` が真のときだけ読まれる。
 
 ### データサイズ相対比率パラメーター
 
@@ -277,7 +282,7 @@ config = {
 - `min_data_in_bin_ratio: float | None = 0.01`（`0 < ratio < 1`）→ `min_data_in_bin = max(1, ceil(n_rows_inner_train × ratio))`
 - `n_rows_inner_train` の定義: outer fold の学習データから inner validation（early stopping 用）を分割した後の行数。early stopping が無効（inner validation 分割なし）の場合は outer fold の学習データ行数を使用する。
 - fold ごとに `n_rows_inner_train` が異なる場合、各 fold で個別に解決する。
-- 制約: ratio 指定と対応する絶対値パラメーター（`params.min_data_in_leaf` 等）の同時指定は `CONFIG_INVALID`。
+- 制約: ratio 指定と対応する絶対値パラメーター（`params.min_data_in_leaf` 等、別名を含む）の同時指定は `fit` / `tune` の学習前に `CONFIG_INVALID`（H-0121。config の構築時には拒否しない）。
 
 ### feature_weights（特徴量重みの辞書指定）
 
@@ -895,6 +900,14 @@ expansion remains enabled only for merge with an empty/omitted user space;
 partial spaces require explicit opt-in. Older saved artifacts without the mode
 retain replacement for nonempty spaces when loaded, preserving re-fit behavior.
 
+**smart の探索次元の受け付け（H-0121、[#299](https://github.com/nbx-liz/LizyML/issues/299)）。** `category: smart` の次元は smart 解決を通してしか学習に届かない。何にも読まれない次元は、サンプルされ `best_params` に記録されて、何もしない。
+
+- **宣言されていない名前**: `provider.smart_param_names()` に無い名前の `category: smart` の次元は、解決済みの空間に対して study の前に `CONFIG_INVALID` で拒否する（`validate_tuning_dimensions`）。ネイティブの LightGBM の名前なら、メッセージで `category: model` を案内する。
+- **消費者が無効な次元**: 所有者のある smart パラメーター（`provider.smart_param_owners()`、§14.4。LightGBM では `num_leaves_ratio` → `auto_num_leaves`）の次元は、所有者が「真になりえない」とき無効とする。同じ空間に所有者の名前の smart の次元があれば、その次元が取りうる値で決める（categorical の選択肢に真が 1 つも無い、または数値の範囲が 0 だけなら真になりえない）。無ければ有効な smart の値（新しい tune が `_merge_params` から受け取る config の値）で決める（偽か `None` なら真になりえない）。
+  - 利用者の空間から来た無効な次元（`replace` の空間、または `merge` で利用者が書いた次元）は、study の前に `CONFIG_INVALID` で拒否する。利用者は自分の指定が効いていないことに気づけないため。
+  - 既定の空間から来た無効な次元（`merge` で利用者が上書きしていない既定の次元。`_resolve_search_space` が出どころを返す）は空間から外し、外した名前を INFO のログ（`event='tune.drop_dims'`）に残す。study の探索次元にも `best_params` にも入らない。`auto_num_leaves: false` でネイティブの `num_leaves` を直接チューニングする H-0099 の案内どおりの設定は、これまでどおり動く（既定の空間の `num_leaves_ratio` が外れる）。
+- **範囲**: 消費者が無効な次元の規則（上の 2 項）は、新しい study を作る tune だけに当てる。新しい study とは、`resume=False` で、storage を使わないか、storage にその名前の study が無いものをいう。`tune` は空間を解決する前に、storage があれば `optuna.get_all_study_names(storage)` で名前があるかを調べて決める（調べてから study を作るまでの間に別のプロセスが同じ名前の study を作ることは考えない。一つの study に書くプロセスは一つという前提で、ライブラリは強制しない）。`resume=True` と、`resume=False` で storage の既存の study に再接続する経路（`load_if_exists=True`）には当てない。後者は外した次元を古い試行が持ちうるので、当てても健全にならない。この経路の扱いは resume の互換性の Proposal が決める。宣言されていない名前の拒否は、範囲によらず当てる。
+
 ### 探索次元
 
 | パラメーター | 型 | 範囲 | カテゴリ |
@@ -905,7 +918,7 @@ retain replacement for nonempty spaces when loaded, preserving re-fit behavior.
 | `max_depth` | int | `[3, 12]` | model |
 | `feature_fraction` | float | `[0.5, 1.0]` | model |
 | `bagging_fraction` | float | `[0.5, 1.0]` | model |
-| `num_leaves_ratio` | float | `[0.5, 1.0]` | smart |
+| `num_leaves_ratio` | float | `[0.5, 1.0]` | smart（`auto_num_leaves` が真になりえない新しい study では外す、H-0121） |
 | `min_data_in_leaf_ratio` | float | `[0.01, 0.2]` | smart |
 | `early_stopping_rounds` | int | `[40, 240]` | training |
 | `validation_ratio` | float | `[0.1, 0.3]` | training |
@@ -1508,6 +1521,7 @@ class EstimatorProvider(Protocol):
     def extract_smart_params(self, model_cfg: Any) -> dict[str, Any]: ...
     def accepted_model_param_names(self) -> frozenset[str]: ...   # H-0093
     def smart_param_names(self) -> frozenset[str]: ...            # H-0093
+    def smart_param_owners(self) -> dict[str, str]: ...           # H-0121
     def canonical_param_names(                                    # H-0094
         self, names: Iterable[str],
     ) -> dict[str, str]: ...               # name -> the parameter it identifies
@@ -1555,6 +1569,7 @@ class EstimatorProvider(Protocol):
 - `build_pipeline_factory` は estimator 固有の FeaturePipeline が必要な場合（例: EntityEmbedding のカテゴリ埋め込み）に対応する。デフォルトは `NativeFeaturePipeline` を返す。
 - `build_export_params` は codegen 経路（`Model.export_code()`）が必要とする native params / num_boost_round / early_stopping_rounds / feval metadata を `ExportParams` frozen dataclass で返す（H-0073）。`_model_persistence.py` から estimator 具象型（`LGBMAdapter` 等）への直接参照を排除するための入口。**「その fit が何を使ったか」を答える値は、config と現在の tuning result から再計算してはならない**（H-0094 決定 13）: `tune()` は tuning result を置き換えるが fit 済み adapter は置き換えないので、再計算する読み手は `fit → tune` の後に**存在しないモデルについて報告する**。実測: adapter が patience 7 で学習し、`params_table` / `export_code` はどちらも 2 と答えた。学習済み adapter は joblib で保存されるため、この経路は `load()` 後も正しい唯一の経路である（artifact が持つ tuning result は、どの fit も消費していないことがありうる）。`ExportParams.early_stopping_rounds` に **default を置かないこと** — 「provider が設定しなかった」と「early stopping が無効だった」が同じ値になるのは DC1 の形である。adapter に記録が無い値（`validation_ratio`）は `FitState.applied_training_params` から読む。この overlay は `metadata.json` の `applied_training_params` として記録され、`load()` が検査して復元する（H-0109）。記録の無い（H-0109 以前の）artifact では不明（`None`）となり config に落ち、再 export しても記録を書かない。
 - `accepted_model_param_names()` / `smart_param_names()` は「その学習器が受理する名前」を宣言する（H-0093）。前者は**学習器自身から導出すること**（列挙しない）。学習器の更新で名前が増減したときに黙って古びる実装は、この IF が検出しようとしている欠陥をそれ自体が持つことになる。後者は `extract_smart_params` が返すキーと必ず一致させ、両者を単一の宣言から導くこと。
+- `smart_param_owners()` は「ある smart パラメーターが読まれるために真でなければならない smart パラメーター（所有者）」を `{smart パラメーター: 所有者}` で返す（H-0121）。所有者の無い smart パラメーターは含めない。LightGBM は `{"num_leaves_ratio": "auto_num_leaves"}` を返す（`resolve_smart_params` は `auto_num_leaves` が真のときだけ `num_leaves_ratio` を読む）。tuning はこの宣言で、所有者が真になりえない smart の探索次元を拒否するか落とす（§11.3）。宣言は解決関数を実行するテストで固定する。smart パラメーターを持たない provider は `{}` を返す。H-0093 の分類では Protocol の変更であり、外部で Protocol を実装しているコードはこのメソッドを足す必要がある。
 - `canonical_param_names(names)` は「その名前がどのパラメーターを指すか」を返す（H-0094）。**パラメーター層のマージは綴りではなく同一性で行うこと**: 学習器がエイリアスを解決する以上、`{**base, **override}` は 1 つのパラメーターを 2 つの綴りで残し、どちらが効くかは学習器の規則次第になる。実測: config の `learning_rate` が `fit(params={"eta": ...})` に勝っていた。**学習器に 2 つの綴りを渡さない**こと。学習器が知らない名前は自分自身に写すこと（不明名の拒否は `accepted_model_param_names` の仕事であり、この写像が二重の門になってはならない）。**マージの継ぎ目は 4 か所あり、4 か所すべてを同一性で行うこと**: config / provider の既定 fixed / `best_model_params` / `fit(params=)` に加えて、**tuning の trial マージ**（`_model_tuning.py` の objective）がある。round 11 まで trial マージだけが綴りベースで、config の `learning_rate` と `eta` という探索次元がある場合、**trial は config の値で学習し、study には trial の値が best として記録され、その後の fit は記録された値で学習していた** — tuning が一度も評価していないモデルを選んでいた（DC1）。
 - **学習器 adapter が特別扱いするパラメーター**（検証する / 改名する / 呼び出し引数に変換する）は、**全綴りをまとめて取り出す**こと（H-0094 決定 6）。1 綴りだけを見ると、エイリアスで書かれた値はその特別扱いを迂回する。実測: `application`（`objective` のエイリアス）に task 非互換な値を書くと互換性検査を通らずに学習されていた。同じ層で 1 パラメーターが複数綴りで指定されたら、**値によらず** `CONFIG_INVALID` とすること（H-0096 で改訂。**それ以前は「異なる値のときだけ拒否し、同値は通す」だった**）。同値を通す規則は「2 つの綴りが同じ値か」という問いを生み、その問いは任意の Python 値の上で全域でなければならないので**入力領域が開く** —— H-0094 rounds 18-26 の 9 連続はその領域の中で起きた。**LightGBM 自身も値を比較せず、等しくても重複そのものを警告する**（実測）。拒否の根拠は「どちらが効くか不可視だから」ではなく（優先順位は決定的である）、**利用者が 1 つの設定を 2 度書いており、どちらを意図したか LizyML には決められないから**である。**この規則は宣言した層すべてに配線すること**: レビュー round 11 まで `fit(params=)` にしか配線されておらず、`model.params` に `learning_rate` と `eta` を両方書いた config は両方が `lgb.train` に届き、LightGBM が黙って canonical 側を採った（DC4 — 宣言はあるが呼び出し側が無い）。検査は facade（`_merge_params`）に置く。`config/` は層規約上 `estimators/` を import できず別名表に届かないためである。**配線先は 4 層**: `model.params` / `fit(params=)` / `calibration.params` / `tuning.optuna.space`。3 つ目は rounds 10-11 monitor が「どの層に配線したのか」を問うて見つかった（名前検査だけがあり同一性検査が無く、両綴りが calibrator の `lgbm.train` に届いていた）。4 つ目は rounds 11-12 monitor が名指しし、実行して確かめた: `sample_params` は次元ごとに `params[dim.name] = ...` を書くので、**互いにエイリアスである 2 次元は同じ trial dict に両綴りを入れる** — LightGBM が canonical を採るため、もう一方は sample され最適化されながらどの trial にも影響しない（`learning_rate` と `eta` を 2 次元にした study で実測）。**空間には同値による免除が無い**: 2 次元は独立に sample するので、1 パラメーターを 2 回名指しすることは境界に関わらず曖昧である（`check_duplicate_space_dimensions`、study 開始前）。スマート層は対象外で、その理由は**スマートパラメーター名に学習器のエイリアスが 1 つも無い**ことである（実測 0 件、テストで固定）。**`calibration.params` は同一性検査だけでは足りず、canonical 化も要る**（H-0094 決定 8）: calibrator は自分の既定値と**綴りで**マージするため、呼び出し元が**1 度しか書いていない**エイリアスが既定値と並んで `lgbm.train` に届き、LightGBM が既定値を採っていた（`{"eta": 0.5}` → `learning_rate: 0.03` で学習）。`lizyml/calibration/` は `lizyml/estimators/` を import できないので、書き換えは facade（`canonicalise_calibration_params`）で行う。**calibrator 自身が pop するキーは除外すること**（`num_boost_round` は `num_iterations` のエイリアスであり、canonical 化すると pop 先が消える）。**calibrator が強制する値は canonical 綴りで書くこと**: `verbose = -1` はエイリアス側の強制だったので `verbosity` を書いた呼び出しに負けていた。
 - **「あるパラメーター dict が別のパラメーター dict に出会う」場所を列挙し、1 行ずつ実行すること**（H-0094 決定 8）。この類の欠陥は round ごとに 1 つずつ出続けたので、当たりを付けて探すより列挙するほうが安い。走査は `instruments/parameter_merge_seams.py` として**出荷し**、表を再生成できるようにすること（散文に写した数は古びる）。候補 58 式。**走査の構文集合には `d[k] = v` を必ず含めること**: 最初の版はそれを宣言しておらず、その版が報告した 3 件の欠陥のうち 2 件がその構文に住んでいた（rounds 11-12 monitor）。**そして走査を「閉じた母集団」と呼ばないこと**: この主張は 2 回なされ、2 回とも 1 ラウンド以内に反証された（2 回目は round 13 のレビュアーが `config/loader.py:167` を名指しした — カーソル変数名が `node` で hint 語に当たらなかった）。hint 語による絞り込みは識別子テキストのヒューリスティックであって型解析ではない。**表が主張するのは実行した分だけである。** 開いた空間の走査を閉包と呼ぶことは、本 run が他人の宣言に見つけ続けている DC5 そのものである。

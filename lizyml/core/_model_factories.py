@@ -1113,25 +1113,15 @@ def check_smart_managed_overrides(
     check: ``num_leaves=12`` trained at 32, ``min_data_in_leaf=3`` at 1, and
     ``scale_pos_weight=10`` at 0.935.
 
-    This is the policy ``LGBMConfig._validate_smart_params`` already applies to
-    the same collisions in the config: the conflict is an error, not a silent
-    substitution. H-0099 also applies this authority to resolved tuning
-    model dimensions before the study starts.
-
-    The config surface remains separately scoped, with its gap measured rather than
-    described, so this bound is not read as wider than it is:
-
-    * ``model.params`` -- ``LGBMConfig._validate_smart_params`` compares
-      literal strings and covers three of the five smart parameters, so over
-      the whole surface (each smart parameter x each native name it writes x
-      each spelling LightGBM accepts) **3 of 18 are refused**; of the rest, 12
-      send two spellings to ``lgb.train`` and 3 are overwritten outright.
-      ``config/`` cannot import ``estimators/`` under the layer rule and so
-      cannot reach the alias table; where the refusal belongs is a design
-      decision the maintainer holds open as **#280**, recorded in
-      BLUEPRINT.md §14.4.
-    * the search-space gap (H-0094, **#279**) is closed by H-0099's resolved
-      dimension admission, using this same active-owner check.
+    The conflict is an error, not a silent substitution. ``Model._merge_params``
+    applies it to every parameter layer -- ``model.params``, the provider's
+    default fixed parameters, a tuning result's ``best_model_params`` and
+    ``fit(params=)`` -- against the effective smart parameters (H-0121, #280).
+    Before H-0121 ``model.params`` had only ``LGBMConfig``'s literal-string
+    check, which refused 3 of the 18 spellings; ``config/`` cannot import
+    ``estimators/`` under the layer rule and so cannot reach the alias table,
+    which is why the check lives here. H-0099 also applies this authority to
+    resolved tuning model dimensions before the study starts (#279).
 
     An earlier wording of this docstring said the config surface "is refused at
     parse time for three of the five", which is true of the smart parameters and

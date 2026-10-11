@@ -344,24 +344,11 @@ class LGBMConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_smart_params(self) -> LGBMConfig:
-        if self.auto_num_leaves and "num_leaves" in self.params:
-            raise ValueError(
-                "Cannot specify 'params.num_leaves' when 'auto_num_leaves' is True. "
-                "Set 'auto_num_leaves: false' or remove 'num_leaves' from params."
-            )
-        if (
-            self.min_data_in_leaf_ratio is not None
-            and "min_data_in_leaf" in self.params
-        ):
-            raise ValueError(
-                "Cannot specify both 'min_data_in_leaf_ratio' and "
-                "'params.min_data_in_leaf'. Use one or the other."
-            )
-        if self.min_data_in_bin_ratio is not None and "min_data_in_bin" in self.params:
-            raise ValueError(
-                "Cannot specify both 'min_data_in_bin_ratio' and "
-                "'params.min_data_in_bin'. Use one or the other."
-            )
+        # A `params` name an active smart parameter writes is refused at
+        # `fit` / `tune` by `Model._merge_params`, alias-aware and on every
+        # layer (H-0121). The literal-string refusal of three names that used
+        # to live here was removed with it: two checks covering different
+        # ranges drift apart (DC3), and `config/` cannot reach the alias table.
         _check_ratio(self.num_leaves_ratio, "num_leaves_ratio", inclusive_upper=True)
         _check_ratio(
             self.min_data_in_leaf_ratio, "min_data_in_leaf_ratio", inclusive_upper=False
