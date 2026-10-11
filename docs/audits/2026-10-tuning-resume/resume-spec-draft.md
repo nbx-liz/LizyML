@@ -102,7 +102,7 @@ HISTORY に入れる Proposal の草案（HISTORY に合わせて日本語）。
 
 - 新しい study を作るとき、同一性を study の属性（7.1）に書く。メモリ上の study にも書く（Widget が `_study` を pickle して別プロセスへ運ぶため、study と一緒に運ばれる必要がある）。
 - `resume=True` のたびに、今の呼び出しから同一性を計算し、study のものと比べる。違えば `CONFIG_INVALID`。メッセージには、違う要素（データ、config のどの部分、評価指標）を書く。
-- 照合の記録が無い study（この変更より前に作った study）は `CONFIG_INVALID`（D4）。ただし試行が 0 件で記録の無い study は、作りかけとして扱う（7.1）。
+- 照合の記録が無い study（この変更より前に作った study）は `CONFIG_INVALID`（D4）。ただし試行が 0 件で記録の無い study は、作りかけとして扱う（7.4 の状態 E）。
 - 照合は、向きの照合（H-0099 決定 2）と同じ位置で行う（enqueue と最適化の前）。向きは最初の評価指標から導くので、同一性に含まれる。H-0099 決定 2 の検査はそのまま残す。
 - **ライブラリの版**（LizyML、LightGBM、Optuna、pandas、scikit-learn）は同一性とは別に記録し、違えば警告だけを出して続ける（D4）。
 
@@ -203,7 +203,7 @@ H-0068 は前回の最良値を無条件に enqueue する。この案はそれ�
   - その round で増えた次元の経路（4.1b）
 - `lizyml:round:<k>:end`: round を閉じたときに書く。中身は、終わり方（`completed` / `failed`）、終了時の最良値（study に COMPLETE の試行が一つも無ければ空）、終わった時刻。
   - round の試行を足し終えて、study に COMPLETE の試行が一つ以上あれば `completed`。
-  - study に COMPLETE の試行が一つも無いまま round が終われば `failed` と書いたうえで、今と同じく `TUNING_FAILED` を送出する（Model の状態は変えない）。閉じた round は再開の対象にならず、次の `resume=True` は新しい round を始める。前回の最良値が無いので、境界の拡張と enqueue は行わない。
+  - study に COMPLETE の試行が一つも無いまま round が終われば `failed` と書いたうえで、今と同じく `TUNING_FAILED` を送出する（Model の状態は変えない）。閉じた round は再開の対象にならず、次の `resume=True` は新しい round を始める。前回の最良値が無いので、境界の拡張と enqueue は行わない（7.4 の状態 F）。
 - 各試行の `lizyml:round`（試行の user attr）。enqueue した試行には `lizyml:enqueued` も付ける（Optuna 4.7.0 の `enqueue_trial(params, user_attrs=...)` で、待ち行列に入れるときに付けられる）。
 
 **study を作るとき**: (a) study を作る、(b) `lizyml:study` を書く。(a) と (b) の間で落ちると、試行が 0 件で `lizyml:study` の無い study が残る。再接続でこれを見つけたら、まだ何の観測も無いので、作りかけの study として (b) からやり直す（新しい study を作ったのと同じ）。試行が 1 件以上あって `lizyml:study` が無い study は、この変更より前に作った study として拒否する（4.3）。
@@ -212,7 +212,7 @@ H-0068 は前回の最良値を無条件に enqueue する。この案はそれ�
 
 ### 7.2 再接続（P2）
 
-`resume=True`、メモリ上の study が無い、storage にその study がある → study を読み、4.3 の照合を行う。その後は、系譜の最後の round が終わっているかどうかで分かれる。
+`resume=True`、メモリ上の study が無い、storage にその study がある → study を読み、7.4 の表で状態を判定する。以下は状態 C・F・O の詳細。
 
 - **最後の round が終わっている**（`:end` がある）: 同じプロセスで `resume=True` を呼んだ場合と同じ。最後の round の実効空間を直前の空間として、5.2 から新しい round を始める。
 - **最後の round が途中で落ちている**（`:end` が無い）: INV-R5 に従い、**同じ round を残りの予算で終える**（Q-D、決定済み）。
@@ -233,29 +233,65 @@ H-0068 は前回の最良値を無条件に enqueue する。この案はそれ�
 - `failed` で閉じた round は、系譜には残るが `TuningResult.rounds` には入れない（`RoundSummary` は最良値を数値で持つ型で、失敗した round を正しく表せないため。公開の型は変えない）。round の番号はそのまま続くので、`rounds` が round 2 から始まることがある。その round の試行は `TuningResult.trials` に、記録した round 番号で残る。次の round の `best_score_before` は `None`。これを docs/api.md の `rounds` の説明に書く。
 - 同じプロセスで round が例外で止まったあとの `resume=True` にも、同じ規則を当てる。失敗した tune は Model の状態を変えない（H-0094 決定 14）が、メモリ上の study には途中の試行と `:end` の無い round が残るため。
 
-### 7.3 変えないもの
+### 7.4 study の状態と、`resume=True` での扱い（閉じた表）
+
+study の状態の分け方と、`resume=True` での扱いは、この表を正とする。7.1・7.2 はそれぞれの扱いの詳細を定める。メモリ上の study（同じプロセスで round が例外で止まった場合）も、storage から読んだ study も、同じ表で扱う。
+
+**落ちる位置と、study に残る状態**（7.1 の書く順序の各段の間）:
+
+| 落ちる位置 | 残る状態 |
+|---|---|
+| study を作った後、`lizyml:study` を書く前 | E |
+| `lizyml:study` を書いた後、round 1 の記録を書く前 | N |
+| round k（k ≥ 2）の準備中、`lizyml:round:<k>` を書く前 | 直前の round k−1 の状態（C または F）のまま |
+| `lizyml:round:<k>` を書いた後、enqueue の前 | O |
+| enqueue の後、試行を足している途中 | O |
+| 試行を足し終えた後、`:end` を書く前 | O（残りの予算が 0） |
+
+**状態と扱い**（上から順に判定し、最初に当てはまった行を使う）:
+
+| 状態 | 判定の材料 | `resume=True` での扱い |
+|---|---|---|
+| L（旧 study） | `lizyml:study` が無く、試行が 1 件以上 | `CONFIG_INVALID`（D4、4.3） |
+| E（作りかけ） | `lizyml:study` が無く、試行が 0 件 | N と同じ扱い。ただし N の行の検査（`space=` の拒否、受け付けの検査）をすべて済ませてから `lizyml:study` を書く（INV-R4: 拒否は書き込みの前） |
+| S（読めない） | `lizyml:study` の `schema` が読めない | `CONFIG_INVALID`（7.1） |
+| N（round が無い） | round の記録が一つも無く、試行が 0 件 | 4.3 の照合の後、round 1 を新しい study と同じように始める（config の探索空間を使い、`space=` を渡したら `CONFIG_INVALID`） |
+| X（壊れている） | round の記録が無いのに試行がある。round の番号が 1 から連続しない。`:end` の無い round が最後以外にある。試行の `lizyml:round` が記録のどの round にも当たらない | `CONFIG_INVALID`（「LizyML の記録と試行が食い違っている。新しい study で」） |
+| O（開いた round） | 最後の round に `:end` が無い | 4.3 の照合の後、7.2 のとおり同じ round を終える。残りの予算が 0 なら試行を足さずに閉じる（7.1 の `:end` の規則: COMPLETE の試行があれば `completed`、無ければ `failed` と `TUNING_FAILED`） |
+| C（完了） | 最後の round の `:end` が `completed` | 4.3 の照合の後、新しい round を始める（5.2 から） |
+| F（失敗） | 最後の round の `:end` が `failed` | 4.3 の照合の後、新しい round を始める。study に COMPLETE の試行が無いので、境界の拡張と enqueue は行わない |
+
+`resume=False` で storage に同じ名前の study があるときは、状態に依らず `CONFIG_INVALID`（3）。
+
+### 7.5 変えないもの
 
 - artifact（`Model.export` / `Model.load`）の形式は変えない。`format_version` も上げない。
 - `Model.load` のあとの `resume=True` は、storage が無ければ `TUNING_FAILED` のまま（study の中身を artifact に保存するかどうかは #315 と、まだ起票していない follow-up が扱う）。
 
 ## 8. エラーの一覧（新規と変更）
 
-| 条件 | コード |
-|---|---|
-| `resume=False`、storage に同じ名前の study がある | `CONFIG_INVALID`（新規） |
-| `resume=True`、メモリ上の study と別の storage / study_name | `CONFIG_INVALID`（新規） |
-| 新しい study を作る呼び出し（`resume=False`、または U3 の `resume=True`）で `space=` を渡した | `CONFIG_INVALID`（新規。初回の空間は config で宣言する） |
-| 途中の round の再開で、記録と違う `n_trials` / `expand_boundary` / `space=` を渡した | `CONFIG_INVALID`（新規、U2） |
-| 目的関数の同一性が違う | `CONFIG_INVALID`（新規） |
-| study に照合の記録が無い | `CONFIG_INVALID`（新規） |
-| resume で `space_mode` を変えた | `CONFIG_INVALID`（新規） |
-| resume で config の探索空間を変えた（A-1 の場合） | `CONFIG_INVALID`（新規） |
-| 分布の種類・`log`・categorical の選択肢の変更 | `CONFIG_INVALID`（新規） |
-| 既にある次元の名前のカテゴリーを変えた | `CONFIG_INVALID`（新規） |
-| `study_name` があって `storage` が無い | `CONFIG_INVALID`（新規。今は黙って無視） |
-| `storage` があって `study_name` が無い | `CONFIG_INVALID`（`resume` に依らず先に検査する。今は `resume=True` で study が無いと `TUNING_FAILED`） |
-| 読めない `lizyml:schema` | `CONFIG_INVALID`（新規） |
-| ライブラリの版の違い | 警告（新規） |
+この表は規則の索引で、規則の正は「規則」の列の節にある。各行に、違反すると落ちる受け入れ基準（12）を対応させる。
+
+| 条件 | コード | 規則 | 受け入れ基準 |
+|---|---|---|---|
+| `storage` があって `study_name` が無い | `CONFIG_INVALID`（`resume` に依らず先に検査する。今は `resume=True` で study が無いと `TUNING_FAILED`） | 3 | 12 |
+| `study_name` があって `storage` が無い | `CONFIG_INVALID`（新規。今は黙って無視） | 3 | 12 |
+| `resume=False`、storage に同じ名前の study がある | `CONFIG_INVALID`（新規） | 3、7.4 | 9 |
+| `resume=True`、メモリ上の study と同じと示せない storage / study_name | `CONFIG_INVALID`（新規） | 3 | 10、14 |
+| 新しい study を作る呼び出し（`resume=False`、U3 の `resume=True`、状態 N）で `space=` を渡した | `CONFIG_INVALID`（新規。初回の空間は config で宣言する） | 3、7.4 | 14 |
+| `resume=True`、メモリ上の study も `storage` も無い | `TUNING_FAILED`（今と同じ） | 3 | 14 |
+| 目的関数の同一性が違う | `CONFIG_INVALID`（新規） | 4.3 | 1、13 |
+| 照合の記録が無く、試行がある study（状態 L） | `CONFIG_INVALID`（新規） | 4.3、7.4 | 2、19 |
+| 読めない `lizyml:schema`（状態 S） | `CONFIG_INVALID`（新規） | 7.1、7.4 | 12 |
+| 記録と試行が食い違う study（状態 X） | `CONFIG_INVALID`（新規） | 7.4 | 19 |
+| resume で `space_mode` を変えた | `CONFIG_INVALID`（新規） | 5.2-1 | 7 |
+| resume で config の探索空間を変えた | `CONFIG_INVALID`（新規） | 5.1 | 11 |
+| 分布の種類・`log`・categorical の選択肢の変更 | `CONFIG_INVALID`（新規） | 5.2-3 | 7 |
+| 既にある次元の名前のカテゴリーを変えた | `CONFIG_INVALID`（新規） | 4.1b | 12 |
+| 途中の round の再開で、記録と違う `n_trials` / `expand_boundary` / `space=` を渡した | `CONFIG_INVALID`（新規、U2） | 7.2 | 8b |
+| round を閉じるとき、study に COMPLETE の試行が無い | `TUNING_FAILED`（今と同じ。round は `failed` で閉じる） | 7.1、7.4 | 8a |
+| ライブラリの版の違い | 警告（新規） | 4.3 | 3 |
+| 途中の round の再開で、config の `n_trials` が記録と違う | 警告（新規。記録の予算を使う） | 7.2 | 8b |
 
 ## 9. 過去の記録との照合
 
@@ -285,7 +321,7 @@ H-0068 は前回の最良値を無条件に enqueue する。この案はそれ�
 | H-0068（HISTORY.md:5082、5085）study を保持して追加試行、「まだ見ていない有望領域を探す」 | P1 そのもの。拡張の規則は 5.3 の 2 点を足すだけ（enqueue の変更は 9.1） |
 | H-0078、H-0111 の境界と no-op の拡張 | 変えない（5.2-5、5.3） |
 | H-0072 INV-5（別の storage の試行と混ざらない）、INV-6（進捗・enqueue・拡張・round は storage の有無に依らない）、HISTORY.md:5805-5806（`current_trial` の一致） | 変えない。6.2・6.5 の規則も storage の有無に依らない。途中の round の再開でも `current_trial` は続きから数える |
-| H-0086、H-0109、H-0094 決定 13・14、H-0120 改訂 1 | artifact と報告面は変えない（7.3）。tune の失敗は Model の状態を変えない（INV-R4） |
+| H-0086、H-0109、H-0094 決定 13・14、H-0120 改訂 1 | artifact と報告面は変えない（7.5）。tune の失敗は Model の状態を変えない（INV-R4） |
 | H-0099 決定 1・3・4、H-0093、H-0102 の受け付けの検査 | 各 round の宣言空間に当てる（5.2-4） |
 | BLUEPRINT.md:448（`Tuner` は study の管理だけ） | 属性の読み書きは Tuner、同一性と系譜の中身は Model 側で作る（実装で守る） |
 | skills/tuning SKILL.md:10、16（分割と seed をそろえ、比べられるようにする） | 同一性に分割と seed を含めることで守る |
@@ -370,10 +406,11 @@ C11 だけはこの仕様が決める。
 15. round の準備の途中で落ちた場合（`lizyml:round:<k>` を書いた後、enqueue の前で止めたもの、enqueue の後で止めたもの）→ 再接続のあと、enqueue した試行がその round にちょうど一つある。`lizyml:round:<k>` を書く前に止めたもの → 普通の resume として round k が始まる。
 16. `timeout` のある round を途中で落とした場合 → 再開では、記録から求めた残りの時間を Optuna の `timeout` に渡す（Optuna の timeout は新しい試行を始めないだけで、走っている試行は止めない。今の tune と同じ意味）。残りの時間を使い切っていれば、試行を一つも始めずに round を閉じる。時間を使い切ってから `:end` の前に落とした場合も同じ。
 17. `space=` で `merge` の宣言に利用者の次元を足した round のあと、再接続して次の round を `expand_boundary=None` で始める → 同じプロセスで続けた場合と同じ拡張の判断になる。
-一つの study に試行を足すプロセスは一つという前提（3）は、利用者に求める前提で、ライブラリは強制しない（lease などの仕組みは入れない）。テストは、再接続のときに残った RUNNING の試行が FAIL になること（8）だけを確かめる。
 18. 途中で落ちた round（その round で K 件終わっている）を再開 → 進捗の `current_trial` は K+1 から始まり、storage の有無で変わらない。
-19. study を作った直後、`lizyml:study` を書く前に止めた場合 → 再接続で作りかけの study として初期化され、round 1 から始まる。試行のある study から `lizyml:study` を消したもの → `CONFIG_INVALID`。次元を足した round で、`lizyml:round:<k>` を書く前に止めた場合 → その次元の経路は残らない。
+19. study を作った直後、`lizyml:study` を書く前に止めた場合 → 再接続で作りかけの study として初期化され、round 1 から始まる。試行のある study から `lizyml:study` を消したもの → `CONFIG_INVALID`。次元を足した round で、`lizyml:round:<k>` を書く前に止めた場合 → その次元の経路は残らない。`lizyml:study` を書いた後、round 1 の記録の前に止めた場合（状態 N）→ `resume=True` で round 1 が始まり、`space=` を渡すと `CONFIG_INVALID`。試行はあるが round の記録が無い study、round の番号が飛んでいる study（状態 X）→ `CONFIG_INVALID`、study は変わらない。
 20. 既存のテストのうち今の挙動を固定しているもの（`test_space_merge.py:183, 262, 305, 375, 395`、`test_tuner_persistence.py:252`、`test_retune.py:807`、`test_error_code_raising.py:57`）は、新しい規則を固定するように書き直す（消さない）。`Tuner` を直接使うテスト（`test_tuner_persistence.py:116-127, 185-199`、`test_direction_reconciliation.py:100-119`）は変えない（次の段落）。
+
+一つの study に試行を足すプロセスは一つという前提（3）は、利用者に求める前提で、ライブラリは強制しない（lease などの仕組みは入れない）。テストは、再接続のときに残った RUNNING の試行が FAIL になること（8）だけを確かめる。
 
 この仕様の規則は `Model.tune` に置く。`Tuner`（`lizyml.tuning` にあるが、トップレベルにも docs/api.md にも無い）は今と同じく study を作る・読むだけの層とし、`resume` の意味や同一性の照合は持たない（BLUEPRINT.md:448 の責務分離）。
 
