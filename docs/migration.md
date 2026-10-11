@@ -5,6 +5,102 @@ release from v0.5.0 onward.
 
 ---
 
+## v0.19.0
+
+Only tuning with `resume=True`, `storage` or `study_name` changes (H-0122).
+A `tune()` that starts a new in-memory study, and an in-memory `tune()` ->
+`tune(resume=True)` that keeps the data and the config unchanged between rounds,
+need no edits; their results can still change (see below). Saved artifacts keep
+`format_version` 2.
+
+### Studies created before v0.19.0
+
+A study created before v0.19.0 cannot be continued. It carries no LizyML record
+of the objective its trials observe, so `tune(resume=True)` raises
+`CONFIG_INVALID` for it. Start again under a new `study_name`; the old study's
+trials stay readable through Optuna. Finish paused jobs (for example a paused
+LizyStudio job) before upgrading, since their studies cannot be resumed
+afterwards.
+
+### Calls that now raise `LizyMLError(CONFIG_INVALID)`
+
+| You wrote | Write instead |
+|-----------|---------------|
+| `tune(storage=..., study_name=...)` to re-attach to a stored study after a crash | `tune(resume=True, storage=..., study_name=...)`: it reattaches, and creates the study when the storage lacks it, so one call both starts and resumes a job |
+| `tune(resume=False, ...)` with a `study_name` the storage already holds | `resume=True` to continue it, or a new `study_name` for a new study |
+| `study_name` without `storage` | Drop `study_name` for an in-memory study, or pass `storage` as well |
+| `tune(resume=True, storage=..., study_name=...)` on a Model that holds a different study | Omit `storage` and `study_name` to continue the held study, or use a new `Model` to reattach to another study |
+| Different data, config (outside the search space), split or first metric, then `tune(resume=True)` | A new study (`resume=False`, or a new `study_name`); the error's context names what changed |
+| An edited `tuning.optuna.space` (or `model._cfg`), then `tune(resume=True)` | `tune(resume=True, space={...})` |
+| An edited `tuning.optuna.space_mode`, then `tune(resume=True)` | A new study |
+| `space=` that changes a dimension's distribution kind, `log`, choices or category | A new study; only ranges (`low` / `high`) can change within a study |
+| `space=` on the first `tune()` of a study | Declare round 1's space in `tuning.optuna.space` |
+| An `n_trials`, `expand_boundary` or `space=` other than the recorded one when finishing a round a crash interrupted | Omit them (or pass the recorded values); the round finishes with its recorded budget |
+
+### Results that change
+
+- **A resumed round no longer re-evaluates the previous best.** Before, each
+  resumed round started by enqueueing the previous best parameters and training
+  them again, so one of its `n_trials` repeated a known point. Every trial is now
+  a new TPE sample, so with the same seed a resumed round's trials, and possibly
+  its best, differ from v0.18.0. `best_params` and `best_score` are still the
+  study's best trial, which may come from an earlier round.
+- A new study starts at round 1; `resume=False` no longer keeps counting the
+  previous study's rounds. A reattached Model continues the study's round
+  numbers.
+- A round that ends with no COMPLETE trial in the study still raises
+  `TUNING_FAILED`, is recorded `failed`, and is left out of
+  `TuningResult.rounds`, so `rounds` can start at round 2 with
+  `best_score_before=None`. Code that assumes `rounds[0].round == 1`, or that
+  `len(rounds)` counts every round, needs the round numbers instead.
+- `RoundSummary.n_trials` is the number of trials the round ran, and
+  `TuneProgressInfo.current_trial` counts within the round, continuing at K+1
+  when a round with K finished trials is resumed.
+
+### Changing the search space on resume: `tune(space=...)`
+
+`tuning.optuna.space` declares a study's first round only. Change the range of
+a later round with `space=`, in the same form, resolved by the study's
+`space_mode`:
+
+```python
+model.tune()  # round 1: tuning.optuna.space
+model.tune(
+    resume=True,
+    space={"learning_rate": {"type": "float", "low": 1e-3, "high": 0.3, "log": True}},
+)
+```
+
+With `space_mode: merge`, `space=` is laid over the provider's default
+dimensions: a dimension you declared in the config but leave out of `space=`
+returns to its default. With `replace`, `space=` is the whole space and a
+dimension left out is no longer searched. Trials of the old range stay in the
+study, and the best of all trials is still the result.
+
+### Continuing after a crash
+
+```python
+model = Model(config, data=df)
+model.tune(resume=True, storage="sqlite:///optuna.db", study_name="job-1")
+```
+
+Run the same call again after a crash. A round the crash interrupted is
+finished with its recorded space and remaining budget; a closed round is
+followed by a new one. If the process died after the round closed but before
+the result was received, `model.restore_tuning("sqlite:///optuna.db",
+"job-1")` returns that result without adding trials.
+`lizyml.tuning.read_study_lineage(storage, study_name)` reports which case a
+stored study is in without changing it.
+
+### Third-party providers
+
+`EstimatorProvider.default_params(task)` is a new, optional method: the
+defaults the provider lays under the user's parameters. They enter the
+objective identity, so a changed default refuses a resume. A provider without
+the method keeps working, and its defaults are not checked.
+
+---
+
 ## v0.18.0
 
 Most configs need no edits. Go through the sections below and act on the items

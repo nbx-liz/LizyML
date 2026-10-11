@@ -12052,7 +12052,7 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 
 ## H-0122: tune の resume と storage への再接続は同じ目的関数を続ける（#340）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-11
 - **スコープ**: `lizyml/core/_model_tuning.py`（`tune`、`_resolve_search_space`、`_maybe_expand_boundary`、`_run_tune_round`）、`lizyml/tuning/tuner.py`、`lizyml/tuning/search_space.py`、`lizyml/tuning/rounds.py`、`lizyml/plots/tuning.py`、`lizyml/core/model.py`（`_merge_params`、`_load_data`）、新規の `lizyml.tuning.read_study_lineage` と `Model.restore_tuning`、BLUEPRINT §11、docs/api.md、docs/migration.md、CHANGELOG
 - **根拠の資料**: `docs/audits/2026-10-tuning-resume/design-vs-implementation.md`（設計と実装の乖離の整理）、`docs/audits/2026-10-tuning-resume/resume-spec-draft.md`（この Proposal の草案。Codex の review を経て APPROVE、`3580276`）。本文は草案と同じ内容で、草案の節の番号（0〜12）をそのまま使う。
@@ -12596,3 +12596,19 @@ Firing rate: 8/27 of test cases at 3a36b02 that call Model.tune with resume=True
 - **provider の既定のパラメーター**: adapter が利用者のパラメーターの下に敷く provider の既定値（LightGBM では task の objective・metric と `_COMMON_DEFAULTS`）も、`fixed` と同じく版で変わりうる provider の値なので（4.3）、同一性の要素 `config.provider_defaults` に入れる。値は provider の新しいメソッド `default_params(task)` から読む。`EstimatorProvider` の Protocol に足すが、実行時には任意とする（`tune` は `getattr` で読み、持たない provider は空の対応として扱う。その provider の既定値は照合されない）。H-0121 の `smart_param_owners()` と同じく、Protocol への追加として記録する。
 - **保存した `fixed` の照合**: `lizyml:study` の `fixed` が、同じ記録の同一性の要素 `config.fixed` と一致しなければ、読めない記録（状態 S）として `CONFIG_INVALID` にする。属性を外から書き換えた study で、目的関数の違う試行が混ざらないようにするため。要約の関数は Layer 2 の `lizyml/tuning/lineage_digest.py` に置き、同一性の計算と記録の読み取りが同じ関数を使う。
 - **失敗した tune と Model**: 試行の途中の例外、`failed` で閉じた round のどちらでも、tune が書き換えた `_run_dir` と `_provider` を元に戻す（H-0094 決定 14、7.1）。作った run のディレクトリはディスクに残る。
+
+### 実装の記録 2: PR 2（2026-10-11）
+
+PR 2 は 5（`tune(space=...)`、次元ごとの規則、拡張の変更）、7.2 の U2 の `space=`、4.1b のカテゴリーの変更の拒否、7.6 `read_study_lineage`、7.7 `restore_tuning`、6.5 の報告面の round の区切り、文書（BLUEPRINT §11、docs/api.md、CHANGELOG、docs/migration.md）を実装し、H-0122 の実装を終える。設計は `docs/audits/2026-10-tuning-resume/pr2-design.md`。
+
+仕様の範囲で実装が決めたこと:
+
+- **`space=` の記録**: round の記録の `space_arg` は、渡した dict そのものではなく、解釈した次元（書いた名前と並び、省いた値を補ったもの）として残す。dict のままでは NaN の選択肢を属性に書けないため（7.1 の JSON の制約）。schema の版は上げない（PR 1 と PR 2 は同じ版で出す）。
+- **alias の次元**: 経路のある名前の alias で `space=` に次元を書いたら、経路の名前に読み替える（同じ次元として扱い、拡張を引き継ぐ。4.1b、受け入れ基準 29）。
+- **study を作る呼び出しの `space=`**: `resume=False` での `space=` は storage に触れる前に拒否する。U3・状態 E・N での `space=` は study の名前を調べてから拒否するので、SQLite の storage ではファイルとスキーマができうる（study と属性は書かない。INV-R4 は study についての約束）。`read_study_lineage` も、名前を調べるときに同じことが起きうる。
+- **5.2-3 の比べる範囲**: 直前の round だけでなく、外した次元を含むこれまでのすべての round の宣言と比べる（Optuna が最初の分布と比べるのと同じ）。`-0.0` と `0.0` の選択肢は違うものとする（拒否する側に倒れる）。
+- **`restore_tuning` の拒否の順序**: study が無い（`TUNING_FAILED`）、状態 L・S・X（`CONFIG_INVALID`）、状態 O（`CONFIG_INVALID`）、状態 E・N・F（`TUNING_FAILED`）、そのあと状態 C だけで向きと同一性の照合（`CONFIG_INVALID`）。取り戻すものが無いことを、照合の不一致より先に知らせる。`storage` と `study_name` を両方とも省いた呼び出しは `CONFIG_INVALID`（`read_study_lineage` も同じ）。
+- **拡張機能の一覧**: `restore_tuning` は optuna が要るので、H-0119 の拡張機能の一覧の表（`lizyml/_extras.py`）に行を足す（H-0119 の表の拡張）。
+- **報告面**: round の区切りは試行の round から求める。`failed` で閉じた round は、ほかの round と同じ「Round k」と注記する。
+- **#342**: 境界の拡張が、provider の境界の外に宣言した範囲を狭めたり逆転させたりしていた既存の欠陥を、拡張を変えるこの PR で直す。拡張は辺を外へ動かすときだけ境界で抑え、宣言した辺より内へは動かさない。境界の外の範囲は H-0111 と同じく「拡張しない」（`expanded=False`、`clamped_to_bound=True`）と報告する。
+- **範囲外として残すもの**: alias で書いた次元に provider の境界が付かない（`attach_bounds` は名前で照合する）こと、config の `tuning.optuna.space` の形を検査しないことは、この Proposal の前からあり、扱わない。
