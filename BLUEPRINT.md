@@ -1173,7 +1173,7 @@ contradictory explicit directions require migration; old explicitness is not gue
 **宣言空間**（その round で宣言した空間を解決したもの。provider の境界は付けない）:
 
 - `space=` があれば、それを解決したもの。無ければ直前の round の宣言空間。
-- `merge`: provider の既定の次元に `space=` の次元を重ねる。`space=` に無い既定の次元は既定の宣言になる（config で利用者が宣言した次元でも、`space=` に無ければ既定に戻る）。
+- `merge`: provider の既定の次元に `space=` の次元を重ねる。`space=` に無い既定の次元は既定の宣言になる（config で利用者が上書きした既定の次元でも、`space=` に無ければ既定の宣言に戻る）。config で利用者だけが宣言した次元（provider の既定に無いもの）は、`space=` に無ければ探索から外れ、以後の試行は config の値で学習する。
 - `replace`: `space=` の次元だけ。`space=` に無い次元は外れる。
 - model の次元の alias は正規名と同じ次元として扱う（経路は一つで、拡張を引き継ぐ）。
 

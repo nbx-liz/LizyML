@@ -441,6 +441,12 @@ ADMISSION_SPACES: dict[str, dict[str, Any]] = {
             "category": "smart",
         }
     },
+    "unknown_training": {
+        "not_a_knob": {"type": "int", "low": 1, "high": 3, "category": "training"}
+    },
+    "unknown_smart": {
+        "not_a_smart": {"type": "float", "low": 0.1, "high": 0.2, "category": "smart"}
+    },
 }
 
 

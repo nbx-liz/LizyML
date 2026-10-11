@@ -250,7 +250,10 @@ def check_round_space(
     the config's.
     """
     space = list(plan.effective)
-    validate_tuning_dimensions(provider, space, base_smart_params, cfg.task)
+    surface = SPACE_ARG if plan.source == "space_arg" else "tuning.optuna.space"
+    validate_tuning_dimensions(
+        provider, space, base_smart_params, cfg.task, surface=surface
+    )
     # Resolved defaults can introduce training ownership even when Config
     # disables it. Check every native name the objective can send before
     # creating a study. Early-stopping ownership depends on presence of a
@@ -271,7 +274,6 @@ def check_round_space(
     model_dimensions = dict.fromkeys(
         dim.name for dim in space if dim.category == "model"
     )
-    surface = SPACE_ARG if plan.source == "space_arg" else "tuning.optuna.space"
     check_training_managed_overrides(
         provider,
         model_dimensions,

@@ -400,7 +400,8 @@ def test_admission_refused(case: str) -> None:
     # inactive-smart refusal included (not `tuning.optuna.space`).
     assert "tune(space=)" in err.user_message
     assert "tuning.optuna.space:" not in err.user_message
-    if case == "inactive_smart_user":  # the only row whose context has one
+    if case in {"inactive_smart_user", "unknown_training", "unknown_smart"}:
+        # The rows whose context carries a surface.
         assert err.context["surface"] == "tune(space=)"
 
 

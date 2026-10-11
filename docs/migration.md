@@ -72,9 +72,12 @@ model.tune(
 ```
 
 With `space_mode: merge`, `space=` is laid over the provider's default
-dimensions: a dimension you declared in the config but leave out of `space=`
-returns to its default. With `replace`, `space=` is the whole space and a
-dimension left out is no longer searched. Trials of the old range stay in the
+dimensions: a default dimension you overrode in the config but leave out of
+`space=` returns to its default declaration, and a dimension only the config
+declared (not a provider default) is no longer searched unless `space=`
+declares it again. With `replace`, `space=` is the whole space and a
+dimension left out is no longer searched. A dimension that is no longer
+searched trains on its config value in later trials. Trials of the old range stay in the
 study, and the best of all trials is still the result.
 
 ### Continuing after a crash
