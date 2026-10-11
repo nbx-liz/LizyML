@@ -135,6 +135,18 @@ class EstimatorProvider(Protocol):  # pragma: no cover
         name instead, on every parameter layer at ``fit`` / ``tune`` (H-0094,
         H-0121).
 
+        **Contract (H-0121 amendment 1).** The result depends on each smart
+        value only through whether it is ``None`` and its truthiness, never on
+        its magnitude: two values that are both ``None``, both falsy and not
+        ``None``, or both truthy give the same result. ``Model.tune`` relies on
+        it: it checks the parameter layers and the ``category: model``
+        dimensions against one representative value per state of each
+        ``category: smart`` dimension, combined over all of them
+        (``lizyml.core._smart_combinations``), instead of against every value a
+        trial can sample. Activation may depend on several smart parameters
+        together. ``tests/test_estimators/test_smart_managed_contract.py``
+        executes the contract on the LightGBM provider.
+
         Args:
             smart: Smart parameter values, as :meth:`extract_smart_params`
                 returns them.
