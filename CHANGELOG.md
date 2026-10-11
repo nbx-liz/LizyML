@@ -33,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **The best trial's parameters are split by the study's records** ([#340](https://github.com/nbx-liz/LizyML/issues/340)), not by the current space. A best trial holding a dimension that is no longer searched sends it where it was searched: a removed smart dimension such as `num_leaves_ratio` no longer reaches LightGBM as an unknown parameter.
 - **Round separators in `tuning_plot` and the `round` column of `tuning_table` follow the trials' rounds** ([#340](https://github.com/nbx-liz/LizyML/issues/340)). They were stacked from `RoundSummary.n_trials`, which put them in the wrong place after a `failed` round or a round a `timeout` cut short.
 - **`TuneProgressInfo.current_trial` no longer exceeds `total_trials` after a reattach** ([#340](https://github.com/nbx-liz/LizyML/issues/340)).
+- **`tune` refuses a parameter a smart search dimension would overwrite** ([#341](https://github.com/nbx-liz/LizyML/issues/341), H-0121 amendment 1). With `auto_num_leaves: false`, `model.params.max_leaves: 12` and a `category: smart` dimension `auto_num_leaves: [True]`, every trial trained with both `max_leaves=12` and `num_leaves=32` (LightGBM keeps `num_leaves`), and the following `fit` was refused. `model.params`, the round's fixed parameters and `category: model` dimensions are now checked against every state the round's smart dimensions can take, and the tune is refused with `CONFIG_INVALID` before any trial.
 
 ### Documentation
 
