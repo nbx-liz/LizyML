@@ -11927,8 +11927,9 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 
 ## H-0121: スマートパラメーターと衝突する `model.params` と、何にも使われない smart の探索次元を拒否する（#280、#299）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-10
+- **決定日**: 2026-10-11（管理者の判断: #280 は fit/tune 時に一本化、#299 は利用者の次元を拒否し既定の次元を落とす。resume の規則は審査の round 2 でアルゴリズムとして成り立たないと分かり取り下げ、範囲を新しい study を作る tune に限った。resume と storage への再接続は別の Proposal（`docs/audits/2026-10-tuning-resume/resume-spec-draft.md`、承認済み）が扱う。Codex の Proposal review は 3 回の run と 2 回の確認で APPROVE（`0eb1449`）、実装 review は 1 回目で APPROVE（`88b8cdd`）。#299 は新しい study の範囲で閉じる）
 - **スコープ**: `lizyml/core/model.py`（`_merge_params`）、`lizyml/config/schema.py`（`LGBMConfig._validate_smart_params`）、`lizyml/core/_tuning_validation.py`（`validate_tuning_dimensions`）、`lizyml/core/_model_tuning.py`（`_resolve_search_space`）、`lizyml/estimators/provider.py`（`EstimatorProvider` Protocol に 1 メソッド追加）、`lizyml/estimators/lgbm/`（smart パラメーターの消費条件の宣言）、`BLUEPRINT.md` §5.3、§14.4、探索空間の節
 - **関連**: [Issue #280](https://github.com/nbx-liz/LizyML/issues/280)、[Issue #299](https://github.com/nbx-liz/LizyML/issues/299)、H-0093、H-0094、H-0096、H-0099、H-0120 改訂 1
 

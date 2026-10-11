@@ -496,8 +496,8 @@ disposition = "specified"
 anchors = ["applied_sample_weight", "declared_categories", "categorical_rule", "pyarrow", "_versions"]
 
 [proposals."H-0121"]
-disposition = "pending"
-reason = "Proposed: the collision rule (BLUEPRINT 5.3) and the smart tuning dimension rule are restated by the implementation PR once the Proposal is accepted."
+disposition = "specified"
+anchors = ["check_smart_managed_overrides", "validate_tuning_dimensions", "smart_param_owners", "get_all_study_names"]
 
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
