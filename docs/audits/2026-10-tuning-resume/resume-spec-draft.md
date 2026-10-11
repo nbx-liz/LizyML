@@ -228,6 +228,7 @@ H-0068、H-0078、H-0111 の規則のまま。変える点:
   - 途中の round の予算は記録が決める。config の `tuning.optuna.params.n_trials` は、途中の round の再開では使わない（新しい round にだけ使う）。config の値が記録と違えば、無視したことを警告に出す。
   - 時間による予算の限界: 残りの時間は試行の記録から求めるので、落ちる直前に走っていた試行の時間と、試行と試行の間の時間（サンプリングなど）は数えない。そのぶん、再開した round は続けた場合より長く走りうる。時間で区切る round では、続けた場合と同じ試行の数になることは保証しない（時間による打ち切りは、同じプロセスでも試行の数を決めないため）。試行の数による予算では INV-R5 を満たす。
   - 落ちたときに RUNNING のまま残った試行は、再接続のときに FAIL として記録し、予算に数える。一つの study に試行を足すプロセスは一つという前提（3）による。
+  - 検査の順序: 4.3 の照合と、下の引数（U2）の比べ合わせを、RUNNING の試行を FAIL にすることを含むすべての書き込みより先に行う（INV-R4）。拒否したときは、試行の状態も study の属性も変わらない。
   - 引数（U2）: 途中の round の空間と予算は記録が決めている。次の引数は、値が `None` 以外のときだけ、その round の記録の**解決した値**と比べる。同じなら通し、違えば `CONFIG_INVALID`（「この round は記録の値で始まっている」）。`None`（三つとも既定値）は「渡していない」とみなして比べない（今のシグネチャでは省略と `None` を区別できないため、区別しない）。
     - `n_trials`（int）: 記録した、その round で要求した試行数と比べる。
     - `expand_boundary`（bool）: 記録した、その round で解決した `expand_boundary` の値と比べる。
@@ -349,6 +350,7 @@ C11 だけはこの仕様が決める。
 - **LizyStudio の retune**（`training_retune.py:86-105`）: Model 全体を cloudpickle したものを読み、`resume=True` を呼ぶ。新しい版で作った checkpoint なら study の属性ごと運ばれる。古い版の checkpoint は照合の記録が無いので拒否される。
 - **LizyML-Widget の進捗**（`job_runner.py:170-178`）: resume の呼び出しの前に、round を 2 と決めて進捗を出している。この仕様では、resume は途中の round k の続き、または k+1 番目の round になりうるので、最初の進捗の round が系譜と食い違う（後に続く `TuneProgressInfo` の round は正しい）。版の上限を上げるとき、最初の round を出さないか、study の系譜から求めるように直し、途中の round の続きと、二つ以上の round のあとの resume の両方を Widget のテストで確かめる。
 - **LizyML-Widget**（`adapter.py:767-800, 845-851`）: `_study`、`_space`、`_used_default_space`、`_round_number`、`_rounds` を pickle して別プロセスで戻している（`_tuning_fixed_params` は運ばない）。同一性・系譜・固定パラメーターは study の属性から読み、Model のフィールドより優先する（5.3）ので、`_study` が運ばれれば足りる。メモリ上の study は pickle できる（実行で確認）。
+- **LizyStudio の tune のあとの fit**（`services/training.py:458`、`services/training_retune.py:109` → `_training_core.py:337-347`）: `TuningSummary.best_params`（model・smart・training を平らにしたもの、`backends/lizyml/serialization.py:26-44`）を、すべて config の `model.params` に入れて fit している。smart と training の値は `model.params` では効かないか拒否されるので、INV-R2（最良の試行と同じ学習）が LizyStudio では成り立たない。今の版でも smart の次元で起きる既存の問題で、この仕様では外した次元の値が最良として残る（D2、Q-B）ため起きやすくなる。版の上限を上げるとき、`best_model_params` / `best_smart_params` / `best_training_params` を分けたまま運び、それぞれの場所に入れるように直す（または tune した Model をそのまま fit に使う）。
 - **LizyStudio の round のループ**（`lifecycle_mixin.py:186-197`）: 再チューニングの `n_trials` / `expand_boundary` を最初の呼び出しに付け、`range(2, n_rounds + 1)` で round 2 から数える。途中で落ちた round を再開する呼び出しに違う `n_trials` が付くと U2 で `CONFIG_INVALID` になり、round が 2 から始まる前提も、途中の round の再開では成り立たない。試行ごとに Model を pickle する checkpoint（`_bridge`）は開いた round の study を保存しうるので、そこからの retune（`training_retune.py:93-105` は `n_trials` を必ず渡す）も同じく U2 に当たる。版の上限を上げるとき、round の数え方を study の系譜（`TuningResult.rounds` と試行の round）に合わせて直す。
 - 公開 API: `tune()` に `space=` を足す（A-1 の場合）。エラーの条件が増える（8）。CHANGELOG と migration に書く。
 
@@ -392,10 +394,11 @@ C11 だけはこの仕様が決める。
 4. `space=` で範囲を動かして resume → 新しい試行は新しい範囲。最良が古い範囲の試行なら、その値が `best_params` になり、`fit` がそれを使う。その次元は拡張されない。
 5. 宣言を変えない resume → 拡張した範囲が引き継がれる（今のテストと同じ）。
 6. 次元を外して resume → 以後の試行はその次元を config の値で学習する。外した smart の次元が最良の試行にあれば、smart として `fit` に渡る（LightGBM の params に入らない）。
+6b. training の次元（`early_stopping_rounds`）を外して resume し、外す前の試行が最良のまま → `best_training_params` にその値が入り（`best_model_params` には入らない）、続く `fit()` はその値で学習する。
 7. 分布の種類・`log`・選択肢の変更（`True` を `1` に、`1` を `1.0` に変えるものを含む）、`space_mode` の変更 → study を変える前に `CONFIG_INVALID`。
 8. storage で round 2 の途中に落とした（プロセスを止めた）あと、新しい `Model` で `resume=True` → round 2 の残りの予算を、round 2 の実効空間で走らせて閉じる。round 2 の試行の総数、`rounds`、試行の round が、落とさずに走らせた場合と同じ。RUNNING のまま残った試行は FAIL になり、予算に数えられる。境界の拡張は起きない。`:end` を書く直前に落とした場合は、試行を足さずに round 2 を閉じる。同じプロセスで round が例外で止まった場合も同じ。
 8a. `n_trials=1` の round 1 で、ただ一つの試行が RUNNING のまま落ちた study に再接続 → その試行が FAIL になり、round 1 が `failed` で閉じ、`TUNING_FAILED`。もう一度 `resume=True` → round 2 が始まり、拡張は無い。round 2 が終わったあとの `TuningResult.rounds` は round 2 だけで、その `best_score_before` は `None`。`trials` には round 1 の FAIL の試行が round 1 として残る。
-8b. 途中の round の再開（U2）: round を始めたときと同じ `n_trials`、その round で解決した値と同じ `expand_boundary`、同じ宣言空間に解決される `space=`（同じ dict、および `log` を省いた書き方や dict の並びを変えた書き方）→ それぞれ通り、残りの試行を走らせる。違う `n_trials`、違う `expand_boundary`、違う `space=`（範囲が違う、categorical の選択肢の型だけが違う）→ それぞれ `CONFIG_INVALID`、試行が増えない。引数を省く、または `None` を渡す → 比べずに通る。categorical の選択肢に `float('nan')` を含む `space=` で始めた round を、同じ `space=` で再接続して再開 → 通る。config の `n_trials` だけが記録と違う → 警告が出て、記録の予算で終える。終わった round のあとの `resume=True` で違う `n_trials` を渡す → 新しい round がその値で始まる。
+8b. 途中の round の再開（U2）。RUNNING の試行が残った開いた round で確かめる: round を始めたときと同じ `n_trials`、その round で解決した値と同じ `expand_boundary`、同じ宣言空間に解決される `space=`（同じ dict、および `log` を省いた書き方や dict の並びを変えた書き方）→ それぞれ通り、残りの試行を走らせる。違う `n_trials`、違う `expand_boundary`、違う `space=`（範囲が違う、categorical の選択肢の型だけが違う）→ それぞれ `CONFIG_INVALID`。試行の数も、RUNNING の試行の状態も、study の属性も変わらない。引数を省く、または `None` を渡す → 比べずに通る。categorical の選択肢に `float('nan')` を含む `space=` で始めた round を、同じ `space=` で再接続して再開 → 通る。config の `n_trials` だけが記録と違う → 警告が出て、記録の予算で終える。終わった round のあとの `resume=True` で違う `n_trials` を渡す → 新しい round がその値で始まる。
 9. `resume=False` で既存の study → `CONFIG_INVALID`、試行が増えない。
 10. `resume=True` で別の storage → `CONFIG_INVALID`。
 11. config の探索空間を変えて `resume=True`（`space=` なし） → `CONFIG_INVALID`。
@@ -416,7 +419,8 @@ C11 だけはこの仕様が決める。
 19. study を作った直後、`lizyml:study` を書く前に止めた場合 → 再接続で作りかけの study として初期化され、round 1 から始まる。試行のある study から `lizyml:study` を消したもの → `CONFIG_INVALID`。次元を足した round で、`lizyml:round:<k>` を書く前に止めた場合 → その次元の経路は残らない。`lizyml:study` を書いた後、round 1 の記録の前に止めた場合（状態 N）→ `resume=True` で round 1 が始まり、`space=` を渡すと `CONFIG_INVALID`。試行はあるが round の記録が無い study、round の番号が飛んでいる study、最後以外の round に `:end` が無い study、round 1 の開始より小さい番号の試行がある study（状態 X）→ それぞれ `CONFIG_INVALID`、study は変わらない。
     状態 E（`lizyml:study` も試行も無い study）に、受け付けの検査で落ちる config（たとえば smart と衝突する探索次元）で `resume=True` → `CONFIG_INVALID`、`lizyml:study` は書かれない（INV-R4）。状態 N に同じ config で `resume=True` → `CONFIG_INVALID`、round の記録も試行も増えない。
     目的関数の途中で止めた場合（Optuna は試行を RUNNING として storage に作ってから目的関数を呼ぶ）→ 再接続で状態 O と判定され、その試行は番号から決まる round の FAIL として残りの予算に数えられる。
-20. 既存のテストのうち今の挙動を固定しているもの（`test_space_merge.py:183, 262, 305, 375, 395`、`test_tuner_persistence.py:252`、`test_retune.py:807`、`test_error_code_raising.py:57`）は、新しい規則を固定するように書き直す（消さない）。`test_retune.py:823-838` は試行の総数（3 + 2 = 5）が変わらないのでそのまま通るが、enqueue が数に入るという注釈（:834）を直す。`Tuner` を直接使うテスト（`test_tuner_persistence.py:116-127, 185-199`、`test_direction_reconciliation.py:100-119`）は変えない（次の段落）。
+20. 移行の文書（U1）: CHANGELOG の該当の版の節と `docs/migration.md` に、この変更より前に作った study は続けられないこと（新しい `study_name` で始める）と、一時停止中のジョブはアップグレードの前に終えることが書かれている。`tests/test_docs/` の文書の検査で、その記述があることを確かめる。
+21. 既存のテストのうち今の挙動を固定しているもの（`test_space_merge.py:183, 262, 305, 375, 395`、`test_tuner_persistence.py:252`、`test_retune.py:807`、`test_error_code_raising.py:57`）は、新しい規則を固定するように書き直す（消さない）。`test_retune.py:823-838` は試行の総数（3 + 2 = 5）が変わらないのでそのまま通るが、enqueue が数に入るという注釈（:834）を直す。`Tuner` を直接使うテスト（`test_tuner_persistence.py:116-127, 185-199`、`test_direction_reconciliation.py:100-119`）は変えない（次の段落）。
 
 一つの study に試行を足すプロセスは一つという前提（3）は、利用者に求める前提で、ライブラリは強制しない（lease などの仕組みは入れない）。テストは、再接続のときに残った RUNNING の試行が FAIL になること（8）だけを確かめる。
 
