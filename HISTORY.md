@@ -12574,3 +12574,22 @@ LizyStudio（`src/lizystudio`）と LizyML-Widget（`src/lizyml_widget`）で、
 この仕様の規則は `Model.tune` に置く。`Tuner`（`lizyml.tuning` にあるが、トップレベルにも docs/api.md にも無い）は今と同じく study を作る・読むだけの層とし、`resume` の意味や同一性の照合は持たない（BLUEPRINT.md:448 の責務分離）。
 
 Firing rate: unmeasurable before implementation (拒否の条件は 4.1 の同一性の要約と 7.1 の記録を読み、それを書く実装がまだ無いので再生できない; measurable when PR 1 の実装で、`tune(resume=True)` か `storage` を使う既存のテストと `design-vs-implementation.md` の probe P1-P7 を新しい検査に通したとき。拒否の数を PR 1 の決定の記録に書く)
+
+### 実装の記録 1: PR 1（中核、2026-10-11）
+
+H-0122 は二つの PR で実装する（管理者が承認。分け方と受け入れ基準の割り当ては `docs/audits/2026-10-tuning-resume/pr-split.md`）。PR 1 は 3（`space=` の行を除く）、4、5.1 の config の探索空間の変更の拒否、5.3 の 3 点目、6.1〜6.4、6.5（報告面の round の区切りを除く）、7.1、7.2（U2 は `n_trials` と `expand_boundary` だけ）、7.4、8 を実装する。ステータスは PR 2 が入るまで Proposed のまま。設計は `docs/audits/2026-10-tuning-resume/pr1-design.md`。
+
+Firing rate: 8/27 of test cases at 3a36b02 that call Model.tune with resume=True or storage (old suite run against the PR 1 lizyml/ with a Model.tune-wrapping pytest plugin; a refusal is a new-rule LizyMLError raised from _tuning_resume.py or _tuning_plan.py; `docs/audits/2026-10-tuning-resume/probes/firing_rate.py`, output `firing_rate.txt`)
+
+- 拒否された 8 件は、どれも今の挙動を固定していたテスト（受け入れ基準 21 の一覧と、H-0121 の一時的な固定）で、新しい規則を固定するように書き直した（消していない）。
+- `design-vs-implementation.md` の probe P1〜P7 は、P6（load のあとの `resume=True`、`TUNING_FAILED` のまま）を除いてすべて `CONFIG_INVALID` になる。結果は `firing_rate.txt`。
+
+仕様の範囲で実装が決めたこと（仕様に書かれていない細部。どれも保守的な側を採る）:
+
+- **enqueue の廃止の位置**: `Model.tune` が `enqueue_params` を渡さない。`Tuner.tune` の引数は残す（`Tuner` を直接使うテストは変えない、受け入れ基準 21）。
+- **状態 X の範囲**: 7.4 の表の X の条件に加えて、round の記録の無い `:end`、読めない round の記録、`lizyml:round:` で始まるが形の違うキー、`start_trial` の減少、経路の無い試行のパラメーター、経路の食い違いも X とする。LizyML の書き込みからは生じない。
+- **状態 N の照合**: 状態 N でも、`lizyml:study` の `origin_space` と `space_mode` を config と比べる（5.1）。
+- **`data.path`**: 文字列は同一性に入れない（読んだ中身を要約するため。コンストラクターの `data` と、同じ中身の `data.path` は同じ）。
+- **config で分類の無い欄**: `config_version`、`features.unseen_policy`・`auto_categorical`・`categorical`、`data.time_col`・`group_col`、training の計算した欄は同一性に入れる（Q-E）。`tuning`、`calibration`、`evaluation`（最初の評価指標は別の要素）、`output_dir` は入れない。
+- **途中の round の再開での他の引数**: U2 が比べない `boundary_threshold` と、config の `timeout` が記録と違うときは、記録の値を使い、無視したことを INFO のログに出す。config の `n_trials` の警告は、引数の `n_trials` が無いときだけ出す。
+- **エラーの context**: storage の URL は資格情報を含みうるので、context には入れない（渡したかどうかだけ）。
