@@ -77,62 +77,7 @@
       "population_name": "3 name classes x 3 categories x 3 tasks",
       "derived_from": "import typing\nfrom lizyml.core.types.task import TASK_TYPES\nfrom lizyml.core.types.search_dim import DimCategory\nprint(3 * len(typing.get_args(DimCategory)) * len(TASK_TYPES))",
       "closure_comment": 5923365294,
-      "expected_nonpass": [
-        {
-          "test": "tests/test_tuning/test_search_space_name_validation.py::test_search_space_name_is_gated[num_leaves-smart-regression]",
-          "outcome": "xfailed",
-          "reason": "#299",
-          "count": 1
-        },
-        {
-          "test": "tests/test_tuning/test_search_space_name_validation.py::test_search_space_name_is_gated[num_leaves-smart-binary]",
-          "outcome": "xfailed",
-          "reason": "#299",
-          "count": 1
-        },
-        {
-          "test": "tests/test_tuning/test_search_space_name_validation.py::test_search_space_name_is_gated[num_leaves-smart-multiclass]",
-          "outcome": "xfailed",
-          "reason": "#299",
-          "count": 1
-        },
-        {
-          "test": "tests/test_tuning/test_search_space_name_validation.py::test_search_space_name_is_gated[not_a_lightgbm_parameter-smart-regression]",
-          "outcome": "xfailed",
-          "reason": "#299",
-          "count": 1
-        },
-        {
-          "test": "tests/test_tuning/test_search_space_name_validation.py::test_search_space_name_is_gated[not_a_lightgbm_parameter-smart-binary]",
-          "outcome": "xfailed",
-          "reason": "#299",
-          "count": 1
-        },
-        {
-          "test": "tests/test_tuning/test_search_space_name_validation.py::test_search_space_name_is_gated[not_a_lightgbm_parameter-smart-multiclass]",
-          "outcome": "xfailed",
-          "reason": "#299",
-          "count": 1
-        },
-        {
-          "test": "tests/test_tuning/test_search_space_name_validation.py::test_smart_dimension_with_inactive_consumer_is_refused[regression]",
-          "outcome": "xfailed",
-          "reason": "#299",
-          "count": 1
-        },
-        {
-          "test": "tests/test_tuning/test_search_space_name_validation.py::test_smart_dimension_with_inactive_consumer_is_refused[binary]",
-          "outcome": "xfailed",
-          "reason": "#299",
-          "count": 1
-        },
-        {
-          "test": "tests/test_tuning/test_search_space_name_validation.py::test_smart_dimension_with_inactive_consumer_is_refused[multiclass]",
-          "outcome": "xfailed",
-          "reason": "#299",
-          "count": 1
-        }
-      ]
+      "expected_nonpass": []
     },
     "263": {
       "plan_pr": "6",

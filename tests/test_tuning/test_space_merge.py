@@ -33,7 +33,7 @@ def test_partial_space_retains_defaults(task: str, name: str) -> None:
             },
         }
     )
-    space, _, _ = model._resolve_search_space(resume=False, provider=provider)
+    space, _, _, _ = model._resolve_search_space(resume=False, provider=provider)
     expected = {dim.name for dim in provider.default_space(task)}
     expected.remove("learning_rate")
     expected.add(name)
@@ -131,13 +131,15 @@ def test_legacy_artifact_refit_policy(
 )
 def test_replace_has_no_inherited_dimensions_or_fixed_params(space: dict) -> None:
     model = Model(_config(space, "replace"))
-    dims, automatic_expansion, fixed = model._resolve_search_space(
+    dims, automatic_expansion, fixed, default_dims = model._resolve_search_space(
         resume=False,
         provider=LGBMProvider(),
     )
     assert {dim.name for dim in dims} == set(space)
     assert not automatic_expansion
     assert fixed == {}
+    # H-0121: nothing in a replace space came from the defaults.
+    assert default_dims == frozenset()
 
 
 @pytest.mark.parametrize(
@@ -165,10 +167,15 @@ def test_override_categories_and_extension(
         )
     )
     provider = LGBMProvider()
-    dims, automatic_expansion, fixed = model._resolve_search_space(
+    dims, automatic_expansion, fixed, default_dims = model._resolve_search_space(
         resume=False,
         provider=provider,
     )
+    # H-0121: the provenance decision 4 reads -- every default dimension except
+    # the one the user overrode (an appended dimension was never a default).
+    assert default_dims == {
+        (dim.category, dim.name) for dim in provider.default_space("regression")
+    } - {(category, name)}
     expected = {dim.name for dim in provider.default_space("regression")} | {name}
     assert {dim.name for dim in dims} == expected
     assert next(dim for dim in dims if dim.name == name) == CategoricalDim(
