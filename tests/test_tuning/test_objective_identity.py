@@ -232,9 +232,12 @@ class TestSummariseFrame:
         assert summarise_frame(empty) != summarise_frame(no_cols)
 
     def test_string_dtype_column(self) -> None:
-        df = pd.DataFrame({"s": ["a", "b"]})
+        # Explicit dtype: pandas 2 infers object for a list of str, pandas 3
+        # infers the str dtype, and the lowest supported pandas is 2.0.
+        df = pd.DataFrame({"s": pd.Series(["a", "b"], dtype="string")})
         base = summarise_frame(df)
-        assert "data.values" in _changed(base, pd.DataFrame({"s": ["a", "c"]}))
+        changed = pd.DataFrame({"s": pd.Series(["a", "c"], dtype="string")})
+        assert "data.values" in _changed(base, changed)
         as_object = pd.DataFrame({"s": pd.Series(["a", "b"], dtype=object)})
         assert "data.dtypes" in _changed(base, as_object)
 
