@@ -238,12 +238,14 @@ def test_single_running_trial_round1_fails_then_round2(
     assert round_key(1) in stored.user_attrs
     assert end_key(1) not in stored.user_attrs
 
-    model = Model(cfg, data=frame())
+    # With `output_dir`, so the snapshot would see `_run_dir` move (DC5).
+    model = Model(cfg, data=frame(), output_dir=tmp_path / "out")
     before = snapshot_model(model)
     with pytest.raises(LizyMLError) as caught:
         model.tune(resume=True, storage=storage, study_name="s")
     assert caught.value.code is ErrorCode.TUNING_FAILED
     assert snapshot_model(model) == before
+    assert (model._run_dir, model._provider) == (None, None)
     stored = load(storage, "s")
     assert [t.state.name for t in stored.trials] == ["FAIL"]
     end = decode_round_end(stored.user_attrs[end_key(1)])

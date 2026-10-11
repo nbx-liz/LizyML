@@ -28,6 +28,7 @@ from lizyml.tuning.lineage import (
     round_key,
 )
 from lizyml.tuning.lineage_codec import to_attr_value
+from lizyml.tuning.lineage_digest import FIXED_ELEMENT, value_digest
 
 # ---------------------------------------------------------------------------
 # Stand-ins
@@ -69,7 +70,13 @@ LR_BOUNDED = replace(LR, min_allowed=1e-8, max_allowed=1.0)
 
 
 def stored_study(**overrides: Any) -> StoredStudy:
-    elements = {"data.values": "a" * 64, "config.model": "b" * 64}
+    # `config.fixed` digests the record's own `fixed`, as `config_parts` does;
+    # `decode_study` refuses a record whose `fixed` does not match it.
+    elements = {
+        "data.values": "a" * 64,
+        "config.model": "b" * 64,
+        FIXED_ELEMENT: value_digest(overrides.get("fixed", {})),
+    }
     base: dict[str, Any] = {
         "schema": SCHEMA_VERSION,
         "objective_digest": objective_digest(elements),

@@ -30,6 +30,7 @@ from lizyml.core._tuning_identity import (
     config_parts,
     library_versions,
     mismatched_elements,
+    provider_default_params,
     summarise_frame,
     version_differences,
 )
@@ -243,6 +244,7 @@ class TestSummariseFrame:
 # ---------------------------------------------------------------------------
 
 _FIXED = {"first_metric_only": True, "metric": ["huber", "mae", "mape"]}
+_DEFAULTS = {"max_bin": 511, "lambda_l2": 1e-06, "objective": "huber"}
 
 
 def _cfg(
@@ -258,9 +260,17 @@ def _cfg(
 
 
 def _parts(
-    cfg: LizyMLConfig, fixed: dict[str, Any] | None = None, direction: str = "minimize"
+    cfg: LizyMLConfig,
+    fixed: dict[str, Any] | None = None,
+    direction: str = "minimize",
+    provider_defaults: dict[str, Any] | None = None,
 ) -> dict[str, str]:
-    return config_parts(cfg, _FIXED if fixed is None else fixed, direction)
+    return config_parts(
+        cfg,
+        _FIXED if fixed is None else fixed,
+        direction,
+        provider_defaults=_DEFAULTS if provider_defaults is None else provider_defaults,
+    )
 
 
 def _set(path: str, value: Any) -> Callable[[dict[str, Any]], None]:
@@ -335,6 +345,7 @@ class TestConfigParts:
             "config.features",
             "config.model",
             "config.fixed",
+            "config.provider_defaults",
             "config.training",
             "config.split",
             "metric",
@@ -461,6 +472,67 @@ class TestConfigParts:
         assert (
             _parts(_cfg(edit))["config.model"] != _parts(_cfg(edit_str))["config.model"]
         )
+
+
+# ---------------------------------------------------------------------------
+# Provider default parameters (spec 4.3, Q-E)
+# ---------------------------------------------------------------------------
+
+
+class TestProviderDefaults:
+    def test_element_is_present(self) -> None:
+        assert "config.provider_defaults" in _parts(_cfg())
+
+    def test_default_change_moves_only_its_element(self) -> None:
+        changed = {**_DEFAULTS, "max_bin": 15}
+        diff = mismatched_elements(
+            _parts(_cfg()), _parts(_cfg(), provider_defaults=changed)
+        )
+        assert diff == ("config.provider_defaults",)
+
+    @pytest.mark.parametrize("task", ["regression", "binary", "multiclass"])
+    def test_lgbm_provider_reports_its_defaults(
+        self, task: str, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from lizyml.estimators.lgbm import defaults as lgbm_defaults
+
+        provider = LGBMProvider()
+        before = provider_default_params(provider, task)  # type: ignore[arg-type]
+        assert before["max_bin"] == lgbm_defaults._COMMON_DEFAULTS["max_bin"]
+        monkeypatch.setitem(lgbm_defaults._COMMON_DEFAULTS, "max_bin", 15)
+        after = provider_default_params(provider, task)  # type: ignore[arg-type]
+        assert after["max_bin"] == 15
+
+    def test_provider_without_the_method_contributes_nothing(self) -> None:
+        class ThirdParty:
+            pass
+
+        assert provider_default_params(ThirdParty(), "regression") == {}  # type: ignore[arg-type]
+
+    @pytest.mark.parametrize("task", ["regression", "binary", "multiclass"])
+    def test_defaults_are_exactly_what_the_adapter_starts_from(self, task: str) -> None:
+        """DC3: the identity reads the provider method, the trials read the
+        adapter. With no user params the adapter's native params are the
+        provider defaults plus ``seed`` / ``verbosity`` (``config.training``
+        and a constant) and ``num_class`` (the data); ``n_estimators`` becomes
+        ``num_boost_round``. A default added to the adapter alone fails here.
+        """
+        from lizyml.estimators.lgbm.adapter import LGBMAdapter
+
+        adapter = LGBMAdapter(
+            task=task,  # type: ignore[arg-type]
+            params={},
+            num_class=3 if task == "multiclass" else None,
+        )
+        params, num_boost_round, _, _ = adapter._build_params()
+        defaults = LGBMProvider().default_params(task)  # type: ignore[arg-type]
+        native = {
+            k: v
+            for k, v in params.items()
+            if k not in {"seed", "verbosity", "num_class"}
+        }
+        assert native == {k: v for k, v in defaults.items() if k != "n_estimators"}
+        assert num_boost_round == defaults["n_estimators"]
 
 
 # ---------------------------------------------------------------------------

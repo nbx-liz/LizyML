@@ -128,8 +128,14 @@ def resolve_call_row(
     remembered_storage: str | BaseStorage | None,
     remembered_name: str | None,
     round_number: int,
+    remembered_known: bool,
 ) -> None:
-    """The call-matrix rows decided without I/O (§3 rows 5 and 8)."""
+    """The call-matrix rows decided without I/O (§3 rows 5 and 8).
+
+    ``remembered_known`` is False for a Model pickled before H-0122, which
+    never remembered its study's ``(storage, study_name)``: its ``None`` pair
+    means "unknown", not "in-memory", and the row-5 refusal says so.
+    """
     if resume and not has_study and storage is None:
         raise LizyMLError(
             code=ErrorCode.TUNING_FAILED,
@@ -150,19 +156,29 @@ def resolve_call_row(
         and storage is not None
         and not same_study(storage, study_name, remembered_storage, remembered_name)
     ):
+        held = (
+            f"('{_shown(remembered_name)}'), and the storage / study_name given "
+            "cannot be shown to name it (the same URL string or the same storage "
+            "object, and the same name)"
+            if remembered_known
+            else "; this Model predates the study record (H-0122), so which "
+            "storage and name its study has is unknown, and the storage / "
+            "study_name given cannot be shown to name it"
+        )
         raise LizyMLError(
             code=ErrorCode.CONFIG_INVALID,
             user_message=(
-                "resume=True continues the study this Model holds "
-                f"('{_shown(remembered_name)}'), and the storage / study_name "
-                "given cannot be shown to name it (the same URL string or the "
-                "same storage object, and the same name). Omit them to continue, "
-                "or use a new Model to reattach to another study."
+                f"resume=True continues the study this Model holds {held}. Omit "
+                "them to continue, or use a new Model to reattach to another "
+                "study."
             ),
             context={
                 "surface": "tuning.study",
                 "study_name": study_name,
-                "held_study_name": _shown(remembered_name),
+                "held_study_name": (
+                    _shown(remembered_name) if remembered_known else None
+                ),
+                "held_study_known": remembered_known,
             },
         )
 
@@ -232,8 +248,8 @@ def refuse_state(lineage: Lineage, study_name: str | None, n_trials: int) -> Non
     elif lineage.state == "unreadable":
         message = (
             f"study '{name}' carries a LizyML record this LizyML cannot read "
-            f"({lineage.reason}). It may come from a newer LizyML; "
-            f"{_NEW_STUDY}."
+            f"({lineage.reason}). It may come from a newer LizyML, or have "
+            f"been edited; {_NEW_STUDY}."
         )
     elif lineage.state == "inconsistent":
         message = (

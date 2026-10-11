@@ -24,6 +24,7 @@ import pytest
 from lizyml import Model
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.tuning_result import TuneProgressInfo
+from lizyml.estimators.lgbm import defaults as lgbm_defaults
 from lizyml.estimators.lgbm.provider import LGBMProvider
 from lizyml.tuning.lineage import STUDY_KEY
 from tests.test_tuning._resume_helpers import (
@@ -453,3 +454,69 @@ def test_provider_fixed_change_refused(
     monkeypatch.setattr(LGBMProvider, "default_fixed_params", changed)
     error = _refused_on(storage, cfg, _frame())
     assert error.context["mismatched"] == ["config.fixed"]
+
+
+# ---------------------------------------------------------------------------
+# The stored `fixed` is checked against the record's own identity (INV-R1)
+# ---------------------------------------------------------------------------
+
+
+def test_edited_stored_fixed_refused_before_any_trial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ``lizyml:study`` whose ``fixed`` no longer digests to its own
+    ``config.fixed`` element is refused (state S), and no trial trains on it.
+
+    Identity compares this call's ``config.fixed`` with the stored *element*;
+    the trials use the stored *value*. Without the check an edited value
+    passed, because the element still matched (DC1).
+    """
+    storage = url(tmp_path)
+    cfg = _config(mode="merge")
+    Model(cfg).tune(data=_frame(), storage=storage, study_name="s")
+    study = load(storage, "s")
+    record = copy.deepcopy(study.user_attrs[STUDY_KEY])
+    assert record["fixed"]["first_metric_only"] is True
+    record["fixed"]["first_metric_only"] = False
+    study.set_user_attr(STUDY_KEY, record)
+
+    model = Model(cfg)
+
+    def no_trial(*args: Any, **kwargs: Any) -> Any:
+        pytest.fail("a trial trained on the edited fixed")
+
+    monkeypatch.setattr(model, "_build_train_components", no_trial)
+    before = (snapshot_study(storage, "s"), snapshot_model(model))
+    with pytest.raises(LizyMLError) as caught:
+        model.tune(data=_frame(), resume=True, storage=storage, study_name="s")
+    assert caught.value.code is ErrorCode.CONFIG_INVALID
+    assert caught.value.context["state"] == "unreadable"
+    assert "config.fixed" in caught.value.user_message
+    assert (snapshot_study(storage, "s"), snapshot_model(model)) == before
+
+
+# ---------------------------------------------------------------------------
+# Spec 4.3 / Q-E: the provider's default parameters are part of the objective
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("mode", ["replace", "merge"])
+@pytest.mark.parametrize("versions", ["versions_same", "versions_changed"])
+def test_provider_default_params_change_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, versions: str, mode: str
+) -> None:
+    """A default every trial trains on, outside ``fixed`` (``max_bin``), changes
+    between rounds: refused naming ``config.provider_defaults``, with or
+    without a changed version record -- never only a version warning.
+    """
+    storage = url(tmp_path)
+    cfg = _config(mode=mode)
+    Model(cfg).tune(data=_frame(), storage=storage, study_name="s")
+    if versions == "versions_changed":
+        study = load(storage, "s")
+        record = copy.deepcopy(study.user_attrs[STUDY_KEY])
+        record["versions"]["lightgbm"] = "0.0.1"
+        study.set_user_attr(STUDY_KEY, record)
+    monkeypatch.setitem(lgbm_defaults._COMMON_DEFAULTS, "max_bin", 15)
+    error = _refused_on(storage, cfg, _frame())
+    assert error.context["mismatched"] == ["config.provider_defaults"]

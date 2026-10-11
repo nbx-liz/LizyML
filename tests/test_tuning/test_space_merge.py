@@ -9,6 +9,7 @@ import pytest
 
 from lizyml import Model
 from lizyml.config.schema import LizyMLConfig
+from lizyml.core._tuning_plan import resolve_config_space
 from lizyml.core.types.search_dim import CategoricalDim
 from lizyml.estimators.lgbm.provider import LGBMProvider
 from tests._helpers import make_regression_df
@@ -33,7 +34,7 @@ def test_partial_space_retains_defaults(task: str, name: str) -> None:
             },
         }
     )
-    space, _, _, _ = model._resolve_search_space(provider=provider)
+    space = resolve_config_space(model._cfg, provider).declared
     expected = {dim.name for dim in provider.default_space(task)}
     expected.remove("learning_rate")
     expected.add(name)
@@ -131,9 +132,9 @@ def test_legacy_artifact_refit_policy(
 )
 def test_replace_has_no_inherited_dimensions_or_fixed_params(space: dict) -> None:
     model = Model(_config(space, "replace"))
-    dims, automatic_expansion, fixed, default_dims = model._resolve_search_space(
-        provider=LGBMProvider(),
-    )
+    resolved = resolve_config_space(model._cfg, LGBMProvider())
+    dims, automatic_expansion = resolved.declared, resolved.used_default
+    fixed, default_dims = resolved.fixed, resolved.default_dims
     assert {dim.name for dim in dims} == set(space)
     assert not automatic_expansion
     assert fixed == {}
@@ -166,9 +167,9 @@ def test_override_categories_and_extension(
         )
     )
     provider = LGBMProvider()
-    dims, automatic_expansion, fixed, default_dims = model._resolve_search_space(
-        provider=provider,
-    )
+    resolved = resolve_config_space(model._cfg, provider)
+    dims, automatic_expansion = resolved.declared, resolved.used_default
+    fixed, default_dims = resolved.fixed, resolved.default_dims
     # H-0121: the provenance decision 4 reads -- every default dimension except
     # the one the user overrode (an appended dimension was never a default).
     assert default_dims == {

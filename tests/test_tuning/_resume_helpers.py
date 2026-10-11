@@ -326,6 +326,7 @@ def study_record_for(cfg_dict: dict[str, Any], df: pd.DataFrame) -> dict[str, An
         build_identity,
         config_parts,
         library_versions,
+        provider_default_params,
         summarise_frame,
     )
     from lizyml.core._tuning_resume import study_record_payload
@@ -340,7 +341,13 @@ def study_record_for(cfg_dict: dict[str, Any], df: pd.DataFrame) -> dict[str, An
         else {}
     )
     direction = resolve_tuning_direction(cfg)
-    identity = build_identity(summarise_frame(df), config_parts(cfg, fixed, direction))
+    parts = config_parts(
+        cfg,
+        fixed,
+        direction,
+        provider_defaults=provider_default_params(provider, cfg.task),
+    )
+    identity = build_identity(summarise_frame(df), parts)
     return study_record_payload(
         cfg,
         identity=identity,

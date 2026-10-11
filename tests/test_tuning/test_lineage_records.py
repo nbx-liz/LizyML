@@ -87,6 +87,31 @@ class TestRecordCodecs:
         )
         assert decode_round(to_attr_value(encode_round(record))) == record
 
+    def test_study_whose_fixed_disagrees_with_its_identity_is_refused(self) -> None:
+        # The stored `fixed` is what every trial trains on (§5.3); the record's
+        # own `config.fixed` element is what identity checks. An edited `fixed`
+        # must not pass because the element still matches (DC1, INV-R1).
+        payload = to_attr_value(
+            encode_study(
+                stored_study(
+                    space_mode="merge",
+                    fixed={"first_metric_only": True, "metric": ["huber", "mae"]},
+                )
+            )
+        )
+        payload["fixed"]["first_metric_only"] = False
+        with pytest.raises(LineageCodecError, match="config.fixed"):
+            decode_study(payload)
+        assert classify_study({STUDY_KEY: payload}, []).state == "unreadable"
+
+    def test_study_without_a_fixed_element_is_refused(self) -> None:
+        payload = to_attr_value(encode_study(stored_study()))
+        elements = payload["objective"]["elements"]
+        elements.pop("config.fixed", None)
+        payload["objective"]["digest"] = objective_digest(elements)
+        with pytest.raises(LineageCodecError, match="config.fixed"):
+            decode_study(payload)
+
     def test_end_round_trip(self) -> None:
         for end in (stored_end("completed", 1.5), stored_end("failed")):
             assert decode_round_end(to_attr_value(encode_round_end(end))) == end

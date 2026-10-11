@@ -312,6 +312,20 @@ def _unreadable(env: Env) -> Case:
     )
 
 
+def _unreadable_fixed(env: Env) -> Case:
+    """The stored ``fixed`` no longer digests to the record's ``config.fixed``."""
+    record = copy.deepcopy(load(env.c, "s").user_attrs[STUDY_KEY])
+    record["fixed"] = {"first_metric_only": False}
+    set_attr(env.c, "s", STUDY_KEY, record)
+    return Case(
+        Model(fast_config(), data=frame()),
+        (env.c, "s"),
+        {"resume": True, "storage": env.c, "study_name": "s"},
+        CI,
+        lambda e: _state_is("unreadable")(e) and _message("config.fixed")(e),
+    )
+
+
 def _unreadable_empty(env: Env) -> Case:
     _empty_study(env)
     set_attr(env.spare, "s", STUDY_KEY, {"schema": 999})
@@ -450,6 +464,7 @@ ROWS: dict[str, Callable[[Env], Case]] = {
     "identity[metric]": _identity_metric,
     "legacy": _legacy,
     "unreadable": _unreadable,
+    "unreadable[fixed_edited]": _unreadable_fixed,
     "unreadable_empty": _unreadable_empty,
     **{f"inconsistent[{name}]": _inconsistent(name) for name in sorted(INCONSISTENT)},
     "config_space": _config_space,

@@ -17,7 +17,8 @@ refused call changes neither the study nor the Model (INV-R4).
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -38,6 +39,7 @@ from lizyml.core._tuning_identity import (
     build_identity,
     config_parts,
     library_versions,
+    provider_default_params,
     summarise_frame,
 )
 from lizyml.core._tuning_plan import (
@@ -102,6 +104,22 @@ if TYPE_CHECKING:
     from lizyml.splitters.base import BaseSplitter
 
 _log = get_logger("model")
+
+
+@contextmanager
+def _restored_on_failure(obj: object, fields: tuple[str, ...]) -> Iterator[None]:
+    """Put *fields* of *obj* back if the block leaves by any exception.
+
+    ``BaseException`` included: a process dying inside the trials must not
+    leave the Model pointing at the failed call's run directory or provider.
+    """
+    saved = [(name, getattr(obj, name)) for name in fields]
+    try:
+        yield
+    except BaseException:
+        for name, value in saved:
+            setattr(obj, name, value)
+        raise
 
 
 class ModelTuningMixin:
@@ -246,6 +264,7 @@ class ModelTuningMixin:
             remembered_storage=held_storage,
             remembered_name=held_name,
             round_number=self._round_number,
+            remembered_known=hasattr(self, "_tuning_storage"),
         )
         _tuner.require_optuna()
 
@@ -288,7 +307,13 @@ class ModelTuningMixin:
             else {}
         )
         identity = build_identity(
-            current_data, config_parts(cfg, current_fixed, direction)
+            current_data,
+            config_parts(
+                cfg,
+                current_fixed,
+                direction,
+                provider_defaults=provider_default_params(provider, cfg.task),
+            ),
         )
         versions = library_versions(provider)
         recorded = lineage.study if lineage is not None else None
@@ -296,8 +321,11 @@ class ModelTuningMixin:
             check_against_record(cfg, recorded, identity, versions, shown_name)
 
         # --- Phase D: plan the round (pure; the remaining refusals) ------------
-        # The study's `fixed` wins over the Model field (§5.3); identity has
-        # proved it equal to the recomputed value.
+        # The study's `fixed` wins over the Model field (§5.3). Its value is the
+        # one the record's `config.fixed` element digests (`decode_study`
+        # refuses it otherwise), and identity proved that element equal to
+        # this call's -- so it equals the recomputed value up to the
+        # identity's canonical form (a list and a tuple are the same).
         fixed = dict(recorded.fixed) if recorded is not None else current_fixed
         self._check_config_space_names(provider)
         base_model_params, base_smart_params = self._merge_params(
@@ -330,97 +358,103 @@ class ModelTuningMixin:
         # INV-R4: nothing above writes, and nothing below refuses.
 
         # --- Phase E: writes, in the §7.1 order --------------------------------
-        self._ensure_run_dir(generate_run_id())
-        self._provider = provider
-        metric_entries = cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task]
-        first_entry = metric_entries[0]
-        metric_name, _ = parse_metric_entry(first_entry)
-        objective = self._build_tune_objective(
-            space=list(plan.effective),
-            base_model_params=base_model_params,
-            base_smart_params=base_smart_params,
-            fixed=dict(plan.fixed),
-            provider=provider,
-            splitter=splitter,
-            X=X,
-            y=y,
-            groups=groups,
-            n_classes=n_classes,
-            fingerprint=fp_compute(X, file_path=None),
-            run_meta=self._build_run_meta(generate_run_id()),
-            evaluator=Evaluator(task=cfg.task),
-            first_entry=first_entry,
-            metric_name=metric_name,
-        )
-        _log.info(
-            "event='tune.start' task=%s resume=%s round=%d plan=%s n_trials=%d",
-            cfg.task,
-            resume,
-            plan.round_number,
-            plan.kind,
-            plan.run_n_trials,
-        )
-        tuner = Tuner(
-            dims=list(plan.effective),
-            n_trials=plan.run_n_trials,
-            direction=direction,
-            timeout=plan.run_timeout,
-            seed=cfg.training.seed,
-            progress_callback=progress_callback,
-            storage=storage,
-            study_name=study_name,
-        )
-        if target.announce_create:
-            _log.info(
-                "event='tune.study_created' reason=resume_without_stored_study "
-                "study_name=%s",
-                study_name,
+        # A tune that fails -- an exception, a dying process, or a round that
+        # closes `failed` -- leaves these two as they were too (§7.1, H-0094
+        # decision 14); the run directory it created on disk may remain.
+        with _restored_on_failure(self, ("_run_dir", "_provider")):
+            self._ensure_run_dir(generate_run_id())
+            self._provider = provider
+            metric_entries = cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task]
+            first_entry = metric_entries[0]
+            metric_name, _ = parse_metric_entry(first_entry)
+            objective = self._build_tune_objective(
+                space=list(plan.effective),
+                base_model_params=base_model_params,
+                base_smart_params=base_smart_params,
+                fixed=dict(plan.fixed),
+                provider=provider,
+                splitter=splitter,
+                X=X,
+                y=y,
+                groups=groups,
+                n_classes=n_classes,
+                fingerprint=fp_compute(X, file_path=None),
+                run_meta=self._build_run_meta(generate_run_id()),
+                evaluator=Evaluator(task=cfg.task),
+                first_entry=first_entry,
+                metric_name=metric_name,
             )
-        study = target.study
-        if study is None:  # (a) create
-            study = _tuner.create_study(
-                direction, cfg.training.seed, storage=storage, study_name=study_name
-            )
-        if study_payload is not None:  # (b) the study record
-            _tuner.write_study_attr(study, STUDY_KEY, study_payload)
-        if plan.running_to_fail:  # left RUNNING by a dead process
-            _tuner.fail_running_trials(study, plan.running_to_fail)
-        if round_payload is not None:  # (2) the round record
-            _tuner.write_study_attr(study, round_key(plan.round_number), round_payload)
-        if plan.runs_optimize:  # (3) the trials
-            self._run_tune_round(tuner, study, objective, plan)
-        else:
             _log.info(
-                "event='tune.resume_open' round=%d budget_spent=true "
-                "remaining_trials=%d remaining_timeout=%s",
+                "event='tune.start' task=%s resume=%s round=%d plan=%s n_trials=%d",
+                cfg.task,
+                resume,
                 plan.round_number,
+                plan.kind,
                 plan.run_n_trials,
-                plan.run_timeout,
             )
-        self._close_round(study, plan)  # (4) the end record
+            tuner = Tuner(
+                dims=list(plan.effective),
+                n_trials=plan.run_n_trials,
+                direction=direction,
+                timeout=plan.run_timeout,
+                seed=cfg.training.seed,
+                progress_callback=progress_callback,
+                storage=storage,
+                study_name=study_name,
+            )
+            if target.announce_create:
+                _log.info(
+                    "event='tune.study_created' reason=resume_without_stored_study "
+                    "study_name=%s",
+                    study_name,
+                )
+            study = target.study
+            if study is None:  # (a) create
+                study = _tuner.create_study(
+                    direction, cfg.training.seed, storage=storage, study_name=study_name
+                )
+            if study_payload is not None:  # (b) the study record
+                _tuner.write_study_attr(study, STUDY_KEY, study_payload)
+            if plan.running_to_fail:  # left RUNNING by a dead process
+                _tuner.fail_running_trials(study, plan.running_to_fail)
+            if round_payload is not None:  # (2) the round record
+                _tuner.write_study_attr(
+                    study, round_key(plan.round_number), round_payload
+                )
+            if plan.runs_optimize:  # (3) the trials
+                self._run_tune_round(tuner, study, objective, plan)
+            else:
+                _log.info(
+                    "event='tune.resume_open' round=%d budget_spent=true "
+                    "remaining_trials=%d remaining_timeout=%s",
+                    plan.round_number,
+                    plan.run_n_trials,
+                    plan.run_timeout,
+                )
+            self._close_round(study, plan)  # (4) the end record
 
-        # --- Phase F: assemble from the lineage, then commit -------------------
-        final_trials = study.trials
-        final = classify_study(study.user_attrs, final_trials)
-        if final.state != "completed":
-            raise LizyMLError(
-                code=ErrorCode.TUNING_FAILED,
-                user_message=(
-                    f"Internal error: round {plan.round_number} closed but the "
-                    f"study's lineage reads '{final.state}' ({final.reason})."
-                ),
-                context={"round": plan.round_number, "state": final.state},
+            # --- Phase F: assemble from the lineage (the commit follows) ---------
+            final_trials = study.trials
+            final = classify_study(study.user_attrs, final_trials)
+            if final.state != "completed":
+                raise LizyMLError(
+                    code=ErrorCode.TUNING_FAILED,
+                    user_message=(
+                        f"Internal error: round {plan.round_number} closed but the "
+                        f"study's lineage reads '{final.state}' ({final.reason})."
+                    ),
+                    context={"round": plan.round_number, "state": final.state},
+                )
+            best = study.best_trial
+            result = assemble_tuning_result(
+                final,
+                final_trials,
+                best.params,
+                best.value,
+                metric_name=metric_name,
+                direction=direction,
+                current_round=plan.round_number,
             )
-        best = study.best_trial
-        result = assemble_tuning_result(
-            final,
-            final_trials,
-            best.params,
-            best.value,
-            metric_name=metric_name,
-            direction=direction,
-            current_round=plan.round_number,
-        )
         # Published together, and only once the round has closed. A tune that
         # fails leaves every field as it was, including `_X` / `_y`, which
         # describe the retained fit (H-0094 decision 14).
@@ -605,23 +639,6 @@ class ModelTuningMixin:
             origins=dict.fromkeys(model_dimensions, "tuning.optuna.space"),
             training_overrides=training_claims,
         )
-
-    def _resolve_search_space(
-        self, *, provider: EstimatorProvider
-    ) -> tuple[list[Any], bool, dict[str, Any], frozenset[tuple[str, str]]]:
-        """Return ``(space, used_default, fixed_params, default_dims)`` for the
-        config's search space, with provider bounds attached (H-0078).
-
-        A thin view of :func:`~lizyml.core._tuning_plan.resolve_config_space`,
-        which round 1 of every study resolves its declared space with.
-        """
-        from lizyml.tuning.search_space import attach_bounds
-
-        resolved = resolve_config_space(self._cfg, provider)
-        space = attach_bounds(
-            list(resolved.declared), provider.parameter_bounds(self._cfg.task)
-        )
-        return space, resolved.used_default, resolved.fixed, resolved.default_dims
 
     def _build_tune_objective(
         self,

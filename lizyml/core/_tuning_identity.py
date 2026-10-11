@@ -20,7 +20,6 @@ Pure: no Model state is read or written here.
 from __future__ import annotations
 
 import hashlib
-import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError
@@ -34,20 +33,26 @@ from lizyml._version import __version__
 from lizyml.core._model_metrics import _DEFAULT_METRICS
 from lizyml.metrics.registry import parse_metric_entry
 from lizyml.tuning.lineage import objective_digest
+from lizyml.tuning.lineage_digest import FIXED_ELEMENT
+from lizyml.tuning.lineage_digest import type_name as _type_name
+from lizyml.tuning.lineage_digest import value_digest as _digest_value
 
 if TYPE_CHECKING:
     from lizyml.config.schema import LizyMLConfig
+    from lizyml.core.types.task import TaskType
     from lizyml.estimators.provider import EstimatorProvider
 
 __all__ = [
     "CONFIG_EXCLUDED_FIELDS",
     "DATA_ELEMENTS",
+    "PROVIDER_DEFAULTS_ELEMENT",
     "ObjectiveIdentity",
     "VersionDifference",
     "build_identity",
     "config_parts",
     "library_versions",
     "mismatched_elements",
+    "provider_default_params",
     "summarise_frame",
     "version_differences",
 ]
@@ -73,50 +78,14 @@ first metric, is the separate ``metric`` element. Every other top-level field
 field is included unless someone decides otherwise here.
 """
 
+PROVIDER_DEFAULTS_ELEMENT = "config.provider_defaults"
+"""The element that digests the provider's default parameters (spec 4.3)."""
+
 _DATA_EXCLUDED_KEYS = frozenset({"path"})
 """``data.path`` is excluded: the file's content is hashed instead (R4)."""
 
 _LIBRARIES = ("optuna", "pandas", "scikit-learn")
 """Packages whose version is recorded besides LizyML and the provider's own."""
-
-
-# ---------------------------------------------------------------------------
-# Canonical encoding
-# ---------------------------------------------------------------------------
-
-
-def _type_name(value: Any) -> str:
-    kind = type(value)
-    return f"{kind.__module__}.{kind.__qualname__}"
-
-
-def _canonical(value: Any) -> Any:
-    """A JSON-safe, type-tagged, order-stable form of a config value.
-
-    ``True`` / ``1`` / ``1.0`` stay distinct; lists and tuples are one kind
-    (a stored ``fixed`` comes back from JSON as lists); dict keys of mixed
-    types sort without error; a numpy scalar equals its plain value; anything
-    else is tagged with its type and ``repr``.
-    """
-    if isinstance(value, np.generic):
-        value = value.item()
-    if value is None or type(value) in (bool, int, str):
-        return [type(value).__name__, value]
-    if type(value) is float:
-        return ["float", repr(value)]
-    if isinstance(value, Mapping):
-        items = [[_canonical(k), _canonical(v)] for k, v in value.items()]
-        return ["dict", sorted(items, key=lambda kv: json.dumps(kv[0]))]
-    if isinstance(value, list | tuple):
-        return ["seq", [_canonical(v) for v in value]]
-    if isinstance(value, set | frozenset):
-        return ["set", sorted((_canonical(v) for v in value), key=json.dumps)]
-    return ["repr", _type_name(value), repr(value)]
-
-
-def _digest_value(value: Any) -> str:
-    text = json.dumps(_canonical(value), separators=(",", ":"), allow_nan=False)
-    return hashlib.sha256(text.encode()).hexdigest()
 
 
 def _digest_hashes(hashes: pd.Series) -> bytes:
@@ -228,8 +197,28 @@ def summarise_frame(df: pd.DataFrame) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
+def provider_default_params(
+    provider: EstimatorProvider, task: TaskType
+) -> dict[str, Any]:
+    """The provider's native default parameters for *task* (spec 4.3, Q-E).
+
+    Read through ``EstimatorProvider.default_params``. That method is
+    optional at runtime: a provider without it (one written before H-0122)
+    contributes an empty mapping, so its defaults are not part of the
+    identity. ``LGBMProvider`` implements it.
+    """
+    method = getattr(provider, "default_params", None)
+    if method is None:
+        return {}
+    return dict(method(task))
+
+
 def config_parts(
-    cfg: LizyMLConfig, fixed: Mapping[str, Any], direction: str
+    cfg: LizyMLConfig,
+    fixed: Mapping[str, Any],
+    direction: str,
+    *,
+    provider_defaults: Mapping[str, Any],
 ) -> dict[str, str]:
     """Per-part digests of the config inputs that shape the objective.
 
@@ -237,12 +226,15 @@ def config_parts(
         cfg: The validated config of the current call.
         fixed: The effective fixed parameters (``space_mode`` decides them).
         direction: The optimisation direction derived from the first metric.
+        provider_defaults: The provider's default parameters every trial
+            starts from (:func:`provider_default_params`). Not in the config,
+            but a change to them is a change of objective (spec 4.3).
 
     Returns:
         ``config.<field>`` for every top-level field outside
         :data:`CONFIG_EXCLUDED_FIELDS` (``data`` without ``path``), plus
-        ``config.fixed`` and ``metric`` (first metric's name and arguments,
-        and the direction).
+        ``config.fixed``, ``config.provider_defaults`` and ``metric`` (first
+        metric's name and arguments, and the direction).
     """
     dumped = cfg.model_dump(mode="python")
     parts: dict[str, str] = {}
@@ -252,7 +244,8 @@ def config_parts(
         if name == "data":
             value = {k: v for k, v in value.items() if k not in _DATA_EXCLUDED_KEYS}
         parts[f"config.{name}"] = _digest_value(value)
-    parts["config.fixed"] = _digest_value(dict(fixed))
+    parts[FIXED_ELEMENT] = _digest_value(dict(fixed))
+    parts[PROVIDER_DEFAULTS_ELEMENT] = _digest_value(dict(provider_defaults))
     entry = (cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task])[0]
     metric_name, metric_kwargs = parse_metric_entry(entry)
     parts["metric"] = _digest_value(

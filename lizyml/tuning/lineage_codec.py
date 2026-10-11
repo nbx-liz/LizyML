@@ -42,6 +42,7 @@ from lizyml.core.types.search_dim import (
     SearchDim,
 )
 from lizyml.core.types.tuning_result import BoundaryDimStatus, BoundaryReport
+from lizyml.tuning.lineage_digest import FIXED_ELEMENT, value_digest
 
 __all__ = [
     "DIM_CATEGORIES",
@@ -574,6 +575,16 @@ def decode_study(payload: Any) -> StoredStudy:
     digest = _expect_str(_field(objective, "digest", "objective"), "objective digest")
     if digest != objective_digest(elements):
         raise LineageCodecError("objective digest does not match its elements")
+    fixed = _expect_dict(_field(obj, "fixed", STUDY_KEY), "fixed")
+    # The trials train on the stored `fixed`; identity checks only the element.
+    # So the value must be the one the element digests (INV-R1, DC1).
+    if FIXED_ELEMENT not in elements:
+        raise LineageCodecError(f"objective elements lack {FIXED_ELEMENT}")
+    if value_digest(fixed) != elements[FIXED_ELEMENT]:
+        raise LineageCodecError(
+            f"fixed does not match its objective element {FIXED_ELEMENT} "
+            "(the record was edited or is corrupt)"
+        )
     return StoredStudy(
         schema=schema,
         objective_digest=digest,
@@ -593,7 +604,7 @@ def decode_study(payload: Any) -> StoredStudy:
                 _field(obj, "space_mode", STUDY_KEY), ("merge", "replace"), "space_mode"
             ),
         ),
-        fixed=_expect_dict(_field(obj, "fixed", STUDY_KEY), "fixed"),
+        fixed=fixed,
         origin_space=decode_dims(_field(obj, "origin_space", STUDY_KEY)),
         created_at=_expect_str(_field(obj, "created_at", STUDY_KEY), "created_at"),
     )

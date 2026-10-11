@@ -176,7 +176,26 @@ def test_different_target_refused(tmp_path: Path, target: str) -> None:
     }
     error = _refused(model, resume=True, **kwargs)
     assert error.context["surface"] == "tuning.study"
+    assert error.context["held_study_known"] is True
     assert (snapshot_study(model._study), snapshot_model(model)) == before
+
+
+def test_pre_record_model_target_is_unknown_not_in_memory(tmp_path: Path) -> None:
+    """Row 5 on a Model pickled before H-0122: it never remembered its target.
+
+    Such a Model lacks ``_tuning_storage`` / ``_tuning_study_name``; the refusal
+    says the held study is unknown instead of calling it in-memory.
+    """
+    storage = url(tmp_path)
+    model = _tuned(storage, "s")
+    del model._tuning_storage
+    del model._tuning_study_name
+    error = _refused(model, resume=True, storage=storage, study_name="s")
+    assert error.context["surface"] == "tuning.study"
+    assert error.context["held_study_known"] is False
+    assert error.context["held_study_name"] is None
+    assert "<in-memory>" not in error.user_message
+    assert "predates" in error.user_message
 
 
 # ---------------------------------------------------------------------------
