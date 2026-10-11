@@ -236,7 +236,8 @@ H-0068、H-0078、H-0111 の規則のまま。変える点:
   - 代わりの案: 中断した round を閉じ、次の round として始める（今の LizyStudio は残りの試行数を自分で数えて渡しており、こちらに近い）。INV-R5 を満たさないため推奨しない。
 - 再接続した Model は、系譜から `rounds`、round 番号、実効空間を復元する。
 - `failed` で閉じた round は、系譜には残るが `TuningResult.rounds` には入れない（`RoundSummary` は最良値を数値で持つ型で、失敗した round を正しく表せないため。公開の型は変えない）。round の番号はそのまま続くので、`rounds` が round 2 から始まることがある。その round の試行は `TuningResult.trials` に、記録した round 番号で残る。次の round の `best_score_before` は `None`。これを docs/api.md の `rounds` の説明に書く。
-- 同じプロセスで round が例外で止まったあとの `resume=True` にも、同じ規則を当てる。失敗した tune は Model の状態を変えない（H-0094 決定 14）が、メモリ上の study には途中の試行と `:end` の無い round が残るため。
+- 同じプロセスで round が例外で止まったあとの `resume=True` にも、同じ規則を当てる。ただし、その study が Model に既に載っている（前に成功した tune の `_study`）か、storage にある場合に限る。失敗した tune は Model の状態を変えない（H-0094 決定 14）が、載っている study のオブジェクトや storage の study には、途中の試行と `:end` の無い round が残るため。
+- storage を使わない最初の tune（Model に `_study` がまだ無い）が失敗した場合、作りかけのメモリ上の study は捨てる（Model の状態を変えないため、`_study` に載せない）。続ける study は無いので、次は `resume=False` で新しく始める（`resume=True` は 3 の表のとおり `TUNING_FAILED`）。
 
 ### 7.4 study の状態と、`resume=True` での扱い（閉じた表）
 
@@ -356,7 +357,7 @@ C11 だけはこの仕様が決める。
 
 ### 10.1 利用者への影響の判定（2026-10-11 の調査）
 
-- 影響の無い使い方: チュートリアル（`notebooks/tutorial_regression_tuning_lgbm.ipynb` の tune → fit → `tune(resume=True, n_trials=3, expand_boundary=True)` → `boundary_table()`）、docs/api.md のメモリ上の resume。storage を使わない tune は、round の間でデータと config（探索空間を含む）を変えず、`study_name` だけを渡すこともしない限り、変わらない。codegen は tune を出力しない。
+- 呼び出しを変えずに動く使い方: チュートリアル（`notebooks/tutorial_regression_tuning_lgbm.ipynb` の tune → fit → `tune(resume=True, n_trials=3, expand_boundary=True)` → `boundary_table()`）、docs/api.md のメモリ上の resume。storage を使わない tune は、round の間でデータと config（探索空間を含む）を変えず、`study_name` だけを渡すこともしない限り、移行は要らない。ただし結果は変わりうる: resume の round は前回の最良値を評価し直さず（6.2）、要求した試行がすべて TPE の新しい点になるので、同じ seed でも round の試行の中身と最良値が今と違いうる。CHANGELOG に挙動の変更として書く。codegen は tune を出力しない。
 - 移行が要る（storage を使わない場合）: 同じ Model で、データ・config の探索空間以外の部分・最初の評価指標を変えてから `resume=True` を呼ぶと、今は黙って続き別の目的関数のスコアが混ざる（`design-vs-implementation.md` の P1・P2）が、`CONFIG_INVALID` になる（4.3）。config の探索空間を書き換えてから `resume=True` を呼ぶと、今は黙って無視されるが、`CONFIG_INVALID` になる（5.1、範囲を変えるなら `space=`）。`storage` 無しで `study_name` だけを渡すと、今は黙って無視されるが、`CONFIG_INVALID` になる（3）。どれも、今は黙って間違うか黙って無視される呼び出しを、明示のエラーに変えるもので、直し方（新しい study、`space=`、引数を外す）がエラーのメッセージで決まる。
 - 致命的（続ける方法が無い）: v0.18 以前に作って storage に保存した study（docs/api.md:101、CHANGELOG 0.12.0 の使い方）と、アップグレードした時点で一時停止中の LizyStudio のジョブ。D4 による。CHANGELOG と migration に「旧 study は続けられない。一時停止中のジョブはアップグレードの前に終える」と書く（U1）。
 - 移行が要る（明示のエラーと、決まった直し方がある）: LizyStudio の unpause と failed ジョブの resume、Widget の別プロセスの Retune。LizyStudio は `lizyml<0.18.0`、Widget は `<0.17` に固定しているので、版の上限を上げるときに直す。
@@ -447,11 +448,13 @@ LizyStudio（`src/lizystudio`）と LizyML-Widget（`src/lizyml_widget`）で、
 20. 移行の文書（U1）: CHANGELOG の該当の版の節と `docs/migration.md` に、この変更より前に作った study は続けられないこと（新しい `study_name` で始める）と、一時停止中のジョブはアップグレードの前に終えることが書かれている。`tests/test_docs/` の文書の検査で、その記述があることを確かめる。
 21. 既存のテストのうち今の挙動を固定しているもの（`test_space_merge.py:183, 262, 305, 375, 395`、`test_tuner_persistence.py:252`、`test_retune.py:807`、`test_error_code_raising.py:57`）は、新しい規則を固定するように書き直す（消さない）。`test_retune.py:823-838` は試行の総数（3 + 2 = 5）が変わらないのでそのまま通るが、enqueue が数に入るという注釈（:834）を直す。`Tuner` を直接使うテスト（`test_tuner_persistence.py:116-127, 185-199`、`test_direction_reconciliation.py:100-119`）は変えない（次の段落）。
 
-22. 拒否で何も変わらない（INV-R4）: 2・10・11・12・13 の各拒否と、RUNNING の試行が残った状態 O、状態 N の study でデータを変えた `resume=True` → `CONFIG_INVALID`。study の試行の数と状態、`lizyml:` の属性、Model の `_study`・`rounds`・tuning の結果が、呼ぶ前と同じ。
+22. 拒否で何も変わらない（INV-R4）: 8 の表の `CONFIG_INVALID` の行のすべて（受け入れ基準 2・7・9・10・11・12・13・14・19・29 の各拒否と、RUNNING の試行が残った状態 O、状態 N の study でデータを変えた `resume=True`）を一つずつ表で回し、それぞれで次の全部が呼ぶ前と同じことを確かめる:
+    - study: 試行の数、各試行の状態と値、`lizyml:` で始まる属性のすべて（storage の study は storage から読み直して比べる）
+    - Model: tune が書く状態のすべて（`_study`、`_tuning_result`、`_space`、`_round_number`、`_rounds`、`_used_default_space`、`_tuning_fixed_params`、覚えている storage と study_name、`_X`・`_y`、ほかに H-0094 決定 14 が「tune の成功のときにまとめて書く」とするもの）
 23. 新しい study と系譜: round を二つ終えた Model で `resume=False` の tune（storage なし、storage に無い名前）→ 新しい study の `TuningResult.rounds` は round 1 だけ、試行の round は 1、`lizyml:round:1` が書かれる。
 24. load のあと: tune した Model を export して `Model.load` → storage なしの `resume=True` は `TUNING_FAILED`。export → load の既存のゴールデンテスト（artifact の形、`format_version`）は変わらずに通る。
 25. 再接続した study の「同じ study」: 新しい Model で storage の study に再接続したあと、同じ storage・study_name で `resume=True` → 続く。`study_name` だけを変える → `CONFIG_INVALID`。
-26. データの同一性の残りの要素: 列の並びだけを入れ替える、表記が同じで dtype だけが違う列（int64 と float64、int64 と Int64）、categorical の `ordered` だけを変える、categorical でない object の列の値を `1` から `"1"` に変える、`features.exclude` の列の値だけを変える → それぞれ `CONFIG_INVALID`。
+26. データの同一性の残りの要素: 行の値と並びはそのままで index のラベルだけを変える、categorical の列に使われていない category を一つ足す（どの行の値と codes も変えない）、 列の並びだけを入れ替える、表記が同じで dtype だけが違う列（int64 と float64、int64 と Int64）、categorical の `ordered` だけを変える、categorical でない object の列の値を `1` から `"1"` に変える、`features.exclude` の列の値だけを変える → それぞれ `CONFIG_INVALID`。
 27. 照合の失敗のメッセージ: データだけ、config の一部だけ、評価指標だけを変えた各 resume → `CONFIG_INVALID` の context に、違う要素の名前が入る。
 28. provider の既定の `fixed` が変わった場合: `fixed` の既定を monkeypatch で変えて `resume=True` → 版の記録を変えても変えなくても、警告で続かずに `CONFIG_INVALID`。
 29. `space=` と受け付けの検査（5.2-1、5.2-4、5.2-5）:
@@ -467,7 +470,10 @@ LizyStudio（`src/lizystudio`）と LizyML-Widget（`src/lizyml_widget`）で、
 31. round の要約と進捗（6.5）: `timeout` で要求数より少ない試行で終わった round → `RoundSummary.n_trials` が実際の試行の数。途中で落ちた round を再接続で終える → その round の `boundary_report` が落とさずに走らせた場合と同じ。開いた round の再開 → 進捗の `total_trials` は記録の `n_trials`、`cumulative_trials` は `trial.number + 1`、`round` は番号から決まる round。
 32. round の終わりの記録: `completed` の round の `:end` に終了時の最良値と時刻がある。`failed` の round では最良値が空。
 33. 状態の判定の順序: `schema` が読めない `lizyml:study` を持ち、round の記録も試行も無い study（S と N の両方に当たる）→ `CONFIG_INVALID`（N として round 1 を始めない）。
-34. 文書: `docs/api.md` の `rounds` の説明に「`failed` で閉じた round は入らず、round 2 から始まりうる」とあり、CHANGELOG の該当の版の節と `docs/migration.md` に `tune(space=...)` の追加と 8 の新しいエラー条件があることを、`tests/test_docs/` で確かめる。
+34. 文書: `tests/test_docs/` で次を確かめる。
+    - `docs/api.md`: `Model.tune` の引数に `space=` があり、resume の説明から前回の最良値の enqueue（warm-start）の記述が無く、storage への再接続が `resume=True`（無ければ新しく作る、U3）と書かれ、エラーの一覧に 8 の新しい条件があり、`rounds` の説明に「`failed` で閉じた round は入らず、round 2 から始まりうる」とある。
+    - BLUEPRINT §11.5・§11.5.1: `resume` の表（今の 990-993 行）と resume・storage の関係（今の 1082-1108 行）が、この仕様の規則（enqueue なし、`resume=True` での再接続、`space=`、照合）に置き換わっている。
+    - CHANGELOG の該当の版の節と `docs/migration.md`: `tune(space=...)` の追加、8 の新しいエラー条件、resume の結果が変わりうること（10.1）。
 
 一つの study に試行を足すプロセスは一つという前提（3）は、利用者に求める前提で、ライブラリは強制しない（lease などの仕組みは入れない）。テストは、再接続のときに残った RUNNING の試行が FAIL になること（8）だけを確かめる。
 
