@@ -4,17 +4,17 @@ Loaded as a pytest plugin (``-p``) with ``docs/audits/2026-10-tuning-resume/prob
 on ``PYTHONPATH``. It wraps every module-level reference to ``parse_space`` and,
 without changing the outcome, records for each dimension spec whether H-0123's
 policy 3 would newly refuse it, and why. Refusals ``parse_space`` already makes
-(unknown ``type``, missing bound, empty ``choices``, ``low >= high``, a log range
-with ``low <= 0``) are not counted:
+(unknown ``type``, missing bound, empty or non-iterable ``choices``,
+``low >= high``, a log range with ``low <= 0``) are not counted:
 
 - a key other than ``type``, ``low``, ``high``, ``log``, ``category`` (float/int)
   or ``type``, ``choices``, ``category`` (categorical);
 - ``category`` present and not one of ``model``, ``smart``, ``training``;
 - ``log`` present and not a ``bool``;
-- ``low`` / ``high`` not a finite number (``numbers.Real`` or ``Decimal``, not
-  ``bool``); for ``int``, not integral (exact: big integers are integral);
-- ``categorical`` whose ``choices`` is not a ``Sequence`` other than ``str`` /
-  ``bytes`` (a ``set`` or a generator is flagged).
+- a bound that is a ``bool``, ``str`` or ``bytes``; for ``float``, one whose
+  ``float()`` fails or is not finite; for ``int``, one whose ``int()`` fails or
+  is not equal to the value (compared without passing through ``float``);
+- ``choices`` that is a ``str`` / ``bytes``, a mapping, a set, or an iterator.
 
 Population: every dimension spec passed to ``parse_space`` in the suite. Writes
 ``<nodeid>\t<dim>\t<reasons or "">`` per spec to ``$FIRING_RATE_344_OUT``.
@@ -23,11 +23,9 @@ Population: every dimension spec passed to ``parse_space`` in the suite. Writes
 from __future__ import annotations
 
 import math
-import numbers
 import os
-from collections.abc import Mapping, Sequence
-from decimal import Decimal
-from fractions import Fraction
+from collections.abc import Mapping
+from collections.abc import Set as AbstractSet
 from typing import Any
 
 import pytest
@@ -44,30 +42,38 @@ _CATEGORICAL_KEYS = {"type", "choices", "category"}
 _CATEGORIES = {"model", "smart", "training"}
 
 
-def _is_number(value: Any) -> bool:
-    if isinstance(value, bool):
-        return False
-    return isinstance(value, (numbers.Real, Decimal))
+def _bound_reason(value: Any, kind: str) -> str | None:
+    if isinstance(value, (bool, str, bytes)):
+        return "type"
+    if kind == "float":
+        try:
+            converted = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return "not_number"
+        return None if math.isfinite(converted) else "not_finite"
+    try:
+        integer = int(value)
+    except (TypeError, ValueError, OverflowError):
+        return "not_integer"
+    try:
+        same = bool(integer == value)
+    except Exception:  # noqa: BLE001 -- an incomparable object is "not the same value"
+        same = False
+    return None if same else "not_integral"
 
 
-def _is_finite(value: Any) -> bool:
-    if isinstance(value, numbers.Integral):
-        return True
-    if isinstance(value, Decimal):
-        return value.is_finite()
-    if isinstance(value, Fraction):
-        return True
-    return math.isfinite(float(value))
-
-
-def _is_integral(value: Any) -> bool:
-    if isinstance(value, numbers.Integral):
-        return True
-    if isinstance(value, Decimal):
-        return value == value.to_integral_value()
-    if isinstance(value, Fraction):
-        return value.denominator == 1
-    return float(value).is_integer()
+def _choices_reason(choices: Any) -> str | None:
+    if isinstance(choices, (str, bytes)):
+        return "string"
+    if isinstance(choices, Mapping):
+        return "mapping"
+    if isinstance(choices, AbstractSet):
+        return "set"
+    try:
+        iterator = iter(choices)
+    except TypeError:
+        return None  # not iterable: parse_space already refuses it (raw today)
+    return "iterator" if iterator is choices else None
 
 
 def _reasons(spec: Any) -> list[str]:
@@ -81,23 +87,18 @@ def _reasons(spec: Any) -> list[str]:
         out.append("extra_keys:" + ",".join(extra))
     if "category" in spec and spec["category"] not in _CATEGORIES:
         out.append("category")
-    if kind == "categorical":
-        choices = spec.get("choices")
-        if not isinstance(choices, Sequence) or isinstance(choices, (str, bytes)):
-            out.append("choices_not_sequence")
+    if kind == "categorical" and "choices" in spec:
+        reason = _choices_reason(spec["choices"])
+        if reason:
+            out.append(f"choices_{reason}")
     if kind in ("float", "int"):
         if "log" in spec and type(spec["log"]) is not bool:
             out.append("log_not_bool")
         for edge in ("low", "high"):
-            if edge not in spec:
-                continue
-            value = spec[edge]
-            if not _is_number(value):
-                out.append(f"{edge}_not_number")
-            elif not _is_finite(value):
-                out.append(f"{edge}_not_finite")
-            elif kind == "int" and not _is_integral(value):
-                out.append(f"{edge}_not_integral")
+            if edge in spec:
+                reason = _bound_reason(spec[edge], kind)
+                if reason:
+                    out.append(f"{edge}_{reason}")
     return out
 
 

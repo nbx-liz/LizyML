@@ -1,7 +1,7 @@
-# firing_rate_344.py output: suite at c65ef4d (develop; parse_space unchanged), 2026-10-12, predicate revised in proposal review round 1
+# firing_rate_344.py output: suite at c65ef4d (develop; parse_space unchanged), 2026-10-12, generic rule after proposal review round 2
 # columns: nodeid, dim, reasons (empty = accepted by H-0123 policy 3)
 # total dim specs: 2298; would be newly refused: 0
-# controls (scratch fr344_posctl.py): flagged = string log, extra keys + string low, int 1.7, category booster, string choices, NaN low, inf high, generator choices, set choices; accepted = clean, int 16.0, Decimal int/float, Fraction, numpy, 2**53+1, 10**400, range choices, tuple choices
+# controls: firing_rate_344_controls.py (15 refused forms flagged, 13 accepted forms not; 0 control failures)
 tests/test_codegen/test_negative_controls.py::test_policy_1_callback_reverted_to_always_on	validation_ratio	
 tests/test_codegen/test_negative_controls.py::test_policy_1_callback_reverted_to_always_on	validation_ratio	
 tests/test_codegen/test_negative_controls.py::test_amendment_1_record_ignored	balanced	
