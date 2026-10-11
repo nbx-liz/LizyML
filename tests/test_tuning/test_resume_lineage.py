@@ -3,24 +3,48 @@
 Criteria 5 (an unchanged declaration inherits the expanded range), 15 (no
 enqueued re-evaluation of the previous best), 23 (a new study restarts the
 lineage), 30.2 (expansion reads the study's best, not the Model's result) and
-30.3 (``fixed`` comes from the study, not the Model field). The crash criteria
-of §7.4 live in their own files.
+30.3 (``fixed`` comes from the study, not the Model field).
+
+The §7.4 states a stop between two write positions leaves, and what
+``resume=True`` does with each: criterion 15 (stopped before / after
+``lizyml:round:<k>``), 19 without ``space=`` (E, N, X, an objective crash) and
+32 (the ``:end`` record). A crash inside an open round is in
+``test_resume_open_round.py``.
 """
 
 from __future__ import annotations
 
 import dataclasses
 import pickle
+import shutil
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import optuna
 import pytest
 
 from lizyml import Model
 from lizyml.core._tuning_plan import expand_for_next_round
+from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.search_dim import FloatDim, IntDim
-from lizyml.tuning.lineage import classify_study, round_key
-from tests.test_tuning._resume_helpers import fast_config, frame, load, url
+from lizyml.tuning.lineage import STUDY_KEY, classify_study, end_key, round_key
+from tests.test_tuning._resume_helpers import (
+    INCONSISTENT,
+    RATIO,
+    ProcessDeath,
+    admission_refused_config,
+    die_at_attr,
+    die_in_objective,
+    fast_config,
+    frame,
+    lizyml_attrs,
+    load,
+    snapshot_model,
+    snapshot_study,
+    study_record_for,
+    url,
+)
 
 
 def _edge_config(mode: str = "replace") -> dict[str, Any]:
@@ -229,3 +253,211 @@ def test_frozen_dimensions_are_reported_unexpanded() -> None:
     assert frozen.edge == "upper"
     assert effective[0] == previous[0]
     assert effective[1] == open_space[1] != previous[1]
+
+
+# ---------------------------------------------------------------------------
+# §7.4: what a stop between two write positions leaves
+# ---------------------------------------------------------------------------
+
+
+def _state(storage: str) -> str:
+    study = load(storage, "s")
+    return classify_study(study.user_attrs, study.trials).state
+
+
+def _summary(result: Any) -> tuple[Any, Any]:
+    return (
+        [(r.round, r.n_trials) for r in result.rounds],
+        [t.round for t in result.trials],
+    )
+
+
+def _reattach(cfg: dict[str, Any], storage: str, **kwargs: Any) -> Any:
+    return Model(cfg, data=frame()).tune(
+        resume=True, storage=storage, study_name="s", **kwargs
+    )
+
+
+# Criterion 15 (the stop part)
+
+
+def test_stop_before_round_record_is_plain_resume(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    storage = url(tmp_path)
+    model = Model(fast_config(), data=frame())
+    model.tune(storage=storage, study_name="s")
+    die_at_attr(monkeypatch, round_key(2))
+    with pytest.raises(ProcessDeath):
+        model.tune(resume=True, n_trials=3)
+    monkeypatch.undo()
+    assert round_key(2) not in load(storage, "s").user_attrs
+    assert len(load(storage, "s").trials) == 2
+    assert _state(storage) == "completed"
+    # Nothing of round 2 was written, so it starts afresh: any n_trials.
+    result = _reattach(fast_config(), storage, n_trials=4)
+    assert _summary(result) == ([(1, 2), (2, 4)], [1, 1, 2, 2, 2, 2])
+
+
+def test_stop_after_round_record_is_open(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    storage = url(tmp_path)
+    model = Model(fast_config(), data=frame())
+    model.tune(storage=storage, study_name="s")
+
+    def die(*args: Any, **kwargs: Any) -> None:
+        raise ProcessDeath("died before the round's first trial")
+
+    monkeypatch.setattr(model, "_run_tune_round", die)
+    with pytest.raises(ProcessDeath):
+        model.tune(resume=True, n_trials=3)
+    monkeypatch.undo()
+    stored = load(storage, "s")
+    assert round_key(2) in stored.user_attrs
+    assert end_key(2) not in stored.user_attrs
+    assert len(stored.trials) == 2
+    assert _state(storage) == "open"
+    # The record's budget (3), not the config's (2).
+    with pytest.warns(UserWarning, match="n_trials"):
+        result = _reattach(fast_config(), storage)
+    assert _summary(result) == ([(1, 2), (2, 3)], [1, 1, 2, 2, 2])
+
+
+# Criterion 19 (without `space=`)
+
+
+def test_stop_before_study_record_is_uninitialised(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    storage = url(tmp_path)
+    die_at_attr(monkeypatch, STUDY_KEY)
+    with pytest.raises(ProcessDeath):
+        Model(fast_config(), data=frame()).tune(storage=storage, study_name="s")
+    monkeypatch.undo()
+    stored = load(storage, "s")
+    assert stored.trials == []
+    assert lizyml_attrs(stored) == {}
+    assert _state(storage) == "uninitialized"
+    result = _reattach(fast_config(), storage)
+    attrs = lizyml_attrs(load(storage, "s"))
+    assert {STUDY_KEY, round_key(1), end_key(1)} <= set(attrs)
+    assert _summary(result) == ([(1, 2)], [1, 1])
+
+
+def test_no_round_starts_round1(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    storage = url(tmp_path)
+    die_at_attr(monkeypatch, round_key(1))
+    with pytest.raises(ProcessDeath):
+        Model(fast_config(), data=frame()).tune(storage=storage, study_name="s")
+    monkeypatch.undo()
+    stored = load(storage, "s")
+    assert stored.trials == []
+    assert set(lizyml_attrs(stored)) == {STUDY_KEY}
+    assert _state(storage) == "no_round"
+    record = stored.user_attrs[STUDY_KEY]
+    result = _reattach(fast_config(), storage)
+    stored = load(storage, "s")
+    assert stored.user_attrs[STUDY_KEY] == record  # written once, not again
+    assert round_key(1) in stored.user_attrs
+    assert _summary(result) == ([(1, 2)], [1, 1])
+
+
+@pytest.fixture(scope="module")
+def two_rounds(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A stored study in state C with two rounds."""
+    root = tmp_path_factory.mktemp("two_rounds")
+    storage = url(root)
+    Model(fast_config(), data=frame()).tune(storage=storage, study_name="s")
+    _reattach(fast_config(), storage)
+    return root / "s.db"
+
+
+@pytest.mark.parametrize("corruption", sorted(INCONSISTENT))
+def test_inconsistent_refused(
+    two_rounds: Path, tmp_path: Path, corruption: str
+) -> None:
+    shutil.copy(two_rounds, tmp_path / "s.db")
+    storage = url(tmp_path)
+    INCONSISTENT[corruption](storage)
+    assert _state(storage) == "inconsistent"
+    model = Model(fast_config(), data=frame())
+    before = (snapshot_study(storage, "s"), snapshot_model(model))
+    with pytest.raises(LizyMLError) as caught:
+        model.tune(resume=True, storage=storage, study_name="s")
+    assert caught.value.code is ErrorCode.CONFIG_INVALID
+    assert caught.value.context["state"] == "inconsistent"
+    assert (snapshot_study(storage, "s"), snapshot_model(model)) == before
+
+
+@pytest.mark.parametrize("state", ["uninitialized", "no_round"])
+def test_admission_failure_writes_nothing(tmp_path: Path, state: str) -> None:
+    """E and N: the H-0121 refusal comes before ``lizyml:study`` / round 1."""
+    storage = url(tmp_path)
+    cfg = admission_refused_config()
+    data = frame("binary")
+    study = optuna.create_study(storage=storage, study_name="s", direction="minimize")
+    if state == "no_round":
+        study.set_user_attr(STUDY_KEY, study_record_for(cfg, data))
+    assert _state(storage) == state
+    model = Model(cfg, data=data)
+    before = (snapshot_study(storage, "s"), snapshot_model(model))
+    with pytest.raises(LizyMLError) as caught:
+        model.tune(resume=True, storage=storage, study_name="s")
+    assert caught.value.code is ErrorCode.CONFIG_INVALID
+    assert RATIO in caught.value.user_message
+    assert (snapshot_study(storage, "s"), snapshot_model(model)) == before
+    assert _state(storage) == state
+
+
+def test_objective_crash_is_open_and_counts_fail(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Optuna creates the trial RUNNING before it calls the objective."""
+    storage = url(tmp_path)
+    model = Model(fast_config(n_trials=3), data=frame())
+    die_in_objective(monkeypatch, model, at_call=2)
+    with pytest.raises(ProcessDeath):
+        model.tune(storage=storage, study_name="s")
+    monkeypatch.undo()
+    assert [t.state.name for t in load(storage, "s").trials] == [
+        "COMPLETE",
+        "RUNNING",
+    ]
+    assert _state(storage) == "open"
+    result = _reattach(fast_config(n_trials=3), storage)
+    assert _summary(result) == ([(1, 3)], [1, 1, 1])
+    assert [t.state for t in result.trials] == ["complete", "fail", "complete"]
+
+
+# ---------------------------------------------------------------------------
+# Criterion 32: the `:end` record
+# ---------------------------------------------------------------------------
+
+
+def test_end_record_contents(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    storage = url(tmp_path)
+    Model(fast_config(), data=frame()).tune(storage=storage, study_name="ok")
+    study = load(storage, "ok")
+    end = study.user_attrs[end_key(1)]
+    assert end["status"] == "completed"
+    assert end["best_after"] == ["float", study.best_value]
+    assert datetime.fromisoformat(end["ended_at"]).tzinfo is not None
+
+    model = Model(fast_config(), data=frame())
+
+    def broken(*args: Any, **kwargs: Any) -> Any:
+        raise ValueError("every trial fails")
+
+    monkeypatch.setattr(model, "_build_train_components", broken)
+    with pytest.raises(LizyMLError) as caught:
+        model.tune(storage=storage, study_name="bad")
+    assert caught.value.code is ErrorCode.TUNING_FAILED
+    study = load(storage, "bad")
+    assert [t.state.name for t in study.trials] == ["FAIL", "FAIL"]
+    end = study.user_attrs[end_key(1)]
+    assert end["status"] == "failed"
+    assert end["best_after"] == ["none", None]
+    assert datetime.fromisoformat(end["ended_at"]).tzinfo is not None

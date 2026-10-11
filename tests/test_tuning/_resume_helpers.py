@@ -8,13 +8,21 @@
   stdlib ``sqlite3``; Optuna has no attribute-delete API.
 * :class:`ProcessDeath`, :func:`die_at_attr`, :func:`die_in_objective` --
   simulate a process dying at a given point of a tune (crash tests).
+* :func:`crash_round_2`, :func:`run_child_and_kill` -- the criterion-8 crash
+  scenario in-process, and in a real child process (this module's
+  ``__main__``).
+* :func:`spy_tuner`, :func:`study_record_for` -- what the round runs with, and
+  a ``lizyml:study`` record built for a given config (states E/N by hand).
 """
 
 from __future__ import annotations
 
 import copy
 import json
+import os
 import sqlite3
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +32,11 @@ import pytest
 
 from lizyml import Model
 from lizyml.tuning import tuner as tuner_module
+from lizyml.tuning.lineage import end_key, round_key
+from lizyml.tuning.tuner import Tuner
 from tests._helpers import make_binary_df, make_config, make_regression_df
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 SPACE: dict[str, Any] = {
     "num_leaves": {"type": "int", "low": 4, "high": 8},
@@ -200,3 +212,203 @@ def die_in_objective(
         return real(*args, **kwargs)
 
     monkeypatch.setattr(model, "_build_train_components", build)
+
+
+# ---------------------------------------------------------------------------
+# The criterion-8 crash scenario
+# ---------------------------------------------------------------------------
+
+#: Round 1 runs `ROUND_1_TRIALS` (an argument); round 2 asks for the config's
+#: `ROUND_2_TRIALS` with `expand_boundary=True`, and the process dies in round
+#: 2's `DIE_AT_CALL`-th trial -- trial #3, left RUNNING.
+ROUND_1_TRIALS = 2
+ROUND_2_TRIALS = 3
+DIE_AT_CALL = 2
+CRASHED_TRIAL = ROUND_1_TRIALS + DIE_AT_CALL - 1
+
+
+def edge_config(n_trials: int = ROUND_2_TRIALS) -> dict[str, Any]:
+    """``num_leaves`` in [4, 5]: every best sits on an edge, so round 2 expands
+    and its record carries a non-empty boundary report."""
+    cfg = fast_config(n_trials=n_trials)
+    cfg["tuning"]["optuna"]["space"]["num_leaves"] = {
+        "type": "int",
+        "low": 4,
+        "high": 5,
+    }
+    return cfg
+
+
+def crash_round_2(
+    monkeypatch: pytest.MonkeyPatch,
+    model: Model,
+    storage: Any = None,
+    name: str | None = None,
+) -> None:
+    """Run round 1 on *model*, then die in round 2's 2nd trial.
+
+    *monkeypatch* is undone before returning, so the same Model can resume.
+    """
+    model.tune(n_trials=ROUND_1_TRIALS, storage=storage, study_name=name)
+    die_in_objective(monkeypatch, model, at_call=DIE_AT_CALL)
+    with pytest.raises(ProcessDeath):
+        model.tune(resume=True, expand_boundary=True)
+    monkeypatch.undo()
+
+
+def run_child_and_kill(storage_url: str, name: str) -> subprocess.CompletedProcess[str]:
+    """Run the crash scenario in a real child process that ``os._exit(1)``s.
+
+    The child (this module's ``__main__``) runs round 1 and round 2 against
+    *storage_url* and ends the process from inside round 2's 2nd trial, so
+    nothing after the objective runs: no ``tell``, no ``:end``.
+    """
+    return subprocess.run(  # noqa: S603 -- fixed argv, this interpreter
+        [sys.executable, "-m", "tests.test_tuning._resume_helpers", storage_url, name],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+        timeout=600,
+        check=False,
+    )
+
+
+def _child_main(storage_url: str, name: str) -> None:
+    """The child of :func:`run_child_and_kill`."""
+    model = Model(edge_config(), data=frame())
+    model.tune(n_trials=ROUND_1_TRIALS, storage=storage_url, study_name=name)
+    real = model._build_train_components
+    calls = {"n": 0}
+
+    def build(*args: Any, **kwargs: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] == DIE_AT_CALL:
+            os._exit(1)
+        return real(*args, **kwargs)
+
+    model._build_train_components = build  # type: ignore[method-assign]
+    model.tune(resume=True, expand_boundary=True)
+    sys.exit(2)  # reached only when the crash did not fire
+
+
+# ---------------------------------------------------------------------------
+# Spies and hand-built records
+# ---------------------------------------------------------------------------
+
+
+def spy_tuner(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
+    """Record every ``Tuner`` construction and ``Tuner.run`` call."""
+    seen: dict[str, list[Any]] = {"init": [], "run": []}
+    real_init = Tuner.__init__
+    real_run = Tuner.run
+
+    def init(self: Tuner, *args: Any, **kwargs: Any) -> None:
+        real_init(self, *args, **kwargs)
+        seen["init"].append({"n_trials": self.n_trials, "timeout": self.timeout})
+
+    def run(self: Tuner, *args: Any, **kwargs: Any) -> None:
+        seen["run"].append(kwargs)
+        real_run(self, *args, **kwargs)
+
+    monkeypatch.setattr(Tuner, "__init__", init)
+    monkeypatch.setattr(Tuner, "run", run)
+    return seen
+
+
+def study_record_for(cfg_dict: dict[str, Any], df: pd.DataFrame) -> dict[str, Any]:
+    """The ``lizyml:study`` record a tune of *cfg_dict* on *df* would write.
+
+    Built with the functions ``Model.tune`` uses, so the record's identity is
+    that call's and only the checks after identity can refuse it.
+    """
+    from lizyml.core._model_factories import get_provider
+    from lizyml.core._tuning_identity import (
+        build_identity,
+        config_parts,
+        library_versions,
+        summarise_frame,
+    )
+    from lizyml.core._tuning_resume import study_record_payload
+    from lizyml.core._tuning_validation import resolve_tuning_direction
+
+    cfg = Model(cfg_dict)._cfg
+    assert cfg.tuning is not None
+    provider = get_provider(cfg.model)
+    fixed = (
+        provider.default_fixed_params(cfg.task)
+        if cfg.tuning.optuna.space_mode == "merge"
+        else {}
+    )
+    direction = resolve_tuning_direction(cfg)
+    identity = build_identity(summarise_frame(df), config_parts(cfg, fixed, direction))
+    return study_record_payload(
+        cfg,
+        identity=identity,
+        direction=direction,
+        versions=library_versions(provider),
+        fixed=fixed,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Corruptions (state X) and an admission-refused config (criteria 19, 22)
+# ---------------------------------------------------------------------------
+
+
+#: Each turns a 2-round stored study named ``s`` into state X (§7.4).
+def _no_rounds_with_trials(storage: str) -> None:
+    assert delete_attrs(storage, "lizyml:round:%") == 4
+
+
+def _gap(storage: str) -> None:
+    for suffix in ("", ":end"):
+        renamed = sqlite_exec(
+            storage,
+            "UPDATE study_user_attributes SET key = ? WHERE key = ?",
+            (round_key(3) + suffix, round_key(2) + suffix),
+        )
+        assert renamed == 1
+
+
+def _missing_mid_end(storage: str) -> None:
+    assert delete_attrs(storage, end_key(1)) == 1
+
+
+def _start_gt_0(storage: str) -> None:
+    study = load(storage, "s")
+    record = copy.deepcopy(study.user_attrs[round_key(1)])
+    record["start_trial"] = 1
+    study.set_user_attr(round_key(1), record)
+
+
+INCONSISTENT: dict[str, Any] = {
+    "no_rounds_with_trials": _no_rounds_with_trials,
+    "gap": _gap,
+    "missing_mid_end": _missing_mid_end,
+    "start_gt_0": _start_gt_0,
+}
+
+
+#: A config whose own dimension H-0121 refuses: `num_leaves_ratio` is read only
+#: while `auto_num_leaves` is on, and it is off.
+RATIO = "num_leaves_ratio"
+
+
+def admission_refused_config() -> dict[str, Any]:
+    cfg = make_config(
+        "binary",
+        n_estimators=3,
+        n_splits=2,
+        split_method="stratified_kfold",
+        tuning_n_trials=2,
+    )
+    cfg["model"]["auto_num_leaves"] = False
+    cfg["tuning"]["optuna"]["space_mode"] = "replace"
+    cfg["tuning"]["optuna"]["space"] = {
+        RATIO: {"type": "float", "low": 0.1, "high": 0.9, "category": "smart"}
+    }
+    return cfg
+
+
+if __name__ == "__main__":
+    _child_main(sys.argv[1], sys.argv[2])
