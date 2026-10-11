@@ -313,7 +313,8 @@ C11 だけはこの仕様が決める。
 
 ### 10.1 利用者への影響の判定（2026-10-11 の調査）
 
-- 影響の無い使い方: チュートリアル（`notebooks/tutorial_regression_tuning_lgbm.ipynb` の tune → fit → `tune(resume=True, n_trials=3, expand_boundary=True)` → `boundary_table()`）、docs/api.md のメモリ上の resume、storage を使わない tune のすべて。codegen は tune を出力しない。
+- 影響の無い使い方: チュートリアル（`notebooks/tutorial_regression_tuning_lgbm.ipynb` の tune → fit → `tune(resume=True, n_trials=3, expand_boundary=True)` → `boundary_table()`）、docs/api.md のメモリ上の resume。storage を使わない tune は、round の間でデータと config（探索空間を含む）を変えず、`study_name` だけを渡すこともしない限り、変わらない。codegen は tune を出力しない。
+- 移行が要る（storage を使わない場合）: 同じ Model で、データ・config の探索空間以外の部分・最初の評価指標を変えてから `resume=True` を呼ぶと、今は黙って続き別の目的関数のスコアが混ざる（`design-vs-implementation.md` の P1・P2）が、`CONFIG_INVALID` になる（4.3）。config の探索空間を書き換えてから `resume=True` を呼ぶと、今は黙って無視されるが、`CONFIG_INVALID` になる（5.1、範囲を変えるなら `space=`）。`storage` 無しで `study_name` だけを渡すと、今は黙って無視されるが、`CONFIG_INVALID` になる（3）。どれも、今は黙って間違うか黙って無視される呼び出しを、明示のエラーに変えるもので、直し方（新しい study、`space=`、引数を外す）がエラーのメッセージで決まる。
 - 致命的（続ける方法が無い）: v0.18 以前に作って storage に保存した study（docs/api.md:101、CHANGELOG 0.12.0 の使い方）と、アップグレードした時点で一時停止中の LizyStudio のジョブ。D4 による。CHANGELOG と migration に「旧 study は続けられない。一時停止中のジョブはアップグレードの前に終える」と書く（U1）。
 - 移行が要る（明示のエラーと、決まった直し方がある）: LizyStudio の unpause と failed ジョブの resume、Widget の別プロセスの Retune。LizyStudio は `lizyml<0.18.0`、Widget は `<0.17` に固定しているので、版の上限を上げるときに直す。
 - 致命的に近いもの: 「落ちたら同じスクリプトを流し直す」書き方（P2 の基本の使い方）が、1 回の呼び出しで書けない（初回は `resume=False`、流し直しは `resume=True`。途中の round では `n_trials` を渡せない）。U2・U3 で解く。
@@ -365,6 +366,7 @@ C11 だけはこの仕様が決める。
     - 新しい `Model` で、storage に既にある study を `resume=True` で指す → 再接続して続く（P2 の成功）。
     - 新しい `Model` で、正しい `storage` と、storage に無い `study_name` を `resume=True` で指す → 新しい study ができ、`lizyml:study` が書かれ、round 1 から始まる（U3）。INFO のログが出る。同じ呼び出しで `space=` を渡す → `CONFIG_INVALID`、study は作られない。
     - メモリ上の study も `storage` も無い `resume=True` → `TUNING_FAILED`。
+    - `resume=False` で `space=` を渡す → storage 無し（メモリ上の新しい study）でも、storage あり（storage に無い名前）でも `CONFIG_INVALID`。study は作られず、storage に何も書かれない。
 15. round の準備の途中で落ちた場合（`lizyml:round:<k>` を書いた後、enqueue の前で止めたもの、enqueue の後で止めたもの）→ 再接続のあと、enqueue した試行がその round にちょうど一つある。`lizyml:round:<k>` を書く前に止めたもの → 普通の resume として round k が始まる。
 16. `timeout` のある round を途中で落とした場合 → 再開では、記録から求めた残りの時間を Optuna の `timeout` に渡す（Optuna の timeout は新しい試行を始めないだけで、走っている試行は止めない。今の tune と同じ意味）。残りの時間を使い切っていれば、試行を一つも始めずに round を閉じる。時間を使い切ってから `:end` の前に落とした場合も同じ。
 17. `space=` で `merge` の宣言に利用者の次元を足した round のあと、再接続して次の round を `expand_boundary=None` で始める → 同じプロセスで続けた場合と同じ拡張の判断になる。
