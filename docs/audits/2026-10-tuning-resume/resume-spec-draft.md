@@ -71,8 +71,8 @@ HISTORY に入れる Proposal の草案（HISTORY に合わせて日本語）。
   - 列名と列の順序
   - 各列の dtype
   - categorical の列の categories とその順序、ordered かどうか
-  - 値と行の順序（`pd.util.hash_pandas_object(df, index=True)`）
-  - `pd.util.hash_pandas_object` は列名も categories も含まない（実行で確認）ので、それだけでは足りない。
+  - 値と行の順序。値は**型を保って**要約する: 各セルを「型の名前と値」の組として符号化する（index も同じ）。categorical の列は、型を保った categories の並びと、各行の codes で要約する。
+  - `pd.util.hash_pandas_object` は使わない。列名も categories も含まず（実行で確認）、型の違う値を区別しない（categorical の `[1, "1"]` と `["1", 1]` が同じ値になる。LizyML はこの二つを別の特徴量の値として学習する）ため。
   - `data.fingerprint.compute` は使わない（`file_path` が無いと行数・列名・dtype しか見ないため）。
   - 除外する列（`features.exclude`）も含める（保守的）。
 - **config**: 次のものの正規化した値。
@@ -221,10 +221,10 @@ H-0068 は前回の最良値を無条件に enqueue する。この案はそれ�
   - round 番号は変えない。その round の記録にある実効空間をそのまま使う。境界の分析と拡張はやり直さない（記録に決まっている）。
   - enqueue: 記録の判断が「する」で、その round に `lizyml:enqueued` の付いた試行（どの状態でも）が無いときだけ、記録した値で enqueue する（(2) と (3) の間で落ちた場合）。あれば何もしない。こうして enqueue は一度だけになる。
   - 残りの試行数は、記録した `n_trials` から、その round で終わった試行（COMPLETE、FAIL、PRUNED）の数を引いたもの。
-  - 記録に `timeout` があるとき（意味は Optuna と同じで、新しい試行を始めない期限。走っている試行は止めない）、残りの時間は `timeout` から、round を始めた時刻からその round の最後に終わった試行の終了時刻までの時間を引いたもの。落ちていた間の時間は数えない。
+  - 記録に `timeout` があるとき（意味は Optuna と同じで、新しい試行を始めない期限。走っている試行は止めない）、残りの時間は `timeout` から、その round で終わった試行（COMPLETE、FAIL、PRUNED）それぞれの「開始から終了まで」の時間の合計を引いたもの。試行の開始と終了の時刻は Optuna が試行ごとに記録する（`datetime_start` / `datetime_complete`）ので、何度落ちても、落ちていた間の時間は入らない。
   - 残りの試行数か残りの時間が 0 以下なら、試行を足さずに round を閉じる（最適化は試行数か時間で終わったが、`:end` を書く前に落ちた場合を含む）。閉じ方は 7.1 の `:end` の規則に従う。たとえば `n_trials=1` の round 1 で、ただ一つの試行が RUNNING のまま落ちた場合は、その試行を FAIL にして `failed` で閉じ、`TUNING_FAILED` を送出する。
   - 途中の round の予算は記録が決める。config の `tuning.optuna.params.n_trials` は、途中の round の再開では使わない（新しい round にだけ使う）。config の値が記録と違えば、無視したことを警告に出す。
-  - 時間による予算の限界: 残りの時間は試行の記録から求めるので、落ちる直前に走っていた試行の時間は数えない。時間で区切る round では、続けた場合と同じ試行の数になることは保証しない（時間による打ち切りは、同じプロセスでも試行の数を決めないため）。試行の数による予算では INV-R5 を満たす。
+  - 時間による予算の限界: 残りの時間は試行の記録から求めるので、落ちる直前に走っていた試行の時間と、試行と試行の間の時間（サンプリングなど）は数えない。そのぶん、再開した round は続けた場合より長く走りうる。時間で区切る round では、続けた場合と同じ試行の数になることは保証しない（時間による打ち切りは、同じプロセスでも試行の数を決めないため）。試行の数による予算では INV-R5 を満たす。
   - 落ちたときに RUNNING のまま残った試行は、再接続のときに FAIL として記録し、予算に数える。一つの study に試行を足すプロセスは一つという前提（3）による。
   - 引数（U2）: 途中の round の空間と予算は記録が決めている。次の引数は、値が `None` 以外のときだけ、その round の記録の**解決した値**と比べる。同じなら通し、違えば `CONFIG_INVALID`（「この round は記録の値で始まっている」）。`None`（三つとも既定値）は「渡していない」とみなして比べない（今のシグネチャでは省略と `None` を区別できないため、区別しない）。
     - `n_trials`（int）: 記録した、その round で要求した試行数と比べる。
@@ -398,7 +398,7 @@ C11 だけはこの仕様が決める。
 10. `resume=True` で別の storage → `CONFIG_INVALID`。
 11. config の探索空間を変えて `resume=True`（`space=` なし） → `CONFIG_INVALID`。
 12. `study_name` だけ、`storage` だけを渡す → `resume` に依らず `CONFIG_INVALID`。読めない `lizyml:schema` → `CONFIG_INVALID`。既にある次元のカテゴリーを変える宣言 → `CONFIG_INVALID`。
-13. データの列名を変える、categorical の categories の順序を変える → 同一性の違いとして `CONFIG_INVALID`。データをコンストラクターの `data` で渡した場合と、`data.path` の場所のファイルの中身だけを変えた場合も、同じく `CONFIG_INVALID`。
+13. データの列名を変える、categorical の categories の順序を変える、categorical の列の値を `[1, "1"]` から `["1", 1]` に変える（型の違う同じ表記の値の入れ替え）→ 同一性の違いとして `CONFIG_INVALID`。データをコンストラクターの `data` で渡した場合と、`data.path` の場所のファイルの中身だけを変えた場合も、同じく `CONFIG_INVALID`。
 14. 呼び出しの表（3）の各行: 
     - 同じ `storage`（URL の文字列が等しい、または同じ `BaseStorage` のオブジェクト）と同じ `study_name` を渡した `resume=True` → 継続する（試行が増え、round が進む）。`storage` と `study_name` を省いた `resume=True` → 継続する。
     - `study_name` だけが違う、URL の文字列が違う（同じファイルを指す別の書き方を含む）、同じ backend を指す別の `BaseStorage` のオブジェクト → `CONFIG_INVALID`、試行が増えない。
@@ -407,7 +407,7 @@ C11 だけはこの仕様が決める。
     - メモリ上の study も `storage` も無い `resume=True` → `TUNING_FAILED`。
     - `resume=False` で `space=` を渡す → storage 無し（メモリ上の新しい study）でも、storage あり（storage に無い名前）でも `CONFIG_INVALID`。study は作られず、storage に何も書かれない。
 15. round の準備の途中で落ちた場合（`lizyml:round:<k>` を書いた後、enqueue の前で止めたもの、enqueue の後で止めたもの）→ 再接続のあと、enqueue した試行がその round にちょうど一つある。`lizyml:round:<k>` を書く前に止めたもの → 普通の resume として round k が始まる。
-16. `timeout` のある round を途中で落とした場合 → 再開では、記録から求めた残りの時間を Optuna の `timeout` に渡す（Optuna の timeout は新しい試行を始めないだけで、走っている試行は止めない。今の tune と同じ意味）。残りの時間を使い切っていれば、試行を一つも始めずに round を閉じる。時間を使い切ってから `:end` の前に落とした場合も同じ。
+16. `timeout` のある round を途中で落とした場合 → 再開では、記録から求めた残りの時間を Optuna の `timeout` に渡す（Optuna の timeout は新しい試行を始めないだけで、走っている試行は止めない。今の tune と同じ意味）。残りの時間を使い切っていれば、試行を一つも始めずに round を閉じる。時間を使い切ってから `:end` の前に落とした場合も同じ。同じ round で二度落とした場合も、残りの時間は終わった試行の時間の合計から求まり、一度目と二度目の間に落ちていた時間を含まない。
 17. `space=` で `merge` の宣言に利用者の次元を足した round のあと、再接続して次の round を `expand_boundary=None` で始める → 同じプロセスで続けた場合と同じ拡張の判断になる。
 18. 途中で落ちた round（その round で K 件終わっている）を再開 → 進捗の `current_trial` は K+1 から始まり、storage の有無で変わらない。
 19. study を作った直後、`lizyml:study` を書く前に止めた場合 → 再接続で作りかけの study として初期化され、round 1 から始まる。試行のある study から `lizyml:study` を消したもの → `CONFIG_INVALID`。次元を足した round で、`lizyml:round:<k>` を書く前に止めた場合 → その次元の経路は残らない。`lizyml:study` を書いた後、round 1 の記録の前に止めた場合（状態 N）→ `resume=True` で round 1 が始まり、`space=` を渡すと `CONFIG_INVALID`。試行はあるが round の記録が無い study、round の番号が飛んでいる study、最後以外の round に `:end` が無い study、round 1 の開始より小さい番号の試行がある study、`lizyml:round` が番号から決めた round と違う試行がある study（状態 X）→ それぞれ `CONFIG_INVALID`、study は変わらない。
