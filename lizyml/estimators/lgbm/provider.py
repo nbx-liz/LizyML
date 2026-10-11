@@ -30,6 +30,7 @@ from lizyml.estimators.lgbm.param_names import (
     accepted_spellings,
 )
 from lizyml.estimators.lgbm.smart_params import (
+    SMART_PARAM_OWNERS,
     resolve_ratio_params,
     resolve_smart_params,
     smart_managed_names,
@@ -240,6 +241,10 @@ class LGBMProvider:
     def smart_param_names(self) -> frozenset[str]:
         """Return the smart parameter names, from the same declaration as above."""
         return frozenset(_SMART_PARAM_NAMES)
+
+    def smart_param_owners(self) -> dict[str, str]:
+        """Return smart parameters read only while their owner is true (H-0121)."""
+        return dict(SMART_PARAM_OWNERS)
 
     def canonical_param_names(self, names: Iterable[str]) -> dict[str, str]:
         """Map each name to the LightGBM parameter it identifies (H-0094)."""

@@ -19,10 +19,9 @@ from lizyml.estimators.lgbm.param_names import accepted_spellings
 #: Smart resolution runs *after* the parameter dict is merged and its result
 #: wins (``core/model.py``: ``resolved_model = {**resolved_model, **smart}``),
 #: so a native name listed here does not survive being set by hand -- it is
-#: replaced, without a word. ``LGBMConfig._validate_smart_params`` already
-#: refuses three of these combinations at config-parse time, which is the
-#: policy this table generalises: the conflict is an error, not a silent
-#: substitution.
+#: replaced, without a word. ``Model._merge_params`` refuses such a name on
+#: every parameter layer at ``fit`` / ``tune`` (H-0094, H-0121): the conflict
+#: is an error, not a silent substitution.
 #:
 #: The names here are LightGBM's **canonical** ones. LightGBM accepts aliases
 #: and treats them as the same parameter, so a check comparing literal strings
@@ -52,6 +51,14 @@ SMART_PARAM_TARGETS: dict[str, frozenset[str]] = {
     "feature_weights": frozenset({"feature_contri", "feature_pre_filter"}),
     "balanced": frozenset({"scale_pos_weight"}),
 }
+
+#: Smart parameters read only while another smart parameter is true (H-0121):
+#: ``{smart parameter: its owner}``. ``resolve_smart_params`` reads
+#: ``num_leaves_ratio`` only inside the ``auto_num_leaves`` branch, so with the
+#: owner off a ``num_leaves_ratio`` search dimension changes nothing. Every
+#: other smart parameter is read whenever it has a value. A test executes the
+#: resolver to keep this true of the code.
+SMART_PARAM_OWNERS: dict[str, str] = {"num_leaves_ratio": "auto_num_leaves"}
 
 
 def smart_managed_names(

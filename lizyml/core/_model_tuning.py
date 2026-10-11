@@ -30,6 +30,7 @@ from lizyml.core._model_factories import (
 from lizyml.core._model_metrics import _DEFAULT_METRICS
 from lizyml.core._model_state import TuningState
 from lizyml.core._tuning_validation import (
+    admit_smart_dimensions,
     resolve_tuning_direction,
     validate_tuning_dimensions,
 )
@@ -56,7 +57,7 @@ from lizyml.tuning.search_space import (
     split_by_category,
     suggest_params,
 )
-from lizyml.tuning.tuner import Tuner
+from lizyml.tuning.tuner import Tuner, stored_study_exists
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -235,7 +236,15 @@ class ModelTuningMixin:
         # rather than on one of them.
         check_calibration_param_names(cfg.calibration)
 
-        space, used_default, fixed = self._resolve_search_space(
+        # H-0121: decided before the space is resolved. Decisions 3 and 4 judge
+        # the space a new study will be built from; a resumed or reattached
+        # study already holds trials sampled from the old space, so dropping a
+        # dimension there would not make it sound (that path belongs to the
+        # resume-compatibility Proposal).
+        new_study = not resume and (
+            storage is None or not stored_study_exists(storage, study_name)
+        )
+        space, used_default, fixed, default_dims = self._resolve_search_space(
             resume=resume, provider=provider
         )
         base_model_params, base_smart_params = self._merge_params(
@@ -248,6 +257,15 @@ class ModelTuningMixin:
             expand_boundary=expand_boundary,
             boundary_threshold=boundary_threshold,
         )
+        if new_study:
+            space, dropped = admit_smart_dimensions(
+                provider, space, base_smart_params, default_dims
+            )
+            if dropped:
+                _log.info(
+                    "event='tune.drop_dims' reason=inactive_smart_owner dims=%s",
+                    ",".join(dim.name for dim in dropped),
+                )
 
         validate_tuning_dimensions(provider, space, base_smart_params, cfg.task)
 
@@ -397,12 +415,17 @@ class ModelTuningMixin:
         *,
         resume: bool,
         provider: EstimatorProvider,
-    ) -> tuple[list[Any], bool, dict[str, Any]]:
+    ) -> tuple[list[Any], bool, dict[str, Any], frozenset[tuple[str, str]]]:
         """Return the search space for this tune call.
 
-        Returns a tuple ``(space, used_default, fixed_params)`` where
-        ``used_default`` signals merge mode with no user-supplied space
-        (drives the H-0068 expand-boundary default).
+        Returns a tuple ``(space, used_default, fixed_params, default_dims)``
+        where ``used_default`` signals merge mode with no user-supplied space
+        (drives the H-0068 expand-boundary default) and ``default_dims`` is
+        the ``(category, name)`` of every dimension that came from the
+        provider's default space and was not overridden by the user -- the
+        provenance H-0121 decision 4 needs to drop rather than refuse. It is
+        empty for ``replace`` and for a resumed space, whose provenance this
+        round does not judge.
 
         H-0078: ``provider.parameter_bounds(task)`` is attached to each
         matching dim so that boundary expansion in subsequent rounds is
@@ -410,6 +433,7 @@ class ModelTuningMixin:
         """
         cfg = self._cfg
         assert cfg.tuning is not None  # noqa: S101 — validated upstream
+        default_dims: frozenset[tuple[str, str]] = frozenset()
         if resume and self._space is not None:
             space = list(self._space)
             used_default = self._used_default_space
@@ -437,12 +461,17 @@ class ModelTuningMixin:
                     )
 
                 overrides = {identity(dim): dim for dim in user_space}
+                default_dims = frozenset(
+                    (dim.category, dim.name)
+                    for dim in defaults
+                    if identity(dim) not in overrides
+                )
                 space = [overrides.pop(identity(dim), dim) for dim in defaults]
                 space.extend(overrides.values())
                 used_default = not user_space
                 fixed = provider.default_fixed_params(cfg.task)
             space = attach_bounds(space, provider.parameter_bounds(cfg.task))
-        return space, used_default, fixed
+        return space, used_default, fixed, default_dims
 
     def _maybe_expand_boundary(
         self,
