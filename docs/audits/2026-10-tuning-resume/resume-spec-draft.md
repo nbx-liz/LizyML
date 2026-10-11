@@ -280,6 +280,21 @@ study の状態の分け方と、`resume=True` での扱いは、この表を正
 - 何も書かない: 属性を書かず、RUNNING の試行も FAIL にしない（その扱いは `resume=True` の呼び出しだけが行う、7.2）。目的関数の同一性の照合もしない（データも config も受け取らないため。照合は `resume=True` で行う）。
 - 置き場所は `lizyml.tuning`（`Tuner` と同じ層）。`lizyml.tuning.__all__` に足し、BLUEPRINT §11 と docs/api.md に書く。トップレベルの `lizyml.__all__`（`test_public_exports.py` が固定）には入れない。
 
+### 7.7 tune の結果を study から取り戻す（Q-H）
+
+round を閉じた（`:end` を書いた）あと、呼び出し側が tune の結果を受け取る前に落ちると、study は状態 C になる。`resume=True` は新しい round を始めてしまうので、試行を足さずに結果だけを取り戻す公開のメソッドを足す（2026-10-11 に管理者が決定）。
+
+- `Model.restore_tuning(storage, study_name, data=None) -> TuningResult`。`storage` と `study_name` の形と事前の検査は `Model.tune` と同じ（3）。`data` は `tune` と同じ優先順位で決める（4.1）。
+- 7.4 の表で状態を判定し、状態ごとに次のとおり扱う:
+  - C（最後の round が `completed`）: 4.3 の照合（目的関数の同一性。版の違いは警告）をしたうえで、結果を取り戻す。
+  - O（開いた round）: `CONFIG_INVALID`（「round k が途中。`tune(resume=True)` で終える」）。途中の結果は取り戻さない。
+  - F・E・N、storage にその study が無い: `TUNING_FAILED`（取り戻す結果が無い）。
+  - L・S・X: `resume=True` と同じく `CONFIG_INVALID`。
+- 取り戻す結果は、その round で終わった tune が返したものと同じ: 最良の試行の値を 4.1b の経路で分けた `best_model_params` / `best_smart_params` / `best_training_params`、`best_score`、`metric_name`、`direction`、試行（番号から決まる round 付き）、`rounds`（`failed` の round を除く）、最後の round の `boundary_report`。
+- Model に載せるもの（成功したときだけ、まとめて。H-0094 決定 14）: tune の結果、読んだ study（`_study`）、最後の round の実効空間、round 番号と `rounds`、`lizyml:study` の `fixed`、覚えておく storage と study_name、データ。fit 済みのモデルは変えない（H-0094 決定 13 の tune と同じ）。
+- study には何も書かない（属性も試行も変えず、RUNNING の試行も FAIL にしない）。
+- 取り戻したあとは、`fit()` が最良の試行と同じ学習になる（INV-R2。`fixed` を Model が持つため）。続けて `tune(resume=True)` を呼べば、その study で新しい round を始める（再接続と同じ）。
+
 ### 7.5 変えないもの
 
 - artifact（`Model.export` / `Model.load`）の形式は変えない。`format_version` も上げない。
@@ -307,6 +322,8 @@ study の状態の分け方と、`resume=True` での扱いは、この表を正
 | 既にある次元の名前のカテゴリーを変えた | `CONFIG_INVALID`（新規） | 4.1b | 12 |
 | 途中の round の再開で、記録と違う `n_trials` / `expand_boundary` / `space=` を渡した | `CONFIG_INVALID`（新規、U2） | 7.2 | 8b |
 | round を閉じるとき、study に COMPLETE の試行が無い | `TUNING_FAILED`（今と同じ。round は `failed` で閉じる） | 7.1、7.4 | 8a |
+| `restore_tuning` で状態 O | `CONFIG_INVALID`（新規） | 7.7 | 36 |
+| `restore_tuning` で状態 F・E・N、または study が無い | `TUNING_FAILED`（新規） | 7.7 | 36 |
 | ライブラリの版の違い | 警告（新規） | 4.3 | 3 |
 | 途中の round の再開で、config の `n_trials` が記録と違う | 警告（新規。記録の予算を使う） | 7.2 | 8b |
 
@@ -365,7 +382,7 @@ C11 だけはこの仕様が決める。
 - **LizyML-Widget**（`adapter.py:767-800, 845-851`）: `_study`、`_space`、`_used_default_space`、`_round_number`、`_rounds` を pickle して別プロセスで戻している（`_tuning_fixed_params` は運ばない）。同一性・系譜・固定パラメーターは study の属性から読み、Model のフィールドより優先する（5.3）ので、`_study` が運ばれれば足りる。メモリ上の study は pickle できる（実行で確認）。
 - **LizyStudio の tune のあとの fit**（`services/training.py:458`、`services/training_retune.py:109` → `_training_core.py:337-347`）: `TuningSummary.best_params`（model・smart・training を平らにしたもの、`backends/lizyml/serialization.py:26-44`）を、すべて config の `model.params` に入れて fit している。smart と training の値は `model.params` では効かないか拒否されるので、INV-R2（最良の試行と同じ学習）が LizyStudio では成り立たない。今の版でも smart の次元で起きる既存の問題で、この仕様では外した次元の値が最良として残る（D2、Q-B）ため起きやすくなる。版の上限を上げるとき、tune した Model でそのまま `fit()` する（その Model は三つの区別と、study の固定パラメーター `fixed` の両方を持つ）。三つの区別を分けて運ぶだけでは足りない: INV-R2 の学習は `config ⊕ fixed ⊕ 試行の値` で、`merge` の study では provider が `fixed` として `first_metric_only=True` と `metric` を決める（`defaults.py:138-153`。通常の既定は `first_metric_only=False`）。config に書き写して別の Model で fit する経路では、`fixed` を写す公開の手段が今は無いので、early stopping の判断が変わり、別のモデルを学習しうる。
 - **LizyStudio の round のループ**（`lifecycle_mixin.py:186-197`）: 再チューニングの `n_trials` / `expand_boundary` を最初の呼び出しに付け、`range(2, n_rounds + 1)` で round 2 から数える。途中で落ちた round を再開する呼び出しに違う `n_trials` が付くと U2 で `CONFIG_INVALID` になり、round が 2 から始まる前提も、途中の round の再開では成り立たない。試行ごとに Model を pickle する checkpoint（`_bridge`）は開いた round の study を保存しうるので、そこからの retune（`training_retune.py:93-105` は `n_trials` を必ず渡す）も同じく U2 に当たる。版の上限を上げるとき、round の数え方を study の系譜（`TuningResult.rounds` と試行の round）に合わせて直す。
-- 公開 API: `tune()` に `space=` を足す（A-1）。`lizyml.tuning.read_study_lineage` と `StudyLineage` を足す（Q-G、7.6）。エラーの条件が増える（8）。CHANGELOG と migration に書く。
+- 公開 API: `tune()` に `space=` を足す（A-1）。`lizyml.tuning.read_study_lineage` と `StudyLineage` を足す（Q-G、7.6）。`Model.restore_tuning` を足す（Q-H、7.7）。エラーの条件が増える（8）。CHANGELOG と migration に書く。
 
 ### 10.1 利用者への影響の判定（2026-10-11 の調査）
 
@@ -381,8 +398,8 @@ LizyStudio（`src/lizystudio`）と LizyML-Widget（`src/lizyml_widget`）で、
 
 | 利用側 | 箇所 | この仕様での影響 | 直し方 |
 |---|---|---|---|
-| Studio | `services/training.py:287-337, 400-417`（残りが 0 なら tune を呼ばず、Optuna から結果を組み立てる） | round に `:end` が書かれず状態 O のまま。照合（4.3）を通らない。平らな `best_params`（外した次元を含みうる）が fit に渡る | tune を呼ばずに組み立てるのをやめ、`resume=True` に任せる（開いた round は 7.2 で閉じる） |
-| Studio | `api/jobs.py:324-373`、`_training_core.py:66-90, 194-230`（一時停止と unpause） | 一時停止の位置により、study は状態 O（round の途中）にも C（round の間、tune の後、fit の途中）にもなる。C で `resume=True` を呼ぶと、余分な round が始まる | `read_study_lineage`（7.6）で状態と系譜を読み、開いていれば `resume=True` で終え、閉じていれば残りの round の数を系譜から決める |
+| Studio | `services/training.py:287-337, 400-417`（残りが 0 なら tune を呼ばず、Optuna から結果を組み立てる） | round に `:end` が書かれず状態 O のまま。照合（4.3）を通らない。平らな `best_params`（外した次元を含みうる）が fit に渡る | tune を呼ばずに組み立てるのをやめる。開いた round は `resume=True` で閉じ、閉じた study の結果は `restore_tuning`（7.7）で取り戻す |
+| Studio | `api/jobs.py:324-373`、`_training_core.py:66-90, 194-230`（一時停止と unpause） | 一時停止の位置により、study は状態 O（round の途中）にも C（round の間、tune の後、fit の途中）にもなる。C で `resume=True` を呼ぶと、余分な round が始まる | `read_study_lineage`（7.6）で状態と系譜を読み、開いていれば `resume=True` で終える。閉じていて残りの round があれば `resume=True` で続け、残りが無ければ `restore_tuning`（7.7）で結果を取り戻して fit する |
 | Studio | `backends/lizyml/lifecycle_mixin.py:91-114`（`model._tuning_result.trials` を読む） | 再接続した Model には無いので、それまでの試行が進捗の一覧から消える | 試行と round は tune の結果（`TuningResult.trials` と `rounds`）から読む |
 | Studio | `lifecycle_mixin.py:116-168`（`_bridge` の round と試行の番号） | 最初の呼び出しを round 1 と表示する。試行の番号が局所的 | 進捗の `round`・`current_trial`・`cumulative_trials` を使う |
 | Studio | `backends/lizyml/serialization.py:16-69`、`backends/types.py:176-196`、`api/models.py:229-241` | `rounds` が round 2 から始まり、`best_score_before` が `None` になりうる。`n_trials` は実際の数。平らな `best_params` に model・smart・training の区別の置き場が無い | 型に三つの区別を足し、`None` を扱う |
@@ -415,6 +432,7 @@ LizyStudio（`src/lizystudio`）と LizyML-Widget（`src/lizyml_widget`）で、
 - **Q-F**: 前回の最良値の enqueue（評価し直し）をやめる（6.2）。当初は条件付きにすると決めたが、2026-10-11 に管理者がやめることに変更した。
 
 - **Q-G**: 利用側が、試行を足さずに study の状態と系譜を読む公開の関数を足す（7.6）。LizyStudio の一時停止と再開（10.3）で使う。2026-10-11 に管理者が決定。
+- **Q-H**: 閉じた study から、試行を足さずに tune の結果を Model に取り戻す公開のメソッド `Model.restore_tuning` を足す（7.7）。round を閉じた直後に落ちた場合と、LizyStudio の再開で使う。2026-10-11 に管理者が決定（`tune(resume=True, n_trials=0)` を流用する案は U2 と意味がぶつかるので採らない）。
 
 あわせて採る技術的な規則:
 
@@ -489,6 +507,8 @@ LizyStudio（`src/lizystudio`）と LizyML-Widget（`src/lizyml_widget`）で、
     - CHANGELOG の該当の版の節と `docs/migration.md`: `tune(space=...)` の追加、8 の新しいエラー条件、resume の結果が変わりうること（10.1）。
 
 35. 系譜を読む関数（7.6）: 7.4 の各状態の study（storage に無いもの、旧 study、作りかけ、読めない、round が無い、壊れている、開いた round、完了、失敗）に `read_study_lineage` → `state` がそれぞれの値になり、`rounds` と `open_round` が系譜どおり（`failed` の round も入る）。呼ぶ前と後で、study の試行の数と状態（RUNNING の試行を含む）と属性が同じ。`storage` だけ、`study_name` だけを渡すと `CONFIG_INVALID`。`lizyml.tuning.__all__` に `read_study_lineage` と `StudyLineage` があり、トップレベルの `lizyml.__all__` は変わらない。`StudyLineage` と `RoundRecord` の欄に代入すると `FrozenInstanceError` になり、`rounds` は tuple である。
+
+36. 結果を取り戻す（7.7）: storage で round 2 を閉じた（`:end` を書いた）直後に止めた study に、新しい Model で `restore_tuning` → 返る `TuningResult` が、止めずに走らせた tune の返したものと同じ（三つに分けた最良値、`best_score`、`rounds`、試行の round、`boundary_report`）。続く `fit()` は最良の試行と同じパラメーター（`fixed` を含む）で学習する。study の試行の数と状態と属性は変わらず、round は増えない。そのあと `tune(resume=True)` → round 3 が始まる。状態 O → `CONFIG_INVALID`、状態 F・E・N と study が無い場合 → `TUNING_FAILED`、データを変えた Model → `CONFIG_INVALID`、状態 L・S・X → `CONFIG_INVALID`。どの拒否でも、study と Model の状態は変わらない（22 と同じ確かめ方）。`docs/api.md` と BLUEPRINT §11 に `restore_tuning` が書かれている。
 
 一つの study に試行を足すプロセスは一つという前提（3）は、利用者に求める前提で、ライブラリは強制しない（lease などの仕組みは入れない）。テストは、再接続のときに残った RUNNING の試行が FAIL になること（8）だけを確かめる。
 
