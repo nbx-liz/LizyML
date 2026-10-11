@@ -503,6 +503,10 @@ anchors = ["check_smart_managed_overrides", "validate_tuning_dimensions", "smart
 disposition = "specified"
 anchors = ["read_study_lineage", "StudyLineage", "RoundRecord", "restore_tuning", "lizyml:study"]
 
+[proposals."H-0123"]
+disposition = "pending"
+reason = "Proposed: the accepted shape of a search-space dimension is stated in the BLUEPRINT search-space section by the implementation commit."
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 
