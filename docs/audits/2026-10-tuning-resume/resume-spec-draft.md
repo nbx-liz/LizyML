@@ -268,6 +268,18 @@ study の状態の分け方と、`resume=True` での扱いは、この表を正
 
 `resume=False` で storage に同じ名前の study があるときは、状態に依らず `CONFIG_INVALID`（3）。
 
+### 7.6 系譜を読む公開の関数（Q-G）
+
+利用側が、試行を足さずに study の状態と系譜を知るための、読み取りだけの関数を足す。
+
+- `lizyml.tuning.read_study_lineage(storage, study_name) -> StudyLineage`。`storage` と `study_name` の形は `Model.tune` と同じ（3 の事前検査も同じ）。
+- 返す値 `StudyLineage`（frozen dataclass）:
+  - `state`: 7.4 の状態を表す文字列。`"absent"`（storage にその study が無い）、`"legacy"`（L）、`"uninitialized"`（E）、`"unreadable"`（S）、`"no_round"`（N）、`"inconsistent"`（X）、`"open"`（O）、`"completed"`（C）、`"failed"`（F）のどれか。判定は 7.4 の表と同じ順序で行う。
+  - `rounds`: 記録のある round ごとの要約の並び（`RoundRecord`: `round`、`status`（`"completed"` / `"failed"` / `"open"`）、要求した `n_trials`、終わった試行の数、`best_score_before`、`best_score_after`（`failed` と `open` では `None`））。`failed` の round も含む（`TuningResult.rounds` と違い、系譜をそのまま見せるため）。状態が `absent`・`legacy`・`uninitialized`・`unreadable`・`inconsistent` のときは空。
+  - `open_round`: 開いた round の番号（状態 O のとき）、それ以外は `None`。
+- 何も書かない: 属性を書かず、RUNNING の試行も FAIL にしない（その扱いは `resume=True` の呼び出しだけが行う、7.2）。目的関数の同一性の照合もしない（データも config も受け取らないため。照合は `resume=True` で行う）。
+- 置き場所は `lizyml.tuning`（`Tuner` と同じ層）。`lizyml.tuning.__all__` に足し、BLUEPRINT §11 と docs/api.md に書く。トップレベルの `lizyml.__all__`（`test_public_exports.py` が固定）には入れない。
+
 ### 7.5 変えないもの
 
 - artifact（`Model.export` / `Model.load`）の形式は変えない。`format_version` も上げない。
@@ -353,7 +365,7 @@ C11 だけはこの仕様が決める。
 - **LizyML-Widget**（`adapter.py:767-800, 845-851`）: `_study`、`_space`、`_used_default_space`、`_round_number`、`_rounds` を pickle して別プロセスで戻している（`_tuning_fixed_params` は運ばない）。同一性・系譜・固定パラメーターは study の属性から読み、Model のフィールドより優先する（5.3）ので、`_study` が運ばれれば足りる。メモリ上の study は pickle できる（実行で確認）。
 - **LizyStudio の tune のあとの fit**（`services/training.py:458`、`services/training_retune.py:109` → `_training_core.py:337-347`）: `TuningSummary.best_params`（model・smart・training を平らにしたもの、`backends/lizyml/serialization.py:26-44`）を、すべて config の `model.params` に入れて fit している。smart と training の値は `model.params` では効かないか拒否されるので、INV-R2（最良の試行と同じ学習）が LizyStudio では成り立たない。今の版でも smart の次元で起きる既存の問題で、この仕様では外した次元の値が最良として残る（D2、Q-B）ため起きやすくなる。版の上限を上げるとき、`best_model_params` / `best_smart_params` / `best_training_params` を分けたまま運び、それぞれの場所に入れるように直す（または tune した Model をそのまま fit に使う）。
 - **LizyStudio の round のループ**（`lifecycle_mixin.py:186-197`）: 再チューニングの `n_trials` / `expand_boundary` を最初の呼び出しに付け、`range(2, n_rounds + 1)` で round 2 から数える。途中で落ちた round を再開する呼び出しに違う `n_trials` が付くと U2 で `CONFIG_INVALID` になり、round が 2 から始まる前提も、途中の round の再開では成り立たない。試行ごとに Model を pickle する checkpoint（`_bridge`）は開いた round の study を保存しうるので、そこからの retune（`training_retune.py:93-105` は `n_trials` を必ず渡す）も同じく U2 に当たる。版の上限を上げるとき、round の数え方を study の系譜（`TuningResult.rounds` と試行の round）に合わせて直す。
-- 公開 API: `tune()` に `space=` を足す（A-1 の場合）。エラーの条件が増える（8）。CHANGELOG と migration に書く。
+- 公開 API: `tune()` に `space=` を足す（A-1）。`lizyml.tuning.read_study_lineage` と `StudyLineage` を足す（Q-G、7.6）。エラーの条件が増える（8）。CHANGELOG と migration に書く。
 
 ### 10.1 利用者への影響の判定（2026-10-11 の調査）
 
@@ -370,7 +382,7 @@ LizyStudio（`src/lizystudio`）と LizyML-Widget（`src/lizyml_widget`）で、
 | 利用側 | 箇所 | この仕様での影響 | 直し方 |
 |---|---|---|---|
 | Studio | `services/training.py:287-337, 400-417`（残りが 0 なら tune を呼ばず、Optuna から結果を組み立てる） | round に `:end` が書かれず状態 O のまま。照合（4.3）を通らない。平らな `best_params`（外した次元を含みうる）が fit に渡る | tune を呼ばずに組み立てるのをやめ、`resume=True` に任せる（開いた round は 7.2 で閉じる） |
-| Studio | `api/jobs.py:324-373`、`_training_core.py:66-90, 194-230`（一時停止と unpause） | 一時停止の位置により、study は状態 O（round の途中）にも C（round の間、tune の後、fit の途中）にもなる。C で `resume=True` を呼ぶと、余分な round が始まる | 開いているか閉じているかと、残りの round を知る手段が要る（Q-G） |
+| Studio | `api/jobs.py:324-373`、`_training_core.py:66-90, 194-230`（一時停止と unpause） | 一時停止の位置により、study は状態 O（round の途中）にも C（round の間、tune の後、fit の途中）にもなる。C で `resume=True` を呼ぶと、余分な round が始まる | `read_study_lineage`（7.6）で状態と系譜を読み、開いていれば `resume=True` で終え、閉じていれば残りの round の数を系譜から決める |
 | Studio | `backends/lizyml/lifecycle_mixin.py:91-114`（`model._tuning_result.trials` を読む） | 再接続した Model には無いので、それまでの試行が進捗の一覧から消える | 試行と round は tune の結果（`TuningResult.trials` と `rounds`）から読む |
 | Studio | `lifecycle_mixin.py:116-168`（`_bridge` の round と試行の番号） | 最初の呼び出しを round 1 と表示する。試行の番号が局所的 | 進捗の `round`・`current_trial`・`cumulative_trials` を使う |
 | Studio | `backends/lizyml/serialization.py:16-69`、`backends/types.py:176-196`、`api/models.py:229-241` | `rounds` が round 2 から始まり、`best_score_before` が `None` になりうる。`n_trials` は実際の数。平らな `best_params` に model・smart・training の区別の置き場が無い | 型に三つの区別を足し、`None` を扱う |
@@ -402,7 +414,7 @@ LizyStudio（`src/lizystudio`）と LizyML-Widget（`src/lizyml_widget`）で、
 - **Q-E**: 照合の厳しさ（4 の冒頭）。保守的な互換性。
 - **Q-F**: 前回の最良値の enqueue（評価し直し）をやめる（6.2）。当初は条件付きにすると決めたが、2026-10-11 に管理者がやめることに変更した。
 
-- **Q-G（管理者の判断待ち）**: 利用側が、study が開いた round を持つか、閉じているか、系譜（round の数と各 round の要約）を、試行を足さずに読む公開の手段。LizyStudio の一時停止と再開（10.3）で必要になる。案: 読み取りだけの関数（たとえば `lizyml.tuning.read_study_lineage(storage, study_name)`）で、7.4 の状態と `RoundSummary` の並びを返す。無い場合、利用側は Optuna の属性を直接読むことになり、`lizyml:` の形式に依存する。
+- **Q-G**: 利用側が、試行を足さずに study の状態と系譜を読む公開の関数を足す（7.6）。LizyStudio の一時停止と再開（10.3）で使う。2026-10-11 に管理者が決定。
 
 あわせて採る技術的な規則:
 
@@ -474,6 +486,8 @@ LizyStudio（`src/lizystudio`）と LizyML-Widget（`src/lizyml_widget`）で、
     - `docs/api.md`: `Model.tune` の引数に `space=` があり、resume の説明から前回の最良値の enqueue（warm-start）の記述が無く、storage への再接続が `resume=True`（無ければ新しく作る、U3）と書かれ、エラーの一覧に 8 の新しい条件があり、`rounds` の説明に「`failed` で閉じた round は入らず、round 2 から始まりうる」とある。
     - BLUEPRINT §11.5・§11.5.1: `resume` の表（今の 990-993 行）と resume・storage の関係（今の 1082-1108 行）が、この仕様の規則（enqueue なし、`resume=True` での再接続、`space=`、照合）に置き換わっている。
     - CHANGELOG の該当の版の節と `docs/migration.md`: `tune(space=...)` の追加、8 の新しいエラー条件、resume の結果が変わりうること（10.1）。
+
+35. 系譜を読む関数（7.6）: 7.4 の各状態の study（storage に無いもの、旧 study、作りかけ、読めない、round が無い、壊れている、開いた round、完了、失敗）に `read_study_lineage` → `state` がそれぞれの値になり、`rounds` と `open_round` が系譜どおり（`failed` の round も入る）。呼ぶ前と後で、study の試行の数と状態（RUNNING の試行を含む）と属性が同じ。`storage` だけ、`study_name` だけを渡すと `CONFIG_INVALID`。`lizyml.tuning.__all__` に `read_study_lineage` と `StudyLineage` があり、トップレベルの `lizyml.__all__` は変わらない。
 
 一つの study に試行を足すプロセスは一つという前提（3）は、利用者に求める前提で、ライブラリは強制しない（lease などの仕組みは入れない）。テストは、再接続のときに残った RUNNING の試行が FAIL になること（8）だけを確かめる。
 
