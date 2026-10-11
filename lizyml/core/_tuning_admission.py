@@ -29,6 +29,10 @@ from lizyml.core._model_factories import (
     model_space_names,
     overlay_params,
 )
+from lizyml.core._smart_combinations import (
+    FIXED_LAYER,
+    check_layers_over_smart_values,
+)
 from lizyml.core._tuning_space import SPACE_ARG
 from lizyml.core._tuning_validation import validate_tuning_dimensions
 from lizyml.core.exceptions import ErrorCode, LizyMLError
@@ -254,6 +258,9 @@ def check_round_space(
     validate_tuning_dimensions(
         provider, space, base_smart_params, cfg.task, surface=surface
     )
+    check_smart_managed_layers(
+        cfg, plan, provider, base_model_params, base_smart_params, surface=surface
+    )
     # Resolved defaults can introduce training ownership even when Config
     # disables it. Check every native name the objective can send before
     # creating a study. Early-stopping ownership depends on presence of a
@@ -280,4 +287,42 @@ def check_round_space(
         cfg,
         origins=dict.fromkeys(model_dimensions, surface),
         training_overrides=training_claims,
+    )
+
+
+def check_smart_managed_layers(
+    cfg: LizyMLConfig,
+    plan: RoundPlan,
+    provider: EstimatorProvider,
+    base_model_params: dict[str, Any],
+    base_smart_params: dict[str, Any],
+    *,
+    surface: str,
+) -> None:
+    """Refuse a layer name a smart dimension can make managed (H-0121 am. 1).
+
+    ``Model._merge_params`` checks every parameter layer against the base
+    smart values (H-0121 policy 1). A ``category: smart`` dimension overlays its
+    sample on each trial, so a smart parameter the config leaves inactive can be
+    active inside a trial, and the layer's value is then discarded for the one
+    the smart parameter writes (#341). The layers a trial trains on --
+    ``model.params`` and the round's fixed parameters -- are checked again
+    against every combination of the values the round's smart dimensions can
+    take. Read only; raises ``CONFIG_INVALID`` before any study write (INV-R4).
+
+    Args:
+        cfg: The config.
+        plan: The round; its ``effective`` space and ``fixed`` layer are read.
+        provider: The estimator provider.
+        base_model_params: ``model.params``, as ``_merge_params`` returned it.
+        base_smart_params: The effective smart values the round starts from.
+        surface: Where the round's space was declared, quoted in the refusal.
+    """
+    check_layers_over_smart_values(
+        provider,
+        [("model.params", base_model_params), (FIXED_LAYER, dict(plan.fixed))],
+        plan.effective,
+        base_smart_params,
+        cfg.task,
+        space_surface=surface,
     )

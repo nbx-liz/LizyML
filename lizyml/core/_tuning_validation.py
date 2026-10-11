@@ -6,6 +6,10 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from lizyml.core._model_factories import check_smart_managed_overrides
 from lizyml.core._model_metrics import _DEFAULT_METRICS
+from lizyml.core._smart_combinations import (
+    check_layer_over_smart_values,
+    smart_value_combinations,
+)
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.search_dim import CategoricalDim, SearchDim
 from lizyml.core.types.task import TaskType
@@ -58,9 +62,13 @@ def validate_tuning_dimensions(
 ) -> None:
     """Refuse model/training dimensions that cannot be applied as declared.
 
-    The shipped provider's activation rules use truthiness or presence. Numeric
-    bounds and categorical choices cover those activation states; the provider
-    remains the authority for the affected native names and their aliases.
+    A ``category: model`` dimension a smart parameter manages is refused
+    against the base smart values and against every combination of the values
+    the smart dimensions can take (H-0121 amendment 1, policy 2;
+    ``lizyml.core._smart_combinations``). The provider contract -- activation
+    depends on each smart value only through ``None`` and truthiness -- lets
+    one value per state stand for a dimension; the provider remains the
+    authority for the affected native names and their aliases.
     ``surface`` names where the dimensions were declared: the config's
     ``tuning.optuna.space`` or a resumed round's ``tune(space=)`` (H-0122).
     """
@@ -85,18 +93,21 @@ def validate_tuning_dimensions(
     _refuse_undeclared_smart_dimensions(provider, space, surface=surface)
     model_names = dict.fromkeys(dim.name for dim in space if dim.category == "model")
     check_smart_managed_overrides(provider, model_names, smart, task, surface=surface)
-    for dim in space:
-        if dim.category != "smart":
-            continue
-        values = dim.choices if isinstance(dim, CategoricalDim) else (dim.low, dim.high)
-        for value in values:
-            check_smart_managed_overrides(
-                provider,
-                model_names,
-                {**smart, dim.name: value},
-                task,
-                surface=surface,
-            )
+    # H-0121 amendment 1, policy 2: against the smart values the trials can
+    # take, as one product -- a provider may activate a name only for a
+    # combination of smart values -- with one representative per state of
+    # each dimension (the same reduction ``check_round_space`` uses for the
+    # parameter layers).
+    check_layer_over_smart_values(
+        provider,
+        model_names,
+        smart_value_combinations(space, smart),
+        space,
+        smart,
+        task,
+        surface=surface,
+        space_surface=surface,
+    )
 
 
 def _refuse_undeclared_smart_dimensions(

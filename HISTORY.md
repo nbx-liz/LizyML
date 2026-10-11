@@ -12050,6 +12050,74 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 8. **文書**: BLUEPRINT §5.3 の入口の表と探索空間の節を更新する。
 9. **review**: Codex の review run を APPROVE まで通す。review が確かめるのは、上の規則、規則が縛る位置、受け入れ基準 1〜8 の各項目にテストがあり、そのテストが通り、違反すれば失敗するかである。約束の範囲の外にある形を探すことは求めない。
 
+### 改訂 1: 探索次元が有効にしうるスマートパラメーターとの衝突も tune で拒否する（#341、2026-10-12）
+
+- **決定**: 2026-10-12。Codex の Proposal review は 3 round の run と 2 回の確認で APPROVE（`3fa3f5d`）。v0.19.0 の前に入れる（管理者の判断、2026-10-11）。実装の記録はこの改訂の末尾。
+
+#### 課題
+
+方針 1 は、パラメーターの層を「有効なスマートパラメーター」（config の値。fit では tune の結果の `best_smart_params` を重ねたもの）に対して検査する。tune の round では、`category: smart` の探索次元が試行ごとにスマートパラメーターの値を変えるので、config では無効なスマートパラメーターが試行の中で有効になり、名前を管理しうる。層はその値に対して検査されないので、試行は層の名前と、スマートパラメーターが書く名前の両方で学習する。LightGBM は正規名の値を採るので、利用者の値は黙って捨てられる。tune は成功を返し、続く `fit` は（最良の試行の smart の値で有効になるので）方針 1 で拒否する。
+
+実測（develop `3a36b02` と `3deabe7`、#341）:
+
+- config が `auto_num_leaves: false`、`model.params.max_leaves: 12`、利用者の空間に `auto_num_leaves`（categorical、`[True]`、`category: smart`）: tune が通り、`lgb.train` の 2 回の呼び出しに `max_leaves=12` と `num_leaves=32` の両方が渡る。
+- config が `min_data_in_leaf_ratio: null`、`model.params.min_child_samples: 3`、既定の空間（`min_data_in_leaf_ratio` の次元を持つ）: tune が通り、`min_child_samples=3` と `min_data_in_leaf=6` の両方が渡る。続く `fit` は `CONFIG_INVALID`。
+
+H-0122 の `space=` で、resume の round にも同じ形が起きうる。
+
+#### 対応方針
+
+1. **round の受け付けの検査に足す。** tune の各 round の受け付けの検査（`lizyml/core/_tuning_admission.py` の `check_round_space`。新しい study でも resume の round でも、round の実効空間に対して、study に何かを書く前に走る。H-0122 の INV-R4）で、試行に重なるパラメーターの層を、その round の smart の次元が取りうる値の組み合わせのすべてに対して、方針 1 と同じ `check_smart_managed_overrides` で検査する。
+   - **層**: `model.params` と、その round の固定パラメーター（`fixed`。`merge` で provider が決めるもの）。tune では `best_model_params` と `fit(params=)` は試行に重ならない（H-0122 6.1）。
+   - **provider の約束（Protocol の docstring に書き、テストで確かめる）**: `smart_managed_param_names(smart, task)` の結果は、各スマートパラメーターの値に、その真偽と、`None` かどうかを通してだけ依る（値の大きさには依らない）。方針 3 の「所有者が真になりうるか」の判定も同じ前提に立っている。LightGBM の provider がこの約束を満たすことは、各スマートパラメーターに同じ真偽と有無の別の値を入れて結果が変わらないことを実行して確かめる。
+   - **smart の値の組み合わせ**: round の実効空間の `category: smart` の各次元について、categorical なら選択肢のすべて、数値なら下限と上限に、範囲が 0 をまたぐ（下限 ≤ 0 ≤ 上限）ときは 0 を足したもの。上の約束のもとでは、これで次元の取りうる真偽のすべてを覆う（真の値があれば両端のどちらかが真、偽の値は 0 だけ）。各次元の候補は、状態（`None` か、真か、偽か）ごとに代表の値を一つ残して絞る（約束により、同じ状態の値は同じ結果になる）。次元の無いスマートパラメーターは、方針 1 の有効な値のまま。組み合わせは各次元の代表の値の直積で、その数は次元の数を k として 3^k 以下（LightGBM の既定の空間の smart の次元は `num_leaves_ratio` と `min_data_in_leaf_ratio` の 2 つで、どちらも範囲が正なので 1 通り）。直積にするのは、provider の有効化の規則が複数のスマートパラメーターの組で決まる場合も覆うため（今の LightGBM の規則は一つずつで決まるが、Protocol はそれを約束しない）。
+   - **拒否**: `CONFIG_INVALID`。メッセージは方針 1 と同じ形で、名前、それを管理するスマートパラメーター、名前の来た層に加えて、そのスマートパラメーターを有効にしうる探索次元と、その空間（`tuning.optuna.space` か `tune(space=)`）を名指す。
+2. **探索空間の model の次元の検査もそろえる。** `validate_tuning_dimensions` が今行っている「model の次元 × smart の次元一つずつ」の検査を、同じ直積の組み合わせに変える（層と model の次元で規則を一つにする）。
+
+#### 規則が縛る位置（ソースから導出、実装前）
+
+- `lizyml/core/_tuning_admission.py` の `check_round_space`（`_model_tuning.py` の `tune` の phase D から、round ごとに 1 回呼ばれる）。
+- `lizyml/core/_tuning_validation.py` の `validate_tuning_dimensions`（`check_round_space` から呼ばれる）。
+- 拒否を出すのは `lizyml/core/_model_factories.py` の既存の `check_smart_managed_overrides`。新しい `check_*` の関数は足さない（`tests/test_core/test_refusal_matrix.py`）。
+
+#### 互換性
+
+- 拒否されるのは、tune の試行の一部（名前を有効にする smart の値を取った試行）で利用者の値が黙って捨てられていた設定だけ。今は tune が通り、続く `fit` は、有効にする値を最良の試行が取ったときに拒否する（無効にする値が最良なら `fit` は通るが、その round の比べ合わせには、利用者の値を捨てて学習した試行が混ざっている）。
+- Firing rate: 0/624 of tune rounds in the test suite at 3deabe7 (`docs/audits/2026-10-tuning-resume/probes/firing_rate_341.py`, a pytest plugin that evaluates the new predicate inside `check_round_space` without changing the outcome; output `firing_rate_341.txt`; positive control: both #341 reproductions fire, 2/2)
+- 公開 API と Result の形は変わらない。
+
+#### 代替案（検討して棄却）
+
+- **試行ごとに、層の値を黙って外す**: 利用者の値が捨てられることに変わりはなく、黙って間違う（DC1）。
+- **今のまま `fit` だけで拒否する**: tune が計算を使い切ってから、使えない結果を返す。
+- **smart の次元を一つずつ検査する**（今の model の次元の検査と同じ）: 今の LightGBM の規則では同じ結果になるが、有効化が複数のスマートパラメーターの組で決まる provider を見落とす。
+
+#### 受け入れ基準（テスト観点）
+
+1. #341 の一つ目の例（`auto_num_leaves` の categorical の次元 `[True]`、config は `false`、`model.params.max_leaves: 12`）: tune が `lgb.train` を呼ぶ前に `CONFIG_INVALID`。メッセージが `max_leaves`、`auto_num_leaves`、`model.params` の層、`auto_num_leaves` の次元を挙げる。
+2. #341 の二つ目の例（既定の空間の `min_data_in_leaf_ratio`、config は `null`、`model.params.min_child_samples: 3`）: 同じく拒否される。
+3. 固定パラメーターの層: provider の `default_fixed_params` が管理されうる名前を返すように差し替え、その名前を有効にしうる smart の次元を持つ `merge` の tune → 固定パラメーターの層を名指して拒否される。
+4. 拒否しないもの: smart の categorical の次元の選択肢が `[False]` だけの場合は受け付け、層の値が `lgb.train` に届く（数値の次元は `low < high` が必要で、範囲が 0 だけの次元は書けないので、この基準に入れない）。
+4b. 候補を絞る: 選択肢が 1,000 個の正の値を持つ smart の categorical の次元を 3 つ持つ空間で、検査の組み合わせが状態ごとの代表の直積（1 通り）になり、検査がすぐに終わる（直積を選択肢のまま取る実装は 10 億通りになる）。
+4c. `None` と偽の値を分ける:
+    - 候補を絞る関数そのもの: 選択肢 `[False, None, 0, True, 1]` から、`None`、偽の値、真の値の 3 つの状態の代表をちょうど一つずつ返す。選択肢の並びを逆にしても同じ 3 つの状態を返す（真偽だけで絞る実装は 2 つしか返さない）。
+    - tune を通して: binary で、config が `balanced: false`、`model.params.scale_pos_weight` があり、smart の categorical の次元 `balanced` の選択肢が `[False, None]` の tune と `[None, False]` の tune → どちらも拒否される（`balanced` は `None` なら task の既定で有効、`False` なら無効。真偽だけで絞って最初か最後の値を残す実装は、どちらかの並びで通してしまう）。
+5. 直積（層）: 二つのスマートパラメーターが両方とも有効なときだけ名前を管理する、テスト用の provider で、それぞれの次元が `[False, True]` を取り、`model.params` がその名前を持つ tune → 拒否される（一つずつ検査する実装は通してしまう）。
+5b. 直積（model の次元、方針 2）: 同じテスト用の provider で、その名前を `category: model` の探索次元に持つ tune → 拒否される（今の一つずつの `validate_tuning_dimensions` は通してしまう）。
+5c. 0 をまたぐ範囲: 値が偽のときだけ名前を管理するテスト用の provider で、数値の smart の次元の範囲が `[-1, 1]`（両端はどちらも真）のとき → 拒否される（両端だけを調べる実装は通してしまう）。
+5d. provider の約束: LightGBM の provider で、各スマートパラメーターの値を、真偽と有無が同じ別の値に置き換えても `smart_managed_param_names` の結果が変わらない（3 つのタスクで実行する）。
+6. resume: `space=` で、層と衝突する名前を有効にしうる smart の次元を足した resume の round → study と Model を変えずに `CONFIG_INVALID`（H-0122 の受け入れ基準 22 と同じ確かめ方）。
+7. 負の対照: 方針 1（この改訂の）を外すと基準 1・2・3・5・5c・6 が、方針 2 を一つずつの検査に戻すと基準 5b が失敗する。
+8. 文書: BLUEPRINT の探索空間の節に、この規則を書く。
+9. review: Codex の review run を APPROVE まで通す。
+
+#### 実装の記録
+
+- 組み合わせと候補の絞り込みは `lizyml/core/_smart_combinations.py` に置き、層の検査（`_tuning_admission.check_smart_managed_layers`、`check_round_space` から呼ぶ）と、model の次元の検査（`validate_tuning_dimensions`）が同じ関数を使う。
+- `validate_tuning_dimensions` は、直積の検査の前に、これまでどおり有効な smart の値（config の値）に対する検査も行う。層も `_merge_params` で同じ値に対して検査されるので、層と model の次元のどちらも「有効な値と、直積の組み合わせの両方」に対して検査する一つの規則になる。今までの拒否は緩めない。
+- 拒否のメッセージは、名前、管理するスマートパラメーター、層、有効にする探索次元とその値、空間を挙げる。方針 1 の既定の案内（「`model.X` を無効にする」）は、探索次元が有効にする場面では誤りになるので使わない。有効にする次元は、拒否した組み合わせの中で、値を有効な値に戻すと衝突が消える次元。
+- provider の約束（`smart_managed_param_names` は各スマートパラメーターの値の真偽と `None` かどうかだけに依る）は Protocol の docstring と BLUEPRINT §14.4 に書き、LightGBM の provider が 3 つのタスクで満たすことをテストで実行して確かめる。
+
 ## H-0122: tune の resume と storage への再接続は同じ目的関数を続ける（#340）
 
 - **ステータス**: Accepted
