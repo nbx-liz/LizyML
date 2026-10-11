@@ -12080,7 +12080,7 @@ H-0122 の `space=` で、resume の round にも同じ形が起きうる。
 
 #### 互換性
 
-- 拒否されるのは、tune の試行で利用者の値が黙って捨てられていた設定だけで、今は tune が通り、続く `fit` が拒否している。
+- 拒否されるのは、tune の試行の一部（名前を有効にする smart の値を取った試行）で利用者の値が黙って捨てられていた設定だけ。今は tune が通り、続く `fit` は、有効にする値を最良の試行が取ったときに拒否する（無効にする値が最良なら `fit` は通るが、その round の比べ合わせには、利用者の値を捨てて学習した試行が混ざっている）。
 - Firing rate: 0/624 of tune rounds in the test suite at 3deabe7 (`docs/audits/2026-10-tuning-resume/probes/firing_rate_341.py`, a pytest plugin that evaluates the new predicate inside `check_round_space` without changing the outcome; output `firing_rate_341.txt`; positive control: both #341 reproductions fire, 2/2)
 - 公開 API と Result の形は変わらない。
 
@@ -12097,6 +12097,7 @@ H-0122 の `space=` で、resume の round にも同じ形が起きうる。
 3. 固定パラメーターの層: provider の `default_fixed_params` が管理されうる名前を返すように差し替え、その名前を有効にしうる smart の次元を持つ `merge` の tune → 固定パラメーターの層を名指して拒否される。
 4. 拒否しないもの: smart の categorical の次元の選択肢が `[False]` だけの場合は受け付け、層の値が `lgb.train` に届く（数値の次元は `low < high` が必要で、範囲が 0 だけの次元は書けないので、この基準に入れない）。
 4b. 候補を絞る: 選択肢が 1,000 個の正の値を持つ smart の categorical の次元を 3 つ持つ空間で、検査の組み合わせが状態ごとの代表の直積（1 通り）になり、検査がすぐに終わる（直積を選択肢のまま取る実装は 10 億通りになる）。
+4c. `None` と偽の値を分ける: binary で、config が `balanced: false`、`model.params.scale_pos_weight` があり、smart の categorical の次元 `balanced` の選択肢が `[False, None]` の tune → 拒否される（`balanced` は `None` なら task の既定で有効、`False` なら無効。真偽だけで候補を絞り、`False` だけを残す実装は通してしまう）。
 5. 直積（層）: 二つのスマートパラメーターが両方とも有効なときだけ名前を管理する、テスト用の provider で、それぞれの次元が `[False, True]` を取り、`model.params` がその名前を持つ tune → 拒否される（一つずつ検査する実装は通してしまう）。
 5b. 直積（model の次元、方針 2）: 同じテスト用の provider で、その名前を `category: model` の探索次元に持つ tune → 拒否される（今の一つずつの `validate_tuning_dimensions` は通してしまう）。
 5c. 0 をまたぐ範囲: 値が偽のときだけ名前を管理するテスト用の provider で、数値の smart の次元の範囲が `[-1, 1]`（両端はどちらも真）のとき → 拒否される（両端だけを調べる実装は通してしまう）。
