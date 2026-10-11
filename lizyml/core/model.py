@@ -43,7 +43,7 @@ import numpy.typing as npt
 import pandas as pd
 
 if TYPE_CHECKING:
-    pass
+    from optuna.storages import BaseStorage
 
 from lizyml import __version__
 from lizyml.config.loader import load_config
@@ -183,6 +183,10 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         self._space: list[Any] | None = None  # last search space used
         self._used_default_space: bool = False  # track for expand_boundary default
         self._tuning_fixed_params: dict[str, Any] | None = None
+        # H-0122 §3: the (storage, study_name) `_study` was created or loaded
+        # with; `(None, None)` for an in-memory study.
+        self._tuning_storage: str | BaseStorage | None = None
+        self._tuning_study_name: str | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -488,8 +492,9 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
                 sampled values later, so it keeps validation in the adapter.
             tuning_fixed_params: Current tuning round's fixed policy. An empty
                 dict explicitly suppresses a previous round's fixed defaults.
-            include_tuning_result: Reuse the successful tuning overlay for fit
-                and resume. Fresh studies start from Config instead.
+            include_tuning_result: Reuse the successful tuning overlay for
+                fit. Every tune round, new or resumed, starts from Config
+                (H-0122 6.1) and passes False.
 
         Returns:
             (model_params, smart_params) tuple.

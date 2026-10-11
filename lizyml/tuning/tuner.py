@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import time
 import warnings
+from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any, Literal
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
@@ -55,18 +56,108 @@ def _require_optuna() -> Any:
     return _optuna
 
 
+def require_optuna() -> Any:
+    """Return the ``optuna`` module, or raise ``OPTIONAL_DEP_MISSING``."""
+    return _require_optuna()
+
+
 def stored_study_exists(storage: str | BaseStorage, study_name: str | None) -> bool:
     """Whether *storage* already holds a study named *study_name* (H-0121).
 
-    ``Tuner`` creates its study with ``load_if_exists=True``, so this decides
-    whether a ``resume=False`` tune starts a new study or reattaches to a
-    stored one. Asked before the study is created; a second process creating
+    Reads only. Asked before the study is created; a second process creating
     the same name in between is not considered (one writer per study).
     """
     if study_name is None:
         return False
     names: list[str] = _require_optuna().get_all_study_names(storage)
     return study_name in names
+
+
+# ---------------------------------------------------------------------------
+# Study I/O (H-0122). The Model decides what to write; these only do it.
+# ---------------------------------------------------------------------------
+
+
+def load_stored_study(
+    storage: str | BaseStorage, study_name: str, seed: int
+) -> Any | None:
+    """Return the stored study named *study_name*, or ``None`` when absent.
+
+    Loading writes nothing to the study (Optuna 4.7, verified). The sampler is
+    a fresh ``TPESampler(seed)``, as for a created study.
+    """
+    optuna_ = _require_optuna()
+    if not stored_study_exists(storage, study_name):
+        return None
+    return optuna_.load_study(
+        study_name=study_name,
+        storage=storage,
+        sampler=optuna_.samplers.TPESampler(seed=seed),
+    )
+
+
+def create_study(
+    direction: Literal["minimize", "maximize"],
+    seed: int,
+    storage: str | BaseStorage | None = None,
+    study_name: str | None = None,
+) -> Any:
+    """Create a new study; never reattaches (``load_if_exists=False``).
+
+    Calls ``optuna.create_study`` through the module at call time, so a test
+    patching ``optuna.create_study`` sees every creation.
+    """
+    optuna_ = _require_optuna()
+    sampler = optuna_.samplers.TPESampler(seed=seed)
+    if storage is None:
+        return optuna_.create_study(direction=direction, sampler=sampler)
+    return optuna_.create_study(
+        direction=direction,
+        sampler=sampler,
+        storage=storage,
+        study_name=study_name,
+        load_if_exists=False,
+    )
+
+
+def write_study_attr(study: Any, key: str, value: Any) -> None:
+    """Write one study attribute. Every ``lizyml:`` write goes through here.
+
+    Callers look this up on the module at call time
+    (``lizyml.tuning.tuner.write_study_attr``), so it is the single place a
+    test can stop a tune between two write positions (H-0122 §7.1).
+    """
+    study.set_user_attr(key, value)
+
+
+def fail_running_trials(study: Any, numbers: Iterable[int]) -> None:
+    """Mark the trials a dead process left RUNNING as FAIL (H-0122 §7.2)."""
+    optuna_ = _require_optuna()
+    for number in numbers:
+        study.tell(number, state=optuna_.trial.TrialState.FAIL)
+
+
+def check_study_direction(
+    study: Any, direction: Literal["minimize", "maximize"]
+) -> None:
+    """Refuse a study whose direction is not the objective's (H-0099 decision 2).
+
+    A persisted name or an explicitly supplied study can already carry another
+    direction. Never enqueue or evaluate against that objective.
+    """
+    if len(study.directions) != 1 or study.directions[0].name.lower() != direction:
+        raise LizyMLError(
+            code=ErrorCode.CONFIG_INVALID,
+            user_message=(
+                "tuning study direction disagrees with the objective. "
+                "Use a new study with the correct direction."
+            ),
+            context={
+                "surface": "tuning.study",
+                "expected_direction": direction,
+                "study_directions": [item.name.lower() for item in study.directions],
+            },
+        )
 
 
 class Tuner:
@@ -132,43 +223,38 @@ class Tuner:
     ) -> tuple[TuningResult, Any]:
         """Run hyperparameter search and return a TuningResult + study.
 
+        For direct callers. ``Model.tune`` does not call this: it creates or
+        loads the study itself, writes the lineage records, and calls
+        :meth:`run` (H-0122).
+
         Args:
             objective: Callable ``(optuna.Trial) -> float`` that evaluates a
-                single trial.  Built externally by Model.tune().
+                single trial.
             metric_name: Name of the metric being optimised (stored in
                 TuningResult for downstream display/logging).
             study: Optional existing Optuna study to resume (H-0068).
-                If None, a new study is created.
+                If None, a new study is created, or a stored one of the same
+                ``(storage, study_name)`` re-attached (``load_if_exists``).
             enqueue_params: Optional params dict to enqueue as initial trial
-                (H-0068). Typically the previous best params.
+                (H-0068).
             round_number: Current round number (1-indexed, H-0068).
             prior_trials: Number of trials from previous rounds (H-0068).
             expanded_dims: Dimensions expanded in this round (H-0068).
 
         Returns:
-            Tuple of (TuningResult, study). The study is returned so that
-            Model can hold it for future resume calls.
+            Tuple of (TuningResult, study).
 
         Raises:
             LizyMLError with OPTIONAL_DEP_MISSING if optuna is not installed.
             LizyMLError with TUNING_FAILED on study failure.
         """
-        if _optuna is None:  # pragma: no cover
-            raise LizyMLError(
-                code=ErrorCode.OPTIONAL_DEP_MISSING,
-                user_message=(
-                    "Optuna is required for tuning. "
-                    "Install with: pip install 'lizyml[tuning]'"
-                ),
-                context={"package": "optuna"},
-            )
-
+        optuna_ = _require_optuna()
         if study is None:
-            sampler = _optuna.samplers.TPESampler(seed=self.seed)
+            sampler = optuna_.samplers.TPESampler(seed=self.seed)
             if self.storage is None:
-                study = _optuna.create_study(direction=self.direction, sampler=sampler)
+                study = optuna_.create_study(direction=self.direction, sampler=sampler)
             else:
-                study = _optuna.create_study(
+                study = optuna_.create_study(
                     direction=self.direction,
                     sampler=sampler,
                     storage=self.storage,
@@ -176,51 +262,112 @@ class Tuner:
                     load_if_exists=True,
                 )
 
-        # A persisted name or an explicitly supplied study can already carry
-        # another direction. Never enqueue or evaluate against that objective.
-        if (
-            len(study.directions) != 1
-            or study.directions[0].name.lower() != self.direction
-        ):
-            raise LizyMLError(
-                code=ErrorCode.CONFIG_INVALID,
-                user_message=(
-                    "tuning study direction disagrees with the objective. "
-                    "Use a new study with the correct direction."
-                ),
-                context={
-                    "surface": "tuning.study",
-                    "expected_direction": self.direction,
-                    "study_directions": [
-                        item.name.lower() for item in study.directions
-                    ],
-                },
-            )
+        check_study_direction(study, self.direction)
 
-        # Enqueue previous best as initial trial (H-0068)
+        # Enqueue previous best as initial trial (H-0068).
         if enqueue_params is not None:
             study.enqueue_trial(enqueue_params)
 
-        # Build optuna callbacks for progress reporting (H-0048, H-0068)
+        self.run(
+            study,
+            objective,
+            round_number=round_number,
+            round_start=prior_trials,
+            expanded_dims=expanded_dims,
+        )
+
+        completed = [
+            t for t in study.trials if t.state == optuna_.trial.TrialState.COMPLETE
+        ]
+        if not completed:
+            raise LizyMLError(
+                code=ErrorCode.TUNING_FAILED,
+                user_message="All tuning trials failed. Check parameter ranges.",
+                context={"n_trials": self.n_trials},
+            )
+
+        _log.info(
+            "event='tune.done' best_value=%.4f n_trials=%d round=%d",
+            study.best_value,
+            len(study.trials),
+            round_number,
+        )
+
+        dims = self.dims
+        trials = [
+            TrialResult(
+                number=t.number,
+                params=dict(t.params),
+                score=t.value if t.value is not None else float("nan"),
+                state=t.state.name.lower(),
+                # Prior-round trials get sentinel round=1.
+                round=round_number if t.number >= prior_trials else 1,
+            )
+            for t in study.trials
+        ]
+        best_flat = dict(study.best_params)
+        best_model, best_smart, best_training = split_by_category(best_flat, dims)
+        result = TuningResult(
+            best_model_params=best_model,
+            best_smart_params=best_smart,
+            best_training_params=best_training,
+            best_score=study.best_value,
+            trials=trials,
+            metric_name=metric_name,
+            direction=self.direction,
+        )
+        return result, study
+
+    def run(
+        self,
+        study: Any,
+        objective: Any,
+        *,
+        round_number: int,
+        round_start: int,
+        progress_total: int | None = None,
+        expanded_dims: tuple[str, ...] = (),
+    ) -> None:
+        """Run ``optimize`` on *study* with this tuner's budget and callbacks.
+
+        Only the optimize step: no study creation, no attribute, no result.
+
+        Args:
+            study: The study to add trials to.
+            objective: Callable ``(optuna.Trial) -> float``.
+            round_number: The round the trials belong to (progress ``round``).
+            round_start: Number of the round's first trial, so progress
+                ``current_trial`` is ``trial.number - round_start + 1``. A
+                round finished on reattach passes its recorded start, so the
+                count continues at K+1 (H-0122 §6.5).
+            progress_total: Progress ``total_trials``; the round's requested
+                ``n_trials``. Defaults to ``self.n_trials``.
+            expanded_dims: Dimensions expanded for this round.
+
+        Raises:
+            LizyMLError with TUNING_FAILED when ``optimize`` raises an
+            ``Exception``. A ``BaseException`` propagates unchanged.
+        """
+        optuna_ = _require_optuna()
         optuna_callbacks: list[Any] = []
 
         if self.progress_callback is not None:
             t0 = time.monotonic()
             user_cb = self.progress_callback
-            n_total = self.n_trials
+            n_total = self.n_trials if progress_total is None else progress_total
             rnd = round_number
             exp_dims = expanded_dims
 
             def _progress_cb(study_: Any, trial: Any) -> None:
                 state_name: str = trial.state.name.lower()
-                is_complete = trial.state == _optuna.trial.TrialState.COMPLETE
+                is_complete = trial.state == optuna_.trial.TrialState.COMPLETE
                 latest_score = trial.value if is_complete else None
                 try:
                     best = study_.best_value
                 except ValueError:
                     best = None
                 # trial.number is 0-indexed across the whole study
-                current_in_round = trial.number - prior_trials + 1
+                current_in_round = trial.number - round_start + 1
                 info = TuneProgressInfo(
                     current_trial=current_in_round,
                     total_trials=n_total,
@@ -251,7 +398,7 @@ class Tuner:
 
         # Trial failure logging callback
         def _log_trial_failure(study_: Any, trial: Any) -> None:
-            if trial.state != _optuna.trial.TrialState.COMPLETE:
+            if trial.state != optuna_.trial.TrialState.COMPLETE:
                 reason = trial.system_attrs.get("fail_reason", "unknown")
                 _log.warning(
                     "event='trial.failed' trial=%d state=%s reason=%s",
@@ -278,46 +425,3 @@ class Tuner:
                 context={"n_trials": self.n_trials},
                 cause=exc,
             ) from exc
-
-        completed = [
-            t for t in study.trials if t.state == _optuna.trial.TrialState.COMPLETE
-        ]
-        if not completed:
-            raise LizyMLError(
-                code=ErrorCode.TUNING_FAILED,
-                user_message="All tuning trials failed. Check parameter ranges.",
-                context={"n_trials": self.n_trials},
-            )
-
-        _log.info(
-            "event='tune.done' best_value=%.4f n_trials=%d round=%d",
-            study.best_value,
-            len(study.trials),
-            round_number,
-        )
-
-        dims = self.dims
-        trials = [
-            TrialResult(
-                number=t.number,
-                params=dict(t.params),
-                score=t.value if t.value is not None else float("nan"),
-                state=t.state.name.lower(),
-                # Prior-round trials get sentinel round=1; Model.tune() reassigns
-                # correct round numbers via dataclasses.replace().
-                round=round_number if t.number >= prior_trials else 1,
-            )
-            for t in study.trials
-        ]
-        best_flat = dict(study.best_params)
-        best_model, best_smart, best_training = split_by_category(best_flat, dims)
-        result = TuningResult(
-            best_model_params=best_model,
-            best_smart_params=best_smart,
-            best_training_params=best_training,
-            best_score=study.best_value,
-            trials=trials,
-            metric_name=metric_name,
-            direction=self.direction,
-        )
-        return result, study

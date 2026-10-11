@@ -249,10 +249,12 @@ class TestModelTunePassThrough:
         study = optuna.load_study(study_name="mt", storage=url)
         assert len(study.trials) == 2
 
-    def test_model_tune_load_if_exists_resumes_across_instances(
-        self, tmp_path: Path
-    ) -> None:
-        """Two separate Model instances pointing at the same journal file resume."""
+    def test_model_tune_reattaches_only_with_resume(self, tmp_path: Path) -> None:
+        """A new Model reattaches to a stored study with ``resume=True`` only.
+
+        H-0122 §3 row 3: ``resume=False`` onto an existing study is refused
+        (it used to reattach through ``load_if_exists=True``).
+        """
         cfg = _reg_config_with_tuning(n_trials=2)
         df = make_regression_df(n=120)
         url = f"sqlite:///{tmp_path / 'shared.db'}"
@@ -262,11 +264,18 @@ class TestModelTunePassThrough:
 
         # New process simulation: brand-new Model instance, no _study held
         m2 = Model(cfg)
-        m2.tune(df, storage=url, study_name="shared-job")
+        with pytest.raises(LizyMLError) as exc_info:
+            m2.tune(df, storage=url, study_name="shared-job")
+        assert exc_info.value.code == ErrorCode.CONFIG_INVALID
+        study = optuna.load_study(study_name="shared-job", storage=url)
+        assert len(study.trials) == 2
 
-        # 2 prior trials in journal + 2 new = 4 total
+        result = m2.tune(df, storage=url, study_name="shared-job", resume=True)
+        # 2 prior trials in storage + 2 new = 4 total, as round 2
         study = optuna.load_study(study_name="shared-job", storage=url)
         assert len(study.trials) == 4
+        assert [r.round for r in result.rounds] == [1, 2]
+        assert "lizyml:round:2" in study.user_attrs
 
 
 # ---------------------------------------------------------------------------

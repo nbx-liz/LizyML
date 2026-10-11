@@ -33,7 +33,7 @@ def test_partial_space_retains_defaults(task: str, name: str) -> None:
             },
         }
     )
-    space, _, _, _ = model._resolve_search_space(resume=False, provider=provider)
+    space, _, _, _ = model._resolve_search_space(provider=provider)
     expected = {dim.name for dim in provider.default_space(task)}
     expected.remove("learning_rate")
     expected.add(name)
@@ -132,7 +132,6 @@ def test_legacy_artifact_refit_policy(
 def test_replace_has_no_inherited_dimensions_or_fixed_params(space: dict) -> None:
     model = Model(_config(space, "replace"))
     dims, automatic_expansion, fixed, default_dims = model._resolve_search_space(
-        resume=False,
         provider=LGBMProvider(),
     )
     assert {dim.name for dim in dims} == set(space)
@@ -168,7 +167,6 @@ def test_override_categories_and_extension(
     )
     provider = LGBMProvider()
     dims, automatic_expansion, fixed, default_dims = model._resolve_search_space(
-        resume=False,
         provider=provider,
     )
     # H-0121: the provenance decision 4 reads -- every default dimension except
@@ -211,8 +209,24 @@ def test_real_tune_retains_defaults_and_resume_policy() -> None:
     }
     previous_dims = list(model._space)
     previous_fixed = dict(model._tuning_fixed_params)
+    n_trials = len(model._study.trials)
+    # H-0122 §5.1: a config space edit is no longer ignored on resume; the
+    # space a study was created with cannot change through the config.
+    original_space = dict(model._cfg.tuning.optuna.space)
     model._cfg.tuning.optuna.space_mode = "replace"
     model._cfg.tuning.optuna.space = {}
+    from lizyml.core.exceptions import ErrorCode, LizyMLError
+
+    with pytest.raises(LizyMLError) as refused:
+        model.tune(data=data, resume=True, expand_boundary=False)
+    assert refused.value.code is ErrorCode.CONFIG_INVALID
+    assert refused.value.context["surface"] == "tuning.optuna.space_mode"
+    assert model._space == previous_dims
+    assert model._tuning_fixed_params == previous_fixed
+    assert len(model._study.trials) == n_trials
+    # Restored, the resume keeps the round's dimensions and fixed policy.
+    model._cfg.tuning.optuna.space_mode = "merge"
+    model._cfg.tuning.optuna.space = original_space
     resumed = model.tune(data=data, resume=True, expand_boundary=False)
     assert model._space == previous_dims
     assert model._tuning_fixed_params == previous_fixed
@@ -301,11 +315,26 @@ def test_removed_dimensions_match_trial_and_fit(
         return original(*args, **kwargs)
 
     monkeypatch.setattr(model, "_build_train_components", capture)
-    result = model.tune(data=data, resume=resume, expand_boundary=False)
+    if resume:
+        # H-0122 §5.1: removing a dimension through the config is refused on
+        # resume, and changes nothing. The routing of a removed dimension's
+        # best value is covered by the lineage unit tests (criteria 6 / 6b);
+        # the end-to-end flow needs `space=` (PR 2).
+        from lizyml.core.exceptions import ErrorCode, LizyMLError
+
+        before = (list(model._space), model._tuning_result, len(model._study.trials))
+        with pytest.raises(LizyMLError) as refused:
+            model.tune(data=data, resume=True, expand_boundary=False)
+        assert refused.value.code is ErrorCode.CONFIG_INVALID
+        assert not observed, "a refused resume trained a trial"
+        after = (list(model._space), model._tuning_result, len(model._study.trials))
+        assert after == before
+        return
+    result = model.tune(data=data, resume=False, expand_boundary=False)
     trial_value = observed[-1][name]
     model.fit(data=data)
-    assert trial_value == observed[-1][name] == (sampled if resume else configured)
-    assert (name in result.best_params) is resume
+    assert trial_value == observed[-1][name] == configured
+    assert name not in result.best_params
 
 
 @pytest.mark.parametrize("mode", ["merge", "replace"])
@@ -315,8 +344,17 @@ def test_export_load_refit_retains_fixed_policy(mode: str, tmp_path: Path) -> No
     model = Model(config)
     data = make_regression_df(n=60)
     model.tune(data=data)
-    model._cfg.tuning.optuna.space_mode = "replace" if mode == "merge" else "merge"
     model.tune(data=data, resume=True, expand_boundary=False)
+    # Mutated after tuning: fit and export follow the tuning round's fixed
+    # policy, not the current config.
+    model._cfg.tuning.optuna.space_mode = "replace" if mode == "merge" else "merge"
+    from lizyml.core.exceptions import ErrorCode, LizyMLError
+
+    # H-0122: a resume after the mutation is refused (space_mode is part of
+    # the study's record), so the fixed policy cannot drift that way either.
+    with pytest.raises(LizyMLError) as refused:
+        model.tune(data=data, resume=True, expand_boundary=False)
+    assert refused.value.code is ErrorCode.CONFIG_INVALID
     model.fit(data=data)
     expected, _ = model._merge_params(LGBMProvider())
     destination = model.export(tmp_path / "export")
@@ -403,8 +441,15 @@ def test_removed_training_dimension_admission(resume: bool) -> None:
     model._cfg.tuning.optuna.space = {"num_iterations": iterations}
 
     if resume:
-        with pytest.raises(LizyMLError, match="already controlled"):
+        # H-0122: the space was edited through the config, so the §5.1 check
+        # refuses first, before the training-managed one (design R17).
+        before = (list(model._space), model._tuning_result, len(model._study.trials))
+        with pytest.raises(LizyMLError) as refused:
             model.tune(data=data, resume=True, expand_boundary=False)
+        assert refused.value.code.value == "CONFIG_INVALID"
+        assert refused.value.context["surface"] == "tuning.optuna.space"
+        after = (list(model._space), model._tuning_result, len(model._study.trials))
+        assert after == before
         with pytest.raises(LizyMLError, match="already controlled"):
             model.fit(data=data)
     else:
@@ -420,7 +465,7 @@ def test_resolved_training_conflict_refused_before_study(
     monkeypatch: pytest.MonkeyPatch, mode: str, surface: str, native_name: str
 ) -> None:
     from lizyml.core.exceptions import ErrorCode, LizyMLError
-    from lizyml.tuning.tuner import Tuner
+    from lizyml.tuning import tuner as tuner_module
 
     space = {"num_iterations": {"type": "categorical", "choices": [5]}}
     if mode == "replace":
@@ -444,7 +489,9 @@ def test_resolved_training_conflict_refused_before_study(
     def unexpected_study(*args: object, **kwargs: object) -> None:
         pytest.fail("conflicting resolved space reached study creation")
 
-    monkeypatch.setattr(Tuner, "tune", unexpected_study)
+    # Model.tune creates its study through this function (H-0122), so the
+    # guard is not vacuous: no refusal path may get past it.
+    monkeypatch.setattr(tuner_module, "create_study", unexpected_study)
     with pytest.raises(LizyMLError) as caught:
         model.tune(data=make_regression_df(n=60))
     assert caught.value.code == ErrorCode.CONFIG_INVALID

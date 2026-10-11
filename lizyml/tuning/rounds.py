@@ -1,92 +1,108 @@
-"""Round-summary assembly and per-trial round renumbering for re-tune (#209).
+"""Assemble a ``TuningResult`` from a study's lineage (H-0068, #209, H-0122).
 
-Extracted verbatim from the ``Model`` facade (H-0068 introduced this in
-``core/model.py``). This is ``TuningResult`` domain logic — building a
-``RoundSummary``, computing cumulative round boundaries, and renumbering
-per-trial ``round`` fields — so per the category contract it belongs in
-``tuning/`` (Layer 2), not the Facade. Pure function: no ``Model`` state.
+One function serves a round continued in-process and a round finished after a
+reattach: both read the lineage the study carries, so the result's rounds,
+trial rounds and best-parameter routing cannot depend on how the Model got
+there (INV-R5). Pure: no ``Model`` state and no Optuna import.
 """
 
 from __future__ import annotations
 
-import dataclasses
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import Any, Protocol
 
-from lizyml.core.types.tuning_result import BoundaryReport, RoundSummary, TuningResult
+from lizyml.core.types.tuning_result import RoundSummary, TrialResult, TuningResult
+from lizyml.tuning.lineage import (
+    Lineage,
+    TrialLike,
+    round_of,
+    split_by_routes,
+    trials_of_round,
+)
 
 
-def assemble_round_result(
-    raw_result: TuningResult,
+class ScoredTrial(TrialLike, Protocol):
+    """A trial with its objective value (``optuna.trial.FrozenTrial``)."""
+
+    @property
+    def value(self) -> float | None: ...
+
+
+def round_summaries(
+    lineage: Lineage, trials: Sequence[TrialLike]
+) -> tuple[RoundSummary, ...]:
+    """One ``RoundSummary`` per ``completed`` round, in round order.
+
+    ``failed`` rounds are omitted (§7.2): ``RoundSummary`` holds a numeric best,
+    which a failed round has not. ``n_trials`` is the round's actual trial
+    count in every state (criterion 31), not the requested budget.
+    """
+    summaries: list[RoundSummary] = []
+    for record, end in zip(lineage.rounds, lineage.ends, strict=True):
+        if end is None or end.status != "completed":
+            continue
+        assert end.best_after is not None  # noqa: S101 -- decoder guarantees
+        report = record.boundary_report
+        summaries.append(
+            RoundSummary(
+                round=record.round,
+                n_trials=len(trials_of_round(lineage, record.round, trials)),
+                best_score_before=record.best_before,
+                best_score_after=end.best_after,
+                expanded_dims=report.expanded_names if report is not None else (),
+                space_snapshot=tuple(record.effective),
+            )
+        )
+    return tuple(summaries)
+
+
+def assemble_tuning_result(
+    lineage: Lineage,
+    trials: Sequence[ScoredTrial],
+    best_params: Mapping[str, Any],
+    best_score: float,
     *,
-    round_number: int,
-    actual_n_trials: int,
-    best_score_before: float | None,
-    expanded_names: tuple[str, ...],
-    space: list[Any],
-    boundary_report: BoundaryReport | None,
-    prior_trials: int,
-    prior_rounds: tuple[RoundSummary, ...],
-) -> tuple[TuningResult, tuple[RoundSummary, ...]]:
-    """Build the round summary, fix per-trial round numbers, and assemble the
-    final :class:`TuningResult`.
+    metric_name: str,
+    direction: str,
+    current_round: int,
+) -> TuningResult:
+    """Build the ``TuningResult`` of a study whose last round is closed.
 
     Args:
-        raw_result: The ``TuningResult`` returned by the just-completed round.
-        round_number: 1-based number of the just-completed round.
-        actual_n_trials: Trials executed in this round.
-        best_score_before: Best score prior to this round (``None`` on round 1).
-        expanded_names: Dim names whose boundary was expanded this round.
-        space: The search space used this round (snapshotted into the summary).
-        boundary_report: Boundary report for this round (``None`` when disabled).
-        prior_trials: Number of trials that existed before this round (for the
-            resume case; trials with ``number >= prior_trials`` are new).
-        prior_rounds: The completed rounds before this one (``Model._rounds``).
+        lineage: The study's lineage; its last round has a ``completed`` end.
+        trials: Every trial of the study.
+        best_params: The study's best trial's params (raw names).
+        best_score: The study's best value.
+        metric_name: The first metric's name.
+        direction: The study's direction.
+        current_round: The round this call ran; its record's boundary report
+            is the result's, so a round finished on reattach reports what it
+            decided when it started.
 
     Returns:
-        ``(final_result, all_rounds)`` — ``all_rounds`` is the complete tuple
-        including the just-completed round, ready to persist.
+        The result: best params split by the lineage's routes (§6.4), every
+        trial with the round its number falls in (§7.1), and the summaries
+        of the ``completed`` rounds.
     """
-    round_summary = RoundSummary(
-        round=round_number,
-        n_trials=actual_n_trials,
-        best_score_before=best_score_before,
-        best_score_after=raw_result.best_score,
-        expanded_dims=expanded_names,
-        space_snapshot=tuple(space),
+    best_model, best_smart, best_training = split_by_routes(best_params, lineage.routes)
+    by_round = {record.round: record for record in lineage.rounds}
+    return TuningResult(
+        best_model_params=best_model,
+        best_smart_params=best_smart,
+        best_training_params=best_training,
+        best_score=best_score,
+        trials=[
+            TrialResult(
+                number=t.number,
+                params=dict(t.params),
+                score=t.value if t.value is not None else float("nan"),
+                state=t.state.name.lower(),
+                round=round_of(lineage.rounds, t.number),
+            )
+            for t in trials
+        ],
+        metric_name=metric_name,
+        direction=direction,
+        rounds=round_summaries(lineage, trials),
+        boundary_report=by_round[current_round].boundary_report,
     )
-    all_rounds = tuple(prior_rounds) + (round_summary,)
-
-    # Fix up trial round numbers: trials from previous rounds keep their
-    # original round, new trials get the current round_number. Pre-compute
-    # (cumulative_count, round) so the per-trial lookup is a small linear scan
-    # over rounds (O(n + m) total) instead of O(n × m).
-    round_boundaries: list[tuple[int, int]] = []
-    running = 0
-    for rs in prior_rounds:
-        running += rs.n_trials
-        round_boundaries.append((running, rs.round))
-
-    fixed_trials = []
-    for t in raw_result.trials:
-        if t.number >= prior_trials:
-            fixed_trials.append(dataclasses.replace(t, round=round_number))
-            continue
-        trial_round = 1
-        for cumulative, rs_round in round_boundaries:
-            if t.number < cumulative:
-                trial_round = rs_round
-                break
-        fixed_trials.append(dataclasses.replace(t, round=trial_round))
-
-    final_result = TuningResult(
-        best_model_params=raw_result.best_model_params,
-        best_smart_params=raw_result.best_smart_params,
-        best_training_params=raw_result.best_training_params,
-        best_score=raw_result.best_score,
-        trials=fixed_trials,
-        metric_name=raw_result.metric_name,
-        direction=raw_result.direction,
-        rounds=all_rounds,
-        boundary_report=boundary_report,
-    )
-    return final_result, all_rounds

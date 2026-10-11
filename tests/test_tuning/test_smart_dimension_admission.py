@@ -11,8 +11,9 @@ sampled, recorded in ``best_params`` and consumed by nothing.
 * Decision 4: the same dimension coming from the provider's default space is
   dropped from the space, with an INFO log naming it.
 
-Both apply only to a tune that creates a new study (``resume=False`` and no
-stored study of that name). The reattach path is pinned below as out of scope.
+Both apply only to a tune that creates a new study (an absent name, or a
+stored study in state E/N, H-0122 §7.4). ``resume=False`` onto a stored study
+is refused (H-0122 criterion 9).
 
 Decision 2 (undeclared smart names) is covered by
 ``test_search_space_name_validation.py``, whose strict xfails H-0121 flips.
@@ -175,13 +176,12 @@ def test_a_new_name_in_storage_is_a_new_study_and_drops(tmp_path: Any) -> None:
     assert RATIO not in _sampled_names(model)
 
 
-def test_reattaching_to_a_stored_study_is_out_of_scope(tmp_path: Any) -> None:
+def test_resume_false_onto_a_stored_study_is_refused(tmp_path: Any) -> None:
     """The other side: ``resume=False`` onto an existing stored study.
 
-    TEMPORARY PIN (H-0121 criterion 6). This fixes only that decision 4 does
-    not apply on this path; it does not claim the behaviour is right. The
-    resume-compatibility Proposal turns this path into ``CONFIG_INVALID``, and
-    that PR rewrites this test into the refusal test -- it must not delete it.
+    Formerly the H-0121 temporary pin (criterion 6), which reattached and kept
+    the ratio. H-0122 criterion 9 makes this path ``CONFIG_INVALID``: nothing
+    is sampled and nothing is written.
     """
     storage = _storage(tmp_path)
     optuna.create_study(storage=storage, study_name="kept", direction="minimize")
@@ -189,8 +189,33 @@ def test_reattaching_to_a_stored_study_is_out_of_scope(tmp_path: Any) -> None:
         _config(owner=False, space={"n_estimators": _SMALL_TREES}),
         data=make_binary_df(n=120),
     )
-    result = model.tune(storage=storage, study_name="kept")
-    assert RATIO in result.best_params
+    with pytest.raises(LizyMLError) as exc:
+        model.tune(storage=storage, study_name="kept")
+    assert exc.value.code is ErrorCode.CONFIG_INVALID
+    assert "resume=True" in exc.value.user_message
+    stored = optuna.load_study(storage=storage, study_name="kept")
+    assert stored.trials == []
+    assert not [k for k in stored.user_attrs if k.startswith("lizyml:")]
+
+
+def test_resume_true_onto_an_uninitialised_study_is_a_new_study_and_drops(
+    tmp_path: Any,
+) -> None:
+    """A stored study with no trials and no LizyML record (state E) counts as
+    new (H-0122 §7.4): decision 4 drops the default ratio, and the study gets
+    its ``lizyml:study`` record."""
+    storage = _storage(tmp_path)
+    optuna.create_study(storage=storage, study_name="kept", direction="minimize")
+    model = Model(
+        _config(owner=False, space={"n_estimators": _SMALL_TREES}),
+        data=make_binary_df(n=120),
+    )
+    result = model.tune(storage=storage, study_name="kept", resume=True)
+    assert RATIO not in result.best_params
+    assert RATIO not in _sampled_names(model)
+    stored = optuna.load_study(storage=storage, study_name="kept")
+    assert "lizyml:study" in stored.user_attrs
+    assert [r.round for r in result.rounds] == [1]
 
 
 # ---------------------------------------------------------------------------
