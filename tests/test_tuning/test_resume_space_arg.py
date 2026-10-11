@@ -25,8 +25,11 @@ from lizyml.tuning.lineage import classify_study
 from lizyml.tuning.search_space import parse_space
 from tests._train_spy import record_lightgbm_calls
 from tests.test_tuning._resume_helpers import (
+    ADMISSION_SPACES,
+    CAT_LR,
     SMALL_TREES,
     ProcessDeath,
+    cat_config,
     die_in_objective,
     fast_config,
     frame,
@@ -183,27 +186,9 @@ def test_removed_training_dim_stays_training(monkeypatch: pytest.MonkeyPatch) ->
 # ---------------------------------------------------------------------------
 
 
-def _cat_config() -> dict[str, Any]:
-    cfg = fast_config(n_trials=2)
-    cfg["model"]["auto_num_leaves"] = True
-    cfg["tuning"]["optuna"]["space"] = {
-        "learning_rate": dict(LR),
-        "extra_trees": {"type": "categorical", "choices": [True, False]},
-        "lambda_l2": {"type": "categorical", "choices": [0, 1]},
-        "num_leaves_ratio": {
-            "type": "float",
-            "low": 0.5,
-            "high": 1.0,
-            "category": "smart",
-        },
-        "early_stopping_rounds": {
-            "type": "int",
-            "low": 5,
-            "high": 10,
-            "category": "training",
-        },
-    }
-    return cfg
+#: Shared with the criterion-22 table (`_resume_helpers.cat_config`).
+_cat_config = cat_config
+assert CAT_LR == LR
 
 
 UNCHANGEABLE = {
@@ -398,24 +383,8 @@ def test_merge_space_omitting_config_user_dim_reverts_to_default(
     assert status.expanded is False
 
 
-ADMISSION = {
-    "unknown_name": {"not_a_param": {"type": "float", "low": 0.1, "high": 0.2}},
-    "alias_duplicate": {
-        "learning_rate": LR,
-        "eta": {"type": "float", "low": 0.05, "high": 0.3},
-    },
-    "training_as_model": {
-        "early_stopping_rounds": {"type": "int", "low": 5, "high": 10},
-    },
-    "inactive_smart_user": {
-        "num_leaves_ratio": {
-            "type": "float",
-            "low": 0.5,
-            "high": 1.0,
-            "category": "smart",
-        }
-    },
-}
+#: Shared with the criterion-22 table (`_resume_helpers.ADMISSION_SPACES`).
+ADMISSION = ADMISSION_SPACES
 
 
 @pytest.mark.parametrize("case", list(ADMISSION))
@@ -427,11 +396,12 @@ def test_admission_refused(case: str) -> None:
     err = _refused(model, model._study, resume=True, space=ADMISSION[case])
     (name,) = [n for n in ADMISSION[case] if n != "learning_rate"]
     assert name in err.user_message
-    if case != "inactive_smart_user":
-        assert "tune(space=)" in err.user_message
-    # H-0121's message (`admit_smart_dimensions`, outside this change's
-    # files) names `tuning.optuna.space` for a `space=` dim too; reported as
-    # an open item rather than pinned here.
+    # Every row names the surface the dimension was declared on, H-0121's
+    # inactive-smart refusal included (not `tuning.optuna.space`).
+    assert "tune(space=)" in err.user_message
+    assert "tuning.optuna.space:" not in err.user_message
+    if case == "inactive_smart_user":  # the only row whose context has one
+        assert err.context["surface"] == "tune(space=)"
 
 
 MALFORMED: dict[str, Any] = {

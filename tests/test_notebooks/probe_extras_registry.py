@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import tempfile
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -104,6 +105,14 @@ X_NEW = make_regression_df(n=20).drop(columns=["target"])
 
 FORMS: tuple[CallForm, ...] = (
     CallForm("tune", _tuning, {"data": make_regression_df(n=150)}),
+    # `restore_tuning` checks optuna before it loads data or contacts the
+    # storage, so the URL is never opened (H-0122 design D-e).
+    CallForm(
+        "restore_tuning",
+        _tuning,
+        {},
+        (f"sqlite:///{tempfile.gettempdir()}/lizyml-probe-never-opened.db", "s"),
+    ),
     CallForm("predict", _regression, {"return_shap": True}, (X_NEW,)),
     CallForm("predict", _regression, {"return_shap": 1}, (X_NEW,)),
     CallForm("importance", _regression, {"kind": "shap"}),

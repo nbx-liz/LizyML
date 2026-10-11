@@ -30,6 +30,7 @@ from lizyml.core.types.tuning_result import TuneProgressInfo
 from lizyml.tuning.lineage import classify_study, decode_round_end, end_key, round_key
 from tests.test_tuning._resume_helpers import (
     CRASHED_TRIAL,
+    OPEN_SPACE,
     ROUND_1_TRIALS,
     ROUND_2_TRIALS,
     ProcessDeath,
@@ -39,6 +40,7 @@ from tests.test_tuning._resume_helpers import (
     fast_config,
     frame,
     load,
+    open_with_space,
     run_child_and_kill,
     snapshot_model,
     snapshot_study,
@@ -330,24 +332,12 @@ def test_after_closed_round_n_trials_free(storage: str) -> None:
 # Criterion 8b, the space= part (PR 2): an open round started with space=
 # ---------------------------------------------------------------------------
 
-#: Round 2's ``space=``: the edge config's space with a moved learning rate
-#: and a new categorical dim.
-OPEN_SPACE: dict[str, Any] = {
-    "num_leaves": {"type": "int", "low": 4, "high": 5},
-    "learning_rate": {"type": "float", "low": 0.05, "high": 0.25, "log": True},
-    "lambda_l1": {"type": "categorical", "choices": [0.0, 1.0]},
-}
-
 
 def _open_with_space(root: Path, space: dict[str, Any]) -> str:
-    """A stored study in state O whose round 2 was started with *space*."""
-    storage = url(root)
-    model = Model(edge_config(), data=frame())
-    model.tune(n_trials=ROUND_1_TRIALS, storage=storage, study_name="s")
-    with pytest.MonkeyPatch.context() as mp:
-        die_in_objective(mp, model, at_call=2)
-        with pytest.raises(ProcessDeath):
-            model.tune(resume=True, expand_boundary=True, space=space)
+    """A stored study in state O whose round 2 was started with *space*
+    (``OPEN_SPACE``: the edge config's space with a moved learning rate and a
+    new categorical dim)."""
+    storage = open_with_space(root, space)
     study = load(storage, "s")
     _assert_round_2_open(study)
     assert _round_2_record(study).source == "space_arg"

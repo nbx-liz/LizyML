@@ -189,6 +189,8 @@ def admit_smart_dimensions(
     space: list[SearchDim],
     smart: dict[str, Any],
     default_dims: frozenset[tuple[str, str]],
+    *,
+    surface: str = "tuning.optuna.space",
 ) -> tuple[list[SearchDim], list[SearchDim]]:
     """Refuse or drop the smart dimensions nothing would read (H-0121).
 
@@ -204,6 +206,8 @@ def admit_smart_dimensions(
         smart: The effective smart parameter values the tune starts from.
         default_dims: ``(category, name)`` of the dimensions that came from
             the default space and were not overridden by the user.
+        surface: Where the user declared the space, quoted in the refusal:
+            the config, or ``tune(space=)`` for a later round (H-0122).
 
     Returns:
         ``(space without the dropped dimensions, the dropped dimensions)``.
@@ -230,11 +234,11 @@ def admit_smart_dimensions(
         raise LizyMLError(
             code=ErrorCode.CONFIG_INVALID,
             user_message=(
-                "tuning.optuna.space: smart dimension(s) that nothing would "
+                f"{surface}: smart dimension(s) that nothing would "
                 "read, so they would have had no effect:\n" + "\n".join(lines)
             ),
             context={
-                "surface": "tuning.optuna.space",
+                "surface": surface,
                 "names": [dim.name for dim in written],
                 "owners": {dim.name: owners[dim.name] for dim in written},
             },

@@ -1,12 +1,14 @@
 """The ``tune()`` call matrix and the checks against a study's record (H-0122).
 
-* §3 -- which study a call targets (:func:`precheck_study_args`, which lives
-  in ``lizyml.tuning.tuner`` and is re-exported here, :func:`resolve_call_row`,
-  :func:`locate_study`), including the rule for
+* §3 -- which study a call targets (:func:`resolve_call_row`,
+  :func:`locate_study`; the argument precheck ``precheck_study_args`` lives
+  in ``lizyml.tuning.tuner``), including the rule for
   "the same study" (:func:`same_study`).
 * §7.4 -- the states that are refused outright (:func:`refuse_state`).
 * §5.1 / §4.3 -- what a stored study's record must still agree with
-  (:func:`check_against_record`).
+  (:func:`objective_identity`, :func:`judge_existing`,
+  :func:`check_against_record`). ``Model.tune`` and ``Model.restore_tuning``
+  share them.
 * §7.1 -- the ``lizyml:study`` record a new study gets
   (:func:`study_record_payload`) and the encoded round record
   (:func:`round_record_payload`).
@@ -26,7 +28,11 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from lizyml.core._tuning_identity import (
     ObjectiveIdentity,
+    build_identity,
+    config_parts,
+    library_versions,
     mismatched_elements,
+    provider_default_params,
     version_differences,
 )
 from lizyml.core.exceptions import ErrorCode, LizyMLError
@@ -40,7 +46,6 @@ from lizyml.tuning.lineage import (
 )
 from lizyml.tuning.lineage_codec import LineageCodecError, dim_signature
 from lizyml.tuning.search_space import parse_space
-from lizyml.tuning.tuner import precheck_study_args as precheck_study_args
 
 if TYPE_CHECKING:
     from optuna.storages import BaseStorage
@@ -48,6 +53,7 @@ if TYPE_CHECKING:
     from lizyml.config.schema import LizyMLConfig
     from lizyml.core._tuning_plan import RoundPlan
     from lizyml.core.types.search_dim import SearchDim
+    from lizyml.estimators.provider import EstimatorProvider
 
 TargetKind = Literal["continue", "reattach", "create_storage", "create_memory"]
 
@@ -339,8 +345,61 @@ def check_against_record(
             f"study '{name}' was created with other library versions ({changes}). "
             "The objective identity matches, so the study continues.",
             UserWarning,
-            stacklevel=3,
+            stacklevel=4,
         )
+
+
+def objective_identity(
+    cfg: LizyMLConfig,
+    data_summary: Mapping[str, str],
+    provider: EstimatorProvider,
+    direction: Literal["minimize", "maximize"],
+) -> tuple[ObjectiveIdentity, dict[str, str], dict[str, Any]]:
+    """This call's objective identity (§4.1), library versions and ``fixed``.
+
+    ``fixed`` is what a study created by this call would record: the
+    provider's ``default_fixed_params`` in merge mode, nothing in replace
+    mode. It is one of the identity's elements, so a stored study whose
+    identity matches recorded the same value.
+    """
+    assert cfg.tuning is not None  # noqa: S101 -- validated upstream
+    current_fixed = (
+        provider.default_fixed_params(cfg.task)
+        if cfg.tuning.optuna.space_mode == "merge"
+        else {}
+    )
+    identity = build_identity(
+        data_summary,
+        config_parts(
+            cfg,
+            current_fixed,
+            direction,
+            provider_defaults=provider_default_params(provider, cfg.task),
+        ),
+    )
+    return identity, library_versions(provider), current_fixed
+
+
+def judge_existing(
+    study: Any,
+    lineage: Lineage,
+    cfg: LizyMLConfig,
+    *,
+    identity: ObjectiveIdentity,
+    versions: Mapping[str, str],
+    direction: Literal["minimize", "maximize"],
+    study_name: str | None,
+) -> None:
+    """The checks every existing study passes before a call uses it (§4.3).
+
+    The study's direction, then, when it carries a record, the config space,
+    the objective identity and the versions (:func:`check_against_record`).
+    Reads only. The state refusals (:func:`refuse_state`) come first, at the
+    caller, which may add its own between them and these.
+    """
+    _tuner.check_study_direction(study, direction)
+    if lineage.study is not None:
+        check_against_record(cfg, lineage.study, identity, versions, study_name)
 
 
 # ---------------------------------------------------------------------------

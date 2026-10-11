@@ -136,10 +136,12 @@ def admit_smart(
     declared: Sequence[SearchDim],
     base_smart: dict[str, Any],
     default_dims: frozenset[tuple[str, str]],
+    *,
+    surface: str = "tuning.optuna.space",
 ) -> list[SearchDim]:
     """H-0121 on a resolved declaration: refuse a user dim, drop a default."""
     kept, dropped = admit_smart_dimensions(
-        provider, list(declared), base_smart, default_dims
+        provider, list(declared), base_smart, default_dims, surface=surface
     )
     if dropped:
         _log.info(
@@ -294,7 +296,9 @@ def resolve_declaration(
     default_dims = frozenset(
         (c, names.get((c, n), n)) for c, n in resolved.default_dims
     )
-    declared = admit_smart(provider, renamed, base_smart, default_dims)
+    declared = admit_smart(
+        provider, renamed, base_smart, default_dims, surface=SPACE_ARG
+    )
     kept = {(d.category, d.name) for d in declared}
     provenance = tuple(
         Provenance(p.category, names[(p.category, p.name)], p.origin)
