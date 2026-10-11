@@ -78,6 +78,8 @@ _PLOTS_ALWAYS = (
 
 RULES: tuple[ExtraRule, ...] = (
     ExtraRule("tune", "tuning"),
+    # H-0122 (design D-e): reads a stored Optuna study.
+    ExtraRule("restore_tuning", "tuning"),
     ExtraRule("predict", "explain", "return_shap"),
     ExtraRule("importance", "explain", "kind"),
     ExtraRule("importance_plot", "plots"),

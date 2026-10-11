@@ -1,6 +1,7 @@
-"""H-0122 §3: the ``tune()`` call matrix and its pre-checks (PR 1 rows).
+"""H-0122 §3: the ``tune()`` call matrix and its pre-checks.
 
-Criteria 9, 10, 12 (argument and schema parts), 14 (rows without ``space=``),
+Criteria 9, 10, 12 (argument and schema parts), 14 (PR 1 rows, and the
+``space=`` rows PR 2 adds at the end),
 24, 25 and 33. Every refusal is also checked to change neither the study nor
 the Model (INV-R4).
 """
@@ -261,3 +262,50 @@ def test_reattached_same_target_continues_and_name_change_refused(
     before = (snapshot_study(storage, "s"), snapshot_model(fresh))
     _refused(fresh, resume=True, storage=storage, study_name="renamed")
     assert (snapshot_study(storage, "s"), snapshot_model(fresh)) == before
+
+
+# ---------------------------------------------------------------------------
+# Criterion 14, the space= rows (PR 2): a call that creates a study
+# ---------------------------------------------------------------------------
+
+SPACE_ARG = {"learning_rate": {"type": "float", "low": 0.05, "high": 0.2}}
+
+
+@pytest.mark.parametrize("where", ["memory", "storage_absent"])
+def test_space_on_create_refused(tmp_path: Path, where: str) -> None:
+    """``resume=False`` + ``space=``: refused before any storage contact.
+
+    The tuned Model shows its state is untouched; the storage file is never
+    created, because the refusal comes before the storage is read (D-c).
+    """
+    model = _tuned()
+    before = (snapshot_study(model._study), snapshot_model(model))
+    db = tmp_path / "s.db"
+    kwargs: dict[str, Any] = {"space": SPACE_ARG}
+    if where == "storage_absent":
+        kwargs.update(storage=url(tmp_path), study_name="new")
+    error = _refused(model, **kwargs)
+    assert error.context["surface"] == "tune(space=)"
+    assert error.context["reason"] == "resume_false"
+    assert (snapshot_study(model._study), snapshot_model(model)) == before
+    assert not db.exists()
+
+
+def test_space_on_u3_refused(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    """U3 + ``space=``: the study is not created and nothing is announced.
+
+    Locating the study lists the storage's studies, which may create the
+    SQLite schema (design D-c, R7): asserted on the study names, not the file.
+    """
+    storage = url(tmp_path)
+    _tuned(storage, "other")
+    model = Model(fast_config(), data=frame())
+    before = (snapshot_study(storage, "other"), snapshot_model(model))
+    with caplog.at_level(logging.INFO, logger="lizyml"):
+        error = _refused(
+            model, resume=True, storage=storage, study_name="new", space=SPACE_ARG
+        )
+    assert error.context["reason"] == "study_absent"
+    assert "new" not in optuna.get_all_study_names(storage)
+    assert "tune.study_created" not in caplog.text
+    assert (snapshot_study(storage, "other"), snapshot_model(model)) == before

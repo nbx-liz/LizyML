@@ -500,8 +500,8 @@ disposition = "specified"
 anchors = ["check_smart_managed_overrides", "validate_tuning_dimensions", "smart_param_owners", "get_all_study_names"]
 
 [proposals."H-0122"]
-disposition = "pending"
-reason = "Proposed: the resume and reattach rules (BLUEPRINT 11.5, 11.5.1) are restated by the implementation PR once the Proposal is accepted."
+disposition = "specified"
+anchors = ["read_study_lineage", "StudyLineage", "RoundRecord", "restore_tuning", "lizyml:study"]
 
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.

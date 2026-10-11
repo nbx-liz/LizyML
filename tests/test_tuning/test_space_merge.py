@@ -319,8 +319,8 @@ def test_removed_dimensions_match_trial_and_fit(
     if resume:
         # H-0122 §5.1: removing a dimension through the config is refused on
         # resume, and changes nothing. The routing of a removed dimension's
-        # best value is covered by the lineage unit tests (criteria 6 / 6b);
-        # the end-to-end flow needs `space=` (PR 2).
+        # best value is covered by the lineage unit tests (criteria 6 / 6b) and,
+        # end to end with `space=`, by `test_resume_space_arg.py`.
         from lizyml.core.exceptions import ErrorCode, LizyMLError
 
         before = (list(model._space), model._tuning_result, len(model._study.trials))

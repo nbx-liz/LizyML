@@ -77,36 +77,131 @@ def tune(
     progress_callback: TuneProgressCallback | None = None,
     storage: str | BaseStorage | None = None,
     study_name: str | None = None,
+    space: Mapping[str, Any] | None = None,
 ) -> TuningResult
 ```
 
-Runs Optuna-based hyperparameter search. Best params are stored internally and
-applied automatically on the next `fit()` call.
+Runs one round of Optuna-based hyperparameter search. Best params are stored
+internally and applied automatically on the next `fit()` call.
 
-Call with `resume=True` after an initial `tune()` to add trials to the existing
-Optuna study. The TPE sampler reuses knowledge from previous trials, and the
-previous best params are enqueued as a warm-start trial. When `expand_boundary`
-is enabled, dimensions whose best params are near the search space edge are
-automatically expanded in the promising direction (H-0068).
+**Rounds and the objective (H-0122).** Each call runs one *round* of trials.
+With `resume=True` the round is added to an existing Optuna study, and the TPE
+sampler learns from all of its trials. Every trial of one study observes the
+same objective: when a study is created, LizyML records an identity of the
+data (column names and order, dtypes, categories, values and row order), of
+the config outside the search space (task, data and feature settings, `model`,
+the effective fixed parameters, `training`, `split`) and of the first metric.
+A resume whose identity differs is refused with `CONFIG_INVALID`, and the
+error's context names the parts that changed. The library versions are
+recorded too; a different version only warns.
+
+Every trial trains on the config's parameters, the study's fixed parameters
+(set by `space_mode: merge`) and the trial's sampled values. A resumed round
+does not re-evaluate the previous best: each of its `n_trials` trials is a new
+TPE sample. The result's best is the best trial of the whole study, which may
+come from an earlier round, from a range that was moved since, or from a
+dimension that was removed since; `fit()` then trains with that trial's
+values. When `expand_boundary` is enabled, dimensions whose best value lies
+near an edge of the range are expanded in that direction (H-0068). Expansion
+never narrows or inverts a range. A dimension whose declaration changed in
+this round, or whose best value lies outside its range, is not expanded.
+
+**Changing the search range.** Pass `space=` to a `resume=True` call. The
+config's `tuning.optuna.space` declares the space of round 1 only; editing it
+and resuming is refused.
+
+**Storage.** With `storage` and `study_name`, the trials and LizyML's records
+(`lizyml:` study attributes: the objective identity, and for each round its
+declared and effective space, budget and boundary report) are written to the
+storage as the round runs. To continue a stored study, from a new process or a
+new `Model` as well, call `tune(resume=True, storage=..., study_name=...)`: it
+reattaches to the study and continues its rounds. When the storage has no
+study of that name, `resume=True` creates the study and starts round 1 (logged
+at INFO). If the last round was interrupted, the call finishes that round with
+its recorded space and remaining budget instead of starting a new one, and
+marks the trials a dead process left RUNNING as FAIL, counting them in the
+budget. `resume=False` always starts a new study, so its `study_name` must be
+new in the storage. One process adds trials to a study at a time; this is
+assumed, not enforced. To inspect a stored study without adding to it, use
+[`read_study_lineage`](#study-lineage-lizymltuning); to get a closed round's
+result back without adding trials, use [`restore_tuning`](#restore_tuning).
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `data` | `pd.DataFrame \| None` | Training DataFrame. |
-| `resume` | `bool` | If `True`, resume from the previous Study and add trials. Requires a prior `tune()` call. |
-| `n_trials` | `int \| None` | Number of trials. `None` uses the config value. |
-| `expand_boundary` | `bool \| None` | Auto-expand dims near boundary. `None` means `True` for merge mode with empty/omitted space, otherwise `False`. |
+| `resume` | `bool` | If `True`, add a round to a study: the one this Model holds or, when it holds none, the stored `(storage, study_name)` study, which is reattached, or created when the storage lacks it. With a held study, a `storage` / `study_name` passed along must be the ones it was created or reattached with (an equal URL string, or the same `BaseStorage` object). |
+| `n_trials` | `int \| None` | Number of trials. `None` uses the config value. An interrupted round is finished with its recorded budget and accepts only that value. |
+| `expand_boundary` | `bool \| None` | Auto-expand dims near boundary. `None` means `True` for merge mode when this round's declared space has no user dimension, otherwise `False`. An interrupted round accepts only its recorded value. |
 | `boundary_threshold` | `float` | Edge detection threshold (0.0–0.5). Best values within this fraction of the range from either edge trigger expansion. |
 | `progress_callback` | `TuneProgressCallback \| None` | Called after each trial with a `TuneProgressInfo`. Exceptions inside the callback are caught and emitted as `RuntimeWarning`; tuning is never aborted. |
 | `storage` | `str \| BaseStorage \| None` | Optional Optuna storage URL or `BaseStorage` for resumable tuning (H-0072). `None` keeps the in-memory behavior. Requires `study_name` when set. |
-| `study_name` | `str \| None` | Study identifier used together with `storage` (H-0072). Required when `storage` is given; re-using the same `(storage, study_name)` pair re-attaches to the persisted study. |
+| `study_name` | `str \| None` | Study identifier, used together with `storage` and only with it. With `resume=False` the name must be new in the storage; continue a stored study with `resume=True`. |
+| `space` | `Mapping[str, Any] \| None` | This round's search space, in the form of `tuning.optuna.space`, resolved by the study's `space_mode`: `merge` lays it over the provider's default dimensions (a default dimension `space=` leaves out keeps its default declaration, even if the config had overridden it; a dimension only the config declared is no longer searched unless `space=` declares it again), `replace` declares exactly it. Only for a round after the first (`resume=True` on a study that has a round). `None` keeps the previous round's space. A range (`low` / `high`) may change; a dimension's distribution kind, `log`, choices and category may not. A dimension declared as before keeps its expanded range; a changed or new one starts from the given range. A dimension left out is no longer searched, and later trials train on its config value. A range outside the provider's bounds is accepted and not clamped. An interrupted round accepts only its recorded space. |
 
 **Returns:** [`TuningResult`](#tuningresult)
 
 **Raises:**
-- `LizyMLError(CONFIG_INVALID)` — no `tuning` section in config, `boundary_threshold` out of range, or `storage` set without `study_name`.
+- `LizyMLError(CONFIG_INVALID)`:
+  - no `tuning` section in config, or `boundary_threshold` outside (0.0, 0.5);
+  - `storage` without `study_name`, or `study_name` without `storage`, whatever `resume` is;
+  - `resume=False` when the storage already holds a study of that name (continue it with `resume=True`, or pick a new `study_name`);
+  - `resume=True` with a `storage` / `study_name` that is not the study this Model holds;
+  - `space=` on a call that starts round 1 of a study: `resume=False`, a `resume=True` whose storage lacks the study, or a stored study with no round yet (a study's first space is `tuning.optuna.space`);
+  - the call's objective differs from the study's: its data, config outside the search space, split or first metric;
+  - the study has trials but no LizyML record: it was created before v0.19.0 or outside LizyML, so whether its trials observe this objective cannot be checked;
+  - the study's LizyML record cannot be read (it comes from a newer LizyML, or was edited);
+  - the study's record and its trials disagree;
+  - `tuning.optuna.space_mode` differs from the study's;
+  - `tuning.optuna.space` differs from the space the study was created with (change the range with `space=` instead);
+  - `space=` is malformed, names an unknown parameter or one parameter twice, or changes a dimension's distribution kind (`float` / `int` / `categorical`), `log` or choices;
+  - `space=` moves a dimension to another category (`model` / `smart` / `training`);
+  - finishing an interrupted round with an `n_trials`, `expand_boundary` or `space=` other than the recorded one (omit them, or pass the recorded value);
+  - for each of these, start a new study (another `study_name`) when the change is intended. Nothing is written to the study and the Model is unchanged.
 - `LizyMLError(OPTIONAL_DEP_MISSING)` — `optuna` not installed.
-- `LizyMLError(TUNING_FAILED)` — `resume=True` without prior `tune()` call.
-- `LizyMLError(TUNING_FAILED)` — study failure.
+- `LizyMLError(TUNING_FAILED)` — `resume=True` when the Model holds neither a study nor `storage` (also after `Model.load`); a round that ends with no COMPLETE trial in the study (it is recorded `failed`, and the next `resume=True` starts a new round); study failure.
+- `UserWarning` — the study was created with other library versions (the objective identity matches, so it continues); or an interrupted round is finished while `tuning.optuna.params.n_trials` differs from its recorded budget (the recorded budget is used).
+
+---
+
+#### `restore_tuning`
+
+```python
+def restore_tuning(
+    self,
+    storage: str | BaseStorage,
+    study_name: str,
+    data: pd.DataFrame | None = None,
+) -> TuningResult
+```
+
+Returns the result of a stored study's last round without adding to the study
+(H-0122). This is for a tune whose round closed but whose caller never received
+the result, for example because the process died in between: the study's last
+round is `completed`, and `tune(resume=True)` would start another round. The
+returned `TuningResult` equals the one that tune returned: the best parameters
+split into model, smart and training parameters, `best_score`, the trials with
+their rounds, `rounds`, and the last round's `boundary_report`.
+
+On success the Model holds the study, its last round's effective space, its
+rounds and the study's fixed parameters, as the tune left them. `fit()` then
+trains with the best trial's parameters, and a later `tune(resume=True)` starts
+the next round of this study. A fitted Model keeps its fit; only the tuning
+result is replaced. `restore_tuning` writes nothing to the study: no attribute,
+no trial, and a trial left RUNNING stays RUNNING.
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `storage` | `str \| BaseStorage` | Optuna storage URL or `BaseStorage` holding the study. |
+| `study_name` | `str` | The study's name in `storage`. |
+| `data` | `pd.DataFrame \| None` | Training DataFrame, with the same priority as in `tune`. It must be the data the study observes. |
+
+**Returns:** [`TuningResult`](#tuningresult)
+
+**Raises:**
+- `LizyMLError(TUNING_FAILED)` — the storage has no study of that name, or the study has no round that closed `completed`: its creation was interrupted, it has no round yet, or its last round closed `failed`. Checked before the objective, so changed data does not change this error.
+- `LizyMLError(CONFIG_INVALID)` — no `tuning` section in config; `storage` or `study_name` missing; the study has no LizyML record, an unreadable one, or one that disagrees with its trials; the last round is open (interrupted: finish it with `tune(resume=True)`, a part-finished round's result is not restored); the study's direction, objective or config space differs from this Model's.
+- `LizyMLError(OPTIONAL_DEP_MISSING)` — `optuna` not installed; raised before data is loaded or the storage is contacted.
+- `UserWarning` — the study was created with other library versions.
 
 ---
 
@@ -398,8 +493,8 @@ Result of a full hyperparameter search.
 | `trials` | `list[TrialResult]` | All trial results (number, params, score, state, round). |
 | `metric_name` | `str` | Name of the metric used for optimization. |
 | `direction` | `str` | `"minimize"` or `"maximize"`. |
-| `rounds` | `tuple[RoundSummary, ...]` | Per-round tuning history (H-0068). Empty tuple for single-round tuning. |
-| `boundary_report` | `BoundaryReport \| None` | Boundary detection results (H-0068). Set only when `resume=True` with `expand_boundary` enabled. |
+| `rounds` | `tuple[RoundSummary, ...]` | Per-round tuning history (H-0068): one summary per round of the study that closed `completed`, in round order. A round closed `failed` (it ended with no COMPLETE trial in the study) is omitted, so `rounds` can start at round 2, and the next round's `best_score_before` is `None`. |
+| `boundary_report` | `BoundaryReport \| None` | Boundary detection results of this round (H-0068): set when the round analysed boundaries (a round after the first, with `expand_boundary` resolved to `True` and a COMPLETE trial in the study), otherwise `None`. `restore_tuning` returns the last round's. |
 
 ### TrialResult
 
@@ -409,7 +504,7 @@ Result of a full hyperparameter search.
 | `params` | `dict` | Parameters sampled in this trial. |
 | `score` | `float` | Objective value (NaN if failed). |
 | `state` | `str` | `"complete"`, `"pruned"`, or `"fail"`. |
-| `round` | `int` | Which re-tune round this trial belongs to (1-indexed, H-0068). |
+| `round` | `int` | Which round this trial belongs to (1-indexed, H-0068), decided by the trial's number from the study's round records. |
 
 ### RoundSummary
 
@@ -418,8 +513,8 @@ Summary of a single tuning round (H-0068).
 | Field | Type | Description |
 |-------|------|-------------|
 | `round` | `int` | Round number (1-indexed). |
-| `n_trials` | `int` | Number of trials in this round. |
-| `best_score_before` | `float \| None` | Best score at start of round (`None` for round 1). |
+| `n_trials` | `int` | Number of trials this round ran (its actual count, which a `timeout` can make smaller than the requested budget). |
+| `best_score_before` | `float \| None` | Best score at start of round (`None` when the study had no COMPLETE trial yet: round 1, or the round after a `failed` one). |
 | `best_score_after` | `float` | Best score at end of round. |
 | `expanded_dims` | `tuple[str, ...]` | Names of dimensions expanded before this round. |
 | `space_snapshot` | `tuple[SearchDim, ...]` | Search space used in this round. |
@@ -453,15 +548,100 @@ Progress information emitted after each tuning trial (H-0048, H-0068).
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `current_trial` | `int` | Current trial number in this round (1-indexed). |
-| `total_trials` | `int` | Total trials in this round. |
+| `current_trial` | `int` | The trial's position in this round (1-indexed). An interrupted round finished after a reattach continues the count: with K of its trials already finished, the first new trial is K+1, with or without `storage`. |
+| `total_trials` | `int` | The round's requested `n_trials` (the recorded budget for an interrupted round). |
 | `elapsed_seconds` | `float` | Time elapsed since `tune()` started. |
 | `best_score` | `float \| None` | Best score so far. |
 | `latest_score` | `float \| None` | Score of the latest trial (`None` if fail/pruned). |
 | `latest_state` | `str` | `"complete"`, `"pruned"`, or `"fail"`. |
-| `round` | `int` | Current round number (1-indexed, H-0068). |
-| `cumulative_trials` | `int` | Total trials across all rounds (H-0068). |
+| `round` | `int` | The trial's round number (1-indexed, H-0068). It continues the study's rounds after a reattach. |
+| `cumulative_trials` | `int` | Trials in the whole study so far, `trial.number + 1` (H-0068). |
 | `expanded_dims` | `tuple[str, ...]` | Dimensions expanded in this round (H-0068). |
+
+---
+
+## Study lineage (`lizyml.tuning`)
+
+A read-only view of a stored study's state and rounds (H-0122), for a caller
+that decides between `tune(resume=True)`, `restore_tuning` and a new study, for
+example after a pause or a crash. Import it from `lizyml.tuning`; it is not in
+the top-level `lizyml` namespace.
+
+```python
+from lizyml.tuning import read_study_lineage
+
+lineage = read_study_lineage("sqlite:///optuna.db", "my-study")
+if lineage.state == "open":
+    model.tune(resume=True, storage="sqlite:///optuna.db", study_name="my-study")
+elif lineage.state == "completed":
+    model.restore_tuning("sqlite:///optuna.db", "my-study")
+```
+
+### `read_study_lineage`
+
+```python
+def read_study_lineage(storage: str | BaseStorage, study_name: str) -> StudyLineage
+```
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `storage` | `str \| BaseStorage` | Optuna storage URL or `BaseStorage`, as for `Model.tune`. |
+| `study_name` | `str` | The study's name in `storage`. |
+
+It is read-only: it writes no study attribute, leaves a trial that a dead
+process left RUNNING as RUNNING (only `tune(resume=True)` marks it FAIL), and
+does not check the objective identity, since it takes no data and no config.
+The one side effect on the storage is Optuna's: listing a SQLite storage's
+studies creates the file and its schema when they do not exist yet. No study is
+created.
+
+**Raises:**
+- `LizyMLError(CONFIG_INVALID)` — `storage` or `study_name` missing.
+- `LizyMLError(OPTIONAL_DEP_MISSING)` — `optuna` not installed.
+
+### StudyLineage
+
+A frozen dataclass.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `state` | `str` | The study's state; one of the values in the table below. |
+| `rounds` | `tuple[RoundRecord, ...]` | One record per recorded round, `failed` rounds included (unlike `TuningResult.rounds`). Empty unless `state` is `"open"`, `"completed"` or `"failed"`. |
+| `open_round` | `int \| None` | The open round's number when `state` is `"open"`, otherwise `None`. |
+
+---
+
+### RoundRecord
+
+A frozen dataclass: one recorded round of a study.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `round` | `int` | The round number, from 1. |
+| `status` | `str` | `"completed"` or `"failed"` from the round's end record; `"open"` when the round has none (it was interrupted). |
+| `n_trials` | `int` | The trial budget the round asked for. |
+| `n_finished` | `int` | The round's COMPLETE, FAIL and PRUNED trials; a RUNNING trial is not counted. |
+| `best_score_before` | `float \| None` | The study's best value when the round started; `None` when the study had no COMPLETE trial. |
+| `best_score_after` | `float \| None` | The study's best value when the round closed; `None` for a `failed` or `open` round. |
+
+---
+
+### Study states
+
+A study is classified by the first row that applies, from `"legacy"` down.
+`tune(resume=False)` onto any study that exists raises `CONFIG_INVALID`.
+
+| `state` | Meaning | `tune(resume=True)` | `restore_tuning` |
+|---------|---------|---------------------|------------------|
+| `"absent"` | The storage has no study of that name. | Creates it and starts round 1. | `TUNING_FAILED` |
+| `"legacy"` | Trials but no LizyML record: created before v0.19.0 or outside LizyML. | `CONFIG_INVALID` | `CONFIG_INVALID` |
+| `"uninitialized"` | No LizyML record and no trial: its creation was interrupted. | Initialises it and starts round 1. | `TUNING_FAILED` |
+| `"unreadable"` | A LizyML record this LizyML cannot read (from a newer LizyML, or edited). | `CONFIG_INVALID` | `CONFIG_INVALID` |
+| `"no_round"` | A LizyML record, but no round and no trial. | Starts round 1. | `TUNING_FAILED` |
+| `"inconsistent"` | LizyML's records and the trials disagree. | `CONFIG_INVALID` | `CONFIG_INVALID` |
+| `"open"` | The last round has no end record: it was interrupted. | Finishes that round with its recorded space and remaining budget. | `CONFIG_INVALID` |
+| `"completed"` | The last round closed `completed`. | Starts the next round. | Restores the result. |
+| `"failed"` | The last round closed `failed`: the study had no COMPLETE trial. | Starts the next round, without boundary expansion. | `TUNING_FAILED` |
 
 ---
 
@@ -483,7 +663,7 @@ except LizyMLError as e:
 
 | Code | When raised |
 |------|-------------|
-| `CONFIG_INVALID` | Missing required config fields; `tuning` section absent when `tune()` is called. |
+| `CONFIG_INVALID` | Missing required config fields; `tuning` section absent when `tune()` is called; a `tune` or `restore_tuning` call its study refuses (another objective, a study created before v0.19.0, `resume=False` onto a stored study, a `space=` the study cannot take; see [`tune`](#tune)). |
 | `CONFIG_VERSION_UNSUPPORTED` | `config_version` value is not supported, on every path a config reaches `Model` (dict, file, `LizyMLConfig` instance, environment override). |
 | `DATA_SCHEMA_INVALID` | Target or feature columns not found in the DataFrame. Also raised when `validate_no_target_leakage` / `validate_time_series_order` is given a `target` / `time_col` that is not in the frame (`context` has `missing_columns` / `available_columns`), or when `validate_no_target_leakage` cannot compare a column with the target (`context` names `column` and `target`, `cause` is the original error). |
 | `LEAKAGE_SUSPECTED` | A split or calibration invariant that could indicate leakage was violated. |
@@ -494,7 +674,7 @@ except LizyMLError as e:
 | `UNSUPPORTED_TASK` | A method is not applicable to the configured task type. |
 | `UNSUPPORTED_METRIC` | An unknown or task-incompatible metric name was provided. |
 | `METRIC_REQUIRES_PROBA` | A probability metric (`logloss`, `auc`, `auc_pr`, `brier`, `ece`, `precision_at_k`) received values that are not probabilities: non-numeric, non-finite, outside [0, 1], or 1-D for more than two classes. |
-| `TUNING_FAILED` | The Optuna study encountered an unrecoverable failure. |
+| `TUNING_FAILED` | The Optuna study encountered an unrecoverable failure; `tune(resume=True)` with no study to continue; a round ended with no COMPLETE trial in the study; `restore_tuning` with no closed round to restore. |
 | `EVALUATION_FAILED` | OOF predictions contain NaN in covered rows, or feval construction failed. |
 | `CALIBRATION_NOT_SUPPORTED` | Calibration was requested for a non-binary task or unsupported config. |
 | `CALIBRATION_NOT_FITTED` | A calibrator's `predict()` / `export_params()` was called before `fit()`. |

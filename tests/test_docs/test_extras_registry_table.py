@@ -55,6 +55,9 @@ def test_the_table_is_the_one_h0119_states() -> None:
     rows = {(r.method, r.condition, r.extra) for r in RULES}
     expected = {
         ("tune", None, "tuning"),
+        # H-0122 (design D-e): extends the H-0119 table with the new public
+        # method that needs optuna.
+        ("restore_tuning", None, "tuning"),
         ("predict", "return_shap", "explain"),
         ("importance", "kind", "explain"),
         ("importance_plot", None, "plots"),

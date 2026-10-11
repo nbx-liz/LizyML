@@ -53,12 +53,16 @@ def validate_tuning_dimensions(
     space: list[SearchDim],
     smart: dict[str, Any],
     task: TaskType,
+    *,
+    surface: str = "tuning.optuna.space",
 ) -> None:
     """Refuse model/training dimensions that cannot be applied as declared.
 
     The shipped provider's activation rules use truthiness or presence. Numeric
     bounds and categorical choices cover those activation states; the provider
     remains the authority for the affected native names and their aliases.
+    ``surface`` names where the dimensions were declared: the config's
+    ``tuning.optuna.space`` or a resumed round's ``tune(space=)`` (H-0122).
     """
     unsupported = sorted(
         dim.name
@@ -69,20 +73,18 @@ def validate_tuning_dimensions(
         raise LizyMLError(
             code=ErrorCode.CONFIG_INVALID,
             user_message=(
-                "tuning.optuna.space: training does not consume dimension(s): "
+                f"{surface}: training does not consume dimension(s): "
                 + ", ".join(unsupported)
             ),
             context={
-                "surface": "tuning.optuna.space",
+                "surface": surface,
                 "names": unsupported,
                 "category": "training",
             },
         )
-    _refuse_undeclared_smart_dimensions(provider, space)
+    _refuse_undeclared_smart_dimensions(provider, space, surface=surface)
     model_names = dict.fromkeys(dim.name for dim in space if dim.category == "model")
-    check_smart_managed_overrides(
-        provider, model_names, smart, task, surface="tuning.optuna.space"
-    )
+    check_smart_managed_overrides(provider, model_names, smart, task, surface=surface)
     for dim in space:
         if dim.category != "smart":
             continue
@@ -93,12 +95,15 @@ def validate_tuning_dimensions(
                 model_names,
                 {**smart, dim.name: value},
                 task,
-                surface="tuning.optuna.space",
+                surface=surface,
             )
 
 
 def _refuse_undeclared_smart_dimensions(
-    provider: EstimatorProvider, space: list[SearchDim]
+    provider: EstimatorProvider,
+    space: list[SearchDim],
+    *,
+    surface: str = "tuning.optuna.space",
 ) -> None:
     """Refuse a ``category: smart`` dimension that names no smart parameter.
 
@@ -128,11 +133,11 @@ def _refuse_undeclared_smart_dimensions(
     raise LizyMLError(
         code=ErrorCode.CONFIG_INVALID,
         user_message=(
-            "tuning.optuna.space: category: smart dimension(s) that no smart "
+            f"{surface}: category: smart dimension(s) that no smart "
             "parameter reads, so they would have had no effect:\n" + "\n".join(lines)
         ),
         context={
-            "surface": "tuning.optuna.space",
+            "surface": surface,
             "names": undeclared,
             "category": "smart",
         },
@@ -189,6 +194,8 @@ def admit_smart_dimensions(
     space: list[SearchDim],
     smart: dict[str, Any],
     default_dims: frozenset[tuple[str, str]],
+    *,
+    surface: str = "tuning.optuna.space",
 ) -> tuple[list[SearchDim], list[SearchDim]]:
     """Refuse or drop the smart dimensions nothing would read (H-0121).
 
@@ -204,6 +211,8 @@ def admit_smart_dimensions(
         smart: The effective smart parameter values the tune starts from.
         default_dims: ``(category, name)`` of the dimensions that came from
             the default space and were not overridden by the user.
+        surface: Where the user declared the space, quoted in the refusal:
+            the config, or ``tune(space=)`` for a later round (H-0122).
 
     Returns:
         ``(space without the dropped dimensions, the dropped dimensions)``.
@@ -230,11 +239,11 @@ def admit_smart_dimensions(
         raise LizyMLError(
             code=ErrorCode.CONFIG_INVALID,
             user_message=(
-                "tuning.optuna.space: smart dimension(s) that nothing would "
+                f"{surface}: smart dimension(s) that nothing would "
                 "read, so they would have had no effect:\n" + "\n".join(lines)
             ),
             context={
-                "surface": "tuning.optuna.space",
+                "surface": surface,
                 "names": [dim.name for dim in written],
                 "owners": {dim.name: owners[dim.name] for dim in written},
             },

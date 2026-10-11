@@ -881,15 +881,12 @@ one parameter in the same space remain invalid.
 Set `space_mode: replace` for an explicit-only space, including an empty space.
 This is the migration path for pre-H-0102 nonempty spaces. Merge can increase
 training cost by adding default dimensions and retains the existing smart/native
-conflict refusals. Start a fresh study when changing space semantics.
+conflict refusals.
 
 Merge applies provider fixed defaults with precedence base < fixed < sampled;
-replace applies no fixed defaults. Resume retains the resolved space, bounds and
-fixed-default policy of the previous successful round. Fresh rounds use their
-new fixed policy without inheriting the previous round's fixed defaults.
-Fresh studies also start from Config model/smart parameters rather than previous
-best parameters. Resume retains its successful tuning overlay and resolved space.
-Fresh-study training conflict checks likewise exclude prior training overrides.
+replace applies no fixed defaults. Fresh studies start from Config model/smart
+parameters rather than previous best parameters, and their training conflict
+checks exclude prior training overrides.
 Admission also checks training ownership introduced by the current resolved
 space against effective native parameters and model dimensions before study
 creation, including inherited defaults and aliases.
@@ -900,13 +897,15 @@ expansion remains enabled only for merge with an empty/omitted user space;
 partial spaces require explicit opt-in. Older saved artifacts without the mode
 retain replacement for nonempty spaces when loaded, preserving re-fit behavior.
 
+**resume の試行の基と探索空間（H-0122）。** どの round の試行も `config ⊕ fixed ⊕ その試行のサンプル値` で学習する。`fixed`（`space_mode` で決まる固定パラメーター）は、study を作ったときに study の記録（`lizyml:study`、§11.5.3）に書いたものを使い、Model のフィールドと食い違えば study の記録を正とする。resume の round は前回の最良値を試行の基に重ねない。round の探索空間は、`tune(space=...)`（§11.5.2）があればそれを study の `space_mode` で解決したもの、無ければ直前の round の記録（宣言空間と、拡張を含む実効空間）から決める。config の `tuning.optuna.space` と `space_mode` は study を作るとき（round 1）だけ読み、resume でそれらが study の記録と違えば `CONFIG_INVALID` とする。空間の変更は古い試行を消さない: 目的関数が同じなので、古い試行は観測として残り、最良値の候補であり続ける。新しい study が要るのは、§11.5.2 で受け付けない変更のときだけ。`fit` が成功した tuning の結果を使う点は変わらない。
+
 **smart の探索次元の受け付け（H-0121、[#299](https://github.com/nbx-liz/LizyML/issues/299)）。** `category: smart` の次元は smart 解決を通してしか学習に届かない。何にも読まれない次元は、サンプルされ `best_params` に記録されて、何もしない。
 
 - **宣言されていない名前**: `provider.smart_param_names()` に無い名前の `category: smart` の次元は、解決済みの空間に対して study の前に `CONFIG_INVALID` で拒否する（`validate_tuning_dimensions`）。ネイティブの LightGBM の名前なら、メッセージで `category: model` を案内する。
 - **消費者が無効な次元**: 所有者のある smart パラメーター（`provider.smart_param_owners()`、§14.4。LightGBM では `num_leaves_ratio` → `auto_num_leaves`）の次元は、所有者が「真になりえない」とき無効とする。同じ空間に所有者の名前の smart の次元があれば、その次元が取りうる値で決める（categorical の選択肢に真が 1 つも無い、または数値の範囲が 0 だけなら真になりえない）。無ければ有効な smart の値（新しい tune が `_merge_params` から受け取る config の値）で決める（偽か `None` なら真になりえない）。
   - 利用者の空間から来た無効な次元（`replace` の空間、または `merge` で利用者が書いた次元）は、study の前に `CONFIG_INVALID` で拒否する。利用者は自分の指定が効いていないことに気づけないため。
   - 既定の空間から来た無効な次元（`merge` で利用者が上書きしていない既定の次元。`lizyml/core/_tuning_plan.py` の `resolve_config_space` が出どころを返す）は空間から外し、外した名前を INFO のログ（`event='tune.drop_dims'`）に残す。study の探索次元にも `best_params` にも入らない。`auto_num_leaves: false` でネイティブの `num_leaves` を直接チューニングする H-0099 の案内どおりの設定は、これまでどおり動く（既定の空間の `num_leaves_ratio` が外れる）。
-- **範囲**: 消費者が無効な次元の規則（上の 2 項）は、新しい study を作る tune だけに当てる。新しい study とは、`resume=False` で、storage を使わないか、storage にその名前の study が無いものをいう。`tune` は空間を解決する前に、storage があれば `optuna.get_all_study_names(storage)` で名前があるかを調べて決める（調べてから study を作るまでの間に別のプロセスが同じ名前の study を作ることは考えない。一つの study に書くプロセスは一つという前提で、ライブラリは強制しない）。`resume=True` と、`resume=False` で storage の既存の study に再接続する経路（`load_if_exists=True`）には当てない。後者は外した次元を古い試行が持ちうるので、当てても健全にならない。この経路の扱いは resume の互換性の Proposal が決める。宣言されていない名前の拒否は、範囲によらず当てる。
+- **範囲**: 消費者が無効な次元の規則（上の 2 項）は、round の宣言空間を解決するときに当てる。round 1 を始める tune（`resume=False`、storage に無い名前への `resume=True`、round の記録が無い study（状態 `"uninitialized"` / `"no_round"`、§11.5.3）への `resume=True`）では config の空間に、`space=` を渡した round（§11.5.2）ではその宣言に当てる。`space=` の無い resume の round は直前の round の宣言を引き継ぐので、当て直さない（H-0122 で、resume のたびに今の config の smart の値を読む H-0121 の条項を外した。smart の値の変更は目的関数の照合で拒否される）。`tune` は空間を解決する前に、storage があれば `optuna.get_all_study_names(storage)` で名前があるかを調べて決める（調べてから study を作るまでの間に別のプロセスが同じ名前の study を作ることは考えない。一つの study に書くプロセスは一つという前提で、ライブラリは強制しない）。H-0072 の、`resume=False` で storage の既存の study に `load_if_exists=True` で再接続する経路は H-0122 で無くなった（`resume=False` で既存の study を指すと `CONFIG_INVALID`、再接続は `resume=True`。§11.5.1）。宣言されていない名前の拒否は、範囲によらず当てる。
 
 ### 探索次元
 
@@ -918,7 +917,7 @@ retain replacement for nonempty spaces when loaded, preserving re-fit behavior.
 | `max_depth` | int | `[3, 12]` | model |
 | `feature_fraction` | float | `[0.5, 1.0]` | model |
 | `bagging_fraction` | float | `[0.5, 1.0]` | model |
-| `num_leaves_ratio` | float | `[0.5, 1.0]` | smart（`auto_num_leaves` が真になりえない新しい study では外す、H-0121） |
+| `num_leaves_ratio` | float | `[0.5, 1.0]` | smart（`auto_num_leaves` が真になりえない宣言空間では外す、H-0121） |
 | `min_data_in_leaf_ratio` | float | `[0.01, 0.2]` | smart |
 | `early_stopping_rounds` | int | `[40, 240]` | training |
 | `validation_ratio` | float | `[0.1, 0.3]` | training |
@@ -958,14 +957,14 @@ retain replacement for nonempty spaces when loaded, preserving re-fit behavior.
 
 | フィールド | 型 | 説明 |
 |---|---|---|
-| `current_trial` | `int` | 現在の trial 番号（1-indexed） |
-| `total_trials` | `int` | 全 trial 数 |
+| `current_trial` | `int` | この round の何番目の試行か（1-indexed）。新しい round は 1 から数える。途中で落ちた round を再開したときは続きから数える（その round で既に K 件終わっていれば K+1 から。storage の有無に依らない。H-0122） |
+| `total_trials` | `int` | この round で要求した `n_trials`（途中の round の再開では記録した値） |
 | `elapsed_seconds` | `float` | 経過時間（秒） |
 | `best_score` | `float \| None` | これまでの最良スコア（complete trial なしの場合 `None`） |
 | `latest_score` | `float \| None` | 直近 trial のスコア（fail/pruned の場合 `None`） |
 | `latest_state` | `str` | `"complete"` / `"pruned"` / `"fail"` |
 | `round` | `int` | 現在のラウンド番号（1-indexed）。H-0068 で追加 |
-| `cumulative_trials` | `int` | 全ラウンド通算の試行数。H-0068 で追加 |
+| `cumulative_trials` | `int` | study 全体の試行数（`trial.number + 1`）。H-0068 で追加 |
 | `expanded_dims` | `tuple[str, ...]` | このラウンドで拡張された次元名。H-0068 で追加 |
 
 ### TuneProgressCallback
@@ -992,18 +991,28 @@ result = model.tune(progress_callback=on_progress)
 - Optuna の `study.optimize(callbacks=[...])` を活用し、各 trial 完了時に通知する。
 - `TuneProgressInfo` と `TuneProgressCallback` は `lizyml/__init__.py` の公開面に含める。
 
-## 11.5 Re-tune: Study Resume + 境界検知拡張（H-0068）
+## 11.5 Re-tune: Study Resume + 境界検知拡張（H-0068、H-0122）
 
-初回 tuning 後に追加探索を行い、さらなる精度向上を目指す。
+初回 tuning 後に追加探索を行い、さらなる精度向上を目指す。一回の `tune()` 呼び出しで足す試行のまとまりを round と呼ぶ。
+
+`tune(resume=True)` の目的は二つで、どちらも目的関数を変えない（H-0122）:
+
+- 探索範囲を変えて、さらに良い解を探す。範囲を変えるのは利用者か外部のアルゴリズム（`space=`、§11.5.2）と、自動の境界拡張（下の規則）。
+- 障害のあとで再開する。永続 storage の study に `resume=True` で再接続し、落ちた時点から続ける（§11.5.1、§11.5.3）。
+
+不変条件: 一つの study の試行は、すべて同じ目的関数の観測である。目的関数の同一性を照合できない study には試行を足さない（§11.5.3）。採用する最良値は study 全体の最良の試行で、その試行のパラメーターで `fit` すると、その試行と同じ学習になる（`config ⊕ fixed ⊕ その試行のサンプル値`、§11.3）。拒否は試行の追加と study の属性の書き込みより前に行い、study と Model の状態を変えない。
+
+resume の round は前回の最良値を評価し直さない（前回の最良値を study に予約して round の最初に学習し直す H-0068 の規則をやめ、enqueue しない）。最良の試行は study に COMPLETE の観測として残り、TPE は既にそれを使っているため。resume の各 round は、要求した `n_trials` の数だけ TPE でサンプルした点を評価する。
 
 ### Model.tune() の拡張パラメーター
 
 | パラメーター | デフォルト | 説明 |
 |---|---|---|
-| `resume` | `False` | `True`: 前回 Study を再利用して追加試行 |
-| `n_trials` | `None` | 追加試行数（`None` → config 値） |
-| `expand_boundary` | `None` | 境界拡張。`None`: デフォルト空間→`True`、ユーザー空間→`False` |
+| `resume` | `False` | `True`: study に round を足す。Model が持つ study、持たなければ `storage` / `study_name` の study（再接続。無ければ作る）。途中で落ちた round はその round を終える（§11.5.3） |
+| `n_trials` | `None` | 追加試行数（`None` → config 値）。途中の round の再開では記録した値だけを受け付ける |
+| `expand_boundary` | `None` | 境界拡張。`None`: round の宣言空間に H-0102 の規則を当てる（`merge` で利用者の次元が無いとき→`True`、それ以外→`False`）。途中の round の再開では記録した値だけを受け付ける |
 | `boundary_threshold` | `0.05` | 端判定閾値（0.0〜1.0） |
+| `space` | `None` | この round の探索空間（`tuning.optuna.space` と同じ形式）。round 2 以降だけ。`None`: 直前の round の空間（§11.5.2） |
 
 ### 境界検知ルール
 
@@ -1019,6 +1028,8 @@ result = model.tune(progress_callback=on_progress)
 - 拡張後の `new_low` / `new_high` は次元の `min_allowed` / `max_allowed`（§11.2）でクランプする。クランプが効いたら `BoundaryDimStatus.clamped_to_bound` を `True` にする（H-0078）
 - 範囲を変えない拡張は拡張ではない: クランプ（`min_allowed` / `max_allowed`、linear の `0.0` 下限、`IntDim` の `max(1, ...)`）と `IntDim` の丸めのあとで `(new_low, new_high)` が元の `(low, high)` と等しい次元は、端に近くても `expanded=False`・`new_low` / `new_high` は `None` とし、`expanded_names` にも `RoundSummary.expanded_dims` にも入れない。`clamped_to_bound` は `min_allowed` / `max_allowed` のクランプが効いたときだけ `True` で、再判定のあとも `True` のまま残る（linear の `0.0` 下限と `IntDim` の `max(1, ...)` は `clamped_to_bound` を立てないので `False` のまま）。`IntDim` の拡張と比較は整数で計算する（`2**53` を超える値でも隣の整数と混ざらない）。端の検出（位置の計算）は H-0068 のとおり float で行うので、`2**53` を超える `IntDim` の範囲では端を見落としうる（H-0111 の bound）。毎ラウンド同じ空の拡張を報告し続けないため（H-0078 項目 4、H-0111）
 - 反対側の端は据え置き
+- 拡張は範囲を狭めも反転もしない（[#342](https://github.com/nbx-liz/LizyML/issues/342)）: クランプ（`min_allowed` / `max_allowed`、linear の `0.0` 下限、`IntDim` の `max(1, ...)`）は、拡張で外へ動いた端だけに、元の端まで当てる。端を元の範囲の内側へは動かさない。利用者が provider の境界の外に宣言した範囲（§11.5.2、たとえば `min_allowed` が 10 の `n_estimators` に `[3, 5]`）で、最良値が外側の端にあっても、範囲は変わらず、上の規則で `expanded=False` と報告する（境界が外への移動を止めたので `clamped_to_bound=True`）。`IntDim` の `max(1, ...)` も、元の下限が 1 未満の次元（`max_depth` の `-1`、`bagging_freq` の `0`）の下限を動かさない
+- 拡張しない次元（H-0122）: この round で宣言が変わった次元と新しい次元（§11.5.2。利用者の宣言を優先する）、前回の最良値が今の範囲の外にある次元。どちらも `boundary_table` に `expanded=False` で出る。「前回の最良値」は study の全試行のうち最良の COMPLETE の試行の値で、Model が持つ tuning の結果ではない（再接続した Model には無く、`Model.load` のあとでは別の study の結果でありうる）。study に COMPLETE の試行が無ければ（直前の round が `failed`）、拡張しない
 
 ### RoundSummary / BoundaryReport
 
@@ -1055,19 +1066,24 @@ class BoundaryReport:
 
 ```python
 # 追加フィールド
-rounds: tuple[RoundSummary, ...]        # デフォルト: (RoundSummary(round=1, ...),)
-boundary_report: BoundaryReport | None  # resume 時のみ設定
+rounds: tuple[RoundSummary, ...]        # completed で閉じた round ごとに 1 要素（round の順）
+boundary_report: BoundaryReport | None  # この round の境界の分析（下）
 ```
+
+- `rounds`: study の round のうち `completed` で閉じたものの要約。`failed` で閉じた round（study に COMPLETE の試行が一つも無いまま終わった round）は入らない（`RoundSummary` は最良値を数値で持つため）。round の番号はそのまま続くので、`rounds` が round 2 から始まることがある。そのときの次の round の `best_score_before` は `None`。`RoundSummary.n_trials` はその round の試行の実際の数（`timeout` で要求数より少なくなりうる）。途中から再開した round の要約と `boundary_report` は、その round の記録（始めたときの判断）から作る。
+- `boundary_report`: この round が境界を分析したとき（round 2 以降で `expand_boundary` が真に解決され、study に COMPLETE の試行があるとき）に設定し、それ以外は `None`。`restore_tuning` は最後の round のものを返す。
 
 ### TrialResult 拡張
 
 ```python
-round: int  # 追加: どのラウンドの試行か (1-indexed)。デフォルト 1
+round: int  # どの round の試行か (1-indexed)。試行の番号と study の round の記録から決まる
 ```
+
+round k の試行は、round k の記録の「開始時の試行数」以上で、round k+1 の記録の「開始時の試行数」未満の番号を持つもの（最後の round は上限なし）。`failed` の round の試行も、その round の番号で `trials` に残る。
 
 ### tuning_table() 拡張
 
-`round` 列と `state` 列を追加。
+`round` 列と `state` 列を追加。`round` 列は各試行の `TrialResult.round`。
 
 ### boundary_table() 新設
 
@@ -1075,8 +1091,8 @@ round: int  # 追加: どのラウンドの試行か (1-indexed)。デフォル�
 
 ### plot_tuning_history() 拡張
 
-- ラウンド境界に縦の破線
-- ラウンドごとのアノテーション（拡張次元名）
+- ラウンド境界に縦の破線。境界は試行の round（`TrialResult.round`）の変わり目から求める（`RoundSummary.n_trials` の積み上げではない。`failed` の round は `rounds` に入らず、`timeout` で区切った round と途中から再開した round は要求数と実際の数が違うため。H-0122）
+- ラウンドごとのアノテーション（拡張次元名）。要約の無い round（`failed`）は番号だけ
 - best score 累積線はラウンドをまたいで連続
 
 ### Widget / Studio 連携
@@ -1092,9 +1108,10 @@ LizyML Core は callback + 結果型でデータを提供し、Widget/Studio が
 
 ### 制約
 
-- `resume=False` は現在と同一動作（完全後方互換）
-- `resume=True` で未 tune → `LizyMLError(TUNING_FAILED)`
-- Tuner は study オブジェクトの受け取り・返却に対応する。study の永続化（disk-backed storage）は §11.5.1 で扱う。
+- `resume=False` は新しい study を作り、round を 1 から数える（前の study の round を積み増さない）。storage に同じ名前の study が既にあれば `CONFIG_INVALID`（§11.5.1）。
+- `resume=True` で、Model が study を持たず `storage` も無い → `LizyMLError(TUNING_FAILED)`（`Model.load` のあとも同じ。study の中身は artifact に保存しない）。
+- `Tuner` は study の作成・読み込み・最適化と、`lizyml:` 属性の書き込みだけを行う。`resume` の意味、目的関数の同一性、系譜の中身は `Model.tune` 側が決める（§5 の責務分離）。
+- artifact（`Model.export` / `Model.load`）の形式と `format_version` は H-0122 で変えない。
 
 ## 11.5.1 Persistent Storage（H-0072）
 
@@ -1105,21 +1122,35 @@ LizyML Core は callback + 結果型でデータを提供し、Widget/Studio が
 | パラメーター | デフォルト | 説明 |
 |---|---|---|
 | `storage` | `None` | Optuna storage URL（`sqlite:///path/to.db` 等）または `BaseStorage` インスタンス。`None` で in-memory（従来挙動） |
-| `study_name` | `None` | Study 識別子。`storage` 指定時は必須（fail fast） |
+| `study_name` | `None` | Study 識別子。`storage` と一緒にだけ使う（片方だけは fail fast） |
 
-`storage=None` で完全後方互換（disk IO ゼロ）。`storage` 指定時は `optuna.create_study(..., storage=..., study_name=..., load_if_exists=True)` で idempotent に再アタッチする。
+`storage=None` は in-memory（disk IO ゼロ）。`storage` を指定すると、`Model.tune` は storage にその名前の study があるかを先に調べ、無ければ新しく作り（既存の study に黙って再接続しない）、あれば読む。試行は完了するたびに backend に追記され、LizyML の記録（§11.5.3）も study の属性として同じ backend に書かれる。
 
-### resume との関係
+### resume との関係（H-0122）
 
-- `Model.tune(resume=False, storage=...)`: 同一 process 内で初回呼び出し時、`load_if_exists=True` により journal に既存 study があれば再アタッチ（crash recovery）。journal に該当 study が無ければ新規作成
-- `Model.tune(resume=True, ...)`: 既存の `Model._study` を再利用（in-memory / disk-backed どちらでも動作）
-- `storage` を指定し続ける限り、各 trial 完了直後に backend に追記される
+まず、`resume` に依らず次の二つを検査する（どちらも `CONFIG_INVALID`）: `storage` があって `study_name` が無い。`study_name` があって `storage` が無い。そのうえで:
+
+| `resume` | Model の study | `storage` / `study_name` | storage にその study | 挙動 |
+|---|---|---|---|---|
+| `False` | 問わない | なし | — | 新しい study（メモリ）。round 1 から |
+| `False` | 問わない | あり | 無い | 新しい study（storage）。round 1 から |
+| `False` | 問わない | あり | ある | `CONFIG_INVALID`（続けるなら `resume=True`、新しく始めるなら別の `study_name`） |
+| `True` | ある | なし、またはその study と同じもの | — | 継続 |
+| `True` | ある | その study と同じと示せないもの | — | `CONFIG_INVALID` |
+| `True` | 無い | あり | ある | 再接続。保存した系譜と実効空間を復元し、study の状態（§11.5.3）に従って続ける |
+| `True` | 無い | あり | 無い | 新しい study（storage）を作り、round 1 から始める。作ったことを INFO のログ（`event='tune.study_created'`）に出す。`space=` を渡したら `CONFIG_INVALID` |
+| `True` | 無い | なし | — | `TUNING_FAILED` |
+
+- 「その study と同じ」: Model は、study を作った・読んだときの `storage` と `study_name` を覚えておく。`study_name` が等しく、かつ `storage` が等しい（URL の文字列なら文字列として等しい、`BaseStorage` なら同じオブジェクト）ときだけ同じとする。同じ backend を指す別の表現は同じと示せないので拒否する。
+- 落ちたあとの再開は、同じスクリプトを `resume=True` で流し直せばよい: study が storage に無ければ作り、あれば続ける。
+- 同じプロセスで round が例外で止まったあとの `resume=True` も、その study が Model に載っているか storage にあれば、同じ規則（§11.5.3 の状態）で扱う。storage を使わない最初の tune が失敗したときは、作りかけのメモリ上の study を捨てる（Model の状態を変えないため）。
+- 一つの study に試行を足すプロセスは一つとする。利用者に求める前提で、ライブラリは強制しない。
 
 ### 制約
 
-- `storage is not None and study_name is None` → `LizyMLError(CONFIG_INVALID)`
-- `RoundSummary` / `BoundaryReport` 等のラウンドメタは journal には保存されない（trial 単位 resume のみが対象）。round 履歴の永続化は別 Proposal で扱う。
-- H-0099: supplied and persisted studies must match the resolved objective direction. Reject mismatches with `CONFIG_INVALID` before enqueue or optimization; use a new study name instead of relabeling an existing study.
+- `storage is not None and study_name is None` → `LizyMLError(CONFIG_INVALID)`。`study_name` だけを渡しても `CONFIG_INVALID`（黙って無視しない）
+- round の系譜（`RoundSummary`、`BoundaryReport`、各 round の空間と予算）は study の属性に保存し、再接続で続ける（§11.5.3）。再接続のあとも round の番号は続く。
+- H-0099: supplied and persisted studies must match the resolved objective direction. Reject mismatches with `CONFIG_INVALID` before optimization; use a new study name instead of relabeling an existing study.
 
 ### Objective direction (H-0099)
 
@@ -1130,6 +1161,132 @@ directions must agree or fail with `CONFIG_INVALID` before creating a study.
 Null remains automatic through Config dump/load; exported Result directions
 are always the resolved `minimize` or `maximize`. Historical configs containing
 contradictory explicit directions require migration; old explicitness is not guessed.
+
+## 11.5.2 `space=` で探索空間を変える（H-0122）
+
+範囲を変える経路は `tune(..., space=...)` の引数とする。config は「study を作ったときの宣言」に固定され、round ごとの変更は引数と study の系譜に残る（再接続で config から `Model` を作り直しても、変えた範囲が失われない）。
+
+- `space=` は `tuning.optuna.space` と同じ形式の dict で、その round の宣言として study の `space_mode` で解決する。形の誤り（dict でない、名前が `str` でない、未知のカテゴリー、`low` / `high` の欠け）は `CONFIG_INVALID`。
+- round 2 以降だけに渡せる。round 1 を始める呼び出し（`resume=False`、storage に無い study への `resume=True`、状態 `"uninitialized"` / `"no_round"` の study）に渡すと `CONFIG_INVALID` で、study は作らない。study の最初の空間は config の `tuning.optuna.space`。
+- resume で config の `tuning.optuna.space` が study を作ったときの宣言と違えば `CONFIG_INVALID`（「範囲を変えるなら `space=`」。黙って無視しない）。`space_mode` は resume で変えられない（固定パラメーターが変わり、目的関数が変わるため）。
+
+**宣言空間**（その round で宣言した空間を解決したもの。provider の境界は付けない）:
+
+- `space=` があれば、それを解決したもの。無ければ直前の round の宣言空間。
+- `merge`: provider の既定の次元に `space=` の次元を重ねる。`space=` に無い既定の次元は既定の宣言になる（config で利用者が上書きした既定の次元でも、`space=` に無ければ既定の宣言に戻る）。config で利用者だけが宣言した次元（provider の既定に無いもの）は、`space=` に無ければ探索から外れ、以後の試行は config の値で学習する。
+- `replace`: `space=` の次元だけ。`space=` に無い次元は外れる。
+- model の次元の alias は正規名と同じ次元として扱う（経路は一つで、拡張を引き継ぐ）。
+
+**次元ごとの比較**（直前の round の宣言と比べる）:
+
+- 宣言が同じ次元: 直前の round の実効の範囲（拡張を含む）を引き継ぐ。
+- 宣言が変わった次元、新しい次元: 新しい宣言の範囲を使い、その次元のこれまでの拡張は捨てる。この round では拡張しない。
+- 宣言から消えた次元: 探索から外す。以後の試行は config の値で学習する。
+
+**同じ study で受け付けない変更**（study を変える前に `CONFIG_INVALID`。「新しい study で」）:
+
+- 同じ名前の次元の、分布の種類（`float` / `int` / `categorical`）、`log` の有無、categorical の選択肢。選択肢は並びと、各値の型と値で比べる（NaN どうしは等しい。`True` と `1`、`1` と `1.0` は違う）。比べる相手は、これまでのすべての round の次元（外した次元を戻す場合も）。Optuna の拒否は試行の途中で FAIL の試行を書いてしまうので、LizyML が先に比べる。
+- 次元のカテゴリー（`model` / `smart` / `training`）の変更。次元の経路（正規名とカテゴリーの対応）は足すだけで、外した次元の経路も残る（古い試行の値を回すため）。
+- 範囲（`low` / `high`）の変更は受け付ける。
+
+**受け付けの検査**: 新しい tune と同じ検査（H-0093、H-0099、H-0102、H-0121）を、この round の宣言空間に当てる。`space=` の次元は利用者の宣言として扱う（未知の名前、同じパラメーターの二重の宣言、training の所有の衝突は `CONFIG_INVALID`）。provider の境界は拡張だけを縛り、`space=` の範囲は検査もクランプもしない（H-0111）。
+
+**最良値の経路**: 最良の試行のパラメーターは、今の次元ではなく系譜の経路で model / smart / training に分ける。外した次元を持つ試行が最良なら、`fit` はその試行の値を使う（外した smart の次元は smart として渡り、LightGBM の params には入らない）。
+
+## 11.5.3 study の記録と状態（H-0122）
+
+### 目的関数の同一性と照合
+
+study を作るとき、目的関数の同一性を study の属性に書く（メモリ上の study にも書く）。`resume=True` と `restore_tuning` のたびに、今の呼び出しから同一性を計算して照合し、違えば `CONFIG_INVALID`（context に違う要素の名前）。照合は保守的な互換性とし、目的関数を変えうる入力を広めに含める（無害な変更も拒否するが、黙って間違うことはない）。
+
+- 含める: データ（tune が実際に使う DataFrame の列名と順序、dtype、categorical の categories とその順序と `ordered`、値と行の順序。index、型の違う同じ表記の値も区別する。`data.path` は文字列ではなく読んだ中身を要約する。除外する列も含める）、config の探索空間以外（task、data と特徴量の設定、`model` の全体（探索している次元の値も含む）、実効の固定パラメーター `fixed`、provider の既定パラメーター、training の全体、split の全体）、最初の評価指標とそこから導いた最適化の向き。
+- 含めない: 探索空間（`space_mode` が変える `fixed` は含める）、`n_trials`、timeout、sampler、`progress_callback`、`expand_boundary`、`boundary_threshold`、二つ目以降の評価指標、calibration、export・出力の設定、`storage`、`study_name`、時刻。
+- ライブラリの版（LizyML、LightGBM、Optuna、pandas、scikit-learn）は同一性と別に記録し、違えば警告だけを出して続ける。版の更新で同一性に入る値そのもの（provider が決める `fixed` や既定パラメーター）が変われば、目的関数の変更として `CONFIG_INVALID`。
+- 向きの照合（H-0099）はそのまま残り、目的関数の照合と同じく試行を足す前に行う。
+
+### study の属性
+
+キーは `lizyml:` で始める。一緒に書くべきものは一つのキーの値にまとめ、書き込みの途中で落ちても読み手が判断できるようにする。
+
+- `lizyml:study`: study を作ったときに一度だけ書く。形式の版（`schema`。読めない版なら `CONFIG_INVALID`）、同一性の要約と要素ごとの要約、ライブラリの版、`space_mode`、`fixed`、study を作ったときの config の探索空間。
+- `lizyml:round:<k>`: round k の準備がすべて済んでから、試行を足す前に一度だけ書く。宣言の元の形（`space=`、無ければ「直前の宣言のまま」）と次元ごとの出どころ（利用者 / 既定）、宣言空間、実効空間、拡張と `BoundaryReport` の全体、解決した `expand_boundary`、予算（`n_trials`、`timeout`）、開始時の試行数と最良値、その round で増えた次元の経路。
+- `lizyml:round:<k>:end`: round を閉じたときに書く。終わり方（`completed` / `failed`）、終了時の最良値（COMPLETE の試行が無ければ空）、時刻。study に COMPLETE の試行が一つも無いまま round が終われば `failed` と書いたうえで `TUNING_FAILED` を送出する（Model の状態は変えない）。閉じた round は再開の対象にならず、次の `resume=True` は新しい round を始める。
+- 書く順序: round の準備を決める → `lizyml:round:<k>` → 試行を足す → `lizyml:round:<k>:end`。試行の round は試行の番号で決まり、試行ごとの属性は置かない。
+
+### study の状態（閉じた表）
+
+上から順に判定し、最初に当てはまった行を使う。メモリ上の study も storage から読んだ study も同じ表で扱う。`resume=False` で storage に同じ名前の study があるときは、状態に依らず `CONFIG_INVALID`。
+
+| 状態 | 判定の材料 | `resume=True` での扱い |
+|---|---|---|
+| `"legacy"` | `lizyml:study` が無く、試行が 1 件以上（この変更より前に作った study、または LizyML の外で作った study） | `CONFIG_INVALID` |
+| `"uninitialized"` | `lizyml:study` が無く、試行が 0 件（作りかけ） | `"no_round"` と同じ。ただしその検査をすべて済ませてから `lizyml:study` を書く |
+| `"unreadable"` | `lizyml:study` が読めない（より新しい LizyML の版、または書き換えたもの） | `CONFIG_INVALID` |
+| `"no_round"` | round の記録が一つも無く、試行が 0 件 | 照合の後、round 1 を新しい study と同じように始める（config の探索空間を使い、`space=` は `CONFIG_INVALID`） |
+| `"inconsistent"` | round の記録と試行が食い違う（記録が無いのに試行がある、round の番号が 1 から連続しない、`:end` の無い round が最後以外にある、round 1 の開始より小さい番号の試行があるなど） | `CONFIG_INVALID`（「新しい study で」） |
+| `"open"` | 最後の round に `:end` が無い（途中で落ちた） | 照合の後、同じ round を残りの予算で終える（下） |
+| `"completed"` | 最後の round の `:end` が `completed` | 照合の後、新しい round を始める（§11.5.2） |
+| `"failed"` | 最後の round の `:end` が `failed` | 照合の後、新しい round を始める。COMPLETE の試行が無いので、境界の拡張は行わない |
+
+公開の関数 `read_study_lineage`（§11.5.4）は、これに storage にその study が無い `"absent"` を加えた値を返す。
+
+### 途中で落ちた round の再開（状態 `"open"`）
+
+同じプロセスで続けた場合と同じ空間・系譜・round 番号になるように、同じ round を残りの予算で終える。
+
+- round 番号は変えない。その round の記録にある実効空間をそのまま使い、境界の分析と拡張はやり直さない。
+- 残りの試行数は、記録した `n_trials` から、その round で終わった試行（COMPLETE、FAIL、PRUNED）の数を引いたもの。記録に `timeout` があれば、残りの時間は `timeout` から、その round の COMPLETE と PRUNED の試行それぞれの開始から終了までの時間の合計を引いたもの（落ちていた間の時間は入らない）。残りが 0 以下なら試行を足さずに round を閉じる（`:end` の規則に従う）。時間で区切る round では、続けた場合と同じ試行の数になることは保証しない。
+- 落ちたときに RUNNING のまま残った試行は、再接続のときに FAIL として記録し、予算に数える。
+- 引数: `n_trials`、`expand_boundary`、`space=` は、`None` 以外を渡したときだけ、その round の記録の解決した値と比べる。同じなら通し、違えば `CONFIG_INVALID`（「この round は記録の値で始まっている」）。`space=` は宣言空間に解決して次元の集合として比べるので、省略の書き方や dict の並びの違いは同じとみなす。config の `tuning.optuna.params.n_trials` は使わず、記録と違えば警告を出す。終わった round のあとの新しい round では、これらの引数は自由に変えられる。
+- 検査の順序: 照合と引数の比べ合わせを、RUNNING の試行を FAIL にすることを含むすべての書き込みより先に行う。拒否したときは、試行の状態も study の属性も変わらない。
+
+## 11.5.4 系譜を読む関数 `read_study_lineage`（H-0122）
+
+利用側が、試行を足さずに study の状態と系譜を知るための、読み取りだけの関数。`lizyml.tuning` に置き、`lizyml.tuning.__all__` に入れる（トップレベルの `lizyml.__all__` には入れない）。
+
+```python
+def read_study_lineage(storage: str | BaseStorage, study_name: str) -> StudyLineage
+
+@dataclass(frozen=True)
+class StudyLineage:
+    state: str                          # 下の値のどれか
+    rounds: tuple[RoundRecord, ...] = ()
+    open_round: int | None = None       # 状態 "open" のとき、開いた round の番号
+
+@dataclass(frozen=True)
+class RoundRecord:
+    round: int
+    status: str                         # "completed" / "failed" / "open"
+    n_trials: int                       # 要求した試行数
+    n_finished: int                     # 終わった試行（COMPLETE、FAIL、PRUNED）の数
+    best_score_before: float | None
+    best_score_after: float | None      # "failed" と "open" では None
+```
+
+- `storage` と `study_name` の形と事前の検査は `Model.tune` と同じ（片方だけは `CONFIG_INVALID`）。両方を省いても `CONFIG_INVALID`（読む study が無い）。
+- `state` は `"absent"`（storage にその study が無い）、`"legacy"`、`"uninitialized"`、`"unreadable"`、`"no_round"`、`"inconsistent"`、`"open"`、`"completed"`、`"failed"` のどれか。判定は §11.5.3 の表と同じ順序で行う。
+- `rounds` は記録のある round ごとの要約で、`failed` の round も含む（`TuningResult.rounds` と違い、系譜をそのまま見せる）。状態が `"absent"`・`"legacy"`・`"uninitialized"`・`"unreadable"`・`"inconsistent"` のときは空。
+- 読み取りだけ: 属性を書かず、RUNNING の試行も FAIL にしない（それは `resume=True` の呼び出しだけが行う）。目的関数の照合もしない（データも config も受け取らないため）。Optuna の都合で、SQLite の storage の study の一覧を読むと、ファイルとそのスキーマが無ければ作られる（study は作られない）。
+
+## 11.5.5 tune の結果を study から取り戻す `restore_tuning`（H-0122）
+
+round を閉じた（`:end` を書いた）あと、呼び出し側が tune の結果を受け取る前に落ちると、study は状態 `"completed"` になり、`resume=True` は新しい round を始めてしまう。試行を足さずに結果だけを取り戻す公開のメソッドを置く。
+
+```python
+def restore_tuning(
+    self,
+    storage: str | BaseStorage,
+    study_name: str,
+    data: pd.DataFrame | None = None,
+) -> TuningResult
+```
+
+- `storage` と `study_name` の形と事前の検査は `Model.tune` と同じ（両方を省いても `CONFIG_INVALID`）。`data` は `tune` と同じ優先順位で決める。optuna の有無はデータを読む前、storage に触れる前に確かめる。
+- 状態ごとの扱い（この順で判定する。取り戻す結果が無いことを、照合の食い違いより先に報告する）: storage にその study が無い → `TUNING_FAILED`。`"legacy"`・`"unreadable"`・`"inconsistent"` → `resume=True` と同じく `CONFIG_INVALID`。`"open"` → `CONFIG_INVALID`（「round k が途中。`tune(resume=True)` で終える」。途中の結果は取り戻さない）。`"uninitialized"`・`"no_round"`・`"failed"` → `TUNING_FAILED`（取り戻す結果が無い）。`"completed"` → 向き、目的関数の同一性、config の探索空間を `resume=True` と同じく照合し（版の違いは警告）、結果を取り戻す。
+- 取り戻す結果は、その round で終わった tune が返したものと同じ: 最良の試行の値を系譜の経路で分けた `best_model_params` / `best_smart_params` / `best_training_params`、`best_score`、`metric_name`、`direction`、試行（番号から決まる round 付き）、`rounds`（`failed` の round を除く）、最後の round の `boundary_report`（記録したもの。使った `boundary_threshold` で判定したまま）。
+- Model に載せるもの（成功したときだけ、まとめて。H-0094 決定 14）: tune の結果、読んだ study、最後の round の実効空間、round 番号と `rounds`、`lizyml:study` の `fixed`、覚えておく `storage` と `study_name`、データ。fit 済みのモデルと fit の記録は変えない（H-0094 決定 13）。
+- study には何も書かない（属性も試行も変えず、RUNNING の試行も FAIL にしない）。
+- 取り戻したあとは、`fit()` が最良の試行と同じ学習になる（`fixed` を Model が持つため）。続けて `tune(resume=True)` を呼べば、その study で新しい round を始める。
 
 ## 11.6 リーク回避方針（必須で明文化）
 

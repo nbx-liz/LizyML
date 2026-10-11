@@ -6,7 +6,7 @@ config or provider import, so that both sides use the very same function:
 
 * ``lizyml.core._tuning_identity.config_parts`` digests every ``config.*``
   element with it, ``config.fixed`` included;
-* ``lineage_codec.decode_study`` re-digests a stored record's ``fixed`` with
+* ``lineage_records.decode_study`` re-digests a stored record's ``fixed`` with
   it and refuses the record unless the result is the record's own
   ``config.fixed`` element (:data:`FIXED_ELEMENT`). Identity proves that
   element equal to this call's; this proves the stored value -- the one the

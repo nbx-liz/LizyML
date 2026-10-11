@@ -1,10 +1,11 @@
 """H-0122 criterion 22: a refusal changes nothing (INV-R4).
 
-One table over every PR 1 refusal row (design §6.4, spec §8): each row builds
-its state, snapshots the study (trial count, states, values, params and every
-``lizyml:`` attribute; a stored study is re-read from the storage) and the
-Model's tune-owned state, calls ``tune``, checks the error code and the reason
-(so a row cannot pass on an unrelated refusal), and compares both snapshots.
+One table over every refusal row (PR 1 design §6.4, PR 2 design §8.2, spec
+§8): each row builds its state, snapshots the study (trial count, states,
+values, params and every ``lizyml:`` attribute; a stored study is re-read from
+the storage) and the Model's tune-owned state, calls ``tune`` (or
+``restore_tuning``), checks the error code and the reason (so a row cannot
+pass on an unrelated refusal), and compares both snapshots.
 
 Rows that refuse a Model holding a study use a Model that has tuned, so the
 snapshot covers real state, not only ``None`` fields.
@@ -14,148 +15,53 @@ from __future__ import annotations
 
 import copy
 import os
-import shutil
 from collections.abc import Callable
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-import optuna
 import pandas as pd
 import pytest
 from optuna.storages import RDBStorage
 
 from lizyml import Model
 from lizyml.core.exceptions import ErrorCode, LizyMLError
-from lizyml.tuning.lineage import STUDY_KEY, classify_study
+from lizyml.tuning.lineage import STUDY_KEY
+from tests.test_tuning._invariance import (
+    CI,
+    Case,
+    Env,
+    _changed_frame,
+    _empty_study,
+    _holding_c,
+    _memory_tuned,
+    _message,
+    _mismatched,
+    _state_is,
+    _surface,
+    env,
+    run_case,
+    templates,
+)
 from tests.test_tuning._resume_helpers import (
+    ADMISSION_SPACES,
+    CAT_LR,
     INCONSISTENT,
+    OPEN_SPACE,
     RATIO,
     admission_refused_config,
-    crash_round_2,
+    cat_config,
     delete_attrs,
     edge_config,
     fast_config,
     frame,
     load,
     set_attr,
-    snapshot_model,
-    snapshot_study,
+    space_of,
     study_record_for,
-    url,
 )
 
-CI = ErrorCode.CONFIG_INVALID
-
-
-# ---------------------------------------------------------------------------
-# Templates and the per-test environment
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture(scope="module")
-def templates(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Path]:
-    """``c``: state C, two rounds. ``o``: state O, round 2 with a RUNNING trial."""
-    root = tmp_path_factory.mktemp("invariance")
-    (root / "c").mkdir()
-    (root / "o").mkdir()
-    completed = url(root / "c")
-    Model(fast_config(), data=frame()).tune(storage=completed, study_name="s")
-    Model(fast_config(), data=frame()).tune(
-        resume=True, storage=completed, study_name="s"
-    )
-    with pytest.MonkeyPatch.context() as mp:
-        crash_round_2(mp, Model(edge_config(), data=frame()), url(root / "o"), "s")
-    return {"c": root / "c" / "s.db", "o": root / "o" / "s.db"}
-
-
-@dataclass
-class Env:
-    tmp_path: Path
-    c: str  # a copy of the C template
-    o: str  # a copy of the O template
-    spare: str  # an empty storage
-
-    def state(self, storage: str, name: str = "s") -> str:
-        study = load(storage, name)
-        return classify_study(study.user_attrs, study.trials).state
-
-
-@pytest.fixture
-def env(templates: dict[str, Path], tmp_path: Path) -> Env:
-    for key in ("c", "o"):
-        (tmp_path / key).mkdir()
-        shutil.copy(templates[key], tmp_path / key / "s.db")
-    (tmp_path / "spare").mkdir()
-    return Env(
-        tmp_path,
-        url(tmp_path / "c"),
-        url(tmp_path / "o"),
-        url(tmp_path / "spare"),
-    )
-
-
-@dataclass
-class Case:
-    """One refusal: the Model, where its study is, the call, and the reason."""
-
-    model: Model
-    #: ``(storage, name)`` re-read from the storage, or a study object.
-    study: Any
-    kwargs: dict[str, Any]
-    code: ErrorCode
-    reason: Callable[[LizyMLError], bool]
-    extra: dict[str, Any] = field(default_factory=dict)
-
-
-def _snapshot(case: Case) -> Any:
-    if isinstance(case.study, tuple):
-        return snapshot_study(*case.study), snapshot_model(case.model)
-    return snapshot_study(case.study), snapshot_model(case.model)
-
-
-# ---------------------------------------------------------------------------
-# Building blocks
-# ---------------------------------------------------------------------------
-
-
-def _memory_tuned() -> Model:
-    model = Model(fast_config(), data=frame())
-    model.tune()
-    return model
-
-
-def _holding_c(env: Env) -> Model:
-    """A Model that reattached to the C study (it now holds it, round 3)."""
-    model = Model(fast_config(), data=frame())
-    model.tune(resume=True, storage=env.c, study_name="s")
-    return model
-
-
-def _changed_frame() -> pd.DataFrame:
-    df = frame()
-    df.loc[0, "feat_a"] = float(df.loc[0, "feat_a"]) + 1.0
-    return df
-
-
-def _empty_study(env: Env, direction: str = "minimize") -> None:
-    optuna.create_study(storage=env.spare, study_name="s", direction=direction)
-
-
-def _surface(name: str) -> Callable[[LizyMLError], bool]:
-    return lambda e: e.context.get("surface") == name
-
-
-def _state_is(state: str) -> Callable[[LizyMLError], bool]:
-    return lambda e: e.context.get("state") == state
-
-
-def _mismatched(element: str) -> Callable[[LizyMLError], bool]:
-    return lambda e: element in e.context.get("mismatched", ())
-
-
-def _message(fragment: str) -> Callable[[LizyMLError], bool]:
-    return lambda e: fragment in e.user_message
+#: The fixtures this table runs on (imported so pytest finds them here).
+__all__ = ["env", "templates"]
 
 
 # ---------------------------------------------------------------------------
@@ -447,6 +353,241 @@ def _no_study_no_storage(env: Env) -> Case:
     )
 
 
+# ---------------------------------------------------------------------------
+# PR 2: `space=` rows (criteria 7, 8b, 12, 14, 19, 29)
+# ---------------------------------------------------------------------------
+
+#: A well-formed `space=`: the fast config's own space.
+SPACE = space_of(fast_config())
+
+
+def _space_reason(e: LizyMLError) -> bool:
+    return e.context.get("surface") == "tune(space=)"
+
+
+def _creates_study(e: LizyMLError) -> bool:
+    return _space_reason(e) and e.context.get("creates_study") is True
+
+
+def _space_on_create_memory(env: Env) -> Case:
+    model = _memory_tuned()
+    return Case(model, model._study, {"space": SPACE}, CI, _creates_study)
+
+
+def _space_on_create_storage_absent(env: Env) -> Case:
+    model = _memory_tuned()
+    return Case(
+        model,
+        model._study,
+        {"storage": env.spare, "study_name": "s", "space": SPACE},
+        CI,
+        _creates_study,
+        {"no_file": env.spare},
+    )
+
+
+def _space_on_u3(env: Env) -> Case:
+    """U3 lists the storage's studies (which may create the SQLite file, design
+    D-c), so the check is that no study was created, not that no file is."""
+    return Case(
+        Model(fast_config(), data=frame()),
+        None,
+        {"resume": True, "storage": env.spare, "study_name": "s", "space": SPACE},
+        CI,
+        _creates_study,
+        {"absent_study": (env.spare, "s")},
+    )
+
+
+def _space_on_stored(prepare: Callable[[Env], None]) -> Callable[[Env], Case]:
+    def build(env: Env) -> Case:
+        prepare(env)
+        return Case(
+            Model(fast_config(), data=frame()),
+            (env.spare, "s"),
+            {
+                "resume": True,
+                "storage": env.spare,
+                "study_name": "s",
+                "space": SPACE,
+            },
+            CI,
+            _creates_study,
+        )
+
+    return build
+
+
+def _cat_tuned() -> Model:
+    model = Model(cat_config(), data=frame())
+    model.tune()
+    return model
+
+
+#: name -> (dim, the changed declaration, ``context["changed"]``).
+UNCHANGEABLE: dict[str, tuple[str, dict[str, Any], str]] = {
+    "space_kind": ("learning_rate", {"type": "int", "low": 1, "high": 3}, "kind"),
+    "space_log": ("learning_rate", {**CAT_LR, "log": False}, "log"),
+    "space_choice_type": (
+        "lambda_l2",
+        {"type": "categorical", "choices": [0.0, 1.0]},
+        "choices",
+    ),
+    "space_choice_order": (
+        "lambda_l2",
+        {"type": "categorical", "choices": [1, 0]},
+        "choices",
+    ),
+}
+
+
+def _unchangeable(row: str) -> Callable[[Env], Case]:
+    def build(env: Env) -> Case:
+        name, spec, changed = UNCHANGEABLE[row]
+        model = _cat_tuned()
+        space = space_of(cat_config())
+        space[name] = spec
+        return Case(
+            model,
+            model._study,
+            {"resume": True, "space": space},
+            CI,
+            lambda e: (
+                _space_reason(e)
+                and e.context.get("dim") == name
+                and e.context.get("changed") == changed
+            ),
+        )
+
+    return build
+
+
+def _space_category(env: Env) -> Case:
+    model = _cat_tuned()
+    space = space_of(cat_config())
+    space[RATIO] = {**space[RATIO], "category": "model"}
+    return Case(
+        model,
+        model._study,
+        {"resume": True, "space": space},
+        CI,
+        lambda e: _space_reason(e) and "category" in e.user_message,
+    )
+
+
+#: The new-tune admission checks read `space=` (criterion 29 bullet 2, and
+#: H-0121 on a user-written dim): the shared `ADMISSION_SPACES`, plus a
+#: malformed shape.
+ADMISSION: dict[str, dict[str, Any]] = {
+    **{f"space_{name}": space for name, space in ADMISSION_SPACES.items()},
+    "space_malformed_shape": {"learning_rate": [0.1, 0.2]},
+}
+
+
+def _admission(row: str) -> Callable[[Env], Case]:
+    def build(env: Env) -> Case:
+        model = _memory_tuned()
+        return Case(
+            model,
+            model._study,
+            {"resume": True, "space": ADMISSION[row]},
+            CI,
+            _message("tune(space=)"),
+        )
+
+    return build
+
+
+def _open_space(variant: str) -> Callable[[Env], Case]:
+    """U2: an open round started with `space=` takes only its own space."""
+    given = {
+        "range": {
+            **OPEN_SPACE,
+            "learning_rate": {**OPEN_SPACE["learning_rate"], "high": 0.3},
+        },
+        "choice_type": {
+            **OPEN_SPACE,
+            "lambda_l1": {"type": "categorical", "choices": [0, 1.0]},
+        },
+    }[variant]
+
+    def build(env: Env) -> Case:
+        assert env.state(env.os) == "open"
+        return Case(
+            Model(edge_config(), data=frame()),
+            (env.os, "s"),
+            {"resume": True, "storage": env.os, "study_name": "s", "space": given},
+            CI,
+            lambda e: _space_reason(e) and e.context.get("round") == 2,
+        )
+
+    return build
+
+
+# ---------------------------------------------------------------------------
+# PR 2: `restore_tuning` rows (criterion 36)
+# ---------------------------------------------------------------------------
+
+
+def _restore(
+    storage_of: Callable[[Env], str],
+    code: ErrorCode,
+    state: str,
+    prepare: Callable[[Env], None] | None = None,
+) -> Callable[[Env], Case]:
+    """``restore_tuning(storage, "s")`` on a Model that has tuned in memory."""
+
+    def build(env: Env) -> Case:
+        if prepare is not None:
+            prepare(env)
+        storage = storage_of(env)
+        assert env.state(storage) == state
+        return Case(
+            _memory_tuned(),
+            (storage, "s"),
+            {},
+            code,
+            _state_is(state),
+            method="restore_tuning",
+            args=(storage, "s"),
+        )
+
+    return build
+
+
+def _restore_absent(env: Env) -> Case:
+    return Case(
+        _memory_tuned(),
+        None,
+        {},
+        ErrorCode.TUNING_FAILED,
+        _state_is("absent"),
+        {"absent_study": (env.spare, "s")},
+        method="restore_tuning",
+        args=(env.spare, "s"),
+    )
+
+
+def _restore_identity_data(env: Env) -> Case:
+    return Case(
+        _memory_tuned(),
+        (env.c, "s"),
+        {"data": _changed_frame()},
+        CI,
+        _mismatched("data.values"),
+        method="restore_tuning",
+        args=(env.c, "s"),
+    )
+
+
+def _legacy_c(env: Env) -> None:
+    assert delete_attrs(env.c, "lizyml:%") > 0
+
+
+def _unreadable_c(env: Env) -> None:
+    set_attr(env.c, "s", STUDY_KEY, {"schema": 999})
+
+
 ROWS: dict[str, Callable[[Env], Case]] = {
     "storage_no_name[resume=False]": lambda env: _storage_no_name(env, False),
     "storage_no_name[resume=True]": lambda env: _storage_no_name(env, True),
@@ -479,26 +620,47 @@ ROWS: dict[str, Callable[[Env], Case]] = {
     "no_round_admission": _no_round_admission,
     "direction_mismatch": _direction_mismatch,
     "no_study_no_storage": _no_study_no_storage,
+    # --- PR 2: `space=` ---
+    "space_on_create[memory]": _space_on_create_memory,
+    "space_on_create[storage_absent]": _space_on_create_storage_absent,
+    "space_on_u3": _space_on_u3,
+    "space_on_no_round": _space_on_stored(
+        lambda env: _no_round(env, fast_config(), frame())
+    ),
+    "space_on_uninitialised": _space_on_stored(_empty_study),
+    **{row: _unchangeable(row) for row in UNCHANGEABLE},
+    "space_category[smart_to_model]": _space_category,
+    **{row: _admission(row) for row in ADMISSION},
+    "open_space[range]": _open_space("range"),
+    "open_space[choice_type]": _open_space("choice_type"),
+    # --- PR 2: `restore_tuning` ---
+    "restore[open]": _restore(lambda env: env.o, CI, "open"),
+    "restore[failed]": _restore(lambda env: env.f, ErrorCode.TUNING_FAILED, "failed"),
+    "restore[uninitialised]": _restore(
+        lambda env: env.spare,
+        ErrorCode.TUNING_FAILED,
+        "uninitialized",
+        _empty_study,
+    ),
+    "restore[no_round]": _restore(
+        lambda env: env.spare,
+        ErrorCode.TUNING_FAILED,
+        "no_round",
+        lambda env: _no_round(env, fast_config(), frame()),
+    ),
+    "restore[absent]": _restore_absent,
+    "restore[legacy]": _restore(lambda env: env.c, CI, "legacy", _legacy_c),
+    "restore[unreadable]": _restore(lambda env: env.c, CI, "unreadable", _unreadable_c),
+    "restore[inconsistent:gap]": _restore(
+        lambda env: env.c,
+        CI,
+        "inconsistent",
+        lambda env: INCONSISTENT["gap"](env.c),
+    ),
+    "restore[identity_data]": _restore_identity_data,
 }
 
 
 @pytest.mark.parametrize("row", list(ROWS))
 def test_refusal_changes_nothing(env: Env, row: str) -> None:
-    case = ROWS[row](env)
-    also = case.extra.get("also")
-    before = (
-        _snapshot(case) if case.study is not None else snapshot_model(case.model),
-        snapshot_study(also) if also is not None else None,
-    )
-    with pytest.raises(LizyMLError) as caught:
-        case.model.tune(**case.kwargs)
-    error = caught.value
-    assert error.code is case.code, error
-    assert case.reason(error), (error.user_message, error.context)
-    after = (
-        _snapshot(case) if case.study is not None else snapshot_model(case.model),
-        snapshot_study(also) if also is not None else None,
-    )
-    assert after == before
-    if "no_file" in case.extra:
-        assert not Path(case.extra["no_file"][len("sqlite:///") :]).exists()
+    run_case(ROWS[row](env))

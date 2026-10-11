@@ -3,40 +3,54 @@
 A tune runs one round of a study. Before anything is written, this module
 decides that round completely -- its declared and effective space, boundary
 expansion, budget, first trial number and dimension routes -- as a frozen
-:class:`RoundPlan`. Three planners cover the three ways a round starts:
+:class:`RoundPlan`. :func:`plan_round` dispatches on the study's state to the
+three planners:
 
 * :func:`plan_first_round` -- round 1 of a new study, or of a stored study in
   state E (uninitialized) or N (no round). The space comes from the config.
 * :func:`plan_next_round` -- after a closed round (state C or F). The space is
-  the previous round's, expanded from the study's best trial.
+  the previous round's, or a ``tune(space=...)`` declaration, expanded from
+  the study's best trial.
 * :func:`plan_open_round` -- an open round (state O) finished on reattach. The
   round's record decides everything; arguments are only compared (U2).
 
-Pure: reads the config, the provider and the lineage, and writes nothing --
-neither the study nor the Model. Every refusal here is ``CONFIG_INVALID`` and
-happens before the first write (INV-R4).
+Pure: reads the config, the provider, the lineage and the study's best trial,
+and writes nothing -- neither the study nor the Model. Every refusal here is
+``CONFIG_INVALID`` and happens before the first write (INV-R4).
 """
 
 from __future__ import annotations
 
 import dataclasses
 import warnings
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
-from lizyml.core._tuning_validation import admit_smart_dimensions
+from lizyml.core._tuning_space import (
+    Declaration,
+    ResolvedSpace,
+    admit_routes,
+    admit_smart,
+    carry_forward,
+    outside_range,
+    refuse_unchangeable,
+    resolve_declaration,
+    resolve_space,
+    route_entries,
+    same_declared_space,
+    space_summary,
+)
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.logging import get_logger
 from lizyml.core.types.tuning_result import BoundaryReport
 from lizyml.tuning.lineage import (
     Lineage,
     Provenance,
+    RoundSource,
     Route,
-    RouteConflict,
     StoredRound,
     TrialLike,
-    merge_routes,
     remaining_timeout,
     remaining_trials,
     trials_of_round,
@@ -53,6 +67,18 @@ if TYPE_CHECKING:
     from lizyml.core.types.search_dim import SearchDim
     from lizyml.estimators.provider import EstimatorProvider
 
+__all__ = [
+    "ResolvedSpace",
+    "RoundPlan",
+    "expand_for_next_round",
+    "plan_first_round",
+    "plan_next_round",
+    "plan_open_round",
+    "plan_round",
+    "resolve_config_space",
+    "route_entries",
+]
+
 _log = get_logger("model")
 
 PlanKind = Literal["first", "next", "open"]
@@ -63,115 +89,21 @@ PlanKind = Literal["first", "next", "open"]
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True)
-class ResolvedSpace:
-    """The config's search space resolved by ``space_mode``, without bounds.
-
-    ``provenance`` says, per declared dimension, whether the user wrote it or
-    it came from the provider's default space; ``default_dims`` is the same
-    information as the set H-0121 decision 4 reads. ``used_default`` is merge
-    mode with no user dimension (the H-0102 ``expand_boundary=None`` rule).
-    """
-
-    declared: tuple[SearchDim, ...]
-    provenance: tuple[Provenance, ...]
-    used_default: bool
-    fixed: dict[str, Any]
-    default_dims: frozenset[tuple[str, str]]
-
-
 def resolve_config_space(
     cfg: LizyMLConfig, provider: EstimatorProvider
 ) -> ResolvedSpace:
     """Resolve ``tuning.optuna.space`` by ``space_mode`` (H-0024, H-0121).
 
-    ``replace`` declares the user's dimensions only, with no fixed parameters.
-    ``merge`` lays the user's dimensions over the provider's default space by
-    parameter identity (a model dimension's alias meets its canonical name)
-    and fixes the provider's ``default_fixed_params``.
+    The config's declaration through :func:`resolve_space`, the same
+    resolution a ``tune(space=...)`` round gets.
     """
     assert cfg.tuning is not None  # noqa: S101 -- validated upstream
-    user_space = parse_space(cfg.tuning.optuna.space)
-    if cfg.tuning.optuna.space_mode == "replace":
-        return ResolvedSpace(
-            declared=tuple(user_space),
-            provenance=tuple(
-                Provenance(d.category, d.name, "user") for d in user_space
-            ),
-            used_default=False,
-            fixed={},
-            default_dims=frozenset(),
-        )
-    defaults = provider.default_space(cfg.task)
-    canonical = provider.canonical_param_names(
-        [dim.name for dim in [*defaults, *user_space] if dim.category == "model"]
+    return resolve_space(
+        cfg.tuning.optuna.space_mode,
+        parse_space(cfg.tuning.optuna.space),
+        provider,
+        cfg.task,
     )
-
-    def identity(dim: SearchDim) -> tuple[str, str]:
-        return (
-            dim.category,
-            canonical[dim.name] if dim.category == "model" else dim.name,
-        )
-
-    overrides = {identity(dim): dim for dim in user_space}
-    default_dims = frozenset(
-        (dim.category, dim.name) for dim in defaults if identity(dim) not in overrides
-    )
-    declared = [overrides.pop(identity(dim), dim) for dim in defaults]
-    declared.extend(overrides.values())
-    return ResolvedSpace(
-        declared=tuple(declared),
-        provenance=tuple(
-            Provenance(
-                d.category,
-                d.name,
-                "default" if (d.category, d.name) in default_dims else "user",
-            )
-            for d in declared
-        ),
-        used_default=not user_space,
-        fixed=provider.default_fixed_params(cfg.task),
-        default_dims=default_dims,
-    )
-
-
-def route_entries(
-    dims: Iterable[SearchDim], provider: EstimatorProvider
-) -> tuple[Route, ...]:
-    """The route of each dimension (§4.1b).
-
-    ``name`` is the raw dimension name, which is also the Optuna param key.
-    Only ``model`` names are canonicalised: canonicalising the training
-    dimension ``early_stopping_rounds`` would give LightGBM's
-    ``early_stopping_round``.
-    """
-    dims = list(dims)
-    canonical = provider.canonical_param_names(
-        [d.name for d in dims if d.category == "model"]
-    )
-    return tuple(
-        Route(
-            name=d.name,
-            canonical=canonical[d.name] if d.category == "model" else d.name,
-            category=d.category,
-        )
-        for d in dims
-    )
-
-
-def _admit_routes(existing: Mapping[str, Route], added: Iterable[Route]) -> None:
-    """Refuse a route that would re-route a name (§4.1b; append-only)."""
-    try:
-        merge_routes(existing, added)
-    except RouteConflict as exc:
-        raise LizyMLError(
-            code=ErrorCode.CONFIG_INVALID,
-            user_message=(
-                f"tuning.optuna.space: {exc}. A dimension's category cannot change "
-                "within a study; start a new study (another study_name)."
-            ),
-            context={"surface": "tuning.optuna.space", "reason": str(exc)},
-        ) from exc
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +117,8 @@ class RoundPlan:
 
     ``budget_*`` is what the round record says the round asked for;
     ``run_*`` is what this call runs (the remainder, for an open round).
+    ``source`` / ``space_arg`` say where the declaration came from: the
+    config (round 1), the previous round, or ``tune(space=...)``.
     """
 
     kind: PlanKind
@@ -204,6 +138,8 @@ class RoundPlan:
     routes_added: tuple[Route, ...]
     run_n_trials: int
     run_timeout: float | None
+    source: RoundSource
+    space_arg: tuple[SearchDim, ...] | None = None
     running_to_fail: tuple[int, ...] = ()
 
     @property
@@ -223,8 +159,8 @@ class RoundPlan:
         """The ``lizyml:round:<k>`` record this plan writes (not for ``open``)."""
         return StoredRound(
             round=self.round_number,
-            source="config" if self.round_number == 1 else "previous",
-            space_arg=None,
+            source=self.source,
+            space_arg=self.space_arg,
             provenance=self.provenance,
             declared=self.declared,
             effective=self.effective,
@@ -263,21 +199,17 @@ def plan_first_round(
 ) -> RoundPlan:
     """Round 1 from the config space (a new study, or state E / N).
 
-    H-0121 runs here and only here: a smart dimension nothing would read is
-    refused when the user wrote it and dropped when it is a default, before
-    the round records its declared space. Later rounds inherit the drop.
+    H-0121 runs before the round records its declared space: a smart
+    dimension nothing would read is refused when the user wrote it and
+    dropped when it is a default. Later rounds inherit the drop, or apply the
+    rule again to a ``space=`` declaration.
     """
-    declared, dropped = admit_smart_dimensions(
-        provider, list(resolved.declared), base_smart, resolved.default_dims
+    declared = admit_smart(
+        provider, resolved.declared, base_smart, resolved.default_dims
     )
-    if dropped:
-        _log.info(
-            "event='tune.drop_dims' reason=inactive_smart_owner dims=%s",
-            ",".join(dim.name for dim in dropped),
-        )
     kept = {(d.category, d.name) for d in declared}
     routes = route_entries(declared, provider)
-    _admit_routes({}, routes)
+    admit_routes({}, routes)
     config_n_trials, timeout = _config_budget(cfg)
     budget = n_trials if n_trials is not None else config_n_trials
     return RoundPlan(
@@ -302,6 +234,7 @@ def plan_first_round(
         routes_added=routes,
         run_n_trials=budget,
         run_timeout=timeout,
+        source="config",
     )
 
 
@@ -315,9 +248,8 @@ def expand_for_next_round(
     """Detect near-edge dimensions and expand them (H-0068, H-0078, H-0111).
 
     The report is returned even when nothing expanded. ``frozen_names`` are
-    reported with ``expanded=False`` and left as they are: the hook §5.3
-    bullets 1-2 need (a changed declaration, a best outside the range), which
-    only ``space=`` can produce (PR 2).
+    reported with ``expanded=False`` and left as they are (§5.3 bullets 1-2:
+    a changed declaration, a best outside the range).
     """
     report = detect_boundary(list(previous), dict(best_params), threshold)
     if frozen_names:
@@ -361,6 +293,7 @@ def expand_for_next_round(
 
 def plan_next_round(
     cfg: LizyMLConfig,
+    provider: EstimatorProvider,
     *,
     lineage: Lineage,
     n_study_trials: int,
@@ -369,32 +302,57 @@ def plan_next_round(
     n_trials: int | None,
     expand_boundary: bool | None,
     boundary_threshold: float,
+    declaration: Declaration | None,
 ) -> RoundPlan:
     """A new round after a closed one (state C or F).
 
-    The declaration is the previous round's; the previous best is the study's
-    best COMPLETE trial, never the Model's tuning result (§5.3). A study in
-    state F has no COMPLETE trial, so nothing is expanded.
+    Without *declaration* the round declares the previous round's space and
+    starts from its effective space. With one (``tune(space=...)``), a dim
+    keeps the previous effective range only if its declaration is unchanged
+    (5.2-2); the distribution kind, ``log`` and choices may not change
+    (5.2-3). A changed or new dim, and a dim whose best lies outside its
+    range, is not expanded (5.3). The previous best is the study's best
+    COMPLETE trial, never the Model's tuning result (§5.3); a study in state
+    F has none, so nothing is expanded.
     """
     study, last = lineage.study, lineage.last_round
     assert study is not None and last is not None  # noqa: S101 -- C/F only
-    used_default = _uses_default(study.space_mode, last.provenance)
+    source: RoundSource = "previous"
+    space_arg: tuple[SearchDim, ...] | None = None
+    routes_added: tuple[Route, ...] = ()
+    declared, provenance = last.declared, last.provenance
+    base: tuple[SearchDim, ...] = last.effective
+    changed: frozenset[str] = frozenset()
+    if declaration is not None:
+        refuse_unchangeable(declaration.declared, lineage.rounds, lineage.routes)
+        base, changed = carry_forward(
+            declaration.declared,
+            last,
+            provider.parameter_bounds(cfg.task),
+            lineage.routes,
+        )
+        declared, provenance = declaration.declared, declaration.provenance
+        source, space_arg = "space_arg", declaration.space_arg
+        routes_added = declaration.routes_added
+    used_default = _uses_default(study.space_mode, provenance)
     should = expand_boundary if expand_boundary is not None else used_default
-    effective: tuple[SearchDim, ...] = last.effective
-    report: BoundaryReport | None = None
+    effective, report = base, None
     if not should:
         _log.info("event='tune.resume' expand_boundary=False")
     elif best_params is not None:
         effective, report = expand_for_next_round(
-            last.effective, best_params, boundary_threshold
+            base,
+            best_params,
+            boundary_threshold,
+            frozen_names=changed | outside_range(base, best_params),
         )
     config_n_trials, timeout = _config_budget(cfg)
     budget = n_trials if n_trials is not None else config_n_trials
     return RoundPlan(
         kind="next",
         round_number=last.round + 1,
-        declared=last.declared,
-        provenance=last.provenance,
+        declared=declared,
+        provenance=provenance,
         effective=effective,
         used_default=used_default,
         fixed=dict(study.fixed),
@@ -405,9 +363,11 @@ def plan_next_round(
         budget_timeout=timeout,
         start_trial=n_study_trials,
         best_before=best_value if best_params is not None else None,
-        routes_added=(),
+        routes_added=routes_added,
         run_n_trials=budget,
         run_timeout=timeout,
+        source=source,
+        space_arg=space_arg,
     )
 
 
@@ -435,13 +395,15 @@ def plan_open_round(
     n_trials: int | None,
     expand_boundary: bool | None,
     boundary_threshold: float,
+    space_declaration: Declaration | None = None,
 ) -> RoundPlan:
     """Finish an open round (state O) with its remaining budget (§7.2).
 
     The round's record decides its space, report and budget. U2: an
     ``n_trials`` or ``expand_boundary`` that is not ``None`` must equal the
-    recorded value. Trials left RUNNING are FAILed before the round runs, so
-    they count as used.
+    recorded value, and a ``space=`` must resolve to the recorded declared
+    space. Trials left RUNNING are FAILed before the round runs, so they
+    count as used.
     """
     study, record = lineage.study, lineage.last_round
     assert study is not None and record is not None  # noqa: S101 -- O only
@@ -451,6 +413,15 @@ def plan_open_round(
     if expand_boundary is not None and expand_boundary != record.expand_boundary:
         _refuse_changed_argument(
             k, "expand_boundary", record.expand_boundary, expand_boundary
+        )
+    if space_declaration is not None and not same_declared_space(
+        space_declaration.declared, record.declared, lineage.routes
+    ):
+        _refuse_changed_argument(
+            k,
+            "space",
+            space_summary(record.declared, lineage.routes),
+            space_summary(space_declaration.declared, lineage.routes),
         )
     config_n_trials, config_timeout = _config_budget(cfg)
     if config_timeout != record.timeout:
@@ -465,7 +436,7 @@ def plan_open_round(
             f"tuning.optuna.params.n_trials={config_n_trials} is ignored: round {k} "
             f"is open and finishes with its recorded n_trials={record.n_trials}.",
             UserWarning,
-            stacklevel=3,
+            stacklevel=4,
         )
     if boundary_threshold != record.boundary_threshold:
         _log.info(
@@ -494,7 +465,89 @@ def plan_open_round(
         routes_added=record.routes_added,
         run_n_trials=remaining_trials(record, round_trials),
         run_timeout=remaining_timeout(record, round_trials),
+        source=record.source,
+        space_arg=record.space_arg,
         running_to_fail=tuple(
             t.number for t in round_trials if t.state.name == "RUNNING"
         ),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Dispatch (§7.4)
+# ---------------------------------------------------------------------------
+
+
+def plan_round(
+    cfg: LizyMLConfig,
+    provider: EstimatorProvider,
+    *,
+    lineage: Lineage | None,
+    trials: Sequence[TrialLike],
+    study: Any | None,
+    fixed: Mapping[str, Any],
+    base_smart: dict[str, Any],
+    n_trials: int | None,
+    expand_boundary: bool | None,
+    boundary_threshold: float,
+    space_dims: Sequence[SearchDim] | None,
+) -> RoundPlan:
+    """Dispatch to the planner for the study's state (§7.4).
+
+    *space_dims* is the parsed ``tune(space=...)``. It reaches only states O,
+    C and F: a call that creates a study with ``space=`` is refused before
+    planning (§3, §7.4 rows E / N).
+    """
+    state = lineage.state if lineage is not None else "absent"
+    declaration: Declaration | None = None
+    if space_dims is not None and lineage is not None:
+        assert lineage.study is not None  # noqa: S101 -- states O / C / F
+        declaration = resolve_declaration(
+            space_dims,
+            space_mode=lineage.study.space_mode,
+            provider=provider,
+            task=cfg.task,
+            routes=lineage.routes,
+            base_smart=base_smart,
+        )
+    if state == "open":
+        assert lineage is not None  # noqa: S101
+        return plan_open_round(
+            cfg,
+            lineage=lineage,
+            trials=trials,
+            n_trials=n_trials,
+            expand_boundary=expand_boundary,
+            boundary_threshold=boundary_threshold,
+            space_declaration=declaration,
+        )
+    if state in ("completed", "failed"):
+        assert lineage is not None and study is not None  # noqa: S101
+        # The previous best comes from the study, never from the Model's
+        # `_tuning_result` (§5.3): a loaded Model's may be another study's.
+        complete = any(t.state.name == "COMPLETE" for t in trials)
+        best = study.best_trial if complete else None
+        return plan_next_round(
+            cfg,
+            provider,
+            lineage=lineage,
+            n_study_trials=len(trials),
+            best_params=best.params if best is not None else None,
+            best_value=best.value if best is not None else None,
+            n_trials=n_trials,
+            expand_boundary=expand_boundary,
+            boundary_threshold=boundary_threshold,
+            declaration=declaration,
+        )
+    # absent (a new study), uninitialized (E) or no_round (N).
+    assert space_dims is None  # noqa: S101 -- refused as creating a study
+    return plan_first_round(
+        cfg,
+        provider,
+        resolved=resolve_config_space(cfg, provider),
+        fixed=fixed,
+        base_smart=base_smart,
+        n_trials=n_trials,
+        expand_boundary=expand_boundary,
+        boundary_threshold=boundary_threshold,
     )

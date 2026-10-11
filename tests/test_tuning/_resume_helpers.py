@@ -13,6 +13,9 @@
   ``__main__``).
 * :func:`spy_tuner`, :func:`study_record_for` -- what the round runs with, and
   a ``lizyml:study`` record built for a given config (states E/N by hand).
+* :func:`space_of`, :func:`round_record`, :func:`round_trials`,
+  :func:`spy_fit_params` -- a config space as a ``space=`` base, a decoded
+  round record, a round's trials, and what ``fit`` / a trial trains on.
 """
 
 from __future__ import annotations
@@ -313,6 +316,168 @@ def spy_tuner(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
     monkeypatch.setattr(Tuner, "__init__", init)
     monkeypatch.setattr(Tuner, "run", run)
     return seen
+
+
+def space_of(cfg_dict: dict[str, Any]) -> dict[str, Any]:
+    """A deep copy of the config's space, as a base for ``tune(space=...)``."""
+    return copy.deepcopy(cfg_dict["tuning"]["optuna"]["space"])
+
+
+def round_record(study_or_url: Any, k: int, name: str = "s") -> Any:
+    """Decode ``lizyml:round:<k>`` from a study object or a storage URL."""
+    from lizyml.tuning.lineage import decode_round
+
+    study = load(study_or_url, name) if isinstance(study_or_url, str) else study_or_url
+    return decode_round(study.user_attrs[round_key(k)])
+
+
+def round_trials(study_or_url: Any, k: int, name: str = "s") -> list[Any]:
+    """The trials whose number falls in round *k*'s range."""
+    from lizyml.tuning.lineage import classify_study, trials_of_round
+
+    study = load(study_or_url, name) if isinstance(study_or_url, str) else study_or_url
+    lineage = classify_study(study.user_attrs, study.trials)
+    return list(trials_of_round(lineage, k, study.trials))
+
+
+def spy_fit_params(
+    monkeypatch: pytest.MonkeyPatch, model: Model
+) -> list[dict[str, Any]]:
+    """Record the keyword arguments of every ``_build_train_components`` call.
+
+    It runs once per tune trial and once per ``fit``, so install it after the
+    tune to see what ``fit`` trains on.
+    """
+    seen: list[dict[str, Any]] = []
+    real = model._build_train_components
+
+    def build(*args: Any, **kwargs: Any) -> Any:
+        seen.append(copy.deepcopy(kwargs))
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(model, "_build_train_components", build)
+    return seen
+
+
+def die_after_attr(monkeypatch: pytest.MonkeyPatch, key: str) -> None:
+    """Write the study attribute *key*, then raise :class:`ProcessDeath`.
+
+    ``die_after_attr(end_key(k))`` leaves state C (or F) with the caller never
+    receiving the result: the case ``Model.restore_tuning`` exists for (§7.7).
+    """
+    real = tuner_module.write_study_attr
+
+    def write(study: Any, attr: str, value: Any) -> None:
+        real(study, attr, value)
+        if attr == key:
+            raise ProcessDeath(f"died after writing {attr}")
+
+    monkeypatch.setattr(tuner_module, "write_study_attr", write)
+
+
+def failed_round_1(storage: Any, name: str = "s") -> None:
+    """Leave *storage* in state F: round 1 closed ``failed`` (the 8a flow).
+
+    Round 1 (``n_trials=1``) dies in its only trial, which stays RUNNING; a
+    reattach FAILs it, closes the round ``failed`` and raises ``TUNING_FAILED``.
+    """
+    from lizyml.core.exceptions import ErrorCode, LizyMLError
+
+    cfg = edge_config(n_trials=1)
+    first = Model(cfg, data=frame())
+    with pytest.MonkeyPatch.context() as mp:
+        die_in_objective(mp, first, at_call=1)
+        with pytest.raises(ProcessDeath):
+            first.tune(storage=storage, study_name=name)
+    with pytest.raises(LizyMLError) as caught:
+        Model(cfg, data=frame()).tune(resume=True, storage=storage, study_name=name)
+    assert caught.value.code is ErrorCode.TUNING_FAILED
+
+
+#: A replace-mode space with categorical, smart and training dims, so
+#: ``space=`` can change choices and categories (criteria 7, 12, 22).
+CAT_LR: dict[str, Any] = {"type": "float", "low": 0.05, "high": 0.3, "log": True}
+
+
+def cat_config() -> dict[str, Any]:
+    cfg = fast_config(n_trials=2)
+    cfg["model"]["auto_num_leaves"] = True
+    cfg["tuning"]["optuna"]["space"] = {
+        "learning_rate": dict(CAT_LR),
+        "extra_trees": {"type": "categorical", "choices": [True, False]},
+        "lambda_l2": {"type": "categorical", "choices": [0, 1]},
+        "num_leaves_ratio": {
+            "type": "float",
+            "low": 0.5,
+            "high": 1.0,
+            "category": "smart",
+        },
+        "early_stopping_rounds": {
+            "type": "int",
+            "low": 5,
+            "high": 10,
+            "category": "training",
+        },
+    }
+    return cfg
+
+
+#: ``space=`` declarations the new-tune admission checks refuse on a round
+#: after the first (criteria 22, 29 bullet 2, and H-0121 on a user dim).
+ADMISSION_SPACES: dict[str, dict[str, Any]] = {
+    "unknown_name": {"not_a_param": {"type": "float", "low": 0.1, "high": 0.2}},
+    "alias_duplicate": {
+        "learning_rate": dict(CAT_LR),
+        "eta": {"type": "float", "low": 0.05, "high": 0.3},
+    },
+    "training_as_model": {
+        "early_stopping_rounds": {"type": "int", "low": 5, "high": 10},
+    },
+    "inactive_smart_user": {
+        "num_leaves_ratio": {
+            "type": "float",
+            "low": 0.5,
+            "high": 1.0,
+            "category": "smart",
+        }
+    },
+    "unknown_training": {
+        "not_a_knob": {"type": "int", "low": 1, "high": 3, "category": "training"}
+    },
+    "unknown_smart": {
+        "not_a_smart": {"type": "float", "low": 0.1, "high": 0.2, "category": "smart"}
+    },
+}
+
+
+#: Round 2 of :func:`open_with_space` declares this space (criterion 8b, 22).
+OPEN_SPACE: dict[str, Any] = {
+    "num_leaves": {"type": "int", "low": 4, "high": 5},
+    "learning_rate": {"type": "float", "low": 0.05, "high": 0.25, "log": True},
+    "lambda_l1": {"type": "categorical", "choices": [0.0, 1.0]},
+}
+
+
+def open_with_space(root: Path, space: dict[str, Any]) -> str:
+    """A stored study ``s`` in state O whose round 2 was started with *space*.
+
+    Round 1 runs ``ROUND_1_TRIALS``; round 2 (``expand_boundary=True``) dies in
+    its 2nd trial, which stays RUNNING.
+    """
+    from lizyml.tuning.lineage import classify_study
+
+    storage = url(root)
+    model = Model(edge_config(), data=frame())
+    model.tune(n_trials=ROUND_1_TRIALS, storage=storage, study_name="s")
+    with pytest.MonkeyPatch.context() as mp:
+        die_in_objective(mp, model, at_call=DIE_AT_CALL)
+        with pytest.raises(ProcessDeath):
+            model.tune(resume=True, expand_boundary=True, space=space)
+    study = load(storage, "s")
+    lineage = classify_study(study.user_attrs, study.trials)
+    assert lineage.state == "open"
+    assert lineage.rounds[-1].source == "space_arg"
+    return storage
 
 
 def study_record_for(cfg_dict: dict[str, Any], df: pd.DataFrame) -> dict[str, Any]:

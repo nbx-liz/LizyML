@@ -169,6 +169,9 @@ INVENTORY: dict[str, tuple[str, ...] | str] = {
     "probability_histogram_plot": ("probability_histogram_plot",),
     "residuals": ("residuals",),
     "residuals_plot": ("residuals_plot",),
+    "restore_tuning": (
+        "restores tune state from a stored study; a lifecycle step, not a reading"
+    ),
     "roc_curve_plot": ("roc_curve_plot",),
     "split_summary": ("split_summary",),
     "tune": "searches; it is a lifecycle step here, not a reading",
