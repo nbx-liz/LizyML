@@ -11975,8 +11975,8 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
 
 4. **#299: 既定の空間から来た、消費者が無効な smart の次元は落とす。**
    - **出どころの記録**: `_resolve_search_space`（`core/_model_tuning.py`）は、`merge` で利用者が上書きしていない既定の次元の名前（出どころが既定の次元）を、空間と一緒に返す。
-   - **判定と落とす位置**: `tune` は `_merge_params` の後、境界の拡張（`_maybe_expand_boundary`）の前で、方針 3 の規則により無効な smart の次元を求める。出どころが既定の次元は空間から外し、利用者の次元は方針 3 のとおり拒否する。
-   - **範囲**: 方針 3・4 は新しい tune（`resume=False`）の空間の受け付けだけを扱う。`resume` は扱わない。resume で smart の値を変えることは目的関数の変更なので、resume の互換性の Proposal（`docs/audits/2026-10-tuning-resume/resume-spec-draft.md` を元に H-0122 として登録する予定）が resume そのものを拒否する。その Proposal は、round ごとに宣言した空間を解決するときに方針 3・4 を当てる。（この Proposal の審査の round 1 で resume の規則を足したが、保存した空間から次元を外しても古い試行には残り、全試行の最良値として `fit` に入りうるため、アルゴリズムとして成り立たなかった。管理者の判断で取り下げた。）
+   - **判定と落とす位置**: `tune` は `_merge_params` の後、`validate_tuning_dimensions` と study を作る前で、方針 3 の規則により無効な smart の次元を求める（新しい study では境界の拡張は走らない、`_model_tuning.py:462-463`）。出どころが既定の次元は空間から外し、利用者の次元は方針 3 のとおり拒否する。
+   - **範囲**: 方針 3・4 は、新しい study を作る tune の空間の受け付けだけを扱う。新しい study とは、`resume=False` で、storage を使わないか、storage にその名前の study が無いものをいう。`resume=True` と、`resume=False` で storage の既存の study に再接続する今の経路（`_model_tuning.py:165-168`、`tuner.py:139-150` の `load_if_exists=True`）は扱わない。後者は、外した次元を古い試行が持ちうるので、方針 4 を当てても健全にならない。この経路で試行が混ざることは #299 とは別の既存の欠陥で、resume の互換性の Proposal が `resume=False` での再接続を拒否して閉じる（v0.19.0 の前に入れる）。#299 は、新しい study の範囲で閉じる（閉じるときのコメントにこの範囲を書く）。resume で smart の値を変えることは目的関数の変更なので、resume の互換性の Proposal（`docs/audits/2026-10-tuning-resume/resume-spec-draft.md` を元に H-0122 として登録する予定）が resume そのものを拒否する。その Proposal は、round ごとに宣言した空間を解決するときに方針 3・4 を当てる。（この Proposal の審査の round 1 で resume の規則を足したが、保存した空間から次元を外しても古い試行には残り、全試行の最良値として `fit` に入りうるため、アルゴリズムとして成り立たなかった。管理者の判断で取り下げた。）
    - 外した次元の名前をログに残し（INFO）、この方針を BLUEPRINT に書く。
 
 ### 規則が縛る位置（ソースから導出、実装前）
@@ -12036,14 +12036,14 @@ H-0059 は `export_code` の目的の 1 つ目を「新データ到着時に同�
    - スマートパラメーターが無効なとき（例: `auto_num_leaves: false`、`balanced: false`、`feature_weights` なし、regression の `balanced`）: その綴りが受け付けられ、書いた値が `lgb.train` に届く。
 2. **層**: 4 つの層のそれぞれで、衝突が来た層を名指しして拒否されることを直接確かめる。
    - `model.params`（基準 1）。
-   - 既定の固定パラメーター: provider の `default_fixed_params` が衝突する名前（例: `max_leaves`）を返すように差し替えた、既定の空間の `tune` → `fit`。
+   - 既定の固定パラメーター: provider の `default_fixed_params` が衝突する名前（例: `max_leaves`）を返すように差し替え、既定の空間で `tune` を呼ぶ → `tune` そのものが `CONFIG_INVALID` を送出し、`lgb.train` は一度も呼ばれず、メッセージが既定の固定パラメーターの層を名指す。続く `fit` でも同じく拒否される。
    - tune の結果の `best_model_params`: 復元した tune の結果が `best_model_params={"max_leaves": 12}` を持つ fit。
    - `fit(params=)`: H-0094 の既存のテストが引き続き通る。
    - **`best_smart_params` による有効化**: config が `auto_num_leaves: false` で、復元した tune の結果が `best_smart_params={"auto_num_leaves": True}` と `best_model_params={"max_leaves": 12}` を持つ fit が拒否される（config の smart の値だけを見る実装は通してしまう）。
 3. **構築時の検査の削除**: 文字どおりの 3 つの名前を持つ config は、構築時には拒否されず、`fit` で拒否される（`tests/test_config/test_lgbm_smart_params.py` をこの契約に書き直す）。`tests/test_core/test_refusal_matrix.py` の `model.params` × `check_smart_managed_overrides` のセルは `wired` になる。
 4. **#299 の宣言されていない名前**: 3 タスクで、`category: smart` の宣言されていない名前（ネイティブ名と、存在しない名前）が study の前に `CONFIG_INVALID` で拒否される（`lgb.train` が呼ばれない）。ネイティブ名では、メッセージが `category: model` を案内する。`tests/test_tuning/test_search_space_name_validation.py` の #299 の strict xfail 9 件は、通る assertion になる。
 5. **#299 の利用者の無効な次元**: `auto_num_leaves: false` で、利用者の空間に `num_leaves_ratio` を書いた tune が拒否される（`replace` と、`merge` で利用者が上書きした場合の両方）。同じ空間に `auto_num_leaves` の次元があって `True` を取りうるときは受け付ける。逆に、config が `auto_num_leaves: true` でも、同じ空間の `auto_num_leaves` の次元の選択肢が `[False]` だけなら、利用者の `num_leaves_ratio` は拒否される（config の値だけを見る実装を落とす）。
-6. **#299 の既定の空間**: `auto_num_leaves: false` で既定の空間を使う tune では、`num_leaves_ratio` が空間から外され、study の探索次元と `best_params` に入らない。外した名前が INFO のログに残る。`auto_num_leaves: true` では外されない。外した次元は境界の拡張にも入らない: 前の tune の最良値が `num_leaves_ratio` の境界にある状態で `auto_num_leaves: false` にして新しく tune すると、境界の報告と拡張した次元に `num_leaves_ratio` が入らない。`resume` はこの Proposal の受け入れ基準に入れない（方針 4 の範囲）。
+6. **#299 の既定の空間**: `auto_num_leaves: false` で既定の空間を使う tune では、`num_leaves_ratio` が空間から外され、study の探索次元と `best_params` に入らない。外した名前が INFO のログに残る。`auto_num_leaves: true` では外されない。storage に同じ名前の study がある `resume=False` の tune（今の再接続の経路）では、方針 4 は当てない（範囲の外であることを、外されないことで確かめる）。`resume` はこの Proposal の受け入れ基準に入れない（方針 4 の範囲）。
    - **provider の宣言**: `LGBMProvider.smart_param_owners()` が `{"num_leaves_ratio": "auto_num_leaves"}` を返し、宣言から外すと基準 5 と 6 のテストが失敗する（負の対照）。
 7. **負の対照**: 方針 1〜4 を 1 つずつ外すと、受け入れ基準 1〜6 のどれかが失敗する。
 8. **文書**: BLUEPRINT §5.3 の入口の表と探索空間の節を更新する。
