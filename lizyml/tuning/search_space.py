@@ -192,7 +192,7 @@ def parse_space(
     dims: list[SearchDim] = []
     for name, spec in checked.items():
         dim_type = spec.get("type", "")
-        if dim_type not in DIM_KEYS:
+        if type(dim_type) is not str or dim_type not in DIM_KEYS:
             raise format_error(
                 surface,
                 f"Unknown search space type '{dim_type}' for param '{name}'. "

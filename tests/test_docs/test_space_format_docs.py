@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from lizyml.tuning._space_format import DIM_KEYS, NUMBER_LITERAL
+from lizyml.tuning._space_format import DIM_KEYS, NUMBER_LITERAL, REQUIRED_KEYS
 from lizyml.tuning.lineage_codec import DIM_CATEGORIES
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -72,6 +72,38 @@ def test_doc_states_the_number_literal_and_the_refused_step(
     assert NUMBER_LITERAL.pattern in text, doc
     assert "`step`" in text, doc
     assert "H-0123" in text, doc
+
+
+def _dimension_table() -> list[list[str]]:
+    """The rows of docs/config-reference.md's dimension key table, as cells."""
+    lines = _config_reference_tuning().splitlines()
+    start = lines.index("| Key | Applies to | Required | Accepted values |")
+    rows = []
+    for line in lines[start + 2 :]:
+        if not line.startswith("|"):
+            break
+        rows.append([cell.strip() for cell in line.strip("|").split("|")])
+    return rows
+
+
+def _ticked(cell: str) -> list[str]:
+    return [part.strip().strip("`") for part in cell.split(",")]
+
+
+def test_config_reference_key_table_matches_the_code() -> None:
+    # Both directions (DC3): a key the table lists but the code lacks, or a
+    # required flag that differs from REQUIRED_KEYS, fails here too.
+    allowed: dict[str, set[str]] = {t: set() for t in DIM_KEYS}
+    required: dict[str, set[str]] = {t: set() for t in DIM_KEYS}
+    for key_cell, applies, req, _ in _dimension_table():
+        types = list(DIM_KEYS) if applies == "all" else _ticked(applies)
+        for key in _ticked(key_cell):
+            for dim_type in types:
+                allowed[dim_type].add(key)
+                if req == "Yes":
+                    required[dim_type].add(key)
+    assert allowed == {t: set(keys) for t, keys in DIM_KEYS.items()}
+    assert required == {t: {"type", *keys} for t, keys in REQUIRED_KEYS.items()}
 
 
 def test_changelog_lists_the_refused_and_accepted_forms() -> None:

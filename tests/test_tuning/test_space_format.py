@@ -79,6 +79,8 @@ REFUSED: dict[str, tuple[Any, str | None, str]] = {
     ),
     "bad_category": ({**LR, "category": "booster"}, "category", "unknown_category"),
     "category_not_str": ({**LR, "category": 1}, "category", "unknown_category"),
+    "type_not_str": ({**LR, "type": ["float"]}, "type", "unknown_type"),
+    "type_mapping": ({**LR, "type": {"float": 1}}, "type", "unknown_type"),
     "choices_str": (
         {"type": "categorical", "choices": "abc"},
         "choices",
@@ -155,7 +157,7 @@ def _spec(case: str) -> Any:
 
 def _name(spec: Any) -> str:
     kind = spec.get("type") if isinstance(spec, dict) else "float"
-    return NAMES[kind]
+    return NAMES[kind] if type(kind) is str else NAMES["float"]
 
 
 def _assert_context(err: LizyMLError, case: str, surface: str) -> None:
