@@ -12783,10 +12783,11 @@ PR 2 は 5（`tune(space=...)`、次元ごとの規則、拡張の変更）、7.
 
 ## H-0124: 探索次元に刻み `step` を加える（#350）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-12
+- **決定日**: 2026-10-12（管理者の判断: #350 の案 A。LizyStudio の log の既定が拒否されることを測ったうえで案 A のまま。Codex の Proposal review は 3 round で APPROVE（`10ddfc2`）。round 2 で停止ルールが働き、管理者が通常の round 3 を選んだ。）
 - **スコープ**: `lizyml/tuning/_space_format.py`・`search_space.py`（書式、抽出、境界の拡張）、`lizyml/core/types/search_dim.py`（`FloatDim` / `IntDim`）、`lizyml/tuning/lineage_codec.py`、`lizyml/core/_tuning_space.py`（変えられない宣言、U2 の比較）、試行の値を読む位置（`_model_tuning.py`、`_tuning_plan.py`、`_tuning_restore.py`、`tuning/rounds.py`、`tuning/tuner.py`）、BLUEPRINT §11.1・§11.2・§11.5、docs/config-reference.md、CHANGELOG
-- **関連**: [Issue #350](https://github.com/nbx-liz/LizyML/issues/350)、H-0122（study の系譜、U2）、H-0123（書式。`step` を拒否していた）、#342（拡張が範囲を狭めない）
+- **関連**: [Issue #350](https://github.com/nbx-liz/LizyML/issues/350)、[LizyStudio#688](https://github.com/nbx-liz/LizyStudio/issues/688)（LizyStudio の log の既定）、H-0122（study の系譜、U2）、H-0123（書式。`step` を拒否していた）、#342（拡張が範囲を狭めない）
 
 ### 目的（課題）
 
@@ -12886,3 +12887,22 @@ Optuna 4.7.0 の性質（`docs/audits/2026-10-tuning-resume/probes/optuna_step_f
 10. **変わらないこと**: `step` の無い空間の探索は今と同じ（既存の tuning のテストと、seed を固定した結果の再現）。
 11. **文書**: BLUEPRINT §11.1・§11.2・§11.5、docs/config-reference.md の表（両方向の検査の対象）、CHANGELOG が `step` と格子と丸めと LizyStudio への影響を書く。
 12. **対照**: 次をそれぞれ外す（または変える）と、対応するテストが失敗する: 方針 1 の `step` の各検査（型、有限、正、整数）、方針 2 の格子の検査、正確な有理数の計算（`float` の剰余に変える）、偶数への丸め（切り上げに変える）、`int` の log の一度だけの丸め（`suggest_int` に戻す）、方針 4 の各読み手（一つずつ）、前の round の次元を使うこと（今の round の次元に変える）、方針 5 の外向きの寄せ・内向きの寄せ・log の下端の止め・「拡張なし」の判定、`attach_bounds` / `expand_dims` / `decode_dim` が `step` を引き継ぐこと、方針 7 の decode の拒否、round ごとの名前の検査、変えられない宣言、`Tuner.tune` の拒否（log と step、`step` の各検査、格子）。
+
+### 実装の記録（2026-10-12）
+
+二段で実装した。`7d045d0` が tuning の層（`FloatDim` / `IntDim` の `step`、書式、新しい `lizyml/tuning/_step_grid.py` の格子・丸め・`recorded_params`・`check_dim_step`・`suggest_on_grid`、拡張、codec、系譜の試行ごとの検査、`Tuner.tune`）、その次のコミットが Model の経路（`tuning/rounds.py` の `recorded_trial_params` と四つの読み手、round の記録の前の検査、変えられない宣言、`space_summary`）と文書。
+
+仕様の範囲で実装が決めたこと:
+
+- **拡張の順序**（方針 5）: 動いた端ごとに、今の式 → 外向きに格子へ寄せる → 下限（`int` の 1、線形の 0）→ provider の上下限（`_clamp_outward`）→ 上下限に当てたときだけ内向きに寄せる → 元の端より内側にしない。上下限に当てる前に外へ寄せるのは、外へ寄せた端が上下限を越えないため（`validation_ratio` の log `[0.2, 0.4]` step 0.04 の下端は 0.0667 → 0.04 では下限 0.05 を越えるので、上下限に当てて内向きに 0.08）。
+- **`int` の下限 1**: Proposal に無い。今の `max(1, …)` を下限として扱い、外へ寄せた端が 1 より下なら 1 以上の最小の格子の点にする（`int` の `[4, 8]` step 4 は下へ拡張しない）。
+- **刻みのある次元の拡張は正確な有理数で計算する**（`float` で計算すると `[0.1, 0.2]` step 0.1 が 0.4 まで広がる）。刻みの無い次元は今の `float` の計算のまま。
+- **`bound_off_grid`**: 両端が格子の外のとき `key` は `low`。context に示す範囲 `grid_low` / `grid_high` も入れる。
+- **`recorded_params(params, dims)`**: 試行ではなく値の dict と次元を受け取る。次元の無い名前は `ValueError`（系譜の検査が整った study では起きない）。Model の四つの読み手は `rounds.recorded_trial_params(lineage, trial)` を通る（試行の round を `round_of` で決める）。
+- **`Tuner.tune`**: surface は `Tuner.tune`、log と `step` の拒否の理由は `log_with_step`（key `step`）。直接作った次元の検査 `check_dim_step` は、`step` があるとき `low` / `high` も H-0123 の書式で読む。
+- **round の記録の前の検査**（方針 5）: `_model_tuning.py` の記録の位置ではなく、計画の段 D の `check_round_space`（`_tuning_admission.py`）で `check_dim_step` を掛ける（INV-R4: 計画の段の後は拒否しない。段 D は記録より前）。拡張は格子の外の端を作らないので、今の入力ではこの検査は発火しない（拡張の誤りへの備え。テストは拡張を差し替えて確かめる）。
+- **変えられない宣言**: `int` の log の「`step > 1` かどうか」で、`None` と `1` は同じ扱い。拒否の `changed` は `step`。
+- **系譜のテストの記録の修正**: `tests/test_tuning/test_lineage_classify.py` の二つのテストは、round 2 の試行が round 2 で消した次元の値を持つ記録を使っていた。方針 4 の試行ごとの検査でこれは `inconsistent` になり、Model が書く study ではこの形は起きない。round 1 の `effective` にその次元を入れ、round 2 の試行から外した（確かめていた routes の引き継ぎはそのまま）。
+- **文書**: `docs/add-estimator-guide.md` は全体が日本語なので、追記も日本語。CHANGELOG の H-0124 の項は「Changed -- action may be required」に置き、H-0123 の項の新たに拒否するものから `step` を除いた（公開していない拒否なので）。
+
+受け入れ基準の対応: 基準 1・2・4・6（拡張の計算）・7（codec と系譜）・9 は `tests/test_tuning/test_search_dim_step.py`・`test_search_dim_step_lineage.py`・`test_space_format.py`、基準 3・4・5・6（記録の前の検査）・8 は `tests/test_tuning/test_search_dim_step_model.py`、基準 7 の U2 は `tests/test_tuning/test_resume_open_round.py::test_u2_space_different_refused[step_only]`、基準 11 は `tests/test_docs/test_space_format_docs.py`。基準 12 は、各分岐（`step` の各検査、格子の検査、正確な有理数、偶数への丸め、`int` の log の一度だけの丸め、四つの読み手、試行の round の次元、拡張の各分岐、`step` の引き継ぎ、decode の拒否、試行ごとの名前の検査、変えられない宣言、`space_summary`、`Tuner.tune` の拒否）を一つずつ外して対応するテストが失敗することを確かめた（表は実装の PR の本文に載せる）。

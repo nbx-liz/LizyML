@@ -508,8 +508,8 @@ disposition = "specified"
 anchors = ["parse_space", "numpy.bool_", "choices"]
 
 [proposals."H-0124"]
-disposition = "pending"
-reason = "Proposed; the implementation PR sets the disposition"
+disposition = "specified"
+anchors = ["bound_off_grid", "recorded_params", "step_not_positive", "Tuner.tune"]
 
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.

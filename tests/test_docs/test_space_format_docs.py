@@ -1,9 +1,11 @@
 """The documents state the search-space dimension format (H-0123 criterion 5).
 
 BLUEPRINT §11.1 and docs/config-reference.md carry the accepted format of a
-``tuning.optuna.space`` / ``tune(space=...)`` dimension, and the CHANGELOG lists
-what is newly refused and accepted. The keys, types, categories and the number
-literal are read from the code that enforces them (``lizyml.tuning._space_format``),
+``tuning.optuna.space`` / ``tune(space=...)`` dimension, including the ``step``
+grid of H-0124 (criterion 11), and the CHANGELOG lists what is newly refused
+and accepted. The keys, types, categories and the number literal are read from
+the code that enforces them (``lizyml.tuning._space_format``), and the step's
+refusal reasons by triggering them,
 not copied here (DC3), so a key added to the code without the documents, or a
 changed literal, fails here.
 """
@@ -15,8 +17,10 @@ from pathlib import Path
 
 import pytest
 
+from lizyml.core.exceptions import LizyMLError
 from lizyml.tuning._space_format import DIM_KEYS, NUMBER_LITERAL, REQUIRED_KEYS
 from lizyml.tuning.lineage_codec import DIM_CATEGORIES
+from lizyml.tuning.search_space import parse_space
 
 _ROOT = Path(__file__).resolve().parents[2]
 
@@ -64,14 +68,35 @@ def test_doc_states_every_key_type_and_category(
         assert f"`{token}`" in text or f'`"{token}"`' in text, (doc, token)
 
 
+def _step_reasons() -> tuple[str, ...]:
+    """The refusal reasons of a ``step`` and of its grid, read from the code."""
+    reasons = []
+    for spec in (
+        {"type": "float", "low": 0.15, "high": 1.0, "step": 0.1},
+        {"type": "float", "low": 0.0, "high": 1.0, "step": 0},
+    ):
+        with pytest.raises(LizyMLError) as caught:
+            parse_space({"d": spec})
+        reasons.append(caught.value.context["reason"])
+    return tuple(reasons)
+
+
 @pytest.mark.parametrize(("doc", "section"), _DOCS, ids=[d for d, _ in _DOCS])
-def test_doc_states_the_number_literal_and_the_refused_step(
+def test_doc_states_the_number_literal_and_the_step_grid(
     doc: str, section: Callable[[], str]
 ) -> None:
+    # H-0123 refused `step`; H-0124 accepts it on a grid with origin 0. The
+    # documents state the number literal, the step's grid and its refusals.
     text = section()
     assert NUMBER_LITERAL.pattern in text, doc
     assert "`step`" in text, doc
-    assert "H-0123" in text, doc
+    assert {"float", "int"} == {t for t, keys in DIM_KEYS.items() if "step" in keys}
+    assert "H-0123" in text and "H-0124" in text, doc
+    for reason in _step_reasons():
+        assert f"`{reason}`" in text, (doc, reason)
+    assert "0.30000000000000004" in text, doc
+    assert "is refused (LizyML dimensions have no" not in text, doc
+    assert "`step` は受け付けない" not in text, doc
 
 
 def _dimension_table() -> list[list[str]]:
@@ -106,8 +131,31 @@ def test_config_reference_key_table_matches_the_code() -> None:
     assert required == {t: {"type", *keys} for t, keys in REQUIRED_KEYS.items()}
 
 
+def _changelog_entry(marker: str) -> str:
+    """The one ``[Unreleased]`` bullet (a single line) containing *marker*."""
+    (line,) = [ln for ln in _changelog_unreleased().splitlines() if marker in ln]
+    return line
+
+
 def test_changelog_lists_the_refused_and_accepted_forms() -> None:
     text = _changelog_unreleased()
     assert "H-0123" in text
-    for form in ('`log: "false"`', "`step`", "`1.7`", '`"abc"`', '`"16.0"`', '`"1e2"`'):
+    for form in ('`log: "false"`', "`1.7`", '`"abc"`', '`"16.0"`', '`"1e2"`'):
         assert form in text, form
+    # H-0123's refusal of `step` was never released (H-0124 accepts it in the
+    # same release), so its newly-refused list does not name it.
+    assert "`step`" not in _changelog_entry("Newly refused:")
+
+
+def test_changelog_states_the_step() -> None:
+    entry = _changelog_entry("(H-0124,")
+    for token in (
+        "`step`",
+        *(f"`{reason}`" for reason in _step_reasons()),
+        "silently ignored",
+        "half to even",
+        "`0.30000000000000004`",
+        "`Tuner.tune`",
+        "LizyStudio#688",
+    ):
+        assert token in entry, token
