@@ -29,7 +29,13 @@ from lizyml.core.types.tuning_result import (
     TuneProgressInfo,
     TuningResult,
 )
-from lizyml.tuning.search_space import SearchDim, split_by_category
+from lizyml.tuning._space_format import format_error
+from lizyml.tuning._step_grid import check_dim_magnitude, check_dim_step
+from lizyml.tuning.search_space import (
+    CategoricalDim,
+    SearchDim,
+    split_by_category,
+)
 
 _optuna: Any = None
 try:
@@ -41,6 +47,42 @@ except ImportError:  # pragma: no cover
     pass
 
 _log = get_logger("tuner")
+
+TUNER_SURFACE = "Tuner.tune"
+"""The ``surface`` of a ``Tuner.tune`` refusal of its dims (H-0124)."""
+
+
+def check_tuner_dims(dims: Iterable[SearchDim]) -> None:
+    """Refuse the stepped dims ``Tuner.tune`` cannot honour (H-0124 policy 6).
+
+    ``Tuner.tune`` runs the caller's objective, which samples for itself, so
+    LizyML cannot round a log-scale sample onto a grid there: a log dim with
+    any ``step`` (``1`` on an ``int`` dim included) is refused. Any other
+    stepped dim gets ``parse_space``'s ``step`` and grid checks, since a dim
+    built in Python skipped them (a ``step`` of 0 or NaN must not reach
+    Optuna). Every numeric dim, stepped or not, is first held to the
+    magnitudes Optuna can sample (H-0124 amendment 1, policy 9;
+    :func:`check_dim_magnitude`).
+
+    Raises:
+        LizyMLError: ``CONFIG_INVALID`` with ``surface="Tuner.tune"``.
+    """
+    for dim in dims:
+        check_dim_magnitude(dim, surface=TUNER_SURFACE)
+        if isinstance(dim, CategoricalDim) or dim.step is None:
+            continue
+        if dim.log:
+            raise format_error(
+                TUNER_SURFACE,
+                f"dimension '{dim.name}' has log=True and step={dim.step!r}. "
+                "Tuner.tune runs your objective, which samples the dimension, "
+                "so the sample cannot be rounded onto the grid; drop 'step' or "
+                "'log'. (Model.tune samples and rounds it itself.)",
+                reason="log_with_step",
+                dim=dim.name,
+                key="step",
+            )
+        check_dim_step(dim, surface=TUNER_SURFACE)
 
 
 def _require_optuna() -> Any:
@@ -285,10 +327,16 @@ class Tuner:
         Returns:
             Tuple of (TuningResult, study).
 
+        The result holds the values the trials recorded, as the objective
+        sampled them: a stepped dim is not rounded here (H-0124 policy 6).
+
         Raises:
             LizyMLError with OPTIONAL_DEP_MISSING if optuna is not installed.
+            LizyMLError with CONFIG_INVALID for a stepped dim
+                :func:`check_tuner_dims` refuses, before any study exists.
             LizyMLError with TUNING_FAILED on study failure.
         """
+        check_tuner_dims(self.dims)
         optuna_ = _require_optuna()
         if study is None:
             sampler = optuna_.samplers.TPESampler(seed=self.seed)

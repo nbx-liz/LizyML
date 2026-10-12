@@ -39,6 +39,7 @@ from lizyml.core.types.search_dim import (
     SearchDim,
 )
 from lizyml.core.types.tuning_result import BoundaryDimStatus, BoundaryReport
+from lizyml.tuning._magnitude import finite_float, int_too_large, width_too_large
 
 __all__ = [
     "DIM_CATEGORIES",
@@ -231,8 +232,31 @@ def _category(value: Any, what: str) -> DimCategory:
 # ---------------------------------------------------------------------------
 
 
+_NUMERIC_DIM_KEYS = frozenset(
+    {
+        "kind",
+        "name",
+        "category",
+        "low",
+        "high",
+        "log",
+        "min_allowed",
+        "max_allowed",
+        "step",
+    }
+)
+"""The keys of an encoded ``float`` / ``int`` dim; ``step`` may be absent."""
+
+_CATEGORICAL_DIM_KEYS = frozenset({"kind", "name", "category", "choices"})
+"""The keys of an encoded ``categorical`` dim."""
+
+
 def encode_dim(dim: SearchDim) -> dict[str, Any]:
-    """Encode a ``SearchDim`` so that ``decode_dim`` returns an equal dim."""
+    """Encode a ``SearchDim`` so that ``decode_dim`` returns an equal dim.
+
+    A numeric dim's ``step`` (H-0124) is written, as ``null`` when it is
+    ``None``, so :func:`dim_signature` compares it.
+    """
     what = f"dim '{dim.name}'"
     _expect_str(dim.name, f"{what} name")
     _category(dim.category, what)
@@ -248,7 +272,7 @@ def encode_dim(dim: SearchDim) -> dict[str, Any]:
     ints_only = isinstance(dim, IntDim)
     for label in ("low", "high"):
         _check_number(getattr(dim, label), f"{what} {label}", ints_only=ints_only)
-    for label in ("min_allowed", "max_allowed"):
+    for label in ("min_allowed", "max_allowed", "step"):
         bound = getattr(dim, label)
         if bound is not None:
             _check_number(bound, f"{what} {label}", ints_only=ints_only)
@@ -262,24 +286,33 @@ def encode_dim(dim: SearchDim) -> dict[str, Any]:
         "log": dim.log,
         "min_allowed": encode_scalar(dim.min_allowed),
         "max_allowed": encode_scalar(dim.max_allowed),
+        "step": encode_scalar(dim.step),
     }
 
 
 def decode_dim(payload: Any) -> SearchDim:
-    """Decode one encoded dim; refuse anything ``encode_dim`` cannot produce."""
+    """Decode one encoded dim; refuse anything ``encode_dim`` cannot produce.
+
+    A key the dim's kind does not have is refused, not dropped. A numeric dim
+    without ``step`` -- a record written before H-0124 -- has ``step=None``.
+    """
     obj = _expect_dict(payload, "dim")
     name = _expect_str(_field(obj, "name", "dim"), "dim name")
     what = f"dim '{name}'"
     category = _category(_field(obj, "category", what), what)
     kind = _field(obj, "kind", what)
+    if kind not in ("categorical", "float", "int"):
+        raise LineageCodecError(f"{what}: unknown kind {kind!r}")
+    allowed = _CATEGORICAL_DIM_KEYS if kind == "categorical" else _NUMERIC_DIM_KEYS
+    unknown = sorted(key for key in obj if key not in allowed)
+    if unknown:
+        raise LineageCodecError(f"{what} has unknown key(s) {unknown}")
     if kind == "categorical":
         raw = _expect_list(_field(obj, "choices", what), f"{what} choices")
         if not raw:
             raise LineageCodecError(f"{what} has no choices")
         choices = tuple(decode_scalar(c) for c in raw)
         return CategoricalDim(name=name, choices=choices, category=category)
-    if kind not in ("float", "int"):
-        raise LineageCodecError(f"{what}: unknown kind {kind!r}")
     ints_only = kind == "int"
     low = _decode_number(_field(obj, "low", what), ints_only=ints_only)
     high = _decode_number(_field(obj, "high", what), ints_only=ints_only)
@@ -290,6 +323,12 @@ def decode_dim(payload: Any) -> SearchDim:
     hi_bound = _decode_optional_number(
         _field(obj, "max_allowed", what), ints_only=ints_only
     )
+    step = (
+        _decode_optional_number(obj["step"], ints_only=ints_only)
+        if "step" in obj
+        else None
+    )
+    _check_magnitude(what, ints_only, low, high, step, lo_bound, hi_bound)
     if ints_only:
         return IntDim(
             name=name,
@@ -299,6 +338,7 @@ def decode_dim(payload: Any) -> SearchDim:
             category=category,
             min_allowed=lo_bound,
             max_allowed=hi_bound,
+            step=step,
         )
     return FloatDim(
         name=name,
@@ -308,7 +348,48 @@ def decode_dim(payload: Any) -> SearchDim:
         category=category,
         min_allowed=lo_bound,
         max_allowed=hi_bound,
+        step=step,
     )
+
+
+def _check_magnitude(
+    what: str,
+    ints_only: bool,
+    low: int | float,
+    high: int | float,
+    step: Any,
+    lo_bound: Any,
+    hi_bound: Any,
+) -> None:
+    """Refuse a stored dim outside H-0124 amendment 1 policy 9.
+
+    Every dim LizyML records passed policy 9 (and the provider bounds are
+    constants), so a dim outside it was written before the policy existed or
+    by hand: a ``float`` dim's ``low`` / ``high`` / ``step`` are finite and
+    its exact width is at most the largest float; an ``int`` dim's ``low`` /
+    ``high`` / ``step`` are at most ``2**52`` in absolute value. A recorded
+    ``min_allowed`` / ``max_allowed`` is a finite ``float`` (the expansion and
+    the edge detection read it as one). Refused here, such a record makes the
+    study ``unreadable`` / ``inconsistent`` before anything plans with it.
+    """
+    for label, bound in (("min_allowed", lo_bound), ("max_allowed", hi_bound)):
+        if bound is not None and not finite_float(bound):
+            raise LineageCodecError(f"{what} {label} {bound!r} is not a finite float")
+    values = {"low": low, "high": high, "step": step}
+    if ints_only:
+        for label, value in values.items():
+            if value is not None and int_too_large(value):
+                raise LineageCodecError(
+                    f"{what} {label} {value!r} is past 2**52 in absolute value"
+                )
+        return
+    for label, value in values.items():
+        if value is not None and not finite_float(value):
+            raise LineageCodecError(f"{what} {label} {value!r} is not finite")
+    if width_too_large(low, high):
+        raise LineageCodecError(
+            f"{what} range [{low!r}, {high!r}] is wider than the largest float"
+        )
 
 
 def encode_dims(dims: Iterable[SearchDim]) -> list[dict[str, Any]]:

@@ -450,7 +450,7 @@ config = {
    b. Config defaults と trial params をマージし、`_build_train_components()` で CVTrainer の構成要素を構築する（fit と同じコードパス）
    c. CVTrainer で CV 実行 → OOF スコアを返す
 5. `TuningResult`（`best_model_params` / `best_smart_params` / `best_training_params` / `best_score` / 全 trial 履歴）を返す
-6. `Tuner` の責務は Optuna study の管理のみ。objective クロージャは `Model` 側で構築する
+6. `Tuner` の責務は Optuna study の管理のみ。objective クロージャは `Model` 側で構築する（公開の `Tuner.tune` の `step` の扱いは §11.5 の制約。H-0124）
 
 `tuning` と最終評価のリーク回避方針は 10 章を参照。
 
@@ -860,9 +860,15 @@ outer fold の train データ（特定期間 × 特定ユーザー）に対し�
 - `parse_space` は `float` / `int` 次元の範囲を parse 時に検査する（H-0078）: `low >= high` は `CONFIG_INVALID`、`log=True` で `low <= 0` も `CONFIG_INVALID`（context `param` / `low` / `high` / `log`。H-0123 から書式の拒否と同じ `dim`・`key`（`low`）・`reason`・`surface` も入る）。Optuna が trial の中で出す汎用のエラーより前に、設定の誤りとして名指す。
 - **探索空間の書式（H-0123）**: `tuning.optuna.space` と `tune(space=...)` は同じ書式で、どちらも `parse_space` が検査する（`tune` が空間を解決するとき。config の空間は `tune` の引数の検査の段で、study を作る前・書く前）。書式は YAML と JSON が作る型（数、真偽、文字列、list）で書く前提で、書式の外の指定は別の探索に読み替えず `CONFIG_INVALID` で拒否する（context に次元の名前 `dim`、キー `key`、理由 `reason`、空間 `surface` = `tuning.optuna.space` か `tune(space=)` が必ずある。`dim` は空間が mapping でないときだけ `None`、`key` は空間全体か次元全体についての拒否では `None`）。空間は `str` の名前から次元の指定（mapping）への mapping で、次元ごとに:
   - `type`: `float` / `int` / `categorical`。
-  - キーは、`float` と `int` では `type`・`low`・`high`・`log`・`category`、`categorical` では `type`・`choices`・`category` だけ。`step` は受け付けない（LizyML の次元にはまだ刻みが無い）。綴りの誤り（`lo` など）も拒否する。
+  - キーは、`float` と `int` では `type`・`low`・`high`・`log`・`step`・`category`、`categorical` では `type`・`choices`・`category` だけ。綴りの誤り（`lo` など）も拒否する。
   - `low` / `high`（`float` / `int` で必須）: `int` か `float`（`bool` は除く）、numpy の整数・浮動小数のスカラー（`numpy.bool_` は除く。H-0095 のとおり素の値に直す）、または数の表記に完全一致する文字列 `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?`（ASCII の数字だけ。PyYAML は YAML 1.1 で `1e-4` を文字列として読む）。`"nan"`・`"inf"`・`"0x10"`・`"1,000"` は数の表記ではない。値は有限であること。`int` の次元では整数の値であること（`16.0`・`"16.0"`・`"1e2"` は 16・16・100 に直し、`1.7` と `"1.7"` は切り捨てずに拒否する）。
   - `log`（任意、既定 `false`）: `bool`（YAML の `true` / `false` / `yes` / `no`）。文字列の `"false"` は拒否する。
+  - `step`（`float` / `int` で任意、既定は刻み無し。H-0124）: 刻み。値の型は `low` / `high` と同じで、有限で 0 より大きいこと（`int` の次元では整数の値で 1 以上）。読めない値は `low` / `high` と同じ理由（`bound_not_a_number`・`bound_not_finite`・`bound_not_integral`）を `key` `step` で、0 以下は理由 `step_not_positive` で拒否する。
+    - **格子は原点 0**: 次元の格子は `step` の整数倍で、探索するのは `low` から `high` までの倍数。`low` と `high` はどちらも `step` の倍数でなければならない。判定は正確な有理数で行う（`float` の値 `x` は `Fraction(Decimal(str(x)))`、`int` はそのまま。`str` は最短の表記なので `[0.1, 0.3]` step 0.1 や `[0.5, 1.0]` step 0.05 を 2 進の誤差で拒否しない。`decimal` の context の精度に依らない）。
+    - 倍数でない境界は `CONFIG_INVALID`（理由 `bound_off_grid`、`key` は `low` か `high`。両方なら `low`）。メッセージは格子の上の範囲を一つ示す: 内側の範囲 `[ceil(low/step)*step, floor(high/step)*step]` が二つ以上の格子の点を持てばそれ（`[0.15, 1.0]` step 0.1 → `[0.2, 1.0]`）、持たなければ外側の範囲 `[floor(low/step)*step, ceil(high/step)*step]`（`[0.15, 0.16]` step 0.1 → `[0.1, 0.2]`）。`log` の次元で外側の下端が 0 になるときは `step` にし、それで一点になれば上端を一つ外の格子の点にする（`[0.0005, 0.0008]` step 0.001 → `[0.001, 0.002]`）。Optuna のように上端を黙って切り詰めることはしない。
+    - **抽出と訓練に使う値**: `log` でない次元は Optuna の `step`（`suggest_float(step=)` / `suggest_int(step=)`）で格子の点を抽出する。`log` の `float` の次元は刻み無しに対数で抽出し、一度だけ格子に丸める。`log` の `int` の次元は、`step` が 1 なら刻みが無いのと同じ（`IntDistribution(log=True)`）、`step > 1` なら float の対数（`FloatDistribution(log=True)`）で抽出して一度だけ整数の格子に丸める（先に整数に丸めない）。丸めは生の値 `v` から `k = round(v / step)`（正確な有理数で、偶数への丸め）を `[low/step, high/step]` に収め、`k * step`（`float` の次元は最も近い `float`、`int` の次元は `int`）とする。刻みのある次元はすべてこの値で訓練し、この値を試行の値として報告する（§11.5。Optuna の刻みの抽出値の 2 進の誤差 `0.30000000000000004` は `0.3` になる）。同じ格子の点に丸まる試行も、それぞれ評価する。`log` の次元の格子のいちばん小さい点は `step`。
+    - `step` の無い次元は今までと同じ抽出で、Optuna に `step=` を渡さない。
+  - **大きさ（H-0124 改訂 1）**: Optuna は数を `float` で抽出するので、抽出できる大きさに限る。`float` の次元は、幅 `high - low` を正確に計算した値（`float` の値そのもので計算する）が `float` の最大値（`sys.float_info.max`）以下であること（各境界が有限でも幅が有限でなければ Optuna は `OverflowError: Range exceeds valid bounds` で抽出できない）。外れれば理由 `range_not_finite`（`key` は `high`）。`int` の次元は、`low`・`high`・`step` の絶対値が `2**52`（4503599627370496）以下であること（Optuna は `int` の次元を半刻み広げた `float` で抽出し、半整数が正確なのは `2**52` まで。`2**53` からは黙って粗く探索し、さらに大きいと失敗する）。外れれば理由 `bound_too_large`（`key` は `low`・`high`・`step` の順で最初に外れたもの）。`[-8e307, 8e307]`、`[2**52 - 10, 2**52]`、`[-2**52, -2**52 + 10]` は受け付け、`[-1e308, 1e308]`、`int` の `[0, 2**52 + 1]` は拒否する。同じ規則を、公開の `Tuner.tune` は直接作った数の次元すべてに（刻みの有無によらず。§11.5）、round の受け付けの検査は round の実効空間（拡張した次元と provider の既定の空間の次元を含む）の数の次元すべてに、round の記録の前に当てる。study の系譜の decode も、この規則に外れる次元と、有限の `float` でない `min_allowed` / `max_allowed` を読まない（§11.5.3）。
   - `choices`（`categorical` で必須）: 空でない `list` か `tuple`。文字列・`set`・dict・`range`・numpy の配列・generator は拒否する。各値は素のスカラー（`str` / `int` / `float` / `bool` / `None`。numpy のスカラーは拒否、#287）。
   - `category`（任意、既定 `model`）: `model` / `smart` / `training`（§11.2）。
 - config の `tuning.optuna.space` は、schema の検証で空間と各次元の指定（mapping であればよい）を plain な `dict` に写す。名前の検査は `dict` からだけ `category` を読むため（H-0123）。`config/` は `tuning/` を import しないので、書式の検査は `tune` で行う。
@@ -878,6 +884,8 @@ SearchDim にカテゴリ属性を持たせ、Tuner がパラメーターの適�
 次元の指定の `category` を省くと `model`。三つ以外の値は `CONFIG_INVALID`（§11.1、H-0123）。
 
 `FloatDim` / `IntDim` は任意の `min_allowed` / `max_allowed`（既定 `None`）を持つ。パラメーターとして意味のある範囲で、境界拡張（§11.5）がこれを超えないようにする。`Model.tune` は既定の空間にも利用者の空間にも `provider.parameter_bounds(task)`（§14.4）を付ける（H-0078）。
+
+`FloatDim` / `IntDim` は最後の欄に任意の `step`（`FloatDim` は `float | None`、`IntDim` は `int | None`、既定 `None` = 刻み無し）を持つ（H-0124、§11.1）。位置引数で作る今までの呼び出しはそのまま動く。境界を付ける（`attach_bounds`）、拡張する（`expand_dims`）、系譜から読む（§11.5.3）のどれも `step` を引き継ぐ。
 
 ## 11.3 デフォルト Tuning Space
 
@@ -1044,9 +1052,11 @@ resume の round は前回の最良値を評価し直さない（前回の最良
 - log: 端方向に対数空間で 3 倍に拡張
 - `IntDim`: `max(1, new_low)` で下限ガード
 - 拡張後の `new_low` / `new_high` は次元の `min_allowed` / `max_allowed`（§11.2）でクランプする。クランプが効いたら `BoundaryDimStatus.clamped_to_bound` を `True` にする（H-0078）
-- 範囲を変えない拡張は拡張ではない: クランプ（`min_allowed` / `max_allowed`、linear の `0.0` 下限、`IntDim` の `max(1, ...)`）と `IntDim` の丸めのあとで `(new_low, new_high)` が元の `(low, high)` と等しい次元は、端に近くても `expanded=False`・`new_low` / `new_high` は `None` とし、`expanded_names` にも `RoundSummary.expanded_dims` にも入れない。`clamped_to_bound` は `min_allowed` / `max_allowed` のクランプが効いたときだけ `True` で、再判定のあとも `True` のまま残る（linear の `0.0` 下限と `IntDim` の `max(1, ...)` は `clamped_to_bound` を立てないので `False` のまま）。`IntDim` の拡張と比較は整数で計算する（`2**53` を超える値でも隣の整数と混ざらない）。端の検出（位置の計算）は H-0068 のとおり float で行うので、`2**53` を超える `IntDim` の範囲では端を見落としうる（H-0111 の bound）。毎ラウンド同じ空の拡張を報告し続けないため（H-0078 項目 4、H-0111）
+- 範囲を変えない拡張は拡張ではない: クランプ（`min_allowed` / `max_allowed`、linear の `0.0` 下限、`IntDim` の `max(1, ...)`）と `IntDim` の丸めのあとで `(new_low, new_high)` が元の `(low, high)` と等しい次元は、端に近くても `expanded=False`・`new_low` / `new_high` は `None` とし、`expanded_names` にも `RoundSummary.expanded_dims` にも入れない。`clamped_to_bound` は `min_allowed` / `max_allowed` のクランプが効いたときだけ `True` で、再判定のあとも `True` のまま残る（linear の `0.0` 下限と `IntDim` の `max(1, ...)` は `clamped_to_bound` を立てないので `False` のまま）。`IntDim` の拡張と比較は整数で計算する。端の検出（位置の計算）は H-0068 のとおり float で行う（§11.1 の大きさの規則で `IntDim` の値は `2**52` 以下なので、float でも正確）。毎ラウンド同じ空の拡張を報告し続けないため（H-0078 項目 4、H-0111）
 - 反対側の端は据え置き
 - 拡張は範囲を狭めも反転もしない（[#342](https://github.com/nbx-liz/LizyML/issues/342)）: クランプ（`min_allowed` / `max_allowed`、linear の `0.0` 下限、`IntDim` の `max(1, ...)`）は、拡張で外へ動いた端だけに、元の端まで当てる。端を元の範囲の内側へは動かさない。利用者が provider の境界の外に宣言した範囲（§11.5.2、たとえば `min_allowed` が 10 の `n_estimators` に `[3, 5]`）で、最良値が外側の端にあっても、範囲は変わらず、上の規則で `expanded=False` と報告する（境界が外への移動を止めたので `clamped_to_bound=True`）。`IntDim` の `max(1, ...)` も、元の下限が 1 未満の次元（`max_depth` の `-1`、`bagging_freq` の `0`）の下限を動かさない
+- 刻みのある次元（H-0124）: 上の計算を正確な有理数で行ったあと、新しい端を外向きに格子へ寄せる（下端は `step` の倍数への切り下げ、上端は切り上げ）。`min_allowed` / `max_allowed` に当てた端が格子の外なら内向きに寄せる。どちらも元の端より内側にはしない（#342）。寄せた端が元の端と同じなら拡張しなかったものとして扱う。`log` の下端は `step` より下に広げない（今の下端が `step` なら下へは拡張しない）。例: `float` の `log` `[0.02, 0.1]` step 0.01 の下端は 0.02/3 → 切り下げて 0 → `step` で止めて 0.01。上限 1.0 の線形 `[0.15, 0.6]` step 0.15 の上端は 1.05 → 1.0 → 内向きに 0.9。拡張した次元は `step` を持ったまま round の記録に書き、記録の前に §11.1 の格子と大きさの検査を通す（外れれば書き込みの前に `CONFIG_INVALID`、理由 `bound_off_grid` か `range_not_finite` / `bound_too_large`）
+- **大きさの上限を越える拡張はしない（H-0124 改訂 1）**: 刻みの有無によらず、動かす端ごとに、上の規則（正確な計算、格子への寄せ、下限、`min_allowed` / `max_allowed` のクランプと内向きの寄せ）で出した新しい端を次元の型の値 `x`（`float` の次元は最も近い `float`、`int` の次元はその整数）にし、次をすべて満たすときだけ `x` に広げる: `float` の次元では `x` が有限で、動かない側の端との幅（正確な計算）が `float` の最大値以下、`int` の次元では `x` の絶対値が `2**52` 以下。刻みがあれば `x` が §11.1 の読み方（`Fraction(Decimal(str(x)))`）で格子の点（`float` の間隔が刻みより粗い大きさでは、格子の点を `float` にすると格子から外れうる）。`log` の次元では `x > 0`（`[5e-324, 1e-323]` の下端は 3 で割ると 0.0 になる）。上下限に当ててから大きさを確かめる（上限 5e307 の線形 `[-1e308, 0]` の上端は 5e307 に広がり、上限 9e307 なら幅 1.9e308 が上限を越えるので広げない）。上限まで寄せて止めることはしない。満たさない端は広げず、その次元の `BoundaryDimStatus` は `expanded=False`、`new_low` / `new_high` は `None`、`clamped_to_bound=False`（上下限に当てた候補でも、広げなければ「上下限に達した」とはしない）、`expanded_names` に入らず、`expand_dims` は次元を元のまま返す（`edge` と `position_pct` は検出のとおり）。新しい端が元の端と同じになる場合は、この規則ではなく上の「範囲を変えない拡張」の規則で報告する（`min_allowed` / `max_allowed` が止めたなら `clamped_to_bound=True` のまま）。こうして広げた次元は §11.1 の格子と大きさの規則を満たし、次の round の端の検出は常に有限になる
 - 拡張しない次元（H-0122）: この round で宣言が変わった次元と新しい次元（§11.5.2。利用者の宣言を優先する）、前回の最良値が今の範囲の外にある次元。どちらも `boundary_table` に `expanded=False` で出る。「前回の最良値」は study の全試行のうち最良の COMPLETE の試行の値で、Model が持つ tuning の結果ではない（再接続した Model には無く、`Model.load` のあとでは別の study の結果でありうる）。study に COMPLETE の試行が無ければ（直前の round が `failed`）、拡張しない
 
 ### RoundSummary / BoundaryReport
@@ -1099,6 +1109,15 @@ round: int  # どの round の試行か (1-indexed)。試行の番号と study �
 
 round k の試行は、round k の記録の「開始時の試行数」以上で、round k+1 の記録の「開始時の試行数」未満の番号を持つもの（最後の round は上限なし）。`failed` の round の試行も、その round の番号で `trials` に残る。
 
+### 刻みのある次元の試行の値（H-0124）
+
+刻みのある次元の試行の値は、Optuna が記録した生の値ではなく、その試行が訓練に使った格子の点（§11.1 の丸め）。丸めた値は保存せず、一つの純粋な関数（`recorded_params`）が、試行の生の値と、その試行が属する round（試行の番号で決まる。上の `TrialResult.round`）の実効空間の次元から決める。刻みの無い次元の値は生の値のまま。
+
+- この値を読む位置: 目的関数の中で訓練に渡す値、tune の最良値（`best_*_params`。`fit` の上書きと export される値もここから）、`restore_tuning`、次の round の計画（`outside_range` と `BoundaryDimStatus.best_value`）、`TrialResult.params` と `tuning_table`（`int` の `log` の次元も `int` で見える）。
+- study の最良の試行は前の round の試行のことがある。その値は、その試行の round の刻みで決まる（今の round の刻みではない）。round 1 が step 0.2、round 2 が step 0.25 の study で、round 1 の生の値 0.41 の最良は 0.4 のまま。
+- 生の値を読むのは、名前だけを見る位置（系譜の経路の検査）、Optuna 自身、公開の `Tuner.tune`（下の制約）。
+- 系譜の検査は、各試行の値の名前がその試行の round の実効空間の次元にあることを確かめ、外れる study を `"inconsistent"` とする（§11.5.3）。こうして値を決める関数は、試行のどの名前にもその round の次元を見つける。
+
 ### tuning_table() 拡張
 
 `round` 列と `state` 列を追加。`round` 列は各試行の `TrialResult.round`。
@@ -1129,6 +1148,7 @@ LizyML Core は callback + 結果型でデータを提供し、Widget/Studio が
 - `resume=False` は新しい study を作り、round を 1 から数える（前の study の round を積み増さない）。storage に同じ名前の study が既にあれば `CONFIG_INVALID`（§11.5.1）。
 - `resume=True` で、Model が study を持たず `storage` も無い → `LizyMLError(TUNING_FAILED)`（`Model.load` のあとも同じ。study の中身は artifact に保存しない）。
 - `Tuner` は study の作成・読み込み・最適化と、`lizyml:` 属性の書き込みだけを行う。`resume` の意味、目的関数の同一性、系譜の中身は `Model.tune` 側が決める（§5 の責務分離）。
+- 公開の `Tuner.tune`（利用者の目的関数を受け取る。H-0124）は、`log` の次元に `step` があれば（`int` の `step` 1 も含めて）study を作る前に `CONFIG_INVALID` で拒否する。利用者が直接作った `FloatDim` / `IntDim` の `step` も、study を作る前に §11.1 の `step` と格子の検査（`parse_space` と同じ関数）を通す。直接作った数の次元はすべて（刻みの無い次元も）、study を作る前に §11.1 の大きさの規則を通す（H-0124 改訂 1。数の表記の文字列の `low` / `high` / `step` は刻みの有無によらず `bound_not_a_number` で拒否する — 数として読むのは config と `space=` の mapping だけ。無限大の境界は `bound_not_finite`。それ以外の数でない値と NaN は今までどおり Optuna に渡す）。`suggest_*` を呼ぶのは利用者の目的関数で LizyML は丸めを挟めず、`Tuner.tune` は系譜を書かないので過去の試行の round の次元も分からないため。結果は今までどおり試行が記録した生の値で、目的関数が評価した値そのもの。拒否は `Tuner.__init__` ではなく `Tuner.tune` に置く（`Model.tune` は同じ次元で `Tuner` を作り、`Tuner.run` だけを呼ぶ）。
 - artifact（`Model.export` / `Model.load`）の形式と `format_version` は H-0122 で変えない。
 
 ## 11.5.1 Persistent Storage（H-0072）
@@ -1205,7 +1225,8 @@ contradictory explicit directions require migration; old explicitness is not gue
 
 - 同じ名前の次元の、分布の種類（`float` / `int` / `categorical`）、`log` の有無、categorical の選択肢。選択肢は並びと、各値の型と値で比べる（NaN どうしは等しい。`True` と `1`、`1` と `1.0` は違う）。比べる相手は、これまでのすべての round の次元（外した次元を戻す場合も）。Optuna の拒否は試行の途中で FAIL の試行を書いてしまうので、LizyML が先に比べる。
 - 次元のカテゴリー（`model` / `smart` / `training`）の変更。次元の経路（正規名とカテゴリーの対応）は足すだけで、外した次元の経路も残る（古い試行の値を回すため）。
-- 範囲（`low` / `high`）の変更は受け付ける。
+- `int` の `log` の次元の「`step > 1` かどうか」（H-0124。`step` が無いか 1 なら Optuna の `IntDistribution(log=True)`、1 より大きければ `FloatDistribution(log=True)` で、分布の種類が変わるため）。context の `changed` は `step`。
+- 範囲（`low` / `high`）の変更は受け付ける。それ以外の `step` の変更（`log` でない次元の刻み、`float` の `log` の次元の刻み、`step` を足すことと外すこと。どれも上の `int` の `log` の例外を除く）も受け付ける。格子の原点は 0 で、各試行の値はその試行の round の刻みで決まる（§11.5 の試行の値）。
 
 **受け付けの検査**: 新しい tune と同じ検査（H-0093、H-0099、H-0102、H-0121）を、この round の宣言空間に当てる。`space=` の次元は利用者の宣言として扱う（未知の名前、同じパラメーターの二重の宣言、training の所有の衝突は `CONFIG_INVALID`）。provider の境界は拡張だけを縛り、`space=` の範囲は検査もクランプもしない（H-0111）。
 
@@ -1227,7 +1248,7 @@ study を作るとき、目的関数の同一性を study の属性に書く（�
 キーは `lizyml:` で始める。一緒に書くべきものは一つのキーの値にまとめ、書き込みの途中で落ちても読み手が判断できるようにする。
 
 - `lizyml:study`: study を作ったときに一度だけ書く。形式の版（`schema`。読めない版なら `CONFIG_INVALID`）、同一性の要約と要素ごとの要約、ライブラリの版、`space_mode`、`fixed`、study を作ったときの config の探索空間。
-- `lizyml:round:<k>`: round k の準備がすべて済んでから、試行を足す前に一度だけ書く。宣言の元の形（`space=`、無ければ「直前の宣言のまま」）と次元ごとの出どころ（利用者 / 既定）、宣言空間、実効空間、拡張と `BoundaryReport` の全体、解決した `expand_boundary`、予算（`n_trials`、`timeout`）、開始時の試行数と最良値、その round で増えた次元の経路。
+- `lizyml:round:<k>`: round k の準備がすべて済んでから、試行を足す前に一度だけ書く。宣言の元の形（`space=`、無ければ「直前の宣言のまま」）と次元ごとの出どころ（利用者 / 既定）、宣言空間、実効空間、拡張と `BoundaryReport` の全体、解決した `expand_boundary`、予算（`n_trials`、`timeout`）、開始時の試行数と最良値、その round で増えた次元の経路。次元の記録は `step` を持つ（無ければ `null`。H-0124、形式の版は 1 のまま）。`step` の無い次元の記録は刻み無しと読み、知らないキーを持つ次元の記録（数の次元でもカテゴリの次元でも）は読めず、その study は `"inconsistent"`（下の表）。記録された次元が §11.1 の大きさの規則に外れるか、記録された `min_allowed` / `max_allowed` が有限の `float` でない（巨大な `int`、NaN、無限大）ときも、その記録は読めない（`lizyml:study` なら `"unreadable"`、round の記録なら `"inconsistent"`。H-0124 改訂 1）。resume と `restore_tuning` は計画（端の検出、試行の値の決定）より前にこれを拒否する。
 - `lizyml:round:<k>:end`: round を閉じたときに書く。終わり方（`completed` / `failed`）、終了時の最良値（COMPLETE の試行が無ければ空）、時刻。study に COMPLETE の試行が一つも無いまま round が終われば `failed` と書いたうえで `TUNING_FAILED` を送出する（Model の状態は変えない）。閉じた round は再開の対象にならず、次の `resume=True` は新しい round を始める。
 - 書く順序: round の準備を決める → `lizyml:round:<k>` → 試行を足す → `lizyml:round:<k>:end`。試行の round は試行の番号で決まり、試行ごとの属性は置かない。
 
@@ -1241,7 +1262,7 @@ study を作るとき、目的関数の同一性を study の属性に書く（�
 | `"uninitialized"` | `lizyml:study` が無く、試行が 0 件（作りかけ） | `"no_round"` と同じ。ただしその検査をすべて済ませてから `lizyml:study` を書く |
 | `"unreadable"` | `lizyml:study` が読めない（より新しい LizyML の版、または書き換えたもの） | `CONFIG_INVALID` |
 | `"no_round"` | round の記録が一つも無く、試行が 0 件 | 照合の後、round 1 を新しい study と同じように始める（config の探索空間を使い、`space=` は `CONFIG_INVALID`） |
-| `"inconsistent"` | round の記録と試行が食い違う（記録が無いのに試行がある、round の番号が 1 から連続しない、`:end` の無い round が最後以外にある、round 1 の開始より小さい番号の試行があるなど） | `CONFIG_INVALID`（「新しい study で」） |
+| `"inconsistent"` | round の記録と試行が食い違う（記録が無いのに試行がある、round の番号が 1 から連続しない、`:end` の無い round が最後以外にある、round 1 の開始より小さい番号の試行がある、試行の値の名前がその試行の round の実効空間に無い（H-0124）など） | `CONFIG_INVALID`（「新しい study で」） |
 | `"open"` | 最後の round に `:end` が無い（途中で落ちた） | 照合の後、同じ round を残りの予算で終える（下） |
 | `"completed"` | 最後の round の `:end` が `completed` | 照合の後、新しい round を始める（§11.5.2） |
 | `"failed"` | 最後の round の `:end` が `failed` | 照合の後、新しい round を始める。COMPLETE の試行が無いので、境界の拡張は行わない |
@@ -1255,7 +1276,7 @@ study を作るとき、目的関数の同一性を study の属性に書く（�
 - round 番号は変えない。その round の記録にある実効空間をそのまま使い、境界の分析と拡張はやり直さない。
 - 残りの試行数は、記録した `n_trials` から、その round で終わった試行（COMPLETE、FAIL、PRUNED）の数を引いたもの。記録に `timeout` があれば、残りの時間は `timeout` から、その round の COMPLETE と PRUNED の試行それぞれの開始から終了までの時間の合計を引いたもの（落ちていた間の時間は入らない）。残りが 0 以下なら試行を足さずに round を閉じる（`:end` の規則に従う）。時間で区切る round では、続けた場合と同じ試行の数になることは保証しない。
 - 落ちたときに RUNNING のまま残った試行は、再接続のときに FAIL として記録し、予算に数える。
-- 引数: `n_trials`、`expand_boundary`、`space=` は、`None` 以外を渡したときだけ、その round の記録の解決した値と比べる。同じなら通し、違えば `CONFIG_INVALID`（「この round は記録の値で始まっている」）。`space=` は宣言空間に解決して次元の集合として比べるので、省略の書き方や dict の並びの違いは同じとみなす。config の `tuning.optuna.params.n_trials` は使わず、記録と違えば警告を出す。終わった round のあとの新しい round では、これらの引数は自由に変えられる。
+- 引数: `n_trials`、`expand_boundary`、`space=` は、`None` 以外を渡したときだけ、その round の記録の解決した値と比べる。同じなら通し、違えば `CONFIG_INVALID`（「この round は記録の値で始まっている」）。`space=` は宣言空間に解決して次元の集合として比べるので、省略の書き方や dict の並びの違いは同じとみなす（`step` は比べる。`step` だけが違う拒否のメッセージでも二つの空間は `step` で違って見える。H-0124）。config の `tuning.optuna.params.n_trials` は使わず、記録と違えば警告を出す。終わった round のあとの新しい round では、これらの引数は自由に変えられる。
 - 検査の順序: 照合と引数の比べ合わせを、RUNNING の試行を FAIL にすることを含むすべての書き込みより先に行う。拒否したときは、試行の状態も study の属性も変わらない。
 
 ## 11.5.4 系譜を読む関数 `read_study_lineage`（H-0122）

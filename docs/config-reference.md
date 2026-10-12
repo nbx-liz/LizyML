@@ -444,15 +444,65 @@ dimension. It is not converted into another search. Per dimension:
 | Key | Applies to | Required | Accepted values |
 |---|---|---|---|
 | `type` | all | Yes | `"float"`, `"int"` or `"categorical"`. |
-| `low`, `high` | `float`, `int` | Yes | An `int` or `float` (not `bool`), a numpy integer or floating scalar, or a string that is a number literal in full (below). Finite. For `int`, a whole value: `16.0`, `"16.0"` and `"1e2"` are 16, 16 and 100; `1.7` and `"1.7"` are refused, not truncated. |
+| `low`, `high` | `float`, `int` | Yes | An `int` or `float` (not `bool`), a numpy integer or floating scalar, or a string that is a number literal in full (below). Finite. For `int`, a whole value: `16.0`, `"16.0"` and `"1e2"` are 16, 16 and 100; `1.7` and `"1.7"` are refused, not truncated. For `float`, `high - low` at most the largest float; for `int`, at most `2**52` in absolute value (below). |
 | `log` | `float`, `int` | No (default `false`) | A `bool`. The string `"false"` is refused. |
+| `step` | `float`, `int` | No (default: no step) | The same types as `low` / `high`, finite and above 0; for `int`, a whole value of at least 1 and at most `2**52`. `low` and `high` must be multiples of it (below). |
 | `choices` | `categorical` | Yes | A non-empty list (or tuple, from Python) of plain scalars: `str`, `int`, `float`, `bool` or `None`. A string, set, dict, range, numpy array or generator is refused. |
 | `category` | all | No (default `"model"`) | `"model"`, `"smart"` or `"training"`. |
 
 No other key is accepted: `float` and `int` dimensions take `type`, `low`,
-`high`, `log` and `category`; `categorical` dimensions take `type`, `choices`
-and `category`. In particular `step` is refused (LizyML dimensions have no
-step yet), and so is a misspelt key such as `lo`.
+`high`, `log`, `step` and `category`; `categorical` dimensions take `type`,
+`choices` and `category`. A misspelt key such as `lo` is refused.
+
+Bounds and steps are limited to what Optuna can sample (H-0124 amendment 1),
+since it samples every number as a float. A `float` dimension's exact width
+`high - low` must be at most the largest float (`1.7976931348623157e+308`):
+`[-1e308, 1e308]` has finite bounds but is refused with `reason`
+`range_not_finite` (`key` `high`), while `[-8e307, 8e307]` is accepted. An
+`int` dimension's `low`, `high` and `step` must be at most `2**52`
+(4503599627370496) in absolute value: Optuna samples an `int` dimension as a
+float widened by half a step, from `2**53` it silently searches only some of
+the integers, and further out it fails. Past the limit is `reason`
+`bound_too_large`, with `key` the first of `low`, `high` and `step` that is.
+The public `Tuner.tune` applies the same limits to every numeric dimension
+it is given, with or without a step. Boundary expansion (`tune(resume=True)`)
+does not widen an edge past them: such an edge is left where it is and
+reported as not expanded (`expanded=False`, `new_low` / `new_high` `None`,
+`clamped_to_bound=False`).
+
+A `step` (H-0124) makes the dimension a grid with origin 0: the multiples of
+`step` from `low` to `high`. Both bounds must be multiples of `step`, judged in
+exact decimal arithmetic, so `[0.1, 0.3]` with step `0.1` is accepted. A bound
+off the grid is refused with `reason` `bound_off_grid` (`key` `low` or `high`)
+and a message that names a range on the grid; it is not truncated the way
+Optuna does. A `step` that is not a number, not finite or (for `int`) not
+whole uses the bound reasons with `key` `step`; zero or a negative step is
+`step_not_positive`.
+
+```python
+"learning_rate": {"type": "float", "low": 0.1, "high": 0.7, "step": 0.1},
+"num_leaves":    {"type": "int", "low": 16, "high": 256, "step": 16},
+"lambda_l2":     {"type": "float", "low": 0.001, "high": 0.1, "step": 0.001, "log": True},
+# "low": 0.15 with "step": 0.1 is refused: [0.2, 0.7] is on the grid.
+```
+
+Without `log`, Optuna samples the grid points. With `log`, the dimension is
+sampled on a log scale and the sample is rounded once to the nearest grid point
+(half to even), clamped to `[low, high]`; the smallest grid point of a log
+dimension is `step`. An `int` log dimension with `step` 1 is the same as no
+step; with a larger step it is sampled as a float and rounded once. Every
+trial trains on its grid point, and the trial list, the best parameters, `fit`,
+`restore_tuning` and export report that value (`0.3`, not
+`0.30000000000000004`). Two trials that round to the same point are each
+evaluated. Boundary expansion keeps the edges on the grid and never moves a log
+lower edge below `step`.
+
+Within one study a later round may change a dimension's `step` through
+`tune(space=...)`; each trial's value is read with its own round's step. The
+exception is an `int` log dimension, whose step cannot switch between "1 or
+none" and "above 1" (Optuna's distribution kind changes): that resume raises
+`CONFIG_INVALID`. The public `Tuner.tune`, which takes your own objective,
+refuses a log dimension with a `step` and reports the raw sampled values.
 
 A bound written as a string must match this number literal in full (ASCII
 digits only), so `"nan"`, `"inf"`, `"0x10"` and `"1,000"` are refused:

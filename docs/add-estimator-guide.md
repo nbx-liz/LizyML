@@ -87,8 +87,9 @@ LightGBM の実装 (`lizyml/estimators/lgbm/`) が全項目のリファレンス
 | `default_fixed_params(task)` → `dict` | Tuning 時に全試行で固定するパラメータ |
 
 > **SearchDim の型**:
-> - `FloatDim(name, low, high, log=False, category="model")` — frozen dataclass
-> - `IntDim(name, low, high, log=False, category="model")` — frozen dataclass
+> - `FloatDim(name, low, high, log=False, category="model", min_allowed=None, max_allowed=None, step=None)` — frozen dataclass
+> - `IntDim(name, low, high, log=False, category="model", min_allowed=None, max_allowed=None, step=None)` — frozen dataclass
+> - `step`（任意、H-0124）は原点 0 の格子の刻みで、`low` / `high` はその倍数にする（`IntDim` は 1 以上の整数）。既定空間の次元に付けると、格子の外の境界は `tune` が `CONFIG_INVALID` で拒否する。BLUEPRINT §11.1 を参照
 > - `CategoricalDim(name, choices, category="model")` — `choices` は **`tuple`** 型（`list` ではない）
 
 ### 3.5 メタ情報

@@ -10,6 +10,8 @@ Before H-0123 ``parse_space`` read a dimension through ``float()``, ``int()``
 and ``bool()``, so a spec outside the format became another search without a
 word: ``log: "false"`` searched on a log scale, a ``step`` key was dropped, an
 ``int`` bound ``1.7`` became ``1``, ``choices: "abc"`` became three choices.
+H-0124 adds ``step`` to the numeric format (:func:`read_float_step`,
+:func:`read_int_step`); its grid is checked in :mod:`lizyml.tuning._step_grid`.
 These functions accept the format and refuse everything else with
 ``CONFIG_INVALID``, naming the dimension, the key, a reason and the surface.
 
@@ -29,6 +31,12 @@ from typing import Any
 import numpy as np
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.tuning._magnitude import (
+    FLOAT_WIDTH_LIMIT,
+    INT_LIMIT,
+    int_too_large,
+    width_too_large,
+)
 from lizyml.tuning.lineage_codec import DIM_CATEGORIES
 
 __all__ = [
@@ -38,15 +46,22 @@ __all__ = [
     "NUMERIC_KEYS",
     "REQUIRED_KEYS",
     "check_dim_keys",
+    "check_float_width",
+    "float_width_error",
     "check_space_shape",
     "format_error",
+    "int_too_large_error",
     "read_choices",
     "read_float_bound",
+    "read_float_step",
     "read_int_bound",
+    "read_int_step",
     "read_log",
 ]
 
-NUMERIC_KEYS: frozenset[str] = frozenset({"type", "low", "high", "log", "category"})
+NUMERIC_KEYS: frozenset[str] = frozenset(
+    {"type", "low", "high", "log", "step", "category"}
+)
 """The keys a ``float`` or ``int`` dimension may have."""
 
 CATEGORICAL_KEYS: frozenset[str] = frozenset({"type", "choices", "category"})
@@ -75,9 +90,12 @@ plain decimal or exponent literal is a number here: ``"nan"``, ``"inf"``,
 ``"0x10"``, ``"1,000"`` and a trailing newline are not.
 """
 
+FLOAT_WIDTH_LIMIT_TEXT = repr(float(FLOAT_WIDTH_LIMIT))
+"""``sys.float_info.max`` as the refusal message shows it."""
+
 _FORMAT_HINT = (
     "A dimension takes the documented form {type: float | int, low, high, "
-    "log?, category?} or {type: categorical, choices: [...], category?} "
+    "log?, step?, category?} or {type: categorical, choices: [...], category?} "
     "(docs/config-reference.md)."
 )
 
@@ -169,19 +187,9 @@ def check_dim_keys(
 ) -> None:
     """Refuse a key the dimension's ``type`` does not have, or a missing one.
 
-    ``step`` gets its own message: a UI that sends one (LizyStudio's range
-    inputs) is told the search had no step, rather than that a key is unknown.
+    ``step`` is a key of ``float`` and ``int`` dimensions since H-0124 (H-0123
+    refused it while dimensions had no step).
     """
-    if "step" in spec:
-        raise format_error(
-            surface,
-            f"dimension '{name}' has a 'step', but LizyML dimensions have no step "
-            "yet: the search would sample the whole range, not multiples of it. "
-            "Remove 'step'.",
-            reason="step_not_supported",
-            dim=name,
-            key="step",
-        )
     allowed = DIM_KEYS[kind]
     unknown = [key for key in spec if key not in allowed]
     if unknown:
@@ -255,7 +263,7 @@ def _finite(name: str, key: str, value: Any, number: float, *, surface: str) -> 
             value,
             reason="bound_not_finite",
             surface=surface,
-            why="a bound must be finite.",
+            why=f"{key} must be finite.",
         )
     return number
 
@@ -300,7 +308,70 @@ def read_int_bound(name: str, key: str, value: Any, *, surface: str) -> int:
     ``100``; ``1.7`` and ``"1.7"`` are refused rather than truncated. Text is
     read exactly (``Decimal``), after its float value is checked finite, so an
     exponent such as ``"1e999"`` is refused instead of being expanded.
+
+    The value is at most ``2**52`` in absolute value (H-0124 amendment 1,
+    policy 9; :func:`int_too_large_error`), whatever its type.
     """
+    number = _read_int(name, key, value, surface=surface)
+    if int_too_large(number):
+        raise int_too_large_error(name, key, value, surface=surface)
+    return number
+
+
+def int_too_large_error(
+    name: str, key: str, value: Any, *, surface: str
+) -> LizyMLError:
+    """``bound_too_large``: an ``int`` dimension's value past ``2**52``.
+
+    Optuna samples an ``int`` dimension as a ``float``, widened by half a
+    step on each side; half-integers are exact only up to ``2**52``, and past
+    ``2**53`` the search silently gets coarser, then fails.
+    """
+    return _bound_error(
+        name,
+        key,
+        value,
+        reason="bound_too_large",
+        surface=surface,
+        why=(
+            f"an int dimension's {key} must be at most 2**52 ({INT_LIMIT}) in "
+            "absolute value: Optuna samples an int dimension as a float, which "
+            "holds every integer and half-integer only up to there."
+        ),
+    )
+
+
+def check_float_width(name: str, low: Any, high: Any, *, surface: str) -> None:
+    """Refuse a ``float`` range whose exact width is past the largest float.
+
+    Each bound may be finite while ``high - low`` is not a finite ``float``;
+    Optuna then fails every sample (``Range exceeds valid bounds``). The width
+    is computed exactly, so a width of exactly ``sys.float_info.max`` passes
+    (H-0124 amendment 1, policy 9).
+
+    Raises:
+        LizyMLError: ``CONFIG_INVALID`` with ``reason="range_not_finite"`` and
+            ``key="high"``.
+    """
+    if width_too_large(low, high):
+        raise float_width_error(name, low, high, surface=surface)
+
+
+def float_width_error(name: str, low: Any, high: Any, *, surface: str) -> LizyMLError:
+    """``range_not_finite``: see :func:`check_float_width`."""
+    return format_error(
+        surface,
+        f"dimension '{name}' has low={low!r} and high={high!r}, whose width is "
+        f"past the largest float ({FLOAT_WIDTH_LIMIT_TEXT}): Optuna cannot "
+        "sample that range. Narrow it.",
+        reason="range_not_finite",
+        dim=name,
+        key="high",
+    )
+
+
+def _read_int(name: str, key: str, value: Any, *, surface: str) -> int:
+    """:func:`read_int_bound` before its magnitude check."""
     if type(value) is int:
         return value
     if isinstance(value, np.integer):
@@ -342,6 +413,41 @@ def _not_integral(name: str, key: str, value: Any, *, surface: str) -> LizyMLErr
         reason="bound_not_integral",
         surface=surface,
         why="an int dimension's bound must be a whole number; it is not rounded.",
+    )
+
+
+def read_float_step(name: str, value: Any, *, surface: str) -> float:
+    """A ``float`` dimension's ``step`` (H-0124): read as a bound, and > 0.
+
+    The type rules and the refusals for an unreadable value are
+    :func:`read_float_bound`'s, with ``key="step"``.
+    """
+    step = read_float_bound(name, "step", value, surface=surface)
+    if step <= 0:
+        raise _not_positive(name, value, surface=surface, least="greater than 0")
+    return step
+
+
+def read_int_step(name: str, value: Any, *, surface: str) -> int:
+    """An ``int`` dimension's ``step`` (H-0124): read as a bound, and >= 1.
+
+    The type and whole-number rules are :func:`read_int_bound`'s, with
+    ``key="step"``: ``1.5`` is refused, not rounded.
+    """
+    step = read_int_bound(name, "step", value, surface=surface)
+    if step < 1:
+        raise _not_positive(name, value, surface=surface, least="at least 1")
+    return step
+
+
+def _not_positive(name: str, value: Any, *, surface: str, least: str) -> LizyMLError:
+    return _bound_error(
+        name,
+        "step",
+        value,
+        reason="step_not_positive",
+        surface=surface,
+        why=f"step must be {least}.",
     )
 
 

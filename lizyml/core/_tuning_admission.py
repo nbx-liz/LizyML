@@ -37,6 +37,7 @@ from lizyml.core._smart_combinations import (
 from lizyml.core._tuning_space import SPACE_ARG
 from lizyml.core._tuning_validation import validate_tuning_dimensions
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.tuning._step_grid import check_dim_magnitude, check_dim_step
 from lizyml.tuning.search_space import parse_space
 from lizyml.tuning.tuner import precheck_study_args
 
@@ -220,10 +221,16 @@ def check_round_space(
     """Admission checks on the space the round samples (H-0094, H-0099).
 
     Run on ``plan.effective``, so a ``space=`` round's dims are checked like
-    the config's.
+    the config's. Every numeric dim is first held to the magnitudes Optuna can
+    sample (H-0124 amendment 1, policy 9), and a stepped one is checked on its
+    grid (H-0124 policy 5): an expanded range is only recorded within them,
+    and a refusal here precedes every write (INV-R4).
     """
     space = list(plan.effective)
     surface = SPACE_ARG if plan.source == "space_arg" else "tuning.optuna.space"
+    for dim in space:
+        check_dim_magnitude(dim, surface=surface)
+        check_dim_step(dim, surface=surface)
     validate_tuning_dimensions(
         provider, space, base_smart_params, cfg.task, surface=surface
     )
