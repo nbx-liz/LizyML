@@ -28,7 +28,7 @@ from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.search_dim import SearchDim
 from lizyml.core.types.tuning_result import TuningResult
 from lizyml.tuning import tuner as _tuner
-from lizyml.tuning.lineage import Lineage, classify_study
+from lizyml.tuning.lineage import Lineage, classify_study, split_by_routes
 from lizyml.tuning.rounds import (
     ScoredTrial,
     assemble_tuning_result,
@@ -217,7 +217,38 @@ def refuse_recorded_smart_values(
     on). A ``tune(resume=True)`` of it is refused by the round admission; the
     result is refused here, before it reaches the Model or a ``fit``.
     """
-    found = smart_value_violation(provider, result.best_smart_params, task)
+    _refuse_smart_violation(
+        smart_value_violation(provider, result.best_smart_params, task), study_name
+    )
+
+
+def refuse_best_trial_smart_values(
+    lineage: Lineage | None,
+    trials: Sequence[Any],
+    best: Any,
+    provider: EstimatorProvider,
+    task: TaskType,
+    study_name: str | None,
+) -> None:
+    """Refuse a resume whose study-wide best breaks the smart value rule.
+
+    H-0121 amendment 2, policy 2: the round admission checks the new round's
+    dimensions, but the study-wide best can be a trial of an earlier round --
+    one whose smart dimension a ``tune(space=...)`` has since removed. Such a
+    best becomes the tune's result, then the ``fit`` overlay and the export,
+    so it is checked here, before any study write. *best* is
+    ``study.best_trial`` and is read only when a trial is COMPLETE.
+    """
+    from optuna.trial import TrialState
+
+    if lineage is None or not any(t.state == TrialState.COMPLETE for t in trials):
+        return
+    trial = best()
+    _, smart, _ = split_by_routes(recorded_trial_params(lineage, trial), lineage.routes)
+    _refuse_smart_violation(smart_value_violation(provider, smart, task), study_name)
+
+
+def _refuse_smart_violation(found: Any, study_name: str | None) -> None:
     if found is None:
         return
     raise LizyMLError(

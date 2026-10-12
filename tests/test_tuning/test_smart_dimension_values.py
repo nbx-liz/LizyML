@@ -513,6 +513,41 @@ def test_restore_tuning_refuses_a_string_bool_result(
     assert other._tuning_result is None
 
 
+@pytest.mark.parametrize("variant", ["reattach", "in_memory"])
+def test_resume_refuses_a_legacy_best_whose_smart_dimension_was_removed(
+    variant: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The study-wide best is checked before any write, not only the new round.
+
+    A ``space=`` round without the smart dimension keeps the legacy best (a
+    round-1 trial recording ``"false"``) as the tune's best; it would reach
+    the result, the ``fit`` overlay and the export.
+    """
+    storage = url(tmp_path) if variant == "reattach" else None
+    cfg = _config("binary", {"auto_num_leaves": _cat("false"), "learning_rate": LR})
+    with monkeypatch.context() as mp:
+        from lizyml.core import _smart_values
+
+        mp.setattr(_smart_values, "check_smart_dimension_values", lambda *a, **k: None)
+        first = Model(cfg, data=_frame("binary"))
+        first.tune(storage=storage, study_name="s" if storage else None)
+    model = Model(cfg, data=_frame("binary")) if variant == "reattach" else first
+    study = first._study
+    before = (snapshot_study(study), snapshot_model(model))
+    with pytest.raises(LizyMLError) as caught:
+        model.tune(
+            resume=True,
+            storage=storage,
+            study_name="s" if storage else None,
+            space={"learning_rate": LR},
+        )
+    err = caught.value
+    assert err.code is CI
+    assert (err.context["name"], err.context["value"]) == ("auto_num_leaves", "false")
+    assert err.context["reason"] == INVALID
+    assert (snapshot_study(study), snapshot_model(model)) == before
+
+
 def test_restore_tuning_accepts_a_result_inside_the_rule(tmp_path: Path) -> None:
     storage = url(tmp_path)
     cfg = _config("binary", {"auto_num_leaves": _cat(True, False)})
