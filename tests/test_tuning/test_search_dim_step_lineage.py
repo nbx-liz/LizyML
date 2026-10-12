@@ -87,6 +87,15 @@ def test_log_lower_edge_stops_at_step_without_a_provider_bound() -> None:
     assert expanded.low == 0.01
 
 
+def test_upper_edge_stops_at_the_last_grid_point_inside_the_float_range() -> None:
+    """3e308 is past the float range; the edge stops at 1.7e308, on the grid."""
+    dim = FloatDim("x", 1e307, 1e308, log=True, step=1e307)
+    status, expanded = _expand(dim, 1e308)
+    assert status.edge == "upper" and status.expanded
+    assert expanded.high == 1.7e308
+    assert expanded.step == 1e307
+
+
 def test_log_lower_edge_at_step_is_not_expanded() -> None:
     dim = FloatDim("learning_rate", 0.01, 0.1, log=True, step=0.01)
     status, expanded = _expand(dim, 0.01)

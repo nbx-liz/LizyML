@@ -243,6 +243,22 @@ def test_large_bounds_with_a_small_step_are_exact_under_any_decimal_context() ->
     assert err.context["reason"] == "bound_off_grid"
 
 
+@pytest.mark.parametrize(
+    "spec",
+    [
+        {"type": "float", "low": -1.7e308, "high": -1e308, "step": 1e308},
+        {"type": "float", "low": 1e308, "high": 1.7e308, "step": 1e308},
+    ],
+    ids=["negative", "positive"],
+)
+def test_off_grid_extreme_bounds_are_refused_not_overflowed(spec: Any) -> None:
+    """The message's enclosing grid edge (+-2e308) is not a float; it is shown
+    exactly instead of raising ``OverflowError``."""
+    err = _refusal(spec)
+    assert err.context["reason"] == "bound_off_grid"
+    assert "2" in str(err.context["grid_low"]) + str(err.context["grid_high"])
+
+
 # ---------------------------------------------------------------------------
 # Rounding: grid_value and recorded_params (policies 3 and 4)
 # ---------------------------------------------------------------------------

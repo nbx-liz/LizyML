@@ -8,6 +8,7 @@ re-exported here for backward compatibility.
 from __future__ import annotations
 
 import math
+import sys
 from collections.abc import Mapping
 from fractions import Fraction
 from typing import Any, TypeVar
@@ -513,6 +514,14 @@ def _expand_on_grid(
     elif edge == "upper":
         new_high = high * factor if dim.log and high > 0 else high + (high - low)
         new_high = snap_up(new_high, step)
+    if not is_int:
+        # Exact arithmetic can step past the float range ([1e307, 1e308] log
+        # step 1e307 expands to 3e308); stop at the last grid point inside it.
+        limit = Fraction(sys.float_info.max)
+        if new_high > limit:
+            new_high = max(high, snap_down(limit, step))
+        if new_low < -limit:
+            new_low = min(low, snap_up(-limit, step))
     min_allowed = None if dim.min_allowed is None else exact(dim.min_allowed)
     max_allowed = None if dim.max_allowed is None else exact(dim.max_allowed)
     new_low, new_high, clamped = _clamp_outward(

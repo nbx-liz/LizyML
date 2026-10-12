@@ -75,6 +75,20 @@ def _plain(value: Fraction, kind: str) -> float | int:
     return float(value)
 
 
+def _shown(value: Fraction, kind: str) -> float | int | str:
+    """A grid edge for the refusal message.
+
+    The enclosing range of finite bounds near the float limit can reach past
+    it (``[-1.7e308, -1e308]`` step ``1e308`` encloses ``-2e308``), so such an
+    edge is shown as its exact decimal text instead of raising
+    ``OverflowError``.
+    """
+    try:
+        return _plain(value, kind)
+    except OverflowError:
+        return str(value.numerator // value.denominator)
+
+
 def _range_on_grid(
     low: Fraction, high: Fraction, step: Fraction, *, log: bool
 ) -> tuple[Fraction, Fraction, bool]:
@@ -128,7 +142,7 @@ def check_grid(
         return
     key, value = off_grid[0]
     grid_low, grid_high, inside = _range_on_grid(lo, hi, s, log=log)
-    shown_low, shown_high = _plain(grid_low, kind), _plain(grid_high, kind)
+    shown_low, shown_high = _shown(grid_low, kind), _shown(grid_high, kind)
     where = (
         "inside the declared range"
         if inside

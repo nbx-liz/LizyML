@@ -12896,7 +12896,7 @@ Optuna 4.7.0 の性質（`docs/audits/2026-10-tuning-resume/probes/optuna_step_f
 
 - **拡張の順序**（方針 5）: 動いた端ごとに、今の式 → 外向きに格子へ寄せる → 下限（`int` の 1、線形の 0）→ provider の上下限（`_clamp_outward`）→ 上下限に当てたときだけ内向きに寄せる → 元の端より内側にしない。上下限に当てる前に外へ寄せるのは、外へ寄せた端が上下限を越えないため（`validation_ratio` の log `[0.2, 0.4]` step 0.04 の下端は 0.0667 → 0.04 では下限 0.05 を越えるので、上下限に当てて内向きに 0.08）。
 - **`int` の下限 1**: Proposal に無い。今の `max(1, …)` を下限として扱い、外へ寄せた端が 1 より下なら 1 以上の最小の格子の点にする（`int` の `[4, 8]` step 4 は下へ拡張しない）。
-- **刻みのある次元の拡張は正確な有理数で計算する**（`float` で計算すると `[0.1, 0.2]` step 0.1 が 0.4 まで広がる）。刻みの無い次元は今の `float` の計算のまま。
+- **刻みのある次元の拡張は正確な有理数で計算する**（`float` で計算すると `[0.1, 0.2]` step 0.1 が 0.4 まで広がる）。刻みの無い次元は今の `float` の計算のまま。正確な計算は `float` の範囲を越えうるので、`float` の次元の拡張した端は `float` の範囲の内側の最後の格子の点で止める（log `[1e307, 1e308]` step 1e307 の上端は 3e308 でなく 1.7e308）。`bound_off_grid` のメッセージに示す外側の範囲の端が `float` の範囲を越えるとき（`[-1.7e308, -1e308]` step 1e308 の -2e308）は、その端を正確な整数の文字列で示す（どちらも Codex の実装レビュー round 1 で、素の `OverflowError` になっていた）。
 - **`bound_off_grid`**: 両端が格子の外のとき `key` は `low`。context に示す範囲 `grid_low` / `grid_high` も入れる。
 - **`recorded_params(params, dims)`**: 試行ではなく値の dict と次元を受け取る。次元の無い名前は `ValueError`（系譜の検査が整った study では起きない）。Model の四つの読み手は `rounds.recorded_trial_params(lineage, trial)` を通る（試行の round を `round_of` で決める）。
 - **`Tuner.tune`**: surface は `Tuner.tune`、log と `step` の拒否の理由は `log_with_step`（key `step`）。直接作った次元の検査 `check_dim_step` は、`step` があるとき `low` / `high` も H-0123 の書式で読む。ただし文字列の `step` / `low` / `high` は拒否する（`bound_not_a_number`）。数の表記の文字列を数として読むのは config と `space=` の mapping だけで、Python で作った次元は値をそのまま Optuna に渡すので、文字列は study を作った後に全試行を失敗させる（fresh-context の確認で見つかった）。
