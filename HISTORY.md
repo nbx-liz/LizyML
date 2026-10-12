@@ -12943,7 +12943,7 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
        - `x` が元の端より外側（#342。元の端と同じなら「拡張なし」）。
        - log の次元では `x` が 0 より大きい（`float` の非正規数の下端を 3 で割ると 0 に丸まる。log `[5e-324, 1e-323]` の下端は 0.0 になり、Optuna は `log=True` の下端 0 を `ValueError` にする）。
     - 下端は大きさの上限を越えない（線形の下端は #110 のとおり `min(low, max(0, low - 幅))` で、`low` が負なら動かず、log の下端は割り算で小さくなり、`int` の下端は 1 以上）。下端を止めうるのは、格子の読み戻しの条件と、log の次元で `x` が 0 に丸まる場合（上の条件）である。
-    - 広げない端の報告: その次元の `BoundaryDimStatus` は `expanded=False`、`new_low` / `new_high` は `None`、`clamped_to_bound=False`（provider の上下限に当てた候補でも、広げなければ「上下限に達した」とはしない）、`expanded_names` に入らず、`expand_dims` はその次元を元のまま返す。`edge` と `position_pct` は検出のとおり。
+    - 広げない端の報告（上の条件のうち、元の端より外側であること以外で広げない端。候補が元の端と同じで広がらない場合は、今の H-0111 の報告のまま — 実装の記録を参照）: その次元の `BoundaryDimStatus` は `expanded=False`、`new_low` / `new_high` は `None`、`clamped_to_bound=False`（provider の上下限に当てた候補でも、広げなければ「上下限に達した」とはしない）、`expanded_names` に入らず、`expand_dims` はその次元を元のまま返す。`edge` と `position_pct` は検出のとおり。
     こうして広げた次元は方針 2 と方針 9 を満たすので、round の受け付けの検査で拒否されず、次の round の境界の検出（位置の計算）は常に有限になる。上限まで寄せて止めることはしない（寄せた端を `float` に丸めると格子から外れうるので、2026-10-12 の管理者の判断で「広げない」を選んだ）。H-0124 の実装の記録にある「`float` の範囲の内側の最後の格子の点で止める」は、この改訂で「広げない」に置き換える。
 
 #### 規則が縛る位置（ソースから導出、実装前、`956f487`）
@@ -12993,7 +12993,7 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
 
 - **`clamped_to_bound` の例外**: 方針 10 の「広げない端は `clamped_to_bound=False`」は、新しい条件（有限、幅、`2**52`、格子の読み戻し、log で 0 より大きい）で広げない端に当てる。候補が元の端と同じで広がらない場合（provider の上下限で元の端に戻された場合）は、今の H-0111 の報告のまま（上下限で止まったなら `True`）。BLUEPRINT §11.5（#318、#342）がこの報告を定めており、改訂 1 の「それ以外の拡張は今と同じ」にも合う。
 - **幅の判定は 2 進の値で行う**: `high - low` の判定は、`float` の値そのもの（`Fraction(x)`）で計算する。H-0124 の読み方（`Fraction(Decimal(str(x)))`）で読むと、`[-max/2, max/2]` は `float` の引き算がちょうど `max` なのに幅が `max` を越える。規則の目的は「`float` の引き算が有限であること」なので 2 進の値が合う。格子の判定は H-0124 の読み方のまま。
-- **Python で作った刻みの無い次元**: 方針 9 は数である値だけを比べる。`Tuner.tune` に渡した文字列の境界は今と同じく Optuna まで届き、NaN も今のまま。無限大の境界は `range_not_finite` になる。`Tuner` は低い層の API なので、これ以上は検査しない（テストで固定した）。
+- **Python で作った次元**: `Tuner.tune` と round の受け付けの検査は、刻みの有無によらず、数の表記の文字列の `low` / `high` / `step` を `bound_not_a_number` で拒否する（数として読むのは config と `space=` の mapping だけ。Python で作った次元は値をそのまま Optuna に渡し、`int` の `"9007199254740992"` のような文字列は黙って粗く抽出される）。無限大の境界は `bound_not_finite`（その境界の key）。`int` の境界の `float` の次元の幅は、Optuna が受け取る `float` の値で判定する（正確な `int` の幅が `float` の最大値ちょうどでも、`float` の引き算はあふれうる）。それ以外の数でない値と NaN は今と同じく Optuna に任せる（`Tuner` は低い層の API）。いずれも fresh-context の確認の指摘で直した。
 - **検査の順序**: `check_tuner_dims` と `check_round_space` は、大きさを刻みより先に見る。`int` の `key` の順は `parse_space` と同じ `low`、`high`、`step`。
 - **decode の `min_allowed` / `max_allowed`**: 有限の `float` であることだけを求め、`2**52` 以下は求めない（受け入れ基準 14 が上限 `2**60` の provider を使う）。数の次元の `low` / `high` / `step` は有限であることも求める。
 - **受け入れ基準 15 の study**: 「今のコードで `10**400` の次元で tune した study」は、テストの中で `_magnitude.INT_LIMIT` を一時的に上げて作る。同じ config での resume は `parse_space` が先に `bound_too_large` で断るので、`unreadable` の判定は上限の内側の config で確かめ、parse での拒否は別に確かめる。

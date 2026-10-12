@@ -64,10 +64,17 @@ def int_too_large(value: int) -> bool:
 
 
 def _binary(value: Any) -> Fraction:
-    """The exact value a finite bound has as Optuna receives it."""
-    if type(value) is int or isinstance(value, np.integer):
+    """The exact value a finite bound has as Optuna receives it.
+
+    Optuna turns every bound into a ``float`` (an ``int`` bound of a
+    ``float`` dimension too), so the width is judged on those values. An
+    ``int`` too large for a ``float`` keeps its exact value, which is past the
+    limit anyway.
+    """
+    try:
+        return Fraction(float(value))
+    except OverflowError:
         return Fraction(int(value))
-    return Fraction(float(value))
 
 
 def width_too_large(low: Any, high: Any) -> bool:

@@ -119,6 +119,31 @@ TUNER_REFUSED: dict[str, tuple[SearchDim, str, str]] = {
     "int_low_no_step": (IntDim("n", -(2**52) - 1, 0), "low", "bound_too_large"),
     "int_both_no_step": (IntDim("n", 2**60, 2**61), "low", "bound_too_large"),
     "int_step": (IntDim("n", 0, LIMIT, step=2**53), "step", "bound_too_large"),
+    # low is reported before step when both are past the limit (policy 9).
+    "int_low_and_step": (
+        IntDim("n", 2**53, 2**54, step=2**53),
+        "low",
+        "bound_too_large",
+    ),
+    # int-typed float bounds: the width Optuna computes is float(high) -
+    # float(low), which overflows although the exact width is the float max.
+    "float_width_int_bounds": (
+        FloatDim("x", -(2**970 - 1), int(sys.float_info.max) - 2**970 + 1),  # type: ignore[arg-type]
+        "high",
+        "range_not_finite",
+    ),
+    "float_low_not_finite": (
+        FloatDim("x", float("-inf"), 1.0),
+        "low",
+        "bound_not_finite",
+    ),
+    # Text is read as a number only from a mapping; a dim built in Python
+    # would hand it to Optuna, which samples 2**53.. coarsely without a word.
+    "int_text_no_step": (
+        IntDim("n", "9007199254740992", "9007199254740998"),  # type: ignore[arg-type]
+        "low",
+        "bound_not_a_number",
+    ),
 }
 
 
@@ -169,13 +194,18 @@ def test_tuner_tune_samples_at_the_limit(dim: SearchDim) -> None:
     assert all(dim.low <= v <= dim.high for v in seen)
 
 
-def test_a_dim_built_in_python_is_read_only_where_it_is_a_number() -> None:
-    """An unstepped dim with a non-number bound is left to Optuna, as before.
+def test_a_dim_built_in_python_refuses_text_bounds() -> None:
+    """Policy 9 covers every numeric dim built in Python, stepped or not.
 
-    Policy 9 compares numbers; it adds no reading rule for an unstepped dim
-    built in Python (a stepped one is read by ``check_dim_step``).
+    Text is read as a number only in a config or ``space=`` mapping; on a dim
+    built in Python it would reach Optuna as it is.
     """
-    check_dim_magnitude(FloatDim("x", "0.1", 1.0), surface="Tuner.tune")  # type: ignore[arg-type]
+    with pytest.raises(LizyMLError) as caught:
+        check_dim_magnitude(FloatDim("x", "0.1", 1.0), surface="Tuner.tune")  # type: ignore[arg-type]
+    assert (caught.value.context["reason"], caught.value.context["key"]) == (
+        "bound_not_a_number",
+        "low",
+    )
 
 
 def _space(**space: Any) -> dict[str, Any]:

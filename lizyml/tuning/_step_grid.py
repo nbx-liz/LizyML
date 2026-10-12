@@ -31,7 +31,6 @@ from lizyml.tuning._magnitude import (
 )
 from lizyml.tuning._space_format import (
     check_float_width,
-    float_width_error,
     format_error,
     int_too_large_error,
     read_float_bound,
@@ -158,6 +157,28 @@ def check_grid(
     )
 
 
+def _refuse_text(dim: FloatDim | IntDim, keys: Sequence[str], *, surface: str) -> None:
+    """Refuse a number written as text on a dimension built in Python.
+
+    Text is read as a number only from a config or ``space=`` mapping; a
+    dimension built in Python hands its values to Optuna as they are, where a
+    string fails every trial after the study exists, or (a big ``int`` as text)
+    is sampled coarsely without a word.
+    """
+    for key in keys:
+        value = getattr(dim, key)
+        if isinstance(value, str):
+            raise format_error(
+                surface,
+                f"dimension '{dim.name}' has {key}={value!r} (str): a dimension "
+                "built in Python takes numbers; text is read as a number only "
+                "in tuning.optuna.space or tune(space=...).",
+                reason="bound_not_a_number",
+                dim=dim.name,
+                key=key,
+            )
+
+
 def check_dim_step(dim: SearchDim, *, surface: str) -> None:
     """The ``step`` checks of ``parse_space`` for a dimension built directly.
 
@@ -171,21 +192,7 @@ def check_dim_step(dim: SearchDim, *, surface: str) -> None:
     """
     if isinstance(dim, CategoricalDim) or dim.step is None:
         return
-    # A number written as text is read only from a config or ``space=``
-    # mapping; a dimension built in Python hands its values to Optuna as they
-    # are, and a string there fails every trial after the study exists.
-    for key in ("step", "low", "high"):
-        value = getattr(dim, key)
-        if isinstance(value, str):
-            raise format_error(
-                surface,
-                f"dimension '{dim.name}' has {key}={value!r} (str): a dimension "
-                "built in Python takes numbers; text is read as a number only "
-                "in tuning.optuna.space or tune(space=...).",
-                reason="bound_not_a_number",
-                dim=dim.name,
-                key=key,
-            )
+    _refuse_text(dim, ("step", "low", "high"), surface=surface)
     if isinstance(dim, IntDim):
         step_i = read_int_step(dim.name, dim.step, surface=surface)
         low_i = read_int_bound(dim.name, "low", dim.low, surface=surface)
@@ -295,18 +302,21 @@ def check_dim_magnitude(dim: SearchDim, *, surface: str) -> None:
     and a ``float`` dimension's exact width ``high - low`` is at most the
     largest float (a bound that is not finite has no finite width).
 
-    It compares numbers only. A value that is not a number is not read here:
-    a stepped dimension's values are read by :func:`check_dim_step`, and an
-    unstepped one built in Python reaches Optuna as it is, as before. A NaN is
-    unordered and is left the same way.
+    A number written as text is refused (``bound_not_a_number``): it is read
+    as a number only from a mapping, and Optuna would get the string. Other
+    values that are not numbers are left to Optuna as before; a NaN is
+    unordered and is left the same way. A ``float`` bound that is not finite
+    is ``bound_not_finite`` with its own key.
 
     Raises:
-        LizyMLError: ``CONFIG_INVALID`` with ``reason`` ``bound_too_large``
-            (``key`` ``low`` / ``high`` / ``step``) or ``range_not_finite``
-            (``key`` ``high``).
+        LizyMLError: ``CONFIG_INVALID`` with ``reason`` ``bound_not_a_number``
+            or ``bound_too_large`` (``key`` ``low`` / ``high`` / ``step``),
+            ``bound_not_finite`` (``key`` ``low`` / ``high``) or
+            ``range_not_finite`` (``key`` ``high``).
     """
     if isinstance(dim, CategoricalDim):
         return
+    _refuse_text(dim, ("low", "high", "step"), surface=surface)
     if isinstance(dim, IntDim):
         for key in ("low", "high", "step"):
             value = getattr(dim, key)
@@ -318,8 +328,16 @@ def check_dim_magnitude(dim: SearchDim, *, surface: str) -> None:
         return
     if any(type(v) is not int and math.isnan(v) for v in (low, high)):
         return
-    if not (finite_float(low) and finite_float(high)):
-        raise float_width_error(dim.name, low, high, surface=surface)
+    for key, value in (("low", low), ("high", high)):
+        if not finite_float(value):
+            raise format_error(
+                surface,
+                f"dimension '{dim.name}' has {key}={value!r}, which is not a "
+                "finite float.",
+                reason="bound_not_finite",
+                dim=dim.name,
+                key=key,
+            )
     check_float_width(dim.name, low, high, surface=surface)
 
 
