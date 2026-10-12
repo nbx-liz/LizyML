@@ -1,0 +1,21 @@
+optuna 4.7.0
+== suggest_int over a width-10 range at growing magnitude
+- low 2**31, Random: 300/300 inside the range, 11 distinct values of 11
+- low 2**31, TPE: 300/300 inside the range, 11 distinct values of 11
+- low 2**52, Random: 300/300 inside the range, 11 distinct values of 11
+- low 2**52, TPE: 300/300 inside the range, 8 distinct values of 11
+- low 2**53, Random: 300/300 inside the range, 6 distinct values of 11
+- low 2**53, TPE: 300/300 inside the range, 6 distinct values of 11
+- low 2**54, Random: 300/300 inside the range, 3 distinct values of 11
+- low 2**54, TPE: 300/300 inside the range, 3 distinct values of 11
+- low 2**60, Random: 300/300 inside the range, 1 distinct values of 11
+- low 2**60, TPE: ValueError: cannot convert float NaN to integer
+- low 2**100, Random: 300/300 inside the range, 1 distinct values of 11
+- low 2**100, TPE: TypeError: loop of ufunc does not support argument 0 of type float which has no c
+- low 10**309, Random: OverflowError: int too large to convert to float
+- low 10**309, TPE: OverflowError: int too large to convert to float
+== suggest_float where each bound is finite
+- [-1e+308, 1e+308] step None (width inf): OverflowError: Range exceeds valid bounds
+- [-1.5e+308, 1e+308] step 5e+307 (width inf): OverflowError: Range exceeds valid bounds
+- [-9e+307, 9e+307] step None (width inf): OverflowError: Range exceeds valid bounds
+- [-8e+307, 8e+307] step None (width 1.6e+308): sampled 7.81016062837196e+306

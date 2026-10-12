@@ -12906,3 +12906,50 @@ Optuna 4.7.0 の性質（`docs/audits/2026-10-tuning-resume/probes/optuna_step_f
 - **文書**: `docs/add-estimator-guide.md` は全体が日本語なので、追記も日本語。CHANGELOG の H-0124 の項は「Changed -- action may be required」に置き、H-0123 の項の新たに拒否するものから `step` を除いた（公開していない拒否なので）。
 
 受け入れ基準の対応: 基準 1・2・4・6（拡張の計算）・7（codec と系譜）・9 は `tests/test_tuning/test_search_dim_step.py`・`test_search_dim_step_lineage.py`・`test_space_format.py`、基準 3・4・5・6（記録の前の検査）・8 は `tests/test_tuning/test_search_dim_step_model.py`、基準 7 の U2 は `tests/test_tuning/test_resume_open_round.py::test_u2_space_different_refused[step_only]`、基準 11 は `tests/test_docs/test_space_format_docs.py`。基準 12 は、各分岐（`step` の各検査、格子の検査、正確な有理数、偶数への丸め、`int` の log の一度だけの丸め、四つの読み手、試行の round の次元、拡張の各分岐、`step` の引き継ぎ、decode の拒否、試行ごとの名前の検査、変えられない宣言、`space_summary`、`Tuner.tune` の拒否）を一つずつ外して対応するテストが失敗することを確かめた（表は実装の PR の本文に載せる）。
+
+### 改訂 1: 境界と刻みの大きさを、Optuna が抽出できる範囲に限る（2026-10-12、管理者の判断）
+
+- **決定**: 2026-10-12。実装レビュー（run `h0124-impl-review-…ac8928e9`）の round 2 の指摘を受けて、管理者が「float の範囲で実用上問題ない」として、受け付ける大きさを限ることを選んだ。実装レビューの run は停止ルールで止め（round 3 は行わない）、この改訂の Proposal review と実装レビューは新しい run で行う。
+
+#### 課題
+
+H-0123 と H-0124 は、有限であれば境界と刻みの大きさを問わない（`int` の次元は `10**400` も受け付ける。H-0123 の実装の記録）。ところが Optuna 4.7.0 は数を `float` で抽出するので、次の範囲は抽出できないか、黙って粗く抽出する（`docs/audits/2026-10-tuning-resume/probes/optuna_magnitude_facts.py` で実行、出力は同じ場所の `.txt`）:
+
+- **`float` の次元で幅 `high - low` が `float` で有限でない**（各境界は有限でも）: `[-1e308, 1e308]` は抽出で `OverflowError: Range exceeds valid bounds`（RandomSampler と TPESampler、`step` の有無によらない）。`[-8e307, 8e307]`（幅 1.6e308）は抽出できる。
+- **`int` の次元で絶対値が `2**52` を越える**: 幅 10 の範囲で RandomSampler が抽出する異なる値は、下端が `2**52` で 11/11、`2**53` で 6/11（偶数だけ）、`2**54` で 3/11、`2**60` で 1/11。TPESampler は `2**60` で `ValueError`（NaN）、`2**100` 以上で `TypeError`。`2**53` から先は、エラーにならず探索が粗くなる（黙って間違う）。`10**309` は `OverflowError: int too large to convert to float`。
+- LizyML では、round 1 の範囲がこうであれば、round 1 の抽出で `TUNING_FAILED`（原因 `OverflowError`）になる（4 通りを実行して確かめた）。境界の拡張は、`float` の範囲を越える端を作る（刻みの無い develop の規則で、log `[1e307, 1e308]` の上端と線形 `[0, 1e308]` の上端が `inf`）。境界の検出は `float` で計算するので、こうした範囲では位置が NaN になるか（拡張しない）、`int` で素の `OverflowError` になる（実装レビュー round 2 の指摘）。
+
+Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` が 0 のときはその検査も飛ばす）、同じ範囲を抽出で `OverflowError` にする（`hyperopt/pyll/stochastic.py` が numpy の `uniform` で抽出する。実行して確かめた）。どちらのライブラリにも境界の拡張は無い。
+
+#### 対応方針
+
+9. **大きさの規則**（方針 1・2 に加える。`CONFIG_INVALID`、study を作る前・書く前）:
+   - `float` の次元: `high - low` が `float` で有限であること。外れれば理由 `range_not_finite`（key `high`）。各境界と `step` が有限であることは今のまま（`bound_not_finite`）。
+   - `int` の次元: `low`・`high`・`step` の絶対値が `2**52`（4503599627370496）以下であること。外れれば理由 `bound_too_large`（key はその値のキー）。`2**52` は、幅 10 の範囲で Optuna がすべての整数を抽出できた最大の大きさ（上の実測）。LightGBM の `int` の母数は int32 で、この上限より十分小さい。
+   - 適用する位置: 書式の読み手と範囲の検査（`parse_space` を通る config の空間と `tune(space=...)`）、`Tuner.tune` が直接作った次元に掛ける検査（方針 6。`step` の有無によらず、数の次元すべて）。
+10. **拡張は上の範囲の内側で止める**（方針 5 に加える。刻みの有無によらない）: 広げた端は、`float` の次元では有限で、かつ幅が有限のまま、`int` の次元では絶対値 `2**52` 以下に止める。刻みがあれば、その内側の最後の格子の点に止める。止めた端が元の端と同じなら「拡張なし」。こうして拡張した次元も方針 9 を満たし、境界の検出の計算（位置）は常に有限になる。H-0124 の実装の記録にある「`float` の範囲の内側の最後の格子の点で止める」は、この規則に含まれる。
+
+#### 規則が縛る位置（ソースから導出、実装前）
+
+- `lizyml/tuning/_space_format.py` の `read_int_bound` / `read_int_step`（`int` の大きさ）、`lizyml/tuning/search_space.py` の `_validate_numeric_range`（`float` の幅）、`lizyml/tuning/_step_grid.py` の `check_dim_step` と `lizyml/tuning/tuner.py` の `check_tuner_dims`（直接作った次元。刻みの無い数の次元にも掛ける）。
+- 拡張: `search_space.py` の `_expand_range`（刻み無しの `float`）、`_expand_int_range`（刻み無しの `int`）、`_expand_on_grid`（刻みあり）。
+
+#### 互換性
+
+- v0.18.0 との違い: `float` の幅が有限でない範囲と、`int` の絶対値が `2**52` を越える範囲は、v0.18.0 では抽出で `TUNING_FAILED` になるか（`2**53` 未満の `float` の幅の問題、`2**60` 以上の `int` の TPE）、黙って粗く探索した（`int` の `2**53` から `2**60` の付近）。この改訂の後は study を作る前に `CONFIG_INVALID` で拒否する。
+- H-0123 の実装の記録の「Python の `int` の `10**400` は `int` の次元では受け付ける」は、この改訂で置き換える（公開していない受け付けなので、利用者には見えない）。H-0123 のテストの `huge_int` は、受け付けの例から拒否の例に変える。
+- 刻みの無い次元の拡張も変わる: 今 `inf` を作る拡張は、`float` の範囲の内側で止まる。`float` の範囲の内側に収まる拡張は今と同じ。
+- Firing rate: 2/4706 of テストスイートで `parse_space` に渡る探索次元の指定、0/415 of `expand_dims` が返す次元（`docs/audits/2026-10-tuning-resume/probes/firing_rate_h0124_magnitude.py` を pytest のプラグインとして `956f487` のスイート全体に掛け、方針 9 が拒否する指定と方針 10 が止める拡張を数えた。拒否されるのは `tests/test_tuning/test_space_format.py` の `huge_int`（`10**400`）と `numpy_longdouble`（`9007199254740993`）の二つで、どちらも大きさを確かめるテストの例。配線の陽性の対照 `firing_rate_h0124_posctl.py` は spec と拡張の行を一つずつ拾う。出力は同じ場所の `.txt`）。`numpy_longdouble` は H-0123 の実装レビュー round 2 で入れた「`int` の次元の numpy の浮動小数を値そのもので読む」の例で、`2**52` を越えるので拒否の例に変える（`2**52` 以下の整数の値は `float` でも正確なので、その読み方は残しても結果を変えない）。
+
+#### 代替案（検討して棄却）
+
+- **範囲外として別 issue に分ける**: 黙って粗く探索する `int` の帯（`2**53` から）が残る。
+- **境界の検出だけを正確な計算にする**: Optuna がその範囲を抽出できないので、検出を直しても tune は抽出で失敗する。
+- **`float` の範囲（約 1.8e308）で `int` も区切る**: `2**53` から先の黙って粗く探索する帯が残る。
+- **int32 で区切る**: LightGBM の母数には足りるが、LizyML の探索空間は LightGBM の母数に限らない（provider が変わりうる）。Optuna の限界から決まる `2**52` のほうが根拠が閉じている。
+
+#### 受け入れ基準（テスト観点）
+
+13. **大きさの拒否**: config の空間と `tune(space=...)` の両方で、study を作る前に `CONFIG_INVALID`、context に `dim`・`key`・`reason`・`surface`: `float` の `[-1e308, 1e308]`（`range_not_finite`）、`[-1.5e308, 1e308]` step 5e307（同）、`int` の `[0, 2**52 + 1]`（`bound_too_large`、key `high`）、`[2**60, 2**61]`、`[10**309, 2*10**309]` step `10**309`（`bound_too_large`、key `low`）、`step` が `2**53` の `int` の次元（key `step`）。受け付けるもの: `float` の `[-8e307, 8e307]`、`int` の `[2**52 - 10, 2**52]`。`Tuner.tune` は、刻みの無い `FloatDim("x", -1e308, 1e308)` と `IntDim("n", 0, 2**53)` も study を作る前に拒否する。
+14. **拡張の上限**: 刻みの無い log `[1e307, 1e308]` の上端の拡張は `inf` でなく有限で止まる。線形 `[0, 1e308]` の上端は、幅が有限のまま止まる。`int` の `[2**51, 2**52]` の上端は拡張しない（`2**52` が上限）。刻みのある log `[1e307, 1e308]` step 1e307 の上端は 1.7e308（格子の点）。どの場合も拡張した次元は方針 9 を満たし、境界の検出は NaN にも例外にもならない。
+15. **対照**: 方針 9 の各検査（`float` の幅、`int` の各値の大きさ、`Tuner.tune` の刻みの無い次元）と、方針 10 の各上限（`float` の有限、`float` の幅、`int` の `2**52`、格子の点）を一つずつ外すと、対応するテストが失敗する。
