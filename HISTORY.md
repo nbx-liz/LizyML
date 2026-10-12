@@ -12118,6 +12118,73 @@ H-0122 の `space=` で、resume の round にも同じ形が起きうる。
 - 拒否のメッセージは、名前、管理するスマートパラメーター、層、有効にする探索次元とその値、空間を挙げる。方針 1 の既定の案内（「`model.X` を無効にする」）は、探索次元が有効にする場面では誤りになるので使わない。有効にする次元は、拒否した組み合わせの中で、値を有効な値に戻すと衝突が消える次元。
 - provider の約束（`smart_managed_param_names` は各スマートパラメーターの値の真偽と `None` かどうかだけに依る）は Protocol の docstring と BLUEPRINT §14.4 に書き、LightGBM の provider が 3 つのタスクで満たすことをテストで実行して確かめる。
 
+### 改訂 2: スマートパラメーターの探索次元が取る値を、その母数の型と範囲で検査する（#347、2026-10-13）
+
+- **ステータス**: Proposed
+- **関連**: [Issue #347](https://github.com/nbx-liz/LizyML/issues/347)、H-0093（スマートパラメーターの宣言）、H-0123（探索空間の書式）、H-0124（改訂 1）、H-0109 / H-0120（artifact に保存する tune の結果）
+
+#### 課題
+
+`category: smart` の探索次元の値は、そのまま試行のスマートパラメーターになる（`lizyml/core/_model_tuning.py` の目的関数で `split_by_category` → `merged_smart`）。config のスマートパラメーターの項目（`LGBMConfig`）は型と範囲を検査するが、探索次元の値はどこでも検査しない。スマートパラメーターの解決（`lizyml/estimators/lgbm/smart_params.py`）と、tune の受け付けの検査（`smart_managed_names`、`_smart_combinations`）は、値を真偽（truthiness）と `None` で読む。そのため（develop `c65ef4d` で実行して確かめた、#347）:
+
+- `auto_num_leaves` の選択肢 `["false"]` は真として読まれ、`num_leaves=32` で訓練される。tune の結果の最良値には `"false"` が載る。LizyStudio は、Tune の表で真偽の次元を Choice にすると選択肢を文字列 `["true", "false"]` で送る（`frontend/src/components/workspace/SearchSpaceTable.tsx:216-217`、`ChoiceInput` も `string[]`）。
+- `num_leaves_ratio` の範囲は検査されない。0 以下の比率は黙って葉 8 に、`min_data_in_*_ratio` の 0 以下は件数 1 になる（`-1..1` の範囲も通る）。provider の拡張の上限は `num_leaves_ratio` が 2.0 で（`lizyml/estimators/lgbm/provider.py` の `_LGBM_PARAMETER_BOUNDS`）、config の範囲 `(0, 1]` を越える。既定の空間の `num_leaves_ratio` は `0.5..1.0` で上端がちょうど 1.0 なので、`expand_boundary` の既定の tune で上端に最良が来ると 1.0 を越えて拡張され、その値が最良値、`fit`、export に流れる。
+- `None` を取れない母数（`auto_num_leaves`、`num_leaves_ratio`）の選択肢に `None` を入れられる。比率では study と round を書いた後に素の `TypeError` になる（Optuna の `catch` に入らず `TUNING_FAILED`）。`feature_weights` を数の次元にしても同じ。
+- regression で `balanced` を真にする次元は、試行ごとに `UNSUPPORTED_TASK` で失敗し、「全試行が失敗」になる。
+
+config の項目そのものも pydantic の緩い変換で `"false"` を `False` に、`"yes"` を `True` に、`"0.5"` を 0.5 にする。だから「config の項目と同じ規則」をそのまま当てると文字列を通してしまう。
+
+**保存された artifact**: v0.18.0（とこの改訂の前の develop）で、文字列の真偽の選択肢で tune した Model を export すると、`metadata.json` の tune の結果の `best_smart_params` に `"false"` のような文字列が残る。その booster は実際には真で訓練されているので、予測はそのモデルとして正しいが、記録された母数がモデルの中身と食い違う。記録を書かれたとおりに受け取って学習し直すと（利用者が `auto_num_leaves: false` と設定する、またはこの改訂の後の LizyML が読み込んだ Model で `fit` し直す）、元と違うモデルになる。artifact の読み込み（`format_version` 1 と 2、`lizyml/persistence/loader.py:35`）は、今の約束のとおり正常な過去の artifact を読み続ける。
+
+#### 対応方針
+
+1. **値の規則**（provider が名前ごとに宣言し、型は厳密に判定する）。`category: smart` の探索次元は、取りうるすべての値（数の次元は `low` と `high`、categorical は選択肢すべて）が次を満たすこと:
+   - `auto_num_leaves`: categorical で、選択肢はすべて `bool`（`type(v) is bool`）。数の次元は拒否。
+   - `balanced`: categorical で、選択肢は `bool` か `None`。数の次元は拒否。regression のタスクでは選択肢に `True` を含めない（`None` は regression で無効の意味なので受け付ける）。
+   - `num_leaves_ratio`: 数（`int` か `float`、`bool` は除く）で `0 < v <= 1`。categorical の選択肢も同じで、`None` は拒否。
+   - `min_data_in_leaf_ratio` / `min_data_in_bin_ratio`: 数で `0 < v < 1`。categorical の選択肢は、それに加えて `None`（その母数を解決しない）を受け付ける。
+   - `feature_weights`: 探索次元にできない（値が dict で、選択肢は素の値に限られるため）。
+   - 外れれば `CONFIG_INVALID`（理由 `smart_value_invalid`、context に `surface`・`dim`・`key`（数の次元は `low` / `high`、categorical は `choices`）・`value`・`reason`）。regression の `balanced=True` は理由 `smart_value_unsupported_task`。
+   - 宣言の場所: provider の契約（`lizyml/estimators/provider.py`）に、スマートパラメーターごとの値の規則を返すメソッドを足し、LightGBM の provider（`lizyml/estimators/lgbm/provider.py`）が上の規則を宣言する。比率の範囲は config の `_check_ratio` と同じ定数を使い、二重にしない（DC3）。
+2. **検査の位置**: round の受け付けの検査（`lizyml/core/_tuning_admission.py` の `check_round_space` が呼ぶ `validate_tuning_dimensions`）で、round の実効空間のすべての `category: smart` の次元に掛ける。config の空間、`tune(space=...)`、provider の既定の空間、拡張した次元のどれにも、study と round を書く前に当たる（H-0122 の INV-R4）。受け付けの検査より前に、smart の値を真偽で読む H-0121 の検査（`admit_smart`）が走る位置があれば、その前でも同じ規則を当て、真偽の読みが規則の外の値を見ないようにする。
+3. **拡張の上限を config の範囲に揃える**: provider の `num_leaves_ratio` の拡張の上限を 2.0 から 1.0 にする（下限 0.1 はそのまま）。`min_data_in_*_ratio` の上下限（1e-4..0.5）は config の範囲の内側なのでそのまま。拡張は provider の上下限の外へ広げないので、拡張した次元は方針 1 を満たす。
+4. **保存された artifact**: 読み込み（`Model.load`、`lizyml/core/_model_persistence.py` の tune の結果の復元）で、`best_smart_params` の各値を方針 1 の規則で検査する（その artifact の config のタスクで）。外れる値があれば `DESERIALIZATION_FAILED` で拒否し、context に名前、値、理由を入れ、メッセージで「記録された母数がモデルの訓練と食い違う。tune し直して export し直す」ことを案内する。外れない artifact（`best_smart_params` が無い、空、規則どおり）は今までどおり読み込み、予測できる。
+5. **`restore_tuning`**: H-0122 の系譜から復元する tune の結果の `best_smart_params`（記録する値、`recorded_trial_params`）も、方針 1 の規則で検査し、外れれば `CONFIG_INVALID`（develop で文字列の真偽の次元で tune した study だけが当たる。H-0122 の系譜は未公開）。resume は方針 2 の受け付けの検査で拒否される。
+
+#### 規則が縛る位置（ソースから導出、実装前、`6366b73`）
+
+- 規則の宣言: `lizyml/estimators/provider.py`（Protocol）、`lizyml/estimators/lgbm/provider.py`（`_SMART_PARAM_NAMES`、`_LGBM_PARAMETER_BOUNDS` の `num_leaves_ratio`）、`lizyml/config/schema.py` の `_check_ratio` の範囲（共有する定数）。
+- 検査: `lizyml/core/_tuning_validation.py` の `validate_tuning_dimensions`（`check_round_space` から）、`admit_smart` / `admit_smart_dimensions`（`lizyml/core/_tuning_space.py`、`_tuning_validation.py`）の前後の順序、`lizyml/core/_smart_combinations.py`（規則の後は値の状態が厳密になる）。
+- 値の流れ（規則の後に規則の外の値が来ないこと）: 目的関数 `lizyml/core/_model_tuning.py`（`merged_smart`）、`lizyml/estimators/lgbm/smart_params.py`、`fit` の上書き `lizyml/core/model.py`（`best_smart_params`）、コード生成 `lizyml/core/_codegen_inputs.py`（`derived_sample_weight` の `balanced`）。
+- artifact: `lizyml/core/_model_persistence.py`（tune の結果の復元）。`restore_tuning`: `lizyml/core/_tuning_restore.py`。
+
+#### 互換性
+
+- v0.18.0 との違い: 文字列の真偽、範囲の外の比率、`None` を取れない母数の `None`、`feature_weights` の次元、regression の `balanced=True` の次元は、study を作る前に `CONFIG_INVALID` で拒否する（v0.18.0 では黙って逆の設定で訓練するか、黙って別の値に置き換えるか、study を書いた後に失敗した）。規則どおりの次元は今と同じ。
+- 既定の空間の tune: `num_leaves_ratio` の拡張は 1.0 で止まる（今は 2.0 まで）。比率 1.0 を越える値は葉の数を増やさない（`max_depth` の葉の上限を越えるか、131072 で頭打ち）ので、探索の結果は実質変わらない。
+- artifact: `best_smart_params` が規則に外れる artifact だけを読み込みで拒否する。v0.18.0 で文字列の真偽の次元で tune した artifact がこれに当たり、tune し直して export し直す必要がある。正常な過去の artifact は今までどおり。
+- 下流: LizyStudio は真偽の smart の次元を `bool` の選択肢で送る必要がある（Choice の初期値と編集した選択肢が文字列）。`num_leaves_ratio` の範囲の入力は provider の上下限（今は 2.0 まで）で制限しているので、上限が 1.0 になる。LizyML-Widget は真偽の選択肢を `bool` で送るが、空間の各次元に `category` を付けない（`js/src/components/SearchSpace.tsx:377-380`。コードを読んだもので、実行はしていない）ので、smart の名前は今も `category: model` として名前の検査（`check_param_names`）で拒否されており、この改訂で変わらない。Widget の Range の初期値は `num_leaves_ratio` で `1.0..2.0`（同 `:671-672`）なので、smart の次元を送れるようにするときは方針 1 の範囲に合わせる必要がある。LizyStudio にはこの改訂の承認の後に issue を起こし、Widget には上の二点を issue に書く。
+- Firing rate: 3/443 of テストスイートで round の受け付けの検査が見る `category: smart` の次元、0/0 of `num_leaves_ratio` の拡張（`docs/audits/2026-10-tuning-resume/probes/firing_rate_347.py` を pytest のプラグインとして `6366b73` のスイート全体に掛け、方針 1 の規則が拒否する次元と、1.0 を越える `num_leaves_ratio` の拡張を数えた。拒否されるのは `tests/test_tuning/test_smart_dimension_collisions.py` の c5 と c5b（regression での `balanced=True`）と c5c（`num_leaves_ratio` の `-1..1`）で、どれも衝突の検査のために作った次元。スイートには `num_leaves_ratio` の拡張が無い。配線の陽性の対照 `firing_rate_347_posctl.py` は、文字列の真偽の次元と 1.0 を越える拡張を一つずつ拾う。出力は同じ場所の `.txt`）。下流の LizyStudio（`2118acc`）では、真偽の smart の次元を Choice にすると選択肢が必ず文字列になるので、`auto_num_leaves` と `balanced` の Choice は 2/2 が拒否される。カタログの比率の既定の範囲（`num_leaves_ratio` 0.4..1.0、`min_data_in_*_ratio` 0.01..0.2）は 3/3 が受け付けられる。
+
+#### 代替案（検討して棄却）
+
+- **文字列の `"true"` / `"false"` を真偽に読み替える**: H-0123 の「書式の型だけ」（`log: "false"` を拒否した）とずれ、結果の最良値にどちらを載せるかを別に決める必要がある。管理者は拒否を選んだ（2026-10-13）。
+- **型だけを検査し、範囲は今のまま**: 0 以下の比率が黙って別の値になるのと、1.0 を越える拡張が残る。
+- **artifact を読み込みでは通し、使うとき（読み込んだ Model での `fit`、コード生成）に拒否する**: 記録と中身の食い違う artifact を、予測に使えるまま扱えてしまう（管理者の判断、2026-10-13）。
+- **過去の artifact を一律に読み込めなくする**: 正常な過去の artifact まで予測できなくなる。
+- **config の項目の検証（pydantic）をそのまま当てる**: 緩い変換で `"false"` を受け付ける。
+
+#### 受け入れ基準（テスト観点）
+
+1. config の空間と `tune(space=...)` の両方で、study を作る前に `CONFIG_INVALID`、context に `surface`・`dim`・`key`・`value`・`reason`: `auto_num_leaves` の選択肢 `["false"]`、`["true", "false"]`、`[0, 1]`、`[None]`、`IntDim(0, 1)`（数の次元）。`balanced` の `["false"]`、regression での `[True, False]`（`smart_value_unsupported_task`）。`num_leaves_ratio` の `-1..1`、`0..1`、`0.5..2.0`、選択肢 `[0.5, None]`、`[True]`。`min_data_in_leaf_ratio` の `0..0.2`、`0.1..1.0`、選択肢 `["0.1"]`。`feature_weights` の次元。lgb.train は呼ばれず、storage に study が無い。
+2. 受け付けるもの: `auto_num_leaves` の `[True, False]`、`balanced` の `[True, False, None]`（binary）と `[False, None]`（regression）、`num_leaves_ratio` の `0.5..1.0`、`min_data_in_leaf_ratio` の `0.01..0.2` と選択肢 `[None, 0.05]`。#347 の再現（`["false"]` で `num_leaves=32`）は拒否に変わり、`[False]` は今と同じく `num_leaves` を渡さない。
+3. 既定の空間の `num_leaves_ratio` が上端 1.0 で最良になる 2 round の tune で、round 2 の範囲が 1.0 を越えない。
+4. provider の既定の空間の次元、拡張した次元、`tune(space=...)` の round のどれも、方針 1 に外れれば round の記録の前に拒否される（拡張を差し替えて確かめる）。
+5. artifact: `best_smart_params` が `{"auto_num_leaves": "false"}`、`{"num_leaves_ratio": 1.5}`、`{"balanced": True}`（regression の config）の artifact（今のコードで export し、`metadata.json` を書き換えて作る）は、`Model.load` で `DESERIALIZATION_FAILED`、context に名前と値。`best_smart_params` が規則どおりの artifact、空の artifact、tune の結果の無い artifact は今と同じく読み込み、`predict` が今と同じ値を返す。
+6. `restore_tuning`: 文字列の真偽の次元で tune した study（この改訂の前の規則を一時的に戻して作る）は `CONFIG_INVALID` で拒否される。
+7. 規則の宣言が一つであること: provider の宣言と config の `_check_ratio` が同じ範囲の定数を使う（片方を変えるともう片方の検査のテストが失敗する）。
+8. 対照: 方針 1 の各規則（名前ごと、数の次元と categorical、`None`、regression の `balanced`）、方針 2 の検査、方針 3 の上限、方針 4 の読み込みの検査、方針 5 の検査を一つずつ外すと、対応するテストが失敗する。
+
 ## H-0122: tune の resume と storage への再接続は同じ目的関数を続ける（#340）
 
 - **ステータス**: Accepted
