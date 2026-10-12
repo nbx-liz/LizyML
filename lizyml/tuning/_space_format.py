@@ -318,10 +318,12 @@ def read_int_bound(name: str, key: str, value: Any, *, surface: str) -> int:
             raise _not_integral(name, key, value, surface=surface)
         return int(exact)
     if type(value) is float or isinstance(value, np.floating):
-        number = _finite(name, key, value, float(value), surface=surface)
-        if not number.is_integer():
+        _finite(name, key, value, float(value), surface=surface)
+        # Judge and convert the value itself, not its float: an np.longdouble
+        # keeps digits a float drops, and int() reads them exactly as before.
+        if not value.is_integer():
             raise _not_integral(name, key, value, surface=surface)
-        return int(number)
+        return int(value)
     raise _bound_error(
         name,
         key,

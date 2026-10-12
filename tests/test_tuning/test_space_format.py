@@ -144,6 +144,11 @@ REFUSED: dict[str, tuple[Any, str | None, str]] = {
     "fraction_bound": ({**LR, "low": Fraction(1, 10)}, "low", "bound_not_a_number"),
     "none_bound": ({**LR, "low": None}, "low", "bound_not_a_number"),
     "not_a_mapping": ([("type", "float")], None, "dim_not_a_mapping"),
+    "empty_choices": (
+        {"type": "categorical", "choices": []},
+        "choices",
+        "empty_choices",
+    ),
     # The three refusals parse_space had before H-0123 carry the same context.
     "empty_range": ({**LR, "low": 0.3, "high": 0.05}, "low", "empty_range"),
     "log_low_zero": ({**LR, "low": 0, "high": 0.3}, "low", "log_low_not_positive"),
@@ -257,10 +262,37 @@ def test_config_format_is_checked_before_the_name_checks() -> None:
     assert caught.value.context["dim"] == "not_a_param"
 
 
+SPACE_LEVEL = [
+    ([("learning_rate", LR)], None, "not_a_mapping"),
+    ({1: LR}, "1", "name_not_str"),
+]
+
+
+def test_every_refusal_reason_in_the_code_is_asserted() -> None:
+    """Each ``reason`` the parser can raise is a case of a context-asserting table.
+
+    Read from the source, so a new refusal branch without a case fails here.
+    """
+    import re
+
+    import lizyml.tuning._space_format as fmt
+    import lizyml.tuning.search_space as ss
+
+    pattern = re.compile(r"""reason["']?\s*[:=]\s*["']([a-z_]+)["']""")
+    raised = set()
+    for module in (fmt, ss):
+        source = Path(str(module.__file__)).read_text("utf-8")
+        raised |= set(pattern.findall(source))
+    asserted = {reason for _, _, reason in REFUSED.values()}
+    asserted |= {reason for _, _, reason in SPACE_LEVEL}
+    assert len(raised) >= 15
+    assert raised <= asserted, sorted(raised - asserted)
+
+
 @pytest.mark.parametrize(
     ("space", "dim", "reason"),
-    [([("learning_rate", LR)], None, "not_a_mapping"), ({1: LR}, "1", "name_not_str")],
-    ids=["not_a_mapping", "name_not_str"],
+    SPACE_LEVEL,
+    ids=[reason for _, _, reason in SPACE_LEVEL],
 )
 def test_space_level_refusal_has_all_four_context_entries(
     space: Any, dim: str | None, reason: str
@@ -431,6 +463,20 @@ ACCEPTED: dict[str, tuple[dict[str, Any], Any]] = {
     "numpy_bounds": (
         {"type": "int", "low": np.int64(3), "high": np.float64(8.0)},
         IntDim(name="d", low=3, high=8),
+    ),
+    # Read exactly, as int() read it before H-0123: through a float, both bounds
+    # would round to an even neighbour (where long double has more digits).
+    "numpy_longdouble": (
+        {
+            "type": "int",
+            "low": np.longdouble("9007199254740993"),
+            "high": np.longdouble("9007199254740995"),
+        },
+        IntDim(
+            name="d",
+            low=int(np.longdouble("9007199254740993")),
+            high=int(np.longdouble("9007199254740995")),
+        ),
     ),
     "numpy_float32": (
         {"type": "float", "low": np.float32(0.5), "high": 1.0},
