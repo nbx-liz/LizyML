@@ -1,4 +1,5 @@
-"""Controls for the H-0123 predicate (firing_rate_344._reasons), v3 generic rule."""
+"""Controls for the H-0123 v4 predicate (firing_rate_344._reasons): the documented format."""
+
 import sys
 from collections import UserDict
 from decimal import Decimal
@@ -10,47 +11,44 @@ sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[4]))
 from firing_rate_344 import _reasons  # noqa: E402
 
-
-class OnlyInt:
-    def __int__(self) -> int:
-        return 3
-
-
-class OnlyFloat:
-    def __float__(self) -> float:
-        return 0.5
-
-
 flagged = {
     "log_str": {"type": "float", "low": 0.1, "high": 1.0, "log": "false"},
-    "extra_keys_str_low": {"type": "float", "low": "0.1", "high": 1.0, "step": 0.1, "lo": 3},
+    "step_key": {"type": "int", "low": 1, "high": 9, "step": 2},
+    "typo_key": {"type": "float", "low": 0.1, "high": 1.0, "lo": 3},
     "int_fraction": {"type": "int", "low": 1.7, "high": 5},
-    "int_longdouble_half": {"type": "int", "low": np.longdouble(2) ** 53 + np.longdouble("0.5"), "high": 2**60},
+    "int_fraction_str": {"type": "int", "low": "1.7", "high": 5},
     "bad_category": {"type": "float", "low": 0.1, "high": 1.0, "category": "booster"},
     "choices_str": {"type": "categorical", "choices": "abc"},
+    "choices_set": {"type": "categorical", "choices": {1, 2, 3}},
+    "choices_dict": {"type": "categorical", "choices": {"a": 1, "b": 2}},
+    "choices_gen": {"type": "categorical", "choices": (i for i in range(3))},
+    "choices_range": {"type": "categorical", "choices": range(3)},
+    "choices_ndarray": {"type": "categorical", "choices": np.array(["a", "b"], dtype=object)},
     "nan_low": {"type": "float", "low": float("nan"), "high": 1.0},
     "inf_high": {"type": "float", "low": 0.0, "high": float("inf")},
-    "decimal_overflow": {"type": "float", "low": Decimal("1"), "high": Decimal("1e999")},
-    "gen_choices": {"type": "categorical", "choices": (i for i in range(3))},
+    "nan_str": {"type": "float", "low": "nan", "high": 1.0},
+    "overflow_str": {"type": "float", "low": 0.0, "high": "1e999"},
+    "hex_str": {"type": "int", "low": "0x10", "high": 99},
+    "comma_str": {"type": "int", "low": 1, "high": "1,000"},
+    "word_str": {"type": "float", "low": "abc", "high": 1.0},
     "bool_bound": {"type": "int", "low": False, "high": True},
+    "numpy_bool_bound": {"type": "int", "low": np.bool_(False), "high": 3},
     "bytes_bound": {"type": "float", "low": b"0.1", "high": 1.0},
-    "int_only_object": {"type": "int", "low": OnlyInt(), "high": 9},
-    "set_choices": {"type": "categorical", "choices": {1, 2, 3}},
-    "dict_choices": {"type": "categorical", "choices": {"a": 1, "b": 2}},
+    "decimal_bound": {"type": "float", "low": Decimal("0.1"), "high": 1.0},
+    "fraction_bound": {"type": "float", "low": Fraction(1, 10), "high": 1},
+    "not_a_mapping": [("type", "float")],
 }
 accepted = {
     "clean": {"type": "float", "low": 0.1, "high": 1.0, "log": True, "category": "model"},
     "int_16_0": {"type": "int", "low": 16.0, "high": 20},
-    "decimal_int": {"type": "int", "low": Decimal("16"), "high": Decimal("20")},
-    "decimal_float": {"type": "float", "low": Decimal("0.1"), "high": Decimal("0.5")},
-    "fraction": {"type": "float", "low": Fraction(1, 10), "high": 1},
     "numpy": {"type": "int", "low": np.int64(3), "high": np.float64(8.0)},
-    "big_int": {"type": "int", "low": 2**53 + 1, "high": 2**53 + 3},
+    "numpy_float32": {"type": "float", "low": np.float32(0.1), "high": 1.0},
+    "yaml_exponent": {"type": "float", "low": "1e-4", "high": "1E-1", "log": True},
+    "int_str": {"type": "int", "low": "16", "high": "+32"},
+    "dot_str": {"type": "float", "low": ".5", "high": "5."},
     "huge_int": {"type": "int", "low": 10**400, "high": 10**400 + 1},
-    "float_only_object": {"type": "float", "low": OnlyFloat(), "high": 1.0},
-    "range_choices": {"type": "categorical", "choices": range(3)},
     "tuple_choices": {"type": "categorical", "choices": (0.5, 1.0)},
-    "ndarray_choices": {"type": "categorical", "choices": np.array(["a", "b"], dtype=object)},
+    "list_choices": {"type": "categorical", "choices": ["gbdt", "dart"], "category": "model"},
     "userdict_spec": UserDict({"type": "categorical", "choices": [True, False], "category": "smart"}),
 }
 bad = 0

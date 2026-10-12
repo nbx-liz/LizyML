@@ -1,7 +1,8 @@
-# firing_rate_344.py output: suite at c65ef4d (develop; parse_space unchanged), 2026-10-12, generic rule after proposal review round 2
+# firing_rate_344.py output: suite at c65ef4d (develop; parse_space unchanged), 2026-10-12, H-0123 v4 rule (the documented format)
 # columns: nodeid, dim, reasons (empty = accepted by H-0123 policy 3)
 # total dim specs: 2298; would be newly refused: 0
-# controls: firing_rate_344_controls.py (15 refused forms flagged, 13 accepted forms not; 0 control failures)
+# suite: 10791 passed, 230 skipped, 21 deselected, 4 xfailed
+# controls: firing_rate_344_controls.py (25 refused forms flagged, 11 accepted forms not; 0 control failures); in-suite positive control: a config spec with step and log="false", and a tune(space=) bound "1e0x", are recorded with reasons extra_keys:step / log_not_bool / low_string
 tests/test_codegen/test_negative_controls.py::test_policy_1_callback_reverted_to_always_on	validation_ratio	
 tests/test_codegen/test_negative_controls.py::test_policy_1_callback_reverted_to_always_on	validation_ratio	
 tests/test_codegen/test_negative_controls.py::test_amendment_1_record_ignored	balanced	

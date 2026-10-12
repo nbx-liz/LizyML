@@ -1,20 +1,23 @@
-"""Firing rate of the H-0123 search-space shape rule (#344), measured on the suite.
+"""Firing rate of the H-0123 search-space format rule (#344, v4), measured on the suite.
 
 Loaded as a pytest plugin (``-p``) with ``docs/audits/2026-10-tuning-resume/probes``
 on ``PYTHONPATH``. It wraps every module-level reference to ``parse_space`` and,
 without changing the outcome, records for each dimension spec whether H-0123's
-policy 3 would newly refuse it, and why. Refusals ``parse_space`` already makes
-(unknown ``type``, missing bound, empty or non-iterable ``choices``,
-``low >= high``, a log range with ``low <= 0``) are not counted:
+policy 3 (the documented format) would newly refuse it, and why. Refusals
+``parse_space`` already makes (unknown ``type``, missing bound, empty or
+non-iterable ``choices``, ``low >= high``, a log range with ``low <= 0``) are
+not counted:
 
+- a dimension name that is not a ``str``;
+- a spec that is not a mapping;
 - a key other than ``type``, ``low``, ``high``, ``log``, ``category`` (float/int)
-  or ``type``, ``choices``, ``category`` (categorical);
+  or ``type``, ``choices``, ``category`` (categorical) -- ``step`` included;
 - ``category`` present and not one of ``model``, ``smart``, ``training``;
 - ``log`` present and not a ``bool``;
-- a bound that is a ``bool``, ``str`` or ``bytes``; for ``float``, one whose
-  ``float()`` fails or is not finite; for ``int``, one whose ``int()`` fails or
-  is not equal to the value (compared without passing through ``float``);
-- ``choices`` that is a ``str`` / ``bytes``, a mapping, a set, or an iterator.
+- a bound that is not an ``int`` / ``float`` (``bool`` excluded), a numpy
+  integer / floating scalar, or a ``str`` that fully matches a number literal;
+  or one that is not finite; or, for ``int``, one that is not integral;
+- ``choices`` that is not a ``list`` or ``tuple``.
 
 Population: every dimension spec passed to ``parse_space`` in the suite. Writes
 ``<nodeid>\t<dim>\t<reasons or "">`` per spec to ``$FIRING_RATE_344_OUT``.
@@ -24,10 +27,11 @@ from __future__ import annotations
 
 import math
 import os
+import re
 from collections.abc import Mapping
-from collections.abc import Set as AbstractSet
 from typing import Any
 
+import numpy as np
 import pytest
 
 from lizyml.core import _tuning_admission, _tuning_plan, _tuning_resume
@@ -40,40 +44,35 @@ _original = search_space.parse_space
 _NUMERIC_KEYS = {"type", "low", "high", "log", "category"}
 _CATEGORICAL_KEYS = {"type", "choices", "category"}
 _CATEGORIES = {"model", "smart", "training"}
+_NUMBER_LITERAL = re.compile(r"[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?")
 
 
 def _bound_reason(value: Any, kind: str) -> str | None:
-    if isinstance(value, (bool, str, bytes)):
+    if isinstance(value, str):
+        if not _NUMBER_LITERAL.fullmatch(value):
+            return "string"
+        number: Any = float(value)
+    elif type(value) in (int, float) or isinstance(value, (np.integer, np.floating)):
+        number = value
+    else:
         return "type"
-    if kind == "float":
-        try:
-            converted = float(value)
-        except (TypeError, ValueError, OverflowError):
-            return "not_number"
-        return None if math.isfinite(converted) else "not_finite"
-    try:
-        integer = int(value)
-    except (TypeError, ValueError, OverflowError):
-        return "not_integer"
-    try:
-        same = bool(integer == value)
-    except Exception:  # noqa: BLE001 -- an incomparable object is "not the same value"
-        same = False
-    return None if same else "not_integral"
+    if isinstance(number, (int, np.integer)):
+        return None
+    if not math.isfinite(float(number)):
+        return "not_finite"
+    if kind == "int" and not float(number).is_integer():
+        return "not_integral"
+    return None
 
 
 def _choices_reason(choices: Any) -> str | None:
-    if isinstance(choices, (str, bytes)):
-        return "string"
-    if isinstance(choices, Mapping):
-        return "mapping"
-    if isinstance(choices, AbstractSet):
-        return "set"
+    if type(choices) in (list, tuple):
+        return None
     try:
-        iterator = iter(choices)
+        iter(choices)
     except TypeError:
         return None  # not iterable: parse_space already refuses it (raw today)
-    return "iterator" if iterator is choices else None
+    return type(choices).__name__
 
 
 def _reasons(spec: Any) -> list[str]:
@@ -85,7 +84,8 @@ def _reasons(spec: Any) -> list[str]:
     extra = sorted(str(k) for k in spec if k not in allowed)
     if extra:
         out.append("extra_keys:" + ",".join(extra))
-    if "category" in spec and spec["category"] not in _CATEGORIES:
+    category = spec.get("category", "model")
+    if not (isinstance(category, str) and category in _CATEGORIES):
         out.append("category")
     if kind == "categorical" and "choices" in spec:
         reason = _choices_reason(spec["choices"])
@@ -106,6 +106,8 @@ def _wrapped(space: Any) -> Any:
     if isinstance(space, Mapping):
         for name, spec in space.items():
             reasons = _reasons(spec)
+            if not isinstance(name, str):
+                reasons = ["name", *reasons]
             _rows.append(f"{_current['nodeid']}\t{name}\t{';'.join(reasons)}")
     return _original(space)
 

@@ -12681,41 +12681,41 @@ PR 2 は 5（`tune(space=...)`、次元ごとの規則、拡張の変更）、7.
 - **#342**: 境界の拡張が、provider の境界の外に宣言した範囲を狭めたり逆転させたりしていた既存の欠陥を、拡張を変えるこの PR で直す。拡張は辺を外へ動かすときだけ境界で抑え、宣言した辺より内へは動かさない。境界の外の範囲は H-0111 と同じく「拡張しない」（`expanded=False`、`clamped_to_bound=True`）と報告する。
 - **範囲外として残すもの**: alias で書いた次元に provider の境界が付かない（`attach_bounds` は名前で照合する）こと、config の `tuning.optuna.space` の形を検査しないことは、この Proposal の前からあり、扱わない。
 
-## H-0123: 探索空間の次元の指定を、書いたとおりに読めないときは拒否する（#344）
+
+## H-0123: 探索空間の次元の指定を、文書の書式どおりに検査する（#344）
 
 - **ステータス**: Proposed
 - **起票日**: 2026-10-12
-- **スコープ**: `lizyml/tuning/search_space.py`（`parse_space`）、`lizyml/core/_tuning_admission.py`（`parse_space_arg`）、`lizyml/config/schema.py`（`tuning.optuna.space` の入れ物の正規化）、BLUEPRINT の探索空間の節、CHANGELOG
-- **関連**: [Issue #344](https://github.com/nbx-liz/LizyML/issues/344)、H-0068、H-0093、H-0122（`tune(space=...)`）
+- **スコープ**: `lizyml/tuning/search_space.py`（`parse_space`）、`lizyml/core/_tuning_admission.py`（`parse_space_arg`）、`lizyml/config/schema.py`（`tuning.optuna.space` の入れ物の正規化）、BLUEPRINT の探索空間の節、docs/config-reference.md、CHANGELOG
+- **関連**: [Issue #344](https://github.com/nbx-liz/LizyML/issues/344)、H-0068、H-0078、H-0093、H-0095、H-0122（`tune(space=...)`）、H-0124（`step`、この Proposal の後に入れる）
 
 ### 目的（課題）
 
-`parse_space` は、config の `tuning.optuna.space` と、H-0122 の `tune(space=...)` の両方を読む。config の `tuning.optuna.space` は schema で `dict[str, Any]` なので、次元の指定の形はどこでも検査されない。`parse_space` は、読めない指定を黙って別のものに変える（develop で実行して確かめた、#344 とそのコメント）:
+`tuning.optuna.space` の書式は、docs/config-reference.md と BLUEPRINT §11.1・§11.2 が定める。次元ごとに `type`（`float` / `int` / `categorical`）、`low` と `high`（数）、`log`（真偽、任意）、`choices`（値の list）、`category`（`model` / `smart` / `training`、任意）。LizyML は config 駆動で、YAML と JSON が作る型（数、真偽、文字列、list）で書くことを前提にしている。
 
-- `log: "false"`（文字列）を `bool(...)` で読むので、log の探索になる。YAML や JSON で引用符を付けると、利用者が切った log が入る。
-- `step` などの未知のキー（`lo`、`hgih` のような綴りの誤りを含む）を捨てる。LizyML の次元に `step` は無いので、刻みを求めた利用者は連続の範囲を得る。
-- `low: "0.1"`（文字列）を `float(...)` で数にする。
-- `int` の次元の `low: 1.7` を `int(...)` で 1 に切り捨てる。
-- 未知の `category`（例: `"booster"`）をそのまま受け付ける（`tune(space=...)` の側は H-0122 で拒否している）。
-- categorical の `choices` が文字列（例: `"abc"`）だと、文字ごとの選択肢 `a`・`b`・`c` になる。
-- `low` / `high` の NaN と無限大を受け付ける（NaN との比べ合わせは常に偽なので、今の `low < high` の検査を素通りする）。
-- categorical の `choices` が generator だと、選択肢の検査で読み尽くされ、選択肢の無い次元になる。
+ところが、config の `tuning.optuna.space` は schema で `dict[str, Any]` で、書式の検査はどこにも無い（H-0122 の `tune(space=...)` だけが名前、mapping、`category` を検査する）。`parse_space` は `float()` と `int()` と `bool()` で値を変換するので、書式の外の値を黙って別のものにする（develop で実行して確かめた、#344 とそのコメント）:
 
-どれも探索を黙って変える（DC1）。
+- `log: "false"`（文字列）が log の探索になる。
+- 書式に無いキー（`step`、`lo` のような綴りの誤り）を捨てる。LizyStudio は画面の入力欄の刻みを `step` として送っており、刻みの探索になっていると利用者に見せているが、実際は刻み無しで探索している。
+- `int` の次元の `low: 1.7` を 1 に切り捨てる。
+- 未知の `category`（例: `"booster"`）を受け付ける。
+- `choices` の文字列（`"abc"` が `a`・`b`・`c` の三つの選択肢になる）、generator（読み尽くされて選択肢が空になる）、`set`（並びが実行ごとに変わりうる）、dict（キーだけが残る）を受け付ける。
+- `low` / `high` の NaN と無限大を受け付ける。
 
 ### 対応方針（提案）
 
-1. **検査を `parse_space` に集める。** 次元の指定の形の検査は `parse_space` が行い、config の空間と `tune(space=...)` が同じ規則を通る。`parse_space_arg` の形の検査（名前が `str`、指定が mapping、category）は `parse_space` に移し、`parse_space_arg` は、拒否の場所を `tune(space=)` と名指すだけにする。
-2. **入れ物を正規化する。** 指定は `dict` 以外の mapping（`UserDict`、`MappingProxyType` など）でもよい。config の `tuning.optuna.space` は、schema の検証で、空間とその各次元の指定を plain な `dict` に写す（`model_space_names` などの名前の検査は、`dict` の指定だけから `category` を読むため。H-0122 の `parse_space_arg` が `tune(space=)` で同じことをしている）。mapping でない指定（今の config の経路では素の `AttributeError` になる）は `CONFIG_INVALID` で拒否する。
-3. **受け付ける形を閉じる。** 型を数え上げず、「書いた値が、次元の値に変わらずに読めるか」で決める。次元ごとに:
-   - 名前は `str`、指定は mapping。`type` は `float`・`int`・`categorical` のどれか（今と同じ）。
-   - キーは、`float` と `int` では `type`・`low`・`high`・`log`・`category`、`categorical` では `type`・`choices`・`category` だけ。ほかのキーは拒否する（`step` には、LizyML の次元に刻みが無いことを案内する）。
-   - `low` と `high`: `bool`、`str`、`bytes` は拒否する（数を表す文字列も含む）。そのうえで:
-     - `float` の次元: `float(値)` が例外なく求まり、有限であること（NaN、無限大、`float` にすると無限大になる値、たとえば `Decimal("1e999")` は拒否）。
-     - `int` の次元: `int(値)` が例外なく求まり、`int(値) == 値` であること（値を変えずに整数になる。`16`、`16.0`、`Decimal("16")`、numpy の整数、`2**53 + 1` は受け付け、`1.7` や `np.longdouble(2)**53 + 0.5` のように小数部のある値と、整数と等しいと比べられない値は拒否）。
-   - `log` は書くなら `bool`（`true` / `false`）。
-   - `category` は書くなら `model`・`smart`・`training` のどれか（今の `tune(space=...)` と同じ）。
-   - `choices`: 並びが決まっていて、何度でも読める列であること。`str` と `bytes`（文字に分かれる）、mapping（キーだけが残る）、集合（`set`、`frozenset`。並びが決まらない）、一度しか読めない iterator（generator など。`iter(x) is x`）は拒否する。list、tuple、`range`、numpy の 1 次元の配列などは受け付ける。空でないこと、各値の検査（`_validate_categorical_choices`）は今と同じ。
+1. **検査を `parse_space` に集める。** config の空間と `tune(space=...)` が同じ規則を通る。`parse_space_arg` の形の検査は `parse_space` に移し、`parse_space_arg` は拒否の場所を `tune(space=)` と名指すだけにする。
+2. **入れ物を正規化する。** 空間と各次元の指定は mapping であればよい（`dict` でなくても）。config の `tuning.optuna.space` は、schema の検証で空間と各次元を plain な `dict` に写す（名前の検査 `model_space_names` などは `dict` からだけ `category` を読むため）。mapping でない指定（今の config の経路では素の `AttributeError`）は `CONFIG_INVALID` にする。
+3. **文書の書式だけを受け付ける。** YAML と JSON が作る型で書かれた書式を正とし、それ以外は「書式の外」として拒否する。次元ごとに:
+   - 名前は `str`。`type` は `float`・`int`・`categorical` のどれか。
+   - キーは、`float` と `int` では `type`・`low`・`high`・`log`・`category`、`categorical` では `type`・`choices`・`category` だけ。`step` は H-0124 が入るまで書式の外として拒否する（「LizyML の次元にはまだ刻みが無い」と案内する）。
+   - `low` と `high` は数: `int` か `float`（`bool` は除く）。加えて二つを受け付ける。
+     - **numpy の整数と浮動小数のスカラー**（`numpy.bool_` は除く）: H-0095 が「数の境界は parse のときに素の値に直すので受け付ける」と定めている（`tests/test_tuning/test_literal_domain_contract.py` が固定）。
+     - **数の表記にちょうど一致する文字列**: PyYAML（YAML 1.1）は小数点の無い指数表記 `1e-4` を文字列として読む（実行して確かめた。LizyML の `load_config` も同じ）。表記は `[+-]?(数字列(.数字列?)?|.数字列)([eE][+-]?数字列)?` の完全一致（ASCII の数字だけ）。`"nan"`、`"inf"`、`"0x10"`、`"1,000"` などは拒否する。
+     - どの形でも、値は有限であること。`int` の次元では整数の値（`16`・`16.0`・`"16"`・numpy の整数は受け付け、`1.7` は拒否）。
+   - `log` は書くなら `bool`（YAML の `true` / `false` / `yes` / `no` は `bool` になる）。
+   - `choices` は空でない list か tuple（YAML と JSON は list を作る。Python で書く利用者の tuple も受け付ける）。各値の検査は今の `_validate_categorical_choices` のまま（素のスカラー、numpy のスカラーは拒否。H-0095）。
+   - `category` は書くなら `model`・`smart`・`training` のどれか。
    - 拒否は `LizyMLError`（`CONFIG_INVALID`）で、次元の名前、キー、理由、空間（`tuning.optuna.space` か `tune(space=)`）を context に入れる。
 4. **時期**: 方針 3 は、今と同じく `tune` が空間を解決するとき（study を作る前、H-0122 の INV-R4 の前の段）。config の構築時には方針 2 の写しだけを行う（`config/` は `tuning/` を import できない層の規則のため）。
 
@@ -12723,47 +12723,41 @@ PR 2 は 5（`tune(space=...)`、次元ごとの規則、拡張の変更）、7.
 
 - `lizyml/tuning/search_space.py` の `parse_space`（`tuning.optuna.space` を読むすべての経路: `lizyml/core/_tuning_plan.py` の `resolve_config_space`、`lizyml/core/_tuning_resume.py` の config の空間の比べ合わせと `origin_space`、`lizyml/core/_tuning_admission.py` の名前の検査）。
 - `lizyml/core/_tuning_admission.py` の `parse_space_arg`（`tune(space=...)`）。
-- `lizyml/config/schema.py` の `tuning.optuna.space` の欄（方針 2 の写し）。名前の検査（`lizyml/core/_model_factories.py` の `model_space_names` など）は、写した `dict` を読む。
+- `lizyml/config/schema.py` の `tuning.optuna.space` の欄（方針 2 の写し）。
 
 ### 互換性
 
-今は受け付けていて、この変更の後に拒否されるものは、次の閉じた一覧だけ:
-
-- **黙って別の探索になっていたもの（修正）**: 目的（課題）の各形。文字列の `log`、未知のキー（`step` を含む）、文字列の境界、`int` の次元の小数部のある境界、未知の `category`、文字列の `choices`、NaN・無限大・`float` で無限大になる境界、iterator の `choices`。
-- **意味の取れない書き方（互換性の破れとして CHANGELOG に書く）**:
-  - `bool` の境界（今は `True` / `False` を 1 / 0 として読む）。
-  - `bytes` の境界（今は `float(b"0.5")` のように数として読む）。
-  - `int` の次元の、`int()` に変換できても、その整数と等しいと比べられないオブジェクトの境界（`__int__` だけを持つ独自のクラスなど）。
-  - 集合の `choices`（今は受け付けるが、文字列の `set` の並びは実行ごとに変わりうる（hash の乱択）ので、同じ seed でも選択肢の番号が変わり、study の再現性と H-0122 の選択肢の照合が成り立たない）。
-  - mapping の `choices`（今はキーだけが選択肢になる）。
-
-これ以外の、今受け付けている書き方（`float()` で有限の値になるもの、値を変えずに整数になるもの、並びの決まった何度でも読める列）は、今と同じ次元に解決される。
-
-今は拒否されていて、この変更の後に受け付けるものは一つだけ: 2 要素以上の numpy の配列の `choices`（今は `if not choices` が素の `ValueError` になる）。
-
-- Firing rate: 0/2298 of search-dimension specs passed to parse_space in the test suite at c65ef4d (`docs/audits/2026-10-tuning-resume/probes/firing_rate_344.py`, a pytest plugin that evaluates policy 3's new refusals on every spec without changing the outcome; output `firing_rate_344.txt`; `firing_rate_344_controls.py`: the 15 refused forms of the compatibility list are each flagged and 13 accepted forms are not, 0 control failures)
-- docs/、notebooks/、README の探索空間の例に、この規則で拒否される書き方は無い（grep で確かめた）。
-- 公開 API と Result の形は変わらない。
+- 今は受け付けていて、この変更の後に拒否されるのは「書式の外」の指定だけ。目的（課題）の各形に加えて、`bool` や `bytes` の境界、数の表記でない文字列の境界、書式に無いキーを持つ次元、list と tuple でない `choices`（`range`、numpy の配列、`set`、dict、generator、文字列）がこれに当たる。
+- 書式どおりの指定は、今と同じ次元に解決される。numpy の数の境界（H-0095）と、数の表記の文字列の境界（YAML の `1e-4`）も今と同じ値になる。
+- Firing rate: 0/2298 of テストスイートで `parse_space` に渡る探索次元の指定（`docs/audits/2026-10-tuning-resume/probes/firing_rate_344.py` を pytest のプラグインとして c65ef4d のスイート全体に掛け、方針 3 の判定で新たに拒否される指定を数えた。出力は `firing_rate_344.txt`。判定の対照は `firing_rate_344_controls.py` で、拒否すべき 25 形をすべて拒否し、受け付けるべき 11 形をすべて受け付けた。スイートの中での陽性対照として、config の `step` と `log: "false"`、`tune(space=)` の境界 `"1e0x"` が理由付きで記録されることを確かめた）。スイートの指定はすべて書式どおりなので、書式どおりの利用者に影響が無いことを示す。書式の外の指定は下流の製品から実際に届く（LizyStudio の `step`、互換性の節）ので、拒否は使われない検査ではない。
+- 下流の製品（LizyStudio、LizyML-Widget）。どちらも空間を config の `tuning.optuna.space` で渡す。版の上限を上げるときに直す必要があるもの:
+  - LizyStudio: Range にした次元に付ける `step`。H-0124 で受け付けるようになるが、`log` の次元の `step` と、`step` の倍数でない範囲は H-0124 で拒否される。
+  - LizyML-Widget: `int` の次元に小数を入れる入力欄（`parseFloat`）。
+  - 両製品: 文字列化した選択肢（`"15"`、`"true"`）は、書式上は正しい値なので H-0123 では拒否しない。smart の次元の文字列の真偽は #347 で別に扱う。
+- docs/、notebooks/、README の探索空間の例に、書式の外の書き方は無い（grep で確かめた）。
+- 公開 API と Result の形は変わらない。CHANGELOG に「書式の外の指定を拒否する」ことと、その例を書く。
 
 ### 代替案（検討して棄却）
 
 - **警告だけを出す**: 探索は黙って変わったまま進む。
-- **文字列の `"true"` / `"false"` や `"0.1"` を解釈して受け付ける**: 解釈の規則が増え、YAML と JSON の型の扱いと食い違う。書いたものが数や真偽でないことを知らせるほうが、直し方がはっきりする。
-- **受け付ける型を数え上げる**（`numbers.Real` と `Decimal` など）: Proposal の審査の round 1・2 で、数え上げた型の端（numpy の `longdouble`、`float` で無限大になる `Decimal`、独自のクラス、numpy の配列の選択肢）が次々に見つかった。「値が変わらずに読めるか」という一つの基準にすれば、型ごとの例外を持たずに済む。
-- **`step` を実装する**: 新しい機能で、この欠陥の修正の範囲を超える。
+- **今受け付けている値を、値を変えずに読める限りすべて受け付け続ける**: Proposal の審査（round 1〜3）で、数の型の端（numpy の `longdouble`、`float` で無限大になる `Decimal`、独自のクラス、numpy の配列の選択肢）を一つずつ扱うことになり、閉じなかった。書式はそれらを意図していない（2026-10-12、管理者の判断で書式を正とした）。
+- **YAML の読み方を YAML 1.2 に変えて `1e-4` を数にする**: config 全体の値の型が変わる（列名などに `1e5` と書いた設定の意味が変わる）。探索空間の境界に限って数の表記の文字列を受け付けるほうが、影響が小さい。
 
 ### 受け入れ基準（テスト観点）
 
 今のコードで失敗し、変更で通るもの:
 
-1. 互換性の節の「黙って別の探索になっていたもの」の各形（`int` の小数部は `1.7` と `np.longdouble(2)**53 + 0.5` の両方、無限大は `float("inf")` と `Decimal("1e999")` の両方、iterator は generator）が、config の `tuning.optuna.space` でも `tune(space=...)` でも、study を作る前に `CONFIG_INVALID` で拒否される（`lgb.train` が呼ばれない）。context に次元の名前、キー、理由、空間がある。
-2. 互換性の節の「意味の取れない書き方」の各形が、両方の空間で拒否される。
-3. config の `tuning.optuna.space` に `dict` でない mapping（`UserDict`）で書いた `category: smart` の次元（例: `auto_num_leaves` の categorical）が、名前の検査で `model` の次元と誤読されずに受け付けられる（今は H-0093 の名前の検査が拒否する）。
-4. config の `tuning.optuna.space` の mapping でない指定（例: リスト）が、素の `AttributeError` ではなく `CONFIG_INVALID` で拒否される。
-5. 文書: BLUEPRINT の探索空間の節に受け付ける形を、CHANGELOG に拒否されるようになった書き方を書き、`tests/test_docs/` で確かめる。
-6. 負の対照: 方針 3 の新しい検査（キー、`log`、境界の型と有限と整数、`category`、`choices` の種類）と方針 2 の写し、mapping でない指定の検査を、それぞれ一つずつ外すと、基準 1〜4 のうちその検査に対応するケースが失敗する（対応は実装の PR に表で示す）。
+1. 目的（課題）の各形と、互換性の節に挙げた書式の外の各形が、config の `tuning.optuna.space` でも `tune(space=...)` でも、study を作る前に `CONFIG_INVALID` で拒否される（`lgb.train` が呼ばれない）。context に次元の名前、キー、理由、空間がある。
+2. config の `tuning.optuna.space` に `dict` でない mapping（`UserDict`）で書いた `category: smart` の次元が、名前の検査で `model` の次元と誤読されずに受け付けられる。
+3. config の `tuning.optuna.space` の mapping でない指定が、素の `AttributeError` ではなく `CONFIG_INVALID` で拒否される。
+4. YAML の config ファイルに `low: 1e-4` と書いた探索次元が、`load_config` を通して `low=0.0001` の次元に解決される。`low: nan` や `low: "abc"` は拒否される。
+
+実装の PR で確かめるもの:
+
+5. 文書: BLUEPRINT の探索空間の節と docs/config-reference.md に、受け付ける書式（`choices` を含む）を書き、CHANGELOG に拒否されるようになった書き方を書く。`tests/test_docs/` で確かめる。
+6. 負の対照: 方針 3 の各検査、方針 2 の写し、mapping でない指定の検査を、それぞれ一つずつ外すと、基準 1〜4 のうち対応するケースが失敗する。
 
 今も通り、変更の後も通り続けるべきもの（回帰の保証）:
 
-7. `log` の省略、`log: true` / `false`、`category` の省略、`int` の次元の `16.0`・`Decimal("16")`・numpy の整数・`2**53 + 1`、`float` の次元の `Decimal`・`Fraction`・numpy の数・`__float__` を持つ独自のクラス、list・tuple・`range`・1 要素の numpy の配列の `choices` は、今と同じ次元に解決される（2 要素以上の numpy の配列は新しく受け付け、要素の並びどおりの選択肢になる。これは基準 1〜4 と同じく変更で通るもの）。
+7. 書式どおりの指定（`log` と `category` の省略、`int` の次元の `16.0`、numpy の数の境界、list と tuple の `choices`）は、今と同じ次元に解決される。
 8. `tune(space=...)` の H-0122 の拒否（形、category、名前）は、理由を変えずに引き続き拒否される（H-0122 の受け入れ基準 29 のテストが通る）。
