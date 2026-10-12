@@ -12120,7 +12120,8 @@ H-0122 の `space=` で、resume の round にも同じ形が起きうる。
 
 ### 改訂 2: スマートパラメーターの探索次元が取る値を、その母数の型と範囲で検査する（#347、2026-10-13）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
+- **決定日**: 2026-10-13（管理者の判断: 文字列の真偽は拒否、比率は config の範囲で検査して `num_leaves_ratio` の拡張の上限を 1.0 に、`None`・`feature_weights`・regression の `balanced=True` も含める、記録が規則に外れる artifact だけを読み込みで拒否。Codex の Proposal review は 2 round で APPROVE（`cba2403`）。下流の issue: LizyStudio#689、LizyML-Widget#206。）
 - **関連**: [Issue #347](https://github.com/nbx-liz/LizyML/issues/347)、H-0093（スマートパラメーターの宣言）、H-0123（探索空間の書式）、H-0124（改訂 1）、H-0109 / H-0120（artifact に保存する tune の結果）
 
 #### 課題
@@ -12203,6 +12204,22 @@ config の項目そのものも pydantic の緩い変換で `"false"` を `False
 6. `restore_tuning`: 文字列の真偽の次元で tune した study（この改訂の前の規則を一時的に戻して作る）は `CONFIG_INVALID` で拒否される。
 7. 規則の宣言が一つであること: provider の宣言と config の `_check_ratio` が同じ範囲の定数を使う（片方を変えるともう片方の検査のテストが失敗する）。
 8. **対照**（どれも一つずつ外すと、名前を挙げた表の行のテストが失敗する）: `auto_num_leaves` の `bool` だけの判定（`["false"]` の行）、bool の母数の数の次元の拒否（`IntDim(0, 1)` の行）、`balanced` の `None` の受け付け（受け付けの `[False, None]`）と regression の `True` の拒否（regression の行）、数の型そのものの判定（`[True]` と `["0.5"]` の行）、`num_leaves_ratio` の `None` の拒否、`num_leaves_ratio` の上端を含む判定（`0.5..2.0` と受け付けの `1` の行）、`min_data_in_*_ratio` の上端を含まない判定（`0.1..1.0`、`0.5..1.0` の行）と `None` の受け付け（受け付けの `[None, 0.05]`）、`feature_weights` の次元の拒否（両方の行）、方針 2 の検査（基準 4）、方針 3 の上限（基準 3）、方針 4 の読み込みの検査（基準 5 の各値）、方針 5 の検査（基準 6）。
+
+#### 改訂 2 の実装の記録（2026-10-13）
+
+規則の宣言は provider の契約に足した `smart_value_rules()`（`lizyml/estimators/provider.py` の `SmartValueRule`）で、LightGBM の provider が六つのスマートパラメーターの規則を宣言する。比率の範囲は `lizyml/config/schema.py` の `SMART_RATIO_RANGES`（`RatioRange`）を config の `_check_ratio` と provider の規則の両方が読む（受け入れ基準 7）。検査は新しい `lizyml/core/_smart_values.py`（`check_smart_dimension_values` が探索次元を、`smart_value_violation` が記録された `best_smart_params` を見る）にあり、round の受け付けの検査（`validate_tuning_dimensions`）、宣言の受け付け（`admit_smart`、owner の検査より前）、`Model.load`、`restore_tuning` から呼ぶ。
+
+仕様の範囲で実装が決めたこと:
+
+- **二か所で検査する**: `admit_smart`（宣言した次元。owner の検査が smart の値を真偽で読むより前）と round の受け付けの検査（実効空間。拡張した次元と provider の既定の空間の次元を含む）。受け入れ基準 1 の表の拒否は前者が先に出す。後者だけが拾うのは拡張した次元で、そのテストで二か所を分けて確かめる。
+- **数の次元の bool の母数と `feature_weights` の `key`**: 改訂 2 の `key` の語彙に「次元の種類が違う」ものが無いので、`key` は `low`、`value` は `dim.low` とする。
+- **artifact の記録**: `best_smart_params` が mapping でないもの、provider が宣言しない名前を持つもの、`feature_weights` を持つもの（`None` も含む。探索次元にできないので、記録にあるのは LizyML のものではない）も `DESERIALIZATION_FAILED` で拒否する（mapping でないものと宣言しない名前は、実装の後の確認で黙って通ることに気づいて足した）。「`best_smart_params` が無い」は tune の結果の無い artifact と読む。
+- **provider の契約**: `smart_value_rules()` は必須のメソッドとする（`default_params` のような `getattr` の既定を置かない）。宣言したスマートパラメーターに規則が無ければ内部の誤りとして `CONFIG_INVALID`。CHANGELOG に、provider がこれを実装する必要があることを書いた。
+- **既存のテストの変更**: `tests/test_tuning/test_smart_dimension_collisions.py` の c5 と c5b は regression の `balanced=True` を使っていたので binary に、c5c は `num_leaves_ratio` の `-1..1` を使っていたので、その次元に `(-2, 1]` の規則を宣言するテスト用の provider で同じ経路を確かめる形に、c4b の幅の広い次元は範囲の内側の比率三つにした。衝突の検査という目的は変わらない。
+- **小さな重複**: regression で `balanced` を拒否する判定の `task == "regression"` は `smart_params.py` と同じ条件を繰り返している（定数を共有していない）。
+- **文書**: BLUEPRINT §4.2（読み込みの検査）、§5.3、§11.3（規則の表と拒否の context、検査の位置、拡張の上限、結果の検査）、§11.5.5（`restore_tuning`）、§14.4（provider の契約）、docs/config-reference.md、CHANGELOG。
+
+受け入れ基準の対応: 基準 1〜4 は `tests/test_tuning/test_smart_dimension_values.py`、基準 5 は `tests/test_persistence/test_smart_params_artifact.py`（`format_version` 2 と 1）、基準 6 は `test_smart_dimension_values.py::test_restore_tuning_refuses_a_string_bool_result`、基準 7 は `tests/test_estimators/test_smart_value_rules.py`。基準 8 は各規則・各検査の位置を一つずつ外して、名前を挙げた行のテストが失敗することを確かめた（表は実装の PR の本文に載せる。比率の上端を含む・含まないの判定は三つの比率で共有する関数なので、その対照は名前ごとではない）。
 
 ## H-0122: tune の resume と storage への再接続は同じ目的関数を続ける（#340）
 

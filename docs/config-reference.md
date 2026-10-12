@@ -515,6 +515,41 @@ YAML note: PyYAML reads YAML 1.1, where an exponent without a decimal point
 (`low: 1e-4`) is a string. Such a bound is accepted as the number it spells.
 `nan`, `inf` and `.nan` / `.inf` are not finite numbers and are refused.
 
+A `category: smart` dimension's value becomes the trial's smart parameter as
+it is, so every value the dimension can take (`low` and `high`, or every
+choice) must be one that smart parameter can hold (H-0121 amendment 2). Types
+are judged exactly: a bool is `true` / `false` (not `"false"`, `0` or `1`), a
+number is an `int` or `float` (not a `bool` or a string such as `"0.5"`); NaN
+and infinity are outside every range.
+
+| Smart parameter | Dimension | Values |
+|---|---|---|
+| `auto_num_leaves` | `categorical` only | `true`, `false` |
+| `balanced` | `categorical` only | `true`, `false`, `null`; `true` is refused for `regression` |
+| `num_leaves_ratio` | any | a number in `(0, 1]`; no `null` |
+| `min_data_in_leaf_ratio`, `min_data_in_bin_ratio` | any | a number in `(0, 1)`; a categorical choice may also be `null` (the ratio is not resolved) |
+| `feature_weights` | none | cannot be a search dimension |
+
+The ratio ranges are those of the `model` fields (`num_leaves_ratio` etc.).
+A dimension outside the rule raises `CONFIG_INVALID` before any study is
+created or written, with `context` `surface`, `dim`, `key` (`low` / `high`, or
+`choices`), `value` (the first value outside) and `reason`
+(`smart_value_invalid`, or `smart_value_unsupported_task` for `balanced: true`
+on regression). A numeric dimension on `auto_num_leaves`, `balanced` or
+`feature_weights` is reported at its `low`. The same rule applies to the
+default space, to an expanded range and to `tune(space=...)`. Boundary
+expansion of `num_leaves_ratio` stops at `1.0` (`clamped_to_bound=True`).
+`restore_tuning` refuses a stored best outside the rule (`CONFIG_INVALID`), and
+`Model.load` refuses an artifact whose recorded `best_smart_params` is outside
+it (`DESERIALIZATION_FAILED`; tune and export again).
+
+```python
+"auto_num_leaves":  {"type": "categorical", "choices": [True, False], "category": "smart"},
+"num_leaves_ratio": {"type": "float", "low": 0.5, "high": 1.0, "category": "smart"},
+"min_data_in_leaf_ratio": {"type": "categorical", "choices": [None, 0.05], "category": "smart"},
+# "choices": ["true", "false"] is refused: write true / false, not strings.
+```
+
 Default search space used when `optuna.space = {}`:
 
 | Param | Type | Range / Choices | Log | Category |
