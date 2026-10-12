@@ -12809,13 +12809,14 @@ Optuna 4.7.0 の性質（`docs/audits/2026-10-tuning-resume/probes/optuna_step_f
    - `float` の次元の `step`: H-0123 の `float` の境界と同じ型（`int` か `float`、`bool` は除く。numpy の整数・浮動小数、数の表記に完全一致する文字列）で、有限で、0 より大きい。
    - `int` の次元の `step`: H-0123 の `int` の境界と同じ型で、整数の値で、1 以上。
    - 読めない値は H-0123 の理由（`bound_not_a_number`・`bound_not_finite`・`bound_not_integral`）を `key: "step"` で使う。0 以下は新しい理由 `step_not_positive`。
-2. **格子は原点 0**: 次元の格子は `step` の整数倍 `{k * step}` で、範囲の格子の点は `low` から `high` までの倍数。`low` と `high` はどちらも `step` の倍数でなければならない。判定は `Decimal(str(x))` で行う（Optuna の `_adjust_discrete_uniform_high` と同じ。`int` の次元は整数の計算）。倍数でない境界は、study を作る前・書く前に `CONFIG_INVALID`（理由 `bound_off_grid`、`key` は `low` か `high`。メッセージに、範囲の内側でいちばん近い格子の点を示す）。Optuna のように黙って切り詰めることはしない。
+2. **格子は原点 0**: 次元の格子は `step` の整数倍 `{k * step}` で、範囲の格子の点は `low` から `high` までの倍数。`low` と `high` はどちらも `step` の倍数でなければならない。
+   - **計算は正確な有理数で行う**: H-0123 が素の `int` / `float` に直した値 `x` を `Fraction(Decimal(str(x)))`（`int` はそのまま `Fraction(x)`）にし、`low / step` と `high / step` が整数かを見る。`str` は Python の `float` の最短の表記なので、`0.3` と `0.1` は 3/10 と 1/10 になり 2 進の誤差で拒否しない（Optuna の `_adjust_discrete_uniform_high` が `Decimal(str(x))` を使うのと同じ読み方）。`Fraction` の計算は `decimal` の context（精度）に左右されず、有限の値どうしなら桁がいくつでも割り切れるかが決まる（`Decimal` の割り算は context の精度で丸めるか `InvalidOperation` になるので使わない）。倍数でない境界は、study を作る前・書く前に `CONFIG_INVALID`（理由 `bound_off_grid`、`key` は `low` か `high`。メッセージに、範囲の内側でいちばん近い格子の点を示す）。Optuna のように黙って切り詰めることはしない。
    - `log` の次元では `low > 0` なので、`low` が倍数であれば `low >= step` になる。`log` の次元の格子のいちばん小さい点は `step` である。
 3. **抽出と、訓練に使う値**:
    - `log` でない次元: Optuna の `step` をそのまま使う（`suggest_float(step=)` / `suggest_int(step=)`）。
    - `log` の `float` の次元: `suggest_float(log=True)` で刻み無しに抽出し、LizyML が一度だけ格子に丸める。
    - `log` の `int` の次元: `step == 1` なら今と同じ `suggest_int(log=True)`（刻み 1 と同じ意味）。`step > 1` なら `suggest_float(name, low, high, log=True)`（Optuna の `FloatDistribution(log=True)`）で抽出し、一度だけ整数の格子に丸める（int の log の抽出の整数への丸めに、もう一度丸めを重ねない）。
-   - **丸め**: 生の値 `v` から `k = (Decimal(str(v)) / Decimal(str(step)))` を偶数への丸め（`ROUND_HALF_EVEN`）で整数にし、`k` を `[low/step, high/step]` に収め、記録する値は `float(k * Decimal(str(step)))`（`int` の次元は `int(k * step)`）。連続の抽出では丸めの境目にちょうど当たる確率は 0 なので、丸めの規則は結果をほとんど変えない。決めておくのは再現のため。
+   - **丸め**: 生の値 `v` を方針 2 と同じ正確な有理数にし、`k = round(Fraction(v) / Fraction(step))`（Python の `round` は `Fraction` を偶数への丸めで正確に整数にする）、`k` を `[low/step, high/step]` に収める。記録する値は `float(k * Fraction(step))`（`float` は `Fraction` を最も近い `float` に正しく丸める）、`int` の次元は `int(k * step)`。どれも `decimal` の context に依らない純粋な計算。連続の抽出では丸めの境目にちょうど当たる確率は 0 だが、規則は決めておく（受け入れ基準 4 で確かめる）。
    - **刻みのある次元はすべて同じ関数で値を決める**（`log` でない次元も）。Optuna の刻みの抽出値の 2 進の誤差（`0.30000000000000004`）は、記録する値で `0.3` になる。
    - 同じ格子の点が再び抽出されても、もう一度評価する（スコアを使い回さない。試行の数、TPE、H-0122 の予算を変えないため）。
 4. **記録する値の読み手は一つ**: 丸めた値は保存しない。純粋な関数 `recorded_params(trial, dims)` が、試行の生の値と、その試行が属する round の宣言した次元（`round_of` で決める round の `effective`）から決める。刻みの無い次元の値は生の値のまま。次の位置はすべてこの関数を通す:
@@ -12823,14 +12824,17 @@ Optuna 4.7.0 の性質（`docs/audits/2026-10-tuning-resume/probes/optuna_step_f
    - 最良の値: tune の完了（`_model_tuning.py:476-480`）、`restore_tuning`（`_tuning_restore.py:188-192`）。ここから `best_*_params`、`fit` の上書き、export される値が決まる。
    - 次の round の計画（`_tuning_plan.py:528-536`、`outside_range`、`detect_boundary` の `best_value`）。`study.best_trial` は study 全体の最良なので、別の round の試行のことがある。その試行の round の次元で決める。
    - 試行の一覧（`tuning/rounds.py:97` の `TrialResult.params`、`tuning_table`）。訓練した値を見せる（`int` の log の次元が float で見えることもない）。
-   - `Tuner.tune` の結果（`tuner.py:337-350`）。
-   - 生の値を読んでよいのは、名前だけを見る位置（`lineage.py:331` の routes の検査）と、Optuna 自身。
+   - 生の値を読んでよいのは、名前だけを見る位置（`lineage.py:331` の routes の検査）、Optuna 自身、公開の `Tuner.tune`（方針 6）。
+   - 試行の round の次元は H-0122 の系譜から決まる（`Model.tune` は storage の有無にかかわらず系譜を study に書く）。round で消した次元は、その round より後の round の `effective` に無いだけで、試行が属する round の `effective` には必ずある（試行の値の名前は routes の検査がその round の次元と照らしている）。
 5. **境界の拡張は格子の上に端を置く**（`_expand_range`、`_expand_int_range`、`_clamp_outward`、`attach_bounds`、`expand_dims`）:
    - 拡張の計算（今の規則）の後、新しい端を外向きに格子へ寄せる（下端は `step` の倍数への切り下げ、上端は切り上げ）。
    - provider の上下限（`min_allowed` / `max_allowed`）に当てたあとの端が格子の外なら、内向きに寄せる。どちらの場合も元の端より内側にはしない（#342 のとおり範囲を狭めない）。寄せた端が元の端と同じなら、拡張しなかったものとして扱う。
    - `log` の下端は `step` より下に広げない（`step` がいちばん小さい格子の点）。今の下端が `step` なら下へは拡張しない。
    - `attach_bounds` と `expand_dims` は次元を作り直すときに `step` を引き継ぐ。拡張した次元（round の `effective`）は、round の記録を書く前（`_model_tuning.py:450`）に方針 2 の格子の検査を通す。
-6. **公開の `Tuner`**: `Tuner.tune` は利用者の目的関数を受け取り、LizyML が丸めを挟めない。`Tuner.tune` は `log` と `step > 1`（`float` の次元では任意の `step`）を併せ持つ次元を `CONFIG_INVALID` で拒否する（study を作る前）。拒否は `Tuner.__init__` ではなく `Tuner.tune` に置く（`Model.tune` は同じ次元で `Tuner` を作り、`Tuner.run` だけを呼ぶので、`__init__` での拒否は `Model.tune` も止めてしまう）。`log` でない刻みは `Tuner.tune` でも使える（`suggest_params` は記録する値を返す）。利用者が直接作った次元も通るように、`Tuner.tune` は study を作る前に方針 2 の格子の検査を次元に掛ける。
+6. **公開の `Tuner.tune`**: 利用者の目的関数を受け取り、`trial.suggest_*` を呼ぶのは利用者で、LizyML は丸めを挟めない。また、`Tuner.tune` は H-0122 の系譜を書かないので、再接続した study の過去の試行の round の次元が分からない。そこで:
+   - `Tuner.tune` は、`log` の次元に `step` があれば（`int` の `step: 1` も含めて）、study を作る前に `CONFIG_INVALID` で拒否する。格子の外の境界を持つ次元も同じく拒否する（利用者が直接作った次元も方針 2 を満たす）。
+   - `Tuner.tune` の結果は、今と同じく試行が記録した生の値を返す（`recorded_params` を通さない）。目的関数が `suggest_params` を使えば、`log` でない刻みの値は格子の点（Optuna の 2 進の誤差を含みうる）で、目的関数が刻み無しで抽出すれば刻み無しの値である。どちらも目的関数が評価した値そのものなので、結果は評価と食い違わない。#350 の「`Tuner` も記録する値の読み手」は、この理由でこの形に改める（2026-10-12、Proposal の審査 round 1）。
+   - 拒否は `Tuner.__init__` ではなく `Tuner.tune` に置く（`Model.tune` は同じ次元で `Tuner` を作り、`Tuner.run` だけを呼ぶので、`__init__` での拒否は `Model.tune` も止めてしまう）。`Model.tune` の `int` の log で `step: 1` の次元は、方針 3 のとおり Optuna の `IntDistribution(log=True)` で動く。
 7. **study の系譜（H-0122、schema 1 のまま）**: `encode_dim` は `step` を書く（無いときは `null`）。`decode_dim` は `step` が無ければ `None` と読み（develop で作った study と既存のテストの記録のため）、知らないキーを持つ次元を拒否する（今は黙って捨てる）。`dim_signature` に `step` が入るので、U2 の比較（`same_declared_space`）と `carry_forward` は `step` を比べる。`space_summary` は `step` を示す（`step` だけが違う U2 の拒否で、二つの空間が同じ文に見えないように）。
    - **変えられない宣言**（`refuse_unchangeable`）に、`int` の log の次元の「`step > 1` かどうか」を加える。変えると Optuna の分布の種類が変わり、`Tuner.run` の `except ValueError` で試行の失敗になるため。それ以外の `step` の変更（`log` でない次元の刻み、`float` の log の次元の刻み）は、原点 0 の格子なので受け付ける。値は各試行の round の次元で決まるので、round ごとに刻みが違っても記録する値は正しい。
    - schema の番号を上げない理由: H-0122 の系譜を読む LizyML はまだ公開していない（v0.18.0 には系譜が無く、H-0122 と H-0124 は同じ v0.19.0 で出る）。古い版が `step` を黙って捨てる読み手は存在しない。
@@ -12851,7 +12855,7 @@ Optuna 4.7.0 の性質（`docs/audits/2026-10-tuning-resume/probes/optuna_step_f
 - **v0.18.0 との違い**: `step` を書いた空間は、v0.18.0 では刻み無しで探索した。この変更の後は刻みのある探索になるか、格子の外の境界があれば拒否される。H-0123 の `step` の拒否は公開していないので、利用者には見えない（CHANGELOG の Unreleased の H-0123 の項から `step` の拒否を消し、この項で書き直す）。
 - **H-0123 の記録との関係**: H-0123 の互換性の節は「`log` の次元の `step` は H-0124 で拒否される」と書いたが、この Proposal は格子の上の `log` の次元の `step` を受け付ける（案 A）。H-0123 のその文はこの Proposal で置き換える。
 - `step` の無い空間は今と同じ次元・同じ抽出になる（`suggest_*` に `step=` を渡さない）。
-- 公開 API: `FloatDim` / `IntDim` に任意の欄が一つ増える。`Tuner.tune` は `log` と刻みを併せ持つ次元を拒否する（今は `step` を持つ次元が作れないので、拒否される既存の使い方は無い）。
+- 公開 API: `FloatDim` / `IntDim` に任意の欄が一つ増える。`Tuner.tune` は `log` と `step` を併せ持つ次元と格子の外の境界を拒否し、結果は今と同じ生の値（今は `step` を持つ次元が作れないので、変わる既存の使い方は無い）。
 - **LizyStudio**（下流）: カタログの既定の範囲のうち `log` の二つは拒否される（Firing rate の行）。LizyStudio は、`log` の範囲の既定と刻みを格子に合わせる（例: `learning_rate` は `[0.001, 0.1]` で step 0.001）か、`log` の範囲に `step` を送らないようにする必要がある。この Proposal の承認の後、LizyStudio に issue を起こす。
 - Firing rate: `bound_off_grid` の拒否（allow）は 2/12、log の丸め（conditionally-activate）は 0/12 of LizyStudio の探索空間のカタログの既定の範囲のうち `step_map` の刻みが付くもの（`docs/audits/2026-10-tuning-resume/probes/firing_rate_350_studio.py` で LizyStudio `2118acc` の `lizyml_ui_schema.py` を読み、方針 2 の規則を `Decimal` で当てた。拒否されるのは `learning_rate` `[0.0001, 0.01]` step 0.001 と `lambda_l2` `[1e-6, 0.01]` step 0.0001 で、どちらも `log` で下端が刻みの倍数でない。log の丸めの経路は、LizyStudio が `log` の既定を格子に合わせるまで今の利用者の入力では 0 で、管理者は 2026-10-12 にこれを承知で案 A を選んだ。テストスイートで受け付けられる指定に `step` を持つものは無い（H-0123 が拒否している））。陽性の対照は受け入れ基準 4 の `learning_rate` `[0.001, 0.1]` step 0.001。
 
@@ -12860,20 +12864,25 @@ Optuna 4.7.0 の性質（`docs/audits/2026-10-tuning-resume/probes/optuna_step_f
 - **`log` と `step` の併用を拒否する**（Optuna と同じ）: 実装は小さいが、刻みのある log の探索（Hyperopt の `qloguniform`、ConfigSpace の `q`）ができない。管理者は案 A を選んだ（2026-10-12）。
 - **格子の原点を `low` にする**: LizyStudio の既定を受け付けるが、`learning_rate` `[0.0001, 0.01]` step 0.001 では log の一様な抽出の約 39%（`ln 6 / ln 100`）が 0.0001 ちょうどになり、log の尺度の意味が薄れる。範囲を広げると格子がずれる（同じ生の値が round によって別の値になる）。
 - **Optuna のように格子の外の上端を黙って切り詰める**: 利用者の書いた範囲と違う探索になる（H-0123 の方針に反する）。
+- **`Tuner.tune` の結果にも `recorded_params` を通す**（#350 の当初の案）: 目的関数が刻みを使わずに抽出すると、評価していない値を結果に出す。再接続した study では過去の round の次元が無く、刻みを変えた後の過去の試行を今の刻みで丸めてしまう。
 - **丸めた値を試行の属性に保存する**: 抽出と保存の間で落ちたときの扱い（属性の無い COMPLETE の試行）を別に決める必要がある。生の値と round の次元から決める関数なら、その隙間が無い。
 - **系譜の schema を 2 に上げる**: 系譜を読む公開の版が無いので、守る相手がいない。
 
 ### 受け入れ基準（テスト観点）
 
 1. **書式**: `float` / `int` の次元の `step` を、config の `tuning.optuna.space` と `tune(space=...)` の両方で受け付ける。読めない `step`（`"abc"`、`True`、NaN、`int` の次元の `1.5`）、0 以下の `step`、格子の外の `low` / `high` を、study を作る前に `CONFIG_INVALID` で拒否し、context に `dim`・`key`・`reason`・`surface` がある（H-0123 の表に加える。`step_not_supported` の行と、それを確かめるテストは置き換える）。`bound_off_grid` のメッセージはいちばん近い内側の格子の点を示す。
-2. **格子の判定**: `[0.1, 0.3]` step 0.1、`[0.5, 1.0]` step 0.05 は受け付け（2 進の誤差で拒否しない）、`[0.15, 1.0]` step 0.1 は拒否する。`int` の `[500, 2000]` step 100 は受け付け、`[3, 10]` step 2 は拒否する。
+2. **格子の判定**: `[0.1, 0.3]` step 0.1、`[0.5, 1.0]` step 0.05 は受け付け（2 進の誤差で拒否しない）、`[0.15, 1.0]` step 0.1 は拒否する（メッセージに 0.2 を示す）。`int` の `[500, 2000]` step 100 は受け付け、`[3, 10]` step 2 は拒否する。`step` の型: `np.float64(0.05)`、`"0.05"`、`int` の次元の `np.int64(100)`、`"1e2"` を受け付け、`True`、`"abc"`、NaN、`0`、`-0.1`、`int` の次元の `1.5` を拒否する。桁の大きな値でも計算が落ちない: `[1e9, 2e9]` step 0.1（log）を受け付け、`decimal` の context の精度を 6 にしても結果が変わらない。
 3. **抽出（log でない）**: 抽出した値と、訓練に渡した値と、`TrialResult.params` と最良の値が、すべて格子の点で同じ値（`0.30000000000000004` でなく `0.3`）。`suggest_*` は `step` があるときだけ `step=` を受け取る（`test_tuning.py` の `assert_called_once_with` は変えない）。
-4. **抽出（log）**: `learning_rate` `[0.001, 0.1]` step 0.001 で、すべての試行の訓練に渡した値が格子の点で、`[0.001, 0.1]` に入る。`int` の log `[2, 64]` step 2 で、値が偶数の整数で、Optuna の分布が `FloatDistribution(log=True)`。`int` の log で `step: 1` は今と同じ `IntDistribution(log=True)`。
-5. **記録する値の読み手**: 方針 4 の各位置（完了した tune の `best_*_params` と `fit` の上書き、`restore_tuning`、export して load した Model の値、次の round の計画の `best_value`、`tuning_table`、`Tuner.tune` の結果）が、生の値でなく記録する値を返す。前の round の試行が最良のとき、その round の次元で決まる（round 1 と round 2 で刻みが違う study で確かめる）。
-6. **拡張**: 格子の上の端だけを作る。provider の上下限が格子の外のときは内向きに寄せ、元の端より狭めない。`log` の下端は `step` より下に行かない（下端が `step` の次元は下へ拡張しない）。拡張した次元は `step` を持ったまま round の記録に書かれる。
-7. **系譜**: `step` が parse → attach → expand → encode / decode を通って残る。`step` の無い記録（develop の study の形）は `step=None` と読む。知らないキーを持つ次元の記録は decode で拒否する。`step` だけが違う `space=` は U2 で拒否され、メッセージの二つの空間が `step` で違って見える。
+4. **抽出（log）**: `learning_rate` `[0.001, 0.1]` step 0.001 で、すべての試行の訓練に渡した値が格子の点で、`[0.001, 0.1]` に入る。`int` の log `[2, 64]` step 2 で、値が偶数の整数で、Optuna の分布が `FloatDistribution(log=True)`。`int` の log で `step: 1` は今と同じ `IntDistribution(log=True)`。丸めの規則（`enqueue_trial` で生の値を与えて確かめる）: `float` の log `[2, 8]` step 2 で生の値 5.0 は 4.0（偶数への丸め。切り上げなら 6.0）。`int` の log `[2, 64]` step 2 で生の値 2.9 は 2（一度だけの丸め。先に整数に丸めると 3 → 4 になる）。同じ格子の点に丸まる二つの生の値（`[0.001, 0.1]` step 0.001 で 0.0011 と 0.0012）は、訓練が 2 回呼ばれる。
+5. **記録する値の読み手**: 方針 4 の各位置（完了した tune の `best_*_params` と `fit` の上書き、`restore_tuning`、export して load した Model の値、次の round の計画の `best_value`、`tuning_table`）が、生の値でなく記録する値を返す。前の round の試行が最良のとき、その round の次元で決まる（round 1 が step 0.2、round 2 が step 0.25 の study で、round 1 の生の値 0.41 の最良は 0.4 のまま）。storage の無い `Model.tune` でも同じ。
+6. **拡張**（今の拡張の計算に続けて）:
+   - 外向きの寄せと log の下端: `float` の log `[0.02, 0.1]` step 0.01 の下端の拡張は 0.02/3 → 切り下げて 0 → `step` で止めて 0.01。`int` の log `[8, 64]` step 4 の下端は 8 // 3 = 2 → 切り下げて 0 → 4。下端が 0.01（= `step`）の次元は下へ拡張しない（「拡張なし」と報告）。
+   - provider の上下限での内向きの寄せ: `feature_fraction`（上限 1.0）の線形 `[0.15, 0.6]` step 0.15 の上端は 1.05 → 上限で 1.0 → 内向きに 0.9。下端は 0 → 下限で 0.001 → 内向きに 0.15 = 元の端なので「拡張なし」。
+   - 拡張した次元は `step` を持ったまま round の記録に書かれ、記録の前に方針 2 の検査を通る。
+
+7. **系譜**: `step` が parse → attach → expand → encode / decode を通って残る。`step` の無い記録（develop の study の形）は `step=None` と読む。知らないキーを持つ次元の記録は、数の次元でもカテゴリの次元でも decode で拒否する。`step` だけが違う `space=` は U2 で拒否され、メッセージの二つの空間が `step` で違って見える。
 8. **変えられない宣言**: `int` の log の次元で `step` を 1 と 2 の間で変える resume を、round を始める前に `CONFIG_INVALID` で拒否する。`log` でない次元の `step` の変更と、`float` の log の次元の `step` の変更は受け付け、各試行の記録する値はその round の刻みで決まる。
-9. **`Tuner`**: `Tuner.tune` は `log` と刻みを併せ持つ次元を study を作る前に拒否する。`Model.tune` は同じ次元で動く（`Tuner.__init__` で拒否しない）。
+9. **`Tuner`**: `Tuner.tune` は、`float` の log に `step: 0.001`、`int` の log に `step: 1`、`int` の log に `step: 2` を持つ次元と、格子の外の境界を持つ次元を、study を作る前に拒否する。同じ次元で `Model.tune` は動く（`Tuner.__init__` で拒否しない）。`Tuner.tune` の結果は、目的関数が刻み無しで抽出した生の値をそのまま返す。
 10. **変わらないこと**: `step` の無い空間の探索は今と同じ（既存の tuning のテストと、seed を固定した結果の再現）。
 11. **文書**: BLUEPRINT §11.1・§11.2・§11.5、docs/config-reference.md の表（両方向の検査の対象）、CHANGELOG が `step` と格子と丸めと LizyStudio への影響を書く。
-12. **対照**: 方針 2 の格子の検査、方針 4 の各読み手、方針 5 の格子への寄せ、方針 7 の decode の拒否をそれぞれ外すと、対応するテストが失敗する。
+12. **対照**: 次をそれぞれ外す（または変える）と、対応するテストが失敗する: 方針 1 の `step` の各検査（型、有限、正、整数）、方針 2 の格子の検査、正確な有理数の計算（`float` の剰余に変える）、偶数への丸め（切り上げに変える）、`int` の log の一度だけの丸め（`suggest_int` に戻す）、方針 4 の各読み手（一つずつ）、前の round の次元を使うこと（今の round の次元に変える）、方針 5 の外向きの寄せ・内向きの寄せ・log の下端の止め・「拡張なし」の判定、`attach_bounds` / `expand_dims` / `decode_dim` が `step` を引き継ぐこと、方針 7 の decode の拒否、変えられない宣言、`Tuner.tune` の拒否。
