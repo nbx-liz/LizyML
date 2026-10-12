@@ -16,6 +16,7 @@ Criteria: 1 (each form, both surfaces), 2 (a ``UserDict`` spec in the config),
 from __future__ import annotations
 
 import math
+import sys
 from collections import UserDict
 from decimal import Decimal
 from fractions import Fraction
@@ -133,6 +134,56 @@ REFUSED: dict[str, tuple[Any, str | None, str]] = {
     "overflow_str": ({**LR, "high": "1e999"}, "high", "bound_not_finite"),
     "int_overflow_str": ({**NL, "high": "1e999"}, "high", "bound_not_finite"),
     "float_overflow_int": ({**LR, "high": 10**400}, "high", "bound_not_finite"),
+    # H-0124 amendment 1 (policy 9): what Optuna can sample. A float range's
+    # exact width is at most the largest float; an int dim's low, high and step
+    # are at most 2**52 in absolute value (the first of them that is not).
+    "float_width_not_finite": (
+        {**LR, "log": False, "low": -1e308, "high": 1e308},
+        "high",
+        "range_not_finite",
+    ),
+    "float_width_not_finite_step": (
+        {**LR, "log": False, "low": -1.5e308, "high": 1e308, "step": 5e307},
+        "high",
+        "range_not_finite",
+    ),
+    "int_high_past_2_52": (
+        {**NL, "low": 0, "high": 2**52 + 1},
+        "high",
+        "bound_too_large",
+    ),
+    "int_low_past_2_52": (
+        {**NL, "low": -(2**52) - 1, "high": 0},
+        "low",
+        "bound_too_large",
+    ),
+    "int_2_60": ({**NL, "low": 2**60, "high": 2**61}, "low", "bound_too_large"),
+    "int_10_309_step": (
+        {**NL, "low": 10**309, "high": 2 * 10**309, "step": 10**309},
+        "low",
+        "bound_too_large",
+    ),
+    "int_step_past_2_52": (
+        {**NL, "low": 0, "high": 2**52, "step": 2**53},
+        "step",
+        "bound_too_large",
+    ),
+    "int_str_past_2_52": ({**NL, "high": "1e20"}, "high", "bound_too_large"),
+    # Accepted before amendment 1 (H-0123's exact reading of a huge int).
+    "huge_int": (
+        {**NL, "low": 10**400, "high": 10**400 + 1},
+        "low",
+        "bound_too_large",
+    ),
+    "numpy_longdouble": (
+        {
+            **NL,
+            "low": np.longdouble("9007199254740993"),
+            "high": np.longdouble("9007199254740995"),
+        },
+        "low",
+        "bound_too_large",
+    ),
     "hex_str": ({**NL, "low": "0x10"}, "low", "bound_not_a_number"),
     "comma_str": ({**NL, "high": "1,000"}, "high", "bound_not_a_number"),
     "word_str": ({**LR, "low": "abc"}, "low", "bound_not_a_number"),
@@ -461,6 +512,9 @@ def test_space_arg_int_number_literals_resolve_to_an_int_dim() -> None:
 # Criterion 7: in-format specs resolve as before
 # ---------------------------------------------------------------------------
 
+#: The widest float range whose width is the largest float exactly.
+HALF_MAX = sys.float_info.max / 2
+
 ACCEPTED: dict[str, tuple[dict[str, Any], Any]] = {
     "omitted_log_and_category": (
         {"type": "float", "low": 0.1, "high": 1.0},
@@ -478,19 +532,11 @@ ACCEPTED: dict[str, tuple[dict[str, Any], Any]] = {
         {"type": "int", "low": np.int64(3), "high": np.float64(8.0)},
         IntDim(name="d", low=3, high=8),
     ),
-    # Read exactly, as int() read it before H-0123: through a float, both bounds
-    # would round to an even neighbour (where long double has more digits).
-    "numpy_longdouble": (
-        {
-            "type": "int",
-            "low": np.longdouble("9007199254740993"),
-            "high": np.longdouble("9007199254740995"),
-        },
-        IntDim(
-            name="d",
-            low=int(np.longdouble("9007199254740993")),
-            high=int(np.longdouble("9007199254740995")),
-        ),
+    # A numpy floating bound is read as its own value, not through a float
+    # (H-0123); within 2**52 (amendment 1) both readings agree.
+    "numpy_longdouble_within_limit": (
+        {"type": "int", "low": np.longdouble("4503599627370494"), "high": 2**52},
+        IntDim(name="d", low=2**52 - 2, high=2**52),
     ),
     "numpy_float32": (
         {"type": "float", "low": np.float32(0.5), "high": 1.0},
@@ -508,9 +554,26 @@ ACCEPTED: dict[str, tuple[dict[str, Any], Any]] = {
         {"type": "int", "low": "16", "high": "+32"},
         IntDim(name="d", low=16, high=32),
     ),
-    "huge_int": (
-        {"type": "int", "low": 10**400, "high": 10**400 + 1},
-        IntDim(name="d", low=10**400, high=10**400 + 1),
+    # H-0124 amendment 1 (policy 9): the limits themselves are accepted.
+    "float_width_8e307": (
+        {"type": "float", "low": -8e307, "high": 8e307},
+        FloatDim(name="d", low=-8e307, high=8e307),
+    ),
+    "float_width_max": (
+        {"type": "float", "low": -HALF_MAX, "high": HALF_MAX},
+        FloatDim(name="d", low=-HALF_MAX, high=HALF_MAX),
+    ),
+    "int_at_2_52": (
+        {"type": "int", "low": 2**52 - 10, "high": 2**52},
+        IntDim(name="d", low=2**52 - 10, high=2**52),
+    ),
+    "int_at_minus_2_52": (
+        {"type": "int", "low": -(2**52), "high": -(2**52) + 10},
+        IntDim(name="d", low=-(2**52), high=-(2**52) + 10),
+    ),
+    "int_step_2_52": (
+        {"type": "int", "low": 0, "high": 2**52, "step": 2**52},
+        IntDim(name="d", low=0, high=2**52, step=2**52),
     ),
     "list_choices": (
         {"type": "categorical", "choices": ["gbdt", "dart"], "category": "model"},

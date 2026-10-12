@@ -87,13 +87,19 @@ def test_log_lower_edge_stops_at_step_without_a_provider_bound() -> None:
     assert expanded.low == 0.01
 
 
-def test_upper_edge_stops_at_the_last_grid_point_inside_the_float_range() -> None:
-    """3e308 is past the float range; the edge stops at 1.7e308, on the grid."""
+def test_upper_edge_past_the_float_range_is_not_expanded() -> None:
+    """3e308 is past the float range: the edge is not expanded (amendment 1).
+
+    H-0124 stopped it at the last grid point inside the range (1.7e308); a
+    grid point near the limit can leave the grid as a float, so amendment 1
+    policy 10 leaves the edge where it is instead.
+    """
     dim = FloatDim("x", 1e307, 1e308, log=True, step=1e307)
     status, expanded = _expand(dim, 1e308)
-    assert status.edge == "upper" and status.expanded
-    assert expanded.high == 1.7e308
-    assert expanded.step == 1e307
+    assert status.edge == "upper" and not status.expanded
+    assert (status.new_low, status.new_high) == (None, None)
+    assert not status.clamped_to_bound
+    assert (expanded.low, expanded.high, expanded.step) == (1e307, 1e308, 1e307)
 
 
 def test_log_lower_edge_at_step_is_not_expanded() -> None:

@@ -31,6 +31,12 @@ from typing import Any
 import numpy as np
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.tuning._magnitude import (
+    FLOAT_WIDTH_LIMIT,
+    INT_LIMIT,
+    int_too_large,
+    width_too_large,
+)
 from lizyml.tuning.lineage_codec import DIM_CATEGORIES
 
 __all__ = [
@@ -40,8 +46,11 @@ __all__ = [
     "NUMERIC_KEYS",
     "REQUIRED_KEYS",
     "check_dim_keys",
+    "check_float_width",
+    "float_width_error",
     "check_space_shape",
     "format_error",
+    "int_too_large_error",
     "read_choices",
     "read_float_bound",
     "read_float_step",
@@ -80,6 +89,9 @@ a string, so a bound written that way in a config file arrives as text. Only a
 plain decimal or exponent literal is a number here: ``"nan"``, ``"inf"``,
 ``"0x10"``, ``"1,000"`` and a trailing newline are not.
 """
+
+FLOAT_WIDTH_LIMIT_TEXT = repr(float(FLOAT_WIDTH_LIMIT))
+"""``sys.float_info.max`` as the refusal message shows it."""
 
 _FORMAT_HINT = (
     "A dimension takes the documented form {type: float | int, low, high, "
@@ -296,7 +308,70 @@ def read_int_bound(name: str, key: str, value: Any, *, surface: str) -> int:
     ``100``; ``1.7`` and ``"1.7"`` are refused rather than truncated. Text is
     read exactly (``Decimal``), after its float value is checked finite, so an
     exponent such as ``"1e999"`` is refused instead of being expanded.
+
+    The value is at most ``2**52`` in absolute value (H-0124 amendment 1,
+    policy 9; :func:`int_too_large_error`), whatever its type.
     """
+    number = _read_int(name, key, value, surface=surface)
+    if int_too_large(number):
+        raise int_too_large_error(name, key, value, surface=surface)
+    return number
+
+
+def int_too_large_error(
+    name: str, key: str, value: Any, *, surface: str
+) -> LizyMLError:
+    """``bound_too_large``: an ``int`` dimension's value past ``2**52``.
+
+    Optuna samples an ``int`` dimension as a ``float``, widened by half a
+    step on each side; half-integers are exact only up to ``2**52``, and past
+    ``2**53`` the search silently gets coarser, then fails.
+    """
+    return _bound_error(
+        name,
+        key,
+        value,
+        reason="bound_too_large",
+        surface=surface,
+        why=(
+            f"an int dimension's {key} must be at most 2**52 ({INT_LIMIT}) in "
+            "absolute value: Optuna samples an int dimension as a float, which "
+            "holds every integer and half-integer only up to there."
+        ),
+    )
+
+
+def check_float_width(name: str, low: Any, high: Any, *, surface: str) -> None:
+    """Refuse a ``float`` range whose exact width is past the largest float.
+
+    Each bound may be finite while ``high - low`` is not a finite ``float``;
+    Optuna then fails every sample (``Range exceeds valid bounds``). The width
+    is computed exactly, so a width of exactly ``sys.float_info.max`` passes
+    (H-0124 amendment 1, policy 9).
+
+    Raises:
+        LizyMLError: ``CONFIG_INVALID`` with ``reason="range_not_finite"`` and
+            ``key="high"``.
+    """
+    if width_too_large(low, high):
+        raise float_width_error(name, low, high, surface=surface)
+
+
+def float_width_error(name: str, low: Any, high: Any, *, surface: str) -> LizyMLError:
+    """``range_not_finite``: see :func:`check_float_width`."""
+    return format_error(
+        surface,
+        f"dimension '{name}' has low={low!r} and high={high!r}, whose width is "
+        f"past the largest float ({FLOAT_WIDTH_LIMIT_TEXT}): Optuna cannot "
+        "sample that range. Narrow it.",
+        reason="range_not_finite",
+        dim=name,
+        key="high",
+    )
+
+
+def _read_int(name: str, key: str, value: Any, *, surface: str) -> int:
+    """:func:`read_int_bound` before its magnitude check."""
     if type(value) is int:
         return value
     if isinstance(value, np.integer):

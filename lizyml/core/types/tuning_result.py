@@ -29,7 +29,10 @@ class BoundaryDimStatus:
         new_high: New upper bound after expansion (None if not expanded).
         clamped_to_bound: ``True`` when expansion hit the dim's
             ``min_allowed`` / ``max_allowed`` ceiling/floor (H-0078).
-            Used by downstream UIs to badge "max reached" dims.
+            Used by downstream UIs to badge "max reached" dims. ``False``
+            when the clamped candidate was then not expanded because it
+            would pass the magnitude limits or leave the step grid
+            (H-0124 amendment 1).
     """
 
     name: str

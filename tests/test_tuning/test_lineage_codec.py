@@ -191,7 +191,9 @@ class TestSearchDim:
             FloatDim("x", 0.0, 1.0, category="smart"),
             IntDim("num_leaves", 8, 32),
             IntDim("num_leaves", 8, 32, log=True, min_allowed=2, max_allowed=131072),
-            IntDim("big", 2**53 + 1, 2**60, category="training"),
+            # Policy 9 (H-0124 amendment 1) bounds low / high at 2**52; an int
+            # past 2**53 still round-trips exactly as a recorded bound.
+            IntDim("big", 2**52 - 1, 2**52, max_allowed=2**53 + 1, category="training"),
             CategoricalDim("boosting", ("gbdt", "dart")),
             CategoricalDim("c", ("gbdt", True, 1, 1.0, None, float("inf"))),
         ],

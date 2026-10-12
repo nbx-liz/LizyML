@@ -8,7 +8,6 @@ re-exported here for backward compatibility.
 from __future__ import annotations
 
 import math
-import sys
 from collections.abc import Mapping
 from fractions import Fraction
 from typing import Any, TypeVar
@@ -25,6 +24,7 @@ from lizyml.core.types.tuning_result import BoundaryDimStatus, BoundaryReport
 from lizyml.tuning._space_format import (
     DIM_KEYS,
     check_dim_keys,
+    check_float_width,
     check_space_shape,
     format_error,
     read_choices,
@@ -37,6 +37,7 @@ from lizyml.tuning._space_format import (
 from lizyml.tuning._step_grid import (
     check_grid,
     exact,
+    expansion_edge,
     snap_down,
     snap_up,
     suggest_on_grid,
@@ -75,12 +76,15 @@ def _validate_numeric_range(
     *,
     log: bool,
     surface: str,
+    float_width: bool = False,
 ) -> None:
-    """Validate ``low < high`` and (when ``log`` is True) ``low > 0``.
+    """Validate ``low < high``, (when ``log`` is True) ``low > 0`` and the width.
 
     Optuna only raises these errors at trial-time with generic messages.
     Catching them at parse time gives users a clear, configuration-level
-    diagnostic with the offending bounds in ``context``.
+    diagnostic with the offending bounds in ``context``. With *float_width*
+    (a ``float`` dimension), the exact width ``high - low`` must be at most the
+    largest float (H-0124 amendment 1, policy 9; ``range_not_finite``).
     """
     if low >= high:
         raise LizyMLError(
@@ -120,6 +124,8 @@ def _validate_numeric_range(
                 "key": "low",
             },
         )
+    if float_width:
+        check_float_width(name, low, high, surface=surface)
 
 
 def _validate_categorical_choices(
@@ -230,7 +236,9 @@ def parse_space(
             low_f = read_float_bound(name, "low", spec["low"], surface=surface)
             high_f = read_float_bound(name, "high", spec["high"], surface=surface)
             log_f = read_log(name, spec, surface=surface)
-            _validate_numeric_range(name, low_f, high_f, log=log_f, surface=surface)
+            _validate_numeric_range(
+                name, low_f, high_f, log=log_f, surface=surface, float_width=True
+            )
             step_f = None
             if "step" in spec:
                 step_f = read_float_step(name, spec["step"], surface=surface)
@@ -481,7 +489,7 @@ def _expand_int_range(
 
 def _expand_on_grid(
     dim: FloatDim | IntDim, edge: str
-) -> tuple[float | int, float | int, bool]:
+) -> tuple[Fraction, Fraction, bool]:
     """:func:`_expand_range` / :func:`_expand_int_range` for a stepped dim (H-0124).
 
     The same rule in exact arithmetic (``0.2 + (0.2 - 0.1)`` is ``0.3``, not
@@ -489,8 +497,9 @@ def _expand_on_grid(
     grid, kept above its floor (a log lower edge at ``step``; an ``int`` one at
     the grid point the ``max(1, ...)`` guard allows), clamped to a provider
     bound (:func:`_clamp_outward`) and, if clamped, snapped inward -- never
-    inside the declared edge (#342). A result equal to the declared range is
-    no expansion, as for any dim.
+    inside the declared edge (#342). The edges are returned exact: the moved
+    one can be past the float range, and :func:`expansion_edge` decides
+    whether it is taken (amendment 1, policy 10).
     """
     is_int = isinstance(dim, IntDim)
     assert dim.step is not None
@@ -514,14 +523,6 @@ def _expand_on_grid(
     elif edge == "upper":
         new_high = high * factor if dim.log and high > 0 else high + (high - low)
         new_high = snap_up(new_high, step)
-    if not is_int:
-        # Exact arithmetic can step past the float range ([1e307, 1e308] log
-        # step 1e307 expands to 3e308); stop at the last grid point inside it.
-        limit = Fraction(sys.float_info.max)
-        if new_high > limit:
-            new_high = max(high, snap_down(limit, step))
-        if new_low < -limit:
-            new_low = min(low, snap_up(-limit, step))
     min_allowed = None if dim.min_allowed is None else exact(dim.min_allowed)
     max_allowed = None if dim.max_allowed is None else exact(dim.max_allowed)
     new_low, new_high, clamped = _clamp_outward(
@@ -531,8 +532,7 @@ def _expand_on_grid(
         new_low = min(low, snap_up(new_low, step))
     elif clamped and edge == "upper":
         new_high = max(high, snap_down(new_high, step))
-    plain: type[int] | type[float] = int if is_int else float
-    return plain(new_low), plain(new_high), clamped
+    return new_low, new_high, clamped
 
 
 def detect_boundary(
@@ -588,11 +588,10 @@ def detect_boundary(
         new_high: float | int | None = None
         clamped = False
         if should_expand:
-            nl: float | int
-            nh: float | int
+            nl: float | int | Fraction
+            nh: float | int | Fraction
             if dim.step is not None:
                 nl, nh, clamped = _expand_on_grid(dim, edge)
-                unchanged = (nl, nh) == (dim.low, dim.high)
             elif isinstance(dim, IntDim):
                 nl, nh, clamped = _expand_int_range(
                     dim.low,
@@ -602,7 +601,6 @@ def detect_boundary(
                     min_allowed=dim.min_allowed,
                     max_allowed=dim.max_allowed,
                 )
-                unchanged = (nl, nh) == (dim.low, dim.high)
             else:
                 nl, nh, clamped = _expand_range(
                     low,
@@ -616,16 +614,26 @@ def detect_boundary(
                         float(dim.max_allowed) if dim.max_allowed is not None else None
                     ),
                 )
-                unchanged = (nl, nh) == (low, high)
-            # H-0078 item 4 (H-0111): an expansion that leaves the range
-            # unchanged -- the edge already sits on a clamp (min/max_allowed,
-            # the linear 0.0 floor, the IntDim max(1, ...) guard) -- is not an
-            # expansion. Reporting it would repeat the same no-op every round.
-            if unchanged:
+            # Amendment 1, policy 10: the moved edge, as the dim's type, is
+            # taken only inside the limits Optuna samples and on the grid as
+            # read back; otherwise the edge stays and no bound was reached.
+            moved = expansion_edge(dim, edge, nl if edge == "lower" else nh)
+            old = dim.low if edge == "lower" else dim.high
+            if moved is None:
+                should_expand = False
+                clamped = False
+            elif moved == old:
+                # H-0078 item 4 (H-0111): an expansion that leaves the range
+                # unchanged -- the edge already sits on a clamp (min/max_allowed,
+                # the linear 0.0 floor, the IntDim max(1, ...) guard) -- is not
+                # an expansion; ``clamped_to_bound`` keeps what the clamp said.
                 should_expand = False
             else:
-                new_low = nl
-                new_high = nh
+                plain: type[int] | type[float] = (
+                    int if isinstance(dim, IntDim) else float
+                )
+                new_low = moved if edge == "lower" else plain(dim.low)
+                new_high = moved if edge == "upper" else plain(dim.high)
                 expanded_names.append(dim.name)
 
         statuses.append(

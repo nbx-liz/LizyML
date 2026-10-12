@@ -30,7 +30,7 @@ from lizyml.core.types.tuning_result import (
     TuningResult,
 )
 from lizyml.tuning._space_format import format_error
-from lizyml.tuning._step_grid import check_dim_step
+from lizyml.tuning._step_grid import check_dim_magnitude, check_dim_step
 from lizyml.tuning.search_space import (
     CategoricalDim,
     SearchDim,
@@ -60,12 +60,15 @@ def check_tuner_dims(dims: Iterable[SearchDim]) -> None:
     any ``step`` (``1`` on an ``int`` dim included) is refused. Any other
     stepped dim gets ``parse_space``'s ``step`` and grid checks, since a dim
     built in Python skipped them (a ``step`` of 0 or NaN must not reach
-    Optuna).
+    Optuna). Every numeric dim, stepped or not, is first held to the
+    magnitudes Optuna can sample (H-0124 amendment 1, policy 9;
+    :func:`check_dim_magnitude`).
 
     Raises:
         LizyMLError: ``CONFIG_INVALID`` with ``surface="Tuner.tune"``.
     """
     for dim in dims:
+        check_dim_magnitude(dim, surface=TUNER_SURFACE)
         if isinstance(dim, CategoricalDim) or dim.step is None:
             continue
         if dim.log:

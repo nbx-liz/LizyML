@@ -39,6 +39,7 @@ from lizyml.core.types.search_dim import (
     SearchDim,
 )
 from lizyml.core.types.tuning_result import BoundaryDimStatus, BoundaryReport
+from lizyml.tuning._magnitude import finite_float, int_too_large, width_too_large
 
 __all__ = [
     "DIM_CATEGORIES",
@@ -327,6 +328,7 @@ def decode_dim(payload: Any) -> SearchDim:
         if "step" in obj
         else None
     )
+    _check_magnitude(what, ints_only, low, high, step, lo_bound, hi_bound)
     if ints_only:
         return IntDim(
             name=name,
@@ -348,6 +350,46 @@ def decode_dim(payload: Any) -> SearchDim:
         max_allowed=hi_bound,
         step=step,
     )
+
+
+def _check_magnitude(
+    what: str,
+    ints_only: bool,
+    low: int | float,
+    high: int | float,
+    step: Any,
+    lo_bound: Any,
+    hi_bound: Any,
+) -> None:
+    """Refuse a stored dim outside H-0124 amendment 1 policy 9.
+
+    Every dim LizyML records passed policy 9 (and the provider bounds are
+    constants), so a dim outside it was written before the policy existed or
+    by hand: a ``float`` dim's ``low`` / ``high`` / ``step`` are finite and
+    its exact width is at most the largest float; an ``int`` dim's ``low`` /
+    ``high`` / ``step`` are at most ``2**52`` in absolute value. A recorded
+    ``min_allowed`` / ``max_allowed`` is a finite ``float`` (the expansion and
+    the edge detection read it as one). Refused here, such a record makes the
+    study ``unreadable`` / ``inconsistent`` before anything plans with it.
+    """
+    for label, bound in (("min_allowed", lo_bound), ("max_allowed", hi_bound)):
+        if bound is not None and not finite_float(bound):
+            raise LineageCodecError(f"{what} {label} {bound!r} is not a finite float")
+    values = {"low": low, "high": high, "step": step}
+    if ints_only:
+        for label, value in values.items():
+            if value is not None and int_too_large(value):
+                raise LineageCodecError(
+                    f"{what} {label} {value!r} is past 2**52 in absolute value"
+                )
+        return
+    for label, value in values.items():
+        if value is not None and not finite_float(value):
+            raise LineageCodecError(f"{what} {label} {value!r} is not finite")
+    if width_too_large(low, high):
+        raise LineageCodecError(
+            f"{what} range [{low!r}, {high!r}] is wider than the largest float"
+        )
 
 
 def encode_dims(dims: Iterable[SearchDim]) -> list[dict[str, Any]]:

@@ -17,15 +17,23 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping, Sequence
-from decimal import Decimal
 from fractions import Fraction
 from typing import Any
 
 import numpy as np
 
 from lizyml.core.types.search_dim import CategoricalDim, FloatDim, IntDim, SearchDim
+from lizyml.tuning._magnitude import (
+    exact,
+    finite_float,
+    int_too_large,
+    width_too_large,
+)
 from lizyml.tuning._space_format import (
+    check_float_width,
+    float_width_error,
     format_error,
+    int_too_large_error,
     read_float_bound,
     read_float_step,
     read_int_bound,
@@ -33,29 +41,17 @@ from lizyml.tuning._space_format import (
 )
 
 __all__ = [
+    "check_dim_magnitude",
     "check_dim_step",
     "check_grid",
     "exact",
+    "expansion_edge",
     "grid_value",
     "recorded_params",
     "snap_down",
     "snap_up",
     "suggest_on_grid",
 ]
-
-
-def exact(value: Any) -> Fraction:
-    """*value* as an exact rational: an integer as itself, else its float's text.
-
-    A ``float`` (or a numpy floating scalar) is read through the shortest
-    ``str`` of its ``float`` value, the reading Optuna's own step arithmetic
-    uses; an ``int`` or numpy integer is exact already.
-    """
-    if type(value) is int or isinstance(value, np.integer):
-        return Fraction(int(value))
-    if isinstance(value, Fraction):
-        return value
-    return Fraction(Decimal(str(float(value))))
 
 
 def snap_down(value: Fraction, step: Fraction) -> Fraction:
@@ -281,3 +277,85 @@ def suggest_on_grid(trial: Any, dim: FloatDim | IntDim) -> float | int:
     else:
         raw = trial.suggest_float(dim.name, float(dim.low), float(dim.high), log=True)
     return grid_value(dim, raw)
+
+
+def _is_number(value: Any) -> bool:
+    """A real number by type: ``int`` / ``float`` or numpy's, not ``bool``."""
+    if isinstance(value, (bool, np.bool_)):
+        return False
+    return isinstance(value, (int, float, np.integer, np.floating))
+
+
+def check_dim_magnitude(dim: SearchDim, *, surface: str) -> None:
+    """Policy 9 of H-0124 amendment 1 for a dimension built directly.
+
+    ``Tuner.tune`` and the round admission check run it on every numeric
+    dimension, stepped or not: an ``int`` dimension's ``low``, ``high`` and
+    ``step`` (checked in that order) are at most ``2**52`` in absolute value,
+    and a ``float`` dimension's exact width ``high - low`` is at most the
+    largest float (a bound that is not finite has no finite width).
+
+    It compares numbers only. A value that is not a number is not read here:
+    a stepped dimension's values are read by :func:`check_dim_step`, and an
+    unstepped one built in Python reaches Optuna as it is, as before. A NaN is
+    unordered and is left the same way.
+
+    Raises:
+        LizyMLError: ``CONFIG_INVALID`` with ``reason`` ``bound_too_large``
+            (``key`` ``low`` / ``high`` / ``step``) or ``range_not_finite``
+            (``key`` ``high``).
+    """
+    if isinstance(dim, CategoricalDim):
+        return
+    if isinstance(dim, IntDim):
+        for key in ("low", "high", "step"):
+            value = getattr(dim, key)
+            if _is_number(value) and int_too_large(value):
+                raise int_too_large_error(dim.name, key, value, surface=surface)
+        return
+    low, high = dim.low, dim.high
+    if not (_is_number(low) and _is_number(high)):
+        return
+    if any(type(v) is not int and math.isnan(v) for v in (low, high)):
+        return
+    if not (finite_float(low) and finite_float(high)):
+        raise float_width_error(dim.name, low, high, surface=surface)
+    check_float_width(dim.name, low, high, surface=surface)
+
+
+def expansion_edge(
+    dim: FloatDim | IntDim, edge: str, candidate: float | int | Fraction
+) -> float | int | None:
+    """The expanded *edge* as *dim*'s type, or ``None`` when it is not taken.
+
+    H-0124 amendment 1, policy 10: *candidate* is the moved edge after every
+    expansion rule (the provider bounds included). It becomes ``x`` -- the
+    nearest ``float`` for a ``float`` dimension, the integer for an ``int``
+    one -- and is taken only when ``x`` is finite and the exact width to the
+    edge that does not move is at most the largest float (``float``), or
+    ``|x| <= 2**52`` (``int``); on the grid as read back,
+    ``Fraction(Decimal(str(x)))`` (a stepped dimension: a grid point near the
+    float limit can leave the grid once it is a ``float``); and above 0 on a
+    log scale (a subnormal lower edge divided by 3 rounds to 0.0). Whether
+    ``x`` is outside the old edge is the caller's no-op test (H-0111).
+    """
+    x: float | int
+    if isinstance(dim, IntDim):
+        x = int(candidate)
+        if int_too_large(x):
+            return None
+    else:
+        try:
+            x = float(candidate)
+        except OverflowError:
+            return None
+        if not math.isfinite(x):
+            return None
+        low, high = (x, dim.high) if edge == "lower" else (dim.low, x)
+        if width_too_large(low, high):
+            return None
+    if dim.step is not None and (exact(x) / exact(dim.step)).denominator != 1:
+        return None
+    if dim.log and x <= 0:
+        return None
+    return x

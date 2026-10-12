@@ -276,7 +276,7 @@ def test_records_survive_a_sqlite_storage(tmp_path: Path) -> None:
     round_rec = stored_round(
         1,
         0,
-        effective=(IntDim("big", 2**53 + 1, 2**60), LR_BOUNDED),
+        effective=(IntDim("big", 2**52 - 1, 2**52, max_allowed=2**53 + 1), LR_BOUNDED),
         timeout=3600.0,
     )
     written = {
@@ -298,4 +298,6 @@ def test_records_survive_a_sqlite_storage(tmp_path: Path) -> None:
     assert math.isnan(choices[3])
     lin = classify_study(loaded.user_attrs, loaded.trials)
     assert lin.state == "completed"
-    assert lin.rounds[0].effective[0] == IntDim("big", 2**53 + 1, 2**60)
+    assert lin.rounds[0].effective[0] == IntDim(
+        "big", 2**52 - 1, 2**52, max_allowed=2**53 + 1
+    )
