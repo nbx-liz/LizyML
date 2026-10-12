@@ -1,0 +1,12 @@
+optuna 4.7.0
+- FloatDistribution(0.1, 1.0, step=0.4).high: ok: 0.9 | warnings: ['UserWarning: The distribution is specified by [0.1, 1.0] and step=0.4, but the range is not divisible b']
+- IntDistribution(0, 10, step=3).high: ok: 9 | warnings: ['UserWarning: The distribution is specified by [0, 10] and step=3, but the range is not divisible by `st']
+- FloatDistribution(0.001, 0.1, log=True, step=0.001): ValueError: The parameter `step` is not supported when `log` is true.
+- IntDistribution(1, 64, log=True, step=2): ValueError: Samplers and other components in Optuna only accept step is 1 when `log` argument is True.
+- IntDistribution(1, 64, log=True, step=1): ok: IntDistribution(high=64, log=True, low=1, step=1)
+- compat Float step 0.1 vs step 0.2: ok: None
+- compat Int(log) vs Float(log): ValueError: Cannot set different distribution kind to the same parameter name.
+- compat Int step 1 vs Int step 2: ok: None
+- native suggest_float(0.1, 1.0, step=0.1) noise: ok: "2 distinct sampled values differ from float(k*Decimal('0.1')): [(0.30000000000000004, 0.3), (0.7000000000000001, 0.7)]"
+- float remainder 0.3 % 0.1: ok: 0.09999999999999998
+- Decimal('0.3') % Decimal('0.1'): ok: Decimal('0.0')

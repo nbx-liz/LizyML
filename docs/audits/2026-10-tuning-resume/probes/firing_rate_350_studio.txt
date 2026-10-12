@@ -1,0 +1,14 @@
+num_leaves_ratio: accepted range={'low': 0.4, 'high': 1.0, 'log': False} step=0.05
+min_data_in_leaf_ratio: accepted range={'low': 0.01, 'high': 0.2, 'log': False} step=0.01
+min_data_in_bin_ratio: accepted range={'low': 0.01, 'high': 0.2, 'log': False} step=0.01
+n_estimators: accepted range={'low': 500, 'high': 2000, 'log': False} step=100
+learning_rate: REFUSED (low 0.0001 not a multiple of 0.001; log low 0.0001 < step 0.001) range={'low': 0.0001, 'high': 0.01, 'log': True}
+max_depth: accepted range={'low': 3, 'high': 9, 'log': False} step=1
+feature_fraction: accepted range={'low': 0.5, 'high': 1.0, 'log': False} step=0.05
+bagging_fraction: accepted range={'low': 0.5, 'high': 1.0, 'log': False} step=0.05
+bagging_freq: accepted range={'low': 1, 'high': 10, 'log': False} step=1
+lambda_l2: REFUSED (low 1e-06 not a multiple of 0.0001; log low 1e-06 < step 0.0001) range={'low': 1e-06, 'high': 0.01, 'log': True}
+early_stopping.rounds: accepted range={'low': 50, 'high': 200, 'log': False} step=50
+validation_ratio: accepted range={'low': 0.1, 'high': 0.3, 'log': False} step=0.05
+accepted 10/12 catalog defaults that carry a step; log rounding on 0/12
+LizyStudio 2118acc

@@ -507,6 +507,10 @@ anchors = ["read_study_lineage", "StudyLineage", "RoundRecord", "restore_tuning"
 disposition = "specified"
 anchors = ["parse_space", "numpy.bool_", "choices"]
 
+[proposals."H-0124"]
+disposition = "pending"
+reason = "Proposed; the implementation PR sets the disposition"
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 
