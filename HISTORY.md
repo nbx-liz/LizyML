@@ -12684,8 +12684,9 @@ PR 2 は 5（`tune(space=...)`、次元ごとの規則、拡張の変更）、7.
 
 ## H-0123: 探索空間の次元の指定を、文書の書式どおりに検査する（#344）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-12
+- **決定日**: 2026-10-12（管理者の判断: 規則は文書の書式とし、数の表記にちょうど一致する文字列の境界は受け付け、smart の次元の文字列の真偽は #347 に分ける。Codex の Proposal review は、v3 の 3 round の run を管理者が止めたあと、v4 の新しい run の round 2 で APPROVE（`4f1a5d5`）。）
 - **スコープ**: `lizyml/tuning/search_space.py`（`parse_space`）、`lizyml/core/_tuning_admission.py`（`parse_space_arg`）、`lizyml/config/schema.py`（`tuning.optuna.space` の入れ物の正規化）、BLUEPRINT の探索空間の節、docs/config-reference.md、CHANGELOG
 - **関連**: [Issue #344](https://github.com/nbx-liz/LizyML/issues/344)、H-0068、H-0078、H-0093、H-0095、H-0122（`tune(space=...)`）、H-0124（`step`、この Proposal の後に入れる）
 
@@ -12763,3 +12764,18 @@ PR 2 は 5（`tune(space=...)`、次元ごとの規則、拡張の変更）、7.
 
 7. 書式どおりの指定（`log` と `category` の省略、`int` の次元の `16.0`、numpy の数の境界、list と tuple の `choices`）は、今と同じ次元に解決される。
 8. `tune(space=...)` の H-0122 の拒否は、理由を変えずに引き続き拒否される。`tests/test_tuning/test_resume_space_arg.py` の `MALFORMED` の 6 形について、今の `code` と `context` の値を一つずつ固定するテストを、実装の前に足して今のコードで通しておく（今は `CONFIG_INVALID` と不変性しか見ていない）。c65ef4d で実行した今の値: `not_a_mapping`・`name_not_str` は `{surface: "tune(space=)", reason: <形の名前>}`、`dim_not_a_mapping`・`unknown_category` はそれに `dim: "learning_rate"` を加えたもの、`missing_low` は `reason: "malformed_dim"`、`unknown_type` は `{param: "learning_rate", type: "uniform"}`（surface が無い）。変更の後も、これらの鍵の値は変わらない（方針 3 の規則で context に鍵を足すことは妨げない。`unknown_type` に `surface` が加わる）。
+
+### 実装の記録（2026-10-12）
+
+書式の検査は新しい `lizyml/tuning/_space_format.py` に置き、`parse_space` がそれを呼ぶ（方針 1）。`parse_space_arg` は `parse_space(space, surface="tune(space=)")` と plain な `dict` への写しだけになった。config の写しは `OptunaConfig` の `field_validator`（方針 2）。
+
+仕様の範囲で実装が決めたこと:
+
+- **config の空間を検査する時期**: `tune` の段 A（`validate_tune_args` の直後、`parse_space_arg` の前）に `parse_config_space(cfg)` を置いた。方針 4 の「空間を解決するとき」より早いが、生の指定を読む名前の検査（`model_space_names` など）より前にするためで、study を作る前・書く前であることは変わらない。
+- **検査の順序**: 次元をまたいで二段にする。先にすべての次元の名前、mapping であること、`category` を見て（H-0122 の順序のまま）、次に次元ごとの `type`、キー、値を見る。次元の中では `step` をほかの未知のキーより先に報告し、未知のキーが複数あれば context の `key` は最初の一つ。
+- **型の判定**: `int`・`float`・`list`・`tuple` は `type(x) is ...` で判定する（`_validate_categorical_choices` と同じ理由。metaclass の `__eq__` で membership を偽装できる）。そのため、これらの subclass は拒否する。numpy のスカラーだけは `np.integer` / `np.floating` の `isinstance` で受け付ける。
+- **理由の名前**（context の `reason`）: `not_a_mapping`、`name_not_str`、`dim_not_a_mapping`、`unknown_category`、`unknown_type`（今の `param`・`type` に `surface` を足す）、`step_not_supported`、`unknown_key`、`bound_not_a_number`、`bound_not_finite`、`bound_not_integral`、`log_not_bool`、`choices_not_a_list`、`empty_choices`。必須のキーの欠けは、基準 8 が固定した `malformed_dim` を `low` 以外（`high`、`choices`）にも使う。今からある三つの拒否（`low >= high`、log の `low <= 0`、選択肢の値）には `surface` と `reason`（`empty_range`、`log_low_not_positive`、`invalid_choice`）を足した。メッセージはすべて `<surface>:` で始まり、書式の拒否は docs/config-reference.md を案内する。
+- **大きな値**: `int` の次元の文字列の境界は、`Decimal` で整数に直す前に `float` で有限かを確かめる（`"1e999"` は巨大な整数に展開せず `bound_not_finite`）。Python の `int` の `10**400` は `int` の次元では受け付ける（Proposal の対照のとおり）。`float` の次元で `float` に直せない大きな `int` は `bound_not_finite`。
+- **文書**: 数の表記の正規表現は、`|` が Markdown の表を壊すので、docs/config-reference.md の表の外に書いた。BLUEPRINT §11.5.2 の `space=` の形の誤りの文は §11.1 の書式を指すように直した。`docs/proposal_dispositions.toml` の H-0123 は `specified`（anchor は `parse_space`・`numpy.bool_`・`choices`）。
+- **範囲外として残すもの**: `load_config` は dict の config を deep copy するので、generator を値に持つ dict の config は `tune` より前に素の `TypeError` で落ちる（YAML と JSON からは generator は作れない）。`LizyMLConfig.model_construct` で検証を飛ばした config は方針 2 の写しを通らない。どちらも H-0123 の位置の外。
+- **受け入れ基準の対応**: 基準 8 は `tests/test_tuning/test_resume_space_arg.py::test_malformed_space_refusal_keeps_its_context`（変更の前に今のコードで通した）。基準 1〜4b・7 は `tests/test_tuning/test_space_format.py`（変更の前のコードで 89 件が失敗し、通った 21 件は回帰の保証などで通るべきものだと確かめた）。基準 5 は `tests/test_docs/test_space_format_docs.py`。基準 6 は、方針 3 の各検査、方針 2 の写し、mapping でない指定の検査を一つずつ外して、対応するテストが失敗することを確かめた（表は実装の PR の本文に載せる）。

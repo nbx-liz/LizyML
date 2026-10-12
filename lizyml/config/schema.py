@@ -6,6 +6,7 @@ All models use extra="forbid" to catch typos as CONFIG_INVALID errors.
 from __future__ import annotations
 
 import warnings
+from collections.abc import Mapping
 from typing import Annotated, Any, Literal
 
 from pydantic import (
@@ -555,6 +556,26 @@ class OptunaConfig(BaseModel):
     params: OptunaParamsConfig = OptunaParamsConfig()
     space: dict[str, Any] = {}
     space_mode: Literal["merge", "replace"] = "merge"
+
+    @field_validator("space", mode="before")
+    @classmethod
+    def _plain_space(cls, value: Any) -> Any:
+        """Copy the space and each mapping spec to a plain ``dict`` (H-0123).
+
+        A dimension spec may be any mapping, but the name checks read a
+        ``category`` only from a ``dict`` (``model_space_names``), so a
+        ``UserDict`` smart dimension was read as a model one. Only the
+        containers are normalised here: the format of each dimension is
+        checked by ``parse_space`` when ``tune`` resolves the space
+        (``config/`` does not import ``tuning/``), and a spec that is not a
+        mapping is left for it to refuse.
+        """
+        if not isinstance(value, Mapping):
+            return value
+        return {
+            name: dict(spec) if isinstance(spec, Mapping) else spec
+            for name, spec in value.items()
+        }
 
 
 class TuningConfig(BaseModel):

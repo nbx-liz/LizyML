@@ -858,6 +858,14 @@ outer fold の train データ（特定期間 × 特定ユーザー）に対し�
 
 - Optuna に依存しない space 表現（離散・連続・対数・カテゴリ）を使う。
 - `parse_space` は `float` / `int` 次元の範囲を parse 時に検査する（H-0078）: `low >= high` は `CONFIG_INVALID`、`log=True` で `low <= 0` も `CONFIG_INVALID`（context `param` / `low` / `high` / `log`）。Optuna が trial の中で出す汎用のエラーより前に、設定の誤りとして名指す。
+- **探索空間の書式（H-0123）**: `tuning.optuna.space` と `tune(space=...)` は同じ書式で、どちらも `parse_space` が検査する（`tune` が空間を解決するとき。config の空間は `tune` の引数の検査の段で、study を作る前・書く前）。書式は YAML と JSON が作る型（数、真偽、文字列、list）で書く前提で、書式の外の指定は別の探索に読み替えず `CONFIG_INVALID` で拒否する（context に次元の名前 `dim`、キー `key`、理由 `reason`、空間 `surface` = `tuning.optuna.space` か `tune(space=)`）。空間は `str` の名前から次元の指定（mapping）への mapping で、次元ごとに:
+  - `type`: `float` / `int` / `categorical`。
+  - キーは、`float` と `int` では `type`・`low`・`high`・`log`・`category`、`categorical` では `type`・`choices`・`category` だけ。`step` は受け付けない（LizyML の次元にはまだ刻みが無い）。綴りの誤り（`lo` など）も拒否する。
+  - `low` / `high`（`float` / `int` で必須）: `int` か `float`（`bool` は除く）、numpy の整数・浮動小数のスカラー（`numpy.bool_` は除く。H-0095 のとおり素の値に直す）、または数の表記に完全一致する文字列 `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?`（ASCII の数字だけ。PyYAML は YAML 1.1 で `1e-4` を文字列として読む）。`"nan"`・`"inf"`・`"0x10"`・`"1,000"` は数の表記ではない。値は有限であること。`int` の次元では整数の値であること（`16.0`・`"16.0"`・`"1e2"` は 16・16・100 に直し、`1.7` と `"1.7"` は切り捨てずに拒否する）。
+  - `log`（任意、既定 `false`）: `bool`（YAML の `true` / `false` / `yes` / `no`）。文字列の `"false"` は拒否する。
+  - `choices`（`categorical` で必須）: 空でない `list` か `tuple`。文字列・`set`・dict・`range`・numpy の配列・generator は拒否する。各値は素のスカラー（`str` / `int` / `float` / `bool` / `None`。numpy のスカラーは拒否、#287）。
+  - `category`（任意、既定 `model`）: `model` / `smart` / `training`（§11.2）。
+- config の `tuning.optuna.space` は、schema の検証で空間と各次元の指定（mapping であればよい）を plain な `dict` に写す。名前の検査は `dict` からだけ `category` を読むため（H-0123）。`config/` は `tuning/` を import しないので、書式の検査は `tune` で行う。
 
 ## 11.2 SearchDim カテゴリ
 
@@ -866,6 +874,8 @@ SearchDim にカテゴリ属性を持たせ、Tuner がパラメーターの適�
 - `model`: `LGBMAdapter.params` に直接渡す（既存 SearchDim の挙動）
 - `smart`: スマートパラメーター（`num_leaves_ratio` 等）として `resolve_smart_params()` に渡す。fit / tune で同一の dict ベース `resolve_smart_params()` を使用する（H-0050）
 - `training`: trial ごとに `EarlyStoppingConfig` / `InnerValidStrategy` を再構築する
+
+次元の指定の `category` を省くと `model`。三つ以外の値は `CONFIG_INVALID`（§11.1、H-0123）。
 
 `FloatDim` / `IntDim` は任意の `min_allowed` / `max_allowed`（既定 `None`）を持つ。パラメーターとして意味のある範囲で、境界拡張（§11.5）がこれを超えないようにする。`Model.tune` は既定の空間にも利用者の空間にも `provider.parameter_bounds(task)`（§14.4）を付ける（H-0078）。
 
@@ -1174,7 +1184,7 @@ contradictory explicit directions require migration; old explicitness is not gue
 
 範囲を変える経路は `tune(..., space=...)` の引数とする。config は「study を作ったときの宣言」に固定され、round ごとの変更は引数と study の系譜に残る（再接続で config から `Model` を作り直しても、変えた範囲が失われない）。
 
-- `space=` は `tuning.optuna.space` と同じ形式の dict で、その round の宣言として study の `space_mode` で解決する。形の誤り（dict でない、名前が `str` でない、未知のカテゴリー、`low` / `high` の欠け）は `CONFIG_INVALID`。
+- `space=` は `tuning.optuna.space` と同じ形式の dict で、その round の宣言として study の `space_mode` で解決する。書式の外の指定（§11.1 の探索空間の書式。dict でない、名前が `str` でない、未知のカテゴリー、`low` / `high` の欠けなど）は `CONFIG_INVALID`。
 - round 2 以降だけに渡せる。round 1 を始める呼び出し（`resume=False`、storage に無い study への `resume=True`、状態 `"uninitialized"` / `"no_round"` の study）に渡すと `CONFIG_INVALID` で、study は作らない。study の最初の空間は config の `tuning.optuna.space`。
 - resume で config の `tuning.optuna.space` が study を作ったときの宣言と違えば `CONFIG_INVALID`（「範囲を変えるなら `space=`」。黙って無視しない）。`space_mode` は resume で変えられない（固定パラメーターが変わり、目的関数が変わるため）。
 
