@@ -5,14 +5,23 @@ Run:
     .venv/bin/python -m pytest -q -p no:cacheprovider -p firing_rate_h0124_magnitude \
     docs/audits/2026-10-tuning-resume/probes/firing_rate_h0124_posctl.py
 
-Each test drives one wrapped path with an input the rule flags, so the output
-must contain a flagged ``spec`` row and a flagged ``expand`` row.
+Each test drives one wrapped path with an input the rule flags; the output
+must contain one flagged ``spec`` row and three flagged ``expand`` rows (an
+``inf`` edge, a stepped edge capped today, a lower edge off the grid).
 """
 
 from __future__ import annotations
 
+from typing import Any
+
 from lizyml.core.types.search_dim import FloatDim
 from lizyml.tuning import search_space
+
+
+def _expand(dim: FloatDim, best: float) -> Any:
+    dims = search_space.attach_bounds([dim], {})
+    report = search_space.detect_boundary(dims, {dim.name: best}, threshold=0.05)
+    return search_space.expand_dims(dims, report)[0]
 
 
 def test_spec_path_flags_a_huge_int() -> None:
@@ -20,7 +29,14 @@ def test_spec_path_flags_a_huge_int() -> None:
 
 
 def test_expand_path_flags_an_edge_past_the_float_range() -> None:
-    dims = search_space.attach_bounds([FloatDim("x", 1e307, 1e308, log=True)], {})
-    report = search_space.detect_boundary(dims, {"x": 1e308}, threshold=0.05)
-    (expanded,) = search_space.expand_dims(dims, report)
-    assert expanded.high == float("inf")  # today's behaviour, before policy 10
+    assert _expand(FloatDim("x", 1e307, 1e308, log=True), 1e308).high == float("inf")
+
+
+def test_expand_path_flags_a_stepped_edge_capped_today() -> None:
+    dim = FloatDim("x", 1e307, 1e308, log=True, step=1e307)
+    assert _expand(dim, 1e308).high == 1.7e308  # H-0124's cap; policy 10 drops it
+
+
+def test_expand_path_flags_a_lower_edge_off_the_grid() -> None:
+    dim = FloatDim("x", 1.9120500772236246e307, 2.48319537762e307, step=3e281)
+    _expand(dim, 1.9120500772236246e307)

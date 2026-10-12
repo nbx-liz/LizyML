@@ -1,8 +1,8 @@
-# firing_rate_h0124_magnitude.py output: suite at 956f487 (feat/h0124-search-dim-step, before amendment 1), 2026-10-12
-# columns: kind (spec = a dim parse_space accepted or refused; expand = a dim expand_dims returned), nodeid, dim, reasons (empty = not newly refused / not capped by amendment 1)
-# spec rows: 4706, flagged 2 (both bound_too_large: test_space_format.py huge_int and numpy_longdouble); expand rows: 415, flagged 0
-# suite: 11054 passed, 230 skipped, 21 deselected, 4 xfailed (run-exclusive fr-h0124, exit 0)
-# wiring positive control: firing_rate_h0124_posctl.py run with the plugin flags one spec row and one expand row (section at the end)
+# firing_rate_h0124_magnitude.py output: suite at 227b557 (feat/h0124-search-dim-step, H-0124 implemented, amendment 1 not), 2026-10-12
+# columns: kind (spec = a dim parse_space accepted or refused; expand = a numeric edge expand_dims expanded today), nodeid, dim, reasons (empty = not refused by policy 9 / still expanded under policy 10)
+# spec rows: 4706, flagged 2 (bound_too_large: test_space_format.py huge_int and numpy_longdouble); expand rows: 166, flagged 1 (test_search_dim_step_lineage.py test_upper_edge_stops_at_the_last_grid_point_inside_the_float_range: the H-0124 cap that policy 10 drops)
+# suite: 11054 passed, 230 skipped, 21 deselected, 4 xfailed (run-exclusive fr-h0124c, exit 0)
+# wiring positive control: firing_rate_h0124_posctl.py run with the plugin flags 1 spec row and 3 expand rows (section at the end)
 spec	tests/test_codegen/test_negative_controls.py::test_policy_1_callback_reverted_to_always_on	validation_ratio	
 spec	tests/test_codegen/test_negative_controls.py::test_policy_1_callback_reverted_to_always_on	validation_ratio	
 spec	tests/test_codegen/test_negative_controls.py::test_policy_1_callback_reverted_to_always_on	validation_ratio	
@@ -569,16 +569,7 @@ spec	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_
 spec	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	validation_ratio	
 spec	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	early_stopping_rounds	
 spec	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	validation_ratio	
-expand	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	objective	
-expand	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	n_estimators	
-expand	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	learning_rate	
-expand	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	max_depth	
-expand	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	feature_fraction	
-expand	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	bagging_fraction	
-expand	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	num_leaves_ratio	
 expand	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	min_data_in_leaf_ratio	
-expand	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	early_stopping_rounds	
-expand	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	validation_ratio	
 spec	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	early_stopping_rounds	
 spec	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	validation_ratio	
 spec	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	early_stopping_rounds	
@@ -663,16 +654,7 @@ spec	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_
 spec	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	validation_ratio	
 spec	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	early_stopping_rounds	
 spec	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	validation_ratio	
-expand	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	objective	
-expand	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	n_estimators	
-expand	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	learning_rate	
-expand	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	max_depth	
-expand	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	feature_fraction	
-expand	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	bagging_fraction	
-expand	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	num_leaves_ratio	
 expand	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	min_data_in_leaf_ratio	
-expand	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	early_stopping_rounds	
-expand	tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared	validation_ratio	
 spec	tests/test_plots/test_tuning_plot.py::TestTuningPlotE2E::test_returns_figure_after_tune	num_leaves	
 spec	tests/test_plots/test_tuning_plot.py::TestTuningPlotE2E::test_returns_figure_after_tune	num_leaves	
 spec	tests/test_plots/test_tuning_plot.py::TestTuningPlotE2E::test_returns_figure_after_tune	num_leaves	
@@ -880,15 +862,9 @@ spec	tests/test_tuning/test_direction_reconciliation.py::test_parameterized_metr
 spec	tests/test_tuning/test_direction_reconciliation.py::test_parameterized_metric_round_trip_and_matching_direction[maximize]	learning_rate	
 spec	tests/test_tuning/test_direction_reconciliation.py::test_parameterized_metric_round_trip_and_matching_direction[maximize]	learning_rate	
 spec	tests/test_tuning/test_expansion_never_narrows.py::test_issue_342_reproduction_is_not_inverted	n_estimators	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_issue_342_reproduction_is_not_inverted	n_estimators	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_expansion_never_narrows[int_below_min_lower_edge]	n_estimators	
 expand	tests/test_tuning/test_expansion_never_narrows.py::test_expansion_never_narrows[int_below_min_upper_edge]	n_estimators	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_expansion_never_narrows[float_below_min_lower_edge]	lr	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_expansion_never_narrows[float_above_max_upper_edge]	ff	
 expand	tests/test_tuning/test_expansion_never_narrows.py::test_expansion_never_narrows[float_above_max_lower_edge]	ff	
 expand	tests/test_tuning/test_expansion_never_narrows.py::test_expansion_never_narrows[int_low_0_upper_edge]	bagging_freq	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_expansion_never_narrows[float_negative_low_linear_lower_edge]	x	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_expansion_never_narrows[int_max_depth_lower_edge]	max_depth	
 expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
 expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
 expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
@@ -916,96 +892,6 @@ expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narro
 expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
 expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
 expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
 expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
 expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
 expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[linear-float]	d	
@@ -1049,58 +935,6 @@ expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narro
 expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
 expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
 expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-int]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
 expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
 expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
 expand	tests/test_tuning/test_expansion_never_narrows.py::test_no_range_is_narrowed_over_a_grid[log-float]	d	
@@ -1133,16 +967,11 @@ spec	tests/test_tuning/test_expansion_never_narrows.py::test_user_range_below_bo
 spec	tests/test_tuning/test_expansion_never_narrows.py::test_user_range_below_bound_is_not_inverted	num_leaves	
 spec	tests/test_tuning/test_expansion_never_narrows.py::test_user_range_below_bound_is_not_inverted	learning_rate	
 spec	tests/test_tuning/test_expansion_never_narrows.py::test_user_range_below_bound_is_not_inverted	n_estimators	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_user_range_below_bound_is_not_inverted	objective	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_user_range_below_bound_is_not_inverted	n_estimators	
 expand	tests/test_tuning/test_expansion_never_narrows.py::test_user_range_below_bound_is_not_inverted	learning_rate	
 expand	tests/test_tuning/test_expansion_never_narrows.py::test_user_range_below_bound_is_not_inverted	max_depth	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_user_range_below_bound_is_not_inverted	feature_fraction	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_user_range_below_bound_is_not_inverted	bagging_fraction	
 expand	tests/test_tuning/test_expansion_never_narrows.py::test_user_range_below_bound_is_not_inverted	min_data_in_leaf_ratio	
 expand	tests/test_tuning/test_expansion_never_narrows.py::test_user_range_below_bound_is_not_inverted	early_stopping_rounds	
 expand	tests/test_tuning/test_expansion_never_narrows.py::test_user_range_below_bound_is_not_inverted	validation_ratio	
-expand	tests/test_tuning/test_expansion_never_narrows.py::test_user_range_below_bound_is_not_inverted	num_leaves	
 spec	tests/test_tuning/test_literal_domain_contract.py::test_numpy_choices_are_refused_at_the_named_entrance[0.5]	candidate	
 spec	tests/test_tuning/test_literal_domain_contract.py::test_numpy_choices_are_refused_at_the_named_entrance[value1]	candidate	
 spec	tests/test_tuning/test_literal_domain_contract.py::test_numpy_choices_are_refused_at_the_named_entrance[value2]	candidate	
@@ -1172,7 +1001,6 @@ spec	tests/test_tuning/test_read_study_lineage.py::test_state[absent]	learning_r
 spec	tests/test_tuning/test_read_study_lineage.py::test_state[absent]	num_leaves	
 spec	tests/test_tuning/test_read_study_lineage.py::test_state[absent]	learning_rate	
 expand	tests/test_tuning/test_read_study_lineage.py::test_state[absent]	num_leaves	
-expand	tests/test_tuning/test_read_study_lineage.py::test_state[absent]	learning_rate	
 spec	tests/test_tuning/test_read_study_lineage.py::test_state[absent]	num_leaves	
 spec	tests/test_tuning/test_read_study_lineage.py::test_state[absent]	learning_rate	
 spec	tests/test_tuning/test_read_study_lineage.py::test_state[absent]	num_leaves	
@@ -1206,7 +1034,6 @@ spec	tests/test_tuning/test_restore_tuning.py::test_restore_equals_live_result	l
 spec	tests/test_tuning/test_restore_tuning.py::test_restore_equals_live_result	num_leaves	
 spec	tests/test_tuning/test_restore_tuning.py::test_restore_equals_live_result	learning_rate	
 expand	tests/test_tuning/test_restore_tuning.py::test_restore_equals_live_result	num_leaves	
-expand	tests/test_tuning/test_restore_tuning.py::test_restore_equals_live_result	learning_rate	
 spec	tests/test_tuning/test_restore_tuning.py::test_restore_equals_live_result	num_leaves	
 spec	tests/test_tuning/test_restore_tuning.py::test_restore_equals_live_result	learning_rate	
 spec	tests/test_tuning/test_restore_tuning.py::test_restore_writes_nothing	num_leaves	
@@ -1254,7 +1081,6 @@ spec	tests/test_tuning/test_restore_tuning.py::test_crash_after_end_then_restore
 spec	tests/test_tuning/test_restore_tuning.py::test_crash_after_end_then_restore_then_round3	num_leaves	
 spec	tests/test_tuning/test_restore_tuning.py::test_crash_after_end_then_restore_then_round3	learning_rate	
 expand	tests/test_tuning/test_restore_tuning.py::test_crash_after_end_then_restore_then_round3	num_leaves	
-expand	tests/test_tuning/test_restore_tuning.py::test_crash_after_end_then_restore_then_round3	learning_rate	
 spec	tests/test_tuning/test_restore_tuning.py::test_crash_after_end_then_restore_then_round3	num_leaves	
 spec	tests/test_tuning/test_restore_tuning.py::test_crash_after_end_then_restore_then_round3	learning_rate	
 spec	tests/test_tuning/test_restore_tuning.py::test_crash_after_end_then_restore_then_round3	num_leaves	
@@ -1330,7 +1156,6 @@ spec	tests/test_tuning/test_restore_tuning.py::test_open_is_refused_and_running_
 spec	tests/test_tuning/test_restore_tuning.py::test_open_is_refused_and_running_stays	num_leaves	
 spec	tests/test_tuning/test_restore_tuning.py::test_open_is_refused_and_running_stays	learning_rate	
 expand	tests/test_tuning/test_restore_tuning.py::test_open_is_refused_and_running_stays	num_leaves	
-expand	tests/test_tuning/test_restore_tuning.py::test_open_is_refused_and_running_stays	learning_rate	
 spec	tests/test_tuning/test_restore_tuning.py::test_nothing_to_restore_wins_over_a_mismatch	num_leaves	
 spec	tests/test_tuning/test_restore_tuning.py::test_nothing_to_restore_wins_over_a_mismatch	learning_rate	
 spec	tests/test_tuning/test_restore_tuning.py::test_nothing_to_restore_wins_over_a_mismatch	num_leaves	
@@ -1855,7 +1680,6 @@ spec	tests/test_tuning/test_resume_lineage.py::test_unchanged_declaration_inheri
 spec	tests/test_tuning/test_resume_lineage.py::test_unchanged_declaration_inherits_expanded_range[memory]	num_leaves	
 spec	tests/test_tuning/test_resume_lineage.py::test_unchanged_declaration_inherits_expanded_range[memory]	learning_rate	
 expand	tests/test_tuning/test_resume_lineage.py::test_unchanged_declaration_inherits_expanded_range[memory]	num_leaves	
-expand	tests/test_tuning/test_resume_lineage.py::test_unchanged_declaration_inherits_expanded_range[memory]	learning_rate	
 spec	tests/test_tuning/test_resume_lineage.py::test_unchanged_declaration_inherits_expanded_range[memory]	num_leaves	
 spec	tests/test_tuning/test_resume_lineage.py::test_unchanged_declaration_inherits_expanded_range[memory]	learning_rate	
 spec	tests/test_tuning/test_resume_lineage.py::test_unchanged_declaration_inherits_expanded_range[memory]	num_leaves	
@@ -1871,7 +1695,6 @@ spec	tests/test_tuning/test_resume_lineage.py::test_unchanged_declaration_inheri
 spec	tests/test_tuning/test_resume_lineage.py::test_unchanged_declaration_inherits_expanded_range[reattach]	num_leaves	
 spec	tests/test_tuning/test_resume_lineage.py::test_unchanged_declaration_inherits_expanded_range[reattach]	learning_rate	
 expand	tests/test_tuning/test_resume_lineage.py::test_unchanged_declaration_inherits_expanded_range[reattach]	num_leaves	
-expand	tests/test_tuning/test_resume_lineage.py::test_unchanged_declaration_inherits_expanded_range[reattach]	learning_rate	
 spec	tests/test_tuning/test_resume_lineage.py::test_unchanged_declaration_inherits_expanded_range[reattach]	num_leaves	
 spec	tests/test_tuning/test_resume_lineage.py::test_unchanged_declaration_inherits_expanded_range[reattach]	learning_rate	
 spec	tests/test_tuning/test_resume_lineage.py::test_unchanged_declaration_inherits_expanded_range[reattach]	num_leaves	
@@ -1945,7 +1768,6 @@ spec	tests/test_tuning/test_resume_lineage.py::test_loaded_model_expands_from_st
 spec	tests/test_tuning/test_resume_lineage.py::test_loaded_model_expands_from_study_best	num_leaves	
 spec	tests/test_tuning/test_resume_lineage.py::test_loaded_model_expands_from_study_best	learning_rate	
 expand	tests/test_tuning/test_resume_lineage.py::test_loaded_model_expands_from_study_best	num_leaves	
-expand	tests/test_tuning/test_resume_lineage.py::test_loaded_model_expands_from_study_best	learning_rate	
 spec	tests/test_tuning/test_resume_lineage.py::test_fixed_from_study_not_model_field[cleared]	num_leaves	
 spec	tests/test_tuning/test_resume_lineage.py::test_fixed_from_study_not_model_field[cleared]	learning_rate	
 spec	tests/test_tuning/test_resume_lineage.py::test_fixed_from_study_not_model_field[cleared]	n_estimators	
@@ -1993,7 +1815,6 @@ spec	tests/test_tuning/test_resume_lineage.py::test_fixed_from_study_not_model_f
 spec	tests/test_tuning/test_resume_lineage.py::test_fixed_from_study_not_model_field[widget_transfer]	n_estimators	
 expand	tests/test_tuning/test_resume_lineage.py::test_frozen_dimensions_are_reported_unexpanded	num_leaves	
 expand	tests/test_tuning/test_resume_lineage.py::test_frozen_dimensions_are_reported_unexpanded	learning_rate	
-expand	tests/test_tuning/test_resume_lineage.py::test_frozen_dimensions_are_reported_unexpanded	num_leaves	
 expand	tests/test_tuning/test_resume_lineage.py::test_frozen_dimensions_are_reported_unexpanded	learning_rate	
 spec	tests/test_tuning/test_resume_lineage.py::test_stop_before_round_record_is_plain_resume	num_leaves	
 spec	tests/test_tuning/test_resume_lineage.py::test_stop_before_round_record_is_plain_resume	learning_rate	
@@ -2122,7 +1943,6 @@ spec	tests/test_tuning/test_resume_open_round.py::test_crash_mid_round2_reattach
 spec	tests/test_tuning/test_resume_open_round.py::test_crash_mid_round2_reattach_finishes_round2[in_process]	num_leaves	
 spec	tests/test_tuning/test_resume_open_round.py::test_crash_mid_round2_reattach_finishes_round2[in_process]	learning_rate	
 expand	tests/test_tuning/test_resume_open_round.py::test_crash_mid_round2_reattach_finishes_round2[in_process]	num_leaves	
-expand	tests/test_tuning/test_resume_open_round.py::test_crash_mid_round2_reattach_finishes_round2[in_process]	learning_rate	
 spec	tests/test_tuning/test_resume_open_round.py::test_crash_mid_round2_reattach_finishes_round2[in_process]	num_leaves	
 spec	tests/test_tuning/test_resume_open_round.py::test_crash_mid_round2_reattach_finishes_round2[in_process]	learning_rate	
 spec	tests/test_tuning/test_resume_open_round.py::test_crash_mid_round2_reattach_finishes_round2[in_process]	num_leaves	
@@ -2134,7 +1954,6 @@ spec	tests/test_tuning/test_resume_open_round.py::test_crash_mid_round2_reattach
 spec	tests/test_tuning/test_resume_open_round.py::test_crash_mid_round2_reattach_finishes_round2[in_process]	num_leaves	
 spec	tests/test_tuning/test_resume_open_round.py::test_crash_mid_round2_reattach_finishes_round2[in_process]	learning_rate	
 expand	tests/test_tuning/test_resume_open_round.py::test_crash_mid_round2_reattach_finishes_round2[in_process]	num_leaves	
-expand	tests/test_tuning/test_resume_open_round.py::test_crash_mid_round2_reattach_finishes_round2[in_process]	learning_rate	
 spec	tests/test_tuning/test_resume_open_round.py::test_crash_mid_round2_reattach_finishes_round2[in_process]	num_leaves	
 spec	tests/test_tuning/test_resume_open_round.py::test_crash_mid_round2_reattach_finishes_round2[in_process]	learning_rate	
 spec	tests/test_tuning/test_resume_open_round.py::test_crash_mid_round2_reattach_finishes_round2[in_process]	num_leaves	
@@ -2150,7 +1969,6 @@ spec	tests/test_tuning/test_resume_open_round.py::test_crash_mid_round2_reattach
 spec	tests/test_tuning/test_resume_open_round.py::test_crash_mid_round2_reattach_finishes_round2[new_model]	num_leaves	
 spec	tests/test_tuning/test_resume_open_round.py::test_crash_mid_round2_reattach_finishes_round2[new_model]	learning_rate	
 expand	tests/test_tuning/test_resume_open_round.py::test_crash_mid_round2_reattach_finishes_round2[new_model]	num_leaves	
-expand	tests/test_tuning/test_resume_open_round.py::test_crash_mid_round2_reattach_finishes_round2[new_model]	learning_rate	
 spec	tests/test_tuning/test_resume_open_round.py::test_crash_mid_round2_reattach_finishes_round2[new_model]	num_leaves	
 spec	tests/test_tuning/test_resume_open_round.py::test_crash_mid_round2_reattach_finishes_round2[new_model]	learning_rate	
 spec	tests/test_tuning/test_resume_open_round.py::test_crash_mid_round2_reattach_finishes_round2[new_model]	num_leaves	
@@ -2170,7 +1988,6 @@ spec	tests/test_tuning/test_resume_open_round.py::test_in_process_exception_afte
 spec	tests/test_tuning/test_resume_open_round.py::test_in_process_exception_after_one_trial_finishes_round2	num_leaves	
 spec	tests/test_tuning/test_resume_open_round.py::test_in_process_exception_after_one_trial_finishes_round2	learning_rate	
 expand	tests/test_tuning/test_resume_open_round.py::test_in_process_exception_after_one_trial_finishes_round2	num_leaves	
-expand	tests/test_tuning/test_resume_open_round.py::test_in_process_exception_after_one_trial_finishes_round2	learning_rate	
 spec	tests/test_tuning/test_resume_open_round.py::test_in_process_exception_after_one_trial_finishes_round2	num_leaves	
 spec	tests/test_tuning/test_resume_open_round.py::test_in_process_exception_after_one_trial_finishes_round2	learning_rate	
 spec	tests/test_tuning/test_resume_open_round.py::test_in_process_exception_after_one_trial_finishes_round2	num_leaves	
@@ -2186,7 +2003,6 @@ spec	tests/test_tuning/test_resume_open_round.py::test_crash_before_end_closes_w
 spec	tests/test_tuning/test_resume_open_round.py::test_crash_before_end_closes_without_trials	num_leaves	
 spec	tests/test_tuning/test_resume_open_round.py::test_crash_before_end_closes_without_trials	learning_rate	
 expand	tests/test_tuning/test_resume_open_round.py::test_crash_before_end_closes_without_trials	num_leaves	
-expand	tests/test_tuning/test_resume_open_round.py::test_crash_before_end_closes_without_trials	learning_rate	
 spec	tests/test_tuning/test_resume_open_round.py::test_crash_before_end_closes_without_trials	num_leaves	
 spec	tests/test_tuning/test_resume_open_round.py::test_crash_before_end_closes_without_trials	learning_rate	
 spec	tests/test_tuning/test_resume_open_round.py::test_crash_before_end_closes_without_trials	num_leaves	
@@ -2216,7 +2032,6 @@ spec	tests/test_tuning/test_resume_open_round.py::test_u2_same_args_pass[n_trial
 spec	tests/test_tuning/test_resume_open_round.py::test_u2_same_args_pass[n_trials]	num_leaves	
 spec	tests/test_tuning/test_resume_open_round.py::test_u2_same_args_pass[n_trials]	learning_rate	
 expand	tests/test_tuning/test_resume_open_round.py::test_u2_same_args_pass[n_trials]	num_leaves	
-expand	tests/test_tuning/test_resume_open_round.py::test_u2_same_args_pass[n_trials]	learning_rate	
 spec	tests/test_tuning/test_resume_open_round.py::test_u2_same_args_pass[n_trials]	num_leaves	
 spec	tests/test_tuning/test_resume_open_round.py::test_u2_same_args_pass[n_trials]	learning_rate	
 spec	tests/test_tuning/test_resume_open_round.py::test_u2_same_args_pass[n_trials]	num_leaves	
@@ -2267,8 +2082,6 @@ spec	tests/test_tuning/test_resume_open_round.py::test_u2_space_same_passes[same
 spec	tests/test_tuning/test_resume_open_round.py::test_u2_space_same_passes[same]	num_leaves	
 spec	tests/test_tuning/test_resume_open_round.py::test_u2_space_same_passes[same]	learning_rate	
 expand	tests/test_tuning/test_resume_open_round.py::test_u2_space_same_passes[same]	num_leaves	
-expand	tests/test_tuning/test_resume_open_round.py::test_u2_space_same_passes[same]	learning_rate	
-expand	tests/test_tuning/test_resume_open_round.py::test_u2_space_same_passes[same]	lambda_l1	
 spec	tests/test_tuning/test_resume_open_round.py::test_u2_space_same_passes[same]	num_leaves	
 spec	tests/test_tuning/test_resume_open_round.py::test_u2_space_same_passes[same]	learning_rate	
 spec	tests/test_tuning/test_resume_open_round.py::test_u2_space_same_passes[same]	num_leaves	
@@ -2330,9 +2143,6 @@ spec	tests/test_tuning/test_resume_open_round.py::test_u2_space_nan_choice_resum
 spec	tests/test_tuning/test_resume_open_round.py::test_u2_space_nan_choice_resumes	num_leaves	
 spec	tests/test_tuning/test_resume_open_round.py::test_u2_space_nan_choice_resumes	learning_rate	
 expand	tests/test_tuning/test_resume_open_round.py::test_u2_space_nan_choice_resumes	num_leaves	
-expand	tests/test_tuning/test_resume_open_round.py::test_u2_space_nan_choice_resumes	learning_rate	
-expand	tests/test_tuning/test_resume_open_round.py::test_u2_space_nan_choice_resumes	lambda_l1	
-expand	tests/test_tuning/test_resume_open_round.py::test_u2_space_nan_choice_resumes	max_delta_step	
 spec	tests/test_tuning/test_resume_open_round.py::test_u2_space_nan_choice_resumes	num_leaves	
 spec	tests/test_tuning/test_resume_open_round.py::test_u2_space_nan_choice_resumes	learning_rate	
 spec	tests/test_tuning/test_resume_open_round.py::test_u2_space_nan_choice_resumes	num_leaves	
@@ -2352,7 +2162,6 @@ spec	tests/test_tuning/test_resume_open_round.py::test_timeout_remaining_passed	
 spec	tests/test_tuning/test_resume_open_round.py::test_timeout_remaining_passed	num_leaves	
 spec	tests/test_tuning/test_resume_open_round.py::test_timeout_remaining_passed	learning_rate	
 expand	tests/test_tuning/test_resume_open_round.py::test_timeout_remaining_passed	num_leaves	
-expand	tests/test_tuning/test_resume_open_round.py::test_timeout_remaining_passed	learning_rate	
 spec	tests/test_tuning/test_resume_open_round.py::test_timeout_remaining_passed	num_leaves	
 spec	tests/test_tuning/test_resume_open_round.py::test_timeout_remaining_passed	learning_rate	
 spec	tests/test_tuning/test_resume_open_round.py::test_timeout_remaining_passed	num_leaves	
@@ -2368,7 +2177,6 @@ spec	tests/test_tuning/test_resume_open_round.py::test_timeout_exhausted_closes_
 spec	tests/test_tuning/test_resume_open_round.py::test_timeout_exhausted_closes_without_trials	num_leaves	
 spec	tests/test_tuning/test_resume_open_round.py::test_timeout_exhausted_closes_without_trials	learning_rate	
 expand	tests/test_tuning/test_resume_open_round.py::test_timeout_exhausted_closes_without_trials	num_leaves	
-expand	tests/test_tuning/test_resume_open_round.py::test_timeout_exhausted_closes_without_trials	learning_rate	
 spec	tests/test_tuning/test_resume_open_round.py::test_timeout_exhausted_closes_without_trials	num_leaves	
 spec	tests/test_tuning/test_resume_open_round.py::test_timeout_exhausted_closes_without_trials	learning_rate	
 spec	tests/test_tuning/test_resume_open_round.py::test_timeout_exhausted_closes_without_trials	num_leaves	
@@ -2384,7 +2192,6 @@ spec	tests/test_tuning/test_resume_open_round.py::test_second_crash_excludes_fai
 spec	tests/test_tuning/test_resume_open_round.py::test_second_crash_excludes_failed_time	num_leaves	
 spec	tests/test_tuning/test_resume_open_round.py::test_second_crash_excludes_failed_time	learning_rate	
 expand	tests/test_tuning/test_resume_open_round.py::test_second_crash_excludes_failed_time	num_leaves	
-expand	tests/test_tuning/test_resume_open_round.py::test_second_crash_excludes_failed_time	learning_rate	
 spec	tests/test_tuning/test_resume_open_round.py::test_second_crash_excludes_failed_time	num_leaves	
 spec	tests/test_tuning/test_resume_open_round.py::test_second_crash_excludes_failed_time	learning_rate	
 spec	tests/test_tuning/test_resume_open_round.py::test_second_crash_excludes_failed_time	num_leaves	
@@ -2408,7 +2215,6 @@ spec	tests/test_tuning/test_resume_open_round.py::test_progress_continues_k_plus
 spec	tests/test_tuning/test_resume_open_round.py::test_progress_continues_k_plus_1	num_leaves	
 spec	tests/test_tuning/test_resume_open_round.py::test_progress_continues_k_plus_1	learning_rate	
 expand	tests/test_tuning/test_resume_open_round.py::test_progress_continues_k_plus_1	num_leaves	
-expand	tests/test_tuning/test_resume_open_round.py::test_progress_continues_k_plus_1	learning_rate	
 spec	tests/test_tuning/test_resume_open_round.py::test_progress_continues_k_plus_1	num_leaves	
 spec	tests/test_tuning/test_resume_open_round.py::test_progress_continues_k_plus_1	learning_rate	
 spec	tests/test_tuning/test_resume_open_round.py::test_progress_continues_k_plus_1	num_leaves	
@@ -2440,7 +2246,6 @@ spec	tests/test_tuning/test_resume_refusal_invariance.py::test_refusal_changes_n
 spec	tests/test_tuning/test_resume_refusal_invariance.py::test_refusal_changes_nothing[storage_no_name[resume=False]]	num_leaves	
 spec	tests/test_tuning/test_resume_refusal_invariance.py::test_refusal_changes_nothing[storage_no_name[resume=False]]	learning_rate	
 expand	tests/test_tuning/test_resume_refusal_invariance.py::test_refusal_changes_nothing[storage_no_name[resume=False]]	num_leaves	
-expand	tests/test_tuning/test_resume_refusal_invariance.py::test_refusal_changes_nothing[storage_no_name[resume=False]]	learning_rate	
 spec	tests/test_tuning/test_resume_refusal_invariance.py::test_refusal_changes_nothing[storage_no_name[resume=False]]	num_leaves	
 spec	tests/test_tuning/test_resume_refusal_invariance.py::test_refusal_changes_nothing[storage_no_name[resume=False]]	learning_rate	
 spec	tests/test_tuning/test_resume_refusal_invariance.py::test_refusal_changes_nothing[storage_no_name[resume=False]]	num_leaves	
@@ -2455,8 +2260,6 @@ spec	tests/test_tuning/test_resume_refusal_invariance.py::test_refusal_changes_n
 spec	tests/test_tuning/test_resume_refusal_invariance.py::test_refusal_changes_nothing[storage_no_name[resume=False]]	num_leaves	
 spec	tests/test_tuning/test_resume_refusal_invariance.py::test_refusal_changes_nothing[storage_no_name[resume=False]]	learning_rate	
 expand	tests/test_tuning/test_resume_refusal_invariance.py::test_refusal_changes_nothing[storage_no_name[resume=False]]	num_leaves	
-expand	tests/test_tuning/test_resume_refusal_invariance.py::test_refusal_changes_nothing[storage_no_name[resume=False]]	learning_rate	
-expand	tests/test_tuning/test_resume_refusal_invariance.py::test_refusal_changes_nothing[storage_no_name[resume=False]]	lambda_l1	
 spec	tests/test_tuning/test_resume_refusal_invariance.py::test_refusal_changes_nothing[storage_no_name[resume=False]]	num_leaves	
 spec	tests/test_tuning/test_resume_refusal_invariance.py::test_refusal_changes_nothing[storage_no_name[resume=False]]	learning_rate	
 spec	tests/test_tuning/test_resume_refusal_invariance.py::test_refusal_changes_nothing[storage_no_name[resume=False]]	num_leaves	
@@ -3286,15 +3089,7 @@ spec	tests/test_tuning/test_resume_space_arg.py::test_merge_space_omitting_confi
 spec	tests/test_tuning/test_resume_space_arg.py::test_merge_space_omitting_config_user_dim_reverts_to_default	num_leaves	
 spec	tests/test_tuning/test_resume_space_arg.py::test_merge_space_omitting_config_user_dim_reverts_to_default	learning_rate	
 spec	tests/test_tuning/test_resume_space_arg.py::test_merge_space_omitting_config_user_dim_reverts_to_default	n_estimators	
-expand	tests/test_tuning/test_resume_space_arg.py::test_merge_space_omitting_config_user_dim_reverts_to_default	objective	
-expand	tests/test_tuning/test_resume_space_arg.py::test_merge_space_omitting_config_user_dim_reverts_to_default	n_estimators	
-expand	tests/test_tuning/test_resume_space_arg.py::test_merge_space_omitting_config_user_dim_reverts_to_default	learning_rate	
-expand	tests/test_tuning/test_resume_space_arg.py::test_merge_space_omitting_config_user_dim_reverts_to_default	max_depth	
-expand	tests/test_tuning/test_resume_space_arg.py::test_merge_space_omitting_config_user_dim_reverts_to_default	feature_fraction	
-expand	tests/test_tuning/test_resume_space_arg.py::test_merge_space_omitting_config_user_dim_reverts_to_default	bagging_fraction	
-expand	tests/test_tuning/test_resume_space_arg.py::test_merge_space_omitting_config_user_dim_reverts_to_default	min_data_in_leaf_ratio	
 expand	tests/test_tuning/test_resume_space_arg.py::test_merge_space_omitting_config_user_dim_reverts_to_default	early_stopping_rounds	
-expand	tests/test_tuning/test_resume_space_arg.py::test_merge_space_omitting_config_user_dim_reverts_to_default	validation_ratio	
 spec	tests/test_tuning/test_resume_space_arg.py::test_admission_refused[unknown_name]	num_leaves	
 spec	tests/test_tuning/test_resume_space_arg.py::test_admission_refused[unknown_name]	learning_rate	
 spec	tests/test_tuning/test_resume_space_arg.py::test_admission_refused[unknown_name]	num_leaves	
@@ -3540,11 +3335,7 @@ spec	tests/test_tuning/test_resume_space_arg.py::test_out_of_bound_user_range_no
 spec	tests/test_tuning/test_resume_space_arg.py::test_out_of_bound_user_range_not_clamped	num_leaves	
 spec	tests/test_tuning/test_resume_space_arg.py::test_out_of_bound_user_range_not_clamped	learning_rate	
 spec	tests/test_tuning/test_resume_space_arg.py::test_out_of_bound_user_range_not_clamped	n_estimators	
-expand	tests/test_tuning/test_resume_space_arg.py::test_out_of_bound_user_range_not_clamped	objective	
-expand	tests/test_tuning/test_resume_space_arg.py::test_out_of_bound_user_range_not_clamped	n_estimators	
-expand	tests/test_tuning/test_resume_space_arg.py::test_out_of_bound_user_range_not_clamped	learning_rate	
 expand	tests/test_tuning/test_resume_space_arg.py::test_out_of_bound_user_range_not_clamped	max_depth	
-expand	tests/test_tuning/test_resume_space_arg.py::test_out_of_bound_user_range_not_clamped	feature_fraction	
 expand	tests/test_tuning/test_resume_space_arg.py::test_out_of_bound_user_range_not_clamped	bagging_fraction	
 expand	tests/test_tuning/test_resume_space_arg.py::test_out_of_bound_user_range_not_clamped	min_data_in_leaf_ratio	
 expand	tests/test_tuning/test_resume_space_arg.py::test_out_of_bound_user_range_not_clamped	early_stopping_rounds	
@@ -3560,7 +3351,6 @@ spec	tests/test_tuning/test_resume_space_arg.py::test_alias_then_canonical_one_r
 spec	tests/test_tuning/test_resume_space_arg.py::test_alias_then_canonical_one_route_inherits	eta	
 spec	tests/test_tuning/test_resume_space_arg.py::test_alias_then_canonical_one_route_inherits	num_leaves	
 expand	tests/test_tuning/test_resume_space_arg.py::test_alias_then_canonical_one_route_inherits	eta	
-expand	tests/test_tuning/test_resume_space_arg.py::test_alias_then_canonical_one_route_inherits	num_leaves	
 spec	tests/test_tuning/test_resume_space_arg.py::test_alias_then_canonical_one_route_inherits	eta	
 spec	tests/test_tuning/test_resume_space_arg.py::test_alias_then_canonical_one_route_inherits	num_leaves	
 spec	tests/test_tuning/test_resume_space_arg.py::test_alias_then_canonical_one_route_inherits	learning_rate	
@@ -3619,32 +3409,17 @@ spec	tests/test_tuning/test_resume_space_arg.py::test_a_read_only_mapping_is_a_s
 expand	tests/test_tuning/test_retune.py::TestExpandDims::test_expand_lower_linear	lr	
 expand	tests/test_tuning/test_retune.py::TestExpandDims::test_expand_upper_linear	leaves	
 expand	tests/test_tuning/test_retune.py::TestExpandDims::test_expand_log_lower	lr	
-expand	tests/test_tuning/test_retune.py::TestExpandDims::test_no_expand_center	lr	
-expand	tests/test_tuning/test_retune.py::TestExpandDims::test_categorical_unchanged	obj	
 expand	tests/test_tuning/test_retune.py::TestExpandDims::test_float_dim_linear_lower_clamped_to_zero	learning_rate	
 expand	tests/test_tuning/test_retune.py::TestExpandDims::test_float_dim_linear_lower_clamp_preserves_already_safe_values	ratio	
 expand	tests/test_tuning/test_retune.py::TestExpandWithBounds::test_upper_expansion_clamps_to_max_allowed_log	learning_rate	
-expand	tests/test_tuning/test_retune.py::TestExpandWithBounds::test_upper_expansion_clamps_to_max_allowed_linear	ff	
 expand	tests/test_tuning/test_retune.py::TestExpandWithBounds::test_lower_expansion_clamps_to_min_allowed	validation_ratio	
 expand	tests/test_tuning/test_retune.py::TestExpandWithBounds::test_no_clamp_when_within_bounds	lr	
 expand	tests/test_tuning/test_retune.py::TestExpandWithBounds::test_int_dim_upper_clamp_to_max_allowed	max_depth	
 expand	tests/test_tuning/test_retune.py::TestExpandWithBounds::test_int_dim_upper_clamp_to_max_allowed	max_depth	
 expand	tests/test_tuning/test_retune.py::TestExpandWithBounds::test_no_max_allowed_means_unbounded_expansion	lr	
-expand	tests/test_tuning/test_retune.py::TestExpandWithBounds::test_clamp_to_existing_high_is_a_noop	ff	
 expand	tests/test_tuning/test_retune.py::TestExpandWithBounds::test_multi_round_log_expansion_never_exceeds_max_allowed	learning_rate	
 expand	tests/test_tuning/test_retune.py::TestExpandWithBounds::test_multi_round_log_expansion_never_exceeds_max_allowed	learning_rate	
 expand	tests/test_tuning/test_retune.py::TestExpandWithBounds::test_multi_round_log_expansion_never_exceeds_max_allowed	learning_rate	
-expand	tests/test_tuning/test_retune.py::TestExpandWithBounds::test_multi_round_log_expansion_never_exceeds_max_allowed	learning_rate	
-expand	tests/test_tuning/test_retune.py::TestExpandWithBounds::test_multi_round_log_expansion_never_exceeds_max_allowed	learning_rate	
-expand	tests/test_tuning/test_retune.py::TestExpandWithBounds::test_multi_round_log_expansion_never_exceeds_max_allowed	learning_rate	
-expand	tests/test_tuning/test_retune.py::TestExpandWithBounds::test_multi_round_log_expansion_never_exceeds_max_allowed	learning_rate	
-expand	tests/test_tuning/test_retune.py::TestExpandWithBounds::test_multi_round_log_expansion_never_exceeds_max_allowed	learning_rate	
-expand	tests/test_tuning/test_retune.py::TestExpandWithBounds::test_multi_round_log_expansion_never_exceeds_max_allowed	learning_rate	
-expand	tests/test_tuning/test_retune.py::TestExpandWithBounds::test_multi_round_log_expansion_never_exceeds_max_allowed	learning_rate	
-expand	tests/test_tuning/test_retune.py::TestNoOpExpansionIsNotExpanded::test_pinned_at_bound_is_not_expanded[float-upper-at-max_allowed]	ff	
-expand	tests/test_tuning/test_retune.py::TestNoOpExpansionIsNotExpanded::test_pinned_at_bound_is_not_expanded[float-lower-at-min_allowed]	vr	
-expand	tests/test_tuning/test_retune.py::TestNoOpExpansionIsNotExpanded::test_pinned_at_bound_is_not_expanded[log-upper-at-max_allowed]	lr	
-expand	tests/test_tuning/test_retune.py::TestNoOpExpansionIsNotExpanded::test_pinned_at_bound_is_not_expanded[int-upper-at-max_allowed]	depth	
 spec	tests/test_tuning/test_retune.py::TestModelTuneWiresParameterBounds::test_user_space_lr_picks_up_lgbm_bounds_by_name	learning_rate	
 spec	tests/test_tuning/test_retune.py::TestModelTuneWiresParameterBounds::test_user_space_lr_picks_up_lgbm_bounds_by_name	learning_rate	
 spec	tests/test_tuning/test_retune.py::TestModelTuneWiresParameterBounds::test_user_space_lr_picks_up_lgbm_bounds_by_name	learning_rate	
@@ -3658,16 +3433,9 @@ spec	tests/test_tuning/test_retune.py::TestModelTuneWiresParameterBounds::test_r
 spec	tests/test_tuning/test_retune.py::TestModelTuneWiresParameterBounds::test_re_tune_clamps_learning_rate_at_one	max_depth	
 spec	tests/test_tuning/test_retune.py::TestModelTuneWiresParameterBounds::test_re_tune_clamps_learning_rate_at_one	learning_rate	
 spec	tests/test_tuning/test_retune.py::TestModelTuneWiresParameterBounds::test_re_tune_clamps_learning_rate_at_one	max_depth	
-expand	tests/test_tuning/test_retune.py::TestModelTuneWiresParameterBounds::test_re_tune_clamps_learning_rate_at_one	objective	
-expand	tests/test_tuning/test_retune.py::TestModelTuneWiresParameterBounds::test_re_tune_clamps_learning_rate_at_one	n_estimators	
-expand	tests/test_tuning/test_retune.py::TestModelTuneWiresParameterBounds::test_re_tune_clamps_learning_rate_at_one	learning_rate	
 expand	tests/test_tuning/test_retune.py::TestModelTuneWiresParameterBounds::test_re_tune_clamps_learning_rate_at_one	max_depth	
 expand	tests/test_tuning/test_retune.py::TestModelTuneWiresParameterBounds::test_re_tune_clamps_learning_rate_at_one	feature_fraction	
-expand	tests/test_tuning/test_retune.py::TestModelTuneWiresParameterBounds::test_re_tune_clamps_learning_rate_at_one	bagging_fraction	
-expand	tests/test_tuning/test_retune.py::TestModelTuneWiresParameterBounds::test_re_tune_clamps_learning_rate_at_one	num_leaves_ratio	
-expand	tests/test_tuning/test_retune.py::TestModelTuneWiresParameterBounds::test_re_tune_clamps_learning_rate_at_one	min_data_in_leaf_ratio	
 expand	tests/test_tuning/test_retune.py::TestModelTuneWiresParameterBounds::test_re_tune_clamps_learning_rate_at_one	early_stopping_rounds	
-expand	tests/test_tuning/test_retune.py::TestModelTuneWiresParameterBounds::test_re_tune_clamps_learning_rate_at_one	validation_ratio	
 spec	tests/test_tuning/test_retune.py::TestModelTuneWiresParameterBounds::test_re_tune_clamps_learning_rate_at_one	learning_rate	
 spec	tests/test_tuning/test_retune.py::TestModelTuneWiresParameterBounds::test_re_tune_clamps_learning_rate_at_one	max_depth	
 spec	tests/test_tuning/test_retune.py::TestModelTuneWiresParameterBounds::test_re_tune_clamps_learning_rate_at_one	learning_rate	
@@ -3752,16 +3520,9 @@ spec	tests/test_tuning/test_retune.py::TestModelRetuneBoundaryExpansion::test_ex
 spec	tests/test_tuning/test_retune.py::TestModelRetuneBoundaryExpansion::test_expand_boundary_explicit_true_user_space	learning_rate	
 spec	tests/test_tuning/test_retune.py::TestModelRetuneBoundaryExpansion::test_expand_boundary_explicit_true_user_space	num_leaves	
 spec	tests/test_tuning/test_retune.py::TestModelRetuneBoundaryExpansion::test_expand_boundary_explicit_true_user_space	learning_rate	
-expand	tests/test_tuning/test_retune.py::TestModelRetuneBoundaryExpansion::test_expand_boundary_explicit_true_user_space	objective	
-expand	tests/test_tuning/test_retune.py::TestModelRetuneBoundaryExpansion::test_expand_boundary_explicit_true_user_space	n_estimators	
-expand	tests/test_tuning/test_retune.py::TestModelRetuneBoundaryExpansion::test_expand_boundary_explicit_true_user_space	learning_rate	
 expand	tests/test_tuning/test_retune.py::TestModelRetuneBoundaryExpansion::test_expand_boundary_explicit_true_user_space	max_depth	
 expand	tests/test_tuning/test_retune.py::TestModelRetuneBoundaryExpansion::test_expand_boundary_explicit_true_user_space	feature_fraction	
-expand	tests/test_tuning/test_retune.py::TestModelRetuneBoundaryExpansion::test_expand_boundary_explicit_true_user_space	bagging_fraction	
-expand	tests/test_tuning/test_retune.py::TestModelRetuneBoundaryExpansion::test_expand_boundary_explicit_true_user_space	min_data_in_leaf_ratio	
-expand	tests/test_tuning/test_retune.py::TestModelRetuneBoundaryExpansion::test_expand_boundary_explicit_true_user_space	early_stopping_rounds	
 expand	tests/test_tuning/test_retune.py::TestModelRetuneBoundaryExpansion::test_expand_boundary_explicit_true_user_space	validation_ratio	
-expand	tests/test_tuning/test_retune.py::TestModelRetuneBoundaryExpansion::test_expand_boundary_explicit_true_user_space	num_leaves	
 spec	tests/test_tuning/test_retune.py::TestModelRetuneBoundaryExpansion::test_expand_boundary_false_no_report	num_leaves	
 spec	tests/test_tuning/test_retune.py::TestModelRetuneBoundaryExpansion::test_expand_boundary_false_no_report	learning_rate	
 spec	tests/test_tuning/test_retune.py::TestModelRetuneBoundaryExpansion::test_expand_boundary_false_no_report	num_leaves	
@@ -3798,9 +3559,6 @@ spec	tests/test_tuning/test_retune.py::TestBoundaryTable::test_boundary_table_wi
 spec	tests/test_tuning/test_retune.py::TestBoundaryTable::test_boundary_table_with_report	learning_rate	
 spec	tests/test_tuning/test_retune.py::TestBoundaryTable::test_boundary_table_with_report	num_leaves	
 spec	tests/test_tuning/test_retune.py::TestBoundaryTable::test_boundary_table_with_report	learning_rate	
-expand	tests/test_tuning/test_retune.py::TestBoundaryEdgeCases::test_expand_range_edge_none_passthrough	a	
-expand	tests/test_tuning/test_retune.py::TestBoundaryEdgeCases::test_expand_range_edge_none_passthrough	b	
-expand	tests/test_tuning/test_retune.py::TestBoundaryEdgeCases::test_expand_dims_unrecognized_dim_passthrough	cat	
 expand	tests/test_tuning/test_retune.py::TestBoundaryEdgeCases::test_int_dim_log_upper_expansion	x	
 spec	tests/test_tuning/test_retune.py::TestBoundaryEdgeCases::test_multiple_rounds_three_rounds	num_leaves	
 spec	tests/test_tuning/test_retune.py::TestBoundaryEdgeCases::test_multiple_rounds_three_rounds	learning_rate	
@@ -3895,20 +3653,15 @@ spec	tests/test_tuning/test_search_dim_step.py::test_tuner_init_accepts_a_log_st
 expand	tests/test_tuning/test_search_dim_step_lineage.py::test_float_log_lower_edge_snaps_down_then_stops_at_step	learning_rate	
 expand	tests/test_tuning/test_search_dim_step_lineage.py::test_int_log_lower_edge_snaps_down_then_stops_at_step	max_bin	
 expand	tests/test_tuning/test_search_dim_step_lineage.py::test_log_lower_edge_stops_at_step_without_a_provider_bound	x	
-expand	tests/test_tuning/test_search_dim_step_lineage.py::test_upper_edge_stops_at_the_last_grid_point_inside_the_float_range	x	
-expand	tests/test_tuning/test_search_dim_step_lineage.py::test_log_lower_edge_at_step_is_not_expanded	learning_rate	
+expand	tests/test_tuning/test_search_dim_step_lineage.py::test_upper_edge_stops_at_the_last_grid_point_inside_the_float_range	x	float_not_finite
 expand	tests/test_tuning/test_search_dim_step_lineage.py::test_lower_edge_snaps_outward_not_inward	x	
 expand	tests/test_tuning/test_search_dim_step_lineage.py::test_lower_edge_snaps_outward_not_inward	n	
 expand	tests/test_tuning/test_search_dim_step_lineage.py::test_upper_edge_clamped_to_the_bound_snaps_inward	feature_fraction	
-expand	tests/test_tuning/test_search_dim_step_lineage.py::test_lower_edge_clamped_back_to_the_old_edge_is_not_expanded	feature_fraction	
 expand	tests/test_tuning/test_search_dim_step_lineage.py::test_an_outward_snap_never_crosses_a_provider_bound	validation_ratio	
 expand	tests/test_tuning/test_search_dim_step_lineage.py::test_linear_expansion_is_exact_on_a_decimal_grid	x	
-expand	tests/test_tuning/test_search_dim_step_lineage.py::test_int_lower_edge_keeps_the_one_floor	n	
-expand	tests/test_tuning/test_search_dim_step_lineage.py::test_expanded_edges_stay_on_the_grid	learning_rate	
 expand	tests/test_tuning/test_search_dim_step_lineage.py::test_expanded_edges_stay_on_the_grid	learning_rate	
 expand	tests/test_tuning/test_search_dim_step_lineage.py::test_expanded_edges_stay_on_the_grid	num_leaves	
 expand	tests/test_tuning/test_search_dim_step_lineage.py::test_expanded_edges_stay_on_the_grid	num_leaves	
-expand	tests/test_tuning/test_search_dim_step_lineage.py::test_expanded_edges_stay_on_the_grid	feature_fraction	
 expand	tests/test_tuning/test_search_dim_step_lineage.py::test_expanded_edges_stay_on_the_grid	feature_fraction	
 expand	tests/test_tuning/test_search_dim_step_lineage.py::test_dims_without_step_expand_as_before	x	
 spec	tests/test_tuning/test_search_dim_step_lineage.py::test_step_survives_parse_attach_expand_encode_decode	learning_rate	
@@ -4004,7 +3757,6 @@ spec	tests/test_tuning/test_search_dim_step_model.py::test_expanded_dim_is_recor
 spec	tests/test_tuning/test_search_dim_step_model.py::test_expanded_dim_is_recorded_with_its_step	learning_rate	
 spec	tests/test_tuning/test_search_dim_step_model.py::test_expanded_dim_is_recorded_with_its_step	num_leaves	
 spec	tests/test_tuning/test_search_dim_step_model.py::test_expanded_dim_is_recorded_with_its_step	learning_rate	
-expand	tests/test_tuning/test_search_dim_step_model.py::test_expanded_dim_is_recorded_with_its_step	num_leaves	
 expand	tests/test_tuning/test_search_dim_step_model.py::test_expanded_dim_is_recorded_with_its_step	learning_rate	
 spec	tests/test_tuning/test_search_dim_step_model.py::test_off_grid_expansion_is_refused_before_the_round_record	num_leaves	
 spec	tests/test_tuning/test_search_dim_step_model.py::test_off_grid_expansion_is_refused_before_the_round_record	learning_rate	
@@ -4016,7 +3768,6 @@ spec	tests/test_tuning/test_search_dim_step_model.py::test_off_grid_expansion_is
 spec	tests/test_tuning/test_search_dim_step_model.py::test_off_grid_expansion_is_refused_before_the_round_record	learning_rate	
 spec	tests/test_tuning/test_search_dim_step_model.py::test_off_grid_expansion_is_refused_before_the_round_record	num_leaves	
 spec	tests/test_tuning/test_search_dim_step_model.py::test_off_grid_expansion_is_refused_before_the_round_record	learning_rate	
-expand	tests/test_tuning/test_search_dim_step_model.py::test_off_grid_expansion_is_refused_before_the_round_record	num_leaves	
 expand	tests/test_tuning/test_search_dim_step_model.py::test_off_grid_expansion_is_refused_before_the_round_record	learning_rate	
 spec	tests/test_tuning/test_search_dim_step_model.py::test_int_log_step_flag_change_is_refused_before_the_round[1_to_2]	num_leaves	
 spec	tests/test_tuning/test_search_dim_step_model.py::test_int_log_step_flag_change_is_refused_before_the_round[1_to_2]	num_leaves	
@@ -5126,4 +4877,6 @@ spec	tests/test_tuning/test_tuning_result.py::TestTuningTable::test_tuning_table
 spec	tests/test_tuning/test_tuning_result.py::TestTuningTable::test_tuning_table_trial_numbers	learning_rate	
 # --- positive control output ---
 spec	docs/audits/2026-10-tuning-resume/probes/firing_rate_h0124_posctl.py::test_spec_path_flags_a_huge_int	n	bound_too_large
-expand	docs/audits/2026-10-tuning-resume/probes/firing_rate_h0124_posctl.py::test_expand_path_flags_an_edge_past_the_float_range	x	expanded_beyond
+expand	docs/audits/2026-10-tuning-resume/probes/firing_rate_h0124_posctl.py::test_expand_path_flags_an_edge_past_the_float_range	x	float_not_finite
+expand	docs/audits/2026-10-tuning-resume/probes/firing_rate_h0124_posctl.py::test_expand_path_flags_a_stepped_edge_capped_today	x	float_not_finite
+expand	docs/audits/2026-10-tuning-resume/probes/firing_rate_h0124_posctl.py::test_expand_path_flags_a_lower_edge_off_the_grid	x	off_grid_as_float
