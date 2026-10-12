@@ -12896,7 +12896,7 @@ Optuna 4.7.0 の性質（`docs/audits/2026-10-tuning-resume/probes/optuna_step_f
 
 - **拡張の順序**（方針 5）: 動いた端ごとに、今の式 → 外向きに格子へ寄せる → 下限（`int` の 1、線形の 0）→ provider の上下限（`_clamp_outward`）→ 上下限に当てたときだけ内向きに寄せる → 元の端より内側にしない。上下限に当てる前に外へ寄せるのは、外へ寄せた端が上下限を越えないため（`validation_ratio` の log `[0.2, 0.4]` step 0.04 の下端は 0.0667 → 0.04 では下限 0.05 を越えるので、上下限に当てて内向きに 0.08）。
 - **`int` の下限 1**: Proposal に無い。今の `max(1, …)` を下限として扱い、外へ寄せた端が 1 より下なら 1 以上の最小の格子の点にする（`int` の `[4, 8]` step 4 は下へ拡張しない）。
-- **刻みのある次元の拡張は正確な有理数で計算する**（`float` で計算すると `[0.1, 0.2]` step 0.1 が 0.4 まで広がる）。刻みの無い次元は今の `float` の計算のまま。正確な計算は `float` の範囲を越えうるので、`float` の次元の拡張した端は `float` の範囲の内側の最後の格子の点で止める（log `[1e307, 1e308]` step 1e307 の上端は 3e308 でなく 1.7e308）。`bound_off_grid` のメッセージに示す外側の範囲の端が `float` の範囲を越えるとき（`[-1.7e308, -1e308]` step 1e308 の -2e308）は、その端を正確な整数の文字列で示す（どちらも Codex の実装レビュー round 1 で、素の `OverflowError` になっていた）。
+- **刻みのある次元の拡張は正確な有理数で計算する**（`float` で計算すると `[0.1, 0.2]` step 0.1 が 0.4 まで広がる）。刻みの無い次元は今の `float` の計算のまま。正確な計算は `float` の範囲を越えうるので、`float` の次元の拡張した端は `float` の範囲の内側の最後の格子の点で止める（log `[1e307, 1e308]` step 1e307 の上端は 3e308 でなく 1.7e308）。**改訂 1 でこれを「広げない」に置き換えた。**`bound_off_grid` のメッセージに示す外側の範囲の端が `float` の範囲を越えるとき（`[-1.7e308, -1e308]` step 1e308 の -2e308）は、その端を正確な整数の文字列で示す（どちらも Codex の実装レビュー round 1 で、素の `OverflowError` になっていた）。
 - **`bound_off_grid`**: 両端が格子の外のとき `key` は `low`。context に示す範囲 `grid_low` / `grid_high` も入れる。
 - **`recorded_params(params, dims)`**: 試行ではなく値の dict と次元を受け取る。次元の無い名前は `ValueError`（系譜の検査が整った study では起きない）。Model の四つの読み手は `rounds.recorded_trial_params(lineage, trial)` を通る（試行の round を `round_of` で決める）。
 - **`Tuner.tune`**: surface は `Tuner.tune`、log と `step` の拒否の理由は `log_with_step`（key `step`）。直接作った次元の検査 `check_dim_step` は、`step` があるとき `low` / `high` も H-0123 の書式で読む。ただし文字列の `step` / `low` / `high` は拒否する（`bound_not_a_number`）。数の表記の文字列を数として読むのは config と `space=` の mapping だけで、Python で作った次元は値をそのまま Optuna に渡すので、文字列は study を作った後に全試行を失敗させる（fresh-context の確認で見つかった）。
@@ -12984,3 +12984,20 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
     - どの場合も、拡張した次元は方針 2・9 を満たし、round の受け付けの検査で拒否されず、元の範囲より狭くならず、次の round の境界の検出は NaN にも例外にもならない。
 15. **保存された study**: 方針 9 に外れる次元を記録した study（今のコードで `10**400` の `int` の次元で tune した study）と、round の記録の次元の `min_allowed` が `-(10**400)` の study（記録を書き換えて作る）は、本改訂の後に `unreadable` / `inconsistent` と判定され、`tune(resume=True)` と `restore_tuning` は計画より前に H-0122 の拒否をする（素の `OverflowError` にならない）。
 16. **対照**: 方針 9 の各検査（`float` の幅、`int` の各値の大きさ、`Tuner.tune` の刻みの無い次元、round の受け付けの検査、decode）と、方針 10 の手順 3 の各条件（`float` の有限、幅の上限、`int` の `2**52`、`float` にした端が格子の点であること — 上端と下端のそれぞれ —、元の端より外側）、log の次元で `x` が 0 より大きいこと、decode の `min_allowed` / `max_allowed` の検査、上下限に当ててから大きさを確かめる順序（逆にすると上限 5e307 の例が広がらない）、広げない端の報告の各欄を一つずつ外すと、対応するテストが失敗する。
+
+#### 改訂 1 の実装の記録（2026-10-13）
+
+新しい `lizyml/tuning/_magnitude.py` に大きさの定数と判定（`INT_LIMIT = 2**52`、幅の判定、`float` への変換）を置いた（他の lizyml のモジュールを import しないので、`lineage_codec` からも使える）。方針 9 は `_space_format.py`（`int` の大きさ、`float` の幅）、`_step_grid.check_dim_magnitude`（`Tuner.tune` と `check_round_space` が数の次元すべてに掛ける）、`lineage_codec.decode_dim` に、方針 10 は `_step_grid.expansion_edge` と `detect_boundary` にある。H-0124 の `_expand_on_grid` の `float` の範囲の上限で止める処理は消した。
+
+仕様の範囲で実装が決めたこと:
+
+- **`clamped_to_bound` の例外**: 方針 10 の「広げない端は `clamped_to_bound=False`」は、新しい条件（有限、幅、`2**52`、格子の読み戻し、log で 0 より大きい）で広げない端に当てる。候補が元の端と同じで広がらない場合（provider の上下限で元の端に戻された場合）は、今の H-0111 の報告のまま（上下限で止まったなら `True`）。BLUEPRINT §11.5（#318、#342）がこの報告を定めており、改訂 1 の「それ以外の拡張は今と同じ」にも合う。
+- **幅の判定は 2 進の値で行う**: `high - low` の判定は、`float` の値そのもの（`Fraction(x)`）で計算する。H-0124 の読み方（`Fraction(Decimal(str(x)))`）で読むと、`[-max/2, max/2]` は `float` の引き算がちょうど `max` なのに幅が `max` を越える。規則の目的は「`float` の引き算が有限であること」なので 2 進の値が合う。格子の判定は H-0124 の読み方のまま。
+- **Python で作った刻みの無い次元**: 方針 9 は数である値だけを比べる。`Tuner.tune` に渡した文字列の境界は今と同じく Optuna まで届き、NaN も今のまま。無限大の境界は `range_not_finite` になる。`Tuner` は低い層の API なので、これ以上は検査しない（テストで固定した）。
+- **検査の順序**: `check_tuner_dims` と `check_round_space` は、大きさを刻みより先に見る。`int` の `key` の順は `parse_space` と同じ `low`、`high`、`step`。
+- **decode の `min_allowed` / `max_allowed`**: 有限の `float` であることだけを求め、`2**52` 以下は求めない（受け入れ基準 14 が上限 `2**60` の provider を使う）。数の次元の `low` / `high` / `step` は有限であることも求める。
+- **受け入れ基準 15 の study**: 「今のコードで `10**400` の次元で tune した study」は、テストの中で `_magnitude.INT_LIMIT` を一時的に上げて作る。同じ config での resume は `parse_space` が先に `bound_too_large` で断るので、`unreadable` の判定は上限の内側の config で確かめ、parse での拒否は別に確かめる。
+- **テストの記録の変更**: `test_space_format.py` の `huge_int` と `numpy_longdouble` は拒否の例に移し、上限の内側の `numpy_longdouble_within_limit`（`2**52 - 2`）を受け付けの例に足した。`test_retune.py` の `2**53` を越える `int` の拡張のテストは `2**52` のテストに、`test_lineage_codec.py` / `test_lineage_records.py` の大きな `int` の次元は上限の内側にし、`2**53` を越える値は `max_allowed` に移した（大きな整数が正確に往復することを確かめる目的は残る）。`test_search_dim_step_lineage.py` の上限で止めるテストは「広げない」のテストに変えた。
+- **文書**: BLUEPRINT §11.1（大きさの規則）、§11.5（広げない規則と報告、`Tuner.tune`）、§11.5.3（decode が拒否するもの）、docs/config-reference.md、CHANGELOG。BLUEPRINT §11.5 の H-0111 の `2**53` についての文は、改訂 1 で意味が無くなったので置き換えた。`BoundaryDimStatus.clamped_to_bound` の docstring に広げない場合を書いた。
+
+受け入れ基準の対応: 基準 13〜15 は `tests/test_tuning/test_search_dim_magnitude.py` と `test_space_format.py` の拒否の表、基準 16 は各条件を一つずつ外して対応するテストが失敗することを確かめた（表は実装の PR の本文に載せる）。

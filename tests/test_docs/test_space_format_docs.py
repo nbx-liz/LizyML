@@ -159,3 +159,29 @@ def test_changelog_states_the_step() -> None:
         "LizyStudio#688",
     ):
         assert token in entry, token
+
+
+def _magnitude_reasons() -> tuple[str, ...]:
+    """The refusal reasons of H-0124 amendment 1 policy 9, read from the code."""
+    reasons = []
+    for spec in (
+        {"type": "float", "low": -1e308, "high": 1e308},
+        {"type": "int", "low": 0, "high": 2**52 + 1},
+    ):
+        with pytest.raises(LizyMLError) as caught:
+            parse_space({"d": spec})
+        reasons.append(caught.value.context["reason"])
+    return tuple(reasons)
+
+
+@pytest.mark.parametrize(
+    ("doc", "section"),
+    [*_DOCS, ("changelog", lambda: _changelog_entry("(H-0124,"))],
+    ids=[*(d for d, _ in _DOCS), "changelog"],
+)
+def test_doc_states_the_magnitude_limits(doc: str, section: Callable[[], str]) -> None:
+    text = section()
+    assert len(_magnitude_reasons()) == 2
+    for reason in _magnitude_reasons():
+        assert f"`{reason}`" in text, (doc, reason)
+    assert "2**52" in text, doc

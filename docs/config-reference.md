@@ -444,15 +444,31 @@ dimension. It is not converted into another search. Per dimension:
 | Key | Applies to | Required | Accepted values |
 |---|---|---|---|
 | `type` | all | Yes | `"float"`, `"int"` or `"categorical"`. |
-| `low`, `high` | `float`, `int` | Yes | An `int` or `float` (not `bool`), a numpy integer or floating scalar, or a string that is a number literal in full (below). Finite. For `int`, a whole value: `16.0`, `"16.0"` and `"1e2"` are 16, 16 and 100; `1.7` and `"1.7"` are refused, not truncated. |
+| `low`, `high` | `float`, `int` | Yes | An `int` or `float` (not `bool`), a numpy integer or floating scalar, or a string that is a number literal in full (below). Finite. For `int`, a whole value: `16.0`, `"16.0"` and `"1e2"` are 16, 16 and 100; `1.7` and `"1.7"` are refused, not truncated. For `float`, `high - low` at most the largest float; for `int`, at most `2**52` in absolute value (below). |
 | `log` | `float`, `int` | No (default `false`) | A `bool`. The string `"false"` is refused. |
-| `step` | `float`, `int` | No (default: no step) | The same types as `low` / `high`, finite and above 0; for `int`, a whole value of at least 1. `low` and `high` must be multiples of it (below). |
+| `step` | `float`, `int` | No (default: no step) | The same types as `low` / `high`, finite and above 0; for `int`, a whole value of at least 1 and at most `2**52`. `low` and `high` must be multiples of it (below). |
 | `choices` | `categorical` | Yes | A non-empty list (or tuple, from Python) of plain scalars: `str`, `int`, `float`, `bool` or `None`. A string, set, dict, range, numpy array or generator is refused. |
 | `category` | all | No (default `"model"`) | `"model"`, `"smart"` or `"training"`. |
 
 No other key is accepted: `float` and `int` dimensions take `type`, `low`,
 `high`, `log`, `step` and `category`; `categorical` dimensions take `type`,
 `choices` and `category`. A misspelt key such as `lo` is refused.
+
+Bounds and steps are limited to what Optuna can sample (H-0124 amendment 1),
+since it samples every number as a float. A `float` dimension's exact width
+`high - low` must be at most the largest float (`1.7976931348623157e+308`):
+`[-1e308, 1e308]` has finite bounds but is refused with `reason`
+`range_not_finite` (`key` `high`), while `[-8e307, 8e307]` is accepted. An
+`int` dimension's `low`, `high` and `step` must be at most `2**52`
+(4503599627370496) in absolute value: Optuna samples an `int` dimension as a
+float widened by half a step, from `2**53` it silently searches only some of
+the integers, and further out it fails. Past the limit is `reason`
+`bound_too_large`, with `key` the first of `low`, `high` and `step` that is.
+The public `Tuner.tune` applies the same limits to every numeric dimension
+it is given, with or without a step. Boundary expansion (`tune(resume=True)`)
+does not widen an edge past them: such an edge is left where it is and
+reported as not expanded (`expanded=False`, `new_low` / `new_high` `None`,
+`clamped_to_bound=False`).
 
 A `step` (H-0124) makes the dimension a grid with origin 0: the multiples of
 `step` from `low` to `high`. Both bounds must be multiples of `step`, judged in
