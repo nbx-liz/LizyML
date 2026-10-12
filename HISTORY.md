@@ -12134,14 +12134,15 @@ H-0122 の `space=` で、resume の round にも同じ形が起きうる。
 
 config の項目そのものも pydantic の緩い変換で `"false"` を `False` に、`"yes"` を `True` に、`"0.5"` を 0.5 にする。だから「config の項目と同じ規則」をそのまま当てると文字列を通してしまう。
 
-**保存された artifact**: v0.18.0（とこの改訂の前の develop）で、文字列の真偽の選択肢で tune した Model を export すると、`metadata.json` の tune の結果の `best_smart_params` に `"false"` のような文字列が残る。その booster は実際には真で訓練されているので、予測はそのモデルとして正しいが、記録された母数がモデルの中身と食い違う。記録を書かれたとおりに受け取って学習し直すと（利用者が `auto_num_leaves: false` と設定する、またはこの改訂の後の LizyML が読み込んだ Model で `fit` し直す）、元と違うモデルになる。artifact の読み込み（`format_version` 1 と 2、`lizyml/persistence/loader.py:35`）は、今の約束のとおり正常な過去の artifact を読み続ける。
+**保存された artifact**: v0.18.0（とこの改訂の前の develop）で、文字列の真偽の選択肢で tune した Model を export すると、`metadata.json` の tune の結果の `best_smart_params` に `"false"` のような文字列が残る。その booster は実際には真で訓練されているので、予測はそのモデルとして正しいが、記録された母数がモデルの中身と食い違う。記録を書かれたとおりに受け取って学習し直すと（利用者が記録を見て config に `auto_num_leaves: false` と書く）、元と違うモデルになる。今のコードで読み込んだ Model を `fit` し直すと、文字列が再び真として読まれて元と同じ設定で訓練される（`core/model.py:576-579` が文字列のまま重ね、`smart_params.py:150` が真偽で読む。Proposal review round 1 が実行で確かめた）ので、食い違いは記録の上だけに残る。方針 1 の後の LizyML は文字列を真偽として読まないので、そのまま読み込めば LizyML 自身の学習し直しも元と違う設定になりうる。方針 4 は読み込みで拒否するので、どちらの経路にも食い違う記録が渡らない。artifact の読み込み（`format_version` 1 と 2、`lizyml/persistence/loader.py:35`）は、今の約束のとおり正常な過去の artifact を読み続ける。
 
 #### 対応方針
 
 1. **値の規則**（provider が名前ごとに宣言し、型は厳密に判定する）。`category: smart` の探索次元は、取りうるすべての値（数の次元は `low` と `high`、categorical は選択肢すべて）が次を満たすこと:
    - `auto_num_leaves`: categorical で、選択肢はすべて `bool`（`type(v) is bool`）。数の次元は拒否。
    - `balanced`: categorical で、選択肢は `bool` か `None`。数の次元は拒否。regression のタスクでは選択肢に `True` を含めない（`None` は regression で無効の意味なので受け付ける）。
-   - `num_leaves_ratio`: 数（`int` か `float`、`bool` は除く）で `0 < v <= 1`。categorical の選択肢も同じで、`None` は拒否。
+   - 数の判定は型そのもので行う: `type(v) is int` か `type(v) is float`（`bool`、numpy のスカラー、`Decimal` などは数としない。数の次元の `low` / `high` は `parse_space` と `Tuner` の検査の後は素の `int` / `float`）。NaN と無限大は範囲の比較で外れる（拒否）。
+   - `num_leaves_ratio`: 数で `0 < v <= 1`。categorical の選択肢も同じで、`None` は拒否。
    - `min_data_in_leaf_ratio` / `min_data_in_bin_ratio`: 数で `0 < v < 1`。categorical の選択肢は、それに加えて `None`（その母数を解決しない）を受け付ける。
    - `feature_weights`: 探索次元にできない（値が dict で、選択肢は素の値に限られるため）。
    - 外れれば `CONFIG_INVALID`（理由 `smart_value_invalid`、context に `surface`・`dim`・`key`（数の次元は `low` / `high`、categorical は `choices`）・`value`・`reason`）。regression の `balanced=True` は理由 `smart_value_unsupported_task`。
@@ -12161,7 +12162,7 @@ config の項目そのものも pydantic の緩い変換で `"false"` を `False
 #### 互換性
 
 - v0.18.0 との違い: 文字列の真偽、範囲の外の比率、`None` を取れない母数の `None`、`feature_weights` の次元、regression の `balanced=True` の次元は、study を作る前に `CONFIG_INVALID` で拒否する（v0.18.0 では黙って逆の設定で訓練するか、黙って別の値に置き換えるか、study を書いた後に失敗した）。規則どおりの次元は今と同じ。
-- 既定の空間の tune: `num_leaves_ratio` の拡張は 1.0 で止まる（今は 2.0 まで）。比率 1.0 を越える値は葉の数を増やさない（`max_depth` の葉の上限を越えるか、131072 で頭打ち）ので、探索の結果は実質変わらない。
+- 既定の空間の tune: `num_leaves_ratio` の拡張は 1.0 で止まる（今は 2.0 まで）。比率 1.0 を越える値は葉の数の上限を増やさない（`max_depth` の葉の上限を越えるか、131072 で頭打ち）。ただし抽出する区間が変わるので、試行の値、記録される最良の母数、有限回の探索の結果は変わりうる（Proposal review round 1 が、`0.5..1.0` と `0.5..2.0` で TPESampler の抽出の列と最良が変わることを実行で示した）。拡張が 1.0 で止まったときは H-0124 のとおり `clamped_to_bound=True` と報告する。
 - artifact: `best_smart_params` が規則に外れる artifact だけを読み込みで拒否する。v0.18.0 で文字列の真偽の次元で tune した artifact がこれに当たり、tune し直して export し直す必要がある。正常な過去の artifact は今までどおり。
 - 下流: LizyStudio は真偽の smart の次元を `bool` の選択肢で送る必要がある（Choice の初期値と編集した選択肢が文字列）。`num_leaves_ratio` の範囲の入力は provider の上下限（今は 2.0 まで）で制限しているので、上限が 1.0 になる。LizyML-Widget は真偽の選択肢を `bool` で送るが、空間の各次元に `category` を付けない（`js/src/components/SearchSpace.tsx:377-380`。コードを読んだもので、実行はしていない）ので、smart の名前は今も `category: model` として名前の検査（`check_param_names`）で拒否されており、この改訂で変わらない。Widget の Range の初期値は `num_leaves_ratio` で `1.0..2.0`（同 `:671-672`）なので、smart の次元を送れるようにするときは方針 1 の範囲に合わせる必要がある。LizyStudio にはこの改訂の承認の後に issue を起こし、Widget には上の二点を issue に書く。
 - Firing rate: 3/443 of テストスイートで round の受け付けの検査が見る `category: smart` の次元、0/0 of `num_leaves_ratio` の拡張（`docs/audits/2026-10-tuning-resume/probes/firing_rate_347.py` を pytest のプラグインとして `6366b73` のスイート全体に掛け、方針 1 の規則が拒否する次元と、1.0 を越える `num_leaves_ratio` の拡張を数えた。拒否されるのは `tests/test_tuning/test_smart_dimension_collisions.py` の c5 と c5b（regression での `balanced=True`）と c5c（`num_leaves_ratio` の `-1..1`）で、どれも衝突の検査のために作った次元。スイートには `num_leaves_ratio` の拡張が無い。配線の陽性の対照 `firing_rate_347_posctl.py` は、文字列の真偽の次元と 1.0 を越える拡張を一つずつ拾う。出力は同じ場所の `.txt`）。下流の LizyStudio（`2118acc`）では、真偽の smart の次元を Choice にすると選択肢が必ず文字列になるので、`auto_num_leaves` と `balanced` の Choice は 2/2 が拒否される。カタログの比率の既定の範囲（`num_leaves_ratio` 0.4..1.0、`min_data_in_*_ratio` 0.01..0.2）は 3/3 が受け付けられる。
@@ -12170,20 +12171,38 @@ config の項目そのものも pydantic の緩い変換で `"false"` を `False
 
 - **文字列の `"true"` / `"false"` を真偽に読み替える**: H-0123 の「書式の型だけ」（`log: "false"` を拒否した）とずれ、結果の最良値にどちらを載せるかを別に決める必要がある。管理者は拒否を選んだ（2026-10-13）。
 - **型だけを検査し、範囲は今のまま**: 0 以下の比率が黙って別の値になるのと、1.0 を越える拡張が残る。
-- **artifact を読み込みでは通し、使うとき（読み込んだ Model での `fit`、コード生成）に拒否する**: 記録と中身の食い違う artifact を、予測に使えるまま扱えてしまう（管理者の判断、2026-10-13）。
+- **artifact を読み込みでは通し、使うとき（読み込んだ Model での `fit`、コード生成）に拒否する**: 記録と中身の食い違う artifact を、予測に使えるまま扱えてしまい、記録を読んだ利用者が別のモデルを作る経路が残る（管理者の判断、2026-10-13）。
 - **過去の artifact を一律に読み込めなくする**: 正常な過去の artifact まで予測できなくなる。
 - **config の項目の検証（pydantic）をそのまま当てる**: 緩い変換で `"false"` を受け付ける。
 
 #### 受け入れ基準（テスト観点）
 
-1. config の空間と `tune(space=...)` の両方で、study を作る前に `CONFIG_INVALID`、context に `surface`・`dim`・`key`・`value`・`reason`: `auto_num_leaves` の選択肢 `["false"]`、`["true", "false"]`、`[0, 1]`、`[None]`、`IntDim(0, 1)`（数の次元）。`balanced` の `["false"]`、regression での `[True, False]`（`smart_value_unsupported_task`）。`num_leaves_ratio` の `-1..1`、`0..1`、`0.5..2.0`、選択肢 `[0.5, None]`、`[True]`。`min_data_in_leaf_ratio` の `0..0.2`、`0.1..1.0`、選択肢 `["0.1"]`。`feature_weights` の次元。lgb.train は呼ばれず、storage に study が無い。
-2. 受け付けるもの: `auto_num_leaves` の `[True, False]`、`balanced` の `[True, False, None]`（binary）と `[False, None]`（regression）、`num_leaves_ratio` の `0.5..1.0`、`min_data_in_leaf_ratio` の `0.01..0.2` と選択肢 `[None, 0.05]`。#347 の再現（`["false"]` で `num_leaves=32`）は拒否に変わり、`[False]` は今と同じく `num_leaves` を渡さない。
-3. 既定の空間の `num_leaves_ratio` が上端 1.0 で最良になる 2 round の tune で、round 2 の範囲が 1.0 を越えない。
+1. **規則の表**（config の空間と `tune(space=...)` の両方で、study を作る前に `CONFIG_INVALID`、context に `surface`・`dim`・`key`・`value`・`reason`。lgb.train は呼ばれず、storage に study が無い）。拒否するもの:
+
+   | 名前 | 次元 | 値 | 理由 |
+   |---|---|---|---|
+   | `auto_num_leaves` | categorical | `["false"]`、`["true", "false"]`、`[0, 1]`、`[None]` | `smart_value_invalid`（`key` は `choices`） |
+   | `auto_num_leaves` | 数 | `IntDim(0, 1)`、`FloatDim(0.0, 1.0)` | `smart_value_invalid`（数の次元） |
+   | `balanced` | categorical | `["false"]`、`[1]` | `smart_value_invalid` |
+   | `balanced` | 数 | `IntDim(0, 1)` | `smart_value_invalid` |
+   | `balanced` | categorical、regression | `[True, False]`、`[True]` | `smart_value_unsupported_task` |
+   | `num_leaves_ratio` | 数 | `-1..1`、`0..1`、`0.5..2.0` | `smart_value_invalid`（`key` は `low` / `high`） |
+   | `num_leaves_ratio` | categorical | `[0.5, None]`、`[True]`、`["0.5"]`、`[nan]`、`[inf]` | `smart_value_invalid` |
+   | `min_data_in_leaf_ratio` | 数 | `0..0.2`、`0.1..1.0` | `smart_value_invalid` |
+   | `min_data_in_leaf_ratio` | categorical | `["0.1"]`、`[1.0]`、`[nan]` | `smart_value_invalid` |
+   | `min_data_in_bin_ratio` | 数 | `0..0.2`、`0.5..1.0` | `smart_value_invalid` |
+   | `min_data_in_bin_ratio` | categorical | `[0]`、`["0.05"]` | `smart_value_invalid` |
+   | `feature_weights` | categorical | `[None]`、`[0.5]` | `smart_value_invalid` |
+   | `feature_weights` | 数 | `FloatDim(0.1, 1.0)` | `smart_value_invalid` |
+
+   numpy のスカラーの選択肢は H-0123 の書式の検査が先に拒否する（今と同じ）。数の次元の numpy の境界は `parse_space` が素の値に直すので、この規則は素の値を見る。
+2. **受け付けるもの**（tune が通り、訓練に渡る値が選択肢のとおり）: `auto_num_leaves` の `[True, False]`。`balanced` の `[True, False, None]`（binary と multiclass）と `[False, None]`（regression）。`num_leaves_ratio` の `0.5..1.0` と選択肢 `[0.5, 1]`。`min_data_in_leaf_ratio` の `0.01..0.2` と選択肢 `[None, 0.05]`。`min_data_in_bin_ratio` の `0.01..0.2` と選択肢 `[None, 0.1]`。#347 の再現（`["false"]` で `num_leaves=32`）は拒否に変わり、`[False]` は今と同じく `num_leaves` を渡さない。
+3. 既定の空間の `num_leaves_ratio` が上端 1.0 で最良になる 2 round の tune で、round 2 の範囲が 1.0 を越えず、その次元の報告が `expanded=False`・`clamped_to_bound=True`（H-0124 の「元の端に戻された」場合）。
 4. provider の既定の空間の次元、拡張した次元、`tune(space=...)` の round のどれも、方針 1 に外れれば round の記録の前に拒否される（拡張を差し替えて確かめる）。
-5. artifact: `best_smart_params` が `{"auto_num_leaves": "false"}`、`{"num_leaves_ratio": 1.5}`、`{"balanced": True}`（regression の config）の artifact（今のコードで export し、`metadata.json` を書き換えて作る）は、`Model.load` で `DESERIALIZATION_FAILED`、context に名前と値。`best_smart_params` が規則どおりの artifact、空の artifact、tune の結果の無い artifact は今と同じく読み込み、`predict` が今と同じ値を返す。
+5. **artifact**（今のコードで export し、`metadata.json` の `best_smart_params` を書き換えて作る。`format_version` 2 と、`format_version` 1 に書き換えたものの両方）: `{"auto_num_leaves": "false"}`、`{"auto_num_leaves": None}`、`{"num_leaves_ratio": 1.5}`、`{"min_data_in_leaf_ratio": 0}`、`{"feature_weights": {"a": 1.0}}`、`{"balanced": True}`（regression の config）は、`Model.load` で `DESERIALIZATION_FAILED`、context に名前、値、`reason`（方針 1 と同じ名前）、メッセージに「tune し直して export し直す」案内。`best_smart_params` が規則どおりの artifact（`{"auto_num_leaves": False, "balanced": None}`、multiclass の `{"balanced": True}`）、空の artifact、tune の結果の無い artifact は今と同じく読み込み、`predict` が今と同じ値を返す。
 6. `restore_tuning`: 文字列の真偽の次元で tune した study（この改訂の前の規則を一時的に戻して作る）は `CONFIG_INVALID` で拒否される。
 7. 規則の宣言が一つであること: provider の宣言と config の `_check_ratio` が同じ範囲の定数を使う（片方を変えるともう片方の検査のテストが失敗する）。
-8. 対照: 方針 1 の各規則（名前ごと、数の次元と categorical、`None`、regression の `balanced`）、方針 2 の検査、方針 3 の上限、方針 4 の読み込みの検査、方針 5 の検査を一つずつ外すと、対応するテストが失敗する。
+8. **対照**（どれも一つずつ外すと、名前を挙げた表の行のテストが失敗する）: `auto_num_leaves` の `bool` だけの判定（`["false"]` の行）、bool の母数の数の次元の拒否（`IntDim(0, 1)` の行）、`balanced` の `None` の受け付け（受け付けの `[False, None]`）と regression の `True` の拒否（regression の行）、数の型そのものの判定（`[True]` と `["0.5"]` の行）、`num_leaves_ratio` の `None` の拒否、`num_leaves_ratio` の上端を含む判定（`0.5..2.0` と受け付けの `1` の行）、`min_data_in_*_ratio` の上端を含まない判定（`0.1..1.0`、`0.5..1.0` の行）と `None` の受け付け（受け付けの `[None, 0.05]`）、`feature_weights` の次元の拒否（両方の行）、方針 2 の検査（基準 4）、方針 3 の上限（基準 3）、方針 4 の読み込みの検査（基準 5 の各値）、方針 5 の検査（基準 6）。
 
 ## H-0122: tune の resume と storage への再接続は同じ目的関数を続ける（#340）
 
