@@ -10,6 +10,8 @@ Before H-0123 ``parse_space`` read a dimension through ``float()``, ``int()``
 and ``bool()``, so a spec outside the format became another search without a
 word: ``log: "false"`` searched on a log scale, a ``step`` key was dropped, an
 ``int`` bound ``1.7`` became ``1``, ``choices: "abc"`` became three choices.
+H-0124 adds ``step`` to the numeric format (:func:`read_float_step`,
+:func:`read_int_step`); its grid is checked in :mod:`lizyml.tuning._step_grid`.
 These functions accept the format and refuse everything else with
 ``CONFIG_INVALID``, naming the dimension, the key, a reason and the surface.
 
@@ -42,11 +44,15 @@ __all__ = [
     "format_error",
     "read_choices",
     "read_float_bound",
+    "read_float_step",
     "read_int_bound",
+    "read_int_step",
     "read_log",
 ]
 
-NUMERIC_KEYS: frozenset[str] = frozenset({"type", "low", "high", "log", "category"})
+NUMERIC_KEYS: frozenset[str] = frozenset(
+    {"type", "low", "high", "log", "step", "category"}
+)
 """The keys a ``float`` or ``int`` dimension may have."""
 
 CATEGORICAL_KEYS: frozenset[str] = frozenset({"type", "choices", "category"})
@@ -77,7 +83,7 @@ plain decimal or exponent literal is a number here: ``"nan"``, ``"inf"``,
 
 _FORMAT_HINT = (
     "A dimension takes the documented form {type: float | int, low, high, "
-    "log?, category?} or {type: categorical, choices: [...], category?} "
+    "log?, step?, category?} or {type: categorical, choices: [...], category?} "
     "(docs/config-reference.md)."
 )
 
@@ -169,19 +175,9 @@ def check_dim_keys(
 ) -> None:
     """Refuse a key the dimension's ``type`` does not have, or a missing one.
 
-    ``step`` gets its own message: a UI that sends one (LizyStudio's range
-    inputs) is told the search had no step, rather than that a key is unknown.
+    ``step`` is a key of ``float`` and ``int`` dimensions since H-0124 (H-0123
+    refused it while dimensions had no step).
     """
-    if "step" in spec:
-        raise format_error(
-            surface,
-            f"dimension '{name}' has a 'step', but LizyML dimensions have no step "
-            "yet: the search would sample the whole range, not multiples of it. "
-            "Remove 'step'.",
-            reason="step_not_supported",
-            dim=name,
-            key="step",
-        )
     allowed = DIM_KEYS[kind]
     unknown = [key for key in spec if key not in allowed]
     if unknown:
@@ -255,7 +251,7 @@ def _finite(name: str, key: str, value: Any, number: float, *, surface: str) -> 
             value,
             reason="bound_not_finite",
             surface=surface,
-            why="a bound must be finite.",
+            why=f"{key} must be finite.",
         )
     return number
 
@@ -342,6 +338,41 @@ def _not_integral(name: str, key: str, value: Any, *, surface: str) -> LizyMLErr
         reason="bound_not_integral",
         surface=surface,
         why="an int dimension's bound must be a whole number; it is not rounded.",
+    )
+
+
+def read_float_step(name: str, value: Any, *, surface: str) -> float:
+    """A ``float`` dimension's ``step`` (H-0124): read as a bound, and > 0.
+
+    The type rules and the refusals for an unreadable value are
+    :func:`read_float_bound`'s, with ``key="step"``.
+    """
+    step = read_float_bound(name, "step", value, surface=surface)
+    if step <= 0:
+        raise _not_positive(name, value, surface=surface, least="greater than 0")
+    return step
+
+
+def read_int_step(name: str, value: Any, *, surface: str) -> int:
+    """An ``int`` dimension's ``step`` (H-0124): read as a bound, and >= 1.
+
+    The type and whole-number rules are :func:`read_int_bound`'s, with
+    ``key="step"``: ``1.5`` is refused, not rounded.
+    """
+    step = read_int_bound(name, "step", value, surface=surface)
+    if step < 1:
+        raise _not_positive(name, value, surface=surface, least="at least 1")
+    return step
+
+
+def _not_positive(name: str, value: Any, *, surface: str, least: str) -> LizyMLError:
+    return _bound_error(
+        name,
+        "step",
+        value,
+        reason="step_not_positive",
+        surface=surface,
+        why=f"step must be {least}.",
     )
 
 

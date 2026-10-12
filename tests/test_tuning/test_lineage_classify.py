@@ -15,6 +15,7 @@ from typing import Any
 import optuna
 import pytest
 
+from lizyml.core.types.search_dim import FloatDim, IntDim
 from lizyml.tuning.lineage import (
     STUDY_KEY,
     Lineage,
@@ -37,6 +38,7 @@ from lizyml.tuning.lineage import (
 )
 from lizyml.tuning.lineage_codec import SCHEMA_VERSION, to_attr_value
 from tests.test_tuning._lineage_fixtures import (
+    LR_BOUNDED,
     FakeTrial,
     St,
     attrs_of,
@@ -540,9 +542,13 @@ class TestRoutes:
     def test_removed_smart_dim_still_routes_to_smart(self) -> None:
         # Criterion 6 (PR 1 half): the round that declared the smart dim
         # keeps its route after a later round no longer declares it.
+        # Round 1's trials hold the dim and round 2's do not (H-0124: each
+        # trial's names are within its own round's space).
+        ratio = FloatDim("num_leaves_ratio", 0.5, 1.0, category="smart")
         r1 = stored_round(
             1,
             0,
+            effective=(LR_BOUNDED, ratio),
             routes_added=(
                 Route("learning_rate", "learning_rate", "model"),
                 Route("num_leaves_ratio", "num_leaves_ratio", "smart"),
@@ -552,7 +558,10 @@ class TestRoutes:
             stored_study(), (r1, stored_round(2, 3)), {1: stored_end(), 2: stored_end()}
         )
         best = {"learning_rate": 0.1, "num_leaves_ratio": 0.7}
-        lin = classify_study(attrs, make_trials(5, params=best))
+        trials = make_trials(3, params=best) + [
+            FakeTrial(n, params={"learning_rate": 0.2}) for n in (3, 4)
+        ]
+        lin = classify_study(attrs, trials)
         assert lin.state == "completed"
         model, smart, _ = split_by_routes(best, lin.routes)
         assert smart == {"num_leaves_ratio": 0.7}
@@ -560,9 +569,11 @@ class TestRoutes:
 
     def test_removed_training_dim_still_routes_to_training(self) -> None:
         # Criterion 6b (PR 1 half).
+        rounds_dim = IntDim("early_stopping_rounds", 10, 50, category="training")
         r1 = stored_round(
             1,
             0,
+            effective=(LR_BOUNDED, rounds_dim),
             routes_added=(
                 Route("learning_rate", "learning_rate", "model"),
                 Route("early_stopping_rounds", "early_stopping_rounds", "training"),
@@ -572,7 +583,11 @@ class TestRoutes:
             stored_study(), (r1, stored_round(2, 3)), {1: stored_end(), 2: stored_end()}
         )
         best = {"learning_rate": 0.1, "early_stopping_rounds": 30}
-        lin = classify_study(attrs, make_trials(5, params=best))
+        trials = make_trials(3, params=best) + [
+            FakeTrial(n, params={"learning_rate": 0.2}) for n in (3, 4)
+        ]
+        lin = classify_study(attrs, trials)
+        assert lin.state == "completed"
         model, _, training = split_by_routes(best, lin.routes)
         assert training == {"early_stopping_rounds": 30}
         assert "early_stopping_rounds" not in model

@@ -231,8 +231,31 @@ def _category(value: Any, what: str) -> DimCategory:
 # ---------------------------------------------------------------------------
 
 
+_NUMERIC_DIM_KEYS = frozenset(
+    {
+        "kind",
+        "name",
+        "category",
+        "low",
+        "high",
+        "log",
+        "min_allowed",
+        "max_allowed",
+        "step",
+    }
+)
+"""The keys of an encoded ``float`` / ``int`` dim; ``step`` may be absent."""
+
+_CATEGORICAL_DIM_KEYS = frozenset({"kind", "name", "category", "choices"})
+"""The keys of an encoded ``categorical`` dim."""
+
+
 def encode_dim(dim: SearchDim) -> dict[str, Any]:
-    """Encode a ``SearchDim`` so that ``decode_dim`` returns an equal dim."""
+    """Encode a ``SearchDim`` so that ``decode_dim`` returns an equal dim.
+
+    A numeric dim's ``step`` (H-0124) is written, as ``null`` when it is
+    ``None``, so :func:`dim_signature` compares it.
+    """
     what = f"dim '{dim.name}'"
     _expect_str(dim.name, f"{what} name")
     _category(dim.category, what)
@@ -248,7 +271,7 @@ def encode_dim(dim: SearchDim) -> dict[str, Any]:
     ints_only = isinstance(dim, IntDim)
     for label in ("low", "high"):
         _check_number(getattr(dim, label), f"{what} {label}", ints_only=ints_only)
-    for label in ("min_allowed", "max_allowed"):
+    for label in ("min_allowed", "max_allowed", "step"):
         bound = getattr(dim, label)
         if bound is not None:
             _check_number(bound, f"{what} {label}", ints_only=ints_only)
@@ -262,24 +285,33 @@ def encode_dim(dim: SearchDim) -> dict[str, Any]:
         "log": dim.log,
         "min_allowed": encode_scalar(dim.min_allowed),
         "max_allowed": encode_scalar(dim.max_allowed),
+        "step": encode_scalar(dim.step),
     }
 
 
 def decode_dim(payload: Any) -> SearchDim:
-    """Decode one encoded dim; refuse anything ``encode_dim`` cannot produce."""
+    """Decode one encoded dim; refuse anything ``encode_dim`` cannot produce.
+
+    A key the dim's kind does not have is refused, not dropped. A numeric dim
+    without ``step`` -- a record written before H-0124 -- has ``step=None``.
+    """
     obj = _expect_dict(payload, "dim")
     name = _expect_str(_field(obj, "name", "dim"), "dim name")
     what = f"dim '{name}'"
     category = _category(_field(obj, "category", what), what)
     kind = _field(obj, "kind", what)
+    if kind not in ("categorical", "float", "int"):
+        raise LineageCodecError(f"{what}: unknown kind {kind!r}")
+    allowed = _CATEGORICAL_DIM_KEYS if kind == "categorical" else _NUMERIC_DIM_KEYS
+    unknown = sorted(key for key in obj if key not in allowed)
+    if unknown:
+        raise LineageCodecError(f"{what} has unknown key(s) {unknown}")
     if kind == "categorical":
         raw = _expect_list(_field(obj, "choices", what), f"{what} choices")
         if not raw:
             raise LineageCodecError(f"{what} has no choices")
         choices = tuple(decode_scalar(c) for c in raw)
         return CategoricalDim(name=name, choices=choices, category=category)
-    if kind not in ("float", "int"):
-        raise LineageCodecError(f"{what}: unknown kind {kind!r}")
     ints_only = kind == "int"
     low = _decode_number(_field(obj, "low", what), ints_only=ints_only)
     high = _decode_number(_field(obj, "high", what), ints_only=ints_only)
@@ -290,6 +322,11 @@ def decode_dim(payload: Any) -> SearchDim:
     hi_bound = _decode_optional_number(
         _field(obj, "max_allowed", what), ints_only=ints_only
     )
+    step = (
+        _decode_optional_number(obj["step"], ints_only=ints_only)
+        if "step" in obj
+        else None
+    )
     if ints_only:
         return IntDim(
             name=name,
@@ -299,6 +336,7 @@ def decode_dim(payload: Any) -> SearchDim:
             category=category,
             min_allowed=lo_bound,
             max_allowed=hi_bound,
+            step=step,
         )
     return FloatDim(
         name=name,
@@ -308,6 +346,7 @@ def decode_dim(payload: Any) -> SearchDim:
         category=category,
         min_allowed=lo_bound,
         max_allowed=hi_bound,
+        step=step,
     )
 
 

@@ -331,6 +331,17 @@ def _trial_problem(
     unrouted = sorted({p for t in trials for p in t.params} - set(routes))
     if unrouted:
         return f"trial parameters with no route: {unrouted}"
+    # H-0124: a trial's values are read with its own round's dimensions, so
+    # each trial's names must be in the space of the round it belongs to.
+    names = {r.round: {d.name for d in r.effective} for r in rounds}
+    for t in trials:
+        k = round_of(rounds, t.number)
+        stray = sorted(set(t.params) - names[k])
+        if stray:
+            return (
+                f"trial {t.number} has parameters {stray} outside the space of "
+                f"round {k}, which it belongs to"
+            )
     return None
 
 

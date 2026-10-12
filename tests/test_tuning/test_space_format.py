@@ -63,7 +63,19 @@ REFUSED: dict[str, tuple[Any, str | None, str]] = {
     "log_str": ({**LR, "log": "false"}, "log", "log_not_bool"),
     "log_int": ({**LR, "log": 1}, "log", "log_not_bool"),
     "log_numpy_bool": ({**LR, "log": np.bool_(True)}, "log", "log_not_bool"),
-    "step_key": ({**NL, "step": 2}, "step", "step_not_supported"),
+    # H-0124: a step is in the format; a range off its grid is refused.
+    "step_key": ({**NL, "step": 3}, "low", "bound_off_grid"),
+    "step_high_off_grid": (
+        {**LR, "high": 0.32, "step": 0.05},
+        "high",
+        "bound_off_grid",
+    ),
+    "step_str": ({**LR, "step": "abc"}, "step", "bound_not_a_number"),
+    "step_bool": ({**NL, "step": True}, "step", "bound_not_a_number"),
+    "step_nan": ({**LR, "step": float("nan")}, "step", "bound_not_finite"),
+    "step_int_fraction": ({**NL, "step": 1.5}, "step", "bound_not_integral"),
+    "step_zero": ({**NL, "step": 0}, "step", "step_not_positive"),
+    "step_negative": ({**LR, "step": -0.05}, "step", "step_not_positive"),
     "typo_key": ({**LR, "lo": 3}, "lo", "unknown_key"),
     "categorical_with_low": (
         {"type": "categorical", "choices": [True, False], "low": 1},
@@ -254,11 +266,11 @@ def test_config_format_is_checked_before_the_name_checks() -> None:
     The name checks read ``category`` from each raw spec; ``not_a_param`` would
     be refused there as an unknown parameter if the format were checked later.
     """
-    spec = {"type": "float", "low": 0.1, "high": 1.0, "step": 0.1}
+    spec = {"type": "float", "low": 0.1, "high": 1.0, "log": "false"}
     model = Model(_config_with({"not_a_param": spec}), data=frame())
     with pytest.raises(LizyMLError) as caught:
         model.tune()
-    assert caught.value.context["reason"] == "step_not_supported"
+    assert caught.value.context["reason"] == "log_not_bool"
     assert caught.value.context["dim"] == "not_a_param"
 
 
@@ -276,11 +288,12 @@ def test_every_refusal_reason_in_the_code_is_asserted() -> None:
     import re
 
     import lizyml.tuning._space_format as fmt
+    import lizyml.tuning._step_grid as grid
     import lizyml.tuning.search_space as ss
 
     pattern = re.compile(r"""reason["']?\s*[:=]\s*["']([a-z_]+)["']""")
     raised = set()
-    for module in (fmt, ss):
+    for module in (fmt, grid, ss):
         source = Path(str(module.__file__)).read_text("utf-8")
         raised |= set(pattern.findall(source))
     asserted = {reason for _, _, reason in REFUSED.values()}
@@ -313,11 +326,12 @@ def test_unknown_type_keeps_its_context_and_names_the_surface() -> None:
     assert (context["surface"], context["reason"]) == (CONFIG, "unknown_type")
 
 
-def test_step_refusal_says_dimensions_have_no_step() -> None:
+def test_off_grid_refusal_names_the_step_and_a_range_on_the_grid() -> None:
+    """H-0124 replaced the H-0123 ``step`` refusal: the range is checked."""
     with pytest.raises(LizyMLError) as caught:
-        parse_space({"num_leaves": {**NL, "step": 2}})
-    assert "step" in caught.value.user_message
-    assert "no step" in caught.value.user_message
+        parse_space({"num_leaves": {**NL, "step": 3}})
+    assert "step=3" in caught.value.user_message
+    assert "[3, 9]" in caught.value.user_message
 
 
 # ---------------------------------------------------------------------------

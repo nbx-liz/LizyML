@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Mapping
+from fractions import Fraction
 from typing import Any, TypeVar
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
@@ -27,8 +28,17 @@ from lizyml.tuning._space_format import (
     format_error,
     read_choices,
     read_float_bound,
+    read_float_step,
     read_int_bound,
+    read_int_step,
     read_log,
+)
+from lizyml.tuning._step_grid import (
+    check_grid,
+    exact,
+    snap_down,
+    snap_up,
+    suggest_on_grid,
 )
 
 __all__ = [
@@ -185,9 +195,13 @@ def parse_space(
         surface: Where *space* was declared, quoted in every refusal's
             message and ``context["surface"]``.
 
+    A ``step`` (H-0124) is read like a bound and must be positive (at least 1
+    on an ``int`` dimension); ``low`` and ``high`` must then be multiples of it
+    (:func:`lizyml.tuning._step_grid.check_grid`, after the range checks).
+
     Returns:
         List of typed SearchDim instances, with plain ``int`` / ``float``
-        bounds and a ``tuple`` of choices.
+        bounds and step, and a ``tuple`` of choices.
 
     Raises:
         LizyMLError with CONFIG_INVALID for a space outside the format, with
@@ -216,6 +230,18 @@ def parse_space(
             high_f = read_float_bound(name, "high", spec["high"], surface=surface)
             log_f = read_log(name, spec, surface=surface)
             _validate_numeric_range(name, low_f, high_f, log=log_f, surface=surface)
+            step_f = None
+            if "step" in spec:
+                step_f = read_float_step(name, spec["step"], surface=surface)
+                check_grid(
+                    name,
+                    low_f,
+                    high_f,
+                    step_f,
+                    log=log_f,
+                    kind="float",
+                    surface=surface,
+                )
             dims.append(
                 FloatDim(
                     name=name,
@@ -223,6 +249,7 @@ def parse_space(
                     high=high_f,
                     log=log_f,
                     category=category,
+                    step=step_f,
                 )
             )
         elif dim_type == "int":
@@ -230,6 +257,18 @@ def parse_space(
             high_i = read_int_bound(name, "high", spec["high"], surface=surface)
             log_i = read_log(name, spec, surface=surface)
             _validate_numeric_range(name, low_i, high_i, log=log_i, surface=surface)
+            step_i = None
+            if "step" in spec:
+                step_i = read_int_step(name, spec["step"], surface=surface)
+                check_grid(
+                    name,
+                    low_i,
+                    high_i,
+                    step_i,
+                    log=log_i,
+                    kind="int",
+                    surface=surface,
+                )
             dims.append(
                 IntDim(
                     name=name,
@@ -237,6 +276,7 @@ def parse_space(
                     high=high_i,
                     log=log_i,
                     category=category,
+                    step=step_i,
                 )
             )
         else:
@@ -279,25 +319,32 @@ def split_by_category(
 def suggest_params(trial: Any, dims: list[SearchDim]) -> dict[str, Any]:
     """Sample a parameter dict from an optuna trial.
 
+    A dimension without ``step`` is sampled as before, without ``step=``. A
+    stepped one (H-0124) is sampled by
+    :func:`lizyml.tuning._step_grid.suggest_on_grid` and returns its grid
+    value, the value the trial trains on.
+
     Args:
         trial: An ``optuna.Trial`` instance.
         dims: List of search dimensions.
 
     Returns:
-        Dict of sampled hyperparameter values.
+        Dict of the values to train on, one per dimension.
     """
     params: dict[str, Any] = {}
     for dim in dims:
-        if isinstance(dim, FloatDim):
+        if isinstance(dim, CategoricalDim):
+            params[dim.name] = trial.suggest_categorical(dim.name, dim.choices)
+        elif dim.step is not None:
+            params[dim.name] = suggest_on_grid(trial, dim)
+        elif isinstance(dim, FloatDim):
             params[dim.name] = trial.suggest_float(
                 dim.name, dim.low, dim.high, log=dim.log
             )
-        elif isinstance(dim, IntDim):
+        else:  # IntDim
             params[dim.name] = trial.suggest_int(
                 dim.name, dim.low, dim.high, log=dim.log
             )
-        else:  # CategoricalDim
-            params[dim.name] = trial.suggest_categorical(dim.name, dim.choices)
     return params
 
 
@@ -309,7 +356,7 @@ def suggest_params(trial: Any, dims: list[SearchDim]) -> dict[str, Any]:
 _LOG_EXPANSION_FACTOR = 3.0
 """Expansion factor for log-scale dimensions (applied in log space)."""
 
-_Num = TypeVar("_Num", int, float)
+_Num = TypeVar("_Num", int, float, Fraction)
 
 
 def _position_pct(best: float, low: float, high: float, *, log: bool) -> float:
@@ -389,7 +436,8 @@ def _clamp_outward(
     Only an edge the expansion moved outward is clamped, and only as far as
     the declared edge: a user ``low`` already below ``min_allowed`` stays
     (#342). ``clamped`` is ``True`` iff a bound stopped an outward move.
-    Exact for ints: ``min`` / ``max`` return one of their arguments.
+    Exact for ints and fractions: ``min`` / ``max`` return one of their
+    arguments.
     """
     clamped = False
     if min_allowed is not None and new_low < low and new_low < min_allowed:
@@ -428,6 +476,54 @@ def _expand_int_range(
     elif edge == "upper":
         new_high = high * factor if log and high > 0 else high + (high - low)
     return _clamp_outward(low, high, new_low, new_high, min_allowed, max_allowed)
+
+
+def _expand_on_grid(
+    dim: FloatDim | IntDim, edge: str
+) -> tuple[float | int, float | int, bool]:
+    """:func:`_expand_range` / :func:`_expand_int_range` for a stepped dim (H-0124).
+
+    The same rule in exact arithmetic (``0.2 + (0.2 - 0.1)`` is ``0.3``, not
+    ``0.30000000000000004``); the moved edge is then snapped outward to the
+    grid, kept above its floor (a log lower edge at ``step``; an ``int`` one at
+    the grid point the ``max(1, ...)`` guard allows), clamped to a provider
+    bound (:func:`_clamp_outward`) and, if clamped, snapped inward -- never
+    inside the declared edge (#342). A result equal to the declared range is
+    no expansion, as for any dim.
+    """
+    is_int = isinstance(dim, IntDim)
+    assert dim.step is not None
+    step = exact(dim.step)
+    low, high = exact(dim.low), exact(dim.high)
+    new_low, new_high = low, high
+    factor = int(_LOG_EXPANSION_FACTOR)
+    if edge == "lower":
+        if dim.log and low > 0:
+            new_low = Fraction(dim.low // factor) if is_int else low / factor
+        else:
+            new_low = min(low, max(Fraction(0), low - (high - low)))
+        if is_int:
+            new_low = min(low, max(Fraction(1), new_low))
+        new_low = snap_down(new_low, step)
+        if dim.log and new_low < step:
+            new_low = step
+        if is_int and new_low < 1:
+            new_low = snap_up(Fraction(1), step)
+        new_low = min(low, new_low)
+    elif edge == "upper":
+        new_high = high * factor if dim.log and high > 0 else high + (high - low)
+        new_high = snap_up(new_high, step)
+    min_allowed = None if dim.min_allowed is None else exact(dim.min_allowed)
+    max_allowed = None if dim.max_allowed is None else exact(dim.max_allowed)
+    new_low, new_high, clamped = _clamp_outward(
+        low, high, new_low, new_high, min_allowed, max_allowed
+    )
+    if clamped and edge == "lower":
+        new_low = min(low, snap_up(new_low, step))
+    elif clamped and edge == "upper":
+        new_high = max(high, snap_down(new_high, step))
+    plain: type[int] | type[float] = int if is_int else float
+    return plain(new_low), plain(new_high), clamped
 
 
 def detect_boundary(
@@ -485,7 +581,10 @@ def detect_boundary(
         if should_expand:
             nl: float | int
             nh: float | int
-            if isinstance(dim, IntDim):
+            if dim.step is not None:
+                nl, nh, clamped = _expand_on_grid(dim, edge)
+                unchanged = (nl, nh) == (dim.low, dim.high)
+            elif isinstance(dim, IntDim):
                 nl, nh, clamped = _expand_int_range(
                     dim.low,
                     dim.high,
@@ -549,8 +648,8 @@ def attach_bounds(
 
     For each ``FloatDim`` / ``IntDim`` whose ``name`` is a key in *bounds*,
     a copy is returned with ``min_allowed`` / ``max_allowed`` populated
-    from ``{"min": ..., "max": ...}``. Dims that already carry user-set
-    bounds are left untouched (user override wins). ``CategoricalDim`` is
+    from ``{"min": ..., "max": ...}``, keeping ``step``. Dims that already
+    carry user-set bounds are left untouched (user override wins). ``CategoricalDim`` is
     always returned unchanged. Dims with no entry in *bounds* are
     unchanged.
 
@@ -583,6 +682,7 @@ def attach_bounds(
                     category=dim.category,
                     min_allowed=float(b["min"]),
                     max_allowed=float(b["max"]),
+                    step=dim.step,
                 )
             )
         elif isinstance(dim, IntDim):
@@ -595,6 +695,7 @@ def attach_bounds(
                     category=dim.category,
                     min_allowed=int(b["min"]),
                     max_allowed=int(b["max"]),
+                    step=dim.step,
                 )
             )
         else:  # pragma: no cover — exhaustive over SearchDim
@@ -608,7 +709,9 @@ def expand_dims(
 ) -> list[SearchDim]:
     """Return a new list of SearchDim with boundary-expanded ranges (H-0068).
 
-    Only dimensions flagged ``expanded=True`` in *report* are modified.
+    Only dimensions flagged ``expanded=True`` in *report* are modified, and
+    keep their ``step``: :func:`detect_boundary` puts a stepped dimension's new
+    edges on its grid (H-0124).
     Non-expanded dimensions are returned unchanged. An expanded range only
     ever widens (#342): each edge is the outer of the old and the reported
     one, so even a hand-made report cannot narrow or invert a range.
@@ -644,6 +747,7 @@ def expand_dims(
                     category=dim.category,
                     min_allowed=dim.min_allowed,
                     max_allowed=dim.max_allowed,
+                    step=dim.step,
                 )
             )
         elif (
@@ -660,6 +764,7 @@ def expand_dims(
                     category=dim.category,
                     min_allowed=dim.min_allowed,
                     max_allowed=dim.max_allowed,
+                    step=dim.step,
                 )
             )
         else:
