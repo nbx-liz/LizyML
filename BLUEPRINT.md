@@ -857,8 +857,8 @@ outer fold の train データ（特定期間 × 特定ユーザー）に対し�
 ## 11.1 SearchSpace 表現の統一
 
 - Optuna に依存しない space 表現（離散・連続・対数・カテゴリ）を使う。
-- `parse_space` は `float` / `int` 次元の範囲を parse 時に検査する（H-0078）: `low >= high` は `CONFIG_INVALID`、`log=True` で `low <= 0` も `CONFIG_INVALID`（context `param` / `low` / `high` / `log`）。Optuna が trial の中で出す汎用のエラーより前に、設定の誤りとして名指す。
-- **探索空間の書式（H-0123）**: `tuning.optuna.space` と `tune(space=...)` は同じ書式で、どちらも `parse_space` が検査する（`tune` が空間を解決するとき。config の空間は `tune` の引数の検査の段で、study を作る前・書く前）。書式は YAML と JSON が作る型（数、真偽、文字列、list）で書く前提で、書式の外の指定は別の探索に読み替えず `CONFIG_INVALID` で拒否する（context に次元の名前 `dim`、キー `key`、理由 `reason`、空間 `surface` = `tuning.optuna.space` か `tune(space=)`）。空間は `str` の名前から次元の指定（mapping）への mapping で、次元ごとに:
+- `parse_space` は `float` / `int` 次元の範囲を parse 時に検査する（H-0078）: `low >= high` は `CONFIG_INVALID`、`log=True` で `low <= 0` も `CONFIG_INVALID`（context `param` / `low` / `high` / `log`。H-0123 から書式の拒否と同じ `dim`・`key`（`low`）・`reason`・`surface` も入る）。Optuna が trial の中で出す汎用のエラーより前に、設定の誤りとして名指す。
+- **探索空間の書式（H-0123）**: `tuning.optuna.space` と `tune(space=...)` は同じ書式で、どちらも `parse_space` が検査する（`tune` が空間を解決するとき。config の空間は `tune` の引数の検査の段で、study を作る前・書く前）。書式は YAML と JSON が作る型（数、真偽、文字列、list）で書く前提で、書式の外の指定は別の探索に読み替えず `CONFIG_INVALID` で拒否する（context に次元の名前 `dim`、キー `key`、理由 `reason`、空間 `surface` = `tuning.optuna.space` か `tune(space=)` が必ずある。`dim` は空間が mapping でないときだけ `None`、`key` は空間全体か次元全体についての拒否では `None`）。空間は `str` の名前から次元の指定（mapping）への mapping で、次元ごとに:
   - `type`: `float` / `int` / `categorical`。
   - キーは、`float` と `int` では `type`・`low`・`high`・`log`・`category`、`categorical` では `type`・`choices`・`category` だけ。`step` は受け付けない（LizyML の次元にはまだ刻みが無い）。綴りの誤り（`lo` など）も拒否する。
   - `low` / `high`（`float` / `int` で必須）: `int` か `float`（`bool` は除く）、numpy の整数・浮動小数のスカラー（`numpy.bool_` は除く。H-0095 のとおり素の値に直す）、または数の表記に完全一致する文字列 `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?`（ASCII の数字だけ。PyYAML は YAML 1.1 で `1e-4` を文字列として読む）。`"nan"`・`"inf"`・`"0x10"`・`"1,000"` は数の表記ではない。値は有限であること。`int` の次元では整数の値であること（`16.0`・`"16.0"`・`"1e2"` は 16・16・100 に直し、`1.7` と `"1.7"` は切り捨てずに拒否する）。

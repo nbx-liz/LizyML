@@ -98,15 +98,20 @@ def format_error(
             ``tune(space=)``); quoted first in the message.
         message: What is wrong, naming the dimension.
         reason: A stable token for ``context["reason"]``.
-        dim: The dimension's name.
-        key: The key of the dimension spec the refusal is about.
+        dim: The dimension's name; ``None`` only when the space itself is not
+            a mapping.
+        key: The key of the dimension spec the refusal is about; ``None`` when
+            the refusal is about the whole space or the whole dimension.
         **context: Further ``context`` entries.
+
+    The context always has ``surface``, ``reason``, ``dim`` and ``key``.
     """
-    ctx: dict[str, Any] = {"surface": surface, "reason": reason}
-    if dim is not None:
-        ctx["dim"] = dim
-    if key is not None:
-        ctx["key"] = key
+    ctx: dict[str, Any] = {
+        "surface": surface,
+        "reason": reason,
+        "dim": dim,
+        "key": key,
+    }
     ctx.update(context)
     return LizyMLError(
         code=ErrorCode.CONFIG_INVALID,

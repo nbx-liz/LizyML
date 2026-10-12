@@ -144,6 +144,14 @@ REFUSED: dict[str, tuple[Any, str | None, str]] = {
     "fraction_bound": ({**LR, "low": Fraction(1, 10)}, "low", "bound_not_a_number"),
     "none_bound": ({**LR, "low": None}, "low", "bound_not_a_number"),
     "not_a_mapping": ([("type", "float")], None, "dim_not_a_mapping"),
+    # The three refusals parse_space had before H-0123 carry the same context.
+    "empty_range": ({**LR, "low": 0.3, "high": 0.05}, "low", "empty_range"),
+    "log_low_zero": ({**LR, "low": 0, "high": 0.3}, "low", "log_low_not_positive"),
+    "nested_choice": (
+        {"type": "categorical", "choices": [[True, False]]},
+        "choices",
+        "invalid_choice",
+    ),
 }
 
 
@@ -163,10 +171,11 @@ def _name(spec: Any) -> str:
 def _assert_context(err: LizyMLError, case: str, surface: str) -> None:
     spec, key, reason = REFUSED[case]
     assert err.code is CI
-    expected = {"surface": surface, "reason": reason, "dim": _name(spec)}
-    if key is not None:
-        expected["key"] = key
-    assert {k: err.context.get(k) for k in expected} == expected
+    # Policy 3: every refusal names the dimension, the key (None for a whole
+    # dimension), the reason and the surface.
+    expected = {"surface": surface, "reason": reason, "dim": _name(spec), "key": key}
+    assert expected.keys() <= err.context.keys()
+    assert {k: err.context[k] for k in expected} == expected
     assert surface in err.user_message
     assert _name(spec) in err.user_message
 
@@ -246,6 +255,22 @@ def test_config_format_is_checked_before_the_name_checks() -> None:
         model.tune()
     assert caught.value.context["reason"] == "step_not_supported"
     assert caught.value.context["dim"] == "not_a_param"
+
+
+@pytest.mark.parametrize(
+    ("space", "dim", "reason"),
+    [([("learning_rate", LR)], None, "not_a_mapping"), ({1: LR}, "1", "name_not_str")],
+    ids=["not_a_mapping", "name_not_str"],
+)
+def test_space_level_refusal_has_all_four_context_entries(
+    space: Any, dim: str | None, reason: str
+) -> None:
+    """Policy 3 for a refusal of the whole space: ``dim``/``key`` are present."""
+    with pytest.raises(LizyMLError) as caught:
+        parse_space(space, surface=SPACE_ARG)
+    expected = {"surface": SPACE_ARG, "reason": reason, "dim": dim, "key": None}
+    assert expected.keys() <= caught.value.context.keys()
+    assert {k: caught.value.context[k] for k in expected} == expected
 
 
 def test_unknown_type_keeps_its_context_and_names_the_surface() -> None:

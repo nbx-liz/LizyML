@@ -86,6 +86,8 @@ def _validate_numeric_range(
                 "log": log,
                 "surface": surface,
                 "reason": "empty_range",
+                "dim": name,
+                "key": "low",
             },
         )
     if log and low <= 0:
@@ -103,6 +105,8 @@ def _validate_numeric_range(
                 "log": log,
                 "surface": surface,
                 "reason": "log_low_not_positive",
+                "dim": name,
+                "key": "low",
             },
         )
 
@@ -152,6 +156,8 @@ def _validate_categorical_choices(
                     "bad_value": str(val),
                     "surface": surface,
                     "reason": "invalid_choice",
+                    "dim": name,
+                    "key": "choices",
                 },
             )
 

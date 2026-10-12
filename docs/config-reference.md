@@ -436,8 +436,10 @@ Only this format is accepted (H-0123). `tuning.optuna.space` and
 `tune(space=...)` follow the same rule, checked when `tune` resolves the space,
 before any study is created or written. A dimension outside the format raises
 `CONFIG_INVALID` whose `context` names the dimension (`dim`), the `key`, a
-`reason` and the `surface` (`tuning.optuna.space` or `tune(space=)`); it is not
-converted into another search. Per dimension:
+`reason` and the `surface` (`tuning.optuna.space` or `tune(space=)`); all four
+are always present, with `dim` `None` only when the space itself is not a
+mapping and `key` `None` when the refusal is about the whole space or a whole
+dimension. It is not converted into another search. Per dimension:
 
 | Key | Applies to | Required | Accepted values |
 |---|---|---|---|
