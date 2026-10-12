@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Literal
 
+from lizyml.core import _smart_values
 from lizyml.core._model_factories import check_smart_managed_overrides
 from lizyml.core._model_metrics import _DEFAULT_METRICS
 from lizyml.core._smart_combinations import (
@@ -91,6 +92,10 @@ def validate_tuning_dimensions(
             },
         )
     _refuse_undeclared_smart_dimensions(provider, space, surface=surface)
+    # H-0121 amendment 2, policy 2: every value the round's smart dimensions
+    # can take -- the config's, `space=`'s, the defaults and the expanded
+    # ones alike -- before the checks below read them by truthiness.
+    _smart_values.check_smart_dimension_values(provider, space, task, surface=surface)
     model_names = dict.fromkeys(dim.name for dim in space if dim.category == "model")
     check_smart_managed_overrides(provider, model_names, smart, task, surface=surface)
     # H-0121 amendment 1, policy 2: against the smart values the trials can

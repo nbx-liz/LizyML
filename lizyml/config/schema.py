@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Mapping
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Literal, NamedTuple
 
 from pydantic import (
     BaseModel,
@@ -319,14 +319,42 @@ SplitConfig = Annotated[
 # ---------------------------------------------------------------------------
 
 
-def _check_ratio(value: float | None, name: str, *, inclusive_upper: bool) -> None:
-    """Validate a ratio parameter is in (0, 1] or (0, 1)."""
+class RatioRange(NamedTuple):
+    """An interval open at ``low``, closed at ``high`` when ``upper_inclusive``."""
+
+    low: float
+    high: float
+    upper_inclusive: bool
+
+    def contains(self, value: float) -> bool:
+        """Whether *value* lies in the interval (NaN never does)."""
+        upper_ok = value <= self.high if self.upper_inclusive else value < self.high
+        return bool(value > self.low and upper_ok)
+
+    def describe(self) -> str:
+        """The interval in the usual notation, e.g. ``(0, 1]``."""
+        close = "]" if self.upper_inclusive else ")"
+        return f"({self.low:g}, {self.high:g}{close}"
+
+
+#: The ranges of the ratio smart parameters: the one declaration both this
+#: config's validation and the estimator provider's smart value rule read
+#: (H-0121 amendment 2, policy 1), so a config field and a search dimension
+#: cannot disagree about a ratio (DC3).
+SMART_RATIO_RANGES: dict[str, RatioRange] = {
+    "num_leaves_ratio": RatioRange(low=0.0, high=1.0, upper_inclusive=True),
+    "min_data_in_leaf_ratio": RatioRange(low=0.0, high=1.0, upper_inclusive=False),
+    "min_data_in_bin_ratio": RatioRange(low=0.0, high=1.0, upper_inclusive=False),
+}
+
+
+def _check_ratio(value: float | None, name: str) -> None:
+    """Validate a ratio parameter against its range in ``SMART_RATIO_RANGES``."""
     if value is None:
         return
-    hi_ok = value <= 1.0 if inclusive_upper else value < 1.0
-    if not (value > 0 and hi_ok):
-        bound = "1]" if inclusive_upper else "1)"
-        raise ValueError(f"{name} must be in (0, {bound}, got {value}")
+    ratio_range = SMART_RATIO_RANGES[name]
+    if not ratio_range.contains(value):
+        raise ValueError(f"{name} must be in {ratio_range.describe()}, got {value}")
 
 
 class LGBMConfig(BaseModel):
@@ -350,13 +378,8 @@ class LGBMConfig(BaseModel):
         # layer (H-0121). The literal-string refusal of three names that used
         # to live here was removed with it: two checks covering different
         # ranges drift apart (DC3), and `config/` cannot reach the alias table.
-        _check_ratio(self.num_leaves_ratio, "num_leaves_ratio", inclusive_upper=True)
-        _check_ratio(
-            self.min_data_in_leaf_ratio, "min_data_in_leaf_ratio", inclusive_upper=False
-        )
-        _check_ratio(
-            self.min_data_in_bin_ratio, "min_data_in_bin_ratio", inclusive_upper=False
-        )
+        for name in SMART_RATIO_RANGES:
+            _check_ratio(getattr(self, name), name)
         if self.feature_weights:
             for k, v in self.feature_weights.items():
                 if v <= 0:

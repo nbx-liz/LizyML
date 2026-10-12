@@ -206,7 +206,7 @@ def plan_first_round(
     rule again to a ``space=`` declaration.
     """
     declared = admit_smart(
-        provider, resolved.declared, base_smart, resolved.default_dims
+        provider, resolved.declared, base_smart, resolved.default_dims, task=cfg.task
     )
     kept = {(d.category, d.name) for d in declared}
     routes = route_entries(declared, provider)

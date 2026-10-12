@@ -25,6 +25,7 @@ from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
+from lizyml.core import _smart_values
 from lizyml.core._tuning_validation import admit_smart_dimensions
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.logging import get_logger
@@ -137,9 +138,18 @@ def admit_smart(
     base_smart: dict[str, Any],
     default_dims: frozenset[tuple[str, str]],
     *,
+    task: TaskType,
     surface: str = "tuning.optuna.space",
 ) -> list[SearchDim]:
-    """H-0121 on a resolved declaration: refuse a user dim, drop a default."""
+    """H-0121 on a resolved declaration: refuse a user dim, drop a default.
+
+    The smart value rule runs first (H-0121 amendment 2, policy 2): the owner
+    rule reads an owner dimension's values by truthiness, so ``[0]`` or
+    ``["false"]`` must be refused for what they are before it judges them.
+    """
+    _smart_values.check_smart_dimension_values(
+        provider, declared, task, surface=surface
+    )
     kept, dropped = admit_smart_dimensions(
         provider, list(declared), base_smart, default_dims, surface=surface
     )
@@ -297,7 +307,7 @@ def resolve_declaration(
         (c, names.get((c, n), n)) for c, n in resolved.default_dims
     )
     declared = admit_smart(
-        provider, renamed, base_smart, default_dims, surface=SPACE_ARG
+        provider, renamed, base_smart, default_dims, task=task, surface=SPACE_ARG
     )
     kept = {(d.category, d.name) for d in declared}
     provenance = tuple(

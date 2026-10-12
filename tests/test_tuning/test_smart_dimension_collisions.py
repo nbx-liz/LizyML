@@ -36,6 +36,7 @@ from lizyml.core._tuning_validation import validate_tuning_dimensions
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.search_dim import CategoricalDim, FloatDim, IntDim
 from lizyml.estimators.lgbm.provider import LGBMProvider
+from lizyml.estimators.provider import SmartValueRule
 from tests._helpers import make_binary_df, make_config, make_regression_df
 from tests._train_spy import record_lightgbm_calls
 from tests.test_tuning._resume_helpers import snapshot_model, snapshot_study, url
@@ -124,7 +125,18 @@ class _PairProvider(LGBMProvider):
 
 
 class _FalsyRatioProvider(LGBMProvider):
-    """Manages ``HESSIAN`` only while ``num_leaves_ratio`` is falsy (not None)."""
+    """Manages ``HESSIAN`` only while ``num_leaves_ratio`` is falsy (not None).
+
+    Its value rule lets the ratio span zero: the shipped rule, ``(0, 1]``
+    (H-0121 amendment 2), refuses a range reaching the falsy state before the
+    collision check is reached, so only a provider declaring such a range can
+    exercise the reducer's zero end to end.
+    """
+
+    def smart_value_rules(self) -> dict[str, SmartValueRule]:
+        rules = dict(super().smart_value_rules())
+        rules["num_leaves_ratio"] = SmartValueRule(kind="number", low=-2.0, high=1.0)
+        return rules
 
     def smart_managed_param_names(
         self, smart: dict[str, Any], task: Any
@@ -265,9 +277,20 @@ _BASE_SMART: dict[str, Any] = {
     "balanced": None,
 }
 
+#: Three smart dimensions of 1,000 truthy values each, inside the smart value
+#: rule (H-0121 amendment 2): the ratios are the smart parameters that can take
+#: that many values (the bool ones take two).
 _WIDE = (
-    CategoricalDim("auto_num_leaves", tuple(range(1, 1001)), category="smart"),
-    CategoricalDim("balanced", tuple(range(1, 1001)), category="smart"),
+    CategoricalDim(
+        "num_leaves_ratio",
+        tuple(i / 1_000 for i in range(1, 1001)),
+        category="smart",
+    ),
+    CategoricalDim(
+        "min_data_in_bin_ratio",
+        tuple(i / 10_000 for i in range(1, 1001)),
+        category="smart",
+    ),
     CategoricalDim(
         "min_data_in_leaf_ratio",
         tuple(i / 10_000 for i in range(1, 1001)),
@@ -350,6 +373,8 @@ def test_c4c_none_choice_activates_balanced_in_either_order(choices: list[Any]) 
 # Criteria 5, 5b, 5c: activation by a combination, and by zero
 # ---------------------------------------------------------------------------
 
+#: Tuned on binary: a ``balanced`` dimension that can be true is refused on
+#: regression (H-0121 amendment 2), before the collision check is reached.
 _PAIR_SPACE = {
     "auto_num_leaves": _smart([False, True]),
     "balanced": _smart([False, True]),
@@ -361,12 +386,12 @@ def test_c5_layer_collision_needing_two_smart_values(
 ) -> None:
     _use(monkeypatch, _PairProvider())
     cfg = _config(
-        "regression",
+        "binary",
         _PAIR_SPACE,
         model={"auto_num_leaves": False, "balanced": False},
         **{HESSIAN: 1e-3},
     )
-    err = _refused(cfg, "regression")
+    err = _refused(cfg, "binary")
     entry = _managed(err)
     assert entry["name"] == HESSIAN
     assert entry["surface"] == "model.params"
@@ -381,10 +406,8 @@ def test_c5b_model_dimension_collision_needing_two_smart_values(
         **_PAIR_SPACE,
         HESSIAN: {"type": "float", "low": 1e-3, "high": 1e-2, "category": "model"},
     }
-    cfg = _config(
-        "regression", space, model={"auto_num_leaves": False, "balanced": False}
-    )
-    err = _refused(cfg, "regression")
+    cfg = _config("binary", space, model={"auto_num_leaves": False, "balanced": False})
+    err = _refused(cfg, "binary")
     entry = _managed(err)
     assert entry["name"] == HESSIAN
     assert entry["surface"] == "tuning.optuna.space"

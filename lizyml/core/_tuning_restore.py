@@ -21,6 +21,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Literal
 
+from lizyml.core._smart_values import smart_value_violation
 from lizyml.core._tuning_plan import _uses_default
 from lizyml.core._tuning_resume import judge_existing, objective_identity, refuse_state
 from lizyml.core.exceptions import ErrorCode, LizyMLError
@@ -38,6 +39,7 @@ if TYPE_CHECKING:
     from optuna.storages import BaseStorage
 
     from lizyml.config.schema import LizyMLConfig
+    from lizyml.core.types.task import TaskType
     from lizyml.estimators.provider import EstimatorProvider
 
 #: States with no closed, completed round to restore (§7.7).
@@ -198,4 +200,40 @@ def read_restorable(
         metric_name=metric_name,
         direction=direction,
     )
+    refuse_recorded_smart_values(restored.result, provider, cfg.task, study_name)
     return replace(restored, study=study)
+
+
+def refuse_recorded_smart_values(
+    result: TuningResult,
+    provider: EstimatorProvider,
+    task: TaskType,
+    study_name: str,
+) -> None:
+    """Refuse a restored result whose smart values break the rule (H-0121 am. 2).
+
+    Policy 5: a study tuned before the smart value rule existed can record a
+    value no trial trained as written (``"false"`` trained with the parameter
+    on). A ``tune(resume=True)`` of it is refused by the round admission; the
+    result is refused here, before it reaches the Model or a ``fit``.
+    """
+    found = smart_value_violation(provider, result.best_smart_params, task)
+    if found is None:
+        return
+    raise LizyMLError(
+        code=ErrorCode.CONFIG_INVALID,
+        user_message=(
+            f"study '{study_name}' records the smart parameter "
+            f"'{found.name}'={found.value!r} as its best, which '{found.name}' "
+            f"cannot hold: it takes {found.expected}. Its trials did not train "
+            "on that value as written, so the result is not restored. Tune "
+            "again in a new study (another study_name)."
+        ),
+        context={
+            "surface": "tuning.study",
+            "study_name": study_name,
+            "name": found.name,
+            "value": found.value,
+            "reason": found.reason,
+        },
+    )
