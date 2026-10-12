@@ -12,6 +12,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
 from lizyml.core.types.tuning_result import RoundSummary, TrialResult, TuningResult
+from lizyml.tuning._step_grid import recorded_params
 from lizyml.tuning.lineage import (
     Lineage,
     TrialLike,
@@ -26,6 +27,25 @@ class ScoredTrial(TrialLike, Protocol):
 
     @property
     def value(self) -> float | None: ...
+
+
+def recorded_trial_params(lineage: Lineage, trial: TrialLike) -> dict[str, Any]:
+    """The values *trial* trained on, read with its own round's dims (H-0124).
+
+    The one reader of a trial's raw Optuna values for anything LizyML reports,
+    plans or trains from (policy 4): a stepped dimension's value is the grid
+    point its raw sample rounds to under the ``effective`` space of the round
+    the trial belongs to (:func:`round_of`), never the current round's. A
+    dimension without ``step`` reads as the raw value.
+
+    Raises:
+        ValueError: The trial precedes every round, or holds a name its round
+            does not declare; ``classify_study`` judges such a study
+            ``inconsistent`` first.
+    """
+    by_round = {record.round: record for record in lineage.rounds}
+    own = by_round[round_of(lineage.rounds, trial.number)]
+    return recorded_params(trial.params, own.effective)
 
 
 def round_summaries(
@@ -71,7 +91,8 @@ def assemble_tuning_result(
     Args:
         lineage: The study's lineage; its last round has a ``completed`` end.
         trials: Every trial of the study.
-        best_params: The study's best trial's params (raw names).
+        best_params: The study's best trial's recorded params
+            (:func:`recorded_trial_params`), under their raw names.
         best_score: The study's best value.
         metric_name: The first metric's name.
         direction: The study's direction.
@@ -94,7 +115,7 @@ def assemble_tuning_result(
         trials=[
             TrialResult(
                 number=t.number,
-                params=dict(t.params),
+                params=recorded_trial_params(lineage, t),
                 score=t.value if t.value is not None else float("nan"),
                 state=t.state.name.lower(),
                 round=round_of(lineage.rounds, t.number),

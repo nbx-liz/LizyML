@@ -55,6 +55,7 @@ from lizyml.tuning.lineage import (
     remaining_trials,
     trials_of_round,
 )
+from lizyml.tuning.rounds import recorded_trial_params
 from lizyml.tuning.search_space import (
     attach_bounds,
     detect_boundary,
@@ -525,6 +526,8 @@ def plan_round(
         assert lineage is not None and study is not None  # noqa: S101
         # The previous best comes from the study, never from the Model's
         # `_tuning_result` (§5.3): a loaded Model's may be another study's.
+        # Its values are read with its own round's dims (H-0124 policy 4): the
+        # study's best may come from an earlier round with another step.
         complete = any(t.state.name == "COMPLETE" for t in trials)
         best = study.best_trial if complete else None
         return plan_next_round(
@@ -532,7 +535,9 @@ def plan_round(
             provider,
             lineage=lineage,
             n_study_trials=len(trials),
-            best_params=best.params if best is not None else None,
+            best_params=(
+                recorded_trial_params(lineage, best) if best is not None else None
+            ),
             best_value=best.value if best is not None else None,
             n_trials=n_trials,
             expand_boundary=expand_boundary,

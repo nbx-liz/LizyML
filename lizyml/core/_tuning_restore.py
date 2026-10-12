@@ -28,7 +28,11 @@ from lizyml.core.types.search_dim import SearchDim
 from lizyml.core.types.tuning_result import TuningResult
 from lizyml.tuning import tuner as _tuner
 from lizyml.tuning.lineage import Lineage, classify_study
-from lizyml.tuning.rounds import ScoredTrial, assemble_tuning_result
+from lizyml.tuning.rounds import (
+    ScoredTrial,
+    assemble_tuning_result,
+    recorded_trial_params,
+)
 
 if TYPE_CHECKING:
     from optuna.storages import BaseStorage
@@ -189,7 +193,7 @@ def read_restorable(
     restored = restore_from_study(
         lineage,
         trials,
-        best.params,
+        recorded_trial_params(lineage, best),
         best.value,
         metric_name=metric_name,
         direction=direction,

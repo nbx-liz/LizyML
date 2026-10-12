@@ -397,6 +397,12 @@ DIFFERENT_SPACE = {
         **OPEN_SPACE,
         "lambda_l1": {"type": "categorical", "choices": [0, 1.0]},
     },
+    # H-0124 criterion 7: a space= that differs only in a step is refused, and
+    # the two summaries differ by it.
+    "step_only": {
+        **OPEN_SPACE,
+        "learning_rate": {**OPEN_SPACE["learning_rate"], "step": 0.05},
+    },
 }
 
 
@@ -416,6 +422,9 @@ def test_u2_space_different_refused(space_storage: str, variant: str) -> None:
     assert caught.value.context["round"] == 2
     # The context names what differs, not only which dims there are.
     assert caught.value.context["recorded"] != caught.value.context["given"]
+    if variant == "step_only":
+        assert "step=0.05" in str(caught.value.context["given"])
+        assert "step=0.05" not in str(caught.value.context["recorded"])
     assert (snapshot_study(space_storage, "s"), snapshot_model(model)) == before
     _assert_round_2_open(load(space_storage, "s"))
 

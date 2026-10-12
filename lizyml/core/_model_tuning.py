@@ -74,7 +74,7 @@ from lizyml.tuning.lineage import (
     end_key,
     round_key,
 )
-from lizyml.tuning.rounds import assemble_tuning_result
+from lizyml.tuning.rounds import assemble_tuning_result, recorded_trial_params
 from lizyml.tuning.search_space import split_by_category, suggest_params
 from lizyml.tuning.study_lineage import require_stored_study_args
 from lizyml.tuning.tuner import Tuner
@@ -477,7 +477,7 @@ class ModelTuningMixin:
             result = assemble_tuning_result(
                 final,
                 final_trials,
-                best.params,
+                recorded_trial_params(final, best),
                 best.value,
                 metric_name=metric_name,
                 direction=direction,

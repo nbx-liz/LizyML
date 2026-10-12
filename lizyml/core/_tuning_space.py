@@ -336,13 +336,28 @@ def _unchangeable_difference(recorded: SearchDim, given: SearchDim) -> str | Non
         return None if same else "choices"
     assert isinstance(recorded, FloatDim | IntDim)  # noqa: S101 -- by _kind
     assert isinstance(given, FloatDim | IntDim)  # noqa: S101
-    return None if recorded.log == given.log else "log"
+    if recorded.log != given.log:
+        return "log"
+    if _samples_as_float(recorded) != _samples_as_float(given):
+        return "step"
+    return None
+
+
+def _samples_as_float(dim: FloatDim | IntDim) -> bool:
+    """An ``int`` log dim with ``step > 1``: Optuna samples it as a float log.
+
+    H-0124 policy 3: such a dim is a ``FloatDistribution(log=True)`` to Optuna,
+    any other ``int`` dim an ``IntDistribution``; Optuna refuses a parameter
+    whose distribution kind changes, so the flag cannot change in a study.
+    """
+    return isinstance(dim, IntDim) and dim.log and dim.step is not None and dim.step > 1
 
 
 def _describe(dim: SearchDim) -> str:
     if isinstance(dim, CategoricalDim):
         return f"categorical {list(dim.choices)!r}"
-    return f"{_kind(dim)} log={dim.log}"
+    step = "" if dim.step is None else f" step={dim.step!r}"
+    return f"{_kind(dim)} log={dim.log}{step}"
 
 
 def refuse_unchangeable(
@@ -356,8 +371,11 @@ def refuse_unchangeable(
     earlier round, removed dims included: Optuna compares a parameter with
     every distribution it ever had, and refuses only once a trial has been
     written. Choices compare by order, type and value (``True`` / ``1`` /
-    ``1.0`` differ, NaN equals NaN), which Optuna does not do. ``low`` and
-    ``high`` may change.
+    ``1.0`` differ, NaN equals NaN), which Optuna does not do. An ``int`` log
+    dim's "step > 1" flag is refused as ``step`` (H-0124 policy 7: it switches
+    Optuna's distribution kind). ``low``, ``high`` and any other ``step``
+    change may change: the grid's origin is 0, and each trial is read with its
+    own round's step.
     """
     history: dict[Identity, SearchDim] = {}
     for record in rounds:
@@ -376,8 +394,10 @@ def refuse_unchangeable(
                 f"{SPACE_ARG}: dimension '{dim.name}' changes its {changed} "
                 f"(recorded {_describe(recorded)}, given {_describe(dim)}). A "
                 "dimension's distribution kind, log scale and categorical "
-                "choices cannot change within a study; start a new study "
-                "(another study_name). Its range (low / high) may change."
+                "choices, and whether a log-scale int dimension's step is above "
+                "1, cannot change within a study; start a new study (another "
+                "study_name). Its range (low / high) may change, and so may "
+                "any other step."
             ),
             context={
                 "surface": SPACE_ARG,
@@ -474,8 +494,9 @@ def same_declared_space(
 def space_summary(dims: Iterable[SearchDim], routes: Mapping[str, Route]) -> list[str]:
     """A JSON-safe, sorted summary of a space, one string per dim.
 
-    ``category:canonical`` and the declaration (kind, range, ``log`` or the
-    choices), so two spaces that differ only in a range read differently.
+    ``category:canonical`` and the declaration (kind, range, ``log``, ``step``
+    or the choices), so two spaces that differ only in a range, or only in a
+    step (H-0124), read differently.
     """
     out = []
     for dim in dims:
@@ -483,8 +504,10 @@ def space_summary(dims: Iterable[SearchDim], routes: Mapping[str, Route]) -> lis
         if isinstance(dim, CategoricalDim):
             shown = f"categorical {list(dim.choices)!r}"
         else:
-            shown = f"{_kind(dim)} [{dim.low!r}, {dim.high!r}]" + (
-                " log" if dim.log else ""
+            shown = (
+                f"{_kind(dim)} [{dim.low!r}, {dim.high!r}]"
+                + (" log" if dim.log else "")
+                + ("" if dim.step is None else f" step={dim.step!r}")
             )
         out.append(f"{category}:{canonical} {shown}")
     return sorted(out)
