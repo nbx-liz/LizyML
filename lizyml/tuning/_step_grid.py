@@ -161,6 +161,21 @@ def check_dim_step(dim: SearchDim, *, surface: str) -> None:
     """
     if isinstance(dim, CategoricalDim) or dim.step is None:
         return
+    # A number written as text is read only from a config or ``space=``
+    # mapping; a dimension built in Python hands its values to Optuna as they
+    # are, and a string there fails every trial after the study exists.
+    for key in ("step", "low", "high"):
+        value = getattr(dim, key)
+        if isinstance(value, str):
+            raise format_error(
+                surface,
+                f"dimension '{dim.name}' has {key}={value!r} (str): a dimension "
+                "built in Python takes numbers; text is read as a number only "
+                "in tuning.optuna.space or tune(space=...).",
+                reason="bound_not_a_number",
+                dim=dim.name,
+                key=key,
+            )
     if isinstance(dim, IntDim):
         step_i = read_int_step(dim.name, dim.step, surface=surface)
         low_i = read_int_bound(dim.name, "low", dim.low, surface=surface)

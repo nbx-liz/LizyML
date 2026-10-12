@@ -12899,7 +12899,7 @@ Optuna 4.7.0 の性質（`docs/audits/2026-10-tuning-resume/probes/optuna_step_f
 - **刻みのある次元の拡張は正確な有理数で計算する**（`float` で計算すると `[0.1, 0.2]` step 0.1 が 0.4 まで広がる）。刻みの無い次元は今の `float` の計算のまま。
 - **`bound_off_grid`**: 両端が格子の外のとき `key` は `low`。context に示す範囲 `grid_low` / `grid_high` も入れる。
 - **`recorded_params(params, dims)`**: 試行ではなく値の dict と次元を受け取る。次元の無い名前は `ValueError`（系譜の検査が整った study では起きない）。Model の四つの読み手は `rounds.recorded_trial_params(lineage, trial)` を通る（試行の round を `round_of` で決める）。
-- **`Tuner.tune`**: surface は `Tuner.tune`、log と `step` の拒否の理由は `log_with_step`（key `step`）。直接作った次元の検査 `check_dim_step` は、`step` があるとき `low` / `high` も H-0123 の書式で読む。
+- **`Tuner.tune`**: surface は `Tuner.tune`、log と `step` の拒否の理由は `log_with_step`（key `step`）。直接作った次元の検査 `check_dim_step` は、`step` があるとき `low` / `high` も H-0123 の書式で読む。ただし文字列の `step` / `low` / `high` は拒否する（`bound_not_a_number`）。数の表記の文字列を数として読むのは config と `space=` の mapping だけで、Python で作った次元は値をそのまま Optuna に渡すので、文字列は study を作った後に全試行を失敗させる（fresh-context の確認で見つかった）。
 - **round の記録の前の検査**（方針 5）: `_model_tuning.py` の記録の位置ではなく、計画の段 D の `check_round_space`（`_tuning_admission.py`）で `check_dim_step` を掛ける（INV-R4: 計画の段の後は拒否しない。段 D は記録より前）。拡張は格子の外の端を作らないので、今の入力ではこの検査は発火しない（拡張の誤りへの備え。テストは拡張を差し替えて確かめる）。
 - **変えられない宣言**: `int` の log の「`step > 1` かどうか」で、`None` と `1` は同じ扱い。拒否の `changed` は `step`。
 - **系譜のテストの記録の修正**: `tests/test_tuning/test_lineage_classify.py` の二つのテストは、round 2 の試行が round 2 で消した次元の値を持つ記録を使っていた。方針 4 の試行ごとの検査でこれは `inconsistent` になり、Model が書く study ではこの形は起きない。round 1 の `effective` にその次元を入れ、round 2 の試行から外した（確かめていた routes の引き継ぎはそのまま）。

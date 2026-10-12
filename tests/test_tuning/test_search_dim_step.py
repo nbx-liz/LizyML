@@ -445,6 +445,11 @@ TUNER_REFUSED: dict[str, tuple[Any, str]] = {
     "step_negative": (FloatDim("x", 0, 1, step=-0.1), "step_not_positive"),
     "step_bool": (FloatDim("x", 0, 1, step=True), "bound_not_a_number"),
     "int_step_fraction": (IntDim("n", 0, 10, step=1.5), "bound_not_integral"),  # type: ignore[arg-type]
+    # Text is read as a number only from a mapping; a dim built in Python would
+    # hand the string to Optuna, which fails every trial after the study exists.
+    "float_step_str": (FloatDim("x", 0, 1, step="0.25"), "bound_not_a_number"),  # type: ignore[arg-type]
+    "int_step_str": (IntDim("n", 0, 10, step="2"), "bound_not_a_number"),  # type: ignore[arg-type]
+    "stepped_low_str": (FloatDim("x", "0", 1, step=0.25), "bound_not_a_number"),  # type: ignore[arg-type]
 }
 
 
@@ -462,7 +467,7 @@ def test_tuner_tune_refuses_before_creating_a_study(case: str, tmp_path: Path) -
     err = caught.value
     assert err.code is CI
     assert err.context["reason"] == reason
-    key = "low" if reason == "bound_off_grid" else "step"
+    key = "low" if reason == "bound_off_grid" or case == "stepped_low_str" else "step"
     assert (err.context["dim"], err.context["key"]) == (dim.name, key)
     assert err.context["surface"] == "Tuner.tune"
     assert optuna.get_all_study_summaries(storage) == []
