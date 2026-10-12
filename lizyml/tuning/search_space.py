@@ -8,6 +8,7 @@ re-exported here for backward compatibility.
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from typing import Any, TypeVar
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
@@ -19,6 +20,16 @@ from lizyml.core.types.search_dim import (
     SearchDim,
 )
 from lizyml.core.types.tuning_result import BoundaryDimStatus, BoundaryReport
+from lizyml.tuning._space_format import (
+    DIM_KEYS,
+    check_dim_keys,
+    check_space_shape,
+    format_error,
+    read_choices,
+    read_float_bound,
+    read_int_bound,
+    read_log,
+)
 
 __all__ = [
     "CategoricalDim",
@@ -52,6 +63,7 @@ def _validate_numeric_range(
     high: float,
     *,
     log: bool,
+    surface: str,
 ) -> None:
     """Validate ``low < high`` and (when ``log`` is True) ``low > 0``.
 
@@ -63,23 +75,45 @@ def _validate_numeric_range(
         raise LizyMLError(
             code=ErrorCode.CONFIG_INVALID,
             user_message=(
-                f"Search dim '{name}' has low >= high (low={low}, high={high}). "
+                f"{surface}: Search dim '{name}' has low >= high "
+                f"(low={low}, high={high}). "
                 f"Min must be strictly less than Max."
             ),
-            context={"param": name, "low": low, "high": high, "log": log},
+            context={
+                "param": name,
+                "low": low,
+                "high": high,
+                "log": log,
+                "surface": surface,
+                "reason": "empty_range",
+                "dim": name,
+                "key": "low",
+            },
         )
     if log and low <= 0:
         raise LizyMLError(
             code=ErrorCode.CONFIG_INVALID,
             user_message=(
-                f"Search dim '{name}' uses log distribution but low={low} <= 0. "
+                f"{surface}: Search dim '{name}' uses log distribution but "
+                f"low={low} <= 0. "
                 f"Log requires a strictly positive lower bound."
             ),
-            context={"param": name, "low": low, "high": high, "log": log},
+            context={
+                "param": name,
+                "low": low,
+                "high": high,
+                "log": log,
+                "surface": surface,
+                "reason": "log_low_not_positive",
+                "dim": name,
+                "key": "low",
+            },
         )
 
 
-def _validate_categorical_choices(name: str, choices: list[Any]) -> None:
+def _validate_categorical_choices(
+    name: str, choices: list[Any] | tuple[Any, ...], *, surface: str
+) -> None:
     """Validate that every element in *choices* is a plain scalar.
 
     Non-scalar values (e.g. a nested list produced by YAML ``- [a, b]``) are
@@ -107,7 +141,8 @@ def _validate_categorical_choices(name: str, choices: list[Any]) -> None:
             raise LizyMLError(
                 code=ErrorCode.CONFIG_INVALID,
                 user_message=(
-                    f"Categorical dim '{name}' has invalid choice at index {i}: "
+                    f"{surface}: Categorical dim '{name}' has invalid choice at "
+                    f"index {i}: "
                     f"got {val!r} (type={type(val).__name__}). "
                     f"Each choice must be a plain Python scalar (str, int, float, "
                     f"bool, or None) -- a numpy scalar is refused because a "
@@ -115,14 +150,24 @@ def _validate_categorical_choices(name: str, choices: list[Any]) -> None:
                     f"Hint: write float(x) or int(x), and flatten nested lists in "
                     f'your YAML config — use "- value" instead of "- [v1, v2]".'
                 ),
-                context={"param": name, "index": i, "bad_value": str(val)},
+                context={
+                    "param": name,
+                    "index": i,
+                    "bad_value": str(val),
+                    "surface": surface,
+                    "reason": "invalid_choice",
+                    "dim": name,
+                    "key": "choices",
+                },
             )
 
 
-def parse_space(space: dict[str, Any]) -> list[SearchDim]:
+def parse_space(
+    space: Mapping[str, Any], *, surface: str = "tuning.optuna.space"
+) -> list[SearchDim]:
     """Parse a config-style space dict into typed SearchDim instances.
 
-    Space dict format::
+    Space dict format (docs/config-reference.md, BLUEPRINT §11.1)::
 
         {
             "learning_rate": {"type": "float", "low": 0.01, "high": 0.3, "log": True},
@@ -130,24 +175,47 @@ def parse_space(space: dict[str, Any]) -> list[SearchDim]:
             "subsample": {"type": "categorical", "choices": [0.6, 0.8, 1.0]},
         }
 
+    Only that format is accepted (H-0123): a spec outside it is refused, not
+    converted into another search. ``tuning.optuna.space`` and
+    ``tune(space=...)`` both pass here, so they share one rule; the checks are
+    in :mod:`lizyml.tuning._space_format`.
+
     Args:
-        space: Raw search space dict from config.
+        space: Raw search space mapping, from config or ``tune(space=...)``.
+        surface: Where *space* was declared, quoted in every refusal's
+            message and ``context["surface"]``.
 
     Returns:
-        List of typed SearchDim instances.
+        List of typed SearchDim instances, with plain ``int`` / ``float``
+        bounds and a ``tuple`` of choices.
 
     Raises:
-        LizyMLError with CONFIG_INVALID for unknown types or missing keys.
+        LizyMLError with CONFIG_INVALID for a space outside the format, with
+            ``context`` naming the dimension (``dim``), the ``key``, a
+            ``reason`` and the ``surface``.
     """
+    checked = check_space_shape(space, surface=surface)
     dims: list[SearchDim] = []
-    for name, spec in space.items():
-        dim_type: str = spec.get("type", "")
+    for name, spec in checked.items():
+        dim_type = spec.get("type", "")
+        if type(dim_type) is not str or dim_type not in DIM_KEYS:
+            raise format_error(
+                surface,
+                f"Unknown search space type '{dim_type}' for param '{name}'. "
+                f"Expected 'float', 'int', or 'categorical'.",
+                reason="unknown_type",
+                dim=name,
+                key="type",
+                param=name,
+                type=dim_type,
+            )
+        check_dim_keys(name, spec, dim_type, surface=surface)
         category: DimCategory = spec.get("category", "model")
         if dim_type == "float":
-            low_f = float(spec["low"])
-            high_f = float(spec["high"])
-            log_f = bool(spec.get("log", False))
-            _validate_numeric_range(name, low_f, high_f, log=log_f)
+            low_f = read_float_bound(name, "low", spec["low"], surface=surface)
+            high_f = read_float_bound(name, "high", spec["high"], surface=surface)
+            log_f = read_log(name, spec, surface=surface)
+            _validate_numeric_range(name, low_f, high_f, log=log_f, surface=surface)
             dims.append(
                 FloatDim(
                     name=name,
@@ -158,10 +226,10 @@ def parse_space(space: dict[str, Any]) -> list[SearchDim]:
                 )
             )
         elif dim_type == "int":
-            low_i = int(spec["low"])
-            high_i = int(spec["high"])
-            log_i = bool(spec.get("log", False))
-            _validate_numeric_range(name, low_i, high_i, log=log_i)
+            low_i = read_int_bound(name, "low", spec["low"], surface=surface)
+            high_i = read_int_bound(name, "high", spec["high"], surface=surface)
+            log_i = read_log(name, spec, surface=surface)
+            _validate_numeric_range(name, low_i, high_i, log=log_i, surface=surface)
             dims.append(
                 IntDim(
                     name=name,
@@ -171,28 +239,11 @@ def parse_space(space: dict[str, Any]) -> list[SearchDim]:
                     category=category,
                 )
             )
-        elif dim_type == "categorical":
-            choices = spec.get("choices")
-            if not choices:
-                raise LizyMLError(
-                    code=ErrorCode.CONFIG_INVALID,
-                    user_message=(
-                        f"Categorical dim '{name}' requires non-empty 'choices'."
-                    ),
-                    context={"param": name},
-                )
-            _validate_categorical_choices(name, choices)
+        else:
+            choices = read_choices(name, spec, surface=surface)
+            _validate_categorical_choices(name, choices, surface=surface)
             dims.append(
                 CategoricalDim(name=name, choices=tuple(choices), category=category)
-            )
-        else:
-            raise LizyMLError(
-                code=ErrorCode.CONFIG_INVALID,
-                user_message=(
-                    f"Unknown search space type '{dim_type}' for param '{name}'. "
-                    f"Expected 'float', 'int', or 'categorical'."
-                ),
-                context={"param": name, "type": dim_type},
             )
     return dims
 

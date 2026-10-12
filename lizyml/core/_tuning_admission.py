@@ -3,8 +3,9 @@
 What a tune call must satisfy before any study write, in the order ``tune``
 calls them:
 
-* phase A -- the call's own arguments: :func:`validate_tune_args`, and for
-  ``tune(space=...)`` :func:`parse_space_arg` (its shape) and
+* phase A -- the call's own arguments and the config space's format:
+  :func:`validate_tune_args`, :func:`parse_config_space` (H-0123), and for
+  ``tune(space=...)`` :func:`parse_space_arg` (its format) and
   :func:`refuse_space_on_create` (a call that creates a study takes its first
   space from the config, §3);
 * phase D -- the space's names: :func:`check_space_names` on the config space
@@ -36,7 +37,6 @@ from lizyml.core._smart_combinations import (
 from lizyml.core._tuning_space import SPACE_ARG
 from lizyml.core._tuning_validation import validate_tuning_dimensions
 from lizyml.core.exceptions import ErrorCode, LizyMLError
-from lizyml.tuning.lineage_codec import DIM_CATEGORIES
 from lizyml.tuning.search_space import parse_space
 from lizyml.tuning.tuner import precheck_study_args
 
@@ -88,66 +88,35 @@ def validate_tune_args(
         )
 
 
-def _shape_error(message: str, **context: Any) -> LizyMLError:
-    return LizyMLError(
-        code=ErrorCode.CONFIG_INVALID,
-        user_message=(
-            f"{SPACE_ARG}: {message} space= takes the form of tuning.optuna.space: "
-            "{name: {type: float | int | categorical, ...}}."
-        ),
-        context={"surface": SPACE_ARG, **context},
-    )
+def parse_config_space(cfg: LizyMLConfig) -> list[SearchDim]:
+    """Parse ``tuning.optuna.space`` against the documented format (H-0123).
+
+    Phase A, after :func:`validate_tune_args`: before any check reads a raw
+    dimension spec (the name checks read ``category`` from it, and the study
+    record and the plan parse it again), so a spec outside the format is
+    refused here as ``CONFIG_INVALID`` and never reaches them -- a spec that is
+    not a mapping no longer surfaces as a bare ``AttributeError``.
+    """
+    assert cfg.tuning is not None  # noqa: S101 -- validate_tune_args refused it
+    return parse_space(cfg.tuning.optuna.space)
 
 
 def parse_space_arg(
     space: Any,
 ) -> tuple[dict[str, dict[str, Any]], list[SearchDim]]:
-    """Check the shape of ``tune(space=...)`` and parse it (phase A).
+    """Parse ``tune(space=...)`` (phase A), naming its surface.
 
-    A mapping of ``str`` names to mappings, each with a ``category`` (when
-    given) of ``model`` / ``smart`` / ``training``; then ``parse_space``,
-    whose own refusals stand. A missing or ill-typed ``low`` / ``high`` --
-    which ``parse_space`` would raise as a bare ``KeyError`` / ``ValueError``
-    -- is refused here as ``CONFIG_INVALID`` too. The config space gets no
-    such check (its schema types it as a plain dict; design R-8).
+    The format checks are ``parse_space``'s, the same the config space gets
+    (H-0123 policy 1); this only names the surface ``tune(space=)`` in their
+    refusals.
 
     Returns:
         ``(the argument as plain dicts, its parsed dims)``. The name checks
         read the plain form, which treats only a ``dict`` spec as carrying a
         category.
     """
-    if not isinstance(space, Mapping):
-        raise _shape_error(
-            f"expected a mapping of dimensions, got {type(space).__name__}.",
-            reason="not_a_mapping",
-        )
-    for name, spec in space.items():
-        if type(name) is not str:
-            raise _shape_error(
-                f"dimension name {name!r} is not a str.", reason="name_not_str"
-            )
-        if not isinstance(spec, Mapping):
-            raise _shape_error(
-                f"dimension '{name}' must be a mapping, got {type(spec).__name__}.",
-                reason="dim_not_a_mapping",
-                dim=name,
-            )
-        category = spec.get("category", "model")
-        if type(category) is not str or category not in DIM_CATEGORIES:
-            raise _shape_error(
-                f"dimension '{name}' has category {category!r}; expected one of "
-                f"{sorted(DIM_CATEGORIES)}.",
-                reason="unknown_category",
-                dim=name,
-            )
-    plain = {name: dict(spec) for name, spec in space.items()}
-    try:
-        return plain, parse_space(plain)
-    except (KeyError, TypeError, ValueError) as exc:
-        raise _shape_error(
-            f"a dimension is malformed ({type(exc).__name__}: {exc}).",
-            reason="malformed_dim",
-        ) from exc
+    dims = parse_space(space, surface=SPACE_ARG)
+    return {name: dict(spec) for name, spec in space.items()}, dims
 
 
 def refuse_space_on_create(

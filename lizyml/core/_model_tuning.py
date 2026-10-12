@@ -32,6 +32,7 @@ from lizyml.core._model_state import TuningState
 from lizyml.core._tuning_admission import (
     check_round_space,
     check_space_names,
+    parse_config_space,
     parse_space_arg,
     refuse_space_on_create,
     validate_tune_args,
@@ -241,12 +242,14 @@ class ModelTuningMixin:
 
         Raises:
             LizyMLError with CONFIG_INVALID when no ``tuning`` config is set,
+                for a ``tuning.optuna.space`` dimension outside the documented
+                format (H-0123),
                 for ``storage`` / ``study_name`` given alone, for
                 ``resume=False`` onto a stored study, for a target that is not
                 the held study, for a study whose record is missing,
                 unreadable or inconsistent, or whose objective or config space
                 differs from this call's, and for a ``space=`` that is
-                malformed, given to a call that creates a study, changes a
+                outside the same format, given to a call that creates a study, changes a
                 dimension's category, distribution kind, ``log`` or choices,
                 or differs from an open round's recorded space.
             LizyMLError with OPTIONAL_DEP_MISSING when optuna is not installed.
@@ -261,6 +264,8 @@ class ModelTuningMixin:
             storage=storage,
             study_name=study_name,
         )
+        # The config space's format before anything reads a raw spec (H-0123).
+        parse_config_space(cfg)
         # `space=` before the call matrix: an argument error wins over the
         # row-8 TUNING_FAILED, and a `resume=False` call is refused before any
         # storage is contacted (H-0122 design D-c).

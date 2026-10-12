@@ -422,6 +422,37 @@ def test_malformed_space_refused(case: str) -> None:
     _refused(model, model._study, resume=True, space=MALFORMED[case])
 
 
+#: The ``context`` each ``MALFORMED`` refusal carried before H-0123 (measured on
+#: c65ef4d). H-0123 criterion 8: these values stay; keys may be added.
+MALFORMED_CONTEXT: dict[str, dict[str, Any]] = {
+    "not_a_mapping": {"surface": "tune(space=)", "reason": "not_a_mapping"},
+    "name_not_str": {"surface": "tune(space=)", "reason": "name_not_str"},
+    "dim_not_a_mapping": {
+        "surface": "tune(space=)",
+        "reason": "dim_not_a_mapping",
+        "dim": "learning_rate",
+    },
+    "unknown_category": {
+        "surface": "tune(space=)",
+        "reason": "unknown_category",
+        "dim": "learning_rate",
+    },
+    "missing_low": {"surface": "tune(space=)", "reason": "malformed_dim"},
+    "unknown_type": {"param": "learning_rate", "type": "uniform"},
+}
+
+
+@pytest.mark.parametrize("case", list(MALFORMED))
+def test_malformed_space_refusal_keeps_its_context(case: str) -> None:
+    """H-0123 criterion 8: each H-0122 shape refusal keeps its code and reason."""
+    model = Model(fast_config(), data=frame())
+    model.tune()
+    err = _refused(model, model._study, resume=True, space=MALFORMED[case])
+    assert err.code is CI
+    expected = MALFORMED_CONTEXT[case]
+    assert {key: err.context.get(key) for key in expected} == expected
+
+
 @pytest.mark.parametrize("variant", ["in_process", "reattach"])
 def test_h0121_drop_on_space_rounds(
     variant: str, tmp_path: Path, caplog: pytest.LogCaptureFixture

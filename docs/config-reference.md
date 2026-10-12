@@ -425,8 +425,45 @@ Resolution rules:
         "log": True,              # optional for float/int
         "category": "model",      # optional: "model" | "smart" | "training"
     },
+    "boosting": {
+        "type": "categorical",
+        "choices": ["gbdt", "dart"],  # for categorical: a non-empty list
+    },
 }
 ```
+
+Only this format is accepted (H-0123). `tuning.optuna.space` and
+`tune(space=...)` follow the same rule, checked when `tune` resolves the space,
+before any study is created or written. A dimension outside the format raises
+`CONFIG_INVALID` whose `context` names the dimension (`dim`), the `key`, a
+`reason` and the `surface` (`tuning.optuna.space` or `tune(space=)`); all four
+are always present, with `dim` `None` only when the space itself is not a
+mapping and `key` `None` when the refusal is about the whole space or a whole
+dimension. It is not converted into another search. Per dimension:
+
+| Key | Applies to | Required | Accepted values |
+|---|---|---|---|
+| `type` | all | Yes | `"float"`, `"int"` or `"categorical"`. |
+| `low`, `high` | `float`, `int` | Yes | An `int` or `float` (not `bool`), a numpy integer or floating scalar, or a string that is a number literal in full (below). Finite. For `int`, a whole value: `16.0`, `"16.0"` and `"1e2"` are 16, 16 and 100; `1.7` and `"1.7"` are refused, not truncated. |
+| `log` | `float`, `int` | No (default `false`) | A `bool`. The string `"false"` is refused. |
+| `choices` | `categorical` | Yes | A non-empty list (or tuple, from Python) of plain scalars: `str`, `int`, `float`, `bool` or `None`. A string, set, dict, range, numpy array or generator is refused. |
+| `category` | all | No (default `"model"`) | `"model"`, `"smart"` or `"training"`. |
+
+No other key is accepted: `float` and `int` dimensions take `type`, `low`,
+`high`, `log` and `category`; `categorical` dimensions take `type`, `choices`
+and `category`. In particular `step` is refused (LizyML dimensions have no
+step yet), and so is a misspelt key such as `lo`.
+
+A bound written as a string must match this number literal in full (ASCII
+digits only), so `"nan"`, `"inf"`, `"0x10"` and `"1,000"` are refused:
+
+```text
+[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?
+```
+
+YAML note: PyYAML reads YAML 1.1, where an exponent without a decimal point
+(`low: 1e-4`) is a string. Such a bound is accepted as the number it spells.
+`nan`, `inf` and `.nan` / `.inf` are not finite numbers and are refused.
 
 Default search space used when `optuna.space = {}`:
 
