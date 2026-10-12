@@ -140,6 +140,25 @@ REFUSED: list[tuple[str, dict[str, Any], str, Any, str]] = [
 ]
 
 
+@pytest.mark.parametrize("edit", ["no_best_smart_params", "tuning_not_an_object"])
+def test_load_refuses_a_malformed_tuning_block(
+    edit: str, artifacts: dict[str, Path], tmp_path: Path
+) -> None:
+    """A tuning block LizyML did not write is refused, not a raw KeyError."""
+    path = _edited(artifacts["regression"], tmp_path / "a", smart=None, version=2)
+    meta_path = path / "metadata.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    if edit == "no_best_smart_params":
+        del meta["tuning"]["best_smart_params"]
+    else:
+        meta["tuning"] = ["not", "an", "object"]
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    with pytest.raises(LizyMLError) as caught:
+        Model.load(path)
+    assert caught.value.code is DF
+    assert "tuning" in caught.value.user_message
+
+
 @pytest.mark.parametrize("version", [2, 1])
 def test_load_refuses_a_record_that_is_not_a_mapping(
     version: int, artifacts: dict[str, Path], tmp_path: Path

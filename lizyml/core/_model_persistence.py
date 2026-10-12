@@ -148,6 +148,19 @@ def _checked_declared_categories(record: Any, path: str | Path) -> dict[str, lis
     return {col: list(cats) for col, cats in record.items()}
 
 
+#: The keys every tuning block LizyML writes carries (``persistence/exporter.py``).
+_TUNING_META_KEYS = frozenset(
+    {
+        "best_model_params",
+        "best_smart_params",
+        "best_training_params",
+        "best_score",
+        "metric_name",
+        "direction",
+    }
+)
+
+
 def _refuse_recorded_smart_values(
     record: Any, provider: Any, task: Any, path: str | Path
 ) -> None:
@@ -177,9 +190,11 @@ def _refuse_recorded_smart_values(
         user_message=(
             f"Stored tuning best_smart_params records '{found.name}'="
             f"{found.value!r}, which '{found.name}' cannot hold: it takes "
-            f"{found.expected}. The recorded parameters disagree with what the "
-            "model was trained on, so the artifact is not loaded. Tune again "
-            "and export again (tune, fit, export) with this version of LizyML."
+            f"{found.expected}. A model trained from this record cannot be "
+            "reproduced (before #347 a string such as 'false' was recorded as "
+            "written but trained as true), so the artifact is not loaded. Tune "
+            "again and export again (tune, fit, export) with this version of "
+            "LizyML."
         ),
         context={
             "path": str(path),
@@ -525,6 +540,20 @@ class ModelPersistenceMixin:
         if tuning_meta is not None:
             from lizyml.core.types.tuning_result import TuningResult
 
+            missing = (
+                sorted(_TUNING_META_KEYS - tuning_meta.keys())
+                if isinstance(tuning_meta, dict)
+                else None
+            )
+            if missing is None or missing:
+                raise LizyMLError(
+                    code=ErrorCode.DESERIALIZATION_FAILED,
+                    user_message=(
+                        "Stored tuning metadata must be an object with "
+                        f"{sorted(_TUNING_META_KEYS)}."
+                    ),
+                    context={"path": str(path), "missing": missing},
+                )
             if "fixed_params" in tuning_meta:
                 fixed_params = tuning_meta["fixed_params"]
                 if not isinstance(fixed_params, dict):

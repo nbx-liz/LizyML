@@ -12213,7 +12213,7 @@ config の項目そのものも pydantic の緩い変換で `"false"` を `False
 
 - **二か所で検査する**: `admit_smart`（宣言した次元。owner の検査が smart の値を真偽で読むより前）と round の受け付けの検査（実効空間。拡張した次元と provider の既定の空間の次元を含む）。受け入れ基準 1 の表の拒否は前者が先に出す。後者だけが拾うのは拡張した次元で、そのテストで二か所を分けて確かめる。
 - **数の次元の bool の母数と `feature_weights` の `key`**: 改訂 2 の `key` の語彙に「次元の種類が違う」ものが無いので、`key` は `low`、`value` は `dim.low` とする。
-- **artifact の記録**: `best_smart_params` が mapping でないもの、provider が宣言しない名前を持つもの、`feature_weights` を持つもの（`None` も含む。探索次元にできないので、記録にあるのは LizyML のものではない）も `DESERIALIZATION_FAILED` で拒否する（mapping でないものと宣言しない名前は、実装の後の確認で黙って通ることに気づいて足した）。「`best_smart_params` が無い」は tune の結果の無い artifact と読む。
+- **artifact の記録**: `best_smart_params` が mapping でないもの、provider が宣言しない名前を持つもの、`feature_weights` を持つもの（`None` も含む。探索次元にできないので、記録にあるのは LizyML のものではない）も `DESERIALIZATION_FAILED` で拒否する（mapping でないものと宣言しない名前は、実装の後の確認で黙って通ることに気づいて足した）。tune の結果のブロックそのものが object でないか、LizyML が書く六つのキーを欠くものも、素の `KeyError` / `TypeError` でなく `DESERIALIZATION_FAILED` にした（今までも同じ入力で素の例外になっていた。fresh-context の確認の指摘）。「`best_smart_params` が無い」は tune の結果の無い artifact と読む。
 - **provider の契約**: `smart_value_rules()` は必須のメソッドとする（`default_params` のような `getattr` の既定を置かない）。宣言したスマートパラメーターに規則が無ければ内部の誤りとして `CONFIG_INVALID`。CHANGELOG に、provider がこれを実装する必要があることを書いた。
 - **既存のテストの変更**: `tests/test_tuning/test_smart_dimension_collisions.py` の c5 と c5b は regression の `balanced=True` を使っていたので binary に、c5c は `num_leaves_ratio` の `-1..1` を使っていたので、その次元に `(-2, 1]` の規則を宣言するテスト用の provider で同じ経路を確かめる形に、c4b の幅の広い次元は範囲の内側の比率三つにした。衝突の検査という目的は変わらない。
 - **小さな重複**: regression で `balanced` を拒否する判定の `task == "regression"` は `smart_params.py` と同じ条件を繰り返している（定数を共有していない）。
