@@ -1,8 +1,8 @@
 # firing_rate_344.py output: suite at c65ef4d (develop; parse_space unchanged), 2026-10-12, H-0123 v4 rule (the documented format)
-# columns: nodeid, dim, reasons (empty = accepted by H-0123 policy 3)
-# total dim specs: 2298; would be newly refused: 0
+# columns: nodeid, dim, reasons (empty = not newly refused by H-0123 policy 3)
+# total dim specs: 2298; accepted today and refused by policy 3 (newly refused): 0. Specs parse_space already refuses today (negative tests: unknown type, empty or numpy choices, ...) are in the denominator with an empty reason column, because the rule does not change their outcome.
 # suite: 10791 passed, 230 skipped, 21 deselected, 4 xfailed
-# controls: firing_rate_344_controls.py (25 refused forms flagged, 11 accepted forms not; 0 control failures); in-suite positive control: a config spec with step and log="false", and a tune(space=) bound "1e0x", are recorded with reasons extra_keys:step / log_not_bool / low_string
+# controls: firing_rate_344_controls.py (25 refused forms flagged, 11 accepted forms not; 0 control failures). Wiring control: firing_rate_344_posctl.py run with the plugin, output in the section at the end of this file.
 tests/test_codegen/test_negative_controls.py::test_policy_1_callback_reverted_to_always_on	validation_ratio	
 tests/test_codegen/test_negative_controls.py::test_policy_1_callback_reverted_to_always_on	validation_ratio	
 tests/test_codegen/test_negative_controls.py::test_amendment_1_record_ignored	balanced	
@@ -2301,3 +2301,14 @@ tests/test_tuning/test_tuning_result.py::TestTuningTable::test_tuning_table_tria
 tests/test_tuning/test_tuning_result.py::TestTuningTable::test_tuning_table_trial_numbers	learning_rate	
 tests/test_tuning/test_tuning_result.py::TestTuningTable::test_tuning_table_trial_numbers	num_leaves	
 tests/test_tuning/test_tuning_result.py::TestTuningTable::test_tuning_table_trial_numbers	learning_rate	
+# --- positive control run (firing_rate_344_posctl.py, same plugin): reasons recorded on the config path and the tune(space=) path ---
+docs/audits/2026-10-tuning-resume/probes/firing_rate_344_posctl.py::test_config_path	num_leaves	extra_keys:step
+docs/audits/2026-10-tuning-resume/probes/firing_rate_344_posctl.py::test_config_path	learning_rate	log_not_bool
+docs/audits/2026-10-tuning-resume/probes/firing_rate_344_posctl.py::test_config_path	num_leaves	extra_keys:step
+docs/audits/2026-10-tuning-resume/probes/firing_rate_344_posctl.py::test_config_path	learning_rate	log_not_bool
+docs/audits/2026-10-tuning-resume/probes/firing_rate_344_posctl.py::test_space_arg	num_leaves	
+docs/audits/2026-10-tuning-resume/probes/firing_rate_344_posctl.py::test_space_arg	learning_rate	
+docs/audits/2026-10-tuning-resume/probes/firing_rate_344_posctl.py::test_space_arg	num_leaves	
+docs/audits/2026-10-tuning-resume/probes/firing_rate_344_posctl.py::test_space_arg	learning_rate	
+docs/audits/2026-10-tuning-resume/probes/firing_rate_344_posctl.py::test_space_arg	num_leaves	low_string
+docs/audits/2026-10-tuning-resume/probes/firing_rate_344_posctl.py::test_space_arg	learning_rate	

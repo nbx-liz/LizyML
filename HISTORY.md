@@ -12712,7 +12712,7 @@ PR 2 は 5（`tune(space=...)`、次元ごとの規則、拡張の変更）、7.
    - `low` と `high` は数: `int` か `float`（`bool` は除く）。加えて二つを受け付ける。
      - **numpy の整数と浮動小数のスカラー**（`numpy.bool_` は除く）: H-0095 が「数の境界は parse のときに素の値に直すので受け付ける」と定めている（`tests/test_tuning/test_literal_domain_contract.py` が固定）。
      - **数の表記にちょうど一致する文字列**: PyYAML（YAML 1.1）は小数点の無い指数表記 `1e-4` を文字列として読む（実行して確かめた。LizyML の `load_config` も同じ）。表記は `[+-]?(数字列(.数字列?)?|.数字列)([eE][+-]?数字列)?` の完全一致（ASCII の数字だけ）。`"nan"`、`"inf"`、`"0x10"`、`"1,000"` などは拒否する。
-     - どの形でも、値は有限であること。`int` の次元では整数の値（`16`・`16.0`・`"16"`・numpy の整数は受け付け、`1.7` は拒否）。
+     - どの形でも、値は有限であること。`int` の次元では整数の値（`16`・`16.0`・`"16"`・`"16.0"`・`"1e2"`・numpy の整数は受け付け、`1.7` と `"1.7"` は拒否）。文字列の境界は、`float` の次元では `float` に、`int` の次元ではその整数に直す（`"16.0"` は 16、`"1e2"` は 100）。
    - `log` は書くなら `bool`（YAML の `true` / `false` / `yes` / `no` は `bool` になる）。
    - `choices` は空でない list か tuple（YAML と JSON は list を作る。Python で書く利用者の tuple も受け付ける）。各値の検査は今の `_validate_categorical_choices` のまま（素のスカラー、numpy のスカラーは拒否。H-0095）。
    - `category` は書くなら `model`・`smart`・`training` のどれか。
@@ -12728,12 +12728,13 @@ PR 2 は 5（`tune(space=...)`、次元ごとの規則、拡張の変更）、7.
 ### 互換性
 
 - 今は受け付けていて、この変更の後に拒否されるのは「書式の外」の指定だけ。目的（課題）の各形に加えて、`bool` や `bytes` の境界、数の表記でない文字列の境界、書式に無いキーを持つ次元、list と tuple でない `choices`（`range`、numpy の配列、`set`、dict、generator、文字列）がこれに当たる。
-- 書式どおりの指定は、今と同じ次元に解決される。numpy の数の境界（H-0095）と、数の表記の文字列の境界（YAML の `1e-4`）も今と同じ値になる。
-- Firing rate: 0/2298 of テストスイートで `parse_space` に渡る探索次元の指定（`docs/audits/2026-10-tuning-resume/probes/firing_rate_344.py` を pytest のプラグインとして c65ef4d のスイート全体に掛け、方針 3 の判定で新たに拒否される指定を数えた。出力は `firing_rate_344.txt`。判定の対照は `firing_rate_344_controls.py` で、拒否すべき 25 形をすべて拒否し、受け付けるべき 11 形をすべて受け付けた。スイートの中での陽性対照として、config の `step` と `log: "false"`、`tune(space=)` の境界 `"1e0x"` が理由付きで記録されることを確かめた）。スイートの指定はすべて書式どおりなので、書式どおりの利用者に影響が無いことを示す。書式の外の指定は下流の製品から実際に届く（LizyStudio の `step`、互換性の節）ので、拒否は使われない検査ではない。
+- 書式どおりの指定は、今と同じ次元に解決される。numpy の数の境界（H-0095）と、`float` の次元の数の表記の文字列の境界（YAML の `1e-4`）も今と同じ値になる。
+- **新たに受け付けるもの**: `int` の次元の、小数点か指数を含む数の表記の文字列で、値が整数のもの（`"16.0"`、`"1e2"`。YAML 1.1 で `high: 1e2` と書くとこの形になる）。今は `int("16.0")` が素の `ValueError` を送出して落ちる（c65ef4d で実行して確かめた）。
+- Firing rate: 0/2298 of テストスイートで `parse_space` に渡る探索次元の指定（`docs/audits/2026-10-tuning-resume/probes/firing_rate_344.py` を pytest のプラグインとして c65ef4d のスイート全体に掛け、今のコードが受け付けていて方針 3 が拒否する指定を数えた。今の `parse_space` が既に拒否する指定（負のテストの未知の `type`、空の `choices`、numpy の選択肢など）は分母に入るが、結果が変わらないので数えない。出力は `firing_rate_344.txt`。判定の対照は `firing_rate_344_controls.py` で、拒否すべき 25 形をすべて拒否し、受け付けるべき 11 形をすべて受け付けた。プラグインの配線の陽性対照は `firing_rate_344_posctl.py` で、config の `step` と `log: "false"`、`tune(space=)` の境界 `"1e0x"` が理由付きで記録された（出力は `firing_rate_344.txt` の末尾の節）。）スイートには、今受け付けていて方針 3 が拒否する指定が無い。書式の外の指定は下流の製品から実際に届く（LizyStudio の `step`、次の項）ので、拒否は使われない検査ではない。
 - 下流の製品（LizyStudio、LizyML-Widget）。どちらも空間を config の `tuning.optuna.space` で渡す。版の上限を上げるときに直す必要があるもの:
   - LizyStudio: Range にした次元に付ける `step`。H-0124 で受け付けるようになるが、`log` の次元の `step` と、`step` の倍数でない範囲は H-0124 で拒否される。
   - LizyML-Widget: `int` の次元に小数を入れる入力欄（`parseFloat`）。
-  - 両製品: 文字列化した選択肢（`"15"`、`"true"`）は、書式上は正しい値なので H-0123 では拒否しない。smart の次元の文字列の真偽は #347 で別に扱う。
+  - LizyStudio は、編集した選択肢を文字列にして送る（`"15"`、`"true"`。LizyML-Widget は選択肢の型を保つ）。文字列の選択肢は書式上は正しい値なので H-0123 では拒否しない。smart の次元の文字列の真偽は #347 で別に扱う。
 - docs/、notebooks/、README の探索空間の例に、書式の外の書き方は無い（grep で確かめた）。
 - 公開 API と Result の形は変わらない。CHANGELOG に「書式の外の指定を拒否する」ことと、その例を書く。
 
@@ -12751,13 +12752,14 @@ PR 2 は 5（`tune(space=...)`、次元ごとの規則、拡張の変更）、7.
 2. config の `tuning.optuna.space` に `dict` でない mapping（`UserDict`）で書いた `category: smart` の次元が、名前の検査で `model` の次元と誤読されずに受け付けられる。
 3. config の `tuning.optuna.space` の mapping でない指定が、素の `AttributeError` ではなく `CONFIG_INVALID` で拒否される。
 4. YAML の config ファイルに `low: 1e-4` と書いた探索次元が、`load_config` を通して `low=0.0001` の次元に解決される。`low: nan` や `low: "abc"` は拒否される。
+4b. `int` の次元の境界 `"16.0"` と `"1e2"` が、config の `tuning.optuna.space`（YAML の `high: 1e2` を含む）でも `tune(space=...)` でも、`low=16`・`high=100` の `IntDim` に解決される。`"1.7"` は拒否される。
 
 実装の PR で確かめるもの:
 
 5. 文書: BLUEPRINT の探索空間の節と docs/config-reference.md に、受け付ける書式（`choices` を含む）を書き、CHANGELOG に拒否されるようになった書き方を書く。`tests/test_docs/` で確かめる。
-6. 負の対照: 方針 3 の各検査、方針 2 の写し、mapping でない指定の検査を、それぞれ一つずつ外すと、基準 1〜4 のうち対応するケースが失敗する。
+6. 負の対照: 方針 3 の各検査、方針 2 の写し、mapping でない指定の検査を、それぞれ一つずつ外すと、基準 1〜4b のうち対応するケースが失敗する。
 
 今も通り、変更の後も通り続けるべきもの（回帰の保証）:
 
 7. 書式どおりの指定（`log` と `category` の省略、`int` の次元の `16.0`、numpy の数の境界、list と tuple の `choices`）は、今と同じ次元に解決される。
-8. `tune(space=...)` の H-0122 の拒否（形、category、名前）は、理由を変えずに引き続き拒否される（H-0122 の受け入れ基準 29 のテストが通る）。
+8. `tune(space=...)` の H-0122 の拒否は、理由を変えずに引き続き拒否される。`tests/test_tuning/test_resume_space_arg.py` の `MALFORMED` の 6 形について、今の `code` と `context` の値を一つずつ固定するテストを、実装の前に足して今のコードで通しておく（今は `CONFIG_INVALID` と不変性しか見ていない）。c65ef4d で実行した今の値: `not_a_mapping`・`name_not_str` は `{surface: "tune(space=)", reason: <形の名前>}`、`dim_not_a_mapping`・`unknown_category` はそれに `dim: "learning_rate"` を加えたもの、`missing_low` は `reason: "malformed_dim"`、`unknown_type` は `{param: "learning_rate", type: "uniform"}`（surface が無い）。変更の後も、これらの鍵の値は変わらない（方針 3 の規則で context に鍵を足すことは妨げない。`unknown_type` に `surface` が加わる）。
