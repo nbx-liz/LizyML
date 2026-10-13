@@ -159,18 +159,23 @@ def comparable_values(series: pd.Series) -> tuple[pd.Series, pd.Series]:
         "string", "empty",
     ):
         return series, unchanged
-    hit = series.map(_is_unindexable_float).astype(bool)
-    if not hit.any():
+    # By position, not label: an index may repeat a label.
+    values = series.to_numpy(dtype=object)
+    positions = [i for i, v in enumerate(values) if _is_unindexable_float(v)]
+    if not positions:
         return series, unchanged
-    converted = series.copy()
-    changed = unchanged.copy()
-    for idx in series.index[hit.to_numpy()]:
-        value = series.at[idx]
+    converted = values.copy()
+    changed = np.zeros(len(values), dtype=bool)
+    for pos in positions:
+        value = values[pos]
         scalar64 = np.float64(value)
-        converted.at[idx] = float(scalar64)
+        converted[pos] = float(scalar64)
         if not np.isnan(value):
-            changed.at[idx] = bool(scalar64.astype(value.dtype) != value)
-    return converted, changed
+            changed[pos] = bool(scalar64.astype(value.dtype) != value)
+    return (
+        pd.Series(converted, index=series.index, name=series.name, dtype=object),
+        pd.Series(changed, index=series.index),
+    )
 
 
 def encode_column(series: pd.Series, entry: dict, policy: str, col: str) -> np.ndarray:
@@ -201,16 +206,21 @@ def encode_column(series: pd.Series, entry: dict, policy: str, col: str) -> np.n
         series = series.astype(object)
         hit = series.isin(list(unseen)) | changed
         n_rows = int(hit.sum())
+        # Only values some row holds count, as in the runtime.
+        present = sorted({str(v) for v in arrived[hit]})
+        filler = pd.Series(
+            [entry["mode"] if policy == "mode" else None] * len(series),
+            index=series.index, dtype=object,
+        )
+        series = series.where(~hit, filler)
         if policy == "mode":
-            series = series.where(~hit, entry["mode"])
-            replaced_by = "the training mode"
+            replaced_by = f"the training mode {entry['mode']!r}"
         else:
-            series = series.where(~hit, None)
             replaced_by = "a missing value"
         if n_rows:
             log.warning(
-                "Column '%s': %d row(s) with unseen categories replaced by %s "
-                "(unseen_policy='%s')", col, n_rows, replaced_by, policy,
+                "Column '%s': %d row(s) with unseen categories %s replaced by %s "
+                "(unseen_policy='%s')", col, n_rows, present, replaced_by, policy,
             )
     series = series.astype("category").cat.set_categories(known)
     codes = series.cat.codes.to_numpy().astype(np.float64)
@@ -1254,18 +1264,23 @@ def comparable_values(series: pd.Series) -> tuple[pd.Series, pd.Series]:
         "string", "empty",
     ):
         return series, unchanged
-    hit = series.map(_is_unindexable_float).astype(bool)
-    if not hit.any():
+    # By position, not label: an index may repeat a label.
+    values = series.to_numpy(dtype=object)
+    positions = [i for i, v in enumerate(values) if _is_unindexable_float(v)]
+    if not positions:
         return series, unchanged
-    converted = series.copy()
-    changed = unchanged.copy()
-    for idx in series.index[hit.to_numpy()]:
-        value = series.at[idx]
+    converted = values.copy()
+    changed = np.zeros(len(values), dtype=bool)
+    for pos in positions:
+        value = values[pos]
         scalar64 = np.float64(value)
-        converted.at[idx] = float(scalar64)
+        converted[pos] = float(scalar64)
         if not np.isnan(value):
-            changed.at[idx] = bool(scalar64.astype(value.dtype) != value)
-    return converted, changed
+            changed[pos] = bool(scalar64.astype(value.dtype) != value)
+    return (
+        pd.Series(converted, index=series.index, name=series.name, dtype=object),
+        pd.Series(changed, index=series.index),
+    )
 
 
 def encode_column(series: pd.Series, entry: dict, policy: str, col: str) -> np.ndarray:
@@ -1290,23 +1305,27 @@ def encode_column(series: pd.Series, entry: dict, policy: str, col: str) -> np.n
         )
         if policy == "error":
             raise ValueError(
-                f"Column '{col}' contains unseen categories "
+                f"Column '{col}' contains unseen categories: "
                 f"{shown} (unseen_policy='error')"
             )
         series = series.astype(object)
         hit = series.isin(list(unseen)) | changed
         n_rows = int(hit.sum())
+        # Only values some row holds count, as in the runtime.
+        present = sorted({str(v) for v in arrived[hit]})
+        filler = pd.Series(
+            [entry["mode"] if policy == "mode" else None] * len(series),
+            index=series.index, dtype=object,
+        )
+        series = series.where(~hit, filler)
         if policy == "mode":
-            series = series.where(~hit, entry["mode"])
-            replaced_by = "the training mode"
+            replaced_by = f"the training mode {entry['mode']!r}"
         else:
-            series = series.where(~hit, None)
             replaced_by = "a missing value"
         if n_rows:
             log.warning(
-                "Column '%s': %d row(s) with unseen categories %s replaced "
-                "by %s (unseen_policy='%s')",
-                col, n_rows, shown, replaced_by, policy,
+                "Column '%s': %d row(s) with unseen categories %s replaced by %s "
+                "(unseen_policy='%s')", col, n_rows, present, replaced_by, policy,
             )
     series = series.astype("category").cat.set_categories(known)
     codes = series.cat.codes.to_numpy().astype(np.float64)

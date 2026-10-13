@@ -56,6 +56,11 @@ VALUES: dict[str, list[Any]] = {
     "tuple of Decimal": [(Decimal("1.5"),), (Decimal("2.5"),)],
     "tuple of np.longdouble": [(np.longdouble(1),), (np.longdouble(2),)],
     "nested tuple of bytes": [((b"a",),), ((b"b",),)],
+    "np.float32": [np.float32(1.5), np.float32(2.5), np.float32(3.5)],
+    "str, int and float": ["a", 1, 2.5],
+    "tuple of str": [("a",), ("b",), ("c",)],
+    "datetime": [dt.datetime(2020, 1, 1), dt.datetime(2020, 1, 2)],
+    "np.datetime64": [np.datetime64("2020-01-01"), np.datetime64("2020-01-02")],
 }
 WRITABLE = {
     "str",
@@ -65,6 +70,9 @@ WRITABLE = {
     "np.int64",
     "tuple of int",
     "tuple of np.int64",
+    "np.float32",
+    "str, int and float",
+    "tuple of str",
 }
 
 
@@ -89,7 +97,7 @@ def _both_answers(values: list[Any]) -> tuple[bool, bool]:
     predicted = not unwritable_categories({"d": values})
     try:
         booster.model_to_string()
-    except (TypeError, ValueError, RecursionError):
+    except Exception:  # noqa: BLE001 - any writer failure counts
         return predicted, False
     return predicted, True
 
@@ -198,6 +206,33 @@ def test_the_formatter_never_raises() -> None:
     assert type_name(_Nameless(1)) == "_Nameless"  # read past the metaclass
     with pytest.raises(RuntimeError):
         repr(_Hostile(1))  # the witness: plain repr raises
+
+
+class _ArrayWithoutList(np.ndarray):
+    """A hashable 0-d array whose ``tolist()`` raises: LightGBM's conversion
+    calls it, so any exception it raises is the writer's failure too."""
+
+    def __hash__(self) -> int:
+        return hash(self.item())
+
+    def tolist(self) -> Any:  # type: ignore[override]
+        raise RuntimeError("no list")
+
+
+def _array_values() -> list[Any]:
+    return [np.array(k).view(_ArrayWithoutList) for k in (1, 2)]
+
+
+def test_an_exception_from_the_conversion_is_unwritable(tmp_path: Path) -> None:
+    values = _array_values()
+    predicted, succeeds = _both_answers(values)
+    assert (predicted, succeeds) == (False, False)
+    model, messages = _fit(_frame(values))  # fit warns and completes
+    assert len(messages) == 1
+    with pytest.raises(LizyMLError) as exc:
+        model.export(tmp_path / "out")
+    assert exc.value.code == ErrorCode.SERIALIZATION_FAILED
+    assert exc.value.context["type"] == "_ArrayWithoutList"
 
 
 def test_fit_warns_and_export_refuses_with_safe_text(tmp_path: Path) -> None:
@@ -331,15 +366,19 @@ def _fold_varying_strings() -> tuple[pd.DataFrame, dict[str, Any]]:
     return df, {"auto_categorical": False}
 
 
+def _strings_with_missing_rows() -> tuple[pd.DataFrame, dict[str, Any]]:
+    df = _frame(VALUES["str"])
+    df.loc[df.index[:5], "d"] = np.nan
+    return df, {}
+
+
 BUILDERS: dict[str, FrameBuilder] = {
     **{
         f"category of {k}": (lambda k=k: (_frame(VALUES[k]), {}))
         for k in sorted(VALUES)
     },
-    **{
-        f"object of {k}": (lambda k=k: _object_column(k))
-        for k in ("bytes", "Decimal", "str")
-    },
+    **{f"object of {k}": (lambda k=k: _object_column(k)) for k in sorted(VALUES)},
+    "category of str with missing rows": _strings_with_missing_rows,
     "auto_categorical off, fold-varying str": _fold_varying_strings,
 }
 

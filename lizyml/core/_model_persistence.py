@@ -381,6 +381,7 @@ class ModelPersistenceMixin:
             applied_training_params=state.applied_training_params,
             applied_sample_weight=state.applied_sample_weight,
             declared_categories=state.declared_categories,
+            categories_checked=True,
         )
         _log.info("event='export.done' path=%s", resolved_path)
         return resolved_path

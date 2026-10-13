@@ -82,7 +82,10 @@ def is_writable(value: Any) -> bool:
     """Whether LightGBM can write *value* as a category into a saved model."""
     try:
         json.dumps([[value]], default=_numpy_default)
-    except (TypeError, ValueError, RecursionError):
+    except Exception:  # noqa: BLE001 - any failure is LightGBM's failure too
+        # Besides TypeError / ValueError / RecursionError from json, the
+        # conversion calls a value's own .item() / .tolist(), which may raise
+        # anything; LightGBM's writer would raise the same.
         return False
     return True
 

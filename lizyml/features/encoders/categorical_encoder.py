@@ -52,18 +52,23 @@ def comparable_values(series: pd.Series) -> tuple[pd.Series, pd.Series]:
         "empty",
     ):
         return series, unchanged
-    hit = series.map(_is_unindexable_float).astype(bool)
-    if not hit.any():
+    # By position, not label: an index may repeat a label.
+    values = series.to_numpy(dtype=object)
+    positions = [i for i, v in enumerate(values) if _is_unindexable_float(v)]
+    if not positions:
         return series, unchanged
-    converted = series.copy()
-    changed = unchanged.copy()
-    for idx in series.index[hit.to_numpy()]:
-        value: Any = series.at[idx]
+    converted = values.copy()
+    changed = np.zeros(len(values), dtype=bool)
+    for pos in positions:
+        value: Any = values[pos]
         scalar64 = np.float64(value)
-        converted.at[idx] = float(scalar64)
+        converted[pos] = float(scalar64)
         if not np.isnan(value):
-            changed.at[idx] = bool(scalar64.astype(value.dtype) != value)
-    return converted, changed
+            changed[pos] = bool(scalar64.astype(value.dtype) != value)
+    return (
+        pd.Series(converted, index=series.index, name=series.name, dtype=object),
+        pd.Series(changed, index=series.index),
+    )
 
 
 class CategoricalEncoder:

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import logging
 import typing
 import warnings
 from pathlib import Path
@@ -75,6 +76,11 @@ def _arrivals() -> dict[str, pd.Series]:
         "object of np.float16": pd.Series(
             [np.float16(v) for v in (0, 1, np.nan, 2.5, 4)], dtype=object
         ),
+        "object of np.float16, repeated index": pd.Series(
+            [np.float16(v) for v in (0, 1, np.nan, 2.5, 4)],
+            dtype=object,
+            index=[0, 0, 1, 1, 2],
+        ),
     }
     if WIDE_LONGDOUBLE:
         arrivals["longdouble, a value float64 changes"] = pd.Series(
@@ -87,9 +93,10 @@ def _arrivals() -> dict[str, pd.Series]:
     return arrivals
 
 
-def _runtime_codes(
+def _runtime(
     entry: dict[str, Any], policy: str, series: pd.Series
-) -> list[float]:
+) -> tuple[list[float], list[str]]:
+    """The runtime encoder's codes and warnings for *series*."""
     encoder = CategoricalEncoder(unseen_policy=policy)  # type: ignore[arg-type]
     encoder.load_state(
         {
@@ -98,10 +105,16 @@ def _runtime_codes(
             "modes": {"cat": entry["mode"]},
         }
     )
-    out = encoder.transform(pd.DataFrame({"cat": series}))
+    out, warnings_ = encoder.transform_with_warnings(pd.DataFrame({"cat": series}))
     codes = out["cat"].cat.codes.to_numpy().astype(np.float64)
     codes[codes < 0] = np.nan
-    return codes.tolist()
+    return codes.tolist(), warnings_
+
+
+def _runtime_codes(
+    entry: dict[str, Any], policy: str, series: pd.Series
+) -> list[float]:
+    return _runtime(entry, policy, series)[0]
 
 
 @pytest.mark.parametrize("module_name", ["train", "predict"])
@@ -127,6 +140,38 @@ def test_each_generated_copy_encodes_as_the_runtime(
     got = module.encode_column(series, entry, policy, "cat").tolist()
     np.testing.assert_array_equal(np.array(got), np.array(expected))
     assert np.isnan(got[2])  # the missing value stays missing
+
+
+@pytest.mark.parametrize("module_name", ["train", "predict"])
+@pytest.mark.parametrize("arrival", sorted(_arrivals()))
+def test_each_generated_copy_words_its_report_as_the_runtime(
+    exported: tuple[str, Model, Path],
+    module_name: str,
+    arrival: str,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The substitution warning and the refusal read as the runtime's (DC3)."""
+    policy, _, root = exported
+    module = _load(root, module_name)
+    state = json.loads(
+        (root / "artifacts" / "pipeline_state.json").read_text(encoding="utf-8")
+    )
+    entry = state["categories"]["cat"]
+    series = _arrivals()[arrival]
+    if policy == "error":
+        with pytest.raises(LizyMLError) as runtime:
+            _runtime(entry, policy, series)
+        with pytest.raises(ValueError) as generated:
+            module.encode_column(series, entry, policy, "cat")
+        assert str(generated.value) == (
+            f"{runtime.value.user_message} (unseen_policy='error')"
+        )
+        return
+    _, expected = _runtime(entry, policy, series)
+    with caplog.at_level(logging.WARNING):
+        module.encode_column(series, entry, policy, "cat")
+    got = [r.getMessage() for r in caplog.records if "unseen" in r.getMessage()]
+    assert got == expected
 
 
 @pytest.mark.parametrize("arrival", ["float16", "longdouble"])

@@ -132,12 +132,14 @@ def test_other_columns_are_returned_unchanged() -> None:
         assert not changed.any()
 
 
+@pytest.mark.parametrize("arrival", ["float16", "object of np.float16"])
 @pytest.mark.parametrize("policy", ["mode", "nan"])
-def test_a_duplicate_index_keeps_rows_in_place(policy: str) -> None:
-    """The replacement aligns masks by index; a repeated label must not move
-    or duplicate rows."""
+def test_a_duplicate_index_keeps_rows_in_place(arrival: str, policy: str) -> None:
+    """Rows are converted by position and replaced by aligned masks; a repeated
+    label must not move, duplicate or merge rows."""
     encoder = _encoder(policy)
-    series = pd.Series([0, 2.5, 1], dtype=np.float16, index=[0, 0, 1])
+    series = ARRIVALS[arrival]([0, 2.5, 1])
+    series.index = pd.Index([0, 0, 1])
     out, warnings = encoder.transform_with_warnings(pd.DataFrame({"a": series}))
     assert out.index.tolist() == [0, 0, 1]
     unseen = KNOWN.index(MODE) if policy == "mode" else -1

@@ -163,6 +163,7 @@ def export(
     applied_training_params: dict[str, Any] | None = None,
     applied_sample_weight: str | None = None,
     declared_categories: dict[str, list[Any]] | None = None,
+    categories_checked: bool = False,
 ) -> None:
     """Serialize Model artifacts to *path*.
 
@@ -197,13 +198,17 @@ def export(
             cannot return with its type is omitted too rather than written as
             ``str``: ``export_code`` refuses such a model anyway, because the
             encoder holds the same values.
+        categories_checked: ``True`` when the caller already ran
+            :func:`check_category_values` on these results (``Model.export``
+            runs it before resolving the path), so the scan is not repeated.
 
     Raises:
         LizyMLError with SERIALIZATION_FAILED on any I/O or serialization error,
         and before anything is written when a category value cannot be saved
         (:func:`check_category_values`, H-0127).
     """
-    check_category_values(fit_result, refit_result)
+    if not categories_checked:
+        check_category_values(fit_result, refit_result)
     out = Path(path)
     try:
         out.mkdir(parents=True, exist_ok=True)
