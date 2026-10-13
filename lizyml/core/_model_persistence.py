@@ -8,6 +8,7 @@ Model facade as ``Model._resolve_export_path``.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -145,6 +146,63 @@ def _checked_declared_categories(record: Any, path: str | Path) -> dict[str, lis
                     {"key": col, "type": type(value).__name__},
                 )
     return {col: list(cats) for col, cats in record.items()}
+
+
+#: The keys every tuning block LizyML writes carries (``persistence/exporter.py``).
+_TUNING_META_KEYS = frozenset(
+    {
+        "best_model_params",
+        "best_smart_params",
+        "best_training_params",
+        "best_score",
+        "metric_name",
+        "direction",
+    }
+)
+
+
+def _refuse_recorded_smart_values(
+    record: Any, provider: Any, task: Any, path: str | Path
+) -> None:
+    """Refuse a tune result whose smart values break the rule (H-0121 am. 2).
+
+    Policy 4: before #347 a smart dimension's sampled value was recorded as
+    it was, so an artifact can record ``"false"`` for a booster trained with
+    ``auto_num_leaves`` on. The record then disagrees with the model, and a
+    re-``fit`` -- or a user reading the record -- trains a different one. The
+    provider's rule is the one a tune's dimensions get, judged for the
+    artifact config's task. A record that is not a mapping is refused too:
+    LizyML writes a mapping.
+    """
+    from lizyml.core._smart_values import smart_value_violation
+
+    if not isinstance(record, Mapping):
+        raise LizyMLError(
+            code=ErrorCode.DESERIALIZATION_FAILED,
+            user_message="Stored tuning best_smart_params must be an object.",
+            context={"path": str(path)},
+        )
+    found = smart_value_violation(provider, record, task)
+    if found is None:
+        return
+    raise LizyMLError(
+        code=ErrorCode.DESERIALIZATION_FAILED,
+        user_message=(
+            f"Stored tuning best_smart_params records '{found.name}'="
+            f"{found.value!r}, which '{found.name}' cannot hold: it takes "
+            f"{found.expected}. A model trained from this record cannot be "
+            "reproduced (before #347 a string such as 'false' was recorded as "
+            "written but trained as true), so the artifact is not loaded. Tune "
+            "again and export again (tune, fit, export) with this version of "
+            "LizyML."
+        ),
+        context={
+            "path": str(path),
+            "name": found.name,
+            "value": found.value,
+            "reason": found.reason,
+        },
+    )
 
 
 def _checked_applied_training_params(record: Any, path: str | Path) -> dict[str, Any]:
@@ -482,6 +540,20 @@ class ModelPersistenceMixin:
         if tuning_meta is not None:
             from lizyml.core.types.tuning_result import TuningResult
 
+            missing = (
+                sorted(_TUNING_META_KEYS - tuning_meta.keys())
+                if isinstance(tuning_meta, dict)
+                else None
+            )
+            if missing is None or missing:
+                raise LizyMLError(
+                    code=ErrorCode.DESERIALIZATION_FAILED,
+                    user_message=(
+                        "Stored tuning metadata must be an object with "
+                        f"{sorted(_TUNING_META_KEYS)}."
+                    ),
+                    context={"path": str(path), "missing": missing},
+                )
             if "fixed_params" in tuning_meta:
                 fixed_params = tuning_meta["fixed_params"]
                 if not isinstance(fixed_params, dict):
@@ -491,6 +563,12 @@ class ModelPersistenceMixin:
                         context={"path": str(path)},
                     )
                 instance._tuning_fixed_params = deepcopy(fixed_params)
+            _refuse_recorded_smart_values(
+                tuning_meta["best_smart_params"],
+                instance._provider,
+                instance._cfg.task,
+                path,
+            )
             instance._tuning_result = TuningResult(
                 best_model_params=tuning_meta["best_model_params"],
                 best_smart_params=tuning_meta["best_smart_params"],

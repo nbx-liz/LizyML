@@ -21,13 +21,14 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any, Literal
 
+from lizyml.core._smart_values import smart_value_violation
 from lizyml.core._tuning_plan import _uses_default
 from lizyml.core._tuning_resume import judge_existing, objective_identity, refuse_state
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.search_dim import SearchDim
 from lizyml.core.types.tuning_result import TuningResult
 from lizyml.tuning import tuner as _tuner
-from lizyml.tuning.lineage import Lineage, classify_study
+from lizyml.tuning.lineage import Lineage, classify_study, split_by_routes
 from lizyml.tuning.rounds import (
     ScoredTrial,
     assemble_tuning_result,
@@ -38,6 +39,7 @@ if TYPE_CHECKING:
     from optuna.storages import BaseStorage
 
     from lizyml.config.schema import LizyMLConfig
+    from lizyml.core.types.task import TaskType
     from lizyml.estimators.provider import EstimatorProvider
 
 #: States with no closed, completed round to restore (§7.7).
@@ -189,6 +191,7 @@ def read_restorable(
         direction=direction,
         study_name=study_name,
     )
+    refuse_study_smart_values(lineage, trials, provider, cfg.task, study_name)
     best = study.best_trial
     restored = restore_from_study(
         lineage,
@@ -198,4 +201,86 @@ def read_restorable(
         metric_name=metric_name,
         direction=direction,
     )
+    refuse_recorded_smart_values(restored.result, provider, cfg.task, study_name)
     return replace(restored, study=study)
+
+
+def refuse_recorded_smart_values(
+    result: TuningResult,
+    provider: EstimatorProvider,
+    task: TaskType,
+    study_name: str,
+) -> None:
+    """Refuse a restored result whose smart values break the rule (H-0121 am. 2).
+
+    Policy 5: a study tuned before the smart value rule existed can record a
+    value no trial trained as written (``"false"`` trained with the parameter
+    on). ``tune(resume=True)`` refuses such a study before writing
+    (:func:`refuse_study_smart_values`); the result is refused here, before
+    it reaches the Model or a ``fit``.
+    """
+    _refuse_smart_violation(
+        smart_value_violation(provider, result.best_smart_params, task), study_name
+    )
+
+
+def refuse_study_smart_values(
+    lineage: Lineage | None,
+    trials: Sequence[Any],
+    provider: EstimatorProvider,
+    task: TaskType,
+    study_name: str | None,
+) -> None:
+    """Refuse a stored study any of whose trials breaks the smart value rule.
+
+    H-0121 amendment 2, policies 2 and 5: the round admission checks the new
+    round's dimensions, but a stored study's earlier rounds can hold trials
+    tuned before the rule existed (``"false"`` trained with the parameter on).
+    Each one reaches the tune's result -- the best, the ``fit`` overlay and
+    the export when it is the best, ``TuningResult.trials`` and the tables in
+    any case -- even after a ``tune(space=...)`` removed its dimension. So
+    every trial's recorded smart values (its recorded values split by the
+    lineage routes) are checked, before any study write on resume and before
+    a ``restore_tuning`` result reaches the Model.
+    """
+    if lineage is None:
+        return
+    for trial in trials:
+        if not trial.params:
+            continue
+        _, smart, _ = split_by_routes(
+            recorded_trial_params(lineage, trial), lineage.routes
+        )
+        found = smart_value_violation(provider, smart, task)
+        if found is not None:
+            _refuse_smart_violation(found, study_name, trial_number=trial.number)
+
+
+def _refuse_smart_violation(
+    found: Any, study_name: str | None, *, trial_number: int | None = None
+) -> None:
+    if found is None:
+        return
+    raise LizyMLError(
+        code=ErrorCode.CONFIG_INVALID,
+        user_message=(
+            f"study '{study_name}' records the smart parameter "
+            f"'{found.name}'={found.value!r}"
+            + (
+                f" in trial {trial_number}"
+                if trial_number is not None
+                else " as its best"
+            )
+            + f", which '{found.name}' "
+            f"cannot hold: it takes {found.expected}. Its trials did not train "
+            "on that value as written, so the result is not restored. Tune "
+            "again in a new study (another study_name)."
+        ),
+        context={
+            "surface": "tuning.study",
+            "study_name": study_name,
+            "name": found.name,
+            "value": found.value,
+            "reason": found.reason,
+        },
+    )

@@ -8,7 +8,7 @@ See BLUEPRINT §14.4 for the full specification.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
@@ -16,7 +16,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
-from lizyml.core.types.search_dim import SearchDim
+from lizyml.core.types.search_dim import CategoricalDim, SearchDim
 from lizyml.core.types.task import TaskType
 from lizyml.estimators.base import BaseEstimatorAdapter
 from lizyml.features.encoders.categorical_encoder import UnseenPolicy
@@ -60,6 +60,109 @@ class ExportParams:
     num_boost_round: int
     early_stopping_rounds: int | None
     feval_metadata: list[dict[str, Any]] = field(default_factory=list)
+
+
+#: Refusal reasons of :class:`SmartValueRule` (H-0121 amendment 2, policy 1).
+SMART_VALUE_INVALID = "smart_value_invalid"
+SMART_VALUE_UNSUPPORTED_TASK = "smart_value_unsupported_task"
+
+SmartValueKind = Literal["bool", "number", "untunable"]
+
+
+@dataclass(frozen=True)
+class SmartValueRule:
+    """The values one smart parameter can hold (H-0121 amendment 2, policy 1).
+
+    A ``category: smart`` dimension's sampled value becomes the trial's smart
+    parameter as it is, and smart resolution reads it by truthiness and
+    ``None``; so every value a dimension can take, and every value a stored
+    tune result records, is held to this rule. Types are judged exactly:
+    ``type(v) is bool`` for a bool, ``type(v) is int`` or ``type(v) is float``
+    for a number (``bool``, numpy scalars and ``Decimal`` are not numbers).
+
+    Attributes:
+        kind: ``"bool"`` -- only ``True`` / ``False``, and only in a
+            categorical dimension; ``"number"`` -- an ``int`` or ``float`` in
+            the interval below, in a numeric or categorical dimension;
+            ``"untunable"`` -- no search dimension and no recorded value.
+        none_allowed: ``None`` is also a value (in a categorical dimension;
+            a numeric dimension's bounds are never ``None``).
+        low: A number's lower bound, exclusive.
+        high: A number's upper bound, inclusive when ``high_inclusive``.
+        high_inclusive: Whether ``high`` itself is a value. NaN and the
+            infinities fall outside every interval.
+        true_refused_tasks: Tasks for which ``True`` is refused with
+            ``smart_value_unsupported_task``.
+    """
+
+    kind: SmartValueKind
+    none_allowed: bool = False
+    low: float = 0.0
+    high: float = 1.0
+    high_inclusive: bool = True
+    true_refused_tasks: frozenset[str] = frozenset()
+
+    def check_value(self, value: Any, task: TaskType) -> str | None:
+        """Return the refusal reason for *value*, or ``None`` when it is held."""
+        if self.kind == "untunable":
+            return SMART_VALUE_INVALID
+        if value is None:
+            return None if self.none_allowed else SMART_VALUE_INVALID
+        if self.kind == "bool":
+            if type(value) is not bool:
+                return SMART_VALUE_INVALID
+            if value and task in self.true_refused_tasks:
+                return SMART_VALUE_UNSUPPORTED_TASK
+            return None
+        if type(value) is not int and type(value) is not float:
+            return SMART_VALUE_INVALID
+        upper_ok = value <= self.high if self.high_inclusive else value < self.high
+        return None if value > self.low and upper_ok else SMART_VALUE_INVALID
+
+    def check_dimension(
+        self, dim: SearchDim, task: TaskType
+    ) -> tuple[str, Any, str] | None:
+        """The first value of *dim* outside the rule, or ``None``.
+
+        Returns:
+            ``(key, value, reason)``: ``key`` is ``"choices"`` for a
+            categorical dimension and ``"low"`` / ``"high"`` for a numeric
+            one. A numeric dimension on a parameter that takes no numbers is
+            reported at its ``low``, the first value it would sample.
+        """
+        if isinstance(dim, CategoricalDim):
+            for choice in dim.choices:
+                reason = self.check_value(choice, task)
+                if reason is not None:
+                    return "choices", choice, reason
+            return None
+        if self.kind == "number":
+            for key in ("low", "high"):
+                bound = getattr(dim, key)
+                reason = self.check_value(bound, task)
+                if reason is not None:
+                    return key, bound, reason
+            return None
+        # A bool parameter, and one that takes no dimension, has no numeric one.
+        return "low", dim.low, SMART_VALUE_INVALID
+
+    def describe(self, task: TaskType) -> str:
+        """What the rule holds, for a refusal message."""
+        if self.kind == "untunable":
+            return "nothing: it cannot be a search dimension"
+        if self.kind == "bool":
+            held = "True or False"
+            if task in self.true_refused_tasks:
+                held = f"False; True is not supported for task '{task}'"
+            shown = f"a bool ({held})"
+            where = ", in a categorical dimension only"
+        else:
+            close = "]" if self.high_inclusive else ")"
+            shown = f"an int or float in ({self.low:g}, {self.high:g}{close}"
+            where = ""
+        if self.none_allowed:
+            shown += " or None"
+        return shown + where
 
 
 class EstimatorProvider(Protocol):  # pragma: no cover
@@ -121,6 +224,19 @@ class EstimatorProvider(Protocol):  # pragma: no cover
         tuning layer refuses it (written by the user) or drops it (from the
         default space). Smart parameters read unconditionally are omitted; a
         provider without such parameters returns ``{}``.
+        """
+        ...
+
+    def smart_value_rules(self) -> Mapping[str, SmartValueRule]:
+        """Return ``{smart parameter: the values it can hold}`` (H-0121 am. 2).
+
+        The one declaration of what a ``category: smart`` search dimension may
+        take and what a stored tune result may record: ``Model.tune`` refuses
+        a dimension outside it before any study write, ``restore_tuning`` and
+        ``Model.load`` refuse a recorded value outside it. Must have a rule
+        for every name :meth:`smart_param_names` returns. A range the config
+        also validates must be read from the same declaration as the config's
+        check, not restated.
         """
         ...
 

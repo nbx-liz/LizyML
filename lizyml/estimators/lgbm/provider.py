@@ -13,6 +13,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
+from lizyml.config.schema import SMART_RATIO_RANGES
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.search_dim import SearchDim
 from lizyml.core.types.task import TaskType
@@ -37,7 +38,7 @@ from lizyml.estimators.lgbm.smart_params import (
     resolve_smart_params,
     smart_managed_names,
 )
-from lizyml.estimators.provider import ExportParams, MetricChoices
+from lizyml.estimators.provider import ExportParams, MetricChoices, SmartValueRule
 from lizyml.features.encoders.categorical_encoder import UnseenPolicy
 from lizyml.features.pipeline_base import BaseFeaturePipeline
 from lizyml.features.pipelines_native import NativeFeaturePipeline
@@ -54,6 +55,40 @@ _SMART_PARAM_NAMES: tuple[str, ...] = (
     "balanced",
 )
 
+
+def _smart_value_rules() -> dict[str, SmartValueRule]:
+    """The values each smart parameter can hold (H-0121 amendment 2, policy 1).
+
+    Built at call time from ``SMART_RATIO_RANGES``, the ranges ``LGBMConfig``
+    validates the same fields with, so the two checks share one declaration.
+    ``balanced=True`` is refused on regression, where resolution raises
+    ``UNSUPPORTED_TASK``; ``None`` there means "off" and is accepted.
+    ``feature_weights`` is a dict, and a categorical choice is a plain value,
+    so it cannot be a search dimension at all.
+    """
+
+    def ratio(name: str, *, none_allowed: bool) -> SmartValueRule:
+        bounds = SMART_RATIO_RANGES[name]
+        return SmartValueRule(
+            kind="number",
+            none_allowed=none_allowed,
+            low=bounds.low,
+            high=bounds.high,
+            high_inclusive=bounds.upper_inclusive,
+        )
+
+    return {
+        "auto_num_leaves": SmartValueRule(kind="bool"),
+        "num_leaves_ratio": ratio("num_leaves_ratio", none_allowed=False),
+        "min_data_in_leaf_ratio": ratio("min_data_in_leaf_ratio", none_allowed=True),
+        "min_data_in_bin_ratio": ratio("min_data_in_bin_ratio", none_allowed=True),
+        "feature_weights": SmartValueRule(kind="untunable"),
+        "balanced": SmartValueRule(
+            kind="bool", none_allowed=True, true_refused_tasks=frozenset({"regression"})
+        ),
+    }
+
+
 # H-0078: LightGBM-meaningful per-parameter bounds for boundary expansion.
 # Values reflect LightGBM's documented limits and physically-meaningful
 # ranges; they keep ``expand_dims`` from drifting into ranges that crash
@@ -62,7 +97,9 @@ _LGBM_PARAMETER_BOUNDS: dict[str, dict[str, float | int]] = {
     "learning_rate": {"min": 1e-8, "max": 1.0},
     "feature_fraction": {"min": 1e-3, "max": 1.0},
     "bagging_fraction": {"min": 1e-3, "max": 1.0},
-    "num_leaves_ratio": {"min": 0.1, "max": 2.0},
+    # H-0121 amendment 2, policy 3: the config's own upper end, so an expanded
+    # dimension stays inside the smart value rule.
+    "num_leaves_ratio": {"min": 0.1, "max": 1.0},
     "min_data_in_leaf_ratio": {"min": 1e-4, "max": 0.5},
     "min_data_in_bin_ratio": {"min": 1e-4, "max": 0.5},
     "validation_ratio": {"min": 0.05, "max": 0.5},
@@ -243,6 +280,10 @@ class LGBMProvider:
     def smart_param_names(self) -> frozenset[str]:
         """Return the smart parameter names, from the same declaration as above."""
         return frozenset(_SMART_PARAM_NAMES)
+
+    def smart_value_rules(self) -> dict[str, SmartValueRule]:
+        """Return the values each smart parameter can hold (H-0121 am. 2)."""
+        return _smart_value_rules()
 
     def smart_param_owners(self) -> dict[str, str]:
         """Return smart parameters read only while their owner is true (H-0121)."""
