@@ -128,18 +128,50 @@ def _check_table(
     )
 
 
+def _recorded_alone(task: str, spelling: str) -> set[str]:
+    """The names LightGBM records when *spelling* is the only metric."""
+    X, y = _data(task)
+    adapter = LGBMAdapter(
+        task=task,  # type: ignore[arg-type]
+        params={"metric": [spelling], "n_estimators": 2},
+        num_class=3 if task == "multiclass" else None,
+        early_stopping_rounds=None,
+    )
+    adapter.fit(
+        X.iloc[:_N_TRAIN], y.iloc[:_N_TRAIN], X.iloc[_N_TRAIN:], y.iloc[_N_TRAIN:]
+    )
+    return set(adapter.eval_results["valid_0"])
+
+
+@pytest.mark.parametrize("task", _TASKS)
 def test_every_native_metric_was_recorded(
     comparisons: dict[str, tuple[set[str], dict[str, tuple[float, float]]]],
+    task: str,
 ) -> None:
-    """Each task's whole native table reached LightGBM and was recorded.
+    """Each accepted native spelling is recorded, and the comparison saw it.
 
-    The recorded names are LightGBM's canonical ones (``mae`` is recorded as
-    ``l1``), so the check is that recording happened for each task and that
-    the shared names were found where they exist.
+    LightGBM records a spelling under its canonical name (``mae`` as ``l1``),
+    so each spelling of the task's native table is trained alone and must be
+    recorded under exactly one name; the union of those names must equal what
+    the comparison's run recorded. A spelling LightGBM ignored, or a name the
+    comparison's run lost, fails here instead of passing unseen.
     """
-    for task in _TASKS:
-        recorded, values = comparisons[task]
-        assert recorded, task
+    per_spelling = {
+        spelling: _recorded_alone(task, spelling)
+        for spelling in sorted(_LGBM_NATIVE_METRICS[task])
+    }
+    unrecorded = {s: names for s, names in per_spelling.items() if len(names) != 1}
+    assert not unrecorded, (
+        f"{task}: spellings not recorded under one name: {unrecorded}"
+    )
+    expected = set().union(*per_spelling.values())
+    assert comparisons[task][0] == expected, task
+
+
+def test_the_shared_names_are_known(
+    comparisons: dict[str, tuple[set[str], dict[str, tuple[float, float]]]],
+) -> None:
+    """The recorded names that are also LizyML metric names, per task."""
     assert set(comparisons["regression"][1]) == {"huber", "mape", "rmse"}
     assert set(comparisons["binary"][1]) == {"auc"}
     assert comparisons["multiclass"][1] == {}
