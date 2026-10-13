@@ -1,0 +1,3 @@
+int bound above 2**52: CONFIG_INVALID; raised through ['parse_space_arg']; innermost read_int_bound (_space_format.py:317)
+binary objective cross_entropy_lambda: CONFIG_INVALID; raised through ['plan_round']; innermost refuse_unchangeable (_tuning_space.py:401)
+smart-managed num_leaves: CONFIG_INVALID; raised through ['check_round_space']; innermost check_smart_managed_overrides (_model_factories.py:1202)

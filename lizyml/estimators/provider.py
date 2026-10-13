@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
-from typing import Any, Literal, Protocol
+from typing import Any, Literal, Protocol, runtime_checkable
 
 import numpy as np
 import numpy.typing as npt
@@ -458,4 +458,21 @@ class EstimatorProvider(Protocol):  # pragma: no cover
         Order is deterministic. Names must not be duplicated across the
         two keys for a single task.
         """
+        ...
+
+
+@runtime_checkable
+class TrialErrorProvider(Protocol):  # pragma: no cover
+    """Optional provider capability: estimator errors that end one tuning
+    trial rather than the round (H-0128).
+
+    Separate from :class:`EstimatorProvider` so a provider written before
+    H-0128 still satisfies that Protocol statically. The ``Model.tune``
+    facade calls :meth:`trial_errors` only when
+    ``isinstance(provider, TrialErrorProvider)``, and passes ``()`` otherwise.
+    """
+
+    def trial_errors(self) -> tuple[type[Exception], ...]:
+        """Exception types a trial records as FAIL (for example the estimator
+        library's own error type)."""
         ...

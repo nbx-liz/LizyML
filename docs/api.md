@@ -134,6 +134,8 @@ result back without adding trials, use [`restore_tuning`](#restore_tuning).
 
 **Objective and metric values (H-0125).** Before a study is created or written, `tune` checks the `objective` and `metric` values its trials would train on with fit's rules, under any LightGBM spelling, and raises `CONFIG_INVALID`: the values of `model.params` with the round's fixed parameters laid over them, leaving out a parameter a `category: model` dimension of the round samples (every trial overrides it, so in `merge` mode a `model.params` objective replaced by the default space's `objective` dimension is not refused), and every choice of a `category: model` dimension on `objective` or `metric`, from the config's space, `space=`, the default space or a resumed round. Such a dimension must be categorical; a `float` / `int` one raises with `reason` `not_categorical`. A binary `cross_entropy_lambda` raises with `reason` `not_a_probability`, and a native metric with parameters is refused as in `fit`. Before, a bad value failed every trial that met it.
 
+`Tuner.tune` and `Tuner.run` take `extra_catch: tuple[type[Exception], ...] = ()` (H-0128): exception types recorded as a failed trial in addition to `LizyMLError`, `ValueError` and `RuntimeError`. `Model.tune` passes the provider's `TrialErrorProvider.trial_errors()` (an optional capability in `lizyml.estimators.provider`, separate from `EstimatorProvider`; the LightGBM provider returns `(lightgbm.basic.LightGBMError,)`; a provider without it passes `()`). Each objective exception is logged in `event='trial.failed'`, and `Tuner.first_error` holds the first one of the last call. `Tuner.tune` judges "all trials failed" over the trials it added (counted from the study's size when the call starts, not from `prior_trials`), not the whole study.
+
 The public `lizyml.tuning.Tuner` does not validate parameter values: it takes neither a task nor a provider, so it cannot know which dimension is a LightGBM objective or metric. Checking values is the job of the objective function you pass it, and a `CONFIG_INVALID` raised there is recorded as a failed trial.
 
 | Parameter | Type | Description |
@@ -169,7 +171,8 @@ The public `lizyml.tuning.Tuner` does not validate parameter values: it takes ne
   - finishing an interrupted round with an `n_trials`, `expand_boundary` or `space=` other than the recorded one (omit them, or pass the recorded value);
   - for each of these, start a new study (another `study_name`) when the change is intended. Nothing is written to the study and the Model is unchanged.
 - `LizyMLError(OPTIONAL_DEP_MISSING)` — `optuna` not installed.
-- `LizyMLError(TUNING_FAILED)` — `resume=True` when the Model holds neither a study nor `storage` (also after `Model.load`); a round that ends with no COMPLETE trial in the study (it is recorded `failed`, and the next `resume=True` starts a new round); study failure.
+- `LizyMLError(TUNING_FAILED)` — `resume=True` when the Model holds neither a study nor `storage` (also after `Model.load`); a round that ends with no COMPLETE trial **of its own**, even when earlier rounds have one (H-0128; it is recorded `failed`, the Model is unchanged, and the next `resume=True` starts a new round — pass a corrected `space=`). Its context adds `trial_states` (`{"trials", "FAIL", "PRUNED", "interrupted"}` for the round) and, when this call saw one, `first_error` (the first exception the objective raised, type and message); a reason is not guaranteed. A LightGBM error in a trial (an invalid value in a search range, such as `max_bin` 0-1) is a failed trial, not the end of the round. Study failure (an exception escaping Optuna; the round stays open and its context carries the same keys).
+- An open round with no COMPLETE trial, given a `space=` different from its record, is closed `failed` (with a `UserWarning`) and a new round starts with that space; `n_trials` and `expand_boundary` are the new round's (H-0128).
 - `UserWarning` — the study was created with other library versions (the objective identity matches, so it continues); or an interrupted round is finished while `tuning.optuna.params.n_trials` differs from its recorded budget (the recorded budget is used).
 
 ---
@@ -514,7 +517,7 @@ Result of a full hyperparameter search.
 | `trials` | `list[TrialResult]` | All trial results (number, params, score, state, round). |
 | `metric_name` | `str` | Name of the metric used for optimization. |
 | `direction` | `str` | `"minimize"` or `"maximize"`. |
-| `rounds` | `tuple[RoundSummary, ...]` | Per-round tuning history (H-0068): one summary per round of the study that closed `completed`, in round order. A round closed `failed` (it ended with no COMPLETE trial in the study) is omitted, so `rounds` can start at round 2, and the next round's `best_score_before` is `None`. |
+| `rounds` | `tuple[RoundSummary, ...]` | Per-round tuning history (H-0068): one summary per round of the study that closed `completed`, in round order. A round closed `failed` (none of its own trials completed, H-0128) is omitted, so `rounds` can start at round 2 or skip a number; the next round's `best_score_before` is the study's best (`None` only when no trial has completed yet). |
 | `boundary_report` | `BoundaryReport \| None` | Boundary detection results of this round (H-0068): set when the round analysed boundaries (a round after the first, with `expand_boundary` resolved to `True` and a COMPLETE trial in the study), otherwise `None`. `restore_tuning` returns the last round's. |
 
 ### TrialResult
@@ -535,7 +538,7 @@ Summary of a single tuning round (H-0068).
 |-------|------|-------------|
 | `round` | `int` | Round number (1-indexed). |
 | `n_trials` | `int` | Number of trials this round ran (its actual count, which a `timeout` can make smaller than the requested budget). |
-| `best_score_before` | `float \| None` | Best score at start of round (`None` when the study had no COMPLETE trial yet: round 1, or the round after a `failed` one). |
+| `best_score_before` | `float \| None` | Best score at start of round (`None` when the study had no COMPLETE trial yet: round 1, or a round after `failed` rounds only). |
 | `best_score_after` | `float` | Best score at end of round. |
 | `expanded_dims` | `tuple[str, ...]` | Names of dimensions expanded before this round. |
 | `space_snapshot` | `tuple[SearchDim, ...]` | Search space used in this round. |
@@ -662,7 +665,7 @@ A study is classified by the first row that applies, from `"legacy"` down.
 | `"inconsistent"` | LizyML's records and the trials disagree. | `CONFIG_INVALID` | `CONFIG_INVALID` |
 | `"open"` | The last round has no end record: it was interrupted. | Finishes that round with its recorded space and remaining budget. | `CONFIG_INVALID` |
 | `"completed"` | The last round closed `completed`. | Starts the next round. | Restores the result. |
-| `"failed"` | The last round closed `failed`: the study had no COMPLETE trial. | Starts the next round, without boundary expansion. | `TUNING_FAILED` |
+| `"failed"` | The last round closed `failed`: none of its trials completed (earlier rounds may have). | Starts the next round; boundary expansion uses the study's best when there is one. | `TUNING_FAILED`, naming the round and saying that earlier rounds' results are not restored |
 
 ---
 
@@ -695,7 +698,7 @@ except LizyMLError as e:
 | `UNSUPPORTED_TASK` | A method is not applicable to the configured task type. |
 | `UNSUPPORTED_METRIC` | An unknown or task-incompatible metric name was provided. |
 | `METRIC_REQUIRES_PROBA` | A probability metric (`logloss`, `auc`, `auc_pr`, `brier`, `ece`, `precision_at_k`) received values that are not probabilities: non-numeric, non-finite, outside [0, 1], or 1-D for more than two classes. |
-| `TUNING_FAILED` | The Optuna study encountered an unrecoverable failure; `tune(resume=True)` with no study to continue; a round ended with no COMPLETE trial in the study; `restore_tuning` with no closed round to restore. |
+| `TUNING_FAILED` | The Optuna study encountered an unrecoverable failure; `tune(resume=True)` with no study to continue; a round ended with no COMPLETE trial of its own (context `trial_states`, and `first_error` when known); `restore_tuning` with no closed round to restore. |
 | `EVALUATION_FAILED` | OOF predictions contain NaN in covered rows, or feval construction failed. |
 | `CALIBRATION_NOT_SUPPORTED` | Calibration was requested for a non-binary task or unsupported config. |
 | `CALIBRATION_NOT_FITTED` | A calibrator's `predict()` / `export_params()` was called before `fit()`. |

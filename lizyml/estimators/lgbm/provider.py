@@ -391,6 +391,15 @@ class LGBMProvider:
             **_COMMON_DEFAULTS,
         }
 
+    def trial_errors(self) -> tuple[type[Exception], ...]:
+        """LightGBM's own error ends one tuning trial, not the round (H-0128):
+        an invalid value in a search range (``max_bin`` 0-1, for example)
+        raises ``lightgbm.basic.LightGBMError``, which derives from
+        ``Exception`` only and so is outside the tuner's default catch."""
+        from lightgbm.basic import LightGBMError
+
+        return (LightGBMError,)
+
     def runtime_deps(self) -> dict[str, str]:
         """Return LightGBM package version."""
         try:
