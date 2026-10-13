@@ -50,10 +50,13 @@ TASK_COMPATIBLE_OBJECTIVES: dict[str, frozenset[str]] = {
         ]
     ),
     "binary": frozenset(
+        # H-0125 (#307): LightGBM's ``cross_entropy_lambda`` is not here. Its
+        # output is lambda, not a probability (``1 - exp(-lambda)`` is), and
+        # LizyML returns a binary model's output as ``proba``. It stays a
+        # metric; ``check_objective_compatible`` names the reason.
         [
             "binary",
             "cross_entropy",
-            "cross_entropy_lambda",
         ]
     ),
     "multiclass": frozenset(

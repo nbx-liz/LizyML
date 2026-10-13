@@ -115,6 +115,99 @@ def validate_tuning_dimensions(
     )
 
 
+def check_value_dimensions(
+    model_name: str,
+    space: list[SearchDim],
+    task: TaskType,
+    *,
+    surface: str = "tuning.optuna.space",
+) -> None:
+    """Refuse an objective or metric dimension a trial could not train on (H-0125).
+
+    A ``category: model`` dimension whose canonical LightGBM name is
+    ``objective`` or ``metric`` (any spelling) puts its sampled value in the
+    trial's parameters, where the adapter checks it with fit's rules -- too
+    late: ``CONFIG_INVALID`` there is a failed trial, so a bad choice dropped
+    its trials in silence. The same rules (``check_objective_compatible``,
+    ``resolve_user_metric``) are applied here to every choice, before any
+    study write (INV-R4). Such a value is a name, so a numeric dimension is
+    refused whatever its range (``not_categorical``). ``None`` is "no
+    override" on both, as on the fit path.
+
+    Args:
+        model_name: The config's model name; only ``lgbm`` has these rules,
+            as in ``check_param_values``.
+        space: The round's effective space.
+        task: The ML task.
+        surface: ``tuning.optuna.space`` or ``tune(space=)``.
+
+    Raises:
+        LizyMLError: ``CONFIG_INVALID`` with ``surface``, ``dim``, and
+            ``reason`` ``not_categorical`` and ``kind``; or, for a choice,
+            ``key`` ``choices``, ``value`` and the rule's own context (its
+            ``reason`` when it has one, such as ``not_a_probability``).
+    """
+    if model_name != "lgbm":
+        return
+    from lizyml.estimators.lgbm.param_names import LGBM_CANONICAL_NAME
+    from lizyml.estimators.lgbm.param_validation import (
+        check_objective_compatible,
+        resolve_user_metric,
+    )
+
+    for dim in space:
+        if dim.category != "model":
+            continue
+        canonical = LGBM_CANONICAL_NAME.get(dim.name, dim.name)
+        if canonical not in ("objective", "metric"):
+            continue
+        if not isinstance(dim, CategoricalDim):
+            kind = type(dim).__name__
+            raise LizyMLError(
+                code=ErrorCode.CONFIG_INVALID,
+                user_message=(
+                    f"{surface}: category: model dimension '{dim.name}' is a "
+                    f"numeric dimension ({kind}), but '{canonical}' takes a "
+                    "name, which no number is. Declare it as type: categorical "
+                    "with the names as choices."
+                ),
+                context={
+                    "surface": surface,
+                    "dim": dim.name,
+                    "reason": "not_categorical",
+                    "kind": kind,
+                },
+            )
+        for choice in dim.choices:
+            try:
+                if canonical == "objective":
+                    if choice is not None:
+                        check_objective_compatible(task, choice)
+                else:
+                    # As a one-entry list: a number is then refused as a
+                    # metric entry instead of being iterated.
+                    resolve_user_metric([choice], task)
+            except LizyMLError as error:
+                if error.code != ErrorCode.CONFIG_INVALID:
+                    raise
+                raise LizyMLError(
+                    code=error.code,
+                    user_message=(
+                        f"{surface}: category: model dimension '{dim.name}' has "
+                        f"a choice its trials cannot train on: {error.user_message}"
+                    ),
+                    debug_message=error.debug_message,
+                    cause=error,
+                    context={
+                        **error.context,
+                        "surface": surface,
+                        "dim": dim.name,
+                        "key": "choices",
+                        "value": choice,
+                    },
+                ) from error
+
+
 def _refuse_undeclared_smart_dimensions(
     provider: EstimatorProvider,
     space: list[SearchDim],
