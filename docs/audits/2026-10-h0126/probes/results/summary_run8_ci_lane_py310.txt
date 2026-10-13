@@ -1,0 +1,16 @@
+# CI 'Quality (lowest-direct deps)', PR #358 head d30e030, run 38376543125 job 115226240656 (https://github.com/nbx-liz/LizyML/actions/runs/38376543125/job/115226240656)
+Using CPython 3.10.22
+package       extra        floor  installed  result
+joblib        -            1.3    1.3.0      ok (at the floor)
+lightgbm      -            4.4    4.4.0      ok (at the floor)
+numpy         -            1.24   1.24.0     ok (at the floor)
+pandas        -            2.0    2.0.0      ok (at the floor)
+pydantic      -            2.1    2.1.0      ok (at the floor)
+pyyaml        -            6.0    6.0        ok (at the floor)
+scikit-learn  -            1.3    1.3.0      ok (at the floor)
+scipy         calibration  1.10   1.10.0     ok (at the floor)
+shap          explain      0.44   0.44.0     ok (at the floor)
+plotly        plots        5.0    5.0.0      ok (at the floor)
+optuna        tuning       3.1    3.1.0      ok (at the floor)
+All 11 requirement(s) are installed at their floor.
+11489 passed, 230 skipped, 21 deselected, 4 xfailed, 924 warnings in 339.61s (0:05:39)
