@@ -43,7 +43,10 @@ if np.dtype(np.longdouble).itemsize > 8:
 
 def _lgb_default(obj: Any) -> Any:
     if isinstance(obj, (np.integer, np.floating, np.bool_)):
-        return obj.item()
+        plain = obj.item()
+        if isinstance(plain, np.generic):  # np.longdouble: LightGBM recurses
+            raise TypeError(type(obj).__name__)
+        return plain
     if isinstance(obj, np.ndarray):
         return obj.tolist()
     raise TypeError(type(obj).__name__)
@@ -54,7 +57,7 @@ def _unwritable(cats: list[Any]) -> list[str]:
     for value in list(pd.CategoricalDtype(cats).categories):
         try:
             json.dumps(value, default=_lgb_default)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, RecursionError):
             bad.append(type(value).__name__)
     return bad
 

@@ -1,0 +1,7 @@
+tuple[int]             model_to_string: ok
+tuple[str]             model_to_string: ok
+tuple[np.int64]        model_to_string: ok
+tuple[bytes]           model_to_string: ValueError: Circular reference detected
+tuple[Decimal]         model_to_string: ValueError: Circular reference detected
+tuple[np.longdouble]   model_to_string: RecursionError: maximum recursion depth exceeded while calling a Python obje
+tuple[tuple[bytes]]    model_to_string: ValueError: Circular reference detected
