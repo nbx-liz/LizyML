@@ -353,6 +353,14 @@ Path resolution (first match wins):
 **Raises:**
 - `LizyMLError(MODEL_NOT_FIT)` — called before `fit()`.
 - `LizyMLError(SERIALIZATION_FAILED)` — I/O error or unresolvable path.
+- `LizyMLError(SERIALIZATION_FAILED)` — before anything is written, when a
+  categorical column holds a value LightGBM cannot write into a saved model
+  (it stores category values as JSON): `bytes`, `Decimal`, dates and
+  timestamps, `Timedelta`, `complex`, `frozenset`, or a `tuple` holding one.
+  The context names `column`, `value`, `type` and `state` (`refit`, `fold k`
+  or `last fold`). `fit()` warns about such a column before training
+  (`UserWarning`); convert its values to `str` and fit again to save the
+  model (H-0127).
 
 > **Security note:** The `.pkl` files use joblib/pickle. Only load artifacts
 > from trusted sources.
@@ -686,7 +694,7 @@ except LizyMLError as e:
 | `CALIBRATION_NOT_SUPPORTED` | Calibration was requested for a non-binary task or unsupported config. |
 | `CALIBRATION_NOT_FITTED` | A calibrator's `predict()` / `export_params()` was called before `fit()`. |
 | `CALIBRATION_FAILED` | The Platt or Beta calibrator's `minimize` did not converge (`success` false), so its coefficients are not used. `context` has `calibrator`, `method`, `message`, `status` and `nit`, plus `stage` (`"cross_fit"` with `fold`, or `"c_final"`) when raised from `Model.fit`. |
-| `SERIALIZATION_FAILED` | `export()` encountered an I/O error or could not resolve a path. |
+| `SERIALIZATION_FAILED` | `export()` encountered an I/O error, could not resolve a path, or found a category value LightGBM cannot save. |
 | `DESERIALIZATION_FAILED` | `load()` encountered a validation or I/O error. |
 | `TARGET_NOT_NUMERIC` | `task: regression` with a non-numeric target column. |
 | `TARGET_UNSEEN_LABEL` | The target encoder is given a classification label it was not fitted on, or a class code outside the fitted classes to decode. |

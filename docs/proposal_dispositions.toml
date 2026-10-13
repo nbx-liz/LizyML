@@ -520,8 +520,8 @@ disposition = "specified"
 anchors = ["check_dependency_floors.py", "uv lock --check", "lowest-direct"]
 
 [proposals."H-0127"]
-disposition = "pending"
-reason = "Proposed 2026-10-13 (#309, #338); BLUEPRINT sections 9.2 and 15.3 are updated by the implementation."
+disposition = "specified"
+anchors = ["comparable_values", "category_json.py", "last fold"]
 
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.

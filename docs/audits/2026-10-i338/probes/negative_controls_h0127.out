@@ -1,0 +1,9 @@
+NaN counted as changed (criterion 2b): FAILS as required (6 failed, 24 passed, 2 warnings in 0.77s)
+lossy longdouble matched after rounding (criterion 2): FAILS as required (4 failed, 26 passed in 0.76s)
+train.py copy left without the normalisation (criterion 3): FAILS as required (6 failed, 30 passed in 2.01s)
+export check removed (criterion 5): FAILS as required (21 failed, 35 passed in 7.27s)
+export check reads the refit state only (criterion 5b): FAILS as required (3 failed, 53 passed in 4.93s)
+fit warning removed (criterion 6): FAILS as required (16 failed, 40 passed in 5.03s)
+plain repr in the formatter (criterion 4b): FAILS as required (2 failed, 54 passed in 4.94s)
+numpy scalars with a non-plain .item() accepted (criterion 4): FAILS as required (1 failed, 55 passed in 4.90s)
+all mutations caught

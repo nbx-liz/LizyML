@@ -136,6 +136,20 @@ the method keeps working, and its defaults are not checked.
 `pip install -U lizyml` raises them. The generated project's `requirements.txt`
 asks for `lightgbm>=4.4` too.
 
+### Category values (H-0127)
+
+- A column categorical at fit with integer categories now predicts from
+  `float16` and `longdouble` values instead of raising a raw pandas error. A
+  `longdouble` value float64 changes (for example `3 + 3 eps`) is unseen and
+  follows `features.unseen_policy`; it never takes the neighbouring category.
+- `Model.export` of a model whose categorical column holds a value LightGBM
+  cannot write (`bytes`, `Decimal`, dates and timestamps, `Timedelta`,
+  `complex`, `frozenset`, a `tuple` holding one) still raises
+  `SERIALIZATION_FAILED`, now before anything is written and naming the
+  column, value and type. `fit` emits a `UserWarning` for such a column; a
+  test that turns warnings into errors stops there. Convert the values to
+  `str` before `fit` to be able to save the model.
+
 ## v0.18.0
 
 Most configs need no edits. Go through the sections below and act on the items
