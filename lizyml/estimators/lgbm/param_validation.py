@@ -102,8 +102,9 @@ def recorded_objective(booster: lgb.Booster) -> str | None:
     first token is the canonical objective (``binary sigmoid:1`` records
     ``binary``; the alias ``xentlambda`` records ``cross_entropy_lambda``).
     That is what the booster was trained with, however it was specified.
-    ``booster.params`` is not read: a booster restored from its model string
-    has none, and they can be written to after training.
+    ``booster.params`` is not read: whether a restored booster keeps them
+    depends on the LightGBM version (4.6.0 drops them on a model-string
+    restore, 4.7.0 keeps them), and they can be written to after training.
 
     Only the first iteration is serialised. The ``objective=`` line is the
     same for any iteration count (other header lines, such as

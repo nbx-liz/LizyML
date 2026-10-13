@@ -93,7 +93,9 @@ def _lambda_booster(
 ) -> lgb.Booster:
     """A booster LightGBM trained with ``cross_entropy_lambda`` on the same features.
 
-    *restored* rebuilds it from its model string, which leaves ``params`` empty.
+    *restored* rebuilds it from its model string and empties ``params``:
+    LightGBM 4.6.0 drops them on that restore and 4.7.0 keeps them, so the
+    test sets the "no params" case itself instead of relying on either.
     """
     booster = lgb.train(
         {"objective": "cross_entropy_lambda", "verbosity": -1, "learning_rate": 0.001},
@@ -102,7 +104,7 @@ def _lambda_booster(
     )
     if restored:
         booster = lgb.Booster(model_str=booster.model_to_string())
-        assert not booster.params
+        booster.params = {}
     if params_after is not None:
         booster.params = dict(params_after)
     return booster
@@ -211,7 +213,7 @@ def test_an_unreplaced_control_loads(version: str, tmp_path: Path) -> None:
 
 def test_the_reader_uses_the_record_of_a_restored_booster() -> None:
     restored = lgb.Booster(model_str=_lambda_booster().model_to_string())
-    assert not restored.params
+    restored.params = {}  # whether the restore keeps them depends on the version
     assert recorded_objective(restored) == "cross_entropy_lambda"
 
 

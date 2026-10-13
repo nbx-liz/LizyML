@@ -2,7 +2,8 @@
 
 H-0125 refuses at load an artifact whose boosters were trained with
 ``cross_entropy_lambda``. This shows which record survives a model-string
-round trip (``lgb.Booster(model_str=...)``): ``params`` does not, the model
+round trip (``lgb.Booster(model_str=...)``): on LightGBM 4.6.0 ``params``
+does not (4.7.0 keeps it), the model
 string's ``objective=`` line and ``dump_model()["objective"]`` do. A joblib
 (pickle) round trip, the form LizyML stores, keeps ``params`` on LightGBM
 4.6.0 (H-0125 実装の記録); the load check reads the recorded objective either
