@@ -1074,22 +1074,25 @@ tuning = [
 dev = [
     { name = "build" },
     { name = "ipykernel" },
+    { name = "lizyml", extra = ["calibration", "explain", "plots", "tuning"] },
     { name = "mypy" },
     { name = "nbconvert" },
-    { name = "optuna" },
     { name = "pandas-stubs", version = "2.3.3.260113", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "pandas-stubs", version = "3.0.0.260204", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "plotly" },
     { name = "pyarrow" },
     { name = "pytest" },
     { name = "pytest-cov" },
     { name = "ruff" },
-    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "shap" },
     { name = "twine" },
     { name = "types-pyyaml" },
     { name = "vulture" },
+]
+lowest-lane = [
+    { name = "ipykernel" },
+    { name = "nbconvert" },
+    { name = "pyarrow" },
+    { name = "pytest" },
+    { name = "pytest-cov" },
 ]
 notebooks = [
     { name = "ipykernel" },
@@ -1100,12 +1103,12 @@ notebooks = [
 [package.metadata]
 requires-dist = [
     { name = "joblib", specifier = ">=1.3" },
-    { name = "lightgbm", specifier = ">=4.0" },
+    { name = "lightgbm", specifier = ">=4.4" },
     { name = "numpy", specifier = ">=1.24" },
-    { name = "optuna", marker = "extra == 'tuning'", specifier = ">=3.0" },
+    { name = "optuna", marker = "extra == 'tuning'", specifier = ">=3.1" },
     { name = "pandas", specifier = ">=2.0" },
     { name = "plotly", marker = "extra == 'plots'", specifier = ">=5.0" },
-    { name = "pydantic", specifier = ">=2.0" },
+    { name = "pydantic", specifier = ">=2.1" },
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "scikit-learn", specifier = ">=1.3" },
     { name = "scipy", marker = "extra == 'calibration'", specifier = ">=1.10" },
@@ -1117,20 +1120,24 @@ provides-extras = ["calibration", "explain", "plots", "tuning"]
 dev = [
     { name = "build", specifier = ">=1.0" },
     { name = "ipykernel", specifier = ">=6.0" },
+    { name = "lizyml", extras = ["tuning", "explain", "plots", "calibration"] },
     { name = "mypy", specifier = ">=1.10" },
     { name = "nbconvert", specifier = ">=7.0" },
-    { name = "optuna", specifier = ">=3.0" },
     { name = "pandas-stubs", specifier = ">=2.0" },
-    { name = "plotly", specifier = ">=5.0" },
     { name = "pyarrow", specifier = ">=14.0" },
     { name = "pytest", specifier = ">=8.0" },
     { name = "pytest-cov", specifier = ">=5.0" },
     { name = "ruff", specifier = ">=0.8" },
-    { name = "scipy", specifier = ">=1.10" },
-    { name = "shap", specifier = ">=0.44" },
     { name = "twine", specifier = ">=7.0" },
     { name = "types-pyyaml", specifier = ">=6.0" },
     { name = "vulture", specifier = ">=2.15" },
+]
+lowest-lane = [
+    { name = "ipykernel", specifier = ">=6.0" },
+    { name = "nbconvert", specifier = ">=7.0" },
+    { name = "pyarrow", specifier = ">=14.0" },
+    { name = "pytest", specifier = ">=8.0" },
+    { name = "pytest-cov", specifier = ">=5.0" },
 ]
 notebooks = [
     { name = "ipykernel", specifier = ">=6.0" },

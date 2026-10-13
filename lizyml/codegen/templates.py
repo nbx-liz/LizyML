@@ -1467,8 +1467,9 @@ if __name__ == "__main__":
 '''
 
 #: ``pyarrow`` reads the parquet training data H-0120's promise is stated for.
+#: The LightGBM line is LizyML's declared floor; a test keeps the two equal (H-0126).
 _REQUIREMENTS_BASE = """\
-lightgbm>=4.0
+lightgbm>=4.4
 numpy
 pandas
 pyarrow
