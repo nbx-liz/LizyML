@@ -1,0 +1,19 @@
+fit: ok
+predict: ok [1 1 1 1]
+booster type: Booster
+booster.pandas_categorical: [['a', 'b']]
+elem types: ['str', 'str']
+fold0 booster.pandas_categorical: [['a', 'b']]
+refit.pipeline_state type: dict
+Model.export: ok
+booster.model_to_string: ok
+pickle.dumps(booster): ok
+joblib.dump(booster): ok
+booster.save_model: ok
+json.dumps(pandas_categorical, default=lgb default): ok
+json.dumps(pandas_categorical) no default: ok
+Model.export_code: ok
+pickle FitResult(models=[]): ok
+pickle refit.pipeline_state: ok
+pickle FitResult (full): ok
+lightgbm 4.6.0

@@ -1,0 +1,7 @@
+C encoder in use: True
+no default -> TypeError Object of type bytes is not JSON serializable
+lgb default (returns obj unchanged) -> ValueError Circular reference detected
+identity default -> ValueError Circular reference detected
+identity default, check_circular=False -> RecursionError maximum recursion depth exceeded
+default=str -> [["b'a'"]]
+lgb default(b'a') returns the same object: True

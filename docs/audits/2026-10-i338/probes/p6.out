@@ -1,0 +1,5 @@
+pure-python encoder: ValueError Circular reference detected
+loaded pandas_categorical: [[(1, 2), (3, 4), (5, 6)]]
+model string tail: pandas_categorical:[[[1, 2], [3, 4], [5, 6]]]
+max|p - p_loaded(reversed cat order)|: 0.0
+proba range: 0.33320001333847604 0.33395228674806454

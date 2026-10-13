@@ -13348,3 +13348,97 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
 - **陰性対照**: lock の venv で `check_dependency_floors.py` は 11 件すべてを失敗にし、0 以外で終わった（基準 4）。`pyproject.toml` の下限だけを変えて lock を作り直さないと `uv lock --check` は失敗し、戻すと通った（基準 1）。
 - **以前の未測定（方針 9）**: H-0105 方針 2 の `tests/test_estimators/test_feval_probabilities.py` は lightgbm 4.4.0 で、H-0106 方針 4 の `tests/test_config/test_config_version_entry_paths.py` は pydantic 2.1.0 で、それぞれ上のレーンのスイートの中で通った。
 - **スイート（lock の版）**: 11466 passed、230 skipped、21 deselected、0 failed。ruff、mypy は通った。slow の `tests/test_notebooks/test_index_execution.py -k tutorial_regression_tuning_lgbm`（tune を実行する notebook）も通った。
+
+## H-0127: float16 / longdouble で届いたカテゴリ列を値で符号化し、LightGBM が保存できないカテゴリ値を export の前と fit で名指しする（#309、#338）
+
+- **ステータス**: Proposed
+- **起票日**: 2026-10-13
+- **スコープ**: `lizyml/features/encoders/categorical_encoder.py`（届いた値の正規化と未知の判定）、`lizyml/codegen/templates.py`（生成する `train.py` / `predict.py` の `encode_column`。同じ規則を写す）、新しい `lizyml/estimators/lgbm/category_json.py`（LightGBM がカテゴリ値を書けるかの判定）、`lizyml/persistence/exporter.py`（書く前の検査）、`lizyml/core/model.py`（fit の警告の呼び出し 1 か所）、`tests/test_features/test_column_dtype_check.py`（#309 の strict xfail 4 件の印を外す）、新しいテスト、BLUEPRINT §9.2・§15.3、docs/api.md、CHANGELOG.md、docs/migration.md、`docs/proposal_dispositions.toml`
+- **関連**: [Issue #309](https://github.com/nbx-liz/LizyML/issues/309)、[Issue #338](https://github.com/nbx-liz/LizyML/issues/338)、[Issue #357](https://github.com/nbx-liz/LizyML/issues/357)（案 D: 符号化して保存できるようにする。v0.19.0 の後）。H-0104（`unseen_policy` の置換の報告）、H-0106（`INCOMPATIBLE_COLUMNS` と #309 の xfail）、H-0120（`export_code` の値の集合 `codegen/values.py`、生成コードが refit を再現すること）。証拠は `docs/audits/2026-10-i338/probes/`
+
+### 目的（課題）
+1. **#309**: fit で整数のカテゴリを持った列（`object` の整数、整数の `category`）に、predict で `float16` または `longdouble`（float128）の列が届くと、`CategoricalEncoder.transform_with_warnings` の中で pandas の生の例外（`NotImplementedError: float16 indexes are not supported`、`ValueError: Buffer dtype mismatch, expected 'Python object' but got 'long double'`）になり、`ErrorCode` が付かない（DC1）。同じ値を `float32` / `float64` で渡せば予測できる。
+2. **#338**: カテゴリ値が `bytes`・`Decimal`・`Timestamp` などのモデルは fit も predict もできるが、`Model.export` が `SERIALIZATION_FAILED: ... Circular reference detected` で失敗する。メッセージは原因（どの列のどの値か）を言わず、失敗は fit の全体を終えた後にしか分からない。しかも今はディレクトリを作り `fit_result.pkl` を書き始めてから失敗するので、出力先に書きかけの `fit_result.pkl`（728 バイト、`p9_partial_dir.py` → `p9.out`）が残る。前に保存した artifact と同じ出力先に export し直した場合は、その `fit_result.pkl` を壊れた物で上書きする（`metadata.json` の checksum と合わなくなり、`Model.load` が `DESERIALIZATION_FAILED` で拒否する）。DC1 に近い: 止まるが原因を誤って伝える。
+
+### 管理者の判断（2026-10-13）
+- **#309**: 値で符号化する。`float16` / `longdouble` で届いた値は float64 にしてから整数カテゴリと照合する。fit に無い値は今の `unseen_policy` に従う。
+- **#338**: 先に本当の原因を調べ、その結果から **案 B** を選んだ: `Model.export` が保存の前に検査し、列名・値・型を示して `SERIALIZATION_FAILED` にする。fit のときに「この列は保存できない」と警告する。符号化して保存できるようにする案（案 D）は #357 として起票した（v0.19.0 の後）。
+
+### 実測（2026-10-13、develop `00a5668` 相当、Python 3.11、lock の版: pandas 3.x、numpy 2.x、LightGBM 4.6.0）
+
+**#338 の根本原因**（`p3_json_mechanism.py`、`p4_raw_lgb.py`、`p5_object_dtype.py`）
+- LightGBM は booster を pickle するとき `model_to_string()` を呼び、その中の `_dump_pandas_categorical`（`lightgbm/basic.py:875-880`）が各カテゴリ列の値を `json.dumps(pandas_categorical, default=_json_default_with_numpy)` で書く。値は `_data_from_pandas` が学習の Dataset を作るときに読んだ `list(data[col].cat.categories)`（`basic.py:848`）である。
+- `_json_default_with_numpy`（`basic.py:525-532`）は numpy の整数・浮動小数・真偽のスカラーを `.item()`、配列を `.tolist()` にし、それ以外の値を**そのまま返す**。json は default が同じ物を返すと循環とみなし、`ValueError: Circular reference detected` を出す（default を外すと `TypeError: Object of type bytes is not JSON serializable`）。Issue #338 本文の「`model_to_string()` が JSON で書き、標準の json が失敗する」はこの実測で確かめた。
+- 素の `lgb.train` でも同じ値で学習の終わりに同じ例外になる（`p4_raw_lgb.py`）。LizyML は `keep_training_booster=True` を渡す（`estimators/lgbm/adapter.py:238`、生成コードは `codegen/templates.py:376`）ので、学習の終わりには文字列にせず、失敗が export まで先送りされる。fit と predict の結果は正しい（`str` の値に置き換えたモデルと予測が一致、`p2.out` の `max|p - p_strcoded|` がすべて 0）。
+- LightGBM 4.0〜4.7 で同じ挙動。
+
+**値の型ごとの結果**（`p2_types.py` → `p2.out`。binary、1 列 `d` のカテゴリ）
+
+| カテゴリ値 | fit | predict | `Model.export` |
+|---|---|---|---|
+| `str`、`int`、`float`、`bool`、`np.int64`、`np.float32`、`str`/`int`/`float` の混在、欠損を含む `str` | ok | ok | ok（load して予測が一致） |
+| `tuple` | ok | ok | ok（JSON は list で書くが、pickle の読み込みでは元の値に戻り、予測は一致。`p6.out`） |
+| `bytes`、`Decimal`、`pd.Timestamp`、`datetime.date`、`datetime.datetime`、`np.datetime64`、`pd.Timedelta`、`complex`、`frozenset`、`str`/`bytes` の混在 | ok | ok | `SERIALIZATION_FAILED: ... Circular reference detected` |
+
+`auto_categorical` で `category` になる `object` 列（`bytes`、`Decimal`）も同じ（`p5.out`）。
+
+**#309 の値**（`p7_309_cast.py` → `p7.out`、`p8_309_object_scalars.py` → `p8.out`、`probe_309.py`）
+- `float16` → float64 は、有限の float16 の全 63488 値で戻しても同じ（正確）。
+- `longdouble`（この環境では float128）→ float64 は、`2**53 + 1`、`2**63 - 1`、`3 + 3ε` で値が変わる（正確でない）。
+- 整数カテゴリ 0..4 に対し、`float16` の列は fit の値だけだと `astype("category")` で落ち、未知の値（2.5）を含むと `astype(object)` を通るので今でも予測できる。`longdouble` の列は未知の値の有無によらず落ちる。
+- 列の dtype が `object` で、要素が numpy の `float16` / `longdouble` のスカラーの場合も同じ例外になる（dtype の行列 33 通りの外。`p8.out`）。それらのスカラーから `category` を作ることは pandas 自体ができない。
+
+### 対応方針（提案）
+
+**#309（値で符号化）**
+1. `CategoricalEncoder.transform_with_warnings` は、各カテゴリ列を照合する前に、届いた値を正規化する。対象は「pandas が索引にできない浮動小数の型」= `float16` と、float64 より広い `longdouble`（Windows のように `longdouble` が float64 と同じ環境では対象外）。列の dtype がそれらの場合と、`object` 列の要素がそれらの numpy スカラーの場合の両方に当てる。
+2. 正規化は float64 への変換である。**float64 にして値が変わらない要素だけを float64 の値として照合する。値が変わる要素（`longdouble` の `2**53 + 1` など）は、どのカテゴリとも一致させず、未知として扱う**（丸めた値が整数カテゴリに一致して黙って別のコードになるのを防ぐ）。未知の要素は今の `unseen_policy` に従う: `error` は `DATA_SCHEMA_INVALID`、`mode` / `nan` は置換して `PredictionResult.warnings` に報告する。報告と例外の値は、届いた元の値の文字列で書く。
+3. 上記以外の dtype（`float32`、`float64`、整数、文字列、`category` など）の扱いは変えない。`float16` で未知の値を含む場合の今の結果（予測でき、未知を報告する）も変わらない。
+4. 生成コード（`train.py` と `predict.py` の `encode_column`、`templates.py:131-166`・`:1174-1211`）は「LizyML の `CategoricalEncoder.transform` と同じ」と書いており（H-0120）、同じ例外になる。同じ正規化を写し、生成した `predict.py` が同じ届き方で同じ予測を返すようにする。
+
+**#338（案 B）**
+5. **判定は 1 つ**: 新しい `lizyml/estimators/lgbm/category_json.py` に、LightGBM の書き手を写した判定を置く。カテゴリの並び `cats` について、LightGBM が受け取る値 `list(pd.CategoricalDtype(cats).categories)`（`set_categories` が作り、`_data_from_pandas` が読む形）の各値を `json.dumps(value, default=<numpy の整数・浮動小数・真偽のスカラーは .item()、配列は .tolist()、それ以外は TypeError>)` で書けるかを調べ、書けない最初の値を返す。export の検査と fit の警告はこの関数だけを使う（二つの面が別の規則で判断しない）。
+6. **export の検査**: `persistence/exporter.export` は、ディレクトリを作る前（`out.mkdir` より前）に、保存する全ての pipeline 状態のエンコーダのカテゴリを判定にかける: `fit_result.pipeline_state_per_fold` の各 fold（`None` のときは `fit_result.pipeline_state`）と `refit_result.pipeline_state`。書けない値があれば `SERIALIZATION_FAILED` を送出し、何も書かない。メッセージは列名・値（`repr`）・型・どの状態か（`fold k` / `refit`）を示し、LightGBM がカテゴリ値を JSON で書くこと、列の値を `str` などに変えて fit し直すことを案内する。context に `column`・`value`・`type`・`state`（`fold k`（1 から数える）/ `refit`。`pipeline_state_per_fold` が無い読み込んだモデルでは、`fit_result.pipeline_state` を `last fold` と呼ぶ）。読み込んだモデルを export し直す場合も同じ検査を通るが、そうしたモデルは一度保存できた物なので（booster は書けた）、ここでは止まらない。
+7. **fit の警告**: `Model.fit` は、CV の学習を始める前に、pipeline factory の pipeline を全ての学習行（`X`）で fit し、その状態のエンコーダのカテゴリを同じ判定にかける。書けない値のある列ごとに `UserWarning` を 1 回出す（列名・最初の値・型、「fit と predict はできるが `Model.export` はこのモデルを保存できない」こと、直し方）。fit は止めない。追加の計算は、学習の前の `NativeFeaturePipeline.fit(X)` 1 回（エンコーダが列ごとにカテゴリを集める。`FeatureTransformer.fit` は何もしない）。
+   - **警告と export の検査が同じ列を指す理由**: refit の pipeline は全ての学習行で fit する（H-0085、`training/refit_trainer.py:107-111`）ので、この警告の計算は refit の pipeline 状態のカテゴリと同じ物になる。よって「警告した列は export で拒否される」。fold の pipeline は outer の学習行で fit し、カテゴリは列の種類で決まる: `category` の列（`auto_categorical` の列は全行の値で `category` になる、BLUEPRINT §9.2）は全ての fold で同じ宣言のカテゴリ、`auto_categorical: false` で pipeline がカテゴリとして扱う文字列の列（`is_string_dtype`）は fold ごとに違いうるが、値は全て `str` で常に書ける（`bytes`・`Decimal`・`Timestamp`・`date` の `object` 列は `is_string_dtype` が偽で、カテゴリにならない。`p10_string_dtype.py` → `p10.out`）。よって fold の状態だけが書けない値を持つことはなく、「fit で警告が無ければ export は検査で止まらない」。
+8. **変えないこと**: `tuple` の値は LightGBM が書けるので（JSON の list になる）export は今どおり保存する。`export_code` は H-0120 の値の集合（`codegen/values.py`）で `tuple` を拒否する。この食い違いは今のままで、案 B では変えない（生成コードは JSON から値を読み戻して比べるので、`tuple` を list と区別できない）。`declared_categories` の記録の規則（H-0120 改訂 4）も変えない。
+9. **文書**: BLUEPRINT §9.2（浮動小数の届き方の正規化）と §15.3（export の前の検査、fit の警告）、docs/api.md（`Model.export` の Raises、`Model.fit` の警告）、CHANGELOG、docs/migration.md（今まで例外だった予測が通る、export の失敗の文面と時点が変わる、新しい警告）。`docs/proposal_dispositions.toml` に H-0127。
+
+### 規則が縛る位置（ソースから導出、実装前、`00a5668`）
+- 届いた値の照合: `features/encoders/categorical_encoder.py:102-150`（`transform_with_warnings` の列ごとの処理。`transform` はここを呼ぶ）。これを使う経路: `features/pipelines_native.py:109`（予測、CV の検証 fold、refit、SHAP `explain/shap_explainer.py:185,196`）。
+- 生成コードの写し: `codegen/templates.py:131-166`（`train.py`）、`:1174-1211`（`predict.py`）。
+- LightGBM がカテゴリ値を受け取る所: `estimators/lgbm/adapter.py:187-210`（`lgb.Dataset`。`categorical_feature` は pipeline の `categorical_cols`、`training/cv_trainer.py:244`）。値は pipeline が `set_categories(known_cats)` で作る（`categorical_encoder.py:149`）。
+- pickle される booster と pipeline 状態: `fit_result.models` と `pipeline_state` / `pipeline_state_per_fold`（`training/cv_trainer.py:97-116,312-316`）、`refit_result.model` と `pipeline_state`（`training/refit_trainer.py`）。書き出し: `persistence/exporter.py:159-165`。
+- fit の入口: `core/model.py:195-300`（`_prepare_training_data` の後、`pipeline_factory` を作った直後、`CVTrainer` の前）。
+- export の入口: `core/_model_persistence.py:328-379` → `persistence/exporter.export`。`export_code` は別の経路（`codegen/values.py` の判定）で、変えない。
+
+### 互換性
+- 公開 API の形は変わらない。`format_version` は 2 のまま。保存する中身は変わらない。
+- 挙動の変化: (1) 整数カテゴリに `float16` / `longdouble`（と、それらのスカラーの `object` 列）で届いた予測が、生の例外ではなく予測を返す（値が float64 で変わる要素は未知）。(2) 保存できないカテゴリ値のモデルの `Model.export` は、今と同じ `SERIALIZATION_FAILED` だが、原因を名指しし、出力先に何も書かない。(3) そうしたデータの `fit` が `UserWarning` を出す（警告をエラーにしている利用者は fit が止まる）。
+- 既存のテストで新しい警告が出るのは `test_export_contract.py::test_export_refuses_a_category_outside_the_set` の 3 件の fit だけで（Firing rate）、このモジュールは `UserWarning` を無視する設定（`pytestmark = pytest.mark.filterwarnings("ignore::UserWarning")`）なので結果は変わらない。
+- 保存できていたモデルは今どおり保存できる（判定は LightGBM の書き手と同じ範囲で、受け入れ基準 4 がそれを確かめる）。
+
+### 代替案（検討して棄却）
+- #309 を名前付きの例外で拒否する: 管理者が値で符号化すると決めた。`float32` / `float64` と同じ値を拒否する理由が無い。
+- `longdouble` を丸めて照合する: 丸めた値が別のカテゴリに一致すると黙って誤る（DC1）。値が変わる要素は未知にする。
+- #338 を fit で拒否する（案 A）・符号化する（案 D）: 管理者が B を選んだ。D は #357。
+- export の検査を booster の `pandas_categorical` で行う: 列名が分からない（位置しか無い）。pipeline 状態のカテゴリは booster が受け取った値と同じ物（`set_categories` で作る）なので、列名つきで同じ判定ができる。
+- fit の警告を、列の選び方（`category` か文字列の dtype）を `model.py` に書き直して判定する: pipeline と規則が二重になる（DC3）。pipeline 自身を全行で fit して、その状態を読む。
+
+### Firing rate
+計測器 `firing_rate_h0127.py`（pytest のプラグイン。元の関数を包んで記録するだけで、結果は変えない）で、`00a5668` の slow を除くスイートを実行した（11466 passed、230 skipped、21 deselected、4 xfailed。行ごとの記録は `firing_rate_h0127.tsv`、集計は `firing_rate_h0127.txt`）。判定は方針 5 と同じ物を計測器の中に書いた。
+
+- fit の警告（方針 7）: Firing rate: 12/637 of columns recorded by `CategoricalEncoder.fit` in the non-slow suite (the plugin applies the policy-5 predicate to every recorded column's categories; all 12 are the column `c` of the three `test_export_contract.py::test_export_refuses_a_category_outside_the_set[bytes|decimal.Decimal|pd.Timestamp]` fits, 4 pipeline fits each)
+- export の検査（方針 6）: Firing rate: 0/259 of `persistence.exporter.export` calls in the non-slow suite (the plugin applies the predicate to every pipeline state the call saves; no test exports such a model today. The one call that raised is `test_export_load_errors.py::TestExportError::test_serialization_error`, a deliberate failure unrelated to category values)
+- #309 の正規化（方針 1・2）: Firing rate: 6/1179 of categorical column encodings (`transform_with_warnings`) in the non-slow suite receive a `float16` or float128 column (the six `test_column_dtype_check.py::test_categorical_at_fit_is_not_dtype_checked[{str,object_num,category}-{float16,longdouble}]` cells, four of them the strict xfails); 0/1179 hold a value float64 changes. `object` 列の中の numpy スカラーは計測器が数えていない（dtype だけを見た）。
+
+実データでの割合は測れない（利用者のデータが無い）。スイートでは、警告と正規化が働くのは、その条件を作るために書いたテストだけである。
+
+### 受け入れ基準（テスト観点）
+1. **#309**: `test_column_dtype_check.py` の strict xfail 4 件（fit が `object` の整数 / 整数の `category`、届き方が `float16` / `longdouble`）が印を外して通る。同じ値を `float16` / `longdouble` / `float64` で渡した予測が一致する（未知の値を含む場合と含まない場合）。
+2. **#309 の正確でない値**: `longdouble` の、float64 で値が変わる要素（例 `3 + 3ε`、整数カテゴリ 3 の隣）は、`error` で `DATA_SCHEMA_INVALID`、`mode` で最頻値に置換、`nan` で欠損になり、どちらも元の値を報告する。カテゴリ 3 には一致しない（落ちるべき例）。`object` 列の numpy スカラーでも同じ。
+3. **#309 の生成コード**: 生成した `predict.py` が、上の届き方で LizyML の `predict` と同じ予測を返す。
+4. **判定 = LightGBM の実物**（DC7）: 実測の表の値の型それぞれで、判定が「書けない」を返すことと、実際の `Booster.model_to_string()` が失敗することが一致する（両方向）。
+5. **export の検査**: 書けない値のモデルの `Model.export` が `SERIALIZATION_FAILED` で、context の `column`・`value`・`type`・`state` が正しく、出力先のディレクトリを作らない（今は `fit_result.pkl` が残る。落ちるべき例）。書ける値のモデル（`tuple` を含む）は今どおり保存して読み込める。
+6. **fit の警告と export の一致**: 実測の表の値の型それぞれ（`category` の列、`auto_categorical: true` の `object` 列）と、`auto_categorical: false` の文字列の列（fold ごとにカテゴリが違う。一部の行にだけある値を含む）で、fit が警告した列の集合と export が拒否する列の集合が一致し、警告の無いモデルは export できる。警告は CV の学習より前に出る（学習の中で失敗させる仕掛けで、警告が先に記録されることを確かめる）。
+7. **文書**: BLUEPRINT §9.2・§15.3、docs/api.md、CHANGELOG、docs/migration.md、`docs/proposal_dispositions.toml` が方針 9 のとおり。

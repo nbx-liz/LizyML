@@ -1,0 +1,18 @@
+float16 finite values: 63488 round-trip exact: True
+longdouble: float128 eps 1.084202172485504434e-19
+                      np.longdouble('3.0') -> np.float64(3.0)          exact=True
+       np.longdouble('9007199254740993.0') -> np.float64(9007199254740992.0) exact=False
+  np.longdouble('9.223372036854775807e+18') -> np.float64(9.223372036854776e+18) exact=False
+    np.longdouble('3.0000000000000000004') -> np.float64(3.0)          exact=False
+  float16    unique types=['float'] unseen=[2.5]
+    astype(category): NotImplementedError: float16 indexes are not supported
+    object -> category -> set_categories: ok
+  float32    unique types=['float'] unseen=[2.5]
+    astype(category): ok
+    object -> category -> set_categories: ok
+  float64    unique types=['float'] unseen=[2.5]
+    astype(category): ok
+    object -> category -> set_categories: ok
+  float128   unique types=['longdouble'] unseen=[np.longdouble('2.5')]
+    astype(category): ValueError: Buffer dtype mismatch, expected 'Python object' but got 'long double'
+    object -> category -> set_categories: ValueError: Buffer dtype mismatch, expected 'Python object' but got 'long double'

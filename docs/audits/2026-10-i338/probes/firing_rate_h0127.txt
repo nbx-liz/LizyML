@@ -1,0 +1,14 @@
+Suite: tests/ non-slow, develop 00a5668 + plugin firing_rate_h0127.py: 11466 passed, 230 skipped, 21 deselected, 4 xfailed
+fit: columns recorded by CategoricalEncoder.fit: 637 | holding a value LightGBM cannot write: 12
+      4   tests/test_codegen/test_export_contract.py::test_export_refuses_a_category_outside_the_set[bytes] col=c types=bytes
+      4   tests/test_codegen/test_export_contract.py::test_export_refuses_a_category_outside_the_set[decimal.Decimal] col=c types=Decimal
+      4   tests/test_codegen/test_export_contract.py::test_export_refuses_a_category_outside_the_set[pd.Timestamp] col=c types=Timestamp
+export: calls: 259 | a saved pipeline state holds such a column: 0 | raised today: 1
+  raised: tests/test_persistence/test_export_load_errors.py::TestExportError::test_serialization_error LizyMLError
+transform: categorical columns encoded: 1179 | float16/wide longdouble arrival: 6 | a value changed by float64: 0
+  tests/test_features/test_column_dtype_check.py::test_categorical_at_fit_is_not_dtype_checked[str-float16] dtype=float16
+  tests/test_features/test_column_dtype_check.py::test_categorical_at_fit_is_not_dtype_checked[str-longdouble] dtype=float128
+  tests/test_features/test_column_dtype_check.py::test_categorical_at_fit_is_not_dtype_checked[object_num-float16] dtype=float16
+  tests/test_features/test_column_dtype_check.py::test_categorical_at_fit_is_not_dtype_checked[object_num-longdouble] dtype=float128
+  tests/test_features/test_column_dtype_check.py::test_categorical_at_fit_is_not_dtype_checked[category-float16] dtype=float16
+  tests/test_features/test_column_dtype_check.py::test_categorical_at_fit_is_not_dtype_checked[category-longdouble] dtype=float128
