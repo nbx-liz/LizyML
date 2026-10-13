@@ -524,8 +524,8 @@ disposition = "specified"
 anchors = ["comparable_values", "category_json.py", "last fold"]
 
 [proposals."H-0128"]
-disposition = "pending"
-reason = "Proposed 2026-10-14 (#348, #349); BLUEPRINT section 11 is updated by the implementation."
+disposition = "specified"
+anchors = ["TrialErrorProvider", "extra_catch", "trial_states"]
 
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.

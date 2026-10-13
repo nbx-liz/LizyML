@@ -1123,7 +1123,7 @@ rounds: tuple[RoundSummary, ...]        # completed で閉じた round ごとに
 boundary_report: BoundaryReport | None  # この round の境界の分析（下）
 ```
 
-- `rounds`: study の round のうち `completed` で閉じたものの要約。`failed` で閉じた round（study に COMPLETE の試行が一つも無いまま終わった round）は入らない（`RoundSummary` は最良値を数値で持つため）。round の番号はそのまま続くので、`rounds` が round 2 から始まることがある。そのときの次の round の `best_score_before` は `None`。`RoundSummary.n_trials` はその round の試行の実際の数（`timeout` で要求数より少なくなりうる）。途中から再開した round の要約と `boundary_report` は、その round の記録（始めたときの判断）から作る。
+- `rounds`: study の round のうち `completed` で閉じたものの要約。`failed` で閉じた round（その round の試行に COMPLETE が一つも無いまま終わった round。H-0128）は入らない（`RoundSummary` は最良値を数値で持つため）。round の番号はそのまま続くので、`rounds` が round 2 から始まり、あるいは途中の番号が抜けることがある。`failed` の round の次の round の `best_score_before` は study の最良値で、study にまだ COMPLETE の試行が無いときだけ `None`。`RoundSummary.n_trials` はその round の試行の実際の数（`timeout` で要求数より少なくなりうる）。途中から再開した round の要約と `boundary_report` は、その round の記録（始めたときの判断）から作る。
 - `boundary_report`: この round が境界を分析したとき（round 2 以降で `expand_boundary` が真に解決され、study に COMPLETE の試行があるとき）に設定し、それ以外は `None`。`restore_tuning` は最後の round のものを返す。
 
 ### TrialResult 拡張
@@ -1275,7 +1275,7 @@ study を作るとき、目的関数の同一性を study の属性に書く（�
 
 - `lizyml:study`: study を作ったときに一度だけ書く。形式の版（`schema`。読めない版なら `CONFIG_INVALID`）、同一性の要約と要素ごとの要約、ライブラリの版、`space_mode`、`fixed`、study を作ったときの config の探索空間。
 - `lizyml:round:<k>`: round k の準備がすべて済んでから、試行を足す前に一度だけ書く。宣言の元の形（`space=`、無ければ「直前の宣言のまま」）と次元ごとの出どころ（利用者 / 既定）、宣言空間、実効空間、拡張と `BoundaryReport` の全体、解決した `expand_boundary`、予算（`n_trials`、`timeout`）、開始時の試行数と最良値、その round で増えた次元の経路。次元の記録は `step` を持つ（無ければ `null`。H-0124、形式の版は 1 のまま）。`step` の無い次元の記録は刻み無しと読み、知らないキーを持つ次元の記録（数の次元でもカテゴリの次元でも）は読めず、その study は `"inconsistent"`（下の表）。記録された次元が §11.1 の大きさの規則に外れるか、記録された `min_allowed` / `max_allowed` が有限の `float` でない（巨大な `int`、NaN、無限大）ときも、その記録は読めない（`lizyml:study` なら `"unreadable"`、round の記録なら `"inconsistent"`。H-0124 改訂 1）。resume と `restore_tuning` は計画（端の検出、試行の値の決定）より前にこれを拒否する。
-- `lizyml:round:<k>:end`: round を閉じたときに書く。終わり方（`completed` / `failed`）、終了時の最良値（COMPLETE の試行が無ければ空）、時刻。study に COMPLETE の試行が一つも無いまま round が終われば `failed` と書いたうえで `TUNING_FAILED` を送出する（Model の状態は変えない）。閉じた round は再開の対象にならず、次の `resume=True` は新しい round を始める。
+- `lizyml:round:<k>:end`: round を閉じたときに書く。終わり方（`completed` / `failed`）、終了時の最良値（COMPLETE の試行が無ければ空）、時刻。**その round の試行**（番号が round の開始時の試行数以上のもの）に COMPLETE が一つも無いまま round が終われば `failed` と書いたうえで `TUNING_FAILED` を送出する（Model の状態は変えない。H-0128 で「study に」から「その round に」に改めた: 前の round に COMPLETE があっても、試行が全て失敗した round は `completed` にならない）。`TUNING_FAILED` の context は `round`・`n_trials`・`status` に加えて `trial_states`（その round の試行の `{"trials", "FAIL", "PRUNED", "interrupted"}` の数。`interrupted` は再接続で RUNNING から FAIL にした数で、`FAIL` にも数える）と、この呼び出しの中で目的関数が出した例外があれば最初のものの `first_error`（型の名前と文。それぞれ 500 文字まで）を持つ。理由が必ず分かることは約束しない（例外を出さずに FAIL になった試行、別のプロセスの試行）。閉じた round は再開の対象にならず、次の `resume=True` は新しい round を始める。
 - 書く順序: round の準備を決める → `lizyml:round:<k>` → 試行を足す → `lizyml:round:<k>:end`。試行の round は試行の番号で決まり、試行ごとの属性は置かない。
 
 ### study の状態（閉じた表）
@@ -1291,7 +1291,7 @@ study を作るとき、目的関数の同一性を study の属性に書く（�
 | `"inconsistent"` | round の記録と試行が食い違う（記録が無いのに試行がある、round の番号が 1 から連続しない、`:end` の無い round が最後以外にある、round 1 の開始より小さい番号の試行がある、試行の値の名前がその試行の round の実効空間に無い（H-0124）など） | `CONFIG_INVALID`（「新しい study で」） |
 | `"open"` | 最後の round に `:end` が無い（途中で落ちた） | 照合の後、同じ round を残りの予算で終える（下） |
 | `"completed"` | 最後の round の `:end` が `completed` | 照合の後、新しい round を始める（§11.5.2） |
-| `"failed"` | 最後の round の `:end` が `failed` | 照合の後、新しい round を始める。COMPLETE の試行が無いので、境界の拡張は行わない |
+| `"failed"` | 最後の round の `:end` が `failed`（その round に COMPLETE の試行が無かった） | 照合の後、新しい round を始める。宣言の元は `failed` の round の宣言（`space=` を渡せばその空間）。study に前の round の COMPLETE の試行があればそれを前回の最良値として境界の拡張の規則を当て、無ければ拡張しない（H-0128） |
 
 公開の関数 `read_study_lineage`（§11.5.4）は、これに storage にその study が無い `"absent"` を加えた値を返す。
 
@@ -1303,6 +1303,7 @@ study を作るとき、目的関数の同一性を study の属性に書く（�
 - 残りの試行数は、記録した `n_trials` から、その round で終わった試行（COMPLETE、FAIL、PRUNED）の数を引いたもの。記録に `timeout` があれば、残りの時間は `timeout` から、その round の COMPLETE と PRUNED の試行それぞれの開始から終了までの時間の合計を引いたもの（落ちていた間の時間は入らない）。残りが 0 以下なら試行を足さずに round を閉じる（`:end` の規則に従う）。時間で区切る round では、続けた場合と同じ試行の数になることは保証しない。
 - 落ちたときに RUNNING のまま残った試行は、再接続のときに FAIL として記録し、予算に数える。
 - 引数: `n_trials`、`expand_boundary`、`space=` は、`None` 以外を渡したときだけ、その round の記録の解決した値と比べる。同じなら通し、違えば `CONFIG_INVALID`（「この round は記録の値で始まっている」）。`space=` は宣言空間に解決して次元の集合として比べるので、省略の書き方や dict の並びの違いは同じとみなす（`step` は比べる。`step` だけが違う拒否のメッセージでも二つの空間は `step` で違って見える。H-0124）。config の `tuning.optuna.params.n_trials` は使わず、記録と違えば警告を出す。終わった round のあとの新しい round では、これらの引数は自由に変えられる。
+- **成功の無い開いた round の差し替え（H-0128）**: 渡した `space=` が記録した宣言空間と違い、その round の試行に COMPLETE が一つも無い（試行が 0 件を含む）ときは、上の比べ合わせで拒否せず、その round を `failed` で閉じて、渡した `space=` で次の round を始める（新しい round として `n_trials` と `expand_boundary` も自由）。書く順序は、RUNNING の試行を FAIL にする → 開いた round の `:end` を `failed` で書く（`UserWarning` で知らせる。`TUNING_FAILED` は送出しない）→ 次の round の記録 → 試行 → 閉じる。どの段の間で落ちても、状態は `"open"`・`"failed"`・`"completed"` のどれかとして読める。COMPLETE のある round と違う `space=`、記録と違う `n_trials` / `expand_boundary` は、今のとおり `CONFIG_INVALID`。
 - 検査の順序: 照合と引数の比べ合わせを、RUNNING の試行を FAIL にすることを含むすべての書き込みより先に行う。拒否したときは、試行の状態も study の属性も変わらない。
 
 ## 11.5.4 系譜を読む関数 `read_study_lineage`（H-0122）
@@ -1787,7 +1788,14 @@ class EstimatorProvider(Protocol):
     ) -> dict[str, dict[str, float | int]]: ...  # name -> {"min": ..., "max": ...}
     def objective_choices(self, task: TaskType) -> tuple[str, ...]: ...  # H-0079
     def metric_choices(self, task: TaskType) -> MetricChoices: ...      # H-0079: {"native": (...), "feval": (...)}
+
+
+@runtime_checkable
+class TrialErrorProvider(Protocol):  # 任意の機能（H-0128）
+    def trial_errors(self) -> tuple[type[Exception], ...]: ...
 ```
+
+`TrialErrorProvider` は `EstimatorProvider` とは別の任意の機能で、`EstimatorProvider` の成員には入れない（入れると、それを持たない既存の provider が静的に `EstimatorProvider` を満たさなくなる）。`Model.tune`（Facade）は `isinstance(provider, TrialErrorProvider)` のときだけ `trial_errors()` を呼び、`Tuner.run` / `Tuner.tune` の `extra_catch` に渡す。その型の例外は試行の FAIL になり、round は続く。`tuning/` は estimator のライブラリを知らない。LightGBM の provider は `(lightgbm.basic.LightGBMError,)` を返す。
 
 制約:
 - `EstimatorProvider` は `config/` の具象型（`LGBMConfig` 等）を参照してよい（provider は Facade 層から呼ばれるため、Leaf → Leaf の依存にはならない）。

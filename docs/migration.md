@@ -136,6 +136,22 @@ the method keeps working, and its defaults are not checked.
 `pip install -U lizyml` raises them. The generated project's `requirements.txt`
 asks for `lightgbm>=4.4` too.
 
+### Failed resumed rounds and LightGBM trial errors (H-0128)
+
+- `tune(resume=True)` raises `TUNING_FAILED` when none of the round's own
+  trials completed, even if earlier rounds did; before, it returned the
+  previous best. Code that resumes in a loop should catch it and call
+  `tune(resume=True, space=...)` with a corrected space. The Model keeps its
+  previous tuning result.
+- A LightGBM error inside a trial (an invalid parameter value in a range) is
+  a failed trial: the round runs its budget instead of stopping at the first
+  trial with `Optuna study failed`.
+- An open round with no COMPLETE trial accepts a different `space=`: it is
+  closed `failed` (`UserWarning`) and a new round starts. Before, that call
+  raised `CONFIG_INVALID`.
+- `restore_tuning` on a study whose last round failed still raises
+  `TUNING_FAILED`; it does not restore earlier rounds.
+
 ### Category values (H-0127)
 
 - A column categorical at fit with integer categories now predicts from
