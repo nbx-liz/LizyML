@@ -178,6 +178,8 @@ pred_result = loaded_model.predict(X_new)
 - `load()` は内部の metrics を `fit_result.metrics` の deep copy として持ち、`fit_result` プロパティが返す `FitResult` と可変オブジェクトを共有しない（`fit()` / `fit_result` と同じ隔離、H-0086）。
 - tune 済みモデルの artifact では、`metadata.json` の `tuning` ブロックから trial の無い最小の `TuningResult` を復元し、load 後の再 `fit()` が tuned params を再現する。ブロックの無い artifact は tuning result 無しで読む（§15.1、H-0086）。
 - 復元する `best_smart_params` の各値は、smart の探索次元と同じ値の規則（§11.3、`provider.smart_value_rules()`）で、その artifact の config のタスクについて検査する（H-0121 改訂 2、[#347](https://github.com/nbx-liz/LizyML/issues/347)）。外れる値（v0.18.0 で文字列の真偽の次元で tune した artifact の `"false"` など。booster は真で訓練されており、記録と中身が食い違う）があれば `DESERIALIZATION_FAILED` で拒否し、context に `name`・`value`・`reason`（`smart_value_invalid` / `smart_value_unsupported_task`）を入れ、メッセージで tune し直して export し直すことを案内する。`format_version` 1 と 2 の両方に当てる。`best_smart_params` が空、規則どおり、または tune の結果の無い artifact は今までどおり読み込み、予測する。`best_smart_params` が mapping でない記録、provider が宣言しない名前を持つ記録、`feature_weights` を持つ記録も `DESERIALIZATION_FAILED` で拒否する（LizyML はそうした記録を書かない）。tune の結果のブロックが object でないか、LizyML が書く六つのキーを欠く artifact も `DESERIALIZATION_FAILED`。
+- 保存した全ての booster（`fit_result.pkl` の fold のモデルと `refit_model.pkl` のモデル）について、LightGBM が booster の中に記録した目的関数（モデル文字列の `objective=` の行の最初の語。別名 `xentlambda` で学習しても `cross_entropy_lambda` と記録される）を読み、出力が確率でない目的関数（binary の `cross_entropy_lambda`）なら `DESERIALIZATION_FAILED` で拒否する（H-0125、[#307](https://github.com/nbx-liz/LizyML/issues/307)）。booster の `params` は読まない（pickle から復元すると失われ、学習の後に書き換えられる）。記録は学習に実際に使った目的関数なので、config・tune の結果・`fit(params=)` のどれで指定したかによらない。context に `path`・`booster`（`fold k` か `refit`）・`objective`。format_version 1 と 2 のどちらにも当て、format_version は変えない。v0.18.0 で `cross_entropy_lambda` の短い fit から作った artifact だけが対象で、他の artifact は今どおり読み込める。
+- `model.params["metric"]` に native 指標のパラメータ（`{"huber": {"delta": 9.0}}` など、§14 の Metric Bridge）を記録した古い artifact は、読み込みと `predict` ができる（学習ではパラメータが使われていなかった）。再 `fit` と `export_code` は `CONFIG_INVALID`（H-0125、[#313](https://github.com/nbx-liz/LizyML/issues/313)）。
 
 # 5. Config 設計
 
@@ -539,6 +541,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
   - 任意: refit モデル（全データ学習）
 - `history`
   - fold ごとの eval history / best_iteration
+  - `eval_history`（学習曲線）の指標は LightGBM が計算した値で、LightGBM の名前と定義を持つ（native 指標。feval の指標は LizyML の定義、§14 の Metric Bridge）。そのため `FitResult.metrics` の同じ名前の指標と値が違うことがある。今そうなるのは `huber`（LightGBM の閾値は `alpha`、既定 0.9。LizyML は `delta`、既定 1.0）と `mape`（LightGBM は `|y-p| / max(1,|y|)` の比率。LizyML は `|y-p| / |y|` の百分率）である（H-0125、#354）。データの契約（`history` の形とキー）は変えない。
 - `feature_names / dtypes / categorical_features`
   - `feature_names`: 学習に使った特徴量名の順序付き `list[str]`。`dtypes`: 特徴量名 → dtype 文字列の `dict[str, str]`。`categorical_features`: カテゴリとして扱った特徴量名の `list[str]`。
 - `splits`
@@ -952,6 +955,8 @@ retain replacement for nonempty spaces when loaded, preserving re-fit behavior.
 - **拡張の上限**: provider の `num_leaves_ratio` の拡張の上限は 1.0（config の範囲の上端。下限 0.1）。既定の空間の `num_leaves_ratio`（`0.5..1.0`）が上端で最良になっても拡張は 1.0 で止まり、その次元の報告は `expanded=False`・`clamped_to_bound=True`（§11.5）。v0.18.0 までは 2.0 まで広がり、1.0 を越える値が最良値、`fit`、export に流れた。
 - **tune の結果**: `restore_tuning`（§11.5.5）と `Model.load`（§4.2）は、記録された `best_smart_params` を同じ規則で検査する。
 
+**目的関数と指標の値の検査（H-0125、[#307](https://github.com/nbx-liz/LizyML/issues/307)、[#313](https://github.com/nbx-liz/LizyML/issues/313)）。** tune は、round の受け付けの検査（`check_round_space`。新しい study でも resume の round でも、study を作る・再接続して何かを書く前。H-0122 の INV-R4）で、試行が受け取る目的関数と指標の値を fit と同じ規則（`check_objective_compatible`、`resolve_user_metric`。LightGBM のどの綴りでも）で検査し、外れれば `CONFIG_INVALID` で拒否する（storage を渡しても study は作られない）: (a) 固定の層は `model.params` に round の固定パラメーター `fixed` を重ねた値（fit が merge した値を検査するのと同じ規則）から、round の `category: model` の次元が設定するパラメーターを除いたもの（その次元のサンプル値が試行ごとに上書きするので、層の値はどの booster にも届かない。merge の空間で既定の `objective` の次元が上書きする `model.params` の目的関数は拒否しない）。(b) round の実効空間の `category: model` の次元で正規名が `objective` / `metric` のものは、カテゴリの次元でなければ（`float` / `int`）それだけで拒否し（理由 `not_categorical`、context に `kind`。値は名前なので数の範囲から抽出した値は受理されない）、カテゴリの次元なら全ての選択肢を検査する（context に `surface`・`dim`・`key` `choices`・`value` と規則自身の context。binary の `cross_entropy_lambda` は `not_a_probability`）。config の空間、`tune(space=...)`、provider の既定の空間、resume の round の空間のどれから来た次元にも当たる。それまでは不正な値が各試行の adapter で `CONFIG_INVALID` になり、tuner が試行の失敗として記録していた（全試行なら `TUNING_FAILED`、一部の選択肢なら黙って落ちる）。保存した study の試行の値は検査しない（範囲外）。
+
 ### 探索次元
 
 | パラメーター | 型 | 範囲 | カテゴリ |
@@ -1168,6 +1173,7 @@ LizyML Core は callback + 結果型でデータを提供し、Widget/Studio が
 - `resume=True` で、Model が study を持たず `storage` も無い → `LizyMLError(TUNING_FAILED)`（`Model.load` のあとも同じ。study の中身は artifact に保存しない）。
 - `Tuner` は study の作成・読み込み・最適化と、`lizyml:` 属性の書き込みだけを行う。`resume` の意味、目的関数の同一性、系譜の中身は `Model.tune` 側が決める（§5 の責務分離）。
 - 公開の `Tuner.tune`（利用者の目的関数を受け取る。H-0124）は、`log` の次元に `step` があれば（`int` の `step` 1 も含めて）study を作る前に `CONFIG_INVALID` で拒否する。利用者が直接作った `FloatDim` / `IntDim` の `step` も、study を作る前に §11.1 の `step` と格子の検査（`parse_space` と同じ関数）を通す。直接作った数の次元はすべて（刻みの無い次元も）、study を作る前に §11.1 の大きさの規則を通す（H-0124 改訂 1。数の表記の文字列の `low` / `high` / `step` は刻みの有無によらず `bound_not_a_number` で拒否する — 数として読むのは config と `space=` の mapping だけ。無限大の境界は `bound_not_finite`。それ以外の数でない値と NaN は今までどおり Optuna に渡す）。`suggest_*` を呼ぶのは利用者の目的関数で LizyML は丸めを挟めず、`Tuner.tune` は系譜を書かないので過去の試行の round の次元も分からないため。結果は今までどおり試行が記録した生の値で、目的関数が評価した値そのもの。拒否は `Tuner.__init__` ではなく `Tuner.tune` に置く（`Model.tune` は同じ次元で `Tuner` を作り、`Tuner.run` だけを呼ぶ）。
+- 直接の `Tuner`（`lizyml.tuning.Tuner`）は母数の値を検査しない（H-0125）。task も provider も受け取らない汎用の探索器で、試行の値の意味は呼び出し側の目的関数が決めるため、どの次元が LightGBM の目的関数・指標かを知らない。値の検査は呼び出し側の目的関数の責務で、その中の `CONFIG_INVALID` は試行の失敗として記録される。目的関数と指標の値を study の前に検査するのは `Model.tune` の計画の段（§11.3）だけである。task を受け取る検査を `Tuner` に足すことは公開 API の追加なので行っていない。
 - artifact（`Model.export` / `Model.load`）の形式と `format_version` は H-0122 で変えない。
 
 ## 11.5.1 Persistent Storage（H-0072）
@@ -1486,8 +1492,9 @@ H-0100 までは `LogisticRegression(C=1.0)`（L2・目標値 0/1）で、原典
 - `needs_proba / greater_is_better`。指標がどのタスクを扱うかは指標のプロパティではなく、レジストリが持つ（`lizyml/metrics/registry.py`。扱わないタスクで引くと `UNSUPPORTED_METRIC`）。H-0014 は Metric IF の属性として `supports_task` を挙げたが、`BaseMetric` にその属性は無い（H-0111）
 - `BaseMetric.needs_simplex` は既定 `False` の具体プロパティで、multiclass の予測が確率分布（行和 1）でなければならない指標が `True` に上書きする: `auc` と `logloss`。`auc_pr` / `brier` はクラスごとの値を使うので `False` のまま（H-0049）。
 - 回帰: `rmse / mae / r2 ...`
-  - `mape`: `y_true` に 0 を含むと `UNSUPPORTED_METRIC`（H-0004）。
-  - `huber`: 誤差 `e` について `|e| <= delta` で `0.5 e^2`、それより大きいと `delta(|e| - delta/2)`。`HuberLoss` の `delta` は既定 `1.0` でコンストラクタ引数（MetricEntry `{huber: {delta: ...}}`、§13.1.1）。文字列 `"huber"` は `delta=1.0` を意味する（H-0004）。
+  - `mape`: `y_true` に 0 を含むと `UNSUPPORTED_METRIC`（H-0004）。値は `mean(|y - ŷ| / |y|) × 100`（百分率）。学習曲線（`eval_history`）の `mape` は LightGBM の定義 `|y-p| / max(1,|y|)` の比率で、この値と違う（H-0125）。
+  - `huber`: 誤差 `e` について `|e| <= delta` で `0.5 e^2`、それより大きいと `delta(|e| - delta/2)`。`HuberLoss` の `delta` は既定 `1.0` でコンストラクタ引数（MetricEntry `{huber: {delta: ...}}`、§13.1.1）。文字列 `"huber"` は `delta=1.0` を意味する（H-0004）。学習曲線（`eval_history`）の `huber` は LightGBM の定義で、閾値は LightGBM の `alpha`（既定 0.9、huber / quantile の目的関数と共有）なので、この値と違う（H-0125）。
+  - 学習曲線は LightGBM の名前と定義で計算する（§7.1、§14 の Metric Bridge）。`FitResult.metrics` と同じ名前で定義が違うのは `huber` と `mape` だけで、`plot_learning_curve` はその subplot の題に LightGBM の定義を添える（§13.3）。どちらも LizyML の定義を保つ（一般的な定義に近い。H-0125 の代替案）。
   - `smape`: `mean(2|y - ŷ| / (|y| + |ŷ|)) × 100`、範囲 `[0, 200]`。`y = ŷ = 0` の行は 0 として数える（H-0071）。
   - `wape`: `sum|y - ŷ| / sum|y| × 100`。`UNSUPPORTED_METRIC` になるのは `sum(|y_true|) == 0` のときだけ（H-0071）。
   - `smape` / `wape` はどちらも `greater_is_better=False`、`needs_proba=False`。
@@ -1499,7 +1506,7 @@ H-0100 までは `LogisticRegression(C=1.0)`（L2・目標値 0/1）で、原典
   - `_TASK_METRICS["regression"]` = `rmse` / `mae` / `r2` / `rmsle` / `mape` / `huber` / `smape` / `wape`（H-0071）。
   - binary = `logloss` / `auc` / `auc_pr` / `f1` / `accuracy` / `brier` / `ece` / `precision_at_k`。multiclass = `logloss` / `f1` / `accuracy` / `auc` / `auc_pr` / `brier`。
   - したがって、`mape` / `huber` を回帰以外で（H-0004）、`precision_at_k` を回帰か multiclass で（H-0014）、multiclass 対応の `auc` / `auc_pr` / `brier` を回帰で（H-0018）指定すると `UNSUPPORTED_METRIC` になる。
-- **確率の検査**: `needs_proba` が真の組み込み指標は、確率でない値（数値でない、有限でない、`[0, 1]` の外、3 クラス以上なのに 1 次元）を受け取ると `METRIC_REQUIRES_PROBA` を送出する（H-0106）。0/1 のハードラベルは正当な確率として通る。`objective: cross_entropy_lambda` の出力が 1 を超えた場合もこれになる（#307）。
+- **確率の検査**: `needs_proba` が真の組み込み指標は、確率でない値（数値でない、有限でない、`[0, 1]` の外、3 クラス以上なのに 1 次元）を受け取ると `METRIC_REQUIRES_PROBA` を送出する（H-0106）。0/1 のハードラベルは正当な確率として通る。binary の目的関数 `cross_entropy_lambda` は出力が確率でない（LightGBM は λ を出し、確率は `1 - exp(-λ)`）ので、目的関数としては学習の前に `CONFIG_INVALID`（`reason: "not_a_probability"`）で拒否し、それで学習した booster を持つ artifact は `Model.load` が `DESERIALIZATION_FAILED` で拒否する（§14.3、§4.2。H-0125、#307）。指標としての `cross_entropy_lambda` は今どおり受け付ける。
 - **evaluator が指標に渡す値**（`evaluation/evaluator.py` の `_pred_for_metric()`、H-0049）: `needs_proba` かつ `needs_simplex` の指標には、multiclass の 2 次元予測を行和で正規化して渡す（全 0 の行は割らない）。それ以外の確率指標には予測をそのまま渡す。ラベル指標には binary で 0.5 閾値、multiclass で argmax のラベルを渡す。正規化は `predict_proba()` ではなく evaluator の責務である（§14.1）。
 
 ### 13.1.1 パラメータ付き MetricEntry（H-0065）
@@ -1549,7 +1556,7 @@ model:
 - `importance_plot(kind="split|gain")`: fold 平均の特徴量重要度（横棒グラフ）
 - `importance_plot(kind="shap")`: fold 平均の mean(|SHAP|)（横棒グラフ）。shap optional dependency も必要。
   - `Model.importance(kind="shap")` とこの plot は、fold ごとにその fold の validation 行（`valid_idx`）で SHAP を計算し、特徴量ごとの mean(|SHAP|) を fold で平均する（`compute_shap_importance()`、H-0007）。fold k の validation 行は fold k の pipeline 状態（`pipeline_state_per_fold` の k 番目）で変換する（H-0114）。shap が未導入なら `OPTIONAL_DEP_MISSING`。
-- `plot_learning_curve(*, metrics=None)`: fold ごとの train/valid loss 推移（折れ線グラフ）。`metrics: list[str] | None` で表示 metric をフィルタ可能（H-0062）。`None` で全 metric、指定時は `/` 以降の metric 名で一致するもののみ表示。一致なしで `LizyMLError`。
+- `plot_learning_curve(*, metrics=None)`: fold ごとの train/valid loss 推移（折れ線グラフ）。`metrics: list[str] | None` で表示 metric をフィルタ可能（H-0062）。`None` で全 metric、指定時は `/` 以降の metric 名で一致するもののみ表示。一致なしで `LizyMLError`。曲線は `FitResult.history` の LightGBM の評価なので、`FitResult.metrics` と同じ名前で定義が違う指標の subplot の題に LightGBM の定義を添える（H-0125、#354）: `huber` → `valid_0/huber (LightGBM: threshold = alpha)`、`mape` → `valid_0/mape (LightGBM: |y-p| / max(1,|y|))`。添える文の表は `lizyml/plots/learning_curve.py` の `LIGHTGBM_CURVE_DEFINITIONS` の一か所に置き、表のキーが実際に値の食い違う組と等しいことをテストが本物の LightGBM で照合する。`alpha` の値は FitResult に無いので書かない（plot は FitResult から推測しない）。凡例（fold）、y 軸、`metrics=` の絞り込み（名前で照合する）は変えない。
 - `plot_oof_distribution()`: OOF 予測値の分布（ヒストグラム）
 - `residuals_plot(kind="scatter|histogram|qq|all")`: 回帰専用。IS/OOS 比較対応。`kind` で表示プロットを選択。デフォルト `kind="all"` で scatter + histogram + QQ の 3 パネル。scatter は Actual vs Predicted（x=predicted, y=actual, y=x 参照線）。IS サンプルは OOS 数に合わせてダウンサンプリング（`_downsample_is()`、seed=0 で再現可能）。
   - QQ パネルは OOS 残差だけを使う（IS は使わない、H-0009）。実体は `plots/residuals.py` の `plot_residuals()`。
@@ -1641,6 +1648,7 @@ set_categorical_features(cols: list[str] | None) -> None  # デフォルト no-o
 
 注記:
 - regression の objective を `huber` とする（外れ値に対してロバスト）。
+- 利用者が指定できる目的関数は task ごとの表（`TASK_COMPATIBLE_OBJECTIVES`、`LGBMProvider.objective_choices(task)`）にあるもの。binary は `binary` と `cross_entropy` で、`cross_entropy_lambda` は出力が確率でないので受理しない（理由 `not_a_probability`、§13.1 の確率の検査。H-0125）。別名の値 `xentlambda` は表に無いので、今どおり理由の無い不一致として拒否する。
 - `LGBMConfig.params` に `metric` を指定した場合、ユーザー指定値を優先する。未指定時は上記タスク別デフォルトにフォールバックする（H-0061）。
 
 #### Metric Bridge（H-0064）
@@ -1656,6 +1664,7 @@ set_categorical_features(cols: list[str] | None) -> None  # デフォルト no-o
 
 2. **ホワイトリストバリデーション**: マッピング後の名前をタスク別ホワイトリストで事前検証。無効な metric 名は `LizyMLError(CONFIG_INVALID)` で即座に拒否する（LightGBM 呼び出し前）。
    - multiclass のネイティブ whitelist に `auc` は無い（LightGBM 4 は multiclass の objective と `auc` の組を拒否する）。学習時の指標には `auc_mu` を使い、multiclass の AUC は事後評価の `evaluate(metrics=["auc"])`（scikit-learn の OvR、§13.1）で得る（H-0079）。
+   - **native 指標のパラメータは拒否する**（H-0125、[#313](https://github.com/nbx-liz/LizyML/issues/313)）: LightGBM の native 指標は LightGBM 自身の母数で計算されるので、MetricEntry `{name: {param: value}}`（§13.1.1）のパラメータは使われない。名前を検査した後（名前の誤りは今の whitelist のメッセージを先に出す）、native の名前に空でないパラメータがあれば `CONFIG_INVALID`（context に `metric` と `params`（キー名の一覧））。`{"huber": {"delta": 9.0}}` も `{"rmse": {"bogus": 1}}` も拒否し、`huber` の閾値は LightGBM の `alpha`（目的関数と共有）であることをメッセージで案内する。パラメータ付きの LizyML の指標は `evaluation.metrics` に書く。空の `{}` は名前だけと同じ。feval の指標のパラメータ（`{"precision_at_k": {"k": 5}}` など）は今どおり。`resolve_metrics` は fit、adapter（直接の利用、tune の各試行、`export_code`）、tune の計画の段から呼ばれるので、どの入口でも同じ規則になる。
 
 3. **feval カスタム関数**: LightGBM ネイティブ未対応の metric は `lgb.train(feval=...)` 経由でカスタム評価関数として注入する。
 
@@ -1673,7 +1682,9 @@ set_categorical_features(cols: list[str] | None) -> None  # デフォルト no-o
 
 - `smape` / `wape` は回帰の feval 指標なので、`params.metric` に書けば early stopping と学習曲線を駆動する（H-0071）。
 - **feval は LightGBM が渡す予測を再変換しない**（H-0105）。LightGBM 4 は組み込み objective の変換後の値を feval に渡す: binary は 1 次元の確率、multiclass / multiclassova は 2 次元 `(n, num_class)` の確率、regression は予測値。sigmoid / softmax をもう一度掛けると binary のラベル指標が定数になり確率指標が歪むので、掛けない。
-- feval は evaluator と同じ規則（`evaluation.evaluator._pred_for_metric`、§13.1）で metric に値を渡す: ラベル指標には binary で 0.5 閾値、multiclass で argmax、multiclass の `needs_simplex` 指標には行和で正規化した確率、それ以外は確率をそのまま。学習曲線と `FitResult.metrics` で同じ名前の指標が同じ意味になる（H-0105）。
+- feval は evaluator と同じ規則（`evaluation.evaluator._pred_for_metric`、§13.1）で metric に値を渡す: ラベル指標には binary で 0.5 閾値、multiclass で argmax、multiclass の `needs_simplex` 指標には行和で正規化した確率、それ以外は確率をそのまま。feval の指標は、学習曲線と `FitResult.metrics` で同じ名前が同じ意味になる（H-0105）。
+- 学習曲線（`FitResult.history` の `eval_history`）の native 指標は LightGBM の名前と定義で計算され、`FitResult.metrics` の同じ名前の指標と値が違うことがある。今そうなるのは `huber`（LightGBM の閾値は `alpha`）と `mape`（LightGBM は `|y-p| / max(1,|y|)` の比率）で、`plot_learning_curve` はその subplot の題に LightGBM の定義を添える（§13.3、H-0125、[#354](https://github.com/nbx-liz/LizyML/issues/354)）。
+  - 記録される名前は LightGBM の正規名（`mae` と書いても `l1`、`logloss` は `binary_logloss` / `multi_logloss` として記録される）。各 task の受理する native 指標の全てを記録し、`MetricRegistry` の同じ task の名前との共通部分を同じ予測で比べると、値が違うのは上の二つだけで、他の共通の名前は一致する（`tests/test_plots/test_learning_curve_definitions.py`）。
 - multiclass の feval 入力が 2 次元 `(n, num_class)` でなければ reshape せず `EVALUATION_FAILED` を送出する（H-0105）。
 - native metric と feval metric の混在指定が可能（例: `["auc", "f1"]`）
 - feval-only 指定時も early stopping が正常に機能する

@@ -246,8 +246,10 @@ such as `softmax` ≡ `multiclass` are not surfaced):
 | task | valid objectives |
 |---|---|
 | `regression` | `regression`, `regression_l1`, `huber`, `fair`, `poisson`, `quantile`, `mape`, `gamma`, `tweedie` |
-| `binary` | `binary`, `cross_entropy`, `cross_entropy_lambda` |
+| `binary` | `binary`, `cross_entropy` |
 | `multiclass` | `multiclass`, `multiclassova` |
+
+`cross_entropy_lambda` is not accepted as a `binary` objective from v0.19.0 (H-0125, [#307](https://github.com/nbx-liz/LizyML/issues/307)): its output is lambda, not a probability (the probability is `1 - exp(-lambda)`), while LizyML returns a binary model's output as `predict().proba`. It raises `CONFIG_INVALID` with `reason` `not_a_probability` before training, from `model.params` under any LightGBM spelling of `objective`, `fit(params=...)`, a tune result or a search dimension, and `Model.load` refuses an artifact any stored booster of which was trained with it (`DESERIALIZATION_FAILED`). Use `binary` or `cross_entropy`. The alias value `xentlambda` was never in the table and keeps the generic refusal. `cross_entropy_lambda` stays accepted as a training metric (below).
 
 Some objectives place constraints on the target distribution:
 
@@ -280,6 +282,10 @@ LizyML has two separate metric systems:
 You can use LizyML metric names in `model.params.metric` — they are automatically translated
 to LightGBM equivalents (e.g. `"logloss"` → `"binary_logloss"` for binary tasks).
 
+A LightGBM native metric in `model.params.metric` takes no parameters (H-0125, [#313](https://github.com/nbx-liz/LizyML/issues/313)). LightGBM computes it from its own parameters, so `{"huber": {"delta": 9.0}}` or `{"rmse": {"bogus": 1}}` raises `CONFIG_INVALID` (context `metric` and `params`, the parameter names) instead of silently training LightGBM's `huber`, whose threshold is LightGBM's `alpha` (shared with the `huber` / `quantile` objectives). `{"huber": {}}` is the bare name. Put a LizyML metric with parameters in `evaluation.metrics`; a custom feval metric such as `{"precision_at_k": {"k": 5}}` keeps its parameters. An artifact that recorded such parameters still loads and predicts; a re-fit and `export_code` raise `CONFIG_INVALID`.
+
+The learning curve (`FitResult.history`, `plot_learning_curve`) records each native training metric under LightGBM's names and definitions, so it can differ from `FitResult.metrics` under the same name: today `huber` (LightGBM's threshold is `alpha`, default 0.9; LizyML's is `delta`, default 1.0) and `mape` (LightGBM: the ratio `|y-p| / max(1,|y|)`; LizyML: the percentage `|y-p| / |y|`). `plot_learning_curve` adds LightGBM's definition to the title of those subplots (H-0125, [#354](https://github.com/nbx-liz/LizyML/issues/354)). Custom feval metrics use LizyML's definitions in both places.
+
 ### Training metric reference (`model.params.metric`)
 
 Supported values for `model.params.metric` by task:
@@ -291,7 +297,7 @@ time. Surfaced via `LGBMProvider().metric_choices(task)["native"]` for downstrea
 |---|---|
 | `regression` | `rmse`, `mae`, `mape`, `huber`, `fair`, `poisson`, `quantile`, `gamma`, `gamma_deviance`, `tweedie` |
 | `binary` | `binary_logloss`, `binary_error`, `auc`, `average_precision`, `cross_entropy`, `cross_entropy_lambda`, `kullback_leibler` |
-| `multiclass` | `multi_logloss`, `multi_error`, `auc`, `auc_mu`, `multiclassova` |
+| `multiclass` | `multi_logloss`, `multi_error`, `auc_mu`, `multiclassova` |
 
 Aliases accepted at config-input time but not surfaced (e.g. `l1`/`l2`/`mse`/`mean_absolute_error`/`regression_l1`/`softmax`/`ova`/`ovr`/`xentropy`/`xentlambda`/`kldiv`) collapse to the canonical name above before reaching `lgb.train`.
 
@@ -550,6 +556,8 @@ it (`DESERIALIZATION_FAILED`; tune and export again).
 # "choices": ["true", "false"] is refused: write true / false, not strings.
 ```
 
+Objective and metric values are checked before the study (H-0125). `tune` applies fit's rules for `objective` and `metric` (under any LightGBM spelling) to the values its trials receive, and raises `CONFIG_INVALID` before any study is created or written: `model.params` with the round's fixed parameters laid over it (a parameter a `category: model` dimension of the round samples is left out, since every trial overrides it: in `merge` mode a `model.params` objective that the default space's `objective` dimension replaces is not refused), and every choice of a `category: model` dimension on `objective` or `metric`. Such a dimension must be `categorical`: a `float` / `int` one is refused whatever its range (`reason` `not_categorical`). Before, a bad value failed each trial that met it, so the tune ended in `TUNING_FAILED` or silently dropped the trials of one bad choice. The public `Tuner` does not check parameter values (see `docs/api.md`).
+
 Default search space used when `optuna.space = {}`:
 
 | Param | Type | Range / Choices | Log | Category |
@@ -645,8 +653,8 @@ classification metrics, `p` denotes the predicted probability.
 | `mae` | $\frac{1}{n}\sum_i \lvert y_i - \hat y_i \rvert$ | $[0, \infty)$ | — |
 | `r2` | $1 - \frac{\sum_i (y_i - \hat y_i)^2}{\sum_i (y_i - \bar y)^2}$ | $(-\infty, 1]$ | $\bar y$ = mean of `y_true` |
 | `rmsle` | $\sqrt{\frac{1}{n}\sum_i (\log(1+y_i) - \log(1+\hat y_i))^2}$ | $[0, \infty)$ | requires $y_i, \hat y_i \ge 0$ |
-| `mape` | $\frac{100}{n}\sum_i \left\lvert \frac{y_i - \hat y_i}{y_i} \right\rvert$ | $[0, \infty)$ | undefined if any $y_i = 0$ |
-| `huber` | $\frac{1}{n}\sum_i L_\delta(y_i - \hat y_i)$ where $L_\delta(e) = \begin{cases} \tfrac{1}{2}e^2 & \lvert e \rvert \le \delta \\ \delta (\lvert e \rvert - \tfrac{1}{2}\delta) & \text{otherwise} \end{cases}$ | $[0, \infty)$ | $\delta = 1.0$ default |
+| `mape` | $\frac{100}{n}\sum_i \left\lvert \frac{y_i - \hat y_i}{y_i} \right\rvert$ | $[0, \infty)$ | undefined if any $y_i = 0$. The learning curve's `mape` is LightGBM's ratio $\frac{1}{n}\sum_i \frac{\lvert y_i - \hat y_i \rvert}{\max(1, \lvert y_i \rvert)}$, not this (H-0125) |
+| `huber` | $\frac{1}{n}\sum_i L_\delta(y_i - \hat y_i)$ where $L_\delta(e) = \begin{cases} \tfrac{1}{2}e^2 & \lvert e \rvert \le \delta \\ \delta (\lvert e \rvert - \tfrac{1}{2}\delta) & \text{otherwise} \end{cases}$ | $[0, \infty)$ | $\delta = 1.0$ default. The learning curve's `huber` is LightGBM's, whose threshold is its `alpha` (default 0.9), not $\delta$ (H-0125) |
 | `smape` (H-0071) | $\frac{100}{n}\sum_i \frac{2 \lvert y_i - \hat y_i \rvert}{\lvert y_i \rvert + \lvert \hat y_i \rvert}$ | $[0, 200]$ | row with $\lvert y_i \rvert + \lvert \hat y_i \rvert = 0$ contributes 0 |
 | `wape` (H-0071) | $\frac{\sum_i \lvert y_i - \hat y_i \rvert}{\sum_i \lvert y_i \rvert} \times 100$ | $[0, \infty)$ | undefined only when $\sum_i \lvert y_i \rvert = 0$ |
 

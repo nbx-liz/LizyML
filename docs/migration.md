@@ -7,7 +7,9 @@ release from v0.5.0 onward.
 
 ## v0.19.0
 
-Only tuning with `resume=True`, `storage` or `study_name` changes (H-0122).
+Tuning with `resume=True`, `storage` or `study_name` changes (H-0122), and
+a few objective and metric values are refused (H-0125, see
+[the last section](#binary-objectives-native-metric-params-and-tune-values-h-0125)).
 A `tune()` that starts a new in-memory study, and an in-memory `tune()` ->
 `tune(resume=True)` that keeps the data and the config unchanged between rounds,
 need no edits; their results can still change (see below). Saved artifacts keep
@@ -103,6 +105,25 @@ objective identity, so a changed default refuses a resume. A provider without
 the method keeps working, and its defaults are not checked.
 
 ---
+
+### Binary objectives, native metric params and tune values (H-0125)
+
+| You wrote | Write instead |
+|-----------|---------------|
+| `objective: cross_entropy_lambda` on a binary task (any spelling of the key) | `binary` or `cross_entropy`. Its output is LightGBM's lambda, not a probability ([#307](https://github.com/nbx-liz/LizyML/issues/307)); the metric `cross_entropy_lambda` stays valid |
+| A parameter on a LightGBM-native metric in `model.params["metric"]`, e.g. `{"huber": {"delta": 9.0}}` | The bare name (`"huber"`), LightGBM's own parameter (`alpha` for `huber`, shared with the objective), or the parameterised LizyML metric in `evaluation.metrics` ([#313](https://github.com/nbx-liz/LizyML/issues/313)) |
+| An `objective` / `metric` search dimension that is `int` / `float`, or has a choice fit would refuse | A categorical dimension whose every choice fit accepts; `Model.tune` now refuses it before the study instead of failing those trials |
+
+- `Model.load` refuses (`DESERIALIZATION_FAILED`) an artifact whose boosters
+  were trained with `cross_entropy_lambda`; fit again with `binary` or
+  `cross_entropy` and export again. Other artifacts load as before.
+- An artifact that recorded a parameter on a native metric still loads and
+  predicts; a re-fit or `export_code` from it raises `CONFIG_INVALID`. Remove
+  the parameter from the config.
+- The learning curve (`FitResult.history`, `plot_learning_curve`) reports
+  LightGBM's metrics: its `huber` (threshold `alpha`) and `mape`
+  (`|y-p| / max(1,|y|)`, a ratio) differ from `FitResult.metrics` entries of
+  the same name ([#354](https://github.com/nbx-liz/LizyML/issues/354)).
 
 ## v0.18.0
 
