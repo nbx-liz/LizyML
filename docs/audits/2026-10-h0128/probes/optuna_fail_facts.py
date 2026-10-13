@@ -1,6 +1,8 @@
-"""H-0128 policy 6 facts about Optuna: (1) a finished trial's user attributes
-cannot be written; (2) an objective returning NaN, inf or a non-number ends as
-FAIL without raising out of ``optimize``; (3) no ``fail_reason`` system attr."""
+"""H-0128 policy 6 facts about Optuna, each measured below: (1) whether a
+finished trial's user attributes can be written; (2) which objective return
+values (NaN, inf, a str, None) end as FAIL, without raising out of
+``optimize``; (3) whether Optuna records a ``fail_reason`` system attribute.
+The results are in ``optuna_fail_facts.out`` (inf ends as COMPLETE)."""
 
 from __future__ import annotations
 
