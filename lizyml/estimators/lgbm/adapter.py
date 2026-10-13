@@ -87,12 +87,16 @@ def _pop_by_identity(
     return value, written
 
 
+#: The install hint names LizyML's declared LightGBM floor; a test keeps the two
+#: equal (H-0126). Quoted, because an unquoted ``>=`` is a shell redirect.
+_INSTALL_HINT = 'LightGBM is required. Install with: pip install "lightgbm>=4.4"'
+
 try:
     import lightgbm as lgb
 except ImportError as e:  # pragma: no cover
     raise LizyMLError(
         code=ErrorCode.OPTIONAL_DEP_MISSING,
-        user_message="LightGBM is required. Install with: pip install lightgbm>=4.0",
+        user_message=_INSTALL_HINT,
         context={"package": "lightgbm"},
     ) from e
 

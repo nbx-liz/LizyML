@@ -96,7 +96,10 @@ def _refused_before_any_study(
         )
     created.assert_not_called()
     assert seen["train_params"] == []
-    assert optuna.study.get_all_study_names(storage=storage) == []
+    assert [
+        s.study_name
+        for s in optuna.get_all_study_summaries(storage, include_best_trial=False)
+    ] == []
     assert caught.value.code == CI
     return caught.value
 

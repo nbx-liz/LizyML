@@ -1,0 +1,6 @@
+FAILED tests/test_codegen/test_calibration_params_codegen.py::test_generated_fitter_matches_the_runtime_calibrator[platt-params1]
+FAILED tests/test_core/test_param_domain.py::test_a_value_with_no_plain_stand_in_is_refused_rather_than_rounded
+FAILED tests/test_core/test_param_domain.py::test_unchanged_is_decided_by_type_and_not_by_printed_text
+FAILED tests/test_tuning/test_objective_identity.py::TestSummariseFrame::test_hash_pandas_object_alone_misses_the_auxiliary_cases
+FAILED tests/test_tuning/test_space_merge.py::test_removed_training_dimension_admission[False]
+5 failed, 11459 passed, 230 skipped, 21 deselected, 4 xfailed, 925 warnings in 227.77s (0:03:47)

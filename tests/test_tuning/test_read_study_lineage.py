@@ -162,7 +162,10 @@ def test_reads_only(templates: dict[str, Path], tmp_path: Path, state: str) -> N
     storage = BUILDERS[state](templates, tmp_path)
     if state == "absent":
         read_study_lineage(storage, "s")
-        assert "s" not in optuna.get_all_study_names(storage)
+        assert "s" not in [
+            s.study_name
+            for s in optuna.get_all_study_summaries(storage, include_best_trial=False)
+        ]
         return
     before = snapshot_study(storage, "s")
     read_study_lineage(storage, "s")

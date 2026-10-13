@@ -239,22 +239,29 @@ def recorded_params(
     *params* may hold only some of the dims (a failed trial), but every name
     in it must have a dimension.
 
+    The result is in the order of *dims*, not of *params*: Optuna 3.1 returns a
+    stored trial's parameters in a different order from the live trial's, and
+    the live and restored ``tuning_table`` columns must agree (H-0126).
+
     Raises:
         ValueError: A parameter has no dimension in *dims*.
     """
     by_name = {dim.name: dim for dim in dims}
-    out: dict[str, Any] = {}
-    for name, value in params.items():
-        dim = by_name.get(name)
-        if dim is None:
+    for name in params:
+        if name not in by_name:
             raise ValueError(
                 f"trial parameter {name!r} has no dimension in its round's space "
                 f"{sorted(by_name)}"
             )
+    out: dict[str, Any] = {}
+    for dim in dims:
+        if dim.name not in params:
+            continue
+        value = params[dim.name]
         if isinstance(dim, CategoricalDim) or dim.step is None:
-            out[name] = value
+            out[dim.name] = value
         else:
-            out[name] = grid_value(dim, value)
+            out[dim.name] = grid_value(dim, value)
     return out
 
 

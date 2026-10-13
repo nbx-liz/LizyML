@@ -7,13 +7,12 @@ from __future__ import annotations
 
 import warnings
 from collections.abc import Mapping
-from typing import Annotated, Any, Literal, NamedTuple
+from typing import TYPE_CHECKING, Annotated, Any, Literal, NamedTuple
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    ModelWrapValidatorHandler,
     PrivateAttr,
     TypeAdapter,
     ValidationError,
@@ -23,6 +22,11 @@ from pydantic import (
 )
 
 from lizyml.config.version import check_config_version
+
+if TYPE_CHECKING:
+    # pydantic 2.11 added this name; it is only an annotation here, so the
+    # runtime import would raise the dependency floor for no behaviour (H-0126).
+    from pydantic import ModelWrapValidatorHandler
 
 # ---------------------------------------------------------------------------
 # DataConfig

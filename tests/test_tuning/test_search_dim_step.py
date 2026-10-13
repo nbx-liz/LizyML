@@ -306,6 +306,22 @@ def test_recorded_params_reads_a_subset_of_the_dims() -> None:
     assert recorded_params({"lr": 0.2}, dims) == {"lr": 0.2}
 
 
+def test_recorded_params_follows_the_dims_order_not_the_params_order() -> None:
+    """H-0126: Optuna 3.1 returns a stored trial's params in another order."""
+    dims = [
+        IntDim("n", 2, 8),
+        FloatDim("lr", 0.1, 1.0, step=0.1),
+        FloatDim("ff", 0.1, 1.0),
+    ]
+    for raw in (
+        {"n": 4, "lr": 0.2, "ff": 0.5},
+        {"ff": 0.5, "lr": 0.2, "n": 4},
+        {"lr": 0.2, "ff": 0.5, "n": 4},
+    ):
+        assert list(recorded_params(raw, dims)) == ["n", "lr", "ff"]
+    assert list(recorded_params({"ff": 0.5, "n": 4}, dims)) == ["n", "ff"]
+
+
 def test_recorded_params_refuses_a_name_without_a_dimension() -> None:
     with pytest.raises(ValueError, match="'y'"):
         recorded_params({"x": 0.1, "y": 0.41}, [FloatDim("x", 0.0, 1.0, step=0.2)])

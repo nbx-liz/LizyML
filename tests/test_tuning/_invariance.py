@@ -188,4 +188,7 @@ def run_case(case: Case) -> None:
         assert not Path(case.extra["no_file"][len("sqlite:///") :]).exists()
     if "absent_study" in case.extra:
         storage, name = case.extra["absent_study"]
-        assert name not in optuna.get_all_study_names(storage)
+        assert name not in [
+            s.study_name
+            for s in optuna.get_all_study_summaries(storage, include_best_trial=False)
+        ]

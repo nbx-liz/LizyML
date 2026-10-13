@@ -193,7 +193,10 @@ def test_config_space_refuses_before_any_study(
     )
     created.assert_not_called()
     assert seen["train_params"] == []
-    assert optuna.study.get_all_study_names(storage=storage) == []
+    assert [
+        s.study_name
+        for s in optuna.get_all_study_summaries(storage, include_best_trial=False)
+    ] == []
 
 
 @pytest.fixture(scope="module")
@@ -440,7 +443,10 @@ def test_a_default_space_dimension_outside_the_rule_is_refused(
         reason=INVALID,
     )
     assert seen["train_params"] == []
-    assert optuna.study.get_all_study_names(storage=storage) == []
+    assert [
+        s.study_name
+        for s in optuna.get_all_study_summaries(storage, include_best_trial=False)
+    ] == []
 
 
 def test_the_rule_precedes_the_owner_check() -> None:

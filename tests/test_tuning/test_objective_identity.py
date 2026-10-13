@@ -18,6 +18,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import pytest
+from packaging.version import Version
 
 from lizyml.config.loader import load_config
 from lizyml.config.schema import LizyMLConfig
@@ -167,7 +168,7 @@ class TestSummariseFrame:
             return pd.util.hash_pandas_object(d, index=True).to_numpy().tobytes()
 
         base = _frame()
-        for case in (
+        cases = (
             "column_rename",
             "int64_Int64",
             "category_order",
@@ -176,9 +177,17 @@ class TestSummariseFrame:
             "mixed_category_values_swapped",
             "object_1_vs_str",
             "object_nan_vs_none",
-        ):
-            change, _ = _DATA_CASES[case]
-            assert raw(change(base.copy(deep=True))) == raw(base), case
+        )
+        seen = {
+            case
+            for case in cases
+            if raw(_DATA_CASES[case][0](base.copy(deep=True))) != raw(base)
+        }
+        # pandas before 2.2 hashes int64 and Int64 differently (measured on
+        # 2.0.0-2.1.4; equal from 2.2.0), so there that one case is seen. The
+        # declared floor is pandas 2.0, so both answers are supported (H-0126).
+        old_pandas = Version(pd.__version__) < Version("2.2")
+        assert seen == ({"int64_Int64"} if old_pandas else set())
 
     def test_duplicate_column_names(self) -> None:
         df = pd.concat([_frame()[["num"]], _frame()[["num"]]], axis=1)

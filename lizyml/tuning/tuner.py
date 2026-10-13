@@ -152,7 +152,12 @@ def stored_study_exists(storage: str | BaseStorage, study_name: str | None) -> b
     """
     if study_name is None:
         return False
-    names: list[str] = _require_optuna().get_all_study_names(storage)
+    names: list[str] = [
+        s.study_name
+        for s in _require_optuna().get_all_study_summaries(
+            storage, include_best_trial=False
+        )
+    ]
     return study_name in names
 
 

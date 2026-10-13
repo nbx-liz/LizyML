@@ -306,6 +306,9 @@ def test_space_on_u3_refused(tmp_path: Path, caplog: pytest.LogCaptureFixture) -
             model, resume=True, storage=storage, study_name="new", space=SPACE_ARG
         )
     assert error.context["reason"] == "study_absent"
-    assert "new" not in optuna.get_all_study_names(storage)
+    assert "new" not in [
+        s.study_name
+        for s in optuna.get_all_study_summaries(storage, include_best_trial=False)
+    ]
     assert "tune.study_created" not in caplog.text
     assert (snapshot_study(storage, "other"), snapshot_model(model)) == before

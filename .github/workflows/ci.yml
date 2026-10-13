@@ -33,6 +33,12 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
+      - name: Check the lock matches pyproject.toml
+        # Every `uv sync` here is --frozen, which installs the lock without
+        # checking it; a floor or group edited without relocking would pass
+        # unnoticed (H-0126).
+        run: uv lock --check
+
       - name: Install dependencies
         run: uv sync --frozen --dev
 
@@ -72,11 +78,29 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install lowest direct dependencies
-        run: uv sync --frozen --dev --resolution lowest-direct
+      # H-0126 (#295): install the declared floors, not the lock. `--frozen`
+      # would install the locked versions and make --resolution a no-op.
+      - name: Create the environment
+        run: uv venv
+
+      - name: Install LizyML and every extra at their declared floors
+        run: uv pip install --resolution lowest-direct -e ".[tuning,explain,plots,calibration]"
+
+      - name: Install the test tooling at the lock's versions
+        # Neither at its floor (an old tool must not be what fails) nor at its
+        # newest: pyarrow 26 cannot be used by pandas 2.0 with numpy 1.24. The
+        # export holds none of LizyML's own requirements; the next step refuses
+        # a tool that moved a floor anyway.
+        run: |
+          uv export --frozen --only-group lowest-lane --no-hashes --no-emit-project -o "$RUNNER_TEMP/lowest-lane-tools.txt"
+          uv pip install -r "$RUNNER_TEMP/lowest-lane-tools.txt"
+
+      - name: Check every installed version is its declared floor
+        # Neither `uv venv` nor `uv pip` puts .venv/bin on PATH: name it.
+        run: .venv/bin/python scripts/check_dependency_floors.py
 
       - name: Test (pytest)
-        run: uv run pytest tests/ -q
+        run: .venv/bin/python -m pytest tests/ -q
 
   quality-latest-deps:
     name: Quality (latest deps, non-blocking)

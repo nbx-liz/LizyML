@@ -384,7 +384,10 @@ def test_absent_is_tuning_failed_and_creates_no_study(tmp_path: Path) -> None:
         Model(edge_config(), data=frame()).restore_tuning(storage, "s")
     assert caught.value.code is TF
     assert caught.value.context["state"] == "absent"
-    assert "s" not in optuna.get_all_study_names(storage)
+    assert "s" not in [
+        s.study_name
+        for s in optuna.get_all_study_summaries(storage, include_best_trial=False)
+    ]
 
 
 def test_open_is_refused_and_running_stays(
