@@ -338,6 +338,7 @@ def test_each_saved_state_is_checked(case: str, tmp_path: Path) -> None:
         exporter.export(out, fit_result, refit_result, {}, "binary")
     assert exc.value.code == ErrorCode.SERIALIZATION_FAILED
     assert exc.value.context["state"] == state
+    assert f"({state} pipeline state)" in str(exc.value)
     assert exc.value.context["column"] == "c"
     assert not out.exists()
 

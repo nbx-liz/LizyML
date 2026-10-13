@@ -101,7 +101,8 @@ def check_category_values(fit_result: FitResult, refit_result: RefitResult) -> N
             code=ErrorCode.SERIALIZATION_FAILED,
             user_message=(
                 f"Model.export cannot save this model: column '{item.column}' "
-                f"holds the category value {item.shown} of type "
+                f"({state_name} pipeline state) holds the category value "
+                f"{item.shown} of type "
                 f"{item.type_name}, which LightGBM cannot write into a saved "
                 "model (it stores category values as JSON). Convert the "
                 "column's values to str (or int, float, bool) and fit again."

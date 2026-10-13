@@ -61,6 +61,12 @@ automatically applied.
 - `LizyMLError(DATA_SCHEMA_INVALID)` — target or feature columns not found.
 - `LizyMLError(LEAKAGE_SUSPECTED)` — split/calibration invariant violated.
 
+**Warns:** `UserWarning`, once per categorical column, before training starts,
+when the column holds a category value LightGBM cannot write into a saved model
+(`bytes`, `Decimal`, dates and timestamps, `Timedelta`, `complex`,
+`frozenset`, or a `tuple` holding one). `fit` and `predict` work; `export()`
+refuses the model (H-0127).
+
 ---
 
 #### `tune`
