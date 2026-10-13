@@ -14,7 +14,8 @@ outcome it records one row per event:
   task and its params are non-empty (#313).
 - ``dim``: every ``objective`` / ``metric`` dimension (any LightGBM spelling)
   in a round's effective space that ``validate_tuning_dimensions`` sees, with
-  the choices the proposed pre-study check refuses: ``bad_objective:<v>``
+  the dimension kind (``<name>:<class>``) and what the proposed pre-study check
+  refuses: ``not_categorical:<class>`` (an int / float dimension), ``bad_objective:<v>``
   (not in the task's accepted set after #307) or ``bad_metric:<v>`` (refused by
   ``resolve_metrics`` today, or native params).
 - ``tune``: one row per ``Model.tune`` call; reason ``trial_refusal`` when an
@@ -34,6 +35,7 @@ import pytest
 
 from lizyml.core import _model_tuning, _tuning_admission
 from lizyml.core.exceptions import LizyMLError
+from lizyml.core.types.search_dim import CategoricalDim
 from lizyml.estimators.lgbm import adapter as _adapter
 from lizyml.estimators.lgbm import metric_bridge, param_validation
 from lizyml.estimators.lgbm.defaults import TASK_COMPATIBLE_OBJECTIVES
@@ -102,8 +104,12 @@ def _dim_reasons(dim: Any, task: str) -> list[str] | None:
     canonical = LGBM_CANONICAL_NAME.get(dim.name)
     if canonical not in ("objective", "metric"):
         return None
-    values = list(getattr(dim, "choices", None) or [])
     out = []
+    if not isinstance(dim, CategoricalDim):
+        # Round-1 remedy: an int / float objective or metric dimension is
+        # refused as not_categorical before the study.
+        return [f"not_categorical:{type(dim).__name__}"]
+    values = list(dim.choices)
     for v in values:
         if canonical == "objective" and v not in _accepted_after(task):
             out.append(f"bad_objective:{v!r}")
@@ -122,7 +128,8 @@ def _wrapped_validate(provider: Any, space: Any, smart: Any, task: Any, *args: A
     for dim in space:
         reasons = _dim_reasons(dim, task)
         if reasons is not None:
-            _rows.append(f"dim\t{_current['nodeid']}\t{dim.name}\t{';'.join(reasons)}")
+            detail = f"{dim.name}:{type(dim).__name__}"
+            _rows.append(f"dim\t{_current['nodeid']}\t{detail}\t{';'.join(reasons)}")
     return _validate(provider, space, smart, task, *args, **kwargs)
 
 

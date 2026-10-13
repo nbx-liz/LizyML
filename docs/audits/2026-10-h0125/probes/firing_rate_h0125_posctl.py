@@ -6,8 +6,9 @@ Run:
     docs/audits/2026-10-h0125/probes/firing_rate_h0125_posctl.py
 
 The output must contain an ``obj`` row flagged ``xentlambda``, a ``metric`` row
-flagged ``native_params:huber``, a ``dim`` row flagged ``bad_objective:'regression'``
-and a ``tune`` row flagged ``trial_refusal``.
+flagged ``native_params:huber``, ``dim`` rows flagged ``bad_objective:'regression'``,
+``not_categorical:IntDim`` and ``bad_metric:'rmse'``, and ``tune`` rows flagged
+``trial_refusal``.
 """
 
 from __future__ import annotations
@@ -35,6 +36,24 @@ def test_cross_task_objective_choice_is_recorded() -> None:
     cfg = make_config("binary", n_estimators=2, n_splits=2, tuning_n_trials=2)
     cfg["tuning"]["optuna"]["space"] = {
         "objective": {"type": "categorical", "choices": ["regression"], "category": "model"}
+    }
+    with pytest.raises(LizyMLError):
+        Model(cfg).tune(data=make_binary_df())
+
+
+def test_numeric_objective_dimension_is_recorded() -> None:
+    cfg = make_config("binary", n_estimators=2, n_splits=2, tuning_n_trials=2)
+    cfg["tuning"]["optuna"]["space"] = {
+        "objective": {"type": "int", "low": 1, "high": 2, "category": "model"}
+    }
+    with pytest.raises(LizyMLError):
+        Model(cfg).tune(data=make_binary_df())
+
+
+def test_bad_metric_choice_is_recorded() -> None:
+    cfg = make_config("binary", n_estimators=2, n_splits=2, tuning_n_trials=2)
+    cfg["tuning"]["optuna"]["space"] = {
+        "metric": {"type": "categorical", "choices": ["rmse"], "category": "model"}
     }
     with pytest.raises(LizyMLError):
         Model(cfg).tune(data=make_binary_df())
