@@ -66,6 +66,20 @@ MUTATIONS = [
         "tests/test_persistence/test_unwritable_categories.py",
     ),
     (
+        "only json's own exceptions counted as unwritable (impl review r1)",
+        CAT,
+        "    except Exception:  # noqa: BLE001 - any failure is LightGBM's failure too\n",
+        "    except (TypeError, ValueError, RecursionError):\n",
+        "tests/test_persistence/test_unwritable_categories.py",
+    ),
+    (
+        "train.py's warning drops the values (impl review r1, DC3)",
+        TPL,
+        "\"(unseen_policy='%s')\", col, n_rows, present, replaced_by, policy,",
+        "\"(unseen_policy='%s')\", col, n_rows, [], replaced_by, policy,",
+        "tests/test_codegen/test_float_arrival_codegen.py",
+    ),
+    (
         "numpy scalars with a non-plain .item() accepted (criterion 4)",
         CAT,
         "        if isinstance(plain, np.generic):\n            raise TypeError(type_name(obj))\n",
