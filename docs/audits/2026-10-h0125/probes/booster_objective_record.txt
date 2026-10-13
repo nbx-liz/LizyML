@@ -1,0 +1,8 @@
+cross_entropy_lambda | dump: cross_entropy_lambda | text: ['objective=cross_entropy_lambda'] | params: cross_entropy_lambda
+   reloaded | dump: cross_entropy_lambda | params: None
+xentlambda | dump: cross_entropy_lambda | text: ['objective=cross_entropy_lambda'] | params: xentlambda
+   reloaded | dump: cross_entropy_lambda | params: None
+binary | dump: binary sigmoid:1 | text: ['objective=binary sigmoid:1'] | params: binary
+   reloaded | dump: binary sigmoid:1 | params: None
+cross_entropy | dump: cross_entropy | text: ['objective=cross_entropy'] | params: cross_entropy
+   reloaded | dump: cross_entropy | params: None

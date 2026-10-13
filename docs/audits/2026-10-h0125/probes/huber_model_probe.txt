@@ -1,0 +1,5 @@
+model.params: {'n_estimators': 30}
+history[0] keys: ['best_iteration', 'eval_history']
+eval_history structure: {'valid_0': ['huber', 'l1', 'mape']}
+FitResult.metrics raw: {'oof': {'huber': 2.374414335935175}, 'oof_per_fold': [{'huber': 2.7452010060456473}, {'huber': 2.312366719232456}, {'huber': 2.065675282527422}]}
+OOF HuberLoss delta=1.0: 2.374414335935175  delta=0.9: 2.1759201400721646

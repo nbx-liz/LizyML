@@ -1,0 +1,2 @@
+{} native huber: 1.023651 LizyML delta=1.0: 1.10034 LizyML delta=0.9: 1.023651 LizyML delta=9.0: 1.826892
+{'alpha': 9.0} native huber: 1.826892 LizyML delta=1.0: 1.10034 LizyML delta=0.9: 1.023651 LizyML delta=9.0: 1.826892

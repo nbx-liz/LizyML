@@ -13106,3 +13106,95 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
 - **文書**: BLUEPRINT §11.1（大きさの規則）、§11.5（広げない規則と報告、`Tuner.tune`）、§11.5.3（decode が拒否するもの）、docs/config-reference.md、CHANGELOG。BLUEPRINT §11.5 の H-0111 の `2**53` についての文は、改訂 1 で意味が無くなったので置き換えた。`BoundaryDimStatus.clamped_to_bound` の docstring に広げない場合を書いた。
 
 受け入れ基準の対応: 基準 13〜15 は `tests/test_tuning/test_search_dim_magnitude.py` と `test_space_format.py` の拒否の表、基準 16 は各条件を一つずつ外して対応するテストが失敗することを確かめた（表は実装の PR の本文に載せる）。
+
+## H-0125: binary の `cross_entropy_lambda` を拒否し、native 指標のパラメータを拒否し、tune の前に目的関数と指標の値を検査し、学習曲線の指標の定義を明記する（#307、#313、#354）
+- **ステータス**: Proposed
+- **起票日**: 2026-10-13
+- **決定日**: —（設計の判断は管理者が 2026-10-13 に済ませた。下の「管理者の判断」）
+- **スコープ**: `lizyml/estimators/lgbm/defaults.py`・`provider.py`（受理する目的関数の表）、`param_validation.py`（目的関数の検査のメッセージ）、`metric_bridge.py`（`resolve_metrics`）、tune の計画の段（`lizyml/core/_tuning_validation.py`・`_tuning_admission.py`・`_model_tuning.py`）、`lizyml/core/_model_persistence.py`（`Model.load`）、`lizyml/plots/learning_curve.py`、BLUEPRINT §7.1・§13.1・§13.3・§14（Metric Bridge）、docs/config-reference.md、docs/api.md、docs/DEPRECATIONS.md、CHANGELOG
+- **関連**: [Issue #307](https://github.com/nbx-liz/LizyML/issues/307)、[Issue #313](https://github.com/nbx-liz/LizyML/issues/313)、[Issue #354](https://github.com/nbx-liz/LizyML/issues/354)、[Issue #355](https://github.com/nbx-liz/LizyML/issues/355)（MASE。v0.19.0 の後）、H-0079（目的関数の表）、H-0065（MetricEntry）、H-0105（feval の値の意味）、H-0106（`METRIC_REQUIRES_PROBA`）、H-0121 改訂 2（読み込み時の拒否の前例）、H-0122（保存した study）
+
+### 目的（課題）
+1. **#307**: binary の目的関数 `cross_entropy_lambda` の出力は確率ではない（LightGBM の出力は λ で、確率は `1 - exp(-λ)` として別に定義される）。LizyML はこれを確率として扱う。学習できるデータでは評価器で失敗し（H-0106 の後は `METRIC_REQUIRES_PROBA`、`logloss` / `brier` を含めば scikit-learn の `ValueError`）、出力が 1 を超えない短い fit は成功して、確率でない値を `predict().proba` として返す。v0.18.0 も受理しているので、その短い fit の artifact は公開版で作れる。
+2. **#313**: `model.params["metric"]` の MetricEntry（`{name: {param: value}}`、H-0065）で、名前が LightGBM の native 指標のとき、パラメータは黙って捨てられる（`metric_bridge.py` の `resolve_metrics` の else 枝が `kwargs` を使わない）。`{"huber": {"delta": 9.0}}` は LightGBM の `huber`（閾値は `alpha`）になり `delta` は効かない。`{"rmse": {"bogus": 1}}` も検査されずに通る。
+3. **tune の前の値の検査が無い**: `tune` は目的関数と指標の値を study の前に検査しない（`_model_tuning.py` の merge は `validate_values` を渡さない）。不正な値は各試行の adapter で `CONFIG_INVALID` になり、tuner の `catch`（`tuner.py:507`）が試行の失敗として記録する。全試行が失敗すれば `TUNING_FAILED`（"Check parameter ranges"）、一部の選択肢だけが不正なら、その試行が黙って落ちる。binary の探索空間の `objective` に `regression` を混ぜた場合も同じ（陽性対照で再現）。1 の規則を足しても、tune ではこの経路で `CONFIG_INVALID` にならない。
+4. **#354**: 学習曲線（`FitResult.history[*]["eval_history"]`、LightGBM が計算）と `FitResult.metrics`（LizyML が計算）に、同じ名前で定義の違う指標が二つある。`huber` は LightGBM の `alpha`（既定 0.9、huber / quantile の目的関数と共有）、LizyML の `delta`（既定 1.0、H-0004）。`mape` は LightGBM が `|y-p| / max(1, |y|)` の比率、LizyML が `|y-p| / |y|` の百分率。regression の既定の学習指標は `["huber", "mae", "mape"]` なので、既定の学習曲線には必ずこの二つが出る。実測（`docs/audits/2026-10-h0125/probes/same_name_probe.txt`）: 同じ予測で `mape` 0.331 対 154.05、`huber` 0.1140 対 0.1148。他の同名の組（`rmse`、`auc`）と名前の違う組（`l1`/`mae`、`binary_logloss`/`logloss`、`average_precision`/`auc_pr`）は一致した。
+
+### 管理者の判断（2026-10-13）
+- #307: 目的関数としては拒否する（指標としての `cross_entropy_lambda` は残す）。保存済みの artifact は、それで学習したものだけを読み込み時に拒否する（H-0121 改訂 2 と同じ方針）。
+- #313: 空でないパラメータは拒否する。空の `{}` は名前だけと同じ。古い artifact は読み込みと predict を許し、再 fit と `export_code` は `CONFIG_INVALID`。
+- tune: 目的関数と指標の値を、fit と同じ規則で study の前に検査する（一般の検査。他の task の目的関数も含む）。
+- #354: LizyML の定義を保つ（一般的な定義に近い。下の「代替案」）。学習曲線は LightGBM の名前と定義だと BLUEPRINT と docs に書き、学習曲線の plot の subplot の題に LightGBM の定義を添える。
+- 保存した study（resume / restore）で `cross_entropy_lambda` の試行を持ちうるのは、develop だけで作れる形式の study（H-0122 の後）である。v0.18.0 の study は `legacy` として resume で拒否される。この修正の後は計画の段で拒否するので、新しい study は作られない。範囲外とする（H-0121 改訂 2 と同じ判断）。
+
+### 対応方針（提案）
+1. **受理する目的関数の表**: `TASK_COMPATIBLE_OBJECTIVES["binary"]`（`defaults.py:56`）と `_LGBM_OBJECTIVE_CHOICES["binary"]`（`provider.py:136`）から `cross_entropy_lambda` を除く。二つの表は import 時の検査（`provider.py:186-206`）で揃っている必要がある。`LGBMProvider.objective_choices("binary")` は `("binary", "cross_entropy")` になる。指標の表（`_LGBM_NATIVE_METRICS`、`_LGBM_NATIVE_METRIC_CHOICES`）は変えない。
+2. **メッセージ**: `check_objective_compatible` が binary の `cross_entropy_lambda` を拒否するとき、理由（出力が確率でない）と代わり（`binary`、`cross_entropy`）を言う。context に `reason: "not_a_probability"` を入れる。他の拒否のメッセージは変えない。別名の値（`xentlambda`）は今も表に無いので拒否される（変更なし）。
+3. **tune の前の検査**（一般の検査）: tune の計画の段で、study を作る・再接続する前に次を検査し、不正なら `CONFIG_INVALID`。検査は fit と同じ関数（`check_objective_compatible`、`resolve_user_metric`）を使う。
+   - (a) 固定の層（`model.params`、tune の固定パラメータ）の目的関数と指標の値（LightGBM のどの綴りでも）。
+   - (b) round の実効の探索空間の `category: model` の次元のうち、正規名が `objective` / `metric` のものの全ての選択肢。config の空間、`tune(space=...)`、provider の既定の空間、resume した round の空間のどれから来たものでも、計画の段 D（`check_round_space`）で見る。
+   検査は計画の段に置く（INV-R4: 計画の段の後は拒否しない）。surface は今の H-0121 の流儀（`tuning.optuna.space` / `tune(space=...)` / `model.params`）。
+4. **#313 の拒否**: `resolve_metrics` の else 枝（native の名前）で、名前を `translate_metric` と表の検査で確かめた後、`kwargs` が空でなければ `CONFIG_INVALID`。名前が不明なら今の表の検査のメッセージのまま（名前の誤りを先に言う）。メッセージは「LightGBM の native 指標は LizyML のパラメータを受け取らない。`huber` の閾値は LightGBM の `alpha`（目的関数と共有）。パラメータ付きの LizyML の指標は `evaluation.metrics` に書く」。context に `metric`、`params`（キー名の一覧）。`{"huber": {}}` は今どおり `"huber"` と同じ。feval の名前の扱いは変えない。`resolve_metrics` は fit（`check_param_values`）、adapter（`_build_params`。直接の利用、各試行、`export_code`）、方針 3 から呼ばれるので、どの入口でも同じ規則になる。
+5. **読み込み時の拒否**（#307）: `Model.load` は、保存した全ての booster（`fit_result.pkl` の fold のモデル、`refit_model.pkl`）について、LightGBM のモデル文字列の `objective=` の行の最初の語を読み、`cross_entropy_lambda` なら `DESERIALIZATION_FAILED`。booster の `params` は読み戻すと失われ、モデル文字列の行は残る（`probes/booster_objective_record.txt`。別名 `xentlambda` で学習しても行は `cross_entropy_lambda`）。この行は学習に実際に使った目的関数なので、config、tune の結果、`fit(params=)` のどれで指定したかによらない。format_version 1 と 2 のどちらにも掛ける。メッセージは「この目的関数の出力は確率でないので、確率として予測を返す artifact を読み込まない。`binary` か `cross_entropy` で fit し直して export し直す」。
+6. **#354 の明文化**: BLUEPRINT §7.1（`history`）と §14 の Metric Bridge に「学習曲線（`eval_history`）の指標は LightGBM の名前と定義で、`FitResult.metrics` の同じ名前の指標と値が違うことがある。今そうなるのは `huber`（LightGBM は `alpha`）と `mape`（LightGBM は `|y-p| / max(1,|y|)` の比率）」と書く。docs/config-reference.md の「Training metric vs evaluation metric」と指標の数式の表、docs/api.md の `history` / `plot_learning_curve` も同じ。
+7. **#354 の plot**: `plot_learning_curve` の subplot の題で、指標の名前が `huber` / `mape` のとき LightGBM の定義を添える（例: `valid_0/huber (LightGBM: threshold = alpha)`、`valid_0/mape (LightGBM: |y-p| / max(1,|y|))`）。`alpha` の値は FitResult に無いので書かない（plot は FitResult から推測しない）。添える文の表は一か所に置き、下の受け入れ基準 9 のテストが表と実際の食い違いの組を照合する。凡例（fold）、y 軸、`metrics=` の絞り込み（名前で照合）は変えない。
+
+### 規則が縛る位置（ソースから導出、実装前、`8ca8148`）
+| 位置 | 今 | この Proposal の後 |
+|---|---|---|
+| `defaults.py:52-58` `TASK_COMPATIBLE_OBJECTIVES` | binary に `cross_entropy_lambda` | 除く（方針 1） |
+| `provider.py:133-137` `_LGBM_OBJECTIVE_CHOICES` | 同上 | 除く（方針 1） |
+| `defaults.py:110-113` `default_space(task, provider=...)` | provider の選択肢を全て使う | 方針 1 で自動的に除かれる |
+| `param_validation.py:11-49` `check_objective_compatible` | 表で検査 | `cross_entropy_lambda` の理由付きのメッセージ（方針 2） |
+| `_model_factories.py:506-536` `check_param_values`（fit） | 目的関数と指標を検査 | 変えない（方針 1・4 が効く） |
+| `adapter.py:457-469` `_build_params` | 同上 | 変えない（方針 1・4 が効く） |
+| `_model_tuning.py:362-364` tune の merge | 値を検査しない | 計画の段で固定の層を検査（方針 3a） |
+| `_tuning_admission.py:214-266` `check_round_space`（段 D） | 名前と所有を検査 | `objective` / `metric` の次元の選択肢を検査（方針 3b） |
+| `tuner.py:507` `catch` | 試行の `CONFIG_INVALID` を失敗として記録 | 変えない（方針 3 で、計画の段を通った値はここで拒否されない） |
+| `metric_bridge.py:349-351` `resolve_metrics` の else 枝 | `kwargs` を捨てる | 空でなければ拒否（方針 4） |
+| `_model_persistence.py:495-610` `Model.load` | 目的関数を見ない | booster の目的関数を検査（方針 5） |
+| `plots/learning_curve.py:114` `subplot_titles` | `ds/metric` | `huber` / `mape` に定義を添える（方針 7） |
+| `_model_tuning.py:379`・`_tuning_restore.py:194,204`（保存した study の試行） | smart の値だけ検査 | 変えない（範囲外。管理者の判断） |
+
+### 互換性
+- **#307**: `objective: cross_entropy_lambda` の binary の config は fit / tune で `CONFIG_INVALID`。v0.18.0 で成功した短い fit の artifact は読み込めない（`DESERIALIZATION_FAILED`）。他の artifact は今どおり読み込める。LizyStudio と LizyML-Widget はこの目的関数を選択肢に持つ（LizyStudio BLUEPRINT の `objective` の表、Widget `adapter_contract.py:100,128`）ので、承認の後に両方へ issue を起こす。`LGBMProvider.objective_choices("binary")` の戻り値が変わる（公開の provider API）。
+- **tune の前の検査**: 固定の層の目的関数や指標が不正な tune は、今は全試行の失敗で `TUNING_FAILED` になるが、この後は study の前に `CONFIG_INVALID`（study は作られない）。探索空間の選択肢の一部が不正な tune は、今は不正な選択肢の試行だけが黙って落ちて成功するが、この後は study の前に `CONFIG_INVALID`。
+- **#313**: native 指標に空でないパラメータを書いた config は `CONFIG_INVALID`（今は黙って捨てる）。それを記録した古い artifact は読み込みと predict ができ、再 fit と `export_code` が `CONFIG_INVALID`。学習ではパラメータが使われていなかったので、記録から黙って別のモデルを学習することは無い。
+- **#354**: データの契約（`FitResult.history` の形とキー）、学習、early stopping は変わらない。`plot_learning_curve` の subplot の題の文字列だけが変わる（`huber` / `mape` のとき）。
+- format_version は上げない（保存形式は変わらない。読み込みの拒否は H-0121 改訂 2 と同じく、記録の中身の検査）。
+
+### 代替案（検討して棄却）
+- **#307: 出力を確率に変換して受理する**（`1 - exp(-λ)`）: predict、OOF、feval、codegen の predict、export のすべてで変換が要り、変換を記録する必要もある。利用は少ない（LizyStudio / Widget の既定ではない）。管理者は拒否を選んだ。
+- **#307: 受理して警告する**: 確率でない値を確率として返すことは変わらない（黙って間違う）。
+- **#313: パラメータ付きの native 指標を feval で計算する**: native の指標は feval より先に評価されるので、`first_metric_only` の判定対象が変わりうる。codegen の feval の表に `huber` が無い。
+- **#313: `delta` を LightGBM の `alpha` に書き換える**: `alpha` は huber / quantile の目的関数と共有なので、目的関数が変わる。
+- **tune: 今回の二つの規則だけを study の前に検査する**: 他の task の目的関数などが試行ごとに黙って落ちる経路が残る。管理者は一般の検査を選んだ。
+- **#354: LizyML の定義を LightGBM に揃える**: LightGBM の `mape` は単位で値が変わる（相対誤差が約 10% の同じ予測で、目的変数を ×1 / ×0.01 / ×0.001 にすると 0.0826 / 0.0732 / 0.0084、LizyML は常に 8.26%。`probes/align_impact_probe.txt`）。|y| < 1 の行では実質 MAE になる。百分率から比率への変更、y = 0 の黙った受理、smape / wape（百分率）との不揃い、FitResult の値の契約の変更を伴う。一般的な定義は LizyML の側に近い: MAPE は百分率で y で割る（予測の分野の定義、MathWorld が Hyndman & Koehler 2006 を引く）か、比率で y で割る（scikit-learn、XGBoost）。`max(1,|y|)` で割るのは LightGBM だけ。Huber の閾値の既定 1.0 は PyTorch、Keras、XGBoost（`huber_slope`）と同じで、0.9 は LightGBM の `alpha`（quantile と共有）だけ。
+- **#354: 既定の `huber` / `mape` を feval で計算する**: 名前の意味は一つになるが、early stopping の判定対象、学習の速さ、既定の指標の一覧が変わる。
+- **#354: 学習曲線のキーの名前を変える**（例 `lgb_huber`）: `FitResult.history` の契約が変わり、format_version の扱いが要る。
+- **#354: 両方に同じ名前があれば拒否する**: 既定の学習指標に `huber` / `mape` が常にあるので、`evaluation.metrics` に `huber` / `mape` を書いた regression の設定がすべて拒否される。
+- **#354: 明文化だけで plot を変えない**: 利用者が値を見る場所（plot）で違いが分からない。
+
+### Firing rate
+計測器 `docs/audits/2026-10-h0125/probes/firing_rate_h0125.py`（pytest のプラグイン。結果を変えずに、目的関数の検査・指標の解決・計画の段の次元の検査・`Model.tune` の呼び出しを記録する）、`8ca8148` のフルスイート（11277 passed、230 skipped、21 deselected、4 xfailed、exit 0）。記録は `probes/firing_rate_h0125.tsv`。陽性対照 `probes/firing_rate_h0125_posctl.py` はプラグインを付けて四つの理由（`xentlambda`、`native_params:huber`、`bad_objective:'regression'`、`trial_refusal`）をすべて記録した。初回の計測はプラグイン自身が 5 件のテストを落とした（`tune` を包んで署名が変わった、敵対的な `__eq__` / `__repr__` の値に触れた）ので、直して測り直した。
+
+- 方針 1・2（#307）: Firing rate: 12/1300 of objective checks in the suite (`check_objective_compatible` の呼び出し 1300 回のうち、3 テスト × 各 4 回。3 テストはどれも `cross_entropy_lambda` を意図して使う: `test_user_objective_reaches_booster[binary-cross_entropy_lambda]`、`test_smoke_fit_with_objective[binary-cross_entropy_lambda]`、`test_cross_entropy_lambda_fit_reports_the_metric`。受け入れ基準 12 で書き換える)
+- 方針 4（#313）: Firing rate: 0/1370 of model-param metric resolutions in the suite (`resolve_metrics` の呼び出し、236 テスト。native の名前に空でないパラメータを付けたものは無い。陽性対照で発火を確かめた)
+- 方針 3（tune の前の一般の検査）: Firing rate: 0/250 of objective/metric search dimensions and 0/1280 of `Model.tune` calls in the suite (次元は 191 テストの `objective` 249 個と `application` 1 個、`metric` の次元は無い。試行の中で目的関数・指標の検査が拒否した tune の呼び出しも無い。今のスイートには、この検査が study の前に移す入力が無い)
+- 方針 5（読み込み）: Firing rate: 0/0 of artifacts trained with `cross_entropy_lambda` in the suite (`cross_entropy_lambda` で fit する 3 テストはどれも export しない。受け入れ基準 7 で作る)
+
+スイートで 0 になるのは拒否の規則として想定どおりである（スイートは不正な入力を意図して作るテスト以外では使わない）。下流での到達: LizyStudio と Widget は binary の目的関数の選択肢に `cross_entropy_lambda` を出しており（3 つのうち 1 つ）、利用者が選べる。
+
+### 受け入れ基準（テスト観点）
+1. binary で `objective: cross_entropy_lambda` の fit は、学習の前に `CONFIG_INVALID`（`reason: "not_a_probability"`）。LightGBM のどの綴りのキー（`objective`、`objective_type`、`app`、`application`、`loss`）でも、`model.params`、`fit(params=)`、tune の結果の層、直接の `LGBMAdapter` のどれでも同じ。別名の値 `xentlambda` も拒否される（今どおり）。
+2. `LGBMProvider.objective_choices("binary") == ("binary", "cross_entropy")`。受理する全ての binary の目的関数で、学習できるデータの fit の `predict().proba` が `[0, 1]` にあり、OOF の指標が計算できる（表から読む。#307 の DoD）。指標の `cross_entropy_lambda` は `model.params["metric"]` で今どおり受け付ける。
+3. tune: 固定の層の不正な目的関数（`cross_entropy_lambda`、他の task の `regression`）と不正な指標（native のパラメータ付き、他の task の名前）は、study を作る前に `CONFIG_INVALID`。storage を渡したとき study は作られない（storage に名前が無い）。
+4. tune: 探索空間の `objective` / `metric` の次元（どの綴りでも）に不正な選択肢が一つでもあれば、study の前に `CONFIG_INVALID`。config の空間、`tune(space=...)`、resume の round のそれぞれで。正しい選択肢だけの空間は今どおり動く。provider の既定の空間（`default_space(task, provider=...)`）は `cross_entropy_lambda` を出さない。
+5. `model.params["metric"]` の `{"huber": {"delta": 9.0}}`、`{"rmse": {"bogus": 1}}`、別名のキー（`metrics`、`metric_types`）でも同じ: `CONFIG_INVALID`、context に `metric` と `params`。`{"huber": {}}` は `"huber"` と同じ結果。`{"precision_at_k": {"k": 5}}` などの feval は今どおり。不明な名前にパラメータを付けたものは、今の表の検査のメッセージ。
+6. #313 の古い artifact（`model.params` に `{"huber": {"delta": 9.0}}` を記録したもの、テストで作る）は読み込めて predict でき、再 fit と `export_code` は `CONFIG_INVALID`。
+7. `cross_entropy_lambda` で学習した booster を持つ artifact（format_version 2 と 1、テストで作る。`fit(params=)` で指定したものを含む）は `Model.load` で `DESERIALIZATION_FAILED`。`binary` / `cross_entropy` の artifact は今どおり読み込める。
+8. 読み込みの検査がモデル文字列を読むこと: booster の `params` を消しても拒否される（陰性対照: 検査を外すとテストが落ちる）。
+9. #354: 本物の LightGBM で、各 task の受理する native 指標を全て学習曲線に記録し、記録された名前と `MetricRegistry` の同じ task の名前の共通部分を作る。共通部分の各組について、同じ予測での LightGBM の値と LizyML の値が違う組の集合が、plot の注記の表のキーの集合と等しい（今は `{"huber", "mape"}`）。注記の表に、食い違わない組や共通部分に無い名前があれば失敗する。
+10. `plot_learning_curve` の subplot の題に、`huber` / `mape` のとき注記が付き、他の指標では今どおり。`metrics=["huber"]` の絞り込みは今どおり効く。
+11. BLUEPRINT §7.1 / §14 と docs/config-reference.md が学習曲線の定義を述べていることを docs のテストが確かめる（文と注記の表の名前が一致する）。
+12. 書き換えるテスト（消さない）: `test_metric_requires_proba.py::test_cross_entropy_lambda_fit_reports_the_metric`（`CONFIG_INVALID` を主張する形に）、`test_lgbm_objective_identity.py:69`、`test_provider_choice_apis.py:88`。`test_feval_probabilities.py` の評価器の失敗の枝の例が無くなるなら、その枝を別の入力で保つ。
