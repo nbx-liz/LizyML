@@ -129,10 +129,11 @@ _LGBM_OBJECTIVE_CHOICES: dict[str, tuple[str, ...]] = {
         "gamma",
         "tweedie",
     ),
+    # H-0125: ``cross_entropy_lambda`` is refused as an objective (its output
+    # is not a probability); it remains a native metric below.
     "binary": (
         "binary",
         "cross_entropy",
-        "cross_entropy_lambda",
     ),
     "multiclass": (
         "multiclass",

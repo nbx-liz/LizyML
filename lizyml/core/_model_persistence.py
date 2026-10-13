@@ -205,6 +205,57 @@ def _refuse_recorded_smart_values(
     )
 
 
+def _refuse_non_probability_boosters(
+    fit_result: Any, refit_result: Any, path: str | Path
+) -> None:
+    """Refuse an artifact a booster of which predicts no probability (H-0125).
+
+    Policy 5 (#307): v0.18.0 accepted the binary objective
+    ``cross_entropy_lambda``, whose output is lambda, and a short fit could
+    export it -- its ``predict().proba`` is then not a probability. Every
+    stored booster is read: each fold model of ``fit_result.pkl`` and the
+    refit model, because one is enough to make an output wrong (OOF, the
+    refit's predictions). The judgement is what LightGBM recorded inside the
+    booster (:func:`~lizyml.estimators.lgbm.param_validation.recorded_objective`),
+    which is what it trained with whichever surface named it; the config and
+    the booster's ``params`` are not read. A model with no LightGBM booster is
+    not judged: only LightGBM has this objective.
+    """
+    import lightgbm as lgb
+
+    from lizyml.estimators.lgbm.param_validation import (
+        NOT_A_PROBABILITY_OBJECTIVES,
+        recorded_objective,
+    )
+
+    refused = frozenset().union(*NOT_A_PROBABILITY_OBJECTIVES.values())
+    # The loader always returns both pickles' objects, so their models are read
+    # as they are: a missing model is an error here, not a booster to skip.
+    stored = [
+        *((f"fold {index}", model) for index, model in enumerate(fit_result.models)),
+        ("refit", refit_result.model),
+    ]
+    for where, model in stored:
+        native = model.get_native_model()
+        if not isinstance(native, lgb.Booster):
+            continue
+        objective = recorded_objective(native)
+        if objective not in refused:
+            continue
+        raise LizyMLError(
+            code=ErrorCode.DESERIALIZATION_FAILED,
+            user_message=(
+                f"The stored booster ({where}) was trained with the objective "
+                f"'{objective}', whose output is not a probability (LightGBM "
+                "predicts lambda; the probability is 1 - exp(-lambda)). This "
+                "artifact would return it as predict().proba, so it is not "
+                "loaded. Fit again with the objective 'binary' or "
+                "'cross_entropy' and export again."
+            ),
+            context={"path": str(path), "booster": where, "objective": objective},
+        )
+
+
 def _checked_applied_training_params(record: Any, path: str | Path) -> dict[str, Any]:
     """Refuse a record no fit could have written (H-0109).
 
@@ -511,6 +562,9 @@ class ModelPersistenceMixin:
         from lizyml.persistence.loader import load as _load
 
         fit_result, refit_result, metadata, analysis_context = _load(path)
+        # H-0125 policy 5: format_version 1 and 2 alike, before anything is
+        # restored from the artifact.
+        _refuse_non_probability_boosters(fit_result, refit_result, path)
         config = metadata["config"]
         # Pre-H-0102 artifacts used replacement for nonempty user spaces.
         # Do not reinterpret their tuning policy when restoring for re-fit.

@@ -10,7 +10,9 @@ calls them:
   space from the config, §3);
 * phase D -- the space's names: :func:`check_space_names` on the config space
   and, retargeted (H-0122 5.2-4), on a ``space=`` declaration; then
-  :func:`check_round_space` on the space the round actually samples.
+  :func:`check_round_space` on the space the round actually samples and the
+  layers its trials train on, including their objective and metric values
+  with fit's rules (H-0125 policy 3).
 
 Every function reads only and raises ``CONFIG_INVALID``; none writes the
 study or the Model (INV-R4).
@@ -25,6 +27,7 @@ from lizyml.core._model_factories import (
     check_calibration_param_names,
     check_duplicate_space_dimensions,
     check_param_names,
+    check_param_values,
     check_training_managed_overrides,
     check_training_managed_space,
     model_space_names,
@@ -35,7 +38,10 @@ from lizyml.core._smart_combinations import (
     check_layers_over_smart_values,
 )
 from lizyml.core._tuning_space import SPACE_ARG
-from lizyml.core._tuning_validation import validate_tuning_dimensions
+from lizyml.core._tuning_validation import (
+    check_value_dimensions,
+    validate_tuning_dimensions,
+)
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.tuning._step_grid import check_dim_magnitude, check_dim_step
 from lizyml.tuning.search_space import parse_space
@@ -231,6 +237,8 @@ def check_round_space(
     for dim in space:
         check_dim_magnitude(dim, surface=surface)
         check_dim_step(dim, surface=surface)
+    check_fixed_layer_values(cfg, plan, provider, base_model_params)
+    check_value_dimensions(cfg.model.name, space, cfg.task, surface=surface)
     validate_tuning_dimensions(
         provider, space, base_smart_params, cfg.task, surface=surface
     )
@@ -264,6 +272,49 @@ def check_round_space(
         origins=dict.fromkeys(model_dimensions, surface),
         training_overrides=training_claims,
     )
+
+
+def check_fixed_layer_values(
+    cfg: LizyMLConfig,
+    plan: RoundPlan,
+    provider: EstimatorProvider,
+    base_model_params: dict[str, Any],
+) -> None:
+    """Refuse a fixed layer's objective or metric value (H-0125 policy 3a).
+
+    Every trial trains on ``model.params`` with the round's fixed parameters
+    laid over it and its sampled values over both, and the adapter checks
+    those values in each trial -- where ``CONFIG_INVALID`` is a failed trial,
+    so a bad value failed every trial and ended in ``TUNING_FAILED``. They are
+    checked here with fit's rules (``check_param_values``, every LightGBM
+    spelling) on what the trials receive: ``model.params`` overlaid by the
+    fixed layer, each value named by the layer it came from, as fit checks
+    its merged parameters. A parameter a ``category: model`` dimension of the
+    round sets is left out: every trial overlays the sampled value, so the
+    layer's value reaches no booster (a valid dimension replacing an invalid
+    base value has been accepted since commit ``121a70f``), and the
+    dimension's choices are checked by ``check_value_dimensions``.
+
+    ``base_model_params`` is ``_merge_params(include_tuning_result=False)``
+    without an override, so every key in it came from ``model.params``.
+    """
+    fixed = dict(plan.fixed)
+    resolved = overlay_params(provider, base_model_params, fixed)
+    origins = {
+        name: FIXED_LAYER if name in fixed else "model.params" for name in resolved
+    }
+    sampled = set(
+        provider.canonical_param_names(
+            [dim.name for dim in plan.effective if dim.category == "model"]
+        ).values()
+    )
+    canonical = provider.canonical_param_names(resolved)
+    trained = {
+        name: value
+        for name, value in resolved.items()
+        if canonical[name] not in sampled
+    }
+    check_param_values(trained, origins, model_name=cfg.model.name, task=cfg.task)
 
 
 def check_smart_managed_layers(

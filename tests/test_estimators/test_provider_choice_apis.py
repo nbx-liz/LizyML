@@ -83,9 +83,12 @@ class TestObjectiveChoicesContent:
         assert result == expected
 
     def test_binary_canonical_set(self, provider: LGBMProvider) -> None:
-        """LightGBM 4.x ships 3 canonical binary objectives."""
+        """LightGBM 4.x ships 3 canonical binary objectives; LizyML offers the 2
+        whose output is a probability (``cross_entropy_lambda`` predicts
+        lambda, H-0125)."""
         result = set(provider.objective_choices("binary"))
-        assert result == {"binary", "cross_entropy", "cross_entropy_lambda"}
+        assert result == {"binary", "cross_entropy"}
+        assert "cross_entropy_lambda" in provider.metric_choices("binary")["native"]
 
     def test_multiclass_canonical_set(self, provider: LGBMProvider) -> None:
         """LightGBM 4.x ships 2 canonical multiclass objectives.

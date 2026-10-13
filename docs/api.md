@@ -57,7 +57,7 @@ automatically applied.
 **Returns:** [`FitResult`](#fitresult)
 
 **Raises:**
-- `LizyMLError(CONFIG_INVALID)` — missing required config fields.
+- `LizyMLError(CONFIG_INVALID)` — missing required config fields; an objective the task does not accept (the binary objective `cross_entropy_lambda` with `reason` `not_a_probability`, H-0125); a LightGBM native metric with parameters in `model.params.metric` (#313).
 - `LizyMLError(DATA_SCHEMA_INVALID)` — target or feature columns not found.
 - `LizyMLError(LEAKAGE_SUSPECTED)` — split/calibration invariant violated.
 
@@ -126,6 +126,10 @@ assumed, not enforced. To inspect a stored study without adding to it, use
 [`read_study_lineage`](#study-lineage-lizymltuning); to get a closed round's
 result back without adding trials, use [`restore_tuning`](#restore_tuning).
 
+**Objective and metric values (H-0125).** Before a study is created or written, `tune` checks the `objective` and `metric` values its trials would train on with fit's rules, under any LightGBM spelling, and raises `CONFIG_INVALID`: the values of `model.params` with the round's fixed parameters laid over them, leaving out a parameter a `category: model` dimension of the round samples (every trial overrides it, so in `merge` mode a `model.params` objective replaced by the default space's `objective` dimension is not refused), and every choice of a `category: model` dimension on `objective` or `metric`, from the config's space, `space=`, the default space or a resumed round. Such a dimension must be categorical; a `float` / `int` one raises with `reason` `not_categorical`. A binary `cross_entropy_lambda` raises with `reason` `not_a_probability`, and a native metric with parameters is refused as in `fit`. Before, a bad value failed every trial that met it.
+
+The public `lizyml.tuning.Tuner` does not validate parameter values: it takes neither a task nor a provider, so it cannot know which dimension is a LightGBM objective or metric. Checking values is the job of the objective function you pass it, and a `CONFIG_INVALID` raised there is recorded as a failed trial.
+
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `data` | `pd.DataFrame \| None` | Training DataFrame. |
@@ -155,6 +159,7 @@ result back without adding trials, use [`restore_tuning`](#restore_tuning).
   - `tuning.optuna.space` differs from the space the study was created with (change the range with `space=` instead);
   - `space=` is malformed, names an unknown parameter or one parameter twice, or changes a dimension's distribution kind (`float` / `int` / `categorical`), `log` or choices;
   - `space=` moves a dimension to another category (`model` / `smart` / `training`);
+  - an `objective` or `metric` value the trials would train on is refused by fit's rules, or such a search dimension is not categorical (see *Objective and metric values* above);
   - finishing an interrupted round with an `n_trials`, `expand_boundary` or `space=` other than the recorded one (omit them, or pass the recorded value);
   - for each of these, start a new study (another `study_name`) when the change is intended. Nothing is written to the study and the Model is unchanged.
 - `LizyMLError(OPTIONAL_DEP_MISSING)` — `optuna` not installed.
@@ -400,7 +405,9 @@ saved) `confusion_matrix()`, `importance()`, and `residuals()`. An artifact
 written before H-0114 has no per-fold pipeline states, so on it
 `importance(kind="shap")` raises `MODEL_NOT_FIT`; the other kinds still work.
 
-**Raises:** `LizyMLError(DESERIALIZATION_FAILED)` — validation or I/O error.
+**Raises:** `LizyMLError(DESERIALIZATION_FAILED)`:
+- validation or I/O error;
+- a stored booster (any fold model or the refit model) was trained with the binary objective `cross_entropy_lambda`, whose output is not a probability (H-0125, [#307](https://github.com/nbx-liz/LizyML/issues/307)). The objective is read from what LightGBM recorded in the booster, not from its `params` or the config; the context names the `booster` and the `objective`. Fit again with `binary` or `cross_entropy` and export again. Other artifacts load as before, including one whose `model.params.metric` recorded parameters on a native metric (it predicts; a re-fit or `export_code` raises `CONFIG_INVALID`, #313).
 
 > **Security note:** Only load from trusted sources — joblib uses pickle internally.
 
@@ -423,7 +430,7 @@ artifact).
 | `calibration_plot()` | binary | Calibration reliability diagram. |
 | `probability_histogram_plot()` | binary/multiclass | OOF probability distribution. |
 | `importance_plot()` | all | Top-N feature importance bar chart. |
-| `plot_learning_curve()` | all | Training/validation loss curves per fold. |
+| `plot_learning_curve()` | all | Training/validation loss curves per fold, from `FitResult.history`: LightGBM's metric names and definitions. A subplot whose metric is defined differently from `FitResult.metrics` under the same name carries LightGBM's definition in its title: `huber` (`valid_0/huber (LightGBM: threshold = alpha)`) and `mape` (`valid_0/mape (LightGBM: \|y-p\| / max(1,\|y\|))`). `metrics=` filters by the bare name (H-0125). |
 | `plot_oof_distribution()` | all | OOF prediction distribution. |
 | `tuning_plot()` | all | Optuna optimization history. |
 
@@ -450,7 +457,7 @@ only `calibrator`, `oof_raw_scores` and `pipeline_state_per_fold` may be `None`.
 | `if_pred_per_fold` | `list[NDArray[float64]]` | In-fold predictions, one array per fold. |
 | `metrics` | `dict` | Nested metrics dict (same structure as `evaluate()` output). |
 | `models` | `list` | Trained model adapters, one per CV fold. |
-| `history` | `list[dict]` | Per-fold training history. Each dict has `"eval_history"` and `"best_iteration"`. |
+| `history` | `list[dict]` | Per-fold training history. Each dict has `"eval_history"` and `"best_iteration"`. `eval_history` is LightGBM's evaluation, under LightGBM's metric names and definitions, so a metric can differ from `FitResult.metrics` under the same name: today `huber` (LightGBM's threshold `alpha`, not `delta`) and `mape` (LightGBM's ratio over `max(1,\|y\|)`, not a percentage over `\|y\|`) (H-0125, [#354](https://github.com/nbx-liz/LizyML/issues/354)). |
 | `feature_names` | `list[str]` | Ordered list of feature column names used during training. |
 | `dtypes` | `dict[str, str]` | Feature name → dtype string mapping. |
 | `categorical_features` | `list[str]` | Feature names encoded as categorical. |

@@ -511,6 +511,10 @@ anchors = ["parse_space", "numpy.bool_", "choices"]
 disposition = "specified"
 anchors = ["bound_off_grid", "recorded_params", "step_not_positive", "Tuner.tune"]
 
+[proposals."H-0125"]
+disposition = "specified"
+anchors = ["eval_history", "not_a_probability", "not_categorical", "xentlambda"]
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 

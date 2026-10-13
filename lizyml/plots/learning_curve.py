@@ -6,7 +6,7 @@ Requires early stopping to be enabled (otherwise eval history is empty).
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.plots._deps import require_plotly
@@ -14,6 +14,30 @@ from lizyml.plots._theme import apply_default_layout
 
 if TYPE_CHECKING:
     from lizyml.core.types.fit_result import FitResult
+
+#: The learning-curve metrics whose LightGBM definition differs from the
+#: LizyML metric of the same name (H-0125 policy 7, #354), with LightGBM's
+#: definition. ``FitResult.history`` records LightGBM's own evaluation, so the
+#: values of these names differ from ``FitResult.metrics`` under the same name,
+#: and their subplots are titled with this definition. ``huber``'s threshold is
+#: LightGBM's ``alpha`` (LizyML: ``delta``); its value is not in ``FitResult``,
+#: so it is not written. ``mape`` is a ratio over ``max(1, |y|)`` (LizyML: a
+#: percentage over ``|y|``). The keys are pinned to the measured differences by
+#: ``tests/test_plots/test_learning_curve_definitions.py`` and to the documents
+#: by ``tests/test_docs/test_h0125_docs.py``.
+LIGHTGBM_CURVE_DEFINITIONS: Final[dict[str, str]] = {
+    "huber": "threshold = alpha",
+    "mape": "|y-p| / max(1,|y|)",
+}
+
+
+def _subplot_title(key: str) -> str:
+    """``dataset/metric``, with LightGBM's definition where it differs (H-0125)."""
+    definition = LIGHTGBM_CURVE_DEFINITIONS.get(key.split("/", 1)[-1])
+    if definition is None:
+        return key
+    return f"{key} (LightGBM: {definition})"
+
 
 _plotly: Any = None
 try:
@@ -31,6 +55,14 @@ def plot_learning_curve(
     metrics: list[str] | None = None,
 ) -> Any:
     """Plot per-fold training/validation loss vs iteration.
+
+    The history is LightGBM's evaluation, under LightGBM's metric names and
+    definitions. A subplot whose metric is a key of
+    :data:`LIGHTGBM_CURVE_DEFINITIONS` (``huber``, ``mape``) is titled with
+    LightGBM's definition, e.g. ``valid_0/huber (LightGBM: threshold = alpha)``,
+    because its values differ from ``FitResult.metrics`` under the same name
+    (H-0125). The ``metrics`` filter matches the bare name; the legend and the
+    axes are unchanged.
 
     Args:
         fit_result: A fitted :class:`~lizyml.core.types.fit_result.FitResult`.
@@ -111,7 +143,7 @@ def plot_learning_curve(
     fig = _make_subplots(
         rows=1,
         cols=n_metrics,
-        subplot_titles=metric_keys,
+        subplot_titles=[_subplot_title(key) for key in metric_keys],
     )
 
     for col, key in enumerate(metric_keys):
