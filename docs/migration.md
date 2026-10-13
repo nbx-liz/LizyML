@@ -125,6 +125,17 @@ the method keeps working, and its defaults are not checked.
   (`|y-p| / max(1,|y|)`, a ratio) differ from `FitResult.metrics` entries of
   the same name ([#354](https://github.com/nbx-liz/LizyML/issues/354)).
 
+### Minimum dependency versions (H-0126)
+
+| Installed | Needed |
+|-----------|--------|
+| `pydantic` 2.0 | 2.1 or later (2.0 could not import LizyML) |
+| `lightgbm` 4.0-4.3 | 4.4 or later (4.0-4.3 raise on `early_stopping_round=0` without a validation set) |
+| `optuna` 3.0, with the `tuning` extra | 3.1 or later (3.0 conflicts with the `calibration` extra's `scipy>=1.10`) |
+
+`pip install -U lizyml` raises them. The generated project's `requirements.txt`
+asks for `lightgbm>=4.4` too.
+
 ## v0.18.0
 
 Most configs need no edits. Go through the sections below and act on the items

@@ -48,3 +48,12 @@ pandas 2.0.3: 1 failed; 2.1.0: 1 failed; 2.1.4: 1 failed; 2.2.0: 1 passed
 
 ## pydantic 2.0 with the single-variant discriminator also removed (reverted)
 import still fails: lizyml/config/schema.py:560 (TrainingConfig, field `inner_valid: InnerValidConfig | None`, schema.py:455), same TypeError
+
+## probe_platt_seeds.py (seeds 0-11, platt + TNC, target_smoothing=False)
+numpy 1.24.0: seed 6 CALIBRATION_FAILED c_final; ok seeds [0, 1, 2, 3, 4, 5, 7, 8, 9, 10, 11]
+numpy 2.4.2: ok seeds [0..11]
+
+## uv lock --check negative control
+pyproject numpy>=1.25 without uv lock: exit 1 "The lockfile at uv.lock needs to be updated"; restored: exit 0
+
+## check_dependency_floors.py in the locked .venv (negative control): 11 of 11 requirement(s) are not at their floor, exit 1

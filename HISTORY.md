@@ -13223,8 +13223,9 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
 
 ## H-0126: 依存の下限を、実行して通った版に合わせ、最低依存の CI レーンで宣言した下限を実際に入れて確かめる（#295）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-13
+- **決定日**: 2026-10-13（判断 (a)(b) は管理者が 2026-10-13 に済ませた。Codex の Proposal review は 3 round で APPROVE（`ad5ba3b`）。round 2 で停止ルールが働き、管理者が通常の round 3 を選んだ。）
 - **スコープ**: `pyproject.toml`（`[project]` の依存と extras の下限、テスト用の依存グループ）、`uv.lock`、`.github/workflows/ci.yml`（`quality-lowest-deps`、`quality` の lock の検査）、`docs/proposal_dispositions.toml`、新しい `scripts/check_dependency_floors.py`、`lizyml/config/schema.py`（型注釈の import 1 か所）、`lizyml/codegen/templates.py`（生成する `requirements.txt` の LightGBM の下限）、`lizyml/estimators/lgbm/adapter.py`（インストールの案内文）、下限の版で落ちるテスト 4 件、BLUEPRINT §18.2、CONTRIBUTING.md、CHANGELOG.md、docs/migration.md
 - **関連**: [Issue #295](https://github.com/nbx-liz/LizyML/issues/295)。H-0100（下限の scikit-learn / scipy を隔離環境で確かめた）、H-0105 方針 2・H-0106 方針 4（「#295 が下限を入れるようになった時点で測られる」と書いた二つの未測定）。証拠は `docs/audits/2026-10-h0126/probes/`
 
@@ -13337,3 +13338,13 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
 6b. optuna の修正: optuna 3.1.0（下限の構成）と lock の版の両方で `test_restore_tuning.py::test_reporting_surfaces_match_live` が通る。加えて、`recorded_params` が試行の `params` の辞書の順によらず round の次元の順で返すことを、順を入れ替えた `params` で確かめる単体テストを置く（修正を外すと落ちる）。
 7. 生成 `requirements.txt` と `adapter.py` の案内文の LightGBM の下限が、メタデータの下限と等しいことをテストが確かめる。
 8. BLUEPRINT §18.2、CONTRIBUTING.md、CHANGELOG、docs/migration.md が方針 6 のとおりである。
+
+### 実装の記録（2026-10-13）
+- **コード**: `pyproject.toml`（下限 `pydantic>=2.1`、`lightgbm>=4.4`、`optuna>=3.1`。`dev` は `lizyml[tuning,explain,plots,calibration]` を参照。新しい依存グループ `lowest-lane`）、`uv.lock`（要求の行だけが変わり、版は変わらない）、`.github/workflows/ci.yml`（`quality` に `uv lock --check`。`quality-lowest-deps` は方針 3 の段）、`scripts/check_dependency_floors.py`、`lizyml/config/schema.py`（方針 2）、`lizyml/tuning/tuner.py`・`_step_grid.py`（optuna 3.1 の 2 か所）、`lizyml/codegen/templates.py`・`lizyml/estimators/lgbm/adapter.py`（`lightgbm>=4.4`。案内文は `_INSTALL_HINT` にまとめ、シェルで `>=` がリダイレクトにならないよう引用符で囲んだ）。
+- **方針 3 からの変更（テスト用の道具の入れ方）**: 方針 3.3 の `uv pip install --group lowest-lane` は、道具を最新の版で入れる。実際にレーンの手順を新しい venv で実行すると、pyarrow 26.0.0 が入り、pandas 2.0 / numpy 1.24 から使えず（`ImportError: Unable to find a usable engine; tried using: 'pyarrow', 'fastparquet'`）、104 件が落ちた（`results/summary_run7_lane_local.txt`）。道具は lock の版で入れる形にした: `uv export --frozen --only-group lowest-lane --no-hashes --no-emit-project` の出力を `uv pip install -r` で入れる。この出力は LizyML の直接の依存を一つも含まない（numpy、pandas、scipy、pydantic、lightgbm、optuna、scikit-learn の行は 0）。道具の版の古さでも新しさでもレーンが落ちず、版は lock から決まり、手書きの上限は持たない。道具が下限の版を動かしたら、次の段（`check_dependency_floors.py`）が止める。
+- **版で変わるテストの前提（4 件）**: `test_param_domain.py` の 2 件（numpy 2 だけで `printoptions(legacy="1.25")` を使い、numpy 1.x では既定の表示で同じ本体を実行し、危険な表示であることを先に assert する。証拠の値は全てで「平易な代わりが無い」を確かめ、「`tolist()` なら文字が変わる」はそれが成り立つ証拠の値が一つ以上あることを確かめる）、`test_objective_identity.py`（生のハッシュが見分ける場合の集合を測り、pandas 2.2 未満では `{"int64_Int64"}`、2.2 以上では空であることを確かめる）、`test_calibration_params_codegen.py`（フィクスチャのデータの seed を 6 から 7 にした。seed 0〜11 のうち numpy 1.24 で収束しないのは 6 だけで、numpy 2.4 では全て収束する。`probes/probe_platt_seeds.py`）。どれも skip にしていない。
+- **新しいテスト**: `tests/test_release/test_check_dependency_floors.py`（基準 3: 下限と等しい場合、上・下・未導入、読めない形 10 通り、空の宣言、1 件の失敗で全体が失敗、表、実際のメタデータが文法の中にあること）、`tests/test_release/test_dependency_floor_surfaces.py`（基準 7 と dev の参照）、`tests/test_tuning/test_search_dim_step.py::test_recorded_params_follows_the_dims_order_not_the_params_order`（基準 6b。修正を外すと落ちることを確かめた）。テストの `get_all_study_names` 7 か所は 3.0 からある API にした。
+- **基準 2（ローカル）**: `probes/lane_local.sh` でレーンの段を新しい venv（Python 3.11）で実行した: 11 件の要求すべてが下限（`check exit=0`）、スイートは 11489 passed、230 skipped、21 deselected、0 failed。CI の Python 3.10 での実行が受け入れの残り。
+- **陰性対照**: lock の venv で `check_dependency_floors.py` は 11 件すべてを失敗にし、0 以外で終わった（基準 4）。`pyproject.toml` の下限だけを変えて lock を作り直さないと `uv lock --check` は失敗し、戻すと通った（基準 1）。
+- **以前の未測定（方針 9）**: H-0105 方針 2 の `tests/test_estimators/test_feval_probabilities.py` は lightgbm 4.4.0 で、H-0106 方針 4 の `tests/test_config/test_config_version_entry_paths.py` は pydantic 2.1.0 で、それぞれ上のレーンのスイートの中で通った。
+- **スイート（lock の版）**: 11466 passed、230 skipped、21 deselected、0 failed。ruff、mypy は通った。slow の `tests/test_notebooks/test_index_execution.py -k tutorial_regression_tuning_lgbm`（tune を実行する notebook）も通った。
