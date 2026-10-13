@@ -4,11 +4,66 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
+import numpy as np
 import pandas as pd
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 
 UnseenPolicy = Literal["mode", "nan", "error"]
+
+#: Float types pandas cannot hold as category values (H-0127, #309): their
+#: values are compared as float64 instead.
+_UNINDEXABLE_FLOATS = frozenset({np.dtype(np.float16), np.dtype(np.longdouble)}) - {
+    np.dtype(np.float64)
+}
+
+
+def _is_unindexable_float(value: Any) -> bool:
+    return isinstance(value, np.floating) and value.dtype in _UNINDEXABLE_FLOATS
+
+
+def _filled(series: pd.Series, value: Any) -> pd.Series:
+    """*value* in every row, kept whole even when it is a tuple."""
+    return pd.Series([value] * len(series), index=series.index, dtype=object)
+
+
+def comparable_values(series: pd.Series) -> tuple[pd.Series, pd.Series]:
+    """*series* with float16 / longdouble values as float64, and the rows whose
+    value float64 changes (H-0127, #309).
+
+    A changed value equals no category: the caller treats it as unseen. A
+    missing value is never compared and stays missing. A column of any other
+    dtype, or an ``object`` column holding no such scalar, is returned as is.
+    """
+    unchanged = pd.Series(False, index=series.index)
+    dtype = series.dtype
+    if isinstance(dtype, np.dtype) and dtype in _UNINDEXABLE_FLOATS:
+        values = series.to_numpy()
+        as64 = values.astype(np.float64)
+        changed = ~np.isnan(values) & (as64.astype(dtype) != values)
+        return (
+            pd.Series(as64, index=series.index, name=series.name),
+            pd.Series(changed, index=series.index),
+        )
+    if not pd.api.types.is_object_dtype(dtype) or pd.api.types.infer_dtype(
+        series, skipna=True
+    ) in (
+        "string",
+        "empty",
+    ):
+        return series, unchanged
+    hit = series.map(_is_unindexable_float).astype(bool)
+    if not hit.any():
+        return series, unchanged
+    converted = series.copy()
+    changed = unchanged.copy()
+    for idx in series.index[hit.to_numpy()]:
+        value: Any = series.at[idx]
+        scalar64 = np.float64(value)
+        converted.at[idx] = float(scalar64)
+        if not np.isnan(value):
+            changed.at[idx] = bool(scalar64.astype(value.dtype) != value)
+    return converted, changed
 
 
 class CategoricalEncoder:
@@ -102,40 +157,45 @@ class CategoricalEncoder:
         for col, known_cats in self._categories.items():
             if col not in X.columns:
                 continue
-            series = X[col]
+            arrived = X[col]
+            # H-0127 (#309): float16 / longdouble values are compared as
+            # float64; one float64 changes matches no category (unseen).
+            series, changed = comparable_values(arrived)
             # Determine unseen values
             if hasattr(series, "cat"):
                 current_cats = set(series.cat.categories.tolist())
             else:
-                current_cats = set(series.dropna().unique().tolist())
+                current_cats = set(series[~changed].dropna().unique().tolist())
             unseen = current_cats - set(known_cats)
 
-            if unseen:
+            if unseen or changed.any():
+                unseen_shown = sorted(
+                    {str(v) for v in unseen} | {str(v) for v in arrived[changed]}
+                )
                 if self.unseen_policy == "error":
                     raise LizyMLError(
                         ErrorCode.DATA_SCHEMA_INVALID,
                         user_message=(
-                            f"Column '{col}' contains unseen categories: "
-                            f"{sorted(str(v) for v in unseen)}"
+                            f"Column '{col}' contains unseen categories: {unseen_shown}"
                         ),
                         context={
                             "column": col,
-                            "unseen_categories": sorted(str(v) for v in unseen),
+                            "unseen_categories": unseen_shown,
                         },
                     )
                 # Convert to object dtype first so replacement values are accepted
                 series = series.astype(object)
-                hit = series.isin(list(unseen))
+                hit = series.isin(list(unseen)) | changed
                 n_rows = int(hit.sum())
                 # A category dtype can declare values no row holds; replacing
                 # nothing is not a correction, so only values present count.
-                present = sorted({str(v) for v in series[hit]})
+                present = sorted({str(v) for v in arrived[hit]})
                 if self.unseen_policy == "mode":
                     replacement = self._modes.get(col)
-                    series = series.replace(list(unseen), replacement)
+                    series = series.where(~hit, _filled(series, replacement))
                     replaced_by = f"the training mode {replacement!r}"
                 else:  # "nan"
-                    series = series.replace(list(unseen), None)
+                    series = series.where(~hit, _filled(series, None))
                     replaced_by = "a missing value"
                 if n_rows:
                     warnings.append(

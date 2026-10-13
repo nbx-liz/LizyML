@@ -128,32 +128,84 @@ def fit_pipeline(df: pd.DataFrame) -> dict:
     return state
 
 
+_UNINDEXABLE_FLOATS = frozenset({np.dtype(np.float16), np.dtype(np.longdouble)}) - {
+    np.dtype(np.float64)
+}
+
+
+def _is_unindexable_float(value: object) -> bool:
+    return isinstance(value, np.floating) and value.dtype in _UNINDEXABLE_FLOATS
+
+
+def comparable_values(series: pd.Series) -> tuple[pd.Series, pd.Series]:
+    """float16 / longdouble values as float64, and the rows float64 changes.
+
+    As LizyML's ``comparable_values`` (H-0127): a changed value equals no
+    category and is unseen; a missing value stays missing.
+    """
+    unchanged = pd.Series(False, index=series.index)
+    dtype = series.dtype
+    if isinstance(dtype, np.dtype) and dtype in _UNINDEXABLE_FLOATS:
+        values = series.to_numpy()
+        as64 = values.astype(np.float64)
+        changed = ~np.isnan(values) & (as64.astype(dtype) != values)
+        return (
+            pd.Series(as64, index=series.index, name=series.name),
+            pd.Series(changed, index=series.index),
+        )
+    if not pd.api.types.is_object_dtype(dtype) or pd.api.types.infer_dtype(
+        series, skipna=True
+    ) in (
+        "string", "empty",
+    ):
+        return series, unchanged
+    hit = series.map(_is_unindexable_float).astype(bool)
+    if not hit.any():
+        return series, unchanged
+    converted = series.copy()
+    changed = unchanged.copy()
+    for idx in series.index[hit.to_numpy()]:
+        value = series.at[idx]
+        scalar64 = np.float64(value)
+        converted.at[idx] = float(scalar64)
+        if not np.isnan(value):
+            changed.at[idx] = bool(scalar64.astype(value.dtype) != value)
+    return converted, changed
+
+
 def encode_column(series: pd.Series, entry: dict, policy: str, col: str) -> np.ndarray:
     """Category codes for one column, as LizyML's CategoricalEncoder.transform.
 
     Unseen values follow ``unseen_policy``; the column is then cast to the
     known categories, and LightGBM receives the position in that list (a
-    missing value or an unknown one is NaN).
+    missing value or an unknown one is NaN). float16 / longdouble values are
+    compared as float64 (H-0127).
     """
     known = entry["categories"]
+    arrived = series
+    series, changed = comparable_values(arrived)
     if hasattr(series, "cat"):
         current = set(series.cat.categories.tolist())
     else:
-        current = set(series.dropna().unique().tolist())
+        current = set(series[~changed].dropna().unique().tolist())
     unseen = current - set(known)
-    if unseen:
+    if unseen or changed.any():
+        shown = sorted(
+            {str(v) for v in unseen} | {str(v) for v in arrived[changed]}
+        )
         if policy == "error":
             raise ValueError(
                 f"Column '{col}' contains unseen categories: "
-                f"{sorted(str(v) for v in unseen)} (unseen_policy='error')"
+                f"{shown} (unseen_policy='error')"
             )
         series = series.astype(object)
-        n_rows = int(series.isin(list(unseen)).sum())
+        hit = series.isin(list(unseen)) | changed
+        n_rows = int(hit.sum())
         if policy == "mode":
-            series = series.replace(list(unseen), entry["mode"])
+            series = series.where(~hit, entry["mode"])
             replaced_by = "the training mode"
         else:
-            series = series.replace(list(unseen), None)
+            series = series.where(~hit, None)
             replaced_by = "a missing value"
         if n_rows:
             log.warning(
@@ -1171,39 +1223,90 @@ def _load_pipeline() -> dict:
         return json.load(f)
 
 
+_UNINDEXABLE_FLOATS = frozenset({np.dtype(np.float16), np.dtype(np.longdouble)}) - {
+    np.dtype(np.float64)
+}
+
+
+def _is_unindexable_float(value: object) -> bool:
+    return isinstance(value, np.floating) and value.dtype in _UNINDEXABLE_FLOATS
+
+
+def comparable_values(series: pd.Series) -> tuple[pd.Series, pd.Series]:
+    """float16 / longdouble values as float64, and the rows float64 changes.
+
+    As LizyML's ``comparable_values`` (H-0127): a changed value equals no
+    category and is unseen; a missing value stays missing.
+    """
+    unchanged = pd.Series(False, index=series.index)
+    dtype = series.dtype
+    if isinstance(dtype, np.dtype) and dtype in _UNINDEXABLE_FLOATS:
+        values = series.to_numpy()
+        as64 = values.astype(np.float64)
+        changed = ~np.isnan(values) & (as64.astype(dtype) != values)
+        return (
+            pd.Series(as64, index=series.index, name=series.name),
+            pd.Series(changed, index=series.index),
+        )
+    if not pd.api.types.is_object_dtype(dtype) or pd.api.types.infer_dtype(
+        series, skipna=True
+    ) in (
+        "string", "empty",
+    ):
+        return series, unchanged
+    hit = series.map(_is_unindexable_float).astype(bool)
+    if not hit.any():
+        return series, unchanged
+    converted = series.copy()
+    changed = unchanged.copy()
+    for idx in series.index[hit.to_numpy()]:
+        value = series.at[idx]
+        scalar64 = np.float64(value)
+        converted.at[idx] = float(scalar64)
+        if not np.isnan(value):
+            changed.at[idx] = bool(scalar64.astype(value.dtype) != value)
+    return converted, changed
+
+
 def encode_column(series: pd.Series, entry: dict, policy: str, col: str) -> np.ndarray:
     """Category codes for one column, as LizyML's CategoricalEncoder.transform.
 
     Unseen values follow ``unseen_policy``; the column is then cast to the
     known categories, and LightGBM receives the position in that list (a
     missing value or an unknown one is NaN). Values are compared as values,
-    never as str (H-0120).
+    never as str (H-0120); float16 / longdouble values as float64 (H-0127).
     """
     known = entry["categories"]
+    arrived = series
+    series, changed = comparable_values(arrived)
     if hasattr(series, "cat"):
         current = set(series.cat.categories.tolist())
     else:
-        current = set(series.dropna().unique().tolist())
+        current = set(series[~changed].dropna().unique().tolist())
     unseen = current - set(known)
-    if unseen:
+    if unseen or changed.any():
+        shown = sorted(
+            {str(v) for v in unseen} | {str(v) for v in arrived[changed]}
+        )
         if policy == "error":
             raise ValueError(
                 f"Column '{col}' contains unseen categories "
-                f"{sorted(str(v) for v in unseen)} (unseen_policy='error')"
+                f"{shown} (unseen_policy='error')"
             )
         series = series.astype(object)
-        n_rows = int(series.isin(list(unseen)).sum())
+        hit = series.isin(list(unseen)) | changed
+        n_rows = int(hit.sum())
         if policy == "mode":
-            series = series.replace(list(unseen), entry["mode"])
+            series = series.where(~hit, entry["mode"])
             replaced_by = "the training mode"
         else:
-            series = series.replace(list(unseen), None)
+            series = series.where(~hit, None)
             replaced_by = "a missing value"
         if n_rows:
             log.warning(
                 "Column '%s': %d row(s) with unseen categories %s replaced "
                 "by %s (unseen_policy='%s')",
-                col, n_rows, sorted(str(v) for v in unseen), replaced_by, policy,
+                col, n_rows, shown, replaced_by, policy,
             )
     series = series.astype("category").cat.set_categories(known)
     codes = series.cat.codes.to_numpy().astype(np.float64)

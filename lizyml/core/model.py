@@ -94,6 +94,7 @@ from lizyml.core.types.tuning_result import (
 from lizyml.data import dataframe_builder, datasource
 from lizyml.data.dataframe_builder import DataFrameComponents
 from lizyml.data.fingerprint import compute as fp_compute
+from lizyml.estimators.lgbm.category_json import warn_unsaveable_categories
 from lizyml.estimators.provider import EstimatorProvider
 from lizyml.evaluation.evaluator import Evaluator
 from lizyml.metrics.registry import (
@@ -282,6 +283,9 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         pipeline_factory = provider.build_pipeline_factory(
             unseen_policy=cfg.features.unseen_policy
         )
+        # H-0127 (#338): warn before CV about category values Model.export will
+        # refuse. The refit pipeline is fit on these same rows (H-0085).
+        warn_unsaveable_categories(pipeline_factory().fit(X, y).get_state())
 
         # --- CV training -----------------------------------------------------
         cv_trainer = CVTrainer(
