@@ -101,10 +101,16 @@ def refuse_unrestorable(
             },
         )
     if lineage.state in _NOTHING_TO_RESTORE:
+        last = lineage.last_round.round if lineage.last_round is not None else "?"
         detail = {
             "uninitialized": "it was created but never initialised by LizyML.",
             "no_round": "it has no round yet.",
-            "failed": "its last round closed failed (no trial completed).",
+            # H-0128: the last round may follow completed rounds.
+            "failed": (
+                f"its last round ({last}) closed failed: no trial of that round "
+                "completed. The results of earlier rounds are not restored; "
+                "start a new round with tune(resume=True) and a corrected space=."
+            ),
         }[lineage.state]
         raise _nothing_to_restore(lineage.state, study_name, detail)
 

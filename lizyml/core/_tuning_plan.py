@@ -142,6 +142,9 @@ class RoundPlan:
     source: RoundSource
     space_arg: tuple[SearchDim, ...] | None = None
     running_to_fail: tuple[int, ...] = ()
+    #: The open round this plan closes ``failed`` before its own record is
+    #: written (H-0128 policy 7), or ``None``.
+    replaces_round: int | None = None
 
     @property
     def expanded_names(self) -> tuple[str, ...]:
@@ -479,6 +482,58 @@ def plan_open_round(
 # ---------------------------------------------------------------------------
 
 
+def _replaces_open_round(
+    lineage: Lineage, trials: Sequence[TrialLike], declaration: Declaration
+) -> bool:
+    """Whether ``space=`` replaces the open round (H-0128 policy 7): it
+    differs from the round's recorded declared space, and no trial of the
+    round completed (none at all counts)."""
+    record = lineage.last_round
+    assert record is not None  # noqa: S101 -- state O
+    if same_declared_space(declaration.declared, record.declared, lineage.routes):
+        return False
+    return not any(
+        t.state.name == "COMPLETE"
+        for t in trials_of_round(lineage, record.round, trials)
+    )
+
+
+def _plan_after_closed(
+    cfg: LizyMLConfig,
+    provider: EstimatorProvider,
+    *,
+    lineage: Lineage,
+    trials: Sequence[TrialLike],
+    study: Any,
+    n_trials: int | None,
+    expand_boundary: bool | None,
+    boundary_threshold: float,
+    declaration: Declaration | None,
+) -> RoundPlan:
+    """The next round after the last recorded one, which is closed (C, F)
+    or is being closed ``failed`` by a replacement (H-0128 policy 7)."""
+    # The previous best comes from the study, never from the Model's
+    # `_tuning_result` (§5.3): a loaded Model's may be another study's.
+    # Its values are read with its own round's dims (H-0124 policy 4): the
+    # study's best may come from an earlier round with another step.
+    complete = any(t.state.name == "COMPLETE" for t in trials)
+    best = study.best_trial if complete else None
+    return plan_next_round(
+        cfg,
+        provider,
+        lineage=lineage,
+        n_study_trials=len(trials),
+        best_params=(
+            recorded_trial_params(lineage, best) if best is not None else None
+        ),
+        best_value=best.value if best is not None else None,
+        n_trials=n_trials,
+        expand_boundary=expand_boundary,
+        boundary_threshold=boundary_threshold,
+        declaration=declaration,
+    )
+
+
 def plan_round(
     cfg: LizyMLConfig,
     provider: EstimatorProvider,
@@ -513,6 +568,32 @@ def plan_round(
         )
     if state == "open":
         assert lineage is not None  # noqa: S101
+        if declaration is not None and _replaces_open_round(
+            lineage, trials, declaration
+        ):
+            # H-0128 policy 7: an open round with no COMPLETE trial, given a
+            # different space=, is closed failed and a new round starts.
+            # U2 governs continuing a round only, so n_trials and
+            # expand_boundary are the new round's own.
+            assert study is not None and lineage.last_round is not None  # noqa: S101
+            k = lineage.last_round.round
+            plan = _plan_after_closed(
+                cfg,
+                provider,
+                lineage=lineage,
+                trials=trials,
+                study=study,
+                n_trials=n_trials,
+                expand_boundary=expand_boundary,
+                boundary_threshold=boundary_threshold,
+                declaration=declaration,
+            )
+            running = tuple(
+                t.number
+                for t in trials_of_round(lineage, k, trials)
+                if t.state.name == "RUNNING"
+            )
+            return dataclasses.replace(plan, replaces_round=k, running_to_fail=running)
         return plan_open_round(
             cfg,
             lineage=lineage,
@@ -524,21 +605,12 @@ def plan_round(
         )
     if state in ("completed", "failed"):
         assert lineage is not None and study is not None  # noqa: S101
-        # The previous best comes from the study, never from the Model's
-        # `_tuning_result` (§5.3): a loaded Model's may be another study's.
-        # Its values are read with its own round's dims (H-0124 policy 4): the
-        # study's best may come from an earlier round with another step.
-        complete = any(t.state.name == "COMPLETE" for t in trials)
-        best = study.best_trial if complete else None
-        return plan_next_round(
+        return _plan_after_closed(
             cfg,
             provider,
             lineage=lineage,
-            n_study_trials=len(trials),
-            best_params=(
-                recorded_trial_params(lineage, best) if best is not None else None
-            ),
-            best_value=best.value if best is not None else None,
+            trials=trials,
+            study=study,
             n_trials=n_trials,
             expand_boundary=expand_boundary,
             boundary_threshold=boundary_threshold,

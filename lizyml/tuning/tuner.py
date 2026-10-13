@@ -36,6 +36,11 @@ from lizyml.tuning.search_space import (
     SearchDim,
     split_by_category,
 )
+from lizyml.tuning.trial_failure import (
+    describe_exception,
+    round_trial_states,
+    states_text,
+)
 
 _optuna: Any = None
 try:
@@ -297,6 +302,7 @@ class Tuner:
         self.progress_callback = progress_callback
         self.storage = storage
         self.study_name = study_name
+        self.first_error: str | None = None
 
     def tune(
         self,
@@ -308,6 +314,7 @@ class Tuner:
         round_number: int = 1,
         prior_trials: int = 0,
         expanded_dims: tuple[str, ...] = (),
+        extra_catch: tuple[type[Exception], ...] = (),
     ) -> tuple[TuningResult, Any]:
         """Run hyperparameter search and return a TuningResult + study.
 
@@ -328,6 +335,8 @@ class Tuner:
             round_number: Current round number (1-indexed, H-0068).
             prior_trials: Number of trials from previous rounds (H-0068).
             expanded_dims: Dimensions expanded in this round (H-0068).
+            extra_catch: Extra exception types recorded as a trial FAIL
+                (passed to :meth:`run`, H-0128).
 
         Returns:
             Tuple of (TuningResult, study).
@@ -358,6 +367,10 @@ class Tuner:
 
         check_study_direction(study, self.direction)
 
+        # This call's trials: numbered from the study's size before anything
+        # is enqueued, whatever the caller passes as prior_trials (H-0128).
+        boundary = len(study.trials)
+
         # Enqueue previous best as initial trial (H-0068).
         if enqueue_params is not None:
             study.enqueue_trial(enqueue_params)
@@ -368,16 +381,32 @@ class Tuner:
             round_number=round_number,
             round_start=prior_trials,
             expanded_dims=expanded_dims,
+            extra_catch=extra_catch,
+            states_from=boundary,
         )
 
         completed = [
-            t for t in study.trials if t.state == optuna_.trial.TrialState.COMPLETE
+            t
+            for t in study.trials
+            if t.number >= boundary and t.state == optuna_.trial.TrialState.COMPLETE
         ]
         if not completed:
+            states = round_trial_states(study.trials, boundary)
+            first = f" First error: {self.first_error}." if self.first_error else ""
             raise LizyMLError(
                 code=ErrorCode.TUNING_FAILED,
-                user_message="All tuning trials failed. Check parameter ranges.",
-                context={"n_trials": self.n_trials},
+                user_message=(
+                    "All tuning trials of this call failed ("
+                    + states_text(states, n_trials=self.n_trials, timeout=self.timeout)
+                    + f").{first} Check parameter ranges."
+                ),
+                context={
+                    "n_trials": self.n_trials,
+                    "round": round_number,
+                    "status": "failed",
+                    "trial_states": states,
+                    **({"first_error": self.first_error} if self.first_error else {}),
+                },
             )
 
         _log.info(
@@ -421,6 +450,9 @@ class Tuner:
         round_start: int,
         progress_total: int | None = None,
         expanded_dims: tuple[str, ...] = (),
+        extra_catch: tuple[type[Exception], ...] = (),
+        interrupted: int = 0,
+        states_from: int | None = None,
     ) -> None:
         """Run ``optimize`` on *study* with this tuner's budget and callbacks.
 
@@ -437,13 +469,43 @@ class Tuner:
             progress_total: Progress ``total_trials``; the round's requested
                 ``n_trials``. Defaults to ``self.n_trials``.
             expanded_dims: Dimensions expanded for this round.
+            extra_catch: Exception types recorded as a trial FAIL in addition
+                to ``LizyMLError``, ``ValueError`` and ``RuntimeError``. The
+                facade passes the provider's ``trial_errors()`` (H-0128); this
+                layer knows no estimator.
+            interrupted: Trials of this round the caller moved from RUNNING to
+                FAIL on reattach, reported in ``trial_states`` (H-0128).
+            states_from: First trial number ``trial_states`` counts; defaults
+                to *round_start*.
+
+        After the call, :attr:`first_error` holds the first exception the
+        objective raised during it, rendered by
+        :func:`~lizyml.tuning.trial_failure.describe_exception`, or ``None``.
 
         Raises:
             LizyMLError with TUNING_FAILED when ``optimize`` raises an
-            ``Exception``. A ``BaseException`` propagates unchanged.
+            ``Exception``; its context carries ``round``, ``first_error`` and
+            ``trial_states``. A ``BaseException`` propagates unchanged.
         """
         optuna_ = _require_optuna()
         optuna_callbacks: list[Any] = []
+        errors: dict[int, str] = {}
+        self.first_error = None
+
+        def _recording(trial: Any) -> Any:
+            # Every Exception is recorded, caught by Optuna or not; the
+            # exception itself is returned unchanged (H-0128 policy 6).
+            # TrialPruned is Optuna's control flow for pruning, not an error.
+            try:
+                return objective(trial)
+            except optuna_.TrialPruned:
+                raise
+            except Exception as exc:
+                text = describe_exception(exc)
+                errors[trial.number] = text
+                if self.first_error is None:
+                    self.first_error = text
+                raise
 
         if self.progress_callback is not None:
             t0 = time.monotonic()
@@ -493,7 +555,9 @@ class Tuner:
         # Trial failure logging callback
         def _log_trial_failure(study_: Any, trial: Any) -> None:
             if trial.state != optuna_.trial.TrialState.COMPLETE:
-                reason = trial.system_attrs.get("fail_reason", "unknown")
+                # Optuna 3.x and later write no ``fail_reason``; the text is
+                # the objective's exception when this call saw one.
+                reason = errors.get(trial.number, "no exception from the objective")
                 _log.warning(
                     "event='trial.failed' trial=%d state=%s reason=%s",
                     trial.number,
@@ -505,17 +569,27 @@ class Tuner:
 
         try:
             study.optimize(
-                objective,
+                _recording,
                 n_trials=self.n_trials,
                 timeout=self.timeout,
                 show_progress_bar=False,
-                catch=(LizyMLError, ValueError, RuntimeError),
+                catch=(LizyMLError, ValueError, RuntimeError, *extra_catch),
                 callbacks=all_callbacks,
             )
         except Exception as exc:
+            first = self.first_error or describe_exception(exc)
             raise LizyMLError(
                 code=ErrorCode.TUNING_FAILED,
                 user_message=f"Optuna study failed: {exc}",
-                context={"n_trials": self.n_trials},
+                context={
+                    "n_trials": self.n_trials,
+                    "round": round_number,
+                    "first_error": first,
+                    "trial_states": round_trial_states(
+                        study.trials,
+                        round_start if states_from is None else states_from,
+                        interrupted=interrupted,
+                    ),
+                },
                 cause=exc,
             ) from exc
