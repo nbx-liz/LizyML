@@ -13463,3 +13463,90 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
 - **陰性対照**（`probes/negative_controls_h0127.py` → `negative_controls_h0127.out`）: 10 通りの変異（下の 8 通りと、実装レビュー round 1 の後に加えた 2 通り）（NaN を「値が変わった」と数える、値が変わる要素を未知にしない、`train.py` の写しだけを戻す、export の検査を外す、refit だけを見る、fit の警告を外す、表示に素の `repr` を使う、`.item()` が Python の値にならないスカラーを通す）のそれぞれで、対応するテストが落ちた。
 - **スイート（lock の版、実装レビュー round 1 の直しの後）**: 11673 passed、230 skipped、21 deselected、0 failed。ruff、mypy は通った。**下限の構成**（H-0126 のレーンの venv: numpy 1.24.0、pandas 2.0.0、lightgbm 4.4.0、Python 3.11）でスイート全体（slow を除く）は 11696 passed、230 skipped、21 deselected、0 failed（fit が毎回行う警告の計算も、この構成の全ての fit で通った）。
 - **文書**: BLUEPRINT §9.2（`comparable_values`）と §15.3（保存できないカテゴリ値、`category_json.py`、`last fold`）、docs/api.md（`export` の Raises、エラーコードの表）、CHANGELOG（Fixed に 3 項）、docs/migration.md（v0.19.0 の「Category values (H-0127)」）、`docs/proposal_dispositions.toml` の H-0127 を `specified` にした。
+
+## H-0128: 再開した round は、その round に成功した試行が無ければ failed で閉じ、LightGBM のエラーを試行の失敗にし、成功の無い開いた round は新しい `space=` で差し替えられる（#348、#349）
+
+- **ステータス**: Proposed
+- **起票日**: 2026-10-14
+- **スコープ**: `lizyml/core/_model_tuning.py`（round を閉じる規則、開いた round の差し替えの書く順序）、`lizyml/core/_tuning_plan.py`（開いた round の差し替えの計画）、`lizyml/tuning/tuner.py`（`catch=` に LightGBM のエラー、試行の失敗の理由の記録、公開の `Tuner.tune` の全滅の判定）、`lizyml/core/_tuning_restore.py`（拒否の文）、新しいテスト、BLUEPRINT §11（tune の再開と保存の節）、docs/api.md、CHANGELOG.md、docs/migration.md、`docs/proposal_dispositions.toml`
+- **関連**: [Issue #348](https://github.com/nbx-liz/LizyML/issues/348)、[Issue #349](https://github.com/nbx-liz/LizyML/issues/349)。H-0122（§7.1 round の終わり方、§7.2 U2 と INV-R5、§7.4 状態 F・O）、H-0094 決定 14（失敗した tune は Model を変えない）、H-0124 方針 4（前回の最良値が範囲の外の次元は広げない）。証拠は `docs/audits/2026-10-h0128/probes/`
+
+### 目的（課題）
+1. **#348**: 再開した round の試行が全て失敗しても、前の round に COMPLETE の試行があれば、round は `completed` で閉じ、`tune()` は前の round の最良値をそのまま返す。戻り値からは、その round が何も評価できなかったことが分からない（範囲を誤った `space=` を「広げても良くならなかった」と読み違える。DC1）。H-0122 §7.1 の「study に COMPLETE の試行が無ければ `failed`」のとおりの動作である。
+2. **#349**: LightGBM のエラー（`lightgbm.basic.LightGBMError`、`Exception` の直下）は `Tuner.run` の `catch=`（`LizyMLError`、`ValueError`、`RuntimeError`）に入らないので、`study.optimize` を抜けて round を開いたまま止める。続けると、`space=` なしでは記録した壊れた空間で同じエラーになり、直した `space=` は U2（開いた round の `space=` は記録と同じでなければならない）で拒否される。study を捨てるほかに出口が無い。
+
+### 管理者の判断（2026-10-14）
+- **#348**: その round に COMPLETE の試行が一つも無ければ、round を `failed` で閉じて `TUNING_FAILED` を送出する（round 1 が全滅したときと同じ扱い。Model の状態は変えない）。H-0122 §7.1 の規則を「study に」から「その round に」に改める。LizyStudio に下流の issue を立てる。
+- **#349**: (1) LightGBM のエラーを試行の FAIL として記録し、round を止めない。(2) COMPLETE の試行が一つも無い開いた round に、記録と違う `space=` が渡されたら、その round を `failed` で閉じて、その `space=` で新しい round を始める（U2 をこの場合だけ緩める）。
+- 採らない: `study.optimize` から抜けたどの例外でも round を閉じる案（Ctrl+C や落ちたプロセスの round も閉じてしまい、H-0122 の INV-R5「落ちた round は残りの予算で終える」を壊す）。
+
+### 実測（2026-10-14、develop `5548580`、Python 3.11、lock の版）
+`repro_348_349.py` → `repro_348_349.out`（Issue の手順。ただし Issue の `num_leaves` は H-0121 で smart の管理になったので、`max_depth` に置き換えた）:
+
+| | 結果 |
+|---|---|
+| #348: round 2 の試行が全て FAIL（`validation_ratio` 1.0〜1.5） | `tune()` は返り、`rounds=[(1, 2), (2, 2)]`、最良値は round 1 のまま。試行は `COMPLETE, COMPLETE, FAIL, FAIL`。系譜は `state=completed`、round 2 は `completed` |
+| #349 呼び出し 1（`max_bin` 0〜1） | `TUNING_FAILED: Optuna study failed: Check failed: (max_bin) > (1) ...`、round 2 は開いたまま |
+| #349 呼び出し 2（`space=` なしで終える） | 同じ `TUNING_FAILED`、FAIL の試行が増える |
+| #349 呼び出し 3（直した `space=`） | `CONFIG_INVALID: round 2 was started with space=[...]`（U2） |
+
+失敗した試行の理由は、今は試行に残らない: LizyML の `event='trial.failed'` の行は Optuna の `system_attrs["fail_reason"]` を読むが、Optuna 3.x 以降はそれを書かないので、理由はいつも `unknown` になる（同じ出力の `reason=unknown`）。
+
+### 対応方針（提案）
+
+**round の終わり方（#348。H-0122 §7.1 を改める）**
+1. round k を閉じるとき（`_close_round`。予算を使い切った場合、開いた round を残りの予算で終えた場合、残りが 0 で試行を足さずに閉じる場合のすべて）、**round k の試行**（番号が round k の記録の開始時の試行数以上のもの）に COMPLETE が一つ以上あれば `completed`、無ければ `failed` と書き、`TUNING_FAILED` を送出する。`:end` の最良値は今と同じ（`completed` は study の最良値、`failed` は空）。Model の状態は変えない（H-0094 決定 14）。
+2. `TUNING_FAILED` の文は、round の番号と、その round の失敗した試行の理由（下の方針 6、異なるものを最大 3 つ）を示し、study に前の round の結果が残っていればそれも言い、`space=` を直して `resume=True` で次の round を始めるよう案内する。context は `round`・`n_trials`・`status`（今と同じ）に、`fail_reasons` を足す。
+3. 状態 F（最後の round の `:end` が `failed`）の判定は変えない。扱いは「新しい round を始める」のまま。ただし study に前の round の COMPLETE の試行があれば、それが前回の最良値になり、境界の拡張はふつうの規則に従う（前回の最良値が今の範囲の外にある次元は広げない、H-0124 方針 4 の `outside_range`）。新しい round の宣言の元は、5.2 のとおり直前の round（`failed` の round）の宣言である。`space=` を渡さなければ同じ空間を繰り返すことになり、方針 2 の文がそれを案内する。次の round の `best_score_before` は study の最良値（前の round に COMPLETE があれば数値）。`TuningResult.rounds` が `failed` の round を含めないことは変えない。
+4. 公開の `Tuner.tune` の全滅の判定（`tuner.py:373-381`、今は study 全体の COMPLETE を見る）も、この呼び出しの試行（番号が `prior_trials` 以上）で判定する。既存の study に足す呼び出しで同じ見落としが起きるため。
+
+**LightGBM のエラー（#349 (1)）**
+5. `Tuner.run` の `catch=` に `lightgbm.basic.LightGBMError` を加える。LightGBM のエラーは試行の FAIL になり、round は残りの試行を続ける。全てが失敗すれば方針 1 で `failed` と `TUNING_FAILED`（今は最初の試行で round が止まる。これからは予算の数だけ試行してから止まる）。
+6. **失敗の理由を試行に残す**: `Tuner.run` は目的関数を包み、`catch=` の例外が出たら、その試行に `lizyml:fail_reason`（例外の型の名前と文、500 文字まで）を書いてから例外を Optuna に返す。`event='trial.failed'` のログと方針 2 の文はこれを読む（今の `system_attrs["fail_reason"]` は Optuna 3.x 以降書かれないので使わない）。方針 5 で LightGBM の理由（`Check failed: (max_bin) > (1)`）が例外の文から試行の FAIL に移るため、その理由が利用者に届かなくなるのを防ぐ。試行の属性の追加で、study の系譜の形式（`lizyml:study` の `schema`）は変えない。LizyML の読み手で試行の属性を読むものは無い（`grep` で確認）。
+
+**成功の無い開いた round の差し替え（#349 (2)。H-0122 §7.2 の U2 を改める）**
+7. 状態 O で `space=` が渡され、それを宣言空間に解決した結果が記録した round k の宣言空間と違い（U2 の比べ方 `same_declared_space`）、**round k の試行に COMPLETE が一つも無い**（試行が 0 件の場合を含む）とき、今の `CONFIG_INVALID` の代わりに、round k を `failed` で閉じて、その `space=` で round k+1 を始める。
+   - 計画（書く前にすべて決める。INV-R4）: 4.3 の照合の後、round k を `failed` で閉じたとした系譜で、状態 F と同じく次の round を計画する（方針 3。`n_trials` と `expand_boundary` は新しい round として自由）。拒否（`space=` の検査など）があれば何も書かない。
+   - 書く順序: (a) round k の RUNNING の試行を FAIL にする、(b) round k の `:end` を `failed` で書く、(c) round k+1 の記録を書く、(d) 試行を足す、(e) round k+1 を方針 1 で閉じる。(b) と (c) の間で落ちれば、study は状態 F（round k が `failed`）で、次の `resume=True` は同じ `space=` で round k+1 を始め直す。(c) の後で落ちれば状態 O（round k+1 が開いている）。
+   - round k を閉じたことは `UserWarning` で知らせる（round の番号、記録した空間と渡した空間）。round k について `TUNING_FAILED` は送出しない（利用者は新しい空間を求めている）。
+   - 変えないこと: `space=` を渡さない、または記録と同じ `space=` なら、今のとおり round k を残りの予算で終える（INV-R5）。round k に COMPLETE の試行があれば、違う `space=` は今のとおり `CONFIG_INVALID`（U2）。`n_trials` と `expand_boundary` の U2 も今のとおり。
+8. **文書**: BLUEPRINT §11 の round の終わり方・状態 F・U2 の記述、docs/api.md（`tune` の `TUNING_FAILED`、`TuningResult.rounds`、`RoundSummary.best_score_before`、`read_study_lineage` の `"failed"`、`restore_tuning`）、CHANGELOG、docs/migration.md、`docs/proposal_dispositions.toml`。LizyStudio に下流の issue を立てる（今は黙って成功している resume のジョブが失敗として見える）。
+
+### 規則が縛る位置（ソースから導出、実装前、`5548580`）
+- round を閉じる: `core/_model_tuning.py:733-765`（`_close_round`）。呼ばれる所は tune の流れの一か所（`:465`、試行を足した後と、試行を足さずに閉じる場合の両方）。
+- 公開の `Tuner.tune` の全滅の判定: `tuning/tuner.py:373-381`。
+- 試行の失敗の扱い: `tuning/tuner.py:494-520`（`_log_trial_failure`、`study.optimize(..., catch=...)`）。
+- 開いた round の計画と U2: `core/_tuning_plan.py:390-440`（`plan_open_round`）、状態の振り分け `:505-545`、`RoundPlan`（`:116-156`）。書く順序: `core/_model_tuning.py:440-466`。
+- 状態 F の次の round: `core/_tuning_plan.py:525-545`（`plan_next_round` に study の最良値を渡す。今の F では最良値が無い）。
+- 系譜と報告: `tuning/rounds.py:62`（`failed` の round を `rounds` に入れない。変えない）、`tuning/study_lineage.py`（`"failed"` の説明）、`core/_tuning_restore.py:46,107`（`failed` を取り戻さない理由の文）。
+
+### 互換性
+- 公開 API の形は変わらない。study の系譜の形式（`lizyml:study` の `schema`）は変えない。試行の属性 `lizyml:fail_reason` を足す（追加）。
+- 挙動の変化: (1) 再開した round の試行が全て失敗すると、今まで返していた `tune()` が `TUNING_FAILED` を送出する。(2) LightGBM のエラーで round が止まらず、予算の数だけ試行してから全滅なら `TUNING_FAILED`（文が `Optuna study failed: ...` から round の全滅の文に変わり、理由はその中に入る）。(3) 成功の無い開いた round に違う `space=` を渡すと、`CONFIG_INVALID` の代わりに新しい round が始まる。
+- 既にある study: 前の規則で `completed` と書かれた round（その round に COMPLETE が無いもの）は書き換えない。新しく閉じる round から新しい規則に従う。
+
+### 代替案（検討して棄却）
+- #348 で返しつつ印を付ける（`RoundSummary` に round ごとの成功・失敗の数、警告）: 管理者が例外を選んだ。数を見ない呼び手には今と同じく見えない。
+- #349 でどの例外でも round を閉じる: INV-R5 を壊す（管理者の判断）。
+- 失敗の理由を残さない: LightGBM の理由が利用者に届かなくなる（方針 6）。
+- `restore_tuning` で、最後の round が `failed` の study から前の round の結果を取り戻す: 取り戻す結果の定義（どの round の何か）が新しい規則になり、今回の判断の外。今のとおり拒否し、文を新しい意味に合わせる。
+
+### Firing rate
+計測器 `firing_rate_h0128.py`（pytest のプラグイン。元の関数を包んで記録するだけ）で、`5548580` の `tests/ -k tun`（1811 件。tune を呼ぶテストの母集団。スイート全体は過負荷を避けるため流していない）を、`heavy.sh`（直列化、4 スレッド）で実行した（1811 passed。記録は `firing_rate_h0128.tsv`、集計は `firing_rate_h0128.txt`）。
+
+- 方針 1（round の終わり方）: Firing rate: 0/640 of `Model._close_round` calls in `tests/ -k tun` (the plugin records whether the round's own trials and the study's trials include a COMPLETE one; in 8 calls neither does, which fails today too)
+- 方針 5（LightGBM のエラー）: Firing rate: 0/684 of `Tuner.run` calls in `tests/ -k tun` (26 raised; the plugin walks each exception's cause chain for `lightgbm.basic.LightGBMError` and finds none: 24 simulated process deaths, 2 `LizyMLError`)
+- 方針 7（開いた round の差し替え）: Firing rate: 0/39 of `plan_open_round` calls in `tests/ -k tun` (9 pass `space=`, 5 differ from the record, all 5 in rounds that hold a COMPLETE trial, so U2 keeps refusing them)
+
+スイートでは三つとも働かない。それぞれの条件を作るテストは、この PR で書く（受け入れ基準 1・5・6）。
+
+### 受け入れ基準（テスト観点）
+1. **#348**: round 1（COMPLETE あり）の後、全ての試行が失敗する `space=` の round 2 は `TUNING_FAILED`（context の `round` が 2、`status` が `failed`、`fail_reasons` に原因の文）。系譜は round 2 が `failed`。同じ Model の `tuning_result` は round 1 のまま（Model を変えない）。続けて直した `space=` の `resume=True` は round 3 を始めて返り、`rounds` は round 1 と 3、round 3 の `best_score_before` は round 1 の最良値（落ちるべき例: 今の実装では round 2 が `completed` で返る）。
+2. 一部の試行だけが失敗した round は `completed` のまま（変えない）。
+3. 開いた round を残りの予算で終えて、その round に COMPLETE が無い場合と、残りが 0 で試行を足さずに閉じる場合も、`failed` と `TUNING_FAILED`（`_close_round` の全ての経路）。
+4. 公開の `Tuner.tune` を既存の study（COMPLETE あり）に足して全ての試行が失敗すると `TUNING_FAILED`。
+5. **#349 (1)**: `max_bin` 0〜1 の round 2 は、予算の数だけ FAIL の試行を記録して `failed` と `TUNING_FAILED` で閉じ、文と `fail_reasons` に LightGBM の理由（`max_bin`）が入る。round 1（新しい study）で同じことが起きた場合も同じ。各 FAIL の試行に `lizyml:fail_reason` がある。続けて直した `space=` の `resume=True` は round 3 を始めて返る（落ちるべき例: 今は `Optuna study failed` で開いたまま、直した `space=` は `CONFIG_INVALID`）。
+6. **#349 (2)**: COMPLETE の試行が無い開いた round（`catch=` に入らない例外で止めて作る。試行 0 件の場合も）に、記録と違う `space=` を渡すと、`UserWarning` の後、round k が `failed`、round k+1 が新しい空間で始まる。同じ `space=`、または `space=` なしなら round k を残りの予算で終える（INV-R5、今と同じ）。round k に COMPLETE がある場合の違う `space=` は `CONFIG_INVALID`（落ちるべき例）。
+7. 差し替えの経路で拒否される場合（たとえば `space=` の書式の誤り）は、試行の状態も study の属性も変わらない（INV-R4）。
+8. `read_study_lineage` は、最後の round が `failed` の study を `"failed"` と読み、`restore_tuning` は新しい文で拒否する。
+9. 文書が方針 8 のとおり。

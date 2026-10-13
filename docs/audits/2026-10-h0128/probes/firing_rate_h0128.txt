@@ -1,0 +1,12 @@
+Suite: tests/ -k tun (1811 selected, 10113 deselected), develop 5548580 + plugin firing_rate_h0128.py, run through instruments/heavy.sh (4 threads): 1811 passed
+close (Model._close_round): calls: 640 | round has no COMPLETE, study has one (H-0128 policy 1 newly fires): 0 | neither has one (fails today too): 8
+run (Tuner.run): calls: 684 | round has no COMPLETE, study has one: 5 (3 raised a simulated crash; 2 did not raise, in test_smart_dimension_values with its trial-steering fixture. Across all 640 closes, none found a round without COMPLETE in a study with one)
+  tests/test_tuning/test_resume_failed_tune_model.py::test_failed_resume_restores_the_previous_run_dir_and_provider
+  tests/test_tuning/test_resume_open_round.py::test_second_crash_excludes_failed_time
+  tests/test_tuning/test_resume_space_arg.py::test_merge_space_omitting_config_user_dim_reverts_to_default
+  tests/test_tuning/test_smart_dimension_values.py::test_a_legacy_non_best_trial_outside_the_rule_is_refused[resume]
+  tests/test_tuning/test_smart_dimension_values.py::test_a_legacy_non_best_trial_outside_the_rule_is_refused[restore]
+run_raised: calls that raised: 26 | with a LightGBMError in the cause chain (policy 5 newly fires): 0
+      2   LizyMLError
+     24   ProcessDeath
+open (plan_open_round): calls: 39 | space= given: 9 | differs from the record: 5 | differs and the round has no COMPLETE (policy 7 newly fires): 0

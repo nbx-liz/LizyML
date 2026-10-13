@@ -1,0 +1,16 @@
+event='trial.failed' trial=2 state=FAIL reason=unknown
+event='trial.failed' trial=3 state=FAIL reason=unknown
+[LightGBM] [Fatal] Check failed: (max_bin) > (1) at /__w/1/s/lightgbm-python/src/io/config_auto.cpp, line 519 .
+[LightGBM] [Fatal] Check failed: (max_bin) > (1) at /__w/1/s/lightgbm-python/src/io/config_auto.cpp, line 519 .
+== #348
+round 1: returned; rounds=[(1, 2)] best_score=0.884534
+round 2 (every trial fails): returned; rounds=[(1, 2), (2, 2)] best_score=0.884534
+trials: COMPLETE, COMPLETE, FAIL, FAIL
+lineage: state=completed rounds=[(1, 'completed'), (2, 'completed')]
+== #349
+round 1: returned; rounds=[(1, 2)] best_score=0.884534
+1: space with max_bin 0-1: TUNING_FAILED: Optuna study failed: Check failed: (max_bin) > (1) at /__w/1/s/lightgbm-python/src/io/config_auto.cpp, line 519 .
+2: finish without space=: TUNING_FAILED: Optuna study failed: Check failed: (max_bin) > (1) at /__w/1/s/lightgbm-python/src/io/config_auto.cpp, line 519 .
+3: finish with a corrected space=: CONFIG_INVALID: round 2 was started with space=['model:bagging_fraction float [0.5, 1.0]', 'model:feature_fraction float [0.5, 1.0]', 'model:learning_rate float [0.05
+trials: COMPLETE, COMPLETE, FAIL, FAIL
+lineage: state=open rounds=[(1, 'completed'), (2, 'open')]
