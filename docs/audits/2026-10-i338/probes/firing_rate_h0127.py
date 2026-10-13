@@ -56,7 +56,7 @@ def _unwritable(cats: list[Any]) -> list[str]:
     bad = []
     for value in list(pd.CategoricalDtype(cats).categories):
         try:
-            json.dumps(value, default=_lgb_default)
+            json.dumps([[value]], default=_lgb_default)
         except (TypeError, ValueError, RecursionError):
             bad.append(type(value).__name__)
     return bad

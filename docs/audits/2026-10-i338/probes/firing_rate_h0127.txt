@@ -1,4 +1,4 @@
-Suite: tests/ non-slow, develop 00a5668 + plugin firing_rate_h0127.py (predicate revised after proposal review round 1): 11467 passed, 230 skipped, 21 deselected, 4 xfailed
+Suite: tests/ non-slow, develop 00a5668 + plugin firing_rate_h0127.py (predicate as revised after proposal review round 2: [[value]], numpy scalars with non-plain .item() refused, RecursionError unwritable): 11467 passed, 230 skipped, 21 deselected, 4 xfailed
 fit: columns recorded by CategoricalEncoder.fit: 637 | holding a value LightGBM cannot write: 12
       4   tests/test_codegen/test_export_contract.py::test_export_refuses_a_category_outside_the_set[bytes] col=c types=bytes
       4   tests/test_codegen/test_export_contract.py::test_export_refuses_a_category_outside_the_set[decimal.Decimal] col=c types=Decimal
