@@ -39,6 +39,7 @@ from lizyml.tuning.search_space import (
 from lizyml.tuning.trial_failure import (
     describe_exception,
     round_trial_states,
+    safe_message,
     states_text,
 )
 
@@ -490,6 +491,7 @@ class Tuner:
         optuna_ = _require_optuna()
         optuna_callbacks: list[Any] = []
         errors: dict[int, str] = {}
+        logged: set[int] = set()
         self.first_error = None
 
         def _recording(trial: Any) -> Any:
@@ -558,6 +560,7 @@ class Tuner:
                 # Optuna 3.x and later write no ``fail_reason``; the text is
                 # the objective's exception when this call saw one.
                 reason = errors.get(trial.number, "no exception from the objective")
+                logged.add(trial.number)
                 _log.warning(
                     "event='trial.failed' trial=%d state=%s reason=%s",
                     trial.number,
@@ -577,10 +580,19 @@ class Tuner:
                 callbacks=all_callbacks,
             )
         except Exception as exc:
+            # An exception outside catch= ends optimize before Optuna runs the
+            # callbacks, so its trial is logged here (H-0128 policy 6).
+            for number, text in errors.items():
+                if number not in logged:
+                    _log.warning(
+                        "event='trial.failed' trial=%d state=FAIL reason=%s",
+                        number,
+                        text,
+                    )
             first = self.first_error or describe_exception(exc)
             raise LizyMLError(
                 code=ErrorCode.TUNING_FAILED,
-                user_message=f"Optuna study failed: {exc}",
+                user_message=f"Optuna study failed: {safe_message(exc)}",
                 context={
                     "n_trials": self.n_trials,
                     "round": round_number,

@@ -27,13 +27,19 @@ def describe_exception(exc: BaseException) -> str:
             name = "<unknown type>"
     except Exception:  # noqa: BLE001 - the rendering must not raise
         name = "<unknown type>"
+    return f"{_cut(name)}: {safe_message(exc)}"
+
+
+def safe_message(exc: BaseException) -> str:
+    """``str(exc)`` cut to :data:`MAX_TEXT`, or ``<unprintable message>``
+    when ``__str__`` raises or returns a non-str."""
     try:
         message = str(exc)
         if not isinstance(message, str):
             message = "<unprintable message>"
     except Exception:  # noqa: BLE001 - the rendering must not raise
         message = "<unprintable message>"
-    return f"{_cut(name)}: {_cut(message)}"
+    return _cut(message)
 
 
 def round_trial_states(

@@ -232,11 +232,13 @@ class ModelTuningMixin:
                 finished with its recorded budget instead.
             n_trials: Number of trials to run.  Defaults to
                 ``config.tuning.optuna.params.n_trials`` if None. An open
-                round only accepts its recorded value.
+                round only accepts its recorded value, unless a different
+                ``space=`` replaces it (below).
             expand_boundary: Whether to auto-expand search space dimensions
                 whose best params are near the boundary.  None means True
                 for default space, False for user-specified space. An open
-                round only accepts its recorded value.
+                round only accepts its recorded value, unless a different
+                ``space=`` replaces it (below).
             boundary_threshold: Edge detection threshold; must be in the open
                 interval ``(0.0, 0.5)``.
             progress_callback: Optional callback invoked after each trial.
@@ -271,10 +273,16 @@ class ModelTuningMixin:
                 differs from this call's, and for a ``space=`` that is
                 outside the same format, given to a call that creates a study, changes a
                 dimension's category, distribution kind, ``log`` or choices,
-                or differs from an open round's recorded space.
+                or differs from the recorded space of an open round that
+                holds a COMPLETE trial. An open round with no COMPLETE
+                trial is instead closed ``failed`` (``UserWarning``) and a
+                new round starts with the given space, ``n_trials`` and
+                ``expand_boundary`` (H-0128).
             LizyMLError with OPTIONAL_DEP_MISSING when optuna is not installed.
-            LizyMLError with TUNING_FAILED on study failure, or ``resume=True``
-                with neither a held study nor a storage.
+            LizyMLError with TUNING_FAILED on study failure, ``resume=True``
+                with neither a held study nor a storage, or a round none of
+                whose own trials completed (H-0128; context ``trial_states``
+                and, when known, ``first_error``).
         """
         cfg = self._cfg
         # --- Phase A: arguments (no I/O) --------------------------------------

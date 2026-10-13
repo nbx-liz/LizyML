@@ -35,6 +35,7 @@ from tests.test_tuning._resume_helpers import (
     fast_config,
     frame,
     load,
+    round_record,
     snapshot_study,
     url,
 )
@@ -299,21 +300,40 @@ def test_each_caught_family_is_a_logged_trial_failure(
 
 
 def test_an_uncaught_exception_reports_and_leaves_the_round_open(
-    tmp_path: Any, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Any, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
     storage = url(tmp_path)
     model = Model(fast_config(n_trials=2), data=frame())
     model.tune(storage=storage, study_name="s")
     with monkeypatch.context() as mp:
         _fail_trials(mp, model, TypeError("not caught"))
-        with pytest.raises(LizyMLError) as caught:
+        with caplog.at_level(logging.WARNING), pytest.raises(LizyMLError) as caught:
             model.tune(resume=True)
     err = caught.value
     assert err.user_message.startswith("Optuna study failed")
+    logged = [
+        r.getMessage() for r in caplog.records if "trial.failed" in r.getMessage()
+    ]
+    assert len(logged) == 1 and "TypeError: not caught" in logged[0]
     assert err.context["first_error"] == "TypeError: not caught"
     assert err.context["trial_states"] == _states(1, 1)
     assert err.context["round"] == 2
     assert _lineage(storage).state == "open"
+
+
+def test_an_uncaught_unprintable_exception_still_raises_tuning_failed() -> None:
+    class Hostile(TypeError):
+        def __str__(self) -> str:
+            raise OSError("no str")
+
+    def objective(trial: Any) -> float:
+        trial.suggest_float("x", 0.0, 1.0)
+        raise Hostile()
+
+    with pytest.raises(LizyMLError) as caught:  # not the OSError
+        _run(objective)
+    assert caught.value.user_message == "Optuna study failed: <unprintable message>"
+    assert caught.value.context["first_error"] == "Hostile: <unprintable message>"
 
 
 def test_without_extra_catch_a_lightgbm_error_stops_the_public_tuner() -> None:
@@ -445,12 +465,20 @@ def test_a_different_space_replaces_an_open_round_without_complete_trials(
     model = Model(fast_config(n_trials=2), data=frame())
     with pytest.warns(UserWarning, match="Round 2 had no completed trial"):
         result = model.tune(
-            resume=True, storage=storage, study_name="s", space=OTHER, n_trials=3
+            resume=True,
+            storage=storage,
+            study_name="s",
+            space=OTHER,
+            n_trials=3,
+            expand_boundary=True,
         )
     assert _end_status(storage, 2) == "failed"
     assert _end_status(storage, 3) == "completed"
     assert [r.round for r in result.rounds] == [1, 3]
     assert result.rounds[-1].n_trials == 3  # the replacement's own n_trials
+    # ... and its own expand_boundary, which U2 would refuse on the open round.
+    assert round_record(storage, 2).expand_boundary is False
+    assert round_record(storage, 3).expand_boundary is True
 
 
 @pytest.mark.parametrize("space", [None, GOOD], ids=["no space", "same space"])
