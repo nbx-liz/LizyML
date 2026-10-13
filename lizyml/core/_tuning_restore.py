@@ -191,6 +191,7 @@ def read_restorable(
         direction=direction,
         study_name=study_name,
     )
+    refuse_study_smart_values(lineage, trials, provider, cfg.task, study_name)
     best = study.best_trial
     restored = restore_from_study(
         lineage,
@@ -214,48 +215,63 @@ def refuse_recorded_smart_values(
 
     Policy 5: a study tuned before the smart value rule existed can record a
     value no trial trained as written (``"false"`` trained with the parameter
-    on). A ``tune(resume=True)`` of it is refused by the round admission; the
-    result is refused here, before it reaches the Model or a ``fit``.
+    on). ``tune(resume=True)`` refuses such a study before writing
+    (:func:`refuse_study_smart_values`); the result is refused here, before
+    it reaches the Model or a ``fit``.
     """
     _refuse_smart_violation(
         smart_value_violation(provider, result.best_smart_params, task), study_name
     )
 
 
-def refuse_best_trial_smart_values(
+def refuse_study_smart_values(
     lineage: Lineage | None,
     trials: Sequence[Any],
-    best: Any,
     provider: EstimatorProvider,
     task: TaskType,
     study_name: str | None,
 ) -> None:
-    """Refuse a resume whose study-wide best breaks the smart value rule.
+    """Refuse a stored study any of whose trials breaks the smart value rule.
 
-    H-0121 amendment 2, policy 2: the round admission checks the new round's
-    dimensions, but the study-wide best can be a trial of an earlier round --
-    one whose smart dimension a ``tune(space=...)`` has since removed. Such a
-    best becomes the tune's result, then the ``fit`` overlay and the export,
-    so it is checked here, before any study write. *best* is
-    ``study.best_trial`` and is read only when a trial is COMPLETE.
+    H-0121 amendment 2, policies 2 and 5: the round admission checks the new
+    round's dimensions, but a stored study's earlier rounds can hold trials
+    tuned before the rule existed (``"false"`` trained with the parameter on).
+    Each one reaches the tune's result -- the best, the ``fit`` overlay and
+    the export when it is the best, ``TuningResult.trials`` and the tables in
+    any case -- even after a ``tune(space=...)`` removed its dimension. So
+    every trial's recorded smart values (its recorded values split by the
+    lineage routes) are checked, before any study write on resume and before
+    a ``restore_tuning`` result reaches the Model.
     """
-    from optuna.trial import TrialState
-
-    if lineage is None or not any(t.state == TrialState.COMPLETE for t in trials):
+    if lineage is None:
         return
-    trial = best()
-    _, smart, _ = split_by_routes(recorded_trial_params(lineage, trial), lineage.routes)
-    _refuse_smart_violation(smart_value_violation(provider, smart, task), study_name)
+    for trial in trials:
+        if not trial.params:
+            continue
+        _, smart, _ = split_by_routes(
+            recorded_trial_params(lineage, trial), lineage.routes
+        )
+        found = smart_value_violation(provider, smart, task)
+        if found is not None:
+            _refuse_smart_violation(found, study_name, trial_number=trial.number)
 
 
-def _refuse_smart_violation(found: Any, study_name: str | None) -> None:
+def _refuse_smart_violation(
+    found: Any, study_name: str | None, *, trial_number: int | None = None
+) -> None:
     if found is None:
         return
     raise LizyMLError(
         code=ErrorCode.CONFIG_INVALID,
         user_message=(
             f"study '{study_name}' records the smart parameter "
-            f"'{found.name}'={found.value!r} as its best, which '{found.name}' "
+            f"'{found.name}'={found.value!r}"
+            + (
+                f" in trial {trial_number}"
+                if trial_number is not None
+                else " as its best"
+            )
+            + f", which '{found.name}' "
             f"cannot hold: it takes {found.expected}. Its trials did not train "
             "on that value as written, so the result is not restored. Tune "
             "again in a new study (another study_name)."

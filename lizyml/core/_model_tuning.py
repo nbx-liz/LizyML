@@ -41,7 +41,7 @@ from lizyml.core._tuning_identity import summarise_frame
 from lizyml.core._tuning_plan import RoundPlan, plan_round
 from lizyml.core._tuning_restore import (
     read_restorable,
-    refuse_best_trial_smart_values,
+    refuse_study_smart_values,
 )
 from lizyml.core._tuning_resume import (
     judge_existing,
@@ -376,15 +376,7 @@ class ModelTuningMixin:
             space_dims=space_dims,
         )
         check_round_space(cfg, plan, provider, base_model_params, base_smart_params)
-        if target.study is not None:
-            refuse_best_trial_smart_values(
-                lineage,
-                trials,
-                lambda: target.study.best_trial,
-                provider,
-                cfg.task,
-                shown_name,
-            )
+        refuse_study_smart_values(lineage, trials, provider, cfg.task, shown_name)
         study_payload = (
             study_record_payload(
                 cfg,

@@ -548,6 +548,61 @@ def test_resume_refuses_a_legacy_best_whose_smart_dimension_was_removed(
     assert (snapshot_study(study), snapshot_model(model)) == before
 
 
+@pytest.mark.parametrize("surface", ["resume", "restore"])
+def test_a_legacy_non_best_trial_outside_the_rule_is_refused(
+    surface: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every stored trial is checked, not only the best.
+
+    The legacy round tried ``False`` (the best) and ``"false"``; the string
+    would reach ``TuningResult.trials`` and the tables even with the valid
+    best, so the study is refused on resume and on restore.
+    """
+    from tests.test_tuning.test_search_dim_step_model import steer
+
+    storage = url(tmp_path)
+    cfg = _config(
+        "regression",
+        {"auto_num_leaves": _cat(False, "false"), "learning_rate": LR},
+        n_trials=2,
+    )
+    with monkeypatch.context() as mp:
+        from lizyml.core import _smart_values
+
+        mp.setattr(_smart_values, "check_smart_dimension_values", lambda *a, **k: None)
+        steer(
+            mp,
+            {
+                1: [
+                    {"auto_num_leaves": False, "learning_rate": 0.1},
+                    {"auto_num_leaves": "false", "learning_rate": 0.1},
+                ]
+            },
+            lambda params: params["auto_num_leaves"] is False,
+        )
+        Model(cfg, data=_frame("regression")).tune(storage=storage, study_name="s")
+    study = optuna.load_study(study_name="s", storage=storage)
+    assert study.best_trial.params["auto_num_leaves"] is False
+    model = Model(cfg, data=_frame("regression"))
+    before = snapshot_study(study)
+    with pytest.raises(LizyMLError) as caught:
+        if surface == "resume":
+            model.tune(
+                resume=True,
+                storage=storage,
+                study_name="s",
+                space={"learning_rate": LR},
+            )
+        else:
+            model.restore_tuning(storage, "s")
+    err = caught.value
+    assert err.code is CI
+    assert (err.context["name"], err.context["value"]) == ("auto_num_leaves", "false")
+    assert "trial 1" in err.user_message
+    assert snapshot_study(optuna.load_study(study_name="s", storage=storage)) == before
+    assert model._tuning_result is None
+
+
 def test_restore_tuning_accepts_a_result_inside_the_rule(tmp_path: Path) -> None:
     storage = url(tmp_path)
     cfg = _config("binary", {"auto_num_leaves": _cat(True, False)})
