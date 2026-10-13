@@ -1,0 +1,6 @@
+recursion limit: 1000
+depth 980: predicate=writable model_to_string=ok pickle=ok
+depth 982: predicate=writable model_to_string=ok pickle=ok
+depth 984: predicate=writable model_to_string=ok pickle=ok
+depth 986: predicate=writable model_to_string=ok pickle=ok
+depth 988: predicate=writable model_to_string=ok pickle=RecursionError

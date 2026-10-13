@@ -1,0 +1,135 @@
+fit: ok
+predict: ok [1 1 1 1]
+booster type: Booster
+booster.pandas_categorical: [[Decimal('1.5'), Decimal('2.5')]]
+elem types: ['Decimal', 'Decimal']
+fold0 booster.pandas_categorical: [[Decimal('1.5'), Decimal('2.5')]]
+refit.pipeline_state type: dict
+Model.export: LizyMLError: [SERIALIZATION_FAILED] Failed to export model to '/tmp/claude-1000/tmpwtnbcwwl/exp': Circular reference detected
+---- traceback ----
+Traceback (most recent call last):
+  File "/home/rem/repos/LizyML/lizyml/persistence/exporter.py", line 159, in export
+    joblib.dump(fit_result, out / "fit_result.pkl", compress=3)
+  File "/home/rem/repos/LizyML/.venv/lib/python3.11/site-packages/joblib/numpy_pickle.py", line 597, in dump
+    NumpyPickler(f, protocol=protocol).dump(value)
+  File "/home/rem/.local/share/uv/python/cpython-3.11.14-linux-x86_64-gnu/lib/python3.11/pickle.py", line 487, in dump
+    self.save(obj)
+  File "/home/rem/repos/LizyML/.venv/lib/python3.11/site-packages/joblib/numpy_pickle.py", line 395, in save
+    return Pickler.save(self, obj)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/rem/.local/share/uv/python/cpython-3.11.14-linux-x86_64-gnu/lib/python3.11/pickle.py", line 603, in save
+    self.save_reduce(obj=obj, *rv)
+  File "/home/rem/.local/share/uv/python/cpython-3.11.14-linux-x86_64-gnu/lib/python3.11/pickle.py", line 717, in save_reduce
+    save(state)
+  File "/home/rem/repos/LizyML/.venv/lib/python3.11/site-packages/joblib/numpy_pickle.py", line 395, in save
+    return Pickler.save(self, obj)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/rem/.local/share/uv/python/cpython-3.11.14-linux-x86_64-gnu/lib/python3.11/pickle.py", line 560, in save
+    f(self, obj)  # Call unbound method with explicit self
+    ^^^^^^^^^^^^
+  File "/home/rem/.local/share/uv/python/cpython-3.11.14-linux-x86_64-gnu/lib/python3.11/pickle.py", line 972, in save_dict
+    self._batch_setitems(obj.items())
+  File "/home/rem/.local/share/uv/python/cpython-3.11.14-linux-x86_64-gnu/lib/python3.11/pickle.py", line 998, in _batch_setitems
+    save(v)
+  File "/home/rem/repos/LizyML/.venv/lib/python3.11/site-packages/joblib/numpy_pickle.py", line 395, in save
+    return Pickler.save(self, obj)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/rem/.local/share/uv/python/cpython-3.11.14-linux-x86_64-gnu/lib/python3.11/pickle.py", line 560, in save
+    f(self, obj)  # Call unbound method with explicit self
+    ^^^^^^^^^^^^
+  File "/home/rem/.local/share/uv/python/cpython-3.11.14-linux-x86_64-gnu/lib/python3.11/pickle.py", line 932, in save_list
+    self._batch_appends(obj)
+  File "/home/rem/.local/share/uv/python/cpython-3.11.14-linux-x86_64-gnu/lib/python3.11/pickle.py", line 956, in _batch_appends
+    save(x)
+  File "/home/rem/repos/LizyML/.venv/lib/python3.11/site-packages/joblib/numpy_pickle.py", line 395, in save
+    return Pickler.save(self, obj)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/rem/.local/share/uv/python/cpython-3.11.14-linux-x86_64-gnu/lib/python3.11/pickle.py", line 603, in save
+    self.save_reduce(obj=obj, *rv)
+  File "/home/rem/.local/share/uv/python/cpython-3.11.14-linux-x86_64-gnu/lib/python3.11/pickle.py", line 717, in save_reduce
+    save(state)
+  File "/home/rem/repos/LizyML/.venv/lib/python3.11/site-packages/joblib/numpy_pickle.py", line 395, in save
+    return Pickler.save(self, obj)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/rem/.local/share/uv/python/cpython-3.11.14-linux-x86_64-gnu/lib/python3.11/pickle.py", line 560, in save
+    f(self, obj)  # Call unbound method with explicit self
+    ^^^^^^^^^^^^
+  File "/home/rem/.local/share/uv/python/cpython-3.11.14-linux-x86_64-gnu/lib/python3.11/pickle.py", line 972, in save_dict
+    self._batch_setitems(obj.items())
+  File "/home/rem/.local/share/uv/python/cpython-3.11.14-linux-x86_64-gnu/lib/python3.11/pickle.py", line 998, in _batch_setitems
+    save(v)
+  File "/home/rem/repos/LizyML/.venv/lib/python3.11/site-packages/joblib/numpy_pickle.py", line 395, in save
+    return Pickler.save(self, obj)
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/rem/.local/share/uv/python/cpython-3.11.14-linux-x86_64-gnu/lib/python3.11/pickle.py", line 578, in save
+    rv = reduce(self.proto)
+         ^^^^^^^^^^^^^^^^^^
+  File "/home/rem/repos/LizyML/.venv/lib/python3.11/site-packages/lightgbm/basic.py", line 3749, in __getstate__
+    this["_handle"] = self.model_to_string(num_iteration=-1)
+                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/rem/repos/LizyML/.venv/lib/python3.11/site-packages/lightgbm/basic.py", line 4619, in model_to_string
+    ret += _dump_pandas_categorical(self.pandas_categorical)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/rem/repos/LizyML/.venv/lib/python3.11/site-packages/lightgbm/basic.py", line 879, in _dump_pandas_categorical
+    categorical_json = json.dumps(pandas_categorical, default=_json_default_with_numpy)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/rem/.local/share/uv/python/cpython-3.11.14-linux-x86_64-gnu/lib/python3.11/json/__init__.py", line 238, in dumps
+    **kw).encode(obj)
+          ^^^^^^^^^^^
+  File "/home/rem/.local/share/uv/python/cpython-3.11.14-linux-x86_64-gnu/lib/python3.11/json/encoder.py", line 200, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/rem/.local/share/uv/python/cpython-3.11.14-linux-x86_64-gnu/lib/python3.11/json/encoder.py", line 258, in iterencode
+    return _iterencode(o, 0)
+           ^^^^^^^^^^^^^^^^^
+ValueError: Circular reference detected
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/tmp/claude-1000/-home-rem-repos-LizyML/d85a6516-cd7d-4ceb-9320-dd3ae862da63/scratchpad/h0126/i338/p1_chain.py", line 62, in attempt
+    fn()
+  File "/tmp/claude-1000/-home-rem-repos-LizyML/d85a6516-cd7d-4ceb-9320-dd3ae862da63/scratchpad/h0126/i338/p1_chain.py", line 73, in <lambda>
+    attempt("Model.export", lambda: m.export(tmp / "exp"))
+                                    ^^^^^^^^^^^^^^^^^^^^^
+  File "/home/rem/repos/LizyML/lizyml/core/_model_persistence.py", line 370, in export
+    _export(
+  File "/home/rem/repos/LizyML/lizyml/persistence/exporter.py", line 202, in export
+    raise LizyMLError(
+lizyml.core.exceptions.LizyMLError: [SERIALIZATION_FAILED] Failed to export model to '/tmp/claude-1000/tmpwtnbcwwl/exp': Circular reference detected
+---- end ----
+booster.model_to_string: ValueError: Circular reference detected
+---- traceback ----
+Traceback (most recent call last):
+  File "/tmp/claude-1000/-home-rem-repos-LizyML/d85a6516-cd7d-4ceb-9320-dd3ae862da63/scratchpad/h0126/i338/p1_chain.py", line 62, in attempt
+    fn()
+  File "/tmp/claude-1000/-home-rem-repos-LizyML/d85a6516-cd7d-4ceb-9320-dd3ae862da63/scratchpad/h0126/i338/p1_chain.py", line 74, in <lambda>
+    attempt("booster.model_to_string", lambda: booster.model_to_string())
+                                               ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/rem/repos/LizyML/.venv/lib/python3.11/site-packages/lightgbm/basic.py", line 4619, in model_to_string
+    ret += _dump_pandas_categorical(self.pandas_categorical)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/rem/repos/LizyML/.venv/lib/python3.11/site-packages/lightgbm/basic.py", line 879, in _dump_pandas_categorical
+    categorical_json = json.dumps(pandas_categorical, default=_json_default_with_numpy)
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/rem/.local/share/uv/python/cpython-3.11.14-linux-x86_64-gnu/lib/python3.11/json/__init__.py", line 238, in dumps
+    **kw).encode(obj)
+          ^^^^^^^^^^^
+  File "/home/rem/.local/share/uv/python/cpython-3.11.14-linux-x86_64-gnu/lib/python3.11/json/encoder.py", line 200, in encode
+    chunks = self.iterencode(o, _one_shot=True)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/rem/.local/share/uv/python/cpython-3.11.14-linux-x86_64-gnu/lib/python3.11/json/encoder.py", line 258, in iterencode
+    return _iterencode(o, 0)
+           ^^^^^^^^^^^^^^^^^
+ValueError: Circular reference detected
+---- end ----
+pickle.dumps(booster): ValueError: Circular reference detected
+joblib.dump(booster): ValueError: Circular reference detected
+booster.save_model: ValueError: Circular reference detected
+json.dumps(pandas_categorical, default=lgb default): ValueError: Circular reference detected
+json.dumps(pandas_categorical) no default: TypeError: Object of type Decimal is not JSON serializable
+Model.export_code: LizyMLError: [SERIALIZATION_FAILED] export_code cannot write the declared categories of column 'd': the value Decimal('1.5') of type Decimal does not survive JSON with its type. Accepted: str, int, float, bool, and numpy scalars of those.
+pickle FitResult(models=[]): ok
+pickle refit.pipeline_state: ok
+pickle FitResult (full): ValueError: Circular reference detected
+lightgbm 4.6.0

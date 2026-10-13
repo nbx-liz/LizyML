@@ -1,0 +1,6 @@
+bytes fit ok; categorical_features ['d'] pandas_categorical [[b'a', b'b']]
+bytes export LizyMLError /tmp/claude-1000/tmpvpsku9e4/e': Circular reference detected
+Decimal fit ok; categorical_features ['d'] pandas_categorical [[Decimal('1.5'), Decimal('2.5')]]
+Decimal export LizyMLError /tmp/claude-1000/tmpzi_wr_n5/e': Circular reference detected
+str fit ok; categorical_features ['d'] pandas_categorical [['a', 'b']]
+str export ok

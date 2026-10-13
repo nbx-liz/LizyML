@@ -147,14 +147,6 @@ def test_every_numeric_fit_dtype_is_checked(fit_dtype: str) -> None:
 
 _CATEGORICAL_FITS = ["str", "object_num", "category"]
 
-#: #309: the encoder fails inside pandas when integer categories meet these
-#: arrivals. Strict, so the fix turns them green and must remove the marker.
-_ENCODER_GAPS = {
-    (fit, arrival)
-    for fit in ("object_num", "category")
-    for arrival in ("float16", "longdouble")
-}
-
 
 @pytest.fixture(scope="module")
 def categorical_models() -> dict[str, Model]:
@@ -163,27 +155,15 @@ def categorical_models() -> dict[str, Model]:
 
 @pytest.mark.parametrize(
     ("fit_dtype", "arrival"),
-    [
-        pytest.param(
-            fit,
-            arrival,
-            marks=pytest.mark.xfail(
-                strict=True,
-                raises=(NotImplementedError, ValueError),
-                reason="#309: raw pandas error in CategoricalEncoder",
-            ),
-        )
-        if (fit, arrival) in _ENCODER_GAPS
-        else (fit, arrival)
-        for fit in _CATEGORICAL_FITS
-        for arrival in sorted(_DTYPES)
-    ],
+    [(fit, arrival) for fit in _CATEGORICAL_FITS for arrival in sorted(_DTYPES)],
 )
 def test_categorical_at_fit_is_not_dtype_checked(
     categorical_models: dict[str, Model], fit_dtype: str, arrival: str
 ) -> None:
     """The dtype rule covers numeric-at-fit columns only; a categorical-at-fit
-    column's values go to the encoder (unseen values follow ``unseen_policy``)."""
+    column's values go to the encoder (unseen values follow ``unseen_policy``).
+    float16 / longdouble arrivals on integer categories used to fail inside
+    pandas (#309); they are compared as float64 (H-0127)."""
     categorical_models[fit_dtype].predict(_frame(arrival))
 
 

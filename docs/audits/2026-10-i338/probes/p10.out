@@ -1,0 +1,6 @@
+str          is_string_dtype=True
+bytes        is_string_dtype=False
+str + bytes  is_string_dtype=False
+Decimal      is_string_dtype=False
+Timestamp    is_string_dtype=False
+date         is_string_dtype=False

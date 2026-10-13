@@ -673,6 +673,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
     - SHAP 重要度は、fold k の検証行を fold k 自身の pipeline 状態（`FitResult.pipeline_state_per_fold`）で変換して fold k のモデルを説明する（H-0114）。上記の文字列列でも、SHAP 重要度が見る符号化と置換は OOF 予測が見たものと同じで、fit 中と同じく報告しない。`error` では未知の値があれば fit が先に止まるので、fit が通ったモデルの SHAP 重要度はこの理由で送出しない。
 - 推論時の列検査（不足列は `DATA_SCHEMA_INVALID`、余剰列は警告して除外）は pipeline に渡す**前**に facade（`Model.predict`）で行い、どの pipeline 実装でも省略されない（H-0104）。
 - 同じ検査で、学習時に数値だった列（`FitResult.dtypes` の記録）が予測時に数値でない dtype で届いたら `INCOMPATIBLE_COLUMNS` を送出する（context `columns` の各要素は `column` / `fit_dtype` / `predict_dtype`。H-0106）。不足列の `DATA_SCHEMA_INVALID` が先に効く。学習時に `category` だった列はこの dtype の規則で検査しない。
+- 学習時に `category` だった列に、pandas がカテゴリの値にできない浮動小数（`float16`、float64 より広い `longdouble`）で値が届いたとき（列の dtype でも、`object` 列の中の numpy のスカラーでも）、エンコーダは値を float64 にして照合する（`comparable_values`）。float64 にして値が変わる要素はどのカテゴリとも一致させず、未知として `unseen_policy` に従い、届いた元の値の文字列で報告する。欠損値は比較せず、どの方針でも欠損のまま。生成コードの `encode_column`（`train.py` / `predict.py`）も同じ規則を写す（H-0127、#309）。
 
 # 10. Split（`splitters/`）と InnerValidStrategy（`training/`）
 
@@ -1874,6 +1875,7 @@ estimators/
 - `Model Artifact` を 1 ディレクトリにまとめる。中身は `metadata.json`、`fit_result.pkl`（`FitResult`）、`refit_model.pkl`（`RefitResult`）と、任意の `analysis_context.pkl`（load 後の診断 API が使う `y_true` と `X_for_explain`。無ければ load 時に `None`、H-0026）。`.pkl` は joblib（圧縮）で書く（H-0003）。
 - `.pkl` は pickle なので、読み込むと任意の Python を実行しうる。`Model.load()` は信頼できる出どころの artifact だけに使う（H-0003、上記の脅威モデル）。
 - `Model.load()` で復元し、推論と評価情報参照に加えて診断 API（残差/SHAP/分類・校正可視化）も利用可能にする。
+- **保存できないカテゴリ値（H-0127、#338）**: LightGBM は booster を pickle するとき、各カテゴリ列のカテゴリをモデル文字列に JSON で書く。`export()` は何かを書く前に、保存する全ての pipeline 状態（refit、各 fold、`pipeline_state_per_fold` が無いモデルでは `pipeline_state` を `last fold` と呼ぶ）のエンコーダのカテゴリを、LightGBM の書き手を写した一つの判定（`estimators/lgbm/category_json.py`）にかける。書けない値（`bytes`、`Decimal`、日時、`Timedelta`、`complex`、`frozenset`、それらを要素に持つ `tuple`、`.item()` が Python の値にならない numpy のスカラー）があれば `SERIALIZATION_FAILED` を送出し（context `column` / `value` / `type` / `state`。値は例外を出さない表示で書く）、出力先に何も書かない。`fit()` は CV の学習の前に、全ての学習行で fit した pipeline の状態（refit の pipeline と同じ行）を同じ判定にかけ、該当する列ごとに `UserWarning` を出す。fit は止めない。要素が書ける `tuple` は保存できる（`export_code` は H-0120 の値の集合で拒否する）。限界: 再帰の上限の数段手前まで入れ子にした `tuple` は判定を通り、booster の pickle が Python 自身の再帰の上限で失敗する。その export は書き出しの途中の `SERIALIZATION_FAILED` のままである。
 
 ## 15.4 `export_code`（Codegen Export, H-0059）
 

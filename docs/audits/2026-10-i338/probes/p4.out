@@ -1,0 +1,28 @@
+lightgbm 4.6.0 pandas 3.0.1
+bytes train(keep_training_booster=False) ValueError Circular reference detected
+bytes model_to_string ValueError Circular reference detected
+bytes pickle.dumps ValueError Circular reference detected
+bytes pred range 0.2307 0.5592
+Decimal train(keep_training_booster=False) ValueError Circular reference detected
+Decimal model_to_string ValueError Circular reference detected
+Decimal pickle.dumps ValueError Circular reference detected
+Decimal pred range 0.2307 0.5592
+str train(keep_training_booster=False) ok
+str model_to_string ok
+str pickle.dumps ok
+str pred range 0.2307 0.5592
+neg control max|p(correct) - p(permuted input)|: 0.32852145278490974
+lightgbm 4.4.0 pandas 2.0.0
+bytes train(keep_training_booster=False) ValueError Circular reference detected
+bytes model_to_string ValueError Circular reference detected
+bytes pickle.dumps ValueError Circular reference detected
+bytes pred range 0.2307 0.5592
+Decimal train(keep_training_booster=False) ValueError Circular reference detected
+Decimal model_to_string ValueError Circular reference detected
+Decimal pickle.dumps ValueError Circular reference detected
+Decimal pred range 0.2307 0.5592
+str train(keep_training_booster=False) ok
+str model_to_string ok
+str pickle.dumps ok
+str pred range 0.2307 0.5592
+neg control max|p(correct) - p(permuted input)|: 0.32852145278490974

@@ -1,0 +1,12 @@
+/home/rem/repos/LizyML/lizyml/core/model.py:274: UserWarning: task='binary' with split.method='kfold' does not preserve class distribution. Consider using 'stratified_kfold' instead.
+  splitter = build_splitter(
+int64          proba=[0.51, 0.51, 0.51, 0.51, 0.51]
+float64        proba=[0.51, 0.51, 0.51, 0.51, 0.51]
+float32        proba=[0.51, 0.51, 0.51, 0.51, 0.51]
+float16        NotImplementedError: float16 indexes are not supported
+longdouble     ValueError: Buffer dtype mismatch, expected 'Python object' but got 'long double'
+--- a value that is not a fit category
+float64 2.5    proba=[0.51]
+               warning: Column 'a': 1 row(s) with unseen categories ['2.5'] replaced by the training mode np.int64(3) (unseen_policy='mode')
+float16 2.5    proba=[0.51]
+               warning: Column 'a': 1 row(s) with unseen categories ['2.5'] replaced by the training mode np.int64(3) (unseen_policy='mode')

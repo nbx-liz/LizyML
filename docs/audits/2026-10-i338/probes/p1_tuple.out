@@ -1,0 +1,19 @@
+fit: ok
+predict: ok [1 1 1 1]
+booster type: Booster
+booster.pandas_categorical: [[(1, 2), (3, 4)]]
+elem types: ['tuple', 'tuple']
+fold0 booster.pandas_categorical: [[(1, 2), (3, 4)]]
+refit.pipeline_state type: dict
+Model.export: ok
+booster.model_to_string: ok
+pickle.dumps(booster): ok
+joblib.dump(booster): ok
+booster.save_model: ok
+json.dumps(pandas_categorical, default=lgb default): ok
+json.dumps(pandas_categorical) no default: ok
+Model.export_code: LizyMLError: [SERIALIZATION_FAILED] export_code cannot write the declared categories of column 'd': the value (1, 2) of type tuple does not survive JSON with its type. Accepted: str, int, float, bool, and numpy scalars of those.
+pickle FitResult(models=[]): ok
+pickle refit.pipeline_state: ok
+pickle FitResult (full): ok
+lightgbm 4.6.0

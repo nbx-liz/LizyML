@@ -30,6 +30,10 @@ import pandas as pd
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.task import TaskType
+from lizyml.estimators.lgbm.category_json import (
+    encoder_categories,
+    unwritable_categories,
+)
 
 if TYPE_CHECKING:
     from lizyml.core.types.fit_result import FitResult
@@ -62,6 +66,54 @@ def _plain_declared(
             values.append(plain)
         out[col] = values
     return out
+
+
+def _saved_pipeline_states(
+    fit_result: FitResult, refit_result: RefitResult
+) -> list[tuple[str, Any]]:
+    """Every pipeline state whose booster is pickled, named for the error."""
+    per_fold = fit_result.pipeline_state_per_fold
+    named: list[tuple[str, Any]] = [("refit", refit_result.pipeline_state)]
+    if per_fold is None:
+        named.append(("last fold", fit_result.pipeline_state))
+    else:
+        named.extend((f"fold {k}", state) for k, state in enumerate(per_fold, 1))
+    return named
+
+
+def check_category_values(fit_result: FitResult, refit_result: RefitResult) -> None:
+    """Refuse, before anything is written, a model LightGBM cannot save (H-0127).
+
+    LightGBM writes each categorical column's categories as JSON when the
+    booster is pickled; a value JSON cannot encode used to fail half-way
+    through the write with ``Circular reference detected`` (#338).
+
+    Raises:
+        LizyMLError: With ``SERIALIZATION_FAILED`` naming the column, the value,
+            its type and the pipeline state that holds it.
+    """
+    for state_name, state in _saved_pipeline_states(fit_result, refit_result):
+        found = unwritable_categories(encoder_categories(state))
+        if not found:
+            continue
+        item = found[0]
+        raise LizyMLError(
+            code=ErrorCode.SERIALIZATION_FAILED,
+            user_message=(
+                f"Model.export cannot save this model: column '{item.column}' "
+                f"({state_name} pipeline state) holds the category value "
+                f"{item.shown} of type "
+                f"{item.type_name}, which LightGBM cannot write into a saved "
+                "model (it stores category values as JSON). Convert the "
+                "column's values to str (or int, float, bool) and fit again."
+            ),
+            context={
+                "column": item.column,
+                "value": item.shown,
+                "type": item.type_name,
+                "state": state_name,
+            },
+        )
 
 
 def _tuning_metadata(tuning: TuningResult) -> dict[str, Any]:
@@ -112,6 +164,7 @@ def export(
     applied_training_params: dict[str, Any] | None = None,
     applied_sample_weight: str | None = None,
     declared_categories: dict[str, list[Any]] | None = None,
+    categories_checked: bool = False,
 ) -> None:
     """Serialize Model artifacts to *path*.
 
@@ -146,10 +199,17 @@ def export(
             cannot return with its type is omitted too rather than written as
             ``str``: ``export_code`` refuses such a model anyway, because the
             encoder holds the same values.
+        categories_checked: ``True`` when the caller already ran
+            :func:`check_category_values` on these results (``Model.export``
+            runs it before resolving the path), so the scan is not repeated.
 
     Raises:
-        LizyMLError with SERIALIZATION_FAILED on any I/O or serialization error.
+        LizyMLError with SERIALIZATION_FAILED on any I/O or serialization error,
+        and before anything is written when a category value cannot be saved
+        (:func:`check_category_values`, H-0127).
     """
+    if not categories_checked:
+        check_category_values(fit_result, refit_result)
     out = Path(path)
     try:
         out.mkdir(parents=True, exist_ok=True)

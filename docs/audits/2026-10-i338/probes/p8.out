@@ -1,0 +1,5 @@
+object of np.float16               transform: NotImplementedError: float16 indexes are not supported
+object of np.float16 + unseen      transform: NotImplementedError: float16 indexes are not supported
+object of np.longdouble            transform: ValueError: Buffer dtype mismatch, expected 'Python object' but got 'long double'
+category of np.longdouble          build: ValueError: Buffer dtype mismatch, expected 'Python object' but got 'long double'
+category of float16 array          build: NotImplementedError: float16 indexes are not supported
