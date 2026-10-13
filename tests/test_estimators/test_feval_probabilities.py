@@ -34,7 +34,8 @@ from tests._helpers import make_config
 
 #: (task, LightGBM objective, extra params): every objective LizyML accepts for
 #: a task, read from its own table rather than listed here (review round 1 found
-#: a hand-written list that omitted ``cross_entropy`` / ``cross_entropy_lambda``).
+#: a hand-written list that omitted ``cross_entropy`` and the since-refused
+#: ``cross_entropy_lambda``).
 OBJECTIVES: list[tuple[str, str, dict[str, Any]]] = [
     (task, objective, {"num_class": 3} if task == "multiclass" else {})
     for task, objectives in sorted(TASK_COMPATIBLE_OBJECTIVES.items())
@@ -67,15 +68,41 @@ def _data(task: str, n: int = 400) -> tuple[np.ndarray, np.ndarray]:
     return X, np.digitize(signal, [-0.5, 0.6])
 
 
+#: The evaluator-failure branch below needs an output that is not a
+#: probability. No objective LizyML accepts produces one any more (H-0125
+#: refuses ``cross_entropy_lambda``, whose output is lambda), so the branch is
+#: kept covered by LightGBM's own ``cross_entropy_lambda``, trained directly:
+#: an input outside LizyML's table, not a claim that LizyML accepts it.
+NON_PROBABILITY_CELLS = [
+    pytest.param("binary", "cross_entropy_lambda", {}, name, id=f"lambda-{name}")
+    for name in sorted(_FEVAL_METRICS["binary"])
+]
+
+
 @pytest.mark.parametrize(("task", "objective", "extra", "name"), CELLS)
 def test_feval_value_is_the_metric_of_lightgbm_predictions(
     task: str, objective: str, extra: dict[str, Any], name: str
 ) -> None:
     """Same value as the evaluator's rule on LightGBM's output -- or, where that
-    rule itself fails (an objective whose output is not a probability, such as
-    ``cross_entropy_lambda`` above 1, fed to a probability metric), the same
-    failure: the learning curve must not report a number ``FitResult.metrics``
-    could not compute (H-0105 decision 1)."""
+    rule itself fails (an output that is not a probability fed to a probability
+    metric), the same failure: the learning curve must not report a number
+    ``FitResult.metrics`` could not compute (H-0105 decision 1)."""
+    _compare_feval_with_the_evaluator(task, objective, extra, name)
+
+
+@pytest.mark.parametrize(("task", "objective", "extra", "name"), NON_PROBABILITY_CELLS)
+def test_a_non_probability_output_fails_the_feval_like_the_evaluator(
+    task: str, objective: str, extra: dict[str, Any], name: str
+) -> None:
+    """The failure branch of the comparison, on an output above 1."""
+    pairs = _compare_feval_with_the_evaluator(task, objective, extra, name)
+    if get_metric(name).needs_proba:
+        assert np.isnan(np.array(pairs)).any(), "the failure branch never ran"
+
+
+def _compare_feval_with_the_evaluator(
+    task: str, objective: str, extra: dict[str, Any], name: str
+) -> list[tuple[float, float]]:
     metric = get_metric(name)
     feval = _build_feval(metric, task, num_class=extra.get("num_class"))  # type: ignore[arg-type]
     pairs: list[tuple[float, float]] = []
@@ -108,6 +135,7 @@ def test_feval_value_is_the_metric_of_lightgbm_predictions(
     assert pairs, "the feval was never called"
     got, want = np.array(pairs).T
     np.testing.assert_allclose(got, want, rtol=1e-12, atol=1e-12, equal_nan=True)
+    return pairs
 
 
 def _binary_df(n: int = 2000) -> pd.DataFrame:

@@ -3,7 +3,8 @@
 ``needs_proba`` declares that a metric needs probabilities, and LizyML's own
 callers pass them. A value outside [0, 1], a non-finite value, or 1-D input for
 more than two classes reaching one of these metrics means an upstream defect
-(#307: ``cross_entropy_lambda``'s output is not a probability). Before this,
+(#307: ``cross_entropy_lambda``'s output is not a probability; H-0125 refuses
+that objective before training). Before this,
 ``auc`` / ``auc_pr`` / ``ece`` / ``precision_at_k`` computed silently on such
 input, and ``logloss`` / ``brier`` failed with a raw scikit-learn error.
 
@@ -23,6 +24,7 @@ from lizyml.core.model import Model
 from lizyml.core.registries import MetricRegistry
 from lizyml.metrics import get_metric
 from tests._helpers import make_config
+from tests._train_spy import record_lightgbm_calls
 
 _PROBA_METRICS = sorted(
     n
@@ -120,9 +122,12 @@ def test_two_class_labels_other_than_zero_one_pass(name: str) -> None:
         pass  # scikit-learn's own label handling, before and after H-0106
 
 
-def test_cross_entropy_lambda_fit_reports_the_metric() -> None:
-    """#307's data: the objective's output exceeds 1, and a fit limited to a
-    ranking metric used to succeed and report it as a probability."""
+def test_cross_entropy_lambda_fit_is_refused_as_an_objective() -> None:
+    """#307's data: the objective's output exceeds 1. Before H-0125 this fit
+    reached the evaluator and failed there with ``METRIC_REQUIRES_PROBA`` (a
+    shorter fit succeeded and returned the output as a probability). H-0125
+    refuses the objective before any training, so the same input now ends in
+    ``CONFIG_INVALID`` naming the reason."""
     rng = np.random.default_rng(0)
     X = rng.normal(size=(1500, 3))
     df = pd.DataFrame(X, columns=["a", "b", "c"])
@@ -130,7 +135,9 @@ def test_cross_entropy_lambda_fit_reports_the_metric() -> None:
     cfg = make_config("binary", n_estimators=300, n_splits=3)
     cfg["model"]["params"].update(objective="cross_entropy_lambda", learning_rate=0.1)
     cfg["evaluation"] = {"metrics": ["auc"]}
-    with pytest.raises(LizyMLError) as exc:
+    with record_lightgbm_calls() as seen, pytest.raises(LizyMLError) as exc:
         Model(cfg).fit(data=df)
-    assert exc.value.code == ErrorCode.METRIC_REQUIRES_PROBA
-    assert exc.value.context["metric"] == "auc"
+    assert exc.value.code == ErrorCode.CONFIG_INVALID
+    assert exc.value.context["reason"] == "not_a_probability"
+    assert exc.value.context["parameter"] == "objective"
+    assert seen["train_params"] == []

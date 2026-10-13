@@ -63,10 +63,11 @@ _TASK_OBJECTIVE_PAIRS = [
     ("regression", "mape"),
     ("regression", "gamma"),
     ("regression", "tweedie"),
-    # binary: 3 canonical LightGBM objectives
+    # binary: the 2 LightGBM objectives whose output is a probability.
+    # ``cross_entropy_lambda`` predicts lambda, not a probability, and is
+    # refused (H-0125); its pair moved to ``TestCrossTaskObjectiveRejected``.
     ("binary", "binary"),
     ("binary", "cross_entropy"),
-    ("binary", "cross_entropy_lambda"),
     # multiclass: 2 canonical LightGBM objectives
     ("multiclass", "multiclass"),
     ("multiclass", "multiclassova"),
@@ -122,6 +123,9 @@ class TestCrossTaskObjectiveRejected:
             ("binary", "regression"),
             ("binary", "huber"),
             ("binary", "multiclass"),
+            # Not another task's, but refused the same way: its output is not
+            # a probability (H-0125, #307).
+            ("binary", "cross_entropy_lambda"),
             ("multiclass", "regression"),
             ("multiclass", "binary"),
         ],

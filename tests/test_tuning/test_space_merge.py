@@ -103,8 +103,10 @@ def test_legacy_artifact_refit_policy(
         loader,
         "load",
         lambda path: (
-            SimpleNamespace(metrics={}),
-            None,
+            SimpleNamespace(metrics={}, models=[]),
+            # The loader always returns the refit object; this stand-in's
+            # model has no LightGBM booster, so H-0125's load check skips it.
+            SimpleNamespace(model=SimpleNamespace(get_native_model=lambda: None)),
             metadata,
             None,
         ),
