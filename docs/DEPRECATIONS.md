@@ -144,8 +144,9 @@ deprecation period, because a warning would still return wrong values.
 From v0.19.0:
 
 ```python
-LGBMConfig(task="binary", params={"objective": "cross_entropy_lambda"})
-# LizyMLError(CONFIG_INVALID), context reason "not_a_probability":
+config["model"]["params"]["objective"] = "cross_entropy_lambda"  # task: binary
+Model(config).fit(data=df)
+# LizyMLError(CONFIG_INVALID) before training, context reason "not_a_probability":
 # objective 'cross_entropy_lambda' is not accepted for task 'binary': its
 # output is not a probability ... Use 'binary' or 'cross_entropy'.
 ```

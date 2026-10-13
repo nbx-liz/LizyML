@@ -305,7 +305,8 @@ def _entry(entries: list[str], *needles: str) -> str:
     return found[0]
 
 
-_ISSUE = "https://github.com/nbx-liz/LizyML/issues/{}"
+# The link target with its closing parenthesis, so issue 307 cannot match 3070 (DC2).
+_ISSUE = "(https://github.com/nbx-liz/LizyML/issues/{})"
 
 
 def test_changelog_changed_entries() -> None:

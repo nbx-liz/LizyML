@@ -105,9 +105,10 @@ def recorded_objective(booster: lgb.Booster) -> str | None:
     ``booster.params`` is not read: a booster restored from its model string
     has none, and they can be written to after training.
 
-    Only the first iteration is serialised. The header that carries the line
-    is the same for any iteration count, so the cost does not grow with the
-    number of trees.
+    Only the first iteration is serialised. The ``objective=`` line is the
+    same for any iteration count (other header lines, such as
+    ``tree_sizes=``, are not), so the cost does not grow with the number of
+    trees.
 
     Returns:
         The objective's first token, or ``None`` when the model string has no
