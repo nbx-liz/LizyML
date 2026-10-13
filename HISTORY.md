@@ -13237,12 +13237,12 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
 - (b) レーンで確かめる範囲に extras（`tuning`、`explain`、`plots`、`calibration`）の下限も含める。レーンは、入った版が下限と一致することも確かめる。
 
 ### 実測（2026-10-13、隔離した venv、Python 3.11.14、develop `ca083ef`）
-`uv pip install --resolution lowest-direct -e ".[tuning,explain,plots,calibration]"` で、本体と extras の直接の依存をすべて下限で入れた。テスト用の道具（pytest、pytest-cov、pyarrow、nbconvert、ipykernel）は lock の版で入れた。全スイートを実行し（最初の実行 run1 では道具に pytest-cov を入れ忘れ、`test_phase3_gap.py` の 12 件がそのために落ちた。run2 から加えた）、落ちたテストは「1 つのパッケージだけを上げる」「1 つだけを下限に戻す」で原因の版を特定した。
+`uv pip install --resolution lowest-direct -e ".[tuning,explain,plots,calibration]"` で、本体と extras の直接の依存をすべて下限で入れた。テスト用の道具（pytest、pytest-cov、pyarrow、nbconvert、ipykernel）は lock の版で入れた。スイートを実行し（`pyproject.toml:142` の `addopts = "-m 'not slow'"` により slow の 21 件を除く。CI の `quality` の各レーンと同じ母集団で、以下「スイート」はこれを指す。最初の実行 run1 では道具に pytest-cov を入れ忘れ、`test_phase3_gap.py` の 12 件がそのために落ちた。run2 から加えた）、落ちたテストは「1 つのパッケージだけを上げる」「1 つだけを下限に戻す」で原因の版を特定した。
 
 | 依存 | 宣言 | 実際に入った版 | 結果 | 新しい下限 |
 |---|---|---|---|---|
-| pydantic | `>=2.0` | 2.0 | 2.0〜2.10 は import で失敗（`ImportError: cannot import name 'ModelWrapValidatorHandler'`）。この名前は `schema.py:16` で型注釈にだけ使う。型検査のときだけ import する形に直すと、2.1〜2.12 のすべての minor で import できる。pydantic 2.1.0 を含む最後の構成の全スイートでは、pydantic に起因する失敗は無い（残る 4 件は下の「版で変わるテストの前提」）。2.0 は `EarlyStoppingConfig.inner_valid: InnerValidConfig \| None`（`schema.py:451`。`TrainingConfig` が既定値として作る、`schema.py:560`）で `TypeError: discriminator can only be used with Union type with more than one variant` になる（1 変種の `ModelConfig` の discriminator を外しても同じ箇所で落ちる） | **2.1**（コードを 1 か所直す） |
-| optuna（`tuning`） | `>=3.0` | 3.1.0 | 3.0 を求めると uv は scipy を 1.8.1 に下げる（`calibration` の `scipy>=1.10` と同時に入らない。lowest-direct は 3.1.0 を選んだ）。3.1〜3.3 には `optuna.get_all_study_names` が無い（`tuning/tuner.py:155`、H-0121）。全下限の実行（run1）は 179 failed・182 errors で、そのほとんどが tune / resume / restore のテストの `AttributeError`（failed のうち 163 件が `tests/test_tuning`）。3.4 にした実行（run2）は 5 failed・0 errors（残りは別の原因で、下に記す） | **3.4** |
+| pydantic | `>=2.0` | 2.0 | 2.0〜2.10 は import で失敗（`ImportError: cannot import name 'ModelWrapValidatorHandler'`）。この名前は `schema.py:16` で型注釈にだけ使う。型検査のときだけ import する形に直すと、2.1〜2.12 のすべての minor で import できる。pydantic 2.1.0 を含む最後の構成のスイートでは、pydantic に起因する失敗は無い（残る 4 件は下の「版で変わるテストの前提」）。2.0 は `EarlyStoppingConfig.inner_valid: InnerValidConfig \| None`（`schema.py:451`。`TrainingConfig` が既定値として作る、`schema.py:560`）で `TypeError: discriminator can only be used with Union type with more than one variant` になる（1 変種の `ModelConfig` の discriminator を外しても同じ箇所で落ちる） | **2.1**（コードを 1 か所直す） |
+| optuna（`tuning`） | `>=3.0` | 3.1.0 | 3.0 を求めると uv は scipy を 1.8.1 に下げる（`calibration` の `scipy>=1.10` と同時に入らない。lowest-direct は 3.1.0 を選んだ）。3.1〜3.3 には `optuna.get_all_study_names` が無い（`tuning/tuner.py:155`、H-0121）。全下限の実行（run1）は 179 failed・182 errors で、そのほとんどが tune / resume / restore のテストの `AttributeError`（failed のうち 163 件が `tests/test_tuning`）。API を 3.0 からある `get_all_study_summaries` に置き換えると、残る optuna 固有の違いは 1 件（復元した `tuning_table()` の列の順）で、これも数行で直る（下の「数行で直すもの」） | **3.1**（コードを 2 か所直す） |
 | lightgbm | `>=4.0` | 4.0.0 | 4.0〜4.3 は、検証データの無い学習で `early_stopping_round=0` を渡すと `ValueError: For early stopping, at least one dataset and eval metric is required for evaluation` を出す（利用者の `model.params` が 0 で早期終了を切る場合。`test_space_merge.py::test_removed_training_dimension_admission[False]`）。4.4 から通る | **4.4** |
 | numpy | `>=1.24` | 1.24.0 | 通る（落ちるテスト 3 件は下の「版で変わるテストの前提」） | 1.24（変えない） |
 | pandas | `>=2.0` | 2.0.0 | 通る（同上 1 件） | 2.0（変えない） |
@@ -13250,10 +13250,13 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
 | pyyaml / joblib | `>=6.0` / `>=1.3` | 6.0 / 1.3.0 | 通る | 変えない |
 | shap（`explain`） / plotly（`plots`） / scipy（`calibration`） | `>=0.44` / `>=5.0` / `>=1.10` | 0.44.0 / 5.0.0 / 1.10.0 | 通る | 変えない |
 
-最後の構成（pydantic 2.1.0、optuna 3.4.0、lightgbm 4.4.0、ほかは下限）で全スイートを流した結果: 4 failed、11460 passed、230 skipped。skip の理由は lock の環境と完全に同じ（230 件すべてが `test_param_domain.py:250` の同じ理由）。下限で skip に逃げるテストは無い。
+最後の構成（pydantic 2.1.0、optuna 3.1.0、lightgbm 4.4.0、ほかは下限。下の方針 2・3 のコードの修正を当てた作業ツリー）でスイートを流した結果（`results/summary_run6_final.txt`）: 5 failed、11460 passed、230 skipped、21 deselected。失敗は下の「版で変わるテストの前提」の 4 件と、`tests/test_e2e/test_version.py`（venv を作った後に commit が進み、editable のメタデータの版が古くなったため。環境の問題で、CI では起きない）。skip の理由は lock の環境と完全に同じ（230 件すべてが `test_param_domain.py:250` の同じ理由）。下限で skip に逃げるテストは無い。
+
+**数行で直すもの（判断 (a)）**
+- optuna 3.1: (1) 本体の `tuner.py:155` の `get_all_study_names(storage)` を `[s.study_name for s in get_all_study_summaries(storage, include_best_trial=False)]` にする。テストの同じ呼び出し 7 か所（6 ファイル）も同じにする。(2) `_step_grid.py:232-258` の `recorded_params` が、試行の `params` を辞書の順ではなく、その round の探索空間の次元の順で返すようにする（次元の無い名前を拒否する今の検査は保つ）。この関数は、学習した直後の結果と復元した結果の両方が通る唯一の読み手である（`rounds.py:46-48`）。optuna 3.1 は保存した試行のパラメータを別の順で返すので、今は復元した `tuning_table()` の列が `learning_rate, num_leaves`、学習した直後が `num_leaves, learning_rate` になり、`test_restore_tuning.py::test_reporting_surfaces_match_live` が落ちる（`results/summary_run5_optuna31_summaries_api.txt`）。(1)(2) を当てると、optuna 3.1.0 でも lock の 4.7.0 でも `tests/test_tuning` と `tests/test_plots` は、pandas の証拠の値の 1 件（下の 3.）を除いて通る（3.1.0: 1 failed、1640 passed。4.7.0: 1641 passed）。lock の版では、試行の `params` の順はもともと次元の順なので、表の列の順は変わらない。
 
 **直さずに下限を上げる理由（判断 (a) の「数行」）**
-- optuna: 本体の呼び出し（`tuner.py:155`）とテストの呼び出し 7 か所（6 ファイル）を、3.0 からある `get_all_study_summaries(storage, include_best_trial=False)` に置き換え、optuna 3.1.0 とほかの下限で全スイートを流した（`results/summary_run5_optuna31_summaries_api.txt`、置き換えは戻した）。7 failed のうち、4 件は下の「版で変わるテストの前提」、2 件はこの Proposal の処分の行が無いこと（この改訂で加えた）、**1 件が optuna 3.1 に固有**: `test_restore_tuning.py::test_reporting_surfaces_match_live` で、復元した `tuning_table()` の列の順（`num_leaves`, `learning_rate`）が学習した直後の順（`learning_rate`, `num_leaves`）と違う。`tuning_table` は列の順を試行の `params` の辞書の順に任せており（`_model_tables.py:226-233`）、optuna 3.1 は保存した試行のパラメータを別の順で返す。これは利用者に見える違いで、直すには列の順の規則（探索空間の順か、名前の順か）を決めて、復元と学習の両方の表に適用する必要がある。API の置き換えは数行だが、optuna 3.1〜3.3 の利用者のために列の順の規則を新しく決めるのは数行の修正ではないので、3.4 に上げる。
+- optuna 3.0: `calibration` の `scipy>=1.10` と同時に入らないので、全 extras を入れるレーンでは確かめられない。確かめられる最低の版 3.1 を下限にする。
 - lightgbm: 利用者が `model.params` に書いた `early_stopping_round` の値を LizyML が書き換えるのは、規則の変更であって数行の修正ではない。
 - pydantic 2.0: 省略可能な discriminated union の組み立て方を変える必要があり、設定の検証の誤り方（エラーの形）も変わりうる。2.0 と 2.1 は 1 か月違い（2023-06 と 2023-07）。
 
@@ -13268,14 +13271,14 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
 **利用者に見える違い（下限の理由にはしない）**: numpy 1.x の利用者が Platt に `target_smoothing=False` と `method="TNC"` を与えると、numpy 2 なら収束するデータで `CALIBRATION_FAILED` になりうる。黙って誤る代わりに大きな声で止まるので、数値の版による差として CHANGELOG に書く。numpy の下限は上げない。
 
 ### 対応方針（提案）
-1. **下限**: `pydantic>=2.1`、`optuna>=3.4`（`tuning`）、`lightgbm>=4.4` にする。ほかは変えない。`uv.lock` を作り直す。
-2. **schema.py**: `ModelWrapValidatorHandler` を `if TYPE_CHECKING:` の中で import する（実行時は使わない。注釈は `from __future__ import annotations` で文字列のまま）。mypy の型は今と同じ。
+1. **下限**: `pydantic>=2.1`、`optuna>=3.1`（`tuning`）、`lightgbm>=4.4` にする。ほかは変えない。`uv.lock` を作り直す。
+2. **schema.py**: `ModelWrapValidatorHandler` を `if TYPE_CHECKING:` の中で import する（実行時は使わない。注釈は `from __future__ import annotations` で文字列のまま）。mypy の型は今と同じ。optuna 3.1 のために、上の「数行で直すもの」の (1)(2) を当てる。
 3. **最低依存のレーン**（`quality-lowest-deps`、Python 3.10 のまま、マージを止めるレーンのまま）:
    1. `uv venv` で空の環境を作る。lock は使わない。
    2. `uv pip install --resolution lowest-direct -e ".[tuning,explain,plots,calibration]"` で本体と全 extras を下限で入れる。
    3. テスト用の道具を新しい依存グループ（`lowest-lane`）から `uv pip install --group lowest-lane` で入れる（下限の解決を道具に効かせない。道具の版の古さでレーンが落ちるのを避ける）。道具が下限の版を動かしたら、次の段で止まる。
    4. **`.venv/bin/python scripts/check_dependency_floors.py`** を実行する（下の 4.）。
-   5. `.venv/bin/python -m pytest tests/ -q` を実行する。
+   5. `.venv/bin/python -m pytest tests/ -q` を実行する（slow を除く。`quality` の各レーンと同じ母集団）。
    `uv venv` も `uv pip install` も `.venv/bin` を PATH に置かない（setup-uv の `activate-environment` も使っていない）。素の `python` や `pytest` は下限の環境ではない Python を指しうるので、段 4・5 は `.venv/bin/python` を明示する。
 4. **下限の検査の script**（`scripts/check_dependency_floors.py`、標準ライブラリと `packaging` だけ）:
    - 宣言は、入った LizyML のメタデータ（`importlib.metadata.requires("lizyml")`）から読む。`pyproject.toml` を写さない（DC3）。
@@ -13284,17 +13287,20 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
    - 解決した版の表（名前、下限、入った版、判定）を常に表示する（#295 の受け入れ基準 2）。一つでも合わなければ 0 以外で終わる。
    - 条件で働きを変える仕組みは持たない（レーンで常に実行する）。
 5. **生成コードの下限**: `templates.py` の生成 `requirements.txt` の `lightgbm>=4.0` を `lightgbm>=4.4` にする。`adapter.py:95` の案内文も同じにする。両方の下限がメタデータの LightGBM の下限と等しいことをテストで固定する（DC3）。
-6. **文書**: BLUEPRINT §18.2 の 1 行と CONTRIBUTING.md の lane の説明を、「lock を使わずに宣言した下限（全 extras を含む）を入れ、入った版が下限と等しいことを検査してからテストする」に直す。CHANGELOG（Unreleased）と docs/migration.md に、下限の引き上げ（pydantic 2.0、optuna 3.0〜3.3、lightgbm 4.0〜4.3 の利用者は上げる必要がある）と、上の numpy 1.x の Platt の違いを書く。PLAN.md の古い下限は予定の記録なので変えない。
+6. **文書**: BLUEPRINT §18.2 の 1 行と CONTRIBUTING.md の lane の説明を、「lock を使わずに宣言した下限（全 extras を含む）を入れ、入った版が下限と等しいことを検査してからテストする」に直す。CHANGELOG（Unreleased）と docs/migration.md に、下限の引き上げ（pydantic 2.0、optuna 3.0、lightgbm 4.0〜4.3 の利用者は上げる必要がある）と、上の numpy 1.x の Platt の違いを書く。PLAN.md の古い下限は予定の記録なので変えない。
 7. **dev の依存グループの重複を無くす**（DC3）: `[dependency-groups].dev` は `optuna>=3.0`、`shap>=0.44`、`plotly>=5.0`、`scipy>=1.10` を extras と別に宣言している（`pyproject.toml:52-55`、`uv.lock` の `lizyml` の dev の要求にも写っている）。この 4 行を `"lizyml[tuning,explain,plots,calibration]"` 1 行に置き換え、下限を extras の 1 か所だけにする（試行で `uv lock` が通り、lock の差分は dev の要求の 4 行が 1 行になるだけだった。lock の版は変わらない）。
 8. **lock の整合性を CI で検査する**（DC3）: `quality` ジョブ（Python 3.10 / 3.11 / 3.12）の依存の導入の前に `uv lock --check` の段を加える。CI のどの `uv sync` も `--frozen` で、lock が `pyproject.toml` と合っているかを確かめないため、下限や依存グループを変えて lock を作り直し忘れても、今は CI が通ってしまう。
-9. **以前の未測定を閉じる**: H-0105 方針 2（multiclass の feval が 2 次元で来ること）は `tests/test_estimators/test_feval_probabilities.py` が lightgbm 4.4.0 で通り、H-0106 方針 4（validator の `LizyMLError` が包まれずに伝わること）は `tests/test_config/test_config_version_entry_paths.py` が pydantic 2.1.0 で通った（最後の構成の全スイート）。この Proposal の実装の記録に書く。
+9. **以前の未測定を閉じる**: H-0105 方針 2（multiclass の feval が 2 次元で来ること）は `tests/test_estimators/test_feval_probabilities.py` が lightgbm 4.4.0 で通り、H-0106 方針 4（validator の `LizyMLError` が包まれずに伝わること）は `tests/test_config/test_config_version_entry_paths.py` が pydantic 2.1.0 で通った（最後の構成のスイート）。この Proposal の実装の記録に書く。
 
 ### 規則が縛る位置（ソースから導出、実装前、`ca083ef`）
 | 位置 | 今 | この Proposal の後 |
 |---|---|---|
 | `pyproject.toml:19` `pydantic` | `>=2.0` | `>=2.1` |
 | `pyproject.toml:23` `lightgbm` | `>=4.0` | `>=4.4` |
-| `pyproject.toml:33` `tuning` の `optuna` | `>=3.0` | `>=3.4` |
+| `pyproject.toml:33` `tuning` の `optuna` | `>=3.0` | `>=3.1` |
+| `lizyml/tuning/tuner.py:155` | `get_all_study_names` | `get_all_study_summaries(..., include_best_trial=False)` の名前 |
+| `lizyml/tuning/_step_grid.py:232-258` `recorded_params` | 試行の `params` の辞書の順 | round の次元の順 |
+| テストの `get_all_study_names` 7 か所（`_invariance.py:191`、`test_h0125_tune_value_admission.py:99`、`test_read_study_lineage.py:165`、`test_restore_tuning.py:387`、`test_resume_call_matrix.py:309`、`test_smart_dimension_values.py:196,443`） | 3.4 以降の API | 3.0 からある API |
 | `pyproject.toml:52-55` `[dependency-groups].dev` の `optuna` / `shap` / `plotly` / `scipy` | extras と別に下限を宣言 | `lizyml[tuning,explain,plots,calibration]` 1 行（方針 7） |
 | `pyproject.toml` `[dependency-groups]` | `dev`、`notebooks` | `lowest-lane` を加える |
 | `.github/workflows/ci.yml:36-37`（`quality` の依存の導入） | lock の整合性を検査しない | 前に `uv lock --check`（方針 8） |
@@ -13304,8 +13310,10 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
 | `lizyml/estimators/lgbm/adapter.py:95` | `pip install lightgbm>=4.0` | `pip install lightgbm>=4.4` |
 | BLUEPRINT.md:2097、CONTRIBUTING.md:79-80 | `lowest-direct` を使う、とだけ書く | 方針 6 |
 
+**範囲の外（slow のテスト）**: slow の 21 件（notebook の実行と記録。`tests/test_notebooks/test_notebook_execution.py`、`test_index_recording.py` など）は、このレーンでは実行しない。notebook は H-0119 の per-extras のレーン（lock の版）で実行しており、下限の版で notebook を実行することはこの Proposal の目的（宣言した下限で LizyML が動くことの証拠）に含めない。
+
 ### 互換性
-- **インストール**: pydantic 2.0、optuna 3.0〜3.3、lightgbm 4.0〜4.3 の環境は、LizyML を入れると依存が上がる。pydantic 2.0 はもともと import できなかった。optuna 3.1〜3.3 では tune の resume と storage の機能が `AttributeError` で動かなかった。lightgbm 4.0〜4.3 は、上の場合を除いて動いていたが、下限で全スイートを確かめた証拠は無かった。
+- **インストール**: pydantic 2.0、optuna 3.0、lightgbm 4.0〜4.3 の環境は、LizyML を入れると依存が上がる。pydantic 2.0 はもともと import できなかった。optuna 3.1〜3.3 では tune の resume と storage の機能が `AttributeError` で動かなかったが、この Proposal の修正で動くようになる。lightgbm 4.0〜4.3 は、上の場合を除いて動いていたが、下限でスイートを確かめた証拠は無かった。
 - **API、Config、FitResult、Artifacts**: 変わらない。format_version も変わらない。
 - **生成コード**: `requirements.txt` の LightGBM の下限が上がる。生成する `train.py` / `predict.py` の中身は変わらない。
 
@@ -13313,18 +13321,19 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
 - **`--frozen` を外して `uv sync --resolution lowest-direct` にする**: lock を作り直してから入れるが、dev の道具（pytest 8.0.0、ipykernel 6.0.0 など）も下限になり、道具の古さでレーンが落ちうる。入った版を確かめる段も無いままになる。
 - **下限の検査を、環境変数で有効にする pytest のテストにする**: 有効にする条件が増え（Change Gate の `conditionally-activate`）、レーン以外では常に skip される。script をレーンで常に実行するほうが単純である。
 - **numpy の下限を 2.0 に上げる（Platt の件）**: 判断 (a) を字面どおりに当てはめるとこうなる。しかし落ちるのは TNC が境界にある 1 つのフィクスチャで、LizyML の誤りではない（入力は同じ、生成コードとの等価性も保つ）。numpy 2.0 は多くの利用者の環境を壊す大きな引き上げなので、採らない。
-- **optuna 3.1 を保つために API を置き換える**: 上の「直さずに下限を上げる理由」。
+- **optuna を 3.4 に上げる**（round 1 の改訂の案）: 3.1 の違いは 2 か所の数行の修正で直り、判断 (a) に反するので採らない。
 - **pydantic 2.0 を保つ**: 同上。
 
 ### Firing rate
 この Proposal は、作業を省く・短くする・選ぶ・許す・条件で有効にする仕組みを加えない。下限の検査は、レーンで常に実行し、全ての要求を調べる。
 
 ### 受け入れ基準（テスト観点）
-1. `pyproject.toml` の下限が `pydantic>=2.1`、`optuna>=3.4`、`lightgbm>=4.4` で、ほかは変わらない。`[dependency-groups].dev` が optuna / shap / plotly / scipy の下限を持たず、`lizyml[tuning,explain,plots,calibration]` を参照する。CI の `quality` ジョブの `uv lock --check` が通る。陰性対照: `pyproject.toml` の下限だけを変えて lock を作り直さない状態で、`uv lock --check` が失敗することを手元で確かめる。
-2. CI の `Quality (lowest-direct deps)` が Python 3.10 で、本体と全 extras の下限を入れ、解決した版の表を表示し、全ての要求で「入った版 = 下限」を確かめ、全スイートが通る。**ローカルの実測は 3.11 なので、CI でこのレーンが実際に通ることを受け入れの一部とする**（DC7: 本物で一度実行する）。
+1. `pyproject.toml` の下限が `pydantic>=2.1`、`optuna>=3.1`、`lightgbm>=4.4` で、ほかは変わらない。`[dependency-groups].dev` が optuna / shap / plotly / scipy の下限を持たず、`lizyml[tuning,explain,plots,calibration]` を参照する。CI の `quality` ジョブの `uv lock --check` が通る。陰性対照: `pyproject.toml` の下限だけを変えて lock を作り直さない状態で、`uv lock --check` が失敗することを手元で確かめる。
+2. CI の `Quality (lowest-direct deps)` が Python 3.10 で、本体と全 extras の下限を入れ、解決した版の表を表示し、全ての要求で「入った版 = 下限」を確かめ、slow を除くスイートが通る。**ローカルの実測は 3.11 なので、CI でこのレーンが実際に通ることを受け入れの一部とする**（DC7: 本物で一度実行する）。
 3. `scripts/check_dependency_floors.py` のテスト: 下限と等しい場合は通る。上の版、下の版、入っていない要求は失敗にする。読めない形（上限付き、`==`、複数の指定子、ほかの marker）は失敗にする。表を表示する。extras の marker の付いた要求も調べる。
 4. 陰性対照: レーンの手順を今の `uv sync --frozen ...` に戻した環境（lock の版）で script を実行すると失敗する（今のレーンが下限を入れていないことを script が検出する）。
 5. 下限の構成（受け入れ基準 2 と同じ版）で、上の 4 件のテストが、skip ではなく、書き直した前提で通る。lock の環境でも通る。
 6. `schema.py` の修正: pydantic 2.1.0 と lock の版の両方で `import lizyml` と `tests/test_config` が通る。mypy が通る。
+6b. optuna の修正: optuna 3.1.0（下限の構成）と lock の版の両方で `test_restore_tuning.py::test_reporting_surfaces_match_live` が通る。加えて、`recorded_params` が試行の `params` の辞書の順によらず round の次元の順で返すことを、順を入れ替えた `params` で確かめる単体テストを置く（修正を外すと落ちる）。
 7. 生成 `requirements.txt` と `adapter.py` の案内文の LightGBM の下限が、メタデータの下限と等しいことをテストが確かめる。
 8. BLUEPRINT §18.2、CONTRIBUTING.md、CHANGELOG、docs/migration.md が方針 6 のとおりである。
