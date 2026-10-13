@@ -76,7 +76,9 @@ def _frame(values: list[Any], n: int = 120, seed: int = 0) -> pd.DataFrame:
     return pd.DataFrame({"d": col, "x": x, "target": (x > 0).astype(int)})
 
 
-def _writer_succeeds(values: list[Any]) -> bool:
+def _both_answers(values: list[Any]) -> tuple[bool, bool]:
+    """(predicate says writable, real writer succeeds), asked from one frame so
+    a stack-depth offset cannot separate them near the recursion limit."""
     df = _frame(values)
     booster = lgb.train(
         {"objective": "binary", "verbose": -1, "min_data_in_leaf": 1},
@@ -84,11 +86,21 @@ def _writer_succeeds(values: list[Any]) -> bool:
         num_boost_round=1,
         keep_training_booster=True,
     )
+    predicted = not unwritable_categories({"d": values})
     try:
         booster.model_to_string()
     except (TypeError, ValueError, RecursionError):
-        return False
-    return True
+        return predicted, False
+    return predicted, True
+
+
+def _writer_succeeds(values: list[Any]) -> bool:
+    return _both_answers(values)[1]
+
+
+def _buildable(values: list[Any]) -> pd.DataFrame:
+    """The frame _both_answers trains on, built at the same stack depth."""
+    return _frame(values)
 
 
 def _fit(df: pd.DataFrame, **features: Any) -> tuple[Model, list[str]]:
@@ -124,16 +136,17 @@ def _nested(depth: int, leaf: int) -> Any:
 def test_the_predicate_agrees_at_the_deepest_buildable_nesting() -> None:
     """Near the recursion limit: the deepest tuples pandas can still build,
     found and checked through the same helper so the stack depth is the same."""
-    agreements: list[bool] = []
+    deepest = None
     for depth in range(sys.getrecursionlimit() - 200, sys.getrecursionlimit()):
-        values = [_nested(depth, k) for k in range(2)]
         try:
-            succeeds = _writer_succeeds(values)
+            _buildable([_nested(depth, k) for k in range(2)])
         except RecursionError:  # pandas can no longer build the categories
             break
-        agreements.append((not unwritable_categories({"d": values})) == succeeds)
-    assert len(agreements) >= 3
-    assert agreements[-3:] == [True, True, True]
+        deepest = depth
+    assert deepest is not None
+    for depth in range(deepest - 2, deepest + 1):
+        predicted, succeeds = _both_answers([_nested(depth, k) for k in range(2)])
+        assert predicted == succeeds, depth
 
 
 def test_the_default_refuses_a_numpy_scalar_whose_item_is_not_plain() -> None:
@@ -214,6 +227,28 @@ def test_export_names_the_column_and_writes_nothing(tmp_path: Path) -> None:
     }
     assert "Circular reference" not in str(exc.value)
     assert not out.exists()  # before H-0127 a 728-byte fit_result.pkl was left
+
+
+def test_export_refuses_before_resolving_a_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Path resolution can create a run directory under ``output_dir``; the
+    check runs first, so a refused export creates no directory at all."""
+    raw = make_config("binary", n_estimators=5)
+    model = Model(raw, output_dir=tmp_path / "runs")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        model.fit(data=_frame(VALUES["bytes"]))
+    before = sorted(p.relative_to(tmp_path) for p in tmp_path.rglob("*"))
+
+    def _resolved(*_: Any, **__: Any) -> Path:
+        raise AssertionError("the path was resolved before the check")
+
+    monkeypatch.setattr(model, "_resolve_export_path", _resolved)
+    with pytest.raises(LizyMLError) as exc:
+        model.export()
+    assert exc.value.code == ErrorCode.SERIALIZATION_FAILED
+    assert sorted(p.relative_to(tmp_path) for p in tmp_path.rglob("*")) == before
 
 
 def test_a_failed_export_leaves_an_earlier_export_intact(tmp_path: Path) -> None:

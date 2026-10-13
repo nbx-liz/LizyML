@@ -133,6 +133,19 @@ def test_other_columns_are_returned_unchanged() -> None:
 
 
 @pytest.mark.parametrize("policy", ["mode", "nan"])
+def test_a_duplicate_index_keeps_rows_in_place(policy: str) -> None:
+    """The replacement aligns masks by index; a repeated label must not move
+    or duplicate rows."""
+    encoder = _encoder(policy)
+    series = pd.Series([0, 2.5, 1], dtype=np.float16, index=[0, 0, 1])
+    out, warnings = encoder.transform_with_warnings(pd.DataFrame({"a": series}))
+    assert out.index.tolist() == [0, 0, 1]
+    unseen = KNOWN.index(MODE) if policy == "mode" else -1
+    assert out["a"].cat.codes.tolist() == [0, unseen, 1]
+    assert len(warnings) == 1 and "1 row(s)" in warnings[0]
+
+
+@pytest.mark.parametrize("policy", ["mode", "nan"])
 def test_a_tuple_category_is_replaced_whole(policy: str) -> None:
     """Rows are now replaced by mask (H-0127). The value replacement before it
     raised pandas' "Replacement lists must match in length" for a tuple mode."""
