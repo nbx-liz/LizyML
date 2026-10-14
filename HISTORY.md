@@ -13691,8 +13691,15 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
 
 ## H-0130: BLUEPRINT §2.1 の層の例外 17 本をなくす ― 同じ層の中で許す参照を表に宣言し、結果の型は IF に形だけ置く（#362）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-14
+- **決定日**: 2026-10-14
+  - Codex の Proposal review は 1 つの run（3 round）で APPROVE に届かなかった。
+    - round 1 は最初の版に欠陥を見つけた。
+    - round 2 と round 3 は、それぞれ前の改訂の書き足しに欠陥を見つけた。
+  - 新しい文脈の relational monitor は、3 round を通して DRIFTING と判定した。数え上げの範囲が閉じていなかった（文書の文と、許す参照の書き方）。
+  - 管理者の判断で、二つの範囲を明示して閉じた。そのうえで完了基準（`docs/audits/2026-10-h0130/acceptance-criteria.md`）を書き、受け入れレビューを 1 回行った。結果は APPROVE（`ce3d4d2`、直すべき指摘 0 件）。
+  - 管理者が受け入れを宣言した。
 - **スコープ**:
   - `BLUEPRINT.md` §2.1: IF の列、新しい「同じ層の中で許す参照」の表、依存ルールの文。
   - `tests/test_architecture/_layer_rules.py`: 許す参照の表を読み、R2 で使う。
@@ -14028,3 +14035,46 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
    - 方針 9 の表の、分かっている箇所がそれぞれ直っている。
    - 具象の組み立ての例外は、`BLUEPRINT.md:58`・`ARCHITECTURE.md:123`・`:510`・`:785`・`README.md:134` のどこでも、主語が「provider の factory」と「`metrics/registry.py` が名前から指標を作ること」の二つである。
    - §2.2 に、provider が `config/` を import してよいという文が残っていない。
+
+### 実装の記録（2026-10-14）
+
+- **コード**: 方針 1〜7 のとおり。
+  - `core/model.py` は `lizyml._version` から `__version__` を import する。
+  - `core/types/oof_coverage.py` と `core/types/smart_ratio.py` を新しく作った。元の場所（`training/oof_assembly.py`、`config/schema.py`）は同じオブジェクトを再公開する。
+  - `compute_shap_importance` の `pipeline_factory` は必須になった。
+  - `training/results.py` に `RefitResultView` を置いた。
+  - `calibration/base.py` に `BaseCalibrationResult` を置き、`CalibrationResult` がそれを継ぐ。
+  - plots は目印で判定し、exporter は `RefitResultView` で注釈する。
+- **検査**: `_layer_rules.py` は許す参照の塊を行ごとの完全一致で読む（`_read_allowances`）。
+  - §2.1 の中で `|` で始まる行は、二つの表のどちらかに属さなければならない。
+  - R2 は許した組を通す。
+  - 使われない組は `R2 the §2.1 allowance … is used by no import` になる。
+- **テスト**:
+  - `test_layer_rules.py`: 例外の一覧は空。受け入れ基準 2 の (a)〜(d) と、(e) の完全一致の変異 21 種を足した。H-0129 の受け入れ基準 4 の 2 本は、写しに違反を足して確かめる形に書き直した。
+  - 新しい `test_h0130_contracts.py`（17 件）: 受け入れ基準 4・5・6。
+  - 古いアーティファクト: `tests/test_architecture/data/calibration_result_e8b4c4e.pkl` は `e8b4c4e` の木から `make_old_calibration_pickle.py` で書いた。この計測器は新しいコードの上では書くのを拒む。
+- **陰性対照**: `negative_controls_h0130.py` → `.out`。4 組とも捕まった:
+  - 前後の空白を許す読み方
+  - 表を見ない R2
+  - 古びの検査を外した実装
+  - どの calibrator も受け付ける plots
+- **文書**: 方針 6 の閉じた一覧を全部読んで直した。読むのは、文脈を持たない読み取り専用の 2 つの scout が分けて行った（BLUEPRINT 全体 2351 行、ARCHITECTURE 全体 825 行、guide 全体 334 行、README の Architecture 節）。方針 9 の表に無かった箇所で直したもの:
+  - BLUEPRINT:
+    - §11 の `SMART_RATIO_RANGES` の場所（2 か所）。
+    - §19 のツリー（`core/types/` の 2 つ、`param_domain.py`・`specs/` を Layer 0 の側へ、`_extras.py`・`_version.py`、`metric_bridge.py`・`category_json.py`、`results.py`、`BaseCalibrationResult`）。
+    - 付録 B（Facade は `EstimatorAdapter / FeaturePipeline` を provider の factory から得る）。
+    - §2.2 の追加手順（config のクラスは `config/schema.py` に置く）。
+  - ARCHITECTURE:
+    - Layer 0 の図から `RefitResult` と `CalibrationResult` を外し、それぞれ Layer 2 と calibration の図に移した（`FitResult.calibrator` は `Any`）。
+    - `MetricRegistry` を IF として描いた。
+    - Layer 3 から `calibration`・`training` の IF への辺と、Layer 1 の許す参照の辺を足した。
+- **Proposal からのずれ（実装で見つけたもの）**: 具象の組み立ての例外。
+  - Proposal は「`metrics/registry.py` が名前から指標を作ること」と書いた。
+  - 読んだ結果、`calibration/registry.py` の `get_calibrator` も、Layer 1 で名前から具象の calibrator を作る（呼ぶのは Facade だけ）。
+  - 例外の二つ目の主語を「Layer 1 の registry モジュール（`metrics/registry.py`、`calibration/registry.py`）が、登録された型を名前から作ること」に広げた。BLUEPRINT §2.1・付録 B、ARCHITECTURE、README を揃えた。
+  - 例外の数（二つ）と、import の規則は変わらない（`calibration/registry.py` は IF に宣言しない。呼ぶのは Layer 4 だけ）。
+- **Firing rate（実装の後、測定）**:
+  - 解決した import は 520 件（新しいモジュールの import が 3 件増えた）。
+  - 許す参照が通す import は 8 件（`estimators` → `features` 5、→ `metrics` 3）。
+  - 例外の一覧が通す import は 0 件。
+  - 空の一覧での問題は 0 件。

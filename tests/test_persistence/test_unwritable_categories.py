@@ -414,13 +414,18 @@ def test_persistence_does_not_import_a_concrete_estimator() -> None:
 
 
 def test_the_signature_of_persistence_export_is_unchanged() -> None:
-    """#360: the public function keeps its check and its arguments (golden, 050949b)."""
+    """#360: the public function keeps its check and its arguments (golden, 050949b).
+
+    H-0130 changed only the text of ``refit_result``'s annotation, from
+    ``RefitResult`` to the Layer 2 interface ``RefitResultView``.
+    """
     import inspect
 
     import lizyml.persistence
 
     assert str(inspect.signature(lizyml.persistence.export)) == (
-        "(path: 'str | Path', fit_result: 'FitResult', refit_result: 'RefitResult', "
+        "(path: 'str | Path', fit_result: 'FitResult', "
+        "refit_result: 'RefitResultView', "
         "config: 'dict[str, Any]', task: 'TaskType', *, "
         "analysis_context: 'AnalysisContext | None' = None, "
         "tuning: 'TuningResult | None' = None, "

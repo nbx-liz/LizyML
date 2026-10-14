@@ -5,7 +5,7 @@
 > 内容が `BLUEPRINT.md` と矛盾する場合は、この文書の側が誤りである。
 
 LizyML のアーキテクチャは **5 層のカテゴリ（圏）** で構成される。
-各カテゴリは明確な境界を持ち、依存は常に上位層→下位層の DAG（非巡回有向グラフ）のみ。
+各カテゴリは明確な境界を持ち、依存は上位層→下位層の DAG（非巡回有向グラフ）をなす。同じ層の中の依存は、BLUEPRINT §2.1 の「同じ層の中で許す参照」の表が認める `estimators/` → `features/`・`metrics/` だけ（H-0130）。
 
 ## Layer Map — カテゴリ依存 DAG
 
@@ -59,7 +59,7 @@ flowchart TB
 
     %% Layer 0 has no deps (foundation)
 
-    %% Layer 1 → Layer 0 only
+    %% Layer 1 → Layer 0, plus the same-layer references BLUEPRINT §2.1 allows (H-0130)
     CONFIG --> CORE
     DATA --> CORE
     SPLIT --> CORE
@@ -67,6 +67,8 @@ flowchart TB
     EST --> CORE
     METRIC --> CORE
     CAL --> CORE
+    EST -->|provider builds the pipeline factory| FEAT
+    EST -->|LightGBM feval bridge + metric registry| METRIC
 
     %% Layer 2 → Layer 0 + Layer 1 interfaces
     TRAIN --> CORE
@@ -76,7 +78,7 @@ flowchart TB
     TRAIN --> TYPES
 
     EVAL --> CORE
-    EVAL -.->|BaseMetric IF| METRIC
+    EVAL -.->|BaseMetric + registry IF| METRIC
     EVAL --> TYPES
 
     TUNE --> CORE
@@ -87,9 +89,11 @@ flowchart TB
     EXPLAIN --> CORE
     PLOTS --> CORE
     PLOTS --> TYPES
+    PLOTS -.->|BaseCalibrationResult IF| CAL
     PERSIST --> CORE
     PERSIST --> TYPES
     PERSIST -.->|BaseEstimatorAdapter IF| EST
+    PERSIST -.->|RefitResultView IF| TRAIN
     CODEGEN --> CORE
     CODEGEN -.->|BaseEstimatorAdapter IF| EST
     CODEGEN -.->|BaseCalibratorAdapter IF| CAL
@@ -118,9 +122,9 @@ flowchart TB
 
 | ルール | 説明 |
 |---|---|
-| **下方向のみ** | 各カテゴリは自分より下の Layer にのみ依存する（BLUEPRINT §2.1 の表と `tests/test_architecture/test_layer_rules.py`、H-0129） |
-| **IF 経由** | Layer 2 は Layer 1 の**抽象 IF のみ**を参照（具象クラスを import しない） |
-| **Facade 独占** | 具象クラスの組み立て・型ディスパッチは Layer 4 のみが行う |
+| **下方向（と許した同じ層）** | 各カテゴリは、自分より下の Layer と、BLUEPRINT §2.1 の「同じ層の中で許す参照」が認める同じ層のカテゴリ（`estimators/` → `features/`・`metrics/`）にだけ依存する（§2.1 の表と `tests/test_architecture/test_layer_rules.py`、H-0129、H-0130） |
+| **IF 経由** | Layer 2 は Layer 1 の**抽象 IF のみ**を参照（具象クラスを import しない）。Layer 3 はそれに加えて Layer 2 の IF（`training/results.py`）を参照してよい |
+| **Facade 独占** | 具象クラスの組み立て・型ディスパッチは Layer 4 が行う。例外は二つだけ（H-0130）: provider（BLUEPRINT §2.2）が自分の factory で adapter と pipeline を組むこと、Layer 1 の registry モジュール（`metrics/registry.py`、`calibration/registry.py`）が登録された型を名前から作ること |
 | **循環禁止** | カテゴリ間の双方向依存は許可しない |
 
 ### 射（カテゴリ間契約）
@@ -174,18 +178,16 @@ classDiagram
         +splits: SplitIndices
         +data_fingerprint: DataFingerprint
         +pipeline_state
-        +calibrator: CalibrationResult?
+        +calibrator: Any? (a CalibrationResult when calibrated)
         +run_meta: RunMeta
     }
     class PredictionResult:::foundationClass { +pred +proba +shap_values +used_features +warnings }
-    class RefitResult:::foundationClass { +model +pipeline_state +feature_names +train_pred +history }
     class TuningResult:::foundationClass {
         +best_model_params +best_smart_params +best_training_params
         +best_score +trials +metric_name +direction
         +best_params <<property>>
     }
     class TrialResult:::foundationClass { +number +params +score +state }
-    class CalibrationResult:::foundationClass { +c_final +calibrated_oof +method +split_indices }
     class SplitIndices:::foundationClass { +outer +inner? +calibration? +time_range? }
     class RunMeta:::foundationClass { +lizyml_version +python_version +deps_versions +run_id +timestamp }
     class DataFingerprint:::foundationClass { +row_count +column_hash +file_hash? }
@@ -193,7 +195,6 @@ classDiagram
     FitResult *-- SplitIndices
     FitResult *-- RunMeta
     FitResult *-- DataFingerprint
-    FitResult o-- CalibrationResult
     TuningResult *-- TrialResult
 
     classDef foundationClass fill:#1a365d,stroke:#4a90d9,color:#e2e8f0
@@ -203,7 +204,7 @@ classDiagram
 
 ## Layer 1 — Leaf Categories
 
-Foundation のみに依存。互いに依存しない。
+Foundation に依存する。Layer 1 の中の依存は、BLUEPRINT §2.1 が許す `estimators/` → `features/`・`metrics/` だけ（H-0130）。`RefitResult` は Layer 2（`training/refit_trainer.py`）、`CalibrationResult` は calibration（`calibration/cross_fit.py`）にある。`FitResult.calibrator` の型は `Any | None`。
 
 ### config/
 
@@ -336,11 +337,12 @@ classDiagram
         +name +needs_proba +needs_simplex
         +__call__(y_true, y_pred) float
     }
-    class MetricRegistry:::leafClass {
-        +get(name) BaseMetric
+    class MetricRegistry:::ifClass {
+        <<IF, metrics/registry.py>>
+        +get_metric(name) BaseMetric
         +get_metrics_for_task(names, task) list
     }
-    MetricRegistry ..> BaseMetric : lookups
+    MetricRegistry ..> BaseMetric : builds registered metrics by name (H-0130)
 
     %% === calibration/ ===
     class BaseCalibratorAdapter:::ifClass {
@@ -359,6 +361,13 @@ classDiagram
         +cross_fit_calibrate(oof_scores, y, factory, splits) CalibrationResult
     }
     cross_fit_calibrate ..> BaseCalibratorAdapter : uses via factory
+    class BaseCalibrationResult:::ifClass {
+        <<marker, calibration/base.py>>
+        +calibrated_oof
+    }
+    class CalibrationResult:::leafClass { +c_final +calibrated_oof +method +split_indices }
+    CalibrationResult --|> BaseCalibrationResult
+    cross_fit_calibrate ..> CalibrationResult : returns
 
     %% === data/ ===
     class datasource:::leafClass {
@@ -409,6 +418,13 @@ classDiagram
         +task +ratio_param_resolver
         +fit(X, y, groups) RefitResult
     }
+    class RefitResult:::compClass { +model +pipeline_state +feature_names +categorical_features +best_iteration +train_pred +history }
+    class RefitResultView:::ifClass {
+        <<Protocol, training/results.py, Layer 2 IF>>
+        the same seven fields (H-0130)
+    }
+    RefitTrainer ..> RefitResult : returns
+    RefitResult ..|> RefitResultView
     class BaseInnerValidStrategy:::ifClass {
         <<abstract>>
         +split(n, y, groups) tuple?
@@ -501,13 +517,13 @@ classDiagram
     classDef optClass fill:#3b2f20,stroke:#ed8936,color:#e2e8f0
 ```
 
-**依存先**: Foundation の型 (`FitResult`, `TuningResult` 等) のみ。Layer 1/2 の具象を直接参照しない。
+**依存先**: Foundation と、Layer 1・2 の IF（`estimators/base.py`、`calibration/base.py`、`training/results.py` など。BLUEPRINT §2.1 の表の右の列）。Layer 1/2 の具象を直接参照しない。
 
 ---
 
 ## Layer 4 — Facade
 
-**唯一**全カテゴリを知る層。具象クラスの組み立てとディスパッチを担当。
+**唯一**全カテゴリを知る層。具象クラスの組み立てとディスパッチを担当する（例外は provider の自分の factory と、Layer 1 の registry が名前から型を作ること。BLUEPRINT §2.1、H-0130）。
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'fontSize': '11px', 'primaryColor': '#2d3748', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a0aec0', 'background': '#1a202c', 'mainBkg': '#2d3748', 'nodeBorder': '#718096'}}}%%
@@ -675,7 +691,10 @@ lizyml/
 │       ├── fit_result.py           FitResult (13 fields)
 │       ├── predict_result.py       PredictionResult
 │       ├── tuning_result.py        TuningResult, TrialResult
-│       └── artifacts.py            RunMeta, SplitIndices, DataFingerprint
+│       ├── artifacts.py            RunMeta, SplitIndices, DataFingerprint
+│       ├── task.py / target_encoder.py / search_dim.py
+│       ├── oof_coverage.py         compute_oof_valid_mask (H-0130)
+│       └── smart_ratio.py          RatioRange, SMART_RATIO_RANGES (H-0130)
 │
 ├── config/                         ── Layer 1: Config ──
 │   ├── schema.py                   pydantic schemas (extra="forbid")
@@ -717,7 +736,7 @@ lizyml/
 │   └── classification.py           LogLoss, AUC, AUCPR, F1, Accuracy, Brier, ECE
 │
 ├── calibration/                    ── Layer 1: Calibration ──
-│   ├── base.py                     BaseCalibratorAdapter
+│   ├── base.py                     BaseCalibratorAdapter + BaseCalibrationResult (marker, H-0130)
 │   ├── cross_fit.py                cross_fit_calibrate + CalibrationResult
 │   ├── registry.py                 get_calibrator
 │   ├── platt.py                    PlattCalibrator
@@ -727,6 +746,8 @@ lizyml/
 ├── training/                       ── Layer 2: Training ──
 │   ├── cv_trainer.py               CVTrainer (outer CV loop)
 │   ├── refit_trainer.py            RefitTrainer + RefitResult
+│   ├── results.py                  RefitResultView (Protocol, Layer 2 IF, H-0130)
+│   ├── oof_assembly.py             fill_oof / get_fold_pred (+ compute_oof_valid_mask を再公開)
 │   ├── train_components.py         TrainComponents (frozen dataclass)
 │   └── inner_valid.py              BaseInnerValidStrategy + 6 concrete
 │
@@ -779,10 +800,10 @@ lizyml/
 | 色 | Layer | 意味 |
 |---|---|---|
 | 青 | 0 | **Foundation** — 全カテゴリが参照する型・例外・ログ |
-| 緑 | 1 | **Leaf** — 互いに依存しない独立カテゴリ |
+| 緑 | 1 | **Leaf** — Foundation に依存する独立カテゴリ（同じ層の依存は §2.1 が許す `estimators/` → `features/`・`metrics/` だけ） |
 | 紫 | 2 | **Composition** — Layer 1 の IF を組み合わせるカテゴリ |
-| 橙 | 3 | **Optional** — Foundation の型のみ参照する追加機能 |
-| 赤 | 4 | **Facade** — 唯一全カテゴリを知り、組み立てる |
+| 橙 | 3 | **Optional** — Foundation と Layer 1・2 の IF を参照する追加機能 |
+| 赤 | 4 | **Facade** — 唯一全カテゴリを知り、組み立てる（例外: provider の factory、Layer 1 の registry） |
 
 ---
 
@@ -811,15 +832,15 @@ lizyml/
 | 2 | `cv_trainer.py` に `categorical_feature=` kwarg 直書き | L2 に LGBM 固有知識 | `BaseEstimatorAdapter.set_categorical_features()` に移動 |
 | 3 | `_model_tables.py` が `LGBMConfig` を isinstance チェック | Facade に LGBM 具象依存 | `EstimatorProvider.params_summary()` 経由に |
 | 4 | `_build_run_meta` に `"lightgbm"` ハードコード | Facade に LGBM 文字列 | `EstimatorProvider.runtime_deps()` 経由に |
-| 5 | `shap_explainer.py` が `NativeFeaturePipeline` を直 import | L3 → L1 具象依存 | `pipeline_factory` を引数で受け取る |
+| 5 | `shap_explainer.py` が `NativeFeaturePipeline` を直 import | L3 → L1 具象依存 | `pipeline_factory` を引数で受け取る。✅ 解消（H-0130: `pipeline_factory` を必須にし、代わりの経路を消した） |
 
 ### H-0088: 宣言済み横断エッジ（#211 — 循環なし・型移動は follow-up）
 
-以下は実在するが循環のないエッジで、H-0088 で仕様に明示宣言した。型の `core/types/` 昇格による解消は follow-up とする（レビュー時はここを参照し、新規の逆依存・循環のみをブロックする）。
+以下は H-0088 で仕様に明示宣言した、循環のないエッジ。1〜3 行目は H-0130 で解消し、今は層の規則のテスト（`tests/test_architecture/test_layer_rules.py`）が全ての import を確かめる。4 行目は層の import の問題ではなく、残る。
 
 | # | 実在エッジ | 種別 | 解消方針（follow-up） |
 |---|---|---|---|
-| 1 | `evaluation/{evaluator,confusion}.py` → `training/oof_assembly.compute_oof_valid_mask` | L2 内の横依存（純粋な split-mask utility, H-0052 副作用） | `compute_oof_valid_mask` を Layer 0（`core/types/` 相当）へ昇格 |
-| 2 | `persistence/exporter.py` → `training.refit_trainer.RefitResult`（TYPE_CHECKING のみ） | L3 → L2 型参照（実行時依存なし） | `RefitResult` を `core/types/` へ昇格 |
-| 3 | `plots/calibration.py` → `calibration.CalibrationResult`（runtime import + isinstance dispatch） | L3 が L1 具象を型ディスパッチ（H-0054 item 5 と同種） | `CalibrationResult` を `core/types/` へ昇格、または Facade mixin で絞り込み |
+| 1 | `evaluation/{evaluator,confusion}.py` → `training/oof_assembly.compute_oof_valid_mask` | L2 内の横依存（純粋な split-mask utility, H-0052 副作用） | ✅ 解消（H-0130: `core/types/oof_coverage.py` へ移し、`training/oof_assembly.py` は再公開） |
+| 2 | `persistence/exporter.py` → `training.refit_trainer.RefitResult`（TYPE_CHECKING のみ） | L3 → L2 型参照（実行時依存なし） | ✅ 解消（H-0130: exporter は Layer 2 の IF `training/results.RefitResultView` で注釈。`RefitResult` は pickle の名前を保つため動かさない） |
+| 3 | `plots/calibration.py` → `calibration.CalibrationResult`（runtime import + isinstance dispatch） | L3 が L1 具象を型ディスパッチ（H-0054 item 5 と同種） | ✅ 解消（H-0130: plots は `calibration/base.BaseCalibrationResult` の目印で判定。`CalibrationResult` は動かさない） |
 | 4 | `codegen/` の estimator 固有 seam（`generate_code(..., lgbm_params=...)`） | H-0073 の estimator-agnostic 目標と不整合 | `ExportParams` / provider metadata 経由へ一本化、`templates.py` 分割（[#228](https://github.com/nbx-liz/LizyML/issues/228)） |

@@ -45,7 +45,7 @@ import pandas as pd
 if TYPE_CHECKING:
     from optuna.storages import BaseStorage
 
-from lizyml import __version__
+from lizyml._version import __version__
 from lizyml.config.loader import load_config
 from lizyml.config.schema import (
     BlockedGroupKFoldConfig,

@@ -1,0 +1,122 @@
+[run-exclusive] h0130-negctl starting; load was 1.61
+run-heavy: pgid=11 (stop with: kill -- -11)
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+____ test_an_allowance_block_outside_the_grammar_fails[lead trailing space] ____
+
+tree = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-27/test_an_allowance_block_outsid0')
+case = 'lead trailing space'
+
+    @pytest.mark.parametrize("case", sorted(ALLOWANCE_MUTATIONS))
+    def test_an_allowance_block_outside_the_grammar_fails(tree: Path, case: str) -> None:
+        old, new, match = ALLOWANCE_MUTATIONS[case]
+        _edit(tree, "BLUEPRINT.md", old, new)
+>       with pytest.raises(ValueError, match=match):
+E       Failed: DID NOT RAISE <class 'ValueError'>
+
+tests/test_architecture/test_layer_rules.py:475: Failed
+____ test_an_allowance_block_outside_the_grammar_fails[row trailing space] _____
+
+tree = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-27/test_an_allowance_block_outsid1')
+case = 'row trailing space'
+
+    @pytest.mark.parametrize("case", sorted(ALLOWANCE_MUTATIONS))
+    def test_an_allowance_block_outside_the_grammar_fails(tree: Path, case: str) -> None:
+        old, new, match = ALLOWANCE_MUTATIONS[case]
+        _edit(tree, "BLUEPRINT.md", old, new)
+>       with pytest.raises(ValueError, match=match):
+E       Failed: DID NOT RAISE <class 'ValueError'>
+
+tests/test_architecture/test_layer_rules.py:475: Failed
+=========================== short test summary info ============================
+FAILED tests/test_architecture/test_layer_rules.py::test_an_allowance_block_outside_the_grammar_fails[lead trailing space]
+FAILED tests/test_architecture/test_layer_rules.py::test_an_allowance_block_outside_the_grammar_fails[row trailing space]
+2 failed in 1.76s
+CONTROL lenient allowance grammar: caught (tests failed)
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________________ test_an_undeclared_layer_1_pair_fails _____________________
+
+tree = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-28/test_an_undeclared_layer_1_pai0')
+
+    def test_an_undeclared_layer_1_pair_fails(tree: Path) -> None:
+        _append(tree, "estimators/base.py", "import lizyml.calibration.base")
+>       assert (
+            "R2 lizyml/estimators/base.py -> lizyml.calibration.base: "
+            "1 import(s), 0 allowed by the exception list"
+        ) in _check(tree)
+E       AssertionError: assert 'R2 lizyml/estimators/base.py -> lizyml.calibration.base: 1 import(s), 0 allowed by the exception list' in ['R2 the §2.1 allowance lizyml.calibration -> lizyml.config is used by no import', 'R2 the §2.1 allowance lizyml.calib...etrics is used by no import', 'R2 the §2.1 allowance lizyml.calibration -> lizyml.splitters is used by no import', ...]
+E        +  where ['R2 the §2.1 allowance lizyml.calibration -> lizyml.config is used by no import', 'R2 the §2.1 allowance lizyml.calib...etrics is used by no import', 'R2 the §2.1 allowance lizyml.calibration -> lizyml.splitters is used by no import', ...] = _check(PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-28/test_an_undeclared_layer_1_pai0'))
+
+tests/test_architecture/test_layer_rules.py:362: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_architecture/test_layer_rules.py::test_an_undeclared_layer_1_pair_fails
+1 failed in 0.87s
+CONTROL R2 blind to the table: caught (tests failed)
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________________ test_an_allowance_no_import_uses_fails ____________________
+
+tree = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-29/test_an_allowance_no_import_us0')
+
+    def test_an_allowance_no_import_uses_fails(tree: Path) -> None:
+        _edit(
+            tree,
+            "BLUEPRINT.md",
+            METRICS_ROW,
+            METRICS_ROW + "\n| `estimators/` | `splitters/` | unused |",
+        )
+>       assert (
+            "R2 the §2.1 allowance lizyml.estimators -> lizyml.splitters "
+            "is used by no import"
+        ) in _check(tree)
+E       AssertionError: assert 'R2 the §2.1 allowance lizyml.estimators -> lizyml.splitters is used by no import' in []
+E        +  where [] = _check(PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-29/test_an_allowance_no_import_us0'))
+
+tests/test_architecture/test_layer_rules.py:391: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_architecture/test_layer_rules.py::test_an_allowance_no_import_uses_fails
+1 failed in 0.82s
+CONTROL no staleness check: caught (tests failed)
+FF                                                                       [100%]
+=================================== FAILURES ===================================
+_______ test_a_calibrator_without_the_marker_is_refused_as_before[none] ________
+
+calibrator = None, type_name = 'NoneType'
+
+    @pytest.mark.parametrize(
+        ("calibrator", "type_name"),
+        [(None, "NoneType"), (object(), "object")],
+        ids=["none", "plain object"],
+    )
+    def test_a_calibrator_without_the_marker_is_refused_as_before(
+        calibrator: object, type_name: str
+    ) -> None:
+>       with pytest.raises(LizyMLError) as caught:
+E       Failed: DID NOT RAISE <class 'lizyml.core.exceptions.LizyMLError'>
+
+tests/test_architecture/test_h0130_contracts.py:97: Failed
+___ test_a_calibrator_without_the_marker_is_refused_as_before[plain object] ____
+
+calibrator = <object object at 0x78ad2a897450>, type_name = 'object'
+
+    @pytest.mark.parametrize(
+        ("calibrator", "type_name"),
+        [(None, "NoneType"), (object(), "object")],
+        ids=["none", "plain object"],
+    )
+    def test_a_calibrator_without_the_marker_is_refused_as_before(
+        calibrator: object, type_name: str
+    ) -> None:
+>       with pytest.raises(LizyMLError) as caught:
+E       Failed: DID NOT RAISE <class 'lizyml.core.exceptions.LizyMLError'>
+
+tests/test_architecture/test_h0130_contracts.py:97: Failed
+=========================== short test summary info ============================
+FAILED tests/test_architecture/test_h0130_contracts.py::test_a_calibrator_without_the_marker_is_refused_as_before[none]
+FAILED tests/test_architecture/test_h0130_contracts.py::test_a_calibrator_without_the_marker_is_refused_as_before[plain object]
+2 failed in 0.05s
+CONTROL plots accept any calibrator: caught (tests failed)
+
+4/4 controls caught
+[run-exclusive] h0130-negctl finished in 6s, exit 0

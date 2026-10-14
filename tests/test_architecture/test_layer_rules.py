@@ -2,10 +2,12 @@
 
 H-0127 put a concrete estimator import in ``persistence/`` and no test noticed:
 §2.1 had no check. ``_layer_rules.check`` reads the layers from the §2.1 table
-and enforces every rule there. The imports that broke a rule before the rule
-had a test are listed below with their exact count; #362 decides them after
-v0.19.0. A listed import that disappears, or a second import of a listed pair,
-fails like any new violation, so the list can neither go stale nor grow.
+and enforces every rule there. H-0130 (#362) closed the imports that broke a
+rule before the rule had a test, and added the same-layer allowance table that
+R2 reads. An import that breaks a rule can still be listed below with its exact
+count until it is decided; a listed import that disappears, or a second import
+of a listed pair, fails like any new violation, so the list can neither go stale
+nor grow.
 """
 
 from __future__ import annotations
@@ -19,38 +21,10 @@ from tests.test_architecture._layer_rules import Key, check
 
 REPO = Path(__file__).resolve().parents[2]
 
-#: Imports that break a §2.1 rule, with how many times each occurs (#362).
-EXCEPTIONS: dict[Key, int] = {
-    # R2: Layer 1 imports another Layer 1 category (only provider -> config is
-    # documented, BLUEPRINT §14.4).
-    (
-        "lizyml/estimators/provider.py",
-        "lizyml.features.encoders.categorical_encoder",
-        "R2",
-    ): 1,
-    ("lizyml/estimators/provider.py", "lizyml.features.pipeline_base", "R2"): 1,
-    ("lizyml/estimators/lgbm/provider.py", "lizyml.config.schema", "R2"): 1,
-    (
-        "lizyml/estimators/lgbm/provider.py",
-        "lizyml.features.encoders.categorical_encoder",
-        "R2",
-    ): 1,
-    ("lizyml/estimators/lgbm/provider.py", "lizyml.features.pipeline_base", "R2"): 1,
-    ("lizyml/estimators/lgbm/provider.py", "lizyml.features.pipelines_native", "R2"): 1,
-    ("lizyml/estimators/lgbm/provider.py", "lizyml.metrics.registry", "R2"): 1,
-    ("lizyml/estimators/lgbm/metric_bridge.py", "lizyml.metrics.base", "R2"): 1,
-    ("lizyml/estimators/lgbm/metric_bridge.py", "lizyml.metrics.registry", "R2"): 1,
-    # R3: Layer 2/3 imports a module that is not a declared interface.
-    ("lizyml/explain/shap_explainer.py", "lizyml.features.pipelines_native", "R3"): 1,
-    ("lizyml/evaluation/evaluator.py", "lizyml.metrics.registry", "R3"): 1,
-    ("lizyml/plots/calibration.py", "lizyml.calibration.cross_fit", "R3"): 1,
-    ("lizyml/evaluation/confusion.py", "lizyml.training.oof_assembly", "R3"): 1,
-    ("lizyml/evaluation/evaluator.py", "lizyml.training.oof_assembly", "R3"): 1,
-    ("lizyml/persistence/exporter.py", "lizyml.training.refit_trainer", "R3"): 1,
-    # R4: the package root and core.model import each other (__version__).
-    ("lizyml/__init__.py", "lizyml.core.model", "R4"): 1,
-    ("lizyml/core/model.py", "lizyml", "R4"): 1,
-}
+#: Imports that break a §2.1 rule, with how many times each occurs. H-0130
+#: closed the seventeen #362 left here: the same-layer allowance table admits
+#: estimators -> features / metrics, and the rest were moved or re-declared.
+EXCEPTIONS: dict[Key, int] = {}
 
 
 def _check(root: Path) -> list[str]:
@@ -318,25 +292,185 @@ def test_a_broken_version_file_declaration_fails(
         _check(tree)
 
 
-# --- Criterion 4: the exception list cannot go stale or grow ------------------
+# --- Criterion 4 (H-0129) / H-0130 criterion 3: the exception list ------------
+# The real list is empty since H-0130, so the mechanism is exercised on a copy
+# with one injected violation and a list naming it.
+
+_INJECTED = "import lizyml.training.oof_assembly"
+_INJECTED_KEY: Key = (
+    "lizyml/evaluation/confusion.py",
+    "lizyml.training.oof_assembly",
+    "R3",
+)
+
+
+def _check_with(root: Path, exceptions: dict[Key, int]) -> list[str]:
+    return check(
+        root / "lizyml", root / "BLUEPRINT.md", root / "pyproject.toml", exceptions
+    )
+
+
+def test_the_exception_list_is_empty() -> None:
+    assert EXCEPTIONS == {}
+
+
+def test_a_listed_violation_passes(tree: Path) -> None:
+    _append(tree, "evaluation/confusion.py", _INJECTED)
+    assert _check(tree) != []
+    assert _check_with(tree, {_INJECTED_KEY: 1}) == []
 
 
 def test_a_fixed_exception_must_leave_the_list(tree: Path) -> None:
-    _edit(
-        tree,
-        "lizyml/evaluation/confusion.py",
-        "from lizyml.training.oof_assembly import compute_oof_valid_mask\n",
-        "",
-    )
     assert (
         "R3 lizyml/evaluation/confusion.py -> lizyml.training.oof_assembly: "
         "0 import(s), 1 allowed by the exception list"
-    ) in _check(tree)
+    ) in _check_with(tree, {_INJECTED_KEY: 1})
 
 
 def test_a_second_import_of_a_listed_pair_fails(tree: Path) -> None:
-    _append(tree, "evaluation/confusion.py", "import lizyml.training.oof_assembly")
+    _append(tree, "evaluation/confusion.py", _INJECTED)
+    _append(tree, "evaluation/confusion.py", _INJECTED)
     assert (
         "R3 lizyml/evaluation/confusion.py -> lizyml.training.oof_assembly: "
         "2 import(s), 1 allowed by the exception list"
+    ) in _check_with(tree, {_INJECTED_KEY: 1})
+
+
+# --- H-0130 criterion 2: the same-layer allowance table -----------------------
+
+LEAD = "同じ層の中で許す参照（H-0130）:"
+HEADER = "| 参照する側 | 参照される側 | 根拠 |"
+FEATURES_ROW = (
+    "| `estimators/` | `features/` | §2.2 の provider が pipeline の factory を組む"
+    "（H-0053）。`UnseenPolicy` を受け取り、具象の pipeline を作る |"
+)
+METRICS_ROW = (
+    "| `estimators/` | `metrics/` | LightGBM の feval への橋渡し"
+    "（`estimators/lgbm/metric_bridge.py`）と、provider の指標の解決 |"
+)
+AFTER_BLOCK = "\n\n表の読み方と検査（H-0129、H-0130）:"
+
+
+def test_the_blueprint_holds_the_allowance_block_these_tests_mutate() -> None:
+    text = (REPO / "BLUEPRINT.md").read_text(encoding="utf-8")
+    block = f"{LEAD}\n\n{HEADER}\n|---|---|---|\n{FEATURES_ROW}\n{METRICS_ROW}"
+    assert text.count(block + AFTER_BLOCK) == 1
+
+
+def test_an_undeclared_layer_1_pair_fails(tree: Path) -> None:
+    _append(tree, "estimators/base.py", "import lizyml.calibration.base")
+    assert (
+        "R2 lizyml/estimators/base.py -> lizyml.calibration.base: "
+        "1 import(s), 0 allowed by the exception list"
     ) in _check(tree)
+
+
+def test_the_reverse_of_an_allowed_pair_fails(tree: Path) -> None:
+    _append(tree, "features/pipeline_base.py", "import lizyml.estimators.base")
+    rules = _rules(_check(tree))
+    assert {"R2", "R4"} <= rules
+
+
+def test_removing_an_allowance_row_fails_its_imports(tree: Path) -> None:
+    _edit(tree, "BLUEPRINT.md", "\n" + METRICS_ROW, "")
+    problems = [p for p in _check(tree) if p.startswith("R2 ")]
+    assert sorted(p.split(":")[0] for p in problems) == [
+        "R2 lizyml/estimators/lgbm/metric_bridge.py -> lizyml.metrics.base",
+        "R2 lizyml/estimators/lgbm/metric_bridge.py -> lizyml.metrics.registry",
+        "R2 lizyml/estimators/lgbm/provider.py -> lizyml.metrics.registry",
+    ]
+
+
+def test_an_allowance_no_import_uses_fails(tree: Path) -> None:
+    _edit(
+        tree,
+        "BLUEPRINT.md",
+        METRICS_ROW,
+        METRICS_ROW + "\n| `estimators/` | `splitters/` | unused |",
+    )
+    assert (
+        "R2 the §2.1 allowance lizyml.estimators -> lizyml.splitters "
+        "is used by no import"
+    ) in _check(tree)
+
+
+def test_any_module_of_an_allowed_category_passes(tree: Path) -> None:
+    _append(tree, "estimators/base.py", "import lizyml.metrics.regression")
+    assert _check(tree) == []
+
+
+SHORT_FEATURES = "| `estimators/` | `features/` |"
+
+#: One representative mutation per position of the full-match grammar
+#: (H-0130 policy 6): (old, new, expected message).
+ALLOWANCE_MUTATIONS = {
+    "lead missing": (LEAD + "\n", "", "0 lines equal"),
+    "lead twice": (AFTER_BLOCK, "\n\n" + LEAD + AFTER_BLOCK, "2 lines equal"),
+    "lead trailing space": (LEAD + "\n", LEAD + " \n", "0 lines equal"),
+    "blank missing": (LEAD + "\n\n", LEAD + "\n", "line 1 after the lead"),
+    "blank twice": (LEAD + "\n\n", LEAD + "\n\n\n", "line 2 after the lead"),
+    "header changed": (HEADER, HEADER.replace("根拠", "理由"), "line 2 after the lead"),
+    "separator two cells": (
+        "|---|---|---|\n" + FEATURES_ROW,
+        "|---|---|\n" + FEATURES_ROW,
+        "line 3 after the lead",
+    ),
+    "separator spaced": (
+        "|---|---|---|\n" + FEATURES_ROW,
+        "| --- | --- | --- |\n" + FEATURES_ROW,
+        "line 3 after the lead",
+    ),
+    "separator aligned": (
+        "|---|---|---|\n" + FEATURES_ROW,
+        "|:---|---|---|\n" + FEATURES_ROW,
+        "line 3 after the lead",
+    ),
+    "source without slash": (
+        SHORT_FEATURES,
+        "| `estimators` | `features/` |",
+        "malformed row",
+    ),
+    "target with two paths": (
+        SHORT_FEATURES,
+        "| `estimators/` | `features/`, `metrics/` |",
+        "malformed row",
+    ),
+    "empty reason": (FEATURES_ROW, SHORT_FEATURES + "  |", "malformed row"),
+    "two cells": (FEATURES_ROW, SHORT_FEATURES, "malformed row"),
+    "four cells": (FEATURES_ROW, FEATURES_ROW + " x |", "malformed row"),
+    "row trailing space": (FEATURES_ROW, FEATURES_ROW + " ", "malformed row"),
+    "no rows": ("\n" + FEATURES_ROW + "\n" + METRICS_ROW, "", "no rows"),
+    "stray row before": (
+        "\n\n" + LEAD,
+        "\n\n| stray |\n\n" + LEAD,
+        "table row outside both tables",
+    ),
+    "stray row after": (
+        AFTER_BLOCK,
+        "\n\n| stray |" + AFTER_BLOCK,
+        "table row outside both tables",
+    ),
+    "not a layer 1 category": (
+        SHORT_FEATURES,
+        "| `estimators/` | `training/` |",
+        "lizyml.training is not a Layer 1 category",
+    ),
+    "same category": (
+        SHORT_FEATURES,
+        "| `estimators/` | `estimators/` |",
+        "allowed to itself",
+    ),
+    "pair twice": (
+        METRICS_ROW,
+        METRICS_ROW + "\n" + FEATURES_ROW,
+        "lizyml.estimators -> lizyml.features twice",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(ALLOWANCE_MUTATIONS))
+def test_an_allowance_block_outside_the_grammar_fails(tree: Path, case: str) -> None:
+    old, new, match = ALLOWANCE_MUTATIONS[case]
+    _edit(tree, "BLUEPRINT.md", old, new)
+    with pytest.raises(ValueError, match=match):
+        _check(tree)
