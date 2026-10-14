@@ -23,7 +23,7 @@ LizyML のアーキテクチャは **5 層のカテゴリ（圏）** で構成�
 flowchart TB
     subgraph L0["Layer 0 — Foundation"]
         direction LR
-        CORE["core/<br/>exceptions, logging"]
+        CORE["core/<br/>exceptions, logging, registries,<br/>param_domain, specs/"]
         TYPES["types/<br/>FitResult, PredictionResult,<br/>TuningResult, RunMeta,<br/>SplitIndices, DataFingerprint"]
     end
 
@@ -664,6 +664,8 @@ lizyml/
 │   ├── exceptions.py               LizyMLError + ErrorCode
 │   ├── logging.py                  logger + run_id + output_dir
 │   ├── registries.py               MetricRegistry (generic)
+│   ├── param_domain.py             受理するパラメーター値の集合 (H-0095; Layer 0, H-0129)
+│   ├── specs/                      ProblemSpec / FeatureSpec など (Layer 0, H-0129)
 │   └── types/
 │       ├── fit_result.py           FitResult (13 fields)
 │       ├── predict_result.py       PredictionResult

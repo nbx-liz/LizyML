@@ -13569,8 +13569,9 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
 
 ## H-0129: persistence は保存の検査を estimator の interface に尋ね、BLUEPRINT §2.1 の層の規則をテストで固定する（#360、#362）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-14
+- **決定日**: 2026-10-14（Codex の Proposal review は 1 つの run（3 round）で APPROVE に届かず、round 2 と round 3 はそれぞれ前の改訂の書き足しに欠陥を見つけた。管理者の判断で、完了基準（`docs/audits/2026-10-h0129/acceptance-criteria.md`）を書いて受け入れレビューを 1 回行い、APPROVE（`2e46313`、指摘 0 件）。管理者が受け入れを宣言した。案 B は round 1 で「妥当」と判定された。）
 - **スコープ**: `lizyml/estimators/base.py`（`BaseEstimatorAdapter` に任意のメソッド `unsaveable_categories` と、その戻り値の型 `UnsaveableCategory`）、`lizyml/estimators/lgbm/adapter.py`（その実装）、`lizyml/estimators/lgbm/category_json.py`（戻り値の型を差し替える）、`lizyml/persistence/exporter.py`（具体的な estimator の import を消し、adapter に尋ねる）、新しいテスト `tests/test_architecture/test_layer_rules.py`（層の規則）、`tests/test_persistence/test_unwritable_categories.py`（スタブに adapter を持たせる）、BLUEPRINT §2.1 の表（Layer 0 の追加、層が決まっていないモジュールの置き場所、IF の列）と §14.1、ARCHITECTURE.md、docs/add-estimator-guide.md、CHANGELOG、`docs/proposal_dispositions.toml`
 - **関連**: [Issue #360](https://github.com/nbx-liz/LizyML/issues/360)、[Issue #362](https://github.com/nbx-liz/LizyML/issues/362)。H-0127（保存できないカテゴリ値の検査）、H-0128（#360 の切り出し、方針 8b）、H-0051〜H-0053（5 層の DAG）。証拠は `docs/audits/2026-10-h0129/probes/`
 
@@ -13669,3 +13670,14 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
 6. **adapter の既定**: `unsaveable_categories` を定義しない `BaseEstimatorAdapter` の子クラスを refit と fold の adapter にすると、`bytes` のカテゴリを持つ状態でも `check_category_values` は拒否しない（落ちるべき例: `persistence/` に LightGBM の判定を残す実装は拒否する）。
 7. **LightGBM の判定は変わらない**: `LGBMAdapter.unsaveable_categories` が、H-0127 の値の種類（`bytes`、`Decimal`、日付と時刻、`Timedelta`、`complex`、`frozenset`、それを含む `tuple`）のそれぞれで、H-0127 と同じ `column`・`shown`・`type_name` を返す。書ける値（`str`、`int`、`float`、`bool`、numpy のスカラー）では空。
 8. 文書が方針 8 のとおり。
+
+### 実装の記録（2026-10-14）
+- **#360**: `estimators/base.py` に `UnsaveableCategory` と `BaseEstimatorAdapter.unsaveable_categories`（既定 `[]`）を足した。`LGBMAdapter.unsaveable_categories` は `category_json.unwritable_categories(encoder_categories(state))` を返す。`category_json.UnwritableCategory` は無くなり、`unwritable_categories` は `UnsaveableCategory` を返す（`shown` と `type_name` は今の表示関数で作る）。`persistence/exporter.py` は `estimators/lgbm` を import しない（`BaseEstimatorAdapter` を `TYPE_CHECKING` の下で import するだけ）。`_saved_pipeline_states` が状態ごとに adapter を組にし、組にならない結果は何も書く前に `SERIALIZATION_FAILED`（context `fold_states`・`models`）。拒否の文と context は変えていない。
+- **§2.1**: BLUEPRINT の表を方針 5〜6 のとおりにした。実装で決めた細部（Proposal の文の範囲内）:
+  - `pkg/` の行はそのパッケージと中身の全部に当たり、`mod.py` の行はそのモジュールだけに当たる。`__init__.py`（パッケージの根）の行が全てのモジュールの接頭辞として当たらないようにするため。最も長いパスの行が決める規則は変えていない。
+  - 表の「含まれるモジュール」と IF の列の欄は、バッククォートで囲んだパスとコンマだけを許す（ほかの文字があれば失敗）。IF の列は `mod.py` だけを許す（`全部` と `なし` を除く）。
+  - 見出しは `## 2.1 5 層カテゴリアーキテクチャ` で始まる行がちょうど一つであることを求める。
+  - §2.1 の依存ルールの 1 行目の誤記「自分より上の Layer にのみ依存する（下方向のみ）」を「下」に直した。
+  - R4（循環）は、同じ循環に属するカテゴリの間の import を数える。
+- **テスト**: `tests/test_architecture/test_layer_rules.py`（40 件。本当の木、写し、受け入れ基準 2〜4・3b の変異）と検査の本体 `tests/test_architecture/_layer_rules.py`。`tests/test_persistence/test_unwritable_categories.py` は、スタブの結果に `LGBMAdapter` を持たせ（主張は変えていない）、33 件を足した（`persistence.export` の引数のゴールデン、`exporter.py` に `estimators.lgbm` が無いこと、fold・refit・最後の fold の adapter への問い合わせ、組にならない 3 つの場合、既定の adapter、`LGBMAdapter` の答えが値の種類 24 種で H-0127 と同じ）。
+- **陰性対照**: `docs/audits/2026-10-h0129/probes/negative_controls_h0129.py` → `.out`（3 組とも期待どおり: refit の adapter だけに尋ねる実装は fold 2 の場合を通す、`zip` で組にならない状態を落とす実装は黙って通す、LightGBM の判定を persistence に残す実装は既定の adapter でも拒否する）。層の規則の変異は `test_layer_rules.py` の中にある。

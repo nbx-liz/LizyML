@@ -37,11 +37,12 @@ LightGBM の実装 (`lizyml/estimators/lgbm/`) が全項目のリファレンス
 
 > **注意**: `predict()` の戻り値の意味はアルゴリズムの Booster/sklearn API によって異なる。LightGBM Booster API では `objective="binary"` の `predict()` は確率値を返す（sigmoid 適用済み）。実装時はアルゴリズムの predict API に合わせ、CVTrainer 側の `get_fold_pred()` / `get_fold_raw()` と整合性を確認すること。
 
-### 2.2 オプショナルオーバーライド（4 個）
+### 2.2 オプショナルオーバーライド（5 個）
 
 | メソッド | デフォルト | 説明 |
 |---------|----------|------|
 | `set_categorical_features(cols)` | no-op | CVTrainer が `fit()` 前に呼ぶ |
+| `unsaveable_categories(pipeline_state)` | `[]` | モデルを保存するときに書けないカテゴリ値（`UnsaveableCategory` の list、列ごとに最初の一つ）。`Model.export` が保存の前に、状態ごとにその adapter に尋ねる（H-0129）。保存に制約の無い estimator は上書き不要 |
 | `update_params(params)` | no-op | per-fold ratio param 解決用 |
 | `best_iteration` (property) | `None` | Early stopping 使用時に設定 |
 | `eval_results` (property) | `{}` | 学習曲線用の評価履歴 |
@@ -272,7 +273,7 @@ Proposal 不要:
 
 | ルール | 説明 |
 |--------|------|
-| **Layer 2 からの具象 import 禁止** | `training/`, `evaluation/`, `tuning/` は `BaseEstimatorAdapter` / `EstimatorProvider` のみ参照。`LGBMAdapter` 等の具象クラスを直接 import しない |
+| **Layer 2/3 からの具象 import 禁止** | `training/`, `evaluation/`, `tuning/`（Layer 2）と `explain/`, `plots/`, `persistence/`, `codegen/`（Layer 3）は `BaseEstimatorAdapter` / `EstimatorProvider` のみ参照。`LGBMAdapter` 等の具象クラスを直接 import しない。BLUEPRINT §2.1 の表と `tests/test_architecture/test_layer_rules.py` が全ての import を確かめる（H-0129） |
 | **Provider ディスパッチは Facade のみ** | `get_provider()` は `core/_model_factories.py` でのみ実行。Layer 2 以下でハードコードしない |
 | **model.py は組み立てのみ** | 学習・OOF・metric・plot ロジックを `model.py` に書かない |
 | **Optional dependency** | `torch` 等の重い依存は `try: import` + `LizyMLError(OPTIONAL_DEP_MISSING)` パターン |
