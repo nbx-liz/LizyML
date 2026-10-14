@@ -176,6 +176,9 @@ DYNAMIC_FAILS = {
     "relative name": _IL + 'importlib.import_module(".core.model", "lizyml")',
     "__import__ level 1": '__import__("core.model", globals(), None, ["x"], 1)',
     "__import__ level keyword": '__import__("torch", level=1)',
+    "__import__ level unpacked": '__import__("torch", **{"level": 1})',
+    "__import__ star args": 'a = ("model", globals(), None, ["x"], 1)\n__import__(*a)',
+    "import_module star args": _IL + 'importlib.import_module("torch", *("x",))',
 }
 
 DYNAMIC_PASSES = {
@@ -220,10 +223,54 @@ def test_a_row_naming_no_module_fails(tree: Path) -> None:
     assert "R0 the §2.1 table names lizyml.ghost, which no module is" in _check(tree)
 
 
-def test_a_table_cell_outside_the_grammar_fails(tree: Path) -> None:
-    _edit(tree, "BLUEPRINT.md", ", `codegen/`", ", `codegen/`（生成）")
-    with pytest.raises(ValueError, match="backticked paths only"):
+@pytest.mark.parametrize(
+    ("new", "match"),
+    [
+        (", `codegen/`（生成）", "joined by ', '"),
+        ("; `codegen/`", "joined by ', '"),
+        (", `/codegen/`", "is not a package/ or a module.py path"),
+        (", `codegen//`", "is not a package/ or a module.py path"),
+        (", `codegen`", "is not a package/ or a module.py path"),
+    ],
+    ids=["annotation", "semicolon", "leading slash", "double slash", "no suffix"],
+)
+def test_a_table_cell_outside_the_grammar_fails(
+    tree: Path, new: str, match: str
+) -> None:
+    _edit(tree, "BLUEPRINT.md", ", `codegen/`", new)
+    with pytest.raises(ValueError, match=match):
         _check(tree)
+
+
+def test_a_malformed_separator_row_fails(tree: Path) -> None:
+    header = "| 下の層から参照してよいモジュール（IF） |\n"
+    _edit(
+        tree,
+        "BLUEPRINT.md",
+        header + "|---|---|---|---|---|",
+        header + "| x | x | x | x | x |",
+    )
+    with pytest.raises(ValueError, match="malformed separator row"):
+        _check(tree)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {("lizyml/ghost.py", "lizyml.ghost", "R9"): 1},
+        {("lizyml/ghost.py", "lizyml.ghost", "R3"): 0},
+        {("lizyml/ghost.py", "lizyml.ghost", "R3"): True},
+    ],
+    ids=["unknown rule", "zero count", "bool count"],
+)
+def test_a_malformed_exception_entry_fails(extra: dict[Key, int]) -> None:
+    problems = check(
+        REPO / "lizyml",
+        REPO / "BLUEPRINT.md",
+        REPO / "pyproject.toml",
+        {**EXCEPTIONS, **extra},
+    )
+    assert any(p.startswith("exception list:") for p in problems), problems
 
 
 # --- Criterion 3b: the generated _version.py ----------------------------------

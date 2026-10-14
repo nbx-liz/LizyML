@@ -13655,7 +13655,7 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
 - 既存の違反 16 件（import 17 本）を今直す: 管理者が v0.19.0 の後に回した（#362）。そのうち循環の 1 件は、`core/model.py:48` を `from lizyml._version import __version__` に変える 1 行で消える（`core/_tuning_identity.py:32` が既にそうしている）。
 
 ### Firing rate
-- 例外の一覧（`allow`）: Firing rate: 17/515 of resolved lizyml imports on `050949b` are admitted by the exception list, each of its 17 keys matching exactly one import (`layer_rules.py` → `layer_rules_b.out`: sections C 9, E 3 non-IF, G 3, and the two directed edges of the D cycle); 17/514 after this proposal removes `persistence/exporter.py:33`
+- 例外の一覧（`allow`）: Firing rate: 17/515 of resolved lizyml imports on `050949b` are admitted by the exception list, each of its 17 keys matching exactly one import (`layer_rules.py` → `layer_rules_b.out`: sections C 9, E 3 non-IF, G 3, and the two directed edges of the D cycle); 17/517 after the implementation (measured on `7a9431f`: removing `persistence/exporter.py:33` takes one import away, and `exporter.py` → `estimators.base`, `lgbm/adapter.py` → `lgbm/category_json`, `lgbm/category_json.py` → `estimators.base` add three; the Proposal's prediction of 17/514 counted only the removal — corrected in the implementation review)
 - 層の規則のテストの拒否: `050949b` では 515 件のうち 1 件（`persistence/exporter.py:33`）。この Proposal の実装の後は 0 件。
 - `unsaveable_categories` の既定 `[]` は、`lizyml` の中では使われない（adapter は `LGBMAdapter` だけで、それが実装する）。第三者の adapter のための既定である。
 
@@ -13680,4 +13680,11 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
   - §2.1 の依存ルールの 1 行目の誤記「自分より上の Layer にのみ依存する（下方向のみ）」を「下」に直した。
   - R4（循環）は、同じ循環に属するカテゴリの間の import を数える。
 - **テスト**: `tests/test_architecture/test_layer_rules.py`（40 件。本当の木、写し、受け入れ基準 2〜4・3b の変異）と検査の本体 `tests/test_architecture/_layer_rules.py`。`tests/test_persistence/test_unwritable_categories.py` は、スタブの結果に `LGBMAdapter` を持たせ（主張は変えていない）、33 件を足した（`persistence.export` の引数のゴールデン、`exporter.py` に `estimators.lgbm` が無いこと、fold・refit・最後の fold の adapter への問い合わせ、組にならない 3 つの場合、既定の adapter、`LGBMAdapter` の答えが値の種類 24 種で H-0127 と同じ）。
-- **陰性対照**: `docs/audits/2026-10-h0129/probes/negative_controls_h0129.py` → `.out`（3 組とも期待どおり: refit の adapter だけに尋ねる実装は fold 2 の場合を通す、`zip` で組にならない状態を落とす実装は黙って通す、LightGBM の判定を persistence に残す実装は既定の adapter でも拒否する）。層の規則の変異は `test_layer_rules.py` の中にある。
+- **陰性対照**: `docs/audits/2026-10-h0129/probes/negative_controls_h0129.py` → `.out`（3 組とも期待どおり（実装レビュー round 1 の後に文のゴールデンの 1 組を足して 4 組）: refit の adapter だけに尋ねる実装は fold 2 の場合を通す、`zip` で組にならない状態を落とす実装は黙って通す、LightGBM の判定を persistence に残す実装は既定の adapter でも拒否する）。層の規則の変異は `test_layer_rules.py` の中にある。
+- **実装レビュー round 1（`7a9431f`、CHANGES_REQUESTED、critical 5・major 2）への対応**:
+  - R5 は、`*args` か `**kwargs` を渡す呼び出しを許さない（`__import__(..., **{"level": 1})` と `__import__(*args)` が相対の import を通していた）。変異を 3 つ足した。
+  - 表を読む規則を閉じた: パスは識別子を 1 本の `/` でつないで `/` か `.py` で終わる形だけ（`/codegen/`、`codegen//`、接尾辞の無い `codegen` は失敗）、欄はパスを `, ` でつないだ形だけ（`;` や注記は失敗）、区切りの行は `|---|` の形で列の数が合うこと。変異を足した。
+  - 例外の一覧の各項目は、規則が R1〜R4 で、数が 1 以上の `int`（`bool` を除く）であること（数 0 や知らない規則の項目が黙って通っていた）。テストを足した。
+  - persistence の直接呼び出しのテストで、拒否の文の全体をゴールデン（`050949b` の文）として固定した。陰性対照に、文を書き換えた実装の行を足した（4 組とも期待どおり）。
+  - Firing rate の実装後の数を `17/517` に直した（Proposal の `17/514` は消える import しか数えていなかった）。
+  - docs/add-estimator-guide.md §6 と §9 の、codegen が `LGBMAdapter` を import する・型に使うという古い記述を、コードのとおりに書き直した（`codegen/` は `BaseEstimatorAdapter` / `BaseCalibratorAdapter` だけを参照し、LightGBM 固有なのはテンプレート、`lgbm_params`、Facade の objective の検査）。ARCHITECTURE.md の図に `_extras`・`_version`・`codegen/` を足し、「上の Layer にのみ依存」の誤記を「下」に直した。

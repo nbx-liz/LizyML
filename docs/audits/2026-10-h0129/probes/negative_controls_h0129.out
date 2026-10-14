@@ -4,4 +4,6 @@ ok  5b real implementation refuses unpaired: refuses=True (expected True)
 ok  5b control: zip drops the unpaired state: refuses=False (expected False)
 ok  6 real implementation passes: refuses=False (expected False)
 ok  6 control: LightGBM rule kept in persistence: refuses=True (expected True)
+ok  5 real message equals the golden: refuses=True (expected True)
+ok  5 control: a rewritten message differs: refuses=False (expected False)
 failures: 0

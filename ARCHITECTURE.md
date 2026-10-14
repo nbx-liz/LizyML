@@ -23,7 +23,7 @@ LizyML のアーキテクチャは **5 層のカテゴリ（圏）** で構成�
 flowchart TB
     subgraph L0["Layer 0 — Foundation"]
         direction LR
-        CORE["core/<br/>exceptions, logging, registries,<br/>param_domain, specs/"]
+        CORE["core/<br/>exceptions, logging, registries,<br/>param_domain, specs/<br/>+ _extras, _version (generated)"]
         TYPES["types/<br/>FitResult, PredictionResult,<br/>TuningResult, RunMeta,<br/>SplitIndices, DataFingerprint"]
     end
 
@@ -50,6 +50,7 @@ flowchart TB
         EXPLAIN["explain/<br/>shap_explainer<br/>(optional dep)"]
         PLOTS["plots/<br/>8 plot modules<br/>(optional dep)"]
         PERSIST["persistence/<br/>exporter + loader<br/>format_version=2"]
+        CODEGEN["codegen/<br/>export_code generator"]
     end
 
     subgraph L4["Layer 4 — Facade"]
@@ -88,6 +89,10 @@ flowchart TB
     PLOTS --> TYPES
     PERSIST --> CORE
     PERSIST --> TYPES
+    PERSIST -.->|BaseEstimatorAdapter IF| EST
+    CODEGEN --> CORE
+    CODEGEN -.->|BaseEstimatorAdapter IF| EST
+    CODEGEN -.->|BaseCalibratorAdapter IF| CAL
 
     %% Layer 4 → all layers
     MODEL --> CONFIG
@@ -113,7 +118,7 @@ flowchart TB
 
 | ルール | 説明 |
 |---|---|
-| **下方向のみ** | 各カテゴリは自分より上の Layer にのみ依存する |
+| **下方向のみ** | 各カテゴリは自分より下の Layer にのみ依存する（BLUEPRINT §2.1 の表と `tests/test_architecture/test_layer_rules.py`、H-0129） |
 | **IF 経由** | Layer 2 は Layer 1 の**抽象 IF のみ**を参照（具象クラスを import しない） |
 | **Facade 独占** | 具象クラスの組み立て・型ディスパッチは Layer 4 のみが行う |
 | **循環禁止** | カテゴリ間の双方向依存は許可しない |

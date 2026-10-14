@@ -13,6 +13,7 @@ from typing import Any
 
 from lizyml.core.exceptions import LizyMLError
 from lizyml.estimators.base import BaseEstimatorAdapter, UnsaveableCategory
+from lizyml.estimators.lgbm import LGBMAdapter
 from lizyml.estimators.lgbm.category_json import encoder_categories, unwritable_categories
 from lizyml.persistence import exporter
 
@@ -96,6 +97,39 @@ def lightgbm_rule_in_persistence(fit: Any, refit: Any) -> None:
 exporter.check_category_values = lightgbm_rule_in_persistence
 rows.append(("6 control: LightGBM rule kept in persistence", refuses(*case_6), True))
 exporter.check_category_values = real_check
+
+# Criterion 5: the refusal message is pinned word for word (golden at 050949b).
+GOLDEN = (
+    "Model.export cannot save this model: column 'c' (refit pipeline "
+    "state) holds the category value b'x' of type bytes, which LightGBM "
+    "cannot write into a saved model (it stores category values as JSON). "
+    "Convert the column's values to str (or int, float, bool) and fit again."
+)
+bad_refit = SimpleNamespace(pipeline_state=BAD, model=LGBMAdapter())
+fit_ok = SimpleNamespace(pipeline_state_per_fold=None, pipeline_state=GOOD, models=[Silent()])
+
+
+def message_of(check: Any) -> str:
+    try:
+        check(fit_ok, bad_refit)
+    except LizyMLError as error:
+        return error.user_message
+    return ""
+
+
+rows.append(("5 real message equals the golden", message_of(real_check) == GOLDEN, True))
+
+
+def rewritten_message(fit: Any, refit: Any) -> None:
+    for name, state, adapter in real_states(fit, refit):
+        for item in adapter.unsaveable_categories(state):
+            raise LizyMLError(
+                code=exporter.ErrorCode.SERIALIZATION_FAILED,
+                user_message=f"Cannot export: column '{item.column}' ({name}) holds {item.shown}.",
+            )
+
+
+rows.append(("5 control: a rewritten message differs", message_of(rewritten_message) == GOLDEN, False))
 
 failures = 0
 for label, got, want in rows:

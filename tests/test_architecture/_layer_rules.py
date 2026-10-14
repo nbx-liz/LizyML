@@ -52,6 +52,9 @@ ALL_IF = "全部"
 NO_IF = "なし"
 DYNAMIC_NAMES = frozenset({"import_module", "__import__"})
 _TOKEN = re.compile(r"`([^`]+)`")
+_PATH = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:/[A-Za-z_][A-Za-z0-9_]*)*(?:/|\.py)")
+_SEPARATOR = re.compile(r"\|(?: *:?-{3,}:? *\|)+")
+RULES = frozenset({"R1", "R2", "R3", "R4"})
 
 
 @dataclass(frozen=True)
@@ -82,24 +85,30 @@ def _cells(line: str) -> list[str]:
 
 
 def _tokens(cell: str, where: str) -> list[str]:
+    """The backticked paths of *cell*, which must be exactly ``a`, `b`` form."""
     tokens = _TOKEN.findall(cell)
-    rest = _TOKEN.sub("", cell).replace(",", "").strip()
-    if rest or not tokens:
-        raise ValueError(f"§2.1 table: {where} must be backticked paths only: {cell!r}")
+    if not tokens or cell != ", ".join(f"`{t}`" for t in tokens):
+        raise ValueError(
+            f"§2.1 table: {where} must be backticked paths joined by ', ': {cell!r}"
+        )
     return tokens
 
 
 def module_of(path: str) -> str:
-    """``core/types/`` -> ``lizyml.core.types``; ``__init__.py`` -> ``lizyml``."""
+    """``core/types/`` -> ``lizyml.core.types``; ``__init__.py`` -> ``lizyml``.
+
+    Only canonical relative paths are read: identifiers joined by single
+    slashes, ending in ``/`` (a package) or ``.py`` (a module).
+    """
+    if not _PATH.fullmatch(path):
+        raise ValueError(f"§2.1 table: {path!r} is not a package/ or a module.py path")
     if path.endswith("/"):
         parts = path[:-1].split("/")
-    elif path.endswith(".py"):
+    else:
         parts = path[:-3].split("/")
         if parts[-1] == "__init__":
             parts = parts[:-1]
-    else:
-        raise ValueError(f"§2.1 table: {path!r} is neither a package/ nor a module.py")
-    return ".".join([PACKAGE, *[p for p in parts if p]])
+    return ".".join([PACKAGE, *parts])
 
 
 def read_table(blueprint: Path) -> Table:
@@ -118,6 +127,8 @@ def read_table(blueprint: Path) -> Table:
             raise ValueError("§2.1 table: no table under the heading")
     if len(rows) < 3 or tuple(_cells(rows[0])) != HEADER:
         raise ValueError(f"§2.1 table: header must be {HEADER}")
+    if not _SEPARATOR.fullmatch(rows[1]) or len(_cells(rows[1])) != len(HEADER):
+        raise ValueError(f"§2.1 table: malformed separator row {rows[1]!r}")
     paths: dict[str, int] = {}
     packages: set[str] = set()
     interfaces: dict[int, frozenset[str] | None] = {}
@@ -213,6 +224,11 @@ def resolve(root: Path, source: str, is_package: bool, node: ast.AST) -> list[st
 def _dynamic_call_allowed(call: ast.Call, name: str) -> bool:
     """An absolute import of a non-``lizyml`` package by a constant name."""
     if not call.args:
+        return False
+    # ``*args`` / ``**kwargs`` can carry a relative ``level`` or package unseen.
+    if any(isinstance(a, ast.Starred) for a in call.args) or any(
+        kw.arg is None for kw in call.keywords
+    ):
         return False
     first = call.args[0]
     if not (isinstance(first, ast.Constant) and isinstance(first.value, str)):
@@ -401,6 +417,11 @@ def check(
         if a != b and a in cyclic and cyclic.get(b) == cyclic[a]:
             found[(edge.file, edge.target, "R4")] += 1
 
+    for key, count in sorted(exceptions.items()):
+        if key[2] not in RULES or type(count) is not int or count < 1:
+            problems.append(
+                f"exception list: {key} -> {count!r} must name R1-R4 with a count >= 1"
+            )
     for key in sorted(set(found) | set(exceptions)):
         actual, expected = found.get(key, 0), exceptions.get(key, 0)
         if actual != expected:

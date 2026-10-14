@@ -352,8 +352,14 @@ def test_each_saved_state_is_checked(case: str, tmp_path: Path) -> None:
         exporter.export(out, fit_result, refit_result, {}, "binary")
     assert exc.value.code == ErrorCode.SERIALIZATION_FAILED
     assert exc.value.context["state"] == state
-    assert f"({state} pipeline state)" in str(exc.value)
     assert exc.value.context["column"] == "c"
+    # Golden at 050949b (H-0129 keeps the H-0127 message word for word).
+    assert exc.value.user_message == (
+        f"Model.export cannot save this model: column 'c' ({state} pipeline "
+        "state) holds the category value b'x' of type bytes, which LightGBM "
+        "cannot write into a saved model (it stores category values as JSON). "
+        "Convert the column's values to str (or int, float, bool) and fit again."
+    )
     assert not out.exists()
 
 
