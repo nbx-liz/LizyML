@@ -24,11 +24,12 @@ from __future__ import annotations
 import json
 import warnings
 from collections.abc import Mapping
-from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 import pandas as pd
+
+from lizyml.estimators.base import UnsaveableCategory
 
 
 def type_name(value: Any) -> str:
@@ -47,22 +48,6 @@ def shown(value: Any) -> str:
     except Exception:  # noqa: BLE001 - a hostile __repr__ must not stop fit
         return f"<unprintable {type_name(value)}>"
     return text if isinstance(text, str) else f"<unprintable {type_name(value)}>"
-
-
-@dataclass(frozen=True)
-class UnwritableCategory:
-    """The first category value of *column* LightGBM cannot write."""
-
-    column: str
-    value: Any
-
-    @property
-    def shown(self) -> str:
-        return shown(self.value)
-
-    @property
-    def type_name(self) -> str:
-        return type_name(self.value)
 
 
 def _numpy_default(obj: Any) -> Any:
@@ -92,14 +77,21 @@ def is_writable(value: Any) -> bool:
 
 def unwritable_categories(
     categories: Mapping[str, list[Any]],
-) -> list[UnwritableCategory]:
+) -> list[UnsaveableCategory]:
     """Each column whose categories hold a value LightGBM cannot write, with
-    the first such value, in column order."""
-    found: list[UnwritableCategory] = []
+    the first such value shown by the never-raising formatters, in column
+    order."""
+    found: list[UnsaveableCategory] = []
     for column, known in categories.items():
         for value in list(pd.CategoricalDtype(known).categories):
             if not is_writable(value):
-                found.append(UnwritableCategory(column=str(column), value=value))
+                found.append(
+                    UnsaveableCategory(
+                        column=str(column),
+                        shown=shown(value),
+                        type_name=type_name(value),
+                    )
+                )
                 break
     return found
 

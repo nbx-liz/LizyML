@@ -1,0 +1,41 @@
+layering: before option B; imports resolved: 515
+
+[A] layer 2/3 -> concrete estimator module: 1
+  lizyml/persistence/exporter.py:33 persistence -> lizyml.estimators.lgbm.category_json
+
+[B] import pointing to a higher layer: 4
+  lizyml/calibration/isotonic.py:20 layer 1 -> layer 4: lizyml.core.param_domain
+  lizyml/data/dataframe_builder.py:18 layer 1 -> layer 4: lizyml.core.specs.feature_spec
+  lizyml/data/dataframe_builder.py:19 layer 1 -> layer 4: lizyml.core.specs.problem_spec
+  lizyml/estimators/lgbm/adapter.py:13 layer 1 -> layer 4: lizyml.core.param_domain
+
+[C] layer 1 -> another layer-1 category: 9
+  lizyml/estimators/lgbm/metric_bridge.py:22 estimators -> lizyml.metrics.base
+  lizyml/estimators/lgbm/metric_bridge.py:23 estimators -> lizyml.metrics.registry
+  lizyml/estimators/lgbm/provider.py:16 estimators -> lizyml.config.schema
+  lizyml/estimators/lgbm/provider.py:42 estimators -> lizyml.features.encoders.categorical_encoder
+  lizyml/estimators/lgbm/provider.py:43 estimators -> lizyml.features.pipeline_base
+  lizyml/estimators/lgbm/provider.py:44 estimators -> lizyml.features.pipelines_native
+  lizyml/estimators/lgbm/provider.py:577 estimators -> lizyml.metrics.registry
+  lizyml/estimators/provider.py:22 estimators -> lizyml.features.encoders.categorical_encoder
+  lizyml/estimators/provider.py:23 estimators -> lizyml.features.pipeline_base
+
+[G] layer 2/3 -> another layer-2/3 category (layer 2 may use only Foundation + layer-1 IF; layer 3 also layer-2 IF): 3
+  lizyml/evaluation/confusion.py:14 evaluation -> lizyml.training.oof_assembly
+  lizyml/evaluation/evaluator.py:16 evaluation -> lizyml.training.oof_assembly
+  lizyml/persistence/exporter.py:41 persistence -> lizyml.training.refit_trainer
+
+[D] category cycles: 0
+
+[E] layer 2/3 -> layer 1 targets (what 'the IF' would have to cover):
+  evaluation -> metrics: lizyml.metrics.base x1, lizyml.metrics.registry x1
+  explain -> estimators: lizyml.estimators.base x1
+  explain -> features: lizyml.features.pipelines_native x1
+  persistence -> estimators: lizyml.estimators.lgbm.category_json x1
+  plots -> calibration: lizyml.calibration.cross_fit x1
+  training -> estimators: lizyml.estimators.base x3
+  training -> features: lizyml.features.pipeline_base x2
+  training -> splitters: lizyml.splitters.base x1
+
+[F] unclassified importers (not in any table): codegen x10, lizyml x8
+[F] unclassified targets: _version <- layer 4 x1, codegen <- layer 4 x1, lizyml <- layer 4 x1

@@ -13566,3 +13566,125 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
 - **陰性対照**（`probes/negative_controls_h0128.py` → `negative_controls_h0128.out`）: 10 通りの変異（study 全体の COMPLETE で閉じる、中断を数えない、`prior_trials` で区切る、provider の型を渡さない、最後の例外を残す、`str(exc)` をそのまま使う、全ての provider で `trial_errors()` を呼ぶ、差し替えをしない、計画の中で RUNNING の試行を FAIL にする、今の restore の文）の全てで、テストが落ちた。基準 7 の変異は、基準 7 のテストだけを選んでも落ちる。
 - **スイート（lock の版）**: 11706 passed、230 skipped、21 deselected、1 failed（`tests/test_docs/test_resume_docs.py` が `Model.tune` の節で禁じる語 `enqueue` を docs/api.md の新しい文が含んでいた。文を直した後、`tests/test_docs` は 774 passed）。ruff、mypy は通った。下限の版のスイートは、手元では流さず CI の `Quality (lowest-direct deps)` に任せる（過負荷の後の方針。Optuna 3.1 にある API だけを使う）。
 - **実装レビュー round 1**: APPROVE（`0a82b3f`）、minor 4 件を直した: `catch=` に入らない例外の試行も `event='trial.failed'` のログに出す（Optuna はそのとき callback を呼ばずに送出し直すので、`Tuner.run` の例外の処理で書く）、`Optuna study failed: ...` の文も例外を出さない表示で作る（`safe_message`）、`Model.tune` の docstring を差し替えの規則に合わせる、差し替えで違う `expand_boundary` を新しい round が使うことをテストで確かめる。APPROVE の後の直しなので、絞った確認のレビューを別の run で受ける。
+
+## H-0129: persistence は保存の検査を estimator の interface に尋ね、BLUEPRINT §2.1 の層の規則をテストで固定する（#360、#362）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-14
+- **決定日**: 2026-10-14（Codex の Proposal review は 1 つの run（3 round）で APPROVE に届かず、round 2 と round 3 はそれぞれ前の改訂の書き足しに欠陥を見つけた。管理者の判断で、完了基準（`docs/audits/2026-10-h0129/acceptance-criteria.md`）を書いて受け入れレビューを 1 回行い、APPROVE（`2e46313`、指摘 0 件）。管理者が受け入れを宣言した。案 B は round 1 で「妥当」と判定された。）
+- **スコープ**: `lizyml/estimators/base.py`（`BaseEstimatorAdapter` に任意のメソッド `unsaveable_categories` と、その戻り値の型 `UnsaveableCategory`）、`lizyml/estimators/lgbm/adapter.py`（その実装）、`lizyml/estimators/lgbm/category_json.py`（戻り値の型を差し替える）、`lizyml/persistence/exporter.py`（具体的な estimator の import を消し、adapter に尋ねる）、新しいテスト `tests/test_architecture/test_layer_rules.py`（層の規則）、`tests/test_persistence/test_unwritable_categories.py`（スタブに adapter を持たせる）、BLUEPRINT §2.1 の表（Layer 0 の追加、層が決まっていないモジュールの置き場所、IF の列）と §14.1、ARCHITECTURE.md、docs/add-estimator-guide.md、CHANGELOG、`docs/proposal_dispositions.toml`
+- **関連**: [Issue #360](https://github.com/nbx-liz/LizyML/issues/360)、[Issue #362](https://github.com/nbx-liz/LizyML/issues/362)。H-0127（保存できないカテゴリ値の検査）、H-0128（#360 の切り出し、方針 8b）、H-0051〜H-0053（5 層の DAG）。証拠は `docs/audits/2026-10-h0129/probes/`
+
+### 目的（課題）
+1. **#360**: H-0127 で、Layer 3 の `persistence/exporter.py:33` が Layer 1 の具象モジュール `estimators/lgbm/category_json.py` を import した。BLUEPRINT §2.1 は Layer 2/3 に Layer 1 の **IF だけ**を許し、具象の組み立てと型ディスパッチを Layer 4（Facade）に限る。利用者に見える誤りは無い（検査は仕様どおり働く）が、§2.1 が守られていない。
+2. **§2.1 にテストが無い**: H-0127 の Proposal review と実装レビューはこれを見落とし、H-0128 のレビューで見つかった。H-0128 の round 2 は、最初の直し方の二つの誤りを指摘した: (a) 検査を Facade に移すと、公開の `lizyml.persistence.export`（`persistence/__init__.py` が公開）から検査が消え、`categories_checked` を外せば引数も変わる。(b) 計測器 `layer_imports.py` は相対 import（`level != 0` を飛ばす）と import する名前（`from lizyml.estimators import lgbm`）を見逃す。
+
+### 管理者の判断（2026-10-14）
+- **案 B**: `core/param_domain` と `core/specs` を §2.1 の Layer 0 に入れる（`core/param_domain` が import する `lizyml` のモジュールは `core/exceptions` だけで、`core/specs` は `lizyml` を import しない）。**この判断が妥当かを Codex に検証させる**（管理者の指示）。
+- **案 2**: テストは §2.1 の規則をすべて確かめる。既存の違反は、行を名指しした例外の一覧としてテストに書き、#362 に記録して v0.19.0 の後に設計を決める。IF の範囲はこの Proposal で仮に決める。
+- 公開の `persistence.export` の検査と引数の形は残す（#360）。
+
+### 実測（2026-10-14、develop `050949b`）
+計測器 `layer_rules.py`（`lizyml/` の全 `.py` を `ast` で読み、関数の中や `if TYPE_CHECKING:` の中の import も数える。相対 import は import する側のパッケージから解決し、import する名前は、その名前のモジュールがあればそのモジュールを相手とする。一つの文が同じモジュールを何度挙げても 1 件）→ `layer_rules_b.out`（案 B の層）、`layer_rules_before_b.out`（今の層）。解決した import は 515 件。
+
+| 規則（§2.1） | 今の層 | 案 B の層 |
+|---|---|---|
+| Layer 2/3 は estimators の IF だけ（`base`、`provider`） | 1 件（`persistence/exporter.py:33`） | 1 件（この Proposal で直す） |
+| 上の層を import しない | 4 件（`calibration/isotonic.py:20`、`estimators/lgbm/adapter.py:13` → `core/param_domain`、`data/dataframe_builder.py:18-19` → `core/specs`） | 0 件 |
+| Layer 1 は Foundation だけ | 9 件（全て `estimators/` から `features/`・`metrics/`・`config/` へ） | 9 件 |
+| Layer 2/3 は下の層の IF だけ（estimators 以外） | 3 件（`explain/shap_explainer.py:177` → `features.pipelines_native`、`evaluation/evaluator.py:15` → `metrics.registry`、`plots/calibration.py:31` → `calibration.cross_fit`） | 3 件 |
+| Layer 2 は Layer 2 を import しない、Layer 3 は Layer 2 の IF だけ | 3 件（`evaluation/confusion.py:14`、`evaluation/evaluator.py:16` → `training.oof_assembly`、`persistence/exporter.py:41` → `training.refit_trainer`） | 3 件 |
+| カテゴリの循環 | — | 1 件（`lizyml/__init__.py:6` → `core.model`、`core/model.py:48` → `lizyml` の `__version__`） |
+| どの表にも無いモジュール | `lizyml/__init__.py`、`_version.py`、`_extras.py`、`codegen/` | 0（方針 4 の置き場所） |
+
+- `core/param_domain.py` が import する `lizyml` のモジュールは `core/exceptions` だけ（`param_domain.py:67`）。`core/specs/*` は `lizyml` を import しない。`_version.py` と `_extras.py` は `lizyml` を import しない。`codegen/` は Foundation と `estimators.base`・`calibration.base` だけを import する。
+- `lizyml/` に `importlib.import_module` と `__import__` は 0 件。
+- 計測器自身の確かめ（`mutations.py` → `mutations.out`）: `lizyml/` の写しで `exporter.py:33` を消すと exit 0。そこに Layer 3 のモジュールから具象への import を 4 つの書き方（絶対、相対 `from ..estimators.lgbm import category_json`、名前 `from lizyml.estimators import lgbm`、`import lizyml.estimators.lgbm.category_json`）で一つずつ足すと、4 つとも検出して exit 1。
+
+### 対応方針（提案）
+
+**#360: 保存の検査を adapter に尋ねる**
+1. `estimators/base.py` に、凍結した dataclass `UnsaveableCategory(column: str, shown: str, type_name: str)` と、`BaseEstimatorAdapter` の**抽象でない**メソッド `unsaveable_categories(self, pipeline_state: Any) -> list[UnsaveableCategory]` を足す。意味は「この estimator が学習済みモデルを保存するときに書けないカテゴリ値を、列ごとに最初の一つ、列の順に返す」。既定は `[]`（書けない値は無い。H-0127 より前の前提と同じ）。`shown` と `type_name` は作る側が例外を出さない表示で作った文字列で、`persistence/` は値そのものを扱わない。
+2. `LGBMAdapter.unsaveable_categories` は、今の `category_json.unwritable_categories(encoder_categories(state))` と同じ判定を返す（`category_json` は estimators の中に残る。判定・表示・警告の文は変えない）。`category_json.UnwritableCategory` は `UnsaveableCategory` に置き換える（`column` と、`shown`・`type_name` の文字列）。今の `value` 属性を読むのは `UnwritableCategory` 自身の `shown` と `type_name`（`category_json.py:61`、`:65`）だけで、`category_json` の外（`persistence/exporter.py:96-116`）が読むのは `column`・`shown`・`type_name` だけである。置き換えた後も、`shown` と `type_name` は `category_json` の中で今の例外を出さない表示（`shown()`、`type_name()`、H-0127）で値から作り、値そのものは `UnsaveableCategory` に入れない。
+3. `persistence/exporter.py` は `estimators/lgbm/category_json` を import しない。`check_category_values(fit_result, refit_result)` は、保存する pipeline の状態（今と同じ `_saved_pipeline_states`: refit、fold ごと、fold ごとが無ければ最後の fold）のそれぞれについて、**その状態と一緒に保存される adapter** に尋ねる: refit の状態は `refit_result.model`、fold k の状態は `fit_result.models[k-1]`、fold ごとの状態が無いときの最後の fold の状態は `fit_result.models[-1]`。最初に見つかった値で、今と同じ文と context（`column`・`value`・`type`・`state`）の `SERIALIZATION_FAILED` を送出する。refit の adapter だけに尋ねない理由（round 1 の指摘）: BLUEPRINT §14.4 は estimator の factory が `BaseEstimatorAdapter` を返すことしか約束せず、fold と refit で同じ種類の adapter、同じ答えになることは約束していない。
+   - 前提（明記する）: 尋ねる adapter は `BaseEstimatorAdapter` の子クラスである（`RefitResult.model` の型、`FitResult.models` の中身）。そうでない物は `AttributeError` になる（契約の外。黙って通さない）。`pipeline_state_per_fold` があるときは `len(fit_result.models)` がその長さと等しく、無いときは `fit_result.models` が空でない（CVTrainer が満たす。H-0114）。満たさない結果を渡されたら、何も書く前に `SERIALIZATION_FAILED`（fold の状態の数と adapter の数を context に示す）にする。尋ねる相手が無い状態を飛ばさない（DC1）。
+4. `persistence.export` の引数と、`categories_checked` の意味は変えない。`Model.export` の流れ（path を解決する前に検査する、H-0127）も変えない。`Model.fit` の警告（`core/model.py:97,288` が `category_json.warn_unsaveable_categories` を直接呼ぶ）は Layer 4 なので §2.1 に反しない。変えない。
+
+**§2.1 を表とテストで閉じる**
+5. BLUEPRINT §2.1 の表を、`lizyml/` のどのモジュールもちょうど一つの層に入る形にする。
+   - Layer 0 に `core/registries.py`（ARCHITECTURE.md には既に Layer 0 とある）、`core/param_domain.py`、`core/specs/`、`_version.py`、`_extras.py` を足す（案 B と、表に無かったものの置き場所）。
+   - Layer 3 に `codegen/` を足す（`export_code` の生成器。Foundation と Layer 1 の IF だけを import し、Facade だけが呼ぶ）。
+   - Layer 4 を `core/`（Layer 0 に挙げたもの以外）と `lizyml/__init__.py` にする。今の表の `core/model.py`、`core/_model_*.py`、`core/_model_factories.py` だけでは、`core/seed.py`、`core/train_components.py`、`core/_tuning_*.py` などの置き場所が無い。
+   - 一つのモジュールに複数の行が当たるときは、最も長いパスの行が決める（`core/exceptions.py` は `core/` より長いので Layer 0）。
+   - `_version.py` は生成されるファイルで、Git の管理外（`.gitignore:12`）。hatch-vcs が `pyproject.toml:94` の `version-file` に従って書く。表のこの行は「生成されるモジュール」と明記し、テストは `pyproject.toml` の `version-file` を読んで、その名前のモジュールを Layer 0 に置く（ファイルが無くても、`lizyml._version` を import する側は判定できる）。ファイルがあれば、ほかの `.py` と同じく読む。この行の「少なくとも一つのモジュールに当たる」（R0）は、`version-file` の宣言で満たす（round 1 の指摘）。`pyproject.toml` は、Python 3.11 以降は標準の `tomllib`、3.10 では `tomli` で読む（`requires-python = ">=3.10"`。`tests/test_release/test_dependency_floor_surfaces.py:20-23` と `tests/test_docs/test_proposal_blueprint_coverage.py:58-61` と同じ形。3.10 では pytest が `tomli` に依存するので lock に入っている。round 3 の指摘）。宣言は、`_version.py` があるかどうかに関わらず毎回確かめる: `pyproject.toml` が TOML として読めない、`tool.hatch.build.hooks.vcs.version-file` が無い、文字列でない、`lizyml/` の下の `.py` を指さない、のどれでもテストは失敗する（round 2 の指摘: 古い `_version.py` が木に残っていても、宣言が消えたことを見逃さない）。
+6. 表に「下の層から参照してよいモジュール（IF）」の列を足す。今の宣言（§2.1 の依存ルール、§14.1、§2.2、ARCHITECTURE.md の図の辺の名前）から仮に決める:
+   - Layer 1: `splitters/base.py`、`features/pipeline_base.py`、`estimators/base.py`、`estimators/provider.py`、`metrics/base.py`、`calibration/base.py`。
+   - Layer 0: 全部（Foundation はどの層からも参照してよい）。
+   - Layer 2: なし（今は何も宣言されていない。Layer 3 から Layer 2 への 1 件は例外の一覧に入る）。
+   - パッケージの `__init__.py` は IF に入れない（`estimators/__init__.py` は `LGBMAdapter` を再公開する）。
+7. 新しいテスト `tests/test_architecture/test_layer_rules.py` が、`lizyml/` の全 `.py` について次を確かめる。層と IF は BLUEPRINT §2.1 の表から読む（テストに写さない。DC3）。
+   - R0 どのモジュールも表のどれかの行に当たる。表のどの行も、少なくとも一つのモジュールに当たる（表の古びを検出する）。
+   - R1 上の層を import しない。
+   - R2 Layer 1 は、Layer 0 と自分のカテゴリだけを import する。
+   - R3 Layer 2 は、Layer 0、自分のカテゴリ、Layer 1 の IF だけを import する。Layer 3 は、それに加えて Layer 2 の IF を import してよい（同じ Layer 3 の別のカテゴリは import しない）。
+   - R4 カテゴリ（`core/` の中はモジュールごと、ほかは最上位のパッケージごと）の間に循環が無い。
+   - R5 import の文で書かない `lizyml` の import が無い。別名の解決はせず、**名前で**判定する（round 2 の指摘: 別名を一つずつ解決する方式は、`import importlib as il`、`from importlib import import_module as load`、`builtins.__import__` のような書き方を取りこぼす）: 識別子 `import_module` と `__import__` は、`lizyml/` の中で次の形でだけ現れてよい ― 呼び出しの関数の位置（`Name` か、`Attribute` の属性名）にあり、第 1 引数が `lizyml` 以外のパッケージを名指す**絶対の**名前の文字列の定数（例 `"torch"`。`.` で始まらない）で、`__import__` なら `level`（5 番目の位置引数か、キーワード `level`）が無いか定数の `0` の呼び出し。ほかの現れ方は全て失敗にする: `lizyml` を名指す定数か定数でない引数の呼び出し、`.` で始まる名前（`importlib.import_module(".core.model", "lizyml")`。相対の名前は第 2 引数のパッケージから解決される）、`level` が `0` 以外か定数でない `__import__`（`__import__("other", globals(), None, ["new"], 1)` は呼んだモジュールのパッケージから解決され、`lizyml` の中を読む。round 3 の指摘）、呼び出さない参照（`f = importlib.import_module`）、`from importlib import import_module`（`as` の有無に関わらず。名前が別名に移るので）、`import builtins` の後の `builtins.__import__` を呼ばない参照、文字列の定数 `"import_module"` / `"__import__"`（`getattr(importlib, "import_module")` の形）。今の `lizyml/` ではどれも 0 件。範囲の外（宣言する）: `eval` / `exec` で組み立てた import（今は `lizyml/` に `eval(` / `exec(` の呼び出しが 0 件）。§2.1 に「層の規則は import の文と、名前で読める動的な import で確かめる」と書く。外のパッケージの動的な import（任意の依存）は縛らない（round 1 の指摘: §2.1 に無い規則を作らない）。
+   - 読み方は計測器と同じ（全ての `Import` / `ImportFrom` の文、関数の中と `if TYPE_CHECKING:` の中を含む、相対 import の解決、import する名前のモジュールへの解決）。読めないファイル（`ast.parse` の失敗）、パッケージの外に出る相対 import、表の読めない行は、飛ばさずに失敗にする（DC1）。
+   - 例外の一覧: 既存の違反 16 件（上の表の 9 + 3 + 3 + 循環 1）の import **17 本**を、`(import する側のファイル, import されるモジュール, 破る規則)` の組と、その組に当たる import の**数**（今はどれも 1）で書き、全て #362 を指す。テストは組ごとに実際の数を数え、一覧の数と**等しい**ことを求める（少なければ古びた組、多ければ同じ組の新しい import。どちらも失敗。round 1 の指摘: 「少なくとも一つ」では、同じファイルに同じ相手の import を足しても通る）。行番号は書かない（行がずれても古びないように）。循環の 1 件は、循環を作る二つの辺（`lizyml/__init__.py` → `lizyml.core.model` と `lizyml/core/model.py` → `lizyml`）を、それぞれ数 1 の組で書く。したがって組は 9 + 3 + 3 + 2 = **17**（round 2 の指摘: 16 は違反の数で、組の数ではない）。
+   - 範囲の外（宣言する）: 実行時に親パッケージの `__init__.py` が読み込むもの（`estimators.base` を import すると `estimators/__init__.py` が `LGBMAdapter` を読み込む）は数えない。規則が縛るのは import の**文**と R5 の動的な import である。`codegen/templates.py` の文字列の中の import も数えない（生成するコードであって `lizyml` の import ではない）。
+8. **文書**: BLUEPRINT §2.1（表、IF の列、テストへの言及）、§14.1（`unsaveable_categories`）。ARCHITECTURE.md（Layer 0 の箱、`codegen/`）。docs/add-estimator-guide.md（adapter の任意のメソッド、§9 の層の規則の行をテストに合わせる）。CHANGELOG、`docs/proposal_dispositions.toml`。
+
+### 規則が縛る位置（ソースから導出、実装前、`050949b`）
+- 具体的な estimator の import: `persistence/exporter.py:33-36`。それを使う所: `exporter.py:84-116`（`check_category_values`）。保存する状態の一覧: `exporter.py:71-81`（`_saved_pipeline_states`）。呼ぶ所: `exporter.py:211`（`export`、`categories_checked` が偽のとき）と `core/_model_persistence.py:365`（`Model.export`）。
+- adapter の IF: `estimators/base.py:16`（`BaseEstimatorAdapter`、ABC。抽象でないメソッドは `set_categorical_features` `:93` などと同じ形）。LightGBM: `estimators/lgbm/adapter.py:108`。判定: `estimators/lgbm/category_json.py:52-65`（`UnwritableCategory`）、`:93-104`（`unwritable_categories`）。
+- テストのスタブ: `tests/test_persistence/test_unwritable_categories.py:318-322`（`_results` の `RefitResult` のスタブに `model` が無い）。
+- §2.1 の表: BLUEPRINT.md の「2.1 5 層カテゴリアーキテクチャ」の表。
+
+### 互換性
+- 公開 API の追加（後方互換）: `BaseEstimatorAdapter` に抽象でないメソッド `unsaveable_categories`（既定 `[]`）と、`estimators/base.py` に `UnsaveableCategory` を足す。第三者の adapter（`BaseEstimatorAdapter` の子クラス）はそのまま動き、保存の検査は何も拒否しない（H-0127 より前と同じ）。
+- `persistence.export` の引数、送出する例外とその文・context、`Model.export` の挙動は変わらない。保存の形式（`format_version`）は変わらない。
+- 内部の変更: `category_json.UnwritableCategory` が無くなる（`lizyml` の外には公開していない。`lizyml.estimators.__all__` に無い）。
+- 層の規則のテストが加わる。§2.1 に反する新しい import は CI で失敗する。
+
+### 代替案（検討して棄却）
+- 検査を Facade に移す: 公開の `persistence.export` から検査が消える。`categories_checked` を外せば引数が変わる（H-0128 round 2 の指摘 (a)）。
+- `category_json` を Layer 0（`core/` の下）に移す: 層の規則は通るが、LightGBM の保存の制約という estimator 固有の規則を Foundation に置くことになる。ほかの estimator を足したとき、その estimator の制約を置く場所が無い。
+- `persistence.export` に検査の関数を渡す引数を足す: 既定の値が LightGBM の判定なら具象の import が残り、既定が「検査しない」なら直接呼ぶ利用者から検査が消える。引数も変わる。
+- provider の任意の機能（H-0128 の `TrialErrorProvider` と同じ形）: `persistence.export` は provider を受け取らないので、引数を変えることになる。
+- 層の規則の範囲（案 1: #360 の規則と上向きの import だけ、案 3: §2.1 を実態に合わせて書き直す）: 管理者が案 2 を選んだ。
+- 既存の違反 16 件（import 17 本）を今直す: 管理者が v0.19.0 の後に回した（#362）。そのうち循環の 1 件は、`core/model.py:48` を `from lizyml._version import __version__` に変える 1 行で消える（`core/_tuning_identity.py:32` が既にそうしている）。
+
+### Firing rate
+- 例外の一覧（`allow`）: Firing rate: 17/515 of resolved lizyml imports on `050949b` are admitted by the exception list, each of its 17 keys matching exactly one import (`layer_rules.py` → `layer_rules_b.out`: sections C 9, E 3 non-IF, G 3, and the two directed edges of the D cycle); 17/517 after the implementation (measured on `7a9431f`: removing `persistence/exporter.py:33` takes one import away, and `exporter.py` → `estimators.base`, `lgbm/adapter.py` → `lgbm/category_json`, `lgbm/category_json.py` → `estimators.base` add three; the Proposal's prediction of 17/514 counted only the removal — corrected in the implementation review)
+- 層の規則のテストの拒否: `050949b` では 515 件のうち 1 件（`persistence/exporter.py:33`）。この Proposal の実装の後は 0 件。
+- `unsaveable_categories` の既定 `[]` は、`lizyml` の中では使われない（adapter は `LGBMAdapter` だけで、それが実装する）。第三者の adapter のための既定である。
+
+### 受け入れ基準（テスト観点）
+1. **層の規則**: `tests/test_architecture/test_layer_rules.py` が実装の後の木で通る（落ちるべき例: `050949b` の木では `persistence/exporter.py:33` で失敗する）。
+2. **書き方ごとの落ちるべき例**: `lizyml/` の写しに、Layer 3 のモジュールから Layer 1 の具象への import を、絶対・相対・名前・`import` 文の 4 つの書き方で一つずつ足すと、それぞれ失敗する。
+3. **規則ごとの落ちるべき例**: 写しに一つずつ足すと失敗する: Layer 1 から Layer 4 への import（R1）、Layer 1 から別の Layer 1 への import（R2）、Layer 2 から別の Layer 2 への import（R3）、カテゴリの循環（R4）、R5 の書き方それぞれ（一つずつ）: `importlib.import_module("lizyml.core.model")`、`__import__("lizyml.core.model")`、`importlib.__import__("lizyml.core.model")`、定数でない引数の `importlib.import_module(name)`、`import importlib as il` の後の `il.import_module("lizyml.core.model")`、`from importlib import import_module` と `from importlib import import_module as load`（呼び出しの有無に関わらず）、`import builtins` の後の `builtins.__import__("lizyml.core.model")`、`f = importlib.import_module`、`getattr(importlib, "import_module")`、相対の名前の `importlib.import_module(".core.model", "lizyml")`、`level` が 1 の `__import__("core.model", globals(), None, ["x"], 1)` と `__import__("torch", level=1)`、表のどの行にも当たらない新しいパッケージ（R0）、読めない `.py`（DC1）。表から行を一つ消す、または表に存在しないパスの行を足すと失敗する（R0）。落ちてはいけない例: `importlib.import_module("torch")`、`il.import_module("torch")`（`import importlib as il` の後）、`__import__("torch")`、`__import__("torch", globals(), None, [], 0)` を足しても通る（R5 は外のパッケージの絶対の import を縛らない）。
+3b. **生成されるモジュール**: `lizyml/_version.py` を消した写し（Git の管理下だけの木と同じ）でもテストは通り、`core/model.py` などの `lizyml._version` の import は Layer 0 として判定される。`pyproject.toml` の `version-file` を表に無い名前に変えた写しでは R0 で失敗する。`pyproject.toml` を TOML として読めなくした写し、`version-file` の行を消した写し、値を数にした写しは、それぞれ `_version.py` を残したままでも失敗する（round 2 の指摘）。層の規則のテストは CI の Python 3.10 の lane（`Quality (3.10)`）でも走って通る（round 3 の指摘: `tomllib` だけの実装は 3.10 で落ちる）。
+4. **例外の一覧が古びず、広がらない**: 写しで例外の一覧に挙げた import を一つ消すと、その組の数が足りずに失敗する。例外の一覧に挙げた import と同じ組の import を、同じファイルにもう一つ足すと、その組の数が多すぎて失敗する（round 1 の指摘）。
+5. **`persistence.export` の検査は残る**: H-0127 の直接呼び出しのテスト（`test_each_saved_state_is_checked` の 4 つの場合、`test_export_names_the_column_and_writes_nothing` など）が、スタブに `LGBMAdapter`（refit と fold ごと）を持たせる以外は同じ主張で通る（`state`・`column`・文・何も書かないこと）。`inspect.signature(lizyml.persistence.export)` が `050949b` と同じ（ゴールデン）。
+5b. **状態ごとに、その adapter に尋ねる**: fold 2 の adapter だけが fold 2 の状態の値を書けないと答え、refit の adapter は何も拒否しない結果で、`SERIALIZATION_FAILED`（`state` が `fold 2`）になり何も書かない（落ちるべき例: refit の adapter だけに尋ねる実装は通す）。逆に refit の adapter だけが拒否する場合は `state` が `refit`。fold ごとの状態の数と `fit_result.models` の数が違う結果、fold ごとの状態が無く `models` が空の結果は、何も書かずに `SERIALIZATION_FAILED`（落ちるべき例: 尋ねる相手の無い状態を飛ばす実装は通す）。
+6. **adapter の既定**: `unsaveable_categories` を定義しない `BaseEstimatorAdapter` の子クラスを refit と fold の adapter にすると、`bytes` のカテゴリを持つ状態でも `check_category_values` は拒否しない（落ちるべき例: `persistence/` に LightGBM の判定を残す実装は拒否する）。
+7. **LightGBM の判定は変わらない**: `LGBMAdapter.unsaveable_categories` が、H-0127 の値の種類（`bytes`、`Decimal`、日付と時刻、`Timedelta`、`complex`、`frozenset`、それを含む `tuple`）のそれぞれで、H-0127 と同じ `column`・`shown`・`type_name` を返す。書ける値（`str`、`int`、`float`、`bool`、numpy のスカラー）では空。
+8. 文書が方針 8 のとおり。
+
+### 実装の記録（2026-10-14）
+- **#360**: `estimators/base.py` に `UnsaveableCategory` と `BaseEstimatorAdapter.unsaveable_categories`（既定 `[]`）を足した。`LGBMAdapter.unsaveable_categories` は `category_json.unwritable_categories(encoder_categories(state))` を返す。`category_json.UnwritableCategory` は無くなり、`unwritable_categories` は `UnsaveableCategory` を返す（`shown` と `type_name` は今の表示関数で作る）。`persistence/exporter.py` は `estimators/lgbm` を import しない（`BaseEstimatorAdapter` を `TYPE_CHECKING` の下で import するだけ）。`_saved_pipeline_states` が状態ごとに adapter を組にし、組にならない結果は何も書く前に `SERIALIZATION_FAILED`（context `fold_states`・`models`）。拒否の文と context は変えていない。
+- **§2.1**: BLUEPRINT の表を方針 5〜6 のとおりにした。実装で決めた細部（Proposal の文の範囲内）:
+  - `pkg/` の行はそのパッケージと中身の全部に当たり、`mod.py` の行はそのモジュールだけに当たる。`__init__.py`（パッケージの根）の行が全てのモジュールの接頭辞として当たらないようにするため。最も長いパスの行が決める規則は変えていない。
+  - 表の「含まれるモジュール」と IF の列の欄は、バッククォートで囲んだパスとコンマだけを許す（ほかの文字があれば失敗）。IF の列は `mod.py` だけを許す（`全部` と `なし` を除く）。
+  - 見出しは `## 2.1 5 層カテゴリアーキテクチャ` で始まる行がちょうど一つであることを求める。
+  - §2.1 の依存ルールの 1 行目の誤記「自分より上の Layer にのみ依存する（下方向のみ）」を「下」に直した。
+  - R4（循環）は、同じ循環に属するカテゴリの間の import を数える。
+- **テスト**: `tests/test_architecture/test_layer_rules.py`（51 件。本当の木、写し、受け入れ基準 2〜4・3b の変異）と検査の本体 `tests/test_architecture/_layer_rules.py`。`tests/test_persistence/test_unwritable_categories.py` は、スタブの結果に `LGBMAdapter` を持たせ（主張は変えていない）、33 件を足した（`persistence.export` の引数のゴールデン、`exporter.py` に `estimators.lgbm` が無いこと、fold・refit・最後の fold の adapter への問い合わせ、組にならない 3 つの場合、既定の adapter、`LGBMAdapter` の答えが値の種類 24 種で H-0127 と同じ）。
+- **陰性対照**: `docs/audits/2026-10-h0129/probes/negative_controls_h0129.py` → `.out`（4 組とも期待どおり: refit の adapter だけに尋ねる実装は fold 2 の場合を通す、`zip` で組にならない状態を落とす実装は黙って通す、LightGBM の判定を persistence に残す実装は既定の adapter でも拒否する、拒否の文を書き換えた実装はゴールデンと一致しない。最後の 1 組は実装レビュー round 1 の後に足した）。層の規則の変異は `test_layer_rules.py` の中にある。
+- **実装レビュー round 1（`7a9431f`、CHANGES_REQUESTED、critical 5・major 2）への対応**:
+  - R5 は、`*args` か `**kwargs` を渡す呼び出しを許さない（`__import__(..., **{"level": 1})` と `__import__(*args)` が相対の import を通していた）。変異を 3 つ足した。
+  - 表を読む規則を閉じた: パスは識別子を 1 本の `/` でつないで `/` か `.py` で終わる形だけ（`/codegen/`、`codegen//`、接尾辞の無い `codegen` は失敗）、欄はパスを `, ` でつないだ形だけ（`;` や注記は失敗）、区切りの行は `|---|` の形で列の数が合うこと。変異を足した。
+  - 例外の一覧の各項目は、規則が R1〜R4 で、数が 1 以上の `int`（`bool` を除く）であること（数 0 や知らない規則の項目が黙って通っていた）。テストを足した。
+  - persistence の直接呼び出しのテストで、拒否の文の全体をゴールデン（`050949b` の文）として固定した。陰性対照に、文を書き換えた実装の行を足した（4 組とも期待どおり）。
+  - Firing rate の実装後の数を `17/517` に直した（Proposal の `17/514` は消える import しか数えていなかった）。
+  - docs/add-estimator-guide.md §6 と §9 の、codegen が `LGBMAdapter` を import する・型に使うという古い記述を、コードのとおりに書き直した（`codegen/` は `BaseEstimatorAdapter` / `BaseCalibratorAdapter` だけを参照し、LightGBM 固有なのはテンプレート、`lgbm_params`、Facade の objective の検査）。ARCHITECTURE.md の図に `_extras`・`_version`・`codegen/` を足し、「上の Layer にのみ依存」の誤記を「下」に直した。

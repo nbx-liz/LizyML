@@ -44,19 +44,24 @@
 
 モジュール間の依存を 5 層の DAG（非巡回有向グラフ）で管理する。詳細は `ARCHITECTURE.md` を参照。
 
-| Layer | 名称 | 依存先 | 含まれるカテゴリ |
-|---|---|---|---|
-| 0 | Foundation | なし | `core/exceptions`, `core/logging`, `core/types/` |
-| 1 | Leaf | Foundation のみ | `config/`, `data/`, `splitters/`, `features/`, `estimators/`, `metrics/`, `calibration/` |
-| 2 | Composition | Foundation + Layer 1 の IF | `training/`, `evaluation/`, `tuning/` |
-| 3 | Optional | Foundation + Layer 1/2 の IF | `explain/`, `plots/`, `persistence/` |
-| 4 | Facade | 全 Layer | `core/model.py`, `core/_model_*.py`, `core/_model_factories.py` |
+| Layer | 名称 | 依存先 | 含まれるモジュール | 下の層から参照してよいモジュール（IF） |
+|---|---|---|---|---|
+| 0 | Foundation | なし | `core/exceptions.py`, `core/logging.py`, `core/registries.py`, `core/types/`, `core/param_domain.py`, `core/specs/`, `_extras.py`, `_version.py` | 全部 |
+| 1 | Leaf | Foundation のみ | `config/`, `data/`, `splitters/`, `features/`, `estimators/`, `metrics/`, `calibration/` | `splitters/base.py`, `features/pipeline_base.py`, `estimators/base.py`, `estimators/provider.py`, `metrics/base.py`, `calibration/base.py` |
+| 2 | Composition | Foundation + Layer 1 の IF | `training/`, `evaluation/`, `tuning/` | なし |
+| 3 | Optional | Foundation + Layer 1/2 の IF | `explain/`, `plots/`, `persistence/`, `codegen/` | なし |
+| 4 | Facade | 全 Layer | `core/`, `__init__.py` | なし |
 
 依存ルール:
-- 各カテゴリは自分より**上の Layer にのみ**依存する（下方向のみ）。
-- Layer 2 は Layer 1 の**抽象 IF のみ**を参照する（具象クラスを import しない）。
+- 各カテゴリは自分より**下の Layer にのみ**依存する（下方向のみ）。Layer 1 は Foundation と自分のカテゴリだけに依存する。
+- Layer 2 は Layer 1 の **IF（表の右の列）のみ**を参照する（具象クラスを import しない）。Layer 3 はそれに加えて Layer 2 の IF を参照してよい（今は宣言が無い）。同じ層の別のカテゴリは参照しない。パッケージの `__init__.py` は IF に入れない（`estimators/__init__.py` は `LGBMAdapter` を再公開する）。
 - 具象クラスの組み立て・型ディスパッチは **Layer 4（Facade）のみ**が行う。
-- カテゴリ間の**循環依存は禁止**する。
+- カテゴリ間の**循環依存は禁止**する（カテゴリは `core/` の中はモジュールごと、ほかは最上位のパッケージごと）。
+
+表の読み方と検査（H-0129）:
+- `lizyml/` のどのモジュールも、表の「含まれるモジュール」のどれかの行に当たる。複数の行が当たるときは、最も長いパスの行が決める（`core/exceptions.py` は `core/` より長いので Layer 0）。`_version.py` は Git の管理外で、hatch-vcs が `pyproject.toml` の `version-file` に従って生成する。
+- `tests/test_architecture/test_layer_rules.py` が、この表を読んで全ての import の文（関数の中と `if TYPE_CHECKING:` の中を含む）を確かめる。層の規則は import の文と、名前で読める動的な import で確かめる: 識別子 `import_module` と `__import__` は、`lizyml` 以外のパッケージを絶対の名前の定数で import する呼び出しにだけ使ってよい。実行時に親パッケージの `__init__.py` が読み込むもの、`eval` / `exec` で組み立てた import、文字列の中の import（`codegen/` のテンプレート）は数えない。
+- この規則に反する既存の import は、テストの例外の一覧に件数つきで載る（[#362](https://github.com/nbx-liz/LizyML/issues/362)。v0.19.0 の後に設計を決める）。一覧の import が消えても増えても、テストは失敗する。
 
 ## 2.2 EstimatorProvider（マルチアルゴリズム拡張 IF）（H-0053）
 
@@ -1608,10 +1613,12 @@ predict_raw(X)    # 分類（sigmoid/softmax 適用前の生スコア / logits�
 importance(kind="split|gain|shap")
 get_native_model()  # export用途
 set_categorical_features(cols: list[str] | None) -> None  # デフォルト no-op (H-0054)
+unsaveable_categories(pipeline_state) -> list[UnsaveableCategory]  # デフォルト [] (H-0129)
 ```
 
 - `predict_proba()` は学習器の確率をそのまま返す。`objective: multiclassova` ではクラスごとの独立 sigmoid の出力なので、行和は 1 とは限らない。指標のための正規化は evaluator が `needs_simplex` の指標についてだけ行う（§13.1、H-0049）。
 - `set_categorical_features()` は `fit()` 呼び出し前に CVTrainer が呼ぶ。categorical feature の扱いはアダプタの責務であり、`cv_trainer.py` に estimator 固有の kwarg を漏洩させない。
+- `unsaveable_categories(pipeline_state)` は、その estimator が学習済みモデルを保存するときに書けないカテゴリ値を、列ごとに最初の一つ、列の順に返す（`UnsaveableCategory(column, shown, type_name)`。`shown` と `type_name` は例外を出さない表示で作った文字列で、値そのものは持たない）。既定は `[]`（書けない値は無い）。`LGBMAdapter` は、LightGBM がカテゴリ値を JSON で書けないもの（`estimators/lgbm/category_json.py`、H-0127）を返す。`Model.export` と公開の `lizyml.persistence.export` は、何かを書く前に、保存する pipeline の状態ごとに、その状態と一緒に保存される adapter に尋ねる（refit の状態は `refit_result.model`、fold k の状態は `fit_result.models[k-1]`、fold ごとの状態が無ければ最後の fold の状態は `fit_result.models[-1]`）。fold ごとの状態の数と `fit_result.models` の数が合わない結果、fold ごとの状態も model も無い結果は、尋ねる相手が無いので `SERIALIZATION_FAILED`（context に `fold_states` と `models`）。`persistence/` は具体的な estimator を import しない（§2.1、H-0129）。
 
 ## 14.2 LGBM adapter の責務
 
