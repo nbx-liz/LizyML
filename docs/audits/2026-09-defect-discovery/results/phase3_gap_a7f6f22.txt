@@ -1,0 +1,172 @@
+[run-exclusive] phase3-gap starting; load was 0.19
+run-heavy: pgid=1668066 (stop with: kill -- -1668066)
+#258: COMPLETE (regression)
+    before = 5fb8a80
+    p2 = {'passed': 13, 'failed': 38}
+    p3 = {'passed': 51}
+    p4 = 22
+    p5 = 22
+    p6 = closed by the named PRs
+#259: COMPLETE (regression)
+    before = 2d3bc54
+    p2 = {'failed': 5, 'passed': 1}
+    p3 = {'passed': 6}
+    p4 = declared 4 (One minimal subclass implements the abstract surface and is driven through fit, predict and SHAP; the population is that surface, not a parametrisation.)
+    p5 = 4
+    p6 = closed by the named PRs
+#260: COMPLETE (regression)
+    before = 2d3bc54
+    p2 = {'passed': 2, 'failed': 25}
+    p3 = {'passed': 27}
+    p4 = 3
+    p5 = 3
+    p6 = closed by the named PRs
+#261: COMPLETE (regression)
+    before = 1d7c4e2
+    p2 = {'passed': 25, 'failed': 14}
+    p3 = {'passed': 39}
+    p4 = 3
+    p5 = 3
+    p6 = closed by the named PRs
+#262: COMPLETE (regression)
+    before = 1d7c4e2
+    p2 = {'passed': 10, 'failed': 27}
+    p3 = {'passed': 37}
+    p4 = 27
+    p5 = 27
+    p6 = closed by the named PRs
+#263: INCOMPLETE (regression)
+    before = 1abf7fb
+    p2 = {'error': 1}
+    p3 = {'passed': 25}
+    p4 = 20
+    p5 = 20
+    p6 = closed by the named PRs
+    ! p2: no failed node in the before tree
+    ! p4: tests/test_core/test_error_code_raising.py::test_member_is_raised collects 20, declared 19
+    ! p5: derived 20 != declared 19
+#264: COMPLETE-RED-BY-MUTATION (regression)
+    p2 = mutated: {'failed': 97, 'passed': 134}
+    p3 = {'passed': 231}
+    p4 = declared 3 (The three priority levels (config < tune result < fit argument) are each pinned by a named test, not a parametrisation.)
+    p5 = None
+    p6 = closed by the named PRs
+#265: COMPLETE (decision-only)
+    p3 = {'passed': 10}
+    p4 = declared 1 (A pin of the adopted rule (TestExplicitInnerValidDoesNotInheritGap), not a parametrisation.)
+    p5 = None
+    p6 = closed by the named PRs
+#266: COMPLETE (regression)
+    before = 3abb6c4
+    p2 = {'passed': 8, 'failed': 5}
+    p3 = {'passed': 14}
+    p4 = 8
+    p5 = 8
+    p6 = closed by the named PRs
+#267: COMPLETE (regression)
+    before = 97381db
+    p2 = {'failed': 34, 'passed': 3}
+    p3 = {'passed': 37}
+    p4 = 30
+    p5 = None
+    p6 = closed by the named PRs
+#268: COMPLETE (regression)
+    before = 91a698b
+    p2 = {'passed': 85, 'failed': 3}
+    p3 = {'passed': 88}
+    p4 = declared 74 (One node compares the knob registry with the census of defaulted public constructor parameters; the census is computed by tests/test_config/_knob_registry.py.)
+    p5 = None
+    p6 = closed by the named PRs
+#269: COMPLETE (regression)
+    before = 96171da
+    p2 = {'failed': 7, 'passed': 6}
+    p3 = {'passed': 13}
+    p4 = declared 7 (One node checks every parameter of the two fit methods against the written policy.)
+    p5 = 7
+    p6 = closed by the named PRs
+#270: INCOMPLETE (partial)
+    p3 = {'passed': 80}
+    p4 = declared 179 (A property of the whole suite, measured by instruments/kill_producers.py; these files hold the two repaired tests.)
+    p5 = None
+    p6 = issue CLOSED
+    ! p6: issue CLOSED
+#271: INCOMPLETE (regression)
+    p2 = mutated: {'passed': 162, 'failed': 1}
+    p3 = {'passed': 163}
+    p4 = 130
+    p5 = 130
+    p6 = closed by the named PRs
+    ! p4: tests/test_docs/test_proposal_blueprint_coverage.py::test_proposal_disposition_holds collects 130, declared 111
+    ! p5: derived 130 != declared 111
+#272: COMPLETE (regression)
+    before = 1abf7fb
+    p2 = {'passed': 36, 'failed': 20}
+    p3 = {'passed': 56}
+    p4 = 16
+    p5 = None
+    p6 = closed by the named PRs
+#277: COMPLETE-RED-BY-MUTATION (regression)
+    p2 = mutated: {'failed': 6, 'passed': 125}
+    p3 = {'passed': 131}
+    p4 = declared 3 (One node checks that every registered calibrator declares its params contract; the population is the registry.)
+    p5 = 3
+    p6 = closed by the named PRs
+#279: COMPLETE (regression)
+    before = 5fb8a80
+    p2 = {'passed': 2, 'failed': 22}
+    p3 = {'passed': 24}
+    p4 = 18
+    p5 = 18
+    p6 = closed by the named PRs
+#281: COMPLETE (regression)
+    before = 036cd18
+    p2 = {'failed': 38, 'passed': 2}
+    p3 = {'passed': 40}
+    p4 = declared 440 (One node walks 22 surfaces x 4 configurations x 5 lifecycles from tests/test_persistence/_load_census.py.)
+    p5 = None
+    p6 = closed by the named PRs
+#282: COMPLETE (regression)
+    before = 5fb8a80
+    p2 = {'passed': 2, 'failed': 22}
+    p3 = {'passed': 24}
+    p4 = 3
+    p5 = None
+    p6 = closed by the named PRs
+#284: COMPLETE (decision-only)
+    p3 = {'passed': 5265, 'skipped': 230}
+    p4 = declared 1 (The accepted-value population of test_param_domain.py is shared by several nodes; the consolidation is checked structurally.)
+    p5 = None
+    p6 = closed by the named PRs
+#285: COMPLETE (regression)
+    before = 53f6cbf
+    p2 = {'failed': 15, 'passed': 7}
+    p3 = {'passed': 22}
+    p4 = 4
+    p5 = None
+    p6 = closed by the named PRs
+#286: NOT-PLANNED (not-planned)
+    p6 = closed NOT_PLANNED
+#287: COMPLETE (decision-only)
+    p3 = {'passed': 8}
+    p4 = 5
+    p5 = None
+    p6 = closed by the named PRs
+#288: COMPLETE-RED-BY-MUTATION (regression)
+    p2 = mutated: {'passed': 230, 'failed': 1}
+    p3 = {'passed': 231}
+    p4 = declared 4 (Four identity-overlay seams, each with a test, and one node that counts the seams from the source.)
+    p5 = None
+    p6 = closed by the named PRs
+#306: INCOMPLETE (regression)
+    before = fc9d820
+    p2 = {'passed': 44, 'failed': 24}
+    p3 = {'passed': 63}
+    p4 = 52
+    p5 = 52
+    p6 = closed by the named PRs
+    ! p4: tests/test_estimators/test_feval_probabilities.py::test_feval_value_is_the_metric_of_lightgbm_predictions collects 52, declared 57
+    ! p5: derived 52 != declared 57
+
+COMPLETE 17   COMPLETE-RED-BY-MUTATION 3   PARTIAL 0   NOT-PLANNED 1   INCOMPLETE 4   UNKNOWN 0   of 25
+INCOMPLETE and UNKNOWN count against completion; PARTIAL, NOT-PLANNED and COMPLETE-RED-BY-MUTATION are reported apart from COMPLETE.
+[run-exclusive] phase3-gap finished in 186s, exit 1
