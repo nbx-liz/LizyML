@@ -293,7 +293,8 @@ class Tuner:
                     "study_name is required when storage is provided. "
                     "Pass a unique identifier so the study can be re-attached."
                 ),
-                context={"storage": str(storage)},
+                # Never the storage itself: a database URL can hold a password.
+                context={"surface": "Tuner(storage=)", "study_name_given": False},
             )
         self.dims = dims
         self.n_trials = n_trials

@@ -53,7 +53,7 @@ def _blueprint_resume() -> str:
 
 
 def _changelog_unreleased() -> str:
-    return _section(_read("CHANGELOG.md"), "## [Unreleased]", "## [0.18.0]")
+    return _section(_read("CHANGELOG.md"), "## [0.19.0]", "## [0.18.0]")
 
 
 def _migration_v019() -> str:
@@ -243,7 +243,7 @@ def test_blueprint_current_trial_row_counts_on_after_reattach() -> None:
 
 
 # ---------------------------------------------------------------------------
-# CHANGELOG [Unreleased] and docs/migration.md (criteria 20 and 34, bullet 4)
+# CHANGELOG [0.19.0] and docs/migration.md (criteria 20 and 34, bullet 4)
 # ---------------------------------------------------------------------------
 
 

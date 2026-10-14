@@ -294,7 +294,7 @@ def test_deprecations_record_the_objective_removal() -> None:
 
 
 def _unreleased(subsection: str) -> list[str]:
-    unreleased = _section(_read("CHANGELOG.md"), "## [Unreleased]", "\n## [")
+    unreleased = _section(_read("CHANGELOG.md"), "## [0.19.0]", "\n## [")
     body = _section(unreleased + "\n### ", f"### {subsection}\n", "\n### ")
     return [line for line in body.splitlines() if line.startswith("- ")]
 
