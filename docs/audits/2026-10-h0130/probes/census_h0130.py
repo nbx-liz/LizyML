@@ -28,7 +28,10 @@ from pathlib import Path
 ALLOW = {("lizyml.estimators", "lizyml.features"), ("lizyml.estimators", "lizyml.metrics")}
 NEW_INTERFACES = {"lizyml.metrics.registry", "lizyml.training.results"}
 
-# The seven settled removals, by (file, target, rule) -> closing change.
+# The eight exceptions closed by a code change, by (file, target, rule) -> change:
+# the cycle 2, the OOF mask 2, the ratio ranges 1, SHAP 1, and option 3's plots 1
+# and persistence 1. The interface declaration (metrics/registry.py) and the
+# two allowances are classified separately below.
 MOVED = {
     ("lizyml/__init__.py", "lizyml.core.model", "R4"): "core/model.py imports lizyml._version",
     ("lizyml/core/model.py", "lizyml", "R4"): "core/model.py imports lizyml._version",

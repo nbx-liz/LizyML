@@ -13713,6 +13713,7 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
   - H-0053: §2.2 の `EstimatorProvider`。provider が pipeline の factory を組む。
   - H-0054: 表の 6 行目が SHAP の具象 import を欠陥として挙げた。
   - H-0057: `compute_oof_valid_mask`。
+  - H-0088: 「宣言済み横断エッジ」の 1〜3 行目（ARCHITECTURE.md の表）。この Proposal が解消する。
   - H-0121 改訂 2: `SMART_RATIO_RANGES` を一つの宣言にした。
   - 証拠: `docs/audits/2026-10-h0130/probes/`。
 
@@ -13800,17 +13801,20 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
    | `estimators/` | `features/` | §2.2: provider が pipeline の factory を組む（H-0053）。`UnseenPolicy` を受け取り、具象の pipeline を作る |
    | `estimators/` | `metrics/` | LightGBM の feval への橋渡し（`estimators/lgbm/metric_bridge.py`）と、provider の指標の解決 |
 
-   - **読み方**（テストが読む。読めなければ失敗、DC1）:
-     - 前の行は §2.1 の中にちょうど一つ。表は、前の行の次の空行の後に始まる、`|` で始まる行の連続した塊である。
-     - 見出しの行は、文字どおり `| 参照する側 | 参照される側 | 根拠 |`。区切りの行は、文字どおり `|---|---|---|`。どちらかが違えば失敗。
-     - 中身の行は、欄がちょうど 3 つ。多くても少なくても失敗。中身の行が 1 行も無い表も失敗。
-     - §2.1 の中で `|` で始まる行は、層の表とこの表のどちらかに属すること。どちらにも属さない行は失敗（区切られた後の行を、読まずに飛ばさない）。
-     - 参照する側と参照される側の欄は、バッククォートで囲んだ `pkg/` を**一つだけ**書く。どちらも §2.1 の表の Layer 1 の「含まれるモジュール」に挙がったカテゴリ。
-     - 根拠の欄は空でない。
-     - 次の行は失敗にする:
-       - 同じ組の 2 行目。
-       - 参照する側と参照される側が同じ行。
-       - Layer 1 でないカテゴリ（例 `training/`）の行。
+   - **読み方**（テストが読む）: 受け付ける形を、行ごとの**完全一致**で定める（DC1）。
+     - 許す参照の塊は、§2.1 の中の次の行の並びだけからなる。各行は、その位置の形に完全一致しなければ失敗する。一部だけの一致、前後の空白、別の書き方の区切りは受け付けない。
+       1. 前の行。`同じ層の中で許す参照（H-0130）:` と完全一致し、§2.1 の中にちょうど一つある。
+       2. 空行（長さ 0）が、ちょうど一つ。
+       3. 見出しの行。`| 参照する側 | 参照される側 | 根拠 |` と完全一致。
+       4. 区切りの行。`|---|---|---|` と完全一致。
+       5. 中身の行が 1 行以上。各行は、正規表現 ``^\| `([a-z_]+)/` \| `([a-z_]+)/` \| ([^|\s]|[^|\s][^|]*[^|\s]) \|$`` に完全一致する。参照する側と参照される側はバッククォートで囲んだ `pkg/` を一つずつ、根拠は空でなく `|` を含まない。
+       6. 塊は、中身の行の次にある、`|` で始まらない行（または §2.1 の終わり）で終わる。
+     - §2.1 の中で `|` で始まる行は、層の表かこの塊のどちらかに属さなければならない。どちらにも属さない行は、塊の前でも後でも失敗する。
+     - 形の検査に通った行だけを、意味で検査する。次の行は失敗:
+       - 参照する側か参照される側が、§2.1 の表の Layer 1 のカテゴリでない（Layer 1 の「含まれるモジュール」に `pkg/` として挙がっていない。例 `training/`）。
+       - 参照する側と参照される側が同じ。
+       - 同じ組の 2 行目がある。
+     - 受け付ける形を完全一致で定めたので、失敗する形を一つずつ数え上げなくても閉じている。round 1 から 3 では、失敗する形を足すたびに、次の形が見つかった。受け入れ基準 2(e) の変異は、各位置の完全一致が効いていることを示す代表であり、形の一覧ではない。
    - **R2 の変更**: Layer 1 のモジュールは、Layer 0、自分のカテゴリ、そして**表で自分のカテゴリに許されたカテゴリ**（その中のどのモジュールでもよい）を import してよい。ほかの Layer 1 のカテゴリは、今と同じく失敗。R1・R3・R4・R5 は変えない。
      - 許した組の逆向きの import は、R2 で失敗し（逆向きは許していない）、R4（循環）でも失敗する。
    - **古びの検出**: 許した組のどれも、木の中の import が少なくとも 1 本使っていること。使われない組は失敗にする（DC3。例外の一覧が件数で古びを検出するのと同じ考え）。
@@ -13818,16 +13822,21 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
      - §2.2 の provider が、自分の factory で組むもの（estimator の adapter と pipeline）。
      - `metrics/registry.py` が、登録された指標を名前から作ること（`get_metric`、`metrics/registry.py:120-130` が登録から型を引いて作る）。呼ぶ側は問わない。
        - `metrics/registry.py` は Layer 1 の IF として宣言する（方針 5）。
-       - 今の呼び出し元は 3 つ:
-         - evaluator（`evaluation/evaluator.py:126` の `get_metrics_for_task` → `metrics/registry.py:163`）。
-         - LightGBM の feval への橋渡し（`estimators/lgbm/metric_bridge.py:337`）。
-         - provider（`estimators/lgbm/provider.py:611`）。
-       - round 1 では estimator の 2 か所だけを書き、round 2 で evaluator の経路が漏れていると指摘された。主語を registry にして、呼ぶ側を列挙しない形にした。
-   - 規則を言い切る文は、記憶から列挙せず、検索で洗い出す（round 2 の指摘: round 1 で記憶から列挙した一覧は、同じ意味の文を 7 つ取りこぼした）。
-     - 計測器: `doc_statements_h0130.py` → `doc_statements_h0130.out`（`e8b4c4e`、30 件）。
-     - 対象: Git の管理下の `.md` すべて。除くのは `HISTORY.md`、`CHANGELOG.md`、`docs/audits/`（日付のある記録で、仕様ではない）。
-     - 検索の語: 下方向のみ、互いに依存しない、Foundation のみ、Foundation の型、Layer 4 のみ、Facade 独占、Downward-only、Leaf → Leaf、Leaf カテゴリ、IF のみ、abstract interfaces only、具象クラスの組み立て、具象 import、Only the Facade、唯一、#362、例外 17、Layer 1 → Layer 0 など。正確な一覧は計測器の中にある。
-     - 30 件のそれぞれの扱いは、方針 9 の表のとおり。
+       - 呼び出し元は、Layer 2（evaluation）、Layer 1（estimators の feval への橋渡しと provider）、Layer 4（Facade）にある。
+       - 経緯: round 1 は estimator の 2 か所だけを書き、round 2 で evaluator の経路が漏れていると指摘された。round 3 では、書き足した呼び出し元の数が違うと指摘された。主語を registry にし、呼ぶ側の数は書かない。
+   - **規則を述べる文書は、閉じた一覧を全部読む**（round 3 の後の管理者の判断）。
+     - 経緯: round 1 は記憶から列挙し、round 2 は検索の語で列挙した。どちらも取りこぼした。検索の語の集合は閉じない。
+     - 一覧:
+       - `BLUEPRINT.md`（全体。§2、§13、§14、§19、付録 B などが層と依存を述べる）
+       - `ARCHITECTURE.md`（全体）
+       - `docs/add-estimator-guide.md`（全体）
+       - `README.md` の `## Architecture` 節
+     - 一覧の外の Markdown は、層の規則を定めない:
+       - `HISTORY.md`、`CHANGELOG.md`、`docs/audits/` は、日付のある記録である。
+       - `PLAN.md` は予定の文書で、仕様ではない（CLAUDE.md §1）。
+     - 実装は、一覧の文書と節の文を全部読む。そして、この Proposal の規則（方針 5 から 8）と食い違う文を全て直す。
+     - 方針 9 の表は、Proposal を書く時点で分かっている箇所で、全てではない。
+     - round 2 で足した検索の計測器 `doc_statements_h0130.py` と `.out` は消す。round 3 で、母集団が空でも通ること、語の集合が閉じないことが指摘された。
    - 許すのは `estimators/` → `config/` を含まない（方針 3 で import が消える）。
    - H-0129 の R2 の落ちるべき例（`RULE_MUTATIONS` の `splitters/base.py` → `metrics.base`、`test_layer_rules.py:131-135`）は、許した組に当たらないのでそのまま有効である。
 
@@ -13864,9 +13873,9 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
 9. **文書**:
    - BLUEPRINT §2.1 の IF の列と許す参照の表を足す。
    - ARCHITECTURE.md の図に、`estimators` → `features`・`metrics` の辺と、`metrics/registry`・`training/results` の IF を足す。
-   - 計測器が見つけた 30 件は、次のとおり扱う。
+   - 方針 6 の一覧を全部読んで直す。分かっている箇所は次のとおり（全てではない）。
 
-   **書き直す 19 件（許す参照と、具象の組み立ての例外を認める形にする）**
+   **分かっている、書き直す箇所（許す参照・IF の宣言・具象の組み立ての例外を認める形にする）**
 
    | 位置 | 今の文の要旨 | 書き直す内容 |
    |---|---|---|
@@ -13889,16 +13898,11 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
    | `ARCHITECTURE.md:785` | Facade が唯一、組み立てる | 方針 6 の例外を足す |
    | `README.md:132`、`:134` | Downward-only、Only the Facade assembles | 許す参照と、二つの例外を足す（英語） |
    | `docs/add-estimator-guide.md:277` | 層の規則の行（既存の例外 17 件、#362） | 例外は無い、と書き直す |
+   | `BLUEPRINT.md:57` | Layer 3 は Layer 2 の IF を参照してよい（今は宣言が無い） | 「（`training/results.py`）」にする（方針 5。round 3 の指摘） |
+   | `ARCHITECTURE.md:814` | H-0054 の表の 5 行目（`shap_explainer.py` が `NativeFeaturePipeline` を直 import） | H-0130 で解消（方針 4）と書く（round 3 の指摘） |
+   | `ARCHITECTURE.md:822-824` | H-0088 の「宣言済み横断エッジ」の 1〜3 行目（OOF のマスク、`RefitResult`、`CalibrationResult`）。解消は follow-up | H-0130 で解消（方針 2・7）と書く。4 行目（`codegen/` の seam）は層の import の問題でなく、変えない（round 3 の指摘） |
 
-   - 19 件の数え方: BLUEPRINT 6 件（`:50`、`:56`、`:58`、`:64`、`:1606`、`:1808`）、ARCHITECTURE 10 件、README 2 件、guide 1 件。
-   - `BLUEPRINT.md:1809` は検索の語に当たらない。`:1808` と同じ箇条なので一緒に直す（計測器の 30 件の外）。
-
-   **変えない 11 件**
-
-   | 位置 | 理由 |
-   |---|---|
-   | `ARCHITECTURE.md:122`、`:381`、`:464`、`README.md:133` | Layer 2 が Layer 1 の IF だけを参照すること。この Proposal の後も正しい（IF は §2.1 の表の右の列で、`metrics/registry.py` を足す） |
-   | `BLUEPRINT.md:395`、`:1816`、`:1830`、`:1886`、`:2152`、`:2343`、`PLAN.md:295` | 「唯一」が層の規則と関係のない文に当たった |
+   - 読んで、変えないと判断した例: `ARCHITECTURE.md:122`、`:381`、`:464`、`README.md:133`（Layer 2 が Layer 1 の IF だけを参照する。この Proposal の後も正しい。IF は §2.1 の表の右の列で、`metrics/registry.py` を足す）。
 
    - CHANGELOG（Unreleased）。
    - `docs/proposal_dispositions.toml`。
@@ -13908,11 +13912,8 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
 - 例外の一覧: `tests/test_architecture/test_layer_rules.py:22-53`。
 - R2 の判定: `tests/test_architecture/_layer_rules.py:401-402`。
 - 表の読み込み: `read_table`（`_layer_rules.py:114`）。
-- 規則を言い切る文: `doc_statements_h0130.out` の 30 件（方針 9 の表）。
-- 指標を名前から作る所: `metrics/registry.py:120-130`（`get_metric`）。呼び出し元は次の 3 か所:
-  - `evaluation/evaluator.py:126` → `metrics/registry.py:163`
-  - `estimators/lgbm/metric_bridge.py:337`
-  - `estimators/lgbm/provider.py:611`
+- 規則を述べる文書: 方針 6 の閉じた一覧（全部読む）。分かっている箇所は方針 9 の表。
+- 指標を名前から作る所: `metrics/registry.py:120-130`（`get_metric`）。
 - 例外の一覧に依るテスト: `test_layer_rules.py:324-342`。
 - 17 本の位置:
 
@@ -13973,22 +13974,33 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
    - (b) `features/` のモジュールに `import lizyml.estimators.base` を足すと R2 と R4 で失敗する。
    - (c) 表から `metrics/` の行を消すと、`metric_bridge.py` の 2 本と `lgbm/provider.py` の 1 本が R2 で失敗する。
    - (d) 使われない組の行（`estimators/` → `splitters/`）を足すと失敗する（古び）。
-   - (e) 読めない行で失敗する（どれも、表を読み終えたことにして飛ばさず、失敗する。round 1 の指摘）:
-     - 行の中身:
-       - 欄にパスが二つ。
-       - `pkg/` でない欄。
+   - (e) 完全一致が効いていること。方針 6 の読み方の位置ごとに代表の変異を置き、それぞれ失敗することを示す。表を読み終えたことにして飛ばす実装は、どれかで通ってしまう。
+     - 前の行:
+       - 無い。
+       - 二つある。
+       - 末尾に空白がある。
+     - 空行:
+       - 無い（前の行の直後に見出し）。
+       - 二つある。
+     - 見出しの行: 文字を一つ変える。
+     - 区切りの行:
+       - `|---|---|`
+       - `| --- | --- | --- |`
+       - `|:---|---|---|`
+     - 中身の行:
+       - 参照する側だけ不正（`` `estimators` ``、スラッシュ無し）。
+       - 参照される側だけ不正（`` `features/`, `metrics/` ``、パスが二つ）。
+       - 根拠が空。
+       - 欄が 2 つの行と 4 つの行。
+       - 末尾に空白がある行。
+       - 中身の行が無い。
+     - 塊の外:
+       - 塊の前に `|` で始まる行がある。
+       - 塊の後に、空行を挟んで `|` で始まる行がある。
+     - 意味:
        - Layer 1 でないカテゴリ（`training/`）。
        - 参照する側と参照される側が同じ行。
        - 同じ組の 2 行目。
-       - 根拠が空。
-       - 欄が 2 つの行と 4 つの行。
-     - 表の形:
-       - 見出しの行の文字を変えた表。
-       - 区切りの行を `|---|---|` にした表。
-       - 中身の行が無い表。
-       - 前の行が無い表。
-       - 前の行が二つ。
-       - 表の後に空行を挟んで `|` で始まる行を一つ足した写し。
    - 落ちてはいけない例: `estimators/` のモジュールに `import lizyml.metrics.regression` を足しても通る（許したカテゴリの中のどのモジュールでもよい）。
 3. **例外の一覧の仕組みは残る**: 写しに違反を一つ足し（例 `evaluation/confusion.py` に `import lizyml.training.oof_assembly`）、その組を数 1 で載せた一覧では通る。その import を消すと、数が足りずに失敗する。同じ組の import をもう一つ足すと、数が多すぎて失敗する（H-0129 の受け入れ基準 4 と同じ主張）。
 4. **移しても同じ物**:
@@ -14011,9 +14023,8 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
      - 比べる関数は、三つの写しのそれぞれで失敗する: 欄を `Any` に広げた写し、別の型にした写し、欄を消した写し。
      - `uv run mypy lizyml/` が通る。
    - (d) `inspect.signature(lizyml.persistence.export)` のゴールデンは、`refit_result` の注釈の文字列だけが変わる。
-7. 文書が方針 9 のとおり。実装の後に `doc_statements_h0130.py` を走らせ直し、`.out` を更新する。
-   - 書き直す 19 件のそれぞれが、表の内容になっている。
-   - 変えない 11 件は、文が変わっていない（行番号は変わってよい）。
-   - 走らせ直して当たった行が、どれも表のどちらかの行に対応する。対応しない行が出たら、扱いを決めるまで受け入れない。
+7. 文書が方針 9 のとおり。
+   - 方針 6 の閉じた一覧（`BLUEPRINT.md`、`ARCHITECTURE.md`、`docs/add-estimator-guide.md` の全体と、`README.md` の `## Architecture` 節）に、この Proposal の規則と食い違う文が無い。実装レビューで、この一覧を全部読ませて確かめる。
+   - 方針 9 の表の、分かっている箇所がそれぞれ直っている。
    - 具象の組み立ての例外は、`BLUEPRINT.md:58`・`ARCHITECTURE.md:123`・`:510`・`:785`・`README.md:134` のどこでも、主語が「provider の factory」と「`metrics/registry.py` が名前から指標を作ること」の二つである。
    - §2.2 に、provider が `config/` を import してよいという文が残っていない。
