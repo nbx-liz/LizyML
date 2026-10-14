@@ -246,8 +246,10 @@ such as `softmax` ≡ `multiclass` are not surfaced):
 | task | valid objectives |
 |---|---|
 | `regression` | `regression`, `regression_l1`, `huber`, `fair`, `poisson`, `quantile`, `mape`, `gamma`, `tweedie` |
-| `binary` | `binary`, `cross_entropy`, `cross_entropy_lambda` |
+| `binary` | `binary`, `cross_entropy` |
 | `multiclass` | `multiclass`, `multiclassova` |
+
+`cross_entropy_lambda` is not accepted as a `binary` objective from v0.19.0 (H-0125, [#307](https://github.com/nbx-liz/LizyML/issues/307)): its output is lambda, not a probability (the probability is `1 - exp(-lambda)`), while LizyML returns a binary model's output as `predict().proba`. It raises `CONFIG_INVALID` with `reason` `not_a_probability` before training, from `model.params` under any LightGBM spelling of `objective`, `fit(params=...)`, a tune result or a search dimension, and `Model.load` refuses an artifact any stored booster of which was trained with it (`DESERIALIZATION_FAILED`). Use `binary` or `cross_entropy`. The alias value `xentlambda` was never in the table and keeps the generic refusal. `cross_entropy_lambda` stays accepted as a training metric (below).
 
 Some objectives place constraints on the target distribution:
 
@@ -280,6 +282,10 @@ LizyML has two separate metric systems:
 You can use LizyML metric names in `model.params.metric` — they are automatically translated
 to LightGBM equivalents (e.g. `"logloss"` → `"binary_logloss"` for binary tasks).
 
+A LightGBM native metric in `model.params.metric` takes no parameters (H-0125, [#313](https://github.com/nbx-liz/LizyML/issues/313)). LightGBM computes it from its own parameters, so `{"huber": {"delta": 9.0}}` or `{"rmse": {"bogus": 1}}` raises `CONFIG_INVALID` (context `metric` and `params`, the parameter names) instead of silently training LightGBM's `huber`, whose threshold is LightGBM's `alpha` (shared with the `huber` / `quantile` objectives). `{"huber": {}}` is the bare name. Put a LizyML metric with parameters in `evaluation.metrics`; a custom feval metric such as `{"precision_at_k": {"k": 5}}` keeps its parameters. An artifact that recorded such parameters still loads and predicts; a re-fit and `export_code` raise `CONFIG_INVALID`.
+
+The learning curve (`FitResult.history`, `plot_learning_curve`) records each native training metric under LightGBM's names and definitions, so it can differ from `FitResult.metrics` under the same name: today `huber` (LightGBM's threshold is `alpha`, default 0.9; LizyML's is `delta`, default 1.0) and `mape` (LightGBM: the ratio `|y-p| / max(1,|y|)`; LizyML: the percentage `|y-p| / |y|`). `plot_learning_curve` adds LightGBM's definition to the title of those subplots (H-0125, [#354](https://github.com/nbx-liz/LizyML/issues/354)). Custom feval metrics use LizyML's definitions in both places.
+
 ### Training metric reference (`model.params.metric`)
 
 Supported values for `model.params.metric` by task:
@@ -291,7 +297,7 @@ time. Surfaced via `LGBMProvider().metric_choices(task)["native"]` for downstrea
 |---|---|
 | `regression` | `rmse`, `mae`, `mape`, `huber`, `fair`, `poisson`, `quantile`, `gamma`, `gamma_deviance`, `tweedie` |
 | `binary` | `binary_logloss`, `binary_error`, `auc`, `average_precision`, `cross_entropy`, `cross_entropy_lambda`, `kullback_leibler` |
-| `multiclass` | `multi_logloss`, `multi_error`, `auc`, `auc_mu`, `multiclassova` |
+| `multiclass` | `multi_logloss`, `multi_error`, `auc_mu`, `multiclassova` |
 
 Aliases accepted at config-input time but not surfaced (e.g. `l1`/`l2`/`mse`/`mean_absolute_error`/`regression_l1`/`softmax`/`ova`/`ovr`/`xentropy`/`xentlambda`/`kldiv`) collapse to the canonical name above before reaching `lgb.train`.
 
@@ -425,8 +431,132 @@ Resolution rules:
         "log": True,              # optional for float/int
         "category": "model",      # optional: "model" | "smart" | "training"
     },
+    "boosting": {
+        "type": "categorical",
+        "choices": ["gbdt", "dart"],  # for categorical: a non-empty list
+    },
 }
 ```
+
+Only this format is accepted (H-0123). `tuning.optuna.space` and
+`tune(space=...)` follow the same rule, checked when `tune` resolves the space,
+before any study is created or written. A dimension outside the format raises
+`CONFIG_INVALID` whose `context` names the dimension (`dim`), the `key`, a
+`reason` and the `surface` (`tuning.optuna.space` or `tune(space=)`); all four
+are always present, with `dim` `None` only when the space itself is not a
+mapping and `key` `None` when the refusal is about the whole space or a whole
+dimension. It is not converted into another search. Per dimension:
+
+| Key | Applies to | Required | Accepted values |
+|---|---|---|---|
+| `type` | all | Yes | `"float"`, `"int"` or `"categorical"`. |
+| `low`, `high` | `float`, `int` | Yes | An `int` or `float` (not `bool`), a numpy integer or floating scalar, or a string that is a number literal in full (below). Finite. For `int`, a whole value: `16.0`, `"16.0"` and `"1e2"` are 16, 16 and 100; `1.7` and `"1.7"` are refused, not truncated. For `float`, `high - low` at most the largest float; for `int`, at most `2**52` in absolute value (below). |
+| `log` | `float`, `int` | No (default `false`) | A `bool`. The string `"false"` is refused. |
+| `step` | `float`, `int` | No (default: no step) | The same types as `low` / `high`, finite and above 0; for `int`, a whole value of at least 1 and at most `2**52`. `low` and `high` must be multiples of it (below). |
+| `choices` | `categorical` | Yes | A non-empty list (or tuple, from Python) of plain scalars: `str`, `int`, `float`, `bool` or `None`. A string, set, dict, range, numpy array or generator is refused. |
+| `category` | all | No (default `"model"`) | `"model"`, `"smart"` or `"training"`. |
+
+No other key is accepted: `float` and `int` dimensions take `type`, `low`,
+`high`, `log`, `step` and `category`; `categorical` dimensions take `type`,
+`choices` and `category`. A misspelt key such as `lo` is refused.
+
+Bounds and steps are limited to what Optuna can sample (H-0124 amendment 1),
+since it samples every number as a float. A `float` dimension's exact width
+`high - low` must be at most the largest float (`1.7976931348623157e+308`):
+`[-1e308, 1e308]` has finite bounds but is refused with `reason`
+`range_not_finite` (`key` `high`), while `[-8e307, 8e307]` is accepted. An
+`int` dimension's `low`, `high` and `step` must be at most `2**52`
+(4503599627370496) in absolute value: Optuna samples an `int` dimension as a
+float widened by half a step, from `2**53` it silently searches only some of
+the integers, and further out it fails. Past the limit is `reason`
+`bound_too_large`, with `key` the first of `low`, `high` and `step` that is.
+The public `Tuner.tune` applies the same limits to every numeric dimension
+it is given, with or without a step. Boundary expansion (`tune(resume=True)`)
+does not widen an edge past them: such an edge is left where it is and
+reported as not expanded (`expanded=False`, `new_low` / `new_high` `None`,
+`clamped_to_bound=False`).
+
+A `step` (H-0124) makes the dimension a grid with origin 0: the multiples of
+`step` from `low` to `high`. Both bounds must be multiples of `step`, judged in
+exact decimal arithmetic, so `[0.1, 0.3]` with step `0.1` is accepted. A bound
+off the grid is refused with `reason` `bound_off_grid` (`key` `low` or `high`)
+and a message that names a range on the grid; it is not truncated the way
+Optuna does. A `step` that is not a number, not finite or (for `int`) not
+whole uses the bound reasons with `key` `step`; zero or a negative step is
+`step_not_positive`.
+
+```python
+"learning_rate": {"type": "float", "low": 0.1, "high": 0.7, "step": 0.1},
+"num_leaves":    {"type": "int", "low": 16, "high": 256, "step": 16},
+"lambda_l2":     {"type": "float", "low": 0.001, "high": 0.1, "step": 0.001, "log": True},
+# "low": 0.15 with "step": 0.1 is refused: [0.2, 0.7] is on the grid.
+```
+
+Without `log`, Optuna samples the grid points. With `log`, the dimension is
+sampled on a log scale and the sample is rounded once to the nearest grid point
+(half to even), clamped to `[low, high]`; the smallest grid point of a log
+dimension is `step`. An `int` log dimension with `step` 1 is the same as no
+step; with a larger step it is sampled as a float and rounded once. Every
+trial trains on its grid point, and the trial list, the best parameters, `fit`,
+`restore_tuning` and export report that value (`0.3`, not
+`0.30000000000000004`). Two trials that round to the same point are each
+evaluated. Boundary expansion keeps the edges on the grid and never moves a log
+lower edge below `step`.
+
+Within one study a later round may change a dimension's `step` through
+`tune(space=...)`; each trial's value is read with its own round's step. The
+exception is an `int` log dimension, whose step cannot switch between "1 or
+none" and "above 1" (Optuna's distribution kind changes): that resume raises
+`CONFIG_INVALID`. The public `Tuner.tune`, which takes your own objective,
+refuses a log dimension with a `step` and reports the raw sampled values.
+
+A bound written as a string must match this number literal in full (ASCII
+digits only), so `"nan"`, `"inf"`, `"0x10"` and `"1,000"` are refused:
+
+```text
+[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?
+```
+
+YAML note: PyYAML reads YAML 1.1, where an exponent without a decimal point
+(`low: 1e-4`) is a string. Such a bound is accepted as the number it spells.
+`nan`, `inf` and `.nan` / `.inf` are not finite numbers and are refused.
+
+A `category: smart` dimension's value becomes the trial's smart parameter as
+it is, so every value the dimension can take (`low` and `high`, or every
+choice) must be one that smart parameter can hold (H-0121 amendment 2). Types
+are judged exactly: a bool is `true` / `false` (not `"false"`, `0` or `1`), a
+number is an `int` or `float` (not a `bool` or a string such as `"0.5"`); NaN
+and infinity are outside every range.
+
+| Smart parameter | Dimension | Values |
+|---|---|---|
+| `auto_num_leaves` | `categorical` only | `true`, `false` |
+| `balanced` | `categorical` only | `true`, `false`, `null`; `true` is refused for `regression` |
+| `num_leaves_ratio` | any | a number in `(0, 1]`; no `null` |
+| `min_data_in_leaf_ratio`, `min_data_in_bin_ratio` | any | a number in `(0, 1)`; a categorical choice may also be `null` (the ratio is not resolved) |
+| `feature_weights` | none | cannot be a search dimension |
+
+The ratio ranges are those of the `model` fields (`num_leaves_ratio` etc.).
+A dimension outside the rule raises `CONFIG_INVALID` before any study is
+created or written, with `context` `surface`, `dim`, `key` (`low` / `high`, or
+`choices`), `value` (the first value outside) and `reason`
+(`smart_value_invalid`, or `smart_value_unsupported_task` for `balanced: true`
+on regression). A numeric dimension on `auto_num_leaves`, `balanced` or
+`feature_weights` is reported at its `low`. The same rule applies to the
+default space, to an expanded range and to `tune(space=...)`. Boundary
+expansion of `num_leaves_ratio` stops at `1.0` (`clamped_to_bound=True`).
+`restore_tuning` refuses a stored best outside the rule (`CONFIG_INVALID`), and
+`Model.load` refuses an artifact whose recorded `best_smart_params` is outside
+it (`DESERIALIZATION_FAILED`; tune and export again).
+
+```python
+"auto_num_leaves":  {"type": "categorical", "choices": [True, False], "category": "smart"},
+"num_leaves_ratio": {"type": "float", "low": 0.5, "high": 1.0, "category": "smart"},
+"min_data_in_leaf_ratio": {"type": "categorical", "choices": [None, 0.05], "category": "smart"},
+# "choices": ["true", "false"] is refused: write true / false, not strings.
+```
+
+Objective and metric values are checked before the study (H-0125). `tune` applies fit's rules for `objective` and `metric` (under any LightGBM spelling) to the values its trials receive, and raises `CONFIG_INVALID` before any study is created or written: `model.params` with the round's fixed parameters laid over it (a parameter a `category: model` dimension of the round samples is left out, since every trial overrides it: in `merge` mode a `model.params` objective that the default space's `objective` dimension replaces is not refused), and every choice of a `category: model` dimension on `objective` or `metric`. Such a dimension must be `categorical`: a `float` / `int` one is refused whatever its range (`reason` `not_categorical`). Before, a bad value failed each trial that met it, so the tune ended in `TUNING_FAILED` or silently dropped the trials of one bad choice. The public `Tuner` does not check parameter values (see `docs/api.md`).
 
 Default search space used when `optuna.space = {}`:
 
@@ -523,8 +653,8 @@ classification metrics, `p` denotes the predicted probability.
 | `mae` | $\frac{1}{n}\sum_i \lvert y_i - \hat y_i \rvert$ | $[0, \infty)$ | — |
 | `r2` | $1 - \frac{\sum_i (y_i - \hat y_i)^2}{\sum_i (y_i - \bar y)^2}$ | $(-\infty, 1]$ | $\bar y$ = mean of `y_true` |
 | `rmsle` | $\sqrt{\frac{1}{n}\sum_i (\log(1+y_i) - \log(1+\hat y_i))^2}$ | $[0, \infty)$ | requires $y_i, \hat y_i \ge 0$ |
-| `mape` | $\frac{100}{n}\sum_i \left\lvert \frac{y_i - \hat y_i}{y_i} \right\rvert$ | $[0, \infty)$ | undefined if any $y_i = 0$ |
-| `huber` | $\frac{1}{n}\sum_i L_\delta(y_i - \hat y_i)$ where $L_\delta(e) = \begin{cases} \tfrac{1}{2}e^2 & \lvert e \rvert \le \delta \\ \delta (\lvert e \rvert - \tfrac{1}{2}\delta) & \text{otherwise} \end{cases}$ | $[0, \infty)$ | $\delta = 1.0$ default |
+| `mape` | $\frac{100}{n}\sum_i \left\lvert \frac{y_i - \hat y_i}{y_i} \right\rvert$ | $[0, \infty)$ | undefined if any $y_i = 0$. The learning curve's `mape` is LightGBM's ratio $\frac{1}{n}\sum_i \frac{\lvert y_i - \hat y_i \rvert}{\max(1, \lvert y_i \rvert)}$, not this (H-0125) |
+| `huber` | $\frac{1}{n}\sum_i L_\delta(y_i - \hat y_i)$ where $L_\delta(e) = \begin{cases} \tfrac{1}{2}e^2 & \lvert e \rvert \le \delta \\ \delta (\lvert e \rvert - \tfrac{1}{2}\delta) & \text{otherwise} \end{cases}$ | $[0, \infty)$ | $\delta = 1.0$ default. The learning curve's `huber` is LightGBM's, whose threshold is its `alpha` (default 0.9), not $\delta$ (H-0125) |
 | `smape` (H-0071) | $\frac{100}{n}\sum_i \frac{2 \lvert y_i - \hat y_i \rvert}{\lvert y_i \rvert + \lvert \hat y_i \rvert}$ | $[0, 200]$ | row with $\lvert y_i \rvert + \lvert \hat y_i \rvert = 0$ contributes 0 |
 | `wape` (H-0071) | $\frac{\sum_i \lvert y_i - \hat y_i \rvert}{\sum_i \lvert y_i \rvert} \times 100$ | $[0, \infty)$ | undefined only when $\sum_i \lvert y_i \rvert = 0$ |
 

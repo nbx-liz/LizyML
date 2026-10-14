@@ -1,0 +1,6 @@
+control (violation removed): exit 0 -> PASS
+absolute: exit 1 -> caught
+relative: exit 1 -> caught
+imported name: exit 1 -> caught
+plain import: exit 1 -> caught
+failures: 0

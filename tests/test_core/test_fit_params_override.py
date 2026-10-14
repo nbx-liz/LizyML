@@ -3149,8 +3149,11 @@ def test_the_tuned_ratio_is_the_one_the_trainer_builds_its_inner_valid_from() ->
     Reporting and training must read one definition. Asserting only on the
     table would pass against a build that reports the tuned ratio and trains on
     the configured one, which is the same defect with the sides swapped.
+
+    Since H-0120 the trainer reaches the factory through
+    ``_model_factories.resolve_inner_valid``, so the spy sits in that module.
     """
-    import lizyml.core.model as model_mod
+    import lizyml.core._model_factories as model_mod
 
     seen: list[float] = []
     real_factory = model_mod.make_inner_valid_factory
@@ -3230,7 +3233,8 @@ def test_the_generated_project_trains_at_the_patience_the_run_used(
     # The generated trainer logs its holdout split, and the early-stopping
     # callback is constructed from the same config value. A run that had taken
     # the configured 7 would hold out 40 rows, not 90.
-    assert "holdout: 110 train / 90 valid" in run.stdout + run.stderr, (
+    # (H-0120 renamed the log line: the split is now the refit's own strategy.)
+    assert "inner valid: 110 train / 90 valid" in run.stdout + run.stderr, (
         run.stdout[-2000:],
         run.stderr[-2000:],
     )

@@ -1,0 +1,14 @@
+[run-exclusive] h0128-nc starting; load was 0.34
+run-heavy: pgid=11 (stop with: kill -- -11)
+criterion 1/3: the round closes on a study-wide COMPLETE (H-0122 rule): FAILS as required (1 failed in 1.20s)
+criterion 3: interrupted trials not counted: FAILS as required (1 failed, 2 passed in 2.07s)
+criterion 4: the public Tuner.tune bounds by prior_trials: FAILS as required (1 failed, 4 passed in 2.87s)
+criterion 5: the provider's trial errors are not passed: FAILS as required (1 failed, 6 passed in 3.51s)
+criterion 5b: the last error is kept instead of the first: FAILS as required (1 failed, 14 passed in 4.19s)
+criterion 5b: str(exc) used unguarded: FAILS as required (1 failed, 16 passed in 4.14s)
+criterion 5c: trial_errors() called on every provider: FAILS as required (1 failed, 21 passed in 4.51s)
+criterion 6: no replacement (U2 refuses as before): FAILS as required (1 failed, 22 passed in 5.06s)
+criterion 7: RUNNING trials failed while planning (a write before a refusal): FAILS as required (1 failed, 22 passed in 10.51s)
+criterion 8: the old restore refusal text: FAILS as required (1 failed, 32 passed in 9.91s)
+all mutations caught
+[run-exclusive] h0128-nc finished in 55s, exit 0

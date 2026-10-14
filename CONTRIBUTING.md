@@ -76,8 +76,13 @@ Forward compatibility is protected by CI rather than by pinning:
   dependencies *upward* (`uv sync --upgrade`) and runs the suite. It is
   **non-blocking**: it surfaces an upstream breaking change (pandas / numpy /
   lightgbm) early without gating merges on a third-party regression.
-- **`Quality (lowest-direct deps)`** — pins the declared lower bounds
-  (`--resolution lowest-direct`, BLUEPRINT §18.2) so the floor stays honest.
+- **`Quality (lowest-direct deps)`** — installs LizyML and every extra at
+  their declared lower bounds without the lock (`uv pip install
+  --resolution lowest-direct`), refuses unless each installed version equals
+  its floor (`scripts/check_dependency_floors.py`), then runs the non-slow
+  suite (BLUEPRINT §18.2, H-0126). Raising a floor means re-running this lane;
+  `uv lock --check` in the `quality` lanes catches a `pyproject.toml` edit
+  without `uv lock`.
 - **`Smoke (<os>)`** — an OS matrix (ubuntu / windows / macos) running the
   file-I/O-sensitive subset to catch path / newline portability issues.
 

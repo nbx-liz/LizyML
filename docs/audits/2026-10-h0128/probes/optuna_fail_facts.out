@@ -1,0 +1,7 @@
+optuna 4.7.0
+(1) writing a COMPLETE trial's user attr: UpdateFinishedTrialError: Trial#0 has already finished and can not be updated.
+(2) objective returns nan: state=FAIL system_attrs={}
+(2) objective returns inf: state=COMPLETE system_attrs={}
+(2) objective returns str: state=FAIL system_attrs={}
+(2) objective returns None: state=FAIL system_attrs={}
+(3) caught ValueError: state=FAIL system_attrs={}

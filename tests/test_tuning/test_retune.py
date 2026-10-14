@@ -428,13 +428,15 @@ class TestNoOpExpansionIsNotExpanded:
         assert report.expanded_names == ("ff",)
 
     @pytest.mark.parametrize("log", [False, True], ids=["linear", "log"])
-    def test_int_dim_beyond_2_53_one_step_left_is_expanded(self, log: bool) -> None:
+    def test_int_dim_at_2_52_one_step_left_is_expanded(self, log: bool) -> None:
         """IntDim expansion is exact integer arithmetic (review round 1).
 
-        Above ``2**53`` a float round trip merges ``high`` and ``high + 1``,
-        which would report the one remaining permitted step as a no-op.
+        The one remaining permitted step is an expansion, not a no-op. H-0111
+        pinned this above ``2**53``, where a float round trip merges ``high``
+        and ``high + 1``; H-0124 amendment 1 (policy 10) does not expand an
+        int edge past ``2**52``, so the last step is the one up to the limit.
         """
-        high = 2**53
+        high = 2**52 - 1
         # A log range must be wide enough for log-space edge detection.
         low = 2**40 if log else high - 10
         dim = IntDim("big", low=low, high=high, log=log, max_allowed=high + 1)
@@ -442,17 +444,18 @@ class TestNoOpExpansionIsNotExpanded:
         status = report.dims[0]
         assert status.edge == "upper"
         assert status.expanded is True
-        assert status.new_high == high + 1
+        assert status.new_high == high + 1 == 2**52
         assert status.new_low == low
         assert report.expanded_names == ("big",)
 
     @pytest.mark.parametrize("log", [False, True], ids=["linear", "log"])
-    def test_int_dim_beyond_2_53_pinned_is_not_expanded(self, log: bool) -> None:
-        high = 2**53 + 1
+    def test_int_dim_at_2_52_pinned_is_not_expanded(self, log: bool) -> None:
+        high = 2**52
         low = 2**40 if log else high - 10
         dim = IntDim("big", low=low, high=high, log=log, max_allowed=high)
         report = detect_boundary([dim], {"big": high}, threshold=0.05)
         assert report.dims[0].expanded is False
+        assert report.dims[0].clamped_to_bound is True
         assert report.expanded_names == ()
 
     def test_mixed_report_lists_only_moving_dims(self) -> None:
@@ -812,6 +815,23 @@ class TestModelRetuneResume:
         assert exc_info.value.code == ErrorCode.TUNING_FAILED
         assert "resume" in str(exc_info.value.user_message).lower()
 
+    def test_resume_with_storage_but_no_name_is_config_invalid_first(
+        self, tmp_path: Any
+    ) -> None:
+        """H-0122 §3: the argument pre-check runs before the call-matrix row.
+
+        A Model without a study used to raise TUNING_FAILED here, before the
+        missing study_name was ever looked at.
+        """
+        cfg = _reg_config_with_tuning(n_trials=2)
+        model = Model(cfg)
+        with pytest.raises(LizyMLError) as exc_info:
+            model.tune(
+                make_regression_df(), resume=True, storage=f"sqlite:///{tmp_path}/s.db"
+            )
+        assert exc_info.value.code == ErrorCode.CONFIG_INVALID
+        assert "study_name" in exc_info.value.user_message
+
     @pytest.mark.parametrize("threshold", [0.0, 0.5, 1.0, -0.1])
     def test_invalid_boundary_threshold_raises(self, threshold: float) -> None:
         cfg = _reg_config_with_tuning(n_trials=2)
@@ -831,8 +851,8 @@ class TestModelRetuneResume:
         assert r1.rounds[0].round == 1
 
         r2 = model.tune(df, resume=True, n_trials=2)
-        # Round 1: 3 trials. Round 2: optimize(n_trials=2) — enqueue counts
-        # as 1 of the 2 trials. Total: 3 + 2 = 5 trials.
+        # Round 1: 3 trials. Round 2: exactly n_trials=2 TPE trials; the
+        # previous best is not enqueued (H-0122 §6.2). Total: 3 + 2 = 5.
         assert len(r2.trials) == 5
         assert len(r2.rounds) == 2
         assert r2.rounds[1].round == 2

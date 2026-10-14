@@ -11,7 +11,15 @@ import pandas as pd
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.param_domain import assert_plain_params
-from lizyml.estimators.base import BaseEstimatorAdapter, ImportanceKind
+from lizyml.estimators.base import (
+    BaseEstimatorAdapter,
+    ImportanceKind,
+    UnsaveableCategory,
+)
+from lizyml.estimators.lgbm.category_json import (
+    encoder_categories,
+    unwritable_categories,
+)
 from lizyml.estimators.lgbm.defaults import (
     _COMMON_DEFAULTS,
     _TASK_METRIC,
@@ -87,12 +95,16 @@ def _pop_by_identity(
     return value, written
 
 
+#: The install hint names LizyML's declared LightGBM floor; a test keeps the two
+#: equal (H-0126). Quoted, because an unquoted ``>=`` is a shell redirect.
+_INSTALL_HINT = 'LightGBM is required. Install with: pip install "lightgbm>=4.4"'
+
 try:
     import lightgbm as lgb
 except ImportError as e:  # pragma: no cover
     raise LizyMLError(
         code=ErrorCode.OPTIONAL_DEP_MISSING,
-        user_message="LightGBM is required. Install with: pip install lightgbm>=4.0",
+        user_message=_INSTALL_HINT,
         context={"package": "lightgbm"},
     ) from e
 
@@ -141,6 +153,10 @@ class LGBMAdapter(BaseEstimatorAdapter):
         self._eval_results: dict[str, Any] = {}
         self._categorical_features: list[str] | None = None
         self._feval_display_names: list[str] = []
+
+    def unsaveable_categories(self, pipeline_state: Any) -> list[UnsaveableCategory]:
+        """Category values LightGBM cannot write as JSON into a saved model (H-0127)."""
+        return unwritable_categories(encoder_categories(pipeline_state))
 
     def set_categorical_features(self, cols: list[str] | None) -> None:
         """Store categorical column names for use in ``fit()``."""

@@ -21,6 +21,7 @@ a removal-version suffix matching the pattern `Will be removed in v\d+\.\d+`.
 | `PurgedTimeSeriesSplitter(embargo=...)` | `purge_gap` (the value is added to it) | **v1.0** | H-0115 (2026-10) |
 | `lizyml.core._model_factories.build_calibration_splitter` | (removed; outer split is reused) | **v1.0** | H-0058 |
 | `LGBMConfig.params["objective"]` silently stripped (cross-task) | Raise `LizyMLError(CONFIG_INVALID)` at fit time | **already enforced** | H-0079 (2026-05) |
+| `cross_entropy_lambda` as a `binary` objective | `binary` or `cross_entropy` (no deprecation period: its output is not a probability; artifacts trained with it are refused by `Model.load`) | **removed in v0.19.0** (breaking: raises `CONFIG_INVALID`, `reason` `not_a_probability`) | H-0125 (2026-10) |
 | `ErrorCode.DATA_FINGERPRINT_MISMATCH` | (none -- nothing ever raised it; missing columns raise `DATA_SCHEMA_INVALID`, numeric columns arriving non-numeric raise `INCOMPATIBLE_COLUMNS`) | **removed** (breaking: code that references the member gets `AttributeError`) | H-0106 (2026-10) |
 
 ## Migration notes
@@ -118,7 +119,7 @@ LGBMConfig(task="binary", params={"objective": "regression"})  # trained with "b
 # After (v0.15+): raises CONFIG_INVALID at fit / _build_params
 LGBMConfig(task="binary", params={"objective": "regression"})
 # LizyMLError: objective 'regression' is not compatible with task 'binary'.
-# Valid: ['binary', 'cross_entropy', 'cross_entropy_lambda'].
+# Valid objectives: ['binary', 'cross_entropy'].
 ```
 
 For same-task values (e.g. `task="regression"`, `objective="fair"`) the
@@ -127,6 +128,43 @@ silent strip was a **bug** rather than a deprecated contract:
 yet the sampled value was discarded. v0.15 honours those values, so
 `tune` may now report a different `best_params`/`best_score` for
 identical config + data.
+
+### `cross_entropy_lambda` binary objective (removed in v0.19.0, H-0125)
+
+LightGBM's `cross_entropy_lambda` objective predicts lambda, not a
+probability: the probability is `1 - exp(-lambda)`. LizyML returned a binary
+model's output as `predict().proba`, so up to v0.18.0 a fit with it either
+stopped in the evaluator (`METRIC_REQUIRES_PROBA`, once an output exceeded 1)
+or, for a short fit whose outputs stayed below 1, succeeded and returned
+values that are not probabilities ([#307](https://github.com/nbx-liz/LizyML/issues/307)).
+Converting the output was rejected: every prediction path (OOF, feval,
+`predict`, the generated code, export) would need it. It is removed without a
+deprecation period, because a warning would still return wrong values.
+
+From v0.19.0:
+
+```python
+config["model"]["params"]["objective"] = "cross_entropy_lambda"  # task: binary
+Model(config).fit(data=df)
+# LizyMLError(CONFIG_INVALID) before training, context reason "not_a_probability":
+# objective 'cross_entropy_lambda' is not accepted for task 'binary': its
+# output is not a probability ... Use 'binary' or 'cross_entropy'.
+```
+
+- **Alternatives**: `binary` (the default) or `cross_entropy`. Both predict a
+  probability. `LGBMProvider().objective_choices("binary")` returns exactly
+  these two.
+- **Every surface**: `model.params` under any LightGBM spelling of
+  `objective`, `fit(params=...)`, a tune result, a search dimension (refused
+  before the study) and a directly built `LGBMAdapter`.
+- **Artifacts**: `Model.load` refuses an artifact any stored booster of which
+  (a fold model or the refit model) was trained with it, with
+  `DESERIALIZATION_FAILED`. The objective is read from LightGBM's record in the
+  booster, so it does not matter how it was specified. Fit again with
+  `binary` or `cross_entropy` and export again. Other artifacts load as before;
+  `format_version` is unchanged.
+- **Unchanged**: `cross_entropy_lambda` as a training metric
+  (`model.params.metric`) is still accepted.
 
 ### `build_calibration_splitter()` (removed)
 

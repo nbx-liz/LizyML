@@ -1,0 +1,4 @@
+x1      lgb_mape=0.08260 lizy_mape=8.260% huber(d=0.9)=7.121781 huber(d=1.0)=7.865222
+x0.01   lgb_mape=0.07320 lizy_mape=8.260% huber(d=0.9)=0.005738 huber(d=1.0)=0.005738
+x0.001  lgb_mape=0.00835 lizy_mape=8.260% huber(d=0.9)=0.000057 huber(d=1.0)=0.000057
+zero target: lgb_mape = 0.23333333333333336

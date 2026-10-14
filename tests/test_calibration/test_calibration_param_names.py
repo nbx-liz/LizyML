@@ -164,6 +164,7 @@ TRAINING_ENTRY_POINTS: dict[str, Any] = {
 #: was missing, and it is the shape this PR spent three review rounds learning.
 NON_TRAINING_ENTRY_POINTS: dict[str, str] = {
     "predict": "scores an existing booster",
+    "restore_tuning": "reads a study's records and trials; trains nothing",
     "evaluate": "filters metrics computed during fit (H-0057)",
     "export": "writes the artifact a fit produced",
     "export_code": "generates source; its params are gated separately",
@@ -200,6 +201,7 @@ NON_TRAINING_ENTRY_POINT_ARGS: dict[str, Any] = {
     "predict": lambda tmp: (make_binary_df(n=30),),
     "export_code": lambda tmp: (tmp / "generated.py",),
     "load": lambda tmp: (tmp / "no-such-artifact.joblib",),
+    "restore_tuning": lambda tmp: (f"sqlite:///{tmp / 's.db'}", "s"),
 }
 
 
@@ -262,7 +264,7 @@ def test_non_training_entry_points_really_do_not_train(
     required argument, called bare, raises before its first statement runs, and
     the spy then observes an empty list because nothing executed. So the binding
     is asserted first, and ``NON_TRAINING_ENTRY_POINT_ARGS`` supplies what the
-    three such methods need.
+    four such methods need.
     """
     spy = _TrainSpy()
     spy.install(monkeypatch)

@@ -104,7 +104,7 @@ model.export_code("deploy/my_model")
 ```
 
 Output:
-- `train.py` -- retrain on new data with `python train.py data.csv`
+- `train.py` -- retrain on new data with `python train.py data.parquet` (on the same data it reproduces the refit model)
 - `predict.py` -- run inference with `python predict.py test.csv -o out.csv`
 - `config.json` -- all hyperparameters and feature definitions
 - `test_equivalence.py` -- verify codegen matches `Model.predict()`

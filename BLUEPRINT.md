@@ -44,19 +44,24 @@
 
 モジュール間の依存を 5 層の DAG（非巡回有向グラフ）で管理する。詳細は `ARCHITECTURE.md` を参照。
 
-| Layer | 名称 | 依存先 | 含まれるカテゴリ |
-|---|---|---|---|
-| 0 | Foundation | なし | `core/exceptions`, `core/logging`, `core/types/` |
-| 1 | Leaf | Foundation のみ | `config/`, `data/`, `splitters/`, `features/`, `estimators/`, `metrics/`, `calibration/` |
-| 2 | Composition | Foundation + Layer 1 の IF | `training/`, `evaluation/`, `tuning/` |
-| 3 | Optional | Foundation + Layer 1/2 の IF | `explain/`, `plots/`, `persistence/` |
-| 4 | Facade | 全 Layer | `core/model.py`, `core/_model_*.py`, `core/_model_factories.py` |
+| Layer | 名称 | 依存先 | 含まれるモジュール | 下の層から参照してよいモジュール（IF） |
+|---|---|---|---|---|
+| 0 | Foundation | なし | `core/exceptions.py`, `core/logging.py`, `core/registries.py`, `core/types/`, `core/param_domain.py`, `core/specs/`, `_extras.py`, `_version.py` | 全部 |
+| 1 | Leaf | Foundation のみ | `config/`, `data/`, `splitters/`, `features/`, `estimators/`, `metrics/`, `calibration/` | `splitters/base.py`, `features/pipeline_base.py`, `estimators/base.py`, `estimators/provider.py`, `metrics/base.py`, `calibration/base.py` |
+| 2 | Composition | Foundation + Layer 1 の IF | `training/`, `evaluation/`, `tuning/` | なし |
+| 3 | Optional | Foundation + Layer 1/2 の IF | `explain/`, `plots/`, `persistence/`, `codegen/` | なし |
+| 4 | Facade | 全 Layer | `core/`, `__init__.py` | なし |
 
 依存ルール:
-- 各カテゴリは自分より**上の Layer にのみ**依存する（下方向のみ）。
-- Layer 2 は Layer 1 の**抽象 IF のみ**を参照する（具象クラスを import しない）。
+- 各カテゴリは自分より**下の Layer にのみ**依存する（下方向のみ）。Layer 1 は Foundation と自分のカテゴリだけに依存する。
+- Layer 2 は Layer 1 の **IF（表の右の列）のみ**を参照する（具象クラスを import しない）。Layer 3 はそれに加えて Layer 2 の IF を参照してよい（今は宣言が無い）。同じ層の別のカテゴリは参照しない。パッケージの `__init__.py` は IF に入れない（`estimators/__init__.py` は `LGBMAdapter` を再公開する）。
 - 具象クラスの組み立て・型ディスパッチは **Layer 4（Facade）のみ**が行う。
-- カテゴリ間の**循環依存は禁止**する。
+- カテゴリ間の**循環依存は禁止**する（カテゴリは `core/` の中はモジュールごと、ほかは最上位のパッケージごと）。
+
+表の読み方と検査（H-0129）:
+- `lizyml/` のどのモジュールも、表の「含まれるモジュール」のどれかの行に当たる。複数の行が当たるときは、最も長いパスの行が決める（`core/exceptions.py` は `core/` より長いので Layer 0）。`_version.py` は Git の管理外で、hatch-vcs が `pyproject.toml` の `version-file` に従って生成する。
+- `tests/test_architecture/test_layer_rules.py` が、この表を読んで全ての import の文（関数の中と `if TYPE_CHECKING:` の中を含む）を確かめる。層の規則は import の文と、名前で読める動的な import で確かめる: 識別子 `import_module` と `__import__` は、`lizyml` 以外のパッケージを絶対の名前の定数で import する呼び出しにだけ使ってよい。実行時に親パッケージの `__init__.py` が読み込むもの、`eval` / `exec` で組み立てた import、文字列の中の import（`codegen/` のテンプレート）は数えない。
+- この規則に反する既存の import は、テストの例外の一覧に件数つきで載る（[#362](https://github.com/nbx-liz/LizyML/issues/362)。v0.19.0 の後に設計を決める）。一覧の import が消えても増えても、テストは失敗する。
 
 ## 2.2 EstimatorProvider（マルチアルゴリズム拡張 IF）（H-0053）
 
@@ -177,6 +182,9 @@ pred_result = loaded_model.predict(X_new)
 
 - `load()` は内部の metrics を `fit_result.metrics` の deep copy として持ち、`fit_result` プロパティが返す `FitResult` と可変オブジェクトを共有しない（`fit()` / `fit_result` と同じ隔離、H-0086）。
 - tune 済みモデルの artifact では、`metadata.json` の `tuning` ブロックから trial の無い最小の `TuningResult` を復元し、load 後の再 `fit()` が tuned params を再現する。ブロックの無い artifact は tuning result 無しで読む（§15.1、H-0086）。
+- 復元する `best_smart_params` の各値は、smart の探索次元と同じ値の規則（§11.3、`provider.smart_value_rules()`）で、その artifact の config のタスクについて検査する（H-0121 改訂 2、[#347](https://github.com/nbx-liz/LizyML/issues/347)）。外れる値（v0.18.0 で文字列の真偽の次元で tune した artifact の `"false"` など。booster は真で訓練されており、記録と中身が食い違う）があれば `DESERIALIZATION_FAILED` で拒否し、context に `name`・`value`・`reason`（`smart_value_invalid` / `smart_value_unsupported_task`）を入れ、メッセージで tune し直して export し直すことを案内する。`format_version` 1 と 2 の両方に当てる。`best_smart_params` が空、規則どおり、または tune の結果の無い artifact は今までどおり読み込み、予測する。`best_smart_params` が mapping でない記録、provider が宣言しない名前を持つ記録、`feature_weights` を持つ記録も `DESERIALIZATION_FAILED` で拒否する（LizyML はそうした記録を書かない）。tune の結果のブロックが object でないか、LizyML が書く六つのキーを欠く artifact も `DESERIALIZATION_FAILED`。
+- 保存した全ての booster（`fit_result.pkl` の fold のモデルと `refit_model.pkl` のモデル）について、LightGBM が booster の中に記録した目的関数（モデル文字列の `objective=` の行の最初の語。別名 `xentlambda` で学習しても `cross_entropy_lambda` と記録される）を読み、出力が確率でない目的関数（binary の `cross_entropy_lambda`）なら `DESERIALIZATION_FAILED` で拒否する（H-0125、[#307](https://github.com/nbx-liz/LizyML/issues/307)）。booster の `params` は読まない（復元した booster が `params` を保つかは LightGBM の版による。4.6.0 はモデル文字列からの復元で失い、4.7.0 は保つ。また学習の後に書き換えられ、記録とは別の値になりうる）。記録は学習に実際に使った目的関数なので、config・tune の結果・`fit(params=)` のどれで指定したかによらない。context に `path`・`booster`（`fold k` か `refit`）・`objective`。format_version 1 と 2 のどちらにも当て、format_version は変えない。v0.18.0 で `cross_entropy_lambda` の短い fit から作った artifact だけが対象で、他の artifact は今どおり読み込める。
+- `model.params["metric"]` に native 指標のパラメータ（`{"huber": {"delta": 9.0}}` など、§14 の Metric Bridge）を記録した古い artifact は、読み込みと `predict` ができる（学習ではパラメータが使われていなかった）。再 `fit` と `export_code` は `CONFIG_INVALID`（H-0125、[#313](https://github.com/nbx-liz/LizyML/issues/313)）。
 
 # 5. Config 設計
 
@@ -250,13 +258,18 @@ config = {
 
 `LGBMConfig` に以下のスマートパラメーターを提供する。これらは `fit()` 時に学習データに基づいて LightGBM ネイティブパラメーターに解決される。`params` の直接指定とは独立して機能し、`params` で同一パラメーターが指定されている場合は競合エラーとする。
 
-**この競合ルールが適用される入口（H-0094 / 実測）。** スマート解決はパラメーター dict のマージより後段で走り、その結果が勝つため、ルールが適用されない入口では「受理して黙って置換」になる。
+**この競合ルールが適用される入口（H-0094 / H-0121）。** スマート解決はパラメーター dict のマージより後段で走り、その結果が勝つため、ルールが適用されない入口では「受理して黙って置換」になる。
+
+**H-0121 で、モデルパラメーターの 4 つの層の検査を `fit` / `tune` の学習前の 1 か所（`Model._merge_params`、`fit` と `tune` の両方が通る）に一本化した。** 各層を、有効なスマートパラメーター（config の値に、tune の結果の `best_smart_params` を重ねたもの）に対して `check_smart_managed_overrides` で検査する。検査は alias 対応で、綴りは LightGBM の `LGBM_DumpParamAliases` から導く。ネイティブの名前を書く 5 つのスマートパラメーター（`SMART_PARAM_TARGETS`）の 6 つの正規名と、その 18 の綴りのすべてを覆う: `auto_num_leaves` → `num_leaves`、`min_data_in_leaf_ratio` → `min_data_in_leaf`、`min_data_in_bin_ratio` → `min_data_in_bin`、`feature_weights` → `feature_contri` と `feature_pre_filter`、`balanced` → `scale_pos_weight`（binary のみ）。`num_leaves_ratio` は `auto_num_leaves` の修飾子で、自分では名前を書かない。拒否は `CONFIG_INVALID` で、綴り・管理しているスマートパラメーター・名前の来た層を挙げる。H-0121 以前は `model.params` に `LGBMConfig._validate_smart_params` の文字列一致の検査しかなく、18 の綴りのうち拒否されたのは文字どおりの 3 つ（`num_leaves`、`min_data_in_leaf`、`min_data_in_bin`）だけだった（12 は別名とスマートの値の両方が `lgb.train` に届き、3 は黙って置き換わった。例: `scale_pos_weight: 10` が `0.951` で学習した、[#280](https://github.com/nbx-liz/LizyML/issues/280)）。その文字列一致の 3 件の拒否は削除した（覆う範囲の違う 2 か所の検査はずれる、DC3）。そのため、この 3 件の拒否の時期は config の構築時から `fit` / `tune` の時に移った。
 
 | 入口 | 状態 |
 |---|---|
-| `model.params`（config） | `LGBMConfig._validate_smart_params` が parse 時に拒否。ただし **(a) `auto_num_leaves` / 2 つの ratio の 3 件のみ**（`balanced`→`scale_pos_weight` と `feature_weights`→`feature_contri` / `feature_pre_filter` は対象外）、かつ **(b) 文字列一致のみ**でエイリアスを見ない。**面の全体を実行して数えた（H-0094 決定 8 / 18 通り = スマートパラメーター × 書き込む native 名 × 受理綴り）: 拒否 3 / 2 綴りが `lgb.train` に届く 12 / 黙って上書き 3。** `max_leaves` / `min_child_samples` は通過して置換され、`scale_pos_weight: 10.0` は `balanced` により `0.951` で学習する（[#280](https://github.com/nbx-liz/LizyML/issues/280)）。`config/` は層規約上 `estimators/` を import できず学習器の別名表に届かないため、修正は「どこで拒否するか」の設計判断になる |
-| `fit(params=...)` | **H-0094 で拒否する（5 件すべて）。** 有効なスマートパラメーターが書くネイティブ名は `CONFIG_INVALID` とし、どのスマートパラメーターが管理しているかを名指しする |
-| `tuning.optuna.space` (`category: model`) | H-0099: reject names claimed by active smart parameters, including aliases, before study creation. Validate the resolved explicit/default/resumed space, including smart dimensions that can activate a conflicting owner. To tune native leaves directly, disable `model.auto_num_leaves`; sampled values then reach training. |
+| `model.params`（config） | **H-0121**: `_merge_params` で alias 対応、6 つの正規名・18 の綴りすべてを `fit` / `tune` の学習前に拒否する（層名 `model.params`）。config の構築時には拒否しない。tune では、smart の探索次元が試行の中で有効にしうるスマートパラメーターとの衝突も study の前に拒否する（H-0121 改訂 1、§11.3） |
+| 既定の固定パラメーター（`first_metric_only`、`metric`） | **H-0121**: 同じ検査に入る（層名 `provider default fixed params`）。新しい study の `tune` では `_merge_params` はこの層を重ねない（objective が trial ごとに重ねる）が、検査はする。smart の探索次元が有効にしうる衝突も拒否する（H-0121 改訂 1、§11.3） |
+| tune の結果の `best_model_params` | **H-0121**: 同じ検査に入る（層名 `tuning best_model_params`）。復元した tune の結果にも当たる。有効なスマートパラメーターは `best_smart_params` を重ねた後の値なので、config が `auto_num_leaves: false` でも `best_smart_params` が `auto_num_leaves: true` なら `max_leaves` は拒否される |
+| `fit(params=...)` | **H-0094 で拒否する（5 件すべて）。** 有効なスマートパラメーターが書くネイティブ名は `CONFIG_INVALID` とし、どのスマートパラメーターが管理しているかを名指しする。H-0121 で他の層と同じ 1 か所の検査になった（挙動は変わらない） |
+| `tuning.optuna.space` (`category: model`) | H-0099: reject names claimed by active smart parameters, including aliases, before study creation. Validate the resolved explicit/default/resumed space, including smart dimensions that can activate a conflicting owner. To tune native leaves directly, disable `model.auto_num_leaves`; sampled values then reach training. **H-0121 改訂 1**: smart の次元は一つずつではなく、取りうる値の組み合わせのすべて（状態ごとの代表の値の直積）に対して検査する（§11.3） |
+| `tuning.optuna.space` (`category: smart`) | **H-0121**: smart パラメーターとして宣言されていない名前は study の前に `CONFIG_INVALID`（ネイティブ名ならメッセージで `category: model` を案内する）。所有者が真になりえない smart の次元（`auto_num_leaves` が真になりえないときの `num_leaves_ratio`）は、利用者が書いたものなら拒否し、既定の空間から来たものなら落とす（§11.3）。**H-0121 改訂 2**: 次元が取りうる値のすべてを、provider がスマートパラメーターごとに宣言する値の規則（型は厳密、比率はこの節の範囲）で検査し、外れれば study の前に拒否する（§11.3） |
 | `tuning.optuna.space` (`category: training`) | H-0099: accept only `early_stopping_rounds` and `validation_ratio`, the two training override consumers. Reject other names with `CONFIG_INVALID` before study creation. |
 
 ### auto_num_leaves（葉の数の自動算出）
@@ -267,7 +280,7 @@ config = {
   - `params.max_depth` が未指定または負値（制限なし）→ 基準値 = `131072`
   - `params.max_depth` が指定されている → 基準値 = `2 ^ max_depth`
   - `num_leaves = clamp(ceil(基準値 × num_leaves_ratio), 8, 131072)`
-- 制約: `auto_num_leaves=True` 時に `params.num_leaves` の直接指定は `CONFIG_INVALID`。
+- 制約: `auto_num_leaves` が有効なとき、`num_leaves` を別名（`max_leaves` など）を含めてどの層に書いても `fit` / `tune` の学習前に `CONFIG_INVALID`（H-0121。config の構築時には拒否しない）。`num_leaves_ratio` は `auto_num_leaves` が真のときだけ読まれる。
 
 ### データサイズ相対比率パラメーター
 
@@ -277,7 +290,7 @@ config = {
 - `min_data_in_bin_ratio: float | None = 0.01`（`0 < ratio < 1`）→ `min_data_in_bin = max(1, ceil(n_rows_inner_train × ratio))`
 - `n_rows_inner_train` の定義: outer fold の学習データから inner validation（early stopping 用）を分割した後の行数。early stopping が無効（inner validation 分割なし）の場合は outer fold の学習データ行数を使用する。
 - fold ごとに `n_rows_inner_train` が異なる場合、各 fold で個別に解決する。
-- 制約: ratio 指定と対応する絶対値パラメーター（`params.min_data_in_leaf` 等）の同時指定は `CONFIG_INVALID`。
+- 制約: ratio 指定と対応する絶対値パラメーター（`params.min_data_in_leaf` 等、別名を含む）の同時指定は `fit` / `tune` の学習前に `CONFIG_INVALID`（H-0121。config の構築時には拒否しない）。
 
 ### feature_weights（特徴量重みの辞書指定）
 
@@ -337,6 +350,8 @@ config = {
 ### split
 
 `split.method` は以下のいずれか: `kfold` / `stratified_kfold` / `group_kfold` / `stratified_group_kfold` / `time_series` / `purged_time_series` / `group_time_series` / `blocked_group_kfold`。
+
+**regression は目的変数で層化しない（H-0120 改訂 2）**: 層化はクラスの比率を保つための手法で、回帰の目的変数にはクラスが無い。`task: regression` で `split.method: stratified_kfold` / `stratified_group_kfold`、明示した `split.groups.stratify: true`（`blocked_group_kfold`）、明示した `training.early_stopping.inner_valid` の `stratify: true` のどれかを指定すると、`fit` と `tune` は学習の前に `CONFIG_INVALID` で拒否する（`build_splitter` の `check_regression_stratification`）。目的変数の値（連続値か整数値か）によらない。
 
 | method | 固有キー |
 |---|---|
@@ -443,7 +458,7 @@ config = {
    b. Config defaults と trial params をマージし、`_build_train_components()` で CVTrainer の構成要素を構築する（fit と同じコードパス）
    c. CVTrainer で CV 実行 → OOF スコアを返す
 5. `TuningResult`（`best_model_params` / `best_smart_params` / `best_training_params` / `best_score` / 全 trial 履歴）を返す
-6. `Tuner` の責務は Optuna study の管理のみ。objective クロージャは `Model` 側で構築する
+6. `Tuner` の責務は Optuna study の管理のみ。objective クロージャは `Model` 側で構築する（公開の `Tuner.tune` の `step` の扱いは §11.5 の制約。H-0124）
 
 `tuning` と最終評価のリーク回避方針は 10 章を参照。
 
@@ -505,10 +520,10 @@ config = {
 LizyML 非依存の学習・推論コードを自動生成する。
 
 - **出力構造**: `config.json` + `train.py` + `predict.py` + `artifacts/` + `requirements.txt` + `test_equivalence.py`
-- **train.py**: Feature pipeline fit → LightGBM refit（全データ学習）→ OOF 生成（軽量 CV。fold は `config.json` の `split` ブロックから outer CV を再現する、§15.4）→ Calibrator fit
+- **train.py**: Feature pipeline fit → LightGBM refit（全データ学習。LizyML の refit と同じ inner valid の分割・行の並び・重み・カテゴリの符号で学習し、同じデータなら校正前の予測が一致する、§15.4 の H-0120）→ OOF 生成（軽量 CV。fold は `config.json` の `split` ブロックから outer CV を再現する、§15.4）→ Calibrator fit
 - **predict.py**: Feature transform → LightGBM predict → Calibration apply
 - **config.json**: ハイパーパラメータ・特徴量定義・校正設定を集約。コード編集なしでパラメータ変更可能
-- 生成コードは `import lizyml` を含まない。依存は `lightgbm` / `numpy` / `pandas` / `scikit-learn`（学習時のみ）
+- 生成コードは `import lizyml` を含まない。依存は `lightgbm` / `numpy` / `pandas` / `scikit-learn`（学習時のみ）/ `pyarrow`（parquet の読み込み、H-0120）
 - `test_equivalence.py` で `Model.predict()` と codegen 出力の一致を `rtol=1e-7` で検証
 - 初期実装は LightGBM のみ対応。将来の EstimatorProvider 拡張で他アルゴリズムにも対応可能
 - Calibrator 保存形式: Platt → JSON (a, b)、Beta → JSON (a, b, c)、Isotonic → Booster テキスト
@@ -531,6 +546,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
   - 任意: refit モデル（全データ学習）
 - `history`
   - fold ごとの eval history / best_iteration
+  - `eval_history`（学習曲線）の指標は LightGBM が計算した値で、LightGBM の名前と定義を持つ（native 指標。feval の指標は LizyML の定義、§14 の Metric Bridge）。そのため `FitResult.metrics` の同じ名前の指標と値が違うことがある。今そうなるのは `huber`（LightGBM の閾値は `alpha`、既定 0.9。LizyML は `delta`、既定 1.0）と `mape`（LightGBM は `|y-p| / max(1,|y|)` の比率。LizyML は `|y-p| / |y|` の百分率）である（H-0125、#354）。データの契約（`history` の形とキー）は変えない。
 - `feature_names / dtypes / categorical_features`
   - `feature_names`: 学習に使った特徴量名の順序付き `list[str]`。`dtypes`: 特徴量名 → dtype 文字列の `dict[str, str]`。`categorical_features`: カテゴリとして扱った特徴量名の `list[str]`。
 - `splits`
@@ -600,6 +616,8 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `config_normalized`
 - `format_version / versions`
 - `applied_training_params`（`metadata.json` の最上位キー。artifact のモデルを作った fit が適用した training overlay。overlay を使わなかった fit は `{}`。H-0109）
+- `applied_sample_weight`（`metadata.json` の最上位キー。その fit の refit が使った行ごとの重みの規則、`"balanced"` か `"none"`。H-0120 改訂 1）
+- `declared_categories`（`metadata.json` の最上位キー。その fit の入力の DataFrame で `category` dtype だった特徴量の列と、そのカテゴリ。H-0120 改訂 4）
 
 目的:
 
@@ -660,6 +678,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
     - SHAP 重要度は、fold k の検証行を fold k 自身の pipeline 状態（`FitResult.pipeline_state_per_fold`）で変換して fold k のモデルを説明する（H-0114）。上記の文字列列でも、SHAP 重要度が見る符号化と置換は OOF 予測が見たものと同じで、fit 中と同じく報告しない。`error` では未知の値があれば fit が先に止まるので、fit が通ったモデルの SHAP 重要度はこの理由で送出しない。
 - 推論時の列検査（不足列は `DATA_SCHEMA_INVALID`、余剰列は警告して除外）は pipeline に渡す**前**に facade（`Model.predict`）で行い、どの pipeline 実装でも省略されない（H-0104）。
 - 同じ検査で、学習時に数値だった列（`FitResult.dtypes` の記録）が予測時に数値でない dtype で届いたら `INCOMPATIBLE_COLUMNS` を送出する（context `columns` の各要素は `column` / `fit_dtype` / `predict_dtype`。H-0106）。不足列の `DATA_SCHEMA_INVALID` が先に効く。学習時に `category` だった列はこの dtype の規則で検査しない。
+- 学習時に `category` だった列に、pandas がカテゴリの値にできない浮動小数（`float16`、float64 より広い `longdouble`）で値が届いたとき（列の dtype でも、`object` 列の中の numpy のスカラーでも）、エンコーダは値を float64 にして照合する（`comparable_values`）。float64 にして値が変わる要素はどのカテゴリとも一致させず、未知として `unseen_policy` に従い、届いた元の値の文字列で報告する。欠損値は比較せず、どの方針でも欠損のまま。生成コードの `encode_column`（`train.py` / `predict.py`）も同じ規則を写す（H-0127、#309）。
 
 # 10. Split（`splitters/`）と InnerValidStrategy（`training/`）
 
@@ -848,7 +867,21 @@ outer fold の train データ（特定期間 × 特定ユーザー）に対し�
 ## 11.1 SearchSpace 表現の統一
 
 - Optuna に依存しない space 表現（離散・連続・対数・カテゴリ）を使う。
-- `parse_space` は `float` / `int` 次元の範囲を parse 時に検査する（H-0078）: `low >= high` は `CONFIG_INVALID`、`log=True` で `low <= 0` も `CONFIG_INVALID`（context `param` / `low` / `high` / `log`）。Optuna が trial の中で出す汎用のエラーより前に、設定の誤りとして名指す。
+- `parse_space` は `float` / `int` 次元の範囲を parse 時に検査する（H-0078）: `low >= high` は `CONFIG_INVALID`、`log=True` で `low <= 0` も `CONFIG_INVALID`（context `param` / `low` / `high` / `log`。H-0123 から書式の拒否と同じ `dim`・`key`（`low`）・`reason`・`surface` も入る）。Optuna が trial の中で出す汎用のエラーより前に、設定の誤りとして名指す。
+- **探索空間の書式（H-0123）**: `tuning.optuna.space` と `tune(space=...)` は同じ書式で、どちらも `parse_space` が検査する（`tune` が空間を解決するとき。config の空間は `tune` の引数の検査の段で、study を作る前・書く前）。書式は YAML と JSON が作る型（数、真偽、文字列、list）で書く前提で、書式の外の指定は別の探索に読み替えず `CONFIG_INVALID` で拒否する（context に次元の名前 `dim`、キー `key`、理由 `reason`、空間 `surface` = `tuning.optuna.space` か `tune(space=)` が必ずある。`dim` は空間が mapping でないときだけ `None`、`key` は空間全体か次元全体についての拒否では `None`）。空間は `str` の名前から次元の指定（mapping）への mapping で、次元ごとに:
+  - `type`: `float` / `int` / `categorical`。
+  - キーは、`float` と `int` では `type`・`low`・`high`・`log`・`step`・`category`、`categorical` では `type`・`choices`・`category` だけ。綴りの誤り（`lo` など）も拒否する。
+  - `low` / `high`（`float` / `int` で必須）: `int` か `float`（`bool` は除く）、numpy の整数・浮動小数のスカラー（`numpy.bool_` は除く。H-0095 のとおり素の値に直す）、または数の表記に完全一致する文字列 `[+-]?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][+-]?[0-9]+)?`（ASCII の数字だけ。PyYAML は YAML 1.1 で `1e-4` を文字列として読む）。`"nan"`・`"inf"`・`"0x10"`・`"1,000"` は数の表記ではない。値は有限であること。`int` の次元では整数の値であること（`16.0`・`"16.0"`・`"1e2"` は 16・16・100 に直し、`1.7` と `"1.7"` は切り捨てずに拒否する）。
+  - `log`（任意、既定 `false`）: `bool`（YAML の `true` / `false` / `yes` / `no`）。文字列の `"false"` は拒否する。
+  - `step`（`float` / `int` で任意、既定は刻み無し。H-0124）: 刻み。値の型は `low` / `high` と同じで、有限で 0 より大きいこと（`int` の次元では整数の値で 1 以上）。読めない値は `low` / `high` と同じ理由（`bound_not_a_number`・`bound_not_finite`・`bound_not_integral`）を `key` `step` で、0 以下は理由 `step_not_positive` で拒否する。
+    - **格子は原点 0**: 次元の格子は `step` の整数倍で、探索するのは `low` から `high` までの倍数。`low` と `high` はどちらも `step` の倍数でなければならない。判定は正確な有理数で行う（`float` の値 `x` は `Fraction(Decimal(str(x)))`、`int` はそのまま。`str` は最短の表記なので `[0.1, 0.3]` step 0.1 や `[0.5, 1.0]` step 0.05 を 2 進の誤差で拒否しない。`decimal` の context の精度に依らない）。
+    - 倍数でない境界は `CONFIG_INVALID`（理由 `bound_off_grid`、`key` は `low` か `high`。両方なら `low`）。メッセージは格子の上の範囲を一つ示す: 内側の範囲 `[ceil(low/step)*step, floor(high/step)*step]` が二つ以上の格子の点を持てばそれ（`[0.15, 1.0]` step 0.1 → `[0.2, 1.0]`）、持たなければ外側の範囲 `[floor(low/step)*step, ceil(high/step)*step]`（`[0.15, 0.16]` step 0.1 → `[0.1, 0.2]`）。`log` の次元で外側の下端が 0 になるときは `step` にし、それで一点になれば上端を一つ外の格子の点にする（`[0.0005, 0.0008]` step 0.001 → `[0.001, 0.002]`）。Optuna のように上端を黙って切り詰めることはしない。
+    - **抽出と訓練に使う値**: `log` でない次元は Optuna の `step`（`suggest_float(step=)` / `suggest_int(step=)`）で格子の点を抽出する。`log` の `float` の次元は刻み無しに対数で抽出し、一度だけ格子に丸める。`log` の `int` の次元は、`step` が 1 なら刻みが無いのと同じ（`IntDistribution(log=True)`）、`step > 1` なら float の対数（`FloatDistribution(log=True)`）で抽出して一度だけ整数の格子に丸める（先に整数に丸めない）。丸めは生の値 `v` から `k = round(v / step)`（正確な有理数で、偶数への丸め）を `[low/step, high/step]` に収め、`k * step`（`float` の次元は最も近い `float`、`int` の次元は `int`）とする。刻みのある次元はすべてこの値で訓練し、この値を試行の値として報告する（§11.5。Optuna の刻みの抽出値の 2 進の誤差 `0.30000000000000004` は `0.3` になる）。同じ格子の点に丸まる試行も、それぞれ評価する。`log` の次元の格子のいちばん小さい点は `step`。
+    - `step` の無い次元は今までと同じ抽出で、Optuna に `step=` を渡さない。
+  - **大きさ（H-0124 改訂 1）**: Optuna は数を `float` で抽出するので、抽出できる大きさに限る。`float` の次元は、幅 `high - low` を正確に計算した値（`float` の値そのもので計算する）が `float` の最大値（`sys.float_info.max`）以下であること（各境界が有限でも幅が有限でなければ Optuna は `OverflowError: Range exceeds valid bounds` で抽出できない）。外れれば理由 `range_not_finite`（`key` は `high`）。`int` の次元は、`low`・`high`・`step` の絶対値が `2**52`（4503599627370496）以下であること（Optuna は `int` の次元を半刻み広げた `float` で抽出し、半整数が正確なのは `2**52` まで。`2**53` からは黙って粗く探索し、さらに大きいと失敗する）。外れれば理由 `bound_too_large`（`key` は `low`・`high`・`step` の順で最初に外れたもの）。`[-8e307, 8e307]`、`[2**52 - 10, 2**52]`、`[-2**52, -2**52 + 10]` は受け付け、`[-1e308, 1e308]`、`int` の `[0, 2**52 + 1]` は拒否する。同じ規則を、公開の `Tuner.tune` は直接作った数の次元すべてに（刻みの有無によらず。§11.5）、round の受け付けの検査は round の実効空間（拡張した次元と provider の既定の空間の次元を含む）の数の次元すべてに、round の記録の前に当てる。study の系譜の decode も、この規則に外れる次元と、有限の `float` でない `min_allowed` / `max_allowed` を読まない（§11.5.3）。
+  - `choices`（`categorical` で必須）: 空でない `list` か `tuple`。文字列・`set`・dict・`range`・numpy の配列・generator は拒否する。各値は素のスカラー（`str` / `int` / `float` / `bool` / `None`。numpy のスカラーは拒否、#287）。
+  - `category`（任意、既定 `model`）: `model` / `smart` / `training`（§11.2）。
+- config の `tuning.optuna.space` は、schema の検証で空間と各次元の指定（mapping であればよい）を plain な `dict` に写す。名前の検査は `dict` からだけ `category` を読むため（H-0123）。`config/` は `tuning/` を import しないので、書式の検査は `tune` で行う。
 
 ## 11.2 SearchDim カテゴリ
 
@@ -858,7 +891,11 @@ SearchDim にカテゴリ属性を持たせ、Tuner がパラメーターの適�
 - `smart`: スマートパラメーター（`num_leaves_ratio` 等）として `resolve_smart_params()` に渡す。fit / tune で同一の dict ベース `resolve_smart_params()` を使用する（H-0050）
 - `training`: trial ごとに `EarlyStoppingConfig` / `InnerValidStrategy` を再構築する
 
+次元の指定の `category` を省くと `model`。三つ以外の値は `CONFIG_INVALID`（§11.1、H-0123）。
+
 `FloatDim` / `IntDim` は任意の `min_allowed` / `max_allowed`（既定 `None`）を持つ。パラメーターとして意味のある範囲で、境界拡張（§11.5）がこれを超えないようにする。`Model.tune` は既定の空間にも利用者の空間にも `provider.parameter_bounds(task)`（§14.4）を付ける（H-0078）。
+
+`FloatDim` / `IntDim` は最後の欄に任意の `step`（`FloatDim` は `float | None`、`IntDim` は `int | None`、既定 `None` = 刻み無し）を持つ（H-0124、§11.1）。位置引数で作る今までの呼び出しはそのまま動く。境界を付ける（`attach_bounds`）、拡張する（`expand_dims`）、系譜から読む（§11.5.3）のどれも `step` を引き継ぐ。
 
 ## 11.3 デフォルト Tuning Space
 
@@ -872,15 +909,12 @@ one parameter in the same space remain invalid.
 Set `space_mode: replace` for an explicit-only space, including an empty space.
 This is the migration path for pre-H-0102 nonempty spaces. Merge can increase
 training cost by adding default dimensions and retains the existing smart/native
-conflict refusals. Start a fresh study when changing space semantics.
+conflict refusals.
 
 Merge applies provider fixed defaults with precedence base < fixed < sampled;
-replace applies no fixed defaults. Resume retains the resolved space, bounds and
-fixed-default policy of the previous successful round. Fresh rounds use their
-new fixed policy without inheriting the previous round's fixed defaults.
-Fresh studies also start from Config model/smart parameters rather than previous
-best parameters. Resume retains its successful tuning overlay and resolved space.
-Fresh-study training conflict checks likewise exclude prior training overrides.
+replace applies no fixed defaults. Fresh studies start from Config model/smart
+parameters rather than previous best parameters, and their training conflict
+checks exclude prior training overrides.
 Admission also checks training ownership introduced by the current resolved
 space against effective native parameters and model dimensions before study
 creation, including inherited defaults and aliases.
@@ -890,6 +924,44 @@ Automatic boundary
 expansion remains enabled only for merge with an empty/omitted user space;
 partial spaces require explicit opt-in. Older saved artifacts without the mode
 retain replacement for nonempty spaces when loaded, preserving re-fit behavior.
+
+**resume の試行の基と探索空間（H-0122）。** どの round の試行も `config ⊕ fixed ⊕ その試行のサンプル値` で学習する。`fixed`（`space_mode` で決まる固定パラメーター）は、study を作ったときに study の記録（`lizyml:study`、§11.5.3）に書いたものを使い、Model のフィールドと食い違えば study の記録を正とする。resume の round は前回の最良値を試行の基に重ねない。round の探索空間は、`tune(space=...)`（§11.5.2）があればそれを study の `space_mode` で解決したもの、無ければ直前の round の記録（宣言空間と、拡張を含む実効空間）から決める。config の `tuning.optuna.space` と `space_mode` は study を作るとき（round 1）だけ読み、resume でそれらが study の記録と違えば `CONFIG_INVALID` とする。空間の変更は古い試行を消さない: 目的関数が同じなので、古い試行は観測として残り、最良値の候補であり続ける。新しい study が要るのは、§11.5.2 で受け付けない変更のときだけ。`fit` が成功した tuning の結果を使う点は変わらない。
+
+**smart の探索次元の受け付け（H-0121、[#299](https://github.com/nbx-liz/LizyML/issues/299)）。** `category: smart` の次元は smart 解決を通してしか学習に届かない。何にも読まれない次元は、サンプルされ `best_params` に記録されて、何もしない。
+
+- **宣言されていない名前**: `provider.smart_param_names()` に無い名前の `category: smart` の次元は、解決済みの空間に対して study の前に `CONFIG_INVALID` で拒否する（`validate_tuning_dimensions`）。ネイティブの LightGBM の名前なら、メッセージで `category: model` を案内する。
+- **消費者が無効な次元**: 所有者のある smart パラメーター（`provider.smart_param_owners()`、§14.4。LightGBM では `num_leaves_ratio` → `auto_num_leaves`）の次元は、所有者が「真になりえない」とき無効とする。同じ空間に所有者の名前の smart の次元があれば、その次元が取りうる値で決める（categorical の選択肢に真が 1 つも無い、または数値の範囲が 0 だけなら真になりえない）。無ければ有効な smart の値（新しい tune が `_merge_params` から受け取る config の値）で決める（偽か `None` なら真になりえない）。
+  - 利用者の空間から来た無効な次元（`replace` の空間、または `merge` で利用者が書いた次元）は、study の前に `CONFIG_INVALID` で拒否する。利用者は自分の指定が効いていないことに気づけないため。
+  - 既定の空間から来た無効な次元（`merge` で利用者が上書きしていない既定の次元。`lizyml/core/_tuning_plan.py` の `resolve_config_space` が出どころを返す）は空間から外し、外した名前を INFO のログ（`event='tune.drop_dims'`）に残す。study の探索次元にも `best_params` にも入らない。`auto_num_leaves: false` でネイティブの `num_leaves` を直接チューニングする H-0099 の案内どおりの設定は、これまでどおり動く（既定の空間の `num_leaves_ratio` が外れる）。
+- **範囲**: 消費者が無効な次元の規則（上の 2 項）は、round の宣言空間を解決するときに当てる。round 1 を始める tune（`resume=False`、storage に無い名前への `resume=True`、round の記録が無い study（状態 `"uninitialized"` / `"no_round"`、§11.5.3）への `resume=True`）では config の空間に、`space=` を渡した round（§11.5.2）ではその宣言に当てる。`space=` の無い resume の round は直前の round の宣言を引き継ぐので、当て直さない（H-0122 で、resume のたびに今の config の smart の値を読む H-0121 の条項を外した。smart の値の変更は目的関数の照合で拒否される）。`tune` は空間を解決する前に、storage があれば `optuna.get_all_study_names(storage)` で名前があるかを調べて決める（調べてから study を作るまでの間に別のプロセスが同じ名前の study を作ることは考えない。一つの study に書くプロセスは一つという前提で、ライブラリは強制しない）。H-0072 の、`resume=False` で storage の既存の study に `load_if_exists=True` で再接続する経路は H-0122 で無くなった（`resume=False` で既存の study を指すと `CONFIG_INVALID`、再接続は `resume=True`。§11.5.1）。宣言されていない名前の拒否は、範囲によらず当てる。
+
+**smart の探索次元が有効にしうる衝突（H-0121 改訂 1、[#341](https://github.com/nbx-liz/LizyML/issues/341)）。** `category: smart` の次元は試行ごとにスマートパラメーターの値を変えるので、config では無効なスマートパラメーターが試行の中で有効になり、層の名前を管理しうる（§5.3 の競合ルール）。そのまま学習すると、試行は層の名前とスマートパラメーターが書く名前の両方で学習し、LightGBM は正規名の値を採るので、利用者の値は黙って捨てられる。
+
+- **検査**: tune の各 round の受け付けの検査（`check_round_space`。新しい study でも resume の round でも、round の実効空間に対して、study に何かを書く前に走る。H-0122 の INV-R4）で、試行に重なるパラメーターの層（`model.params` と、その round の固定パラメーター `fixed`、層名 `provider default fixed params`）を、round の smart の次元が取りうる値の組み合わせのすべてに対して、`check_smart_managed_overrides` で検査する。`category: model` の次元（`validate_tuning_dimensions`）も同じ組み合わせに対して検査する（層と model の次元で規則は一つ）。有効なスマートパラメーターの値に対する検査はどちらもそのまま残る（層は `_merge_params`、model の次元は `validate_tuning_dimensions` の最初の検査）。
+- **組み合わせ**: smart の各次元の候補は、categorical なら選択肢のすべて、数値なら下限と上限に、範囲が 0 をまたぐ（下限 ≤ 0 ≤ 上限）ときは 0 を足したもの。それを状態（`None` か、偽か、真か）ごとに代表の値一つに絞り、次元の間で直積を取る（次元の数を k として 3^k 通り以下。LightGBM の既定の空間では 1 通り）。次元の無いスマートパラメーターは有効な値のまま。直積にするのは、provider の有効化の規則が複数のスマートパラメーターの組で決まる場合も覆うため。候補を絞る関数は一つで、両方の検査が使う（`lizyml/core/_smart_combinations.py`）。
+- **provider の約束**: `smart_managed_param_names(smart, task)` の結果は、各スマートパラメーターの値に、その真偽と `None` かどうかを通してだけ依る（§14.4）。代表の値一つで状態を代表できるのはこの約束による。LightGBM の provider は 3 つのタスクで実行して確かめる（`tests/test_estimators/test_smart_managed_contract.py`）。
+- **拒否**: `CONFIG_INVALID`。メッセージは名前、それを管理するスマートパラメーター、名前の来た層、そのスマートパラメーターを有効にする探索次元とその値、その空間（`tuning.optuna.space` か `tune(space=)`）を挙げる。context の `managed` の各要素に `smart_dimensions` と `space_surface` を足す。
+- **例**: config が `auto_num_leaves: false` で `model.params.max_leaves: 12`、空間に `auto_num_leaves`（categorical `[True]`、`category: smart`）→ 拒否。config が `min_data_in_leaf_ratio: null` で `model.params.min_child_samples: 3`、既定の空間（`min_data_in_leaf_ratio` の次元を持つ）→ 拒否。選択肢が `[False]` だけの `auto_num_leaves` の次元は何も有効にしないので受け付ける。
+
+**smart の探索次元が取る値（H-0121 改訂 2、[#347](https://github.com/nbx-liz/LizyML/issues/347)）。** `category: smart` の次元の値は、そのまま試行のスマートパラメーターになり、スマート解決（と上の受け付けの検査）はそれを真偽と `None` で読む。config の項目（`LGBMConfig`）は型と範囲を検査するが、探索次元の値はそれまでどこでも検査されず、`auto_num_leaves` の選択肢 `["false"]` は真として訓練され、0 以下の比率は黙って別の値になっていた。
+
+- **値の規則**（provider がスマートパラメーターごとに一度だけ宣言する。`provider.smart_value_rules()`、§14.4）。次元の取りうる値のすべて（数の次元は `low` と `high`、categorical は選択肢のすべて）が満たすこと。型は厳密に判定する: 真偽は `type(v) is bool`、数は `type(v) is int` か `type(v) is float`（`bool`、numpy のスカラー、`Decimal`、文字列は数でない）。NaN と無限大は範囲の比較で外れる。
+
+  | スマートパラメーター | 次元 | 値 |
+  |---|---|---|
+  | `auto_num_leaves` | categorical のみ | `True` / `False` |
+  | `balanced` | categorical のみ | `True` / `False` / `None`。regression では `True` を含めない（理由 `smart_value_unsupported_task`。`None` は regression で無効の意味なので受け付ける） |
+  | `num_leaves_ratio` | 数、categorical | 数で `0 < v <= 1`。`None` は拒否 |
+  | `min_data_in_leaf_ratio` / `min_data_in_bin_ratio` | 数、categorical | 数で `0 < v < 1`。categorical はそれに加えて `None`（その母数を解決しない） |
+  | `feature_weights` | なし | 探索次元にできない（値が dict で、選択肢は素の値に限られる） |
+
+  比率の範囲は config の検査（`LGBMConfig._validate_smart_params`）と同じ宣言（`lizyml/config/schema.py` の `SMART_RATIO_RANGES`）から読み、二重にしない（DC3）。
+- **拒否**: `CONFIG_INVALID`、context に `surface`（`tuning.optuna.space` か `tune(space=)`）・`dim`・`key`（数の次元は `low` / `high`、categorical は `choices`）・`value`（規則に外れた最初の値）・`reason`（`smart_value_invalid`、regression の `balanced=True` は `smart_value_unsupported_task`）。真偽のスマートパラメーターの数の次元と `feature_weights` の数の次元は、`key` を `low`、`value` をその `low` として報告する。
+- **位置**: round の受け付けの検査（`check_round_space` が呼ぶ `validate_tuning_dimensions`）で、round の実効空間のすべての `category: smart` の次元に当てる。config の空間、`tune(space=...)`、provider の既定の空間、拡張した次元のどれにも、study と round を書く前に当たる（H-0122 の INV-R4）。round の宣言空間を解決するとき（`admit_smart`、上の H-0121 の所有者の規則）にも、所有者の規則が値を真偽で読む前に当てる（`[0]` は「真になりえない所有者」ではなく型で拒否される）。
+- **拡張の上限**: provider の `num_leaves_ratio` の拡張の上限は 1.0（config の範囲の上端。下限 0.1）。既定の空間の `num_leaves_ratio`（`0.5..1.0`）が上端で最良になっても拡張は 1.0 で止まり、その次元の報告は `expanded=False`・`clamped_to_bound=True`（§11.5）。v0.18.0 までは 2.0 まで広がり、1.0 を越える値が最良値、`fit`、export に流れた。
+- **tune の結果**: `restore_tuning`（§11.5.5）と `Model.load`（§4.2）は、記録された `best_smart_params` を同じ規則で検査する。
+
+**目的関数と指標の値の検査（H-0125、[#307](https://github.com/nbx-liz/LizyML/issues/307)、[#313](https://github.com/nbx-liz/LizyML/issues/313)）。** tune は、round の受け付けの検査（`check_round_space`。新しい study でも resume の round でも、study を作る・再接続して何かを書く前。H-0122 の INV-R4）で、試行が受け取る目的関数と指標の値を fit と同じ規則（`check_objective_compatible`、`resolve_user_metric`。LightGBM のどの綴りでも）で検査し、外れれば `CONFIG_INVALID` で拒否する（storage を渡しても study は作られない）: (a) 固定の層は `model.params` に round の固定パラメーター `fixed` を重ねた値（fit が merge した値を検査するのと同じ規則）から、round の `category: model` の次元が設定するパラメーターを除いたもの（その次元のサンプル値が試行ごとに上書きするので、層の値はどの booster にも届かない。merge の空間で既定の `objective` の次元が上書きする `model.params` の目的関数は拒否しない）。(b) round の実効空間の `category: model` の次元で正規名が `objective` / `metric` のものは、カテゴリの次元でなければ（`float` / `int`）それだけで拒否し（理由 `not_categorical`、context に `kind`。値は名前なので数の範囲から抽出した値は受理されない）、カテゴリの次元なら全ての選択肢を検査する（context に `surface`・`dim`・`key` `choices`・`value` と規則自身の context。binary の `cross_entropy_lambda` は `not_a_probability`）。config の空間、`tune(space=...)`、provider の既定の空間、resume の round の空間のどれから来た次元にも当たる。それまでは不正な値が各試行の adapter で `CONFIG_INVALID` になり、tuner が試行の失敗として記録していた（全試行なら `TUNING_FAILED`、一部の選択肢なら黙って落ちる）。保存した study の試行の値は検査しない（範囲外）。
 
 ### 探索次元
 
@@ -901,7 +973,7 @@ retain replacement for nonempty spaces when loaded, preserving re-fit behavior.
 | `max_depth` | int | `[3, 12]` | model |
 | `feature_fraction` | float | `[0.5, 1.0]` | model |
 | `bagging_fraction` | float | `[0.5, 1.0]` | model |
-| `num_leaves_ratio` | float | `[0.5, 1.0]` | smart |
+| `num_leaves_ratio` | float | `[0.5, 1.0]` | smart（`auto_num_leaves` が真になりえない宣言空間では外す、H-0121） |
 | `min_data_in_leaf_ratio` | float | `[0.01, 0.2]` | smart |
 | `early_stopping_rounds` | int | `[40, 240]` | training |
 | `validation_ratio` | float | `[0.1, 0.3]` | training |
@@ -941,14 +1013,14 @@ retain replacement for nonempty spaces when loaded, preserving re-fit behavior.
 
 | フィールド | 型 | 説明 |
 |---|---|---|
-| `current_trial` | `int` | 現在の trial 番号（1-indexed） |
-| `total_trials` | `int` | 全 trial 数 |
+| `current_trial` | `int` | この round の何番目の試行か（1-indexed）。新しい round は 1 から数える。途中で落ちた round を再開したときは続きから数える（その round で既に K 件終わっていれば K+1 から。storage の有無に依らない。H-0122） |
+| `total_trials` | `int` | この round で要求した `n_trials`（途中の round の再開では記録した値） |
 | `elapsed_seconds` | `float` | 経過時間（秒） |
 | `best_score` | `float \| None` | これまでの最良スコア（complete trial なしの場合 `None`） |
 | `latest_score` | `float \| None` | 直近 trial のスコア（fail/pruned の場合 `None`） |
 | `latest_state` | `str` | `"complete"` / `"pruned"` / `"fail"` |
 | `round` | `int` | 現在のラウンド番号（1-indexed）。H-0068 で追加 |
-| `cumulative_trials` | `int` | 全ラウンド通算の試行数。H-0068 で追加 |
+| `cumulative_trials` | `int` | study 全体の試行数（`trial.number + 1`）。H-0068 で追加 |
 | `expanded_dims` | `tuple[str, ...]` | このラウンドで拡張された次元名。H-0068 で追加 |
 
 ### TuneProgressCallback
@@ -975,18 +1047,28 @@ result = model.tune(progress_callback=on_progress)
 - Optuna の `study.optimize(callbacks=[...])` を活用し、各 trial 完了時に通知する。
 - `TuneProgressInfo` と `TuneProgressCallback` は `lizyml/__init__.py` の公開面に含める。
 
-## 11.5 Re-tune: Study Resume + 境界検知拡張（H-0068）
+## 11.5 Re-tune: Study Resume + 境界検知拡張（H-0068、H-0122）
 
-初回 tuning 後に追加探索を行い、さらなる精度向上を目指す。
+初回 tuning 後に追加探索を行い、さらなる精度向上を目指す。一回の `tune()` 呼び出しで足す試行のまとまりを round と呼ぶ。
+
+`tune(resume=True)` の目的は二つで、どちらも目的関数を変えない（H-0122）:
+
+- 探索範囲を変えて、さらに良い解を探す。範囲を変えるのは利用者か外部のアルゴリズム（`space=`、§11.5.2）と、自動の境界拡張（下の規則）。
+- 障害のあとで再開する。永続 storage の study に `resume=True` で再接続し、落ちた時点から続ける（§11.5.1、§11.5.3）。
+
+不変条件: 一つの study の試行は、すべて同じ目的関数の観測である。目的関数の同一性を照合できない study には試行を足さない（§11.5.3）。採用する最良値は study 全体の最良の試行で、その試行のパラメーターで `fit` すると、その試行と同じ学習になる（`config ⊕ fixed ⊕ その試行のサンプル値`、§11.3）。拒否は試行の追加と study の属性の書き込みより前に行い、study と Model の状態を変えない。
+
+resume の round は前回の最良値を評価し直さない（前回の最良値を study に予約して round の最初に学習し直す H-0068 の規則をやめ、enqueue しない）。最良の試行は study に COMPLETE の観測として残り、TPE は既にそれを使っているため。resume の各 round は、要求した `n_trials` の数だけ TPE でサンプルした点を評価する。
 
 ### Model.tune() の拡張パラメーター
 
 | パラメーター | デフォルト | 説明 |
 |---|---|---|
-| `resume` | `False` | `True`: 前回 Study を再利用して追加試行 |
-| `n_trials` | `None` | 追加試行数（`None` → config 値） |
-| `expand_boundary` | `None` | 境界拡張。`None`: デフォルト空間→`True`、ユーザー空間→`False` |
-| `boundary_threshold` | `0.05` | 端判定閾値（0.0〜1.0） |
+| `resume` | `False` | `True`: study に round を足す。Model が持つ study、持たなければ `storage` / `study_name` の study（再接続。無ければ作る）。途中で落ちた round はその round を終える（§11.5.3） |
+| `n_trials` | `None` | 追加試行数（`None` → config 値）。途中の round の再開では記録した値だけを受け付ける |
+| `expand_boundary` | `None` | 境界拡張。`None`: round の宣言空間に H-0102 の規則を当てる（`merge` で利用者の次元が無いとき→`True`、それ以外→`False`）。途中の round の再開では記録した値だけを受け付ける |
+| `boundary_threshold` | `0.05` | 端判定閾値。開区間 (0.0, 0.5)。範囲の端からこの割合の内側に最良値があると広げる。外の値は study の前に `CONFIG_INVALID`（`core/_tuning_admission.py`） |
+| `space` | `None` | この round の探索空間（`tuning.optuna.space` と同じ形式）。round 2 以降だけ。`None`: 直前の round の空間（§11.5.2） |
 
 ### 境界検知ルール
 
@@ -1000,8 +1082,12 @@ result = model.tune(progress_callback=on_progress)
 - log: 端方向に対数空間で 3 倍に拡張
 - `IntDim`: `max(1, new_low)` で下限ガード
 - 拡張後の `new_low` / `new_high` は次元の `min_allowed` / `max_allowed`（§11.2）でクランプする。クランプが効いたら `BoundaryDimStatus.clamped_to_bound` を `True` にする（H-0078）
-- 範囲を変えない拡張は拡張ではない: クランプ（`min_allowed` / `max_allowed`、linear の `0.0` 下限、`IntDim` の `max(1, ...)`）と `IntDim` の丸めのあとで `(new_low, new_high)` が元の `(low, high)` と等しい次元は、端に近くても `expanded=False`・`new_low` / `new_high` は `None` とし、`expanded_names` にも `RoundSummary.expanded_dims` にも入れない。`clamped_to_bound` は `min_allowed` / `max_allowed` のクランプが効いたときだけ `True` で、再判定のあとも `True` のまま残る（linear の `0.0` 下限と `IntDim` の `max(1, ...)` は `clamped_to_bound` を立てないので `False` のまま）。`IntDim` の拡張と比較は整数で計算する（`2**53` を超える値でも隣の整数と混ざらない）。端の検出（位置の計算）は H-0068 のとおり float で行うので、`2**53` を超える `IntDim` の範囲では端を見落としうる（H-0111 の bound）。毎ラウンド同じ空の拡張を報告し続けないため（H-0078 項目 4、H-0111）
+- 範囲を変えない拡張は拡張ではない: クランプ（`min_allowed` / `max_allowed`、linear の `0.0` 下限、`IntDim` の `max(1, ...)`）と `IntDim` の丸めのあとで `(new_low, new_high)` が元の `(low, high)` と等しい次元は、端に近くても `expanded=False`・`new_low` / `new_high` は `None` とし、`expanded_names` にも `RoundSummary.expanded_dims` にも入れない。`clamped_to_bound` は `min_allowed` / `max_allowed` のクランプが効いたときだけ `True` で、再判定のあとも `True` のまま残る（linear の `0.0` 下限と `IntDim` の `max(1, ...)` は `clamped_to_bound` を立てないので `False` のまま）。`IntDim` の拡張と比較は整数で計算する。端の検出（位置の計算）は H-0068 のとおり float で行う（§11.1 の大きさの規則で `IntDim` の値は `2**52` 以下なので、float でも正確）。毎ラウンド同じ空の拡張を報告し続けないため（H-0078 項目 4、H-0111）
 - 反対側の端は据え置き
+- 拡張は範囲を狭めも反転もしない（[#342](https://github.com/nbx-liz/LizyML/issues/342)）: クランプ（`min_allowed` / `max_allowed`、linear の `0.0` 下限、`IntDim` の `max(1, ...)`）は、拡張で外へ動いた端だけに、元の端まで当てる。端を元の範囲の内側へは動かさない。利用者が provider の境界の外に宣言した範囲（§11.5.2、たとえば `min_allowed` が 10 の `n_estimators` に `[3, 5]`）で、最良値が外側の端にあっても、範囲は変わらず、上の規則で `expanded=False` と報告する（境界が外への移動を止めたので `clamped_to_bound=True`）。`IntDim` の `max(1, ...)` も、元の下限が 1 未満の次元（`max_depth` の `-1`、`bagging_freq` の `0`）の下限を動かさない
+- 刻みのある次元（H-0124）: 上の計算を正確な有理数で行ったあと、新しい端を外向きに格子へ寄せる（下端は `step` の倍数への切り下げ、上端は切り上げ）。`min_allowed` / `max_allowed` に当てた端が格子の外なら内向きに寄せる。どちらも元の端より内側にはしない（#342）。寄せた端が元の端と同じなら拡張しなかったものとして扱う。`log` の下端は `step` より下に広げない（今の下端が `step` なら下へは拡張しない）。例: `float` の `log` `[0.02, 0.1]` step 0.01 の下端は 0.02/3 → 切り下げて 0 → `step` で止めて 0.01。上限 1.0 の線形 `[0.15, 0.6]` step 0.15 の上端は 1.05 → 1.0 → 内向きに 0.9。拡張した次元は `step` を持ったまま round の記録に書き、記録の前に §11.1 の格子と大きさの検査を通す（外れれば書き込みの前に `CONFIG_INVALID`、理由 `bound_off_grid` か `range_not_finite` / `bound_too_large`）
+- **大きさの上限を越える拡張はしない（H-0124 改訂 1）**: 刻みの有無によらず、動かす端ごとに、上の規則（正確な計算、格子への寄せ、下限、`min_allowed` / `max_allowed` のクランプと内向きの寄せ）で出した新しい端を次元の型の値 `x`（`float` の次元は最も近い `float`、`int` の次元はその整数）にし、次をすべて満たすときだけ `x` に広げる: `float` の次元では `x` が有限で、動かない側の端との幅（正確な計算）が `float` の最大値以下、`int` の次元では `x` の絶対値が `2**52` 以下。刻みがあれば `x` が §11.1 の読み方（`Fraction(Decimal(str(x)))`）で格子の点（`float` の間隔が刻みより粗い大きさでは、格子の点を `float` にすると格子から外れうる）。`log` の次元では `x > 0`（`[5e-324, 1e-323]` の下端は 3 で割ると 0.0 になる）。上下限に当ててから大きさを確かめる（上限 5e307 の線形 `[-1e308, 0]` の上端は 5e307 に広がり、上限 9e307 なら幅 1.9e308 が上限を越えるので広げない）。上限まで寄せて止めることはしない。満たさない端は広げず、その次元の `BoundaryDimStatus` は `expanded=False`、`new_low` / `new_high` は `None`、`clamped_to_bound=False`（上下限に当てた候補でも、広げなければ「上下限に達した」とはしない）、`expanded_names` に入らず、`expand_dims` は次元を元のまま返す（`edge` と `position_pct` は検出のとおり）。新しい端が元の端と同じになる場合は、この規則ではなく上の「範囲を変えない拡張」の規則で報告する（`min_allowed` / `max_allowed` が止めたなら `clamped_to_bound=True` のまま）。こうして広げた次元は §11.1 の格子と大きさの規則を満たし、次の round の端の検出は常に有限になる
+- 拡張しない次元（H-0122）: この round で宣言が変わった次元と新しい次元（§11.5.2。利用者の宣言を優先する）、前回の最良値が今の範囲の外にある次元。どちらも `boundary_table` に `expanded=False` で出る。「前回の最良値」は study の全試行のうち最良の COMPLETE の試行の値で、Model が持つ tuning の結果ではない（再接続した Model には無く、`Model.load` のあとでは別の study の結果でありうる）。study に COMPLETE の試行が無ければ（直前の round が `failed`）、拡張しない
 
 ### RoundSummary / BoundaryReport
 
@@ -1038,19 +1124,33 @@ class BoundaryReport:
 
 ```python
 # 追加フィールド
-rounds: tuple[RoundSummary, ...]        # デフォルト: (RoundSummary(round=1, ...),)
-boundary_report: BoundaryReport | None  # resume 時のみ設定
+rounds: tuple[RoundSummary, ...]        # completed で閉じた round ごとに 1 要素（round の順）
+boundary_report: BoundaryReport | None  # この round の境界の分析（下）
 ```
+
+- `rounds`: study の round のうち `completed` で閉じたものの要約。`failed` で閉じた round（その round の試行に COMPLETE が一つも無いまま終わった round。H-0128）は入らない（`RoundSummary` は最良値を数値で持つため）。round の番号はそのまま続くので、`rounds` が round 2 から始まり、あるいは途中の番号が抜けることがある。`failed` の round の次の round の `best_score_before` は study の最良値で、study にまだ COMPLETE の試行が無いときだけ `None`。`RoundSummary.n_trials` はその round の試行の実際の数（`timeout` で要求数より少なくなりうる）。途中から再開した round の要約と `boundary_report` は、その round の記録（始めたときの判断）から作る。
+- `boundary_report`: この round が境界を分析したとき（round 2 以降で `expand_boundary` が真に解決され、study に COMPLETE の試行があるとき）に設定し、それ以外は `None`。`restore_tuning` は最後の round のものを返す。
 
 ### TrialResult 拡張
 
 ```python
-round: int  # 追加: どのラウンドの試行か (1-indexed)。デフォルト 1
+round: int  # どの round の試行か (1-indexed)。試行の番号と study の round の記録から決まる
 ```
+
+round k の試行は、round k の記録の「開始時の試行数」以上で、round k+1 の記録の「開始時の試行数」未満の番号を持つもの（最後の round は上限なし）。`failed` の round の試行も、その round の番号で `trials` に残る。
+
+### 刻みのある次元の試行の値（H-0124）
+
+刻みのある次元の試行の値は、Optuna が記録した生の値ではなく、その試行が訓練に使った格子の点（§11.1 の丸め）。丸めた値は保存せず、一つの純粋な関数（`recorded_params`）が、試行の生の値と、その試行が属する round（試行の番号で決まる。上の `TrialResult.round`）の実効空間の次元から決める。刻みの無い次元の値は生の値のまま。
+
+- この値を読む位置: 目的関数の中で訓練に渡す値、tune の最良値（`best_*_params`。`fit` の上書きと export される値もここから）、`restore_tuning`、次の round の計画（`outside_range` と `BoundaryDimStatus.best_value`）、`TrialResult.params` と `tuning_table`（`int` の `log` の次元も `int` で見える）。
+- study の最良の試行は前の round の試行のことがある。その値は、その試行の round の刻みで決まる（今の round の刻みではない）。round 1 が step 0.2、round 2 が step 0.25 の study で、round 1 の生の値 0.41 の最良は 0.4 のまま。
+- 生の値を読むのは、名前だけを見る位置（系譜の経路の検査）、Optuna 自身、公開の `Tuner.tune`（下の制約）。
+- 系譜の検査は、各試行の値の名前がその試行の round の実効空間の次元にあることを確かめ、外れる study を `"inconsistent"` とする（§11.5.3）。こうして値を決める関数は、試行のどの名前にもその round の次元を見つける。
 
 ### tuning_table() 拡張
 
-`round` 列と `state` 列を追加。
+`round` 列と `state` 列を追加。`round` 列は各試行の `TrialResult.round`。
 
 ### boundary_table() 新設
 
@@ -1058,8 +1158,8 @@ round: int  # 追加: どのラウンドの試行か (1-indexed)。デフォル�
 
 ### plot_tuning_history() 拡張
 
-- ラウンド境界に縦の破線
-- ラウンドごとのアノテーション（拡張次元名）
+- ラウンド境界に縦の破線。境界は試行の round（`TrialResult.round`）の変わり目から求める（`RoundSummary.n_trials` の積み上げではない。`failed` の round は `rounds` に入らず、`timeout` で区切った round と途中から再開した round は要求数と実際の数が違うため。H-0122）
+- ラウンドごとのアノテーション（拡張次元名）。要約の無い round（`failed`）は番号だけ
 - best score 累積線はラウンドをまたいで連続
 
 ### Widget / Studio 連携
@@ -1075,9 +1175,12 @@ LizyML Core は callback + 結果型でデータを提供し、Widget/Studio が
 
 ### 制約
 
-- `resume=False` は現在と同一動作（完全後方互換）
-- `resume=True` で未 tune → `LizyMLError(TUNING_FAILED)`
-- Tuner は study オブジェクトの受け取り・返却に対応する。study の永続化（disk-backed storage）は §11.5.1 で扱う。
+- `resume=False` は新しい study を作り、round を 1 から数える（前の study の round を積み増さない）。storage に同じ名前の study が既にあれば `CONFIG_INVALID`（§11.5.1）。
+- `resume=True` で、Model が study を持たず `storage` も無い → `LizyMLError(TUNING_FAILED)`（`Model.load` のあとも同じ。study の中身は artifact に保存しない）。
+- `Tuner` は study の作成・読み込み・最適化と、`lizyml:` 属性の書き込みだけを行う。`resume` の意味、目的関数の同一性、系譜の中身は `Model.tune` 側が決める（§5 の責務分離）。
+- 公開の `Tuner.tune`（利用者の目的関数を受け取る。H-0124）は、`log` の次元に `step` があれば（`int` の `step` 1 も含めて）study を作る前に `CONFIG_INVALID` で拒否する。利用者が直接作った `FloatDim` / `IntDim` の `step` も、study を作る前に §11.1 の `step` と格子の検査（`parse_space` と同じ関数）を通す。直接作った数の次元はすべて（刻みの無い次元も）、study を作る前に §11.1 の大きさの規則を通す（H-0124 改訂 1。数の表記の文字列の `low` / `high` / `step` は刻みの有無によらず `bound_not_a_number` で拒否する — 数として読むのは config と `space=` の mapping だけ。無限大の境界は `bound_not_finite`。それ以外の数でない値と NaN は今までどおり Optuna に渡す）。`suggest_*` を呼ぶのは利用者の目的関数で LizyML は丸めを挟めず、`Tuner.tune` は系譜を書かないので過去の試行の round の次元も分からないため。結果は今までどおり試行が記録した生の値で、目的関数が評価した値そのもの。拒否は `Tuner.__init__` ではなく `Tuner.tune` に置く（`Model.tune` は同じ次元で `Tuner` を作り、`Tuner.run` だけを呼ぶ）。
+- 直接の `Tuner`（`lizyml.tuning.Tuner`）は母数の値を検査しない（H-0125）。task も provider も受け取らない汎用の探索器で、試行の値の意味は呼び出し側の目的関数が決めるため、どの次元が LightGBM の目的関数・指標かを知らない。値の検査は呼び出し側の目的関数の責務で、その中の `CONFIG_INVALID` は試行の失敗として記録される。目的関数と指標の値を study の前に検査するのは `Model.tune` の計画の段（§11.3）だけである。task を受け取る検査を `Tuner` に足すことは公開 API の追加なので行っていない。
+- artifact（`Model.export` / `Model.load`）の形式と `format_version` は H-0122 で変えない。
 
 ## 11.5.1 Persistent Storage（H-0072）
 
@@ -1088,21 +1191,35 @@ LizyML Core は callback + 結果型でデータを提供し、Widget/Studio が
 | パラメーター | デフォルト | 説明 |
 |---|---|---|
 | `storage` | `None` | Optuna storage URL（`sqlite:///path/to.db` 等）または `BaseStorage` インスタンス。`None` で in-memory（従来挙動） |
-| `study_name` | `None` | Study 識別子。`storage` 指定時は必須（fail fast） |
+| `study_name` | `None` | Study 識別子。`storage` と一緒にだけ使う（片方だけは fail fast） |
 
-`storage=None` で完全後方互換（disk IO ゼロ）。`storage` 指定時は `optuna.create_study(..., storage=..., study_name=..., load_if_exists=True)` で idempotent に再アタッチする。
+`storage=None` は in-memory（disk IO ゼロ）。`storage` を指定すると、`Model.tune` は storage にその名前の study があるかを先に調べ、無ければ新しく作り（既存の study に黙って再接続しない）、あれば読む。試行は完了するたびに backend に追記され、LizyML の記録（§11.5.3）も study の属性として同じ backend に書かれる。
 
-### resume との関係
+### resume との関係（H-0122）
 
-- `Model.tune(resume=False, storage=...)`: 同一 process 内で初回呼び出し時、`load_if_exists=True` により journal に既存 study があれば再アタッチ（crash recovery）。journal に該当 study が無ければ新規作成
-- `Model.tune(resume=True, ...)`: 既存の `Model._study` を再利用（in-memory / disk-backed どちらでも動作）
-- `storage` を指定し続ける限り、各 trial 完了直後に backend に追記される
+まず、`resume` に依らず次の二つを検査する（どちらも `CONFIG_INVALID`）: `storage` があって `study_name` が無い。`study_name` があって `storage` が無い。そのうえで:
+
+| `resume` | Model の study | `storage` / `study_name` | storage にその study | 挙動 |
+|---|---|---|---|---|
+| `False` | 問わない | なし | — | 新しい study（メモリ）。round 1 から |
+| `False` | 問わない | あり | 無い | 新しい study（storage）。round 1 から |
+| `False` | 問わない | あり | ある | `CONFIG_INVALID`（続けるなら `resume=True`、新しく始めるなら別の `study_name`） |
+| `True` | ある | なし、またはその study と同じもの | — | 継続 |
+| `True` | ある | その study と同じと示せないもの | — | `CONFIG_INVALID` |
+| `True` | 無い | あり | ある | 再接続。保存した系譜と実効空間を復元し、study の状態（§11.5.3）に従って続ける |
+| `True` | 無い | あり | 無い | 新しい study（storage）を作り、round 1 から始める。作ったことを INFO のログ（`event='tune.study_created'`）に出す。`space=` を渡したら `CONFIG_INVALID` |
+| `True` | 無い | なし | — | `TUNING_FAILED` |
+
+- 「その study と同じ」: Model は、study を作った・読んだときの `storage` と `study_name` を覚えておく。`study_name` が等しく、かつ `storage` が等しい（URL の文字列なら文字列として等しい、`BaseStorage` なら同じオブジェクト）ときだけ同じとする。同じ backend を指す別の表現は同じと示せないので拒否する。
+- 落ちたあとの再開は、同じスクリプトを `resume=True` で流し直せばよい: study が storage に無ければ作り、あれば続ける。
+- 同じプロセスで round が例外で止まったあとの `resume=True` も、その study が Model に載っているか storage にあれば、同じ規則（§11.5.3 の状態）で扱う。storage を使わない最初の tune が失敗したときは、作りかけのメモリ上の study を捨てる（Model の状態を変えないため）。
+- 一つの study に試行を足すプロセスは一つとする。利用者に求める前提で、ライブラリは強制しない。
 
 ### 制約
 
-- `storage is not None and study_name is None` → `LizyMLError(CONFIG_INVALID)`
-- `RoundSummary` / `BoundaryReport` 等のラウンドメタは journal には保存されない（trial 単位 resume のみが対象）。round 履歴の永続化は別 Proposal で扱う。
-- H-0099: supplied and persisted studies must match the resolved objective direction. Reject mismatches with `CONFIG_INVALID` before enqueue or optimization; use a new study name instead of relabeling an existing study.
+- `storage is not None and study_name is None` → `LizyMLError(CONFIG_INVALID)`。`study_name` だけを渡しても `CONFIG_INVALID`（黙って無視しない）
+- round の系譜（`RoundSummary`、`BoundaryReport`、各 round の空間と予算）は study の属性に保存し、再接続で続ける（§11.5.3）。再接続のあとも round の番号は続く。
+- H-0099: supplied and persisted studies must match the resolved objective direction. Reject mismatches with `CONFIG_INVALID` before optimization; use a new study name instead of relabeling an existing study.
 
 ### Objective direction (H-0099)
 
@@ -1113,6 +1230,135 @@ directions must agree or fail with `CONFIG_INVALID` before creating a study.
 Null remains automatic through Config dump/load; exported Result directions
 are always the resolved `minimize` or `maximize`. Historical configs containing
 contradictory explicit directions require migration; old explicitness is not guessed.
+
+## 11.5.2 `space=` で探索空間を変える（H-0122）
+
+範囲を変える経路は `tune(..., space=...)` の引数とする。config は「study を作ったときの宣言」に固定され、round ごとの変更は引数と study の系譜に残る（再接続で config から `Model` を作り直しても、変えた範囲が失われない）。
+
+- `space=` は `tuning.optuna.space` と同じ形式の dict で、その round の宣言として study の `space_mode` で解決する。書式の外の指定（§11.1 の探索空間の書式。dict でない、名前が `str` でない、未知のカテゴリー、`low` / `high` の欠けなど）は `CONFIG_INVALID`。
+- round 2 以降だけに渡せる。round 1 を始める呼び出し（`resume=False`、storage に無い study への `resume=True`、状態 `"uninitialized"` / `"no_round"` の study）に渡すと `CONFIG_INVALID` で、study は作らない。study の最初の空間は config の `tuning.optuna.space`。
+- resume で config の `tuning.optuna.space` が study を作ったときの宣言と違えば `CONFIG_INVALID`（「範囲を変えるなら `space=`」。黙って無視しない）。`space_mode` は resume で変えられない（固定パラメーターが変わり、目的関数が変わるため）。
+
+**宣言空間**（その round で宣言した空間を解決したもの。provider の境界は付けない）:
+
+- `space=` があれば、それを解決したもの。無ければ直前の round の宣言空間。
+- `merge`: provider の既定の次元に `space=` の次元を重ねる。`space=` に無い既定の次元は既定の宣言になる（config で利用者が上書きした既定の次元でも、`space=` に無ければ既定の宣言に戻る）。config で利用者だけが宣言した次元（provider の既定に無いもの）は、`space=` に無ければ探索から外れ、以後の試行は config の値で学習する。
+- `replace`: `space=` の次元だけ。`space=` に無い次元は外れる。
+- model の次元の alias は正規名と同じ次元として扱う（経路は一つで、拡張を引き継ぐ）。
+
+**次元ごとの比較**（直前の round の宣言と比べる）:
+
+- 宣言が同じ次元: 直前の round の実効の範囲（拡張を含む）を引き継ぐ。
+- 宣言が変わった次元、新しい次元: 新しい宣言の範囲を使い、その次元のこれまでの拡張は捨てる。この round では拡張しない。
+- 宣言から消えた次元: 探索から外す。以後の試行は config の値で学習する。
+
+**同じ study で受け付けない変更**（study を変える前に `CONFIG_INVALID`。「新しい study で」）:
+
+- 同じ名前の次元の、分布の種類（`float` / `int` / `categorical`）、`log` の有無、categorical の選択肢。選択肢は並びと、各値の型と値で比べる（NaN どうしは等しい。`True` と `1`、`1` と `1.0` は違う）。比べる相手は、これまでのすべての round の次元（外した次元を戻す場合も）。Optuna の拒否は試行の途中で FAIL の試行を書いてしまうので、LizyML が先に比べる。
+- 次元のカテゴリー（`model` / `smart` / `training`）の変更。次元の経路（正規名とカテゴリーの対応）は足すだけで、外した次元の経路も残る（古い試行の値を回すため）。
+- `int` の `log` の次元の「`step > 1` かどうか」（H-0124。`step` が無いか 1 なら Optuna の `IntDistribution(log=True)`、1 より大きければ `FloatDistribution(log=True)` で、分布の種類が変わるため）。context の `changed` は `step`。
+- 範囲（`low` / `high`）の変更は受け付ける。それ以外の `step` の変更（`log` でない次元の刻み、`float` の `log` の次元の刻み、`step` を足すことと外すこと。どれも上の `int` の `log` の例外を除く）も受け付ける。格子の原点は 0 で、各試行の値はその試行の round の刻みで決まる（§11.5 の試行の値）。
+
+**受け付けの検査**: 新しい tune と同じ検査（H-0093、H-0099、H-0102、H-0121）を、この round の宣言空間に当てる。`space=` の次元は利用者の宣言として扱う（未知の名前、同じパラメーターの二重の宣言、training の所有の衝突は `CONFIG_INVALID`）。provider の境界は拡張だけを縛り、`space=` の範囲は検査もクランプもしない（H-0111）。
+
+**最良値の経路**: 最良の試行のパラメーターは、今の次元ではなく系譜の経路で model / smart / training に分ける。外した次元を持つ試行が最良なら、`fit` はその試行の値を使う（外した smart の次元は smart として渡り、LightGBM の params には入らない）。
+
+## 11.5.3 study の記録と状態（H-0122）
+
+### 目的関数の同一性と照合
+
+study を作るとき、目的関数の同一性を study の属性に書く（メモリ上の study にも書く）。`resume=True` と `restore_tuning` のたびに、今の呼び出しから同一性を計算して照合し、違えば `CONFIG_INVALID`（context に違う要素の名前）。照合は保守的な互換性とし、目的関数を変えうる入力を広めに含める（無害な変更も拒否するが、黙って間違うことはない）。
+
+- 含める: データ（tune が実際に使う DataFrame の列名と順序、dtype、categorical の categories とその順序と `ordered`、値と行の順序。index、型の違う同じ表記の値も区別する。`data.path` は文字列ではなく読んだ中身を要約する。除外する列も含める）、config の探索空間以外（task、data と特徴量の設定、`model` の全体（探索している次元の値も含む）、実効の固定パラメーター `fixed`、provider の既定パラメーター、training の全体、split の全体）、最初の評価指標とそこから導いた最適化の向き。
+- 含めない: 探索空間（`space_mode` が変える `fixed` は含める）、`n_trials`、timeout、sampler、`progress_callback`、`expand_boundary`、`boundary_threshold`、二つ目以降の評価指標、calibration、export・出力の設定、`storage`、`study_name`、時刻。
+- ライブラリの版（LizyML、LightGBM、Optuna、pandas、scikit-learn）は同一性と別に記録し、違えば警告だけを出して続ける。版の更新で同一性に入る値そのもの（provider が決める `fixed` や既定パラメーター）が変われば、目的関数の変更として `CONFIG_INVALID`。
+- 向きの照合（H-0099）はそのまま残り、目的関数の照合と同じく試行を足す前に行う。
+
+### study の属性
+
+キーは `lizyml:` で始める。一緒に書くべきものは一つのキーの値にまとめ、書き込みの途中で落ちても読み手が判断できるようにする。
+
+- `lizyml:study`: study を作ったときに一度だけ書く。形式の版（`schema`。読めない版なら `CONFIG_INVALID`）、同一性の要約と要素ごとの要約、ライブラリの版、`space_mode`、`fixed`、study を作ったときの config の探索空間。
+- `lizyml:round:<k>`: round k の準備がすべて済んでから、試行を足す前に一度だけ書く。宣言の元の形（`space=`、無ければ「直前の宣言のまま」）と次元ごとの出どころ（利用者 / 既定）、宣言空間、実効空間、拡張と `BoundaryReport` の全体、解決した `expand_boundary`、予算（`n_trials`、`timeout`）、開始時の試行数と最良値、その round で増えた次元の経路。次元の記録は `step` を持つ（無ければ `null`。H-0124、形式の版は 1 のまま）。`step` の無い次元の記録は刻み無しと読み、知らないキーを持つ次元の記録（数の次元でもカテゴリの次元でも）は読めず、その study は `"inconsistent"`（下の表）。記録された次元が §11.1 の大きさの規則に外れるか、記録された `min_allowed` / `max_allowed` が有限の `float` でない（巨大な `int`、NaN、無限大）ときも、その記録は読めない（`lizyml:study` なら `"unreadable"`、round の記録なら `"inconsistent"`。H-0124 改訂 1）。resume と `restore_tuning` は計画（端の検出、試行の値の決定）より前にこれを拒否する。
+- `lizyml:round:<k>:end`: round を閉じたときに書く。終わり方（`completed` / `failed`）、終了時の最良値（COMPLETE の試行が無ければ空）、時刻。**その round の試行**（番号が round の開始時の試行数以上のもの）に COMPLETE が一つも無いまま round が終われば `failed` と書いたうえで `TUNING_FAILED` を送出する（Model の状態は変えない。H-0128 で「study に」から「その round に」に改めた: 前の round に COMPLETE があっても、試行が全て失敗した round は `completed` にならない）。`TUNING_FAILED` の context は `round`・`n_trials`・`status` に加えて `trial_states`（その round の試行の `{"trials", "FAIL", "PRUNED", "interrupted"}` の数。`interrupted` は再接続で RUNNING から FAIL にした数で、`FAIL` にも数える）と、この呼び出しの中で目的関数が出した例外があれば最初のものの `first_error`（型の名前と文。それぞれ 500 文字まで）を持つ。理由が必ず分かることは約束しない（例外を出さずに FAIL になった試行、別のプロセスの試行）。閉じた round は再開の対象にならず、次の `resume=True` は新しい round を始める。
+- 書く順序: round の準備を決める → `lizyml:round:<k>` → 試行を足す → `lizyml:round:<k>:end`。試行の round は試行の番号で決まり、試行ごとの属性は置かない。
+
+### study の状態（閉じた表）
+
+上から順に判定し、最初に当てはまった行を使う。メモリ上の study も storage から読んだ study も同じ表で扱う。`resume=False` で storage に同じ名前の study があるときは、状態に依らず `CONFIG_INVALID`。
+
+| 状態 | 判定の材料 | `resume=True` での扱い |
+|---|---|---|
+| `"legacy"` | `lizyml:study` が無く、試行が 1 件以上（この変更より前に作った study、または LizyML の外で作った study） | `CONFIG_INVALID` |
+| `"uninitialized"` | `lizyml:study` が無く、試行が 0 件（作りかけ） | `"no_round"` と同じ。ただしその検査をすべて済ませてから `lizyml:study` を書く |
+| `"unreadable"` | `lizyml:study` が読めない（より新しい LizyML の版、または書き換えたもの） | `CONFIG_INVALID` |
+| `"no_round"` | round の記録が一つも無く、試行が 0 件 | 照合の後、round 1 を新しい study と同じように始める（config の探索空間を使い、`space=` は `CONFIG_INVALID`） |
+| `"inconsistent"` | round の記録と試行が食い違う（記録が無いのに試行がある、round の番号が 1 から連続しない、`:end` の無い round が最後以外にある、round 1 の開始より小さい番号の試行がある、試行の値の名前がその試行の round の実効空間に無い（H-0124）など） | `CONFIG_INVALID`（「新しい study で」） |
+| `"open"` | 最後の round に `:end` が無い（途中で落ちた） | 照合の後、同じ round を残りの予算で終える（下） |
+| `"completed"` | 最後の round の `:end` が `completed` | 照合の後、新しい round を始める（§11.5.2） |
+| `"failed"` | 最後の round の `:end` が `failed`（その round に COMPLETE の試行が無かった） | 照合の後、新しい round を始める。宣言の元は `failed` の round の宣言（`space=` を渡せばその空間）。study に前の round の COMPLETE の試行があればそれを前回の最良値として境界の拡張の規則を当て、無ければ拡張しない（H-0128） |
+
+公開の関数 `read_study_lineage`（§11.5.4）は、これに storage にその study が無い `"absent"` を加えた値を返す。
+
+### 途中で落ちた round の再開（状態 `"open"`）
+
+同じプロセスで続けた場合と同じ空間・系譜・round 番号になるように、同じ round を残りの予算で終える。
+
+- round 番号は変えない。その round の記録にある実効空間をそのまま使い、境界の分析と拡張はやり直さない。
+- 残りの試行数は、記録した `n_trials` から、その round で終わった試行（COMPLETE、FAIL、PRUNED）の数を引いたもの。記録に `timeout` があれば、残りの時間は `timeout` から、その round の COMPLETE と PRUNED の試行それぞれの開始から終了までの時間の合計を引いたもの（落ちていた間の時間は入らない）。残りが 0 以下なら試行を足さずに round を閉じる（`:end` の規則に従う）。時間で区切る round では、続けた場合と同じ試行の数になることは保証しない。
+- 落ちたときに RUNNING のまま残った試行は、再接続のときに FAIL として記録し、予算に数える。
+- 引数: `n_trials`、`expand_boundary`、`space=` は、`None` 以外を渡したときだけ、その round の記録の解決した値と比べる。同じなら通し、違えば `CONFIG_INVALID`（「この round は記録の値で始まっている」）。`space=` は宣言空間に解決して次元の集合として比べるので、省略の書き方や dict の並びの違いは同じとみなす（`step` は比べる。`step` だけが違う拒否のメッセージでも二つの空間は `step` で違って見える。H-0124）。config の `tuning.optuna.params.n_trials` は使わず、記録と違えば警告を出す。終わった round のあとの新しい round では、これらの引数は自由に変えられる。
+- **成功の無い開いた round の差し替え（H-0128）**: 渡した `space=` が記録した宣言空間と違い、その round の試行に COMPLETE が一つも無い（試行が 0 件を含む）ときは、上の比べ合わせで拒否せず、その round を `failed` で閉じて、渡した `space=` で次の round を始める（新しい round として `n_trials` と `expand_boundary` も自由）。書く順序は、RUNNING の試行を FAIL にする → 開いた round の `:end` を `failed` で書く（`UserWarning` で知らせる。`TUNING_FAILED` は送出しない）→ 次の round の記録 → 試行 → 閉じる。どの段の間で落ちても、状態は `"open"`・`"failed"`・`"completed"` のどれかとして読める。COMPLETE のある round と違う `space=`、記録と違う `n_trials` / `expand_boundary` は、今のとおり `CONFIG_INVALID`。
+- 検査の順序: 照合と引数の比べ合わせを、RUNNING の試行を FAIL にすることを含むすべての書き込みより先に行う。拒否したときは、試行の状態も study の属性も変わらない。
+
+## 11.5.4 系譜を読む関数 `read_study_lineage`（H-0122）
+
+利用側が、試行を足さずに study の状態と系譜を知るための、読み取りだけの関数。`lizyml.tuning` に置き、`lizyml.tuning.__all__` に入れる（トップレベルの `lizyml.__all__` には入れない）。
+
+```python
+def read_study_lineage(storage: str | BaseStorage, study_name: str) -> StudyLineage
+
+@dataclass(frozen=True)
+class StudyLineage:
+    state: str                          # 下の値のどれか
+    rounds: tuple[RoundRecord, ...] = ()
+    open_round: int | None = None       # 状態 "open" のとき、開いた round の番号
+
+@dataclass(frozen=True)
+class RoundRecord:
+    round: int
+    status: str                         # "completed" / "failed" / "open"
+    n_trials: int                       # 要求した試行数
+    n_finished: int                     # 終わった試行（COMPLETE、FAIL、PRUNED）の数
+    best_score_before: float | None
+    best_score_after: float | None      # "failed" と "open" では None
+```
+
+- `storage` と `study_name` の形と事前の検査は `Model.tune` と同じ（片方だけは `CONFIG_INVALID`）。両方を省いても `CONFIG_INVALID`（読む study が無い）。
+- `state` は `"absent"`（storage にその study が無い）、`"legacy"`、`"uninitialized"`、`"unreadable"`、`"no_round"`、`"inconsistent"`、`"open"`、`"completed"`、`"failed"` のどれか。判定は §11.5.3 の表と同じ順序で行う。
+- `rounds` は記録のある round ごとの要約で、`failed` の round も含む（`TuningResult.rounds` と違い、系譜をそのまま見せる）。状態が `"absent"`・`"legacy"`・`"uninitialized"`・`"unreadable"`・`"inconsistent"` のときは空。
+- 読み取りだけ: 属性を書かず、RUNNING の試行も FAIL にしない（それは `resume=True` の呼び出しだけが行う）。目的関数の照合もしない（データも config も受け取らないため）。Optuna の都合で、SQLite の storage の study の一覧を読むと、ファイルとそのスキーマが無ければ作られる（study は作られない）。
+
+## 11.5.5 tune の結果を study から取り戻す `restore_tuning`（H-0122）
+
+round を閉じた（`:end` を書いた）あと、呼び出し側が tune の結果を受け取る前に落ちると、study は状態 `"completed"` になり、`resume=True` は新しい round を始めてしまう。試行を足さずに結果だけを取り戻す公開のメソッドを置く。
+
+```python
+def restore_tuning(
+    self,
+    storage: str | BaseStorage,
+    study_name: str,
+    data: pd.DataFrame | None = None,
+) -> TuningResult
+```
+
+- `storage` と `study_name` の形と事前の検査は `Model.tune` と同じ（両方を省いても `CONFIG_INVALID`）。`data` は `tune` と同じ優先順位で決める。optuna の有無はデータを読む前、storage に触れる前に確かめる。
+- 状態ごとの扱い（この順で判定する。取り戻す結果が無いことを、照合の食い違いより先に報告する）: storage にその study が無い → `TUNING_FAILED`。`"legacy"`・`"unreadable"`・`"inconsistent"` → `resume=True` と同じく `CONFIG_INVALID`。`"open"` → `CONFIG_INVALID`（「round k が途中。`tune(resume=True)` で終える」。途中の結果は取り戻さない）。`"uninitialized"`・`"no_round"`・`"failed"` → `TUNING_FAILED`（取り戻す結果が無い）。`"completed"` → 向き、目的関数の同一性、config の探索空間を `resume=True` と同じく照合し（版の違いは警告）、結果を取り戻す。
+- 取り戻す結果は、その round で終わった tune が返したものと同じ: 最良の試行の値を系譜の経路で分けた `best_model_params` / `best_smart_params` / `best_training_params`、`best_score`、`metric_name`、`direction`、試行（番号から決まる round 付き）、`rounds`（`failed` の round を除く）、最後の round の `boundary_report`（記録したもの。使った `boundary_threshold` で判定したまま）。
+- 取り戻す `best_smart_params` は smart の探索次元の値の規則（§11.3、H-0121 改訂 2）で検査し、外れれば `CONFIG_INVALID`（context に `surface: "tuning.study"`・`name`・`value`・`reason`）で、Model には何も載せない。改訂 2 より前の develop で文字列の真偽の次元で tune した study だけが当たる。その study への `tune(resume=True)` は、study を書く前に、保存された各試行の smart の値（記録する値を routes で分けたもの）を同じ規則で検査して拒否する（round の受け付けの検査は新しい round の次元しか見ないので、`tune(space=...)` でその次元を消した resume も、最良でない試行に残った値も、ここで拒否される）。`restore_tuning` も、結果を組み立てる前に各試行を同じく検査する。
+- Model に載せるもの（成功したときだけ、まとめて。H-0094 決定 14）: tune の結果、読んだ study、最後の round の実効空間、round 番号と `rounds`、`lizyml:study` の `fixed`、覚えておく `storage` と `study_name`、データ。fit 済みのモデルと fit の記録は変えない（H-0094 決定 13）。
+- study には何も書かない（属性も試行も変えず、RUNNING の試行も FAIL にしない）。
+- 取り戻したあとは、`fit()` が最良の試行と同じ学習になる（`fixed` を Model が持つため）。続けて `tune(resume=True)` を呼べば、その study で新しい round を始める。
 
 ## 11.6 リーク回避方針（必須で明文化）
 
@@ -1253,8 +1499,9 @@ H-0100 までは `LogisticRegression(C=1.0)`（L2・目標値 0/1）で、原典
 - `needs_proba / greater_is_better`。指標がどのタスクを扱うかは指標のプロパティではなく、レジストリが持つ（`lizyml/metrics/registry.py`。扱わないタスクで引くと `UNSUPPORTED_METRIC`）。H-0014 は Metric IF の属性として `supports_task` を挙げたが、`BaseMetric` にその属性は無い（H-0111）
 - `BaseMetric.needs_simplex` は既定 `False` の具体プロパティで、multiclass の予測が確率分布（行和 1）でなければならない指標が `True` に上書きする: `auc` と `logloss`。`auc_pr` / `brier` はクラスごとの値を使うので `False` のまま（H-0049）。
 - 回帰: `rmse / mae / r2 ...`
-  - `mape`: `y_true` に 0 を含むと `UNSUPPORTED_METRIC`（H-0004）。
-  - `huber`: 誤差 `e` について `|e| <= delta` で `0.5 e^2`、それより大きいと `delta(|e| - delta/2)`。`HuberLoss` の `delta` は既定 `1.0` でコンストラクタ引数（MetricEntry `{huber: {delta: ...}}`、§13.1.1）。文字列 `"huber"` は `delta=1.0` を意味する（H-0004）。
+  - `mape`: `y_true` に 0 を含むと `UNSUPPORTED_METRIC`（H-0004）。値は `mean(|y - ŷ| / |y|) × 100`（百分率）。学習曲線（`eval_history`）の `mape` は LightGBM の定義 `|y-p| / max(1,|y|)` の比率で、この値と違う（H-0125）。
+  - `huber`: 誤差 `e` について `|e| <= delta` で `0.5 e^2`、それより大きいと `delta(|e| - delta/2)`。`HuberLoss` の `delta` は既定 `1.0` でコンストラクタ引数（MetricEntry `{huber: {delta: ...}}`、§13.1.1）。文字列 `"huber"` は `delta=1.0` を意味する（H-0004）。学習曲線（`eval_history`）の `huber` は LightGBM の定義で、閾値は LightGBM の `alpha`（既定 0.9、huber / quantile の目的関数と共有）なので、この値と違う（H-0125）。
+  - 学習曲線は LightGBM の名前と定義で計算する（§7.1、§14 の Metric Bridge）。`FitResult.metrics` と同じ名前で定義が違うのは `huber` と `mape` だけで、`plot_learning_curve` はその subplot の題に LightGBM の定義を添える（§13.3）。どちらも LizyML の定義を保つ（一般的な定義に近い。H-0125 の代替案）。
   - `smape`: `mean(2|y - ŷ| / (|y| + |ŷ|)) × 100`、範囲 `[0, 200]`。`y = ŷ = 0` の行は 0 として数える（H-0071）。
   - `wape`: `sum|y - ŷ| / sum|y| × 100`。`UNSUPPORTED_METRIC` になるのは `sum(|y_true|) == 0` のときだけ（H-0071）。
   - `smape` / `wape` はどちらも `greater_is_better=False`、`needs_proba=False`。
@@ -1266,7 +1513,7 @@ H-0100 までは `LogisticRegression(C=1.0)`（L2・目標値 0/1）で、原典
   - `_TASK_METRICS["regression"]` = `rmse` / `mae` / `r2` / `rmsle` / `mape` / `huber` / `smape` / `wape`（H-0071）。
   - binary = `logloss` / `auc` / `auc_pr` / `f1` / `accuracy` / `brier` / `ece` / `precision_at_k`。multiclass = `logloss` / `f1` / `accuracy` / `auc` / `auc_pr` / `brier`。
   - したがって、`mape` / `huber` を回帰以外で（H-0004）、`precision_at_k` を回帰か multiclass で（H-0014）、multiclass 対応の `auc` / `auc_pr` / `brier` を回帰で（H-0018）指定すると `UNSUPPORTED_METRIC` になる。
-- **確率の検査**: `needs_proba` が真の組み込み指標は、確率でない値（数値でない、有限でない、`[0, 1]` の外、3 クラス以上なのに 1 次元）を受け取ると `METRIC_REQUIRES_PROBA` を送出する（H-0106）。0/1 のハードラベルは正当な確率として通る。`objective: cross_entropy_lambda` の出力が 1 を超えた場合もこれになる（#307）。
+- **確率の検査**: `needs_proba` が真の組み込み指標は、確率でない値（数値でない、有限でない、`[0, 1]` の外、3 クラス以上なのに 1 次元）を受け取ると `METRIC_REQUIRES_PROBA` を送出する（H-0106）。0/1 のハードラベルは正当な確率として通る。binary の目的関数 `cross_entropy_lambda` は出力が確率でない（LightGBM は λ を出し、確率は `1 - exp(-λ)`）ので、目的関数としては学習の前に `CONFIG_INVALID`（`reason: "not_a_probability"`）で拒否し、それで学習した booster を持つ artifact は `Model.load` が `DESERIALIZATION_FAILED` で拒否する（§14.3、§4.2。H-0125、#307）。指標としての `cross_entropy_lambda` は今どおり受け付ける。
 - **evaluator が指標に渡す値**（`evaluation/evaluator.py` の `_pred_for_metric()`、H-0049）: `needs_proba` かつ `needs_simplex` の指標には、multiclass の 2 次元予測を行和で正規化して渡す（全 0 の行は割らない）。それ以外の確率指標には予測をそのまま渡す。ラベル指標には binary で 0.5 閾値、multiclass で argmax のラベルを渡す。正規化は `predict_proba()` ではなく evaluator の責務である（§14.1）。
 
 ### 13.1.1 パラメータ付き MetricEntry（H-0065）
@@ -1316,7 +1563,7 @@ model:
 - `importance_plot(kind="split|gain")`: fold 平均の特徴量重要度（横棒グラフ）
 - `importance_plot(kind="shap")`: fold 平均の mean(|SHAP|)（横棒グラフ）。shap optional dependency も必要。
   - `Model.importance(kind="shap")` とこの plot は、fold ごとにその fold の validation 行（`valid_idx`）で SHAP を計算し、特徴量ごとの mean(|SHAP|) を fold で平均する（`compute_shap_importance()`、H-0007）。fold k の validation 行は fold k の pipeline 状態（`pipeline_state_per_fold` の k 番目）で変換する（H-0114）。shap が未導入なら `OPTIONAL_DEP_MISSING`。
-- `plot_learning_curve(*, metrics=None)`: fold ごとの train/valid loss 推移（折れ線グラフ）。`metrics: list[str] | None` で表示 metric をフィルタ可能（H-0062）。`None` で全 metric、指定時は `/` 以降の metric 名で一致するもののみ表示。一致なしで `LizyMLError`。
+- `plot_learning_curve(*, metrics=None)`: fold ごとの train/valid loss 推移（折れ線グラフ）。`metrics: list[str] | None` で表示 metric をフィルタ可能（H-0062）。`None` で全 metric、指定時は `/` 以降の metric 名で一致するもののみ表示。一致なしで `LizyMLError`。曲線は `FitResult.history` の LightGBM の評価なので、`FitResult.metrics` と同じ名前で定義が違う指標の subplot の題に LightGBM の定義を添える（H-0125、#354）: `huber` → `valid_0/huber (LightGBM: threshold = alpha)`、`mape` → `valid_0/mape (LightGBM: |y-p| / max(1,|y|))`。添える文の表は `lizyml/plots/learning_curve.py` の `LIGHTGBM_CURVE_DEFINITIONS` の一か所に置き、表のキーが実際に値の食い違う組と等しいことをテストが本物の LightGBM で照合する。`alpha` の値は FitResult に無いので書かない（plot は FitResult から推測しない）。凡例（fold）、y 軸、`metrics=` の絞り込み（名前で照合する）は変えない。
 - `plot_oof_distribution()`: OOF 予測値の分布（ヒストグラム）
 - `residuals_plot(kind="scatter|histogram|qq|all")`: 回帰専用。IS/OOS 比較対応。`kind` で表示プロットを選択。デフォルト `kind="all"` で scatter + histogram + QQ の 3 パネル。scatter は Actual vs Predicted（x=predicted, y=actual, y=x 参照線）。IS サンプルは OOS 数に合わせてダウンサンプリング（`_downsample_is()`、seed=0 で再現可能）。
   - QQ パネルは OOS 残差だけを使う（IS は使わない、H-0009）。実体は `plots/residuals.py` の `plot_residuals()`。
@@ -1366,10 +1613,12 @@ predict_raw(X)    # 分類（sigmoid/softmax 適用前の生スコア / logits�
 importance(kind="split|gain|shap")
 get_native_model()  # export用途
 set_categorical_features(cols: list[str] | None) -> None  # デフォルト no-op (H-0054)
+unsaveable_categories(pipeline_state) -> list[UnsaveableCategory]  # デフォルト [] (H-0129)
 ```
 
 - `predict_proba()` は学習器の確率をそのまま返す。`objective: multiclassova` ではクラスごとの独立 sigmoid の出力なので、行和は 1 とは限らない。指標のための正規化は evaluator が `needs_simplex` の指標についてだけ行う（§13.1、H-0049）。
 - `set_categorical_features()` は `fit()` 呼び出し前に CVTrainer が呼ぶ。categorical feature の扱いはアダプタの責務であり、`cv_trainer.py` に estimator 固有の kwarg を漏洩させない。
+- `unsaveable_categories(pipeline_state)` は、その estimator が学習済みモデルを保存するときに書けないカテゴリ値を、列ごとに最初の一つ、列の順に返す（`UnsaveableCategory(column, shown, type_name)`。`shown` と `type_name` は例外を出さない表示で作った文字列で、値そのものは持たない）。既定は `[]`（書けない値は無い）。`LGBMAdapter` は、LightGBM がカテゴリ値を JSON で書けないもの（`estimators/lgbm/category_json.py`、H-0127）を返す。`Model.export` と公開の `lizyml.persistence.export` は、何かを書く前に、保存する pipeline の状態ごとに、その状態と一緒に保存される adapter に尋ねる（refit の状態は `refit_result.model`、fold k の状態は `fit_result.models[k-1]`、fold ごとの状態が無ければ最後の fold の状態は `fit_result.models[-1]`）。fold ごとの状態の数と `fit_result.models` の数が合わない結果、fold ごとの状態も model も無い結果は、尋ねる相手が無いので `SERIALIZATION_FAILED`（context に `fold_states` と `models`）。`persistence/` は具体的な estimator を import しない（§2.1、H-0129）。
 
 ## 14.2 LGBM adapter の責務
 
@@ -1408,6 +1657,7 @@ set_categorical_features(cols: list[str] | None) -> None  # デフォルト no-o
 
 注記:
 - regression の objective を `huber` とする（外れ値に対してロバスト）。
+- 利用者が指定できる目的関数は task ごとの表（`TASK_COMPATIBLE_OBJECTIVES`、`LGBMProvider.objective_choices(task)`）にあるもの。binary は `binary` と `cross_entropy` で、`cross_entropy_lambda` は出力が確率でないので受理しない（理由 `not_a_probability`、§13.1 の確率の検査。H-0125）。別名の値 `xentlambda` は表に無いので、今どおり理由の無い不一致として拒否する。
 - `LGBMConfig.params` に `metric` を指定した場合、ユーザー指定値を優先する。未指定時は上記タスク別デフォルトにフォールバックする（H-0061）。
 
 #### Metric Bridge（H-0064）
@@ -1423,6 +1673,7 @@ set_categorical_features(cols: list[str] | None) -> None  # デフォルト no-o
 
 2. **ホワイトリストバリデーション**: マッピング後の名前をタスク別ホワイトリストで事前検証。無効な metric 名は `LizyMLError(CONFIG_INVALID)` で即座に拒否する（LightGBM 呼び出し前）。
    - multiclass のネイティブ whitelist に `auc` は無い（LightGBM 4 は multiclass の objective と `auc` の組を拒否する）。学習時の指標には `auc_mu` を使い、multiclass の AUC は事後評価の `evaluate(metrics=["auc"])`（scikit-learn の OvR、§13.1）で得る（H-0079）。
+   - **native 指標のパラメータは拒否する**（H-0125、[#313](https://github.com/nbx-liz/LizyML/issues/313)）: LightGBM の native 指標は LightGBM 自身の母数で計算されるので、MetricEntry `{name: {param: value}}`（§13.1.1）のパラメータは使われない。名前を検査した後（名前の誤りは今の whitelist のメッセージを先に出す）、native の名前に空でないパラメータがあれば `CONFIG_INVALID`（context に `metric` と `params`（キー名の一覧））。`{"huber": {"delta": 9.0}}` も `{"rmse": {"bogus": 1}}` も拒否し、`huber` の閾値は LightGBM の `alpha`（目的関数と共有）であることをメッセージで案内する。パラメータ付きの LizyML の指標は `evaluation.metrics` に書く。空の `{}` は名前だけと同じ。feval の指標のパラメータ（`{"precision_at_k": {"k": 5}}` など）は今どおり。`resolve_metrics` は fit、adapter（直接の利用、tune の各試行、`export_code`）、tune の計画の段から呼ばれるので、どの入口でも同じ規則になる。
 
 3. **feval カスタム関数**: LightGBM ネイティブ未対応の metric は `lgb.train(feval=...)` 経由でカスタム評価関数として注入する。
 
@@ -1440,7 +1691,9 @@ set_categorical_features(cols: list[str] | None) -> None  # デフォルト no-o
 
 - `smape` / `wape` は回帰の feval 指標なので、`params.metric` に書けば early stopping と学習曲線を駆動する（H-0071）。
 - **feval は LightGBM が渡す予測を再変換しない**（H-0105）。LightGBM 4 は組み込み objective の変換後の値を feval に渡す: binary は 1 次元の確率、multiclass / multiclassova は 2 次元 `(n, num_class)` の確率、regression は予測値。sigmoid / softmax をもう一度掛けると binary のラベル指標が定数になり確率指標が歪むので、掛けない。
-- feval は evaluator と同じ規則（`evaluation.evaluator._pred_for_metric`、§13.1）で metric に値を渡す: ラベル指標には binary で 0.5 閾値、multiclass で argmax、multiclass の `needs_simplex` 指標には行和で正規化した確率、それ以外は確率をそのまま。学習曲線と `FitResult.metrics` で同じ名前の指標が同じ意味になる（H-0105）。
+- feval は evaluator と同じ規則（`evaluation.evaluator._pred_for_metric`、§13.1）で metric に値を渡す: ラベル指標には binary で 0.5 閾値、multiclass で argmax、multiclass の `needs_simplex` 指標には行和で正規化した確率、それ以外は確率をそのまま。feval の指標は、学習曲線と `FitResult.metrics` で同じ名前が同じ意味になる（H-0105）。
+- 学習曲線（`FitResult.history` の `eval_history`）の native 指標は LightGBM の名前と定義で計算され、`FitResult.metrics` の同じ名前の指標と値が違うことがある。今そうなるのは `huber`（LightGBM の閾値は `alpha`）と `mape`（LightGBM は `|y-p| / max(1,|y|)` の比率）で、`plot_learning_curve` はその subplot の題に LightGBM の定義を添える（§13.3、H-0125、[#354](https://github.com/nbx-liz/LizyML/issues/354)）。
+  - 記録される名前は LightGBM の正規名（`mae` と書いても `l1`、`logloss` は `binary_logloss` / `multi_logloss` として記録される）。各 task の受理する native 指標の全てを記録し、`MetricRegistry` の同じ task の名前との共通部分を同じ予測で比べると、値が違うのは上の二つだけで、他の共通の名前は一致する（`tests/test_plots/test_learning_curve_definitions.py`）。
 - multiclass の feval 入力が 2 次元 `(n, num_class)` でなければ reshape せず `EVALUATION_FAILED` を送出する（H-0105）。
 - native metric と feval metric の混在指定が可能（例: `["auc", "f1"]`）
 - feval-only 指定時も early stopping が正常に機能する
@@ -1504,6 +1757,10 @@ class EstimatorProvider(Protocol):
     def extract_smart_params(self, model_cfg: Any) -> dict[str, Any]: ...
     def accepted_model_param_names(self) -> frozenset[str]: ...   # H-0093
     def smart_param_names(self) -> frozenset[str]: ...            # H-0093
+    def smart_param_owners(self) -> dict[str, str]: ...           # H-0121
+    def smart_value_rules(                                        # H-0121 am. 2
+        self,
+    ) -> Mapping[str, SmartValueRule]: ... # smart parameter -> its value rule
     def canonical_param_names(                                    # H-0094
         self, names: Iterable[str],
     ) -> dict[str, str]: ...               # name -> the parameter it identifies
@@ -1538,25 +1795,34 @@ class EstimatorProvider(Protocol):
     ) -> dict[str, dict[str, float | int]]: ...  # name -> {"min": ..., "max": ...}
     def objective_choices(self, task: TaskType) -> tuple[str, ...]: ...  # H-0079
     def metric_choices(self, task: TaskType) -> MetricChoices: ...      # H-0079: {"native": (...), "feval": (...)}
+
+
+@runtime_checkable
+class TrialErrorProvider(Protocol):  # 任意の機能（H-0128）
+    def trial_errors(self) -> tuple[type[Exception], ...]: ...
 ```
+
+`TrialErrorProvider` は `EstimatorProvider` とは別の任意の機能で、`EstimatorProvider` の成員には入れない（入れると、それを持たない既存の provider が静的に `EstimatorProvider` を満たさなくなる）。`Model.tune`（Facade）は `isinstance(provider, TrialErrorProvider)` のときだけ `trial_errors()` を呼び、`Tuner.run` / `Tuner.tune` の `extra_catch` に渡す。その型の例外は試行の FAIL になり、round は続く。`tuning/` は estimator のライブラリを知らない。LightGBM の provider は `(lightgbm.basic.LightGBMError,)` を返す。
 
 制約:
 - `EstimatorProvider` は `config/` の具象型（`LGBMConfig` 等）を参照してよい（provider は Facade 層から呼ばれるため、Leaf → Leaf の依存にはならない）。
 - `model_cfg` 引数は `Any` 型で受け取るが、各 provider 内部で `isinstance` チェックして具象型にキャストする。
 - `runtime_deps()` はアルゴリズム固有の依存パッケージ名とバージョンを返す（例: `{"lightgbm": "4.5.0"}`）。`RunMeta.deps_versions` に使用。
-- `parameter_bounds(task)` は境界拡張（§11.5）をクランプするための、パラメーターとして意味のある範囲 `{name: {"min": ..., "max": ...}}` を返す（H-0078）。表に無いパラメーターは無制限、空の dict は宣言なし。`LGBMProvider` は task によらない 15 パラメーターの表（`learning_rate` / `feature_fraction` / `bagging_fraction` / `num_leaves_ratio` / `min_data_in_leaf_ratio` / `min_data_in_bin_ratio` / `validation_ratio` / `lambda_l1` / `lambda_l2` / `n_estimators` / `max_depth` / `max_bin` / `bagging_freq` / `early_stopping_rounds` / `seed`）を返す。`Model.tune` は既定の空間にも利用者の空間にもこれを付ける（§11.2）。
+- `parameter_bounds(task)` は境界拡張（§11.5）をクランプするための、パラメーターとして意味のある範囲 `{name: {"min": ..., "max": ...}}` を返す（H-0078）。表に無いパラメーターは無制限、空の dict は宣言なし。`LGBMProvider` は task によらない 15 パラメーターの表（`learning_rate` / `feature_fraction` / `bagging_fraction` / `num_leaves_ratio` / `min_data_in_leaf_ratio` / `min_data_in_bin_ratio` / `validation_ratio` / `lambda_l1` / `lambda_l2` / `n_estimators` / `max_depth` / `max_bin` / `bagging_freq` / `early_stopping_rounds` / `seed`）を返す。`Model.tune` は既定の空間にも利用者の空間にもこれを付ける（§11.2）。smart パラメーターの上下限は `smart_value_rules()` の範囲の内側に置くこと（拡張した次元も値の規則で検査されるため）。`num_leaves_ratio` の上限は 1.0（H-0121 改訂 2。それまでは 2.0 で、config の範囲 `(0, 1]` を越えていた）。
 - `objective_choices(task)` は task で有効な objective の canonical 名を、決まった順の tuple で返す（エイリアスは含めない。H-0079）。`default_space` の `objective` 次元と UI の選択肢の元であり、集合は adapter が受理する `TASK_COMPATIBLE_OBJECTIVES`（§14.2）と同じ。未知の task は空の tuple。
 - `metric_choices(task)` は `{"native": tuple, "feval": tuple}` を返す（H-0079）。`native` は学習器が評価する指標、`feval` は LizyML が feval として注入する指標（§14.3）。どちらも canonical 名で、順は決定的、2 つの tuple の間に重複は無い。
 - `params_summary()` は `params_table()` 用のパラメータ行を返す。smart params + native model params（`metric` を含む、H-0061）の両方を含む。
 - `build_pipeline_factory` は estimator 固有の FeaturePipeline が必要な場合（例: EntityEmbedding のカテゴリ埋め込み）に対応する。デフォルトは `NativeFeaturePipeline` を返す。
 - `build_export_params` は codegen 経路（`Model.export_code()`）が必要とする native params / num_boost_round / early_stopping_rounds / feval metadata を `ExportParams` frozen dataclass で返す（H-0073）。`_model_persistence.py` から estimator 具象型（`LGBMAdapter` 等）への直接参照を排除するための入口。**「その fit が何を使ったか」を答える値は、config と現在の tuning result から再計算してはならない**（H-0094 決定 13）: `tune()` は tuning result を置き換えるが fit 済み adapter は置き換えないので、再計算する読み手は `fit → tune` の後に**存在しないモデルについて報告する**。実測: adapter が patience 7 で学習し、`params_table` / `export_code` はどちらも 2 と答えた。学習済み adapter は joblib で保存されるため、この経路は `load()` 後も正しい唯一の経路である（artifact が持つ tuning result は、どの fit も消費していないことがありうる）。`ExportParams.early_stopping_rounds` に **default を置かないこと** — 「provider が設定しなかった」と「early stopping が無効だった」が同じ値になるのは DC1 の形である。adapter に記録が無い値（`validation_ratio`）は `FitState.applied_training_params` から読む。この overlay は `metadata.json` の `applied_training_params` として記録され、`load()` が検査して復元する（H-0109）。記録の無い（H-0109 以前の）artifact では不明（`None`）となり config に落ち、再 export しても記録を書かない。
 - `accepted_model_param_names()` / `smart_param_names()` は「その学習器が受理する名前」を宣言する（H-0093）。前者は**学習器自身から導出すること**（列挙しない）。学習器の更新で名前が増減したときに黙って古びる実装は、この IF が検出しようとしている欠陥をそれ自体が持つことになる。後者は `extract_smart_params` が返すキーと必ず一致させ、両者を単一の宣言から導くこと。
+- `smart_param_owners()` は「ある smart パラメーターが読まれるために真でなければならない smart パラメーター（所有者）」を `{smart パラメーター: 所有者}` で返す（H-0121）。所有者の無い smart パラメーターは含めない。LightGBM は `{"num_leaves_ratio": "auto_num_leaves"}` を返す（`resolve_smart_params` は `auto_num_leaves` が真のときだけ `num_leaves_ratio` を読む）。tuning はこの宣言で、所有者が真になりえない smart の探索次元を拒否するか落とす（§11.3）。宣言は解決関数を実行するテストで固定する。smart パラメーターを持たない provider は `{}` を返す。H-0093 の分類では Protocol の変更であり、外部で Protocol を実装しているコードはこのメソッドを足す必要がある。
+- `smart_value_rules()` は、smart パラメーターごとに、それが取りうる値の規則（`lizyml/estimators/provider.py` の `SmartValueRule`: 種類 `bool` / `number` / `untunable`、`None` を受け付けるか、数の区間（下端は開、上端は `high_inclusive`）、`True` を拒否するタスク）を返す（H-0121 改訂 2、§11.3）。`smart_param_names()` のすべての名前に規則があること（テストで固定）。型は厳密に判定する（`type(v) is bool`、`type(v) is int` / `type(v) is float`）。config も検査する範囲は、config の検査と同じ宣言から読むこと（LightGBM は `lizyml/config/schema.py` の `SMART_RATIO_RANGES` を呼び出しのたびに読む）。tune の round の受け付けの検査、`restore_tuning`、`Model.load` がこの規則を使う。Protocol の変更であり、外部で Protocol を実装しているコードはこのメソッドを足す必要がある。
 - `canonical_param_names(names)` は「その名前がどのパラメーターを指すか」を返す（H-0094）。**パラメーター層のマージは綴りではなく同一性で行うこと**: 学習器がエイリアスを解決する以上、`{**base, **override}` は 1 つのパラメーターを 2 つの綴りで残し、どちらが効くかは学習器の規則次第になる。実測: config の `learning_rate` が `fit(params={"eta": ...})` に勝っていた。**学習器に 2 つの綴りを渡さない**こと。学習器が知らない名前は自分自身に写すこと（不明名の拒否は `accepted_model_param_names` の仕事であり、この写像が二重の門になってはならない）。**マージの継ぎ目は 4 か所あり、4 か所すべてを同一性で行うこと**: config / provider の既定 fixed / `best_model_params` / `fit(params=)` に加えて、**tuning の trial マージ**（`_model_tuning.py` の objective）がある。round 11 まで trial マージだけが綴りベースで、config の `learning_rate` と `eta` という探索次元がある場合、**trial は config の値で学習し、study には trial の値が best として記録され、その後の fit は記録された値で学習していた** — tuning が一度も評価していないモデルを選んでいた（DC1）。
 - **学習器 adapter が特別扱いするパラメーター**（検証する / 改名する / 呼び出し引数に変換する）は、**全綴りをまとめて取り出す**こと（H-0094 決定 6）。1 綴りだけを見ると、エイリアスで書かれた値はその特別扱いを迂回する。実測: `application`（`objective` のエイリアス）に task 非互換な値を書くと互換性検査を通らずに学習されていた。同じ層で 1 パラメーターが複数綴りで指定されたら、**値によらず** `CONFIG_INVALID` とすること（H-0096 で改訂。**それ以前は「異なる値のときだけ拒否し、同値は通す」だった**）。同値を通す規則は「2 つの綴りが同じ値か」という問いを生み、その問いは任意の Python 値の上で全域でなければならないので**入力領域が開く** —— H-0094 rounds 18-26 の 9 連続はその領域の中で起きた。**LightGBM 自身も値を比較せず、等しくても重複そのものを警告する**（実測）。拒否の根拠は「どちらが効くか不可視だから」ではなく（優先順位は決定的である）、**利用者が 1 つの設定を 2 度書いており、どちらを意図したか LizyML には決められないから**である。**この規則は宣言した層すべてに配線すること**: レビュー round 11 まで `fit(params=)` にしか配線されておらず、`model.params` に `learning_rate` と `eta` を両方書いた config は両方が `lgb.train` に届き、LightGBM が黙って canonical 側を採った（DC4 — 宣言はあるが呼び出し側が無い）。検査は facade（`_merge_params`）に置く。`config/` は層規約上 `estimators/` を import できず別名表に届かないためである。**配線先は 4 層**: `model.params` / `fit(params=)` / `calibration.params` / `tuning.optuna.space`。3 つ目は rounds 10-11 monitor が「どの層に配線したのか」を問うて見つかった（名前検査だけがあり同一性検査が無く、両綴りが calibrator の `lgbm.train` に届いていた）。4 つ目は rounds 11-12 monitor が名指しし、実行して確かめた: `sample_params` は次元ごとに `params[dim.name] = ...` を書くので、**互いにエイリアスである 2 次元は同じ trial dict に両綴りを入れる** — LightGBM が canonical を採るため、もう一方は sample され最適化されながらどの trial にも影響しない（`learning_rate` と `eta` を 2 次元にした study で実測）。**空間には同値による免除が無い**: 2 次元は独立に sample するので、1 パラメーターを 2 回名指しすることは境界に関わらず曖昧である（`check_duplicate_space_dimensions`、study 開始前）。スマート層は対象外で、その理由は**スマートパラメーター名に学習器のエイリアスが 1 つも無い**ことである（実測 0 件、テストで固定）。**`calibration.params` は同一性検査だけでは足りず、canonical 化も要る**（H-0094 決定 8）: calibrator は自分の既定値と**綴りで**マージするため、呼び出し元が**1 度しか書いていない**エイリアスが既定値と並んで `lgbm.train` に届き、LightGBM が既定値を採っていた（`{"eta": 0.5}` → `learning_rate: 0.03` で学習）。`lizyml/calibration/` は `lizyml/estimators/` を import できないので、書き換えは facade（`canonicalise_calibration_params`）で行う。**calibrator 自身が pop するキーは除外すること**（`num_boost_round` は `num_iterations` のエイリアスであり、canonical 化すると pop 先が消える）。**calibrator が強制する値は canonical 綴りで書くこと**: `verbose = -1` はエイリアス側の強制だったので `verbosity` を書いた呼び出しに負けていた。
 - **「あるパラメーター dict が別のパラメーター dict に出会う」場所を列挙し、1 行ずつ実行すること**（H-0094 決定 8）。この類の欠陥は round ごとに 1 つずつ出続けたので、当たりを付けて探すより列挙するほうが安い。走査は `instruments/parameter_merge_seams.py` として**出荷し**、表を再生成できるようにすること（散文に写した数は古びる）。候補 58 式。**走査の構文集合には `d[k] = v` を必ず含めること**: 最初の版はそれを宣言しておらず、その版が報告した 3 件の欠陥のうち 2 件がその構文に住んでいた（rounds 11-12 monitor）。**そして走査を「閉じた母集団」と呼ばないこと**: この主張は 2 回なされ、2 回とも 1 ラウンド以内に反証された（2 回目は round 13 のレビュアーが `config/loader.py:167` を名指しした — カーソル変数名が `node` で hint 語に当たらなかった）。hint 語による絞り込みは識別子テキストのヒューリスティックであって型解析ではない。**表が主張するのは実行した分だけである。** 開いた空間の走査を閉包と呼ぶことは、本 run が他人の宣言に見つけ続けている DC5 そのものである。
 - **「利用者が綴った dict を 1 つの綴りで読む」箇所も同じ類であり、継ぎ目走査は扱わない**（H-0094 決定 9）。実測: `_extract_feval_metadata` が `adapter.params.get("metric")` とリテラルで読んでいたため、`fit(params={"metrics": ...})` は正しく学習しながら `export_code` が評価関数を落とし、**生成コードが動かなかった**。学習側が `_pop_by_identity` で読む以上、読み手も同一性で読むこと。母集団は 4 件（`estimators/` / `persistence/` / `codegen/` / `core/` / `training/` を走査）。
 - **LizyML 自身が握っているネイティブパラメーターは、`model.params` / `fit(params=)` から重ねて指定させないこと**（H-0094 決定 9、`check_training_managed_overrides`）。`training.early_stopping.rounds` は `early_stopping_round` の、`training.seed` は `seed` の LizyML 側の綴りである。実測では**両方向に**壊れていた: 前者は上書きが `lgb.train` に届いても config 由来の callback が停止を決め（早期停止を切ると今度は LightGBM 自身が honour して検証セット不在で落ちる）、後者は上書きが `training.seed` に黙って勝っていた。**2 方向が食い違うからこそ、どちらかを選ぶのではなく拒否する。** 判定は canonical 名を全綴りに展開して行い、展開は provider の `canonical_param_names` を受理名の上で反転して得る（この層は学習器を知らない）。
-- `smart_managed_param_names(smart, task)` は「**有効なスマートパラメーターが上書きしてしまうネイティブ名**」を返す（H-0094）。スマート解決はパラメーター dict のマージより後段で走り、その結果が勝つため、ここに挙がる名前を手で指定しても黙って置き換えられる。呼び出し側はそれを**拒否**に使う（`CONFIG_INVALID`）。task を取るのは、同じスマートパラメーターでも task によって書くものが変わるためである（`balanced` は binary では `scale_pos_weight` を書くが、multiclass では sample weight を作る＝パラメーター名ではないので衝突しない）。宣言は**コードから閉じる**こと: 解決関数群を**実際に実行**し、宣言されていない名前が返ってきたら落ちるテストを持つ。以前はソースの `resolved[...] = ...` 代入を走査していたが、それは代入の**綴り方**についての仮説であり、`resolved.update({...})` で書かれた 4 つ目の名前は見えなかった（H-0094 レビュー round 9 の monitor）。実行には推測すべき綴りが無い。ただしこれは**有限個の実行**であって閉じた入力領域ではない — パラメーター**名**を列挙しても、解決関数が受け付ける**組み合わせ**は列挙できない（round 10）。各 activation が解決結果を変えることを個別に主張することで、activation が無効化されて何も観測しなくなる事態は防ぐ。
+- `smart_managed_param_names(smart, task)` は「**有効なスマートパラメーターが上書きしてしまうネイティブ名**」を返す（H-0094）。スマート解決はパラメーター dict のマージより後段で走り、その結果が勝つため、ここに挙がる名前を手で指定しても黙って置き換えられる。呼び出し側はそれを**拒否**に使う（`CONFIG_INVALID`）。task を取るのは、同じスマートパラメーターでも task によって書くものが変わるためである（`balanced` は binary では `scale_pos_weight` を書くが、multiclass では sample weight を作る＝パラメーター名ではないので衝突しない）。宣言は**コードから閉じる**こと: 解決関数群を**実際に実行**し、宣言されていない名前が返ってきたら落ちるテストを持つ。以前はソースの `resolved[...] = ...` 代入を走査していたが、それは代入の**綴り方**についての仮説であり、`resolved.update({...})` で書かれた 4 つ目の名前は見えなかった（H-0094 レビュー round 9 の monitor）。実行には推測すべき綴りが無い。ただしこれは**有限個の実行**であって閉じた入力領域ではない — パラメーター**名**を列挙しても、解決関数が受け付ける**組み合わせ**は列挙できない（round 10）。各 activation が解決結果を変えることを個別に主張することで、activation が無効化されて何も観測しなくなる事態は防ぐ。**約束（H-0121 改訂 1）**: 結果は各スマートパラメーターの値に、その真偽と `None` かどうかを通してだけ依る（値の大きさには依らない。複数のスマートパラメーターの組で決まってよい）。tune の受け付けの検査は、smart の探索次元の値を状態ごとの代表一つに絞ってこの関数に渡す（§11.3）。LightGBM の provider がこの約束を満たすことは、3 つのタスクで、各スマートパラメーターに同じ状態の別の値を入れて結果が変わらないことを実行して確かめる（`tests/test_estimators/test_smart_managed_contract.py`）。
 - **エイリアスを展開すること（H-0094 レビュー round 2 の指摘）。** 学習器がエイリアスを同一パラメーターとして解決する場合、文字列一致の検査は同じパラメーターを別綴りで通してしまう。実測: `max_leaves`（LightGBM では `num_leaves` のエイリアス）は検査を通過し、スマート解決が入れた `num_leaves` を LightGBM が優先したため、上書きはまた黙って無視された（`[(12, 32), (12, 32), (12, 32)]`、booster は `[num_leaves: 32]`）。戻り値のキーは**学習器が受理する全綴り**とし、綴りの集合は学習器の登録表から導くこと（列挙しない）。
 - **パラメーター値の受理集合を入口で閉じること**（H-0095、**H-0096 で存在理由を再定義**）。この閉包はもともと `values_differ`（「2 つの綴りが同じ値か」）の入力を有界にするために入った — round 16-20 が **5 連続で「直前の修正が書いたコードの欠陥」**を出し、`__format__` / `__class__` / `tolist` / `__eq__` を任意に定義できる以上その領域は構成上開いていたためである。**H-0096 でその比較そのものが無くなった**ので、閉包が今仕えているのは残る消費者、すなわち**学習サイトの出口表明**（`assert_plain_params`）と **`export_code` の `json.dump` / UTF-8** である。後者は本 PR とは独立の既存欠陥を直している（`origin/develop` の `ccae32b` で `model.params={"feature_contri": np.array([1.0,1.0])}` が `TypeError: Object of type ndarray is not JSON serializable` を出すことを実測）。**4 surface の入口で 1 度だけ正規化し、受理集合の外は学習前に `CONFIG_INVALID` で拒否する**（`core/param_domain.py`）。受理集合は LightGBM の `_param_dict_to_str` から**導出**する（写さない）。**正規化は素の型へ行い、文字列化しないこと** — smart params の解決と boundary 展開が数値演算をする。**中心的な不変条件は wire 保存**: `_param_dict_to_str` が正規化の前後で同じ bytes を書くこと。シリアライザは**位置によってフォーマッタが違う**（スカラーは `__format__`、列の要素は `str`）ので、変換も位置ごとに分けること。実測: `np.array([0.1], dtype=float32)` は `0.1` と書かれるが `.tolist()` 後は `0.10000000149011612` になる。**素の代替が存在しない値（`str(np.float16(1e3))` = `1e+03`）は丸めずに拒否する** — 呼び出し元が書いていない bytes で学習するほうが悪い。型は**厳密一致**で見ること（サブクラスは `__format__` を上書きできる）。そして**4 surface で正規化することは配線についての主張にすぎない**ので、`lgb.train` の全サイトに `assert_plain_params` を置き、**学習サイトの母集団をソースから導出して**固定すること（DC4 の形）。**入口と出口で受理集合は異なる**: metric entry は `{"precision_at_k": {"k": 15}}` という LizyML の形（H-0065）を持ち adapter が消費するので、入口は mapping を受理し `lgb.train` の表明は拒否する。**`set` は拒否する** — シリアライザは join するが列パラメーターは位置依存であり、`list(set)` がリテラルのリストと一致するかはハッシュ順の偶然である。**リストの入れ子は深さ 2 まで** — 3 段目は Python の list repr で書かれ、正規化が wire を変えてしまう。 **numpy は厳密な型一致で受理し、型集合は numpy 自身の階層から導出すること**（レビュー round 21）。継承で受理すると `np.float64` のサブクラスが自前の `__format__` で通り、**`np.timedelta64` は `np.integer` のサブクラスなので**型集合の中に入る。実測: 前者は `0.9` と書いて `0.1` で学習し、後者は `1 nanoseconds` と書いて `1` で学習した。厳密型一致が買うのは「**正規化中に呼び出し元のコードが 1 行も走らない**」ことであり、それとは別に **`format(plain, "") == format(value, "")` を値ごとに検査すること** — `timedelta64` を捕まえるのは後者である。 **型集合は `vars(numpy)` から読むこと**（round 22）: `__subclasses__()` の走査は `__module__` という**呼び出し元が書ける属性**を信じることになり、しかも走査が import 時なので**そのクラスが定義された順序で答えが変わる**。「numpy がその名前で export しているか」は同一性の問いであり、どちらの穴も無い。**そして `format(value, "")` は `.item()` の前に読むこと** — 値は同じ問いに 2 度同じ答えを返す義務を負わない。 **型の判定は `is` で行うこと**（round 23）: `type(x) in <set/tuple>` は `__hash__` / `__eq__` による探索であり、クラスのそれらは**メタクラス**から来る＝呼び出し元が書ける。実測、メタクラスだけで numpy 継承なしに門を通過した。**そして採用の決め手は名前空間ではなく `np.dtype(kind).type is kind` の往復にすること** — `vars(numpy)` は書き込み可能で、import 前に 1 行書けば入る。**宣言する bound は「値に対して閉じる」であって「プロセス内で numpy を差し替えた呼び出し元に対する sandbox」ではない**（達成不能な宣言は DC7 であり、この run で 3 度書き直している）。 **そして受理した「型」が書ける「値」とは限らない**（round 24）: シリアライザは `isinstance(val, Path)` を見るので **pure path は通らず**、Python の `int` は十進変換上限を超えると `str()` が raise する。**型から推定せず、文字列を実際に要求すること** — scalar 位置は `format`、element 位置は `str`、書けなければ入口で拒否。
   - 検査の発火点は**学習器に渡す直前**（`_merge_params` の merge 後、および tuning study 開始前）であって構築時ではない。config は呼び出し側が参照を保持したまま変更でき、`best_model_params` は artifact から `__init__` 後に復元されるため、構築時の検査ではどちらも素通りする。`Model.load()` 自体は検査しない（artifact は起きた fit の記録であり、読めなくする理由がない）。
@@ -1604,13 +1870,14 @@ estimators/
   - `checksums` は `{"algorithm": "sha256", "files": {<ファイル名>: <16 進の digest>}}` で、`files` は `fit_result.pkl` / `refit_model.pkl` と、あれば `analysis_context.pkl` の SHA-256 を持つ。アルゴリズム名は `persistence/exporter.py` の `CHECKSUM_ALGORITHM`（H-0083）。
   - tune 済みのモデルだけ: `tuning` ブロック（`best_model_params` / `best_smart_params` / `best_training_params` / `best_score` / `metric_name` / `direction`、成功した tuning round の `fixed_params`）。`load()` はこれを tuning result として復元し、load 後の再 `fit()` が tuned params を再現する（H-0086）。trial の履歴は保存しない。
   - fit が overlay を記録したモデルだけ: `applied_training_params`（上記、H-0109）。
+  - fit が記録したモデルだけ: `applied_sample_weight`（`"balanced"` / `"none"`）と `declared_categories`（列名 → 型付きの値の配列。JSON が型のまま戻せない値を含む記録は書かない）。`load()` はどちらも検査し、規則に合わない値は `DESERIALIZATION_FAILED`、キーが無ければ「分からない」（`None`）として読み、再 export でもキーを書かない（H-0120 改訂 1・4）。
 
 ## 15.2 互換性ポリシー（必須）
 
 - `format_version` が読めない場合は明示的に拒否する（黙って壊れた復元をしない）。
 - 将来 migration を実装できる前提で serializer に拡張点を残す。
 - 現行 `FORMAT_VERSION = 2`（H-0070）。`{1, 2}` の両方を loader が受理し、v1 artifact には no-op `TargetEncoder` を in-memory で注入して contract を整合させる（INV-5）。
-- **フィールドの追加は後方互換の変更で、`format_version` を上げない。** フィールドの削除、型や意味の変更は破壊的変更で、`format_version` を上げる（H-0003）。`checksums`（H-0083）、`tuning`（H-0086）、`applied_training_params`（H-0109）はいずれも追加として `FORMAT_VERSION = 2` のまま入った。旧 loader は知らないキーを無視する。
+- **フィールドの追加は後方互換の変更で、`format_version` を上げない。** フィールドの削除、型や意味の変更は破壊的変更で、`format_version` を上げる（H-0003）。`checksums`（H-0083）、`tuning`（H-0086）、`applied_training_params`（H-0109）、`applied_sample_weight` / `declared_categories`（H-0120）はいずれも追加として `FORMAT_VERSION = 2` のまま入った。旧 loader は知らないキーを無視する。
 - `load()` は毎回 `metadata.json` を検査する。必須キー（`_REQUIRED_METADATA_KEYS` = `format_version` / `task` / `feature_names` / `config` / `run_id`）が欠けていれば `DESERIALIZATION_FAILED`。
 - **完全性の検査（H-0083）**: `load()` は各 `.pkl` のバイト列を 1 回だけ読み、`checksums` に記録された digest と照合してから、そのバイト列を `joblib.load(io.BytesIO(...))` で復元する（ファイルを再 open しないので、検査と復元の間の TOCTOU が無い）。`algorithm` が `sha256` でない、または digest が一致しないときは pickle を実行する前に `DESERIALIZATION_FAILED`（context: `file` / `expected` / `actual`、アルゴリズム違いでは `file` / `algorithm`）。`checksums` を持たない artifact（H-0083 以前）と、`files` に載っていないファイルは検査せずに読む。
 - **脅威モデル**: `metadata.json` 自体は署名しない。書き込み権限を持つ者は `checksums` を書き換えたり消したりできる。`checksums` が検出するのは破損と改竄であり、悪意ある作成者に対して pickle を安全にするものではない。artifact は信頼できる出どころからだけ読む。
@@ -1623,6 +1890,7 @@ estimators/
 - `Model Artifact` を 1 ディレクトリにまとめる。中身は `metadata.json`、`fit_result.pkl`（`FitResult`）、`refit_model.pkl`（`RefitResult`）と、任意の `analysis_context.pkl`（load 後の診断 API が使う `y_true` と `X_for_explain`。無ければ load 時に `None`、H-0026）。`.pkl` は joblib（圧縮）で書く（H-0003）。
 - `.pkl` は pickle なので、読み込むと任意の Python を実行しうる。`Model.load()` は信頼できる出どころの artifact だけに使う（H-0003、上記の脅威モデル）。
 - `Model.load()` で復元し、推論と評価情報参照に加えて診断 API（残差/SHAP/分類・校正可視化）も利用可能にする。
+- **保存できないカテゴリ値（H-0127、#338）**: LightGBM は booster を pickle するとき、各カテゴリ列のカテゴリをモデル文字列に JSON で書く。`export()` は何かを書く前に、保存する全ての pipeline 状態（refit、各 fold、`pipeline_state_per_fold` が無いモデルでは `pipeline_state` を `last fold` と呼ぶ）のエンコーダのカテゴリを、LightGBM の書き手を写した一つの判定（`estimators/lgbm/category_json.py`）にかける。書けない値（`bytes`、`Decimal`、日時、`Timedelta`、`complex`、`frozenset`、それらを要素に持つ `tuple`、`.item()` が Python の値にならない numpy のスカラー）があれば `SERIALIZATION_FAILED` を送出し（context `column` / `value` / `type` / `state`。値は例外を出さない表示で書く）、出力先に何も書かない。`fit()` は CV の学習の前に、全ての学習行で fit した pipeline の状態（refit の pipeline と同じ行）を同じ判定にかけ、該当する列ごとに `UserWarning` を出す。fit は止めない。要素が書ける `tuple` は保存できる（`export_code` は H-0120 の値の集合で拒否する）。限界: 再帰の上限の数段手前まで入れ子にした `tuple` は判定を通り、booster の pickle が Python 自身の再帰の上限で失敗する。その export は書き出しの途中の `SERIALIZATION_FAILED` のままである。
 
 ## 15.4 `export_code`（Codegen Export, H-0059）
 
@@ -1646,6 +1914,14 @@ estimators/
 
 - `artifacts/` の初期内容は `export_code()` 実行時に元の FitResult/RefitResult から生成される
 - `train.py` で新データから再学習すると `artifacts/` が上書きされる
+- **refit の再現の約束（H-0120、H-0059 の約束を戻す）**: `Model.fit(df)` の後の `export_code(path)` で生成したプロジェクトで、同じデータを parquet で保存して `python train.py <data>` を実行すると、`artifacts/` による校正前の予測（regression の予測値、binary の陽性クラスの確率、multiclass の各クラスの確率）が、LizyML の refit モデルの校正前の予測とどの入力行でも `rtol=1e-7` で一致する。
+  - **前提**: 同じ計算機。同じ版の LightGBM / numpy / pandas / scikit-learn（export 時の版を `config.json` の `_versions` に記録し、生成 `train.py` は違う版ごとに名前を挙げて警告し、学習は続ける）。LightGBM の決定性は `model.params` の `deterministic: true` / `force_col_wise: true` / `num_threads: 1` で固定でき、これらは `lgbm_params` に書かれて両側に効く。
+  - **CSV**: 生成 `train.py` が `pd.read_csv` で読み、`declared_categories` を当てた後の、学習に使うすべての列（目的変数・特徴量・時間・グループ）の値と dtype が fit 時と等しい場合に限って約束する（型の混じった列、文字列として読まれる時刻、`"01"` のような文字列の目的変数は満たさない）。
+  - **約束しないもの**: 校正器（fold のモデルは再現しない）、異なるデータでの再学習、H-0120 より前に生成したプロジェクト、`applied_training_params` / `applied_sample_weight` / `declared_categories` の記録が無い artifact を load したモデルからの export の該当部分、型の混じった列を持つ fit の再学習（export 直後の `predict.py` は LizyML と同じ符号を使う）。
+  - **`config.json` が持つ値**: `inner_valid`（refit が使った strategy。`export_code` が fit と同じ `resolve_inner_valid` を、config と `applied_training_params` から呼び直して作る。検証集合が無ければ `null`）と `early_stopping_rounds`（adapter の patience、無ければ `null`）を独立に必ず書き、生成 `train.py` は既定値なしで読む。callback は両方があるときだけ付く。`sample_weight`（`"balanced"` か `null`、fit の記録から）、`declared_categories`（入力で `category` だった列）、`categorical_rule`（データの組み立てが `category` に変える列の規則、`{"explicit": [...], "auto": bool}`）、`_versions`。
+  - **生成 `train.py` の学習**: 時間順の split と `blocked_group_kfold` は `Series.argsort()` で行を並べてから学習する。inner valid は 4 つの strategy を同じ numpy / scikit-learn の呼び出しで移したもので分割する。multiclass の `balanced` の重みは並べた後の全行で `compute_sample_weight("balanced", y)` と同じ値を作り、inner-train の行にだけ付ける。`LGBMAdapter.fit` と同じ Dataset と callback の組み立てで `lgb.train` を呼ぶ。
+  - **カテゴリの符号（#304）**: 生成 `train.py` は `categorical_rule` で LizyML と同じ `astype("category")` を当ててから、`CategoricalEncoder.fit` と同じ 2 つの分岐でカテゴリと最頻値を決める。`pipeline_state.json` は列ごとに `{"categories": [型付きの値, ...], "mode": 値}` を持ち、配列の位置が符号である（`str` をキーにしない）。`predict.py` も同じ値で符号を引く。
+  - **拒否**: カテゴリ・最頻値・目的変数のラベルが `str` / `int` / `float` / `bool` と、`.item()` がそれらになり元の値と等しい numpy のスカラーの外にあるとき、`export_code` は何も書く前に `SERIALIZATION_FAILED` で拒否する（黙って `str` にしない）。
 - **校正用 OOF の fold の再現（H-0090）**: `config.json` は `split` ブロック（`config.json["split"]`）を持ち、outer split の method 固有のパラメーターを解決済みの値で書く（`_build_split_metadata(cfg)`。`stratify="auto"` は bool に畳み、`random_state` が無ければ `training.seed` を書く）。生成 `train.py` は校正用 OOF の CV fold をこのブロックから作り、`split.method` を再現する: `kfold` / `stratified_kfold` / `time_series` / `group_kfold` / `stratified_group_kfold` は scikit-learn の splitter、`purged_time_series` / `group_time_series` / `blocked_group_kfold` は LizyML のロジックを numpy に移したもの。
   - 時間の method では `time_col`、`blocked_group_kfold` では `blocks.col` で pandas の `argsort()` により並べてから分割し、fold を元の行順に戻す。
   - 生成 calibrator は covered な（OOF が NaN でない）行だけで学習する（LizyML の cross-fit の `C_final` と同じ）。
@@ -1835,7 +2111,7 @@ LightGBM/XGBoost が `all_x_types` / `all_y_types` で実施しているコン�
 - 配布メタデータ検証（例: `twine check` 相当）を CI に含める。
 - install smoke test を行い、配布物からの import と README の最短利用例が破綻していないことを確認する。
 - 複数 Python バージョン（最低限 `requires-python` の下限と最新安定版）でテストを実行する。
-- 依存の下限バージョンでのテストを CI に含める（`uv` の resolution 機能で `lowest-direct` を使用）。
+- 依存の下限バージョンでのテストを CI に含める（H-0126）。`Quality (lowest-direct deps)` は lock を使わずに、本体と全 extras を `uv pip install --resolution lowest-direct` で宣言した下限の版で入れ、`scripts/check_dependency_floors.py` で入った版が全て下限と等しいことを確かめて（版の表を表示する）から、slow を除くスイートを流す。`quality` の各レーンは依存の導入の前に `uv lock --check` で lock と `pyproject.toml` の整合を確かめる。`[dependency-groups].dev` は extras の下限を写さず `lizyml[tuning,explain,plots,calibration]` で参照する。
 - 依存の上限方向（forward-compat）を検証する non-blocking lane を CI に含める（`uv sync --upgrade`）。上流の破壊的リリース（pandas / numpy / lightgbm 等）を早期検知する。ランタイム依存は下限のみ宣言し上限 cap は付けない方針とする（詳細は CONTRIBUTING.md）。
 - OS portability smoke（ubuntu / windows / macos）を CI に含め、path / newline 等の移植性問題を検知する（最低限の file I/O 系サブセット、単一 Python で可）。
 - `develop` および `main` ブランチへの PR で CI を実行する。`develop` PR では slow テストを除外し、`main` PR では全テストを実行する（H-0043）。

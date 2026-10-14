@@ -37,11 +37,12 @@ LightGBM の実装 (`lizyml/estimators/lgbm/`) が全項目のリファレンス
 
 > **注意**: `predict()` の戻り値の意味はアルゴリズムの Booster/sklearn API によって異なる。LightGBM Booster API では `objective="binary"` の `predict()` は確率値を返す（sigmoid 適用済み）。実装時はアルゴリズムの predict API に合わせ、CVTrainer 側の `get_fold_pred()` / `get_fold_raw()` と整合性を確認すること。
 
-### 2.2 オプショナルオーバーライド（4 個）
+### 2.2 オプショナルオーバーライド（5 個）
 
 | メソッド | デフォルト | 説明 |
 |---------|----------|------|
 | `set_categorical_features(cols)` | no-op | CVTrainer が `fit()` 前に呼ぶ |
+| `unsaveable_categories(pipeline_state)` | `[]` | モデルを保存するときに書けないカテゴリ値（`UnsaveableCategory` の list、列ごとに最初の一つ）。`Model.export` が保存の前に、状態ごとにその adapter に尋ねる（H-0129）。保存に制約の無い estimator は上書き不要 |
 | `update_params(params)` | no-op | per-fold ratio param 解決用 |
 | `best_iteration` (property) | `None` | Early stopping 使用時に設定 |
 | `eval_results` (property) | `{}` | 学習曲線用の評価履歴 |
@@ -87,8 +88,9 @@ LightGBM の実装 (`lizyml/estimators/lgbm/`) が全項目のリファレンス
 | `default_fixed_params(task)` → `dict` | Tuning 時に全試行で固定するパラメータ |
 
 > **SearchDim の型**:
-> - `FloatDim(name, low, high, log=False, category="model")` — frozen dataclass
-> - `IntDim(name, low, high, log=False, category="model")` — frozen dataclass
+> - `FloatDim(name, low, high, log=False, category="model", min_allowed=None, max_allowed=None, step=None)` — frozen dataclass
+> - `IntDim(name, low, high, log=False, category="model", min_allowed=None, max_allowed=None, step=None)` — frozen dataclass
+> - `step`（任意、H-0124）は原点 0 の格子の刻みで、`low` / `high` はその倍数にする（`IntDim` は 1 以上の整数）。既定空間の次元に付けると、格子の外の境界は `tune` が `CONFIG_INVALID` で拒否する。BLUEPRINT §11.1 を参照
 > - `CategoricalDim(name, choices, category="model")` — `choices` は **`tuple`** 型（`list` ではない）
 
 ### 3.5 メタ情報
@@ -177,10 +179,11 @@ def resolve_metrics(metrics, task, num_class=None):
 
 `model.export_code()` で LizyML 非依存コードを生成するには、追加の実装が必要。
 
-> **現状の制約**: codegen は現在 LightGBM 専用。以下のファイルが `LGBMAdapter` を直接 import している:
-> - `_model_persistence.py` — `isinstance(adapter, LGBMAdapter)` でガード
-> - `codegen/generator.py` — 関数シグネチャに `model_adapter: LGBMAdapter`
-> - `codegen/artifact_writer.py` — 関数シグネチャに `model_adapter: LGBMAdapter`、`save_model_text()` を呼び出し
+> **現状の制約**: codegen が生成するコードは LightGBM 専用。`codegen/`（Layer 3）は具象の adapter を import せず、`BaseEstimatorAdapter` と `BaseCalibratorAdapter` だけを参照する（H-0129 の層のテストが確かめる）。LightGBM 固有なのは次の所:
+> - `codegen/templates.py` — 生成する `train.py` / `predict.py` が LightGBM で学習・予測する
+> - `codegen/generator.py` — `generate_code(..., lgbm_params=...)` が LightGBM のパラメーターを受け取る
+> - `codegen/artifact_writer.py` — `model_adapter.save_model_text()`（`BaseEstimatorAdapter` の抽象メソッド）で書いたモデルのテキストを、テンプレートが LightGBM のモデルとして読む
+> - `core/_model_persistence.py`（Layer 4）— provider の `build_export_params(adapter)` で LightGBM のパラメーターと feval のメタデータを受け取り、booster が記録した objective の検査に `estimators/lgbm/param_validation` を使う
 
 ### 6.1 Adapter への追加メソッド
 
@@ -208,15 +211,15 @@ def resolve_metrics(metrics, task, num_class=None):
 
 ### 6.4 `_model_persistence.py` の拡張
 
-現在は `isinstance(adapter, LGBMAdapter)` でガードされている。新アルゴリズム対応時:
-- `export_code()` のガード条件を拡張
-- `_extract_feval_metadata()` は `adapter.params` と `adapter.task` のみ参照するが、**`_FEVAL_METRICS` のインポート元が `lizyml.estimators.lgbm.metric_bridge` に固定されている**。新アルゴリズムの metric_bridge から取得するようにディスパッチの追加が必要
+`export_code()` は provider の `build_export_params(adapter)` から学習パラメーターと feval のメタデータを受け取る（LightGBM の provider では `estimators/lgbm/provider.py` の `_extract_feval_metadata()` が `metric_bridge._FEVAL_METRICS` を読む）。新アルゴリズム対応時:
+- その provider の `build_export_params()` を実装する
+- booster が記録した objective の検査（`estimators/lgbm/param_validation` を使う）を、アルゴリズム別に分ける
 
 ### 6.5 `codegen/generator.py` と `codegen/artifact_writer.py` の拡張
 
-両ファイルとも関数シグネチャが `model_adapter: LGBMAdapter` で型制約されている。新アルゴリズム対応時:
-- `LGBMAdapter` → `BaseEstimatorAdapter` への型拡張
-- `save_model_text()` の呼び出しをアルゴリズム別にディスパッチ
+両ファイルとも引数の型は `BaseEstimatorAdapter` / `BaseCalibratorAdapter` で、具象の adapter を import しない。新アルゴリズム対応時:
+- `generate_code(..., lgbm_params=...)` の引数をアルゴリズムに依らない形にする
+- `save_model_text()` が書くモデルのテキストを、テンプレートがアルゴリズム別に読めるようにする
 - `artifact_writer.py` のモデル保存ロジックをアルゴリズム別に分離
 
 ---
@@ -271,11 +274,11 @@ Proposal 不要:
 
 | ルール | 説明 |
 |--------|------|
-| **Layer 2 からの具象 import 禁止** | `training/`, `evaluation/`, `tuning/` は `BaseEstimatorAdapter` / `EstimatorProvider` のみ参照。`LGBMAdapter` 等の具象クラスを直接 import しない |
+| **Layer 2/3 からの具象 import 禁止** | `training/`, `evaluation/`, `tuning/`（Layer 2）と `explain/`, `plots/`, `persistence/`, `codegen/`（Layer 3）は `BaseEstimatorAdapter` / `EstimatorProvider` のみ参照。`LGBMAdapter` 等の具象クラスを直接 import しない。BLUEPRINT §2.1 の表と `tests/test_architecture/test_layer_rules.py` が全ての import を確かめる（H-0129。既存の例外 17 件は [#362](https://github.com/nbx-liz/LizyML/issues/362)） |
 | **Provider ディスパッチは Facade のみ** | `get_provider()` は `core/_model_factories.py` でのみ実行。Layer 2 以下でハードコードしない |
 | **model.py は組み立てのみ** | 学習・OOF・metric・plot ロジックを `model.py` に書かない |
 | **Optional dependency** | `torch` 等の重い依存は `try: import` + `LizyMLError(OPTIONAL_DEP_MISSING)` パターン |
-| **Codegen は現在 LightGBM 専用** | `generator.py`, `artifact_writer.py`, `_model_persistence.py` が `LGBMAdapter` を直接参照。新アルゴリズムの codegen 対応には抽象化の拡張が必要 |
+| **Codegen は現在 LightGBM 専用** | 生成するコード（`templates.py`）と `generate_code(..., lgbm_params=...)` が LightGBM 固有。`codegen/` は具象の adapter を import しない（§6）。新アルゴリズムの codegen 対応には抽象化の拡張が必要 |
 
 ---
 

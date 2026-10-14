@@ -37,6 +37,10 @@ def generate_code(
     target_classes: list[Any] | None = None,
     split: dict[str, Any] | None = None,
     calibration_params: dict[str, Any] | None = None,
+    inner_valid: dict[str, Any] | None = None,
+    sample_weight: str | None = None,
+    declared_categories: dict[str, list[Any]] | None = None,
+    categorical_rule: dict[str, Any] | None = None,
 ) -> Path:
     """Generate LizyML-independent training and prediction code.
 
@@ -74,14 +78,21 @@ def generate_code(
         feval_metrics: List of feval metric descriptors (H-0066).
             Each dict has ``name``, ``params``, ``greater_is_better``,
             ``needs_proba``.  Defaults to ``[]``.
+        inner_valid: The refit's inner-validation split (H-0120).
+        sample_weight: ``"balanced"`` or ``None`` (H-0120).
+        declared_categories: Category-dtype columns at fit (H-0120).
 
     Returns:
         The resolved output directory path.
+
+    Raises:
+        LizyMLError: With ``SERIALIZATION_FAILED`` for a category, mode or
+            target label outside the accepted value types. Nothing is written:
+            the values are checked before the output directory is created.
     """
     root = Path(output_dir)
-    root.mkdir(parents=True, exist_ok=True)
 
-    # Build config
+    # Build config (checks the target labels and declared categories)
     config = build_config(
         run_meta=run_meta,
         feature_names=feature_names,
@@ -99,6 +110,10 @@ def generate_code(
         calibration_params=calibration_params,
         # H-0104: the policy the fit applied, so a retrain keeps it.
         unseen_policy=pipeline_state.get("encoder", {}).get("unseen_policy", "mode"),
+        inner_valid=inner_valid,
+        sample_weight=sample_weight,
+        declared_categories=declared_categories,
+        categorical_rule=categorical_rule,
     )
 
     # Write artifacts (config.json, model.txt, pipeline_state.json, calibrator)

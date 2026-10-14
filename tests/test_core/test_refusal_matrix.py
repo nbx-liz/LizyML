@@ -49,7 +49,7 @@ REFUSAL_MATRIX: dict[str, dict[str, str]] = {
         "check_param_names": "wired",
         "check_duplicate_identities": "wired",
         "check_training_managed_overrides": "wired",
-        "check_smart_managed_overrides": "open: #280, 3/18 of the surface refused",
+        "check_smart_managed_overrides": "wired",
         "canonicalisation": "n/a: merged by identity, not by spelling",
     },
     "fit(params=)": {
@@ -67,7 +67,7 @@ REFUSAL_MATRIX: dict[str, dict[str, str]] = {
         "check_param_names": "wired",
         "check_duplicate_identities": "wired",
         "check_training_managed_overrides": "wired",
-        "check_smart_managed_overrides": "open: #279, 54/67 of the population",
+        "check_smart_managed_overrides": "wired",
         "canonicalisation": "n/a: merged by identity, not by spelling",
     },
     "tuning.optuna.space": {
@@ -160,6 +160,10 @@ def test_no_refusal_exists_that_the_matrix_does_not_name() -> None:
     # The space-level wrappers delegate to the row they belong to.
     refusals -= {"check_duplicate_space_dimensions", "check_training_managed_space"}
     refusals -= {"check_calibration_param_names"}
+    # Not a parameter-layer refusal: it reads the split and inner-valid config
+    # (H-0120 amendment 2), and its cases live in
+    # tests/test_core/test_regression_stratification.py.
+    refusals -= {"check_regression_stratification"}
     refusals |= {"check_param_names", "canonicalisation"}
     assert refusals <= named, (
         f"refusals with no column in the matrix: {refusals - named}"
@@ -256,6 +260,13 @@ _CELL_INPUTS: dict[tuple[str, str], tuple[dict[str, Any], dict[str, Any], str]] 
     ),
     ("model.params", "check_training_managed_overrides"): (
         _model_params(seed=7),
+        {},
+        "fit",
+    ),
+    # H-0121 (#280): alias-aware, at fit time. `max_leaves` is the spelling the
+    # construction-time literal check used to let through.
+    ("model.params", "check_smart_managed_overrides"): (
+        _model_params(max_leaves=12),
         {},
         "fit",
     ),
@@ -382,6 +393,9 @@ def _with_tuning_result(config: dict[str, Any], best: dict[str, Any]) -> Model:
         # existed, so it is the one that can carry a value the accepted set
         # does not contain.
         ("normalise_params", {"learning_rate": _UNACCEPTED}),
+        # H-0121: a restored layer naming what an active smart parameter
+        # writes. `auto_num_leaves` is on by default, so it would replace it.
+        ("check_smart_managed_overrides", {"max_leaves": 12}),
     ],
 )
 def test_a_restored_tuning_result_is_refused_too(
@@ -434,8 +448,8 @@ def test_the_executed_cells_are_exactly_the_wired_ones() -> None:
     declaration. Without it, marking a cell wired would be the same kind of
     unexecuted claim that three consecutive rounds found and closed.
 
-    ``model.params x check_smart_managed_overrides`` is the one wired-looking
-    pair deliberately absent: it is **open** (#280), and the table says so.
+    ``model.params x check_smart_managed_overrides`` was open (#280) until
+    H-0121 moved that refusal to ``_merge_params`` for every layer.
     """
     executed = set(_CELL_INPUTS) | {
         ("tuning best_model_params", "check_param_values"),
@@ -443,6 +457,7 @@ def test_the_executed_cells_are_exactly_the_wired_ones() -> None:
         ("tuning best_model_params", "check_training_managed_overrides"),
         ("tuning best_model_params", "check_duplicate_identities"),
         ("tuning best_model_params", "normalise_params"),
+        ("tuning best_model_params", "check_smart_managed_overrides"),
         ("calibration.params", "canonicalisation"),
     }
     missing = _WIRED - executed

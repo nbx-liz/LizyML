@@ -34,9 +34,116 @@ from lizyml.core.types.task import TaskType
 if TYPE_CHECKING:
     from lizyml.core.types.fit_result import FitResult
     from lizyml.core.types.tuning_result import TuningResult
+    from lizyml.estimators.base import BaseEstimatorAdapter
     from lizyml.training.refit_trainer import RefitResult
 
 FORMAT_VERSION = 2
+
+_JSON_SCALARS = (str, int, float, bool)
+
+
+def _plain_declared(
+    declared: dict[str, list[Any]] | None,
+) -> dict[str, list[Any]] | None:
+    """The declared-categories record as typed JSON values, or ``None``.
+
+    numpy scalars become the Python value their ``.item()`` returns when it is
+    equal; any other value makes the whole record ``None`` (omitted), never a
+    ``str`` (H-0120 amendment 4).
+    """
+    if declared is None:
+        return None
+    out: dict[str, list[Any]] = {}
+    for col, cats in declared.items():
+        values: list[Any] = []
+        for value in cats:
+            plain = value.item() if hasattr(value, "item") else value
+            if type(plain) not in _JSON_SCALARS or plain != value:
+                return None
+            values.append(plain)
+        out[col] = values
+    return out
+
+
+def _saved_pipeline_states(
+    fit_result: FitResult, refit_result: RefitResult
+) -> list[tuple[str, Any, BaseEstimatorAdapter]]:
+    """Every pipeline state whose booster is pickled, named for the error, with
+    the adapter saved with it (H-0129).
+
+    Raises:
+        LizyMLError: ``SERIALIZATION_FAILED`` when a state has no adapter to ask:
+            the fold states and ``fit_result.models`` differ in number, or there
+            are no per-fold states and no model.
+    """
+    per_fold = fit_result.pipeline_state_per_fold
+    models = list(fit_result.models)
+    if (per_fold is None and not models) or (
+        per_fold is not None and len(per_fold) != len(models)
+    ):
+        raise LizyMLError(
+            code=ErrorCode.SERIALIZATION_FAILED,
+            user_message=(
+                "Model.export cannot check this model's category values: "
+                f"{'no' if per_fold is None else len(per_fold)} per-fold pipeline "
+                f"state(s) and {len(models)} fold model(s) do not pair up."
+            ),
+            context={
+                "fold_states": None if per_fold is None else len(per_fold),
+                "models": len(models),
+            },
+        )
+    named: list[tuple[str, Any, BaseEstimatorAdapter]] = [
+        ("refit", refit_result.pipeline_state, refit_result.model)
+    ]
+    if per_fold is None:
+        named.append(("last fold", fit_result.pipeline_state, models[-1]))
+    else:
+        named.extend(
+            (f"fold {k}", state, model)
+            for k, (state, model) in enumerate(zip(per_fold, models, strict=True), 1)
+        )
+    return named
+
+
+def check_category_values(fit_result: FitResult, refit_result: RefitResult) -> None:
+    """Refuse, before anything is written, a model its estimator cannot save
+    (H-0127).
+
+    LightGBM writes each categorical column's categories as JSON when the
+    booster is pickled; a value JSON cannot encode used to fail half-way
+    through the write with ``Circular reference detected`` (#338). Each saved
+    pipeline state is checked by the adapter saved with it
+    (``BaseEstimatorAdapter.unsaveable_categories``, H-0129), so this layer
+    imports no concrete estimator.
+
+    Raises:
+        LizyMLError: With ``SERIALIZATION_FAILED`` naming the column, the value,
+            its type and the pipeline state that holds it, or a state that has
+            no adapter to ask.
+    """
+    for state_name, state, adapter in _saved_pipeline_states(fit_result, refit_result):
+        found = adapter.unsaveable_categories(state)
+        if not found:
+            continue
+        item = found[0]
+        raise LizyMLError(
+            code=ErrorCode.SERIALIZATION_FAILED,
+            user_message=(
+                f"Model.export cannot save this model: column '{item.column}' "
+                f"({state_name} pipeline state) holds the category value "
+                f"{item.shown} of type "
+                f"{item.type_name}, which LightGBM cannot write into a saved "
+                "model (it stores category values as JSON). Convert the "
+                "column's values to str (or int, float, bool) and fit again."
+            ),
+            context={
+                "column": item.column,
+                "value": item.shown,
+                "type": item.type_name,
+                "state": state_name,
+            },
+        )
 
 
 def _tuning_metadata(tuning: TuningResult) -> dict[str, Any]:
@@ -85,6 +192,9 @@ def export(
     tuning: TuningResult | None = None,
     tuning_fixed_params: dict[str, Any] | None = None,
     applied_training_params: dict[str, Any] | None = None,
+    applied_sample_weight: str | None = None,
+    declared_categories: dict[str, list[Any]] | None = None,
+    categories_checked: bool = False,
 ) -> None:
     """Serialize Model artifacts to *path*.
 
@@ -108,10 +218,28 @@ def export(
             and may be one no fit consumed. ``None`` means unknown (a model
             loaded from an artifact without the record) and omits the key, so
             re-exporting such a model does not invent a record.
+        applied_sample_weight: The row-weight rule that fit's refit applied,
+            ``"balanced"`` or ``"none"``, recorded under
+            ``metadata["applied_sample_weight"]`` (H-0120 amendment 1).
+            ``None`` means unknown and omits the key, as above.
+        declared_categories: The features the fit's input frame held as
+            ``category``, with their categories, recorded under
+            ``metadata["declared_categories"]`` (H-0120 amendment 4). ``None``
+            means unknown and omits the key. A record holding a value JSON
+            cannot return with its type is omitted too rather than written as
+            ``str``: ``export_code`` refuses such a model anyway, because the
+            encoder holds the same values.
+        categories_checked: ``True`` when the caller already ran
+            :func:`check_category_values` on these results (``Model.export``
+            runs it before resolving the path), so the scan is not repeated.
 
     Raises:
-        LizyMLError with SERIALIZATION_FAILED on any I/O or serialization error.
+        LizyMLError with SERIALIZATION_FAILED on any I/O or serialization error,
+        and before anything is written when a category value cannot be saved
+        (:func:`check_category_values`, H-0127).
     """
+    if not categories_checked:
+        check_category_values(fit_result, refit_result)
     out = Path(path)
     try:
         out.mkdir(parents=True, exist_ok=True)
@@ -149,6 +277,11 @@ def export(
                 metadata["tuning"]["fixed_params"] = dict(tuning_fixed_params)
         if applied_training_params is not None:
             metadata["applied_training_params"] = dict(applied_training_params)
+        if applied_sample_weight is not None:
+            metadata["applied_sample_weight"] = applied_sample_weight
+        declared = _plain_declared(declared_categories)
+        if declared is not None:
+            metadata["declared_categories"] = declared
         (out / "metadata.json").write_text(
             json.dumps(metadata, indent=2, default=str), encoding="utf-8"
         )

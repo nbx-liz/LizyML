@@ -1,0 +1,8 @@
+enforced rule (layers 2-3 import only estimator interfaces):
+  lizyml/persistence/exporter.py:33 layer 3 imports a concrete estimator: lizyml.estimators.lgbm.category_json
+reported (an import pointing to a higher layer):
+  lizyml/calibration/isotonic.py:20 layer 1 imports layer 4: lizyml.core.param_domain
+  lizyml/data/dataframe_builder.py:18 layer 1 imports layer 4: lizyml.core.specs.feature_spec
+  lizyml/data/dataframe_builder.py:19 layer 1 imports layer 4: lizyml.core.specs.problem_spec
+  lizyml/estimators/lgbm/adapter.py:13 layer 1 imports layer 4: lizyml.core.param_domain
+imports checked: 480; enforced violations: 1; reported: 4

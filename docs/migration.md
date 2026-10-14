@@ -5,6 +5,257 @@ release from v0.5.0 onward.
 
 ---
 
+## v0.19.0
+
+Tuning with `resume=True`, `storage` or `study_name` changes (H-0122). Some
+configs and search spaces that v0.18.0 silently read as something else are
+now refused: smart-parameter collisions and smart dimensions (H-0121), the
+search-space format and `step` (H-0123, H-0124), regression stratification
+(H-0120), and a few objective and metric values (H-0125). Each has a section
+below.
+A `tune()` that starts a new in-memory study, and an in-memory `tune()` ->
+`tune(resume=True)` that keeps the data and the config unchanged between rounds,
+need no edits; their results can still change (see below). Saved artifacts keep
+`format_version` 2.
+
+### Studies created before v0.19.0
+
+A study created before v0.19.0 cannot be continued. It carries no LizyML record
+of the objective its trials observe, so `tune(resume=True)` raises
+`CONFIG_INVALID` for it. Start again under a new `study_name`; the old study's
+trials stay readable through Optuna. Finish paused jobs (for example a paused
+LizyStudio job) before upgrading, since their studies cannot be resumed
+afterwards.
+
+### Calls that now raise `LizyMLError(CONFIG_INVALID)`
+
+| You wrote | Write instead |
+|-----------|---------------|
+| `tune(storage=..., study_name=...)` to re-attach to a stored study after a crash | `tune(resume=True, storage=..., study_name=...)`: it reattaches, and creates the study when the storage lacks it, so one call both starts and resumes a job |
+| `tune(resume=False, ...)` with a `study_name` the storage already holds | `resume=True` to continue it, or a new `study_name` for a new study |
+| `study_name` without `storage` | Drop `study_name` for an in-memory study, or pass `storage` as well |
+| `tune(resume=True, storage=..., study_name=...)` on a Model that holds a different study | Omit `storage` and `study_name` to continue the held study, or use a new `Model` to reattach to another study |
+| Different data, config (outside the search space), split or first metric, then `tune(resume=True)` | A new study (`resume=False`, or a new `study_name`); the error's context names what changed |
+| An edited `tuning.optuna.space` (or `model._cfg`), then `tune(resume=True)` | `tune(resume=True, space={...})` |
+| An edited `tuning.optuna.space_mode`, then `tune(resume=True)` | A new study |
+| `space=` that changes a dimension's distribution kind, `log`, choices or category | A new study; only ranges (`low` / `high`) can change within a study |
+| `space=` on the first `tune()` of a study | Declare round 1's space in `tuning.optuna.space` |
+| An `n_trials`, `expand_boundary` or `space=` other than the recorded one when finishing a round a crash interrupted | Omit them (or pass the recorded values); the round finishes with its recorded budget |
+
+### Results that change
+
+- **A resumed round no longer re-evaluates the previous best.** Before, each
+  resumed round started by enqueueing the previous best parameters and training
+  them again, so one of its `n_trials` repeated a known point. Every trial is now
+  a new TPE sample, so with the same seed a resumed round's trials, and possibly
+  its best, differ from v0.18.0. `best_params` and `best_score` are still the
+  study's best trial, which may come from an earlier round.
+- A new study starts at round 1; `resume=False` no longer keeps counting the
+  previous study's rounds. A reattached Model continues the study's round
+  numbers.
+- A round that ends with no COMPLETE trial of its own raises
+  `TUNING_FAILED`, is recorded `failed`, and is left out of
+  `TuningResult.rounds` (H-0128, below), so `rounds` can skip round numbers
+  and can start at round 2 with `best_score_before=None`. Code that assumes
+  `rounds[0].round == 1`, or that `len(rounds)` counts every round, needs the
+  round numbers instead.
+- `RoundSummary.n_trials` is the number of trials the round ran, and
+  `TuneProgressInfo.current_trial` counts within the round, continuing at K+1
+  when a round with K finished trials is resumed.
+
+### Changing the search space on resume: `tune(space=...)`
+
+`tuning.optuna.space` declares a study's first round only. Change the range of
+a later round with `space=`, in the same form, resolved by the study's
+`space_mode`:
+
+```python
+model.tune()  # round 1: tuning.optuna.space
+model.tune(
+    resume=True,
+    space={"learning_rate": {"type": "float", "low": 1e-3, "high": 0.3, "log": True}},
+)
+```
+
+With `space_mode: merge`, `space=` is laid over the provider's default
+dimensions: a default dimension you overrode in the config but leave out of
+`space=` returns to its default declaration, and a dimension only the config
+declared (not a provider default) is no longer searched unless `space=`
+declares it again. With `replace`, `space=` is the whole space and a
+dimension left out is no longer searched. A dimension that is no longer
+searched trains on its config value in later trials. Trials of the old range stay in the
+study, and the best of all trials is still the result.
+
+### Continuing after a crash
+
+```python
+model = Model(config, data=df)
+model.tune(resume=True, storage="sqlite:///optuna.db", study_name="job-1")
+```
+
+Run the same call again after a crash. A round the crash interrupted is
+finished with its recorded space and remaining budget; a closed round is
+followed by a new one. If the process died after the round closed but before
+the result was received, `model.restore_tuning("sqlite:///optuna.db",
+"job-1")` returns that result without adding trials.
+`lizyml.tuning.read_study_lineage(storage, study_name)` reports which case a
+stored study is in without changing it.
+
+### Third-party providers
+
+`EstimatorProvider.default_params(task)` is a new, optional method: the
+defaults the provider lays under the user's parameters. They enter the
+objective identity, so a changed default refuses a resume. A provider without
+the method keeps working, and its defaults are not checked.
+
+`EstimatorProvider.smart_param_owners()` is a new, required method (H-0121):
+for each smart parameter that is read only while another one is true, that
+owner. `tune` calls it, so a provider without it fails there; one without
+smart parameters returns `{}`.
+
+`EstimatorProvider.smart_value_rules()` is a new, required method (H-0121
+amendment 2): a `SmartValueRule` for every name `smart_param_names()` returns,
+stating the values that smart parameter can hold. `tune` checks every
+`category: smart` dimension against it before the study, and `restore_tuning`
+and `Model.load` check recorded values against it, so a provider without it
+fails there. A provider without smart parameters returns `{}`.
+
+`BaseEstimatorAdapter.unsaveable_categories(pipeline_state)` is a new, optional
+method (H-0129): the category values the estimator cannot write when its model
+is saved. The default, `[]`, is the old behaviour for third-party adapters:
+`Model.export` no longer checks their models against LightGBM's JSON limit.
+
+---
+
+### Smart parameters and smart dimensions (H-0121)
+
+A value for a parameter a smart parameter manages is now refused, in any
+LightGBM spelling, by `fit` and `tune` before training
+([#280](https://github.com/nbx-liz/LizyML/issues/280)). It used to be
+overwritten by the smart value, or sent to LightGBM next to it. The literal
+names `num_leaves`, `min_data_in_leaf` and `min_data_in_bin` were refused when
+the config was built; they are now refused at `fit` / `tune`.
+
+| You wrote (in `model.params`, `fit(params=)` or a tuned `best_model_params`) | Write instead |
+|-----------|---------------|
+| `num_leaves` or an alias such as `max_leaves`, with `auto_num_leaves` on (the default) | `model.auto_num_leaves: false` to set the leaves yourself |
+| `min_data_in_leaf` (any alias), with `min_data_in_leaf_ratio` set (the default is `0.01`) | `model.min_data_in_leaf_ratio: null` |
+| `min_data_in_bin` (any alias), with `min_data_in_bin_ratio` set (the default is `0.01`) | `model.min_data_in_bin_ratio: null` |
+| `feature_contri` or `feature_pre_filter`, with `feature_weights` set | One of the two |
+| `scale_pos_weight` on a binary task, with `balanced` on (`null`, the default, is on for binary) | `model.balanced: false` |
+
+Search dimensions with `category: smart`
+([#299](https://github.com/nbx-liz/LizyML/issues/299),
+[#341](https://github.com/nbx-liz/LizyML/issues/341),
+[#347](https://github.com/nbx-liz/LizyML/issues/347)), refused before the study:
+
+| You wrote | Write instead |
+|-----------|---------------|
+| A smart dimension whose name is not a smart parameter, such as `num_leaves` | `category: model` for a LightGBM parameter. If a smart parameter manages it, turn that one off as well: for `num_leaves`, `model.auto_num_leaves: false` (the first table) |
+| A `num_leaves_ratio` dimension with `auto_num_leaves: false` and no `auto_num_leaves` dimension that can be true | Remove it, or turn `auto_num_leaves` on |
+| `model.params`, the round's fixed parameters or a `category: model` dimension that one of the round's smart dimensions could manage (for example `max_leaves` while the space holds `auto_num_leaves: [true]`) | Drop the parameter or the dimension |
+| A smart dimension value of the wrong type or range: `"false"`, `0` / `1` for a bool, a bool for a number, NaN, a ratio outside its range, `balanced: true` on regression | The values listed in docs/config-reference.md |
+
+- The default space's `num_leaves_ratio`, when `auto_num_leaves` cannot be
+  true, is dropped from the tune instead of searched to no effect (logged at
+  INFO, `event='tune.drop_dims'`).
+- The boundary expansion of `num_leaves_ratio` stops at `1.0` instead of `2.0`.
+
+### Search space format and `step` (H-0123, H-0124)
+
+`tuning.optuna.space` and `tune(space=...)` are checked by one rule before a
+study is created ([#344](https://github.com/nbx-liz/LizyML/issues/344)); the
+refusal's `context` names the dimension, the key and a `reason`. These used to
+be read as a different search:
+
+| You wrote | Write instead |
+|-----------|---------------|
+| `log: "false"` (a string) | `log: false` |
+| A key outside the format (a misspelt `lo`, `low` / `high` on a categorical dimension) | The keys in docs/config-reference.md |
+| An `int` bound that is not a whole number, such as `1.7` | A whole number (`"16.0"` and `"1e2"` are accepted as 16 and 100) |
+| `choices` that is a string, set, dict, range or array | A non-empty list |
+| A `category` other than `model`, `smart` or `training` | One of the three |
+| A bound that is NaN, infinite, a bool, `None` or a non-number string | A finite number |
+| A `step` whose `low` or `high` is not a multiple of it ([#350](https://github.com/nbx-liz/LizyML/issues/350)) | Bounds on the grid; the message suggests one |
+| A `step` of zero or below | A positive step (a whole number of at least 1 on an `int` dimension) |
+
+A `step` is now honoured: the trials sample the multiples of `step` between
+`low` and `high`. v0.18.0 ignored it, so a stepped dimension's trials, and the
+best parameters, differ from v0.18.0 with the same seed.
+
+### Regression splits and generated code (H-0120)
+
+- A regression config with `split.method: stratified_kfold` /
+  `stratified_group_kfold`, `split.groups.stratify: true` or an explicit
+  `inner_valid` with `stratify: true` raises `CONFIG_INVALID` before training.
+  Use `kfold`, `group_kfold` or `stratify: false`.
+- The `train.py` of `export_code` reproduces the refit again
+  ([#301](https://github.com/nbx-liz/LizyML/issues/301),
+  [#304](https://github.com/nbx-liz/LizyML/issues/304)). An existing generated
+  project retrains as before; export again to get the new `train.py`.
+
+---
+
+### Binary objectives, native metric params and tune values (H-0125)
+
+| You wrote | Write instead |
+|-----------|---------------|
+| `objective: cross_entropy_lambda` on a binary task (any spelling of the key) | `binary` or `cross_entropy`. Its output is LightGBM's lambda, not a probability ([#307](https://github.com/nbx-liz/LizyML/issues/307)); the metric `cross_entropy_lambda` stays valid |
+| A parameter on a LightGBM-native metric in `model.params["metric"]`, e.g. `{"huber": {"delta": 9.0}}` | The bare name (`"huber"`), LightGBM's own parameter (`alpha` for `huber`, shared with the objective), or the parameterised LizyML metric in `evaluation.metrics` ([#313](https://github.com/nbx-liz/LizyML/issues/313)) |
+| An `objective` / `metric` search dimension that is `int` / `float`, or has a choice fit would refuse | A categorical dimension whose every choice fit accepts; `Model.tune` now refuses it before the study instead of failing those trials |
+
+- `Model.load` refuses (`DESERIALIZATION_FAILED`) an artifact whose boosters
+  were trained with `cross_entropy_lambda`; fit again with `binary` or
+  `cross_entropy` and export again. Other artifacts load as before.
+- An artifact that recorded a parameter on a native metric still loads and
+  predicts; a re-fit or `export_code` from it raises `CONFIG_INVALID`. Remove
+  the parameter from the config.
+- The learning curve (`FitResult.history`, `plot_learning_curve`) reports
+  LightGBM's metrics: its `huber` (threshold `alpha`) and `mape`
+  (`|y-p| / max(1,|y|)`, a ratio) differ from `FitResult.metrics` entries of
+  the same name ([#354](https://github.com/nbx-liz/LizyML/issues/354)).
+
+### Minimum dependency versions (H-0126)
+
+| Installed | Needed |
+|-----------|--------|
+| `pydantic` 2.0 | 2.1 or later (2.0 could not import LizyML) |
+| `lightgbm` 4.0-4.3 | 4.4 or later (4.0-4.3 raise on `early_stopping_round=0` without a validation set) |
+| `optuna` 3.0, with the `tuning` extra | 3.1 or later (3.0 conflicts with the `calibration` extra's `scipy>=1.10`) |
+
+`pip install -U lizyml` raises them. The generated project's `requirements.txt`
+asks for `lightgbm>=4.4` too.
+
+### Failed resumed rounds and LightGBM trial errors (H-0128)
+
+- `tune(resume=True)` raises `TUNING_FAILED` when none of the round's own
+  trials completed, even if earlier rounds did; before, it returned the
+  previous best. Code that resumes in a loop should catch it and call
+  `tune(resume=True, space=...)` with a corrected space. The Model keeps its
+  previous tuning result.
+- A LightGBM error inside a trial (an invalid parameter value in a range) is
+  a failed trial: the round runs its budget instead of stopping at the first
+  trial with `Optuna study failed`.
+- An open round with no COMPLETE trial accepts a different `space=`: it is
+  closed `failed` (`UserWarning`) and a new round starts. Before, that call
+  raised `CONFIG_INVALID`.
+- `restore_tuning` on a study whose last round failed still raises
+  `TUNING_FAILED`; it does not restore earlier rounds.
+
+### Category values (H-0127)
+
+- A column categorical at fit with integer categories now predicts from
+  `float16` and `longdouble` values instead of raising a raw pandas error. A
+  `longdouble` value float64 changes (for example `3 + 3 eps`) is unseen and
+  follows `features.unseen_policy`; it never takes the neighbouring category.
+- `Model.export` of a model whose categorical column holds a value LightGBM
+  cannot write (`bytes`, `Decimal`, dates and timestamps, `Timedelta`,
+  `complex`, `frozenset`, a `tuple` holding one) still raises
+  `SERIALIZATION_FAILED`, now before anything is written and naming the
+  column, value and type. `fit` emits a `UserWarning` for such a column; a
+  test that turns warnings into errors stops there. Convert the values to
+  `str` before `fit` to be able to save the model.
+
 ## v0.18.0
 
 Most configs need no edits. Go through the sections below and act on the items

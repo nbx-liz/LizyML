@@ -1,0 +1,11 @@
+NaN counted as changed (criterion 2b): FAILS as required (6 failed, 28 passed, 2 warnings in 0.98s)
+lossy longdouble matched after rounding (criterion 2): FAILS as required (4 failed, 30 passed in 0.92s)
+train.py copy left without the normalisation (criterion 3): FAILS as required (14 failed, 64 passed in 4.52s)
+export check removed (criterion 5): FAILS as required (29 failed, 61 passed in 6.13s)
+export check reads the refit state only (criterion 5b): FAILS as required (3 failed, 87 passed in 5.65s)
+fit warning removed (criterion 6): FAILS as required (31 failed, 59 passed in 5.81s)
+plain repr in the formatter (criterion 4b): FAILS as required (2 failed, 88 passed in 5.52s)
+only json's own exceptions counted as unwritable (impl review r1): FAILS as required (1 failed, 89 passed in 5.49s)
+train.py's warning drops the values (impl review r1, DC3): FAILS as required (12 failed, 66 passed in 1.36s)
+numpy scalars with a non-plain .item() accepted (criterion 4): FAILS as required (1 failed, 89 passed in 5.55s)
+all mutations caught

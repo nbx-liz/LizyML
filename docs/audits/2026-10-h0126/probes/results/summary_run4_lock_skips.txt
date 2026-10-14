@@ -1,0 +1,3 @@
+SKIPPED [230] tests/test_core/test_param_domain.py:250: holds a mapping: never serialised as itself
+FAILED tests/test_e2e/test_version.py::TestVersion::test_version_matches_package_metadata
+1 failed, 11440 passed, 230 skipped, 21 deselected, 4 xfailed, 900 warnings in 235.39s (0:03:55)

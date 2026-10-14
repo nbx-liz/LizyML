@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal
 
@@ -11,6 +12,19 @@ import numpy.typing as npt
 import pandas as pd
 
 ImportanceKind = Literal["split", "gain"]
+
+
+@dataclass(frozen=True)
+class UnsaveableCategory:
+    """A category value an estimator cannot write when its model is saved (H-0129).
+
+    ``shown`` and ``type_name`` are display strings the adapter built without
+    raising; the value itself is not kept.
+    """
+
+    column: str
+    shown: str
+    type_name: str
 
 
 class BaseEstimatorAdapter(ABC):
@@ -99,6 +113,16 @@ class BaseEstimatorAdapter(ABC):
         Added in H-0054 to remove LGBM-specific kwargs from Layer 2.
         """
         return  # noqa: B027 — intentional no-op default
+
+    def unsaveable_categories(self, pipeline_state: Any) -> list[UnsaveableCategory]:
+        """The category values in *pipeline_state* this estimator cannot save.
+
+        One per column, the first such value, in column order. ``Model.export``
+        and ``lizyml.persistence.export`` ask the adapter saved with each
+        pipeline state before writing anything (H-0127, H-0129). The default
+        is ``[]``: the estimator can save every category value it trained on.
+        """
+        return []
 
     def update_params(self, params: dict[str, Any]) -> None:
         """Update estimator parameters before ``fit()`` is called.

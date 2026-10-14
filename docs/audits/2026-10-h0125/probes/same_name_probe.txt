@@ -1,0 +1,7 @@
+rmse   native=0.481330 lizyml rmse=0.481330
+l1     native=0.384950 lizyml mae=0.384950
+mape   native=0.331396 lizyml mape=154.051095
+huber  native=0.113966 lizyml huber=0.114761
+binary_logloss     native=0.302820 lizyml logloss=0.302820
+auc                native=0.959992 lizyml auc=0.959992
+average_precision  native=0.952235 lizyml auc_pr=0.952235

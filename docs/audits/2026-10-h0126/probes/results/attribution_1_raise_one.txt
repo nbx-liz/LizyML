@@ -1,0 +1,49 @@
+[run-exclusive] h0126-attr starting; load was 2.84
+== baseline: 5 failed, 6 passed, 18 warnings in 1.17s
+  test_tuning/test_space_merge.py::test_removed_training_dimension_admission[False]
+  test_tuning/test_objective_identity.py::TestSummariseFrame::test_hash_pandas_object_alone_misses_the_auxiliary_cases
+  test_core/test_param_domain.py::test_unchanged_is_decided_by_type_and_not_by_printed_text
+  test_core/test_param_domain.py::test_a_value_with_no_plain_stand_in_is_refused_rather_than_rounded
+  test_codegen/test_calibration_params_codegen.py::test_generated_fitter_matches_the_runtime_calibrator[platt-params1]
+== up_numpy==1.26.4: 4 failed, 7 passed, 136 warnings in 1.29s
+  test_tuning/test_space_merge.py::test_removed_training_dimension_admission[False]
+  test_tuning/test_objective_identity.py::TestSummariseFrame::test_hash_pandas_object_alone_misses_the_auxiliary_cases
+  test_core/test_param_domain.py::test_unchanged_is_decided_by_type_and_not_by_printed_text
+  test_codegen/test_calibration_params_codegen.py::test_generated_fitter_matches_the_runtime_calibrator[platt-params1]
+== up_pandas==2.2.3: 4 failed, 7 passed, 18 warnings in 1.68s
+  test_tuning/test_space_merge.py::test_removed_training_dimension_admission[False]
+  test_core/test_param_domain.py::test_unchanged_is_decided_by_type_and_not_by_printed_text
+  test_core/test_param_domain.py::test_a_value_with_no_plain_stand_in_is_refused_rather_than_rounded
+  test_codegen/test_calibration_params_codegen.py::test_generated_fitter_matches_the_runtime_calibrator[platt-params1]
+== up_scikit-learn==1.5.2: 5 failed, 6 passed, 18 warnings in 1.67s
+  test_tuning/test_space_merge.py::test_removed_training_dimension_admission[False]
+  test_tuning/test_objective_identity.py::TestSummariseFrame::test_hash_pandas_object_alone_misses_the_auxiliary_cases
+  test_core/test_param_domain.py::test_unchanged_is_decided_by_type_and_not_by_printed_text
+  test_core/test_param_domain.py::test_a_value_with_no_plain_stand_in_is_refused_rather_than_rounded
+  test_codegen/test_calibration_params_codegen.py::test_generated_fitter_matches_the_runtime_calibrator[platt-params1]
+== up_scipy==1.13.1: 5 failed, 6 passed, 18 warnings in 1.64s
+  test_tuning/test_space_merge.py::test_removed_training_dimension_admission[False]
+  test_tuning/test_objective_identity.py::TestSummariseFrame::test_hash_pandas_object_alone_misses_the_auxiliary_cases
+  test_core/test_param_domain.py::test_unchanged_is_decided_by_type_and_not_by_printed_text
+  test_core/test_param_domain.py::test_a_value_with_no_plain_stand_in_is_refused_rather_than_rounded
+  test_codegen/test_calibration_params_codegen.py::test_generated_fitter_matches_the_runtime_calibrator[platt-params1]
+== up_lightgbm==4.6.0: 4 failed, 7 passed, 18 warnings in 1.65s
+  test_tuning/test_objective_identity.py::TestSummariseFrame::test_hash_pandas_object_alone_misses_the_auxiliary_cases
+  test_core/test_param_domain.py::test_unchanged_is_decided_by_type_and_not_by_printed_text
+  test_core/test_param_domain.py::test_a_value_with_no_plain_stand_in_is_refused_rather_than_rounded
+  test_codegen/test_calibration_params_codegen.py::test_generated_fitter_matches_the_runtime_calibrator[platt-params1]
+== up_optuna==4.7.0: 5 failed, 6 passed, 18 warnings in 1.10s
+  test_tuning/test_space_merge.py::test_removed_training_dimension_admission[False]
+  test_tuning/test_objective_identity.py::TestSummariseFrame::test_hash_pandas_object_alone_misses_the_auxiliary_cases
+  test_core/test_param_domain.py::test_unchanged_is_decided_by_type_and_not_by_printed_text
+  test_core/test_param_domain.py::test_a_value_with_no_plain_stand_in_is_refused_rather_than_rounded
+  test_codegen/test_calibration_params_codegen.py::test_generated_fitter_matches_the_runtime_calibrator[platt-params1]
+== up_pydantic==2.12.5: 5 failed, 6 passed, 18 warnings in 1.36s
+  test_tuning/test_space_merge.py::test_removed_training_dimension_admission[False]
+  test_tuning/test_objective_identity.py::TestSummariseFrame::test_hash_pandas_object_alone_misses_the_auxiliary_cases
+  test_core/test_param_domain.py::test_unchanged_is_decided_by_type_and_not_by_printed_text
+  test_core/test_param_domain.py::test_a_value_with_no_plain_stand_in_is_refused_rather_than_rounded
+  test_codegen/test_calibration_params_codegen.py::test_generated_fitter_matches_the_runtime_calibrator[platt-params1]
+[run-exclusive] h0126-attr finished in 18s, exit 0
+
+[exited with code 0]

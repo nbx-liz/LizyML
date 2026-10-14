@@ -101,8 +101,8 @@ def test_train_script_round_trips_non_ascii_under_ascii_locale(
     state_path = codegen_dir / "artifacts" / "pipeline_state.json"
     raw = state_path.read_bytes()
     assert any(b > 127 for b in raw), "expected non-ASCII bytes in pipeline_state"
-    mappings = json.loads(raw.decode("utf-8"))["category_mappings"]["feat_cat"]
-    assert set(mappings) == set(_NON_ASCII_CATS)
+    entry = json.loads(raw.decode("utf-8"))["categories"]["feat_cat"]
+    assert set(entry["categories"]) == set(_NON_ASCII_CATS)
     assert (codegen_dir / "artifacts" / "calibrator.json").exists()
 
 

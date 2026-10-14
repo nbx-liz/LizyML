@@ -6,13 +6,13 @@ All models use extra="forbid" to catch typos as CONFIG_INVALID errors.
 from __future__ import annotations
 
 import warnings
-from typing import Annotated, Any, Literal
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Annotated, Any, Literal, NamedTuple
 
 from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    ModelWrapValidatorHandler,
     PrivateAttr,
     TypeAdapter,
     ValidationError,
@@ -22,6 +22,11 @@ from pydantic import (
 )
 
 from lizyml.config.version import check_config_version
+
+if TYPE_CHECKING:
+    # pydantic 2.11 added this name; it is only an annotation here, so the
+    # runtime import would raise the dependency floor for no behaviour (H-0126).
+    from pydantic import ModelWrapValidatorHandler
 
 # ---------------------------------------------------------------------------
 # DataConfig
@@ -318,14 +323,42 @@ SplitConfig = Annotated[
 # ---------------------------------------------------------------------------
 
 
-def _check_ratio(value: float | None, name: str, *, inclusive_upper: bool) -> None:
-    """Validate a ratio parameter is in (0, 1] or (0, 1)."""
+class RatioRange(NamedTuple):
+    """An interval open at ``low``, closed at ``high`` when ``upper_inclusive``."""
+
+    low: float
+    high: float
+    upper_inclusive: bool
+
+    def contains(self, value: float) -> bool:
+        """Whether *value* lies in the interval (NaN never does)."""
+        upper_ok = value <= self.high if self.upper_inclusive else value < self.high
+        return bool(value > self.low and upper_ok)
+
+    def describe(self) -> str:
+        """The interval in the usual notation, e.g. ``(0, 1]``."""
+        close = "]" if self.upper_inclusive else ")"
+        return f"({self.low:g}, {self.high:g}{close}"
+
+
+#: The ranges of the ratio smart parameters: the one declaration both this
+#: config's validation and the estimator provider's smart value rule read
+#: (H-0121 amendment 2, policy 1), so a config field and a search dimension
+#: cannot disagree about a ratio (DC3).
+SMART_RATIO_RANGES: dict[str, RatioRange] = {
+    "num_leaves_ratio": RatioRange(low=0.0, high=1.0, upper_inclusive=True),
+    "min_data_in_leaf_ratio": RatioRange(low=0.0, high=1.0, upper_inclusive=False),
+    "min_data_in_bin_ratio": RatioRange(low=0.0, high=1.0, upper_inclusive=False),
+}
+
+
+def _check_ratio(value: float | None, name: str) -> None:
+    """Validate a ratio parameter against its range in ``SMART_RATIO_RANGES``."""
     if value is None:
         return
-    hi_ok = value <= 1.0 if inclusive_upper else value < 1.0
-    if not (value > 0 and hi_ok):
-        bound = "1]" if inclusive_upper else "1)"
-        raise ValueError(f"{name} must be in (0, {bound}, got {value}")
+    ratio_range = SMART_RATIO_RANGES[name]
+    if not ratio_range.contains(value):
+        raise ValueError(f"{name} must be in {ratio_range.describe()}, got {value}")
 
 
 class LGBMConfig(BaseModel):
@@ -344,31 +377,13 @@ class LGBMConfig(BaseModel):
 
     @model_validator(mode="after")
     def _validate_smart_params(self) -> LGBMConfig:
-        if self.auto_num_leaves and "num_leaves" in self.params:
-            raise ValueError(
-                "Cannot specify 'params.num_leaves' when 'auto_num_leaves' is True. "
-                "Set 'auto_num_leaves: false' or remove 'num_leaves' from params."
-            )
-        if (
-            self.min_data_in_leaf_ratio is not None
-            and "min_data_in_leaf" in self.params
-        ):
-            raise ValueError(
-                "Cannot specify both 'min_data_in_leaf_ratio' and "
-                "'params.min_data_in_leaf'. Use one or the other."
-            )
-        if self.min_data_in_bin_ratio is not None and "min_data_in_bin" in self.params:
-            raise ValueError(
-                "Cannot specify both 'min_data_in_bin_ratio' and "
-                "'params.min_data_in_bin'. Use one or the other."
-            )
-        _check_ratio(self.num_leaves_ratio, "num_leaves_ratio", inclusive_upper=True)
-        _check_ratio(
-            self.min_data_in_leaf_ratio, "min_data_in_leaf_ratio", inclusive_upper=False
-        )
-        _check_ratio(
-            self.min_data_in_bin_ratio, "min_data_in_bin_ratio", inclusive_upper=False
-        )
+        # A `params` name an active smart parameter writes is refused at
+        # `fit` / `tune` by `Model._merge_params`, alias-aware and on every
+        # layer (H-0121). The literal-string refusal of three names that used
+        # to live here was removed with it: two checks covering different
+        # ranges drift apart (DC3), and `config/` cannot reach the alias table.
+        for name in SMART_RATIO_RANGES:
+            _check_ratio(getattr(self, name), name)
         if self.feature_weights:
             for k, v in self.feature_weights.items():
                 if v <= 0:
@@ -568,6 +583,26 @@ class OptunaConfig(BaseModel):
     params: OptunaParamsConfig = OptunaParamsConfig()
     space: dict[str, Any] = {}
     space_mode: Literal["merge", "replace"] = "merge"
+
+    @field_validator("space", mode="before")
+    @classmethod
+    def _plain_space(cls, value: Any) -> Any:
+        """Copy the space and each mapping spec to a plain ``dict`` (H-0123).
+
+        A dimension spec may be any mapping, but the name checks read a
+        ``category`` only from a ``dict`` (``model_space_names``), so a
+        ``UserDict`` smart dimension was read as a model one. Only the
+        containers are normalised here: the format of each dimension is
+        checked by ``parse_space`` when ``tune`` resolves the space
+        (``config/`` does not import ``tuning/``), and a spec that is not a
+        mapping is left for it to refuse.
+        """
+        if not isinstance(value, Mapping):
+            return value
+        return {
+            name: dict(spec) if isinstance(spec, Mapping) else spec
+            for name, spec in value.items()
+        }
 
 
 class TuningConfig(BaseModel):

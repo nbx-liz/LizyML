@@ -66,6 +66,14 @@ PR 0 のレビュー記録は `results/pr0_codex_round1.md` / `pr0_codex_round2.
 
 **PR 8c で出荷した（2026-10-02）。** 計測器は `instruments/phase3_gap.py`、manifest は `instruments/phase3_manifest.json`（25 行）、単体テストは `tests/test_docs/test_phase3_gap.py`。契約は `results/pr8c_acceptance_criteria.md` §3。「出荷された測定手段が無い」という未充足はこれで閉じる。ただし完了のすべてが測定になったわけではない。同じファイルの §5 が、計測器に読めず宣言とレビューに残るものを挙げている: 固定した close コメントが修正を肯定していること、`red_mutation` が欠陥（#288 では欠けていたテストが見逃す振る舞い）を戻していること、2 つの PR を持つ行の PR ごとの赤、テスト自身が宣言する母集団。#271 は PR 9 まで INCOMPLETE だった。**PR 9 の後、PR 9b（#322、`c873146`）でこの計測器を回し、INCOMPLETE 0 / UNKNOWN 0、exit 0 で Phase 3 の完了を測った**（`results/phase3_completion_21db071.txt`）。以下の段落は PR 0 の時点の記述で、経緯として残す。
 
+**この計測器が示すのは、測った SHA での完了である（2026-10-14 に追記）。** Phase 3 の完了は `21db071` で測った（exit 0）。その後の開発は、行が宣言した母集団を動かす。v0.19.0 のリリース準備で `origin/develop` `a7f6f22` を測ると INCOMPLETE 4、exit 1 だった（`results/phase3_gap_a7f6f22.txt`）。4 件とも、直した欠陥が戻ったものではない:
+- #263: エラーコード `CALIBRATION_FAILED`（H-0113、#325）が増え、宣言 19 に対して 20。修正前の木では、そのコードを名指す後の版のテストが収集の段階で落ちる（`p2 = {'error': 1}`）。
+- #270: 「一部」の行だが、Phase 3 の後に PR #329 で完了して閉じた。
+- #271: 母集団（提案の数）は提案を足すたびに増える。宣言 111 に対して 130。
+- #306: H-0125（#356）が binary の `cross_entropy_lambda` を拒否し、テストを書き直して、宣言 57 に対して 52。
+
+宣言の値は Phase 3 の完了を測ったときのまま残す（今の数に合わせても、#271 は次の提案でまた古くなる。管理者の判断、2026-10-14）。
+
 `phase3-plan.md` §8 が定める**Phase 3 完了の測定手段は、まだ出荷されていない**。
 `phase3_gap.py` / `phase3_manifest.json` / その単体テストは PR 0 の Files に挙がって
 いたが、scratchpad 消失後に transcript から復元した manifest が 4 箇所古く、うち 1 箇所は

@@ -8,6 +8,7 @@ Model facade as ``Model._resolve_export_path``.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from copy import deepcopy
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -91,6 +92,168 @@ def _build_split_metadata(cfg: Any) -> dict[str, Any]:
         block["min_train_rows"] = sc.min_train_rows
         block["min_valid_rows"] = sc.min_valid_rows
     return block
+
+
+_SAMPLE_WEIGHT_RULES = ("balanced", "none")
+
+
+def _checked_applied_sample_weight(record: Any, path: str | Path) -> str:
+    """Refuse a weight-rule record no fit could have written (H-0120).
+
+    A fit records ``"balanced"`` or ``"none"``; any other value -- ``null``,
+    ``true``, another spelling -- would hand the generated ``train.py`` a rule
+    nobody measured.
+    """
+    if not isinstance(record, str) or record not in _SAMPLE_WEIGHT_RULES:
+        raise LizyMLError(
+            code=ErrorCode.DESERIALIZATION_FAILED,
+            user_message=(
+                f"Stored applied_sample_weight must be one of "
+                f"{list(_SAMPLE_WEIGHT_RULES)}, got {record!r}."
+            ),
+            context={"path": str(path), "type": type(record).__name__},
+        )
+    return record
+
+
+def _checked_declared_categories(record: Any, path: str | Path) -> dict[str, list[Any]]:
+    """Refuse a declared-categories record no export could have written (H-0120).
+
+    ``Model.export`` writes an object mapping column names to lists of plain
+    JSON scalars (str, int, float, bool); anything else would hand the
+    generated ``train.py`` categories nobody recorded.
+    """
+
+    def refuse(reason: str, context: dict[str, Any]) -> LizyMLError:
+        return LizyMLError(
+            code=ErrorCode.DESERIALIZATION_FAILED,
+            user_message=f"Stored declared_categories {reason}.",
+            context={"path": str(path), **context},
+        )
+
+    if not isinstance(record, dict):
+        raise refuse("must be an object", {"type": type(record).__name__})
+    for col, cats in record.items():
+        if not isinstance(cats, list):
+            raise refuse(
+                f"holds a {type(cats).__name__} for {col!r}, not a list",
+                {"key": col, "type": type(cats).__name__},
+            )
+        for value in cats:
+            if type(value) not in (str, int, float, bool):
+                raise refuse(
+                    f"holds {value!r} for {col!r}, not a str, int, float or bool",
+                    {"key": col, "type": type(value).__name__},
+                )
+    return {col: list(cats) for col, cats in record.items()}
+
+
+#: The keys every tuning block LizyML writes carries (``persistence/exporter.py``).
+_TUNING_META_KEYS = frozenset(
+    {
+        "best_model_params",
+        "best_smart_params",
+        "best_training_params",
+        "best_score",
+        "metric_name",
+        "direction",
+    }
+)
+
+
+def _refuse_recorded_smart_values(
+    record: Any, provider: Any, task: Any, path: str | Path
+) -> None:
+    """Refuse a tune result whose smart values break the rule (H-0121 am. 2).
+
+    Policy 4: before #347 a smart dimension's sampled value was recorded as
+    it was, so an artifact can record ``"false"`` for a booster trained with
+    ``auto_num_leaves`` on. The record then disagrees with the model, and a
+    re-``fit`` -- or a user reading the record -- trains a different one. The
+    provider's rule is the one a tune's dimensions get, judged for the
+    artifact config's task. A record that is not a mapping is refused too:
+    LizyML writes a mapping.
+    """
+    from lizyml.core._smart_values import smart_value_violation
+
+    if not isinstance(record, Mapping):
+        raise LizyMLError(
+            code=ErrorCode.DESERIALIZATION_FAILED,
+            user_message="Stored tuning best_smart_params must be an object.",
+            context={"path": str(path)},
+        )
+    found = smart_value_violation(provider, record, task)
+    if found is None:
+        return
+    raise LizyMLError(
+        code=ErrorCode.DESERIALIZATION_FAILED,
+        user_message=(
+            f"Stored tuning best_smart_params records '{found.name}'="
+            f"{found.value!r}, which '{found.name}' cannot hold: it takes "
+            f"{found.expected}. A model trained from this record cannot be "
+            "reproduced (before #347 a string such as 'false' was recorded as "
+            "written but trained as true), so the artifact is not loaded. Tune "
+            "again and export again (tune, fit, export) with this version of "
+            "LizyML."
+        ),
+        context={
+            "path": str(path),
+            "name": found.name,
+            "value": found.value,
+            "reason": found.reason,
+        },
+    )
+
+
+def _refuse_non_probability_boosters(
+    fit_result: Any, refit_result: Any, path: str | Path
+) -> None:
+    """Refuse an artifact a booster of which predicts no probability (H-0125).
+
+    Policy 5 (#307): v0.18.0 accepted the binary objective
+    ``cross_entropy_lambda``, whose output is lambda, and a short fit could
+    export it -- its ``predict().proba`` is then not a probability. Every
+    stored booster is read: each fold model of ``fit_result.pkl`` and the
+    refit model, because one is enough to make an output wrong (OOF, the
+    refit's predictions). The judgement is what LightGBM recorded inside the
+    booster (:func:`~lizyml.estimators.lgbm.param_validation.recorded_objective`),
+    which is what it trained with whichever surface named it; the config and
+    the booster's ``params`` are not read. A model with no LightGBM booster is
+    not judged: only LightGBM has this objective.
+    """
+    import lightgbm as lgb
+
+    from lizyml.estimators.lgbm.param_validation import (
+        NOT_A_PROBABILITY_OBJECTIVES,
+        recorded_objective,
+    )
+
+    refused = frozenset().union(*NOT_A_PROBABILITY_OBJECTIVES.values())
+    # The loader always returns both pickles' objects, so their models are read
+    # as they are: a missing model is an error here, not a booster to skip.
+    stored = [
+        *((f"fold {index}", model) for index, model in enumerate(fit_result.models)),
+        ("refit", refit_result.model),
+    ]
+    for where, model in stored:
+        native = model.get_native_model()
+        if not isinstance(native, lgb.Booster):
+            continue
+        objective = recorded_objective(native)
+        if objective not in refused:
+            continue
+        raise LizyMLError(
+            code=ErrorCode.DESERIALIZATION_FAILED,
+            user_message=(
+                f"The stored booster ({where}) was trained with the objective "
+                f"'{objective}', whose output is not a probability (LightGBM "
+                "predicts lambda; the probability is 1 - exp(-lambda)). This "
+                "artifact would return it as predict().proba, so it is not "
+                "loaded. Fit again with the objective 'binary' or "
+                "'cross_entropy' and export again."
+            ),
+            context={"path": str(path), "booster": where, "objective": objective},
+        )
 
 
 def _checked_applied_training_params(record: Any, path: str | Path) -> dict[str, Any]:
@@ -195,10 +358,12 @@ class ModelPersistenceMixin:
         state = self._get_fit_state()
         refit_result = self._require_refit()
 
-        resolved_path = self._resolve_export_path(path)
-
-        from lizyml.persistence.exporter import AnalysisContext
+        from lizyml.persistence.exporter import AnalysisContext, check_category_values
         from lizyml.persistence.exporter import export as _export
+
+        # H-0127: refuse before path resolution, which can create a run directory.
+        check_category_values(state.fit_result, refit_result)
+        resolved_path = self._resolve_export_path(path)
 
         ctx: AnalysisContext | None = None
         if state.y is not None and state.X is not None:
@@ -214,6 +379,9 @@ class ModelPersistenceMixin:
             tuning=state.tuning_result,
             tuning_fixed_params=state.tuning_fixed_params,
             applied_training_params=state.applied_training_params,
+            applied_sample_weight=state.applied_sample_weight,
+            declared_categories=state.declared_categories,
+            categories_checked=True,
         )
         _log.info("event='export.done' path=%s", resolved_path)
         return resolved_path
@@ -267,6 +435,35 @@ class ModelPersistenceMixin:
         es = cfg.training.early_stopping
         tuned_ratio = tuned_validation_ratio(state.applied_training_params)
         effective_ratio = es.validation_ratio if tuned_ratio is None else tuned_ratio
+
+        # H-0120: what the refit trained on, so the generated train.py
+        # reproduces it -- the inner split rebuilt by the function the fit used
+        # from the inputs it used, the weight rule the fit recorded, and the
+        # features the fit's input declared `category` (amendment 4).
+        from lizyml.core._codegen_inputs import (
+            derived_sample_weight,
+            exported_inner_valid,
+        )
+
+        inner_valid = exported_inner_valid(cfg, state.applied_training_params)
+        if state.applied_sample_weight is not None:
+            sample_weight = (
+                "balanced" if state.applied_sample_weight == "balanced" else None
+            )
+        else:
+            # Unknown (an artifact written before the record): derived from the
+            # config and the current tuning result, outside the promise.
+            sample_weight = derived_sample_weight(
+                cfg,
+                state.provider,
+                state.tuning_result.best_smart_params
+                if state.tuning_result is not None
+                else None,
+            )
+        # Unknown (an artifact without the record): nothing is restored, so a
+        # CSV retrain of such a model is outside the promise; parquet keeps the
+        # dtype itself.
+        declared = state.declared_categories or {}
         calibration_method: str | None = None
         # Use outer CV n_splits for OOF calibration (H-0058: reuses outer splits)
         calibration_n_splits = get_outer_n_splits(cfg)
@@ -337,6 +534,13 @@ class ModelPersistenceMixin:
             feval_metrics=export.feval_metadata,
             target_classes=target_classes,
             split=_build_split_metadata(cfg),
+            inner_valid=inner_valid,
+            sample_weight=sample_weight,
+            declared_categories=declared,
+            categorical_rule={
+                "explicit": list(cfg.features.categorical),
+                "auto": cfg.features.auto_categorical,
+            },
         )
         _log.info("event='export_code.done' path=%s", result)
         return result
@@ -361,6 +565,9 @@ class ModelPersistenceMixin:
         from lizyml.persistence.loader import load as _load
 
         fit_result, refit_result, metadata, analysis_context = _load(path)
+        # H-0125 policy 5: format_version 1 and 2 alike, before anything is
+        # restored from the artifact.
+        _refuse_non_probability_boosters(fit_result, refit_result, path)
         config = metadata["config"]
         # Pre-H-0102 artifacts used replacement for nonempty user spaces.
         # Do not reinterpret their tuning policy when restoring for re-fit.
@@ -390,6 +597,20 @@ class ModelPersistenceMixin:
         if tuning_meta is not None:
             from lizyml.core.types.tuning_result import TuningResult
 
+            missing = (
+                sorted(_TUNING_META_KEYS - tuning_meta.keys())
+                if isinstance(tuning_meta, dict)
+                else None
+            )
+            if missing is None or missing:
+                raise LizyMLError(
+                    code=ErrorCode.DESERIALIZATION_FAILED,
+                    user_message=(
+                        "Stored tuning metadata must be an object with "
+                        f"{sorted(_TUNING_META_KEYS)}."
+                    ),
+                    context={"path": str(path), "missing": missing},
+                )
             if "fixed_params" in tuning_meta:
                 fixed_params = tuning_meta["fixed_params"]
                 if not isinstance(fixed_params, dict):
@@ -399,6 +620,12 @@ class ModelPersistenceMixin:
                         context={"path": str(path)},
                     )
                 instance._tuning_fixed_params = deepcopy(fixed_params)
+            _refuse_recorded_smart_values(
+                tuning_meta["best_smart_params"],
+                instance._provider,
+                instance._cfg.task,
+                path,
+            )
             instance._tuning_result = TuningResult(
                 best_model_params=tuning_meta["best_model_params"],
                 best_smart_params=tuning_meta["best_smart_params"],
@@ -418,6 +645,21 @@ class ModelPersistenceMixin:
             )
         else:
             instance._applied_training_params = None
+        # The row-weight rule that fit applied (H-0120 amendment 1); absent
+        # from older artifacts, which stay unknown for the same reason.
+        if "applied_sample_weight" in metadata:
+            instance._applied_sample_weight = _checked_applied_sample_weight(
+                metadata["applied_sample_weight"], path
+            )
+        else:
+            instance._applied_sample_weight = None
+        # The features the fit's input declared `category` (amendment 4).
+        if "declared_categories" in metadata:
+            instance._declared_categories = _checked_declared_categories(
+                metadata["declared_categories"], path
+            )
+        else:
+            instance._declared_categories = None
         if analysis_context is not None:
             instance._y = analysis_context.y_true
             instance._X = analysis_context.X_for_explain

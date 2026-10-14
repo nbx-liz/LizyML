@@ -1,0 +1,33 @@
+optuna 4.7.0
+== half-integers as floats (Optuna widens int bounds by step/2)
+- 2**51: float(x + 0.5) == x + 0.5 exactly: True
+- 2**52: float(x + 0.5) == x + 0.5 exactly: False
+- 2**53: float(x + 0.5) == x + 0.5 exactly: False
+== suggest_int over width-10 ranges (RandomSampler / TPESampler)
+- [2**31, 2**31+10], Random: 400/400 inside the range, 11 distinct values of 11
+- [2**31, 2**31+10], TPE: 400/400 inside the range, 11 distinct values of 11
+- [2**52-10, 2**52] (the limit, inside), Random: 400/400 inside the range, 11 distinct values of 11
+- [2**52-10, 2**52] (the limit, inside), TPE: 400/400 inside the range, 11 distinct values of 11
+- [-2**52, -2**52+10] (the limit, negative), Random: 400/400 inside the range, 11 distinct values of 11
+- [-2**52, -2**52+10] (the limit, negative), TPE: 400/400 inside the range, 11 distinct values of 11
+- [2**52, 2**52+10], Random: 400/400 inside the range, 11 distinct values of 11
+- [2**52, 2**52+10], TPE: 400/400 inside the range, 8 distinct values of 11
+- [2**52+1000, 2**52+1010], Random: 400/400 inside the range, 11 distinct values of 11
+- [2**52+1000, 2**52+1010], TPE: 400/400 inside the range, 9 distinct values of 11
+- [2**53, 2**53+10], Random: 400/400 inside the range, 6 distinct values of 11
+- [2**53, 2**53+10], TPE: 400/400 inside the range, 6 distinct values of 11
+- [-2**53-10, -2**53], Random: 400/400 inside the range, 6 distinct values of 11
+- [-2**53-10, -2**53], TPE: 400/400 inside the range, 6 distinct values of 11
+- [2**54, 2**54+10], Random: 400/400 inside the range, 3 distinct values of 11
+- [2**54, 2**54+10], TPE: 400/400 inside the range, 3 distinct values of 11
+- [2**60, 2**60+10], Random: 400/400 inside the range, 1 distinct values of 11
+- [2**60, 2**60+10], TPE: ValueError: cannot convert float NaN to integer
+- [2**100, 2**100+10], Random: 400/400 inside the range, 1 distinct values of 11
+- [2**100, 2**100+10], TPE: TypeError: loop of ufunc does not support argument 0 of type float which has no c
+- [10**309, 2*10**309], Random: OverflowError: int too large to convert to float
+- [10**309, 2*10**309], TPE: OverflowError: int too large to convert to float
+== suggest_float where each bound is finite (RandomSampler)
+- [-1e+308, 1e+308] step None (width inf): OverflowError: Range exceeds valid bounds
+- [-1.5e+308, 1e+308] step 5e+307 (width inf): OverflowError: Range exceeds valid bounds
+- [-9e+307, 9e+307] step None (width inf): OverflowError: Range exceeds valid bounds
+- [-8e+307, 8e+307] step None (width 1.6e+308): sampled 7.81016062837196e+306

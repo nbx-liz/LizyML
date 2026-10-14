@@ -15,12 +15,15 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
+# Each floor is the lowest version the suite passes on: the
+# `Quality (lowest-direct deps)` CI lane installs every one of them, with all
+# extras, and scripts/check_dependency_floors.py refuses a drift (H-0126).
 dependencies = [
-    "pydantic>=2.0",
+    "pydantic>=2.1",
     "numpy>=1.24",
     "pandas>=2.0",
     "scikit-learn>=1.3",
-    "lightgbm>=4.0",
+    "lightgbm>=4.4",
     "pyyaml>=6.0",
     "joblib>=1.3",
 ]
@@ -30,7 +33,7 @@ Homepage = "https://github.com/nbx-liz/LizyML"
 Repository = "https://github.com/nbx-liz/LizyML"
 
 [project.optional-dependencies]
-tuning = ["optuna>=3.0"]
+tuning = ["optuna>=3.1"]
 explain = ["shap>=0.44"]
 plots = ["plotly>=5.0"]
 calibration = ["scipy>=1.10"]
@@ -49,13 +52,30 @@ dev = [
     # current hatchling emits. 7.0.0 fixed it.
     "twine>=7.0",
     "pyarrow>=14.0",
-    "optuna>=3.0",
-    "shap>=0.44",
-    "plotly>=5.0",
-    "scipy>=1.10",
+    # The extras, by reference: their floors are declared once, in
+    # [project.optional-dependencies] (H-0126).
+    "lizyml[tuning,explain,plots,calibration]",
     "nbconvert>=7.0",
     "ipykernel>=6.0",
     "vulture>=2.15",
+]
+# The test tooling of the `Quality (lowest-direct deps)` lane (H-0126). Installed
+# after the floors at the lock's versions (`uv export --only-group lowest-lane`),
+# so neither an old nor a too-new tool is what fails; check_dependency_floors.py
+# catches a tool that moves a floor.
+lowest-lane = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pyarrow>=14.0",
+    "nbconvert>=7.0",
+    "ipykernel>=6.0",
+]
+# The per-extras CI environments of the notebook index (H-0119 6.): no extras,
+# only what runs the notebooks, the registry probe and their pytest entry.
+notebooks = [
+    "pytest>=8.0",
+    "nbconvert>=7.0",
+    "ipykernel>=6.0",
 ]
 
 [tool.uv]

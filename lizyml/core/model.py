@@ -43,7 +43,7 @@ import numpy.typing as npt
 import pandas as pd
 
 if TYPE_CHECKING:
-    pass
+    from optuna.storages import BaseStorage
 
 from lizyml import __version__
 from lizyml.config.loader import load_config
@@ -52,9 +52,9 @@ from lizyml.config.schema import (
     LizyMLConfig,
 )
 from lizyml.config.version import check_config_version
+from lizyml.core._codegen_inputs import input_categories
 from lizyml.core._model_factories import (
     applied_training_overlay,
-    build_inner_valid,
     build_splitter,
     check_calibration_param_names,
     check_param_names,
@@ -63,11 +63,10 @@ from lizyml.core._model_factories import (
     check_training_managed_overrides,
     effective_early_stopping_rounds,
     get_provider,
-    make_inner_valid_factory,
     normalise_and_check,
     overlay_params,
     prepare_calibration_params,
-    tuned_validation_ratio,
+    resolve_inner_valid,
 )
 from lizyml.core._model_metrics import (
     _DEFAULT_METRICS,
@@ -95,6 +94,7 @@ from lizyml.core.types.tuning_result import (
 from lizyml.data import dataframe_builder, datasource
 from lizyml.data.dataframe_builder import DataFrameComponents
 from lizyml.data.fingerprint import compute as fp_compute
+from lizyml.estimators.lgbm.category_json import warn_unsaveable_categories
 from lizyml.estimators.provider import EstimatorProvider
 from lizyml.evaluation.evaluator import Evaluator
 from lizyml.metrics.registry import (
@@ -106,6 +106,9 @@ from lizyml.training.inner_valid import BaseInnerValidStrategy
 from lizyml.training.refit_trainer import RefitResult, RefitTrainer
 
 _log = get_logger("model")
+
+#: How a refusal names the provider's default fixed parameters (H-0121).
+_FIXED_LAYER = "provider default fixed params"
 
 _TS_METHODS = frozenset({"time_series", "purged_time_series", "group_time_series"})
 _BLOCK_METHODS = frozenset({"blocked_group_kfold"})
@@ -159,6 +162,17 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         # `export()` records it and `Model.load()` restores it (H-0109); `None`
         # means unknown -- a model loaded from an artifact without the record.
         self._applied_training_params: dict[str, Any] | None = {}
+        # The row-weight rule the last fit's refit applied: "balanced" or
+        # "none" (H-0120 amendment 1). Multiclass `balanced` weights leave no
+        # trace in the fitted adapter, and a later tune() can change the
+        # `balanced` the config and tuning result would imply. `None` means
+        # unknown -- a model loaded from an artifact without the record.
+        self._applied_sample_weight: str | None = "none"
+        # The feature columns the last fit's input frame held as `category`,
+        # with their categories (H-0120 amendment 4); `None` means unknown.
+        # `_input_categories` is the per-call transient `fit` commits from.
+        self._declared_categories: dict[str, list[Any]] | None = {}
+        self._input_categories: dict[str, list[Any]] = {}
         self._y: pd.Series | None = None  # transient; not persisted
         self._X: pd.DataFrame | None = None  # transient; not persisted
         self._provider: EstimatorProvider | None = None  # set by fit/tune
@@ -170,6 +184,10 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         self._space: list[Any] | None = None  # last search space used
         self._used_default_space: bool = False  # track for expand_boundary default
         self._tuning_fixed_params: dict[str, Any] | None = None
+        # H-0122 §3: the (storage, study_name) `_study` was created or loaded
+        # with; `(None, None)` for an in-memory study.
+        self._tuning_storage: str | BaseStorage | None = None
+        self._tuning_study_name: str | None = None
 
     # ------------------------------------------------------------------
     # Public API
@@ -218,6 +236,9 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
 
         # --- Load & prepare data ---------------------------------------------
         X, y, groups, components = self._prepare_training_data(data)
+        # Taken now: a later call (tune) replaces the transient, and only a
+        # successful fit commits it below (H-0120 amendment 4).
+        declared_at_fit = dict(self._input_categories)
         fingerprint = fp_compute(X, file_path=None)
 
         # --- Build components (H-0050/H-0053: provider-based) ----------------
@@ -262,6 +283,9 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         pipeline_factory = provider.build_pipeline_factory(
             unseen_policy=cfg.features.unseen_policy
         )
+        # H-0127 (#338): warn before CV about category values Model.export will
+        # refuse. The refit pipeline is fit on these same rows (H-0085).
+        warn_unsaveable_categories(pipeline_factory().fit(X, y).get_state())
 
         # --- CV training -----------------------------------------------------
         cv_trainer = CVTrainer(
@@ -332,6 +356,8 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         # The only record of what *this* fit applied: a later tune() replaces
         # `_tuning_result` and leaves the fitted adapters alone (decision 13).
         self._applied_training_params = applied_training_overlay(training_overrides)
+        self._applied_sample_weight = "none" if tc.sample_weight is None else "balanced"
+        self._declared_categories = declared_at_fit
         self._refit_result = refit_result
         self._fit_result = fit_result
         _log.info("event='fit.done' run_id=%s", run_id)
@@ -470,8 +496,9 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
                 sampled values later, so it keeps validation in the adapter.
             tuning_fixed_params: Current tuning round's fixed policy. An empty
                 dict explicitly suppresses a previous round's fixed defaults.
-            include_tuning_result: Reuse the successful tuning overlay for fit
-                and resume. Fresh studies start from Config instead.
+            include_tuning_result: Reuse the successful tuning overlay for
+                fit. Every tune round, new or resumed, starts from Config
+                (H-0122 6.1) and passes False.
 
         Returns:
             (model_params, smart_params) tuple.
@@ -505,6 +532,10 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         model_params = normalise_and_check(
             provider, model_params, surface="model.params"
         )
+        # H-0121: every layer as it was written, each checked below against
+        # the smart parameters that will be resolved. Kept separately because
+        # the merged dict no longer says which layer a spelling came from.
+        layers: list[tuple[str, dict[str, Any]]] = [("model.params", model_params)]
 
         # --- Overlay tune best ---
         if include_tuning_result and self._tuning_result is not None:
@@ -526,7 +557,8 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
                 )
             if fixed:
                 model_params = overlay_params(provider, model_params, fixed)
-                origins.update(dict.fromkeys(fixed, "provider default fixed params"))
+                origins.update(dict.fromkeys(fixed, _FIXED_LAYER))
+                layers.append((_FIXED_LAYER, fixed))
 
             # The same-layer rule on the layer that arrives from disk.
             # `overlay_params` drops competing spellings from the layer it
@@ -544,23 +576,36 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             )
             model_params = overlay_params(provider, model_params, best_model_params)
             origins.update(dict.fromkeys(best_model_params, "tuning best_model_params"))
+            layers.append(("tuning best_model_params", best_model_params))
             if self._tuning_result.best_smart_params:
                 smart_params = {
                     **smart_params,
                     **self._tuning_result.best_smart_params,
                 }
+        elif tuning_fixed_params:
+            # A fresh study: the objective overlays this layer on every trial
+            # (`_model_tuning.py`), so it is checked here although it is not
+            # overlaid here (H-0121 decision 1).
+            layers.append((_FIXED_LAYER, tuning_fixed_params))
 
         # --- Overlay fit() args (highest priority) ---
-        # "Highest priority" is highest among these three inputs. A native name
-        # an active smart parameter resolves is not one of them: smart
-        # resolution runs downstream of this merge and wins, so accepting such
-        # an override would be accepting a value that is then discarded. The
-        # config schema already refuses the same collision at parse time; this
-        # applies that policy to the `fit()` input (H-0094).
         override = normalise_and_check(provider, override or {}, surface="fit(params=)")
-        check_smart_managed_overrides(
-            provider, override, smart_params, cfg.task, surface="fit(params=)"
-        )
+        layers.append(("fit(params=)", override))
+
+        # "Highest priority" is highest among the layers. A native name an
+        # active smart parameter resolves is not one of them: smart resolution
+        # runs downstream of this merge and wins, so accepting such a name in
+        # any layer would be accepting a value that is then discarded (H-0094
+        # for `fit(params=)`, H-0121 for the other layers). Checked once every
+        # layer is known, against the effective smart parameters -- the
+        # config's values with the tuning result's `best_smart_params` laid
+        # over them -- so a tuning result that switches an owner on is seen.
+        # The check is alias-aware; the literal-string check `LGBMConfig` used
+        # to carry covered three of the eighteen spellings (#280).
+        for surface, layer in layers:
+            check_smart_managed_overrides(
+                provider, layer, smart_params, cfg.task, surface=surface
+            )
         if override:
             # Overlaid by identity: a config spelling `learning_rate` and an
             # override spelling `eta` are one parameter, and a plain dict merge
@@ -679,14 +724,9 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         # --- Inner validation (config < tune override) ---
         # Read through the shared definition, so the two reporting surfaces
         # cannot answer this question differently from the trainer -- which
-        # they did, silently, until H-0094 decision 13.
-        inner_valid: BaseInnerValidStrategy
-        tuned_ratio = tuned_validation_ratio(tp)
-        if tuned_ratio is not None:
-            iv_factory = make_inner_valid_factory(cfg)
-            inner_valid = iv_factory(tuned_ratio)
-        else:
-            inner_valid = build_inner_valid(cfg)
+        # they did, silently, until H-0094 decision 13. `export_code` rebuilds
+        # the same strategy through the same function (H-0120).
+        inner_valid: BaseInnerValidStrategy = resolve_inner_valid(cfg, tp)
 
         return TrainComponents(
             estimator_factory=estimator_factory,
@@ -746,6 +786,10 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         )
 
         components = dataframe_builder.build(df, problem_spec, feature_spec)
+        # H-0120 amendment 4: the builder casts every categorical column to
+        # `category`, so which features the input itself declared `category`
+        # is visible only here. `fit` commits it with the rest of its record.
+        self._input_categories = input_categories(df, list(components.X.columns))
         groups: npt.NDArray[Any] | None = (
             components.group_col.to_numpy()
             if components.group_col is not None
@@ -924,6 +968,12 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
                 None
                 if self._applied_training_params is None
                 else dict(self._applied_training_params)
+            ),
+            applied_sample_weight=self._applied_sample_weight,
+            declared_categories=(
+                None
+                if self._declared_categories is None
+                else {c: list(v) for c, v in self._declared_categories.items()}
             ),
             provider=self._provider,
             metrics=self._metrics,

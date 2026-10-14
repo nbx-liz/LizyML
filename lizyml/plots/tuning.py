@@ -26,11 +26,30 @@ _STATE_COLORS: dict[str, str] = {
 }
 
 
+def _round_spans(tuning_result: TuningResult) -> list[tuple[int, int, int]]:
+    """``(round, first trial number, last trial number)`` per run of trials.
+
+    Derived from each trial's ``round`` (decided by its number from the
+    study's round records, H-0122 §6.5), not from ``RoundSummary.n_trials``:
+    a round closed ``failed`` has no summary, yet its trials are plotted.
+    """
+    spans: list[tuple[int, int, int]] = []
+    for trial in sorted(tuning_result.trials, key=lambda t: t.number):
+        if spans and spans[-1][0] == trial.round:
+            k, first, _ = spans[-1]
+            spans[-1] = (k, first, trial.number)
+        else:
+            spans.append((trial.round, trial.number, trial.number))
+    return spans
+
+
 def plot_tuning_history(tuning_result: TuningResult) -> Any:
     """Plot trial-by-trial score with best-score cumulative line.
 
-    When the result contains multiple rounds (H-0068), vertical dashed lines
-    are drawn at round boundaries with annotations showing expanded dims.
+    When the trials span more than one round (H-0068), dotted lines are drawn
+    at the round boundaries, with annotations showing each round's expanded
+    dims. The boundaries come from the trials' rounds (H-0122 §6.5), so a
+    round closed ``failed`` or cut short by its timeout is placed correctly.
 
     Args:
         tuning_result: Result from ``Model.tune()``.
@@ -86,36 +105,32 @@ def plot_tuning_history(tuning_result: TuningResult) -> Any:
             )
         )
 
-    # H-0068: Round boundary separators
-    if tuning_result.rounds and len(tuning_result.rounds) > 1:
-        cumulative = 0
-        for rs in tuning_result.rounds[:-1]:
-            cumulative += rs.n_trials
-            # Vertical line at the boundary between rounds
+    # H-0068, H-0122 §6.5: round separators, from the trials' own rounds.
+    spans = _round_spans(tuning_result)
+    if len(spans) > 1:
+        for _, first, _ in spans[1:]:
             fig.add_vline(
-                x=cumulative - 0.5,
+                x=first - 0.5,
                 line_dash="dot",
                 line_color="gray",
                 line_width=1,
                 opacity=0.7,
             )
-
-        # Annotate each round
-        cumulative = 0
-        for rs in tuning_result.rounds:
-            mid_x = cumulative + rs.n_trials / 2
-            label = f"Round {rs.round}"
-            if rs.expanded_dims:
-                label += f" ({', '.join(rs.expanded_dims)})"
+        by_round = {rs.round: rs for rs in tuning_result.rounds}
+        for k, first, last in spans:
+            label = f"Round {k}"
+            summary = by_round.get(k)
+            # A round without a summary (closed `failed`) gets a plain label.
+            if summary is not None and summary.expanded_dims:
+                label += f" ({', '.join(summary.expanded_dims)})"
             fig.add_annotation(
-                x=mid_x,
+                x=(first + last) / 2,
                 y=1.0,
                 yref="paper",
                 text=label,
                 showarrow=False,
                 font={"size": 10, "color": "gray"},
             )
-            cumulative += rs.n_trials
 
     apply_default_layout(
         fig,

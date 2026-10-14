@@ -23,7 +23,9 @@ its dimension's effect in what LightGBM received -- the dimension's own name for
 a native parameter, the resolved native parameter for a smart one. Asserting
 only acceptance would pass a dimension that is sampled and then discarded,
 which is the defect this file exists for. The smart cells for names that are
-not smart parameters are exactly that today, and are strict xfails on #299.
+not smart parameters were exactly that until H-0121 (#299): they were strict
+xfails, and now assert the refusal -- with ``category: model`` suggested when
+the name is a native LightGBM parameter.
 """
 
 from __future__ import annotations
@@ -61,32 +63,16 @@ NAMES: dict[str, dict[str, Any]] = {
     "not_a_lightgbm_parameter": {"accepted_as_model": False, "is_smart": False},
 }
 
-#: A ``category: smart`` dimension whose name is not a smart parameter is
-#: accepted, sampled, reported in ``best_params`` and consumed by nothing.
-#: These cells state the intended outcome (refusal) and fail until #299 lands;
-#: ``strict`` makes the fix flip them loudly instead of passing silently.
-#: ``raises`` narrows the expected failure to ``pytest.raises``' "DID NOT
-#: RAISE": an unrelated exception in these cells is a real failure, not #299.
-_INERT_SMART = pytest.mark.xfail(
-    strict=True,
-    raises=pytest.fail.Exception,
-    reason="#299: a smart-category name with no consumer is accepted and inert",
-)
-
-
-def _cell_marks(name: str, category: str) -> list[pytest.MarkDecorator]:
-    if category == "smart" and not NAMES[name]["is_smart"]:
-        return [_INERT_SMART]
-    return []
-
-
+#: A ``category: smart`` dimension whose name is not a smart parameter used to
+#: be accepted, sampled, reported in ``best_params`` and consumed by nothing.
+#: These cells were strict xfails on #299; H-0121 decision 2 refuses them
+#: before the study, and they now assert that refusal.
 CELLS = [
     pytest.param(
         name,
         category,
         task,
         id=f"{name}-{category}-{task}",
-        marks=_cell_marks(name, category),
     )
     for name in NAMES
     for category in CATEGORIES
@@ -131,8 +117,12 @@ def _config_with_space(
     if auto_num_leaves is None:
         auto_num_leaves = category == "smart"
     cfg["model"]["auto_num_leaves"] = auto_num_leaves
+    # `num_leaves` spans [4, 32] rather than [4, 8]: with `auto_num_leaves`
+    # off, H-0121 drops the default `num_leaves_ratio` dimension, which shifts
+    # the seeded sampler, and over [4, 8] both trials then drew the same value
+    # -- the constant `_assert_effect_reached_lightgbm` refuses to accept.
     cfg["tuning"]["optuna"]["space"] = {
-        name: {"type": "int", "low": 4, "high": 8, "category": category}
+        name: {"type": "int", "low": 4, "high": 32, "category": category}
         if name == "num_leaves"
         else {"type": "float", "low": 0.1, "high": 0.9, "category": category}
     }
@@ -230,6 +220,11 @@ def test_search_space_name_is_gated(name: str, category: str, task: str) -> None
             f"{name!r} is a smart parameter, so the message should point at "
             f"category: smart rather than only rejecting it. Got: {err}"
         )
+    if category == "smart" and NAMES[name]["accepted_as_model"]:
+        assert "category: model" in str(err), (
+            f"{name!r} is a native LightGBM parameter, so the message should "
+            f"point at category: model rather than only rejecting it. Got: {err}"
+        )
 
 
 @pytest.mark.parametrize("task", TASKS)
@@ -265,22 +260,21 @@ def test_accepted_name_does_reach_lightgbm(task: str) -> None:
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=pytest.fail.Exception,
-    reason="#299: num_leaves_ratio is inert while auto_num_leaves is off",
-)
 @pytest.mark.parametrize("task", TASKS)
 def test_smart_dimension_with_inactive_consumer_is_refused(task: str) -> None:
     """A real smart parameter whose consumer is switched off is inert too.
 
     ``num_leaves_ratio`` is read only when ``auto_num_leaves`` is on. With it
-    off, the dimension is sampled and reported in ``best_params`` while no
-    ``lgb.train`` call receives a ``num_leaves`` -- the same silent pass as an
-    unknown name, reached through a valid one.
+    off, the dimension was sampled and reported in ``best_params`` while no
+    ``lgb.train`` call received a ``num_leaves`` -- the same silent pass as an
+    unknown name, reached through a valid one. A strict xfail on #299 until
+    H-0121 decision 3, which refuses the user-written dimension (here a
+    ``merge`` override of the default one) before the study.
     """
     cfg = _config_with_space(task, "num_leaves_ratio", "smart", auto_num_leaves=False)
     with _record_train_params() as seen, pytest.raises(LizyMLError) as exc:
         Model(cfg, data=_df_for(task)).tune()
     assert not seen
     assert exc.value.code is ErrorCode.CONFIG_INVALID
+    assert "num_leaves_ratio" in str(exc.value)
+    assert "auto_num_leaves" in str(exc.value)

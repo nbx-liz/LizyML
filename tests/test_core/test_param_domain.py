@@ -1230,13 +1230,23 @@ def test_a_value_with_no_plain_stand_in_is_refused_rather_than_rounded() -> None
             "also prints, so the boundary has no witness here"
         )
 
-    hostile = witnesses[0]
-    text = str(hostile[0])
-    assert str(float(text)) != text, (
-        f"{text!r} does have a plain stand-in; the reason is misclassified"
-    )
-    assert _wire(hostile) != _wire(hostile.tolist()), (
-        "tolist would not have changed the bytes for this witness"
+    for hostile in witnesses:
+        text = str(hostile[0])
+        try:
+            plain = str(float(text))
+        except ValueError:
+            continue  # not a number at all (a timedelta's text): no stand-in either
+        assert plain != text, (
+            f"{text!r} does have a plain stand-in; the reason is misclassified"
+        )
+    # The trade the refusal makes: for some witness, converting with tolist would
+    # have sent different characters. Which witness that is depends on numpy too:
+    # numpy 1.24 lists a longdouble array as longdouble scalars, so tolist leaves
+    # its bytes alone while a float32 witness still changes (H-0126).
+    changed = [w for w in witnesses if _wire(w) != _wire(w.tolist())]
+    assert changed, (
+        "tolist would not have changed the bytes for any witness: "
+        f"{[_label(w) for w in witnesses]}"
     )
 
     with pytest.raises(LizyMLError) as exc:
@@ -1355,8 +1365,18 @@ def test_unchanged_is_decided_by_type_and_not_by_printed_text() -> None:
 
     The predicate asks about types now, recursively, and about identity for a
     scalar, because ``is`` is the one comparison nobody else can join.
+
+    ``legacy="1.25"`` is numpy 2's option for numpy 1.x printing; numpy 1.x has
+    no such option (``KeyError``) and already prints a numpy scalar as a plain
+    one, which is the hazard itself, so there the body runs as it is (H-0126).
     """
-    with np.printoptions(legacy="1.25"):
+    legacy_printing = (
+        np.printoptions(legacy="1.25")
+        if np.lib.NumpyVersion(np.__version__) >= "2.0.0"
+        else contextlib.nullcontext()
+    )
+    with legacy_printing:
+        assert repr(np.int64(1)) == "1", "the hazard needs plain-looking printing"
         for value in (np.int64(1), np.float32(1.0), np.bool_(True)):
             assert not is_accepted(value), f"{_label(value)} passed is_accepted"
             assert not is_plain(value), f"{_label(value)} passed is_plain"

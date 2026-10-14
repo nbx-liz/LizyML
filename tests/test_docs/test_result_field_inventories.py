@@ -17,6 +17,7 @@ import pytest
 
 from lizyml.core.types.fit_result import FitResult
 from lizyml.core.types.predict_result import PredictionResult
+from lizyml.tuning.study_lineage import RoundRecord, StudyLineage
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
 BLUEPRINT = ROOT / "BLUEPRINT.md"
@@ -67,6 +68,10 @@ CASES = [
         _api_fields("### PredictionResult"),
         id="PredictionResult-api.md",
     ),
+    pytest.param(
+        StudyLineage, _api_fields("### StudyLineage"), id="StudyLineage-api.md"
+    ),
+    pytest.param(RoundRecord, _api_fields("### RoundRecord"), id="RoundRecord-api.md"),
 ]
 
 

@@ -25,6 +25,10 @@ class FloatDim:
     bounds (e.g. ``learning_rate`` cannot exceed 1.0).  When set, boundary
     expansion (``expand_dims``) clamps the new range to these limits.
     See H-0078 for context.
+
+    ``step`` (H-0124), when set, makes the dimension a grid: the multiples of
+    ``step`` from 0 (``low`` and ``high`` are multiples), and the value a trial
+    trains on is the grid point its sample rounds to. ``None`` is no grid.
     """
 
     name: str
@@ -34,13 +38,15 @@ class FloatDim:
     category: DimCategory = "model"
     min_allowed: float | None = None
     max_allowed: float | None = None
+    step: float | None = None
 
 
 @dataclass(frozen=True)
 class IntDim:
     """An integer hyperparameter dimension.
 
-    See :class:`FloatDim` for ``min_allowed`` / ``max_allowed`` semantics.
+    See :class:`FloatDim` for ``min_allowed`` / ``max_allowed`` and ``step``
+    semantics; an ``int`` step is a whole number of at least 1.
     """
 
     name: str
@@ -50,6 +56,7 @@ class IntDim:
     category: DimCategory = "model"
     min_allowed: int | None = None
     max_allowed: int | None = None
+    step: int | None = None
 
 
 @dataclass(frozen=True)

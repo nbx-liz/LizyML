@@ -295,6 +295,9 @@ def resolve_metrics(
     2. Classify each as native or feval
     3. Validate all metrics (native against whitelist, feval against task)
     4. Build feval callables for non-native metrics
+    5. Refuse non-empty parameters on a native metric, after the names are
+       validated (H-0125 policy 4): LightGBM computes it from its own
+       parameters, so they would be ignored. ``{name: {}}`` is the bare name.
 
     Args:
         metrics: List of metric names or ``{name: {param: value}}`` dicts.
@@ -314,6 +317,7 @@ def resolve_metrics(
     fevals: list[Callable[..., tuple[str, float, bool]]] = []
     feval_display_names: list[str] = []
     feval_names_for_validation: set[str] = set()
+    native_with_params: list[tuple[str, dict[str, Any]]] = []
 
     # Reject duplicate metric names
     seen: set[str] = set()
@@ -349,10 +353,43 @@ def resolve_metrics(
         else:
             translated = translate_metric(raw_name, task)
             native.append(translated)
+            if kwargs:
+                native_with_params.append((raw_name, kwargs))
 
     # Validate native metrics against whitelist
     validate_lgbm_metrics(
         native, task, feval_names=frozenset(feval_names_for_validation)
     )
+    # After the names: a misspelt name is reported as one, whatever it carries.
+    _refuse_native_metric_params(native_with_params)
 
     return native, fevals, feval_display_names
+
+
+def _refuse_native_metric_params(entries: list[tuple[str, dict[str, Any]]]) -> None:
+    """Refuse parameters on a LightGBM native metric (H-0125 policy 4, #313).
+
+    LightGBM computes a native metric from its own parameters, so a
+    ``{name: {param: value}}`` entry's parameters were dropped in silence:
+    ``{"huber": {"delta": 9.0}}`` trained LightGBM's ``huber``, whose threshold
+    is ``alpha``. An empty mapping is the bare name and is not passed here.
+
+    Args:
+        entries: ``(name as written, parameters)`` of each native entry whose
+            parameters are not empty, in the order written.
+    """
+    if not entries:
+        return
+    name, kwargs = entries[0]
+    params = sorted(str(key) for key in kwargs)
+    raise LizyMLError(
+        code=ErrorCode.CONFIG_INVALID,
+        user_message=(
+            f"Metric '{name}' is a LightGBM native metric, and native metrics "
+            f"take no LizyML parameters; {params} would be ignored. LightGBM "
+            "computes it from its own parameters: huber's threshold is LightGBM's "
+            "'alpha', shared with the objective. Write the bare name here, and "
+            "put a LizyML metric with parameters in evaluation.metrics."
+        ),
+        context={"metric": name, "params": params},
+    )
