@@ -1,0 +1,32 @@
+ARCHITECTURE.md:8: 各カテゴリは明確な境界を持ち、依存は常に上位層→下位層の DAG（非巡回有向グラフ）のみ。
+ARCHITECTURE.md:62: %% Layer 1 → Layer 0 only
+ARCHITECTURE.md:121: | **下方向のみ** | 各カテゴリは自分より下の Layer にのみ依存する（BLUEPRINT §2.1 の表と `tests/test_architecture/test_layer_rules.py`、H-0129） |
+ARCHITECTURE.md:122: | **IF 経由** | Layer 2 は Layer 1 の**抽象 IF のみ**を参照（具象クラスを import しない） |
+ARCHITECTURE.md:123: | **Facade 独占** | 具象クラスの組み立て・型ディスパッチは Layer 4 のみが行う |
+ARCHITECTURE.md:206: Foundation のみに依存。互いに依存しない。
+ARCHITECTURE.md:381: Layer 1 の **抽象 IF のみ** を参照。具象クラスを知らない。
+ARCHITECTURE.md:464: **training/ が参照するのは IF のみ:**
+ARCHITECTURE.md:504: **依存先**: Foundation の型 (`FitResult`, `TuningResult` 等) のみ。Layer 1/2 の具象を直接参照しない。
+ARCHITECTURE.md:510: **唯一**全カテゴリを知る層。具象クラスの組み立てとディスパッチを担当。
+ARCHITECTURE.md:782: | 緑 | 1 | **Leaf** — 互いに依存しない独立カテゴリ |
+ARCHITECTURE.md:784: | 橙 | 3 | **Optional** — Foundation の型のみ参照する追加機能 |
+ARCHITECTURE.md:785: | 赤 | 4 | **Facade** — 唯一全カテゴリを知り、組み立てる |
+BLUEPRINT.md:50: | 1 | Leaf | Foundation のみ | `config/`, `data/`, `splitters/`, `features/`, `estimators/`, `metrics/`, `calibration/` | `splitters/base.py`, `features/pipeline_
+BLUEPRINT.md:56: - 各カテゴリは自分より**下の Layer にのみ**依存する（下方向のみ）。Layer 1 は Foundation と自分のカテゴリだけに依存する。
+BLUEPRINT.md:58: - 具象クラスの組み立て・型ディスパッチは **Layer 4（Facade）のみ**が行う。
+BLUEPRINT.md:64: - この規則に反する既存の import は、テストの例外の一覧に件数つきで載る（[#362](https://github.com/nbx-liz/LizyML/issues/362)。v0.19.0 の後に設計を決める）。一覧の import が消えても増えても、テストは失敗する。
+BLUEPRINT.md:395: | `early_stopping.inner_valid` | `object \| null` | No | `null`（自動解決） | inner valid の唯一の正規表現 |
+BLUEPRINT.md:1606: > Layer 1（Leaf）に属する。Foundation のみに依存し、`config/` や他の Leaf カテゴリに依存しない。
+BLUEPRINT.md:1808: - `EstimatorProvider` は `config/` の具象型（`LGBMConfig` 等）を参照してよい（provider は Facade 層から呼ばれるため、Leaf → Leaf の依存にはならない）。
+BLUEPRINT.md:1816: - `build_export_params` は codegen 経路（`Model.export_code()`）が必要とする native params / num_boost_round / early_stopping_rounds / feval metadata を `ExportParams` froz
+BLUEPRINT.md:1830: - **消費者を全部名指すこと。** 学習器は唯一の消費者ではない: `lgb.train` 2 サイトに加えて **`export_code` が同じ値を `config.json` へ `json.dump` する**。提案がこれを名指していなかったため、受理集合の定義が実装のほうから動いた（path を型のまま通
+BLUEPRINT.md:1886: - 非推奨の面とその削除目標（v1.0）の唯一の登録簿は `docs/DEPRECATIONS.md` である。非推奨の警告文は削除目標の版を明記する（H-0076）。
+BLUEPRINT.md:2152: │   ├── _model_tuning.py            ModelTuningMixin (tune orchestration、唯一の writer mixin、H-0091)
+BLUEPRINT.md:2343: - `Model._get_fit_state()` が返す `FitState` frozen dataclass を mixin の唯一の入口とする（H-0074 型定義 + factory + テスト、H-0077 で全 mixin 移行完了、H-0084 で `core/_model_state.py` へ移設
+PLAN.md:295: Config → Spec の変換レイヤー。正規化済み Config から生成し、下流に渡す唯一の入力。
+README.md:132: - **Downward-only** dependencies (no circular imports)
+README.md:133: - Layer 2 references Layer 1 through **abstract interfaces only**
+README.md:134: - Only the Facade (Layer 4) assembles concrete classes
+docs/add-estimator-guide.md:277: | **Layer 2/3 からの具象 import 禁止** | `training/`, `evaluation/`, `tuning/`（Layer 2）と `explain/`, `plots/`, `persistence/`, `codegen/`（Layer 3）は `BaseEstimatorAdapt
+
+hits: 30

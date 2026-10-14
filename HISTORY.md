@@ -13707,7 +13707,7 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
   - `lizyml/calibration/cross_fit.py`: `CalibrationResult` がそれを継ぐ。
   - `lizyml/persistence/exporter.py`: 型注釈。
   - `lizyml/plots/calibration.py`: `isinstance` の相手。
-  - 文書: ARCHITECTURE.md、docs/add-estimator-guide.md §9、CHANGELOG、`docs/proposal_dispositions.toml`。
+  - 文書: BLUEPRINT §2.2・§14.1、ARCHITECTURE.md、README.md、docs/add-estimator-guide.md §9、CHANGELOG、`docs/proposal_dispositions.toml`（方針 9 の表）。
 - **関連**: [Issue #362](https://github.com/nbx-liz/LizyML/issues/362)。
   - H-0129: 層の規則のテストと、例外の一覧。
   - H-0053: §2.2 の `EstimatorProvider`。provider が pipeline の factory を組む。
@@ -13816,13 +13816,18 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
    - **古びの検出**: 許した組のどれも、木の中の import が少なくとも 1 本使っていること。使われない組は失敗にする（DC3。例外の一覧が件数で古びを検出するのと同じ考え）。
    - §2.1 の文「具象クラスの組み立て・型ディスパッチは Layer 4（Facade）のみが行う」（`BLUEPRINT.md:58`）に、次の例外を足す（§2.2 と、残す A の挙動と、文が矛盾しないように）:
      - §2.2 の provider が、自分の factory で組むもの（estimator の adapter と pipeline）。
-     - estimator が、LightGBM の feval と指標の解決のために、`metrics/registry.py` の `get_metric` で指標を名前から作ること（`estimators/lgbm/metric_bridge.py:337`、`estimators/lgbm/provider.py:611`。`metrics/registry.py:120-130` が型を引いて作る）。round 1 の指摘。
-   - 「下方向のみ」と言い切る文を、許す参照を認める形に全て書き直す（round 1 の指摘）:
-     - BLUEPRINT §2.1 の依存ルールの 1 つ目（`BLUEPRINT.md:56`）。全体を「各カテゴリは、自分より下の Layer と、下の表で自分のカテゴリに許した同じ層のカテゴリにだけ依存する。Layer 1 は Foundation、自分のカテゴリ、許したカテゴリだけに依存する」にする。
-     - 表の Layer 1 の行の「依存先」の欄。「Foundation のみ」を「Foundation + 同じ層の中で許す参照」にする。
-     - ARCHITECTURE.md の冒頭の文（`:8`、「依存は常に上位層→下位層の DAG のみ」）。
-     - ARCHITECTURE.md のルールの表の「下方向のみ」の行（`:121`）と「Facade 独占」の行（`:123`）。BLUEPRINT と同じ例外を書く。
-     - ARCHITECTURE.md の図の注記 `%% Layer 1 → Layer 0 only`（`:62`）。
+     - `metrics/registry.py` が、登録された指標を名前から作ること（`get_metric`、`metrics/registry.py:120-130` が登録から型を引いて作る）。呼ぶ側は問わない。
+       - `metrics/registry.py` は Layer 1 の IF として宣言する（方針 5）。
+       - 今の呼び出し元は 3 つ:
+         - evaluator（`evaluation/evaluator.py:126` の `get_metrics_for_task` → `metrics/registry.py:163`）。
+         - LightGBM の feval への橋渡し（`estimators/lgbm/metric_bridge.py:337`）。
+         - provider（`estimators/lgbm/provider.py:611`）。
+       - round 1 では estimator の 2 か所だけを書き、round 2 で evaluator の経路が漏れていると指摘された。主語を registry にして、呼ぶ側を列挙しない形にした。
+   - 規則を言い切る文は、記憶から列挙せず、検索で洗い出す（round 2 の指摘: round 1 で記憶から列挙した一覧は、同じ意味の文を 7 つ取りこぼした）。
+     - 計測器: `doc_statements_h0130.py` → `doc_statements_h0130.out`（`e8b4c4e`、30 件）。
+     - 対象: Git の管理下の `.md` すべて。除くのは `HISTORY.md`、`CHANGELOG.md`、`docs/audits/`（日付のある記録で、仕様ではない）。
+     - 検索の語: 下方向のみ、互いに依存しない、Foundation のみ、Foundation の型、Layer 4 のみ、Facade 独占、Downward-only、Leaf → Leaf、Leaf カテゴリ、IF のみ、abstract interfaces only、具象クラスの組み立て、具象 import、Only the Facade、唯一、#362、例外 17、Layer 1 → Layer 0 など。正確な一覧は計測器の中にある。
+     - 30 件のそれぞれの扱いは、方針 9 の表のとおり。
    - 許すのは `estimators/` → `config/` を含まない（方針 3 で import が消える）。
    - H-0129 の R2 の落ちるべき例（`RULE_MUTATIONS` の `splitters/base.py` → `metrics.base`、`test_layer_rules.py:131-135`）は、許した組に当たらないのでそのまま有効である。
 
@@ -13857,18 +13862,44 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
    - H-0129 の受け入れ基準 4 のテスト 2 本は、本当の木の一覧の行に依っている（`test_a_fixed_exception_must_leave_the_list`、`test_a_second_import_of_a_listed_pair_fails`）。これを、写しに違反を一つ足し、その組を数 1 で載せた一覧で確かめる形に書き直す（主張は変えない）。
    - §2.1 の文「この規則に反する既存の import は、テストの例外の一覧に件数つきで載る（#362）」は、「既存の違反は無い（H-0130）。新しく見つかった違反は、Proposal で表（IF の列か、同じ層の中で許す参照）を変えるか、例外の一覧に件数つきで載せる」に直す。
 9. **文書**:
-   - BLUEPRINT §2.1:
-     - IF の列。
-     - 許す参照の表。
-     - 依存ルールの 1 つ目と、具象の組み立ての文（方針 6）。
-     - Layer 1 の行の依存先。
-     - 例外の文。
-   - ARCHITECTURE.md:
-     - 冒頭の文（`:8`）。
-     - ルールの表の「下方向のみ」と「Facade 独占」（`:121`、`:123`）。
-     - 図に `estimators` → `features`・`metrics` の辺と、`metrics/registry`・`training/results` の IF を足す。
-     - 「Layer 1 → Layer 0 only」の注記（`:62`）。
-   - docs/add-estimator-guide.md §9 の層の規則の行（「既存の例外 17 件」を直す）。
+   - BLUEPRINT §2.1 の IF の列と許す参照の表を足す。
+   - ARCHITECTURE.md の図に、`estimators` → `features`・`metrics` の辺と、`metrics/registry`・`training/results` の IF を足す。
+   - 計測器が見つけた 30 件は、次のとおり扱う。
+
+   **書き直す 19 件（許す参照と、具象の組み立ての例外を認める形にする）**
+
+   | 位置 | 今の文の要旨 | 書き直す内容 |
+   |---|---|---|
+   | `BLUEPRINT.md:50` | Layer 1 の依存先「Foundation のみ」 | 「Foundation + 同じ層の中で許す参照」 |
+   | `BLUEPRINT.md:56` | 下の Layer にのみ依存。Layer 1 は Foundation と自分だけ | 「各カテゴリは、自分より下の Layer と、下の表で自分のカテゴリに許した同じ層のカテゴリにだけ依存する。Layer 1 は Foundation、自分のカテゴリ、許したカテゴリだけに依存する」 |
+   | `BLUEPRINT.md:58` | 具象の組み立ては Layer 4 のみ | 方針 6 の二つの例外（provider の factory、registry が名前から指標を作ること）を足す |
+   | `BLUEPRINT.md:64` | 既存の違反は例外の一覧に載る（#362） | 方針 8 の文 |
+   | `BLUEPRINT.md:1606` | §14.1: estimators は Foundation のみ、`config/` や他の Leaf に依存しない | 「Foundation と、§2.1 の表で許した `features/`・`metrics/` に依存する。`config/` には依存しない」 |
+   | `BLUEPRINT.md:1808` | §2.2: provider は `config/` の具象型（`LGBMConfig`）を参照してよい（Facade から呼ばれるので Leaf → Leaf ではない） | 「provider は `config/` を import しない（§2.1 の R2。import の文で判定し、呼ぶ側は問わない）。設定は `model_cfg`（`Any`）の属性として読む」 |
+   | `BLUEPRINT.md:1809` | §2.2: `model_cfg` を `isinstance` で具象型にキャストする | 今のコードのとおり、属性を読む形に直す（`estimators/lgbm/provider.py:264-270` は `config` を import せず、`isinstance` も使わない）。round 2 の指摘 |
+   | `ARCHITECTURE.md:8` | 依存は常に上位層→下位層のみ | 許す参照を足す |
+   | `ARCHITECTURE.md:62` | 図の注記 Layer 1 → Layer 0 only | 許す参照を足す |
+   | `ARCHITECTURE.md:121` | ルールの表「下方向のみ」 | BLUEPRINT:56 と同じ |
+   | `ARCHITECTURE.md:123` | ルールの表「Facade 独占」 | BLUEPRINT:58 と同じ例外 |
+   | `ARCHITECTURE.md:206` | Layer 1: Foundation のみ、互いに依存しない | 許す参照を足す |
+   | `ARCHITECTURE.md:504` | Layer 3: Foundation の型のみ参照 | 「Foundation と、Layer 1・2 の IF を参照する」（今でも `plots` は `calibration` を、`persistence` は `estimators.base` を参照している） |
+   | `ARCHITECTURE.md:510` | Facade が唯一、具象を組み立てる | 方針 6 の例外を足す |
+   | `ARCHITECTURE.md:782` | Leaf は互いに依存しない | 許す参照を足す |
+   | `ARCHITECTURE.md:784` | Optional は Foundation の型のみ参照 | `:504` と同じ |
+   | `ARCHITECTURE.md:785` | Facade が唯一、組み立てる | 方針 6 の例外を足す |
+   | `README.md:132`、`:134` | Downward-only、Only the Facade assembles | 許す参照と、二つの例外を足す（英語） |
+   | `docs/add-estimator-guide.md:277` | 層の規則の行（既存の例外 17 件、#362） | 例外は無い、と書き直す |
+
+   - 19 件の数え方: BLUEPRINT 6 件（`:50`、`:56`、`:58`、`:64`、`:1606`、`:1808`）、ARCHITECTURE 10 件、README 2 件、guide 1 件。
+   - `BLUEPRINT.md:1809` は検索の語に当たらない。`:1808` と同じ箇条なので一緒に直す（計測器の 30 件の外）。
+
+   **変えない 11 件**
+
+   | 位置 | 理由 |
+   |---|---|
+   | `ARCHITECTURE.md:122`、`:381`、`:464`、`README.md:133` | Layer 2 が Layer 1 の IF だけを参照すること。この Proposal の後も正しい（IF は §2.1 の表の右の列で、`metrics/registry.py` を足す） |
+   | `BLUEPRINT.md:395`、`:1816`、`:1830`、`:1886`、`:2152`、`:2343`、`PLAN.md:295` | 「唯一」が層の規則と関係のない文に当たった |
+
    - CHANGELOG（Unreleased）。
    - `docs/proposal_dispositions.toml`。
    - マージの後に #362 を close する。
@@ -13877,10 +13908,11 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
 - 例外の一覧: `tests/test_architecture/test_layer_rules.py:22-53`。
 - R2 の判定: `tests/test_architecture/_layer_rules.py:401-402`。
 - 表の読み込み: `read_table`（`_layer_rules.py:114`）。
-- 「下方向のみ」「Layer 4 のみ」と言い切る文:
-  - `BLUEPRINT.md:56`、`:58`。表の Layer 1 の行（`:50`）。
-  - `ARCHITECTURE.md:8`、`:62`、`:121`、`:123`。
-- 指標を名前から作る所: `estimators/lgbm/metric_bridge.py:337`、`estimators/lgbm/provider.py:611` → `metrics/registry.py:120-130`。
+- 規則を言い切る文: `doc_statements_h0130.out` の 30 件（方針 9 の表）。
+- 指標を名前から作る所: `metrics/registry.py:120-130`（`get_metric`）。呼び出し元は次の 3 か所:
+  - `evaluation/evaluator.py:126` → `metrics/registry.py:163`
+  - `estimators/lgbm/metric_bridge.py:337`
+  - `estimators/lgbm/provider.py:611`
 - 例外の一覧に依るテスト: `test_layer_rules.py:324-342`。
 - 17 本の位置:
 
@@ -13979,6 +14011,9 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
      - 比べる関数は、三つの写しのそれぞれで失敗する: 欄を `Any` に広げた写し、別の型にした写し、欄を消した写し。
      - `uv run mypy lizyml/` が通る。
    - (d) `inspect.signature(lizyml.persistence.export)` のゴールデンは、`refit_result` の注釈の文字列だけが変わる。
-7. 文書が方針 9 のとおり。
-   - BLUEPRINT §2.1 と ARCHITECTURE.md に、許す参照を認めずに「下方向のみ」「Layer 4 のみ」と言い切る文が残っていない。
-   - 具象の組み立ての例外に、provider の factory と、estimator の `get_metric` の両方が書かれている。
+7. 文書が方針 9 のとおり。実装の後に `doc_statements_h0130.py` を走らせ直し、`.out` を更新する。
+   - 書き直す 19 件のそれぞれが、表の内容になっている。
+   - 変えない 11 件は、文が変わっていない（行番号は変わってよい）。
+   - 走らせ直して当たった行が、どれも表のどちらかの行に対応する。対応しない行が出たら、扱いを決めるまで受け入れない。
+   - 具象の組み立ての例外は、`BLUEPRINT.md:58`・`ARCHITECTURE.md:123`・`:510`・`:785`・`README.md:134` のどこでも、主語が「provider の factory」と「`metrics/registry.py` が名前から指標を作ること」の二つである。
+   - §2.2 に、provider が `config/` を import してよいという文が残っていない。
