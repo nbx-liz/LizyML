@@ -43,7 +43,7 @@ def _config_reference_tuning() -> str:
 
 
 def _changelog_unreleased() -> str:
-    return _section(_read("CHANGELOG.md"), "## [Unreleased]", "## [0.18.0]")
+    return _section(_read("CHANGELOG.md"), "## [0.19.0]", "## [0.18.0]")
 
 
 _KEYS = sorted(set().union(*DIM_KEYS.values()))
@@ -132,7 +132,7 @@ def test_config_reference_key_table_matches_the_code() -> None:
 
 
 def _changelog_entry(marker: str) -> str:
-    """The one ``[Unreleased]`` bullet (a single line) containing *marker*."""
+    """The one ``[0.19.0]`` bullet (a single line) containing *marker*."""
     (line,) = [ln for ln in _changelog_unreleased().splitlines() if marker in ln]
     return line
 

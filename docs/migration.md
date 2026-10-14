@@ -7,9 +7,12 @@ release from v0.5.0 onward.
 
 ## v0.19.0
 
-Tuning with `resume=True`, `storage` or `study_name` changes (H-0122), and
-a few objective and metric values are refused (H-0125, see
-[the last section](#binary-objectives-native-metric-params-and-tune-values-h-0125)).
+Tuning with `resume=True`, `storage` or `study_name` changes (H-0122). Some
+configs and search spaces that v0.18.0 silently read as something else are
+now refused: smart-parameter collisions and smart dimensions (H-0121), the
+search-space format and `step` (H-0123, H-0124), regression stratification
+(H-0120), and a few objective and metric values (H-0125). Each has a section
+below.
 A `tune()` that starts a new in-memory study, and an in-memory `tune()` ->
 `tune(resume=True)` that keeps the data and the config unchanged between rounds,
 need no edits; their results can still change (see below). Saved artifacts keep
@@ -50,11 +53,12 @@ afterwards.
 - A new study starts at round 1; `resume=False` no longer keeps counting the
   previous study's rounds. A reattached Model continues the study's round
   numbers.
-- A round that ends with no COMPLETE trial in the study still raises
+- A round that ends with no COMPLETE trial of its own raises
   `TUNING_FAILED`, is recorded `failed`, and is left out of
-  `TuningResult.rounds`, so `rounds` can start at round 2 with
-  `best_score_before=None`. Code that assumes `rounds[0].round == 1`, or that
-  `len(rounds)` counts every round, needs the round numbers instead.
+  `TuningResult.rounds` (H-0128, below), so `rounds` can skip round numbers
+  and can start at round 2 with `best_score_before=None`. Code that assumes
+  `rounds[0].round == 1`, or that `len(rounds)` counts every round, needs the
+  round numbers instead.
 - `RoundSummary.n_trials` is the number of trials the round ran, and
   `TuneProgressInfo.current_trial` counts within the round, continuing at K+1
   when a round with K finished trials is resumed.
@@ -103,6 +107,85 @@ stored study is in without changing it.
 defaults the provider lays under the user's parameters. They enter the
 objective identity, so a changed default refuses a resume. A provider without
 the method keeps working, and its defaults are not checked.
+
+`EstimatorProvider.smart_param_owners()` is a new, required method (H-0121):
+for each smart parameter that is read only while another one is true, that
+owner. `tune` calls it, so a provider without it fails there; one without
+smart parameters returns `{}`.
+
+`BaseEstimatorAdapter.unsaveable_categories(pipeline_state)` is a new, optional
+method (H-0129): the category values the estimator cannot write when its model
+is saved. The default, `[]`, is the old behaviour for third-party adapters:
+`Model.export` no longer checks their models against LightGBM's JSON limit.
+
+---
+
+### Smart parameters and smart dimensions (H-0121)
+
+A value for a parameter a smart parameter manages is now refused, in any
+LightGBM spelling, by `fit` and `tune` before training
+([#280](https://github.com/nbx-liz/LizyML/issues/280)). It used to be
+overwritten by the smart value, or sent to LightGBM next to it. The literal
+names `num_leaves`, `min_data_in_leaf` and `min_data_in_bin` were refused when
+the config was built; they are now refused at `fit` / `tune`.
+
+| You wrote (in `model.params`, `fit(params=)` or a tuned `best_model_params`) | Write instead |
+|-----------|---------------|
+| `num_leaves` or an alias such as `max_leaves`, with `auto_num_leaves` on (the default) | `model.auto_num_leaves: false` to set the leaves yourself |
+| `min_data_in_leaf` (any alias), with `min_data_in_leaf_ratio` set (the default is `0.01`) | `model.min_data_in_leaf_ratio: null` |
+| `min_data_in_bin` (any alias), with `min_data_in_bin_ratio` set (the default is `0.01`) | `model.min_data_in_bin_ratio: null` |
+| `feature_contri` or `feature_pre_filter`, with `feature_weights` set | One of the two |
+| `scale_pos_weight` on a binary task, with `balanced` on (`null`, the default, is on for binary) | `model.balanced: false` |
+
+Search dimensions with `category: smart`
+([#299](https://github.com/nbx-liz/LizyML/issues/299),
+[#341](https://github.com/nbx-liz/LizyML/issues/341),
+[#347](https://github.com/nbx-liz/LizyML/issues/347)), refused before the study:
+
+| You wrote | Write instead |
+|-----------|---------------|
+| A smart dimension whose name is not a smart parameter, such as `num_leaves` | `category: model` for a LightGBM parameter |
+| A `num_leaves_ratio` dimension with `auto_num_leaves: false` and no `auto_num_leaves` dimension that can be true | Remove it, or turn `auto_num_leaves` on |
+| `model.params`, the round's fixed parameters or a `category: model` dimension that one of the round's smart dimensions could manage (for example `max_leaves` while the space holds `auto_num_leaves: [true]`) | Drop the parameter or the dimension |
+| A smart dimension value of the wrong type or range: `"false"`, `0` / `1` for a bool, a bool for a number, NaN, a ratio outside its range, `balanced: true` on regression | The values listed in docs/config-reference.md |
+
+- The default space's `num_leaves_ratio`, when `auto_num_leaves` cannot be
+  true, is dropped from the tune instead of searched to no effect (logged at
+  INFO, `event='tune.drop_dims'`).
+- The boundary expansion of `num_leaves_ratio` stops at `1.0` instead of `2.0`.
+
+### Search space format and `step` (H-0123, H-0124)
+
+`tuning.optuna.space` and `tune(space=...)` are checked by one rule before a
+study is created ([#344](https://github.com/nbx-liz/LizyML/issues/344)); the
+refusal's `context` names the dimension, the key and a `reason`. These used to
+be read as a different search:
+
+| You wrote | Write instead |
+|-----------|---------------|
+| `log: "false"` (a string) | `log: false` |
+| A key outside the format (a misspelt `lo`, `low` / `high` on a categorical dimension) | The keys in docs/config-reference.md |
+| An `int` bound that is not a whole number, such as `1.7` | A whole number (`"16.0"` and `"1e2"` are accepted as 16 and 100) |
+| `choices` that is a string, set, dict, range or array | A non-empty list |
+| A `category` other than `model`, `smart` or `training` | One of the three |
+| A bound that is NaN, infinite, a bool, `None` or a non-number string | A finite number |
+| A `step` whose `low` or `high` is not a multiple of it ([#350](https://github.com/nbx-liz/LizyML/issues/350)) | Bounds on the grid; the message suggests one |
+| A `step` of zero or below | A positive step (a whole number of at least 1 on an `int` dimension) |
+
+A `step` is now honoured: the trials sample the multiples of `step` between
+`low` and `high`. v0.18.0 ignored it, so a stepped dimension's trials, and the
+best parameters, differ from v0.18.0 with the same seed.
+
+### Regression splits and generated code (H-0120)
+
+- A regression config with `split.method: stratified_kfold` /
+  `stratified_group_kfold`, `split.groups.stratify: true` or an explicit
+  `inner_valid` with `stratify: true` raises `CONFIG_INVALID` before training.
+  Use `kfold`, `group_kfold` or `stratify: false`.
+- The `train.py` of `export_code` reproduces the refit again
+  ([#301](https://github.com/nbx-liz/LizyML/issues/301),
+  [#304](https://github.com/nbx-liz/LizyML/issues/304)). An existing generated
+  project retrains as before; export again to get the new `train.py`.
 
 ---
 

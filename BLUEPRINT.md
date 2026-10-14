@@ -1067,7 +1067,7 @@ resume の round は前回の最良値を評価し直さない（前回の最良
 | `resume` | `False` | `True`: study に round を足す。Model が持つ study、持たなければ `storage` / `study_name` の study（再接続。無ければ作る）。途中で落ちた round はその round を終える（§11.5.3） |
 | `n_trials` | `None` | 追加試行数（`None` → config 値）。途中の round の再開では記録した値だけを受け付ける |
 | `expand_boundary` | `None` | 境界拡張。`None`: round の宣言空間に H-0102 の規則を当てる（`merge` で利用者の次元が無いとき→`True`、それ以外→`False`）。途中の round の再開では記録した値だけを受け付ける |
-| `boundary_threshold` | `0.05` | 端判定閾値（0.0〜1.0） |
+| `boundary_threshold` | `0.05` | 端判定閾値。開区間 (0.0, 0.5)。範囲の端からこの割合の内側に最良値があると広げる。外の値は study の前に `CONFIG_INVALID`（`core/_tuning_admission.py`） |
 | `space` | `None` | この round の探索空間（`tuning.optuna.space` と同じ形式）。round 2 以降だけ。`None`: 直前の round の空間（§11.5.2） |
 
 ### 境界検知ルール
