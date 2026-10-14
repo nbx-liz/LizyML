@@ -531,6 +531,10 @@ anchors = ["TrialErrorProvider", "extra_catch", "trial_states"]
 disposition = "specified"
 anchors = ["unsaveable_categories", "UnsaveableCategory", "test_layer_rules.py"]
 
+[proposals."H-0130"]
+disposition = "pending"
+reason = "Proposed: the BLUEPRINT section 2.1 table, its allowance table and the rule text change with the implementation."
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 

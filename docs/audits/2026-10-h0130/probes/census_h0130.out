@@ -1,0 +1,58 @@
+resolved lizyml imports: 517
+
+Layer 1 -> another Layer 1 category, by pair:
+  lizyml.estimators -> lizyml.config: 1
+  lizyml.estimators -> lizyml.features: 5  [allowed]
+  lizyml.estimators -> lizyml.metrics: 3  [allowed]
+reverse of an allowed pair: 0
+
+admitted by the allowances: 8
+  lizyml/estimators/lgbm/metric_bridge.py -> lizyml.metrics.base
+  lizyml/estimators/lgbm/metric_bridge.py -> lizyml.metrics.registry
+  lizyml/estimators/lgbm/provider.py -> lizyml.features.encoders.categorical_encoder
+  lizyml/estimators/lgbm/provider.py -> lizyml.features.pipeline_base
+  lizyml/estimators/lgbm/provider.py -> lizyml.features.pipelines_native
+  lizyml/estimators/lgbm/provider.py -> lizyml.metrics.registry
+  lizyml/estimators/provider.py -> lizyml.features.encoders.categorical_encoder
+  lizyml/estimators/provider.py -> lizyml.features.pipeline_base
+
+Layer 2/3 imports admitted by the new interfaces: 1
+  lizyml/evaluation/evaluator.py -> lizyml.metrics.registry
+
+check() problems with an empty exception list: 17
+  R4 lizyml/__init__.py -> lizyml.core.model: 1 import(s), 0 allowed by the exception list
+      closed by: core/model.py imports lizyml._version
+  R4 lizyml/core/model.py -> lizyml: 1 import(s), 0 allowed by the exception list
+      closed by: core/model.py imports lizyml._version
+  R2 lizyml/estimators/lgbm/metric_bridge.py -> lizyml.metrics.base: 1 import(s), 0 allowed by the exception list
+      closed by: allowance lizyml.estimators -> lizyml.metrics
+  R2 lizyml/estimators/lgbm/metric_bridge.py -> lizyml.metrics.registry: 1 import(s), 0 allowed by the exception list
+      closed by: allowance lizyml.estimators -> lizyml.metrics
+  R2 lizyml/estimators/lgbm/provider.py -> lizyml.config.schema: 1 import(s), 0 allowed by the exception list
+      closed by: SMART_RATIO_RANGES / RatioRange move to core/types/
+  R2 lizyml/estimators/lgbm/provider.py -> lizyml.features.encoders.categorical_encoder: 1 import(s), 0 allowed by the exception list
+      closed by: allowance lizyml.estimators -> lizyml.features
+  R2 lizyml/estimators/lgbm/provider.py -> lizyml.features.pipeline_base: 1 import(s), 0 allowed by the exception list
+      closed by: allowance lizyml.estimators -> lizyml.features
+  R2 lizyml/estimators/lgbm/provider.py -> lizyml.features.pipelines_native: 1 import(s), 0 allowed by the exception list
+      closed by: allowance lizyml.estimators -> lizyml.features
+  R2 lizyml/estimators/lgbm/provider.py -> lizyml.metrics.registry: 1 import(s), 0 allowed by the exception list
+      closed by: allowance lizyml.estimators -> lizyml.metrics
+  R2 lizyml/estimators/provider.py -> lizyml.features.encoders.categorical_encoder: 1 import(s), 0 allowed by the exception list
+      closed by: allowance lizyml.estimators -> lizyml.features
+  R2 lizyml/estimators/provider.py -> lizyml.features.pipeline_base: 1 import(s), 0 allowed by the exception list
+      closed by: allowance lizyml.estimators -> lizyml.features
+  R3 lizyml/evaluation/confusion.py -> lizyml.training.oof_assembly: 1 import(s), 0 allowed by the exception list
+      closed by: compute_oof_valid_mask moves to core/types/
+  R3 lizyml/evaluation/evaluator.py -> lizyml.metrics.registry: 1 import(s), 0 allowed by the exception list
+      closed by: new interface lizyml.metrics.registry
+  R3 lizyml/evaluation/evaluator.py -> lizyml.training.oof_assembly: 1 import(s), 0 allowed by the exception list
+      closed by: compute_oof_valid_mask moves to core/types/
+  R3 lizyml/explain/shap_explainer.py -> lizyml.features.pipelines_native: 1 import(s), 0 allowed by the exception list
+      closed by: pipeline_factory becomes required
+  R3 lizyml/persistence/exporter.py -> lizyml.training.refit_trainer: 1 import(s), 0 allowed by the exception list
+      closed by: annotation by training/results.py's Protocol (option 3)
+  R3 lizyml/plots/calibration.py -> lizyml.calibration.cross_fit: 1 import(s), 0 allowed by the exception list
+      closed by: isinstance on calibration/base.py's marker (option 3)
+
+unclosed: 0

@@ -13688,3 +13688,245 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
   - persistence の直接呼び出しのテストで、拒否の文の全体をゴールデン（`050949b` の文）として固定した。陰性対照に、文を書き換えた実装の行を足した（4 組とも期待どおり）。
   - Firing rate の実装後の数を `17/517` に直した（Proposal の `17/514` は消える import しか数えていなかった）。
   - docs/add-estimator-guide.md §6 と §9 の、codegen が `LGBMAdapter` を import する・型に使うという古い記述を、コードのとおりに書き直した（`codegen/` は `BaseEstimatorAdapter` / `BaseCalibratorAdapter` だけを参照し、LightGBM 固有なのはテンプレート、`lgbm_params`、Facade の objective の検査）。ARCHITECTURE.md の図に `_extras`・`_version`・`codegen/` を足し、「上の Layer にのみ依存」の誤記を「下」に直した。
+
+## H-0130: BLUEPRINT §2.1 の層の例外 17 本をなくす ― 同じ層の中で許す参照を表に宣言し、結果の型は IF に形だけ置く（#362）
+
+- **ステータス**: Proposed
+- **起票日**: 2026-10-14
+- **スコープ**:
+  - `BLUEPRINT.md` §2.1: IF の列、新しい「同じ層の中で許す参照」の表、依存ルールの文。
+  - `tests/test_architecture/_layer_rules.py`: 許す参照の表を読み、R2 で使う。
+  - `tests/test_architecture/test_layer_rules.py`: 例外の一覧を空にし、落ちるべき例を足す。
+  - `lizyml/core/model.py`: `__version__` の import 元。
+  - `lizyml/core/types/` の新しいモジュール 2 つ: `oof_coverage.py` と `smart_ratio.py`。
+  - `lizyml/training/oof_assembly.py`、`lizyml/config/schema.py`: 再公開。
+  - `lizyml/evaluation/{evaluator,confusion}.py`、`lizyml/estimators/lgbm/provider.py`: import 元。
+  - `lizyml/explain/shap_explainer.py`: `pipeline_factory` を必須にする。
+  - 新しい `lizyml/training/results.py`: `RefitResultView`。
+  - `lizyml/calibration/base.py`: `BaseCalibrationResult`。
+  - `lizyml/calibration/cross_fit.py`: `CalibrationResult` がそれを継ぐ。
+  - `lizyml/persistence/exporter.py`: 型注釈。
+  - `lizyml/plots/calibration.py`: `isinstance` の相手。
+  - 文書: ARCHITECTURE.md、docs/add-estimator-guide.md §9、CHANGELOG、`docs/proposal_dispositions.toml`。
+- **関連**: [Issue #362](https://github.com/nbx-liz/LizyML/issues/362)。
+  - H-0129: 層の規則のテストと、例外の一覧。
+  - H-0053: §2.2 の `EstimatorProvider`。provider が pipeline の factory を組む。
+  - H-0054: 表の 6 行目が SHAP の具象 import を欠陥として挙げた。
+  - H-0057: `compute_oof_valid_mask`。
+  - H-0121 改訂 2: `SMART_RATIO_RANGES` を一つの宣言にした。
+  - 証拠: `docs/audits/2026-10-h0130/probes/`。
+
+### 目的（課題）
+H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を例外の一覧（`tests/test_architecture/test_layer_rules.py:23-53`）に件数つきで載せ、設計の判断を v0.19.0 の後に回した（#362）。この Proposal は 17 本のそれぞれについて、次のどちらかを決めて、一覧を空にする。
+
+- 規則に合わせて直す。
+- 規則のほうを、すでに決まった設計（§2.2 の provider の役割）に合わせて宣言する。
+
+続く #355（MASE。指標と LightGBM の feval の橋渡しに触れる）と #357（`CategoricalEncoder` に触れる）は、ここで決めた規則の上に作る（管理者の判断。#362 を先にする順番）。
+
+### 管理者の判断（2026-10-14、Codex との設計の議論の後）
+設計の議論は Codex の 1 round の critique（run `h0130-design-critique`、`e8b4c4e`）で行った。管理者は、作り直しを先に検討させ、欠点が明らかに大きければ許可の案も検討する、という方針でこれを頼んだ。
+
+- **A（`estimators/` → `features/`・`metrics/` の 8 本）: 許可の表を足す。**
+  - Codex は、作り直しを import ごとに設計した。必要なのは次の 4 つ。
+    - `UnseenPolicy` と `BaseFeaturePipeline` を Layer 0 へ移す。
+    - `build_pipeline_factory` をやめ、Facade が pipeline を組む。
+    - `BaseMetric` と `MetricEntry` の解釈を Layer 0 へ移す。
+    - 指標の解決を Facade から adapter へ注入する。
+  - Codex の判定は「欠点は明らかに大きい」。
+    - 規模は L。
+    - 外部の provider が実装する `build_pipeline_factory(unseen_policy=...)`（`docs/migration.md:300-302`）が無くなる。
+    - #355 は、学習側の y を、作り直す注入の経路に通すことになる。
+  - pickle は、どちらの案でも変わらない。保存されるのは pipeline の状態（dict）で、pipeline のインスタンスと指標のオブジェクトは保存されない。
+- **B（層をまたぐ結果の型 2 本）: 案 3。** クラスは今のモジュールに残し、IF のモジュールに形（Protocol と目印の基底）だけを置く。
+  - 案 1（IF のモジュールへ移す）は、新しい pickle に新しい `__module__` を書く。v0.19.0 の loader は `format_version` が {1, 2} なら受け付けてから joblib で落ちる（`persistence/loader.py:158-192`）。だから案 1 には format 3 が要る（README.md:144）。
+  - 案 2（`cross_fit.py` と `refit_trainer.py` を IF と宣言する）は、具象の処理を IF にしてしまう。
+- 判断なしで直す 7 本（循環 2、OOF のマスク 2、ratio の範囲 1、SHAP 1、evaluator → registry 1）は、Codex が事実を確かめた。
+
+### 実測（2026-10-14、`e8b4c4e`）
+計測器 `census_h0130.py` → `census_h0130.out`。H-0129 の検査本体（`_layer_rules.py`）と、今の §2.1 の表をそのまま使う。
+
+- 解決した `lizyml` の import は 517 件。
+- 空の例外の一覧で `check()` を走らせると、問題はちょうど 17 件（一覧の 17 本と一致）。
+- 17 件は、この Proposal の方針で全て閉じる（UNCLOSED 0）。内訳:
+
+| 閉じ方 | 本数 | import |
+|---|---|---|
+| 許す参照 `estimators/` → `features/` | 5 | `estimators/provider.py` → `features.encoders.categorical_encoder`、`features.pipeline_base`。`estimators/lgbm/provider.py` → その 2 つと `features.pipelines_native` |
+| 許す参照 `estimators/` → `metrics/` | 3 | `estimators/lgbm/provider.py` → `metrics.registry`（関数の中）。`estimators/lgbm/metric_bridge.py` → `metrics.base`、`metrics.registry` |
+| IF の宣言 `metrics/registry.py` | 1 | `evaluation/evaluator.py` → `metrics.registry` |
+| `__version__` の import 元 | 2 | 循環の 2 辺（`lizyml/__init__.py` → `core.model`、`core/model.py` → `lizyml`） |
+| Layer 0 への移動 | 3 | `evaluation/{confusion,evaluator}.py` → `training.oof_assembly`。`estimators/lgbm/provider.py` → `config.schema` |
+| `pipeline_factory` を必須に | 1 | `explain/shap_explainer.py` → `features.pipelines_native` |
+| 案 3 | 2 | `persistence/exporter.py` → `training.refit_trainer`、`plots/calibration.py` → `calibration.cross_fit` |
+
+- Layer 1 から別の Layer 1 のカテゴリへの import は、次の 3 組だけ:
+
+  | 組 | 本数 |
+  |---|---|
+  | `estimators` → `features` | 5 |
+  | `estimators` → `metrics` | 3 |
+  | `estimators` → `config` | 1 |
+
+  許す 2 組の逆向き（`features`・`metrics` → `estimators`）は 0 本。
+
+### 対応方針（提案）
+
+**判断なしで直すもの**
+1. **循環**: `core/model.py:48` を `from lizyml._version import __version__` にする（`core/_tuning_identity.py:32` と同じ形）。`lizyml.__version__` は変わらない。
+2. **`compute_oof_valid_mask`**（numpy だけを使う。`training/oof_assembly.py:74-95`）:
+   - 新しい `lizyml/core/types/oof_coverage.py` に移す。Layer 0 の `core/types/` の行に入るので、表の行は変えない。
+   - `training/oof_assembly.py` は同じ関数を再公開する（`__all__` と `tests/test_training/test_oof_coverage.py` の import を保つ。同じオブジェクト）。
+   - `evaluation/evaluator.py` と `evaluation/confusion.py` は `core/types/oof_coverage` から import する。
+3. **`RatioRange`（`NamedTuple`、`config/schema.py:326`）と `SMART_RATIO_RANGES`（`:348`）**:
+   - 新しい `lizyml/core/types/smart_ratio.py` に移す。
+   - `config/schema.py` は両方を再公開する。config の検証（`_check_ratio`）と provider の値の規則（`estimators/lgbm/provider.py:62-71`）は、引き続き同じ一つの宣言を読む（H-0121 改訂 2、DC3）。
+   - `estimators/lgbm/provider.py` は `core/types/smart_ratio` から import する。
+4. **SHAP**:
+   - `compute_shap_importance` の `pipeline_factory` を必須の引数にし、`None` のときの `NativeFeaturePipeline` への代わりの経路（`explain/shap_explainer.py:172-178`）を消す。
+   - Facade は必ず `state.provider.build_pipeline_factory()` を渡している（`core/_model_tables.py:190-198`）。
+   - この関数は `lizyml.explain.__all__` に無い内部の関数である。
+   - 渡していないテスト 2 か所（`tests/test_explain/test_shap_importance_edge.py:13`、`tests/test_explain/test_shap_importance_per_fold_pipeline.py:352`）は factory を渡す形にする（主張は変えない）。
+5. **IF の列**:
+   - Layer 1 の IF に `metrics/registry.py` を足す。名前から指標を得る入口で、具象の指標クラスを名指さない。ARCHITECTURE.md の図は既にこの辺を「BaseMetric IF」と呼ぶ。
+   - Layer 2 の IF に `training/results.py`（方針 7）を足す。今は「なし」。
+
+**A: 同じ層の中で許す参照（表で宣言する）**
+
+6. §2.1 の依存ルールの後に、次の表を足す。表の前の行は `同じ層の中で許す参照（H-0130）:` ちょうど一行とする。
+
+   | 参照する側 | 参照される側 | 根拠 |
+   |---|---|---|
+   | `estimators/` | `features/` | §2.2: provider が pipeline の factory を組む（H-0053）。`UnseenPolicy` を受け取り、具象の pipeline を作る |
+   | `estimators/` | `metrics/` | LightGBM の feval への橋渡し（`estimators/lgbm/metric_bridge.py`）と、provider の指標の解決 |
+
+   - **読み方**（テストが読む。読めなければ失敗、DC1）:
+     - 前の行は §2.1 の中にちょうど一つ。
+     - 見出しの行は `| 参照する側 | 参照される側 | 根拠 |`。区切りの行は `|---|---|---|`。
+     - 参照する側と参照される側の欄は、バッククォートで囲んだ `pkg/` を**一つだけ**書く。どちらも §2.1 の表の Layer 1 の「含まれるモジュール」に挙がったカテゴリ。
+     - 根拠の欄は空でない。
+     - 次の行は失敗にする:
+       - 同じ組の 2 行目。
+       - 参照する側と参照される側が同じ行。
+       - Layer 1 でないカテゴリ（例 `training/`）の行。
+   - **R2 の変更**: Layer 1 のモジュールは、Layer 0、自分のカテゴリ、そして**表で自分のカテゴリに許されたカテゴリ**（その中のどのモジュールでもよい）を import してよい。ほかの Layer 1 のカテゴリは、今と同じく失敗。R1・R3・R4・R5 は変えない。
+     - 許した組の逆向きの import は、R2 で失敗し（逆向きは許していない）、R4（循環）でも失敗する。
+   - **古びの検出**: 許した組のどれも、木の中の import が少なくとも 1 本使っていること。使われない組は失敗にする（DC3。例外の一覧が件数で古びを検出するのと同じ考え）。
+   - §2.1 の文「具象クラスの組み立て・型ディスパッチは Layer 4（Facade）のみが行う」に「ただし §2.2 の provider が自分の factory で組むもの（estimator の adapter、pipeline）を除く」を足す。§2.2 と文が矛盾しないようにするため。
+   - 同じ理由で次の 3 か所も直す:
+     - 表の Layer 1 の行の「依存先」の欄「Foundation のみ」を「Foundation + 同じ層の中で許す参照」にする。
+     - 依存ルールの文「Layer 1 は Foundation と自分のカテゴリだけに依存する」を「Layer 1 は Foundation、自分のカテゴリ、下の表で許したカテゴリだけに依存する」にする。
+     - ARCHITECTURE.md の図の注記 `%% Layer 1 → Layer 0 only`（`:62`）。
+   - 許すのは `estimators/` → `config/` を含まない（方針 3 で import が消える）。
+   - H-0129 の R2 の落ちるべき例（`RULE_MUTATIONS` の `splitters/base.py` → `metrics.base`、`test_layer_rules.py:131-135`）は、許した組に当たらないのでそのまま有効である。
+
+**B: 結果の型（案 3）**
+
+7. クラスは今のモジュールに残す。pickle が記録する名前（`lizyml.calibration.cross_fit.CalibrationResult`、`lizyml.training.refit_trainer.RefitResult`）は変わらない。
+   - **`lizyml/training/results.py`**（新しい Layer 2 の IF）:
+     - `RefitResultView(Protocol)` を置く。`RefitResult` の 7 つの欄（`model: BaseEstimatorAdapter`、`pipeline_state: Any`、`feature_names: list[str]`、`categorical_features: list[str]`、`best_iteration: int | None`、`train_pred: npt.NDArray[np.float64]`、`history: dict[str, Any]`）を同じ型で宣言する。
+     - `persistence/exporter.py` は `TYPE_CHECKING` の下で `RefitResultView` を import し、`_saved_pipeline_states`・`check_category_values`・`export` の `refit_result` の注釈に使う。
+     - 実行時の挙動は変わらない（`export` は渡された物をそのまま joblib で保存する）。
+     - Facade が `RefitResult` を渡す所で、mypy が構造の一致を確かめる。
+     - テストは、`RefitResultView` の注釈の名前の集合が `dataclasses.fields(RefitResult)` の名前の集合と等しいことを確かめる（DC3）。
+   - **`lizyml/calibration/base.py`**:
+     - 目印の基底 `BaseCalibrationResult` を置く。欄は持たず、`calibrated_oof: npt.NDArray[np.float64]` の注釈だけを持つ（mypy 用）。
+     - `CalibrationResult`（`@dataclass`、`calibration/cross_fit.py:48`）はこれを継ぐ。pickle は基底を記録しないので、古いアーティファクトの `CalibrationResult` も読み込んだ後に `isinstance(..., BaseCalibrationResult)` が真になる。
+     - `plots/calibration.py` の `_require_calibrator` は `calibration.base.BaseCalibrationResult` で判定する（拒否の文と context は変えない）。
+     - Facade（`core/_model_predict.py:74`、`core/_model_metrics.py:83`）は Layer 4 なので `cross_fit` を import したままでよい。変えない。
+   - 実行時の判定に Protocol（`runtime_checkable`）を使わない理由: 属性があるかだけを見るので、緩すぎる（Codex の指摘）。
+
+**例外の一覧と文書**
+
+8. **例外の一覧**:
+   - `EXCEPTIONS` は空（`{}`）になる。
+   - 一覧の仕組み（組ごとの件数の一致）は残す。新しく決めた違反を設計の判断まで置いておく場所であり、§2.1 にそう書く。
+   - H-0129 の受け入れ基準 4 のテスト 2 本は、本当の木の一覧の行に依っている（`test_a_fixed_exception_must_leave_the_list`、`test_a_second_import_of_a_listed_pair_fails`）。これを、写しに違反を一つ足し、その組を数 1 で載せた一覧で確かめる形に書き直す（主張は変えない）。
+   - §2.1 の文「この規則に反する既存の import は、テストの例外の一覧に件数つきで載る（#362）」は、「既存の違反は無い（H-0130）。新しく見つかった違反は、Proposal で表（IF の列か、同じ層の中で許す参照）を変えるか、例外の一覧に件数つきで載せる」に直す。
+9. **文書**:
+   - BLUEPRINT §2.1（IF の列、許す参照の表、依存ルールの文、例外の文）。
+   - ARCHITECTURE.md（図に `estimators` → `features`・`metrics` の辺と、`metrics/registry`・`training/results` の IF。「Layer 1 → Layer 0 only」の注記を直す）。
+   - docs/add-estimator-guide.md §9 の層の規則の行（「既存の例外 17 件」を直す）。
+   - CHANGELOG（Unreleased）。
+   - `docs/proposal_dispositions.toml`。
+   - マージの後に #362 を close する。
+
+### 規則が縛る位置（ソースから導出、実装前、`e8b4c4e`）
+- 例外の一覧: `tests/test_architecture/test_layer_rules.py:22-53`。
+- R2 の判定: `tests/test_architecture/_layer_rules.py:401-402`。
+- 表の読み込み: `read_table`（`_layer_rules.py:114`）。
+- 例外の一覧に依るテスト: `test_layer_rules.py:324-342`。
+- 17 本の位置:
+
+  | ファイル | 行 |
+  |---|---|
+  | `core/model.py` | 48 |
+  | `lizyml/__init__.py` | 6 |
+  | `evaluation/evaluator.py` | 15-16 |
+  | `evaluation/confusion.py` | 14 |
+  | `estimators/provider.py` | 22-23 |
+  | `estimators/lgbm/provider.py` | 16、42-44、577 |
+  | `estimators/lgbm/metric_bridge.py` | 22-23 |
+  | `explain/shap_explainer.py` | 177 |
+  | `plots/calibration.py` | 31 |
+  | `persistence/exporter.py` | 38 |
+
+- 型の使われ方:
+  - `RefitResult` を注釈に使う所: `persistence/exporter.py:69`、`:109`、`:187`。
+  - `CalibrationResult` を判定に使う所: `plots/calibration.py:31-33`（Layer 3）、`core/_model_predict.py:74-76`・`core/_model_metrics.py:83-85`（Layer 4、変えない）。
+  - plots が読む欄: `calibrated_oof`（`plots/calibration.py:72`、`:133`）。
+- 公開の再公開:
+  - `lizyml.calibration.CalibrationResult`（`calibration/__init__.py:5`）。
+  - `lizyml.training.RefitResult`（`training/__init__.py:11`）。
+  - どちらも変えない。
+
+### 互換性
+- 公開 API:
+  - `lizyml.calibration.CalibrationResult`、`lizyml.training.RefitResult`、`lizyml.__version__` は変わらない。
+  - `lizyml.config.schema` の `RatioRange` と `SMART_RATIO_RANGES` は同じオブジェクトとして残る。
+  - 足すもの: `lizyml.training.results.RefitResultView`、`lizyml.calibration.base.BaseCalibrationResult`。
+  - `persistence.export` の引数の名前・種類・既定は変わらない。`refit_result` の注釈の文字列が `'RefitResult'` から `'RefitResultView'` に変わる。H-0129 のゴールデン（`tests/test_persistence/test_unwritable_categories.py:416-432`）はこの一語だけを直す。
+- 保存の形式: 変わらない（`format_version` 2 のまま）。pickle が記録するクラスの名前も変わらない（受け入れ基準 6 で固定）。古い lizyml も新しいアーティファクトを今までどおり読める。
+- 第三者の provider と adapter: 変わらない（`build_pipeline_factory`、`BaseEstimatorAdapter`、`BaseMetric` に変更なし）。
+- 内部の変更: `compute_shap_importance` の `pipeline_factory` が必須になる（`lizyml.explain.__all__` に無い）。
+- 層の規則のテスト: 例外の一覧が空になる。`estimators/` から `features/`・`metrics/` 以外の Layer 1 のカテゴリへの新しい import は、今と同じく失敗する。
+
+### 代替案（検討して棄却）
+- **A を作り直す**（Layer 1 のカテゴリが互いに import しない）: Codex が「欠点は明らかに大きい」と判定した（規模 L、外部の provider が壊れる、#355 が難しくなる）。管理者の判断で表の案を採る。
+- **`get_metric` だけを Layer 0 に置く**: 上の層の登録に依存するか、具象を Layer 4 の外で組むことになる（Codex）。
+- **B 案 1**（クラスを IF のモジュールへ移し、元の場所から再公開する）: 新しい pickle の名前が変わり、format 3 が要る。v0.19.0 の loader は {1, 2} を受け付けてから joblib の中で一般的なエラーで落ちる。
+- **B 案 2**（`cross_fit.py` と `refit_trainer.py` を IF と宣言する）: `cross_fit_calibrate` と `RefitTrainer` が IF から届き、IF だけを参照するという規則が弱まる。
+- **B を Layer 0 に置く**: 両方の型が Layer 1 の adapter の IF を参照するので、`Any` に弱めることになる。
+- **`__module__` を手で書き換えて名前を保つ**: 壊れやすい。
+- **`SMART_RATIO_RANGES` を `estimators/lgbm/` に移して config がそれを import する**: `config/` → `estimators/` の新しい Layer 1 間の参照になる。
+- **`SMART_RATIO_RANGES` を `estimators/` → `config/` の許す参照で認める**: Codex が、方針 3 の移動の後には許す参照を残さないよう勧めた。
+- **例外の一覧の仕組みを消す**: 設計の判断を待つ違反を置く場所が無くなり、H-0129 の受け入れ基準 4 のテストも消すことになる。残す。
+
+### Firing rate
+- 許す参照（`allow`）: Firing rate: 8/517 of resolved lizyml imports on `e8b4c4e` are admitted by the two allowance rows (`estimators` → `features` 5, `estimators` → `metrics` 3; `census_h0130.py` → `census_h0130.out`); the reverse pairs have 0 imports.
+- 例外の一覧（`allow`）: 測ったのは `e8b4c4e` の木で、`census_h0130.out` に記録した。空の一覧で `check()` を走らせると、問題はちょうど 17 件だった。この Proposal の表と方針で閉じられない組は 0 件だった。17 件の内訳は、許す参照 8、`metrics/registry.py` の IF 1、コードの変更 8。実装の後の一覧は空にする。実装の後の解決した import の総数は、新しいモジュールで変わる。実装の記録で測って書く（予測は書かない）。
+- `RefitResultView` と `BaseCalibrationResult` は条件を作らない（型注釈と、既存の `isinstance` の相手の置き換え）。
+
+### 受け入れ基準（テスト観点）
+1. **例外は無い**: `test_layer_rules.py` の `EXCEPTIONS` が `{}` で、実装の後の木でテストが通る。
+   - 落ちるべき例: `e8b4c4e` の木を空の一覧で調べると 17 件の問題になる。計測器で確かめる。
+2. **許す参照の落ちるべき例**（`lizyml/` と BLUEPRINT の写しで、一つずつ）:
+   - (a) `estimators/` のモジュールに `import lizyml.calibration.base` を足すと R2 で失敗する。
+   - (b) `features/` のモジュールに `import lizyml.estimators.base` を足すと R2 と R4 で失敗する。
+   - (c) 表から `metrics/` の行を消すと、`metric_bridge.py` の 2 本と `lgbm/provider.py` の 1 本が R2 で失敗する。
+   - (d) 使われない組の行（`estimators/` → `splitters/`）を足すと失敗する（古び）。
+   - (e) 読めない行で失敗する: 欄にパスが二つ、`pkg/` でない欄、Layer 1 でないカテゴリ（`training/`）、参照する側と参照される側が同じ行、同じ組の 2 行目、前の行が無い表、前の行が二つ、根拠が空。
+   - 落ちてはいけない例: `estimators/` のモジュールに `import lizyml.metrics.regression` を足しても通る（許したカテゴリの中のどのモジュールでもよい）。
+3. **例外の一覧の仕組みは残る**: 写しに違反を一つ足し（例 `evaluation/confusion.py` に `import lizyml.training.oof_assembly`）、その組を数 1 で載せた一覧では通る。その import を消すと、数が足りずに失敗する。同じ組の import をもう一つ足すと、数が多すぎて失敗する（H-0129 の受け入れ基準 4 と同じ主張）。
+4. **移しても同じ物**:
+   - `lizyml.__version__` は変わらない。
+   - `lizyml.config.schema.SMART_RATIO_RANGES is lizyml.core.types.smart_ratio.SMART_RATIO_RANGES`。`RatioRange` も同じ。
+   - `lizyml.training.oof_assembly.compute_oof_valid_mask is lizyml.core.types.oof_coverage.compute_oof_valid_mask`。
+   - 既存の比率の検証と OOF のマスクのテストが、変更なしで通る。
+5. **SHAP**: `pipeline_factory` を渡さない `compute_shap_importance(...)` は `TypeError` になる（落ちるべき例: `e8b4c4e` では受け付ける）。`explain/` に `features.pipelines_native` の import が無い（層のテストが確かめる）。
+6. **案 3**:
+   - (a) `CalibrationResult` のインスタンスは `BaseCalibrationResult` のインスタンスである。plots は `CalibrationResult` でない calibrator を、今と同じ文と context で拒否する（既存のテスト）。
+   - (b) pickle は変わらない: `pickle.dumps` した `CalibrationResult` と `RefitResult` が、`lizyml.calibration.cross_fit` の `CalibrationResult`、`lizyml.training.refit_trainer` の `RefitResult` を名指す（`pickletools` で読むゴールデン）。
+   - (c) `RefitResultView` の注釈の名前の集合が、`RefitResult` の欄の名前の集合と等しい。`uv run mypy lizyml/` が通る。
+   - (d) `inspect.signature(lizyml.persistence.export)` のゴールデンは、`refit_result` の注釈の文字列だけが変わる。
+7. 文書が方針 9 のとおり。
