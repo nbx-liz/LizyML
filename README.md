@@ -131,7 +131,7 @@ Layer 0  Foundation   types (FitResult, PredictionResult, ...) / exceptions / lo
 Key rules:
 - **Downward** dependencies, plus estimators → features / metrics within Layer 1 (no circular imports)
 - Layer 2 references Layer 1 through **abstract interfaces only**
-- Only the Facade (Layer 4) assembles concrete classes, except an estimator provider's own factories and the Layer 1 registries that build registered metrics and calibrators by name
+- Only the Facade (Layer 4) assembles concrete classes, except an estimator provider's own factories and checks on its own adapter type, and the Layer 1 registries that build registered metrics and calibrators by name
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for full diagrams and module layout.
 

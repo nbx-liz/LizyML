@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.test_architecture._dispatch_rules import DispatchKey
 from tests.test_architecture._layer_rules import Key, check
 
 REPO = Path(__file__).resolve().parents[2]
@@ -26,10 +27,30 @@ REPO = Path(__file__).resolve().parents[2]
 #: estimators -> features / metrics, and the rest were moved or re-declared.
 EXCEPTIONS: dict[Key, int] = {}
 
+#: R6 (H-0130 amendment 1): the type dispatches Layers 1-3 may make on a
+#: concrete lizyml class, and the ones whose target the checker cannot resolve,
+#: with exact counts. BLUEPRINT §2.1 states the same exception in prose.
+DISPATCH_ALLOWED: dict[DispatchKey, int] = {
+    # The provider checks its own adapter type (§2.1's first exception):
+    # params_summary (feval display names) and build_export_params.
+    (
+        "lizyml/estimators/lgbm/provider.py",
+        "lizyml.estimators.lgbm.adapter.LGBMAdapter",
+    ): 2,
+    # Loop variables over tuples of builtin types: (int,) / (int, float), and
+    # tuning.search_space._ALLOWED_CHOICE_TYPES.
+    ("lizyml/tuning/lineage_codec.py", "unresolved:t"): 2,
+    ("lizyml/tuning/search_space.py", "unresolved:allowed"): 1,
+}
+
 
 def _check(root: Path) -> list[str]:
     return check(
-        root / "lizyml", root / "BLUEPRINT.md", root / "pyproject.toml", EXCEPTIONS
+        root / "lizyml",
+        root / "BLUEPRINT.md",
+        root / "pyproject.toml",
+        EXCEPTIONS,
+        dispatch_allowed=DISPATCH_ALLOWED,
     )
 
 
@@ -243,6 +264,7 @@ def test_a_malformed_exception_entry_fails(extra: dict[Key, int]) -> None:
         REPO / "BLUEPRINT.md",
         REPO / "pyproject.toml",
         {**EXCEPTIONS, **extra},
+        dispatch_allowed=DISPATCH_ALLOWED,
     )
     assert any(p.startswith("exception list:") for p in problems), problems
 
@@ -306,7 +328,11 @@ _INJECTED_KEY: Key = (
 
 def _check_with(root: Path, exceptions: dict[Key, int]) -> list[str]:
     return check(
-        root / "lizyml", root / "BLUEPRINT.md", root / "pyproject.toml", exceptions
+        root / "lizyml",
+        root / "BLUEPRINT.md",
+        root / "pyproject.toml",
+        exceptions,
+        dispatch_allowed=DISPATCH_ALLOWED,
     )
 
 
@@ -474,3 +500,149 @@ def test_an_allowance_block_outside_the_grammar_fails(tree: Path, case: str) -> 
     _edit(tree, "BLUEPRINT.md", old, new)
     with pytest.raises(ValueError, match=match):
         _check(tree)
+
+
+# --- H-0130 amendment 1: R6, concrete assembly and type dispatch -------------
+
+_ADAPTER = "from lizyml.estimators.lgbm.adapter import LGBMAdapter\n"
+_CONCRETE = "lizyml.estimators.lgbm.adapter.LGBMAdapter"
+
+#: One representative per position of R6's closed dispatch grammar, each added
+#: to estimators/base.py (same category, so no import rule fires).
+DISPATCH_MUTATIONS = {
+    "isinstance": _ADAPTER + "isinstance(x, LGBMAdapter)",
+    "issubclass": _ADAPTER + "issubclass(x, LGBMAdapter)",
+    "type is": _ADAPTER + "type(x) is LGBMAdapter",
+    "reversed ==": _ADAPTER + "LGBMAdapter == type(x)",
+    "is not": _ADAPTER + "type(x) is not LGBMAdapter",
+    "case class": _ADAPTER + "match x:\n    case LGBMAdapter():\n        pass",
+    "tuple": _ADAPTER + "isinstance(x, (int, LGBMAdapter))",
+    "union": _ADAPTER + "isinstance(x, int | LGBMAdapter)",
+    "module constant": _ADAPTER + "_KINDS = (LGBMAdapter,)\nisinstance(x, _KINDS)",
+    "attribute through a relative import": (
+        "from .lgbm import adapter as a\nisinstance(x, a.LGBMAdapter)"
+    ),
+    "re-exported name": (
+        "from lizyml.estimators.lgbm import LGBMAdapter\nisinstance(x, LGBMAdapter)"
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(DISPATCH_MUTATIONS))
+def test_a_concrete_type_dispatch_outside_the_list_fails(tree: Path, case: str) -> None:
+    _append(tree, "estimators/base.py", DISPATCH_MUTATIONS[case])
+    assert (
+        f"R6 lizyml/estimators/base.py -> {_CONCRETE}: "
+        "1 dispatch(es), 0 allowed by the dispatch list"
+    ) in _check(tree)
+
+
+def test_an_unresolvable_dispatch_target_fails(tree: Path) -> None:
+    _append(tree, "estimators/base.py", "def f(kind):\n    return isinstance(1, kind)")
+    assert (
+        "R6 lizyml/estimators/base.py -> unresolved:kind: "
+        "1 dispatch(es), 0 allowed by the dispatch list"
+    ) in _check(tree)
+
+
+def test_a_second_dispatch_of_a_listed_pair_fails(tree: Path) -> None:
+    _append(tree, "estimators/lgbm/provider.py", "isinstance(x, LGBMAdapter)")
+    assert (
+        f"R6 lizyml/estimators/lgbm/provider.py -> {_CONCRETE}: "
+        "3 dispatch(es), 2 allowed by the dispatch list"
+    ) in _check(tree)
+
+
+def test_a_dispatch_list_entry_no_code_uses_fails() -> None:
+    problems = check(
+        REPO / "lizyml",
+        REPO / "BLUEPRINT.md",
+        REPO / "pyproject.toml",
+        EXCEPTIONS,
+        dispatch_allowed={**DISPATCH_ALLOWED, ("lizyml/ghost.py", "unresolved:x"): 1},
+    )
+    assert (
+        "R6 lizyml/ghost.py -> unresolved:x: 0 dispatch(es), "
+        "1 allowed by the dispatch list"
+    ) in problems
+
+
+@pytest.mark.parametrize("count", [0, True], ids=["zero", "bool"])
+def test_a_malformed_dispatch_list_entry_fails(count: int) -> None:
+    problems = check(
+        REPO / "lizyml",
+        REPO / "BLUEPRINT.md",
+        REPO / "pyproject.toml",
+        EXCEPTIONS,
+        dispatch_allowed={
+            **DISPATCH_ALLOWED,
+            ("lizyml/ghost.py", "unresolved:x"): count,
+        },
+    )
+    assert any(p.startswith("dispatch list:") for p in problems), problems
+
+
+_REGISTRY = "from lizyml.core.registries import MetricRegistry\n"
+
+REGISTRY_MUTATIONS = {
+    "get": (_REGISTRY + 'MetricRegistry.get("rmse")', "MetricRegistry.get"),
+    "private attribute": (_REGISTRY + "MetricRegistry._items", "MetricRegistry._items"),
+}
+
+
+@pytest.mark.parametrize("case", sorted(REGISTRY_MUTATIONS))
+def test_registry_access_outside_the_two_registries_fails(
+    tree: Path, case: str
+) -> None:
+    text, used = REGISTRY_MUTATIONS[case]
+    _append(tree, "splitters/base.py", text)
+    assert any(
+        p.startswith("R6 lizyml/splitters/base.py:")
+        and f"uses lizyml.core.registries.{used} outside" in p
+        for p in _check(tree)
+    )
+
+
+def test_a_new_registry_outside_core_registries_fails(tree: Path) -> None:
+    _append(
+        tree,
+        "splitters/base.py",
+        'from lizyml.core.registries import _Registry\n_Registry("splitter")',
+    )
+    assert any(
+        p.startswith("R6 lizyml/splitters/base.py:")
+        and "creates a registry outside core/registries.py" in p
+        for p in _check(tree)
+    )
+
+
+R6_PASSES = {
+    "a Layer 0 class from Layer 2": (
+        "tuning/search_space.py",
+        "from lizyml.core.types.search_dim import FloatDim\nisinstance(x, FloatDim)",
+    ),
+    "an interface class from Layer 3": (
+        "persistence/loader.py",
+        "from lizyml.estimators.base import BaseEstimatorAdapter\n"
+        "isinstance(x, BaseEstimatorAdapter)",
+    ),
+    "a concrete class from the Facade": (
+        "core/seed.py",
+        _ADAPTER + "isinstance(x, LGBMAdapter)",
+    ),
+    "builtin and foreign types": (
+        "estimators/base.py",
+        "import numpy as np\nisinstance(x, (int, np.ndarray)) or type(x) is type(None)",
+    ),
+    "registry register and keys": (
+        "splitters/base.py",
+        _REGISTRY + "MetricRegistry.keys()\nMetricRegistry.register",
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(R6_PASSES))
+def test_r6_passes_what_the_rule_allows(tree: Path, case: str) -> None:
+    module, text = R6_PASSES[case]
+    _append(tree, module, text)
+    assert _check(tree) == []

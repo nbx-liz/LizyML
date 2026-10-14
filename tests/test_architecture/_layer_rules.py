@@ -34,6 +34,8 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from tests.test_architecture._dispatch_rules import DispatchKey, dispatch_problems
+
 if sys.version_info >= (3, 11):
     import tomllib
 else:  # pragma: no cover - Python 3.10; pytest itself depends on tomli there
@@ -437,9 +439,15 @@ def _cycle_categories(edges: Iterable[tuple[str, str]]) -> dict[str, int]:
 
 
 def check(
-    root: Path, blueprint: Path, pyproject: Path, exceptions: Mapping[Key, int]
+    root: Path,
+    blueprint: Path,
+    pyproject: Path,
+    exceptions: Mapping[Key, int],
+    *,
+    dispatch_allowed: Mapping[DispatchKey, int],
 ) -> list[str]:
-    """Every problem with *root*'s imports; ``[]`` means the rules hold."""
+    """Every problem with *root*'s imports (R0-R5) and its concrete assembly and
+    type dispatch (R6, ``_dispatch_rules``); ``[]`` means the rules hold."""
     table = read_table(blueprint)
     generated = version_module(pyproject, root)
     edges, modules, problems = scan(root)
@@ -497,6 +505,11 @@ def check(
         a, b = category(edge.source), category(edge.target)
         if a != b and a in cyclic and cyclic.get(b) == cyclic[a]:
             found[(edge.file, edge.target, "R4")] += 1
+
+    interfaces = frozenset(
+        m for names in table.interfaces.values() if names for m in names
+    )
+    problems.extend(dispatch_problems(root, layer_of, interfaces, dispatch_allowed))
 
     for source, target in sorted(table.allowances - used):
         problems.append(

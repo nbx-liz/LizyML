@@ -55,7 +55,7 @@
 依存ルール:
 - 各カテゴリは、自分より**下の Layer** と、下の表で自分のカテゴリに許した同じ層のカテゴリにだけ依存する。Layer 1 は Foundation、自分のカテゴリ、許したカテゴリだけに依存する（H-0130）。
 - Layer 2 は Layer 1 の **IF（表の右の列）のみ**を参照する（具象クラスを import しない）。Layer 3 はそれに加えて Layer 2 の IF（`training/results.py`）を参照してよい。同じ層の別のカテゴリは参照しない。パッケージの `__init__.py` は IF に入れない（`estimators/__init__.py` は `LGBMAdapter` を再公開する）。
-- 具象クラスの組み立て・型ディスパッチは **Layer 4（Facade）** が行う。例外は二つだけ（H-0130）: §2.2 の provider が自分の factory で組むもの（estimator の adapter と pipeline）、および Layer 1 の registry モジュール（`metrics/registry.py`、`calibration/registry.py`）が、登録された型を名前から作ること（呼ぶ側は問わない）。
+- 具象クラスの組み立て・型ディスパッチは **Layer 4（Facade）** が行う。例外は二つだけ（H-0130）: §2.2 の provider が自分の factory で組むもの（estimator の adapter と pipeline）と、自分の adapter の具象型を扱うこと（LightGBM の provider の `params_summary`・`build_export_params` の `LGBMAdapter` の判定）、および Layer 1 の registry モジュール（`metrics/registry.py`、`calibration/registry.py`）が、登録された型を名前から作ること（呼ぶ側は問わない）。
 - カテゴリ間の**循環依存は禁止**する（カテゴリは `core/` の中はモジュールごと、ほかは最上位のパッケージごと）。
 
 同じ層の中で許す参照（H-0130）:
@@ -69,6 +69,11 @@
 - `lizyml/` のどのモジュールも、表の「含まれるモジュール」のどれかの行に当たる。複数の行が当たるときは、最も長いパスの行が決める（`core/exceptions.py` は `core/` より長いので Layer 0）。`_version.py` は Git の管理外で、hatch-vcs が `pyproject.toml` の `version-file` に従って生成する。
 - `tests/test_architecture/test_layer_rules.py` が、この表を読んで全ての import の文（関数の中と `if TYPE_CHECKING:` の中を含む）を確かめる。層の規則は import の文と、名前で読める動的な import で確かめる: 識別子 `import_module` と `__import__` は、`lizyml` 以外のパッケージを絶対の名前の定数で import する呼び出しにだけ使ってよい。実行時に親パッケージの `__init__.py` が読み込むもの、`eval` / `exec` で組み立てた import、文字列の中の import（`codegen/` のテンプレート）は数えない。
 - 同じ層の中で許す参照の表は、行ごとの完全一致で読む: 前の行（`同じ層の中で許す参照（H-0130）:`）、空行ちょうど一つ、見出しの行、区切りの行（`|---|---|---|`）、1 行以上の中身の行。参照する側と参照される側は、バッククォートで囲んだ Layer 1 のカテゴリ `pkg/` を一つずつ書き、二つは異なり、同じ組は一度だけ書く。根拠は空でなく `|` を含まない。§2.1 の中で `|` で始まる行は、層の表かこの表のどちらかに属する。許した組は、少なくとも 1 本の import が使っていなければならない（使われない組は古びとして失敗する）。
+- 具象の組み立てと型ディスパッチの例外（上の依存ルールの 3 つ目）も、同じテストが Layer 1〜3 のモジュールについて確かめる（H-0130 改訂 1）。
+  - registry: `core/registries.py` の registry オブジェクトの属性のうち `register` と `keys` 以外（`get` と private な名前）を使ってよいのは `metrics/registry.py` と `calibration/registry.py` だけ。registry のクラスを作ってよいのは `core/registries.py` だけ。
+  - 型ディスパッチは次の形に限って数える: `isinstance` / `issubclass` の第 2 引数、`type(x) is / is not / == / != T`（左右どちらでも）、`case T(...)`。`T` は名前、属性、それらのタプル・`|` の和、`type(None)`、モジュールの定数のタプル。
+  - `T` が `lizyml` のクラスで、Layer 0 にも IF のモジュールにも無いもの（具象）と、解決できないもの（ループの変数など）は、テストの一覧に件数つきで載せる。今は provider が自分の adapter（`LGBMAdapter`）を判定する 2 か所と、組み込みの型を回すループの変数 3 か所。
+  - 範囲の外（数えない）: 別の書き方の判定（`type(x).__name__ == ...`、`hasattr`）、二つの実行時の型の比較（`type(a) is type(b)`）、`eval` / `exec`。
 - 既存の違反は無い（H-0130 で #362 の 17 本を閉じた）。新しく見つかった違反は、Proposal で表（IF の列か、同じ層の中で許す参照）を変えるか、テストの例外の一覧に件数つきで載せる。一覧の import が消えても増えても、テストは失敗する。
 
 ## 2.2 EstimatorProvider（マルチアルゴリズム拡張 IF）（H-0053）

@@ -53,13 +53,31 @@ def _no_staleness() -> None:
     """An allowance no import uses is not reported."""
     original = lr.check
 
-    def check(*args: Any) -> list[str]:
-        return [p for p in original(*args) if "is used by no import" not in p]
+    def check(*args: Any, **kwargs: Any) -> list[str]:
+        problems = original(*args, **kwargs)
+        return [p for p in problems if "is used by no import" not in p]
 
     lr.check = check  # type: ignore[assignment]
     import tests.test_architecture.test_layer_rules as t
 
     t.check = check  # type: ignore[assignment]
+
+
+def _no_dispatch_rule() -> None:
+    """R6 switched off: no concrete dispatch or registry access is reported."""
+    lr.dispatch_problems = lambda *args, **kwargs: []  # type: ignore[assignment]
+
+
+def _registry_access_anywhere() -> None:
+    """Registry access allowed in every module (the two-module rule dropped)."""
+    import tests.test_architecture._dispatch_rules as dr
+
+    original = dr.dispatch_problems
+
+    def problems(*args: Any, **kwargs: Any) -> list[str]:
+        return [p for p in original(*args, **kwargs) if " uses " not in p]
+
+    lr.dispatch_problems = problems  # type: ignore[assignment]
 
 
 def _plots_accept_anything() -> None:
@@ -86,6 +104,17 @@ CONTROLS: dict[str, tuple[Callable[[], None], list[str]]] = {
     "no staleness check": (
         _no_staleness,
         [f"{LAYER}::test_an_allowance_no_import_uses_fails"],
+    ),
+    "R6 switched off": (
+        _no_dispatch_rule,
+        [
+            f"{LAYER}::test_a_concrete_type_dispatch_outside_the_list_fails[isinstance]",
+            f"{LAYER}::test_a_second_dispatch_of_a_listed_pair_fails",
+        ],
+    ),
+    "registry access anywhere": (
+        _registry_access_anywhere,
+        [f"{LAYER}::test_registry_access_outside_the_two_registries_fails[get]"],
     ),
     "plots accept any calibrator": (
         _plots_accept_anything,

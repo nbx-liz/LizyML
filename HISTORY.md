@@ -13826,7 +13826,7 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
      - 許した組の逆向きの import は、R2 で失敗し（逆向きは許していない）、R4（循環）でも失敗する。
    - **古びの検出**: 許した組のどれも、木の中の import が少なくとも 1 本使っていること。使われない組は失敗にする（DC3。例外の一覧が件数で古びを検出するのと同じ考え）。
    - §2.1 の文「具象クラスの組み立て・型ディスパッチは Layer 4（Facade）のみが行う」（`BLUEPRINT.md:58`）に、次の例外を足す（§2.2 と、残す A の挙動と、文が矛盾しないように）:
-     - §2.2 の provider が、自分の factory で組むもの（estimator の adapter と pipeline）。
+     - §2.2 の provider が、自分の factory で組むもの（estimator の adapter と pipeline）。**（改訂 1 で追加）** と、自分の adapter の具象型を扱うこと（`estimators/lgbm/provider.py` の `params_summary`・`build_export_params` が `LGBMAdapter` を `isinstance` で判定する）。
      - **（改訂 1 で変更）** Layer 1 の registry モジュール（`metrics/registry.py`、`calibration/registry.py`）が、登録された型を名前から作ること（`get_metric`、`metrics/registry.py:120-130`。`get_calibrator`、`calibration/registry.py:44-55`。どちらも登録から型を引いて作る）。呼ぶ側は問わない。受理時の文は「`metrics/registry.py` が、登録された指標を名前から作ること」だった。
        - `metrics/registry.py` は Layer 1 の IF として宣言する（方針 5）。
        - 呼び出し元は、Layer 2（evaluation）、Layer 1（estimators の feval への橋渡しと provider）、Layer 4（Facade）にある。
@@ -14074,16 +14074,44 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
 
 - **見つけたこと**: 方針 6 は、具象の組み立てを Layer 4 に限る規則の例外の二つ目を、「`metrics/registry.py` が、登録された指標を名前から作ること」とした。
   - BLUEPRINT 全体を読んだところ、`calibration/registry.py` の `get_calibrator`（Layer 1）も、登録から型を引いて具象の calibrator を作っていた（`calibration/registry.py:44-55`、`cls(params=params)`）。
-  - 呼んでいるのは Facade の `core/model.py:879-902` だけで、`lizyml.calibration.get_calibrator` として公開もされている。
+  - 呼んでいるのは Facade の `core/model.py:879-902` だけで、`lizyml.calibration.get_calibrator` として公開もされている（`calibration/__init__.py:8` が同じカテゴリの中で再公開する）。
   - H-0130 より前からあるコードで、受理時の文がこれを漏らしていた。
 - **変更**: 例外の二つ目の主語を、「Layer 1 の registry モジュール（`metrics/registry.py`、`calibration/registry.py`）が、登録された型を名前から作ること」にする（方針 6 の文を上のとおり直した）。
   - BLUEPRINT §2.1・付録 B、ARCHITECTURE.md（ルールの表、Layer 4 の説明、凡例）、README の Architecture 節を、この文に揃えた。
 - **変わらないこと**:
   - 例外の数は二つのまま。
-  - import の規則（R0〜R5、許す参照の表、IF の列）は変わらない。`calibration/registry.py` は IF に宣言しない。これを import するのは Layer 4 だけである（`core/model.py:879`、`core/_model_factories.py:1261`）。
+  - import の規則（R0〜R5、許す参照の表、IF の列）は変わらない。`calibration/registry.py` は IF に宣言しない。カテゴリの外でこれを import するのは Layer 4 だけである（`core/model.py:879`、`core/_model_factories.py:1261`。カテゴリの中では `calibration/__init__.py:8` が公開のために再公開する）。
   - コード、テスト、公開 API、保存の形式は変わらない。
 - **検討して棄却した代わり**: `get_calibrator` を Facade へ移して、例外を `metrics/registry.py` だけに保つ。公開の `lizyml.calibration.get_calibrator` が変わり、非推奨の手続きが要る。#362 の範囲を超える。
 - **確かめ方**: Codex に、この改訂で問題が生じないかを検証させる（管理者の指示）。
+
+**Codex の検証（run `h0130-amend1-critique`、`24681fb`、CHANGES_REQUESTED）と対応**
+- **major 1**: provider の例外が、`estimators/lgbm/provider.py:477`（`params_summary`）と `:541`（`build_export_params`）の `isinstance(..., LGBMAdapter)` を覆っていなかった。
+  - 例外の一つ目を「provider が自分の factory で adapter と pipeline を組み、自分の adapter の具象型を扱うこと」に広げた（方針 6、BLUEPRINT §2.1、ARCHITECTURE、README）。例外の数は二つのまま。
+- **major 2**: 例外の一覧を守るテストが無かった（層の規則は import の文しか見ない）。管理者の判断で、型の判定まで含めて、テストで確かめる（下の R6）。
+- **minor 1**: `calibration/__init__.py:8` も `calibration/registry.py` を import する（公開のための再公開）。上の「変わらないこと」の文を直した。
+- **minor 2**: ARCHITECTURE.md の Layer 4 の説明と凡例が「Layer 1 の registry」とだけ書いていた。二つのファイル名を書いた。
+
+**R6（具象の組み立てと型ディスパッチ）を、閉じた形で足す**
+- 実測を先に行った（`dispatch_census.py` → `dispatch_census.out`、`24681fb` の木）。
+  - 型の判定の形は閉じて数えた: `isinstance`・`issubclass` の第 2 引数、`type(x)` との `is`・`is not`・`==`・`!=`（左右）、`case T(...)`。
+  - 対象はタプル・`|` の和・`type(None)`・モジュールの定数のタプルに展開し、import とモジュールのクラスで解決した（再公開は 1 段たどる）。組み込みと外のパッケージの型は数えない。
+- Layer 1〜3 で数えたもの:
+  - registry の `get`: 2 か所（`metrics/registry.py:120`、`calibration/registry.py:44`）。
+  - 具象のクラスの判定: 2 か所（`estimators/lgbm/provider.py:477`、`:541`、どちらも `LGBMAdapter`）。
+  - 解決できない対象: 3 か所（`tuning/lineage_codec.py:168`・`:181` のループの変数 `t`、`tuning/search_space.py:157` のループの変数 `allowed`。どれも組み込みの型のタプルを回す）。
+  - そのほか（Layer 0 の型 24 か所、IF のクラス 1 か所）は規則に合う。型の判定の対象は合わせて 30 か所。
+- **規則**（`tests/test_architecture/_dispatch_rules.py`、`check` が呼ぶ）:
+  - registry: `core/registries.py` の registry オブジェクトの属性で `register`・`keys` 以外を使ってよいのは、`metrics/registry.py` と `calibration/registry.py` だけ。registry のクラス（`_Registry`）を作ってよいのは `core/registries.py` だけ。
+  - 型ディスパッチ: 上の形の対象が、Layer 0 のクラスか IF のモジュールのクラスでない `lizyml` のクラス（具象）か、解決できないときは、`(ファイル, 対象)` の組ごとの件数を、テストの一覧 `DISPATCH_ALLOWED` と比べる。多くても少なくても失敗（例外の一覧と同じ考え）。
+  - 一覧は今の 3 組だけ: provider の `LGBMAdapter` 2、`lineage_codec.py` の `t` 2、`search_space.py` の `allowed` 1。
+  - 範囲の外（宣言する）: 別の書き方の判定（`type(x).__name__ == ...`、`hasattr`）、二つの実行時の型の比較（`type(a) is type(b)`）、`eval`・`exec`。
+- **受け入れ基準（追加）**:
+  - R6-1: 本当の木で通る（一覧は上の 3 組）。
+  - R6-2: 書き方の位置ごとの落ちるべき例。`estimators/base.py` に足す `LGBMAdapter` の判定 11 種（`isinstance`、`issubclass`、`type is`、左右を逆にした `==`、`is not`、`case`、タプル、和、モジュールの定数、相対 import の属性、再公開の名前）。解決できない対象。一覧の組の 3 本目。使われない一覧の組。件数が 0 か `True` の一覧の組。Layer 1 の別のモジュールでの registry の `get` と private な属性。`core/registries.py` の外での `_Registry(...)`。
+  - R6-3: 落ちてはいけない例。Layer 2 からの Layer 0 のクラス、Layer 3 からの IF のクラス、Facade（`core/seed.py`）からの具象、組み込みと numpy の型と `type(None)`、registry の `register`・`keys`。
+  - R6-4: 陰性対照（`negative_controls_h0130.py`）。R6 を外した実装と、registry の制限を外した実装は、それぞれテストに捕まる。
+- **Firing rate（`allow`）**: Firing rate: 5/30 of lizyml-or-unresolved type-dispatch targets in Layers 1-3 on `24681fb` are admitted by the dispatch list (2 concrete `LGBMAdapter` checks, 3 loop variables over builtin types; the other 25 resolve to Layer 0 or interface classes; builtin and foreign targets are not counted), and 2/2 registry `get` sites are in the two named modules (`dispatch_census.py` → `dispatch_census.out`).
 - **Firing rate（実装の後、測定）**:
   - 解決した import は 520 件（新しいモジュールの import が 3 件増えた）。
   - 許す参照が通す import は 8 件（`estimators` → `features` 5、→ `metrics` 3）。
