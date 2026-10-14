@@ -13679,8 +13679,8 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
   - 見出しは `## 2.1 5 層カテゴリアーキテクチャ` で始まる行がちょうど一つであることを求める。
   - §2.1 の依存ルールの 1 行目の誤記「自分より上の Layer にのみ依存する（下方向のみ）」を「下」に直した。
   - R4（循環）は、同じ循環に属するカテゴリの間の import を数える。
-- **テスト**: `tests/test_architecture/test_layer_rules.py`（40 件。本当の木、写し、受け入れ基準 2〜4・3b の変異）と検査の本体 `tests/test_architecture/_layer_rules.py`。`tests/test_persistence/test_unwritable_categories.py` は、スタブの結果に `LGBMAdapter` を持たせ（主張は変えていない）、33 件を足した（`persistence.export` の引数のゴールデン、`exporter.py` に `estimators.lgbm` が無いこと、fold・refit・最後の fold の adapter への問い合わせ、組にならない 3 つの場合、既定の adapter、`LGBMAdapter` の答えが値の種類 24 種で H-0127 と同じ）。
-- **陰性対照**: `docs/audits/2026-10-h0129/probes/negative_controls_h0129.py` → `.out`（3 組とも期待どおり（実装レビュー round 1 の後に文のゴールデンの 1 組を足して 4 組）: refit の adapter だけに尋ねる実装は fold 2 の場合を通す、`zip` で組にならない状態を落とす実装は黙って通す、LightGBM の判定を persistence に残す実装は既定の adapter でも拒否する）。層の規則の変異は `test_layer_rules.py` の中にある。
+- **テスト**: `tests/test_architecture/test_layer_rules.py`（51 件。本当の木、写し、受け入れ基準 2〜4・3b の変異）と検査の本体 `tests/test_architecture/_layer_rules.py`。`tests/test_persistence/test_unwritable_categories.py` は、スタブの結果に `LGBMAdapter` を持たせ（主張は変えていない）、33 件を足した（`persistence.export` の引数のゴールデン、`exporter.py` に `estimators.lgbm` が無いこと、fold・refit・最後の fold の adapter への問い合わせ、組にならない 3 つの場合、既定の adapter、`LGBMAdapter` の答えが値の種類 24 種で H-0127 と同じ）。
+- **陰性対照**: `docs/audits/2026-10-h0129/probes/negative_controls_h0129.py` → `.out`（4 組とも期待どおり: refit の adapter だけに尋ねる実装は fold 2 の場合を通す、`zip` で組にならない状態を落とす実装は黙って通す、LightGBM の判定を persistence に残す実装は既定の adapter でも拒否する、拒否の文を書き換えた実装はゴールデンと一致しない。最後の 1 組は実装レビュー round 1 の後に足した）。層の規則の変異は `test_layer_rules.py` の中にある。
 - **実装レビュー round 1（`7a9431f`、CHANGES_REQUESTED、critical 5・major 2）への対応**:
   - R5 は、`*args` か `**kwargs` を渡す呼び出しを許さない（`__import__(..., **{"level": 1})` と `__import__(*args)` が相対の import を通していた）。変異を 3 つ足した。
   - 表を読む規則を閉じた: パスは識別子を 1 本の `/` でつないで `/` か `.py` で終わる形だけ（`/codegen/`、`codegen//`、接尾辞の無い `codegen` は失敗）、欄はパスを `, ` でつないだ形だけ（`;` や注記は失敗）、区切りの行は `|---|` の形で列の数が合うこと。変異を足した。
