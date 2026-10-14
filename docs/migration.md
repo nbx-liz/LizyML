@@ -113,6 +113,13 @@ for each smart parameter that is read only while another one is true, that
 owner. `tune` calls it, so a provider without it fails there; one without
 smart parameters returns `{}`.
 
+`EstimatorProvider.smart_value_rules()` is a new, required method (H-0121
+amendment 2): a `SmartValueRule` for every name `smart_param_names()` returns,
+stating the values that smart parameter can hold. `tune` checks every
+`category: smart` dimension against it before the study, and `restore_tuning`
+and `Model.load` check recorded values against it, so a provider without it
+fails there. A provider without smart parameters returns `{}`.
+
 `BaseEstimatorAdapter.unsaveable_categories(pipeline_state)` is a new, optional
 method (H-0129): the category values the estimator cannot write when its model
 is saved. The default, `[]`, is the old behaviour for third-party adapters:
@@ -144,7 +151,7 @@ Search dimensions with `category: smart`
 
 | You wrote | Write instead |
 |-----------|---------------|
-| A smart dimension whose name is not a smart parameter, such as `num_leaves` | `category: model` for a LightGBM parameter |
+| A smart dimension whose name is not a smart parameter, such as `num_leaves` | `category: model` for a LightGBM parameter. If a smart parameter manages it, turn that one off as well: for `num_leaves`, `model.auto_num_leaves: false` (the first table) |
 | A `num_leaves_ratio` dimension with `auto_num_leaves: false` and no `auto_num_leaves` dimension that can be true | Remove it, or turn `auto_num_leaves` on |
 | `model.params`, the round's fixed parameters or a `category: model` dimension that one of the round's smart dimensions could manage (for example `max_leaves` while the space holds `auto_num_leaves: [true]`) | Drop the parameter or the dimension |
 | A smart dimension value of the wrong type or range: `"false"`, `0` / `1` for a bool, a bool for a number, NaN, a ratio outside its range, `balanced: true` on regression | The values listed in docs/config-reference.md |
