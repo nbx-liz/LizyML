@@ -26,6 +26,8 @@ import pytest
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.model import Model
+from lizyml.estimators.base import BaseEstimatorAdapter, UnsaveableCategory
+from lizyml.estimators.lgbm import LGBMAdapter
 from lizyml.estimators.lgbm.category_json import (
     is_writable,
     shown,
@@ -316,10 +318,22 @@ _BAD = {"encoder": {"categories": {"c": ["a", b"x"]}}}
 
 
 def _results(
-    folds: list[dict[str, Any]] | None, last: dict[str, Any], refit: dict[str, Any]
+    folds: list[dict[str, Any]] | None,
+    last: dict[str, Any],
+    refit: dict[str, Any],
+    *,
+    fold_models: list[Any] | None = None,
+    refit_model: Any = None,
 ) -> tuple[Any, Any]:
-    fit_result = SimpleNamespace(pipeline_state_per_fold=folds, pipeline_state=last)
-    return fit_result, SimpleNamespace(pipeline_state=refit)
+    """Results whose adapters are LightGBM's unless given (H-0129: each saved
+    state is checked by the adapter saved with it)."""
+    if fold_models is None:
+        fold_models = [LGBMAdapter() for _ in folds] if folds else [LGBMAdapter()]
+    fit_result = SimpleNamespace(
+        pipeline_state_per_fold=folds, pipeline_state=last, models=fold_models
+    )
+    model = LGBMAdapter() if refit_model is None else refit_model
+    return fit_result, SimpleNamespace(pipeline_state=refit, model=model)
 
 
 CASES: dict[str, tuple[tuple[Any, Any], str]] = {
@@ -346,6 +360,158 @@ def test_each_saved_state_is_checked(case: str, tmp_path: Path) -> None:
 def test_clean_states_pass_the_check() -> None:
     exporter.check_category_values(*_results([_GOOD, _GOOD], _GOOD, _GOOD))
     exporter.check_category_values(*_results(None, _GOOD, _GOOD))
+
+
+# --- H-0129: persistence asks each state's own adapter ----------------------
+
+
+class _Adapter(BaseEstimatorAdapter):
+    """An adapter that cannot train; only ``unsaveable_categories`` matters."""
+
+    def fit(self, *args: Any, **kwargs: Any) -> Any:
+        raise NotImplementedError
+
+    def predict(self, X: pd.DataFrame) -> Any:
+        raise NotImplementedError
+
+    def predict_proba(self, X: pd.DataFrame) -> Any:
+        raise NotImplementedError
+
+    def predict_raw(self, X: pd.DataFrame) -> Any:
+        raise NotImplementedError
+
+    def importance(self, kind: Any = "split") -> dict[str, float]:
+        raise NotImplementedError
+
+    def get_native_model(self) -> Any:
+        raise NotImplementedError
+
+    def save_model_text(self, path: str | Path) -> Path:
+        raise NotImplementedError
+
+
+class _Refusing(_Adapter):
+    """Refuses column ``c`` in every state it is asked about."""
+
+    def unsaveable_categories(self, pipeline_state: Any) -> list[UnsaveableCategory]:
+        return [UnsaveableCategory(column="c", shown="'z'", type_name="str")]
+
+
+def _silent_folds(n: int) -> list[Any]:
+    return [_Adapter() for _ in range(n)]
+
+
+def test_persistence_does_not_import_a_concrete_estimator() -> None:
+    """#360: the check reaches LightGBM's rule only through the adapter."""
+    source = Path(exporter.__file__).read_text(encoding="utf-8")
+    assert "estimators.lgbm" not in source
+
+
+def test_the_signature_of_persistence_export_is_unchanged() -> None:
+    """#360: the public function keeps its check and its arguments (golden, 050949b)."""
+    import inspect
+
+    import lizyml.persistence
+
+    assert str(inspect.signature(lizyml.persistence.export)) == (
+        "(path: 'str | Path', fit_result: 'FitResult', refit_result: 'RefitResult', "
+        "config: 'dict[str, Any]', task: 'TaskType', *, "
+        "analysis_context: 'AnalysisContext | None' = None, "
+        "tuning: 'TuningResult | None' = None, "
+        "tuning_fixed_params: 'dict[str, Any] | None' = None, "
+        "applied_training_params: 'dict[str, Any] | None' = None, "
+        "applied_sample_weight: 'str | None' = None, "
+        "declared_categories: 'dict[str, list[Any]] | None' = None, "
+        "categories_checked: 'bool' = False) -> 'None'"
+    )
+
+
+def test_a_fold_adapter_is_asked_about_its_own_state(tmp_path: Path) -> None:
+    """Only fold 2's adapter refuses; asking the refit adapter alone would pass."""
+    folds = _silent_folds(3)
+    folds[1] = _Refusing()
+    results = _results(
+        [_GOOD, _GOOD, _GOOD], _GOOD, _GOOD, fold_models=folds, refit_model=_Adapter()
+    )
+    out = tmp_path / "out"
+    with pytest.raises(LizyMLError) as exc:
+        exporter.export(out, *results, {}, "binary")
+    assert exc.value.code == ErrorCode.SERIALIZATION_FAILED
+    assert exc.value.context["state"] == "fold 2"
+    assert exc.value.context["value"] == "'z'"
+    assert not out.exists()
+
+
+def test_the_refit_adapter_is_asked_about_the_refit_state() -> None:
+    results = _results(
+        [_GOOD, _GOOD],
+        _GOOD,
+        _GOOD,
+        fold_models=_silent_folds(2),
+        refit_model=_Refusing(),
+    )
+    with pytest.raises(LizyMLError) as exc:
+        exporter.check_category_values(*results)
+    assert exc.value.context["state"] == "refit"
+
+
+def test_the_last_fold_without_per_fold_states_asks_the_last_model() -> None:
+    results = _results(
+        None,
+        _GOOD,
+        _GOOD,
+        fold_models=[_Adapter(), _Refusing()],
+        refit_model=_Adapter(),
+    )
+    with pytest.raises(LizyMLError) as exc:
+        exporter.check_category_values(*results)
+    assert exc.value.context["state"] == "last fold"
+
+
+@pytest.mark.parametrize(
+    ("folds", "models"),
+    [([_GOOD, _GOOD, _GOOD], 2), ([_GOOD], 2), (None, 0)],
+    ids=["fewer models than fold states", "more models", "no models, no per-fold"],
+)
+def test_a_state_without_its_adapter_is_refused(
+    folds: list[dict[str, Any]] | None, models: int, tmp_path: Path
+) -> None:
+    """A state nothing can be asked about is refused, never skipped (DC1)."""
+    results = _results(folds, _GOOD, _GOOD, fold_models=_silent_folds(models))
+    out = tmp_path / "out"
+    with pytest.raises(LizyMLError) as exc:
+        exporter.export(out, *results, {}, "binary")
+    assert exc.value.code == ErrorCode.SERIALIZATION_FAILED
+    assert exc.value.context["models"] == models
+    assert exc.value.context["fold_states"] == (None if folds is None else len(folds))
+    assert not out.exists()
+
+
+def test_an_adapter_without_the_method_refuses_nothing() -> None:
+    """The default answer is H-0127's precondition: nothing is unsaveable."""
+    results = _results(
+        [_BAD, _BAD], _BAD, _BAD, fold_models=_silent_folds(2), refit_model=_Adapter()
+    )
+    exporter.check_category_values(*results)
+    assert _Adapter().unsaveable_categories(_BAD) == []
+
+
+@pytest.mark.parametrize("kind", sorted(VALUES))
+def test_the_lightgbm_adapter_answers_as_h0127_did(kind: str) -> None:
+    values = VALUES[kind]
+    state = {"encoder": {"categories": {"d": values}}}
+    known = list(pd.CategoricalDtype(values).categories)
+    bad = [v for v in known if not is_writable(v)]
+    expected = (
+        [
+            UnsaveableCategory(
+                column="d", shown=shown(bad[0]), type_name=type_name(bad[0])
+            )
+        ]
+        if bad
+        else []
+    )
+    assert LGBMAdapter().unsaveable_categories(state) == expected
 
 
 # --- Criterion 6: the fit warning and the export check name the same columns -
