@@ -12,9 +12,10 @@ Imports under ``if TYPE_CHECKING:`` and inside functions count too.
 
 Layers (option B, decided 2026-10-14): Layer 0 = core/exceptions,
 core/logging, core/registries, core/types/*, core/param_domain, core/specs/*;
-Layer 1-3 = BLUEPRINT §2.1's table; Layer 4 = the rest of core/. A module in no
-table (lizyml/__init__, _extras, _version, codegen/) is reported as
-unclassified, never silently skipped.
+Layer 1-3 = BLUEPRINT §2.1's table; Layer 4 = the rest of core/. Under option B
+the modules in no table are placed as H-0129 proposes (``_version`` and
+``_extras`` in Layer 0, ``codegen/`` in Layer 3, the package root in Layer 4);
+without it they are reported as unclassified, never silently skipped.
 
 Usage: python layer_rules.py [--layer0-without-b] [--root PATH]
 ``--layer0-without-b`` measures with the layering before option B
@@ -41,9 +42,15 @@ def build_layer(option_b: bool):
 
     def layer(module: str) -> int | None:
         parts = module.split(".")
-        if parts[0] != "lizyml" or len(parts) < 2:
+        if parts[0] != "lizyml":
             return None
+        if len(parts) < 2:
+            return 4 if option_b else None  # the package root re-exports Model
         top = parts[1]
+        if option_b and top in ("_version", "_extras"):
+            return 0
+        if option_b and top == "codegen":
+            return 3
         if top == "core":
             if len(parts) >= 3 and parts[2] in layer0:
                 return 0
@@ -117,6 +124,7 @@ def main() -> int:
     upward: list[str] = []
     leaf_to_leaf: list[str] = []
     concrete_estimator: list[str] = []
+    composition_cross: list[str] = []
     composition_to_leaf: dict[str, Counter[str]] = defaultdict(Counter)
     unclassified_src: Counter[str] = Counter()
     unclassified_dst: Counter[str] = Counter()
@@ -148,6 +156,8 @@ def main() -> int:
                     upward.append(f"{where} layer {src_layer} -> layer {dst_layer}: {target}")
                 if src_layer == 1 and dst_layer == 1 and src_cat != dst_cat:
                     leaf_to_leaf.append(f"{where} {src_cat} -> {target}")
+                if src_layer in (2, 3) and dst_layer in (2, 3) and src_cat != dst_cat:
+                    composition_cross.append(f"{where} {src_cat} -> {target}")
                 if src_layer in (2, 3) and dst_layer == 1:
                     composition_to_leaf[f"{src_cat} -> {dst_cat}"][target] += 1
                     if target.startswith("lizyml.estimators") and target not in {
@@ -204,6 +214,12 @@ def main() -> int:
         print("  " + line)
     print(f"\n[C] layer 1 -> another layer-1 category: {len(leaf_to_leaf)}")
     for line in leaf_to_leaf:
+        print("  " + line)
+    print(
+        f"\n[G] layer 2/3 -> another layer-2/3 category (layer 2 may use only Foundation"
+        f" + layer-1 IF; layer 3 also layer-2 IF): {len(composition_cross)}"
+    )
+    for line in composition_cross:
         print("  " + line)
     print(f"\n[D] category cycles: {len(sccs)}")
     for comp in sccs:

@@ -20,6 +20,11 @@ layering: before option B; imports resolved: 515
   lizyml/estimators/provider.py:22 estimators -> lizyml.features.encoders.categorical_encoder
   lizyml/estimators/provider.py:23 estimators -> lizyml.features.pipeline_base
 
+[G] layer 2/3 -> another layer-2/3 category (layer 2 may use only Foundation + layer-1 IF; layer 3 also layer-2 IF): 3
+  lizyml/evaluation/confusion.py:14 evaluation -> lizyml.training.oof_assembly
+  lizyml/evaluation/evaluator.py:16 evaluation -> lizyml.training.oof_assembly
+  lizyml/persistence/exporter.py:41 persistence -> lizyml.training.refit_trainer
+
 [D] category cycles: 0
 
 [E] layer 2/3 -> layer 1 targets (what 'the IF' would have to cover):

@@ -16,9 +16,17 @@ layering: option B; imports resolved: 515
   lizyml/estimators/provider.py:22 estimators -> lizyml.features.encoders.categorical_encoder
   lizyml/estimators/provider.py:23 estimators -> lizyml.features.pipeline_base
 
-[D] category cycles: 0
+[G] layer 2/3 -> another layer-2/3 category (layer 2 may use only Foundation + layer-1 IF; layer 3 also layer-2 IF): 3
+  lizyml/evaluation/confusion.py:14 evaluation -> lizyml.training.oof_assembly
+  lizyml/evaluation/evaluator.py:16 evaluation -> lizyml.training.oof_assembly
+  lizyml/persistence/exporter.py:41 persistence -> lizyml.training.refit_trainer
+
+[D] category cycles: 1
+  core.model <-> lizyml
 
 [E] layer 2/3 -> layer 1 targets (what 'the IF' would have to cover):
+  codegen -> calibration: lizyml.calibration.base x2
+  codegen -> estimators: lizyml.estimators.base x2
   evaluation -> metrics: lizyml.metrics.base x1, lizyml.metrics.registry x1
   explain -> estimators: lizyml.estimators.base x1
   explain -> features: lizyml.features.pipelines_native x1
@@ -28,5 +36,5 @@ layering: option B; imports resolved: 515
   training -> features: lizyml.features.pipeline_base x2
   training -> splitters: lizyml.splitters.base x1
 
-[F] unclassified importers (not in any table): codegen x10, lizyml x8
-[F] unclassified targets: _version <- layer 4 x1, codegen <- layer 4 x1, lizyml <- layer 4 x1
+[F] unclassified importers (not in any table): 
+[F] unclassified targets: 
