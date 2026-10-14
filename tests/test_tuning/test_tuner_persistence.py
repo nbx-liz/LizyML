@@ -220,6 +220,24 @@ class TestFailFastValidation:
         assert exc_info.value.code == ErrorCode.CONFIG_INVALID
         assert "study_name" in exc_info.value.user_message
 
+    def test_tuner_refusal_does_not_carry_the_storage_url(self) -> None:
+        """A storage URL can hold a password; the refusal must not repeat it.
+
+        ``Tuner.__init__`` used to put ``str(storage)`` in the error context, so
+        ``repr(error)`` and any log of ``error.context`` showed the credentials.
+        The facade's check reports only that a storage was given.
+        """
+        url = "postgresql://user:s3cret@db.example/optuna"
+        with pytest.raises(LizyMLError) as exc_info:
+            Tuner(dims=_trivial_dims(), n_trials=1, storage=url, study_name=None)
+        error = exc_info.value
+        assert error.context == {
+            "surface": "Tuner(storage=)",
+            "study_name_given": False,
+        }
+        assert "s3cret" not in repr(error)
+        assert "s3cret" not in str(error)
+
     def test_model_tune_storage_without_study_name_raises(self, tmp_path: Path) -> None:
         cfg = _reg_config_with_tuning(n_trials=2)
         model = Model(cfg)
