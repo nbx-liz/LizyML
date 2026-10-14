@@ -13801,8 +13801,10 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
    | `estimators/` | `metrics/` | LightGBM の feval への橋渡し（`estimators/lgbm/metric_bridge.py`）と、provider の指標の解決 |
 
    - **読み方**（テストが読む。読めなければ失敗、DC1）:
-     - 前の行は §2.1 の中にちょうど一つ。
-     - 見出しの行は `| 参照する側 | 参照される側 | 根拠 |`。区切りの行は `|---|---|---|`。
+     - 前の行は §2.1 の中にちょうど一つ。表は、前の行の次の空行の後に始まる、`|` で始まる行の連続した塊である。
+     - 見出しの行は、文字どおり `| 参照する側 | 参照される側 | 根拠 |`。区切りの行は、文字どおり `|---|---|---|`。どちらかが違えば失敗。
+     - 中身の行は、欄がちょうど 3 つ。多くても少なくても失敗。中身の行が 1 行も無い表も失敗。
+     - §2.1 の中で `|` で始まる行は、層の表とこの表のどちらかに属すること。どちらにも属さない行は失敗（区切られた後の行を、読まずに飛ばさない）。
      - 参照する側と参照される側の欄は、バッククォートで囲んだ `pkg/` を**一つだけ**書く。どちらも §2.1 の表の Layer 1 の「含まれるモジュール」に挙がったカテゴリ。
      - 根拠の欄は空でない。
      - 次の行は失敗にする:
@@ -13812,10 +13814,14 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
    - **R2 の変更**: Layer 1 のモジュールは、Layer 0、自分のカテゴリ、そして**表で自分のカテゴリに許されたカテゴリ**（その中のどのモジュールでもよい）を import してよい。ほかの Layer 1 のカテゴリは、今と同じく失敗。R1・R3・R4・R5 は変えない。
      - 許した組の逆向きの import は、R2 で失敗し（逆向きは許していない）、R4（循環）でも失敗する。
    - **古びの検出**: 許した組のどれも、木の中の import が少なくとも 1 本使っていること。使われない組は失敗にする（DC3。例外の一覧が件数で古びを検出するのと同じ考え）。
-   - §2.1 の文「具象クラスの組み立て・型ディスパッチは Layer 4（Facade）のみが行う」に「ただし §2.2 の provider が自分の factory で組むもの（estimator の adapter、pipeline）を除く」を足す。§2.2 と文が矛盾しないようにするため。
-   - 同じ理由で次の 3 か所も直す:
-     - 表の Layer 1 の行の「依存先」の欄「Foundation のみ」を「Foundation + 同じ層の中で許す参照」にする。
-     - 依存ルールの文「Layer 1 は Foundation と自分のカテゴリだけに依存する」を「Layer 1 は Foundation、自分のカテゴリ、下の表で許したカテゴリだけに依存する」にする。
+   - §2.1 の文「具象クラスの組み立て・型ディスパッチは Layer 4（Facade）のみが行う」（`BLUEPRINT.md:58`）に、次の例外を足す（§2.2 と、残す A の挙動と、文が矛盾しないように）:
+     - §2.2 の provider が、自分の factory で組むもの（estimator の adapter と pipeline）。
+     - estimator が、LightGBM の feval と指標の解決のために、`metrics/registry.py` の `get_metric` で指標を名前から作ること（`estimators/lgbm/metric_bridge.py:337`、`estimators/lgbm/provider.py:611`。`metrics/registry.py:120-130` が型を引いて作る）。round 1 の指摘。
+   - 「下方向のみ」と言い切る文を、許す参照を認める形に全て書き直す（round 1 の指摘）:
+     - BLUEPRINT §2.1 の依存ルールの 1 つ目（`BLUEPRINT.md:56`）。全体を「各カテゴリは、自分より下の Layer と、下の表で自分のカテゴリに許した同じ層のカテゴリにだけ依存する。Layer 1 は Foundation、自分のカテゴリ、許したカテゴリだけに依存する」にする。
+     - 表の Layer 1 の行の「依存先」の欄。「Foundation のみ」を「Foundation + 同じ層の中で許す参照」にする。
+     - ARCHITECTURE.md の冒頭の文（`:8`、「依存は常に上位層→下位層の DAG のみ」）。
+     - ARCHITECTURE.md のルールの表の「下方向のみ」の行（`:121`）と「Facade 独占」の行（`:123`）。BLUEPRINT と同じ例外を書く。
      - ARCHITECTURE.md の図の注記 `%% Layer 1 → Layer 0 only`（`:62`）。
    - 許すのは `estimators/` → `config/` を含まない（方針 3 で import が消える）。
    - H-0129 の R2 の落ちるべき例（`RULE_MUTATIONS` の `splitters/base.py` → `metrics.base`、`test_layer_rules.py:131-135`）は、許した組に当たらないのでそのまま有効である。
@@ -13828,11 +13834,18 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
      - `persistence/exporter.py` は `TYPE_CHECKING` の下で `RefitResultView` を import し、`_saved_pipeline_states`・`check_category_values`・`export` の `refit_result` の注釈に使う。
      - 実行時の挙動は変わらない（`export` は渡された物をそのまま joblib で保存する）。
      - Facade が `RefitResult` を渡す所で、mypy が構造の一致を確かめる。
-     - テストは、`RefitResultView` の注釈の名前の集合が `dataclasses.fields(RefitResult)` の名前の集合と等しいことを確かめる（DC3）。
+     - テストは、二つを確かめる（DC3。round 1 の指摘: 名前だけでは、欄の型を `Any` に広げてもすり抜け、mypy も通す）:
+       - `typing.get_type_hints(RefitResultView)` と `typing.get_type_hints(RefitResult)` が、名前と型の対応として等しいこと。
+       - その集合が `dataclasses.fields(RefitResult)` の名前と等しいこと。
+     - 比べる関数そのものの落ちるべき例も足す: 欄の型を一つ `Any` に広げた Protocol、欄を一つ別の型にした Protocol、欄を一つ消した Protocol を比べると、それぞれ失敗する。
    - **`lizyml/calibration/base.py`**:
      - 目印の基底 `BaseCalibrationResult` を置く。欄は持たず、`calibrated_oof: npt.NDArray[np.float64]` の注釈だけを持つ（mypy 用）。
      - `CalibrationResult`（`@dataclass`、`calibration/cross_fit.py:48`）はこれを継ぐ。pickle は基底を記録しないので、古いアーティファクトの `CalibrationResult` も読み込んだ後に `isinstance(..., BaseCalibrationResult)` が真になる。
-     - `plots/calibration.py` の `_require_calibrator` は `calibration.base.BaseCalibrationResult` で判定する（拒否の文と context は変えない）。
+     - `plots/calibration.py` の `_require_calibrator` は `calibration.base.BaseCalibrationResult` で判定する。
+     - 判定の境界は「目印を継ぐか」になる（round 1 の指摘: 「`CalibrationResult` でない物は全て拒否する」は、この設計では言えない）。
+       - 目印を継がない物（`None`、`CalibrationResult` でない任意のオブジェクト）は、今と同じ文と context で拒否する。今の文は `plots/calibration.py:34-41`。
+       - 目印を継ぐ物は受け付ける。`lizyml` の中で目印を継ぐのは `CalibrationResult` だけである。
+       - 目印の約束（docstring に書く）: 継ぐクラスは `calibrated_oof` を持つ。plots が読むのはこの欄だけ（`plots/calibration.py:72`、`:133`）。
      - Facade（`core/_model_predict.py:74`、`core/_model_metrics.py:83`）は Layer 4 なので `cross_fit` を import したままでよい。変えない。
    - 実行時の判定に Protocol（`runtime_checkable`）を使わない理由: 属性があるかだけを見るので、緩すぎる（Codex の指摘）。
 
@@ -13844,8 +13857,17 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
    - H-0129 の受け入れ基準 4 のテスト 2 本は、本当の木の一覧の行に依っている（`test_a_fixed_exception_must_leave_the_list`、`test_a_second_import_of_a_listed_pair_fails`）。これを、写しに違反を一つ足し、その組を数 1 で載せた一覧で確かめる形に書き直す（主張は変えない）。
    - §2.1 の文「この規則に反する既存の import は、テストの例外の一覧に件数つきで載る（#362）」は、「既存の違反は無い（H-0130）。新しく見つかった違反は、Proposal で表（IF の列か、同じ層の中で許す参照）を変えるか、例外の一覧に件数つきで載せる」に直す。
 9. **文書**:
-   - BLUEPRINT §2.1（IF の列、許す参照の表、依存ルールの文、例外の文）。
-   - ARCHITECTURE.md（図に `estimators` → `features`・`metrics` の辺と、`metrics/registry`・`training/results` の IF。「Layer 1 → Layer 0 only」の注記を直す）。
+   - BLUEPRINT §2.1:
+     - IF の列。
+     - 許す参照の表。
+     - 依存ルールの 1 つ目と、具象の組み立ての文（方針 6）。
+     - Layer 1 の行の依存先。
+     - 例外の文。
+   - ARCHITECTURE.md:
+     - 冒頭の文（`:8`）。
+     - ルールの表の「下方向のみ」と「Facade 独占」（`:121`、`:123`）。
+     - 図に `estimators` → `features`・`metrics` の辺と、`metrics/registry`・`training/results` の IF を足す。
+     - 「Layer 1 → Layer 0 only」の注記（`:62`）。
    - docs/add-estimator-guide.md §9 の層の規則の行（「既存の例外 17 件」を直す）。
    - CHANGELOG（Unreleased）。
    - `docs/proposal_dispositions.toml`。
@@ -13855,6 +13877,10 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
 - 例外の一覧: `tests/test_architecture/test_layer_rules.py:22-53`。
 - R2 の判定: `tests/test_architecture/_layer_rules.py:401-402`。
 - 表の読み込み: `read_table`（`_layer_rules.py:114`）。
+- 「下方向のみ」「Layer 4 のみ」と言い切る文:
+  - `BLUEPRINT.md:56`、`:58`。表の Layer 1 の行（`:50`）。
+  - `ARCHITECTURE.md:8`、`:62`、`:121`、`:123`。
+- 指標を名前から作る所: `estimators/lgbm/metric_bridge.py:337`、`estimators/lgbm/provider.py:611` → `metrics/registry.py:120-130`。
 - 例外の一覧に依るテスト: `test_layer_rules.py:324-342`。
 - 17 本の位置:
 
@@ -13915,7 +13941,22 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
    - (b) `features/` のモジュールに `import lizyml.estimators.base` を足すと R2 と R4 で失敗する。
    - (c) 表から `metrics/` の行を消すと、`metric_bridge.py` の 2 本と `lgbm/provider.py` の 1 本が R2 で失敗する。
    - (d) 使われない組の行（`estimators/` → `splitters/`）を足すと失敗する（古び）。
-   - (e) 読めない行で失敗する: 欄にパスが二つ、`pkg/` でない欄、Layer 1 でないカテゴリ（`training/`）、参照する側と参照される側が同じ行、同じ組の 2 行目、前の行が無い表、前の行が二つ、根拠が空。
+   - (e) 読めない行で失敗する（どれも、表を読み終えたことにして飛ばさず、失敗する。round 1 の指摘）:
+     - 行の中身:
+       - 欄にパスが二つ。
+       - `pkg/` でない欄。
+       - Layer 1 でないカテゴリ（`training/`）。
+       - 参照する側と参照される側が同じ行。
+       - 同じ組の 2 行目。
+       - 根拠が空。
+       - 欄が 2 つの行と 4 つの行。
+     - 表の形:
+       - 見出しの行の文字を変えた表。
+       - 区切りの行を `|---|---|` にした表。
+       - 中身の行が無い表。
+       - 前の行が無い表。
+       - 前の行が二つ。
+       - 表の後に空行を挟んで `|` で始まる行を一つ足した写し。
    - 落ちてはいけない例: `estimators/` のモジュールに `import lizyml.metrics.regression` を足しても通る（許したカテゴリの中のどのモジュールでもよい）。
 3. **例外の一覧の仕組みは残る**: 写しに違反を一つ足し（例 `evaluation/confusion.py` に `import lizyml.training.oof_assembly`）、その組を数 1 で載せた一覧では通る。その import を消すと、数が足りずに失敗する。同じ組の import をもう一つ足すと、数が多すぎて失敗する（H-0129 の受け入れ基準 4 と同じ主張）。
 4. **移しても同じ物**:
@@ -13925,8 +13966,19 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
    - 既存の比率の検証と OOF のマスクのテストが、変更なしで通る。
 5. **SHAP**: `pipeline_factory` を渡さない `compute_shap_importance(...)` は `TypeError` になる（落ちるべき例: `e8b4c4e` では受け付ける）。`explain/` に `features.pipelines_native` の import が無い（層のテストが確かめる）。
 6. **案 3**:
-   - (a) `CalibrationResult` のインスタンスは `BaseCalibrationResult` のインスタンスである。plots は `CalibrationResult` でない calibrator を、今と同じ文と context で拒否する（既存のテスト）。
+   - (a) plots の判定の境界:
+     - 目印を継がない calibrator（`None` と、ただの `object()`）は、`e8b4c4e` と同じ文と context で拒否する。文と context の全体をゴールデンとして固定する。既存のテスト（`tests/test_plots/test_calibration_plots.py:83-88`、`:112-117`）はエラーの code しか見ていない。
+     - `calibrated_oof` を持つ、`CalibrationResult` でない目印の子クラスは受け付ける（境界は目印だという約束のテスト）。
+     - 落ちるべき例: 判定を `isinstance(..., object)` に緩めた実装は、`object()` の場合を通す。
+   - (a2) 古いアーティファクト:
+     - `e8b4c4e` のコードで pickle した `CalibrationResult` を、テスト用のファイルとして入れる。作ったスクリプトも `docs/audits/2026-10-h0130/probes/` に置く。
+     - それを読み込むと `BaseCalibrationResult` のインスタンスになり、plots が受け付ける。
    - (b) pickle は変わらない: `pickle.dumps` した `CalibrationResult` と `RefitResult` が、`lizyml.calibration.cross_fit` の `CalibrationResult`、`lizyml.training.refit_trainer` の `RefitResult` を名指す（`pickletools` で読むゴールデン）。
-   - (c) `RefitResultView` の注釈の名前の集合が、`RefitResult` の欄の名前の集合と等しい。`uv run mypy lizyml/` が通る。
+   - (c) 型の対応:
+     - `RefitResultView` と `RefitResult` の `get_type_hints` が、名前と型の対応として等しい。その名前が `RefitResult` の欄と等しい。
+     - 比べる関数は、三つの写しのそれぞれで失敗する: 欄を `Any` に広げた写し、別の型にした写し、欄を消した写し。
+     - `uv run mypy lizyml/` が通る。
    - (d) `inspect.signature(lizyml.persistence.export)` のゴールデンは、`refit_result` の注釈の文字列だけが変わる。
 7. 文書が方針 9 のとおり。
+   - BLUEPRINT §2.1 と ARCHITECTURE.md に、許す参照を認めずに「下方向のみ」「Layer 4 のみ」と言い切る文が残っていない。
+   - 具象の組み立ての例外に、provider の factory と、estimator の `get_metric` の両方が書かれている。
