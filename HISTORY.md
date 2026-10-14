@@ -13827,7 +13827,7 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
    - **古びの検出**: 許した組のどれも、木の中の import が少なくとも 1 本使っていること。使われない組は失敗にする（DC3。例外の一覧が件数で古びを検出するのと同じ考え）。
    - §2.1 の文「具象クラスの組み立て・型ディスパッチは Layer 4（Facade）のみが行う」（`BLUEPRINT.md:58`）に、次の例外を足す（§2.2 と、残す A の挙動と、文が矛盾しないように）:
      - §2.2 の provider が、自分の factory で組むもの（estimator の adapter と pipeline）。
-     - `metrics/registry.py` が、登録された指標を名前から作ること（`get_metric`、`metrics/registry.py:120-130` が登録から型を引いて作る）。呼ぶ側は問わない。
+     - **（改訂 1 で変更）** Layer 1 の registry モジュール（`metrics/registry.py`、`calibration/registry.py`）が、登録された型を名前から作ること（`get_metric`、`metrics/registry.py:120-130`。`get_calibrator`、`calibration/registry.py:44-55`。どちらも登録から型を引いて作る）。呼ぶ側は問わない。受理時の文は「`metrics/registry.py` が、登録された指標を名前から作ること」だった。
        - `metrics/registry.py` は Layer 1 の IF として宣言する（方針 5）。
        - 呼び出し元は、Layer 2（evaluation）、Layer 1（estimators の feval への橋渡しと provider）、Layer 4（Facade）にある。
        - 経緯: round 1 は estimator の 2 か所だけを書き、round 2 で evaluator の経路が漏れていると指摘された。round 3 では、書き足した呼び出し元の数が違うと指摘された。主語を registry にし、呼ぶ側の数は書かない。
@@ -14068,11 +14068,22 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
     - Layer 0 の図から `RefitResult` と `CalibrationResult` を外し、それぞれ Layer 2 と calibration の図に移した（`FitResult.calibrator` は `Any`）。
     - `MetricRegistry` を IF として描いた。
     - Layer 3 から `calibration`・`training` の IF への辺と、Layer 1 の許す参照の辺を足した。
-- **Proposal からのずれ（実装で見つけたもの）**: 具象の組み立ての例外。
-  - Proposal は「`metrics/registry.py` が名前から指標を作ること」と書いた。
-  - 読んだ結果、`calibration/registry.py` の `get_calibrator` も、Layer 1 で名前から具象の calibrator を作る（呼ぶのは Facade だけ）。
-  - 例外の二つ目の主語を「Layer 1 の registry モジュール（`metrics/registry.py`、`calibration/registry.py`）が、登録された型を名前から作ること」に広げた。BLUEPRINT §2.1・付録 B、ARCHITECTURE、README を揃えた。
-  - 例外の数（二つ）と、import の規則は変わらない（`calibration/registry.py` は IF に宣言しない。呼ぶのは Layer 4 だけ）。
+- **Proposal からのずれ（実装で見つけたもの）**: 具象の組み立ての例外。下の「改訂 1」で扱う。
+
+### 改訂 1（2026-10-14、実装で判明。管理者の判断で改訂として明記）
+
+- **見つけたこと**: 方針 6 は、具象の組み立てを Layer 4 に限る規則の例外の二つ目を、「`metrics/registry.py` が、登録された指標を名前から作ること」とした。
+  - BLUEPRINT 全体を読んだところ、`calibration/registry.py` の `get_calibrator`（Layer 1）も、登録から型を引いて具象の calibrator を作っていた（`calibration/registry.py:44-55`、`cls(params=params)`）。
+  - 呼んでいるのは Facade の `core/model.py:879-902` だけで、`lizyml.calibration.get_calibrator` として公開もされている。
+  - H-0130 より前からあるコードで、受理時の文がこれを漏らしていた。
+- **変更**: 例外の二つ目の主語を、「Layer 1 の registry モジュール（`metrics/registry.py`、`calibration/registry.py`）が、登録された型を名前から作ること」にする（方針 6 の文を上のとおり直した）。
+  - BLUEPRINT §2.1・付録 B、ARCHITECTURE.md（ルールの表、Layer 4 の説明、凡例）、README の Architecture 節を、この文に揃えた。
+- **変わらないこと**:
+  - 例外の数は二つのまま。
+  - import の規則（R0〜R5、許す参照の表、IF の列）は変わらない。`calibration/registry.py` は IF に宣言しない。これを import するのは Layer 4 だけである（`core/model.py:879`、`core/_model_factories.py:1261`）。
+  - コード、テスト、公開 API、保存の形式は変わらない。
+- **検討して棄却した代わり**: `get_calibrator` を Facade へ移して、例外を `metrics/registry.py` だけに保つ。公開の `lizyml.calibration.get_calibrator` が変わり、非推奨の手続きが要る。#362 の範囲を超える。
+- **確かめ方**: Codex に、この改訂で問題が生じないかを検証させる（管理者の指示）。
 - **Firing rate（実装の後、測定）**:
   - 解決した import は 520 件（新しいモジュールの import が 3 件増えた）。
   - 許す参照が通す import は 8 件（`estimators` → `features` 5、→ `metrics` 3）。
