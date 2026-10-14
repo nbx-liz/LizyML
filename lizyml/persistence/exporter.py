@@ -30,14 +30,11 @@ import pandas as pd
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.task import TaskType
-from lizyml.estimators.lgbm.category_json import (
-    encoder_categories,
-    unwritable_categories,
-)
 
 if TYPE_CHECKING:
     from lizyml.core.types.fit_result import FitResult
     from lizyml.core.types.tuning_result import TuningResult
+    from lizyml.estimators.base import BaseEstimatorAdapter
     from lizyml.training.refit_trainer import RefitResult
 
 FORMAT_VERSION = 2
@@ -70,30 +67,63 @@ def _plain_declared(
 
 def _saved_pipeline_states(
     fit_result: FitResult, refit_result: RefitResult
-) -> list[tuple[str, Any]]:
-    """Every pipeline state whose booster is pickled, named for the error."""
+) -> list[tuple[str, Any, BaseEstimatorAdapter]]:
+    """Every pipeline state whose booster is pickled, named for the error, with
+    the adapter saved with it (H-0129).
+
+    Raises:
+        LizyMLError: ``SERIALIZATION_FAILED`` when a state has no adapter to ask:
+            the fold states and ``fit_result.models`` differ in number, or there
+            are no per-fold states and no model.
+    """
     per_fold = fit_result.pipeline_state_per_fold
-    named: list[tuple[str, Any]] = [("refit", refit_result.pipeline_state)]
+    models = list(fit_result.models)
+    if (per_fold is None and not models) or (
+        per_fold is not None and len(per_fold) != len(models)
+    ):
+        raise LizyMLError(
+            code=ErrorCode.SERIALIZATION_FAILED,
+            user_message=(
+                "Model.export cannot check this model's category values: "
+                f"{'no' if per_fold is None else len(per_fold)} per-fold pipeline "
+                f"state(s) and {len(models)} fold model(s) do not pair up."
+            ),
+            context={
+                "fold_states": None if per_fold is None else len(per_fold),
+                "models": len(models),
+            },
+        )
+    named: list[tuple[str, Any, BaseEstimatorAdapter]] = [
+        ("refit", refit_result.pipeline_state, refit_result.model)
+    ]
     if per_fold is None:
-        named.append(("last fold", fit_result.pipeline_state))
+        named.append(("last fold", fit_result.pipeline_state, models[-1]))
     else:
-        named.extend((f"fold {k}", state) for k, state in enumerate(per_fold, 1))
+        named.extend(
+            (f"fold {k}", state, model)
+            for k, (state, model) in enumerate(zip(per_fold, models, strict=True), 1)
+        )
     return named
 
 
 def check_category_values(fit_result: FitResult, refit_result: RefitResult) -> None:
-    """Refuse, before anything is written, a model LightGBM cannot save (H-0127).
+    """Refuse, before anything is written, a model its estimator cannot save
+    (H-0127).
 
     LightGBM writes each categorical column's categories as JSON when the
     booster is pickled; a value JSON cannot encode used to fail half-way
-    through the write with ``Circular reference detected`` (#338).
+    through the write with ``Circular reference detected`` (#338). Each saved
+    pipeline state is checked by the adapter saved with it
+    (``BaseEstimatorAdapter.unsaveable_categories``, H-0129), so this layer
+    imports no concrete estimator.
 
     Raises:
         LizyMLError: With ``SERIALIZATION_FAILED`` naming the column, the value,
-            its type and the pipeline state that holds it.
+            its type and the pipeline state that holds it, or a state that has
+            no adapter to ask.
     """
-    for state_name, state in _saved_pipeline_states(fit_result, refit_result):
-        found = unwritable_categories(encoder_categories(state))
+    for state_name, state, adapter in _saved_pipeline_states(fit_result, refit_result):
+        found = adapter.unsaveable_categories(state)
         if not found:
             continue
         item = found[0]
