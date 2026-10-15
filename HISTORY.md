@@ -14133,7 +14133,7 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
     - 根拠の計測器 2 本（`registry_reach_census`、`boundary_construct_census`）。
     - 改訂 1 の誤った文への注。
     - 確認の項目（`docs/audits/2026-10-h0130/amend2-confirmation-checklist.md`）。
-- **関連**: 次の Proposal **H-0131**。ID を予約する。Issue は、管理者が受け入れた後に起こす。
+- **関連**: 次の Proposal **H-0131**。ID を予約する。Issue は、管理者が受け入れた後に起こした（[Issue #366](https://github.com/nbx-liz/LizyML/issues/366)、2026-10-15）。
 
 #### 見つけたこと
 
