@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from lizyml.core.types.fit_result import FitResult
     from lizyml.core.types.tuning_result import TuningResult
     from lizyml.estimators.base import BaseEstimatorAdapter
-    from lizyml.training.refit_trainer import RefitResult
+    from lizyml.training.results import RefitResultView
 
 FORMAT_VERSION = 2
 
@@ -66,7 +66,7 @@ def _plain_declared(
 
 
 def _saved_pipeline_states(
-    fit_result: FitResult, refit_result: RefitResult
+    fit_result: FitResult, refit_result: RefitResultView
 ) -> list[tuple[str, Any, BaseEstimatorAdapter]]:
     """Every pipeline state whose booster is pickled, named for the error, with
     the adapter saved with it (H-0129).
@@ -106,7 +106,7 @@ def _saved_pipeline_states(
     return named
 
 
-def check_category_values(fit_result: FitResult, refit_result: RefitResult) -> None:
+def check_category_values(fit_result: FitResult, refit_result: RefitResultView) -> None:
     """Refuse, before anything is written, a model its estimator cannot save
     (H-0127).
 
@@ -184,7 +184,7 @@ class AnalysisContext:
 def export(
     path: str | Path,
     fit_result: FitResult,
-    refit_result: RefitResult,
+    refit_result: RefitResultView,
     config: dict[str, Any],
     task: TaskType,
     *,

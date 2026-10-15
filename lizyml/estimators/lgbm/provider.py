@@ -13,9 +13,9 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
-from lizyml.config.schema import SMART_RATIO_RANGES
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.search_dim import SearchDim
+from lizyml.core.types.smart_ratio import SMART_RATIO_RANGES
 from lizyml.core.types.task import TaskType
 from lizyml.estimators.base import BaseEstimatorAdapter
 from lizyml.estimators.lgbm.adapter import LGBMAdapter

@@ -17,7 +17,7 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
-from lizyml.calibration.base import BaseCalibratorAdapter
+from lizyml.calibration.base import BaseCalibrationResult, BaseCalibratorAdapter
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 
 
@@ -45,8 +45,12 @@ def _locate_failure(*, stage: str, fold: int | None = None) -> Iterator[None]:
 
 
 @dataclass
-class CalibrationResult:
+class CalibrationResult(BaseCalibrationResult):
     """Outcome of cross-fit calibration.
+
+    Inherits the Layer 1 interface marker ``BaseCalibrationResult`` (H-0130),
+    which Layer 3 checks against. The class stays in this module, so pickles
+    keep naming ``lizyml.calibration.cross_fit.CalibrationResult``.
 
     Attributes:
         c_final: Calibrator trained on ALL (oof_scores, y).

@@ -10,10 +10,10 @@ import pandas as pd
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.fit_result import FitResult
+from lizyml.core.types.oof_coverage import compute_oof_valid_mask
 from lizyml.core.types.task import TaskType
 from lizyml.metrics.base import BaseMetric
 from lizyml.metrics.registry import MetricEntry, get_metrics_for_task
-from lizyml.training.oof_assembly import compute_oof_valid_mask
 
 __all__ = ["Evaluator", "TaskType"]
 

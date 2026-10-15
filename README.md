@@ -114,7 +114,7 @@ Dependencies: `lightgbm`, `numpy`, `pandas`, `scikit-learn` (plus `scipy` when t
 
 ## Architecture
 
-LizyML uses a 5-layer architecture where dependencies flow strictly downward:
+LizyML uses a 5-layer architecture where dependencies flow downward, plus the two same-layer references BLUEPRINT §2.1 allows (estimators → features / metrics):
 
 ```
 Layer 4  Facade       Model (orchestration only, no logic)
@@ -129,9 +129,9 @@ Layer 0  Foundation   types (FitResult, PredictionResult, ...) / exceptions / lo
 ```
 
 Key rules:
-- **Downward-only** dependencies (no circular imports)
+- **Downward** dependencies, plus estimators → features / metrics within Layer 1 (no circular imports)
 - Layer 2 references Layer 1 through **abstract interfaces only**
-- Only the Facade (Layer 4) assembles concrete classes
+- Only the Facade (Layer 4) selects and wires concrete implementations of the Layer 1 interfaces, including selection by Config type or name, and dispatches on concrete types (defined in BLUEPRINT §2.1), except an estimator provider's own factories and checks on its own adapter type, and the metric and calibrator registry helpers that build registered types by name. Tests check only import edges. The following are checked by review until H-0131's implementation and the matching architecture tests are merged: (1) concrete assembly, including selection by Config type, `name` or a value derived from them; (2) concrete type dispatch; (3) registry lookups that bypass the registry helpers; (4) rewriting registrations (an implementation module registering its own types is allowed) (H-0130 amendment 2).
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for full diagrams and module layout.
 

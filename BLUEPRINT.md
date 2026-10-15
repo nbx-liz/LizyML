@@ -47,21 +47,41 @@
 | Layer | 名称 | 依存先 | 含まれるモジュール | 下の層から参照してよいモジュール（IF） |
 |---|---|---|---|---|
 | 0 | Foundation | なし | `core/exceptions.py`, `core/logging.py`, `core/registries.py`, `core/types/`, `core/param_domain.py`, `core/specs/`, `_extras.py`, `_version.py` | 全部 |
-| 1 | Leaf | Foundation のみ | `config/`, `data/`, `splitters/`, `features/`, `estimators/`, `metrics/`, `calibration/` | `splitters/base.py`, `features/pipeline_base.py`, `estimators/base.py`, `estimators/provider.py`, `metrics/base.py`, `calibration/base.py` |
-| 2 | Composition | Foundation + Layer 1 の IF | `training/`, `evaluation/`, `tuning/` | なし |
+| 1 | Leaf | Foundation + 同じ層の中で許す参照 | `config/`, `data/`, `splitters/`, `features/`, `estimators/`, `metrics/`, `calibration/` | `splitters/base.py`, `features/pipeline_base.py`, `estimators/base.py`, `estimators/provider.py`, `metrics/base.py`, `metrics/registry.py`, `calibration/base.py` |
+| 2 | Composition | Foundation + Layer 1 の IF | `training/`, `evaluation/`, `tuning/` | `training/results.py` |
 | 3 | Optional | Foundation + Layer 1/2 の IF | `explain/`, `plots/`, `persistence/`, `codegen/` | なし |
 | 4 | Facade | 全 Layer | `core/`, `__init__.py` | なし |
 
 依存ルール:
-- 各カテゴリは自分より**下の Layer にのみ**依存する（下方向のみ）。Layer 1 は Foundation と自分のカテゴリだけに依存する。
-- Layer 2 は Layer 1 の **IF（表の右の列）のみ**を参照する（具象クラスを import しない）。Layer 3 はそれに加えて Layer 2 の IF を参照してよい（今は宣言が無い）。同じ層の別のカテゴリは参照しない。パッケージの `__init__.py` は IF に入れない（`estimators/__init__.py` は `LGBMAdapter` を再公開する）。
-- 具象クラスの組み立て・型ディスパッチは **Layer 4（Facade）のみ**が行う。
+- 各カテゴリは、自分より**下の Layer** と、下の表で自分のカテゴリに許した同じ層のカテゴリにだけ依存する。Layer 1 は Foundation、自分のカテゴリ、許したカテゴリだけに依存する（H-0130）。
+- Layer 2 は Layer 1 の **IF（表の右の列）のみ**を参照する（具象クラスを import しない）。Layer 3 はそれに加えて Layer 2 の IF（`training/results.py`）を参照してよい。同じ層の別のカテゴリは参照しない。パッケージの `__init__.py` は IF に入れない（`estimators/__init__.py` は `LGBMAdapter` を再公開する）。
+- 具象の**組み立て**と**具象型ディスパッチ**は **Layer 4（Facade）** が行う（H-0130 改訂 2）。
+  - 組み立て: 宣言的な入力（Config、公開 API の引数、保存された識別子など）から、Layer 1 の境界 IF の具象実装を選び、その instance か factory を使う側へつなぐこと。境界 IF には、Protocol を構造的に満たす拡張点（§2.2 の `EstimatorProvider`）を含む。
+    - 「選ぶ」には、宣言的な入力の種類か値（Config の型、discriminator の `name`、それから導いた値）で実装を選び分けることを含む。Config 自身の union による検証は、実装を選ぶことではない。
+    - 次のものは組み立てに入らない: 同じカテゴリの中で、境界 IF を実装しない補助のクラスや値を作ること。保存したオブジェクトを読み戻すこと（pickle は fit の時に組み立てたものを戻すだけで、選ばない）。
+  - 具象型ディスパッチ: 具象の実装型か、カテゴリをまたぐ具象の結果型が何であるかで、処理を分けること。組み立てとは別の規則である。
+  - 例外は二つだけ。
+    - §2.2 の provider が、自分の factory で adapter と pipeline を組み、自分の adapter の具象型を扱うこと（LightGBM の provider の `params_summary`・`build_export_params` の `LGBMAdapter` の判定）。
+    - 各 Layer 1 カテゴリの registry の helper（`metrics/registry.py` の `get_metric`・`get_metrics_for_task`、`calibration/registry.py` の `get_calibrator`）が、宣言的な名前から登録された境界 IF の実装を選び、instance を作って IF として返すこと。呼ぶ側は helper に名前と引数を渡し、IF だけを受け取る。
+  - `core/registries.py`（Layer 0）は、登録を蓄える共有の仕組みである。Layer 0 にあることは、ほかの層に、registry から直接引いて型を作る権限も、登録を書き換える権限も与えない。Layer 1〜3 では、実装のモジュールが自分の型を登録し、helper だけが引く。新しい registry、登録と引く役割の変更、helper を迂回して引くことには、Proposal が要る。
+  - Layer 1〜3 の使う側は、境界 IF、Protocol、目印のクラス（`BaseCalibrationResult`）を通して扱う。
+  - 得られるのは、新しいアルゴリズムを選ぶ場所が Facade の中にまとまり、`model.py` を変えずに済むことである。Config の union と Facade の provider の選択は変わる（§2.2 の手順 2・3）。
+  - この規則は規範だが、テストでは確かめない。R0〜R5 が確かめるのは、静的な import の辺だけである。H-0131 の実装と、それに対応する architecture のテストが merge されるまで、次の 4 つはレビューだけで守る: (1) 組み立て（Config の型、discriminator の `name`、それから導いた値での選択を含む）、(2) 具象型ディスパッチ、(3) registry の helper を迂回して registry から引くこと、(4) 登録の書き換え（実装のモジュールが自分の型を登録することは許す）。Layer 1〜3 のモジュールを変える PR は、PR のテンプレートの確認項目で確かめる。
 - カテゴリ間の**循環依存は禁止**する（カテゴリは `core/` の中はモジュールごと、ほかは最上位のパッケージごと）。
 
-表の読み方と検査（H-0129）:
+同じ層の中で許す参照（H-0130）:
+
+| 参照する側 | 参照される側 | 根拠 |
+|---|---|---|
+| `estimators/` | `features/` | §2.2 の provider が pipeline の factory を組む（H-0053）。`UnseenPolicy` を受け取り、具象の pipeline を作る |
+| `estimators/` | `metrics/` | LightGBM の feval への橋渡し（`estimators/lgbm/metric_bridge.py`）と、provider の指標の解決 |
+
+表の読み方と検査（H-0129、H-0130）:
 - `lizyml/` のどのモジュールも、表の「含まれるモジュール」のどれかの行に当たる。複数の行が当たるときは、最も長いパスの行が決める（`core/exceptions.py` は `core/` より長いので Layer 0）。`_version.py` は Git の管理外で、hatch-vcs が `pyproject.toml` の `version-file` に従って生成する。
 - `tests/test_architecture/test_layer_rules.py` が、この表を読んで全ての import の文（関数の中と `if TYPE_CHECKING:` の中を含む）を確かめる。層の規則は import の文と、名前で読める動的な import で確かめる: 識別子 `import_module` と `__import__` は、`lizyml` 以外のパッケージを絶対の名前の定数で import する呼び出しにだけ使ってよい。実行時に親パッケージの `__init__.py` が読み込むもの、`eval` / `exec` で組み立てた import、文字列の中の import（`codegen/` のテンプレート）は数えない。
-- この規則に反する既存の import は、テストの例外の一覧に件数つきで載る（[#362](https://github.com/nbx-liz/LizyML/issues/362)。v0.19.0 の後に設計を決める）。一覧の import が消えても増えても、テストは失敗する。
+- 同じ層の中で許す参照の表は、行ごとの完全一致で読む: 前の行（`同じ層の中で許す参照（H-0130）:`）、空行ちょうど一つ、見出しの行、区切りの行（`|---|---|---|`）、1 行以上の中身の行。参照する側と参照される側は、バッククォートで囲んだ Layer 1 のカテゴリ `pkg/` を一つずつ書き、二つは異なり、同じ組は一度だけ書く。根拠は空でなく `|` を含まない。§2.1 の中で `|` で始まる行は、層の表かこの表のどちらかに属する。許した組は、少なくとも 1 本の import が使っていなければならない（使われない組は古びとして失敗する）。
+- 具象の組み立てと具象型ディスパッチ（上の依存ルールの 3 つ目）は、このテストでは確かめない（H-0130 改訂 2 で、改訂 1 の検査を取り下げた）。
+- 既存の違反は無い（H-0130 で #362 の 17 本を閉じた）。新しく見つかった違反は、Proposal で表（IF の列か、同じ層の中で許す参照）を変えるか、テストの例外の一覧に件数つきで載せる。一覧の import が消えても増えても、テストは失敗する。
 
 ## 2.2 EstimatorProvider（マルチアルゴリズム拡張 IF）（H-0053）
 
@@ -76,7 +96,7 @@
 - デフォルト tuning space の提供
 
 新アルゴリズム追加時の手順:
-1. `estimators/<name>/` に adapter + provider + config を作成
+1. `estimators/<name>/` に adapter と provider を作成し、config のクラスは `config/schema.py` に置く（`config/` は `estimators/` を import しない。§2.1）
 2. `config/schema.py` の `ModelConfig` union に追加
 3. Facade の provider dispatch に追加
 4. `model.py` の変更: ゼロ
@@ -955,7 +975,7 @@ retain replacement for nonempty spaces when loaded, preserving re-fit behavior.
   | `min_data_in_leaf_ratio` / `min_data_in_bin_ratio` | 数、categorical | 数で `0 < v < 1`。categorical はそれに加えて `None`（その母数を解決しない） |
   | `feature_weights` | なし | 探索次元にできない（値が dict で、選択肢は素の値に限られる） |
 
-  比率の範囲は config の検査（`LGBMConfig._validate_smart_params`）と同じ宣言（`lizyml/config/schema.py` の `SMART_RATIO_RANGES`）から読み、二重にしない（DC3）。
+  比率の範囲は config の検査（`LGBMConfig._validate_smart_params`）と同じ宣言（`lizyml/core/types/smart_ratio.py` の `SMART_RATIO_RANGES`。`config/schema.py` は再公開する。H-0130）から読み、二重にしない（DC3）。
 - **拒否**: `CONFIG_INVALID`、context に `surface`（`tuning.optuna.space` か `tune(space=)`）・`dim`・`key`（数の次元は `low` / `high`、categorical は `choices`）・`value`（規則に外れた最初の値）・`reason`（`smart_value_invalid`、regression の `balanced=True` は `smart_value_unsupported_task`）。真偽のスマートパラメーターの数の次元と `feature_weights` の数の次元は、`key` を `low`、`value` をその `low` として報告する。
 - **位置**: round の受け付けの検査（`check_round_space` が呼ぶ `validate_tuning_dimensions`）で、round の実効空間のすべての `category: smart` の次元に当てる。config の空間、`tune(space=...)`、provider の既定の空間、拡張した次元のどれにも、study と round を書く前に当たる（H-0122 の INV-R4）。round の宣言空間を解決するとき（`admit_smart`、上の H-0121 の所有者の規則）にも、所有者の規則が値を真偽で読む前に当てる（`[0]` は「真になりえない所有者」ではなく型で拒否される）。
 - **拡張の上限**: provider の `num_leaves_ratio` の拡張の上限は 1.0（config の範囲の上端。下限 0.1）。既定の空間の `num_leaves_ratio`（`0.5..1.0`）が上端で最良になっても拡張は 1.0 で止まり、その次元の報告は `expanded=False`・`clamped_to_bound=True`（§11.5）。v0.18.0 までは 2.0 まで広がり、1.0 を越える値が最良値、`fit`、export に流れた。
@@ -1603,7 +1623,7 @@ model:
 
 ## 14.1 EstimatorAdapter IF
 
-> Layer 1（Leaf）に属する。Foundation のみに依存し、`config/` や他の Leaf カテゴリに依存しない。
+> Layer 1（Leaf）に属する。Foundation と、§2.1 の表で許した `features/`・`metrics/` にだけ依存し、`config/` には依存しない（H-0130）。
 
 ```python
 fit(X_train, y_train, X_valid=None, y_valid=None, **kwargs)
@@ -1805,8 +1825,8 @@ class TrialErrorProvider(Protocol):  # 任意の機能（H-0128）
 `TrialErrorProvider` は `EstimatorProvider` とは別の任意の機能で、`EstimatorProvider` の成員には入れない（入れると、それを持たない既存の provider が静的に `EstimatorProvider` を満たさなくなる）。`Model.tune`（Facade）は `isinstance(provider, TrialErrorProvider)` のときだけ `trial_errors()` を呼び、`Tuner.run` / `Tuner.tune` の `extra_catch` に渡す。その型の例外は試行の FAIL になり、round は続く。`tuning/` は estimator のライブラリを知らない。LightGBM の provider は `(lightgbm.basic.LightGBMError,)` を返す。
 
 制約:
-- `EstimatorProvider` は `config/` の具象型（`LGBMConfig` 等）を参照してよい（provider は Facade 層から呼ばれるため、Leaf → Leaf の依存にはならない）。
-- `model_cfg` 引数は `Any` 型で受け取るが、各 provider 内部で `isinstance` チェックして具象型にキャストする。
+- `EstimatorProvider` は `config/` を import しない（§2.1 の R2。import の文で判定し、呼ぶ側は問わない。H-0130）。
+- `model_cfg` 引数は `Any` 型で受け取り、各 provider は設定を属性として読む（具象型の `isinstance` もキャストもしない）。
 - `runtime_deps()` はアルゴリズム固有の依存パッケージ名とバージョンを返す（例: `{"lightgbm": "4.5.0"}`）。`RunMeta.deps_versions` に使用。
 - `parameter_bounds(task)` は境界拡張（§11.5）をクランプするための、パラメーターとして意味のある範囲 `{name: {"min": ..., "max": ...}}` を返す（H-0078）。表に無いパラメーターは無制限、空の dict は宣言なし。`LGBMProvider` は task によらない 15 パラメーターの表（`learning_rate` / `feature_fraction` / `bagging_fraction` / `num_leaves_ratio` / `min_data_in_leaf_ratio` / `min_data_in_bin_ratio` / `validation_ratio` / `lambda_l1` / `lambda_l2` / `n_estimators` / `max_depth` / `max_bin` / `bagging_freq` / `early_stopping_rounds` / `seed`）を返す。`Model.tune` は既定の空間にも利用者の空間にもこれを付ける（§11.2）。smart パラメーターの上下限は `smart_value_rules()` の範囲の内側に置くこと（拡張した次元も値の規則で検査されるため）。`num_leaves_ratio` の上限は 1.0（H-0121 改訂 2。それまでは 2.0 で、config の範囲 `(0, 1]` を越えていた）。
 - `objective_choices(task)` は task で有効な objective の canonical 名を、決まった順の tuple で返す（エイリアスは含めない。H-0079）。`default_space` の `objective` 次元と UI の選択肢の元であり、集合は adapter が受理する `TASK_COMPATIBLE_OBJECTIVES`（§14.2）と同じ。未知の task は空の tuple。
@@ -1816,7 +1836,7 @@ class TrialErrorProvider(Protocol):  # 任意の機能（H-0128）
 - `build_export_params` は codegen 経路（`Model.export_code()`）が必要とする native params / num_boost_round / early_stopping_rounds / feval metadata を `ExportParams` frozen dataclass で返す（H-0073）。`_model_persistence.py` から estimator 具象型（`LGBMAdapter` 等）への直接参照を排除するための入口。**「その fit が何を使ったか」を答える値は、config と現在の tuning result から再計算してはならない**（H-0094 決定 13）: `tune()` は tuning result を置き換えるが fit 済み adapter は置き換えないので、再計算する読み手は `fit → tune` の後に**存在しないモデルについて報告する**。実測: adapter が patience 7 で学習し、`params_table` / `export_code` はどちらも 2 と答えた。学習済み adapter は joblib で保存されるため、この経路は `load()` 後も正しい唯一の経路である（artifact が持つ tuning result は、どの fit も消費していないことがありうる）。`ExportParams.early_stopping_rounds` に **default を置かないこと** — 「provider が設定しなかった」と「early stopping が無効だった」が同じ値になるのは DC1 の形である。adapter に記録が無い値（`validation_ratio`）は `FitState.applied_training_params` から読む。この overlay は `metadata.json` の `applied_training_params` として記録され、`load()` が検査して復元する（H-0109）。記録の無い（H-0109 以前の）artifact では不明（`None`）となり config に落ち、再 export しても記録を書かない。
 - `accepted_model_param_names()` / `smart_param_names()` は「その学習器が受理する名前」を宣言する（H-0093）。前者は**学習器自身から導出すること**（列挙しない）。学習器の更新で名前が増減したときに黙って古びる実装は、この IF が検出しようとしている欠陥をそれ自体が持つことになる。後者は `extract_smart_params` が返すキーと必ず一致させ、両者を単一の宣言から導くこと。
 - `smart_param_owners()` は「ある smart パラメーターが読まれるために真でなければならない smart パラメーター（所有者）」を `{smart パラメーター: 所有者}` で返す（H-0121）。所有者の無い smart パラメーターは含めない。LightGBM は `{"num_leaves_ratio": "auto_num_leaves"}` を返す（`resolve_smart_params` は `auto_num_leaves` が真のときだけ `num_leaves_ratio` を読む）。tuning はこの宣言で、所有者が真になりえない smart の探索次元を拒否するか落とす（§11.3）。宣言は解決関数を実行するテストで固定する。smart パラメーターを持たない provider は `{}` を返す。H-0093 の分類では Protocol の変更であり、外部で Protocol を実装しているコードはこのメソッドを足す必要がある。
-- `smart_value_rules()` は、smart パラメーターごとに、それが取りうる値の規則（`lizyml/estimators/provider.py` の `SmartValueRule`: 種類 `bool` / `number` / `untunable`、`None` を受け付けるか、数の区間（下端は開、上端は `high_inclusive`）、`True` を拒否するタスク）を返す（H-0121 改訂 2、§11.3）。`smart_param_names()` のすべての名前に規則があること（テストで固定）。型は厳密に判定する（`type(v) is bool`、`type(v) is int` / `type(v) is float`）。config も検査する範囲は、config の検査と同じ宣言から読むこと（LightGBM は `lizyml/config/schema.py` の `SMART_RATIO_RANGES` を呼び出しのたびに読む）。tune の round の受け付けの検査、`restore_tuning`、`Model.load` がこの規則を使う。Protocol の変更であり、外部で Protocol を実装しているコードはこのメソッドを足す必要がある。
+- `smart_value_rules()` は、smart パラメーターごとに、それが取りうる値の規則（`lizyml/estimators/provider.py` の `SmartValueRule`: 種類 `bool` / `number` / `untunable`、`None` を受け付けるか、数の区間（下端は開、上端は `high_inclusive`）、`True` を拒否するタスク）を返す（H-0121 改訂 2、§11.3）。`smart_param_names()` のすべての名前に規則があること（テストで固定）。型は厳密に判定する（`type(v) is bool`、`type(v) is int` / `type(v) is float`）。config も検査する範囲は、config の検査と同じ宣言から読むこと（LightGBM は `lizyml/core/types/smart_ratio.py` の `SMART_RATIO_RANGES` を呼び出しのたびに読む）。tune の round の受け付けの検査、`restore_tuning`、`Model.load` がこの規則を使う。Protocol の変更であり、外部で Protocol を実装しているコードはこのメソッドを足す必要がある。
 - `canonical_param_names(names)` は「その名前がどのパラメーターを指すか」を返す（H-0094）。**パラメーター層のマージは綴りではなく同一性で行うこと**: 学習器がエイリアスを解決する以上、`{**base, **override}` は 1 つのパラメーターを 2 つの綴りで残し、どちらが効くかは学習器の規則次第になる。実測: config の `learning_rate` が `fit(params={"eta": ...})` に勝っていた。**学習器に 2 つの綴りを渡さない**こと。学習器が知らない名前は自分自身に写すこと（不明名の拒否は `accepted_model_param_names` の仕事であり、この写像が二重の門になってはならない）。**マージの継ぎ目は 4 か所あり、4 か所すべてを同一性で行うこと**: config / provider の既定 fixed / `best_model_params` / `fit(params=)` に加えて、**tuning の trial マージ**（`_model_tuning.py` の objective）がある。round 11 まで trial マージだけが綴りベースで、config の `learning_rate` と `eta` という探索次元がある場合、**trial は config の値で学習し、study には trial の値が best として記録され、その後の fit は記録された値で学習していた** — tuning が一度も評価していないモデルを選んでいた（DC1）。
 - **学習器 adapter が特別扱いするパラメーター**（検証する / 改名する / 呼び出し引数に変換する）は、**全綴りをまとめて取り出す**こと（H-0094 決定 6）。1 綴りだけを見ると、エイリアスで書かれた値はその特別扱いを迂回する。実測: `application`（`objective` のエイリアス）に task 非互換な値を書くと互換性検査を通らずに学習されていた。同じ層で 1 パラメーターが複数綴りで指定されたら、**値によらず** `CONFIG_INVALID` とすること（H-0096 で改訂。**それ以前は「異なる値のときだけ拒否し、同値は通す」だった**）。同値を通す規則は「2 つの綴りが同じ値か」という問いを生み、その問いは任意の Python 値の上で全域でなければならないので**入力領域が開く** —— H-0094 rounds 18-26 の 9 連続はその領域の中で起きた。**LightGBM 自身も値を比較せず、等しくても重複そのものを警告する**（実測）。拒否の根拠は「どちらが効くか不可視だから」ではなく（優先順位は決定的である）、**利用者が 1 つの設定を 2 度書いており、どちらを意図したか LizyML には決められないから**である。**この規則は宣言した層すべてに配線すること**: レビュー round 11 まで `fit(params=)` にしか配線されておらず、`model.params` に `learning_rate` と `eta` を両方書いた config は両方が `lgb.train` に届き、LightGBM が黙って canonical 側を採った（DC4 — 宣言はあるが呼び出し側が無い）。検査は facade（`_merge_params`）に置く。`config/` は層規約上 `estimators/` を import できず別名表に届かないためである。**配線先は 4 層**: `model.params` / `fit(params=)` / `calibration.params` / `tuning.optuna.space`。3 つ目は rounds 10-11 monitor が「どの層に配線したのか」を問うて見つかった（名前検査だけがあり同一性検査が無く、両綴りが calibrator の `lgbm.train` に届いていた）。4 つ目は rounds 11-12 monitor が名指しし、実行して確かめた: `sample_params` は次元ごとに `params[dim.name] = ...` を書くので、**互いにエイリアスである 2 次元は同じ trial dict に両綴りを入れる** — LightGBM が canonical を採るため、もう一方は sample され最適化されながらどの trial にも影響しない（`learning_rate` と `eta` を 2 次元にした study で実測）。**空間には同値による免除が無い**: 2 次元は独立に sample するので、1 パラメーターを 2 回名指しすることは境界に関わらず曖昧である（`check_duplicate_space_dimensions`、study 開始前）。スマート層は対象外で、その理由は**スマートパラメーター名に学習器のエイリアスが 1 つも無い**ことである（実測 0 件、テストで固定）。**`calibration.params` は同一性検査だけでは足りず、canonical 化も要る**（H-0094 決定 8）: calibrator は自分の既定値と**綴りで**マージするため、呼び出し元が**1 度しか書いていない**エイリアスが既定値と並んで `lgbm.train` に届き、LightGBM が既定値を採っていた（`{"eta": 0.5}` → `learning_rate: 0.03` で学習）。`lizyml/calibration/` は `lizyml/estimators/` を import できないので、書き換えは facade（`canonicalise_calibration_params`）で行う。**calibrator 自身が pop するキーは除外すること**（`num_boost_round` は `num_iterations` のエイリアスであり、canonical 化すると pop 先が消える）。**calibrator が強制する値は canonical 綴りで書くこと**: `verbose = -1` はエイリアス側の強制だったので `verbosity` を書いた呼び出しに負けていた。
 - **「あるパラメーター dict が別のパラメーター dict に出会う」場所を列挙し、1 行ずつ実行すること**（H-0094 決定 8）。この類の欠陥は round ごとに 1 つずつ出続けたので、当たりを付けて探すより列挙するほうが安い。走査は `instruments/parameter_merge_seams.py` として**出荷し**、表を再生成できるようにすること（散文に写した数は古びる）。候補 58 式。**走査の構文集合には `d[k] = v` を必ず含めること**: 最初の版はそれを宣言しておらず、その版が報告した 3 件の欠陥のうち 2 件がその構文に住んでいた（rounds 11-12 monitor）。**そして走査を「閉じた母集団」と呼ばないこと**: この主張は 2 回なされ、2 回とも 1 ラウンド以内に反証された（2 回目は round 13 のレビュアーが `config/loader.py:167` を名指しした — カーソル変数名が `node` で hint 語に当たらなかった）。hint 語による絞り込みは識別子テキストのヒューリスティックであって型解析ではない。**表が主張するのは実行した分だけである。** 開いた空間の走査を閉包と呼ぶことは、本 run が他人の宣言に見つけ続けている DC5 そのものである。
@@ -2127,21 +2147,27 @@ lizyml/
 │                                   LizyMLError, ErrorCode, load_config, TaskType, RoundSummary,
 │                                   BoundaryReport, BoundaryDimStatus, TuneProgressInfo,
 │                                   TuneProgressCallback, __version__, __version_tuple__。H-0086)
+├── _extras.py                     optional 依存の扱い (Layer 0)
+├── _version.py                    hatch-vcs が生成 (Layer 0、Git 管理外)
 │
 ├── core/                           ── Layer 0: Foundation ──
 │   ├── exceptions.py               LizyMLError + ErrorCode
 │   ├── logging.py                  logger + run_id + output_dir
 │   ├── registries.py               MetricRegistry, CalibratorRegistry
-│   └── types/
-│       ├── fit_result.py           FitResult
-│       ├── predict_result.py       PredictionResult
-│       ├── tuning_result.py        TuningResult, TrialResult
-│       ├── artifacts.py            RunMeta, SplitIndices, DataFingerprint
-│       ├── task.py                 TaskType (canonical, H-0075)
-│       ├── target_encoder.py       TargetEncoder (H-0070)
-│       └── search_dim.py           SearchDim, FloatDim, IntDim, CategoricalDim, DimCategory
+│   ├── types/
+│   │   ├── fit_result.py           FitResult
+│   │   ├── predict_result.py       PredictionResult
+│   │   ├── tuning_result.py        TuningResult, TrialResult
+│   │   ├── artifacts.py            RunMeta, SplitIndices, DataFingerprint
+│   │   ├── task.py                 TaskType (canonical, H-0075)
+│   │   ├── target_encoder.py       TargetEncoder (H-0070)
+│   │   ├── search_dim.py           SearchDim, FloatDim, IntDim, CategoricalDim, DimCategory
+│   │   ├── oof_coverage.py         compute_oof_valid_mask (H-0130)
+│   │   └── smart_ratio.py          RatioRange, SMART_RATIO_RANGES (H-0130)
+│   ├── param_domain.py             パラメーターの値の閉じた集合 (Layer 0, H-0095)
+│   └── specs/                      ProblemSpec, FeatureSpec (Layer 0、data/ が使用)
 │
-│                                   ── Layer 0/4: Facade (core/ 内の特殊位置) ──
+│                                   ── Layer 4: Facade (core/ の残り) ──
 │   ├── model.py                    Model facade (組み立てと委譲のみ)
 │   ├── _model_factories.py         splitter / inner_valid / estimator provider 構築
 │   ├── _model_predict.py           predict / predict_proba 実体 (facade 委譲先)
@@ -2152,10 +2178,7 @@ lizyml/
 │   ├── _model_tuning.py            ModelTuningMixin (tune orchestration、唯一の writer mixin、H-0091)
 │   ├── _model_state.py             FitState / TuningState frozen snapshot (H-0074/H-0084)
 │   ├── train_components.py         TrainComponents (frozen dataclass)
-│   ├── seed.py                     seed 固定ユーティリティ
-│   └── specs/
-│       ├── problem_spec.py         ProblemSpec (data/ が使用)
-│       └── feature_spec.py         FeatureSpec (data/ が使用)
+│   └── seed.py                     seed 固定ユーティリティ
 │
 ├── config/                         ── Layer 1: Config ──
 │   ├── schema.py                   pydantic schemas (extra="forbid")
@@ -2191,6 +2214,8 @@ lizyml/
 │       ├── adapter.py              LGBMAdapter
 │       ├── provider.py             LGBMProvider (EstimatorProvider 実装)
 │       ├── smart_params.py         resolve_smart_params / resolve_ratio_params
+│       ├── metric_bridge.py        BaseMetric → LightGBM feval (§2.1 の estimators → metrics)
+│       ├── category_json.py        保存できるカテゴリ値の判定 (H-0127)
 │       └── defaults.py             _COMMON_DEFAULTS / default_space / default_fixed_params
 │
 ├── metrics/                        ── Layer 1: Metrics ──
@@ -2200,7 +2225,7 @@ lizyml/
 │   └── classification.py           LogLoss, AUC, AUCPR, F1, Accuracy, Brier, ECE, PrecisionAtK
 │
 ├── calibration/                    ── Layer 1: Calibration ──
-│   ├── base.py                     BaseCalibratorAdapter
+│   ├── base.py                     BaseCalibratorAdapter + BaseCalibrationResult (marker, H-0130)
 │   ├── cross_fit.py                cross_fit_calibrate + CalibrationResult
 │   ├── registry.py                 get_calibrator
 │   ├── platt.py                    PlattCalibrator
@@ -2210,8 +2235,9 @@ lizyml/
 ├── training/                       ── Layer 2: Training ──
 │   ├── cv_trainer.py               CVTrainer (outer CV loop)
 │   ├── refit_trainer.py            RefitTrainer + RefitResult
+│   ├── results.py                  RefitResultView (Protocol, Layer 2 IF, H-0130)
 │   ├── inner_valid.py              BaseInnerValidStrategy + 6 concrete
-│   └── oof_assembly.py             fill_oof / get_fold_pred / init_oof
+│   └── oof_assembly.py             fill_oof / get_fold_pred / init_oof (+ compute_oof_valid_mask を再公開)
 │
 ├── evaluation/                     ── Layer 2: Evaluation ──
 │   ├── evaluator.py                Evaluator (raw metrics のみ)
@@ -2320,7 +2346,7 @@ loaded_model.probability_histogram_plot()
 
 - Config を validate して `ProblemSpec` に変換する。
 - `DataSource` から DF を読む。
-- `FeaturePipeline / Splitter / EstimatorAdapter / Tuner / Calibrator` を registry 経由で選ぶ。
+- `Splitter / Tuner / Calibrator` を組み立てる（Calibrator は `calibration/registry.py` の `get_calibrator` で名前から得る）。`EstimatorAdapter / FeaturePipeline` は §2.2 の provider の factory から得る。
 - `Trainer`（または `CVRunner`）へ処理を渡して実行する。
 - 得られた `FitResult / Artifacts` を保持する。
 - 保存済み `Model Artifact` を `Model.load(path)` で復元する。

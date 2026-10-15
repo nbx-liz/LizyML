@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Two interface types for the layer rules** (H-0130, [#362](https://github.com/nbx-liz/LizyML/issues/362)): `lizyml.training.results.RefitResultView`, a Protocol with `RefitResult`'s seven fields, and `lizyml.calibration.base.BaseCalibrationResult`, a marker base that `CalibrationResult` now inherits. `RefitResult` and `CalibrationResult` stay where they were, so saved artifacts keep naming the same classes and `format_version` is unchanged.
+
+### Changed
+
+- **No import breaks BLUEPRINT §2.1's layer rules any more** (H-0130, [#362](https://github.com/nbx-liz/LizyML/issues/362)). The layer test's exception list of seventeen imports is empty:
+  - §2.1 gains a "same-layer references" table that the test reads (`estimators/` may import `features/` and `metrics/`, as the provider and the LightGBM feval bridge do), and declares `metrics/registry.py` and `training/results.py` as interfaces.
+  - `compute_oof_valid_mask` moved to `lizyml.core.types.oof_coverage`, and `RatioRange` / `SMART_RATIO_RANGES` to `lizyml.core.types.smart_ratio`. The old names (`lizyml.training.oof_assembly`, `lizyml.config.schema`) still export the same objects.
+  - `lizyml.persistence.export` annotates `refit_result` as `RefitResultView`. Its arguments and behaviour are unchanged.
+  - The internal `compute_shap_importance` now requires `pipeline_factory`. The facade always passed one.
+  - BLUEPRINT §2.2 now says that a provider does not import `config/` and reads `model_cfg` by attribute, as the code does.
+  - The layer test's type-dispatch and registry checks (R6) were withdrawn. BLUEPRINT §2.1 now defines concrete assembly and concrete type dispatch. The following are checked by review, not by tests, until H-0131's implementation and the matching architecture tests are merged: (1) concrete assembly, including selection by Config type, `name` or a value derived from them; (2) concrete type dispatch; (3) registry lookups that bypass the registry helpers; (4) rewriting registrations (an implementation module registering its own types is allowed).
+
 ## [0.19.0] - 2026-10-14
 
 ### Changed -- action may be required

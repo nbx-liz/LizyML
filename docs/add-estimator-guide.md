@@ -274,7 +274,7 @@ Proposal 不要:
 
 | ルール | 説明 |
 |--------|------|
-| **Layer 2/3 からの具象 import 禁止** | `training/`, `evaluation/`, `tuning/`（Layer 2）と `explain/`, `plots/`, `persistence/`, `codegen/`（Layer 3）は `BaseEstimatorAdapter` / `EstimatorProvider` のみ参照。`LGBMAdapter` 等の具象クラスを直接 import しない。BLUEPRINT §2.1 の表と `tests/test_architecture/test_layer_rules.py` が全ての import を確かめる（H-0129。既存の例外 17 件は [#362](https://github.com/nbx-liz/LizyML/issues/362)） |
+| **Layer 2/3 からの具象 import 禁止** | `training/`, `evaluation/`, `tuning/`（Layer 2）と `explain/`, `plots/`, `persistence/`, `codegen/`（Layer 3）は `BaseEstimatorAdapter` / `EstimatorProvider` のみ参照。`LGBMAdapter` 等の具象クラスを直接 import しない。BLUEPRINT §2.1 の表と `tests/test_architecture/test_layer_rules.py` が全ての import を確かめる（H-0129。既存の例外は H-0130 で閉じ、今は無い。estimator の中で許す同じ層の参照は `features/` と `metrics/` だけで、`config/` は import しない） |
 | **Provider ディスパッチは Facade のみ** | `get_provider()` は `core/_model_factories.py` でのみ実行。Layer 2 以下でハードコードしない |
 | **model.py は組み立てのみ** | 学習・OOF・metric・plot ロジックを `model.py` に書かない |
 | **Optional dependency** | `torch` 等の重い依存は `try: import` + `LizyMLError(OPTIONAL_DEP_MISSING)` パターン |
