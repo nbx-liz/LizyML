@@ -124,7 +124,7 @@ flowchart TB
 |---|---|
 | **下方向（と許した同じ層）** | 各カテゴリは、自分より下の Layer と、BLUEPRINT §2.1 の「同じ層の中で許す参照」が認める同じ層のカテゴリ（`estimators/` → `features/`・`metrics/`）にだけ依存する（§2.1 の表と `tests/test_architecture/test_layer_rules.py`、H-0129、H-0130） |
 | **IF 経由** | Layer 2 は Layer 1 の**抽象 IF のみ**を参照（具象クラスを import しない）。Layer 3 はそれに加えて Layer 2 の IF（`training/results.py`）を参照してよい |
-| **Facade 独占** | 具象クラスの組み立て・型ディスパッチは Layer 4 が行う。例外は二つだけ（H-0130）: provider（BLUEPRINT §2.2）が自分の factory で adapter と pipeline を組み、自分の adapter の具象型を扱うこと、Layer 1 の registry モジュール（`metrics/registry.py`、`calibration/registry.py`）が登録された型を名前から作ること |
+| **Facade 独占** | 具象の組み立てと具象型ディスパッチ（定義は BLUEPRINT §2.1）は Layer 4 が行う。例外は二つだけ（H-0130）: provider（BLUEPRINT §2.2）が自分の factory で adapter と pipeline を組み、自分の adapter の具象型を扱うこと、各 Layer 1 カテゴリの registry の helper（`metrics/registry.py` の `get_metric`・`get_metrics_for_task`、`calibration/registry.py` の `get_calibrator`）が名前から登録された型を作り、IF として返すこと。テストは静的な import の辺だけを確かめる。H-0131 の実装と、それに対応する architecture のテストが merge されるまで、次の 4 つはレビューだけで守る: (1) 組み立て（Config の型、discriminator の `name`、それから導いた値での選択を含む）、(2) 具象型ディスパッチ、(3) registry の helper を迂回して registry から引くこと、(4) 登録の書き換え（実装のモジュールが自分の型を登録することは許す）（H-0130 改訂 2） |
 | **循環禁止** | カテゴリ間の双方向依存は許可しない |
 
 ### 射（カテゴリ間契約）
@@ -523,7 +523,7 @@ classDiagram
 
 ## Layer 4 — Facade
 
-**唯一**全カテゴリを知る層。具象クラスの組み立てとディスパッチを担当する（例外は provider の自分の factory と自分の adapter の型の扱い、Layer 1 の registry（`metrics/registry.py`、`calibration/registry.py`）が名前から型を作ること。BLUEPRINT §2.1、H-0130）。
+**唯一**全カテゴリを知る層。具象の組み立てと具象型ディスパッチを担当する（定義は BLUEPRINT §2.1。例外は provider の自分の factory と自分の adapter の型の扱い、registry の helper（`metrics/registry.py`、`calibration/registry.py`）が名前から型を作ること。BLUEPRINT §2.1、H-0130）。
 
 ```mermaid
 %%{init: {'theme': 'base', 'themeVariables': {'fontSize': '11px', 'primaryColor': '#2d3748', 'primaryTextColor': '#e2e8f0', 'lineColor': '#a0aec0', 'background': '#1a202c', 'mainBkg': '#2d3748', 'nodeBorder': '#718096'}}}%%
@@ -578,7 +578,7 @@ classDiagram
     classDef mixinClass fill:#4a3728,stroke:#ed8936,color:#e2e8f0
 ```
 
-**Facade の責務**: Config を読み、各カテゴリの具象クラスを選択・組み立て・接続する。
+**Facade の責務**: Config などの宣言的な入力を読み、各カテゴリの境界 IF の具象実装を選択・組み立て・接続する（定義は BLUEPRINT §2.1）。
 ロジック（OOF 生成、metric 計算、学習ループ等）は一切持たない。
 
 ---
@@ -803,7 +803,7 @@ lizyml/
 | 緑 | 1 | **Leaf** — Foundation に依存する独立カテゴリ（同じ層の依存は §2.1 が許す `estimators/` → `features/`・`metrics/` だけ） |
 | 紫 | 2 | **Composition** — Layer 1 の IF を組み合わせるカテゴリ |
 | 橙 | 3 | **Optional** — Foundation と Layer 1・2 の IF を参照する追加機能 |
-| 赤 | 4 | **Facade** — 唯一全カテゴリを知り、組み立てる（例外: provider の factory と自分の adapter の型の扱い、`metrics/registry.py`・`calibration/registry.py`） |
+| 赤 | 4 | **Facade** — 唯一全カテゴリを知り、組み立てる（例外: provider の factory と自分の adapter の型の扱い、registry の helper（`metrics/registry.py`・`calibration/registry.py`）） |
 
 ---
 

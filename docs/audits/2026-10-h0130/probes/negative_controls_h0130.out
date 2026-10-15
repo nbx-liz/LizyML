@@ -1,10 +1,10 @@
-[run-exclusive] h0130-negctl starting; load was 1.37
-run-heavy: pgid=16 (stop with: kill -- -16)
+[run-exclusive] h0130-negctl starting; load was 1.60
+run-heavy: pgid=11 (stop with: kill -- -11)
 FF                                                                       [100%]
 =================================== FAILURES ===================================
 ____ test_an_allowance_block_outside_the_grammar_fails[lead trailing space] ____
 
-tree = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-34/test_an_allowance_block_outsid0')
+tree = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-3/test_an_allowance_block_outsid0')
 case = 'lead trailing space'
 
     @pytest.mark.parametrize("case", sorted(ALLOWANCE_MUTATIONS))
@@ -14,10 +14,10 @@ case = 'lead trailing space'
 >       with pytest.raises(ValueError, match=match):
 E       Failed: DID NOT RAISE <class 'ValueError'>
 
-tests/test_architecture/test_layer_rules.py:501: Failed
+tests/test_architecture/test_layer_rules.py:495: Failed
 ____ test_an_allowance_block_outside_the_grammar_fails[row trailing space] _____
 
-tree = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-34/test_an_allowance_block_outsid1')
+tree = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-3/test_an_allowance_block_outsid1')
 case = 'row trailing space'
 
     @pytest.mark.parametrize("case", sorted(ALLOWANCE_MUTATIONS))
@@ -27,17 +27,17 @@ case = 'row trailing space'
 >       with pytest.raises(ValueError, match=match):
 E       Failed: DID NOT RAISE <class 'ValueError'>
 
-tests/test_architecture/test_layer_rules.py:501: Failed
+tests/test_architecture/test_layer_rules.py:495: Failed
 =========================== short test summary info ============================
 FAILED tests/test_architecture/test_layer_rules.py::test_an_allowance_block_outside_the_grammar_fails[lead trailing space]
 FAILED tests/test_architecture/test_layer_rules.py::test_an_allowance_block_outside_the_grammar_fails[row trailing space]
-2 failed in 2.14s
+2 failed in 2.13s
 CONTROL lenient allowance grammar: caught (tests failed)
 F                                                                        [100%]
 =================================== FAILURES ===================================
 ____________________ test_an_undeclared_layer_1_pair_fails _____________________
 
-tree = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-35/test_an_undeclared_layer_1_pai0')
+tree = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-4/test_an_undeclared_layer_1_pai0')
 
     def test_an_undeclared_layer_1_pair_fails(tree: Path) -> None:
         _append(tree, "estimators/base.py", "import lizyml.calibration.base")
@@ -46,18 +46,18 @@ tree = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-35/test_an_undeclared_la
             "1 import(s), 0 allowed by the exception list"
         ) in _check(tree)
 E       AssertionError: assert 'R2 lizyml/estimators/base.py -> lizyml.calibration.base: 1 import(s), 0 allowed by the exception list' in ['R2 the §2.1 allowance lizyml.calibration -> lizyml.config is used by no import', 'R2 the §2.1 allowance lizyml.calib...etrics is used by no import', 'R2 the §2.1 allowance lizyml.calibration -> lizyml.splitters is used by no import', ...]
-E        +  where ['R2 the §2.1 allowance lizyml.calibration -> lizyml.config is used by no import', 'R2 the §2.1 allowance lizyml.calib...etrics is used by no import', 'R2 the §2.1 allowance lizyml.calibration -> lizyml.splitters is used by no import', ...] = _check(PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-35/test_an_undeclared_layer_1_pai0'))
+E        +  where ['R2 the §2.1 allowance lizyml.calibration -> lizyml.config is used by no import', 'R2 the §2.1 allowance lizyml.calib...etrics is used by no import', 'R2 the §2.1 allowance lizyml.calibration -> lizyml.splitters is used by no import', ...] = _check(PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-4/test_an_undeclared_layer_1_pai0'))
 
-tests/test_architecture/test_layer_rules.py:388: AssertionError
+tests/test_architecture/test_layer_rules.py:382: AssertionError
 =========================== short test summary info ============================
 FAILED tests/test_architecture/test_layer_rules.py::test_an_undeclared_layer_1_pair_fails
-1 failed in 1.07s
+1 failed in 1.12s
 CONTROL R2 blind to the table: caught (tests failed)
 F                                                                        [100%]
 =================================== FAILURES ===================================
 ____________________ test_an_allowance_no_import_uses_fails ____________________
 
-tree = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-36/test_an_allowance_no_import_us0')
+tree = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-5/test_an_allowance_no_import_us0')
 
     def test_an_allowance_no_import_uses_fails(tree: Path) -> None:
         _edit(
@@ -71,76 +71,13 @@ tree = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-36/test_an_allowance_no_
             "is used by no import"
         ) in _check(tree)
 E       AssertionError: assert 'R2 the §2.1 allowance lizyml.estimators -> lizyml.splitters is used by no import' in []
-E        +  where [] = _check(PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-36/test_an_allowance_no_import_us0'))
+E        +  where [] = _check(PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-5/test_an_allowance_no_import_us0'))
 
-tests/test_architecture/test_layer_rules.py:417: AssertionError
+tests/test_architecture/test_layer_rules.py:411: AssertionError
 =========================== short test summary info ============================
 FAILED tests/test_architecture/test_layer_rules.py::test_an_allowance_no_import_uses_fails
-1 failed in 1.00s
+1 failed in 1.08s
 CONTROL no staleness check: caught (tests failed)
-FF                                                                       [100%]
-=================================== FAILURES ===================================
-_______ test_a_concrete_type_dispatch_outside_the_list_fails[isinstance] _______
-
-tree = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-37/test_a_concrete_type_dispatch_0')
-case = 'isinstance'
-
-    @pytest.mark.parametrize("case", sorted(DISPATCH_MUTATIONS))
-    def test_a_concrete_type_dispatch_outside_the_list_fails(tree: Path, case: str) -> None:
-        _append(tree, "estimators/base.py", DISPATCH_MUTATIONS[case])
->       assert (
-            f"R6 lizyml/estimators/base.py -> {_CONCRETE}: "
-            "1 dispatch(es), 0 allowed by the dispatch list"
-        ) in _check(tree)
-E       AssertionError: assert 'R6 lizyml/estimators/base.py -> lizyml.estimators.lgbm.adapter.LGBMAdapter: 1 dispatch(es), 0 allowed by the dispatch list' in []
-E        +  where [] = _check(PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-37/test_a_concrete_type_dispatch_0'))
-
-tests/test_architecture/test_layer_rules.py:534: AssertionError
-________________ test_a_second_dispatch_of_a_listed_pair_fails _________________
-
-tree = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-37/test_a_second_dispatch_of_a_li0')
-
-    def test_a_second_dispatch_of_a_listed_pair_fails(tree: Path) -> None:
-        _append(tree, "estimators/lgbm/provider.py", "isinstance(x, LGBMAdapter)")
->       assert (
-            f"R6 lizyml/estimators/lgbm/provider.py -> {_CONCRETE}: "
-            "3 dispatch(es), 2 allowed by the dispatch list"
-        ) in _check(tree)
-E       AssertionError: assert 'R6 lizyml/estimators/lgbm/provider.py -> lizyml.estimators.lgbm.adapter.LGBMAdapter: 3 dispatch(es), 2 allowed by the dispatch list' in []
-E        +  where [] = _check(PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-37/test_a_second_dispatch_of_a_li0'))
-
-tests/test_architecture/test_layer_rules.py:550: AssertionError
-=========================== short test summary info ============================
-FAILED tests/test_architecture/test_layer_rules.py::test_a_concrete_type_dispatch_outside_the_list_fails[isinstance]
-FAILED tests/test_architecture/test_layer_rules.py::test_a_second_dispatch_of_a_listed_pair_fails
-2 failed in 1.79s
-CONTROL R6 switched off: caught (tests failed)
-F                                                                        [100%]
-=================================== FAILURES ===================================
-__________ test_registry_access_outside_the_two_registries_fails[get] __________
-
-tree = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-38/test_registry_access_outside_t0')
-case = 'get'
-
-    @pytest.mark.parametrize("case", sorted(REGISTRY_MUTATIONS))
-    def test_registry_access_outside_the_two_registries_fails(
-        tree: Path, case: str
-    ) -> None:
-        text, used = REGISTRY_MUTATIONS[case]
-        _append(tree, "splitters/base.py", text)
->       assert any(
-            p.startswith("R6 lizyml/splitters/base.py:")
-            and f"uses lizyml.core.registries.{used} outside" in p
-            for p in _check(tree)
-        )
-E       assert False
-E        +  where False = any(<generator object test_registry_access_outside_the_two_registries_fails.<locals>.<genexpr> at 0x794717c92f80>)
-
-tests/test_architecture/test_layer_rules.py:599: AssertionError
-=========================== short test summary info ============================
-FAILED tests/test_architecture/test_layer_rules.py::test_registry_access_outside_the_two_registries_fails[get]
-1 failed in 1.00s
-CONTROL registry access anywhere: caught (tests failed)
 FF                                                                       [100%]
 =================================== FAILURES ===================================
 _______ test_a_calibrator_without_the_marker_is_refused_as_before[none] ________
@@ -161,7 +98,7 @@ E       Failed: DID NOT RAISE <class 'lizyml.core.exceptions.LizyMLError'>
 tests/test_architecture/test_h0130_contracts.py:97: Failed
 ___ test_a_calibrator_without_the_marker_is_refused_as_before[plain object] ____
 
-calibrator = <object object at 0x7946ed66b4c0>, type_name = 'object'
+calibrator = <object object at 0x7aacb8533460>, type_name = 'object'
 
     @pytest.mark.parametrize(
         ("calibrator", "type_name"),
@@ -178,8 +115,8 @@ tests/test_architecture/test_h0130_contracts.py:97: Failed
 =========================== short test summary info ============================
 FAILED tests/test_architecture/test_h0130_contracts.py::test_a_calibrator_without_the_marker_is_refused_as_before[none]
 FAILED tests/test_architecture/test_h0130_contracts.py::test_a_calibrator_without_the_marker_is_refused_as_before[plain object]
-2 failed in 0.08s
+2 failed in 0.06s
 CONTROL plots accept any calibrator: caught (tests failed)
 
-6/6 controls caught
-[run-exclusive] h0130-negctl finished in 53s, exit 0
+4/4 controls caught
+[run-exclusive] h0130-negctl finished in 68s, exit 0

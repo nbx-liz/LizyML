@@ -60,8 +60,8 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[4])
     repo = parser.parse_args().repo.resolve()
-    sys.path.insert(0, str(repo / "tests" / "test_architecture"))
-    import _layer_rules as lr  # noqa: PLC0415 - the path is set just above
+    sys.path.insert(0, str(repo))
+    import tests.test_architecture._layer_rules as lr  # noqa: PLC0415 - the path is set just above
 
     root = repo / "lizyml"
     table = lr.read_table(repo / "BLUEPRINT.md")
@@ -95,15 +95,9 @@ def main() -> int:
     print(f"\nLayer 2/3 imports admitted by the new interfaces: {len(by_interface)}")
     print("\n".join(by_interface))
 
-    # The seventeen are import rules (R1-R4); R6 (H-0130 amendment 1) has its
-    # own census, dispatch_census.py, so its problems are left out here. On a
-    # tree before R6 existed, ``check`` takes no ``dispatch_allowed``.
-    try:
-        problems = lr.check(
-            root, repo / "BLUEPRINT.md", repo / "pyproject.toml", {}, dispatch_allowed={}
-        )
-    except TypeError:
-        problems = lr.check(root, repo / "BLUEPRINT.md", repo / "pyproject.toml", {})
+    # The seventeen are import rules (R1-R4). R6 (H-0130 amendment 1) was
+    # withdrawn by amendment 2, so ``check`` takes the import rules only.
+    problems = lr.check(root, repo / "BLUEPRINT.md", repo / "pyproject.toml", {})
     problems = [p for p in problems if p.split(" ", 1)[0] in {"R1", "R2", "R3", "R4"}]
     print(f"\ncheck() problems with an empty exception list: {len(problems)}")
     unclosed = 0

@@ -31,13 +31,15 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parents[4])
     repo = parser.parse_args().repo.resolve()
-    sys.path.insert(0, str(repo / "tests" / "test_architecture"))
-    import _layer_rules as lr  # noqa: PLC0415
+    sys.path.insert(0, str(repo))
+    import tests.test_architecture._layer_rules as lr  # noqa: PLC0415 - the path is set just above
 
     root = repo / "lizyml"
     table = lr.read_table(repo / "BLUEPRINT.md")
     modules: dict[str, Path] = {}
     for path in sorted(root.rglob("*.py")):
+        if path == root / "_version.py":  # generated and untracked (H-0130 amendment 2)
+            continue
         modules[lr.module_name(root, path)] = path
     modules_set = set(modules) | {lr.version_module(repo / "pyproject.toml", root)}
     layer = {m: table.paths[o] for m in modules_set if (o := lr._owner(table, m))}

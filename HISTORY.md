@@ -13701,7 +13701,7 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
   - 管理者の判断で、二つの範囲を明示して閉じた。そのうえで完了基準（`docs/audits/2026-10-h0130/acceptance-criteria.md`）を書き、受け入れレビューを 1 回行った。結果は APPROVE（`ce3d4d2`、直すべき指摘 0 件）。
   - 管理者が受け入れを宣言した。
   - 改訂 1（2026-10-14）: 実装で判明した例外の主語の広げ方と、R6。下の「改訂 1」。
-  - 改訂 2（2026-10-15）: 提案中で、管理者の判断を待つ。「組み立て」の定義と、R6 の取り下げ（代わりの検査は置かない）。下の「改訂 2」。
+  - 改訂 2（2026-10-15）: 「組み立て」の定義と、R6 の取り下げ（代わりの検査は置かない）。確認レビューの round 4 で APPROVE（`3ba32c1`）の後、管理者が受け入れた。下の「改訂 2」。
 - **スコープ**:
   - `BLUEPRINT.md` §2.1: IF の列、新しい「同じ層の中で許す参照」の表、依存ルールの文。
   - `tests/test_architecture/_layer_rules.py`: 許す参照の表を読み、R2 で使う。
@@ -14120,14 +14120,14 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
   - 例外の一覧が通す import は 0 件。
   - 空の一覧での問題は 0 件。
 
-### 改訂 2（2026-10-15、提案。管理者の判断を待つ）
+### 改訂 2（2026-10-15、管理者の判断で受け入れ）
 
-- **状態**: 提案。この節は、最初の版（`6338c73`）を、管理者が選んだ組み合わせで書き直したものである。
+- **状態**: 受け入れ（2026-10-15、管理者の宣言）。この節は、最初の版（`6338c73`）を、管理者が選んだ組み合わせで書き直したものである。経過は下の「確認レビューと受け入れ」。
   - 管理者の判断（2026-10-15）:
     - 1-B: registry の検査を置かない。例外 2 は、registry の helper の役割として書く。
     - 2-A: Config の種類で実装を選ぶことは、組み立ての一部とする。
     - 3-A: 確認の項目を先に固定し、確認レビューを 1 回行う。
-  - 最終の受け入れは、確認レビューの後に管理者が決める。決まるまで、この改訂の変更（文書、テスト、計測器）は行わない。
+  - 最終の受け入れは、確認レビューの後に管理者が決める。決まるまで、この改訂の変更（文書、テスト、計測器）は行わなかった。
   - この改訂の commit が足すのは次のものだけである。
     - この節。
     - 根拠の計測器 2 本（`registry_reach_census`、`boundary_construct_census`）。
@@ -14397,3 +14397,32 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
 - この版に、確認レビュー（Codex、runner B）を 1 回行う。その前に、文脈を持たない absolute monitor が、ループの向きを判定する。
 - 確認レビューが確かめる項目は、`docs/audits/2026-10-h0130/amend2-confirmation-checklist.md` に先に固定する。
 - 管理者が受け入れた後に実装する。実装のレビューでは、閉じた一覧を全部読ませる。
+
+#### 確認レビューと受け入れ（2026-10-15）
+
+- 固定した確認の項目（`docs/audits/2026-10-h0130/amend2-confirmation-checklist.md`）で、Codex の review を行った。各 round の前に、文脈を持たない loop monitor を置いた。
+
+| round | run | head | 結果 | monitor（その round の前） |
+|---|---|---|---|---|
+| 1 | `h0130-amend2-review` | `6338c73`（最初の版） | CHANGES_REQUESTED（critical 3、major 2） | — |
+| 2 | `h0130-amend2-confirm` | `0bf7a2d` | CHANGES_REQUESTED（項目 3 の critical 1、項目 5 の major 1） | absolute: DELIVERABLE-FOCUSED、continue |
+| 3 | `h0130-amend2-r3` | `3bfa89b` | CHANGES_REQUESTED（項目 3 の critical 1） | relational: CONVERGING、continue |
+| 4 | `h0130-amend2-r4` | `3ba32c1` | APPROVE（指摘 0） | relational: CONVERGING、continue |
+
+- round 2 と 3 の指摘は、どれも前の直しの欠陥だった。停止ルールに従って、どちらの round の後も管理者が続け方を決めた（round 3、round 4 とも通常の round）。
+- 17 件の文は 3 回、誤りとされた。原因は、計測から導いた内訳を文で言い換え続けたことだった。round 3 の後、内訳を言い換えずに記録を指す文に変えて閉じた。
+- 管理者が受け入れを宣言した（2026-10-15）。変更 1〜5 は、この記録の後に同じブランチで実装する。
+
+#### 改訂 2 の実装の記録（2026-10-15）
+
+- **文書**: 変更 1 と変更 2 の文を BLUEPRINT §2.1 に入れた。変更 4 の表のとおりに ARCHITECTURE.md（`:127`・`:526`・`:581`・`:806`）、README.md（`## Architecture`）、CHANGELOG（`[Unreleased]`）、`.github/PULL_REQUEST_TEMPLATE.md` を直した。範囲の 4 つと終わりの条件は、変更 3 の文のとおりである。
+- **テスト**:
+  - `tests/test_architecture/_dispatch_rules.py` を消した。`_layer_rules.py`、`test_layer_rules.py`、`negative_controls_h0130.py` は、R6 を足す前（`c7ff9a4`）の形に戻した。
+  - Config のクラスの import の落ちるべき例 2 つ（`evaluation/` で R3、`estimators/` で R2）を足した。
+  - `tests/test_architecture/` は 99 件が通る。陰性対照は 4 つとも捕まった（`negative_controls_h0130.out`）。
+- **計測器**:
+  - `_package`・`_bindings`・`_dotted`・`_Index` を `probes/_census_index.py` に移した。`_version.py` を数えない。
+  - 6 本とも、リポジトリの根から `python3 -I` で走る（`boundary_construct_census.py` は lizyml を読み込むので `uv run`）。
+  - `dispatch_census.out` を書き直した。モジュールの数は 137 で、それ以外の数は変わらない。
+  - `census_h0130.out` は `e8b4c4e` の木の記録なので、書き直していない。
+- **A2-1 の確かめ**: `grep -rn -e dispatch_allowed -e DispatchKey -e DISPATCH_ALLOWED -e _dispatch_rules -e dispatch_problems -e R6_PASSES tests docs/audits/2026-10-h0130/probes` は、`.out` を除いて何も返さない。

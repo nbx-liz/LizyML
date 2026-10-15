@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - `lizyml.persistence.export` annotates `refit_result` as `RefitResultView`. Its arguments and behaviour are unchanged.
   - The internal `compute_shap_importance` now requires `pipeline_factory`. The facade always passed one.
   - BLUEPRINT §2.2 now says that a provider does not import `config/` and reads `model_cfg` by attribute, as the code does.
+  - The layer test's type-dispatch and registry checks (R6) were withdrawn. BLUEPRINT §2.1 now defines concrete assembly and concrete type dispatch. The following are checked by review, not by tests, until H-0131's implementation and the matching architecture tests are merged: (1) concrete assembly, including selection by Config type, `name` or a value derived from them; (2) concrete type dispatch; (3) registry lookups that bypass the registry helpers; (4) rewriting registrations (an implementation module registering its own types is allowed).
 
 ## [0.19.0] - 2026-10-14
 

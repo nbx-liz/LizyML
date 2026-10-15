@@ -55,7 +55,18 @@
 依存ルール:
 - 各カテゴリは、自分より**下の Layer** と、下の表で自分のカテゴリに許した同じ層のカテゴリにだけ依存する。Layer 1 は Foundation、自分のカテゴリ、許したカテゴリだけに依存する（H-0130）。
 - Layer 2 は Layer 1 の **IF（表の右の列）のみ**を参照する（具象クラスを import しない）。Layer 3 はそれに加えて Layer 2 の IF（`training/results.py`）を参照してよい。同じ層の別のカテゴリは参照しない。パッケージの `__init__.py` は IF に入れない（`estimators/__init__.py` は `LGBMAdapter` を再公開する）。
-- 具象クラスの組み立て・型ディスパッチは **Layer 4（Facade）** が行う。例外は二つだけ（H-0130）: §2.2 の provider が自分の factory で組むもの（estimator の adapter と pipeline）と、自分の adapter の具象型を扱うこと（LightGBM の provider の `params_summary`・`build_export_params` の `LGBMAdapter` の判定）、および Layer 1 の registry モジュール（`metrics/registry.py`、`calibration/registry.py`）が、登録された型を名前から作ること（呼ぶ側は問わない）。
+- 具象の**組み立て**と**具象型ディスパッチ**は **Layer 4（Facade）** が行う（H-0130 改訂 2）。
+  - 組み立て: 宣言的な入力（Config、公開 API の引数、保存された識別子など）から、Layer 1 の境界 IF の具象実装を選び、その instance か factory を使う側へつなぐこと。境界 IF には、Protocol を構造的に満たす拡張点（§2.2 の `EstimatorProvider`）を含む。
+    - 「選ぶ」には、宣言的な入力の種類か値（Config の型、discriminator の `name`、それから導いた値）で実装を選び分けることを含む。Config 自身の union による検証は、実装を選ぶことではない。
+    - 次のものは組み立てに入らない: 同じカテゴリの中で、境界 IF を実装しない補助のクラスや値を作ること。保存したオブジェクトを読み戻すこと（pickle は fit の時に組み立てたものを戻すだけで、選ばない）。
+  - 具象型ディスパッチ: 具象の実装型か、カテゴリをまたぐ具象の結果型が何であるかで、処理を分けること。組み立てとは別の規則である。
+  - 例外は二つだけ。
+    - §2.2 の provider が、自分の factory で adapter と pipeline を組み、自分の adapter の具象型を扱うこと（LightGBM の provider の `params_summary`・`build_export_params` の `LGBMAdapter` の判定）。
+    - 各 Layer 1 カテゴリの registry の helper（`metrics/registry.py` の `get_metric`・`get_metrics_for_task`、`calibration/registry.py` の `get_calibrator`）が、宣言的な名前から登録された境界 IF の実装を選び、instance を作って IF として返すこと。呼ぶ側は helper に名前と引数を渡し、IF だけを受け取る。
+  - `core/registries.py`（Layer 0）は、登録を蓄える共有の仕組みである。Layer 0 にあることは、ほかの層に、registry から直接引いて型を作る権限も、登録を書き換える権限も与えない。Layer 1〜3 では、実装のモジュールが自分の型を登録し、helper だけが引く。新しい registry、登録と引く役割の変更、helper を迂回して引くことには、Proposal が要る。
+  - Layer 1〜3 の使う側は、境界 IF、Protocol、目印のクラス（`BaseCalibrationResult`）を通して扱う。
+  - 得られるのは、新しいアルゴリズムを選ぶ場所が Facade の中にまとまり、`model.py` を変えずに済むことである。Config の union と Facade の provider の選択は変わる（§2.2 の手順 2・3）。
+  - この規則は規範だが、テストでは確かめない。R0〜R5 が確かめるのは、静的な import の辺だけである。H-0131 の実装と、それに対応する architecture のテストが merge されるまで、次の 4 つはレビューだけで守る: (1) 組み立て（Config の型、discriminator の `name`、それから導いた値での選択を含む）、(2) 具象型ディスパッチ、(3) registry の helper を迂回して registry から引くこと、(4) 登録の書き換え（実装のモジュールが自分の型を登録することは許す）。Layer 1〜3 のモジュールを変える PR は、PR のテンプレートの確認項目で確かめる。
 - カテゴリ間の**循環依存は禁止**する（カテゴリは `core/` の中はモジュールごと、ほかは最上位のパッケージごと）。
 
 同じ層の中で許す参照（H-0130）:
@@ -69,11 +80,7 @@
 - `lizyml/` のどのモジュールも、表の「含まれるモジュール」のどれかの行に当たる。複数の行が当たるときは、最も長いパスの行が決める（`core/exceptions.py` は `core/` より長いので Layer 0）。`_version.py` は Git の管理外で、hatch-vcs が `pyproject.toml` の `version-file` に従って生成する。
 - `tests/test_architecture/test_layer_rules.py` が、この表を読んで全ての import の文（関数の中と `if TYPE_CHECKING:` の中を含む）を確かめる。層の規則は import の文と、名前で読める動的な import で確かめる: 識別子 `import_module` と `__import__` は、`lizyml` 以外のパッケージを絶対の名前の定数で import する呼び出しにだけ使ってよい。実行時に親パッケージの `__init__.py` が読み込むもの、`eval` / `exec` で組み立てた import、文字列の中の import（`codegen/` のテンプレート）は数えない。
 - 同じ層の中で許す参照の表は、行ごとの完全一致で読む: 前の行（`同じ層の中で許す参照（H-0130）:`）、空行ちょうど一つ、見出しの行、区切りの行（`|---|---|---|`）、1 行以上の中身の行。参照する側と参照される側は、バッククォートで囲んだ Layer 1 のカテゴリ `pkg/` を一つずつ書き、二つは異なり、同じ組は一度だけ書く。根拠は空でなく `|` を含まない。§2.1 の中で `|` で始まる行は、層の表かこの表のどちらかに属する。許した組は、少なくとも 1 本の import が使っていなければならない（使われない組は古びとして失敗する）。
-- 具象の組み立てと型ディスパッチの例外（上の依存ルールの 3 つ目）も、同じテストが Layer 1〜3 のモジュールについて確かめる（H-0130 改訂 1）。
-  - registry: `core/registries.py` の registry オブジェクトの属性のうち `register` と `keys` 以外（`get` と private な名前）を使ってよいのは `metrics/registry.py` と `calibration/registry.py` だけ。registry のクラスを作ってよいのは `core/registries.py` だけ。
-  - 型ディスパッチは次の形に限って数える: `isinstance` / `issubclass` の第 2 引数、`type(x) is / is not / == / != T`（左右どちらでも）、`case T(...)`。`T` は名前、属性、それらのタプル・`|` の和、`type(None)`、モジュールの定数のタプル。
-  - `T` が `lizyml` のクラスで、Layer 0 にも IF のモジュールにも無いもの（具象）と、解決できないもの（ループの変数など）は、テストの一覧に件数つきで載せる。今は provider が自分の adapter（`LGBMAdapter`）を判定する 2 か所と、組み込みの型を回すループの変数 3 か所。
-  - 範囲の外（数えない）: 別の書き方の判定（`type(x).__name__ == ...`、`hasattr`）、二つの実行時の型の比較（`type(a) is type(b)`）、`eval` / `exec`。
+- 具象の組み立てと具象型ディスパッチ（上の依存ルールの 3 つ目）は、このテストでは確かめない（H-0130 改訂 2 で、改訂 1 の検査を取り下げた）。
 - 既存の違反は無い（H-0130 で #362 の 17 本を閉じた）。新しく見つかった違反は、Proposal で表（IF の列か、同じ層の中で許す参照）を変えるか、テストの例外の一覧に件数つきで載せる。一覧の import が消えても増えても、テストは失敗する。
 
 ## 2.2 EstimatorProvider（マルチアルゴリズム拡張 IF）（H-0053）

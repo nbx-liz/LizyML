@@ -20,7 +20,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[4]
 sys.path.insert(0, str(REPO))
 
-from tests.test_architecture._dispatch_rules import _dotted, _Index  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _census_index import _dotted, _Index  # noqa: E402
 from tests.test_architecture._layer_rules import _owner, read_table, scan  # noqa: E402
 
 INTERFACES = {

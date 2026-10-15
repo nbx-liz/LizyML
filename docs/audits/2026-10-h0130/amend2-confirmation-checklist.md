@@ -2,7 +2,7 @@
 
 This file fixes, before the review runs, what the one confirmation review of the revised amendment 2 checks (the maintainer's decision 3-A, 2026-10-15). The review answers each item and nothing else.
 
-Subject: the section `### 改訂 2（2026-10-15、提案。管理者の判断を待つ）` at the end of `HISTORY.md`, revised after the reviews of its first draft (`6338c73`).
+Subject: the section `### 改訂 2（2026-10-15、管理者の判断で受け入れ）` (titled `### 改訂 2（2026-10-15、提案。管理者の判断を待つ）` while under review) at the end of `HISTORY.md`, revised after the reviews of its first draft (`6338c73`).
 
 ## Items to check
 
