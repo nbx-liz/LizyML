@@ -14186,7 +14186,7 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
   - `core/registries.py`（Layer 0）は、登録を蓄える共有の仕組みである。Layer 0 にあることは、ほかの層に、registry から直接引いて型を作る権限も、登録を書き換える権限も与えない。Layer 1〜3 では、実装のモジュールが自分の型を登録し、helper だけが引く。新しい registry、登録と引く役割の変更、helper を迂回して引くことには、Proposal が要る。
   - Layer 1〜3 の使う側は、境界 IF、Protocol、目印のクラス（`BaseCalibrationResult`）を通して扱う。
   - 得られるのは、新しいアルゴリズムを選ぶ場所が Facade の中にまとまり、`model.py` を変えずに済むことである。Config の union と Facade の provider の選択は変わる（§2.2 の手順 2・3）。
-  - この規則は規範だが、テストでは確かめない。R0〜R5 が確かめるのは、静的な import の辺だけである。組み立て、Config の種類での選択、具象型ディスパッチ、registry の helper の迂回は確かめない。H-0131 の実装と、それに対応する architecture のテストが merge されるまで、Layer 1〜3 のモジュールを変える PR は、PR のテンプレートの確認項目で確かめる。
+  - この規則は規範だが、テストでは確かめない。R0〜R5 が確かめるのは、静的な import の辺だけである。H-0131 の実装と、それに対応する architecture のテストが merge されるまで、次の 4 つはレビューだけで守る: (1) 組み立て（Config の型、discriminator の `name`、それから導いた値での選択を含む）、(2) 具象型ディスパッチ、(3) registry の helper を迂回して registry から引くこと、(4) 登録の書き換え（実装のモジュールが自分の型を登録することは許す）。Layer 1〜3 のモジュールを変える PR は、PR のテンプレートの確認項目で確かめる。
 ```
 
 **組み立ての例（閉じた表。レビューでの判断の基準）**:
@@ -14267,7 +14267,7 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
   - `.github/PULL_REQUEST_TEMPLATE.md` の Checklist に、次の項目を足す。
 
 ```
-- [ ] Layers 1-3 changed: no concrete assembly, no selection by Config type or `name`, no concrete type dispatch, and no registry use outside the registry helpers, beyond the two exceptions in BLUEPRINT §2.1 (checked by review until H-0131's implementation and tests are merged)
+- [ ] Layers 1-3 changed: none of the following outside the two exceptions in BLUEPRINT §2.1, checked by review until H-0131's implementation and the matching architecture tests are merged: (1) concrete assembly, including selection by Config type, `name` or a value derived from them; (2) concrete type dispatch; (3) registry lookups that bypass the registry helpers; (4) rewriting registrations (an implementation module registering its own types is allowed)
 ```
 
 **Firing rate**: 本改訂は新しい条件を加えない。R6 の許可の一覧 `DISPATCH_ALLOWED` と registry の許可を消す。足す 2 つのテストは、落ちるべき例である。
@@ -14276,23 +14276,24 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
 
 - #362 の目的は、満たしたまま変わらない。目的は、17 本の例外をなくし、一覧を空にすることだった。
   - 17 本の一部は、import の文を消して閉じた。残りは、IF の列と許す参照の表で合法にした。
-  - R6 を取り下げても、R0〜R5、二つの表、空の例外の一覧は変わらない。同じ 17 本の静的な import の辺を同じ形で戻せば、今の表と R0〜R5 が報告する。
+  - R6 を取り下げても、R0〜R5、二つの表、空の例外の一覧は変わらない。17 本の内訳は、import を消して閉じたもの 8 本、許す参照の表で合法にしたもの 8 本（`estimators` → `features` 5、→ `metrics` 3）、IF の列で合法にしたもの 1 本（`evaluation/evaluator.py` → `metrics/registry.py`）である（`census_h0130.out`、H-0130 の Firing rate）。消した 8 本は、同じ静的な import の辺を同じ形で戻せば、今の表と R0〜R5 が報告する。合法にした 9 本は、戻しても報告されない（違反ではないため）。
   - 実行時に親パッケージが読むもの、`eval` / `exec`、文字列の中の import は、もともと範囲の外である（`_layer_rules.py:22-24`）。
-- 弱くなるのは、それより広い保証である。H-0131 の実装と、それに対応する architecture のテストが merge されるまで、次のものはレビューだけで守る。
-  - 組み立て（Config の種類での選択を含む）。
-  - 具象型ディスパッチ。
-  - registry の helper の迂回。
-  - 登録の書き換え。
-- これを次の場所に、同じ終わりの条件で書く。
+- 弱くなるのは、それより広い保証である。H-0131 の実装と、それに対応する architecture のテストが merge されるまで、次の 4 つ（以下「範囲」）はレビューだけで守る。
+  - (1) 組み立て（Config の型、discriminator の `name`、それから導いた値での選択を含む）。
+  - (2) 具象型ディスパッチ。
+  - (3) registry の helper を迂回して registry から引くこと。
+  - (4) 登録の書き換え。実装のモジュールが自分の型を登録することは許す（変更 1 の例外 2 の役割）。
+- 範囲と終わりの条件を、次の場所に同じ文で書く。日本語の場所は上の 4 つの文を、英語の場所は次の訳を、そのまま使う: "(1) concrete assembly, including selection by Config type, `name` or a value derived from them; (2) concrete type dispatch; (3) registry lookups that bypass the registry helpers; (4) rewriting registrations (an implementation module registering its own types is allowed)"、終わりの条件は "until H-0131's implementation and the matching architecture tests are merged"。
   - BLUEPRINT §2.1（変更 1 の最後の箇条）。
   - `.github/PULL_REQUEST_TEMPLATE.md`（変更 2）。
   - CHANGELOG の `[Unreleased]` の H-0130 の項に、過去形で次の文を書く。
 
     ```
-    The layer test's type-dispatch and registry checks (R6) were withdrawn. BLUEPRINT §2.1 now defines concrete assembly and concrete type dispatch; they, selection by Config type or name, and registry use outside the registry helpers are checked by review, not by tests, until H-0131's implementation and tests are merged.
+    The layer test's type-dispatch and registry checks (R6) were withdrawn. BLUEPRINT §2.1 now defines concrete assembly and concrete type dispatch. The following are checked by review, not by tests, until H-0131's implementation and the matching architecture tests are merged: (1) concrete assembly, including selection by Config type, `name` or a value derived from them; (2) concrete type dispatch; (3) registry lookups that bypass the registry helpers; (4) rewriting registrations (an implementation module registering its own types is allowed).
     ```
 
-  - 実装 PR の本文。確認項目、H-0131 の Issue へのリンク、同じ終わりの条件を書く。
+  - 実装 PR の本文。範囲の 4 つを英語の訳のとおりに書き、確認項目、H-0131 の Issue へのリンク、同じ終わりの条件を書く。
+  - `ARCHITECTURE.md:127` と `README.md:134`（変更 4）。
 
 #### 変更 4: 文書の既知の箇所
 
@@ -14304,11 +14305,11 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
 | `BLUEPRINT.md:72-76` | R6 の検査 | 変更 2 の一行 |
 | `BLUEPRINT.md:81`・`:95` | `model.py` 変更ゼロ | 変えない（主張はもともと `model.py` に限っている） |
 | `BLUEPRINT.md:38`・`:2342`・`:2357` | Facade は組み立てのみ、Facade が組み立てるもの | 変えない（Facade がロジックを持たないという別の文） |
-| `ARCHITECTURE.md:127` | 「Facade 独占」の行 | 定義は BLUEPRINT §2.1 と書く。例外 2 は registry の helper として書く。「テストは確かめない。H-0131 の実装とテストが merge されるまでレビューで守る（H-0130 改訂 2）」を足す |
+| `ARCHITECTURE.md:127` | 「Facade 独占」の行 | 定義は BLUEPRINT §2.1 と書く。例外 2 は registry の helper として書く。「テストは静的な import の辺だけを確かめる」と、変更 3 の範囲の 4 つと終わりの条件を、変更 3 の文のとおりに足す（H-0130 改訂 2） |
 | `ARCHITECTURE.md:526` | Layer 4 の説明 | 例外 2 を helper として書き、「（定義は BLUEPRINT §2.1）」を足す |
 | `ARCHITECTURE.md:581` | Facade の責務: Config を読み… | 「Config などの宣言的な入力を読み、各カテゴリの境界 IF の具象実装を選択・組み立て・接続する（定義は BLUEPRINT §2.1）」 |
 | `ARCHITECTURE.md:806` | 凡例（例外: …`metrics/registry.py`・`calibration/registry.py`） | 例外 2 を「registry の helper」と書く |
-| `README.md:134` | Only the Facade assembles concrete classes, except … | "Only the Facade (Layer 4) selects and wires concrete implementations of the Layer 1 interfaces, including selection by Config type or name, and dispatches on concrete types (defined in BLUEPRINT §2.1), except an estimator provider's own factories and checks on its own adapter type, and the metric and calibrator registry helpers that build registered types by name. Tests check only import edges; the rest is checked by review until H-0131's implementation and tests are merged (H-0130 amendment 2)." |
+| `README.md:134` | Only the Facade assembles concrete classes, except … | "Only the Facade (Layer 4) selects and wires concrete implementations of the Layer 1 interfaces, including selection by Config type or name, and dispatches on concrete types (defined in BLUEPRINT §2.1), except an estimator provider's own factories and checks on its own adapter type, and the metric and calibrator registry helpers that build registered types by name. Tests check only import edges. The following are checked by review until H-0131's implementation and the matching architecture tests are merged: (1) concrete assembly, including selection by Config type, `name` or a value derived from them; (2) concrete type dispatch; (3) registry lookups that bypass the registry helpers; (4) rewriting registrations (an implementation module registering its own types is allowed) (H-0130 amendment 2)." |
 | `docs/add-estimator-guide.md:279` | model.py は組み立てのみ | 変えない |
 | `CHANGELOG.md` `[Unreleased]` | H-0130 の項 | 変更 3 の文を足す |
 | `.github/PULL_REQUEST_TEMPLATE.md` | Checklist | 変更 2 の項目を足す |
@@ -14387,8 +14388,8 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
 - **A2-3（陰性対照）**: `negative_controls_h0130.py` の残る 4 つが、それぞれテストに捕まる。
 - **A2-4（計測器）**: `census_h0130.py`・`dispatch_census.py`・`construct_census.py`・`impl_owner_census.py`・`boundary_construct_census.py`・`registry_reach_census.py` が、リポジトリの根から走る。モジュールの数は、`_version.py` の有無で変わらない。`registry_reach_census.py` は拒否 0 で終わる。
 - **A2-5（保証の範囲）**:
-  - 変更 3 の場所に、同じ範囲と同じ終わりの条件が書いてある。
-  - 閉じた一覧のどの文書も、組み立て、Config の種類での選択、型ディスパッチ、registry の使い方がテストで確かめられているとは書いていない。
+  - 変更 3 に挙げた場所（BLUEPRINT §2.1、PR のテンプレート、CHANGELOG、実装 PR の本文、`ARCHITECTURE.md:127`、`README.md:134`）のどれにも、範囲の 4 つと終わりの条件が、変更 3 の文（日本語か英語の訳）のとおりに書いてある。
+  - 閉じた一覧のどの文書も、範囲の 4 つのどれかがテストで確かめられているとは書いていない。
 - **A2-6（文書）**: 変更 1・2 の文が BLUEPRINT §2.1 にあり、変更 4 の表のとおりに直っている。
 
 #### 確かめ方
