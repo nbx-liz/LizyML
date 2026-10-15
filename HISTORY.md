@@ -14426,8 +14426,8 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
   - `dispatch_census.out` を書き直した。モジュールの数は 137 で、それ以外の数は変わらない。
   - `census_h0130.out` は `e8b4c4e` の木の記録なので、書き直していない。
 - **A2-1 の確かめ**: `grep -rn -e dispatch_allowed -e DispatchKey -e DISPATCH_ALLOWED -e _dispatch_rules -e dispatch_problems -e R6_PASSES tests docs/audits/2026-10-h0130/probes` は、`.out` を除いて何も返さない。
-- **CI で見つけたこと（PR #367、2026-10-15）**: 受け入れ基準 6(a2) の古い pickle（`tests/test_architecture/data/calibration_result_e8b4c4e.pkl`）は、numpy 2 で書いていた。numpy 1.x は numpy 2 の pickle（`numpy._core`）を読めないので、CI の「Quality (lowest-direct deps)」（numpy 1.24.0）で落ちた。
-  - 宣言した下限（`numpy>=1.24`）の環境で、`e8b4c4e` の木から書き直した。numpy 2 は numpy 1 の pickle を読める。
+- **CI で見つけたこと（PR #367、2026-10-15）**: 受け入れ基準 6(a2) の古い pickle（`tests/test_architecture/data/calibration_result_e8b4c4e.pkl`）は、numpy 2 で書いていた。その pickle は `numpy._core` を名指し、numpy 1.24.0 にはこのモジュールが無い（numpy 1.26 にはある）ので、CI の「Quality (lowest-direct deps)」（numpy 1.24.0）で落ちた。
+  - 宣言した下限（`numpy>=1.24`）の環境で、`e8b4c4e` の木から書き直した。numpy 2.4.2 は、この numpy 1.24.0 の fixture を読める。
   - 書き直した fixture では、numpy 1.24.0 と numpy 2.4.2 の両方で 18 件が通る（`-W error::DeprecationWarning` でも通る）。
-  - `test_the_fixture_was_written_at_the_numpy_floor` を足した。fixture が `numpy.core.multiarray` を名指し、`numpy._core` を名指さないことを確かめる。前の fixture では失敗することを確かめた。
+  - `test_the_fixture_uses_numpy_1_compatible_names` を足した。fixture が `numpy.core.multiarray` を名指し、`numpy._core` を名指さないこと（numpy 1 と互換の名前）を確かめる。書いた numpy の版そのものは確かめない（Codex の確認 `h0130-impl-delta` の minor）。前の fixture では失敗することを確かめた。
   - 書き方は `make_old_calibration_pickle.py` の docstring に書いた。

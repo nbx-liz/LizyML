@@ -12,15 +12,16 @@ from the class as it was before ``BaseCalibrationResult`` existed::
 ``$LOWEST`` is a Python 3.10 environment at the declared floors, built as the
 CI lane "Quality (lowest-direct deps)" builds it (``uv venv --python 3.10``,
 then ``uv pip install --resolution lowest-direct -e
-".[tuning,explain,plots,calibration]"``). Write the fixture there: numpy 1.x
-cannot load a pickle written by numpy 2 (``numpy._core``), while numpy 2 loads
-one written by numpy 1.
+".[tuning,explain,plots,calibration]"``). Write the fixture there: numpy 1.24.0
+could not load the fixture written by numpy 2, which names ``numpy._core``
+(numpy 1.26 provides that module, 1.24 does not), while numpy 2 loads the
+fixture written by numpy 1.24.0.
 
 The fixture ``tests/test_architecture/data/calibration_result_e8b4c4e.pkl``
 was first written on 2026-10-14 under numpy 2, and the lowest-deps lane of
 PR #367 failed to load it. It was rewritten on 2026-10-15 this way, under
 numpy 1.24.0; the script printed the old tree's path.
-``test_the_fixture_was_written_at_the_numpy_floor`` pins that.
+``test_the_fixture_uses_numpy_1_compatible_names`` pins its numpy-1-compatible names.
 
 The script refuses to write when the imported lizyml already has the marker,
 so it cannot silently produce a pickle from the new code.

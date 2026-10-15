@@ -153,11 +153,12 @@ def test_the_fixture_names_the_class_where_it_still_is() -> None:
     assert ("lizyml.calibration.cross_fit", "CalibrationResult") in names
 
 
-def test_the_fixture_was_written_at_the_numpy_floor() -> None:
-    """numpy 1.x cannot load a pickle written by numpy 2 (``numpy._core``), and
-    numpy 2 loads one written by numpy 1. The fixture is therefore written at
-    the declared floor (``numpy>=1.24``) so the lowest-deps lane can load it:
-    PR #367's first fixture came from numpy 2 and failed there."""
+def test_the_fixture_uses_numpy_1_compatible_names() -> None:
+    """numpy 1.24.0, the declared floor, cannot load this pickle when it names
+    ``numpy._core`` (as numpy 2 writes it): PR #367's first fixture failed so in
+    the lowest-deps lane. The fixture must name ``numpy.core`` instead, which
+    numpy 2 still loads. This pins numpy-1-compatible names; it does not prove
+    which numpy version wrote the file."""
     modules = {module for module, _ in _globals(FIXTURE.read_bytes())}
     assert "numpy.core.multiarray" in modules
     assert not any(module.startswith("numpy._core") for module in modules)
