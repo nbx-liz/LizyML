@@ -1,8 +1,15 @@
-"""H-0130 amendment 2 measurement: who can reach the two global registries.
+"""H-0130 amendment 2 measurement: who uses the two global registries.
 
-The proposed registry reachability rule (replacing amendment 1's R6) is
-name-based, like R5. Over every ``lizyml`` module outside Layer 4 it counts
-these occurrences, and nothing else (closed list):
+The first draft of amendment 2 proposed a name-based registry rule (option O2)
+with this grammar. Its reviews found it open: an aliased import through an
+interface module's re-export (``from lizyml.metrics.registry import
+MetricRegistry as M``) is counted by none of the forms. The revised amendment
+adds no registry check. This probe stays as a record that the tree matches the
+roles §2.1's second exception describes (implementations register, the registry
+helpers look up); it is not a check and does not close that rule.
+
+Over every ``lizyml`` module outside Layer 4 it counts these occurrences, and
+nothing else:
 
 - F1 ``import lizyml.core.registries`` (any alias), or ``from lizyml.core import
   registries`` (absolute or relative);

@@ -13701,7 +13701,7 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
   - 管理者の判断で、二つの範囲を明示して閉じた。そのうえで完了基準（`docs/audits/2026-10-h0130/acceptance-criteria.md`）を書き、受け入れレビューを 1 回行った。結果は APPROVE（`ce3d4d2`、直すべき指摘 0 件）。
   - 管理者が受け入れを宣言した。
   - 改訂 1（2026-10-14）: 実装で判明した例外の主語の広げ方と、R6。下の「改訂 1」。
-  - 改訂 2（2026-10-15）: 提案中で、管理者の判断を待つ。「組み立て」の定義と、R6 を registry に届く経路の規則に絞ること。下の「改訂 2」。
+  - 改訂 2（2026-10-15）: 提案中で、管理者の判断を待つ。「組み立て」の定義と、R6 の取り下げ（代わりの検査は置かない）。下の「改訂 2」。
 - **スコープ**:
   - `BLUEPRINT.md` §2.1: IF の列、新しい「同じ層の中で許す参照」の表、依存ルールの文。
   - `tests/test_architecture/_layer_rules.py`: 許す参照の表を読み、R2 で使う。
@@ -14122,23 +14122,53 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
 
 ### 改訂 2（2026-10-15、提案。管理者の判断を待つ）
 
-- **状態**: 提案。Fresh Review と Codex Review の結果を見て、管理者が決める。決まるまで、この改訂の変更（文書、テスト、計測器）は行わない。この改訂の commit が足すのは、この節と、根拠の計測器 2 本（`registry_reach_census`、`boundary_construct_census`）と、改訂 1 の誤った文への注だけである。
-- **関連**: 次の Proposal **H-0131**（ID を予約する。Issue は管理者の判断の後に起こす）。
+- **状態**: 提案。この節は、最初の版（`6338c73`）を、管理者が選んだ組み合わせで書き直したものである。
+  - 管理者の判断（2026-10-15）:
+    - 1-B: registry の検査を置かない。例外 2 は、registry の helper の役割として書く。
+    - 2-A: Config の種類で実装を選ぶことは、組み立ての一部とする。
+    - 3-A: 確認の項目を先に固定し、確認レビューを 1 回行う。
+  - 最終の受け入れは、確認レビューの後に管理者が決める。決まるまで、この改訂の変更（文書、テスト、計測器）は行わない。
+  - この改訂の commit が足すのは次のものだけである。
+    - この節。
+    - 根拠の計測器 2 本（`registry_reach_census`、`boundary_construct_census`）。
+    - 改訂 1 の誤った文への注。
+    - 確認の項目（`docs/audits/2026-10-h0130/amend2-confirmation-checklist.md`）。
+- **関連**: 次の Proposal **H-0131**。ID を予約する。Issue は、管理者が受け入れた後に起こす。
 
 #### 見つけたこと
 
-- 改訂 1 の R6（具象の組み立てと型ディスパッチをテストで確かめる）は、Codex の検証（run `h0130-amend1-r6-verify`、`fe001bd`、CHANGES_REQUESTED）で開いたままだった。コンストラクタの呼び出し、連なった比較、別名・再公開・`getattr` を通した registry への届き方を見ていない。
-- 「組み立て」は定義されていない。文字どおりに読むと、Layer 1〜3 の同じカテゴリの具象クラスの生成 78 か所（`probes/construct_census.out`）が全部違反になる。
+- 改訂 1 の R6（具象の組み立てと型ディスパッチをテストで確かめる）は、Codex の検証（run `h0130-amend1-r6-verify`、`fe001bd`、CHANGES_REQUESTED）で開いたままだった。次のものを見ていない。
+  - コンストラクタの呼び出し。
+  - 連なった比較。
+  - 別名・再公開・`getattr` を通した registry への届き方。
+- 「組み立て」は定義されていない。
+  - Layer 1〜3 で、同じカテゴリの具象クラスを作る箇所は 78 か所ある（`probes/construct_census.out`）。
+  - そのうち `estimators/lgbm/provider.py:349` は、すでに例外 1 に入る。残りの 77 か所は、文字どおりに読むと違反になる。
 - 元の意図をたどった（H-0051〜H-0053、commit `c5c6698`）。
+  - 元の規則は「具象クラスの組み立て・型ディスパッチは Layer 4 のみが行う」で、例外は無かった（`c5c6698` の ARCHITECTURE、H-0130 以前の `BLUEPRINT.md:58`）。
   - ARCHITECTURE の「Facade の責務: Config を読み、各カテゴリの具象クラスを選択・組み立て・接続する」。
   - H-0053 は、`model.py` が `isinstance(model_cfg, LGBMConfig)` で分けて `LGBMAdapter(...)` を作っていたのを直した。目標は、アルゴリズムを足しても `model.py` を変えないこと。
   - H-0052 は、Evaluator が `CalibrationResult` を `isinstance` で判定していたのを直した。これは選ぶことではなく、カテゴリをまたぐ具象の結果型での分岐である。
   - 同じカテゴリの中の補助のクラスを作ることは、どれも対象にしていなかった。
-- 選択肢の文書（`docs/audits/2026-10-h0130/options-assembly-rule.md`、Codex の確認 `h0130-options-review-r2` で APPROVE）から、管理者は次の方向を選んだ。定義を書き、R6 は registry だけに絞り、強い形は別の Proposal にする（文書の O2 と P1）。
-- その方向を Codex と議論した（run `h0130-direction-critique`、`e400adc`、CHANGES_REQUESTED、major 2・minor 1）。指摘は次の 3 つで、全部取り入れる。
-  - 「Config に応じて」を定義の条件にすると狭すぎる。
-  - 具象型ディスパッチは組み立てと別の規則である。
-  - H-0131 は、持ち主の表ではなく役割の表で決める。
+  - H-0051 は、引かれない registry（Estimator・Splitter）を消し、名前で引く正当な使い道のある Metric・Calibrator の registry を残した。だれが registry を引いてよいかは決めていない。`core/registries.py` は Layer 0 で、§2.1 の表では全層から参照してよい。
+- **registry の検査の出どころ**:
+  1. H-0130 の Proposal レビューの round 2 が、「Layer 4 のみ」は `metrics/registry.py` が名前から指標を作るので事実と違う、と指摘した。そこで受理の文が「例外は二つだけ」とし、registry を例外にした。
+  2. 改訂 1 への Codex の指摘（run `h0130-amend1-critique`、major 2）は、その閉じた一覧にテストが無いことだった。
+  3. それに応えて、R6 に registry の部分を足した。
+  4. その後、R6 の registry の部分は別名などで抜けられることが分かり、選択肢の文書の O2 で名前に絞った。
+  - つまり、registry の検査は元の設計から来たものではない。HISTORY に、registry の誤用の記録は無い。
+- 選択肢の文書（`docs/audits/2026-10-h0130/options-assembly-rule.md`）から、管理者は次の方向を選んだ。この方向は、Codex との議論（run `h0130-direction-critique`）で詳しくした。
+  - 定義を書く。
+  - 強い形は別の Proposal にする。
+- **最初の版（`6338c73`）へのレビュー**:
+  - Codex（run `h0130-amend2-review`）は CHANGES_REQUESTED（critical 3、major 2）。
+  - 文脈を持たないレビューも CHANGES_REQUESTED（major 2）。
+  - どちらも、名前で閉じたとした registry の規則（O2）が開いていることを、実行して示した。例: `from lizyml.metrics.registry import MetricRegistry as M; M.get("rmse")`。IF のモジュールが registry を束縛しているので、R3 も通る。
+- 管理者は元の設計に立ち返って選択肢を見直し、上の組み合わせを選んだ。その組み合わせを Codex と議論した（run `h0130-combo-critique`、CHANGES_REQUESTED、major 3・minor 1）。指摘は次のとおりで、この版に全部取り入れた。
+  - 例外 2 の文が、registry の権限を広く与えすぎる。
+  - 「import の規則が Config の種類での選択を防ぐ」は誤り。`cfg.name == "lgbm"`、`type(cfg).__name__ == "LGBMConfig"`、`cfg.model_dump()["name"]` は、どれも検査を通った。
+  - レビューだけで守る期間に、終わりの条件が無い。
+  - 確認レビューの項目を固定する。
 
 #### 変更 1: 「組み立て」と「具象型ディスパッチ」を §2.1 で定義する
 
@@ -14146,180 +14176,223 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
 
 ```
 - 具象の**組み立て**と**具象型ディスパッチ**は **Layer 4（Facade）** が行う（H-0130 改訂 2）。
-  - 組み立て: 宣言的な入力（Config、公開 API の引数、保存された識別子など）から、Layer 1 の境界 IF の具象実装を選び、その instance か factory を使う側へつなぐこと。境界 IF には、Protocol を構造的に満たす拡張点（§2.2 の `EstimatorProvider`）を含む。次のものは組み立てに入らない。
-    - 同じカテゴリの中で、境界 IF を実装しない補助のクラスや値を作ること。
-    - 保存したオブジェクトを読み戻すこと（pickle は、fit の時に組み立てたものを戻すだけで、選ばない）。
+  - 組み立て: 宣言的な入力（Config、公開 API の引数、保存された識別子など）から、Layer 1 の境界 IF の具象実装を選び、その instance か factory を使う側へつなぐこと。境界 IF には、Protocol を構造的に満たす拡張点（§2.2 の `EstimatorProvider`）を含む。
+    - 「選ぶ」には、宣言的な入力の種類か値（Config の型、discriminator の `name`、それから導いた値）で実装を選び分けることを含む。Config 自身の union による検証は、実装を選ぶことではない。
+    - 次のものは組み立てに入らない: 同じカテゴリの中で、境界 IF を実装しない補助のクラスや値を作ること。保存したオブジェクトを読み戻すこと（pickle は fit の時に組み立てたものを戻すだけで、選ばない）。
   - 具象型ディスパッチ: 具象の実装型か、カテゴリをまたぐ具象の結果型が何であるかで、処理を分けること。組み立てとは別の規則である。
   - 例外は二つだけ。
     - §2.2 の provider が、自分の factory で adapter と pipeline を組み、自分の adapter の具象型を扱うこと（LightGBM の provider の `params_summary`・`build_export_params` の `LGBMAdapter` の判定）。
-    - Layer 1 の registry モジュール（`metrics/registry.py`、`calibration/registry.py`）が、登録された型を名前から選び、作ること（呼ぶ側は問わない）。
+    - 各 Layer 1 カテゴリの registry の helper（`metrics/registry.py` の `get_metric`・`get_metrics_for_task`、`calibration/registry.py` の `get_calibrator`）が、宣言的な名前から登録された境界 IF の実装を選び、instance を作って IF として返すこと。呼ぶ側は helper に名前と引数を渡し、IF だけを受け取る。
+  - `core/registries.py`（Layer 0）は、登録を蓄える共有の仕組みである。Layer 0 にあることは、ほかの層に、registry から直接引いて型を作る権限も、登録を書き換える権限も与えない。Layer 1〜3 では、実装のモジュールが自分の型を登録し、helper だけが引く。新しい registry、登録と引く役割の変更、helper を迂回して引くことには、Proposal が要る。
   - Layer 1〜3 の使う側は、境界 IF、Protocol、目印のクラス（`BaseCalibrationResult`）を通して扱う。
   - 得られるのは、新しいアルゴリズムを選ぶ場所が Facade の中にまとまり、`model.py` を変えずに済むことである。Config の union と Facade の provider の選択は変わる（§2.2 の手順 2・3）。
-  - この二つの規則は、レビューで守る。テストが確かめるのは registry に届く経路だけである（下の「表の読み方と検査」）。テストで守る形は H-0131 で決める。
+  - この規則は規範だが、テストでは確かめない。R0〜R5 が確かめるのは、静的な import の辺だけである。組み立て、Config の種類での選択、具象型ディスパッチ、registry の helper の迂回は確かめない。H-0131 の実装と、それに対応する architecture のテストが merge されるまで、Layer 1〜3 のモジュールを変える PR は、PR のテンプレートの確認項目で確かめる。
 ```
 
 **組み立ての例（閉じた表。レビューでの判断の基準）**:
 
 | 場所 | 分類 | 判断 |
 |---|---|---|
-| H-0053 以前の `core/model.py`: `isinstance(model_cfg, LGBMConfig)` で分けて `LGBMAdapter(...)` を作る | 組み立て | Config の型から境界 IF の実装を選んで作る。今は Facade の `_model_factories.py` が provider を選び、provider が作る（例外 1） |
-| H-0052 以前の `evaluation/evaluator.py`: `isinstance(..., CalibrationResult)` | 具象型ディスパッチ | カテゴリをまたぐ具象の結果型で分ける。Layer 2 なので違反だった |
-| H-0054 項目 6: `explain/shap_explainer.py` が `NativeFeaturePipeline` を作る | 組み立て | Layer 3 が境界 IF の実装を作る。H-0130 で `pipeline_factory` を必須にして閉じた |
-| H-0054 項目 2: Facade の `_model_tables.py` の `isinstance(model_cfg, LGBMConfig)` | 規則には反しない（Layer 4） | ただし「選ぶ場所がまとまる」性質を壊す。定義だけでは捕まらない（H-0131 の「名前のついた組み立ての場所」） |
+| H-0053 より前の `core/model.py`: `isinstance(model_cfg, LGBMConfig)` で分けて `LGBMAdapter(...)` を作る | 組み立て | Config の型から境界 IF の実装を選んで作る。今は Facade の `_model_factories.py` が provider を選び、provider が作る（例外 1） |
+| `core/_model_factories.py:490`（`get_provider`）: `model_cfg.name == "lgbm"` で provider を選ぶ | 組み立て（Config の値での選択） | Layer 4 |
+| 仮の例: Layer 2 のモジュールが `cfg.name == "lgbm"` で、引数で受け取った factory を選び分ける | 組み立て（Config の値での選択） | 違反。Config を import しないので、R0〜R5 は捕まえない（レビューで守る） |
+| H-0052 より前の `evaluation/evaluator.py`: `isinstance(..., CalibrationResult)` | 具象型ディスパッチ | カテゴリをまたぐ具象の結果型で分ける。Layer 2 なので違反だった |
+| H-0054 の項目 6（H-0130 より前）: `explain/shap_explainer.py` が `NativeFeaturePipeline` を作る | 組み立て | Layer 3 が境界 IF の実装を作る。H-0130 で `pipeline_factory` を必須にして閉じた |
+| H-0054 の項目 2（H-0054 より前）: Facade の `_model_tables.py` の `isinstance(model_cfg, LGBMConfig)` | 規則には反しない（Layer 4） | ただし「選ぶ場所がまとまる」性質を壊す。H-0054 で provider の `params_summary` に移した。定義だけでは捕まらない（H-0131 の「名前のついた組み立ての場所」） |
 | `estimators/lgbm/provider.py:349` `LGBMAdapter(...)`、`:365` `NativeFeaturePipeline(...)` | 組み立て | 例外 1 |
 | `estimators/lgbm/provider.py:477`・`:541` の `isinstance(..., LGBMAdapter)` | 具象型ディスパッチ | 例外 1 |
-| `metrics/registry.py:120-130`（`get_metric`）、`calibration/registry.py:44-55`（`get_calibrator`） | 組み立て | 例外 2 |
-| `evaluation/evaluator.py:126` が `get_metrics_for_task(metric_entries, ...)` を呼ぶ | 組み立て（registry の中） | 例外 2。呼ぶ側は問わない |
+| `metrics/registry.py:104-137`（`get_metric`）、`calibration/registry.py:44-52`（`get_calibrator`） | 組み立て | 例外 2（helper） |
+| `evaluation/evaluator.py:126` が `get_metrics_for_task(metric_entries, ...)` を呼ぶ | 組み立て（helper の中） | 例外 2。呼ぶ側は名前を渡し、IF を受け取る |
+| 仮の例: `evaluation/evaluator.py` で `MetricRegistry.get(name)(**params)` | 組み立て（helper の迂回） | 違反（レビューで守る）。task との整合の検査とエラーの変換（`metrics/registry.py:140-173`）を飛ばす |
+| 仮の例: Layer 2 のモジュールで `MetricRegistry.register("rmse")(別のクラス)` | 登録の書き換え | 違反（レビューで守る）。全体の挙動が変わる |
 | `core/_model_factories.py:1265` `CalibratorRegistry.get(method)` | 組み立て | Layer 4 |
 | `plots/calibration.py` の `BaseCalibrationResult` の判定 | どちらでもない | 目印は IF（`calibration/base.py`） |
-| `calibration/_optimizer.py:57` `MethodSpec(...)`、`estimators/lgbm/provider.py:72` `SmartValueRule(...)`、`calibration/beta.py:77` `LizyMLError(...)` | どちらでもない | 境界 IF を実装しない補助のクラスと値（78 か所の例） |
-| `persistence/loader.py:190-191` の `joblib.load` | どちらでもない | 読み戻すだけで、lizyml のコードが選ばない |
-| `codegen/generator.py:140` `calibration_method in ("platt", "beta")` | どちらでもない | 名前で生成する文書（requirements）を分ける。instance も factory もつながず、型でも分けない。Layer 3 が具象の calibrator の名前を知る点は H-0131 で扱う |
-| `codegen/artifact_writer.py:102` `hasattr(calibrator, "save_model_text")` | どちらでもない | 能力の有無を見る。型の同一性で分けない |
+| `calibration/_optimizer.py:57` `MethodSpec(...)`、`estimators/lgbm/provider.py:72` `SmartValueRule(...)`、`calibration/beta.py:77` `LizyMLError(...)` | どちらでもない | 境界 IF を実装しない補助のクラスと値（77 か所の例） |
+| `persistence/loader.py:190-191` の `joblib.load` | どちらでもない | 読み戻すだけで、lizyml のコードは選ばない |
+| `codegen/generator.py:140` `calibration_method in ("platt", "beta")` | どちらでもない | 名前で、生成する文書（requirements）を分ける。instance も factory もつながず、型でも分けない。Layer 3 が具象の calibrator の名前を知る点は H-0131 で扱う |
+| `codegen/artifact_writer.py:102` `hasattr(calibrator, "save_model_text")` | どちらでもない | 能力の有無を見る。型の同一性では分けない |
 
-**実測**（`e400adc` の木）:
-- `probes/boundary_construct_census.py` → `.out`: Layer 1〜3 で lizyml のクラスを作る呼び出しは 226 か所（Layer 0 141、IF のモジュール 6、同じカテゴリ 78、別のカテゴリ 1）。そのうち、五つの基底クラス（`BaseSplitter`、`BaseFeaturePipeline`、`BaseEstimatorAdapter`、`BaseMetric`、`BaseCalibratorAdapter`）を継ぐ実装を作るのは 2 か所で、どちらも例外 1（`provider.py:349`、`:365`）。
+**実測**（`e400adc` の木。`6338c73` で lizyml は変わらない）:
+- `probes/boundary_construct_census.py` → `.out`:
+  - Layer 1〜3 で lizyml のクラスを作る呼び出しは 226 か所（Layer 0 141、IF のモジュール 6、同じカテゴリ 78、別のカテゴリ 1）。
+  - そのうち、五つの基底クラス（`BaseSplitter`、`BaseFeaturePipeline`、`BaseEstimatorAdapter`、`BaseMetric`、`BaseCalibratorAdapter`）を継ぐ実装を作るのは 2 か所で、どちらも例外 1（`provider.py:349`、`:365`）。
   - registry の `cls(...)` は、引いた型を呼ぶので名前で解決できず、この数に入らない（例外 2）。
-  - 構造的な実装（`EstimatorProvider` を満たすクラス）を作る呼び出しは、継承では見えない。`git grep` で `LGBMProvider(` は Layer 1〜3 の実行されるコードに無い（`estimators/lgbm/defaults.py:20` はコメント）。
-- `probes/dispatch_census.out`（改訂 1 の計測）: Layer 1〜3 の具象の型の判定は、provider の `LGBMAdapter` の 2 か所だけ。
+  - 構造的な実装（`EstimatorProvider` を満たすクラス）を作る呼び出しは、継承では見えない。`git grep` で見ると、`LGBMProvider(` は Layer 1〜3 の実行されるコードに無い（`estimators/lgbm/defaults.py:20` はコメント）。
+- `probes/dispatch_census.out`（改訂 1 の計測）: Layer 1〜3 で具象の型を判定するのは、provider の `LGBMAdapter` の 2 か所だけ。
+- `probes/registry_reach_census.py` → `.out`: Layer 4 の外で registry の識別子が使われる 35 か所は、次のどれかである。今の木は例外 2 の役割の文に合っている。これは検査ではなく、今の木の記録である。
+  - `core/registries.py` の定義（6）。
+  - 二つの helper のモジュールの lookup（5）。
+  - 実装のモジュールの import と `.register`（24）。
+- Layer 1〜3 で `config/` の外から `lizyml.config` を import するモジュールは 0。`config/` は IF でも許す参照でもないので、R2・R3 が import を拒む（`h0130-combo-critique` が実行して確かめた）。
+- 名前の文字列での選択（`.name ==`、`"lgbm"`）は、`core/` と `config/` の外には無い（`git grep`）。
 - つまり、今の木に定義に反する箇所は無い。定義が新しく作る違反も無い。
 
-#### 変更 2: R6 を「registry に届く経路の規則」に絞る（改訂 1 の要件を取り下げる）
+#### 変更 2: R6 を全部取り下げる（型ディスパッチの部分も、registry の部分も）
 
-- **取り下げるもの**: 改訂 1 の「型の判定まで含めて、テストで確かめる」（管理者の判断 c）と、その受け入れ基準 R6-1〜R6-4。
-  - テストの一覧 `DISPATCH_ALLOWED` と、`check(..., dispatch_allowed=...)` の引数を消す。
-  - 型ディスパッチの検査を消す: `_dispatch_rules.py` の `_flatten`・`_is_type_call`・`_targets`・`dispatch_problems`。
-  - 型ディスパッチの落ちるべき例と落ちてはいけない例（`test_layer_rules.py:505-646` のうち型の判定の部分）を消す。
-  - 陰性対照 "R6 switched off"（`negative_controls_h0130.py:67-108`）を消す。
+- **取り下げるもの**:
+  - 改訂 1 で受理した要件「具象の組み立てと型ディスパッチを、型の判定まで含めてテストで確かめる」。
+  - その受け入れ基準 R6-1〜R6-4。
   - これらのテストを消すのは、スイートを通すためではない。それが確かめていた要件を、この改訂で仕様から外すからである。
-- **新しい規則**（registry に届く経路。R5 と同じく名前で閉じる）:
-  - 対象は Layer 4 以外の `lizyml` のモジュール全部。
-  - 識別子は `MetricRegistry`、`CalibratorRegistry`、`_Registry` の三つ。
-  - 数える形（閉じた一覧）は次の 5 つ。
-    - F1: モジュール `lizyml.core.registries` の import（`from lizyml.core import registries` を含む）。
-    - F2: そこからの名前の import（相対を含む）。
-    - F3: 識別子と同じ名前（`ast.Name`）。
-    - F4: 識別子と同じ属性（`ast.Attribute`）。
-    - F5: 識別子か `lizyml.core.registries` と、ちょうど等しい文字列の定数。docstring が名前に触れるだけなら等しくない。コメントは AST に無い。
-  - 許すもの（役割）:
-    - `core/registries.py`（定義する）。どの形でもよい。
-    - `metrics/registry.py`、`calibration/registry.py`（名前から引いて作る）。どの形でもよい。
-    - `metrics/` のほかのモジュール（登録だけ）: `MetricRegistry` を別名なしで import し（F2）、`MetricRegistry.register` の値としてだけ使う（F3）。`calibration/` は `CalibratorRegistry` で同じ。
-    - ほかのモジュール: 使わない。
-  - 範囲の外（宣言する。数えない）:
-    - 組み立てた文字列（`getattr(m, "Metric" + "Registry")`、`sys.modules[f"..."]`）。
-    - `vars()`・`__dict__`・`globals()`・関数の `__globals__` を回すこと、`gc`。
-    - 自分で作った registry（クラスの dict、if の連なり）。
-    - `eval`・`exec`。
-    - Layer 4。
-  - `import_module`・`__import__` で `lizyml` を読むことは、今の R5 がすでに禁じている。
-- **規則の名前**: "R6" をやめ、「registry に届く経路の規則」と呼ぶ。テストのメッセージの先頭は `R6` から `REG` に変える。この規則は一時的なもので、組み立ても型ディスパッチも確かめないと書く。
-- **ファイル**:
-  - `tests/test_architecture/_dispatch_rules.py` を `_registry_rules.py` に改名する。`_package`・`_bindings`・`_dotted`・`_Index` は残す。計測器 `construct_census.py`・`impl_owner_census.py`・`boundary_construct_census.py` がこれを import するので、import 元を直す。
-  - `_layer_rules.py:37`・`:447`・`:512` は `registry_problems` を呼び、`dispatch_allowed` を受け取らない。
-  - `census_h0130.py:103` は `dispatch_allowed={}` を渡さない。
-- **BLUEPRINT §2.1**: 「表の読み方と検査」の R6 の箇条（今の `BLUEPRINT.md:72-76`）を、次の文に置き換える。
+- **代わりの検査は置かない**（管理者の判断 1-B）。理由は次のとおり。
+  - 元の設計は、registry を引く側を縛っていなかった。自動で守るのは import の向き（R0〜R5、IF の列、許す参照の表）だけだった。
+  - 名前で閉じる registry の規則（最初の版の O2）は、IF のモジュールの再公開を通した別名で開いていた。
+  - 狭い import の規則（Layer 2・3 は `lizyml.core.registries` を import しない）も検討した。これは別名を捕まえない。そのうえ、§2.1 の表の Layer 0「全部」に例外を足すことになる。
+- **消すもの**（閉じた一覧）:
+  - `tests/test_architecture/_dispatch_rules.py` を消す。
+    - 計測器が使う `_package`・`_bindings`・`_dotted`・`_Index` は、`docs/audits/2026-10-h0130/probes/_census_index.py` に移す。
+    - `construct_census.py:13`・`impl_owner_census.py:23`・`boundary_construct_census.py` の import 元を、それに直す。
+  - `tests/test_architecture/_layer_rules.py`:
+    - `:37` の import を消す。
+    - `check` の引数 `dispatch_allowed`（`:447`）と、その docstring の文（`:449-450`）を消す。
+    - `:512` の呼び出しを消す。
+  - `tests/test_architecture/test_layer_rules.py`:
+    - `:20` の `DispatchKey` の import を消す。
+    - `:30-44` の `DISPATCH_ALLOWED` を消す。
+    - `:53`・`:267`・`:335` の `dispatch_allowed=` を消す。
+    - `:505-648` の R6 の塊を全部消す（型の判定、registry の落ちるべき例、`R6_PASSES`）。
+  - `docs/audits/2026-10-h0130/probes/negative_controls_h0130.py`:
+    - `_no_dispatch_rule`（`:66-68`）と `_registry_access_anywhere`（`:71-80`）を消す。
+    - 一覧の "R6 switched off"（`:108-114`）と "registry access anywhere"（`:115-118`）を消す。
+    - `.out` を書き直す。残る陰性対照は 4 つ。
+  - `docs/audits/2026-10-h0130/probes/census_h0130.py:103` の `dispatch_allowed={}` を消す。
+  - `BLUEPRINT.md:72-76`（R6 の検査の箇条）を、次の一行に置き換える。
 
 ```
-- registry に届く経路も、同じテストが確かめる（H-0130 改訂 2。改訂 1 の型ディスパッチの検査を置き換えた）。対象は Layer 4 以外のモジュールで、識別子 `MetricRegistry`・`CalibratorRegistry`・`_Registry` とモジュール `lizyml.core.registries` に名前で届く書き方を数える。
-  - 数える形: そのモジュールの import（`from lizyml.core import registries` を含む）、そこからの名前の import（相対を含む）、識別子と同じ名前と属性、識別子かモジュール名とちょうど等しい文字列の定数。
-  - 許すもの: `core/registries.py` と、`metrics/registry.py`・`calibration/registry.py` はどの形でもよい。`metrics/` のほかのモジュールは `MetricRegistry` を別名なしで import し、`MetricRegistry.register` の形でだけ使う。`calibration/` は `CalibratorRegistry` で同じ。ほかのモジュールは使わない。
-  - 範囲の外（数えない）: 組み立てた文字列、`vars()`・`__dict__`・`globals()`・`__globals__`、自分で作った registry、`eval` / `exec`。
-  - 具象の組み立てと具象型ディスパッチ（上の依存ルールの 3 つ目）は、このテストでは確かめない。
+- 具象の組み立てと具象型ディスパッチ（上の依存ルールの 3 つ目）は、このテストでは確かめない（H-0130 改訂 2 で、改訂 1 の検査を取り下げた）。
 ```
 
-**Firing rate（`allow`）**: Firing rate: 35/35 of registry-identifier occurrences (forms F1-F5) in lizyml modules outside Layer 4 on `e400adc` are admitted by the proposed roles: 6 in `core/registries.py`, 5 in the two registry modules, 24 import-and-`.register` uses in five implementation modules (`probes/registry_reach_census.py` → `registry_reach_census.out`; 137 modules without the generated `_version.py`).
+- **足すもの**:
+  - `tests/test_architecture/test_layer_rules.py` に、落ちるべき例を 2 つ足す。写しの木に `from lizyml.config.schema import LGBMConfig` を、`evaluation/evaluator.py` に足すと R3 で、`estimators/provider.py` に足すと R2 で失敗する。
+    - これは、下の層が Config のクラスを import できないことを固定する。Config の値での選択を防ぐものではない。
+  - `.github/PULL_REQUEST_TEMPLATE.md` の Checklist に、次の項目を足す。
+
+```
+- [ ] Layers 1-3 changed: no concrete assembly, no selection by Config type or `name`, no concrete type dispatch, and no registry use outside the registry helpers, beyond the two exceptions in BLUEPRINT §2.1 (checked by review until H-0131's implementation and tests are merged)
+```
+
+**Firing rate**: 本改訂は新しい条件を加えない。R6 の許可の一覧 `DISPATCH_ALLOWED` と registry の許可を消す。足す 2 つのテストは、落ちるべき例である。
 
 #### 変更 3: 保証の範囲を明記する
 
-- #362 の目的（17 本の例外をなくし、一覧を空にする）は、満たしたまま変わらない。R6 を消しても、17 本の import は戻らない（R1〜R5 と許す参照の表が守る）。
-- 弱くなるのは、それより広い保証である。H-0131 が終わるまで、Layer 1〜3 の組み立てと具象型ディスパッチは、レビューだけで守る。
-- これを次の場所に書く。
+- #362 の目的は、満たしたまま変わらない。目的は、17 本の例外をなくし、一覧を空にすることだった。
+  - 17 本の一部は、import の文を消して閉じた。残りは、IF の列と許す参照の表で合法にした。
+  - R6 を取り下げても、R0〜R5、二つの表、空の例外の一覧は変わらない。同じ 17 本の静的な import の辺を同じ形で戻せば、今の表と R0〜R5 が報告する。
+  - 実行時に親パッケージが読むもの、`eval` / `exec`、文字列の中の import は、もともと範囲の外である（`_layer_rules.py:22-24`）。
+- 弱くなるのは、それより広い保証である。H-0131 の実装と、それに対応する architecture のテストが merge されるまで、次のものはレビューだけで守る。
+  - 組み立て（Config の種類での選択を含む）。
+  - 具象型ディスパッチ。
+  - registry の helper の迂回。
+  - 登録の書き換え。
+- これを次の場所に、同じ終わりの条件で書く。
   - BLUEPRINT §2.1（変更 1 の最後の箇条）。
-  - CHANGELOG の `[Unreleased]` の H-0130 の項（"The layer test checks which modules can reach the metric and calibrator registries; assembly and concrete type dispatch outside the Facade are kept by review until H-0131."）。
-  - 実装 PR の本文。
-  - この改訂の受け入れ基準 A2-5。
+  - `.github/PULL_REQUEST_TEMPLATE.md`（変更 2）。
+  - CHANGELOG の `[Unreleased]` の H-0130 の項に、過去形で次の文を書く。
+
+    ```
+    The layer test's type-dispatch and registry checks (R6) were withdrawn. BLUEPRINT §2.1 now defines concrete assembly and concrete type dispatch; they, selection by Config type or name, and registry use outside the registry helpers are checked by review, not by tests, until H-0131's implementation and tests are merged.
+    ```
+
+  - 実装 PR の本文。確認項目、H-0131 の Issue へのリンク、同じ終わりの条件を書く。
 
 #### 変更 4: 文書の既知の箇所
 
-実装では、方針 6 の閉じた一覧（`BLUEPRINT.md`・`ARCHITECTURE.md`・`docs/add-estimator-guide.md` の全体と、`README.md` の `## Architecture` 節）を全部読む。分かっている箇所は次のとおり（`git grep "組み立て\|assembl\|型ディスパッチ\|dispatch"` と、開放閉鎖の主張 `変更ゼロ` の検索）。
+実装では、方針 6 の閉じた一覧を全部読む。対象は `BLUEPRINT.md`・`ARCHITECTURE.md`・`docs/add-estimator-guide.md` の全体と、`README.md` の `## Architecture` 節である。分かっている箇所は次のとおり（`git grep "組み立て\|assembl\|型ディスパッチ\|dispatch\|Registry\|registry"` と、開放閉鎖の主張 `変更ゼロ` の検索）。
 
 | 箇所 | 今 | 直し方 |
 |---|---|---|
 | `BLUEPRINT.md:58` | 組み立て・型ディスパッチは Layer 4、例外二つ | 変更 1 の文 |
-| `BLUEPRINT.md:72-76` | R6 の検査 | 変更 2 の文 |
+| `BLUEPRINT.md:72-76` | R6 の検査 | 変更 2 の一行 |
 | `BLUEPRINT.md:81`・`:95` | `model.py` 変更ゼロ | 変えない（主張はもともと `model.py` に限っている） |
 | `BLUEPRINT.md:38`・`:2342`・`:2357` | Facade は組み立てのみ、Facade が組み立てるもの | 変えない（Facade がロジックを持たないという別の文） |
-| `ARCHITECTURE.md:127` | 「Facade 独占」の行 | 定義は BLUEPRINT §2.1 と書き、「レビューで守る。テストは registry に届く経路だけ（H-0130 改訂 2）」を足す |
-| `ARCHITECTURE.md:526` | Layer 4 の説明 | 「（定義は BLUEPRINT §2.1）」を足す |
+| `ARCHITECTURE.md:127` | 「Facade 独占」の行 | 定義は BLUEPRINT §2.1 と書く。例外 2 は registry の helper として書く。「テストは確かめない。H-0131 の実装とテストが merge されるまでレビューで守る（H-0130 改訂 2）」を足す |
+| `ARCHITECTURE.md:526` | Layer 4 の説明 | 例外 2 を helper として書き、「（定義は BLUEPRINT §2.1）」を足す |
 | `ARCHITECTURE.md:581` | Facade の責務: Config を読み… | 「Config などの宣言的な入力を読み、各カテゴリの境界 IF の具象実装を選択・組み立て・接続する（定義は BLUEPRINT §2.1）」 |
-| `ARCHITECTURE.md:806` | 凡例 | 変えない |
-| `README.md:134` | Only the Facade assembles concrete classes, except … | "Only the Facade (Layer 4) selects and wires concrete implementations of the Layer 1 interfaces and dispatches on concrete types (defined in BLUEPRINT §2.1), except …; this is kept by review, and the layer test checks only which modules can reach the two registries (H-0130 amendment 2)." |
+| `ARCHITECTURE.md:806` | 凡例（例外: …`metrics/registry.py`・`calibration/registry.py`） | 例外 2 を「registry の helper」と書く |
+| `README.md:134` | Only the Facade assembles concrete classes, except … | "Only the Facade (Layer 4) selects and wires concrete implementations of the Layer 1 interfaces, including selection by Config type or name, and dispatches on concrete types (defined in BLUEPRINT §2.1), except an estimator provider's own factories and checks on its own adapter type, and the metric and calibrator registry helpers that build registered types by name. Tests check only import edges; the rest is checked by review until H-0131's implementation and tests are merged (H-0130 amendment 2)." |
 | `docs/add-estimator-guide.md:279` | model.py は組み立てのみ | 変えない |
 | `CHANGELOG.md` `[Unreleased]` | H-0130 の項 | 変更 3 の文を足す |
+| `.github/PULL_REQUEST_TEMPLATE.md` | Checklist | 変更 2 の項目を足す |
 
-#### 変更 5: 小さな直し（`h0130-amend1-r6-verify` の minor）
+#### 変更 5: 小さな直し
 
-- 計測器の import の経路: `dispatch_census.py:34`・`census_h0130.py:63` は `tests/test_architecture` だけを `sys.path` に入れ、`_layer_rules` の `from tests.test_architecture...` で落ちる。どの計測器もリポジトリの根を入れる（`construct_census.py:12`・`impl_owner_census.py:21` と同じ形）。
-- モジュールの数: `dispatch_census.out` の「modules: 138」は、生成される `lizyml/_version.py` の有無で 137 と 138 に変わる。計測器は `_version.py` を数えず、数を決まったものにする（`registry_reach_census.py` と同じ）。`.out` は直した計測器で書き直す。
-- 改訂 1 の「コード、テスト、公開 API、保存の形式は変わらない」は誤りだった。改訂 1 は R6 のテストと検査を足した（`fe001bd`）。改訂 1 の文は書き換えず、その場に訂正の注を付けた。
+- **計測器の import の経路**: `dispatch_census.py:34`・`census_h0130.py:63` は、`tests/test_architecture` だけを `sys.path` に入れているので、`_layer_rules` の `from tests.test_architecture...` で落ちる。
+  - どの計測器もリポジトリの根を入れる（`construct_census.py:12`・`impl_owner_census.py:21` と同じ形）。
+  - `_dispatch_rules.py` を消した後は、`_layer_rules` がこれを import しなくなる。それでも根は入れる。
+- **モジュールの数**: `dispatch_census.out` の「modules: 138」は、生成される `lizyml/_version.py` の有無で 137 と 138 に変わる。
+  - 計測器は `_version.py` を数えず、数を決まったものにする（`registry_reach_census.py` と同じ）。
+  - `.out` は、直した計測器で書き直す。
+- **改訂 1 の誤った文**: 「コード、テスト、公開 API、保存の形式は変わらない」は誤りだった。改訂 1 は R6 のテストと検査を足した（`fe001bd`）。改訂 1 の文は書き換えず、その場に訂正の注を付けた。
 
 #### H-0131 の範囲（予約。この改訂では決めない）
 
-強い形（選択肢の文書の O4。O5 も検討する）を、別の Proposal で決める。範囲を閉じるため、決めることを先に挙げる。
+強い形を、別の Proposal で決める。どの案を採るかは決めていない。候補は次の 3 つ。
+- 選択肢の文書の O4（import の持ち主で守る）。
+- O5（能力で分けた registry）。
+- 1-C（IF のモジュールから import してよい名前を、その IF が宣言した名前に限る）。
+
+範囲を閉じるため、決めることを先に挙げる。
 1. **役割の表**。持ち主の表ではなく、役割で書く。
    - パッケージの `__init__` は再公開だけ。
    - 実装のモジュールは登録だけ。
-   - 二つの registry は、引いて作るだけ。
+   - registry の helper は、引いて作るだけ。
    - 各 provider は、宣言した自分の adapter と pipeline だけを作り、判定する。
    - 名前のついた組み立ての場所（Facade の中の決まったモジュール）が、選んでつなぐ。
 2. **部品の範囲**。継承の実装に加えて、構造的な Protocol の実装（`EstimatorProvider`）と、カテゴリをまたぐ具象の結果型を含める。
 3. **新しい実装の検知**。実装が増えたとき、表に無いものを失敗にする。
-4. **再公開**。何段もの再公開、別名、`*` の再公開をどう解くか。
+4. **再公開**。何段もの再公開、別名、`*` の再公開、モジュールの属性からの取り出しをどう解くか。
+   - 1-C を採るなら、次のことを決め、解く道ごとに落ちるべき例を置く。
+     - IF ごとの宣言のありか。
+     - `__all__` が無いときの扱い。
+     - 古びの検査。
 5. **動的な import とリフレクションの範囲**。
-6. **内側と利用者の線**。利用者は公開された具象のクラスを作ってよい。規則は `lizyml` の中だけに当てる。
+6. **内側と利用者の線**。利用者は、公開された具象のクラスを作ってよい。規則は `lizyml` の中だけに当てる。
 7. **外の provider と optional な provider**。検査の木の外にあるものを、どう見つけて信頼するか。
-8. **O5（能力で分けた registry）**。O4 とは別の軸で、強い形には要る。O5 を採らないなら、この改訂の registry の規則を別の境界として残す。
-9. **名前で具象を知ること**。`codegen/generator.py:140` のような、型ではなく名前で具象の calibrator を知る分岐を、規則に入れるか。
+8. **registry**。
+   - O5 を採るかどうかを決める。O5 は O4 とは別の軸で、helper の迂回と登録の書き換えを構造で閉じる。
+   - 採るなら、今の `MetricRegistry`・`CalibratorRegistry` の記号の互換性と非推奨を決める（`core/registries.py` は文書にある設計の IF）。
+9. **名前と値での選択**。次のものは、import に頼る案（O4、1-C）では閉じない。
+   - `cfg.name` や discriminator の値での選択。
+   - クラス名の文字列での選択。
+   - 渡された factory の選び分け。
+   - 名前で具象を知ること（`codegen/generator.py:140` のような分岐）。
+
+   これらを、どの案とも別に、規則とテストの範囲に入れるかを決める。
+10. **終わりの条件**。H-0131 の実装と、それに対応する architecture のテストが merge された時点で、改訂 2 の「レビューだけで守る」期間が終わる。H-0131 は、どの項目をテストで守り、どれをレビューに残すかを書く。
 
 #### 互換性
 
 - 公開 API、Config、結果の型、保存の形式は変わらない。
-- 変わるのは、BLUEPRINT §2.1 の文、テストの検査（型ディスパッチをやめ、registry に届く経路に絞る）、計測器、関連する文書である。
+- 変わるものは次のとおり。
+  - BLUEPRINT §2.1 の文。
+  - テストの検査（R6 を消し、Config の import の落ちるべき例を 2 つ足す）。
+  - 計測器。
+  - PR のテンプレート。
+  - 関連する文書。
 
-#### 検討した代わり（選択肢の文書 §3・§4）
+#### 検討した代わり
 
-- **O1（R6 の書き方を増やし続ける）**: 書き方の一覧が開いている。コンストラクタまで数えると、78 か所の扱いに定義が要る。
-- **O3（R6 を消すだけ）**: registry にも自動の境界が残らない。
+- **O1（R6 の書き方を増やし続ける）**: 書き方の一覧が開いている。コンストラクタまで数えると、77 か所の扱いに定義が要る。
+- **O2（名前で閉じた registry の規則。最初の版）**: IF のモジュールの再公開を通した別名で開いていた（`h0130-amend2-review` と、文脈を持たないレビュー）。
+- **狭い import の規則（Layer 2・3 は `lizyml.core.registries` を import しない）**: 構造で閉じていて、今の木での発火は 0。ただし別名を捕まえず、§2.1 の表の Layer 0「全部」に例外を足す。管理者は採らなかった。
 - **O9（組み立ての文を消す）**: 仕様が守っている分だけを主張する。その代わり、設計の意図（H-0051〜H-0053）を手放す。
-- **P2（O4 をこの改訂で入れる）**: 一つの PR で強い形になる。ただし H-0131 の範囲の 9 項目が決まっていない。H-0130 は Proposal の 3 round、受け入れレビュー、改訂の検証 2 回をすでに経ている。
+- **P2（強い形をこの改訂で入れる）**: H-0131 の範囲の 10 項目が決まっていない。H-0130 は、Proposal の 3 round、受け入れレビュー、改訂の検証 2 回、最初の版のレビュー 2 回をすでに経ている。
 
 #### 受け入れ基準（改訂 1 の R6-1〜R6-4 を置き換える）
 
-- **A2-1**: 本当の木で、registry に届く経路の規則が通る。`registry_reach_census.py` を再実行すると、35/35 が許され、拒否は 0 になる。
-- **A2-2（落ちるべき例）**: 形と役割ごとに一つずつ、写しの木に足して失敗させる。
-  - F1: `evaluation/evaluator.py` での `import lizyml.core.registries`。
-  - F1: `tuning/` での `from lizyml.core import registries`。
-  - F2: `evaluation/` での `from lizyml.core.registries import MetricRegistry`、および相対 import の同じもの。
-  - F2: `metrics/classification.py` での別名の import（`as MR`）。
-  - F2・F3: `metrics/regression.py` での `CalibratorRegistry`（ほかの registry）の import と登録。
-  - F3: `metrics/classification.py` での `MetricRegistry.get(...)` と `x = MetricRegistry`。
-  - F3: `metrics/regression.py` での `_Registry("X")`。
-  - F4: `training/` での `lizyml.metrics.registry.MetricRegistry`。
-  - F5: `plots/` での `getattr(mod, "MetricRegistry")` と `sys.modules["lizyml.core.registries"]`。
-- **A2-3（落ちてはいけない例）**:
-  - Layer 4（`core/_model_factories.py`）の `.get`。
-  - 名前に触れる docstring（`metrics/__init__.py:3`）とコメント。
-  - `metrics/` に足した新しい実装のモジュールの、import と `.register`。
-- **A2-4（陰性対照）**: 次の三つの写しは、それぞれ A2-2 のどれかに捕まる。
-  - 規則を外した実装。
-  - F5 を数えない実装。
-  - 相対 import を解かない実装。
-- **A2-5（保証の範囲）**: 変更 3 の場所に、レビューだけで守る範囲が書いてある。閉じた一覧のどの文書も、組み立てや型ディスパッチがテストで確かめられていると書いていない。
-- **A2-6（消すもの）**: 変更 2 の「取り下げるもの」が消えている。計測器 `census_h0130.py`・`dispatch_census.py`・`construct_census.py`・`impl_owner_census.py`・`boundary_construct_census.py`・`registry_reach_census.py` が、リポジトリの根から走り、モジュールの数が `_version.py` の有無で変わらない。
-- **A2-7（文書）**: 変更 1・2 の文が BLUEPRINT §2.1 にあり、変更 4 の表のとおりに直っている。
+- **A2-1（消すもの）**: 変更 2 の「消すもの」が全部消えている。`git grep -n "dispatch_allowed\|DispatchKey\|DISPATCH_ALLOWED\|_dispatch_rules\|dispatch_problems\|R6_PASSES"` が、`tests/` と `docs/audits/2026-10-h0130/probes/` に何も返さない。
+- **A2-2（基準）**:
+  - `tests/test_architecture/` が通る。
+  - 層の検査は、本当の木で問題 0。
+  - 変更 2 の 2 つの落ちるべき例（`evaluation/` での R3、`estimators/` での R2）が失敗する。
+- **A2-3（陰性対照）**: `negative_controls_h0130.py` の残る 4 つが、それぞれテストに捕まる。
+- **A2-4（計測器）**: `census_h0130.py`・`dispatch_census.py`・`construct_census.py`・`impl_owner_census.py`・`boundary_construct_census.py`・`registry_reach_census.py` が、リポジトリの根から走る。モジュールの数は、`_version.py` の有無で変わらない。`registry_reach_census.py` は拒否 0 で終わる。
+- **A2-5（保証の範囲）**:
+  - 変更 3 の場所に、同じ範囲と同じ終わりの条件が書いてある。
+  - 閉じた一覧のどの文書も、組み立て、Config の種類での選択、型ディスパッチ、registry の使い方がテストで確かめられているとは書いていない。
+- **A2-6（文書）**: 変更 1・2 の文が BLUEPRINT §2.1 にあり、変更 4 の表のとおりに直っている。
 
 #### 確かめ方
 
-- この改訂の文に、Fresh Review（文脈を持たないエージェント、読み取り専用）と Codex Review（runner B、1 round）を行う。管理者の指示による。
-- 管理者が決めた後に実装し、実装のレビューで閉じた一覧を全部読ませる。
+- この版に、確認レビュー（Codex、runner B）を 1 回行う。その前に、文脈を持たない absolute monitor が、ループの向きを判定する。
+- 確認レビューが確かめる項目は、`docs/audits/2026-10-h0130/amend2-confirmation-checklist.md` に先に固定する。
+- 管理者が受け入れた後に実装する。実装のレビューでは、閉じた一覧を全部読ませる。
