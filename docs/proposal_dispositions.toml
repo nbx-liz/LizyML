@@ -535,6 +535,10 @@ anchors = ["unsaveable_categories", "UnsaveableCategory", "test_layer_rules.py"]
 disposition = "specified"
 anchors = ["training/results.py", "metrics/registry.py", "BaseCalibrationResult"]
 
+[proposals."H-0132"]
+disposition = "pending"
+reason = "Proposed: the MASE metric, the BaseMetric bind_train contract and the OOF aggregation change BLUEPRINT section 13.1 and the feval table with the implementation."
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 

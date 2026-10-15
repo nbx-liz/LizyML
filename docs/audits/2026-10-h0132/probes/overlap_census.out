@@ -1,0 +1,10 @@
+negative control caught: overlapping folds are detected
+blocked_group_kfold: 0/24 configurations overlap, 0 errors
+group_kfold: 0/3 configurations overlap, 0 errors
+group_time_series: 0/24 configurations overlap, 0 errors
+kfold: 0/6 configurations overlap, 0 errors
+purged_time_series: 0/48 configurations overlap, 0 errors
+stratified_group_kfold: 0/3 configurations overlap, 0 errors
+stratified_kfold: 0/6 configurations overlap, 0 errors
+time_series: 0/24 configurations overlap, 0 errors
+overlapping configurations: 0/138
