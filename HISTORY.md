@@ -14441,7 +14441,7 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
   - `lizyml/metrics/regression.py`: 新しい `MASE`。
   - `lizyml/metrics/registry.py`、`lizyml/metrics/__init__.py`: 登録、task の集合、再公開。
   - `lizyml/evaluation/evaluator.py`: 学習側の目的変数で束ね、OOF 全体を行ごとの scale でまとめる。
-  - `lizyml/estimators/lgbm/metric_bridge.py`、`adapter.py`、`provider.py`: feval の束ね方、feval の一覧、`metric_choices`。
+  - `lizyml/estimators/lgbm/metric_bridge.py`、`param_validation.py`、`adapter.py`、`provider.py`: feval の束ね方、feval の一覧、`metric_choices`。
   - `lizyml/codegen/templates.py`: 生成コードの feval。
   - 文書（下の「規則が縛る位置」の閉じた一覧）。
 - **関連**: [Issue #355](https://github.com/nbx-liz/LizyML/issues/355)。H-0065（`MetricEntry`）、H-0066（feval）、H-0071（`smape`・`wape`）、H-0099（tune の向き）、H-0105（feval に渡す予測）、H-0120（生成コードが refit を再現する）、H-0125（学習曲線の定義）。
@@ -14476,15 +14476,19 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
 | tune のスコア（`_model_tuning.py:753-754`） | OOF 全体 | 上の OOF 全体と同じ |
 | `Model.evaluate(metrics=)`（`model.py:370-410`） | — | 計算しない。fit の時の値を絞り込むだけ。新しいデータでの評価の入口は無い |
 
-- 回帰には重みも目的変数の変換も無い（`smart_params.py:182-186` が `balanced` を拒否する。回帰の目的変数の encoder は何もしない）。指標は元の尺度の `y` を見る。
+- **重み**: Model / Config の経路は、回帰に重みを与えない。`smart_params.py:178-188` が `balanced` を拒否し、利用者が重みの列を書く Config は無い。ただし公開の `LGBMAdapter.fit` は、回帰でも `sample_weight` を受け取って `lgb.Dataset` に渡す（`adapter.py:173-203`、`lizyml.estimators` が再公開する）。MASE の scale はどちらの経路でも重みを使わない（方針 1）。
+- **目的変数の変換**は回帰に無い。回帰の目的変数は NaN だけを拒否し、無限大は通る（`core/types/target_encoder.py:123-136`）。指標は元の尺度の `y` を見る。
 - 保存しているもの: y から導いた統計量は無い。`FORMAT_VERSION = 2`（`persistence/exporter.py:40`）。任意の `analysis_context.pkl` には y 全体が入りうるが、scale を後から計算する場所は無い。
-- **重なる検証の fold**（`docs/audits/2026-10-h0132/probes/overlap_census.py` → `.out`）: 出荷している 8 種の splitter を 138 通りの設定で走らせ、1 行が 2 つ以上の fold の検証に入る設定は 0 だった。陰性対照（重なる 2 fold）は捕まった。`compute_oof_valid_mask` は重なりを和集合で扱う（`core/types/oof_coverage.py:34-36`）が、それを使う分割は出荷していない（テスト `tests/test_training/test_oof_coverage.py:89` が作るだけ）。
+- **重なる検証の fold**（構造の確認。母集団の計測ではない）: `docs/audits/2026-10-h0132/probes/overlap_census.py` → `.out` は、`lizyml/splitters/` の 8 つの splitter class（Config の 8 つの `split.method` に当たる）を、合成の行の上で、手で選んだ 138 通りの引数で直接走らせた。1 行が 2 つ以上の fold の検証に入る場合は 0 で、陰性対照（重なる 2 fold）は捕まった。
+  - これは Config と `build_splitter` を通していない。Config の分岐のうち `blocked_group_kfold` の `stratify: true / auto`・`shuffle: false`・`min_train_rows` / `min_valid_rows`、`stratified_group_kfold` の `shuffle: false` を含まない。`PurgedTimeSeriesSplitter` の `embargo` は、factory が渡さない非推奨の引数である。
+  - `compute_oof_valid_mask` は重なりを和集合で扱う（`core/types/oof_coverage.py:34-36`）。重なる分割を作るのは、今はテスト `tests/test_training/test_oof_coverage.py:89` だけである。
 
 ### 対応方針（提案）
 
 1. **MASE の定義**（`metrics/regression.py`、名前 `mase`）
    - `scale = mean(|y_train - mean(y_train)|)`、`MASE = mean(|y - ŷ|) / scale`。
    - `greater_is_better = False`、`needs_proba = False`、回帰だけ（`_TASK_METRICS["regression"]` に足す）。
+   - scale は重みを使わない。`LGBMAdapter` を直接使って回帰に `sample_weight` を与えても、feval の scale は学習側の目的変数の重みなしの平均からの偏差である。
    - コンストラクタは引数を取らない。`{mase: {...}}` のような引数は、今の `get_metric` の経路で `CONFIG_INVALID` になる（`registry.py:129-136`）。利用者が scale を与える道は作らない。
 2. **指標の IF**（`metrics/base.py`）
    - 具体のプロパティ `needs_train_target`（既定 `False`）と、具体のメソッド `bind_train(y_train) -> BaseMetric` を足す。既定の `bind_train` は `LizyMLError(UNSUPPORTED_METRIC)` を送出する。
@@ -14498,6 +14502,7 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
      - tune の向きの検査（`_tuning_validation.py:29-53`）
      - config の検査（`_model_factories.py:525`）
      - `resolve_metrics`
+     - tune の探索次元の metric の選択肢の検査（`_tuning_validation.py:181-189` が、各選択肢を `resolve_user_metric([choice], task)` で作るが呼ばない）
      - `params_table`
      - `build_export_params`（`provider.py:550`）
      - `_extract_feval_metadata`
@@ -14511,23 +14516,29 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
 | IF の fold k | fold k の outer-train の行（評価する行と同じ） |
 | feval（early stopping と学習曲線） | booster が学習する行。inner valid があれば inner-train の行で、評価する inner-valid の行は入らない。inner valid が無ければ eval set が無く、feval は走らない |
 
-   - 一つの fit の中では scale は正の定数なので、feval の MASE と MAE は同じ反復を選ぶ。OOF（outer-train の scale）と学習曲線（inner-train の scale）とで値が違うのは、表示の違いである。これを BLUEPRINT §13.1 の「学習曲線と `FitResult.metrics` で定義が違う名前」の文に書く（今は `huber` と `mape`）。
+   - 一つの fit の中では scale は正の定数なので、feval の MASE と MAE は同じ反復を選ぶ。OOF（outer-train の scale）と学習曲線（inner-train の scale）とで値が違うのは、表示の違いである。
+   - H-0125 の「学習曲線は LightGBM の名前と定義で計算し、`FitResult.metrics` と定義が違う名前は `huber` と `mape`」の文（BLUEPRINT §7.1・§13.1、`docs/config-reference.md:287`、`docs/api.md:450`・`:477`）は native の指標についての文で、`tests/test_docs/test_h0125_docs.py:93-107` と `tests/test_plots/test_learning_curve_definitions.py:121-128` が固定している。これは変えない。
+   - MASE には、§13.1 の `mase` の項に別の文を書く: 「式は同じで、学習曲線は booster が学習する行（inner-train）の scale、`FitResult.metrics` は fold の outer-train の scale を使うので、値が違いうる」。この文を新しい H-0132 の文書のテストで固定する。
    - time・group の分割でも、scale は fold の outer-train 全体の平均からの偏差で一つにする（系列ごとや季節の scale ではない）。
 4. **OOF 全体の値と tune のスコア**（`evaluator.py`）
    - `needs_train_target` の指標の OOF 全体は `(1/n) Σ_k Σ_{i∈V_k} |e_i| / s_k` とする。`V_k` は fold k の検証の行、`s_k` はその outer-train の scale、`n = Σ_k |V_k|` は覆われた行の数。
    - これは、fold の行数で重みをつけた fold ごとの MASE の平均と等しい。覆われない行（時系列の最初の期間など）は入らない。
    - 計算の前に、覆われた行が全て、ちょうど一つの fold の検証に入ることを確かめる。2 つ以上の fold の検証に入る行があれば、`LizyMLError(UNSUPPORTED_METRIC)` で拒否する。context は `metric`・重なる行の数・最初の行の位置。黙って片方の fold を選ぶことはしない。
+   - 利用者から見える振る舞い:
+     - `fit` は、この `UNSUPPORTED_METRIC` をそのまま送出する。
+     - `tune` は、各試行の中で Evaluator がこれを送出し、試行は FAIL になる（`tuning/tuner.py:574-581`）。分割は全ての試行で同じなので全ての試行が FAIL になり、`Model.tune` は `TUNING_FAILED` を送出する。その `first_error` が `UNSUPPORTED_METRIC` である（`core/_model_tuning.py:797-841`、H-0128 の仕組み）。
+     - study の前に拒否する経路は足さない（新しい分岐を作らない）。
    - `oof_per_fold`・`if_per_fold`・`if_mean`（fold ごとの値の重みなしの平均）の意味は変えない。
    - tune のスコアは今のとおり `metrics["raw"]["oof"][name]` を読む（`_model_tuning.py:753-754`）。tune の同一性（`_tuning_identity.py:249-253`）は指標の名前・引数・向きを既に持つので、足すものは無い。
    - 学習側の目的変数を要らない指標の計算は、今のまま変えない。
 5. **feval の束ね方**（`metric_bridge.py`、`adapter.py`）
-   - `resolve_metrics(..., y_train=None)` と `resolve_user_metric(..., y_train=None)` に、キーワードの引数 `y_train` を足す。`y_train` が与えられたとき、`needs_train_target` の指標を `bind_train(y_train)` してから feval を作る。
+   - `resolve_metrics(..., y_train=None)`（`metric_bridge.py`）と `resolve_user_metric(..., y_train=None)`（`param_validation.py:83-95`）に、キーワードの引数 `y_train` を足す。`resolve_user_metric` は `y_train` を `resolve_metrics` にそのまま渡す。`y_train` が与えられたとき、`needs_train_target` の指標を `bind_train(y_train)` してから feval を作る。
    - `LGBMAdapter.fit` は、受け取った `y_train`（booster が学習する行）を `_build_params(y_train=...)` に渡す。
    - `y_train` を与えない呼び出し（メタデータの経路）は、束ねていない feval を作るが、それを呼ばない。
    - feval が `dataset.get_label()` から scale を作る道は作らない（評価する行の目的変数になるため）。
 6. **生成コード**（`codegen/templates.py`）
-   - `_feval_mase(y_true, y_pred, scale)` と、学習側の scale を計算する `_train_scale_mase(y_train)` を足す。scale が 0 なら `ValueError`（生成の `wape` と同じ扱い）。
-   - `build_feval_from_config(y_train)` は引数で学習側の目的変数を受け取り、`mase` のときだけ scale を計算して渡す。呼ぶ側は、inner valid があれば `y.iloc[tr]`、無ければ `y` を渡す（`templates.py:407-431`）。
+   - `_feval_mase(y_true, y_pred, scale)` と、学習側の scale を計算する `_train_scale_mase(y_train)` を足す。scale が 0 か有限でないなら `ValueError`（ライブラリの `bind_train` と同じ条件。生成の `wape` と同じく `ValueError`）。
+   - `build_feval_from_config(y_train)` は引数で学習側の目的変数を受け取り、`mase` のときだけ scale を計算して渡す。呼ぶ側は、生成 `train.py` の 1 か所だけで、inner valid があれば `y.iloc[tr]`、無ければ `y` を渡す（`templates.py:407-431`）。この関数を直接呼ぶテスト（`tests/test_codegen/test_feval_codegen.py:575`・`:588`、`tests/test_estimators/test_feval_probabilities.py:206`）も新しい形に直す。
    - `config.json` の `feval_metrics` の形は変えない。
    - 知らない名前を警告で飛ばす方針（`templates.py:552-555`）は変えない。`_FEVAL_METRICS` の全ての名前が生成の `_FEVAL_REGISTRY` に在ることを、`_FEVAL_METRICS` から導くテストで確かめる。今のテスト `tests/test_codegen/test_feval_codegen.py:416-433` は手書きの一覧である。
 7. **保存は変えない**
@@ -14541,21 +14552,32 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
 
 | 場所 | 足すもの |
 |---|---|
+| `lizyml/metrics/base.py:11-63` | `needs_train_target`・`bind_train` と docstring |
 | `lizyml/metrics/regression.py`（`:1` の docstring、新しいクラス） | `MASE` |
 | `lizyml/metrics/__init__.py:24`・`:36` | import と `__all__` |
 | `lizyml/metrics/registry.py:27` | `_TASK_METRICS["regression"]` |
 | `lizyml/estimators/lgbm/metric_bridge.py:125` | `_FEVAL_METRICS["regression"]` |
+| `lizyml/estimators/lgbm/metric_bridge.py`（`resolve_metrics`）、`param_validation.py:83-95`（`resolve_user_metric`）、`adapter.py:192-194`（`_build_params`） | 方針 5 の `y_train` |
+| `lizyml/evaluation/evaluator.py:67-77`・`:126-183` | 方針 3・4 の束ね方と OOF 全体 |
 | `lizyml/estimators/lgbm/provider.py:181` | `_LGBM_FEVAL_METRIC_CHOICES["regression"]`（`metric_choices` の feval の側） |
 | `lizyml/codegen/templates.py:526-536` | `_FEVAL_REGISTRY` と、方針 6 の scale |
 | `BLUEPRINT.md:550` | feval の指標の列 |
 | `BLUEPRINT.md:1519-1533`（§13.1） | 指標の IF（`needs_train_target`・`bind_train`）、`mase` の定義と拒否、`_TASK_METRICS` |
 | `BLUEPRINT.md:1700-1715`（feval の表と文） | `mase` の行と、scale を取る行（方針 3）、学習曲線との違い |
 | `ARCHITECTURE.md:139`・`:335-338` | 指標の IF の契約 |
+| `ARCHITECTURE.md:37` | 具象の指標の数（今 `14 concrete`。実装で数え直す） |
+| `BLUEPRINT.md:569`（§7.1）、`docs/config-reference.md:287`、`docs/api.md:450`・`:477` | H-0125 の native の定義の文。変えない（方針 3） |
+| `BLUEPRINT.md:1586`（`plot_learning_curve`） | 変えない（feval の指標も学習曲線に出る。名前は `mase`） |
+| `docs/add-estimator-guide.md:160-174`（`_FEVAL_METRICS` の例。今 `smape`・`wape` が無く古い）、`:203-210`（`build_feval_from_config` の説明） | 今のコードに合わせて直す（`mase` を含め、`build_feval_from_config(y_train)` の形） |
 | `docs/config-reference.md:318`・`:617`・`:632`・`:659` | feval の表、task の表、指標の表、式 |
 | `docs/proposal_dispositions.toml` | H-0132 の処分 |
 | テスト `tests/test_estimators/test_feval_probabilities.py`（`_FEVAL_METRICS` の全てを束ねずに作る、`:46-56`・`:82-137`） | `needs_train_target` の指標は束ねて作る |
 
-テストでこの名前を列挙するもの（`git grep -l -w wape -- tests`）: `test_feval_codegen.py`、`test_retrain_reproduction.py`、`test_lgbm_feval_behavioral.py`、`test_lgbm_metric_bridge.py`、`test_provider_choice_apis.py`、`test_regression_metrics.py`。実装で、それぞれに `mase` が要るかを確かめる。
+この表は二つの検索で閉じた（round 1 の指摘で、名前だけの検索を識別子の検索で補った）:
+- 名前: `git grep -n -i -w wape`（上の行）。
+- 識別子: `git grep -n -E "_FEVAL_METRICS|_TASK_METRICS|_LGBM_FEVAL_METRIC_CHOICES|_FEVAL_REGISTRY|build_feval_from_config|resolve_user_metric|resolve_metrics\(|_build_feval\(|needs_simplex|get_metrics_for_task|_compute_metrics"` を `lizyml`・`tests`・`BLUEPRINT.md`・`ARCHITECTURE.md`・`docs/*.md`・`README.md` で。当たったファイルのうち、上の表に無いものは全て、指標の一覧や形を変えずに読むだけの呼び出し（`classification.py`、`core/model.py`、`_model_factories.py`、`_tuning_validation.py`）か、既存のテストである。
+
+テストでこの名前か識別子を列挙するもの: `test_feval_codegen.py`、`test_retrain_reproduction.py`、`test_lgbm_feval_behavioral.py`、`test_lgbm_metric_bridge.py`、`test_provider_choice_apis.py`、`test_regression_metrics.py`、`test_feval_probabilities.py`、`test_metric_choices_registry_coverage.py`、`test_h0125_native_metric_params.py`、`test_h0125_docs.py`、`test_learning_curve_definitions.py`、`test_evaluation.py`、`test_metric_entry.py`、`test_metric_entry_integration.py`、`test_metrics.py`、`test_direction_reconciliation.py`、`test_error_code_raising.py`。実装で、それぞれに `mase` が要るかを確かめる。
 
 ### 互換性
 
@@ -14580,7 +14602,7 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
 
 ### Firing rate
 
-- **重なる検証の fold での拒否**（`allow`）: Firing rate: 0/138 of shipped splitter configurations put a row in two validation folds (`docs/audits/2026-10-h0132/probes/overlap_census.py` → `overlap_census.out`, 8 splitters over a parameter grid; the overlapping negative control is detected).
+- **重なる検証の fold での拒否**（`allow`）: Firing rate: unmeasurable before implementation (the repository has no corpus of user split configurations, and the structural census `overlap_census.py` runs the 8 splitter classes on synthetic rows over a hand-picked grid of 138 argument sets without Config or `build_splitter`, finding 0 overlapping cases; measurable when the implementation's evaluator check runs over every fit of the full test suite and the tutorial notebooks, counting refusals, which the implementation record will report).
 - **scale が 0 か有限でないときの拒否**（`allow`）: Firing rate: unmeasurable before implementation (it is the mathematical undefinedness of MASE on a constant training target, like `mape` on `y = 0`; the repository holds no population of user regression datasets; measurable when the implementation's tests run the regression datasets of `tests/` and `notebooks/` through `bind_train` and count refusals).
 - **束ねていない呼び出しの拒否**: 本番の経路では呼ぶ前に必ず束ねる（方針 2・4・5）。束ねずに呼ぶのは利用者が `MASE()` を直接呼んだときだけで、これは条件で作業を選ぶものではなく、誤った使い方への名前のついたエラーである。
 
@@ -14593,22 +14615,25 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
    - 束ねずに呼ぶと `UNSUPPORTED_METRIC` を送出する。
    - `{mase: {x: 1}}` は `CONFIG_INVALID` になる。
    - `bind_train` は元の instance を変えない。
-2. **Evaluator**: fold ごとに学習側と評価側の scale がはっきり違う合成の `FitResult` で確かめる。
+2. **Evaluator**: fold ごとに学習側と評価側の scale がはっきり違い、**fold の検証の行の数が違い、fold ごとの MASE の値も違う**合成の `FitResult` で確かめる（行数が同じだと重みなしの平均と区別できない）。
    - `oof_per_fold[k]` が fold k の outer-train の scale での値に等しい。
    - `oof` が方針 4 の式、すなわち行数で重みをつけた fold ごとの平均に等しい。
    - `if_per_fold[k]` が outer-train の scale での値に等しい。
    - 一部しか覆われない分割（時系列）で、分母が覆われた行の数になる。
    - 重なる fold で `UNSUPPORTED_METRIC` を送出する（落ちるべき例）。
+   - ある fold の outer-train の目的変数が全て同じ値なら、`UNSUPPORTED_METRIC` を送出する。
    - ほかの指標の値は変わらない（既存のテスト）。
 3. **feval**:
    - inner valid のある fit で、学習曲線の `mase` が `MAE(inner-valid) / scale(inner-train)` に等しい。`scale(inner-valid)` や `scale(outer-train)` とは違う値になる例で確かめる。
    - inner-train の目的変数が全て同じ値なら拒否する。
-   - メタデータの経路（`params_table`、`build_export_params`、tune の向きの検査、config の検査）が、束ねていない `mase` で失敗しない。
+   - メタデータの経路（`params_table`、`build_export_params`、tune の向きの検査、tune の探索次元の metric の選択肢の検査、config の検査）が、束ねていない `mase` で失敗しない。
 4. **tune**:
    - `evaluation.metrics: [mase]` で tune が走り、各試行のスコアが Evaluator の OOF 全体の値に等しい。
    - 向きは最小化で、`direction: maximize` は今の検査で拒否される。
+   - 重なる検証の fold を作る splitter（テストで `build_splitter` を差し替える）では、`fit` が `UNSUPPORTED_METRIC`、`tune` が `TUNING_FAILED`（`first_error` が `UNSUPPORTED_METRIC`）を送出する。
 5. **生成コード**:
-   - 同じデータで、生成コードの feval の値がライブラリの feval の値に等しい。
+   - 同じデータで、生成コードの feval の値がライブラリの feval の値に等しい。学習側の目的変数は `dataset.get_label()` と違う値にする。
+   - 生成の `_train_scale_mase` は、学習側の目的変数が全て同じ値のときと、無限大を含むときに `ValueError` を送出する。
    - 生成の `build_feval_from_config` に渡る学習側の目的変数が、inner valid のとき `y.iloc[tr]` である。
    - `_FEVAL_METRICS` から導く到達のテストが通り、手書きの一覧からは外れない。
 6. **一覧**: 「規則が縛る位置」の全ての場所に `mase` がある。既存の一覧のテスト（`test_metric_choices_registry_coverage.py`、`test_feval_probabilities.py`、`test_h0125_docs.py`）が通る。
@@ -14618,6 +14643,18 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
    - (c) feval の scale を `dataset.get_label()` から取る。
    - (d) 重なる fold を黙って通す。
    - (e) 生成コードで scale を全行から取る。
-8. **保存**: `FORMAT_VERSION` は 2 のまま。既存のアーティファクトのテストが通る。
-9. **文書**: 「規則が縛る位置」の文書の箇所が方針のとおりになっている。
+8. **保存**: `FORMAT_VERSION` は 2 のまま。既存のアーティファクトのテストが通る。`mase` を含む Model を export して load し、`evaluate(metrics=["mase"])` が fit の時の値をそのまま返す（計算し直さない）。
+9. **文書**: 「規則が縛る位置」の文書の箇所が方針のとおりになっている。方針 3 の MASE の文を、新しい H-0132 の文書のテストが固定する。H-0125 の文書のテストは変えずに通る。
    - 閉じた一覧（`BLUEPRINT.md` の §13.1・§14 の Metric Bridge・feval の表、`ARCHITECTURE.md` の指標の IF、`docs/config-reference.md` の指標の節）を、実装レビューで全部読ませる。
+
+### 改訂の記録
+
+- **round 1**（run `h0132-proposal-review`、`bc4c00a`、CHANGES_REQUESTED: critical 3、major 5）。全て受け入れて直した:
+  - 方針 3 が H-0125 の文書のテストと食い違う → MASE の文を別にした。
+  - 重なりの計測を出荷の設定と書いていた → 構造の確認と書き直し、Firing rate を測れない形にした。
+  - 回帰に重みが無いという誤り → Model の経路と直接の adapter を分けた。
+  - `resolve_user_metric` の場所の誤りと、メタデータの経路の漏れ（探索次元の選択肢）。
+  - 一覧の漏れ → 識別子の検索で補った。
+  - 生成コードの有限でない scale。
+  - tune での重なりの振る舞い → 試行の FAIL から `TUNING_FAILED` と明記した（新しい分岐は作らない）。
+  - 受け入れ基準の強さ（fold の行数、outer-train が一定の値、保存の後の値）。
