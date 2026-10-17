@@ -1,4 +1,4 @@
-"""Regression metrics: RMSE, MAE, R2, RMSLE, MAPE, HuberLoss, SMAPE, WAPE."""
+"""Regression metrics: RMSE, MAE, R2, RMSLE, MAPE, HuberLoss, SMAPE, WAPE, MASE."""
 
 from __future__ import annotations
 
@@ -276,3 +276,79 @@ class WAPE(BaseMetric):
                 context={"metric": self.name},
             )
         return float(np.sum(np.abs(y_true - y_pred)) / denom * 100.0)
+
+
+@MetricRegistry.register("mase")
+class MASE(BaseMetric):
+    """Mean Absolute Scaled Error (Hyndman & Koehler 2006; H-0132).
+
+    Formula::
+
+        MASE = mean(|y_true - y_pred|) / scale
+        scale = mean(|y_train - mean(y_train)|)
+
+    ``scale`` is the MAE of the training-mean forecast on the **training-side
+    targets**, so MASE is defined when ``y = 0`` and is free of the target's
+    unit. ``MASE < 1`` means better than predicting the training mean. The
+    time-series naive and seasonal scales and per-series scales are out of
+    scope (H-0132).
+
+    The metric needs the training-side targets (:attr:`needs_train_target`):
+    callers bind it with :meth:`bind_train` before calling it. An unbound
+    instance answers its name and properties for configuration checks but
+    refuses to compute, so the scale never falls back to the scored rows.
+    """
+
+    def __init__(self) -> None:
+        self._scale: float | None = None
+
+    @property
+    def name(self) -> str:
+        return "mase"
+
+    @property
+    def needs_proba(self) -> bool:
+        return False
+
+    @property
+    def greater_is_better(self) -> bool:
+        return False
+
+    @property
+    def needs_train_target(self) -> bool:
+        return True
+
+    def bind_train(self, y_train: npt.NDArray[Any]) -> MASE:
+        """Return a new MASE whose scale comes from *y_train*.
+
+        Raises:
+            LizyMLError: ``UNSUPPORTED_METRIC`` when the scale is zero (every
+                training target equal) or not finite.
+        """
+        y = np.asarray(y_train, dtype=np.float64)
+        scale = float(np.mean(np.abs(y - np.mean(y)))) if len(y) else float("nan")
+        if not np.isfinite(scale) or scale == 0.0:
+            raise LizyMLError(
+                code=ErrorCode.UNSUPPORTED_METRIC,
+                user_message=(
+                    "MASE is undefined when the training targets' mean absolute "
+                    f"deviation is zero or not finite (got {scale})."
+                ),
+                context={"metric": self.name, "scale": scale, "n_train": int(len(y))},
+            )
+        bound = MASE()
+        bound._scale = scale
+        return bound
+
+    def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
+        if self._scale is None:
+            raise LizyMLError(
+                code=ErrorCode.UNSUPPORTED_METRIC,
+                user_message=(
+                    "MASE needs the training targets: bind it with "
+                    "bind_train(y_train) before calling it."
+                ),
+                context={"metric": self.name},
+            )
+        _validate_shapes(y_true, y_pred, self.name)
+        return float(np.mean(np.abs(y_true - y_pred)) / self._scale)

@@ -34,7 +34,7 @@ flowchart TB
         SPLIT["splitters/<br/>BaseSplitter<br/>+ 8 concrete"]
         FEAT["features/<br/>BaseFeaturePipeline<br/>NativeFeaturePipeline"]
         EST["estimators/<br/>BaseEstimatorAdapter<br/>LGBMAdapter<br/>smart params"]
-        METRIC["metrics/<br/>BaseMetric<br/>+ registry<br/>+ 14 concrete"]
+        METRIC["metrics/<br/>BaseMetric<br/>+ registry<br/>+ 17 concrete"]
         CAL["calibration/<br/>BaseCalibratorAdapter<br/>cross_fit_calibrate<br/>+ 3 concrete"]
     end
 
@@ -136,7 +136,7 @@ flowchart TB
 | Splitters → Training | `BaseSplitter.split(n, y, groups) → Iterator[(train_idx, valid_idx)]` |
 | Features → Training | `BaseFeaturePipeline.fit(X, y)`, `.transform(X) → DataFrame` |
 | Estimators → Training | `BaseEstimatorAdapter.fit()`, `.predict()`, `.predict_proba() → ndarray` |
-| Metrics → Evaluation | `BaseMetric.__call__(y_true, y_pred) → float` |
+| Metrics → Evaluation | `BaseMetric.__call__(y_true, y_pred) → float`（`needs_train_target` の指標は先に `bind_train(y_train)` で学習側の目的変数に束ねる。H-0132） |
 | Calibration → Facade | `BaseCalibratorAdapter.fit(scores, y)`, `.predict(scores) → ndarray` |
 | Training → Facade | `FitResult`, `RefitResult` |
 | Evaluation → Facade | `dict` (structured metrics) |
@@ -334,7 +334,8 @@ classDiagram
     %% === metrics/ ===
     class BaseMetric:::ifClass {
         <<abstract>>
-        +name +needs_proba +needs_simplex
+        +name +needs_proba +needs_simplex +needs_train_target
+        +bind_train(y_train) BaseMetric
         +__call__(y_true, y_pred) float
     }
     class MetricRegistry:::ifClass {

@@ -87,7 +87,11 @@ def test_feval_value_is_the_metric_of_lightgbm_predictions(
     rule itself fails (an output that is not a probability fed to a probability
     metric), the same failure: the learning curve must not report a number
     ``FitResult.metrics`` could not compute (H-0105 decision 1)."""
-    _compare_feval_with_the_evaluator(task, objective, extra, name)
+    pairs = _compare_feval_with_the_evaluator(task, objective, extra, name)
+    if task == "regression":
+        # Regression predictions are plain values: no regression feval may
+        # pass on the failure branch (it did for an unbound MASE).
+        assert not np.isnan(np.array(pairs)).any(), "the failure branch ran"
 
 
 @pytest.mark.parametrize(("task", "objective", "extra", "name"), NON_PROBABILITY_CELLS)
@@ -103,7 +107,13 @@ def test_a_non_probability_output_fails_the_feval_like_the_evaluator(
 def _compare_feval_with_the_evaluator(
     task: str, objective: str, extra: dict[str, Any], name: str
 ) -> list[tuple[float, float]]:
+    X, y = _data(task)
     metric = get_metric(name)
+    if metric.needs_train_target:
+        # H-0132: bind to the booster's training targets, as LGBMAdapter.fit
+        # does. Unbound, the feval and the evaluator would fail alike and the
+        # comparison would pass on its failure branch without a value.
+        metric = metric.bind_train(y)
     feval = _build_feval(metric, task, num_class=extra.get("num_class"))  # type: ignore[arg-type]
     pairs: list[tuple[float, float]] = []
 
@@ -123,7 +133,6 @@ def _compare_feval_with_the_evaluator(
         pairs.append((out[1], expected))
         return out
 
-    X, y = _data(task)
     ds = lgb.Dataset(X, y)
     lgb.train(
         {"objective": objective, "verbosity": -1, "metric": "None", **extra},

@@ -69,12 +69,48 @@ def _compute_metrics(
     y_true: npt.NDArray[Any],
     y_pred: npt.NDArray[np.float64],
     task: TaskType,
+    y_train: npt.NDArray[Any] | None = None,
 ) -> dict[str, float]:
+    """Compute *metrics*; a metric that needs training targets is first bound
+    to *y_train*, the targets of the rows the scored model was fitted on
+    (H-0132). The caller never passes the scored rows as *y_train*."""
     result: dict[str, float] = {}
     for m in metrics:
         pred = _pred_for_metric(m, y_pred, task)
-        result[m.name] = m(y_true, pred)
+        metric = m.bind_train(np.asarray(y_train)) if m.needs_train_target else m
+        result[m.name] = metric(y_true, pred)
     return result
+
+
+def _refuse_overlapping_folds(
+    metrics: list[BaseMetric],
+    outer: list[tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]],
+    n_rows: int,
+) -> None:
+    """A metric that needs training targets scales each OOF row by the fold
+    that validated it, so each covered row must belong to exactly one
+    validation fold (H-0132 policy 4). Refuse instead of picking a fold."""
+    needing = [m.name for m in metrics if m.needs_train_target]
+    if not needing:
+        return
+    counts = np.zeros(n_rows, dtype=np.intp)
+    for _, valid_idx in outer:
+        np.add.at(counts, valid_idx, 1)
+    overlapping = np.flatnonzero(counts > 1)
+    if len(overlapping):
+        raise LizyMLError(
+            code=ErrorCode.UNSUPPORTED_METRIC,
+            user_message=(
+                f"Metric '{needing[0]}' scales each out-of-fold row by the fold "
+                f"that validated it, but {len(overlapping)} row(s) are in more "
+                f"than one validation fold (first: row {int(overlapping[0])})."
+            ),
+            context={
+                "metric": needing[0],
+                "overlapping_rows": int(len(overlapping)),
+                "first_row": int(overlapping[0]),
+            },
+        )
 
 
 class Evaluator:
@@ -157,24 +193,53 @@ class Evaluator:
 
         oof_coverage = float(oof_mask.sum()) / len(y_arr) if len(y_arr) > 0 else 0.0
 
-        # --- OOF metrics (covered rows only) ----------------------------------
-        oof_scores = _compute_metrics(metrics, y_arr[oof_mask], covered_pred, self.task)
+        _refuse_overlapping_folds(metrics, fit_result.splits.outer, len(y_arr))
 
         # --- Per-fold OOF metrics (valid_idx) --------------------------------
+        # A metric that needs training targets is bound to the fold's
+        # outer-train rows (H-0132), never to the validated rows.
         oof_per_fold: list[dict[str, float]] = []
-        for _, valid_idx in fit_result.splits.outer:
+        for train_idx, valid_idx in fit_result.splits.outer:
             y_valid = y_arr[valid_idx]
             oof_valid_pred = fit_result.oof_pred[valid_idx]
             oof_per_fold.append(
-                _compute_metrics(metrics, y_valid, oof_valid_pred, self.task)
+                _compute_metrics(
+                    metrics,
+                    y_valid,
+                    oof_valid_pred,
+                    self.task,
+                    y_train=y_arr[train_idx],
+                )
             )
+
+        # --- OOF metrics (covered rows only) ----------------------------------
+        # Metrics that need training targets: each covered row is scaled by the
+        # fold that validated it, i.e. the fold-size-weighted mean of the
+        # per-fold values over the covered rows (H-0132 policy 4).
+        pooled = [m for m in metrics if not m.needs_train_target]
+        pooled_scores = _compute_metrics(
+            pooled, y_arr[oof_mask], covered_pred, self.task
+        )
+        sizes = np.array([len(v) for _, v in fit_result.splits.outer], dtype=float)
+        oof_scores: dict[str, float] = {}
+        for m in metrics:
+            if m.needs_train_target:
+                values = np.array([fold[m.name] for fold in oof_per_fold])
+                filled = sizes > 0
+                oof_scores[m.name] = float(
+                    np.sum(values[filled] * sizes[filled]) / np.sum(sizes[filled])
+                )
+            else:
+                oof_scores[m.name] = pooled_scores[m.name]
 
         # --- Per-fold IF metrics ---------------------------------------------
         if_per_fold: list[dict[str, float]] = []
         for k, (train_idx, _) in enumerate(fit_result.splits.outer):
             y_train = y_arr[train_idx]
             fold_pred = fit_result.if_pred_per_fold[k]
-            fold_scores = _compute_metrics(metrics, y_train, fold_pred, self.task)
+            fold_scores = _compute_metrics(
+                metrics, y_train, fold_pred, self.task, y_train=y_train
+            )
             if_per_fold.append(fold_scores)
 
         # --- IF mean ---------------------------------------------------------

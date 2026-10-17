@@ -428,7 +428,9 @@ def train_lgbm(
             X, label=y, weight=weight, categorical_feature=cat, free_raw_data=False,
         )
 
-    fevals = build_feval_from_config()
+    # H-0132: the booster trains on the inner-train rows when there is an
+    # inner valid set, so a training-scaled feval (MASE) is bound to those.
+    fevals = build_feval_from_config(y.iloc[tr] if iv is not None else y)
     booster = lgb.train(
         CFG["lgbm_params"], train_set,
         num_boost_round=CFG["num_boost_round"],
@@ -522,6 +524,23 @@ def _feval_wape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
         raise ValueError("WAPE is undefined when sum(|y_true|) is zero.")
     return float(np.sum(np.abs(y_true - y_pred)) / denom * 100.0)
 
+def _train_scale_mase(y_train: np.ndarray) -> float:
+    # H-0132: the mean absolute deviation of the training-side targets.
+    y = np.asarray(y_train, dtype=np.float64)
+    scale = float(np.mean(np.abs(y - np.mean(y)))) if len(y) else float("nan")
+    if not np.isfinite(scale) or scale == 0.0:
+        raise ValueError(
+            "MASE is undefined when the training targets' mean absolute "
+            f"deviation is zero or not finite (got {scale})."
+        )
+    return scale
+
+def _feval_mase(y_true: np.ndarray, y_pred: np.ndarray, scale: float) -> float:
+    return float(np.mean(np.abs(y_true - y_pred)) / scale)
+
+
+#: Metrics whose scale comes from the training-side targets (H-0132).
+_TRAIN_SCALE: dict = {"mase": _train_scale_mase}
 
 _FEVAL_REGISTRY: dict = {
     "rmsle": _feval_rmsle,
@@ -533,11 +552,17 @@ _FEVAL_REGISTRY: dict = {
     "accuracy": _feval_accuracy,
     "smape": _feval_smape,
     "wape": _feval_wape,
+    "mase": _feval_mase,
 }
 
 
-def build_feval_from_config() -> list:
-    """Build LightGBM feval callables from config.json feval_metrics."""
+def build_feval_from_config(y_train=None) -> list:
+    """Build LightGBM feval callables from config.json feval_metrics.
+
+    *y_train* is the targets of the rows the booster trains on: a metric in
+    ``_TRAIN_SCALE`` (MASE) takes its scale from them, never from the scored
+    rows' labels.
+    """
     feval_entries = CFG.get("feval_metrics", [])
     if not feval_entries:
         return []
@@ -553,7 +578,6 @@ def build_feval_from_config() -> list:
         if fn is None:
             log.warning("Unknown feval metric: %s — skipping", name)
             continue
-
         # Build display name
         if params:
             parts = ", ".join(f"{k}={v}" for k, v in sorted(params.items()))
@@ -561,9 +585,18 @@ def build_feval_from_config() -> list:
         else:
             display = name
 
+        call_params = params
+        if name in _TRAIN_SCALE:
+            if y_train is None:
+                raise ValueError(
+                    f"feval metric {name!r} needs the training targets: "
+                    "call build_feval_from_config(y_train)."
+                )
+            call_params = {**params, "scale": _TRAIN_SCALE[name](y_train)}
+
         def _make_feval(
             _fn=fn, _name=display, _gib=greater_is_better,
-            _needs_proba=needs_proba, _params=params, _task=task,
+            _needs_proba=needs_proba, _params=call_params, _task=task,
         ):
             def feval(y_pred, dataset):
                 y_true = dataset.get_label()

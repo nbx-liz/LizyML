@@ -178,7 +178,7 @@ _LGBM_NATIVE_METRIC_CHOICES: dict[str, tuple[str, ...]] = {
 }
 
 _LGBM_FEVAL_METRIC_CHOICES: dict[str, tuple[str, ...]] = {
-    "regression": ("rmsle", "r2", "smape", "wape"),
+    "regression": ("rmsle", "r2", "smape", "wape", "mase"),
     "binary": ("f1", "brier", "ece", "precision_at_k", "accuracy"),
     "multiclass": ("f1", "brier", "accuracy"),
 }

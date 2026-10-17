@@ -14434,8 +14434,12 @@ H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を�
 
 ## H-0132: 回帰の指標 MASE を足す ― 学習側の目的変数で scale を決め、指標の IF に `bind_train` を足す（#355）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-15
+- **決定日**: 2026-10-15
+  - Codex の設計の批評（run `h0132-design-critique`）の後、管理者が 4 つの分岐を決めた。
+  - Codex の Proposal review は 1 つの run（`h0132-proposal-review`）で、round 1 が CHANGES_REQUESTED、round 2 が APPROVE（`5018972`）だった。round 2 の前の absolute monitor は 2 つとも DELIVERABLE-FOCUSED。
+  - 管理者が受け入れを宣言した。
 - **スコープ**:
   - `lizyml/metrics/base.py`: `BaseMetric` に、具体のプロパティ `needs_train_target` と具体のメソッド `bind_train` を足す。
   - `lizyml/metrics/regression.py`: 新しい `MASE`。

@@ -84,15 +84,22 @@ def resolve_user_metric(
     value: Any,
     task: TaskType,
     num_class: int | None = None,
+    *,
+    y_train: Any = None,
 ) -> tuple[list[str], list[Any], list[str]] | None:
-    """Apply the adapter's empty-value fallback and resolve explicit metrics."""
+    """Apply the adapter's empty-value fallback and resolve explicit metrics.
+
+    *y_train* is passed through to :func:`resolve_metrics` (H-0132): the
+    targets of the rows the booster trains on, or ``None`` on paths that only
+    validate or describe the metric.
+    """
     if not value:
         return None
     entries = [value] if isinstance(value, (str, dict)) else value
     entries = [entry for entry in entries if entry]
     if not entries:
         return None
-    return resolve_metrics(entries, task, num_class=num_class)
+    return resolve_metrics(entries, task, num_class=num_class, y_train=y_train)
 
 
 def recorded_objective(booster: lgb.Booster) -> str | None:

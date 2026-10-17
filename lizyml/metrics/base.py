@@ -7,6 +7,8 @@ from typing import Any
 
 import numpy.typing as npt
 
+from lizyml.core.exceptions import ErrorCode, LizyMLError
+
 
 class BaseMetric(ABC):
     """Abstract base class for all metrics.
@@ -18,7 +20,9 @@ class BaseMetric(ABC):
     - ``__call__``: compute metric from arrays
 
     The call signature always accepts positional ``y_true`` and ``y_pred``
-    and returns a single ``float``.
+    and returns a single ``float``. A metric that also needs the training-side
+    targets declares :attr:`needs_train_target` and is bound with
+    :meth:`bind_train` first (H-0132).
     """
 
     @property
@@ -49,6 +53,33 @@ class BaseMetric(ABC):
         implies its ``__call__`` can accept a 2-D ``(n, k)`` array.
         """
         return False
+
+    @property
+    def needs_train_target(self) -> bool:
+        """True when the metric needs the training-side targets (H-0132).
+
+        Such a metric (MASE) must be bound with :meth:`bind_train` before it
+        is called; callers bind only when this is ``True``. The training side
+        is the rows the evaluated model was fitted on, never the scored rows.
+        """
+        return False
+
+    def bind_train(self, y_train: npt.NDArray[Any]) -> BaseMetric:
+        """Return a copy of this metric bound to the training-side targets.
+
+        Only metrics with :attr:`needs_train_target` override this; the
+        default refuses, so binding a metric that takes no training targets
+        is an error rather than a silent no-op.
+
+        Raises:
+            LizyMLError: ``UNSUPPORTED_METRIC``.
+        """
+
+        raise LizyMLError(
+            code=ErrorCode.UNSUPPORTED_METRIC,
+            user_message=f"Metric '{self.name}' takes no training targets.",
+            context={"metric": self.name},
+        )
 
     @abstractmethod
     def __call__(self, y_true: npt.NDArray[Any], y_pred: npt.NDArray[Any]) -> float:
