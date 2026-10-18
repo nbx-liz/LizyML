@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import warnings
 from pathlib import Path
 from types import ModuleType
 
@@ -89,6 +90,21 @@ def test_the_generated_scale_refuses_zero_and_non_finite(
 ) -> None:
     with pytest.raises(ValueError, match="MASE"):
         generated._train_scale_mase(y_train)
+
+
+@pytest.mark.parametrize(
+    "y_train",
+    [np.array([1.0, np.inf]), np.array([-np.inf, np.inf]), np.array([1e308, -1e308])],
+    ids=["infinite", "both-infinities", "overflow"],
+)
+def test_the_generated_scale_refuses_without_a_numpy_warning(
+    generated: ModuleType, y_train: np.ndarray
+) -> None:
+    """Implementation review round 2: the refusal came after a RuntimeWarning."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with pytest.raises(ValueError, match="MASE"):
+            generated._train_scale_mase(y_train)
 
 
 def test_the_generated_feval_needs_the_training_targets(generated: ModuleType) -> None:

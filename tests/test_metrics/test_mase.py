@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -50,6 +52,21 @@ def test_a_zero_or_non_finite_scale_is_refused(y_train: np.ndarray) -> None:
     assert caught.value.code == ErrorCode.UNSUPPORTED_METRIC
     assert caught.value.context["metric"] == "mase"
     assert caught.value.context["n_train"] == len(y_train)
+
+
+@pytest.mark.parametrize(
+    "y_train",
+    [np.array([1.0, np.inf]), np.array([-np.inf, np.inf]), np.array([1e308, -1e308])],
+    ids=["infinite", "both-infinities", "overflow"],
+)
+def test_a_non_finite_scale_is_refused_without_a_numpy_warning(
+    y_train: np.ndarray,
+) -> None:
+    """Implementation review round 2: the refusal came after a RuntimeWarning."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        with pytest.raises(LizyMLError):
+            MASE().bind_train(y_train)
 
 
 def test_an_unbound_call_is_refused() -> None:
