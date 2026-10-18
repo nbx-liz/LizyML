@@ -14662,3 +14662,37 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
   - 生成コードの有限でない scale。
   - tune での重なりの振る舞い → 試行の FAIL から `TUNING_FAILED` と明記した（新しい分岐は作らない）。
   - 受け入れ基準の強さ（fold の行数、outer-train が一定の値、保存の後の値）。
+
+### 実装の記録（2026-10-19）
+
+- **機械**: 2026-10-15〜17 に W（WSL2）で実装を始め、2026-10-19 から V（Mac 上の Ubuntu VM、aarch64、registry では `mac-m6`）で続けた。#355 は registry の checkpoint で V が持つ（D-20261019-001）。
+- **コード**: 方針 1〜7 のとおり。
+  - `metrics/base.py`: `needs_train_target`（既定 `False`）と `bind_train`（既定は `UNSUPPORTED_METRIC`）。
+  - `metrics/regression.py`: `MASE`。`bind_train` は scale を持つ新しい instance を返す。scale が 0 か有限でないとき、束ねずに呼んだときは `UNSUPPORTED_METRIC`。
+  - `evaluation/evaluator.py`: fold ごとの OOF と IF は fold の outer-train の目的変数で束ねる。OOF 全体は `_pool_by_fold_size`（fold の検証の行数で重みをつけた平均）。`_refuse_overlapping_folds` が、学習側の目的変数の要る指標があるときだけ重なりを拒否する。ほかの指標の計算は変えていない。
+  - `estimators/lgbm/`: `resolve_metrics(..., y_train=None)` と `resolve_user_metric(..., y_train=None)`。`LGBMAdapter.fit` は受け取った `y_train` を `_build_params(y_train=...)` に渡す。メタデータの経路は渡さない。`_FEVAL_METRICS`・`_LGBM_FEVAL_METRIC_CHOICES` に `mase`。
+  - `codegen/templates.py`: `_train_scale_mase`・`_feval_mase`・`_TRAIN_SCALE`。生成 `train.py` は `build_feval_from_config(y.iloc[tr] if iv is not None else y)` を呼ぶ。
+- **Proposal からのずれ**: 生成コードの `build_feval_from_config` は、`y_train` をキーワードの既定値 `None` で受ける（方針 6 は「引数で受け取る」）。`mase` があるのに `None` なら `ValueError` で止める。`mase` を使わない設定の生成コードと、この関数を直接呼ぶ既存のテストは、そのまま動く。
+- **テスト**:
+  - 新しいテスト 6 本:
+    - `tests/test_metrics/test_mase.py`（基準 1）
+    - `tests/test_evaluation/test_mase_evaluator.py`（基準 2）
+    - `tests/test_estimators/test_mase_feval.py`（基準 3）
+    - `tests/test_core/test_mase_model.py`（基準 3・4・8）
+    - `tests/test_codegen/test_mase_codegen.py`（基準 5）
+    - `tests/test_docs/test_h0132_docs.py`（基準 9）
+  - 実装の途中で見つけた DC1: `tests/test_estimators/test_feval_probabilities.py` は `_FEVAL_METRICS` の全ての指標を束ねずに作っていた。そのため `mase` は、feval と Evaluator が同じエラーで失敗する分岐で、値を比べずに通っていた。`needs_train_target` の指標は束ねてから作るように直し、回帰の指標がその失敗の分岐を通らないことを確かめる行を足した。
+- **陰性対照**（基準 7、`docs/audits/2026-10-h0132/probes/negative_controls_h0132.py` → `.out`）: (a)〜(e) の 5 組とも捕まった。パッチを当てない基準の実行も通る。
+  - 制御ごとにパッチを戻し、テストのモジュールを読み込み直す。読み込み直さないと、パッチの名前を import したテストのモジュールが次の実行に残り、基準の実行が落ちた（実測）。
+  - H-0130 の陰性対照（`negative_controls_h0130.py`）はパッチを戻さず、基準の実行も持たない。今の結果に影響は無いが、同じ穴がある（follow-up）。
+- **Firing rate（実装の後、測定。`probes/firing/` の `sitecustomize.py` → `summarize.py` → `firing.out`）**: V で、フルスイート（11899 passed、230 skipped、0 failed）と notebook の実行の層（`-m slow tests/test_notebooks`、21 passed）の全ての `Evaluator.evaluate` を記録した。notebook のカーネルでも記録している。
+  - 重なる検証の fold での拒否: Firing rate: 0/2988 of `Evaluator.evaluate` calls outside the refusal's own tests have a row in two validation folds (2993 calls over the full suite and the notebook tier on V at `bd572b8`; the 5 others are the deliberate overlap tests).
+  - scale が 0 か有限でないときの拒否: Firing rate: 0/4155 of outer-train folds in regression fits outside the refusal's own test have a zero or non-finite scale (1788 regression calls, 4156 folds; the 1 other is the deliberate constant-target test).
+- **フルスイート**: V（aarch64）の最初の基準は 11899 passed、0 failed だった。W（x86_64）の `c69233e` は 11843 passed で、差の 56 は H-0132 のテストである。CPU による失敗は無かった。
+  - notebook の層は V で初めて走らせた。OpenML のデータの cache（`~/scikit_learn_data`）が無く、sandbox の中では書けずに 3 本落ちた。sandbox の外で一度取得すると通った（環境の問題）。
+- **文書**: 「規則が縛る位置」の表のとおり。
+  - BLUEPRINT §6（生成コード）、§13.1、feval の表と文。
+  - ARCHITECTURE の具象の指標の数（17）と指標の IF。
+  - `docs/config-reference.md` の 4 か所。
+  - `docs/add-estimator-guide.md`: 古かった `_FEVAL_METRICS` の例、`resolve_metrics` の形、feval の予測の扱い（H-0105）。
+  - CHANGELOG と `proposal_dispositions.toml`（specified）。

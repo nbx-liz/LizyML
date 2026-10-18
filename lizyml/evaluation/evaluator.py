@@ -82,6 +82,19 @@ def _compute_metrics(
     return result
 
 
+def _pool_by_fold_size(values: list[float], sizes: list[int]) -> float:
+    """Pool per-fold values of a training-scaled metric over the covered rows.
+
+    Each covered row is scaled by the fold that validated it, so the pooled
+    value is the fold-size-weighted mean of the per-fold values (H-0132 policy
+    4); folds that validate no row carry no weight.
+    """
+    v = np.asarray(values, dtype=float)
+    n = np.asarray(sizes, dtype=float)
+    filled = n > 0
+    return float(np.sum(v[filled] * n[filled]) / np.sum(n[filled]))
+
+
 def _refuse_overlapping_folds(
     metrics: list[BaseMetric],
     outer: list[tuple[npt.NDArray[np.intp], npt.NDArray[np.intp]]],
@@ -220,14 +233,12 @@ class Evaluator:
         pooled_scores = _compute_metrics(
             pooled, y_arr[oof_mask], covered_pred, self.task
         )
-        sizes = np.array([len(v) for _, v in fit_result.splits.outer], dtype=float)
+        sizes = [len(v) for _, v in fit_result.splits.outer]
         oof_scores: dict[str, float] = {}
         for m in metrics:
             if m.needs_train_target:
-                values = np.array([fold[m.name] for fold in oof_per_fold])
-                filled = sizes > 0
-                oof_scores[m.name] = float(
-                    np.sum(values[filled] * sizes[filled]) / np.sum(sizes[filled])
+                oof_scores[m.name] = _pool_by_fold_size(
+                    [fold[m.name] for fold in oof_per_fold], sizes
                 )
             else:
                 oof_scores[m.name] = pooled_scores[m.name]

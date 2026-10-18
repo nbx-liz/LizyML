@@ -1,0 +1,7 @@
+Evaluator.evaluate calls: 2993 ({'pytest': 2993}), errors: 0
+calls requesting a training-scaled metric (mase): 17
+calls with overlapping validation folds, deliberate refusal tests: 5
+calls with overlapping validation folds, elsewhere: 0
+regression calls: 1788, their folds: 4156
+folds with a zero or non-finite outer-train scale, deliberate refusal tests: 1
+folds with a zero or non-finite outer-train scale, elsewhere: 0
