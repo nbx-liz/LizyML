@@ -14685,10 +14685,16 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
 - **陰性対照**（基準 7、`docs/audits/2026-10-h0132/probes/negative_controls_h0132.py` → `.out`）: (a)〜(e) の 5 組とも捕まった。パッチを当てない基準の実行も通る。
   - 制御ごとにパッチを戻し、テストのモジュールを読み込み直す。読み込み直さないと、パッチの名前を import したテストのモジュールが次の実行に残り、基準の実行が落ちた（実測）。
   - H-0130 の陰性対照（`negative_controls_h0130.py`）はパッチを戻さず、基準の実行も持たない。今の結果に影響は無いが、同じ穴がある（follow-up）。
-- **Firing rate（実装の後、測定。`probes/firing/` の `sitecustomize.py` → `summarize.py` → `firing.out`）**: V で、フルスイート（11899 passed、230 skipped、0 failed）と notebook の実行の層（`-m slow tests/test_notebooks`、21 passed）の全ての `Evaluator.evaluate` を記録した。notebook のカーネルでも記録している。
-  - 重なる検証の fold での拒否: Firing rate: 0/2988 of `Evaluator.evaluate` calls outside the refusal's own tests have a row in two validation folds (2993 calls over the full suite and the notebook tier on V at `bd572b8`; the 5 others are the deliberate overlap tests).
-  - scale が 0 か有限でないときの拒否: Firing rate: 0/4155 of outer-train folds in regression fits outside the refusal's own test have a zero or non-finite scale (1788 regression calls, 4156 folds; the 1 other is the deliberate constant-target test).
-- **フルスイート**: V（aarch64）の最初の基準は 11899 passed、0 failed だった。W（x86_64）の `c69233e` は 11843 passed で、差の 56 は H-0132 のテストである。CPU による失敗は無かった。
+- **Firing rate（実装の後、測定。`probes/firing/` の `sitecustomize.py` → `summarize.py` → `firing.out`）**: V で、フルスイート（11902 passed、230 skipped、0 failed）と notebook の実行の層（`-m slow tests/test_notebooks`、21 passed）を走らせた。
+  - 記録したもの:
+    - 全ての `Evaluator.evaluate`（pytest の中 2982 回、notebook のカーネルの中 46 回）
+    - 全ての `MASE.bind_train`（90 回。Evaluator、LightGBM の feval、直接の呼び出しを含む）
+  - 記録ごとにプロセスの役割（pytest かカーネルか）を書く。役割は記録の時点で判定する。import の時点ではカーネルの `sys.argv[0]` がまだ `-m` のため。
+  - 集計器は想定外の事象で 1 で終わる。それを確かめる自己検査（`--self-check`、5 種）も `firing.out` に入れた（実装レビュー round 1 の指摘）。
+  - 重なる検証の fold での拒否: Firing rate: 0/3023 of `Evaluator.evaluate` calls outside the refusal's own tests have a row in two validation folds (3028 calls over the full suite and the notebook tier on V, 46 of them in notebook kernels; the 5 others are the deliberate overlap tests).
+  - scale が 0 か有限でないときの拒否: Firing rate: 0/85 of `MASE.bind_train` calls outside the refusal's own tests refused (90 calls; the 5 others are the deliberate zero, infinite, NaN and constant-target tests), and 0/4226 outer-train folds of regression fits outside them have a zero or non-finite scale (1823 regression calls, 4227 folds; the 1 other is the deliberate constant-target test).
+  - 生成コードの `_train_scale_mase` の拒否は、この計測に入れていない（生成コードは別のプロセスの別のファイルで、テストは `test_mase_codegen.py` の拒否のテストだけが呼ぶ）。
+- **フルスイート**: V（aarch64）の最初の基準は 11899 passed、0 failed だった（`70c39e9`）。W（x86_64）の `c69233e` は 11843 passed で、差の 56 は H-0132 のテストである。CPU による失敗は無かった。実装レビュー round 1 への対応の後は 11902 passed。
   - notebook の層は V で初めて走らせた。OpenML のデータの cache（`~/scikit_learn_data`）が無く、sandbox の中では書けずに 3 本落ちた。sandbox の外で一度取得すると通った（環境の問題）。
 - **文書**: 「規則が縛る位置」の表のとおり。
   - BLUEPRINT §6（生成コード）、§13.1、feval の表と文。
@@ -14696,3 +14702,10 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
   - `docs/config-reference.md` の 4 か所。
   - `docs/add-estimator-guide.md`: 古かった `_FEVAL_METRICS` の例、`resolve_metrics` の形、feval の予測の扱い（H-0105）。
   - CHANGELOG と `proposal_dispositions.toml`（specified）。
+- **実装レビュー round 1**（lizy-reviewer の run `h0132-impl-review`、`70c39e9`、CHANGES_REQUESTED: major 5）。全て受け入れた:
+  - 生成コードの再現の総当たり（`tests/test_codegen/test_retrain_reproduction.py`）の `FEVALS` が手書きで、`mase` を含まなかった。`_FEVAL_METRICS` から導くようにし、受け付ける組に `mase` を足した（30 通り）。
+  - 受け入れ基準 4 の「各試行のスコアが Evaluator の OOF 全体の値に等しい」を確かめるテストが無かった。Evaluator の出力を捕まえ、完了した試行の値と比べるようにした。
+  - firing rate の計測器の不備 3 つ（上の Firing rate の項で直した）:
+    - `MASE.bind_train` の経路を数えていなかった。
+    - 集計器が想定外の scale 0 でも 0 で終わった（DC1）。
+    - notebook のカーネルの記録を pytest と区別できなかった。

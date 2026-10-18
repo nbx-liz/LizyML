@@ -1,7 +1,17 @@
-Evaluator.evaluate calls: 2993 ({'pytest': 2993}), errors: 0
-calls requesting a training-scaled metric (mase): 17
-calls with overlapping validation folds, deliberate refusal tests: 5
-calls with overlapping validation folds, elsewhere: 0
-regression calls: 1788, their folds: 4156
-folds with a zero or non-finite outer-train scale, deliberate refusal tests: 1
-folds with a zero or non-finite outer-train scale, elsewhere: 0
+bind refused deliberate: 5
+bind[pytest]: 90
+evaluate[kernel]: 46
+evaluate[pytest]: 2982
+overlap deliberate: 5
+regression evaluate: 1823
+regression folds: 4227
+zero-scale folds deliberate: 1
+unexpected events: 0
+summary exit=0
+self-check clean log -> 0 (ok)
+self-check overlap -> 1 (ok)
+self-check zero-scale fold -> 1 (ok)
+self-check bind refused -> 1 (ok)
+self-check error -> 1 (ok)
+self-check unknown kind -> 1 (ok)
+self-check exit=0

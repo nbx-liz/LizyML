@@ -70,13 +70,29 @@ def test_metadata_routes_accept_an_unbound_mase(tmp_path: Path) -> None:
     )
 
 
-def test_mase_is_a_tune_objective_minimised() -> None:
+def test_mase_is_a_tune_objective_minimised(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each trial's score is the Evaluator's pooled OOF MASE (criterion 4)."""
+    from lizyml.evaluation.evaluator import Evaluator
+
+    pooled: list[float] = []
+    original = Evaluator.evaluate
+
+    def spy(self: Evaluator, *args: Any, **kwargs: Any) -> Any:
+        out = original(self, *args, **kwargs)
+        pooled.append(out["raw"]["oof"]["mase"])
+        return out
+
+    monkeypatch.setattr(Evaluator, "evaluate", spy)
     cfg = fast_config(n_trials=2)
     cfg["evaluation"] = {"metrics": ["mase"]}
     model = Model(cfg, data=frame())
     result = model.tune()
     assert result.direction == "minimize"
-    assert np.isfinite(result.best_score)
+    scores = [t.score for t in result.trials if t.state == "complete"]
+    assert len(scores) == 2
+    # The tune evaluates once per trial, in trial order.
+    assert scores == pytest.approx(pooled[: len(scores)], rel=1e-12)
+    assert result.best_score == pytest.approx(min(scores), rel=1e-12)
 
 
 def test_maximising_mase_is_refused() -> None:
