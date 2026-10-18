@@ -326,7 +326,10 @@ class MASE(BaseMetric):
                 training target equal) or not finite.
         """
         y = np.asarray(y_train, dtype=np.float64)
-        scale = float(np.mean(np.abs(y - np.mean(y)))) if len(y) else float("nan")
+        # An infinite target makes ``y - mean`` invalid; the result is NaN and
+        # refused below, so the arithmetic warning carries nothing extra.
+        with np.errstate(invalid="ignore", over="ignore"):
+            scale = float(np.mean(np.abs(y - np.mean(y)))) if len(y) else float("nan")
         if not np.isfinite(scale) or scale == 0.0:
             raise LizyMLError(
                 code=ErrorCode.UNSUPPORTED_METRIC,

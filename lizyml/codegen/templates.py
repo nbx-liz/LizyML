@@ -527,7 +527,8 @@ def _feval_wape(y_true: np.ndarray, y_pred: np.ndarray) -> float:
 def _train_scale_mase(y_train: np.ndarray) -> float:
     # H-0132: the mean absolute deviation of the training-side targets.
     y = np.asarray(y_train, dtype=np.float64)
-    scale = float(np.mean(np.abs(y - np.mean(y)))) if len(y) else float("nan")
+    with np.errstate(invalid="ignore", over="ignore"):  # inf -> NaN, refused below
+        scale = float(np.mean(np.abs(y - np.mean(y)))) if len(y) else float("nan")
     if not np.isfinite(scale) or scale == 0.0:
         raise ValueError(
             "MASE is undefined when the training targets' mean absolute "
