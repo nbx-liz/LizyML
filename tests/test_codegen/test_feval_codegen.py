@@ -428,6 +428,8 @@ class TestTemplateFevalContent:
             # H-0071: zero-tolerant percentage-style regression metrics
             "_feval_smape",
             "_feval_wape",
+            # H-0132: training-scaled; test_mase_codegen derives the population
+            "_feval_mase",
         ]
         for name in expected:
             assert name in src, f"{name} not found in train.py template"

@@ -1,0 +1,232 @@
+[run-exclusive] h0132-negctl starting; load was 1.54
+run-heavy: pgid=11 (stop with: kill -- -11)
+FF..F...                                                                 [100%]
+=================================== FAILURES ===================================
+________________ test_each_fold_uses_its_own_outer_train_scale _________________
+
+    def test_each_fold_uses_its_own_outer_train_scale() -> None:
+        raw = _evaluate()
+        for k, (train, valid) in enumerate(OUTER):
+            expected = _mase(Y[valid], PRED[valid], Y[train])
+>           assert raw["oof_per_fold"][k]["mase"] == pytest.approx(expected)
+E           assert 0.3333333333333333 == 0.13235294117647062 ± 1.3e-07
+E             
+E             comparison failed
+E             Obtained: 0.3333333333333333
+E             Expected: 0.13235294117647062 ± 1.3e-07
+
+tests/test_evaluation/test_mase_evaluator.py:87: AssertionError
+___________ test_the_pooled_value_scales_each_row_by_its_folds_scale ___________
+
+    def test_the_pooled_value_scales_each_row_by_its_folds_scale() -> None:
+        raw = _evaluate()
+        per_row = np.empty(len(Y))
+        for train, valid in OUTER:
+            per_row[valid] = np.abs(Y[valid] - PRED[valid]) / _scale(Y[train])
+        folds = [raw["oof_per_fold"][k]["mase"] for k in range(len(OUTER))]
+        sizes = [len(v) for _, v in OUTER]
+        weighted = float(np.average(folds, weights=sizes))
+>       assert raw["oof"]["mase"] == pytest.approx(float(per_row.mean()))
+E       assert 0.3583333333333334 == 0.6196078431372549 ± 6.2e-07
+E         
+E         comparison failed
+E         Obtained: 0.3583333333333334
+E         Expected: 0.6196078431372549 ± 6.2e-07
+
+tests/test_evaluation/test_mase_evaluator.py:102: AssertionError
+______________ test_partial_coverage_divides_by_the_covered_rows _______________
+
+    def test_partial_coverage_divides_by_the_covered_rows() -> None:
+        """Time-ordered folds leave rows 0-2 uncovered."""
+        outer = _outer([([0, 1, 2], [3, 4, 5]), ([0, 1, 2, 3, 4, 5], [6, 7, 8, 9])])
+        pred = PRED.copy()
+        pred[:3] = np.nan
+        raw = _evaluate(outer=outer, pred=pred)
+        covered = np.concatenate([v for _, v in outer])
+        per_row = np.concatenate([np.abs(Y[v] - pred[v]) / _scale(Y[t]) for t, v in outer])
+        assert len(covered) == 7
+>       assert raw["oof"]["mase"] == pytest.approx(float(per_row.sum() / 7))
+E       assert 0.4776482021379981 == 1.1369646450129347 ± 1.1e-06
+E         
+E         comparison failed
+E         Obtained: 0.4776482021379981
+E         Expected: 1.1369646450129347 ± 1.1e-06
+
+tests/test_evaluation/test_mase_evaluator.py:133: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_evaluation/test_mase_evaluator.py::test_each_fold_uses_its_own_outer_train_scale
+FAILED tests/test_evaluation/test_mase_evaluator.py::test_the_pooled_value_scales_each_row_by_its_folds_scale
+FAILED tests/test_evaluation/test_mase_evaluator.py::test_partial_coverage_divides_by_the_covered_rows
+3 failed, 5 passed in 0.03s
+CONTROL (a) scale from the scored rows: caught (tests failed)
+.F..F...                                                                 [100%]
+=================================== FAILURES ===================================
+___________ test_the_pooled_value_scales_each_row_by_its_folds_scale ___________
+
+    def test_the_pooled_value_scales_each_row_by_its_folds_scale() -> None:
+        raw = _evaluate()
+        per_row = np.empty(len(Y))
+        for train, valid in OUTER:
+            per_row[valid] = np.abs(Y[valid] - PRED[valid]) / _scale(Y[train])
+        folds = [raw["oof_per_fold"][k]["mase"] for k in range(len(OUTER))]
+        sizes = [len(v) for _, v in OUTER]
+        weighted = float(np.average(folds, weights=sizes))
+>       assert raw["oof"]["mase"] == pytest.approx(float(per_row.mean()))
+E       assert 0.5383986928104576 == 0.6196078431372549 ± 6.2e-07
+E         
+E         comparison failed
+E         Obtained: 0.5383986928104576
+E         Expected: 0.6196078431372549 ± 6.2e-07
+
+tests/test_evaluation/test_mase_evaluator.py:102: AssertionError
+______________ test_partial_coverage_divides_by_the_covered_rows _______________
+
+    def test_partial_coverage_divides_by_the_covered_rows() -> None:
+        """Time-ordered folds leave rows 0-2 uncovered."""
+        outer = _outer([([0, 1, 2], [3, 4, 5]), ([0, 1, 2, 3, 4, 5], [6, 7, 8, 9])])
+        pred = PRED.copy()
+        pred[:3] = np.nan
+        raw = _evaluate(outer=outer, pred=pred)
+        covered = np.concatenate([v for _, v in outer])
+        per_row = np.concatenate([np.abs(Y[v] - pred[v]) / _scale(Y[t]) for t, v in outer])
+        assert len(covered) == 7
+>       assert raw["oof"]["mase"] == pytest.approx(float(per_row.sum() / 7))
+E       assert 1.289486921529175 == 1.1369646450129347 ± 1.1e-06
+E         
+E         comparison failed
+E         Obtained: 1.289486921529175
+E         Expected: 1.1369646450129347 ± 1.1e-06
+
+tests/test_evaluation/test_mase_evaluator.py:133: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_evaluation/test_mase_evaluator.py::test_the_pooled_value_scales_each_row_by_its_folds_scale
+FAILED tests/test_evaluation/test_mase_evaluator.py::test_partial_coverage_divides_by_the_covered_rows
+2 failed, 6 passed in 0.01s
+CONTROL (b) unweighted OOF pool: caught (tests failed)
+FF..F                                                                    [100%]
+=================================== FAILURES ===================================
+______________ test_the_feval_divides_by_the_training_rows_scale _______________
+
+    def test_the_feval_divides_by_the_training_rows_scale() -> None:
+        X_tr, y_tr, X_va, y_va = _data()
+        adapter = LGBMAdapter(
+            task="regression",
+            params={"metric": ["mase"], "n_estimators": 6, "verbose": -1},
+            early_stopping_rounds=None,
+        )
+        adapter.fit(X_tr, y_tr, X_va, y_va)
+        recorded = adapter.eval_results["valid_0"]["mase"][-1]
+        mae = float(np.mean(np.abs(y_va.to_numpy() - adapter.predict(X_va))))
+>       assert recorded == pytest.approx(mae / _scale(y_tr.to_numpy()), rel=1e-6)
+E       assert 0.9976664329794349 == 10.798985368166841 ± 1.1e-05
+E         
+E         comparison failed
+E         Obtained: 0.9976664329794349
+E         Expected: 10.798985368166841 ± 1.1e-05
+
+tests/test_estimators/test_mase_feval.py:44: AssertionError
+___________ test_a_constant_training_target_is_refused_by_the_feval ____________
+
+    def test_a_constant_training_target_is_refused_by_the_feval() -> None:
+        X_tr, _, X_va, y_va = _data()
+        adapter = LGBMAdapter(
+            task="regression",
+            params={"metric": ["mase"], "n_estimators": 3, "verbose": -1},
+        )
+>       with pytest.raises(LizyMLError) as caught:
+E       Failed: DID NOT RAISE <class 'lizyml.core.exceptions.LizyMLError'>
+
+tests/test_estimators/test_mase_feval.py:54: Failed
+_____________________ test_an_unbound_feval_refuses_to_run _____________________
+
+    def test_an_unbound_feval_refuses_to_run() -> None:
+        _, fevals, _ = resolve_metrics(["mase"], "regression")
+    
+        class _Labels:
+            def get_label(self) -> np.ndarray:
+                return np.array([0.0, 4.0])
+    
+>       with pytest.raises(LizyMLError) as caught:
+E       Failed: DID NOT RAISE <class 'lizyml.core.exceptions.LizyMLError'>
+
+tests/test_estimators/test_mase_feval.py:88: Failed
+=========================== short test summary info ============================
+FAILED tests/test_estimators/test_mase_feval.py::test_the_feval_divides_by_the_training_rows_scale
+FAILED tests/test_estimators/test_mase_feval.py::test_a_constant_training_target_is_refused_by_the_feval
+FAILED tests/test_estimators/test_mase_feval.py::test_an_unbound_feval_refuses_to_run
+3 failed, 2 passed in 0.01s
+CONTROL (c) feval scale from eval labels: caught (tests failed)
+.....F......FF.                                                          [100%]
+=================================== FAILURES ===================================
+________________ test_overlapping_validation_folds_are_refused _________________
+
+    def test_overlapping_validation_folds_are_refused() -> None:
+        outer = _outer([([5, 6, 7, 8, 9], [0, 1, 2]), ([0, 6, 7, 8, 9], [2, 3, 4, 5])])
+>       with pytest.raises(LizyMLError) as caught:
+E       Failed: DID NOT RAISE <class 'lizyml.core.exceptions.LizyMLError'>
+
+tests/test_evaluation/test_mase_evaluator.py:139: Failed
+________________ test_fit_refuses_overlapping_validation_folds _________________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xe948c1c73f80>
+
+    def test_fit_refuses_overlapping_validation_folds(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _overlap(monkeypatch)
+>       with pytest.raises(LizyMLError) as caught:
+E       Failed: DID NOT RAISE <class 'lizyml.core.exceptions.LizyMLError'>
+
+tests/test_core/test_mase_model.py:121: Failed
+_________ test_tune_fails_every_trial_on_overlapping_validation_folds __________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xe948c1c493d0>
+
+    def test_tune_fails_every_trial_on_overlapping_validation_folds(
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        _overlap(monkeypatch)
+        cfg = fast_config(n_trials=2)
+        cfg["evaluation"] = {"metrics": ["mase"]}
+>       with pytest.raises(LizyMLError) as caught:
+E       Failed: DID NOT RAISE <class 'lizyml.core.exceptions.LizyMLError'>
+
+tests/test_core/test_mase_model.py:132: Failed
+=========================== short test summary info ============================
+FAILED tests/test_evaluation/test_mase_evaluator.py::test_overlapping_validation_folds_are_refused
+FAILED tests/test_core/test_mase_model.py::test_fit_refuses_overlapping_validation_folds
+FAILED tests/test_core/test_mase_model.py::test_tune_fails_every_trial_on_overlapping_validation_folds
+3 failed, 12 passed in 0.08s
+CONTROL (d) overlapping folds pass: caught (tests failed)
+.F....                                                                   [100%]
+=================================== FAILURES ===================================
+____ test_the_generated_feval_receives_the_training_rows_of_the_inner_split ____
+
+    def test_the_generated_feval_receives_the_training_rows_of_the_inner_split() -> None:
+        src = render_train_py()
+>       assert "build_feval_from_config(y.iloc[tr] if iv is not None else y)" in src
+E       assert 'build_feval_from_config(y.iloc[tr] if iv is not None else y)' in '#!/usr/bin/env python3\n"""Train a LightGBM model and fit a probability calibrator.\n\nUsage:\n    python train.py tr...n        sys.exit(1)\n\n    train(df, calibrate=not args.no_calibration)\n\n\nif __name__ == "__main__":\n    main()\n'
+
+tests/test_codegen/test_mase_codegen.py:42: AssertionError
+=============================== warnings summary ===============================
+tests/test_codegen/test_mase_codegen.py::test_the_generated_scale_refuses_zero_and_non_finite[infinite]
+  /tmp/claude-1000/pytest-of-rem/pytest-5/gen0/code/train.py:525: RuntimeWarning: invalid value encountered in subtract
+    scale = float(np.mean(np.abs(y - np.mean(y)))) if len(y) else float("nan")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_codegen/test_mase_codegen.py::test_the_generated_feval_receives_the_training_rows_of_the_inner_split
+1 failed, 5 passed, 1 warning in 0.02s
+CONTROL (e) generated scale from all rows: caught (tests failed)
+..........................                                               [100%]
+=============================== warnings summary ===============================
+tests/test_codegen/test_mase_codegen.py::test_the_generated_scale_refuses_zero_and_non_finite[infinite]
+  /tmp/claude-1000/pytest-of-rem/pytest-6/gen0/code/train.py:525: RuntimeWarning: invalid value encountered in subtract
+    scale = float(np.mean(np.abs(y - np.mean(y)))) if len(y) else float("nan")
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+26 passed, 1 warning in 0.09s
+BASELINE without patches: exit 0
+
+5/5 controls caught
+[run-exclusive] h0132-negctl finished in 1s, exit 0

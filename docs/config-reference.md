@@ -316,6 +316,7 @@ Aliases accepted at config-input time but not surfaced (e.g. `l1`/`l2`/`mse`/`me
 | `r2` | ✅ | | |
 | `smape` | ✅ | | |
 | `wape` | ✅ | | |
+| `mase` | ✅ | | |
 | `f1` | | ✅ | ✅ |
 | `brier` | | ✅ | ✅ |
 | `ece` | | ✅ | |
@@ -614,7 +615,7 @@ Supported metric names by task:
 
 | task | metrics |
 |---|---|
-| `regression` | `rmse`, `mae`, `r2`, `rmsle`, `mape`, `huber`, `smape`, `wape` |
+| `regression` | `rmse`, `mae`, `r2`, `rmsle`, `mape`, `huber`, `smape`, `wape`, `mase` |
 | `binary` | `logloss`, `auc`, `auc_pr`, `f1`, `accuracy`, `brier`, `ece`, `precision_at_k` |
 | `multiclass` | `logloss`, `f1`, `accuracy`, `auc`, `auc_pr`, `brier` |
 
@@ -630,6 +631,7 @@ Metric details:
 | `huber` | Huber Loss (delta=1.0) | No | No |
 | `smape` | Symmetric MAPE — tolerates per-row zeros (range [0, 200]) | No | No |
 | `wape` | Weighted Absolute Percentage Error — defined whenever sum(\|y_true\|) > 0 | No | No |
+| `mase` | Mean Absolute Scaled Error — MAE divided by the training targets' mean absolute deviation; defined when y_true contains zeros (H-0132) | No | No |
 | `logloss` | Log Loss (binary cross-entropy / multi-class cross-entropy) | Yes | No |
 | `auc` | Area Under the ROC Curve (binary or multiclass OvR macro) | Yes | Yes |
 | `auc_pr` | Area Under the Precision-Recall Curve (macro average for multiclass) | Yes | Yes |
@@ -657,11 +659,13 @@ classification metrics, `p` denotes the predicted probability.
 | `huber` | $\frac{1}{n}\sum_i L_\delta(y_i - \hat y_i)$ where $L_\delta(e) = \begin{cases} \tfrac{1}{2}e^2 & \lvert e \rvert \le \delta \\ \delta (\lvert e \rvert - \tfrac{1}{2}\delta) & \text{otherwise} \end{cases}$ | $[0, \infty)$ | $\delta = 1.0$ default. The learning curve's `huber` is LightGBM's, whose threshold is its `alpha` (default 0.9), not $\delta$ (H-0125) |
 | `smape` (H-0071) | $\frac{100}{n}\sum_i \frac{2 \lvert y_i - \hat y_i \rvert}{\lvert y_i \rvert + \lvert \hat y_i \rvert}$ | $[0, 200]$ | row with $\lvert y_i \rvert + \lvert \hat y_i \rvert = 0$ contributes 0 |
 | `wape` (H-0071) | $\frac{\sum_i \lvert y_i - \hat y_i \rvert}{\sum_i \lvert y_i \rvert} \times 100$ | $[0, \infty)$ | undefined only when $\sum_i \lvert y_i \rvert = 0$ |
+| `mase` (H-0132) | $\frac{\frac{1}{n}\sum_i \lvert y_i - \hat y_i \rvert}{s}$, $s = \frac{1}{m}\sum_j \lvert y^{train}_j - \bar y^{train} \rvert$ | $[0, \infty)$ | $s$ comes from the training-side targets: each fold's outer-train rows for OOF and in-fold values, the rows the booster trains on (inner-train with inner validation) for the learning curve, so the two can differ. The pooled OOF value scales each row by the fold that validated it. Refused when $s$ is zero or not finite, or when a row is in two validation folds |
 
 **MAPE vs sMAPE vs WAPE.**
 - **MAPE** is the classical per-row percentage error — fails on any $y_i = 0$.
 - **sMAPE** averages a *symmetric* percentage error per row, so a single $y_i = 0$ no longer breaks it; it only breaks when both $y_i = 0$ and $\hat y_i = 0$ (which we treat as 0 contribution by convention).
 - **WAPE** is a *sum-ratio*, equivalent to $\text{MAE}/\overline{\lvert y \rvert} \times 100$. It tolerates per-row zeros and is the most robust choice for imbalanced-magnitude regressions where a few large-volume series would otherwise dominate.
+- **MASE** divides the MAE by the MAE of predicting the training mean, so it tolerates zeros, has no unit, and is below 1 when the model beats that baseline. It can be the tune objective (`evaluation.metrics: [mase]`) and a training metric (`params: {metric: [mase]}`).
 
 #### Classification — probability-based
 

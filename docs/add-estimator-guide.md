@@ -158,7 +158,7 @@ ModelConfig = Annotated[
 ```python
 # lizyml/estimators/lgbm/metric_bridge.py
 _FEVAL_METRICS: dict[str, frozenset[str]] = {
-    "regression": frozenset(["rmsle", "r2"]),
+    "regression": frozenset(["rmsle", "r2", "smape", "wape", "mase"]),
     "binary": frozenset(["f1", "brier", "ece", "precision_at_k", "accuracy"]),
     "multiclass": frozenset(["f1", "brier", "accuracy"]),
 }
@@ -169,9 +169,11 @@ _FEVAL_METRICS: dict[str, frozenset[str]] = {
 ### 5.3 `resolve_metrics()` の実装
 
 ```python
-def resolve_metrics(metrics, task, num_class=None):
+def resolve_metrics(metrics, task, num_class=None, *, y_train=None):
     """Returns: (native_metrics, feval_callables, feval_display_names)"""
 ```
+
+`y_train` は booster が学習する行の目的変数である（H-0132）。`needs_train_target` の指標（`mase`）は、これに `bind_train` で束ねてから feval を作る。adapter の `fit` が学習の目的変数を渡し、設定の検査や `params_table` のような、feval を呼ばない経路は渡さない。eval set のラベルから scale を作ってはいけない（評価する行の目的変数になる）。
 
 ---
 
@@ -202,12 +204,12 @@ def resolve_metrics(metrics, task, num_class=None):
 
 ### 6.3 feval metric 対応 (H-0066)
 
-`config.json` に `feval_metrics` フィールドが含まれる。テンプレートの `build_feval_from_config()` は feval metric を純粋な numpy/sklearn で再実装している。
+`config.json` に `feval_metrics` フィールドが含まれる。テンプレートの `build_feval_from_config(y_train)` は feval metric を純粋な numpy/sklearn で再実装している。`y_train` は booster が学習する行の目的変数（inner valid があれば `y.iloc[tr]`）で、`mase` の scale を作る（`_train_scale_mase`、H-0132）。
 
 新しいアルゴリズムでは:
 - feval callable のシグネチャがアルゴリズムごとに異なる可能性がある（LightGBM: `(y_pred, Dataset) → (name, value, is_higher_better)`、XGBoost: `(y_pred, DMatrix) → (name, value)` 等）
 - `build_feval_from_config()` の feval wrapper をアルゴリズム別に実装する必要がある
-- feval 内部の予測変換（sigmoid/softmax）と metric 計算関数（`_feval_f1` 等）は共通利用可能
+- feval に渡る予測の扱い（ラベル指標には binary で 0.5 閾値、multiclass で argmax。確率を変換し直さない、H-0105）と metric 計算関数（`_feval_f1` 等）は共通利用可能
 
 ### 6.4 `_model_persistence.py` の拡張
 

@@ -21,7 +21,17 @@ from lizyml.metrics.registry import (
     parse_metric_entries,
     parse_metric_entry,
 )
-from lizyml.metrics.regression import MAE, MAPE, R2, RMSE, RMSLE, SMAPE, WAPE, HuberLoss
+from lizyml.metrics.regression import (
+    MAE,
+    MAPE,
+    MASE,
+    R2,
+    RMSE,
+    RMSLE,
+    SMAPE,
+    WAPE,
+    HuberLoss,
+)
 
 __all__ = [
     "BaseMetric",
@@ -34,6 +44,7 @@ __all__ = [
     "HuberLoss",
     "SMAPE",
     "WAPE",
+    "MASE",
     # classification
     "LogLoss",
     "AUC",

@@ -535,6 +535,10 @@ anchors = ["unsaveable_categories", "UnsaveableCategory", "test_layer_rules.py"]
 disposition = "specified"
 anchors = ["training/results.py", "metrics/registry.py", "BaseCalibrationResult"]
 
+[proposals."H-0132"]
+disposition = "specified"
+anchors = ["needs_train_target", "bind_train", "`mase`"]
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 

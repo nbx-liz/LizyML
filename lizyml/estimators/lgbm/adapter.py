@@ -189,8 +189,11 @@ class LGBMAdapter(BaseEstimatorAdapter):
                 extracted and passed to ``lgb.Dataset(weight=...)``.
         """
         self._feature_names = list(X_train.columns)
+        # H-0132: a feval that needs training targets (MASE) is bound to the
+        # rows this booster trains on -- the inner-train part when the caller
+        # holds out an inner valid set -- never to the eval set's labels.
         params, num_boost_round, feval_list, self._feval_display_names = (
-            self._build_params()
+            self._build_params(y_train=np.asarray(y_train))
         )
 
         cat_feature: list[str] | Literal["auto"] = self._categorical_features or "auto"
@@ -434,8 +437,14 @@ class LGBMAdapter(BaseEstimatorAdapter):
 
     def _build_params(
         self,
+        *,
+        y_train: npt.NDArray[Any] | None = None,
     ) -> tuple[dict[str, Any], int, list[Any], list[str]]:
         """Build LightGBM params, num_boost_round, feval list, and names.
+
+        *y_train* (H-0132) binds a feval that needs training targets; it is
+        ``None`` on the metadata paths (``build_export_params``,
+        ``params_summary``), which build the fevals without calling them.
 
         Returns:
             ``(params_dict, num_boost_round, feval_list, feval_display_names)`` tuple.
@@ -479,7 +488,9 @@ class LGBMAdapter(BaseEstimatorAdapter):
         user_metric, _ = _pop_by_identity(user_params, "metric")
         feval_list: list[Any] = []
         feval_display_names: list[str] = []
-        resolved = resolve_user_metric(user_metric, self.task, self.num_class)
+        resolved = resolve_user_metric(
+            user_metric, self.task, self.num_class, y_train=y_train
+        )
         if resolved is not None:
             native, feval_list, feval_display_names = resolved
             params["metric"] = native if native else "None"

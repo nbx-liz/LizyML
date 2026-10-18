@@ -547,7 +547,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `test_equivalence.py` で `Model.predict()` と codegen 出力の一致を `rtol=1e-7` で検証
 - 初期実装は LightGBM のみ対応。将来の EstimatorProvider 拡張で他アルゴリズムにも対応可能
 - Calibrator 保存形式: Platt → JSON (a, b)、Beta → JSON (a, b, c)、Isotonic → Booster テキスト
-- **feval metric 対応（H-0066）**: ユーザー指定の feval metric（f1, brier, ece, precision_at_k, accuracy, rmsle, r2, smape, wape。`smape` / `wape` は H-0071）を `config.json` の `feval_metrics` フィールドに記録し、`train.py` 内に pure numpy で再実装する。feval metric 未使用時は `feval_metrics: []` で後方互換を維持
+- **feval metric 対応（H-0066）**: ユーザー指定の feval metric（f1, brier, ece, precision_at_k, accuracy, rmsle, r2, smape, wape, mase。`smape` / `wape` は H-0071、`mase` は H-0132）を `config.json` の `feval_metrics` フィールドに記録し、`train.py` 内に pure numpy で再実装する。`mase` の scale は、生成 `train.py` が `build_feval_from_config(y_train)` に渡す、booster が学習する行（inner valid があれば `y.iloc[tr]`）の目的変数から作る（H-0132）。feval metric 未使用時は `feval_metrics: []` で後方互換を維持
 
 # 7. Artifacts（戻り値と保存対象の固定）
 
@@ -1518,6 +1518,7 @@ H-0100 までは `LogisticRegression(C=1.0)`（L2・目標値 0/1）で、原典
 - Metric IF
 - `needs_proba / greater_is_better`。指標がどのタスクを扱うかは指標のプロパティではなく、レジストリが持つ（`lizyml/metrics/registry.py`。扱わないタスクで引くと `UNSUPPORTED_METRIC`）。H-0014 は Metric IF の属性として `supports_task` を挙げたが、`BaseMetric` にその属性は無い（H-0111）
 - `BaseMetric.needs_simplex` は既定 `False` の具体プロパティで、multiclass の予測が確率分布（行和 1）でなければならない指標が `True` に上書きする: `auc` と `logloss`。`auc_pr` / `brier` はクラスごとの値を使うので `False` のまま（H-0049）。
+- `BaseMetric.needs_train_target` は既定 `False` の具体プロパティで、学習側の目的変数が要る指標（`mase`）が `True` に上書きする。そういう指標は `bind_train(y_train)` で学習側の目的変数に束ねた新しい instance を作ってから呼ぶ。呼ぶ側は `needs_train_target` が真のときだけ束ねる。既定の `bind_train` は `UNSUPPORTED_METRIC` を送出し、束ねていない `mase` を呼ぶと `UNSUPPORTED_METRIC` になる（黙った既定値は無い）。束ねていない instance は、名前・向き・`needs_*` を読むだけの経路（config の検査、tune の向きと探索次元の検査、`params_table`、export の parameters）で使える（H-0132）。
 - 回帰: `rmse / mae / r2 ...`
   - `mape`: `y_true` に 0 を含むと `UNSUPPORTED_METRIC`（H-0004）。値は `mean(|y - ŷ| / |y|) × 100`（百分率）。学習曲線（`eval_history`）の `mape` は LightGBM の定義 `|y-p| / max(1,|y|)` の比率で、この値と違う（H-0125）。
   - `huber`: 誤差 `e` について `|e| <= delta` で `0.5 e^2`、それより大きいと `delta(|e| - delta/2)`。`HuberLoss` の `delta` は既定 `1.0` でコンストラクタ引数（MetricEntry `{huber: {delta: ...}}`、§13.1.1）。文字列 `"huber"` は `delta=1.0` を意味する（H-0004）。学習曲線（`eval_history`）の `huber` は LightGBM の定義で、閾値は LightGBM の `alpha`（既定 0.9、huber / quantile の目的関数と共有）なので、この値と違う（H-0125）。
@@ -1525,12 +1526,17 @@ H-0100 までは `LogisticRegression(C=1.0)`（L2・目標値 0/1）で、原典
   - `smape`: `mean(2|y - ŷ| / (|y| + |ŷ|)) × 100`、範囲 `[0, 200]`。`y = ŷ = 0` の行は 0 として数える（H-0071）。
   - `wape`: `sum|y - ŷ| / sum|y| × 100`。`UNSUPPORTED_METRIC` になるのは `sum(|y_true|) == 0` のときだけ（H-0071）。
   - `smape` / `wape` はどちらも `greater_is_better=False`、`needs_proba=False`。
+  - `mase`: `mean|y - ŷ| / scale`、`scale = mean|y_train - mean(y_train)|`（学習側の目的変数の、平均からの平均絶対偏差。H-0132）。`y = 0` でも定義される。`greater_is_better=False`、`needs_proba=False`、`needs_train_target=True`。
+    - scale を取る行: OOF と IF は fold の outer-train の行、feval は booster が学習する行（inner valid があれば inner-train の行）。評価する行の目的変数は scale に入らない。
+    - 式は同じで、学習曲線は booster が学習する行（inner-train）の scale、`FitResult.metrics` は fold の outer-train の scale を使うので、値が違いうる。
+    - OOF 全体は、各行をその行を検証した fold の scale で割った値の平均（fold の検証の行数で重みをつけた fold ごとの値の平均）。覆われない行は入らない。
+    - 1 行が 2 つ以上の fold の検証に入る分割と、scale が 0 か有限でない場合は `UNSUPPORTED_METRIC`。tune では各試行が失敗し、`TUNING_FAILED` になる。時系列の naive・季節・系列ごとの scale は扱わない。
 - 分類（binary）: `logloss / auc / auc_pr / f1 / accuracy / brier / ece / precision_at_k ...`
   - `precision_at_k`: 予測確率の上位 `k`% の行の precision。`needs_proba=True`（確率で上位を選ぶ）、`greater_is_better=True`。既定は `k=10`（上位 10%、`1 <= k <= 100`）で、MetricEntry ごとに指定できる（§13.1.1、H-0014）。
 - 分類（multiclass）: `logloss / auc(OvR) / auc_pr(OvR) / f1(macro) / accuracy / brier(OvR) ...`
 - multiclass の `auc / auc_pr / brier` は One-vs-Rest 展開 + macro 平均で計算する。メトリクス名は binary と共通（`__call__` 内で `y_pred.ndim` により分岐）。`auc` は `roc_auc_score(..., multi_class='ovr', average='macro')`、`auc_pr` / `brier` はクラスごとの `average_precision_score` / `brier_score_loss` の macro 平均である（H-0018）。
 - **task との整合**: 指標名は `metrics/registry.py` の `_TASK_METRICS` が task ごとに持つ集合で検査し、集合に無い名前は `UNSUPPORTED_METRIC`（`Model.evaluate(metrics=...)` と Config の `evaluation.metrics` の両方）。
-  - `_TASK_METRICS["regression"]` = `rmse` / `mae` / `r2` / `rmsle` / `mape` / `huber` / `smape` / `wape`（H-0071）。
+  - `_TASK_METRICS["regression"]` = `rmse` / `mae` / `r2` / `rmsle` / `mape` / `huber` / `smape` / `wape`（H-0071）/ `mase`（H-0132）。
   - binary = `logloss` / `auc` / `auc_pr` / `f1` / `accuracy` / `brier` / `ece` / `precision_at_k`。multiclass = `logloss` / `f1` / `accuracy` / `auc` / `auc_pr` / `brier`。
   - したがって、`mape` / `huber` を回帰以外で（H-0004）、`precision_at_k` を回帰か multiclass で（H-0014）、multiclass 対応の `auc` / `auc_pr` / `brier` を回帰で（H-0018）指定すると `UNSUPPORTED_METRIC` になる。
 - **確率の検査**: `needs_proba` が真の組み込み指標は、確率でない値（数値でない、有限でない、`[0, 1]` の外、3 クラス以上なのに 1 次元）を受け取ると `METRIC_REQUIRES_PROBA` を送出する（H-0106）。0/1 のハードラベルは正当な確率として通る。binary の目的関数 `cross_entropy_lambda` は出力が確率でない（LightGBM は λ を出し、確率は `1 - exp(-λ)`）ので、目的関数としては学習の前に `CONFIG_INVALID`（`reason: "not_a_probability"`）で拒否し、それで学習した booster を持つ artifact は `Model.load` が `DESERIALIZATION_FAILED` で拒否する（§14.3、§4.2。H-0125、#307）。指標としての `cross_entropy_lambda` は今どおり受け付ける。
@@ -1703,6 +1709,7 @@ unsaveable_categories(pipeline_state) -> list[UnsaveableCategory]  # デフォ�
 | `r2` | ✅ | | | 予測値そのまま |
 | `smape` | ✅ | | | 予測値そのまま（H-0071） |
 | `wape` | ✅ | | | 予測値そのまま（H-0071） |
+| `mase` | ✅ | | | 予測値そのまま。scale は booster が学習する行の目的変数から（H-0132） |
 | `f1` | | ✅ | ✅ | 閾値 0.5 / argmax のラベル |
 | `brier` | | ✅ | ✅ | 確率そのまま |
 | `ece` | | ✅ | | 確率そのまま |
@@ -1710,8 +1717,9 @@ unsaveable_categories(pipeline_state) -> list[UnsaveableCategory]  # デフォ�
 | `accuracy` | | ✅ | ✅ | 閾値 0.5 / argmax のラベル |
 
 - `smape` / `wape` は回帰の feval 指標なので、`params.metric` に書けば early stopping と学習曲線を駆動する（H-0071）。
+- `mase` も回帰の feval 指標である。`LGBMAdapter.fit` が受け取った学習の目的変数（inner valid があれば inner-train の行）を `resolve_metrics(..., y_train=...)` に渡し、束ねてから feval を作る。eval set のラベル（`dataset.get_label()`、評価する行）から scale を作らない。学習の目的変数を渡さない経路（config の検査、`params_table`、export の parameters）は束ねずに作り、呼ばない（H-0132）。
 - **feval は LightGBM が渡す予測を再変換しない**（H-0105）。LightGBM 4 は組み込み objective の変換後の値を feval に渡す: binary は 1 次元の確率、multiclass / multiclassova は 2 次元 `(n, num_class)` の確率、regression は予測値。sigmoid / softmax をもう一度掛けると binary のラベル指標が定数になり確率指標が歪むので、掛けない。
-- feval は evaluator と同じ規則（`evaluation.evaluator._pred_for_metric`、§13.1）で metric に値を渡す: ラベル指標には binary で 0.5 閾値、multiclass で argmax、multiclass の `needs_simplex` 指標には行和で正規化した確率、それ以外は確率をそのまま。feval の指標は、学習曲線と `FitResult.metrics` で同じ名前が同じ意味になる（H-0105）。
+- feval は evaluator と同じ規則（`evaluation.evaluator._pred_for_metric`、§13.1）で metric に値を渡す: ラベル指標には binary で 0.5 閾値、multiclass で argmax、multiclass の `needs_simplex` 指標には行和で正規化した確率、それ以外は確率をそのまま。feval の指標は、学習曲線と `FitResult.metrics` で同じ名前が同じ意味になる（H-0105）。ただし `mase` は式が同じで scale を取る行が違う（§13.1、H-0132）。
 - 学習曲線（`FitResult.history` の `eval_history`）の native 指標は LightGBM の名前と定義で計算され、`FitResult.metrics` の同じ名前の指標と値が違うことがある。今そうなるのは `huber`（LightGBM の閾値は `alpha`）と `mape`（LightGBM は `|y-p| / max(1,|y|)` の比率）で、`plot_learning_curve` はその subplot の題に LightGBM の定義を添える（§13.3、H-0125、[#354](https://github.com/nbx-liz/LizyML/issues/354)）。
   - 記録される名前は LightGBM の正規名（`mae` と書いても `l1`、`logloss` は `binary_logloss` / `multi_logloss` として記録される）。各 task の受理する native 指標の全てを記録し、`MetricRegistry` の同じ task の名前との共通部分を同じ予測で比べると、値が違うのは上の二つだけで、他の共通の名前は一致する（`tests/test_plots/test_learning_curve_definitions.py`）。
 - multiclass の feval 入力が 2 次元 `(n, num_class)` でなければ reshape せず `EVALUATION_FAILED` を送出する（H-0105）。

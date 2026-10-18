@@ -122,7 +122,7 @@ _LGBM_NATIVE_METRICS: dict[str, frozenset[str]] = {
 # NOTE: r2 is documented in LightGBM master but not shipped in 4.6.0 binary.
 # Kept here until the upstream release is confirmed and minimum version bumped.
 _FEVAL_METRICS: dict[str, frozenset[str]] = {
-    "regression": frozenset(["rmsle", "r2", "smape", "wape"]),
+    "regression": frozenset(["rmsle", "r2", "smape", "wape", "mase"]),
     "binary": frozenset(["f1", "brier", "ece", "precision_at_k", "accuracy"]),
     "multiclass": frozenset(["f1", "brier", "accuracy"]),
 }
@@ -285,6 +285,8 @@ def resolve_metrics(
     metrics: list[MetricEntry],
     task: TaskType,
     num_class: int | None = None,
+    *,
+    y_train: npt.NDArray[Any] | None = None,
 ) -> tuple[list[str], list[Callable[..., tuple[str, float, bool]]], list[str]]:
     """Split metrics into native LightGBM names and feval callables.
 
@@ -303,6 +305,10 @@ def resolve_metrics(
         metrics: List of metric names or ``{name: {param: value}}`` dicts.
         task: ML task type.
         num_class: Number of classes (needed for multiclass feval).
+        y_train: Targets of the rows the booster trains on (H-0132). A feval
+            metric with ``needs_train_target`` (MASE) is bound to them. Without
+            them (configuration checks, ``params_table``, export parameters)
+            the feval is built unbound and refuses to run if ever called.
 
     Returns:
         ``(native_metrics, feval_callables, feval_display_names)`` tuple.
@@ -336,6 +342,8 @@ def resolve_metrics(
             feval_names_for_validation.add(raw_name)
             metric_obj = get_metric(raw_name, **kwargs)
             display = _metric_display_name(metric_obj, kwargs)
+            if metric_obj.needs_train_target and y_train is not None:
+                metric_obj = metric_obj.bind_train(np.asarray(y_train))
             fevals.append(
                 _build_feval(metric_obj, task, num_class, display_name=display)
             )
