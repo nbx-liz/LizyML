@@ -52,6 +52,16 @@ from tests.test_core.test_category_values import SAMPLES  # noqa: E402
 _DT64_UNITS = ("Y", "M", "W", "D", "h", "m", "s", "ms", "us", "ns", "ps", "fs", "as")
 
 
+def _type_id(kind: type) -> str:
+    """A case key unique per type: NumPy 2 names ``np.bool_`` ``bool`` too."""
+    return f"{kind.__module__}.{kind.__qualname__}"
+
+
+def test_every_admitted_type_has_its_own_case() -> None:
+    assert {_type_id(t) for t in ADMITTED_TYPES} <= set(CASES)
+    assert set(LABEL_CASES) == {_type_id(t) for t in ADMITTED_TYPES}
+
+
 def _derived_cases() -> dict[str, list[Any]]:
     """Category columns for criterion 1, derived from ``SAMPLES``.
 
@@ -64,8 +74,8 @@ def _derived_cases() -> dict[str, list[Any]]:
     cases: dict[str, list[Any]] = {}
     for kind, samples in SAMPLES.items():
         distinct = list(dict.fromkeys(samples))
-        cases[f"{kind.__name__}"] = distinct
-        cases[f"{kind.__name__} with a str"] = [*distinct, "zz"]
+        cases[_type_id(kind)] = distinct
+        cases[f"{_type_id(kind)} with a str"] = [*distinct, "zz"]
     for unit in _DT64_UNITS:
         cases[f"datetime64[{unit}] with a str"] = [
             np.datetime64(4, unit),
@@ -433,7 +443,7 @@ def _label_cases() -> dict[str, list[Any]]:
         usable = [
             v for v in dict.fromkeys(samples) if _pandas_cannot_build([v]) is None
         ]
-        cases[kind.__name__] = next(
+        cases[_type_id(kind)] = next(
             [a, b]
             for i, a in enumerate(usable)
             for b in usable[i + 1 :]
