@@ -29,7 +29,8 @@ import scipy.optimize
 import lizyml.calibration.platt as platt_module
 from lizyml import Model
 from lizyml.calibration.beta import BetaCalibrator
-from lizyml.calibration.platt import _DEFAULT_OPTIONS, PlattCalibrator
+from lizyml.calibration.platt import PlattCalibrator
+from lizyml.core.exceptions import ErrorCode, LizyMLError
 from tests._helpers import make_binary_df, make_config
 
 pytest.importorskip("scipy")
@@ -125,52 +126,113 @@ def test_3c_every_fold_and_c_final_train_isotonic_with_the_prepared_params() -> 
 # ---------------------------------------------------------------------------
 
 
-def _one_solve(calibrator: Any, spy: _Spy) -> dict[str, Any]:
+#: Every method calibration.params accepts, and the options keys scipy fills
+#: from ``tol`` for it. Written out here rather than read from the code under
+#: test, so a change to either side shows up as a failure.
+TOL_KEYS: dict[str, tuple[str, ...]] = {
+    "L-BFGS-B": ("ftol", "gtol"),
+    "TNC": ("ftol", "gtol", "xtol"),
+    "SLSQP": ("ftol",),
+    "trust-constr": ("barrier_tol", "gtol", "xtol"),
+    "Powell": ("ftol", "xtol"),
+    "Nelder-Mead": ("fatol", "xatol"),
+    "BFGS": ("gtol",),
+    "CG": ("gtol",),
+}
+#: The only per-method default options: Platt's, for L-BFGS-B (scikit-learn's).
+PLATT_L_BFGS_B_DEFAULTS = {"gtol": 1e-6, "ftol": 64 * float(np.finfo(float).eps)}
+CALIBRATORS = {"platt": PlattCalibrator, "beta": BetaCalibrator}
+
+
+def _defaults(calibrator: str, method: str) -> dict[str, float]:
+    if calibrator == "platt" and method == "L-BFGS-B":
+        return dict(PLATT_L_BFGS_B_DEFAULTS)
+    return {}
+
+
+def _one_solve(calibrator: str, params: dict[str, Any], spy: _Spy) -> dict[str, Any]:
+    """The kwargs of the one solve ``fit`` makes. What the fit concludes does
+    not matter here; a method that does not converge on these scores still
+    made the call, and the refusal it raises is the documented one."""
     s, y = _scores()
-    calibrator.fit(s, y)
+    try:
+        CALIBRATORS[calibrator](params).fit(s, y)
+    except LizyMLError as exc:
+        assert exc.code == ErrorCode.CALIBRATION_FAILED, exc
     solves = _solves(spy)
     assert len(solves) == 1, solves
     return solves[0]
 
 
-def test_4a_written_tol_replaces_the_tolerance_options_it_sets(
-    minimize_spy: _Spy,
-) -> None:
-    kwargs = _one_solve(PlattCalibrator({"tol": 1e-8}), minimize_spy)
-    assert kwargs["tol"] == 1e-8
-    # L-BFGS-B's tolerance keys come from tol, not from the platt defaults.
-    assert "ftol" not in kwargs["options"] and "gtol" not in kwargs["options"]
+def test_4_the_tol_key_table_matches_the_accepted_methods() -> None:
+    from lizyml.calibration._optimizer import _TOL_KEYS, METHODS
+
+    assert set(TOL_KEYS) == set(METHODS)
+    assert {m: tuple(sorted(k)) for m, k in _TOL_KEYS.items()} == {
+        m: tuple(sorted(k)) for m, k in TOL_KEYS.items()
+    }
 
 
-def test_4b_written_options_win_over_tol_and_over_the_defaults(
-    minimize_spy: _Spy,
+@pytest.mark.parametrize("calibrator", sorted(CALIBRATORS))
+@pytest.mark.parametrize("method", sorted(TOL_KEYS))
+def test_4a_written_tol_is_not_defeated_by_the_default_options(
+    calibrator: str, method: str, minimize_spy: _Spy
 ) -> None:
+    kwargs = _one_solve(calibrator, {"method": method, "tol": 1e-7}, minimize_spy)
+    assert kwargs["method"] == method and kwargs["tol"] == 1e-7
+    # Every default is a key tol sets, so none of them may stay.
+    expected = {
+        k: v
+        for k, v in _defaults(calibrator, method).items()
+        if k not in TOL_KEYS[method]
+    }
+    assert kwargs["options"] == expected
+
+
+@pytest.mark.parametrize("calibrator", sorted(CALIBRATORS))
+@pytest.mark.parametrize("method", sorted(TOL_KEYS))
+def test_4b_written_options_beat_written_tol_key_by_key(
+    calibrator: str, method: str, minimize_spy: _Spy
+) -> None:
+    key = TOL_KEYS[method][0]
     kwargs = _one_solve(
-        PlattCalibrator({"tol": 1e-8, "options": {"gtol": 1e-9, "maxiter": 77}}),
+        calibrator,
+        {"method": method, "tol": 1e-7, "options": {key: 1e-9}},
         minimize_spy,
     )
-    assert kwargs["tol"] == 1e-8
-    assert kwargs["options"] == {"gtol": 1e-9, "maxiter": 77}
+    assert kwargs["tol"] == 1e-7
+    assert kwargs["options"] == {key: 1e-9}
 
 
-def test_4b_written_options_merge_with_the_defaults(minimize_spy: _Spy) -> None:
-    kwargs = _one_solve(PlattCalibrator({"options": {"maxiter": 77}}), minimize_spy)
+@pytest.mark.parametrize("calibrator", sorted(CALIBRATORS))
+@pytest.mark.parametrize("method", ["L-BFGS-B", "BFGS"])
+def test_4b_written_options_merge_over_the_defaults(
+    calibrator: str, method: str, minimize_spy: _Spy
+) -> None:
+    kwargs = _one_solve(
+        calibrator, {"method": method, "options": {"maxiter": 77}}, minimize_spy
+    )
     assert "tol" not in kwargs
-    assert kwargs["options"] == {**_DEFAULT_OPTIONS["L-BFGS-B"], "maxiter": 77}
+    assert kwargs["options"] == {**_defaults(calibrator, method), "maxiter": 77}
 
 
-def test_4c_platt_default_options_apply_to_l_bfgs_b_only(minimize_spy: _Spy) -> None:
-    default = _one_solve(PlattCalibrator(), minimize_spy)
-    assert default["method"] == "L-BFGS-B"
-    assert default["options"] == _DEFAULT_OPTIONS["L-BFGS-B"]
-    minimize_spy.calls.clear()
-    tnc = _one_solve(PlattCalibrator({"method": "TNC"}), minimize_spy)
-    assert tnc["method"] == "TNC" and tnc["options"] == {}
+@pytest.mark.parametrize("calibrator", sorted(CALIBRATORS))
+@pytest.mark.parametrize("method", sorted(TOL_KEYS))
+def test_4c_defaults_belong_to_their_method(
+    calibrator: str, method: str, minimize_spy: _Spy
+) -> None:
+    kwargs = _one_solve(calibrator, {"method": method}, minimize_spy)
+    assert kwargs["method"] == method
+    # L-BFGS-B's ftol is not handed to BFGS, or to any other method.
+    assert kwargs["options"] == _defaults(calibrator, method)
 
 
-def test_4c_beta_has_no_default_options(minimize_spy: _Spy) -> None:
-    kwargs = _one_solve(BetaCalibrator(), minimize_spy)
-    assert kwargs["method"] == "L-BFGS-B" and kwargs["options"] == {}
+def test_4c_the_unwritten_method_is_l_bfgs_b(minimize_spy: _Spy) -> None:
+    for calibrator in sorted(CALIBRATORS):
+        minimize_spy.calls.clear()
+        kwargs = _one_solve(calibrator, {}, minimize_spy)
+        assert kwargs["method"] == "L-BFGS-B"
+        assert kwargs["options"] == _defaults(calibrator, "L-BFGS-B")
 
 
 # ---------------------------------------------------------------------------
@@ -233,13 +295,73 @@ def _expected() -> dict[str, Any]:
     return data
 
 
-def test_9a_the_v0_17_1_artifact_is_what_the_fixture_says() -> None:
+#: SHA-256 of every fixture file, frozen when the fixture was generated by
+#: ``docs/audits/2026-10-i298/probes/make_v0171_platt_artifact.py`` under
+#: LizyML 0.17.1. They live in this file, not beside the fixture, so replacing
+#: the fixture (and its own checksums and expectations) also needs a change
+#: here that a reviewer sees.
+FIXTURE_SHA256 = {
+    "artifact/analysis_context.pkl": (
+        "232b85526afc2499b3fc6b78c60bb61733abd898e176ada1204c2e5d209dc25d"
+    ),
+    "artifact/fit_result.pkl": (
+        "757bfcea25887ea36011c24514cf57d7c27866b550499f6f7c0568e02553a363"
+    ),
+    "artifact/metadata.json": (
+        "3065a29435cb19093c77ac0bf42995db9c6113994c3c0b9d2b7e3d38527cd969"
+    ),
+    "artifact/refit_model.pkl": (
+        "dd0076046c2c1c0b183d5459035b8dffa83b6f49ad0f8a35d9512f1b5f79d58a"
+    ),
+    "expected.json": (
+        "33847c9f89026339d1f666764b911db6c8ac97c5d156921eea27b173cf30f5bf"
+    ),
+}
+
+
+def test_9a_the_fixture_is_the_frozen_v0_17_1_artifact() -> None:
+    import hashlib
+
+    found = {
+        str(path.relative_to(FIXTURE)): hashlib.sha256(path.read_bytes()).hexdigest()
+        for path in sorted(FIXTURE.rglob("*"))
+        if path.is_file()
+    }
+    assert found == FIXTURE_SHA256
     expected = _expected()
     assert expected["lizyml"] == "0.17.1"
     assert expected["numpy"] == "1.24.0"  # readable by every CI lane
     meta = json.loads((FIXTURE / "artifact" / "metadata.json").read_text())
     assert meta["format_version"] == 2 and meta["lizyml_version"] == "0.17.1"
     assert meta["config"]["calibration"]["method"] == "platt"
+
+
+@pytest.mark.filterwarnings("ignore")
+def test_9a_loading_runs_the_legacy_setstate_path(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The pickled calibrators carry the pre-H-0100 ``{"_model":
+    LogisticRegression}`` state, so loading goes through the migration in
+    ``PlattCalibrator.__setstate__``, not through the current state."""
+    states: list[dict[str, Any]] = []
+    real = PlattCalibrator.__setstate__
+
+    def record(self: PlattCalibrator, state: dict[str, Any]) -> None:
+        states.append(dict(state))
+        real(self, state)
+
+    monkeypatch.setattr(PlattCalibrator, "__setstate__", record)
+    Model.load(FIXTURE / "artifact")
+    expected = _expected()
+    assert states, "no PlattCalibrator was unpickled"
+    for state in states:
+        assert set(state) == {"_model"}, sorted(state)
+        assert type(state["_model"]).__name__ == "LogisticRegression"
+    coefs = {
+        (float(s["_model"].coef_[0, 0]), float(s["_model"].intercept_[0]))
+        for s in states
+    }
+    assert (expected["platt_coef"], expected["platt_intercept"]) in coefs
 
 
 # Unpickling the scikit-learn 1.3.0 estimator inside the legacy state may warn.

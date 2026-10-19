@@ -75,9 +75,13 @@ def _tol_keeps_default_options(mp: pytest.MonkeyPatch) -> None:
     mp.setattr(platt, "resolve_minimize_kwargs", _resolve_variant(pop_tol=False, tol_after=False, defaults=True))
 
 
-def _tol_overrides_written_options(mp: pytest.MonkeyPatch) -> None:
+def _tol_overrides_written_options(module: Any) -> Callable[[pytest.MonkeyPatch], None]:
     """(d) Written options are applied before tol, which then removes them."""
-    mp.setattr(platt, "resolve_minimize_kwargs", _resolve_variant(pop_tol=True, tol_after=True, defaults=True))
+
+    def apply(mp: pytest.MonkeyPatch) -> None:
+        mp.setattr(module, "resolve_minimize_kwargs", _resolve_variant(pop_tol=True, tol_after=True, defaults=True))
+
+    return apply
 
 
 def _no_default_options(mp: pytest.MonkeyPatch) -> None:
@@ -85,6 +89,35 @@ def _no_default_options(mp: pytest.MonkeyPatch) -> None:
     variant = _resolve_variant(pop_tol=True, tol_after=False, defaults=False)
     mp.setattr(platt, "resolve_minimize_kwargs", variant)
     mp.setattr(beta, "resolve_minimize_kwargs", variant)
+
+
+def _beta_drops_tol(mp: pytest.MonkeyPatch) -> None:
+    """(c2) BetaCalibrator.fit does not pass the written tol to minimize."""
+    real = optimizer.resolve_minimize_kwargs
+
+    def resolve(params: Any, **kwargs: Any) -> Any:
+        out = real(params, **kwargs)
+        out.pop("tol", None)
+        return out
+
+    mp.setattr(beta, "resolve_minimize_kwargs", resolve)
+
+
+def _defaults_for_every_method(module: Any) -> Callable[[pytest.MonkeyPatch], None]:
+    """(e2) Platt's L-BFGS-B defaults are handed to whatever method is written."""
+
+    def apply(mp: pytest.MonkeyPatch) -> None:
+        real = optimizer.resolve_minimize_kwargs
+
+        def resolve(params: Any, **kwargs: Any) -> Any:
+            out = real(params, **kwargs)
+            if "tol" not in params:
+                out["options"] = {**platt._DEFAULT_OPTIONS["L-BFGS-B"], **out["options"]}
+            return out
+
+        mp.setattr(module, "resolve_minimize_kwargs", resolve)
+
+    return apply
 
 
 def _no_rescale_transform(mp: pytest.MonkeyPatch) -> None:
@@ -140,17 +173,33 @@ CONTROLS: dict[str, tuple[Callable[[pytest.MonkeyPatch], None], list[str]]] = {
         _c_final_without_params,
         [T + "test_3c_every_fold_and_c_final_train_isotonic_with_the_prepared_params"],
     ),
-    "(c) tol keeps the default options -> 4a": (
+    "(c) platt: tol keeps the default options -> 4a": (
         _tol_keeps_default_options,
-        [T + "test_4a_written_tol_replaces_the_tolerance_options_it_sets"],
+        [T + "test_4a_written_tol_is_not_defeated_by_the_default_options"],
     ),
-    "(d) tol overrides written options -> 4b": (
-        _tol_overrides_written_options,
-        [T + "test_4b_written_options_win_over_tol_and_over_the_defaults"],
+    "(c2) beta: tol not passed -> 4a": (
+        _beta_drops_tol,
+        [T + "test_4a_written_tol_is_not_defeated_by_the_default_options"],
+    ),
+    "(d) platt: tol overrides written options -> 4b": (
+        _tol_overrides_written_options(platt),
+        [T + "test_4b_written_options_beat_written_tol_key_by_key"],
+    ),
+    "(d2) beta: tol overrides written options -> 4b": (
+        _tol_overrides_written_options(beta),
+        [T + "test_4b_written_options_beat_written_tol_key_by_key"],
     ),
     "(e) no per-method defaults -> 4c": (
         _no_default_options,
-        [T + "test_4c_platt_default_options_apply_to_l_bfgs_b_only"],
+        [T + "test_4c_defaults_belong_to_their_method"],
+    ),
+    "(e2) platt: L-BFGS-B defaults for every method -> 4c": (
+        _defaults_for_every_method(platt),
+        [T + "test_4c_defaults_belong_to_their_method"],
+    ),
+    "(e3) beta: platt defaults for every method -> 4c": (
+        _defaults_for_every_method(beta),
+        [T + "test_4c_defaults_belong_to_their_method"],
     ),
     "(f) x0 and bounds not rescaled -> 5b": (
         _no_rescale_transform,
