@@ -46,7 +46,7 @@
 
 | Layer | 名称 | 依存先 | 含まれるモジュール | 下の層から参照してよいモジュール（IF） |
 |---|---|---|---|---|
-| 0 | Foundation | なし | `core/exceptions.py`, `core/logging.py`, `core/registries.py`, `core/types/`, `core/param_domain.py`, `core/category_values.py`, `core/specs/`, `_extras.py`, `_version.py` | 全部 |
+| 0 | Foundation | なし | `core/exceptions.py`, `core/logging.py`, `core/registries.py`, `core/types/`, `core/param_domain.py`, `core/category_values.py`, `core/magnitude.py`, `core/tuning_codec.py`, `core/specs/`, `_extras.py`, `_version.py` | 全部 |
 | 1 | Leaf | Foundation + 同じ層の中で許す参照 | `config/`, `data/`, `splitters/`, `features/`, `estimators/`, `metrics/`, `calibration/` | `splitters/base.py`, `features/pipeline_base.py`, `estimators/base.py`, `estimators/provider.py`, `metrics/base.py`, `metrics/registry.py`, `calibration/base.py` |
 | 2 | Composition | Foundation + Layer 1 の IF | `training/`, `evaluation/`, `tuning/` | `training/results.py` |
 | 3 | Optional | Foundation + Layer 1/2 の IF | `explain/`, `plots/`, `persistence/`, `codegen/` | なし |

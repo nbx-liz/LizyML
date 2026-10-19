@@ -22,13 +22,13 @@ from typing import Any
 
 import numpy as np
 
-from lizyml.core.types.search_dim import CategoricalDim, FloatDim, IntDim, SearchDim
-from lizyml.tuning._magnitude import (
+from lizyml.core.magnitude import (
     exact,
     finite_float,
     int_too_large,
     width_too_large,
 )
+from lizyml.core.types.search_dim import CategoricalDim, FloatDim, IntDim, SearchDim
 from lizyml.tuning._space_format import (
     check_float_width,
     format_error,

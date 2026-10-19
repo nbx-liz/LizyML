@@ -21,9 +21,9 @@ import pytest
 
 from lizyml import Model
 from lizyml.core import _tuning_plan
+from lizyml.core import magnitude as _magnitude
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.search_dim import FloatDim, IntDim, SearchDim
-from lizyml.tuning import _magnitude
 from lizyml.tuning._step_grid import check_dim_magnitude, check_dim_step
 from lizyml.tuning.lineage import STUDY_KEY, classify_study, round_key
 from lizyml.tuning.lineage_codec import LineageCodecError, decode_dim, encode_dim

@@ -31,13 +31,13 @@ from typing import Any
 import numpy as np
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
-from lizyml.tuning._magnitude import (
+from lizyml.core.magnitude import (
     FLOAT_WIDTH_LIMIT,
     INT_LIMIT,
     int_too_large,
     width_too_large,
 )
-from lizyml.tuning.lineage_codec import DIM_CATEGORIES
+from lizyml.core.tuning_codec import DIM_CATEGORIES
 
 __all__ = [
     "CATEGORICAL_KEYS",

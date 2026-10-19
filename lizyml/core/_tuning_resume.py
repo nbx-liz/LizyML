@@ -36,6 +36,7 @@ from lizyml.core._tuning_identity import (
     version_differences,
 )
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.tuning_codec import LineageCodecError, dim_signature
 from lizyml.tuning import tuner as _tuner
 from lizyml.tuning.lineage import (
     SCHEMA_VERSION,
@@ -44,7 +45,6 @@ from lizyml.tuning.lineage import (
     encode_round,
     encode_study,
 )
-from lizyml.tuning.lineage_codec import LineageCodecError, dim_signature
 from lizyml.tuning.search_space import parse_space
 
 if TYPE_CHECKING:
