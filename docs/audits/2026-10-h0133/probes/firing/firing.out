@@ -1,26 +1,47 @@
 fit columns[kernel]: 398
-fit columns[pytest]: 1106
-inside V: 1484
-outside V deliberate: 20
+fit columns[pytest]: 1593
+implementation agrees with the reference: 1991
+inside V: 1909
+outside V deliberate: 82
+outside V reason[Decimal NaN]: 4
+outside V reason[NaN]: 9
+outside V reason[NaT]: 4
+outside V reason[complex NaN]: 4
+outside V reason[datetime tzinfo ZoneInfo]: 4
+outside V reason[nesting deeper than 8]: 4
 outside V reason[type _ArrayWithoutList]: 5
 outside V reason[type _Hostile]: 5
-outside V reason[type longdouble]: 10
-unwritable deliberate: 181
+outside V reason[type _Opaque]: 9
+outside V reason[type _Str]: 4
+outside V reason[type longdouble]: 30
+raw column: 1551
+stand-in column deliberate: 440
+unwritable deliberate: 442
 category value types (column fits containing each):
-  str: 1142
-  int: 127
-  tuple: 87
-  bytes: 41
-  float: 36
-  Timestamp: 35
-  Decimal: 15
-  Timedelta: 10
-  bool: 10
-  complex: 10
-  date: 10
-  frozenset: 10
+  str: 1247
+  int: 199
+  tuple: 164
+  Timestamp: 100
+  bytes: 84
+  float: 60
+  Timedelta: 34
+  Decimal: 31
+  bool: 26
+  frozenset: 26
+  complex: 22
+  date: 18
+  _Opaque: 9
+  datetime: 8
+  bytes_: 8
+  complex128: 8
+  complex64: 8
+  datetime64: 8
   _ArrayWithoutList: 5
   _Hostile: 5
-unwritable types: {'bytes': 41, 'tuple': 40, 'Timestamp': 35, 'Decimal': 15, 'Timedelta': 10, 'complex': 10, 'date': 10, 'frozenset': 10, '_ArrayWithoutList': 5, '_Hostile': 5}
+unwritable types: {'Timestamp': 100, 'bytes': 84, 'tuple': 84, 'Timedelta': 34, 'Decimal': 31, 'frozenset': 26, 'complex': 22, 'date': 18, '_Opaque': 9, 'datetime': 8, 'bytes_': 8, 'complex128': 8, 'complex64': 8, 'datetime64': 8, '_ArrayWithoutList': 5, '_Hostile': 5}
 tests outside the deliberate files with an unwritable column:
 exit=0
+records: 1991; outside the deliberate files: 1049 {'pytest': 651, 'kernel': 398}
+  stand-in columns: 0
+  LightGBM cannot write: 0
+  outside V (implementation): 0

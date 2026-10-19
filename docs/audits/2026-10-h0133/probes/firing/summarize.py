@@ -20,6 +20,12 @@ DELIBERATE = (
     "tests/test_persistence/test_unwritable_categories.py::",
     "tests/test_codegen/test_export_contract.py::",
     "tests/test_persistence/test_h0120_records.py::",
+    # Added with the implementation (H-0133): they build values outside V and
+    # stand-in columns on purpose, some with a test predicate.
+    "tests/test_persistence/test_h0133_acceptance.py::",
+    "tests/test_features/test_category_stand_in.py::",
+    "tests/test_core/test_category_values.py::",
+    "tests/test_codegen/test_h0133_codec_copy.py::",
 )
 
 
@@ -50,7 +56,7 @@ def main(paths: list[str]) -> int:
                 errors += 1
                 print("disagreement:", r["outside_v"], impl, r.get("test"))
         if "stand_in" in r:
-            if r["stand_in"] != bool(r["unwritable"]):
+            if not deliberate and r["stand_in"] != bool(r["unwritable"]):
                 errors += 1
                 print("stand-in decision differs from the LightGBM predicate:", r.get("test"))
             c["stand-in column deliberate" if r["stand_in"] and deliberate else ("stand-in column elsewhere" if r["stand_in"] else "raw column")] += 1

@@ -14968,3 +14968,25 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
   - pytz を入れた一時的な環境で、指摘と直し方を実測した（`probes/pytz_fold_probe.py` → `.out`）。pytz の zone の `Timestamp` は、その値の時差で書いて `datetime.timezone` で戻す（P2）。
   - 計測の数は変わらない（判定 P1 は変えていない）。
   - 2 回目の確認の review（run `h0133-proposal-confirm2`、`a42beb4`）は APPROVE だった。改訂 4 の指摘は解決と確認された。minor 1 件（P1 の `Timestamp` の hash の文が、pytz の例外を含めず一般化していた）は、`ZoneInfo` の場合に限る文に直し、pytz の例外を指した。
+
+### 実装の記録（2026-10-19）
+
+- **実装**（`4edf97f`、`72481e6` ほか）: P1〜P9 のとおり。Proposal からの外れ、または Proposal が決めていなかった点:
+  - **表示の関数の移動**: 例外を出さない表示の関数 `shown` と `type_name` を `estimators/lgbm/category_json.py` から `core/category_values.py` に移した。persistence と codegen が Layer 0 から使うためである。`category_json` は同じ名前を再公開する。
+  - **H-0127 の警告関数の削除**: `category_json.warn_unsaveable_categories` を削除した。fit の警告は `persistence/exporter.py` の `warn_unsaveable_category_values` が V で出す（P5）。
+  - **context の `state`**: 拒否の context の `state` は、H-0127 と同じく `refit`・`fold k`・`last fold`（`declared_categories` の値は `declared categories`）のままにした。文の中では「… pipeline state」と書く。
+  - **生成コードの符号化の写し**: `templates.py` の `_VALUE_CODEC` は、表の写しに加えて V の拒否の一部を持つ。持つのは、自分自身と等しくならない値、入れ子の深さ、`datetime` の zone の規則である。生成 `train.py` の再学習が、復元で一致しない値を書かないためである。pytz の zone は、型の module の名前で見分ける（生成コードは pytz を import しない）。
+  - **knob の台帳**: 新しい構築時の引数 `CategoricalEncoder.needs_stand_in` と `NativeFeaturePipeline.needs_stand_in` を `internal`（配線）に分類した。BLUEPRINT §5.5 の数を 74 → 76、表の行を 15 → 17 にした。
+  - **pandas が直す値**: Proposal は受け入れ基準 3 の外の値に、NaN を含む `complex`、V の型のサブクラス、`no_cache` の zone の `datetime` を挙げた。実測では、pandas 3.0.1 は fit でこれらを V の値に直すか、欠損として落とす（`probes/pandas_normalizes_probe.out`: `complex` の NaN は欠損、`str` のサブクラスは `str`、`datetime` は `Timestamp`）。そのため、これらが encoder に届くことは無い。受け入れのテストは、これらを `tuple` の中に入れて encoder に届く形にして、3 つの出口が拒否することを確かめる。最上位の値そのものは、どの pandas の版でも、3 つの出口の答えがそろい、拒否するときだけ fit が警告することを確かめる。
+  - **テストの検出力**: 最初のテストのデータ（160 行・4 カテゴリ）では、LightGBM がカテゴリで分岐しなかった（`min_data_per_group` の既定 100）。陰性対照 (b) は、そのデータでは捕まらなかった（fold の状態が誤った形でも、`c` の SHAP は 0）。データを 800 行・カテゴリが目的変数を決める形に変え、model が列を使うことを確かめるテスト（`test_the_frame_makes_the_model_use_the_column`）を足した。
+- **陰性対照**（受け入れ基準 8、`probes/negative_controls_h0133.py` → `.out`）: 8/8 が捕まり、パッチを当てない基準の実行は exit 0 だった。各対照は、Proposal が名指したテストで捕まる。(b) は fold ごとの SHAP のテストだけで走らせて捕まる。パッチは MonkeyPatch で元に戻し、テストのモジュールは毎回読み直す（H-0132 の形。H-0130 の陰性対照には、この 2 つが無い）。
+- **Firing rate（実装の後、実装の判定で測定。`probes/firing/` → `firing.out`）**:
+  - 測定の条件: V で、`72481e6` に計測器の変更を足した木で、フルスイートと notebook の実行の層を走らせた。`CategoricalEncoder.fit` の記録は 1991 件だった。
+  - 意図して値を作るテストのファイルは 7 つ: #338 の 3 つと、H-0133 で足した `test_h0133_acceptance.py`・`test_category_stand_in.py`・`test_category_values.py`・`test_h0133_codec_copy.py`。
+  - 置き換える列の判定: Firing rate: 0/1049 of `CategoricalEncoder.fit` column records outside the seven deliberate test files chose stand-ins (651 in pytest, 398 in notebook kernels).
+  - V による受理: Firing rate: 0/1049 of the same records hold a category or mode the implementation's predicate refuses.
+  - 実装の判定（`core.category_values.refusal`）と参照実装（`v_reference.py`）は、1991/1991 件で同じ答えを返した。置き換えた列は、意図したファイルの外では、LightGBM の判定とそろった。
+  - **Proposal の分母の訂正**: Proposal の Firing rate の分母「0/1323」は、全体の 1504 件から、#338 のファイルの中の書けない値の記録（181 件）だけを引いた数だった。同じファイルの中の書ける値の記録まで「ファイルの外」に数えていた。分子の 0 は正しいが、分母は誤りである。実装の前の正しい分母は、計測の記録を残していないので示さない。上の実装の後の数が、正しく数えた値である。
+- **フルスイート**（V、`72481e6`）: 12500 passed、230 skipped、2 failed。notebook の実行の層は 21 passed。失敗の 2 件:
+  - `tests/test_config/test_knob_reachability.py`: 新しい引数が台帳に無かった。上の knob の台帳の項で直した。
+  - `tests/test_e2e/test_version.py`: 環境による失敗。editable install の metadata が古いためで、既知である（CI では通る）。

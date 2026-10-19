@@ -439,7 +439,7 @@ config = {
 
 ## 5.5 Config のキーが設定しない構成値（H-0108）
 
-公開クラスの `__init__` の既定値付き引数（74 個、AST で数えた母集団）を、値の出どころで分類した。**Config のキーの値がそのまま渡る 59 個**は、どのキーから来るかを経路ごとに `tests/test_config/_knob_registry.py` の台帳に書く（§17 の `output_dir` と、§5.4 の表に行の無い `calibration.params` も含む）。`tests/test_config/test_knob_reachability.py` は、経路ごとに本物の `fit` / `tune` を実行してコンストラクタが受け取る値を確かめ、どの行にも既定でない値を設定したセルが少なくとも 1 つある。残りの 15 個をこの表に書く。表と `tests/test_config/_knob_registry.py` の台帳は同じテストが照合する。
+公開クラスの `__init__` の既定値付き引数（76 個、AST で数えた母集団）を、値の出どころで分類した。**Config のキーの値がそのまま渡る 59 個**は、どのキーから来るかを経路ごとに `tests/test_config/_knob_registry.py` の台帳に書く（§17 の `output_dir` と、§5.4 の表に行の無い `calibration.params` も含む）。`tests/test_config/test_knob_reachability.py` は、経路ごとに本物の `fit` / `tune` を実行してコンストラクタが受け取る値を確かめ、どの行にも既定でない値を設定したセルが少なくとも 1 つある。残りの 17 個をこの表に書く。表と `tests/test_config/_knob_registry.py` の台帳は同じテストが照合する。
 
 分類は、そのクラスを構築するすべての本番の経路で読み、最初に当てはまるものを採る:
 
@@ -465,6 +465,8 @@ config = {
 | `LizyMLError.context` | internal | エラーの中身。各 raise 箇所が設定する |
 | `CVTrainer.ratio_param_resolver` | internal | 配線: 比率で書いたスマートパラメーターを fold ごとに解決する |
 | `RefitTrainer.ratio_param_resolver` | internal | 配線: 比率で書いたスマートパラメーターを解決する |
+| `CategoricalEncoder.needs_stand_in` | internal | 配線: estimator が保存できない値の判定（LightGBM の provider が渡す、H-0133） |
+| `NativeFeaturePipeline.needs_stand_in` | internal | 配線: estimator が保存できない値の判定（LightGBM の provider が渡す、H-0133） |
 
 # 6. 実行フロー（概念）
 
