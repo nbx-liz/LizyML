@@ -15335,3 +15335,20 @@ Codex の run `h0134-impl-review` の round 1（`6207df6`）は CHANGES_REQUESTE
 - **結果**:
   - フルスイート: 12874 passed、1 failed（`test_version`。環境による既知の失敗）。
   - 陰性対照: 9/9 が捕まり、パッチなしの基準も通った。
+
+### 実装レビュー round 2 と、CI の不安定な失敗（2026-10-19）
+
+- Codex の run `h0134-impl-review` の round 2（`a2303a3`）は APPROVE だった（指摘 0 件）。
+  - round 2 の前の絶対の監視は、runner も Claude も DELIVERABLE-FOCUSED で、round 2 は round 1 の直しの差分に絞った。
+- **CI**: H-0133 の受け入れテストの `Timestamp` の 2 件が、"Categorical categories must be unique" で不安定に落ちた。
+  - 落ちた lane: `6207df6` では Quality (3.10)、`a2303a3` では lowest-direct。
+  - 手元（aarch64）では、pandas 2.0・2.3・3.0 のどれでも再現しなかった。
+- **原因**: H-0133 のケースを作る `_derived_cases` は、型ごとの見本を `dict.fromkeys` で重複を除いて 1 列にする。
+  - zoneinfo の New York の `fold=1`（-05:00）と、同じ時刻の pytz の値は、`==` では等しい。しかし hash が違う（PEP 495 は繰り返しの時刻を `fold=0` として hash する）ので、両方が残っていた。
+  - pandas は hash で重複を除くので、fit は 2 つを別のカテゴリとして覚える。
+  - 保存すると、pytz の値は固定の時差で書かれる。load の後、pandas が 2 つを重複とみなすかどうかは環境によって変わる。
+  - H-0134 の変更による失敗ではない。
+- **管理者の判断**（2026-10-19）: テストを直し、ライブラリの不具合は issue にする。
+  - テストの直し: 各ケースから「等しいのに hash が違う値」を除いた。どのケースにもそのような組が無いことを確かめるテストを足した。除いた pytz の値は、自分のケース `Timestamp pytz fold` に残る。
+  - 結果: pandas 3・3.10（pandas 2.3.3）・下限（pandas 2.0.0）のどれでも通った。H-0133 の陰性対照は 8/8 が捕まり、基準も通った。
+  - ライブラリの不具合: #372（DC1。export は通るのに、load の後の predict が失敗しうる）。
