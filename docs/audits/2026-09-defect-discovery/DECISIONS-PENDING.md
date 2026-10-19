@@ -324,7 +324,8 @@ It was retired by #276 (2026-10-19). It recomputes the plan's claims against the
 current tree, which has moved on: four of its numeric checks are now stale
 (PR 3, PR 4 `RefitTrainer.fit`, PR 8, PR 9), and its PR 2 row reports MISMATCH
 by construction, since its claimed value is "(unstated)". None of the five is a
-defect. Read the last commit containing the script: `git show
+defect. Read it at `ccae32b`, the last commit that changed the script before its
+deletion: `git show
 ccae32b:docs/audits/2026-09-defect-discovery/instruments/plan_population_recheck.py`.
 
 
