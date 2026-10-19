@@ -15066,7 +15066,7 @@ Codex の設計の批評（run `h0134-design-critique`。容量不足と 429 で
 
 - **load 後に読まれるもの**（読むだけの調査 2 本、Codex の批評で確認）:
   - 3 つの面が読むのは `_tuning_result` の `trials`・`rounds`・`boundary_report`・`metric_name`・`direction` だけで、全て `_get_tuning_state()`（`core/_model_tuning.py:855-861`）を通る。
-  - ほかに load 後に読まれるのは `best_*` だけである（`fit` の上書き、`export` の metadata、`export_code` の `best_smart_params`）。
+  - ほかの読み手が読むのは、`metadata.json` に今保存している 6 つ（`best_*` の 3 つ、`best_score`、`metric_name`、`direction`）だけである。`fit` の上書きは `best_*`、`export_code` は `best_smart_params`、再 export（`_tuning_metadata`、`persistence/exporter.py:223-238`）は 6 つ全部を読む。`trials`・`rounds`・`boundary_report` を読むのは 3 つの面だけである（改訂 1 で訂正。Proposal review round 1 の major 5）。
   - `tune(resume=True)` は `_tuning_result` を読まない。生きた study か storage の study を読む（`core/_tuning_resume.py`、`_tuning_plan.py:516-533`）。復元した試行は resume に使われない。それで正しい（H-0122）。
 - **型**（`core/types/tuning_result.py`）:
   - 全て素の値の frozen dataclass である。
@@ -15085,9 +15085,13 @@ Codex の設計の批評（run `h0134-design-critique`。容量不足と 429 で
 
 - **P1. 符号化を Layer 0 に移す**（判断 4。振る舞いは変えない）:
   - `tuning/_magnitude.py` を `core/magnitude.py` に移す。import している 3 つ（`tuning/_step_grid.py`・`tuning/_space_format.py`・`tuning/lineage_codec.py`）を直し、`tuning/_magnitude.py` は消す。
-  - `tuning/lineage_codec.py` のうち値・探索次元・境界の報告の符号化を `core/tuning_codec.py` に移す。対象は `LineageCodecError`、`encode_scalar`/`decode_scalar` と数の補助、`encode_dim(s)`/`decode_dim(s)`、`encode_report`/`decode_report` と `_encode_status`/`_decode_status`。
-  - Optuna の study の属性に固有の部分（`to_attr_value` など）は `tuning/lineage_codec.py` に残し、移した名前を `core/tuning_codec.py` から import する。
-  - BLUEPRINT §2.1 の Layer 0 の表に 2 つのモジュールを足す。architecture のテスト（R0〜R5）の Layer 0 の一覧も合わせる。
+  - `tuning/lineage_codec.py` のうち値・探索次元・境界の報告の符号化を `core/tuning_codec.py` に移す。対象は次のとおり（改訂 1 で `DIM_CATEGORIES` と `dim_signature` を足した。round 1 の major 4）:
+    - `LineageCodecError`
+    - `encode_scalar`/`decode_scalar` と数の補助
+    - `DIM_CATEGORIES`、`encode_dim(s)`/`decode_dim(s)`、`dim_signature`（`encode_dim` の JSON を比べるための形）
+    - `encode_report`/`decode_report` と `_encode_status`/`_decode_status`
+  - Optuna の study の属性に固有の部分（`to_attr_value` など）は `tuning/lineage_codec.py` に残す。移した名前は `core/tuning_codec.py` から import し、`tuning/lineage_codec.py` から明示的に再公開する（`__all__`、mypy strict で通ること）。import している位置（`core/_tuning_resume.py`・`core/_tuning_space.py`・`tuning/_space_format.py`・`tuning/lineage.py`・`tuning/lineage_records.py`）は、新しいモジュールから直接 import するように直す。
+  - BLUEPRINT §2.1 の Layer 0 の表に 2 つのモジュールを足す。architecture のテスト（`tests/test_architecture/_layer_rules.py`）は層の所属を BLUEPRINT の表から読むので、テストの側は変えない（改訂 1 で訂正。テストの側に Layer 0 の一覧は無い）。
   - study の属性の書式と、系譜の復号の寛容さ（境界の報告の知らないキーを無視する）は変えない。履歴の復号だけが厳密である（P2）。
 - **P2. 履歴の符号化**（`core/tuning_codec.py` の `encode_history`/`decode_history`）:
   - 形は次のとおり。全てのオブジェクトはキーの集合が厳密に一致すること。
@@ -15109,11 +15113,16 @@ Codex の設計の批評（run `h0134-design-critique`。容量不足と 429 で
 - **P3. export**（`persistence/exporter.py`）:
   - tune 済みのモデルで履歴が「ある」とき、`tuning_history.json` を `allow_nan=False` の compact JSON で書く。
   - `checksums.files` に、その SHA-256 を載せる。
-  - `metadata.json` の `tuning` に `"history": {"file": "tuning_history.json", "schema": "lizyml-tuning-history/v1"}` を書く。
+  - `metadata.json` の `tuning` に `"history": {"file": "tuning_history.json", "schema": "lizyml-tuning-history/v1"}` を書く。ファイル名と schema の文字列は `core/tuning_codec.py` の定数 `HISTORY_FILE`・`HISTORY_SCHEMA` 1 つずつで、書き手と読み手（P2 の payload の `schema` も）が同じ定数を使う。
   - 履歴が「ない」とき（P5）は `"history": null` を書き、ファイルは書かない。
-  - 公開の `lizyml.persistence.export(tuning=...)` は、渡された `TuningResult` の履歴を書く（判断 4）。`Model.export` は内部の `write_checked` に履歴の有無を渡す。
+  - 公開の `lizyml.persistence.export(tuning=...)` は、渡された `TuningResult` の履歴を書く（判断 4）。
+  - `Model.export` は内部の `write_checked` に履歴の有無を渡す（改訂 1。round 1 の major 3）:
+    - export の mixin（`core/_model_persistence.py`）は読むだけの mixin で、Model の状態は `FitState` からだけ受け取る。
+    - そこで `FitState`（`core/_model_state.py`）に `tuning_history_available: bool` を足し、`_get_fit_state`（`core/model.py:939`）がそれを埋める。mixin は `state.tuning_history_available` を `write_checked` に渡す。
+    - mixin の状態の分離を確かめるテスト（`tests/test_core/test_mixin_state_isolation.py` の `_FORBIDDEN_ATTRS`）に `tuning_history_available` を足し、mixin が私的な属性を直接読まないことを確かめる。
 - **P4. load**（`persistence/loader.py`、`core/_model_persistence.py`）:
   - format 4 で `tuning` があれば、`history` キーは必須である（無ければ `DESERIALIZATION_FAILED`）。
+  - **宣言の形は閉じている**（改訂 1。round 1 の major 1）。`history` は `null` か、ちょうど `{"file": HISTORY_FILE, "schema": HISTORY_SCHEMA}` のどちらかである。それ以外は全て `persistence.load` で `DESERIALIZATION_FAILED` にする。次のものも含む: 配列やスカラー、キーの過不足、別のファイル名やパス、別の schema。「履歴なし」として読むことはしない。
   - `history` がオブジェクトのとき:
     - `file` が `checksums.files` に載っていて、ディスクにあることを確かめる。
     - バイト列を 1 回だけ読み、digest を照合してから P2 の厳密な復号に渡す（H-0083 と同じ順）。
@@ -15220,13 +15229,14 @@ H-0134 が足す条件は 2 つで、どちらも Change Gate の 6 つの目的
    - 同じモデルで `fit()` の上書きが働くこと。
    - そのモデルを export し直しても `history: null` のままであること（2 回の往復）。
 3. **形の網羅**: 次の全てを含む結果を export・load し、3 つの面が P7 で一致すること。
-   - 試行の状態: complete・pruned・fail（running と waiting は符号化の往復で確かめる）。
-   - NaN の score。
+   - 試行の状態の 5 つ全て: complete・pruned・fail・running・waiting（改訂 1 で running と waiting も export・load の経路に入れた。共有の storage の study からは 5 つとも作られうる。round 1 の major 2）。
+   - NaN を、位置ごとに別々に: 試行の score、試行の `params` の値、`space_snapshot` の `CategoricalDim.choices`（改訂 1。round 1 の major 2）。
    - 試行が 1 つも完了しなかった round（要約が無い）。
    - 実際の試行の数が要求と違う round。
    - `expanded_dims`。
-   - 探索の値の全ての型: `None`・`bool`・`int`・`float`・`str`。`float` の NaN と ±inf を含む。
+   - 探索の値の全ての型: `None`・`bool`・`int`・`float`・`str`。`float` の ±inf を含む。
    - `params` の挿入の順。
+   - 比べ方は P7 の面の出力と、`TuningResult` の再帰的な比較の両方である。
 4. **厳密な復号**: digest を計算し直して復号まで届かせた壊れたファイルが、全て `DESERIALIZATION_FAILED` になること。並び:
    - 知らない `schema`
    - 各オブジェクトのキーの過不足
@@ -15238,18 +15248,21 @@ H-0134 が足す条件は 2 つで、どちらも Change Gate の 6 つの目的
    - 正準でない形
    - 境界の報告と状態の知らないキー
 
-   別に、次も `DESERIALIZATION_FAILED` になること: digest の不一致、宣言したファイルが無い、`checksums` に載っていない、format 4 で `history` キーが無い。
-5. **古いファイル**: 宣言していない `tuning_history.json` がディレクトリにあっても読まれないこと。
-6. **版**:
+   別に、次も `DESERIALIZATION_FAILED` になること:
+   - digest の不一致、宣言したファイルが無い、`checksums` に載っていない、format 4 で `history` キーが無い。
+   - 宣言の形の外のもの（改訂 1。round 1 の major 1）: `history` が配列・文字列・数、`file` か `schema` の欠け、余分なキー、`file` が別の名前やパス（`../x.json` を含む）、`schema` が別の文字列。
+5. **mixin の状態の分離**（改訂 1。round 1 の major 3）: `tests/test_core/test_mixin_state_isolation.py` に `tuning_history_available` を足し、export の mixin が `FitState` からだけ履歴の有無を読むことを確かめる。
+6. **古いファイル**: 宣言していない `tuning_history.json` がディレクトリにあっても読まれないこと。
+7. **版**:
    - `FORMAT_VERSION == 4` であること。
    - `{1, 2, 3}` だけを受理する loader が v4 を拒否すること。
    - `{1, 2}` だけを受理する loader が v3 を拒否する既存のテストが残ること。
-7. **移動**:
+8. **移動**:
    - `tests/test_tuning/test_lineage_codec.py` が変更なしで通ること。
    - architecture のテストが新しい Layer 0 のモジュールで通ること。
    - `tuning/_magnitude` を import する位置が無いこと。
-8. **公開の `persistence.export`**: tune の結果を渡すと履歴が書かれ、load で戻ること。
-9. **陰性対照**（`docs/audits/2026-10-h0134/probes/negative_controls_h0134.py`）。パッチを当てない基準の実行を含め、元に戻すこと。どの変異も、対応する基準で捕まること:
+9. **公開の `persistence.export`**: tune の結果を渡すと履歴が書かれ、load で戻ること。
+10. **陰性対照**（`docs/audits/2026-10-h0134/probes/negative_controls_h0134.py`）。パッチを当てない基準の実行を含め、元に戻すこと。どの変異も、対応する基準で捕まること:
    - (a) 履歴を書かない → 1 で捕まる
    - (b) 復号で知らないキーを無視する → 4
    - (c) ファイルが無いとき空の結果にする → 4
@@ -15257,3 +15270,14 @@ H-0134 が足す条件は 2 つで、どちらも Change Gate の 6 つの目的
    - (e) 履歴なしの load で状態を「ある」にする → 2 の再 export
    - (f) `params` を名前の順に並べ替える → 3 の列の順
    - (g) NaN を `None` に変える → 3
+   - (h) 宣言の形の外のものを「履歴なし」として読む → 4 の宣言の形（改訂 1）
+   - (i) running と waiting の試行を export で落とす → 3（改訂 1）
+
+### 改訂の記録
+
+- **改訂 1（2026-10-19、Proposal review round 1 の後）**: Codex の run `h0134-proposal-review` の round 1（`5a24b48`）は CHANGES_REQUESTED（major 5）だった。全て直した。
+  - major 1: `history` の宣言の形を閉じた（`null` か、ちょうど 2 つのキー。ファイル名と schema は 1 つの定数）。形の外を拒否する基準と陰性対照 (h) を足した。
+  - major 2: 基準 3 に、試行の状態の 5 つ全てと、NaN の 3 つの位置（score、`params`、`CategoricalDim.choices`）を別々に入れた。陰性対照 (i) を足した。
+  - major 3: export の mixin は `FitState` からだけ状態を読むので、`FitState` に `tuning_history_available` を足し、`_get_fit_state` が埋めるようにした。分離のテストに名前を足す基準 5 を足した。
+  - major 4: 移す名前に `DIM_CATEGORIES` と `dim_signature` を足し、旧いモジュールからの再公開と import する位置の直し方を書いた。architecture のテストは層を BLUEPRINT の表から読むので、テストの側の一覧は無い（P1 の記述を訂正）。
+  - major 5: 「load 後に読まれるのは `best_*` だけ」は偽だった（再 export は 6 つのフィールドを読む）。実測の項を訂正した。
