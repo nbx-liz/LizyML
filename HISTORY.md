@@ -15039,9 +15039,9 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
 
 ## H-0134: tune の履歴（試行・round・境界の報告）を成果物に保存し、load 後の 3 つの面が export 前と同じ答えを返すようにする（#315）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-19
-- **決定日**: —
+- **決定日**: 2026-10-19
 - **関連**: #315、H-0086（#215）、H-0109、H-0122、H-0133、lizy-harness #175（Codex の容量不足）
 - **スコープ**:
   - `tuning_table()`・`tuning_plot()`・`boundary_table()` が、load したモデルで export 前と同じ答えを返すか、答えられないと言うこと（H-0109 の約束）
@@ -15281,3 +15281,10 @@ H-0134 が足す条件は 2 つで、どちらも Change Gate の 6 つの目的
   - major 3: export の mixin は `FitState` からだけ状態を読むので、`FitState` に `tuning_history_available` を足し、`_get_fit_state` が埋めるようにした。分離のテストに名前を足す基準 5 を足した。
   - major 4: 移す名前に `DIM_CATEGORIES` と `dim_signature` を足し、旧いモジュールからの再公開と import する位置の直し方を書いた。architecture のテストは層を BLUEPRINT の表から読むので、テストの側の一覧は無い（P1 の記述を訂正）。
   - major 5: 「load 後に読まれるのは `best_*` だけ」は偽だった（再 export は 6 つのフィールドを読む）。実測の項を訂正した。
+
+### 受け入れ（2026-10-19）
+
+- Codex の run `h0134-proposal-review` の round 2（`308b24a`）は APPROVE（指摘 0 件）だった。
+  - round 2 の前の loop の監視は、Claude の別の context で DELIVERABLE-FOCUSED だった。
+  - runner の監視は、改訂の前の版を読んだため INCONCLUSIVE だった（H-0133 と同じ既知の不具合）。
+- 管理者は、開発状況の資料を更新したうえで実装に進むよう指示した（2026-10-19）。これを受け入れとする。
