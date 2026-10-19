@@ -325,6 +325,14 @@ def test_decoding_does_not_nest_past_the_limit() -> None:
     assert caught.value.code == ErrorCode.DESERIALIZATION_FAILED
 
 
+def test_a_frozenset_is_written_in_one_order_whatever_its_iteration_order() -> None:
+    """1 and 9 share a hash slot, so the insertion order decides the iteration
+    order of these equal frozensets; the written order must not follow it."""
+    first, second = frozenset([1, 9]), frozenset([9, 1])
+    assert first == second and list(first) != list(second)
+    assert encode(first) == encode(second)
+
+
 _ORDER_SCRIPT = (
     "import json; from lizyml.core.category_values import encode; "
     "print(json.dumps(encode(frozenset({'a', 'b', 'c', 'd', b'e', (1, 2), 3.5, 7}))))"

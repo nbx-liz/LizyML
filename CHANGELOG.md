@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Models whose category columns hold JSON-unsafe values can be saved** (H-0133, [#357](https://github.com/nbx-liz/LizyML/issues/357)). `bytes`, `Decimal`, dates, datetimes, `Timestamp` (with a timezone too), timedeltas, `complex`, their numpy scalars, and tuples / frozensets of these now go through `Model.export` -> `Model.load` and `export_code` with the same predictions.
+  - A column holding a value LightGBM cannot write reaches LightGBM with positions `0..k-1` as its categories (same codes); other columns, and the booster `get_native_model()` returns for them, are unchanged.
+  - One closed value set (`lizyml.core.category_values`) decides what `Model.export`, `lizyml.persistence.export` and `export_code` accept; values outside it are refused before anything is written, and `fit` warns.
+  - `export_code` writes non-plain feature-category values as tagged JSON that the generated scripts decode, so tuples are no longer refused; target labels keep the plain set.
+
 - **`mase`, the mean absolute scaled error, as a regression metric** (H-0132, [#355](https://github.com/nbx-liz/LizyML/issues/355)). MASE divides the MAE by the MAE of predicting the training mean, so it is defined when the target contains zeros (where `mape` is refused) and can be the tune objective (`evaluation.metrics: [mase]`) or a training metric (`params: {metric: [mase]}`).
   - The scale comes from the training-side targets: each fold's outer-train rows for the OOF and in-fold values, and the rows the booster trains on (inner-train with inner validation) for the learning curve, so the learning curve and `FitResult.metrics` can differ. The pooled OOF value scales each row by the fold that validated it.
   - A constant (or non-finite) training target, or a split that puts a row in two validation folds, raises `UNSUPPORTED_METRIC`; in `tune` the trials fail and the round ends in `TUNING_FAILED`.
@@ -18,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **Two interface types for the layer rules** (H-0130, [#362](https://github.com/nbx-liz/LizyML/issues/362)): `lizyml.training.results.RefitResultView`, a Protocol with `RefitResult`'s seven fields, and `lizyml.calibration.base.BaseCalibrationResult`, a marker base that `CalibrationResult` now inherits. `RefitResult` and `CalibrationResult` stay where they were, so saved artifacts keep naming the same classes and `format_version` is unchanged.
 
 ### Changed
+
+- **Saved artifacts are `format_version` 3** (H-0133). LizyML v0.19.0 and earlier refuse them (`DESERIALIZATION_FAILED`), because they would read a renamed category column as raw values and predict wrongly. v1 and v2 artifacts load and predict as before. `metadata.json` now records `declared_categories` for every column (tagged when needed) instead of leaving the key out.
 
 - **No import breaks BLUEPRINT §2.1's layer rules any more** (H-0130, [#362](https://github.com/nbx-liz/LizyML/issues/362)). The layer test's exception list of seventeen imports is empty:
   - §2.1 gains a "same-layer references" table that the test reads (`estimators/` may import `features/` and `metrics/`, as the provider and the LightGBM feval bridge do), and declares `metrics/registry.py` and `training/results.py` as interfaces.

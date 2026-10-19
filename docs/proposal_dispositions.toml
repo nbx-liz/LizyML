@@ -540,8 +540,8 @@ disposition = "specified"
 anchors = ["needs_train_target", "bind_train", "`mase`"]
 
 [proposals."H-0133"]
-disposition = "pending"
-reason = "Proposed 2026-10-19 (#357); BLUEPRINT is updated in the implementation PR after acceptance."
+disposition = "specified"
+anchors = ["stand_in_columns", "core/category_values.py"]
 
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.

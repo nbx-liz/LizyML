@@ -43,6 +43,17 @@ def main(paths: list[str]) -> int:
             errors += 1
             print("error: record without the V verdict", r.get("test"))
             continue
+        impl = r.get("impl_outside_v")
+        if impl is not None:
+            c["implementation agrees with the reference" if bool(impl) == bool(r["outside_v"]) else "implementation DISAGREES"] += 1
+            if bool(impl) != bool(r["outside_v"]):
+                errors += 1
+                print("disagreement:", r["outside_v"], impl, r.get("test"))
+        if "stand_in" in r:
+            if r["stand_in"] != bool(r["unwritable"]):
+                errors += 1
+                print("stand-in decision differs from the LightGBM predicate:", r.get("test"))
+            c["stand-in column deliberate" if r["stand_in"] and deliberate else ("stand-in column elsewhere" if r["stand_in"] else "raw column")] += 1
         if r["outside_v"]:
             c["outside V deliberate" if deliberate else "outside V elsewhere"] += 1
             for reason in r["outside_v"]:

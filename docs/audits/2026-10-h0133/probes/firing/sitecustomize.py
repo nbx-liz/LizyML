@@ -29,6 +29,15 @@ def _write(record: dict) -> None:
         fh.write(json.dumps(record, sort_keys=True) + "\n")
 
 
+def _impl_outside(values: list) -> list[str] | None:
+    """The implementation's predicate (``None`` before it existed)."""
+    try:
+        from lizyml.core.category_values import refusal
+    except ImportError:
+        return None
+    return sorted({r for v in values if (r := refusal(v)) is not None})
+
+
 def _patch(module) -> None:  # type: ignore[no-untyped-def]
     original = module.CategoricalEncoder.fit
 
@@ -50,6 +59,10 @@ def _patch(module) -> None:  # type: ignore[no-untyped-def]
                         "unwritable": sorted({type(v).__name__ for v in cats if not is_writable(v)}),
                         # P1's predicate over every category and the mode.
                         "outside_v": sorted({r for v in values if (r := reason(v)) is not None}),
+                        # After the implementation: its own predicate, and
+                        # whether the encoder chose stand-ins for the column.
+                        "impl_outside_v": _impl_outside(values),
+                        "stand_in": col in getattr(self, "_stand_in_columns", ()),
                     }
                 )
         except Exception as exc:  # noqa: BLE001 -- recorded, not swallowed
