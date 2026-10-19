@@ -14777,7 +14777,7 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
   - タイムゾーンつきの `datetime.datetime` は、`tzinfo` が次のどちらかのときだけ V に入る（`Timestamp` より狭い。round 3 の指摘）:
     - 厳密に `datetime.timezone`
     - 厳密に `zoneinfo.ZoneInfo` で、`zoneinfo.ZoneInfo(key) is tzinfo` が真のもの（キャッシュされた instance）
-    - `ZoneInfo.no_cache` の instance と pytz の zone は外である。理由: Python は `tzinfo` の instance が違う 2 つの `datetime` を UTC で比べ、夏時間の重なりの時刻を常に「等しくない」とする（PEP 495）。そのため、復元した値が学習したカテゴリと一致しなくなる。`Timestamp` は時刻の値で比べるので、instance が違っても等しく、hash も等しい（`probes/tz_fold_probe.out`、fold 0 と 1）。
+    - `ZoneInfo.no_cache` の instance と pytz の zone は外である。理由: Python は `tzinfo` の instance が違う 2 つの `datetime` を UTC で比べ、夏時間の重なりの時刻を常に「等しくない」とする（PEP 495）。そのため、復元した値が学習したカテゴリと一致しなくなる。`Timestamp` は時刻の値で比べるので、instance が違っても等しい。hash も、`ZoneInfo` の `Timestamp` では instance が違っても等しい（`probes/tz_fold_probe.out`、fold 0 と 1）。ただし pytz の zone の `Timestamp` は、`ZoneInfo` で戻すと fold 1 で hash が違うので、P2 で時差として書く（`probes/pytz_fold_probe.out`）。
   - 判定は型を最初に見る。V の外の型の値のメソッドは呼ばない。一覧の型のメソッドは、標準ライブラリ・numpy・pandas のものだけが走る。この判定の境界は「値に対して閉じる」ことであり、プロセスの中で numpy や pandas を差し替えた呼び出し元への備えではない（H-0095 の宣言と同じ）。
 - **P2. 符号化と復号**（P1 のモジュールにだけ置く）:
   - 素の値（`str`・`int`・`float`・`bool` と、`.item()` がそれらになる numpy のスカラー）は、今と同じ JSON の値で書く（numpy は `.item()` で書く）。それ以外は印つきの JSON の object で書く。
@@ -14962,3 +14962,4 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
   - 停止ルールに従って管理者に報告し、管理者は「直して、もう 1 度確認」を選んだ。
   - pytz を入れた一時的な環境で、指摘と直し方を実測した（`probes/pytz_fold_probe.py` → `.out`）。pytz の zone の `Timestamp` は、その値の時差で書いて `datetime.timezone` で戻す（P2）。
   - 計測の数は変わらない（判定 P1 は変えていない）。
+  - 2 回目の確認の review（run `h0133-proposal-confirm2`、`a42beb4`）は APPROVE だった。改訂 4 の指摘は解決と確認された。minor 1 件（P1 の `Timestamp` の hash の文が、pytz の例外を含めず一般化していた）は、`ZoneInfo` の場合に限る文に直し、pytz の例外を指した。
