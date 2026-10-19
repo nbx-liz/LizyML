@@ -58,6 +58,10 @@ def _type_id(kind: type) -> str:
 
 
 def test_every_admitted_type_has_its_own_case() -> None:
+    # Counted against ADMITTED_TYPES itself, not against ids _type_id makes:
+    # a colliding id would shrink both sides of a set comparison alike.
+    assert len(set(map(_type_id, ADMITTED_TYPES))) == len(ADMITTED_TYPES)
+    assert len(LABEL_CASES) == len(ADMITTED_TYPES)
     assert {_type_id(t) for t in ADMITTED_TYPES} <= set(CASES)
     assert set(LABEL_CASES) == {_type_id(t) for t in ADMITTED_TYPES}
 

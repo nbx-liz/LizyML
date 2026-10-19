@@ -15019,10 +15019,20 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
   - 対処: ラベルの検査を `core/category_values.py` の `NUMPY_PLAIN_TYPES` に厳密に一致する型だけにした。判断 3 の「ラベルは今の値の集合のまま」の意図どおりで、集合は広げていない。回帰のテスト（`test_export_contract.py` の `_REFUSED` に `np.timedelta64` の Y・M と `np.datetime64` の ns）を足した。
   - `tuple` のラベルは、pandas 2.0 では fit そのものが pandas の例外で失敗する（`export_code` に届かない）。ラベルのテストはこの場合、理由をつけて skip する。
 - **確認の review**（run `h0133-impl-confirm`、`acea369`）は CHANGES_REQUESTED（major 1、minor 1）だった。major は上のラベルの直しに入った欠陥で、停止ルールに従って管理者に報告し、管理者は「直して、もう 1 度確認」を選んだ。
-  - major: ラベルの検査を型の一覧に厳密に一致させたため、H-0120 から正しく受け付けていた `np.float16`・`np.longlong`・`np.ulonglong` まで拒否していた。「ラベルの集合は広げていない」は正しかったが、狭めていた。H-0120 の規則（`.item()` が素の値で元の値と等しい numpy のスカラー）に戻し、`np.datetime64` と `np.timedelta64` だけを型で外した。この 3 型がラベルとして受け付けられ、素の値で書かれることを確かめるテストを足した（特徴量のカテゴリでは V のまま。pandas は longlong と ulonglong のカテゴリを Python の int に直してから encoder に渡し、float16 はそもそも category にできない）。
+  - major: ラベルの検査を型の一覧に厳密に一致させたため、H-0120 から正しく受け付けていた `np.float16`・`np.longlong`・`np.ulonglong` まで拒否していた。「ラベルの集合は広げていない」は正しかったが、狭めていた。H-0120 の規則（`.item()` が素の値で元の値と等しい numpy のスカラー）に戻し、`np.datetime64` と `np.timedelta64` だけを型で外した。この 3 型がラベルとして受け付けられ、素の値で書かれることを確かめるテストを足した（特徴量のカテゴリでは V のまま。型が 1 種類の列では、pandas は longlong と ulonglong を Python の int に直し、float16 は category にできない。型の混ざった object の列では 3 型とも numpy のスカラーのまま残り、V の外の型として拒否される）。
   - minor: ラベルのテストの skip が、fit の全ての例外を skip にしていた。skip をやめ、pandas が扱えるラベルの組を選ぶようにした。
     - 原因の実測: pandas 2.0 は、`TargetEncoder.transform` の `Series.map` で tuple をキーにした辞書から MultiIndex を作り、`()` を含むと失敗する。これは tuple のラベルの既存の制限で、H-0133 の範囲の外である。
     - 選び方: 同じ操作（辞書による `map`）ができる組を選ぶ。fit の中の例外は、全て失敗として扱う。
 - **2 回目の確認の review**（run `h0133-impl-confirm2`、`ab51ee6`）は APPROVE だった。minor 2 件を直した:
   - NumPy 2 は `np.bool_` の型の名前も `bool` なので、型の名前をキーにした母集団（受け入れの保存の経路とラベル）で Python の `bool` のケースが上書きされていた（31 型のうち 30）。キーを module つきの名前にし、全ての型が自分のケースを持つことを確かめるテストを足した。
-  - 上の記録とテストのコメントの「pandas はこれらを Python の値に直す」を、整数の 2 型に限る文に直した（`float16` は pandas が category にできない）。
+  - 上の記録とテストのコメントの「pandas はこれらを Python の値に直す」を直した（最終の文言は次の項目の R5 で直したもの）。
+- **R5: 別の context での確認**（`cd06bdb`）は NOT OK だった。指摘は 3 件で、いずれも前の直しが生んだもの。停止ルールに従って管理者に報告した。
+  - major: 足したテスト `test_every_admitted_type_has_its_own_case` は、比べる両側を同じ `_type_id` で作っていた。そのため、元の衝突を戻しても通った（確認者が陰性対照で実測）。型の数（`ADMITTED_TYPES` の長さ）と比べる検査を足し、`_type_id` を `__name__` に戻すと落ちることを確かめた（NumPy 2 の環境。NumPy 1.24 では型の名前が衝突しないので、どちらの形でも通る）。
+  - minor: pandas の説明が、型が 1 種類の列でしか正しくなかった。型の混ざった object の列の場合を足した。
+  - minor: 陰性対照の出力 `negative_controls_h0133.out` に古いテスト ID が残っていた。作り直した（8/8 が捕まり、パッチなしの基準は exit 0）。作り直すときに、要約の `summarize_controls.py` が空白を含むテスト ID（例 `[Timestamp tz fold]`）を空白で切っていたことも分かったので、ID を ` - ` の前まで読むように直した。
+- **loop の監視の漏れ**: 監視は、実装の review の round 2 の前に絶対の監視を 1 回走らせただけだった。確認の run（R3・R4）と R5 は、それぞれ 1 round の run として起動したので、runner は監視を走らせない。実質は round 3〜5 にあたり、毎回の前に比較の監視が要った。
+  - R5 の後に、比較の監視（Claude、別の context）を走らせた。判定は stop-accept で、理由は 2 つ:
+    - 本体のコード（`lizyml/`）は `ab51ee6`（R4 APPROVE）以降変わっていない。
+    - R4・R5 の指摘は、前の直しが生んだテスト・文言・出力ファイルで、周辺に広がっている。
+  - 監視は、漏れたことで 2 点が見逃されたとも指摘した。R3 で H-0120 のラベルの経路が範囲に入ったこと、R5 で確認者を Codex から Claude に替えたことである。
+  - 管理者は「直して、絞った確認を 1 回」を選んだ。停止条件は監視が示したもの: 範囲はテスト・HISTORY・出力ファイルの差分だけ、陰性対照を必須の証拠にする、`lizyml/` に指摘がなければ終える。周辺の新しい指摘は follow-up の issue にし、round にしない。

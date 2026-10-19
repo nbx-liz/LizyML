@@ -1,9 +1,9 @@
 CONTROL (a) no rename in transform: caught (tests failed)
-    first failing test: tests/test_persistence/test_h0133_acceptance.py::test_every_admitted_type_saves_and_predicts_the_same[Decimal]
+    first failing test: tests/test_persistence/test_h0133_acceptance.py::test_every_admitted_type_saves_and_predicts_the_same[Timestamp tz fold]
 CONTROL (b) form decided in transform: caught (tests failed)
     first failing test: tests/test_persistence/test_h0133_acceptance.py::test_fold_shap_of_a_stand_in_column_equals_that_of_the_same_codes_as_str
 CONTROL (c) loader ignores stand_in_columns: caught (tests failed)
-    first failing test: tests/test_persistence/test_h0133_acceptance.py::test_every_admitted_type_saves_and_predicts_the_same[Decimal]
+    first failing test: tests/test_persistence/test_h0133_acceptance.py::test_every_admitted_type_saves_and_predicts_the_same[Timestamp tz fold]
 CONTROL (d) tuple decoded as a list: caught (tests failed)
     first failing test: tests/test_core/test_category_values.py::test_every_admitted_value_round_trips_equal_with_an_equal_hash[tuple[0]]
 CONTROL (e) nested NaN admitted: caught (tests failed)
@@ -11,7 +11,7 @@ CONTROL (e) nested NaN admitted: caught (tests failed)
 CONTROL (f) frozenset in hash order: caught (tests failed)
     first failing test: tests/test_core/test_category_values.py::test_a_frozenset_is_written_in_one_order_whatever_its_iteration_order
 CONTROL (g) labels take the category codec: caught (tests failed)
-    first failing test: tests/test_persistence/test_h0133_acceptance.py::test_target_labels_keep_the_plain_set[Decimal]
+    first failing test: tests/test_persistence/test_h0133_acceptance.py::test_target_labels_keep_the_plain_set[builtins.bytes]
 CONTROL (h) persistence.load skips decoding: caught (tests failed)
     first failing test: tests/test_persistence/test_h0120_records.py::test_a_record_of_tagged_values_survives_export_and_load[tuple]
 BASELINE without patches: exit 0

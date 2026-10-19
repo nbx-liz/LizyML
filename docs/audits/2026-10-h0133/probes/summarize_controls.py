@@ -12,7 +12,7 @@ lines = open(sys.argv[1], encoding="utf-8").read().splitlines()
 failed: list[str] = []
 for line in lines:
     if line.startswith("FAILED ") or line.startswith("ERROR "):
-        failed.append(line.split(" ")[1])
+        failed.append(line.split(" ", 1)[1].split(" - ", 1)[0])
     elif line.startswith("CONTROL "):
         first = failed[0] if failed else "none"
         print(f"{line}\n    first failing test: {first}")

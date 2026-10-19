@@ -74,9 +74,10 @@ def test_accepted_values_become_plain_values(name: str) -> None:
 
 #: Numpy scalars the label check accepted since H-0120 and still accepts: H-0133
 #: refused only datetime64 / timedelta64 (confirmation review). Labels only:
-#: feature categories take H-0133's closed set. pandas turns longlong and
-#: ulonglong categories into Python ints before the encoder learns them, and
-#: cannot make a category of float16 at all (confirmation review 2).
+#: feature categories take H-0133's closed set. In a column of one type pandas
+#: turns longlong / ulonglong into Python ints and cannot make a category of
+#: float16; in an object column of mixed types all three stay numpy scalars
+#: outside the set and are refused like any other such type.
 _ACCEPTED_AS_LABELS: dict[str, tuple[Any, type]] = {
     "np.float16": (np.float16(1), float),
     "np.longlong": (np.longlong(1), int),
