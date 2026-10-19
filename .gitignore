@@ -170,3 +170,6 @@ __marimo__/
 # manifest and the row files its measurements read). `*.json` above silently
 # kept the archived manifest out of every commit.
 !docs/audits/**/*.json
+# Committed test artifacts (a model export is a directory with metadata.json;
+# #298 loads one written by LizyML 0.17.1). Only under tests/**/data/.
+!tests/**/data/**/*.json
