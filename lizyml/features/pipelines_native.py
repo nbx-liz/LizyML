@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
+from lizyml.core.category_values import encode
 from lizyml.features.column_check import select_training_columns
 from lizyml.features.encoders.categorical_encoder import (
     CategoricalEncoder,
@@ -34,10 +36,18 @@ class NativeFeaturePipeline(BaseFeaturePipeline):
 
     Args:
         unseen_policy: How to handle categories unseen during ``fit``.
+        needs_stand_in: Passed to the encoder (H-0133): which category values
+            the estimator cannot write into its saved model as themselves.
     """
 
-    def __init__(self, unseen_policy: UnseenPolicy = "mode") -> None:
-        self._encoder = CategoricalEncoder(unseen_policy=unseen_policy)
+    def __init__(
+        self,
+        unseen_policy: UnseenPolicy = "mode",
+        needs_stand_in: Callable[[Any], bool] | None = None,
+    ) -> None:
+        self._encoder = CategoricalEncoder(
+            unseen_policy=unseen_policy, needs_stand_in=needs_stand_in
+        )
         self._transformer = FeatureTransformer()
         self._feature_names: list[str] = []
         self._categorical_cols: list[str] = []
@@ -125,6 +135,11 @@ class NativeFeaturePipeline(BaseFeaturePipeline):
     def export_state_json(self, path: str | Path) -> Path:
         """Export pipeline state to a JSON file.
 
+        The encoder's categories and modes are written with the tagged codec
+        of :mod:`lizyml.core.category_values` (H-0133): plain values as
+        themselves, other saveable values as ``{"$lizyml": ...}`` objects that
+        ``category_values.decode`` reads back.
+
         Args:
             path: Destination file path.
 
@@ -133,13 +148,25 @@ class NativeFeaturePipeline(BaseFeaturePipeline):
 
         Raises:
             RuntimeError: If the pipeline has not been fitted.
+            LizyMLError: ``SERIALIZATION_FAILED``, before anything is written,
+                when a category value is outside the saveable set.
         """
         if not self._fitted:
             raise RuntimeError("Pipeline has not been fitted. Call fit() first.")
+        state = self.get_state()
+        encoder = dict(state["encoder"])
+        encoder["categories"] = {
+            col: [encode(v) for v in cats]
+            for col, cats in encoder["categories"].items()
+        }
+        encoder["modes"] = {
+            col: None if mode is None else encode(mode)
+            for col, mode in encoder["modes"].items()
+        }
+        text = json.dumps({**state, "encoder": encoder}, indent=2, ensure_ascii=False)
         p = Path(path)
         p.parent.mkdir(parents=True, exist_ok=True)
-        with open(p, "w") as f:
-            json.dump(self.get_state(), f, indent=2, ensure_ascii=False)
+        p.write_text(text, encoding="utf-8")
         return p
 
     def load_state(self, state: dict[str, Any]) -> NativeFeaturePipeline:

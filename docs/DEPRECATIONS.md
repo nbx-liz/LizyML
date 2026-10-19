@@ -19,6 +19,7 @@ a removal-version suffix matching the pattern `Will be removed in v\d+\.\d+`.
 | `purged_time_series.embargo_pct` | `purge_gap` (int, observation count; added) | **v1.0** | H-0040 (target changed from `embargo` to `purge_gap` by H-0115) |
 | `purged_time_series.gap` | `purge_gap` (added) | **v1.0** | H-0038 (target changed from `embargo` to `purge_gap` by H-0115) |
 | `PurgedTimeSeriesSplitter(embargo=...)` | `purge_gap` (the value is added to it) | **v1.0** | H-0115 (2026-10) |
+| `lizyml.persistence.export(categories_checked=True)` | (none -- ignored: the public export always checks the category values before writing) | **v1.0** | H-0133 (2026-10) |
 | `lizyml.core._model_factories.build_calibration_splitter` | (removed; outer split is reused) | **v1.0** | H-0058 |
 | `LGBMConfig.params["objective"]` silently stripped (cross-task) | Raise `LizyMLError(CONFIG_INVALID)` at fit time | **already enforced** | H-0079 (2026-05) |
 | `cross_entropy_lambda` as a `binary` objective | `binary` or `cross_entropy` (no deprecation period: its output is not a probability; artifacts trained with it are refused by `Model.load`) | **removed in v0.19.0** (breaking: raises `CONFIG_INVALID`, `reason` `not_a_probability`) | H-0125 (2026-10) |

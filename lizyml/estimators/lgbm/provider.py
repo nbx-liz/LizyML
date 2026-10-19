@@ -19,6 +19,7 @@ from lizyml.core.types.smart_ratio import SMART_RATIO_RANGES
 from lizyml.core.types.task import TaskType
 from lizyml.estimators.base import BaseEstimatorAdapter
 from lizyml.estimators.lgbm.adapter import LGBMAdapter
+from lizyml.estimators.lgbm.category_json import needs_stand_in
 from lizyml.estimators.lgbm.defaults import (
     _COMMON_DEFAULTS,
     _TASK_METRIC,
@@ -359,10 +360,16 @@ class LGBMProvider:
     def build_pipeline_factory(
         self, unseen_policy: UnseenPolicy = "mode"
     ) -> Callable[[], BaseFeaturePipeline]:
-        """Return a factory that creates NativeFeaturePipeline with *unseen_policy*."""
+        """Return a factory that creates NativeFeaturePipeline with *unseen_policy*.
+
+        The pipeline hands LightGBM position stand-ins for every column holding
+        a category value LightGBM cannot write into a saved model (H-0133).
+        """
 
         def make_pipeline() -> BaseFeaturePipeline:
-            return NativeFeaturePipeline(unseen_policy=unseen_policy)
+            return NativeFeaturePipeline(
+                unseen_policy=unseen_policy, needs_stand_in=needs_stand_in
+            )
 
         return make_pipeline
 

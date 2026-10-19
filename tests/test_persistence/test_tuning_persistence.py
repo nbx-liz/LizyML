@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 
 from lizyml.core.model import Model
+from lizyml.persistence.exporter import FORMAT_VERSION
 from tests._helpers import make_config, make_regression_df
 
 
@@ -43,8 +44,9 @@ def test_tuning_block_written_to_metadata(tmp_path) -> None:
         "metric_name",
         "direction",
     }
-    # format_version stays 2 (additive block).
-    assert metadata["format_version"] == 2
+    # The block is additive (H-0086): it is written at the current version,
+    # which H-0133 raised to 3 for an unrelated reason.
+    assert metadata["format_version"] == FORMAT_VERSION == 3
 
 
 def test_load_restores_tuning_result(tmp_path) -> None:

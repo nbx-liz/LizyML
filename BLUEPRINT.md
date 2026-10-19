@@ -46,7 +46,7 @@
 
 | Layer | 名称 | 依存先 | 含まれるモジュール | 下の層から参照してよいモジュール（IF） |
 |---|---|---|---|---|
-| 0 | Foundation | なし | `core/exceptions.py`, `core/logging.py`, `core/registries.py`, `core/types/`, `core/param_domain.py`, `core/specs/`, `_extras.py`, `_version.py` | 全部 |
+| 0 | Foundation | なし | `core/exceptions.py`, `core/logging.py`, `core/registries.py`, `core/types/`, `core/param_domain.py`, `core/category_values.py`, `core/specs/`, `_extras.py`, `_version.py` | 全部 |
 | 1 | Leaf | Foundation + 同じ層の中で許す参照 | `config/`, `data/`, `splitters/`, `features/`, `estimators/`, `metrics/`, `calibration/` | `splitters/base.py`, `features/pipeline_base.py`, `estimators/base.py`, `estimators/provider.py`, `metrics/base.py`, `metrics/registry.py`, `calibration/base.py` |
 | 2 | Composition | Foundation + Layer 1 の IF | `training/`, `evaluation/`, `tuning/` | `training/results.py` |
 | 3 | Optional | Foundation + Layer 1/2 の IF | `explain/`, `plots/`, `persistence/`, `codegen/` | なし |
@@ -439,7 +439,7 @@ config = {
 
 ## 5.5 Config のキーが設定しない構成値（H-0108）
 
-公開クラスの `__init__` の既定値付き引数（74 個、AST で数えた母集団）を、値の出どころで分類した。**Config のキーの値がそのまま渡る 59 個**は、どのキーから来るかを経路ごとに `tests/test_config/_knob_registry.py` の台帳に書く（§17 の `output_dir` と、§5.4 の表に行の無い `calibration.params` も含む）。`tests/test_config/test_knob_reachability.py` は、経路ごとに本物の `fit` / `tune` を実行してコンストラクタが受け取る値を確かめ、どの行にも既定でない値を設定したセルが少なくとも 1 つある。残りの 15 個をこの表に書く。表と `tests/test_config/_knob_registry.py` の台帳は同じテストが照合する。
+公開クラスの `__init__` の既定値付き引数（76 個、AST で数えた母集団）を、値の出どころで分類した。**Config のキーの値がそのまま渡る 59 個**は、どのキーから来るかを経路ごとに `tests/test_config/_knob_registry.py` の台帳に書く（§17 の `output_dir` と、§5.4 の表に行の無い `calibration.params` も含む）。`tests/test_config/test_knob_reachability.py` は、経路ごとに本物の `fit` / `tune` を実行してコンストラクタが受け取る値を確かめ、どの行にも既定でない値を設定したセルが少なくとも 1 つある。残りの 17 個をこの表に書く。表と `tests/test_config/_knob_registry.py` の台帳は同じテストが照合する。
 
 分類は、そのクラスを構築するすべての本番の経路で読み、最初に当てはまるものを採る:
 
@@ -465,6 +465,8 @@ config = {
 | `LizyMLError.context` | internal | エラーの中身。各 raise 箇所が設定する |
 | `CVTrainer.ratio_param_resolver` | internal | 配線: 比率で書いたスマートパラメーターを fold ごとに解決する |
 | `RefitTrainer.ratio_param_resolver` | internal | 配線: 比率で書いたスマートパラメーターを解決する |
+| `CategoricalEncoder.needs_stand_in` | internal | 配線: estimator が保存できない値の判定（LightGBM の provider が渡す、H-0133） |
+| `NativeFeaturePipeline.needs_stand_in` | internal | 配線: estimator が保存できない値の判定（LightGBM の provider が渡す、H-0133） |
 
 # 6. 実行フロー（概念）
 
@@ -583,7 +585,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `run_meta`
   - `lizyml_version / python_version / deps_versions / config_normalized / config_version / run_id / timestamp`
   - 型: `lizyml_version`（`str`）、`python_version`（`str`）、`deps_versions`（`dict[str, str]`）、`config_normalized`（`dict`）、`config_version`（`int`）、`run_id`（`str`、UUID 文字列）、`timestamp`（`str`、ISO 8601、UTC）。
-- `target_encoder`（H-0070, format_version=2）
+- `target_encoder`（H-0070 で v2 に追加。現行は format_version=3）
   - `TargetEncoder(classes_: tuple[Any, ...], needs_encoding: bool, original_dtype: str)`
   - 数値 y / regression では `needs_encoding=False` の no-op
   - 非数値 classification y では `classes_` に **lexicographically** sorted な元ラベルを保持
@@ -694,6 +696,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
   - LGBM native categorical: `features.unseen_policy`（既定 `"mode"`、H-0104）で選ぶ。
     - `mode` / `nan` の置換は**補正**であり、推論時は列・値・置換先を `PredictionResult.warnings` に報告する（§7.3）。欠損値は未知カテゴリではなく、どの方針でも欠損のまま残す。
     - 方針は fit が適用したものを pipeline 状態に保存し、推論時と生成コード（`predict.py`、再学習後の `train.py` も）はその値に従う。
+    - LightGBM が書けない値を持つ列（§15.3、H-0133）でも、未知の値の検出と置換は元の値で行い、そのあとでカテゴリを位置の番号に置き換える。
     - **CV の検証 fold にも同じ方針が効く。** ただし既定の `auto_categorical: true`（または `categorical` 指定）の列はデータ構築時に全行の値で `category` 型になるため、どの fold でも未知にならない。fold ごとに未知カテゴリが生じるのは、`auto_categorical: false` で pipeline がカテゴリとして扱う文字列列だけである。その場合 `error` では fit が止まり、`mode` / `nan` の置換は fit 中は報告されない（`FitResult` に警告の通り道が無い）。
     - SHAP 重要度は、fold k の検証行を fold k 自身の pipeline 状態（`FitResult.pipeline_state_per_fold`）で変換して fold k のモデルを説明する（H-0114）。上記の文字列列でも、SHAP 重要度が見る符号化と置換は OOF 予測が見たものと同じで、fit 中と同じく報告しない。`error` では未知の値があれば fit が先に止まるので、fit が通ったモデルの SHAP 重要度はこの理由で送出しない。
 - 推論時の列検査（不足列は `DATA_SCHEMA_INVALID`、余剰列は警告して除外）は pipeline に渡す**前**に facade（`Model.predict`）で行い、どの pipeline 実装でも省略されない（H-0104）。
@@ -1644,7 +1647,7 @@ unsaveable_categories(pipeline_state) -> list[UnsaveableCategory]  # デフォ�
 
 - `predict_proba()` は学習器の確率をそのまま返す。`objective: multiclassova` ではクラスごとの独立 sigmoid の出力なので、行和は 1 とは限らない。指標のための正規化は evaluator が `needs_simplex` の指標についてだけ行う（§13.1、H-0049）。
 - `set_categorical_features()` は `fit()` 呼び出し前に CVTrainer が呼ぶ。categorical feature の扱いはアダプタの責務であり、`cv_trainer.py` に estimator 固有の kwarg を漏洩させない。
-- `unsaveable_categories(pipeline_state)` は、その estimator が学習済みモデルを保存するときに書けないカテゴリ値を、列ごとに最初の一つ、列の順に返す（`UnsaveableCategory(column, shown, type_name)`。`shown` と `type_name` は例外を出さない表示で作った文字列で、値そのものは持たない）。既定は `[]`（書けない値は無い）。`LGBMAdapter` は、LightGBM がカテゴリ値を JSON で書けないもの（`estimators/lgbm/category_json.py`、H-0127）を返す。`Model.export` と公開の `lizyml.persistence.export` は、何かを書く前に、保存する pipeline の状態ごとに、その状態と一緒に保存される adapter に尋ねる（refit の状態は `refit_result.model`、fold k の状態は `fit_result.models[k-1]`、fold ごとの状態が無ければ最後の fold の状態は `fit_result.models[-1]`）。fold ごとの状態の数と `fit_result.models` の数が合わない結果、fold ごとの状態も model も無い結果は、尋ねる相手が無いので `SERIALIZATION_FAILED`（context に `fold_states` と `models`）。`persistence/` は具体的な estimator を import しない（§2.1、H-0129）。
+- `unsaveable_categories(pipeline_state)` は、その estimator が学習済みモデルを保存するときに書けないカテゴリ値を、列ごとに最初の一つ、列の順に返す（`UnsaveableCategory(column, shown, type_name)`。`shown` と `type_name` は例外を出さない表示で作った文字列で、値そのものは持たない）。既定は `[]`（書けない値は無い）。`LGBMAdapter` は、LightGBM がカテゴリ値を JSON で書けないもの（`estimators/lgbm/category_json.py`、H-0127）を、位置の番号に置き換えない列（状態の `stand_in_columns` の外）についてだけ返す。置き換えた列は位置の番号なので必ず書ける（H-0133）。`Model.export` と公開の `lizyml.persistence.export` は、何かを書く前に、保存する pipeline の状態ごとに、その状態と一緒に保存される adapter に尋ねる（refit の状態は `refit_result.model`、fold k の状態は `fit_result.models[k-1]`、fold ごとの状態が無ければ最後の fold の状態は `fit_result.models[-1]`）。fold ごとの状態の数と `fit_result.models` の数が合わない結果、fold ごとの状態も model も無い結果は、尋ねる相手が無いので `SERIALIZATION_FAILED`（context に `fold_states` と `models`）。`persistence/` は具体的な estimator を import しない（§2.1、H-0129）。
 
 ## 14.2 LGBM adapter の責務
 
@@ -1904,8 +1907,8 @@ estimators/
 
 - `format_version` が読めない場合は明示的に拒否する（黙って壊れた復元をしない）。
 - 将来 migration を実装できる前提で serializer に拡張点を残す。
-- 現行 `FORMAT_VERSION = 2`（H-0070）。`{1, 2}` の両方を loader が受理し、v1 artifact には no-op `TargetEncoder` を in-memory で注入して contract を整合させる（INV-5）。
-- **フィールドの追加は後方互換の変更で、`format_version` を上げない。** フィールドの削除、型や意味の変更は破壊的変更で、`format_version` を上げる（H-0003）。`checksums`（H-0083）、`tuning`（H-0086）、`applied_training_params`（H-0109）、`applied_sample_weight` / `declared_categories`（H-0120）はいずれも追加として `FORMAT_VERSION = 2` のまま入った。旧 loader は知らないキーを無視する。
+- 現行 `FORMAT_VERSION = 3`（H-0133）。`{1, 2, 3}` を loader が受理し、v1 artifact には no-op `TargetEncoder` を in-memory で注入して contract を整合させる（INV-5、H-0070）。v1・v2 の pipeline 状態には `stand_in_columns` が無く、どの列も元の値のカテゴリのまま読み、今と同じに予測する。3 に上げたのは意味の変更のためである: 位置の番号に置き換えた列（§15.3）を持つ状態を古い LizyML が読むと、元の値のカテゴリとして扱い、エラー無しに予測を間違える（H-0133 の実測）。そのため古い LizyML は v3 を拒否しなければならない。
+- **フィールドの追加は後方互換の変更で、`format_version` を上げない。** フィールドの削除、型や意味の変更は破壊的変更で、`format_version` を上げる（H-0003）。`checksums`（H-0083）、`tuning`（H-0086）、`applied_training_params`（H-0109）、`applied_sample_weight` / `declared_categories`（H-0120）はいずれも追加で、版を上げずに入った（H-0133 が意味の変更で `FORMAT_VERSION = 3` に上げるまで v2）。旧 loader は知らないキーを無視する。
 - `load()` は毎回 `metadata.json` を検査する。必須キー（`_REQUIRED_METADATA_KEYS` = `format_version` / `task` / `feature_names` / `config` / `run_id`）が欠けていれば `DESERIALIZATION_FAILED`。
 - **完全性の検査（H-0083）**: `load()` は各 `.pkl` のバイト列を 1 回だけ読み、`checksums` に記録された digest と照合してから、そのバイト列を `joblib.load(io.BytesIO(...))` で復元する（ファイルを再 open しないので、検査と復元の間の TOCTOU が無い）。`algorithm` が `sha256` でない、または digest が一致しないときは pickle を実行する前に `DESERIALIZATION_FAILED`（context: `file` / `expected` / `actual`、アルゴリズム違いでは `file` / `algorithm`）。`checksums` を持たない artifact（H-0083 以前）と、`files` に載っていないファイルは検査せずに読む。
 - **脅威モデル**: `metadata.json` 自体は署名しない。書き込み権限を持つ者は `checksums` を書き換えたり消したりできる。`checksums` が検出するのは破損と改竄であり、悪意ある作成者に対して pickle を安全にするものではない。artifact は信頼できる出どころからだけ読む。
@@ -1918,7 +1921,11 @@ estimators/
 - `Model Artifact` を 1 ディレクトリにまとめる。中身は `metadata.json`、`fit_result.pkl`（`FitResult`）、`refit_model.pkl`（`RefitResult`）と、任意の `analysis_context.pkl`（load 後の診断 API が使う `y_true` と `X_for_explain`。無ければ load 時に `None`、H-0026）。`.pkl` は joblib（圧縮）で書く（H-0003）。
 - `.pkl` は pickle なので、読み込むと任意の Python を実行しうる。`Model.load()` は信頼できる出どころの artifact だけに使う（H-0003、上記の脅威モデル）。
 - `Model.load()` で復元し、推論と評価情報参照に加えて診断 API（残差/SHAP/分類・校正可視化）も利用可能にする。
-- **保存できないカテゴリ値（H-0127、#338）**: LightGBM は booster を pickle するとき、各カテゴリ列のカテゴリをモデル文字列に JSON で書く。`export()` は何かを書く前に、保存する全ての pipeline 状態（refit、各 fold、`pipeline_state_per_fold` が無いモデルでは `pipeline_state` を `last fold` と呼ぶ）のエンコーダのカテゴリを、LightGBM の書き手を写した一つの判定（`estimators/lgbm/category_json.py`）にかける。書けない値（`bytes`、`Decimal`、日時、`Timedelta`、`complex`、`frozenset`、それらを要素に持つ `tuple`、`.item()` が Python の値にならない numpy のスカラー）があれば `SERIALIZATION_FAILED` を送出し（context `column` / `value` / `type` / `state`。値は例外を出さない表示で書く）、出力先に何も書かない。`fit()` は CV の学習の前に、全ての学習行で fit した pipeline の状態（refit の pipeline と同じ行）を同じ判定にかけ、該当する列ごとに `UserWarning` を出す。fit は止めない。要素が書ける `tuple` は保存できる（`export_code` は H-0120 の値の集合で拒否する）。限界: 再帰の上限の数段手前まで入れ子にした `tuple` は判定を通り、booster の pickle が Python 自身の再帰の上限で失敗する。その export は書き出しの途中の `SERIALIZATION_FAILED` のままである。
+- **保存できるカテゴリ値（H-0127、#338、H-0133、#357）**:
+  - **値の集合 V**（`core/category_values.py`、Layer 0）: `Model.export`、公開の `lizyml.persistence.export`、`export_code` は、特徴量のカテゴリについて同じ閉じた集合を受け付ける。型は `ADMITTED_TYPES` のどれかに厳密に一致すること（`str`・`int`・`float`・`bool`・`bytes`・`Decimal`・`date`・`datetime`・`timedelta`・`complex`・`pd.Timestamp`・`pd.Timedelta`、それらの numpy のスカラー、`np.datetime64`・`np.timedelta64`、要素が V の `tuple`・`frozenset`。入れ物は 8 段まで）。自分自身と等しくならない値（NaN、`Decimal` の NaN、NaN を含む `complex`、NaT）は入れ子の中でも外である。タイムゾーンつきの `Timestamp` は固定の時差・`ZoneInfo`・pytz の zone、タイムゾーンつきの `datetime` は固定の時差とキャッシュされた `ZoneInfo` だけを受け付ける（夏時間の重なりで等しさを保てるもの）。判定は値の型を最初に見るので、V の外の型の値のコードは走らない。
+  - **拒否**: `Model.export` と公開の `lizyml.persistence.export` は、何かを書く前に必ず次の検査を行う（公開の `export` の引数 `categories_checked` は H-0133 で非推奨で、渡しても検査を飛ばさず `DeprecationWarning` を出す。v1.0 で削除）。`export()` は何かを書く前に、保存する全ての pipeline 状態（refit、各 fold、`pipeline_state_per_fold` が無いモデルでは `pipeline_state` を `last fold` と呼ぶ）のエンコーダのカテゴリと最頻値、それから `declared_categories` を V で判定する。外の値があれば `SERIALIZATION_FAILED` を送出し（context `column` / `value` / `type` / `state`。値は例外を出さない表示で書く）、出力先に何も書かない。そのあと、状態ごとに adapter の `unsaveable_categories` にも尋ねる（下の IF）。`fit()` は CV の学習の前に、全ての学習行で fit した pipeline の状態（refit の pipeline と同じ行）を V で判定し、外の値を持つ列ごとに `UserWarning` を出す。fit は止めない。
+  - **位置の番号への置き換え**: LightGBM は booster を pickle するとき、各カテゴリ列のカテゴリをモデル文字列に JSON で書くので、書けない値（`category_json.is_writable`）を持つ列はそのままでは保存できない。LightGBM の provider はこの判定を pipeline に渡し、エンコーダは fit の時点で、そのような値を一つでも持つ列を `stand_in_columns` として状態に記録する（CV は transform より前に状態を保存するので、fit で決める）。transform は元の値で照合した後（未知の値、`unseen_policy`、欠損は今と同じ）、その列だけカテゴリを位置の番号 0..k−1 に置き換える。符号は変わらないので、予測は変わらない。それ以外の列と、`get_native_model()` が返す Booster の挙動は変わらない。メモリの中のモデルで、置き換えた列を持つ Booster に元の値の列を直接渡すと、予測を黙って間違える。
+  - **`metadata.json` の `declared_categories`**: 型の印つきの JSON（下の §15.4）で書く。`lizyml.persistence.load` が一度だけ復号し、`Model.load` はその結果を使う。形の外れた印は両方で `DESERIALIZATION_FAILED`。
 
 ## 15.4 `export_code`（Codegen Export, H-0059）
 
@@ -1949,7 +1956,8 @@ estimators/
   - **`config.json` が持つ値**: `inner_valid`（refit が使った strategy。`export_code` が fit と同じ `resolve_inner_valid` を、config と `applied_training_params` から呼び直して作る。検証集合が無ければ `null`）と `early_stopping_rounds`（adapter の patience、無ければ `null`）を独立に必ず書き、生成 `train.py` は既定値なしで読む。callback は両方があるときだけ付く。`sample_weight`（`"balanced"` か `null`、fit の記録から）、`declared_categories`（入力で `category` だった列）、`categorical_rule`（データの組み立てが `category` に変える列の規則、`{"explicit": [...], "auto": bool}`）、`_versions`。
   - **生成 `train.py` の学習**: 時間順の split と `blocked_group_kfold` は `Series.argsort()` で行を並べてから学習する。inner valid は 4 つの strategy を同じ numpy / scikit-learn の呼び出しで移したもので分割する。multiclass の `balanced` の重みは並べた後の全行で `compute_sample_weight("balanced", y)` と同じ値を作り、inner-train の行にだけ付ける。`LGBMAdapter.fit` と同じ Dataset と callback の組み立てで `lgb.train` を呼ぶ。
   - **カテゴリの符号（#304）**: 生成 `train.py` は `categorical_rule` で LizyML と同じ `astype("category")` を当ててから、`CategoricalEncoder.fit` と同じ 2 つの分岐でカテゴリと最頻値を決める。`pipeline_state.json` は列ごとに `{"categories": [型付きの値, ...], "mode": 値}` を持ち、配列の位置が符号である（`str` をキーにしない）。`predict.py` も同じ値で符号を引く。
-  - **拒否**: カテゴリ・最頻値・目的変数のラベルが `str` / `int` / `float` / `bool` と、`.item()` がそれらになり元の値と等しい numpy のスカラーの外にあるとき、`export_code` は何も書く前に `SERIALIZATION_FAILED` で拒否する（黙って `str` にしない）。
+  - **値の書き方（H-0133）**: 特徴量のカテゴリ・最頻値・`declared_categories` は、素の値（`str`・`int`・`float`・`bool` と、それらの numpy のスカラー）を JSON の値で、それ以外の V の値を `{"$lizyml": 印, ...}` の形の JSON の object で書く。印と欄の表は `core/category_values.py`（H-0133 P2）が正で、生成 `train.py` / `predict.py` は同じ表の写しで符号化・復号する（写しと正が同じ答えを返すことをテストで確かめる）。復号は決まった位置だけで行い、形の外れた object は `ValueError` である。
+  - **拒否**: 特徴量のカテゴリ・最頻値・`declared_categories` が V（§15.3）の外にあるとき、目的変数のラベルが `str` / `int` / `float` / `bool` と、`.item()` がそれらになり元の値と等しい numpy のスカラーの外にあるとき（ただし `np.datetime64` と `np.timedelta64` は外す。Y・M 単位の `np.timedelta64` は `.item()` が int で、numpy が元の値と等しいと判定するため。H-0133）、`export_code` は何も書く前に `SERIALIZATION_FAILED` で拒否する（黙って `str` にしない）。ラベルの集合は H-0133 で広げていない。
 - **校正用 OOF の fold の再現（H-0090）**: `config.json` は `split` ブロック（`config.json["split"]`）を持ち、outer split の method 固有のパラメーターを解決済みの値で書く（`_build_split_metadata(cfg)`。`stratify="auto"` は bool に畳み、`random_state` が無ければ `training.seed` を書く）。生成 `train.py` は校正用 OOF の CV fold をこのブロックから作り、`split.method` を再現する: `kfold` / `stratified_kfold` / `time_series` / `group_kfold` / `stratified_group_kfold` は scikit-learn の splitter、`purged_time_series` / `group_time_series` / `blocked_group_kfold` は LizyML のロジックを numpy に移したもの。
   - 時間の method では `time_col`、`blocked_group_kfold` では `blocks.col` で pandas の `argsort()` により並べてから分割し、fold を元の行順に戻す。
   - 生成 calibrator は covered な（OOF が NaN でない）行だけで学習する（LizyML の cross-fit の `C_final` と同じ）。
@@ -2080,7 +2088,8 @@ Artifact の保存・復元が `format_version` 管理のもとで安全に動�
 
 - **Frozen artifact fixture**: `tests/fixtures/` に CI 生成の artifact スナップショットを格納し、`Model.load()` → `predict()` の結果が既知の期待値と一致することを検証する。将来の `format_version` bump 時に migration テストの基盤となる。
 - **Legacy calibration path**: `oof_raw_scores=None` の旧形式 artifact が probability 入力で calibrate される経路を検証する。
-- **format_version rejection**: 未知の version（`99`, `0` 等）で `DESERIALIZATION_FAILED`。
+- **format_version rejection**: 未知の version（`99`, `0`, `4` 等）で `DESERIALIZATION_FAILED`。`{1, 2}` だけを受理する loader（模擬）は v3 を拒否する。
+- **v1 と v2 の形（H-0133 P8）**: 旧版で保存した成果物はリポジトリに無いので、テストは今の成果物を書き直して作る（`tests/test_persistence/_artifact_versions.py` の `to_v2_shape`: `stand_in_columns` を除き、`format_version` を 2 にして checksums を書き直す。v1 はさらに `target_encoder` を除く）。今の版を「v2」と呼ぶテストは置かない。
 - **metadata 部分欠損**: 必須フィールドを 1 つずつ削除し、各欠損で正しいエラーメッセージを検証。
 - **Booster string roundtrip**: `model_to_string()` → `model_from_string()` 往復で predict 結果が一致。
 
@@ -2173,6 +2182,7 @@ lizyml/
 │   │   ├── oof_coverage.py         compute_oof_valid_mask (H-0130)
 │   │   └── smart_ratio.py          RatioRange, SMART_RATIO_RANGES (H-0130)
 │   ├── param_domain.py             パラメーターの値の閉じた集合 (Layer 0, H-0095)
+│   ├── category_values.py          保存できるカテゴリ値の閉じた集合と符号化 (Layer 0, H-0133)
 │   └── specs/                      ProblemSpec, FeatureSpec (Layer 0、data/ が使用)
 │
 │                                   ── Layer 4: Facade (core/ の残り) ──

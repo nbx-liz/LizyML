@@ -18,6 +18,7 @@ from lizyml.estimators.base import (
 )
 from lizyml.estimators.lgbm.category_json import (
     encoder_categories,
+    stand_in_columns,
     unwritable_categories,
 )
 from lizyml.estimators.lgbm.defaults import (
@@ -155,8 +156,18 @@ class LGBMAdapter(BaseEstimatorAdapter):
         self._feval_display_names: list[str] = []
 
     def unsaveable_categories(self, pipeline_state: Any) -> list[UnsaveableCategory]:
-        """Category values LightGBM cannot write as JSON into a saved model (H-0127)."""
-        return unwritable_categories(encoder_categories(pipeline_state))
+        """Category values LightGBM cannot write as JSON into a saved model (H-0127).
+
+        A stand-in column reaches LightGBM as positions, which it always
+        writes (H-0133), so only the columns kept raw are checked.
+        """
+        stood = stand_in_columns(pipeline_state)
+        raw = {
+            col: cats
+            for col, cats in encoder_categories(pipeline_state).items()
+            if str(col) not in stood
+        }
+        return unwritable_categories(raw)
 
     def set_categorical_features(self, cols: list[str] | None) -> None:
         """Store categorical column names for use in ``fit()``."""

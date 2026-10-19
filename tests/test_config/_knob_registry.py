@@ -165,6 +165,14 @@ REGISTRY: dict[str, tuple[str, str]] = {
         "internal",
         "wiring: resolves ratio-form smart params",
     ),
+    "CategoricalEncoder.needs_stand_in": (
+        "internal",
+        "wiring: the estimator's predicate for values it cannot save (H-0133)",
+    ),
+    "NativeFeaturePipeline.needs_stand_in": (
+        "internal",
+        "wiring: the estimator's predicate for values it cannot save (H-0133)",
+    ),
     # inner validation
     "HoldoutInnerValid.ratio": ("config", _RATIO),
     "HoldoutInnerValid.random_state": ("config", _AUTO_SEED),

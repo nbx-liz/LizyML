@@ -1,0 +1,150 @@
+Traceback (most recent call last):
+  File "pandas/_libs/tslibs/timedeltas.pyx", line 440, in pandas._libs.tslibs.timedeltas.array_to_timedelta64
+  File "pandas/_libs/tslibs/timedeltas.pyx", line 472, in pandas._libs.tslibs.timedeltas._item_to_timedelta64_fastpath
+TypeError: Expected unicode, got numpy.timedelta64
+
+During handling of the above exception, another exception occurred:
+
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/h0133/floor/lib/python3.10/site-packages/pandas/core/arrays/timedeltas.py", line 1032, in _objects_to_td64ns
+    result = array_to_timedelta64(values, unit=unit, errors=errors)
+ValueError: cannot cast unit ps
+Traceback (most recent call last):
+  File "pandas/_libs/tslibs/timedeltas.pyx", line 440, in pandas._libs.tslibs.timedeltas.array_to_timedelta64
+  File "pandas/_libs/tslibs/timedeltas.pyx", line 472, in pandas._libs.tslibs.timedeltas._item_to_timedelta64_fastpath
+TypeError: Expected unicode, got numpy.timedelta64
+
+During handling of the above exception, another exception occurred:
+
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/h0133/floor/lib/python3.10/site-packages/pandas/core/arrays/timedeltas.py", line 1032, in _objects_to_td64ns
+    result = array_to_timedelta64(values, unit=unit, errors=errors)
+ValueError: cannot cast unit fs
+Traceback (most recent call last):
+  File "pandas/_libs/tslibs/timedeltas.pyx", line 440, in pandas._libs.tslibs.timedeltas.array_to_timedelta64
+  File "pandas/_libs/tslibs/timedeltas.pyx", line 472, in pandas._libs.tslibs.timedeltas._item_to_timedelta64_fastpath
+TypeError: Expected unicode, got numpy.timedelta64
+
+During handling of the above exception, another exception occurred:
+
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/h0133/floor/lib/python3.10/site-packages/pandas/core/arrays/timedeltas.py", line 1032, in _objects_to_td64ns
+    result = array_to_timedelta64(values, unit=unit, errors=errors)
+ValueError: cannot cast unit as
+Traceback (most recent call last):
+  File "pandas/_libs/tslibs/timedeltas.pyx", line 440, in pandas._libs.tslibs.timedeltas.array_to_timedelta64
+  File "pandas/_libs/tslibs/timedeltas.pyx", line 472, in pandas._libs.tslibs.timedeltas._item_to_timedelta64_fastpath
+TypeError: Expected unicode, got numpy.timedelta64
+
+During handling of the above exception, another exception occurred:
+
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/h0133/floor/lib/python3.10/site-packages/pandas/core/arrays/timedeltas.py", line 1032, in _objects_to_td64ns
+    result = array_to_timedelta64(values, unit=unit, errors=errors)
+ValueError: cannot cast unit ps
+Traceback (most recent call last):
+  File "pandas/_libs/tslibs/timedeltas.pyx", line 440, in pandas._libs.tslibs.timedeltas.array_to_timedelta64
+  File "pandas/_libs/tslibs/timedeltas.pyx", line 472, in pandas._libs.tslibs.timedeltas._item_to_timedelta64_fastpath
+TypeError: Expected unicode, got numpy.timedelta64
+
+During handling of the above exception, another exception occurred:
+
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/h0133/floor/lib/python3.10/site-packages/pandas/core/arrays/timedeltas.py", line 1032, in _objects_to_td64ns
+    result = array_to_timedelta64(values, unit=unit, errors=errors)
+ValueError: cannot cast unit fs
+Traceback (most recent call last):
+  File "pandas/_libs/tslibs/timedeltas.pyx", line 440, in pandas._libs.tslibs.timedeltas.array_to_timedelta64
+  File "pandas/_libs/tslibs/timedeltas.pyx", line 472, in pandas._libs.tslibs.timedeltas._item_to_timedelta64_fastpath
+TypeError: Expected unicode, got numpy.timedelta64
+
+During handling of the above exception, another exception occurred:
+
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/h0133/floor/lib/python3.10/site-packages/pandas/core/arrays/timedeltas.py", line 1032, in _objects_to_td64ns
+    result = array_to_timedelta64(values, unit=unit, errors=errors)
+ValueError: cannot cast unit as
+Traceback (most recent call last):
+  File "pandas/_libs/tslibs/timedeltas.pyx", line 440, in pandas._libs.tslibs.timedeltas.array_to_timedelta64
+  File "pandas/_libs/tslibs/timedeltas.pyx", line 472, in pandas._libs.tslibs.timedeltas._item_to_timedelta64_fastpath
+TypeError: Expected unicode, got numpy.timedelta64
+
+During handling of the above exception, another exception occurred:
+
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/h0133/floor/lib/python3.10/site-packages/pandas/core/arrays/timedeltas.py", line 1032, in _objects_to_td64ns
+    result = array_to_timedelta64(values, unit=unit, errors=errors)
+ValueError: cannot cast unit ps
+Traceback (most recent call last):
+  File "pandas/_libs/tslibs/timedeltas.pyx", line 440, in pandas._libs.tslibs.timedeltas.array_to_timedelta64
+  File "pandas/_libs/tslibs/timedeltas.pyx", line 472, in pandas._libs.tslibs.timedeltas._item_to_timedelta64_fastpath
+TypeError: Expected unicode, got numpy.timedelta64
+
+During handling of the above exception, another exception occurred:
+
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/h0133/floor/lib/python3.10/site-packages/pandas/core/arrays/timedeltas.py", line 1032, in _objects_to_td64ns
+    result = array_to_timedelta64(values, unit=unit, errors=errors)
+ValueError: cannot cast unit fs
+Traceback (most recent call last):
+  File "pandas/_libs/tslibs/timedeltas.pyx", line 440, in pandas._libs.tslibs.timedeltas.array_to_timedelta64
+  File "pandas/_libs/tslibs/timedeltas.pyx", line 472, in pandas._libs.tslibs.timedeltas._item_to_timedelta64_fastpath
+TypeError: Expected unicode, got numpy.timedelta64
+
+During handling of the above exception, another exception occurred:
+
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/h0133/floor/lib/python3.10/site-packages/pandas/core/arrays/timedeltas.py", line 1032, in _objects_to_td64ns
+    result = array_to_timedelta64(values, unit=unit, errors=errors)
+ValueError: cannot cast unit as
+pandas 2.0.0
+str            -> ['str']
+int            -> ['int']
+float          -> ['float']
+bool           -> ['bool']
+bytes          -> ['bytes']
+Decimal        -> ['Decimal']
+date           -> ['date']
+datetime       -> ['datetime']
+timedelta      -> ['Timedelta']
+complex        -> ['complex']
+Timestamp      -> ['Timestamp']
+Timedelta      -> ['Timedelta']
+bool_          -> ['bool']
+int8           -> ['int']
+int16          -> ['int']
+int32          -> ['int']
+int64          -> ['int']
+uint8          -> ['int']
+uint16         -> ['int']
+uint32         -> ['int']
+uint64         -> ['int']
+float32        -> ['float']
+float64        -> ['float']
+complex64      -> ['complex64']
+complex128     -> ['complex128']
+str_           -> ['str_']
+bytes_         -> ['bytes_']
+datetime64     -> ['Timestamp']
+timedelta64    -> ['Timedelta']
+tuple          -> ['tuple']
+frozenset      -> ['frozenset']
+admitted types never learned: ['bool_', 'datetime64', 'float32', 'float64', 'int16', 'int32', 'int64', 'int8', 'timedelta', 'timedelta64', 'uint16', 'uint32', 'uint64', 'uint8']

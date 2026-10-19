@@ -42,7 +42,7 @@ LightGBM の実装 (`lizyml/estimators/lgbm/`) が全項目のリファレンス
 | メソッド | デフォルト | 説明 |
 |---------|----------|------|
 | `set_categorical_features(cols)` | no-op | CVTrainer が `fit()` 前に呼ぶ |
-| `unsaveable_categories(pipeline_state)` | `[]` | モデルを保存するときに書けないカテゴリ値（`UnsaveableCategory` の list、列ごとに最初の一つ）。`Model.export` が保存の前に、状態ごとにその adapter に尋ねる（H-0129）。保存に制約の無い estimator は上書き不要 |
+| `unsaveable_categories(pipeline_state)` | `[]` | モデルを保存するときに書けないカテゴリ値（`UnsaveableCategory` の list、列ごとに最初の一つ）。`Model.export` が保存の前に、状態ごとにその adapter に尋ねる（H-0129）。保存に制約の無い estimator は上書き不要。値そのものが保存できるかは、estimator によらず `core/category_values.py` が決める（H-0133）。LightGBM のように一部の値を書けない estimator は、provider が pipeline に判定を渡して、その列を位置の番号で受け取る（`stand_in_columns`） |
 | `update_params(params)` | no-op | per-fold ratio param 解決用 |
 | `best_iteration` (property) | `None` | Early stopping 使用時に設定 |
 | `eval_results` (property) | `{}` | 学習曲線用の評価履歴 |

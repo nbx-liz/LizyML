@@ -5,6 +5,48 @@ release from v0.5.0 onward.
 
 ---
 
+## v0.20.0 (unreleased)
+
+### Saved artifacts are `format_version` 3 (H-0133)
+
+Category columns can now hold values that JSON cannot represent -- `bytes`,
+`Decimal`, dates, datetimes, `Timestamp`, timedeltas, `complex`, and tuples or
+frozensets of these -- and the model can still be saved with `Model.export` and
+`export_code` ([#357](https://github.com/nbx-liz/LizyML/issues/357)). To make
+that possible, a column holding a value LightGBM cannot write is handed to
+LightGBM with its categories renamed to their positions `0..k-1`; the codes, and
+so the predictions, are unchanged.
+
+- **Older LizyML cannot read v3 artifacts.** `Model.load` in v0.19.0 or earlier
+  raises `DESERIALIZATION_FAILED` for `format_version` 3. This is deliberate: an
+  older version would read a renamed column as raw categories and predict
+  wrongly without an error. Load v3 artifacts with v0.20.0 or later.
+- **v1 and v2 artifacts load and predict as before.** Nothing needs migrating:
+  a v2 artifact could not hold the values that need renaming (its export failed).
+- **Using the LightGBM booster directly.** For a renamed column only,
+  `get_native_model()` returns a booster whose `pandas_categorical` holds the
+  positions. Passing it a frame with the raw values of that column predicts
+  wrongly; go through `Model.predict`, which applies the pipeline. A column
+  whose values are all `str`, `int`, `float`, `bool` (or numpy scalars of
+  these), or tuples of them, is not renamed.
+- **`export_code` accepts the same feature-category values as `Model.export`.**
+  `pipeline_state.json` and `config.json` write values other than `str`, `int`,
+  `float` and `bool` as tagged JSON objects (`{"$lizyml": ..., ...}`) that the
+  generated scripts decode; tuples are no longer refused. Target labels keep
+  the `str` / `int` / `float` / `bool` set.
+- **`declared_categories` in `metadata.json`** is written for every column the
+  input held as `category` dtype (tagged when needed), instead of the whole
+  record being left out when one value was not plain.
+- **`lizyml.persistence.export(categories_checked=True)` is deprecated.** The
+  argument is ignored and warns: the public export always checks the category
+  values first. It will be removed in v1.0.
+- **Still refused, before anything is written:** a category value outside the
+  saveable set -- a NaN-like value inside a tuple, `np.longdouble`, a subclass of
+  a saveable type, a user-defined type, a tuple nested more than 8 deep, or a
+  timezone that cannot be restored equal. `fit` warns about such a column.
+
+---
+
 ## v0.19.0
 
 Tuning with `resume=True`, `storage` or `study_name` changes (H-0122). Some

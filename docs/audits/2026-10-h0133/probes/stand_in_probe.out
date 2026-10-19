@@ -1,0 +1,11 @@
+lightgbm 4.6.0, pandas 3.0.1
+[str] max |raw - positions| = 0.0; save raw: ok; save positions: ok
+[bytes] max |raw - positions| = 0.0; save raw: ValueError: Circular reference detected; save positions: ok
+[bytes] positions booster on a raw frame: equals all-missing prediction = True, differs from correct = True
+[decimal] max |raw - positions| = 0.0; save raw: ValueError: Circular reference detected; save positions: ok
+[decimal] positions booster on a raw frame: equals all-missing prediction = False, differs from correct = True
+[timestamp] max |raw - positions| = 0.0; save raw: ValueError: Circular reference detected; save positions: ok
+[timestamp] positions booster on a raw frame: equals all-missing prediction = True, differs from correct = True
+[date] max |raw - positions| = 0.0; save raw: ValueError: Circular reference detected; save positions: ok
+[date] positions booster on a raw frame: equals all-missing prediction = True, differs from correct = True
+[str] raw booster on a positions frame: no error; differs from correct = True

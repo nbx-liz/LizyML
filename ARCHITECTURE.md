@@ -23,7 +23,7 @@ LizyML のアーキテクチャは **5 層のカテゴリ（圏）** で構成�
 flowchart TB
     subgraph L0["Layer 0 — Foundation"]
         direction LR
-        CORE["core/<br/>exceptions, logging, registries,<br/>param_domain, specs/<br/>+ _extras, _version (generated)"]
+        CORE["core/<br/>exceptions, logging, registries,<br/>param_domain, category_values, specs/<br/>+ _extras, _version (generated)"]
         TYPES["types/<br/>FitResult, PredictionResult,<br/>TuningResult, RunMeta,<br/>SplitIndices, DataFingerprint"]
     end
 
@@ -49,7 +49,7 @@ flowchart TB
         direction LR
         EXPLAIN["explain/<br/>shap_explainer<br/>(optional dep)"]
         PLOTS["plots/<br/>8 plot modules<br/>(optional dep)"]
-        PERSIST["persistence/<br/>exporter + loader<br/>format_version=2"]
+        PERSIST["persistence/<br/>exporter + loader<br/>format_version=3"]
         CODEGEN["codegen/<br/>export_code generator"]
     end
 
@@ -510,7 +510,7 @@ classDiagram
     class persistence:::optClass {
         +export(path, fit_result, refit_result, ...) void
         +load(path) tuple
-        +FORMAT_VERSION = 2
+        +FORMAT_VERSION = 3
     }
     class AnalysisContext:::optClass { +y_true +X_for_explain }
     persistence ..> AnalysisContext : saves/restores
@@ -669,7 +669,7 @@ Facade (Model)
 ```
 export:  FitResult + RefitResult + Config + AnalysisContext
          → metadata.json + fit_result.pkl + refit_model.pkl
-         format_version=2
+         format_version=3
 
 load:    metadata.json → validate format_version
          → Model instance (predict / evaluate / plots ready)
@@ -687,6 +687,7 @@ lizyml/
 │   ├── logging.py                  logger + run_id + output_dir
 │   ├── registries.py               MetricRegistry (generic)
 │   ├── param_domain.py             受理するパラメーター値の集合 (H-0095; Layer 0, H-0129)
+│   ├── category_values.py          保存できるカテゴリ値の閉じた集合と符号化 (Layer 0, H-0133)
 │   ├── specs/                      ProblemSpec / FeatureSpec など (Layer 0, H-0129)
 │   └── types/
 │       ├── fit_result.py           FitResult (13 fields)

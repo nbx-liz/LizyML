@@ -206,9 +206,10 @@ def test_tune_applies_the_configured_policy(
     built: list[str] = []
     real_init = pipelines_native.NativeFeaturePipeline.__init__
 
-    def spy(self: Any, unseen_policy: Any = "mode") -> None:
+    def spy(self: Any, unseen_policy: Any = "mode", **kwargs: Any) -> None:
+        # H-0133: the provider also passes needs_stand_in.
         built.append(unseen_policy)
-        real_init(self, unseen_policy=unseen_policy)
+        real_init(self, unseen_policy=unseen_policy, **kwargs)
 
     monkeypatch.setattr(pipelines_native.NativeFeaturePipeline, "__init__", spy)
     raw = make_config("regression", n_estimators=5, n_splits=2, tuning_n_trials=2)

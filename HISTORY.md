@@ -14709,3 +14709,330 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
     - `MASE.bind_train` の経路を数えていなかった。
     - 集計器が想定外の scale 0 でも 0 で終わった（DC1）。
     - notebook のカーネルの記録を pytest と区別できなかった。
+
+## H-0133: JSON にできないカテゴリ値を保存できるようにする ― 保存できない列だけ LightGBM に位置の番号を渡し、値の集合を Model.export と export_code でそろえる（#357）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-19
+- **決定日**: 2026-10-19
+  - Codex の設計の批評（run `h0133-design-critique`）の後、管理者が 4 つの分岐を決めた（registry のカード D-20261019-006）。
+  - Codex の Proposal review は、3 round の run（`h0133-proposal-review`、全て CHANGES_REQUESTED）と、確認の run 2 つ（`h0133-proposal-confirm` が CHANGES_REQUESTED、`h0133-proposal-confirm2` が APPROVE、`a42beb4`）だった。停止ルールに当たった 3 回は、そのたびに管理者が進め方を決めた（下の「改訂の記録」）。
+  - 管理者が受け入れを宣言した（「OKです。進めてください。」）。
+- **スコープ**:
+  - `lizyml/core/category_values.py`（新規、Layer 0）: 保存できるカテゴリ値の閉じた集合 V の判定と、型の印をつけた JSON の符号化・復号。
+  - `lizyml/features/encoders/categorical_encoder.py`、`lizyml/features/pipelines_native.py`: 保存できない列を fit の時点で決めて状態に記録し、transform でその列のカテゴリを位置の番号に置き換える。
+  - `lizyml/estimators/lgbm/provider.py`、`lizyml/estimators/lgbm/category_json.py`、`lizyml/estimators/lgbm/adapter.py`: 「LightGBM が書けない値」の判定を pipeline に渡す。`unsaveable_categories` は元の値の形の列だけを見る。
+  - `lizyml/persistence/exporter.py`、`lizyml/persistence/loader.py`、`lizyml/core/_model_persistence.py`、`lizyml/core/model.py`: V による拒否、`declared_categories` の符号化、`FORMAT_VERSION` 3、fit の警告。
+  - `lizyml/codegen/values.py`、`config_writer.py`、`artifact_writer.py`、`templates.py`: 特徴量のカテゴリを型の印つきで書き、生成コードが復号する。
+  - 文書とテスト（下の「規則が縛る位置」の閉じた一覧）。
+
+### 目的（課題）
+
+- カテゴリ列に JSON にできない値（`bytes`、`Decimal`、`pd.Timestamp`、`datetime`、`date`、`np.datetime64`、`Timedelta`、`complex`、`frozenset`、それらを含む混在）を持つモデルは、fit と predict はできるが保存できない。LightGBM が booster の中のカテゴリを `json.dumps` で書くためである（H-0127、#338）。v0.19.0 では、`Model.export` はこれを列・値・型を名指しして拒否し、fit は警告するだけになった（#338 の案 B）。本提案は保存できるようにする（#338 の案 D）。
+- 合わせて、`Model.export` と `export_code` が受け付ける値の集合をそろえる。今は `tuple` を `Model.export` は受け付け、`export_code` は拒否する（`tests/test_persistence/test_h0120_records.py:300-315` がこの食い違いを固定している）。
+
+### 管理者の判断（2026-10-19、Codex の設計の批評 `h0133-design-critique` の後。registry のカード D-20261019-006）
+
+1. 位置の番号への置き換えは、LightGBM が書けない値を持つ列だけに行う。他の列と `get_native_model()` の Booster の挙動は変えない。
+2. 受け付ける値の集合は、素のスカラーに `bytes`・`Decimal`・`Timestamp`（タイムゾーンつきも）・`datetime`・`date`・`np.datetime64`・`Timedelta`・`complex` を足し、それらの `tuple`・`frozenset` を含める。自分自身と等しくならない値（NaN の類）は入れ子の中でも拒否し、入れ子の深さに上限を置く。
+3. 生成コードでの型の印つきの符号化は、特徴量のカテゴリ（encoder のカテゴリ、最頻値、`declared_categories`）だけに使う。目的変数のラベルは今の値の集合のまま。
+4. `FORMAT_VERSION` は、新しい成果物すべてで 3 にする。
+
+### 実測（2026-10-19、develop `918c489`、LightGBM 4.6.0、pandas 3.0.1）
+
+- **位置の番号で予測は変わらない**（`docs/audits/2026-10-h0133/probes/stand_in_probe.py` → `.out`）:
+  - カテゴリを位置の番号 0..k−1 に置き換えた列で学習した booster と、元の値のまま学習した booster の予測は一致した（最大差 0.0）。対象は str・bytes・Decimal・Timestamp・date。LightGBM はカテゴリの符号で学習するためである。
+  - 置き換えた booster は、bytes・Decimal・Timestamp・date でも pickle と `model_to_string` が通った。元の値の booster は「Circular reference detected」で失敗した。
+- **形が混ざると黙って間違う**（同じ probe）:
+  - 番号の booster に元の値の列を渡すと、bytes・Timestamp・date では全行が欠損の扱いになり、正しい予測と異なった。Decimal では全行が欠損の扱いにはならなかった（`Decimal(3)` が番号の 3 と等しいため）が、やはり正しい予測と異なった。
+  - 元の値の booster（str）に番号の列を渡しても、エラーは出ず、予測は異なった。
+  - そのため、保存した状態は列ごとの形を記録し、古い LizyML が新しい形を読めないようにする必要がある。
+- **保存できない列はテストの外に無い**（`probes/firing/` の `sitecustomize.py` → `summarize.py` → `firing.out`）:
+  - V で、フルスイート（11908 passed、230 skipped）と notebook の実行の層（21 passed）の全ての `CategoricalEncoder.fit` を、列ごとに記録した。記録は 1504 件で、pytest の中で 1106 件、notebook のカーネルの中で 398 件だった。
+  - LightGBM が書けない値を持つ列は 181 件で、すべて #338 のテストのファイル（`test_unwritable_categories.py`、`test_export_contract.py`、`test_h0120_records.py`）の中だった。それ以外は 0/1323 だった。
+  - 現れた値の型: str 1142、int 127、tuple 87、bytes 41、float 36、Timestamp 35、Decimal 15、Timedelta・bool・complex・date・frozenset 各 10、テスト用の型 2 つ（`_ArrayWithoutList`・`_Hostile`）各 5。`datetime.datetime` と `np.datetime64` は現れなかった（pandas が `Timestamp` にそろえるため。次の項）。
+- **pandas が fit の時点でそろえるもの**（Codex の批評で実測）:
+  - 次の組は、fit の時点で 1 つのカテゴリにまとめられる（等しく、hash も等しい）:
+    - `Timestamp` と、同じ時刻の `datetime`
+    - `Decimal("1.50")` と `Decimal("1.5")`
+    - `-0.0` と `0.0`
+  - `np.datetime64` だけの列のカテゴリは `Timestamp` になる。混在した object の列では `np.datetime64` が残ることがある。
+  - したがって、保存し復元するのは、入力の値ではなく、学習したカテゴリの代表の値である。
+
+### 対応方針（提案）
+
+- **P1. 値の集合 V（`core/category_values.py`、Layer 0）**。persistence と codegen はどちらも Layer 3 で、互いを参照できないので、両方が使う判定と符号化を Layer 0 に置く。
+  - V の要素は、次の型のどれかに**厳密に一致する**値である（`type(v) is T` で判定し、サブクラスは拒否する。H-0095 の教訓）。型の一覧は閉じていて、モジュールの定数 1 つに置く:
+    - Python: `str`、`int`、`float`、`bool`、`bytes`、`decimal.Decimal`、`datetime.date`、`datetime.datetime`、`datetime.timedelta`、`complex`。
+    - pandas: `pd.Timestamp`、`pd.Timedelta`。
+    - numpy: `np.bool_`、`np.int8`、`np.int16`、`np.int32`、`np.int64`、`np.uint8`、`np.uint16`、`np.uint32`、`np.uint64`、`np.float32`、`np.float64`、`np.complex64`、`np.complex128`、`np.str_`、`np.bytes_`、`np.datetime64`、`np.timedelta64`。`np.float16`、`np.longdouble`、`np.clongdouble` などは外（H-0127 の浮動小数の扱いと同じ）。
+    - 入れ物: `tuple` と `frozenset`。要素は V の要素で、入れ物の入れ子は 8 段まで（`((1,),)` は 2 段）。
+  - 自分自身と等しくならない値は、どの深さでも V の外である。判定は型ごとの関数で行い、`==` は使わない:
+    - float と numpy の浮動小数の NaN（`math.isnan`）
+    - `Decimal` の NaN と sNaN（`is_nan()`）
+    - 実部か虚部が NaN の `complex`
+    - `np.datetime64` と `np.timedelta64` の NaT（`np.isnat`）
+    - `pd.NaT` は型が一覧に無いので外になる。最上位の欠損はもともとカテゴリにならない（§9.2）。
+  - タイムゾーンつきの `Timestamp` は、`tzinfo` が次のどれかのときだけ V に入る:
+    - 厳密に `datetime.timezone`（固定の時差）
+    - 厳密に `zoneinfo.ZoneInfo`（`key` があるもの）
+    - pytz の zone（pandas 2.x が文字列の tz から作る）。名前を `inspect.getattr_static` で読み、`pytz.timezone(name)` とその localize した instance の集合に対する同一性で確かめる。
+    それ以外（dateutil、利用者の `tzinfo`）は外である。
+  - タイムゾーンつきの `datetime.datetime` は、`tzinfo` が次のどちらかのときだけ V に入る（`Timestamp` より狭い。round 3 の指摘）:
+    - 厳密に `datetime.timezone`
+    - 厳密に `zoneinfo.ZoneInfo` で、`zoneinfo.ZoneInfo(key) is tzinfo` が真のもの（キャッシュされた instance）
+    - `ZoneInfo.no_cache` の instance と pytz の zone は外である。理由: Python は `tzinfo` の instance が違う 2 つの `datetime` を UTC で比べ、夏時間の重なりの時刻を常に「等しくない」とする（PEP 495）。そのため、復元した値が学習したカテゴリと一致しなくなる。`Timestamp` は時刻の値で比べるので、instance が違っても等しい。hash も、`ZoneInfo` の `Timestamp` では instance が違っても等しい（`probes/tz_fold_probe.out`、fold 0 と 1）。ただし pytz の zone の `Timestamp` は、`ZoneInfo` で戻すと fold 1 で hash が違うので、P2 で時差として書く（`probes/pytz_fold_probe.out`）。
+  - 判定は型を最初に見る。V の外の型の値のメソッドは呼ばない。一覧の型のメソッドは、標準ライブラリ・numpy・pandas のものだけが走る。この判定の境界は「値に対して閉じる」ことであり、プロセスの中で numpy や pandas を差し替えた呼び出し元への備えではない（H-0095 の宣言と同じ）。
+- **P2. 符号化と復号**（P1 のモジュールにだけ置く）:
+  - 素の値（`str`・`int`・`float`・`bool` と、`.item()` がそれらになる numpy のスカラー）は、今と同じ JSON の値で書く（numpy は `.item()` で書く）。それ以外は印つきの JSON の object で書く。
+  - 印つきの形は次の表で固定する。各 object は `"$lizyml"` と表の欄だけを持ち、欄の過不足は復号で拒否する。整数は JSON の整数、浮動小数は素の float と同じ規則（`-0.0` と ±inf を含む）で書く:
+
+    | `$lizyml` | 型 | 欄 |
+    |---|---|---|
+    | `bytes` | `bytes`、`np.bytes_` | `b64`: base64 の ASCII 文字列 |
+    | `decimal` | `Decimal` | `str`: `str(v)` |
+    | `complex` | `complex`、`np.complex64`、`np.complex128` | `real`、`imag`: float（numpy は `.item()` の値で書く） |
+    | `date` | `datetime.date` | `iso`: `v.isoformat()` |
+    | `datetime` | `datetime.datetime` | `us`: 壁時計の時刻（`tzinfo` を外した値）の、1970-01-01 からのマイクロ秒。`fold`: 0 か 1。`tz`: 下の形か `null` |
+    | `timestamp` | `pd.Timestamp` | `unit`: `"s"`・`"ms"`・`"us"`・`"ns"` のどれか（`v.unit`）。`value`: その単位での epoch からの整数（タイムゾーンつきは UTC、`v.asm8` から読む）。`tz`: 下の形か `null` |
+    | `datetime64` | `np.datetime64` | `unit`: 基本の単位（`np.datetime_data` の 1 つ目）。`count`: 倍数（2 つ目）。`value`: その単位での整数 |
+    | `timedelta64` | `np.timedelta64` | `datetime64` と同じ欄 |
+    | `pd_timedelta` | `pd.Timedelta` | `unit`、`value`: `timestamp` と同じ規則 |
+    | `timedelta` | `datetime.timedelta` | `days`、`seconds`、`microseconds`: 整数 |
+    | `tuple` | `tuple` | `items`: 要素の符号化の並び |
+    | `frozenset` | `frozenset` | `items`: 要素の符号化を、`json.dumps(item, sort_keys=True)` の文字列の順に並べたもの（hash の順に依存しない） |
+
+  - タイムゾーンの形は `{"kind": "iana", "name": <IANA の名前>}` か `{"kind": "offset", "microseconds": <整数>}` のどちらかである。`datetime.timezone` の時差はマイクロ秒の整数で必ず表せる（`timedelta` の分解能）。`ZoneInfo` は `iana`、`datetime.timezone` は `offset` で書く。pytz の zone を持つ `Timestamp` は、その値の UTC からの時差（`v.utcoffset()`）を `offset` で書く（確認の review の指摘。下の項）。
+  - 復号するのは、決まった位置だけである: カテゴリの並びの各要素、最頻値、`declared_categories` の各要素。そこにある JSON の object は表のどれかの形でなければならない。外れれば `DESERIALIZATION_FAILED`（生成コードでは `ValueError`）で止める。ほかの位置の mapping は復号しない。カテゴリの値は hash できる値なので dict にはならず、印と取り違えることはない。
+  - `Timestamp` は、UTC の時刻を復元してから、記録した名前（`zoneinfo.ZoneInfo(name)`）か時差（`datetime.timezone`）へ変換する。記録するのが UTC の時刻なので、夏時間の重なり（fold 0 と 1）でも元の時刻と等しい。
+    - `ZoneInfo` の `Timestamp` は、別の instance（`no_cache`）で戻しても、等しさも hash も保たれる（`probes/tz_fold_probe.out`）。
+    - pytz の zone の `Timestamp` を `ZoneInfo(name)` で戻すと、fold 1 で等しさは保たれるが hash が違い、辞書の照合に失敗する。Python の `datetime` の hash が fold 1 の値でも fold 0 の時差を使い、pytz の instance は自分の時差を固定で持つためである。その値の時差（`datetime.timezone`）で戻すと、等しさ・hash・辞書の照合が fold 0・1 とも保たれる（`probes/pytz_fold_probe.out`、pandas 3.0.1 と pytz 2026.5 の一時的な環境）。そのため pytz の zone は時差で書く。
+  - `datetime.datetime` は、壁時計の時刻に、記録した `fold` と zone（キャッシュされた `ZoneInfo(name)` か `datetime.timezone`）を付けて戻す。UTC を経ないので、`datetime.min` に +23 時間の時差をつけた値のように UTC が西暦 1〜9999 年の外に出る値でも戻る（round 3 の指摘。`probes/tz_fold_probe.out`）。zone は元と同じキャッシュされた instance なので、Python は同じ zone の中の比較として、壁時計の時刻で比べる。
+  - 復号した値は、学習したカテゴリの代表の値と等しく、hash も等しく、型も同じである。ただし、次の 3 つは Python の型で戻る。どれも元の値と等しく、hash も等しい:
+    - numpy の素の値は Python の値で戻る。
+    - `np.bytes_` は `bytes` で戻る。
+    - `np.complex64` と `np.complex128` は `complex` で戻る（印の形は 3 つの型で同じ）。
+  - 予測時に利用者が渡す新しい値と照合できることは、メモリの中のモデルと同じ規則で決まる（照合は今と同じく、学習したカテゴリとの `set` の照合である）。受け入れ基準 4 で、この等しさを V の全体について確かめる。
+- **P3. 置き換える列は fit の時点で決める**（`CategoricalEncoder`）:
+  - encoder は構築時に、省略できる判定 `needs_stand_in(value) -> bool` を受け取る。fit は列のカテゴリを学習した後、判定が真になる値を 1 つでも持つ列を「置き換える列」として状態に記録する（`stand_in_columns`）。transform はこの記録だけを読む。そのため、CV の fold の状態を transform より前に保存しても（`cv_trainer.py:112-120`）、状態は正しい形を持つ（Codex の critical 1）。
+  - transform では、元の値での照合（未知の値の検出、`unseen_policy` の置換、`comparable_values`、欠損）を今と同じに行い、`set_categories(known)` の後で、置き換える列だけ `rename_categories(range(k))` する。符号は変わらないので、予測も変わらない（実測）。
+  - 状態に `stand_in_columns` が無い（v1・v2 の成果物）ときは、どの列も置き換えない。今と同じに予測する。
+  - 判定を持たない encoder（provider の外で作ったもの）は、どの列も置き換えない。
+- **P4. 判定を渡すのは LightGBM の provider**（`provider.py:365`）:
+  - 「LightGBM が書けない値」は LightGBM の知識なので、`category_json.is_writable` を持つ provider が `NativeFeaturePipeline(needs_stand_in=...)` に渡す。provider が自分の pipeline を作ることは §2.1 の例外 1 の範囲に入る。features は estimators を import しない。
+  - `LGBMAdapter.unsaveable_categories`（H-0129）は、置き換えない列だけを検査する。置き換えた列は位置の番号なので必ず書ける。この IF の意味（estimator が保存のときに書けない値）は変えない。
+- **P5. 拒否と警告の持ち主**（Codex の major 3）:
+  - V の外の値の拒否は、estimator の保存可否とは別の検査である。`Model.export` と公開の `lizyml.persistence.export` の両方が、何かを書く前に、保存する全ての pipeline 状態のカテゴリと最頻値、それから `declared_categories` を P1 で検査する。V の外の値があれば `SERIALIZATION_FAILED` で拒否し、context に `column` / `value` / `type` / `state` を入れる（H-0127 と同じ形）。そのあと、今と同じく adapter の `unsaveable_categories` も検査する。
+  - fit の警告（`model.py:286-288`）は、V の外の値を持つ列について、`Model.export` と `export_code` が拒否することを告げる文に書き直す。LightGBM の都合で保存できない、という今の文は使わない。
+  - `export_code` は、特徴量のカテゴリについて同じ P1 で拒否する。目的変数のラベルは今の `plain_value` のまま（判断 3）。
+- **P6. `declared_categories` の保存**:
+  - `metadata.json` の `declared_categories` は P2 で符号化して書く。今は素の値で書けない列を黙って落としている（`exporter.py:45-65`）。V の外の値は P5 で拒否するので、落とすことはなくなる。
+  - 復号は `persistence/loader.py` の `load`（公開の `lizyml.persistence.load`）の中で 1 度だけ行う。`load` が返す metadata の `declared_categories` は、復号した値を持つ。今は metadata をそのまま返している（`loader.py:219`）。
+  - `Model.load` は、その結果を使う。`_checked_declared_categories`（`_model_persistence.py:119`）は形の検査だけを行い、2 度は復号しない。v1・v2 の成果物の素の値は、そのまま読める。形の外れた印は `DESERIALIZATION_FAILED` である。
+  - load したモデルからの `export_code` は、復号した値を使う。
+- **P7. 生成コード**:
+  - `export_code` は、`pipeline_state.json` のカテゴリと最頻値（`artifact_writer.py:37`、`:42`）と、`config.json` の `declared_categories`（`config_writer.py:107`）を P2 で書く。
+  - 生成 `train.py` と `predict.py` は、P2 の復号を同じ表で持つ。生成コードは LizyML に依存しないので、表は `templates.py` に写す。写しと P1 のモジュールが同じ答えを返すことを、V の全体のテストで確かめる（DC3）。
+  - 生成 `train.py` の `fit_pipeline`（`templates.py:86-128`）は、学習したカテゴリを同じ表で符号化して書く。
+  - 生成 `train.py` は今も LightGBM に符号（float64）を渡すので、生成 booster の `pandas_categorical` は空のままである。`export_code` が書く `model.txt` は LizyML の booster から作るが、置き換えた列は位置の番号なので書ける。
+- **P8. 保存形式**: `FORMAT_VERSION` を 3 にする。loader は `{1, 2, 3}` を受理する。新しい成果物のうち置き換えた列を持たないものも 3 になる（判断 4）。v2 の成果物は今と同じに読めて、同じに予測する。v2 の成果物には JSON にできない値は入りえない（保存が失敗した）ので、移行するものは無い。
+  - 保存済みの v2 の成果物の fixture はリポジトリに無い（§18.1.4 の frozen fixture は未整備）。v2 のテストは、v3 の成果物を「v2 の形」に書き直して作る: 各 pipeline 状態から `stand_in_columns` を除き、`format_version` を 2 にし、checksums を書き直す（既存の v1 のテストと同じ作り方）。今の版をそのまま「v2」と呼んでいるテストは、v1・v2 の形・v3 の 3 つを明示して走らせる。実物の旧版の成果物の fixture は R5（#298）で入れる。
+- **P9. 変えないもの**: `unseen_policy` とその報告、欠損の扱い、`comparable_values`（H-0127）、tune の同一性（入力の frame を hash する）、置き換えない列の booster と `get_native_model()`、目的変数のラベルの値の集合。
+
+### 規則が縛る位置（ソースから導出、実装前、`918c489`）
+
+- **コード**:
+  - `features/encoders/categorical_encoder.py`: `__init__`・fit（:86-117）、`transform_with_warnings`（:138-216、`set_categories` は :213-214）、`get_state`・`load_state`（:218-232）。
+  - `features/pipelines_native.py`: `__init__`（:39-40）。
+  - `estimators/lgbm/provider.py:365`。`estimators/lgbm/category_json.py`（`is_writable` :66-75、`unwritable_categories` :78-96、`warn_unsaveable_categories` :110-121）。`estimators/lgbm/adapter.py:157-159`。
+  - `persistence/exporter.py`: `_JSON_SCALARS`・`_plain_declared`（:42-65）、`check_category_values`（:109-146）、`export`（:184-286、検査は :241-242、`declared_categories` は :282）、`FORMAT_VERSION`（:40）。
+  - `persistence/loader.py:35`（受理する版）、`:219`（metadata を返す）。
+  - `core/_model_persistence.py`: `_checked_declared_categories`（:119）、`export`（:328-384）、load（:657-662）。
+  - `core/model.py:97`、`:286-288`。
+  - `codegen/values.py`（:21-53）、`codegen/config_writer.py:107`、`codegen/artifact_writer.py:14-50`、`codegen/templates.py`（`_plain` :61-63、`fit_pipeline` :86-128、`encode_column` :181-229 と :1320-1368、`apply_declared_categories` :266-280、`pipeline_state.json` の読み込み :1262-1267）。
+- **文書**（`git grep` で `unsaveable|unwritable|保存できないカテゴリ|declared_categories|FORMAT_VERSION|format_version` から導出し、HISTORY と監査の記録を除いた）:
+  - BLUEPRINT.md: §2.1 の層の表（Layer 0 に `core/category_values.py`）、§9.2、§15.2（:1907-1908）、§15.3 の保存できないカテゴリ値の段落（:1921）、§15.4 のカテゴリの符号と拒否（:1951-1952）、adapter の `unsaveable_categories`（:1642、:1647）、§18.1.4、§19 のディレクトリ構成。
+  - ARCHITECTURE.md（:52、:513、:672 の `format_version=2`、Layer 0 の一覧）。
+  - docs/migration.md（v0.20.0 の節: `format_version` 3、古い LizyML は新しい成果物を読めないこと）、docs/add-estimator-guide.md:45、CHANGELOG.md、docs/proposal_dispositions.toml。
+  - README.md、CONTRIBUTING.md、PLAN.md、docs/DEPRECATIONS.md は grep に当たるが、`format_version` の記述は過去の版のことなので変えない。実装の PR で全文を確かめる。
+- **テスト**:
+  - `tests/test_persistence/test_unwritable_categories.py`（`VALUES`・`WRITABLE`、:40-79）は、V の内と外に分け直す。
+  - `tests/test_codegen/test_export_contract.py`（`_ACCEPTED`・`_REFUSED`、:41-60）は、カテゴリとラベルに分ける。
+  - `tests/test_persistence/test_h0120_records.py:300-315` は、食い違いを固定しているので書き直す。
+  - 版に依存するテスト（`git grep -n -E "format_version|FORMAT_VERSION" -- tests` から導出、`tests/test_docs/` を除く）:
+    - 版の値を直接固定していて、3 で落ちるもの: `test_tuning_persistence.py:47`（`== 2`）、`test_per_fold_pipeline_state_compat.py:117`（`FORMAT_VERSION == 2`）。
+    - 今の版を「v2」として扱っていて、3 では意味がずれるもの: `test_h0125_load_refuses_non_probability_objective.py`（:12、:78-144 の `v1` / `v2` の表）、`test_smart_params_artifact.py`（:13、:73-79）、`test_per_fold_pipeline_state_compat.py`（:59-73、:171）、`test_artifact_compat.py`（:89-130 の受理する版）。これらは v1・v2 の形・v3 を明示して走らせる。
+    - `FORMAT_VERSION` を読むだけで、版が変わっても意味が保たれるもの: `test_artifact_compat.py:22`・`:297-305`、`test_export_load_errors.py:56-89`、`test_persistence.py:25-59`・`:133-247`、`test_applied_training_params.py:215`、`test_checksum_integrity.py:7`（文書の文）。
+
+### 互換性
+
+- **公開 API**: 増えるもの（V の判定と符号化は `lizyml.core.category_values`。公開の再公開はしない）。`BaseEstimatorAdapter.unsaveable_categories` の意味は変えない。
+- **保存形式**: 破壊的（`FORMAT_VERSION` 3）。新しい LizyML は v1・v2・v3 を読む。古い LizyML は v3 を `DESERIALIZATION_FAILED` で拒否する（形が混ざると黙って間違うので、読ませない）。
+- **挙動**:
+  - 置き換えない列（今保存できる値だけの列）の学習・予測・booster は変わらない。
+  - 置き換えた列を持つモデルは、今は保存できないので、利用者の手元に保存済みのものは無い。メモリの中のモデルでは、`get_native_model()` の Booster に元の値の列を直接渡すと黙って間違う（実測）。これは置き換えた列だけで起き、文書に書く。
+  - `Model.export` は、V の外の値（任意の利用者の型など）を、今と同じく拒否する。pickle には書けても拒否する（`export_code` とそろえるため）。
+  - `metadata.json` の `declared_categories` は、今は素の値で書けない列を黙って落としていたが、すべての列を書くようになる。
+- **生成コード**: 新しい `export_code` が書く `pipeline_state.json` と `config.json` は、印つきの値を持ちうる。H-0120 より前に生成したプロジェクトは約束しない（今と同じ）。
+
+### 代替案（検討して棄却）
+
+- **全てのカテゴリ列を置き換える（判断 1 の案 A）**: 経路が 1 本になるが、`get_native_model()` の Booster を直接使う利用者の予測を、全てのカテゴリのモデルで黙って変える。棄却（管理者）。
+- **値ごとに JSON にできる文字列へ置き換える（`str(value)` など）**: 同じ列の `Decimal("1.5")` と `"1.5"` が衝突する。位置の番号なら衝突は起きない。棄却。
+- **LightGBM に符号（整数）を渡す（生成 `train.py` と同じ）**: 保存済みの v2 の booster は `pandas_categorical` を持つので、符号の frame を渡すと LightGBM が `train and valid dataset categorical_feature do not match` で失敗し（`probes/codes_frame_probe.out`）、移行が要る。影響が全てのモデルに及ぶ。棄却。
+- **`Model.export` は pickle できる値なら何でも受け付ける**: `export_code` と値の集合がそろわない（#357 の目標）。棄却。
+- **置き換えた列を持つ成果物だけ 3 にする（判断 4 の別案）**: 古い LizyML がふつうのモデルを読めるが、版の判定が条件つきになる。棄却（管理者）。
+
+### Firing rate
+
+- 置き換える列の判定（`conditionally-activate`）: Firing rate: 0/1323 of `CategoricalEncoder.fit` column records outside the #338 test files hold a value LightGBM cannot write (1504 records over the full suite and the notebook tier on V at `918c489`, 398 of them in notebook kernels; the 181 others are in `test_unwritable_categories.py`, `test_export_contract.py` and `test_h0120_records.py`).
+  - テストの母集団では、この経路は専用のテストだけが通る（DC6 の形）。経路が要るのは利用者のデータ（日付の列など）で、受け入れ基準 1・2 が専用のテストで全ての型を通す。
+- V による受理（`allow`）: Firing rate: 0/1323 of the same records outside those files hold a category or mode that P1's predicate refuses (1504 records over the full suite and the notebook tier on V at `c22d6d7` plus revision 3; the predicate is the standalone reference `probes/firing/v_reference.py`, checked by `v_reference_check.py`, applied recursively to every learned category and the mode; 1484 records are inside V, and the 20 refused ones are all in the #338 test files: `_ArrayWithoutList` 5, `_Hostile` 5, `np.longdouble` inside a tuple 10).
+  - 計測器は、実装の前に P1 の規則を独立に写したものである（Proposal review round 1 の指摘）。実装の後に、実装の判定で同じ計測を行い、数が一致することを実装の記録に書く。
+
+### 受け入れ基準（テスト観点）
+
+1. **保存と予測の一致**: V の全ての型について、次の 2 つの経路の予測が、メモリの中のモデルの予測と一致する。型の母集団は `core/category_values.py` が公開する 1 つの一覧から導き、テストは手で書いた一覧を持たない。
+   - `fit` → `Model.export` → `Model.load` → `predict`。
+   - `export_code` → 生成 `predict.py`（再学習した生成 `train.py` も）。
+   対象は、列が 1 つの型だけのとき、型が混在するとき、`tuple` と `frozenset` の入れ子。型の一覧に加えて、次の軸を全部通す:
+   - `Timestamp` の単位 s・ms・us・ns
+   - タイムゾーンの名前と時差。夏時間の重なりの fold 0 と 1（`Timestamp` は ZoneInfo のキャッシュあり・no_cache・pytz、`datetime.datetime` はキャッシュされた ZoneInfo と固定の時差）
+   - `datetime.datetime` の境界: `datetime.min` に +23 時間、`datetime.max` に −23 時間の時差をつけた値
+   - `np.datetime64` と `np.timedelta64` の全ての基本の単位（Y・M・W・D・h・m・s・ms・us・ns・ps・fs・as）と、1 でない倍数
+2. **形の記録**: 置き換えた列を持つモデルで、次の 3 つが、メモリの中と load の後で一致する。
+   - fold ごとの SHAP 重要度（`pipeline_state_per_fold` を使う経路）
+   - 予測時の SHAP（`return_shap=True`）
+   - 校正した予測
+   v2 の形（P8 の書き直し）の成果物でも、SHAP 重要度と予測が今と同じになる。
+3. **値の集合の境界**: 1 つの母集団で、`Model.export` と `lizyml.persistence.export` と `export_code` が同じ値を受け付け、同じ値を拒否する。
+   - 母集団は、V の型の一覧の各型と、外の値: NaN を含む `tuple`、`Decimal("NaN")`、NaN を含む `complex`、NaT、9 段の入れ子、V の各型のサブクラス、利用者の型、`np.longdouble`、dateutil と利用者の `tzinfo` を持つ `Timestamp`、`ZoneInfo.no_cache` か pytz の zone を持つ `datetime.datetime`。
+   - 拒否は、何かを書く前に、列・値・型を名指しする。
+   - **目的変数のラベル**: 型の一覧から導いた別の母集団で、`export_code` は素の値を受け付け、V で増えた型を全て拒否する（判断 3）。
+4. **復号の等しさ**: V の全ての値について、復号した値は元の値と等しく、hash も等しい。予測時に利用者が渡す新しい値（同じ値の別の instance、同じ時刻の `datetime` と `Timestamp`）とも照合できる。生成コードの復号の写しは、同じ母集団で LizyML の復号と同じ値を返す。
+5. **印の取り違え**: 決まった位置の外の mapping は復号しない。決まった位置にある形の外れた object は、`Model.load` で `DESERIALIZATION_FAILED`、生成コードで `ValueError` になる。
+6. **保存形式**:
+   - 新しい成果物は `format_version` 3。
+   - v1 と v2 の形（P8 の書き直し）の成果物は、`Model.load` と `lizyml.persistence.load` の両方で今と同じに読めて、同じに予測する。
+   - 印つきの `declared_categories` は、両方の load で復号した値になり、形の外れた印は両方で `DESERIALIZATION_FAILED` になる。
+   - `format_version` 3 の成果物は、`{1, 2}` だけを受理する loader（模擬）で拒否される。
+   - 「規則が縛る位置」の版に依存するテストは、それぞれ v1・v2 の形・v3 を明示する。
+7. **変えないもの**: `unseen_policy` の 3 つの方針の置換と報告、置き換えない列の booster の `pandas_categorical`（元の値のまま）、目的変数のラベルの拒否は、今と同じである。
+8. **陰性対照**（元に戻す処理と、パッチを当てない基準の実行を持つ。H-0132 の形）:
+   - (a) transform で置き換えを省くと、基準 1 の保存が失敗する。
+   - (b) 形の記録を fit ではなく transform で決めると、基準 2 の fold ごとの SHAP が一致しなくなる。
+   - (c) `stand_in_columns` を読まない loader は、基準 2 で捕まる。
+   - (d) `tuple` を list として復号すると、基準 4 で捕まる。
+   - (e) 入れ子の NaN の検査を外すと、基準 3 で捕まる。
+   - (f) `frozenset` を hash の順で書くと、`PYTHONHASHSEED` を変えた 2 回の書き出しの比較で捕まる。
+   - (g) 目的変数のラベルの検査を特徴量のカテゴリの符号化に差し替えると、基準 3 のラベルの母集団で捕まる。
+   - (h) `lizyml.persistence.load` で復号を省くと、基準 6 で捕まる。
+9. **文書**: 「規則が縛る位置」の文書を更新し、`docs/proposal_dispositions.toml` に H-0133 を足す。fit の警告の文は、V の外の値について述べる。
+
+### 改訂の記録
+
+- **改訂 1（2026-10-19、Proposal review round 1 の後）**: Codex の run `h0133-proposal-review` の round 1（`62fd65b`）は CHANGES_REQUESTED（critical 1、major 4）だった。全て受け入れた:
+  - critical: 「規則が縛る位置」のテストの一覧が、版の値を固定したテスト（`test_tuning_persistence.py:47`、`test_per_fold_pipeline_state_compat.py:117`）と、今の版を「v2」と呼ぶテストを落としていた。`git grep` から導いた一覧に直した。リポジトリに v2 の成果物の fixture が無いことも分かったので、受け入れ基準の「v2 の fixture」をやめ、P8 に「v2 の形」の作り方を書いた。
+  - major: V と印つきの形が、一意に実装できるほど閉じていなかった。直した点:
+    - P1 に型の一覧を全て書いた（numpy の型、`tzinfo` の実装を含む）。
+    - P2 に、印つきの各形の欄と、整数と単位の表し方を表で固定した。
+    - 受け入れ基準 1 に、`Timestamp` の単位、fold 0 と 1、`np.datetime64` の全ての単位と倍数を足した。
+  - major: V の firing rate を、P1 の判定で測っていなかった（型の名前と LightGBM の判定だけだった）。P1 を独立に写した参照実装（`probes/firing/v_reference.py`）で、全ての学習した値を入れ子まで判定して測り直した。
+  - major: 印つきの `declared_categories` を、公開の `lizyml.persistence.load` が復号しなかった。P6 で復号の場所を `loader.load` の 1 か所にし、受け入れ基準 6 と陰性対照 (h) で両方の load を確かめる。
+  - major: 目的変数のラベルを変えないこと（判断 3）を確かめる母集団が無かった。受け入れ基準 3 に、型の一覧から導いたラベルの母集団と、陰性対照 (g) を足した。
+- **改訂 2（2026-10-19、Proposal review round 2 の後）**:
+  - round 2 の前の loop monitor:
+    - runner の absolute monitor は INCONCLUSIVE（escalate）だった。runner の monitor は前の round の head（`62fd65b`）の写しを読むので、改訂 1 を読めなかった。
+    - 管理者の判断で、`03e3c70` を読む Claude の fresh context の monitor で確かめ直した。結果は DELIVERABLE-FOCUSED（continue）だった。
+  - round 2（`03e3c70`）は CHANGES_REQUESTED（major 3）だった。round 1 の 5 件のうち 3 件（版のテストの一覧、公開の load での復号、ラベルの母集団）は解決と確認された。
+  - major 3 件は、どれも改訂 1 で入れた部分の欠陥だった。停止ルールに従って管理者に報告し、管理者は「3 件を直して通常の round 3」を選んだ:
+    - `complex` の印は、3 つの型で同じ形になる。復号は `complex` で戻ると決め、P2 の例外の一覧に足した。
+    - 固定の時差を整数の秒で書く形では、1 マイクロ秒単位の時差を表せない。マイクロ秒の整数で書くようにした。
+    - 計測器の参照実装が `getattr` で `zone` を読み、利用者のコードが走った。`inspect.getattr_static` に直した。利用者の `tzinfo` の property を数える確認（`probes/firing/v_reference_check.py` → `.out`、0 回、不一致 0）を足し、計測をやり直した。
+- **改訂 3（2026-10-19、Proposal review round 3 の後）**:
+  - round 3 の前の relational monitor は、runner と Claude の fresh context の両方が CONVERGING（continue）だった。
+  - round 3（`c22d6d7`）は CHANGES_REQUESTED（major 2、minor 1）だった。round 2 の 3 件は解決と確認された。run は round の上限（3）に達した。
+  - 管理者に報告し、管理者は「直して、確認の run」を選んだ。直したもの:
+    - major: タイムゾーンつきの `datetime.datetime` は、`tzinfo` の instance が違うと、夏時間の重なりで等しさを失う（PEP 495）。
+      - 実測（`probes/tz_fold_probe.py` → `.out`）では、`ZoneInfo.no_cache` の instance で fold 0・1 とも等しくなかった。
+      - 対処: `datetime.datetime` に付けられる zone を、固定の時差とキャッシュされた `ZoneInfo` に狭めた（P1）。
+      - `Timestamp` は instance が違っても等しく、hash も等しかったので、変えない。
+      - pytz はこの環境（pandas 3.0.1）に入っていないので、pytz の zone の `Timestamp` は実装の受け入れ基準 1 で、依存の下限の lane で確かめる。
+    - major: `datetime.min` に +23 時間の時差をつけた値などは、UTC が表せる範囲の外に出るので、UTC を経て復元できなかった。`datetime` の印を、壁時計の時刻と `fold` で書く形に変えた（P2）。実測で境界の 2 つの値が戻ることを確かめた。
+    - minor: 受け入れ基準 2 に「v2 の fixture」が残っていた（改訂 1 の消し漏れ）。「v2 の形（P8 の書き直し）」に直した。
+  - 参照実装（`v_reference.py`）を P1 の新しい規則に合わせ、確認（`v_reference_check.out`、不一致 0、利用者のコードの呼び出し 0）と計測をやり直した。
+- **改訂 4（2026-10-19、確認の review の後）**:
+  - 確認の review（run `h0133-proposal-confirm`、1 round、`2da6e24`）は CHANGES_REQUESTED（major 1）だった。round 3 の 3 件は解決と確認された。
+  - major の内容: pytz の zone を持つ `Timestamp` を `ZoneInfo(name)` で戻すと、夏時間の重なりの fold 1 で hash が違い、辞書の照合に失敗する。改訂 3 の「`Timestamp` は instance が違っても等しく、hash も等しいので変えない」は、pytz の入っていない環境で測った主張で、偽だった。
+  - 停止ルールに従って管理者に報告し、管理者は「直して、もう 1 度確認」を選んだ。
+  - pytz を入れた一時的な環境で、指摘と直し方を実測した（`probes/pytz_fold_probe.py` → `.out`）。pytz の zone の `Timestamp` は、その値の時差で書いて `datetime.timezone` で戻す（P2）。
+  - 計測の数は変わらない（判定 P1 は変えていない）。
+  - 2 回目の確認の review（run `h0133-proposal-confirm2`、`a42beb4`）は APPROVE だった。改訂 4 の指摘は解決と確認された。minor 1 件（P1 の `Timestamp` の hash の文が、pytz の例外を含めず一般化していた）は、`ZoneInfo` の場合に限る文に直し、pytz の例外を指した。
+
+### 実装の記録（2026-10-19）
+
+- **実装**（`4edf97f`、`72481e6` ほか）: P1〜P9 のとおり。Proposal からの外れ、または Proposal が決めていなかった点:
+  - **表示の関数の移動**: 例外を出さない表示の関数 `shown` と `type_name` を `estimators/lgbm/category_json.py` から `core/category_values.py` に移した。persistence と codegen が Layer 0 から使うためである。`category_json` は同じ名前を再公開する。
+  - **H-0127 の警告関数の削除**: `category_json.warn_unsaveable_categories` を削除した。fit の警告は `persistence/exporter.py` の `warn_unsaveable_category_values` が V で出す（P5）。
+  - **context の `state`**: 拒否の context の `state` は、H-0127 と同じく `refit`・`fold k`・`last fold`（`declared_categories` の値は `declared categories`）のままにした。文の中では「… pipeline state」と書く。
+  - **生成コードの符号化の写し**: `templates.py` の `_VALUE_CODEC` は、表の写しに加えて V の拒否の一部を持つ。持つのは、自分自身と等しくならない値、入れ子の深さ、`datetime` の zone の規則である。生成 `train.py` の再学習が、復元で一致しない値を書かないためである。pytz の zone は、型の module の名前で見分ける（生成コードは pytz を import しない）。
+  - **knob の台帳**: 新しい構築時の引数 `CategoricalEncoder.needs_stand_in` と `NativeFeaturePipeline.needs_stand_in` を `internal`（配線）に分類した。BLUEPRINT §5.5 の数を 74 → 76、表の行を 15 → 17 にした。
+  - **pandas が直す値**: Proposal は受け入れ基準 3 の外の値に、NaN を含む `complex`、V の型のサブクラス、`no_cache` の zone の `datetime` を挙げた。実測では、pandas 3.0.1 は fit でこれらを V の値に直すか、欠損として落とす（`probes/pandas_normalizes_probe.out`: `complex` の NaN は欠損、`str` のサブクラスは `str`、`datetime` は `Timestamp`）。そのため、これらが encoder に届くことは無い。受け入れのテストは、これらを `tuple` の中に入れて encoder に届く形にして、3 つの出口が拒否することを確かめる。最上位の値そのものは、どの pandas の版でも、3 つの出口の答えがそろい、拒否するときだけ fit が警告することを確かめる。
+  - **テストの検出力**: 最初のテストのデータ（160 行・4 カテゴリ）では、LightGBM がカテゴリで分岐しなかった（`min_data_per_group` の既定 100）。陰性対照 (b) は、そのデータでは捕まらなかった（fold の状態が誤った形でも、`c` の SHAP は 0）。データを 800 行・カテゴリが目的変数を決める形に変え、model が列を使うことを確かめるテスト（`test_the_frame_makes_the_model_use_the_column`）を足した。
+- **陰性対照**（受け入れ基準 8、`probes/negative_controls_h0133.py` → `.out`）: 8/8 が捕まり、パッチを当てない基準の実行は exit 0 だった。各対照は、Proposal が名指したテストで捕まる。(b) は fold ごとの SHAP のテストだけで走らせて捕まる。パッチは MonkeyPatch で元に戻し、テストのモジュールは毎回読み直す（H-0132 の形。H-0130 の陰性対照には、この 2 つが無い）。
+- **Firing rate（実装の後、実装の判定で測定。`probes/firing/` → `firing.out`）**:
+  - 測定の条件: V で、`72481e6` に計測器の変更を足した木で、フルスイートと notebook の実行の層を走らせた。`CategoricalEncoder.fit` の記録は 1991 件だった。
+  - 意図して値を作るテストのファイルは 7 つ: #338 の 3 つと、H-0133 で足した `test_h0133_acceptance.py`・`test_category_stand_in.py`・`test_category_values.py`・`test_h0133_codec_copy.py`。
+  - 置き換える列の判定: Firing rate: 0/1049 of `CategoricalEncoder.fit` column records outside the seven deliberate test files chose stand-ins (651 in pytest, 398 in notebook kernels).
+  - V による受理: Firing rate: 0/1049 of the same records hold a category or mode the implementation's predicate refuses.
+  - 実装の判定（`core.category_values.refusal`）と参照実装（`v_reference.py`）は、1991/1991 件で同じ答えを返した。置き換えた列は、意図したファイルの外では、LightGBM の判定とそろった。
+  - **Proposal の分母の訂正**: Proposal の Firing rate の分母「0/1323」は、全体の 1504 件から、#338 のファイルの中の書けない値の記録（181 件）だけを引いた数だった。同じファイルの中の書ける値の記録まで「ファイルの外」に数えていた。分子の 0 は正しいが、分母は誤りである。実装の前の正しい分母は、計測の記録を残していないので示さない。上の実装の後の数が、正しく数えた値である。
+- **フルスイート**（V、`72481e6`）: 12500 passed、230 skipped、2 failed。notebook の実行の層は 21 passed。失敗の 2 件:
+  - `tests/test_config/test_knob_reachability.py`: 新しい引数が台帳に無かった。上の knob の台帳の項で直した。
+  - `tests/test_e2e/test_version.py`: 環境による失敗。editable install の metadata が古いためで、既知である（CI では通る）。
+- **実装レビュー round 1**（lizy-reviewer の run `h0133-impl-review`、`84c9f75`）は CHANGES_REQUESTED（major 6、minor 1）だった。全て受け入れた:
+  - **公開の export が検査を飛ばせた**（P5 違反）: `lizyml.persistence.export(categories_checked=True)` は、検査をせずに書いていた。
+    - 対処: 管理者の判断（「非推奨にして常に検査」）で直した。引数は残して無視し、渡すと `DeprecationWarning` を出す。v1.0 で削除し、`docs/DEPRECATIONS.md` に載せた。
+    - 公開の `export` は常に `check_category_values` を走らせる。`Model.export` は、検査してから内部の `write_checked` を呼ぶ。引数の一覧（公開 API）は変えていない。
+  - **`NativeFeaturePipeline.export_state_json` が V の値を書けなかった**: 「規則が縛る位置」の一覧から漏れていた、状態を保存するもう一つの経路である。エンコーダのカテゴリと最頻値を P2 で符号化して書くようにした。V の外の値は、何かを書く前に `SERIALIZATION_FAILED` で拒否する。
+  - **復号が V の外の値を返した**: JSON の NaN、`Decimal` の NaN、NaT の値など、encode が書かない形がそのまま通っていた。`decode` は、復号した値が V にあることを確かめる。生成コードの写しは、復号した値をもう一度符号化して確かめる。
+  - **公開の `persistence.load` が、形の外れた `declared_categories` を通した**: 形の検査を `loader` に移した。受け入れのテストは、両方の load について、形の外れ・JSON の NaN・`Decimal` の NaN を確かめる。
+  - **生成コードの pytz の判定が緩かった**: 型の module の名前で見ていたので、それを名乗る利用者の `tzinfo` が通り、そのコードが走った。LizyML と同じ判定（`inspect.getattr_static` で名前を読み、pytz の instance との同一性を見る）を写した。pytz を名乗る偽物のテストを足した。
+  - **受け入れのテストの母集団と検出力**: 対処は 5 つ:
+    - 端から端までの経路の列を、正の一覧（`SAMPLES`）から導くようにした。全ての型の列、str を混ぜた列、`datetime64` と `timedelta64` の全ての基本の単位を通す。
+    - どの列でも、model がその列を使うこと（split の重要度 > 0）を確かめる。
+    - 型の網羅は「学習したカテゴリに現れる」か「pandas が別の型に直すことを、その場で確かめる」かで判定する。実測: pandas は numpy の素の値を Python の値に、`np.datetime64` を `Timestamp` に、`datetime.timedelta` を `Timedelta` に直す（`probes/learned_types_probe.out`、下限の `.floor.out`）。
+    - 目的変数のラベルとサブクラスの母集団も、型の一覧から導いた。サブクラスの値そのものが作れない 5 型（`pd.Timestamp`・`pd.Timedelta`・`np.bool_`・`np.datetime64`・`np.timedelta64`）は、作れないことをテストで確かめる。
+    - v2 の形のテストに SHAP と公開の load を足し、文書のテスト（`tests/test_docs/test_h0133_docs.py`）を足した。
+  - **minor**: `declared_categories` は「全ての列」ではなく、category 型だった列について書く。文書の誤りを直した。
+  - **依存の下限の lane**（pandas 2.0.0）で分かったこと:
+    - pandas は、Decimal の NaN を含む `tuple` の列、complex の NaN の列、単位の混ざった `Timestamp` の列を、category にできない（pandas 自身が例外を出す）。
+    - そのため、これらのケースは、その pandas の版では存在しない。テストは、fit の前に pandas が列を作れるかを確かめ、作れなければ理由をつけて skip する。fit の中の例外は skip しない。LizyML 自身の失敗を隠さないためである。
+    - pytz の import の `type: ignore` は、Python 3.10 の lane で「使われていない」と判定された。`unused-ignore` も付けた。
+  - 陰性対照は 8/8 のまま捕まり、基準の実行は exit 0。
+- **実装レビュー round 2**（`aed6779`）は APPROVE だった。round 1 の 7 件は全て解決と確認された（pandas 2.0.0 / numpy 1.24 と pandas 3.0 の両方で）。
+  - minor 1 件: 復号が、符号化の書かない形（`timedelta` を 0 日と 86400 秒で書いた形、`frozenset` の要素の重なりや順序の違い）を受け付けていた。
+  - 対処: LizyML の復号と生成コードの写しの両方で、復号した値を符号化し直した形が入力と一致しないものを拒否するようにした。
+- **CI の依存の下限の lane と 3.10 の lane**（`8e3904e`）で、目的変数のラベルの母集団のテストが、既存の不具合を見つけた（H-0120 から）。
+  - 症状: `export_code` のラベルの検査（`codegen/values.py` の `plain_value`）は、numpy のスカラーを「`.item()` が素の値で、元の値と等しい」なら受け付けていた。Y・M 単位の `np.timedelta64` は `.item()` が int を返し、numpy はその int と元の値を等しいと判定する。そのため、ラベルが別の値（`4`）として黙って書かれていた（DC1）。
+  - pandas 3 ではこの値が列にできず、母集団から外れていたので、手元の pandas 3 では見えなかった。
+  - 対処: ラベルの検査を `core/category_values.py` の `NUMPY_PLAIN_TYPES` に厳密に一致する型だけにした。判断 3 の「ラベルは今の値の集合のまま」の意図どおりで、集合は広げていない。回帰のテスト（`test_export_contract.py` の `_REFUSED` に `np.timedelta64` の Y・M と `np.datetime64` の ns）を足した。
+  - `tuple` のラベルは、pandas 2.0 では fit そのものが pandas の例外で失敗する（`export_code` に届かない）。ラベルのテストはこの場合、理由をつけて skip する。
+- **確認の review**（run `h0133-impl-confirm`、`acea369`）は CHANGES_REQUESTED（major 1、minor 1）だった。major は上のラベルの直しに入った欠陥で、停止ルールに従って管理者に報告し、管理者は「直して、もう 1 度確認」を選んだ。
+  - major: ラベルの検査を型の一覧に厳密に一致させたため、H-0120 から正しく受け付けていた `np.float16`・`np.longlong`・`np.ulonglong` まで拒否していた。「ラベルの集合は広げていない」は正しかったが、狭めていた。H-0120 の規則（`.item()` が素の値で元の値と等しい numpy のスカラー）に戻し、`np.datetime64` と `np.timedelta64` だけを型で外した。この 3 型がラベルとして受け付けられ、素の値で書かれることを確かめるテストを足した（特徴量のカテゴリでは V のまま。型が 1 種類の列では、pandas は longlong と ulonglong を Python の int に直し、float16 は category にできない。型の混ざった object の列では 3 型とも numpy のスカラーのまま残り、V の外の型として拒否される）。
+  - minor: ラベルのテストの skip が、fit の全ての例外を skip にしていた。skip をやめ、pandas が扱えるラベルの組を選ぶようにした。
+    - 原因の実測: pandas 2.0 は、`TargetEncoder.transform` の `Series.map` で tuple をキーにした辞書から MultiIndex を作り、`()` を含むと失敗する。これは tuple のラベルの既存の制限で、H-0133 の範囲の外である。
+    - 選び方: 同じ操作（辞書による `map`）ができる組を選ぶ。fit の中の例外は、全て失敗として扱う。
+- **2 回目の確認の review**（run `h0133-impl-confirm2`、`ab51ee6`）は APPROVE だった。minor 2 件を直した:
+  - NumPy 2 は `np.bool_` の型の名前も `bool` なので、型の名前をキーにした母集団（受け入れの保存の経路とラベル）で Python の `bool` のケースが上書きされていた（31 型のうち 30）。キーを module つきの名前にし、全ての型が自分のケースを持つことを確かめるテストを足した。
+  - 上の記録とテストのコメントの「pandas はこれらを Python の値に直す」を直した（最終の文言は次の項目の R5 で直したもの）。
+- **R5: 別の context での確認**（`cd06bdb`）は NOT OK だった。指摘は 3 件で、いずれも前の直しが生んだもの。停止ルールに従って管理者に報告した。
+  - major: 足したテスト `test_every_admitted_type_has_its_own_case` は、比べる両側を同じ `_type_id` で作っていた。そのため、元の衝突を戻しても通った（確認者が陰性対照で実測）。型の数（`ADMITTED_TYPES` の長さ）と比べる検査を足し、`_type_id` を `__name__` に戻すと落ちることを確かめた（NumPy 2 の環境。NumPy 1.24 では型の名前が衝突しないので、どちらの形でも通る）。
+  - minor: pandas の説明が、型が 1 種類の列でしか正しくなかった。型の混ざった object の列の場合を足した。
+  - minor: 陰性対照の出力 `negative_controls_h0133.out` に古いテスト ID が残っていた。作り直した（8/8 が捕まり、パッチなしの基準は exit 0）。作り直すときに、要約の `summarize_controls.py` が空白を含むテスト ID（例 `[Timestamp tz fold]`）を空白で切っていたことも分かったので、ID を ` - ` の前まで読むように直した。
+- **loop の監視の漏れ**: 監視は、実装の review の round 2 の前に絶対の監視を 1 回走らせただけだった。確認の run（R3・R4）と R5 は、それぞれ 1 round の run として起動したので、runner は監視を走らせない。実質は round 3〜5 にあたり、毎回の前に比較の監視が要った。
+  - R5 の後に、比較の監視（Claude、別の context）を走らせた。判定は stop-accept で、理由は 2 つ:
+    - 本体のコード（`lizyml/`）は `ab51ee6`（R4 APPROVE）以降変わっていない。
+    - R4・R5 の指摘は、前の直しが生んだテスト・文言・出力ファイルで、周辺に広がっている。
+  - 監視は、漏れたことで 2 点が見逃されたとも指摘した。R3 で H-0120 のラベルの経路が範囲に入ったこと、R5 で確認者を Codex から Claude に替えたことである。
+  - 管理者は「直して、絞った確認を 1 回」を選んだ。停止条件は監視が示したもの: 範囲はテスト・HISTORY・出力ファイルの差分だけ、陰性対照を必須の証拠にする、`lizyml/` に指摘がなければ終える。周辺の新しい指摘は follow-up の issue にし、round にしない。

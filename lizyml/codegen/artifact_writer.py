@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from lizyml.calibration.base import BaseCalibratorAdapter
-from lizyml.codegen.values import plain_value, plain_values
+from lizyml.codegen.values import category_value, category_values
 from lizyml.estimators.base import BaseEstimatorAdapter
 
 
@@ -17,7 +17,8 @@ def convert_pipeline_state(
     """Convert LizyML pipeline state to the codegen ``pipeline_state.json``.
 
     Per categorical column the encoder's categories and mode are written as
-    typed JSON values, ``{"categories": [...], "mode": ...}``: a value's code
+    typed JSON values, ``{"categories": [...], "mode": ...}``, with the tagged
+    codec of :mod:`lizyml.core.category_values` (H-0133): a value's code
     is its position in the list, as in ``CategoricalEncoder`` (H-0120, #304).
     Keying by ``str`` merged values such as ``"1"`` and ``1``. The encoder's
     ``unseen_policy`` goes with them, so ``predict.py`` replaces an unseen
@@ -34,12 +35,12 @@ def convert_pipeline_state(
     for col, cats in encoder.get("categories", {}).items():
         mode = modes.get(col)
         categories[col] = {
-            "categories": plain_values(
+            "categories": category_values(
                 list(cats), where=f"categories of column {col!r}"
             ),
             "mode": None
             if mode is None
-            else plain_value(mode, where=f"mode of column {col!r}"),
+            else category_value(mode, where=f"mode of column {col!r}"),
         }
     return {
         "feature_names": feature_names,

@@ -1,4 +1,5 @@
-"""values — the closed set of category and label values codegen writes (H-0120).
+"""values — the closed set of label values codegen writes (H-0120), and the
+writer for feature-category values (H-0133, :func:`category_value`).
 
 The generated project reads category values and target labels back from JSON
 and compares them with the training data by value, so a value is written only
@@ -16,6 +17,7 @@ from typing import Any
 
 import numpy as np
 
+from lizyml.core.category_values import encode, refusal, shown, type_name
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 
 _ACCEPTED = (str, int, float, bool)
@@ -35,7 +37,13 @@ def plain_value(value: Any, *, where: str) -> Any:
     """
     if type(value) in _ACCEPTED:
         return value
-    if isinstance(value, np.generic):
+    # An np.timedelta64 in Y / M units (or an np.datetime64 in ns) has an int
+    # .item() that numpy calls equal to it, so "item() is plain and equal"
+    # admitted it and wrote a label as a bare number (H-0133 review). Those
+    # two kinds are refused; every other numpy scalar keeps the H-0120 rule.
+    if isinstance(value, np.generic) and not isinstance(
+        value, (np.datetime64, np.timedelta64)
+    ):
         plain = value.item()
         if type(plain) in _ACCEPTED and plain == value:
             return plain
@@ -53,3 +61,32 @@ def plain_value(value: Any, *, where: str) -> Any:
 def plain_values(values: list[Any], *, where: str) -> list[Any]:
     """:func:`plain_value` over a list, keeping the order."""
     return [plain_value(v, where=where) for v in values]
+
+
+def category_value(value: Any, *, where: str) -> Any:
+    """Return a feature-category value as the JSON codegen writes (H-0133).
+
+    Feature categories, modes and declared categories accept the closed set
+    of :mod:`lizyml.core.category_values` -- the set ``Model.export``
+    accepts -- written with its tagged codec, which the generated code
+    decodes with the same table. Target labels keep :func:`plain_value`.
+
+    Raises:
+        LizyMLError: With ``SERIALIZATION_FAILED`` for a value outside the set.
+    """
+    reason = refusal(value)
+    if reason is not None:
+        raise LizyMLError(
+            code=ErrorCode.SERIALIZATION_FAILED,
+            user_message=(
+                f"export_code cannot write the {where}: the value {shown(value)} "
+                f"of type {type_name(value)} cannot be saved ({reason})."
+            ),
+            context={"where": where, "type": type_name(value), "reason": reason},
+        )
+    return encode(value)
+
+
+def category_values(values: list[Any], *, where: str) -> list[Any]:
+    """:func:`category_value` over a list, keeping the order."""
+    return [category_value(v, where=where) for v in values]
