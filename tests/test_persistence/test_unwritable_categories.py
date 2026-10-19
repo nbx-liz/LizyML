@@ -445,6 +445,31 @@ def test_the_signature_of_persistence_export_is_unchanged() -> None:
     )
 
 
+def test_categories_checked_is_deprecated_and_cannot_skip_the_check(
+    tmp_path: Path,
+) -> None:
+    """H-0133 P5: the public export always checks; the flag only warns."""
+    from lizyml.persistence import export
+
+    model, _ = _fit(_frame(REFUSED))
+    state = model._get_fit_state()
+    out = tmp_path / "out"
+    with (
+        pytest.warns(DeprecationWarning, match="Will be removed in v1.0"),
+        pytest.raises(LizyMLError) as exc,
+    ):
+        export(
+            out,
+            state.fit_result,
+            model._refit_result,
+            state.cfg.model_dump(),
+            state.cfg.task,
+            categories_checked=True,
+        )
+    assert exc.value.code == ErrorCode.SERIALIZATION_FAILED
+    assert not out.exists()
+
+
 def test_a_fold_adapter_is_asked_about_its_own_state(tmp_path: Path) -> None:
     """Only fold 2's adapter refuses; asking the refit adapter alone would pass."""
     folds = _silent_folds(3)

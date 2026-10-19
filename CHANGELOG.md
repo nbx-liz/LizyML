@@ -24,7 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- **Saved artifacts are `format_version` 3** (H-0133). LizyML v0.19.0 and earlier refuse them (`DESERIALIZATION_FAILED`), because they would read a renamed category column as raw values and predict wrongly. v1 and v2 artifacts load and predict as before. `metadata.json` now records `declared_categories` for every column (tagged when needed) instead of leaving the key out.
+- **Saved artifacts are `format_version` 3** (H-0133). LizyML v0.19.0 and earlier refuse them (`DESERIALIZATION_FAILED`), because they would read a renamed category column as raw values and predict wrongly. v1 and v2 artifacts load and predict as before. `metadata.json` now records `declared_categories` for every column the input held as `category` dtype (tagged when needed) instead of leaving the whole record out when one value was not plain.
 
 - **No import breaks BLUEPRINT §2.1's layer rules any more** (H-0130, [#362](https://github.com/nbx-liz/LizyML/issues/362)). The layer test's exception list of seventeen imports is empty:
   - §2.1 gains a "same-layer references" table that the test reads (`estimators/` may import `features/` and `metrics/`, as the provider and the LightGBM feval bridge do), and declares `metrics/registry.py` and `training/results.py` as interfaces.
@@ -33,6 +33,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - The internal `compute_shap_importance` now requires `pipeline_factory`. The facade always passed one.
   - BLUEPRINT §2.2 now says that a provider does not import `config/` and reads `model_cfg` by attribute, as the code does.
   - The layer test's type-dispatch and registry checks (R6) were withdrawn. BLUEPRINT §2.1 now defines concrete assembly and concrete type dispatch. The following are checked by review, not by tests, until H-0131's implementation and the matching architecture tests are merged: (1) concrete assembly, including selection by Config type, `name` or a value derived from them; (2) concrete type dispatch; (3) registry lookups that bypass the registry helpers; (4) rewriting registrations (an implementation module registering its own types is allowed).
+
+### Deprecated
+
+- **`lizyml.persistence.export(categories_checked=True)`** (H-0133). The argument is ignored and warns; the public export always checks the category values before writing anything. Will be removed in v1.0.
 
 ## [0.19.0] - 2026-10-14
 

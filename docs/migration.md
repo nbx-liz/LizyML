@@ -34,8 +34,12 @@ so the predictions, are unchanged.
   `float` and `bool` as tagged JSON objects (`{"$lizyml": ..., ...}`) that the
   generated scripts decode; tuples are no longer refused. Target labels keep
   the `str` / `int` / `float` / `bool` set.
-- **`declared_categories` in `metadata.json`** is written for every column
-  (tagged when needed) instead of being left out when a value was not plain.
+- **`declared_categories` in `metadata.json`** is written for every column the
+  input held as `category` dtype (tagged when needed), instead of the whole
+  record being left out when one value was not plain.
+- **`lizyml.persistence.export(categories_checked=True)` is deprecated.** The
+  argument is ignored and warns: the public export always checks the category
+  values first. It will be removed in v1.0.
 - **Still refused, before anything is written:** a category value outside the
   saveable set -- a NaN-like value inside a tuple, `np.longdouble`, a subclass of
   a saveable type, a user-defined type, a tuple nested more than 8 deep, or a

@@ -353,8 +353,11 @@ class ModelPersistenceMixin:
         state = self._get_fit_state()
         refit_result = self._require_refit()
 
-        from lizyml.persistence.exporter import AnalysisContext, check_category_values
-        from lizyml.persistence.exporter import export as _export
+        from lizyml.persistence.exporter import (
+            AnalysisContext,
+            check_category_values,
+            write_checked,
+        )
 
         # H-0127: refuse before path resolution, which can create a run directory.
         check_category_values(state.fit_result, refit_result, state.declared_categories)
@@ -364,7 +367,8 @@ class ModelPersistenceMixin:
         if state.y is not None and state.X is not None:
             ctx = AnalysisContext(y_true=state.y, X_for_explain=state.X)
 
-        _export(
+        # Checked above, before the path; write_checked does not repeat it.
+        write_checked(
             path=resolved_path,
             fit_result=state.fit_result,
             refit_result=refit_result,
@@ -376,7 +380,6 @@ class ModelPersistenceMixin:
             applied_training_params=state.applied_training_params,
             applied_sample_weight=state.applied_sample_weight,
             declared_categories=state.declared_categories,
-            categories_checked=True,
         )
         _log.info("event='export.done' path=%s", resolved_path)
         return resolved_path

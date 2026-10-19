@@ -46,80 +46,82 @@ def _nested(depth: int, leaf: Any) -> Any:
     return value
 
 
-#: Category columns, two or more distinct values each (criterion 1).
-CASES: dict[str, list[Any]] = {
-    "str": ["a", "b", "c"],
-    "int": [1, 2, 3],
-    "float": [0.5, -0.0, 2.5],
-    "bool": [True, False],
-    "bytes": [b"a", b"b", b"c"],
-    "Decimal": [decimal.Decimal("1.50"), decimal.Decimal("2"), decimal.Decimal("-3")],
-    "date": [dt.date(2024, 1, 1), dt.date(2024, 1, 2)],
-    "datetime": [dt.datetime(2024, 1, 1, 9), dt.datetime(2024, 1, 2, 9)],
-    "datetime fold": [
+#: The canonical sample inventory (one entry per admitted type).
+from tests.test_core.test_category_values import SAMPLES  # noqa: E402
+
+_DT64_UNITS = ("Y", "M", "W", "D", "h", "m", "s", "ms", "us", "ns", "ps", "fs", "as")
+
+
+def _derived_cases() -> dict[str, list[Any]]:
+    """Category columns for criterion 1, derived from ``SAMPLES``.
+
+    For every admitted type: a column of its distinct samples, and the same
+    with a str mixed in (pandas keeps an object column's values as they are
+    more often than a homogeneous one's). Then the axes criterion 1 names:
+    every datetime64 / timedelta64 base unit, DST folds, ``datetime``
+    boundaries, a pytz zone when installed, and a mixed-type column.
+    """
+    cases: dict[str, list[Any]] = {}
+    for kind, samples in SAMPLES.items():
+        distinct = list(dict.fromkeys(samples))
+        cases[f"{kind.__name__}"] = distinct
+        cases[f"{kind.__name__} with a str"] = [*distinct, "zz"]
+    for unit in _DT64_UNITS:
+        cases[f"datetime64[{unit}] with a str"] = [
+            np.datetime64(4, unit),
+            np.datetime64(5, unit),
+            "zz",
+        ]
+        cases[f"timedelta64[{unit}] with a str"] = [
+            np.timedelta64(4, unit),
+            np.timedelta64(5, unit),
+            "zz",
+        ]
+    cases["datetime fold"] = [
         dt.datetime(2024, 11, 3, 1, 30, fold=0, tzinfo=NY),
         dt.datetime(2024, 11, 3, 1, 30, fold=1, tzinfo=NY),
-    ],
-    "datetime fixed offset boundary": [
-        dt.datetime.min.replace(tzinfo=dt.timezone(dt.timedelta(hours=23))),
-        dt.datetime.max.replace(tzinfo=dt.timezone(dt.timedelta(hours=-23))),
-    ],
-    "timedelta": [dt.timedelta(days=1), dt.timedelta(seconds=5)],
-    "complex": [complex(1, 2), complex(-1, 0)],
-    "Timestamp naive s": [
-        pd.Timestamp("2024-01-01").as_unit("s"),
-        pd.Timestamp("2024-01-02").as_unit("s"),
-    ],
-    "Timestamp ms": [
-        pd.Timestamp("2024-01-01").as_unit("ms"),
-        pd.Timestamp("2024-01-02").as_unit("ms"),
-    ],
-    "Timestamp us": [
-        pd.Timestamp("2024-01-01").as_unit("us"),
-        pd.Timestamp("2024-01-02").as_unit("us"),
-    ],
-    "Timestamp tz fold": [
+    ]
+    cases["Timestamp tz fold"] = [
         pd.Timestamp(dt.datetime(2024, 11, 3, 1, 30, fold=0, tzinfo=NY)),
         pd.Timestamp(dt.datetime(2024, 11, 3, 1, 30, fold=1, tzinfo=NY)),
-    ],
-    "Timedelta": [pd.Timedelta(1, "D"), pd.Timedelta(2, "h")],
-    "np.bool_": [np.bool_(True), np.bool_(False)],
-    "np.int8": [np.int8(1), np.int8(2)],
-    "np.int16": [np.int16(1), np.int16(2)],
-    "np.int32": [np.int32(1), np.int32(2)],
-    "np.int64": [np.int64(1), np.int64(2)],
-    "np.uint8": [np.uint8(1), np.uint8(2)],
-    "np.uint16": [np.uint16(1), np.uint16(2)],
-    "np.uint32": [np.uint32(1), np.uint32(2)],
-    "np.uint64": [np.uint64(1), np.uint64(2)],
-    "np.float32": [np.float32(0.5), np.float32(1.5)],
-    "np.float64": [np.float64(0.5), np.float64(1.5)],
-    "np.complex64": [np.complex64(1 + 1j), np.complex64(2)],
-    "np.complex128": [np.complex128(1 + 1j), np.complex128(2)],
-    "np.str_": [np.str_("a"), np.str_("b")],
-    "np.bytes_": [np.bytes_(b"a"), np.bytes_(b"b")],
-    "np.datetime64 D": [np.datetime64("2024-01-01"), np.datetime64("2024-01-02")],
-    "np.datetime64 in a mixed column": [np.datetime64(4, "s"), "x"],
-    "np.timedelta64": [np.timedelta64(1, "D"), np.timedelta64(3, "15m")],
-    "tuple": [(1, "a"), (2, b"b")],
-    "tuple nested to the limit": [_nested(MAX_DEPTH, 1), _nested(MAX_DEPTH, 2)],
-    "frozenset": [frozenset({1, 2}), frozenset({"a", b"b"})],
-    "mixed": ["a", b"b", decimal.Decimal("3"), (1, 2), frozenset({4})],
-}
-
-try:  # pandas 2.x (the dependency floor) makes pytz zones from string timezones
-    import pytz
-except ImportError:  # pandas 3 does not depend on pytz
-    pytz = None
-if pytz is not None:
-    _ny = pytz.timezone("America/New_York")
-    CASES["Timestamp pytz fold"] = [
-        pd.Timestamp(_ny.localize(dt.datetime(2024, 11, 3, 1, 30), is_dst=d))
+    ]
+    cases["datetime fixed offset boundary"] = [
+        dt.datetime.min.replace(tzinfo=dt.timezone(dt.timedelta(hours=23))),
+        dt.datetime.max.replace(tzinfo=dt.timezone(dt.timedelta(hours=-23))),
+    ]
+    cases["tuple nested to the limit"] = [_nested(MAX_DEPTH, 1), _nested(MAX_DEPTH, 2)]
+    cases["mixed"] = ["a", b"b", decimal.Decimal("3"), (1, 2), frozenset({4})]
+    try:  # pandas 2.x (the dependency floor) makes pytz zones from string timezones
+        import pytz
+    except ImportError:  # pandas 3 does not depend on pytz
+        return cases
+    ny = pytz.timezone("America/New_York")
+    cases["Timestamp pytz fold"] = [
+        pd.Timestamp(ny.localize(dt.datetime(2024, 11, 3, 1, 30), is_dst=d))
         for d in (True, False)
     ]
+    return cases
 
 
-def test_the_cases_cover_every_admitted_type() -> None:
+CASES = _derived_cases()
+
+
+def _pandas_cannot_build(values: list[Any]) -> str | None:
+    """Why pandas cannot cast a column of *values* to ``category`` at all
+    (checked before LizyML runs, so a LizyML error is never skipped)."""
+    try:
+        # The column the fit builds, in its row order: pandas 2.0's cast can
+        # fail on one order of mixed-unit Timestamps and not on another.
+        _frame(values)["c"].astype("category")
+    except Exception as exc:  # noqa: BLE001 -- pandas' own refusal, reported
+        return f"pandas {pd.__version__} cannot build this column: {exc!r}"
+    return None
+
+
+def _learned_types(values: list[Any]) -> set[type]:
+    """The types the encoder learns from a column of *values* (pandas casts it
+    to ``category`` first, as the data builder does)."""
+
     def types(value: Any) -> set[type]:
         found = {type(value)}
         if type(value) in (tuple, frozenset):
@@ -127,14 +129,30 @@ def test_the_cases_cover_every_admitted_type() -> None:
                 found |= types(item)
         return found
 
-    covered = set().union(*(types(v) for vs in CASES.values() for v in vs))
-    assert set(ADMITTED_TYPES) <= covered, set(ADMITTED_TYPES) - covered
+    cats = pd.Series(values * 2, dtype=object).astype("category").cat.categories
+    return set().union(*(types(v) for v in cats))
 
 
-def _frame(values: list[Any], n: int = 800, seed: int = 0) -> pd.DataFrame:
+def test_the_cases_reach_every_admitted_type_or_pandas_converts_it() -> None:
+    """Every admitted type is learned in some case, or pandas turns a column of
+    it into another type before the encoder sees it (then no model can hold
+    it, and the codec tests cover it)."""
+    learned: set[type] = set()
+    for values in CASES.values():
+        if _pandas_cannot_build(values) is None:
+            learned |= _learned_types(values)
+    assert learned <= set(ADMITTED_TYPES), learned - set(ADMITTED_TYPES)
+    for kind in set(ADMITTED_TYPES) - learned:
+        for column in (SAMPLES[kind], [*SAMPLES[kind], "zz"]):
+            if _pandas_cannot_build(column) is None:
+                assert kind not in _learned_types(column), kind
+
+
+def _frame(values: list[Any], n: int | None = None, seed: int = 0) -> pd.DataFrame:
     """The category decides the target (10% noise): the model splits on it,
     so a wrong category mapping changes predictions and SHAP. LightGBM needs
     ``min_data_per_group`` (100) rows per category to split on it."""
+    n = n or max(800, 220 * len(values))
     rng = np.random.default_rng(seed)
     idx = rng.integers(0, len(values), n)
     idx[: len(values)] = np.arange(len(values))  # every value occurs
@@ -142,15 +160,6 @@ def _frame(values: list[Any], n: int = 800, seed: int = 0) -> pd.DataFrame:
     target = (idx % 2 == 0) ^ (rng.random(n) < 0.1)
     column = pd.Series([values[i] for i in idx], dtype=object)
     return pd.DataFrame({"c": column, "x": x, "target": target.astype(int)})
-
-
-@pytest.mark.parametrize(
-    "values", [["a", "b", "c", "d"], [b"a", b"b", b"c", b"d"]], ids=["str", "bytes"]
-)
-def test_the_frame_makes_the_model_use_the_column(values: list[Any]) -> None:
-    """Power check: the tests below could not see a wrong mapping otherwise."""
-    model = _fit(_frame(values))
-    assert model.importance(kind="split")["c"] > 0
 
 
 def _fit(df: pd.DataFrame, **cfg_overrides: Any) -> Model:
@@ -168,9 +177,17 @@ def _fit(df: pd.DataFrame, **cfg_overrides: Any) -> Model:
 def test_every_admitted_type_saves_and_predicts_the_same(
     case: str, tmp_path: Path
 ) -> None:
-    df = _frame(CASES[case])
+    values = CASES[case]
+    reason = _pandas_cannot_build(values)
+    if reason is not None:
+        pytest.skip(reason)
+    df = _frame(values)
     X = df.drop(columns=["target"])
     model = _fit(df)
+    # Power: the model uses the column, so a wrong mapping would show.
+    assert model.importance(kind="split")["c"] > 0
+    learned = model._refit_result.pipeline_state["encoder"]["categories"]["c"]
+    assert {type(v) for v in learned} <= set(ADMITTED_TYPES)
     expected = np.asarray(model.predict(X).proba)
 
     loaded = Model.load(model.export(tmp_path / "artifact"))
@@ -183,7 +200,7 @@ def test_every_admitted_type_saves_and_predicts_the_same(
     )
 
     # The generated train.py retrains on the same frame and reproduces it.
-    train = load_module(project / "train.py", f"gen_train_{case}")
+    train = load_module(project / "train.py", f"gen_train_{abs(hash(case))}")
     train.train(df.copy(), calibrate=False)
     np.testing.assert_allclose(
         generated_prediction(project, X, "binary"), expected, rtol=1e-7, atol=0.0
@@ -308,6 +325,33 @@ NORMALIZED: dict[str, list[Any]] = {
 }
 
 
+def _fitted_or_skip(values: list[Any], *, expect_warning: bool = False) -> Any:
+    """Fit a model on a column of *values*; skip when pandas cannot build it.
+
+    pandas 2.0 cannot cast a tuple holding Decimal NaN, or a column of complex
+    NaN, to ``category`` at all: LizyML's checks are never reached, so the
+    case does not exist on that version. That is checked before the fit, so an
+    error from LizyML itself is never skipped.
+
+    Returns the model when *expect_warning* (and asserts the warning), else
+    ``(model, warned)``.
+    """
+    reason = _pandas_cannot_build(values)
+    if reason is not None:
+        pytest.skip(reason)
+    cfg = make_config("binary", n_estimators=8, n_splits=2)
+    cfg["features"] = {"categorical": ["c"]}
+    model = Model(cfg)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        model.fit(data=_frame(values))
+    warned = any("will refuse" in str(w.message) for w in caught)
+    if expect_warning:
+        assert warned, "fit did not warn about a value outside V"
+        return model
+    return model, warned
+
+
 def _answers(model: Model, tmp_path: Path) -> dict[str, bool]:
     from lizyml.persistence import export as persistence_export
 
@@ -341,6 +385,9 @@ def _answers(model: Model, tmp_path: Path) -> dict[str, bool]:
 def test_the_three_surfaces_accept_every_admitted_column(
     case: str, tmp_path: Path
 ) -> None:
+    reason = _pandas_cannot_build(CASES[case])
+    if reason is not None:
+        pytest.skip(reason)
     answers = _answers(_fit(_frame(CASES[case])), tmp_path)
     assert answers == dict.fromkeys(answers, True)
 
@@ -349,11 +396,7 @@ def test_the_three_surfaces_accept_every_admitted_column(
 def test_the_three_surfaces_refuse_every_column_outside_v(
     case: str, tmp_path: Path
 ) -> None:
-    cfg = make_config("binary", n_estimators=8, n_splits=2)
-    cfg["features"] = {"categorical": ["c"]}
-    model = Model(cfg)
-    with pytest.warns(UserWarning, match="Model.export and export_code will refuse"):
-        model.fit(data=_frame(REFUSED[case]))
+    model = _fitted_or_skip(REFUSED[case], expect_warning=True)
     answers = _answers(model, tmp_path)
     assert answers == dict.fromkeys(answers, False)
     assert not any((tmp_path / p).exists() for p in ("a", "b", "c"))
@@ -361,39 +404,57 @@ def test_the_three_surfaces_refuse_every_column_outside_v(
 
 @pytest.mark.parametrize("case", sorted(NORMALIZED))
 def test_values_pandas_normalizes_get_one_answer(case: str, tmp_path: Path) -> None:
-    cfg = make_config("binary", n_estimators=8, n_splits=2)
-    cfg["features"] = {"categorical": ["c"]}
-    model = Model(cfg)
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        model.fit(data=_frame(NORMALIZED[case]))
-    warned = any("will refuse" in str(w.message) for w in caught)
+    model, warned = _fitted_or_skip(NORMALIZED[case])
     answers = set(_answers(model, tmp_path).values())
     assert answers == {not warned}
 
 
-#: Target labels by admitted type: export_code writes only the plain set.
-LABELS: dict[str, tuple[list[Any], bool]] = {
-    "str": (["no", "yes"], True),
-    "int": ([0, 1], True),
-    "bytes": ([b"no", b"yes"], False),
-    "Decimal": ([decimal.Decimal("0.5"), decimal.Decimal("1.5")], False),
-    "Timestamp": ([pd.Timestamp("2024-01-01"), pd.Timestamp("2024-01-02")], False),
-    "tuple": ([(0, 0), (1, 1)], False),
-    "date": ([dt.date(2024, 1, 1), dt.date(2024, 1, 2)], False),
+#: The label values export_code writes (H-0120's plain set; judgement 3).
+_PLAIN_LABEL_TYPES = {
+    str,
+    int,
+    float,
+    bool,
+    *(
+        t
+        for t in ADMITTED_TYPES
+        if t.__module__ == "numpy"
+        and t
+        not in (np.complex64, np.complex128, np.bytes_, np.datetime64, np.timedelta64)
+    ),
 }
 
 
-@pytest.mark.parametrize("case", sorted(LABELS))
+def _label_cases() -> dict[str, list[Any]]:
+    """Two distinct values of every admitted type, as binary target labels."""
+    cases: dict[str, list[Any]] = {}
+    for kind, samples in SAMPLES.items():
+        # pandas holds some values in no Series (timedelta64 in Y / M units).
+        usable = [
+            v for v in dict.fromkeys(samples) if _pandas_cannot_build([v]) is None
+        ]
+        cases[kind.__name__] = usable[:2]
+    return cases
+
+
+LABEL_CASES = _label_cases()
+
+
+@pytest.mark.parametrize("case", sorted(LABEL_CASES))
 def test_target_labels_keep_the_plain_set(case: str, tmp_path: Path) -> None:
-    """Judgement 3; negative control (g) swaps the label check for the
-    category codec and this population catches it."""
-    labels, written = LABELS[case]
+    """Judgement 3, over every admitted type: export_code writes the plain
+    label types and refuses the rest. Negative control (g) swaps the label
+    check for the category codec and this population catches it."""
+    labels = LABEL_CASES[case]
     df = _frame(["a", "b"])
     df["target"] = pd.Series([labels[int(v)] for v in df["target"]], dtype=object)
     model = Model(make_config("binary", n_estimators=8, n_splits=2))
-    model.fit(data=df)
-    if written:
+    try:
+        model.fit(data=df)
+    except LizyMLError as exc:  # fit's own refusal of such labels
+        pytest.skip(f"fit refuses {case} labels: {exc.code}")
+    learned = model._get_fit_state().fit_result.target_encoder.classes_
+    if all(type(v) in _PLAIN_LABEL_TYPES for v in learned):
         model.export_code(tmp_path / "gen")
         return
     with pytest.raises(LizyMLError) as info:

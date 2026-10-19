@@ -41,17 +41,29 @@ def _decoded_declared_categories(record: Any, path: str | Path) -> Any:
 
     Decoded here, once, so ``lizyml.persistence.load`` and ``Model.load``
     return the same values. A v1 / v2 record holds plain JSON scalars, which
-    decode to themselves. A record that is not an object of lists is returned
-    as is for ``Model.load``'s shape check to refuse.
+    decode to themselves.
 
     Raises:
-        LizyMLError: ``DESERIALIZATION_FAILED`` naming the column, for a value
-            that is not a shape the exporter writes.
+        LizyMLError: ``DESERIALIZATION_FAILED`` when the record is not an
+            object of lists, or naming the column, for a value that is not a
+            shape the exporter writes.
     """
-    if not isinstance(record, dict) or not all(
-        isinstance(cats, list) for cats in record.values()
-    ):
-        return record
+    if not isinstance(record, dict):
+        raise LizyMLError(
+            code=ErrorCode.DESERIALIZATION_FAILED,
+            user_message="Stored declared_categories must be an object.",
+            context={"path": str(path), "type": type(record).__name__},
+        )
+    for col, cats in record.items():
+        if not isinstance(cats, list):
+            raise LizyMLError(
+                code=ErrorCode.DESERIALIZATION_FAILED,
+                user_message=(
+                    f"Stored declared_categories holds a {type(cats).__name__} "
+                    f"for {col!r}, not a list."
+                ),
+                context={"path": str(path), "key": col, "type": type(cats).__name__},
+            )
     decoded: dict[str, list[Any]] = {}
     for col, cats in record.items():
         try:

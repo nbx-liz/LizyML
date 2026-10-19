@@ -100,7 +100,7 @@ def _pytz_zone(tz: Any) -> str | None:
     caller's class runs) and the instance must be pytz's own for that name.
     """
     try:
-        import pytz  # type: ignore[import-untyped]
+        import pytz  # type: ignore[import-untyped, unused-ignore]
     except ImportError:
         return None
     zone = inspect.getattr_static(tz, "zone", None)
@@ -425,7 +425,13 @@ def decode(obj: Any) -> Any:
             shapes :func:`encode` writes.
     """
     try:
-        return _decode(obj, 0)
+        value = _decode(obj, 0)
+        # A shape encode never writes (JSON NaN, Decimal("NaN"), NaT, ...)
+        # decodes to a value outside V: refuse it rather than return it.
+        reason = refusal(value)
+        if reason is not None:
+            raise _Malformed(f"it decodes to {reason}, which encode never writes")
+        return value
     except (
         _Malformed,
         ValueError,

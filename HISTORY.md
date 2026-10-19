@@ -14990,3 +14990,23 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
 - **フルスイート**（V、`72481e6`）: 12500 passed、230 skipped、2 failed。notebook の実行の層は 21 passed。失敗の 2 件:
   - `tests/test_config/test_knob_reachability.py`: 新しい引数が台帳に無かった。上の knob の台帳の項で直した。
   - `tests/test_e2e/test_version.py`: 環境による失敗。editable install の metadata が古いためで、既知である（CI では通る）。
+- **実装レビュー round 1**（lizy-reviewer の run `h0133-impl-review`、`84c9f75`）は CHANGES_REQUESTED（major 6、minor 1）だった。全て受け入れた:
+  - **公開の export が検査を飛ばせた**（P5 違反）: `lizyml.persistence.export(categories_checked=True)` は、検査をせずに書いていた。
+    - 対処: 管理者の判断（「非推奨にして常に検査」）で直した。引数は残して無視し、渡すと `DeprecationWarning` を出す。v1.0 で削除し、`docs/DEPRECATIONS.md` に載せた。
+    - 公開の `export` は常に `check_category_values` を走らせる。`Model.export` は、検査してから内部の `write_checked` を呼ぶ。引数の一覧（公開 API）は変えていない。
+  - **`NativeFeaturePipeline.export_state_json` が V の値を書けなかった**: 「規則が縛る位置」の一覧から漏れていた、状態を保存するもう一つの経路である。エンコーダのカテゴリと最頻値を P2 で符号化して書くようにした。V の外の値は、何かを書く前に `SERIALIZATION_FAILED` で拒否する。
+  - **復号が V の外の値を返した**: JSON の NaN、`Decimal` の NaN、NaT の値など、encode が書かない形がそのまま通っていた。`decode` は、復号した値が V にあることを確かめる。生成コードの写しは、復号した値をもう一度符号化して確かめる。
+  - **公開の `persistence.load` が、形の外れた `declared_categories` を通した**: 形の検査を `loader` に移した。受け入れのテストは、両方の load について、形の外れ・JSON の NaN・`Decimal` の NaN を確かめる。
+  - **生成コードの pytz の判定が緩かった**: 型の module の名前で見ていたので、それを名乗る利用者の `tzinfo` が通り、そのコードが走った。LizyML と同じ判定（`inspect.getattr_static` で名前を読み、pytz の instance との同一性を見る）を写した。pytz を名乗る偽物のテストを足した。
+  - **受け入れのテストの母集団と検出力**: 対処は 5 つ:
+    - 端から端までの経路の列を、正の一覧（`SAMPLES`）から導くようにした。全ての型の列、str を混ぜた列、`datetime64` と `timedelta64` の全ての基本の単位を通す。
+    - どの列でも、model がその列を使うこと（split の重要度 > 0）を確かめる。
+    - 型の網羅は「学習したカテゴリに現れる」か「pandas が別の型に直すことを、その場で確かめる」かで判定する。実測: pandas は numpy の素の値を Python の値に、`np.datetime64` を `Timestamp` に、`datetime.timedelta` を `Timedelta` に直す（`probes/learned_types_probe.out`、下限の `.floor.out`）。
+    - 目的変数のラベルとサブクラスの母集団も、型の一覧から導いた。サブクラスの値そのものが作れない 5 型（`pd.Timestamp`・`pd.Timedelta`・`np.bool_`・`np.datetime64`・`np.timedelta64`）は、作れないことをテストで確かめる。
+    - v2 の形のテストに SHAP と公開の load を足し、文書のテスト（`tests/test_docs/test_h0133_docs.py`）を足した。
+  - **minor**: `declared_categories` は「全ての列」ではなく、category 型だった列について書く。文書の誤りを直した。
+  - **依存の下限の lane**（pandas 2.0.0）で分かったこと:
+    - pandas は、Decimal の NaN を含む `tuple` の列、complex の NaN の列、単位の混ざった `Timestamp` の列を、category にできない（pandas 自身が例外を出す）。
+    - そのため、これらのケースは、その pandas の版では存在しない。テストは、fit の前に pandas が列を作れるかを確かめ、作れなければ理由をつけて skip する。fit の中の例外は skip しない。LizyML 自身の失敗を隠さないためである。
+    - pytz の import の `type: ignore` は、Python 3.10 の lane で「使われていない」と判定された。`unused-ignore` も付けた。
+  - 陰性対照は 8/8 のまま捕まり、基準の実行は exit 0。

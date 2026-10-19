@@ -82,6 +82,11 @@ def test_the_copy_reads_what_the_library_reads(name: str, value: Any) -> None:
         {"$lizyml": "complex", "real": True, "imag": 0.0},
         [1, 2],
         None,
+        float("nan"),
+        {"$lizyml": "decimal", "str": "NaN"},
+        {"$lizyml": "complex", "real": float("nan"), "imag": 0.0},
+        {"$lizyml": "datetime64", "unit": "s", "count": 1, "value": -(2**63)},
+        {"$lizyml": "tuple", "items": [1, float("nan")]},
     ],
 )
 def test_a_malformed_object_fails_in_both(obj: Any) -> None:
@@ -105,3 +110,25 @@ def test_the_copy_refuses_what_the_library_refuses(value: Any) -> None:
     assert library.refusal(value) is not None
     with pytest.raises(ValueError):
         COPY._encode_value(value)
+
+
+def test_a_pytz_lookalike_is_refused_by_both_without_running_its_code() -> None:
+    """A tzinfo whose class claims pytz's module is not one of pytz's zones."""
+    import datetime as dt
+
+    calls: list[str] = []
+
+    class FakePytz(dt.tzinfo):
+        __module__ = "pytz.tzfile"
+        zone = "Asia/Tokyo"
+
+        def utcoffset(self, d: Any) -> dt.timedelta:
+            calls.append("utcoffset")
+            return dt.timedelta(hours=9)
+
+    value = pd.Timestamp("2024-01-01").tz_localize(FakePytz())
+    calls.clear()
+    assert library.refusal(value) is not None
+    with pytest.raises(ValueError):
+        COPY._encode_value(value)
+    assert calls == []

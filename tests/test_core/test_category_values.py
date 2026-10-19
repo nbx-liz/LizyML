@@ -80,23 +80,24 @@ SAMPLES: dict[type, list[Any]] = {
         pd.Timestamp("2024-01-01", tz=dt.timezone.utc),
     ],
     pd.Timedelta: [
-        pd.Timedelta(5, unit="s").as_unit(u) for u in ("s", "ms", "us", "ns")
+        *(pd.Timedelta(5, unit="s").as_unit(u) for u in ("s", "ms", "us", "ns")),
+        pd.Timedelta(7, unit="D"),
     ],
-    np.bool_: [np.bool_(True)],
-    np.int8: [np.int8(-3)],
-    np.int16: [np.int16(300)],
-    np.int32: [np.int32(-70000)],
-    np.int64: [np.int64(2**40)],
-    np.uint8: [np.uint8(200)],
-    np.uint16: [np.uint16(60000)],
-    np.uint32: [np.uint32(4000000000)],
-    np.uint64: [np.uint64(2**63 + 5)],
-    np.float32: [np.float32(0.1)],
-    np.float64: [np.float64(-0.0)],
-    np.complex64: [np.complex64(1 + 2j)],
-    np.complex128: [np.complex128(0.1 - 3j)],
-    np.str_: [np.str_("x")],
-    np.bytes_: [np.bytes_(b"y")],
+    np.bool_: [np.bool_(True), np.bool_(False)],
+    np.int8: [np.int8(-3), np.int8(5)],
+    np.int16: [np.int16(300), np.int16(-2)],
+    np.int32: [np.int32(-70000), np.int32(9)],
+    np.int64: [np.int64(2**40), np.int64(-1)],
+    np.uint8: [np.uint8(200), np.uint8(1)],
+    np.uint16: [np.uint16(60000), np.uint16(2)],
+    np.uint32: [np.uint32(4000000000), np.uint32(3)],
+    np.uint64: [np.uint64(2**63 + 5), np.uint64(4)],
+    np.float32: [np.float32(0.1), np.float32(-2.5)],
+    np.float64: [np.float64(-0.0), np.float64(1.25)],
+    np.complex64: [np.complex64(1 + 2j), np.complex64(-1)],
+    np.complex128: [np.complex128(0.1 - 3j), np.complex128(2)],
+    np.str_: [np.str_("x"), np.str_("yz")],
+    np.bytes_: [np.bytes_(b"y"), np.bytes_(b"zz")],
     np.datetime64: [
         *(np.datetime64(4, u) for u in _DT64_UNITS),
         np.datetime64(4, "2s"),
@@ -268,6 +269,60 @@ def test_a_caller_tzinfo_is_refused_without_running_its_code() -> None:
     assert calls == []
 
 
+def _subclass_instances() -> dict[str, Any]:
+    """An instance of a subclass of every admitted type Python lets one
+    subclass, built from that type's first sample."""
+    built: dict[str, Any] = {}
+    for kind in ADMITTED_TYPES:
+        if not kind.__flags__ & (1 << 10):  # Py_TPFLAGS_BASETYPE
+            continue
+        sub = type(f"Sub{kind.__name__}", (kind,), {})
+        sample = SAMPLES[kind][0]
+        args = _SUBCLASS_ARGS.get(kind, (sample,))
+        instance = sub(*args)
+        # Some constructors (pandas, numpy datetime scalars, np.bool_) return
+        # the base type whatever class is called: no subclass value exists.
+        if type(instance) is sub:
+            built[kind.__name__] = instance
+        else:
+            BASE_ONLY.add(kind.__name__)
+    return built
+
+
+#: Subclassable admitted types whose constructor returns the base type.
+BASE_ONLY: set[str] = set()
+
+
+#: Constructor arguments where a type is not built from one of its values.
+_SUBCLASS_ARGS: dict[type, tuple[Any, ...]] = {
+    dt.date: (2024, 1, 2),
+    dt.datetime: (2024, 1, 2, 3),
+    dt.timedelta: (1, 2),
+    tuple: ([1, 2],),
+    frozenset: ([1, 2],),
+}
+
+
+SUBCLASS_INSTANCES = _subclass_instances()
+
+
+def test_the_subclass_population_covers_the_subclassable_types() -> None:
+    subclassable = {k.__name__ for k in ADMITTED_TYPES if k.__flags__ & (1 << 10)}
+    assert set(SUBCLASS_INSTANCES) | BASE_ONLY == subclassable
+    assert not set(SUBCLASS_INSTANCES) & BASE_ONLY
+    # The Python types build real subclass values; the population is not empty.
+    assert {"str", "int", "float", "bytes", "Decimal", "tuple", "frozenset"} <= set(
+        SUBCLASS_INSTANCES
+    )
+
+
+@pytest.mark.parametrize("name", sorted(SUBCLASS_INSTANCES))
+def test_a_subclass_of_every_admitted_type_is_refused(name: str) -> None:
+    value = SUBCLASS_INSTANCES[name]
+    assert refusal(value) is not None
+    assert refusal((value,)) is not None
+
+
 def test_a_caller_subclass_is_refused_without_running_its_code() -> None:
     class Loud(str):
         def __eq__(self, other: object) -> bool:
@@ -308,6 +363,13 @@ def test_encoding_a_refused_value_raises_serialization_failed() -> None:
         {"$lizyml": "complex", "real": True, "imag": 0.0},
         [1, 2],
         None,
+        # Well-formed shapes that decode outside V (encode never writes them).
+        float("nan"),
+        {"$lizyml": "decimal", "str": "NaN"},
+        {"$lizyml": "decimal", "str": "sNaN"},
+        {"$lizyml": "complex", "real": float("nan"), "imag": 0.0},
+        {"$lizyml": "datetime64", "unit": "s", "count": 1, "value": -(2**63)},
+        {"$lizyml": "tuple", "items": [1, float("nan")]},
     ],
 )
 def test_a_malformed_tag_is_refused(obj: Any) -> None:

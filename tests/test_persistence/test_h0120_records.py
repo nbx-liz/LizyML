@@ -350,17 +350,38 @@ def test_a_malformed_tagged_record_is_refused_by_both_loads(tmp_path: Path) -> N
         assert info.value.context["key"] == "d"
 
 
+@pytest.mark.parametrize("read", ["Model.load", "persistence.load"])
 @pytest.mark.parametrize(
     "record",
-    [["d"], {"d": "z"}, {"d": [["z"]]}, {"d": [None]}, {"d": [{"a": 1}]}],
-    ids=["not-object", "not-list", "nested-list", "null", "object"],
+    [
+        ["d"],
+        {"d": "z"},
+        {"d": [["z"]]},
+        {"d": [None]},
+        {"d": [{"a": 1}]},
+        {"d": [float("nan")]},
+        {"d": [{"$lizyml": "decimal", "str": "NaN"}]},
+    ],
+    ids=[
+        "not-object",
+        "not-list",
+        "nested-list",
+        "null",
+        "object",
+        "json-nan",
+        "decimal-nan",
+    ],
 )
 def test_a_malformed_declared_record_is_refused_on_load(
-    record: Any, tmp_path: Path
+    record: Any, read: str, tmp_path: Path
 ) -> None:
+    """Both public loads refuse it (H-0133 criterion 6): the shape check and
+    the decode live in ``persistence.load``."""
+    from lizyml.persistence import load
+
     model, _ = _declared_model()
     artifact = model.export(tmp_path / "artifact")
     _rewrite_metadata(artifact, lambda m: m.__setitem__(DECLARED_KEY, record))
     with pytest.raises(LizyMLError) as info:
-        Model.load(artifact)
+        (Model.load if read == "Model.load" else load)(artifact)
     assert info.value.code == ErrorCode.DESERIALIZATION_FAILED

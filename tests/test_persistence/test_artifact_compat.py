@@ -139,6 +139,17 @@ class TestFormatVersionV2AndV3:
         np.testing.assert_array_equal(
             loaded.predict(df.drop(columns=["target"])).pred, expected
         )
+        # The per-fold states drive SHAP importance (criterion 2 on v2).
+        pytest.importorskip("shap")
+        assert loaded.importance(kind="shap") == pytest.approx(
+            model.importance(kind="shap"), rel=1e-12
+        )
+        # The public low-level load reads the same artifact.
+        from lizyml.persistence import load
+
+        _, refit_result, metadata, _ = load(export_dir)
+        assert metadata["format_version"] == 2
+        assert "stand_in_columns" not in refit_result.pipeline_state["encoder"]
 
     def test_a_v3_artifact_is_refused_by_a_loader_without_3(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

@@ -302,17 +302,63 @@ def export(
             means unknown and omits the key. The values are written with the
             tagged codec of :mod:`lizyml.core.category_values` (H-0133 P6);
             a value outside its set is refused before anything is written.
-        categories_checked: ``True`` when the caller already ran
-            :func:`check_category_values` on these results (``Model.export``
-            runs it before resolving the path), so the scan is not repeated.
+        categories_checked: Deprecated (H-0133) and ignored: the public
+            function always runs :func:`check_category_values`, so a caller
+            cannot write an artifact it would refuse. Passing ``True`` warns.
+            Will be removed in v1.0.
 
     Raises:
         LizyMLError with SERIALIZATION_FAILED on any I/O or serialization error,
         and before anything is written when a category value cannot be saved
         (:func:`check_category_values`, H-0127).
     """
-    if not categories_checked:
-        check_category_values(fit_result, refit_result, declared_categories)
+    if categories_checked:
+        warnings.warn(
+            "export(categories_checked=True) is deprecated and ignored: the "
+            "category values are always checked before anything is written "
+            "(H-0133). Will be removed in v1.0.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+    check_category_values(fit_result, refit_result, declared_categories)
+    write_checked(
+        path,
+        fit_result,
+        refit_result,
+        config,
+        task,
+        analysis_context=analysis_context,
+        tuning=tuning,
+        tuning_fixed_params=tuning_fixed_params,
+        applied_training_params=applied_training_params,
+        applied_sample_weight=applied_sample_weight,
+        declared_categories=declared_categories,
+    )
+
+
+def write_checked(
+    path: str | Path,
+    fit_result: FitResult,
+    refit_result: RefitResultView,
+    config: dict[str, Any],
+    task: TaskType,
+    *,
+    analysis_context: AnalysisContext | None = None,
+    tuning: TuningResult | None = None,
+    tuning_fixed_params: dict[str, Any] | None = None,
+    applied_training_params: dict[str, Any] | None = None,
+    applied_sample_weight: str | None = None,
+    declared_categories: dict[str, list[Any]] | None = None,
+) -> None:
+    """Write the artifacts of results :func:`check_category_values` has
+    already passed (``Model.export`` checks before it resolves the path).
+
+    Internal to LizyML: not re-exported by :mod:`lizyml.persistence`, whose
+    :func:`export` always checks first. Arguments as :func:`export`.
+
+    Raises:
+        LizyMLError with SERIALIZATION_FAILED on any I/O or serialization error.
+    """
     out = Path(path)
     try:
         out.mkdir(parents=True, exist_ok=True)

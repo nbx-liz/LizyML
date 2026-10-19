@@ -15,6 +15,7 @@ _VALUE_CODEC = '''\
 import base64 as _b64
 import datetime as _dt
 import decimal as _decimal
+import inspect as _inspect
 import zoneinfo as _zoneinfo
 
 _MAX_DEPTH = 8
@@ -52,10 +53,26 @@ def _tz_shape(value):
         type(value) is pd.Timestamp or _zoneinfo.ZoneInfo(tz.key) is tz
     ):
         return {"kind": "iana", "name": tz.key}
-    if type(value) is pd.Timestamp and type(tz).__module__.split(".")[0] == "pytz":
+    if type(value) is pd.Timestamp and _is_pytz_zone(tz):
         # Its own offset: restored through ZoneInfo its hash would differ.
         return {"kind": "offset", "microseconds": value.utcoffset() // _US}
     raise ValueError(f"cannot write the timezone {type(tz).__name__}")
+
+
+def _is_pytz_zone(tz):
+    """Whether *tz* is one of pytz's own instances for its zone name, read
+    without running a descriptor of the value's class."""
+    try:
+        import pytz
+    except ImportError:
+        return False
+    zone = _inspect.getattr_static(tz, "zone", None)
+    if type(zone) is not str or zone not in pytz.all_timezones_set:
+        return False
+    base = pytz.timezone(zone)
+    family = _inspect.getattr_static(base, "_tzinfos", None)
+    members = family.values() if type(family) is dict else ()
+    return tz is base or any(tz is m for m in members)
 
 
 def _equals_itself(value):
@@ -135,8 +152,7 @@ def _tz(shape):
     raise ValueError("the timezone has an unknown shape")
 
 
-def _decode_value(obj, depth=0):
-    """The value _encode_value (or LizyML's export) wrote as *obj*."""
+def _decode_raw(obj, depth=0):
     if _is(obj, (str, int, float, bool)):
         return obj
     if type(obj) is not dict or "$lizyml" not in obj:
@@ -182,8 +198,19 @@ def _decode_value(obj, depth=0):
     items = _field(obj, "items", list)
     if depth >= _MAX_DEPTH:
         raise ValueError(f"nested deeper than {_MAX_DEPTH}")
-    decoded = [_decode_value(item, depth + 1) for item in items]
+    decoded = [_decode_raw(item, depth + 1) for item in items]
     return tuple(decoded) if tag == "tuple" else frozenset(decoded)
+
+
+def _decode_value(obj):
+    """The value _encode_value (or LizyML's export) wrote as *obj*.
+
+    A shape the encoder never writes (a NaN, NaT, a deeper nesting) is
+    refused: the decoded value is written again, which checks it.
+    """
+    value = _decode_raw(obj)
+    _encode_value(value)
+    return value
 
 '''
 
