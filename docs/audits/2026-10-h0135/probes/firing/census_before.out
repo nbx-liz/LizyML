@@ -1,30 +1,46 @@
-loads: 449
-by format_version x checksums: {(2, 'ok'): 29, (4, 'ok'): 338, (0, 'ok'): 1, (5, 'ok'): 1, (99, 'ok'): 1, (-1, 'ok'): 1, (None, 'ok'): 2, (3, 'ok'): 19, (1, 'absent'): 28, (4, 'absent'): 13, (2, 'absent'): 9, (1, 'ok'): 2, (4, 'non_object'): 3, (4, 'bad_object'): 1, (999, 'ok'): 1}
+artifact loads: 449 (+ 10 of a directory without readable metadata.json)
+format_version x checksums: {'-1/ok': 1, '0/ok': 1, '1/absent': 28, '1/ok': 2, '2/absent': 9, '2/ok': 29, '3/ok': 19, '4/absent': 13, '4/bad_object': 2, '4/non_object': 3, '4/ok': 337, '5/ok': 1, '99/ok': 1, '999/ok': 1, 'None/ok': 2}
 outcome today: {'ok': 385, 'DESERIALIZATION_FAILED': 64}
 
-A: checksums present but malformed: 4
-  outcome today: {'DESERIALIZATION_FAILED': 4}
-       4  tests/test_persistence/test_h0134_acceptance.py
+R1: 5
+  outcome today: {'DESERIALIZATION_FAILED': 5}
+       5  tests/test_persistence/test_h0134_acceptance.py
 
-A: format>=3 without well-formed checksums: 17
-  outcome today: {'ok': 11, 'DESERIALIZATION_FAILED': 6}
+R2: 13
+  outcome today: {'ok': 11, 'DESERIALIZATION_FAILED': 2}
        1  tests/test_persistence/test_artifact_compat.py
        1  tests/test_persistence/test_checksum_integrity.py
        2  tests/test_persistence/test_export_load_errors.py
        9  tests/test_persistence/test_h0125_load_refuses_non_probability_objective.py
-       4  tests/test_persistence/test_h0134_acceptance.py
 
-C: context declared but missing (would be refused): 5
+R3: 0
+  outcome today: {}
+
+R4: 5
   outcome today: {'ok': 5}
        5  tests/test_persistence/test_persistence.py
 
-loads of a directory whose metadata.json is missing or not JSON: 10
-  outcome today: {'DESERIALIZATION_FAILED': 10}
-       1  tests/test_calibration/test_calibration_param_names.py
-       1  tests/test_core/test_error_code_raising.py
-       3  tests/test_core/test_fit_params_override.py
-       1  tests/test_e2e/test_model_facade.py
+I (ignored, not refused): 0
+  outcome today: {}
+
+UNION of refusals R1-R4: 23
+  outcome today: {'ok': 16, 'DESERIALIZATION_FAILED': 7}
        1  tests/test_persistence/test_artifact_compat.py
-       1  tests/test_persistence/test_export_load_errors.py
-       2  tests/test_persistence/test_persistence.py
+       1  tests/test_persistence/test_checksum_integrity.py
+       2  tests/test_persistence/test_export_load_errors.py
+       9  tests/test_persistence/test_h0125_load_refuses_non_probability_objective.py
+       5  tests/test_persistence/test_h0134_acceptance.py
+       5  tests/test_persistence/test_persistence.py
+
+of which load OK today (would newly fail): 16
+  outcome today: {'ok': 16}
+       1  tests/test_persistence/test_artifact_compat.py
+       1  tests/test_persistence/test_checksum_integrity.py
+       9  tests/test_persistence/test_h0125_load_refuses_non_probability_objective.py
+       5  tests/test_persistence/test_persistence.py
+
+loads with a symlink in the directory: 0
+  outcome today: {}
+
+Firing rate: 23/449 of artifact loads (16 of them load OK today)
 unknown records: 0
