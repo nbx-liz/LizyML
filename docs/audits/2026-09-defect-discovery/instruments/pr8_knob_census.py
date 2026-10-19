@@ -1,6 +1,7 @@
 """#268 census: every defaulted or keyword-only ``__init__`` parameter of a public class.
 
-Same population rule as ``plan_population_recheck.py`` (the plan's 74): a class
+Same population rule as ``plan_population_recheck.py`` (the plan's 74; that
+script was retired by #276 and is kept in git history at ``ccae32b``): a class
 whose name does not start with ``_``, anywhere under ``lizyml/``; its
 ``__init__``'s defaulted positional and keyword-only parameters. Prints one
 line per knob (``Class.param  file:line  default``) and the total, so the

@@ -320,6 +320,10 @@ gate issue against the discovery audit.
 
 Recomputation script:
 `docs/audits/2026-09-defect-discovery/instruments/plan_population_recheck.py`.
+It was retired by #276 (2026-10-19): it recomputes the plan's claims against the
+current tree, which has moved on, so it now prints five mismatches that are not
+defects. Read it at the commit it was last changed in, `git show
+ccae32b:docs/audits/2026-09-defect-discovery/instruments/plan_population_recheck.py`.
 
 
 ### D7 — PR 2 stopped at round 5 on a pre-registered condition
