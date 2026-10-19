@@ -3,12 +3,14 @@
 A pytest plugin (``-p h0134_load_census`` with this directory on
 ``PYTHONPATH``), active only when ``H0134_LOAD_LOG`` is set. It wraps
 ``Model.load`` in every process pytest starts (xdist workers load ``-p``
-plugins too). The real load always runs. One JSON record per load, written
-after the load returns:
+plugins too). The real load always runs. One JSON record per call:
 
-- ``tuned``: whether the loaded model has a tuning result;
-- ``history``: whether it holds the history (H-0134 P5);
-- ``format_version``: read from the artifact's ``metadata.json``.
+- a ``load`` record when the load returns, with ``tuned`` (whether the loaded
+  model has a tuning result), ``history`` (whether it holds the history,
+  H-0134 P5) and ``format_version`` (read from the artifact's
+  ``metadata.json``, or ``"stubbed loader"`` when the path has none);
+- a ``load_failed`` record, with the error code, when the load raises (the
+  exception is re-raised unchanged).
 
 A failure to record is written as an ``error`` record, never skipped.
 """
@@ -37,7 +39,18 @@ def pytest_configure(config: Any) -> None:
     original = Model.load.__func__  # type: ignore[attr-defined]
 
     def load(cls: type[Model], path: Any, *args: Any, **kwargs: Any) -> Model:
-        model = original(cls, path, *args, **kwargs)
+        try:
+            model = original(cls, path, *args, **kwargs)
+        except Exception as exc:
+            # A load that raises is an attempt too (implementation review
+            # round 1, major 4): recorded with its error code, then re-raised.
+            _write(
+                {
+                    "kind": "load_failed",
+                    "code": getattr(getattr(exc, "code", None), "name", type(exc).__name__),
+                }
+            )
+            raise
         try:
             meta_path = Path(path) / "metadata.json"
             # A test that stubs persistence.load passes a path with no files;

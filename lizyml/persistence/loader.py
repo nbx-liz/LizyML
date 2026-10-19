@@ -55,6 +55,32 @@ def _refuse_history(path: str | Path, message: str, **context: Any) -> LizyMLErr
     )
 
 
+def _require_v4_checksums(metadata: dict[str, Any], path: str | Path) -> None:
+    """Refuse a tuned format-4 artifact whose ``checksums`` the writer did not write.
+
+    Format 4 is written only by H-0134 and later, which always record
+    ``{"algorithm": "sha256", "files": {...}}``. Without this check an empty or
+    non-object ``checksums`` would take the pre-H-0083 path in
+    :func:`_verify_and_read_pkl`, and the pickles of a model whose history is
+    declared ``null`` would be read unverified. An untuned artifact keeps the
+    H-0083 leniency; that is outside H-0134.
+    """
+    checksums = metadata.get("checksums")
+    if (
+        type(checksums) is not dict
+        or checksums.get("algorithm") != CHECKSUM_ALGORITHM
+        or type(checksums.get("files")) is not dict
+    ):
+        raise LizyMLError(
+            code=ErrorCode.DESERIALIZATION_FAILED,
+            user_message=(
+                "A format-4 metadata.json must record checksums as "
+                f"{{'algorithm': {CHECKSUM_ALGORITHM!r}, 'files': {{...}}}}."
+            ),
+            context={"path": str(path), "checksums": type(checksums).__name__},
+        )
+
+
 def _declared_tuning_history(
     src: Path, metadata: dict[str, Any], path: str | Path
 ) -> TuningHistory | None:
@@ -304,8 +330,19 @@ def load(path: str | Path) -> tuple[Any, Any, dict[str, Any], Any]:
             metadata["declared_categories"], path
         )
 
-    # H-0134: replace the declaration with the decoded history (None when the
-    # artifact carries none), once, so persistence.load and Model.load agree.
+    # H-0134: a format-4 writer records, for a tuned model, a tuning object
+    # with a history declaration, and checksums. Check both before any pickle
+    # is read, whatever the declaration says (null included).
+    if fv >= 4 and "tuning" in metadata:
+        if type(metadata["tuning"]) is not dict:
+            raise _refuse_history(
+                path,
+                f"a format-4 'tuning' block must be an object, got "
+                f"{type(metadata['tuning']).__name__}.",
+            )
+        _require_v4_checksums(metadata, path)
+    # Replace the declaration with the decoded history (None when the artifact
+    # carries none), once, so persistence.load and Model.load agree.
     if isinstance(metadata.get("tuning"), dict):
         metadata["tuning"]["history"] = _declared_tuning_history(src, metadata, path)
 

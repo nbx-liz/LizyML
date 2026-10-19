@@ -15308,8 +15308,8 @@ H-0134 が足す条件は 2 つで、どちらも Change Gate の 6 つの目的
   - 依存の下限（pandas 2.0.0 / numpy 1.24）で、H-0134 に関わるテスト: 875 passed、8 skipped。
   - 陰性対照（`probes/negative_controls_h0134.py` → `.out`）: 9/9 が、それぞれ名指しした基準で捕まった。パッチなしの基準の実行は exit 0。
   - mypy、ruff は通った。
-- **母集団**（`probes/firing/h0134_load_census.py` → `summarize.py` → `firing.out`。フルスイートで `Model.load` を全て記録した）:
-  - load は 301 回で、そのうち tune 済みのモデルは 93 回だった。
+- **母集団**（`probes/firing/h0134_load_census.py` → `summarize.py` → `firing.out`。フルスイートの `Model.load` の呼び出しを、例外で終わったものも含めて全て記録した。実装レビュー round 1 の major 4 で、例外で終わった呼び出しを記録しない欠陥を直してから測り直した）:
+  - 呼び出しは 442 回だった。141 回が `DESERIALIZATION_FAILED` で終わり（壊れた成果物を拒否するテスト）、301 回が戻った。戻ったもののうち tune 済みのモデルは 93 回だった。
   - 履歴あり: 68 回（全て format 4）。
   - 履歴なし: 25 回。内訳は format 1 が 5、format 2 が 5、format 3 が 8、format 4 の `null` が 5、loader を差し替えたテストが 2。
   - 履歴なしで load したのは 3 つのテストファイルだけで、どれも意図して作ったもの（`test_h0134_acceptance.py`、`test_smart_params_artifact.py` の v2 の形、`test_space_merge.py` の差し替え）。
@@ -15318,3 +15318,20 @@ H-0134 が足す条件は 2 つで、どちらも Change Gate の 6 つの目的
 - **範囲の外で見つけたもの**（直していない。管理者の判断を待つ）:
   - 同じディレクトリに export し直すと、前回の `analysis_context.pkl` が残る。そのファイルが `checksums` に載っていなくても、loader は検査せずに読む（H-0083 の「載っていないファイルは検査せずに読む」による）。
   - tune していない成果物で `checksums` が配列のとき、`_verify_and_read_pkl` は `AttributeError` を出す。`DESERIALIZATION_FAILED` にならない。
+
+### 実装レビュー round 1 への対応（2026-10-19）
+
+Codex の run `h0134-impl-review` の round 1（`6207df6`）は CHANGES_REQUESTED（major 4）だった。全て直した。
+
+- **major 1**: `history` が `null` の v4 の成果物で `checksums` が空の配列のとき、`_declared_tuning_history` は `checksums` を確かめる前に戻っていた。そのため pickle が H-0083 以前の経路で、検査されずに読まれた（DC1）。
+  - tune 済みの v4 の成果物では、宣言が `null` でも、pickle を読む前に `checksums` の形（`algorithm` が `sha256`、`files` がオブジェクト）を確かめるようにした（`_require_v4_checksums`）。
+  - tune していない成果物の H-0083 の寛容さは変えていない（範囲の外の見つけたもの 2）。
+- **major 2**: v4 で `tuning` がオブジェクトでないとき（`null`、配列、数）、宣言の検査を素通りしていた。`null` は tune していない成果物として読まれていた。v4 で `tuning` があればオブジェクトであることを、pickle を読む前に確かめるようにした。
+- **major 3**: P1 の再公開に `_encode_status`・`_decode_status` が抜けていた。`lineage_codec` が移動の前に定義していた全ての名前を、同じオブジェクトとして再公開した。非公開の名前は `as` で再公開した。それを全て並べて確かめるテスト（`tests/test_tuning/test_lineage_codec_reexports.py`）を足した。
+- **major 4**: 計測器は戻った load だけを記録していたのに、記録は「全て記録した」と書いていた（DC5）。例外で終わった呼び出しを `load_failed` として記録するようにし、フルスイートで測り直した（上の母集団の数）。
+- **テスト**: 基準 4 に、pickle を読む前に拒否することを確かめるテストを 6 件足した。読み込みの関数を差し替え、呼ばれたら失敗するようにしてある。内訳は次のとおり。
+  - `null` の宣言のまま `checksums` が空の配列・`files` 無し・`null` の 3 件
+  - `tuning` が `null`・配列・数の 3 件
+- **結果**:
+  - フルスイート: 12874 passed、1 failed（`test_version`。環境による既知の失敗）。
+  - 陰性対照: 9/9 が捕まり、パッチなしの基準も通った。

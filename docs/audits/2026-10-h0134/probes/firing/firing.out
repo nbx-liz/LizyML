@@ -1,4 +1,7 @@
-loads: 301; of tuned models: 93
+Model.load calls: 442
+  raised: 141
+    DESERIALIZATION_FAILED: 141
+  returned: 301; of tuned models: 93
   format_version=1 history=no: 5
   format_version=2 history=no: 5
   format_version=3 history=no: 8

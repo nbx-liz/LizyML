@@ -346,6 +346,57 @@ def test_a_broken_history_or_declaration_is_refused(
     assert info.value.code == ErrorCode.DESERIALIZATION_FAILED
 
 
+def _with_meta(**changes: Any) -> Callable[[Path], None]:
+    def apply(artifact: Path) -> None:
+        _write_meta(artifact, {**_meta(artifact), **changes})
+
+    return apply
+
+
+def _null_history_then(**changes: Any) -> Callable[[Path], None]:
+    def apply(artifact: Path) -> None:
+        SHAPES["v4 null"](artifact)
+        _with_meta(**changes)(artifact)
+
+    return apply
+
+
+#: Format-4 metadata the writer never produces, refused before any pickle is
+#: read (implementation review round 1, majors 1 and 2).
+BEFORE_PICKLES: dict[str, Callable[[Path], None]] = {
+    "null history, checksums empty list": _null_history_then(checksums=[]),
+    "null history, checksums missing files": _null_history_then(
+        checksums={"algorithm": "sha256"}
+    ),
+    "null history, checksums null": _null_history_then(checksums=None),
+    "tuning is null": _with_meta(tuning=None),
+    "tuning is a list": _with_meta(tuning=[]),
+    "tuning is a number": _with_meta(tuning=1),
+}
+
+
+@pytest.mark.parametrize("case", sorted(BEFORE_PICKLES))
+def test_malformed_v4_metadata_is_refused_before_any_pickle(
+    case: str,
+    resumed: tuple[Model, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from lizyml.persistence import loader
+
+    _, artifact = resumed
+    copy = _copy(artifact, tmp_path / "a")
+    BEFORE_PICKLES[case](copy)
+
+    def no_pickle(*args: Any, **kwargs: Any) -> bytes:
+        raise AssertionError("a pickle was read before the metadata was refused")
+
+    monkeypatch.setattr(loader, "_verify_and_read_pkl", no_pickle)
+    with pytest.raises(LizyMLError) as info:
+        Model.load(copy)
+    assert info.value.code == ErrorCode.DESERIALIZATION_FAILED
+
+
 # ---------------------------------------------------------------------------
 # Criterion 6: an undeclared file in a reused directory is not read
 # ---------------------------------------------------------------------------
