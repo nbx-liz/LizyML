@@ -1,0 +1,142 @@
+{
+  "format_version": 2,
+  "lizyml_version": "0.17.1",
+  "python_version": "3.10.22 (main, Oct  9 2026, 15:20:35) [Clang 22.1.3 ]",
+  "timestamp": "2026-10-19T12:01:00.329215+00:00",
+  "run_id": "d8312f5e-3a44-4957-962f-bff4637a2891",
+  "config": {
+    "config_version": 1,
+    "task": "binary",
+    "data": {
+      "path": null,
+      "target": "target",
+      "time_col": null,
+      "group_col": null
+    },
+    "features": {
+      "exclude": [],
+      "auto_categorical": true,
+      "categorical": []
+    },
+    "split": {
+      "method": "stratified_kfold",
+      "n_splits": 3,
+      "random_state": 42
+    },
+    "model": {
+      "name": "lgbm",
+      "params": {
+        "n_estimators": 100,
+        "learning_rate": 0.3
+      },
+      "auto_num_leaves": true,
+      "num_leaves_ratio": 1.0,
+      "min_data_in_leaf_ratio": 0.01,
+      "min_data_in_bin_ratio": 0.01,
+      "feature_weights": null,
+      "balanced": null
+    },
+    "training": {
+      "seed": 0,
+      "early_stopping": {
+        "enabled": true,
+        "rounds": 150,
+        "inner_valid": {
+          "method": "holdout",
+          "ratio": 0.1,
+          "stratify": false,
+          "random_state": 42
+        },
+        "validation_ratio": 0.1,
+        "inner_valid_explicit": false
+      }
+    },
+    "tuning": null,
+    "evaluation": {
+      "metrics": []
+    },
+    "calibration": {
+      "method": "platt",
+      "n_splits": 5,
+      "params": {}
+    },
+    "output_dir": null
+  },
+  "metrics": {
+    "raw": {
+      "oof": {
+        "logloss": 0.6921460334474051,
+        "auc": 0.8915582100196112
+      },
+      "oof_per_fold": [
+        {
+          "logloss": 1.2866177499076057,
+          "auc": 0.8944199116820555
+        },
+        {
+          "logloss": 0.4017872709413233,
+          "auc": 0.9108791649939784
+        },
+        {
+          "logloss": 0.38803307949328675,
+          "auc": 0.9154647435897437
+        }
+      ],
+      "if_mean": {
+        "logloss": 0.4268422954335583,
+        "auc": 0.9756371793930162
+      },
+      "if_per_fold": [
+        {
+          "logloss": 0.9528858296586773,
+          "auc": 0.9374436090225564
+        },
+        {
+          "logloss": 0.16026657427933094,
+          "auc": 0.99468671679198
+        },
+        {
+          "logloss": 0.16737448236266667,
+          "auc": 0.9947812123645123
+        }
+      ],
+      "oof_coverage": 1.0
+    },
+    "calibrated": {
+      "oof": {
+        "logloss": 0.8636924071572636,
+        "auc": 0.8694508825102514
+      },
+      "oof_per_fold": [
+        {
+          "logloss": 1.2227588025000768,
+          "auc": 0.8944199116820555
+        },
+        {
+          "logloss": 0.6832932304511051,
+          "auc": 0.9108791649939784
+        },
+        {
+          "logloss": 0.6850251885206088,
+          "auc": 0.9154647435897437
+        }
+      ],
+      "fallback_row_count": 0
+    }
+  },
+  "feature_names": [
+    "x0",
+    "x1",
+    "x2",
+    "x3"
+  ],
+  "task": "binary",
+  "checksums": {
+    "algorithm": "sha256",
+    "files": {
+      "fit_result.pkl": "757bfcea25887ea36011c24514cf57d7c27866b550499f6f7c0568e02553a363",
+      "refit_model.pkl": "dd0076046c2c1c0b183d5459035b8dffa83b6f49ad0f8a35d9512f1b5f79d58a",
+      "analysis_context.pkl": "232b85526afc2499b3fc6b78c60bb61733abd898e176ada1204c2e5d209dc25d"
+    }
+  }
+}
