@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import datetime as dt
 import decimal
+import inspect
 import math
 import zoneinfo
 from typing import Any
@@ -45,7 +46,8 @@ def _tz_reason(tz: Any) -> str | None:
         import pytz
     except ImportError:  # pragma: no cover - pandas 3 without pytz
         return f"tzinfo {type(tz).__name__}"
-    zone = getattr(tz, "zone", None)
+    # P1: read the name without running a descriptor of a caller's class.
+    zone = inspect.getattr_static(tz, "zone", None)
     if isinstance(zone, str) and zone in pytz.all_timezones_set:
         base = pytz.timezone(zone)
         family = getattr(base, "_tzinfos", {}) or {}

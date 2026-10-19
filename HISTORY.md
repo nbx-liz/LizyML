@@ -14783,7 +14783,7 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
     |---|---|---|
     | `bytes` | `bytes`、`np.bytes_` | `b64`: base64 の ASCII 文字列 |
     | `decimal` | `Decimal` | `str`: `str(v)` |
-    | `complex` | `complex`、`np.complex64`、`np.complex128` | `real`、`imag`: float |
+    | `complex` | `complex`、`np.complex64`、`np.complex128` | `real`、`imag`: float（numpy は `.item()` の値で書く） |
     | `date` | `datetime.date` | `iso`: `v.isoformat()` |
     | `datetime` | `datetime.datetime` | `us`: epoch からのマイクロ秒（タイムゾーンつきは UTC、無しは壁時計の時刻）。`tz`: 下の形か `null` |
     | `timestamp` | `pd.Timestamp` | `unit`: `"s"`・`"ms"`・`"us"`・`"ns"` のどれか（`v.unit`）。`value`: その単位での epoch からの整数（タイムゾーンつきは UTC、`v.asm8` から読む）。`tz`: 下の形か `null` |
@@ -14794,10 +14794,13 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
     | `tuple` | `tuple` | `items`: 要素の符号化の並び |
     | `frozenset` | `frozenset` | `items`: 要素の符号化を、`json.dumps(item, sort_keys=True)` の文字列の順に並べたもの（hash の順に依存しない） |
 
-  - タイムゾーンの形は `{"kind": "iana", "name": <IANA の名前>}` か `{"kind": "offset", "seconds": <整数>}` のどちらかである。pytz の zone と `ZoneInfo` は `iana`、`datetime.timezone` は `offset` で書く。
+  - タイムゾーンの形は `{"kind": "iana", "name": <IANA の名前>}` か `{"kind": "offset", "microseconds": <整数>}` のどちらかである。`datetime.timezone` の時差はマイクロ秒の整数で必ず表せる（`timedelta` の分解能）。pytz の zone と `ZoneInfo` は `iana`、`datetime.timezone` は `offset` で書く。
   - 復号するのは、決まった位置だけである: カテゴリの並びの各要素、最頻値、`declared_categories` の各要素。そこにある JSON の object は表のどれかの形でなければならない。外れれば `DESERIALIZATION_FAILED`（生成コードでは `ValueError`）で止める。ほかの位置の mapping は復号しない。カテゴリの値は hash できる値なので dict にはならず、印と取り違えることはない。
   - タイムゾーンつきの値は、UTC の時刻を復元してから、記録した名前（`zoneinfo.ZoneInfo(name)`）か時差（`datetime.timezone`）へ変換する。記録するのが UTC の時刻なので、夏時間の切り替わりの重なり（fold 0 と 1）でも元の時刻と等しくなる。復号した値の `tzinfo` の実装は元と違いうる（pytz の zone は `ZoneInfo` で戻る）。そのため、等しさと hash は時刻で比べる。
-  - 復号した値は、学習したカテゴリの代表の値と等しく、hash も等しく、型も同じである。ただし numpy の素の値は Python の値で、`np.bytes_` は `bytes` で戻る。どちらも元の値と等しく hash も等しい。予測時に利用者が渡す新しい値と照合できることは、メモリの中のモデルと同じ規則で決まる（照合は今と同じく、学習したカテゴリとの `set` の照合である）。受け入れ基準 4 で、この等しさを V の全体について確かめる。
+  - 復号した値は、学習したカテゴリの代表の値と等しく、hash も等しく、型も同じである。ただし、次の 3 つは Python の型で戻る。どれも元の値と等しく、hash も等しい:
+    - numpy の素の値は Python の値で戻る。
+    - `np.bytes_` は `bytes` で戻る。
+    - `np.complex64` と `np.complex128` は `complex` で戻る（印の形は 3 つの型で同じ）。予測時に利用者が渡す新しい値と照合できることは、メモリの中のモデルと同じ規則で決まる（照合は今と同じく、学習したカテゴリとの `set` の照合である）。受け入れ基準 4 で、この等しさを V の全体について確かめる。
 - **P3. 置き換える列は fit の時点で決める**（`CategoricalEncoder`）:
   - encoder は構築時に、省略できる判定 `needs_stand_in(value) -> bool` を受け取る。fit は列のカテゴリを学習した後、判定が真になる値を 1 つでも持つ列を「置き換える列」として状態に記録する（`stand_in_columns`）。transform はこの記録だけを読む。そのため、CV の fold の状態を transform より前に保存しても（`cv_trainer.py:112-120`）、状態は正しい形を持つ（Codex の critical 1）。
   - transform では、元の値での照合（未知の値の検出、`unseen_policy` の置換、`comparable_values`、欠損）を今と同じに行い、`set_categories(known)` の後で、置き換える列だけ `rename_categories(range(k))` する。符号は変わらないので、予測も変わらない（実測）。
@@ -14872,7 +14875,7 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
 
 - 置き換える列の判定（`conditionally-activate`）: Firing rate: 0/1323 of `CategoricalEncoder.fit` column records outside the #338 test files hold a value LightGBM cannot write (1504 records over the full suite and the notebook tier on V at `918c489`, 398 of them in notebook kernels; the 181 others are in `test_unwritable_categories.py`, `test_export_contract.py` and `test_h0120_records.py`).
   - テストの母集団では、この経路は専用のテストだけが通る（DC6 の形）。経路が要るのは利用者のデータ（日付の列など）で、受け入れ基準 1・2 が専用のテストで全ての型を通す。
-- V による受理（`allow`）: Firing rate: 0/1323 of the same records outside those files hold a category or mode that P1's predicate refuses (1504 records over the full suite and the notebook tier on V at `62fd65b`; the predicate is the standalone reference `probes/firing/v_reference.py`, applied recursively to every learned category and the mode; 1484 records are inside V, and the 20 refused ones are all in the #338 test files: `_ArrayWithoutList` 5, `_Hostile` 5, `np.longdouble` inside a tuple 10).
+- V による受理（`allow`）: Firing rate: 0/1323 of the same records outside those files hold a category or mode that P1's predicate refuses (1504 records over the full suite and the notebook tier on V at `03e3c70` plus revision 2; the predicate is the standalone reference `probes/firing/v_reference.py`, checked by `v_reference_check.py`, applied recursively to every learned category and the mode; 1484 records are inside V, and the 20 refused ones are all in the #338 test files: `_ArrayWithoutList` 5, `_Hostile` 5, `np.longdouble` inside a tuple 10).
   - 計測器は、実装の前に P1 の規則を独立に写したものである（Proposal review round 1 の指摘）。実装の後に、実装の判定で同じ計測を行い、数が一致することを実装の記録に書く。
 
 ### 受け入れ基準（テスト観点）
@@ -14924,3 +14927,12 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
   - major: V の firing rate を、P1 の判定で測っていなかった（型の名前と LightGBM の判定だけだった）。P1 を独立に写した参照実装（`probes/firing/v_reference.py`）で、全ての学習した値を入れ子まで判定して測り直した。
   - major: 印つきの `declared_categories` を、公開の `lizyml.persistence.load` が復号しなかった。P6 で復号の場所を `loader.load` の 1 か所にし、受け入れ基準 6 と陰性対照 (h) で両方の load を確かめる。
   - major: 目的変数のラベルを変えないこと（判断 3）を確かめる母集団が無かった。受け入れ基準 3 に、型の一覧から導いたラベルの母集団と、陰性対照 (g) を足した。
+- **改訂 2（2026-10-19、Proposal review round 2 の後）**:
+  - round 2 の前の loop monitor:
+    - runner の absolute monitor は INCONCLUSIVE（escalate）だった。runner の monitor は前の round の head（`62fd65b`）の写しを読むので、改訂 1 を読めなかった。
+    - 管理者の判断で、`03e3c70` を読む Claude の fresh context の monitor で確かめ直した。結果は DELIVERABLE-FOCUSED（continue）だった。
+  - round 2（`03e3c70`）は CHANGES_REQUESTED（major 3）だった。round 1 の 5 件のうち 3 件（版のテストの一覧、公開の load での復号、ラベルの母集団）は解決と確認された。
+  - major 3 件は、どれも改訂 1 で入れた部分の欠陥だった。停止ルールに従って管理者に報告し、管理者は「3 件を直して通常の round 3」を選んだ:
+    - `complex` の印は、3 つの型で同じ形になる。復号は `complex` で戻ると決め、P2 の例外の一覧に足した。
+    - 固定の時差を整数の秒で書く形では、1 マイクロ秒単位の時差を表せない。マイクロ秒の整数で書くようにした。
+    - 計測器の参照実装が `getattr` で `zone` を読み、利用者のコードが走った。`inspect.getattr_static` に直した。利用者の `tzinfo` の property を数える確認（`probes/firing/v_reference_check.py` → `.out`、0 回、不一致 0）を足し、計測をやり直した。
