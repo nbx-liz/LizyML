@@ -1,0 +1,5 @@
+pandas 3.0.1, pytz 2026.5
+fold 0 ZoneInfo(name)   eq=True  hash_eq=True  dict_hit=True 
+fold 0 timezone(offset) eq=True  hash_eq=True  dict_hit=True 
+fold 1 ZoneInfo(name)   eq=True  hash_eq=False dict_hit=False
+fold 1 timezone(offset) eq=True  hash_eq=True  dict_hit=True 

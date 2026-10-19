@@ -14798,9 +14798,11 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
     | `tuple` | `tuple` | `items`: 要素の符号化の並び |
     | `frozenset` | `frozenset` | `items`: 要素の符号化を、`json.dumps(item, sort_keys=True)` の文字列の順に並べたもの（hash の順に依存しない） |
 
-  - タイムゾーンの形は `{"kind": "iana", "name": <IANA の名前>}` か `{"kind": "offset", "microseconds": <整数>}` のどちらかである。`datetime.timezone` の時差はマイクロ秒の整数で必ず表せる（`timedelta` の分解能）。pytz の zone と `ZoneInfo` は `iana`、`datetime.timezone` は `offset` で書く。
+  - タイムゾーンの形は `{"kind": "iana", "name": <IANA の名前>}` か `{"kind": "offset", "microseconds": <整数>}` のどちらかである。`datetime.timezone` の時差はマイクロ秒の整数で必ず表せる（`timedelta` の分解能）。`ZoneInfo` は `iana`、`datetime.timezone` は `offset` で書く。pytz の zone を持つ `Timestamp` は、その値の UTC からの時差（`v.utcoffset()`）を `offset` で書く（確認の review の指摘。下の項）。
   - 復号するのは、決まった位置だけである: カテゴリの並びの各要素、最頻値、`declared_categories` の各要素。そこにある JSON の object は表のどれかの形でなければならない。外れれば `DESERIALIZATION_FAILED`（生成コードでは `ValueError`）で止める。ほかの位置の mapping は復号しない。カテゴリの値は hash できる値なので dict にはならず、印と取り違えることはない。
-  - `Timestamp` は、UTC の時刻を復元してから、記録した名前（`zoneinfo.ZoneInfo(name)`）か時差（`datetime.timezone`）へ変換する。記録するのが UTC の時刻なので、夏時間の重なり（fold 0 と 1）でも元の時刻と等しい。復号した値の `tzinfo` の実装は元と違いうる（pytz の zone は `ZoneInfo` で戻る）が、`Timestamp` の等しさと hash は時刻の値で決まるので変わらない。
+  - `Timestamp` は、UTC の時刻を復元してから、記録した名前（`zoneinfo.ZoneInfo(name)`）か時差（`datetime.timezone`）へ変換する。記録するのが UTC の時刻なので、夏時間の重なり（fold 0 と 1）でも元の時刻と等しい。
+    - `ZoneInfo` の `Timestamp` は、別の instance（`no_cache`）で戻しても、等しさも hash も保たれる（`probes/tz_fold_probe.out`）。
+    - pytz の zone の `Timestamp` を `ZoneInfo(name)` で戻すと、fold 1 で等しさは保たれるが hash が違い、辞書の照合に失敗する。Python の `datetime` の hash が fold 1 の値でも fold 0 の時差を使い、pytz の instance は自分の時差を固定で持つためである。その値の時差（`datetime.timezone`）で戻すと、等しさ・hash・辞書の照合が fold 0・1 とも保たれる（`probes/pytz_fold_probe.out`、pandas 3.0.1 と pytz 2026.5 の一時的な環境）。そのため pytz の zone は時差で書く。
   - `datetime.datetime` は、壁時計の時刻に、記録した `fold` と zone（キャッシュされた `ZoneInfo(name)` か `datetime.timezone`）を付けて戻す。UTC を経ないので、`datetime.min` に +23 時間の時差をつけた値のように UTC が西暦 1〜9999 年の外に出る値でも戻る（round 3 の指摘。`probes/tz_fold_probe.out`）。zone は元と同じキャッシュされた instance なので、Python は同じ zone の中の比較として、壁時計の時刻で比べる。
   - 復号した値は、学習したカテゴリの代表の値と等しく、hash も等しく、型も同じである。ただし、次の 3 つは Python の型で戻る。どれも元の値と等しく、hash も等しい:
     - numpy の素の値は Python の値で戻る。
@@ -14954,3 +14956,9 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
     - major: `datetime.min` に +23 時間の時差をつけた値などは、UTC が表せる範囲の外に出るので、UTC を経て復元できなかった。`datetime` の印を、壁時計の時刻と `fold` で書く形に変えた（P2）。実測で境界の 2 つの値が戻ることを確かめた。
     - minor: 受け入れ基準 2 に「v2 の fixture」が残っていた（改訂 1 の消し漏れ）。「v2 の形（P8 の書き直し）」に直した。
   - 参照実装（`v_reference.py`）を P1 の新しい規則に合わせ、確認（`v_reference_check.out`、不一致 0、利用者のコードの呼び出し 0）と計測をやり直した。
+- **改訂 4（2026-10-19、確認の review の後）**:
+  - 確認の review（run `h0133-proposal-confirm`、1 round、`2da6e24`）は CHANGES_REQUESTED（major 1）だった。round 3 の 3 件は解決と確認された。
+  - major の内容: pytz の zone を持つ `Timestamp` を `ZoneInfo(name)` で戻すと、夏時間の重なりの fold 1 で hash が違い、辞書の照合に失敗する。改訂 3 の「`Timestamp` は instance が違っても等しく、hash も等しいので変えない」は、pytz の入っていない環境で測った主張で、偽だった。
+  - 停止ルールに従って管理者に報告し、管理者は「直して、もう 1 度確認」を選んだ。
+  - pytz を入れた一時的な環境で、指摘と直し方を実測した（`probes/pytz_fold_probe.py` → `.out`）。pytz の zone の `Timestamp` は、その値の時差で書いて `datetime.timezone` で戻す（P2）。
+  - 計測の数は変わらない（判定 P1 は変えていない）。
