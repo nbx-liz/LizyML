@@ -15013,3 +15013,8 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
 - **実装レビュー round 2**（`aed6779`）は APPROVE だった。round 1 の 7 件は全て解決と確認された（pandas 2.0.0 / numpy 1.24 と pandas 3.0 の両方で）。
   - minor 1 件: 復号が、符号化の書かない形（`timedelta` を 0 日と 86400 秒で書いた形、`frozenset` の要素の重なりや順序の違い）を受け付けていた。
   - 対処: LizyML の復号と生成コードの写しの両方で、復号した値を符号化し直した形が入力と一致しないものを拒否するようにした。
+- **CI の依存の下限の lane と 3.10 の lane**（`8e3904e`）で、目的変数のラベルの母集団のテストが、既存の不具合を見つけた（H-0120 から）。
+  - 症状: `export_code` のラベルの検査（`codegen/values.py` の `plain_value`）は、numpy のスカラーを「`.item()` が素の値で、元の値と等しい」なら受け付けていた。Y・M 単位の `np.timedelta64` は `.item()` が int を返し、numpy はその int と元の値を等しいと判定する。そのため、ラベルが別の値（`4`）として黙って書かれていた（DC1）。
+  - pandas 3 ではこの値が列にできず、母集団から外れていたので、手元の pandas 3 では見えなかった。
+  - 対処: ラベルの検査を `core/category_values.py` の `NUMPY_PLAIN_TYPES` に厳密に一致する型だけにした。判断 3 の「ラベルは今の値の集合のまま」の意図どおりで、集合は広げていない。回帰のテスト（`test_export_contract.py` の `_REFUSED` に `np.timedelta64` の Y・M と `np.datetime64` の ns）を足した。
+  - `tuple` のラベルは、pandas 2.0 では fit そのものが pandas の例外で失敗する（`export_code` に届かない）。ラベルのテストはこの場合、理由をつけて skip する。

@@ -57,6 +57,10 @@ _REFUSED: dict[str, Any] = {
     "np.bytes_": np.bytes_(b"a"),
     "np.datetime64": np.datetime64("2026-01-01"),
     "np.complex128": np.complex128(1 + 2j),
+    # .item() is an int that numpy calls equal (H-0133 review): refused, not 4.
+    "np.timedelta64 in Y": np.timedelta64(4, "Y"),
+    "np.timedelta64 in M": np.timedelta64(4, "M"),
+    "np.datetime64 in ns": np.datetime64(5, "ns"),
 }
 
 

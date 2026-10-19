@@ -15,9 +15,13 @@ from __future__ import annotations
 
 from typing import Any
 
-import numpy as np
-
-from lizyml.core.category_values import encode, refusal, shown, type_name
+from lizyml.core.category_values import (
+    NUMPY_PLAIN_TYPES,
+    encode,
+    refusal,
+    shown,
+    type_name,
+)
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 
 _ACCEPTED = (str, int, float, bool)
@@ -37,7 +41,10 @@ def plain_value(value: Any, *, where: str) -> Any:
     """
     if type(value) in _ACCEPTED:
         return value
-    if isinstance(value, np.generic):
+    # Exact numpy types only: an np.timedelta64 in Y / M units has an int
+    # .item() that numpy calls equal to it, so "item() is plain and equal"
+    # admitted it and wrote a label as a bare number (H-0133 review).
+    if any(type(value) is kind for kind in NUMPY_PLAIN_TYPES):
         plain = value.item()
         if type(plain) in _ACCEPTED and plain == value:
             return plain
