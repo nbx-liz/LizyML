@@ -297,22 +297,57 @@ def test_the_declared_record_survives_calls_that_do_not_replace_the_fit(
     assert model._get_fit_state().declared_categories == {"d": ["z", "y", "x"]}
 
 
-def test_a_record_with_a_value_json_cannot_keep_is_omitted(tmp_path: Path) -> None:
-    """Never written as str: the key is left out (unknown), and export_code
-    refuses the model anyway because the encoder holds the same values."""
+@pytest.mark.parametrize(
+    "values",
+    [
+        [(1, 2), (3, 4)],
+        [b"x", b"y"],
+        [pd.Timestamp("2024-01-01"), pd.Timestamp("2024-02-01")],
+    ],
+    ids=["tuple", "bytes", "Timestamp"],
+)
+def test_a_record_of_tagged_values_survives_export_and_load(
+    values: list[Any], tmp_path: Path
+) -> None:
+    """H-0133 P6: the record is written with the tagged codec, not omitted;
+    both loads return the values themselves, and export_code from the loaded
+    model writes them (H-0120 left the key out and refused the tuple)."""
+    from lizyml.persistence import load
+
     df = make_frame("binary")
-    # A tuple comes back from JSON as a list. (Timestamp, bytes and Decimal
-    # categories already stop Model.export elsewhere, so they cannot reach it.)
-    values = [(1, 2), (3, 4)]
     df["d"] = pd.Categorical([values[i % 2] for i in range(len(df))], categories=values)
     model = Model(make_config("binary", "kfold"))
     model.fit(data=df)
-    assert list(model._get_fit_state().declared_categories) == ["d"]  # type: ignore[arg-type]
     artifact = model.export(tmp_path / "artifact")
-    assert DECLARED_KEY not in _metadata(artifact)
-    with pytest.raises(LizyMLError) as info:
-        model.export_code(tmp_path / "gen")
-    assert info.value.code == ErrorCode.SERIALIZATION_FAILED
+    written = _metadata(artifact)[DECLARED_KEY]["d"]
+    assert written != values  # tagged JSON, not the values themselves
+    assert load(artifact)[2][DECLARED_KEY] == {"d": values}
+    loaded = Model.load(artifact)
+    assert loaded._get_fit_state().declared_categories == {"d": values}
+    loaded.export_code(tmp_path / "gen")
+    config = json.loads((tmp_path / "gen" / "config.json").read_text(encoding="utf-8"))
+    assert config[DECLARED_KEY]["d"] == written
+
+
+def test_a_malformed_tagged_record_is_refused_by_both_loads(tmp_path: Path) -> None:
+    """H-0133 criterion 6 / negative control (h): a tag the exporter never
+    writes fails both loads with DESERIALIZATION_FAILED."""
+    from lizyml.persistence import load
+
+    df = make_frame("binary")
+    df["d"] = pd.Categorical(["a", "b"] * (len(df) // 2), categories=["a", "b"])
+    model = Model(make_config("binary", "kfold"))
+    model.fit(data=df)
+    artifact = model.export(tmp_path / "artifact")
+    meta_path = artifact / "metadata.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta[DECLARED_KEY]["d"] = [{"$lizyml": "bytes", "b64": "YQ==", "extra": 1}]
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    for read in (load, Model.load):
+        with pytest.raises(LizyMLError) as info:
+            read(artifact)
+        assert info.value.code == ErrorCode.DESERIALIZATION_FAILED
+        assert info.value.context["key"] == "d"
 
 
 @pytest.mark.parametrize(

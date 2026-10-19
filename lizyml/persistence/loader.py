@@ -20,6 +20,7 @@ from typing import Any
 
 import joblib
 
+from lizyml.core.category_values import decode as decode_category_value
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.fit_result import FitResult
 from lizyml.core.types.target_encoder import TargetEncoder
@@ -32,7 +33,40 @@ _REQUIRED_METADATA_KEYS = frozenset(
 # Format versions this loader can read. Older versions are upgraded in-memory
 # via _migrate_fit_result so behavior remains equivalent to a fresh fit on
 # the current library (numeric targets).
-_SUPPORTED_FORMAT_VERSIONS = frozenset({1, 2})
+_SUPPORTED_FORMAT_VERSIONS = frozenset({1, 2, 3})
+
+
+def _decoded_declared_categories(record: Any, path: str | Path) -> Any:
+    """The ``declared_categories`` record with each value decoded (H-0133 P6).
+
+    Decoded here, once, so ``lizyml.persistence.load`` and ``Model.load``
+    return the same values. A v1 / v2 record holds plain JSON scalars, which
+    decode to themselves. A record that is not an object of lists is returned
+    as is for ``Model.load``'s shape check to refuse.
+
+    Raises:
+        LizyMLError: ``DESERIALIZATION_FAILED`` naming the column, for a value
+            that is not a shape the exporter writes.
+    """
+    if not isinstance(record, dict) or not all(
+        isinstance(cats, list) for cats in record.values()
+    ):
+        return record
+    decoded: dict[str, list[Any]] = {}
+    for col, cats in record.items():
+        try:
+            decoded[col] = [decode_category_value(v) for v in cats]
+        except LizyMLError as exc:
+            raise LizyMLError(
+                code=ErrorCode.DESERIALIZATION_FAILED,
+                user_message=(
+                    f"Stored declared_categories of column {col!r} hold a "
+                    f"malformed value: {exc.context.get('reason')}"
+                ),
+                context={"path": str(path), "key": col, **exc.context},
+                cause=exc,
+            ) from exc
+    return decoded
 
 
 def _migrate_fit_result(fit_result: Any, source_version: int) -> Any:
@@ -169,6 +203,11 @@ def load(path: str | Path) -> tuple[Any, Any, dict[str, Any], Any]:
                 "format_version": fv,
                 "supported": sorted(_SUPPORTED_FORMAT_VERSIONS),
             },
+        )
+
+    if "declared_categories" in metadata:
+        metadata["declared_categories"] = _decoded_declared_categories(
+            metadata["declared_categories"], path
         )
 
     # --- Load pickled artifacts ----------------------------------------------

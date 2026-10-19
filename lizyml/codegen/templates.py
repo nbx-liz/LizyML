@@ -2,6 +2,191 @@
 
 from __future__ import annotations
 
+#: The category-value codec of ``lizyml.core.category_values`` (H-0133 P2),
+#: copied into both generated scripts, which do not depend on LizyML. A test
+#: holds this copy to the library's answers over the whole value population.
+_VALUE_CODEC = '''\
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+#  Category values in JSON (LizyML H-0133)
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# str / int / float / bool (and numpy scalars of them) are JSON values; every
+# other value is a tagged object {"$lizyml": tag, ...} with fixed fields.
+
+import base64 as _b64
+import datetime as _dt
+import decimal as _decimal
+import zoneinfo as _zoneinfo
+
+_MAX_DEPTH = 8
+_EPOCH = _dt.datetime(1970, 1, 1)
+_US = _dt.timedelta(microseconds=1)
+_TS_UNITS = ("s", "ms", "us", "ns")
+_NP_PLAIN = (
+    np.bool_, np.int8, np.int16, np.int32, np.int64, np.uint8, np.uint16,
+    np.uint32, np.uint64, np.float32, np.float64, np.str_,
+)
+_NP_COMPLEX = (np.complex64, np.complex128)
+_FIELDS = {
+    "bytes": {"b64"}, "decimal": {"str"}, "complex": {"real", "imag"},
+    "date": {"iso"}, "datetime": {"us", "fold", "tz"},
+    "timestamp": {"unit", "value", "tz"},
+    "datetime64": {"unit", "count", "value"},
+    "timedelta64": {"unit", "count", "value"},
+    "pd_timedelta": {"unit", "value"},
+    "timedelta": {"days", "seconds", "microseconds"},
+    "tuple": {"items"}, "frozenset": {"items"},
+}
+
+
+def _is(value, types):
+    return any(type(value) is t for t in types)
+
+
+def _tz_shape(value):
+    tz = value.tzinfo
+    if tz is None:
+        return None
+    if type(tz) is _dt.timezone:
+        return {"kind": "offset", "microseconds": value.utcoffset() // _US}
+    if type(tz) is _zoneinfo.ZoneInfo and tz.key is not None and (
+        type(value) is pd.Timestamp or _zoneinfo.ZoneInfo(tz.key) is tz
+    ):
+        return {"kind": "iana", "name": tz.key}
+    if type(value) is pd.Timestamp and type(tz).__module__.split(".")[0] == "pytz":
+        # Its own offset: restored through ZoneInfo its hash would differ.
+        return {"kind": "offset", "microseconds": value.utcoffset() // _US}
+    raise ValueError(f"cannot write the timezone {type(tz).__name__}")
+
+
+def _equals_itself(value):
+    if _is(value, (float, np.float32, np.float64)):
+        return value == value
+    if type(value) is _decimal.Decimal:
+        return not value.is_nan()
+    if _is(value, (complex,) + _NP_COMPLEX):
+        return complex(value) == complex(value)
+    if _is(value, (np.datetime64, np.timedelta64)):
+        return not np.isnat(value)
+    return True
+
+
+def _encode_value(value, depth=0):
+    """A category value as JSON (the same table as LizyML's export)."""
+    if not _equals_itself(value):
+        raise ValueError(f"{value!r} equals no value, so it cannot be matched again")
+    if _is(value, (str, int, float, bool)):
+        return value
+    if _is(value, _NP_PLAIN):
+        return value.item()
+    if _is(value, (bytes, np.bytes_)):
+        return {"$lizyml": "bytes", "b64": _b64.b64encode(bytes(value)).decode("ascii")}
+    if type(value) is _decimal.Decimal:
+        return {"$lizyml": "decimal", "str": str(value)}
+    if _is(value, (complex,) + _NP_COMPLEX):
+        c = complex(value)
+        return {"$lizyml": "complex", "real": c.real, "imag": c.imag}
+    if type(value) is pd.Timestamp:
+        return {"$lizyml": "timestamp", "unit": value.unit,
+                "value": int(value.asm8.astype(np.int64)), "tz": _tz_shape(value)}
+    if type(value) is _dt.datetime:
+        wall_us = (value.replace(tzinfo=None) - _EPOCH) // _US
+        return {"$lizyml": "datetime", "us": wall_us, "fold": value.fold,
+                "tz": _tz_shape(value)}
+    if type(value) is _dt.date:
+        return {"$lizyml": "date", "iso": value.isoformat()}
+    if _is(value, (np.datetime64, np.timedelta64)):
+        unit, count = np.datetime_data(value.dtype)
+        tag = "datetime64" if type(value) is np.datetime64 else "timedelta64"
+        return {"$lizyml": tag, "unit": unit, "count": count,
+                "value": int(value.astype(np.int64))}
+    if type(value) is pd.Timedelta:
+        return {"$lizyml": "pd_timedelta", "unit": value.unit,
+                "value": int(value.asm8.astype(np.int64))}
+    if type(value) is _dt.timedelta:
+        return {"$lizyml": "timedelta", "days": value.days, "seconds": value.seconds,
+                "microseconds": value.microseconds}
+    if type(value) in (tuple, frozenset):
+        if depth >= _MAX_DEPTH:
+            raise ValueError(f"a tuple / frozenset nested deeper than {_MAX_DEPTH}")
+        items = [_encode_value(v, depth + 1) for v in value]
+        if type(value) is frozenset:
+            items.sort(key=lambda item: json.dumps(item, sort_keys=True))
+            return {"$lizyml": "frozenset", "items": items}
+        return {"$lizyml": "tuple", "items": items}
+    raise ValueError(f"cannot write a category value of type {type(value).__name__}")
+
+
+def _field(obj, name, kind):
+    value = obj[name]
+    if type(value) is not kind:
+        raise ValueError(f"field {name!r} is not a {kind.__name__}")
+    return value
+
+
+def _tz(shape):
+    if shape is None:
+        return None
+    keys = set(shape) if type(shape) is dict else set()
+    if keys == {"kind", "name"} and shape["kind"] == "iana":
+        return _zoneinfo.ZoneInfo(_field(shape, "name", str))
+    if keys == {"kind", "microseconds"} and shape["kind"] == "offset":
+        offset = _dt.timedelta(microseconds=_field(shape, "microseconds", int))
+        return _dt.timezone(offset)
+    raise ValueError("the timezone has an unknown shape")
+
+
+def _decode_value(obj, depth=0):
+    """The value _encode_value (or LizyML's export) wrote as *obj*."""
+    if _is(obj, (str, int, float, bool)):
+        return obj
+    if type(obj) is not dict or "$lizyml" not in obj:
+        raise ValueError(f"a {type(obj).__name__} is not a category value")
+    tag = obj["$lizyml"]
+    if type(tag) is not str or tag not in _FIELDS:
+        raise ValueError(f"unknown tag {tag!r}")
+    if set(obj) - {"$lizyml"} != _FIELDS[tag]:
+        raise ValueError(f"tag {tag!r} needs exactly the fields {sorted(_FIELDS[tag])}")
+    if tag == "bytes":
+        return _b64.b64decode(_field(obj, "b64", str).encode("ascii"), validate=True)
+    if tag == "decimal":
+        return _decimal.Decimal(_field(obj, "str", str))
+    if tag == "complex":
+        return complex(_field(obj, "real", float), _field(obj, "imag", float))
+    if tag == "date":
+        return _dt.date.fromisoformat(_field(obj, "iso", str))
+    if tag == "datetime":
+        fold = _field(obj, "fold", int)
+        if fold not in (0, 1):
+            raise ValueError("fold is not 0 or 1")
+        wall = _EPOCH + _dt.timedelta(microseconds=_field(obj, "us", int))
+        return wall.replace(tzinfo=_tz(obj["tz"]), fold=fold)
+    if tag in ("timestamp", "pd_timedelta"):
+        unit = _field(obj, "unit", str)
+        if unit not in _TS_UNITS:
+            raise ValueError(f"unit {unit!r} is not one of {_TS_UNITS}")
+        if tag == "pd_timedelta":
+            return pd.Timedelta(np.timedelta64(_field(obj, "value", int), unit))
+        stamp = pd.Timestamp(np.datetime64(_field(obj, "value", int), unit))
+        tz = _tz(obj["tz"])
+        return stamp if tz is None else stamp.tz_localize("UTC").tz_convert(tz)
+    if tag in ("datetime64", "timedelta64"):
+        unit, count = _field(obj, "unit", str), _field(obj, "count", int)
+        if count < 1:
+            raise ValueError("count is not positive")
+        kind = np.datetime64 if tag == "datetime64" else np.timedelta64
+        return kind(_field(obj, "value", int), unit if count == 1 else f"{count}{unit}")
+    if tag == "timedelta":
+        return _dt.timedelta(days=_field(obj, "days", int),
+                             seconds=_field(obj, "seconds", int),
+                             microseconds=_field(obj, "microseconds", int))
+    items = _field(obj, "items", list)
+    if depth >= _MAX_DEPTH:
+        raise ValueError(f"nested deeper than {_MAX_DEPTH}")
+    decoded = [_decode_value(item, depth + 1) for item in items]
+    return tuple(decoded) if tag == "tuple" else frozenset(decoded)
+
+'''
+
 _TRAIN_PY = '''\
 #!/usr/bin/env python3
 """Train a LightGBM model and fit a probability calibrator.
@@ -54,14 +239,12 @@ with open(ROOT / "config.json", encoding="utf-8") as _f:
     CFG = json.load(_f)
 
 
+# @@VALUE_CODEC@@
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  Feature Pipeline
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-def _plain(value):
-    """A category value as written to JSON: numpy scalars become Python values."""
-    return value.item() if isinstance(value, np.generic) else value
-
 
 def cast_categoricals(X: pd.DataFrame) -> pd.DataFrame:
     """Cast columns to ``category`` as LizyML's data builder does.
@@ -90,7 +273,9 @@ def fit_pipeline(df: pd.DataFrame) -> dict:
     ``cast_categoricals`` returns: a ``category`` column keeps its categories
     in order (declared, or as pandas inferred them); a string column left
     uncast takes ``sorted(unique, key=str)``. Values are kept as values, never
-    as str, and a value's code is its position in the list (H-0120).
+    as str, and a value's code is its position in the list (H-0120). The file
+    holds them in LizyML's tagged JSON (H-0133); the returned state holds the
+    values themselves.
     """
     expected = CFG["feature_names"]
     missing = sorted(set(expected) - set(df.columns))
@@ -98,6 +283,7 @@ def fit_pipeline(df: pd.DataFrame) -> dict:
         raise ValueError(f"Missing columns: {missing}")
 
     categories: dict[str, dict] = {}
+    written: dict[str, dict] = {}
     for col in CFG["categorical_features"]:
         series = df[col]
         if hasattr(series, "cat"):
@@ -109,9 +295,10 @@ def fit_pipeline(df: pd.DataFrame) -> dict:
             mode = modes.iloc[0] if len(modes) > 0 else cats[0]
         else:
             mode = None
-        categories[col] = {
-            "categories": [_plain(v) for v in cats],
-            "mode": _plain(mode),
+        categories[col] = {"categories": cats, "mode": mode}
+        written[col] = {
+            "categories": [_encode_value(v) for v in cats],
+            "mode": None if mode is None else _encode_value(mode),
         }
         log.info("    %s: %d categories", col, len(cats))
 
@@ -124,7 +311,7 @@ def fit_pipeline(df: pd.DataFrame) -> dict:
     }
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
     with open(ARTIFACTS / "pipeline_state.json", "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2, ensure_ascii=False)
+        json.dump({**state, "categories": written}, f, indent=2, ensure_ascii=False)
     return state
 
 
@@ -276,7 +463,8 @@ def apply_declared_categories(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     for col, cats in declared.items():
         if col in df.columns:
-            df[col] = df[col].astype(pd.CategoricalDtype(categories=cats))
+            values = [_decode_value(v) for v in cats]  # tagged JSON (H-0133)
+            df[col] = df[col].astype(pd.CategoricalDtype(categories=values))
     return df
 
 
@@ -1255,6 +1443,9 @@ with open(ROOT / "config.json", encoding="utf-8") as _f:
     CFG = json.load(_f)
 
 
+# @@VALUE_CODEC@@
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 #  Feature Transform (predict-time: no re-fitting)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1264,7 +1455,13 @@ def _load_pipeline() -> dict:
     if not path.exists():
         raise FileNotFoundError(f"{path} not found. Run train.py first.")
     with open(path, encoding="utf-8") as f:
-        return json.load(f)
+        state = json.load(f)
+    # The categories and modes are in LizyML's tagged JSON (H-0133).
+    for entry in state["categories"].values():
+        entry["categories"] = [_decode_value(v) for v in entry["categories"]]
+        if entry["mode"] is not None:
+            entry["mode"] = _decode_value(entry["mode"])
+    return state
 
 
 _UNINDEXABLE_FLOATS = frozenset({np.dtype(np.float16), np.dtype(np.longdouble)}) - {
@@ -1633,14 +1830,22 @@ scikit-learn
 """
 
 
+_CODEC_MARKER = "# @@VALUE_CODEC@@\n"
+
+
+def _with_codec(source: str) -> str:
+    assert source.count(_CODEC_MARKER) == 1  # noqa: S101 - a template invariant
+    return source.replace(_CODEC_MARKER, _VALUE_CODEC)
+
+
 def render_train_py() -> str:
     """Return the train.py source code."""
-    return _TRAIN_PY
+    return _with_codec(_TRAIN_PY)
 
 
 def render_predict_py() -> str:
     """Return the predict.py source code."""
-    return _PREDICT_PY
+    return _with_codec(_PREDICT_PY)
 
 
 def render_requirements_txt(*, uses_scipy: bool = False) -> str:

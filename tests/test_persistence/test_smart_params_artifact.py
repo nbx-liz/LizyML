@@ -10,7 +10,8 @@ outside it. An artifact whose record is inside the rule, empty, or absent
 loads and predicts as before.
 
 The artifacts are written by the current code and their ``metadata.json``
-edited, for ``format_version`` 2 and rewritten to 1.
+edited, for ``format_version`` 3, rewritten to the v2 shape (H-0133 P8), and
+rewritten to 1.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ import pytest
 from lizyml import Model
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from tests._helpers import make_config, make_multiclass_df, make_regression_df
+from tests.test_persistence._artifact_versions import to_v2_shape
 
 DF = ErrorCode.DESERIALIZATION_FAILED
 LR: dict[str, Any] = {"type": "float", "low": 0.05, "high": 0.3, "log": True}
@@ -72,6 +74,8 @@ def _edited(
 ) -> Path:
     """A copy of *source* with ``best_smart_params`` and ``format_version`` set."""
     shutil.copytree(source, target)
+    if version <= 2:
+        to_v2_shape(target)  # what a v1 / v2 artifact holds (H-0133 P8)
     path = target / "metadata.json"
     meta = json.loads(path.read_text(encoding="utf-8"))
     if smart is not None:
@@ -159,7 +163,7 @@ def test_load_refuses_a_malformed_tuning_block(
     assert "tuning" in caught.value.user_message
 
 
-@pytest.mark.parametrize("version", [2, 1])
+@pytest.mark.parametrize("version", [3, 2, 1])
 def test_load_refuses_a_record_that_is_not_a_mapping(
     version: int, artifacts: dict[str, Path], tmp_path: Path
 ) -> None:
@@ -174,7 +178,7 @@ def test_load_refuses_a_record_that_is_not_a_mapping(
     assert "best_smart_params" in caught.value.user_message
 
 
-@pytest.mark.parametrize("version", [2, 1])
+@pytest.mark.parametrize("version", [3, 2, 1])
 @pytest.mark.parametrize(
     "row", REFUSED, ids=[f"{r[0]}-{json.dumps(r[1])}" for r in REFUSED]
 )
@@ -209,7 +213,7 @@ ACCEPTED: list[tuple[str, dict[str, Any] | None]] = [
 ]
 
 
-@pytest.mark.parametrize("version", [2, 1])
+@pytest.mark.parametrize("version", [3, 2, 1])
 @pytest.mark.parametrize(
     "row", ACCEPTED, ids=[f"{r[0]}-{json.dumps(r[1])}" for r in ACCEPTED]
 )

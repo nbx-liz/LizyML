@@ -23,6 +23,7 @@ from lizyml import Model
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.types.fit_result import FitResult
 from lizyml.persistence.exporter import FORMAT_VERSION
+from tests.test_persistence._artifact_versions import to_v2_shape
 
 pytest.importorskip("shap")
 
@@ -58,7 +59,13 @@ def _rewrite_fit_result(
     remove: tuple[str, ...],
     format_version: int | None = None,
 ) -> None:
-    """Drop attributes from the pickled FitResult and re-sign the file."""
+    """Drop attributes from the pickled FitResult and re-sign the file.
+
+    An artifact without the per-fold field predates H-0114, so it is a v2
+    (or, with *format_version* 1, a v1) artifact: start from the v2 shape
+    (H-0133 P8) rather than label the current version as old.
+    """
+    to_v2_shape(export_dir)
     pkl = export_dir / "fit_result.pkl"
     fit_result = joblib.load(pkl)
     for name in remove:
@@ -114,7 +121,9 @@ def test_export_load_keeps_the_per_fold_states(fitted: Model, tmp_path: Path) ->
 
     loaded = Model.load(_export(fitted, tmp_path))
 
-    assert FORMAT_VERSION == 2
+    # The per-fold field was additive (H-0114, no bump); H-0133 raised the
+    # version to 3 for position stand-ins.
+    assert FORMAT_VERSION == 3
     original = fitted._get_fit_state().fit_result.pipeline_state_per_fold
     restored = loaded._get_fit_state().fit_result.pipeline_state_per_fold
     assert original is not None

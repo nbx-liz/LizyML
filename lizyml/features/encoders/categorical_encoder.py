@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, Literal
 
 import numpy as np
@@ -79,12 +80,23 @@ class CategoricalEncoder:
             - ``"mode"``: Replace with the most frequent training category.
             - ``"nan"``: Replace with NaN (pandas NA for category dtype).
             - ``"error"``: Raise ``LizyMLError(DATA_SCHEMA_INVALID)``.
+        needs_stand_in: Whether a category value cannot reach the estimator's
+            saved model as itself (H-0133). Fit records every column holding
+            such a value; transform hands those columns over with their
+            categories renamed to the positions ``0..k-1`` (the codes, and so
+            the predictions, are unchanged). ``None`` replaces no column.
     """
 
-    def __init__(self, unseen_policy: UnseenPolicy = "mode") -> None:
+    def __init__(
+        self,
+        unseen_policy: UnseenPolicy = "mode",
+        needs_stand_in: Callable[[Any], bool] | None = None,
+    ) -> None:
         self.unseen_policy: UnseenPolicy = unseen_policy
+        self._needs_stand_in = needs_stand_in
         self._categories: dict[str, list[Any]] = {}
         self._modes: dict[str, Any] = {}
+        self._stand_in_columns: list[str] = []
         self._fitted = False
 
     def fit(self, X: pd.DataFrame, categorical_cols: list[str]) -> CategoricalEncoder:
@@ -99,6 +111,7 @@ class CategoricalEncoder:
         """
         self._categories = {}
         self._modes = {}
+        self._stand_in_columns = []
         for col in categorical_cols:
             if col not in X.columns:
                 continue
@@ -113,6 +126,13 @@ class CategoricalEncoder:
                 self._modes[col] = mode_val.iloc[0] if len(mode_val) > 0 else cats[0]
             else:
                 self._modes[col] = None
+            # Decided here, not in transform: CV saves the state right after
+            # fit, before any transform (H-0133). The values are the ones the
+            # estimator receives after set_categories(cats).
+            if self._needs_stand_in is not None and any(
+                self._needs_stand_in(v) for v in pd.CategoricalDtype(cats).categories
+            ):
+                self._stand_in_columns.append(col)
         self._fitted = True
         return self
 
@@ -212,6 +232,9 @@ class CategoricalEncoder:
             # Set categories to the known list
             series = series.astype("category")
             series = series.cat.set_categories(known_cats)
+            if col in self._stand_in_columns:
+                # H-0133: the same codes, with positions as the categories.
+                series = series.cat.rename_categories(range(len(series.cat.categories)))
             X[col] = series
         return X, warnings
 
@@ -221,6 +244,7 @@ class CategoricalEncoder:
             "unseen_policy": self.unseen_policy,
             "categories": self._categories,
             "modes": self._modes,
+            "stand_in_columns": list(self._stand_in_columns),
         }
 
     def load_state(self, state: dict[str, Any]) -> CategoricalEncoder:
@@ -228,5 +252,8 @@ class CategoricalEncoder:
         self.unseen_policy = state["unseen_policy"]
         self._categories = state["categories"]
         self._modes = state["modes"]
+        # A state saved before H-0133 (format_version 1 / 2) has no field:
+        # every column keeps its raw categories, as when it was saved.
+        self._stand_in_columns = list(state.get("stand_in_columns", []))
         self._fitted = True
         return self

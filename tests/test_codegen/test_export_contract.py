@@ -87,12 +87,35 @@ def _target_frame(labels: list[Any], n: int = 120) -> pd.DataFrame:
     return df
 
 
-#: Refused category values that a fit accepts as a categorical column.
-_REFUSED_CATEGORY_DATA: dict[str, list[Any]] = {
+#: Category values export_code refused before H-0133 and writes now (tagged).
+_SAVEABLE_CATEGORY_DATA: dict[str, list[Any]] = {
     "tuple": [(1, 2), (3, 4)],
     "bytes": [b"a", b"b"],
     "pd.Timestamp": [pd.Timestamp("2026-01-01"), pd.Timestamp("2026-02-01")],
     "decimal.Decimal": [decimal.Decimal("1.5"), decimal.Decimal("2.5")],
+}
+
+
+class _Opaque:
+    """A hashable user type: outside the saveable set."""
+
+    def __init__(self, k: int) -> None:
+        self.k = k
+
+    def __hash__(self) -> int:
+        return hash(self.k)
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _Opaque) and other.k == self.k
+
+    def __lt__(self, other: _Opaque) -> bool:
+        return self.k < other.k
+
+
+#: Category values outside the saveable set that a fit accepts (H-0133 P1).
+_REFUSED_CATEGORY_DATA: dict[str, list[Any]] = {
+    "tuple with NaN": [(1, float("nan")), (2, 3)],
+    "user type": [_Opaque(1), _Opaque(2)],
 }
 
 
@@ -103,13 +126,24 @@ def _assert_refused_and_nothing_written(model: Model, out: Path) -> None:
     assert not out.exists()
 
 
-@pytest.mark.parametrize("name", sorted(_REFUSED_CATEGORY_DATA))
-def test_export_refuses_a_category_outside_the_set(name: str, tmp_path: Path) -> None:
-    df = _category_frame(_REFUSED_CATEGORY_DATA[name])
+def _fit_category(values: list[Any]) -> Model:
     cfg = make_config("binary", "kfold")
     cfg["features"] = {"categorical": ["c"]}
     model = Model(cfg)
-    model.fit(data=df)
+    model.fit(data=_category_frame(values))
+    return model
+
+
+@pytest.mark.parametrize("name", sorted(_SAVEABLE_CATEGORY_DATA))
+def test_export_writes_a_saveable_category(name: str, tmp_path: Path) -> None:
+    """H-0133: these values are written with the tagged codec."""
+    _fit_category(_SAVEABLE_CATEGORY_DATA[name]).export_code(tmp_path / "gen")
+    assert (tmp_path / "gen" / "artifacts" / "pipeline_state.json").exists()
+
+
+@pytest.mark.parametrize("name", sorted(_REFUSED_CATEGORY_DATA))
+def test_export_refuses_a_category_outside_the_set(name: str, tmp_path: Path) -> None:
+    model = _fit_category(_REFUSED_CATEGORY_DATA[name])
     _assert_refused_and_nothing_written(model, tmp_path / "gen")
 
 
@@ -205,16 +239,44 @@ def test_every_accepted_type_is_written_plain_on_both_surfaces(
     assert type(written[0]) is expected_type
 
 
-@pytest.mark.parametrize("surface", _SURFACES)
-@pytest.mark.parametrize("name", sorted(_REFUSED))
-def test_every_refused_type_writes_nothing_on_both_surfaces(
-    name: str, surface: str, _fitted: Model, tmp_path: Path
+#: Feature-category values outside the saveable set (H-0133 P1).
+_OUTSIDE_V: dict[str, Any] = {
+    "tuple with NaN": (1, float("nan")),
+    "Decimal NaN": decimal.Decimal("NaN"),
+    "np.longdouble": np.longdouble(1),
+    "user type": _Opaque(1),
+}
+
+#: H-0133 judgement 3: target labels keep the plain set; feature categories
+#: take the wider one, so each surface refuses its own population.
+_REFUSED_CASES = [("target-label", name, v) for name, v in sorted(_REFUSED.items())] + [
+    ("feature-category", name, v) for name, v in sorted(_OUTSIDE_V.items())
+]
+
+
+@pytest.mark.parametrize(
+    ("surface", "name", "value"),
+    _REFUSED_CASES,
+    ids=[f"{s}-{n}" for s, n, _ in _REFUSED_CASES],
+)
+def test_every_refused_type_writes_nothing_on_its_surface(
+    surface: str, name: str, value: Any, _fitted: Model, tmp_path: Path
 ) -> None:
     out = tmp_path / "gen"
     with pytest.raises(LizyMLError) as info:
-        _generate(_fitted, out, surface, _REFUSED[name])
+        _generate(_fitted, out, surface, value)
     assert info.value.code == ErrorCode.SERIALIZATION_FAILED
     assert not out.exists()
+
+
+@pytest.mark.parametrize("name", sorted(_REFUSED))
+def test_a_value_refused_as_a_label_is_written_as_a_feature_category(
+    name: str, _fitted: Model, tmp_path: Path
+) -> None:
+    """H-0133: the label-only set is narrower than the category set."""
+    out = tmp_path / "gen"
+    _generate(_fitted, out, "feature-category", _REFUSED[name])
+    assert (out / "artifacts" / "pipeline_state.json").exists()
 
 
 def test_accepted_labels_and_categories_export(tmp_path: Path) -> None:

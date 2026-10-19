@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -34,10 +35,18 @@ class NativeFeaturePipeline(BaseFeaturePipeline):
 
     Args:
         unseen_policy: How to handle categories unseen during ``fit``.
+        needs_stand_in: Passed to the encoder (H-0133): which category values
+            the estimator cannot write into its saved model as themselves.
     """
 
-    def __init__(self, unseen_policy: UnseenPolicy = "mode") -> None:
-        self._encoder = CategoricalEncoder(unseen_policy=unseen_policy)
+    def __init__(
+        self,
+        unseen_policy: UnseenPolicy = "mode",
+        needs_stand_in: Callable[[Any], bool] | None = None,
+    ) -> None:
+        self._encoder = CategoricalEncoder(
+            unseen_policy=unseen_policy, needs_stand_in=needs_stand_in
+        )
         self._transformer = FeatureTransformer()
         self._feature_names: list[str] = []
         self._categorical_cols: list[str] = []

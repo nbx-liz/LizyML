@@ -88,11 +88,11 @@ class TestArtifactRoundtrip:
 class TestFormatVersionRejection:
     """Unknown format_version values are rejected on load.
 
-    H-0070: format_version 1 and 2 are both accepted; only versions outside
-    the supported set are rejected.
+    H-0070: format_version 1 and 2 are both accepted; H-0133 adds 3. Only
+    versions outside the supported set are rejected.
     """
 
-    @pytest.mark.parametrize("bad_version", [0, 3, 99, -1, None])
+    @pytest.mark.parametrize("bad_version", [0, 4, 99, -1, None])
     def test_invalid_format_version_raises(
         self, tmp_path: Path, bad_version: Any
     ) -> None:
@@ -111,6 +111,52 @@ class TestFormatVersionRejection:
             Model.load(export_dir)
         assert exc_info.value.code == ErrorCode.DESERIALIZATION_FAILED
         assert "format_version" in str(exc_info.value)
+
+
+class TestFormatVersionV2AndV3:
+    """H-0133 (criterion 6): the v2 shape still loads; v3 is what export writes,
+    and a loader that knows only {1, 2} refuses it."""
+
+    def test_a_v2_shaped_artifact_loads_and_predicts_as_before(
+        self, tmp_path: Path
+    ) -> None:
+        from tests.test_persistence._artifact_versions import has_v3_fields, to_v2_shape
+
+        df = make_binary_df(n=120, seed=1)
+        df["c"] = np.where(np.arange(len(df)) % 3 == 0, "a", "b")
+        model = Model(make_config("binary", n_estimators=5, n_splits=2))
+        model.fit(data=df)
+        export_dir = tmp_path / "export"
+        model.export(export_dir)
+        expected = model.predict(df.drop(columns=["target"])).pred
+        to_v2_shape(export_dir)
+        assert not has_v3_fields(export_dir)
+        assert (
+            json.loads((export_dir / "metadata.json").read_text())["format_version"]
+            == 2
+        )
+        loaded = Model.load(export_dir)
+        np.testing.assert_array_equal(
+            loaded.predict(df.drop(columns=["target"])).pred, expected
+        )
+
+    def test_a_v3_artifact_is_refused_by_a_loader_without_3(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from lizyml.persistence import loader
+
+        df = make_regression_df(n=100, seed=0)
+        export_dir = _fit_and_export(
+            make_config("regression", n_estimators=5, n_splits=2), df, tmp_path
+        )
+        assert (
+            json.loads((export_dir / "metadata.json").read_text())["format_version"]
+            == 3
+        )
+        monkeypatch.setattr(loader, "_SUPPORTED_FORMAT_VERSIONS", frozenset({1, 2}))
+        with pytest.raises(LizyMLError) as exc_info:
+            Model.load(export_dir)
+        assert exc_info.value.code == ErrorCode.DESERIALIZATION_FAILED
 
 
 class TestFormatVersionV1Migration:

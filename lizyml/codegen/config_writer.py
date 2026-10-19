@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from lizyml.codegen.values import plain_values
+from lizyml.codegen.values import category_values, plain_values
 
 #: The libraries whose versions decide the split, the sort and the category
 #: codes (H-0120 premises), by distribution name.
@@ -103,8 +103,9 @@ def build_config(
         if target_classes
         else [],
     }
+    # H-0133: declared categories are feature categories -- the tagged codec.
     declared = {
-        col: plain_values(list(cats), where=f"declared categories of column {col!r}")
+        col: category_values(list(cats), where=f"declared categories of column {col!r}")
         for col, cats in (declared_categories or {}).items()
     }
 

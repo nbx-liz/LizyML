@@ -1,11 +1,15 @@
-"""Category values LightGBM cannot write are named before export and at fit
-(H-0127, #338).
+"""Category values that cannot be saved are named before export and at fit
+(H-0127, #338; narrowed by H-0133).
 
 LightGBM writes each categorical column's categories into the model string as
 JSON when a booster is pickled. A value JSON cannot encode used to fail
 ``Model.export`` half-way through the write with ``Circular reference
-detected``. One predicate (``estimators/lgbm/category_json.py``) decides, and
-both the export check and the fit warning use it.
+detected``. Since H-0133 such a column reaches LightGBM as positions, so most
+of those values save; what export and the fit warning still refuse is a value
+outside the closed set of ``lizyml.core.category_values`` (here, a tuple of
+``np.longdouble`` or a user type). The LightGBM predicate
+(``estimators/lgbm/category_json.py``) still decides which columns need
+stand-ins, and the adapter check still guards a column kept raw.
 """
 
 from __future__ import annotations
@@ -64,6 +68,10 @@ VALUES: dict[str, list[Any]] = {
     "datetime": [dt.datetime(2020, 1, 1), dt.datetime(2020, 1, 2)],
     "np.datetime64": [np.datetime64("2020-01-01"), np.datetime64("2020-01-02")],
 }
+#: A category value outside the saveable set of H-0133 (np.longdouble is not
+#: in it), which LightGBM cannot write either: export still refuses it.
+REFUSED: list[Any] = VALUES["tuple of np.longdouble"]
+
 WRITABLE = {
     "str",
     "int",
@@ -251,15 +259,15 @@ def test_fit_warns_and_export_refuses_with_safe_text(tmp_path: Path) -> None:
 
 
 def test_export_names_the_column_and_writes_nothing(tmp_path: Path) -> None:
-    model, _ = _fit(_frame(VALUES["bytes"]))
+    model, _ = _fit(_frame(REFUSED))
     out = tmp_path / "out"
     with pytest.raises(LizyMLError) as exc:
         model.export(out)
     assert exc.value.code == ErrorCode.SERIALIZATION_FAILED
     assert exc.value.context == {
         "column": "d",
-        "value": "b'a'",
-        "type": "bytes",
+        "value": shown(REFUSED[0]),
+        "type": "tuple",
         "state": "refit",
     }
     assert "Circular reference" not in str(exc.value)
@@ -275,7 +283,7 @@ def test_export_refuses_before_resolving_a_path(
     model = Model(raw, output_dir=tmp_path / "runs")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        model.fit(data=_frame(VALUES["bytes"]))
+        model.fit(data=_frame(REFUSED))
     before = sorted(p.relative_to(tmp_path) for p in tmp_path.rglob("*"))
 
     def _resolved(*_: Any, **__: Any) -> Path:
@@ -293,7 +301,7 @@ def test_a_failed_export_leaves_an_earlier_export_intact(tmp_path: Path) -> None
     good, _ = _fit(_frame(VALUES["str"]))
     good.export(out)
     before = {p.name: p.read_bytes() for p in out.iterdir()}
-    bad, _ = _fit(_frame(VALUES["bytes"]))
+    bad, _ = _fit(_frame(REFUSED))
     with pytest.raises(LizyMLError):
         bad.export(out)
     assert {p.name: p.read_bytes() for p in out.iterdir()} == before
@@ -586,5 +594,5 @@ def test_the_warning_comes_before_training(monkeypatch: pytest.MonkeyPatch) -> N
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         with pytest.raises(RuntimeError, match="training started"):
-            model.fit(data=_frame(VALUES["bytes"]))
+            model.fit(data=_frame(REFUSED))
     assert any("Model.export" in str(w.message) for w in caught)
