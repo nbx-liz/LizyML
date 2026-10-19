@@ -9,6 +9,9 @@ inside  datetime64 2s          -> None
 inside  tuple                  -> None
 inside  frozenset              -> None
 inside  8 containers           -> None
+inside  datetime cached ZoneInfo -> None
+inside  datetime.min +23h      -> None
+inside  Timestamp no_cache ZoneInfo -> None
 outside nested NaN             -> NaN
 outside Decimal NaN            -> Decimal NaN
 outside complex NaN            -> complex NaN
@@ -16,7 +19,8 @@ outside NaT                    -> NaT
 outside 9 containers           -> nesting deeper than 8
 outside str subclass           -> type S
 outside longdouble             -> type longdouble
-outside caller tzinfo          -> tzinfo CallerTz
+outside caller tzinfo          -> datetime tzinfo CallerTz
+outside datetime no_cache ZoneInfo -> datetime tzinfo ZoneInfo
 caller zone property calls: 0
 mismatches: 0
 exit=0

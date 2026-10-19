@@ -67,8 +67,17 @@ def _scalar_reason(value: Any) -> str | None:
         return "complex NaN"
     if _is(value, (np.datetime64, np.timedelta64)) and np.isnat(value):
         return "NaT"
-    if _is(value, (dt.datetime, pd.Timestamp)):
+    if type(value) is pd.Timestamp:
         return _tz_reason(value.tzinfo)
+    if type(value) is dt.datetime:
+        # P1 (round 3): only fixed offsets and cached ZoneInfo instances, so
+        # the wall-clock restore compares within one zone.
+        tz = value.tzinfo
+        if tz is None or type(tz) is dt.timezone:
+            return None
+        if type(tz) is zoneinfo.ZoneInfo and tz.key is not None and zoneinfo.ZoneInfo(tz.key) is tz:
+            return None
+        return f"datetime tzinfo {type(tz).__name__}"
     return None
 
 

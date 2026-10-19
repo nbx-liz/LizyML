@@ -14769,11 +14769,15 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
     - 実部か虚部が NaN の `complex`
     - `np.datetime64` と `np.timedelta64` の NaT（`np.isnat`）
     - `pd.NaT` は型が一覧に無いので外になる。最上位の欠損はもともとカテゴリにならない（§9.2）。
-  - タイムゾーンつきの `datetime` と `Timestamp` は、`tzinfo` が次のどれかのときだけ V に入る:
+  - タイムゾーンつきの `Timestamp` は、`tzinfo` が次のどれかのときだけ V に入る:
     - 厳密に `datetime.timezone`（固定の時差）
     - 厳密に `zoneinfo.ZoneInfo`（`key` があるもの）
     - pytz の zone（pandas 2.x が文字列の tz から作る）。名前を `inspect.getattr_static` で読み、`pytz.timezone(name)` とその localize した instance の集合に対する同一性で確かめる。
     それ以外（dateutil、利用者の `tzinfo`）は外である。
+  - タイムゾーンつきの `datetime.datetime` は、`tzinfo` が次のどちらかのときだけ V に入る（`Timestamp` より狭い。round 3 の指摘）:
+    - 厳密に `datetime.timezone`
+    - 厳密に `zoneinfo.ZoneInfo` で、`zoneinfo.ZoneInfo(key) is tzinfo` が真のもの（キャッシュされた instance）
+    - `ZoneInfo.no_cache` の instance と pytz の zone は外である。理由: Python は `tzinfo` の instance が違う 2 つの `datetime` を UTC で比べ、夏時間の重なりの時刻を常に「等しくない」とする（PEP 495）。そのため、復元した値が学習したカテゴリと一致しなくなる。`Timestamp` は時刻の値で比べるので、instance が違っても等しく、hash も等しい（`probes/tz_fold_probe.out`、fold 0 と 1）。
   - 判定は型を最初に見る。V の外の型の値のメソッドは呼ばない。一覧の型のメソッドは、標準ライブラリ・numpy・pandas のものだけが走る。この判定の境界は「値に対して閉じる」ことであり、プロセスの中で numpy や pandas を差し替えた呼び出し元への備えではない（H-0095 の宣言と同じ）。
 - **P2. 符号化と復号**（P1 のモジュールにだけ置く）:
   - 素の値（`str`・`int`・`float`・`bool` と、`.item()` がそれらになる numpy のスカラー）は、今と同じ JSON の値で書く（numpy は `.item()` で書く）。それ以外は印つきの JSON の object で書く。
@@ -14785,7 +14789,7 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
     | `decimal` | `Decimal` | `str`: `str(v)` |
     | `complex` | `complex`、`np.complex64`、`np.complex128` | `real`、`imag`: float（numpy は `.item()` の値で書く） |
     | `date` | `datetime.date` | `iso`: `v.isoformat()` |
-    | `datetime` | `datetime.datetime` | `us`: epoch からのマイクロ秒（タイムゾーンつきは UTC、無しは壁時計の時刻）。`tz`: 下の形か `null` |
+    | `datetime` | `datetime.datetime` | `us`: 壁時計の時刻（`tzinfo` を外した値）の、1970-01-01 からのマイクロ秒。`fold`: 0 か 1。`tz`: 下の形か `null` |
     | `timestamp` | `pd.Timestamp` | `unit`: `"s"`・`"ms"`・`"us"`・`"ns"` のどれか（`v.unit`）。`value`: その単位での epoch からの整数（タイムゾーンつきは UTC、`v.asm8` から読む）。`tz`: 下の形か `null` |
     | `datetime64` | `np.datetime64` | `unit`: 基本の単位（`np.datetime_data` の 1 つ目）。`count`: 倍数（2 つ目）。`value`: その単位での整数 |
     | `timedelta64` | `np.timedelta64` | `datetime64` と同じ欄 |
@@ -14796,7 +14800,8 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
 
   - タイムゾーンの形は `{"kind": "iana", "name": <IANA の名前>}` か `{"kind": "offset", "microseconds": <整数>}` のどちらかである。`datetime.timezone` の時差はマイクロ秒の整数で必ず表せる（`timedelta` の分解能）。pytz の zone と `ZoneInfo` は `iana`、`datetime.timezone` は `offset` で書く。
   - 復号するのは、決まった位置だけである: カテゴリの並びの各要素、最頻値、`declared_categories` の各要素。そこにある JSON の object は表のどれかの形でなければならない。外れれば `DESERIALIZATION_FAILED`（生成コードでは `ValueError`）で止める。ほかの位置の mapping は復号しない。カテゴリの値は hash できる値なので dict にはならず、印と取り違えることはない。
-  - タイムゾーンつきの値は、UTC の時刻を復元してから、記録した名前（`zoneinfo.ZoneInfo(name)`）か時差（`datetime.timezone`）へ変換する。記録するのが UTC の時刻なので、夏時間の切り替わりの重なり（fold 0 と 1）でも元の時刻と等しくなる。復号した値の `tzinfo` の実装は元と違いうる（pytz の zone は `ZoneInfo` で戻る）。そのため、等しさと hash は時刻で比べる。
+  - `Timestamp` は、UTC の時刻を復元してから、記録した名前（`zoneinfo.ZoneInfo(name)`）か時差（`datetime.timezone`）へ変換する。記録するのが UTC の時刻なので、夏時間の重なり（fold 0 と 1）でも元の時刻と等しい。復号した値の `tzinfo` の実装は元と違いうる（pytz の zone は `ZoneInfo` で戻る）が、`Timestamp` の等しさと hash は時刻の値で決まるので変わらない。
+  - `datetime.datetime` は、壁時計の時刻に、記録した `fold` と zone（キャッシュされた `ZoneInfo(name)` か `datetime.timezone`）を付けて戻す。UTC を経ないので、`datetime.min` に +23 時間の時差をつけた値のように UTC が西暦 1〜9999 年の外に出る値でも戻る（round 3 の指摘。`probes/tz_fold_probe.out`）。zone は元と同じキャッシュされた instance なので、Python は同じ zone の中の比較として、壁時計の時刻で比べる。
   - 復号した値は、学習したカテゴリの代表の値と等しく、hash も等しく、型も同じである。ただし、次の 3 つは Python の型で戻る。どれも元の値と等しく、hash も等しい:
     - numpy の素の値は Python の値で戻る。
     - `np.bytes_` は `bytes` で戻る。
@@ -14875,7 +14880,7 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
 
 - 置き換える列の判定（`conditionally-activate`）: Firing rate: 0/1323 of `CategoricalEncoder.fit` column records outside the #338 test files hold a value LightGBM cannot write (1504 records over the full suite and the notebook tier on V at `918c489`, 398 of them in notebook kernels; the 181 others are in `test_unwritable_categories.py`, `test_export_contract.py` and `test_h0120_records.py`).
   - テストの母集団では、この経路は専用のテストだけが通る（DC6 の形）。経路が要るのは利用者のデータ（日付の列など）で、受け入れ基準 1・2 が専用のテストで全ての型を通す。
-- V による受理（`allow`）: Firing rate: 0/1323 of the same records outside those files hold a category or mode that P1's predicate refuses (1504 records over the full suite and the notebook tier on V at `03e3c70` plus revision 2; the predicate is the standalone reference `probes/firing/v_reference.py`, checked by `v_reference_check.py`, applied recursively to every learned category and the mode; 1484 records are inside V, and the 20 refused ones are all in the #338 test files: `_ArrayWithoutList` 5, `_Hostile` 5, `np.longdouble` inside a tuple 10).
+- V による受理（`allow`）: Firing rate: 0/1323 of the same records outside those files hold a category or mode that P1's predicate refuses (1504 records over the full suite and the notebook tier on V at `c22d6d7` plus revision 3; the predicate is the standalone reference `probes/firing/v_reference.py`, checked by `v_reference_check.py`, applied recursively to every learned category and the mode; 1484 records are inside V, and the 20 refused ones are all in the #338 test files: `_ArrayWithoutList` 5, `_Hostile` 5, `np.longdouble` inside a tuple 10).
   - 計測器は、実装の前に P1 の規則を独立に写したものである（Proposal review round 1 の指摘）。実装の後に、実装の判定で同じ計測を行い、数が一致することを実装の記録に書く。
 
 ### 受け入れ基準（テスト観点）
@@ -14885,15 +14890,16 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
    - `export_code` → 生成 `predict.py`（再学習した生成 `train.py` も）。
    対象は、列が 1 つの型だけのとき、型が混在するとき、`tuple` と `frozenset` の入れ子。型の一覧に加えて、次の軸を全部通す:
    - `Timestamp` の単位 s・ms・us・ns
-   - タイムゾーンの名前と時差。夏時間の重なりの fold 0 と 1
+   - タイムゾーンの名前と時差。夏時間の重なりの fold 0 と 1（`Timestamp` は ZoneInfo のキャッシュあり・no_cache・pytz、`datetime.datetime` はキャッシュされた ZoneInfo と固定の時差）
+   - `datetime.datetime` の境界: `datetime.min` に +23 時間、`datetime.max` に −23 時間の時差をつけた値
    - `np.datetime64` と `np.timedelta64` の全ての基本の単位（Y・M・W・D・h・m・s・ms・us・ns・ps・fs・as）と、1 でない倍数
 2. **形の記録**: 置き換えた列を持つモデルで、次の 3 つが、メモリの中と load の後で一致する。
    - fold ごとの SHAP 重要度（`pipeline_state_per_fold` を使う経路）
    - 予測時の SHAP（`return_shap=True`）
    - 校正した予測
-   v2 の fixture でも、SHAP 重要度と予測が今と同じになる。
+   v2 の形（P8 の書き直し）の成果物でも、SHAP 重要度と予測が今と同じになる。
 3. **値の集合の境界**: 1 つの母集団で、`Model.export` と `lizyml.persistence.export` と `export_code` が同じ値を受け付け、同じ値を拒否する。
-   - 母集団は、V の型の一覧の各型と、外の値: NaN を含む `tuple`、`Decimal("NaN")`、NaN を含む `complex`、NaT、9 段の入れ子、V の各型のサブクラス、利用者の型、`np.longdouble`、dateutil と利用者の `tzinfo` を持つ `Timestamp`。
+   - 母集団は、V の型の一覧の各型と、外の値: NaN を含む `tuple`、`Decimal("NaN")`、NaN を含む `complex`、NaT、9 段の入れ子、V の各型のサブクラス、利用者の型、`np.longdouble`、dateutil と利用者の `tzinfo` を持つ `Timestamp`、`ZoneInfo.no_cache` か pytz の zone を持つ `datetime.datetime`。
    - 拒否は、何かを書く前に、列・値・型を名指しする。
    - **目的変数のラベル**: 型の一覧から導いた別の母集団で、`export_code` は素の値を受け付け、V で増えた型を全て拒否する（判断 3）。
 4. **復号の等しさ**: V の全ての値について、復号した値は元の値と等しく、hash も等しい。予測時に利用者が渡す新しい値（同じ値の別の instance、同じ時刻の `datetime` と `Timestamp`）とも照合できる。生成コードの復号の写しは、同じ母集団で LizyML の復号と同じ値を返す。
@@ -14936,3 +14942,15 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
     - `complex` の印は、3 つの型で同じ形になる。復号は `complex` で戻ると決め、P2 の例外の一覧に足した。
     - 固定の時差を整数の秒で書く形では、1 マイクロ秒単位の時差を表せない。マイクロ秒の整数で書くようにした。
     - 計測器の参照実装が `getattr` で `zone` を読み、利用者のコードが走った。`inspect.getattr_static` に直した。利用者の `tzinfo` の property を数える確認（`probes/firing/v_reference_check.py` → `.out`、0 回、不一致 0）を足し、計測をやり直した。
+- **改訂 3（2026-10-19、Proposal review round 3 の後）**:
+  - round 3 の前の relational monitor は、runner と Claude の fresh context の両方が CONVERGING（continue）だった。
+  - round 3（`c22d6d7`）は CHANGES_REQUESTED（major 2、minor 1）だった。round 2 の 3 件は解決と確認された。run は round の上限（3）に達した。
+  - 管理者に報告し、管理者は「直して、確認の run」を選んだ。直したもの:
+    - major: タイムゾーンつきの `datetime.datetime` は、`tzinfo` の instance が違うと、夏時間の重なりで等しさを失う（PEP 495）。
+      - 実測（`probes/tz_fold_probe.py` → `.out`）では、`ZoneInfo.no_cache` の instance で fold 0・1 とも等しくなかった。
+      - 対処: `datetime.datetime` に付けられる zone を、固定の時差とキャッシュされた `ZoneInfo` に狭めた（P1）。
+      - `Timestamp` は instance が違っても等しく、hash も等しかったので、変えない。
+      - pytz はこの環境（pandas 3.0.1）に入っていないので、pytz の zone の `Timestamp` は実装の受け入れ基準 1 で、依存の下限の lane で確かめる。
+    - major: `datetime.min` に +23 時間の時差をつけた値などは、UTC が表せる範囲の外に出るので、UTC を経て復元できなかった。`datetime` の印を、壁時計の時刻と `fold` で書く形に変えた（P2）。実測で境界の 2 つの値が戻ることを確かめた。
+    - minor: 受け入れ基準 2 に「v2 の fixture」が残っていた（改訂 1 の消し漏れ）。「v2 の形（P8 の書き直し）」に直した。
+  - 参照実装（`v_reference.py`）を P1 の新しい規則に合わせ、確認（`v_reference_check.out`、不一致 0、利用者のコードの呼び出し 0）と計測をやり直した。

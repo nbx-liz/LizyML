@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime as dt
 import decimal
 import sys
+import zoneinfo
 from pathlib import Path
 
 import numpy as np
@@ -48,6 +49,9 @@ EXPECT_INSIDE = {
     "tuple": (1, "a"),
     "frozenset": frozenset({1, 2}),
     "8 containers": nest,
+    "datetime cached ZoneInfo": dt.datetime(2024, 11, 3, 1, 30, fold=1, tzinfo=zoneinfo.ZoneInfo("America/New_York")),
+    "datetime.min +23h": dt.datetime.min.replace(tzinfo=dt.timezone(dt.timedelta(hours=23))),
+    "Timestamp no_cache ZoneInfo": pd.Timestamp("2024-01-01", tz=zoneinfo.ZoneInfo.no_cache("Asia/Tokyo")),
 }
 EXPECT_OUTSIDE = {
     "nested NaN": (1, float("nan")),
@@ -58,6 +62,7 @@ EXPECT_OUTSIDE = {
     "str subclass": type("S", (str,), {})("a"),
     "longdouble": np.longdouble(1),
     "caller tzinfo": dt.datetime(2024, 1, 1, tzinfo=CallerTz()),
+    "datetime no_cache ZoneInfo": dt.datetime(2024, 1, 1, tzinfo=zoneinfo.ZoneInfo.no_cache("Asia/Tokyo")),
 }
 
 bad = 0
