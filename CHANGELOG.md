@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **A loaded model keeps its tuning history** (H-0134, [#315](https://github.com/nbx-liz/LizyML/issues/315)). `Model.export` (and `lizyml.persistence.export`) writes the trials, rounds and boundary report to `tuning_history.json`, declared under `tuning.history` in `metadata.json` and listed in `checksums`, so `tuning_table()`, `tuning_plot()` and `boundary_table()` on the loaded model return what they returned before the export. The file is strict JSON (NaN and infinities tagged, parameter order kept) and is read only when declared; a malformed, missing, unlisted or tampered history raises `DESERIALIZATION_FAILED`. The tuning value codecs moved to `lizyml.core.tuning_codec` (re-exported by `lizyml.tuning.lineage_codec`).
+
 - **Models whose category columns hold JSON-unsafe values can be saved** (H-0133, [#357](https://github.com/nbx-liz/LizyML/issues/357)). `bytes`, `Decimal`, dates, datetimes, `Timestamp` (with a timezone too), timedeltas, `complex`, their numpy scalars, and tuples / frozensets of these now go through `Model.export` -> `Model.load` and `export_code` with the same predictions.
   - A column holding a value LightGBM cannot write reaches LightGBM with positions `0..k-1` as its categories (same codes); other columns, and the booster `get_native_model()` returns for them, are unchanged.
   - One closed value set (`lizyml.core.category_values`) decides what `Model.export`, `lizyml.persistence.export` and `export_code` accept; values outside it are refused before anything is written, and `fit` warns.
@@ -24,7 +26,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- **Saved artifacts are `format_version` 3** (H-0133). LizyML v0.19.0 and earlier refuse them (`DESERIALIZATION_FAILED`), because they would read a renamed category column as raw values and predict wrongly. v1 and v2 artifacts load and predict as before. `metadata.json` now records `declared_categories` for every column the input held as `category` dtype (tagged when needed) instead of leaving the whole record out when one value was not plain.
+- **Saved artifacts are `format_version` 4** (H-0134). LizyML v0.19.0 and earlier refuse them (`DESERIALIZATION_FAILED`), because they would ignore the tuning history and show an empty table.
+- **A tuned model loaded from an artifact without a history (`format_version` 1-3) raises `MODEL_NOT_FIT` from `tuning_table()`, `tuning_plot()` and `boundary_table()`** (H-0134), with `context["missing"] == "tuning_history"`, instead of returning an empty DataFrame or a figure with no traces. The tuned parameters still load and `fit()` uses them.
+
+- **Saved artifacts were raised to `format_version` 3** (H-0133). LizyML v0.19.0 and earlier refuse them (`DESERIALIZATION_FAILED`), because they would read a renamed category column as raw values and predict wrongly. v1 and v2 artifacts load and predict as before. `metadata.json` now records `declared_categories` for every column the input held as `category` dtype (tagged when needed) instead of leaving the whole record out when one value was not plain.
 
 - **No import breaks BLUEPRINT §2.1's layer rules any more** (H-0130, [#362](https://github.com/nbx-liz/LizyML/issues/362)). The layer test's exception list of seventeen imports is empty:
   - §2.1 gains a "same-layer references" table that the test reads (`estimators/` may import `features/` and `metrics/`, as the provider and the LightGBM feval bridge do), and declares `metrics/registry.py` and `training/results.py` as interfaces.

@@ -7,7 +7,37 @@ release from v0.5.0 onward.
 
 ## v0.20.0 (unreleased)
 
-### Saved artifacts are `format_version` 3 (H-0133)
+### Saved artifacts are `format_version` 4 and keep the tuning history (H-0134)
+
+A tuned model now keeps its trials, rounds and boundary report through
+`Model.export` -> `Model.load`
+([#315](https://github.com/nbx-liz/LizyML/issues/315)): `tuning_table()`,
+`tuning_plot()` and `boundary_table()` on the loaded model return what they
+returned before the export. The history is written to `tuning_history.json`
+(strict JSON, listed in `checksums`) and declared in `metadata.json` under
+`tuning.history`.
+
+- **Older LizyML cannot read v4 artifacts.** `Model.load` in v0.19.0 or earlier
+  raises `DESERIALIZATION_FAILED` for `format_version` 4, including for models
+  that were never tuned. An older version would ignore the history file and
+  show the trials as an empty table. Load v4 artifacts with v0.20.0 or later.
+- **Artifacts saved before v0.20.0 (`format_version` 1-3) have no history.** On
+  a tuned model loaded from one, the three methods now raise
+  `LizyMLError(MODEL_NOT_FIT)` with `context["missing"] == "tuning_history"`,
+  instead of returning an empty DataFrame (`(0, 0)`) or a figure with no
+  traces. The tuned parameters are restored as before and `fit()` uses them.
+  If the study's storage still exists, `restore_tuning(storage=...,
+  study_name=...)` rebuilds the history. Exporting such a model again keeps it
+  without a history.
+- **`tune(resume=True)` after `Model.load` still needs the study's storage.**
+  The saved history is a record for the reports; it is not a study to resume.
+- **Size**: about 0.5 KB per trial for a 10-dimension search space. Every trial
+  is kept.
+- **`lizyml.persistence.load`** returns, for a tuned model,
+  `metadata["tuning"]["history"]` as the decoded history (a `TuningHistory`),
+  or `None` when the artifact has none.
+
+### Category columns with JSON-unsafe values can be saved (H-0133)
 
 Category columns can now hold values that JSON cannot represent -- `bytes`,
 `Decimal`, dates, datetimes, `Timestamp`, timedeltas, `complex`, and tuples or
@@ -17,10 +47,10 @@ that possible, a column holding a value LightGBM cannot write is handed to
 LightGBM with its categories renamed to their positions `0..k-1`; the codes, and
 so the predictions, are unchanged.
 
-- **Older LizyML cannot read v3 artifacts.** `Model.load` in v0.19.0 or earlier
-  raises `DESERIALIZATION_FAILED` for `format_version` 3. This is deliberate: an
-  older version would read a renamed column as raw categories and predict
-  wrongly without an error. Load v3 artifacts with v0.20.0 or later.
+- **Older LizyML cannot read these artifacts.** H-0133 raised `format_version`
+  to 3 (and H-0134 to 4); `Model.load` in v0.19.0 or earlier refuses them with
+  `DESERIALIZATION_FAILED`. This is deliberate: an older version would read a
+  renamed column as raw categories and predict wrongly without an error.
 - **v1 and v2 artifacts load and predict as before.** Nothing needs migrating:
   a v2 artifact could not hold the values that need renaming (its export failed).
 - **Using the LightGBM booster directly.** For a renamed column only,

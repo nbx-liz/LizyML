@@ -15288,3 +15288,33 @@ H-0134 が足す条件は 2 つで、どちらも Change Gate の 6 つの目的
   - round 2 の前の loop の監視は、Claude の別の context で DELIVERABLE-FOCUSED だった。
   - runner の監視は、改訂の前の版を読んだため INCONCLUSIVE だった（H-0133 と同じ既知の不具合）。
 - 管理者は、開発状況の資料を更新したうえで実装に進むよう指示した（2026-10-19）。これを受け入れとする。
+
+### 実装の記録（2026-10-19）
+
+- **commit**:
+  - `80070c3`: 受け入れの記録。
+  - `2e7d4a6`: P1。符号化と大きさの検査を Layer 0 へ移した。振る舞いは変えていない。
+  - この記録の commit: P2〜P6、テスト、文書、計測。
+- **Proposal から実装で決めたこと**（どれも Proposal の範囲の中）:
+  - **`_tuning_history_available` の初期値は `True`**。P5 のとおり、`False` にするのは履歴なしの load だけで、`_commit_tuning` が `True` に戻す。`_tuning_result` が `None` のあいだは意味を持たない。
+    - `False` で初期化すると、`_tuning_result` を直接置くテスト（`test_restore_tuning.py::test_reporting_surfaces_match_live` の比べる側）で 3 つの面が `MODEL_NOT_FIT` を出した。
+    - 「tune が作った結果は常に履歴を持つ」という P5 の前提に合うのは `True` の方である。
+  - **`persistence.load` が宣言を復号した値に置き換える**。返す `metadata["tuning"]["history"]` は `TuningHistory` か `None` になる。H-0133 の `declared_categories` と同じ形で、`persistence.load` と `Model.load` が同じ値を返す。`docs/migration.md` に書いた。
+  - **`_get_tuning_state(method)` が面の名前を受け取る**。P6 の context の `method` に入れるため。
+  - **`checksums` がオブジェクトでない場合も `DESERIALIZATION_FAILED`**。実装の自己レビューで足した。基準 4 にテストを 2 つ足した（`checksums` が配列のとき、`algorithm` が別のとき）。
+  - **`tests/test_persistence/_artifact_versions.py` に `to_v3_shape`・`to_v1_shape` を足した**。`to_v2_shape` は先に v3 の形にする。v4 で足したもの（履歴のファイル、その digest、`tuning.history`）を除いてから版を書き換える。
+- **結果**:
+  - フルスイート（V、pandas 3.0.1）: 12836 passed、234 skipped、1 failed。失敗は `test_e2e/test_version.py`（editable install の metadata が古い。環境による既知の失敗で、CI が正）。
+  - 依存の下限（pandas 2.0.0 / numpy 1.24）で、H-0134 に関わるテスト: 875 passed、8 skipped。
+  - 陰性対照（`probes/negative_controls_h0134.py` → `.out`）: 9/9 が、それぞれ名指しした基準で捕まった。パッチなしの基準の実行は exit 0。
+  - mypy、ruff は通った。
+- **母集団**（`probes/firing/h0134_load_census.py` → `summarize.py` → `firing.out`。フルスイートで `Model.load` を全て記録した）:
+  - load は 301 回で、そのうち tune 済みのモデルは 93 回だった。
+  - 履歴あり: 68 回（全て format 4）。
+  - 履歴なし: 25 回。内訳は format 1 が 5、format 2 が 5、format 3 が 8、format 4 の `null` が 5、loader を差し替えたテストが 2。
+  - 履歴なしで load したのは 3 つのテストファイルだけで、どれも意図して作ったもの（`test_h0134_acceptance.py`、`test_smart_params_artifact.py` の v2 の形、`test_space_merge.py` の差し替え）。
+  - notebook は `Model.load` も `export` も呼ばない（`grep` で 0 本）ので、母集団に入らない。
+  - 計測器の最初の実行では、loader を差し替えたテスト 2 件で `metadata.json` を読めず、`error` が 2 件記録された。計測器を直して、版を "stubbed loader" と記録するようにしたうえで、フルスイートをやり直した（`error` は 0）。
+- **範囲の外で見つけたもの**（直していない。管理者の判断を待つ）:
+  - 同じディレクトリに export し直すと、前回の `analysis_context.pkl` が残る。そのファイルが `checksums` に載っていなくても、loader は検査せずに読む（H-0083 の「載っていないファイルは検査せずに読む」による）。
+  - tune していない成果物で `checksums` が配列のとき、`_verify_and_read_pkl` は `AttributeError` を出す。`DESERIALIZATION_FAILED` にならない。

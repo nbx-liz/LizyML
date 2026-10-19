@@ -162,7 +162,7 @@ model.export_code("path/to/codegen_dir")  # LizyML 非依存の学習・推論�
 - 必要に応じて、最終学習に使うパラメーターを明示指定できるようにする。
 - `tune()` は `TuningResult` を返す。`TuningResult` は `best_model_params` / `best_smart_params` / `best_training_params`（カテゴリ別最良パラメーター）、`best_score`（最良スコア）、`trials`（全 trial の `TrialResult` リスト）、`metric_name`、`direction` を持つ。`best_params` プロパティは3カテゴリの flat view を返す（H-0050）。
 - `tune()` は `progress_callback: TuneProgressCallback | None = None` を受け取り、各 trial 完了時に `TuneProgressInfo`（`current_trial / total_trials / elapsed_seconds / best_score / latest_score / latest_state`）をコールバックに渡す（H-0048）。コールバック内例外は catch して warning に変換し、tuning を中断させない。
-- `tuning_table()` は `TuningResult.trials` を `pd.DataFrame` に変換して返す（列: `trial`, メトリクス名, 探索パラメーター名）。`tune()` 未実行時は `MODEL_NOT_FIT`。
+- `tuning_table()` は `TuningResult.trials` を `pd.DataFrame` に変換して返す（列: `trial`, メトリクス名, 探索パラメーター名）。`tune()` 未実行時は `MODEL_NOT_FIT`。load したモデルは export 前と同じ表を返す。試行の履歴を持たない成果物（format 1〜3）から load したモデルでは、`tuning_table()`・`tuning_plot()`・`boundary_table()` は `MODEL_NOT_FIT`（context の `missing` が `"tuning_history"`）を出し、空の表や空の図は返さない（H-0134）。
 - 学習後は、以下の補助 API を提供する。
   - `model.importance(kind="split|gain|shap")`（特徴量重要度。全特徴量をキーに持つ `dict[str, float]` を返す。`shap` は optional dependency。`Model.importance(kind="shap")` の計算は §13.3）
   - `model.importance_plot(kind="split|gain|shap", top_n=20)`（特徴量重要度の可視化、Plotly）
@@ -201,7 +201,7 @@ pred_result = loaded_model.predict(X_new)
 ```
 
 - `load()` は内部の metrics を `fit_result.metrics` の deep copy として持ち、`fit_result` プロパティが返す `FitResult` と可変オブジェクトを共有しない（`fit()` / `fit_result` と同じ隔離、H-0086）。
-- tune 済みモデルの artifact では、`metadata.json` の `tuning` ブロックから trial の無い最小の `TuningResult` を復元し、load 後の再 `fit()` が tuned params を再現する。ブロックの無い artifact は tuning result 無しで読む（§15.1、H-0086）。
+- tune 済みモデルの artifact では、`metadata.json` の `tuning` ブロックと `tuning_history.json`（試行・round・境界の報告。H-0134）から `TuningResult` を復元し、load 後の再 `fit()` が tuned params を再現する。履歴を持たない成果物（format 1〜3）では 試行の無い `TuningResult` を復元し、履歴が無いことを覚えておく（上の 3 つの面がそれを言う）。ブロックの無い artifact は tuning result 無しで読む（§15.1、H-0086）。
 - 復元する `best_smart_params` の各値は、smart の探索次元と同じ値の規則（§11.3、`provider.smart_value_rules()`）で、その artifact の config のタスクについて検査する（H-0121 改訂 2、[#347](https://github.com/nbx-liz/LizyML/issues/347)）。外れる値（v0.18.0 で文字列の真偽の次元で tune した artifact の `"false"` など。booster は真で訓練されており、記録と中身が食い違う）があれば `DESERIALIZATION_FAILED` で拒否し、context に `name`・`value`・`reason`（`smart_value_invalid` / `smart_value_unsupported_task`）を入れ、メッセージで tune し直して export し直すことを案内する。`format_version` 1 と 2 の両方に当てる。`best_smart_params` が空、規則どおり、または tune の結果の無い artifact は今までどおり読み込み、予測する。`best_smart_params` が mapping でない記録、provider が宣言しない名前を持つ記録、`feature_weights` を持つ記録も `DESERIALIZATION_FAILED` で拒否する（LizyML はそうした記録を書かない）。tune の結果のブロックが object でないか、LizyML が書く六つのキーを欠く artifact も `DESERIALIZATION_FAILED`。
 - 保存した全ての booster（`fit_result.pkl` の fold のモデルと `refit_model.pkl` のモデル）について、LightGBM が booster の中に記録した目的関数（モデル文字列の `objective=` の行の最初の語。別名 `xentlambda` で学習しても `cross_entropy_lambda` と記録される）を読み、出力が確率でない目的関数（binary の `cross_entropy_lambda`）なら `DESERIALIZATION_FAILED` で拒否する（H-0125、[#307](https://github.com/nbx-liz/LizyML/issues/307)）。booster の `params` は読まない（復元した booster が `params` を保つかは LightGBM の版による。4.6.0 はモデル文字列からの復元で失い、4.7.0 は保つ。また学習の後に書き換えられ、記録とは別の値になりうる）。記録は学習に実際に使った目的関数なので、config・tune の結果・`fit(params=)` のどれで指定したかによらない。context に `path`・`booster`（`fold k` か `refit`）・`objective`。format_version 1 と 2 のどちらにも当て、format_version は変えない。v0.18.0 で `cross_entropy_lambda` の短い fit から作った artifact だけが対象で、他の artifact は今どおり読み込める。
 - `model.params["metric"]` に native 指標のパラメータ（`{"huber": {"delta": 9.0}}` など、§14 の Metric Bridge）を記録した古い artifact は、読み込みと `predict` ができる（学習ではパラメータが使われていなかった）。再 `fit` と `export_code` は `CONFIG_INVALID`（H-0125、[#313](https://github.com/nbx-liz/LizyML/issues/313)）。
@@ -585,7 +585,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `run_meta`
   - `lizyml_version / python_version / deps_versions / config_normalized / config_version / run_id / timestamp`
   - 型: `lizyml_version`（`str`）、`python_version`（`str`）、`deps_versions`（`dict[str, str]`）、`config_normalized`（`dict`）、`config_version`（`int`）、`run_id`（`str`、UUID 文字列）、`timestamp`（`str`、ISO 8601、UTC）。
-- `target_encoder`（H-0070 で v2 に追加。現行は format_version=3）
+- `target_encoder`（H-0070 で v2 に追加。現行は format_version=4）
   - `TargetEncoder(classes_: tuple[Any, ...], needs_encoding: bool, original_dtype: str)`
   - 数値 y / regression では `needs_encoding=False` の no-op
   - 非数値 classification y では `classes_` に **lexicographically** sorted な元ラベルを保持
@@ -1199,7 +1199,7 @@ LizyML Core は callback + 結果型でデータを提供し、Widget/Studio が
 ### 制約
 
 - `resume=False` は新しい study を作り、round を 1 から数える（前の study の round を積み増さない）。storage に同じ名前の study が既にあれば `CONFIG_INVALID`（§11.5.1）。
-- `resume=True` で、Model が study を持たず `storage` も無い → `LizyMLError(TUNING_FAILED)`（`Model.load` のあとも同じ。study の中身は artifact に保存しない）。
+- `resume=True` で、Model が study を持たず `storage` も無い → `LizyMLError(TUNING_FAILED)`（`Model.load` のあとも同じ。study の中身は artifact に保存しない。H-0134 が保存する試行の履歴は報告のための写しで、再開には使わない）。
 - `Tuner` は study の作成・読み込み・最適化と、`lizyml:` 属性の書き込みだけを行う。`resume` の意味、目的関数の同一性、系譜の中身は `Model.tune` 側が決める（§5 の責務分離）。
 - 公開の `Tuner.tune`（利用者の目的関数を受け取る。H-0124）は、`log` の次元に `step` があれば（`int` の `step` 1 も含めて）study を作る前に `CONFIG_INVALID` で拒否する。利用者が直接作った `FloatDim` / `IntDim` の `step` も、study を作る前に §11.1 の `step` と格子の検査（`parse_space` と同じ関数）を通す。直接作った数の次元はすべて（刻みの無い次元も）、study を作る前に §11.1 の大きさの規則を通す（H-0124 改訂 1。数の表記の文字列の `low` / `high` / `step` は刻みの有無によらず `bound_not_a_number` で拒否する — 数として読むのは config と `space=` の mapping だけ。無限大の境界は `bound_not_finite`。それ以外の数でない値と NaN は今までどおり Optuna に渡す）。`suggest_*` を呼ぶのは利用者の目的関数で LizyML は丸めを挟めず、`Tuner.tune` は系譜を書かないので過去の試行の round の次元も分からないため。結果は今までどおり試行が記録した生の値で、目的関数が評価した値そのもの。拒否は `Tuner.__init__` ではなく `Tuner.tune` に置く（`Model.tune` は同じ次元で `Tuner` を作り、`Tuner.run` だけを呼ぶ）。
 - 直接の `Tuner`（`lizyml.tuning.Tuner`）は母数の値を検査しない（H-0125）。task も provider も受け取らない汎用の探索器で、試行の値の意味は呼び出し側の目的関数が決めるため、どの次元が LightGBM の目的関数・指標かを知らない。値の検査は呼び出し側の目的関数の責務で、その中の `CONFIG_INVALID` は試行の失敗として記録される。目的関数と指標の値を study の前に検査するのは `Model.tune` の計画の段（§11.3）だけである。task を受け取る検査を `Tuner` に足すことは公開 API の追加なので行っていない。
@@ -1898,8 +1898,8 @@ estimators/
   - fit が適用した training overlay（`applied_training_params`。`tuning` ブロックはモデルの現在の tuning result で、どの fit も消費していないことがあるので別に記録する。H-0109）
 - `metadata.json` のキー（`persistence/exporter.py`）:
   - 常に書く: `format_version` / `lizyml_version` / `python_version` / `timestamp` / `run_id` / `config` / `metrics` / `feature_names` / `task` / `checksums`。
-  - `checksums` は `{"algorithm": "sha256", "files": {<ファイル名>: <16 進の digest>}}` で、`files` は `fit_result.pkl` / `refit_model.pkl` と、あれば `analysis_context.pkl` の SHA-256 を持つ。アルゴリズム名は `persistence/exporter.py` の `CHECKSUM_ALGORITHM`（H-0083）。
-  - tune 済みのモデルだけ: `tuning` ブロック（`best_model_params` / `best_smart_params` / `best_training_params` / `best_score` / `metric_name` / `direction`、成功した tuning round の `fixed_params`）。`load()` はこれを tuning result として復元し、load 後の再 `fit()` が tuned params を再現する（H-0086）。trial の履歴は保存しない。
+  - `checksums` は `{"algorithm": "sha256", "files": {<ファイル名>: <16 進の digest>}}` で、`files` は `fit_result.pkl` / `refit_model.pkl` と、あれば `analysis_context.pkl` と `tuning_history.json`（H-0134）の SHA-256 を持つ。アルゴリズム名は `persistence/exporter.py` の `CHECKSUM_ALGORITHM`（H-0083）。
+  - tune 済みのモデルだけ: `tuning` ブロック（`best_model_params` / `best_smart_params` / `best_training_params` / `best_score` / `metric_name` / `direction`、成功した tuning round の `fixed_params`）。`load()` はこれを tuning result として復元し、load 後の再 `fit()` が tuned params を再現する（H-0086）。`tuning.history` は `null` か、ちょうど `{"file": "tuning_history.json", "schema": "lizyml-tuning-history/v1"}` で、後者のとき試行・round・境界の報告を `tuning_history.json` に書く（H-0134。H-0086 の「trial の履歴は保存しない」を置き換えた）。履歴を持たないモデル（format 1〜3 から load したもの）を export すると `null` を書き、ファイルは書かない。宣言だけを正とし、ディレクトリにある宣言されていない `tuning_history.json` は読まない。宣言の形が違う、ファイルが無い・`checksums` に無い・digest が合わない、正準の形でない履歴は、どれも `DESERIALIZATION_FAILED`。符号化は `core/tuning_codec.py`（Layer 0）の `history_bytes` / `parse_history`。
   - fit が overlay を記録したモデルだけ: `applied_training_params`（上記、H-0109）。
   - fit が記録したモデルだけ: `applied_sample_weight`（`"balanced"` / `"none"`）と `declared_categories`（列名 → 型付きの値の配列。JSON が型のまま戻せない値を含む記録は書かない）。`load()` はどちらも検査し、規則に合わない値は `DESERIALIZATION_FAILED`、キーが無ければ「分からない」（`None`）として読み、再 export でもキーを書かない（H-0120 改訂 1・4）。
 
@@ -1907,8 +1907,8 @@ estimators/
 
 - `format_version` が読めない場合は明示的に拒否する（黙って壊れた復元をしない）。
 - 将来 migration を実装できる前提で serializer に拡張点を残す。
-- 現行 `FORMAT_VERSION = 3`（H-0133）。`{1, 2, 3}` を loader が受理し、v1 artifact には no-op `TargetEncoder` を in-memory で注入して contract を整合させる（INV-5、H-0070）。v1・v2 の pipeline 状態には `stand_in_columns` が無く、どの列も元の値のカテゴリのまま読み、今と同じに予測する。3 に上げたのは意味の変更のためである: 位置の番号に置き換えた列（§15.3）を持つ状態を古い LizyML が読むと、元の値のカテゴリとして扱い、エラー無しに予測を間違える（H-0133 の実測）。そのため古い LizyML は v3 を拒否しなければならない。
-- **フィールドの追加は後方互換の変更で、`format_version` を上げない。** フィールドの削除、型や意味の変更は破壊的変更で、`format_version` を上げる（H-0003）。`checksums`（H-0083）、`tuning`（H-0086）、`applied_training_params`（H-0109）、`applied_sample_weight` / `declared_categories`（H-0120）はいずれも追加で、版を上げずに入った（H-0133 が意味の変更で `FORMAT_VERSION = 3` に上げるまで v2）。旧 loader は知らないキーを無視する。
+- 現行 `FORMAT_VERSION = 4`（H-0134）。`{1, 2, 3, 4}` を loader が受理し、v1 artifact には no-op `TargetEncoder` を in-memory で注入して contract を整合させる（INV-5、H-0070）。v1・v2 の pipeline 状態には `stand_in_columns` が無く、どの列も元の値のカテゴリのまま読み、今と同じに予測する。3 に上げたのは意味の変更のためである: 位置の番号に置き換えた列（§15.3）を持つ状態を古い LizyML が読むと、元の値のカテゴリとして扱い、エラー無しに予測を間違える（H-0133 の実測）。そのため古い LizyML は v3 を拒否しなければならない。4 に上げたのは、`tuning_history.json` を知らない LizyML が v4 を読むと、そのファイルを無視して試行の履歴を空の表として見せるためである（#315 の欠陥。H-0134）。v1〜v3 は履歴を持たない成果物として読む。
+- **フィールドの追加は後方互換の変更で、`format_version` を上げない。** フィールドの削除、型や意味の変更は破壊的変更で、`format_version` を上げる（H-0003）。`checksums`（H-0083）、`tuning`（H-0086）、`applied_training_params`（H-0109）、`applied_sample_weight` / `declared_categories`（H-0120）はいずれも追加で、版を上げずに入った（H-0133 が意味の変更で版を 3 に上げるまで v2。H-0134 が `FORMAT_VERSION = 4` に上げた）。旧 loader は知らないキーを無視する。**例外（H-0134）**: 追加のフィールドでも、それが無いと、受理する古い loader が報告を黙って間違えるもの（`tuning.history` と `tuning_history.json`。古い loader は空の表を返す）は意味の変更として扱い、版を上げる。
 - `load()` は毎回 `metadata.json` を検査する。必須キー（`_REQUIRED_METADATA_KEYS` = `format_version` / `task` / `feature_names` / `config` / `run_id`）が欠けていれば `DESERIALIZATION_FAILED`。
 - **完全性の検査（H-0083）**: `load()` は各 `.pkl` のバイト列を 1 回だけ読み、`checksums` に記録された digest と照合してから、そのバイト列を `joblib.load(io.BytesIO(...))` で復元する（ファイルを再 open しないので、検査と復元の間の TOCTOU が無い）。`algorithm` が `sha256` でない、または digest が一致しないときは pickle を実行する前に `DESERIALIZATION_FAILED`（context: `file` / `expected` / `actual`、アルゴリズム違いでは `file` / `algorithm`）。`checksums` を持たない artifact（H-0083 以前）と、`files` に載っていないファイルは検査せずに読む。
 - **脅威モデル**: `metadata.json` 自体は署名しない。書き込み権限を持つ者は `checksums` を書き換えたり消したりできる。`checksums` が検出するのは破損と改竄であり、悪意ある作成者に対して pickle を安全にするものではない。artifact は信頼できる出どころからだけ読む。
@@ -1918,7 +1918,7 @@ estimators/
 
 ## 15.3 `export`（`Model Artifact`）
 
-- `Model Artifact` を 1 ディレクトリにまとめる。中身は `metadata.json`、`fit_result.pkl`（`FitResult`）、`refit_model.pkl`（`RefitResult`）と、任意の `analysis_context.pkl`（load 後の診断 API が使う `y_true` と `X_for_explain`。無ければ load 時に `None`、H-0026）。`.pkl` は joblib（圧縮）で書く（H-0003）。
+- `Model Artifact` を 1 ディレクトリにまとめる。中身は `metadata.json`、`fit_result.pkl`（`FitResult`）、`refit_model.pkl`（`RefitResult`）と、任意の `analysis_context.pkl`（load 後の診断 API が使う `y_true` と `X_for_explain`。無ければ load 時に `None`、H-0026）、tune 済みのモデルの `tuning_history.json`（strict JSON。H-0134）。`.pkl` は joblib（圧縮）で書く（H-0003）。
 - `.pkl` は pickle なので、読み込むと任意の Python を実行しうる。`Model.load()` は信頼できる出どころの artifact だけに使う（H-0003、上記の脅威モデル）。
 - `Model.load()` で復元し、推論と評価情報参照に加えて診断 API（残差/SHAP/分類・校正可視化）も利用可能にする。
 - **保存できるカテゴリ値（H-0127、#338、H-0133、#357）**:
