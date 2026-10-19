@@ -38,8 +38,18 @@ def main(paths: list[str]) -> int:
         c[f"fit columns[{r['role']}]"] += 1
         for t in r["types"]:
             types[t] += 1
+        deliberate = r["test"].startswith(DELIBERATE)
+        if "outside_v" not in r:
+            errors += 1
+            print("error: record without the V verdict", r.get("test"))
+            continue
+        if r["outside_v"]:
+            c["outside V deliberate" if deliberate else "outside V elsewhere"] += 1
+            for reason in r["outside_v"]:
+                c[f"outside V reason[{reason}]"] += 1
+        else:
+            c["inside V"] += 1
         if r["unwritable"]:
-            deliberate = r["test"].startswith(DELIBERATE)
             c["unwritable deliberate" if deliberate else "unwritable elsewhere"] += 1
             for t in r["unwritable"]:
                 unwritable_types[t] += 1

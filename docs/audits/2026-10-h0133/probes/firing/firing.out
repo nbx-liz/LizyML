@@ -1,5 +1,10 @@
 fit columns[kernel]: 398
 fit columns[pytest]: 1106
+inside V: 1484
+outside V deliberate: 20
+outside V reason[type _ArrayWithoutList]: 5
+outside V reason[type _Hostile]: 5
+outside V reason[type longdouble]: 10
 unwritable deliberate: 181
 category value types (column fits containing each):
   str: 1142
