@@ -12,8 +12,9 @@ categorical choice is admitted (``search_space._ALLOWED_CHOICE_TYPES``), and the
 decoder checks the tag against the JSON type with the same identity test.
 
 This module holds tagged scalars, search dims (and :func:`dim_signature`, the
-one comparison form of a dim) and boundary reports. It is pure (no Optuna
-import). Bad input raises :class:`LineageCodecError`.
+one comparison form of a dim), boundary reports, and the tuning history an
+artifact stores (:func:`history_bytes` / :func:`parse_history`, H-0134 P2). It
+is pure (no Optuna import). Bad input raises :class:`LineageCodecError`.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Iterable, Mapping
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 from lizyml.core.magnitude import finite_float, int_too_large, width_too_large
 from lizyml.core.types.search_dim import (
@@ -31,11 +32,22 @@ from lizyml.core.types.search_dim import (
     IntDim,
     SearchDim,
 )
-from lizyml.core.types.tuning_result import BoundaryDimStatus, BoundaryReport
+from lizyml.core.types.tuning_result import (
+    BoundaryDimStatus,
+    BoundaryReport,
+    RoundSummary,
+    TrialResult,
+)
 
 __all__ = [
     "DIM_CATEGORIES",
+    "HISTORY_FILE",
+    "HISTORY_SCHEMA",
+    "TRIAL_STATES",
     "LineageCodecError",
+    "TuningHistory",
+    "history_bytes",
+    "parse_history",
     "decode_dim",
     "decode_dims",
     "decode_report",
@@ -439,3 +451,255 @@ def decode_report(payload: Any) -> BoundaryReport:
         dims=tuple(_decode_status(d) for d in dims),
         expanded_names=tuple(_expect_str(n, "expanded name") for n in names),
     )
+
+
+# ---------------------------------------------------------------------------
+# Tuning history (H-0134)
+# ---------------------------------------------------------------------------
+
+HISTORY_FILE = "tuning_history.json"
+"""The artifact file that holds a tuned model's history (H-0134 P3)."""
+
+HISTORY_SCHEMA = "lizyml-tuning-history/v1"
+"""The schema the history file and its ``metadata.json`` declaration name."""
+
+TRIAL_STATES: frozenset[str] = frozenset(
+    {"complete", "pruned", "fail", "running", "waiting"}
+)
+"""``TrialResult.state``: Optuna's five ``TrialState`` names, lower-cased."""
+
+_HISTORY_KEYS = frozenset({"schema", "trials", "rounds", "boundary_report"})
+_TRIAL_KEYS = frozenset({"number", "params", "score", "state", "round"})
+_ROUND_KEYS = frozenset(
+    {
+        "round",
+        "n_trials",
+        "best_score_before",
+        "best_score_after",
+        "expanded_dims",
+        "space_snapshot",
+    }
+)
+_REPORT_KEYS = frozenset({"dims", "expanded_names"})
+_STATUS_KEYS = frozenset(
+    {
+        "name",
+        "best_value",
+        "low",
+        "high",
+        "position_pct",
+        "edge",
+        "expanded",
+        "new_low",
+        "new_high",
+        "clamped_to_bound",
+    }
+)
+
+
+class TuningHistory(NamedTuple):
+    """The part of a ``TuningResult`` that ``metadata.json`` does not hold."""
+
+    trials: list[TrialResult]
+    rounds: tuple[RoundSummary, ...]
+    boundary_report: BoundaryReport | None
+
+
+def _exact_keys(obj: dict[str, Any], keys: frozenset[str], what: str) -> None:
+    if set(obj) != keys:
+        raise LineageCodecError(
+            f"{what} must have exactly the keys {sorted(keys)}, got {sorted(obj)}"
+        )
+
+
+def _int_at_least(value: Any, minimum: int, what: str) -> int:
+    if type(value) is not int or value < minimum:
+        raise LineageCodecError(f"{what} must be an int >= {minimum}, got {value!r}")
+    return value
+
+
+def _encode_score(value: Any, what: str) -> list[Any]:
+    _check_number(value, what)
+    return encode_scalar(value)
+
+
+def _decode_score(payload: Any, what: str) -> int | float:
+    try:
+        return _decode_number(payload)
+    except LineageCodecError as exc:
+        raise LineageCodecError(f"{what}: {exc}") from exc
+
+
+def _encode_trial(trial: TrialResult) -> dict[str, Any]:
+    what = f"trial {trial.number!r}"
+    _int_at_least(trial.number, 0, f"{what} number")
+    _int_at_least(trial.round, 1, f"{what} round")
+    if trial.state not in TRIAL_STATES:
+        raise LineageCodecError(f"{what}: unknown state {trial.state!r}")
+    return {
+        "number": trial.number,
+        "params": [
+            [_expect_str(name, f"{what} param name"), encode_scalar(value)]
+            for name, value in trial.params.items()
+        ],
+        "score": _encode_score(trial.score, f"{what} score"),
+        "state": trial.state,
+        "round": trial.round,
+    }
+
+
+def _decode_trial(payload: Any) -> TrialResult:
+    obj = _expect_dict(payload, "trial")
+    _exact_keys(obj, _TRIAL_KEYS, "trial")
+    number = _int_at_least(obj["number"], 0, "trial number")
+    what = f"trial {number}"
+    state = obj["state"]
+    if type(state) is not str or state not in TRIAL_STATES:
+        raise LineageCodecError(f"{what}: unknown state {state!r}")
+    params: dict[str, Any] = {}
+    for pair in _expect_list(obj["params"], f"{what} params"):
+        if type(pair) is not list or len(pair) != 2:
+            raise LineageCodecError(f"{what}: a param must be a [name, value] pair")
+        name = _expect_str(pair[0], f"{what} param name")
+        if name in params:
+            raise LineageCodecError(f"{what}: param {name!r} appears twice")
+        params[name] = decode_scalar(pair[1])
+    return TrialResult(
+        number=number,
+        params=params,
+        score=_decode_score(obj["score"], f"{what} score"),
+        state=state,
+        round=_int_at_least(obj["round"], 1, f"{what} round"),
+    )
+
+
+def _encode_round(summary: RoundSummary) -> dict[str, Any]:
+    what = f"round {summary.round!r}"
+    _int_at_least(summary.round, 1, what)
+    _int_at_least(summary.n_trials, 1, f"{what} n_trials")
+    before = summary.best_score_before
+    return {
+        "round": summary.round,
+        "n_trials": summary.n_trials,
+        "best_score_before": (
+            encode_scalar(None)
+            if before is None
+            else _encode_score(before, f"{what} best_score_before")
+        ),
+        "best_score_after": _encode_score(
+            summary.best_score_after, f"{what} best_score_after"
+        ),
+        "expanded_dims": [
+            _expect_str(n, f"{what} expanded dim") for n in summary.expanded_dims
+        ],
+        "space_snapshot": encode_dims(summary.space_snapshot),
+    }
+
+
+def _decode_round(payload: Any) -> RoundSummary:
+    obj = _expect_dict(payload, "round")
+    _exact_keys(obj, _ROUND_KEYS, "round")
+    number = _int_at_least(obj["round"], 1, "round")
+    what = f"round {number}"
+    before_raw = obj["best_score_before"]
+    return RoundSummary(
+        round=number,
+        n_trials=_int_at_least(obj["n_trials"], 1, f"{what} n_trials"),
+        best_score_before=(
+            None
+            if decode_scalar(before_raw) is None
+            else _decode_score(before_raw, f"{what} best_score_before")
+        ),
+        best_score_after=_decode_score(
+            obj["best_score_after"], f"{what} best_score_after"
+        ),
+        expanded_dims=tuple(
+            _expect_str(n, f"{what} expanded dim")
+            for n in _expect_list(obj["expanded_dims"], f"{what} expanded_dims")
+        ),
+        space_snapshot=decode_dims(obj["space_snapshot"]),
+    )
+
+
+def _strict_report(payload: Any) -> BoundaryReport:
+    """``decode_report`` that also refuses unknown keys.
+
+    The study-lineage reader keeps ``decode_report`` as it was (H-0134 P1);
+    only the history reader is strict.
+    """
+    obj = _expect_dict(payload, "boundary report")
+    _exact_keys(obj, _REPORT_KEYS, "boundary report")
+    for status in _expect_list(obj["dims"], "report dims"):
+        status_obj = _expect_dict(status, "boundary status")
+        _exact_keys(status_obj, _STATUS_KEYS, "boundary status")
+    return decode_report(obj)
+
+
+def _encode_parts(history: TuningHistory) -> dict[str, Any]:
+    numbers = [t.number for t in history.trials]
+    if len(set(numbers)) != len(numbers):
+        raise LineageCodecError("trial numbers must be unique")
+    report = history.boundary_report
+    return {
+        "schema": HISTORY_SCHEMA,
+        "trials": [_encode_trial(t) for t in history.trials],
+        "rounds": [_encode_round(r) for r in history.rounds],
+        "boundary_report": None if report is None else encode_report(report),
+    }
+
+
+def history_bytes(history: TuningHistory) -> bytes:
+    """Encode *history* as the bytes of ``tuning_history.json``.
+
+    Strict JSON (no bare NaN: NaN and the infinities are tagged), keeping each
+    trial's parameter order. Raises ``LineageCodecError`` for a value outside
+    the tagged scalar set, an unknown trial state, a duplicate trial number or
+    a round number below 1.
+    """
+    payload = _encode_parts(history)
+    text = json.dumps(payload, allow_nan=False, separators=(",", ":"))
+    return text.encode("utf-8")
+
+
+def _no_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    obj: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in obj:
+            raise LineageCodecError(f"duplicate JSON key {key!r}")
+        obj[key] = value
+    return obj
+
+
+def _no_constant(name: str) -> Any:
+    raise LineageCodecError(f"bare {name} is not JSON")
+
+
+def parse_history(raw: bytes) -> TuningHistory:
+    """Decode the bytes of ``tuning_history.json``, in its canonical form only.
+
+    Refuses bytes that are not UTF-8 strict JSON, duplicate keys, an unknown
+    schema, an object whose keys differ from the written set, a value of the
+    wrong type, an unknown tag or trial state, a duplicate parameter name or
+    trial number, and any payload that does not re-encode to itself.
+    """
+    try:
+        payload = json.loads(
+            raw.decode("utf-8"),
+            object_pairs_hook=_no_duplicate_keys,
+            parse_constant=_no_constant,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise LineageCodecError(f"tuning history is not JSON: {exc}") from exc
+    obj = _expect_dict(payload, "tuning history")
+    _exact_keys(obj, _HISTORY_KEYS, "tuning history")
+    if obj["schema"] != HISTORY_SCHEMA:
+        raise LineageCodecError(f"unknown tuning history schema {obj['schema']!r}")
+    report_raw = obj["boundary_report"]
+    history = TuningHistory(
+        trials=[_decode_trial(t) for t in _expect_list(obj["trials"], "trials")],
+        rounds=tuple(_decode_round(r) for r in _expect_list(obj["rounds"], "rounds")),
+        boundary_report=None if report_raw is None else _strict_report(report_raw),
+    )
+    if _encode_parts(history) != obj:
+        raise LineageCodecError("tuning history is not in the form the writer writes")
+    return history

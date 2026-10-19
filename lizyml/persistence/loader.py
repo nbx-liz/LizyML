@@ -22,6 +22,13 @@ import joblib
 
 from lizyml.core.category_values import decode as decode_category_value
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.tuning_codec import (
+    HISTORY_FILE,
+    HISTORY_SCHEMA,
+    LineageCodecError,
+    TuningHistory,
+    parse_history,
+)
 from lizyml.core.types.fit_result import FitResult
 from lizyml.core.types.target_encoder import TargetEncoder
 from lizyml.persistence.exporter import CHECKSUM_ALGORITHM, FORMAT_VERSION
@@ -33,7 +40,79 @@ _REQUIRED_METADATA_KEYS = frozenset(
 # Format versions this loader can read. Older versions are upgraded in-memory
 # via _migrate_fit_result so behavior remains equivalent to a fresh fit on
 # the current library (numeric targets).
-_SUPPORTED_FORMAT_VERSIONS = frozenset({1, 2, 3})
+_SUPPORTED_FORMAT_VERSIONS = frozenset({1, 2, 3, 4})
+
+#: The one ``tuning.history`` declaration a format-4 artifact may carry besides
+#: ``null`` (H-0134 P4): any other shape is refused, never read as "no history".
+_HISTORY_DECLARATION = {"file": HISTORY_FILE, "schema": HISTORY_SCHEMA}
+
+
+def _refuse_history(path: str | Path, message: str, **context: Any) -> LizyMLError:
+    return LizyMLError(
+        code=ErrorCode.DESERIALIZATION_FAILED,
+        user_message=f"Stored tuning history: {message}",
+        context={"path": str(path), "file": HISTORY_FILE, **context},
+    )
+
+
+def _declared_tuning_history(
+    src: Path, metadata: dict[str, Any], path: str | Path
+) -> TuningHistory | None:
+    """The tuning history the artifact declares, verified and decoded (H-0134).
+
+    Format 1-3 never carry one (``None``). In format 4 a tuned model's
+    ``tuning.history`` is required and is either ``null`` (the model had no
+    history to write) or exactly :data:`_HISTORY_DECLARATION`; only then is
+    ``tuning_history.json`` read -- once, checked against the SHA-256 in
+    ``checksums`` before it is parsed -- so an undeclared file in the directory
+    (left by an earlier export) is never read.
+
+    Raises:
+        LizyMLError: ``DESERIALIZATION_FAILED`` for a missing or malformed
+            declaration, a declared file that is absent, unlisted or does not
+            match its checksum, or a history the strict codec refuses.
+    """
+    tuning = metadata["tuning"]
+    if metadata["format_version"] < 4:
+        return None
+    if "history" not in tuning:
+        raise _refuse_history(path, "a format-4 tuning block must declare 'history'.")
+    declaration = tuning["history"]
+    if declaration is None:
+        return None
+    if type(declaration) is not dict or declaration != _HISTORY_DECLARATION:
+        raise _refuse_history(
+            path,
+            f"the declaration must be null or {_HISTORY_DECLARATION}, "
+            f"got {declaration!r}.",
+        )
+    checksums = metadata.get("checksums")
+    files = checksums.get("files") if isinstance(checksums, dict) else None
+    expected = files.get(HISTORY_FILE) if isinstance(files, dict) else None
+    if (
+        not isinstance(checksums, dict)
+        or checksums.get("algorithm") != CHECKSUM_ALGORITHM
+    ):
+        raise _refuse_history(path, f"checksums must use {CHECKSUM_ALGORITHM!r}.")
+    if type(expected) is not str:
+        raise _refuse_history(path, f"'{HISTORY_FILE}' is not listed in checksums.")
+    history_path = src / HISTORY_FILE
+    if not history_path.is_file():
+        raise _refuse_history(path, f"the declared '{HISTORY_FILE}' is missing.")
+    raw = history_path.read_bytes()
+    actual = hashlib.sha256(raw).hexdigest()
+    if actual != expected:
+        raise _refuse_history(
+            path,
+            "the file does not match the SHA-256 recorded in metadata.json; the "
+            "artifact may be corrupted or tampered with.",
+            expected=expected,
+            actual=actual,
+        )
+    try:
+        return parse_history(raw)
+    except LineageCodecError as exc:
+        raise _refuse_history(path, f"malformed: {exc}") from exc
 
 
 def _decoded_declared_categories(record: Any, path: str | Path) -> Any:
@@ -155,6 +234,9 @@ def load(path: str | Path) -> tuple[Any, Any, dict[str, Any], Any]:
     Returns:
         ``(fit_result, refit_result, metadata, analysis_context)`` tuple.
         ``analysis_context`` is ``None`` for legacy artifacts that lack it.
+        For a tuned model, ``metadata["tuning"]["history"]`` is the decoded
+        :class:`~lizyml.core.tuning_codec.TuningHistory`, or ``None`` when the
+        artifact carries no history (format 1-3, or written without one).
 
     Raises:
         LizyMLError with DESERIALIZATION_FAILED on any validation or I/O error.
@@ -221,6 +303,11 @@ def load(path: str | Path) -> tuple[Any, Any, dict[str, Any], Any]:
         metadata["declared_categories"] = _decoded_declared_categories(
             metadata["declared_categories"], path
         )
+
+    # H-0134: replace the declaration with the decoded history (None when the
+    # artifact carries none), once, so persistence.load and Model.load agree.
+    if isinstance(metadata.get("tuning"), dict):
+        metadata["tuning"]["history"] = _declared_tuning_history(src, metadata, path)
 
     # --- Load pickled artifacts ----------------------------------------------
     for pkl_path in (fit_pkl, refit_pkl):

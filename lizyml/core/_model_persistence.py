@@ -376,6 +376,7 @@ class ModelPersistenceMixin:
             task=state.cfg.task,
             analysis_context=ctx,
             tuning=state.tuning_result,
+            tuning_history_available=state.tuning_history_available,
             tuning_fixed_params=state.tuning_fixed_params,
             applied_training_params=state.applied_training_params,
             applied_sample_weight=state.applied_sample_weight,
@@ -624,15 +625,23 @@ class ModelPersistenceMixin:
                 instance._cfg.task,
                 path,
             )
+            # H-0134 P4: persistence.load has verified and decoded the declared
+            # history (a TuningHistory), or set None when the artifact carries
+            # none (format 1-3, or "history": null). None stays "unavailable",
+            # never an empty history.
+            history = tuning_meta.get("history")
             instance._tuning_result = TuningResult(
                 best_model_params=tuning_meta["best_model_params"],
                 best_smart_params=tuning_meta["best_smart_params"],
                 best_training_params=tuning_meta["best_training_params"],
                 best_score=tuning_meta["best_score"],
-                trials=[],
+                trials=[] if history is None else history.trials,
                 metric_name=tuning_meta["metric_name"],
                 direction=tuning_meta["direction"],
+                rounds=() if history is None else history.rounds,
+                boundary_report=None if history is None else history.boundary_report,
             )
+            instance._tuning_history_available = history is not None
         # The overlay the fit that produced this artifact applied (H-0109).
         # Absent from artifacts written before the record existed: unknown,
         # which is not the same as "applied none", and must stay unknown so a

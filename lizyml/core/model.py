@@ -155,6 +155,12 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         self._refit_result: RefitResult | None = None
         self._metrics: dict[str, Any] | None = None
         self._tuning_result: TuningResult | None = None
+        # Whether `_tuning_result` holds its trials, rounds and boundary report
+        # (H-0134 P5). A result tune / restore_tuning builds always does, so
+        # only Model.load sets False (an artifact without the history);
+        # _commit_tuning sets it back to True. Meaningless while
+        # `_tuning_result` is None.
+        self._tuning_history_available: bool = True
         # The training overlay the last fit() actually applied. Distinct from
         # `_tuning_result`, which tune() replaces without replacing the fitted
         # adapters -- so reporting surfaces that read it answered for a model
@@ -964,6 +970,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             fit_result=fit_result,
             refit_result=self._refit_result,
             tuning_result=self._tuning_result,
+            tuning_history_available=self._tuning_history_available,
             tuning_fixed_params=deepcopy(self._tuning_fixed_params),
             applied_training_params=(
                 None

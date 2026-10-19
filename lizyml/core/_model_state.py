@@ -93,6 +93,10 @@ class FitState:
     # The features the last fit's input frame held as `category`, with their
     # categories (H-0120 amendment 4); None means unknown.
     declared_categories: dict[str, list[Any]] | None = None
+    # Whether `tuning_result` holds its trial history (H-0134 P5); `export`
+    # writes "history": null when it does not, so a re-export of a model
+    # loaded without the history never invents an empty one.
+    tuning_history_available: bool = True
 
 
 @dataclass(frozen=True)

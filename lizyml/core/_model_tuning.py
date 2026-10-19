@@ -151,6 +151,7 @@ class ModelTuningMixin:
         _cfg: LizyMLConfig
         _run_dir: Path | None
         _tuning_result: TuningResult | None
+        _tuning_history_available: bool
         _y: pd.Series | None
         _X: pd.DataFrame | None
         _provider: EstimatorProvider | None
@@ -665,6 +666,8 @@ class ModelTuningMixin:
         """
         self._X, self._y = X, y
         self._tuning_result = result
+        # A result tune / restore_tuning built holds its whole history (H-0134 P5).
+        self._tuning_history_available = True
         self._study = study
         self._round_number = round_number
         self._rounds = list(result.rounds)
@@ -840,7 +843,7 @@ class ModelTuningMixin:
             context=context,
         )
 
-    def _get_tuning_state(self) -> TuningState:
+    def _get_tuning_state(self, method: str) -> TuningState:
         """Return a frozen snapshot of post-tune state for tuning Mixin methods.
 
         Used by ``tuning_plot`` / ``tuning_table`` / ``boundary_table`` which
@@ -848,14 +851,37 @@ class ModelTuningMixin:
         Kept distinct from ``_get_fit_state`` to preserve the latter's
         "fit-required" invariant (H-0077).
 
+        Args:
+            method: The reporting surface asking, named in the error context.
+
         Raises:
             :class:`~lizyml.core.exceptions.LizyMLError` with
-            ``MODEL_NOT_FIT`` when ``tune()`` has not been called.
+            ``MODEL_NOT_FIT`` when ``tune()`` has not been called, or when the
+            model was loaded from an artifact that does not carry the trial
+            history (H-0134 P6): the overlay is there, the history is not, and
+            an empty table would read as a study that ran no trials.
         """
         if self._tuning_result is None:
             raise LizyMLError(
                 code=ErrorCode.MODEL_NOT_FIT,
                 user_message="tune() has not been called yet.",
-                context={"method": "_get_tuning_state", "task": self._cfg.task},
+                context={"method": method, "task": self._cfg.task},
+            )
+        if not self._tuning_history_available:
+            raise LizyMLError(
+                code=ErrorCode.MODEL_NOT_FIT,
+                user_message=(
+                    f"{method}() cannot answer: this model was loaded from an "
+                    "artifact that does not carry the tuning trial history (it was "
+                    "saved before format_version 4, or exported from a model loaded "
+                    "from such an artifact). The tuned parameters are restored and "
+                    "fit() uses them. If the study's storage still exists, "
+                    "restore_tuning(storage=..., study_name=...) rebuilds the history."
+                ),
+                context={
+                    "method": method,
+                    "missing": "tuning_history",
+                    "loaded_from_artifact": True,
+                },
             )
         return TuningState(cfg=self._cfg, tuning_result=self._tuning_result)
