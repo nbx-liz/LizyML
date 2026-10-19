@@ -370,6 +370,10 @@ def test_encoding_a_refused_value_raises_serialization_failed() -> None:
         {"$lizyml": "complex", "real": float("nan"), "imag": 0.0},
         {"$lizyml": "datetime64", "unit": "s", "count": 1, "value": -(2**63)},
         {"$lizyml": "tuple", "items": [1, float("nan")]},
+        # Decodable but not canonical (implementation review round 2).
+        {"$lizyml": "timedelta", "days": 0, "seconds": 86400, "microseconds": 0},
+        {"$lizyml": "frozenset", "items": [1, 1]},
+        {"$lizyml": "frozenset", "items": [2, 1]},
     ],
 )
 def test_a_malformed_tag_is_refused(obj: Any) -> None:

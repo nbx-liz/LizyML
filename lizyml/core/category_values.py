@@ -431,6 +431,11 @@ def decode(obj: Any) -> Any:
         reason = refusal(value)
         if reason is not None:
             raise _Malformed(f"it decodes to {reason}, which encode never writes")
+        # Only the canonical form encode writes is read: a timedelta of 0 days
+        # and 86400 seconds, or a frozenset with a repeated item, decodes but
+        # is not what encode writes for its value.
+        if _encode(value) != obj:
+            raise _Malformed("it is not the form encode writes for its value")
         return value
     except (
         _Malformed,

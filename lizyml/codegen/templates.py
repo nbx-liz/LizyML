@@ -205,11 +205,13 @@ def _decode_raw(obj, depth=0):
 def _decode_value(obj):
     """The value _encode_value (or LizyML's export) wrote as *obj*.
 
-    A shape the encoder never writes (a NaN, NaT, a deeper nesting) is
-    refused: the decoded value is written again, which checks it.
+    A shape the encoder never writes (a NaN, NaT, a deeper nesting, a
+    non-canonical form) is refused: the decoded value is written again, which
+    checks it, and must give back *obj* itself.
     """
     value = _decode_raw(obj)
-    _encode_value(value)
+    if _encode_value(value) != obj:
+        raise ValueError("it is not the form the encoder writes for its value")
     return value
 
 '''

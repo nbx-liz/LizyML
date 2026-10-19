@@ -87,6 +87,9 @@ def test_the_copy_reads_what_the_library_reads(name: str, value: Any) -> None:
         {"$lizyml": "complex", "real": float("nan"), "imag": 0.0},
         {"$lizyml": "datetime64", "unit": "s", "count": 1, "value": -(2**63)},
         {"$lizyml": "tuple", "items": [1, float("nan")]},
+        {"$lizyml": "timedelta", "days": 0, "seconds": 86400, "microseconds": 0},
+        {"$lizyml": "frozenset", "items": [1, 1]},
+        {"$lizyml": "frozenset", "items": [2, 1]},
     ],
 )
 def test_a_malformed_object_fails_in_both(obj: Any) -> None:

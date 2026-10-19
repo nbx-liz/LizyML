@@ -15010,3 +15010,6 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
     - そのため、これらのケースは、その pandas の版では存在しない。テストは、fit の前に pandas が列を作れるかを確かめ、作れなければ理由をつけて skip する。fit の中の例外は skip しない。LizyML 自身の失敗を隠さないためである。
     - pytz の import の `type: ignore` は、Python 3.10 の lane で「使われていない」と判定された。`unused-ignore` も付けた。
   - 陰性対照は 8/8 のまま捕まり、基準の実行は exit 0。
+- **実装レビュー round 2**（`aed6779`）は APPROVE だった。round 1 の 7 件は全て解決と確認された（pandas 2.0.0 / numpy 1.24 と pandas 3.0 の両方で）。
+  - minor 1 件: 復号が、符号化の書かない形（`timedelta` を 0 日と 86400 秒で書いた形、`frozenset` の要素の重なりや順序の違い）を受け付けていた。
+  - 対処: LizyML の復号と生成コードの写しの両方で、復号した値を符号化し直した形が入力と一致しないものを拒否するようにした。
