@@ -14712,8 +14712,12 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
 
 ## H-0133: JSON にできないカテゴリ値を保存できるようにする ― 保存できない列だけ LightGBM に位置の番号を渡し、値の集合を Model.export と export_code でそろえる（#357）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-19
+- **決定日**: 2026-10-19
+  - Codex の設計の批評（run `h0133-design-critique`）の後、管理者が 4 つの分岐を決めた（registry のカード D-20261019-006）。
+  - Codex の Proposal review は、3 round の run（`h0133-proposal-review`、全て CHANGES_REQUESTED）と、確認の run 2 つ（`h0133-proposal-confirm` が CHANGES_REQUESTED、`h0133-proposal-confirm2` が APPROVE、`a42beb4`）だった。停止ルールに当たった 3 回は、そのたびに管理者が進め方を決めた（下の「改訂の記録」）。
+  - 管理者が受け入れを宣言した（「OKです。進めてください。」）。
 - **スコープ**:
   - `lizyml/core/category_values.py`（新規、Layer 0）: 保存できるカテゴリ値の閉じた集合 V の判定と、型の印をつけた JSON の符号化・復号。
   - `lizyml/features/encoders/categorical_encoder.py`、`lizyml/features/pipelines_native.py`: 保存できない列を fit の時点で決めて状態に記録し、transform でその列のカテゴリを位置の番号に置き換える。
@@ -14807,7 +14811,8 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
   - 復号した値は、学習したカテゴリの代表の値と等しく、hash も等しく、型も同じである。ただし、次の 3 つは Python の型で戻る。どれも元の値と等しく、hash も等しい:
     - numpy の素の値は Python の値で戻る。
     - `np.bytes_` は `bytes` で戻る。
-    - `np.complex64` と `np.complex128` は `complex` で戻る（印の形は 3 つの型で同じ）。予測時に利用者が渡す新しい値と照合できることは、メモリの中のモデルと同じ規則で決まる（照合は今と同じく、学習したカテゴリとの `set` の照合である）。受け入れ基準 4 で、この等しさを V の全体について確かめる。
+    - `np.complex64` と `np.complex128` は `complex` で戻る（印の形は 3 つの型で同じ）。
+  - 予測時に利用者が渡す新しい値と照合できることは、メモリの中のモデルと同じ規則で決まる（照合は今と同じく、学習したカテゴリとの `set` の照合である）。受け入れ基準 4 で、この等しさを V の全体について確かめる。
 - **P3. 置き換える列は fit の時点で決める**（`CategoricalEncoder`）:
   - encoder は構築時に、省略できる判定 `needs_stand_in(value) -> bool` を受け取る。fit は列のカテゴリを学習した後、判定が真になる値を 1 つでも持つ列を「置き換える列」として状態に記録する（`stand_in_columns`）。transform はこの記録だけを読む。そのため、CV の fold の状態を transform より前に保存しても（`cv_trainer.py:112-120`）、状態は正しい形を持つ（Codex の critical 1）。
   - transform では、元の値での照合（未知の値の検出、`unseen_policy` の置換、`comparable_values`、欠損）を今と同じに行い、`set_categories(known)` の後で、置き換える列だけ `rename_categories(range(k))` する。符号は変わらないので、予測も変わらない（実測）。
