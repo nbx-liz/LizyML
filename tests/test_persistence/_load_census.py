@@ -179,17 +179,12 @@ INVENTORY: dict[str, tuple[str, ...] | str] = {
     "tuning_table": ("tuning_table",),
 }
 
-#: #315: the only cells allowed to differ. H-0086 persists the tuning result's
-#: ``best_*`` overlay and not its trials, rounds or boundary report.
-DECLARED: frozenset[tuple[str, str, str]] = frozenset(
-    {
-        (config, lifecycle, surface)
-        for config in CONFIGURATIONS
-        for lifecycle in TUNED_LIFECYCLES
-        for surface in ("tuning_table", "tuning_plot")
-    }
-    | {(config, "tune_resume_fit", "boundary_table") for config in CONFIGURATIONS}
-)
+#: The cells allowed to differ: none. Until H-0134 these were the 36 #315
+#: cells (``tuning_table`` / ``tuning_plot`` over the 4 configurations x 4
+#: tuned lifecycles, and ``boundary_table`` after ``tune_resume_fit``), because
+#: H-0086 persisted the ``best_*`` overlay and not the trials, rounds or
+#: boundary report. H-0134 persists those, so every cell must agree.
+DECLARED: frozenset[tuple[str, str, str]] = frozenset()
 
 
 def build(config: str) -> tuple[Model, pd.DataFrame]:

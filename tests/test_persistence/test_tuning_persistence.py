@@ -45,8 +45,13 @@ def test_tuning_block_written_to_metadata(tmp_path) -> None:
         "direction",
     }
     # The block is additive (H-0086): it is written at the current version,
-    # which H-0133 raised to 3 for an unrelated reason.
-    assert metadata["format_version"] == FORMAT_VERSION == 3
+    # which H-0134 raised to 4 for the history it now declares.
+    assert metadata["format_version"] == FORMAT_VERSION == 4
+    assert tuning["history"] == {
+        "file": "tuning_history.json",
+        "schema": "lizyml-tuning-history/v1",
+    }
+    assert "tuning_history.json" in metadata["checksums"]["files"]
 
 
 def test_load_restores_tuning_result(tmp_path) -> None:

@@ -1,0 +1,12 @@
+loads: 301; of tuned models: 93
+  format_version=1 history=no: 5
+  format_version=2 history=no: 5
+  format_version=3 history=no: 8
+  format_version=4 history=no: 5
+  format_version=4 history=yes: 68
+  format_version=stubbed loader history=no: 2
+files loading a tuned model without history: 3
+  tests/test_persistence/test_h0134_acceptance.py
+  tests/test_persistence/test_smart_params_artifact.py
+  tests/test_tuning/test_space_merge.py
+error records: 0
