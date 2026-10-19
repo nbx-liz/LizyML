@@ -15342,13 +15342,25 @@ Codex の run `h0134-impl-review` の round 1（`6207df6`）は CHANGES_REQUESTE
   - round 2 の前の絶対の監視は、runner も Claude も DELIVERABLE-FOCUSED で、round 2 は round 1 の直しの差分に絞った。
 - **CI**: H-0133 の受け入れテストの `Timestamp` の 2 件が、"Categorical categories must be unique" で不安定に落ちた。
   - 落ちた lane: `6207df6` では Quality (3.10)、`a2303a3` では lowest-direct。
-  - 手元（aarch64）では、pandas 2.0・2.3・3.0 のどれでも再現しなかった。
+  - 手元（aarch64）でも、直す前のテストは同じ環境の中で実行ごとに結果が変わった（round 3 の確認で実測。改訂の前の記録は「再現しなかった」と書いていて、偽だった）:
+    - pandas 2.3.3 では、種を固定しない実行の約 4/13 が失敗し、残りは 2 件が skip になった。
+    - pandas 2.0.0 では 4/7 が失敗し、残りは skip になった。
+    - skip の経路: `_pandas_cannot_build` が、pandas 自身の `astype("category")` で同じ `ValueError` を受け取り、`pytest.skip` していた（黙った skip。DC1 の形）。
+    - したがって、直す前のこの 2 件は、pytz のある pandas 2 で一度も通っていなかった。
+    - pandas 3 には pytz が無いので、問題の組が作られない。
 - **原因**: H-0133 のケースを作る `_derived_cases` は、型ごとの見本を `dict.fromkeys` で重複を除いて 1 列にする。
   - zoneinfo の New York の `fold=1`（-05:00）と、同じ時刻の pytz の値は、`==` では等しい。しかし hash が違う（PEP 495 は繰り返しの時刻を `fold=0` として hash する）ので、両方が残っていた。
   - pandas は hash で重複を除くので、fit は 2 つを別のカテゴリとして覚える。
-  - 保存すると、pytz の値は固定の時差で書かれる。load の後、pandas が 2 つを重複とみなすかどうかは環境によって変わる。
+  - 保存すると、pytz の値は固定の時差で書かれる。load の後、pandas が 2 つを重複とみなすかどうかは、同じ環境の中でも実行ごとに変わる（`PYTHONHASHSEED` を固定すると 8/8 が skip だった。何に依存するかは突き止めていない）。
   - H-0134 の変更による失敗ではない。
 - **管理者の判断**（2026-10-19）: テストを直し、ライブラリの不具合は issue にする。
   - テストの直し: 各ケースから「等しいのに hash が違う値」を除いた。どのケースにもそのような組が無いことを確かめるテストを足した。除いた pytz の値は、自分のケース `Timestamp pytz fold` に残る。
   - 結果: pandas 3・3.10（pandas 2.3.3）・下限（pandas 2.0.0）のどれでも通った。H-0133 の陰性対照は 8/8 が捕まり、基準も通った。
   - ライブラリの不具合: #372（DC1。export は通るのに、load の後の predict が失敗しうる）。
+- **R3: 別の context での確認**（`9f328b4`、テストの直しだけ）は NOT OK だった。テストの直しそのものは健全で、H-0133 の守りは保たれていた（除いたのは pytz の値 1 つで、自分のケースに残る。陰性対照でも確かめた）。直した後は、種を固定しない実行が 6/6 で通った。
+  - major: 上の「手元では再現しなかった」「環境によって変わる」は偽だった。前の直しの記録の欠陥なので、停止ルールに従って管理者に報告した。管理者は「記録を直して、絞った確認を 1 回」を選んだ。上の 2 か所を実測のとおりに直し、#372 の本文も直した。
+  - minor（直していない）:
+    - pandas 3 には pytz が無いので、足した不変条件のテストが落ちうるのは pytz のある lane（Quality 3.10、lowest-direct）だけである。
+    - numpy 1.x では、比較が `DeprecationWarning` を大量に出す（`filterwarnings = error` にすると失敗する）。
+  - R3 の前に比較の監視を走らせた。判定は CONVERGING で、`lizyml/` は R2 の APPROVE の後に変わっていない。
+  - CI は `9f328b4` で 25/25 通った。
