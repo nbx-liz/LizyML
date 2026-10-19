@@ -1,0 +1,21 @@
+fit columns[kernel]: 398
+fit columns[pytest]: 1106
+unwritable deliberate: 181
+category value types (column fits containing each):
+  str: 1142
+  int: 127
+  tuple: 87
+  bytes: 41
+  float: 36
+  Timestamp: 35
+  Decimal: 15
+  Timedelta: 10
+  bool: 10
+  complex: 10
+  date: 10
+  frozenset: 10
+  _ArrayWithoutList: 5
+  _Hostile: 5
+unwritable types: {'bytes': 41, 'tuple': 40, 'Timestamp': 35, 'Decimal': 15, 'Timedelta': 10, 'complex': 10, 'date': 10, 'frozenset': 10, '_ArrayWithoutList': 5, '_Hostile': 5}
+tests outside the deliberate files with an unwritable column:
+exit=0
