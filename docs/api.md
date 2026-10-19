@@ -440,8 +440,8 @@ artifact).
 | `residuals()` | regression | OOF residuals `(y_true - oof_pred)`, shape `(n_samples,)`. |
 | `split_summary()` | all | Per-fold split sizes as a DataFrame. |
 | `params_table()` | all | Resolved model parameters as a single-column DataFrame. |
-| `tuning_table()` | all | All tuning trial results with `round` and `state` columns; requires `tune()` first. |
-| `boundary_table()` | all | Boundary detection results per dimension; requires `tune(resume=True, expand_boundary=True)` (H-0068). |
+| `tuning_table()` | all | All tuning trial results with `round` and `state` columns; requires `tune()` first. After `Model.load`, the same table as before export; raises `MODEL_NOT_FIT` (`context["missing"] == "tuning_history"`) for an artifact saved before `format_version` 4 (H-0134). |
+| `boundary_table()` | all | Boundary detection results per dimension; requires `tune(resume=True, expand_boundary=True)` (H-0068). Survives `Model.load` like `tuning_table()` (H-0134). |
 | `residuals_plot()` | regression | Plotly residual diagnostic plots. |
 | `roc_curve_plot()` | binary/multiclass | OOF ROC curve. |
 | `calibration_plot()` | binary | Calibration reliability diagram. |
@@ -449,7 +449,7 @@ artifact).
 | `importance_plot()` | all | Top-N feature importance bar chart. |
 | `plot_learning_curve()` | all | Training/validation loss curves per fold, from `FitResult.history`: LightGBM's metric names and definitions. A subplot whose metric is defined differently from `FitResult.metrics` under the same name carries LightGBM's definition in its title: `huber` (`valid_0/huber (LightGBM: threshold = alpha)`) and `mape` (`valid_0/mape (LightGBM: \|y-p\| / max(1,\|y\|))`). `metrics=` filters by the bare name (H-0125). |
 | `plot_oof_distribution()` | all | OOF prediction distribution. |
-| `tuning_plot()` | all | Optuna optimization history. |
+| `tuning_plot()` | all | Optuna optimization history. Survives `Model.load` like `tuning_table()` (H-0134). |
 
 ---
 

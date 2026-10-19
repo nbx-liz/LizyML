@@ -64,21 +64,21 @@ class TestTuningStateContract:
 
         m = Model(_reg_config_with_tuning(n_trials=2))
         m.tune(data=make_regression_df(n=80))
-        state = m._get_tuning_state()
+        state = m._get_tuning_state("tuning_table")
         with pytest.raises((AttributeError, FrozenInstanceError)):
             state.tuning_result = None  # type: ignore[misc, assignment]
 
     def test_populated_after_tune(self) -> None:
         m = Model(_reg_config_with_tuning(n_trials=2))
         m.tune(data=make_regression_df(n=80))
-        state = m._get_tuning_state()
+        state = m._get_tuning_state("tuning_table")
         assert state.cfg is m._cfg
         assert state.tuning_result is m._tuning_result
 
     def test_raises_before_tune(self) -> None:
         m = Model(make_config("regression"))
         with pytest.raises(LizyMLError) as exc_info:
-            m._get_tuning_state()
+            m._get_tuning_state("tuning_table")
         assert exc_info.value.code == ErrorCode.MODEL_NOT_FIT
 
     def test_works_before_fit_after_tune(self) -> None:
@@ -86,7 +86,7 @@ class TestTuningStateContract:
         m = Model(_reg_config_with_tuning(n_trials=2))
         m.tune(data=make_regression_df(n=80))
         # No m.fit() — TuningState must still be retrievable.
-        state = m._get_tuning_state()
+        state = m._get_tuning_state("tuning_table")
         assert state.tuning_result is not None
 
     def test_mocked_state_is_constructible(self) -> None:
@@ -121,6 +121,8 @@ _FORBIDDEN_ATTRS = (
     "fit_result",
     "refit_result",
     "tuning_result",
+    # H-0134 P5: export reads it from FitState, never from the Model body.
+    "tuning_history_available",
     "provider",
     "metrics",
     "run_dir",

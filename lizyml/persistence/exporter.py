@@ -32,6 +32,12 @@ import pandas as pd
 
 from lizyml.core.category_values import encode, refusal, shown, type_name
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.tuning_codec import (
+    HISTORY_FILE,
+    HISTORY_SCHEMA,
+    TuningHistory,
+    history_bytes,
+)
 from lizyml.core.types.task import TaskType
 
 if TYPE_CHECKING:
@@ -43,7 +49,9 @@ if TYPE_CHECKING:
 #: H-0133: 3. A pipeline state may hand LightGBM position stand-ins
 #: (``stand_in_columns``); an older LizyML would read such a state as raw
 #: categories and predict wrongly without an error, so it must refuse it.
-FORMAT_VERSION = 3
+#: H-0134: 4. A tuned model's trial history is in ``tuning_history.json``; an
+#: older LizyML would ignore the file and show the history as an empty table.
+FORMAT_VERSION = 4
 
 
 def _state_category_values(state: Any) -> list[tuple[str, Any]]:
@@ -224,9 +232,10 @@ def _tuning_metadata(tuning: TuningResult) -> dict[str, Any]:
     """Serialize the tuned-param overlay for ``metadata.json`` (H-0086, #215).
 
     Only the values ``Model._merge_params`` needs to reproduce the tuned fit are
-    recorded (``best_*`` params + score/metric/direction). The full trial list
-    and optuna study are intentionally omitted — restoring those (for a complete
-    ``tune(resume=True)`` from a loaded model) is a separate follow-up.
+    recorded here (``best_*`` params + score/metric/direction). The trials,
+    rounds and boundary report go to ``tuning_history.json`` (H-0134); the
+    Optuna study is not stored, so ``tune(resume=True)`` after load still needs
+    the study's storage (H-0122).
     """
     return {
         "best_model_params": dict(tuning.best_model_params),
@@ -282,7 +291,11 @@ def export(
             after ``Model.load()``.
         tuning: Optional tuning result. When present, the tuned-param overlay
             is recorded under ``metadata["tuning"]`` so a re-``fit()`` after
-            ``Model.load()`` reproduces the tuned params (H-0086, #215).
+            ``Model.load()`` reproduces the tuned params (H-0086, #215), and
+            its trials, rounds and boundary report are written to
+            ``tuning_history.json``, declared under ``tuning.history`` and
+            checksummed, so the tuning reports answer after load what they
+            answered before export (H-0134).
         tuning_fixed_params: Effective fixed policy of the successful tuning
             round. None omits metadata for legacy fallback; {} records no defaults.
         applied_training_params: The ``best_training_params`` overlay the fit
@@ -345,6 +358,7 @@ def write_checked(
     *,
     analysis_context: AnalysisContext | None = None,
     tuning: TuningResult | None = None,
+    tuning_history_available: bool = True,
     tuning_fixed_params: dict[str, Any] | None = None,
     applied_training_params: dict[str, Any] | None = None,
     applied_sample_weight: str | None = None,
@@ -354,13 +368,32 @@ def write_checked(
     already passed (``Model.export`` checks before it resolves the path).
 
     Internal to LizyML: not re-exported by :mod:`lizyml.persistence`, whose
-    :func:`export` always checks first. Arguments as :func:`export`.
+    :func:`export` always checks first. Arguments as :func:`export`, plus:
+
+    Args:
+        tuning_history_available: Whether *tuning* holds its trial history
+            (H-0134 P5). ``Model.export`` passes ``False`` for a model loaded
+            from an artifact without one: ``tuning.history`` is then written
+            as ``null`` and no history file is written, so the re-export does
+            not turn "unknown" into an empty history.
 
     Raises:
         LizyMLError with SERIALIZATION_FAILED on any I/O or serialization error.
     """
     out = Path(path)
     try:
+        # Encode the history before anything is written: a value the codec
+        # refuses fails the export without leaving a partial artifact.
+        history_raw: bytes | None = None
+        if tuning is not None and tuning_history_available:
+            history_raw = history_bytes(
+                TuningHistory(
+                    trials=tuning.trials,
+                    rounds=tuning.rounds,
+                    boundary_report=tuning.boundary_report,
+                )
+            )
+
         out.mkdir(parents=True, exist_ok=True)
 
         # Serialize payloads first so their bytes can be hashed into metadata
@@ -372,6 +405,12 @@ def write_checked(
         if analysis_context is not None:
             joblib.dump(analysis_context, out / "analysis_context.pkl", compress=3)
             pkl_names.append("analysis_context.pkl")
+
+        if history_raw is not None:
+            # Listed in the checksums like the pickles; read only when
+            # metadata declares it (H-0134 P4).
+            (out / HISTORY_FILE).write_bytes(history_raw)
+            pkl_names.append(HISTORY_FILE)
 
         metadata: dict[str, Any] = {
             "format_version": FORMAT_VERSION,
@@ -394,6 +433,12 @@ def write_checked(
             metadata["tuning"] = _tuning_metadata(tuning)
             if tuning_fixed_params is not None:
                 metadata["tuning"]["fixed_params"] = dict(tuning_fixed_params)
+            # H-0134 P3/P4: the declaration is the only thing load trusts.
+            metadata["tuning"]["history"] = (
+                None
+                if history_raw is None
+                else {"file": HISTORY_FILE, "schema": HISTORY_SCHEMA}
+            )
         if applied_training_params is not None:
             metadata["applied_training_params"] = dict(applied_training_params)
         if applied_sample_weight is not None:

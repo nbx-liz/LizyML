@@ -66,6 +66,54 @@ def test_every_admitted_type_has_its_own_case() -> None:
     assert set(LABEL_CASES) == {_type_id(t) for t in ADMITTED_TYPES}
 
 
+def _equal_with_another_hash(a: Any, b: Any) -> bool:
+    """Whether *a* == *b* although their hashes differ.
+
+    A zoneinfo ``Timestamp`` with ``fold=1`` equals the pytz one at the same
+    instant, but PEP 495 hashes a repeated wall time as ``fold=0``, so the two
+    hash differently. pandas, which dedups through a hash table, then keeps
+    both as categories; after a round trip it may or may not see them as
+    duplicates, and CI failed on it intermittently (H-0134 PR #371). How the
+    library should treat such a column is open in #372; until it is decided,
+    no case here holds one, and the behaviour is not pinned by a test. Values
+    that are equal *and* hash alike (the deliberate fold pairs) are deduped
+    consistently and are not such a pair.
+
+    A comparison numpy cannot make (``datetime64`` across far-apart units
+    overflows) is between values of different units, which are distinct
+    samples; it answers False, keeping both as before.
+    """
+    if type(a) is not type(b):
+        return False
+    try:
+        equal = bool(a == b)
+    except (OverflowError, TypeError, ValueError):
+        return False
+    return equal and hash(a) != hash(b)
+
+
+def _distinct_by_equality(samples: Any) -> list[Any]:
+    """*samples* without duplicates, including equal values that hash apart.
+
+    ``dict.fromkeys`` drops values that are equal and hash alike; this also
+    drops a value equal to an earlier one with another hash (see
+    :func:`_equal_with_another_hash`). The pytz ``Timestamp`` dropped from the
+    ``Timestamp`` column keeps its own case, ``Timestamp pytz fold``.
+    """
+    kept: list[Any] = []
+    for value in dict.fromkeys(samples):
+        if not any(_equal_with_another_hash(value, k) for k in kept):
+            kept.append(value)
+    return kept
+
+
+def test_no_derived_case_holds_equal_values_that_hash_apart() -> None:
+    for name, values in CASES.items():
+        for i, a in enumerate(values):
+            for b in values[i + 1 :]:
+                assert not _equal_with_another_hash(a, b), (name, a, b)
+
+
 def _derived_cases() -> dict[str, list[Any]]:
     """Category columns for criterion 1, derived from ``SAMPLES``.
 
@@ -77,7 +125,7 @@ def _derived_cases() -> dict[str, list[Any]]:
     """
     cases: dict[str, list[Any]] = {}
     for kind, samples in SAMPLES.items():
-        distinct = list(dict.fromkeys(samples))
+        distinct = _distinct_by_equality(samples)
         cases[_type_id(kind)] = distinct
         cases[f"{_type_id(kind)} with a str"] = [*distinct, "zz"]
     for unit in _DT64_UNITS:
@@ -445,7 +493,9 @@ def _label_cases() -> dict[str, list[Any]]:
     for kind, samples in SAMPLES.items():
         # pandas holds some values in no Series (timedelta64 in Y / M units).
         usable = [
-            v for v in dict.fromkeys(samples) if _pandas_cannot_build([v]) is None
+            v
+            for v in _distinct_by_equality(samples)
+            if _pandas_cannot_build([v]) is None
         ]
         cases[_type_id(kind)] = next(
             [a, b]

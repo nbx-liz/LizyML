@@ -1,0 +1,16 @@
+[run-exclusive] h0134-size starting; load was 0.91
+run-heavy: pgid=11 (stop with: kill -- -11)
+event='fit.post_tune' run_id=eb6d6824-2719-4e7e-91c5-f0d0f3b2f303 msg='fit() after tune() reuses the tuning CV splits; reported OOF metrics are optimistically biased (BLUEPRINT 11.6). Use a held-out set for an unbiased estimate.'
+real tune: 20 trials, 10 params per trial, 1 round summaries
+param types: ['float', 'int', 'str']
+artifact file analysis_context.pkl: 20137 bytes
+artifact file fit_result.pkl: 211147 bytes
+artifact file metadata.json: 3755 bytes
+artifact file refit_model.pkl: 72948 bytes
+space_snapshot of all rounds, encoded: 1802 bytes
+synthetic history (trials, bytes, bytes/trial, write s, read+decode s):
+      50       25984   519 0.0002 0.0001
+     500      260262   520 0.0017 0.0015
+    5000     2607570   521 0.0171 0.0219
+   50000    26125933   522 0.1951 0.5642
+[run-exclusive] h0134-size finished in 5s, exit 0

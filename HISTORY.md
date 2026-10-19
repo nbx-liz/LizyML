@@ -15036,3 +15036,341 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
     - R4・R5 の指摘は、前の直しが生んだテスト・文言・出力ファイルで、周辺に広がっている。
   - 監視は、漏れたことで 2 点が見逃されたとも指摘した。R3 で H-0120 のラベルの経路が範囲に入ったこと、R5 で確認者を Codex から Claude に替えたことである。
   - 管理者は「直して、絞った確認を 1 回」を選んだ。停止条件は監視が示したもの: 範囲はテスト・HISTORY・出力ファイルの差分だけ、陰性対照を必須の証拠にする、`lizyml/` に指摘がなければ終える。周辺の新しい指摘は follow-up の issue にし、round にしない。
+
+## H-0134: tune の履歴（試行・round・境界の報告）を成果物に保存し、load 後の 3 つの面が export 前と同じ答えを返すようにする（#315）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-19
+- **決定日**: 2026-10-19
+- **関連**: #315、H-0086（#215）、H-0109、H-0122、H-0133、lizy-harness #175（Codex の容量不足）
+- **スコープ**:
+  - `tuning_table()`・`tuning_plot()`・`boundary_table()` が、load したモデルで export 前と同じ答えを返すか、答えられないと言うこと（H-0109 の約束）
+  - 成果物の新しいファイル `tuning_history.json` と、`metadata.json` の `tuning.history`
+  - 値・探索次元・境界の報告の符号化を Layer 0 に移すこと（振る舞いは変えない）
+  - `FORMAT_VERSION` 4
+
+### 目的（課題）
+
+H-0086 は tune の結果のうち `best_*` だけを保存し、load は `trials=[]` の `TuningResult` を作る（`core/_model_persistence.py:627-635`）。そのため load したモデルでは、`tuning_table()` が列の無い `(0, 0)` の表を、`tuning_plot()` が線の無い図を返す。どちらも「試行を 1 回もしなかった study」に見える（DC1）。`boundary_table()` は `MODEL_NOT_FIT` を出すが、export が落とした報告について「`tune(resume=True)` を実行せよ」と言う。H-0109 はこの 36 のセル（4 設定 × 4 の tune の流れ × 2 面、と `boundary_table` の 4 セル）を #315 として `tests/test_persistence/_load_census.py` の `DECLARED` に置いた。管理者は #315 の案 1（保存する）を選んだ。
+
+### 管理者の判断（2026-10-19。registry のカード D-20261019-013・D-20261019-014）
+
+Codex の設計の批評（run `h0134-design-critique`。容量不足と 429 で 4 回目の試行に結果が出た。lizy-harness #175）の後で決めた。
+
+1. **`FORMAT_VERSION` を 4 にする**。§15.2 の「追加は版を上げない」に例外を足す（P8）。
+2. **履歴を持たない成果物では、3 つの面が `MODEL_NOT_FIT` を出す**。context に `missing='tuning_history'` を入れ、study の storage があれば `restore_tuning(storage=..., study_name=...)` を案内する。空の表と空の図はやめる。
+3. **全ての試行を保存する**。上限も、外すための引数も設けない。大きさと load の時間は実測して載せる（下の実測）。
+4. **符号化を Layer 0 に移す**。`tuning/lineage_codec.py` の値・探索次元・境界の報告の符号化（と、それが使う大きさの検査）を `core/` に移し、履歴の符号化もそこに置く。公開の `lizyml.persistence.export(tuning=...)` も履歴を書く。棄却した案は「Facade が符号化し、公開の `persistence.export` は履歴なしと宣言する」。
+
+### 実測（2026-10-19、develop `f746814`）
+
+- **load 後に読まれるもの**（読むだけの調査 2 本、Codex の批評で確認）:
+  - 3 つの面が読むのは `_tuning_result` の `trials`・`rounds`・`boundary_report`・`metric_name`・`direction` だけで、全て `_get_tuning_state()`（`core/_model_tuning.py:855-861`）を通る。
+  - ほかの読み手が読むのは、`metadata.json` に今保存している 6 つ（`best_*` の 3 つ、`best_score`、`metric_name`、`direction`）だけである。`fit` の上書きは `best_*`、`export_code` は `best_smart_params`、再 export（`_tuning_metadata`、`persistence/exporter.py:223-238`）は 6 つ全部を読む。`trials`・`rounds`・`boundary_report` を読むのは 3 つの面だけである（改訂 1 で訂正。Proposal review round 1 の major 5）。
+  - `tune(resume=True)` は `_tuning_result` を読まない。生きた study か storage の study を読む（`core/_tuning_resume.py`、`_tuning_plan.py:516-533`）。復元した試行は resume に使われない。それで正しい（H-0122）。
+- **型**（`core/types/tuning_result.py`）:
+  - 全て素の値の frozen dataclass である。
+  - `TrialResult.score` は値の無い試行で NaN になる。
+  - 探索の値は `None`・`bool`・`int`・`float`・`str` のどれかである（`tuning/search_space.py`）。
+  - `state` は Optuna の `TrialState` の名前の小文字である（`tuning/rounds.py:120`、`tuning/tuner.py:427`）。
+- **大きさと時間**（`docs/audits/2026-10-h0134/probes/size_probe.py` → `size_probe.out`）:
+  - 測ったもの: 既定の探索空間（10 次元）で 400 行の binary を 20 試行 tune した。試行 1 つは compact JSON で約 520 バイトになる。
+  - 試行 50 で 26 KB。比較として、同じモデルの `fit_result.pkl` は 211 KB、`metadata.json` は 3.8 KB である。
+  - 試行 5,000 で 2.6 MB。書き出しは 0.017 秒、読み込みと復号は 0.022 秒。
+  - 試行 50,000 で 26 MB。書き出しは 0.20 秒、読み込みと復号は 0.56 秒。
+  - 全ての round の `space_snapshot` は 1.8 KB である。
+  - 大きさは「試行の数 × 次元の数」に比例する。
+
+### 対応方針（提案）
+
+- **P1. 符号化を Layer 0 に移す**（判断 4。振る舞いは変えない）:
+  - `tuning/_magnitude.py` を `core/magnitude.py` に移す。import している 3 つ（`tuning/_step_grid.py`・`tuning/_space_format.py`・`tuning/lineage_codec.py`）を直し、`tuning/_magnitude.py` は消す。
+  - `tuning/lineage_codec.py` のうち値・探索次元・境界の報告の符号化を `core/tuning_codec.py` に移す。対象は次のとおり（改訂 1 で `DIM_CATEGORIES` と `dim_signature` を足した。round 1 の major 4）:
+    - `LineageCodecError`
+    - `encode_scalar`/`decode_scalar` と数の補助
+    - `DIM_CATEGORIES`、`encode_dim(s)`/`decode_dim(s)`、`dim_signature`（`encode_dim` の JSON を比べるための形）
+    - `encode_report`/`decode_report` と `_encode_status`/`_decode_status`
+  - Optuna の study の属性に固有の部分（`to_attr_value` など）は `tuning/lineage_codec.py` に残す。移した名前は `core/tuning_codec.py` から import し、`tuning/lineage_codec.py` から明示的に再公開する（`__all__`、mypy strict で通ること）。import している位置（`core/_tuning_resume.py`・`core/_tuning_space.py`・`tuning/_space_format.py`・`tuning/lineage.py`・`tuning/lineage_records.py`）は、新しいモジュールから直接 import するように直す。
+  - BLUEPRINT §2.1 の Layer 0 の表に 2 つのモジュールを足す。architecture のテスト（`tests/test_architecture/_layer_rules.py`）は層の所属を BLUEPRINT の表から読むので、テストの側は変えない（改訂 1 で訂正。テストの側に Layer 0 の一覧は無い）。
+  - study の属性の書式と、系譜の復号の寛容さ（境界の報告の知らないキーを無視する）は変えない。履歴の復号だけが厳密である（P2）。
+- **P2. 履歴の符号化**（`core/tuning_codec.py` の `encode_history`/`decode_history`）:
+  - 形は次のとおり。全てのオブジェクトはキーの集合が厳密に一致すること。
+    ```
+    {"schema": "lizyml-tuning-history/v1",
+     "trials": [{"number": int, "params": [[name, scalar], ...], "score": scalar, "state": str, "round": int}, ...],
+     "rounds": [{"round": int, "n_trials": int, "best_score_before": scalar, "best_score_after": scalar,
+                 "expanded_dims": [str, ...], "space_snapshot": [dim, ...]}, ...],
+     "boundary_report": report | null}
+    ```
+  - `scalar` は `encode_scalar` の `[tag, value]`（NaN と ±inf は文字列のタグ）。`best_score_before` の `None` は `["none", null]` である。`dim` は `encode_dim`、`report` は `encode_report` で書く。
+  - `params` は名前と値の組の並びで、`TrialResult.params` の挿入の順を保つ（`tuning_table` の列の順はこの順で決まる。Codex の major 3）。名前の重複は拒否する。
+  - `state` は `complete`・`pruned`・`fail`・`running`・`waiting` の閉じた集合である（Optuna の `TrialState` の 5 つ。テストで `TrialState` の全ての名前と一致することを確かめる）。
+  - `number`・`round`・`n_trials` は `type(x) is int`（`bool` は拒否）で、`round` と `n_trials` は 1 以上、`number` は 0 以上で、試行の間で重複しない。
+  - 復号は次の全てを拒否する: JSON の重複キー（`object_pairs_hook`）、知らない `schema`、キーの過不足、型の違い、知らないタグ、境界の報告と各次元の状態の知らないキー。
+  - 最後に、復号した値を符号化し直して元の JSON と一致することを確かめる（正準の形だけを読む。H-0133 の P2 と同じ）。
+  - 復号した結果の型は dataclass の宣言のとおりにする: `trials` は `list`、`rounds`・`expanded_dims`・`space_snapshot` は `tuple`、`params` は `dict`。
+  - 符号化できない値（P1 の集合の外）は `SERIALIZATION_FAILED` で拒否する。素の値への変換はしない。今の書き手からは届かない（探索の値の検査が前にある）が、拒否の経路はテストで確かめる。
+- **P3. export**（`persistence/exporter.py`）:
+  - tune 済みのモデルで履歴が「ある」とき、`tuning_history.json` を `allow_nan=False` の compact JSON で書く。
+  - `checksums.files` に、その SHA-256 を載せる。
+  - `metadata.json` の `tuning` に `"history": {"file": "tuning_history.json", "schema": "lizyml-tuning-history/v1"}` を書く。ファイル名と schema の文字列は `core/tuning_codec.py` の定数 `HISTORY_FILE`・`HISTORY_SCHEMA` 1 つずつで、書き手と読み手（P2 の payload の `schema` も）が同じ定数を使う。
+  - 履歴が「ない」とき（P5）は `"history": null` を書き、ファイルは書かない。
+  - 公開の `lizyml.persistence.export(tuning=...)` は、渡された `TuningResult` の履歴を書く（判断 4）。
+  - `Model.export` は内部の `write_checked` に履歴の有無を渡す（改訂 1。round 1 の major 3）:
+    - export の mixin（`core/_model_persistence.py`）は読むだけの mixin で、Model の状態は `FitState` からだけ受け取る。
+    - そこで `FitState`（`core/_model_state.py`）に `tuning_history_available: bool` を足し、`_get_fit_state`（`core/model.py:939`）がそれを埋める。mixin は `state.tuning_history_available` を `write_checked` に渡す。
+    - mixin の状態の分離を確かめるテスト（`tests/test_core/test_mixin_state_isolation.py` の `_FORBIDDEN_ATTRS`）に `tuning_history_available` を足し、mixin が私的な属性を直接読まないことを確かめる。
+- **P4. load**（`persistence/loader.py`、`core/_model_persistence.py`）:
+  - format 4 で `tuning` があれば、`history` キーは必須である（無ければ `DESERIALIZATION_FAILED`）。
+  - **宣言の形は閉じている**（改訂 1。round 1 の major 1）。`history` は `null` か、ちょうど `{"file": HISTORY_FILE, "schema": HISTORY_SCHEMA}` のどちらかである。それ以外は全て `persistence.load` で `DESERIALIZATION_FAILED` にする。次のものも含む: 配列やスカラー、キーの過不足、別のファイル名やパス、別の schema。「履歴なし」として読むことはしない。
+  - `history` がオブジェクトのとき:
+    - `file` が `checksums.files` に載っていて、ディスクにあることを確かめる。
+    - バイト列を 1 回だけ読み、digest を照合してから P2 の厳密な復号に渡す（H-0083 と同じ順）。
+    - 1 つでも外れれば `DESERIALIZATION_FAILED` である。空の結果にはしない。
+  - **宣言だけを正とする**。`metadata.json` が宣言していない `tuning_history.json` がディレクトリにあっても読まない（同じディレクトリへの再 export が残した古いファイル。Codex の major 1）。
+  - 復号した `trials`・`rounds`・`boundary_report` を、`metadata.json` の `best_*`・`best_score`・`metric_name`・`direction` と合わせて `TuningResult` にする。
+  - format 1〜3 で `tuning` があるものと、format 4 で `history` が `null` のものは、履歴「なし」の状態で読む。
+- **P5. 履歴の有無の状態**（Codex の major 1）:
+  - `Model` に私的な属性 `_tuning_history_available: bool` を置く。
+  - `True` にする場合: `tune()`・`restore_tuning()` が結果を置いたとき（`_commit_tuning`）と、P4 で履歴を復号したとき。
+  - `False` にする場合: 履歴なしで load したとき。
+  - `_tuning_result` が `None` のときは意味を持たない。
+  - export は `False` を `"history": null` として保存する。そのため、履歴なしで load したモデルを export し直しても、空の履歴を作らない。
+  - 公開の `TuningResult` の形は変えない。
+- **P6. 3 つの面**（判断 2）:
+  - `_get_tuning_state()` が呼んだ面の名前を受け取る。
+  - `_tuning_result` があって履歴が「なし」なら `MODEL_NOT_FIT` を出す。
+    - context は `{"method": <面>, "missing": "tuning_history", "loaded_from_artifact": True}`。
+    - 文は次の 2 点を言う。この成果物は試行の履歴を持たないこと（format 4 より前に保存されたか、履歴なしで書かれた）。元の study の storage があれば `restore_tuning(storage=..., study_name=...)` で戻せること。
+  - `tune()` 前の `MODEL_NOT_FIT` はそのまま変わらない。
+  - 履歴が「ある」モデルで `boundary_report` が `None` のときの `boundary_table()` の `MODEL_NOT_FIT` も変わらない（export 前と同じ答え）。
+  - `fit()` の上書き（`best_*`）は、履歴の有無に関わらず今のとおり働く。
+- **P7. 同じ答えの定義**（Codex の major 3）。比べるのは面の出力そのものである:
+  - `tuning_table()` は `pd.testing.assert_frame_equal(..., check_exact=True)`。列の順と dtype を含めて一致すること。
+  - `tuning_plot()` は図の JSON（`fig.to_json()`）が一致すること。
+  - `boundary_table()` は表が一致すること。
+  - `TuningResult` の比較は再帰的で型に厳密とする。NaN は NaN と等しいとみなし、`params` の順も比べる。dataclass の `==` は NaN で成り立たないので使わない。
+- **P8. 保存形式**（判断 1）:
+  - `FORMAT_VERSION = 4`。loader は `{1, 2, 3, 4}` を受理する。
+  - §15.2 に例外を足す: 追加のフィールドでも、それが無いと、受理する古い loader が報告を黙って間違える（ここでは空の表）ものは、意味の変更として版を上げる。
+  - 古い LizyML（`{1, 2, 3}`）は v4 を拒否する。tune していないモデルも含む（H-0133 の判断 4 と同じ考え方）。
+- **P9. 変えないもの**:
+  - resume と `restore_tuning` の挙動。
+  - study の属性の書式と系譜の復号。
+  - `best_*` の保存と、それを読む全ての位置。
+  - `export_code`。
+  - `analysis_context.pkl` などほかのファイル。
+  - 生きたモデル（export していないもの）の 3 つの面。
+  - 境界の報告は今と同じく今の round のものだけを持つ（H-0122 の `restore_tuning` と同じ。Codex が確認）。
+
+### 規則が縛る位置（ソースから導出、実装前、`f746814`）
+
+- **コード**:
+  - `persistence/exporter.py`: `FORMAT_VERSION` は :46、`_tuning_metadata` は :223-238、書き出しは :362-409。
+  - `persistence/loader.py`: `_SUPPORTED_FORMAT_VERSIONS` は :36、`_verify_and_read_pkl` は :104-145、その呼び出しは :236-261。
+  - `core/_model_persistence.py`: load の tuning は :594-635、export から `write_checked` への受け渡しもここ。
+  - `core/_model_tuning.py`: `_get_tuning_state` は :855-861、`_commit_tuning` は :645-676。
+  - `core/model.py:157`（属性の初期化）。
+  - `core/_model_tables.py` の `tuning_table`（:223-235）・`boundary_table`（:251-261）、`core/_model_plots.py:245-248`。
+  - `tuning/lineage_codec.py`、`tuning/_magnitude.py` と、それらを import する `tuning/_step_grid.py`・`tuning/_space_format.py`・`tuning/lineage.py`・`tuning/lineage_records.py`・`core/_tuning_resume.py`・`core/_tuning_space.py`。
+- **文書**:
+  - BLUEPRINT: §2.1 の Layer 0 の表（:48）、`tuning_table()` の行（:165）、§4.2（:204）、resume の行（:1202）、§15.1（:1902）、§15.2（:1910-1911 と完全性の検査）、§15.3 の成果物の中身。
+  - ARCHITECTURE.md（Layer 0 のモジュール、成果物）、`docs/api.md`（3 つの面の例外）、`docs/migration.md`（v0.20.0 の節）、CHANGELOG、`docs/proposal_dispositions.toml`。
+- **テスト**:
+  - `tests/test_persistence/_load_census.py`（`DECLARED`）と `test_reporting_surfaces_survive_load.py`。
+  - `test_tuning_persistence.py`（版 3 の主張、tuning ブロック）、`test_artifact_compat.py`（`TestFormatVersion*`、`TestCurrentFormatVersion`）、`_artifact_versions.py`。
+  - `tests/test_tuning/test_lineage_codec.py`（移動の後も同じ振る舞い）、`tests/test_architecture/`（Layer 0 の一覧）。
+
+### 互換性
+
+- **公開 API**:
+  - 関数の引数は変えない。
+  - 変わる挙動: load したモデルの 3 つの面が、format 4 の成果物では export 前と同じ答えを返す。format 1〜3 の成果物では空の表・空の図を返す代わりに `MODEL_NOT_FIT` を出す（migration.md に書く）。
+  - 公開の `persistence.export` は、tune 済みの結果の履歴も書くようになる。
+- **保存形式**: 破壊的である（`FORMAT_VERSION` 4）。新しい LizyML は v1〜v4 を読み、古い LizyML は v4 を `DESERIALIZATION_FAILED` で拒否する。
+- **私的なモジュールの移動**: `tuning/_magnitude.py` は消える（私的）。`tuning/lineage_codec.py` は残り、移した名前もそこから import できるままにする。
+- **大きさ**: 試行 1 つにつき約 0.5 KB（10 次元）が増える。上限は無い（判断 3）。
+
+### 代替案（検討して棄却）
+
+- **案 2（保存せず、3 つの面が「持っていない」と言う）**: H-0109 の約束は守れるが、tune の記録が export で失われる。棄却（管理者が案 1 を選んだ）。
+- **`metadata.json` に入れる**: H-0086 が棄却した理由（metadata.json が大きくなる）がそのまま当たる。別のファイルにする。
+- **pickle で保存する**: 読むと任意の Python を実行しうる面が増える。JSON の型は閉じている。棄却。
+- **上限で切る・外す引数**: 一部だけの履歴では「export 前と同じ答え」にならない。外す引数は条件で処理を飛ばす仕組みになる。棄却（判断 3）。
+- **版を 3 のままにする**: 古い LizyML が v4 の成果物を受理し、履歴を黙って捨てて空の表を返す（#315 の欠陥がそのまま残る）。棄却（判断 1）。
+- **新しい例外のコード**: 区別したい失敗の種類が `MODEL_NOT_FIT` の「load した成果物に無い分析の状態」（`analysis_context` など）と同じ。棄却（判断 2）。
+- **ディスクのファイルがあれば読む**: 同じディレクトリに再 export したとき、古い履歴を読みうる。宣言を正とする（Codex の major 1）。
+- **系譜の復号も厳密にする**: study の属性の書式を読む側を変えるのは H-0134 の範囲の外である。履歴の復号だけを厳密にする。
+
+### 置き換える記録
+
+| 記録 | 扱い |
+|---|---|
+| H-0086 の「trial 一覧は保存しない（棄却した案: TuningResult 全体を JSON に）」 | H-0134 が置き換える。H-0086 の本文は履歴としてそのまま残す |
+| BLUEPRINT §15.1「trial の履歴は保存しない」、§4.2 の「trial の無い最小の `TuningResult`」 | H-0134 で書き換える |
+| BLUEPRINT §15.2「フィールドの追加は版を上げない」 | 例外を足す（P8） |
+| H-0109 の約束と #315 の 36 のセル | H-0134 が満たす。`DECLARED` から #315 のセルを外す |
+| H-0122「study の中身は artifact に保存しない」、resume は study から読む | 変えない。保存するのは報告のための写しで、再開できる study ではない |
+
+### Firing rate
+
+H-0134 が足す条件は 2 つで、どちらも Change Gate の 6 つの目的（skip・shorten・cache・select・allow・conditionally-activate）に当たらない。
+
+- 履歴の有無による分岐は、旧い成果物との互換のために、必要な振る舞いの間を選ぶものである（H-0109 の前例）。
+- format 4 の宣言の検査は、拒否の検査である。
+
+そのため firing rate の行は要らない。ただし、母集団は実装の後に測って載せる。対象は、フルスイートと notebook で load した tune 済みのモデルのうち、履歴ありのものと履歴なしのものの数である。
+
+### 受け入れ基準（テスト観点）
+
+1. **36 のセルが export 前と同じ**: `_load_census.py` の `DECLARED` から #315 のセルを外し、`test_every_reading_survives_load_except_the_declared` が通ること。比べ方は P7 による。
+2. **履歴なしの成果物**:
+   - v1・v2・v3 の tune 済みの成果物（v4 の成果物を `_artifact_versions.py` で古い形に書き換えたもの）と、v4 で `history: null` のものについて、3 つの面それぞれが `MODEL_NOT_FIT` を出すこと（context の 3 つのキーを確かめる）。
+   - 同じモデルで `fit()` の上書きが働くこと。
+   - そのモデルを export し直しても `history: null` のままであること（2 回の往復）。
+3. **形の網羅**: 次の全てを含む結果を export・load し、3 つの面が P7 で一致すること。
+   - 試行の状態の 5 つ全て: complete・pruned・fail・running・waiting（改訂 1 で running と waiting も export・load の経路に入れた。共有の storage の study からは 5 つとも作られうる。round 1 の major 2）。
+   - NaN を、位置ごとに別々に: 試行の score、試行の `params` の値、`space_snapshot` の `CategoricalDim.choices`（改訂 1。round 1 の major 2）。
+   - 試行が 1 つも完了しなかった round（要約が無い）。
+   - 実際の試行の数が要求と違う round。
+   - `expanded_dims`。
+   - 探索の値の全ての型: `None`・`bool`・`int`・`float`・`str`。`float` の ±inf を含む。
+   - `params` の挿入の順。
+   - 比べ方は P7 の面の出力と、`TuningResult` の再帰的な比較の両方である。
+4. **厳密な復号**: digest を計算し直して復号まで届かせた壊れたファイルが、全て `DESERIALIZATION_FAILED` になること。並び:
+   - 知らない `schema`
+   - 各オブジェクトのキーの過不足
+   - 型の違い（`bool` を `int` の位置に置くことを含む）
+   - 知らないタグ
+   - 知らない `state`
+   - 重複キー
+   - 重複した名前の `params`
+   - 正準でない形
+   - 境界の報告と状態の知らないキー
+
+   別に、次も `DESERIALIZATION_FAILED` になること:
+   - digest の不一致、宣言したファイルが無い、`checksums` に載っていない、format 4 で `history` キーが無い。
+   - 宣言の形の外のもの（改訂 1。round 1 の major 1）: `history` が配列・文字列・数、`file` か `schema` の欠け、余分なキー、`file` が別の名前やパス（`../x.json` を含む）、`schema` が別の文字列。
+5. **mixin の状態の分離**（改訂 1。round 1 の major 3）: `tests/test_core/test_mixin_state_isolation.py` に `tuning_history_available` を足し、export の mixin が `FitState` からだけ履歴の有無を読むことを確かめる。
+6. **古いファイル**: 宣言していない `tuning_history.json` がディレクトリにあっても読まれないこと。
+7. **版**:
+   - `FORMAT_VERSION == 4` であること。
+   - `{1, 2, 3}` だけを受理する loader が v4 を拒否すること。
+   - `{1, 2}` だけを受理する loader が v3 を拒否する既存のテストが残ること。
+8. **移動**:
+   - `tests/test_tuning/test_lineage_codec.py` が変更なしで通ること。
+   - architecture のテストが新しい Layer 0 のモジュールで通ること。
+   - `tuning/_magnitude` を import する位置が無いこと。
+9. **公開の `persistence.export`**: tune の結果を渡すと履歴が書かれ、load で戻ること。
+10. **陰性対照**（`docs/audits/2026-10-h0134/probes/negative_controls_h0134.py`）。パッチを当てない基準の実行を含め、元に戻すこと。どの変異も、対応する基準で捕まること:
+   - (a) 履歴を書かない → 1 で捕まる
+   - (b) 復号で知らないキーを無視する → 4
+   - (c) ファイルが無いとき空の結果にする → 4
+   - (d) 履歴なしで空の表を返す → 2
+   - (e) 履歴なしの load で状態を「ある」にする → 2 の再 export
+   - (f) `params` を名前の順に並べ替える → 3 の列の順
+   - (g) NaN を `None` に変える → 3
+   - (h) 宣言の形の外のものを「履歴なし」として読む → 4 の宣言の形（改訂 1）
+   - (i) running と waiting の試行を export で落とす → 3（改訂 1）
+
+### 改訂の記録
+
+- **改訂 1（2026-10-19、Proposal review round 1 の後）**: Codex の run `h0134-proposal-review` の round 1（`5a24b48`）は CHANGES_REQUESTED（major 5）だった。全て直した。
+  - major 1: `history` の宣言の形を閉じた（`null` か、ちょうど 2 つのキー。ファイル名と schema は 1 つの定数）。形の外を拒否する基準と陰性対照 (h) を足した。
+  - major 2: 基準 3 に、試行の状態の 5 つ全てと、NaN の 3 つの位置（score、`params`、`CategoricalDim.choices`）を別々に入れた。陰性対照 (i) を足した。
+  - major 3: export の mixin は `FitState` からだけ状態を読むので、`FitState` に `tuning_history_available` を足し、`_get_fit_state` が埋めるようにした。分離のテストに名前を足す基準 5 を足した。
+  - major 4: 移す名前に `DIM_CATEGORIES` と `dim_signature` を足し、旧いモジュールからの再公開と import する位置の直し方を書いた。architecture のテストは層を BLUEPRINT の表から読むので、テストの側の一覧は無い（P1 の記述を訂正）。
+  - major 5: 「load 後に読まれるのは `best_*` だけ」は偽だった（再 export は 6 つのフィールドを読む）。実測の項を訂正した。
+
+### 受け入れ（2026-10-19）
+
+- Codex の run `h0134-proposal-review` の round 2（`308b24a`）は APPROVE（指摘 0 件）だった。
+  - round 2 の前の loop の監視は、Claude の別の context で DELIVERABLE-FOCUSED だった。
+  - runner の監視は、改訂の前の版を読んだため INCONCLUSIVE だった（H-0133 と同じ既知の不具合）。
+- 管理者は、開発状況の資料を更新したうえで実装に進むよう指示した（2026-10-19）。これを受け入れとする。
+
+### 実装の記録（2026-10-19）
+
+- **commit**:
+  - `80070c3`: 受け入れの記録。
+  - `2e7d4a6`: P1。符号化と大きさの検査を Layer 0 へ移した。振る舞いは変えていない。
+  - この記録の commit: P2〜P6、テスト、文書、計測。
+- **Proposal から実装で決めたこと**（どれも Proposal の範囲の中）:
+  - **`_tuning_history_available` の初期値は `True`**。P5 のとおり、`False` にするのは履歴なしの load だけで、`_commit_tuning` が `True` に戻す。`_tuning_result` が `None` のあいだは意味を持たない。
+    - `False` で初期化すると、`_tuning_result` を直接置くテスト（`test_restore_tuning.py::test_reporting_surfaces_match_live` の比べる側）で 3 つの面が `MODEL_NOT_FIT` を出した。
+    - 「tune が作った結果は常に履歴を持つ」という P5 の前提に合うのは `True` の方である。
+  - **`persistence.load` が宣言を復号した値に置き換える**。返す `metadata["tuning"]["history"]` は `TuningHistory` か `None` になる。H-0133 の `declared_categories` と同じ形で、`persistence.load` と `Model.load` が同じ値を返す。`docs/migration.md` に書いた。
+  - **`_get_tuning_state(method)` が面の名前を受け取る**。P6 の context の `method` に入れるため。
+  - **`checksums` がオブジェクトでない場合も `DESERIALIZATION_FAILED`**。実装の自己レビューで足した。基準 4 にテストを 2 つ足した（`checksums` が配列のとき、`algorithm` が別のとき）。
+  - **`tests/test_persistence/_artifact_versions.py` に `to_v3_shape`・`to_v1_shape` を足した**。`to_v2_shape` は先に v3 の形にする。v4 で足したもの（履歴のファイル、その digest、`tuning.history`）を除いてから版を書き換える。
+- **結果**:
+  - フルスイート（V、pandas 3.0.1）: 12836 passed、234 skipped、1 failed。失敗は `test_e2e/test_version.py`（editable install の metadata が古い。環境による既知の失敗で、CI が正）。
+  - 依存の下限（pandas 2.0.0 / numpy 1.24）で、H-0134 に関わるテスト: 875 passed、8 skipped。
+  - 陰性対照（`probes/negative_controls_h0134.py` → `.out`）: 9/9 が、それぞれ名指しした基準で捕まった。パッチなしの基準の実行は exit 0。
+  - mypy、ruff は通った。
+- **母集団**（`probes/firing/h0134_load_census.py` → `summarize.py` → `firing.out`。フルスイートの `Model.load` の呼び出しを、例外で終わったものも含めて全て記録した。実装レビュー round 1 の major 4 で、例外で終わった呼び出しを記録しない欠陥を直してから測り直した）:
+  - 呼び出しは 442 回だった。141 回が `DESERIALIZATION_FAILED` で終わり（壊れた成果物を拒否するテスト）、301 回が戻った。戻ったもののうち tune 済みのモデルは 93 回だった。
+  - 履歴あり: 68 回（全て format 4）。
+  - 履歴なし: 25 回。内訳は format 1 が 5、format 2 が 5、format 3 が 8、format 4 の `null` が 5、loader を差し替えたテストが 2。
+  - 履歴なしで load したのは 3 つのテストファイルだけで、どれも意図して作ったもの（`test_h0134_acceptance.py`、`test_smart_params_artifact.py` の v2 の形、`test_space_merge.py` の差し替え）。
+  - notebook は `Model.load` も `export` も呼ばない（`grep` で 0 本）ので、母集団に入らない。
+  - 計測器の最初の実行では、loader を差し替えたテスト 2 件で `metadata.json` を読めず、`error` が 2 件記録された。計測器を直して、版を "stubbed loader" と記録するようにしたうえで、フルスイートをやり直した（`error` は 0）。
+- **範囲の外で見つけたもの**（直していない。管理者の判断を待つ）:
+  - 同じディレクトリに export し直すと、前回の `analysis_context.pkl` が残る。そのファイルが `checksums` に載っていなくても、loader は検査せずに読む（H-0083 の「載っていないファイルは検査せずに読む」による）。
+  - tune していない成果物で `checksums` が配列のとき、`_verify_and_read_pkl` は `AttributeError` を出す。`DESERIALIZATION_FAILED` にならない。
+
+### 実装レビュー round 1 への対応（2026-10-19）
+
+Codex の run `h0134-impl-review` の round 1（`6207df6`）は CHANGES_REQUESTED（major 4）だった。全て直した。
+
+- **major 1**: `history` が `null` の v4 の成果物で `checksums` が空の配列のとき、`_declared_tuning_history` は `checksums` を確かめる前に戻っていた。そのため pickle が H-0083 以前の経路で、検査されずに読まれた（DC1）。
+  - tune 済みの v4 の成果物では、宣言が `null` でも、pickle を読む前に `checksums` の形（`algorithm` が `sha256`、`files` がオブジェクト）を確かめるようにした（`_require_v4_checksums`）。
+  - tune していない成果物の H-0083 の寛容さは変えていない（範囲の外の見つけたもの 2）。
+- **major 2**: v4 で `tuning` がオブジェクトでないとき（`null`、配列、数）、宣言の検査を素通りしていた。`null` は tune していない成果物として読まれていた。v4 で `tuning` があればオブジェクトであることを、pickle を読む前に確かめるようにした。
+- **major 3**: P1 の再公開に `_encode_status`・`_decode_status` が抜けていた。`lineage_codec` が移動の前に定義していた全ての名前を、同じオブジェクトとして再公開した。非公開の名前は `as` で再公開した。それを全て並べて確かめるテスト（`tests/test_tuning/test_lineage_codec_reexports.py`）を足した。
+- **major 4**: 計測器は戻った load だけを記録していたのに、記録は「全て記録した」と書いていた（DC5）。例外で終わった呼び出しを `load_failed` として記録するようにし、フルスイートで測り直した（上の母集団の数）。
+- **テスト**: 基準 4 に、pickle を読む前に拒否することを確かめるテストを 6 件足した。読み込みの関数を差し替え、呼ばれたら失敗するようにしてある。内訳は次のとおり。
+  - `null` の宣言のまま `checksums` が空の配列・`files` 無し・`null` の 3 件
+  - `tuning` が `null`・配列・数の 3 件
+- **結果**:
+  - フルスイート: 12874 passed、1 failed（`test_version`。環境による既知の失敗）。
+  - 陰性対照: 9/9 が捕まり、パッチなしの基準も通った。
+
+### 実装レビュー round 2 と、CI の不安定な失敗（2026-10-19）
+
+- Codex の run `h0134-impl-review` の round 2（`a2303a3`）は APPROVE だった（指摘 0 件）。
+  - round 2 の前の絶対の監視は、runner も Claude も DELIVERABLE-FOCUSED で、round 2 は round 1 の直しの差分に絞った。
+- **CI**: H-0133 の受け入れテストの `Timestamp` の 2 件が、"Categorical categories must be unique" で不安定に落ちた。
+  - 落ちた lane: `6207df6` では Quality (3.10)、`a2303a3` では lowest-direct。
+  - 手元（aarch64）でも、直す前のテストは同じ環境の中で実行ごとに結果が変わった（round 3 の確認で実測。改訂の前の記録は「再現しなかった」と書いていて、偽だった）:
+    - pandas 2.3.3 では、種を固定しない実行の約 4/13 が失敗し、残りは 2 件が skip になった。
+    - pandas 2.0.0 では 4/7 が失敗し、残りは skip になった。
+    - skip の経路: `_pandas_cannot_build` が、pandas 自身の `astype("category")` で同じ `ValueError` を受け取り、`pytest.skip` していた（黙った skip。DC1 の形）。
+    - したがって、直す前のこの 2 件は、pytz のある pandas 2 で一度も通っていなかった。
+    - pandas 3 には pytz が無いので、問題の組が作られない。
+- **原因**: H-0133 のケースを作る `_derived_cases` は、型ごとの見本を `dict.fromkeys` で重複を除いて 1 列にする。
+  - zoneinfo の New York の `fold=1`（-05:00）と、同じ時刻の pytz の値は、`==` では等しい。しかし hash が違う（PEP 495 は繰り返しの時刻を `fold=0` として hash する）ので、両方が残っていた。
+  - pandas は hash で重複を除くので、fit は 2 つを別のカテゴリとして覚える。
+  - 保存すると、pytz の値は固定の時差で書かれる。load の後、pandas が 2 つを重複とみなすかどうかは、同じ環境の中でも実行ごとに変わる。これは Python の hash の種で決まる。
+    - `PYTHONHASHSEED` を固定すると、結果も固定される。
+    - 直す前のテストで種 0〜39 を 1 回ずつ実行すると、14 個（8, 10, 11, 14, 15, 17, 22, 25, 26, 27, 33, 34, 37, 38）で失敗し、残りは skip になった。
+    - 種 42 では、pandas 2.3.3 でも 2.0.0 でも毎回失敗する。直した後のテストは、種 42 でも通る。
+    - 種がどの経路で重複の判定に効くかは確かめていない。
+    - 改訂の前の記録は「種を固定すると 8/8 が skip」と書いていた。種 0〜7 だけの結果を一般化したもので、偽だった。
+  - H-0134 の変更による失敗ではない。
+- **管理者の判断**（2026-10-19）: テストを直し、ライブラリの不具合は issue にする。
+  - テストの直し: 各ケースから「等しいのに hash が違う値」を除いた。どのケースにもそのような組が無いことを確かめるテストを足した。除いた pytz の値は、自分のケース `Timestamp pytz fold` に残る。
+  - 結果: pandas 3・3.10（pandas 2.3.3）・下限（pandas 2.0.0）のどれでも通った。H-0133 の陰性対照は 8/8 が捕まり、基準も通った。
+  - ライブラリの不具合: #372（DC1。export は通るのに、load の後の predict が失敗しうる）。
+- **R3: 別の context での確認**（`9f328b4`、テストの直しだけ）は NOT OK だった。テストの直しそのものは健全で、H-0133 の守りは保たれていた（除いたのは pytz の値 1 つで、自分のケースに残る。陰性対照でも確かめた）。直した後は、種を固定しない実行が 6/6 で通った。
+  - major: 上の「手元では再現しなかった」「環境によって変わる」は偽だった。前の直しの記録の欠陥なので、停止ルールに従って管理者に報告した。管理者は「記録を直して、絞った確認を 1 回」を選んだ。上の 2 か所を実測のとおりに直し、#372 の本文も直した。
+  - minor（直していない）:
+    - pandas 3 には pytz が無いので、足した不変条件のテストが落ちうるのは pytz のある lane（Quality 3.10、lowest-direct）だけである。
+    - numpy 1.x では、比較が `DeprecationWarning` を大量に出す（`filterwarnings = error` にすると失敗する）。
+  - R3 の前に比較の監視を走らせた。判定は CONVERGING で、`lizyml/` は R2 の APPROVE の後に変わっていない。
+  - CI は `9f328b4` で 25/25 通った。
+- **記録の確認**（別の context、`3a239b5`）は NOT OK だった。上の「`PYTHONHASHSEED` を固定すると 8/8 が skip」は偽だった。
+  - 停止ルールに従って管理者に報告し、管理者は「その 1 文を直して、もう一度確認」を選んだ。
+  - 確認者の数（種 0〜39 のうち 14 個で失敗、種 42 は両環境で毎回失敗）は、自分で実行して確かめてから書いた。
+  - 確認者の報告を、自分で確かめずに一般化して書いたのが原因である。
+  - そのほかの文（直す前は pandas 2 で一度も通らない、pandas 3 に pytz は無い、直した後は安定して通る、skip の経路）は、確認者の実測と合っていた。

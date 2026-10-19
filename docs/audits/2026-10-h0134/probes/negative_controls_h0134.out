@@ -1,0 +1,20 @@
+CONTROL (a) history not written -> 1: caught (tests failed)
+    first failing test: tests/test_persistence/test_reporting_surfaces_survive_load.py::test_every_reading_survives_load_except_the_declared
+CONTROL (b) loose decode -> 4: caught (tests failed)
+    first failing test: tests/test_persistence/test_h0134_acceptance.py::test_a_broken_history_or_declaration_is_refused[payload extra key]
+CONTROL (c) missing file is empty -> 4: caught (tests failed)
+    first failing test: tests/test_persistence/test_h0134_acceptance.py::test_a_broken_history_or_declaration_is_refused[declared file missing]
+CONTROL (d) empty table without history -> 2: caught (tests failed)
+    first failing test: tests/test_persistence/test_h0134_acceptance.py::test_an_artifact_without_history_says_so_on_every_surface[v1]
+CONTROL (e) history-less load marked available -> 2 re-export: caught (tests failed)
+    first failing test: tests/test_persistence/test_h0134_acceptance.py::test_reexporting_a_history_less_model_keeps_it_unknown
+CONTROL (f) params sorted -> 3: caught (tests failed)
+    first failing test: tests/test_persistence/test_h0134_acceptance.py::test_every_shape_answers_the_same_after_load
+CONTROL (g) NaN written as None -> 3: caught (tests failed)
+    first failing test: tests/test_persistence/test_h0134_acceptance.py::test_every_shape_answers_the_same_after_load
+CONTROL (h) bad declaration is no history -> 4: caught (tests failed)
+    first failing test: tests/test_persistence/test_h0134_acceptance.py::test_a_broken_history_or_declaration_is_refused[declaration extra key]
+CONTROL (i) unfinished trials dropped -> 3: caught (tests failed)
+    first failing test: tests/test_persistence/test_h0134_acceptance.py::test_every_shape_answers_the_same_after_load
+BASELINE without patches: exit 0
+9/9 controls caught

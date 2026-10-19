@@ -543,6 +543,10 @@ anchors = ["needs_train_target", "bind_train", "`mase`"]
 disposition = "specified"
 anchors = ["stand_in_columns", "core/category_values.py"]
 
+[proposals."H-0134"]
+disposition = "specified"
+anchors = ["tuning_history.json", "core/tuning_codec.py"]
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 

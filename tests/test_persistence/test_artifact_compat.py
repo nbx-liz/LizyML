@@ -88,11 +88,11 @@ class TestArtifactRoundtrip:
 class TestFormatVersionRejection:
     """Unknown format_version values are rejected on load.
 
-    H-0070: format_version 1 and 2 are both accepted; H-0133 adds 3. Only
-    versions outside the supported set are rejected.
+    H-0070: format_version 1 and 2 are both accepted; H-0133 adds 3 and
+    H-0134 adds 4. Only versions outside the supported set are rejected.
     """
 
-    @pytest.mark.parametrize("bad_version", [0, 4, 99, -1, None])
+    @pytest.mark.parametrize("bad_version", [0, 5, 99, -1, None])
     def test_invalid_format_version_raises(
         self, tmp_path: Path, bad_version: Any
     ) -> None:
@@ -155,6 +155,25 @@ class TestFormatVersionV2AndV3:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from lizyml.persistence import loader
+        from tests.test_persistence._artifact_versions import to_v3_shape
+
+        df = make_regression_df(n=100, seed=0)
+        export_dir = _fit_and_export(
+            make_config("regression", n_estimators=5, n_splits=2), df, tmp_path
+        )
+        to_v3_shape(export_dir)
+        assert Model.load(export_dir) is not None  # the v3 shape is readable
+        monkeypatch.setattr(loader, "_SUPPORTED_FORMAT_VERSIONS", frozenset({1, 2}))
+        with pytest.raises(LizyMLError) as exc_info:
+            Model.load(export_dir)
+        assert exc_info.value.code == ErrorCode.DESERIALIZATION_FAILED
+
+    def test_a_v4_artifact_is_refused_by_a_loader_without_4(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """H-0134 P8: a loader that knows only 1-3 refuses v4 instead of
+        ignoring the tuning history file and showing an empty study."""
+        from lizyml.persistence import loader
 
         df = make_regression_df(n=100, seed=0)
         export_dir = _fit_and_export(
@@ -162,9 +181,9 @@ class TestFormatVersionV2AndV3:
         )
         assert (
             json.loads((export_dir / "metadata.json").read_text())["format_version"]
-            == 3
+            == 4
         )
-        monkeypatch.setattr(loader, "_SUPPORTED_FORMAT_VERSIONS", frozenset({1, 2}))
+        monkeypatch.setattr(loader, "_SUPPORTED_FORMAT_VERSIONS", frozenset({1, 2, 3}))
         with pytest.raises(LizyMLError) as exc_info:
             Model.load(export_dir)
         assert exc_info.value.code == ErrorCode.DESERIALIZATION_FAILED

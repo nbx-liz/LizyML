@@ -29,6 +29,7 @@ from lizyml.core import _smart_values
 from lizyml.core._tuning_validation import admit_smart_dimensions
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.logging import get_logger
+from lizyml.core.tuning_codec import dim_signature, encode_scalar
 from lizyml.core.types.search_dim import CategoricalDim, FloatDim, IntDim
 from lizyml.tuning.lineage import (
     Provenance,
@@ -37,7 +38,6 @@ from lizyml.tuning.lineage import (
     StoredRound,
     merge_routes,
 )
-from lizyml.tuning.lineage_codec import dim_signature, encode_scalar
 from lizyml.tuning.search_space import attach_bounds
 
 if TYPE_CHECKING:

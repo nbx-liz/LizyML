@@ -122,8 +122,8 @@ def test_export_load_keeps_the_per_fold_states(fitted: Model, tmp_path: Path) ->
     loaded = Model.load(_export(fitted, tmp_path))
 
     # The per-fold field was additive (H-0114, no bump); H-0133 raised the
-    # version to 3 for position stand-ins.
-    assert FORMAT_VERSION == 3
+    # version to 3 for position stand-ins and H-0134 to 4 for the history.
+    assert FORMAT_VERSION == 4
     original = fitted._get_fit_state().fit_result.pipeline_state_per_fold
     restored = loaded._get_fit_state().fit_result.pipeline_state_per_fold
     assert original is not None
