@@ -15018,3 +15018,8 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
   - pandas 3 ではこの値が列にできず、母集団から外れていたので、手元の pandas 3 では見えなかった。
   - 対処: ラベルの検査を `core/category_values.py` の `NUMPY_PLAIN_TYPES` に厳密に一致する型だけにした。判断 3 の「ラベルは今の値の集合のまま」の意図どおりで、集合は広げていない。回帰のテスト（`test_export_contract.py` の `_REFUSED` に `np.timedelta64` の Y・M と `np.datetime64` の ns）を足した。
   - `tuple` のラベルは、pandas 2.0 では fit そのものが pandas の例外で失敗する（`export_code` に届かない）。ラベルのテストはこの場合、理由をつけて skip する。
+- **確認の review**（run `h0133-impl-confirm`、`acea369`）は CHANGES_REQUESTED（major 1、minor 1）だった。major は上のラベルの直しに入った欠陥で、停止ルールに従って管理者に報告し、管理者は「直して、もう 1 度確認」を選んだ。
+  - major: ラベルの検査を型の一覧に厳密に一致させたため、H-0120 から正しく受け付けていた `np.float16`・`np.longlong`・`np.ulonglong` まで拒否していた。「ラベルの集合は広げていない」は正しかったが、狭めていた。H-0120 の規則（`.item()` が素の値で元の値と等しい numpy のスカラー）に戻し、`np.datetime64` と `np.timedelta64` だけを型で外した。この 3 型がラベルとして受け付けられ、素の値で書かれることを確かめるテストを足した（特徴量のカテゴリでは V のまま。pandas はこれらを Python の値に直してから encoder に渡す）。
+  - minor: ラベルのテストの skip が、fit の全ての例外を skip にしていた。skip をやめ、pandas が扱えるラベルの組を選ぶようにした。
+    - 原因の実測: pandas 2.0 は、`TargetEncoder.transform` の `Series.map` で tuple をキーにした辞書から MultiIndex を作り、`()` を含むと失敗する。これは tuple のラベルの既存の制限で、H-0133 の範囲の外である。
+    - 選び方: 同じ操作（辞書による `map`）ができる組を選ぶ。fit の中の例外は、全て失敗として扱う。

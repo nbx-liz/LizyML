@@ -72,6 +72,30 @@ def test_accepted_values_become_plain_values(name: str) -> None:
     assert plain == value
 
 
+#: Numpy scalars the label check accepted since H-0120 and still accepts: H-0133
+#: refused only datetime64 / timedelta64 (confirmation review). Labels only:
+#: feature categories take H-0133's closed set, and pandas turns these into
+#: Python values before the encoder learns them.
+_ACCEPTED_AS_LABELS: dict[str, tuple[Any, type]] = {
+    "np.float16": (np.float16(1), float),
+    "np.longlong": (np.longlong(1), int),
+    "np.ulonglong": (np.ulonglong(1), int),
+}
+
+
+@pytest.mark.parametrize("name", sorted(_ACCEPTED_AS_LABELS))
+def test_other_numpy_scalars_stay_accepted_as_labels(
+    name: str, _fitted: Model, tmp_path: Path
+) -> None:
+    value, expected_type = _ACCEPTED_AS_LABELS[name]
+    plain = plain_value(value, where="target labels")
+    assert type(plain) is expected_type and plain == value
+    out = tmp_path / "gen"
+    _generate(_fitted, out, "target-label", value)
+    config = json.loads((out / "config.json").read_text(encoding="utf-8"))
+    assert config["target_encoder"]["classes"] == [plain]
+
+
 @pytest.mark.parametrize("name", sorted(_REFUSED))
 def test_refused_values_raise(name: str) -> None:
     with pytest.raises(LizyMLError) as info:

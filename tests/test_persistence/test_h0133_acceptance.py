@@ -433,8 +433,28 @@ def _label_cases() -> dict[str, list[Any]]:
         usable = [
             v for v in dict.fromkeys(samples) if _pandas_cannot_build([v]) is None
         ]
-        cases[kind.__name__] = usable[:2]
+        cases[kind.__name__] = next(
+            [a, b]
+            for i, a in enumerate(usable)
+            for b in usable[i + 1 :]
+            if _pandas_can_index([a, b])
+        )
     return cases
+
+
+def _pandas_can_index(labels: list[Any]) -> bool:
+    """Whether pandas can key a mapping by these labels, as
+    ``TargetEncoder.transform`` does (``Series.map`` of a dict). pandas 2.0
+    builds a MultiIndex from tuple keys and raises on ``()``; that is an
+    existing limit of tuple labels, not what this test is about, so such
+    pairs are not chosen."""
+    try:
+        pd.Series(["x"] * len(labels), dtype=object).map(
+            {v: i for i, v in enumerate(labels)}
+        )
+    except ValueError:
+        return False
+    return True
 
 
 LABEL_CASES = _label_cases()
@@ -449,13 +469,7 @@ def test_target_labels_keep_the_plain_set(case: str, tmp_path: Path) -> None:
     df = _frame(["a", "b"])
     df["target"] = pd.Series([labels[int(v)] for v in df["target"]], dtype=object)
     model = Model(make_config("binary", n_estimators=8, n_splits=2))
-    try:
-        model.fit(data=df)
-    except Exception as exc:  # noqa: BLE001 -- fit is not the subject here
-        # Some label types cannot be fitted at all (pandas 2.0 raises on tuple
-        # labels before LizyML's export is reached); export_code never sees
-        # them, so the case does not exist for this test.
-        pytest.skip(f"fit cannot use {case} labels: {type(exc).__name__}: {exc}")
+    model.fit(data=df)
     learned = model._get_fit_state().fit_result.target_encoder.classes_
     if all(type(v) in _PLAIN_LABEL_TYPES for v in learned):
         model.export_code(tmp_path / "gen")

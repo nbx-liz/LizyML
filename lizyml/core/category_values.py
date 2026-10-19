@@ -54,10 +54,6 @@ _NUMPY_PLAIN: tuple[type, ...] = (
     np.float64,
     np.str_,
 )
-#: Public view of the numpy scalar types written as their ``.item()``; the
-#: label check of ``export_code`` admits exactly these (an ``np.timedelta64``
-#: in Y / M units has an int ``.item()`` that numpy calls equal to it).
-NUMPY_PLAIN_TYPES: tuple[type, ...] = _NUMPY_PLAIN
 _NUMPY_COMPLEX: tuple[type, ...] = (np.complex64, np.complex128)
 _CONTAINERS: tuple[type, ...] = (tuple, frozenset)
 
