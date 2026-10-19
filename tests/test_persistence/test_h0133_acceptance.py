@@ -73,7 +73,9 @@ def _equal_with_another_hash(a: Any, b: Any) -> bool:
     instant, but PEP 495 hashes a repeated wall time as ``fold=0``, so the two
     hash differently. pandas, which dedups through a hash table, then keeps
     both as categories; after a round trip it may or may not see them as
-    duplicates, and CI failed on it intermittently (H-0134 PR #371). Values
+    duplicates, and CI failed on it intermittently (H-0134 PR #371). How the
+    library should treat such a column is open in #372; until it is decided,
+    no case here holds one, and the behaviour is not pinned by a test. Values
     that are equal *and* hash alike (the deliberate fold pairs) are deduped
     consistently and are not such a pair.
 
@@ -491,7 +493,9 @@ def _label_cases() -> dict[str, list[Any]]:
     for kind, samples in SAMPLES.items():
         # pandas holds some values in no Series (timedelta64 in Y / M units).
         usable = [
-            v for v in dict.fromkeys(samples) if _pandas_cannot_build([v]) is None
+            v
+            for v in _distinct_by_equality(samples)
+            if _pandas_cannot_build([v]) is None
         ]
         cases[_type_id(kind)] = next(
             [a, b]
