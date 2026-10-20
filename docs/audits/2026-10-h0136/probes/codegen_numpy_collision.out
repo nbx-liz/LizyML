@@ -1,0 +1,23 @@
+[run-exclusive] h0136-codegen starting; load was 1.05
+run-heavy: pgid=11 (stop with: kill -- -11)
+pandas=3.0.1 numpy=2.4.2 control=False
+fit: ok
+predict: ok
+export_code: ok
+generated transform: ValueError: Categorical categories must be unique
+pandas=3.0.1 numpy=2.4.2 control=True
+fit: ok
+predict: ok
+export_code: ok
+generated transform: ok
+pandas=2.3.3 numpy=2.5.4 control=False
+fit: ok
+predict: ok
+export_code: ok
+generated transform: ValueError: Categorical categories must be unique
+pandas=2.3.3 numpy=2.5.4 control=True
+fit: ok
+predict: ok
+export_code: ok
+generated transform: ok
+[run-exclusive] h0136-codegen finished in 2s, exit 0

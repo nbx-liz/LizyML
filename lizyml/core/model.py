@@ -100,7 +100,10 @@ from lizyml.metrics.registry import (
     get_metrics_for_task,
     parse_metric_entries,
 )
-from lizyml.persistence.exporter import warn_unsaveable_category_values
+from lizyml.persistence.exporter import (
+    warn_saved_state_changes,
+    warn_unsaveable_category_values,
+)
 from lizyml.training.cv_trainer import CVTrainer
 from lizyml.training.inner_valid import BaseInnerValidStrategy
 from lizyml.training.refit_trainer import RefitResult, RefitTrainer
@@ -368,6 +371,9 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         self._refit_result = refit_result
         self._fit_result = fit_result
         _log.info("event='fit.done' run_id=%s", run_id)
+        # H-0136 P4: the states export will judge now exist; after the commit,
+        # so a warning raised as an error leaves a complete fit behind.
+        warn_saved_state_changes(fit_result, refit_result, declared_at_fit)
         # Return a selective deep copy (FitResult.__deepcopy__): mutating the
         # primary return path must not corrupt internal state or a later
         # export() — the same H-0082 defense as the ``fit_result`` property

@@ -98,7 +98,9 @@ def _distinct_by_equality(samples: Any) -> list[Any]:
     ``dict.fromkeys`` drops values that are equal and hash alike; this also
     drops a value equal to an earlier one with another hash (see
     :func:`_equal_with_another_hash`). The pytz ``Timestamp`` dropped from the
-    ``Timestamp`` column keeps its own case, ``Timestamp pytz fold``.
+    ``Timestamp`` column has its own case in ``test_h0136_acceptance.py``
+    (``test_the_h0133_pytz_fold_case_is_refused_and_fit_warns``), where all
+    three surfaces refuse it.
     """
     kept: list[Any] = []
     for value in dict.fromkeys(samples):
@@ -153,15 +155,11 @@ def _derived_cases() -> dict[str, list[Any]]:
     ]
     cases["tuple nested to the limit"] = [_nested(MAX_DEPTH, 1), _nested(MAX_DEPTH, 2)]
     cases["mixed"] = ["a", b"b", decimal.Decimal("3"), (1, 2), frozenset({4})]
-    try:  # pandas 2.x (the dependency floor) makes pytz zones from string timezones
-        import pytz
-    except ImportError:  # pandas 3 does not depend on pytz
-        return cases
-    ny = pytz.timezone("America/New_York")
-    cases["Timestamp pytz fold"] = [
-        pd.Timestamp(ny.localize(dt.datetime(2024, 11, 3, 1, 30), is_dst=d))
-        for d in (True, False)
-    ]
+    # The "Timestamp pytz fold" case (both pytz occurrences of 2024-11-03
+    # 01:30 America/New_York) moved to test_h0136_acceptance.py: a saved model
+    # of it does not answer like the fitted one, so all three surfaces refuse
+    # it since H-0136. It passed here only because the affected value was the
+    # mode (#379).
     return cases
 
 

@@ -1,4 +1,9 @@
-"""BaseFeaturePipeline — abstract contract for all feature pipelines."""
+"""BaseFeaturePipeline — abstract contract for all feature pipelines.
+
+This interface module also carries the comparison of a pipeline state's
+encoder with a serialized copy of it (H-0136), so ``persistence`` and
+``codegen`` reach it without importing the encoder module (BLUEPRINT §2.1).
+"""
 
 from __future__ import annotations
 
@@ -6,6 +11,13 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 import pandas as pd
+
+from lizyml.features.encoders.state_changes import (
+    CategoryStateChange,
+    category_state_changes,
+)
+
+__all__ = ["BaseFeaturePipeline", "CategoryStateChange", "category_state_changes"]
 
 
 class BaseFeaturePipeline(ABC):

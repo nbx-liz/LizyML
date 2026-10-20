@@ -7,6 +7,31 @@ release from v0.5.0 onward.
 
 ## v0.20.0 (unreleased)
 
+### Models a saved copy would answer differently for are refused (H-0136)
+
+`Model.export`, `lizyml.persistence.export` and `export_code` now run one
+check before writing anything. Each saved category state is passed through
+joblib and through the tagged JSON `export_code` writes. The model is refused
+with `SERIALIZATION_FAILED` when the learned categories, as one batch in the
+state's order, would get other codes or become unseen, or an unseen row the
+mode replaces would get another code. The context has `serializer` and `kind`. `fit` warns about such a
+column once the fit has finished.
+
+- **Refused now, saved before:** a column holding `np.uint64(4)` beside
+  `np.timedelta64(4, 'M')` (and a few other NumPy pairs whose equality is not
+  transitive), when the JSON copy changes the answer for the categories in the
+  order the state holds them. v0.19.0's `Model.export` saved such a model;
+  artifacts saved then still load and predict, but exporting the loaded model
+  again is refused. v0.19.0's `export_code` wrote a project whose `predict.py`
+  failed for it.
+- **Refused, never released as accepted:** a pytz `Timestamp` at the repeated
+  hour of a daylight-saving change (pickle restores it with another `fold`).
+  v0.19.0 refused every `Timestamp` category at `Model.export`.
+- **What to do:** convert the column's values to `str` (or `int`, `float`,
+  `bool`) before `fit`.
+- **Not covered:** a value the fitted model itself treats as unseen, and two
+  in-memory defects found on the way (#379, #380).
+
 ### `Model.load` reads only the files `checksums` lists (H-0135)
 
 `metadata.json`'s `checksums` now decides what `Model.load` (and
@@ -91,7 +116,8 @@ so the predictions, are unchanged.
   wrongly; go through `Model.predict`, which applies the pipeline. A column
   whose values are all `str`, `int`, `float`, `bool` (or numpy scalars of
   these), or tuples of them, is not renamed.
-- **`export_code` accepts the same feature-category values as `Model.export`.**
+- **`export_code` accepts the same feature-category values as `Model.export`**
+  (since H-0136 through one shared check; see the H-0136 section above).
   `pipeline_state.json` and `config.json` write values other than `str`, `int`,
   `float` and `bool` as tagged JSON objects (`{"$lizyml": ..., ...}`) that the
   generated scripts decode; tuples are no longer refused. Target labels keep

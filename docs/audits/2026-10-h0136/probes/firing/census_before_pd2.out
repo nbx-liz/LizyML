@@ -1,0 +1,13 @@
+records=751
+Model.export       calls=  197 fires=   2 breaks_already_refused= 11 rule_error=  0 original_fails=  0 today={'ok': 186, 'SERIALIZATION_FAILED': 11}
+    FIRES tests/test_persistence/test_h0133_acceptance.py::test_every_admitted_type_saves_and_predicts_the_same[Timestamp  [('fold 1', 'json', 'LizyMLError'), ('fold 2', 'json', 'LizyMLError'), ('refit', 'json', 'LizyMLError')]
+    FIRES tests/test_persistence/test_h0133_acceptance.py::test_the_three_surfaces_accept_every_admitted_column[Timestamp  [('fold 1', 'json', 'LizyMLError'), ('fold 2', 'json', 'LizyMLError'), ('refit', 'json', 'LizyMLError')]
+persistence.export calls=  101 fires=   1 breaks_already_refused= 11 rule_error=  0 original_fails=  0 today={'ok': 90, 'SERIALIZATION_FAILED': 11}
+    FIRES tests/test_persistence/test_h0133_acceptance.py::test_the_three_surfaces_accept_every_admitted_column[Timestamp  [('fold 1', 'json', 'LizyMLError'), ('fold 2', 'json', 'LizyMLError'), ('refit', 'json', 'LizyMLError')]
+export_code        calls=  221 fires=   2 breaks_already_refused= 11 rule_error=  0 original_fails=  0 today={'ok': 195, 'SERIALIZATION_FAILED': 26}
+    FIRES tests/test_persistence/test_h0133_acceptance.py::test_every_admitted_type_saves_and_predicts_the_same[Timestamp  [('fold 1', 'json', 'LizyMLError'), ('fold 2', 'json', 'LizyMLError'), ('refit', 'json', 'LizyMLError')]
+    FIRES tests/test_persistence/test_h0133_acceptance.py::test_the_three_surfaces_accept_every_admitted_column[Timestamp  [('fold 1', 'json', 'LizyMLError'), ('fold 2', 'json', 'LizyMLError'), ('refit', 'json', 'LizyMLError')]
+    export_code passing today that check_category_values refuses: 0
+fit_warning        calls=  232 fires=   2 breaks_already_refused= 11 rule_error=  0 original_fails=  0 today={'silent': 221, 'warns': 11}
+    FIRES tests/test_persistence/test_h0133_acceptance.py::test_every_admitted_type_saves_and_predicts_the_same[Timestamp  [('fit', 'json', 'LizyMLError')]
+    FIRES tests/test_persistence/test_h0133_acceptance.py::test_the_three_surfaces_accept_every_admitted_column[Timestamp  [('fit', 'json', 'LizyMLError')]
