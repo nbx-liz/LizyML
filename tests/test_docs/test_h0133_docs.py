@@ -24,7 +24,7 @@ def _read(name: str) -> str:
 
 
 def _unreleased(changelog: str) -> str:
-    start = changelog.index("## [Unreleased]")
+    start = changelog.index("## [0.20.0]")
     return changelog[start : changelog.index("\n## [", start + 1)]
 
 

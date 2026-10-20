@@ -5,7 +5,7 @@ release from v0.5.0 onward.
 
 ---
 
-## v0.20.0 (unreleased)
+## v0.20.0
 
 ### Models a saved copy would answer differently for are refused (H-0136)
 
