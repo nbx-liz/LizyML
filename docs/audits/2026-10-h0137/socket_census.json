@@ -1,10 +1,10 @@
 {
- "tutorial_binary_lgbm.ipynb": "SOCKLOG []\nREADS [\"credit-g.csv.gz\"]",
- "tutorial_calibration.ipynb": "SOCKLOG []\nREADS []",
- "tutorial_codegen_export.ipynb": "SOCKLOG []\nREADS []",
- "tutorial_multiclass_lgbm.ipynb": "SOCKLOG []\nREADS [\"vehicle.csv.gz\"]",
- "tutorial_regression_lgbm.ipynb": "SOCKLOG []\nREADS [\"diamonds.csv.gz\"]",
- "tutorial_regression_tuning_lgbm.ipynb": "SOCKLOG []\nREADS [\"diamonds.csv.gz\"]",
- "tutorial_shap_explanations.ipynb": "SOCKLOG []\nREADS []",
- "tutorial_time_series_lgbm.ipynb": "SOCKLOG []\nREADS [\"jena_climate_2016_tail.csv.gz\"]"
+ "tutorial_binary_lgbm.ipynb": "SOCKLOG []\nREADS [\"credit-g.csv.gz\"]\nAUDIT []",
+ "tutorial_calibration.ipynb": "SOCKLOG []\nREADS []\nAUDIT []",
+ "tutorial_codegen_export.ipynb": "SOCKLOG []\nREADS []\nAUDIT []",
+ "tutorial_multiclass_lgbm.ipynb": "SOCKLOG []\nREADS [\"vehicle.csv.gz\"]\nAUDIT []",
+ "tutorial_regression_lgbm.ipynb": "SOCKLOG []\nREADS [\"diamonds.csv.gz\"]\nAUDIT []",
+ "tutorial_regression_tuning_lgbm.ipynb": "SOCKLOG []\nREADS [\"diamonds.csv.gz\"]\nAUDIT []",
+ "tutorial_shap_explanations.ipynb": "SOCKLOG []\nREADS []\nAUDIT []",
+ "tutorial_time_series_lgbm.ipynb": "SOCKLOG []\nREADS [\"jena_climate_2016_tail.csv.gz\"]\nAUDIT []"
 }

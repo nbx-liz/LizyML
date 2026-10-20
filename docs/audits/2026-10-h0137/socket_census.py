@@ -3,7 +3,7 @@
     uv run python docs/audits/2026-10-h0137/socket_census.py docs/audits/2026-10-h0137/socket_census.json
 
 Measurement for H-0137: does anything in the kernel reach a Python-level
-socket entry point (the fourteen that tests/test_notebooks/network_guard.py
+socket entry point (the fifteen that tests/test_notebooks/network_guard.py
 refuses), and which files under data/ does each notebook open? The cell only
 records; it refuses nothing. (ZMQ, the kernel's own channel, is C-level and is
 not expected to show.) Each notebook runs in a fresh copy of notebooks/.
@@ -26,13 +26,16 @@ import builtins as _b, io as _io, os as _os, socket as _s
 _SOCKLOG = []
 _READS = set()
 _DATA = _os.path.abspath("data")
+import sys as _sys
+_AUDIT = set()  # every socket.* audit event, _socket-level calls included
+_sys.addaudithook(lambda e, a: _AUDIT.add(e) if e.startswith("socket.") else None)
 def _wrap(owner, name):
     orig = getattr(owner, name)
     def f(*a, **k):
         _SOCKLOG.append((name, repr(a[:3])[:200]))
         return orig(*a, **k)
     setattr(owner, name, f)
-for _n in ("connect", "connect_ex", "sendto", "sendmsg"):
+for _n in ("bind", "connect", "connect_ex", "sendto", "sendmsg"):
     _wrap(_s.socket, _n)
 for _n in ("create_connection", "getaddrinfo", "getfqdn", "gethostbyname", "gethostbyname_ex",
            "gethostbyaddr", "getnameinfo", "getprotobyname", "getservbyname", "getservbyport"):
@@ -50,7 +53,8 @@ _b.open = _io.open = _recording_open
 '''
 END_CELL = (
     "import json as _j; "
-    "print('SOCKLOG ' + _j.dumps(_SOCKLOG)); print('READS ' + _j.dumps(sorted(_READS)))"
+    "print('SOCKLOG ' + _j.dumps(_SOCKLOG)); print('READS ' + _j.dumps(sorted(_READS))); "
+    "print('AUDIT ' + _j.dumps(sorted(_AUDIT)))"
 )
 
 results = {}

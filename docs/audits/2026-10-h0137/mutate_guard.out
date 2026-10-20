@@ -1,24 +1,30 @@
 == M1 no refusal
-18 failed, 16 passed, 30 deselected in 0.86s
+21 failed, 35 passed, 30 deselected in 0.81s
 == M2 network check never fails
-17 failed, 17 passed, 30 deselected in 1.12s
+20 failed, 36 passed, 30 deselected in 0.65s
 == M3 no record
-17 failed, 17 passed, 30 deselected in 0.65s
+20 failed, 36 passed, 30 deselected in 0.74s
 == M4 uninstall leaves inherited patch
-1 failed, 33 passed, 30 deselected in 0.61s
+1 failed, 55 passed, 30 deselected in 0.63s
 == M5 sendmsg not refused
-3 failed, 31 passed, 30 deselected in 0.58s
+6 failed, 50 passed, 30 deselected in 0.61s
 == M6 getnameinfo not refused
-3 failed, 31 passed, 30 deselected in 0.63s
+3 failed, 53 passed, 30 deselected in 0.58s
 == M7 reads not recorded
-1 failed, 33 passed, 30 deselected in 0.66s
+1 failed, 55 passed, 30 deselected in 0.58s
 == M8 reads never compared
-2 failed, 32 passed, 30 deselected in 0.57s
+2 failed, 54 passed, 30 deselected in 0.57s
 == M9 getfqdn not refused (round 2 finding)
-3 failed, 31 passed, 30 deselected in 0.61s
+3 failed, 53 passed, 30 deselected in 0.61s
+== M12 bind not refused (round 3 finding)
+6 failed, 50 passed, 30 deselected in 0.61s
 == M10 write opens recorded as reads (round 2 finding)
-8 failed, 26 passed, 30 deselected in 0.65s
+8 failed, 48 passed, 30 deselected in 0.62s
 == M11 a public method left unclassified
-1 failed, 33 passed, 30 deselected in 0.59s
+1 failed, 55 passed, 30 deselected in 0.62s
+== M13 bind classified as not refused (the round-3 shape)
+5 failed, 51 passed, 30 deselected in 0.65s
+== M14 a local function moved to the refused side
+3 failed, 53 passed, 30 deselected in 0.58s
 == M0 original
-34 passed, 30 deselected in 0.64s
+56 passed, 30 deselected in 0.60s

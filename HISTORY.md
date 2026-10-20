@@ -15932,8 +15932,8 @@ Codex の実装レビュー（run `h0136-impl-review`、`6dce827`）は CHANGES_
 - **Jena の切り出し**: notebook は 10 分ごとの値を 1 時間ごとに平均し（`resample("1h").mean().dropna()`）、その最後の 5000 行だけを使う（`tail(5000)`）。1 時間の区間はその時刻以降の行だけでできるので、最後の 5000 区間の最初の時刻（2016-06-03 16:00:00）以降の元の行を全て残せば、同じ区間ができる。同梱したファイルを 1 時間ごとにすると、ちょうど 5000 行になる。
 - **notebook の結果が変わらないこと**: 4 つのデータそれぞれで、notebook が作るデータフレーム（目的変数を作り、列名を直した後）を、今の取得元から作ったものと、同梱したファイルから新しいセルで作ったものとで比べた。どれも `pandas.testing.assert_frame_equal` が dtype も含めて通った（pandas 3.0.1、`rebuild_run1.out`・`rebuild_run2.out`。比較は `scripts/vendor_notebook_data.py` の中にある）。学習に入るデータが同じなので、表示される学習の結果は変わらない。変わる表示は、Jena の元のデータの行数（`Raw shape`）と、1 時間ごとにした後の行数と期間（`Hourly shape`・`Date range`）だけである。
 - **作り直せること**: `scripts/vendor_notebook_data.py` を 2 回、別の出力先に走らせた。2 回とも、4 ファイルの sha256 が manifest と同じだった（gzip の時刻を 0 に固定している。`rebuild_run1.out`・`rebuild_run2.out`）。
-- **カーネルの中の通信と、読むファイル**: 8 本全てを、ガードが拒否する 14 個の入口（下の 4.）を記録だけする（拒否しない）先頭のセルを足して実行した（`socket_census.py`・`.json`）。このセルは、`data/` から読み込みで開いたファイルも、ガードと同じ規則で記録する。
-  - データを同梱した後の notebook では、8 本とも、入口に届いた呼び出しは 0 件だった。
+- **カーネルの中の通信と、読むファイル**: 8 本全てを、ガードが拒否する 15 個の入口（下の 4.）を記録だけする（拒否しない）先頭のセルを足して実行した（`socket_census.py`・`.json`）。このセルは、`data/` から読み込みで開いたファイルも、ガードと同じ規則で記録する。
+  - データを同梱した後の notebook では、8 本とも、入口に届いた呼び出しは 0 件だった。同じセルで記録した `socket.*` の監査イベント（`_socket` を直接呼ぶものや、ソケットを作る `socket.__new__` も含む）も 0 件で、カーネルの中ではソケットを 1 つも作っていない。
   - 各 notebook が `data/` から開いたファイルは、manifest がその notebook に記録したものとちょうど同じだった。データを読まない 3 本は 0 件だった。
   - 陽性対照: 同じ記録で、今の取得（`fetch_openml("credit-g")` を空の cache で実行）は 30 件、`pd.read_csv` で diamonds の URL を読むと 3 件を記録した（`socket_census_control.out`）。記録の仕組みは、ライブラリの通信を捕まえている。
   - カーネルとの通信（ZMQ）は C の層で行われるので、この入口を通らない。0 件はこれと矛盾しない。`AF_UNIX` の `connect` も 0 件なので、除外せずに拒否しても、通信をしない notebook は壊れない。
@@ -15955,12 +15955,15 @@ Codex の実装レビュー（run `h0136-impl-review`、`6dce827`）は CHANGES_
    manifest は同梱したファイルと同じディレクトリにあり、sdist にも一緒に入る。
 3. **作り直すスクリプト**: `scripts/vendor_notebook_data.py` は、取得元からファイルを作り直し、上の比較を行う。通信が必要なので CI では走らせない。作り方の記録である。
 4. **通信の拒否と、読むファイルの照合**: 新しい `tests/test_notebooks/network_guard.py` を、2 つの層が notebook の先頭のセルでカーネルに読み込む。
-   - 拒否する入口は、表から決める。`network_guard.py` は、`socket` の全ての公開関数（35 個）と `socket.socket` の全ての公開メソッド（33 個）を、拒否するものと拒否しないものに分け、それぞれ理由を書いて持つ（CPython 3.10〜3.13 の Linux で、名前の集合は同じだった）。表に無い公開の名前があればテストが落ちるので、Python が名前を足しても一覧は閉じたままになる。拒否する 14 個を、呼び出しを記録して `NetworkRefused`（`OSError` の派生）を出すものに置き換える。
-     - `socket.socket` の、宛先のアドレスを取るメソッド: `connect`、`connect_ex`、`sendto`、`sendmsg`
+   - 拒否する入口は、表から決める。`network_guard.py` は、`socket` の全ての公開関数（35 個）と `socket.socket` の全ての公開メソッド（33 個）を、拒否するものと拒否しないものに分け、それぞれ理由を書いて持つ（CPython 3.10〜3.13 の Linux で、名前の集合は同じだった）。表に無い公開の名前があればテストが落ちるので、Python が名前を足しても一覧は閉じたままになる。拒否する 15 個を、呼び出しを記録して `NetworkRefused`（`OSError` の派生）を出すものに置き換える。
+     - `socket.socket` の、アドレスを引数に取るメソッド全て: `bind`、`connect`、`connect_ex`、`sendto`、`sendmsg`。規則は機械的で、CPython の docstring の 1 行目の呼び出し形に `address` の引数があるものを拒否する。アドレスにホスト名があれば、C のコードがその中で名前を解決するからである（`bind` も同じ。監査イベントより前に解決するので、監査のフックでは捕まえられない。`socket_audit_events.py`・`.out`）。この規則と表が一致することをテストで確かめる。
      - `socket` の、名前やアドレスを解決する関数: `create_connection`、`getaddrinfo`、`getfqdn`、`gethostbyaddr`、`gethostbyname`、`gethostbyname_ex`、`getnameinfo`
      - `socket` の、システムの名前データベースを引く関数（名前サービスが遠隔で答えることがある）: `getprotobyname`、`getservbyname`、`getservbyport`
 
-     拒否しないものは、ローカルの端点を作るもの（`bind`・`listen`・`accept`・`create_server`）、つながったソケットを使うもの（`send`・`recv` など。つなぐには拒否する入口を通る）、値の変換とローカルの状態だけを扱うものである。`send_fds` は `sendmsg` を通るので、そこで拒否される。
+     拒否しないメソッドは、`bind` したソケットで待つもの（`listen`・`accept`）、つながったソケットを使うもの（`send`・`recv` など。つなぐには拒否する入口を通る）、ローカルの状態だけを扱うものである。拒否しない関数は、テストで次のどれか 1 つに当てはめる（当てはまらない名前があれば落ちる）。
+     - ガードの下で実際に呼び、拒否されず、名前を引く監査イベント（`socket.getaddrinfo`・`gethostbyname`・`gethostbyaddr`・`getnameinfo`・`getservbyname`・`getservbyport`）も出ないことを確かめるもの（値の変換、既定の timeout、自分のホスト名、インターフェースの表、IPv6 の対応の判定。17 個）
+     - 拒否するメソッドを通ることを、ガードの下で呼んで確かめるもの（`create_server` は `bind`、`send_fds` は `sendmsg`）
+     - 呼ばない理由を書いたもの（ファイル記述子を扱う `fromfd`・`dup`・`close`、権限が要る `sethostname`、AF_UNIX の組を作る `socketpair`、渡されたソケットで受けるだけの `recv_fds`）
 
      アドレスの種類やホストで除外するものは置かない（`AF_UNIX` と loopback も拒否する）。測定で 0 件だったので、条件で通す仕組みは要らない。
    - `open`（`builtins.open` と `io.open`。`pathlib` と gzip もこれを通る）を包み、作業ディレクトリの下の `data/` のファイルを読み込みで開いたときに、その名前を記録する。記録するのは、開くのに成功し、mode に `w`・`a`・`x`・`+` のどれも無い場合だけである。失敗した `open` と、書き込みの `open` は読んだことにしない。
@@ -16007,7 +16010,8 @@ Codex の実装レビュー（run `h0136-impl-review`、`6dce827`）は CHANGES_
 
 1. 8 本全てが、ガードを入れた 2 つの層（index の実行と slow な実行テスト）で通る。どちらも、各 notebook が manifest の記録どおりのファイルを読んだことを確かめる（CI の `Notebook index` の 8 job と gate）。
 2. 陽性対照（どれも失敗し、失敗の文に `H-0137` の文言が入る）:
-   - 4. の 14 個の入口を、それぞれ直接呼ぶ（入口ごとに、その入口で記録されたことも確かめる）。呼ぶ表が拒否の一覧とちょうど同じであること、`socket` と `socket.socket` の全ての公開の名前が分類の表にあること（拒否と非拒否が重ならないこと）もテストする。ほかに `urllib.request.urlopen` と、`AF_UNIX` のパスへの `connect`。
+   - 4. の 15 個の入口を、それぞれ直接呼ぶ（入口ごとに、その入口で記録されたことも確かめる。`bind` はホスト名で呼ぶ）。呼ぶ表が拒否の一覧とちょうど同じであること、`socket` と `socket.socket` の全ての公開の名前が分類の表にあること（拒否と非拒否が重ならないこと）もテストする。ほかに `urllib.request.urlopen`、`AF_UNIX` のパスへの `connect`、拒否するメソッドを通る `create_server`・`send_fds`（例外の文は包み直されるので、記録と最後のセルの検査で確かめる）。
+   - 分類が意味として正しいこと: メソッドは「docstring の呼び出し形に `address` がある」ことと拒否の表がちょうど一致する。拒否しない関数は、4. の 3 つの扱いのちょうど 1 つに当てはまり、ガードの下で呼ぶ 17 個は、拒否されず、名前を引く監査イベントも出さない。
    - 例外を捕まえて進むセル（最後のセルで落ちる）。
    - `raises-exception` のタグのセルで通信するもの（実際のカーネル、slow）。
    - 記録に無い `data/` のファイルを読む notebook と、記録したファイルを読まない notebook（実際のカーネル、slow）。
@@ -16015,11 +16019,11 @@ Codex の実装レビュー（run `h0136-impl-review`、`6dce827`）は CHANGES_
    陰性対照: 通信をせず、記録どおりのファイルを読む同じ形の notebook は通る。
 
    読み込みの記録: 失敗した `open`（`x` で既にあるファイル、無いファイル）と、書き込みの mode（`w`・`wb`・`a`・`ab`・`x`・`r+`・`rb+`・`w+b`。位置引数とキーワードの両方）は、読んだことにならない。
-3. ガードを外す（`uninstall`）と、14 個の入口と `open` が元に戻る。比べる相手は `_socket` と `_io` の元の実装である（前のテストが戻し損ねた状態を基準にしないため）。
+3. ガードを外す（`uninstall`）と、15 個の入口と `open` が元に戻る。比べる相手は `_socket` と `_io` の元の実装である（前のテストが戻し損ねた状態を基準にしないため）。
 4. 上の 6. のデータの検査が通る。次のどれでも落ちる: ファイルのバイトを変える、記録に無いファイルを足す、記録の項目を消す、記録したファイルを消す、`notebooks` に無い notebook を書く、2. の各欄を空にする・消す（欄ごとに確かめる）。
 5. `network_markers.py`、`NETWORK_ERROR_MARKERS`、`run_with_retries`、`Attempt`、`ATTEMPTS`、slow な実行テストの skip が、リポジトリ（`docs/audits/` と HISTORY.md の記録を除く）に残っていない。
 6. 学習の結果が変わらないことは、上の実測（データフレームの一致）で示す。`scripts/vendor_notebook_data.py` を走らせれば、誰でも確かめ直せる。
-7. ガードを壊した版（通信を拒否しない、記録しない、確かめない、入口を 1 つ外す（`sendmsg`・`getnameinfo`・`getfqdn`）、読んだファイルを記録しない・比べない、書き込みの `open` も読んだことにする、公開の名前を分類から外す、`uninstall` が戻さない）は、どれも 2. と 3. のテストで落ちる（`mutate_guard.sh`・`.out`）。
+7. ガードを壊した版（通信を拒否しない、記録しない、確かめない、入口を 1 つ外す（`sendmsg`・`getnameinfo`・`getfqdn`・`bind`）、`bind` を拒否しない側に分類する、ローカルの関数を拒否する側に分類する、読んだファイルを記録しない・比べない、書き込みの `open` も読んだことにする、公開の名前を分類から外す、`uninstall` が戻さない）は、どれも 2. と 3. のテストで落ちる（`mutate_guard.sh`・`.out`、14 個）。
 
 ### Proposal レビュー round 1（2026-10-21）
 
@@ -16040,3 +16044,13 @@ Codex の実装レビュー（run `h0136-impl-review`、`6dce827`）は CHANGES_
 - **対応**（上の本文を直した）:
   1. 読み込みの記録が、`open` の成否も mode も見ていなかった。失敗した `open` や書き込みの `open` でも「読んだ」になり、検査を素通りできた（DC1）。→ 開くのに成功し、mode に `w`・`a`・`x`・`+` が無いときだけ記録する。失敗と書き込みの各 mode のテストを足した。
   2. 「一覧は閉じている」と書いたのに、名前を解決する公開関数 `socket.getfqdn` が抜けていた。→ 一覧を手で挙げるのをやめ、`socket` と `socket.socket` の全ての公開の名前を理由つきで分類した表から決める。表に無い名前があればテストが落ちる。拒否するのは 14 個になった（`getfqdn` と、名前データベースを引く 3 個を足した）。
+
+### Proposal レビュー round 3（2026-10-21）
+
+- **monitor**: round 3 の前に、runner の relational monitor を走らせた（`29f1a21`、観察した round は 1〜2）。結果は CONVERGING・continue で、disposition は continue。
+- **結果**: round 3（`29f1a21`）は CHANGES_REQUESTED で、major 1 件だった。round 2 の対応で作った分類の表の欠陥で、run の 3 round を使い切った。停止ルールにより管理者に判断を仰ぎ、管理者は「直して通常の run」（新しい 3 round の run）を選んだ。
+- **対応**（上の本文を直した）:
+  1. 表が `bind`（とそれを使う `create_server`）を「ローカルの端点を作るだけ」に分類していた。アドレスにホスト名があれば、C のコードが `bind` の中で名前を解決する。例外を捕まえれば最後のセルも通った（DC1）。表に名前があることは確かめていたが、分類が意味として正しいかは確かめていなかった。→
+     - メソッドの規則を「アドレスを引数に取るものは全て拒否する」にし、`bind` を拒否する側に移した（15 個）。この規則を CPython の docstring から読んで、表と一致することをテストで確かめる。
+     - 拒否しない関数は、ガードの下で呼んで名前を引かないことを確かめる、拒否するメソッドを通ることを確かめる、呼ばない理由を書く、のどれかに全てを当てはめ、テストで確かめる。
+     - 監査のフック（`sys.addaudithook`）で拒否する案も測った。`bind`・`connect`・`sendto`・`sendmsg` は、ホスト名の解決を監査イベントより前に行うので、この案では捕まえられない（`socket_audit_events.out`）。採らなかった。
