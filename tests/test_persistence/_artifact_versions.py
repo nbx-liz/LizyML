@@ -82,6 +82,21 @@ def to_v1_shape(export_dir: Path) -> None:
     meta_path.write_text(json.dumps(meta), encoding="utf-8")
 
 
+def resign(export_dir: Path) -> None:
+    """Record the digest of every file ``checksums`` lists, as it is now on disk.
+
+    For a test that rewrites a payload of a current-format artifact: the
+    loader refuses a format 3-4 artifact without checksums (H-0135 P2), so the
+    test keeps the manifest and re-signs instead of dropping it.
+    """
+    meta_path = export_dir / "metadata.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    files = meta["checksums"]["files"]
+    for name in files:
+        files[name] = hashlib.sha256((export_dir / name).read_bytes()).hexdigest()
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+
+
 def has_v3_fields(export_dir: Path) -> bool:
     """Whether any saved encoder state carries ``stand_in_columns``."""
     return any(
