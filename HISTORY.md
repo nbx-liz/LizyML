@@ -15599,3 +15599,13 @@ Codex の実装レビュー（run `h0135-impl-review`、`1d9d38a`）は CHANGES_
     - 利用者のファイル（`notes.txt`）が残ることを、全ての OS で確かめる。
     - 大文字と小文字だけが違う名前は、区別するファイルシステムでだけ確かめ、ほかでは理由をつけて skip する。
   - 大文字と小文字を区別しないファイルシステムで、利用者が `Analysis_Context.pkl` という名前でファイルを置いた場合、export はそれを自分の `analysis_context.pkl` として消す。その名前は export の持ち物なので、これは仕様どおりである。
+
+### 実装レビュー round 2（2026-10-20）
+
+- **monitor**: round 2 の前に、absolute monitor を 2 つ走らせた。
+  - Claude の新しい context のもの。
+  - runner の monitor（`attempt-r2-monitor-1`。判定した head は `ff506e1`）。
+  - どちらも DELIVERABLE-FOCUSED・continue だった。disposition は continue。
+- **結果**: Codex の実装レビュー round 2（`ff506e1`）は APPROVE で、指摘は minor 1 件だった。
+- **minor の指摘**: `docs/api.md` と `CHANGELOG.md` は、整数でない版と object でない metadata の拒否にも `context["reason"]` があると読めた。実際には、この 2 つは今までの版と metadata のエラーと同じで、`reason` を持たない。
+- **対応**: 文書の方を直した。`api.md`・`CHANGELOG.md`・`migration.md` で、`reason` は `checksums` の拒否とファイルの形の拒否のものだと書いた。コードは変えていない。管理者の方針（1 行の修正でも確かめ直す）により、絞った確認を 1 回走らせる。

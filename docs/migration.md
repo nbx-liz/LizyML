@@ -30,12 +30,14 @@ LizyML load as before.
 - **`checksums` is required from `format_version` 3.** Artifacts of format 1-2
   without it (written before v0.16.0) still load unverified. A format 3 or 4
   artifact whose `checksums` was removed by hand is refused.
-- `LizyMLError(DESERIALIZATION_FAILED)` carries `context["reason"]`:
+- For the refusals above, `LizyMLError(DESERIALIZATION_FAILED)` carries `context["reason"]`:
   `checksums_malformed`, `checksums_algorithm`, `checksums_missing`,
   `required_file_unlisted`, `declared_file_missing` or `not_a_file` (a
   directory or other non-file under a payload's name).
 - **`format_version` must be a JSON integer.** `true` and `2.0` used to pass as
   1 and 2; they are refused now, as is a `metadata.json` that is not an object.
+  These two errors carry no `reason` key, like the other version and metadata
+  errors.
 
 ### Saved artifacts are `format_version` 4 and keep the tuning history (H-0134)
 
