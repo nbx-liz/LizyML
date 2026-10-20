@@ -21,6 +21,7 @@ from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.model import Model
 from lizyml.persistence.exporter import FORMAT_VERSION
 from tests._helpers import make_binary_df, make_config, make_regression_df
+from tests.test_persistence._artifact_versions import resign
 
 
 def _fit_and_export(cfg: dict[str, Any], df: Any, tmp_path: Path) -> Path:
@@ -291,12 +292,10 @@ class TestLegacyCalibrationPath:
             fit_result.oof_raw_scores = None
         joblib.dump(fit_result, fit_pkl, compress=3)
 
-        # Drop the H-0083 checksum so the re-pickled legacy-shaped payload
-        # loads (a pre-H-0083 artifact carries no integrity field).
-        meta_path = export_dir / "metadata.json"
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        meta.pop("checksums", None)
-        meta_path.write_text(json.dumps(meta), encoding="utf-8")
+        # Re-sign the re-pickled payload: a current-format artifact without
+        # checksums is refused (H-0135 P2), and the test is about the
+        # calibration path, not about the integrity field.
+        resign(export_dir)
 
         m2 = Model.load(export_dir)
         X_test = df.drop(columns=["target"]).iloc[:20]

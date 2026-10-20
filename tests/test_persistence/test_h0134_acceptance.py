@@ -409,8 +409,10 @@ def test_a_stale_history_file_is_not_read(
     reused = _copy(artifact, tmp_path / "reused")
     old = _copy(artifact, tmp_path / "old")
     to_v3_shape(old)
-    Model.load(old).export(reused)  # writes "history": null over the old export
     assert (reused / HISTORY_FILE).exists()
+    Model.load(old).export(reused)  # writes "history": null over the old export
+    # H-0135 P6: the re-export removes the earlier export's history file.
+    assert not (reused / HISTORY_FILE).exists()
     assert _meta(reused)["tuning"]["history"] is None
     with pytest.raises(LizyMLError) as info:
         Model.load(reused).tuning_table()

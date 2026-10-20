@@ -323,9 +323,14 @@ class ModelPersistenceMixin:
     def export(self, path: str | Path | None = None) -> Path:
         """Export Model artifacts to a directory.
 
-        Saves ``fit_result.pkl``, ``refit_model.pkl``, ``metadata.json``,
-        and ``analysis_context.pkl`` under *path*.  The saved model can be
-        restored with :meth:`load`, including diagnostic API support.
+        Saves ``fit_result.pkl``, ``refit_model.pkl`` and ``metadata.json``
+        under *path*, with ``analysis_context.pkl`` when the model has its
+        diagnostic data and ``tuning_history.json`` when a tuned model holds
+        its history (a model loaded from an artifact without them has neither).
+        An earlier export's ``analysis_context.pkl`` and
+        ``tuning_history.json`` in *path* are removed first (H-0135). The saved
+        model can be restored with :meth:`load`, including diagnostic API
+        support.
 
         Path resolution (first match wins):
 

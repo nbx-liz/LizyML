@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **`Model.load` reads only the files `metadata.json`'s `checksums` lists** (H-0135, [#373](https://github.com/nbx-liz/LizyML/issues/373), [#374](https://github.com/nbx-liz/LizyML/issues/374)). An unlisted `analysis_context.pkl` left by an earlier export is ignored (logged at INFO), so the diagnostic methods no longer answer with another model's data. `checksums` must be exactly `{"algorithm": "sha256", "files": {...}}` with 64-digit lowercase hex digests and must list `fit_result.pkl` and `refit_model.pkl`; a malformed one (an empty list used to skip verification) is refused with `DESERIALIZATION_FAILED`, as is a format 3-4 artifact without it. Format 1-2 artifacts without checksums load as before. A directory under a payload's name is refused too; `context["reason"]` names each of these refusals. A `format_version` that is not an integer (`true` and `2.0` used to pass as 1 and 2) and a `metadata.json` that is not an object are refused as well, without a `reason` key, like the other version and metadata errors.
+- **Exporting into a directory with an earlier export removes that export's `analysis_context.pkl` and `tuning_history.json` first** (H-0135); other files are kept.
+
 - **Saved artifacts are `format_version` 4** (H-0134). LizyML v0.19.0 and earlier refuse them (`DESERIALIZATION_FAILED`), because they would ignore the tuning history and show an empty table.
 - **A tuned model loaded from an artifact without a history (`format_version` 1-3) raises `MODEL_NOT_FIT` from `tuning_table()`, `tuning_plot()` and `boundary_table()`** (H-0134), with `context["missing"] == "tuning_history"`, instead of returning an empty DataFrame or a figure with no traces. The tuned parameters still load and `fit()` uses them.
 

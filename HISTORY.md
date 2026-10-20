@@ -15374,3 +15374,238 @@ Codex の run `h0134-impl-review` の round 1（`6207df6`）は CHANGES_REQUESTE
   - 確認者の数（種 0〜39 のうち 14 個で失敗、種 42 は両環境で毎回失敗）は、自分で実行して確かめてから書いた。
   - 確認者の報告を、自分で確かめずに一般化して書いたのが原因である。
   - そのほかの文（直す前は pandas 2 で一度も通らない、pandas 3 に pytz は無い、直した後は安定して通る、skip の経路）は、確認者の実測と合っていた。
+
+## H-0135: load が読むファイルを checksums の宣言で決め、宣言の形を閉じる ― 古い analysis_context.pkl を読まない、配列の checksums を拒否する（#373、#374）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-20
+- **決定日**: 2026-10-20
+- **関連**: #373、#374、H-0083、H-0026、H-0134（`_require_v4_checksums` と、宣言だけを読む `tuning_history.json`）、registry のカード D-20261020-001・D-20261020-002
+- **スコープ**:
+  - `lizyml.persistence.load`（公開）と `Model.load` が、`metadata.json` の `checksums` をどう検査し、どのファイルを読むか
+  - `Model.export` と公開の `lizyml.persistence.export` が、同じディレクトリに書き直すときに、前の export の任意のファイルを残すかどうか
+  - `FORMAT_VERSION` は 4 のまま
+
+### 目的（課題）
+
+H-0083 の loader は、`checksums` に載っていないファイルと、`checksums` を持たない成果物を、検査せずに読む（`lizyml/persistence/loader.py:209-250` の `_verify_and_read_pkl`）。これが 2 つの欠陥を生む。
+
+- **#373（DC1）**: `analysis_context.pkl` を持つ成果物の上に、それを持たないモデルを export し直すと、前のファイルが残る。exporter は書かないファイルを消さず（`persistence/exporter.py:397-413`）、新しい `checksums` には載らない。load はファイルがあれば読む（`loader.py:381-383`）ので、前のモデルの `y_true` と `X` が診断 API に答える。
+- **#374（DC1）**: tune していない成果物で `checksums` が配列のとき、空の配列は「`checksums` が無い」として pickle を検査せずに読む（`if not checksums`）。中身のある配列は `AttributeError` を出す（`checksums.get`）。H-0134 は tune 済みの format 4 の成果物だけを `_require_v4_checksums`（`loader.py:58-81`）で閉じ、tune していない成果物は範囲の外とした。
+
+### 管理者の判断（2026-10-20。カード D-20261020-001・D-20261020-002）
+
+- v0.20.0 の前に #372・#373・#374 を直す。#373 と #374 は 1 本の Proposal と PR にし、#372 は次の H-0136 で扱う。
+- Codex の設計の批評（run `h0135-design-critique`、CHANGES_REQUESTED、major 3・minor 1）の後で、次の 4 つを決めた。どれも推奨の案である。
+  1. `checksums` が無い成果物を受け付けるのは format 1・2 だけ。format 3・4 は形の正しい `checksums` を持たなければならない。
+  2. ディレクトリにあるが `checksums` に載っていない `analysis_context.pkl` は読まずに無視し、INFO に記録する。拒否はしない。
+  3. 同じディレクトリに書き直すとき、今回書かない任意のファイル（`analysis_context.pkl` と `tuning_history.json`）を exporter が消す。消すのはこの 2 つの名前だけである。
+  4. 宣言の名前は完全一致で、大文字と小文字を区別する。宣言の名前をパスとして組み立てることはしない。知らない名前は、パスの形のもの（`../x`）も含めて無視する。決まった名前のファイルが symlink でも、今どおり受け付ける。読んだバイト列を digest で確かめてから復元するので安全である。
+
+### 実測（2026-10-20、develop `abae5d9` と census の commit `dfeba81`）
+
+- **H-0083 の版**: H-0083 は v0.16.0 で出た。そのときの `FORMAT_VERSION` は 2 で、v0.19.0 まで 2 だった（CHANGELOG の v0.16.0 の項、`docs/migration.md` の v0.19.0 の項）。format 3（H-0133）と 4（H-0134）を書く exporter は、まだリリースしていない。どちらも必ず `checksums` を書く（`exporter.py:425-428`）。したがって、リリースした成果物で `checksums` を持たないものは、全て format 1・2 である。
+- **load の母集団**: `docs/audits/2026-10-h0135/probes/firing/h0135_load_census.py` は pytest の plugin で、`loader.load` を包み、load が走る前の成果物の状態と、load の結果を記録する。記録するのは、版、`checksums` の形（判断 1・D1 と同じ厳密な判定）、宣言されたファイル、ディレクトリの全ての項目（symlink を含む）である。フルスイートで 449 回の load を記録した（生の記録は `census_before.jsonl`、集計は `summarize.py` と `census_before.out`）。このほかに、`metadata.json` が無いか JSON でないディレクトリの load が 10 回あり、どれも今と同じく拒否される。
+  - 版と `checksums`: 形の正しいもの v1 2・v2 29・v3 19・v4 337、無いもの v1 28・v2 9・v4 13、形の違うもの v4 5。ほかに、版の検査で拒否される版の load がある。
+  - R1（形の違う `checksums` の拒否）: 5 回。全て `test_h0134_acceptance.py` で、今も拒否されている。
+  - R2（format 3 以上で `checksums` が無いものの拒否）: 13 回。今通るのは 11 回で、`test_h0125_load_refuses_non_probability_objective.py` の 9 回、`test_artifact_compat.py::TestLegacyCalibrationPath` の 1 回、`test_checksum_integrity.py::test_legacy_artifact_without_checksums_still_loads` の 1 回である。残る 2 回は `test_export_load_errors.py` の `test_corrupt_fit_result_pkl` と `test_corrupt_analysis_context` で、今は壊れた pickle のために拒否されている。規則の後は、`checksums` が無いことで先に拒否される。
+  - R3（`checksums` があるのに `fit_result.pkl` か `refit_model.pkl` が載っていないものの拒否）: 0 回。
+  - R4（宣言された `analysis_context.pkl` が無いものの拒否）: 5 回で、全て今は通る。`test_persistence.py::TestLegacyArtifactCompat` が、ファイルを消して宣言を残し、「context の無い成果物」を作っている。
+  - 無視（ファイルはあるが宣言されていない `analysis_context.pkl`）: 0 回。#373 の再現にしか現れない。
+  - ディレクトリに symlink がある load: 0 回。
+  - **今は通るのに規則の後で拒否される 16 回は、全て、テストが手で作った、どの LizyML も書かない状態である**: 現在の版のまま `checksums` を外したもの（11 回）と、宣言を残してファイルを消したもの（5 回）。LizyML の exporter が書いた成果物で、規則が変える load は 0 回である。
+
+### 対応方針（提案）
+
+- **P1（#374）**: `checksums` は、無いか、ちょうど `{"algorithm": "sha256", "files": {<str>: <64 桁の小文字の 16 進>}}` かのどちらかである。キーの過不足、`algorithm` の違い、`files` が object でない、名前が文字列でない、digest が 64 桁の小文字の 16 進でないものは、どの版でも `DESERIALIZATION_FAILED` にする。型は厳密に見る（`dict` の subclass や `bool` を通さない）。`_require_v4_checksums` の狭い検査はこれに置き換える。
+- **P2**: `checksums` が無い成果物は format 1・2 だけで受け付け、今どおり検査せずに読む。format 3・4 で無ければ `DESERIALIZATION_FAILED`。
+- **P3**: `checksums` があるとき、`fit_result.pkl` と `refit_model.pkl` は載っていなければならない。今は載っていないと検査せずに読む。
+- **P4（#373）**: `checksums` があるとき、`analysis_context.pkl` は宣言されているときだけ読む。
+  - 宣言されていて、ファイルがある: 1 回読み、digest で確かめてから復元する（今と同じ）。
+  - 宣言されているのに、ファイルが無い: `DESERIALIZATION_FAILED`。
+  - ファイルはあるが、宣言されていない: 読まない。`analysis_context` は `None` になり、診断 API は H-0026 の `MODEL_NOT_FIT` を出す。読まなかったことを、`lizyml.core.logging.get_logger` の logger の INFO に記録する。
+  - `checksums` が無い（format 1・2）: ファイルがあれば読む（今と同じ）。
+- **P5（判断 4）**: 宣言との照合は、決まった名前（`fit_result.pkl`・`refit_model.pkl`・`analysis_context.pkl`・`tuning_history.json`）の完全一致で、大文字と小文字を区別する。宣言の名前をパスとして組み立てることはしない。知らない名前は無視する（`../fit_result.pkl` は `fit_result.pkl` を宣言しない）。決まった名前のファイルが symlink でも受け付ける。
+- **P6（判断 3）**: `write_checked` は、最初のファイルを書く前に、今回書かない任意のファイル（`analysis_context.pkl` と `tuning_history.json`）を消す（`unlink(missing_ok=True)`）。ほかのファイルには触らない。書き直しは今も途中で失敗しうる（pickle を先に上書きする）ので、失敗の形は増えない。消せなければ今の I/O エラーと同じく `SERIALIZATION_FAILED`。
+- **P7（検査の順）**: `metadata.json` の読み込み → 必須のキー → 版 → P1 の形 → P2 → P3 → `declared_categories` → `tuning` の宣言（H-0134）→ ファイルの有無 → 読んで確かめる。拒否は全て、どの pickle も読む前に起きる。
+- **P8（整理）**: P1 と P2 の後、`_declared_tuning_history` の `checksums` の形とアルゴリズムの検査（`loader.py:118-122`）は到達できなくなるので消す（DC4）。format 4 では P2 が `checksums` の無い成果物を先に拒否し、P1 が形を閉じるからである。`files` と digest を引く行（`loader.py:115-117`）と、`tuning_history.json` が載っていないときの拒否（`loader.py:123-124`）は残す。`_verify_and_read_pkl` は、検査済みの `checksums` から得た digest（`str`、format 1・2 の検査しない読みでは `None`）を受け取る形にし、「載っていないので検査しない」枝を消す。
+
+### 規則が縛る位置（ソースから導出、実装前、`f798b6f`。コードと文書は develop `abae5d9` と同じ）
+
+- コード:
+  - `lizyml/persistence/loader.py:58-81`（`_require_v4_checksums`、P1 に置き換える）
+  - `loader.py:118-122`（P8。`loader.py:115-117` と `loader.py:123-124` は残す）
+  - `loader.py:209-250`（`_verify_and_read_pkl`、P8）
+  - `loader.py:333-347`（`tuning` の宣言の前に P1〜P3 を置く）
+  - `loader.py:358-362`（必須の pickle、P3）
+  - `loader.py:379-392`（`analysis_context.pkl`、P4）
+  - `lizyml/persistence/exporter.py:397-413`（P6）
+  - `exporter.py:3-17`（module の docstring。「format_version=3」は古いので 4 に直し、`tuning_history.json` と、書き直しで任意のファイルを消すことを書く）
+  - `lizyml/core/_model_persistence.py:326-328`（`Model.export` の docstring が成果物のファイルを並べている）
+  - `docs/proposal_dispositions.toml` の H-0135 の行（実装の PR で BLUEPRINT を更新したら、`pending` から `specified` にする）
+- 仕様と文書:
+  - `BLUEPRINT.md:1901`（`checksums` の形）
+  - `BLUEPRINT.md:1913`（§15.2 の完全性の検査。「載っていないファイルは検査せずに読む」を置き換える）
+  - `BLUEPRINT.md:1914`（脅威モデル。`checksums` を消すと format 3 以上は読めなくなる）
+  - `BLUEPRINT.md:1915`（`analysis_context.pkl` が無い、または宣言されていない成果物）
+  - `BLUEPRINT.md:1921`（§15.3。書き直しで任意のファイルを消す）
+  - `BLUEPRINT.md:2091`（§18.1.4。「`4` 等」が古い）
+  - `docs/api.md:351-352`（`export` が書くファイル）と `docs/api.md:419-427`（`load` が拒否するもの）
+  - `docs/faq.md:190-194` と `docs/faq.md:231`
+  - `docs/migration.md` の v0.20.0 の節
+  - `CHANGELOG.md` の `[Unreleased]`
+
+### 互換性
+
+- **リリースした成果物**（format 1・2）は、今と同じに読める。`checksums` を持つ v2 の成果物（v0.16.0〜v0.19.0）は、どれも exporter が `fit_result.pkl` と `refit_model.pkl` を載せ、`analysis_context.pkl` を書いたときはそれも載せるので、P1・P3・P4 で変わらない。例外は #373 の状態で、v0.16.0〜v0.19.0 で書き直したディレクトリに残った古い `analysis_context.pkl` は、もう読まれない。これが直したい振る舞いである。
+- **format 3・4**（まだリリースしていない）: exporter が書いたものは今と同じに読める。`checksums` を手で消したもの、形を変えたもの、宣言を残してファイルを消したものは拒否される。
+- **書き直し**: 同じディレクトリに書き直すと、前の export の `analysis_context.pkl` と `tuning_history.json` が無くなる。`metadata.json` のフィールドは消えず、意味も変わらないので、§15.2 の規則により `FORMAT_VERSION` は 4 のままにする。古い LizyML（v0.19.0 以前）は format 4 を拒否するので、新しい成果物の読まれ方は変わらない。
+- **公開の API**: `lizyml.persistence.load` と `Model.load` の拒否が増える（上記）。戻り値の形は変わらない。
+
+### 代替案（検討して棄却）
+
+- **`checksums` が無い成果物を、どの版でも受け付ける**: 今と同じだが、format 3・4 で `checksums` を消すと、検査を素通りできる。リリースした writer でそうなるものは無い。
+- **宣言されていない `analysis_context.pkl` を拒否する**: v0.16.0〜v0.19.0 で書き直したディレクトリが読めなくなる。
+- **宣言されていない `analysis_context.pkl` を UserWarning で知らせる**: 判断 2 で INFO にした。
+- **exporter は消さず、読み手が宣言だけを読む**: 安全だが、古いファイルがディレクトリに残る。判断 3 で消すことにした。
+- **パスの形の名前と symlink を拒否する**: 新しい拒否の条件になり、母集団の 0 回を規則にするだけで、守るものが無い（読むバイト列は digest で確かめる）。
+
+### 置き換える記録
+
+- H-0083 の「`files` に載っていないファイルは検査せずに読む」と「`checksums` を持たない artifact は検査せずに読む」は、P2〜P4 で置き換える。format 1・2 の `checksums` が無い成果物の読みは残す。
+- H-0134 の `_require_v4_checksums`（tune 済みの format 4 だけ）は、P1 に含める。
+
+### Firing rate
+
+P2〜P4 は `allow` の条件（形の正しい宣言を持つ成果物だけを読む）である。
+
+Firing rate: 23/449 of artifact loads (full-suite load census with `h0135_load_census.py` on develop `abae5d9` + `dfeba81`, rules evaluated by `summarize.py`; raw records in `census_before.jsonl`)
+
+23 回のうち 7 回は今も拒否されている。今は通るのに拒否される 16 回は、全てテストが作った状態で、LizyML が書いた成果物は 0 回である。実装の後で同じ census をもう一度走らせる。受け入れ基準 6 で書き直したテストは規則に合う状態を作るので、規則による拒否は、拒否を確かめるテストの load だけになるはずである。exporter が書いた成果物の load で、結果が変わるものが 0 回であることも確かめる。
+
+### 受け入れ基準（テスト観点）
+
+1. **#373 の回帰**: `analysis_context.pkl` を持つモデルを export し、同じディレクトリに `analysis_context.pkl` を持たないモデル（load したモデルを context なしで書き直したもの）を export し直す。load したモデルの診断 API が `MODEL_NOT_FIT` を出し、ディレクトリに `analysis_context.pkl` が無いこと。`tuning_history.json` も同じに確かめる（tune 済みのモデルの上に、tune していないモデルを書き直す）。
+2. **#374 の回帰**: tune していない format 4 の成果物で、`checksums` が `[]` と `["x"]` のとき、`DESERIALIZATION_FAILED` を出すこと。pickle を読む前に拒否することを、pickle を壊したバイト列に置き換えて確かめる（エラーが `checksums` のものであること）。
+3. **P1 の拒否の表**: `null`・配列・数・文字列、キーの不足と余り、`algorithm` の違い（`"SHA256"` を含む）、`files` が object でない、名前が文字列でない、digest が文字列でない・短い・大文字・16 進でないもの。それぞれ、全ての版（1〜4）で拒否され、pickle を読む前であること。形の正しい対照が通ること。
+4. **P2**: `checksums` が無い format 1・2 が読め、format 3・4 が拒否されること。拒否は pickle を読む前であること（受け入れ基準 3 と同じく、pickle を壊したバイト列に置き換え、エラーの理由が `checksums` が無いことであると確かめる）。形の正しい対照が通ること。
+5. **P3・P4・P5**: 必須の pickle をどちらか一方ずつ宣言から外すと拒否。`analysis_context.pkl` の 4 つの状態（宣言あり・ファイルあり、宣言あり・ファイルなし、宣言なし・ファイルあり、`checksums` なし・ファイルあり）がそれぞれ上の通りになること。宣言なし・ファイルありのとき INFO が記録されること。名前の大文字と小文字の違い（`Analysis_Context.pkl`）とパスの形の名前（`../analysis_context.pkl`）が宣言にならないこと。決まった名前の symlink が、digest が合えば読めること。P3 の拒否（必須の pickle のそれぞれを外したもの）と、P4 の「宣言あり・ファイルなし」の拒否も、pickle を読む前であることを同じ方法で確かめ、エラーの理由を確かめる。それぞれに形の正しい対照を置く。
+6. **規則に合わない状態を作っていたテストの書き直し**（テストを消さない）:
+   - `test_h0125_load_refuses_non_probability_objective.py` の `_drop_checksums` と、`test_artifact_compat.py::TestLegacyCalibrationPath` は、`checksums` を外す代わりに、置き換えた pickle の digest を書き直す。どちらも「今の版の成果物で pickle を変えたもの」を作りたいからである。
+   - `test_checksum_integrity.py::test_legacy_artifact_without_checksums_still_loads` は、`_artifact_versions.py` の `to_v2_shape` で本当の v2 の形にしてから `checksums` を外す。加えて、format 4 で `checksums` を外すと拒否されるテストを置く。
+   - `test_export_load_errors.py` の `test_corrupt_fit_result_pkl` と `test_corrupt_analysis_context` には、完全な `checksums` を置く。必須の pickle 2 つと（後者では）`analysis_context.pkl` を載せ、どの digest もディスクにある最後のバイト列（壊したバイト列を含む）から計算する。そうすると digest の検査を通って joblib の復元が失敗するので、2 つのテストとも `__cause__` があることを確かめる（後者では新しく足す）。
+   - `test_persistence.py::TestLegacyArtifactCompat` の「context の無い成果物」は、ファイルを消すだけでなく宣言からも外す。
+7. **書き直しの P6**: 書き直しの前後で、前の export の任意のファイルが消え、ほかのファイル（利用者が置いたファイル）が残ること。
+8. **陰性対照**: 1〜5 の検査それぞれについて、実装の該当する行を戻すとテストが落ちること（MonkeyPatch か、実装の一部を元に戻した版で確かめる）。
+9. **census**: 実装の後にフルスイートで census を走らせ、記録を残すこと。
+
+### 改訂の記録
+
+- **改訂 1（2026-10-20、Proposal review round 2 の CHANGES_REQUESTED への対応。run `h0135-proposal-review`）**:
+  - major 1: census の commit を `dfeba81`（正しい規則で数えたもの）に直した。`f798b6f` は、古い判定の census だった。数 23/449 は変わらない。
+  - major 2: 「pickle を読む前に拒否する」ことの確かめを、P2・P3・P4 の拒否にも足した（受け入れ基準 4・5）。
+  - major 3: 壊れた pickle のテストの書き直しを、ディスクにある最後のバイト列から digest を計算する 1 つの指示にし、2 つのテストで `__cause__` を確かめるとした（受け入れ基準 6）。
+  - minor: P8 で消す行を `loader.py:118-122` に直し、P1 と P2 の両方による理由を書いた。規則が縛る位置に、`exporter.py:3-17` の docstring、`Model.export` の docstring、`proposal_dispositions.toml` の H-0135 の行を足した。
+
+### 受け入れ（2026-10-20）
+
+- Codex の確認 run（`h0135-proposal-confirm`、`4013f76`）が APPROVE（指摘 0 件）だった。その前に relational monitor を走らせ、CONVERGING・continue だった。
+- 管理者は、停止ルールで「直して、絞った確認を 1 回」を選んだ。この実行の方針（Codex の APPROVE と CI 緑で進める）により、確認の APPROVE をもって受け入れとした。
+- 4 つの分かれ道は管理者が決めた（カード D-20261020-002）。
+
+### 実装の記録（2026-10-20）
+
+- **コード**:
+  - 新しい `lizyml/persistence/_manifest.py` の `declared_files` が P1〜P3 を行う。拒否は `DESERIALIZATION_FAILED` で、context の `reason` に理由を入れる:
+    - `checksums_malformed`
+    - `checksums_algorithm`
+    - `checksums_missing`
+    - `required_file_unlisted`
+  - `loader.py`:
+    - `_require_v4_checksums` を消した。
+    - `_declared_tuning_history` は `declared_files` の結果を受け取り、`loader.py:118-122` の検査を消した（P8）。
+    - `_verify_and_read_pkl` は宣言された digest（`str`、または format 1・2 の検査しない読みのとき `None`）を受け取る。
+    - `_context_is_read` が P4 を行う。宣言されたのにファイルが無いときは `declared_file_missing` で拒否し、ディスクにあるのに宣言されていないファイルは無視して、`lizyml.persistence.loader` の logger の INFO に記録する。この判定は、どの pickle を読むよりも前に行う。
+  - `exporter.py` の `write_checked` は、`mkdir` の後、最初のファイルを書く前に、`_OPTIONAL_FILES`（`analysis_context.pkl`、`tuning_history.json`）を `unlink(missing_ok=True)` で消す（P6）。
+  - module の docstring と `Model.export` の docstring も直した。
+  - `_manifest` は `exporter` の `CHECKSUM_ALGORITHM` を import する。`exporter` が `_manifest` を import すると循環するので、exporter はファイル名を自分で持つ。
+- **テストの書き直し**（受け入れ基準 6。テストは消していない）:
+  - `_artifact_versions.py` に `resign` を足した（載っているファイルの digest を、ディスクのバイト列で書き直す）。
+  - `test_h0125_load_refuses_non_probability_objective.py` の `_drop_checksums` を `_resign_if_signed` にした。
+  - `test_artifact_compat.py::TestLegacyCalibrationPath` は `resign` を使う。
+  - `test_checksum_integrity.py` は、`to_v2_shape` で v2 にしてから `checksums` を外すようにした。format 4 で外すと拒否されるテストも足した。
+  - `test_export_load_errors.py` の 2 本は `_write_signed_metadata`（ディスクの最後のバイト列の digest）を使い、どちらも `__cause__` を確かめる。
+  - `test_persistence.py::TestLegacyArtifactCompat` は、ファイルと一緒に宣言も外す。
+  - **意図した変更**: `test_h0134_acceptance.py::test_a_stale_history_file_is_not_read` は、書き直しの後に古い `tuning_history.json` が「残る」ことを確かめていた。P6 によって「消える」ことを確かめる形にした。読み手が宣言だけを読むことは、`test_h0135_acceptance.py` の `test_a_left_over_context_is_ignored_and_logged` と、H-0134 の宣言の検査が確かめる。
+- **新しいテスト**: `tests/test_persistence/test_h0135_acceptance.py`（round 1 のレビューの時点で 103 本）。
+  - 拒否するテストは、どれも `_verify_and_read_pkl` と `joblib.load` を罠に置き換え、pickle を読む前に拒否されることと、`reason` を確かめる。
+  - 形の違い 18 通りを、版 1〜4 の全てで確かめ、それぞれに形の正しい対照を置いた。
+  - 当初、「名前が文字列でない」場合は JSON では作れないとして表から外し、受け入れ基準 3 を満たしていなかった。実装レビュー round 1 の指摘で、validator に直接与えるテストを足した（下の「実装レビュー round 1 への対応」）。
+- **陰性対照**（受け入れ基準 8）: `docs/audits/2026-10-h0135/probes/negative_controls_h0135.py`。各検査を、それぞれありそうな誤った実装に戻す（多くは H-0135 の前の振る舞い）。対照は次の 10 通りで、10/10 で該当のテストが落ちた（`negative_controls_h0135.out`）。patch を当てない基準の run は通った。
+  - P1〜P3 を緩める
+  - P2
+  - P3
+  - digest の形
+  - アルゴリズム
+  - P4
+  - P5
+  - P6 を消さない
+  - P6 が利用者のファイルまで消す
+  - P7（pickle を先に読む）
+- **census（受け入れ基準 9）**: 実装の後に、フルスイートで同じ census を走らせた（`census_after.jsonl`・`census_after.out`）。
+  - load は 554 回で、規則による拒否は 89 回だった。どれも拒否を確かめるテストの load で、内訳は `test_h0135_acceptance.py` が 83 回、`test_h0134_acceptance.py` が 5 回、`test_checksum_integrity.py` が 1 回。
+  - 拒否は全て `DESERIALIZATION_FAILED` で、今は通るのに拒否される load は 0 回だった。
+  - symlink のある load は 3 回で、全て新しいテストのものだった。
+  - 実装の前の 16 回（テストが作った状態）は、書き直しで規則に合う状態になった。
+- **フルスイート**（census と同じ run）:
+  - 落ちたのは `tests/test_e2e/test_version.py`（editable install の古いメタデータ。既知の環境の失敗）と、`tests/test_docs/test_pr9_fold_map_check.py` の 3 本だった。
+  - fold map の 3 本は、BLUEPRINT §15.1・§15.2 の文を言い換えたために、`docs/audits/2026-09-defect-discovery/results/pr9_fold_map.md` の引用 4 行（H-0026#4、H-0083#0〜#2）が BLUEPRINT に無くなったことによる。引用を新しい文に直し、checker と `tests/test_docs` が通ることを確かめた。H-0083#2 は「H-0135 が format 1・2 に狭めた」と注記した。
+- **文書**:
+  - BLUEPRINT §15.1（`checksums` の形）、§15.2（読むファイルの規則と拒否の一覧、脅威モデル、`analysis_context.pkl`）、§15.3（書き直し）、§18.1.4（拒否する版の一覧を、テストの `0`・`5`・`99`・`-1`・`None` に合わせた）
+  - `docs/api.md`、`docs/faq.md`、`docs/migration.md`、`CHANGELOG.md`
+  - `docs/proposal_dispositions.toml` の H-0135 を `specified` にした。anchor は `declared_files` と `declared_file_missing`。
+
+### 実装レビュー round 1 への対応（2026-10-20）
+
+Codex の実装レビュー（run `h0135-impl-review`、`1d9d38a`）は CHANGES_REQUESTED（major 3、minor 1）だった。全て直した。
+
+- **major 1（DC1）**: 版の検査が `fv in {1, 2, 3, 4}` だったので、等しく比べられる JSON の `true`・`1.0`・`2.0` を通していた。これらは P2 で「`checksums` が無くてよい版」になり、pickle を検査せずに読んでいた。配列と object の版は、hash できずに `TypeError` を出していた。
+  - `type(fv) is int` を先に確かめるようにした。
+  - あわせて、`metadata.json` が object でないとき（配列など）に `AttributeError` を出していたのも、`DESERIALIZATION_FAILED` にした。
+  - テストは、`true`・`false`・`1.0`・`2.0`・`4.0`・`"2"`・`[2]`・`{"v": 2}` のそれぞれについて、`checksums` がある場合と無い場合を確かめる。metadata が object でない場合は 5 通りを確かめる。どれも pickle を読む前に拒否される。
+- **major 2**: 必須の pickle と `analysis_context.pkl` の有無を `exists()` で見ていたので、その名前のディレクトリ（とディレクトリへの symlink）を「ある」としていた。宣言された context がディレクトリのときは、ほかの pickle を復元した後に `IsADirectoryError` がそのまま出ていた（P7 と `DESERIALIZATION_FAILED` の約束の破れ）。
+  - `_is_payload` が、通常のファイル（とそれへの symlink）でないものを、どの pickle も読む前に `reason="not_a_file"` で拒否するようにした。
+  - `_verify_and_read_pkl` の `OSError` も `DESERIALIZATION_FAILED` に包む。
+  - 宣言されていない名前のディレクトリは、今までどおり無視する。
+  - テストは、3 つの名前 × ディレクトリと symlink × v2（`checksums` なし）と v4 の 12 通りに、無視の 1 本を足した。
+- **major 3（DC5）**: 「受け入れ基準 1〜5 と 7 を確かめる」という記録が、名前が文字列でない場合を外していたので偽だった。
+  - JSON では作れない値（文字列でない名前、`dict` の subclass の `files` と `checksums`、`str` の subclass のアルゴリズムと digest、`bool` の digest）を `declared_files` に直接与え、`checksums_malformed` で拒否されることを確かめるテストを足した。対照も置いた。
+  - 上の記録を直した。
+- **minor**: `docs/api.md`、`Model.export` の docstring、`docs/faq.md` の表が、`analysis_context.pkl` と `tuning_history.json` を必ず書くように読めた。持っているときだけ書く、と直した。
+- **文書**:
+  - BLUEPRINT §15.2 に、整数でない版と object でない metadata の拒否、`not_a_file` を足した。
+  - `docs/api.md`・`docs/migration.md`・`CHANGELOG.md` も同じに直した。
+  - この 3 つの拒否は、拒否の検査（`allow` の条件ではない）であり、firing rate の行は要らない。実装の後の census（`census_after.out`）では、`true` か浮動小数の版を持つ load は 0 回だった。
+- **陰性対照**:
+  - 2 つ足して 12 通りにした。
+    - round 1 の loader（`git show 1d9d38a:lizyml/persistence/loader.py`）に戻す。
+    - ファイルの判定を `exists()` に戻す。
+  - 結果は 12/12 で、patch を当てない基準の run も通った（`negative_controls_h0135.out`）。
+- **テストの数**: `test_h0135_acceptance.py` は 144 本になった（下の CI の項で 145 本）。`tests/test_persistence` は 795 本が通り、4 本が skip だった。
+- **CI（round 1 の head `1d9d38a`）**: Smoke の macOS と Windows で、`test_a_reexport_keeps_files_it_does_not_own` が 1 本落ちた。
+  - このテストは、`Analysis_Context.pkl` を `analysis_context.pkl` と別の利用者のファイルとして置いていた。大文字と小文字を区別しないファイルシステムでは、2 つは同じ 1 つのファイルで、export の持ち物である。
+  - ライブラリの振る舞いは正しい。export は自分の名前のファイルを消し、宣言の照合は完全一致のまま（`test_only_the_exact_name_declares_the_context` は両方の OS で通った）。
+  - テストを 2 本に分けた。
+    - 利用者のファイル（`notes.txt`）が残ることを、全ての OS で確かめる。
+    - 大文字と小文字だけが違う名前は、区別するファイルシステムでだけ確かめ、ほかでは理由をつけて skip する。
+  - 大文字と小文字を区別しないファイルシステムで、利用者が `Analysis_Context.pkl` という名前でファイルを置いた場合、export はそれを自分の `analysis_context.pkl` として消す。その名前は export の持ち物なので、これは仕様どおりである。
+
+### 実装レビュー round 2（2026-10-20）
+
+- **monitor**: round 2 の前に、absolute monitor を 2 つ走らせた。
+  - Claude の新しい context のもの。
+  - runner の monitor（`attempt-r2-monitor-1`。判定した head は `ff506e1`）。
+  - どちらも DELIVERABLE-FOCUSED・continue だった。disposition は continue。
+- **結果**: Codex の実装レビュー round 2（`ff506e1`）は APPROVE で、指摘は minor 1 件だった。
+- **minor の指摘**: `docs/api.md` と `CHANGELOG.md` は、整数でない版と object でない metadata の拒否にも `context["reason"]` があると読めた。実際には、この 2 つは今までの版と metadata のエラーと同じで、`reason` を持たない。
+- **対応**: 文書の方を直した。`api.md`・`CHANGELOG.md`・`migration.md` で、`reason` は `checksums` の拒否とファイルの形の拒否のものだと書いた。コードは変えていない。管理者の方針（1 行の修正でも確かめ直す）により、絞った確認を 1 回走らせる。

@@ -1,20 +1,27 @@
 """Exporter — save Model artifacts to a directory.
 
-Directory layout (format_version=3)::
+Directory layout (format_version=4)::
 
     {path}/
         metadata.json        — human-readable metadata + version info +
-                               SHA-256 checksums of each .pkl (H-0083) +
+                               SHA-256 checksums of each written file (H-0083) +
                                the training overlay the fit applied (H-0109)
         fit_result.pkl       — FitResult (joblib compressed)
         refit_model.pkl      — RefitResult (joblib compressed)
         analysis_context.pkl — (optional) y_true + X for diagnostic APIs
+        tuning_history.json  — (tuned models) trials, rounds, boundary report
+                               (H-0134)
+
+Writing into a directory that holds an earlier export first removes that
+export's optional files (``analysis_context.pkl``, ``tuning_history.json``),
+so the directory never keeps a file this export did not write (H-0135 P6).
 
 Security note: pickle/joblib files must only be loaded from trusted sources.
 The SHA-256 ``checksums`` in metadata.json bind the validated metadata to the
-.pkl bytes so that tampering/corruption is detected on load (it does not make
-pickle safe against a fully trusted-but-malicious producer). The field is
-additive: artifacts without it (pre-H-0083) still load (FORMAT_VERSION=2).
+written bytes so that tampering/corruption is detected on load (it does not
+make pickle safe against a fully trusted-but-malicious producer). The loader
+reads only the files ``checksums`` declares; an artifact without it loads only
+in format 1-2, which predate H-0083 (H-0135).
 """
 
 from __future__ import annotations
@@ -250,6 +257,10 @@ def _tuning_metadata(tuning: TuningResult) -> dict[str, Any]:
 #: Checksum algorithm recorded in ``metadata.json`` and verified on load.
 CHECKSUM_ALGORITHM = "sha256"
 
+#: Files an export writes only when the model has them; a re-export into the
+#: same directory removes them first (H-0135 P6).
+_OPTIONAL_FILES = ("analysis_context.pkl", HISTORY_FILE)
+
 
 def sha256_file(path: Path) -> str:
     """Return the hex SHA-256 digest of *path*'s bytes (H-0083)."""
@@ -395,6 +406,10 @@ def write_checked(
             )
 
         out.mkdir(parents=True, exist_ok=True)
+        # H-0135 P6: an earlier export's optional files must not survive into
+        # this one; each is written again below only when this export has it.
+        for name in _OPTIONAL_FILES:
+            (out / name).unlink(missing_ok=True)
 
         # Serialize payloads first so their bytes can be hashed into metadata
         # (integrity binding verified on load — H-0083).
