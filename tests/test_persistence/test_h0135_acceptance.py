@@ -550,12 +550,33 @@ def test_resign_reproduces_the_exporter_digests(plain: Path, tmp_path: Path) -> 
 # ---------------------------------------------------------------------------
 
 
+def _case_sensitive(directory: Path) -> bool:
+    """Whether *directory* tells names apart by case (not so on Windows and macOS)."""
+    probe = directory / "case_probe"
+    probe.write_bytes(b"")
+    try:
+        return not (directory / "CASE_PROBE").exists()
+    finally:
+        probe.unlink()
+
+
 def test_a_reexport_keeps_files_it_does_not_own(plain: Path, tmp_path: Path) -> None:
     reused = _copy(plain, tmp_path / "reused")
     (reused / "notes.txt").write_text("mine", encoding="utf-8")
-    (reused / "Analysis_Context.pkl").write_bytes(b"also mine")
     Model.load(_without_context(_copy(plain, tmp_path / "w"))).export(reused)
     assert (reused / "notes.txt").read_text(encoding="utf-8") == "mine"
+    assert not (reused / CONTEXT).exists()
+
+
+def test_a_reexport_keeps_a_name_that_differs_only_in_case(
+    plain: Path, tmp_path: Path
+) -> None:
+    """On a case-insensitive file system the two names are one file, the export's."""
+    if not _case_sensitive(tmp_path):
+        pytest.skip("the file system does not tell names apart by case")
+    reused = _copy(plain, tmp_path / "reused")
+    (reused / "Analysis_Context.pkl").write_bytes(b"also mine")
+    Model.load(_without_context(_copy(plain, tmp_path / "w"))).export(reused)
     assert (reused / "Analysis_Context.pkl").read_bytes() == b"also mine"
     assert not (reused / CONTEXT).exists()
 

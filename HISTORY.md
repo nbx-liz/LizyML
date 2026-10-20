@@ -15591,4 +15591,11 @@ Codex の実装レビュー（run `h0135-impl-review`、`1d9d38a`）は CHANGES_
     - round 1 の loader（`git show 1d9d38a:lizyml/persistence/loader.py`）に戻す。
     - ファイルの判定を `exists()` に戻す。
   - 結果は 12/12 で、patch を当てない基準の run も通った（`negative_controls_h0135.out`）。
-- **テストの数**: `test_h0135_acceptance.py` は 144 本になった。`tests/test_persistence` は 795 本が通り、4 本が skip だった。
+- **テストの数**: `test_h0135_acceptance.py` は 144 本になった（下の CI の項で 145 本）。`tests/test_persistence` は 795 本が通り、4 本が skip だった。
+- **CI（round 1 の head `1d9d38a`）**: Smoke の macOS と Windows で、`test_a_reexport_keeps_files_it_does_not_own` が 1 本落ちた。
+  - このテストは、`Analysis_Context.pkl` を `analysis_context.pkl` と別の利用者のファイルとして置いていた。大文字と小文字を区別しないファイルシステムでは、2 つは同じ 1 つのファイルで、export の持ち物である。
+  - ライブラリの振る舞いは正しい。export は自分の名前のファイルを消し、宣言の照合は完全一致のまま（`test_only_the_exact_name_declares_the_context` は両方の OS で通った）。
+  - テストを 2 本に分けた。
+    - 利用者のファイル（`notes.txt`）が残ることを、全ての OS で確かめる。
+    - 大文字と小文字だけが違う名前は、区別するファイルシステムでだけ確かめ、ほかでは理由をつけて skip する。
+  - 大文字と小文字を区別しないファイルシステムで、利用者が `Analysis_Context.pkl` という名前でファイルを置いた場合、export はそれを自分の `analysis_context.pkl` として消す。その名前は export の持ち物なので、これは仕様どおりである。
