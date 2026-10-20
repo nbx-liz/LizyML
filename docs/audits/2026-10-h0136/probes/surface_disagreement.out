@@ -1,0 +1,65 @@
+[run-exclusive] h0136-surfaces starting; load was 0.90
+run-heavy: pgid=13 (stop with: kill -- -13)
+pandas=3.0.1 numpy=2.4.2 samples=111
+columns=6216 (singletons 111, pairs 6105)
+  both ok      5884
+  joblib only  22
+  JSON only    0
+  both broken  0
+  fit fails    310
+joblib only (export ok, export_code broken)
+      18  timedelta64 + uint64
+       2  bool + uint64
+       1  bool + tuple
+       1  tuple + uint8
+JSON only (export_code ok, export broken)
+pandas=2.3.3 numpy=2.5.4 samples=113
+columns=6441 (singletons 113, pairs 6328)
+  both ok      5975
+  joblib only  7
+  JSON only    113
+  both broken  0
+  fit fails    346
+joblib only (export ok, export_code broken)
+       3  timedelta64 + uint64
+       2  bool + uint64
+       1  bool + tuple
+       1  tuple + uint8
+JSON only (export_code ok, export broken)
+      15  Timestamp[pytz] + datetime64
+      14  Timestamp[pytz] + timedelta64
+       5  Timedelta + Timestamp[pytz]
+       4  Timestamp[pytz] + float
+       4  Timestamp[pytz] + bool
+       4  Timestamp + Timestamp[pytz]
+       4  Timestamp[pytz] + tuple
+       3  Timestamp[pytz] + str
+       3  Timestamp[pytz] + int
+       3  Timestamp[pytz] + bytes
+       3  Decimal + Timestamp[pytz]
+       3  Timestamp[pytz] + date
+       3  Timestamp[pytz] + datetime[datetime]
+       3  Timestamp[pytz] + Timestamp[zoneinfo]
+       3  Timestamp[pytz] + frozenset
+       2  Timestamp[pytz] + datetime[zoneinfo]
+       2  Timestamp[pytz] + timedelta
+       2  Timestamp[pytz] + complex
+       2  Timestamp[datetime] + Timestamp[pytz]
+       2  Timestamp[pytz] + int8
+       2  Timestamp[pytz] + int16
+       2  Timestamp[pytz] + int32
+       2  Timestamp[pytz] + int64
+       2  Timestamp[pytz] + uint8
+       2  Timestamp[pytz] + uint16
+       2  Timestamp[pytz] + uint32
+       2  Timestamp[pytz] + uint64
+       2  Timestamp[pytz] + float32
+       2  Timestamp[pytz] + float64
+       2  Timestamp[pytz] + complex64
+       2  Timestamp[pytz] + complex128
+       2  Timestamp[pytz] + str_
+       2  Timestamp[pytz] + bytes_
+       1  Timestamp[pytz]
+       1  Timestamp[pytz] + datetime
+       1  Timestamp[pytz] + Timestamp[pytz]
+[run-exclusive] h0136-surfaces finished in 11s, exit 0
