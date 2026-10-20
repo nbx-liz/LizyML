@@ -1,11 +1,11 @@
-[run-exclusive] h0136-controls starting; load was 1.47
+[run-exclusive] h0136-controls starting; load was 1.17
 run-heavy: pgid=43 (stop with: kill -- -43)
 pandas=2.3.3
 F
 =================================== FAILURES ===================================
 ___________ test_the_372_pair_is_refused_at_every_exit_and_fit_warns ___________
 
-tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-51/test_the_372_pair_is_refused_a0')
+tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-76/test_the_372_pair_is_refused_a0')
 
     def test_the_372_pair_is_refused_at_every_exit_and_fit_warns(tmp_path: Path) -> None:
         model, warned = _fit(_frame([FOLD1, _pytz_standard(), "x"]))
@@ -15,8 +15,8 @@ tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-51/test_the_372_pair
 tests/test_persistence/test_h0136_acceptance.py:161: 
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
 
-model = <lizyml.core.model.Model object at 0xf3a597adc710>
-tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-51/test_the_372_pair_is_refused_a0')
+model = <lizyml.core.model.Model object at 0xe67b7dff34d0>
+tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-76/test_the_372_pair_is_refused_a0')
 serializer = 'joblib', kind = 'unseen', exception = None
 
     def _assert_refused(
@@ -33,19 +33,19 @@ serializer = 'joblib', kind = 'unseen', exception = None
 >           assert isinstance(exc, LizyMLError), f"{name} accepted the model"
 E           AssertionError: Model.export accepted the model
 E           assert False
-E            +  where False = isinstance(PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-51/test_the_372_pair_is_refused_a0/a'), LizyMLError)
+E            +  where False = isinstance(PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-76/test_the_372_pair_is_refused_a0/a'), LizyMLError)
 
 tests/test_persistence/test_h0136_acceptance.py:128: AssertionError
 =========================== short test summary info ============================
 FAILED tests/test_persistence/test_h0136_acceptance.py::test_the_372_pair_is_refused_at_every_exit_and_fit_warns
 !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
-1 failed, 17 deselected in 0.07s
+1 failed, 17 deselected in 0.09s
 CONTROL P1 off: caught (tests failed)
 F
 =================================== FAILURES ===================================
 ___________ test_the_372_pair_is_refused_at_every_exit_and_fit_warns ___________
 
-tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-52/test_the_372_pair_is_refused_a0')
+tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-77/test_the_372_pair_is_refused_a0')
 
     def test_the_372_pair_is_refused_at_every_exit_and_fit_warns(tmp_path: Path) -> None:
         model, warned = _fit(_frame([FOLD1, _pytz_standard(), "x"]))
@@ -63,7 +63,7 @@ F
 _________ test_uint64_beside_timedelta64_months_is_refused[not unique] _________
 
 order = 'uint64 first', kind = 'raises', exception = 'ValueError'
-tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-53/test_uint64_beside_timedelta640')
+tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-78/test_uint64_beside_timedelta640')
 
     @pytest.mark.parametrize(
         ("order", "kind", "exception"),
@@ -87,14 +87,14 @@ tests/test_persistence/test_h0136_acceptance.py:240: AssertionError
 =========================== short test summary info ============================
 FAILED tests/test_persistence/test_h0136_acceptance.py::test_uint64_beside_timedelta64_months_is_refused[not unique]
 !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
-1 failed, 25 deselected in 0.06s
+1 failed, 25 deselected in 0.05s
 CONTROL JSON leg off: caught (tests failed)
 F
 =================================== FAILURES ===================================
 ___________ test_one_pytz_value_is_refused_under_every_policy[mode] ____________
 
 policy = 'mode'
-tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-54/test_one_pytz_value_is_refused0')
+tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-79/test_one_pytz_value_is_refused0')
 
     @pytest.mark.parametrize("policy", ["mode", "nan", "error"])
     def test_one_pytz_value_is_refused_under_every_policy(
@@ -107,8 +107,8 @@ tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-54/test_one_pytz_val
 tests/test_persistence/test_h0136_acceptance.py:194: 
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
 
-model = <lizyml.core.model.Model object at 0xf3a5920fb020>
-tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-54/test_one_pytz_value_is_refused0')
+model = <lizyml.core.model.Model object at 0xe67b696dc710>
+tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-79/test_one_pytz_value_is_refused0')
 serializer = 'joblib', kind = 'unseen', exception = None
 
     def _assert_refused(
@@ -192,7 +192,7 @@ F
 =================================== FAILURES ===================================
 ___________ test_the_372_pair_is_refused_at_every_exit_and_fit_warns ___________
 
-tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-57/test_the_372_pair_is_refused_a0')
+tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-82/test_the_372_pair_is_refused_a0')
 
     def test_the_372_pair_is_refused_at_every_exit_and_fit_warns(tmp_path: Path) -> None:
         model, warned = _fit(_frame([FOLD1, _pytz_standard(), "x"]))
@@ -202,8 +202,8 @@ tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-57/test_the_372_pair
 tests/test_persistence/test_h0136_acceptance.py:161: 
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
 
-model = <lizyml.core.model.Model object at 0xf3a593dfa690>
-tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-57/test_the_372_pair_is_refused_a0')
+model = <lizyml.core.model.Model object at 0xe67b6955b200>
+tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-82/test_the_372_pair_is_refused_a0')
 serializer = 'joblib', kind = 'unseen', exception = None
 
     def _assert_refused(
@@ -220,7 +220,7 @@ serializer = 'joblib', kind = 'unseen', exception = None
 >           assert isinstance(exc, LizyMLError), f"{name} accepted the model"
 E           AssertionError: export_code accepted the model
 E           assert False
-E            +  where False = isinstance(PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-57/test_the_372_pair_is_refused_a0/c'), LizyMLError)
+E            +  where False = isinstance(PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-82/test_the_372_pair_is_refused_a0/c'), LizyMLError)
 
 tests/test_persistence/test_h0136_acceptance.py:128: AssertionError
 =========================== short test summary info ============================
@@ -232,7 +232,7 @@ F
 =================================== FAILURES ===================================
 ___________ test_the_372_pair_is_refused_at_every_exit_and_fit_warns ___________
 
-tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-58/test_the_372_pair_is_refused_a0')
+tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-83/test_the_372_pair_is_refused_a0')
 
     def test_the_372_pair_is_refused_at_every_exit_and_fit_warns(tmp_path: Path) -> None:
         model, warned = _fit(_frame([FOLD1, _pytz_standard(), "x"]))
@@ -242,8 +242,8 @@ tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-58/test_the_372_pair
 tests/test_persistence/test_h0136_acceptance.py:161: 
 _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
 
-model = <lizyml.core.model.Model object at 0xf3a593cc3a40>
-tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-58/test_the_372_pair_is_refused_a0')
+model = <lizyml.core.model.Model object at 0xe67b6955b050>
+tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-83/test_the_372_pair_is_refused_a0')
 serializer = 'joblib', kind = 'unseen', exception = None
 
     def _assert_refused(
@@ -266,19 +266,19 @@ serializer = 'joblib', kind = 'unseen', exception = None
         # Criterion 7: refused before anything is written.
 >       assert not any((tmp_path / p).exists() for p in ("a", "b", "c"))
 E       assert not True
-E        +  where True = any(<generator object _assert_refused.<locals>.<genexpr> at 0xf3a5921bde50>)
+E        +  where True = any(<generator object _assert_refused.<locals>.<genexpr> at 0xe67b67af3e00>)
 
 tests/test_persistence/test_h0136_acceptance.py:135: AssertionError
 =========================== short test summary info ============================
 FAILED tests/test_persistence/test_h0136_acceptance.py::test_the_372_pair_is_refused_at_every_exit_and_fit_warns
 !!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
-1 failed, 17 deselected in 0.04s
+1 failed, 17 deselected in 0.03s
 CONTROL export_code checks after writing: caught (tests failed)
 F
 =================================== FAILURES ===================================
 ___________ test_the_372_pair_is_refused_at_every_exit_and_fit_warns ___________
 
-tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-59/test_the_372_pair_is_refused_a0')
+tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-84/test_the_372_pair_is_refused_a0')
 
     def test_the_372_pair_is_refused_at_every_exit_and_fit_warns(tmp_path: Path) -> None:
         model, warned = _fit(_frame([FOLD1, _pytz_standard(), "x"]))
@@ -323,7 +323,7 @@ tests/test_persistence/test_h0136_acceptance.py::test_uint64_beside_timedelta64_
 tests/test_persistence/test_h0136_acceptance.py::test_uint64_beside_timedelta64_months_is_refused[uint64 unseen]
 tests/test_persistence/test_h0136_acceptance.py::test_uint64_beside_timedelta64_months_is_refused[uint64 unseen]
 tests/test_persistence/test_h0136_acceptance.py::test_the_refusal_message_names_both_surfaces
-  /home/rem/repos/LizyML/lizyml/features/encoders/state_changes.py:81: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+  /home/rem/repos/LizyML/lizyml/features/encoders/state_changes.py:90: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
     known = set(projected)
 
 tests/test_persistence/test_h0136_acceptance.py: 78 warnings
@@ -331,7 +331,7 @@ tests/test_persistence/test_h0136_acceptance.py: 78 warnings
     return bound(*args, **kwds)
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-29 passed, 108 warnings in 0.66s
+29 passed, 108 warnings in 0.58s
 BASELINE without patches: exit 0
 
 9/9 controls caught

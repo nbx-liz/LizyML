@@ -3,8 +3,9 @@
 A saved model's encoder state passes through a serializer (joblib for the
 artifact, the H-0133 codec JSON for ``export_code``) and comes back as a
 projected state. This module compares the two the way ``predict`` uses them:
-one row per learned category, and the mode, transformed by a
-``CategoricalEncoder`` with ``unseen_policy="error"`` under each state.
+the learned categories, as one batch in the state's order, are transformed
+by a ``CategoricalEncoder`` with ``unseen_policy="error"`` under each state,
+and the mode is compared by its position among each state's categories.
 
 The reference is the original (in-memory) state and its own categories. The
 promise is for rows holding a learned value; a value the original state
@@ -64,16 +65,25 @@ def _column_codes(
     return codes
 
 
-def _batch_codes(
-    state: Mapping[str, Any], column: Any, learned: list[Any], mode: Any
-) -> tuple[list[int], int | None]:
-    """The reference batch: the learned categories in the state's order, then
-    the mode as one more row, so the mode is encoded in the same batch (a
-    one-row batch can be cast differently by pandas, #379)."""
-    if mode is None:
-        return _column_codes(state, column, learned), None
-    codes = _column_codes(state, column, [*learned, mode])
-    return codes[:-1], codes[-1]
+def _position(categories: list[Any], value: Any) -> int | None:
+    """Where *value* sits in *categories*: the same object, else the first
+    that is equal with an equal hash (pandas may hold a mode of another numeric
+    type than its category); ``None`` when absent.
+
+    The mode is compared by position, not by encoding it in a batch: a
+    one-row batch can be cast differently by pandas (#379), and a repeated
+    row makes pandas 2.0's ``unique`` rebuild a pytz value (#379 too).
+    """
+    for index, category in enumerate(categories):
+        if category is value:
+            return index
+    for index, category in enumerate(categories):
+        try:
+            if bool(category == value) and hash(category) == hash(value):
+                return index
+        except Exception:  # noqa: BLE001 -- not this one; the next may match
+            continue
+    return None
 
 
 def _first_missing(learned: list[Any], projected: list[Any]) -> Any:
@@ -97,15 +107,21 @@ def column_change(
         return None
     mode = (state.get("modes") or {}).get(column)
     try:
-        want, want_mode = _batch_codes(state, column, learned, mode)
+        want = _column_codes(state, column, learned)
     except Exception:  # noqa: BLE001 -- judged only where the original answers
         return None
     name = str(column)
     # The projected state's own mode: it is what replaces an unseen row
     # under unseen_policy="mode" after the save.
     projected_mode = (projected.get("modes") or {}).get(column)
+    want_mode = None if mode is None else _position(learned, mode)
+    got_mode = (
+        None
+        if projected_mode is None
+        else _position(list(projected["categories"][column]), projected_mode)
+    )
     try:
-        got, got_mode = _batch_codes(projected, column, learned, projected_mode)
+        got = _column_codes(projected, column, learned)
     except LizyMLError as exc:
         if exc.code != ErrorCode.DATA_SCHEMA_INVALID:
             return CategoryStateChange(name, "raises", exception=type(exc).__name__)
@@ -119,7 +135,10 @@ def column_change(
             i for i, (g, w) in enumerate(zip(got, want, strict=True)) if g != w
         )
         return CategoryStateChange(name, "codes", value=learned[index])
-    if got_mode != want_mode:
+    # A mode the in-memory state cannot place among its own categories (pandas
+    # 2.0 rebuilds a pytz value inside ``mode()``, #379) is not judged: the
+    # in-memory model is already inconsistent there.
+    if want_mode is not None and got_mode != want_mode:
         return CategoryStateChange(name, "mode", value=mode)
     return None
 
