@@ -62,10 +62,13 @@ automatically applied.
 - `LizyMLError(LEAKAGE_SUSPECTED)` — split/calibration invariant violated.
 
 **Warns:** `UserWarning`, once per categorical column, before training starts,
-when the column holds a category value LightGBM cannot write into a saved model
-(`bytes`, `Decimal`, dates and timestamps, `Timedelta`, `complex`,
-`frozenset`, or a `tuple` holding one). `fit` and `predict` work; `export()`
-refuses the model (H-0127).
+when the column holds a category value outside the saveable set (H-0133: for
+example a NaN-like value inside a tuple, `np.longdouble`, a subclass of a
+saveable type, a user-defined type, or a timezone that cannot be restored
+equal). `fit` and `predict` work; `export()` and `export_code()` refuse the
+model (H-0127, H-0133). Values LightGBM cannot write itself (`bytes`,
+`Decimal`, dates and timestamps, `Timedelta`, `complex`, `frozenset`, tuples
+holding them) are saveable: their column reaches LightGBM as positions (H-0133).
 Otherwise, once the fit has finished, `UserWarning` once per categorical column
 that `export()` and `export_code()` will refuse because a saved copy of the
 fitted state would not answer like it (H-0136; see `export()` below).
@@ -372,13 +375,13 @@ Path resolution (first match wins):
 - `LizyMLError(MODEL_NOT_FIT)` — called before `fit()`.
 - `LizyMLError(SERIALIZATION_FAILED)` — I/O error or unresolvable path.
 - `LizyMLError(SERIALIZATION_FAILED)` — before anything is written, when a
-  categorical column holds a value LightGBM cannot write into a saved model
-  (it stores category values as JSON): `bytes`, `Decimal`, dates and
-  timestamps, `Timedelta`, `complex`, `frozenset`, or a `tuple` holding one.
-  The context names `column`, `value`, `type` and `state` (`refit`, `fold k`
-  or `last fold`). `fit()` warns about such a column before training
+  categorical column (or `declared_categories`) holds a value outside the
+  saveable set (H-0133; see `fit()` above). The context names `column`,
+  `value`, `type` and `state` (`refit`, `fold k`, `last fold` or
+  `declared categories`). `fit()` warns about such a column before training
   (`UserWarning`); convert its values to `str` and fit again to save the
-  model (H-0127).
+  model (H-0127, H-0133). Values LightGBM cannot write itself are saved with
+  their column handed to LightGBM as positions, not refused.
 - `LizyMLError(SERIALIZATION_FAILED)` — before anything is written, when a
   saved state would not answer like the fitted model (H-0136). Each saved
   state is passed through joblib (the artifact) and through the tagged JSON

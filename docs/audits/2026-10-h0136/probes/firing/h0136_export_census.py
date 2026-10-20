@@ -7,7 +7,13 @@ three exits and the fit warning, evaluates the prototype rule
 unchanged and records its outcome. One JSON record per call:
 
 - ``surface``: ``Model.export`` / ``persistence.export`` (both through
-  ``check_category_values``), ``export_code``, or ``fit_warning``;
+  ``check_category_values``), ``export_code`` (the exit itself), or
+  ``fit_warning``. After H-0136, ``export_code`` also calls
+  ``check_category_values``; that inner call is recorded apart as
+  ``export_code (check)``, so count exits on ``export_code``.
+  ``fit_warning`` wraps the warning fit gives before CV
+  (``warn_unsaveable_category_values``); H-0136's own warning comes after the
+  fit (``warn_saved_state_changes``) and is not recorded here;
 - ``today``: ``ok`` or the error code the real call raised (for
   ``fit_warning``: whether today's warning fires);
 - ``breaks``: the prototype's breaks, each with the state, column,

@@ -15754,6 +15754,7 @@ Codex の実装レビュー（run `h0135-impl-review`、`1d9d38a`）は CHANGES_
   - 保存した成果物（joblib）は型を保つので、`Model.export` ではこの差は出ない。
 - **#379**（メモリ上の不整合）: 判断 4。
 - **#380**（実装中に見つけた、メモリ上の不整合）: NumPy の 1 に等しいスカラーと 1 を包む `tuple` を pandas が取り違え、メモリ上のモデルがバッチによって符号を変える。P1 の基準は、学習したカテゴリを状態の順に並べた 1 つのバッチである（実装の記録）。
+- **#382**（実装レビューで見つけた、codegen の列名）: 文字列でない名前のカテゴリ列（例: 自動で見つけた int の `7`）では、`pipeline_state.json` のキーが JSON で文字列になる。そのため、生成した `predict.py` がその列を符号化せずに落ちる。v0.19.0 でも同じである（`int_column_name.py`・`.out`）。値ではなく列名の問題で、管理者の判断（カード D-20261020-013）により、別の issue として v0.20.0 の後に扱う。
 
 ### 置き換える記録
 
@@ -15845,3 +15846,14 @@ Firing rate: 0/1174 of export exits on pandas 3.0.1 (full-suite census with `h01
     - `test_version.py`: 既知の環境の失敗。
     - `test_notebooks` の `tutorial_time_series_lgbm`: notebook がデータを取りに行き、sandbox のネットワークで `URLError` になった。
   - pandas 2.3.3 では、`tests/test_persistence`・`tests/test_codegen`・`test_category_values.py`（slow を含む）を走らせた。落ちたのは、検証用の環境に `pyarrow` が無いための parquet の 84 本だけだった（CI の環境には入っている）。
+
+### 実装レビュー round 1 への対応（2026-10-20）
+
+Codex の実装レビュー（run `h0136-impl-review`、`6dce827`）は CHANGES_REQUESTED（major 2、minor 1）だった。
+
+- **major 1（DC1）**: 文字列でない名前のカテゴリ列で、`export_code` が動かないプロジェクトを書く。
+  - 再現した。v0.19.0 でも同じだった（`int_column_name.py`・`.out`）。
+  - 列名の問題で、管理者の判断（カード D-20261020-013）により #382 として v0.20.0 の後に扱う。「残る範囲」に足した。
+  - H-0136 の検査は値の写しのままにした。列名を JSON に通すと、正しく保存できる `Model.export` まで拒否することになるからである（判断 2）。
+- **major 2（DC3）**: `docs/api.md` の `fit` の警告と `export()` の拒否の文が、H-0133 の前のまま残っていた。`bytes` などの値を「警告して拒否する」と書いていたが、実際はそれらを位置の番号に置き換えて保存する。V の外の値の警告と拒否の文に直した。
+- **minor**: census の plugin の docstring が、`export_code (check)` の記録と、`fit_warning` が CV の前の警告しか包まないことを書いていなかった。docstring を直した。数は変わらない。
