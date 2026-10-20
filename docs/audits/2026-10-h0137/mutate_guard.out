@@ -1,18 +1,24 @@
 == M1 no refusal
-14 failed, 5 passed, 30 deselected in 0.93s
+18 failed, 16 passed, 30 deselected in 0.86s
 == M2 network check never fails
-13 failed, 6 passed, 30 deselected in 0.68s
+17 failed, 17 passed, 30 deselected in 1.12s
 == M3 no record
-13 failed, 6 passed, 30 deselected in 0.62s
+17 failed, 17 passed, 30 deselected in 0.65s
 == M4 uninstall leaves inherited patch
-1 failed, 18 passed, 30 deselected in 0.58s
+1 failed, 33 passed, 30 deselected in 0.61s
 == M5 sendmsg not refused
-2 failed, 17 passed, 30 deselected in 0.59s
+3 failed, 31 passed, 30 deselected in 0.58s
 == M6 getnameinfo not refused
-2 failed, 17 passed, 30 deselected in 0.68s
+3 failed, 31 passed, 30 deselected in 0.63s
 == M7 reads not recorded
-1 failed, 18 passed, 30 deselected in 0.59s
+1 failed, 33 passed, 30 deselected in 0.66s
 == M8 reads never compared
-1 failed, 18 passed, 30 deselected in 0.58s
+2 failed, 32 passed, 30 deselected in 0.57s
+== M9 getfqdn not refused (round 2 finding)
+3 failed, 31 passed, 30 deselected in 0.61s
+== M10 write opens recorded as reads (round 2 finding)
+8 failed, 26 passed, 30 deselected in 0.65s
+== M11 a public method left unclassified
+1 failed, 33 passed, 30 deselected in 0.59s
 == M0 original
-19 passed, 30 deselected in 0.57s
+34 passed, 30 deselected in 0.64s

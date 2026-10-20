@@ -3,7 +3,7 @@
     uv run python docs/audits/2026-10-h0137/socket_census.py docs/audits/2026-10-h0137/socket_census.json
 
 Measurement for H-0137: does anything in the kernel reach a Python-level
-socket entry point (the ten that tests/test_notebooks/network_guard.py
+socket entry point (the fourteen that tests/test_notebooks/network_guard.py
 refuses), and which files under data/ does each notebook open? The cell only
 records; it refuses nothing. (ZMQ, the kernel's own channel, is C-level and is
 not expected to show.) Each notebook runs in a fresh copy of notebooks/.
@@ -34,16 +34,18 @@ def _wrap(owner, name):
     setattr(owner, name, f)
 for _n in ("connect", "connect_ex", "sendto", "sendmsg"):
     _wrap(_s.socket, _n)
-for _n in ("create_connection", "getaddrinfo", "gethostbyname", "gethostbyname_ex",
-           "gethostbyaddr", "getnameinfo"):
+for _n in ("create_connection", "getaddrinfo", "getfqdn", "gethostbyname", "gethostbyname_ex",
+           "gethostbyaddr", "getnameinfo", "getprotobyname", "getservbyname", "getservbyport"):
     _wrap(_s, _n)
 _open = _b.open
 def _recording_open(file, *a, **k):
-    if isinstance(file, (str, _os.PathLike)):
+    handle = _open(file, *a, **k)
+    mode = a[0] if a else k.get("mode", "r")
+    if isinstance(file, (str, _os.PathLike)) and not set("wax+") & set(mode):
         p = _os.path.abspath(_os.fspath(file))
         if _os.path.dirname(p) == _DATA:
             _READS.add(_os.path.basename(p))
-    return _open(file, *a, **k)
+    return handle
 _b.open = _io.open = _recording_open
 '''
 END_CELL = (

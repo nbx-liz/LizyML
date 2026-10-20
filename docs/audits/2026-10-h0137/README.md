@@ -4,7 +4,7 @@ HISTORY.md の H-0137「実測」の各主張と、それを出したファイ�
 
 | 主張 | スクリプト | 出力 | 通信 |
 |---|---|---|---|
-| カーネルの中で、ガードが拒否する 10 個の入口に届く呼び出しは 8 本とも 0 件。各 notebook が `data/` から開くファイルは manifest の記録と同じ | `socket_census.py`（`heavy.sh` で実行） | `socket_census.json` | 不要 |
+| カーネルの中で、ガードが拒否する 14 個の入口に届く呼び出しは 8 本とも 0 件。各 notebook が `data/` から読み込みで開くファイルは manifest の記録と同じ | `socket_census.py`（`heavy.sh` で実行） | `socket_census.json` | 不要 |
 | 上の記録の仕組みは、今の取得方法の通信を捕まえる（陽性対照） | `socket_census_control.py` | `socket_census_control.out` | 要 |
 | 4 つのデータで、同梱したファイルから作るデータフレームが、取得元から作るものと一致する。作り直したファイルの sha256 は 2 回とも manifest と同じ | `scripts/vendor_notebook_data.py --out <dir>` を 2 回 | `rebuild_run1.out`、`rebuild_run2.out` | 要 |
 | sdist に `notebooks/data/` が入り、wheel には入らない。大きさ | `uv build` を develop と branch で | `dist_contents.out` | 不要 |
