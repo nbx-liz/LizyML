@@ -1898,7 +1898,7 @@ estimators/
   - fit が適用した training overlay（`applied_training_params`。`tuning` ブロックはモデルの現在の tuning result で、どの fit も消費していないことがあるので別に記録する。H-0109）
 - `metadata.json` のキー（`persistence/exporter.py`）:
   - 常に書く: `format_version` / `lizyml_version` / `python_version` / `timestamp` / `run_id` / `config` / `metrics` / `feature_names` / `task` / `checksums`。
-  - `checksums` は `{"algorithm": "sha256", "files": {<ファイル名>: <16 進の digest>}}` で、`files` は `fit_result.pkl` / `refit_model.pkl` と、あれば `analysis_context.pkl` と `tuning_history.json`（H-0134）の SHA-256 を持つ。アルゴリズム名は `persistence/exporter.py` の `CHECKSUM_ALGORITHM`（H-0083）。
+  - `checksums` はちょうど `{"algorithm": "sha256", "files": {<ファイル名>: <64 桁の小文字の 16 進の digest>}}` で、`files` は `fit_result.pkl` / `refit_model.pkl` と、あれば `analysis_context.pkl` と `tuning_history.json`（H-0134）の SHA-256 を持つ。アルゴリズム名は `persistence/exporter.py` の `CHECKSUM_ALGORITHM`（H-0083）。この形の検査は `persistence/_manifest.py` の `declared_files` が行う（H-0135）。
   - tune 済みのモデルだけ: `tuning` ブロック（`best_model_params` / `best_smart_params` / `best_training_params` / `best_score` / `metric_name` / `direction`、成功した tuning round の `fixed_params`）。`load()` はこれを tuning result として復元し、load 後の再 `fit()` が tuned params を再現する（H-0086）。`tuning.history` は `null` か、ちょうど `{"file": "tuning_history.json", "schema": "lizyml-tuning-history/v1"}` で、後者のとき試行・round・境界の報告を `tuning_history.json` に書く（H-0134。H-0086 の「trial の履歴は保存しない」を置き換えた）。履歴を持たないモデル（format 1〜3 から load したもの）を export すると `null` を書き、ファイルは書かない。宣言だけを正とし、ディレクトリにある宣言されていない `tuning_history.json` は読まない。宣言の形が違う、ファイルが無い・`checksums` に無い・digest が合わない、正準の形でない履歴は、どれも `DESERIALIZATION_FAILED`。符号化は `core/tuning_codec.py`（Layer 0）の `history_bytes` / `parse_history`。
   - fit が overlay を記録したモデルだけ: `applied_training_params`（上記、H-0109）。
   - fit が記録したモデルだけ: `applied_sample_weight`（`"balanced"` / `"none"`）と `declared_categories`（列名 → 型付きの値の配列。JSON が型のまま戻せない値を含む記録は書かない）。`load()` はどちらも検査し、規則に合わない値は `DESERIALIZATION_FAILED`、キーが無ければ「分からない」（`None`）として読み、再 export でもキーを書かない（H-0120 改訂 1・4）。
@@ -1910,15 +1910,21 @@ estimators/
 - 現行 `FORMAT_VERSION = 4`（H-0134）。`{1, 2, 3, 4}` を loader が受理し、v1 artifact には no-op `TargetEncoder` を in-memory で注入して contract を整合させる（INV-5、H-0070）。v1・v2 の pipeline 状態には `stand_in_columns` が無く、どの列も元の値のカテゴリのまま読み、今と同じに予測する。3 に上げたのは意味の変更のためである: 位置の番号に置き換えた列（§15.3）を持つ状態を古い LizyML が読むと、元の値のカテゴリとして扱い、エラー無しに予測を間違える（H-0133 の実測）。そのため古い LizyML は v3 を拒否しなければならない。4 に上げたのは、`tuning_history.json` を知らない LizyML が v4 を読むと、そのファイルを無視して試行の履歴を空の表として見せるためである（#315 の欠陥。H-0134）。v1〜v3 は履歴を持たない成果物として読む。
 - **フィールドの追加は後方互換の変更で、`format_version` を上げない。** フィールドの削除、型や意味の変更は破壊的変更で、`format_version` を上げる（H-0003）。`checksums`（H-0083）、`tuning`（H-0086）、`applied_training_params`（H-0109）、`applied_sample_weight` / `declared_categories`（H-0120）はいずれも追加で、版を上げずに入った（H-0133 が意味の変更で版を 3 に上げるまで v2。H-0134 が `FORMAT_VERSION = 4` に上げた）。旧 loader は知らないキーを無視する。**例外（H-0134）**: 追加のフィールドでも、それが無いと、受理する古い loader が報告を黙って間違えるもの（`tuning.history` と `tuning_history.json`。古い loader は空の表を返す）は意味の変更として扱い、版を上げる。
 - `load()` は毎回 `metadata.json` を検査する。必須キー（`_REQUIRED_METADATA_KEYS` = `format_version` / `task` / `feature_names` / `config` / `run_id`）が欠けていれば `DESERIALIZATION_FAILED`。
-- **完全性の検査（H-0083）**: `load()` は各 `.pkl` のバイト列を 1 回だけ読み、`checksums` に記録された digest と照合してから、そのバイト列を `joblib.load(io.BytesIO(...))` で復元する（ファイルを再 open しないので、検査と復元の間の TOCTOU が無い）。`algorithm` が `sha256` でない、または digest が一致しないときは pickle を実行する前に `DESERIALIZATION_FAILED`（context: `file` / `expected` / `actual`、アルゴリズム違いでは `file` / `algorithm`）。`checksums` を持たない artifact（H-0083 以前）と、`files` に載っていないファイルは検査せずに読む。
-- **脅威モデル**: `metadata.json` 自体は署名しない。書き込み権限を持つ者は `checksums` を書き換えたり消したりできる。`checksums` が検出するのは破損と改竄であり、悪意ある作成者に対して pickle を安全にするものではない。artifact は信頼できる出どころからだけ読む。
-- `analysis_context.pkl` を持たない artifact（H-0026 以前）でも `predict()` と `evaluate()` は使える。load 後の診断 API（`residuals()` など）は、必要なデータが無いと `MODEL_NOT_FIT` で明示的に失敗し、最新版での再 export を促す（H-0026）。
+- **完全性の検査（H-0083）**: `load()` は各 `.pkl` のバイト列を 1 回だけ読み、`checksums` に記録された digest と照合してから、そのバイト列を `joblib.load(io.BytesIO(...))` で復元する（ファイルを再 open しないので、検査と復元の間の TOCTOU が無い）。digest が一致しないときは pickle を実行する前に `DESERIALIZATION_FAILED`（context: `file` / `expected` / `actual`）。
+- **読むファイルは `checksums` の宣言で決まる（H-0135）**: 次の拒否はどれも `DESERIALIZATION_FAILED` で、context の `reason` が理由を示し、どの pickle も読む前に起きる。
+  - `checksums` が上の形でない（`reason="checksums_malformed"`。配列・`null`・キーの過不足・digest の形の違いを含む）、`algorithm` が `sha256` でない（`"checksums_algorithm"`）。どの版でも拒否する。
+  - `checksums` が無い: format 1・2（H-0083 以前に書かれた成果物）だけは、今までどおり検査せずに読む。format 3・4 では拒否する（`"checksums_missing"`）。
+  - `fit_result.pkl` か `refit_model.pkl` が `files` に無い（`"required_file_unlisted"`）。
+  - 宣言された `analysis_context.pkl` が無い（`"declared_file_missing"`）。宣言されていない `analysis_context.pkl` がディレクトリにあっても読まず（前の export が残したもの、#373）、`lizyml.persistence.loader` の logger の INFO に記録する。`checksums` の無い format 1・2 では、あれば読む。
+  - 宣言の名前は、決まった名前（`fit_result.pkl` / `refit_model.pkl` / `analysis_context.pkl` / `tuning_history.json`）との完全一致で、大文字と小文字を区別する。宣言の名前をパスとして組み立てることはせず、知らない名前（`../x` のようなパスの形も含む）は無視する。決まった名前のファイルが symlink でも読む。読んだバイト列を digest で確かめてから復元するからである。
+- **脅威モデル**: `metadata.json` 自体は署名しない。書き込み権限を持つ者は `checksums` を書き換えたり消したりできる（format 3・4 で消すと、読めなくなる）。`checksums` が検出するのは破損と改竄であり、悪意ある作成者に対して pickle を安全にするものではない。artifact は信頼できる出どころからだけ読む。
+- `analysis_context.pkl` を持たない artifact（H-0026 以前）、または宣言していない artifact でも `predict()` と `evaluate()` は使える。load 後の診断 API（`residuals()` など）は、必要なデータが無いと `MODEL_NOT_FIT` で明示的に失敗し、最新版での再 export を促す（H-0026）。
 - `pipeline_state_per_fold` を持たない `FitResult`（H-0114 より前の artifact。`format_version` は 2 のまま）は、そのまま読める（既定値 `None` がクラス属性として残るので、属性は `None` を返す）。`importance(kind="shap")` / `importance_plot(kind="shap")` だけが `MODEL_NOT_FIT`（context `task` / `kind` / `method` / `missing="pipeline_state_per_fold"`）で失敗し、`fit()` し直すことを促す。再 export では状態は作られない。この検査は `analysis_context` が無い場合の検査より先に行う。split / gain の重要度と他の API は変わらない（H-0114）。
 - 非推奨の面とその削除目標（v1.0）の唯一の登録簿は `docs/DEPRECATIONS.md` である。非推奨の警告文は削除目標の版を明記する（H-0076）。
 
 ## 15.3 `export`（`Model Artifact`）
 
-- `Model Artifact` を 1 ディレクトリにまとめる。中身は `metadata.json`、`fit_result.pkl`（`FitResult`）、`refit_model.pkl`（`RefitResult`）と、任意の `analysis_context.pkl`（load 後の診断 API が使う `y_true` と `X_for_explain`。無ければ load 時に `None`、H-0026）、tune 済みのモデルの `tuning_history.json`（strict JSON。H-0134）。`.pkl` は joblib（圧縮）で書く（H-0003）。
+- `Model Artifact` を 1 ディレクトリにまとめる。中身は `metadata.json`、`fit_result.pkl`（`FitResult`）、`refit_model.pkl`（`RefitResult`）と、任意の `analysis_context.pkl`（load 後の診断 API が使う `y_true` と `X_for_explain`。無ければ load 時に `None`、H-0026）、tune 済みのモデルの `tuning_history.json`（strict JSON。H-0134）。`.pkl` は joblib（圧縮）で書く（H-0003）。前の export があるディレクトリに書くときは、書く前に任意のファイル（`analysis_context.pkl` と `tuning_history.json`）を消し、今回の export が持つものだけを書き直す。ほかのファイルには触らない（H-0135）。
 - `.pkl` は pickle なので、読み込むと任意の Python を実行しうる。`Model.load()` は信頼できる出どころの artifact だけに使う（H-0003、上記の脅威モデル）。
 - `Model.load()` で復元し、推論と評価情報参照に加えて診断 API（残差/SHAP/分類・校正可視化）も利用可能にする。
 - **保存できるカテゴリ値（H-0127、#338、H-0133、#357）**:
@@ -2088,7 +2094,7 @@ Artifact の保存・復元が `format_version` 管理のもとで安全に動�
 
 - **Frozen artifact fixture**: `tests/fixtures/` に CI 生成の artifact スナップショットを格納し、`Model.load()` → `predict()` の結果が既知の期待値と一致することを検証する。将来の `format_version` bump 時に migration テストの基盤となる。
 - **Legacy calibration path**: `oof_raw_scores=None` の旧形式 artifact が probability 入力で calibrate される経路を検証する。
-- **format_version rejection**: 未知の version（`99`, `0`, `4` 等）で `DESERIALIZATION_FAILED`。`{1, 2}` だけを受理する loader（模擬）は v3 を拒否する。
+- **format_version rejection**: 未知の version（`0`, `5`, `99`, `-1`, `None`）で `DESERIALIZATION_FAILED`。`{1, 2}` だけを受理する loader（模擬）は v3 を拒否する。
 - **v1 と v2 の形（H-0133 P8）**: 旧版で保存した成果物はリポジトリに無いので、テストは今の成果物を書き直して作る（`tests/test_persistence/_artifact_versions.py` の `to_v2_shape`: `stand_in_columns` を除き、`format_version` を 2 にして checksums を書き直す。v1 はさらに `target_encoder` を除く）。今の版を「v2」と呼ぶテストは置かない。
 - **metadata 部分欠損**: 必須フィールドを 1 つずつ削除し、各欠損で正しいエラーメッセージを検証。
 - **Booster string roundtrip**: `model_to_string()` → `model_from_string()` 往復で predict 結果が一致。

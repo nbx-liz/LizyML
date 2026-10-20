@@ -324,8 +324,11 @@ class ModelPersistenceMixin:
         """Export Model artifacts to a directory.
 
         Saves ``fit_result.pkl``, ``refit_model.pkl``, ``metadata.json``,
-        and ``analysis_context.pkl`` under *path*.  The saved model can be
-        restored with :meth:`load`, including diagnostic API support.
+        ``analysis_context.pkl`` and, for a tuned model, ``tuning_history.json``
+        under *path*. An earlier export's ``analysis_context.pkl`` and
+        ``tuning_history.json`` in *path* are removed first (H-0135). The saved
+        model can be restored with :meth:`load`, including diagnostic API
+        support.
 
         Path resolution (first match wins):
 

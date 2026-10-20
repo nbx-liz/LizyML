@@ -349,7 +349,11 @@ def export(self, path: str | Path | None = None) -> Path
 ```
 
 Saves LizyML artifacts to a directory for later `load()`. Writes:
-`fit_result.pkl`, `refit_model.pkl`, `metadata.json`, `analysis_context.pkl`.
+`fit_result.pkl`, `refit_model.pkl`, `metadata.json`, `analysis_context.pkl`,
+and `tuning_history.json` for a tuned model. Exporting into a directory that
+holds an earlier export first removes that export's `analysis_context.pkl` and
+`tuning_history.json`, so only what this export writes is left; other files are
+not touched (H-0135).
 
 Path resolution (first match wins):
 1. Explicit `path` argument.
@@ -424,6 +428,8 @@ written before H-0114 has no per-fold pipeline states, so on it
 
 **Raises:** `LizyMLError(DESERIALIZATION_FAILED)`:
 - validation or I/O error;
+- `metadata.json`'s `checksums` is not exactly `{"algorithm": "sha256", "files": {<name>: <64 lowercase hex digits>}}`, is absent in a `format_version` 3 or 4 artifact (only 1 and 2 predate it), does not list `fit_result.pkl` and `refit_model.pkl`, or lists an `analysis_context.pkl` that is missing (H-0135, [#373](https://github.com/nbx-liz/LizyML/issues/373), [#374](https://github.com/nbx-liz/LizyML/issues/374)); `context["reason"]` names which. Only the files `checksums` lists are read: an unlisted `analysis_context.pkl` left by an earlier export is ignored (logged at INFO);
+- a file does not match the digest `checksums` records;
 - a stored booster (any fold model or the refit model) was trained with the binary objective `cross_entropy_lambda`, whose output is not a probability (H-0125, [#307](https://github.com/nbx-liz/LizyML/issues/307)). The objective is read from what LightGBM recorded in the booster, not from its `params` or the config; the context names the `booster` and the `objective`. Fit again with `binary` or `cross_entropy` and export again. Other artifacts load as before, including one whose `model.params.metric` recorded parameters on a native metric (it predicts; a re-fit or `export_code` raises `CONFIG_INVALID`, #313).
 
 > **Security note:** Only load from trusted sources — joblib uses pickle internally.

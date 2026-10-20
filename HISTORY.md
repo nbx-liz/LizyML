@@ -15377,8 +15377,9 @@ Codex の run `h0134-impl-review` の round 1（`6207df6`）は CHANGES_REQUESTE
 
 ## H-0135: load が読むファイルを checksums の宣言で決め、宣言の形を閉じる ― 古い analysis_context.pkl を読まない、配列の checksums を拒否する（#373、#374）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-20
+- **決定日**: 2026-10-20
 - **関連**: #373、#374、H-0083、H-0026、H-0134（`_require_v4_checksums` と、宣言だけを読む `tuning_history.json`）、registry のカード D-20261020-001・D-20261020-002
 - **スコープ**:
   - `lizyml.persistence.load`（公開）と `Model.load` が、`metadata.json` の `checksums` をどう検査し、どのファイルを読むか
@@ -15505,3 +15506,61 @@ Firing rate: 23/449 of artifact loads (full-suite load census with `h0135_load_c
   - major 2: 「pickle を読む前に拒否する」ことの確かめを、P2・P3・P4 の拒否にも足した（受け入れ基準 4・5）。
   - major 3: 壊れた pickle のテストの書き直しを、ディスクにある最後のバイト列から digest を計算する 1 つの指示にし、2 つのテストで `__cause__` を確かめるとした（受け入れ基準 6）。
   - minor: P8 で消す行を `loader.py:118-122` に直し、P1 と P2 の両方による理由を書いた。規則が縛る位置に、`exporter.py:3-17` の docstring、`Model.export` の docstring、`proposal_dispositions.toml` の H-0135 の行を足した。
+
+### 受け入れ（2026-10-20）
+
+- Codex の確認 run（`h0135-proposal-confirm`、`4013f76`）が APPROVE（指摘 0 件）だった。その前に relational monitor を走らせ、CONVERGING・continue だった。
+- 管理者は、停止ルールで「直して、絞った確認を 1 回」を選んだ。この実行の方針（Codex の APPROVE と CI 緑で進める）により、確認の APPROVE をもって受け入れとした。
+- 4 つの分かれ道は管理者が決めた（カード D-20261020-002）。
+
+### 実装の記録（2026-10-20）
+
+- **コード**:
+  - 新しい `lizyml/persistence/_manifest.py` の `declared_files` が P1〜P3 を行う。拒否は `DESERIALIZATION_FAILED` で、context の `reason` に理由を入れる:
+    - `checksums_malformed`
+    - `checksums_algorithm`
+    - `checksums_missing`
+    - `required_file_unlisted`
+  - `loader.py`:
+    - `_require_v4_checksums` を消した。
+    - `_declared_tuning_history` は `declared_files` の結果を受け取り、`loader.py:118-122` の検査を消した（P8）。
+    - `_verify_and_read_pkl` は宣言された digest（`str`、または format 1・2 の検査しない読みのとき `None`）を受け取る。
+    - `_context_is_read` が P4 を行う。宣言されたのにファイルが無いときは `declared_file_missing` で拒否し、ディスクにあるのに宣言されていないファイルは無視して、`lizyml.persistence.loader` の logger の INFO に記録する。この判定は、どの pickle を読むよりも前に行う。
+  - `exporter.py` の `write_checked` は、`mkdir` の後、最初のファイルを書く前に、`_OPTIONAL_FILES`（`analysis_context.pkl`、`tuning_history.json`）を `unlink(missing_ok=True)` で消す（P6）。
+  - module の docstring と `Model.export` の docstring も直した。
+  - `_manifest` は `exporter` の `CHECKSUM_ALGORITHM` を import する。`exporter` が `_manifest` を import すると循環するので、exporter はファイル名を自分で持つ。
+- **テストの書き直し**（受け入れ基準 6。テストは消していない）:
+  - `_artifact_versions.py` に `resign` を足した（載っているファイルの digest を、ディスクのバイト列で書き直す）。
+  - `test_h0125_load_refuses_non_probability_objective.py` の `_drop_checksums` を `_resign_if_signed` にした。
+  - `test_artifact_compat.py::TestLegacyCalibrationPath` は `resign` を使う。
+  - `test_checksum_integrity.py` は、`to_v2_shape` で v2 にしてから `checksums` を外すようにした。format 4 で外すと拒否されるテストも足した。
+  - `test_export_load_errors.py` の 2 本は `_write_signed_metadata`（ディスクの最後のバイト列の digest）を使い、どちらも `__cause__` を確かめる。
+  - `test_persistence.py::TestLegacyArtifactCompat` は、ファイルと一緒に宣言も外す。
+  - **意図した変更**: `test_h0134_acceptance.py::test_a_stale_history_file_is_not_read` は、書き直しの後に古い `tuning_history.json` が「残る」ことを確かめていた。P6 によって「消える」ことを確かめる形にした。読み手が宣言だけを読むことは、`test_h0135_acceptance.py` の `test_a_left_over_context_is_ignored_and_logged` と、H-0134 の宣言の検査が確かめる。
+- **新しいテスト**: `tests/test_persistence/test_h0135_acceptance.py`（103 本。受け入れ基準 1〜5 と 7）。
+  - 拒否するテストは、どれも `_verify_and_read_pkl` と `joblib.load` を罠に置き換え、pickle を読む前に拒否されることと、`reason` を確かめる。
+  - 形の違い 18 通りを、版 1〜4 の全てで確かめ、それぞれに形の正しい対照を置いた。
+  - JSON の object のキーは必ず文字列なので、「名前が文字列でない」場合は作れない。そのため表に入れていない。
+- **陰性対照**（受け入れ基準 8）: `docs/audits/2026-10-h0135/probes/negative_controls_h0135.py`。各検査を、それぞれありそうな誤った実装に戻す（多くは H-0135 の前の振る舞い）。対照は次の 10 通りで、10/10 で該当のテストが落ちた（`negative_controls_h0135.out`）。patch を当てない基準の run は通った。
+  - P1〜P3 を緩める
+  - P2
+  - P3
+  - digest の形
+  - アルゴリズム
+  - P4
+  - P5
+  - P6 を消さない
+  - P6 が利用者のファイルまで消す
+  - P7（pickle を先に読む）
+- **census（受け入れ基準 9）**: 実装の後に、フルスイートで同じ census を走らせた（`census_after.jsonl`・`census_after.out`）。
+  - load は 554 回で、規則による拒否は 89 回だった。どれも拒否を確かめるテストの load で、内訳は `test_h0135_acceptance.py` が 83 回、`test_h0134_acceptance.py` が 5 回、`test_checksum_integrity.py` が 1 回。
+  - 拒否は全て `DESERIALIZATION_FAILED` で、今は通るのに拒否される load は 0 回だった。
+  - symlink のある load は 3 回で、全て新しいテストのものだった。
+  - 実装の前の 16 回（テストが作った状態）は、書き直しで規則に合う状態になった。
+- **フルスイート**（census と同じ run）:
+  - 落ちたのは `tests/test_e2e/test_version.py`（editable install の古いメタデータ。既知の環境の失敗）と、`tests/test_docs/test_pr9_fold_map_check.py` の 3 本だった。
+  - fold map の 3 本は、BLUEPRINT §15.1・§15.2 の文を言い換えたために、`docs/audits/2026-09-defect-discovery/results/pr9_fold_map.md` の引用 4 行（H-0026#4、H-0083#0〜#2）が BLUEPRINT に無くなったことによる。引用を新しい文に直し、checker と `tests/test_docs` が通ることを確かめた。H-0083#2 は「H-0135 が format 1・2 に狭めた」と注記した。
+- **文書**:
+  - BLUEPRINT §15.1（`checksums` の形）、§15.2（読むファイルの規則と拒否の一覧、脅威モデル、`analysis_context.pkl`）、§15.3（書き直し）、§18.1.4（拒否する版の一覧を、テストの `0`・`5`・`99`・`-1`・`None` に合わせた）
+  - `docs/api.md`、`docs/faq.md`、`docs/migration.md`、`CHANGELOG.md`
+  - `docs/proposal_dispositions.toml` の H-0135 を `specified` にした。anchor は `declared_files` と `declared_file_missing`。

@@ -190,7 +190,9 @@ must be: `Model(config)` → `fit(data)` → any diagnostic method.
 After `Model.load(path)`, methods that need `analysis_context` (such as
 `confusion_matrix()`, `importance(kind="shap")`, `residuals()`) will also
 raise this error if the artifact was exported before `analysis_context`
-support was added. Re-exporting a loaded artifact does not restore it: fit the
+support was added, or if its `metadata.json` does not list
+`analysis_context.pkl` (a file left in the directory by an earlier export is
+not read, H-0135). Re-exporting a loaded artifact does not restore it: fit the
 model again with the current version and export that. `importance(kind="shap")`
 on an artifact exported before v0.18.0 needs a new fit as well, for the per-fold
 pipeline states (H-0114).
@@ -228,7 +230,7 @@ count is now reused automatically.
 | **Requires LizyML to load** | Yes | No |
 | **Use case** | Save and restore a `Model` instance via `Model.load()` | Deploy to an environment without LizyML installed |
 | **Calibrator** | Bundled inside `fit_result.pkl` | Serialized separately in `artifacts/` |
-| **Generated files** | `fit_result.pkl`, `refit_model.pkl`, `metadata.json`, `analysis_context.pkl` | `train.py`, `predict.py`, `test_equivalence.py`, `config.json`, `requirements.txt`, `artifacts/` |
+| **Generated files** | `fit_result.pkl`, `refit_model.pkl`, `metadata.json`, `analysis_context.pkl`, `tuning_history.json` (tuned models) | `train.py`, `predict.py`, `test_equivalence.py`, `config.json`, `requirements.txt`, `artifacts/` |
 
 Use `export()` for experiment tracking and continued analysis within
 LizyML. Use `export_code()` when you need a self-contained deployment
