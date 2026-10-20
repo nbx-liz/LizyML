@@ -91,8 +91,9 @@ def test_a_mode_the_json_copy_maps_elsewhere_is_mode() -> None:
 def test_a_pytz_mode_beside_a_fixed_offset_category_is_judged_by_replacement() -> None:
     """Implementation review round 2: a pytz mode beside an equal fixed-offset
     category, through joblib. Whether the unseen row's code changes depends
-    on pandas (on 2.0 the restored fold-1 mode no longer finds the category);
-    the verdict must follow the replacement, not the mode's position."""
+    on the pandas version and on Python's hash seed (the restored fold-1 mode
+    may no longer find the category); the verdict must follow the replacement,
+    not the mode's position."""
     fixed = pd.Timestamp("2024-11-03 01:30", tz=dt.timezone(dt.timedelta(hours=-5)))
     state = _state([fixed, "x"], _pytz_standard())
     projected = _through_joblib(state)
