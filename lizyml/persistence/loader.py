@@ -7,6 +7,12 @@ Raises DESERIALIZATION_FAILED when:
 - metadata.json is missing or malformed
 - format_version is unknown
 - Required metadata fields are absent
+- ``checksums`` is malformed, or absent in format 3-4, or does not list a
+  required pickle, or lists a file that is missing (H-0135)
+- a file does not match the digest ``checksums`` records (H-0083)
+
+Only the files ``checksums`` declares are read; format 1-2 artifacts without
+checksums are read as before H-0083.
 """
 
 from __future__ import annotations
@@ -22,6 +28,7 @@ import joblib
 
 from lizyml.core.category_values import decode as decode_category_value
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.logging import get_logger
 from lizyml.core.tuning_codec import (
     HISTORY_FILE,
     HISTORY_SCHEMA,
@@ -31,7 +38,15 @@ from lizyml.core.tuning_codec import (
 )
 from lizyml.core.types.fit_result import FitResult
 from lizyml.core.types.target_encoder import TargetEncoder
-from lizyml.persistence.exporter import CHECKSUM_ALGORITHM, FORMAT_VERSION
+from lizyml.persistence._manifest import (
+    ANALYSIS_CONTEXT_FILE,
+    FIT_RESULT_FILE,
+    REFIT_MODEL_FILE,
+    declared_files,
+)
+from lizyml.persistence.exporter import FORMAT_VERSION
+
+_log = get_logger("persistence.loader")
 
 _REQUIRED_METADATA_KEYS = frozenset(
     {"format_version", "task", "feature_names", "config", "run_id"}
@@ -55,34 +70,11 @@ def _refuse_history(path: str | Path, message: str, **context: Any) -> LizyMLErr
     )
 
 
-def _require_v4_checksums(metadata: dict[str, Any], path: str | Path) -> None:
-    """Refuse a tuned format-4 artifact whose ``checksums`` the writer did not write.
-
-    Format 4 is written only by H-0134 and later, which always record
-    ``{"algorithm": "sha256", "files": {...}}``. Without this check an empty or
-    non-object ``checksums`` would take the pre-H-0083 path in
-    :func:`_verify_and_read_pkl`, and the pickles of a model whose history is
-    declared ``null`` would be read unverified. An untuned artifact keeps the
-    H-0083 leniency; that is outside H-0134.
-    """
-    checksums = metadata.get("checksums")
-    if (
-        type(checksums) is not dict
-        or checksums.get("algorithm") != CHECKSUM_ALGORITHM
-        or type(checksums.get("files")) is not dict
-    ):
-        raise LizyMLError(
-            code=ErrorCode.DESERIALIZATION_FAILED,
-            user_message=(
-                "A format-4 metadata.json must record checksums as "
-                f"{{'algorithm': {CHECKSUM_ALGORITHM!r}, 'files': {{...}}}}."
-            ),
-            context={"path": str(path), "checksums": type(checksums).__name__},
-        )
-
-
 def _declared_tuning_history(
-    src: Path, metadata: dict[str, Any], path: str | Path
+    src: Path,
+    metadata: dict[str, Any],
+    files: dict[str, str] | None,
+    path: str | Path,
 ) -> TuningHistory | None:
     """The tuning history the artifact declares, verified and decoded (H-0134).
 
@@ -112,15 +104,10 @@ def _declared_tuning_history(
             f"the declaration must be null or {_HISTORY_DECLARATION}, "
             f"got {declaration!r}.",
         )
-    checksums = metadata.get("checksums")
-    files = checksums.get("files") if isinstance(checksums, dict) else None
-    expected = files.get(HISTORY_FILE) if isinstance(files, dict) else None
-    if (
-        not isinstance(checksums, dict)
-        or checksums.get("algorithm") != CHECKSUM_ALGORITHM
-    ):
-        raise _refuse_history(path, f"checksums must use {CHECKSUM_ALGORITHM!r}.")
-    if type(expected) is not str:
+    # declared_files has checked the manifest's shape and algorithm, and a
+    # format-4 artifact cannot be without one (H-0135 P1, P2).
+    expected = None if files is None else files.get(HISTORY_FILE)
+    if expected is None:
         raise _refuse_history(path, f"'{HISTORY_FILE}' is not listed in checksums.")
     history_path = src / HISTORY_FILE
     if not history_path.is_file():
@@ -206,35 +193,90 @@ def _migrate_fit_result(fit_result: Any, source_version: int) -> Any:
     return fit_result
 
 
-def _verify_and_read_pkl(pkl_path: Path, checksums: dict[str, Any] | None) -> bytes:
+def _expected(files: dict[str, str] | None, name: str) -> str | None:
+    """The digest the manifest declares for *name*; ``None`` without a manifest."""
+    return None if files is None else files[name]
+
+
+def _is_payload(file: Path, path: str | Path) -> bool:
+    """Whether *file* is there as a regular file (a symlink to one included).
+
+    Something else under a payload's name (a directory, a socket) is refused
+    here, before any pickle is read, rather than failing later with an
+    ``OSError`` (H-0135 P7).
+    """
+    if not file.exists():
+        return False
+    if not file.is_file():
+        raise LizyMLError(
+            code=ErrorCode.DESERIALIZATION_FAILED,
+            user_message=f"'{file.name}' in '{path}' is not a regular file.",
+            context={"path": str(path), "reason": "not_a_file", "file": file.name},
+        )
+    return True
+
+
+def _context_is_read(
+    ctx_pkl: Path, files: dict[str, str] | None, path: str | Path
+) -> bool:
+    """Whether ``analysis_context.pkl`` is part of the artifact (H-0135 P4).
+
+    With a manifest, only a declared file is read; a declared file that is
+    missing is refused, and a present but undeclared one (left in a reused
+    directory by an earlier export, #373) is ignored and logged. Without one
+    (format 1-2, pre-H-0083) the file is read when present, as before.
+    """
+    if files is None:
+        return _is_payload(ctx_pkl, path)
+    if ANALYSIS_CONTEXT_FILE in files:
+        if not _is_payload(ctx_pkl, path):
+            raise LizyMLError(
+                code=ErrorCode.DESERIALIZATION_FAILED,
+                user_message=(
+                    f"Stored checksums list '{ANALYSIS_CONTEXT_FILE}', but the "
+                    "file is missing."
+                ),
+                context={
+                    "path": str(path),
+                    "reason": "declared_file_missing",
+                    "file": ANALYSIS_CONTEXT_FILE,
+                },
+            )
+        return True
+    if ctx_pkl.exists():
+        _log.info(
+            "Ignoring '%s' in '%s': checksums do not list it, so it is not part "
+            "of this artifact (left by an earlier export).",
+            ANALYSIS_CONTEXT_FILE,
+            path,
+        )
+    return False
+
+
+def _verify_and_read_pkl(pkl_path: Path, expected: str | None) -> bytes:
     """Read *pkl_path*, verify its digest, and return the bytes (H-0083).
 
     Reading the bytes once and loading from them (the caller passes the return
     value to ``joblib.load(io.BytesIO(...))``) closes the TOCTOU window between
     hashing and deserialization — the file is never re-opened after the check.
 
-    No verification is performed when *checksums* is absent (legacy artifacts
-    exported before H-0083 — back-compatible read) or when the file is not
-    listed. Raises ``DESERIALIZATION_FAILED`` on an unknown algorithm or a
-    digest mismatch, detecting tampering/corruption *before* pickle executes.
+    *expected* is the SHA-256 the manifest declares for the file
+    (:func:`~lizyml.persistence._manifest.declared_files`). It is ``None`` only
+    for a format 1-2 artifact without checksums, which is read unverified as
+    before H-0083 (H-0135 P2). Raises ``DESERIALIZATION_FAILED`` on a digest
+    mismatch, detecting tampering/corruption *before* pickle executes.
     """
-    raw = pkl_path.read_bytes()
-    if not checksums:
-        return raw
-    expected = checksums.get("files", {}).get(pkl_path.name)
-    if expected is None:
-        return raw
-
-    algorithm = checksums.get("algorithm")
-    if algorithm != CHECKSUM_ALGORITHM:
+    try:
+        raw = pkl_path.read_bytes()
+    except OSError as exc:
         raise LizyMLError(
             code=ErrorCode.DESERIALIZATION_FAILED,
-            user_message=(
-                f"Unsupported checksum algorithm {algorithm!r} for "
-                f"'{pkl_path.name}'. Expected {CHECKSUM_ALGORITHM!r}."
-            ),
-            context={"file": pkl_path.name, "algorithm": algorithm},
-        )
+            user_message=f"Failed to read '{pkl_path.name}': {exc}",
+            context={"file": pkl_path.name},
+            cause=exc,
+        ) from exc
+    if expected is None:
+        return raw
 
     actual = hashlib.sha256(raw).hexdigest()
     if actual != expected:
@@ -300,6 +342,13 @@ def load(path: str | Path) -> tuple[Any, Any, dict[str, Any], Any]:
             cause=exc,
         ) from exc
 
+    if type(metadata) is not dict:
+        raise LizyMLError(
+            code=ErrorCode.DESERIALIZATION_FAILED,
+            user_message="metadata.json must hold a JSON object.",
+            context={"path": str(path), "type": type(metadata).__name__},
+        )
+
     # Check required fields
     missing = _REQUIRED_METADATA_KEYS - set(metadata.keys())
     if missing:
@@ -309,9 +358,11 @@ def load(path: str | Path) -> tuple[Any, Any, dict[str, Any], Any]:
             context={"missing": sorted(missing)},
         )
 
-    # Check format_version (H-0070: accept any version in the supported set)
+    # Check format_version (H-0070: accept any version in the supported set).
+    # Exactly an int: JSON true and 2.0 compare equal to 1 and 2 and would
+    # pass as a format that may lack checksums (H-0135).
     fv = metadata.get("format_version")
-    if fv not in _SUPPORTED_FORMAT_VERSIONS:
+    if type(fv) is not int or fv not in _SUPPORTED_FORMAT_VERSIONS:
         raise LizyMLError(
             code=ErrorCode.DESERIALIZATION_FAILED,
             user_message=(
@@ -325,41 +376,46 @@ def load(path: str | Path) -> tuple[Any, Any, dict[str, Any], Any]:
             },
         )
 
+    # H-0135 P1-P3: the manifest decides what is read. None only for a format
+    # 1-2 artifact without checksums (pre-H-0083).
+    files = declared_files(metadata, fv, path)
+
     if "declared_categories" in metadata:
         metadata["declared_categories"] = _decoded_declared_categories(
             metadata["declared_categories"], path
         )
 
     # H-0134: a format-4 writer records, for a tuned model, a tuning object
-    # with a history declaration, and checksums. Check both before any pickle
-    # is read, whatever the declaration says (null included).
-    if fv >= 4 and "tuning" in metadata:
-        if type(metadata["tuning"]) is not dict:
-            raise _refuse_history(
-                path,
-                f"a format-4 'tuning' block must be an object, got "
-                f"{type(metadata['tuning']).__name__}.",
-            )
-        _require_v4_checksums(metadata, path)
+    # with a history declaration. Check it before any pickle is read, whatever
+    # the declaration says (null included).
+    if fv >= 4 and "tuning" in metadata and type(metadata["tuning"]) is not dict:
+        raise _refuse_history(
+            path,
+            f"a format-4 'tuning' block must be an object, got "
+            f"{type(metadata['tuning']).__name__}.",
+        )
     # Replace the declaration with the decoded history (None when the artifact
     # carries none), once, so persistence.load and Model.load agree.
     if isinstance(metadata.get("tuning"), dict):
-        metadata["tuning"]["history"] = _declared_tuning_history(src, metadata, path)
+        metadata["tuning"]["history"] = _declared_tuning_history(
+            src, metadata, files, path
+        )
 
     # --- Load pickled artifacts ----------------------------------------------
     for pkl_path in (fit_pkl, refit_pkl):
-        if not pkl_path.exists():
+        if not _is_payload(pkl_path, path):
             raise LizyMLError(
                 code=ErrorCode.DESERIALIZATION_FAILED,
                 user_message=f"Required artifact not found: '{pkl_path.name}'",
                 context={"path": str(pkl_path)},
             )
+    ctx_pkl = src / ANALYSIS_CONTEXT_FILE
+    read_context = _context_is_read(ctx_pkl, files, path)
 
     # H-0083: verify payload integrity, then load from the verified bytes (no
     # second file open) so pickle never executes unverified bytes.
-    checksums = metadata.get("checksums")
-    fit_raw = _verify_and_read_pkl(fit_pkl, checksums)
-    refit_raw = _verify_and_read_pkl(refit_pkl, checksums)
+    fit_raw = _verify_and_read_pkl(fit_pkl, _expected(files, FIT_RESULT_FILE))
+    refit_raw = _verify_and_read_pkl(refit_pkl, _expected(files, REFIT_MODEL_FILE))
 
     try:
         fit_result = joblib.load(io.BytesIO(fit_raw))
@@ -378,9 +434,8 @@ def load(path: str | Path) -> tuple[Any, Any, dict[str, Any], Any]:
 
     # Optional: analysis_context for diagnostic APIs after load
     analysis_context = None
-    ctx_pkl = src / "analysis_context.pkl"
-    if ctx_pkl.exists():
-        ctx_raw = _verify_and_read_pkl(ctx_pkl, checksums)
+    if read_context:
+        ctx_raw = _verify_and_read_pkl(ctx_pkl, _expected(files, ANALYSIS_CONTEXT_FILE))
         try:
             analysis_context = joblib.load(io.BytesIO(ctx_raw))
         except Exception as exc:

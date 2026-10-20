@@ -547,6 +547,10 @@ anchors = ["stand_in_columns", "core/category_values.py"]
 disposition = "specified"
 anchors = ["tuning_history.json", "core/tuning_codec.py"]
 
+[proposals."H-0135"]
+disposition = "specified"
+anchors = ["declared_files", "declared_file_missing"]
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 

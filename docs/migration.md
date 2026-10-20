@@ -7,6 +7,38 @@ release from v0.5.0 onward.
 
 ## v0.20.0 (unreleased)
 
+### `Model.load` reads only the files `checksums` lists (H-0135)
+
+`metadata.json`'s `checksums` now decides what `Model.load` (and
+`lizyml.persistence.load`) reads
+([#373](https://github.com/nbx-liz/LizyML/issues/373),
+[#374](https://github.com/nbx-liz/LizyML/issues/374)). Artifacts written by
+LizyML load as before.
+
+- **An `analysis_context.pkl` that `checksums` does not list is not read.**
+  Before, exporting a model without a context into a directory that held an
+  earlier export left the old `analysis_context.pkl` there, and the loaded
+  model answered `residuals()` and the other diagnostic methods with the
+  earlier model's data. Now that file is ignored (logged at INFO), and those
+  methods raise `MODEL_NOT_FIT`. Exporting into such a directory also removes
+  the earlier export's `analysis_context.pkl` and `tuning_history.json` first;
+  other files in the directory are kept.
+- **A malformed `checksums` is refused**, in every format: it must be exactly
+  `{"algorithm": "sha256", "files": {<name>: <64 lowercase hex digits>}}` and
+  list `fit_result.pkl` and `refit_model.pkl`. Before, an empty list skipped
+  verification and a non-empty one raised `AttributeError`.
+- **`checksums` is required from `format_version` 3.** Artifacts of format 1-2
+  without it (written before v0.16.0) still load unverified. A format 3 or 4
+  artifact whose `checksums` was removed by hand is refused.
+- For the refusals above, `LizyMLError(DESERIALIZATION_FAILED)` carries `context["reason"]`:
+  `checksums_malformed`, `checksums_algorithm`, `checksums_missing`,
+  `required_file_unlisted`, `declared_file_missing` or `not_a_file` (a
+  directory or other non-file under a payload's name).
+- **`format_version` must be a JSON integer.** `true` and `2.0` used to pass as
+  1 and 2; they are refused now, as is a `metadata.json` that is not an object.
+  These two errors carry no `reason` key, like the other version and metadata
+  errors.
+
 ### Saved artifacts are `format_version` 4 and keep the tuning history (H-0134)
 
 A tuned model now keeps its trials, rounds and boundary report through
