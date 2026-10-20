@@ -1,0 +1,18 @@
+pandas=3.0.1
+ok  uint64 + timedelta64(M): breaks=[{'column': 'c', 'serializer': 'json', 'kind': 'ValueError'}] fails=[] declared=[{'column': 'c', 'serializer': 'json', 'kind': 'ValueError'}]
+ok  zoneinfo fold=1 + fixed offset (control): breaks=[] fails=[] declared=[]
+ok  1 + timedelta64(1, s) (control): breaks=[] fails=[] declared=[]
+ok  strings (control): breaks=[] fails=[] declared=[]
+ok  summer zoneinfo (control): breaks=[] fails=[] declared=[]
+wrong=0
+pandas=2.3.3
+ok  uint64 + timedelta64(M): breaks=[{'column': 'c', 'serializer': 'json', 'kind': 'ValueError'}] fails=[] declared=[{'column': 'c', 'serializer': 'json', 'kind': 'ValueError'}]
+ok  zoneinfo fold=1 + fixed offset (control): breaks=[] fails=[] declared=[]
+ok  1 + timedelta64(1, s) (control): breaks=[] fails=[] declared=[]
+ok  strings (control): breaks=[] fails=[] declared=[]
+ok  summer zoneinfo (control): breaks=[] fails=[] declared=[]
+ok  pytz DST standard: breaks=[{'column': 'c', 'serializer': 'joblib', 'kind': 'LizyMLError'}] fails=[] declared=[]
+ok  pytz DST standard in a frozenset: breaks=[{'column': 'c', 'serializer': 'joblib', 'kind': 'LizyMLError'}] fails=[] declared=[]
+ok  zoneinfo fold=1 + pytz (#372): breaks=[{'column': 'c', 'serializer': 'joblib', 'kind': 'LizyMLError'}] fails=[] declared=[]
+ok  pytz summer (control): breaks=[] fails=[] declared=[]
+wrong=0
