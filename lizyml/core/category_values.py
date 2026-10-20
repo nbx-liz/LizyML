@@ -1,7 +1,9 @@
 """category_values -- the closed set of saveable category values and its codec (H-0133).
 
-``Model.export``, ``lizyml.persistence.export`` and ``export_code`` accept the
-same feature-category values: the set V. A value is in V when its type is one
+``Model.export``, ``lizyml.persistence.export`` and ``export_code`` accept
+feature-category values from the set V, and only in states that answer the
+same after joblib and after this codec (H-0136, one check in
+``persistence.exporter.check_category_values``). A value is in V when its type is one
 of :data:`ADMITTED_TYPES` exactly (``type(v) is T``: a subclass is refused, and
 its code never runs), it equals itself (NaN, ``Decimal`` NaN, a NaN complex and
 NaT are refused at any depth), a ``tuple`` / ``frozenset`` nests at most

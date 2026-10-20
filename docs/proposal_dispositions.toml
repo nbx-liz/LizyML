@@ -551,6 +551,10 @@ anchors = ["tuning_history.json", "core/tuning_codec.py"]
 disposition = "specified"
 anchors = ["declared_files", "declared_file_missing"]
 
+[proposals."H-0136"]
+disposition = "specified"
+anchors = ["features/encoders/state_changes.py", "warn_saved_state_changes"]
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 

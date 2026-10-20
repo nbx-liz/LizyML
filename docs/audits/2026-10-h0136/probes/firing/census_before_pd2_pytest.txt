@@ -1,0 +1,42 @@
+[run-exclusive] h0136-census-pd2 starting; load was 3.22
+run-heavy: pgid=12 (stop with: kill -- -12)
+......................................................s..............s.. [  9%]
+...............ss....s.................................................. [ 18%]
+........s..............s.................ss....s........................ [ 27%]
+........................................................................ [ 36%]
+........................................................................ [ 45%]
+........................................................................ [ 54%]
+........................................................................ [ 63%]
+........................................................................ [ 72%]
+........................................................................ [ 81%]
+........................................................................ [ 90%]
+........................................................................ [ 99%]
+.....                                                                    [100%]
+=============================== warnings summary ===============================
+tests/test_core/test_category_values.py:220
+  /home/rem/repos/LizyML/tests/test_core/test_category_values.py:220: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    (np.datetime64("NaT"), "NaT"),
+
+tests/test_core/test_category_values.py:221
+  /home/rem/repos/LizyML/tests/test_core/test_category_values.py:221: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    (np.timedelta64("NaT"), "NaT"),
+
+tests/test_persistence/test_h0133_acceptance.py:364
+  /home/rem/repos/LizyML/tests/test_persistence/test_h0133_acceptance.py:364: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    "tuple with NaT": [(np.datetime64("NaT"),), (1,)],
+
+tests/test_codegen/test_h0133_codec_copy.py:106
+  /home/rem/repos/LizyML/tests/test_codegen/test_h0133_codec_copy.py:106: DeprecationWarning: The 'generic' unit for NumPy timedelta is deprecated, and will raise an error in the future. This includes implicit conversion of bare integers (e.g. `+ 1`). Please use a specific unit instead.
+    (np.datetime64("NaT"),),
+
+tests/test_persistence/test_h0133_acceptance.py: 38 warnings
+  /home/rem/repos/LizyML/lizyml/core/model.py:281: UserWarning: task='binary' with split.method='kfold' does not preserve class distribution. Consider using 'stratified_kfold' instead.
+    splitter = build_splitter(
+
+tests/test_persistence/test_h0133_acceptance.py: 12 warnings
+  /tmp/claude-1000/-home-rem-repos-LizyML/f105b958-8bfb-4bf4-bfc6-1e20ef0125a2/scratchpad/pd2/lib/python3.12/site-packages/shap/explainers/_tree.py:578: UserWarning: LightGBM binary classifier with TreeExplainer shap values output has changed to a list of ndarray
+    warnings.warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+787 passed, 10 skipped, 54 warnings in 26.63s
+[run-exclusive] h0136-census-pd2 finished in 27s, exit 0

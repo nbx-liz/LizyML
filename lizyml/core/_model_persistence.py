@@ -408,6 +408,17 @@ class ModelPersistenceMixin:
         state = self._get_fit_state()
         refit_result = self._require_refit()
 
+        from lizyml.persistence.exporter import check_category_values
+
+        # H-0136 P2: the same check Model.export runs, before anything is
+        # written, so the two accept the same models.
+        check_category_values(
+            state.fit_result,
+            refit_result,
+            state.declared_categories,
+            surface="export_code",
+        )
+
         from lizyml.codegen.generator import generate_code
         from lizyml.core._model_factories import (
             check_param_names,

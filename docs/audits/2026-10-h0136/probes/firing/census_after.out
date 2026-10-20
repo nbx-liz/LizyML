@@ -1,0 +1,16 @@
+records=3273
+Model.export       calls=  576 fires=   0 breaks_already_refused= 21 rule_error=  0 original_fails=  2 today={'ok': 555, 'SERIALIZATION_FAILED': 21}
+export_code        calls=  497 fires=   0 breaks_already_refused= 15 rule_error=  2 original_fails=  1 today={'MODEL_NOT_FIT': 2, 'ok': 459, 'SERIALIZATION_FAILED': 34, 'CONFIG_INVALID': 2}
+    export_code passing today that check_category_values refuses: 0
+    RULE_ERROR tests/test_calibration/test_calibration_param_names.py::test_non_training_entry_points_really_do_not_train[export_code]  MODEL_NOT_FIT
+    RULE_ERROR tests/test_codegen/test_facade_export_code.py::TestExportCodeBinary::test_unfitted_raises  MODEL_NOT_FIT
+export_code (check) calls=  495 fires=   0 breaks_already_refused= 15 rule_error=  0 original_fails=  1 today={'ok': 480, 'SERIALIZATION_FAILED': 15}
+fit_warning        calls= 1578 fires=   4 breaks_already_refused= 20 rule_error=  0 original_fails=  1 today={'silent': 1558, 'warns': 20}
+    FIRES tests/test_persistence/test_h0136_acceptance.py::test_uint64_beside_timedelta64_months_is_refused[not  [('fit', 'json', 'ValueError')]
+    FIRES tests/test_persistence/test_h0136_acceptance.py::test_the_pair_as_declared_categories_is_refused  [('fit', 'json', 'ValueError')]
+    FIRES tests/test_persistence/test_h0136_acceptance.py::test_a_large_uint64_declared_before_numpy_true_is_refused  [('fit', 'json', 'OverflowError')]
+    FIRES tests/test_persistence/test_h0136_acceptance.py::test_the_refusal_message_names_both_surfaces  [('fit', 'json', 'LizyMLError')]
+persistence.export calls=  127 fires=   0 breaks_already_refused= 14 rule_error=  3 original_fails=  1 today={'SERIALIZATION_FAILED': 25, 'ok': 102}
+    RULE_ERROR tests/test_persistence/test_unwritable_categories.py::test_a_state_without_its_adapter_is_refused[fewer  SERIALIZATION_FAILED
+    RULE_ERROR tests/test_persistence/test_unwritable_categories.py::test_a_state_without_its_adapter_is_refused[more  SERIALIZATION_FAILED
+    RULE_ERROR tests/test_persistence/test_unwritable_categories.py::test_a_state_without_its_adapter_is_refused[no  SERIALIZATION_FAILED

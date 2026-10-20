@@ -1,0 +1,34 @@
+[run-exclusive] h0136-pytz-only starting; load was 0.52
+run-heavy: pgid=11 (stop with: kill -- -11)
+python 3.12.3 pandas 2.3.3 pytz 2026.5 numpy 2.5.4 lightgbm 4.7.0
+seed=0
+value=2024-11-03 01:30:00-05:00 fold=0
+policy=mode  max_abs_diff=0.000588712 unseen_warnings=1 ["Column 'c': 20 row(s) with unseen categories ['2024-11-03 01:30:00-05:00'] replaced by the training mode 'x' ("]
+policy=nan   max_abs_diff=0 unseen_warnings=1 ["Column 'c': 20 row(s) with unseen categories ['2024-11-03 01:30:00-05:00'] replaced by a missing value (unseen"]
+policy=error LizyMLError: [DATA_SCHEMA_INVALID] Column 'c' contains unseen categories: ['2024-11-03 01:30:00-05:00'] unseen_warnings=0 []
+seed=1
+value=2024-11-03 01:30:00-05:00 fold=0
+policy=mode  max_abs_diff=0.000588712 unseen_warnings=1 ["Column 'c': 20 row(s) with unseen categories ['2024-11-03 01:30:00-05:00'] replaced by the training mode 'x' ("]
+policy=nan   max_abs_diff=0 unseen_warnings=1 ["Column 'c': 20 row(s) with unseen categories ['2024-11-03 01:30:00-05:00'] replaced by a missing value (unseen"]
+policy=error LizyMLError: [DATA_SCHEMA_INVALID] Column 'c' contains unseen categories: ['2024-11-03 01:30:00-05:00'] unseen_warnings=0 []
+seed=2
+value=2024-11-03 01:30:00-05:00 fold=0
+policy=mode  max_abs_diff=0.000588712 unseen_warnings=1 ["Column 'c': 20 row(s) with unseen categories ['2024-11-03 01:30:00-05:00'] replaced by the training mode 'x' ("]
+policy=nan   max_abs_diff=0 unseen_warnings=1 ["Column 'c': 20 row(s) with unseen categories ['2024-11-03 01:30:00-05:00'] replaced by a missing value (unseen"]
+policy=error LizyMLError: [DATA_SCHEMA_INVALID] Column 'c' contains unseen categories: ['2024-11-03 01:30:00-05:00'] unseen_warnings=0 []
+control seed=0
+value=2024-06-01 01:30:00-04:00 fold=0
+policy=mode  max_abs_diff=0 unseen_warnings=0 []
+policy=nan   max_abs_diff=0 unseen_warnings=0 []
+policy=error max_abs_diff=0 unseen_warnings=0 []
+control seed=1
+value=2024-06-01 01:30:00-04:00 fold=0
+policy=mode  max_abs_diff=0 unseen_warnings=0 []
+policy=nan   max_abs_diff=0 unseen_warnings=0 []
+policy=error max_abs_diff=0 unseen_warnings=0 []
+control seed=2
+value=2024-06-01 01:30:00-04:00 fold=0
+policy=mode  max_abs_diff=0 unseen_warnings=0 []
+policy=nan   max_abs_diff=0 unseen_warnings=0 []
+policy=error max_abs_diff=0 unseen_warnings=0 []
+[run-exclusive] h0136-pytz-only finished in 3s, exit 0

@@ -62,10 +62,16 @@ automatically applied.
 - `LizyMLError(LEAKAGE_SUSPECTED)` — split/calibration invariant violated.
 
 **Warns:** `UserWarning`, once per categorical column, before training starts,
-when the column holds a category value LightGBM cannot write into a saved model
-(`bytes`, `Decimal`, dates and timestamps, `Timedelta`, `complex`,
-`frozenset`, or a `tuple` holding one). `fit` and `predict` work; `export()`
-refuses the model (H-0127).
+when the column holds a category value outside the saveable set (H-0133: for
+example a NaN-like value inside a tuple, `np.longdouble`, a subclass of a
+saveable type, a user-defined type, or a timezone that cannot be restored
+equal). `fit` and `predict` work; `export()` and `export_code()` refuse the
+model (H-0127, H-0133). Values LightGBM cannot write itself (`bytes`,
+`Decimal`, dates and timestamps, `Timedelta`, `complex`, `frozenset`, tuples
+holding them) are saveable: their column reaches LightGBM as positions (H-0133).
+Otherwise, once the fit has finished, `UserWarning` once per categorical column
+that `export()` and `export_code()` will refuse because a saved copy of the
+fitted state would not answer like it (H-0136; see `export()` below).
 
 ---
 
@@ -369,13 +375,26 @@ Path resolution (first match wins):
 - `LizyMLError(MODEL_NOT_FIT)` — called before `fit()`.
 - `LizyMLError(SERIALIZATION_FAILED)` — I/O error or unresolvable path.
 - `LizyMLError(SERIALIZATION_FAILED)` — before anything is written, when a
-  categorical column holds a value LightGBM cannot write into a saved model
-  (it stores category values as JSON): `bytes`, `Decimal`, dates and
-  timestamps, `Timedelta`, `complex`, `frozenset`, or a `tuple` holding one.
-  The context names `column`, `value`, `type` and `state` (`refit`, `fold k`
-  or `last fold`). `fit()` warns about such a column before training
+  categorical column (or `declared_categories`) holds a value outside the
+  saveable set (H-0133; see `fit()` above). The context names `column`,
+  `value`, `type` and `state` (`refit`, `fold k`, `last fold` or
+  `declared categories`). `fit()` warns about such a column before training
   (`UserWarning`); convert its values to `str` and fit again to save the
-  model (H-0127).
+  model (H-0127, H-0133). Values LightGBM cannot write itself are saved with
+  their column handed to LightGBM as positions, not refused.
+- `LizyMLError(SERIALIZATION_FAILED)` — before anything is written, when a
+  saved state would not answer like the fitted model (H-0136). Each saved
+  state is passed through joblib (the artifact) and through the tagged JSON
+  `export_code` writes; the learned categories, as one batch in the state's
+  order, must keep their codes, and an unseen row replaced by the mode
+  (`unseen_policy="mode"`) must keep its code. Examples: a pytz
+  `Timestamp` at the repeated hour of a daylight-saving change (pickle changes
+  its `fold`), or `np.uint64(4)` beside `np.timedelta64(4, 'M')` (JSON writes
+  the first as `4`, which equals the second). The context names `column`,
+  `state`, `serializer` (`joblib` or `json`) and `kind` (`unseen`, `raises`
+  with `exception`, `codes` or `mode`). `export_code()` and
+  `lizyml.persistence.export` run the same check, so the three accept the same
+  models.
 
 > **Security note:** The `.pkl` files use joblib/pickle. Only load artifacts
 > from trusted sources.
@@ -711,7 +730,7 @@ except LizyMLError as e:
 | `CALIBRATION_NOT_SUPPORTED` | Calibration was requested for a non-binary task or unsupported config. |
 | `CALIBRATION_NOT_FITTED` | A calibrator's `predict()` / `export_params()` was called before `fit()`. |
 | `CALIBRATION_FAILED` | The Platt or Beta calibrator's `minimize` did not converge (`success` false), so its coefficients are not used. `context` has `calibrator`, `method`, `message`, `status` and `nit`, plus `stage` (`"cross_fit"` with `fold`, or `"c_final"`) when raised from `Model.fit`. |
-| `SERIALIZATION_FAILED` | `export()` encountered an I/O error, could not resolve a path, or found a category value LightGBM cannot save. |
+| `SERIALIZATION_FAILED` | `export()` encountered an I/O error, could not resolve a path, found a category value LightGBM cannot save, or found a state that would not answer like the fitted model once saved (H-0136; `export_code()` too). |
 | `DESERIALIZATION_FAILED` | `load()` encountered a validation or I/O error. |
 | `TARGET_NOT_NUMERIC` | `task: regression` with a non-numeric target column. |
 | `TARGET_UNSEEN_LABEL` | The target encoder is given a classification label it was not fitted on, or a class code outside the fitted classes to decode. |

@@ -1,0 +1,35 @@
+[run-exclusive] h0136-cross starting; load was 5.51
+run-heavy: pgid=11 (stop with: kill -- -11)
+19:46:04  event='export.done' path=/tmp/claude-1000/tmp0ef10o5d/artifact
+19:46:04  event='load.done' path=/tmp/claude-1000/tmp0ef10o5d/artifact run_id=115f0ba3-865b-4aa1-b9e6-e32447cd178e
+19:46:04  event='fit.start' run_id=282579ff-64f0-48db-9767-6566219b84eb task=binary
+19:46:04  event='fit.done' run_id=282579ff-64f0-48db-9767-6566219b84eb
+19:46:04  event='export_code.done' path=/tmp/claude-1000/tmpnmusaapw/code
+19:46:04  event='export.done' path=/tmp/claude-1000/tmpinzo8aua/artifact
+19:46:04  event='load.done' path=/tmp/claude-1000/tmpinzo8aua/artifact run_id=282579ff-64f0-48db-9767-6566219b84eb
+19:46:04  event='fit.start' run_id=6e8ae179-926a-4cab-8062-73c8964dcbc7 task=binary
+19:46:05  event='fit.done' run_id=6e8ae179-926a-4cab-8062-73c8964dcbc7
+19:46:05  event='export_code.done' path=/tmp/claude-1000/tmpwbqeup13/code
+19:46:05  event='export.done' path=/tmp/claude-1000/tmptunbvbec/artifact
+19:46:05  event='load.done' path=/tmp/claude-1000/tmptunbvbec/artifact run_id=6e8ae179-926a-4cab-8062-73c8964dcbc7
+pandas=3.0.1
+policy=mode: in-memory ok, warnings=["Column 'c': 1 row(s) with unseen categories ['4 months'] replaced by t"] | after Model.export+load ok, warnings=["Column 'c': 1 row(s) with unseen categories ['4 months'] replaced by t"] | generated ok, codes [0.0, 1.0] | learned rows codes [0.0, 0.0, 0.0]
+policy=nan: in-memory ok, warnings=["Column 'c': 1 row(s) with unseen categories ['4 months'] replaced by a"] | after Model.export+load ok, warnings=["Column 'c': 1 row(s) with unseen categories ['4 months'] replaced by a"] | generated ok, codes [0.0, 1.0] | learned rows codes [0.0, 0.0, 0.0]
+policy=error: in-memory LizyMLError: [DATA_SCHEMA_INVALID] Column 'c' contains unseen categories: ['4 months'] | after Model.export+load LizyMLError: [DATA_SCHEMA_INVALID] Column 'c' contains unseen categories: ['4 months'] | generated ok, codes [0.0, 1.0] | learned rows codes [0.0, 0.0, 0.0]
+19:46:05  event='export.done' path=/tmp/claude-1000/tmpo9lx00d6/artifact
+19:46:05  event='load.done' path=/tmp/claude-1000/tmpo9lx00d6/artifact run_id=c030be0b-d215-49c7-aa7e-3c8af93e13af
+19:46:05  event='fit.start' run_id=542df26c-c15e-43bd-a3a5-e2dba1094378 task=binary
+19:46:05  event='fit.done' run_id=542df26c-c15e-43bd-a3a5-e2dba1094378
+19:46:05  event='export_code.done' path=/tmp/claude-1000/tmpnv5v4_wm/code
+19:46:05  event='export.done' path=/tmp/claude-1000/tmpuy7b51xw/artifact
+19:46:05  event='load.done' path=/tmp/claude-1000/tmpuy7b51xw/artifact run_id=542df26c-c15e-43bd-a3a5-e2dba1094378
+19:46:05  event='fit.start' run_id=ffde3c46-7bb1-4362-afe3-45daee1982bd task=binary
+19:46:05  event='fit.done' run_id=ffde3c46-7bb1-4362-afe3-45daee1982bd
+19:46:05  event='export_code.done' path=/tmp/claude-1000/tmp0p8iezo5/code
+19:46:05  event='export.done' path=/tmp/claude-1000/tmpp23kh1vi/artifact
+19:46:05  event='load.done' path=/tmp/claude-1000/tmpp23kh1vi/artifact run_id=ffde3c46-7bb1-4362-afe3-45daee1982bd
+pandas=2.3.3
+policy=mode: in-memory ok, warnings=["Column 'c': 1 row(s) with unseen categories ['4 months'] replaced by t"] | after Model.export+load ok, warnings=["Column 'c': 1 row(s) with unseen categories ['4 months'] replaced by t"] | generated ok, codes [0.0, 1.0] | learned rows codes [0.0, 0.0, 0.0]
+policy=nan: in-memory ok, warnings=["Column 'c': 1 row(s) with unseen categories ['4 months'] replaced by a"] | after Model.export+load ok, warnings=["Column 'c': 1 row(s) with unseen categories ['4 months'] replaced by a"] | generated ok, codes [0.0, 1.0] | learned rows codes [0.0, 0.0, 0.0]
+policy=error: in-memory LizyMLError: [DATA_SCHEMA_INVALID] Column 'c' contains unseen categories: ['4 months'] | after Model.export+load LizyMLError: [DATA_SCHEMA_INVALID] Column 'c' contains unseen categories: ['4 months'] | generated ok, codes [0.0, 1.0] | learned rows codes [0.0, 0.0, 0.0]
+[run-exclusive] h0136-cross finished in 1s, exit 0
