@@ -15609,3 +15609,161 @@ Codex の実装レビュー（run `h0135-impl-review`、`1d9d38a`）は CHANGES_
 - **結果**: Codex の実装レビュー round 2（`ff506e1`）は APPROVE で、指摘は minor 1 件だった。
 - **minor の指摘**: `docs/api.md` と `CHANGELOG.md` は、整数でない版と object でない metadata の拒否にも `context["reason"]` があると読めた。実際には、この 2 つは今までの版と metadata のエラーと同じで、`reason` を持たない。
 - **対応**: 文書の方を直した。`api.md`・`CHANGELOG.md`・`migration.md` で、`reason` は `checksums` の拒否とファイルの形の拒否のものだと書いた。コードは変えていない。管理者の方針（1 行の修正でも確かめ直す）により、絞った確認を 1 回走らせる。
+
+
+## H-0136: 保存する前に、学習したカテゴリを実際の保存処理に通して確かめる ― 保存の後で符号が変わるモデルを、Model.export と export_code の両方で拒否する（#372）
+
+- **ステータス**: Proposed
+- **起票日**: 2026-10-20
+- **関連**: #372、H-0133（値の集合 V と符号化）、H-0127、H-0129（adapter の `unsaveable_categories`）、H-0120（export_code の `pipeline_state.json`）、#378（Decimal / np.int8 の fit の失敗。v0.20.0 の後）、#379（pandas 2 で、fit の中で pytz の値の fold が変わる。v0.20.0 の後）、registry のカード D-20261020-001・D-20261020-007・D-20261020-009・D-20261020-010、Codex の run `h0136-design-critique`・`h0136-situation-analysis`
+- **スコープ**:
+  - `Model.export`、公開の `lizyml.persistence.export`、`Model.export_code` が、何かを書く前に行うカテゴリの検査
+  - `Model.fit` が出す、保存できないカテゴリの `UserWarning`
+  - `FORMAT_VERSION` は 4 のまま。H-0133 の符号化（`core/category_values.py`）は変えない
+
+### 目的（課題）
+
+保存したモデルを load すると、学習したカテゴリが、元と違う符号を返すことがある。今の検査（H-0133 の V と、H-0129 の adapter）は値の型を見るだけで、保存処理を通した後の振る舞いを見ない。このため、export は黙って成功し、load の後の predict で初めて壊れる（DC1）。壊れ方は 2 つ見つかった。
+
+- **joblib（`fit_result.pkl`・`refit_model.pkl`）**: pytz の `Timestamp` で、夏時間の終わりに 2 回ある時刻の標準時の側（`2024-11-03 01:30 America/New_York`、`is_dst=False`、`fold=0`）は、pickle から `fold=1` で戻る。値は等しいままだが、hash が変わる。
+  - 学習したカテゴリの集合にこの値が入らなくなる。load の後、既知の行が unseen と判定される（`categorical_encoder.py:191-194` の集合の差）。
+  - pandas 2.3.3 で、この値を 20 行（最頻値ではない）持つ列を学習したモデルを export して load すると、次のようになる（hash seed 0〜2 のどれでも同じ）。
+    - `unseen_policy="mode"`: 20 行が最頻値に置き換わり、予測が最大 5.9e-4 変わる。
+    - `"nan"`: 20 行が欠損になる。
+    - `"error"`: `DATA_SCHEMA_INVALID`。
+  - 夏時間の、重ならない時刻の対照では、3 つの方針とも予測が同じで警告も出ない（`cbdf02f` の `pytz_only_silent.py`・`.out`）。
+  - #372 の報告した組（zoneinfo の `fold=1` と、同じ時刻の pytz の値）は、この壊れ方が「カテゴリが重なる」形で現れたものである。load の後の predict は、seed 0〜39 の 40/40 で `Categorical categories must be unique` になる（`6db23e5`）。
+- **codegen の JSON（`pipeline_state.json`・`config.json` の `declared_categories`）**: `np.uint64(4)` は H-0133 の符号化で `int` の 4 になるが、`np.timedelta64(4, 'M')` はそのまま戻る。2 つは等しく、hash も等しい。
+  - fit・predict・`export_code` は成功するが、生成された `predict.py` の transform は `Categorical categories must be unique` で落ちる。pandas 3.0.1 と 2.3.3 の両方で起き、timedelta64 を除いた対照では起きない（`d2af70e`）。
+  - **v0.19.0 にもある**（`c16abb8` の `codegen_numpy_collision_v019.out`）。v0.19.0 の `codegen/values.py` の `plain_value` が、`np.timedelta64(4, 'M')` を `.item()` の `int` 4 に変えて受け付けたからである。
+
+**保存とは別の、メモリ上の不整合（#379。この Proposal の範囲の外）**: pandas 2 で、全ての値が 1 つの pytz の zone の `Timestamp` である列（夏時間の重なりの 2 つの値など）は、export しなくても壊れる。
+- fit は列を `astype("category")` で変換する（`dataframe_builder.py:99-112`）。pandas はこれを `datetime64[ns, tz]` のカテゴリにし、標準時の側の値を `fold=1` で作り直す。
+- predict はこの変換をしないので、元の `fold=0` の行が unseen になる。メモリ上のモデルが、自分の学習行 800 行のうち 426 行を unseen と判定する。
+- v0.19.0 でも同じである。zoneinfo の値と、pytz の値を文字列と並べた列では起きない（`cf66402` の `inmemory_fold.py`・`.out`）。
+- Codex の分析（finding 2）は、この 426 行を「保存の後」としていた。実際には保存の前、メモリ上で起きている。
+- 判断 4 により、これは #379 として v0.20.0 の後に扱う。H-0136 が約束するのは「保存したモデルが、メモリ上のモデルと同じに振る舞う」ことだけで、P1 はメモリ上の状態を基準にする。
+
+**#372 の原因の訂正**: Issue は「値は等しいのに hash が違う組」を原因とし、H-0133 の符号化が値を変えると書いた。実測では次のとおりである。
+- 値を変えているのは joblib である。H-0133 の符号化は、pytz の値を、等しく hash も等しい固定の時差の値に戻すので、衝突しない（`b684b21` の `roundtrip_cause.py`）。
+- 「等しいのに hash が違う組」は、必要でも十分でもない。
+  - 必要でない: pytz の値 1 つだけでも壊れる。
+  - 十分でない: zoneinfo の `fold=1` と、それと等しい固定の時差の `Timestamp` の組や、`1` と `np.timedelta64(1, 's')` の組は、どちらの保存処理を通しても同じ符号を返す（下の `rule_controls.out`）。
+- 報告の「失敗するかどうかが hash seed で変わる」は、テストが fit の前に置いた pandas の検査が skip するかどうかの違いである。load の後の predict は、seed によらず壊れる。
+
+### 管理者の判断（2026-10-20。カード D-20261020-007・D-20261020-009）
+
+- 拒否の規則は、Codex に全体の状況を第三者として分析させてから決める（run `h0136-situation-analysis`。CHANGES_REQUESTED、major 5）。
+- export が拒否するものは、fit で警告する。
+- Decimal / np.int8 の fit の `TypeError` は #378 とし、v0.20.0 の後に扱う。
+- 分析の後で、次の 3 つを決めた。どれも推奨の案である。
+  1. **方針 A**: 書き出す前に、学習したカテゴリの状態を、実際の保存処理（joblib と codegen の JSON）に通して確かめる。符号が変わるか、既知の値が unseen になるなら `SERIALIZATION_FAILED` で拒否する。
+  2. **受け付ける範囲は 3 つの出口で同じにする**。出口ごとに通る値が違うのは UX として非常に悪い、という判断である。どちらかの保存処理で壊れる値は、`Model.export`・`persistence.export`・`export_code` のどれでも拒否する。食い違う割合を測ってから決めた（下の実測）。符号化を直して衝突を減らす案は採らない。
+  3. codegen の衝突（v0.19.0 からある）も H-0136 に含め、v0.20.0 の前に直す。
+  4. 母集団の計測で見つかったメモリ上の不整合は、別の issue（#379）にし、v0.20.0 の後に扱う（カード D-20261020-010）。H-0136 の基準はメモリ上の状態とする。
+
+### 実測（2026-10-20、branch `fix/h0136-equal-hash-apart-categories`、develop `89ca340` の上）
+
+- **v0.19.0 が受け付けたもの**:
+  - v0.19.0 の `Model.export` は、LightGBM が JSON で書けない値を拒否した（v0.19.0 の `estimators/lgbm/category_json.py:66-75` の `is_writable`）。`Timestamp` は JSON にできないので、**リリースした成果物に `Timestamp` のカテゴリを持つものは無い**。pytz の値の拒否は、まだリリースしていない H-0133 の受け入れを狭めるだけである。
+  - v0.19.0 の `Model.export` は、`np.uint64(4)` と `np.timedelta64(4, 'M')` の列を持つモデルを保存し、load の後も同じ予測を返した（`cf66402` の `v019_export_pair.py`。結果は `inmemory_fold.out` の末尾）。同じ範囲にする判断 2 により、このモデルは新しい `Model.export` で拒否される（互換性の項）。
+- **出口の間で食い違う割合**（`c16abb8` の `surface_disagreement.py`・`.out`）: `tests/test_core/test_category_values.py` の `SAMPLES`（H-0133 が `ADMITTED_TYPES` から導いた母集団）の各値を単独で、また 2 つずつの組で、文字列 `"x"` と並べた列を数えた。
+  - pandas 3.0.1: 6216 列のうち、joblib では保たれるが JSON で壊れるものが 22 列（`uint64` と `timedelta64` が 18、`bool` と `uint64` が 2、`bool` と `tuple`、`tuple` と `uint8` が 1 ずつ）。逆は 0。
+  - pandas 2.3.3: 6441 列のうち、JSON で壊れるものが 7 列、joblib で壊れるものが 113 列（全て pytz の夏時間の重なりの値を含む）。
+  - fit や元の変換がすでに失敗する列（310・346）は、保存処理の違いではないので数えていない（#378 の類）。
+- **規則の試作**（`docs/audits/2026-10-h0136/probes/firing/h0136_rule.py`）は、上の正の例 4 種（`uint64` と `timedelta64`、pytz の値 1 つ、それを入れた `frozenset`、#372 の組）と、Codex の挙げた 2 組を含む対照 5 種を、pandas 3 と 2 の両方で正しく分けた（`rule_controls.out`、誤り 0）。
+- **母集団（census、`cf66402`）**: `docs/audits/2026-10-h0136/probes/firing/h0136_export_census.py` は pytest の plugin である。3 つの出口と fit の警告を包み、書く前の状態に試作の規則を当ててから、本物の呼び出しをそのまま走らせて結果を記録する。集計は `summarize.py`。
+  - pandas 3.0.1、フルスイート（`census_before.jsonl`・`.out`。落ちたのは既知の `test_version.py` の 1 本だけ）:
+    - `Model.export` 567 回、`persistence.export` 119 回、`export_code` 488 回。規則が新しく拒否するのは 0 回だった（0/1174）。fit の警告は 1568 回で、新しい警告は 0 回だった。
+    - 規則が壊れると判定し、今も拒否されている呼び出しは 37 回あった（V の外の値などで、今の検査が先に拒否する）。
+    - `export_code` が今は通り、`check_category_values` なら拒否する呼び出しは 0 回だった（P2 で増える拒否は、この母集団では 0）。
+    - 規則が状態を読めなかった 5 回は、どれも今の検査が拒否する状態（状態とモデルの数が合わない 3 回、fit していないモデル 2 回）だった。
+  - pandas 2.3.3、pytz の値を作る 3 つのテストファイル（`test_h0133_acceptance.py`・`test_category_values.py`・`test_h0133_codec_copy.py`、`census_before_pd2.jsonl`・`.out`）:
+    - 出口の呼び出し 519 回のうち 5 回で、新しく拒否する。全て H-0133 の `Timestamp pytz fold` の case（`test_every_admitted_type_saves_and_predicts_the_same` と `test_the_three_surfaces_accept_every_admitted_column`）で、`json` の側が壊れる。fit の警告は 232 回のうち 2 回で新しく出る。
+    - この case は #379 の形である。メモリ上の状態が `fold=1` の値を持ち、JSON はそれを `fold=0` に戻すので、メモリ上の状態とは違う符号になる。テストが通るのは、壊れる値が最頻値で、`unseen_policy="mode"` が自分自身に置き換えるからである。
+  - pandas 3 の lock には pytz が無いので、pytz の case は pandas 2 でしか作れない。フルスイートを pandas 2 で走らせる代わりに、`grep -rl pytz tests/` で見つかる 3 つのファイルに絞った。
+
+### 対応方針（提案）
+
+- **P1（規則）**: 保存する全ての pipeline 状態（refit、各 fold、`pipeline_state_per_fold` が無いモデルでは `last fold`）の、各カテゴリ列について、カテゴリと最頻値を 2 つの保存処理で写す。
+  - (a) joblib: 成果物の pickle と同じ `joblib.dump(..., compress=3)` から読み戻す。
+  - (b) JSON: H-0133 の `encode` → `json.dumps` → `json.loads` → `decode`。export_code の `pipeline_state.json` と同じ。
+  - 写した状態のライブラリのエンコーダ（`unseen_policy="error"`）で、元の各カテゴリを 1 行ずつ変換する。次のどれかなら、その列はその保存処理で壊れる。
+    - 例外が出る（写したカテゴリが pandas で一意でない、または元のカテゴリが unseen になる）。
+    - どれかの行の符号が、元の状態の符号と違う。
+    - 最頻値の符号が、元の状態の符号と違う。
+  - `declared_categories` は (b) だけで写す。写した値で `CategoricalDtype` を作れ、元の値に同じ符号を返さなければならない。
+  - 基準はメモリ上の状態である（判断 4）。代表の値は、状態が持つカテゴリそのものを使う。学習データの元の値と状態の値が違う場合（#379）は、この規則の外である。
+  - 元の状態で、すでに変換できない列は対象にしない（fit や predict がその前に失敗する。#378 の類）。
+  - 規則は値の組を探さない。等しさが同値関係でない値（`1` と `np.timedelta64(1, 's')` など）があるので、組を探す検査は、壊れない組を拒否し、組でない壊れ方（pytz の値 1 つ）を見逃す。
+- **P2（3 つの出口で 1 つの検査）**: `check_category_values` を広げ、`Model.export`（`_model_persistence.py:368`）、`persistence.export`（`exporter.py:347`）、`export_code` の 3 つが、何かを書く前に同じ関数を呼ぶ。
+  - 順は、状態とモデルの対応（`_saved_pipeline_states`）→ V（今と同じ）→ P1 → adapter の `unsaveable_categories`（今と同じ）。
+  - `export_code` は今はこの関数を呼ばず、refit の状態の値を V で判定するだけである（`codegen/values.py`）。P2 の帰結として、`export_code` は fold の状態の判定と adapter の判定も行う。これらが `export_code` の拒否を増やすかどうかは、census で示す。
+- **P3（拒否の形）**: `SERIALIZATION_FAILED`。context は `column`・`state`（`refit`・`fold k`・`last fold`・`declared categories`）・`serializer`（`joblib` か `json`）・`kind`（`not_unique`・`unseen`・`codes`・`mode`）。メッセージは、`Model.export` と `export_code` のどちらもこのモデルを保存できないこと、値の名前と型、列の値を `str` などに変えて fit し直せば保存できることを述べる。出力先には何も書かない（H-0127 と同じく、パスを解決する前に拒否する）。
+- **P4（fit の警告）**: `model.py:295` の警告は、全ての学習行で fit した状態に P1 も当て、壊れる列ごとに `UserWarning` を 1 回出す。fit の時点の `declared_categories`（`model.py:247`）にも当てる。fit は止めない。V の外の値の警告は今と同じ。
+- **P5（変えないもの）**: H-0133 の符号化と `FORMAT_VERSION`。受け付けたモデルが書くバイト列は変わらない（拒否が増えるだけ）。
+
+### 規則が縛る位置（ソースから導出、実装前。コードと文書は develop `89ca340` と同じ）
+
+- コード:
+  - `lizyml/persistence/exporter.py:64-110`（`_state_category_values`・`unsaveable_category_values`・`warn_unsaveable_category_values`。警告の文面が受け付ける型を並べる）
+  - `exporter.py:112-133`（`_refuse_value`）、`exporter.py:177-235`（`check_category_values`、P1・P2）、`exporter.py:347`（公開の `export`）
+  - `lizyml/core/_model_persistence.py:368`（`Model.export`）と `_model_persistence.py:393` 以下（`export_code`。今は検査を呼ばない）
+  - `lizyml/core/model.py:247`・`model.py:292-295`（fit の警告、P4）
+  - `lizyml/codegen/artifact_writer.py:14-50`（`convert_pipeline_state`）、`lizyml/codegen/config_writer.py:106-110`（`declared_categories`）、`lizyml/codegen/values.py`
+  - `lizyml/codegen/templates.py:441`・`templates.py:496`・`templates.py:1590`（生成コードの `set_categories` と `CategoricalDtype`。変えない。受け入れ基準で実際に走らせる）
+  - `lizyml/core/category_values.py:1-20`（module の docstring が「3 つの出口は同じ集合 V を受け付ける」と書く。V に P1 を重ねたものにする）
+  - `docs/proposal_dispositions.toml` の H-0136 の行
+- 仕様と文書:
+  - `BLUEPRINT.md:1932`（§15.3 の V。「pytz の zone ... 夏時間の重なりで等しさを保てるもの」は joblib では成り立たない）
+  - `BLUEPRINT.md:1933`（§15.3 の拒否。P1・P2・P4）
+  - `BLUEPRINT.md:1967`（§15.4 の `export_code` の拒否）
+  - `docs/api.md:65`・`docs/api.md:373`・`docs/api.md:714`
+  - `docs/migration.md:94`（「`export_code` は `Model.export` と同じ値を受け付ける」）・`docs/migration.md:105-107`（まだ拒否するもの）と v0.20.0 の節
+  - `CHANGELOG.md` の `[Unreleased]`
+- テスト:
+  - `tests/test_persistence/test_h0133_acceptance.py:156-164` の `Timestamp pytz fold` の case。今通るのは、壊れる値がたまたま最頻値だからである（受け入れ基準 8）。
+
+### 互換性
+
+- **リリースした成果物**（format 1・2）と format 3・4 の成果物は、今と同じに読める。規則は export の時だけ働く。
+- **v0.19.0 が保存できたモデルの一部を、新しい `Model.export` は拒否する**: 判断 2 により、JSON で壊れる列（`uint64` と `timedelta64` の組など）を持つモデルは、joblib では保たれても `Model.export` で拒否される。v0.19.0 で保存した成果物は今までどおり読めて予測できるが、load して export し直すと拒否される。v0.19.0 の `export_code` は、同じモデルから動かない project を書いていた。
+- **pytz の値**: v0.19.0 の `Model.export` は `Timestamp` を拒否していたので、リリースした成果物には無い。H-0133（まだリリースしていない）の受け入れを狭めるだけである。#379 の形の列（全てが 1 つの pytz の zone の値）を持つモデルも、3 つの出口で拒否される。#379 を直せば、このモデルは保存できるようになる。
+- **公開の API**: 3 つの出口の拒否と、fit の警告が増える。戻り値の形は変わらない。
+
+### 代替案（検討して棄却）
+
+- **B: H-0133 の受け入れを v0.19.0 の範囲に戻す**: v0.19.0 でも codegen の衝突は起きる（`c16abb8`）ので、閉じない。
+- **C: pytz の `Timestamp` だけを拒否する**: codegen の衝突が残る。
+- **出口ごとに、自分の保存処理で壊れるものだけを拒否する**: 拒否は最小になるが、同じモデルが一方の出口だけで通る。判断 2 で棄却した。
+- **符号化を直して衝突自体を無くす**（`uint64` などに印をつける）: `declared_categories` の保存形式が変わり、規模が大きい。判断 2 で採らないとした。
+- **値の組（等しいのに hash が違うもの）を探して拒否する**: 必要でも十分でもない（目的の項）。
+- **fit で値を 1 つの代表に正規化する**: カテゴリの数・順・符号・最頻値と、学習したモデルの意味が変わる。format の変更になる。
+- **load の時に直す**: 学習した booster は 2 つの位置を別の符号として学んでいるので、安全に一つにできない。
+
+### 置き換える記録
+
+- H-0133 P5 の「`Model.export`・`persistence.export`・`export_code` は同じ集合 V を受け付ける」は、「V の値で、かつ P1 で壊れない状態を受け付ける。3 つの出口は 1 つの検査を共有する」に置き換える。
+- H-0133 の符号化の「等しい値と hash で戻る」約束は、符号化については今も正しい。joblib についての約束ではないので、BLUEPRINT §15.3 の pytz についての文を直す。
+- #372 の Issue の仕組みの記述は、目的の項の訂正で置き換える（Issue に英語でコメントする）。
+
+### Firing rate
+
+P1 は `allow` の条件（保存処理で振る舞いが変わらない状態だけを書く）である。
+
+Firing rate: 0/1174 of export exits on pandas 3.0.1 (full-suite census with `h0136_export_census.py`, `cf66402`) and 5/519 on pandas 2.3.3 over the three test files that build pytz values (same census; all 5 are the H-0133 `Timestamp pytz fold` case); type-level bound over the H-0133 sample population: 22/6216 (pandas 3) and 120/6441 (pandas 2) columns (`c16abb8`)
+
+規則は、壊れる値を持つ入力でしか発火しない完全性の検査である。フルスイートの 0 回は、スイートにそのような入力が無いことによる（DC6 の「発火しない仕組み」ではなく、正の例は受け入れ基準 1〜4 が作る）。実装の後で同じ census をもう一度走らせ、今は通る呼び出しで拒否されるものが、`Timestamp pytz fold` の case（受け入れ基準 8 で書き直す）と、拒否を確かめる新しいテストだけであることを確かめる。
+
+### 受け入れ基準（テスト観点）
+
+1. **#372 の回帰**（pandas 2 と pytz。CI の lowest-direct のレーンで走る）: zoneinfo の `fold=1` と pytz の値の組を持つ列のモデルは、`Model.export`・`persistence.export`・`export_code` のどれでも `SERIALIZATION_FAILED`（`serializer="joblib"`）で拒否され、出力先に何も書かれない。fit は `UserWarning` を出す。
+2. **pytz の値 1 つ**（最頻値でない）: `unseen_policy` の 3 つのそれぞれで、3 つの出口が拒否し、fit が警告する。対照（夏時間の重ならない時刻）は拒否されず、load の後の予測と、生成した `predict.py` の予測が、export の前と同じである。
+3. **入れ物の中の値**: pytz の値を含む `tuple` と `frozenset` が拒否される。
+4. **codegen の衝突**（pandas 3 と 2）: `np.uint64(4)` と `np.timedelta64(4, 'M')` の列は、3 つの出口のどれでも `serializer="json"` で拒否される。同じ組を `category` dtype の入力で与えた `declared_categories` も拒否される。census の格子に出た他の 3 種（`bool` と `uint64`、`bool` と `tuple`、`tuple` と `uint8`）も拒否される。
+5. **壊れない組を拒否しない**: zoneinfo の `fold=1` と固定の時差の値、`1` と `np.timedelta64(1, 's')` の列は、3 つの出口を通り、load の後の予測と生成した `predict.py` の予測が export の前と同じである。
+6. **判定と現実が一致する**: `surface_disagreement.py` の格子の全ての列で、P1 の判定（保存処理ごと）が、保存処理を実際に通した変換の結果と一致する。受け入れ基準 1〜5 の case では、`Model.export` → `Model.load` → `predict` と、生成した `predict.py` を実際に走らせて確かめる（試作のエンコーダを生成コードの代わりにしない）。
+7. **拒否は書く前**: 3 つの出口で、拒否のあと出力先が作られない（既にあるディレクトリは変わらない）。
+8. **今通るのに拒否されるテストの書き直し**（テストを消さない）: `test_h0133_acceptance.py` の `Timestamp pytz fold` の case（`test_every_admitted_type_saves_and_predicts_the_same` と `test_the_three_surfaces_accept_every_admitted_column` の 2 本）を、3 つの出口が拒否し、fit が警告することを確かめる形にする。census で今は通るのに拒否されるのは、この 2 本だけだった。pytz の値を 1 つだけ持つ、最頻値でない case は受け入れ基準 2 で足す。
+9. **陰性対照**: 1〜7 の検査それぞれについて、実装の該当する部分を戻すとテストが落ちる（P1 の 2 つの保存処理、最頻値の比較、`declared_categories`、`export_code` の呼び出し、fit の警告、書く前の順）。
+10. **census**: 実装の後に、フルスイートで同じ census を走らせ、記録を残す。
