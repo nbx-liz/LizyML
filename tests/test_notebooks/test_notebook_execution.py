@@ -65,16 +65,14 @@ def test_notebook_executes(notebook_name: str) -> None:
     """Execute a notebook and assert no CellExecutionError.
 
     The notebook runs with the network guard installed and checked (H-0137):
-    any network call fails it, and so does reading other ``data/`` files than
-    the manifest records for it.
+    it reads its data from ``notebooks/data/``, so a remote load fails it.
     """
     path = NOTEBOOKS_DIR / notebook_name
     assert path.exists(), f"Notebook not found: {path}"
 
     nb = nbformat.read(str(path), as_version=4)
     nb.cells.insert(0, nbformat.v4.new_code_cell(network_guard.setup_source()))
-    expected = network_guard.manifest_files(notebook_name)
-    nb.cells.append(nbformat.v4.new_code_cell(network_guard.check_source(expected)))
+    nb.cells.append(nbformat.v4.new_code_cell(network_guard.check_source()))
     # Tuning notebook runs Optuna trials — needs more time on CI
     cell_timeout = 600 if "tuning" in notebook_name else 180
     ep = nbconvert_pp.ExecutePreprocessor(

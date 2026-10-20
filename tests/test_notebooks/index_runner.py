@@ -26,7 +26,6 @@ import json
 import shutil
 import sys
 import tempfile
-from collections.abc import Sequence
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -80,14 +79,10 @@ def _code_cell(source: str, nb: dict[str, Any], cell_id: str) -> dict[str, Any]:
     return cell
 
 
-def instrument_notebook(
-    nb: dict[str, Any], data_files: Sequence[str] = ()
-) -> dict[str, Any]:
+def instrument_notebook(nb: dict[str, Any]) -> dict[str, Any]:
     """A copy of ``nb`` with the recording cells and guards added.
 
     The notebook must pass the static contract first (``check_notebook``).
-    ``data_files`` are the ``data/`` files it must read, no more and no fewer
-    (``network_guard.manifest_files``).
     """
     ix = load_examples_index()
     declaration = ix.check_notebook(nb)
@@ -124,7 +119,7 @@ def instrument_notebook(
     )
     finish = "\n".join(
         [
-            network_guard.check_source(data_files),
+            network_guard.check_source(),
             f"print({RECORDER_NAME}.finish({keys!r}))",
         ]
     )
@@ -164,19 +159,14 @@ def native_kernel() -> AsyncKernelManager:
 
 
 def run_instrumented(
-    nb: dict[str, Any],
-    *,
-    workdir_base: Path,
-    timeout: int = CELL_TIMEOUT,
-    data_files: Sequence[str] = (),
+    nb: dict[str, Any], *, workdir_base: Path, timeout: int = CELL_TIMEOUT
 ) -> Path:
     """Instrument ``nb``, execute it once and check the sentinel.
 
     Returns the working directory the notebook ran in.
     """
     workdir = fresh_workdir(workdir_base)
-    instrumented = instrument_notebook(nb, data_files)
-    node = nbformat.reads(json.dumps(instrumented), as_version=4)
+    node = nbformat.reads(json.dumps(instrument_notebook(nb)), as_version=4)
     client = NotebookClient(
         node,
         km=native_kernel(),

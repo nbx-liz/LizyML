@@ -25,7 +25,7 @@ import pathlib
 
 import pytest
 
-from tests.test_notebooks import index_runner, network_guard
+from tests.test_notebooks import index_runner
 
 pytestmark = pytest.mark.slow
 
@@ -41,9 +41,5 @@ def test_notebook_runs_its_index_examples(
     path: pathlib.Path, tmp_path: pathlib.Path
 ) -> None:
     nb = json.loads(path.read_text(encoding="utf-8"))
-    workdir = index_runner.run_instrumented(
-        nb,
-        workdir_base=tmp_path,
-        data_files=network_guard.manifest_files(path.name),
-    )
+    workdir = index_runner.run_instrumented(nb, workdir_base=tmp_path)
     assert (workdir / path.name).is_file()

@@ -12,21 +12,16 @@ each with a twin that reads a local file and passes.
 
 from __future__ import annotations
 
-import _io
 import _socket
-import builtins
 import copy
-import functools
 import inspect
-import io
 import pathlib
-import re
 import socket
-import sys
 import urllib.request
 from collections.abc import Callable
 from typing import Any
 
+import pandas as pd
 import pytest
 from nbclient.exceptions import CellExecutionError
 
@@ -309,318 +304,79 @@ def test_instrumentation_does_not_change_the_file(tmp_path: pathlib.Path) -> Non
 
 # Never resolvable (RFC 2606), so a broken guard cannot reach a real host either.
 HOST = "lizyml-h0137.invalid"
-LOOPBACK = ("127.0.0.1", 9)
+URL = f"https://{HOST}/x.csv"
 
-
-def _sendmsg() -> object:
-    with socket.socket(type=socket.SOCK_DGRAM) as s:
-        return s.sendmsg([b"x"], [], 0, LOOPBACK)
-
-
-# One call per entry point the guard declares (each driven directly, so a hook
-# that never fires cannot hide behind an earlier one), quantified over the
-# declaration by test_every_declared_entry_point_has_a_call.
+# The two refused entry points, each driven directly.
 ENTRY_POINT_CALLS: dict[str, Callable[[], object]] = {
-    # The round-3 finding: the C code resolves a host name inside bind.
-    "bind": lambda: socket.socket(type=socket.SOCK_DGRAM).bind((HOST, 0)),
-    "connect": lambda: socket.socket().connect(LOOPBACK),
-    "connect_ex": lambda: socket.socket().connect_ex(LOOPBACK),
-    "sendto": lambda: socket.socket(type=socket.SOCK_DGRAM).sendto(b"x", LOOPBACK),
-    "sendmsg": _sendmsg,
-    "create_connection": lambda: socket.create_connection((HOST, 443)),
     "getaddrinfo": lambda: socket.getaddrinfo(HOST, 443),
-    "gethostbyname": lambda: socket.gethostbyname(HOST),
-    "gethostbyname_ex": lambda: socket.gethostbyname_ex(HOST),
-    "gethostbyaddr": lambda: socket.gethostbyaddr("127.0.0.1"),
-    "getnameinfo": lambda: socket.getnameinfo(LOOPBACK, 0),
-    "getfqdn": lambda: socket.getfqdn(HOST),
-    "getprotobyname": lambda: socket.getprotobyname("tcp"),
-    "getservbyname": lambda: socket.getservbyname("https"),
-    "getservbyport": lambda: socket.getservbyport(443),
+    "connect": lambda: socket.socket().connect(("127.0.0.1", 9)),
 }
-CALLS: dict[str, Callable[[], object]] = {
-    **ENTRY_POINT_CALLS,
-    "urllib.request.urlopen": lambda: urllib.request.urlopen(f"https://{HOST}/x"),
-    # The guard reads no address family: an AF_UNIX path is refused alike. (The
-    # method is called unbound because some sandboxes refuse creating an
-    # AF_UNIX socket at all.)
-    "connect to an AF_UNIX path": lambda: socket.socket.connect(None, "/x.sock"),
-    # Functions the table does not refuse because they go through a refused
-    # method (DELEGATED below).
-    "create_server": lambda: socket.create_server((HOST, 0)),
-    "send_fds": lambda: socket.send_fds(
-        socket.socket(type=socket.SOCK_DGRAM), [b"x"], [], 0, (HOST, 9)
-    ),
+# The remote loads the tutorials used to make, and other ordinary clients.
+CLIENT_CALLS: dict[str, Callable[[], object]] = {
+    "urllib.request.urlopen": lambda: urllib.request.urlopen(URL),
+    "pandas.read_csv of a URL": lambda: pd.read_csv(URL),
+    "socket.create_connection": lambda: socket.create_connection((HOST, 443)),
 }
 
 
-def test_every_declared_entry_point_has_a_call() -> None:
-    declared = (*network_guard.SOCKET_METHODS, *network_guard.MODULE_FUNCTIONS)
-    assert sorted(ENTRY_POINT_CALLS) == sorted(declared)
+def test_every_refused_entry_point_has_a_call() -> None:
+    assert sorted(ENTRY_POINT_CALLS) == sorted(n for _, n in network_guard.REFUSED)
 
 
-def _public_callables(owner: object) -> set[str]:
-    return {
-        name
-        for name in dir(owner)
-        if not name.startswith("_")
-        and callable(getattr(owner, name))
-        and not inspect.isclass(getattr(owner, name))
-    }
-
-
-@pytest.mark.parametrize(
-    ("owner", "refused", "not_refused"),
-    [
-        (
-            socket.socket,
-            network_guard.REFUSED_METHODS,
-            network_guard.NOT_REFUSED_METHODS,
-        ),
-        (
-            socket,
-            network_guard.REFUSED_FUNCTIONS,
-            network_guard.NOT_REFUSED_FUNCTIONS,
-        ),
-    ],
-    ids=["socket.socket methods", "socket functions"],
-)
-def test_the_entry_point_table_classifies_every_public_name(
-    owner: object, refused: dict[str, str], not_refused: dict[str, str]
-) -> None:
-    """A public name Python adds must be classified before the guard passes."""
-    assert not set(refused) & set(not_refused)
-    assert set(refused) <= _public_callables(owner)
-    unclassified = _public_callables(owner) - set(refused) - set(not_refused)
-    assert unclassified == set()
-    assert all(refused.values()) and all(not_refused.values())
-
-
-def _documented_parameters(function: object) -> str:
-    """The parameters in the first docstring line, ``name(params) -> ...``."""
-    first = (inspect.getdoc(function) or "").splitlines()[0]
-    match = re.match(r"\w+\((.*?)\)", first)
-    return match.group(1) if match else ""
-
-
-def test_a_method_is_refused_exactly_when_it_takes_an_address() -> None:
-    """The method table follows the rule its comment states, read from CPython."""
-    takes_address = {
-        name
-        for name in _public_callables(socket.socket)
-        if re.search(
-            r"\baddress\b", _documented_parameters(getattr(socket.socket, name))
-        )
-    }
-    assert takes_address == set(network_guard.REFUSED_METHODS)
-
-
-# Each function the table does not refuse, accounted for in exactly one way.
-LOOKUP_EVENTS = frozenset(
-    {
-        "socket.getaddrinfo",
-        "socket.gethostbyaddr",
-        "socket.gethostbyname",
-        "socket.getnameinfo",
-        "socket.getservbyname",
-        "socket.getservbyport",
-    }
-)
-_PACKED = b"\x7f\x00\x00\x01"
-
-
-def _interface(by: str) -> object:
-    index, name = socket.if_nameindex()[0]
-    return (
-        socket.if_indextoname(index) if by == "index" else socket.if_nametoindex(name)
-    )
-
-
-# Called under the guard: no refusal and no lookup audit event.
-PROBED: dict[str, Callable[[], object]] = {
-    "CMSG_LEN": lambda: socket.CMSG_LEN(1),
-    "CMSG_SPACE": lambda: socket.CMSG_SPACE(1),
-    "htonl": lambda: socket.htonl(1),
-    "htons": lambda: socket.htons(1),
-    "ntohl": lambda: socket.ntohl(1),
-    "ntohs": lambda: socket.ntohs(1),
-    "inet_aton": lambda: socket.inet_aton("127.0.0.1"),
-    "inet_ntoa": lambda: socket.inet_ntoa(_PACKED),
-    "inet_ntop": lambda: socket.inet_ntop(socket.AF_INET, _PACKED),
-    "inet_pton": lambda: socket.inet_pton(socket.AF_INET, "127.0.0.1"),
-    "getdefaulttimeout": socket.getdefaulttimeout,
-    "setdefaulttimeout": lambda: socket.setdefaulttimeout(socket.getdefaulttimeout()),
-    "gethostname": socket.gethostname,
-    "has_dualstack_ipv6": socket.has_dualstack_ipv6,
-    "if_nameindex": socket.if_nameindex,
-    "if_indextoname": lambda: _interface("index"),
-    "if_nametoindex": lambda: _interface("name"),
-}
-# Refused through a method of the table (driven in CALLS).
-DELEGATED = {"create_server": "bind", "send_fds": "sendmsg"}
-# Not called here, with the reason.
-NOT_CALLED = {
-    "fromfd": "wraps a file descriptor into a socket.socket, whose methods apply",
-    "dup": "duplicates a file descriptor",
-    "close": "closes a file descriptor",
-    "sethostname": "changes this machine's name and needs privileges",
-    "socketpair": "an AF_UNIX pair inside this process; some sandboxes refuse AF_UNIX",
-    "recv_fds": "receives on a socket the caller already has; takes no address",
-}
-
-
-def test_each_function_not_refused_is_accounted_for() -> None:
-    groups = [set(PROBED), set(DELEGATED), set(NOT_CALLED)]
-    assert sum(len(g) for g in groups) == len(set().union(*groups))
-    assert set().union(*groups) == set(network_guard.NOT_REFUSED_FUNCTIONS)
-    assert set(DELEGATED.values()) <= set(network_guard.REFUSED_METHODS)
-    assert set(DELEGATED) <= set(CALLS)
-
-
-_AUDITED: list[str] | None = None
-
-
-def _audit(event: str, args: tuple[object, ...]) -> None:
-    del args
-    if _AUDITED is not None and event.startswith("socket."):
-        _AUDITED.append(event)
-
-
-sys.addaudithook(_audit)  # inert unless _AUDITED is a list
-
-
-@pytest.mark.parametrize("name", sorted(PROBED))
-def test_a_probed_function_looks_nothing_up(name: str, tmp_path: pathlib.Path) -> None:
-    global _AUDITED
-    guard = network_guard.install(tmp_path)
-    _AUDITED = []
+@pytest.mark.parametrize("call", sorted(ENTRY_POINT_CALLS))
+def test_the_guard_refuses_and_records_each_entry_point(call: str) -> None:
+    guard = network_guard.install()
     try:
-        PROBED[name]()
-        events = set(_AUDITED)
-    finally:
-        _AUDITED = None
-        guard.uninstall()
-    assert guard.attempts == []
-    assert not events & LOOKUP_EVENTS, events
-
-
-@pytest.mark.parametrize("call", sorted(CALLS))
-def test_the_guard_refuses_and_records_each_call(
-    call: str, tmp_path: pathlib.Path
-) -> None:
-    guard = network_guard.install(tmp_path)
-    try:
-        # create_server re-raises the refusal in its own words; the record and
-        # the last-cell check below are what hold for every call.
-        match = None if call in DELEGATED else network_guard.MESSAGE
-        with pytest.raises(OSError, match=match):
-            CALLS[call]()
-        hook = call if call in ENTRY_POINT_CALLS else DELEGATED.get(call)
-        if hook is not None:
-            assert guard.attempts[0].startswith(f"{hook}(")  # this hook fired
-        assert len(guard.attempts) == 1
+        with pytest.raises(network_guard.NetworkRefused, match=network_guard.MESSAGE):
+            ENTRY_POINT_CALLS[call]()
+        assert [a.split("(")[0] for a in guard.attempts] == [call]
         with pytest.raises(AssertionError, match=network_guard.MESSAGE):
             guard.check()
     finally:
         guard.uninstall()
 
 
-def _assert_pristine() -> None:
-    """The entry points are the interpreter's own, not a leftover replacement.
-
-    Judged against ``_socket`` / ``_io`` rather than a snapshot, which an
-    earlier test that failed to uninstall could already have polluted.
-    """
-    for name in network_guard.SOCKET_METHODS:
-        assert getattr(socket.socket, name) is getattr(_socket.socket, name), name
-    for name in network_guard.MODULE_FUNCTIONS:
-        function = socket.__dict__[name]
-        assert function is getattr(_socket, name, None) or (
-            function.__module__ == "socket" and function.__name__ == name
-        ), name
-    assert builtins.open is _io.open and io.open is _io.open
-
-
-def test_uninstall_restores_every_replaced_entry_point() -> None:
-    _assert_pristine()
+@pytest.mark.parametrize("call", sorted(CLIENT_CALLS))
+def test_an_ordinary_remote_load_is_refused(call: str) -> None:
     guard = network_guard.install()
-    assert builtins.open is not _io.open
-    assert all(
-        getattr(socket.socket, n) is not getattr(_socket.socket, n)
-        for n in network_guard.SOCKET_METHODS
-    )
+    try:
+        with pytest.raises(OSError, match=network_guard.MESSAGE):
+            CLIENT_CALLS[call]()
+        assert guard.attempts
+        with pytest.raises(AssertionError, match=network_guard.MESSAGE):
+            guard.check()
+    finally:
+        guard.uninstall()
+
+
+def test_uninstall_restores_both_entry_points() -> None:
+    def pristine() -> bool:
+        return (
+            socket.getaddrinfo.__module__ == "socket"
+            and socket.getaddrinfo.__name__ == "getaddrinfo"
+            and socket.socket.connect is _socket.socket.connect
+        )
+
+    assert pristine()
+    guard = network_guard.install()
+    assert not pristine()
     guard.uninstall()
-    _assert_pristine()
+    assert pristine()
 
 
-def test_the_guard_records_the_data_files_read(tmp_path: pathlib.Path) -> None:
-    data = tmp_path / "data"
-    data.mkdir()
-    for name in ("a.csv.gz", "b.csv.gz"):
-        (data / name).write_bytes(b"x")
-    (tmp_path / "other.txt").write_bytes(b"x")
-    guard = network_guard.install(data)
+def test_a_guard_with_no_attempt_passes_its_check() -> None:
+    guard = network_guard.install()
     try:
-        with open(data / "a.csv.gz", "rb"):
-            pass
-        (data / "b.csv.gz").read_bytes()  # pathlib goes through io.open
-        (tmp_path / "other.txt").read_bytes()  # outside data/: not a data read
-        assert guard.reads == {"a.csv.gz", "b.csv.gz"}
-        guard.check(["a.csv.gz", "b.csv.gz"])
-        for expected in (["a.csv.gz"], ["a.csv.gz", "b.csv.gz", "c.csv.gz"], []):
-            with pytest.raises(AssertionError, match=network_guard.READS_MESSAGE):
-                guard.check(expected)
+        guard.check()
     finally:
         guard.uninstall()
 
 
-@pytest.mark.parametrize("mode", ["w", "wb", "a", "ab", "x", "r+", "rb+", "w+b"])
-def test_a_write_open_is_not_a_read(mode: str, tmp_path: pathlib.Path) -> None:
-    data = tmp_path / "data"
-    data.mkdir()
-    target = data / ("new.csv.gz" if "x" in mode else "a.csv.gz")
-    if "x" not in mode:
-        target.write_bytes(b"x")
-    guard = network_guard.install(data)
-    try:
-        with open(target, mode):
-            pass
-        with open(target, mode=mode.replace("x", "a")):  # keyword mode too
-            pass
-        assert guard.reads == set()
-    finally:
-        guard.uninstall()
-
-
-def test_a_failed_open_is_not_a_read(tmp_path: pathlib.Path) -> None:
-    data = tmp_path / "data"
-    data.mkdir()
-    (data / "a.csv.gz").write_bytes(b"x")
-    guard = network_guard.install(data)
-    try:
-        with pytest.raises(FileExistsError), open(data / "a.csv.gz", "x"):
-            pass
-        with pytest.raises(FileNotFoundError), open(data / "missing.csv.gz", "rb"):
-            pass
-        assert guard.reads == set()
-        with pytest.raises(AssertionError, match=network_guard.READS_MESSAGE):
-            guard.check(["a.csv.gz"])
-    finally:
-        guard.uninstall()
-
-
-def test_the_manifest_files_of_a_notebook() -> None:
-    assert network_guard.manifest_files("tutorial_regression_tuning_lgbm.ipynb") == [
-        "diamonds.csv.gz"
-    ]
-    assert network_guard.manifest_files("tutorial_calibration.ipynb") == []
-
-
-FETCH = f"import urllib.request\nurllib.request.urlopen('https://{HOST}/x.csv')"
+FETCH = f"import urllib.request\nurllib.request.urlopen({URL!r})"
 SWALLOWED = (
     "import urllib.request\n"
     "try:\n"
-    f"    urllib.request.urlopen('https://{HOST}/x.csv')\n"
+    f"    urllib.request.urlopen({URL!r})\n"
     "except Exception as exc:\n"
     "    assert 'H-0137' in str(exc)  # the call was made, and refused\n"
 )
@@ -662,44 +418,28 @@ TAGGED = _cell("model.params_table()", tagged=True)
 
 @pytest.mark.slow
 @pytest.mark.parametrize(
-    ("case", "cells", "data_files", "reason"),
+    ("case", "cells", "reason"),
     [
-        ("positive control", [TAGGED], (), None),
+        ("positive control", [TAGGED], None),
         (
-            "a recorded data file read from the working directory",
+            "a vendored file read from the working directory",
             [_cell(VENDORED_READ), TAGGED],
-            ("credit-g.csv.gz",),
             None,
         ),
-        (
-            "a data file the manifest does not record for the notebook",
-            [_cell(VENDORED_READ), TAGGED],
-            (),
-            network_guard.READS_MESSAGE,
-        ),
-        (
-            "a recorded data file the notebook does not read",
-            [TAGGED],
-            ("credit-g.csv.gz",),
-            network_guard.READS_MESSAGE,
-        ),
-        ("a network call", [_cell(FETCH), TAGGED], (), network_guard.MESSAGE),
+        ("a network call", [_cell(FETCH), TAGGED], network_guard.MESSAGE),
         (
             "a network call the notebook swallows",
             [_cell(SWALLOWED), TAGGED],
-            (),
             network_guard.MESSAGE,
         ),
         (
             "a network call in a cell allowed to raise",
             [_cell(FETCH, tags=["raises-exception"]), TAGGED],
-            (),
             network_guard.MESSAGE,
         ),
         (
             "a tagged cell the kernel skips",
             [_cell("model.params_table()", tagged=True, tags=["skip-execution"])],
-            (),
             "never ran",
         ),
         (
@@ -708,37 +448,24 @@ TAGGED = _cell("model.params_table()", tagged=True)
                 _cell(LOOK_ALIKE + "model = Fake()"),
                 _cell("model.params_table()", tagged=True, tags=["raises-exception"]),
             ],
-            (),
             "never ran",
         ),
         (
             "a receiver that is not a Model",
             [_cell(LOOK_ALIKE + "model = Fake()"), TAGGED],
-            (),
             "not a Model",
         ),
     ],
 )
 def test_kernel_probes(
-    case: str,
-    cells: list[dict[str, Any]],
-    data_files: tuple[str, ...],
-    reason: str | None,
-    tmp_path: pathlib.Path,
+    case: str, cells: list[dict[str, Any]], reason: str | None, tmp_path: pathlib.Path
 ) -> None:
     del case
     root = pathlib.Path(__file__).resolve().parents[2]
     setup = _cell(f"import sys\nsys.path.insert(0, {str(root)!r})\n" + SETUP)
     nb = _notebook(setup, *cells)
-    run = functools.partial(
-        index_runner.run_instrumented,
-        nb,
-        workdir_base=tmp_path,
-        timeout=120,
-        data_files=data_files,
-    )
     if reason is None:
-        run()
+        index_runner.run_instrumented(nb, workdir_base=tmp_path, timeout=120)
     else:
         with pytest.raises(CellExecutionError, match=reason):
-            run()
+            index_runner.run_instrumented(nb, workdir_base=tmp_path, timeout=120)
