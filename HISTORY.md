@@ -15939,7 +15939,7 @@ Codex の実装レビュー（run `h0136-impl-review`、`6dce827`）は CHANGES_
 
 ### 対応方針（提案。ゼロベースの見直しの後の形）
 
-**保証**: 8 本のチュートリアルは、同梱したデータで、2 つの層（index の実行と slow な実行テスト）のどちらでも 1 回で実行できる。保守する人が遠隔の取得を戻すと（`fetch_openml`、`pandas.read_csv` で URL を読む、`urllib` やほかの普通の HTTP クライアント）、notebook がその例外を捕まえても、大きく落ちる。通信の失敗のための再試行と skip は置かない。
+**保証**: 8 本のチュートリアルは、同梱したデータで、2 つの層（index の実行と slow な実行テスト）のどちらでも 1 回で実行できる。保守する人が遠隔の取得を戻すと、notebook がその例外を捕まえても、大きく落ちる。対象は `socket.getaddrinfo` か `socket.socket.connect` を通る取得である。`fetch_openml` と、URL を読む `pandas.read_csv` がこの 2 つを通ることは測った（`socket_census_control.out`）。`urllib.request.urlopen`・URL を読む `pandas.read_csv`・`socket.create_connection` が落ちることはテストで確かめる（受け入れ 2）。ほかのクライアントについては、この 2 つを通る限りで落ちる、とだけ主張する。通信の失敗のための再試行と skip は置かない。
 
 想定する相手は、遠隔の取得をうっかり戻す保守の人である。サンドボックスを抜けようとするコードではない。
 
@@ -16066,3 +16066,4 @@ Codex の実装レビュー（run `h0136-impl-review`、`6dce827`）は CHANGES_
   - manifest から `notebooks` の欄を外し、必須の欄の検査に変えた。
   - `docs/audits/2026-10-h0137/` から、分類を守るためだけの `socket_audit_events.*` と `mutate_guard.*` を外した。
 - **教訓**: 指摘に答えるたびに、保証を #385 の目的に照らして確かめていなかった。round 1 の「ガードが `sendmsg` などを見逃す」に入口を足して答えたことで、主張が「全ての経路」に広がった。round 2 と 3 は、その広がった主張の穴を突いた。指摘が保証を広げる方向のときは、広げる前に目的と照らす。
+- **monitor（新しい run の前）**: Claude の relational monitor（新しい文脈）は CONVERGING・continue と判定した。ただし「保証」の文の「ほかの普通の HTTP クライアント」が開いた言い方だと指摘したので、2 つの入口を通る取得に限る文に直した。

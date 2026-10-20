@@ -1,9 +1,10 @@
 """Fail a tutorial notebook that loads data over the network (H-0137, #385).
 
 The tutorials read their datasets from ``notebooks/data/``. The regression this
-guards against is a maintainer bringing a remote load back (``fetch_openml``,
-``pandas.read_csv`` of a URL, ``urllib``, another HTTP client), which would put
-the release gate back at the mercy of a third-party host.
+guards against is a maintainer bringing a remote load back, which would put
+the release gate back at the mercy of a third-party host: any load that goes
+through the two entry points below, as ``fetch_openml``, ``pandas.read_csv`` of
+a URL and ``urllib`` do (``docs/audits/2026-10-h0137/``).
 
 Both notebook layers (the index execution and the slow execution test) load
 this file into the kernel through a first cell and check it through a last
