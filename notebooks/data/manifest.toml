@@ -1,0 +1,58 @@
+# The datasets the tutorial notebooks read (H-0137, #385).
+#
+# Every file in this directory except this manifest is listed here, with the
+# sha256 of its bytes; tests/test_notebooks/test_notebook_data.py checks both.
+# scripts/vendor_notebook_data.py rebuilds the files from the sources below and
+# checks that each tutorial's prepared frame equals the one built from the
+# online source. It needs the network, so CI does not run it.
+#
+# Each file is a gzip-compressed CSV (gzip mtime 0, level 9), read with
+# pandas.read_csv.
+
+[[dataset]]
+file = "credit-g.csv.gz"
+sha256 = "584993877329142e1150e2c142888cfa16f653fab34b77d63c10ae82774c5a17"
+notebooks = ["tutorial_binary_lgbm.ipynb"]
+title = "Statlog (German Credit Data)"
+creator = "Hans Hofmann"
+source = "OpenML dataset 31 (credit-g, version 1), https://www.openml.org/d/31"
+origin = "UCI Machine Learning Repository, https://archive.ics.uci.edu/dataset/144/statlog+german+credit+data"
+licence = "CC BY 4.0"
+retrieved = "2026-10-21"
+derivation = "sklearn.datasets.fetch_openml('credit-g', version=1, as_frame=True, parser='auto').frame, written unchanged (1000 rows, 21 columns; the target column is 'class')"
+
+[[dataset]]
+file = "vehicle.csv.gz"
+sha256 = "f04c8222e88773112e892bcd7df5d300c51e3683e2f194280a527ef2ca9a4cea"
+notebooks = ["tutorial_multiclass_lgbm.ipynb"]
+title = "Statlog (Vehicle Silhouettes)"
+creator = "Pete Mowforth and Barry Shepherd"
+source = "OpenML dataset 54 (vehicle, version 1), https://www.openml.org/d/54"
+origin = "UCI Machine Learning Repository, https://archive.ics.uci.edu/dataset/149/statlog+vehicle+silhouettes"
+licence = "CC BY 4.0"
+retrieved = "2026-10-21"
+derivation = "sklearn.datasets.fetch_openml('vehicle', version=1, as_frame=True, parser='auto').frame, written unchanged (846 rows, 19 columns; the target column is 'Class')"
+
+[[dataset]]
+file = "diamonds.csv.gz"
+sha256 = "ab11a58136e3e3253881cf4986b98991bb9074cd75a6bb9a2c5c84da61099bf4"
+notebooks = ["tutorial_regression_lgbm.ipynb", "tutorial_regression_tuning_lgbm.ipynb"]
+title = "diamonds"
+creator = "the ggplot2 core developer team"
+source = "seaborn-data, https://raw.githubusercontent.com/mwaskom/seaborn-data/master/diamonds.csv"
+origin = "the ggplot2 R package, https://github.com/tidyverse/ggplot2 (the seaborn-data copy carries no licence of its own)"
+licence = "MIT (ggplot2)"
+retrieved = "2026-10-21"
+derivation = "pandas.read_csv of the source, written unchanged (53940 rows, 10 columns)"
+
+[[dataset]]
+file = "jena_climate_2016_tail.csv.gz"
+sha256 = "141034601b22bb3cdae5f42df88c2cc1cfc74ce3884fd2ec302040de9f2a334a"
+notebooks = ["tutorial_time_series_lgbm.ipynb"]
+title = "Jena Climate 2009-2016 (weather station of the Max Planck Institute for Biogeochemistry, Jena)"
+creator = "Max Planck Institute for Biogeochemistry"
+source = "Keras datasets, https://storage.googleapis.com/tensorflow/tf-keras-datasets/jena_climate_2009_2016.csv.zip"
+origin = "https://www.bgc-jena.mpg.de/wetter/ (terms of use: CC BY 4.0, https://www.bgc-jena.mpg.de/wetter/weather_data.html)"
+licence = "CC BY 4.0"
+retrieved = "2026-10-21"
+derivation = "the 10-minute rows from 2016-06-03 16:00:00 on (29988 of 420551 rows, 15 columns): exactly the rows behind the last 5000 rows of the hourly resample the tutorial does"
