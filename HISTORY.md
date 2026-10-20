@@ -15937,7 +15937,7 @@ Codex の実装レビュー（run `h0136-impl-review`、`6dce827`）は CHANGES_
   - 各 notebook が `data/` から開いたファイルは、manifest がその notebook に記録したものとちょうど同じだった。データを読まない 3 本は 0 件だった。
   - 陽性対照: 同じ記録で、今の取得（`fetch_openml("credit-g")` を空の cache で実行）は 30 件、`pd.read_csv` で diamonds の URL を読むと 3 件を記録した（`socket_census_control.out`）。記録の仕組みは、ライブラリの通信を捕まえている。
   - カーネルとの通信（ZMQ）は C の層で行われるので、この入口を通らない。0 件はこれと矛盾しない。`AF_UNIX` の `connect` も 0 件なので、除外せずに拒否しても、通信をしない notebook は壊れない。
-- **sdist と wheel**: hatchling の sdist には、今も `notebooks/` が入っている。同梱したデータと manifest も入り、sdist は SDIST_BEFORE バイトから SDIST_AFTER バイトになる。wheel には `notebooks/` が入らない（`dist_contents.out`）。
+- **sdist と wheel**: hatchling の sdist には、今も `notebooks/` が入っている。同梱したデータと manifest も入り、sdist は 3,448,627 バイト（develop `b39608d`）から 5,018,443 バイトになる。wheel には `notebooks/` が入らない（`dist_contents.out`）。
 
 ### 対応方針（提案）
 
