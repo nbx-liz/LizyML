@@ -15613,8 +15613,9 @@ Codex の実装レビュー（run `h0135-impl-review`、`1d9d38a`）は CHANGES_
 
 ## H-0136: 保存する前に、学習したカテゴリを実際の保存処理に通して確かめる ― 保存の後で符号が変わるモデルを、Model.export と export_code の両方で拒否する（#372）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-20
+- **決定日**: 2026-10-20
 - **関連**: #372、H-0133（値の集合 V と符号化）、H-0127、H-0129（adapter の `unsaveable_categories`）、H-0120（export_code の `pipeline_state.json`）、#378（Decimal / np.int8 の fit の失敗。v0.20.0 の後）、#379（pandas 2 で、fit の中で pytz の値の fold が変わる。v0.20.0 の後）、registry のカード D-20261020-001・D-20261020-007・D-20261020-009・D-20261020-010、Codex の run `h0136-design-critique`・`h0136-situation-analysis`
 - **スコープ**:
   - `Model.export`、公開の `lizyml.persistence.export`、`Model.export_code` が、何かを書く前に行うカテゴリの検査
@@ -15787,3 +15788,13 @@ Firing rate: 0/1174 of export exits on pandas 3.0.1 (full-suite census with `h01
   - major 2（例外の分類）: `OverflowError` を再現し、実測した例外を P1 に書いた。P3 の `kind` を、P1 の 4 つの条件に対応する閉じた 4 つ（`unseen`・`raises`・`codes`・`mode`）にし、`raises` では `exception` に型の名前を入れる。受け入れ基準 4 は case ごとに `kind` を確かめる。
   - major 3（hash seed）: 再現した。格子の数を試作の規則で数え直し、`PYTHONHASHSEED` 0〜4 の範囲で書いた（`criterion4_kinds.py`・`.out`）。そのとき、`surface_disagreement.py` の自前の判定が 2 列で誤ることが分かった。生成した `predict.py` で確かめ（`oracle_disagreement.py`）、受け入れ基準 6 の比べる相手を生成コードにした。受け入れ基準 4 から、壊れない 2 種（`bool` と `tuple`、`tuple` と `uint8`）を外した。Firing rate の行の数も直した。
 - **改訂 2（2026-10-20、Proposal review round 2 の CHANGES_REQUESTED への対応。`a2618c7`、major 1）**: 受け入れ基準 4 と P1 の例が、`np.uint64(2**63 + 5)` と Python の `True` の列を壊れるとしていた。実行すると、壊れるのは `np.bool_(True)` との列で、Python の `True` との列は P1 で壊れない（pandas 3.0.1 と 2.3.3、`firing/bool_kinds.py`・`.out`）。`criterion4_kinds.py` が型を `__name__` で書いたので、どちらも `bool` と表示されていた。型を module つきの名前で書くようにして数え直し（数は変わらない）、3 か所を `np.bool_(True)` に直し、Python の `True` が拒否されないことを受け入れ基準 4 に足した。
+
+### 受け入れ（2026-10-20）
+
+- Codex の Proposal review（run `h0136-proposal-review`、3 round）は次のとおりだった。
+  - round 1（`57f5a60`）: CHANGES_REQUESTED、major 3。
+  - round 2（`a2618c7`）: CHANGES_REQUESTED、major 1。
+  - round 3（`3015e3b`）: APPROVE、指摘 0 件。
+- monitor は round 2 の前に absolute を、round 3 の前に relational を走らせた。結果は DELIVERABLE-FOCUSED と CONVERGING で、disposition はどちらも continue。
+- この実行の方針（Codex の APPROVE と CI 緑で進める）により、round 3 の APPROVE をもって受け入れとした。
+- 分かれ道は管理者が決めた（カード D-20261020-007・D-20261020-009・D-20261020-010）。
