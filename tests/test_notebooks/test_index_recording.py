@@ -329,6 +329,10 @@ ENTRY_POINT_CALLS: dict[str, Callable[[], object]] = {
     "gethostbyname_ex": lambda: socket.gethostbyname_ex(HOST),
     "gethostbyaddr": lambda: socket.gethostbyaddr("127.0.0.1"),
     "getnameinfo": lambda: socket.getnameinfo(LOOPBACK, 0),
+    "getfqdn": lambda: socket.getfqdn(HOST),
+    "getprotobyname": lambda: socket.getprotobyname("tcp"),
+    "getservbyname": lambda: socket.getservbyname("https"),
+    "getservbyport": lambda: socket.getservbyport(443),
 }
 CALLS: dict[str, Callable[[], object]] = {
     **ENTRY_POINT_CALLS,
@@ -343,6 +347,43 @@ CALLS: dict[str, Callable[[], object]] = {
 def test_every_declared_entry_point_has_a_call() -> None:
     declared = (*network_guard.SOCKET_METHODS, *network_guard.MODULE_FUNCTIONS)
     assert sorted(ENTRY_POINT_CALLS) == sorted(declared)
+
+
+def _public_callables(owner: object) -> set[str]:
+    return {
+        name
+        for name in dir(owner)
+        if not name.startswith("_")
+        and callable(getattr(owner, name))
+        and not inspect.isclass(getattr(owner, name))
+    }
+
+
+@pytest.mark.parametrize(
+    ("owner", "refused", "not_refused"),
+    [
+        (
+            socket.socket,
+            network_guard.REFUSED_METHODS,
+            network_guard.NOT_REFUSED_METHODS,
+        ),
+        (
+            socket,
+            network_guard.REFUSED_FUNCTIONS,
+            network_guard.NOT_REFUSED_FUNCTIONS,
+        ),
+    ],
+    ids=["socket.socket methods", "socket functions"],
+)
+def test_the_entry_point_table_classifies_every_public_name(
+    owner: object, refused: dict[str, str], not_refused: dict[str, str]
+) -> None:
+    """A public name Python adds must be classified before the guard passes."""
+    assert not set(refused) & set(not_refused)
+    assert set(refused) <= _public_callables(owner)
+    unclassified = _public_callables(owner) - set(refused) - set(not_refused)
+    assert unclassified == set()
+    assert all(refused.values()) and all(not_refused.values())
 
 
 @pytest.mark.parametrize("call", sorted(CALLS))
@@ -407,6 +448,41 @@ def test_the_guard_records_the_data_files_read(tmp_path: pathlib.Path) -> None:
         for expected in (["a.csv.gz"], ["a.csv.gz", "b.csv.gz", "c.csv.gz"], []):
             with pytest.raises(AssertionError, match=network_guard.READS_MESSAGE):
                 guard.check(expected)
+    finally:
+        guard.uninstall()
+
+
+@pytest.mark.parametrize("mode", ["w", "wb", "a", "ab", "x", "r+", "rb+", "w+b"])
+def test_a_write_open_is_not_a_read(mode: str, tmp_path: pathlib.Path) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    target = data / ("new.csv.gz" if "x" in mode else "a.csv.gz")
+    if "x" not in mode:
+        target.write_bytes(b"x")
+    guard = network_guard.install(data)
+    try:
+        with open(target, mode):
+            pass
+        with open(target, mode=mode.replace("x", "a")):  # keyword mode too
+            pass
+        assert guard.reads == set()
+    finally:
+        guard.uninstall()
+
+
+def test_a_failed_open_is_not_a_read(tmp_path: pathlib.Path) -> None:
+    data = tmp_path / "data"
+    data.mkdir()
+    (data / "a.csv.gz").write_bytes(b"x")
+    guard = network_guard.install(data)
+    try:
+        with pytest.raises(FileExistsError), open(data / "a.csv.gz", "x"):
+            pass
+        with pytest.raises(FileNotFoundError), open(data / "missing.csv.gz", "rb"):
+            pass
+        assert guard.reads == set()
+        with pytest.raises(AssertionError, match=network_guard.READS_MESSAGE):
+            guard.check(["a.csv.gz"])
     finally:
         guard.uninstall()
 

@@ -7,15 +7,19 @@ through a first cell and check it through a last cell:
 
 - ``install()`` replaces the ``socket`` entry points a Python library reaches
   the network through with ones that record the call and raise
-  ``NetworkRefused``. The list is closed: every ``socket.socket`` method that
-  takes a destination address (``connect``, ``connect_ex``, ``sendto``,
-  ``sendmsg``) and every name or address lookup in ``socket``
-  (``create_connection``, ``getaddrinfo``, ``gethostbyname``,
-  ``gethostbyname_ex``, ``gethostbyaddr``, ``getnameinfo``). No address family
-  or host is exempt, ``AF_UNIX`` and loopback included: running every tutorial
-  with these calls only logged found none (``docs/audits/2026-10-h0137/``).
-- It also records every file the kernel opens through ``open`` / ``io.open``
-  in the ``data/`` directory under its working directory.
+  ``NetworkRefused``. Which ones is decided by a table that classifies every
+  public function of ``socket`` and every public method of ``socket.socket``
+  (``REFUSED_*`` and ``NOT_REFUSED_*`` below, each kept with its reason); a
+  test fails on a public name the table does not classify, so the list stays
+  closed as Python changes. Refused are the methods that take a destination
+  address and the functions that resolve a name or address or look one up in a
+  system name database. No address family or host is exempt, ``AF_UNIX`` and
+  loopback included: running every tutorial with these calls only logged found
+  none (``docs/audits/2026-10-h0137/``).
+- It also records every file in the ``data/`` directory under its working
+  directory that the kernel opens for reading through ``open`` / ``io.open``:
+  the open must succeed and its mode must hold none of ``w``, ``a``, ``x``,
+  ``+``.
 - ``check(expected)`` fails when any network call was recorded (so a refusal a
   library caught and passed over, or a ``raises-exception`` cell allowed, still
   fails the run), or when the ``data/`` files read are not exactly
@@ -48,15 +52,93 @@ MESSAGE = "H-0137: a tutorial notebook tried to use the network"
 READS_MESSAGE = "H-0137: the notebook's data/ reads differ from the manifest"
 MANIFEST = GUARD_FILE.resolve().parents[2] / "notebooks" / "data" / "manifest.toml"
 
-SOCKET_METHODS = ("connect", "connect_ex", "sendto", "sendmsg")
-MODULE_FUNCTIONS = (
-    "create_connection",
-    "getaddrinfo",
-    "gethostbyname",
-    "gethostbyname_ex",
-    "gethostbyaddr",
-    "getnameinfo",
-)
+# Every public method of socket.socket (CPython 3.10-3.13 on Linux), classified.
+REFUSED_METHODS = {
+    "connect": "connects to a destination address",
+    "connect_ex": "connects to a destination address",
+    "sendto": "sends to a destination address",
+    "sendmsg": "sends to a destination address when one is given",
+}
+_LOCAL_ENDPOINT = "creates or serves a local endpoint; reaches no other host by itself"
+_CONNECTED = "uses a socket that is already connected (only through a refused call)"
+_LOCAL = "reads or sets local socket state; no traffic"
+NOT_REFUSED_METHODS = {
+    "accept": _LOCAL_ENDPOINT,
+    "bind": _LOCAL_ENDPOINT,
+    "listen": _LOCAL_ENDPOINT,
+    "recv": _CONNECTED,
+    "recv_into": _CONNECTED,
+    "recvfrom": _CONNECTED,
+    "recvfrom_into": _CONNECTED,
+    "recvmsg": _CONNECTED,
+    "recvmsg_into": _CONNECTED,
+    "send": _CONNECTED,
+    "sendall": _CONNECTED,
+    "sendfile": _CONNECTED,
+    "sendmsg_afalg": "AF_ALG, the kernel crypto interface; no address",
+    "shutdown": _CONNECTED,
+    "close": _LOCAL,
+    "detach": _LOCAL,
+    "dup": _LOCAL,
+    "fileno": _LOCAL,
+    "get_inheritable": _LOCAL,
+    "getblocking": _LOCAL,
+    "getpeername": _LOCAL,
+    "getsockname": _LOCAL,
+    "getsockopt": _LOCAL,
+    "gettimeout": _LOCAL,
+    "makefile": _LOCAL,
+    "set_inheritable": _LOCAL,
+    "setblocking": _LOCAL,
+    "setsockopt": _LOCAL,
+    "settimeout": _LOCAL,
+}
+# Every public function of socket (the same interpreters), classified.
+_RESOLVES = "resolves a host name or address (DNS or another name service)"
+_NAME_DB = "looks up a system name database, which a name service may serve remotely"
+REFUSED_FUNCTIONS = {
+    "create_connection": "resolves and connects to a destination",
+    "getaddrinfo": _RESOLVES,
+    "getfqdn": _RESOLVES,
+    "gethostbyaddr": _RESOLVES,
+    "gethostbyname": _RESOLVES,
+    "gethostbyname_ex": _RESOLVES,
+    "getnameinfo": _RESOLVES,
+    "getprotobyname": _NAME_DB,
+    "getservbyname": _NAME_DB,
+    "getservbyport": _NAME_DB,
+}
+_CONVERTS = "converts a value; no traffic"
+NOT_REFUSED_FUNCTIONS = {
+    "create_server": _LOCAL_ENDPOINT,
+    "socketpair": "a connected pair inside this process",
+    "fromfd": _LOCAL,
+    "dup": _LOCAL,
+    "close": _LOCAL,
+    "getdefaulttimeout": _LOCAL,
+    "setdefaulttimeout": _LOCAL,
+    "gethostname": "this machine's own name (uname); no lookup",
+    "sethostname": "sets this machine's own name; no lookup",
+    "has_dualstack_ipv6": "probes local IPv6 support; no traffic",
+    "if_indextoname": "local interface table",
+    "if_nameindex": "local interface table",
+    "if_nametoindex": "local interface table",
+    "send_fds": "sends through socket.sendmsg, which is refused",
+    "recv_fds": _CONNECTED,
+    "CMSG_LEN": _CONVERTS,
+    "CMSG_SPACE": _CONVERTS,
+    "htonl": _CONVERTS,
+    "htons": _CONVERTS,
+    "ntohl": _CONVERTS,
+    "ntohs": _CONVERTS,
+    "inet_aton": _CONVERTS,
+    "inet_ntoa": _CONVERTS,
+    "inet_ntop": _CONVERTS,
+    "inet_pton": _CONVERTS,
+}
+SOCKET_METHODS = tuple(REFUSED_METHODS)
+MODULE_FUNCTIONS = tuple(REFUSED_FUNCTIONS)
+_WRITE_MODES = frozenset("wax+")
 
 _INHERITED = object()
 
@@ -82,11 +164,13 @@ class NetworkGuard:
 
     def _recording_open(self, original: Callable[..., Any]) -> Callable[..., Any]:
         def recording_open(file: Any, *args: Any, **kwargs: Any) -> Any:
-            if isinstance(file, (str, os.PathLike)):
+            handle = original(file, *args, **kwargs)  # a failed open records nothing
+            mode = args[0] if args else kwargs.get("mode", "r")
+            if isinstance(file, (str, os.PathLike)) and not _WRITE_MODES & set(mode):
                 path = Path(os.path.abspath(os.fspath(file)))
                 if path.parent == self.data_dir:
                     self.reads.add(path.name)
-            return original(file, *args, **kwargs)
+            return handle
 
         return recording_open
 
