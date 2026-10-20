@@ -18,21 +18,14 @@ from pathlib import Path
 
 import pytest
 
-from tests.test_notebooks.network_markers import NETWORK_ERROR_MARKERS
+from tests.test_notebooks import network_guard
 
 nbformat = pytest.importorskip("nbformat")
 nbconvert_pp = pytest.importorskip(
     "nbconvert.preprocessors",
 )
-nbclient_exc = pytest.importorskip("nbclient.exceptions")
 
 NOTEBOOKS_DIR = Path(__file__).resolve().parents[2] / "notebooks"
-
-# Some tutorials fetch a remote dataset (e.g. OpenML credit-g). When the CI
-# runner cannot reach the network, that is an environment outage, not a
-# notebook regression — skip rather than fail the (release-gating) slow run.
-# The list is shared with the index execution (H-0119 6.(b)).
-_NETWORK_ERROR_MARKERS = NETWORK_ERROR_MARKERS
 
 _ALL_NOTEBOOKS = sorted(p.name for p in NOTEBOOKS_DIR.glob("*.ipynb"))
 
@@ -69,24 +62,23 @@ def test_notebook_is_valid_and_uses_lizyml(notebook_name: str) -> None:
 @pytest.mark.slow
 @pytest.mark.parametrize("notebook_name", _ALL_NOTEBOOKS)
 def test_notebook_executes(notebook_name: str) -> None:
-    """Execute a notebook and assert no CellExecutionError."""
+    """Execute a notebook and assert no CellExecutionError.
+
+    The notebook runs with the network guard installed and checked (H-0137):
+    any network call fails it, and so does reading other ``data/`` files than
+    the manifest records for it.
+    """
     path = NOTEBOOKS_DIR / notebook_name
     assert path.exists(), f"Notebook not found: {path}"
 
     nb = nbformat.read(str(path), as_version=4)
+    nb.cells.insert(0, nbformat.v4.new_code_cell(network_guard.setup_source()))
+    expected = network_guard.manifest_files(notebook_name)
+    nb.cells.append(nbformat.v4.new_code_cell(network_guard.check_source(expected)))
     # Tuning notebook runs Optuna trials — needs more time on CI
     cell_timeout = 600 if "tuning" in notebook_name else 180
     ep = nbconvert_pp.ExecutePreprocessor(
         timeout=cell_timeout,
         kernel_name="python3",
     )
-    try:
-        ep.preprocess(nb, {"metadata": {"path": str(NOTEBOOKS_DIR)}})
-    except nbclient_exc.CellExecutionError as exc:
-        message = str(exc)
-        if any(marker in message for marker in _NETWORK_ERROR_MARKERS):
-            pytest.skip(
-                f"{notebook_name}: remote dataset fetch failed (network "
-                f"unavailable in CI), not a notebook regression."
-            )
-        raise
+    ep.preprocess(nb, {"metadata": {"path": str(NOTEBOOKS_DIR)}})

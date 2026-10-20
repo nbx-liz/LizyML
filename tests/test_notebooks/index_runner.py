@@ -9,11 +9,13 @@ The notebook is rewritten in memory only:
 - a last cell checks that every tagged statement was confirmed and prints a
   sentinel, which the runner requires in the executed notebook.
 
+A cell before the recorder installs ``network_guard.py`` and the last cell
+checks it first, so a notebook that tries to use the network fails (H-0137).
+
 Execution uses ipykernel's native kernel started with this process's
-``sys.executable``. Each attempt gets a new kernel and a fresh copy of
-``notebooks/`` as its working directory; only a ``CellExecutionError`` carrying a
-network marker is retried, at most three attempts in all, and exhausting them
-fails (never skips).
+``sys.executable``, once, with a fresh copy of ``notebooks/`` (``data/``
+included) as its working directory. H-0137 removed H-0119's retry of network
+failures: the notebooks read vendored files.
 """
 
 from __future__ import annotations
@@ -24,8 +26,7 @@ import json
 import shutil
 import sys
 import tempfile
-from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from collections.abc import Sequence
 from pathlib import Path
 from types import ModuleType
 from typing import Any
@@ -35,19 +36,17 @@ from ipykernel.kernelspec import get_kernel_dict
 from jupyter_client.kernelspec import KernelSpec, KernelSpecManager
 from jupyter_client.manager import AsyncKernelManager
 from nbclient import NotebookClient
-from nbclient.exceptions import CellExecutionError
 
+from tests.test_notebooks import network_guard
 from tests.test_notebooks.index_recorder import SENTINEL
-from tests.test_notebooks.network_markers import NETWORK_ERROR_MARKERS
 
 ROOT = Path(__file__).resolve().parents[2]
 NOTEBOOKS = ROOT / "notebooks"
 RECORDER_FILE = Path(__file__).with_name("index_recorder.py")
 RECORDER_NAME = "_lizyml_index_recorder"
-ATTEMPTS = 3
 CELL_TIMEOUT = 600
 
-__all__ = ["SENTINEL", "run_with_retries", "instrument_notebook", "run_instrumented"]
+__all__ = ["SENTINEL", "instrument_notebook", "run_instrumented"]
 
 
 def load_examples_index() -> ModuleType:
@@ -81,10 +80,14 @@ def _code_cell(source: str, nb: dict[str, Any], cell_id: str) -> dict[str, Any]:
     return cell
 
 
-def instrument_notebook(nb: dict[str, Any]) -> dict[str, Any]:
+def instrument_notebook(
+    nb: dict[str, Any], data_files: Sequence[str] = ()
+) -> dict[str, Any]:
     """A copy of ``nb`` with the recording cells and guards added.
 
     The notebook must pass the static contract first (``check_notebook``).
+    ``data_files`` are the ``data/`` files it must read, no more and no fewer
+    (``network_guard.manifest_files``).
     """
     ix = load_examples_index()
     declaration = ix.check_notebook(nb)
@@ -119,23 +122,19 @@ def instrument_notebook(nb: dict[str, Any]) -> dict[str, Any]:
             f"{RECORDER_NAME}.install()",
         ]
     )
-    finish = f"print({RECORDER_NAME}.finish({keys!r}))"
+    finish = "\n".join(
+        [
+            network_guard.check_source(data_files),
+            f"print({RECORDER_NAME}.finish({keys!r}))",
+        ]
+    )
     out["cells"] = [
+        _code_cell(network_guard.setup_source(), out, "lizyml-network-guard"),
         _code_cell(setup, out, "lizyml-index-recorder"),
         *out["cells"],
         _code_cell(finish, out, "lizyml-index-finish"),
     ]
     return out
-
-
-# --- the retry policy ----------------------------------------------------------------
-
-
-@dataclass
-class Attempt:
-    kernel: object
-    workdir: Path
-    error: str | None = None
 
 
 def fresh_workdir(base: Path) -> Path:
@@ -144,35 +143,6 @@ def fresh_workdir(base: Path) -> Path:
     return Path(
         shutil.copytree(NOTEBOOKS, Path(tempfile.mkdtemp(dir=base)) / "notebooks")
     )
-
-
-def run_with_retries(
-    execute: Callable[[Any, Path], None],
-    *,
-    new_kernel: Callable[[], Any],
-    new_workdir: Callable[[], Path],
-    log: list[Attempt],
-    markers: Sequence[str] = NETWORK_ERROR_MARKERS,
-    attempts: int = ATTEMPTS,
-) -> None:
-    """Run ``execute`` until it succeeds, retrying only network failures.
-
-    Each attempt is appended to ``log`` with its own kernel and working
-    directory. A ``CellExecutionError`` whose text contains a marker is retried
-    while attempts remain; it is re-raised after the last attempt. Any other
-    exception is re-raised at once.
-    """
-    for number in range(attempts):
-        attempt = Attempt(new_kernel(), new_workdir())
-        log.append(attempt)
-        try:
-            execute(attempt.kernel, attempt.workdir)
-        except CellExecutionError as exc:
-            attempt.error = str(exc)
-            if number + 1 < attempts and any(m in attempt.error for m in markers):
-                continue
-            raise
-        return
 
 
 # --- execution -----------------------------------------------------------------------
@@ -193,37 +163,27 @@ def native_kernel() -> AsyncKernelManager:
     )
 
 
-def _execute(
-    nb: dict[str, Any], timeout: int, executed: list[Any]
-) -> Callable[[Any, Path], None]:
-    def run(kernel: Any, workdir: Path) -> None:
-        node = nbformat.reads(json.dumps(nb), as_version=4)  # joins line lists
-        client = NotebookClient(
-            node,
-            km=kernel,
-            timeout=timeout,
-            resources={"metadata": {"path": str(workdir)}},
-        )
-        client.execute(cleanup_kc=True)
-        executed.append(node)
-
-    return run
-
-
 def run_instrumented(
-    nb: dict[str, Any], *, workdir_base: Path, timeout: int = CELL_TIMEOUT
-) -> list[Attempt]:
-    """Instrument ``nb``, execute it with retries and check the sentinel."""
-    instrumented = instrument_notebook(nb)
-    executed: list[Any] = []
-    log: list[Attempt] = []
-    run_with_retries(
-        _execute(instrumented, timeout, executed),
-        new_kernel=native_kernel,
-        new_workdir=lambda: fresh_workdir(workdir_base),
-        log=log,
+    nb: dict[str, Any],
+    *,
+    workdir_base: Path,
+    timeout: int = CELL_TIMEOUT,
+    data_files: Sequence[str] = (),
+) -> Path:
+    """Instrument ``nb``, execute it once and check the sentinel.
+
+    Returns the working directory the notebook ran in.
+    """
+    workdir = fresh_workdir(workdir_base)
+    instrumented = instrument_notebook(nb, data_files)
+    node = nbformat.reads(json.dumps(instrumented), as_version=4)
+    client = NotebookClient(
+        node,
+        km=native_kernel(),
+        timeout=timeout,
+        resources={"metadata": {"path": str(workdir)}},
     )
-    (node,) = executed
+    client.execute(cleanup_kc=True)
     last = node.cells[-1]
     text = "".join(
         o.get("text", "") for o in last.outputs if o.get("output_type") == "stream"
@@ -231,4 +191,4 @@ def run_instrumented(
     ix = load_examples_index()
     expected = len(ix.tagged_statements(nb, ix.check_notebook(nb)))
     assert text == f"{SENTINEL} {expected}\n", f"the recording cell printed {text!r}"
-    return log
+    return workdir
