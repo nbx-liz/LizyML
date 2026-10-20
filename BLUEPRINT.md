@@ -2233,7 +2233,8 @@ lizyml/
 │   ├── pipeline_base.py            BaseFeaturePipeline
 │   ├── pipelines_native.py         NativeFeaturePipeline
 │   ├── encoders/
-│   │   └── categorical_encoder.py  カテゴリ処理部品
+│   │   ├── categorical_encoder.py  カテゴリ処理部品
+│   │   └── state_changes.py        保存処理で写した状態と元の状態の比較 (H-0136)
 │   └── transformers/
 │       └── feature_transformer.py  特徴量変換 (passthrough 拡張点)
 │
@@ -2294,7 +2295,9 @@ lizyml/
 │
 ├── persistence/                    ── Layer 3: Persistence ──
 │   ├── exporter.py                 export() + AnalysisContext + FORMAT_VERSION
-│   └── loader.py                   load() + format_version validation
+│   ├── loader.py                   load() + format_version validation
+│   ├── _manifest.py                checksums の形の検査 declared_files (H-0135)
+│   └── _category_preflight.py      書く前のカテゴリの検査 (H-0136)
 │
 └── codegen/                        ── Layer 3: Codegen (optional, H-0059/H-0073) ──
     ├── generator.py                generate_code() エントリ (Model.export_code から)

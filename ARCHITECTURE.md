@@ -723,7 +723,9 @@ lizyml/
 ├── features/                       ── Layer 1: Features ──
 │   ├── pipeline_base.py            BaseFeaturePipeline
 │   ├── pipelines_native.py         NativeFeaturePipeline
-│   └── encoders/                   CategoricalEncoder
+│   └── encoders/
+│       ├── categorical_encoder.py  CategoricalEncoder
+│       └── state_changes.py        保存処理で写した状態と元の状態の比較 (H-0136)
 │
 ├── estimators/                     ── Layer 1: Estimators ──
 │   ├── base.py                     BaseEstimatorAdapter
@@ -780,7 +782,9 @@ lizyml/
 │
 ├── persistence/                    ── Layer 3: Persistence ──
 │   ├── exporter.py                 export() + FORMAT_VERSION
-│   └── loader.py                   load() + format_version validation
+│   ├── loader.py                   load() + format_version validation
+│   ├── _manifest.py                checksums の形の検査 declared_files (H-0135)
+│   └── _category_preflight.py      書く前のカテゴリの検査 (H-0136)
 │
 ├── codegen/                        ── Layer 3: Codegen (optional, H-0059/H-0073) ──
 │   ├── generator.py                generate_code() (Model.export_code から)
