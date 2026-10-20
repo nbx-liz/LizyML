@@ -11,9 +11,11 @@ through a first cell and check it through a last cell:
   public function of ``socket`` and every public method of ``socket.socket``
   (``REFUSED_*`` and ``NOT_REFUSED_*`` below, each kept with its reason); a
   test fails on a public name the table does not classify, so the list stays
-  closed as Python changes. Refused are the methods that take a destination
-  address and the functions that resolve a name or address or look one up in a
-  system name database. No address family or host is exempt, ``AF_UNIX`` and
+  closed as Python changes, and other tests check each classification (see the
+  comments on the tables). Refused are the methods that take an address
+  (``bind`` included: the C code resolves a host name inside it) and the
+  functions that resolve a name or address or look one up in a system name
+  database. No address family or host is exempt, ``AF_UNIX`` and
   loopback included: running every tutorial with these calls only logged found
   none (``docs/audits/2026-10-h0137/``).
 - It also records every file in the ``data/`` directory under its working
@@ -53,19 +55,25 @@ READS_MESSAGE = "H-0137: the notebook's data/ reads differ from the manifest"
 MANIFEST = GUARD_FILE.resolve().parents[2] / "notebooks" / "data" / "manifest.toml"
 
 # Every public method of socket.socket (CPython 3.10-3.13 on Linux), classified.
+# The rule is mechanical: a method is refused exactly when its documented call
+# (the first line of its docstring) takes an ``address``, because the C code
+# resolves a host name in an address before any audit event or other hook can
+# see it (docs/audits/2026-10-h0137/socket_audit_events.out). A test checks
+# the rule against the docstrings.
+_ADDRESS = "takes an address, which may name a host the C code resolves"
 REFUSED_METHODS = {
-    "connect": "connects to a destination address",
-    "connect_ex": "connects to a destination address",
-    "sendto": "sends to a destination address",
-    "sendmsg": "sends to a destination address when one is given",
+    "bind": _ADDRESS,
+    "connect": _ADDRESS,
+    "connect_ex": _ADDRESS,
+    "sendto": _ADDRESS,
+    "sendmsg": _ADDRESS,
 }
-_LOCAL_ENDPOINT = "creates or serves a local endpoint; reaches no other host by itself"
+_BOUND = "serves a socket bound through socket.bind, which is refused"
 _CONNECTED = "uses a socket that is already connected (only through a refused call)"
 _LOCAL = "reads or sets local socket state; no traffic"
 NOT_REFUSED_METHODS = {
-    "accept": _LOCAL_ENDPOINT,
-    "bind": _LOCAL_ENDPOINT,
-    "listen": _LOCAL_ENDPOINT,
+    "accept": _BOUND,
+    "listen": _BOUND,
     "recv": _CONNECTED,
     "recv_into": _CONNECTED,
     "recvfrom": _CONNECTED,
@@ -93,7 +101,10 @@ NOT_REFUSED_METHODS = {
     "setsockopt": _LOCAL,
     "settimeout": _LOCAL,
 }
-# Every public function of socket (the same interpreters), classified.
+# Every public function of socket (the same interpreters), classified. A test
+# checks each one that is not refused: it is called under the guard and raises
+# no lookup audit event, or it is shown to go through a refused method, or its
+# reason for not being called is stated there.
 _RESOLVES = "resolves a host name or address (DNS or another name service)"
 _NAME_DB = "looks up a system name database, which a name service may serve remotely"
 REFUSED_FUNCTIONS = {
@@ -110,7 +121,7 @@ REFUSED_FUNCTIONS = {
 }
 _CONVERTS = "converts a value; no traffic"
 NOT_REFUSED_FUNCTIONS = {
-    "create_server": _LOCAL_ENDPOINT,
+    "create_server": "binds through socket.bind, which is refused",
     "socketpair": "a connected pair inside this process",
     "fromfd": _LOCAL,
     "dup": _LOCAL,

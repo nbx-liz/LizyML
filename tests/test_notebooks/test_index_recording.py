@@ -20,7 +20,9 @@ import functools
 import inspect
 import io
 import pathlib
+import re
 import socket
+import sys
 import urllib.request
 from collections.abc import Callable
 from typing import Any
@@ -319,6 +321,8 @@ def _sendmsg() -> object:
 # that never fires cannot hide behind an earlier one), quantified over the
 # declaration by test_every_declared_entry_point_has_a_call.
 ENTRY_POINT_CALLS: dict[str, Callable[[], object]] = {
+    # The round-3 finding: the C code resolves a host name inside bind.
+    "bind": lambda: socket.socket(type=socket.SOCK_DGRAM).bind((HOST, 0)),
     "connect": lambda: socket.socket().connect(LOOPBACK),
     "connect_ex": lambda: socket.socket().connect_ex(LOOPBACK),
     "sendto": lambda: socket.socket(type=socket.SOCK_DGRAM).sendto(b"x", LOOPBACK),
@@ -341,6 +345,12 @@ CALLS: dict[str, Callable[[], object]] = {
     # method is called unbound because some sandboxes refuse creating an
     # AF_UNIX socket at all.)
     "connect to an AF_UNIX path": lambda: socket.socket.connect(None, "/x.sock"),
+    # Functions the table does not refuse because they go through a refused
+    # method (DELEGATED below).
+    "create_server": lambda: socket.create_server((HOST, 0)),
+    "send_fds": lambda: socket.send_fds(
+        socket.socket(type=socket.SOCK_DGRAM), [b"x"], [], 0, (HOST, 9)
+    ),
 }
 
 
@@ -386,16 +396,128 @@ def test_the_entry_point_table_classifies_every_public_name(
     assert all(refused.values()) and all(not_refused.values())
 
 
+def _documented_parameters(function: object) -> str:
+    """The parameters in the first docstring line, ``name(params) -> ...``."""
+    first = (inspect.getdoc(function) or "").splitlines()[0]
+    match = re.match(r"\w+\((.*?)\)", first)
+    return match.group(1) if match else ""
+
+
+def test_a_method_is_refused_exactly_when_it_takes_an_address() -> None:
+    """The method table follows the rule its comment states, read from CPython."""
+    takes_address = {
+        name
+        for name in _public_callables(socket.socket)
+        if re.search(
+            r"\baddress\b", _documented_parameters(getattr(socket.socket, name))
+        )
+    }
+    assert takes_address == set(network_guard.REFUSED_METHODS)
+
+
+# Each function the table does not refuse, accounted for in exactly one way.
+LOOKUP_EVENTS = frozenset(
+    {
+        "socket.getaddrinfo",
+        "socket.gethostbyaddr",
+        "socket.gethostbyname",
+        "socket.getnameinfo",
+        "socket.getservbyname",
+        "socket.getservbyport",
+    }
+)
+_PACKED = b"\x7f\x00\x00\x01"
+
+
+def _interface(by: str) -> object:
+    index, name = socket.if_nameindex()[0]
+    return (
+        socket.if_indextoname(index) if by == "index" else socket.if_nametoindex(name)
+    )
+
+
+# Called under the guard: no refusal and no lookup audit event.
+PROBED: dict[str, Callable[[], object]] = {
+    "CMSG_LEN": lambda: socket.CMSG_LEN(1),
+    "CMSG_SPACE": lambda: socket.CMSG_SPACE(1),
+    "htonl": lambda: socket.htonl(1),
+    "htons": lambda: socket.htons(1),
+    "ntohl": lambda: socket.ntohl(1),
+    "ntohs": lambda: socket.ntohs(1),
+    "inet_aton": lambda: socket.inet_aton("127.0.0.1"),
+    "inet_ntoa": lambda: socket.inet_ntoa(_PACKED),
+    "inet_ntop": lambda: socket.inet_ntop(socket.AF_INET, _PACKED),
+    "inet_pton": lambda: socket.inet_pton(socket.AF_INET, "127.0.0.1"),
+    "getdefaulttimeout": socket.getdefaulttimeout,
+    "setdefaulttimeout": lambda: socket.setdefaulttimeout(socket.getdefaulttimeout()),
+    "gethostname": socket.gethostname,
+    "has_dualstack_ipv6": socket.has_dualstack_ipv6,
+    "if_nameindex": socket.if_nameindex,
+    "if_indextoname": lambda: _interface("index"),
+    "if_nametoindex": lambda: _interface("name"),
+}
+# Refused through a method of the table (driven in CALLS).
+DELEGATED = {"create_server": "bind", "send_fds": "sendmsg"}
+# Not called here, with the reason.
+NOT_CALLED = {
+    "fromfd": "wraps a file descriptor into a socket.socket, whose methods apply",
+    "dup": "duplicates a file descriptor",
+    "close": "closes a file descriptor",
+    "sethostname": "changes this machine's name and needs privileges",
+    "socketpair": "an AF_UNIX pair inside this process; some sandboxes refuse AF_UNIX",
+    "recv_fds": "receives on a socket the caller already has; takes no address",
+}
+
+
+def test_each_function_not_refused_is_accounted_for() -> None:
+    groups = [set(PROBED), set(DELEGATED), set(NOT_CALLED)]
+    assert sum(len(g) for g in groups) == len(set().union(*groups))
+    assert set().union(*groups) == set(network_guard.NOT_REFUSED_FUNCTIONS)
+    assert set(DELEGATED.values()) <= set(network_guard.REFUSED_METHODS)
+    assert set(DELEGATED) <= set(CALLS)
+
+
+_AUDITED: list[str] | None = None
+
+
+def _audit(event: str, args: tuple[object, ...]) -> None:
+    del args
+    if _AUDITED is not None and event.startswith("socket."):
+        _AUDITED.append(event)
+
+
+sys.addaudithook(_audit)  # inert unless _AUDITED is a list
+
+
+@pytest.mark.parametrize("name", sorted(PROBED))
+def test_a_probed_function_looks_nothing_up(name: str, tmp_path: pathlib.Path) -> None:
+    global _AUDITED
+    guard = network_guard.install(tmp_path)
+    _AUDITED = []
+    try:
+        PROBED[name]()
+        events = set(_AUDITED)
+    finally:
+        _AUDITED = None
+        guard.uninstall()
+    assert guard.attempts == []
+    assert not events & LOOKUP_EVENTS, events
+
+
 @pytest.mark.parametrize("call", sorted(CALLS))
 def test_the_guard_refuses_and_records_each_call(
     call: str, tmp_path: pathlib.Path
 ) -> None:
     guard = network_guard.install(tmp_path)
     try:
-        with pytest.raises(OSError, match=network_guard.MESSAGE):
+        # create_server re-raises the refusal in its own words; the record and
+        # the last-cell check below are what hold for every call.
+        match = None if call in DELEGATED else network_guard.MESSAGE
+        with pytest.raises(OSError, match=match):
             CALLS[call]()
-        if call in ENTRY_POINT_CALLS:
-            assert guard.attempts[0].startswith(f"{call}(")  # this hook fired
+        hook = call if call in ENTRY_POINT_CALLS else DELEGATED.get(call)
+        if hook is not None:
+            assert guard.attempts[0].startswith(f"{hook}(")  # this hook fired
         assert len(guard.attempts) == 1
         with pytest.raises(AssertionError, match=network_guard.MESSAGE):
             guard.check()
