@@ -15775,7 +15775,7 @@ Firing rate: 0/1174 of export exits on pandas 3.0.1 (full-suite census with `h01
 1. **#372 の回帰**（pandas 2 と pytz。CI の lowest-direct のレーンで走る）: zoneinfo の `fold=1` と pytz の値の組を持つ列のモデルは、`Model.export`・`persistence.export`・`export_code` のどれでも `SERIALIZATION_FAILED`（`serializer="joblib"`）で拒否され、出力先に何も書かれない。fit は `UserWarning` を出す。
 2. **pytz の値 1 つ**（最頻値でない）: `unseen_policy` の 3 つのそれぞれで、3 つの出口が拒否し、fit が警告する。対照（夏時間の重ならない時刻）は拒否されず、load の後の予測と、生成した `predict.py` の予測が、export の前と同じである。
 3. **入れ物の中の値**: pytz の値を含む `tuple` と `frozenset` が拒否される。
-4. **codegen の衝突**（pandas 3 と 2）: `np.uint64(4)` と `np.timedelta64(4, 'M')` の列は、3 つの出口のどれでも `serializer="json"` で拒否される。同じ組を `category` dtype の入力で与えた `declared_categories` も拒否される。`np.uint64(2**63 + 5)` と `np.bool_(True)` の列も拒否される。Python の `True` との列は拒否されない（P1 で壊れない。`firing/bool_kinds.py`・`.out`）。それぞれ `kind` を確かめる（`criterion4_kinds.out` の実測。一意でない組は `raises` と `exception="ValueError"`、`set_categories` の比較で落ちる組は `raises` と `exception="OverflowError"`）。
+4. **codegen の衝突**（pandas 3 と 2）: `np.uint64(4)` と `np.timedelta64(4, 'M')` の列は、3 つの出口のどれでも `serializer="json"` で拒否される。同じ組を `category` dtype の入力で与えた `declared_categories` も拒否される。`np.uint64(2**63 + 5)` と `np.bool_(True)` の列も拒否される〔実装で訂正: その pandas が JSON の写しへの対応付けで `OverflowError` を出すときだけである。pandas 2.0（依存の下限）は出さず、その列は保存できて同じ予測になる。実装レビュー round 2〕。Python の `True` との列は拒否されない（P1 で壊れない。`firing/bool_kinds.py`・`.out`）。それぞれ `kind` を確かめる（`criterion4_kinds.out` の実測。一意でない組は `raises` と `exception="ValueError"`、`set_categories` の比較で落ちる組は `raises` と `exception="OverflowError"`）。
 5. **壊れない組を拒否しない**: zoneinfo の `fold=1` と固定の時差の値、`1` と `np.timedelta64(1, 's')` の列は、3 つの出口を通り、load の後の予測と生成した `predict.py` の予測が export の前と同じである。
 6. **判定と現実が一致する**: H-0133 の `SAMPLES` の格子（単独と 2 つの組）の全ての列で、P1 の判定が現実と一致する。joblib の側は、状態を実際に joblib に通したライブラリのエンコーダの変換と、JSON の側は、`convert_pipeline_state` が書く `pipeline_state.json` を読んだ、生成した `predict.py` の `transform` と比べる。変換する行は P1 の基準のバッチ（学習したカテゴリを状態の順に 1 つのバッチにしたもの）である（実装の記録）。受け入れ基準 1〜5 の case では、`Model.export` → `Model.load` → `predict` と、生成した `predict.py` を実際に走らせて確かめる（試作のエンコーダを生成コードの代わりにしない）。
 7. **拒否は書く前**: 3 つの出口で、拒否のあと出力先が作られない（既にあるディレクトリは変わらない）。
@@ -15820,7 +15820,7 @@ Firing rate: 0/1174 of export exits on pandas 3.0.1 (full-suite census with `h01
   - `np.uint64(2**63 + 5)` と `np.bool_(True)` の組は、`uint64` が先のときだけ壊れる（`raises`、`OverflowError`）。pandas はオブジェクトの列で `np.bool_` を先に並べるので、`Model.fit` からは `category` dtype で宣言した順でしか届かない。テストはその形で確かめ、pandas の順のままの列は保存できることも確かめる。
 - **実装中に見つけた不具合**:
   - `mode` の比較が、元の最頻値を両方の状態で引いていた。そのため、写した状態の最頻値が変わっても検出しなかった。写した状態の最頻値を、写した状態で引くように直した。手で作った状態の単体テスト（`test_h0136_state_changes.py`）で見つけた。実際の fit では最頻値は学習したカテゴリの 1 つで、同じ写しを受けるので、この `kind` は単体テストでしか届かない。
-  - その直後に、最頻値を 1 行だけのバッチで変換していたことも誤りだった。pandas 2 では、pytz の値だけの 1 行のバッチが `astype("category")` で日時の型になり、fold が変わる（#379 の仕組み）。そのため、メモリ上の側が -1 を返し、偽の `mode` の変化になった。受け入れ基準 6 の格子のテストが、pandas 2 で見つけた。最頻値をバッチの最後の 1 行として変換する修正もした。しかし CI の lowest-direct のレーン（pandas 2.0.0）で、同じ値が 2 行あるバッチでは pandas 2.0 の `unique` が pytz の値を作り直し、メモリ上の側が unseen になると分かった。そのため最終的に、最頻値はバッチに入れず、カテゴリの並びの中の位置で比べる（`_position`。同じ object、なければ等しく hash も等しい最初のもの）。メモリ上の最頻値が自分のカテゴリの中に見つからないとき（pandas 2.0 の `mode()` が pytz の値を作り直す。#379 の類）は、最頻値を判定しない。手元で作った依存の下限の環境（pandas 2.0.0、numpy 1.24.0）でも確かめた。
+  - その直後に、最頻値を 1 行だけのバッチで変換していたことも誤りだった。pandas 2 では、pytz の値だけの 1 行のバッチが `astype("category")` で日時の型になり、fold が変わる（#379 の仕組み）。そのため、メモリ上の側が -1 を返し、偽の `mode` の変化になった。受け入れ基準 6 の格子のテストが、pandas 2 で見つけた。最頻値をバッチの最後の 1 行として変換する修正もした。しかし CI の lowest-direct のレーン（pandas 2.0.0）で、同じ値が 2 行あるバッチでは pandas 2.0 の `unique` が pytz の値を作り直し、メモリ上の側が unseen になると分かった。次に、最頻値をカテゴリの並びの中の位置で比べる形にしたが、実装レビュー round 2 で、これは predict の振る舞いを写していないと指摘された（位置が同じでも置き換えの符号が変わる例と、その逆の例）。最終的には、最頻値が実際にすることを比べる。基準のバッチに、どのカテゴリとも等しくない値の行を 1 つ足し、`unseen_policy="mode"` で変換する。各状態は自分の最頻値でその行を置き換えるので、その行の符号を元の状態と写した状態で比べる（`replacement_code`）。メモリ上の側でこの変換が失敗するときは、最頻値を判定しない。受け入れ基準 6 の格子のテストも、同じ置き換えを、実際の joblib の読み戻しと生成した `predict.py`（`unseen_policy="mode"` の `pipeline_state.json`）で確かめる。pandas 3.0.1、2.3.3、手元で作った依存の下限の環境（pandas 2.0.0、numpy 1.24.0）で確かめた。
   - 同じ CI のレーンで、`np.uint64(2**63 + 5)` と `np.bool_(True)` の組が pandas 2.0 では壊れないことも分かった（`set_categories` が `OverflowError` を出さない）。テストは、その pandas で JSON の写しへの対応付けが `OverflowError` を出すかを先に調べ、出るなら拒否を、出なければ保存できて同じ予測になることを確かめる。
   - **#380**（新しい issue）: NumPy の 1 に等しいスカラー（`np.True_`・`np.uint8(1)`）と、1 を包む `tuple` を同じ列に持つと、pandas の object Index の参照が取り違える。奇数の深さでは、バッチによってスカラーが `tuple` の位置を受け取る。偶数の深さでは、2 つを重複とみなす。pandas 3.0.1 と 2.3.3 で同じで、Python の `True` / `1` では起きない（`pandas_tuple_lookup.py`・`.out`）。メモリ上のモデルの不具合なので、#379 と同じく（カード D-20261020-010 に倣う）範囲の外とし、v0.20.0 の後に扱う。「残る範囲」に足す。
 - **テスト**:
@@ -15858,3 +15858,16 @@ Codex の実装レビュー（run `h0136-impl-review`、`6dce827`）は CHANGES_
   - H-0136 の検査は値の写しのままにした。列名を JSON に通すと、正しく保存できる `Model.export` まで拒否することになるからである（判断 2）。
 - **major 2（DC3）**: `docs/api.md` の `fit` の警告と `export()` の拒否の文が、H-0133 の前のまま残っていた。`bytes` などの値を「警告して拒否する」と書いていたが、実際はそれらを位置の番号に置き換えて保存する。V の外の値の警告と拒否の文に直した。
 - **minor**: census の plugin の docstring が、`export_code (check)` の記録と、`fit_warning` が CV の前の警告しか包まないことを書いていなかった。docstring を直した。数は変わらない。
+- **CI（`6dce827`）**: lowest-direct のレーン（pandas 2.0.0）で落ちた。最頻値の比べ方と `np.bool_` のテストを直した（実装の記録）。notebook の 1 本は OpenML の取得のネットワークの失敗で、PR 本文の言語の検査は本文の日本語で落ちたので、本文を直した。
+
+### 実装レビュー round 2 への対応（2026-10-20）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（判定した head は `b68e6ab`）。DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: Codex の実装レビュー round 2（`b68e6ab`）は CHANGES_REQUESTED（major 1、minor 2）だった。
+- **major（DC1）**: 最頻値を位置で比べる形は、predict がすることを写していなかった。
+  - 位置は同じでも、JSON の写しで置き換えの符号が変わる例（zoneinfo の `fold=1` のカテゴリと、等しい pytz の最頻値）を通していた。
+  - 逆に、置き換えの符号が変わらないのに拒否する例もあった。
+  - 最頻値は、置き換えの符号で比べる形に直した（実装の記録）。2 つの例は単体テストにした。どちらのテストも、判定が実際の置き換えの符号と一致することを確かめる。
+    - pandas 2.0 では、joblib が pytz の最頻値の fold を変え、固定の時差のカテゴリが見つからなくなる。そのため 2 つ目の例は、置き換えの符号が変わる（0 から -1）。
+- **minor 1**: 受け入れ基準 4 が、pandas 2.0 で壊れない `np.bool_` の組を無条件に「拒否される」と書いていた。基準に訂正を書き添えた。
+- **minor 2**: census の plugin の `today_check` の説明が、「export_code はこの検査を呼ばない」と古いままだった。直した。

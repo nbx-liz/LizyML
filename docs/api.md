@@ -386,7 +386,8 @@ Path resolution (first match wins):
   saved state would not answer like the fitted model (H-0136). Each saved
   state is passed through joblib (the artifact) and through the tagged JSON
   `export_code` writes; the learned categories, as one batch in the state's
-  order, must keep their codes and the mode its code. Examples: a pytz
+  order, must keep their codes, and an unseen row replaced by the mode
+  (`unseen_policy="mode"`) must keep its code. Examples: a pytz
   `Timestamp` at the repeated hour of a daylight-saving change (pickle changes
   its `fold`), or `np.uint64(4)` beside `np.timedelta64(4, 'M')` (JSON writes
   the first as `4`, which equals the second). The context names `column`,

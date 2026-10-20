@@ -19,8 +19,10 @@ unchanged and records its outcome. One JSON record per call:
 - ``breaks``: the prototype's breaks, each with the state, column,
   serializer and kind; ``original_fails``: columns whose original state
   already fails to transform (not a serializer difference);
-- for ``export_code``: ``today_check``, what ``check_category_values`` (which
-  export_code does not call today) answers for the same model.
+- for ``export_code``: ``today_check``, what ``check_category_values``
+  answers for the same model when called apart (before H-0136 export_code did
+  not call it; after H-0136 it does, and its own call is the
+  ``export_code (check)`` record).
 
 A state the prototype cannot read is recorded with ``rule_error``, never
 skipped.

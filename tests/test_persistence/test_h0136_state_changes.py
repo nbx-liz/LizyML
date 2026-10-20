@@ -8,12 +8,24 @@ where a real state with the same values would be refused first.
 
 from __future__ import annotations
 
+import datetime as dt
+import zoneinfo
 from typing import Any
 
 import numpy as np
+import pandas as pd
+import pytest
 
+from lizyml.features.encoders.state_changes import replacement_code
 from lizyml.features.pipeline_base import CategoryStateChange, category_state_changes
-from lizyml.persistence._category_preflight import declared_change, state_changes
+from lizyml.persistence._category_preflight import (
+    _encoder_through_json,
+    _through_joblib,
+    declared_change,
+    state_changes,
+)
+
+NY = zoneinfo.ZoneInfo("America/New_York")
 
 
 def _state(categories: list[Any], mode: Any) -> dict[str, Any]:
@@ -53,6 +65,43 @@ def test_reordered_categories_change_codes() -> None:
 def test_a_mode_with_another_code_is_mode() -> None:
     change = category_state_changes(_state(["a", "b"], "a"), _state(["a", "b"], "b"))
     assert change == [CategoryStateChange("c", "mode", value="a")]
+
+
+def _pytz_standard() -> Any:
+    pytz = pytest.importorskip("pytz")
+    ny = pytz.timezone("America/New_York")
+    return pd.Timestamp(ny.localize(dt.datetime(2024, 11, 3, 1, 30), is_dst=False))
+
+
+def test_a_mode_the_json_copy_maps_elsewhere_is_mode() -> None:
+    """Implementation review round 2: a pytz mode beside an equal zoneinfo
+    category. In memory the mode replaces an unseen row with the category's
+    code; after the codec JSON it does not."""
+    category = pd.Timestamp(dt.datetime(2024, 11, 3, 1, 30, fold=1, tzinfo=NY))
+    state = _state([category, "x"], _pytz_standard())
+    projected = _encoder_through_json(state)
+    want = replacement_code(state, "c", [category, "x"])
+    got = replacement_code(projected, "c", [category, "x"])
+    changes = category_state_changes(state, projected)
+    assert (want == got) == (changes == [])
+    if want != got:
+        assert [c.kind for c in changes] == ["mode"]
+
+
+def test_a_pytz_mode_beside_a_fixed_offset_category_is_judged_by_replacement() -> None:
+    """Implementation review round 2: a pytz mode beside an equal fixed-offset
+    category, through joblib. Whether the unseen row's code changes depends
+    on pandas (on 2.0 the restored fold-1 mode no longer finds the category);
+    the verdict must follow the replacement, not the mode's position."""
+    fixed = pd.Timestamp("2024-11-03 01:30", tz=dt.timezone(dt.timedelta(hours=-5)))
+    state = _state([fixed, "x"], _pytz_standard())
+    projected = _through_joblib(state)
+    want = replacement_code(state, "c", [fixed, "x"])
+    got = replacement_code(projected, "c", [fixed, "x"])
+    changes = category_state_changes(state, projected)
+    assert (want == got) == (changes == [])
+    if want != got:
+        assert [c.kind for c in changes] == ["mode"]
 
 
 def test_a_column_without_categories_is_not_judged() -> None:

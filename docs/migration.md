@@ -13,8 +13,8 @@ release from v0.5.0 onward.
 check before writing anything. Each saved category state is passed through
 joblib and through the tagged JSON `export_code` writes. The model is refused
 with `SERIALIZATION_FAILED` when the learned categories, as one batch in the
-state's order, would get other codes or become unseen, or the mode would get
-another code. The context has `serializer` and `kind`. `fit` warns about such a
+state's order, would get other codes or become unseen, or an unseen row the
+mode replaces would get another code. The context has `serializer` and `kind`. `fit` warns about such a
 column once the fit has finished.
 
 - **Refused now, saved before:** a column holding `np.uint64(4)` beside

@@ -76,13 +76,44 @@ def _same(got: Any, want: list[float]) -> bool:
     return bool(np.array_equal(np.asarray(got, dtype=float), want, equal_nan=True))
 
 
+class _Unseen:
+    """A value no category equals: the row unseen_policy="mode" replaces."""
+
+
+def _with_unseen(df: pd.DataFrame) -> pd.DataFrame:
+    return pd.DataFrame({"c": pd.Series([*df["c"].tolist(), _Unseen()], dtype=object)})
+
+
+def _mode_code(encoder: CategoricalEncoder, df: pd.DataFrame) -> float | None:
+    """What the mode does in memory: the unseen row's code, or ``None`` when
+    the in-memory encoder itself fails on that batch (then it is not judged)."""
+    encoder.unseen_policy = "mode"
+    try:
+        return _codes(encoder.transform(_with_unseen(df)))[-1]
+    except Exception:  # noqa: BLE001 -- not judged, as in the rule
+        return None
+    finally:
+        encoder.unseen_policy = "error"
+
+
 def _joblib_breaks(
-    encoder: CategoricalEncoder, df: pd.DataFrame, want: list[float], tmp: Path
+    encoder: CategoricalEncoder,
+    df: pd.DataFrame,
+    want: list[float],
+    want_mode: float | None,
+    tmp: Path,
 ) -> bool:
     path = tmp / "encoder.pkl"
     joblib.dump(encoder, path, compress=3)
     try:
-        return not _same(_codes(joblib.load(path).transform(df)), want)
+        loaded = joblib.load(path)
+        if not _same(_codes(loaded.transform(df)), want):
+            return True
+        if want_mode is None:
+            return False
+        loaded.unseen_policy = "mode"
+        got = _codes(loaded.transform(_with_unseen(df)))[-1]
+        return not _same([got], [want_mode])
     except Exception:  # noqa: BLE001 -- the outcome measured
         return True
 
@@ -93,18 +124,31 @@ def _json_breaks(
     state: dict[str, Any],
     df: pd.DataFrame,
     want: list[float],
+    want_mode: float | None,
 ) -> bool:
     config = {"feature_names": ["c"], "categorical_features": ["c"]}
-    codegen_state = convert_pipeline_state(
-        {"feature_names": ["c"], "encoder": state}, config
-    )
-    (project / "artifacts" / "pipeline_state.json").write_text(
-        json.dumps(codegen_state, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    path = project / "artifacts" / "pipeline_state.json"
     try:
-        return not _same(module.transform(df)["c"], want)
+        for policy in ("error", "mode"):
+            if policy == "mode" and want_mode is None:
+                return False
+            codegen_state = convert_pipeline_state(
+                {"feature_names": ["c"], "encoder": {**state, "unseen_policy": policy}},
+                config,
+            )
+            path.write_text(
+                json.dumps(codegen_state, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+            if policy == "error":
+                if not _same(module.transform(df)["c"], want):
+                    return True
+            else:
+                got = module.transform(_with_unseen(df))["c"].tolist()[-1]
+                return not _same([got], [want_mode])
     except Exception:  # noqa: BLE001 -- the outcome measured
         return True
+    return False
 
 
 def test_the_verdict_matches_the_real_serializers(
@@ -132,10 +176,11 @@ def test_the_verdict_matches_the_real_serializers(
                 continue
             judged += 1
             verdict = {c.serializer for c in state_changes({"encoder": state})}
+            want_mode = _mode_code(encoder, df)
             real = set()
-            if _joblib_breaks(encoder, df, want, tmp_path):
+            if _joblib_breaks(encoder, df, want, want_mode, tmp_path):
                 real.add("joblib")
-            if _json_breaks(module, project, state, df, want):
+            if _json_breaks(module, project, state, df, want, want_mode):
                 real.add("json")
             if verdict != real:
                 mismatches.append(
