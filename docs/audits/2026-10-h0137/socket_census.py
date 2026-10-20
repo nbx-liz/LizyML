@@ -1,9 +1,12 @@
-"""Run every tutorial with a socket *logging* cell and print what touched the network.
+"""Run every tutorial with a *logging* cell and print what touched the network.
 
     uv run python docs/audits/2026-10-h0137/socket_census.py docs/audits/2026-10-h0137/socket_census.json
 
-Measurement for H-0137: does anything in the kernel open a Python-level socket
-connection or resolve a name? (ZMQ is C-level and is not expected to show.)
+Measurement for H-0137: does anything in the kernel reach a Python-level
+socket entry point (the ten that tests/test_notebooks/network_guard.py
+refuses), and which files under data/ does each notebook open? The cell only
+records; it refuses nothing. (ZMQ, the kernel's own channel, is C-level and is
+not expected to show.) Each notebook runs in a fresh copy of notebooks/.
 """
 
 from __future__ import annotations
@@ -19,20 +22,34 @@ from nbclient import NotebookClient
 
 REPO = Path(__file__).resolve().parents[3]
 LOG_CELL = r'''
-import socket as _s
+import builtins as _b, io as _io, os as _os, socket as _s
 _SOCKLOG = []
+_READS = set()
+_DATA = _os.path.abspath("data")
 def _wrap(owner, name):
     orig = getattr(owner, name)
     def f(*a, **k):
         _SOCKLOG.append((name, repr(a[:3])[:200]))
         return orig(*a, **k)
     setattr(owner, name, f)
-for _n in ("connect", "connect_ex", "sendto"):
+for _n in ("connect", "connect_ex", "sendto", "sendmsg"):
     _wrap(_s.socket, _n)
-for _n in ("getaddrinfo", "create_connection", "gethostbyname", "gethostbyname_ex"):
+for _n in ("create_connection", "getaddrinfo", "gethostbyname", "gethostbyname_ex",
+           "gethostbyaddr", "getnameinfo"):
     _wrap(_s, _n)
+_open = _b.open
+def _recording_open(file, *a, **k):
+    if isinstance(file, (str, _os.PathLike)):
+        p = _os.path.abspath(_os.fspath(file))
+        if _os.path.dirname(p) == _DATA:
+            _READS.add(_os.path.basename(p))
+    return _open(file, *a, **k)
+_b.open = _io.open = _recording_open
 '''
-END_CELL = "import json as _j; print('SOCKLOG ' + _j.dumps(_SOCKLOG))"
+END_CELL = (
+    "import json as _j; "
+    "print('SOCKLOG ' + _j.dumps(_SOCKLOG)); print('READS ' + _j.dumps(sorted(_READS)))"
+)
 
 results = {}
 for path in sorted((REPO / "notebooks").glob("*.ipynb")):

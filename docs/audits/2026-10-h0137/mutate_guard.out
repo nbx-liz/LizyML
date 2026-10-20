@@ -1,0 +1,18 @@
+== M1 no refusal
+14 failed, 5 passed, 30 deselected in 0.93s
+== M2 network check never fails
+13 failed, 6 passed, 30 deselected in 0.68s
+== M3 no record
+13 failed, 6 passed, 30 deselected in 0.62s
+== M4 uninstall leaves inherited patch
+1 failed, 18 passed, 30 deselected in 0.58s
+== M5 sendmsg not refused
+2 failed, 17 passed, 30 deselected in 0.59s
+== M6 getnameinfo not refused
+2 failed, 17 passed, 30 deselected in 0.68s
+== M7 reads not recorded
+1 failed, 18 passed, 30 deselected in 0.59s
+== M8 reads never compared
+1 failed, 18 passed, 30 deselected in 0.58s
+== M0 original
+19 passed, 30 deselected in 0.57s
