@@ -28,7 +28,7 @@ class ModelPlotsMixin:
 
         def _get_fit_state(self) -> FitState: ...
 
-        def _get_tuning_state(self) -> TuningState: ...
+        def _get_tuning_state(self, method: str) -> TuningState: ...
 
         def residuals(self) -> npt.NDArray[np.float64]: ...
 
@@ -242,7 +242,7 @@ class ModelPlotsMixin:
             LizyMLError with ``MODEL_NOT_FIT`` when ``tune()`` has not been called.
             LizyMLError with ``OPTIONAL_DEP_MISSING`` when plotly is not installed.
         """
-        state = self._get_tuning_state()
+        state = self._get_tuning_state("tuning_plot")
         from lizyml.plots.tuning import plot_tuning_history
 
         return plot_tuning_history(state.tuning_result)

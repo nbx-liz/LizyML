@@ -119,9 +119,10 @@ def _checked_applied_sample_weight(record: Any, path: str | Path) -> str:
 def _checked_declared_categories(record: Any, path: str | Path) -> dict[str, list[Any]]:
     """Refuse a declared-categories record no export could have written (H-0120).
 
-    ``Model.export`` writes an object mapping column names to lists of plain
-    JSON scalars (str, int, float, bool); anything else would hand the
-    generated ``train.py`` categories nobody recorded.
+    ``Model.export`` writes an object mapping column names to lists of
+    category values; ``lizyml.persistence.load`` has already decoded each
+    value (H-0133 P6), so only the shape is checked here. Anything else would
+    hand the generated ``train.py`` categories nobody recorded.
     """
 
     def refuse(reason: str, context: dict[str, Any]) -> LizyMLError:
@@ -139,12 +140,6 @@ def _checked_declared_categories(record: Any, path: str | Path) -> dict[str, lis
                 f"holds a {type(cats).__name__} for {col!r}, not a list",
                 {"key": col, "type": type(cats).__name__},
             )
-        for value in cats:
-            if type(value) not in (str, int, float, bool):
-                raise refuse(
-                    f"holds {value!r} for {col!r}, not a str, int, float or bool",
-                    {"key": col, "type": type(value).__name__},
-                )
     return {col: list(cats) for col, cats in record.items()}
 
 
@@ -328,9 +323,14 @@ class ModelPersistenceMixin:
     def export(self, path: str | Path | None = None) -> Path:
         """Export Model artifacts to a directory.
 
-        Saves ``fit_result.pkl``, ``refit_model.pkl``, ``metadata.json``,
-        and ``analysis_context.pkl`` under *path*.  The saved model can be
-        restored with :meth:`load`, including diagnostic API support.
+        Saves ``fit_result.pkl``, ``refit_model.pkl`` and ``metadata.json``
+        under *path*, with ``analysis_context.pkl`` when the model has its
+        diagnostic data and ``tuning_history.json`` when a tuned model holds
+        its history (a model loaded from an artifact without them has neither).
+        An earlier export's ``analysis_context.pkl`` and
+        ``tuning_history.json`` in *path* are removed first (H-0135). The saved
+        model can be restored with :meth:`load`, including diagnostic API
+        support.
 
         Path resolution (first match wins):
 
@@ -358,18 +358,22 @@ class ModelPersistenceMixin:
         state = self._get_fit_state()
         refit_result = self._require_refit()
 
-        from lizyml.persistence.exporter import AnalysisContext, check_category_values
-        from lizyml.persistence.exporter import export as _export
+        from lizyml.persistence.exporter import (
+            AnalysisContext,
+            check_category_values,
+            write_checked,
+        )
 
         # H-0127: refuse before path resolution, which can create a run directory.
-        check_category_values(state.fit_result, refit_result)
+        check_category_values(state.fit_result, refit_result, state.declared_categories)
         resolved_path = self._resolve_export_path(path)
 
         ctx: AnalysisContext | None = None
         if state.y is not None and state.X is not None:
             ctx = AnalysisContext(y_true=state.y, X_for_explain=state.X)
 
-        _export(
+        # Checked above, before the path; write_checked does not repeat it.
+        write_checked(
             path=resolved_path,
             fit_result=state.fit_result,
             refit_result=refit_result,
@@ -377,11 +381,11 @@ class ModelPersistenceMixin:
             task=state.cfg.task,
             analysis_context=ctx,
             tuning=state.tuning_result,
+            tuning_history_available=state.tuning_history_available,
             tuning_fixed_params=state.tuning_fixed_params,
             applied_training_params=state.applied_training_params,
             applied_sample_weight=state.applied_sample_weight,
             declared_categories=state.declared_categories,
-            categories_checked=True,
         )
         _log.info("event='export.done' path=%s", resolved_path)
         return resolved_path
@@ -403,6 +407,17 @@ class ModelPersistenceMixin:
         """
         state = self._get_fit_state()
         refit_result = self._require_refit()
+
+        from lizyml.persistence.exporter import check_category_values
+
+        # H-0136 P2: the same check Model.export runs, before anything is
+        # written, so the two accept the same models.
+        check_category_values(
+            state.fit_result,
+            refit_result,
+            state.declared_categories,
+            surface="export_code",
+        )
 
         from lizyml.codegen.generator import generate_code
         from lizyml.core._model_factories import (
@@ -626,15 +641,23 @@ class ModelPersistenceMixin:
                 instance._cfg.task,
                 path,
             )
+            # H-0134 P4: persistence.load has verified and decoded the declared
+            # history (a TuningHistory), or set None when the artifact carries
+            # none (format 1-3, or "history": null). None stays "unavailable",
+            # never an empty history.
+            history = tuning_meta.get("history")
             instance._tuning_result = TuningResult(
                 best_model_params=tuning_meta["best_model_params"],
                 best_smart_params=tuning_meta["best_smart_params"],
                 best_training_params=tuning_meta["best_training_params"],
                 best_score=tuning_meta["best_score"],
-                trials=[],
+                trials=[] if history is None else history.trials,
                 metric_name=tuning_meta["metric_name"],
                 direction=tuning_meta["direction"],
+                rounds=() if history is None else history.rounds,
+                boundary_report=None if history is None else history.boundary_report,
             )
+            instance._tuning_history_available = history is not None
         # The overlay the fit that produced this artifact applied (H-0109).
         # Absent from artifacts written before the record existed: unknown,
         # which is not the same as "applied none", and must stay unknown so a

@@ -1,0 +1,4 @@
+pandas 3.0.1
+complex NaN: 1 categories of ['complex']; outside V: []
+str subclass: 2 categories of ['str']; outside V: []
+datetime with a no_cache ZoneInfo: 2 categories of ['Timestamp']; outside V: []

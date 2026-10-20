@@ -2657,7 +2657,9 @@ ARTIFACT_TESTS: tuple[str, ...] = (
 #: its return value too, and a target asserting only on that return failed for a
 #: reason that had nothing to do with the artifact (review round 9).
 ARTIFACT_WRITERS: dict[str, str] = {
-    "export": "lizyml.persistence.exporter.export",
+    # Model.export checks the categories, then writes through write_checked
+    # (H-0133); the public persistence.export is not on its path any more.
+    "export": "lizyml.persistence.exporter.write_checked",
     "export_code": "lizyml.codegen.generator.generate_code",
 }
 

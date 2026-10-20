@@ -8,13 +8,10 @@ Two facts about Optuna storages decide the shape of everything here:
   identical list-based values and a value that could not be stored fails before
   anything is written (INV-R4).
 * JSON cannot tell ``True`` from ``1`` from ``1.0`` once a reader is lenient,
-  and has no NaN. Every value slot that is not a plain flag or name is therefore
-  a *tagged scalar* ``[tag, value]``, tagged by ``type(v) is ...`` exactly as a
-  categorical choice is admitted (``search_space._ALLOWED_CHOICE_TYPES``), and
-  the decoder checks the tag against the JSON type with the same identity test.
+  and has no NaN; the value codecs (tagged scalars, search dims and boundary
+  reports) therefore tag every value. They live in
+  :mod:`lizyml.core.tuning_codec` (Layer 0, H-0134) and are re-exported here.
 
-This module holds the value codecs: tagged scalars, search dims (and
-:func:`dim_signature`, the one comparison form of a dim) and boundary reports.
 The three record types built from them live in
 :mod:`lizyml.tuning.lineage_records`.
 
@@ -27,19 +24,42 @@ This module is pure (no Optuna import) and sits in Layer 2. Bad input raises
 from __future__ import annotations
 
 import json
-import math
-from collections.abc import Iterable, Mapping
-from typing import Any, cast
+from typing import Any
 
-from lizyml.core.types.search_dim import (
-    CategoricalDim,
-    DimCategory,
-    FloatDim,
-    IntDim,
-    SearchDim,
+# Every private name this module defined before H-0134 moved it, re-exported
+# under the same name (``as`` marks the re-export for mypy), so an existing
+# import keeps working.
+from lizyml.core.tuning_codec import _CATEGORICAL_DIM_KEYS as _CATEGORICAL_DIM_KEYS
+from lizyml.core.tuning_codec import _EDGES as _EDGES
+from lizyml.core.tuning_codec import _NUMERIC_DIM_KEYS as _NUMERIC_DIM_KEYS
+from lizyml.core.tuning_codec import _SPECIAL_FLOATS as _SPECIAL_FLOATS
+from lizyml.core.tuning_codec import (
+    DIM_CATEGORIES,
+    LineageCodecError,
+    decode_dim,
+    decode_dims,
+    decode_report,
+    decode_scalar,
+    dim_signature,
+    encode_dim,
+    encode_dims,
+    encode_report,
+    encode_scalar,
 )
-from lizyml.core.types.tuning_result import BoundaryDimStatus, BoundaryReport
-from lizyml.tuning._magnitude import finite_float, int_too_large, width_too_large
+from lizyml.core.tuning_codec import _category as _category
+from lizyml.core.tuning_codec import _check_magnitude as _check_magnitude
+from lizyml.core.tuning_codec import _check_number as _check_number
+from lizyml.core.tuning_codec import _decode_number as _decode_number
+from lizyml.core.tuning_codec import (
+    _decode_optional_number as _decode_optional_number,
+)
+from lizyml.core.tuning_codec import _decode_status as _decode_status
+from lizyml.core.tuning_codec import _encode_status as _encode_status
+from lizyml.core.tuning_codec import _expect_bool as _expect_bool
+from lizyml.core.tuning_codec import _expect_dict as _expect_dict
+from lizyml.core.tuning_codec import _expect_list as _expect_list
+from lizyml.core.tuning_codec import _expect_str as _expect_str
+from lizyml.core.tuning_codec import _field as _field
 
 __all__ = [
     "DIM_CATEGORIES",
@@ -62,16 +82,6 @@ SCHEMA_VERSION = 1
 """The newest ``lizyml:study`` schema this LizyML reads and writes."""
 
 STUDY_KEY = "lizyml:study"
-
-DIM_CATEGORIES: frozenset[str] = frozenset({"model", "smart", "training"})
-"""The values ``SearchDim.category`` may take (``DimCategory``)."""
-
-_SPECIAL_FLOATS = {"nan": math.nan, "inf": math.inf, "-inf": -math.inf}
-_EDGES = frozenset({"lower", "upper", "none"})
-
-
-class LineageCodecError(ValueError):
-    """A value cannot be encoded, or a stored payload cannot be decoded."""
 
 
 # ---------------------------------------------------------------------------
@@ -107,386 +117,3 @@ def to_attr_value(payload: Any) -> Any:
     except (TypeError, ValueError) as exc:
         raise LineageCodecError(f"value is not strict JSON: {exc}") from exc
     return json.loads(text)
-
-
-# ---------------------------------------------------------------------------
-# Tagged scalars
-# ---------------------------------------------------------------------------
-
-
-def encode_scalar(value: Any) -> list[Any]:
-    """Encode a plain scalar as ``[tag, value]``.
-
-    The tag comes from ``type(value) is ...``, so a numpy scalar or any
-    subclass of a plain type is refused instead of being widened.
-    """
-    kind = type(value)
-    if kind is bool:
-        return ["bool", value]
-    if kind is int:
-        return ["int", value]
-    if kind is float:
-        if math.isnan(value):
-            return ["float", "nan"]
-        if math.isinf(value):
-            return ["float", "inf" if value > 0 else "-inf"]
-        return ["float", value]
-    if kind is str:
-        return ["str", value]
-    if value is None:
-        return ["none", None]
-    raise LineageCodecError(
-        f"cannot encode {value!r} (type={kind.__qualname__}); only plain bool, "
-        "int, float, str and None are stored"
-    )
-
-
-def decode_scalar(payload: Any) -> Any:
-    """Decode a ``[tag, value]`` pair, checking the tag against the JSON type."""
-    if type(payload) is not list or len(payload) != 2:
-        raise LineageCodecError(f"tagged scalar must be a 2-item list: {payload!r}")
-    tag, value = payload
-    if tag == "bool" and type(value) is bool:
-        return value
-    if tag == "int" and type(value) is int:
-        return value
-    if tag == "float":
-        if type(value) is float:
-            return value
-        if type(value) is str and value in _SPECIAL_FLOATS:
-            return _SPECIAL_FLOATS[value]
-    if tag == "str" and type(value) is str:
-        return value
-    if tag == "none" and value is None:
-        return None
-    raise LineageCodecError(f"malformed tagged scalar: {payload!r}")
-
-
-def _decode_number(payload: Any, *, ints_only: bool = False) -> int | float:
-    value = decode_scalar(payload)
-    allowed: tuple[type, ...] = (int,) if ints_only else (int, float)
-    if not any(type(value) is t for t in allowed):
-        raise LineageCodecError(f"expected a number, got {payload!r}")
-    return cast("int | float", value)
-
-
-def _decode_optional_number(payload: Any, *, ints_only: bool = False) -> Any:
-    if decode_scalar(payload) is None:
-        return None
-    return _decode_number(payload, ints_only=ints_only)
-
-
-def _check_number(value: Any, what: str, *, ints_only: bool = False) -> None:
-    allowed: tuple[type, ...] = (int,) if ints_only else (int, float)
-    if not any(type(value) is t for t in allowed):
-        raise LineageCodecError(f"{what}: {value!r} is not a plain number")
-
-
-# ---------------------------------------------------------------------------
-# Structural helpers
-# ---------------------------------------------------------------------------
-
-
-def _expect_dict(value: Any, what: str) -> dict[str, Any]:
-    """Return *value* if it is a ``dict``; raise otherwise."""
-    if type(value) is not dict:
-        raise LineageCodecError(f"{what} must be an object, got {value!r}")
-    return value
-
-
-def _expect_list(value: Any, what: str) -> list[Any]:
-    """Return *value* if it is a ``list``; raise otherwise."""
-    if type(value) is not list:
-        raise LineageCodecError(f"{what} must be a list, got {value!r}")
-    return value
-
-
-def _expect_str(value: Any, what: str) -> str:
-    """Return *value* if it is a ``str``; raise otherwise."""
-    if type(value) is not str:
-        raise LineageCodecError(f"{what} must be a string, got {value!r}")
-    return value
-
-
-def _expect_bool(value: Any, what: str) -> bool:
-    """Return *value* if it is a ``bool``; raise otherwise."""
-    if type(value) is not bool:
-        raise LineageCodecError(f"{what} must be a boolean, got {value!r}")
-    return value
-
-
-def _field(payload: Mapping[str, Any], key: str, what: str) -> Any:
-    if key not in payload:
-        raise LineageCodecError(f"{what} is missing '{key}'")
-    return payload[key]
-
-
-def _category(value: Any, what: str) -> DimCategory:
-    if type(value) is not str or value not in DIM_CATEGORIES:
-        raise LineageCodecError(f"{what}: unknown category {value!r}")
-    return cast("DimCategory", value)
-
-
-# ---------------------------------------------------------------------------
-# SearchDim
-# ---------------------------------------------------------------------------
-
-
-_NUMERIC_DIM_KEYS = frozenset(
-    {
-        "kind",
-        "name",
-        "category",
-        "low",
-        "high",
-        "log",
-        "min_allowed",
-        "max_allowed",
-        "step",
-    }
-)
-"""The keys of an encoded ``float`` / ``int`` dim; ``step`` may be absent."""
-
-_CATEGORICAL_DIM_KEYS = frozenset({"kind", "name", "category", "choices"})
-"""The keys of an encoded ``categorical`` dim."""
-
-
-def encode_dim(dim: SearchDim) -> dict[str, Any]:
-    """Encode a ``SearchDim`` so that ``decode_dim`` returns an equal dim.
-
-    A numeric dim's ``step`` (H-0124) is written, as ``null`` when it is
-    ``None``, so :func:`dim_signature` compares it.
-    """
-    what = f"dim '{dim.name}'"
-    _expect_str(dim.name, f"{what} name")
-    _category(dim.category, what)
-    if isinstance(dim, CategoricalDim):
-        if not dim.choices:
-            raise LineageCodecError(f"{what} has no choices")
-        return {
-            "kind": "categorical",
-            "name": dim.name,
-            "category": dim.category,
-            "choices": [encode_scalar(c) for c in dim.choices],
-        }
-    ints_only = isinstance(dim, IntDim)
-    for label in ("low", "high"):
-        _check_number(getattr(dim, label), f"{what} {label}", ints_only=ints_only)
-    for label in ("min_allowed", "max_allowed", "step"):
-        bound = getattr(dim, label)
-        if bound is not None:
-            _check_number(bound, f"{what} {label}", ints_only=ints_only)
-    _expect_bool(dim.log, f"{what} log")
-    return {
-        "kind": "int" if ints_only else "float",
-        "name": dim.name,
-        "category": dim.category,
-        "low": encode_scalar(dim.low),
-        "high": encode_scalar(dim.high),
-        "log": dim.log,
-        "min_allowed": encode_scalar(dim.min_allowed),
-        "max_allowed": encode_scalar(dim.max_allowed),
-        "step": encode_scalar(dim.step),
-    }
-
-
-def decode_dim(payload: Any) -> SearchDim:
-    """Decode one encoded dim; refuse anything ``encode_dim`` cannot produce.
-
-    A key the dim's kind does not have is refused, not dropped. A numeric dim
-    without ``step`` -- a record written before H-0124 -- has ``step=None``.
-    """
-    obj = _expect_dict(payload, "dim")
-    name = _expect_str(_field(obj, "name", "dim"), "dim name")
-    what = f"dim '{name}'"
-    category = _category(_field(obj, "category", what), what)
-    kind = _field(obj, "kind", what)
-    if kind not in ("categorical", "float", "int"):
-        raise LineageCodecError(f"{what}: unknown kind {kind!r}")
-    allowed = _CATEGORICAL_DIM_KEYS if kind == "categorical" else _NUMERIC_DIM_KEYS
-    unknown = sorted(key for key in obj if key not in allowed)
-    if unknown:
-        raise LineageCodecError(f"{what} has unknown key(s) {unknown}")
-    if kind == "categorical":
-        raw = _expect_list(_field(obj, "choices", what), f"{what} choices")
-        if not raw:
-            raise LineageCodecError(f"{what} has no choices")
-        choices = tuple(decode_scalar(c) for c in raw)
-        return CategoricalDim(name=name, choices=choices, category=category)
-    ints_only = kind == "int"
-    low = _decode_number(_field(obj, "low", what), ints_only=ints_only)
-    high = _decode_number(_field(obj, "high", what), ints_only=ints_only)
-    log = _expect_bool(_field(obj, "log", what), f"{what} log")
-    lo_bound = _decode_optional_number(
-        _field(obj, "min_allowed", what), ints_only=ints_only
-    )
-    hi_bound = _decode_optional_number(
-        _field(obj, "max_allowed", what), ints_only=ints_only
-    )
-    step = (
-        _decode_optional_number(obj["step"], ints_only=ints_only)
-        if "step" in obj
-        else None
-    )
-    _check_magnitude(what, ints_only, low, high, step, lo_bound, hi_bound)
-    if ints_only:
-        return IntDim(
-            name=name,
-            low=int(low),
-            high=int(high),
-            log=log,
-            category=category,
-            min_allowed=lo_bound,
-            max_allowed=hi_bound,
-            step=step,
-        )
-    return FloatDim(
-        name=name,
-        low=low,
-        high=high,
-        log=log,
-        category=category,
-        min_allowed=lo_bound,
-        max_allowed=hi_bound,
-        step=step,
-    )
-
-
-def _check_magnitude(
-    what: str,
-    ints_only: bool,
-    low: int | float,
-    high: int | float,
-    step: Any,
-    lo_bound: Any,
-    hi_bound: Any,
-) -> None:
-    """Refuse a stored dim outside H-0124 amendment 1 policy 9.
-
-    Every dim LizyML records passed policy 9 (and the provider bounds are
-    constants), so a dim outside it was written before the policy existed or
-    by hand: a ``float`` dim's ``low`` / ``high`` / ``step`` are finite and
-    its exact width is at most the largest float; an ``int`` dim's ``low`` /
-    ``high`` / ``step`` are at most ``2**52`` in absolute value. A recorded
-    ``min_allowed`` / ``max_allowed`` is a finite ``float`` (the expansion and
-    the edge detection read it as one). Refused here, such a record makes the
-    study ``unreadable`` / ``inconsistent`` before anything plans with it.
-    """
-    for label, bound in (("min_allowed", lo_bound), ("max_allowed", hi_bound)):
-        if bound is not None and not finite_float(bound):
-            raise LineageCodecError(f"{what} {label} {bound!r} is not a finite float")
-    values = {"low": low, "high": high, "step": step}
-    if ints_only:
-        for label, value in values.items():
-            if value is not None and int_too_large(value):
-                raise LineageCodecError(
-                    f"{what} {label} {value!r} is past 2**52 in absolute value"
-                )
-        return
-    for label, value in values.items():
-        if value is not None and not finite_float(value):
-            raise LineageCodecError(f"{what} {label} {value!r} is not finite")
-    if width_too_large(low, high):
-        raise LineageCodecError(
-            f"{what} range [{low!r}, {high!r}] is wider than the largest float"
-        )
-
-
-def encode_dims(dims: Iterable[SearchDim]) -> list[dict[str, Any]]:
-    """Encode dims in order."""
-    return [encode_dim(d) for d in dims]
-
-
-def decode_dims(payload: Any) -> tuple[SearchDim, ...]:
-    """Decode a list of encoded dims, keeping order."""
-    return tuple(decode_dim(d) for d in _expect_list(payload, "dims"))
-
-
-def dim_signature(dim: SearchDim) -> str:
-    """A dim's comparison form: the JSON of :func:`encode_dim`, keys sorted.
-
-    Two dims are the same declaration iff their signatures are equal. The
-    tagged encoding keeps ``True`` / ``1`` / ``1.0`` apart and makes NaN equal
-    to NaN, which dataclass equality would not; the name, the category and
-    any bounds take part.
-
-    Raises:
-        LineageCodecError: The dim holds a value the codec cannot store.
-    """
-    return json.dumps(encode_dim(dim), sort_keys=True)
-
-
-# ---------------------------------------------------------------------------
-# BoundaryReport
-# ---------------------------------------------------------------------------
-
-
-def _encode_status(status: BoundaryDimStatus) -> dict[str, Any]:
-    what = f"boundary status '{status.name}'"
-    _expect_str(status.name, what)
-    if status.edge not in _EDGES:
-        raise LineageCodecError(f"{what}: unknown edge {status.edge!r}")
-    for label in ("low", "high", "new_low", "new_high", "position_pct"):
-        value = getattr(status, label)
-        if value is not None:
-            _check_number(value, f"{what} {label}")
-    return {
-        "name": status.name,
-        "best_value": encode_scalar(status.best_value),
-        "low": encode_scalar(status.low),
-        "high": encode_scalar(status.high),
-        "position_pct": encode_scalar(status.position_pct),
-        "edge": status.edge,
-        "expanded": _expect_bool(status.expanded, f"{what} expanded"),
-        "new_low": encode_scalar(status.new_low),
-        "new_high": encode_scalar(status.new_high),
-        "clamped_to_bound": _expect_bool(
-            status.clamped_to_bound, f"{what} clamped_to_bound"
-        ),
-    }
-
-
-def _decode_status(payload: Any) -> BoundaryDimStatus:
-    obj = _expect_dict(payload, "boundary status")
-    name = _expect_str(_field(obj, "name", "boundary status"), "boundary status name")
-    what = f"boundary status '{name}'"
-    edge = _field(obj, "edge", what)
-    if type(edge) is not str or edge not in _EDGES:
-        raise LineageCodecError(f"{what}: unknown edge {edge!r}")
-    return BoundaryDimStatus(
-        name=name,
-        best_value=decode_scalar(_field(obj, "best_value", what)),
-        low=_decode_optional_number(_field(obj, "low", what)),
-        high=_decode_optional_number(_field(obj, "high", what)),
-        position_pct=_decode_optional_number(_field(obj, "position_pct", what)),
-        edge=edge,
-        expanded=_expect_bool(_field(obj, "expanded", what), f"{what} expanded"),
-        new_low=_decode_optional_number(_field(obj, "new_low", what)),
-        new_high=_decode_optional_number(_field(obj, "new_high", what)),
-        clamped_to_bound=_expect_bool(
-            _field(obj, "clamped_to_bound", what), f"{what} clamped_to_bound"
-        ),
-    )
-
-
-def encode_report(report: BoundaryReport) -> dict[str, Any]:
-    """Encode a ``BoundaryReport`` in full (every dim's status, not just names)."""
-    return {
-        "dims": [_encode_status(s) for s in report.dims],
-        "expanded_names": [
-            _expect_str(n, "expanded name") for n in report.expanded_names
-        ],
-    }
-
-
-def decode_report(payload: Any) -> BoundaryReport:
-    """Decode an encoded ``BoundaryReport``."""
-    obj = _expect_dict(payload, "boundary report")
-    dims = _expect_list(_field(obj, "dims", "boundary report"), "report dims")
-    names = _expect_list(
-        _field(obj, "expanded_names", "boundary report"), "expanded_names"
-    )
-    return BoundaryReport(
-        dims=tuple(_decode_status(d) for d in dims),
-        expanded_names=tuple(_expect_str(n, "expanded name") for n in names),
-    )

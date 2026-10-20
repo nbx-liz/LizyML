@@ -55,15 +55,25 @@ _TOKEN = re.compile(r"`([^`]+)`")
 _PATH = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:/[A-Za-z_][A-Za-z0-9_]*)*(?:/|\.py)")
 _SEPARATOR = re.compile(r"\|(?: *:?-{3,}:? *\|)+")
 RULES = frozenset({"R1", "R2", "R3", "R4"})
+# The same-layer allowance block (H-0130): every line must match its position
+# exactly, so the accepted forms are closed by construction (DC1).
+ALLOW_LEAD = "同じ層の中で許す参照（H-0130）:"
+ALLOW_HEADER = "| 参照する側 | 参照される側 | 根拠 |"
+ALLOW_SEPARATOR = "|---|---|---|"
+_ALLOW_ROW = re.compile(
+    r"\| `([a-z_]+)/` \| `([a-z_]+)/` \| ([^|\s]|[^|\s][^|]*[^|\s]) \|"
+)
 
 
 @dataclass(frozen=True)
 class Table:
-    """The §2.1 table: ``paths[p] = layer`` and the declared interfaces."""
+    """The §2.1 table: ``paths[p] = layer``, the declared interfaces, and the
+    same-layer category pairs the allowance table admits (H-0130)."""
 
     paths: Mapping[str, int]
     packages: frozenset[str]  # the paths written as ``pkg/``
     interfaces: Mapping[int, frozenset[str] | None]  # None = every module
+    allowances: frozenset[tuple[str, str]] = frozenset()  # (from, to) categories
 
 
 @dataclass(frozen=True)
@@ -117,14 +127,21 @@ def read_table(blueprint: Path) -> Table:
     if len(starts) != 1:
         raise ValueError(f"BLUEPRINT.md: {len(starts)} headings start with {HEADING!r}")
     start = starts[0]
+    end = next(
+        (i for i in range(start + 1, len(lines)) if lines[i].startswith("#")),
+        len(lines),
+    )
     rows = []
-    for line in lines[start + 1 :]:
+    table_lines: set[int] = set()
+    for i in range(start + 1, end):
+        line = lines[i]
         if line.startswith("|"):
             rows.append(line.strip())
+            table_lines.add(i)
         elif rows:
             break
-        elif line.startswith("#"):
-            raise ValueError("§2.1 table: no table under the heading")
+    if not rows:
+        raise ValueError("§2.1 table: no table under the heading")
     if len(rows) < 3 or tuple(_cells(rows[0])) != HEADER:
         raise ValueError(f"§2.1 table: header must be {HEADER}")
     if not _SEPARATOR.fullmatch(rows[1]) or len(_cells(rows[1])) != len(HEADER):
@@ -159,7 +176,66 @@ def read_table(blueprint: Path) -> Table:
             interfaces[layer] = frozenset(module_of(t) for t in tokens)
     if sorted(interfaces) != [0, 1, 2, 3, 4]:
         raise ValueError(f"§2.1 table: layers {sorted(interfaces)}, expected 0-4")
-    return Table(paths=paths, packages=frozenset(packages), interfaces=interfaces)
+    leaf = {m for m in packages if paths[m] == 1 and m.count(".") == 1}
+    allowances, allow_lines = _read_allowances(lines, start, end, leaf)
+    stray = [
+        lines[i]
+        for i in range(start + 1, end)
+        if lines[i].startswith("|") and i not in table_lines | allow_lines
+    ]
+    if stray:
+        raise ValueError(f"§2.1: table row outside both tables: {stray[0]!r}")
+    return Table(
+        paths=paths,
+        packages=frozenset(packages),
+        interfaces=interfaces,
+        allowances=allowances,
+    )
+
+
+def _read_allowances(
+    lines: list[str], start: int, end: int, leaf: set[str]
+) -> tuple[frozenset[tuple[str, str]], set[int]]:
+    """The same-layer allowance block of §2.1 (H-0130), read by exact lines.
+
+    Returns the admitted ``(from, to)`` category pairs and the line indices
+    the block occupies. Anything that does not match its position fails.
+    """
+    leads = [i for i in range(start + 1, end) if lines[i] == ALLOW_LEAD]
+    if len(leads) != 1:
+        raise ValueError(
+            f"§2.1 allowance table: {len(leads)} lines equal {ALLOW_LEAD!r}, expected 1"
+        )
+    lead = leads[0]
+    expected = {lead + 1: "", lead + 2: ALLOW_HEADER, lead + 3: ALLOW_SEPARATOR}
+    for i, text in expected.items():
+        if i >= end or lines[i] != text:
+            got = lines[i] if i < end else "<end of §2.1>"
+            raise ValueError(
+                f"§2.1 allowance table: line {i - lead} after the lead must be "
+                f"{text!r}, got {got!r}"
+            )
+    pairs: list[tuple[str, str]] = []
+    i = lead + 4
+    while i < end and lines[i].startswith("|"):
+        match = _ALLOW_ROW.fullmatch(lines[i])
+        if match is None:
+            raise ValueError(f"§2.1 allowance table: malformed row {lines[i]!r}")
+        source, target = (f"{PACKAGE}.{match[1]}", f"{PACKAGE}.{match[2]}")
+        for name in (source, target):
+            if name not in leaf:
+                raise ValueError(
+                    f"§2.1 allowance table: {name} is not a Layer 1 category"
+                )
+        if source == target:
+            raise ValueError(f"§2.1 allowance table: {source} allowed to itself")
+        if (source, target) in pairs:
+            raise ValueError(f"§2.1 allowance table: {source} -> {target} twice")
+        pairs.append((source, target))
+        i += 1
+    if not pairs:
+        raise ValueError("§2.1 allowance table: no rows")
+    return frozenset(pairs), set(range(lead, i))
 
 
 def version_module(pyproject: Path, root: Path) -> str:
@@ -391,15 +467,20 @@ def check(
         return names is None or module in names
 
     found: Counter[Key] = Counter()
+    used: set[tuple[str, str]] = set()
     for edge in edges:
         src, dst = layer_of.get(edge.source), layer_of.get(edge.target)
         if src is None or dst is None:
             continue  # reported by R0
-        same = category(edge.source) == category(edge.target)
+        pair = (category(edge.source), category(edge.target))
+        same = pair[0] == pair[1]
         if dst > src:
             found[(edge.file, edge.target, "R1")] += 1
         elif src == 1 and not same and dst != 0:
-            found[(edge.file, edge.target, "R2")] += 1
+            if dst == 1 and pair in table.allowances:
+                used.add(pair)
+            else:
+                found[(edge.file, edge.target, "R2")] += 1
         elif src in (2, 3) and not same and dst != 0:
             ok = (dst == 1 and interface(edge.target, 1)) or (
                 src == 3 and dst == 2 and interface(edge.target, 2)
@@ -416,6 +497,11 @@ def check(
         a, b = category(edge.source), category(edge.target)
         if a != b and a in cyclic and cyclic.get(b) == cyclic[a]:
             found[(edge.file, edge.target, "R4")] += 1
+
+    for source, target in sorted(table.allowances - used):
+        problems.append(
+            f"R2 the §2.1 allowance {source} -> {target} is used by no import"
+        )
 
     for key, count in sorted(exceptions.items()):
         if key[2] not in RULES or type(count) is not int or count < 1:

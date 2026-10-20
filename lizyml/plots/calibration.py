@@ -27,10 +27,14 @@ except ImportError:  # pragma: no cover
 
 
 def _require_calibrator(fit_result: FitResult) -> Any:
-    """Return the CalibrationResult or raise."""
-    from lizyml.calibration.cross_fit import CalibrationResult
+    """Return the calibration result or raise.
 
-    if not isinstance(fit_result.calibrator, CalibrationResult):
+    The check is against the interface marker (H-0130): any calibrator that
+    does not inherit ``BaseCalibrationResult`` is refused.
+    """
+    from lizyml.calibration.base import BaseCalibrationResult
+
+    if not isinstance(fit_result.calibrator, BaseCalibrationResult):
         raise LizyMLError(
             code=ErrorCode.CALIBRATION_NOT_SUPPORTED,
             user_message=(

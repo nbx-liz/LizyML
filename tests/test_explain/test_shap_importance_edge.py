@@ -9,6 +9,7 @@ class TestShapEmptyModels:
     def test_empty_models_no_crash(self) -> None:
         pytest.importorskip("shap")
         from lizyml.explain.shap_explainer import compute_shap_importance
+        from lizyml.features.pipelines_native import NativeFeaturePipeline
 
         result = compute_shap_importance(
             models=[],
@@ -17,5 +18,6 @@ class TestShapEmptyModels:
             task="regression",
             feature_names=["a", "b"],
             pipeline_state=None,
+            pipeline_factory=NativeFeaturePipeline,
         )
         assert result == {"a": 0.0, "b": 0.0}

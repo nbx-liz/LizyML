@@ -1,0 +1,11 @@
+[run-exclusive] h0136-intcol starting; load was 0.54
+run-heavy: pgid=12 (stop with: kill -- -12)
+lizyml=0.19.0 pandas=3.0.1
+fit + predict: ok
+export_code: ok
+generated predict: ValueError: could not convert string to float: 'c'
+lizyml=0.17.2.dev70+gc16abb886 pandas=3.0.1
+fit + predict: ok
+export_code: ok
+generated predict: ValueError: could not convert string to float: 'c'
+[run-exclusive] h0136-intcol finished in 1s, exit 0

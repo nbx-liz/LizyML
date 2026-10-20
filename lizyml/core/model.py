@@ -45,7 +45,7 @@ import pandas as pd
 if TYPE_CHECKING:
     from optuna.storages import BaseStorage
 
-from lizyml import __version__
+from lizyml._version import __version__
 from lizyml.config.loader import load_config
 from lizyml.config.schema import (
     BlockedGroupKFoldConfig,
@@ -94,12 +94,15 @@ from lizyml.core.types.tuning_result import (
 from lizyml.data import dataframe_builder, datasource
 from lizyml.data.dataframe_builder import DataFrameComponents
 from lizyml.data.fingerprint import compute as fp_compute
-from lizyml.estimators.lgbm.category_json import warn_unsaveable_categories
 from lizyml.estimators.provider import EstimatorProvider
 from lizyml.evaluation.evaluator import Evaluator
 from lizyml.metrics.registry import (
     get_metrics_for_task,
     parse_metric_entries,
+)
+from lizyml.persistence.exporter import (
+    warn_saved_state_changes,
+    warn_unsaveable_category_values,
 )
 from lizyml.training.cv_trainer import CVTrainer
 from lizyml.training.inner_valid import BaseInnerValidStrategy
@@ -155,6 +158,12 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         self._refit_result: RefitResult | None = None
         self._metrics: dict[str, Any] | None = None
         self._tuning_result: TuningResult | None = None
+        # Whether `_tuning_result` holds its trials, rounds and boundary report
+        # (H-0134 P5). A result tune / restore_tuning builds always does, so
+        # only Model.load sets False (an artifact without the history);
+        # _commit_tuning sets it back to True. Meaningless while
+        # `_tuning_result` is None.
+        self._tuning_history_available: bool = True
         # The training overlay the last fit() actually applied. Distinct from
         # `_tuning_result`, which tune() replaces without replacing the fitted
         # adapters -- so reporting surfaces that read it answered for a model
@@ -283,9 +292,10 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         pipeline_factory = provider.build_pipeline_factory(
             unseen_policy=cfg.features.unseen_policy
         )
-        # H-0127 (#338): warn before CV about category values Model.export will
-        # refuse. The refit pipeline is fit on these same rows (H-0085).
-        warn_unsaveable_categories(pipeline_factory().fit(X, y).get_state())
+        # H-0127 (#338), H-0133: warn before CV about category values
+        # Model.export and export_code will refuse. The refit pipeline is fit
+        # on these same rows (H-0085).
+        warn_unsaveable_category_values(pipeline_factory().fit(X, y).get_state())
 
         # --- CV training -----------------------------------------------------
         cv_trainer = CVTrainer(
@@ -361,6 +371,9 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         self._refit_result = refit_result
         self._fit_result = fit_result
         _log.info("event='fit.done' run_id=%s", run_id)
+        # H-0136 P4: the states export will judge now exist; after the commit,
+        # so a warning raised as an error leaves a complete fit behind.
+        warn_saved_state_changes(fit_result, refit_result, declared_at_fit)
         # Return a selective deep copy (FitResult.__deepcopy__): mutating the
         # primary return path must not corrupt internal state or a later
         # export() — the same H-0082 defense as the ``fit_result`` property
@@ -963,6 +976,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
             fit_result=fit_result,
             refit_result=self._refit_result,
             tuning_result=self._tuning_result,
+            tuning_history_available=self._tuning_history_available,
             tuning_fixed_params=deepcopy(self._tuning_fixed_params),
             applied_training_params=(
                 None

@@ -42,7 +42,7 @@ LightGBM の実装 (`lizyml/estimators/lgbm/`) が全項目のリファレンス
 | メソッド | デフォルト | 説明 |
 |---------|----------|------|
 | `set_categorical_features(cols)` | no-op | CVTrainer が `fit()` 前に呼ぶ |
-| `unsaveable_categories(pipeline_state)` | `[]` | モデルを保存するときに書けないカテゴリ値（`UnsaveableCategory` の list、列ごとに最初の一つ）。`Model.export` が保存の前に、状態ごとにその adapter に尋ねる（H-0129）。保存に制約の無い estimator は上書き不要 |
+| `unsaveable_categories(pipeline_state)` | `[]` | モデルを保存するときに書けないカテゴリ値（`UnsaveableCategory` の list、列ごとに最初の一つ）。`Model.export` が保存の前に、状態ごとにその adapter に尋ねる（H-0129）。保存に制約の無い estimator は上書き不要。値そのものが保存できるかは、estimator によらず `core/category_values.py` が決める（H-0133）。LightGBM のように一部の値を書けない estimator は、provider が pipeline に判定を渡して、その列を位置の番号で受け取る（`stand_in_columns`） |
 | `update_params(params)` | no-op | per-fold ratio param 解決用 |
 | `best_iteration` (property) | `None` | Early stopping 使用時に設定 |
 | `eval_results` (property) | `{}` | 学習曲線用の評価履歴 |
@@ -158,7 +158,7 @@ ModelConfig = Annotated[
 ```python
 # lizyml/estimators/lgbm/metric_bridge.py
 _FEVAL_METRICS: dict[str, frozenset[str]] = {
-    "regression": frozenset(["rmsle", "r2"]),
+    "regression": frozenset(["rmsle", "r2", "smape", "wape", "mase"]),
     "binary": frozenset(["f1", "brier", "ece", "precision_at_k", "accuracy"]),
     "multiclass": frozenset(["f1", "brier", "accuracy"]),
 }
@@ -169,9 +169,11 @@ _FEVAL_METRICS: dict[str, frozenset[str]] = {
 ### 5.3 `resolve_metrics()` の実装
 
 ```python
-def resolve_metrics(metrics, task, num_class=None):
+def resolve_metrics(metrics, task, num_class=None, *, y_train=None):
     """Returns: (native_metrics, feval_callables, feval_display_names)"""
 ```
+
+`y_train` は booster が学習する行の目的変数である（H-0132）。`needs_train_target` の指標（`mase`）は、これに `bind_train` で束ねてから feval を作る。adapter の `fit` が学習の目的変数を渡し、設定の検査や `params_table` のような、feval を呼ばない経路は渡さない。eval set のラベルから scale を作ってはいけない（評価する行の目的変数になる）。
 
 ---
 
@@ -202,12 +204,12 @@ def resolve_metrics(metrics, task, num_class=None):
 
 ### 6.3 feval metric 対応 (H-0066)
 
-`config.json` に `feval_metrics` フィールドが含まれる。テンプレートの `build_feval_from_config()` は feval metric を純粋な numpy/sklearn で再実装している。
+`config.json` に `feval_metrics` フィールドが含まれる。テンプレートの `build_feval_from_config(y_train)` は feval metric を純粋な numpy/sklearn で再実装している。`y_train` は booster が学習する行の目的変数（inner valid があれば `y.iloc[tr]`）で、`mase` の scale を作る（`_train_scale_mase`、H-0132）。
 
 新しいアルゴリズムでは:
 - feval callable のシグネチャがアルゴリズムごとに異なる可能性がある（LightGBM: `(y_pred, Dataset) → (name, value, is_higher_better)`、XGBoost: `(y_pred, DMatrix) → (name, value)` 等）
 - `build_feval_from_config()` の feval wrapper をアルゴリズム別に実装する必要がある
-- feval 内部の予測変換（sigmoid/softmax）と metric 計算関数（`_feval_f1` 等）は共通利用可能
+- feval に渡る予測の扱い（ラベル指標には binary で 0.5 閾値、multiclass で argmax。確率を変換し直さない、H-0105）と metric 計算関数（`_feval_f1` 等）は共通利用可能
 
 ### 6.4 `_model_persistence.py` の拡張
 
@@ -274,7 +276,7 @@ Proposal 不要:
 
 | ルール | 説明 |
 |--------|------|
-| **Layer 2/3 からの具象 import 禁止** | `training/`, `evaluation/`, `tuning/`（Layer 2）と `explain/`, `plots/`, `persistence/`, `codegen/`（Layer 3）は `BaseEstimatorAdapter` / `EstimatorProvider` のみ参照。`LGBMAdapter` 等の具象クラスを直接 import しない。BLUEPRINT §2.1 の表と `tests/test_architecture/test_layer_rules.py` が全ての import を確かめる（H-0129。既存の例外 17 件は [#362](https://github.com/nbx-liz/LizyML/issues/362)） |
+| **Layer 2/3 からの具象 import 禁止** | `training/`, `evaluation/`, `tuning/`（Layer 2）と `explain/`, `plots/`, `persistence/`, `codegen/`（Layer 3）は `BaseEstimatorAdapter` / `EstimatorProvider` のみ参照。`LGBMAdapter` 等の具象クラスを直接 import しない。BLUEPRINT §2.1 の表と `tests/test_architecture/test_layer_rules.py` が全ての import を確かめる（H-0129。既存の例外は H-0130 で閉じ、今は無い。estimator の中で許す同じ層の参照は `features/` と `metrics/` だけで、`config/` は import しない） |
 | **Provider ディスパッチは Facade のみ** | `get_provider()` は `core/_model_factories.py` でのみ実行。Layer 2 以下でハードコードしない |
 | **model.py は組み立てのみ** | 学習・OOF・metric・plot ロジックを `model.py` に書かない |
 | **Optional dependency** | `torch` 等の重い依存は `try: import` + `LizyMLError(OPTIONAL_DEP_MISSING)` パターン |

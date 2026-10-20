@@ -30,7 +30,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal, Protocol
 
-from lizyml.tuning.lineage_codec import SCHEMA_VERSION, STUDY_KEY, LineageCodecError
+from lizyml.core.tuning_codec import LineageCodecError
+from lizyml.tuning.lineage_codec import SCHEMA_VERSION, STUDY_KEY
 from lizyml.tuning.lineage_records import (
     Provenance,
     RoundSource,

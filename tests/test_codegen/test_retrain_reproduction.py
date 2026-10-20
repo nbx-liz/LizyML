@@ -19,6 +19,7 @@ import pytest
 
 from lizyml import Model
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.estimators.lgbm.metric_bridge import _FEVAL_METRICS
 from tests.test_codegen._retrain_harness import (
     SPLIT_METHODS,
     TASKS,
@@ -269,24 +270,17 @@ def test_tune_fit_export_load_export(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# feval: the nine reimplemented metrics x three tasks
+# feval: every reimplemented metric x three tasks
 # ---------------------------------------------------------------------------
 
-FEVALS = (
-    "rmsle",
-    "r2",
-    "f1",
-    "brier",
-    "ece",
-    "precision_at_k",
-    "accuracy",
-    "smape",
-    "wape",
-)
+#: Derived from the bridge, so a new feval metric joins the matrix (H-0132
+#: review: a hand-written tuple kept ``mase`` out of it).
+FEVALS = tuple(sorted({name for names in _FEVAL_METRICS.values() for name in names}))
 
-#: Measured 2026-10-10: the combinations ``Model.fit`` accepts.
+#: Measured 2026-10-10 (``mase`` 2026-10-19, H-0132): the combinations
+#: ``Model.fit`` accepts.
 _FEVAL_ACCEPTED = {
-    "regression": {"rmsle", "r2", "smape", "wape"},
+    "regression": {"rmsle", "r2", "smape", "wape", "mase"},
     "binary": {"f1", "brier", "ece", "precision_at_k", "accuracy"},
     "multiclass": {"f1", "brier", "accuracy"},
 }
@@ -309,8 +303,9 @@ def test_feval(task: str, name: str, tmp_path: Path) -> None:
 
 
 def test_the_feval_matrix_is_the_declared_cross_product() -> None:
-    assert len(FEVALS) * len(TASKS) == 27
-    assert set().union(*_FEVAL_ACCEPTED.values()) <= set(FEVALS)
+    assert len(FEVALS) * len(TASKS) == 30
+    # Every feval metric is accepted by some task, so none is only refused.
+    assert set().union(*_FEVAL_ACCEPTED.values()) == set(FEVALS)
 
 
 # ---------------------------------------------------------------------------

@@ -113,7 +113,7 @@ def compute_shap_importance(
     task: TaskType,
     feature_names: list[str],
     pipeline_state: Any,
-    pipeline_factory: Callable[[], Any] | None = None,
+    pipeline_factory: Callable[[], Any],
     pipeline_state_per_fold: list[Any] | None = None,
 ) -> dict[str, float]:
     """Compute fold-averaged SHAP-based feature importance.
@@ -134,8 +134,8 @@ def compute_shap_importance(
         feature_names: Ordered feature names from training.
         pipeline_state: Serialized FeaturePipeline state, used for every fold
             when ``pipeline_state_per_fold`` is not given.
-        pipeline_factory: Optional factory to create the pipeline (H-0054).
-            Falls back to ``NativeFeaturePipeline`` when not provided.
+        pipeline_factory: The provider's factory for the pipeline (H-0054). It is
+            required, so the explainer never names a concrete pipeline (H-0130).
         pipeline_state_per_fold: Each fold's serialized pipeline state, in
             fold order (``FitResult.pipeline_state_per_fold``).
 
@@ -170,13 +170,8 @@ def compute_shap_importance(
         return {name: 0.0 for name in feature_names}
 
     def load_pipeline(state: Any) -> Any:
-        # H-0054: use the provider's factory when given.
-        if pipeline_factory is not None:
-            pipeline = pipeline_factory()
-        else:
-            from lizyml.features.pipelines_native import NativeFeaturePipeline
-
-            pipeline = NativeFeaturePipeline()
+        # H-0054: the provider's factory builds the pipeline.
+        pipeline = pipeline_factory()
         pipeline.load_state(state)
         return pipeline
 

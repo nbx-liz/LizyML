@@ -1,0 +1,54 @@
+== registry names (MetricRegistry / CalibratorRegistry / _Registry) by module
+  L0 lizyml.core.registries: CalibratorRegistry (Store) x1
+  L0 lizyml.core.registries: MetricRegistry (Store) x1
+  L0 lizyml.core.registries: _Registry (Load) x2
+  L1 lizyml.calibration.beta: CalibratorRegistry (Load) x1
+  L1 lizyml.calibration.beta: CalibratorRegistry.register x1
+  L1 lizyml.calibration.beta: import CalibratorRegistry x1
+  L1 lizyml.calibration.isotonic: CalibratorRegistry (Load) x1
+  L1 lizyml.calibration.isotonic: CalibratorRegistry.register x1
+  L1 lizyml.calibration.isotonic: import CalibratorRegistry x1
+  L1 lizyml.calibration.platt: CalibratorRegistry (Load) x1
+  L1 lizyml.calibration.platt: CalibratorRegistry.register x1
+  L1 lizyml.calibration.platt: import CalibratorRegistry x1
+  L1 lizyml.calibration.registry: CalibratorRegistry (Load) x1
+  L1 lizyml.calibration.registry: CalibratorRegistry.get x1
+  L1 lizyml.calibration.registry: import CalibratorRegistry x1
+  L1 lizyml.metrics.classification: MetricRegistry (Load) x8
+  L1 lizyml.metrics.classification: MetricRegistry.register x8
+  L1 lizyml.metrics.classification: import MetricRegistry x1
+  L1 lizyml.metrics.registry: MetricRegistry (Load) x2
+  L1 lizyml.metrics.registry: MetricRegistry.get x1
+  L1 lizyml.metrics.registry: MetricRegistry.keys x1
+  L1 lizyml.metrics.registry: import MetricRegistry x1
+  L1 lizyml.metrics.regression: MetricRegistry (Load) x8
+  L1 lizyml.metrics.regression: MetricRegistry.register x8
+  L1 lizyml.metrics.regression: import MetricRegistry x1
+  L4 lizyml.core._model_factories: CalibratorRegistry (Load) x1
+  L4 lizyml.core._model_factories: CalibratorRegistry.get x1
+  L4 lizyml.core._model_factories: import CalibratorRegistry x1
+
+== constructor calls of lizyml classes in Layers 1-3, by target kind
+  interface module: 6
+    e.g. lizyml.estimators.lgbm.category_json:89 -> lizyml.estimators.base.UnsaveableCategory
+    e.g. lizyml.estimators.lgbm.provider:72 -> lizyml.estimators.provider.SmartValueRule
+    e.g. lizyml.estimators.lgbm.provider:81 -> lizyml.estimators.provider.SmartValueRule
+    e.g. lizyml.estimators.lgbm.provider:85 -> lizyml.estimators.provider.SmartValueRule
+    e.g. lizyml.estimators.lgbm.provider:86 -> lizyml.estimators.provider.SmartValueRule
+    e.g. lizyml.estimators.lgbm.provider:552 -> lizyml.estimators.provider.ExportParams
+  layer0: 141
+    e.g. lizyml.calibration._optimizer:83 -> lizyml.core.exceptions.LizyMLError
+    e.g. lizyml.calibration._optimizer:301 -> lizyml.core.exceptions.LizyMLError
+    e.g. lizyml.calibration.base:65 -> lizyml.core.exceptions.LizyMLError
+    e.g. lizyml.calibration.beta:77 -> lizyml.core.exceptions.LizyMLError
+    e.g. lizyml.calibration.beta:115 -> lizyml.core.exceptions.LizyMLError
+    e.g. lizyml.calibration.beta:132 -> lizyml.core.exceptions.LizyMLError
+  other-category concrete: 1
+    e.g. lizyml.estimators.lgbm.provider:365 -> lizyml.features.pipelines_native.NativeFeaturePipeline
+  same-category concrete: 78
+    e.g. lizyml.calibration._optimizer:57 -> lizyml.calibration._optimizer.MethodSpec
+    e.g. lizyml.calibration._optimizer:58 -> lizyml.calibration._optimizer.MethodSpec
+    e.g. lizyml.calibration._optimizer:59 -> lizyml.calibration._optimizer.MethodSpec
+    e.g. lizyml.calibration._optimizer:60 -> lizyml.calibration._optimizer.MethodSpec
+    e.g. lizyml.calibration._optimizer:61 -> lizyml.calibration._optimizer.MethodSpec
+    e.g. lizyml.calibration._optimizer:62 -> lizyml.calibration._optimizer.MethodSpec

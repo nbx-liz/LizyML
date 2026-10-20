@@ -21,6 +21,7 @@ from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.model import Model
 from lizyml.persistence.exporter import FORMAT_VERSION
 from tests._helpers import make_binary_df, make_config, make_regression_df
+from tests.test_persistence._artifact_versions import resign
 
 
 def _fit_and_export(cfg: dict[str, Any], df: Any, tmp_path: Path) -> Path:
@@ -88,11 +89,11 @@ class TestArtifactRoundtrip:
 class TestFormatVersionRejection:
     """Unknown format_version values are rejected on load.
 
-    H-0070: format_version 1 and 2 are both accepted; only versions outside
-    the supported set are rejected.
+    H-0070: format_version 1 and 2 are both accepted; H-0133 adds 3 and
+    H-0134 adds 4. Only versions outside the supported set are rejected.
     """
 
-    @pytest.mark.parametrize("bad_version", [0, 3, 99, -1, None])
+    @pytest.mark.parametrize("bad_version", [0, 5, 99, -1, None])
     def test_invalid_format_version_raises(
         self, tmp_path: Path, bad_version: Any
     ) -> None:
@@ -111,6 +112,82 @@ class TestFormatVersionRejection:
             Model.load(export_dir)
         assert exc_info.value.code == ErrorCode.DESERIALIZATION_FAILED
         assert "format_version" in str(exc_info.value)
+
+
+class TestFormatVersionV2AndV3:
+    """H-0133 (criterion 6): the v2 shape still loads; v3 is what export writes,
+    and a loader that knows only {1, 2} refuses it."""
+
+    def test_a_v2_shaped_artifact_loads_and_predicts_as_before(
+        self, tmp_path: Path
+    ) -> None:
+        from tests.test_persistence._artifact_versions import has_v3_fields, to_v2_shape
+
+        df = make_binary_df(n=120, seed=1)
+        df["c"] = np.where(np.arange(len(df)) % 3 == 0, "a", "b")
+        model = Model(make_config("binary", n_estimators=5, n_splits=2))
+        model.fit(data=df)
+        export_dir = tmp_path / "export"
+        model.export(export_dir)
+        expected = model.predict(df.drop(columns=["target"])).pred
+        to_v2_shape(export_dir)
+        assert not has_v3_fields(export_dir)
+        assert (
+            json.loads((export_dir / "metadata.json").read_text())["format_version"]
+            == 2
+        )
+        loaded = Model.load(export_dir)
+        np.testing.assert_array_equal(
+            loaded.predict(df.drop(columns=["target"])).pred, expected
+        )
+        # The per-fold states drive SHAP importance (criterion 2 on v2).
+        pytest.importorskip("shap")
+        assert loaded.importance(kind="shap") == pytest.approx(
+            model.importance(kind="shap"), rel=1e-12
+        )
+        # The public low-level load reads the same artifact.
+        from lizyml.persistence import load
+
+        _, refit_result, metadata, _ = load(export_dir)
+        assert metadata["format_version"] == 2
+        assert "stand_in_columns" not in refit_result.pipeline_state["encoder"]
+
+    def test_a_v3_artifact_is_refused_by_a_loader_without_3(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from lizyml.persistence import loader
+        from tests.test_persistence._artifact_versions import to_v3_shape
+
+        df = make_regression_df(n=100, seed=0)
+        export_dir = _fit_and_export(
+            make_config("regression", n_estimators=5, n_splits=2), df, tmp_path
+        )
+        to_v3_shape(export_dir)
+        assert Model.load(export_dir) is not None  # the v3 shape is readable
+        monkeypatch.setattr(loader, "_SUPPORTED_FORMAT_VERSIONS", frozenset({1, 2}))
+        with pytest.raises(LizyMLError) as exc_info:
+            Model.load(export_dir)
+        assert exc_info.value.code == ErrorCode.DESERIALIZATION_FAILED
+
+    def test_a_v4_artifact_is_refused_by_a_loader_without_4(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """H-0134 P8: a loader that knows only 1-3 refuses v4 instead of
+        ignoring the tuning history file and showing an empty study."""
+        from lizyml.persistence import loader
+
+        df = make_regression_df(n=100, seed=0)
+        export_dir = _fit_and_export(
+            make_config("regression", n_estimators=5, n_splits=2), df, tmp_path
+        )
+        assert (
+            json.loads((export_dir / "metadata.json").read_text())["format_version"]
+            == 4
+        )
+        monkeypatch.setattr(loader, "_SUPPORTED_FORMAT_VERSIONS", frozenset({1, 2, 3}))
+        with pytest.raises(LizyMLError) as exc_info:
+            Model.load(export_dir)
+        assert exc_info.value.code == ErrorCode.DESERIALIZATION_FAILED
 
 
 class TestFormatVersionV1Migration:
@@ -215,12 +292,10 @@ class TestLegacyCalibrationPath:
             fit_result.oof_raw_scores = None
         joblib.dump(fit_result, fit_pkl, compress=3)
 
-        # Drop the H-0083 checksum so the re-pickled legacy-shaped payload
-        # loads (a pre-H-0083 artifact carries no integrity field).
-        meta_path = export_dir / "metadata.json"
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        meta.pop("checksums", None)
-        meta_path.write_text(json.dumps(meta), encoding="utf-8")
+        # Re-sign the re-pickled payload: a current-format artifact without
+        # checksums is refused (H-0135 P2), and the test is about the
+        # calibration path, not about the integrity field.
+        resign(export_dir)
 
         m2 = Model.load(export_dir)
         X_test = df.drop(columns=["target"]).iloc[:20]

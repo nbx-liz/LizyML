@@ -1,0 +1,556 @@
+[run-exclusive] h0135-controls starting; load was 1.51
+run-heavy: pgid=11 (stop with: kill -- -11)
+F
+=================================== FAILURES ===================================
+_______ test_a_format_version_that_is_not_an_int_is_refused[True-absent] _______
+
+version = True, checksums = 'absent'
+plain = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-631/h01350/plain')
+tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-631/test_a_format_version_that_is_0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xf64d2af2fb30>
+
+    @pytest.mark.parametrize("checksums", ["absent", "kept"])
+    @pytest.mark.parametrize("version", [True, False, 1.0, 2.0, 4.0, "2", [2], {"v": 2}])
+    def test_a_format_version_that_is_not_an_int_is_refused(
+        version: Any,
+        checksums: str,
+        plain: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        artifact = _copy(plain, tmp_path / "a")
+        meta = _meta(artifact)
+        meta["format_version"] = version
+        if checksums == "absent":
+            del meta["checksums"]
+        _write_meta(artifact, meta)
+        error = _refused(artifact, monkeypatch)
+>       assert error.context["format_version"] == version
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'format_version'
+
+tests/test_persistence/test_h0135_acceptance.py:356: KeyError
+=========================== short test summary info ============================
+FAILED tests/test_persistence/test_h0135_acceptance.py::test_a_format_version_that_is_not_an_int_is_refused[True-absent]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 112 deselected in 0.05s
+CONTROL round-1 loader (version, metadata, directories): caught (tests failed)
+F
+=================================== FAILURES ===================================
+_ test_a_payload_that_is_not_a_regular_file_is_refused[v2-unsigned-fit_result.pkl-directory] _
+
+version = 'v2-unsigned', name = 'fit_result.pkl', link = False
+plain = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-632/h01350/plain')
+tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-632/test_a_payload_that_is_not_a_r0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xf64ce948b950>
+
+    @pytest.mark.parametrize("link", [False, True], ids=["directory", "symlink-to-dir"])
+    @pytest.mark.parametrize("name", ["fit_result.pkl", "refit_model.pkl", CONTEXT])
+    @pytest.mark.parametrize("version", ["v2-unsigned", "v4"])
+    def test_a_payload_that_is_not_a_regular_file_is_refused(
+        version: str,
+        name: str,
+        link: bool,
+        plain: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        artifact = _copy(plain, tmp_path / "a")
+        if version == "v2-unsigned":
+            to_v2_shape(artifact)
+            meta = _meta(artifact)
+            del meta["checksums"]
+            _write_meta(artifact, meta)
+        (artifact / name).unlink()
+        if link:
+            target = tmp_path / "a-dir"
+            target.mkdir()
+            (artifact / name).symlink_to(target, target_is_directory=True)
+        else:
+            (artifact / name).mkdir()
+>       error = _refused(artifact, monkeypatch)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_persistence/test_h0135_acceptance.py:398: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_persistence/test_h0135_acceptance.py:121: in _refused
+    Model.load(artifact)
+lizyml/core/_model_persistence.py:571: in load
+    fit_result, refit_result, metadata, analysis_context = _load(path)
+                                                           ^^^^^^^^^^^
+lizyml/persistence/loader.py:417: in load
+    fit_raw = _verify_and_read_pkl(fit_pkl, _expected(files, FIT_RESULT_FILE))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = (PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-632/test_a_payload_that_is_not_a_r0/a/fit_result.pkl'), None)
+kwargs = {}
+
+    def no_pickle(*args: Any, **kwargs: Any) -> Any:
+>       raise AssertionError("a pickle was read before the artifact was refused")
+E       AssertionError: a pickle was read before the artifact was refused
+
+tests/test_persistence/test_h0135_acceptance.py:111: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_persistence/test_h0135_acceptance.py::test_a_payload_that_is_not_a_regular_file_is_refused[v2-unsigned-fit_result.pkl-directory]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 133 deselected in 0.03s
+CONTROL payload checked by existence only: caught (tests failed)
+F
+=================================== FAILURES ===================================
+_ test_a_malformed_manifest_is_refused_before_any_pickle[empty list (#374)-v1] _
+
+case = 'empty list (#374)', version = 'v1'
+plain = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-633/h01350/plain')
+tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-633/test_a_malformed_manifest_is_r0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xf64ce94d1f40>
+
+    @pytest.mark.parametrize("version", sorted(SHAPES))
+    @pytest.mark.parametrize("case", sorted(MALFORMED))
+    def test_a_malformed_manifest_is_refused_before_any_pickle(
+        case: str,
+        version: str,
+        plain: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        artifact = _copy(plain, tmp_path / "a")
+        SHAPES[version](artifact)
+        build, reason = MALFORMED[case]
+        meta = _meta(artifact)
+        meta["checksums"] = build(meta)
+        _write_meta(artifact, meta)
+>       assert _refused(artifact, monkeypatch).context["reason"] == reason
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_persistence/test_h0135_acceptance.py:248: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_persistence/test_h0135_acceptance.py:121: in _refused
+    Model.load(artifact)
+lizyml/core/_model_persistence.py:571: in load
+    fit_result, refit_result, metadata, analysis_context = _load(path)
+                                                           ^^^^^^^^^^^
+lizyml/persistence/loader.py:417: in load
+    fit_raw = _verify_and_read_pkl(fit_pkl, _expected(files, FIT_RESULT_FILE))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = (PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-633/test_a_malformed_manifest_is_r0/a/fit_result.pkl'), None)
+kwargs = {}
+
+    def no_pickle(*args: Any, **kwargs: Any) -> Any:
+>       raise AssertionError("a pickle was read before the artifact was refused")
+E       AssertionError: a pickle was read before the artifact was refused
+
+tests/test_persistence/test_h0135_acceptance.py:111: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_persistence/test_h0135_acceptance.py::test_a_malformed_manifest_is_refused_before_any_pickle[empty list (#374)-v1]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 137 deselected in 0.04s
+CONTROL P1-P3 permissive (#374): caught (tests failed)
+F
+=================================== FAILURES ===================================
+___________ test_an_absent_manifest_is_refused_in_format_3_and_4[v3] ___________
+
+version = 'v3'
+plain = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-634/h01350/plain')
+tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-634/test_an_absent_manifest_is_ref0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xf64ce9449e20>
+
+    @pytest.mark.parametrize("version", ["v3", "v4"])
+    def test_an_absent_manifest_is_refused_in_format_3_and_4(
+        version: str, plain: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        artifact = _copy(plain, tmp_path / "a")
+        SHAPES[version](artifact)
+        meta = _meta(artifact)
+        del meta["checksums"]
+        _write_meta(artifact, meta)
+>       error = _refused(artifact, monkeypatch)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_persistence/test_h0135_acceptance.py:439: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_persistence/test_h0135_acceptance.py:121: in _refused
+    Model.load(artifact)
+lizyml/core/_model_persistence.py:571: in load
+    fit_result, refit_result, metadata, analysis_context = _load(path)
+                                                           ^^^^^^^^^^^
+lizyml/persistence/loader.py:417: in load
+    fit_raw = _verify_and_read_pkl(fit_pkl, _expected(files, FIT_RESULT_FILE))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = (PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-634/test_an_absent_manifest_is_ref0/a/fit_result.pkl'), None)
+kwargs = {}
+
+    def no_pickle(*args: Any, **kwargs: Any) -> Any:
+>       raise AssertionError("a pickle was read before the artifact was refused")
+E       AssertionError: a pickle was read before the artifact was refused
+
+tests/test_persistence/test_h0135_acceptance.py:111: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_persistence/test_h0135_acceptance.py::test_an_absent_manifest_is_refused_in_format_3_and_4[v3]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 143 deselected in 0.03s
+CONTROL P2 absent allowed in v3/v4: caught (tests failed)
+F
+=================================== FAILURES ===================================
+________ test_an_unlisted_required_pickle_is_refused[fit_result.pkl-v1] ________
+
+name = 'fit_result.pkl', version = 'v1'
+plain = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-635/h01350/plain')
+tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-635/test_an_unlisted_required_pick0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xf64ce944b950>
+
+    @pytest.mark.parametrize("version", sorted(SHAPES))
+    @pytest.mark.parametrize("name", ["fit_result.pkl", "refit_model.pkl"])
+    def test_an_unlisted_required_pickle_is_refused(
+        name: str,
+        version: str,
+        plain: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        artifact = _copy(plain, tmp_path / "a")
+        SHAPES[version](artifact)
+        meta = _meta(artifact)
+        digest = meta["checksums"]["files"].pop(name)
+        # A path-like or differently cased key does not declare the file (P5).
+        meta["checksums"]["files"][f"../{name}"] = digest
+        meta["checksums"]["files"][name.upper()] = digest
+        _write_meta(artifact, meta)
+>       error = _refused(artifact, monkeypatch)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_persistence/test_h0135_acceptance.py:465: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_persistence/test_h0135_acceptance.py:121: in _refused
+    Model.load(artifact)
+lizyml/core/_model_persistence.py:571: in load
+    fit_result, refit_result, metadata, analysis_context = _load(path)
+                                                           ^^^^^^^^^^^
+lizyml/persistence/loader.py:417: in load
+    fit_raw = _verify_and_read_pkl(fit_pkl, _expected(files, FIT_RESULT_FILE))
+                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+files = {'../fit_result.pkl': '0d35a7672b2907c56e7f522b77a7730a11b7e727322126f0453943c52f2337c9', 'FIT_RESULT.PKL': '0d35a7672...161343931b9813a7e756e77adddc3d', 'refit_model.pkl': 'fa8627efa8f117660c887c58205cd144c7026edf7797fd980597669d3e54e1b8'}
+name = 'fit_result.pkl'
+
+    def _expected(files: dict[str, str] | None, name: str) -> str | None:
+        """The digest the manifest declares for *name*; ``None`` without a manifest."""
+>       return None if files is None else files[name]
+                                          ^^^^^^^^^^^
+E       KeyError: 'fit_result.pkl'
+
+lizyml/persistence/loader.py:198: KeyError
+=========================== short test summary info ============================
+FAILED tests/test_persistence/test_h0135_acceptance.py::test_an_unlisted_required_pickle_is_refused[fit_result.pkl-v1]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 137 deselected in 0.04s
+CONTROL P3 required not checked: caught (tests failed)
+....F
+=================================== FAILURES ===================================
+_ test_a_malformed_manifest_is_refused_before_any_pickle[digest is not hex-v1] _
+
+case = 'digest is not hex', version = 'v1'
+plain = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-636/h01350/plain')
+tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-636/test_a_malformed_manifest_is_r4')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xf64ce94680e0>
+
+    @pytest.mark.parametrize("version", sorted(SHAPES))
+    @pytest.mark.parametrize("case", sorted(MALFORMED))
+    def test_a_malformed_manifest_is_refused_before_any_pickle(
+        case: str,
+        version: str,
+        plain: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        artifact = _copy(plain, tmp_path / "a")
+        SHAPES[version](artifact)
+        build, reason = MALFORMED[case]
+        meta = _meta(artifact)
+        meta["checksums"] = build(meta)
+        _write_meta(artifact, meta)
+>       assert _refused(artifact, monkeypatch).context["reason"] == reason
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_persistence/test_h0135_acceptance.py:248: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_persistence/test_h0135_acceptance.py:121: in _refused
+    Model.load(artifact)
+lizyml/core/_model_persistence.py:571: in load
+    fit_result, refit_result, metadata, analysis_context = _load(path)
+                                                           ^^^^^^^^^^^
+lizyml/persistence/loader.py:417: in load
+    fit_raw = _verify_and_read_pkl(fit_pkl, _expected(files, FIT_RESULT_FILE))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = (PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-636/test_a_malformed_manifest_is_r4/a/fit_result.pkl'), 'c4959a164377fd9d34f55dea7c7cbd350fa74f6add4b4f33bbe5647f8214f8bc')
+kwargs = {}
+
+    def no_pickle(*args: Any, **kwargs: Any) -> Any:
+>       raise AssertionError("a pickle was read before the artifact was refused")
+E       AssertionError: a pickle was read before the artifact was refused
+
+tests/test_persistence/test_h0135_acceptance.py:111: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_persistence/test_h0135_acceptance.py::test_a_malformed_manifest_is_refused_before_any_pickle[digest is not hex-v1]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 4 passed, 129 deselected in 0.05s
+CONTROL P1 any digest string: caught (tests failed)
+F
+=================================== FAILURES ===================================
+_ test_a_malformed_manifest_is_refused_before_any_pickle[algorithm SHA256-v1] __
+
+case = 'algorithm SHA256', version = 'v1'
+plain = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-637/h01350/plain')
+tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-637/test_a_malformed_manifest_is_r0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xf64ce9498740>
+
+    @pytest.mark.parametrize("version", sorted(SHAPES))
+    @pytest.mark.parametrize("case", sorted(MALFORMED))
+    def test_a_malformed_manifest_is_refused_before_any_pickle(
+        case: str,
+        version: str,
+        plain: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        artifact = _copy(plain, tmp_path / "a")
+        SHAPES[version](artifact)
+        build, reason = MALFORMED[case]
+        meta = _meta(artifact)
+        meta["checksums"] = build(meta)
+        _write_meta(artifact, meta)
+>       assert _refused(artifact, monkeypatch).context["reason"] == reason
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_persistence/test_h0135_acceptance.py:248: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_persistence/test_h0135_acceptance.py:121: in _refused
+    Model.load(artifact)
+lizyml/core/_model_persistence.py:571: in load
+    fit_result, refit_result, metadata, analysis_context = _load(path)
+                                                           ^^^^^^^^^^^
+lizyml/persistence/loader.py:417: in load
+    fit_raw = _verify_and_read_pkl(fit_pkl, _expected(files, FIT_RESULT_FILE))
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = (PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-637/test_a_malformed_manifest_is_r0/a/fit_result.pkl'), '5f7b9d40099c840ec01c8966648cf8931348cf6d99a51fa7516ac84ea05f180b')
+kwargs = {}
+
+    def no_pickle(*args: Any, **kwargs: Any) -> Any:
+>       raise AssertionError("a pickle was read before the artifact was refused")
+E       AssertionError: a pickle was read before the artifact was refused
+
+tests/test_persistence/test_h0135_acceptance.py:111: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_persistence/test_h0135_acceptance.py::test_a_malformed_manifest_is_refused_before_any_pickle[algorithm SHA256-v1]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 129 deselected in 0.03s
+CONTROL P1 any algorithm: caught (tests failed)
+F
+=================================== FAILURES ===================================
+________________ test_a_left_over_context_is_ignored_and_logged ________________
+
+plain = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-638/h01350/plain')
+tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-638/test_a_left_over_context_is_ig0')
+caplog = <_pytest.logging.LogCaptureFixture object at 0xf64ce94f9fd0>
+
+    def test_a_left_over_context_is_ignored_and_logged(
+        plain: Path, tmp_path: Path, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """The reader alone closes #373: an undeclared context is never read."""
+        artifact = _without_context(_copy(plain, tmp_path / "a"))
+        (artifact / CONTEXT).write_bytes((plain / CONTEXT).read_bytes())
+        with caplog.at_level(logging.INFO, logger="lizyml.persistence.loader"):
+>           model = Model.load(artifact)
+                    ^^^^^^^^^^^^^^^^^^^^
+
+tests/test_persistence/test_h0135_acceptance.py:152: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+lizyml/core/_model_persistence.py:571: in load
+    fit_result, refit_result, metadata, analysis_context = _load(path)
+                                                           ^^^^^^^^^^^
+lizyml/persistence/loader.py:438: in load
+    ctx_raw = _verify_and_read_pkl(ctx_pkl, _expected(files, ANALYSIS_CONTEXT_FILE))
+                                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+files = {'fit_result.pkl': '2a762d0b1248bcf09401044d2dd295cd8f4e833581a566a5c652a5456dd35038', 'refit_model.pkl': 'ac7ce4e6633bf7915a03d4c5f2ef99bf8abf9b581af4843eda8568a868df5c2e'}
+name = 'analysis_context.pkl'
+
+    def _expected(files: dict[str, str] | None, name: str) -> str | None:
+        """The digest the manifest declares for *name*; ``None`` without a manifest."""
+>       return None if files is None else files[name]
+                                          ^^^^^^^^^^^
+E       KeyError: 'analysis_context.pkl'
+
+lizyml/persistence/loader.py:198: KeyError
+=========================== short test summary info ============================
+FAILED tests/test_persistence/test_h0135_acceptance.py::test_a_left_over_context_is_ignored_and_logged
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 140 deselected in 0.03s
+CONTROL P4 context read when present (#373): caught (tests failed)
+F
+=================================== FAILURES ===================================
+_____ test_only_the_exact_name_declares_the_context[Analysis_Context.pkl] ______
+
+key = 'Analysis_Context.pkl'
+plain = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-639/h01350/plain')
+tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-639/test_only_the_exact_name_decla0')
+
+    @pytest.mark.parametrize(
+        "key", ["Analysis_Context.pkl", "../analysis_context.pkl", "./analysis_context.pkl"]
+    )
+    def test_only_the_exact_name_declares_the_context(
+        key: str, plain: Path, tmp_path: Path
+    ) -> None:
+        artifact = _copy(plain, tmp_path / "a")
+        meta = _meta(artifact)
+        meta["checksums"]["files"][key] = meta["checksums"]["files"].pop(CONTEXT)
+        _write_meta(artifact, meta)
+        _, _, _, context = persistence_load(artifact)
+>       assert context is None
+E       assert AnalysisContext(y_true=0      12.309685\n1       5.079481\n2       1.655209\n3       0.144383\n4      15.668906\n         ....16  9.291042 -0.605530\n117  0.660825  0.616274\n118  8.413173 -0.022308\n119  0.666900  0.977391\n\n[120 rows x 2 columns]) is None
+
+tests/test_persistence/test_h0135_acceptance.py:491: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_persistence/test_h0135_acceptance.py::test_only_the_exact_name_declares_the_context[Analysis_Context.pkl]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 142 deselected in 0.03s
+CONTROL P5 names lowercased: caught (tests failed)
+F
+=================================== FAILURES ===================================
+_____________ test_a_reexport_without_context_removes_the_old_one ______________
+
+plain = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-640/h01350/plain')
+tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-640/test_a_reexport_without_contex0')
+
+    def test_a_reexport_without_context_removes_the_old_one(
+        plain: Path, tmp_path: Path
+    ) -> None:
+        reused = _copy(plain, tmp_path / "reused")
+        without = Model.load(_without_context(_copy(plain, tmp_path / "without")))
+        assert (reused / CONTEXT).exists()
+        without.export(reused)
+>       assert not (reused / CONTEXT).exists()
+E       AssertionError: assert not True
+E        +  where True = exists()
+E        +    where exists = (PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-640/test_a_reexport_without_contex0/reused') / 'analysis_context.pkl').exists
+
+tests/test_persistence/test_h0135_acceptance.py:139: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_persistence/test_h0135_acceptance.py::test_a_reexport_without_context_removes_the_old_one
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 143 deselected in 0.03s
+CONTROL P6 no cleanup (#373): caught (tests failed)
+F
+=================================== FAILURES ===================================
+_________________ test_a_reexport_keeps_files_it_does_not_own __________________
+
+plain = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-641/h01350/plain')
+tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-641/test_a_reexport_keeps_files_it0')
+
+    def test_a_reexport_keeps_files_it_does_not_own(plain: Path, tmp_path: Path) -> None:
+        reused = _copy(plain, tmp_path / "reused")
+        (reused / "notes.txt").write_text("mine", encoding="utf-8")
+        Model.load(_without_context(_copy(plain, tmp_path / "w"))).export(reused)
+>       assert (reused / "notes.txt").read_text(encoding="utf-8") == "mine"
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_persistence/test_h0135_acceptance.py:567: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+/usr/lib/python3.12/pathlib.py:1029: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-641/test_a_reexport_keeps_files_it0/reused/notes.txt')
+mode = 'r', buffering = -1, encoding = 'utf-8', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileNotFoundError: [Errno 2] No such file or directory: '/tmp/claude-1000/pytest-of-rem/pytest-641/test_a_reexport_keeps_files_it0/reused/notes.txt'
+
+/usr/lib/python3.12/pathlib.py:1015: FileNotFoundError
+=========================== short test summary info ============================
+FAILED tests/test_persistence/test_h0135_acceptance.py::test_a_reexport_keeps_files_it_does_not_own
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 144 deselected in 0.04s
+CONTROL P6 cleans user files: caught (tests failed)
+F
+=================================== FAILURES ===================================
+_ test_a_malformed_manifest_is_refused_before_any_pickle[algorithm SHA256-v1] __
+
+case = 'algorithm SHA256', version = 'v1'
+plain = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-642/h01350/plain')
+tmp_path = PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-642/test_a_malformed_manifest_is_r0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0xf64ce94fa2a0>
+
+    @pytest.mark.parametrize("version", sorted(SHAPES))
+    @pytest.mark.parametrize("case", sorted(MALFORMED))
+    def test_a_malformed_manifest_is_refused_before_any_pickle(
+        case: str,
+        version: str,
+        plain: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        artifact = _copy(plain, tmp_path / "a")
+        SHAPES[version](artifact)
+        build, reason = MALFORMED[case]
+        meta = _meta(artifact)
+        meta["checksums"] = build(meta)
+        _write_meta(artifact, meta)
+>       assert _refused(artifact, monkeypatch).context["reason"] == reason
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_persistence/test_h0135_acceptance.py:248: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_persistence/test_h0135_acceptance.py:121: in _refused
+    Model.load(artifact)
+lizyml/core/_model_persistence.py:571: in load
+    fit_result, refit_result, metadata, analysis_context = _load(path)
+                                                           ^^^^^^^^^^^
+lizyml/persistence/loader.py:381: in load
+    files = declared_files(metadata, fv, path)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+docs/audits/2026-10-h0135/probes/negative_controls_h0135.py:133: in declared
+    loader._verify_and_read_pkl(src / "fit_result.pkl", None)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+args = (PosixPath('/tmp/claude-1000/pytest-of-rem/pytest-642/test_a_malformed_manifest_is_r0/a/fit_result.pkl'), None)
+kwargs = {}
+
+    def no_pickle(*args: Any, **kwargs: Any) -> Any:
+>       raise AssertionError("a pickle was read before the artifact was refused")
+E       AssertionError: a pickle was read before the artifact was refused
+
+tests/test_persistence/test_h0135_acceptance.py:111: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_persistence/test_h0135_acceptance.py::test_a_malformed_manifest_is_refused_before_any_pickle[algorithm SHA256-v1]
+!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!
+1 failed, 63 deselected in 0.03s
+CONTROL P7 pickles read first: caught (tests failed)
+........................................................................ [ 49%]
+........................................................................ [ 99%]
+.                                                                        [100%]
+145 passed in 0.52s
+BASELINE without patches: exit 0
+
+12/12 controls caught
+[run-exclusive] h0135-controls finished in 3s, exit 0

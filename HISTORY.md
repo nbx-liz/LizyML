@@ -13688,3 +13688,2197 @@ Hyperopt 0.3.0 も事前には `low < high` しか検査せず（`low` / `high` 
   - persistence の直接呼び出しのテストで、拒否の文の全体をゴールデン（`050949b` の文）として固定した。陰性対照に、文を書き換えた実装の行を足した（4 組とも期待どおり）。
   - Firing rate の実装後の数を `17/517` に直した（Proposal の `17/514` は消える import しか数えていなかった）。
   - docs/add-estimator-guide.md §6 と §9 の、codegen が `LGBMAdapter` を import する・型に使うという古い記述を、コードのとおりに書き直した（`codegen/` は `BaseEstimatorAdapter` / `BaseCalibratorAdapter` だけを参照し、LightGBM 固有なのはテンプレート、`lgbm_params`、Facade の objective の検査）。ARCHITECTURE.md の図に `_extras`・`_version`・`codegen/` を足し、「上の Layer にのみ依存」の誤記を「下」に直した。
+
+## H-0130: BLUEPRINT §2.1 の層の例外 17 本をなくす ― 同じ層の中で許す参照を表に宣言し、結果の型は IF に形だけ置く（#362）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-14
+- **決定日**: 2026-10-14
+  - Codex の Proposal review は 1 つの run（3 round）で APPROVE に届かなかった。
+    - round 1 は最初の版に欠陥を見つけた。
+    - round 2 と round 3 は、それぞれ前の改訂の書き足しに欠陥を見つけた。
+  - 新しい文脈の relational monitor は、3 round を通して DRIFTING と判定した。数え上げの範囲が閉じていなかった（文書の文と、許す参照の書き方）。
+  - 管理者の判断で、二つの範囲を明示して閉じた。そのうえで完了基準（`docs/audits/2026-10-h0130/acceptance-criteria.md`）を書き、受け入れレビューを 1 回行った。結果は APPROVE（`ce3d4d2`、直すべき指摘 0 件）。
+  - 管理者が受け入れを宣言した。
+  - 改訂 1（2026-10-14）: 実装で判明した例外の主語の広げ方と、R6。下の「改訂 1」。
+  - 改訂 2（2026-10-15）: 「組み立て」の定義と、R6 の取り下げ（代わりの検査は置かない）。確認レビューの round 4 で APPROVE（`3ba32c1`）の後、管理者が受け入れた。下の「改訂 2」。
+- **スコープ**:
+  - `BLUEPRINT.md` §2.1: IF の列、新しい「同じ層の中で許す参照」の表、依存ルールの文。
+  - `tests/test_architecture/_layer_rules.py`: 許す参照の表を読み、R2 で使う。
+  - `tests/test_architecture/test_layer_rules.py`: 例外の一覧を空にし、落ちるべき例を足す。
+  - `lizyml/core/model.py`: `__version__` の import 元。
+  - `lizyml/core/types/` の新しいモジュール 2 つ: `oof_coverage.py` と `smart_ratio.py`。
+  - `lizyml/training/oof_assembly.py`、`lizyml/config/schema.py`: 再公開。
+  - `lizyml/evaluation/{evaluator,confusion}.py`、`lizyml/estimators/lgbm/provider.py`: import 元。
+  - `lizyml/explain/shap_explainer.py`: `pipeline_factory` を必須にする。
+  - 新しい `lizyml/training/results.py`: `RefitResultView`。
+  - `lizyml/calibration/base.py`: `BaseCalibrationResult`。
+  - `lizyml/calibration/cross_fit.py`: `CalibrationResult` がそれを継ぐ。
+  - `lizyml/persistence/exporter.py`: 型注釈。
+  - `lizyml/plots/calibration.py`: `isinstance` の相手。
+  - 文書: BLUEPRINT §2.2・§14.1、ARCHITECTURE.md、README.md、docs/add-estimator-guide.md §9、CHANGELOG、`docs/proposal_dispositions.toml`（方針 9 の表）。
+- **関連**: [Issue #362](https://github.com/nbx-liz/LizyML/issues/362)。
+  - H-0129: 層の規則のテストと、例外の一覧。
+  - H-0053: §2.2 の `EstimatorProvider`。provider が pipeline の factory を組む。
+  - H-0054: 表の 6 行目が SHAP の具象 import を欠陥として挙げた。
+  - H-0057: `compute_oof_valid_mask`。
+  - H-0088: 「宣言済み横断エッジ」の 1〜3 行目（ARCHITECTURE.md の表）。この Proposal が解消する。
+  - H-0121 改訂 2: `SMART_RATIO_RANGES` を一つの宣言にした。
+  - 証拠: `docs/audits/2026-10-h0130/probes/`。
+
+### 目的（課題）
+H-0129 のテストは、BLUEPRINT §2.1 に反する既存の import 17 本を例外の一覧（`tests/test_architecture/test_layer_rules.py:23-53`）に件数つきで載せ、設計の判断を v0.19.0 の後に回した（#362）。この Proposal は 17 本のそれぞれについて、次のどちらかを決めて、一覧を空にする。
+
+- 規則に合わせて直す。
+- 規則のほうを、すでに決まった設計（§2.2 の provider の役割）に合わせて宣言する。
+
+続く #355（MASE。指標と LightGBM の feval の橋渡しに触れる）と #357（`CategoricalEncoder` に触れる）は、ここで決めた規則の上に作る（管理者の判断。#362 を先にする順番）。
+
+### 管理者の判断（2026-10-14、Codex との設計の議論の後）
+設計の議論は Codex の 1 round の critique（run `h0130-design-critique`、`e8b4c4e`）で行った。管理者は、作り直しを先に検討させ、欠点が明らかに大きければ許可の案も検討する、という方針でこれを頼んだ。
+
+- **A（`estimators/` → `features/`・`metrics/` の 8 本）: 許可の表を足す。**
+  - Codex は、作り直しを import ごとに設計した。必要なのは次の 4 つ。
+    - `UnseenPolicy` と `BaseFeaturePipeline` を Layer 0 へ移す。
+    - `build_pipeline_factory` をやめ、Facade が pipeline を組む。
+    - `BaseMetric` と `MetricEntry` の解釈を Layer 0 へ移す。
+    - 指標の解決を Facade から adapter へ注入する。
+  - Codex の判定は「欠点は明らかに大きい」。
+    - 規模は L。
+    - 外部の provider が実装する `build_pipeline_factory(unseen_policy=...)`（`docs/migration.md:300-302`）が無くなる。
+    - #355 は、学習側の y を、作り直す注入の経路に通すことになる。
+  - pickle は、どちらの案でも変わらない。保存されるのは pipeline の状態（dict）で、pipeline のインスタンスと指標のオブジェクトは保存されない。
+- **B（層をまたぐ結果の型 2 本）: 案 3。** クラスは今のモジュールに残し、IF のモジュールに形（Protocol と目印の基底）だけを置く。
+  - 案 1（IF のモジュールへ移す）は、新しい pickle に新しい `__module__` を書く。v0.19.0 の loader は `format_version` が {1, 2} なら受け付けてから joblib で落ちる（`persistence/loader.py:158-192`）。だから案 1 には format 3 が要る（README.md:144）。
+  - 案 2（`cross_fit.py` と `refit_trainer.py` を IF と宣言する）は、具象の処理を IF にしてしまう。
+- 判断なしで直す 7 本（循環 2、OOF のマスク 2、ratio の範囲 1、SHAP 1、evaluator → registry 1）は、Codex が事実を確かめた。
+
+### 実測（2026-10-14、`e8b4c4e`）
+計測器 `census_h0130.py` → `census_h0130.out`。H-0129 の検査本体（`_layer_rules.py`）と、今の §2.1 の表をそのまま使う。
+
+- 解決した `lizyml` の import は 517 件。
+- 空の例外の一覧で `check()` を走らせると、問題はちょうど 17 件（一覧の 17 本と一致）。
+- 17 件は、この Proposal の方針で全て閉じる（UNCLOSED 0）。内訳:
+
+| 閉じ方 | 本数 | import |
+|---|---|---|
+| 許す参照 `estimators/` → `features/` | 5 | `estimators/provider.py` → `features.encoders.categorical_encoder`、`features.pipeline_base`。`estimators/lgbm/provider.py` → その 2 つと `features.pipelines_native` |
+| 許す参照 `estimators/` → `metrics/` | 3 | `estimators/lgbm/provider.py` → `metrics.registry`（関数の中）。`estimators/lgbm/metric_bridge.py` → `metrics.base`、`metrics.registry` |
+| IF の宣言 `metrics/registry.py` | 1 | `evaluation/evaluator.py` → `metrics.registry` |
+| `__version__` の import 元 | 2 | 循環の 2 辺（`lizyml/__init__.py` → `core.model`、`core/model.py` → `lizyml`） |
+| Layer 0 への移動 | 3 | `evaluation/{confusion,evaluator}.py` → `training.oof_assembly`。`estimators/lgbm/provider.py` → `config.schema` |
+| `pipeline_factory` を必須に | 1 | `explain/shap_explainer.py` → `features.pipelines_native` |
+| 案 3 | 2 | `persistence/exporter.py` → `training.refit_trainer`、`plots/calibration.py` → `calibration.cross_fit` |
+
+- Layer 1 から別の Layer 1 のカテゴリへの import は、次の 3 組だけ:
+
+  | 組 | 本数 |
+  |---|---|
+  | `estimators` → `features` | 5 |
+  | `estimators` → `metrics` | 3 |
+  | `estimators` → `config` | 1 |
+
+  許す 2 組の逆向き（`features`・`metrics` → `estimators`）は 0 本。
+
+### 対応方針（提案）
+
+**判断なしで直すもの**
+1. **循環**: `core/model.py:48` を `from lizyml._version import __version__` にする（`core/_tuning_identity.py:32` と同じ形）。`lizyml.__version__` は変わらない。
+2. **`compute_oof_valid_mask`**（numpy だけを使う。`training/oof_assembly.py:74-95`）:
+   - 新しい `lizyml/core/types/oof_coverage.py` に移す。Layer 0 の `core/types/` の行に入るので、表の行は変えない。
+   - `training/oof_assembly.py` は同じ関数を再公開する（`__all__` と `tests/test_training/test_oof_coverage.py` の import を保つ。同じオブジェクト）。
+   - `evaluation/evaluator.py` と `evaluation/confusion.py` は `core/types/oof_coverage` から import する。
+3. **`RatioRange`（`NamedTuple`、`config/schema.py:326`）と `SMART_RATIO_RANGES`（`:348`）**:
+   - 新しい `lizyml/core/types/smart_ratio.py` に移す。
+   - `config/schema.py` は両方を再公開する。config の検証（`_check_ratio`）と provider の値の規則（`estimators/lgbm/provider.py:62-71`）は、引き続き同じ一つの宣言を読む（H-0121 改訂 2、DC3）。
+   - `estimators/lgbm/provider.py` は `core/types/smart_ratio` から import する。
+4. **SHAP**:
+   - `compute_shap_importance` の `pipeline_factory` を必須の引数にし、`None` のときの `NativeFeaturePipeline` への代わりの経路（`explain/shap_explainer.py:172-178`）を消す。
+   - Facade は必ず `state.provider.build_pipeline_factory()` を渡している（`core/_model_tables.py:190-198`）。
+   - この関数は `lizyml.explain.__all__` に無い内部の関数である。
+   - 渡していないテスト 2 か所（`tests/test_explain/test_shap_importance_edge.py:13`、`tests/test_explain/test_shap_importance_per_fold_pipeline.py:352`）は factory を渡す形にする（主張は変えない）。
+5. **IF の列**:
+   - Layer 1 の IF に `metrics/registry.py` を足す。名前から指標を得る入口で、具象の指標クラスを名指さない。ARCHITECTURE.md の図は既にこの辺を「BaseMetric IF」と呼ぶ。
+   - Layer 2 の IF に `training/results.py`（方針 7）を足す。今は「なし」。
+
+**A: 同じ層の中で許す参照（表で宣言する）**
+
+6. §2.1 の依存ルールの後に、次の表を足す。表の前の行は `同じ層の中で許す参照（H-0130）:` ちょうど一行とする。
+
+   | 参照する側 | 参照される側 | 根拠 |
+   |---|---|---|
+   | `estimators/` | `features/` | §2.2: provider が pipeline の factory を組む（H-0053）。`UnseenPolicy` を受け取り、具象の pipeline を作る |
+   | `estimators/` | `metrics/` | LightGBM の feval への橋渡し（`estimators/lgbm/metric_bridge.py`）と、provider の指標の解決 |
+
+   - **読み方**（テストが読む）: 受け付ける形を、行ごとの**完全一致**で定める（DC1）。
+     - 許す参照の塊は、§2.1 の中の次の行の並びだけからなる。各行は、その位置の形に完全一致しなければ失敗する。一部だけの一致、前後の空白、別の書き方の区切りは受け付けない。
+       1. 前の行。`同じ層の中で許す参照（H-0130）:` と完全一致し、§2.1 の中にちょうど一つある。
+       2. 空行（長さ 0）が、ちょうど一つ。
+       3. 見出しの行。`| 参照する側 | 参照される側 | 根拠 |` と完全一致。
+       4. 区切りの行。`|---|---|---|` と完全一致。
+       5. 中身の行が 1 行以上。各行は、正規表現 ``^\| `([a-z_]+)/` \| `([a-z_]+)/` \| ([^|\s]|[^|\s][^|]*[^|\s]) \|$`` に完全一致する。参照する側と参照される側はバッククォートで囲んだ `pkg/` を一つずつ、根拠は空でなく `|` を含まない。
+       6. 塊は、中身の行の次にある、`|` で始まらない行（または §2.1 の終わり）で終わる。
+     - §2.1 の中で `|` で始まる行は、層の表かこの塊のどちらかに属さなければならない。どちらにも属さない行は、塊の前でも後でも失敗する。
+     - 形の検査に通った行だけを、意味で検査する。次の行は失敗:
+       - 参照する側か参照される側が、§2.1 の表の Layer 1 のカテゴリでない（Layer 1 の「含まれるモジュール」に `pkg/` として挙がっていない。例 `training/`）。
+       - 参照する側と参照される側が同じ。
+       - 同じ組の 2 行目がある。
+     - 受け付ける形を完全一致で定めたので、失敗する形を一つずつ数え上げなくても閉じている。round 1 から 3 では、失敗する形を足すたびに、次の形が見つかった。受け入れ基準 2(e) の変異は、各位置の完全一致が効いていることを示す代表であり、形の一覧ではない。
+   - **R2 の変更**: Layer 1 のモジュールは、Layer 0、自分のカテゴリ、そして**表で自分のカテゴリに許されたカテゴリ**（その中のどのモジュールでもよい）を import してよい。ほかの Layer 1 のカテゴリは、今と同じく失敗。R1・R3・R4・R5 は変えない。
+     - 許した組の逆向きの import は、R2 で失敗し（逆向きは許していない）、R4（循環）でも失敗する。
+   - **古びの検出**: 許した組のどれも、木の中の import が少なくとも 1 本使っていること。使われない組は失敗にする（DC3。例外の一覧が件数で古びを検出するのと同じ考え）。
+   - §2.1 の文「具象クラスの組み立て・型ディスパッチは Layer 4（Facade）のみが行う」（`BLUEPRINT.md:58`）に、次の例外を足す（§2.2 と、残す A の挙動と、文が矛盾しないように）:
+     - §2.2 の provider が、自分の factory で組むもの（estimator の adapter と pipeline）。**（改訂 1 で追加）** と、自分の adapter の具象型を扱うこと（`estimators/lgbm/provider.py` の `params_summary`・`build_export_params` が `LGBMAdapter` を `isinstance` で判定する）。
+     - **（改訂 1 で変更）** Layer 1 の registry モジュール（`metrics/registry.py`、`calibration/registry.py`）が、登録された型を名前から作ること（`get_metric`、`metrics/registry.py:120-130`。`get_calibrator`、`calibration/registry.py:44-55`。どちらも登録から型を引いて作る）。呼ぶ側は問わない。受理時の文は「`metrics/registry.py` が、登録された指標を名前から作ること」だった。
+       - `metrics/registry.py` は Layer 1 の IF として宣言する（方針 5）。
+       - 呼び出し元は、Layer 2（evaluation）、Layer 1（estimators の feval への橋渡しと provider）、Layer 4（Facade）にある。
+       - 経緯: round 1 は estimator の 2 か所だけを書き、round 2 で evaluator の経路が漏れていると指摘された。round 3 では、書き足した呼び出し元の数が違うと指摘された。主語を registry にし、呼ぶ側の数は書かない。
+   - **規則を述べる文書は、閉じた一覧を全部読む**（round 3 の後の管理者の判断）。
+     - 経緯: round 1 は記憶から列挙し、round 2 は検索の語で列挙した。どちらも取りこぼした。検索の語の集合は閉じない。
+     - 一覧:
+       - `BLUEPRINT.md`（全体。§2、§13、§14、§19、付録 B などが層と依存を述べる）
+       - `ARCHITECTURE.md`（全体）
+       - `docs/add-estimator-guide.md`（全体）
+       - `README.md` の `## Architecture` 節
+     - 一覧の外の Markdown は、層の規則を定めない:
+       - `HISTORY.md`、`CHANGELOG.md`、`docs/audits/` は、日付のある記録である。
+       - `PLAN.md` は予定の文書で、仕様ではない（CLAUDE.md §1）。
+     - 実装は、一覧の文書と節の文を全部読む。そして、この Proposal の規則（方針 5 から 8）と食い違う文を全て直す。
+     - 方針 9 の表は、Proposal を書く時点で分かっている箇所で、全てではない。
+     - round 2 で足した検索の計測器 `doc_statements_h0130.py` と `.out` は消す。round 3 で、母集団が空でも通ること、語の集合が閉じないことが指摘された。
+   - 許すのは `estimators/` → `config/` を含まない（方針 3 で import が消える）。
+   - H-0129 の R2 の落ちるべき例（`RULE_MUTATIONS` の `splitters/base.py` → `metrics.base`、`test_layer_rules.py:131-135`）は、許した組に当たらないのでそのまま有効である。
+
+**B: 結果の型（案 3）**
+
+7. クラスは今のモジュールに残す。pickle が記録する名前（`lizyml.calibration.cross_fit.CalibrationResult`、`lizyml.training.refit_trainer.RefitResult`）は変わらない。
+   - **`lizyml/training/results.py`**（新しい Layer 2 の IF）:
+     - `RefitResultView(Protocol)` を置く。`RefitResult` の 7 つの欄（`model: BaseEstimatorAdapter`、`pipeline_state: Any`、`feature_names: list[str]`、`categorical_features: list[str]`、`best_iteration: int | None`、`train_pred: npt.NDArray[np.float64]`、`history: dict[str, Any]`）を同じ型で宣言する。
+     - `persistence/exporter.py` は `TYPE_CHECKING` の下で `RefitResultView` を import し、`_saved_pipeline_states`・`check_category_values`・`export` の `refit_result` の注釈に使う。
+     - 実行時の挙動は変わらない（`export` は渡された物をそのまま joblib で保存する）。
+     - Facade が `RefitResult` を渡す所で、mypy が構造の一致を確かめる。
+     - テストは、二つを確かめる（DC3。round 1 の指摘: 名前だけでは、欄の型を `Any` に広げてもすり抜け、mypy も通す）:
+       - `typing.get_type_hints(RefitResultView)` と `typing.get_type_hints(RefitResult)` が、名前と型の対応として等しいこと。
+       - その集合が `dataclasses.fields(RefitResult)` の名前と等しいこと。
+     - 比べる関数そのものの落ちるべき例も足す: 欄の型を一つ `Any` に広げた Protocol、欄を一つ別の型にした Protocol、欄を一つ消した Protocol を比べると、それぞれ失敗する。
+   - **`lizyml/calibration/base.py`**:
+     - 目印の基底 `BaseCalibrationResult` を置く。欄は持たず、`calibrated_oof: npt.NDArray[np.float64]` の注釈だけを持つ（mypy 用）。
+     - `CalibrationResult`（`@dataclass`、`calibration/cross_fit.py:48`）はこれを継ぐ。pickle は基底を記録しないので、古いアーティファクトの `CalibrationResult` も読み込んだ後に `isinstance(..., BaseCalibrationResult)` が真になる。
+     - `plots/calibration.py` の `_require_calibrator` は `calibration.base.BaseCalibrationResult` で判定する。
+     - 判定の境界は「目印を継ぐか」になる（round 1 の指摘: 「`CalibrationResult` でない物は全て拒否する」は、この設計では言えない）。
+       - 目印を継がない物（`None`、`CalibrationResult` でない任意のオブジェクト）は、今と同じ文と context で拒否する。今の文は `plots/calibration.py:34-41`。
+       - 目印を継ぐ物は受け付ける。`lizyml` の中で目印を継ぐのは `CalibrationResult` だけである。
+       - 目印の約束（docstring に書く）: 継ぐクラスは `calibrated_oof` を持つ。plots が読むのはこの欄だけ（`plots/calibration.py:72`、`:133`）。
+     - Facade（`core/_model_predict.py:74`、`core/_model_metrics.py:83`）は Layer 4 なので `cross_fit` を import したままでよい。変えない。
+   - 実行時の判定に Protocol（`runtime_checkable`）を使わない理由: 属性があるかだけを見るので、緩すぎる（Codex の指摘）。
+
+**例外の一覧と文書**
+
+8. **例外の一覧**:
+   - `EXCEPTIONS` は空（`{}`）になる。
+   - 一覧の仕組み（組ごとの件数の一致）は残す。新しく決めた違反を設計の判断まで置いておく場所であり、§2.1 にそう書く。
+   - H-0129 の受け入れ基準 4 のテスト 2 本は、本当の木の一覧の行に依っている（`test_a_fixed_exception_must_leave_the_list`、`test_a_second_import_of_a_listed_pair_fails`）。これを、写しに違反を一つ足し、その組を数 1 で載せた一覧で確かめる形に書き直す（主張は変えない）。
+   - §2.1 の文「この規則に反する既存の import は、テストの例外の一覧に件数つきで載る（#362）」は、「既存の違反は無い（H-0130）。新しく見つかった違反は、Proposal で表（IF の列か、同じ層の中で許す参照）を変えるか、例外の一覧に件数つきで載せる」に直す。
+9. **文書**:
+   - BLUEPRINT §2.1 の IF の列と許す参照の表を足す。
+   - ARCHITECTURE.md の図に、`estimators` → `features`・`metrics` の辺と、`metrics/registry`・`training/results` の IF を足す。
+   - 方針 6 の一覧を全部読んで直す。分かっている箇所は次のとおり（全てではない）。
+
+   **分かっている、書き直す箇所（許す参照・IF の宣言・具象の組み立ての例外を認める形にする）**
+
+   | 位置 | 今の文の要旨 | 書き直す内容 |
+   |---|---|---|
+   | `BLUEPRINT.md:50` | Layer 1 の依存先「Foundation のみ」 | 「Foundation + 同じ層の中で許す参照」 |
+   | `BLUEPRINT.md:56` | 下の Layer にのみ依存。Layer 1 は Foundation と自分だけ | 「各カテゴリは、自分より下の Layer と、下の表で自分のカテゴリに許した同じ層のカテゴリにだけ依存する。Layer 1 は Foundation、自分のカテゴリ、許したカテゴリだけに依存する」 |
+   | `BLUEPRINT.md:58` | 具象の組み立ては Layer 4 のみ | 方針 6 の二つの例外（provider の factory、registry が名前から指標を作ること）を足す |
+   | `BLUEPRINT.md:64` | 既存の違反は例外の一覧に載る（#362） | 方針 8 の文 |
+   | `BLUEPRINT.md:1606` | §14.1: estimators は Foundation のみ、`config/` や他の Leaf に依存しない | 「Foundation と、§2.1 の表で許した `features/`・`metrics/` に依存する。`config/` には依存しない」 |
+   | `BLUEPRINT.md:1808` | §2.2: provider は `config/` の具象型（`LGBMConfig`）を参照してよい（Facade から呼ばれるので Leaf → Leaf ではない） | 「provider は `config/` を import しない（§2.1 の R2。import の文で判定し、呼ぶ側は問わない）。設定は `model_cfg`（`Any`）の属性として読む」 |
+   | `BLUEPRINT.md:1809` | §2.2: `model_cfg` を `isinstance` で具象型にキャストする | 今のコードのとおり、属性を読む形に直す（`estimators/lgbm/provider.py:264-270` は `config` を import せず、`isinstance` も使わない）。round 2 の指摘 |
+   | `ARCHITECTURE.md:8` | 依存は常に上位層→下位層のみ | 許す参照を足す |
+   | `ARCHITECTURE.md:62` | 図の注記 Layer 1 → Layer 0 only | 許す参照を足す |
+   | `ARCHITECTURE.md:121` | ルールの表「下方向のみ」 | BLUEPRINT:56 と同じ |
+   | `ARCHITECTURE.md:123` | ルールの表「Facade 独占」 | BLUEPRINT:58 と同じ例外 |
+   | `ARCHITECTURE.md:206` | Layer 1: Foundation のみ、互いに依存しない | 許す参照を足す |
+   | `ARCHITECTURE.md:504` | Layer 3: Foundation の型のみ参照 | 「Foundation と、Layer 1・2 の IF を参照する」（今でも `plots` は `calibration` を、`persistence` は `estimators.base` を参照している） |
+   | `ARCHITECTURE.md:510` | Facade が唯一、具象を組み立てる | 方針 6 の例外を足す |
+   | `ARCHITECTURE.md:782` | Leaf は互いに依存しない | 許す参照を足す |
+   | `ARCHITECTURE.md:784` | Optional は Foundation の型のみ参照 | `:504` と同じ |
+   | `ARCHITECTURE.md:785` | Facade が唯一、組み立てる | 方針 6 の例外を足す |
+   | `README.md:132`、`:134` | Downward-only、Only the Facade assembles | 許す参照と、二つの例外を足す（英語） |
+   | `docs/add-estimator-guide.md:277` | 層の規則の行（既存の例外 17 件、#362） | 例外は無い、と書き直す |
+   | `BLUEPRINT.md:57` | Layer 3 は Layer 2 の IF を参照してよい（今は宣言が無い） | 「（`training/results.py`）」にする（方針 5。round 3 の指摘） |
+   | `ARCHITECTURE.md:814` | H-0054 の表の 5 行目（`shap_explainer.py` が `NativeFeaturePipeline` を直 import） | H-0130 で解消（方針 4）と書く（round 3 の指摘） |
+   | `ARCHITECTURE.md:822-824` | H-0088 の「宣言済み横断エッジ」の 1〜3 行目（OOF のマスク、`RefitResult`、`CalibrationResult`）。解消は follow-up | H-0130 で解消（方針 2・7）と書く。4 行目（`codegen/` の seam）は層の import の問題でなく、変えない（round 3 の指摘） |
+
+   - 読んで、変えないと判断した例: `ARCHITECTURE.md:122`、`:381`、`:464`、`README.md:133`（Layer 2 が Layer 1 の IF だけを参照する。この Proposal の後も正しい。IF は §2.1 の表の右の列で、`metrics/registry.py` を足す）。
+
+   - CHANGELOG（Unreleased）。
+   - `docs/proposal_dispositions.toml`。
+   - マージの後に #362 を close する。
+
+### 規則が縛る位置（ソースから導出、実装前、`e8b4c4e`）
+- 例外の一覧: `tests/test_architecture/test_layer_rules.py:22-53`。
+- R2 の判定: `tests/test_architecture/_layer_rules.py:401-402`。
+- 表の読み込み: `read_table`（`_layer_rules.py:114`）。
+- 規則を述べる文書: 方針 6 の閉じた一覧（全部読む）。分かっている箇所は方針 9 の表。
+- 指標を名前から作る所: `metrics/registry.py:120-130`（`get_metric`）。
+- 例外の一覧に依るテスト: `test_layer_rules.py:324-342`。
+- 17 本の位置:
+
+  | ファイル | 行 |
+  |---|---|
+  | `core/model.py` | 48 |
+  | `lizyml/__init__.py` | 6 |
+  | `evaluation/evaluator.py` | 15-16 |
+  | `evaluation/confusion.py` | 14 |
+  | `estimators/provider.py` | 22-23 |
+  | `estimators/lgbm/provider.py` | 16、42-44、577 |
+  | `estimators/lgbm/metric_bridge.py` | 22-23 |
+  | `explain/shap_explainer.py` | 177 |
+  | `plots/calibration.py` | 31 |
+  | `persistence/exporter.py` | 38 |
+
+- 型の使われ方:
+  - `RefitResult` を注釈に使う所: `persistence/exporter.py:69`、`:109`、`:187`。
+  - `CalibrationResult` を判定に使う所: `plots/calibration.py:31-33`（Layer 3）、`core/_model_predict.py:74-76`・`core/_model_metrics.py:83-85`（Layer 4、変えない）。
+  - plots が読む欄: `calibrated_oof`（`plots/calibration.py:72`、`:133`）。
+- 公開の再公開:
+  - `lizyml.calibration.CalibrationResult`（`calibration/__init__.py:5`）。
+  - `lizyml.training.RefitResult`（`training/__init__.py:11`）。
+  - どちらも変えない。
+
+### 互換性
+- 公開 API:
+  - `lizyml.calibration.CalibrationResult`、`lizyml.training.RefitResult`、`lizyml.__version__` は変わらない。
+  - `lizyml.config.schema` の `RatioRange` と `SMART_RATIO_RANGES` は同じオブジェクトとして残る。
+  - 足すもの: `lizyml.training.results.RefitResultView`、`lizyml.calibration.base.BaseCalibrationResult`。
+  - `persistence.export` の引数の名前・種類・既定は変わらない。`refit_result` の注釈の文字列が `'RefitResult'` から `'RefitResultView'` に変わる。H-0129 のゴールデン（`tests/test_persistence/test_unwritable_categories.py:416-432`）はこの一語だけを直す。
+- 保存の形式: 変わらない（`format_version` 2 のまま）。pickle が記録するクラスの名前も変わらない（受け入れ基準 6 で固定）。古い lizyml も新しいアーティファクトを今までどおり読める。
+- 第三者の provider と adapter: 変わらない（`build_pipeline_factory`、`BaseEstimatorAdapter`、`BaseMetric` に変更なし）。
+- 内部の変更: `compute_shap_importance` の `pipeline_factory` が必須になる（`lizyml.explain.__all__` に無い）。
+- 層の規則のテスト: 例外の一覧が空になる。`estimators/` から `features/`・`metrics/` 以外の Layer 1 のカテゴリへの新しい import は、今と同じく失敗する。
+
+### 代替案（検討して棄却）
+- **A を作り直す**（Layer 1 のカテゴリが互いに import しない）: Codex が「欠点は明らかに大きい」と判定した（規模 L、外部の provider が壊れる、#355 が難しくなる）。管理者の判断で表の案を採る。
+- **`get_metric` だけを Layer 0 に置く**: 上の層の登録に依存するか、具象を Layer 4 の外で組むことになる（Codex）。
+- **B 案 1**（クラスを IF のモジュールへ移し、元の場所から再公開する）: 新しい pickle の名前が変わり、format 3 が要る。v0.19.0 の loader は {1, 2} を受け付けてから joblib の中で一般的なエラーで落ちる。
+- **B 案 2**（`cross_fit.py` と `refit_trainer.py` を IF と宣言する）: `cross_fit_calibrate` と `RefitTrainer` が IF から届き、IF だけを参照するという規則が弱まる。
+- **B を Layer 0 に置く**: 両方の型が Layer 1 の adapter の IF を参照するので、`Any` に弱めることになる。
+- **`__module__` を手で書き換えて名前を保つ**: 壊れやすい。
+- **`SMART_RATIO_RANGES` を `estimators/lgbm/` に移して config がそれを import する**: `config/` → `estimators/` の新しい Layer 1 間の参照になる。
+- **`SMART_RATIO_RANGES` を `estimators/` → `config/` の許す参照で認める**: Codex が、方針 3 の移動の後には許す参照を残さないよう勧めた。
+- **例外の一覧の仕組みを消す**: 設計の判断を待つ違反を置く場所が無くなり、H-0129 の受け入れ基準 4 のテストも消すことになる。残す。
+
+### Firing rate
+- 許す参照（`allow`）: Firing rate: 8/517 of resolved lizyml imports on `e8b4c4e` are admitted by the two allowance rows (`estimators` → `features` 5, `estimators` → `metrics` 3; `census_h0130.py` → `census_h0130.out`); the reverse pairs have 0 imports.
+- 例外の一覧（`allow`）: 測ったのは `e8b4c4e` の木で、`census_h0130.out` に記録した。空の一覧で `check()` を走らせると、問題はちょうど 17 件だった。この Proposal の表と方針で閉じられない組は 0 件だった。17 件の内訳は、許す参照 8、`metrics/registry.py` の IF 1、コードの変更 8。実装の後の一覧は空にする。実装の後の解決した import の総数は、新しいモジュールで変わる。実装の記録で測って書く（予測は書かない）。
+- `RefitResultView` と `BaseCalibrationResult` は条件を作らない（型注釈と、既存の `isinstance` の相手の置き換え）。
+
+### 受け入れ基準（テスト観点）
+1. **例外は無い**: `test_layer_rules.py` の `EXCEPTIONS` が `{}` で、実装の後の木でテストが通る。
+   - 落ちるべき例: `e8b4c4e` の木を空の一覧で調べると 17 件の問題になる。計測器で確かめる。
+2. **許す参照の落ちるべき例**（`lizyml/` と BLUEPRINT の写しで、一つずつ）:
+   - (a) `estimators/` のモジュールに `import lizyml.calibration.base` を足すと R2 で失敗する。
+   - (b) `features/` のモジュールに `import lizyml.estimators.base` を足すと R2 と R4 で失敗する。
+   - (c) 表から `metrics/` の行を消すと、`metric_bridge.py` の 2 本と `lgbm/provider.py` の 1 本が R2 で失敗する。
+   - (d) 使われない組の行（`estimators/` → `splitters/`）を足すと失敗する（古び）。
+   - (e) 完全一致が効いていること。方針 6 の読み方の位置ごとに代表の変異を置き、それぞれ失敗することを示す。表を読み終えたことにして飛ばす実装は、どれかで通ってしまう。
+     - 前の行:
+       - 無い。
+       - 二つある。
+       - 末尾に空白がある。
+     - 空行:
+       - 無い（前の行の直後に見出し）。
+       - 二つある。
+     - 見出しの行: 文字を一つ変える。
+     - 区切りの行:
+       - `|---|---|`
+       - `| --- | --- | --- |`
+       - `|:---|---|---|`
+     - 中身の行:
+       - 参照する側だけ不正（`` `estimators` ``、スラッシュ無し）。
+       - 参照される側だけ不正（`` `features/`, `metrics/` ``、パスが二つ）。
+       - 根拠が空。
+       - 欄が 2 つの行と 4 つの行。
+       - 末尾に空白がある行。
+       - 中身の行が無い。
+     - 塊の外:
+       - 塊の前に `|` で始まる行がある。
+       - 塊の後に、空行を挟んで `|` で始まる行がある。
+     - 意味:
+       - Layer 1 でないカテゴリ（`training/`）。
+       - 参照する側と参照される側が同じ行。
+       - 同じ組の 2 行目。
+   - 落ちてはいけない例: `estimators/` のモジュールに `import lizyml.metrics.regression` を足しても通る（許したカテゴリの中のどのモジュールでもよい）。
+3. **例外の一覧の仕組みは残る**: 写しに違反を一つ足し（例 `evaluation/confusion.py` に `import lizyml.training.oof_assembly`）、その組を数 1 で載せた一覧では通る。その import を消すと、数が足りずに失敗する。同じ組の import をもう一つ足すと、数が多すぎて失敗する（H-0129 の受け入れ基準 4 と同じ主張）。
+4. **移しても同じ物**:
+   - `lizyml.__version__` は変わらない。
+   - `lizyml.config.schema.SMART_RATIO_RANGES is lizyml.core.types.smart_ratio.SMART_RATIO_RANGES`。`RatioRange` も同じ。
+   - `lizyml.training.oof_assembly.compute_oof_valid_mask is lizyml.core.types.oof_coverage.compute_oof_valid_mask`。
+   - 既存の比率の検証と OOF のマスクのテストが、変更なしで通る。
+5. **SHAP**: `pipeline_factory` を渡さない `compute_shap_importance(...)` は `TypeError` になる（落ちるべき例: `e8b4c4e` では受け付ける）。`explain/` に `features.pipelines_native` の import が無い（層のテストが確かめる）。
+6. **案 3**:
+   - (a) plots の判定の境界:
+     - 目印を継がない calibrator（`None` と、ただの `object()`）は、`e8b4c4e` と同じ文と context で拒否する。文と context の全体をゴールデンとして固定する。既存のテスト（`tests/test_plots/test_calibration_plots.py:83-88`、`:112-117`）はエラーの code しか見ていない。
+     - `calibrated_oof` を持つ、`CalibrationResult` でない目印の子クラスは受け付ける（境界は目印だという約束のテスト）。
+     - 落ちるべき例: 判定を `isinstance(..., object)` に緩めた実装は、`object()` の場合を通す。
+   - (a2) 古いアーティファクト:
+     - `e8b4c4e` のコードで pickle した `CalibrationResult` を、テスト用のファイルとして入れる。作ったスクリプトも `docs/audits/2026-10-h0130/probes/` に置く。
+     - それを読み込むと `BaseCalibrationResult` のインスタンスになり、plots が受け付ける。
+   - (b) pickle は変わらない: `pickle.dumps` した `CalibrationResult` と `RefitResult` が、`lizyml.calibration.cross_fit` の `CalibrationResult`、`lizyml.training.refit_trainer` の `RefitResult` を名指す（`pickletools` で読むゴールデン）。
+   - (c) 型の対応:
+     - `RefitResultView` と `RefitResult` の `get_type_hints` が、名前と型の対応として等しい。その名前が `RefitResult` の欄と等しい。
+     - 比べる関数は、三つの写しのそれぞれで失敗する: 欄を `Any` に広げた写し、別の型にした写し、欄を消した写し。
+     - `uv run mypy lizyml/` が通る。
+   - (d) `inspect.signature(lizyml.persistence.export)` のゴールデンは、`refit_result` の注釈の文字列だけが変わる。
+7. 文書が方針 9 のとおり。
+   - 方針 6 の閉じた一覧（`BLUEPRINT.md`、`ARCHITECTURE.md`、`docs/add-estimator-guide.md` の全体と、`README.md` の `## Architecture` 節）に、この Proposal の規則と食い違う文が無い。実装レビューで、この一覧を全部読ませて確かめる。
+   - 方針 9 の表の、分かっている箇所がそれぞれ直っている。
+   - 具象の組み立ての例外は、`BLUEPRINT.md:58`・`ARCHITECTURE.md:123`・`:510`・`:785`・`README.md:134` のどこでも、主語が「provider の factory」と「`metrics/registry.py` が名前から指標を作ること」の二つである。
+   - §2.2 に、provider が `config/` を import してよいという文が残っていない。
+
+### 実装の記録（2026-10-14）
+
+- **コード**: 方針 1〜7 のとおり。
+  - `core/model.py` は `lizyml._version` から `__version__` を import する。
+  - `core/types/oof_coverage.py` と `core/types/smart_ratio.py` を新しく作った。元の場所（`training/oof_assembly.py`、`config/schema.py`）は同じオブジェクトを再公開する。
+  - `compute_shap_importance` の `pipeline_factory` は必須になった。
+  - `training/results.py` に `RefitResultView` を置いた。
+  - `calibration/base.py` に `BaseCalibrationResult` を置き、`CalibrationResult` がそれを継ぐ。
+  - plots は目印で判定し、exporter は `RefitResultView` で注釈する。
+- **検査**: `_layer_rules.py` は許す参照の塊を行ごとの完全一致で読む（`_read_allowances`）。
+  - §2.1 の中で `|` で始まる行は、二つの表のどちらかに属さなければならない。
+  - R2 は許した組を通す。
+  - 使われない組は `R2 the §2.1 allowance … is used by no import` になる。
+- **テスト**:
+  - `test_layer_rules.py`: 例外の一覧は空。受け入れ基準 2 の (a)〜(d) と、(e) の完全一致の変異 21 種を足した。H-0129 の受け入れ基準 4 の 2 本は、写しに違反を足して確かめる形に書き直した。
+  - 新しい `test_h0130_contracts.py`（17 件）: 受け入れ基準 4・5・6。
+  - 古いアーティファクト: `tests/test_architecture/data/calibration_result_e8b4c4e.pkl` は `e8b4c4e` の木から `make_old_calibration_pickle.py` で書いた。この計測器は新しいコードの上では書くのを拒む。
+- **陰性対照**: `negative_controls_h0130.py` → `.out`。4 組とも捕まった:
+  - 前後の空白を許す読み方
+  - 表を見ない R2
+  - 古びの検査を外した実装
+  - どの calibrator も受け付ける plots
+- **文書**: 方針 6 の閉じた一覧を全部読んで直した。読むのは、文脈を持たない読み取り専用の 2 つの scout が分けて行った（BLUEPRINT 全体 2351 行、ARCHITECTURE 全体 825 行、guide 全体 334 行、README の Architecture 節）。方針 9 の表に無かった箇所で直したもの:
+  - BLUEPRINT:
+    - §11 の `SMART_RATIO_RANGES` の場所（2 か所）。
+    - §19 のツリー（`core/types/` の 2 つ、`param_domain.py`・`specs/` を Layer 0 の側へ、`_extras.py`・`_version.py`、`metric_bridge.py`・`category_json.py`、`results.py`、`BaseCalibrationResult`）。
+    - 付録 B（Facade は `EstimatorAdapter / FeaturePipeline` を provider の factory から得る）。
+    - §2.2 の追加手順（config のクラスは `config/schema.py` に置く）。
+  - ARCHITECTURE:
+    - Layer 0 の図から `RefitResult` と `CalibrationResult` を外し、それぞれ Layer 2 と calibration の図に移した（`FitResult.calibrator` は `Any`）。
+    - `MetricRegistry` を IF として描いた。
+    - Layer 3 から `calibration`・`training` の IF への辺と、Layer 1 の許す参照の辺を足した。
+- **Proposal からのずれ（実装で見つけたもの）**: 具象の組み立ての例外。下の「改訂 1」で扱う。
+
+### 改訂 1（2026-10-14、実装で判明。管理者の判断で改訂として明記）
+
+- **見つけたこと**: 方針 6 は、具象の組み立てを Layer 4 に限る規則の例外の二つ目を、「`metrics/registry.py` が、登録された指標を名前から作ること」とした。
+  - BLUEPRINT 全体を読んだところ、`calibration/registry.py` の `get_calibrator`（Layer 1）も、登録から型を引いて具象の calibrator を作っていた（`calibration/registry.py:44-55`、`cls(params=params)`）。
+  - 呼んでいるのは Facade の `core/model.py:879-902` だけで、`lizyml.calibration.get_calibrator` として公開もされている（`calibration/__init__.py:8` が同じカテゴリの中で再公開する）。
+  - H-0130 より前からあるコードで、受理時の文がこれを漏らしていた。
+- **変更**: 例外の二つ目の主語を、「Layer 1 の registry モジュール（`metrics/registry.py`、`calibration/registry.py`）が、登録された型を名前から作ること」にする（方針 6 の文を上のとおり直した）。
+  - BLUEPRINT §2.1・付録 B、ARCHITECTURE.md（ルールの表、Layer 4 の説明、凡例）、README の Architecture 節を、この文に揃えた。
+- **変わらないこと**:
+  - 例外の数は二つのまま。
+  - import の規則（R0〜R5、許す参照の表、IF の列）は変わらない。`calibration/registry.py` は IF に宣言しない。カテゴリの外でこれを import するのは Layer 4 だけである（`core/model.py:879`、`core/_model_factories.py:1261`。カテゴリの中では `calibration/__init__.py:8` が公開のために再公開する）。
+  - コード、テスト、公開 API、保存の形式は変わらない。**（改訂 2 での訂正: 「テスト」は誤り。この改訂は R6 のテストと検査を足した（`fe001bd`）。下の「改訂 2」の変更 5。）**
+- **検討して棄却した代わり**: `get_calibrator` を Facade へ移して、例外を `metrics/registry.py` だけに保つ。公開の `lizyml.calibration.get_calibrator` が変わり、非推奨の手続きが要る。#362 の範囲を超える。
+- **確かめ方**: Codex に、この改訂で問題が生じないかを検証させる（管理者の指示）。
+
+**Codex の検証（run `h0130-amend1-critique`、`24681fb`、CHANGES_REQUESTED）と対応**
+- **major 1**: provider の例外が、`estimators/lgbm/provider.py:477`（`params_summary`）と `:541`（`build_export_params`）の `isinstance(..., LGBMAdapter)` を覆っていなかった。
+  - 例外の一つ目を「provider が自分の factory で adapter と pipeline を組み、自分の adapter の具象型を扱うこと」に広げた（方針 6、BLUEPRINT §2.1、ARCHITECTURE、README）。例外の数は二つのまま。
+- **major 2**: 例外の一覧を守るテストが無かった（層の規則は import の文しか見ない）。管理者の判断で、型の判定まで含めて、テストで確かめる（下の R6）。
+- **minor 1**: `calibration/__init__.py:8` も `calibration/registry.py` を import する（公開のための再公開）。上の「変わらないこと」の文を直した。
+- **minor 2**: ARCHITECTURE.md の Layer 4 の説明と凡例が「Layer 1 の registry」とだけ書いていた。二つのファイル名を書いた。
+
+**R6（具象の組み立てと型ディスパッチ）を、閉じた形で足す**
+- 実測を先に行った（`dispatch_census.py` → `dispatch_census.out`、`24681fb` の木）。
+  - 型の判定の形は閉じて数えた: `isinstance`・`issubclass` の第 2 引数、`type(x)` との `is`・`is not`・`==`・`!=`（左右）、`case T(...)`。
+  - 対象はタプル・`|` の和・`type(None)`・モジュールの定数のタプルに展開し、import とモジュールのクラスで解決した（再公開は 1 段たどる）。組み込みと外のパッケージの型は数えない。
+- Layer 1〜3 で数えたもの:
+  - registry の `get`: 2 か所（`metrics/registry.py:120`、`calibration/registry.py:44`）。
+  - 具象のクラスの判定: 2 か所（`estimators/lgbm/provider.py:477`、`:541`、どちらも `LGBMAdapter`）。
+  - 解決できない対象: 3 か所（`tuning/lineage_codec.py:168`・`:181` のループの変数 `t`、`tuning/search_space.py:157` のループの変数 `allowed`。どれも組み込みの型のタプルを回す）。
+  - そのほか（Layer 0 の型 24 か所、IF のクラス 1 か所）は規則に合う。型の判定の対象は合わせて 30 か所。
+- **規則**（`tests/test_architecture/_dispatch_rules.py`、`check` が呼ぶ）:
+  - registry: `core/registries.py` の registry オブジェクトの属性で `register`・`keys` 以外を使ってよいのは、`metrics/registry.py` と `calibration/registry.py` だけ。registry のクラス（`_Registry`）を作ってよいのは `core/registries.py` だけ。
+  - 型ディスパッチ: 上の形の対象が、Layer 0 のクラスか IF のモジュールのクラスでない `lizyml` のクラス（具象）か、解決できないときは、`(ファイル, 対象)` の組ごとの件数を、テストの一覧 `DISPATCH_ALLOWED` と比べる。多くても少なくても失敗（例外の一覧と同じ考え）。
+  - 一覧は今の 3 組だけ: provider の `LGBMAdapter` 2、`lineage_codec.py` の `t` 2、`search_space.py` の `allowed` 1。
+  - 範囲の外（宣言する）: 別の書き方の判定（`type(x).__name__ == ...`、`hasattr`）、二つの実行時の型の比較（`type(a) is type(b)`）、`eval`・`exec`。
+- **受け入れ基準（追加）**:
+  - R6-1: 本当の木で通る（一覧は上の 3 組）。
+  - R6-2: 書き方の位置ごとの落ちるべき例。`estimators/base.py` に足す `LGBMAdapter` の判定 11 種（`isinstance`、`issubclass`、`type is`、左右を逆にした `==`、`is not`、`case`、タプル、和、モジュールの定数、相対 import の属性、再公開の名前）。解決できない対象。一覧の組の 3 本目。使われない一覧の組。件数が 0 か `True` の一覧の組。Layer 1 の別のモジュールでの registry の `get` と private な属性。`core/registries.py` の外での `_Registry(...)`。
+  - R6-3: 落ちてはいけない例。Layer 2 からの Layer 0 のクラス、Layer 3 からの IF のクラス、Facade（`core/seed.py`）からの具象、組み込みと numpy の型と `type(None)`、registry の `register`・`keys`。
+  - R6-4: 陰性対照（`negative_controls_h0130.py`）。R6 を外した実装と、registry の制限を外した実装は、それぞれテストに捕まる。
+- **Firing rate（`allow`）**: Firing rate: 5/30 of lizyml-or-unresolved type-dispatch targets in Layers 1-3 on `24681fb` are admitted by the dispatch list (2 concrete `LGBMAdapter` checks, 3 loop variables over builtin types; the other 25 resolve to Layer 0 or interface classes; builtin and foreign targets are not counted), and 2/2 registry `get` sites are in the two named modules (`dispatch_census.py` → `dispatch_census.out`).
+- **Firing rate（実装の後、測定）**:
+  - 解決した import は 520 件（新しいモジュールの import が 3 件増えた）。
+  - 許す参照が通す import は 8 件（`estimators` → `features` 5、→ `metrics` 3）。
+  - 例外の一覧が通す import は 0 件。
+  - 空の一覧での問題は 0 件。
+
+### 改訂 2（2026-10-15、管理者の判断で受け入れ）
+
+- **状態**: 受け入れ（2026-10-15、管理者の宣言）。この節は、最初の版（`6338c73`）を、管理者が選んだ組み合わせで書き直したものである。経過は下の「確認レビューと受け入れ」。
+  - 管理者の判断（2026-10-15）:
+    - 1-B: registry の検査を置かない。例外 2 は、registry の helper の役割として書く。
+    - 2-A: Config の種類で実装を選ぶことは、組み立ての一部とする。
+    - 3-A: 確認の項目を先に固定し、確認レビューを 1 回行う。
+  - 最終の受け入れは、確認レビューの後に管理者が決める。決まるまで、この改訂の変更（文書、テスト、計測器）は行わなかった。
+  - この改訂の commit が足すのは次のものだけである。
+    - この節。
+    - 根拠の計測器 2 本（`registry_reach_census`、`boundary_construct_census`）。
+    - 改訂 1 の誤った文への注。
+    - 確認の項目（`docs/audits/2026-10-h0130/amend2-confirmation-checklist.md`）。
+- **関連**: 次の Proposal **H-0131**。ID を予約する。Issue は、管理者が受け入れた後に起こした（[Issue #366](https://github.com/nbx-liz/LizyML/issues/366)、2026-10-15）。
+
+#### 見つけたこと
+
+- 改訂 1 の R6（具象の組み立てと型ディスパッチをテストで確かめる）は、Codex の検証（run `h0130-amend1-r6-verify`、`fe001bd`、CHANGES_REQUESTED）で開いたままだった。次のものを見ていない。
+  - コンストラクタの呼び出し。
+  - 連なった比較。
+  - 別名・再公開・`getattr` を通した registry への届き方。
+- 「組み立て」は定義されていない。
+  - Layer 1〜3 で、同じカテゴリの具象クラスを作る箇所は 78 か所ある（`probes/construct_census.out`）。
+  - そのうち `estimators/lgbm/provider.py:349` は、すでに例外 1 に入る。残りの 77 か所は、文字どおりに読むと違反になる。
+- 元の意図をたどった（H-0051〜H-0053、commit `c5c6698`）。
+  - 元の規則は「具象クラスの組み立て・型ディスパッチは Layer 4 のみが行う」で、例外は無かった（`c5c6698` の ARCHITECTURE、H-0130 以前の `BLUEPRINT.md:58`）。
+  - ARCHITECTURE の「Facade の責務: Config を読み、各カテゴリの具象クラスを選択・組み立て・接続する」。
+  - H-0053 は、`model.py` が `isinstance(model_cfg, LGBMConfig)` で分けて `LGBMAdapter(...)` を作っていたのを直した。目標は、アルゴリズムを足しても `model.py` を変えないこと。
+  - H-0052 は、Evaluator が `CalibrationResult` を `isinstance` で判定していたのを直した。これは選ぶことではなく、カテゴリをまたぐ具象の結果型での分岐である。
+  - 同じカテゴリの中の補助のクラスを作ることは、どれも対象にしていなかった。
+  - H-0051 は、引かれない registry（Estimator・Splitter）を消し、名前で引く正当な使い道のある Metric・Calibrator の registry を残した。だれが registry を引いてよいかは決めていない。`core/registries.py` は Layer 0 で、§2.1 の表では全層から参照してよい。
+- **registry の検査の出どころ**:
+  1. H-0130 の Proposal レビューの round 2 が、「Layer 4 のみ」は `metrics/registry.py` が名前から指標を作るので事実と違う、と指摘した。そこで受理の文が「例外は二つだけ」とし、registry を例外にした。
+  2. 改訂 1 への Codex の指摘（run `h0130-amend1-critique`、major 2）は、その閉じた一覧にテストが無いことだった。
+  3. それに応えて、R6 に registry の部分を足した。
+  4. その後、R6 の registry の部分は別名などで抜けられることが分かり、選択肢の文書の O2 で名前に絞った。
+  - つまり、registry の検査は元の設計から来たものではない。HISTORY に、registry の誤用の記録は無い。
+- 選択肢の文書（`docs/audits/2026-10-h0130/options-assembly-rule.md`）から、管理者は次の方向を選んだ。この方向は、Codex との議論（run `h0130-direction-critique`）で詳しくした。
+  - 定義を書く。
+  - 強い形は別の Proposal にする。
+- **最初の版（`6338c73`）へのレビュー**:
+  - Codex（run `h0130-amend2-review`）は CHANGES_REQUESTED（critical 3、major 2）。
+  - 文脈を持たないレビューも CHANGES_REQUESTED（major 2）。
+  - どちらも、名前で閉じたとした registry の規則（O2）が開いていることを、実行して示した。例: `from lizyml.metrics.registry import MetricRegistry as M; M.get("rmse")`。IF のモジュールが registry を束縛しているので、R3 も通る。
+- 管理者は元の設計に立ち返って選択肢を見直し、上の組み合わせを選んだ。その組み合わせを Codex と議論した（run `h0130-combo-critique`、CHANGES_REQUESTED、major 3・minor 1）。指摘は次のとおりで、この版に全部取り入れた。
+  - 例外 2 の文が、registry の権限を広く与えすぎる。
+  - 「import の規則が Config の種類での選択を防ぐ」は誤り。`cfg.name == "lgbm"`、`type(cfg).__name__ == "LGBMConfig"`、`cfg.model_dump()["name"]` は、どれも検査を通った。
+  - レビューだけで守る期間に、終わりの条件が無い。
+  - 確認レビューの項目を固定する。
+
+#### 変更 1: 「組み立て」と「具象型ディスパッチ」を §2.1 で定義する
+
+`BLUEPRINT.md` §2.1 の依存ルールの 3 つ目（今の `BLUEPRINT.md:58`）を、次の文に置き換える。
+
+```
+- 具象の**組み立て**と**具象型ディスパッチ**は **Layer 4（Facade）** が行う（H-0130 改訂 2）。
+  - 組み立て: 宣言的な入力（Config、公開 API の引数、保存された識別子など）から、Layer 1 の境界 IF の具象実装を選び、その instance か factory を使う側へつなぐこと。境界 IF には、Protocol を構造的に満たす拡張点（§2.2 の `EstimatorProvider`）を含む。
+    - 「選ぶ」には、宣言的な入力の種類か値（Config の型、discriminator の `name`、それから導いた値）で実装を選び分けることを含む。Config 自身の union による検証は、実装を選ぶことではない。
+    - 次のものは組み立てに入らない: 同じカテゴリの中で、境界 IF を実装しない補助のクラスや値を作ること。保存したオブジェクトを読み戻すこと（pickle は fit の時に組み立てたものを戻すだけで、選ばない）。
+  - 具象型ディスパッチ: 具象の実装型か、カテゴリをまたぐ具象の結果型が何であるかで、処理を分けること。組み立てとは別の規則である。
+  - 例外は二つだけ。
+    - §2.2 の provider が、自分の factory で adapter と pipeline を組み、自分の adapter の具象型を扱うこと（LightGBM の provider の `params_summary`・`build_export_params` の `LGBMAdapter` の判定）。
+    - 各 Layer 1 カテゴリの registry の helper（`metrics/registry.py` の `get_metric`・`get_metrics_for_task`、`calibration/registry.py` の `get_calibrator`）が、宣言的な名前から登録された境界 IF の実装を選び、instance を作って IF として返すこと。呼ぶ側は helper に名前と引数を渡し、IF だけを受け取る。
+  - `core/registries.py`（Layer 0）は、登録を蓄える共有の仕組みである。Layer 0 にあることは、ほかの層に、registry から直接引いて型を作る権限も、登録を書き換える権限も与えない。Layer 1〜3 では、実装のモジュールが自分の型を登録し、helper だけが引く。新しい registry、登録と引く役割の変更、helper を迂回して引くことには、Proposal が要る。
+  - Layer 1〜3 の使う側は、境界 IF、Protocol、目印のクラス（`BaseCalibrationResult`）を通して扱う。
+  - 得られるのは、新しいアルゴリズムを選ぶ場所が Facade の中にまとまり、`model.py` を変えずに済むことである。Config の union と Facade の provider の選択は変わる（§2.2 の手順 2・3）。
+  - この規則は規範だが、テストでは確かめない。R0〜R5 が確かめるのは、静的な import の辺だけである。H-0131 の実装と、それに対応する architecture のテストが merge されるまで、次の 4 つはレビューだけで守る: (1) 組み立て（Config の型、discriminator の `name`、それから導いた値での選択を含む）、(2) 具象型ディスパッチ、(3) registry の helper を迂回して registry から引くこと、(4) 登録の書き換え（実装のモジュールが自分の型を登録することは許す）。Layer 1〜3 のモジュールを変える PR は、PR のテンプレートの確認項目で確かめる。
+```
+
+**組み立ての例（閉じた表。レビューでの判断の基準）**:
+
+| 場所 | 分類 | 判断 |
+|---|---|---|
+| H-0053 より前の `core/model.py`: `isinstance(model_cfg, LGBMConfig)` で分けて `LGBMAdapter(...)` を作る | 組み立て | Config の型から境界 IF の実装を選んで作る。今は Facade の `_model_factories.py` が provider を選び、provider が作る（例外 1） |
+| `core/_model_factories.py:490`（`get_provider`）: `model_cfg.name == "lgbm"` で provider を選ぶ | 組み立て（Config の値での選択） | Layer 4 |
+| 仮の例: Layer 2 のモジュールが `cfg.name == "lgbm"` で、引数で受け取った factory を選び分ける | 組み立て（Config の値での選択） | 違反。Config を import しないので、R0〜R5 は捕まえない（レビューで守る） |
+| H-0052 より前の `evaluation/evaluator.py`: `isinstance(..., CalibrationResult)` | 具象型ディスパッチ | カテゴリをまたぐ具象の結果型で分ける。Layer 2 なので違反だった |
+| H-0054 の項目 6（H-0130 より前）: `explain/shap_explainer.py` が `NativeFeaturePipeline` を作る | 組み立て | Layer 3 が境界 IF の実装を作る。H-0130 で `pipeline_factory` を必須にして閉じた |
+| H-0054 の項目 2（H-0054 より前）: Facade の `_model_tables.py` の `isinstance(model_cfg, LGBMConfig)` | 規則には反しない（Layer 4） | ただし「選ぶ場所がまとまる」性質を壊す。H-0054 で provider の `params_summary` に移した。定義だけでは捕まらない（H-0131 の「名前のついた組み立ての場所」） |
+| `estimators/lgbm/provider.py:349` `LGBMAdapter(...)`、`:365` `NativeFeaturePipeline(...)` | 組み立て | 例外 1 |
+| `estimators/lgbm/provider.py:477`・`:541` の `isinstance(..., LGBMAdapter)` | 具象型ディスパッチ | 例外 1 |
+| `metrics/registry.py:104-137`（`get_metric`）、`calibration/registry.py:44-52`（`get_calibrator`） | 組み立て | 例外 2（helper） |
+| `evaluation/evaluator.py:126` が `get_metrics_for_task(metric_entries, ...)` を呼ぶ | 組み立て（helper の中） | 例外 2。呼ぶ側は名前を渡し、IF を受け取る |
+| 仮の例: `evaluation/evaluator.py` で `MetricRegistry.get(name)(**params)` | 組み立て（helper の迂回） | 違反（レビューで守る）。task との整合の検査とエラーの変換（`metrics/registry.py:140-173`）を飛ばす |
+| 仮の例: Layer 2 のモジュールで `MetricRegistry.register("rmse")(別のクラス)` | 登録の書き換え | 違反（レビューで守る）。全体の挙動が変わる |
+| `core/_model_factories.py:1265` `CalibratorRegistry.get(method)` | 組み立て | Layer 4 |
+| `plots/calibration.py` の `BaseCalibrationResult` の判定 | どちらでもない | 目印は IF（`calibration/base.py`） |
+| `calibration/_optimizer.py:57` `MethodSpec(...)`、`estimators/lgbm/provider.py:72` `SmartValueRule(...)`、`calibration/beta.py:77` `LizyMLError(...)` | どちらでもない | 境界 IF を実装しない補助のクラスと値（77 か所の例） |
+| `persistence/loader.py:190-191` の `joblib.load` | どちらでもない | 読み戻すだけで、lizyml のコードは選ばない |
+| `codegen/generator.py:140` `calibration_method in ("platt", "beta")` | どちらでもない | 名前で、生成する文書（requirements）を分ける。instance も factory もつながず、型でも分けない。Layer 3 が具象の calibrator の名前を知る点は H-0131 で扱う |
+| `codegen/artifact_writer.py:102` `hasattr(calibrator, "save_model_text")` | どちらでもない | 能力の有無を見る。型の同一性では分けない |
+
+**実測**（`e400adc` の木。`6338c73` で lizyml は変わらない）:
+- `probes/boundary_construct_census.py` → `.out`:
+  - Layer 1〜3 で lizyml のクラスを作る呼び出しは 226 か所（Layer 0 141、IF のモジュール 6、同じカテゴリ 78、別のカテゴリ 1）。
+  - そのうち、五つの基底クラス（`BaseSplitter`、`BaseFeaturePipeline`、`BaseEstimatorAdapter`、`BaseMetric`、`BaseCalibratorAdapter`）を継ぐ実装を作るのは 2 か所で、どちらも例外 1（`provider.py:349`、`:365`）。
+  - registry の `cls(...)` は、引いた型を呼ぶので名前で解決できず、この数に入らない（例外 2）。
+  - 構造的な実装（`EstimatorProvider` を満たすクラス）を作る呼び出しは、継承では見えない。`git grep` で見ると、`LGBMProvider(` は Layer 1〜3 の実行されるコードに無い（`estimators/lgbm/defaults.py:20` はコメント）。
+- `probes/dispatch_census.out`（改訂 1 の計測）: Layer 1〜3 で具象の型を判定するのは、provider の `LGBMAdapter` の 2 か所だけ。
+- `probes/registry_reach_census.py` → `.out`: Layer 4 の外で registry の識別子が使われる 35 か所は、次のどれかである。今の木は例外 2 の役割の文に合っている。これは検査ではなく、今の木の記録である。
+  - `core/registries.py` の定義（6）。
+  - 二つの helper のモジュールの lookup（5）。
+  - 実装のモジュールの import と `.register`（24）。
+- Layer 1〜3 で `config/` の外から `lizyml.config` を import するモジュールは 0。`config/` は IF でも許す参照でもないので、R2・R3 が import を拒む（`h0130-combo-critique` が実行して確かめた）。
+- 名前の文字列での選択（`.name ==`、`"lgbm"`）は、`core/` と `config/` の外には無い（`git grep`）。
+- つまり、今の木に定義に反する箇所は無い。定義が新しく作る違反も無い。
+
+#### 変更 2: R6 を全部取り下げる（型ディスパッチの部分も、registry の部分も）
+
+- **取り下げるもの**:
+  - 改訂 1 で受理した要件「具象の組み立てと型ディスパッチを、型の判定まで含めてテストで確かめる」。
+  - その受け入れ基準 R6-1〜R6-4。
+  - これらのテストを消すのは、スイートを通すためではない。それが確かめていた要件を、この改訂で仕様から外すからである。
+- **代わりの検査は置かない**（管理者の判断 1-B）。理由は次のとおり。
+  - 元の設計は、registry を引く側を縛っていなかった。自動で守るのは import の向き（R0〜R5、IF の列、許す参照の表）だけだった。
+  - 名前で閉じる registry の規則（最初の版の O2）は、IF のモジュールの再公開を通した別名で開いていた。
+  - 狭い import の規則（Layer 2・3 は `lizyml.core.registries` を import しない）も検討した。これは別名を捕まえない。そのうえ、§2.1 の表の Layer 0「全部」に例外を足すことになる。
+- **消すもの**（閉じた一覧）:
+  - `tests/test_architecture/_dispatch_rules.py` を消す。
+    - 計測器が使う `_package`・`_bindings`・`_dotted`・`_Index` は、`docs/audits/2026-10-h0130/probes/_census_index.py` に移す。
+    - `construct_census.py:13`・`impl_owner_census.py:23`・`boundary_construct_census.py` の import 元を、それに直す。
+  - `tests/test_architecture/_layer_rules.py`:
+    - `:37` の import を消す。
+    - `check` の引数 `dispatch_allowed`（`:447`）と、その docstring の文（`:449-450`）を消す。
+    - `:512` の呼び出しを消す。
+  - `tests/test_architecture/test_layer_rules.py`:
+    - `:20` の `DispatchKey` の import を消す。
+    - `:30-44` の `DISPATCH_ALLOWED` を消す。
+    - `:53`・`:267`・`:335` の `dispatch_allowed=` を消す。
+    - `:505-648` の R6 の塊を全部消す（型の判定、registry の落ちるべき例、`R6_PASSES`）。
+  - `docs/audits/2026-10-h0130/probes/negative_controls_h0130.py`:
+    - `_no_dispatch_rule`（`:66-68`）と `_registry_access_anywhere`（`:71-80`）を消す。
+    - 一覧の "R6 switched off"（`:108-114`）と "registry access anywhere"（`:115-118`）を消す。
+    - `.out` を書き直す。残る陰性対照は 4 つ。
+  - `docs/audits/2026-10-h0130/probes/census_h0130.py:103` の `dispatch_allowed={}` を消す。
+  - `BLUEPRINT.md:72-76`（R6 の検査の箇条）を、次の一行に置き換える。
+
+```
+- 具象の組み立てと具象型ディスパッチ（上の依存ルールの 3 つ目）は、このテストでは確かめない（H-0130 改訂 2 で、改訂 1 の検査を取り下げた）。
+```
+
+- **足すもの**:
+  - `tests/test_architecture/test_layer_rules.py` に、落ちるべき例を 2 つ足す。写しの木に `from lizyml.config.schema import LGBMConfig` を、`evaluation/evaluator.py` に足すと R3 で、`estimators/provider.py` に足すと R2 で失敗する。
+    - これは、下の層が Config のクラスを import できないことを固定する。Config の値での選択を防ぐものではない。
+  - `.github/PULL_REQUEST_TEMPLATE.md` の Checklist に、次の項目を足す。
+
+```
+- [ ] Layers 1-3 changed: none of the following outside the two exceptions in BLUEPRINT §2.1, checked by review until H-0131's implementation and the matching architecture tests are merged: (1) concrete assembly, including selection by Config type, `name` or a value derived from them; (2) concrete type dispatch; (3) registry lookups that bypass the registry helpers; (4) rewriting registrations (an implementation module registering its own types is allowed)
+```
+
+**Firing rate**: 本改訂は新しい条件を加えない。R6 の許可の一覧 `DISPATCH_ALLOWED` と registry の許可を消す。足す 2 つのテストは、落ちるべき例である。
+
+#### 変更 3: 保証の範囲を明記する
+
+- #362 の目的は、満たしたまま変わらない。目的は、17 本の例外をなくし、一覧を空にすることだった。
+  - 17 件の一部はコードの変更で閉じ、残りは IF の列と許す参照の表で合法にした。内訳は H-0130 の本体（方針と Firing rate）と `docs/audits/2026-10-h0130/probes/census_h0130.out` が記録しており、この改訂では繰り返さない。
+  - R6 を取り下げても、R0〜R5、二つの表、空の例外の一覧は変わらない。
+  - 実行時に親パッケージが読むもの、`eval` / `exec`、文字列の中の import は、もともと範囲の外である（`_layer_rules.py:22-24`）。
+- 弱くなるのは、それより広い保証である。H-0131 の実装と、それに対応する architecture のテストが merge されるまで、次の 4 つ（以下「範囲」）はレビューだけで守る。
+  - (1) 組み立て（Config の型、discriminator の `name`、それから導いた値での選択を含む）。
+  - (2) 具象型ディスパッチ。
+  - (3) registry の helper を迂回して registry から引くこと。
+  - (4) 登録の書き換え。実装のモジュールが自分の型を登録することは許す（変更 1 の例外 2 の役割）。
+- 範囲と終わりの条件を、次の場所に同じ文で書く。日本語の場所は上の 4 つの文を、英語の場所は次の訳を、そのまま使う: "(1) concrete assembly, including selection by Config type, `name` or a value derived from them; (2) concrete type dispatch; (3) registry lookups that bypass the registry helpers; (4) rewriting registrations (an implementation module registering its own types is allowed)"、終わりの条件は "until H-0131's implementation and the matching architecture tests are merged"。
+  - BLUEPRINT §2.1（変更 1 の最後の箇条）。
+  - `.github/PULL_REQUEST_TEMPLATE.md`（変更 2）。
+  - CHANGELOG の `[Unreleased]` の H-0130 の項に、過去形で次の文を書く。
+
+    ```
+    The layer test's type-dispatch and registry checks (R6) were withdrawn. BLUEPRINT §2.1 now defines concrete assembly and concrete type dispatch. The following are checked by review, not by tests, until H-0131's implementation and the matching architecture tests are merged: (1) concrete assembly, including selection by Config type, `name` or a value derived from them; (2) concrete type dispatch; (3) registry lookups that bypass the registry helpers; (4) rewriting registrations (an implementation module registering its own types is allowed).
+    ```
+
+  - 実装 PR の本文。範囲の 4 つを英語の訳のとおりに書き、確認項目、H-0131 の Issue へのリンク、同じ終わりの条件を書く。
+  - `ARCHITECTURE.md:127` と `README.md:134`（変更 4）。
+
+#### 変更 4: 文書の既知の箇所
+
+実装では、方針 6 の閉じた一覧を全部読む。対象は `BLUEPRINT.md`・`ARCHITECTURE.md`・`docs/add-estimator-guide.md` の全体と、`README.md` の `## Architecture` 節である。分かっている箇所は次のとおり（`git grep "組み立て\|assembl\|型ディスパッチ\|dispatch\|Registry\|registry"` と、開放閉鎖の主張 `変更ゼロ` の検索）。
+
+| 箇所 | 今 | 直し方 |
+|---|---|---|
+| `BLUEPRINT.md:58` | 組み立て・型ディスパッチは Layer 4、例外二つ | 変更 1 の文 |
+| `BLUEPRINT.md:72-76` | R6 の検査 | 変更 2 の一行 |
+| `BLUEPRINT.md:81`・`:95` | `model.py` 変更ゼロ | 変えない（主張はもともと `model.py` に限っている） |
+| `BLUEPRINT.md:38`・`:2342`・`:2357` | Facade は組み立てのみ、Facade が組み立てるもの | 変えない（Facade がロジックを持たないという別の文） |
+| `ARCHITECTURE.md:127` | 「Facade 独占」の行 | 定義は BLUEPRINT §2.1 と書く。例外 2 は registry の helper として書く。「テストは静的な import の辺だけを確かめる」と、変更 3 の範囲の 4 つと終わりの条件を、変更 3 の文のとおりに足す（H-0130 改訂 2） |
+| `ARCHITECTURE.md:526` | Layer 4 の説明 | 例外 2 を helper として書き、「（定義は BLUEPRINT §2.1）」を足す |
+| `ARCHITECTURE.md:581` | Facade の責務: Config を読み… | 「Config などの宣言的な入力を読み、各カテゴリの境界 IF の具象実装を選択・組み立て・接続する（定義は BLUEPRINT §2.1）」 |
+| `ARCHITECTURE.md:806` | 凡例（例外: …`metrics/registry.py`・`calibration/registry.py`） | 例外 2 を「registry の helper」と書く |
+| `README.md:134` | Only the Facade assembles concrete classes, except … | "Only the Facade (Layer 4) selects and wires concrete implementations of the Layer 1 interfaces, including selection by Config type or name, and dispatches on concrete types (defined in BLUEPRINT §2.1), except an estimator provider's own factories and checks on its own adapter type, and the metric and calibrator registry helpers that build registered types by name. Tests check only import edges. The following are checked by review until H-0131's implementation and the matching architecture tests are merged: (1) concrete assembly, including selection by Config type, `name` or a value derived from them; (2) concrete type dispatch; (3) registry lookups that bypass the registry helpers; (4) rewriting registrations (an implementation module registering its own types is allowed) (H-0130 amendment 2)." |
+| `docs/add-estimator-guide.md:279` | model.py は組み立てのみ | 変えない |
+| `CHANGELOG.md` `[Unreleased]` | H-0130 の項 | 変更 3 の文を足す |
+| `.github/PULL_REQUEST_TEMPLATE.md` | Checklist | 変更 2 の項目を足す |
+
+#### 変更 5: 小さな直し
+
+- **計測器の import の経路**: `dispatch_census.py:34`・`census_h0130.py:63` は、`tests/test_architecture` だけを `sys.path` に入れているので、`_layer_rules` の `from tests.test_architecture...` で落ちる。
+  - どの計測器もリポジトリの根を入れる（`construct_census.py:12`・`impl_owner_census.py:21` と同じ形）。
+  - `_dispatch_rules.py` を消した後は、`_layer_rules` がこれを import しなくなる。それでも根は入れる。
+- **モジュールの数**: `dispatch_census.out` の「modules: 138」は、生成される `lizyml/_version.py` の有無で 137 と 138 に変わる。
+  - 計測器は `_version.py` を数えず、数を決まったものにする（`registry_reach_census.py` と同じ）。
+  - `.out` は、直した計測器で書き直す。
+- **改訂 1 の誤った文**: 「コード、テスト、公開 API、保存の形式は変わらない」は誤りだった。改訂 1 は R6 のテストと検査を足した（`fe001bd`）。改訂 1 の文は書き換えず、その場に訂正の注を付けた。
+
+#### H-0131 の範囲（予約。この改訂では決めない）
+
+強い形を、別の Proposal で決める。どの案を採るかは決めていない。候補は次の 3 つ。
+- 選択肢の文書の O4（import の持ち主で守る）。
+- O5（能力で分けた registry）。
+- 1-C（IF のモジュールから import してよい名前を、その IF が宣言した名前に限る）。
+
+範囲を閉じるため、決めることを先に挙げる。
+1. **役割の表**。持ち主の表ではなく、役割で書く。
+   - パッケージの `__init__` は再公開だけ。
+   - 実装のモジュールは登録だけ。
+   - registry の helper は、引いて作るだけ。
+   - 各 provider は、宣言した自分の adapter と pipeline だけを作り、判定する。
+   - 名前のついた組み立ての場所（Facade の中の決まったモジュール）が、選んでつなぐ。
+2. **部品の範囲**。継承の実装に加えて、構造的な Protocol の実装（`EstimatorProvider`）と、カテゴリをまたぐ具象の結果型を含める。
+3. **新しい実装の検知**。実装が増えたとき、表に無いものを失敗にする。
+4. **再公開**。何段もの再公開、別名、`*` の再公開、モジュールの属性からの取り出しをどう解くか。
+   - 1-C を採るなら、次のことを決め、解く道ごとに落ちるべき例を置く。
+     - IF ごとの宣言のありか。
+     - `__all__` が無いときの扱い。
+     - 古びの検査。
+5. **動的な import とリフレクションの範囲**。
+6. **内側と利用者の線**。利用者は、公開された具象のクラスを作ってよい。規則は `lizyml` の中だけに当てる。
+7. **外の provider と optional な provider**。検査の木の外にあるものを、どう見つけて信頼するか。
+8. **registry**。
+   - O5 を採るかどうかを決める。O5 は O4 とは別の軸で、helper の迂回と登録の書き換えを構造で閉じる。
+   - 採るなら、今の `MetricRegistry`・`CalibratorRegistry` の記号の互換性と非推奨を決める（`core/registries.py` は文書にある設計の IF）。
+9. **名前と値での選択**。次のものは、import に頼る案（O4、1-C）では閉じない。
+   - `cfg.name` や discriminator の値での選択。
+   - クラス名の文字列での選択。
+   - 渡された factory の選び分け。
+   - 名前で具象を知ること（`codegen/generator.py:140` のような分岐）。
+
+   これらを、どの案とも別に、規則とテストの範囲に入れるかを決める。
+10. **終わりの条件**。H-0131 の実装と、それに対応する architecture のテストが merge された時点で、改訂 2 の「レビューだけで守る」期間が終わる。H-0131 は、どの項目をテストで守り、どれをレビューに残すかを書く。
+
+#### 互換性
+
+- 公開 API、Config、結果の型、保存の形式は変わらない。
+- 変わるものは次のとおり。
+  - BLUEPRINT §2.1 の文。
+  - テストの検査（R6 を消し、Config の import の落ちるべき例を 2 つ足す）。
+  - 計測器。
+  - PR のテンプレート。
+  - 関連する文書。
+
+#### 検討した代わり
+
+- **O1（R6 の書き方を増やし続ける）**: 書き方の一覧が開いている。コンストラクタまで数えると、77 か所の扱いに定義が要る。
+- **O2（名前で閉じた registry の規則。最初の版）**: IF のモジュールの再公開を通した別名で開いていた（`h0130-amend2-review` と、文脈を持たないレビュー）。
+- **狭い import の規則（Layer 2・3 は `lizyml.core.registries` を import しない）**: 構造で閉じていて、今の木での発火は 0。ただし別名を捕まえず、§2.1 の表の Layer 0「全部」に例外を足す。管理者は採らなかった。
+- **O9（組み立ての文を消す）**: 仕様が守っている分だけを主張する。その代わり、設計の意図（H-0051〜H-0053）を手放す。
+- **P2（強い形をこの改訂で入れる）**: H-0131 の範囲の 10 項目が決まっていない。H-0130 は、Proposal の 3 round、受け入れレビュー、改訂の検証 2 回、最初の版のレビュー 2 回をすでに経ている。
+
+#### 受け入れ基準（改訂 1 の R6-1〜R6-4 を置き換える）
+
+- **A2-1（消すもの）**: 変更 2 の「消すもの」が全部消えている。`git grep -n "dispatch_allowed\|DispatchKey\|DISPATCH_ALLOWED\|_dispatch_rules\|dispatch_problems\|R6_PASSES"` が、`tests/` と `docs/audits/2026-10-h0130/probes/` に何も返さない。
+- **A2-2（基準）**:
+  - `tests/test_architecture/` が通る。
+  - 層の検査は、本当の木で問題 0。
+  - 変更 2 の 2 つの落ちるべき例（`evaluation/` での R3、`estimators/` での R2）が失敗する。
+- **A2-3（陰性対照）**: `negative_controls_h0130.py` の残る 4 つが、それぞれテストに捕まる。
+- **A2-4（計測器）**: `census_h0130.py`・`dispatch_census.py`・`construct_census.py`・`impl_owner_census.py`・`boundary_construct_census.py`・`registry_reach_census.py` が、リポジトリの根から走る。モジュールの数は、`_version.py` の有無で変わらない。`registry_reach_census.py` は拒否 0 で終わる。
+- **A2-5（保証の範囲）**:
+  - 変更 3 に挙げた場所（BLUEPRINT §2.1、PR のテンプレート、CHANGELOG、実装 PR の本文、`ARCHITECTURE.md:127`、`README.md:134`）のどれにも、範囲の 4 つと終わりの条件が、変更 3 の文（日本語か英語の訳）のとおりに書いてある。
+  - 閉じた一覧のどの文書も、範囲の 4 つのどれかがテストで確かめられているとは書いていない。
+- **A2-6（文書）**: 変更 1・2 の文が BLUEPRINT §2.1 にあり、変更 4 の表のとおりに直っている。
+
+#### 確かめ方
+
+- この版に、確認レビュー（Codex、runner B）を 1 回行う。その前に、文脈を持たない absolute monitor が、ループの向きを判定する。
+- 確認レビューが確かめる項目は、`docs/audits/2026-10-h0130/amend2-confirmation-checklist.md` に先に固定する。
+- 管理者が受け入れた後に実装する。実装のレビューでは、閉じた一覧を全部読ませる。
+
+#### 確認レビューと受け入れ（2026-10-15）
+
+- 固定した確認の項目（`docs/audits/2026-10-h0130/amend2-confirmation-checklist.md`）で、Codex の review を行った。各 round の前に、文脈を持たない loop monitor を置いた。
+
+| round | run | head | 結果 | monitor（その round の前） |
+|---|---|---|---|---|
+| 1 | `h0130-amend2-review` | `6338c73`（最初の版） | CHANGES_REQUESTED（critical 3、major 2） | — |
+| 2 | `h0130-amend2-confirm` | `0bf7a2d` | CHANGES_REQUESTED（項目 3 の critical 1、項目 5 の major 1） | absolute: DELIVERABLE-FOCUSED、continue |
+| 3 | `h0130-amend2-r3` | `3bfa89b` | CHANGES_REQUESTED（項目 3 の critical 1） | relational: CONVERGING、continue |
+| 4 | `h0130-amend2-r4` | `3ba32c1` | APPROVE（指摘 0） | relational: CONVERGING、continue |
+
+- round 2 と 3 の指摘は、どれも前の直しの欠陥だった。停止ルールに従って、どちらの round の後も管理者が続け方を決めた（round 3、round 4 とも通常の round）。
+- 17 件の文は 3 回、誤りとされた。原因は、計測から導いた内訳を文で言い換え続けたことだった。round 3 の後、内訳を言い換えずに記録を指す文に変えて閉じた。
+- 管理者が受け入れを宣言した（2026-10-15）。変更 1〜5 は、この記録の後に同じブランチで実装する。
+
+#### 改訂 2 の実装の記録（2026-10-15）
+
+- **文書**: 変更 1 と変更 2 の文を BLUEPRINT §2.1 に入れた。変更 4 の表のとおりに ARCHITECTURE.md（`:127`・`:526`・`:581`・`:806`）、README.md（`## Architecture`）、CHANGELOG（`[Unreleased]`）、`.github/PULL_REQUEST_TEMPLATE.md` を直した。範囲の 4 つと終わりの条件は、変更 3 の文のとおりである。
+- **テスト**:
+  - `tests/test_architecture/_dispatch_rules.py` を消した。`_layer_rules.py`、`test_layer_rules.py`、`negative_controls_h0130.py` は、R6 を足す前（`c7ff9a4`）の形に戻した。
+  - Config のクラスの import の落ちるべき例 2 つ（`evaluation/` で R3、`estimators/` で R2）を足した。
+  - `tests/test_architecture/` は 99 件が通る。陰性対照は 4 つとも捕まった（`negative_controls_h0130.out`）。
+- **計測器**:
+  - `_package`・`_bindings`・`_dotted`・`_Index` を `probes/_census_index.py` に移した。`_version.py` を数えない。
+  - 6 本とも、リポジトリの根から `python3 -I` で走る（`boundary_construct_census.py` は lizyml を読み込むので `uv run`）。
+  - `dispatch_census.out` を書き直した。モジュールの数は 137 で、それ以外の数は変わらない。
+  - `census_h0130.out` は `e8b4c4e` の木の記録なので、書き直していない。
+- **A2-1 の確かめ**: `grep -rn -e dispatch_allowed -e DispatchKey -e DISPATCH_ALLOWED -e _dispatch_rules -e dispatch_problems -e R6_PASSES tests docs/audits/2026-10-h0130/probes` は、`.out` を除いて何も返さない。
+- **CI で見つけたこと（PR #367、2026-10-15）**: 受け入れ基準 6(a2) の古い pickle（`tests/test_architecture/data/calibration_result_e8b4c4e.pkl`）は、numpy 2 で書いていた。その pickle は `numpy._core` を名指し、numpy 1.24.0 にはこのモジュールが無い（numpy 1.26 にはある）ので、CI の「Quality (lowest-direct deps)」（numpy 1.24.0）で落ちた。
+  - 宣言した下限（`numpy>=1.24`）の環境で、`e8b4c4e` の木から書き直した。numpy 2.4.2 は、この numpy 1.24.0 の fixture を読める。
+  - 書き直した fixture では、numpy 1.24.0 と numpy 2.4.2 の両方で 18 件が通る（`-W error::DeprecationWarning` でも通る）。
+  - `test_the_fixture_uses_numpy_1_compatible_names` を足した。fixture が `numpy.core.multiarray` を名指し、`numpy._core` を名指さないこと（numpy 1 と互換の名前）を確かめる。書いた numpy の版そのものは確かめない（Codex の確認 `h0130-impl-delta` の minor）。前の fixture では失敗することを確かめた。
+  - 書き方は `make_old_calibration_pickle.py` の docstring に書いた。
+
+## H-0132: 回帰の指標 MASE を足す ― 学習側の目的変数で scale を決め、指標の IF に `bind_train` を足す（#355）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-15
+- **決定日**: 2026-10-15
+  - Codex の設計の批評（run `h0132-design-critique`）の後、管理者が 4 つの分岐を決めた。
+  - Codex の Proposal review は 1 つの run（`h0132-proposal-review`）で、round 1 が CHANGES_REQUESTED、round 2 が APPROVE（`5018972`）だった。round 2 の前の absolute monitor は 2 つとも DELIVERABLE-FOCUSED。
+  - 管理者が受け入れを宣言した。
+- **スコープ**:
+  - `lizyml/metrics/base.py`: `BaseMetric` に、具体のプロパティ `needs_train_target` と具体のメソッド `bind_train` を足す。
+  - `lizyml/metrics/regression.py`: 新しい `MASE`。
+  - `lizyml/metrics/registry.py`、`lizyml/metrics/__init__.py`: 登録、task の集合、再公開。
+  - `lizyml/evaluation/evaluator.py`: 学習側の目的変数で束ね、OOF 全体を行ごとの scale でまとめる。
+  - `lizyml/estimators/lgbm/metric_bridge.py`、`param_validation.py`、`adapter.py`、`provider.py`: feval の束ね方、feval の一覧、`metric_choices`。
+  - `lizyml/codegen/templates.py`: 生成コードの feval。
+  - 文書（下の「規則が縛る位置」の閉じた一覧）。
+- **関連**: [Issue #355](https://github.com/nbx-liz/LizyML/issues/355)。H-0065（`MetricEntry`）、H-0066（feval）、H-0071（`smape`・`wape`）、H-0099（tune の向き）、H-0105（feval に渡す予測）、H-0120（生成コードが refit を再現する）、H-0125（学習曲線の定義）。
+
+### 目的（課題）
+
+管理者が #355 で決めた目的は二つある（2026-10-13）。
+1. `y = 0` を含むデータでも使える相対誤差の指標が欲しい。`mape` は `y = 0` を拒否する（`UNSUPPORTED_METRIC`）。
+2. tune の目的関数として使いたい。そのためには、学習中の feval（学習曲線、early stopping）でも使えなければならない。
+
+MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale` は**学習データ**での単純な予測の MAE で、`y = 0` でも定義され、尺度に依らず、対称である。非時系列のデータでは、学習データの平均を予測とした MAE（平均からの平均絶対偏差）を使う（R の `forecast::accuracy` の既定）。
+
+今の指標の IF（`BaseMetric.__call__(y_true, y_pred)`、`metrics/base.py:54`）には、学習側の目的変数を渡す道が無い。
+
+### 管理者の判断（2026-10-15、Codex の設計の批評 `h0132-design-critique` の後）
+
+- **OOF 全体の値**: 行ごとに、その行を検証した fold の scale で割ってから平均する。1 行が 2 つ以上の fold の検証に入る分割では、MASE を名前のついたエラーで拒否する。
+- **scale が 0**: 拒否する（`UNSUPPORTED_METRIC`）。
+- **範囲**: v1 は学習平均の scale だけにする。時系列の naive の scale、季節の scale、系列（group）ごとの scale は扱わない。
+- **生成コード**: 知らない feval の名前を警告で飛ばす今の方針は変えない。MASE がその経路に入らないことを、テストで確かめる。
+
+### 実測（2026-10-15、`d0adb44`）
+
+- **指標を計算する場所と、学習側の行**（2 つの読み取り専用の scout と、Codex の批評で確かめた）:
+
+| 場所 | 評価する行 | その場で使える学習側の行 |
+|---|---|---|
+| OOF の fold ごと（`evaluator.py:165-170`） | fold k の検証の行 | `splits.outer[k][0]`（outer-train）。今のループは捨てている |
+| OOF 全体（`evaluator.py:161`） | 覆われた全ての行 | 行ごとに fold が違う |
+| IF の fold ごと（`evaluator.py:174-178`） | fold k の outer-train の行 | 同じ行（IF はもともと学習側の行での値） |
+| feval（`metric_bridge.py:225-279`） | inner-valid の行（`dataset.get_label()`） | `LGBMAdapter.fit` の `y_train`（inner valid があれば inner-train）。ただし closure は `_build_params()` の中で `train_set` より前に作られ、`y_train` を受け取らない（`adapter.py:192-194`） |
+| tune のスコア（`_model_tuning.py:753-754`） | OOF 全体 | 上の OOF 全体と同じ |
+| `Model.evaluate(metrics=)`（`model.py:370-410`） | — | 計算しない。fit の時の値を絞り込むだけ。新しいデータでの評価の入口は無い |
+
+- **重み**: Model / Config の経路は、回帰に重みを与えない。`smart_params.py:178-188` が `balanced` を拒否し、利用者が重みの列を書く Config は無い。ただし公開の `LGBMAdapter.fit` は、回帰でも `sample_weight` を受け取って `lgb.Dataset` に渡す（`adapter.py:173-203`、`lizyml.estimators` が再公開する）。MASE の scale はどちらの経路でも重みを使わない（方針 1）。
+- **目的変数の変換**は回帰に無い。回帰の目的変数は NaN だけを拒否し、無限大は通る（`core/types/target_encoder.py:123-136`）。指標は元の尺度の `y` を見る。
+- 保存しているもの: y から導いた統計量は無い。`FORMAT_VERSION = 2`（`persistence/exporter.py:40`）。任意の `analysis_context.pkl` には y 全体が入りうるが、scale を後から計算する場所は無い。
+- **重なる検証の fold**（構造の確認。母集団の計測ではない）: `docs/audits/2026-10-h0132/probes/overlap_census.py` → `.out` は、`lizyml/splitters/` の 8 つの splitter class（Config の 8 つの `split.method` に当たる）を、合成の行の上で、手で選んだ 138 通りの引数で直接走らせた。1 行が 2 つ以上の fold の検証に入る場合は 0 で、陰性対照（重なる 2 fold）は捕まった。
+  - これは Config と `build_splitter` を通していない。Config の分岐のうち `blocked_group_kfold` の `stratify: true / auto`・`shuffle: false`・`min_train_rows` / `min_valid_rows`、`stratified_group_kfold` の `shuffle: false` を含まない。`PurgedTimeSeriesSplitter` の `embargo` は、factory が渡さない非推奨の引数である。
+  - `compute_oof_valid_mask` は重なりを和集合で扱う（`core/types/oof_coverage.py:34-36`）。重なる分割を作るのは、今はテスト `tests/test_training/test_oof_coverage.py:89` だけである。
+
+### 対応方針（提案）
+
+1. **MASE の定義**（`metrics/regression.py`、名前 `mase`）
+   - `scale = mean(|y_train - mean(y_train)|)`、`MASE = mean(|y - ŷ|) / scale`。
+   - `greater_is_better = False`、`needs_proba = False`、回帰だけ（`_TASK_METRICS["regression"]` に足す）。
+   - scale は重みを使わない。`LGBMAdapter` を直接使って回帰に `sample_weight` を与えても、feval の scale は学習側の目的変数の重みなしの平均からの偏差である。
+   - コンストラクタは引数を取らない。`{mase: {...}}` のような引数は、今の `get_metric` の経路で `CONFIG_INVALID` になる（`registry.py:129-136`）。利用者が scale を与える道は作らない。
+2. **指標の IF**（`metrics/base.py`）
+   - 具体のプロパティ `needs_train_target`（既定 `False`）と、具体のメソッド `bind_train(y_train) -> BaseMetric` を足す。既定の `bind_train` は `LizyMLError(UNSUPPORTED_METRIC)` を送出する。
+   - 既存の具体のプロパティ `needs_simplex`（`base.py:39-51`）と同じ形なので、外の子クラスは抽象にならない。`__call__` の形（引数 2 つ）は変えない。
+   - 呼ぶ側は、`needs_train_target` が真のときだけ `bind_train` を呼ぶ。
+   - `MASE.bind_train` は、scale を持つ新しい instance を返す。元の instance は変わらない。
+     - scale が 0 か有限でないときは、`bind_train` が `UNSUPPORTED_METRIC` を送出する。context は `metric`・`scale`・`n_train`。
+   - 束ねていない `MASE` の `__call__` は `UNSUPPORTED_METRIC` を送出する。文は「学習側の目的変数が要る」と言う。黙った既定値（たとえば評価する行から scale を取る）は無い。
+   - 束ねていない `MASE` は、メタデータのための経路では作れる。名前、向き、`needs_*` を読むだけで、呼ばない:
+     - `get_metric`
+     - tune の向きの検査（`_tuning_validation.py:29-53`）
+     - config の検査（`_model_factories.py:525`）
+     - `resolve_metrics`
+     - tune の探索次元の metric の選択肢の検査（`_tuning_validation.py:181-189` が、各選択肢を `resolve_user_metric([choice], task)` で作るが呼ばない）
+     - `params_table`
+     - `build_export_params`（`provider.py:550`）
+     - `_extract_feval_metadata`
+     - `Model.evaluate(metrics=)` の絞り込み
+3. **学習側の行**（どの場合も、評価する行の目的変数は scale に入らない。ただし IF は定義上、学習側の行を評価する）
+
+| 場所 | scale を取る行 |
+|---|---|
+| OOF の fold k | fold k の outer-train の行（`splits.outer[k][0]`）。inner valid の有無に依らない |
+| OOF 全体 | 方針 4 |
+| IF の fold k | fold k の outer-train の行（評価する行と同じ） |
+| feval（early stopping と学習曲線） | booster が学習する行。inner valid があれば inner-train の行で、評価する inner-valid の行は入らない。inner valid が無ければ eval set が無く、feval は走らない |
+
+   - 一つの fit の中では scale は正の定数なので、feval の MASE と MAE は同じ反復を選ぶ。OOF（outer-train の scale）と学習曲線（inner-train の scale）とで値が違うのは、表示の違いである。
+   - H-0125 の「学習曲線は LightGBM の名前と定義で計算し、`FitResult.metrics` と定義が違う名前は `huber` と `mape`」の文（BLUEPRINT §7.1・§13.1、`docs/config-reference.md:287`、`docs/api.md:450`・`:477`）は native の指標についての文で、`tests/test_docs/test_h0125_docs.py:93-107` と `tests/test_plots/test_learning_curve_definitions.py:121-128` が固定している。これは変えない。
+   - MASE には、§13.1 の `mase` の項に別の文を書く: 「式は同じで、学習曲線は booster が学習する行（inner-train）の scale、`FitResult.metrics` は fold の outer-train の scale を使うので、値が違いうる」。この文を新しい H-0132 の文書のテストで固定する。
+   - time・group の分割でも、scale は fold の outer-train 全体の平均からの偏差で一つにする（系列ごとや季節の scale ではない）。
+4. **OOF 全体の値と tune のスコア**（`evaluator.py`）
+   - `needs_train_target` の指標の OOF 全体は `(1/n) Σ_k Σ_{i∈V_k} |e_i| / s_k` とする。`V_k` は fold k の検証の行、`s_k` はその outer-train の scale、`n = Σ_k |V_k|` は覆われた行の数。
+   - これは、fold の行数で重みをつけた fold ごとの MASE の平均と等しい。覆われない行（時系列の最初の期間など）は入らない。
+   - 計算の前に、覆われた行が全て、ちょうど一つの fold の検証に入ることを確かめる。2 つ以上の fold の検証に入る行があれば、`LizyMLError(UNSUPPORTED_METRIC)` で拒否する。context は `metric`・重なる行の数・最初の行の位置。黙って片方の fold を選ぶことはしない。
+   - 利用者から見える振る舞い:
+     - `fit` は、この `UNSUPPORTED_METRIC` をそのまま送出する。
+     - `tune` は、各試行の中で Evaluator がこれを送出し、試行は FAIL になる（`tuning/tuner.py:574-581`）。分割は全ての試行で同じなので全ての試行が FAIL になり、`Model.tune` は `TUNING_FAILED` を送出する。その `first_error` が `UNSUPPORTED_METRIC` である（`core/_model_tuning.py:797-841`、H-0128 の仕組み）。
+     - study の前に拒否する経路は足さない（新しい分岐を作らない）。
+   - `oof_per_fold`・`if_per_fold`・`if_mean`（fold ごとの値の重みなしの平均）の意味は変えない。
+   - tune のスコアは今のとおり `metrics["raw"]["oof"][name]` を読む（`_model_tuning.py:753-754`）。tune の同一性（`_tuning_identity.py:249-253`）は指標の名前・引数・向きを既に持つので、足すものは無い。
+   - 学習側の目的変数を要らない指標の計算は、今のまま変えない。
+5. **feval の束ね方**（`metric_bridge.py`、`adapter.py`）
+   - `resolve_metrics(..., y_train=None)`（`metric_bridge.py`）と `resolve_user_metric(..., y_train=None)`（`param_validation.py:83-95`）に、キーワードの引数 `y_train` を足す。`resolve_user_metric` は `y_train` を `resolve_metrics` にそのまま渡す。`y_train` が与えられたとき、`needs_train_target` の指標を `bind_train(y_train)` してから feval を作る。
+   - `LGBMAdapter.fit` は、受け取った `y_train`（booster が学習する行）を `_build_params(y_train=...)` に渡す。
+   - `y_train` を与えない呼び出し（メタデータの経路）は、束ねていない feval を作るが、それを呼ばない。
+   - feval が `dataset.get_label()` から scale を作る道は作らない（評価する行の目的変数になるため）。
+6. **生成コード**（`codegen/templates.py`）
+   - `_feval_mase(y_true, y_pred, scale)` と、学習側の scale を計算する `_train_scale_mase(y_train)` を足す。scale が 0 か有限でないなら `ValueError`（ライブラリの `bind_train` と同じ条件。生成の `wape` と同じく `ValueError`）。
+   - `build_feval_from_config(y_train)` は引数で学習側の目的変数を受け取り、`mase` のときだけ scale を計算して渡す。呼ぶ側は、生成 `train.py` の 1 か所だけで、inner valid があれば `y.iloc[tr]`、無ければ `y` を渡す（`templates.py:407-431`）。この関数を直接呼ぶテスト（`tests/test_codegen/test_feval_codegen.py:575`・`:588`、`tests/test_estimators/test_feval_probabilities.py:206`）も新しい形に直す。
+   - `config.json` の `feval_metrics` の形は変えない。
+   - 知らない名前を警告で飛ばす方針（`templates.py:552-555`）は変えない。`_FEVAL_METRICS` の全ての名前が生成の `_FEVAL_REGISTRY` に在ることを、`_FEVAL_METRICS` から導くテストで確かめる。今のテスト `tests/test_codegen/test_feval_codegen.py:416-433` は手書きの一覧である。
+7. **保存は変えない**
+   - fit の後で MASE を計算し直す場所は無い。`Model.evaluate` は fit の時の値を絞り込み、表は整形し、学習曲線の図は保存した `eval_history` を読み、`Model.load` は `fit_result.metrics` を戻す。
+   - だから refit の scale を保存しない。`FORMAT_VERSION` は 2 のまま。生成コードは自分で学習し直し、自分の学習側の行から scale を作る（方針 6）。
+8. **一覧**（下の「規則が縛る位置」）: 指標の名前を列挙する場所の全てに `mase` を足す。
+
+### 規則が縛る位置（ソースから導出、実装前、`d0adb44`）
+
+`git grep -n -i -w wape` で回帰の feval 指標を列挙する場所を全て数えた（`HISTORY.md`・`CHANGELOG.md`・`docs/audits/` は除く）。`mase` は同じ場所に入る。
+
+| 場所 | 足すもの |
+|---|---|
+| `lizyml/metrics/base.py:11-63` | `needs_train_target`・`bind_train` と docstring |
+| `lizyml/metrics/regression.py`（`:1` の docstring、新しいクラス） | `MASE` |
+| `lizyml/metrics/__init__.py:24`・`:36` | import と `__all__` |
+| `lizyml/metrics/registry.py:27` | `_TASK_METRICS["regression"]` |
+| `lizyml/estimators/lgbm/metric_bridge.py:125` | `_FEVAL_METRICS["regression"]` |
+| `lizyml/estimators/lgbm/metric_bridge.py`（`resolve_metrics`）、`param_validation.py:83-95`（`resolve_user_metric`）、`adapter.py:192-194`（`_build_params`） | 方針 5 の `y_train` |
+| `lizyml/evaluation/evaluator.py:67-77`・`:126-183` | 方針 3・4 の束ね方と OOF 全体 |
+| `lizyml/estimators/lgbm/provider.py:181` | `_LGBM_FEVAL_METRIC_CHOICES["regression"]`（`metric_choices` の feval の側） |
+| `lizyml/codegen/templates.py:526-536` | `_FEVAL_REGISTRY` と、方針 6 の scale |
+| `BLUEPRINT.md:550` | feval の指標の列 |
+| `BLUEPRINT.md:1519-1533`（§13.1） | 指標の IF（`needs_train_target`・`bind_train`）、`mase` の定義と拒否、`_TASK_METRICS` |
+| `BLUEPRINT.md:1700-1715`（feval の表と文） | `mase` の行と、scale を取る行（方針 3）、学習曲線との違い |
+| `ARCHITECTURE.md:139`・`:335-338` | 指標の IF の契約 |
+| `ARCHITECTURE.md:37` | 具象の指標の数（今 `14 concrete`。実装で数え直す） |
+| `BLUEPRINT.md:569`（§7.1）、`docs/config-reference.md:287`、`docs/api.md:450`・`:477` | H-0125 の native の定義の文。変えない（方針 3） |
+| `BLUEPRINT.md:1586`（`plot_learning_curve`） | 変えない（feval の指標も学習曲線に出る。名前は `mase`） |
+| `docs/add-estimator-guide.md:160-174`（`_FEVAL_METRICS` の例。今 `smape`・`wape` が無く古い）、`:203-210`（`build_feval_from_config` の説明） | 今のコードに合わせて直す（`mase` を含め、`build_feval_from_config(y_train)` の形） |
+| `docs/config-reference.md:318`・`:617`・`:632`・`:659` | feval の表、task の表、指標の表、式 |
+| `docs/proposal_dispositions.toml` | H-0132 の処分 |
+| テスト `tests/test_estimators/test_feval_probabilities.py`（`_FEVAL_METRICS` の全てを束ねずに作る、`:46-56`・`:82-137`） | `needs_train_target` の指標は束ねて作る |
+
+この表は二つの検索で閉じた（round 1 の指摘で、名前だけの検索を識別子の検索で補った）:
+- 名前: `git grep -n -i -w wape`（上の行）。
+- 識別子: `git grep -n -E "_FEVAL_METRICS|_TASK_METRICS|_LGBM_FEVAL_METRIC_CHOICES|_FEVAL_REGISTRY|build_feval_from_config|resolve_user_metric|resolve_metrics\(|_build_feval\(|needs_simplex|get_metrics_for_task|_compute_metrics"` を `lizyml`・`tests`・`BLUEPRINT.md`・`ARCHITECTURE.md`・`docs/*.md`・`README.md` で。当たったファイルのうち、上の表に無いものは全て、指標の一覧や形を変えずに読むだけの呼び出し（`classification.py`、`core/model.py`、`_model_factories.py`、`_tuning_validation.py`）か、既存のテストである。
+
+テストでこの名前か識別子を列挙するもの: `test_feval_codegen.py`、`test_retrain_reproduction.py`、`test_lgbm_feval_behavioral.py`、`test_lgbm_metric_bridge.py`、`test_provider_choice_apis.py`、`test_regression_metrics.py`、`test_feval_probabilities.py`、`test_metric_choices_registry_coverage.py`、`test_h0125_native_metric_params.py`、`test_h0125_docs.py`、`test_learning_curve_definitions.py`、`test_evaluation.py`、`test_metric_entry.py`、`test_metric_entry_integration.py`、`test_metrics.py`、`test_direction_reconciliation.py`、`test_error_code_raising.py`。実装で、それぞれに `mase` が要るかを確かめる。
+
+### 互換性
+
+- **公開 API**:
+  - `lizyml.metrics` に `MASE` が増える。
+  - `BaseMetric` に具体の `needs_train_target` と `bind_train` が増える。既存の子クラスは、そのまま動く。
+  - `__call__` の形は変えない。
+- **Config**: `evaluation.metrics` と `model.params.metric` で `mase` を受け付ける。既存の値の意味は変わらない。
+- **FitResult**: `metrics` に `mase` の値が入りうる。形は変わらない。ほかの指標の値は変わらない。
+- **保存**: `FORMAT_VERSION` は変えない。`config.json` の形も変えない。
+- **生成コード**: `build_feval_from_config` が引数を一つ取るようになる。生成されたファイルは毎回作り直すので、既に生成したファイルには影響しない。
+
+### 代替案（検討して棄却）
+
+- **`__call__(y_true, y_pred, *, y_train=None)` にする**: 文書にある引数 2 つの契約（`ARCHITECTURE.md:139`）と、全ての子クラスの上書きを変える。
+- **`scale=` をコンストラクタの引数にして、呼ぶ側が入れる**: `MetricEntry` の引数は利用者が書けるので、fold から導く scale を上書きできてしまう。
+- **OOF 全体を fold ごとの MASE の重みなしの平均にする、または OOF 全体の MAE を scale の平均で割る**: 管理者の判断で、行ごとの scale を採った。
+- **scale が 0 のとき inf / NaN を返す**: 管理者の判断で拒否を採った。
+- **naive・季節・系列ごとの scale**: v1 の範囲の外（管理者の判断）。Evaluator に時間順と group を渡す変更が要る。
+- **生成コードの知らない feval をエラーにする**: 範囲の外（管理者の判断）。
+- **新しいデータでの `Model.evaluate` を足して、refit の scale を保存する**: #355 の論点 4。その入口は今無く、目的にも要らない。
+
+### Firing rate
+
+- **重なる検証の fold での拒否**（`allow`）: Firing rate: unmeasurable before implementation (the repository has no corpus of user split configurations, and the structural census `overlap_census.py` runs the 8 splitter classes on synthetic rows over a hand-picked grid of 138 argument sets without Config or `build_splitter`, finding 0 overlapping cases; measurable when the implementation's evaluator check runs over every fit of the full test suite and the tutorial notebooks, counting refusals, which the implementation record will report).
+- **scale が 0 か有限でないときの拒否**（`allow`）: Firing rate: unmeasurable before implementation (it is the mathematical undefinedness of MASE on a constant training target, like `mape` on `y = 0`; the repository holds no population of user regression datasets; measurable when the implementation's tests run the regression datasets of `tests/` and `notebooks/` through `bind_train` and count refusals).
+- **束ねていない呼び出しの拒否**: 本番の経路では呼ぶ前に必ず束ねる（方針 2・4・5）。束ねずに呼ぶのは利用者が `MASE()` を直接呼んだときだけで、これは条件で作業を選ぶものではなく、誤った使い方への名前のついたエラーである。
+
+### 受け入れ基準（テスト観点）
+
+1. **定義**:
+   - 手で計算できる例（学習側と評価側で scale が違う）で、値がちょうど `mean|e| / mean|y_train - mean(y_train)|` になる。
+   - `y = 0` を含むデータで有限の値を返す。
+   - 学習側の目的変数が全て同じ値のとき、`bind_train` が `UNSUPPORTED_METRIC` を送出する。有限でないときも同じ。
+   - 束ねずに呼ぶと `UNSUPPORTED_METRIC` を送出する。
+   - `{mase: {x: 1}}` は `CONFIG_INVALID` になる。
+   - `bind_train` は元の instance を変えない。
+2. **Evaluator**: fold ごとに学習側と評価側の scale がはっきり違い、**fold の検証の行の数が違い、fold ごとの MASE の値も違う**合成の `FitResult` で確かめる（行数が同じだと重みなしの平均と区別できない）。
+   - `oof_per_fold[k]` が fold k の outer-train の scale での値に等しい。
+   - `oof` が方針 4 の式、すなわち行数で重みをつけた fold ごとの平均に等しい。
+   - `if_per_fold[k]` が outer-train の scale での値に等しい。
+   - 一部しか覆われない分割（時系列）で、分母が覆われた行の数になる。
+   - 重なる fold で `UNSUPPORTED_METRIC` を送出する（落ちるべき例）。
+   - ある fold の outer-train の目的変数が全て同じ値なら、`UNSUPPORTED_METRIC` を送出する。
+   - ほかの指標の値は変わらない（既存のテスト）。
+3. **feval**:
+   - inner valid のある fit で、学習曲線の `mase` が `MAE(inner-valid) / scale(inner-train)` に等しい。`scale(inner-valid)` や `scale(outer-train)` とは違う値になる例で確かめる。
+   - inner-train の目的変数が全て同じ値なら拒否する。
+   - メタデータの経路（`params_table`、`build_export_params`、tune の向きの検査、tune の探索次元の metric の選択肢の検査、config の検査）が、束ねていない `mase` で失敗しない。
+4. **tune**:
+   - `evaluation.metrics: [mase]` で tune が走り、各試行のスコアが Evaluator の OOF 全体の値に等しい。
+   - 向きは最小化で、`direction: maximize` は今の検査で拒否される。
+   - 重なる検証の fold を作る splitter（テストで `build_splitter` を差し替える）では、`fit` が `UNSUPPORTED_METRIC`、`tune` が `TUNING_FAILED`（`first_error` が `UNSUPPORTED_METRIC`）を送出する。
+5. **生成コード**:
+   - 同じデータで、生成コードの feval の値がライブラリの feval の値に等しい。学習側の目的変数は `dataset.get_label()` と違う値にする。
+   - 生成の `_train_scale_mase` は、学習側の目的変数が全て同じ値のときと、無限大を含むときに `ValueError` を送出する。
+   - 生成の `build_feval_from_config` に渡る学習側の目的変数が、inner valid のとき `y.iloc[tr]` である。
+   - `_FEVAL_METRICS` から導く到達のテストが通り、手書きの一覧からは外れない。
+6. **一覧**: 「規則が縛る位置」の全ての場所に `mase` がある。既存の一覧のテスト（`test_metric_choices_registry_coverage.py`、`test_feval_probabilities.py`、`test_h0125_docs.py`）が通る。
+7. **陰性対照**（`docs/audits/2026-10-h0132/probes/negative_controls_h0132.py`）: 次の実装は、それぞれ上のテストのどれかに捕まる。
+   - (a) scale を評価する行から取る。
+   - (b) OOF 全体を重みなしの平均にする。
+   - (c) feval の scale を `dataset.get_label()` から取る。
+   - (d) 重なる fold を黙って通す。
+   - (e) 生成コードで scale を全行から取る。
+8. **保存**: `FORMAT_VERSION` は 2 のまま。既存のアーティファクトのテストが通る。`mase` を含む Model を export して load し、`evaluate(metrics=["mase"])` が fit の時の値をそのまま返す（計算し直さない）。
+9. **文書**: 「規則が縛る位置」の文書の箇所が方針のとおりになっている。方針 3 の MASE の文を、新しい H-0132 の文書のテストが固定する。H-0125 の文書のテストは変えずに通る。
+   - 閉じた一覧（`BLUEPRINT.md` の §13.1・§14 の Metric Bridge・feval の表、`ARCHITECTURE.md` の指標の IF、`docs/config-reference.md` の指標の節）を、実装レビューで全部読ませる。
+
+### 改訂の記録
+
+- **round 1**（run `h0132-proposal-review`、`bc4c00a`、CHANGES_REQUESTED: critical 3、major 5）。全て受け入れて直した:
+  - 方針 3 が H-0125 の文書のテストと食い違う → MASE の文を別にした。
+  - 重なりの計測を出荷の設定と書いていた → 構造の確認と書き直し、Firing rate を測れない形にした。
+  - 回帰に重みが無いという誤り → Model の経路と直接の adapter を分けた。
+  - `resolve_user_metric` の場所の誤りと、メタデータの経路の漏れ（探索次元の選択肢）。
+  - 一覧の漏れ → 識別子の検索で補った。
+  - 生成コードの有限でない scale。
+  - tune での重なりの振る舞い → 試行の FAIL から `TUNING_FAILED` と明記した（新しい分岐は作らない）。
+  - 受け入れ基準の強さ（fold の行数、outer-train が一定の値、保存の後の値）。
+
+### 実装の記録（2026-10-19）
+
+- **機械**: 2026-10-15〜17 に W（WSL2）で実装を始め、2026-10-19 から V（Mac 上の Ubuntu VM、aarch64、registry では `mac-m6`）で続けた。#355 は registry の checkpoint で V が持つ（D-20261019-001）。
+- **コード**: 方針 1〜7 のとおり。
+  - `metrics/base.py`: `needs_train_target`（既定 `False`）と `bind_train`（既定は `UNSUPPORTED_METRIC`）。
+  - `metrics/regression.py`: `MASE`。`bind_train` は scale を持つ新しい instance を返す。scale が 0 か有限でないとき、束ねずに呼んだときは `UNSUPPORTED_METRIC`。
+  - `evaluation/evaluator.py`: fold ごとの OOF と IF は fold の outer-train の目的変数で束ねる。OOF 全体は `_pool_by_fold_size`（fold の検証の行数で重みをつけた平均）。`_refuse_overlapping_folds` が、学習側の目的変数の要る指標があるときだけ重なりを拒否する。ほかの指標の計算は変えていない。
+  - `estimators/lgbm/`: `resolve_metrics(..., y_train=None)` と `resolve_user_metric(..., y_train=None)`。`LGBMAdapter.fit` は受け取った `y_train` を `_build_params(y_train=...)` に渡す。メタデータの経路は渡さない。`_FEVAL_METRICS`・`_LGBM_FEVAL_METRIC_CHOICES` に `mase`。
+  - `codegen/templates.py`: `_train_scale_mase`・`_feval_mase`・`_TRAIN_SCALE`。生成 `train.py` は `build_feval_from_config(y.iloc[tr] if iv is not None else y)` を呼ぶ。
+- **Proposal からのずれ**: 生成コードの `build_feval_from_config` は、`y_train` をキーワードの既定値 `None` で受ける（方針 6 は「引数で受け取る」）。`mase` があるのに `None` なら `ValueError` で止める。`mase` を使わない設定の生成コードと、この関数を直接呼ぶ既存のテストは、そのまま動く。
+- **テスト**:
+  - 新しいテスト 6 本:
+    - `tests/test_metrics/test_mase.py`（基準 1）
+    - `tests/test_evaluation/test_mase_evaluator.py`（基準 2）
+    - `tests/test_estimators/test_mase_feval.py`（基準 3）
+    - `tests/test_core/test_mase_model.py`（基準 3・4・8）
+    - `tests/test_codegen/test_mase_codegen.py`（基準 5）
+    - `tests/test_docs/test_h0132_docs.py`（基準 9）
+  - 実装の途中で見つけた DC1: `tests/test_estimators/test_feval_probabilities.py` は `_FEVAL_METRICS` の全ての指標を束ねずに作っていた。そのため `mase` は、feval と Evaluator が同じエラーで失敗する分岐で、値を比べずに通っていた。`needs_train_target` の指標は束ねてから作るように直し、回帰の指標がその失敗の分岐を通らないことを確かめる行を足した。
+- **陰性対照**（基準 7、`docs/audits/2026-10-h0132/probes/negative_controls_h0132.py` → `.out`）: (a)〜(e) の 5 組とも捕まった。パッチを当てない基準の実行も通る。
+  - 制御ごとにパッチを戻し、テストのモジュールを読み込み直す。読み込み直さないと、パッチの名前を import したテストのモジュールが次の実行に残り、基準の実行が落ちた（実測）。
+  - H-0130 の陰性対照（`negative_controls_h0130.py`）はパッチを戻さず、基準の実行も持たない。今の結果に影響は無いが、同じ穴がある（follow-up）。
+- **Firing rate（実装の後、測定。`probes/firing/` の `sitecustomize.py` → `summarize.py` → `firing.out`）**: V で、フルスイート（11902 passed、230 skipped、0 failed）と notebook の実行の層（`-m slow tests/test_notebooks`、21 passed）を走らせた。
+  - 記録したもの:
+    - 全ての `Evaluator.evaluate`（pytest の中 2982 回、notebook のカーネルの中 46 回）
+    - 全ての `MASE.bind_train`（90 回。Evaluator、LightGBM の feval、直接の呼び出しを含む）
+  - 記録ごとにプロセスの役割（pytest かカーネルか）を書く。役割は記録の時点で判定する。import の時点ではカーネルの `sys.argv[0]` がまだ `-m` のため。
+  - 集計器は想定外の事象で 1 で終わる。それを確かめる自己検査（`--self-check`、5 種）も `firing.out` に入れた（実装レビュー round 1 の指摘）。
+  - 重なる検証の fold での拒否: Firing rate: 0/3023 of `Evaluator.evaluate` calls outside the refusal's own tests have a row in two validation folds (3028 calls over the full suite and the notebook tier on V, 46 of them in notebook kernels; the 5 others are the deliberate overlap tests).
+  - scale が 0 か有限でないときの拒否: Firing rate: 0/85 of `MASE.bind_train` calls outside the refusal's own tests refused (90 calls; the 5 others are the deliberate zero, infinite, NaN and constant-target tests), and 0/4226 outer-train folds of regression fits outside them have a zero or non-finite scale (1823 regression calls, 4227 folds; the 1 other is the deliberate constant-target test).
+  - 生成コードの `_train_scale_mase` の拒否は、この計測に入れていない（生成コードは別のプロセスの別のファイルで、テストは `test_mase_codegen.py` の拒否のテストだけが呼ぶ）。
+- **フルスイート**: V（aarch64）の最初の基準は 11899 passed、0 failed だった（`70c39e9`）。W（x86_64）の `c69233e` は 11843 passed で、差の 56 は H-0132 のテストである。CPU による失敗は無かった。実装レビュー round 1 への対応の後は 11902 passed。
+  - notebook の層は V で初めて走らせた。OpenML のデータの cache（`~/scikit_learn_data`）が無く、sandbox の中では書けずに 3 本落ちた。sandbox の外で一度取得すると通った（環境の問題）。
+- **文書**: 「規則が縛る位置」の表のとおり。
+  - BLUEPRINT §6（生成コード）、§13.1、feval の表と文。
+  - ARCHITECTURE の具象の指標の数（17）と指標の IF。
+  - `docs/config-reference.md` の 4 か所。
+  - `docs/add-estimator-guide.md`: 古かった `_FEVAL_METRICS` の例、`resolve_metrics` の形、feval の予測の扱い（H-0105）。
+  - CHANGELOG と `proposal_dispositions.toml`（specified）。
+- **実装レビュー round 1**（lizy-reviewer の run `h0132-impl-review`、`70c39e9`、CHANGES_REQUESTED: major 5）。全て受け入れた:
+  - 生成コードの再現の総当たり（`tests/test_codegen/test_retrain_reproduction.py`）の `FEVALS` が手書きで、`mase` を含まなかった。`_FEVAL_METRICS` から導くようにし、受け付ける組に `mase` を足した（30 通り）。
+  - 受け入れ基準 4 の「各試行のスコアが Evaluator の OOF 全体の値に等しい」を確かめるテストが無かった。Evaluator の出力を捕まえ、完了した試行の値と比べるようにした。
+  - firing rate の計測器の不備 3 つ（上の Firing rate の項で直した）:
+    - `MASE.bind_train` の経路を数えていなかった。
+    - 集計器が想定外の scale 0 でも 0 で終わった（DC1）。
+    - notebook のカーネルの記録を pytest と区別できなかった。
+
+## H-0133: JSON にできないカテゴリ値を保存できるようにする ― 保存できない列だけ LightGBM に位置の番号を渡し、値の集合を Model.export と export_code でそろえる（#357）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-19
+- **決定日**: 2026-10-19
+  - Codex の設計の批評（run `h0133-design-critique`）の後、管理者が 4 つの分岐を決めた（registry のカード D-20261019-006）。
+  - Codex の Proposal review は、3 round の run（`h0133-proposal-review`、全て CHANGES_REQUESTED）と、確認の run 2 つ（`h0133-proposal-confirm` が CHANGES_REQUESTED、`h0133-proposal-confirm2` が APPROVE、`a42beb4`）だった。停止ルールに当たった 3 回は、そのたびに管理者が進め方を決めた（下の「改訂の記録」）。
+  - 管理者が受け入れを宣言した（「OKです。進めてください。」）。
+- **スコープ**:
+  - `lizyml/core/category_values.py`（新規、Layer 0）: 保存できるカテゴリ値の閉じた集合 V の判定と、型の印をつけた JSON の符号化・復号。
+  - `lizyml/features/encoders/categorical_encoder.py`、`lizyml/features/pipelines_native.py`: 保存できない列を fit の時点で決めて状態に記録し、transform でその列のカテゴリを位置の番号に置き換える。
+  - `lizyml/estimators/lgbm/provider.py`、`lizyml/estimators/lgbm/category_json.py`、`lizyml/estimators/lgbm/adapter.py`: 「LightGBM が書けない値」の判定を pipeline に渡す。`unsaveable_categories` は元の値の形の列だけを見る。
+  - `lizyml/persistence/exporter.py`、`lizyml/persistence/loader.py`、`lizyml/core/_model_persistence.py`、`lizyml/core/model.py`: V による拒否、`declared_categories` の符号化、`FORMAT_VERSION` 3、fit の警告。
+  - `lizyml/codegen/values.py`、`config_writer.py`、`artifact_writer.py`、`templates.py`: 特徴量のカテゴリを型の印つきで書き、生成コードが復号する。
+  - 文書とテスト（下の「規則が縛る位置」の閉じた一覧）。
+
+### 目的（課題）
+
+- カテゴリ列に JSON にできない値（`bytes`、`Decimal`、`pd.Timestamp`、`datetime`、`date`、`np.datetime64`、`Timedelta`、`complex`、`frozenset`、それらを含む混在）を持つモデルは、fit と predict はできるが保存できない。LightGBM が booster の中のカテゴリを `json.dumps` で書くためである（H-0127、#338）。v0.19.0 では、`Model.export` はこれを列・値・型を名指しして拒否し、fit は警告するだけになった（#338 の案 B）。本提案は保存できるようにする（#338 の案 D）。
+- 合わせて、`Model.export` と `export_code` が受け付ける値の集合をそろえる。今は `tuple` を `Model.export` は受け付け、`export_code` は拒否する（`tests/test_persistence/test_h0120_records.py:300-315` がこの食い違いを固定している）。
+
+### 管理者の判断（2026-10-19、Codex の設計の批評 `h0133-design-critique` の後。registry のカード D-20261019-006）
+
+1. 位置の番号への置き換えは、LightGBM が書けない値を持つ列だけに行う。他の列と `get_native_model()` の Booster の挙動は変えない。
+2. 受け付ける値の集合は、素のスカラーに `bytes`・`Decimal`・`Timestamp`（タイムゾーンつきも）・`datetime`・`date`・`np.datetime64`・`Timedelta`・`complex` を足し、それらの `tuple`・`frozenset` を含める。自分自身と等しくならない値（NaN の類）は入れ子の中でも拒否し、入れ子の深さに上限を置く。
+3. 生成コードでの型の印つきの符号化は、特徴量のカテゴリ（encoder のカテゴリ、最頻値、`declared_categories`）だけに使う。目的変数のラベルは今の値の集合のまま。
+4. `FORMAT_VERSION` は、新しい成果物すべてで 3 にする。
+
+### 実測（2026-10-19、develop `918c489`、LightGBM 4.6.0、pandas 3.0.1）
+
+- **位置の番号で予測は変わらない**（`docs/audits/2026-10-h0133/probes/stand_in_probe.py` → `.out`）:
+  - カテゴリを位置の番号 0..k−1 に置き換えた列で学習した booster と、元の値のまま学習した booster の予測は一致した（最大差 0.0）。対象は str・bytes・Decimal・Timestamp・date。LightGBM はカテゴリの符号で学習するためである。
+  - 置き換えた booster は、bytes・Decimal・Timestamp・date でも pickle と `model_to_string` が通った。元の値の booster は「Circular reference detected」で失敗した。
+- **形が混ざると黙って間違う**（同じ probe）:
+  - 番号の booster に元の値の列を渡すと、bytes・Timestamp・date では全行が欠損の扱いになり、正しい予測と異なった。Decimal では全行が欠損の扱いにはならなかった（`Decimal(3)` が番号の 3 と等しいため）が、やはり正しい予測と異なった。
+  - 元の値の booster（str）に番号の列を渡しても、エラーは出ず、予測は異なった。
+  - そのため、保存した状態は列ごとの形を記録し、古い LizyML が新しい形を読めないようにする必要がある。
+- **保存できない列はテストの外に無い**（`probes/firing/` の `sitecustomize.py` → `summarize.py` → `firing.out`）:
+  - V で、フルスイート（11908 passed、230 skipped）と notebook の実行の層（21 passed）の全ての `CategoricalEncoder.fit` を、列ごとに記録した。記録は 1504 件で、pytest の中で 1106 件、notebook のカーネルの中で 398 件だった。
+  - LightGBM が書けない値を持つ列は 181 件で、すべて #338 のテストのファイル（`test_unwritable_categories.py`、`test_export_contract.py`、`test_h0120_records.py`）の中だった。それ以外は 0/1323 だった。
+  - 現れた値の型: str 1142、int 127、tuple 87、bytes 41、float 36、Timestamp 35、Decimal 15、Timedelta・bool・complex・date・frozenset 各 10、テスト用の型 2 つ（`_ArrayWithoutList`・`_Hostile`）各 5。`datetime.datetime` と `np.datetime64` は現れなかった（pandas が `Timestamp` にそろえるため。次の項）。
+- **pandas が fit の時点でそろえるもの**（Codex の批評で実測）:
+  - 次の組は、fit の時点で 1 つのカテゴリにまとめられる（等しく、hash も等しい）:
+    - `Timestamp` と、同じ時刻の `datetime`
+    - `Decimal("1.50")` と `Decimal("1.5")`
+    - `-0.0` と `0.0`
+  - `np.datetime64` だけの列のカテゴリは `Timestamp` になる。混在した object の列では `np.datetime64` が残ることがある。
+  - したがって、保存し復元するのは、入力の値ではなく、学習したカテゴリの代表の値である。
+
+### 対応方針（提案）
+
+- **P1. 値の集合 V（`core/category_values.py`、Layer 0）**。persistence と codegen はどちらも Layer 3 で、互いを参照できないので、両方が使う判定と符号化を Layer 0 に置く。
+  - V の要素は、次の型のどれかに**厳密に一致する**値である（`type(v) is T` で判定し、サブクラスは拒否する。H-0095 の教訓）。型の一覧は閉じていて、モジュールの定数 1 つに置く:
+    - Python: `str`、`int`、`float`、`bool`、`bytes`、`decimal.Decimal`、`datetime.date`、`datetime.datetime`、`datetime.timedelta`、`complex`。
+    - pandas: `pd.Timestamp`、`pd.Timedelta`。
+    - numpy: `np.bool_`、`np.int8`、`np.int16`、`np.int32`、`np.int64`、`np.uint8`、`np.uint16`、`np.uint32`、`np.uint64`、`np.float32`、`np.float64`、`np.complex64`、`np.complex128`、`np.str_`、`np.bytes_`、`np.datetime64`、`np.timedelta64`。`np.float16`、`np.longdouble`、`np.clongdouble` などは外（H-0127 の浮動小数の扱いと同じ）。
+    - 入れ物: `tuple` と `frozenset`。要素は V の要素で、入れ物の入れ子は 8 段まで（`((1,),)` は 2 段）。
+  - 自分自身と等しくならない値は、どの深さでも V の外である。判定は型ごとの関数で行い、`==` は使わない:
+    - float と numpy の浮動小数の NaN（`math.isnan`）
+    - `Decimal` の NaN と sNaN（`is_nan()`）
+    - 実部か虚部が NaN の `complex`
+    - `np.datetime64` と `np.timedelta64` の NaT（`np.isnat`）
+    - `pd.NaT` は型が一覧に無いので外になる。最上位の欠損はもともとカテゴリにならない（§9.2）。
+  - タイムゾーンつきの `Timestamp` は、`tzinfo` が次のどれかのときだけ V に入る:
+    - 厳密に `datetime.timezone`（固定の時差）
+    - 厳密に `zoneinfo.ZoneInfo`（`key` があるもの）
+    - pytz の zone（pandas 2.x が文字列の tz から作る）。名前を `inspect.getattr_static` で読み、`pytz.timezone(name)` とその localize した instance の集合に対する同一性で確かめる。
+    それ以外（dateutil、利用者の `tzinfo`）は外である。
+  - タイムゾーンつきの `datetime.datetime` は、`tzinfo` が次のどちらかのときだけ V に入る（`Timestamp` より狭い。round 3 の指摘）:
+    - 厳密に `datetime.timezone`
+    - 厳密に `zoneinfo.ZoneInfo` で、`zoneinfo.ZoneInfo(key) is tzinfo` が真のもの（キャッシュされた instance）
+    - `ZoneInfo.no_cache` の instance と pytz の zone は外である。理由: Python は `tzinfo` の instance が違う 2 つの `datetime` を UTC で比べ、夏時間の重なりの時刻を常に「等しくない」とする（PEP 495）。そのため、復元した値が学習したカテゴリと一致しなくなる。`Timestamp` は時刻の値で比べるので、instance が違っても等しい。hash も、`ZoneInfo` の `Timestamp` では instance が違っても等しい（`probes/tz_fold_probe.out`、fold 0 と 1）。ただし pytz の zone の `Timestamp` は、`ZoneInfo` で戻すと fold 1 で hash が違うので、P2 で時差として書く（`probes/pytz_fold_probe.out`）。
+  - 判定は型を最初に見る。V の外の型の値のメソッドは呼ばない。一覧の型のメソッドは、標準ライブラリ・numpy・pandas のものだけが走る。この判定の境界は「値に対して閉じる」ことであり、プロセスの中で numpy や pandas を差し替えた呼び出し元への備えではない（H-0095 の宣言と同じ）。
+- **P2. 符号化と復号**（P1 のモジュールにだけ置く）:
+  - 素の値（`str`・`int`・`float`・`bool` と、`.item()` がそれらになる numpy のスカラー）は、今と同じ JSON の値で書く（numpy は `.item()` で書く）。それ以外は印つきの JSON の object で書く。
+  - 印つきの形は次の表で固定する。各 object は `"$lizyml"` と表の欄だけを持ち、欄の過不足は復号で拒否する。整数は JSON の整数、浮動小数は素の float と同じ規則（`-0.0` と ±inf を含む）で書く:
+
+    | `$lizyml` | 型 | 欄 |
+    |---|---|---|
+    | `bytes` | `bytes`、`np.bytes_` | `b64`: base64 の ASCII 文字列 |
+    | `decimal` | `Decimal` | `str`: `str(v)` |
+    | `complex` | `complex`、`np.complex64`、`np.complex128` | `real`、`imag`: float（numpy は `.item()` の値で書く） |
+    | `date` | `datetime.date` | `iso`: `v.isoformat()` |
+    | `datetime` | `datetime.datetime` | `us`: 壁時計の時刻（`tzinfo` を外した値）の、1970-01-01 からのマイクロ秒。`fold`: 0 か 1。`tz`: 下の形か `null` |
+    | `timestamp` | `pd.Timestamp` | `unit`: `"s"`・`"ms"`・`"us"`・`"ns"` のどれか（`v.unit`）。`value`: その単位での epoch からの整数（タイムゾーンつきは UTC、`v.asm8` から読む）。`tz`: 下の形か `null` |
+    | `datetime64` | `np.datetime64` | `unit`: 基本の単位（`np.datetime_data` の 1 つ目）。`count`: 倍数（2 つ目）。`value`: その単位での整数 |
+    | `timedelta64` | `np.timedelta64` | `datetime64` と同じ欄 |
+    | `pd_timedelta` | `pd.Timedelta` | `unit`、`value`: `timestamp` と同じ規則 |
+    | `timedelta` | `datetime.timedelta` | `days`、`seconds`、`microseconds`: 整数 |
+    | `tuple` | `tuple` | `items`: 要素の符号化の並び |
+    | `frozenset` | `frozenset` | `items`: 要素の符号化を、`json.dumps(item, sort_keys=True)` の文字列の順に並べたもの（hash の順に依存しない） |
+
+  - タイムゾーンの形は `{"kind": "iana", "name": <IANA の名前>}` か `{"kind": "offset", "microseconds": <整数>}` のどちらかである。`datetime.timezone` の時差はマイクロ秒の整数で必ず表せる（`timedelta` の分解能）。`ZoneInfo` は `iana`、`datetime.timezone` は `offset` で書く。pytz の zone を持つ `Timestamp` は、その値の UTC からの時差（`v.utcoffset()`）を `offset` で書く（確認の review の指摘。下の項）。
+  - 復号するのは、決まった位置だけである: カテゴリの並びの各要素、最頻値、`declared_categories` の各要素。そこにある JSON の object は表のどれかの形でなければならない。外れれば `DESERIALIZATION_FAILED`（生成コードでは `ValueError`）で止める。ほかの位置の mapping は復号しない。カテゴリの値は hash できる値なので dict にはならず、印と取り違えることはない。
+  - `Timestamp` は、UTC の時刻を復元してから、記録した名前（`zoneinfo.ZoneInfo(name)`）か時差（`datetime.timezone`）へ変換する。記録するのが UTC の時刻なので、夏時間の重なり（fold 0 と 1）でも元の時刻と等しい。
+    - `ZoneInfo` の `Timestamp` は、別の instance（`no_cache`）で戻しても、等しさも hash も保たれる（`probes/tz_fold_probe.out`）。
+    - pytz の zone の `Timestamp` を `ZoneInfo(name)` で戻すと、fold 1 で等しさは保たれるが hash が違い、辞書の照合に失敗する。Python の `datetime` の hash が fold 1 の値でも fold 0 の時差を使い、pytz の instance は自分の時差を固定で持つためである。その値の時差（`datetime.timezone`）で戻すと、等しさ・hash・辞書の照合が fold 0・1 とも保たれる（`probes/pytz_fold_probe.out`、pandas 3.0.1 と pytz 2026.5 の一時的な環境）。そのため pytz の zone は時差で書く。
+  - `datetime.datetime` は、壁時計の時刻に、記録した `fold` と zone（キャッシュされた `ZoneInfo(name)` か `datetime.timezone`）を付けて戻す。UTC を経ないので、`datetime.min` に +23 時間の時差をつけた値のように UTC が西暦 1〜9999 年の外に出る値でも戻る（round 3 の指摘。`probes/tz_fold_probe.out`）。zone は元と同じキャッシュされた instance なので、Python は同じ zone の中の比較として、壁時計の時刻で比べる。
+  - 復号した値は、学習したカテゴリの代表の値と等しく、hash も等しく、型も同じである。ただし、次の 3 つは Python の型で戻る。どれも元の値と等しく、hash も等しい:
+    - numpy の素の値は Python の値で戻る。
+    - `np.bytes_` は `bytes` で戻る。
+    - `np.complex64` と `np.complex128` は `complex` で戻る（印の形は 3 つの型で同じ）。
+  - 予測時に利用者が渡す新しい値と照合できることは、メモリの中のモデルと同じ規則で決まる（照合は今と同じく、学習したカテゴリとの `set` の照合である）。受け入れ基準 4 で、この等しさを V の全体について確かめる。
+- **P3. 置き換える列は fit の時点で決める**（`CategoricalEncoder`）:
+  - encoder は構築時に、省略できる判定 `needs_stand_in(value) -> bool` を受け取る。fit は列のカテゴリを学習した後、判定が真になる値を 1 つでも持つ列を「置き換える列」として状態に記録する（`stand_in_columns`）。transform はこの記録だけを読む。そのため、CV の fold の状態を transform より前に保存しても（`cv_trainer.py:112-120`）、状態は正しい形を持つ（Codex の critical 1）。
+  - transform では、元の値での照合（未知の値の検出、`unseen_policy` の置換、`comparable_values`、欠損）を今と同じに行い、`set_categories(known)` の後で、置き換える列だけ `rename_categories(range(k))` する。符号は変わらないので、予測も変わらない（実測）。
+  - 状態に `stand_in_columns` が無い（v1・v2 の成果物）ときは、どの列も置き換えない。今と同じに予測する。
+  - 判定を持たない encoder（provider の外で作ったもの）は、どの列も置き換えない。
+- **P4. 判定を渡すのは LightGBM の provider**（`provider.py:365`）:
+  - 「LightGBM が書けない値」は LightGBM の知識なので、`category_json.is_writable` を持つ provider が `NativeFeaturePipeline(needs_stand_in=...)` に渡す。provider が自分の pipeline を作ることは §2.1 の例外 1 の範囲に入る。features は estimators を import しない。
+  - `LGBMAdapter.unsaveable_categories`（H-0129）は、置き換えない列だけを検査する。置き換えた列は位置の番号なので必ず書ける。この IF の意味（estimator が保存のときに書けない値）は変えない。
+- **P5. 拒否と警告の持ち主**（Codex の major 3）:
+  - V の外の値の拒否は、estimator の保存可否とは別の検査である。`Model.export` と公開の `lizyml.persistence.export` の両方が、何かを書く前に、保存する全ての pipeline 状態のカテゴリと最頻値、それから `declared_categories` を P1 で検査する。V の外の値があれば `SERIALIZATION_FAILED` で拒否し、context に `column` / `value` / `type` / `state` を入れる（H-0127 と同じ形）。そのあと、今と同じく adapter の `unsaveable_categories` も検査する。
+  - fit の警告（`model.py:286-288`）は、V の外の値を持つ列について、`Model.export` と `export_code` が拒否することを告げる文に書き直す。LightGBM の都合で保存できない、という今の文は使わない。
+  - `export_code` は、特徴量のカテゴリについて同じ P1 で拒否する。目的変数のラベルは今の `plain_value` のまま（判断 3）。
+- **P6. `declared_categories` の保存**:
+  - `metadata.json` の `declared_categories` は P2 で符号化して書く。今は素の値で書けない列を黙って落としている（`exporter.py:45-65`）。V の外の値は P5 で拒否するので、落とすことはなくなる。
+  - 復号は `persistence/loader.py` の `load`（公開の `lizyml.persistence.load`）の中で 1 度だけ行う。`load` が返す metadata の `declared_categories` は、復号した値を持つ。今は metadata をそのまま返している（`loader.py:219`）。
+  - `Model.load` は、その結果を使う。`_checked_declared_categories`（`_model_persistence.py:119`）は形の検査だけを行い、2 度は復号しない。v1・v2 の成果物の素の値は、そのまま読める。形の外れた印は `DESERIALIZATION_FAILED` である。
+  - load したモデルからの `export_code` は、復号した値を使う。
+- **P7. 生成コード**:
+  - `export_code` は、`pipeline_state.json` のカテゴリと最頻値（`artifact_writer.py:37`、`:42`）と、`config.json` の `declared_categories`（`config_writer.py:107`）を P2 で書く。
+  - 生成 `train.py` と `predict.py` は、P2 の復号を同じ表で持つ。生成コードは LizyML に依存しないので、表は `templates.py` に写す。写しと P1 のモジュールが同じ答えを返すことを、V の全体のテストで確かめる（DC3）。
+  - 生成 `train.py` の `fit_pipeline`（`templates.py:86-128`）は、学習したカテゴリを同じ表で符号化して書く。
+  - 生成 `train.py` は今も LightGBM に符号（float64）を渡すので、生成 booster の `pandas_categorical` は空のままである。`export_code` が書く `model.txt` は LizyML の booster から作るが、置き換えた列は位置の番号なので書ける。
+- **P8. 保存形式**: `FORMAT_VERSION` を 3 にする。loader は `{1, 2, 3}` を受理する。新しい成果物のうち置き換えた列を持たないものも 3 になる（判断 4）。v2 の成果物は今と同じに読めて、同じに予測する。v2 の成果物には JSON にできない値は入りえない（保存が失敗した）ので、移行するものは無い。
+  - 保存済みの v2 の成果物の fixture はリポジトリに無い（§18.1.4 の frozen fixture は未整備）。v2 のテストは、v3 の成果物を「v2 の形」に書き直して作る: 各 pipeline 状態から `stand_in_columns` を除き、`format_version` を 2 にし、checksums を書き直す（既存の v1 のテストと同じ作り方）。今の版をそのまま「v2」と呼んでいるテストは、v1・v2 の形・v3 の 3 つを明示して走らせる。実物の旧版の成果物の fixture は R5（#298）で入れる。
+- **P9. 変えないもの**: `unseen_policy` とその報告、欠損の扱い、`comparable_values`（H-0127）、tune の同一性（入力の frame を hash する）、置き換えない列の booster と `get_native_model()`、目的変数のラベルの値の集合。
+
+### 規則が縛る位置（ソースから導出、実装前、`918c489`）
+
+- **コード**:
+  - `features/encoders/categorical_encoder.py`: `__init__`・fit（:86-117）、`transform_with_warnings`（:138-216、`set_categories` は :213-214）、`get_state`・`load_state`（:218-232）。
+  - `features/pipelines_native.py`: `__init__`（:39-40）。
+  - `estimators/lgbm/provider.py:365`。`estimators/lgbm/category_json.py`（`is_writable` :66-75、`unwritable_categories` :78-96、`warn_unsaveable_categories` :110-121）。`estimators/lgbm/adapter.py:157-159`。
+  - `persistence/exporter.py`: `_JSON_SCALARS`・`_plain_declared`（:42-65）、`check_category_values`（:109-146）、`export`（:184-286、検査は :241-242、`declared_categories` は :282）、`FORMAT_VERSION`（:40）。
+  - `persistence/loader.py:35`（受理する版）、`:219`（metadata を返す）。
+  - `core/_model_persistence.py`: `_checked_declared_categories`（:119）、`export`（:328-384）、load（:657-662）。
+  - `core/model.py:97`、`:286-288`。
+  - `codegen/values.py`（:21-53）、`codegen/config_writer.py:107`、`codegen/artifact_writer.py:14-50`、`codegen/templates.py`（`_plain` :61-63、`fit_pipeline` :86-128、`encode_column` :181-229 と :1320-1368、`apply_declared_categories` :266-280、`pipeline_state.json` の読み込み :1262-1267）。
+- **文書**（`git grep` で `unsaveable|unwritable|保存できないカテゴリ|declared_categories|FORMAT_VERSION|format_version` から導出し、HISTORY と監査の記録を除いた）:
+  - BLUEPRINT.md: §2.1 の層の表（Layer 0 に `core/category_values.py`）、§9.2、§15.2（:1907-1908）、§15.3 の保存できないカテゴリ値の段落（:1921）、§15.4 のカテゴリの符号と拒否（:1951-1952）、adapter の `unsaveable_categories`（:1642、:1647）、§18.1.4、§19 のディレクトリ構成。
+  - ARCHITECTURE.md（:52、:513、:672 の `format_version=2`、Layer 0 の一覧）。
+  - docs/migration.md（v0.20.0 の節: `format_version` 3、古い LizyML は新しい成果物を読めないこと）、docs/add-estimator-guide.md:45、CHANGELOG.md、docs/proposal_dispositions.toml。
+  - README.md、CONTRIBUTING.md、PLAN.md、docs/DEPRECATIONS.md は grep に当たるが、`format_version` の記述は過去の版のことなので変えない。実装の PR で全文を確かめる。
+- **テスト**:
+  - `tests/test_persistence/test_unwritable_categories.py`（`VALUES`・`WRITABLE`、:40-79）は、V の内と外に分け直す。
+  - `tests/test_codegen/test_export_contract.py`（`_ACCEPTED`・`_REFUSED`、:41-60）は、カテゴリとラベルに分ける。
+  - `tests/test_persistence/test_h0120_records.py:300-315` は、食い違いを固定しているので書き直す。
+  - 版に依存するテスト（`git grep -n -E "format_version|FORMAT_VERSION" -- tests` から導出、`tests/test_docs/` を除く）:
+    - 版の値を直接固定していて、3 で落ちるもの: `test_tuning_persistence.py:47`（`== 2`）、`test_per_fold_pipeline_state_compat.py:117`（`FORMAT_VERSION == 2`）。
+    - 今の版を「v2」として扱っていて、3 では意味がずれるもの: `test_h0125_load_refuses_non_probability_objective.py`（:12、:78-144 の `v1` / `v2` の表）、`test_smart_params_artifact.py`（:13、:73-79）、`test_per_fold_pipeline_state_compat.py`（:59-73、:171）、`test_artifact_compat.py`（:89-130 の受理する版）。これらは v1・v2 の形・v3 を明示して走らせる。
+    - `FORMAT_VERSION` を読むだけで、版が変わっても意味が保たれるもの: `test_artifact_compat.py:22`・`:297-305`、`test_export_load_errors.py:56-89`、`test_persistence.py:25-59`・`:133-247`、`test_applied_training_params.py:215`、`test_checksum_integrity.py:7`（文書の文）。
+
+### 互換性
+
+- **公開 API**: 増えるもの（V の判定と符号化は `lizyml.core.category_values`。公開の再公開はしない）。`BaseEstimatorAdapter.unsaveable_categories` の意味は変えない。
+- **保存形式**: 破壊的（`FORMAT_VERSION` 3）。新しい LizyML は v1・v2・v3 を読む。古い LizyML は v3 を `DESERIALIZATION_FAILED` で拒否する（形が混ざると黙って間違うので、読ませない）。
+- **挙動**:
+  - 置き換えない列（今保存できる値だけの列）の学習・予測・booster は変わらない。
+  - 置き換えた列を持つモデルは、今は保存できないので、利用者の手元に保存済みのものは無い。メモリの中のモデルでは、`get_native_model()` の Booster に元の値の列を直接渡すと黙って間違う（実測）。これは置き換えた列だけで起き、文書に書く。
+  - `Model.export` は、V の外の値（任意の利用者の型など）を、今と同じく拒否する。pickle には書けても拒否する（`export_code` とそろえるため）。
+  - `metadata.json` の `declared_categories` は、今は素の値で書けない列を黙って落としていたが、すべての列を書くようになる。
+- **生成コード**: 新しい `export_code` が書く `pipeline_state.json` と `config.json` は、印つきの値を持ちうる。H-0120 より前に生成したプロジェクトは約束しない（今と同じ）。
+
+### 代替案（検討して棄却）
+
+- **全てのカテゴリ列を置き換える（判断 1 の案 A）**: 経路が 1 本になるが、`get_native_model()` の Booster を直接使う利用者の予測を、全てのカテゴリのモデルで黙って変える。棄却（管理者）。
+- **値ごとに JSON にできる文字列へ置き換える（`str(value)` など）**: 同じ列の `Decimal("1.5")` と `"1.5"` が衝突する。位置の番号なら衝突は起きない。棄却。
+- **LightGBM に符号（整数）を渡す（生成 `train.py` と同じ）**: 保存済みの v2 の booster は `pandas_categorical` を持つので、符号の frame を渡すと LightGBM が `train and valid dataset categorical_feature do not match` で失敗し（`probes/codes_frame_probe.out`）、移行が要る。影響が全てのモデルに及ぶ。棄却。
+- **`Model.export` は pickle できる値なら何でも受け付ける**: `export_code` と値の集合がそろわない（#357 の目標）。棄却。
+- **置き換えた列を持つ成果物だけ 3 にする（判断 4 の別案）**: 古い LizyML がふつうのモデルを読めるが、版の判定が条件つきになる。棄却（管理者）。
+
+### Firing rate
+
+- 置き換える列の判定（`conditionally-activate`）: Firing rate: 0/1323 of `CategoricalEncoder.fit` column records outside the #338 test files hold a value LightGBM cannot write (1504 records over the full suite and the notebook tier on V at `918c489`, 398 of them in notebook kernels; the 181 others are in `test_unwritable_categories.py`, `test_export_contract.py` and `test_h0120_records.py`).
+  - テストの母集団では、この経路は専用のテストだけが通る（DC6 の形）。経路が要るのは利用者のデータ（日付の列など）で、受け入れ基準 1・2 が専用のテストで全ての型を通す。
+- V による受理（`allow`）: Firing rate: 0/1323 of the same records outside those files hold a category or mode that P1's predicate refuses (1504 records over the full suite and the notebook tier on V at `c22d6d7` plus revision 3; the predicate is the standalone reference `probes/firing/v_reference.py`, checked by `v_reference_check.py`, applied recursively to every learned category and the mode; 1484 records are inside V, and the 20 refused ones are all in the #338 test files: `_ArrayWithoutList` 5, `_Hostile` 5, `np.longdouble` inside a tuple 10).
+  - 計測器は、実装の前に P1 の規則を独立に写したものである（Proposal review round 1 の指摘）。実装の後に、実装の判定で同じ計測を行い、数が一致することを実装の記録に書く。
+
+### 受け入れ基準（テスト観点）
+
+1. **保存と予測の一致**: V の全ての型について、次の 2 つの経路の予測が、メモリの中のモデルの予測と一致する。型の母集団は `core/category_values.py` が公開する 1 つの一覧から導き、テストは手で書いた一覧を持たない。
+   - `fit` → `Model.export` → `Model.load` → `predict`。
+   - `export_code` → 生成 `predict.py`（再学習した生成 `train.py` も）。
+   対象は、列が 1 つの型だけのとき、型が混在するとき、`tuple` と `frozenset` の入れ子。型の一覧に加えて、次の軸を全部通す:
+   - `Timestamp` の単位 s・ms・us・ns
+   - タイムゾーンの名前と時差。夏時間の重なりの fold 0 と 1（`Timestamp` は ZoneInfo のキャッシュあり・no_cache・pytz、`datetime.datetime` はキャッシュされた ZoneInfo と固定の時差）
+   - `datetime.datetime` の境界: `datetime.min` に +23 時間、`datetime.max` に −23 時間の時差をつけた値
+   - `np.datetime64` と `np.timedelta64` の全ての基本の単位（Y・M・W・D・h・m・s・ms・us・ns・ps・fs・as）と、1 でない倍数
+2. **形の記録**: 置き換えた列を持つモデルで、次の 3 つが、メモリの中と load の後で一致する。
+   - fold ごとの SHAP 重要度（`pipeline_state_per_fold` を使う経路）
+   - 予測時の SHAP（`return_shap=True`）
+   - 校正した予測
+   v2 の形（P8 の書き直し）の成果物でも、SHAP 重要度と予測が今と同じになる。
+3. **値の集合の境界**: 1 つの母集団で、`Model.export` と `lizyml.persistence.export` と `export_code` が同じ値を受け付け、同じ値を拒否する。
+   - 母集団は、V の型の一覧の各型と、外の値: NaN を含む `tuple`、`Decimal("NaN")`、NaN を含む `complex`、NaT、9 段の入れ子、V の各型のサブクラス、利用者の型、`np.longdouble`、dateutil と利用者の `tzinfo` を持つ `Timestamp`、`ZoneInfo.no_cache` か pytz の zone を持つ `datetime.datetime`。
+   - 拒否は、何かを書く前に、列・値・型を名指しする。
+   - **目的変数のラベル**: 型の一覧から導いた別の母集団で、`export_code` は素の値を受け付け、V で増えた型を全て拒否する（判断 3）。
+4. **復号の等しさ**: V の全ての値について、復号した値は元の値と等しく、hash も等しい。予測時に利用者が渡す新しい値（同じ値の別の instance、同じ時刻の `datetime` と `Timestamp`）とも照合できる。生成コードの復号の写しは、同じ母集団で LizyML の復号と同じ値を返す。
+5. **印の取り違え**: 決まった位置の外の mapping は復号しない。決まった位置にある形の外れた object は、`Model.load` で `DESERIALIZATION_FAILED`、生成コードで `ValueError` になる。
+6. **保存形式**:
+   - 新しい成果物は `format_version` 3。
+   - v1 と v2 の形（P8 の書き直し）の成果物は、`Model.load` と `lizyml.persistence.load` の両方で今と同じに読めて、同じに予測する。
+   - 印つきの `declared_categories` は、両方の load で復号した値になり、形の外れた印は両方で `DESERIALIZATION_FAILED` になる。
+   - `format_version` 3 の成果物は、`{1, 2}` だけを受理する loader（模擬）で拒否される。
+   - 「規則が縛る位置」の版に依存するテストは、それぞれ v1・v2 の形・v3 を明示する。
+7. **変えないもの**: `unseen_policy` の 3 つの方針の置換と報告、置き換えない列の booster の `pandas_categorical`（元の値のまま）、目的変数のラベルの拒否は、今と同じである。
+8. **陰性対照**（元に戻す処理と、パッチを当てない基準の実行を持つ。H-0132 の形）:
+   - (a) transform で置き換えを省くと、基準 1 の保存が失敗する。
+   - (b) 形の記録を fit ではなく transform で決めると、基準 2 の fold ごとの SHAP が一致しなくなる。
+   - (c) `stand_in_columns` を読まない loader は、基準 2 で捕まる。
+   - (d) `tuple` を list として復号すると、基準 4 で捕まる。
+   - (e) 入れ子の NaN の検査を外すと、基準 3 で捕まる。
+   - (f) `frozenset` を hash の順で書くと、`PYTHONHASHSEED` を変えた 2 回の書き出しの比較で捕まる。
+   - (g) 目的変数のラベルの検査を特徴量のカテゴリの符号化に差し替えると、基準 3 のラベルの母集団で捕まる。
+   - (h) `lizyml.persistence.load` で復号を省くと、基準 6 で捕まる。
+9. **文書**: 「規則が縛る位置」の文書を更新し、`docs/proposal_dispositions.toml` に H-0133 を足す。fit の警告の文は、V の外の値について述べる。
+
+### 改訂の記録
+
+- **改訂 1（2026-10-19、Proposal review round 1 の後）**: Codex の run `h0133-proposal-review` の round 1（`62fd65b`）は CHANGES_REQUESTED（critical 1、major 4）だった。全て受け入れた:
+  - critical: 「規則が縛る位置」のテストの一覧が、版の値を固定したテスト（`test_tuning_persistence.py:47`、`test_per_fold_pipeline_state_compat.py:117`）と、今の版を「v2」と呼ぶテストを落としていた。`git grep` から導いた一覧に直した。リポジトリに v2 の成果物の fixture が無いことも分かったので、受け入れ基準の「v2 の fixture」をやめ、P8 に「v2 の形」の作り方を書いた。
+  - major: V と印つきの形が、一意に実装できるほど閉じていなかった。直した点:
+    - P1 に型の一覧を全て書いた（numpy の型、`tzinfo` の実装を含む）。
+    - P2 に、印つきの各形の欄と、整数と単位の表し方を表で固定した。
+    - 受け入れ基準 1 に、`Timestamp` の単位、fold 0 と 1、`np.datetime64` の全ての単位と倍数を足した。
+  - major: V の firing rate を、P1 の判定で測っていなかった（型の名前と LightGBM の判定だけだった）。P1 を独立に写した参照実装（`probes/firing/v_reference.py`）で、全ての学習した値を入れ子まで判定して測り直した。
+  - major: 印つきの `declared_categories` を、公開の `lizyml.persistence.load` が復号しなかった。P6 で復号の場所を `loader.load` の 1 か所にし、受け入れ基準 6 と陰性対照 (h) で両方の load を確かめる。
+  - major: 目的変数のラベルを変えないこと（判断 3）を確かめる母集団が無かった。受け入れ基準 3 に、型の一覧から導いたラベルの母集団と、陰性対照 (g) を足した。
+- **改訂 2（2026-10-19、Proposal review round 2 の後）**:
+  - round 2 の前の loop monitor:
+    - runner の absolute monitor は INCONCLUSIVE（escalate）だった。runner の monitor は前の round の head（`62fd65b`）の写しを読むので、改訂 1 を読めなかった。
+    - 管理者の判断で、`03e3c70` を読む Claude の fresh context の monitor で確かめ直した。結果は DELIVERABLE-FOCUSED（continue）だった。
+  - round 2（`03e3c70`）は CHANGES_REQUESTED（major 3）だった。round 1 の 5 件のうち 3 件（版のテストの一覧、公開の load での復号、ラベルの母集団）は解決と確認された。
+  - major 3 件は、どれも改訂 1 で入れた部分の欠陥だった。停止ルールに従って管理者に報告し、管理者は「3 件を直して通常の round 3」を選んだ:
+    - `complex` の印は、3 つの型で同じ形になる。復号は `complex` で戻ると決め、P2 の例外の一覧に足した。
+    - 固定の時差を整数の秒で書く形では、1 マイクロ秒単位の時差を表せない。マイクロ秒の整数で書くようにした。
+    - 計測器の参照実装が `getattr` で `zone` を読み、利用者のコードが走った。`inspect.getattr_static` に直した。利用者の `tzinfo` の property を数える確認（`probes/firing/v_reference_check.py` → `.out`、0 回、不一致 0）を足し、計測をやり直した。
+- **改訂 3（2026-10-19、Proposal review round 3 の後）**:
+  - round 3 の前の relational monitor は、runner と Claude の fresh context の両方が CONVERGING（continue）だった。
+  - round 3（`c22d6d7`）は CHANGES_REQUESTED（major 2、minor 1）だった。round 2 の 3 件は解決と確認された。run は round の上限（3）に達した。
+  - 管理者に報告し、管理者は「直して、確認の run」を選んだ。直したもの:
+    - major: タイムゾーンつきの `datetime.datetime` は、`tzinfo` の instance が違うと、夏時間の重なりで等しさを失う（PEP 495）。
+      - 実測（`probes/tz_fold_probe.py` → `.out`）では、`ZoneInfo.no_cache` の instance で fold 0・1 とも等しくなかった。
+      - 対処: `datetime.datetime` に付けられる zone を、固定の時差とキャッシュされた `ZoneInfo` に狭めた（P1）。
+      - `Timestamp` は instance が違っても等しく、hash も等しかったので、変えない。
+      - pytz はこの環境（pandas 3.0.1）に入っていないので、pytz の zone の `Timestamp` は実装の受け入れ基準 1 で、依存の下限の lane で確かめる。
+    - major: `datetime.min` に +23 時間の時差をつけた値などは、UTC が表せる範囲の外に出るので、UTC を経て復元できなかった。`datetime` の印を、壁時計の時刻と `fold` で書く形に変えた（P2）。実測で境界の 2 つの値が戻ることを確かめた。
+    - minor: 受け入れ基準 2 に「v2 の fixture」が残っていた（改訂 1 の消し漏れ）。「v2 の形（P8 の書き直し）」に直した。
+  - 参照実装（`v_reference.py`）を P1 の新しい規則に合わせ、確認（`v_reference_check.out`、不一致 0、利用者のコードの呼び出し 0）と計測をやり直した。
+- **改訂 4（2026-10-19、確認の review の後）**:
+  - 確認の review（run `h0133-proposal-confirm`、1 round、`2da6e24`）は CHANGES_REQUESTED（major 1）だった。round 3 の 3 件は解決と確認された。
+  - major の内容: pytz の zone を持つ `Timestamp` を `ZoneInfo(name)` で戻すと、夏時間の重なりの fold 1 で hash が違い、辞書の照合に失敗する。改訂 3 の「`Timestamp` は instance が違っても等しく、hash も等しいので変えない」は、pytz の入っていない環境で測った主張で、偽だった。
+  - 停止ルールに従って管理者に報告し、管理者は「直して、もう 1 度確認」を選んだ。
+  - pytz を入れた一時的な環境で、指摘と直し方を実測した（`probes/pytz_fold_probe.py` → `.out`）。pytz の zone の `Timestamp` は、その値の時差で書いて `datetime.timezone` で戻す（P2）。
+  - 計測の数は変わらない（判定 P1 は変えていない）。
+  - 2 回目の確認の review（run `h0133-proposal-confirm2`、`a42beb4`）は APPROVE だった。改訂 4 の指摘は解決と確認された。minor 1 件（P1 の `Timestamp` の hash の文が、pytz の例外を含めず一般化していた）は、`ZoneInfo` の場合に限る文に直し、pytz の例外を指した。
+
+### 実装の記録（2026-10-19）
+
+- **実装**（`4edf97f`、`72481e6` ほか）: P1〜P9 のとおり。Proposal からの外れ、または Proposal が決めていなかった点:
+  - **表示の関数の移動**: 例外を出さない表示の関数 `shown` と `type_name` を `estimators/lgbm/category_json.py` から `core/category_values.py` に移した。persistence と codegen が Layer 0 から使うためである。`category_json` は同じ名前を再公開する。
+  - **H-0127 の警告関数の削除**: `category_json.warn_unsaveable_categories` を削除した。fit の警告は `persistence/exporter.py` の `warn_unsaveable_category_values` が V で出す（P5）。
+  - **context の `state`**: 拒否の context の `state` は、H-0127 と同じく `refit`・`fold k`・`last fold`（`declared_categories` の値は `declared categories`）のままにした。文の中では「… pipeline state」と書く。
+  - **生成コードの符号化の写し**: `templates.py` の `_VALUE_CODEC` は、表の写しに加えて V の拒否の一部を持つ。持つのは、自分自身と等しくならない値、入れ子の深さ、`datetime` の zone の規則である。生成 `train.py` の再学習が、復元で一致しない値を書かないためである。pytz の zone は、型の module の名前で見分ける（生成コードは pytz を import しない）。
+  - **knob の台帳**: 新しい構築時の引数 `CategoricalEncoder.needs_stand_in` と `NativeFeaturePipeline.needs_stand_in` を `internal`（配線）に分類した。BLUEPRINT §5.5 の数を 74 → 76、表の行を 15 → 17 にした。
+  - **pandas が直す値**: Proposal は受け入れ基準 3 の外の値に、NaN を含む `complex`、V の型のサブクラス、`no_cache` の zone の `datetime` を挙げた。実測では、pandas 3.0.1 は fit でこれらを V の値に直すか、欠損として落とす（`probes/pandas_normalizes_probe.out`: `complex` の NaN は欠損、`str` のサブクラスは `str`、`datetime` は `Timestamp`）。そのため、これらが encoder に届くことは無い。受け入れのテストは、これらを `tuple` の中に入れて encoder に届く形にして、3 つの出口が拒否することを確かめる。最上位の値そのものは、どの pandas の版でも、3 つの出口の答えがそろい、拒否するときだけ fit が警告することを確かめる。
+  - **テストの検出力**: 最初のテストのデータ（160 行・4 カテゴリ）では、LightGBM がカテゴリで分岐しなかった（`min_data_per_group` の既定 100）。陰性対照 (b) は、そのデータでは捕まらなかった（fold の状態が誤った形でも、`c` の SHAP は 0）。データを 800 行・カテゴリが目的変数を決める形に変え、model が列を使うことを確かめるテスト（`test_the_frame_makes_the_model_use_the_column`）を足した。
+- **陰性対照**（受け入れ基準 8、`probes/negative_controls_h0133.py` → `.out`）: 8/8 が捕まり、パッチを当てない基準の実行は exit 0 だった。各対照は、Proposal が名指したテストで捕まる。(b) は fold ごとの SHAP のテストだけで走らせて捕まる。パッチは MonkeyPatch で元に戻し、テストのモジュールは毎回読み直す（H-0132 の形。H-0130 の陰性対照には、この 2 つが無い）。
+- **Firing rate（実装の後、実装の判定で測定。`probes/firing/` → `firing.out`）**:
+  - 測定の条件: V で、`72481e6` に計測器の変更を足した木で、フルスイートと notebook の実行の層を走らせた。`CategoricalEncoder.fit` の記録は 1991 件だった。
+  - 意図して値を作るテストのファイルは 7 つ: #338 の 3 つと、H-0133 で足した `test_h0133_acceptance.py`・`test_category_stand_in.py`・`test_category_values.py`・`test_h0133_codec_copy.py`。
+  - 置き換える列の判定: Firing rate: 0/1049 of `CategoricalEncoder.fit` column records outside the seven deliberate test files chose stand-ins (651 in pytest, 398 in notebook kernels).
+  - V による受理: Firing rate: 0/1049 of the same records hold a category or mode the implementation's predicate refuses.
+  - 実装の判定（`core.category_values.refusal`）と参照実装（`v_reference.py`）は、1991/1991 件で同じ答えを返した。置き換えた列は、意図したファイルの外では、LightGBM の判定とそろった。
+  - **Proposal の分母の訂正**: Proposal の Firing rate の分母「0/1323」は、全体の 1504 件から、#338 のファイルの中の書けない値の記録（181 件）だけを引いた数だった。同じファイルの中の書ける値の記録まで「ファイルの外」に数えていた。分子の 0 は正しいが、分母は誤りである。実装の前の正しい分母は、計測の記録を残していないので示さない。上の実装の後の数が、正しく数えた値である。
+- **フルスイート**（V、`72481e6`）: 12500 passed、230 skipped、2 failed。notebook の実行の層は 21 passed。失敗の 2 件:
+  - `tests/test_config/test_knob_reachability.py`: 新しい引数が台帳に無かった。上の knob の台帳の項で直した。
+  - `tests/test_e2e/test_version.py`: 環境による失敗。editable install の metadata が古いためで、既知である（CI では通る）。
+- **実装レビュー round 1**（lizy-reviewer の run `h0133-impl-review`、`84c9f75`）は CHANGES_REQUESTED（major 6、minor 1）だった。全て受け入れた:
+  - **公開の export が検査を飛ばせた**（P5 違反）: `lizyml.persistence.export(categories_checked=True)` は、検査をせずに書いていた。
+    - 対処: 管理者の判断（「非推奨にして常に検査」）で直した。引数は残して無視し、渡すと `DeprecationWarning` を出す。v1.0 で削除し、`docs/DEPRECATIONS.md` に載せた。
+    - 公開の `export` は常に `check_category_values` を走らせる。`Model.export` は、検査してから内部の `write_checked` を呼ぶ。引数の一覧（公開 API）は変えていない。
+  - **`NativeFeaturePipeline.export_state_json` が V の値を書けなかった**: 「規則が縛る位置」の一覧から漏れていた、状態を保存するもう一つの経路である。エンコーダのカテゴリと最頻値を P2 で符号化して書くようにした。V の外の値は、何かを書く前に `SERIALIZATION_FAILED` で拒否する。
+  - **復号が V の外の値を返した**: JSON の NaN、`Decimal` の NaN、NaT の値など、encode が書かない形がそのまま通っていた。`decode` は、復号した値が V にあることを確かめる。生成コードの写しは、復号した値をもう一度符号化して確かめる。
+  - **公開の `persistence.load` が、形の外れた `declared_categories` を通した**: 形の検査を `loader` に移した。受け入れのテストは、両方の load について、形の外れ・JSON の NaN・`Decimal` の NaN を確かめる。
+  - **生成コードの pytz の判定が緩かった**: 型の module の名前で見ていたので、それを名乗る利用者の `tzinfo` が通り、そのコードが走った。LizyML と同じ判定（`inspect.getattr_static` で名前を読み、pytz の instance との同一性を見る）を写した。pytz を名乗る偽物のテストを足した。
+  - **受け入れのテストの母集団と検出力**: 対処は 5 つ:
+    - 端から端までの経路の列を、正の一覧（`SAMPLES`）から導くようにした。全ての型の列、str を混ぜた列、`datetime64` と `timedelta64` の全ての基本の単位を通す。
+    - どの列でも、model がその列を使うこと（split の重要度 > 0）を確かめる。
+    - 型の網羅は「学習したカテゴリに現れる」か「pandas が別の型に直すことを、その場で確かめる」かで判定する。実測: pandas は numpy の素の値を Python の値に、`np.datetime64` を `Timestamp` に、`datetime.timedelta` を `Timedelta` に直す（`probes/learned_types_probe.out`、下限の `.floor.out`）。
+    - 目的変数のラベルとサブクラスの母集団も、型の一覧から導いた。サブクラスの値そのものが作れない 5 型（`pd.Timestamp`・`pd.Timedelta`・`np.bool_`・`np.datetime64`・`np.timedelta64`）は、作れないことをテストで確かめる。
+    - v2 の形のテストに SHAP と公開の load を足し、文書のテスト（`tests/test_docs/test_h0133_docs.py`）を足した。
+  - **minor**: `declared_categories` は「全ての列」ではなく、category 型だった列について書く。文書の誤りを直した。
+  - **依存の下限の lane**（pandas 2.0.0）で分かったこと:
+    - pandas は、Decimal の NaN を含む `tuple` の列、complex の NaN の列、単位の混ざった `Timestamp` の列を、category にできない（pandas 自身が例外を出す）。
+    - そのため、これらのケースは、その pandas の版では存在しない。テストは、fit の前に pandas が列を作れるかを確かめ、作れなければ理由をつけて skip する。fit の中の例外は skip しない。LizyML 自身の失敗を隠さないためである。
+    - pytz の import の `type: ignore` は、Python 3.10 の lane で「使われていない」と判定された。`unused-ignore` も付けた。
+  - 陰性対照は 8/8 のまま捕まり、基準の実行は exit 0。
+- **実装レビュー round 2**（`aed6779`）は APPROVE だった。round 1 の 7 件は全て解決と確認された（pandas 2.0.0 / numpy 1.24 と pandas 3.0 の両方で）。
+  - minor 1 件: 復号が、符号化の書かない形（`timedelta` を 0 日と 86400 秒で書いた形、`frozenset` の要素の重なりや順序の違い）を受け付けていた。
+  - 対処: LizyML の復号と生成コードの写しの両方で、復号した値を符号化し直した形が入力と一致しないものを拒否するようにした。
+- **CI の依存の下限の lane と 3.10 の lane**（`8e3904e`）で、目的変数のラベルの母集団のテストが、既存の不具合を見つけた（H-0120 から）。
+  - 症状: `export_code` のラベルの検査（`codegen/values.py` の `plain_value`）は、numpy のスカラーを「`.item()` が素の値で、元の値と等しい」なら受け付けていた。Y・M 単位の `np.timedelta64` は `.item()` が int を返し、numpy はその int と元の値を等しいと判定する。そのため、ラベルが別の値（`4`）として黙って書かれていた（DC1）。
+  - pandas 3 ではこの値が列にできず、母集団から外れていたので、手元の pandas 3 では見えなかった。
+  - 対処: ラベルの検査を `core/category_values.py` の `NUMPY_PLAIN_TYPES` に厳密に一致する型だけにした。判断 3 の「ラベルは今の値の集合のまま」の意図どおりで、集合は広げていない。回帰のテスト（`test_export_contract.py` の `_REFUSED` に `np.timedelta64` の Y・M と `np.datetime64` の ns）を足した。
+  - `tuple` のラベルは、pandas 2.0 では fit そのものが pandas の例外で失敗する（`export_code` に届かない）。ラベルのテストはこの場合、理由をつけて skip する。
+- **確認の review**（run `h0133-impl-confirm`、`acea369`）は CHANGES_REQUESTED（major 1、minor 1）だった。major は上のラベルの直しに入った欠陥で、停止ルールに従って管理者に報告し、管理者は「直して、もう 1 度確認」を選んだ。
+  - major: ラベルの検査を型の一覧に厳密に一致させたため、H-0120 から正しく受け付けていた `np.float16`・`np.longlong`・`np.ulonglong` まで拒否していた。「ラベルの集合は広げていない」は正しかったが、狭めていた。H-0120 の規則（`.item()` が素の値で元の値と等しい numpy のスカラー）に戻し、`np.datetime64` と `np.timedelta64` だけを型で外した。この 3 型がラベルとして受け付けられ、素の値で書かれることを確かめるテストを足した（特徴量のカテゴリでは V のまま。型が 1 種類の列では、pandas は longlong と ulonglong を Python の int に直し、float16 は category にできない。型の混ざった object の列では 3 型とも numpy のスカラーのまま残り、V の外の型として拒否される）。
+  - minor: ラベルのテストの skip が、fit の全ての例外を skip にしていた。skip をやめ、pandas が扱えるラベルの組を選ぶようにした。
+    - 原因の実測: pandas 2.0 は、`TargetEncoder.transform` の `Series.map` で tuple をキーにした辞書から MultiIndex を作り、`()` を含むと失敗する。これは tuple のラベルの既存の制限で、H-0133 の範囲の外である。
+    - 選び方: 同じ操作（辞書による `map`）ができる組を選ぶ。fit の中の例外は、全て失敗として扱う。
+- **2 回目の確認の review**（run `h0133-impl-confirm2`、`ab51ee6`）は APPROVE だった。minor 2 件を直した:
+  - NumPy 2 は `np.bool_` の型の名前も `bool` なので、型の名前をキーにした母集団（受け入れの保存の経路とラベル）で Python の `bool` のケースが上書きされていた（31 型のうち 30）。キーを module つきの名前にし、全ての型が自分のケースを持つことを確かめるテストを足した。
+  - 上の記録とテストのコメントの「pandas はこれらを Python の値に直す」を直した（最終の文言は次の項目の R5 で直したもの）。
+- **R5: 別の context での確認**（`cd06bdb`）は NOT OK だった。指摘は 3 件で、いずれも前の直しが生んだもの。停止ルールに従って管理者に報告した。
+  - major: 足したテスト `test_every_admitted_type_has_its_own_case` は、比べる両側を同じ `_type_id` で作っていた。そのため、元の衝突を戻しても通った（確認者が陰性対照で実測）。型の数（`ADMITTED_TYPES` の長さ）と比べる検査を足し、`_type_id` を `__name__` に戻すと落ちることを確かめた（NumPy 2 の環境。NumPy 1.24 では型の名前が衝突しないので、どちらの形でも通る）。
+  - minor: pandas の説明が、型が 1 種類の列でしか正しくなかった。型の混ざった object の列の場合を足した。
+  - minor: 陰性対照の出力 `negative_controls_h0133.out` に古いテスト ID が残っていた。作り直した（8/8 が捕まり、パッチなしの基準は exit 0）。作り直すときに、要約の `summarize_controls.py` が空白を含むテスト ID（例 `[Timestamp tz fold]`）を空白で切っていたことも分かったので、ID を ` - ` の前まで読むように直した。
+- **loop の監視の漏れ**: 監視は、実装の review の round 2 の前に絶対の監視を 1 回走らせただけだった。確認の run（R3・R4）と R5 は、それぞれ 1 round の run として起動したので、runner は監視を走らせない。実質は round 3〜5 にあたり、毎回の前に比較の監視が要った。
+  - R5 の後に、比較の監視（Claude、別の context）を走らせた。判定は stop-accept で、理由は 2 つ:
+    - 本体のコード（`lizyml/`）は `ab51ee6`（R4 APPROVE）以降変わっていない。
+    - R4・R5 の指摘は、前の直しが生んだテスト・文言・出力ファイルで、周辺に広がっている。
+  - 監視は、漏れたことで 2 点が見逃されたとも指摘した。R3 で H-0120 のラベルの経路が範囲に入ったこと、R5 で確認者を Codex から Claude に替えたことである。
+  - 管理者は「直して、絞った確認を 1 回」を選んだ。停止条件は監視が示したもの: 範囲はテスト・HISTORY・出力ファイルの差分だけ、陰性対照を必須の証拠にする、`lizyml/` に指摘がなければ終える。周辺の新しい指摘は follow-up の issue にし、round にしない。
+
+## H-0134: tune の履歴（試行・round・境界の報告）を成果物に保存し、load 後の 3 つの面が export 前と同じ答えを返すようにする（#315）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-19
+- **決定日**: 2026-10-19
+- **関連**: #315、H-0086（#215）、H-0109、H-0122、H-0133、lizy-harness #175（Codex の容量不足）
+- **スコープ**:
+  - `tuning_table()`・`tuning_plot()`・`boundary_table()` が、load したモデルで export 前と同じ答えを返すか、答えられないと言うこと（H-0109 の約束）
+  - 成果物の新しいファイル `tuning_history.json` と、`metadata.json` の `tuning.history`
+  - 値・探索次元・境界の報告の符号化を Layer 0 に移すこと（振る舞いは変えない）
+  - `FORMAT_VERSION` 4
+
+### 目的（課題）
+
+H-0086 は tune の結果のうち `best_*` だけを保存し、load は `trials=[]` の `TuningResult` を作る（`core/_model_persistence.py:627-635`）。そのため load したモデルでは、`tuning_table()` が列の無い `(0, 0)` の表を、`tuning_plot()` が線の無い図を返す。どちらも「試行を 1 回もしなかった study」に見える（DC1）。`boundary_table()` は `MODEL_NOT_FIT` を出すが、export が落とした報告について「`tune(resume=True)` を実行せよ」と言う。H-0109 はこの 36 のセル（4 設定 × 4 の tune の流れ × 2 面、と `boundary_table` の 4 セル）を #315 として `tests/test_persistence/_load_census.py` の `DECLARED` に置いた。管理者は #315 の案 1（保存する）を選んだ。
+
+### 管理者の判断（2026-10-19。registry のカード D-20261019-013・D-20261019-014）
+
+Codex の設計の批評（run `h0134-design-critique`。容量不足と 429 で 4 回目の試行に結果が出た。lizy-harness #175）の後で決めた。
+
+1. **`FORMAT_VERSION` を 4 にする**。§15.2 の「追加は版を上げない」に例外を足す（P8）。
+2. **履歴を持たない成果物では、3 つの面が `MODEL_NOT_FIT` を出す**。context に `missing='tuning_history'` を入れ、study の storage があれば `restore_tuning(storage=..., study_name=...)` を案内する。空の表と空の図はやめる。
+3. **全ての試行を保存する**。上限も、外すための引数も設けない。大きさと load の時間は実測して載せる（下の実測）。
+4. **符号化を Layer 0 に移す**。`tuning/lineage_codec.py` の値・探索次元・境界の報告の符号化（と、それが使う大きさの検査）を `core/` に移し、履歴の符号化もそこに置く。公開の `lizyml.persistence.export(tuning=...)` も履歴を書く。棄却した案は「Facade が符号化し、公開の `persistence.export` は履歴なしと宣言する」。
+
+### 実測（2026-10-19、develop `f746814`）
+
+- **load 後に読まれるもの**（読むだけの調査 2 本、Codex の批評で確認）:
+  - 3 つの面が読むのは `_tuning_result` の `trials`・`rounds`・`boundary_report`・`metric_name`・`direction` だけで、全て `_get_tuning_state()`（`core/_model_tuning.py:855-861`）を通る。
+  - ほかの読み手が読むのは、`metadata.json` に今保存している 6 つ（`best_*` の 3 つ、`best_score`、`metric_name`、`direction`）だけである。`fit` の上書きは `best_*`、`export_code` は `best_smart_params`、再 export（`_tuning_metadata`、`persistence/exporter.py:223-238`）は 6 つ全部を読む。`trials`・`rounds`・`boundary_report` を読むのは 3 つの面だけである（改訂 1 で訂正。Proposal review round 1 の major 5）。
+  - `tune(resume=True)` は `_tuning_result` を読まない。生きた study か storage の study を読む（`core/_tuning_resume.py`、`_tuning_plan.py:516-533`）。復元した試行は resume に使われない。それで正しい（H-0122）。
+- **型**（`core/types/tuning_result.py`）:
+  - 全て素の値の frozen dataclass である。
+  - `TrialResult.score` は値の無い試行で NaN になる。
+  - 探索の値は `None`・`bool`・`int`・`float`・`str` のどれかである（`tuning/search_space.py`）。
+  - `state` は Optuna の `TrialState` の名前の小文字である（`tuning/rounds.py:120`、`tuning/tuner.py:427`）。
+- **大きさと時間**（`docs/audits/2026-10-h0134/probes/size_probe.py` → `size_probe.out`）:
+  - 測ったもの: 既定の探索空間（10 次元）で 400 行の binary を 20 試行 tune した。試行 1 つは compact JSON で約 520 バイトになる。
+  - 試行 50 で 26 KB。比較として、同じモデルの `fit_result.pkl` は 211 KB、`metadata.json` は 3.8 KB である。
+  - 試行 5,000 で 2.6 MB。書き出しは 0.017 秒、読み込みと復号は 0.022 秒。
+  - 試行 50,000 で 26 MB。書き出しは 0.20 秒、読み込みと復号は 0.56 秒。
+  - 全ての round の `space_snapshot` は 1.8 KB である。
+  - 大きさは「試行の数 × 次元の数」に比例する。
+
+### 対応方針（提案）
+
+- **P1. 符号化を Layer 0 に移す**（判断 4。振る舞いは変えない）:
+  - `tuning/_magnitude.py` を `core/magnitude.py` に移す。import している 3 つ（`tuning/_step_grid.py`・`tuning/_space_format.py`・`tuning/lineage_codec.py`）を直し、`tuning/_magnitude.py` は消す。
+  - `tuning/lineage_codec.py` のうち値・探索次元・境界の報告の符号化を `core/tuning_codec.py` に移す。対象は次のとおり（改訂 1 で `DIM_CATEGORIES` と `dim_signature` を足した。round 1 の major 4）:
+    - `LineageCodecError`
+    - `encode_scalar`/`decode_scalar` と数の補助
+    - `DIM_CATEGORIES`、`encode_dim(s)`/`decode_dim(s)`、`dim_signature`（`encode_dim` の JSON を比べるための形）
+    - `encode_report`/`decode_report` と `_encode_status`/`_decode_status`
+  - Optuna の study の属性に固有の部分（`to_attr_value` など）は `tuning/lineage_codec.py` に残す。移した名前は `core/tuning_codec.py` から import し、`tuning/lineage_codec.py` から明示的に再公開する（`__all__`、mypy strict で通ること）。import している位置（`core/_tuning_resume.py`・`core/_tuning_space.py`・`tuning/_space_format.py`・`tuning/lineage.py`・`tuning/lineage_records.py`）は、新しいモジュールから直接 import するように直す。
+  - BLUEPRINT §2.1 の Layer 0 の表に 2 つのモジュールを足す。architecture のテスト（`tests/test_architecture/_layer_rules.py`）は層の所属を BLUEPRINT の表から読むので、テストの側は変えない（改訂 1 で訂正。テストの側に Layer 0 の一覧は無い）。
+  - study の属性の書式と、系譜の復号の寛容さ（境界の報告の知らないキーを無視する）は変えない。履歴の復号だけが厳密である（P2）。
+- **P2. 履歴の符号化**（`core/tuning_codec.py` の `encode_history`/`decode_history`）:
+  - 形は次のとおり。全てのオブジェクトはキーの集合が厳密に一致すること。
+    ```
+    {"schema": "lizyml-tuning-history/v1",
+     "trials": [{"number": int, "params": [[name, scalar], ...], "score": scalar, "state": str, "round": int}, ...],
+     "rounds": [{"round": int, "n_trials": int, "best_score_before": scalar, "best_score_after": scalar,
+                 "expanded_dims": [str, ...], "space_snapshot": [dim, ...]}, ...],
+     "boundary_report": report | null}
+    ```
+  - `scalar` は `encode_scalar` の `[tag, value]`（NaN と ±inf は文字列のタグ）。`best_score_before` の `None` は `["none", null]` である。`dim` は `encode_dim`、`report` は `encode_report` で書く。
+  - `params` は名前と値の組の並びで、`TrialResult.params` の挿入の順を保つ（`tuning_table` の列の順はこの順で決まる。Codex の major 3）。名前の重複は拒否する。
+  - `state` は `complete`・`pruned`・`fail`・`running`・`waiting` の閉じた集合である（Optuna の `TrialState` の 5 つ。テストで `TrialState` の全ての名前と一致することを確かめる）。
+  - `number`・`round`・`n_trials` は `type(x) is int`（`bool` は拒否）で、`round` と `n_trials` は 1 以上、`number` は 0 以上で、試行の間で重複しない。
+  - 復号は次の全てを拒否する: JSON の重複キー（`object_pairs_hook`）、知らない `schema`、キーの過不足、型の違い、知らないタグ、境界の報告と各次元の状態の知らないキー。
+  - 最後に、復号した値を符号化し直して元の JSON と一致することを確かめる（正準の形だけを読む。H-0133 の P2 と同じ）。
+  - 復号した結果の型は dataclass の宣言のとおりにする: `trials` は `list`、`rounds`・`expanded_dims`・`space_snapshot` は `tuple`、`params` は `dict`。
+  - 符号化できない値（P1 の集合の外）は `SERIALIZATION_FAILED` で拒否する。素の値への変換はしない。今の書き手からは届かない（探索の値の検査が前にある）が、拒否の経路はテストで確かめる。
+- **P3. export**（`persistence/exporter.py`）:
+  - tune 済みのモデルで履歴が「ある」とき、`tuning_history.json` を `allow_nan=False` の compact JSON で書く。
+  - `checksums.files` に、その SHA-256 を載せる。
+  - `metadata.json` の `tuning` に `"history": {"file": "tuning_history.json", "schema": "lizyml-tuning-history/v1"}` を書く。ファイル名と schema の文字列は `core/tuning_codec.py` の定数 `HISTORY_FILE`・`HISTORY_SCHEMA` 1 つずつで、書き手と読み手（P2 の payload の `schema` も）が同じ定数を使う。
+  - 履歴が「ない」とき（P5）は `"history": null` を書き、ファイルは書かない。
+  - 公開の `lizyml.persistence.export(tuning=...)` は、渡された `TuningResult` の履歴を書く（判断 4）。
+  - `Model.export` は内部の `write_checked` に履歴の有無を渡す（改訂 1。round 1 の major 3）:
+    - export の mixin（`core/_model_persistence.py`）は読むだけの mixin で、Model の状態は `FitState` からだけ受け取る。
+    - そこで `FitState`（`core/_model_state.py`）に `tuning_history_available: bool` を足し、`_get_fit_state`（`core/model.py:939`）がそれを埋める。mixin は `state.tuning_history_available` を `write_checked` に渡す。
+    - mixin の状態の分離を確かめるテスト（`tests/test_core/test_mixin_state_isolation.py` の `_FORBIDDEN_ATTRS`）に `tuning_history_available` を足し、mixin が私的な属性を直接読まないことを確かめる。
+- **P4. load**（`persistence/loader.py`、`core/_model_persistence.py`）:
+  - format 4 で `tuning` があれば、`history` キーは必須である（無ければ `DESERIALIZATION_FAILED`）。
+  - **宣言の形は閉じている**（改訂 1。round 1 の major 1）。`history` は `null` か、ちょうど `{"file": HISTORY_FILE, "schema": HISTORY_SCHEMA}` のどちらかである。それ以外は全て `persistence.load` で `DESERIALIZATION_FAILED` にする。次のものも含む: 配列やスカラー、キーの過不足、別のファイル名やパス、別の schema。「履歴なし」として読むことはしない。
+  - `history` がオブジェクトのとき:
+    - `file` が `checksums.files` に載っていて、ディスクにあることを確かめる。
+    - バイト列を 1 回だけ読み、digest を照合してから P2 の厳密な復号に渡す（H-0083 と同じ順）。
+    - 1 つでも外れれば `DESERIALIZATION_FAILED` である。空の結果にはしない。
+  - **宣言だけを正とする**。`metadata.json` が宣言していない `tuning_history.json` がディレクトリにあっても読まない（同じディレクトリへの再 export が残した古いファイル。Codex の major 1）。
+  - 復号した `trials`・`rounds`・`boundary_report` を、`metadata.json` の `best_*`・`best_score`・`metric_name`・`direction` と合わせて `TuningResult` にする。
+  - format 1〜3 で `tuning` があるものと、format 4 で `history` が `null` のものは、履歴「なし」の状態で読む。
+- **P5. 履歴の有無の状態**（Codex の major 1）:
+  - `Model` に私的な属性 `_tuning_history_available: bool` を置く。
+  - `True` にする場合: `tune()`・`restore_tuning()` が結果を置いたとき（`_commit_tuning`）と、P4 で履歴を復号したとき。
+  - `False` にする場合: 履歴なしで load したとき。
+  - `_tuning_result` が `None` のときは意味を持たない。
+  - export は `False` を `"history": null` として保存する。そのため、履歴なしで load したモデルを export し直しても、空の履歴を作らない。
+  - 公開の `TuningResult` の形は変えない。
+- **P6. 3 つの面**（判断 2）:
+  - `_get_tuning_state()` が呼んだ面の名前を受け取る。
+  - `_tuning_result` があって履歴が「なし」なら `MODEL_NOT_FIT` を出す。
+    - context は `{"method": <面>, "missing": "tuning_history", "loaded_from_artifact": True}`。
+    - 文は次の 2 点を言う。この成果物は試行の履歴を持たないこと（format 4 より前に保存されたか、履歴なしで書かれた）。元の study の storage があれば `restore_tuning(storage=..., study_name=...)` で戻せること。
+  - `tune()` 前の `MODEL_NOT_FIT` はそのまま変わらない。
+  - 履歴が「ある」モデルで `boundary_report` が `None` のときの `boundary_table()` の `MODEL_NOT_FIT` も変わらない（export 前と同じ答え）。
+  - `fit()` の上書き（`best_*`）は、履歴の有無に関わらず今のとおり働く。
+- **P7. 同じ答えの定義**（Codex の major 3）。比べるのは面の出力そのものである:
+  - `tuning_table()` は `pd.testing.assert_frame_equal(..., check_exact=True)`。列の順と dtype を含めて一致すること。
+  - `tuning_plot()` は図の JSON（`fig.to_json()`）が一致すること。
+  - `boundary_table()` は表が一致すること。
+  - `TuningResult` の比較は再帰的で型に厳密とする。NaN は NaN と等しいとみなし、`params` の順も比べる。dataclass の `==` は NaN で成り立たないので使わない。
+- **P8. 保存形式**（判断 1）:
+  - `FORMAT_VERSION = 4`。loader は `{1, 2, 3, 4}` を受理する。
+  - §15.2 に例外を足す: 追加のフィールドでも、それが無いと、受理する古い loader が報告を黙って間違える（ここでは空の表）ものは、意味の変更として版を上げる。
+  - 古い LizyML（`{1, 2, 3}`）は v4 を拒否する。tune していないモデルも含む（H-0133 の判断 4 と同じ考え方）。
+- **P9. 変えないもの**:
+  - resume と `restore_tuning` の挙動。
+  - study の属性の書式と系譜の復号。
+  - `best_*` の保存と、それを読む全ての位置。
+  - `export_code`。
+  - `analysis_context.pkl` などほかのファイル。
+  - 生きたモデル（export していないもの）の 3 つの面。
+  - 境界の報告は今と同じく今の round のものだけを持つ（H-0122 の `restore_tuning` と同じ。Codex が確認）。
+
+### 規則が縛る位置（ソースから導出、実装前、`f746814`）
+
+- **コード**:
+  - `persistence/exporter.py`: `FORMAT_VERSION` は :46、`_tuning_metadata` は :223-238、書き出しは :362-409。
+  - `persistence/loader.py`: `_SUPPORTED_FORMAT_VERSIONS` は :36、`_verify_and_read_pkl` は :104-145、その呼び出しは :236-261。
+  - `core/_model_persistence.py`: load の tuning は :594-635、export から `write_checked` への受け渡しもここ。
+  - `core/_model_tuning.py`: `_get_tuning_state` は :855-861、`_commit_tuning` は :645-676。
+  - `core/model.py:157`（属性の初期化）。
+  - `core/_model_tables.py` の `tuning_table`（:223-235）・`boundary_table`（:251-261）、`core/_model_plots.py:245-248`。
+  - `tuning/lineage_codec.py`、`tuning/_magnitude.py` と、それらを import する `tuning/_step_grid.py`・`tuning/_space_format.py`・`tuning/lineage.py`・`tuning/lineage_records.py`・`core/_tuning_resume.py`・`core/_tuning_space.py`。
+- **文書**:
+  - BLUEPRINT: §2.1 の Layer 0 の表（:48）、`tuning_table()` の行（:165）、§4.2（:204）、resume の行（:1202）、§15.1（:1902）、§15.2（:1910-1911 と完全性の検査）、§15.3 の成果物の中身。
+  - ARCHITECTURE.md（Layer 0 のモジュール、成果物）、`docs/api.md`（3 つの面の例外）、`docs/migration.md`（v0.20.0 の節）、CHANGELOG、`docs/proposal_dispositions.toml`。
+- **テスト**:
+  - `tests/test_persistence/_load_census.py`（`DECLARED`）と `test_reporting_surfaces_survive_load.py`。
+  - `test_tuning_persistence.py`（版 3 の主張、tuning ブロック）、`test_artifact_compat.py`（`TestFormatVersion*`、`TestCurrentFormatVersion`）、`_artifact_versions.py`。
+  - `tests/test_tuning/test_lineage_codec.py`（移動の後も同じ振る舞い）、`tests/test_architecture/`（Layer 0 の一覧）。
+
+### 互換性
+
+- **公開 API**:
+  - 関数の引数は変えない。
+  - 変わる挙動: load したモデルの 3 つの面が、format 4 の成果物では export 前と同じ答えを返す。format 1〜3 の成果物では空の表・空の図を返す代わりに `MODEL_NOT_FIT` を出す（migration.md に書く）。
+  - 公開の `persistence.export` は、tune 済みの結果の履歴も書くようになる。
+- **保存形式**: 破壊的である（`FORMAT_VERSION` 4）。新しい LizyML は v1〜v4 を読み、古い LizyML は v4 を `DESERIALIZATION_FAILED` で拒否する。
+- **私的なモジュールの移動**: `tuning/_magnitude.py` は消える（私的）。`tuning/lineage_codec.py` は残り、移した名前もそこから import できるままにする。
+- **大きさ**: 試行 1 つにつき約 0.5 KB（10 次元）が増える。上限は無い（判断 3）。
+
+### 代替案（検討して棄却）
+
+- **案 2（保存せず、3 つの面が「持っていない」と言う）**: H-0109 の約束は守れるが、tune の記録が export で失われる。棄却（管理者が案 1 を選んだ）。
+- **`metadata.json` に入れる**: H-0086 が棄却した理由（metadata.json が大きくなる）がそのまま当たる。別のファイルにする。
+- **pickle で保存する**: 読むと任意の Python を実行しうる面が増える。JSON の型は閉じている。棄却。
+- **上限で切る・外す引数**: 一部だけの履歴では「export 前と同じ答え」にならない。外す引数は条件で処理を飛ばす仕組みになる。棄却（判断 3）。
+- **版を 3 のままにする**: 古い LizyML が v4 の成果物を受理し、履歴を黙って捨てて空の表を返す（#315 の欠陥がそのまま残る）。棄却（判断 1）。
+- **新しい例外のコード**: 区別したい失敗の種類が `MODEL_NOT_FIT` の「load した成果物に無い分析の状態」（`analysis_context` など）と同じ。棄却（判断 2）。
+- **ディスクのファイルがあれば読む**: 同じディレクトリに再 export したとき、古い履歴を読みうる。宣言を正とする（Codex の major 1）。
+- **系譜の復号も厳密にする**: study の属性の書式を読む側を変えるのは H-0134 の範囲の外である。履歴の復号だけを厳密にする。
+
+### 置き換える記録
+
+| 記録 | 扱い |
+|---|---|
+| H-0086 の「trial 一覧は保存しない（棄却した案: TuningResult 全体を JSON に）」 | H-0134 が置き換える。H-0086 の本文は履歴としてそのまま残す |
+| BLUEPRINT §15.1「trial の履歴は保存しない」、§4.2 の「trial の無い最小の `TuningResult`」 | H-0134 で書き換える |
+| BLUEPRINT §15.2「フィールドの追加は版を上げない」 | 例外を足す（P8） |
+| H-0109 の約束と #315 の 36 のセル | H-0134 が満たす。`DECLARED` から #315 のセルを外す |
+| H-0122「study の中身は artifact に保存しない」、resume は study から読む | 変えない。保存するのは報告のための写しで、再開できる study ではない |
+
+### Firing rate
+
+H-0134 が足す条件は 2 つで、どちらも Change Gate の 6 つの目的（skip・shorten・cache・select・allow・conditionally-activate）に当たらない。
+
+- 履歴の有無による分岐は、旧い成果物との互換のために、必要な振る舞いの間を選ぶものである（H-0109 の前例）。
+- format 4 の宣言の検査は、拒否の検査である。
+
+そのため firing rate の行は要らない。ただし、母集団は実装の後に測って載せる。対象は、フルスイートと notebook で load した tune 済みのモデルのうち、履歴ありのものと履歴なしのものの数である。
+
+### 受け入れ基準（テスト観点）
+
+1. **36 のセルが export 前と同じ**: `_load_census.py` の `DECLARED` から #315 のセルを外し、`test_every_reading_survives_load_except_the_declared` が通ること。比べ方は P7 による。
+2. **履歴なしの成果物**:
+   - v1・v2・v3 の tune 済みの成果物（v4 の成果物を `_artifact_versions.py` で古い形に書き換えたもの）と、v4 で `history: null` のものについて、3 つの面それぞれが `MODEL_NOT_FIT` を出すこと（context の 3 つのキーを確かめる）。
+   - 同じモデルで `fit()` の上書きが働くこと。
+   - そのモデルを export し直しても `history: null` のままであること（2 回の往復）。
+3. **形の網羅**: 次の全てを含む結果を export・load し、3 つの面が P7 で一致すること。
+   - 試行の状態の 5 つ全て: complete・pruned・fail・running・waiting（改訂 1 で running と waiting も export・load の経路に入れた。共有の storage の study からは 5 つとも作られうる。round 1 の major 2）。
+   - NaN を、位置ごとに別々に: 試行の score、試行の `params` の値、`space_snapshot` の `CategoricalDim.choices`（改訂 1。round 1 の major 2）。
+   - 試行が 1 つも完了しなかった round（要約が無い）。
+   - 実際の試行の数が要求と違う round。
+   - `expanded_dims`。
+   - 探索の値の全ての型: `None`・`bool`・`int`・`float`・`str`。`float` の ±inf を含む。
+   - `params` の挿入の順。
+   - 比べ方は P7 の面の出力と、`TuningResult` の再帰的な比較の両方である。
+4. **厳密な復号**: digest を計算し直して復号まで届かせた壊れたファイルが、全て `DESERIALIZATION_FAILED` になること。並び:
+   - 知らない `schema`
+   - 各オブジェクトのキーの過不足
+   - 型の違い（`bool` を `int` の位置に置くことを含む）
+   - 知らないタグ
+   - 知らない `state`
+   - 重複キー
+   - 重複した名前の `params`
+   - 正準でない形
+   - 境界の報告と状態の知らないキー
+
+   別に、次も `DESERIALIZATION_FAILED` になること:
+   - digest の不一致、宣言したファイルが無い、`checksums` に載っていない、format 4 で `history` キーが無い。
+   - 宣言の形の外のもの（改訂 1。round 1 の major 1）: `history` が配列・文字列・数、`file` か `schema` の欠け、余分なキー、`file` が別の名前やパス（`../x.json` を含む）、`schema` が別の文字列。
+5. **mixin の状態の分離**（改訂 1。round 1 の major 3）: `tests/test_core/test_mixin_state_isolation.py` に `tuning_history_available` を足し、export の mixin が `FitState` からだけ履歴の有無を読むことを確かめる。
+6. **古いファイル**: 宣言していない `tuning_history.json` がディレクトリにあっても読まれないこと。
+7. **版**:
+   - `FORMAT_VERSION == 4` であること。
+   - `{1, 2, 3}` だけを受理する loader が v4 を拒否すること。
+   - `{1, 2}` だけを受理する loader が v3 を拒否する既存のテストが残ること。
+8. **移動**:
+   - `tests/test_tuning/test_lineage_codec.py` が変更なしで通ること。
+   - architecture のテストが新しい Layer 0 のモジュールで通ること。
+   - `tuning/_magnitude` を import する位置が無いこと。
+9. **公開の `persistence.export`**: tune の結果を渡すと履歴が書かれ、load で戻ること。
+10. **陰性対照**（`docs/audits/2026-10-h0134/probes/negative_controls_h0134.py`）。パッチを当てない基準の実行を含め、元に戻すこと。どの変異も、対応する基準で捕まること:
+   - (a) 履歴を書かない → 1 で捕まる
+   - (b) 復号で知らないキーを無視する → 4
+   - (c) ファイルが無いとき空の結果にする → 4
+   - (d) 履歴なしで空の表を返す → 2
+   - (e) 履歴なしの load で状態を「ある」にする → 2 の再 export
+   - (f) `params` を名前の順に並べ替える → 3 の列の順
+   - (g) NaN を `None` に変える → 3
+   - (h) 宣言の形の外のものを「履歴なし」として読む → 4 の宣言の形（改訂 1）
+   - (i) running と waiting の試行を export で落とす → 3（改訂 1）
+
+### 改訂の記録
+
+- **改訂 1（2026-10-19、Proposal review round 1 の後）**: Codex の run `h0134-proposal-review` の round 1（`5a24b48`）は CHANGES_REQUESTED（major 5）だった。全て直した。
+  - major 1: `history` の宣言の形を閉じた（`null` か、ちょうど 2 つのキー。ファイル名と schema は 1 つの定数）。形の外を拒否する基準と陰性対照 (h) を足した。
+  - major 2: 基準 3 に、試行の状態の 5 つ全てと、NaN の 3 つの位置（score、`params`、`CategoricalDim.choices`）を別々に入れた。陰性対照 (i) を足した。
+  - major 3: export の mixin は `FitState` からだけ状態を読むので、`FitState` に `tuning_history_available` を足し、`_get_fit_state` が埋めるようにした。分離のテストに名前を足す基準 5 を足した。
+  - major 4: 移す名前に `DIM_CATEGORIES` と `dim_signature` を足し、旧いモジュールからの再公開と import する位置の直し方を書いた。architecture のテストは層を BLUEPRINT の表から読むので、テストの側の一覧は無い（P1 の記述を訂正）。
+  - major 5: 「load 後に読まれるのは `best_*` だけ」は偽だった（再 export は 6 つのフィールドを読む）。実測の項を訂正した。
+
+### 受け入れ（2026-10-19）
+
+- Codex の run `h0134-proposal-review` の round 2（`308b24a`）は APPROVE（指摘 0 件）だった。
+  - round 2 の前の loop の監視は、Claude の別の context で DELIVERABLE-FOCUSED だった。
+  - runner の監視は、改訂の前の版を読んだため INCONCLUSIVE だった（H-0133 と同じ既知の不具合）。
+- 管理者は、開発状況の資料を更新したうえで実装に進むよう指示した（2026-10-19）。これを受け入れとする。
+
+### 実装の記録（2026-10-19）
+
+- **commit**:
+  - `80070c3`: 受け入れの記録。
+  - `2e7d4a6`: P1。符号化と大きさの検査を Layer 0 へ移した。振る舞いは変えていない。
+  - この記録の commit: P2〜P6、テスト、文書、計測。
+- **Proposal から実装で決めたこと**（どれも Proposal の範囲の中）:
+  - **`_tuning_history_available` の初期値は `True`**。P5 のとおり、`False` にするのは履歴なしの load だけで、`_commit_tuning` が `True` に戻す。`_tuning_result` が `None` のあいだは意味を持たない。
+    - `False` で初期化すると、`_tuning_result` を直接置くテスト（`test_restore_tuning.py::test_reporting_surfaces_match_live` の比べる側）で 3 つの面が `MODEL_NOT_FIT` を出した。
+    - 「tune が作った結果は常に履歴を持つ」という P5 の前提に合うのは `True` の方である。
+  - **`persistence.load` が宣言を復号した値に置き換える**。返す `metadata["tuning"]["history"]` は `TuningHistory` か `None` になる。H-0133 の `declared_categories` と同じ形で、`persistence.load` と `Model.load` が同じ値を返す。`docs/migration.md` に書いた。
+  - **`_get_tuning_state(method)` が面の名前を受け取る**。P6 の context の `method` に入れるため。
+  - **`checksums` がオブジェクトでない場合も `DESERIALIZATION_FAILED`**。実装の自己レビューで足した。基準 4 にテストを 2 つ足した（`checksums` が配列のとき、`algorithm` が別のとき）。
+  - **`tests/test_persistence/_artifact_versions.py` に `to_v3_shape`・`to_v1_shape` を足した**。`to_v2_shape` は先に v3 の形にする。v4 で足したもの（履歴のファイル、その digest、`tuning.history`）を除いてから版を書き換える。
+- **結果**:
+  - フルスイート（V、pandas 3.0.1）: 12836 passed、234 skipped、1 failed。失敗は `test_e2e/test_version.py`（editable install の metadata が古い。環境による既知の失敗で、CI が正）。
+  - 依存の下限（pandas 2.0.0 / numpy 1.24）で、H-0134 に関わるテスト: 875 passed、8 skipped。
+  - 陰性対照（`probes/negative_controls_h0134.py` → `.out`）: 9/9 が、それぞれ名指しした基準で捕まった。パッチなしの基準の実行は exit 0。
+  - mypy、ruff は通った。
+- **母集団**（`probes/firing/h0134_load_census.py` → `summarize.py` → `firing.out`。フルスイートの `Model.load` の呼び出しを、例外で終わったものも含めて全て記録した。実装レビュー round 1 の major 4 で、例外で終わった呼び出しを記録しない欠陥を直してから測り直した）:
+  - 呼び出しは 442 回だった。141 回が `DESERIALIZATION_FAILED` で終わり（壊れた成果物を拒否するテスト）、301 回が戻った。戻ったもののうち tune 済みのモデルは 93 回だった。
+  - 履歴あり: 68 回（全て format 4）。
+  - 履歴なし: 25 回。内訳は format 1 が 5、format 2 が 5、format 3 が 8、format 4 の `null` が 5、loader を差し替えたテストが 2。
+  - 履歴なしで load したのは 3 つのテストファイルだけで、どれも意図して作ったもの（`test_h0134_acceptance.py`、`test_smart_params_artifact.py` の v2 の形、`test_space_merge.py` の差し替え）。
+  - notebook は `Model.load` も `export` も呼ばない（`grep` で 0 本）ので、母集団に入らない。
+  - 計測器の最初の実行では、loader を差し替えたテスト 2 件で `metadata.json` を読めず、`error` が 2 件記録された。計測器を直して、版を "stubbed loader" と記録するようにしたうえで、フルスイートをやり直した（`error` は 0）。
+- **範囲の外で見つけたもの**（直していない。管理者の判断を待つ）:
+  - 同じディレクトリに export し直すと、前回の `analysis_context.pkl` が残る。そのファイルが `checksums` に載っていなくても、loader は検査せずに読む（H-0083 の「載っていないファイルは検査せずに読む」による）。
+  - tune していない成果物で `checksums` が配列のとき、`_verify_and_read_pkl` は `AttributeError` を出す。`DESERIALIZATION_FAILED` にならない。
+
+### 実装レビュー round 1 への対応（2026-10-19）
+
+Codex の run `h0134-impl-review` の round 1（`6207df6`）は CHANGES_REQUESTED（major 4）だった。全て直した。
+
+- **major 1**: `history` が `null` の v4 の成果物で `checksums` が空の配列のとき、`_declared_tuning_history` は `checksums` を確かめる前に戻っていた。そのため pickle が H-0083 以前の経路で、検査されずに読まれた（DC1）。
+  - tune 済みの v4 の成果物では、宣言が `null` でも、pickle を読む前に `checksums` の形（`algorithm` が `sha256`、`files` がオブジェクト）を確かめるようにした（`_require_v4_checksums`）。
+  - tune していない成果物の H-0083 の寛容さは変えていない（範囲の外の見つけたもの 2）。
+- **major 2**: v4 で `tuning` がオブジェクトでないとき（`null`、配列、数）、宣言の検査を素通りしていた。`null` は tune していない成果物として読まれていた。v4 で `tuning` があればオブジェクトであることを、pickle を読む前に確かめるようにした。
+- **major 3**: P1 の再公開に `_encode_status`・`_decode_status` が抜けていた。`lineage_codec` が移動の前に定義していた全ての名前を、同じオブジェクトとして再公開した。非公開の名前は `as` で再公開した。それを全て並べて確かめるテスト（`tests/test_tuning/test_lineage_codec_reexports.py`）を足した。
+- **major 4**: 計測器は戻った load だけを記録していたのに、記録は「全て記録した」と書いていた（DC5）。例外で終わった呼び出しを `load_failed` として記録するようにし、フルスイートで測り直した（上の母集団の数）。
+- **テスト**: 基準 4 に、pickle を読む前に拒否することを確かめるテストを 6 件足した。読み込みの関数を差し替え、呼ばれたら失敗するようにしてある。内訳は次のとおり。
+  - `null` の宣言のまま `checksums` が空の配列・`files` 無し・`null` の 3 件
+  - `tuning` が `null`・配列・数の 3 件
+- **結果**:
+  - フルスイート: 12874 passed、1 failed（`test_version`。環境による既知の失敗）。
+  - 陰性対照: 9/9 が捕まり、パッチなしの基準も通った。
+
+### 実装レビュー round 2 と、CI の不安定な失敗（2026-10-19）
+
+- Codex の run `h0134-impl-review` の round 2（`a2303a3`）は APPROVE だった（指摘 0 件）。
+  - round 2 の前の絶対の監視は、runner も Claude も DELIVERABLE-FOCUSED で、round 2 は round 1 の直しの差分に絞った。
+- **CI**: H-0133 の受け入れテストの `Timestamp` の 2 件が、"Categorical categories must be unique" で不安定に落ちた。
+  - 落ちた lane: `6207df6` では Quality (3.10)、`a2303a3` では lowest-direct。
+  - 手元（aarch64）でも、直す前のテストは同じ環境の中で実行ごとに結果が変わった（round 3 の確認で実測。改訂の前の記録は「再現しなかった」と書いていて、偽だった）:
+    - pandas 2.3.3 では、種を固定しない実行の約 4/13 が失敗し、残りは 2 件が skip になった。
+    - pandas 2.0.0 では 4/7 が失敗し、残りは skip になった。
+    - skip の経路: `_pandas_cannot_build` が、pandas 自身の `astype("category")` で同じ `ValueError` を受け取り、`pytest.skip` していた（黙った skip。DC1 の形）。
+    - したがって、直す前のこの 2 件は、pytz のある pandas 2 で一度も通っていなかった。
+    - pandas 3 には pytz が無いので、問題の組が作られない。
+- **原因**: H-0133 のケースを作る `_derived_cases` は、型ごとの見本を `dict.fromkeys` で重複を除いて 1 列にする。
+  - zoneinfo の New York の `fold=1`（-05:00）と、同じ時刻の pytz の値は、`==` では等しい。しかし hash が違う（PEP 495 は繰り返しの時刻を `fold=0` として hash する）ので、両方が残っていた。
+  - pandas は hash で重複を除くので、fit は 2 つを別のカテゴリとして覚える。
+  - 保存すると、pytz の値は固定の時差で書かれる。load の後、pandas が 2 つを重複とみなすかどうかは、同じ環境の中でも実行ごとに変わる。これは Python の hash の種で決まる。
+    - `PYTHONHASHSEED` を固定すると、結果も固定される。
+    - 直す前のテストで種 0〜39 を 1 回ずつ実行すると、14 個（8, 10, 11, 14, 15, 17, 22, 25, 26, 27, 33, 34, 37, 38）で失敗し、残りは skip になった。
+    - 種 42 では、pandas 2.3.3 でも 2.0.0 でも毎回失敗する。直した後のテストは、種 42 でも通る。
+    - 種がどの経路で重複の判定に効くかは確かめていない。
+    - 改訂の前の記録は「種を固定すると 8/8 が skip」と書いていた。種 0〜7 だけの結果を一般化したもので、偽だった。
+  - H-0134 の変更による失敗ではない。
+- **管理者の判断**（2026-10-19）: テストを直し、ライブラリの不具合は issue にする。
+  - テストの直し: 各ケースから「等しいのに hash が違う値」を除いた。どのケースにもそのような組が無いことを確かめるテストを足した。除いた pytz の値は、自分のケース `Timestamp pytz fold` に残る。
+  - 結果: pandas 3・3.10（pandas 2.3.3）・下限（pandas 2.0.0）のどれでも通った。H-0133 の陰性対照は 8/8 が捕まり、基準も通った。
+  - ライブラリの不具合: #372（DC1。export は通るのに、load の後の predict が失敗しうる）。
+- **R3: 別の context での確認**（`9f328b4`、テストの直しだけ）は NOT OK だった。テストの直しそのものは健全で、H-0133 の守りは保たれていた（除いたのは pytz の値 1 つで、自分のケースに残る。陰性対照でも確かめた）。直した後は、種を固定しない実行が 6/6 で通った。
+  - major: 上の「手元では再現しなかった」「環境によって変わる」は偽だった。前の直しの記録の欠陥なので、停止ルールに従って管理者に報告した。管理者は「記録を直して、絞った確認を 1 回」を選んだ。上の 2 か所を実測のとおりに直し、#372 の本文も直した。
+  - minor（直していない）:
+    - pandas 3 には pytz が無いので、足した不変条件のテストが落ちうるのは pytz のある lane（Quality 3.10、lowest-direct）だけである。
+    - numpy 1.x では、比較が `DeprecationWarning` を大量に出す（`filterwarnings = error` にすると失敗する）。
+  - R3 の前に比較の監視を走らせた。判定は CONVERGING で、`lizyml/` は R2 の APPROVE の後に変わっていない。
+  - CI は `9f328b4` で 25/25 通った。
+- **記録の確認**（別の context、`3a239b5`）は NOT OK だった。上の「`PYTHONHASHSEED` を固定すると 8/8 が skip」は偽だった。
+  - 停止ルールに従って管理者に報告し、管理者は「その 1 文を直して、もう一度確認」を選んだ。
+  - 確認者の数（種 0〜39 のうち 14 個で失敗、種 42 は両環境で毎回失敗）は、自分で実行して確かめてから書いた。
+  - 確認者の報告を、自分で確かめずに一般化して書いたのが原因である。
+  - そのほかの文（直す前は pandas 2 で一度も通らない、pandas 3 に pytz は無い、直した後は安定して通る、skip の経路）は、確認者の実測と合っていた。
+
+## H-0135: load が読むファイルを checksums の宣言で決め、宣言の形を閉じる ― 古い analysis_context.pkl を読まない、配列の checksums を拒否する（#373、#374）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-20
+- **決定日**: 2026-10-20
+- **関連**: #373、#374、H-0083、H-0026、H-0134（`_require_v4_checksums` と、宣言だけを読む `tuning_history.json`）、registry のカード D-20261020-001・D-20261020-002
+- **スコープ**:
+  - `lizyml.persistence.load`（公開）と `Model.load` が、`metadata.json` の `checksums` をどう検査し、どのファイルを読むか
+  - `Model.export` と公開の `lizyml.persistence.export` が、同じディレクトリに書き直すときに、前の export の任意のファイルを残すかどうか
+  - `FORMAT_VERSION` は 4 のまま
+
+### 目的（課題）
+
+H-0083 の loader は、`checksums` に載っていないファイルと、`checksums` を持たない成果物を、検査せずに読む（`lizyml/persistence/loader.py:209-250` の `_verify_and_read_pkl`）。これが 2 つの欠陥を生む。
+
+- **#373（DC1）**: `analysis_context.pkl` を持つ成果物の上に、それを持たないモデルを export し直すと、前のファイルが残る。exporter は書かないファイルを消さず（`persistence/exporter.py:397-413`）、新しい `checksums` には載らない。load はファイルがあれば読む（`loader.py:381-383`）ので、前のモデルの `y_true` と `X` が診断 API に答える。
+- **#374（DC1）**: tune していない成果物で `checksums` が配列のとき、空の配列は「`checksums` が無い」として pickle を検査せずに読む（`if not checksums`）。中身のある配列は `AttributeError` を出す（`checksums.get`）。H-0134 は tune 済みの format 4 の成果物だけを `_require_v4_checksums`（`loader.py:58-81`）で閉じ、tune していない成果物は範囲の外とした。
+
+### 管理者の判断（2026-10-20。カード D-20261020-001・D-20261020-002）
+
+- v0.20.0 の前に #372・#373・#374 を直す。#373 と #374 は 1 本の Proposal と PR にし、#372 は次の H-0136 で扱う。
+- Codex の設計の批評（run `h0135-design-critique`、CHANGES_REQUESTED、major 3・minor 1）の後で、次の 4 つを決めた。どれも推奨の案である。
+  1. `checksums` が無い成果物を受け付けるのは format 1・2 だけ。format 3・4 は形の正しい `checksums` を持たなければならない。
+  2. ディレクトリにあるが `checksums` に載っていない `analysis_context.pkl` は読まずに無視し、INFO に記録する。拒否はしない。
+  3. 同じディレクトリに書き直すとき、今回書かない任意のファイル（`analysis_context.pkl` と `tuning_history.json`）を exporter が消す。消すのはこの 2 つの名前だけである。
+  4. 宣言の名前は完全一致で、大文字と小文字を区別する。宣言の名前をパスとして組み立てることはしない。知らない名前は、パスの形のもの（`../x`）も含めて無視する。決まった名前のファイルが symlink でも、今どおり受け付ける。読んだバイト列を digest で確かめてから復元するので安全である。
+
+### 実測（2026-10-20、develop `abae5d9` と census の commit `dfeba81`）
+
+- **H-0083 の版**: H-0083 は v0.16.0 で出た。そのときの `FORMAT_VERSION` は 2 で、v0.19.0 まで 2 だった（CHANGELOG の v0.16.0 の項、`docs/migration.md` の v0.19.0 の項）。format 3（H-0133）と 4（H-0134）を書く exporter は、まだリリースしていない。どちらも必ず `checksums` を書く（`exporter.py:425-428`）。したがって、リリースした成果物で `checksums` を持たないものは、全て format 1・2 である。
+- **load の母集団**: `docs/audits/2026-10-h0135/probes/firing/h0135_load_census.py` は pytest の plugin で、`loader.load` を包み、load が走る前の成果物の状態と、load の結果を記録する。記録するのは、版、`checksums` の形（判断 1・D1 と同じ厳密な判定）、宣言されたファイル、ディレクトリの全ての項目（symlink を含む）である。フルスイートで 449 回の load を記録した（生の記録は `census_before.jsonl`、集計は `summarize.py` と `census_before.out`）。このほかに、`metadata.json` が無いか JSON でないディレクトリの load が 10 回あり、どれも今と同じく拒否される。
+  - 版と `checksums`: 形の正しいもの v1 2・v2 29・v3 19・v4 337、無いもの v1 28・v2 9・v4 13、形の違うもの v4 5。ほかに、版の検査で拒否される版の load がある。
+  - R1（形の違う `checksums` の拒否）: 5 回。全て `test_h0134_acceptance.py` で、今も拒否されている。
+  - R2（format 3 以上で `checksums` が無いものの拒否）: 13 回。今通るのは 11 回で、`test_h0125_load_refuses_non_probability_objective.py` の 9 回、`test_artifact_compat.py::TestLegacyCalibrationPath` の 1 回、`test_checksum_integrity.py::test_legacy_artifact_without_checksums_still_loads` の 1 回である。残る 2 回は `test_export_load_errors.py` の `test_corrupt_fit_result_pkl` と `test_corrupt_analysis_context` で、今は壊れた pickle のために拒否されている。規則の後は、`checksums` が無いことで先に拒否される。
+  - R3（`checksums` があるのに `fit_result.pkl` か `refit_model.pkl` が載っていないものの拒否）: 0 回。
+  - R4（宣言された `analysis_context.pkl` が無いものの拒否）: 5 回で、全て今は通る。`test_persistence.py::TestLegacyArtifactCompat` が、ファイルを消して宣言を残し、「context の無い成果物」を作っている。
+  - 無視（ファイルはあるが宣言されていない `analysis_context.pkl`）: 0 回。#373 の再現にしか現れない。
+  - ディレクトリに symlink がある load: 0 回。
+  - **今は通るのに規則の後で拒否される 16 回は、全て、テストが手で作った、どの LizyML も書かない状態である**: 現在の版のまま `checksums` を外したもの（11 回）と、宣言を残してファイルを消したもの（5 回）。LizyML の exporter が書いた成果物で、規則が変える load は 0 回である。
+
+### 対応方針（提案）
+
+- **P1（#374）**: `checksums` は、無いか、ちょうど `{"algorithm": "sha256", "files": {<str>: <64 桁の小文字の 16 進>}}` かのどちらかである。キーの過不足、`algorithm` の違い、`files` が object でない、名前が文字列でない、digest が 64 桁の小文字の 16 進でないものは、どの版でも `DESERIALIZATION_FAILED` にする。型は厳密に見る（`dict` の subclass や `bool` を通さない）。`_require_v4_checksums` の狭い検査はこれに置き換える。
+- **P2**: `checksums` が無い成果物は format 1・2 だけで受け付け、今どおり検査せずに読む。format 3・4 で無ければ `DESERIALIZATION_FAILED`。
+- **P3**: `checksums` があるとき、`fit_result.pkl` と `refit_model.pkl` は載っていなければならない。今は載っていないと検査せずに読む。
+- **P4（#373）**: `checksums` があるとき、`analysis_context.pkl` は宣言されているときだけ読む。
+  - 宣言されていて、ファイルがある: 1 回読み、digest で確かめてから復元する（今と同じ）。
+  - 宣言されているのに、ファイルが無い: `DESERIALIZATION_FAILED`。
+  - ファイルはあるが、宣言されていない: 読まない。`analysis_context` は `None` になり、診断 API は H-0026 の `MODEL_NOT_FIT` を出す。読まなかったことを、`lizyml.core.logging.get_logger` の logger の INFO に記録する。
+  - `checksums` が無い（format 1・2）: ファイルがあれば読む（今と同じ）。
+- **P5（判断 4）**: 宣言との照合は、決まった名前（`fit_result.pkl`・`refit_model.pkl`・`analysis_context.pkl`・`tuning_history.json`）の完全一致で、大文字と小文字を区別する。宣言の名前をパスとして組み立てることはしない。知らない名前は無視する（`../fit_result.pkl` は `fit_result.pkl` を宣言しない）。決まった名前のファイルが symlink でも受け付ける。
+- **P6（判断 3）**: `write_checked` は、最初のファイルを書く前に、今回書かない任意のファイル（`analysis_context.pkl` と `tuning_history.json`）を消す（`unlink(missing_ok=True)`）。ほかのファイルには触らない。書き直しは今も途中で失敗しうる（pickle を先に上書きする）ので、失敗の形は増えない。消せなければ今の I/O エラーと同じく `SERIALIZATION_FAILED`。
+- **P7（検査の順）**: `metadata.json` の読み込み → 必須のキー → 版 → P1 の形 → P2 → P3 → `declared_categories` → `tuning` の宣言（H-0134）→ ファイルの有無 → 読んで確かめる。拒否は全て、どの pickle も読む前に起きる。
+- **P8（整理）**: P1 と P2 の後、`_declared_tuning_history` の `checksums` の形とアルゴリズムの検査（`loader.py:118-122`）は到達できなくなるので消す（DC4）。format 4 では P2 が `checksums` の無い成果物を先に拒否し、P1 が形を閉じるからである。`files` と digest を引く行（`loader.py:115-117`）と、`tuning_history.json` が載っていないときの拒否（`loader.py:123-124`）は残す。`_verify_and_read_pkl` は、検査済みの `checksums` から得た digest（`str`、format 1・2 の検査しない読みでは `None`）を受け取る形にし、「載っていないので検査しない」枝を消す。
+
+### 規則が縛る位置（ソースから導出、実装前、`f798b6f`。コードと文書は develop `abae5d9` と同じ）
+
+- コード:
+  - `lizyml/persistence/loader.py:58-81`（`_require_v4_checksums`、P1 に置き換える）
+  - `loader.py:118-122`（P8。`loader.py:115-117` と `loader.py:123-124` は残す）
+  - `loader.py:209-250`（`_verify_and_read_pkl`、P8）
+  - `loader.py:333-347`（`tuning` の宣言の前に P1〜P3 を置く）
+  - `loader.py:358-362`（必須の pickle、P3）
+  - `loader.py:379-392`（`analysis_context.pkl`、P4）
+  - `lizyml/persistence/exporter.py:397-413`（P6）
+  - `exporter.py:3-17`（module の docstring。「format_version=3」は古いので 4 に直し、`tuning_history.json` と、書き直しで任意のファイルを消すことを書く）
+  - `lizyml/core/_model_persistence.py:326-328`（`Model.export` の docstring が成果物のファイルを並べている）
+  - `docs/proposal_dispositions.toml` の H-0135 の行（実装の PR で BLUEPRINT を更新したら、`pending` から `specified` にする）
+- 仕様と文書:
+  - `BLUEPRINT.md:1901`（`checksums` の形）
+  - `BLUEPRINT.md:1913`（§15.2 の完全性の検査。「載っていないファイルは検査せずに読む」を置き換える）
+  - `BLUEPRINT.md:1914`（脅威モデル。`checksums` を消すと format 3 以上は読めなくなる）
+  - `BLUEPRINT.md:1915`（`analysis_context.pkl` が無い、または宣言されていない成果物）
+  - `BLUEPRINT.md:1921`（§15.3。書き直しで任意のファイルを消す）
+  - `BLUEPRINT.md:2091`（§18.1.4。「`4` 等」が古い）
+  - `docs/api.md:351-352`（`export` が書くファイル）と `docs/api.md:419-427`（`load` が拒否するもの）
+  - `docs/faq.md:190-194` と `docs/faq.md:231`
+  - `docs/migration.md` の v0.20.0 の節
+  - `CHANGELOG.md` の `[Unreleased]`
+
+### 互換性
+
+- **リリースした成果物**（format 1・2）は、今と同じに読める。`checksums` を持つ v2 の成果物（v0.16.0〜v0.19.0）は、どれも exporter が `fit_result.pkl` と `refit_model.pkl` を載せ、`analysis_context.pkl` を書いたときはそれも載せるので、P1・P3・P4 で変わらない。例外は #373 の状態で、v0.16.0〜v0.19.0 で書き直したディレクトリに残った古い `analysis_context.pkl` は、もう読まれない。これが直したい振る舞いである。
+- **format 3・4**（まだリリースしていない）: exporter が書いたものは今と同じに読める。`checksums` を手で消したもの、形を変えたもの、宣言を残してファイルを消したものは拒否される。
+- **書き直し**: 同じディレクトリに書き直すと、前の export の `analysis_context.pkl` と `tuning_history.json` が無くなる。`metadata.json` のフィールドは消えず、意味も変わらないので、§15.2 の規則により `FORMAT_VERSION` は 4 のままにする。古い LizyML（v0.19.0 以前）は format 4 を拒否するので、新しい成果物の読まれ方は変わらない。
+- **公開の API**: `lizyml.persistence.load` と `Model.load` の拒否が増える（上記）。戻り値の形は変わらない。
+
+### 代替案（検討して棄却）
+
+- **`checksums` が無い成果物を、どの版でも受け付ける**: 今と同じだが、format 3・4 で `checksums` を消すと、検査を素通りできる。リリースした writer でそうなるものは無い。
+- **宣言されていない `analysis_context.pkl` を拒否する**: v0.16.0〜v0.19.0 で書き直したディレクトリが読めなくなる。
+- **宣言されていない `analysis_context.pkl` を UserWarning で知らせる**: 判断 2 で INFO にした。
+- **exporter は消さず、読み手が宣言だけを読む**: 安全だが、古いファイルがディレクトリに残る。判断 3 で消すことにした。
+- **パスの形の名前と symlink を拒否する**: 新しい拒否の条件になり、母集団の 0 回を規則にするだけで、守るものが無い（読むバイト列は digest で確かめる）。
+
+### 置き換える記録
+
+- H-0083 の「`files` に載っていないファイルは検査せずに読む」と「`checksums` を持たない artifact は検査せずに読む」は、P2〜P4 で置き換える。format 1・2 の `checksums` が無い成果物の読みは残す。
+- H-0134 の `_require_v4_checksums`（tune 済みの format 4 だけ）は、P1 に含める。
+
+### Firing rate
+
+P2〜P4 は `allow` の条件（形の正しい宣言を持つ成果物だけを読む）である。
+
+Firing rate: 23/449 of artifact loads (full-suite load census with `h0135_load_census.py` on develop `abae5d9` + `dfeba81`, rules evaluated by `summarize.py`; raw records in `census_before.jsonl`)
+
+23 回のうち 7 回は今も拒否されている。今は通るのに拒否される 16 回は、全てテストが作った状態で、LizyML が書いた成果物は 0 回である。実装の後で同じ census をもう一度走らせる。受け入れ基準 6 で書き直したテストは規則に合う状態を作るので、規則による拒否は、拒否を確かめるテストの load だけになるはずである。exporter が書いた成果物の load で、結果が変わるものが 0 回であることも確かめる。
+
+### 受け入れ基準（テスト観点）
+
+1. **#373 の回帰**: `analysis_context.pkl` を持つモデルを export し、同じディレクトリに `analysis_context.pkl` を持たないモデル（load したモデルを context なしで書き直したもの）を export し直す。load したモデルの診断 API が `MODEL_NOT_FIT` を出し、ディレクトリに `analysis_context.pkl` が無いこと。`tuning_history.json` も同じに確かめる（tune 済みのモデルの上に、tune していないモデルを書き直す）。
+2. **#374 の回帰**: tune していない format 4 の成果物で、`checksums` が `[]` と `["x"]` のとき、`DESERIALIZATION_FAILED` を出すこと。pickle を読む前に拒否することを、pickle を壊したバイト列に置き換えて確かめる（エラーが `checksums` のものであること）。
+3. **P1 の拒否の表**: `null`・配列・数・文字列、キーの不足と余り、`algorithm` の違い（`"SHA256"` を含む）、`files` が object でない、名前が文字列でない、digest が文字列でない・短い・大文字・16 進でないもの。それぞれ、全ての版（1〜4）で拒否され、pickle を読む前であること。形の正しい対照が通ること。
+4. **P2**: `checksums` が無い format 1・2 が読め、format 3・4 が拒否されること。拒否は pickle を読む前であること（受け入れ基準 3 と同じく、pickle を壊したバイト列に置き換え、エラーの理由が `checksums` が無いことであると確かめる）。形の正しい対照が通ること。
+5. **P3・P4・P5**: 必須の pickle をどちらか一方ずつ宣言から外すと拒否。`analysis_context.pkl` の 4 つの状態（宣言あり・ファイルあり、宣言あり・ファイルなし、宣言なし・ファイルあり、`checksums` なし・ファイルあり）がそれぞれ上の通りになること。宣言なし・ファイルありのとき INFO が記録されること。名前の大文字と小文字の違い（`Analysis_Context.pkl`）とパスの形の名前（`../analysis_context.pkl`）が宣言にならないこと。決まった名前の symlink が、digest が合えば読めること。P3 の拒否（必須の pickle のそれぞれを外したもの）と、P4 の「宣言あり・ファイルなし」の拒否も、pickle を読む前であることを同じ方法で確かめ、エラーの理由を確かめる。それぞれに形の正しい対照を置く。
+6. **規則に合わない状態を作っていたテストの書き直し**（テストを消さない）:
+   - `test_h0125_load_refuses_non_probability_objective.py` の `_drop_checksums` と、`test_artifact_compat.py::TestLegacyCalibrationPath` は、`checksums` を外す代わりに、置き換えた pickle の digest を書き直す。どちらも「今の版の成果物で pickle を変えたもの」を作りたいからである。
+   - `test_checksum_integrity.py::test_legacy_artifact_without_checksums_still_loads` は、`_artifact_versions.py` の `to_v2_shape` で本当の v2 の形にしてから `checksums` を外す。加えて、format 4 で `checksums` を外すと拒否されるテストを置く。
+   - `test_export_load_errors.py` の `test_corrupt_fit_result_pkl` と `test_corrupt_analysis_context` には、完全な `checksums` を置く。必須の pickle 2 つと（後者では）`analysis_context.pkl` を載せ、どの digest もディスクにある最後のバイト列（壊したバイト列を含む）から計算する。そうすると digest の検査を通って joblib の復元が失敗するので、2 つのテストとも `__cause__` があることを確かめる（後者では新しく足す）。
+   - `test_persistence.py::TestLegacyArtifactCompat` の「context の無い成果物」は、ファイルを消すだけでなく宣言からも外す。
+7. **書き直しの P6**: 書き直しの前後で、前の export の任意のファイルが消え、ほかのファイル（利用者が置いたファイル）が残ること。
+8. **陰性対照**: 1〜5 の検査それぞれについて、実装の該当する行を戻すとテストが落ちること（MonkeyPatch か、実装の一部を元に戻した版で確かめる）。
+9. **census**: 実装の後にフルスイートで census を走らせ、記録を残すこと。
+
+### 改訂の記録
+
+- **改訂 1（2026-10-20、Proposal review round 2 の CHANGES_REQUESTED への対応。run `h0135-proposal-review`）**:
+  - major 1: census の commit を `dfeba81`（正しい規則で数えたもの）に直した。`f798b6f` は、古い判定の census だった。数 23/449 は変わらない。
+  - major 2: 「pickle を読む前に拒否する」ことの確かめを、P2・P3・P4 の拒否にも足した（受け入れ基準 4・5）。
+  - major 3: 壊れた pickle のテストの書き直しを、ディスクにある最後のバイト列から digest を計算する 1 つの指示にし、2 つのテストで `__cause__` を確かめるとした（受け入れ基準 6）。
+  - minor: P8 で消す行を `loader.py:118-122` に直し、P1 と P2 の両方による理由を書いた。規則が縛る位置に、`exporter.py:3-17` の docstring、`Model.export` の docstring、`proposal_dispositions.toml` の H-0135 の行を足した。
+
+### 受け入れ（2026-10-20）
+
+- Codex の確認 run（`h0135-proposal-confirm`、`4013f76`）が APPROVE（指摘 0 件）だった。その前に relational monitor を走らせ、CONVERGING・continue だった。
+- 管理者は、停止ルールで「直して、絞った確認を 1 回」を選んだ。この実行の方針（Codex の APPROVE と CI 緑で進める）により、確認の APPROVE をもって受け入れとした。
+- 4 つの分かれ道は管理者が決めた（カード D-20261020-002）。
+
+### 実装の記録（2026-10-20）
+
+- **コード**:
+  - 新しい `lizyml/persistence/_manifest.py` の `declared_files` が P1〜P3 を行う。拒否は `DESERIALIZATION_FAILED` で、context の `reason` に理由を入れる:
+    - `checksums_malformed`
+    - `checksums_algorithm`
+    - `checksums_missing`
+    - `required_file_unlisted`
+  - `loader.py`:
+    - `_require_v4_checksums` を消した。
+    - `_declared_tuning_history` は `declared_files` の結果を受け取り、`loader.py:118-122` の検査を消した（P8）。
+    - `_verify_and_read_pkl` は宣言された digest（`str`、または format 1・2 の検査しない読みのとき `None`）を受け取る。
+    - `_context_is_read` が P4 を行う。宣言されたのにファイルが無いときは `declared_file_missing` で拒否し、ディスクにあるのに宣言されていないファイルは無視して、`lizyml.persistence.loader` の logger の INFO に記録する。この判定は、どの pickle を読むよりも前に行う。
+  - `exporter.py` の `write_checked` は、`mkdir` の後、最初のファイルを書く前に、`_OPTIONAL_FILES`（`analysis_context.pkl`、`tuning_history.json`）を `unlink(missing_ok=True)` で消す（P6）。
+  - module の docstring と `Model.export` の docstring も直した。
+  - `_manifest` は `exporter` の `CHECKSUM_ALGORITHM` を import する。`exporter` が `_manifest` を import すると循環するので、exporter はファイル名を自分で持つ。
+- **テストの書き直し**（受け入れ基準 6。テストは消していない）:
+  - `_artifact_versions.py` に `resign` を足した（載っているファイルの digest を、ディスクのバイト列で書き直す）。
+  - `test_h0125_load_refuses_non_probability_objective.py` の `_drop_checksums` を `_resign_if_signed` にした。
+  - `test_artifact_compat.py::TestLegacyCalibrationPath` は `resign` を使う。
+  - `test_checksum_integrity.py` は、`to_v2_shape` で v2 にしてから `checksums` を外すようにした。format 4 で外すと拒否されるテストも足した。
+  - `test_export_load_errors.py` の 2 本は `_write_signed_metadata`（ディスクの最後のバイト列の digest）を使い、どちらも `__cause__` を確かめる。
+  - `test_persistence.py::TestLegacyArtifactCompat` は、ファイルと一緒に宣言も外す。
+  - **意図した変更**: `test_h0134_acceptance.py::test_a_stale_history_file_is_not_read` は、書き直しの後に古い `tuning_history.json` が「残る」ことを確かめていた。P6 によって「消える」ことを確かめる形にした。読み手が宣言だけを読むことは、`test_h0135_acceptance.py` の `test_a_left_over_context_is_ignored_and_logged` と、H-0134 の宣言の検査が確かめる。
+- **新しいテスト**: `tests/test_persistence/test_h0135_acceptance.py`（round 1 のレビューの時点で 103 本）。
+  - 拒否するテストは、どれも `_verify_and_read_pkl` と `joblib.load` を罠に置き換え、pickle を読む前に拒否されることと、`reason` を確かめる。
+  - 形の違い 18 通りを、版 1〜4 の全てで確かめ、それぞれに形の正しい対照を置いた。
+  - 当初、「名前が文字列でない」場合は JSON では作れないとして表から外し、受け入れ基準 3 を満たしていなかった。実装レビュー round 1 の指摘で、validator に直接与えるテストを足した（下の「実装レビュー round 1 への対応」）。
+- **陰性対照**（受け入れ基準 8）: `docs/audits/2026-10-h0135/probes/negative_controls_h0135.py`。各検査を、それぞれありそうな誤った実装に戻す（多くは H-0135 の前の振る舞い）。対照は次の 10 通りで、10/10 で該当のテストが落ちた（`negative_controls_h0135.out`）。patch を当てない基準の run は通った。
+  - P1〜P3 を緩める
+  - P2
+  - P3
+  - digest の形
+  - アルゴリズム
+  - P4
+  - P5
+  - P6 を消さない
+  - P6 が利用者のファイルまで消す
+  - P7（pickle を先に読む）
+- **census（受け入れ基準 9）**: 実装の後に、フルスイートで同じ census を走らせた（`census_after.jsonl`・`census_after.out`）。
+  - load は 554 回で、規則による拒否は 89 回だった。どれも拒否を確かめるテストの load で、内訳は `test_h0135_acceptance.py` が 83 回、`test_h0134_acceptance.py` が 5 回、`test_checksum_integrity.py` が 1 回。
+  - 拒否は全て `DESERIALIZATION_FAILED` で、今は通るのに拒否される load は 0 回だった。
+  - symlink のある load は 3 回で、全て新しいテストのものだった。
+  - 実装の前の 16 回（テストが作った状態）は、書き直しで規則に合う状態になった。
+- **フルスイート**（census と同じ run）:
+  - 落ちたのは `tests/test_e2e/test_version.py`（editable install の古いメタデータ。既知の環境の失敗）と、`tests/test_docs/test_pr9_fold_map_check.py` の 3 本だった。
+  - fold map の 3 本は、BLUEPRINT §15.1・§15.2 の文を言い換えたために、`docs/audits/2026-09-defect-discovery/results/pr9_fold_map.md` の引用 4 行（H-0026#4、H-0083#0〜#2）が BLUEPRINT に無くなったことによる。引用を新しい文に直し、checker と `tests/test_docs` が通ることを確かめた。H-0083#2 は「H-0135 が format 1・2 に狭めた」と注記した。
+- **文書**:
+  - BLUEPRINT §15.1（`checksums` の形）、§15.2（読むファイルの規則と拒否の一覧、脅威モデル、`analysis_context.pkl`）、§15.3（書き直し）、§18.1.4（拒否する版の一覧を、テストの `0`・`5`・`99`・`-1`・`None` に合わせた）
+  - `docs/api.md`、`docs/faq.md`、`docs/migration.md`、`CHANGELOG.md`
+  - `docs/proposal_dispositions.toml` の H-0135 を `specified` にした。anchor は `declared_files` と `declared_file_missing`。
+
+### 実装レビュー round 1 への対応（2026-10-20）
+
+Codex の実装レビュー（run `h0135-impl-review`、`1d9d38a`）は CHANGES_REQUESTED（major 3、minor 1）だった。全て直した。
+
+- **major 1（DC1）**: 版の検査が `fv in {1, 2, 3, 4}` だったので、等しく比べられる JSON の `true`・`1.0`・`2.0` を通していた。これらは P2 で「`checksums` が無くてよい版」になり、pickle を検査せずに読んでいた。配列と object の版は、hash できずに `TypeError` を出していた。
+  - `type(fv) is int` を先に確かめるようにした。
+  - あわせて、`metadata.json` が object でないとき（配列など）に `AttributeError` を出していたのも、`DESERIALIZATION_FAILED` にした。
+  - テストは、`true`・`false`・`1.0`・`2.0`・`4.0`・`"2"`・`[2]`・`{"v": 2}` のそれぞれについて、`checksums` がある場合と無い場合を確かめる。metadata が object でない場合は 5 通りを確かめる。どれも pickle を読む前に拒否される。
+- **major 2**: 必須の pickle と `analysis_context.pkl` の有無を `exists()` で見ていたので、その名前のディレクトリ（とディレクトリへの symlink）を「ある」としていた。宣言された context がディレクトリのときは、ほかの pickle を復元した後に `IsADirectoryError` がそのまま出ていた（P7 と `DESERIALIZATION_FAILED` の約束の破れ）。
+  - `_is_payload` が、通常のファイル（とそれへの symlink）でないものを、どの pickle も読む前に `reason="not_a_file"` で拒否するようにした。
+  - `_verify_and_read_pkl` の `OSError` も `DESERIALIZATION_FAILED` に包む。
+  - 宣言されていない名前のディレクトリは、今までどおり無視する。
+  - テストは、3 つの名前 × ディレクトリと symlink × v2（`checksums` なし）と v4 の 12 通りに、無視の 1 本を足した。
+- **major 3（DC5）**: 「受け入れ基準 1〜5 と 7 を確かめる」という記録が、名前が文字列でない場合を外していたので偽だった。
+  - JSON では作れない値（文字列でない名前、`dict` の subclass の `files` と `checksums`、`str` の subclass のアルゴリズムと digest、`bool` の digest）を `declared_files` に直接与え、`checksums_malformed` で拒否されることを確かめるテストを足した。対照も置いた。
+  - 上の記録を直した。
+- **minor**: `docs/api.md`、`Model.export` の docstring、`docs/faq.md` の表が、`analysis_context.pkl` と `tuning_history.json` を必ず書くように読めた。持っているときだけ書く、と直した。
+- **文書**:
+  - BLUEPRINT §15.2 に、整数でない版と object でない metadata の拒否、`not_a_file` を足した。
+  - `docs/api.md`・`docs/migration.md`・`CHANGELOG.md` も同じに直した。
+  - この 3 つの拒否は、拒否の検査（`allow` の条件ではない）であり、firing rate の行は要らない。実装の後の census（`census_after.out`）では、`true` か浮動小数の版を持つ load は 0 回だった。
+- **陰性対照**:
+  - 2 つ足して 12 通りにした。
+    - round 1 の loader（`git show 1d9d38a:lizyml/persistence/loader.py`）に戻す。
+    - ファイルの判定を `exists()` に戻す。
+  - 結果は 12/12 で、patch を当てない基準の run も通った（`negative_controls_h0135.out`）。
+- **テストの数**: `test_h0135_acceptance.py` は 144 本になった（下の CI の項で 145 本）。`tests/test_persistence` は 795 本が通り、4 本が skip だった。
+- **CI（round 1 の head `1d9d38a`）**: Smoke の macOS と Windows で、`test_a_reexport_keeps_files_it_does_not_own` が 1 本落ちた。
+  - このテストは、`Analysis_Context.pkl` を `analysis_context.pkl` と別の利用者のファイルとして置いていた。大文字と小文字を区別しないファイルシステムでは、2 つは同じ 1 つのファイルで、export の持ち物である。
+  - ライブラリの振る舞いは正しい。export は自分の名前のファイルを消し、宣言の照合は完全一致のまま（`test_only_the_exact_name_declares_the_context` は両方の OS で通った）。
+  - テストを 2 本に分けた。
+    - 利用者のファイル（`notes.txt`）が残ることを、全ての OS で確かめる。
+    - 大文字と小文字だけが違う名前は、区別するファイルシステムでだけ確かめ、ほかでは理由をつけて skip する。
+  - 大文字と小文字を区別しないファイルシステムで、利用者が `Analysis_Context.pkl` という名前でファイルを置いた場合、export はそれを自分の `analysis_context.pkl` として消す。その名前は export の持ち物なので、これは仕様どおりである。
+
+### 実装レビュー round 2（2026-10-20）
+
+- **monitor**: round 2 の前に、absolute monitor を 2 つ走らせた。
+  - Claude の新しい context のもの。
+  - runner の monitor（`attempt-r2-monitor-1`。判定した head は `ff506e1`）。
+  - どちらも DELIVERABLE-FOCUSED・continue だった。disposition は continue。
+- **結果**: Codex の実装レビュー round 2（`ff506e1`）は APPROVE で、指摘は minor 1 件だった。
+- **minor の指摘**: `docs/api.md` と `CHANGELOG.md` は、整数でない版と object でない metadata の拒否にも `context["reason"]` があると読めた。実際には、この 2 つは今までの版と metadata のエラーと同じで、`reason` を持たない。
+- **対応**: 文書の方を直した。`api.md`・`CHANGELOG.md`・`migration.md` で、`reason` は `checksums` の拒否とファイルの形の拒否のものだと書いた。コードは変えていない。管理者の方針（1 行の修正でも確かめ直す）により、絞った確認を 1 回走らせる。
+
+
+## H-0136: 保存する前に、学習したカテゴリを実際の保存処理に通して確かめる ― 保存の後で符号が変わるモデルを、Model.export と export_code の両方で拒否する（#372）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-20
+- **決定日**: 2026-10-20
+- **関連**: #372、H-0133（値の集合 V と符号化）、H-0127、H-0129（adapter の `unsaveable_categories`）、H-0120（export_code の `pipeline_state.json`）、#378（Decimal / np.int8 の fit の失敗。v0.20.0 の後）、#379（pandas 2 で、fit の中で pytz の値の fold が変わる。v0.20.0 の後）、registry のカード D-20261020-001・D-20261020-007・D-20261020-009・D-20261020-010、Codex の run `h0136-design-critique`・`h0136-situation-analysis`
+- **スコープ**:
+  - `Model.export`、公開の `lizyml.persistence.export`、`Model.export_code` が、何かを書く前に行うカテゴリの検査
+  - `Model.fit` が出す、保存できないカテゴリの `UserWarning`
+  - `FORMAT_VERSION` は 4 のまま。H-0133 の符号化（`core/category_values.py`）は変えない
+
+### 目的（課題）
+
+保存したモデルを load すると、学習したカテゴリが、元と違う符号を返すことがある。今の検査（H-0133 の V と、H-0129 の adapter）は値の型を見るだけで、保存処理を通した後の振る舞いを見ない。このため、export は黙って成功し、load の後の predict で初めて壊れる（DC1）。壊れ方は 2 つ見つかった。
+
+- **joblib（`fit_result.pkl`・`refit_model.pkl`）**: pytz の `Timestamp` で、夏時間の終わりに 2 回ある時刻の標準時の側（`2024-11-03 01:30 America/New_York`、`is_dst=False`、`fold=0`）は、pickle から `fold=1` で戻る。値は等しいままだが、hash が変わる。
+  - 学習したカテゴリの集合にこの値が入らなくなる。load の後、既知の行が unseen と判定される（`categorical_encoder.py:191-194` の集合の差）。
+  - pandas 2.3.3 で、この値を 20 行（最頻値ではない）持つ列を学習したモデルを export して load すると、次のようになる（hash seed 0〜2 のどれでも同じ）。
+    - `unseen_policy="mode"`: 20 行が最頻値に置き換わり、予測が最大 5.9e-4 変わる。
+    - `"nan"`: 20 行が欠損になる。
+    - `"error"`: `DATA_SCHEMA_INVALID`。
+  - 夏時間の、重ならない時刻の対照では、3 つの方針とも予測が同じで警告も出ない（`cbdf02f` の `pytz_only_silent.py`・`.out`）。
+  - #372 の報告した組（zoneinfo の `fold=1` と、同じ時刻の pytz の値）は、この壊れ方が「カテゴリが重なる」形で現れたものである。load の後の predict は、seed 0〜39 の 40/40 で `Categorical categories must be unique` になる（`6db23e5`）。
+- **codegen の JSON（`pipeline_state.json`・`config.json` の `declared_categories`）**: `np.uint64(4)` は H-0133 の符号化で `int` の 4 になるが、`np.timedelta64(4, 'M')` はそのまま戻る。2 つは等しく、hash も等しい。
+  - fit・predict・`export_code` は成功するが、生成された `predict.py` の transform は `Categorical categories must be unique` で落ちる。pandas 3.0.1 と 2.3.3 の両方で起き、timedelta64 を除いた対照では起きない（`d2af70e`）。
+  - **v0.19.0 にもある**（`c16abb8` の `codegen_numpy_collision_v019.out`）。v0.19.0 の `codegen/values.py` の `plain_value` が、`np.timedelta64(4, 'M')` を `.item()` の `int` 4 に変えて受け付けたからである。
+
+**保存とは別の、メモリ上の不整合（#379。この Proposal の範囲の外）**: pandas 2 で、全ての値が 1 つの pytz の zone の `Timestamp` である列（夏時間の重なりの 2 つの値など）は、export しなくても壊れる。
+- fit は列を `astype("category")` で変換する（`dataframe_builder.py:99-112`）。pandas はこれを `datetime64[ns, tz]` のカテゴリにし、標準時の側の値を `fold=1` で作り直す。
+- predict はこの変換をしないので、元の `fold=0` の行が unseen になる。メモリ上のモデルが、自分の学習行 800 行のうち 426 行を unseen と判定する。
+- v0.19.0 でも同じである。zoneinfo の値と、pytz の値を文字列と並べた列では起きない（`cf66402` の `inmemory_fold.py`・`.out`）。
+- Codex の分析（finding 2）は、この 426 行を「保存の後」としていた。実際には保存の前、メモリ上で起きている。
+- 判断 4 により、これは #379 として v0.20.0 の後に扱う。H-0136 が約束するのは「保存したモデルが、メモリ上のモデルと同じに振る舞う」ことだけで、P1 はメモリ上の状態を基準にする。
+
+**#372 の原因の訂正**: Issue は「値は等しいのに hash が違う組」を原因とし、H-0133 の符号化が値を変えると書いた。実測では次のとおりである。
+- 値を変えているのは joblib である。H-0133 の符号化は、pytz の値を、等しく hash も等しい固定の時差の値に戻すので、衝突しない（`b684b21` の `roundtrip_cause.py`）。
+- 「等しいのに hash が違う組」は、必要でも十分でもない。
+  - 必要でない: pytz の値 1 つだけでも壊れる。
+  - 十分でない: zoneinfo の `fold=1` と、それと等しい固定の時差の `Timestamp` の組や、`1` と `np.timedelta64(1, 's')` の組は、どちらの保存処理を通しても同じ符号を返す（下の `rule_controls.out`）。
+- 報告の「失敗するかどうかが hash seed で変わる」は、テストが fit の前に置いた pandas の検査が skip するかどうかの違いである。load の後の predict は、seed によらず壊れる。
+
+### 管理者の判断（2026-10-20。カード D-20261020-007・D-20261020-009）
+
+- 拒否の規則は、Codex に全体の状況を第三者として分析させてから決める（run `h0136-situation-analysis`。CHANGES_REQUESTED、major 5）。
+- export が拒否するものは、fit で警告する。
+- Decimal / np.int8 の fit の `TypeError` は #378 とし、v0.20.0 の後に扱う。
+- 分析の後で、次の 3 つを決めた。どれも推奨の案である。
+  1. **方針 A**: 書き出す前に、学習したカテゴリの状態を、実際の保存処理（joblib と codegen の JSON）に通して確かめる。符号が変わるか、既知の値が unseen になるなら `SERIALIZATION_FAILED` で拒否する。
+  2. **受け付ける範囲は 3 つの出口で同じにする**。出口ごとに通る値が違うのは UX として非常に悪い、という判断である。どちらかの保存処理で壊れる値は、`Model.export`・`persistence.export`・`export_code` のどれでも拒否する。食い違う割合を測ってから決めた（下の実測）。符号化を直して衝突を減らす案は採らない。
+  3. codegen の衝突（v0.19.0 からある）も H-0136 に含め、v0.20.0 の前に直す。
+  4. 母集団の計測で見つかったメモリ上の不整合は、別の issue（#379）にし、v0.20.0 の後に扱う（カード D-20261020-010）。H-0136 の基準はメモリ上の状態とする。
+
+### 実測（2026-10-20、branch `fix/h0136-equal-hash-apart-categories`、develop `89ca340` の上）
+
+- **v0.19.0 が受け付けたもの**:
+  - v0.19.0 の `Model.export` は、LightGBM が JSON で書けない値を拒否した（v0.19.0 の `estimators/lgbm/category_json.py:66-75` の `is_writable`）。`Timestamp` は JSON にできないので、**リリースした成果物に `Timestamp` のカテゴリを持つものは無い**。pytz の値の拒否は、まだリリースしていない H-0133 の受け入れを狭めるだけである。
+  - v0.19.0 の `Model.export` は、`np.uint64(4)` と `np.timedelta64(4, 'M')` の列を持つモデルを保存し、load の後も同じ予測を返した（`cf66402` の `v019_export_pair.py`。結果は `inmemory_fold.out` の末尾）。同じ範囲にする判断 2 により、このモデルは新しい `Model.export` で拒否される（互換性の項）。
+- **出口の間で食い違う割合**: `tests/test_core/test_category_values.py` の `SAMPLES`（H-0133 が `ADMITTED_TYPES` から導いた母集団）の各値を単独で、また 2 つずつの組で、文字列 `"x"` と並べた列（pandas 3.0.1 で 6216 列、pandas 2.3.3 で 6441 列）を、試作の規則で判定した（`firing/criterion4_kinds.py`・`.out`）。数は Python の hash seed で変わるので、`PYTHONHASHSEED` 0〜4 の範囲で書く。
+  - pandas 3.0.1: JSON で壊れるものが 18〜21 列で、全て `uint64` を含む（`np.timedelta64` との組と、`np.bool_` との組。Python の `bool` との組は壊れない）。joblib で壊れるものは 0。
+  - pandas 2.3.3: JSON で壊れるものが 4〜7 列、joblib で壊れるものが 113 列（全て pytz の夏時間の重なりの値を含む）。
+  - 管理者に判断を仰いだときは、`surface_disagreement.py` の数（pandas 3 で 22、pandas 2 で 120。seed を固定していなかった）を示した。この probe と試作の規則は、入れ子の深い `tuple` を含む 2 列（`np.bool_` との組と `np.uint8` との組）で答えが違った。〔実装の記録で訂正: 改訂 1 は「probe が誤って壊れるとしていた」と書いたが、誤りである。2 つは別のバッチ（probe は `[*col, *col, "x"]`、規則は状態の順）を比べていた。probe のバッチでは、メモリ上のエンコーダ自身が pandas の取り違え（#380）で誤った符号を出していた。〕seed 0〜4 の数は `surface_disagreement.out` にもある（pandas 3 で 20〜23、pandas 2 で 119〜122）。どの数でも判断 2 の前提（特殊な値の組だけで、最大でも約 2%）は変わらない。
+  - fit や元の変換がすでに失敗する列（310・346）は、保存処理の違いではないので数えていない（#378 の類）。
+- **規則の試作**（`docs/audits/2026-10-h0136/probes/firing/h0136_rule.py`）は、上の正の例 4 種（`uint64` と `timedelta64`、pytz の値 1 つ、それを入れた `frozenset`、#372 の組）と、Codex の挙げた 2 組を含む対照 5 種を、pandas 3 と 2 の両方で正しく分けた（`rule_controls.out`、誤り 0）。
+- **母集団（census、`cf66402`）**: `docs/audits/2026-10-h0136/probes/firing/h0136_export_census.py` は pytest の plugin である。3 つの出口と fit の警告を包み、書く前の状態に試作の規則を当ててから、本物の呼び出しをそのまま走らせて結果を記録する。集計は `summarize.py`。
+  - pandas 3.0.1、フルスイート（`census_before.jsonl`・`.out`。落ちたのは既知の `test_version.py` の 1 本だけ）:
+    - `Model.export` 567 回、`persistence.export` 119 回、`export_code` 488 回。規則が新しく拒否するのは 0 回だった（0/1174）。fit の警告は 1568 回で、新しい警告は 0 回だった。
+    - 規則が壊れると判定し、今も拒否されている呼び出しは 37 回あった（V の外の値などで、今の検査が先に拒否する）。
+    - `export_code` が今は通り、`check_category_values` なら拒否する呼び出しは 0 回だった（P2 で増える拒否は、この母集団では 0）。
+    - 規則が状態を読めなかった 5 回は、どれも今の検査が拒否する状態（状態とモデルの数が合わない 3 回、fit していないモデル 2 回）だった。
+  - pandas 2.3.3、pytz の値を作る 3 つのテストファイル（`test_h0133_acceptance.py`・`test_category_values.py`・`test_h0133_codec_copy.py`、`census_before_pd2.jsonl`・`.out`）:
+    - 出口の呼び出し 519 回のうち 5 回で、新しく拒否する。全て H-0133 の `Timestamp pytz fold` の case（`test_every_admitted_type_saves_and_predicts_the_same` と `test_the_three_surfaces_accept_every_admitted_column`）で、`json` の側が壊れる。fit の警告は 232 回のうち 2 回で新しく出る。
+    - この case は #379 の形である。メモリ上の状態が `fold=1` の値を持ち、JSON はそれを `fold=0` に戻すので、メモリ上の状態とは違う符号になる。テストが通るのは、壊れる値が最頻値で、`unseen_policy="mode"` が自分自身に置き換えるからである。
+  - pandas 3 の lock には pytz が無いので、pytz の case は pandas 2 でしか作れない。フルスイートを pandas 2 で走らせる代わりに、`grep -rl pytz tests/` で見つかる 3 つのファイルに絞った。
+
+### 対応方針（提案）
+
+- **P1（規則）**: 保存する全ての pipeline 状態（refit、各 fold、`pipeline_state_per_fold` が無いモデルでは `last fold`）の、各カテゴリ列について、カテゴリと最頻値を 2 つの保存処理で写す。
+  - (a) joblib: 成果物の pickle と同じ `joblib.dump(..., compress=3)` から読み戻す。
+  - (b) JSON: H-0133 の `encode` → `json.dumps` → `json.loads` → `decode`。export_code の `pipeline_state.json` と同じ。
+  - 写した状態のライブラリのエンコーダ（`unseen_policy="error"`）で、元の各カテゴリを 1 行ずつ変換する。次のどれかなら、その列はその保存処理で壊れる。
+    - 元のカテゴリのどれかが、写したカテゴリの集合に入らない（unseen になる）。
+    - 写した状態での変換が例外を出す。実測では、写したカテゴリが pandas で一意でないときの `ValueError` と、`set_categories` が新旧のカテゴリを比べるときの `OverflowError`（`np.uint64(2**63 + 5)` と `np.bool_(True)`、`np.uint64` と `np.timedelta64` の組）がある（`criterion4_kinds.out`）。
+    - どれかの行の符号が、元の状態の符号と違う。
+    - 最頻値の符号が、元の状態の符号と違う。
+  - `declared_categories` は (b) だけで写す。写した値で `CategoricalDtype` を作れ、元の値に同じ符号を返さなければならない。
+  - 基準はメモリ上の状態である（判断 4）。代表の値は、状態が持つカテゴリそのものを使う。学習データの元の値と状態の値が違う場合（#379）は、この規則の外である。
+  - 元の状態で、すでに変換できない列は対象にしない（fit や predict がその前に失敗する。#378 の類）。
+  - 規則は値の組を探さない。等しさが同値関係でない値（`1` と `np.timedelta64(1, 's')` など）があるので、組を探す検査は、壊れない組を拒否し、組でない壊れ方（pytz の値 1 つ）を見逃す。
+  - **約束の範囲**: P1 が確かめ、H-0136 が約束するのは、学習したカテゴリと最頻値の値（そしてそれと同じ型で等しい値）を持つ行が、保存の後もメモリ上と同じ符号を受け取ることである。メモリ上のモデルが unseen とする値の行は、この範囲の外である（下の「残る範囲」）。
+- **P2（3 つの出口で 1 つの検査）**: `check_category_values` を広げ、`Model.export`（`_model_persistence.py:368`）、`persistence.export`（`exporter.py:347`）、`export_code` の 3 つが、何かを書く前に同じ関数を呼ぶ。
+  - 順は、状態とモデルの対応（`_saved_pipeline_states`）→ V（今と同じ）→ P1 → adapter の `unsaveable_categories`（今と同じ）。
+  - `export_code` は今はこの関数を呼ばず、refit の状態の値を V で判定するだけである（`codegen/values.py`）。P2 の帰結として、`export_code` は fold の状態の判定と adapter の判定も行う。これらが `export_code` の拒否を増やすかどうかは、census で示す。
+- **P3（拒否の形）**: `SERIALIZATION_FAILED`。context は `column`・`state`（`refit`・`fold k`・`last fold`・`declared categories`）・`serializer`（`joblib` か `json`）・`kind`（閉じた 4 つ: `unseen`、`raises`、`codes`、`mode`。P1 の 4 つの条件に 1 つずつ対応し、`unseen` を先に判定する）。`kind="raises"` のとき、context の `exception` に例外の型の名前（`ValueError`・`OverflowError` など）を入れる。メッセージは、`Model.export` と `export_code` のどちらもこのモデルを保存できないこと、値の名前と型、列の値を `str` などに変えて fit し直せば保存できることを述べる。出力先には何も書かない（H-0127 と同じく、パスを解決する前に拒否する）。
+- **P4（fit の警告）**: `model.py:295` の警告は、全ての学習行で fit した状態に P1 も当て、壊れる列ごとに `UserWarning` を 1 回出す。fit の時点の `declared_categories`（`model.py:247`）にも当てる。fit は止めない。V の外の値の警告は今と同じ。
+- **P5（変えないもの）**: H-0133 の符号化と `FORMAT_VERSION`。受け付けたモデルが書くバイト列は変わらない（拒否が増えるだけ）。
+
+### 規則が縛る位置（ソースから導出、実装前。コードと文書は develop `89ca340` と同じ）
+
+- コード:
+  - `lizyml/persistence/exporter.py:64-110`（`_state_category_values`・`unsaveable_category_values`・`warn_unsaveable_category_values`。警告の文面が受け付ける型を並べる）
+  - `exporter.py:112-133`（`_refuse_value`）、`exporter.py:177-235`（`check_category_values`、P1・P2）、`exporter.py:347`（公開の `export`）
+  - `lizyml/core/_model_persistence.py:368`（`Model.export`）と `_model_persistence.py:393` 以下（`export_code`。今は検査を呼ばない）
+  - `lizyml/core/model.py:247`・`model.py:292-295`（fit の警告、P4）
+  - `lizyml/codegen/artifact_writer.py:14-50`（`convert_pipeline_state`）、`lizyml/codegen/config_writer.py:106-110`（`declared_categories`）、`lizyml/codegen/values.py`
+  - `lizyml/codegen/templates.py:441`・`templates.py:496`・`templates.py:1590`（生成コードの `set_categories` と `CategoricalDtype`。変えない。受け入れ基準で実際に走らせる）
+  - `lizyml/core/category_values.py:1-20`（module の docstring が「3 つの出口は同じ集合 V を受け付ける」と書く。V に P1 を重ねたものにする）
+  - `docs/proposal_dispositions.toml` の H-0136 の行
+- 仕様と文書:
+  - `BLUEPRINT.md:1932`（§15.3 の V。「pytz の zone ... 夏時間の重なりで等しさを保てるもの」は joblib では成り立たない）
+  - `BLUEPRINT.md:1933`（§15.3 の拒否。P1・P2・P4）
+  - `BLUEPRINT.md:1967`（§15.4 の `export_code` の拒否）
+  - `docs/api.md:65`・`docs/api.md:373`・`docs/api.md:714`
+  - `docs/migration.md:94`（「`export_code` は `Model.export` と同じ値を受け付ける」）・`docs/migration.md:105-107`（まだ拒否するもの）と v0.20.0 の節
+  - `CHANGELOG.md` の `[Unreleased]`
+- テスト:
+  - `tests/test_persistence/test_h0133_acceptance.py:156-164` の `Timestamp pytz fold` の case。今通るのは、壊れる値がたまたま最頻値だからである（受け入れ基準 8）。
+
+### 互換性
+
+- **リリースした成果物**（format 1・2）と format 3・4 の成果物は、今と同じに読める。規則は export の時だけ働く。
+- **v0.19.0 が保存できたモデルの一部を、新しい `Model.export` は拒否する**: 判断 2 により、JSON で壊れる列（`uint64` と `timedelta64` の組など）を持つモデルは、joblib では保たれても `Model.export` で拒否される。v0.19.0 で保存した成果物は今までどおり読めて予測できるが、load して export し直すと拒否される。v0.19.0 の `export_code` は、同じモデルから動かない project を書いていた。
+- **pytz の値**: v0.19.0 の `Model.export` は `Timestamp` を拒否していたので、リリースした成果物には無い。H-0133（まだリリースしていない）の受け入れを狭めるだけである。#379 の形の列（全てが 1 つの pytz の zone の値）を持つモデルも、3 つの出口で拒否される。#379 を直せば、このモデルは保存できるようになる。
+- **公開の API**: 3 つの出口の拒否と、fit の警告が増える。戻り値の形は変わらない。
+
+### 代替案（検討して棄却）
+
+- **B: H-0133 の受け入れを v0.19.0 の範囲に戻す**: v0.19.0 でも codegen の衝突は起きる（`c16abb8`）ので、閉じない。
+- **C: pytz の `Timestamp` だけを拒否する**: codegen の衝突が残る。
+- **出口ごとに、自分の保存処理で壊れるものだけを拒否する**: 拒否は最小になるが、同じモデルが一方の出口だけで通る。判断 2 で棄却した。
+- **符号化を直して衝突自体を無くす**（`uint64` などに印をつける）: `declared_categories` の保存形式が変わり、規模が大きい。判断 2 で採らないとした。
+- **値の組（等しいのに hash が違うもの）を探して拒否する**: 必要でも十分でもない（目的の項）。
+- **fit で値を 1 つの代表に正規化する**: カテゴリの数・順・符号・最頻値と、学習したモデルの意味が変わる。format の変更になる。
+- **load の時に直す**: 学習した booster は 2 つの位置を別の符号として学んでいるので、安全に一つにできない。
+
+### 残る範囲（この Proposal で閉じないもの）
+
+- **メモリ上で unseen の値が、写したカテゴリと型をまたいで等しくなる場合**（実装前の Proposal review round 1 の finding 1）: 学習したカテゴリが `[np.uint64(4), "x"]` のモデルに、predict で `np.timedelta64(4, 'M')` の行を渡す。
+  - メモリ上のモデルは、この行を unseen とする（mode と nan では置き換え、error では `DATA_SCHEMA_INVALID`）。
+  - 生成した `predict.py` は、JSON で `int` の 4 になったカテゴリとこの値が等しいので、学習した `np.uint64(4)` の符号 0 を黙って与える。pandas 3.0.1 と 2.3.3、3 つの方針のどれでも同じで、例外は出ない（`unseen_cross_type.py`・`.out`）。学習した値の行の符号は同じである。
+  - 閉じない理由: predict に来る値は開いた集合で、export の時に全てを試せない。型の変わる写し（H-0133 が文書にした、numpy のスカラーが Python の型で戻ること）を全て拒否すれば閉じるが、`np.int64` などのカテゴリを持つ全てのモデルの `export_code` を拒否することになり、v0.19.0 から使えたものを失う。
+  - 保存した成果物（joblib）は型を保つので、`Model.export` ではこの差は出ない。
+- **#379**（メモリ上の不整合）: 判断 4。
+- **#380**（実装中に見つけた、メモリ上の不整合）: NumPy の 1 に等しいスカラーと 1 を包む `tuple` を pandas が取り違え、メモリ上のモデルがバッチによって符号を変える。P1 の基準は、学習したカテゴリを状態の順に並べた 1 つのバッチである（実装の記録）。
+- **#382**（実装レビューで見つけた、codegen の列名）: 文字列でない名前のカテゴリ列（例: 自動で見つけた int の `7`）では、`pipeline_state.json` のキーが JSON で文字列になる。そのため、生成した `predict.py` がその列を符号化せずに落ちる。v0.19.0 でも同じである（`int_column_name.py`・`.out`）。値ではなく列名の問題で、管理者の判断（カード D-20261020-013）により、別の issue として v0.20.0 の後に扱う。
+
+### 置き換える記録
+
+- H-0133 P5 の「`Model.export`・`persistence.export`・`export_code` は同じ集合 V を受け付ける」は、「V の値で、かつ P1 で壊れない状態を受け付ける。3 つの出口は 1 つの検査を共有する」に置き換える。
+- H-0133 の符号化の「等しい値と hash で戻る」約束は、符号化については今も正しい。joblib についての約束ではないので、BLUEPRINT §15.3 の pytz についての文を直す。
+- #372 の Issue の仕組みの記述は、目的の項の訂正で置き換える（Issue に英語でコメントする）。
+
+### Firing rate
+
+P1 は `allow` の条件（保存処理で振る舞いが変わらない状態だけを書く）である。
+
+Firing rate: 0/1174 of export exits on pandas 3.0.1 (full-suite census with `h0136_export_census.py`, `cf66402`) and 5/519 on pandas 2.3.3 over the three test files that build pytz values (same census; all 5 are the H-0133 `Timestamp pytz fold` case); type-level bound over the H-0133 sample population, PYTHONHASHSEED 0-4: 18-21/6216 (pandas 3) and 117-120/6441 (pandas 2) columns (`criterion4_kinds.py`)
+
+規則は、壊れる値を持つ入力でしか発火しない完全性の検査である。フルスイートの 0 回は、スイートにそのような入力が無いことによる（DC6 の「発火しない仕組み」ではなく、正の例は受け入れ基準 1〜4 が作る）。実装の後で同じ census をもう一度走らせ、今は通る呼び出しで拒否されるものが、`Timestamp pytz fold` の case（受け入れ基準 8 で書き直す）と、拒否を確かめる新しいテストだけであることを確かめる。
+
+### 受け入れ基準（テスト観点）
+
+1. **#372 の回帰**（pandas 2 と pytz。CI の lowest-direct のレーンで走る）: zoneinfo の `fold=1` と pytz の値の組を持つ列のモデルは、`Model.export`・`persistence.export`・`export_code` のどれでも `SERIALIZATION_FAILED`（`serializer="joblib"`）で拒否され、出力先に何も書かれない。fit は `UserWarning` を出す。
+2. **pytz の値 1 つ**（最頻値でない）: `unseen_policy` の 3 つのそれぞれで、3 つの出口が拒否し、fit が警告する。対照（夏時間の重ならない時刻）は拒否されず、load の後の予測と、生成した `predict.py` の予測が、export の前と同じである。
+3. **入れ物の中の値**: pytz の値を含む `tuple` と `frozenset` が拒否される。
+4. **codegen の衝突**（pandas 3 と 2）: `np.uint64(4)` と `np.timedelta64(4, 'M')` の列は、3 つの出口のどれでも `serializer="json"` で拒否される。同じ組を `category` dtype の入力で与えた `declared_categories` も拒否される。`np.uint64(2**63 + 5)` と `np.bool_(True)` の列も拒否される〔実装で訂正: その pandas が JSON の写しへの対応付けで `OverflowError` を出すときだけである。pandas 2.0（依存の下限）は出さず、その列は保存できて同じ予測になる。実装レビュー round 2〕。Python の `True` との列は拒否されない（P1 で壊れない。`firing/bool_kinds.py`・`.out`）。それぞれ `kind` を確かめる（`criterion4_kinds.out` の実測。一意でない組は `raises` と `exception="ValueError"`、`set_categories` の比較で落ちる組は `raises` と `exception="OverflowError"`）。
+5. **壊れない組を拒否しない**: zoneinfo の `fold=1` と固定の時差の値、`1` と `np.timedelta64(1, 's')` の列は、3 つの出口を通り、load の後の予測と生成した `predict.py` の予測が export の前と同じである。
+6. **判定と現実が一致する**: H-0133 の `SAMPLES` の格子（単独と 2 つの組）の全ての列で、P1 の判定が現実と一致する。joblib の側は、状態を実際に joblib に通したライブラリのエンコーダの変換と、JSON の側は、`convert_pipeline_state` が書く `pipeline_state.json` を読んだ、生成した `predict.py` の `transform` と比べる。変換する行は P1 の基準のバッチ（学習したカテゴリを状態の順に 1 つのバッチにしたもの）である（実装の記録）。受け入れ基準 1〜5 の case では、`Model.export` → `Model.load` → `predict` と、生成した `predict.py` を実際に走らせて確かめる（試作のエンコーダを生成コードの代わりにしない）。
+7. **拒否は書く前**: 3 つの出口で、拒否のあと出力先が作られない（既にあるディレクトリは変わらない）。
+8. **今通るのに拒否されるテストの書き直し**（テストを消さない）: `test_h0133_acceptance.py` の `Timestamp pytz fold` の case（`test_every_admitted_type_saves_and_predicts_the_same` と `test_the_three_surfaces_accept_every_admitted_column` の 2 本）を、3 つの出口が拒否し、fit が警告することを確かめる形にする。census で今は通るのに拒否されるのは、この 2 本だけだった。pytz の値を 1 つだけ持つ、最頻値でない case は受け入れ基準 2 で足す。
+9. **陰性対照**: 1〜7 の検査それぞれについて、実装の該当する部分を戻すとテストが落ちる（P1 の 2 つの保存処理、最頻値の比較、`declared_categories`、`export_code` の呼び出し、fit の警告、書く前の順）。
+10. **census**: 実装の後に、フルスイートで同じ census を走らせ、記録を残す。
+
+### 改訂の記録
+
+- **改訂 1（2026-10-20、Proposal review round 1 の CHANGES_REQUESTED への対応。run `h0136-proposal-review`、`57f5a60`、major 3）**: どれも実行して確かめてから直した。
+  - major 1（学習した値でない入力の振る舞い）: 再現した。ただし生成した `predict.py` は、Codex の書いた `ValueError` ではなく、学習した値の符号を黙って与えた。`Model.export` → `load` ではメモリ上と同じだった（`unseen_cross_type.py`・`.out`）。P1 に「約束の範囲」を書き、閉じない理由とともに「残る範囲」に記録した。
+  - major 2（例外の分類）: `OverflowError` を再現し、実測した例外を P1 に書いた。P3 の `kind` を、P1 の 4 つの条件に対応する閉じた 4 つ（`unseen`・`raises`・`codes`・`mode`）にし、`raises` では `exception` に型の名前を入れる。受け入れ基準 4 は case ごとに `kind` を確かめる。
+  - major 3（hash seed）: 再現した。格子の数を試作の規則で数え直し、`PYTHONHASHSEED` 0〜4 の範囲で書いた（`criterion4_kinds.py`・`.out`）。そのとき、`surface_disagreement.py` の自前の判定が 2 列で誤ることが分かった。生成した `predict.py` で確かめ（`oracle_disagreement.py`）、受け入れ基準 6 の比べる相手を生成コードにした。受け入れ基準 4 から、壊れない 2 種（`bool` と `tuple`、`tuple` と `uint8`）を外した。Firing rate の行の数も直した。
+- **改訂 2（2026-10-20、Proposal review round 2 の CHANGES_REQUESTED への対応。`a2618c7`、major 1）**: 受け入れ基準 4 と P1 の例が、`np.uint64(2**63 + 5)` と Python の `True` の列を壊れるとしていた。実行すると、壊れるのは `np.bool_(True)` との列で、Python の `True` との列は P1 で壊れない（pandas 3.0.1 と 2.3.3、`firing/bool_kinds.py`・`.out`）。`criterion4_kinds.py` が型を `__name__` で書いたので、どちらも `bool` と表示されていた。型を module つきの名前で書くようにして数え直し（数は変わらない）、3 か所を `np.bool_(True)` に直し、Python の `True` が拒否されないことを受け入れ基準 4 に足した。
+
+### 受け入れ（2026-10-20）
+
+- Codex の Proposal review（run `h0136-proposal-review`、3 round）は次のとおりだった。
+  - round 1（`57f5a60`）: CHANGES_REQUESTED、major 3。
+  - round 2（`a2618c7`）: CHANGES_REQUESTED、major 1。
+  - round 3（`3015e3b`）: APPROVE、指摘 0 件。
+- monitor は round 2 の前に absolute を、round 3 の前に relational を走らせた。結果は DELIVERABLE-FOCUSED と CONVERGING で、disposition はどちらも continue。
+- この実行の方針（Codex の APPROVE と CI 緑で進める）により、round 3 の APPROVE をもって受け入れとした。
+- 分かれ道は管理者が決めた（カード D-20261020-007・D-20261020-009・D-20261020-010）。
+
+### 実装の記録（2026-10-20）
+
+- **コード**:
+  - `lizyml/features/encoders/state_changes.py`（新しい）: `CategoryStateChange` と `category_state_changes` / `column_change`。エンコーダの状態とその写しを比べ、P3 の 4 つの `kind` を返す。Layer 3 の `persistence` と `codegen` からはエンコーダのモジュールを import できない（§2.1）ので、IF の `features/pipeline_base.py` が再び公開する。規則が縛る位置に無かった 2 つのファイルである。
+  - `lizyml/persistence/_category_preflight.py`（新しい）: joblib（`compress=3`）と JSON（H-0133 の符号化）の写し、`declared_change`、拒否のメッセージ（`refuse_change`）、fit の警告（`warn_changes`）。
+  - `exporter.check_category_values`: V の検査と adapter の検査の間に P1 を入れた。引数 `surface` で呼び手の名前をメッセージに入れる。`Model.export` と `export_code`（`surface="export_code"`）が呼ぶ。公開の `lizyml.persistence.export` の拒否の文面は「Model.export cannot save」のままにした。H-0129 のゴールデンテスト（`test_unwritable_categories.py`）が文面を固定しているからである。
+  - `export_code` は `check_category_values` を、何かを書く前に呼ぶ（P2）。
+- **P1 の基準のバッチ（実装で明確にした）**: 「元の各カテゴリを 1 行ずつ変換する」を、学習したカテゴリを状態の順に並べた 1 つのバッチの変換として実装した。
+  - pandas の `set_categories` が返す符号は、同じバッチにある他の値で変わることがある。メモリ上のモデル自身がそうなるので（#380）、基準をこのバッチに固定した。
+  - 1 行ずつの変換（値ごとに別のバッチ）では、`np.bool_` と入れ子の `tuple` の列の JSON 側の違いが見えない（`batch_order.py`・`.out`）。
+- **P4 の変更（実装で決めた）**: Proposal は、fit の警告を CV の前に全ての学習行で fit した状態に当てるとしていた。実装では、H-0136 の警告を fit を終えた後に、export が判定するのと同じ保存する状態（refit と各 fold）と `declared_categories` に当てる（`exporter.warn_saved_state_changes`）。
+  - 理由: 等しさが推移的でない値（`np.uint64(4) == 4 == np.timedelta64(4, 'M')` だが、`np.uint64(4) != np.timedelta64(4, 'M')`）では、結果が状態のカテゴリの順で変わる。その順は状態ごとの行の現れる順である。CV の前の状態では警告が出ず、保存する状態では拒否される場合を、テストで見た。
+  - V の外の値の警告は、今までどおり CV の前に出す。V の外の値があれば、H-0136 の警告は出さない（export はそれを先に拒否する）。
+  - 保存する状態の対応が取れないときは警告を出さず、debug に記録する（export がその状態を拒否する）。
+- **受け入れ基準 4 の実測（実装で明確にした）**: `np.uint64(4)` と `np.timedelta64(4, 'M')` の `kind` は、状態での順で決まる。
+  - `uint64` が先なら `raises`（`ValueError`）、`timedelta64` が先なら `unseen` である。テストは両方の順を、行をブロックで並べた frame で確かめる。
+  - `np.uint64(2**63 + 5)` と `np.bool_(True)` の組は、`uint64` が先のときだけ壊れる（`raises`、`OverflowError`）。pandas はオブジェクトの列で `np.bool_` を先に並べるので、`Model.fit` からは `category` dtype で宣言した順でしか届かない。テストはその形で確かめ、pandas の順のままの列は保存できることも確かめる。
+- **実装中に見つけた不具合**:
+  - `mode` の比較が、元の最頻値を両方の状態で引いていた。そのため、写した状態の最頻値が変わっても検出しなかった。写した状態の最頻値を、写した状態で引くように直した。手で作った状態の単体テスト（`test_h0136_state_changes.py`）で見つけた。実際の fit では最頻値は学習したカテゴリの 1 つで、同じ写しを受けるので、この `kind` は単体テストでしか届かない。
+  - その直後に、最頻値を 1 行だけのバッチで変換していたことも誤りだった。pandas 2 では、pytz の値だけの 1 行のバッチが `astype("category")` で日時の型になり、fold が変わる（#379 の仕組み）。そのため、メモリ上の側が -1 を返し、偽の `mode` の変化になった。受け入れ基準 6 の格子のテストが、pandas 2 で見つけた。最頻値をバッチの最後の 1 行として変換する修正もした。しかし CI の lowest-direct のレーン（pandas 2.0.0）で、同じ値が 2 行あるバッチでは pandas 2.0 の `unique` が pytz の値を作り直し、メモリ上の側が unseen になると分かった。次に、最頻値をカテゴリの並びの中の位置で比べる形にしたが、実装レビュー round 2 で、これは predict の振る舞いを写していないと指摘された（位置が同じでも置き換えの符号が変わる例と、その逆の例）。最終的には、最頻値が実際にすることを比べる。基準のバッチに、どのカテゴリとも等しくない値の行を 1 つ足し、`unseen_policy="mode"` で変換する。各状態は自分の最頻値でその行を置き換えるので、その行の符号を元の状態と写した状態で比べる（`replacement_code`）。メモリ上の側でこの変換が失敗するときは、最頻値を判定しない。受け入れ基準 6 の格子のテストも、同じ置き換えを、実際の joblib の読み戻しと生成した `predict.py`（`unseen_policy="mode"` の `pipeline_state.json`）で確かめる。pandas 3.0.1、2.3.3、手元で作った依存の下限の環境（pandas 2.0.0、numpy 1.24.0）で確かめた。
+  - 同じ CI のレーンで、`np.uint64(2**63 + 5)` と `np.bool_(True)` の組が pandas 2.0 では壊れないことも分かった（`set_categories` が `OverflowError` を出さない）。テストは、その pandas で JSON の写しへの対応付けが `OverflowError` を出すかを先に調べ、出るなら拒否を、出なければ保存できて同じ予測になることを確かめる。
+  - **#380**（新しい issue）: NumPy の 1 に等しいスカラー（`np.True_`・`np.uint8(1)`）と、1 を包む `tuple` を同じ列に持つと、pandas の object Index の参照が取り違える。奇数の深さでは、バッチによってスカラーが `tuple` の位置を受け取る。偶数の深さでは、2 つを重複とみなす。pandas 3.0.1 と 2.3.3 で同じで、Python の `True` / `1` では起きない（`pandas_tuple_lookup.py`・`.out`）。メモリ上のモデルの不具合なので、#379 と同じく（カード D-20261020-010 に倣う）範囲の外とし、v0.20.0 の後に扱う。「残る範囲」に足す。
+- **テスト**:
+  - `tests/test_persistence/test_h0136_acceptance.py`: 受け入れ基準 1〜5・7・8。pytz の case は pandas 2 でだけ走る。
+  - `tests/test_persistence/test_h0136_state_changes.py`: P1・P3 の 4 つの `kind` と `declared_change`。
+  - `tests/test_persistence/test_h0136_grid.py`（slow）: 受け入れ基準 6。6216 列（pandas 3）と 6441 列（pandas 2）の全てで、規則の判定が、実際の joblib と生成した `predict.py` の結果と一致する。
+  - `test_h0133_acceptance.py` の `Timestamp pytz fold` の case は、`test_h0136_acceptance.py` に移した（受け入れ基準 8。拒否と警告を確かめる）。
+- **陰性対照**（受け入れ基準 9、`negative_controls_h0136.py`・`.out`、pandas 2.3.3）: 9 通りの全てで該当のテストが落ちた。patch を当てない基準の run は通った。9 通りは次のとおり。
+  - P1 を外す
+  - joblib の側を外す
+  - JSON の側を外す
+  - `kind` を全て `raises` にする
+  - 最頻値を元の値で引く（上の不具合）
+  - `declared_categories` を検査しない
+  - `export_code` が検査を呼ばない
+  - `export_code` が書いた後で検査する
+  - fit の警告を外す
+- **census（受け入れ基準 10）**: 実装の後に、pandas 3.0.1 のフルスイート（slow を含む）で同じ census を走らせた（`firing/census_after.jsonl`・`.out`・`census_after_pytest.txt`）。
+  - 出口の呼び出しは `Model.export` 576 回、`persistence.export` 127 回、`export_code` 497 回だった。試作の規則が壊れると判定するのに実際の呼び出しが通るものは、全ての出口で 0 回だった。実装は試作と同じ答えを返す。
+  - 試作が壊れると判定し、実際に拒否された呼び出しのうち、H-0136 の規則によるものは `test_h0136_acceptance.py` だけにあった。ほかは、今までの V と adapter の拒否を確かめるテスト（`test_h0133_acceptance.py`・`test_unwritable_categories.py`・`test_export_contract.py`）である。
+  - `export_code` が今まで通り、P2 で呼ぶようになった `check_category_values` が拒否する呼び出しは 0 回だった。fold の状態の判定と adapter の判定は、この母集団で `export_code` の拒否を増やさない。
+  - `fit_warning` の行の FIRES 4 回は、census が CV の前の警告を包んでいるために出る。H-0136 の警告は fit の後に出るので、この行では数えられない（4 回とも `test_h0136_acceptance.py` の、警告を確かめて通るテストである）。
+  - 最後のコードでのフルスイートは 13125 本が通り、落ちたのは 2 本だった。どちらもこの変更によるものではない。
+    - `test_version.py`: 既知の環境の失敗。
+    - `test_notebooks` の `tutorial_time_series_lgbm`: notebook がデータを取りに行き、sandbox のネットワークで `URLError` になった。
+  - pandas 2.3.3 では、`tests/test_persistence`・`tests/test_codegen`・`test_category_values.py`（slow を含む）を走らせた。落ちたのは、検証用の環境に `pyarrow` が無いための parquet の 84 本だけだった（CI の環境には入っている）。
+
+### 実装レビュー round 1 への対応（2026-10-20）
+
+Codex の実装レビュー（run `h0136-impl-review`、`6dce827`）は CHANGES_REQUESTED（major 2、minor 1）だった。
+
+- **major 1（DC1）**: 文字列でない名前のカテゴリ列で、`export_code` が動かないプロジェクトを書く。
+  - 再現した。v0.19.0 でも同じだった（`int_column_name.py`・`.out`）。
+  - 列名の問題で、管理者の判断（カード D-20261020-013）により #382 として v0.20.0 の後に扱う。「残る範囲」に足した。
+  - H-0136 の検査は値の写しのままにした。列名を JSON に通すと、正しく保存できる `Model.export` まで拒否することになるからである（判断 2）。
+- **major 2（DC3）**: `docs/api.md` の `fit` の警告と `export()` の拒否の文が、H-0133 の前のまま残っていた。`bytes` などの値を「警告して拒否する」と書いていたが、実際はそれらを位置の番号に置き換えて保存する。V の外の値の警告と拒否の文に直した。
+- **minor**: census の plugin の docstring が、`export_code (check)` の記録と、`fit_warning` が CV の前の警告しか包まないことを書いていなかった。docstring を直した。数は変わらない。
+- **CI（`6dce827`）**: lowest-direct のレーン（pandas 2.0.0）で落ちた。最頻値の比べ方と `np.bool_` のテストを直した（実装の記録）。notebook の 1 本は OpenML の取得のネットワークの失敗で、PR 本文の言語の検査は本文の日本語で落ちたので、本文を直した。
+
+### 実装レビュー round 2 への対応（2026-10-20）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（判定した head は `b68e6ab`）。DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: Codex の実装レビュー round 2（`b68e6ab`）は CHANGES_REQUESTED（major 1、minor 2）だった。
+- **major（DC1）**: 最頻値を位置で比べる形は、predict がすることを写していなかった。
+  - 位置は同じでも、JSON の写しで置き換えの符号が変わる例（zoneinfo の `fold=1` のカテゴリと、等しい pytz の最頻値）を通していた。
+  - 逆に、置き換えの符号が変わらないのに拒否する例もあった。
+  - 最頻値は、置き換えの符号で比べる形に直した（実装の記録）。2 つの例は単体テストにした。どちらのテストも、判定が実際の置き換えの符号と一致することを確かめる。
+    - joblib は pytz の最頻値の fold を変える。2 つ目の例で、変わった最頻値が固定の時差のカテゴリを見つけられるかどうかは、pandas の版と Python の hash seed で変わる。そのため、置き換えの符号が変わる場合（0 から -1）も、変わらない場合もある。〔round 3 の minor の指摘で訂正。改訂前は「pandas 2.0 では変わる」と版だけのせいにしていた。round 3 の実測では、pandas 2.0.0 の seed 3 と pandas 2.3.3 の seed 2 で変わらなかった。テストは、どちらの場合も判定が置き換えの結果に従うことを確かめる。〕
+- **minor 1**: 受け入れ基準 4 が、pandas 2.0 で壊れない `np.bool_` の組を無条件に「拒否される」と書いていた。基準に訂正を書き添えた。
+- **minor 2**: census の plugin の `today_check` の説明が、「export_code はこの検査を呼ばない」と古いままだった。直した。
+
+### 実装レビュー round 3（2026-10-20）
+
+- **monitor**: round 3 の前に、runner の relational monitor を走らせた（判定した head は `2e3df70`、観察した round は 1〜2）。結果は CONVERGING・continue で、disposition は continue。
+- **結果**: Codex の実装レビュー round 3（`2e3df70`）は APPROVE で、minor 1 件だった。
+  - Codex は次を実行して確かめた。
+    - 単体テスト 12 本が、pandas 3.0.1・2.3.3・2.0.0 で通る。
+    - 実際の生成コードと joblib で判定と現実を比べる格子で、食い違いが 0 件だった（判定した case は 6151・6117・6322）。
+    - round 2 の位置の比較に戻すと、新しいテストが落ちる。
+  - minor は、2 つ目の最頻値の例の結果が pandas の版だけでなく hash seed でも変わることだった（上の round 2 の対応の項を訂正した）。
+- **対応**: テストの docstring と上の記述を直した。コードは変えていない。管理者の方針（1 行の修正でも確かめ直す）により、絞った確認を 1 回走らせる。

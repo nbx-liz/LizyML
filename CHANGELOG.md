@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.20.0] - 2026-10-20
+
+### Added
+
+- **A loaded model keeps its tuning history** (H-0134, [#315](https://github.com/nbx-liz/LizyML/issues/315)). `Model.export` (and `lizyml.persistence.export`) writes the trials, rounds and boundary report to `tuning_history.json`, declared under `tuning.history` in `metadata.json` and listed in `checksums`, so `tuning_table()`, `tuning_plot()` and `boundary_table()` on the loaded model return what they returned before the export. The file is strict JSON (NaN and infinities tagged, parameter order kept) and is read only when declared; a malformed, missing, unlisted or tampered history raises `DESERIALIZATION_FAILED`. The tuning value codecs moved to `lizyml.core.tuning_codec` (re-exported by `lizyml.tuning.lineage_codec`).
+
+- **Models whose category columns hold JSON-unsafe values can be saved** (H-0133, [#357](https://github.com/nbx-liz/LizyML/issues/357)). `bytes`, `Decimal`, dates, datetimes, `Timestamp` (with a timezone too), timedeltas, `complex`, their numpy scalars, and tuples / frozensets of these now go through `Model.export` -> `Model.load` and `export_code` with the same predictions.
+  - A column holding a value LightGBM cannot write reaches LightGBM with positions `0..k-1` as its categories (same codes); other columns, and the booster `get_native_model()` returns for them, are unchanged.
+  - One closed value set (`lizyml.core.category_values`) decides what `Model.export`, `lizyml.persistence.export` and `export_code` accept; values outside it are refused before anything is written, and `fit` warns.
+  - `export_code` writes non-plain feature-category values as tagged JSON that the generated scripts decode, so tuples are no longer refused; target labels keep the plain set.
+
+- **`mase`, the mean absolute scaled error, as a regression metric** (H-0132, [#355](https://github.com/nbx-liz/LizyML/issues/355)). MASE divides the MAE by the MAE of predicting the training mean, so it is defined when the target contains zeros (where `mape` is refused) and can be the tune objective (`evaluation.metrics: [mase]`) or a training metric (`params: {metric: [mase]}`).
+  - The scale comes from the training-side targets: each fold's outer-train rows for the OOF and in-fold values, and the rows the booster trains on (inner-train with inner validation) for the learning curve, so the learning curve and `FitResult.metrics` can differ. The pooled OOF value scales each row by the fold that validated it.
+  - A constant (or non-finite) training target, or a split that puts a row in two validation folds, raises `UNSUPPORTED_METRIC`; in `tune` the trials fail and the round ends in `TUNING_FAILED`.
+  - `BaseMetric` gains `needs_train_target` (default `False`) and `bind_train(y_train)`. Existing subclasses are unaffected; `__call__` keeps its two arguments.
+  - The generated `train.py` computes the MASE scale from its own training rows: `build_feval_from_config(y_train)`.
+
+- **Two interface types for the layer rules** (H-0130, [#362](https://github.com/nbx-liz/LizyML/issues/362)): `lizyml.training.results.RefitResultView`, a Protocol with `RefitResult`'s seven fields, and `lizyml.calibration.base.BaseCalibrationResult`, a marker base that `CalibrationResult` now inherits. `RefitResult` and `CalibrationResult` stay where they were, so saved artifacts keep naming the same classes and `format_version` is unchanged.
+
+### Changed
+
+- **`Model.export`, `lizyml.persistence.export` and `export_code` refuse a model a saved copy would answer differently for** (H-0136, [#372](https://github.com/nbx-liz/LizyML/issues/372)). Before writing anything, one shared check passes each saved category state through joblib and through the tagged JSON `export_code` writes. It refuses with `SERIALIZATION_FAILED` (context `serializer`, `kind`) when the learned categories, as one batch in the state's order, would get other codes or become unseen, or an unseen row the mode replaces would get another code; `fit` warns once it has finished.
+  - This catches a pytz `Timestamp` at the repeated hour of a daylight-saving change, which pickle restores with another `fold` and which predict then treated as unseen after `Model.load`.
+  - It also catches `np.uint64(4)` beside `np.timedelta64(4, 'M')`, for which `export_code` wrote a project whose `predict.py` failed. v0.19.0's `Model.export` saved that model, and the three exits now refuse it alike.
+- **`Model.load` reads only the files `metadata.json`'s `checksums` lists** (H-0135, [#373](https://github.com/nbx-liz/LizyML/issues/373), [#374](https://github.com/nbx-liz/LizyML/issues/374)). An unlisted `analysis_context.pkl` left by an earlier export is ignored (logged at INFO), so the diagnostic methods no longer answer with another model's data. `checksums` must be exactly `{"algorithm": "sha256", "files": {...}}` with 64-digit lowercase hex digests and must list `fit_result.pkl` and `refit_model.pkl`; a malformed one (an empty list used to skip verification) is refused with `DESERIALIZATION_FAILED`, as is a format 3-4 artifact without it. Format 1-2 artifacts without checksums load as before. A directory under a payload's name is refused too; `context["reason"]` names each of these refusals. A `format_version` that is not an integer (`true` and `2.0` used to pass as 1 and 2) and a `metadata.json` that is not an object are refused as well, without a `reason` key, like the other version and metadata errors.
+- **Exporting into a directory with an earlier export removes that export's `analysis_context.pkl` and `tuning_history.json` first** (H-0135); other files are kept.
+
+- **Saved artifacts are `format_version` 4** (H-0134). LizyML v0.19.0 and earlier refuse them (`DESERIALIZATION_FAILED`), because they would ignore the tuning history and show an empty table.
+- **A tuned model loaded from an artifact without a history (`format_version` 1-3) raises `MODEL_NOT_FIT` from `tuning_table()`, `tuning_plot()` and `boundary_table()`** (H-0134), with `context["missing"] == "tuning_history"`, instead of returning an empty DataFrame or a figure with no traces. The tuned parameters still load and `fit()` uses them.
+
+- **Saved artifacts were raised to `format_version` 3** (H-0133). LizyML v0.19.0 and earlier refuse them (`DESERIALIZATION_FAILED`), because they would read a renamed category column as raw values and predict wrongly. v1 and v2 artifacts load and predict as before. `metadata.json` now records `declared_categories` for every column the input held as `category` dtype (tagged when needed) instead of leaving the whole record out when one value was not plain.
+
+- **No import breaks BLUEPRINT §2.1's layer rules any more** (H-0130, [#362](https://github.com/nbx-liz/LizyML/issues/362)). The layer test's exception list of seventeen imports is empty:
+  - §2.1 gains a "same-layer references" table that the test reads (`estimators/` may import `features/` and `metrics/`, as the provider and the LightGBM feval bridge do), and declares `metrics/registry.py` and `training/results.py` as interfaces.
+  - `compute_oof_valid_mask` moved to `lizyml.core.types.oof_coverage`, and `RatioRange` / `SMART_RATIO_RANGES` to `lizyml.core.types.smart_ratio`. The old names (`lizyml.training.oof_assembly`, `lizyml.config.schema`) still export the same objects.
+  - `lizyml.persistence.export` annotates `refit_result` as `RefitResultView`. Its arguments and behaviour are unchanged.
+  - The internal `compute_shap_importance` now requires `pipeline_factory`. The facade always passed one.
+  - BLUEPRINT §2.2 now says that a provider does not import `config/` and reads `model_cfg` by attribute, as the code does.
+  - The layer test's type-dispatch and registry checks (R6) were withdrawn. BLUEPRINT §2.1 now defines concrete assembly and concrete type dispatch. The following are checked by review, not by tests, until H-0131's implementation and the matching architecture tests are merged: (1) concrete assembly, including selection by Config type, `name` or a value derived from them; (2) concrete type dispatch; (3) registry lookups that bypass the registry helpers; (4) rewriting registrations (an implementation module registering its own types is allowed).
+
+### Deprecated
+
+- **`lizyml.persistence.export(categories_checked=True)`** (H-0133). The argument is ignored and warns; the public export always checks the category values before writing anything. Will be removed in v1.0.
+
 ## [0.19.0] - 2026-10-14
 
 ### Changed -- action may be required

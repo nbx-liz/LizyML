@@ -14,7 +14,9 @@ probes/optuna_magnitude_facts.txt``):
 So a ``float`` dimension's exact width must be at most ``sys.float_info.max``
 and an ``int`` dimension's ``low``, ``high`` and ``step`` at most ``2**52`` in
 absolute value. These predicates are pure and import nothing from LizyML, so
-the format readers, the expansion and the lineage codec share them.
+the format readers, the expansion and the tuning codec share them. Layer 0
+(H-0134): the tuning codec (:mod:`lizyml.core.tuning_codec`) reads them, and
+persistence writes through that codec.
 """
 
 from __future__ import annotations

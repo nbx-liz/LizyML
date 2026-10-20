@@ -5,6 +5,136 @@ release from v0.5.0 onward.
 
 ---
 
+## v0.20.0
+
+### Models a saved copy would answer differently for are refused (H-0136)
+
+`Model.export`, `lizyml.persistence.export` and `export_code` now run one
+check before writing anything. Each saved category state is passed through
+joblib and through the tagged JSON `export_code` writes. The model is refused
+with `SERIALIZATION_FAILED` when the learned categories, as one batch in the
+state's order, would get other codes or become unseen, or an unseen row the
+mode replaces would get another code. The context has `serializer` and `kind`. `fit` warns about such a
+column once the fit has finished.
+
+- **Refused now, saved before:** a column holding `np.uint64(4)` beside
+  `np.timedelta64(4, 'M')` (and a few other NumPy pairs whose equality is not
+  transitive), when the JSON copy changes the answer for the categories in the
+  order the state holds them. v0.19.0's `Model.export` saved such a model;
+  artifacts saved then still load and predict, but exporting the loaded model
+  again is refused. v0.19.0's `export_code` wrote a project whose `predict.py`
+  failed for it.
+- **Refused, never released as accepted:** a pytz `Timestamp` at the repeated
+  hour of a daylight-saving change (pickle restores it with another `fold`).
+  v0.19.0 refused every `Timestamp` category at `Model.export`.
+- **What to do:** convert the column's values to `str` (or `int`, `float`,
+  `bool`) before `fit`.
+- **Not covered:** a value the fitted model itself treats as unseen, and two
+  in-memory defects found on the way (#379, #380).
+
+### `Model.load` reads only the files `checksums` lists (H-0135)
+
+`metadata.json`'s `checksums` now decides what `Model.load` (and
+`lizyml.persistence.load`) reads
+([#373](https://github.com/nbx-liz/LizyML/issues/373),
+[#374](https://github.com/nbx-liz/LizyML/issues/374)). Artifacts written by
+LizyML load as before.
+
+- **An `analysis_context.pkl` that `checksums` does not list is not read.**
+  Before, exporting a model without a context into a directory that held an
+  earlier export left the old `analysis_context.pkl` there, and the loaded
+  model answered `residuals()` and the other diagnostic methods with the
+  earlier model's data. Now that file is ignored (logged at INFO), and those
+  methods raise `MODEL_NOT_FIT`. Exporting into such a directory also removes
+  the earlier export's `analysis_context.pkl` and `tuning_history.json` first;
+  other files in the directory are kept.
+- **A malformed `checksums` is refused**, in every format: it must be exactly
+  `{"algorithm": "sha256", "files": {<name>: <64 lowercase hex digits>}}` and
+  list `fit_result.pkl` and `refit_model.pkl`. Before, an empty list skipped
+  verification and a non-empty one raised `AttributeError`.
+- **`checksums` is required from `format_version` 3.** Artifacts of format 1-2
+  without it (written before v0.16.0) still load unverified. A format 3 or 4
+  artifact whose `checksums` was removed by hand is refused.
+- For the refusals above, `LizyMLError(DESERIALIZATION_FAILED)` carries `context["reason"]`:
+  `checksums_malformed`, `checksums_algorithm`, `checksums_missing`,
+  `required_file_unlisted`, `declared_file_missing` or `not_a_file` (a
+  directory or other non-file under a payload's name).
+- **`format_version` must be a JSON integer.** `true` and `2.0` used to pass as
+  1 and 2; they are refused now, as is a `metadata.json` that is not an object.
+  These two errors carry no `reason` key, like the other version and metadata
+  errors.
+
+### Saved artifacts are `format_version` 4 and keep the tuning history (H-0134)
+
+A tuned model now keeps its trials, rounds and boundary report through
+`Model.export` -> `Model.load`
+([#315](https://github.com/nbx-liz/LizyML/issues/315)): `tuning_table()`,
+`tuning_plot()` and `boundary_table()` on the loaded model return what they
+returned before the export. The history is written to `tuning_history.json`
+(strict JSON, listed in `checksums`) and declared in `metadata.json` under
+`tuning.history`.
+
+- **Older LizyML cannot read v4 artifacts.** `Model.load` in v0.19.0 or earlier
+  raises `DESERIALIZATION_FAILED` for `format_version` 4, including for models
+  that were never tuned. An older version would ignore the history file and
+  show the trials as an empty table. Load v4 artifacts with v0.20.0 or later.
+- **Artifacts saved before v0.20.0 (`format_version` 1-3) have no history.** On
+  a tuned model loaded from one, the three methods now raise
+  `LizyMLError(MODEL_NOT_FIT)` with `context["missing"] == "tuning_history"`,
+  instead of returning an empty DataFrame (`(0, 0)`) or a figure with no
+  traces. The tuned parameters are restored as before and `fit()` uses them.
+  If the study's storage still exists, `restore_tuning(storage=...,
+  study_name=...)` rebuilds the history. Exporting such a model again keeps it
+  without a history.
+- **`tune(resume=True)` after `Model.load` still needs the study's storage.**
+  The saved history is a record for the reports; it is not a study to resume.
+- **Size**: about 0.5 KB per trial for a 10-dimension search space. Every trial
+  is kept.
+- **`lizyml.persistence.load`** returns, for a tuned model,
+  `metadata["tuning"]["history"]` as the decoded history (a `TuningHistory`),
+  or `None` when the artifact has none.
+
+### Category columns with JSON-unsafe values can be saved (H-0133)
+
+Category columns can now hold values that JSON cannot represent -- `bytes`,
+`Decimal`, dates, datetimes, `Timestamp`, timedeltas, `complex`, and tuples or
+frozensets of these -- and the model can still be saved with `Model.export` and
+`export_code` ([#357](https://github.com/nbx-liz/LizyML/issues/357)). To make
+that possible, a column holding a value LightGBM cannot write is handed to
+LightGBM with its categories renamed to their positions `0..k-1`; the codes, and
+so the predictions, are unchanged.
+
+- **Older LizyML cannot read these artifacts.** H-0133 raised `format_version`
+  to 3 (and H-0134 to 4); `Model.load` in v0.19.0 or earlier refuses them with
+  `DESERIALIZATION_FAILED`. This is deliberate: an older version would read a
+  renamed column as raw categories and predict wrongly without an error.
+- **v1 and v2 artifacts load and predict as before.** Nothing needs migrating:
+  a v2 artifact could not hold the values that need renaming (its export failed).
+- **Using the LightGBM booster directly.** For a renamed column only,
+  `get_native_model()` returns a booster whose `pandas_categorical` holds the
+  positions. Passing it a frame with the raw values of that column predicts
+  wrongly; go through `Model.predict`, which applies the pipeline. A column
+  whose values are all `str`, `int`, `float`, `bool` (or numpy scalars of
+  these), or tuples of them, is not renamed.
+- **`export_code` accepts the same feature-category values as `Model.export`**
+  (since H-0136 through one shared check; see the H-0136 section above).
+  `pipeline_state.json` and `config.json` write values other than `str`, `int`,
+  `float` and `bool` as tagged JSON objects (`{"$lizyml": ..., ...}`) that the
+  generated scripts decode; tuples are no longer refused. Target labels keep
+  the `str` / `int` / `float` / `bool` set.
+- **`declared_categories` in `metadata.json`** is written for every column the
+  input held as `category` dtype (tagged when needed), instead of the whole
+  record being left out when one value was not plain.
+- **`lizyml.persistence.export(categories_checked=True)` is deprecated.** The
+  argument is ignored and warns: the public export always checks the category
+  values first. It will be removed in v1.0.
+- **Still refused, before anything is written:** a category value outside the
+  saveable set -- a NaN-like value inside a tuple, `np.longdouble`, a subclass of
+  a saveable type, a user-defined type, a tuple nested more than 8 deep, or a
+  timezone that cannot be restored equal. `fit` warns about such a column.
+
+---
+
 ## v0.19.0
 
 Tuning with `resume=True`, `storage` or `study_name` changes (H-0122). Some

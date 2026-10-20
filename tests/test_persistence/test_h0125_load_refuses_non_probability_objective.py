@@ -9,7 +9,7 @@ and never its ``params``: a booster restored from its model string has none
 after training. (A joblib round trip does keep ``params`` on LightGBM 4.6, so
 the params-less case is built with ``lgb.Booster(model_str=...)``.) Every
 booster is read: each fold model of ``fit_result.pkl`` and the refit model, in
-format_version 1 and 2 (criteria 7 and 8).
+format_version 1, the v2 shape and 3 (criteria 7 and 8; H-0133 P8).
 """
 
 from __future__ import annotations
@@ -31,6 +31,7 @@ from lizyml.estimators.lgbm import provider
 from lizyml.estimators.lgbm.defaults import TASK_COMPATIBLE_OBJECTIVES
 from lizyml.estimators.lgbm.param_validation import recorded_objective
 from tests._helpers import make_binary_df, make_config
+from tests.test_persistence._artifact_versions import resign, to_v2_shape
 
 DF = make_binary_df(n=150, seed=0)
 X = DF.drop(columns=["target"])
@@ -67,16 +68,20 @@ def _export(
     return path
 
 
-def _drop_checksums(path: Path) -> None:
-    """Re-pickled payloads no longer match the recorded digests (H-0083)."""
-    meta_path = path / "metadata.json"
-    meta = json.loads(meta_path.read_text(encoding="utf-8"))
-    meta.pop("checksums", None)
-    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+def _resign_if_signed(path: Path) -> None:
+    """Re-pickled payloads no longer match the recorded digests (H-0083).
+
+    Re-sign them rather than drop ``checksums``: a format 3-4 artifact without
+    it is refused (H-0135 P2). The v1 recipe has none to re-sign.
+    """
+    meta = json.loads((path / "metadata.json").read_text(encoding="utf-8"))
+    if "checksums" in meta:
+        resign(path)
 
 
 def _to_format_version_1(path: Path) -> None:
     """The recipe of ``test_v1_metadata_still_loads``: a v1 metadata and layout."""
+    to_v2_shape(path)  # v1 predates H-0133's stand_in_columns too
     meta_path = path / "metadata.json"
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     meta["format_version"] = 1
@@ -122,7 +127,7 @@ def _replace(path: Path, position: str, booster: lgb.Booster) -> None:
         fit_result = joblib.load(pkl)
         fit_result.models[index]._model = booster
         joblib.dump(fit_result, pkl, compress=3)
-    _drop_checksums(path)
+    _resign_if_signed(path)
 
 
 def _assert_refused(path: Path) -> LizyMLError:
@@ -140,7 +145,8 @@ def _assert_refused(path: Path) -> LizyMLError:
 
 
 VERSIONS: dict[str, Callable[[Path], None]] = {
-    "v2": lambda _path: None,
+    "v3": lambda _path: None,
+    "v2": to_v2_shape,  # H-0133 P8: the shape a v2 artifact has
     "v1": _to_format_version_1,
 }
 
@@ -199,7 +205,7 @@ def test_one_forbidden_booster_at_any_position_is_refused(
 
 @pytest.mark.parametrize("version", sorted(VERSIONS))
 def test_an_unreplaced_control_loads(version: str, tmp_path: Path) -> None:
-    """The same edits without a forbidden booster: re-pickled, no checksums."""
+    """The same edits without a forbidden booster: re-pickled and re-signed."""
     path = _export(tmp_path, "a")
     _replace(path, "refit", joblib.load(path / "refit_model.pkl").model._model)
     VERSIONS[version](path)

@@ -18,6 +18,7 @@ from lizyml.estimators.base import (
 )
 from lizyml.estimators.lgbm.category_json import (
     encoder_categories,
+    stand_in_columns,
     unwritable_categories,
 )
 from lizyml.estimators.lgbm.defaults import (
@@ -155,8 +156,18 @@ class LGBMAdapter(BaseEstimatorAdapter):
         self._feval_display_names: list[str] = []
 
     def unsaveable_categories(self, pipeline_state: Any) -> list[UnsaveableCategory]:
-        """Category values LightGBM cannot write as JSON into a saved model (H-0127)."""
-        return unwritable_categories(encoder_categories(pipeline_state))
+        """Category values LightGBM cannot write as JSON into a saved model (H-0127).
+
+        A stand-in column reaches LightGBM as positions, which it always
+        writes (H-0133), so only the columns kept raw are checked.
+        """
+        stood = stand_in_columns(pipeline_state)
+        raw = {
+            col: cats
+            for col, cats in encoder_categories(pipeline_state).items()
+            if str(col) not in stood
+        }
+        return unwritable_categories(raw)
 
     def set_categorical_features(self, cols: list[str] | None) -> None:
         """Store categorical column names for use in ``fit()``."""
@@ -189,8 +200,11 @@ class LGBMAdapter(BaseEstimatorAdapter):
                 extracted and passed to ``lgb.Dataset(weight=...)``.
         """
         self._feature_names = list(X_train.columns)
+        # H-0132: a feval that needs training targets (MASE) is bound to the
+        # rows this booster trains on -- the inner-train part when the caller
+        # holds out an inner valid set -- never to the eval set's labels.
         params, num_boost_round, feval_list, self._feval_display_names = (
-            self._build_params()
+            self._build_params(y_train=np.asarray(y_train))
         )
 
         cat_feature: list[str] | Literal["auto"] = self._categorical_features or "auto"
@@ -434,8 +448,14 @@ class LGBMAdapter(BaseEstimatorAdapter):
 
     def _build_params(
         self,
+        *,
+        y_train: npt.NDArray[Any] | None = None,
     ) -> tuple[dict[str, Any], int, list[Any], list[str]]:
         """Build LightGBM params, num_boost_round, feval list, and names.
+
+        *y_train* (H-0132) binds a feval that needs training targets; it is
+        ``None`` on the metadata paths (``build_export_params``,
+        ``params_summary``), which build the fevals without calling them.
 
         Returns:
             ``(params_dict, num_boost_round, feval_list, feval_display_names)`` tuple.
@@ -479,7 +499,9 @@ class LGBMAdapter(BaseEstimatorAdapter):
         user_metric, _ = _pop_by_identity(user_params, "metric")
         feval_list: list[Any] = []
         feval_display_names: list[str] = []
-        resolved = resolve_user_metric(user_metric, self.task, self.num_class)
+        resolved = resolve_user_metric(
+            user_metric, self.task, self.num_class, y_train=y_train
+        )
         if resolved is not None:
             native, feval_list, feval_display_names = resolved
             params["metric"] = native if native else "None"

@@ -1,0 +1,46 @@
+[run-exclusive] h0136-stages starting; load was 0.50
+run-heavy: pgid=11 (stop with: kill -- -11)
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 0, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 1, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 2, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 3, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 4, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 5, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 6, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 7, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 8, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 9, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 10, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 11, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 12, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 13, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 14, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 15, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 16, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 17, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 18, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 19, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 20, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 21, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 22, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 23, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 24, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 25, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 26, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 27, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 28, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 29, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 30, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 31, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 32, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 33, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 34, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 35, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 36, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 37, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 38, "unique": 2}
+{"equal": true, "export": "ok", "fit": "ok", "hash_apart": true, "load_predict": "ValueError: Categorical categories must be unique", "predict": "ok", "same": false, "seed": 39, "unique": 2}
+
+seeds 0-39: 40
+ 40  unique=2 | fit=ok | predict=ok | export=ok | load_predict=ValueError: Categorical categories must be unique | same=False
+[run-exclusive] h0136-stages finished in 18s, exit 0

@@ -1,0 +1,35 @@
+[run-exclusive] h0136-inmemory starting; load was 1.74
+run-heavy: pgid=11 (stop with: kill -- -11)
+lizyml=0.19.0 pandas=2.3.3
+zoneinfo fold 0 + fold 1: input folds [0, 1]
+    refit state holds [('2024-11-03 01:30:00-04:00', 0), ('2024-11-03 01:30:00-05:00', 1)]
+    in-memory predict on the training rows: no unseen rows
+pytz DST + standard: input folds [0, 0]
+    refit state holds [('2024-11-03 01:30:00-04:00', 0), ('2024-11-03 01:30:00-05:00', 1)]
+    in-memory predict on the training rows: ["Column 'c': 426 row(s) with unseen categories ['2024-11-03 01:30:00-05:00'] replaced by the training"]
+pytz standard + str (control): input folds [0, None]
+    refit state holds [('2024-11-03 01:30:00-05:00', 0), ('x', None)]
+    in-memory predict on the training rows: no unseen rows
+lizyml=0.17.2.dev70+gc16abb886 pandas=2.3.3
+zoneinfo fold 0 + fold 1: input folds [0, 1]
+    refit state holds [('2024-11-03 01:30:00-04:00', 0), ('2024-11-03 01:30:00-05:00', 1)]
+    in-memory predict on the training rows: no unseen rows
+pytz DST + standard: input folds [0, 0]
+    refit state holds [('2024-11-03 01:30:00-04:00', 0), ('2024-11-03 01:30:00-05:00', 1)]
+    in-memory predict on the training rows: ["Column 'c': 426 row(s) with unseen categories ['2024-11-03 01:30:00-05:00'] replaced by the training"]
+pytz standard + str (control): input folds [0, None]
+    refit state holds [('2024-11-03 01:30:00-05:00', 0), ('x', None)]
+    in-memory predict on the training rows: no unseen rows
+lizyml=0.17.2.dev70+gc16abb886 pandas=3.0.1
+zoneinfo fold 0 + fold 1: input folds [0, 1]
+    refit state holds [('2024-11-03 01:30:00-04:00', 0), ('2024-11-03 01:30:00-05:00', 1)]
+    in-memory predict on the training rows: no unseen rows
+lizyml 0.19.0 /tmp/claude-1000/-home-rem-repos-LizyML/f105b958-8bfb-4bf4-bfc6-1e20ef0125a2/scratchpad/v019/lizyml/__init__.py
+fit warnings: []
+export: ok
+load+predict: max_abs_diff 0.0 warnings []
+lizyml 0.17.2.dev70+gc16abb886 /home/rem/repos/LizyML/lizyml/__init__.py
+fit warnings: []
+export: ok
+load+predict: max_abs_diff 0.0 warnings []
+[run-exclusive] h0136-inmemory finished in 4s, exit 0

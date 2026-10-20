@@ -28,6 +28,7 @@ from lizyml.explain.shap_explainer import (  # noqa: E402
     compute_shap_importance,
     compute_shap_values,
 )
+from lizyml.features.pipelines_native import NativeFeaturePipeline  # noqa: E402
 
 _TASKS = ("regression", "binary", "multiclass")
 
@@ -356,5 +357,6 @@ def test_per_fold_states_without_fold_models_are_refused() -> None:
             "regression",
             ["x"],
             {},
+            NativeFeaturePipeline,
             pipeline_state_per_fold=[{}],
         )

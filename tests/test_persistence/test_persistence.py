@@ -412,7 +412,14 @@ class TestLegacyArtifactCompat:
         out: Path,
     ) -> Model:
         model.export(out)
+        # An artifact written without a context: no file and no checksum for
+        # it. Unlinking alone leaves a declared file missing, which load
+        # refuses (H-0135 P4).
         (out / "analysis_context.pkl").unlink()
+        meta_path = out / "metadata.json"
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        del meta["checksums"]["files"]["analysis_context.pkl"]
+        meta_path.write_text(json.dumps(meta), encoding="utf-8")
         return Model.load(out)
 
     def test_load_without_context_succeeds(self, tmp_path: Path) -> None:

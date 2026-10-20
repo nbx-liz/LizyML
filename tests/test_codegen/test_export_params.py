@@ -254,3 +254,40 @@ class TestPipelineExportStateJson:
         pipe = NativeFeaturePipeline()
         with pytest.raises(RuntimeError, match="not.*fitted"):
             pipe.export_state_json(tmp_path / "state.json")
+
+    def test_json_unsafe_categories_round_trip_through_the_codec(
+        self, tmp_path: Path
+    ) -> None:
+        """H-0133: categories and modes are written tagged and decode back."""
+        import decimal
+
+        from lizyml.core.category_values import decode
+        from lizyml.features.pipelines_native import NativeFeaturePipeline
+
+        values = [b"x", decimal.Decimal("1.5"), pd.Timestamp("2024-01-01"), (1, 2)]
+        X = pd.DataFrame(
+            {"cat": pd.Series(values * 2, dtype=object).astype("category")}
+        )
+        pipe = NativeFeaturePipeline().fit(X, pd.Series([0, 1] * 4))
+        path = pipe.export_state_json(tmp_path / "state.json")
+        written = json.loads(path.read_text(encoding="utf-8"))["encoder"]
+        internal = pipe.get_state()["encoder"]
+        assert [decode(v) for v in written["categories"]["cat"]] == internal[
+            "categories"
+        ]["cat"]
+        assert decode(written["modes"]["cat"]) == internal["modes"]["cat"]
+
+    def test_a_value_outside_the_set_writes_nothing(self, tmp_path: Path) -> None:
+        from lizyml.core.exceptions import ErrorCode, LizyMLError
+        from lizyml.features.pipelines_native import NativeFeaturePipeline
+
+        values = [(1, float("nan")), (2, 3.0)]
+        X = pd.DataFrame(
+            {"cat": pd.Series(values * 2, dtype=object).astype("category")}
+        )
+        pipe = NativeFeaturePipeline().fit(X, pd.Series([0, 1] * 2))
+        out = tmp_path / "sub" / "state.json"
+        with pytest.raises(LizyMLError) as info:
+            pipe.export_state_json(out)
+        assert info.value.code == ErrorCode.SERIALIZATION_FAILED
+        assert not out.parent.exists()

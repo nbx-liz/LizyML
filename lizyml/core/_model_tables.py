@@ -26,7 +26,7 @@ class ModelTablesMixin:
 
         def _get_fit_state(self) -> FitState: ...
 
-        def _get_tuning_state(self) -> TuningState: ...
+        def _get_tuning_state(self, method: str) -> TuningState: ...
 
     def evaluate_table(self) -> pd.DataFrame:
         """Return evaluation metrics as a formatted DataFrame.
@@ -220,7 +220,7 @@ class ModelTablesMixin:
         Raises:
             LizyMLError with MODEL_NOT_FIT when ``tune()`` has not been called.
         """
-        state = self._get_tuning_state()
+        state = self._get_tuning_state("tuning_table")
         tr = state.tuning_result
         rows = []
         for t in tr.trials:
@@ -247,7 +247,7 @@ class ModelTablesMixin:
             LizyMLError with MODEL_NOT_FIT when ``tune(resume=True)`` has
             not been called or no boundary report exists.
         """
-        state = self._get_tuning_state()
+        state = self._get_tuning_state("boundary_table")
         if state.tuning_result.boundary_report is None:
             raise LizyMLError(
                 code=ErrorCode.MODEL_NOT_FIT,

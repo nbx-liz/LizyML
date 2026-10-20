@@ -10,8 +10,8 @@ import pandas as pd
 from sklearn.metrics import confusion_matrix
 
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.types.oof_coverage import compute_oof_valid_mask
 from lizyml.core.types.task import TaskType
-from lizyml.training.oof_assembly import compute_oof_valid_mask
 
 if TYPE_CHECKING:
     from lizyml.core.types.fit_result import FitResult

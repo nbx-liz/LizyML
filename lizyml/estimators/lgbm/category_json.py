@@ -22,32 +22,24 @@ it writes, as before.
 from __future__ import annotations
 
 import json
-import warnings
 from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
+from lizyml.core.category_values import shown, type_name
 from lizyml.estimators.base import UnsaveableCategory
 
-
-def type_name(value: Any) -> str:
-    """The name of *value*'s type, never raising."""
-    try:
-        name = type.__getattribute__(type(value), "__name__")
-    except Exception:  # noqa: BLE001 - a hostile metaclass must not stop fit
-        return "<unknown type>"
-    return name if isinstance(name, str) else "<unknown type>"
-
-
-def shown(value: Any) -> str:
-    """``repr(value)``, or ``<unprintable TYPE>`` when ``repr`` raises."""
-    try:
-        text = repr(value)
-    except Exception:  # noqa: BLE001 - a hostile __repr__ must not stop fit
-        return f"<unprintable {type_name(value)}>"
-    return text if isinstance(text, str) else f"<unprintable {type_name(value)}>"
+__all__ = [
+    "encoder_categories",
+    "is_writable",
+    "needs_stand_in",
+    "shown",
+    "stand_in_columns",
+    "type_name",
+    "unwritable_categories",
+]
 
 
 def _numpy_default(obj: Any) -> Any:
@@ -73,6 +65,27 @@ def is_writable(value: Any) -> bool:
         # anything; LightGBM's writer would raise the same.
         return False
     return True
+
+
+def needs_stand_in(value: Any) -> bool:
+    """Whether the encoder must hand LightGBM a position for *value* (H-0133).
+
+    A module-level function, so a pipeline holding it still pickles.
+    """
+    return not is_writable(value)
+
+
+def stand_in_columns(pipeline_state: Any) -> frozenset[str]:
+    """The columns a native pipeline state hands over as positions (H-0133)."""
+    if not isinstance(pipeline_state, Mapping):
+        return frozenset()
+    encoder = pipeline_state.get("encoder")
+    if not isinstance(encoder, Mapping):
+        return frozenset()
+    columns = encoder.get("stand_in_columns", ())
+    return (
+        frozenset(str(c) for c in columns) if isinstance(columns, list) else frozenset()
+    )
 
 
 def unwritable_categories(
@@ -105,17 +118,3 @@ def encoder_categories(pipeline_state: Any) -> Mapping[str, list[Any]]:
         return {}
     categories = encoder.get("categories")
     return categories if isinstance(categories, Mapping) else {}
-
-
-def warn_unsaveable_categories(pipeline_state: Any) -> None:
-    """Warn once per column whose categories ``Model.export`` will refuse."""
-    for item in unwritable_categories(encoder_categories(pipeline_state)):
-        warnings.warn(
-            f"Column '{item.column}' holds the category value {item.shown} of "
-            f"type {item.type_name}, which LightGBM cannot write into a saved "
-            "model: fit and predict work, but Model.export will refuse this "
-            "model. Convert the column's values to str (or int, float, bool) "
-            "before fit to be able to save it.",
-            UserWarning,
-            stacklevel=3,
-        )

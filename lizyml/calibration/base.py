@@ -83,3 +83,19 @@ class BaseCalibratorAdapter(ABC):
         The dict must include a ``"method"`` key matching :attr:`name`.
         Raises ``RuntimeError`` if the calibrator has not been fitted.
         """
+
+
+class BaseCalibrationResult:
+    """Marker base of a cross-fit calibration outcome (H-0130).
+
+    Layer 3 (``plots/``) checks a fitted model's calibrator against this marker
+    instead of importing ``calibration/cross_fit.py`` (BLUEPRINT §2.1). Within
+    lizyml only ``CalibrationResult`` inherits it. A class that inherits it
+    promises a ``calibrated_oof`` array, the only field the plots read.
+
+    The marker holds no state and declares no dataclass field, so a pickled
+    ``CalibrationResult`` keeps its recorded class name, and one saved before
+    the marker existed is an instance of it once loaded.
+    """
+
+    calibrated_oof: npt.NDArray[np.float64]

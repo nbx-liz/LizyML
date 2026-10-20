@@ -531,6 +531,30 @@ anchors = ["TrialErrorProvider", "extra_catch", "trial_states"]
 disposition = "specified"
 anchors = ["unsaveable_categories", "UnsaveableCategory", "test_layer_rules.py"]
 
+[proposals."H-0130"]
+disposition = "specified"
+anchors = ["training/results.py", "metrics/registry.py", "BaseCalibrationResult"]
+
+[proposals."H-0132"]
+disposition = "specified"
+anchors = ["needs_train_target", "bind_train", "`mase`"]
+
+[proposals."H-0133"]
+disposition = "specified"
+anchors = ["stand_in_columns", "core/category_values.py"]
+
+[proposals."H-0134"]
+disposition = "specified"
+anchors = ["tuning_history.json", "core/tuning_codec.py"]
+
+[proposals."H-0135"]
+disposition = "specified"
+anchors = ["declared_files", "declared_file_missing"]
+
+[proposals."H-0136"]
+disposition = "specified"
+anchors = ["features/encoders/state_changes.py", "warn_saved_state_changes"]
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 
