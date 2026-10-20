@@ -71,16 +71,27 @@ def pytest_configure(config: Any) -> None:
 
     original_check = exporter.check_category_values
 
-    def check_category_values(fit_result: Any, refit_result: Any, declared: Any = None) -> None:
-        caller = sys._getframe(1).f_globals.get("__name__", "")
-        surface = "Model.export" if caller.endswith("_model_persistence") else "persistence.export"
+    def check_category_values(
+        fit_result: Any, refit_result: Any, declared: Any = None, **kwargs: Any
+    ) -> None:
+        if "surface" in kwargs:  # after H-0136: every exit names itself
+            # export_code's own call keeps its "export_code" record below.
+            surface = {
+                "lizyml.persistence.export": "persistence.export",
+                "export_code": "export_code (check)",
+            }.get(kwargs["surface"], kwargs["surface"])
+        else:  # before H-0136: Model.export and persistence.export only
+            caller = sys._getframe(1).f_globals.get("__name__", "")
+            surface = (
+                "Model.export" if caller.endswith("_model_persistence") else "persistence.export"
+            )
         try:
             rule = _model_rule(fit_result, refit_result, declared)
         except Exception as exc:  # noqa: BLE001 -- recorded, never raised into the test
             rule = {"rule_error": _outcome(exc), "breaks": [], "original_fails": []}
         record = {"surface": surface, **rule}
         try:
-            original_check(fit_result, refit_result, declared)
+            original_check(fit_result, refit_result, declared, **kwargs)
         except Exception as exc:
             record["today"] = _outcome(exc)
             _write(record)

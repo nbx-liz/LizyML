@@ -18,7 +18,7 @@ for r in records:
     by_surface[r["surface"]].append(r)
 
 print(f"records={len(records)}")
-for surface in ("Model.export", "persistence.export", "export_code", "fit_warning"):
+for surface in sorted(by_surface):
     rows = by_surface.get(surface, [])
     passes = ("ok", "silent")
     fires = [r for r in rows if r.get("breaks") and r["today"] in passes]

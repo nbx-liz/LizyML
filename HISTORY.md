@@ -15671,7 +15671,7 @@ Codex の実装レビュー（run `h0135-impl-review`、`1d9d38a`）は CHANGES_
 - **出口の間で食い違う割合**: `tests/test_core/test_category_values.py` の `SAMPLES`（H-0133 が `ADMITTED_TYPES` から導いた母集団）の各値を単独で、また 2 つずつの組で、文字列 `"x"` と並べた列（pandas 3.0.1 で 6216 列、pandas 2.3.3 で 6441 列）を、試作の規則で判定した（`firing/criterion4_kinds.py`・`.out`）。数は Python の hash seed で変わるので、`PYTHONHASHSEED` 0〜4 の範囲で書く。
   - pandas 3.0.1: JSON で壊れるものが 18〜21 列で、全て `uint64` を含む（`np.timedelta64` との組と、`np.bool_` との組。Python の `bool` との組は壊れない）。joblib で壊れるものは 0。
   - pandas 2.3.3: JSON で壊れるものが 4〜7 列、joblib で壊れるものが 113 列（全て pytz の夏時間の重なりの値を含む）。
-  - 管理者に判断を仰いだときは、`surface_disagreement.py` の数（pandas 3 で 22、pandas 2 で 120。seed を固定していなかった）を示した。この probe の JSON 側の判定は自前の写しで、入れ子の深い `tuple` を含む 2 列（`bool` との組と `uint8` との組）を誤って壊れるとしていた。生成した `predict.py` を実際に走らせると、この 2 列は同じ符号を返す（`firing/oracle_disagreement.py`）。seed 0〜4 の数は `surface_disagreement.out` にもある（pandas 3 で 20〜23、pandas 2 で 119〜122）。どの数でも判断 2 の前提（特殊な値の組だけで、最大でも約 2%）は変わらない。
+  - 管理者に判断を仰いだときは、`surface_disagreement.py` の数（pandas 3 で 22、pandas 2 で 120。seed を固定していなかった）を示した。この probe と試作の規則は、入れ子の深い `tuple` を含む 2 列（`np.bool_` との組と `np.uint8` との組）で答えが違った。〔実装の記録で訂正: 改訂 1 は「probe が誤って壊れるとしていた」と書いたが、誤りである。2 つは別のバッチ（probe は `[*col, *col, "x"]`、規則は状態の順）を比べていた。probe のバッチでは、メモリ上のエンコーダ自身が pandas の取り違え（#380）で誤った符号を出していた。〕seed 0〜4 の数は `surface_disagreement.out` にもある（pandas 3 で 20〜23、pandas 2 で 119〜122）。どの数でも判断 2 の前提（特殊な値の組だけで、最大でも約 2%）は変わらない。
   - fit や元の変換がすでに失敗する列（310・346）は、保存処理の違いではないので数えていない（#378 の類）。
 - **規則の試作**（`docs/audits/2026-10-h0136/probes/firing/h0136_rule.py`）は、上の正の例 4 種（`uint64` と `timedelta64`、pytz の値 1 つ、それを入れた `frozenset`、#372 の組）と、Codex の挙げた 2 組を含む対照 5 種を、pandas 3 と 2 の両方で正しく分けた（`rule_controls.out`、誤り 0）。
 - **母集団（census、`cf66402`）**: `docs/audits/2026-10-h0136/probes/firing/h0136_export_census.py` は pytest の plugin である。3 つの出口と fit の警告を包み、書く前の状態に試作の規則を当ててから、本物の呼び出しをそのまま走らせて結果を記録する。集計は `summarize.py`。
@@ -15753,6 +15753,7 @@ Codex の実装レビュー（run `h0135-impl-review`、`1d9d38a`）は CHANGES_
   - 閉じない理由: predict に来る値は開いた集合で、export の時に全てを試せない。型の変わる写し（H-0133 が文書にした、numpy のスカラーが Python の型で戻ること）を全て拒否すれば閉じるが、`np.int64` などのカテゴリを持つ全てのモデルの `export_code` を拒否することになり、v0.19.0 から使えたものを失う。
   - 保存した成果物（joblib）は型を保つので、`Model.export` ではこの差は出ない。
 - **#379**（メモリ上の不整合）: 判断 4。
+- **#380**（実装中に見つけた、メモリ上の不整合）: NumPy の 1 に等しいスカラーと 1 を包む `tuple` を pandas が取り違え、メモリ上のモデルがバッチによって符号を変える。P1 の基準は、学習したカテゴリを状態の順に並べた 1 つのバッチである（実装の記録）。
 
 ### 置き換える記録
 
@@ -15775,7 +15776,7 @@ Firing rate: 0/1174 of export exits on pandas 3.0.1 (full-suite census with `h01
 3. **入れ物の中の値**: pytz の値を含む `tuple` と `frozenset` が拒否される。
 4. **codegen の衝突**（pandas 3 と 2）: `np.uint64(4)` と `np.timedelta64(4, 'M')` の列は、3 つの出口のどれでも `serializer="json"` で拒否される。同じ組を `category` dtype の入力で与えた `declared_categories` も拒否される。`np.uint64(2**63 + 5)` と `np.bool_(True)` の列も拒否される。Python の `True` との列は拒否されない（P1 で壊れない。`firing/bool_kinds.py`・`.out`）。それぞれ `kind` を確かめる（`criterion4_kinds.out` の実測。一意でない組は `raises` と `exception="ValueError"`、`set_categories` の比較で落ちる組は `raises` と `exception="OverflowError"`）。
 5. **壊れない組を拒否しない**: zoneinfo の `fold=1` と固定の時差の値、`1` と `np.timedelta64(1, 's')` の列は、3 つの出口を通り、load の後の予測と生成した `predict.py` の予測が export の前と同じである。
-6. **判定と現実が一致する**: H-0133 の `SAMPLES` の格子（単独と 2 つの組）の全ての列で、P1 の判定が現実と一致する。joblib の側は、状態を実際に joblib に通したライブラリのエンコーダの変換と、JSON の側は、`convert_pipeline_state` が書く `pipeline_state.json` を読んだ、生成した `predict.py` の `transform` と比べる（`surface_disagreement.py` の自前の写しは、2 列で誤った。`oracle_disagreement.py`）。受け入れ基準 1〜5 の case では、`Model.export` → `Model.load` → `predict` と、生成した `predict.py` を実際に走らせて確かめる（試作のエンコーダを生成コードの代わりにしない）。
+6. **判定と現実が一致する**: H-0133 の `SAMPLES` の格子（単独と 2 つの組）の全ての列で、P1 の判定が現実と一致する。joblib の側は、状態を実際に joblib に通したライブラリのエンコーダの変換と、JSON の側は、`convert_pipeline_state` が書く `pipeline_state.json` を読んだ、生成した `predict.py` の `transform` と比べる。変換する行は P1 の基準のバッチ（学習したカテゴリを状態の順に 1 つのバッチにしたもの）である（実装の記録）。受け入れ基準 1〜5 の case では、`Model.export` → `Model.load` → `predict` と、生成した `predict.py` を実際に走らせて確かめる（試作のエンコーダを生成コードの代わりにしない）。
 7. **拒否は書く前**: 3 つの出口で、拒否のあと出力先が作られない（既にあるディレクトリは変わらない）。
 8. **今通るのに拒否されるテストの書き直し**（テストを消さない）: `test_h0133_acceptance.py` の `Timestamp pytz fold` の case（`test_every_admitted_type_saves_and_predicts_the_same` と `test_the_three_surfaces_accept_every_admitted_column` の 2 本）を、3 つの出口が拒否し、fit が警告することを確かめる形にする。census で今は通るのに拒否されるのは、この 2 本だけだった。pytz の値を 1 つだけ持つ、最頻値でない case は受け入れ基準 2 で足す。
 9. **陰性対照**: 1〜7 の検査それぞれについて、実装の該当する部分を戻すとテストが落ちる（P1 の 2 つの保存処理、最頻値の比較、`declared_categories`、`export_code` の呼び出し、fit の警告、書く前の順）。
@@ -15798,3 +15799,49 @@ Firing rate: 0/1174 of export exits on pandas 3.0.1 (full-suite census with `h01
 - monitor は round 2 の前に absolute を、round 3 の前に relational を走らせた。結果は DELIVERABLE-FOCUSED と CONVERGING で、disposition はどちらも continue。
 - この実行の方針（Codex の APPROVE と CI 緑で進める）により、round 3 の APPROVE をもって受け入れとした。
 - 分かれ道は管理者が決めた（カード D-20261020-007・D-20261020-009・D-20261020-010）。
+
+### 実装の記録（2026-10-20）
+
+- **コード**:
+  - `lizyml/features/encoders/state_changes.py`（新しい）: `CategoryStateChange` と `category_state_changes` / `column_change`。エンコーダの状態とその写しを比べ、P3 の 4 つの `kind` を返す。Layer 3 の `persistence` と `codegen` からはエンコーダのモジュールを import できない（§2.1）ので、IF の `features/pipeline_base.py` が再び公開する。規則が縛る位置に無かった 2 つのファイルである。
+  - `lizyml/persistence/_category_preflight.py`（新しい）: joblib（`compress=3`）と JSON（H-0133 の符号化）の写し、`declared_change`、拒否のメッセージ（`refuse_change`）、fit の警告（`warn_changes`）。
+  - `exporter.check_category_values`: V の検査と adapter の検査の間に P1 を入れた。引数 `surface` で呼び手の名前をメッセージに入れる。`Model.export` と `export_code`（`surface="export_code"`）が呼ぶ。公開の `lizyml.persistence.export` の拒否の文面は「Model.export cannot save」のままにした。H-0129 のゴールデンテスト（`test_unwritable_categories.py`）が文面を固定しているからである。
+  - `export_code` は `check_category_values` を、何かを書く前に呼ぶ（P2）。
+- **P1 の基準のバッチ（実装で明確にした）**: 「元の各カテゴリを 1 行ずつ変換する」を、学習したカテゴリを状態の順に並べた 1 つのバッチの変換として実装した。
+  - pandas の `set_categories` が返す符号は、同じバッチにある他の値で変わることがある。メモリ上のモデル自身がそうなるので（#380）、基準をこのバッチに固定した。
+  - 1 行ずつの変換（値ごとに別のバッチ）では、`np.bool_` と入れ子の `tuple` の列の JSON 側の違いが見えない（`batch_order.py`・`.out`）。
+- **P4 の変更（実装で決めた）**: Proposal は、fit の警告を CV の前に全ての学習行で fit した状態に当てるとしていた。実装では、H-0136 の警告を fit を終えた後に、export が判定するのと同じ保存する状態（refit と各 fold）と `declared_categories` に当てる（`exporter.warn_saved_state_changes`）。
+  - 理由: 等しさが推移的でない値（`np.uint64(4) == 4 == np.timedelta64(4, 'M')` だが、`np.uint64(4) != np.timedelta64(4, 'M')`）では、結果が状態のカテゴリの順で変わる。その順は状態ごとの行の現れる順である。CV の前の状態では警告が出ず、保存する状態では拒否される場合を、テストで見た。
+  - V の外の値の警告は、今までどおり CV の前に出す。V の外の値があれば、H-0136 の警告は出さない（export はそれを先に拒否する）。
+  - 保存する状態の対応が取れないときは警告を出さず、debug に記録する（export がその状態を拒否する）。
+- **受け入れ基準 4 の実測（実装で明確にした）**: `np.uint64(4)` と `np.timedelta64(4, 'M')` の `kind` は、状態での順で決まる。
+  - `uint64` が先なら `raises`（`ValueError`）、`timedelta64` が先なら `unseen` である。テストは両方の順を、行をブロックで並べた frame で確かめる。
+  - `np.uint64(2**63 + 5)` と `np.bool_(True)` の組は、`uint64` が先のときだけ壊れる（`raises`、`OverflowError`）。pandas はオブジェクトの列で `np.bool_` を先に並べるので、`Model.fit` からは `category` dtype で宣言した順でしか届かない。テストはその形で確かめ、pandas の順のままの列は保存できることも確かめる。
+- **実装中に見つけた不具合**:
+  - `mode` の比較が、元の最頻値を両方の状態で引いていた。そのため、写した状態の最頻値が変わっても検出しなかった。写した状態の最頻値を、写した状態で引くように直した。手で作った状態の単体テスト（`test_h0136_state_changes.py`）で見つけた。実際の fit では最頻値は学習したカテゴリの 1 つで、同じ写しを受けるので、この `kind` は単体テストでしか届かない。
+  - その直後に、最頻値を 1 行だけのバッチで変換していたことも誤りだった。pandas 2 では、pytz の値だけの 1 行のバッチが `astype("category")` で日時の型になり、fold が変わる（#379 の仕組み）。そのため、メモリ上の側が -1 を返し、偽の `mode` の変化になった。受け入れ基準 6 の格子のテストが、pandas 2 で見つけた。最頻値は、学習したカテゴリの基準のバッチの最後の 1 行として変換するように直した（`_batch_codes`）。
+  - **#380**（新しい issue）: NumPy の 1 に等しいスカラー（`np.True_`・`np.uint8(1)`）と、1 を包む `tuple` を同じ列に持つと、pandas の object Index の参照が取り違える。奇数の深さでは、バッチによってスカラーが `tuple` の位置を受け取る。偶数の深さでは、2 つを重複とみなす。pandas 3.0.1 と 2.3.3 で同じで、Python の `True` / `1` では起きない（`pandas_tuple_lookup.py`・`.out`）。メモリ上のモデルの不具合なので、#379 と同じく（カード D-20261020-010 に倣う）範囲の外とし、v0.20.0 の後に扱う。「残る範囲」に足す。
+- **テスト**:
+  - `tests/test_persistence/test_h0136_acceptance.py`: 受け入れ基準 1〜5・7・8。pytz の case は pandas 2 でだけ走る。
+  - `tests/test_persistence/test_h0136_state_changes.py`: P1・P3 の 4 つの `kind` と `declared_change`。
+  - `tests/test_persistence/test_h0136_grid.py`（slow）: 受け入れ基準 6。6216 列（pandas 3）と 6441 列（pandas 2）の全てで、規則の判定が、実際の joblib と生成した `predict.py` の結果と一致する。
+  - `test_h0133_acceptance.py` の `Timestamp pytz fold` の case は、`test_h0136_acceptance.py` に移した（受け入れ基準 8。拒否と警告を確かめる）。
+- **陰性対照**（受け入れ基準 9、`negative_controls_h0136.py`・`.out`、pandas 2.3.3）: 9 通りの全てで該当のテストが落ちた。patch を当てない基準の run は通った。9 通りは次のとおり。
+  - P1 を外す
+  - joblib の側を外す
+  - JSON の側を外す
+  - `kind` を全て `raises` にする
+  - 最頻値を元の値で引く（上の不具合）
+  - `declared_categories` を検査しない
+  - `export_code` が検査を呼ばない
+  - `export_code` が書いた後で検査する
+  - fit の警告を外す
+- **census（受け入れ基準 10）**: 実装の後に、pandas 3.0.1 のフルスイート（slow を含む）で同じ census を走らせた（`firing/census_after.jsonl`・`.out`・`census_after_pytest.txt`）。
+  - 出口の呼び出しは `Model.export` 576 回、`persistence.export` 127 回、`export_code` 497 回だった。試作の規則が壊れると判定するのに実際の呼び出しが通るものは、全ての出口で 0 回だった。実装は試作と同じ答えを返す。
+  - 試作が壊れると判定し、実際に拒否された呼び出しのうち、H-0136 の規則によるものは `test_h0136_acceptance.py` だけにあった。ほかは、今までの V と adapter の拒否を確かめるテスト（`test_h0133_acceptance.py`・`test_unwritable_categories.py`・`test_export_contract.py`）である。
+  - `export_code` が今まで通り、P2 で呼ぶようになった `check_category_values` が拒否する呼び出しは 0 回だった。fold の状態の判定と adapter の判定は、この母集団で `export_code` の拒否を増やさない。
+  - `fit_warning` の行の FIRES 4 回は、census が CV の前の警告を包んでいるために出る。H-0136 の警告は fit の後に出るので、この行では数えられない（4 回とも `test_h0136_acceptance.py` の、警告を確かめて通るテストである）。
+  - 最後のコードでのフルスイートは 13125 本が通り、落ちたのは 2 本だった。どちらもこの変更によるものではない。
+    - `test_version.py`: 既知の環境の失敗。
+    - `test_notebooks` の `tutorial_time_series_lgbm`: notebook がデータを取りに行き、sandbox のネットワークで `URLError` になった。
+  - pandas 2.3.3 では、`tests/test_persistence`・`tests/test_codegen`・`test_category_values.py`（slow を含む）を走らせた。落ちたのは、検証用の環境に `pyarrow` が無いための parquet の 84 本だけだった（CI の環境には入っている）。
