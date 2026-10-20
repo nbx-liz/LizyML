@@ -39,6 +39,7 @@ import pandas as pd
 
 from lizyml.core.category_values import encode, refusal, shown, type_name
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.core.logging import get_logger
 from lizyml.core.tuning_codec import (
     HISTORY_FILE,
     HISTORY_SCHEMA,
@@ -46,6 +47,12 @@ from lizyml.core.tuning_codec import (
     history_bytes,
 )
 from lizyml.core.types.task import TaskType
+from lizyml.persistence._category_preflight import (
+    declared_change,
+    refuse_change,
+    state_changes,
+    warn_changes,
+)
 
 if TYPE_CHECKING:
     from lizyml.core.types.fit_result import FitResult
@@ -59,6 +66,8 @@ if TYPE_CHECKING:
 #: H-0134: 4. A tuned model's trial history is in ``tuning_history.json``; an
 #: older LizyML would ignore the file and show the history as an empty table.
 FORMAT_VERSION = 4
+
+_log = get_logger("persistence.exporter")
 
 
 def _state_category_values(state: Any) -> list[tuple[str, Any]]:
@@ -109,14 +118,47 @@ def warn_unsaveable_category_values(state: Any) -> None:
         )
 
 
-def _refuse_value(column: str, value: Any, reason: str, where: str) -> LizyMLError:
+def warn_saved_state_changes(
+    fit_result: FitResult,
+    refit_result: RefitResultView,
+    declared_categories: Mapping[str, list[Any]] | None,
+) -> None:
+    """Warn, after a fit, once per column ``check_category_values`` will refuse
+    under the H-0136 rule (P4), judged on the states export saves.
+
+    The verdict depends on each state's category order, which follows its
+    rows, so it is taken on the saved states themselves rather than on a
+    state fitted before CV. A model holding a value outside V already got
+    that warning before CV and is refused for it first, so it gets no second
+    one.
+    """
+    try:
+        saved = _saved_pipeline_states(fit_result, refit_result)
+    except LizyMLError as exc:
+        # export refuses the unpaired states itself, with this error.
+        _log.debug("event='h0136.fit_warning.skipped' code=%s", exc.code.name)
+        return
+    if any(unsaveable_category_values(state) for _, state, _ in saved):
+        return
+    if any(
+        refusal(v) is not None
+        for cats in (declared_categories or {}).values()
+        for v in cats
+    ):
+        return
+    warn_changes([state for _, state, _ in saved], declared_categories)
+
+
+def _refuse_value(
+    column: str, value: Any, reason: str, where: str, surface: str = "Model.export"
+) -> LizyMLError:
     """*where* is the state name (``"refit"``, ``"fold 1"``, H-0127's context
     values) or ``"declared categories"``."""
     shown_where = where if where == "declared categories" else f"{where} pipeline state"
     return LizyMLError(
         code=ErrorCode.SERIALIZATION_FAILED,
         user_message=(
-            f"Model.export cannot save this model: column '{column}' "
+            f"{surface} cannot save this model: column '{column}' "
             f"({shown_where}) "
             f"holds the category value {shown(value)} of type {type_name(value)}, "
             f"which a saved model cannot hold ({reason}). Saveable values are "
@@ -178,17 +220,24 @@ def check_category_values(
     fit_result: FitResult,
     refit_result: RefitResultView,
     declared_categories: Mapping[str, list[Any]] | None = None,
+    *,
+    surface: str = "Model.export",
 ) -> None:
     """Refuse, before anything is written, a model whose category values
-    cannot be saved (H-0127, H-0133).
+    cannot be saved (H-0127, H-0133, H-0136).
 
-    Two checks, in order:
+    ``Model.export``, ``lizyml.persistence.export`` and ``export_code`` all
+    call this, so they accept the same models (H-0136 P2); *surface* names
+    the caller in the message. Three checks, in order:
 
     1. Every category and mode of every saved pipeline state, and every
        declared category, must be in the closed value set V
-       (:mod:`lizyml.core.category_values`), the same set ``export_code``
-       accepts (H-0133 P5).
-    2. Each saved pipeline state is checked by the adapter saved with it
+       (:mod:`lizyml.core.category_values`, H-0133 P5).
+    2. Each saved state, projected through joblib and through the codec
+       JSON, must answer its learned categories and mode as the state itself
+       does; declared categories through the JSON (H-0136 P1,
+       :mod:`lizyml.persistence._category_preflight`).
+    3. Each saved pipeline state is checked by the adapter saved with it
        (``BaseEstimatorAdapter.unsaveable_categories``, H-0129), so this layer
        imports no concrete estimator. LightGBM writes each categorical
        column's categories as JSON when the booster is pickled; a column it
@@ -205,12 +254,23 @@ def check_category_values(
         for column, value in _state_category_values(state):
             reason = refusal(value)
             if reason is not None:
-                raise _refuse_value(column, value, reason, state_name)
+                raise _refuse_value(column, value, reason, state_name, surface)
     for column, cats in (declared_categories or {}).items():
         for value in cats:
             reason = refusal(value)
             if reason is not None:
-                raise _refuse_value(str(column), value, reason, "declared categories")
+                raise _refuse_value(
+                    str(column), value, reason, "declared categories", surface
+                )
+    for state_name, state, _ in saved:
+        for serialized in state_changes(state):
+            raise refuse_change(
+                serialized.change, serialized.serializer, state_name, surface
+            )
+    for column, cats in (declared_categories or {}).items():
+        change = declared_change(column, list(cats))
+        if change is not None:
+            raise refuse_change(change, "json", "declared categories", surface)
     for state_name, state, adapter in saved:
         found = adapter.unsaveable_categories(state)
         if not found:
@@ -219,7 +279,7 @@ def check_category_values(
         raise LizyMLError(
             code=ErrorCode.SERIALIZATION_FAILED,
             user_message=(
-                f"Model.export cannot save this model: column '{item.column}' "
+                f"{surface} cannot save this model: column '{item.column}' "
                 f"({state_name} pipeline state) holds the category value "
                 f"{item.shown} of type "
                 f"{item.type_name}, which LightGBM cannot write into a saved "
@@ -344,6 +404,8 @@ def export(
             DeprecationWarning,
             stacklevel=2,
         )
+    # The message keeps naming Model.export: its wording is a golden contract
+    # (test_unwritable_categories, H-0129).
     check_category_values(fit_result, refit_result, declared_categories)
     write_checked(
         path,
