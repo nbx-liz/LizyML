@@ -4,10 +4,8 @@ HISTORY.md の H-0137「実測」の各主張と、それを出したファイ�
 
 | 主張 | スクリプト | 出力 | 通信 |
 |---|---|---|---|
-| カーネルの中で、ガードが拒否する 15 個の入口に届く呼び出しは 8 本とも 0 件。各 notebook が `data/` から読み込みで開くファイルは manifest の記録と同じ。`socket.*` の監査イベント（`_socket` を直接呼ぶものも含む）も記録する | `socket_census.py`（`heavy.sh` で実行） | `socket_census.json` | 不要 |
-| `bind`・`connect`・`sendto`・`sendmsg` はホスト名を監査イベントより前に解決する（監査のフックでは拒否できない）。各関数・メソッドが出す監査イベント | `socket_audit_events.py` | `socket_audit_events.out` | 不要 |
-| 上の記録の仕組みは、今の取得方法の通信を捕まえる（陽性対照） | `socket_census_control.py` | `socket_census_control.out` | 要 |
+| カーネルの中で、8 本とも `socket` の入口への呼び出し（ガードが拒否する `getaddrinfo` と `connect` を含む 15 個）も `socket.*` の監査イベントも 0 件。各 notebook が `data/` から読み込みで開いたファイルも記録した（round 1〜3 の設計の名残。今の設計は照合しない） | `socket_census.py`（`heavy.sh` で実行） | `socket_census.json` | 不要 |
+| 今の取得方法（`fetch_openml`、URL を読む `pd.read_csv`）は、`getaddrinfo` と `connect` を通る（陽性対照） | `socket_census_control.py` | `socket_census_control.out` | 要 |
 | 4 つのデータで、同梱したファイルから作るデータフレームが、取得元から作るものと一致する。作り直したファイルの sha256 は 2 回とも manifest と同じ | `scripts/vendor_notebook_data.py --out <dir>` を 2 回 | `rebuild_run1.out`、`rebuild_run2.out` | 要 |
-| sdist に `notebooks/data/` が入り、wheel には入らない。大きさ | `uv build` を develop と branch で | `dist_contents.out` | 不要 |
+| sdist に `notebooks/data/` が入り、wheel には入らない。大きさ | `dist_contents.sh <base>`（develop と branch を clean な worktree から build） | `dist_contents.out` | 不要 |
 | ライセンスと帰属の表示 | WebFetch で出典のページを開いた | `licences.md` | 要 |
-| ガードのテストが、ガードを壊した版（mutant）を捕まえる | `mutate_guard.sh` | `mutate_guard.out` | 不要 |
