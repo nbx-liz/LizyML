@@ -20,7 +20,11 @@ A surface is "ok" when the rows transform without an error and with the
 original codes. A column whose fit or original transform already fails is
 counted apart (the #378 class, not a surface difference).
 
-Usage: python surface_disagreement.py   (from the repository root)
+The counts vary with Python's hash seed (measured; the reason is not
+established), so set ``PYTHONHASHSEED`` and report the range over several
+seeds.
+
+Usage: PYTHONHASHSEED=<n> python surface_disagreement.py   (from the repository root)
 """
 
 from __future__ import annotations
@@ -28,6 +32,7 @@ from __future__ import annotations
 import io
 import itertools
 import json
+import os
 import sys
 from collections import Counter
 from pathlib import Path
@@ -103,7 +108,10 @@ for col in columns:
     if label in kinds:
         kinds[label][" + ".join(sorted(_kind(v) for v in col))] += 1
 
-print(f"pandas={pd.__version__} numpy={np.__version__} samples={len(samples)}")
+print(
+    f"pandas={pd.__version__} numpy={np.__version__} samples={len(samples)} "
+    f"PYTHONHASHSEED={os.environ.get('PYTHONHASHSEED', 'unset')}"
+)
 print(f"columns={len(columns)} (singletons {len(samples)}, pairs {len(columns) - len(samples)})")
 for key in ("both ok", "joblib only", "JSON only", "both broken", "fit fails"):
     print(f"  {key:12s} {tally[key]}")
