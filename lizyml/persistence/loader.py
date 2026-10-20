@@ -198,6 +198,24 @@ def _expected(files: dict[str, str] | None, name: str) -> str | None:
     return None if files is None else files[name]
 
 
+def _is_payload(file: Path, path: str | Path) -> bool:
+    """Whether *file* is there as a regular file (a symlink to one included).
+
+    Something else under a payload's name (a directory, a socket) is refused
+    here, before any pickle is read, rather than failing later with an
+    ``OSError`` (H-0135 P7).
+    """
+    if not file.exists():
+        return False
+    if not file.is_file():
+        raise LizyMLError(
+            code=ErrorCode.DESERIALIZATION_FAILED,
+            user_message=f"'{file.name}' in '{path}' is not a regular file.",
+            context={"path": str(path), "reason": "not_a_file", "file": file.name},
+        )
+    return True
+
+
 def _context_is_read(
     ctx_pkl: Path, files: dict[str, str] | None, path: str | Path
 ) -> bool:
@@ -209,9 +227,9 @@ def _context_is_read(
     (format 1-2, pre-H-0083) the file is read when present, as before.
     """
     if files is None:
-        return ctx_pkl.exists()
+        return _is_payload(ctx_pkl, path)
     if ANALYSIS_CONTEXT_FILE in files:
-        if not ctx_pkl.exists():
+        if not _is_payload(ctx_pkl, path):
             raise LizyMLError(
                 code=ErrorCode.DESERIALIZATION_FAILED,
                 user_message=(
@@ -248,7 +266,15 @@ def _verify_and_read_pkl(pkl_path: Path, expected: str | None) -> bytes:
     before H-0083 (H-0135 P2). Raises ``DESERIALIZATION_FAILED`` on a digest
     mismatch, detecting tampering/corruption *before* pickle executes.
     """
-    raw = pkl_path.read_bytes()
+    try:
+        raw = pkl_path.read_bytes()
+    except OSError as exc:
+        raise LizyMLError(
+            code=ErrorCode.DESERIALIZATION_FAILED,
+            user_message=f"Failed to read '{pkl_path.name}': {exc}",
+            context={"file": pkl_path.name},
+            cause=exc,
+        ) from exc
     if expected is None:
         return raw
 
@@ -316,6 +342,13 @@ def load(path: str | Path) -> tuple[Any, Any, dict[str, Any], Any]:
             cause=exc,
         ) from exc
 
+    if type(metadata) is not dict:
+        raise LizyMLError(
+            code=ErrorCode.DESERIALIZATION_FAILED,
+            user_message="metadata.json must hold a JSON object.",
+            context={"path": str(path), "type": type(metadata).__name__},
+        )
+
     # Check required fields
     missing = _REQUIRED_METADATA_KEYS - set(metadata.keys())
     if missing:
@@ -325,9 +358,11 @@ def load(path: str | Path) -> tuple[Any, Any, dict[str, Any], Any]:
             context={"missing": sorted(missing)},
         )
 
-    # Check format_version (H-0070: accept any version in the supported set)
+    # Check format_version (H-0070: accept any version in the supported set).
+    # Exactly an int: JSON true and 2.0 compare equal to 1 and 2 and would
+    # pass as a format that may lack checksums (H-0135).
     fv = metadata.get("format_version")
-    if fv not in _SUPPORTED_FORMAT_VERSIONS:
+    if type(fv) is not int or fv not in _SUPPORTED_FORMAT_VERSIONS:
         raise LizyMLError(
             code=ErrorCode.DESERIALIZATION_FAILED,
             user_message=(
@@ -368,7 +403,7 @@ def load(path: str | Path) -> tuple[Any, Any, dict[str, Any], Any]:
 
     # --- Load pickled artifacts ----------------------------------------------
     for pkl_path in (fit_pkl, refit_pkl):
-        if not pkl_path.exists():
+        if not _is_payload(pkl_path, path):
             raise LizyMLError(
                 code=ErrorCode.DESERIALIZATION_FAILED,
                 user_message=f"Required artifact not found: '{pkl_path.name}'",

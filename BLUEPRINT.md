@@ -1905,7 +1905,7 @@ estimators/
 
 ## 15.2 互換性ポリシー（必須）
 
-- `format_version` が読めない場合は明示的に拒否する（黙って壊れた復元をしない）。
+- `format_version` が読めない場合は明示的に拒否する（黙って壊れた復元をしない）。`format_version` は JSON の整数でなければならず、`true` や `2.0` のように等しく比べられる値も拒否する。`metadata.json` が JSON の object でないときも拒否する（H-0135）。
 - 将来 migration を実装できる前提で serializer に拡張点を残す。
 - 現行 `FORMAT_VERSION = 4`（H-0134）。`{1, 2, 3, 4}` を loader が受理し、v1 artifact には no-op `TargetEncoder` を in-memory で注入して contract を整合させる（INV-5、H-0070）。v1・v2 の pipeline 状態には `stand_in_columns` が無く、どの列も元の値のカテゴリのまま読み、今と同じに予測する。3 に上げたのは意味の変更のためである: 位置の番号に置き換えた列（§15.3）を持つ状態を古い LizyML が読むと、元の値のカテゴリとして扱い、エラー無しに予測を間違える（H-0133 の実測）。そのため古い LizyML は v3 を拒否しなければならない。4 に上げたのは、`tuning_history.json` を知らない LizyML が v4 を読むと、そのファイルを無視して試行の履歴を空の表として見せるためである（#315 の欠陥。H-0134）。v1〜v3 は履歴を持たない成果物として読む。
 - **フィールドの追加は後方互換の変更で、`format_version` を上げない。** フィールドの削除、型や意味の変更は破壊的変更で、`format_version` を上げる（H-0003）。`checksums`（H-0083）、`tuning`（H-0086）、`applied_training_params`（H-0109）、`applied_sample_weight` / `declared_categories`（H-0120）はいずれも追加で、版を上げずに入った（H-0133 が意味の変更で版を 3 に上げるまで v2。H-0134 が `FORMAT_VERSION = 4` に上げた）。旧 loader は知らないキーを無視する。**例外（H-0134）**: 追加のフィールドでも、それが無いと、受理する古い loader が報告を黙って間違えるもの（`tuning.history` と `tuning_history.json`。古い loader は空の表を返す）は意味の変更として扱い、版を上げる。
@@ -1915,6 +1915,7 @@ estimators/
   - `checksums` が上の形でない（`reason="checksums_malformed"`。配列・`null`・キーの過不足・digest の形の違いを含む）、`algorithm` が `sha256` でない（`"checksums_algorithm"`）。どの版でも拒否する。
   - `checksums` が無い: format 1・2（H-0083 以前に書かれた成果物）だけは、今までどおり検査せずに読む。format 3・4 では拒否する（`"checksums_missing"`）。
   - `fit_result.pkl` か `refit_model.pkl` が `files` に無い（`"required_file_unlisted"`）。
+  - 決まった名前（`fit_result.pkl` / `refit_model.pkl` / 読む `analysis_context.pkl`）にあるのが通常のファイル（またはそれへの symlink）でない。ディレクトリなど（`"not_a_file"`）。
   - 宣言された `analysis_context.pkl` が無い（`"declared_file_missing"`）。宣言されていない `analysis_context.pkl` がディレクトリにあっても読まず（前の export が残したもの、#373）、`lizyml.persistence.loader` の logger の INFO に記録する。`checksums` の無い format 1・2 では、あれば読む。
   - 宣言の名前は、決まった名前（`fit_result.pkl` / `refit_model.pkl` / `analysis_context.pkl` / `tuning_history.json`）との完全一致で、大文字と小文字を区別する。宣言の名前をパスとして組み立てることはせず、知らない名前（`../x` のようなパスの形も含む）は無視する。決まった名前のファイルが symlink でも読む。読んだバイト列を digest で確かめてから復元するからである。
 - **脅威モデル**: `metadata.json` 自体は署名しない。書き込み権限を持つ者は `checksums` を書き換えたり消したりできる（format 3・4 で消すと、読めなくなる）。`checksums` が検出するのは破損と改竄であり、悪意ある作成者に対して pickle を安全にするものではない。artifact は信頼できる出どころからだけ読む。

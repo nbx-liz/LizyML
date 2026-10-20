@@ -259,6 +259,156 @@ def test_a_well_formed_manifest_loads_in_every_format(
     assert context is not None
 
 
+class _Dict(dict):  # type: ignore[type-arg]
+    pass
+
+
+class _Str(str):
+    pass
+
+
+def _valid_checksums() -> dict[str, Any]:
+    return {
+        "algorithm": "sha256",
+        "files": {"fit_result.pkl": "a" * 64, "refit_model.pkl": "b" * 64},
+    }
+
+
+def _non_str_name(c: dict[str, Any]) -> None:
+    c["files"][1] = "c" * 64
+
+
+def _dict_subclass(c: dict[str, Any]) -> None:
+    c["files"] = _Dict(c["files"])
+
+
+def _str_subclass_algorithm(c: dict[str, Any]) -> None:
+    c["algorithm"] = _Str("sha256")
+
+
+def _str_subclass_digest(c: dict[str, Any]) -> None:
+    c["files"]["fit_result.pkl"] = _Str("a" * 64)
+
+
+def _bool_digest(c: dict[str, Any]) -> None:
+    c["files"]["x"] = True
+
+
+#: Values json.loads cannot produce, so given to the validator directly (P1's
+#: type strictness): it must not rely on the JSON parser to exclude them.
+NON_JSON: dict[str, Callable[[dict[str, Any]], Any]] = {
+    "non-str name": _non_str_name,
+    "files is a dict subclass": _dict_subclass,
+    "algorithm is a str subclass": _str_subclass_algorithm,
+    "digest is a str subclass": _str_subclass_digest,
+    "digest is a bool": _bool_digest,
+}
+
+
+@pytest.mark.parametrize("case", sorted(NON_JSON))
+def test_the_validator_does_not_rely_on_the_json_parser(case: str) -> None:
+    from lizyml.persistence._manifest import declared_files
+
+    checksums = _valid_checksums()
+    NON_JSON[case](checksums)
+    with pytest.raises(LizyMLError) as info:
+        declared_files({"checksums": checksums}, 4, "x")
+    assert info.value.context["reason"] == "checksums_malformed"
+
+
+def test_the_validator_rejects_a_dict_subclass_manifest() -> None:
+    from lizyml.persistence._manifest import declared_files
+
+    with pytest.raises(LizyMLError) as info:
+        declared_files({"checksums": _Dict(_valid_checksums())}, 4, "x")
+    assert info.value.context["reason"] == "checksums_malformed"
+
+
+def test_the_validator_control_passes() -> None:
+    from lizyml.persistence._manifest import declared_files
+
+    files = declared_files({"checksums": _valid_checksums()}, 4, "x")
+    assert files == _valid_checksums()["files"]
+
+
+# ---------------------------------------------------------------------------
+# The version gate admits only an int (round-1 finding): true and 2.0 compare
+# equal to 1 and 2, which may lack checksums.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("checksums", ["absent", "kept"])
+@pytest.mark.parametrize("version", [True, False, 1.0, 2.0, 4.0, "2", [2], {"v": 2}])
+def test_a_format_version_that_is_not_an_int_is_refused(
+    version: Any,
+    checksums: str,
+    plain: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = _copy(plain, tmp_path / "a")
+    meta = _meta(artifact)
+    meta["format_version"] = version
+    if checksums == "absent":
+        del meta["checksums"]
+    _write_meta(artifact, meta)
+    error = _refused(artifact, monkeypatch)
+    assert error.context["format_version"] == version
+
+
+@pytest.mark.parametrize("body", ["[]", "[1, 2]", '"text"', "1", "null"])
+def test_metadata_that_is_not_an_object_is_refused(
+    body: str, plain: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifact = _copy(plain, tmp_path / "a")
+    (artifact / "metadata.json").write_text(body, encoding="utf-8")
+    _refused(artifact, monkeypatch)
+
+
+# ---------------------------------------------------------------------------
+# A payload name that is not a regular file is refused before any pickle
+# (round-1 finding).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("link", [False, True], ids=["directory", "symlink-to-dir"])
+@pytest.mark.parametrize("name", ["fit_result.pkl", "refit_model.pkl", CONTEXT])
+@pytest.mark.parametrize("version", ["v2-unsigned", "v4"])
+def test_a_payload_that_is_not_a_regular_file_is_refused(
+    version: str,
+    name: str,
+    link: bool,
+    plain: Path,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    artifact = _copy(plain, tmp_path / "a")
+    if version == "v2-unsigned":
+        to_v2_shape(artifact)
+        meta = _meta(artifact)
+        del meta["checksums"]
+        _write_meta(artifact, meta)
+    (artifact / name).unlink()
+    if link:
+        target = tmp_path / "a-dir"
+        target.mkdir()
+        (artifact / name).symlink_to(target, target_is_directory=True)
+    else:
+        (artifact / name).mkdir()
+    error = _refused(artifact, monkeypatch)
+    assert error.context["reason"] == "not_a_file"
+    assert error.context["file"] == name
+
+
+def test_an_undeclared_directory_under_the_context_name_is_ignored(
+    plain: Path, tmp_path: Path
+) -> None:
+    artifact = _without_context(_copy(plain, tmp_path / "a"))
+    (artifact / CONTEXT).mkdir()
+    _, _, _, context = persistence_load(artifact)
+    assert context is None
+
+
 # ---------------------------------------------------------------------------
 # Criterion 4: P2, an absent manifest
 # ---------------------------------------------------------------------------

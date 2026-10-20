@@ -136,7 +136,47 @@ def _read_pickles_first(mp: pytest.MonkeyPatch) -> None:
     mp.setattr(loader, "declared_files", declared)
 
 
+def _round_1_loader(mp: pytest.MonkeyPatch) -> None:
+    """The loader as it was reviewed in round 1 (``1d9d38a``).
+
+    It took any ``format_version`` equal to 1-4 (true, 2.0), a non-object
+    metadata.json, and a directory under a payload's name.
+    """
+    import importlib.util
+    import subprocess
+
+    source = subprocess.run(
+        ["git", "show", "1d9d38a:lizyml/persistence/loader.py"],
+        cwd=REPO,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    spec = importlib.util.spec_from_loader("_h0135_round_1_loader", loader=None)
+    assert spec is not None
+    old = importlib.util.module_from_spec(spec)
+    exec(compile(source, "loader@1d9d38a", "exec"), old.__dict__)  # noqa: S102
+    import lizyml.persistence as persistence
+
+    mp.setattr(loader, "load", old.load)
+    mp.setattr(persistence, "load", old.load)
+
+
+def _payload_by_existence(mp: pytest.MonkeyPatch) -> None:
+    """Round-1 finding off: any existing path counts as a payload file."""
+
+    def is_payload(file: Path, path: Any) -> bool:
+        return file.exists()
+
+    mp.setattr(loader, "_is_payload", is_payload)
+
+
 CONTROLS: dict[str, tuple[Callable[[pytest.MonkeyPatch], None], str]] = {
+    "round-1 loader (version, metadata, directories)": (
+        _round_1_loader,
+        "not_an_int or not_an_object or not_a_regular_file",
+    ),
+    "payload checked by existence only": (_payload_by_existence, "not_a_regular_file"),
     "P1-P3 permissive (#374)": (_permissive_manifest, "malformed and 374"),
     "P2 absent allowed in v3/v4": (_no_format_rule, "absent_manifest_is_refused"),
     "P3 required not checked": (_no_required, "unlisted_required"),

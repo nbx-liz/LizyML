@@ -15537,10 +15537,10 @@ Firing rate: 23/449 of artifact loads (full-suite load census with `h0135_load_c
   - `test_export_load_errors.py` の 2 本は `_write_signed_metadata`（ディスクの最後のバイト列の digest）を使い、どちらも `__cause__` を確かめる。
   - `test_persistence.py::TestLegacyArtifactCompat` は、ファイルと一緒に宣言も外す。
   - **意図した変更**: `test_h0134_acceptance.py::test_a_stale_history_file_is_not_read` は、書き直しの後に古い `tuning_history.json` が「残る」ことを確かめていた。P6 によって「消える」ことを確かめる形にした。読み手が宣言だけを読むことは、`test_h0135_acceptance.py` の `test_a_left_over_context_is_ignored_and_logged` と、H-0134 の宣言の検査が確かめる。
-- **新しいテスト**: `tests/test_persistence/test_h0135_acceptance.py`（103 本。受け入れ基準 1〜5 と 7）。
+- **新しいテスト**: `tests/test_persistence/test_h0135_acceptance.py`（round 1 のレビューの時点で 103 本）。
   - 拒否するテストは、どれも `_verify_and_read_pkl` と `joblib.load` を罠に置き換え、pickle を読む前に拒否されることと、`reason` を確かめる。
   - 形の違い 18 通りを、版 1〜4 の全てで確かめ、それぞれに形の正しい対照を置いた。
-  - JSON の object のキーは必ず文字列なので、「名前が文字列でない」場合は作れない。そのため表に入れていない。
+  - 当初、「名前が文字列でない」場合は JSON では作れないとして表から外し、受け入れ基準 3 を満たしていなかった。実装レビュー round 1 の指摘で、validator に直接与えるテストを足した（下の「実装レビュー round 1 への対応」）。
 - **陰性対照**（受け入れ基準 8）: `docs/audits/2026-10-h0135/probes/negative_controls_h0135.py`。各検査を、それぞれありそうな誤った実装に戻す（多くは H-0135 の前の振る舞い）。対照は次の 10 通りで、10/10 で該当のテストが落ちた（`negative_controls_h0135.out`）。patch を当てない基準の run は通った。
   - P1〜P3 を緩める
   - P2
@@ -15564,3 +15564,31 @@ Firing rate: 23/449 of artifact loads (full-suite load census with `h0135_load_c
   - BLUEPRINT §15.1（`checksums` の形）、§15.2（読むファイルの規則と拒否の一覧、脅威モデル、`analysis_context.pkl`）、§15.3（書き直し）、§18.1.4（拒否する版の一覧を、テストの `0`・`5`・`99`・`-1`・`None` に合わせた）
   - `docs/api.md`、`docs/faq.md`、`docs/migration.md`、`CHANGELOG.md`
   - `docs/proposal_dispositions.toml` の H-0135 を `specified` にした。anchor は `declared_files` と `declared_file_missing`。
+
+### 実装レビュー round 1 への対応（2026-10-20）
+
+Codex の実装レビュー（run `h0135-impl-review`、`1d9d38a`）は CHANGES_REQUESTED（major 3、minor 1）だった。全て直した。
+
+- **major 1（DC1）**: 版の検査が `fv in {1, 2, 3, 4}` だったので、等しく比べられる JSON の `true`・`1.0`・`2.0` を通していた。これらは P2 で「`checksums` が無くてよい版」になり、pickle を検査せずに読んでいた。配列と object の版は、hash できずに `TypeError` を出していた。
+  - `type(fv) is int` を先に確かめるようにした。
+  - あわせて、`metadata.json` が object でないとき（配列など）に `AttributeError` を出していたのも、`DESERIALIZATION_FAILED` にした。
+  - テストは、`true`・`false`・`1.0`・`2.0`・`4.0`・`"2"`・`[2]`・`{"v": 2}` のそれぞれについて、`checksums` がある場合と無い場合を確かめる。metadata が object でない場合は 5 通りを確かめる。どれも pickle を読む前に拒否される。
+- **major 2**: 必須の pickle と `analysis_context.pkl` の有無を `exists()` で見ていたので、その名前のディレクトリ（とディレクトリへの symlink）を「ある」としていた。宣言された context がディレクトリのときは、ほかの pickle を復元した後に `IsADirectoryError` がそのまま出ていた（P7 と `DESERIALIZATION_FAILED` の約束の破れ）。
+  - `_is_payload` が、通常のファイル（とそれへの symlink）でないものを、どの pickle も読む前に `reason="not_a_file"` で拒否するようにした。
+  - `_verify_and_read_pkl` の `OSError` も `DESERIALIZATION_FAILED` に包む。
+  - 宣言されていない名前のディレクトリは、今までどおり無視する。
+  - テストは、3 つの名前 × ディレクトリと symlink × v2（`checksums` なし）と v4 の 12 通りに、無視の 1 本を足した。
+- **major 3（DC5）**: 「受け入れ基準 1〜5 と 7 を確かめる」という記録が、名前が文字列でない場合を外していたので偽だった。
+  - JSON では作れない値（文字列でない名前、`dict` の subclass の `files` と `checksums`、`str` の subclass のアルゴリズムと digest、`bool` の digest）を `declared_files` に直接与え、`checksums_malformed` で拒否されることを確かめるテストを足した。対照も置いた。
+  - 上の記録を直した。
+- **minor**: `docs/api.md`、`Model.export` の docstring、`docs/faq.md` の表が、`analysis_context.pkl` と `tuning_history.json` を必ず書くように読めた。持っているときだけ書く、と直した。
+- **文書**:
+  - BLUEPRINT §15.2 に、整数でない版と object でない metadata の拒否、`not_a_file` を足した。
+  - `docs/api.md`・`docs/migration.md`・`CHANGELOG.md` も同じに直した。
+  - この 3 つの拒否は、拒否の検査（`allow` の条件ではない）であり、firing rate の行は要らない。実装の後の census（`census_after.out`）では、`true` か浮動小数の版を持つ load は 0 回だった。
+- **陰性対照**:
+  - 2 つ足して 12 通りにした。
+    - round 1 の loader（`git show 1d9d38a:lizyml/persistence/loader.py`）に戻す。
+    - ファイルの判定を `exists()` に戻す。
+  - 結果は 12/12 で、patch を当てない基準の run も通った（`negative_controls_h0135.out`）。
+- **テストの数**: `test_h0135_acceptance.py` は 144 本になった。`tests/test_persistence` は 795 本が通り、4 本が skip だった。

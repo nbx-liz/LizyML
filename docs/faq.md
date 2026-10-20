@@ -230,7 +230,7 @@ count is now reused automatically.
 | **Requires LizyML to load** | Yes | No |
 | **Use case** | Save and restore a `Model` instance via `Model.load()` | Deploy to an environment without LizyML installed |
 | **Calibrator** | Bundled inside `fit_result.pkl` | Serialized separately in `artifacts/` |
-| **Generated files** | `fit_result.pkl`, `refit_model.pkl`, `metadata.json`, `analysis_context.pkl`, `tuning_history.json` (tuned models) | `train.py`, `predict.py`, `test_equivalence.py`, `config.json`, `requirements.txt`, `artifacts/` |
+| **Generated files** | `fit_result.pkl`, `refit_model.pkl`, `metadata.json`, `analysis_context.pkl` (when the model has its diagnostic data), `tuning_history.json` (tuned models that hold their history) | `train.py`, `predict.py`, `test_equivalence.py`, `config.json`, `requirements.txt`, `artifacts/` |
 
 Use `export()` for experiment tracking and continued analysis within
 LizyML. Use `export_code()` when you need a self-contained deployment
