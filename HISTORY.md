@@ -15882,3 +15882,111 @@ Codex の実装レビュー（run `h0136-impl-review`、`6dce827`）は CHANGES_
     - round 2 の位置の比較に戻すと、新しいテストが落ちる。
   - minor は、2 つ目の最頻値の例の結果が pandas の版だけでなく hash seed でも変わることだった（上の round 2 の対応の項を訂正した）。
 - **対応**: テストの docstring と上の記述を直した。コードは変えていない。管理者の方針（1 行の修正でも確かめ直す）により、絞った確認を 1 回走らせる。
+
+## H-0137: チュートリアルの notebook が読むデータをリポジトリに同梱し、実行中の通信を拒否する ― 取得の失敗を再試行・skip する仕組みを外す（#385）
+
+- **ステータス**: Proposed
+- **起票日**: 2026-10-21
+- **関連**: #385、H-0119（6.(b) の「データ取得の失敗」）、#197（v0.16.0 で入れた skip）、PR #384（v0.20.0 のリリース PR で、OpenML の取得が失敗した）、registry のカード D-20261021-001（v0.21 の実行の方針。#385 を最初に行い、データを同梱し、notebook が通信しないことをテストする）
+- **スコープ**:
+  - `notebooks/` の 5 本のチュートリアルの、データを読むセルと、その説明の文
+  - 新しい `notebooks/data/`（データ 4 ファイルと `manifest.toml`）と、それを作り直す `scripts/vendor_notebook_data.py`
+  - notebook を実行する 2 つの層（H-0119 の index の実行 `tests/test_notebooks/index_runner.py` と、slow な実行テスト `tests/test_notebooks/test_notebook_execution.py`）
+  - 公開 API、Config、結果の型、保存形式は変えない
+
+### 目的（課題）
+
+8 本のチュートリアルのうち 5 本が、実行のたびに第三者のホストからデータを取得している。
+
+| notebook | 取得元 |
+|---|---|
+| `tutorial_binary_lgbm` | OpenML `fetch_openml("credit-g", version=1)` |
+| `tutorial_multiclass_lgbm` | OpenML `fetch_openml("vehicle", version=1)` |
+| `tutorial_regression_lgbm` | `raw.githubusercontent.com/mwaskom/seaborn-data/master/diamonds.csv` |
+| `tutorial_regression_tuning_lgbm` | 同じ diamonds の CSV |
+| `tutorial_time_series_lgbm` | `storage.googleapis.com/tensorflow/tf-keras-datasets/jena_climate_2009_2016.csv.zip` |
+
+取得元が一時的に落ちると、notebook に触れていない PR の CI が赤くなる。全ての notebook を実行するリリース PR が最も影響を受け、これまでに 2 回リリースが止まった（v0.16.0 の PR #196・#197、v0.20.0 の PR #384）。
+
+今の扱いでは足りない。
+- H-0119 の index の実行は、通信の失敗を数分のうちに 3 回まで再試行する。取得元の障害が数十分続けば防げない。
+- slow な実行テスト（#197）は、通信の失敗を skip する。notebook を実行していないのに、リリースの gate が通る（DC1）。H-0119 は index の層でこれを拒否したので、同じ失敗に対して 2 つの層の扱いが食い違っている。
+
+### 実測（2026-10-21、branch `feat/h0137-vendor-notebook-data`、develop `b39608d` の上）
+
+測定に使ったスクリプトと出力は `docs/audits/2026-10-h0137/` に置く。
+
+- **データの大きさとライセンス**:
+
+  | ファイル | 行 × 列 | CSV | gzip（level 9） | ライセンス（確認した出典） |
+  |---|---|---|---|---|
+  | `credit-g.csv.gz` | 1000 × 21 | 139 KB | 15 KB | CC BY 4.0（UCI の dataset 144 のページ） |
+  | `vehicle.csv.gz` | 846 × 19 | 55 KB | 19 KB | CC BY 4.0（UCI の dataset 149 のページ） |
+  | `diamonds.csv.gz` | 53940 × 10 | 2.6 MB | 557 KB | MIT（ggplot2 の `LICENSE.md`。seaborn-data の写しには独自のライセンスが無い） |
+  | `jena_climate_2016_tail.csv.gz` | 29988 × 15（元は 420551 行、42 MB） | 3.0 MB | 955 KB | CC BY 4.0（Max Planck Institute for Biogeochemistry の `weather_data.html` の Terms of Use） |
+
+  合計は gzip で約 1.5 MB である。`*.csv` は `.gitignore` の対象なので、gzip した `.csv.gz` で置く。
+- **Jena の切り出し**: notebook は 10 分ごとの値を 1 時間ごとに平均し（`resample("1h").mean().dropna()`）、その最後の 5000 行だけを使う（`tail(5000)`）。1 時間の区間はその時刻以降の行だけでできるので、最後の 5000 区間の最初の時刻（2016-06-03 16:00:00）以降の元の行を全て残せば、同じ区間ができる。
+- **notebook の結果が変わらないこと**: 4 つのデータそれぞれで、notebook が作るデータフレーム（目的変数を作り、列名を直した後）を、今の取得元から作ったものと、同梱したファイルから新しいセルで作ったものとで比べた。どれも `pandas.testing.assert_frame_equal` が dtype も含めて通った（pandas 3.0.1）。学習に入るデータが同じなので、表示される学習の結果は変わらない。変わる表示は、Jena の元のデータの行数（`Raw shape`）と、1 時間ごとにした後の行数と期間（`Hourly shape`・`Date range`）だけである。
+- **作り直せること**: `scripts/vendor_notebook_data.py` を走らせると、取得元から 4 ファイルを作り、上の比較を行い、各ファイルの sha256 を出す。2 回目の実行でも、4 ファイルとも 1 回目と同じ sha256 になった（gzip の時刻を 0 に固定している）。
+- **カーネルの中の通信**: 8 本全てを、`socket` の入口（`socket.socket` の `connect`・`connect_ex`・`sendto`、`socket` の `create_connection`・`getaddrinfo`・`gethostbyname`・`gethostbyname_ex`）を記録だけする（拒否しない）先頭のセルを足して実行した。データを同梱した後の notebook では、8 本とも記録は 0 件だった。
+  - 陽性対照: 同じ記録で、今の取得（`fetch_openml("credit-g")` を空の cache で実行）は 30 件、`pd.read_csv` で diamonds の URL を読むと 3 件を記録した。記録の仕組みは、ライブラリの通信を捕まえている。
+  - カーネルとの通信（ZMQ）は C の層で行われるので、この入口を通らない。0 件はこれと矛盾しない。
+- **sdist**: hatchling の sdist には、今も `notebooks/` が入っている。同梱したデータも入り、sdist は約 3.4 MB から約 5.0 MB になる。wheel には入らない。
+
+### 対応方針（提案）
+
+1. **データを同梱する**: `notebooks/data/` に上の 4 ファイルを置く。各 notebook は `pd.read_csv("data/<file>")` で読む。notebook を実行する 2 つの層は、どちらも `notebooks/`（index の実行ではその写し）を作業ディレクトリにするので、相対パスで読める。
+   - credit-g と vehicle は OpenML の `frame` をそのまま書く。notebook は目的変数の列（`class`・`Class`）を `pop` して作る。`fetch_openml` の import を外す。
+   - Jena は上の切り出しを置く。`tail(5000)` のセルは残し、コメントを「同梱したファイルがちょうどこの行を持つ」に直す。
+   - notebook の説明の文（データの出典、「OpenML から取得する」など）を、同梱したことと出典・ライセンスに合わせて直す。
+2. **出典の記録**: `notebooks/data/manifest.toml` に、各ファイルの名前、sha256、読む notebook、題名、作成者、取得元、元の出典、ライセンス、取得日、作り方を書く。CC BY 4.0 の表示の義務は、この記録で満たす。
+3. **作り直すスクリプト**: `scripts/vendor_notebook_data.py` は、取得元からファイルを作り直し、上の比較を行う。通信が必要なので CI では走らせない。作り方の記録である。
+4. **通信の拒否**: 新しい `tests/test_notebooks/network_guard.py` を、2 つの層が notebook の先頭のセルでカーネルに読み込む。
+   - 上の 7 つの入口を、呼び出しを記録して `NetworkRefused`（`OSError` の派生）を出すものに置き換える。アドレスの種類やホストで除外するものは置かない（測定で 0 件だったので、条件で通す仕組みは要らない）。
+   - 最後のセルで、記録が 1 件でもあれば失敗する。ライブラリが例外を捕まえて黙って進んだ場合や、`raises-exception` のタグのセルで起きた場合も、ここで落ちる（DC1）。
+   - index の実行では、記録用のセルの前に読み込み、sentinel を出すセルの前で確かめる。slow な実行テストでは、notebook の先頭と末尾にセルを足して実行する。どちらもファイルは変えない。
+   - **届かない範囲**: ガードはカーネルのプロセスの中だけで効く。notebook が起動する子プロセス（`tutorial_codegen_export` の生成した `train.py`・`predict.py`）と、自分でソケットを開く C の拡張は範囲の外である。子プロセスは notebook が書いたローカルのファイルだけを読む。
+5. **再試行と skip を外す**: 失敗の原因が無くなるので、通信の失敗を見分ける仕組みを全て外す。
+   - `tests/test_notebooks/network_markers.py` を削除する。
+   - index の実行（`index_runner.py`）は 1 回だけ実行する。新しいカーネルと、`notebooks/` の新しい写しを作業ディレクトリにすることは残す。`run_with_retries`・`Attempt`・`ATTEMPTS` を外す。
+   - slow な実行テストの skip（#197）を外す。失敗はそのまま失敗にする。
+   - 再試行の仕組みを確かめていたテスト（`test_index_recording.py` の「8. The retry policy」の 6 本）は、仕組みと一緒に外し、ガードのテストに置き換える。H-0119 の受け入れ 8（再試行の仕組み）は、この Proposal で置き換える。
+   - H-0119 の 6.(b)「データ取得の失敗」に、H-0137 で置き換えたことを日付つきで書き添える。
+6. **データの検査（速い層）**: 新しい `tests/test_notebooks/test_notebook_data.py` で、次を確かめる。
+   - `manifest.toml` の各項目のファイルがあり、sha256 が合う。全ての項目が、出典・ライセンス・作り方の欄を空でなく持つ。
+   - `notebooks/data/` に、`manifest.toml` 以外で、記録に無いファイルが無い。
+   - 各項目の notebook が実在し、そのコードのセルが `data/<file>` を含む。
+   - 逆向き（notebook が記録に無いファイルを読む）は、実行の層で `FileNotFoundError` として落ちる。
+
+条件で作業を省いたり通したりする仕組みは足さない。外すだけである（再試行は「通信の失敗なら、もう 1 回実行する」という条件だった）。
+
+### 互換性
+
+- 公開 API、Config、結果の型、保存形式は変わらない。ライブラリのコードは変えない。
+- notebook の利用者から見ると、データの取得が要らなくなる。`notebooks/` を写して使う場合は、`data/` も一緒に写す必要がある。
+- チュートリアルは `fetch_openml` の使い方を見せなくなる。
+- sdist は約 1.5 MB 大きくなる。wheel は変わらない。
+
+### 代替案
+
+- **B. CI でダウンロードを cache する**（`actions/cache`）: 短い障害は吸収できるが、cache が無い、追い出された、key が変わった場合に同じ問題が戻る。採らない。
+- **C. 自前の写し（リリースの asset など）を置き、失敗したらそこから取る**: 取得の形は残るが、2 つ目の取得元を同期し続ける必要があり、通信も残る。採らない。
+- **D. 今のまま**: リリースが第三者のホストを待つ状態が続く。採らない。
+- **ソースの静的な検査（URL や `fetch_` の文字列を探す）**: 書き方の集合が開いていて、見落としが黙って通る（DC1・DC2）。実行時に入口で拒否する方が閉じている。採らない。
+- **loopback（127.0.0.1）を除外する**: 測定で、カーネルの中の通信は 0 件だった。除外は通す条件を足すだけで、使う場面が無い。採らない。
+- **非圧縮の CSV で置く**: `*.csv` は `.gitignore` の対象で、作業ツリーも約 4 倍になる。採らない。
+
+### 受け入れ基準
+
+1. 8 本全てが、ガードを入れた index の実行で通る（CI の `Notebook index` の 8 job と gate）。
+2. 陽性対照: ガードを入れた notebook で、次がどれも失敗し、失敗の文に `H-0137` の文言が入る。
+   - `urllib.request.urlopen`、`socket.create_connection`、`socket.getaddrinfo` を呼ぶセル。
+   - 例外を `except Exception: pass` で捕まえて進むセル（最後のセルで落ちる）。
+   - `raises-exception` のタグのセルで通信するもの（実際のカーネル、slow）。
+
+   陰性対照: ローカルのファイルだけを読む同じ形の notebook は通る。
+3. ガードを外す（`uninstall`）と、`socket` の入口が元に戻る。
+4. 上の 6. のデータの検査が通る。各ファイルの sha256 を 1 文字変える、記録に無いファイルを足す、記録の項目を消す、のどれでも落ちる。
+5. `NETWORK_ERROR_MARKERS`、`run_with_retries`、slow な実行テストの skip が、リポジトリに残っていない。
+6. 学習の結果が変わらないことは、上の実測（データフレームの一致）で示す。`scripts/vendor_notebook_data.py` を走らせれば、誰でも確かめ直せる。

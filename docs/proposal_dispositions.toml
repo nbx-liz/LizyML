@@ -555,6 +555,10 @@ anchors = ["declared_files", "declared_file_missing"]
 disposition = "specified"
 anchors = ["features/encoders/state_changes.py", "warn_saved_state_changes"]
 
+[proposals."H-0137"]
+disposition = "no_obligation"
+reason = "Test infrastructure and tutorial data only: the notebooks read vendored files and the notebook test layers refuse network calls. No public API, Config, result type or saved format changes."
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 
