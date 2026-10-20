@@ -32,7 +32,8 @@ for col in [(v,) for v in samples] + list(itertools.combinations(samples, 2)):
     except Exception:  # noqa: BLE001 -- the fit itself fails: not counted
         continue
     for b in breaks:
-        kinds: Any = " + ".join(sorted(type(v).__name__ for v in col))
+        # Qualified names: numpy's bool_ is also called "bool" (review round 2).
+        kinds: Any = " + ".join(sorted(f"{type(v).__module__}.{type(v).__qualname__}" for v in col))
         tally[(b["serializer"], b["kind"], kinds)] += 1
 import os  # noqa: E402
 
