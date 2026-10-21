@@ -20,6 +20,9 @@ import numpy as np
 import pandas as pd
 
 from lizyml import Model
+from lizyml.core.exceptions import LizyMLError
+from lizyml.core.specs.feature_spec import FeatureSpec
+from lizyml.data.dataframe_builder import _apply_categorical
 from lizyml.features.encoders.categorical_encoder import CategoricalEncoder
 from tests.test_features import _h0138_oracle as h
 
@@ -45,9 +48,19 @@ def encoder_answer(train: pd.Series, batch: list[Any]) -> dict[str, Any]:
 
 
 def temporal_answer(train: pd.Series, values: list[Any]) -> dict[str, Any]:
-    frame = pd.DataFrame({"c": train})
+    # The real builder route (H-0139): its fit validation refuses Y/M
+    # durations, and a column pandas cannot cast faithfully stays object.
     try:
-        frame["c"] = frame["c"].astype("category")
+        frame = _apply_categorical(
+            pd.DataFrame({"c": train}), FeatureSpec(categorical=("c",))
+        )
+    except LizyMLError as exc:
+        return {
+            "fails_at": "fit_validation",
+            "exception": type(exc).__name__,
+            "code": exc.code.value,
+            "context": exc.context,
+        }
     except Exception as exc:  # noqa: BLE001 -- the frozen outcome is the failure
         return {"fails_at": "cast", "exception": type(exc).__name__}
     try:
