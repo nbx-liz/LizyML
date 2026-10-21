@@ -17,6 +17,7 @@ import pandas as pd
 from lizyml.core.category_values import (
     IDENTITY_OBJECT_COLUMNS,
     cast_is_faithful,
+    check_calendar_durations,
     identity_eligible,
 )
 from lizyml.core.exceptions import ErrorCode, LizyMLError
@@ -116,9 +117,12 @@ def _apply_categorical(df: pd.DataFrame, spec: FeatureSpec) -> pd.DataFrame:
         if col not in df.columns:
             continue
         series = df[col]
+        # H-0139 decision 4: a Y / M duration has no key; refuse it before
+        # anything could route it to the pandas path silently.
+        check_calendar_durations(series, col)
         if not identity_eligible(series):
-            # H-0138 decision 4: temporal values and values outside V keep
-            # today's cast, its result and its exception alike.
+            # Values outside V keep today's cast, its result and its
+            # exception alike (H-0138).
             df[col] = series.astype("category")
             continue
         try:

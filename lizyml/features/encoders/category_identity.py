@@ -1,7 +1,7 @@
-"""category_identity -- learn and look up categories by the H-0138 key.
+"""category_identity -- learn and look up categories by the identity key.
 
-A column whose values (rows and declared categories) are all in V and none is
-temporal is an *identity column*. For it:
+A column whose values (rows and declared categories) are all in V is an
+*identity column* (H-0138; temporal values since H-0139). For it:
 
 - fit keeps today's categories, order, representatives and mode whenever they
   are faithful under the key (:func:`keyed_categories`); otherwise it builds
@@ -10,8 +10,9 @@ temporal is an *identity column*. For it:
 - transform looks every row up by its key (:func:`keyed_codes`), never through
   pandas' object Index, ``set`` or ``isin``.
 
-A column holding a temporal value or a value outside V keeps today's pandas
-path (H-0138 decision 4); this module never sees it.
+A column holding a value outside V keeps today's pandas path (H-0138); this
+module never sees it. Fit refuses a ``Y`` / ``M`` duration before learning
+(H-0139); one arriving at transform has no key and is unseen.
 """
 
 from __future__ import annotations
@@ -180,6 +181,6 @@ def _lookup(position: dict[Any, int], value: Any) -> int | None:
     try:
         return position.get(category_identity_key(value))
     except TypeError:
-        # A temporal value or one outside V arriving in an identity column
-        # matches no category: it is unseen.
+        # A value outside V, or a Y / M duration (no key, H-0139), arriving
+        # in an identity column matches no category: it is unseen.
         return None

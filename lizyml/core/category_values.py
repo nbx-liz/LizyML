@@ -36,6 +36,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from lizyml.core.category_temporal import calendar_units, temporal_key
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 
 #: The deepest ``tuple`` / ``frozenset`` nesting V admits (``((1,),)`` is 2).
@@ -460,6 +461,7 @@ def decode(obj: Any) -> Any:
 # ---------------------------------------------------------------------------
 
 #: The identity a fitted encoder state records (``category_identity_version``).
+#: H-0139 widened version 1 to temporal values (H-0138 was never released).
 CATEGORY_IDENTITY_VERSION = 1
 
 #: ``DataFrame.attrs`` key naming the categorical columns the builder keeps
@@ -493,10 +495,10 @@ _FLOATS: tuple[type, ...] = (float, np.float32, np.float64)
 
 
 def holds_temporal(value: Any) -> bool:
-    """Whether *value* is, or holds at any depth, a temporal value (H-0138).
+    """Whether *value* is, or holds at any depth, a temporal value.
 
-    A column holding one keeps today's pandas path: H-0139 decides temporal
-    identity, so H-0138 changes nothing for it.
+    Observational only since H-0139 (tests and the census): temporal values
+    have a key and no longer route a column to the pandas path.
     """
     if _is(value, _CONTAINERS):
         return any(holds_temporal(item) for item in value)
@@ -527,23 +529,52 @@ def _number_key(value: Any) -> tuple[Any, ...] | None:
 
 
 def category_identity_key(value: Any) -> Any:
-    """The structural key of a non-temporal value of V (H-0138).
+    """The structural key of a value of V (H-0138, temporal values H-0139).
 
     Two values are one category exactly when their keys are equal: numbers
     equal as numbers (``-0.0``, ``0``, ``False``, ``Decimal("-0")``), a string
-    or bytes value and its NumPy twin, and tuples / frozensets item by item.
-    The key never runs a value's own ``==`` or ``hash``.
+    or bytes value and its NumPy twin, temporal values by instant, wall-clock
+    coordinate or length (:mod:`lizyml.core.category_temporal`), and tuples /
+    frozensets item by item. The key never runs a value's own ``==`` or
+    ``hash``.
 
     Raises:
-        TypeError: for a temporal value (at any depth) or a value outside V;
-            their columns keep today's pandas path.
+        TypeError: for a value outside V (its column keeps today's pandas
+            path) or one holding a ``np.timedelta64`` in ``Y`` / ``M`` units
+            (``CalendarDuration``; fit refuses such a column).
     """
-    if refusal(value) is not None or holds_temporal(value):
+    if refusal(value) is not None:
         raise TypeError(
-            "H-0138: no category identity key for a temporal value or a value "
-            f"outside V ({type_name(value)})"
+            f"no category identity key for a value outside V ({type_name(value)})"
         )
     return _key(value)
+
+
+def check_calendar_durations(series: pd.Series, column: Any) -> None:
+    """Refuse a column holding a ``np.timedelta64`` in ``Y`` / ``M`` units
+    (H-0139 decision 4): in a row, inside a tuple / frozenset, or in a
+    declared category, used or not. Run before fit learns the column.
+
+    Raises:
+        LizyMLError: ``DATA_SCHEMA_INVALID``, naming the column and the units.
+    """
+    units: set[str] = set()
+    for value in _values(series):
+        units |= calendar_units(value)
+    if units:
+        shown = sorted(units)
+        raise LizyMLError(
+            ErrorCode.DATA_SCHEMA_INVALID,
+            user_message=(
+                f"Column '{column}' contains calendar-unit numpy timedelta64 "
+                f"categories: {shown}."
+            ),
+            context={
+                "column": column,
+                "units": shown,
+                "reason": "calendar_timedelta64",
+            },
+        )
 
 
 def identity_fields(state: Mapping[str, Any]) -> tuple[int | None, list[Any]]:
@@ -607,8 +638,9 @@ def _values(series: pd.Series) -> list[Any]:
 
 
 def identity_eligible(series: pd.Series) -> bool:
-    """Whether H-0138's key decides this column (no temporal, all in V)."""
-    return not any(holds_temporal(v) or refusal(v) is not None for v in _values(series))
+    """Whether the identity key decides this column: every value is in V and
+    none holds a ``Y`` / ``M`` duration (fit refuses those before asking)."""
+    return not any(refusal(v) is not None or calendar_units(v) for v in _values(series))
 
 
 def cast_is_faithful(original: pd.Series, cast: pd.Series) -> bool:
@@ -637,6 +669,8 @@ def cast_is_faithful(original: pd.Series, cast: pd.Series) -> bool:
 
 
 def _key(value: Any) -> Any:
+    if isinstance(value, _TEMPORAL):
+        return temporal_key(value)
     number = _number_key(value)
     if number is not None:
         return number

@@ -10,6 +10,7 @@ import pandas as pd
 
 from lizyml.core.category_values import (
     CATEGORY_IDENTITY_VERSION,
+    check_calendar_durations,
     identity_eligible,
     identity_fields,
 )
@@ -115,9 +116,10 @@ class CategoricalEncoder:
     def fit(self, X: pd.DataFrame, categorical_cols: list[str]) -> CategoricalEncoder:
         """Record categories from training data.
 
-        A column whose values are all in V and none is temporal is looked up
-        by the H-0138 key: its categories are today's where they are faithful
-        under the key, else built by key (and it becomes a stand-in column).
+        A column whose values are all in V is looked up by the identity key
+        (H-0138; temporal values H-0139): its categories are today's where
+        they are faithful under the key, else built by key (and it becomes a
+        stand-in column).
 
         Args:
             X: Training DataFrame.
@@ -125,7 +127,14 @@ class CategoricalEncoder:
 
         Returns:
             ``self`` for chaining.
+
+        Raises:
+            LizyMLError: ``DATA_SCHEMA_INVALID`` for a column holding a
+                ``np.timedelta64`` in ``Y`` / ``M`` units (H-0139).
         """
+        for col in categorical_cols:
+            if col in X.columns:
+                check_calendar_durations(X[col], col)
         self._categories = {}
         self._modes = {}
         self._stand_in_columns = []
