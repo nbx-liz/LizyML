@@ -15,6 +15,7 @@ coverage.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -24,6 +25,7 @@ nbformat = pytest.importorskip("nbformat")
 nbconvert_pp = pytest.importorskip(
     "nbconvert.preprocessors",
 )
+nbclient_exc = pytest.importorskip("nbclient.exceptions")
 
 NOTEBOOKS_DIR = Path(__file__).resolve().parents[2] / "notebooks"
 
@@ -59,24 +61,69 @@ def test_notebook_is_valid_and_uses_lizyml(notebook_name: str) -> None:
     assert "lizyml" in sources, f"{notebook_name} does not use lizyml"
 
 
+def execute_guarded(nb: Any, workdir: Path, cell_timeout: int) -> None:
+    """Run ``nb`` in ``workdir`` with the network guard installed and checked.
+
+    The guard (H-0137) goes in as the first cell and is checked by a last
+    cell, so a remote load fails the run even when the notebook catches it.
+    The file on disk is not changed.
+    """
+    nb.cells.insert(0, nbformat.v4.new_code_cell(network_guard.setup_source()))
+    nb.cells.append(nbformat.v4.new_code_cell(network_guard.check_source()))
+    ep = nbconvert_pp.ExecutePreprocessor(timeout=cell_timeout, kernel_name="python3")
+    ep.preprocess(nb, {"metadata": {"path": str(workdir)}})
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize("notebook_name", _ALL_NOTEBOOKS)
 def test_notebook_executes(notebook_name: str) -> None:
     """Execute a notebook and assert no CellExecutionError.
 
-    The notebook runs with the network guard installed and checked (H-0137):
-    it reads its data from ``notebooks/data/``, so a remote load fails it.
+    It reads its data from ``notebooks/data/``, so the guard does not fire;
+    ``test_the_guard_fires_in_this_layer`` shows that it would.
     """
     path = NOTEBOOKS_DIR / notebook_name
     assert path.exists(), f"Notebook not found: {path}"
 
     nb = nbformat.read(str(path), as_version=4)
-    nb.cells.insert(0, nbformat.v4.new_code_cell(network_guard.setup_source()))
-    nb.cells.append(nbformat.v4.new_code_cell(network_guard.check_source()))
     # Tuning notebook runs Optuna trials — needs more time on CI
     cell_timeout = 600 if "tuning" in notebook_name else 180
-    ep = nbconvert_pp.ExecutePreprocessor(
-        timeout=cell_timeout,
-        kernel_name="python3",
-    )
-    ep.preprocess(nb, {"metadata": {"path": str(NOTEBOOKS_DIR)}})
+    execute_guarded(nb, NOTEBOOKS_DIR, cell_timeout)
+
+
+_URL = "https://lizyml-h0137.invalid/x.csv"  # never resolvable (RFC 2606)
+_FETCH = f"import urllib.request\nurllib.request.urlopen({_URL!r})"
+_SWALLOWED = (
+    "import urllib.request\n"
+    "try:\n"
+    f"    urllib.request.urlopen({_URL!r})\n"
+    "except Exception as exc:\n"
+    "    assert 'H-0137' in str(exc)  # the call was made, and refused\n"
+)
+_LOCAL_READ = (
+    "import pandas as pd\nassert pd.read_csv('data/vehicle.csv.gz').shape == (846, 19)"
+)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    ("case", "source", "tags"),
+    [
+        ("a network call", _FETCH, []),
+        ("a network call the notebook swallows", _SWALLOWED, []),
+        ("a network call in a cell allowed to raise", _FETCH, ["raises-exception"]),
+    ],
+)
+def test_the_guard_fires_in_this_layer(case: str, source: str, tags: list[str]) -> None:
+    """The same wiring as test_notebook_executes fails a remote load (H-0137)."""
+    del case
+    cell = nbformat.v4.new_code_cell(source, metadata={"tags": tags})
+    nb = nbformat.v4.new_notebook(cells=[cell])
+    with pytest.raises(nbclient_exc.CellExecutionError, match=network_guard.MESSAGE):
+        execute_guarded(nb, NOTEBOOKS_DIR, 120)
+
+
+@pytest.mark.slow
+def test_the_twin_without_a_network_call_runs_in_this_layer() -> None:
+    nb = nbformat.v4.new_notebook(cells=[nbformat.v4.new_code_cell(_LOCAL_READ)])
+    execute_guarded(nb, NOTEBOOKS_DIR, 120)
