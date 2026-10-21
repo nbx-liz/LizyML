@@ -452,3 +452,104 @@ def decode(obj: Any) -> Any:
             context={"reason": str(exc)},
             cause=exc,
         ) from exc
+
+
+# ---------------------------------------------------------------------------
+# identity (H-0138)
+# ---------------------------------------------------------------------------
+
+#: The identity a fitted encoder state records (``category_identity_version``).
+CATEGORY_IDENTITY_VERSION = 1
+
+_TEMPORAL: tuple[type, ...] = (
+    dt.date,
+    dt.datetime,
+    dt.timedelta,
+    pd.Timestamp,
+    pd.Timedelta,
+    np.datetime64,
+    np.timedelta64,
+)
+_INTEGERS: tuple[type, ...] = (
+    bool,
+    int,
+    np.bool_,
+    np.int8,
+    np.int16,
+    np.int32,
+    np.int64,
+    np.uint8,
+    np.uint16,
+    np.uint32,
+    np.uint64,
+)
+_FLOATS: tuple[type, ...] = (float, np.float32, np.float64)
+
+
+def holds_temporal(value: Any) -> bool:
+    """Whether *value* is, or holds at any depth, a temporal value (H-0138).
+
+    A column holding one keeps today's pandas path: H-0139 decides temporal
+    identity, so H-0138 changes nothing for it.
+    """
+    if _is(value, _CONTAINERS):
+        return any(holds_temporal(item) for item in value)
+    return isinstance(value, _TEMPORAL)
+
+
+def _number_key(value: Any) -> tuple[Any, ...] | None:
+    if _is(value, _INTEGERS):
+        return ("number", "finite", int(value), 1)
+    if _is(value, _FLOATS):
+        x = float(value)
+        if math.isinf(x):
+            return ("number", "infinity", 1 if x > 0 else -1)
+        n, d = x.as_integer_ratio()
+        return ("number", "finite", n, d)
+    if type(value) is decimal.Decimal:
+        if value.is_infinite():
+            return ("number", "infinity", -1 if value.is_signed() else 1)
+        n, d = value.as_integer_ratio()
+        return ("number", "finite", n, d)
+    if _is(value, (complex, *_NUMPY_COMPLEX)):
+        c = complex(value)
+        real = _number_key(c.real)
+        if c.imag == 0:
+            return real
+        return ("number", "complex", real, _number_key(c.imag))
+    return None
+
+
+def category_identity_key(value: Any) -> Any:
+    """The structural key of a non-temporal value of V (H-0138).
+
+    Two values are one category exactly when their keys are equal: numbers
+    equal as numbers (``-0.0``, ``0``, ``False``, ``Decimal("-0")``), a string
+    or bytes value and its NumPy twin, and tuples / frozensets item by item.
+    The key never runs a value's own ``==`` or ``hash``.
+
+    Raises:
+        TypeError: for a temporal value (at any depth) or a value outside V;
+            their columns keep today's pandas path.
+    """
+    if refusal(value) is not None or holds_temporal(value):
+        raise TypeError(
+            "H-0138: no category identity key for a temporal value or a value "
+            f"outside V ({type_name(value)})"
+        )
+    return _key(value)
+
+
+def _key(value: Any) -> Any:
+    number = _number_key(value)
+    if number is not None:
+        return number
+    if _is(value, (str, np.str_)):
+        return ("string", str(value))
+    if _is(value, (bytes, np.bytes_)):
+        return ("bytes", bytes(value))
+    if type(value) is tuple:
+        return ("tuple", tuple(_key(item) for item in value))
+    if type(value) is frozenset:
+        return ("frozenset", frozenset(_key(item) for item in value))
+    raise AssertionError(f"unreachable: {type(value).__name__}")  # pragma: no cover
