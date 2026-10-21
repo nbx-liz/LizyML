@@ -3,8 +3,10 @@
     uv run python docs/audits/2026-10-h0137/socket_census.py docs/audits/2026-10-h0137/socket_census.json
 
 Measurement for H-0137: does anything in the kernel reach a Python-level
-socket entry point (the fifteen that tests/test_notebooks/network_guard.py
-refuses), and which files under data/ does each notebook open? The cell only
+socket entry point, and which files under data/ does each notebook open? It
+logs fifteen entry points, a superset of the two the final guard refuses
+(socket.getaddrinfo and socket.socket.connect; the fifteen are a remnant of
+an earlier design, see HISTORY.md H-0137), and every socket.* audit event. The cell only
 records; it refuses nothing. (ZMQ, the kernel's own channel, is C-level and is
 not expected to show.) Each notebook runs in a fresh copy of notebooks/.
 """

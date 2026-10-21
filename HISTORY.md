@@ -15930,7 +15930,10 @@ Codex の実装レビュー（run `h0136-impl-review`、`6dce827`）は CHANGES_
 
   合計は gzip で 1,546,226 バイトである。`*.csv` は `.gitignore` の対象なので、gzip した `.csv.gz` で置く。ページの文と確認した日は `licences.md` にある。
 - **Jena の切り出し**: notebook は 10 分ごとの値を 1 時間ごとに平均し（`resample("1h").mean().dropna()`）、その最後の 5000 行だけを使う（`tail(5000)`）。1 時間の区間はその時刻以降の行だけでできるので、最後の 5000 区間の最初の時刻（2016-06-03 16:00:00）以降の元の行を全て残せば、同じ区間ができる。同梱したファイルを 1 時間ごとにすると、ちょうど 5000 行になる。
-- **notebook の結果が変わらないこと**: 4 つのデータそれぞれで、notebook が作るデータフレーム（目的変数を作り、列名を直した後）を、今の取得元から作ったものと、同梱したファイルから新しいセルで作ったものとで比べた。どれも `pandas.testing.assert_frame_equal` が dtype も含めて通った（pandas 3.0.1、`rebuild_run1.out`・`rebuild_run2.out`。比較は `scripts/vendor_notebook_data.py` の中にある）。学習に入るデータが同じなので、表示される学習の結果は変わらない。変わる表示は、Jena の元のデータの行数（`Raw shape`）と、1 時間ごとにした後の行数と期間（`Hourly shape`・`Date range`）だけである。
+- **notebook の結果が変わらないこと**: 4 つのデータそれぞれで、notebook が作るデータフレーム（目的変数を作り、列名を直した後）を、今の取得元から作ったものと、同梱したファイルから新しいセルで作ったものとで比べた。どれも `pandas.testing.assert_frame_equal` が dtype も含めて通った（pandas 3.0.1、`rebuild_run1.out`・`rebuild_run2.out`。比較は `scripts/vendor_notebook_data.py` の中にある）。学習に入るデータが同じなので、表示される学習の結果は変わらない。変わる表示は、`tutorial_time_series_lgbm` のセル 4 と 5 だけである。
+  - セル 4: 元のデータの行数（`Raw shape`）と、その先頭の表（`df_raw.head()`）。表は 2009-01-01 からの行ではなく、2016-06-03 16:00:00 からの行になる。
+  - セル 5: 1 時間ごとにした後の行数と期間（`Hourly shape`・`Date range`。期間の始まりが 2016-06-03 16:00:00 になる）と、その先頭の表（`df_raw.head()`。同じく 2016-06-03 16:00 からの行）。
+  - セル 6 以降は、最後の 5000 行から作るので変わらない。ほかの 4 本は、作るデータフレームが同じなので、どの表示も変わらない。
 - **作り直せること**: `scripts/vendor_notebook_data.py` を 2 回、別の出力先に走らせた。2 回とも、4 ファイルの sha256 が manifest と同じだった（gzip の時刻を 0 に固定している。`rebuild_run1.out`・`rebuild_run2.out`）。
 - **カーネルの中の通信**: 8 本全てを、`socket` の入口を記録だけする（拒否しない）先頭のセルを足して実行した（`socket_census.py`・`.json`）。記録したのは、ガードが拒否する 2 つの入口（`socket.getaddrinfo`・`socket.socket.connect`）を含む 15 の入口と、`socket.*` の監査イベント（`_socket` を直接呼ぶものや、ソケットを作る `socket.__new__` も含む）である。
   - データを同梱した後の notebook では、8 本とも、どの入口への呼び出しも監査イベントも 0 件だった。カーネルの中ではソケットを 1 つも作っていない。このため、ガードを入れても通信をしない notebook は壊れない。
@@ -16067,3 +16070,8 @@ Codex の実装レビュー（run `h0136-impl-review`、`6dce827`）は CHANGES_
   - `docs/audits/2026-10-h0137/` から、分類を守るためだけの `socket_audit_events.*` と `mutate_guard.*` を外した。
 - **教訓**: 指摘に答えるたびに、保証を #385 の目的に照らして確かめていなかった。round 1 の「ガードが `sendmsg` などを見逃す」に入口を足して答えたことで、主張が「全ての経路」に広がった。round 2 と 3 は、その広がった主張の穴を突いた。指摘が保証を広げる方向のときは、広げる前に目的と照らす。
 - **monitor（新しい run の前）**: Claude の relational monitor（新しい文脈）は CONVERGING・continue と判定した。ただし「保証」の文の「ほかの普通の HTTP クライアント」が開いた言い方だと指摘したので、2 つの入口を通る取得に限る文に直した。
+
+### 新しいレビュー run の round 1（2026-10-21）
+
+- **結果**: Codex の run `h0137-proposal-review-2` の round 1（`8dcd03d`）は CHANGES_REQUESTED で、major 1 件・minor 1 件だった。どちらも記述の正確さで、2 つの入口に限った設計は変えていない。
+- **対応**: major は「変わる表示」が Jena のセル 4・5 の `df_raw.head()` の表を落としていたこと。上の「実測」に、変わる表示をセルごとに書いた。minor は測定スクリプトの docstring が、外した 15 個の入口のガードを前提にしていたこと。今の 2 つの入口との関係を書いた。
