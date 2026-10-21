@@ -184,7 +184,14 @@ def _faithful_today(series, cats):
         held = list(pd.CategoricalDtype(cats).categories)
     except _CAST_ERRORS:
         return False
-    return [_identity_key(c) for c in held] == keys
+    if [_identity_key(c) for c in held] != keys:
+        return False
+    # Executed: the training rows through the pandas lookup (may raise).
+    if isinstance(series.dtype, pd.CategoricalDtype):
+        coded = series
+    else:
+        coded = series.astype("category").cat.set_categories(cats)
+    return _cast_is_faithful(series, coded)
 
 
 def _rebuilt(series, declared):

@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 
 from lizyml.core.category_values import (
+    cast_is_faithful,
     category_identity_key,
     is_missing,
 )
@@ -43,7 +44,9 @@ def _today(series: pd.Series) -> tuple[list[Any], Any]:
 
 
 def _faithful_today(series: pd.Series, cats: list[Any]) -> bool:
-    """Today's categories agree with the key and pandas can hold them as they are."""
+    """Today's categories agree with the key, pandas can hold them as they
+    are, and today's lookup codes the training rows by key (executed: the
+    cast and ``set_categories`` today's transform runs; it may raise)."""
     keys = [category_identity_key(c) for c in cats]
     if len(set(keys)) != len(keys):
         return False
@@ -54,7 +57,13 @@ def _faithful_today(series: pd.Series, cats: list[Any]) -> bool:
         if not is_missing(v)
     ):
         return False
-    return _holdable(cats, keys)
+    if not _holdable(cats, keys):
+        return False
+    if isinstance(series.dtype, pd.CategoricalDtype):
+        coded = series
+    else:
+        coded = series.astype("category").cat.set_categories(cats)
+    return cast_is_faithful(series, coded)
 
 
 def _holdable(cats: list[Any], keys: list[Any]) -> bool:

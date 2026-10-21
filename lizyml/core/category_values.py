@@ -30,6 +30,7 @@ import inspect
 import json
 import math
 import zoneinfo
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
@@ -543,6 +544,44 @@ def category_identity_key(value: Any) -> Any:
             f"outside V ({type_name(value)})"
         )
     return _key(value)
+
+
+def identity_fields(state: Mapping[str, Any]) -> tuple[int | None, list[Any]]:
+    """``(version, identity_columns)`` of an encoder state (H-0138).
+
+    ``(None, [])`` for a state saved before H-0138: it keeps the pandas lookup.
+
+    Raises:
+        LizyMLError: ``DESERIALIZATION_FAILED`` for an identity version other
+            than ``1`` (``True`` and ``1.0`` included) or a malformed
+            ``identity_columns``.
+    """
+    if "category_identity_version" not in state:
+        return None, []
+    version = state["category_identity_version"]
+    columns = state.get("identity_columns")
+    categories = state.get("categories")
+    if type(version) is not int or version != CATEGORY_IDENTITY_VERSION:
+        raise LizyMLError(
+            ErrorCode.DESERIALIZATION_FAILED,
+            user_message=(
+                f"The saved encoder state names category identity version "
+                f"{version!r}; this LizyML reads only "
+                f"{CATEGORY_IDENTITY_VERSION}."
+            ),
+            context={"category_identity_version": repr(version)},
+        )
+    if (
+        type(columns) is not list
+        or not isinstance(categories, Mapping)
+        or any(c not in categories for c in columns)
+    ):
+        raise LizyMLError(
+            ErrorCode.DESERIALIZATION_FAILED,
+            user_message="The saved encoder state has a malformed identity_columns.",
+            context={"identity_columns": repr(columns)[:200]},
+        )
+    return version, list(columns)
 
 
 def is_missing(value: Any) -> bool:

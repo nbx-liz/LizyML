@@ -27,6 +27,7 @@ from typing import Any
 import joblib
 
 from lizyml.core.category_values import decode as decode_category_value
+from lizyml.core.category_values import identity_fields
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.logging import get_logger
 from lizyml.core.tuning_codec import (
@@ -191,6 +192,48 @@ def _migrate_fit_result(fit_result: Any, source_version: int) -> Any:
             fit_result, target_encoder=TargetEncoder.no_op()
         )
     return fit_result
+
+
+def _saved_encoder_states(fit_result: Any, refit_result: Any) -> list[Any]:
+    states = [
+        getattr(refit_result, "pipeline_state", None),
+        getattr(fit_result, "pipeline_state", None),
+        *(getattr(fit_result, "pipeline_state_per_fold", None) or []),
+    ]
+    return [
+        state["encoder"]
+        for state in states
+        if isinstance(state, dict) and isinstance(state.get("encoder"), dict)
+    ]
+
+
+def _check_identity_markers(
+    fit_result: Any, refit_result: Any, source_version: int, path: str | Path
+) -> None:
+    """Refuse an unknown H-0138 identity marker at load, not at predict.
+
+    A state of format 1-4 has no marker; one that has it is not an artifact
+    this or an earlier LizyML wrote.
+    """
+    for encoder in _saved_encoder_states(fit_result, refit_result):
+        if source_version < 5 and "category_identity_version" in encoder:
+            raise LizyMLError(
+                code=ErrorCode.DESERIALIZATION_FAILED,
+                user_message=(
+                    f"A format_version {source_version} artifact cannot carry "
+                    "a category identity marker (format_version 5, H-0138)."
+                ),
+                context={"path": str(path), "format_version": source_version},
+            )
+        try:
+            identity_fields(encoder)
+        except LizyMLError as exc:
+            raise LizyMLError(
+                code=ErrorCode.DESERIALIZATION_FAILED,
+                user_message=exc.user_message,
+                context={"path": str(path), **exc.context},
+                cause=exc,
+            ) from exc
 
 
 def _expected(files: dict[str, str] | None, name: str) -> str | None:
@@ -431,6 +474,7 @@ def load(path: str | Path) -> tuple[Any, Any, dict[str, Any], Any]:
     # H-0070: upgrade older artifacts in-memory so callers always see the
     # current FitResult contract (e.g. target_encoder field present).
     fit_result = _migrate_fit_result(fit_result, int(fv))
+    _check_identity_markers(fit_result, refit_result, int(fv), path)
 
     # Optional: analysis_context for diagnostic APIs after load
     analysis_context = None

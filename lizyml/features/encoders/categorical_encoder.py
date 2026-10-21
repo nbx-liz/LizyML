@@ -8,7 +8,11 @@ from typing import Any, Literal
 import numpy as np
 import pandas as pd
 
-from lizyml.core.category_values import CATEGORY_IDENTITY_VERSION, identity_eligible
+from lizyml.core.category_values import (
+    CATEGORY_IDENTITY_VERSION,
+    identity_eligible,
+    identity_fields,
+)
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.features.encoders.category_identity import (
     keyed_categories,
@@ -291,7 +295,7 @@ class CategoricalEncoder:
             LizyMLError: ``DESERIALIZATION_FAILED`` when the state names an
                 identity version other than ``1`` or a malformed column list.
         """
-        version, identity_columns = _identity_fields(state)
+        version, identity_columns = identity_fields(state)
         self.unseen_policy = state["unseen_policy"]
         self._categories = state["categories"]
         self._modes = state["modes"]
@@ -316,32 +320,3 @@ def _today_categories(series: pd.Series) -> tuple[list[Any], Any]:
         return cats, None
     mode_val = series.mode()
     return cats, mode_val.iloc[0] if len(mode_val) > 0 else cats[0]
-
-
-def _identity_fields(state: dict[str, Any]) -> tuple[int | None, list[str]]:
-    if "category_identity_version" not in state:
-        return None, []
-    version = state["category_identity_version"]
-    columns = state.get("identity_columns")
-    categories = state.get("categories")
-    if type(version) is not int or version != CATEGORY_IDENTITY_VERSION:
-        raise LizyMLError(
-            ErrorCode.DESERIALIZATION_FAILED,
-            user_message=(
-                f"The saved encoder state names category identity version "
-                f"{version!r}; this LizyML reads only "
-                f"{CATEGORY_IDENTITY_VERSION}."
-            ),
-            context={"category_identity_version": repr(version)},
-        )
-    if (
-        type(columns) is not list
-        or not isinstance(categories, dict)
-        or any(c not in categories for c in columns)
-    ):
-        raise LizyMLError(
-            ErrorCode.DESERIALIZATION_FAILED,
-            user_message="The saved encoder state has a malformed identity_columns.",
-            context={"identity_columns": repr(columns)[:200]},
-        )
-    return version, list(columns)
