@@ -563,6 +563,10 @@ reason = "Test infrastructure and tutorial data only: the notebooks read vendore
 disposition = "specified"
 anchors = ["category_identity_version", "identity_columns"]
 
+[proposals."H-0139"]
+disposition = "pending"
+reason = "Under review; BLUEPRINT is updated with the implementation (temporal category identity by instant, timedelta64 Y/M refused at fit)."
+
 [proposals."H-0140"]
 disposition = "specified"
 anchors = ["ResourceWarningProvider", "keep_training_booster=True"]

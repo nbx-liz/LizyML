@@ -16477,3 +16477,138 @@ Codex の run `h0140-impl-review`（3 round）。3 回とも同じ一つの入�
   - テストは、指摘の 2 つの例で見積もりが LightGBM の作る bin の数を下回らないこと、分類した 23 個が全て LightGBM の正規の名前であること、`linear_tree` の分を確かめる。census を取り直した（上の firing rate。カテゴリの列のある普通の fit で新しく当たるものは無かった）。
 - **round 3 の前の monitor**: relational（観察した round は 1〜2）、CONVERGING・continue。disposition は continue。
 - **round 3**（`00e673c`）: APPROVE。minor 1: 分類のテストは 23 個が正規の名前であることと 3 つの区分があることだけを確かめ、どの名前がどの区分かは固定していない（Codex は分類そのものを別に確かめ、正しいとした）。APPROVE の後の変更を増やさないため、この PR では直さない。run はこれで終わる。この実行の方針により、APPROVE と CI 緑でマージする。
+
+## H-0139: 時刻の値のカテゴリを「同じ瞬間か」で決め、#379 の列も fit と predict で同じ符号にする ― 時区の種類によらず同じ瞬間は 1 つのカテゴリ、timedelta64 の年・月の単位は fit で拒否する（#379）
+
+- **ステータス**: Proposed
+- **起票日**: 2026-10-22
+- **関連**: #379、H-0138（同一性のキーと pandas に忠実かの判定。時刻の型をこの Proposal に回した）、H-0133（値の集合 V、置き換えの列）、H-0136（保存の前の検査）、registry のカード D-20261021-014（#378〜#380 を 2 本の Proposal で扱う判断）と D-20261022-002（この Proposal の契約の判断）、Codex の run `h0139-temporal-critique`（契約の批評と測定）と `h0139-mechanism-design`（機構の設計）。どちらの結果も `docs/audits/2026-10-h0139/codex/` に写した
+- **スコープ**:
+  - H-0138 のキーと「pandas に忠実か」の判定を、時刻の型の値（`pd.Timestamp`・`datetime.datetime`・`datetime.date`・`np.datetime64`・`pd.Timedelta`・`datetime.timedelta`・`np.timedelta64`、それを持つ `tuple`・`frozenset`）に広げる。実行時のライブラリと、`export_code` が生成する `train.py`・`predict.py` の両方
+  - `np.timedelta64` の年（`Y`）・月（`M`）の単位を fit で拒否する
+  - 保存形式は変えない（`FORMAT_VERSION` は 5 のまま、`category_identity_version: 1` の意味を広げる）
+  - 範囲の外: tune の指紋（`core/_tuning_identity.py`）、LightGBM 自身の振る舞い、V の外の値（pytz の時区を持つ `datetime.datetime` は今も V の外）、H-0138 の時刻でない値の契約、#382
+
+### 目的（課題）
+
+H-0138 は、時刻の型の値を含む列を範囲の外とし、今の pandas の経路（`astype("category")` と hash での照合）に残した。この経路で、時刻の値の「同じかどうか」が値そのものでなく、一緒に渡す行や保存の仕方で変わる。
+
+- **#379**: pandas 2 で、pytz の同じ時区の `Timestamp` だけの列（2024-11-03 01:30 America/New_York の夏時間と標準時）で fit したモデルが、in-memory の predict で自分の学習の行 800 のうち 426 を unseen と判定し、`unseen_policy` で置き換える（DC1）。fit の `astype("category")` が `datetime64[ns, tz]` のカテゴリを作り、標準時の値を `fold=1` で作り直す。その hash は、predict が見る元の pytz の `fold=0` の値と違う。H-0136 は、この列のモデルの保存を拒否し、fit で警告する。
+- **同じ族**（pandas 2.3.3、`docs/audits/2026-10-h0139/probes/temporal_matrix_pd2.out`）:
+  - pytz の標準時と、同じ瞬間の zoneinfo の `fold=1` と `"y"` の列は、3 つのカテゴリになり、値 1 つだけの予測が全体のバッチの中の予測と違う。保存は拒否される。
+  - pytz の標準時と `"x"` の列は、in-memory では正しいが、joblib が pytz の値を `fold=1` で戻して hash が変わるので、H-0136 が保存を拒否する。
+- **H-0133 の `SAMPLES` の列**（Codex の run が実行で確かめた）:
+  - ns より細かい単位（`ps`・`fs`・`as`、`2s`・`10ms` の倍数）の `np.datetime64` の列は、pandas 3 で、学習した 6 つの値の 338 行を最頻値 `Timestamp("1970-01-01")` に置き換えた（`h0139-temporal-critique` の finding 5）。値 1 つのバッチの予測で符号がまとまる（pandas 2 では欠損の符号にもなる）ことによる（`h0139-mechanism-design` の finding 2）。
+  - 単位の混ざった `np.timedelta64` の列は、fit の cast が pandas 2・3 とも失敗する（`from_unit must be <= to_unit`、単位 `Y` は扱えない）。
+  - pandas 2 の `Timestamp` の列は、fit の cast が `Categorical categories must be unique` で失敗する。
+- 予測の段で fit と同じ cast をする案は直らない。`[標準時, "x"]` のバッチでは cast が `fold=0` を残すので、結果がバッチの中身で変わる（H-0138 の批評 `v021-category-critique`）。値 1 つから決まる同一性が要る。
+
+### 実測（2026-10-22、branch `feat/h0139-temporal-category-identity`、develop `3f8b65f` の上）
+
+測定のスクリプトと出力は `docs/audits/2026-10-h0139/` にある。
+
+- **今の振る舞い**（`probes/temporal_matrix.py`、800 行・8 round のモデル。fit、in-memory の predict、値 1 つずつのバッチと全体のバッチの比較、export と load、`export_code`）: pandas 2.3.3 で 19 通り、pandas 3.0.1（pytz が無い）で 15 通り。
+  - 今 1 つのカテゴリにまとまり、全ての段で正しく動く組: UTC と New York の同じ瞬間、固定オフセットと zoneinfo の同じ瞬間、pytz と zoneinfo の同じ瞬間（曖昧でない時刻）、`datetime` と `Timestamp` の同じ時刻、`Timestamp` の単位 `s` と `ns`、`np.datetime64` の `D` と `ns`、`np.datetime64` と `Timestamp`、`np.timedelta64` の `h` と `m`、`pd.Timedelta` と `datetime.timedelta`。
+  - 今 2 つのカテゴリになり、正しく動く組: naive と tz 付きの同じ時刻、`date` と 0 時の `Timestamp`、zoneinfo の `fold=0` と `fold=1` の `Timestamp`（2 つの瞬間）。
+  - 壊れている組（pandas 2.3.3 だけ）: 上の「目的」の 3 つ。
+- **候補の契約ごとの影響**（`codex/h0139-temporal-critique.json`、`SAMPLES` の時刻の 8 列と上の 19 通り。予測の差は Codex が実行して測った）:
+  - 下の判断 1 の契約で、`SAMPLES` の時刻の 8 列のうち、今 fit できて結果（カテゴリの数・符号・最頻値・予測）が変わるのは 2 列: `datetime` の列（同じ時区の zoneinfo の `fold=0` と `fold=1` が分かれ、5 から 6 カテゴリ）と `np.datetime64` の列（ns より細かい値が分かれ、12 から 15 カテゴリ）。予測の差は最大 0.00037 と 0.00061。今 fit が失敗して通るようになるのは pandas 2 で 2 列、pandas 3 で 1 列。
+  - 19 通りでは、pandas 3 で 0/15 が変わる。pandas 2 で 1/19（pytz の標準時・zoneinfo の `fold=1`・`"y"` の列が 3 から 2 カテゴリになり、800 行のうち 510 行の確率が最大 0.00049 変わる）が変わり、3/19（上の「目的」の 3 つ）が保存の拒否から保存できるようになる。
+  - 時区の種類や fold もキーに入れる契約は、今 1 つにまとまって正しく動く組（UTC と New York など）を割る。Python・pandas の `==` に合わせる契約は、推移律が無く hash とも合わないので、キーにならない。
+- **firing rate**（下の対応方針 2・3 の条件）: 時刻の列がキーで作り直される（cast が例外を出すか、忠実でない）か、年・月の単位で拒否される割合。試作の規則（`firing/h0139_rule.py`）で測った。
+
+  Firing rate: 13/2767 of the builder visits and 44/5183 of the encoder fits the test suite makes, of every dtype (census over the full suite with `firing/h0139_census.py`, pandas 3.0.1: rebuilt 3 + 4, Y/M refused 10 + 40, 0 rule errors; `firing/census_pd3.*`); 415/4620, 479/4845 and 344/4845 of the temporal probe columns on pandas 3.0.1, 2.3.3 and 2.0.0 (`firing/probe_columns_pd3.out`, `_pd2.out`, `_pd200.out`)
+
+  - テストスイート（22486 本が通った）で、時刻の列は builder に 101 回、エンコーダの fit に 441 回来た。条件に当たったのは、H-0133 と H-0136 の受け入れテストの時刻の case だけである（`firing/census_pd3_by_test.out`）。
+    - 作り直し: H-0133 の受け入れの `numpy.datetime64` の列（2 本のテスト）と、H-0136 の受け入れの `zoneinfo fold 1 + fixed offset` の組（同じ瞬間なので 1 つのカテゴリになる）。
+    - 年・月で拒否: H-0133 の受け入れの `numpy.timedelta64 with a str`・`timedelta64[Y] with a str`・`timedelta64[M] with a str`（2 本のテストで 6 つの case。今は通る）と、H-0136 の受け入れの月の 4 本。
+    - ふつうの入力の時刻の列では、1 列も働かない。時刻の列で働くのは、pandas が取り違える混在の列と年・月の値のためだからである。
+    - 時刻でない列の作り直し（builder 701、エンコーダ 941）は、H-0138 のテストが #378・#380 の形を作るもので、H-0139 は変えない。
+  - 検査用の列（`firing/probe_columns.py`。H-0138 の `probe_columns.py` と同じ列で、`SAMPLES` の 1 つずつと 2 つずつの組と H-0138 の issue の形、それぞれ `"x"` と並べた）: pandas 3.0.1 で時刻の列 4620 のうち、cast の失敗で作り直し 190、忠実でなく作り直し 4、年・月で拒否 221、忠実 4205。pandas 2.3.3 で 4845 のうち 247・7・225・4366。pandas 2.0.0（lowest-direct のレーン、`/tmp` に作った環境）で 4845 のうち 111・8・225・4501。規則が読めなかった列は 0。Codex の run の数と一致した。
+  - `probes/temporal_matrix.py` の列では、pandas 3 で 0/15、pandas 2 で 1/19（pytz の標準時と zoneinfo の `fold=1` の列。同じ瞬間のキーが重なるので作り直す）。
+
+### 管理者の判断（2026-10-22。カード D-20261022-002）
+
+Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決めた。
+
+1. **同じ瞬間なら 1 つのカテゴリにする**（契約 A）。tz を持つ `datetime`・`Timestamp` は、同じ UTC の瞬間なら、時区の種類（UTC・IANA の zoneinfo・pytz・固定オフセット）によらず 1 つ。naive の `datetime`・`Timestamp`・`np.datetime64` は、壁時計の座標が（ns より細かい単位も含め）正確に等しければ 1 つ。naive と tz 付きは別。`date` と 0 時の `datetime` は別。固定の長さの期間（`pd.Timedelta`・`datetime.timedelta`・固定の単位の `np.timedelta64`）は、長さが正確に等しければ 1 つ。`tuple`・`frozenset` は要素ごとにこの規則で比べる。
+2. **新しく fit したモデルが変わることを受け入れる**（上の実測の変化。同じ時区の zoneinfo の fold の組が `datetime` の列で分かれる、ns より細かい `np.datetime64` が最頻値にまとまらなくなる、pytz の標準時と zoneinfo の `fold=1` が 1 つになる）。保存したモデルは、保存した引き方のまま。
+3. **`category_identity_version: 1` の意味を広げ、時刻の型も含める**。H-0138 は develop にあるだけで、リリースしていない。版 2 は作らず、`FORMAT_VERSION` は 5 のまま。
+4. **`np.timedelta64` の年（`Y`）・月（`M`）の単位は、fit で、列の名前を示す `LizyMLError` で拒否する**。暦の月の種類は作らない。
+
+### 対応方針（提案。Codex の run `h0139-mechanism-design` の設計による）
+
+1. **キー**: `core/category_values.py` の `category_identity_key` を時刻の型に広げる。型の完全一致で分け、時刻でない値のキーは変えない。共通の座標はアト秒の整数で、Python の `int` で計算する（int64 や ns の範囲で溢れない）。
+   - 単位ごとの係数: `W` = 604800×10^18、`D` = 86400×10^18、`h` = 3600×10^18、`m` = 60×10^18、`s` = 10^18、`ms` = 10^15、`us` = 10^12、`ns` = 10^9、`ps` = 10^6、`fs` = 10^3、`as` = 1。
+   - `date` → `("date", 序数)`。
+   - naive の `datetime`・`Timestamp`・`np.datetime64` → `("datetime", "naive", 座標)`。tz 付きの `datetime`・`Timestamp` → `("datetime", "aware", UTC の座標)`。
+     - `Timestamp`: `int(value.asm8.view("i8"))` に `value.unit` の係数を掛ける。tz 付きでも `asm8` は UTC なので、オフセットを引き直さない。`.value`（ns を求めて溢れうる）は使わない。
+     - `datetime`: 壁時計の µs（`value.replace(tzinfo=None)` と 1970-01-01 の差）から、tz 付きなら `utcoffset()` の µs を引き、10^12 を掛ける。fold と時区の種類のオフセットはここで入る。naive の `datetime` の fold は使わない。
+     - `np.datetime64`: `np.datetime_data` の単位と倍数で、生の整数に倍数を掛ける。固定の単位は係数を掛ける。`Y` は 1970+n 年の 1 月 1 日、`M` は 1970+n//12 年の n%12+1 月 1 日を、先発グレゴリオ暦の日数（Python の整数で計算）にして `D` の係数を掛ける。int64 の日の dtype を通さない。
+   - 期間 → `("duration", 長さ)`。`pd.Timedelta` は `asm8` の整数と単位の係数、`datetime.timedelta` は `((days×86400+seconds)×10^6+microseconds)×10^12`、固定の単位の `np.timedelta64` は生の整数×倍数×係数。
+   - 単位の無い `np.timedelta64`（V が受け付ける）→ `("timedelta64-generic", 生の整数)`。固定の期間とは別のキーである（長さを持たないので、長さを作らない）。
+   - 年・月の単位の `np.timedelta64` はキーを持たない（`TypeError`。入れ子の中も同じ）。
+   - `refusal()`・`ADMITTED_TYPES`・codec は変えない。時区の名前と fold の印はキーに入らないので、codec が pytz の時区を固定オフセットで書いても、joblib が fold を作り直しても、キーは変わらない。
+2. **年・月の拒否**: `category_values.py` に fit の検査を置く。欠損でない行の値と、宣言した全てのカテゴリ（使われていないものも）を、`tuple`・`frozenset` の中まで見て、`Y`・`M` の単位の `np.timedelta64` を集める（倍数があっても同じ）。
+   - `dataframe_builder._apply_categorical` で `identity_eligible` と `astype` の前に、`CategoricalEncoder.fit` でカテゴリを学ぶ前に走らせる。キーの無い値が黙って pandas の経路に落ちることを防ぎ、エンコーダを直接使う呼び手も覆う。
+   - 例外: `LizyMLError`、code `DATA_SCHEMA_INVALID`、文 `Column '<列>' contains calendar-unit numpy timedelta64 categories: <並べた単位>.`、context `{"column": 列, "units": 並べた単位, "reason": "calendar_timedelta64"}`。
+   - 生成 `train.py` は、`cast_categoricals` の前、宣言したカテゴリの復元の前、`fit_pipeline` で各列を学ぶ前に、同じ文の `ValueError` を出す（生成コードの今の例外の慣習）。印の無い古い設定で学習し直すときも検査する。
+   - predict では検査しない。年・月の値は、キーが無いので unseen として扱う（`mode` は保存した最頻値、`nan` は欠損、`error` は今の unseen の `DATA_SCHEMA_INVALID`。生成コードは `ValueError`）。印の無い列は保存した pandas の経路のまま。
+   - 今 fit できて拒否に変わるもの: 検査用の列で、年・月を含む列 221（pandas 3）・225（pandas 2）のうち、今 fit が通るのは 203・211、残り 18・14 は今も失敗する。`SAMPLES` の単位の混ざった `np.timedelta64` の列は、今も両方の版で失敗する。
+3. **経路**: `identity_eligible` とキーから `holds_temporal` の除外を外す（V の検査と年・月の検査は残す）。生成コードの写し（`identity_template.py` の `_identity_eligible`・`_identity_key`・`_key`）も同じにし、`_key` に時刻の全ての分岐を足す（最後の `frozenset` の分岐に落とさない）。`holds_temporal` は、テストと census のための観察用に残す。
+   - `cast_is_faithful` とその写しは変えない。忠実とは、キー・行の符号・欠損の符号・宣言の順のことで、代表の値の型が pandas の正規化で変わることは問わない。
+   - pandas 2 が `Timestamp` だけの列を `datetime64[ns, tz]` のカテゴリにしても（#379）、`np.datetime64` の日の列を `Timestamp` のカテゴリにしても、キーで忠実なら、今のカテゴリ・代表の値・順・最頻値をそのまま使う。忠実でなければ、H-0138 と同じに作り直し、置き換えの列にする（`DataFrame.attrs` の記録は列の名前だけで、カテゴリは各 fold の中で学ぶ）。
+   - `CategoricalEncoder.fit` は、忠実か作り直したかによらず、キーを持つ全ての時刻の列を `identity_columns` に入れる。transform は、これらの列を常にキーで引く。置き換えの判定は今のまま（作り直した列は位置の番号、忠実な列は推定器の `needs_stand_in`）で、時刻の列だからという新しい規則は足さない。
+4. **保存した引き方を変えない**: `CATEGORY_IDENTITY_VERSION = 1` と `FORMAT_VERSION = 5` はそのまま。load・export・変換の間に `identity_columns` を計算し直さない。`identity_fields`、`CategoricalEncoder.load_state`、loader の印の検査、生成コードの `_identity_fields`・`_load_pipeline` は振る舞いを変えない。
+   - develop で保存した版 1 の状態（`identity_columns` に時刻でない列だけ）は、保存した経路のまま読み込み、予測する。時刻の列は pandas の経路のまま。印の無い状態も同じ。新しく fit・学習し直したモデルだけが、時刻の列を版 1 で選ぶ。
+   - 知らない版と、形の壊れた一覧の拒否は今のまま。
+   - H-0136 の `state_changes.py` は、版と `identity_columns` を保ったままエンコーダを走らせるので、カテゴリと最頻値の比べ方が自然に時刻の意味になる。joblib と JSON の往復の検査（`_category_preflight.py`）は変えない。符号と最頻値の比較を、時刻の代表の値の Python の `==` で置き換えない。
+5. **宣言したカテゴリの保存の検査**: `_category_preflight.declared_change` は今、pandas の `CategoricalDtype` の cast だけで比べる。新しくキーで扱う時刻の宣言では、この比較が誤る（pandas 3 で、大きな `np.uint64` と固定の単位の `timedelta64` の宣言 8 件を、保存で変わらないのに拒否する）。
+   - 省略できるエンコーダの引数を足し（既定は `None` で、今の呼び手は今のまま）、`exporter.check_category_values` と `exporter.warn_saved_state_changes`（`warn_changes` を通して）から refit のエンコーダを渡す。
+   - そのエンコーダの版が 1 で、列が保存した `identity_columns` にあり、宣言が時刻の値を含むときだけ、宣言の各値を `through_json` に通し、キーの並びと、キーごとの最初の位置（生成コードの `_restore_declared`・`_rebuilt` が使う位置）を比べる。往復が例外なら `raises`、キーが無くなれば `unseen`、位置が変われば `codes` と報告する。
+   - 今の版の有無や版 1 だけからこの分岐を選ばない。ほかの宣言は今の pandas の比較のまま。
+6. **ほかの箇所**（`docs/audits/2026-10-h0138/code_paths.md` を今の head で辿り直した。`code_paths.md` の行番号も更新する）:
+   - 生成コード: `identity_template.py` にキー・年・月の検出・fit の検査の写しを置き、`COPY` のテストで固定する。`templates.py` の `cast_categoricals`・`fit_pipeline`・`apply_declared_categories` は検査と時刻の扱いのためだけに変える。宣言の復元（`_restore_declared`）は、dtype の正規化の後のキーの比較のまま。2 つの `encode_column` とその `comparable_values`、train と predict の transform は、保存した `identity_columns` で分けるまま。キーでの照合は、年・月の値の `TypeError` を受けて unseen の方針を当てる。生成コードの LightGBM への入力は、これまでどおり数の符号。
+   - 変えない箇所: `core/_codegen_inputs.py`（元の宣言を読む）、`pipelines_native.py`（記録の列を選ぶ、エンコーダを呼ぶ、`export_state_json` は辞書を写してから codec に通すので版 1 と `identity_columns` をそのまま書く）、`core/_model_predict.py`、`features/column_check.py`、`Model.predict`（builder を通らないので fit の検査を足さない）、`estimators/lgbm/category_json.py`（代表の値で JSON に書けるかを決める）と `adapter.py`、exporter の V の検査と宣言の codec、loader、`codegen/artifact_writer.py`・`config_writer.py`・`values.py`。LightGBM 自身のカテゴリの照合と tune の指紋は範囲の外。
+7. **H-0138 の参照ファイル**: `tests/test_features/data/h0138_oracle_pandas-*.json.gz` の 3 つはバイトとして変えない。H-0139 で意図して変わる時刻の case を、pandas の版ごとの別のファイル（変わる case の ID・前・後の記録と、理由の一覧）に置く。
+   - 一覧の集合は、元の参照ファイルと下の閉じた規則から決め、実装の答えを見て選ばない。テストは、ID が一意であること、集合が規則の和と等しいこと、件数、各「前」が元の参照と等しいことを確かめ、変わらない時刻の case は元の参照と、変わる case は記録した「後」と比べる。時刻でない case は今のまま比べる。
+   - 規則は 3 つの和である。**Y**: 年・月の値を含む元の時刻の case（pandas 3 で 221、2.3.3 で 225）。「後」は fit の検査での `DATA_SCHEMA_INVALID`（context は上の 2）。**R**: 元の参照で cast で失敗していた時刻の case（Y を除く。pandas 3 で 190、2.3.3 で 247）。「後」は成功し、置き換えの列 `["c"]`、キーごとの最初の代表を `str` の順で並べ、符号はキーの位置。**S**: 名前を挙げた case。pandas 3 は `p22-23`・`p22-36`・`p23-35`・`p24-38`・`p60-103` の 5、pandas 2.3.3 は `p22-23`・`p22-36`・`p22-40`・`p23-35`・`p23-41`・`p24-38`・`p36-41`・`p62-105` の 8。
+   - `p24-38` は、固定オフセットの `datetime`（UTC で 04:59:59.999999）と、表示の似た `Timestamp`（04:59:59）の組である。座標が 999999 µs 違うので、契約 A で別のカテゴリになる。表示の欄から作り直さない。
+   - 件数は、pandas 3 で 416（221+190+5）、2.3.3 で 480（225+247+8）。変わらない時刻の case は 4204 と 4365。時刻でないエンコーダの case 1584 は、どちらの版でも全て変わらなかった（Codex の試作）。pandas 2.0.0 では、Y が 225、R が 111 である（`firing/oracle_partition.py`。3.0.1 と 2.3.3 の Y・R は Codex の数と一致した）。
+   - S は、実装の答えを見ずに 2 つの規則で決める: (a) 試作の規則（`firing/h0139_rule.py`）で忠実でない時刻の case、(b) 元の参照に記録した 2 つのバッチの順の符号が、キーの位置と食い違う case（transform だけが直る。pandas 3 の `p60-103` など）。上の pandas 3 と 2.3.3 の名前の一覧は、この規則で再現できることを、変わる case のファイルの生成のスクリプトで確かめる。pandas 2.0.0 の S の名前と件数は、そのスクリプトで決めて実装の記録に書く（Codex の環境に 2.0.0 が無かった）。
+   - `tests/test_features/_h0138_answers.py` は、無条件の `astype` でなく本物の builder の経路を通し、fit の検査での拒否を別に報告する。`docs/audits/2026-10-h0138/oracle/make_oracle.py` は記録として残し、変わる case のファイルは別の生成のスクリプトで作る。
+
+### 互換性
+
+- 今正しく動く時刻の列（上の測定の、今 1 つにまとまる組と、今 2 つになる組）は、pandas に忠実なので、カテゴリ・順・代表の値・最頻値・符号・学習したモデルが、同じ依存の版・パラメータ・行の順・seed のもとで変わらない。状態の `identity_columns` に、その列が足される。
+- 変わるのは、判断 2 で受け入れた列（同じ時区の zoneinfo の fold の組を持つ `datetime` の列、ns より細かい `np.datetime64` の列、pytz の標準時と zoneinfo の `fold=1` の列）と、今 fit が失敗する列（通るようになる）、今の保存の拒否（上の 3 つの形と、H-0136 の受け入れの pytz の 7 つの形は保存できるようになる）。予測の差は、測った列で最大 0.0006。
+- 年・月の単位の `np.timedelta64` を含む列は、fit で拒否される。値 1 つと `"x"` の列は今 fit できる（検査用の列で pandas 3 の 203、pandas 2 の 211）。単位の混ざった列は今も失敗する。H-0133 の受け入れの「受け付ける全ての型が保存と予測で同じ」の 3 つの case（`numpy.timedelta64 with a str`・`timedelta64[Y] with a str`・`timedelta64[M] with a str`）は、判断 4 により、fit の拒否を確かめるテストに変わる。値の集合 V と codec は変えないので、年・月の値を持つ保存したモデルは今と同じに読み込める。
+- 保存したモデル（版 1〜4 の印の無い状態、develop で保存した版 5 の状態）は、保存した引き方で今と同じに予測し、`export_code` も今と同じコードを書く。保存形式は変わらない。develop の H-0138 のライブラリが、H-0139 で fit した版 1 の状態（時刻の列を `identity_columns` に持つ）を読むと、時刻の値にキーを作れず失敗しうる。H-0138 はリリースしていないので、判断 3 で受け入れた。
+- 公開 API と Config は変わらない。`FitResult` と `PredictionResult` の形も変わらない。
+
+### 代替案
+
+- **時区の種類と fold もキーに入れる**（契約 B）: 曖昧な組は分かれたままだが、今 1 つにまとまって正しく動く組（UTC と New York、固定オフセットと zoneinfo の同じ瞬間など）を割る。codec が pytz の時区を固定オフセットで書くので、保存の前後でキーが変わり、保存形式も変える必要がある。採らない（判断 1）。
+- **Python・pandas の `==` に合わせる**（契約 C）: 推移律が無く、hash とも合わない（pytz の標準時と zoneinfo の `fold=1` は `==` で等しいが hash が違う）。安定したキーにならない。採らない（判断 1）。
+- **予測の段でも fit と同じ cast をする**: バッチの中身で結果が変わる（H-0138 の批評）。採らない。
+- **同一性の版を 2 にする、`FORMAT_VERSION` を 6 にする**: リリースした版 1 が無いので、門を増やすだけで、移行とゴールデンテストの更新が増える。採らない（判断 3）。
+- **年・月を暦の月として別の種類にする**（1 年 = 12 か月、日や秒の期間とは比べない）: 今失敗する単位の混ざった列も fit できるようになるが、契約が大きくなる。採らない（判断 4）。
+- **H-0138 の参照ファイルを作り直す**: 変わる case と変わらない case の区別が見えなくなり、変わらないはずの case のずれを見逃す。採らない（対応方針 7）。
+
+### 受け入れ基準
+
+1. **キー**: `ADMITTED_TYPES` の時刻の全ての型と入れ子で、決めたキーが決まるか、年・月なら拒否される。閉じた等しい組・別の組の fixture が、時区の種類、fold、naive と tz 付き、`date` と 0 時、`np.datetime64` の 13 の単位、固定の期間の 11 の単位、倍数、単位の無い期間、負の座標、`datetime.min`・`max` と極端なオフセット、int64 の端を覆う。codec・生成コードの codec・joblib の往復で、全てのキーが変わらない。上の「対応方針 1」の pytz の標準時の `Timestamp`、zoneinfo の `fold=1` の `Timestamp`、固定オフセットへの codec の写し、joblib の写しのキーが等しい。
+2. **参照ファイル**: 3 つのレーン（pandas 3.0.1、2.3.3、2.0.0）で、元の参照ファイルがバイトとして変わらず、閉じた変更の一覧（対応方針 7。ID・件数・各「前」が元と等しいこと）を通る。レーンの一覧が無ければ落ちる（黙って通らない）。
+3. **年・月の拒否**: builder、エンコーダの直接の fit、生成 `train.py` が、行の値・入れ子の値・使われていない宣言の年・月の値を、決めた code・文・context（生成コードは `ValueError`）で拒否する。predict に来た年・月の値（入れ子も）は、3 つの unseen の方針のとおりに扱われる（`mode`・`nan`・`error`）。
+4. **#379**: pandas 2.3.3 で、pytz の夏時間と標準時の列（800 行）の in-memory の predict が、学習の行を unseen と判定しない。`fit` は H-0136 の警告を出さず、`Model.export`・`lizyml.persistence.export`・`export_code` が通り、load の後の予測が in-memory と同じである。pytz の標準時と `"x"` の列、pytz の標準時と zoneinfo の `fold=1` と `"y"` の列も同じ（後者は 2 つのカテゴリ）。各値 1 つのバッチの予測が全体のバッチの中の予測と同じである。
+5. **忠実な列を変えない**: 忠実な時刻の列（pandas 2 の `datetime64[ns, tz]` と、`np.datetime64` から `Timestamp` への正規化を含む）は、今の代表の値・カテゴリ・順・最頻値を保つ。作り直した列は builder の記録で選ばれ、本物の refit の booster の `pandas_categorical` のその列が `list(range(k))` である。
+6. **リークと記録**: 記録が複製・並べ替え・分割（outer・inner・calibration）を通り、検証の側にしか無いキーが fit のカテゴリに入らない（落ちるべき例を含む）。
+7. **実行時と生成コードの一致**: 実行時と生成コードの cast・fit・宣言の復元・バッチと値 1 つの予測が、閉じた `SAMPLES` と `probes/temporal_matrix.py` の列で同じである。キーの写しを `COPY` で固定する。
+8. **保存した引き方**: 版 1〜4 の成果物と、develop の版 5 の状態（時刻でない列だけの `identity_columns`）が、保存した一覧で今と同じに予測する。版は 1 のまま。知らない版・形の壊れた一覧は今と同じに拒否する。
+9. **保存の検査**: 全ての fold と refit の状態と宣言の比較が、それぞれの保存処理の検査を通る。H-0136 の受け入れの pytz の 7 つの形（`tests/test_persistence/test_h0136_acceptance.py` の 2 つの組、1 つの pytz の値の 3 つの方針、2 つの容器）は、保存できて予測が変わらない。年・月の 3 つの形（2 つの順と宣言）は fit で拒否され、それを使う export の文のテストは置き換える。pandas 3 の 8 つの宣言（`p61-92`〜`p61-98`、`p61-103`）は保存できる。
+10. **書き出し**: `export_state_json` と全ての成果物・生成コードの変換が、印と codec の値を正確に保つ。
+11. **census**: 全てのテストでの census が、上の母集団と区分（作り直し・拒否・その和、V の外、規則のエラー）を記録する。
+12. **既存のテストの変わる case**: H-0133 の受け入れの年・月の 3 つの case（2 本のテスト）、H-0136 の受け入れの月の 4 本、`tests/test_core/test_category_identity.py` と `tests/test_codegen/test_h0138_identity_copy.py` の「時刻の値はキーを持たない」の確かめは、この Proposal の決定に合わせて置き換え、置き換えた case の一覧を実装の記録に書く。ほかのテストは変えない。
+13. **文書**: BLUEPRINT（カテゴリの値の同一性の節を時刻の型に広げる、年・月の拒否）、CHANGELOG、`docs/migration.md`（新しく fit したモデルが変わる列）、`docs/proposal_dispositions.toml` を更新する。
+
+**レビューの停止基準**: 上の受け入れ基準のテスト、レーンごとの変更の一覧、成果物と生成コードの検査、census が通ったら止める。次の round に進む理由になるのは、この契約の中の欠陥だけである: 時刻のキーの同一視の誤り、忠実な経路のずれ、拒否の診断、リーク、実行時と生成コードの食い違い、保存した引き方、推定器への実際の受け渡し。契約 A を開き直すこと、版 2 を足すこと、tune の指紋・LightGBM 自身の振る舞い・V の外の値・H-0138 の時刻でない値の契約・#382 に広げることは、次の round に進む理由にならない。
