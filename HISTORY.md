@@ -16284,7 +16284,8 @@ Codex の run `h0138-impl-review`（3 round、Proposal の停止基準をその�
   - `Model.fit` と `Model.tune` の、学習の前の警告（`num_leaves` が大きいとき）
   - `auto_num_leaves` の算出で、`max_depth` が 0 のときの扱い
   - CI の Linux のテストの job のメモリの上限
-  - 範囲の外: `max_depth` の制限（fit・既定の探索空間・境界の拡張のどれでも）、`num_leaves` の上限や拒否、isotonic の校正と生成 `train.py` の警告、LizyStudio のサーバーの守り（#729）、学習前に拒否するメモリの予算
+  - tune の境界の拡張で `max_depth` に掛けていた上限 30 を外す（下限 -1 は残す）
+  - 範囲の外: `max_depth` の新しい制限（fit・既定の探索空間・境界の拡張のどれでも）、`num_leaves` の上限や拒否、isotonic の校正と生成 `train.py` の警告、LizyStudio のサーバーの守り（#729）、学習前に拒否するメモリの予算
 
 ### 目的（課題）
 
@@ -16301,6 +16302,7 @@ Codex の run `h0138-impl-review`（3 round、Proposal の停止基準をその�
 - **見積もりの精度**（`v021-388-critique-v2`）: 上の 2 項の和を、実測した最大 RSS と比べると、`num_leaves` 4096 以下の小さな例で予測と実測は 217612 / 218352、314280 / 326104、709608 / 719436、243212 / 244340 KiB、多値分類で 202624 / 202084 KiB（差は約 0.3〜3.8%）だった。いちばん小さな例では、固定の初期の使用量が大きく、差は約 26〜29% になる。
   - 早期終了では、止まるまでの round の木が残る（100 round の設定で best iteration 1 でも 11 本の木が残った）。そのため、設定した round 数での見積もりは上限である。
   - bin の数は `max_bin` だけでは決まらない（500 カテゴリの特徴量は `max_bin=63` でも 496 bin だった）。
+- **学習の済んだ booster が持ち続けるもの**（Proposal レビュー round 1 の後、手元で測定。150 行・30 特徴量・`max_bin=255`・`num_leaves=4096`・10 round、`ulimit -v 4000000`）: 最大 RSS は、1 つ目の booster の学習で 172324 KiB から 483908 KiB に増え、2〜4 つ目の booster を同時に残しても 483936〜484924 KiB だった。ヒストグラムの領域は学習の間だけ使われ、学習の済んだ booster は木の配列だけを持ち続ける。同時に残る booster が多いと木の項は数だけ増えるが、ヒストグラムの項は 1 回分である。
 - **上限を付ける案は今のモデルを変える**（`v021-388-critique`）。
   - 「学習行数 ÷ `min_data_in_leaf`」の上限は、LizyML の既定の balanced の重みのもとで、学習される木を変えた（二値・多値の 14 組の全て）。
   - 「学習行数」の上限は、72 組で木を変えなかったが、保存される `num_leaves` の値は変えた。データが大きければメモリも抑えない。
@@ -16313,12 +16315,17 @@ Codex の run `h0138-impl-review`（3 round、Proposal の停止基準をその�
 4. 警告の条件は「`num_leaves` が 16384 以上」または「見積もりが 1 GiB 以上」。警告は `num_leaves` とその原因を主に書き、見積もりを「おおよその値」として添える。
 5. 警告を出すのは `Model.fit` と `Model.tune` だけである。isotonic の校正と生成 `train.py` には出さない。
 6. この変更の PR で、CI の Linux のテストの job にメモリの上限を付ける。
+7. （Proposal レビュー round 1 の後）tune の境界の拡張で `max_depth` に掛けていた既存の上限 30 も外す。下限 -1 は残す。
 
 ### 対応方針（提案）
 
 1. **判定と見積もり**: `estimators/lgbm/` に新しい module を置き、次を決める。
-   - 判定に使う `num_leaves` は、smart param を解決した後の値である。`auto_num_leaves` が導いた値と、`auto_num_leaves=false` のときに明示した値の両方を含む。別名（`num_leaf`・`max_leaf`・`max_leaves`・`max_leaf_nodes`）は `param_names.py` の LightGBM の別名の表で正規化する。
-   - 見積もりは「増える分のおおよその CPU メモリ」で、ヒストグラムの項と木の項の和とする。
+   - 判定に使う `num_leaves` は、smart param を解決した後に LightGBM が受け取る値である。次の 3 つのどれかになる。
+     - `auto_num_leaves` が導いた値（原因は「`max_depth` から導いた」）。
+     - `auto_num_leaves=false` のときに明示した値（原因は「明示した」）。別名（`num_leaf`・`max_leaf`・`max_leaves`・`max_leaf_nodes`）は `param_names.py` の LightGBM の別名の表で正規化する。
+     - `auto_num_leaves=false` で何も指定しないときの、LightGBM の既定の 31（原因は「LightGBM の既定」）。LizyML の既定のパラメータは `num_leaves` を持たない（`estimators/lgbm/defaults.py`）。
+   - 見積もりは「増える分のおおよその CPU メモリ」で、ヒストグラムの項 1 回分と、同時にメモリに残る booster の数だけの木の項の和とする（上の測定で、学習の済んだ booster はヒストグラムの領域を持ち続けない）。
+     - 同時に残る booster の数は、`Model.fit` では outer の fold の数 + refit の 1 つ（`CVTrainer` は fold の adapter を全て `models` に残し、refit はその後に学習する）、tune の 1 つの trial では outer の fold の数である。
      - 特徴量の bin の合計は、学習データの列から近似する。数の列は `min(異なる値の数, max_bin)`、カテゴリの列はカテゴリの数とし、`max_bin_by_feature` があればそれを使う。
      - round 数は設定した値（早期終了なら上限）、class 数は多値分類で class の数とする。
      - 近似であることと、早期終了では上限であることを、警告の文と文書に書く。
@@ -16331,18 +16338,24 @@ Codex の run `h0138-impl-review`（3 round、Proposal の停止基準をその�
    - `Model.fit`: smart param を解決した後、`CVTrainer.fit` の前に 1 回だけ判定する。全ての fold と refit を合わせて 1 回である。
    - `Model.tune`: trial ごとに、サンプルした値で解決した後、その trial の学習の前に判定する。最初に条件に当たった trial で 1 回だけ `UserWarning` を出し、以降の trial は logger に記録する。この 1 回は `tune()` の呼び出しごと（`resume` を含む）に数える。Python の警告の重複の filter には頼らない（trial ごとに文が違うため）。
 5. **`max_depth <= 0`**: `_compute_num_leaves` の条件を `max_depth < 0` から `max_depth <= 0` にする。既定の割合で `0` が導く値は 8 から 131072 になり、上の警告の対象になる。保存したモデルは、fold と refit の adapter が保存したパラメータ（8）のまま読み込み、予測し、`export_code` に渡す。新しく fit したときだけ新しい規則で導く。BLUEPRINT の算出ロジック（「未指定または負値」）を「未指定、または 0 以下」に直す。
-6. **CI のメモリの上限**: `.github/workflows/ci.yml` の Linux の pytest の step（develop の lane、main の lane、lowest-direct、latest deps）に、仮想メモリの上限（`ulimit -v`）を設ける。値は、今のスイートが通ることを CI で確かめて決める。大きな `num_leaves` を扱うテストは `lgb.train` を差し替え、本物の学習をしない。
+6. **CI のメモリの上限**: `.github/workflows/ci.yml` の Linux で pytest を走らせる全ての step に、仮想メモリの上限（`ulimit -v`）を設ける。対象は、Quality の matrix（develop と main の lane）、lowest-direct、latest deps、Smoke の `ubuntu-latest`、Notebook index の実行の job である（`rg -n pytest .github/workflows` で数えた全ての Linux の step。実装の PR でこの数え上げを繰り返し、漏れが無いことを確かめる）。macOS と Windows の Smoke は `ulimit -v` が同じには効かないので対象外とし、その理由を workflow の注釈に書く。値は、今のスイートが通ることを CI で確かめて決める。大きな `num_leaves` を扱うテストは `lgb.train` を差し替え、本物の学習をしない。
+7. **`max_depth` の上限 30 を外す**: `estimators/lgbm/provider.py` の `_LGBM_PARAMETER_BOUNDS` の `max_depth` を `{"min": -1}` にする。`tuning/search_space.py` の `attach_bounds` は、片側だけの範囲（`min` か `max` の片方）を受け付け、無い側を無制限とする。BLUEPRINT の `parameter_bounds(task)` の説明（`{"min": ..., "max": ...}`）を、片側だけを許す形に直す。
+   - 既に記録した study の resume では、変えていない次元は記録した範囲と上限をそのまま引き継ぐ（`_tuning_space.carry_forward` の今の規則）。上限 30 が外れるのは、新しい study と、変えた・足した次元である。
+   - LizyStudio は `parameter_bounds` を Range エディタに渡している（#729）。`max` の無い項目の扱いは #729 で合わせる。
 
 Firing rate: 0/5545 of the LightGBM training calls of the runnable non-slow test suite (Codex dynamic census at `78e2a0c`, maximum 3956 leaves; 8427 temp-path tests could not run in the reviewer's read-only sandbox, so the census over the full suite is repeated after implementation, with both trigger arms)
 
 - 既定の探索空間: 最初の `[3, 12]` では 0/100000、報告された拡張の後の `[3, 21]` では 36810/100000（乱数の seed を固定したサンプル）。
 - 既定の fit（`max_depth=5`、32 葉）では警告しない。
+- 見積もりの条件（1 GiB 以上）は、同時に残る booster の数を数える形にしたので、上の census には入っていない。実装の後の full suite の census で、二つの条件の両方を測る。
 
 ### 互換性
 
 - 学習の結果は変わらない。警告が増えるだけである。例外は `auto_num_leaves` のままの `max_depth = 0` で、新しく fit したときに導く `num_leaves` が 8 から 131072 になる（リポジトリの中のテスト・文書・notebook・例・既定の探索空間には `max_depth = 0` を使うものが無い。Codex の検索）。
 - 保存したモデルは変わらない（`format_version` も変えない）。
 - 公開 API と Config は変わらない。警告を例外にして使う利用者は、条件に当たる設定で学習の前に止まるようになる。
+- tune: 新しい study と、変えた・足した次元では、境界の拡張が `max_depth` を 30 より深く広げうる。拡張は最良の値が端の近くにあるときだけ働くので、深さ 30 の端に最良の値があった study だけで、次の round の範囲が変わる。記録した study の変えていない次元は、記録した上限のままである。
+- `parameter_bounds(task)` の戻り値で、`max_depth` は `max` を持たなくなる。この戻り値を読む呼び手（LizyStudio の Range エディタ）は、片側だけの範囲を扱う必要がある（#729）。
 
 ### 代替案
 
@@ -16355,15 +16368,25 @@ Firing rate: 0/5545 of the LightGBM training calls of the runnable non-slow test
 ### 受け入れ基準
 
 1. `auto_num_leaves` のまま `max_depth=-1`、および `max_depth=0` の `Model.fit` で、`lgb.train` の呼び出しより前に `UserWarning` がちょうど 1 回出て、`num_leaves` の値と原因と見積もりを含む（`lgb.train` は差し替え、本物の学習をしない）。
-2. `auto_num_leaves=false` で `num_leaves`、およびその別名（`max_leaves` など）を 16384 以上にした fit でも同じ警告が出る。
-3. `num_leaves` は 16384 未満だが見積もりが 1 GiB 以上の fit（特徴量と bin の多い場合）で警告が出る。
+2. `auto_num_leaves=false` で `num_leaves`、およびその別名（`max_leaves` など）を 16384 以上にした fit でも同じ警告が出る。`auto_num_leaves=false` で何も指定しない fit は、LightGBM の既定の 31 で判定し、判定した値が LightGBM の受け取る値と同じであることを確かめる（`lgb.train` の差し替えで受け取った params を読む）。
+3. `num_leaves` は 16384 未満だが見積もりが 1 GiB 以上の fit で警告が出る。次の 2 つを含む: 特徴量と bin の多い場合と、1 つの booster では 1 GiB 未満だが fold と refit を合わせると超える場合（例えば `num_leaves=8192`、1000 round、20 fold）。後者は tune の trial でも確かめる。
 4. 既定の fit と、最初の既定の探索空間の tune では警告しない。
 5. CV の全ての fold と refit を合わせて、警告はちょうど 1 回である。
 6. 条件に当たる trial が複数ある `tune()`（`resume` を含む）で、`UserWarning` は呼び出しごとにちょうど 1 回で、以降の trial は logger に記録される。
 7. 警告を例外にする設定では、どの `lgb.train` も呼ばれない。
 8. `_compute_num_leaves(0, 1.0)` は 131072 で、新しく fit したモデルの `export_code` の `config.json` も 131072 を持つ（差し替えで確かめる）。`max_depth=0` で 8 葉を学習して保存した成果物は、load 後の予測と `export_code` が 8 のままである。
 9. 見積もりの式を、上の実測の例の数（予測値）で固定する単体テストがある。
-10. CI の Linux の pytest の step がメモリの上限の下で走り、通る。
-11. BLUEPRINT（算出ロジックと警告）と CHANGELOG を更新する。
+10. CI の Linux で pytest を走らせる全ての step（対応方針 6 の 5 つ）がメモリの上限の下で走り、通る。workflow の中で pytest を走らせる Linux の step のうち上限の無いものが 0 であることを、テストで数える。
+11. BLUEPRINT（算出ロジック、警告、`parameter_bounds` の片側の範囲）と CHANGELOG を更新する。
+12. `max_depth` の上限: `parameter_bounds` の `max_depth` は `{"min": -1}` で、最良の値が端の近くにある新しい study の境界の拡張が 30 より深く広がる。下限 -1 はそのまま効く。片側だけの範囲を `attach_bounds` が受け付け、無い側を無制限にする。記録した study の resume で、変えていない `max_depth` の次元は記録した上限 30 のままである。
 
 **レビューの停止基準**: 上の受け入れ基準のテスト、実装の後の full suite での firing rate の census、文書、CI の上限が通ったら止める。経験的な係数の精度を詰めること、拒否する予算を必須にすること、Studio の守りを LizyML で解くこと、`max_depth` を制限することは、次の round に進む理由にならない。
+
+### Proposal レビュー round 1（2026-10-21）
+
+- **結果**: Codex の run `h0140-proposal-review` の round 1（`00e223b`）は CHANGES_REQUESTED で、major 4 件だった。
+- **対応**（上の本文を直した）:
+  1. 見積もりが 1 つの booster だけを数え、fold の adapter と refit が同時にメモリに残ることを無視していた（`num_leaves=8192`・1000 round・20 fold で、1 つでは 0.64 GiB、合わせて約 12.8 GiB）。→ 学習の済んだ booster が何を持ち続けるかを測り（ヒストグラムは持ち続けない）、見積もりを「ヒストグラムの項 1 回分 + 同時に残る booster の数だけの木の項」にした。受け入れ 3 に、この場合を足した。
+  2. `auto_num_leaves=false` で何も指定しないとき、LightGBM の既定の 31 が使われる場合が抜けていた。→ 判定の値の 3 つ目に足し、受け入れ 2 に足した。
+  3. CI の上限の対象から、Smoke の `ubuntu-latest` と Notebook index の実行の job が漏れていた。→ Linux で pytest を走らせる 5 つの step を全て対象にし、上限の無い step が 0 であることをテストで数える（受け入れ 10）。
+  4. tune の境界の拡張に、`max_depth` の既存の上限 30 が残っていた。→ 管理者に判断を仰いだ。管理者は「上限 30 も外す」を選んだ（判断 7）。対応方針 7・互換性・受け入れ 12 を足した。
