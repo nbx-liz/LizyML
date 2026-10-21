@@ -49,7 +49,7 @@ flowchart TB
         direction LR
         EXPLAIN["explain/<br/>shap_explainer<br/>(optional dep)"]
         PLOTS["plots/<br/>8 plot modules<br/>(optional dep)"]
-        PERSIST["persistence/<br/>exporter + loader<br/>format_version=4"]
+        PERSIST["persistence/<br/>exporter + loader<br/>format_version=5"]
         CODEGEN["codegen/<br/>export_code generator"]
     end
 
@@ -510,7 +510,7 @@ classDiagram
     class persistence:::optClass {
         +export(path, fit_result, refit_result, ...) void
         +load(path) tuple
-        +FORMAT_VERSION = 4
+        +FORMAT_VERSION = 5
     }
     class AnalysisContext:::optClass { +y_true +X_for_explain }
     persistence ..> AnalysisContext : saves/restores
@@ -671,7 +671,7 @@ export:  FitResult + RefitResult + Config + AnalysisContext
          (+ TuningResult: trials / rounds / boundary report)
          → metadata.json + fit_result.pkl + refit_model.pkl
            [+ analysis_context.pkl] [+ tuning_history.json (H-0134)]
-         format_version=4
+         format_version=5
 
 load:    metadata.json → validate format_version
          → Model instance (predict / evaluate / plots ready)
@@ -725,6 +725,7 @@ lizyml/
 │   ├── pipelines_native.py         NativeFeaturePipeline
 │   └── encoders/
 │       ├── categorical_encoder.py  CategoricalEncoder
+│       ├── category_identity.py    構造のキーでのカテゴリの学習と照合 (H-0138)
 │       └── state_changes.py        保存処理で写した状態と元の状態の比較 (H-0136)
 │
 ├── estimators/                     ── Layer 1: Estimators ──
@@ -790,6 +791,7 @@ lizyml/
 │   ├── generator.py                generate_code() (Model.export_code から)
 │   ├── artifact_writer.py          pipeline_state.json / model.txt 書き出し
 │   ├── config_writer.py            config.json 書き出し
+│   ├── identity_template.py        生成コードに写すカテゴリの同一性 (H-0138)
 │   └── templates.py                train.py / predict.py / test_equivalence.py テンプレ
 │
 └── core/                           ── Layer 4: Facade ──

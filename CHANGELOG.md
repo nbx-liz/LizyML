@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Category values pandas confused now fit and predict** (H-0138, [#378](https://github.com/nbx-liz/LizyML/issues/378), [#380](https://github.com/nbx-liz/LizyML/issues/380)). Which values are one category is decided by one structural key, `lizyml.core.category_values.category_identity_key`: numbers equal as numbers are one category (`Decimal("1")` and `np.int8(1)`), and a NumPy scalar and a tuple holding the same number are two. A column holding `Decimal("1")` beside a NumPy integer no longer fails in transform with a bare `TypeError`; a column holding a NumPy scalar beside a tuple no longer gets codes that depend on the batch order or calls a learned value unseen; `2**70` beside `np.bool_` no longer fails the cast. Columns pandas already handled correctly keep their categories, mode, codes and trained model. Columns with a date or time value are unchanged (#379 is H-0139). The generated `train.py` / `predict.py` carry a copy of the key.
+
 ### Changed
+
+- **Saved artifacts are `format_version` 5** (H-0138). A new encoder state records `category_identity_version` and `identity_columns`; LizyML 0.20.0 and earlier refuse v5 artifacts. Artifacts of format 1-4 load and predict as before, with pandas' lookup, and `export_code` on such a model keeps it. `config.json` of `export_code` gains `category_identity_version`. See `docs/migration.md`.
 
 - **The tutorial notebooks run offline** (H-0137, [#385](https://github.com/nbx-liz/LizyML/issues/385)). The five tutorials that downloaded credit-g, vehicle, diamonds and Jena climate on every run now read gzip CSV copies under `notebooks/data/`; `notebooks/data/manifest.toml` records each file's sha256, source, licence (CC BY 4.0, or MIT for diamonds) and how it was made, and `scripts/vendor_notebook_data.py` rebuilds them. The Jena file holds only the 10-minute rows behind the last 5000 hourly rows the tutorial uses, so its prepared data and results are unchanged. When copying a notebook out of `notebooks/`, copy `data/` with it. The sdist grows by about 1.5 MB; the wheel is unchanged.
   - Both notebook test layers refuse `socket.getaddrinfo` and `socket.socket.connect` inside the kernel and fail the run if either was called, so a tutorial that brings a remote load back fails even when it catches the error. The retry (H-0119) and the skip (#197) of network failures are removed.

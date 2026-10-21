@@ -15022,7 +15022,7 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
   - 対処: ラベルの検査を `core/category_values.py` の `NUMPY_PLAIN_TYPES` に厳密に一致する型だけにした。判断 3 の「ラベルは今の値の集合のまま」の意図どおりで、集合は広げていない。回帰のテスト（`test_export_contract.py` の `_REFUSED` に `np.timedelta64` の Y・M と `np.datetime64` の ns）を足した。
   - `tuple` のラベルは、pandas 2.0 では fit そのものが pandas の例外で失敗する（`export_code` に届かない）。ラベルのテストはこの場合、理由をつけて skip する。
 - **確認の review**（run `h0133-impl-confirm`、`acea369`）は CHANGES_REQUESTED（major 1、minor 1）だった。major は上のラベルの直しに入った欠陥で、停止ルールに従って管理者に報告し、管理者は「直して、もう 1 度確認」を選んだ。
-  - major: ラベルの検査を型の一覧に厳密に一致させたため、H-0120 から正しく受け付けていた `np.float16`・`np.longlong`・`np.ulonglong` まで拒否していた。「ラベルの集合は広げていない」は正しかったが、狭めていた。H-0120 の規則（`.item()` が素の値で元の値と等しい numpy のスカラー）に戻し、`np.datetime64` と `np.timedelta64` だけを型で外した。この 3 型がラベルとして受け付けられ、素の値で書かれることを確かめるテストを足した（特徴量のカテゴリでは V のまま。型が 1 種類の列では、pandas は longlong と ulonglong を Python の int に直し、float16 は category にできない。型の混ざった object の列では 3 型とも numpy のスカラーのまま残り、V の外の型として拒否される）。
+  - major: ラベルの検査を型の一覧に厳密に一致させたため、H-0120 から正しく受け付けていた `np.float16`・`np.longlong`・`np.ulonglong` まで拒否していた。「ラベルの集合は広げていない」は正しかったが、狭めていた。H-0120 の規則（`.item()` が素の値で元の値と等しい numpy のスカラー）に戻し、`np.datetime64` と `np.timedelta64` だけを型で外した。この 3 型がラベルとして受け付けられ、素の値で書かれることを確かめるテストを足した（特徴量のカテゴリでは V のまま。型が 1 種類の列では、pandas は longlong と ulonglong を Python の int に直し、float16 は category にできない。数でない値（このテストでは `str`）と混ざった object の列では 3 型とも numpy のスカラーのまま残り、V の外の型として拒否される。数だけの混在では pandas が Python の数に直し、拒否せずに書く: `[np.float16(1), 2.5]` は float、`[np.longlong(1), np.int64(2)]` と `[np.ulonglong(1), 2]` は int のカテゴリになる。pandas 3.0.1 と 2.0.0 で同じ。#370 で文言を直した）。
   - minor: ラベルのテストの skip が、fit の全ての例外を skip にしていた。skip をやめ、pandas が扱えるラベルの組を選ぶようにした。
     - 原因の実測: pandas 2.0 は、`TargetEncoder.transform` の `Series.map` で tuple をキーにした辞書から MultiIndex を作り、`()` を含むと失敗する。これは tuple のラベルの既存の制限で、H-0133 の範囲の外である。
     - 選び方: 同じ操作（辞書による `map`）ができる組を選ぶ。fit の中の例外は、全て失敗として扱う。
@@ -16242,3 +16242,18 @@ Codex の批評（run `v021-category-critique`）の推奨により、#378〜#38
 
 - **monitor**: round 3 の前に、runner の relational monitor を走らせた（`62600f3`、観察した round は 1〜2）。結果は CONVERGING・continue で、disposition は continue。
 - **結果**: round 3（`62600f3`）は APPROVE で、指摘は 0 件だった。run `h0138-proposal-review` はこれで終わる。
+
+### 実装の記録（2026-10-21）
+
+- **コード**:
+  - `lizyml/core/category_values.py`: `category_identity_key`、`holds_temporal`、`identity_eligible`、`cast_is_faithful`、`CATEGORY_IDENTITY_VERSION`、`IDENTITY_OBJECT_COLUMNS`（対応方針 1・2）。
+  - `lizyml/features/encoders/category_identity.py`（新しい）: `keyed_categories`（忠実なら今の答え、でなければキーで作り直す）と `keyed_codes`（キーでの照合と unseen の方針）。`categorical_encoder.py` は印と `identity_columns` を状態に書き、印の無い状態は今の経路、知らない印は `DESERIALIZATION_FAILED`（対応方針 4）。
+  - `dataframe_builder._apply_categorical` と `NativeFeaturePipeline.fit`: cast できない列・忠実でない列を object のまま残して `DataFrame.attrs` に記録し、カテゴリの列として選ぶ（対応方針 3）。
+  - `lizyml/codegen/identity_template.py`（新しい）: キーと照合の生成コードへの写し。`templates.py` の codec の塊の後ろに付き、`train.py` の cast・宣言の復元・fit、両方の `encode_column`、`predict.py` の印の検査が使う。`config_writer` は `category_identity_version` を、`artifact_writer` は `pipeline_state.json` の印と `identity_columns` を書く（対応方針 5・6）。
+  - `FORMAT_VERSION = 5`、loader は `{1, 2, 3, 4, 5}`（対応方針 7）。
+- **実装で決めたこと**:
+  - 生成 `train.py` で、宣言した一覧を pandas がそのまま持てないとき（符号化で NumPy のスカラーが素の値になり、`Decimal("1")` と `1` のように重複になる場合）は、列を object のまま残し、fit が宣言の順にキーで作る。実行時の作り直し（宣言の順）と同じ結果である。
+  - H-0120 の負の対照のうち、pandas の引き方を戻す 2 つ（policy 5、宣言の復元）は、印のある列がその経路を通らなくなったので、印を除いた状態で走らせ、キーの経路を戻す対照を 1 つずつ足した。
+  - 印の無い状態の `export_code` で、#380 の列の今の引き方は、実行時と生成コードで別の間違え方をする（hash の seed で変わる）。受け入れ 10 の「今と同じ」は今の引き方のコードを書くことであり、符号の一致は今の引き方が正しい列で確かめる。
+- **#370**: H-0133 の範囲に触れるこの PR で、H-0133 の記録と `test_export_contract.py` の注釈の文言を直した（数でない値と混ざった列に限る）。
+- **テスト**: 受け入れ 1（`tests/test_core/test_category_identity.py`）、2・11（`tests/test_features/test_h0138_faithful_oracle.py`）、3〜8（`tests/test_features/test_h0138_identity.py`）、9・10（`tests/test_codegen/test_h0138_identity_copy.py`、`tests/test_persistence/test_artifact_compat.py` の v4 の形・v5 の拒否）。

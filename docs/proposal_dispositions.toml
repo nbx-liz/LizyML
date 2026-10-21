@@ -560,8 +560,8 @@ disposition = "no_obligation"
 reason = "Test infrastructure and tutorial data only: the notebooks read vendored files and the notebook test layers refuse network calls. No public API, Config, result type or saved format changes."
 
 [proposals."H-0138"]
-disposition = "pending"
-reason = "Under review; BLUEPRINT is updated with the implementation (category identity, FORMAT_VERSION 5)."
+disposition = "specified"
+anchors = ["category_identity_version", "identity_columns"]
 
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
