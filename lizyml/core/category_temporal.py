@@ -14,7 +14,9 @@ Two temporal values are one category exactly when their keys are equal:
 Coordinates are attoseconds held as Python ``int`` (no int64 or nanosecond
 range to overflow). A ``np.timedelta64`` in ``Y`` or ``M`` units has no
 length and no key (:class:`CalendarDuration`): fit refuses such a column
-(H-0139 decision 4).
+(H-0139 decision 4). Neither has a unitless ``np.datetime64``, which NumPy
+cannot even show (:class:`UnitlessDatetime`; refused at fit the same way,
+the owner's ruling after the implementation review's round 2).
 """
 
 from __future__ import annotations
@@ -47,6 +49,24 @@ _US = dt.timedelta(microseconds=1)
 
 class CalendarDuration(TypeError):
     """A ``np.timedelta64`` in ``Y`` or ``M`` units: it has no identity key."""
+
+
+class UnitlessDatetime(TypeError):
+    """A ``np.datetime64`` without a unit: NumPy cannot even show it, and it
+    has no identity key (fit refuses it like a calendar duration, H-0139)."""
+
+
+def holds_unitless_datetime(value: Any) -> bool:
+    """Whether *value* is, or holds in a tuple / frozenset, a unitless
+    ``np.datetime64`` other than NaT (NaT is outside V and keeps its own
+    route: fit works, saving refuses it, H-0133)."""
+    if type(value) is tuple or type(value) is frozenset:
+        return any(holds_unitless_datetime(item) for item in value)
+    return (
+        type(value) is np.datetime64
+        and np.datetime_data(value.dtype)[0] == "generic"
+        and not np.isnat(value)
+    )
 
 
 def calendar_units(value: Any) -> set[str]:
@@ -88,7 +108,7 @@ def _datetime64_coordinate(value: Any) -> Any:
             _days_from_civil(1970 + count // 12, count % 12 + 1, 1) * _ATTOSECONDS["D"]
         )
     if unit == "generic":
-        return ("datetime64-generic", count)
+        raise UnitlessDatetime("a unitless np.datetime64 has no identity key")
     return count * _ATTOSECONDS[unit]
 
 
@@ -97,6 +117,7 @@ def temporal_key(value: Any) -> tuple[Any, ...]:
 
     Raises:
         CalendarDuration: for a ``np.timedelta64`` in ``Y`` or ``M`` units.
+        UnitlessDatetime: for a ``np.datetime64`` without a unit.
         TypeError: for a value that is not a temporal scalar.
     """
     kind = type(value)

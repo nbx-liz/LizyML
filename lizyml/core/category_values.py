@@ -36,7 +36,11 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from lizyml.core.category_temporal import calendar_units, temporal_key
+from lizyml.core.category_temporal import (
+    calendar_units,
+    holds_unitless_datetime,
+    temporal_key,
+)
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 
 #: The deepest ``tuple`` / ``frozenset`` nesting V admits (``((1,),)`` is 2).
@@ -554,17 +558,29 @@ def category_identity_key(value: Any) -> Any:
     return _key(value)
 
 
-def check_calendar_durations(series: pd.Series, column: Any) -> None:
-    """Refuse a column holding a ``np.timedelta64`` in ``Y`` / ``M`` units
-    (H-0139 decision 4): in a row, inside a tuple / frozenset, or in a
+def check_keyless_temporals(series: pd.Series, column: Any) -> None:
+    """Refuse a column holding a temporal value with no identity key: a
+    ``np.timedelta64`` in ``Y`` / ``M`` units (H-0139 decision 4) or a
+    unitless ``np.datetime64`` (the owner's ruling after the implementation
+    review's round 2) -- in a row, inside a tuple / frozenset, or in a
     declared category, used or not. Run before fit learns the column.
 
     Raises:
-        LizyMLError: ``DATA_SCHEMA_INVALID``, naming the column and the units.
+        LizyMLError: ``DATA_SCHEMA_INVALID``, naming the column (and the
+            units of a calendar duration).
     """
+    values = _values(series)
     units: set[str] = set()
-    for value in _values(series):
+    for value in values:
         units |= calendar_units(value)
+    if not units and any(holds_unitless_datetime(v) for v in values):
+        raise LizyMLError(
+            ErrorCode.DATA_SCHEMA_INVALID,
+            user_message=(
+                f"Column '{column}' contains unitless numpy datetime64 categories."
+            ),
+            context={"column": column, "reason": "unitless_datetime64"},
+        )
     if units:
         shown = sorted(units)
         raise LizyMLError(
@@ -643,8 +659,11 @@ def _values(series: pd.Series) -> list[Any]:
 
 def identity_eligible(series: pd.Series) -> bool:
     """Whether the identity key decides this column: every value is in V and
-    none holds a ``Y`` / ``M`` duration (fit refuses those before asking)."""
-    return not any(refusal(v) is not None or calendar_units(v) for v in _values(series))
+    none is a keyless temporal value (fit refuses those before asking)."""
+    return not any(
+        refusal(v) is not None or calendar_units(v) or holds_unitless_datetime(v)
+        for v in _values(series)
+    )
 
 
 def cast_is_faithful(original: pd.Series, cast: pd.Series) -> bool:

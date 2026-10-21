@@ -17,7 +17,12 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from lizyml.core.category_temporal import CalendarDuration, calendar_units
+from lizyml.core.category_temporal import (
+    CalendarDuration,
+    UnitlessDatetime,
+    calendar_units,
+    holds_unitless_datetime,
+)
 from lizyml.core.category_values import category_identity_key, decode, encode, refusal
 from tests.test_codegen.test_h0133_codec_copy import COPY
 from tests.test_core.test_category_values import SAMPLES
@@ -176,26 +181,51 @@ def _generic_datetime64() -> Any:
     return np.array(4, dtype=np.int64).view("datetime64")[()]
 
 
+_UNITLESS_DATETIMES = [
+    _generic_datetime64,
+    lambda: (_generic_datetime64(), 1),
+    lambda: frozenset({_generic_datetime64(), 1}),
+]
+_UNITLESS_IDS = ["datetime64", "in a tuple", "in a frozenset"]
+
+
+@pytest.mark.parametrize("build", _UNITLESS_DATETIMES, ids=_UNITLESS_IDS)
+def test_a_unitless_datetime64_has_no_key(build: Any) -> None:
+    """The owner's ruling after the implementation review's round 2: NumPy
+    cannot show a unitless datetime64, so it has no key and fit refuses it."""
+    value = build()
+    assert refusal(value) is None  # still in V: a saved model keeps loading
+    with pytest.raises(UnitlessDatetime):
+        category_identity_key(value)
+    with pytest.raises(TypeError):
+        COPY._identity_key(value)
+
+
+def test_nat_is_not_a_unitless_datetime64() -> None:
+    """NaT keeps its H-0133 route (outside V: fit works, saving refuses)."""
+    nat = np.datetime64("NaT")
+    assert refusal(nat) is not None
+    assert not holds_unitless_datetime(nat)
+    assert not holds_unitless_datetime((nat, 1))
+    assert not COPY._holds_unitless_datetime(nat)
+
+
+@pytest.mark.parametrize("build", _UNITLESS_DATETIMES, ids=_UNITLESS_IDS)
+def test_a_unitless_datetime64_survives_both_codecs(build: Any) -> None:
+    """A saved value decodes back (round 1): the written form is unchanged."""
+    value = build()
+    assert encode(decode(encode(value))) == encode(value)
+    copy = COPY._encode_value(value)
+    assert COPY._encode_value(COPY._decode_value(copy)) == copy
+
+
 @pytest.mark.parametrize(
     "build",
-    [
-        _generic_datetime64,
-        lambda: np.timedelta64(4),
-        lambda: (_generic_datetime64(), 1),
-        # NumPy 2 cannot hash a unitless timedelta64, so only the datetime64
-        # goes into the frozenset.
-        lambda: frozenset({_generic_datetime64(), 1}),
-        lambda: (np.timedelta64(4), "a"),
-    ],
-    ids=[
-        "datetime64",
-        "timedelta64",
-        "datetime64 in a tuple",
-        "datetime64 in a frozenset",
-        "timedelta64 in a tuple",
-    ],
+    # NumPy 2 cannot hash a unitless timedelta64: no frozenset case.
+    [lambda: np.timedelta64(4), lambda: (np.timedelta64(4), "a")],
+    ids=["timedelta64", "timedelta64 in a tuple"],
 )
-def test_a_unitless_value_survives_every_serializer(build: Any) -> None:
+def test_a_unitless_timedelta64_survives_every_serializer(build: Any) -> None:
     value = build()
     assert refusal(value) is None
     key = category_identity_key(value)
@@ -206,12 +236,6 @@ def test_a_unitless_value_survives_every_serializer(build: Any) -> None:
     assert category_identity_key(decode(encode(value))) == key
     assert COPY._identity_key(COPY._decode_value(COPY._encode_value(value))) == key
     assert COPY._identity_key(value) == key
-
-
-def test_a_unitless_datetime64_is_apart_from_every_unit() -> None:
-    key = category_identity_key(_generic_datetime64())
-    assert key == ("datetime", "naive", ("datetime64-generic", 4))
-    assert key != category_identity_key(np.datetime64(4, "s"))
 
 
 def test_a_unitless_timedelta64_is_apart_from_every_fixed_duration() -> None:

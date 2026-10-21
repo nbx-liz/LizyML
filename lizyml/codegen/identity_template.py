@@ -90,16 +90,39 @@ def _calendar_units(value):
     return set()
 
 
-def _check_calendar_durations(values, col):
-    """Refuse a column holding a numpy timedelta64 in Y or M units (H-0139)."""
+def _holds_unitless_datetime(value):
+    if type(value) is tuple or type(value) is frozenset:
+        return any(_holds_unitless_datetime(item) for item in value)
+    return (
+        type(value) is np.datetime64
+        and np.datetime_data(value.dtype)[0] == "generic"
+        and not np.isnat(value)
+    )
+
+
+def _check_keyless_temporals(values, col):
+    """Refuse a column holding a temporal value with no key: a numpy
+    timedelta64 in Y or M units, or a unitless numpy datetime64 (H-0139)."""
     units = set()
     for value in values:
         units |= _calendar_units(value)
+    if not units and any(_holds_unitless_datetime(v) for v in values):
+        raise ValueError(
+            f"Column '{col}' contains unitless numpy datetime64 categories."
+        )
     if units:
         raise ValueError(
             f"Column '{col}' contains calendar-unit numpy timedelta64 "
             f"categories: {sorted(units)}."
         )
+
+
+def _text(value):
+    """``str(value)``; a value NumPy cannot show gets a placeholder."""
+    try:
+        return str(value)
+    except (TypeError, ValueError):
+        return f"<unprintable {type(value).__name__}>"
 
 
 def _days_from_civil(year, month, day):
@@ -124,7 +147,7 @@ def _datetime64_coordinate(value):
         days = _days_from_civil(1970 + count // 12, count % 12 + 1, 1)
         return days * _ATTOSECONDS["D"]
     if unit == "generic":
-        return ("datetime64-generic", count)
+        raise TypeError("a unitless numpy datetime64 has no identity key")
     return count * _ATTOSECONDS[unit]
 
 
@@ -231,7 +254,10 @@ def _column_values(series):
 
 
 def _identity_eligible(values):
-    return not any(not _in_v(v) or _calendar_units(v) for v in values)
+    return not any(
+        not _in_v(v) or _calendar_units(v) or _holds_unitless_datetime(v)
+        for v in values
+    )
 
 
 def _cast_is_faithful(original, cast):
@@ -361,23 +387,23 @@ def _keyed_codes(series, arrived, changed, known, mode, policy, col):
         pos = lookup(value)
         if pos is None:
             hit[i] = True
-            unseen[str(value)] = None
+            unseen[_text(value)] = None
         else:
             codes[i] = pos
     if isinstance(arrived.dtype, pd.CategoricalDtype):
         for declared in arrived.cat.categories:
             if lookup(declared) is None:
-                unseen[str(declared)] = None
+                unseen[_text(declared)] = None
     notes = []
     if unseen or flags.any():
-        shown = sorted(set(unseen) | {str(v) for v in original[flags]})
+        shown = sorted(set(unseen) | {_text(v) for v in original[flags]})
         if policy == "error":
             raise ValueError(
                 f"Column '{col}' contains unseen categories: "
                 f"{shown} (unseen_policy='error')"
             )
         n_rows = int(hit.sum())
-        present = sorted({str(v) for v in original[hit]})
+        present = sorted({_text(v) for v in original[hit]})
         if policy == "mode":
             codes[hit] = -1 if mode is None else position[_identity_key(mode)]
             replaced_by = f"the training mode {mode!r}"

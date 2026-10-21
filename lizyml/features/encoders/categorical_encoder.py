@@ -10,7 +10,7 @@ import pandas as pd
 
 from lizyml.core.category_values import (
     CATEGORY_IDENTITY_VERSION,
-    check_calendar_durations,
+    check_keyless_temporals,
     identity_eligible,
     identity_fields,
 )
@@ -134,7 +134,7 @@ class CategoricalEncoder:
         """
         for col in categorical_cols:
             if col in X.columns:
-                check_calendar_durations(X[col], col)
+                check_keyless_temporals(X[col], col)
         self._categories = {}
         self._modes = {}
         self._stand_in_columns = []

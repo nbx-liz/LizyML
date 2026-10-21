@@ -145,16 +145,16 @@ def keyed_codes(
         pos = _lookup(position, value)
         if pos is None:
             hit[i] = True
-            unseen[str(value)] = None
+            unseen[_text(value)] = None
         else:
             codes[i] = pos
     if isinstance(arrived.dtype, pd.CategoricalDtype):
         for declared in arrived.cat.categories:
             if _lookup(position, declared) is None:
-                unseen[str(declared)] = None
+                unseen[_text(declared)] = None
     warnings: list[str] = []
     if unseen or flags.any():
-        shown = sorted(set(unseen) | {str(v) for v in original[flags]})
+        shown = sorted(set(unseen) | {_text(v) for v in original[flags]})
         if policy == "error":
             raise LizyMLError(
                 ErrorCode.DATA_SCHEMA_INVALID,
@@ -162,7 +162,7 @@ def keyed_codes(
                 context={"column": column, "unseen_categories": shown},
             )
         n_rows = int(hit.sum())
-        present = sorted({str(v) for v in original[hit]})
+        present = sorted({_text(v) for v in original[hit]})
         if policy == "mode":
             codes[hit] = -1 if mode is None else position[category_identity_key(mode)]
             replaced_by = f"the training mode {mode!r}"
@@ -177,10 +177,19 @@ def keyed_codes(
     return codes, warnings
 
 
+def _text(value: Any) -> str:
+    """``str(value)``; a value NumPy cannot show (a unitless ``datetime64``)
+    gets a placeholder, so an unseen one never breaks the message."""
+    try:
+        return str(value)
+    except (TypeError, ValueError):
+        return f"<unprintable {type(value).__name__}>"
+
+
 def _lookup(position: dict[Any, int], value: Any) -> int | None:
     try:
         return position.get(category_identity_key(value))
     except TypeError:
-        # A value outside V, or a Y / M duration (no key, H-0139), arriving
+        # A value outside V, or a keyless temporal value (H-0139), arriving
         # in an identity column matches no category: it is unseen.
         return None

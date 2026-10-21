@@ -116,7 +116,7 @@ def test_the_builder_and_the_encoder_refuse_a_calendar_duration(
         CategoricalEncoder().fit(df, ["c"])
     _assert_calendar_refusal(caught, units)
     with pytest.raises(ValueError, match=r"calendar-unit numpy timedelta64"):
-        COPY._check_calendar_durations(COPY._column_values(df["c"]), "c")
+        COPY._check_keyless_temporals(COPY._column_values(df["c"]), "c")
 
 
 def test_an_unused_declared_calendar_duration_is_refused() -> None:
@@ -140,6 +140,56 @@ def test_model_fit_refuses_a_calendar_duration() -> None:
     with pytest.raises(LizyMLError) as caught:
         Model(make_config("regression", n_estimators=5, n_splits=2)).fit(data=df)
     _assert_calendar_refusal(caught, ["Y"])
+
+
+def _unitless_datetime64() -> Any:
+    return np.array(4, dtype=np.int64).view("datetime64")[()]
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        lambda: [_unitless_datetime64(), "x"],
+        lambda: [(_unitless_datetime64(), 1), "x"],
+        lambda: [frozenset({_unitless_datetime64(), 1}), "x"],
+    ],
+    ids=["row", "tuple", "frozenset"],
+)
+def test_a_unitless_datetime64_is_refused_at_fit(build: Any) -> None:
+    """The owner's ruling after the implementation review's round 2."""
+    df = pd.DataFrame({"c": pd.Series(build() * 3, dtype=object)})
+    for fit in (
+        lambda: _apply_categorical(df, FeatureSpec(categorical=("c",))),
+        lambda: CategoricalEncoder().fit(df, ["c"]),
+    ):
+        with pytest.raises(LizyMLError) as caught:
+            fit()
+        assert caught.value.code == ErrorCode.DATA_SCHEMA_INVALID
+        assert caught.value.context == {"column": "c", "reason": "unitless_datetime64"}
+    with pytest.raises(ValueError, match="unitless numpy datetime64"):
+        COPY._check_keyless_temporals(COPY._column_values(df["c"]), "c")
+
+
+@pytest.mark.parametrize("policy", ["mode", "nan", "error"])
+def test_a_unitless_datetime64_at_predict_is_unseen(policy: str) -> None:
+    train = pd.DataFrame({"c": pd.Series(["x", "y", "x"] * 4, dtype=object)})
+    encoder = CategoricalEncoder(unseen_policy=policy).fit(train, ["c"])  # type: ignore[arg-type]
+    batch = pd.Series([_unitless_datetime64(), "y"], dtype=object)
+    unchanged = pd.Series(False, index=batch.index)
+    cats = encoder.get_state()["categories"]["c"]
+    mode = encoder.get_state()["modes"]["c"]
+    if policy == "error":
+        with pytest.raises(LizyMLError, match="unprintable"):
+            encoder.transform(pd.DataFrame({"c": batch}))
+        with pytest.raises(ValueError, match="unprintable"):
+            COPY._keyed_codes(batch, batch, unchanged, cats, mode, policy, "c")
+        return
+    out, notes = encoder.transform_with_warnings(pd.DataFrame({"c": batch}))
+    expected = [cats.index(mode) if policy == "mode" else -1, 1]
+    assert [int(c) for c in out["c"].cat.codes] == expected
+    assert any("unprintable" in n for n in notes)
+    copied, _ = COPY._keyed_codes(batch, batch, unchanged, cats, mode, policy, "c")
+    assert _as_ints(copied) == expected
 
 
 @pytest.mark.parametrize("policy", ["mode", "nan", "error"])
