@@ -16284,7 +16284,7 @@ Codex の run `h0138-impl-review`（3 round、Proposal の停止基準をその�
   - `Model.fit` と `Model.tune` の、学習の前の警告（`num_leaves` が大きいとき）
   - `auto_num_leaves` の算出で、`max_depth` が 0 のときの扱い
   - CI の Linux のテストの job のメモリの上限
-  - tune の境界の拡張で `max_depth` に掛けていた上限 30 を外す（下限 -1 は残す）
+  - tune の境界の拡張で `max_depth` に掛けていた上限 30 を外す（下限 -1 は残す）。そのために provider の protocol の `parameter_bounds(task)` が片側だけの範囲を許すようにする
   - 範囲の外: `max_depth` の新しい制限（fit・既定の探索空間・境界の拡張のどれでも）、`num_leaves` の上限や拒否、isotonic の校正と生成 `train.py` の警告、LizyStudio のサーバーの守り（#729）、学習前に拒否するメモリの予算
 
 ### 目的（課題）
@@ -16325,14 +16325,15 @@ Codex の run `h0138-impl-review`（3 round、Proposal の停止基準をその�
      - `auto_num_leaves=false` のときに明示した値（原因は「明示した」）。別名（`num_leaf`・`max_leaf`・`max_leaves`・`max_leaf_nodes`）は `param_names.py` の LightGBM の別名の表で正規化する。
      - `auto_num_leaves=false` で何も指定しないときの、LightGBM の既定の 31（原因は「LightGBM の既定」）。LizyML の既定のパラメータは `num_leaves` を持たない（`estimators/lgbm/defaults.py`）。
    - 見積もりは「増える分のおおよその CPU メモリ」で、ヒストグラムの項 1 回分と、同時にメモリに残る booster の数だけの木の項の和とする（上の測定で、学習の済んだ booster はヒストグラムの領域を持ち続けない）。
-     - 同時に残る booster の数は、`Model.fit` では outer の fold の数 + refit の 1 つ（`CVTrainer` は fold の adapter を全て `models` に残し、refit はその後に学習する）、tune の 1 つの trial では outer の fold の数である。
+     - 見積もりが数えるのは、主の estimator（LightGBM の provider が作るモデル）の booster である。同時に残る数は、`Model.fit` では outer の fold の数 + refit の 1 つ（`CVTrainer` は fold の adapter を全て `models` に残し、refit はその後に学習する）、tune の 1 つの trial では outer の fold の数である。
+     - isotonic の校正の booster（校正の fold の最後の 1 つと最終の校正器の 2 つが、主の fold のモデルと同時に残る）は数えない。校正には警告を出さない判断 5 に合わせ、見積もりの対象の外であることを警告の文と文書に書く。
      - 特徴量の bin の合計は、学習データの列から近似する。数の列は `min(異なる値の数, max_bin)`、カテゴリの列はカテゴリの数とし、`max_bin_by_feature` があればそれを使う。
      - round 数は設定した値（早期終了なら上限）、class 数は多値分類で class の数とする。
      - 近似であることと、早期終了では上限であることを、警告の文と文書に書く。
    - 条件は「`num_leaves >= 16384`」または「見積もり >= 1 GiB」である。前者は、bin の近似が外れても 131072 葉を見逃さないためにある。後者は、葉が 16384 未満でも特徴量の多い場合を捉えるためにある。
 2. **Facade に判定を書かない**: `core/model.py` は組み立てだけを行う（CLAUDE.md §3）。判定は provider の IF（`BaseEstimatorProvider` の新しいメソッド）として呼び、LightGBM の provider だけが中身を持つ。
 3. **警告の出し方**: `UserWarning` とし、`stacklevel` を `Model.fit` / `Model.tune` の呼び手に向ける。
-   - 文は `num_leaves` の値、その原因（`auto_num_leaves` が `max_depth` から導いた、または明示した）、おおよその見積もり、対処（`auto_num_leaves=false` と小さな `num_leaves`、または浅い `max_depth`）を書く。
+   - 文は `num_leaves` の値、その原因（上の 3 つのどれか: `auto_num_leaves` が `max_depth` から導いた、明示した、LightGBM の既定）、おおよその見積もり、対処（`auto_num_leaves=false` と小さな `num_leaves`、または浅い `max_depth`）を書く。
    - 警告を例外にする設定（`warnings` の filter、`-W error`）なら、学習の前に止まる。
 4. **出す位置と回数**:
    - `Model.fit`: smart param を解決した後、`CVTrainer.fit` の前に 1 回だけ判定する。全ての fold と refit を合わせて 1 回である。
@@ -16353,7 +16354,8 @@ Firing rate: 0/5545 of the LightGBM training calls of the runnable non-slow test
 
 - 学習の結果は変わらない。警告が増えるだけである。例外は `auto_num_leaves` のままの `max_depth = 0` で、新しく fit したときに導く `num_leaves` が 8 から 131072 になる（リポジトリの中のテスト・文書・notebook・例・既定の探索空間には `max_depth = 0` を使うものが無い。Codex の検索）。
 - 保存したモデルは変わらない（`format_version` も変えない）。
-- 公開 API と Config は変わらない。警告を例外にして使う利用者は、条件に当たる設定で学習の前に止まるようになる。
+- Config と `Model` の公開 API は変わらない。警告を例外にして使う利用者は、条件に当たる設定で学習の前に止まるようになる。
+- **provider の protocol の変更**: `EstimatorProvider.parameter_bounds(task)` の戻り値の形を広げる。今は各項目が `{"min": ..., "max": ...}` の両方を持つと定めているが、片側だけ（`min` だけ、または `max` だけ）を許す。これは公開の provider の protocol の意味の変更である。`estimators/provider.py` の docstring、BLUEPRINT の説明、provider の conformance test（`tests/test_estimators/test_check_provider.py` の `test_parameter_bounds_returns_dict`。両方の key と `min < max` を要求している）を、片側を許し、両方あるときだけ `min < max` を求める形に直す。
 - tune: 新しい study と、変えた・足した次元では、境界の拡張が `max_depth` を 30 より深く広げうる。拡張は最良の値が端の近くにあるときだけ働くので、深さ 30 の端に最良の値があった study だけで、次の round の範囲が変わる。記録した study の変えていない次元は、記録した上限のままである。
 - `parameter_bounds(task)` の戻り値で、`max_depth` は `max` を持たなくなる。この戻り値を読む呼び手（LizyStudio の Range エディタ）は、片側だけの範囲を扱う必要がある（#729）。
 
@@ -16368,7 +16370,7 @@ Firing rate: 0/5545 of the LightGBM training calls of the runnable non-slow test
 ### 受け入れ基準
 
 1. `auto_num_leaves` のまま `max_depth=-1`、および `max_depth=0` の `Model.fit` で、`lgb.train` の呼び出しより前に `UserWarning` がちょうど 1 回出て、`num_leaves` の値と原因と見積もりを含む（`lgb.train` は差し替え、本物の学習をしない）。
-2. `auto_num_leaves=false` で `num_leaves`、およびその別名（`max_leaves` など）を 16384 以上にした fit でも同じ警告が出る。`auto_num_leaves=false` で何も指定しない fit は、LightGBM の既定の 31 で判定し、判定した値が LightGBM の受け取る値と同じであることを確かめる（`lgb.train` の差し替えで受け取った params を読む）。
+2. `auto_num_leaves=false` で `num_leaves`、およびその別名（`max_leaves` など）を 16384 以上にした fit でも同じ警告が出る。`auto_num_leaves=false` で何も指定しない fit は、LightGBM の既定の 31 で判定し、判定した値が LightGBM の受け取る値と同じであることを確かめる（`lgb.train` の差し替えで受け取った params を読む）。その値が見積もりの条件に当たる場合（特徴量と bin が多い）の警告の文は、原因として「LightGBM の既定」を書く。
 3. `num_leaves` は 16384 未満だが見積もりが 1 GiB 以上の fit で警告が出る。次の 2 つを含む: 特徴量と bin の多い場合と、1 つの booster では 1 GiB 未満だが fold と refit を合わせると超える場合（例えば `num_leaves=8192`、1000 round、20 fold）。後者は tune の trial でも確かめる。
 4. 既定の fit と、最初の既定の探索空間の tune では警告しない。
 5. CV の全ての fold と refit を合わせて、警告はちょうど 1 回である。
@@ -16378,7 +16380,7 @@ Firing rate: 0/5545 of the LightGBM training calls of the runnable non-slow test
 9. 見積もりの式を、上の実測の例の数（予測値）で固定する単体テストがある。
 10. CI の Linux で pytest を走らせる全ての step（対応方針 6 の 5 つ）がメモリの上限の下で走り、通る。workflow の中で pytest を走らせる Linux の step のうち上限の無いものが 0 であることを、テストで数える。
 11. BLUEPRINT（算出ロジック、警告、`parameter_bounds` の片側の範囲）と CHANGELOG を更新する。
-12. `max_depth` の上限: `parameter_bounds` の `max_depth` は `{"min": -1}` で、最良の値が端の近くにある新しい study の境界の拡張が 30 より深く広がる。下限 -1 はそのまま効く。片側だけの範囲を `attach_bounds` が受け付け、無い側を無制限にする。記録した study の resume で、変えていない `max_depth` の次元は記録した上限 30 のままである。
+12. `max_depth` の上限: provider の conformance test が片側だけの範囲を受け付け、両方あるときだけ `min < max` を求める。`parameter_bounds` の `max_depth` は `{"min": -1}` で、最良の値が端の近くにある新しい study の境界の拡張が 30 より深く広がる。下限 -1 はそのまま効く。片側だけの範囲を `attach_bounds` が受け付け、無い側を無制限にする。記録した study の resume で、変えていない `max_depth` の次元は記録した上限 30 のままである。
 
 **レビューの停止基準**: 上の受け入れ基準のテスト、実装の後の full suite での firing rate の census、文書、CI の上限が通ったら止める。経験的な係数の精度を詰めること、拒否する予算を必須にすること、Studio の守りを LizyML で解くこと、`max_depth` を制限することは、次の round に進む理由にならない。
 
@@ -16390,3 +16392,12 @@ Firing rate: 0/5545 of the LightGBM training calls of the runnable non-slow test
   2. `auto_num_leaves=false` で何も指定しないとき、LightGBM の既定の 31 が使われる場合が抜けていた。→ 判定の値の 3 つ目に足し、受け入れ 2 に足した。
   3. CI の上限の対象から、Smoke の `ubuntu-latest` と Notebook index の実行の job が漏れていた。→ Linux で pytest を走らせる 5 つの step を全て対象にし、上限の無い step が 0 であることをテストで数える（受け入れ 10）。
   4. tune の境界の拡張に、`max_depth` の既存の上限 30 が残っていた。→ 管理者に判断を仰いだ。管理者は「上限 30 も外す」を選んだ（判断 7）。対応方針 7・互換性・受け入れ 12 を足した。
+
+### Proposal レビュー round 2（2026-10-21）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`ff31866`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`ff31866`）は CHANGES_REQUESTED で、major 3 件だった。どれも round 1 の対応の欠陥なので、停止ルールにより管理者に判断を仰ぎ、管理者は「直して round 3」を選んだ。
+- **対応**（上の本文を直した）:
+  1. LightGBM の既定の 31 を判定の値に足したのに、警告の文の原因に入れていなかった。→ 文の原因を 3 つにし、受け入れ 2 で「LightGBM の既定」を書くことを確かめる。
+  2. 「fold + refit」の数が、isotonic の校正の booster（2 つが同時に残る）を数えていなかった。→ 見積もりが数えるのは主の estimator の booster だと書き、校正の booster は判断 5 に合わせて対象の外だと警告の文と文書に書く。
+  3. `parameter_bounds(task)` の戻り値の形を変えるのに、互換性で「公開 API は変わらない」と書いていた。→ provider の protocol の変更として互換性とスコープに書き、protocol の docstring と conformance test を直す（受け入れ 12）。
