@@ -16331,7 +16331,10 @@ Codex の run `h0138-impl-review`（3 round、Proposal の停止基準をその�
      - round 数は設定した値（早期終了なら上限）、class 数は多値分類で class の数とする。
      - 近似であることと、早期終了では上限であることを、警告の文と文書に書く。
    - 条件は「`num_leaves >= 16384`」または「見積もり >= 1 GiB」である。前者は、bin の近似が外れても 131072 葉を見逃さないためにある。後者は、葉が 16384 未満でも特徴量の多い場合を捉えるためにある。
-2. **Facade に判定を書かない**: `core/model.py` は組み立てだけを行う（CLAUDE.md §3）。判定は provider の IF（`BaseEstimatorProvider` の新しいメソッド）として呼び、LightGBM の provider だけが中身を持つ。
+2. **Facade に判定を書かない**: `core/model.py` は組み立てだけを行う（CLAUDE.md §3）。判定は、provider の任意の capability として呼ぶ。
+   - `estimators/provider.py` に、`EstimatorProvider` とは別の `runtime_checkable` な Protocol（例えば `ResourceWarningProvider`）を置く。H-0128 の `TrialErrorProvider` と同じ形である。
+   - `Model.fit` と `Model.tune` は、`isinstance(provider, ResourceWarningProvider)` のときだけ判定を呼び、そうでなければ何もしない。H-0140 より前に書いた provider や、LightGBM 以外の provider は、そのまま `EstimatorProvider` を満たし、警告は出ない。
+   - LightGBM の provider だけが中身を持つ。`EstimatorProvider` の protocol 自体は変えない（変えるのは `parameter_bounds` の戻り値の形だけ。互換性の節）。
 3. **警告の出し方**: `UserWarning` とし、`stacklevel` を `Model.fit` / `Model.tune` の呼び手に向ける。
    - 文は `num_leaves` の値、その原因（上の 3 つのどれか: `auto_num_leaves` が `max_depth` から導いた、明示した、LightGBM の既定）、おおよその見積もり、対処（`auto_num_leaves=false` と小さな `num_leaves`、または浅い `max_depth`）を書く。
    - 警告を例外にする設定（`warnings` の filter、`-W error`）なら、学習の前に止まる。
@@ -16381,6 +16384,7 @@ Firing rate: 0/5545 of the LightGBM training calls of the runnable non-slow test
 10. CI の Linux で pytest を走らせる全ての step（対応方針 6 の 5 つ）がメモリの上限の下で走り、通る。workflow の中で pytest を走らせる Linux の step のうち上限の無いものが 0 であることを、テストで数える。
 11. BLUEPRINT（算出ロジック、警告、`parameter_bounds` の片側の範囲）と CHANGELOG を更新する。
 12. `max_depth` の上限: provider の conformance test が片側だけの範囲を受け付け、両方あるときだけ `min < max` を求める。`parameter_bounds` の `max_depth` は `{"min": -1}` で、最良の値が端の近くにある新しい study の境界の拡張が 30 より深く広がる。下限 -1 はそのまま効く。片側だけの範囲を `attach_bounds` が受け付け、無い側を無制限にする。記録した study の resume で、変えていない `max_depth` の次元は記録した上限 30 のままである。
+13. capability: `ResourceWarningProvider` を実装しない provider（テストの最小の provider）で `Model.fit` と `Model.tune` が今と同じに動き、警告を出さない。LightGBM の provider は `isinstance(provider, ResourceWarningProvider)` を満たす。
 
 **レビューの停止基準**: 上の受け入れ基準のテスト、実装の後の full suite での firing rate の census、文書、CI の上限が通ったら止める。経験的な係数の精度を詰めること、拒否する予算を必須にすること、Studio の守りを LizyML で解くこと、`max_depth` を制限することは、次の round に進む理由にならない。
 
@@ -16401,3 +16405,9 @@ Firing rate: 0/5545 of the LightGBM training calls of the runnable non-slow test
   1. LightGBM の既定の 31 を判定の値に足したのに、警告の文の原因に入れていなかった。→ 文の原因を 3 つにし、受け入れ 2 で「LightGBM の既定」を書くことを確かめる。
   2. 「fold + refit」の数が、isotonic の校正の booster（2 つが同時に残る）を数えていなかった。→ 見積もりが数えるのは主の estimator の booster だと書き、校正の booster は判断 5 に合わせて対象の外だと警告の文と文書に書く。
   3. `parameter_bounds(task)` の戻り値の形を変えるのに、互換性で「公開 API は変わらない」と書いていた。→ provider の protocol の変更として互換性とスコープに書き、protocol の docstring と conformance test を直す（受け入れ 12）。
+
+### Proposal レビュー round 3（2026-10-21）
+
+- **monitor**: round 3 の前に、runner の relational monitor を走らせた（`7e65722`、観察した round は 1〜2）。結果は CONVERGING・continue で、disposition は continue。
+- **結果**: round 3（`7e65722`）は CHANGES_REQUESTED で、major 1 件だった。run `h0140-proposal-review` はこれで終わる。
+  - 判定を「`BaseEstimatorProvider` の新しいメソッド」として呼ぶと書いていたが、その型は無い。Facade の境界は構造の Protocol `EstimatorProvider` で、既定の実装を持たない。そのまま足すと、古い provider や LightGBM 以外の provider が fit と tune で落ちる。→ H-0128 の `TrialErrorProvider` と同じ任意の capability（`ResourceWarningProvider`）にし、実装しない provider では何もしない形にした（対応方針 2、受け入れ 13）。
