@@ -55,7 +55,7 @@ _REQUIRED_METADATA_KEYS = frozenset(
 # Format versions this loader can read. Older versions are upgraded in-memory
 # via _migrate_fit_result so behavior remains equivalent to a fresh fit on
 # the current library (numeric targets).
-_SUPPORTED_FORMAT_VERSIONS = frozenset({1, 2, 3, 4})
+_SUPPORTED_FORMAT_VERSIONS = frozenset({1, 2, 3, 4, 5})
 
 #: The one ``tuning.history`` declaration a format-4 artifact may carry besides
 #: ``null`` (H-0134 P4): any other shape is refused, never read as "no history".
