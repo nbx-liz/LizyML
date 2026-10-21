@@ -16499,8 +16499,8 @@ H-0138 は、時刻の型の値を含む列を範囲の外とし、今の pandas
   - pytz の標準時と `"x"` の列は、in-memory では正しいが、joblib が pytz の値を `fold=1` で戻して hash が変わるので、H-0136 が保存を拒否する。
 - **H-0133 の `SAMPLES` の列**（Codex の run が実行で確かめた）:
   - ns より細かい単位（`ps`・`fs`・`as`、`2s`・`10ms` の倍数）の `np.datetime64` の列は、pandas 3 で、学習した 6 つの値の 338 行を最頻値 `Timestamp("1970-01-01")` に置き換えた（`h0139-temporal-critique` の finding 5）。値 1 つのバッチの予測で符号がまとまる（pandas 2 では欠損の符号にもなる）ことによる（`h0139-mechanism-design` の finding 2）。
-  - 単位の混ざった `np.timedelta64` の列は、fit の cast が pandas 2・3 とも失敗する（`from_unit must be <= to_unit`、単位 `Y` は扱えない）。
-  - pandas 2 の `Timestamp` の列は、fit の cast が `Categorical categories must be unique` で失敗する。
+  - `SAMPLES` の単位の混ざった `np.timedelta64` の値だけの列は、fit の cast が pandas 2・3 とも失敗する（`from_unit must be <= to_unit`、単位 `Y` は扱えない）。文字列と混ざった同じ値の列（H-0133 の受け入れの `numpy.timedelta64 with a str`）は、object のまま残るので今 fit できる。
+  - pandas 2 の `SAMPLES` の `Timestamp` の値だけの列は、fit の cast が `Categorical categories must be unique` で失敗する。
 - 予測の段で fit と同じ cast をする案は直らない。`[標準時, "x"]` のバッチでは cast が `fold=0` を残すので、結果がバッチの中身で変わる（H-0138 の批評 `v021-category-critique`）。値 1 つから決まる同一性が要る。
 
 ### 実測（2026-10-22、branch `feat/h0139-temporal-category-identity`、develop `3f8b65f` の上）
@@ -16554,7 +16554,7 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
    - 例外: `LizyMLError`、code `DATA_SCHEMA_INVALID`、文 `Column '<列>' contains calendar-unit numpy timedelta64 categories: <並べた単位>.`、context `{"column": 列, "units": 並べた単位, "reason": "calendar_timedelta64"}`。
    - 生成 `train.py` は、`cast_categoricals` の前、宣言したカテゴリの復元の前、`fit_pipeline` で各列を学ぶ前に、同じ文の `ValueError` を出す（生成コードの今の例外の慣習）。印の無い古い設定で学習し直すときも検査する。
    - predict では検査しない。年・月の値は、キーが無いので unseen として扱う（`mode` は保存した最頻値、`nan` は欠損、`error` は今の unseen の `DATA_SCHEMA_INVALID`。生成コードは `ValueError`）。印の無い列は保存した pandas の経路のまま。
-   - 今 fit できて拒否に変わるもの: 検査用の列で、年・月を含む列 221（pandas 3）・225（pandas 2）のうち、今 fit が通るのは 203・211、残り 18・14 は今も失敗する。`SAMPLES` の単位の混ざった `np.timedelta64` の列は、今も両方の版で失敗する。
+   - 今 fit できて拒否に変わるもの: 検査用の列で、年・月を含む列 221（pandas 3）・225（pandas 2）のうち、今 fit が通るのは 203・211、残り 18・14 は今も失敗する。`SAMPLES` の単位の混ざった `np.timedelta64` の値だけの列は今も両方の版で失敗するが、文字列と混ざった列は今 fit でき、拒否に変わる（H-0133 の受け入れの case。census で確かめた）。
 3. **経路**: `identity_eligible` とキーから `holds_temporal` の除外を外す（V の検査と年・月の検査は残す）。生成コードの写し（`identity_template.py` の `_identity_eligible`・`_identity_key`・`_key`）も同じにし、`_key` に時刻の全ての分岐を足す（最後の `frozenset` の分岐に落とさない）。`holds_temporal` は、テストと census のための観察用に残す。
    - `cast_is_faithful` とその写しは変えない。忠実とは、キー・行の符号・欠損の符号・宣言の順のことで、代表の値の型が pandas の正規化で変わることは問わない。
    - pandas 2 が `Timestamp` だけの列を `datetime64[ns, tz]` のカテゴリにしても（#379）、`np.datetime64` の日の列を `Timestamp` のカテゴリにしても、キーで忠実なら、今のカテゴリ・代表の値・順・最頻値をそのまま使う。忠実でなければ、H-0138 と同じに作り直し、置き換えの列にする（`DataFrame.attrs` の記録は列の名前だけで、カテゴリは各 fold の中で学ぶ）。
@@ -16582,7 +16582,7 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
 
 - 今正しく動く時刻の列（上の測定の、今 1 つにまとまる組と、今 2 つになる組）は、pandas に忠実なので、カテゴリ・順・代表の値・最頻値・符号・学習したモデルが、同じ依存の版・パラメータ・行の順・seed のもとで変わらない。状態の `identity_columns` に、その列が足される。
 - 変わるのは、判断 2 で受け入れた列（同じ時区の zoneinfo の fold の組を持つ `datetime` の列、ns より細かい `np.datetime64` の列、pytz の標準時と zoneinfo の `fold=1` の列）と、今 fit が失敗する列（通るようになる）、今の保存の拒否（上の 3 つの形と、H-0136 の受け入れの pytz の 7 つの形は保存できるようになる）。予測の差は、測った列で最大 0.0006。
-- 年・月の単位の `np.timedelta64` を含む列は、fit で拒否される。値 1 つと `"x"` の列は今 fit できる（検査用の列で pandas 3 の 203、pandas 2 の 211）。単位の混ざった列は今も失敗する。H-0133 の受け入れの「受け付ける全ての型が保存と予測で同じ」の 3 つの case（`numpy.timedelta64 with a str`・`timedelta64[Y] with a str`・`timedelta64[M] with a str`）は、判断 4 により、fit の拒否を確かめるテストに変わる。値の集合 V と codec は変えないので、年・月の値を持つ保存したモデルは今と同じに読み込める。
+- 年・月の単位の `np.timedelta64` を含む列は、fit で拒否される。値 1 つと `"x"` の列は今 fit できる（検査用の列で pandas 3 の 203、pandas 2 の 211）。単位の混ざった値だけの列は今も失敗するが、文字列と混ざった列は今 fit できる。H-0133 の受け入れの「受け付ける全ての型が保存と予測で同じ」の 3 つの case（`numpy.timedelta64 with a str`・`timedelta64[Y] with a str`・`timedelta64[M] with a str`）は、判断 4 により、fit の拒否を確かめるテストに変わる。値の集合 V と codec は変えないので、年・月の値を持つ保存したモデルは今と同じに読み込める。
 - 保存したモデル（版 1〜4 の印の無い状態、develop で保存した版 5 の状態）は、保存した引き方で今と同じに予測し、`export_code` も今と同じコードを書く。保存形式は変わらない。develop の H-0138 のライブラリが、H-0139 で fit した版 1 の状態（時刻の列を `identity_columns` に持つ）を読むと、時刻の値にキーを作れず失敗しうる。H-0138 はリリースしていないので、判断 3 で受け入れた。
 - 公開 API と Config は変わらない。`FitResult` と `PredictionResult` の形も変わらない。
 
@@ -16592,7 +16592,7 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
 - **Python・pandas の `==` に合わせる**（契約 C）: 推移律が無く、hash とも合わない（pytz の標準時と zoneinfo の `fold=1` は `==` で等しいが hash が違う）。安定したキーにならない。採らない（判断 1）。
 - **予測の段でも fit と同じ cast をする**: バッチの中身で結果が変わる（H-0138 の批評）。採らない。
 - **同一性の版を 2 にする、`FORMAT_VERSION` を 6 にする**: リリースした版 1 が無いので、門を増やすだけで、移行とゴールデンテストの更新が増える。採らない（判断 3）。
-- **年・月を暦の月として別の種類にする**（1 年 = 12 か月、日や秒の期間とは比べない）: 今失敗する単位の混ざった列も fit できるようになるが、契約が大きくなる。採らない（判断 4）。
+- **年・月を暦の月として別の種類にする**（1 年 = 12 か月、日や秒の期間とは比べない）: 今失敗する単位の混ざった値だけの列も fit できるようになり、文字列と混ざった列も今のまま fit できるが、契約が大きくなる。採らない（判断 4）。
 - **H-0138 の参照ファイルを作り直す**: 変わる case と変わらない case の区別が見えなくなり、変わらないはずの case のずれを見逃す。採らない（対応方針 7）。
 
 ### 受け入れ基準
