@@ -90,10 +90,11 @@ class TestFormatVersionRejection:
     """Unknown format_version values are rejected on load.
 
     H-0070: format_version 1 and 2 are both accepted; H-0133 adds 3 and
-    H-0134 adds 4. Only versions outside the supported set are rejected.
+    H-0134 adds 4 and H-0138 adds 5. Only versions outside the supported set
+    are rejected.
     """
 
-    @pytest.mark.parametrize("bad_version", [0, 5, 99, -1, None])
+    @pytest.mark.parametrize("bad_version", [0, 6, 99, -1, None])
     def test_invalid_format_version_raises(
         self, tmp_path: Path, bad_version: Any
     ) -> None:
@@ -175,19 +176,143 @@ class TestFormatVersionV2AndV3:
         """H-0134 P8: a loader that knows only 1-3 refuses v4 instead of
         ignoring the tuning history file and showing an empty study."""
         from lizyml.persistence import loader
+        from tests.test_persistence._artifact_versions import to_v4_shape
 
         df = make_regression_df(n=100, seed=0)
         export_dir = _fit_and_export(
             make_config("regression", n_estimators=5, n_splits=2), df, tmp_path
         )
+        to_v4_shape(export_dir)
         assert (
             json.loads((export_dir / "metadata.json").read_text())["format_version"]
             == 4
         )
+        assert Model.load(export_dir) is not None  # the v4 shape is readable
         monkeypatch.setattr(loader, "_SUPPORTED_FORMAT_VERSIONS", frozenset({1, 2, 3}))
         with pytest.raises(LizyMLError) as exc_info:
             Model.load(export_dir)
         assert exc_info.value.code == ErrorCode.DESERIALIZATION_FAILED
+
+    def test_a_v5_artifact_is_refused_by_a_loader_without_5(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """H-0138 acceptance 10: a loader that knows only 1-4 refuses v5
+        instead of looking the categories up through pandas."""
+        from lizyml.persistence import loader
+
+        df = make_regression_df(n=100, seed=0)
+        export_dir = _fit_and_export(
+            make_config("regression", n_estimators=5, n_splits=2), df, tmp_path
+        )
+        meta = json.loads((export_dir / "metadata.json").read_text())
+        assert meta["format_version"] == 5
+        monkeypatch.setattr(
+            loader, "_SUPPORTED_FORMAT_VERSIONS", frozenset({1, 2, 3, 4})
+        )
+        with pytest.raises(LizyMLError) as exc_info:
+            Model.load(export_dir)
+        assert exc_info.value.code == ErrorCode.DESERIALIZATION_FAILED
+        assert exc_info.value.context["format_version"] == 5
+
+    @pytest.mark.parametrize("values", [["a", "b"], [1, "1", 2.5]], ids=repr)
+    def test_a_v4_artifact_keeps_the_pandas_lookup(
+        self, values: list[Any], tmp_path: Path
+    ) -> None:
+        """H-0138 decision 2: an unmarked state predicts as when it was saved,
+        and its ``export_code`` writes the pandas lookup."""
+        from tests.test_features.test_h0138_identity import _model_on
+        from tests.test_persistence._artifact_versions import to_v4_shape
+
+        model, df = _model_on(values)
+        X = df.drop(columns=["target"])
+        expected = model.predict(X).pred
+        export_dir = tmp_path / "artifact"
+        model.export(export_dir)
+        to_v4_shape(export_dir)
+        loaded = Model.load(export_dir)
+        encoder = loaded._refit_result.pipeline_state["encoder"]  # noqa: SLF001
+        assert "category_identity_version" not in encoder
+        np.testing.assert_array_equal(loaded.predict(X).pred, expected)
+        np.testing.assert_array_equal(loaded.predict(X.iloc[::-1]).pred, expected[::-1])
+        loaded.export_code(tmp_path / "gen")
+        config = json.loads((tmp_path / "gen" / "config.json").read_text())
+        assert config["category_identity_version"] is None
+
+
+def _rewrite_encoders(export_dir: Path, change: Any) -> None:
+    """Apply *change* to every saved encoder state and re-sign the pickles."""
+    from tests.test_persistence._artifact_versions import _encoder_states
+
+    for name in ("fit_result.pkl", "refit_model.pkl"):
+        pkl = export_dir / name
+        result = joblib.load(pkl)
+        for encoder in _encoder_states(result):
+            change(encoder)
+        joblib.dump(result, pkl, compress=3)
+    resign(export_dir)
+
+
+class TestIdentityMarkerAtLoad:
+    """H-0138 acceptance 10: ``Model.load`` itself refuses an unknown marker
+    (implementation review round 1, major 2), not the first ``predict``."""
+
+    @pytest.fixture(scope="class")
+    def exported(self, tmp_path_factory: pytest.TempPathFactory) -> Path:
+        from tests.test_features.test_h0138_identity import _model_on
+
+        model, _ = _model_on(["a", "b"])
+        path = tmp_path_factory.mktemp("marked") / "artifact"
+        model.export(path)
+        return path
+
+    def _copy(self, exported: Path, tmp_path: Path) -> Path:
+        import shutil
+
+        target = tmp_path / "artifact"
+        shutil.copytree(exported, target)
+        return target
+
+    @pytest.mark.parametrize("marker", [2, "1", None, -1, True, 1.0])
+    def test_an_unknown_marker_is_refused_by_load(
+        self, marker: Any, exported: Path, tmp_path: Path
+    ) -> None:
+        artifact = self._copy(exported, tmp_path)
+        _rewrite_encoders(
+            artifact, lambda e: e.__setitem__("category_identity_version", marker)
+        )
+        with pytest.raises(LizyMLError) as exc_info:
+            Model.load(artifact)
+        assert exc_info.value.code == ErrorCode.DESERIALIZATION_FAILED
+        assert "category identity version" in exc_info.value.user_message
+
+    @pytest.mark.parametrize(
+        "columns", [None, "c", ["missing"], [[]], [{}], [set()]], ids=repr
+    )
+    def test_malformed_identity_columns_are_refused_by_load(
+        self, columns: Any, exported: Path, tmp_path: Path
+    ) -> None:
+        artifact = self._copy(exported, tmp_path)
+        _rewrite_encoders(
+            artifact, lambda e: e.__setitem__("identity_columns", columns)
+        )
+        with pytest.raises(LizyMLError) as exc_info:
+            Model.load(artifact)
+        assert exc_info.value.code == ErrorCode.DESERIALIZATION_FAILED
+
+    def test_a_v4_artifact_carrying_a_marker_is_refused(
+        self, exported: Path, tmp_path: Path
+    ) -> None:
+        artifact = self._copy(exported, tmp_path)
+        meta = json.loads((artifact / "metadata.json").read_text())
+        meta["format_version"] = 4
+        (artifact / "metadata.json").write_text(json.dumps(meta))
+        with pytest.raises(LizyMLError) as exc_info:
+            Model.load(artifact)
+        assert exc_info.value.code == ErrorCode.DESERIALIZATION_FAILED
+        assert exc_info.value.context["format_version"] == 4
+
+    def test_the_marked_artifact_itself_loads(self, exported: Path) -> None:
+        assert Model.load(exported) is not None
 
 
 class TestFormatVersionV1Migration:
@@ -201,7 +326,11 @@ class TestFormatVersionV1Migration:
 
         # Tamper metadata to claim v1 to simulate an older artifact. Real v1
         # artifacts predate the H-0083 integrity field, so drop ``checksums``
-        # too (otherwise the re-pickled payload below would mismatch).
+        # too (otherwise the re-pickled payload below would mismatch). They
+        # predate the H-0133 stand-ins and the H-0138 marker as well.
+        from tests.test_persistence._artifact_versions import to_v2_shape
+
+        to_v2_shape(export_dir)
         meta_path = export_dir / "metadata.json"
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         meta["format_version"] = 1

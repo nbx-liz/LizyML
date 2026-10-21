@@ -585,7 +585,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `run_meta`
   - `lizyml_version / python_version / deps_versions / config_normalized / config_version / run_id / timestamp`
   - 型: `lizyml_version`（`str`）、`python_version`（`str`）、`deps_versions`（`dict[str, str]`）、`config_normalized`（`dict`）、`config_version`（`int`）、`run_id`（`str`、UUID 文字列）、`timestamp`（`str`、ISO 8601、UTC）。
-- `target_encoder`（H-0070 で v2 に追加。現行は format_version=4）
+- `target_encoder`（H-0070 で v2 に追加。現行は format_version=5）
   - `TargetEncoder(classes_: tuple[Any, ...], needs_encoding: bool, original_dtype: str)`
   - 数値 y / regression では `needs_encoding=False` の no-op
   - 非数値 classification y では `classes_` に **lexicographically** sorted な元ラベルを保持
@@ -1907,8 +1907,8 @@ estimators/
 
 - `format_version` が読めない場合は明示的に拒否する（黙って壊れた復元をしない）。`format_version` は JSON の整数でなければならず、`true` や `2.0` のように等しく比べられる値も拒否する。`metadata.json` が JSON の object でないときも拒否する（H-0135）。
 - 将来 migration を実装できる前提で serializer に拡張点を残す。
-- 現行 `FORMAT_VERSION = 4`（H-0134）。`{1, 2, 3, 4}` を loader が受理し、v1 artifact には no-op `TargetEncoder` を in-memory で注入して contract を整合させる（INV-5、H-0070）。v1・v2 の pipeline 状態には `stand_in_columns` が無く、どの列も元の値のカテゴリのまま読み、今と同じに予測する。3 に上げたのは意味の変更のためである: 位置の番号に置き換えた列（§15.3）を持つ状態を古い LizyML が読むと、元の値のカテゴリとして扱い、エラー無しに予測を間違える（H-0133 の実測）。そのため古い LizyML は v3 を拒否しなければならない。4 に上げたのは、`tuning_history.json` を知らない LizyML が v4 を読むと、そのファイルを無視して試行の履歴を空の表として見せるためである（#315 の欠陥。H-0134）。v1〜v3 は履歴を持たない成果物として読む。
-- **フィールドの追加は後方互換の変更で、`format_version` を上げない。** フィールドの削除、型や意味の変更は破壊的変更で、`format_version` を上げる（H-0003）。`checksums`（H-0083）、`tuning`（H-0086）、`applied_training_params`（H-0109）、`applied_sample_weight` / `declared_categories`（H-0120）はいずれも追加で、版を上げずに入った（H-0133 が意味の変更で版を 3 に上げるまで v2。H-0134 が `FORMAT_VERSION = 4` に上げた）。旧 loader は知らないキーを無視する。**例外（H-0134）**: 追加のフィールドでも、それが無いと、受理する古い loader が報告を黙って間違えるもの（`tuning.history` と `tuning_history.json`。古い loader は空の表を返す）は意味の変更として扱い、版を上げる。
+- 現行 `FORMAT_VERSION = 5`（H-0138）。`{1, 2, 3, 4, 5}` を loader が受理し、v1 artifact には no-op `TargetEncoder` を in-memory で注入して contract を整合させる（INV-5、H-0070）。v1・v2 の pipeline 状態には `stand_in_columns` が無く、どの列も元の値のカテゴリのまま読み、今と同じに予測する。3 に上げたのは意味の変更のためである: 位置の番号に置き換えた列（§15.3）を持つ状態を古い LizyML が読むと、元の値のカテゴリとして扱い、エラー無しに予測を間違える（H-0133 の実測）。そのため古い LizyML は v3 を拒否しなければならない。4 に上げたのは、`tuning_history.json` を知らない LizyML が v4 を読むと、そのファイルを無視して試行の履歴を空の表として見せるためである（#315 の欠陥。H-0134）。v1〜v3 は履歴を持たない成果物として読む。5 に上げたのは、エンコーダの状態がカテゴリを構造のキーで引く印（`category_identity_version`、§15.3）を持つためである。古い LizyML が v5 を読むと pandas の引き方で照合し、H-0138 が直した列に古い間違った符号を付ける。v1〜v4 の状態は印を持たないので、load の後も今までの pandas の引き方で予測する（予測は変わらない。古い状態を版 1 の同一性に書き直さない、一方向の互換。H-0138）。
+- **フィールドの追加は後方互換の変更で、`format_version` を上げない。** フィールドの削除、型や意味の変更は破壊的変更で、`format_version` を上げる（H-0003）。`checksums`（H-0083）、`tuning`（H-0086）、`applied_training_params`（H-0109）、`applied_sample_weight` / `declared_categories`（H-0120）はいずれも追加で、版を上げずに入った（H-0133 が意味の変更で版を 3 に上げるまで v2。H-0134 が 4 に上げ、現行は H-0138 の `FORMAT_VERSION = 5`）。旧 loader は知らないキーを無視する。**例外（H-0134）**: 追加のフィールドでも、それが無いと、受理する古い loader が報告を黙って間違えるもの（`tuning.history` と `tuning_history.json`。古い loader は空の表を返す）は意味の変更として扱い、版を上げる。
 - `load()` は毎回 `metadata.json` を検査する。必須キー（`_REQUIRED_METADATA_KEYS` = `format_version` / `task` / `feature_names` / `config` / `run_id`）が欠けていれば `DESERIALIZATION_FAILED`。
 - **完全性の検査（H-0083）**: `load()` は各 `.pkl` のバイト列を 1 回だけ読み、`checksums` に記録された digest と照合してから、そのバイト列を `joblib.load(io.BytesIO(...))` で復元する（ファイルを再 open しないので、検査と復元の間の TOCTOU が無い）。digest が一致しないときは pickle を実行する前に `DESERIALIZATION_FAILED`（context: `file` / `expected` / `actual`）。
 - **読むファイルは `checksums` の宣言で決まる（H-0135）**: 次の拒否はどれも `DESERIALIZATION_FAILED` で、context の `reason` が理由を示し、どの pickle も読む前に起きる。
@@ -1938,6 +1938,10 @@ estimators/
     3. 状態ごとに adapter の `unsaveable_categories` にも尋ねる（下の IF）。
   - **fit の警告**: `fit()` は CV の学習の前に、全ての学習行で fit した pipeline の状態（refit の pipeline と同じ行）を V で判定し、外の値を持つ列ごとに `UserWarning` を出す。V の外の値が無ければ、fit を終えた後で、export が判定するのと同じ保存する状態と `declared_categories` に上の 2 の検査を当て、拒否される列ごとに `UserWarning` を出す（H-0136、`exporter.warn_saved_state_changes`。結果は状態のカテゴリの順で変わるので、保存する状態そのもので判定する）。fit は止めない。
   - **位置の番号への置き換え**: LightGBM は booster を pickle するとき、各カテゴリ列のカテゴリをモデル文字列に JSON で書くので、書けない値（`category_json.is_writable`）を持つ列はそのままでは保存できない。LightGBM の provider はこの判定を pipeline に渡し、エンコーダは fit の時点で、そのような値を一つでも持つ列を `stand_in_columns` として状態に記録する（CV は transform より前に状態を保存するので、fit で決める）。transform は元の値で照合した後（未知の値、`unseen_policy`、欠損は今と同じ）、その列だけカテゴリを位置の番号 0..k−1 に置き換える。符号は変わらないので、予測は変わらない。それ以外の列と、`get_native_model()` が返す Booster の挙動は変わらない。メモリの中のモデルで、置き換えた列を持つ Booster に元の値の列を直接渡すと、予測を黙って間違える。
+  - **カテゴリの値の同一性（H-0138）**: カテゴリの列の値が全て V の中にあり、時刻の型の値（入れ子の中も含む）を持たない列では、「どの値が同じカテゴリか」を `core/category_values.py` の `category_identity_key` が決める。数として等しい値（`-0.0`・`0`・`False`・`Decimal("-0")`、`True` と `np.uint8(1)`、`Decimal("1")` と `np.int8(1)`）は 1 つのカテゴリ、文字列と `np.str_`、bytes と `np.bytes_` も等しければ 1 つ、`tuple` と `frozenset` は要素ごとにこの規則で比べる。キーは値自身の `==` と `hash` を走らせない。時刻の型の値か V の外の値を持つ列は、キーを使わず今までの pandas の経路を通る（時刻の型は H-0139）。
+    - **今正しく動く列は変えない**: データの組み立て（`dataframe_builder._apply_categorical`）とエンコーダの fit は、pandas の cast（`astype("category")`）と今までのカテゴリ・最頻値を実際に作り、それがキーに忠実か（カテゴリのキーが一意、欠損でない行の符号のカテゴリのキーが行のキーと同じ、欠損は -1、宣言したカテゴリは同じ順）を確かめる。忠実なら今の結果をそのまま使う。cast が例外を出すか忠実でないときだけ、キーで作り直す（代表の値はキーごとに最初に現れた値、順は推定した列で `sorted(..., key=str)`、宣言した列で宣言の順、最頻値はキーで数えて同数ならカテゴリの順で先のもの）。作り直した列は必ず位置の番号への置き換えの列（`stand_in_columns`）になる。
+    - **データ層**: 組み立てが cast できない列・忠実でない列は元の object の列のまま残し、`DataFrame.attrs` の非公開の項目（`IDENTITY_OBJECT_COLUMNS`）に列の名前だけを記録する。`NativeFeaturePipeline.fit` はこの列もカテゴリの列として選ぶ。カテゴリは各 fold と refit の `pipeline.fit` の中で学習する（リークの境界は変わらない）。
+    - **状態と照合**: 新しく fit したエンコーダの状態は `category_identity_version`（現行 1）と、キーで扱う列の一覧 `identity_columns` を持つ。transform はその列を、H-0127 の `comparable_values` を通した後、行のキーから位置の番号を直接引き（pandas の object の Index・`set`・`isin` を使わない）、unseen の方針を番号の上で当てる。印の無い状態（v1〜v4）は今までの pandas の引き方で動く。知らない印（`category_identity_version` が 1 以外、整数でない、`identity_columns` の形が違う）は `load_state`（と `Model.load`）で `DESERIALIZATION_FAILED`。`export_state_json` も印と一覧を書く。
   - **`metadata.json` の `declared_categories`**: 型の印つきの JSON（下の §15.4）で書く。`lizyml.persistence.load` が一度だけ復号し、`Model.load` はその結果を使う。形の外れた印は両方で `DESERIALIZATION_FAILED`。
 
 ## 15.4 `export_code`（Codegen Export, H-0059）
@@ -1969,6 +1973,7 @@ estimators/
   - **`config.json` が持つ値**: `inner_valid`（refit が使った strategy。`export_code` が fit と同じ `resolve_inner_valid` を、config と `applied_training_params` から呼び直して作る。検証集合が無ければ `null`）と `early_stopping_rounds`（adapter の patience、無ければ `null`）を独立に必ず書き、生成 `train.py` は既定値なしで読む。callback は両方があるときだけ付く。`sample_weight`（`"balanced"` か `null`、fit の記録から）、`declared_categories`（入力で `category` だった列）、`categorical_rule`（データの組み立てが `category` に変える列の規則、`{"explicit": [...], "auto": bool}`）、`_versions`。
   - **生成 `train.py` の学習**: 時間順の split と `blocked_group_kfold` は `Series.argsort()` で行を並べてから学習する。inner valid は 4 つの strategy を同じ numpy / scikit-learn の呼び出しで移したもので分割する。multiclass の `balanced` の重みは並べた後の全行で `compute_sample_weight("balanced", y)` と同じ値を作り、inner-train の行にだけ付ける。`LGBMAdapter.fit` と同じ Dataset と callback の組み立てで `lgb.train` を呼ぶ。
   - **カテゴリの符号（#304）**: 生成 `train.py` は `categorical_rule` で LizyML と同じ `astype("category")` を当ててから、`CategoricalEncoder.fit` と同じ 2 つの分岐でカテゴリと最頻値を決める。`pipeline_state.json` は列ごとに `{"categories": [型付きの値, ...], "mode": 値}` を持ち、配列の位置が符号である（`str` をキーにしない）。`predict.py` も同じ値で符号を引く。
+  - **カテゴリの同一性（H-0138）**: `config.json` は元の pipeline の `category_identity_version` を必ず書く（H-0138 より前の状態から load したモデルでは `null`。古いカテゴリを黙って新しい同一性に上げない）。版 1 のとき、`pipeline_state.json` は `category_identity_version` と `identity_columns` を持ち、生成 `train.py` は §15.3 と同じ「cast・忠実の判定・キーでの作り直し」で組み立てと fit を行い（宣言したカテゴリの復元も符号をキーで引き、pandas が宣言の一覧をそのまま持てなければ fit が宣言の順にキーで作る）、`train.py` と `predict.py` の符号の照合は印のある列をキーで引く。キーと照合の写しは `codegen/identity_template.py` にあり、正と同じ答えを返すことをテストで確かめる。`null` のときは H-0138 より前と同じ pandas の引き方のコードとして動き、`pipeline_state.json` に印を書かない。`predict.py` は `pipeline_state.json` の知らない印（1 以外、整数でない、`null`、形の違う `identity_columns`）を値を読む前に `ValueError` で拒否し、`train.py` も `config.json` の知らない版を拒否する。
   - **値の書き方（H-0133）**: 特徴量のカテゴリ・最頻値・`declared_categories` は、素の値（`str`・`int`・`float`・`bool` と、それらの numpy のスカラー）を JSON の値で、それ以外の V の値を `{"$lizyml": 印, ...}` の形の JSON の object で書く。印と欄の表は `core/category_values.py`（H-0133 P2）が正で、生成 `train.py` / `predict.py` は同じ表の写しで符号化・復号する（写しと正が同じ答えを返すことをテストで確かめる）。復号は決まった位置だけで行い、形の外れた object は `ValueError` である。
   - **拒否**: 特徴量のカテゴリ・最頻値・`declared_categories` が V（§15.3）の外にあるとき、目的変数のラベルが `str` / `int` / `float` / `bool` と、`.item()` がそれらになり元の値と等しい numpy のスカラーの外にあるとき（ただし `np.datetime64` と `np.timedelta64` は外す。Y・M 単位の `np.timedelta64` は `.item()` が int で、numpy が元の値と等しいと判定するため。H-0133）、`export_code` は何も書く前に `SERIALIZATION_FAILED` で拒否する（黙って `str` にしない）。ラベルの集合は H-0133 で広げていない。特徴量のカテゴリについては、`export_code` も `Model.export` と同じ `check_category_values`（§15.3 の 3 つの検査）を、何も書く前に行う（H-0136）。
 - **校正用 OOF の fold の再現（H-0090）**: `config.json` は `split` ブロック（`config.json["split"]`）を持ち、outer split の method 固有のパラメーターを解決済みの値で書く（`_build_split_metadata(cfg)`。`stratify="auto"` は bool に畳み、`random_state` が無ければ `training.seed` を書く）。生成 `train.py` は校正用 OOF の CV fold をこのブロックから作り、`split.method` を再現する: `kfold` / `stratified_kfold` / `time_series` / `group_kfold` / `stratified_group_kfold` は scikit-learn の splitter、`purged_time_series` / `group_time_series` / `blocked_group_kfold` は LizyML のロジックを numpy に移したもの。
@@ -2102,7 +2107,7 @@ Artifact の保存・復元が `format_version` 管理のもとで安全に動�
 - **Frozen artifact fixture**: `tests/fixtures/` に CI 生成の artifact スナップショットを格納し、`Model.load()` → `predict()` の結果が既知の期待値と一致することを検証する。将来の `format_version` bump 時に migration テストの基盤となる。
 - **Legacy calibration path**: `oof_raw_scores=None` の旧形式 artifact が probability 入力で calibrate される経路を検証する。
 - **format_version rejection**: 未知の version（`0`, `5`, `99`, `-1`, `None`）で `DESERIALIZATION_FAILED`。`{1, 2}` だけを受理する loader（模擬）は v3 を拒否する。
-- **v1 と v2 の形（H-0133 P8）**: 旧版で保存した成果物はリポジトリに無いので、テストは今の成果物を書き直して作る（`tests/test_persistence/_artifact_versions.py` の `to_v2_shape`: `stand_in_columns` を除き、`format_version` を 2 にして checksums を書き直す。v1 はさらに `target_encoder` を除く）。今の版を「v2」と呼ぶテストは置かない。
+- **v1 と v2 の形（H-0133 P8）**: 旧版で保存した成果物はリポジトリに無いので、テストは今の成果物を書き直して作る（`tests/test_persistence/_artifact_versions.py` の `to_v2_shape`: `stand_in_columns` を除き、`format_version` を 2 にして checksums を書き直す。v1 はさらに `target_encoder` を除く）。v4 の形は `to_v4_shape` で、エンコーダの `category_identity_version` と `identity_columns` を除いて `format_version` を 4 にする（H-0138）。v3 の形はそれに続けて作る。今の版を「v2」と呼ぶテストは置かない。
 - **metadata 部分欠損**: 必須フィールドを 1 つずつ削除し、各欠損で正しいエラーメッセージを検証。
 - **Booster string roundtrip**: `model_to_string()` → `model_from_string()` 往復で predict 結果が一致。
 
@@ -2234,6 +2239,7 @@ lizyml/
 │   ├── pipelines_native.py         NativeFeaturePipeline
 │   ├── encoders/
 │   │   ├── categorical_encoder.py  カテゴリ処理部品
+│   │   ├── category_identity.py    構造のキーでのカテゴリの学習と照合 (H-0138)
 │   │   └── state_changes.py        保存処理で写した状態と元の状態の比較 (H-0136)
 │   └── transformers/
 │       └── feature_transformer.py  特徴量変換 (passthrough 拡張点)
@@ -2303,6 +2309,7 @@ lizyml/
     ├── generator.py                generate_code() エントリ (Model.export_code から)
     ├── artifact_writer.py          pipeline_state.json / model.txt 等の書き出し
     ├── config_writer.py            config.json 書き出し
+    ├── identity_template.py        生成コードに写すカテゴリの同一性 (H-0138)
     └── templates.py                train.py / predict.py / test_equivalence.py テンプレ
 ```
 

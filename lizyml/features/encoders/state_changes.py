@@ -64,17 +64,25 @@ def _column_codes(
     values: list[Any],
     policy: UnseenPolicy = "error",
 ) -> list[int]:
-    """The codes *values* get from *state*'s encoder for *column* alone."""
-    encoder = CategoricalEncoder(unseen_policy=policy).load_state(
-        {
-            "unseen_policy": policy,
-            "categories": {column: list(state["categories"][column])},
-            "modes": {column: (state.get("modes") or {}).get(column)},
-            "stand_in_columns": [
-                c for c in state.get("stand_in_columns", []) if c == column
-            ],
-        }
-    )
+    """The codes *values* get from *state*'s encoder for *column* alone.
+
+    A marked state (H-0138) keeps its marker, so a keyed column is looked up
+    by key, as ``predict`` looks it up.
+    """
+    reduced: dict[str, Any] = {
+        "unseen_policy": policy,
+        "categories": {column: list(state["categories"][column])},
+        "modes": {column: (state.get("modes") or {}).get(column)},
+        "stand_in_columns": [
+            c for c in state.get("stand_in_columns", []) if c == column
+        ],
+    }
+    if "category_identity_version" in state:
+        reduced["category_identity_version"] = state["category_identity_version"]
+        reduced["identity_columns"] = [
+            c for c in state.get("identity_columns", []) if c == column
+        ]
+    encoder = CategoricalEncoder(unseen_policy=policy).load_state(reduced)
     frame = pd.DataFrame({column: pd.Series(values, dtype=object)})
     codes: list[int] = encoder.transform(frame)[column].cat.codes.tolist()
     return codes

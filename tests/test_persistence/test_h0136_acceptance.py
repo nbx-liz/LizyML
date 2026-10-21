@@ -256,36 +256,22 @@ def test_the_pair_as_declared_categories_is_refused(tmp_path: Path) -> None:
     assert not any((tmp_path / p).exists() for p in ("a", "b", "c"))
 
 
-def test_a_large_uint64_declared_before_numpy_true_is_refused(tmp_path: Path) -> None:
-    """In this order ``set_categories`` raises comparing the JSON-projected
-    categories. pandas itself orders an object column's ``np.bool_`` first,
-    so only a declared category order reaches it."""
+def test_a_large_uint64_declared_before_numpy_true_is_saved_by_key(
+    tmp_path: Path,
+) -> None:
+    """In this order pandas' ``set_categories`` may raise comparing the
+    JSON-projected categories (``np.uint64`` -> ``int``, ``np.bool_`` ->
+    ``bool``). Since H-0138 the column is looked up by key, which the JSON
+    copy keeps, so the model is saved and answers the same on every pandas
+    (H-0136 refused it where pandas raised)."""
     values = [np.uint64(2**63 + 5), np.bool_(True), "x"]
     df = _frame(values, shuffle=False)
     df["c"] = df["c"].astype(pd.CategoricalDtype(values))
     model, warned = _fit(df)
-    if not _json_order_overflows(values):
-        # pandas 2.0 (the floor) compares these without raising, and the
-        # JSON copy answers the same: nothing to refuse.
-        assert not warned
-        _assert_saved_the_same(model, df, tmp_path)
-        return
-    assert warned
-    _assert_refused(
-        model, tmp_path, serializer="json", kind="raises", exception="OverflowError"
-    )
-
-
-def _json_order_overflows(values: list[Any]) -> bool:
-    """Whether this pandas raises ``OverflowError`` mapping *values* onto their
-    JSON copies (``np.uint64`` -> ``int``, ``np.bool_`` -> ``bool``), as the
-    generated ``predict.py`` does."""
-    plain = [v.item() if isinstance(v, np.generic) else v for v in values]
-    try:
-        pd.Series(values, dtype=object).astype("category").cat.set_categories(plain)
-    except OverflowError:
-        return True
-    return False
+    encoder = model._refit_result.pipeline_state["encoder"]  # noqa: SLF001
+    assert "c" in encoder["identity_columns"]
+    assert not warned
+    _assert_saved_the_same(model, df, tmp_path)
 
 
 def test_numpy_true_first_keeps_its_codes(tmp_path: Path) -> None:

@@ -1,0 +1,8 @@
+pandas 3.0.1 numpy 2.4.2
+    26 issue shapes  cast_raised
+    70 issue shapes  faithful
+    34 issue shapes  predicate_false
+    28 samples       cast_raised
+  1568 samples       faithful
+  4620 samples       temporal
+build by key: 88/1726 eligible non-temporal columns

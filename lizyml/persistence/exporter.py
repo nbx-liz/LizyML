@@ -65,7 +65,10 @@ if TYPE_CHECKING:
 #: categories and predict wrongly without an error, so it must refuse it.
 #: H-0134: 4. A tuned model's trial history is in ``tuning_history.json``; an
 #: older LizyML would ignore the file and show the history as an empty table.
-FORMAT_VERSION = 4
+#: H-0138: 5. An encoder state may look categories up by the structural key
+#: (``category_identity_version``); an older LizyML would look them up through
+#: pandas and give the columns H-0138 fixed their old, wrong codes.
+FORMAT_VERSION = 5
 
 _log = get_logger("persistence.exporter")
 

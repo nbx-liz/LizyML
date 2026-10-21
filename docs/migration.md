@@ -5,6 +5,36 @@ release from v0.5.0 onward.
 
 ---
 
+## Unreleased
+
+### Category values are matched by one structural key; artifacts are `format_version` 5 (H-0138)
+
+Categorical columns whose values pandas confused
+([#378](https://github.com/nbx-liz/LizyML/issues/378),
+[#380](https://github.com/nbx-liz/LizyML/issues/380)) now fit and predict:
+which values are one category is decided by
+`lizyml.core.category_values.category_identity_key`. Numbers equal as numbers
+(`0`, `-0.0`, `False`; `Decimal("1")` and `np.int8(1)`) are one category, a
+string or bytes value and its NumPy twin are one, and tuples and frozensets
+compare item by item.
+
+- **Columns that work today do not change.** Where pandas' answer agrees with
+  the key, the categories, their order, the mode, the codes and the trained
+  model are the same as before. Only columns pandas could not cast or coded
+  wrongly change: they are built by key and reach LightGBM as position
+  stand-ins. Columns holding a date or time value keep pandas' lookup.
+- **Older LizyML cannot read v5 artifacts.** `Model.load` in v0.20.0 or earlier
+  raises `DESERIALIZATION_FAILED` for `format_version` 5. An older version would
+  match categories through pandas and give the fixed columns their old codes.
+- **Artifacts saved before (`format_version` 1-4) predict as they did.** Their
+  encoder states carry no identity marker, so a loaded model keeps pandas'
+  lookup, and `export_code` on it generates code that keeps it too. Fit the
+  model again to use the key.
+- **Generated code.** `config.json` has a new key, `category_identity_version`
+  (`1`, or `null` for a model loaded from a v1-4 artifact), and the generated
+  `pipeline_state.json` carries `category_identity_version` and
+  `identity_columns`. `predict.py` refuses an identity version it does not know.
+
 ## v0.20.0
 
 ### Models a saved copy would answer differently for are refused (H-0136)

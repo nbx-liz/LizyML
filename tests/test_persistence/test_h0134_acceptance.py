@@ -48,6 +48,7 @@ from tests.test_persistence._artifact_versions import (
     to_v1_shape,
     to_v2_shape,
     to_v3_shape,
+    to_v4_shape,
 )
 from tests.test_persistence._load_census import build
 
@@ -113,6 +114,12 @@ def _write_meta(artifact: Path, meta: dict[str, Any]) -> None:
     (artifact / "metadata.json").write_text(json.dumps(meta), encoding="utf-8")
 
 
+def _v4_declaring_null(artifact: Path) -> None:
+    to_v4_shape(artifact)
+    meta = _meta(artifact)
+    _write_meta(artifact, {**meta, "tuning": {**meta["tuning"], "history": None}})
+
+
 # ---------------------------------------------------------------------------
 # Criterion 1 (real tune): the surfaces answer as before export
 # ---------------------------------------------------------------------------
@@ -137,9 +144,7 @@ SHAPES: dict[str, Callable[[Path], None]] = {
     "v1": to_v1_shape,
     "v2": to_v2_shape,
     "v3": to_v3_shape,
-    "v4 null": lambda a: _write_meta(
-        a, {**_meta(a), "tuning": {**_meta(a)["tuning"], "history": None}}
-    ),
+    "v4 null": _v4_declaring_null,
 }
 
 

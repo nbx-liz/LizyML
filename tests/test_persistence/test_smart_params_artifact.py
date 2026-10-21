@@ -28,7 +28,11 @@ import pytest
 from lizyml import Model
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from tests._helpers import make_config, make_multiclass_df, make_regression_df
-from tests.test_persistence._artifact_versions import to_v2_shape
+from tests.test_persistence._artifact_versions import (
+    to_v2_shape,
+    to_v3_shape,
+    to_v4_shape,
+)
 
 DF = ErrorCode.DESERIALIZATION_FAILED
 LR: dict[str, Any] = {"type": "float", "low": 0.05, "high": 0.3, "log": True}
@@ -76,6 +80,10 @@ def _edited(
     shutil.copytree(source, target)
     if version <= 2:
         to_v2_shape(target)  # what a v1 / v2 artifact holds (H-0133 P8)
+    elif version == 3:
+        to_v3_shape(target)  # no history, no identity marker (H-0134, H-0138)
+    elif version == 4:
+        to_v4_shape(target)  # no identity marker (H-0138)
     path = target / "metadata.json"
     meta = json.loads(path.read_text(encoding="utf-8"))
     if smart is not None:

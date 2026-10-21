@@ -114,6 +114,10 @@ def generate_code(
         sample_weight=sample_weight,
         declared_categories=declared_categories,
         categorical_rule=categorical_rule,
+        # H-0138: the generated code keeps the identity of the fitted state.
+        category_identity_version=pipeline_state.get("encoder", {}).get(
+            "category_identity_version"
+        ),
     )
 
     # Write artifacts (config.json, model.txt, pipeline_state.json, calibrator)
