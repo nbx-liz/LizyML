@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **The tutorial notebooks run offline** (H-0137, [#385](https://github.com/nbx-liz/LizyML/issues/385)). The five tutorials that downloaded credit-g, vehicle, diamonds and Jena climate on every run now read gzip CSV copies under `notebooks/data/`; `notebooks/data/manifest.toml` records each file's sha256, source, licence (CC BY 4.0, or MIT for diamonds) and how it was made, and `scripts/vendor_notebook_data.py` rebuilds them. The Jena file holds only the 10-minute rows behind the last 5000 hourly rows the tutorial uses, so its prepared data and results are unchanged. When copying a notebook out of `notebooks/`, copy `data/` with it. The sdist grows by about 1.5 MB; the wheel is unchanged.
+  - Both notebook test layers refuse `socket.getaddrinfo` and `socket.socket.connect` inside the kernel and fail the run if either was called, so a tutorial that brings a remote load back fails even when it catches the error. The retry (H-0119) and the skip (#197) of network failures are removed.
+
 ## [0.20.0] - 2026-10-20
 
 ### Added

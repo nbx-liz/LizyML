@@ -11532,6 +11532,7 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
      - 実行は最大 3 回（初回と再試行 2 回）。毎回、新しいカーネルで、notebooks ディレクトリを新しい一時ディレクトリに写したものを作業ディレクトリにして実行する。
      - 再試行するのは、失敗の `CellExecutionError` の文字列に、既存のマーカー一覧（`tests/test_notebooks/test_notebook_execution.py` の `_NETWORK_ERROR_MARKERS`）のどれかが含まれる場合だけとする。その一覧は新しいモジュールに移し、既存のテストはそこから読む。
      - それ以外の失敗は、再試行せずに落とす。3 回とも上記の失敗なら落とし、skip しない（DC1）。
+     - 〔2026-10-21、H-0137 で置き換え: notebook はデータを `notebooks/data/` から読むので、取得の失敗は起きない。実行は 1 回だけで、新しいカーネルと notebooks ディレクトリの新しい写しを使うことは残す。マーカー一覧と再試行は削除し、代わりにカーネルの中の通信を拒否するガード（`tests/test_notebooks/network_guard.py`）を入れる。受け入れ 8（再試行の仕組み）も H-0137 の受け入れ 2・3 で置き換える。〕
 
    **起動条件**（決定 1 で改訂、2026-10-10）: (a)(b) は、base や変わったパスに関係なく、ci.yml が走るすべての PR と main への push で走らせる。最後に常に走る gate ジョブを置き、matrix を作るジョブと (a)(b) がすべて成功した場合だけを通す。失敗、skip、cancel はどれも gate を失敗させる。必須にする check はこの gate 1 つとする。変わったパスで実行を絞る仕組みは置かない（それまでの起動判定 `.github/scripts/notebook_index_scope.sh` は削除する）。
 
@@ -11659,6 +11660,8 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
    - マーカーに当たる失敗が 3 回続くと、試行は 3 回で失敗として終わり、skip にはならない。
    - マーカーに当たらない失敗は、1 回で失敗として終わる。
    - 試行ごとに、カーネルと作業ディレクトリが別のものになる（識別子が試行の間で異なる）。
+
+   〔2026-10-21、H-0137 で置き換え: 再試行の仕組みを外したので、この 5 つのテストも外した。代わりに、通信を拒否するガードのテスト（H-0137 の受け入れ 2・3）を置く。〕
 9. **review**: 新しい review run を 1 回、Codex APPROVE まで通す。review が確かめるのは、5. と 6. の各条文、受け入れ基準 1〜8 の各項目にテストがあるかと、そのテストが通るかである。条文に無い形（CommonMark や GFM の書き方、git のパスの表し方など）を探すことは求めない。条文に無い形が見つかっても、それは次の round に進む理由にならない。保証を広げたい場合は、別の Proposal とする。各条文にテストがあり、どの major の指摘も、改訂後の条文に反することを示していなければ、run を止める。
 
 ### 決定 1: 外部の仕組みとの完全一致をやめ、生成した行と無条件の実行に絞る（実装 review run 1〜5 の後、2026-10-10、管理者の判断）
@@ -15882,3 +15885,206 @@ Codex の実装レビュー（run `h0136-impl-review`、`6dce827`）は CHANGES_
     - round 2 の位置の比較に戻すと、新しいテストが落ちる。
   - minor は、2 つ目の最頻値の例の結果が pandas の版だけでなく hash seed でも変わることだった（上の round 2 の対応の項を訂正した）。
 - **対応**: テストの docstring と上の記述を直した。コードは変えていない。管理者の方針（1 行の修正でも確かめ直す）により、絞った確認を 1 回走らせる。
+
+## H-0137: チュートリアルの notebook が読むデータをリポジトリに同梱し、実行中の通信を拒否する ― 取得の失敗を再試行・skip する仕組みを外す（#385）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-21
+- **決定日**: 2026-10-21
+- **関連**: #385、H-0119（6.(b) の「データ取得の失敗」）、#197（v0.16.0 で入れた skip）、PR #384（v0.20.0 のリリース PR で、OpenML の取得が失敗した）、registry のカード D-20261021-001（v0.21 の実行の方針。#385 を最初に行い、データを同梱し、notebook が通信しないことをテストする）
+- **スコープ**:
+  - `notebooks/` の 5 本のチュートリアルの、データを読むセルと、その説明の文
+  - 新しい `notebooks/data/`（データ 4 ファイルと `manifest.toml`）と、それを作り直す `scripts/vendor_notebook_data.py`
+  - notebook を実行する 2 つの層（H-0119 の index の実行 `tests/test_notebooks/index_runner.py` と、slow な実行テスト `tests/test_notebooks/test_notebook_execution.py`）
+  - 公開 API、Config、結果の型、保存形式は変えない
+
+### 目的（課題）
+
+8 本のチュートリアルのうち 5 本が、実行のたびに第三者のホストからデータを取得している。
+
+| notebook | 取得元 |
+|---|---|
+| `tutorial_binary_lgbm` | OpenML `fetch_openml("credit-g", version=1)` |
+| `tutorial_multiclass_lgbm` | OpenML `fetch_openml("vehicle", version=1)` |
+| `tutorial_regression_lgbm` | `raw.githubusercontent.com/mwaskom/seaborn-data/master/diamonds.csv` |
+| `tutorial_regression_tuning_lgbm` | 同じ diamonds の CSV |
+| `tutorial_time_series_lgbm` | `storage.googleapis.com/tensorflow/tf-keras-datasets/jena_climate_2009_2016.csv.zip` |
+
+取得元が一時的に落ちると、notebook に触れていない PR の CI が赤くなる。全ての notebook を実行するリリース PR が最も影響を受け、これまでに 2 回リリースが止まった（v0.16.0 の PR #196・#197、v0.20.0 の PR #384）。
+
+今の扱いでは足りない。
+- H-0119 の index の実行は、通信の失敗を数分のうちに 3 回まで再試行する。取得元の障害が数十分続けば防げない。
+- slow な実行テスト（#197）は、通信の失敗を skip する。notebook を実行していないのに、リリースの gate が通る（DC1）。H-0119 は index の層でこれを拒否したので、同じ失敗に対して 2 つの層の扱いが食い違っている。
+
+### 実測（2026-10-21、branch `feat/h0137-vendor-notebook-data`、develop `b39608d` の上）
+
+各主張と、それを出したスクリプト・出力の対応は `docs/audits/2026-10-h0137/README.md` にある。
+
+- **データの大きさとライセンス**:
+
+  | ファイル | 行 × 列 | CSV | gzip（level 9） | ライセンス（確認した出典） |
+  |---|---|---|---|---|
+  | `credit-g.csv.gz` | 1000 × 21 | 139 KB | 15 KB | CC BY 4.0（UCI の dataset 144 のページ） |
+  | `vehicle.csv.gz` | 846 × 19 | 55 KB | 19 KB | CC BY 4.0（UCI の dataset 149 のページ） |
+  | `diamonds.csv.gz` | 53940 × 10 | 2.6 MB | 557 KB | MIT（ggplot2 の `LICENSE.md`。seaborn-data の写しには独自のライセンスが無い） |
+  | `jena_climate_2016_tail.csv.gz` | 29988 × 15（元は 420551 行、42 MB） | 3.0 MB | 955 KB | CC BY 4.0（Max Planck Institute for Biogeochemistry の `weather_data.html` の Terms of Use） |
+
+  合計は gzip で 1,546,226 バイトである。`*.csv` は `.gitignore` の対象なので、gzip した `.csv.gz` で置く。ページの文と確認した日は `licences.md` にある。
+- **Jena の切り出し**: notebook は 10 分ごとの値を 1 時間ごとに平均し（`resample("1h").mean().dropna()`）、その最後の 5000 行だけを使う（`tail(5000)`）。1 時間の区間はその時刻以降の行だけでできるので、最後の 5000 区間の最初の時刻（2016-06-03 16:00:00）以降の元の行を全て残せば、同じ区間ができる。同梱したファイルを 1 時間ごとにすると、ちょうど 5000 行になる。
+- **notebook の結果が変わらないこと**: 4 つのデータそれぞれで、notebook が作るデータフレーム（目的変数を作り、列名を直した後）を、今の取得元から作ったものと、同梱したファイルから新しいセルで作ったものとで比べた。どれも `pandas.testing.assert_frame_equal` が dtype も含めて通った（pandas 3.0.1、`rebuild_run1.out`・`rebuild_run2.out`。比較は `scripts/vendor_notebook_data.py` の中にある）。学習に入るデータが同じなので、表示される学習の結果は変わらない。変わる表示は、`tutorial_time_series_lgbm` のセル 4 と 5 だけである。
+  - セル 4: 元のデータの行数（`Raw shape`）と、その先頭の表（`df_raw.head()`）。表は 2009-01-01 からの行ではなく、2016-06-03 16:00:00 からの行になる。
+  - セル 5: 1 時間ごとにした後の行数と期間（`Hourly shape`・`Date range`。期間の始まりが 2016-06-03 16:00:00 になる）と、その先頭の表（`df_raw.head()`。同じく 2016-06-03 16:00 からの行）。
+  - セル 6 以降は、最後の 5000 行から作るので変わらない。ほかの 4 本は、作るデータフレームが同じなので、どの表示も変わらない。
+- **作り直せること**: `scripts/vendor_notebook_data.py` を 2 回、別の出力先に走らせた。2 回とも、4 ファイルの sha256 が manifest と同じだった（gzip の時刻を 0 に固定している。`rebuild_run1.out`・`rebuild_run2.out`）。
+- **カーネルの中の通信**: 8 本全てを、`socket` の入口を記録だけする（拒否しない）先頭のセルを足して実行した（`socket_census.py`・`.json`）。記録したのは、ガードが拒否する 2 つの入口（`socket.getaddrinfo`・`socket.socket.connect`）を含む 15 の入口と、`socket.*` の監査イベント（`_socket` を直接呼ぶものや、ソケットを作る `socket.__new__` も含む）である。
+  - データを同梱した後の notebook では、8 本とも、どの入口への呼び出しも監査イベントも 0 件だった。カーネルの中ではソケットを 1 つも作っていない。このため、ガードを入れても通信をしない notebook は壊れない。
+  - 陽性対照: 同じ記録で、今の取得（`fetch_openml("credit-g")` を空の cache で実行）は 30 件、`pd.read_csv` で diamonds の URL を読むと 3 件を記録した。どちらも `getaddrinfo` と `connect` を通っていた（`socket_census_control.out`）。ガードの 2 つの入口は、戻ってくるおそれのある取得を捕まえる。
+- **sdist と wheel**: hatchling の sdist には、今も `notebooks/` が入っている。同梱したデータと manifest も入り、sdist は 3,448,627 バイト（develop `b39608d`）から 5,018,443 バイトになる。wheel には `notebooks/` が入らない（`dist_contents.out`）。
+
+### 対応方針（提案。ゼロベースの見直しの後の形）
+
+**保証**: 8 本のチュートリアルは、同梱したデータで、2 つの層（index の実行と slow な実行テスト）のどちらでも 1 回で実行できる。保守する人が遠隔の取得を戻すと、notebook がその例外を捕まえても、大きく落ちる。対象は `socket.getaddrinfo` か `socket.socket.connect` を通る取得である。`fetch_openml` と、URL を読む `pandas.read_csv` がこの 2 つを通ることは測った（`socket_census_control.out`）。`urllib.request.urlopen`・URL を読む `pandas.read_csv`・`socket.create_connection` が落ちることはテストで確かめる（受け入れ 2）。ほかのクライアントについては、この 2 つを通る限りで落ちる、とだけ主張する。通信の失敗のための再試行と skip は置かない。
+
+想定する相手は、遠隔の取得をうっかり戻す保守の人である。サンドボックスを抜けようとするコードではない。
+
+1. **データを同梱する**: `notebooks/data/` に上の 4 ファイルを置く。各 notebook は `pd.read_csv("data/<file>")` で読む。notebook を実行する 2 つの層は、どちらも `notebooks/`（index の実行ではその写し）を作業ディレクトリにするので、相対パスで読める。
+   - credit-g と vehicle は OpenML の `frame` をそのまま書く。notebook は目的変数の列（`class`・`Class`）を `pop` して作る。`fetch_openml` の import を外す。
+   - Jena は上の切り出しを置く。`tail(5000)` のセルは残し、コメントを「同梱したファイルがちょうどこの行を持つ」に直す。
+   - notebook の説明の文（データの出典、「OpenML から取得する」など）を、同梱したことと出典・ライセンスに合わせて直す。
+2. **出典と帰属の記録**: `notebooks/data/manifest.toml` に、各ファイルについて次の欄を書く。どれも必須で、空にできない。
+   - `file`、`sha256`
+   - `title`、`creator`、`source`（取得元）、`origin`（元の出典）、`retrieved`（取得日）、`derivation`（作り方）
+   - `licence`、`licence_url`、`notice`（ライセンスが求める表示）
+     - CC BY 4.0 の 3 件: 引用（作成者・題名・DOI か元の URL）、ライセンスの名前と URI、保証が無いこと、変更の内容。
+     - MIT の diamonds: ggplot2 の `LICENSE.md` の著作権の表示と許諾の文の全文。
+
+   manifest は同梱したファイルと同じディレクトリにあり、sdist にも一緒に入る。
+3. **作り直すスクリプト**: `scripts/vendor_notebook_data.py` は、取得元からファイルを作り直し、上の比較を行う。通信が必要なので CI では走らせない。作り方の記録である。
+4. **通信の拒否**: 新しい `tests/test_notebooks/network_guard.py` を、2 つの層が notebook の先頭のセルでカーネルに読み込む。
+   - `socket.getaddrinfo` と `socket.socket.connect` を、呼び出しを記録して `NetworkRefused`（`OSError` の派生）を出すものに置き換える。HTTP クライアントは、ホストの名前を引くときと接続するときに、この 2 つを通る。
+   - 最後のセルで、記録が 1 件でもあれば失敗する。ライブラリが例外を捕まえて黙って進んだ場合や、`raises-exception` のタグのセルで起きた場合も、ここで落ちる（DC1）。
+   - index の実行では、記録用のセルの前に読み込み、sentinel を出すセルの前で確かめる。slow な実行テストでは、notebook の先頭と末尾にセルを足して実行する。どちらもファイルは変えない。
+   - **主張はこの 2 つの入口を拒否することだけである**。サンドボックスではない。ほかのソケットの呼び出し（`connect_ex`・`sendto`・`bind` など）、`_socket` を直接呼ぶコード、自分でソケットを開く C の拡張、notebook が起動する子プロセス（`tutorial_codegen_export` は、生成した `predict.py` と `test_equivalence.py` を、notebook が書いたローカルのファイルに対して実行する）は範囲の外である。これらまで含む強い保証（OS の層での遮断など）が要るなら、別の Proposal とする。
+5. **再試行と skip を外す**: 失敗の原因が無くなるので、通信の失敗を見分ける仕組みを全て外す。
+   - `tests/test_notebooks/network_markers.py` を削除する。
+   - index の実行（`index_runner.py`）は 1 回だけ実行する。新しいカーネルと、`notebooks/` の新しい写しを作業ディレクトリにすることは残す。`run_with_retries`・`Attempt`・`ATTEMPTS` を外す。
+   - slow な実行テストの skip（#197）を外す。失敗はそのまま失敗にする。
+   - 再試行の仕組みを確かめていたテスト（`test_index_recording.py` の「8. The retry policy」の 5 つの関数。parametrize を含めて 7 件）は、仕組みと一緒に外し、ガードのテストに置き換える。H-0119 の受け入れ 8（再試行の仕組み）は、この Proposal で置き換える。
+   - H-0119 の 6.(b)「データ取得の失敗」と受け入れ 8 に、H-0137 で置き換えたことを日付つきで書き添える。
+6. **データの検査（速い層）**: 新しい `tests/test_notebooks/test_notebook_data.py` で、次を確かめる。
+   - `manifest.toml` の各項目のファイルがあり、sha256 が合う。
+   - 各項目が上の 2. の必須の欄を持ち、どれも空でない。
+   - `notebooks/data/` に、`manifest.toml` 以外で、記録に無いファイルが無い。同じファイルを 2 回記録していない。
+   - 記録するファイルが、同梱した 4 つである。
+
+条件で作業を省いたり通したりする仕組みは足さない。外すだけである（再試行は「通信の失敗なら、もう 1 回実行する」という条件だった）。
+
+### 互換性
+
+- 公開 API、Config、結果の型、保存形式は変わらない。ライブラリのコードは変えない。
+- notebook の利用者から見ると、データの取得が要らなくなる。`notebooks/` を写して使う場合は、`data/` も一緒に写す必要がある。
+- チュートリアルは `fetch_openml` の使い方を見せなくなる。
+- sdist は約 1.5 MB 大きくなる。wheel は変わらない。
+
+### 代替案
+
+- **B. CI でダウンロードを cache する**（`actions/cache`）: 短い障害は吸収できるが、cache が無い、追い出された、key が変わった場合に同じ問題が戻る。採らない。
+- **C. 自前の写し（リリースの asset など）を置き、失敗したらそこから取る**: 取得の形は残るが、2 つ目の取得元を同期し続ける必要があり、通信も残る。採らない。
+- **D. 今のまま**: リリースが第三者のホストを待つ状態が続く。採らない。
+- **Python の socket の全ての経路を、表で分類して拒否する**（この Proposal の round 1〜3 の形）: 公開の名前を全て分類しても、意味として正しいかは開いたままで、C の中で名前を解決する経路などが見つかり続けた。目的（うっかり戻した取得を捕まえる）には要らない。採らない（下の「ゼロベースの見直し」）。
+- **notebook が読んだ `data/` のファイルを記録し、manifest と照合する**（round 1〜3 の形）: #385 が求めていない性質で、2 つ目の SSOT とレビューの面を作った。採らない。
+- **CI の OS の層での遮断**（`iptables` やネットワークの名前空間）: 子プロセスや C の拡張まで含む強い保証になるが、CI の権限と実際の runner での実測が要る。目的には要らないので、この Proposal では採らない。要るなら別の Proposal とする。
+- **ソースの静的な検査（URL や `fetch_` の文字列を探す）**: 書き方の集合が開いていて、組み立てた URL や別名で黙って通る（DC1・DC2）。実行時に 2 つの入口で拒否する方が、目的の後退をはっきり捕まえる。採らない。
+- **非圧縮の CSV で置く**: `*.csv` は `.gitignore` の対象で、作業ツリーも約 4 倍になる。採らない。
+
+### 受け入れ基準
+
+1. 8 本全てが、ガードを入れた 2 つの層（index の実行と slow な実行テスト）で 1 回で通る（CI の `Notebook index` の 8 job と gate）。
+2. 陽性対照（どれも失敗し、失敗の文に `H-0137` の文言が入る）:
+   - 2 つの入口を、それぞれ直接呼ぶ（その入口で記録されたことも確かめる）。呼ぶ表が `network_guard.REFUSED` とちょうど同じであることもテストする。
+   - 普通の遠隔の取得: `urllib.request.urlopen`、URL を読む `pandas.read_csv`、`socket.create_connection`。
+   - 通信するセル、例外を捕まえて進むセル（最後のセルで落ちる）、`raises-exception` のタグのセルで通信するもの。2 つの層それぞれの実際の配線で確かめる。
+     - index の実行: `index_runner.run_instrumented`（実際のカーネル、slow）。速い層の `exec` でも、通信と、例外を捕まえる場合を確かめる。
+     - slow な実行テスト: 8 本を実行するのと同じ関数 `execute_guarded` に、小さな notebook を渡して実行する（slow）。この関数からガードを入れる 2 行を外すと、この 3 つが落ちることを確かめた。
+
+   陰性対照: 通信をせず、同梱したファイルを作業ディレクトリから読む同じ形の notebook は通る（速い層と、2 つの層の実際のカーネル）。
+3. ガードを外す（`uninstall`）と、2 つの入口が元に戻る（`socket.socket.connect` は `_socket` の元の実装と比べる）。
+4. 上の 6. のデータの検査が通る。次のどれでも落ちる: ファイルのバイトを変える、記録に無いファイルを足す、記録の項目を消す、記録したファイルを消す、2. の各必須の欄を空にする・消す（欄ごとに確かめる）。
+5. `network_markers.py`、`NETWORK_ERROR_MARKERS`、`run_with_retries`、`Attempt`、`ATTEMPTS`、slow な実行テストの skip が、実行するコード（`docs/audits/` と HISTORY.md の記録を除く）に残っていない。
+6. 学習の結果が変わらないことは、上の実測（データフレームの一致）で示す。`scripts/vendor_notebook_data.py` を走らせれば、誰でも確かめ直せる。
+
+**レビューの停止基準**: 次が確かめられたら止める。
+- 同梱した 4 ファイルのバイトが manifest と合い、出典・ライセンス・表示が使える。
+- 5 本の notebook のコードのセルが `data/*.csv.gz` を相対パスで読み、説明の文と合う。
+- 作り直しの記録が、変わる表示とデータフレームの一致を説明する。
+- 8 本が 2 つの層で 1 回で通る。
+- 2 つの入口が、普通の HTTP クライアントの陽性対照（例外を捕まえる場合を含む）を、2 つの層で落とす。
+- 再試行、マーカー、skip が実行するコードに無い。
+
+`bind`・`sendmsg`・`getfqdn`・ほかの `socket` の名前・`_socket` の直接の呼び出し・C の拡張・子プロセスでガードを迂回できることは、次の round に進む理由にならない。それは、上の保証より強い性質で、別の Proposal の範囲である（H-0119 の停止の原則と同じ。条文に無い反例は保証を広げない）。
+
+### Proposal レビュー round 1（2026-10-21）
+
+- **結果**: Codex の run `h0137-proposal-review` の round 1（`f9ee378`）は CHANGES_REQUESTED で、major 7 件だった。
+- **対応**（上の本文を直した）:
+  1. ガードが、`sendmsg`・`gethostbyaddr`・`getnameinfo` を見逃していた。また、陽性対照が一部の入口しか直接叩いていなかった。→ 入口を 10 個にし、一覧が閉じている理由を書いた。テストは入口ごとに直接呼び、表と宣言の一致も確かめる。`AF_UNIX` を拒否しても壊れないことは、測定（0 件）で示した。
+  2. manifest と notebook の対応が逆向きにずれても気づけなかった（diamonds の項目から notebook を 1 つ消しても、何も落ちない）。→ 実行時に `data/` から開いたファイルを記録し、manifest と集合で比べる（4.）。文字列の検査はやめた。
+  3. 帰属の表示が足りず、欄の一部が守られていなかった。→ `licence_url` と `notice`（CC BY の表示、MIT の全文）を足し、全ての欄を必須にして欄ごとにテストする。
+  4. 測定の記録が、通信の測定のぶんしか無かった。→ 作り直し 2 回、配布物の中身、ライセンスの確認を足し、`README.md` で主張との対応を示した。
+  5. 再試行のテストの数を「6 本」と書いていた。→ 5 つの関数（7 件）に直した。
+  6. 子プロセスとして `train.py` を挙げていた。実際に実行するのは `predict.py` と `test_equivalence.py` である。→ 直した。
+  7. 受け入れ 5 が、外すと書いた `Attempt`・`ATTEMPTS`・`network_markers.py` を確かめていなかった。→ 足した。
+
+### Proposal レビュー round 2（2026-10-21）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`f916792`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`f916792`）は CHANGES_REQUESTED で、major 2 件だった。どちらも round 1 の対応で書いたものの欠陥なので、停止ルールにより管理者に判断を仰いだ。管理者は「直して round 3」を選んだ。
+- **対応**（上の本文を直した）:
+  1. 読み込みの記録が、`open` の成否も mode も見ていなかった。失敗した `open` や書き込みの `open` でも「読んだ」になり、検査を素通りできた（DC1）。→ 開くのに成功し、mode に `w`・`a`・`x`・`+` が無いときだけ記録する。失敗と書き込みの各 mode のテストを足した。
+  2. 「一覧は閉じている」と書いたのに、名前を解決する公開関数 `socket.getfqdn` が抜けていた。→ 一覧を手で挙げるのをやめ、`socket` と `socket.socket` の全ての公開の名前を理由つきで分類した表から決める。表に無い名前があればテストが落ちる。拒否するのは 14 個になった（`getfqdn` と、名前データベースを引く 3 個を足した）。
+
+### Proposal レビュー round 3（2026-10-21）
+
+- **monitor**: round 3 の前に、runner の relational monitor を走らせた（`29f1a21`、観察した round は 1〜2）。結果は CONVERGING・continue で、disposition は continue。
+- **結果**: round 3（`29f1a21`）は CHANGES_REQUESTED で、major 1 件だった。round 2 の対応で作った分類の表の欠陥で、run の 3 round を使い切った。停止ルールにより管理者に判断を仰ぎ、管理者は「直して通常の run」（新しい 3 round の run）を選んだ。
+- **対応**（上の本文を直した）:
+  1. 表が `bind`（とそれを使う `create_server`）を「ローカルの端点を作るだけ」に分類していた。アドレスにホスト名があれば、C のコードが `bind` の中で名前を解決する。例外を捕まえれば最後のセルも通った（DC1）。表に名前があることは確かめていたが、分類が意味として正しいかは確かめていなかった。→
+     - メソッドの規則を「アドレスを引数に取るものは全て拒否する」にし、`bind` を拒否する側に移した（15 個）。この規則を CPython の docstring から読んで、表と一致することをテストで確かめる。
+     - 拒否しない関数は、ガードの下で呼んで名前を引かないことを確かめる、拒否するメソッドを通ることを確かめる、呼ばない理由を書く、のどれかに全てを当てはめ、テストで確かめる。
+     - 監査のフック（`sys.addaudithook`）で拒否する案も測った。`bind`・`connect`・`sendto`・`sendmsg` は、ホスト名の解決を監査イベントより前に行うので、この案では捕まえられない（`socket_audit_events.out`。ゼロベースの見直しで外したが、commit `2858dde` にある）。採らなかった。
+
+### ゼロベースの見直し（2026-10-21）
+
+- **経緯**: round 3 の後、新しい run の前に、Claude の relational monitor（新しい文脈、読み取りのみ）を走らせた。判定は CONVERGING だったが、推奨は reframe だった。データの同梱・manifest・帰属・再試行の削除は収束している。一方、round 2 と 3 の欠陥は、どちらも「Python の全ての通信経路を拒否する」という開いた主張から出ていて、新しい run でも同じ形が続く見込みが高い、という理由である。
+- **管理者の判断**: 「Codex と議論して、そもそもこの問題をゼロベースで整理し直す。当初の目的から何かずれているように見える」。
+- **Codex の分析**（run `h0137-zero-base-critique`、`2858dde`）。major 4 件と minor 1 件で、主張は次のとおり:
+  - #385 が要るのは、保守する人がうっかり戻した遠隔の取得を大きく落とすことである。「Python の全ての通信経路を拒否する」は要らず、しかも成り立っていない（子プロセスなどは最初から範囲の外だった）。これを証明の義務にしたことが、レビューのずれの原因だった（DC5）。
+  - 最小で足りる設計は、`socket.getaddrinfo` と `socket.socket.connect` だけを拒否し、最後のセルの検査を残すものである。主張は閉じていて、レビューできる。
+  - 残すもの: 同梱、manifest の出典と帰属、sha256 の検査、作り直しスクリプト、再試行と skip の削除。
+  - 外すもの: 読み込みの記録と manifest との照合、socket の分類表とそのテスト、監査のフックの probe、mutant。
+  - 停止基準: 上の「レビューの停止基準」のとおり。保証より強い性質への反例は、round を続ける理由にしない。
+  - 同梱の作業はすでに #385 に沿っていて、蒸し返さない（minor）。
+- **管理者の判断**: Codex の推奨どおりに作り直す。OS の層での遮断は採らない（要るなら別の Proposal）。
+- **対応**:
+  - 上の「対応方針」「代替案」「受け入れ基準」を書き直した。
+  - ガードを 2 つの入口だけにし、`open` の記録・分類表・関連のテストを外した。
+  - manifest から `notebooks` の欄を外し、必須の欄の検査に変えた。
+  - `docs/audits/2026-10-h0137/` から、分類を守るためだけの `socket_audit_events.*` と `mutate_guard.*` を外した。
+- **教訓**: 指摘に答えるたびに、保証を #385 の目的に照らして確かめていなかった。round 1 の「ガードが `sendmsg` などを見逃す」に入口を足して答えたことで、主張が「全ての経路」に広がった。round 2 と 3 は、その広がった主張の穴を突いた。指摘が保証を広げる方向のときは、広げる前に目的と照らす。
+- **monitor（新しい run の前）**: Claude の relational monitor（新しい文脈）は CONVERGING・continue と判定した。ただし「保証」の文の「ほかの普通の HTTP クライアント」が開いた言い方だと指摘したので、2 つの入口を通る取得に限る文に直した。
+
+### 新しいレビュー run の round 1（2026-10-21）
+
+- **結果**: Codex の run `h0137-proposal-review-2` の round 1（`8dcd03d`）は CHANGES_REQUESTED で、major 1 件・minor 1 件だった。どちらも記述の正確さで、2 つの入口に限った設計は変えていない。
+- **対応**: major は「変わる表示」が Jena のセル 4・5 の `df_raw.head()` の表を落としていたこと。上の「実測」に、変わる表示をセルごとに書いた。minor は測定スクリプトの docstring が、外した 15 個の入口のガードを前提にしていたこと。今の 2 つの入口との関係を書いた。
+
+### 新しいレビュー run の round 2（2026-10-21）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`1f1d8da`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`1f1d8da`）は CHANGES_REQUESTED で、major 1 件だった。受け入れ 2 は 2 つの層でガードが効くことを求めていたが、slow な実行テストの層には、ガードが効くことを確かめる対照が無かった。ガードを入れる 2 行を消しても、どのテストも落ちなかった（DC1）。round 1 の対応（記述の修正）の欠陥ではない。
+- **対応**: slow な実行テストの実行を `execute_guarded` にまとめ、同じ関数で、通信・例外を捕まえる通信・`raises-exception` のセルの通信の 3 つが落ちること、通信しない双子が通ることを確かめる slow のテストを足した。ガードを入れる 2 行を外すと 3 つが落ち、双子は通った。受け入れ 2 を、層ごとに書き直した。
+
+### 新しいレビュー run の round 3（2026-10-21）
+
+- **monitor**: round 3 の前に、runner の relational monitor を走らせた（`12b2dc0`、観察した round は 1〜2）。結果は CONVERGING・continue で、disposition は continue。
+- **結果**: round 3（`12b2dc0`）は APPROVE で、指摘は 0 件だった。run `h0137-proposal-review-2` はこれで終わる。
