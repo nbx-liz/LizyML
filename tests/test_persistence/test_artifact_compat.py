@@ -239,6 +239,80 @@ class TestFormatVersionV2AndV3:
         assert config["category_identity_version"] is None
 
 
+def _rewrite_encoders(export_dir: Path, change: Any) -> None:
+    """Apply *change* to every saved encoder state and re-sign the pickles."""
+    from tests.test_persistence._artifact_versions import _encoder_states
+
+    for name in ("fit_result.pkl", "refit_model.pkl"):
+        pkl = export_dir / name
+        result = joblib.load(pkl)
+        for encoder in _encoder_states(result):
+            change(encoder)
+        joblib.dump(result, pkl, compress=3)
+    resign(export_dir)
+
+
+class TestIdentityMarkerAtLoad:
+    """H-0138 acceptance 10: ``Model.load`` itself refuses an unknown marker
+    (implementation review round 1, major 2), not the first ``predict``."""
+
+    @pytest.fixture(scope="class")
+    def exported(self, tmp_path_factory: pytest.TempPathFactory) -> Path:
+        from tests.test_features.test_h0138_identity import _model_on
+
+        model, _ = _model_on(["a", "b"])
+        path = tmp_path_factory.mktemp("marked") / "artifact"
+        model.export(path)
+        return path
+
+    def _copy(self, exported: Path, tmp_path: Path) -> Path:
+        import shutil
+
+        target = tmp_path / "artifact"
+        shutil.copytree(exported, target)
+        return target
+
+    @pytest.mark.parametrize("marker", [2, "1", None, -1, True, 1.0])
+    def test_an_unknown_marker_is_refused_by_load(
+        self, marker: Any, exported: Path, tmp_path: Path
+    ) -> None:
+        artifact = self._copy(exported, tmp_path)
+        _rewrite_encoders(
+            artifact, lambda e: e.__setitem__("category_identity_version", marker)
+        )
+        with pytest.raises(LizyMLError) as exc_info:
+            Model.load(artifact)
+        assert exc_info.value.code == ErrorCode.DESERIALIZATION_FAILED
+        assert "category identity version" in exc_info.value.user_message
+
+    @pytest.mark.parametrize("columns", [None, "c", ["missing"]], ids=repr)
+    def test_malformed_identity_columns_are_refused_by_load(
+        self, columns: Any, exported: Path, tmp_path: Path
+    ) -> None:
+        artifact = self._copy(exported, tmp_path)
+        _rewrite_encoders(
+            artifact, lambda e: e.__setitem__("identity_columns", columns)
+        )
+        with pytest.raises(LizyMLError) as exc_info:
+            Model.load(artifact)
+        assert exc_info.value.code == ErrorCode.DESERIALIZATION_FAILED
+
+    def test_a_v4_artifact_carrying_a_marker_is_refused(
+        self, exported: Path, tmp_path: Path
+    ) -> None:
+        artifact = self._copy(exported, tmp_path)
+        meta = json.loads((artifact / "metadata.json").read_text())
+        meta["format_version"] = 4
+        (artifact / "metadata.json").write_text(json.dumps(meta))
+        with pytest.raises(LizyMLError) as exc_info:
+            Model.load(artifact)
+        assert exc_info.value.code == ErrorCode.DESERIALIZATION_FAILED
+        assert exc_info.value.context["format_version"] == 4
+
+    def test_the_marked_artifact_itself_loads(self, exported: Path) -> None:
+        assert Model.load(exported) is not None
+
+
 class TestFormatVersionV1Migration:
     """H-0070 (INV-5): v1 artifacts load with no-op encoder injected."""
 
@@ -250,7 +324,11 @@ class TestFormatVersionV1Migration:
 
         # Tamper metadata to claim v1 to simulate an older artifact. Real v1
         # artifacts predate the H-0083 integrity field, so drop ``checksums``
-        # too (otherwise the re-pickled payload below would mismatch).
+        # too (otherwise the re-pickled payload below would mismatch). They
+        # predate the H-0133 stand-ins and the H-0138 marker as well.
+        from tests.test_persistence._artifact_versions import to_v2_shape
+
+        to_v2_shape(export_dir)
         meta_path = export_dir / "metadata.json"
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         meta["format_version"] = 1

@@ -334,3 +334,18 @@ def test_h0136_projections_of_a_marked_state_change_no_code(values: list[Any]) -
     state = _refit(model).pipeline_state
     assert state["encoder"]["category_identity_version"] == 1
     assert state_changes(state) == []
+
+
+@pytest.mark.parametrize("values", EXPORTED, ids=repr)
+def test_h0136_compares_a_marked_column_by_key(values: list[Any]) -> None:
+    """A projection that reorders a marked column's categories changes its
+    codes, and the check sees it through the key (review round 1, major 3)."""
+    from lizyml.features.encoders.state_changes import category_state_changes
+
+    model, _ = _model_on(values)
+    encoder = _refit(model).pipeline_state["encoder"]
+    assert "c" in encoder["identity_columns"]
+    cats = encoder["categories"]
+    projected = {**encoder, "categories": {**cats, "c": cats["c"][::-1]}}
+    kinds = [change.kind for change in category_state_changes(encoder, projected)]
+    assert kinds == ["codes"]
