@@ -574,7 +574,7 @@ def identity_fields(state: Mapping[str, Any]) -> tuple[int | None, list[Any]]:
     if (
         type(columns) is not list
         or not isinstance(categories, Mapping)
-        or any(c not in categories for c in columns)
+        or not all(_names_a_column(c, categories) for c in columns)
     ):
         raise LizyMLError(
             ErrorCode.DESERIALIZATION_FAILED,
@@ -582,6 +582,13 @@ def identity_fields(state: Mapping[str, Any]) -> tuple[int | None, list[Any]]:
             context={"identity_columns": repr(columns)[:200]},
         )
     return version, list(columns)
+
+
+def _names_a_column(column: Any, categories: Mapping[str, Any]) -> bool:
+    try:
+        return column in categories
+    except TypeError:  # an unhashable entry (``[]``, ``{}``) names no column
+        return False
 
 
 def is_missing(value: Any) -> bool:

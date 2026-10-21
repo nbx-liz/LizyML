@@ -54,10 +54,17 @@ def _identity_fields(state, where):
     if (
         type(columns) is not list
         or not isinstance(categories, dict)
-        or any(c not in categories for c in columns)
+        or not all(_names_a_column(c, categories) for c in columns)
     ):
         raise ValueError(f"{where} has a malformed identity_columns")
     return version, list(columns)
+
+
+def _names_a_column(column, categories):
+    try:
+        return column in categories
+    except TypeError:  # an unhashable entry ([], {}) names no column
+        return False
 
 
 def _holds_temporal(value):
