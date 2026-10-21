@@ -16257,3 +16257,18 @@ Codex の批評（run `v021-category-critique`）の推奨により、#378〜#38
   - 印の無い状態の `export_code` で、#380 の列の今の引き方は、実行時と生成コードで別の間違え方をする（hash の seed で変わる）。受け入れ 10 の「今と同じ」は今の引き方のコードを書くことであり、符号の一致は今の引き方が正しい列で確かめる。
 - **#370**: H-0133 の範囲に触れるこの PR で、H-0133 の記録と `test_export_contract.py` の注釈の文言を直した（数でない値と混ざった列に限る）。
 - **テスト**: 受け入れ 1（`tests/test_core/test_category_identity.py`）、2・11（`tests/test_features/test_h0138_faithful_oracle.py`）、3〜8（`tests/test_features/test_h0138_identity.py`）、9・10（`tests/test_codegen/test_h0138_identity_copy.py`、`tests/test_persistence/test_artifact_compat.py` の v4 の形・v5 の拒否）。
+
+### 実装レビュー（2026-10-21）
+
+Codex の run `h0138-impl-review`（3 round、Proposal の停止基準をそのまま prompt に入れた）。
+
+- **round 1**（`b10a536`）: CHANGES_REQUESTED、major 3。どれも停止基準の内側である。
+  1. エンコーダの忠実の判定が、今の cast を実行せずに予測していた。cast が例外を出す列（`False`・`np.int8(1)`・8 段の tuple・`"z"`）でも作り直さず、置き換えの列にしなかった。→ 学習行に今の `astype("category").cat.set_categories(cats)` を実際に当て、キーで符号を確かめるようにした（実行時と生成コードの写しの両方）。混同される 23 値の 3 つずつの組 1772 列で、データ層が残した列は必ず置き換えの列になり、学習行の符号がキーに合うことを確かめるテストを足した（判定を外した改変で 41 件落ちる）。
+  2. `Model.load` が知らない印を拒否せず、最初の `predict` で初めて落ちていた。→ loader が保存した全てのエンコーダの状態の印を `core.category_values.identity_fields` で確かめ、版 1〜4 の成果物に印があるものも拒否する。
+  3. H-0136 の比較が、列ごとの状態を作るときに印を落とし、印のある列を pandas の引き方で比べていた。→ 印と、その列の `identity_columns` を残す。
+  - 旧版の形を版の番号だけ書き換えて作っていたテストの手順を、本当の古い形（`to_v2_shape`・`to_v3_shape`）から作るように直した。H-0136 が JSON の写しの `OverflowError` で拒否していた、宣言した `np.uint64` と `np.bool_` の列は、キーで比べると写しも同じ符号になるので、保存できるようになった（受け入れ 7）。
+- **round 2 の前の monitor**: absolute、DELIVERABLE-FOCUSED・continue。disposition は continue。
+- **round 2**（`1741420`）: 1 回目の試行はマシンのメモリ不足で止められ、2 回目で完了した。CHANGES_REQUESTED、major 1。`identity_columns` のハッシュできない要素（`[]`・`{}`）で、round 1 でつないだ検査が素の `TypeError` を出していた（生成 `predict.py` も同じ）。round 1 の修正の欠陥なので停止ルールにより管理者に判断を仰ぎ、管理者は「直して round 3」を選んだ。→ その要素は列を指さないとみなし、拒否する（`DESERIALIZATION_FAILED`、生成コードでは `ValueError`）。
+  - round 2 の修正中に、H-0136 のキーでの比較のテスト（カテゴリを逆順にした写し）が hash の seed によって `codes` ではなく `raises` を返すことが分かった。pandas がその人工の順の一覧を持てるかが seed で変わるためである。fit が作る順で影響が無いかを測った: 1891 列（3 つずつの組と #378・#380 の一覧）× 12 の seed で、fit の判定と、置き換えにしない 1418 列の一覧の扱いはどの seed でも同じだった。テストは `codes` か `raises` のどちらかを受け付ける（印を落とすと `[]` になり落ちる）。
+- **round 3 の前の monitor**: relational（観察した round は 1〜2）、CONVERGING・continue。disposition は continue。
+- **round 3**（`edd8089`）: APPROVE、指摘 0 件。run はこれで終わる。この実行の方針により、APPROVE と CI 緑でマージする。
