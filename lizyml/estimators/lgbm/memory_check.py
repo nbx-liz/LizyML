@@ -82,6 +82,10 @@ def _canonical(params: dict[str, Any], name: str) -> Any:
 #: A bin cap the estimate could not read: no cap, so the estimate can only be
 #: too large, never too small (H-0140 implementation review).
 _UNCAPPED = None
+#: Bins LightGBM may build beyond a feature's values: its default (zero) bin
+#: and its missing-value bin; at most 2 were measured (H-0140 implementation
+#: review, run 2), 1 for a categorical feature.
+_EXTRA_BINS = 2
 
 
 def _as_int(item: Any) -> int | None:
@@ -123,8 +127,9 @@ def feature_bins(X: pd.DataFrame, params: dict[str, Any]) -> int:
     A ``category`` column counts its categories, a numeric column
     ``min(distinct values, max_bin)`` (``max_bin_by_feature`` when set), and
     any other column (object, string) one bin per row, without comparing its
-    values. A cap that cannot be read is not applied, so a value the estimate
-    misreads makes it larger, not smaller.
+    values; each feature adds LightGBM's default and missing-value bins. A
+    cap that cannot be read is not applied, so a value the estimate misreads
+    makes it larger, not smaller.
     """
     max_bin = _canonical(params, "max_bin")
     default_bin = LIGHTGBM_DEFAULT_MAX_BIN if max_bin is None else _as_int(max_bin)
@@ -136,12 +141,13 @@ def feature_bins(X: pd.DataFrame, params: dict[str, Any]) -> int:
         if by_feature is not None:
             cap = by_feature[i] if i < len(by_feature) else _UNCAPPED
         if isinstance(series.dtype, pd.CategoricalDtype):
-            total += len(series.cat.categories)
+            values = len(series.cat.categories)
         elif pd.api.types.is_numeric_dtype(series.dtype):
             distinct = int(series.nunique(dropna=True))
-            total += distinct if cap is None else min(distinct, cap)
+            values = distinct if cap is None else min(distinct, cap)
         else:
-            total += len(series)
+            values = len(series)
+        total += values + _EXTRA_BINS
     return total
 
 

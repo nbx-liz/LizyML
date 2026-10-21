@@ -344,7 +344,7 @@ def test_max_bin_is_read_under_every_spelling(spelling: str) -> None:
     from lizyml.estimators.lgbm.memory_check import feature_bins
 
     X = pd.DataFrame({"a": range(500), "b": [1.5] * 500})
-    assert feature_bins(X, {spelling: 63}) == 63 + 1
+    assert feature_bins(X, {spelling: 63}) == (63 + 2) + (1 + 2)
 
 
 @pytest.mark.parametrize(
@@ -363,7 +363,9 @@ def test_max_bin_by_feature_is_read_in_every_form_lightgbm_accepts(caps: Any) ->
     from lizyml.estimators.lgbm.memory_check import feature_bins
 
     X = pd.DataFrame({"a": range(10_000), "b": range(10_000)})
-    assert feature_bins(X, {"max_bin": 63, "max_bin_by_feature": caps}) == 2 * 8192
+    assert feature_bins(X, {"max_bin": 63, "max_bin_by_feature": caps}) == 2 * (
+        8192 + 2
+    )
 
 
 @pytest.mark.parametrize("scalar", [8192, np.int64(8192), "8192"], ids=repr)
@@ -373,7 +375,7 @@ def test_a_scalar_max_bin_by_feature_is_a_one_element_vector(scalar: Any) -> Non
     from lizyml.estimators.lgbm.memory_check import feature_bins
 
     X = pd.DataFrame({"a": range(8192)})
-    assert feature_bins(X, {"max_bin": 63, "max_bin_by_feature": scalar}) == 8192
+    assert feature_bins(X, {"max_bin": 63, "max_bin_by_feature": scalar}) == 8192 + 2
 
 
 #: max_bin / max_bin_by_feature forms LightGBM 4.x accepts (implementation
@@ -395,6 +397,38 @@ _BIN_FORMS_REFUSED: list[tuple[Any, Any]] = [
     (np.float64(63.0), None),
 ]
 _BIN_FRAME = pd.DataFrame({"a": np.arange(8192.0), "b": np.arange(8192.0) % 300})
+_RNG = np.random.default_rng(0)
+#: Low-cardinality columns, where LightGBM adds its default and missing-value
+#: bins beyond the values (implementation review run 2, round 1).
+_LOW_FRAME = pd.DataFrame(
+    {
+        "two": _RNG.choice([1.0, 2.0], 3000),
+        "two_nan": np.where(
+            _RNG.random(3000) < 0.1, np.nan, _RNG.choice([1.0, 2.0], 3000)
+        ),
+        "zero_nan": np.where(
+            _RNG.random(3000) < 0.1, np.nan, _RNG.choice([0.0, 1.0, 2.0], 3000)
+        ),
+        "negatives": _RNG.choice([-2.0, -1.0, 1.0, 2.0], 3000),
+        "one": np.ones(3000),
+        "cat": pd.Categorical(_RNG.integers(0, 5, 3000)),
+    }
+)
+
+
+@pytest.mark.parametrize(
+    "extra", [{}, {"min_data_in_bin": 1}, {"use_missing": False}], ids=repr
+)
+def test_low_cardinality_bins_are_never_fewer_than_lightgbm_builds(
+    extra: dict[str, Any],
+) -> None:
+    from lizyml.estimators.lgbm.memory_check import feature_bins
+
+    params: dict[str, Any] = {"max_bin": 255, "verbose": -1, **extra}
+    dataset = lightgbm.Dataset(_LOW_FRAME, params=params).construct()
+    for i, col in enumerate(_LOW_FRAME.columns):
+        built = dataset.feature_num_bin(i)
+        assert feature_bins(_LOW_FRAME[[col]], params) >= built, col
 
 
 def _bin_params(max_bin: Any, by_feature: Any) -> dict[str, Any]:
@@ -435,7 +469,7 @@ def test_a_float_max_bin_by_feature_is_read(scalar: Any) -> None:
     from lizyml.estimators.lgbm.memory_check import feature_bins
 
     X = pd.DataFrame({"a": range(8192)})
-    assert feature_bins(X, {"max_bin": 63, "max_bin_by_feature": scalar}) == 8192
+    assert feature_bins(X, {"max_bin": 63, "max_bin_by_feature": scalar}) == 8192 + 2
 
 
 @pytest.mark.parametrize(
