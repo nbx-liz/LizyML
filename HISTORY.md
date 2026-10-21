@@ -16128,11 +16128,14 @@ Codex の実装レビュー（run `h0136-impl-review`、`6dce827`）は CHANGES_
     #380 の 104 列と、`SAMPLES` の組の中の同じ形を合わせて、バッチの順で符号が変わるものが 54、fit の cast が `ValueError` で落ちるものが 28（pandas 2 では 29）、学習した値を unseen と判定するものが 26 だった。決定 1 の同一性では、どれも別々の値として扱える。
 - **firing rate**（下の対応方針 2 の条件。カテゴリをキーで作り直す割合）。試作の規則（`firing/h0138_rule.py`）で測った。
 
-  Firing rate: 0/203 of the object categorical columns the test suite fits (census over the full suite with `firing/h0138_census.py`: 168 at the builder entry, 35 at direct encoder fits; `firing/census_pd3.*`); 88/1726 of the non-temporal probe columns (28 + 26 cast raises, 34 not faithful; `firing/probe_columns_pd3.out` and `_pd2.out`, the same on pandas 3.0.1 and 2.3.3).
+  Firing rate: 0/2009 of the eligible categorical columns the test suite fits, of every dtype (census over the full suite with `firing/h0138_census.py`, pandas 3.0.1: 0/300 at the builder entry, 0/1709 at encoder fits; `firing/census_pd3.*`); 88/1726 of the non-temporal probe columns (28 + 26 cast raises, 34 not faithful; `firing/probe_columns_pd3.out` and `_pd2.out`, the same on pandas 3.0.1 and 2.3.3).
 
   - テストスイートの普段の入力では、作り直しは 1 列も働かない。これは設計どおりで、作り直しは pandas が取り違える混在の列のための修正である。そうした列はテストスイートに無いので、受け入れ基準で明示的に足す（3〜5）。普段の列で 0 であることは、「今正しく動く列を変えない」ことの裏付けでもある。
   - この条件で切り替わるのは、カテゴリをどう作るか（pandas の結果を使うか、キーで作り直して置き換えの列にするか）だけである。印のある状態の transform は、条件なしに常にキーで引く。#378 の列と #380 の一部は fit の時点では pandas に忠実（上の 70 列）で、壊れるのは transform の pandas の引き方だからである。
-  - census の全体: builder の入口で 448 件の記録のうち、object の列が 168（全て忠実）、時刻を含む列が 100、V の外の値を持つ列が 12、文字列の dtype の列が 128、その他が 5 だった。規則が読めなかった列は 0。
+  - census の全体（2643 件の記録）: 判定は、dtype によらず cast を実際に行って確かめた（round 1 の指摘で、object 以外の列の判定を飛ばしていたのを直した）。
+    - builder の入口（413 件）: object の列 168、宣言した category の列 43、文字列の dtype の列 86、明示した int64 の列 3 が全て忠実だった。時刻を含む列 101 と、V の外の値を持つ列 12 は今の経路を通る。
+    - encoder の fit（2230 件）: category の列 1467、object の列 35、文字列の列 207 が全て忠実だった。時刻を含む列 441 と、V の外の値を持つ列 80 は今の経路を通る。
+    - 規則が読めなかった列は 0。テストの結果は、手元の版の情報が古いために落ちる既知の `test_version.py` の 1 本を除いて通った（13139 本）。
 
 ### 管理者の判断（2026-10-21。カード D-20261021-002）
 
@@ -16150,7 +16153,7 @@ Codex の批評（run `v021-category-critique`）の推奨により、#378〜#38
    - `str`・`np.str_`: `("string", str(value))`。`bytes`・`np.bytes_`: `("bytes", bytes(value))`。
    - `tuple`: `("tuple", 要素のキーの tuple)`。`frozenset`: `("frozenset", 要素のキーの frozenset)`。
    - 時刻の型の値（入れ子の中も含む）を持つ列と、V の外の値を持つ列は、キーを使わず今の経路を通る（決定 4）。
-2. **今正しく動く列を変えない条件（pandas に忠実かどうか）**: 列ごとに、pandas の cast を実際に行い、その結果がキーに忠実かを確かめる。
+2. **今正しく動く列を変えない条件（pandas に忠実かどうか）**: カテゴリとして扱う列ごとに、dtype によらず（object、pandas の文字列、宣言した category、明示した数値や bool の列）、pandas の cast を実際に行い、その結果がキーに忠実かを確かめる。dtype で判定を飛ばさない。
    - 忠実とは、次の全てを満たすことである。カテゴリのキーが一意である。欠損でない全ての行に 0 以上の符号が付き、その符号のカテゴリのキーが行の値のキーと同じである。欠損の行の符号は -1 である。宣言したカテゴリは同じ順で残る。
    - 忠実なら、今の結果（カテゴリ、その順、代表の値、最頻値 `series.mode().iloc[0]`、置き換えの判定、符号）をそのまま使う。
    - cast が例外を出すか、忠実でないときだけ、キーで作り直す。代表の値は、キーごとに最初に現れた値とする。順は、推定した object の列では今の `sorted(..., key=str)` の規則、宣言した列では宣言の順とする。最頻値はキーで数え、同数ならカテゴリの順で先のものとする。作り直した列は、必ず置き換えの列（`stand_in_columns`）にする。
@@ -16190,15 +16193,31 @@ Codex の批評（run `v021-category-critique`）の推奨により、#378〜#38
 ### 受け入れ基準
 
 1. **キー**: V の全ての `SAMPLES` の値と入れ子の容器で、キーが決まり、codec の往復でキーが変わらない。決定 1 の等しい組（測定の 21 列の組と、#378 の組）が同じキーになり、別の値が別のキーになる。
-2. **今正しく動く列を変えない**: 測定で今正しく動く、時刻を含まない全ての列について、今の実装を固定した参照と比べて、カテゴリ・順・代表の値・最頻値・符号・状態の欄・置き換えの判定が同じである。固定した版と seed のもとで、LightGBM のモデルの文字列、`pandas_categorical`、予測も同じである。
+2. **今正しく動く列を変えない**: 参照は、実装の前に今のコード（develop `b297de4` の振る舞い）で作って commit した、pandas の版ごとのファイル `tests/test_features/data/h0138_oracle_pandas-3.0.1.json.gz`（Python 3.12、numpy 2.4.2、lightgbm 4.6.0）と `h0138_oracle_pandas-2.3.3.json.gz`（Python 3.10.22、numpy 2.2.6、lightgbm 4.6.0）である。lock の 2 つの解決（Python 3.11 以上と 3.10）にあたる。生成は `docs/audits/2026-10-h0138/oracle/make_oracle.py` で、2 回作ってバイトが同じだった。テストは、実装したライブラリの答えを、そのレーンの pandas の版のファイルと比べるだけで、参照を計算し直さない。
+   - **版の合わせ方**: レーンの pandas の版のファイルが無ければ、テストは落ちる（黙って通らない）。ただし、下限の版のレーン（`Quality (lowest-direct deps)`、pandas 2.0）だけは、参照の版が無いので、この比較のテストを marker で外し、外す理由をテストに書く。このレーンでも、3〜11 のほかのテストは走る。
+   - **エンコーダの case**（両方の版で 1584）: 測定の列のうち、ゲートが忠実と判定し、今の transform も両方の順で同じ符号を返す全ての列と、ふつうの入力の全ての dtype（object、pandas の文字列、使われないカテゴリを持つ宣言した category、明示した int64・float64・bool、欠損を含む列、型の混ざった object の列）。カテゴリとその型、最頻値、`stand_in_columns`、2 つのバッチの順の符号が同じである。
+   - **モデルの case**（pandas 3.0.1 で 77、2.3.3 で 68）: ふつうの入力、数として等しい型違いの値の組、ほかの case の 50 本に 1 本。`Model.fit`（seed と 1 スレッドを固定）の後の refit の booster の `pandas_categorical`、`model_to_string()` の sha256、予測（`float.hex`）が同じである。この比較は、依存の版が参照の版（ファイルの `meta`）と同じレーンで行う。版の違うレーン（下限の版のレーン）では、モデルの case の比較を集めずに、理由を書いて外す（エンコーダの case は全てのレーンで比べる）。
+   - 参照から外した列とその数（時刻を含む 4620、今すでに壊れている 150: cast の失敗 54、忠実でない 34、忠実だがバッチの順で符号が変わる 54、忠実だが transform が `TypeError` の 8）も、ファイルの `meta` にある。最後の 2 つ（62 列）は、印のある状態の transform を常にキーで引く理由でもある。
 3. **#378**: `Decimal("1")` と 8 つの NumPy の整数の 16 列（2 つの順）で、fit と predict が通り、1 つのカテゴリとして同じ符号が付く。
 4. **#380**: ID を付けた 104 列の一覧（13 の NumPy の型 × 深さ 1・2・3・8 × 2 つの順）で、件数と集合が一覧と一致することを確かめたうえで、2 つのバッチの順と 3 つの unseen の方針の全てで、各値の符号が順によらず同じで、学習した値が unseen にならない。
 5. **`2**70` と `np.bool_`** の 2 列で、fit が通り、2 つの値が別のカテゴリになる。
 6. **データ層**: cast が例外を出す列と忠実でない列が、object の列のまま記録され、カテゴリの列として選ばれる。その記録が、複製・並べ替え・分割（outer・inner・calibration）を通る。検証の側にしか無いキーが、fit のカテゴリに入らない（リークの検知。落ちるべき例を含む）。
 7. **H-0136 の検査**: 印のある状態の joblib と JSON の写しを、符号とキーで比べる。印の無い状態は今の検査のまま。
-8. **宣言したカテゴリ**（使われていない宣言を含む）、`export_state_json`、本物の booster の pickle・load・predict。
+8. **LightGBM への受け渡しと、状態の書き出し**:
+   - 3〜5 の列のうち、キーで作り直した列（忠実でない列）は、`stand_in_columns` に入り、本物の refit の booster の `pandas_categorical` のその列が `list(range(k))`（k は学習したカテゴリの数）である。忠実で書ける列の `pandas_categorical` は、学習したカテゴリの一覧そのものである（2 の参照と同じ）。
+   - その booster を pickle して load した後の predict が、load の前と同じ予測を返す。
+   - `export_state_json` が `category_identity_version: 1` と、状態と同じ `identity_columns` を書く。
+   - 宣言したカテゴリ（`pd.Categorical` の宣言）: 宣言の順が学習したカテゴリの順になる。使われていない宣言のカテゴリは、`unseen_policy="error"` の transform で、今と同じ `DATA_SCHEMA_INVALID` を出す。
 9. **実行時と生成コードの一致**: 実行時、生成した `train.py`、生成した `predict.py` の符号が、上の 3〜5 の列で同じになる。キーの写しを `COPY` で固定する。
-10. **古い成果物**: 版 1〜4 の成果物が今と同じに予測し、`export_code` が今の引き方の生成コードを書く。古いライブラリの loader（固定した写し）が版 5 を拒否する。
-11. **時刻の型**: 時刻の型の値を含む列が、今と全く同じに振る舞う（`identity_rows` の時刻の行で、今の結果と一致する）。
+10. **古い成果物と印の版**: 版 1〜4 の成果物が今と同じに予測し、`export_code` が今の引き方の生成コードを書く。古いライブラリの loader（固定した写し）が版 5 を拒否する。知らない印は拒否する: `category_identity_version` が 2、`"1"`（文字列）、`None`、負の数の状態は、`load_state`（と、それを通る `Model.load`）で `DESERIALIZATION_FAILED` になり、生成した `predict.py` も `pipeline_state.json` の同じ値を拒否する。
+11. **時刻の型**: 時刻の型の値を含む列が、今と全く同じに振る舞う。参照は 2 と同じファイルの `temporal_cases`（測定の時刻の列の全て。pandas 3.0.1 で 4620、2.3.3 で 4845）で、今の符号とカテゴリ、または今失敗する段（cast・fit・transform）と例外の型を固定している。
 
 **レビューの停止基準**: 上の受け入れ基準のテストと、実装の前の census（firing rate）が通ったら止める。次の round に進む理由になるのは、この契約の中の欠陥だけである: キーの同一視の誤り、忠実な経路のずれ、リーク、実行時と生成コードの食い違い、保存形式の移行、LightGBM への実際の受け渡し。時刻の型、tune の指紋、LightGBM 自身の振る舞い、契約の外の値は、次の round に進む理由にならない。
+
+### Proposal レビュー round 1（2026-10-21）
+
+- **結果**: Codex の run `h0138-proposal-review` の round 1（`88fb071`）は CHANGES_REQUESTED で、major 3 件だった。どれも停止基準の内側（忠実な経路のずれ、LightGBM への受け渡し、保存形式の移行）である。
+- **対応**（上の本文を直した）:
+  1. 受け入れ 2 に固定した参照が無く、試作の規則は object 以外の列で cast と判定を飛ばしていた。→ 実装の前に、今のコードで pandas の版ごとの参照（`h0138_oracle_pandas-3.0.1.json.gz`・`-2.3.3.json.gz`）を作って commit し、受け入れ 2 と 11 をそれと比べる形にした。判定は dtype によらず cast を行うようにし、census を取り直した（0/2009）。
+  2. 受け入れ 8 が、置き換えの列の `pandas_categorical`、`export_state_json` の印、使われない宣言のカテゴリを確かめていなかった。→ 確かめる値を書いた。
+  3. 知らない印の版を拒否するテストが無かった。→ 受け入れ 10 に、`category_identity_version` が 2・`"1"`・`None`・負の数の状態を `DESERIALIZATION_FAILED` で拒否することを足した。
