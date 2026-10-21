@@ -376,6 +376,101 @@ def test_a_scalar_max_bin_by_feature_is_a_one_element_vector(scalar: Any) -> Non
     assert feature_bins(X, {"max_bin": 63, "max_bin_by_feature": scalar}) == 8192
 
 
+#: max_bin / max_bin_by_feature forms LightGBM 4.x accepts (implementation
+#: review rounds 1-3: strings, scalars, then floats) ...
+_BIN_FORMS_ACCEPTED: list[tuple[Any, Any]] = [
+    (63, [8192, 8192]),
+    (63, (8192, 8192)),
+    (63, np.array([8192, 8192])),
+    (63, np.array([8192.0, 8192.0])),
+    (63, [8192.0, 8192.0]),
+    (63, "8192,8192"),
+    ("63", None),
+]
+#: ... and forms it refuses before allocating anything (measured).
+_BIN_FORMS_REFUSED: list[tuple[Any, Any]] = [
+    (63, "8192.0, 8192.0"),
+    ("63.0", None),
+    (63.0, None),
+    (np.float64(63.0), None),
+]
+_BIN_FRAME = pd.DataFrame({"a": np.arange(8192.0), "b": np.arange(8192.0) % 300})
+
+
+def _bin_params(max_bin: Any, by_feature: Any) -> dict[str, Any]:
+    params: dict[str, Any] = {"max_bin": max_bin, "verbose": -1}
+    if by_feature is not None:
+        params["max_bin_by_feature"] = by_feature
+    return params
+
+
+@pytest.mark.parametrize(("max_bin", "by_feature"), _BIN_FORMS_ACCEPTED, ids=repr)
+def test_the_bins_are_never_fewer_than_lightgbm_builds(
+    max_bin: Any, by_feature: Any
+) -> None:
+    """The estimate is an upper bound of LightGBM's own bin counts; LightGBM
+    builds the Dataset (no booster is trained)."""
+    from lizyml.estimators.lgbm.memory_check import feature_bins
+
+    params = _bin_params(max_bin, by_feature)
+    dataset = lightgbm.Dataset(_BIN_FRAME, params=params).construct()
+    built = sum(dataset.feature_num_bin(i) for i in range(_BIN_FRAME.shape[1]))
+    assert feature_bins(_BIN_FRAME, params) >= built
+
+
+@pytest.mark.parametrize(("max_bin", "by_feature"), _BIN_FORMS_REFUSED, ids=repr)
+def test_lightgbm_refuses_the_other_forms_before_allocating(
+    max_bin: Any, by_feature: Any
+) -> None:
+    from lizyml.estimators.lgbm.memory_check import feature_bins
+
+    params = _bin_params(max_bin, by_feature)
+    with pytest.raises(lightgbm.basic.LightGBMError):
+        lightgbm.Dataset(_BIN_FRAME, params=params).construct()
+    feature_bins(_BIN_FRAME, params)  # the estimate itself never raises
+
+
+@pytest.mark.parametrize("scalar", [8192.0, np.float64(8192.0), "8192.0"], ids=repr)
+def test_a_float_max_bin_by_feature_is_read(scalar: Any) -> None:
+    from lizyml.estimators.lgbm.memory_check import feature_bins
+
+    X = pd.DataFrame({"a": range(8192)})
+    assert feature_bins(X, {"max_bin": 63, "max_bin_by_feature": scalar}) == 8192
+
+
+@pytest.mark.parametrize(
+    ("max_bin", "by_feature"),
+    [(63, "eight"), (63, [8192, "x"]), (63, object()), ("lots", None)],
+    ids=repr,
+)
+def test_an_unreadable_cap_is_not_applied(max_bin: Any, by_feature: Any) -> None:
+    """A cap the estimate cannot read makes it larger, never smaller."""
+    from lizyml.estimators.lgbm.memory_check import feature_bins
+
+    X = pd.DataFrame({"a": range(8192), "b": range(8192)})
+    params: dict[str, Any] = {"max_bin": max_bin}
+    if by_feature is not None:
+        params["max_bin_by_feature"] = by_feature
+    bins = feature_bins(X, params)
+    assert bins >= 8192 + (63 if by_feature == [8192, "x"] else 0)
+
+
+def test_a_float_max_bin_by_feature_warns_end_to_end(train_stub: _Recorder) -> None:
+    df = pd.DataFrame({"f0": range(8192)})
+    df["target"] = [float(i % 7) for i in range(8192)]
+    cfg = _config(
+        auto_num_leaves=False,
+        num_leaves=8192,
+        n_estimators=1,
+        max_bin=63,
+        max_bin_by_feature=8192.0,
+    )
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        Model(cfg).fit(data=df)
+    assert len(_memory_warnings(record)) == 1
+
+
 def test_a_scalar_max_bin_by_feature_warns_end_to_end(train_stub: _Recorder) -> None:
     df = pd.DataFrame({"f0": range(8192)})
     df["target"] = [float(i % 7) for i in range(8192)]

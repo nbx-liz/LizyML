@@ -16453,3 +16453,15 @@ Firing rate: 0/5545 of the LightGBM training calls of the runnable non-slow test
 
   - H-0140 のテストの中では 21 回当たった（`num_leaves` の条件 17、見積もりの条件だけ 4）。notebook のカーネルの中の fit は plugin が届かないので数えていない。
 - **テスト**: `tests/test_estimators/test_h0140_memory_warning.py`（受け入れ 1〜9・12・13）、`tests/test_ci_memory_ceiling.py`（受け入れ 10）、`tests/test_tuning/test_space_declaration.py` の記録した study の上限（受け入れ 12）。
+
+### 実装レビュー（2026-10-21）
+
+Codex の run `h0140-impl-review`（3 round）。3 回とも同じ一つの入力（`max_bin_by_feature` の書き方）の見逃しだった。
+
+- **round 1**（`4a8b9e2`）: CHANGES_REQUESTED、major 1。カンマ区切りの文字列を読まず、`max_bin` の上限で見積もった（LightGBM はリストと同じに扱う）。→ リスト・tuple・配列・文字列を同じに読む（`f51dce5`）。
+- **round 2 の前の monitor**: absolute、DELIVERABLE-FOCUSED・continue。disposition は continue。
+- **round 2**（`f51dce5`）: CHANGES_REQUESTED、major 1。整数 1 つ（LightGBM は要素 1 つのリストとして読む）を読めなかった。round 1 の修正の欠陥なので停止ルールで管理者に仰ぎ、管理者は「直して round 3」を選んだ。→ 整数を要素 1 つとして読む（`7cc4870`）。
+- **round 3 の前の monitor**: relational（観察した round は 1〜2）、CONVERGING・continue。disposition は continue。
+- **round 3**（`7cc4870`）: CHANGES_REQUESTED、major 1。浮動小数（`8192.0`・`np.float64`・`[8192.0]`）を読めなかった。run はこれで終わる。
+  - 書き方を 1 つずつ足していたのが原因で、開いた文法を手で読む DC1 の形だった。→ 形を足すのをやめ、読み方を閉じた。整数と有限の数（LightGBM の C++ の読み方と同じく切り捨て）を読み、それでも読めない値は上限を掛けない（その特徴量は異なる値の数をそのまま数える）。見積もりは大きくなることはあっても、小さくはならない。`max_bin` も同じ読み方にした（以前は `"511.0"` で `int()` が例外になり、fit が落ちえた）。
+  - テストは、LightGBM が受け付ける形では LightGBM 自身が作る bin の数（`Dataset.construct()` と `feature_num_bin`、学習はしない）を下回らないこと、拒否する形（`max_bin` の浮動小数、空白入りの小数の文字列）では LightGBM が学習の前に拒否し、見積もり自体は例外を出さないことを確かめる。

@@ -79,19 +79,42 @@ def _canonical(params: dict[str, Any], name: str) -> Any:
     return None
 
 
-def _per_feature_caps(value: Any) -> list[int] | None:
-    """``max_bin_by_feature`` as ints, in any form LightGBM accepts: a list, a
-    tuple, an array, a comma-separated string or one integer. ``None`` when it
-    is absent or unreadable (LightGBM then refuses it before allocating)."""
-    if value is None:
+#: A bin cap the estimate could not read: no cap, so the estimate can only be
+#: too large, never too small (H-0140 implementation review).
+_UNCAPPED = None
+
+
+def _as_int(item: Any) -> int | None:
+    """One bin count as LightGBM reads it (an integer, or a finite number
+    truncated as its C++ parser does), else ``None``."""
+    if isinstance(item, bool):
         return None
-    if isinstance(value, (int, np.integer)) and not isinstance(value, bool):
-        return [int(value)]  # a scalar is a one-element vector to LightGBM
-    items = value.split(",") if isinstance(value, str) else value
+    if isinstance(item, (int, np.integer)):
+        return int(item)
     try:
-        return [int(str(item).strip()) for item in items]
+        number = float(str(item).strip())
     except (TypeError, ValueError):
         return None
+    return int(number) if np.isfinite(number) else None
+
+
+def _per_feature_caps(value: Any) -> list[int | None] | None:
+    """``max_bin_by_feature`` per feature, ``None`` when absent.
+
+    Any form LightGBM accepts is read alike: one number, a list, a tuple, an
+    array or a comma-separated string, of integers or finite numbers. An item
+    that cannot be read is ``_UNCAPPED``, and a value that is no sequence
+    leaves every feature uncapped.
+    """
+    if value is None:
+        return None
+    if not isinstance(value, str) and np.ndim(value) == 0:
+        return [_as_int(value)]  # a scalar is a one-element vector to LightGBM
+    items = value.split(",") if isinstance(value, str) else value
+    try:
+        return [_as_int(item) for item in items]
+    except TypeError:
+        return []  # not a sequence: no feature gets a readable cap
 
 
 def feature_bins(X: pd.DataFrame, params: dict[str, Any]) -> int:
@@ -100,21 +123,23 @@ def feature_bins(X: pd.DataFrame, params: dict[str, Any]) -> int:
     A ``category`` column counts its categories, a numeric column
     ``min(distinct values, max_bin)`` (``max_bin_by_feature`` when set), and
     any other column (object, string) one bin per row, without comparing its
-    values.
+    values. A cap that cannot be read is not applied, so a value the estimate
+    misreads makes it larger, not smaller.
     """
     max_bin = _canonical(params, "max_bin")
-    default_bin = LIGHTGBM_DEFAULT_MAX_BIN if max_bin is None else int(max_bin)
+    default_bin = LIGHTGBM_DEFAULT_MAX_BIN if max_bin is None else _as_int(max_bin)
     by_feature = _per_feature_caps(_canonical(params, "max_bin_by_feature"))
     total = 0
     for i, col in enumerate(X.columns):
         series = X[col]
-        cap = default_bin
-        if by_feature is not None and i < len(by_feature):
-            cap = by_feature[i]
+        cap: int | None = default_bin
+        if by_feature is not None:
+            cap = by_feature[i] if i < len(by_feature) else _UNCAPPED
         if isinstance(series.dtype, pd.CategoricalDtype):
             total += len(series.cat.categories)
         elif pd.api.types.is_numeric_dtype(series.dtype):
-            total += min(int(series.nunique(dropna=True)), cap)
+            distinct = int(series.nunique(dropna=True))
+            total += distinct if cap is None else min(distinct, cap)
         else:
             total += len(series)
     return total
