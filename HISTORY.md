@@ -16629,3 +16629,27 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
 
 - **monitor**: round 3 の前に、runner の relational monitor を走らせた（`8700338`、観察した round は 1〜2）。本文は「両 round の修正は Proposal の事実の食い違いを狭めていて、周辺は広がっていない（収束）」としたが、brief が名指しした registry のカード D-20261022-002 が workspace の外にあって読めなかったので、判定は INCONCLUSIVE・escalate だった。カードの判断はこの Proposal の「管理者の判断」に写してあるので、disposition は continue とした（runner は SUCCEEDED の後の monitor の再実行を受け付けない）。
 - **結果**: round 3（`8700338`）は APPROVE で、指摘は無かった。run `h0139-proposal-review` はこれで終わり、この Proposal を Accepted とした。
+
+### 実装の記録（2026-10-22）
+
+- **順番**: 変わる case の一覧（対応方針 7）を、実装の前に元の参照ファイルと試作の規則だけから作り、テストと一緒に commit した（`28c893a`。pandas 3.0.1 で一覧の 416 件だけが落ち、ほかの 5867 件は通った）。一覧の変わる記録の SHA-256 は、pandas 3.0.1 と 2.3.3 で Codex の run `h0139-mechanism-design` の値と一致した。pandas 2.0.0 は 344 件（Y 225、R 111、S 8。S の名前は 2.3.3 と同じ 8 つ）。実装の後、3 つのレーンとも参照のテストが全て通った（6283・6508・6537 件）。
+- **コード**:
+  - `lizyml/core/category_temporal.py`（新しい、Layer 0）: `temporal_key`（対応方針 1 のキー）、`calendar_units`、`CalendarDuration`（`TypeError` の子）。
+  - `lizyml/core/category_values.py`: `category_identity_key` が時刻の値もキーにする。`check_calendar_durations`（年・月の拒否、`calendar_timedelta64`）。`identity_eligible` は時刻の値を除かず、年・月を除く。`holds_temporal` は観察のためだけに残した。
+  - `dataframe_builder._apply_categorical` と `CategoricalEncoder.fit`: 学ぶ前に年・月を拒否する（対応方針 2）。
+  - `persistence/_category_preflight.declared_change` と `warn_changes`: refit のエンコーダの状態を受け取り、時刻の宣言をキーの並びで比べる（対応方針 5）。`exporter._refit_encoder` が両方の呼び手に渡す。
+  - `codegen/identity_template.py`: キー・年・月の検出・拒否の写し。`templates.py` の `cast_categoricals`・`fit_pipeline`・`apply_declared_categories` が学ぶ前に拒否する。
+  - BLUEPRINT §2.1 の層の表に `core/category_temporal.py` を Layer 0 として足した（層の規則のテストが表を読む）。
+- **実装で決めたこと**:
+  - 単位の無い `np.datetime64`（V の外ではない場合）は、`("datetime64-generic", 数)` の不透明なキーにした。単位の無い `np.timedelta64` と同じ扱いである。
+  - 忠実な時刻の列が置き換えの列になるかは、今までどおり推定器の判定（LightGBM はこれらの値を JSON に書けない。H-0133）で決まる。時刻の列だからという規則は足していない（対応方針 3）。
+  - sub-ns の `np.datetime64` は、文字列と混ぜた列では pandas が忠実に持つので作り直さず、値だけの列では作り直す。
+- **置き換えたテスト**（受け入れ 12）:
+  - `tests/test_core/test_category_identity.py`: 「時刻の値はキーを持たない」（57 case）を「キーを持ち codec を通っても変わらない」と「年・月はキーを持たない」に、「V の外の値」の文の照合を `outside V` に置き換えた。
+  - `tests/test_codegen/test_h0138_identity_copy.py`: 写しの「時刻の値はキーを持たない」を「年・月と V の外はキーを持たない」に、キーの一致を時刻の値にも広げた。
+  - `tests/test_persistence/test_h0133_acceptance.py`: 年・月を含む 3 つの case（`numpy.timedelta64 with a str`・`timedelta64[Y] with a str`・`timedelta64[M] with a str`）を `CASES` から `CALENDAR_CASES` に移し、fit の拒否を確かめるテストにした。型の case を保つため、固定の単位の `numpy.timedelta64 fixed units` を足した。
+  - `tests/test_persistence/test_h0136_acceptance.py`: pytz の 7 つの形（#372 の組、#379 の組、1 つの pytz の値の 3 つの方針、2 つの容器）を「保存できて予測が変わらない」に、月の 3 つ（2 つの順と宣言）を fit の拒否に、拒否の文のテストを `refuse_change` そのものの確かめに置き換えた（pandas 3 で V の列が保存の検査で拒否される形はもう無い）。
+  - `tests/test_features/test_h0138_faithful_oracle.py` と `_h0138_answers.py`: 時刻の答えを本物の組み立ての経路で計算し、変わる case の一覧で比べる（受け入れ 2）。
+- **新しいテスト**: `tests/test_core/test_h0139_temporal_key.py`（受け入れ 1。閉じた等しい組 23・別の組 13、pytz があればさらに 3、端の座標、全ての保存処理）、`tests/test_features/test_h0139_temporal_identity.py`（受け入れ 3〜9）。宣言の保存の検査の新しい分岐を止めると、`p61` の 8 つの宣言のテストが全て落ちることを確かめた（陰性対照）。
+- **census**（受け入れ 11、実装の後、`firing/census_impl_pd3.*`）: テスト 22748 本が通り、記録 8011 件、規則のエラー 0。builder で 21/2786（作り直し 8、年・月 13）、エンコーダの fit で 25/5225（作り直し 20、年・月 5）。当たったのは H-0133・H-0136・H-0139 の受け入れテストの時刻の case だけである（`census_impl_pd3_by_test.out`）。
+- **今の振る舞いの測り直し**（`probes/temporal_matrix_impl_pd2.out`・`_pd3.out`）: pandas 2.3.3 の #379 の列は、学習の行を unseen とせず、fit の警告も無く、export と `export_code` が通る。pytz の標準時・zoneinfo の `fold=1`・`"y"` の列は 2 つのカテゴリになり、値 1 つのバッチも同じ予測で、保存できる。pytz の標準時と `"x"` の列も、警告なしに保存できるようになった。ほかの組（pandas 3.0.1 の 15 通りは全て）は実装の前と同じだった。

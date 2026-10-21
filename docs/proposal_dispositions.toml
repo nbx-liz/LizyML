@@ -564,8 +564,8 @@ disposition = "specified"
 anchors = ["category_identity_version", "identity_columns"]
 
 [proposals."H-0139"]
-disposition = "pending"
-reason = "Under review; BLUEPRINT is updated with the implementation (temporal category identity by instant, timedelta64 Y/M refused at fit)."
+disposition = "specified"
+anchors = ["temporal_key", "calendar_timedelta64"]
 
 [proposals."H-0140"]
 disposition = "specified"
