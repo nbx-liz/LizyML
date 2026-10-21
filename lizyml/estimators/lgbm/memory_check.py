@@ -21,6 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Literal
 
+import numpy as np
 import pandas as pd
 
 from lizyml.estimators.lgbm.adapter import LGBMAdapter
@@ -80,10 +81,12 @@ def _canonical(params: dict[str, Any], name: str) -> Any:
 
 def _per_feature_caps(value: Any) -> list[int] | None:
     """``max_bin_by_feature`` as ints, in any form LightGBM accepts: a list, a
-    tuple, an array or a comma-separated string. ``None`` when it is absent or
-    unreadable (LightGBM then refuses it before allocating anything)."""
+    tuple, an array, a comma-separated string or one integer. ``None`` when it
+    is absent or unreadable (LightGBM then refuses it before allocating)."""
     if value is None:
         return None
+    if isinstance(value, (int, np.integer)) and not isinstance(value, bool):
+        return [int(value)]  # a scalar is a one-element vector to LightGBM
     items = value.split(",") if isinstance(value, str) else value
     try:
         return [int(str(item).strip()) for item in items]

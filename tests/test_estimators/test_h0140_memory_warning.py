@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 import lightgbm
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -348,8 +349,14 @@ def test_max_bin_is_read_under_every_spelling(spelling: str) -> None:
 
 @pytest.mark.parametrize(
     "caps",
-    [[8192, 8192], (8192, 8192), "8192,8192", " 8192 , 8192 "],
-    ids=["list", "tuple", "string", "spaced-string"],
+    [
+        [8192, 8192],
+        (8192, 8192),
+        np.array([8192, 8192]),
+        "8192,8192",
+        " 8192 , 8192 ",
+    ],
+    ids=["list", "tuple", "array", "string", "spaced-string"],
 )
 def test_max_bin_by_feature_is_read_in_every_form_lightgbm_accepts(caps: Any) -> None:
     """Implementation review round 1: a comma-separated string was ignored."""
@@ -357,6 +364,32 @@ def test_max_bin_by_feature_is_read_in_every_form_lightgbm_accepts(caps: Any) ->
 
     X = pd.DataFrame({"a": range(10_000), "b": range(10_000)})
     assert feature_bins(X, {"max_bin": 63, "max_bin_by_feature": caps}) == 2 * 8192
+
+
+@pytest.mark.parametrize("scalar", [8192, np.int64(8192), "8192"], ids=repr)
+def test_a_scalar_max_bin_by_feature_is_a_one_element_vector(scalar: Any) -> None:
+    """Implementation review round 2: LightGBM reads one integer as a
+    one-element vector; it fell back to max_bin."""
+    from lizyml.estimators.lgbm.memory_check import feature_bins
+
+    X = pd.DataFrame({"a": range(8192)})
+    assert feature_bins(X, {"max_bin": 63, "max_bin_by_feature": scalar}) == 8192
+
+
+def test_a_scalar_max_bin_by_feature_warns_end_to_end(train_stub: _Recorder) -> None:
+    df = pd.DataFrame({"f0": range(8192)})
+    df["target"] = [float(i % 7) for i in range(8192)]
+    cfg = _config(
+        auto_num_leaves=False,
+        num_leaves=8192,
+        n_estimators=1,
+        max_bin=63,
+        max_bin_by_feature=8192,
+    )
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        Model(cfg).fit(data=df)
+    assert len(_memory_warnings(record)) == 1
 
 
 def test_a_string_max_bin_by_feature_warns_end_to_end(train_stub: _Recorder) -> None:
