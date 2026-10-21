@@ -16480,8 +16480,9 @@ Codex の run `h0140-impl-review`（3 round）。3 回とも同じ一つの入�
 
 ## H-0139: 時刻の値のカテゴリを「同じ瞬間か」で決め、#379 の列も fit と predict で同じ符号にする ― 時区の種類によらず同じ瞬間は 1 つのカテゴリ、timedelta64 の年・月の単位は fit で拒否する（#379）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-22
+- **決定日**: 2026-10-22
 - **関連**: #379、H-0138（同一性のキーと pandas に忠実かの判定。時刻の型をこの Proposal に回した）、H-0133（値の集合 V、置き換えの列）、H-0136（保存の前の検査）、registry のカード D-20261021-014（#378〜#380 を 2 本の Proposal で扱う判断）と D-20261022-002（この Proposal の契約の判断）、Codex の run `h0139-temporal-critique`（契約の批評と測定）と `h0139-mechanism-design`（機構の設計）。どちらの結果も `docs/audits/2026-10-h0139/codex/` に写した
 - **スコープ**:
   - H-0138 のキーと「pandas に忠実か」の判定を、時刻の型の値（`pd.Timestamp`・`datetime.datetime`・`datetime.date`・`np.datetime64`・`pd.Timedelta`・`datetime.timedelta`・`np.timedelta64`、それを持つ `tuple`・`frozenset`）に広げる。実行時のライブラリと、`export_code` が生成する `train.py`・`predict.py` の両方
@@ -16623,3 +16624,8 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
 - **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`50c0978`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
 - **結果**: round 2（`50c0978`）は CHANGES_REQUESTED で、major 1 件だった。round 1 の修正の欠陥ではなく、最初の版の事実の誤りである。
 - **対応**（上の本文を直した）: ns より細かい `np.datetime64` の列で 338 行が最頻値に置き換わるのは pandas 2.3.3 で、pandas 3.0.1 では 175 行が警告なしに epoch の符号になることに直した。批評の run の誤りを写していたことも書いた。判断 2 の言い方も合わせた。
+
+### Proposal レビュー round 3（2026-10-22）
+
+- **monitor**: round 3 の前に、runner の relational monitor を走らせた（`8700338`、観察した round は 1〜2）。本文は「両 round の修正は Proposal の事実の食い違いを狭めていて、周辺は広がっていない（収束）」としたが、brief が名指しした registry のカード D-20261022-002 が workspace の外にあって読めなかったので、判定は INCONCLUSIVE・escalate だった。カードの判断はこの Proposal の「管理者の判断」に写してあるので、disposition は continue とした（runner は SUCCEEDED の後の monitor の再実行を受け付けない）。
+- **結果**: round 3（`8700338`）は APPROVE で、指摘は無かった。run `h0139-proposal-review` はこれで終わり、この Proposal を Accepted とした。
