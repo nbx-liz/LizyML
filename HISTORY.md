@@ -16277,8 +16277,9 @@ Codex の run `h0138-impl-review`（3 round、Proposal の停止基準をその�
 
 ## H-0140: 大きな num_leaves で学習する前に警告し、max_depth が 0 以下を LightGBM と同じ「制限なし」にする ― max_depth は制限せず、モデルの規則は変えない（#388）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-21
+- **決定日**: 2026-10-21
 - **関連**: #388、LizyStudio#729（同時に起票。Studio のサーバーの守り）、H-0121（`auto_num_leaves` と `num_leaves` の衝突の検査）、registry のカード D-20261021-019（この Proposal の方針の判断）、Codex の run `v021-388-critique`（仕組みと上限の案の実測）と `v021-388-critique-v2`（運用の安全の枠組みでの設計）
 - **スコープ**:
   - `Model.fit` と `Model.tune` の、学習の前の警告（`num_leaves` が大きいとき）
@@ -16421,3 +16422,8 @@ Firing rate: 0/5545 of the LightGBM training calls of the runnable non-slow test
 - **対応**（上の本文を直した）:
   1. major: 見積もりの class 数と round 数が、LightGBM の受け取る値と同じであることを求めていなかった（adapter は `num_class` を利用者の params で上書きし、round 数は `num_iterations` の別名から解決する。`num_class=100` の例で約 0.7 GiB と約 22.9 GiB）。→ 見積もりの入力を全て、adapter が `lgb.train` に渡す確定後の params と `num_boost_round` から読むと決め、受け入れ 9 で上書きと全ての別名を確かめる。
   2. minor: 明示した `num_leaves` と LightGBM の既定のときにも「浅い `max_depth`」を勧めていた。→ 対処を原因ごとに分けた。
+
+### Proposal レビュー（2 本目の run）round 2（2026-10-21）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`97ceb82`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`97ceb82`）は APPROVE で、指摘は 0 件だった。run `h0140-proposal-review-2` はこれで終わる。この実行の方針により、APPROVE をもって受け入れとした（2026-10-21、Accepted）。
