@@ -16002,10 +16002,11 @@ Codex の実装レビュー（run `h0136-impl-review`、`6dce827`）は CHANGES_
 2. 陽性対照（どれも失敗し、失敗の文に `H-0137` の文言が入る）:
    - 2 つの入口を、それぞれ直接呼ぶ（その入口で記録されたことも確かめる）。呼ぶ表が `network_guard.REFUSED` とちょうど同じであることもテストする。
    - 普通の遠隔の取得: `urllib.request.urlopen`、URL を読む `pandas.read_csv`、`socket.create_connection`。
-   - 例外を捕まえて進むセル（最後のセルで落ちる）。速い層の `exec` と実際のカーネルの両方。
-   - `raises-exception` のタグのセルで通信するもの（実際のカーネル、slow）。
+   - 通信するセル、例外を捕まえて進むセル（最後のセルで落ちる）、`raises-exception` のタグのセルで通信するもの。2 つの層それぞれの実際の配線で確かめる。
+     - index の実行: `index_runner.run_instrumented`（実際のカーネル、slow）。速い層の `exec` でも、通信と、例外を捕まえる場合を確かめる。
+     - slow な実行テスト: 8 本を実行するのと同じ関数 `execute_guarded` に、小さな notebook を渡して実行する（slow）。この関数からガードを入れる 2 行を外すと、この 3 つが落ちることを確かめた。
 
-   陰性対照: 通信をせず、同梱したファイルを作業ディレクトリから読む同じ形の notebook は通る（速い層と実際のカーネル）。
+   陰性対照: 通信をせず、同梱したファイルを作業ディレクトリから読む同じ形の notebook は通る（速い層と、2 つの層の実際のカーネル）。
 3. ガードを外す（`uninstall`）と、2 つの入口が元に戻る（`socket.socket.connect` は `_socket` の元の実装と比べる）。
 4. 上の 6. のデータの検査が通る。次のどれでも落ちる: ファイルのバイトを変える、記録に無いファイルを足す、記録の項目を消す、記録したファイルを消す、2. の各必須の欄を空にする・消す（欄ごとに確かめる）。
 5. `network_markers.py`、`NETWORK_ERROR_MARKERS`、`run_with_retries`、`Attempt`、`ATTEMPTS`、slow な実行テストの skip が、実行するコード（`docs/audits/` と HISTORY.md の記録を除く）に残っていない。
@@ -16075,3 +16076,9 @@ Codex の実装レビュー（run `h0136-impl-review`、`6dce827`）は CHANGES_
 
 - **結果**: Codex の run `h0137-proposal-review-2` の round 1（`8dcd03d`）は CHANGES_REQUESTED で、major 1 件・minor 1 件だった。どちらも記述の正確さで、2 つの入口に限った設計は変えていない。
 - **対応**: major は「変わる表示」が Jena のセル 4・5 の `df_raw.head()` の表を落としていたこと。上の「実測」に、変わる表示をセルごとに書いた。minor は測定スクリプトの docstring が、外した 15 個の入口のガードを前提にしていたこと。今の 2 つの入口との関係を書いた。
+
+### 新しいレビュー run の round 2（2026-10-21）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`1f1d8da`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`1f1d8da`）は CHANGES_REQUESTED で、major 1 件だった。受け入れ 2 は 2 つの層でガードが効くことを求めていたが、slow な実行テストの層には、ガードが効くことを確かめる対照が無かった。ガードを入れる 2 行を消しても、どのテストも落ちなかった（DC1）。round 1 の対応（記述の修正）の欠陥ではない。
+- **対応**: slow な実行テストの実行を `execute_guarded` にまとめ、同じ関数で、通信・例外を捕まえる通信・`raises-exception` のセルの通信の 3 つが落ちること、通信しない双子が通ることを確かめる slow のテストを足した。ガードを入れる 2 行を外すと 3 つが落ち、双子は通った。受け入れ 2 を、層ごとに書き直した。
