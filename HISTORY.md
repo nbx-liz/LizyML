@@ -16193,11 +16193,18 @@ Codex の批評（run `v021-category-critique`）の推奨により、#378〜#38
 ### 受け入れ基準
 
 1. **キー**: V の全ての `SAMPLES` の値と入れ子の容器で、キーが決まり、codec の往復でキーが変わらない。決定 1 の等しい組（測定の 21 列の組と、#378 の組）が同じキーになり、別の値が別のキーになる。
-2. **今正しく動く列を変えない**: 参照は、実装の前に今のコード（develop `b297de4` の振る舞い）で作って commit した、pandas の版ごとのファイル `tests/test_features/data/h0138_oracle_pandas-3.0.1.json.gz`（Python 3.12、numpy 2.4.2、lightgbm 4.6.0）と `h0138_oracle_pandas-2.3.3.json.gz`（Python 3.10.22、numpy 2.2.6、lightgbm 4.6.0）である。lock の 2 つの解決（Python 3.11 以上と 3.10）にあたる。生成は `docs/audits/2026-10-h0138/oracle/make_oracle.py` で、2 回作ってバイトが同じだった。テストは、実装したライブラリの答えを、そのレーンの pandas の版のファイルと比べるだけで、参照を計算し直さない。
-   - **版の合わせ方**: レーンの pandas の版のファイルが無ければ、テストは落ちる（黙って通らない）。ただし、下限の版のレーン（`Quality (lowest-direct deps)`、pandas 2.0）だけは、参照の版が無いので、この比較のテストを marker で外し、外す理由をテストに書く。このレーンでも、3〜11 のほかのテストは走る。
-   - **エンコーダの case**（両方の版で 1584）: 測定の列のうち、ゲートが忠実と判定し、今の transform も両方の順で同じ符号を返す全ての列と、ふつうの入力の全ての dtype（object、pandas の文字列、使われないカテゴリを持つ宣言した category、明示した int64・float64・bool、欠損を含む列、型の混ざった object の列）。カテゴリとその型、最頻値、`stand_in_columns`、2 つのバッチの順の符号が同じである。
-   - **モデルの case**（pandas 3.0.1 で 77、2.3.3 で 68）: ふつうの入力、数として等しい型違いの値の組、ほかの case の 50 本に 1 本。`Model.fit`（seed と 1 スレッドを固定）の後の refit の booster の `pandas_categorical`、`model_to_string()` の sha256、予測（`float.hex`）が同じである。この比較は、依存の版が参照の版（ファイルの `meta`）と同じレーンで行う。版の違うレーン（下限の版のレーン）では、モデルの case の比較を集めずに、理由を書いて外す（エンコーダの case は全てのレーンで比べる）。
-   - 参照から外した列とその数（時刻を含む 4620、今すでに壊れている 150: cast の失敗 54、忠実でない 34、忠実だがバッチの順で符号が変わる 54、忠実だが transform が `TypeError` の 8）も、ファイルの `meta` にある。最後の 2 つ（62 列）は、印のある状態の transform を常にキーで引く理由でもある。
+2. **今正しく動く列を変えない**: 参照は、実装の前に今のコード（develop `b297de4` の振る舞い）で作って commit した、pandas の版ごとのファイルである。CI のどのレーンにも、その版のファイルがある。
+   | ファイル（`tests/test_features/data/`） | 環境 | 当たるレーン |
+   |---|---|---|
+   | `h0138_oracle_pandas-3.0.1.json.gz` | Python 3.12、numpy 2.4.2、lightgbm 4.6.0 | lock の Python 3.11 以上の解決（`Quality (3.11)`・`(3.12)` など） |
+   | `h0138_oracle_pandas-2.3.3.json.gz` | Python 3.10.22、numpy 2.2.6、lightgbm 4.6.0 | lock の Python 3.10 の解決（`Quality (3.10)`） |
+   | `h0138_oracle_pandas-2.0.0.json.gz` | Python 3.10.22、numpy 1.24.0、lightgbm 4.4.0 | `Quality (lowest-direct deps)`（CI と同じ手順で作り、`check_dependency_floors.py` で全ての依存が下限の版であることを確かめた） |
+
+   生成は `docs/audits/2026-10-h0138/oracle/make_oracle.py` で、3 つとも 2 回作ってバイトが同じだった。テストは、実装したライブラリの答えを、そのレーンの pandas の版のファイルと比べるだけで、参照を計算し直さない。
+   - **版の合わせ方**: レーンの pandas の版のファイルが無ければ、テストは落ちる（黙って通らない）。除外するレーンは無い。モデルの case は、numpy と lightgbm の版もファイルの `meta` と同じであることを先に確かめ、違えば落ちる。
+   - **エンコーダの case**（pandas 3.0.1 と 2.3.3 で 1584、2.0.0 で 1612）: 測定の列のうち、ゲートが忠実と判定し、今の transform も両方の順で同じ符号を返す全ての列と、ふつうの入力の全ての dtype（object、pandas の文字列、使われないカテゴリを持つ宣言した category、明示した int64・float64・bool、欠損を含む列、型の混ざった object の列）。カテゴリとその型、最頻値、`stand_in_columns`、2 つのバッチの順の符号が同じである。
+   - **モデルの case**（3.0.1 と 2.3.3 で 74、2.0.0 で 75）: ふつうの入力、数として等しい型違いの値の組、参照のエンコーダの case の 50 本に 1 本（参照に入れた case だけで数える。生成の最後に、0・50・100…番目の全てがモデルの case を持つことを確かめる）。`Model.fit`（seed と 1 スレッドを固定）の後の refit の booster の `pandas_categorical`、`model_to_string()` の sha256、予測（`float.hex`）が同じである。
+   - 参照から外した列とその数も、ファイルの `meta` にある。pandas 3.0.1 では、時刻を含む 4620 と、今すでに壊れている 150（cast の失敗 54、忠実でない 34、忠実だがバッチの順で符号が変わる 54、忠実だが transform が `TypeError` の 8）である。最後の 2 つ（62 列）は、印のある状態の transform を常にキーで引く理由でもある。
 3. **#378**: `Decimal("1")` と 8 つの NumPy の整数の 16 列（2 つの順）で、fit と predict が通り、1 つのカテゴリとして同じ符号が付く。
 4. **#380**: ID を付けた 104 列の一覧（13 の NumPy の型 × 深さ 1・2・3・8 × 2 つの順）で、件数と集合が一覧と一致することを確かめたうえで、2 つのバッチの順と 3 つの unseen の方針の全てで、各値の符号が順によらず同じで、学習した値が unseen にならない。
 5. **`2**70` と `np.bool_`** の 2 列で、fit が通り、2 つの値が別のカテゴリになる。
@@ -16210,7 +16217,7 @@ Codex の批評（run `v021-category-critique`）の推奨により、#378〜#38
    - 宣言したカテゴリ（`pd.Categorical` の宣言）: 宣言の順が学習したカテゴリの順になる。使われていない宣言のカテゴリは、`unseen_policy="error"` の transform で、今と同じ `DATA_SCHEMA_INVALID` を出す。
 9. **実行時と生成コードの一致**: 実行時、生成した `train.py`、生成した `predict.py` の符号が、上の 3〜5 の列で同じになる。キーの写しを `COPY` で固定する。
 10. **古い成果物と印の版**: 版 1〜4 の成果物が今と同じに予測し、`export_code` が今の引き方の生成コードを書く。古いライブラリの loader（固定した写し）が版 5 を拒否する。知らない印は拒否する: `category_identity_version` が 2、`"1"`（文字列）、`None`、負の数の状態は、`load_state`（と、それを通る `Model.load`）で `DESERIALIZATION_FAILED` になり、生成した `predict.py` も `pipeline_state.json` の同じ値を拒否する。
-11. **時刻の型**: 時刻の型の値を含む列が、今と全く同じに振る舞う。参照は 2 と同じファイルの `temporal_cases`（測定の時刻の列の全て。pandas 3.0.1 で 4620、2.3.3 で 4845）で、今の符号とカテゴリ、または今失敗する段（cast・fit・transform）と例外の型を固定している。
+11. **時刻の型**: 時刻の型の値を含む列が、今と全く同じに振る舞う。参照は 2 と同じファイルの `temporal_cases`（測定の時刻の列の全て。pandas 3.0.1 で 4620、2.3.3 と 2.0.0 で 4845）で、今の符号とカテゴリ、または今失敗する段（cast・fit・transform）と例外の型を固定している。
 
 **レビューの停止基準**: 上の受け入れ基準のテストと、実装の前の census（firing rate）が通ったら止める。次の round に進む理由になるのは、この契約の中の欠陥だけである: キーの同一視の誤り、忠実な経路のずれ、リーク、実行時と生成コードの食い違い、保存形式の移行、LightGBM への実際の受け渡し。時刻の型、tune の指紋、LightGBM 自身の振る舞い、契約の外の値は、次の round に進む理由にならない。
 
@@ -16221,3 +16228,11 @@ Codex の批評（run `v021-category-critique`）の推奨により、#378〜#38
   1. 受け入れ 2 に固定した参照が無く、試作の規則は object 以外の列で cast と判定を飛ばしていた。→ 実装の前に、今のコードで pandas の版ごとの参照（`h0138_oracle_pandas-3.0.1.json.gz`・`-2.3.3.json.gz`）を作って commit し、受け入れ 2 と 11 をそれと比べる形にした。判定は dtype によらず cast を行うようにし、census を取り直した（0/2009）。
   2. 受け入れ 8 が、置き換えの列の `pandas_categorical`、`export_state_json` の印、使われない宣言のカテゴリを確かめていなかった。→ 確かめる値を書いた。
   3. 知らない印の版を拒否するテストが無かった。→ 受け入れ 10 に、`category_identity_version` が 2・`"1"`・`None`・負の数の状態を `DESERIALIZATION_FAILED` で拒否することを足した。
+
+### Proposal レビュー round 2（2026-10-21）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`55a0a9b`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`55a0a9b`）は CHANGES_REQUESTED で、major 2 件だった。どちらも round 1 の対応（参照データ）の欠陥なので、停止ルールにより管理者に判断を仰いだ。管理者は「直して round 3」を選んだ。
+- **対応**（上の本文を直した）:
+  1. 下限の版のレーン（pandas 2.0）の参照が無く、受け入れ 2 の「全てのレーンで比べる」と、そのレーンを外す例外が食い違っていた。→ CI と同じ手順で下限の版の環境を作り、`h0138_oracle_pandas-2.0.0.json.gz` を足した。除外するレーンを無くし、版の合わないファイルしか無ければ落ちる形にした。
+  2. モデルの case の「50 本に 1 本」を、除外する前の全ての列で数えていた（実際の間隔は 156〜185）。→ 参照に入れた case だけで数え、生成の最後に 0・50・100…番目が全てモデルの case を持つことを確かめるようにした（3 つの版とも最大の間隔は 50）。
