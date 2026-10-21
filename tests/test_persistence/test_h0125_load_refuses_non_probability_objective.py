@@ -145,7 +145,7 @@ def _assert_refused(path: Path) -> LizyMLError:
 
 
 VERSIONS: dict[str, Callable[[Path], None]] = {
-    "v3": lambda _path: None,
+    "v5": lambda _path: None,
     "v2": to_v2_shape,  # H-0133 P8: the shape a v2 artifact has
     "v1": _to_format_version_1,
 }

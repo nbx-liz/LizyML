@@ -38,6 +38,7 @@ from tests.test_persistence._artifact_versions import (
     to_v1_shape,
     to_v2_shape,
     to_v3_shape,
+    to_v4_shape,
 )
 
 CONTEXT = "analysis_context.pkl"
@@ -46,7 +47,8 @@ SHAPES: dict[str, Callable[[Path], None]] = {
     "v1": to_v1_shape,
     "v2": to_v2_shape,
     "v3": to_v3_shape,
-    "v4": lambda _: None,
+    "v4": to_v4_shape,
+    "v5": lambda _: None,
 }
 
 
