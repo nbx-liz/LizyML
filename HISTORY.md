@@ -16498,7 +16498,7 @@ H-0138 は、時刻の型の値を含む列を範囲の外とし、今の pandas
   - pytz の標準時と、同じ瞬間の zoneinfo の `fold=1` と `"y"` の列は、3 つのカテゴリになり、値 1 つだけの予測が全体のバッチの中の予測と違う。保存は拒否される。
   - pytz の標準時と `"x"` の列は、in-memory では正しいが、joblib が pytz の値を `fold=1` で戻して hash が変わるので、H-0136 が保存を拒否する。
 - **H-0133 の `SAMPLES` の列**（Codex の run が実行で確かめた）:
-  - ns より細かい単位（`ps`・`fs`・`as`、`2s`・`10ms` の倍数）の `np.datetime64` の列は、pandas 3 で、学習した 6 つの値の 338 行を最頻値 `Timestamp("1970-01-01")` に置き換えた（`h0139-temporal-critique` の finding 5）。値 1 つのバッチの予測で符号がまとまる（pandas 2 では欠損の符号にもなる）ことによる（`h0139-mechanism-design` の finding 2）。
+  - ns より細かい単位（`ps`・`fs`・`as`、`2s`・`10ms` の倍数）の `np.datetime64` の列（800 行）は、学習した値を正しく引けない。pandas 2.3.3 では、予測が 6 つの値の 338 行を unseen とし、最頻値 `Timestamp("1970-01-01")` に置き換える。pandas 3.0.1 では unseen の警告は出ないが、`ps`・`fs`・`as` の 3 つの値の 175 行が、警告なしに epoch の符号になる。どちらも DC1 である（Proposal レビュー round 2 が両方の環境で実行して確かめた。`h0139-temporal-critique` の finding 5 と、それを写したこの Proposal の最初の版は、338 行を pandas 3 のこととしていた）。値 1 つのバッチの予測でも、符号がまとまる（pandas 2 では欠損の符号にもなる。`h0139-mechanism-design` の finding 2）。
   - `SAMPLES` の単位の混ざった `np.timedelta64` の値だけの列は、fit の cast が pandas 2・3 とも失敗する（`from_unit must be <= to_unit`、単位 `Y` は扱えない）。文字列と混ざった同じ値の列（H-0133 の受け入れの `numpy.timedelta64 with a str`）は、object のまま残るので今 fit できる。
   - pandas 2 の `SAMPLES` の `Timestamp` の値だけの列は、fit の cast が `Categorical categories must be unique` で失敗する。
 - 予測の段で fit と同じ cast をする案は直らない。`[標準時, "x"]` のバッチでは cast が `fold=0` を残すので、結果がバッチの中身で変わる（H-0138 の批評 `v021-category-critique`）。値 1 つから決まる同一性が要る。
@@ -16532,7 +16532,7 @@ H-0138 は、時刻の型の値を含む列を範囲の外とし、今の pandas
 Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決めた。
 
 1. **同じ瞬間なら 1 つのカテゴリにする**（契約 A）。tz を持つ `datetime`・`Timestamp` は、同じ UTC の瞬間なら、時区の種類（UTC・IANA の zoneinfo・pytz・固定オフセット）によらず 1 つ。naive の `datetime`・`Timestamp`・`np.datetime64` は、壁時計の座標が（ns より細かい単位も含め）正確に等しければ 1 つ。naive と tz 付きは別。`date` と 0 時の `datetime` は別。固定の長さの期間（`pd.Timedelta`・`datetime.timedelta`・固定の単位の `np.timedelta64`）は、長さが正確に等しければ 1 つ。`tuple`・`frozenset` は要素ごとにこの規則で比べる。
-2. **新しく fit したモデルが変わることを受け入れる**（上の実測の変化。同じ時区の zoneinfo の fold の組が `datetime` の列で分かれる、ns より細かい `np.datetime64` が最頻値にまとまらなくなる、pytz の標準時と zoneinfo の `fold=1` が 1 つになる）。保存したモデルは、保存した引き方のまま。
+2. **新しく fit したモデルが変わることを受け入れる**（上の実測の変化。同じ時区の zoneinfo の fold の組が `datetime` の列で分かれる、ns より細かい `np.datetime64` が別の値と取り違えられなくなる、pytz の標準時と zoneinfo の `fold=1` が 1 つになる）。保存したモデルは、保存した引き方のまま。
 3. **`category_identity_version: 1` の意味を広げ、時刻の型も含める**。H-0138 は develop にあるだけで、リリースしていない。版 2 は作らず、`FORMAT_VERSION` は 5 のまま。
 4. **`np.timedelta64` の年（`Y`）・月（`M`）の単位は、fit で、列の名前を示す `LizyMLError` で拒否する**。暦の月の種類は作らない。
 
@@ -16617,3 +16617,9 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
 
 - **結果**: Codex の run `h0139-proposal-review` の round 1（`5eff91f`）は CHANGES_REQUESTED で、major 1 件だった。
 - **対応**（上の本文を直した）: 今 fit が失敗して通るようになる `SAMPLES` の時刻の列の数を、判断 4 の年・月の拒否を入れた数（pandas 2 で 1、pandas 3 で 0）に直し、批評の run の数が暦の月のキーを前提にしていたことを書いた。round 1 が数えた pandas 2.0.0 の S の件数（8）を対応方針 7 に書いた。
+
+### Proposal レビュー round 2（2026-10-22）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`50c0978`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`50c0978`）は CHANGES_REQUESTED で、major 1 件だった。round 1 の修正の欠陥ではなく、最初の版の事実の誤りである。
+- **対応**（上の本文を直した）: ns より細かい `np.datetime64` の列で 338 行が最頻値に置き換わるのは pandas 2.3.3 で、pandas 3.0.1 では 175 行が警告なしに epoch の符号になることに直した。批評の run の誤りを写していたことも書いた。判断 2 の言い方も合わせた。
