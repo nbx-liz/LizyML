@@ -17,6 +17,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from lizyml.core.category_temporal import CalendarDuration, calendar_units
 from lizyml.core.category_values import (
     CATEGORY_IDENTITY_VERSION,
     category_identity_key,
@@ -65,20 +66,35 @@ def test_the_codec_round_trip_keeps_the_key(name: str, value: Any) -> None:
     assert category_identity_key(decode(encode(value))) == category_identity_key(value)
 
 
+_TEMPORAL_VALUES = [v for vs in SAMPLES.values() for v in vs if holds_temporal(v)] + [
+    (1, pd.Timestamp("2024-01-01")),
+    frozenset({dt.date(2024, 1, 1)}),
+]
+
+
+@pytest.mark.parametrize(
+    "value", [v for v in _TEMPORAL_VALUES if not calendar_units(v)], ids=repr
+)
+def test_a_temporal_value_has_a_key_that_survives_the_codec(value: Any) -> None:
+    """H-0139 replaced H-0138's "a temporal value has no key"."""
+    assert holds_temporal(value)
+    assert category_identity_key(decode(encode(value))) == category_identity_key(value)
+
+
 @pytest.mark.parametrize(
     "value",
-    [v for vs in SAMPLES.values() for v in vs if holds_temporal(v)]
-    + [(1, pd.Timestamp("2024-01-01")), frozenset({dt.date(2024, 1, 1)})],
+    [v for v in _TEMPORAL_VALUES if calendar_units(v)]
+    + [(1, np.timedelta64(2, "M")), frozenset({np.timedelta64(1, "Y")})],
+    ids=repr,
 )
-def test_a_temporal_value_has_no_key(value: Any) -> None:
-    assert holds_temporal(value)
-    with pytest.raises(TypeError, match="H-0138"):
+def test_a_calendar_duration_has_no_key(value: Any) -> None:
+    with pytest.raises(CalendarDuration):
         category_identity_key(value)
 
 
 @pytest.mark.parametrize("value", [float("nan"), object(), np.float16(1), [1]])
 def test_a_value_outside_v_has_no_key(value: Any) -> None:
-    with pytest.raises(TypeError, match="H-0138"):
+    with pytest.raises(TypeError, match="outside V"):
         category_identity_key(value)
 
 

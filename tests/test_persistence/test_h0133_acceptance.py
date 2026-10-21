@@ -31,6 +31,7 @@ import pandas as pd
 import pytest
 
 from lizyml import Model
+from lizyml.core.category_temporal import calendar_units
 from lizyml.core.category_values import ADMITTED_TYPES, MAX_DEPTH
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from tests._helpers import make_config
@@ -62,7 +63,7 @@ def test_every_admitted_type_has_its_own_case() -> None:
     # a colliding id would shrink both sides of a set comparison alike.
     assert len(set(map(_type_id, ADMITTED_TYPES))) == len(ADMITTED_TYPES)
     assert len(LABEL_CASES) == len(ADMITTED_TYPES)
-    assert {_type_id(t) for t in ADMITTED_TYPES} <= set(CASES)
+    assert {_type_id(t) for t in ADMITTED_TYPES} <= set(CASES) | set(CALENDAR_CASES)
     assert set(LABEL_CASES) == {_type_id(t) for t in ADMITTED_TYPES}
 
 
@@ -163,7 +164,21 @@ def _derived_cases() -> dict[str, list[Any]]:
     return cases
 
 
-CASES = _derived_cases()
+def _holds_calendar_duration(values: list[Any]) -> bool:
+    return any(calendar_units(v) for v in values)
+
+
+#: H-0139 decision 4: a numpy timedelta64 in Y / M units has no identity key
+#: and fit refuses its column, so those derived cases moved out of CASES to
+#: ``CALENDAR_CASES`` (the refusal tests below).
+CASES = {k: v for k, v in _derived_cases().items() if not _holds_calendar_duration(v)}
+CALENDAR_CASES = {
+    k: v for k, v in _derived_cases().items() if _holds_calendar_duration(v)
+}
+# The type keeps a save-and-predict case: its fixed-unit samples.
+CASES["numpy.timedelta64 fixed units"] = [
+    v for v in _distinct_by_equality(SAMPLES[np.timedelta64]) if not calendar_units(v)
+]
 
 
 def _pandas_cannot_build(values: list[Any]) -> str | None:
@@ -450,6 +465,22 @@ def test_the_three_surfaces_accept_every_admitted_column(
         pytest.skip(reason)
     answers = _answers(_fit(_frame(CASES[case])), tmp_path)
     assert answers == dict.fromkeys(answers, True)
+
+
+@pytest.mark.parametrize("case", sorted(CALENDAR_CASES))
+def test_a_calendar_duration_column_is_refused_at_fit(case: str) -> None:
+    """H-0139 decision 4 replaced these cases' save-and-predict checks: a
+    numpy timedelta64 in Y / M units has no identity key."""
+    values = CALENDAR_CASES[case]
+    with pytest.raises(LizyMLError) as caught:
+        _fit(_frame(values))
+    units = sorted(set().union(*(calendar_units(v) for v in values)))
+    assert caught.value.code == ErrorCode.DATA_SCHEMA_INVALID
+    assert caught.value.context == {
+        "column": "c",
+        "units": units,
+        "reason": "calendar_timedelta64",
+    }
 
 
 @pytest.mark.parametrize("case", sorted(REFUSED))
