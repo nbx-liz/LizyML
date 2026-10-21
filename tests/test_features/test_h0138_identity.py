@@ -348,4 +348,7 @@ def test_h0136_compares_a_marked_column_by_key(values: list[Any]) -> None:
     cats = encoder["categories"]
     projected = {**encoder, "categories": {**cats, "c": cats["c"][::-1]}}
     kinds = [change.kind for change in category_state_changes(encoder, projected)]
-    assert kinds == ["codes"]
+    # Whether pandas can hold the reversed list (``np.True_`` beside a tuple
+    # and a str) depends on the hash seed, so the change is ``codes`` or
+    # ``raises``; through the old lookup the check reported none.
+    assert kinds in (["codes"], ["raises"])

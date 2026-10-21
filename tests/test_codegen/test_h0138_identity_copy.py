@@ -286,7 +286,7 @@ def test_generated_predict_refuses_an_unknown_marker(
         predict.transform(df.drop(columns=["target"]))
 
 
-@pytest.mark.parametrize("columns", [None, "c", ["missing"]], ids=repr)
+@pytest.mark.parametrize("columns", [None, "c", ["missing"], [[]], [{}]], ids=repr)
 def test_generated_predict_refuses_malformed_identity_columns(
     columns: Any, tmp_path: Path
 ) -> None:

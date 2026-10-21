@@ -285,7 +285,9 @@ class TestIdentityMarkerAtLoad:
         assert exc_info.value.code == ErrorCode.DESERIALIZATION_FAILED
         assert "category identity version" in exc_info.value.user_message
 
-    @pytest.mark.parametrize("columns", [None, "c", ["missing"]], ids=repr)
+    @pytest.mark.parametrize(
+        "columns", [None, "c", ["missing"], [[]], [{}], [set()]], ids=repr
+    )
     def test_malformed_identity_columns_are_refused_by_load(
         self, columns: Any, exported: Path, tmp_path: Path
     ) -> None:
