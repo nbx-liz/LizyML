@@ -16653,3 +16653,11 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
 - **新しいテスト**: `tests/test_core/test_h0139_temporal_key.py`（受け入れ 1。閉じた等しい組 23・別の組 13、pytz があればさらに 3、端の座標、全ての保存処理）、`tests/test_features/test_h0139_temporal_identity.py`（受け入れ 3〜9）。宣言の保存の検査の新しい分岐を止めると、`p61` の 8 つの宣言のテストが全て落ちることを確かめた（陰性対照）。
 - **census**（受け入れ 11、実装の後、`firing/census_impl_pd3.*`）: テスト 22748 本が通り、記録 8011 件、規則のエラー 0。builder で 21/2786（作り直し 8、年・月 13）、エンコーダの fit で 25/5225（作り直し 20、年・月 5）。当たったのは H-0133・H-0136・H-0139 の受け入れテストの時刻の case だけである（`census_impl_pd3_by_test.out`）。
 - **今の振る舞いの測り直し**（`probes/temporal_matrix_impl_pd2.out`・`_pd3.out`）: pandas 2.3.3 の #379 の列は、学習の行を unseen とせず、fit の警告も無く、export と `export_code` が通る。pytz の標準時・zoneinfo の `fold=1`・`"y"` の列は 2 つのカテゴリになり、値 1 つのバッチも同じ予測で、保存できる。pytz の標準時と `"x"` の列も、警告なしに保存できるようになった。ほかの組（pandas 3.0.1 の 15 通りは全て）は実装の前と同じだった。
+
+### 実装レビュー round 1（2026-10-22）
+
+- **結果**: Codex の run `h0139-impl-review` の round 1（`f21624a`）は CHANGES_REQUESTED で、major 2 件だった。
+- **対応**:
+  - 単位の無い `np.datetime64`（V の中）は、codec と生成コードの codec で戻せなかった（NumPy は整数から単位の無い datetime64 を作らない。H-0133 からの欠陥で、受け入れ 1 の「全ての保存処理でキーが変わらない」に反する）。2 つの codec の復号で、単位が `generic` の値を整数のバイトから戻すようにした。書く形（バイト）は変えない。単体・tuple・frozenset の往復のテストを足した（NumPy 2 は単位の無い `timedelta64` を hash できないので、frozenset には入れない）。
+  - 変わる case の一覧のテストは、知らない規則の項目を見逃していた。全ての規則が Y・R・S のどれかであることと、ID の集合が Y∪R∪S と等しいことを確かめるようにした。知らない規則の項目を足す陰性対照で、テストが落ちることを確かめた。
+- **テスト**: pandas 3.0.1 で全体 22754 本が通った。pandas 2.3.3 と 2.0.0 で、参照・H-0139・core・H-0133・H-0136・codec の写しのテストが通った（14494・14537 本）。
