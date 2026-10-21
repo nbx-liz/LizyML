@@ -65,6 +65,21 @@ def test_a_faithful_column_answers_as_today(
     assert answers["cases"][case["id"]] == case["encoder"]
 
 
+MODEL_CASES = [c for c in CASES if "model" in c]
+
+
+def test_the_lane_runs_the_oracles_numpy_and_lightgbm() -> None:
+    h.model_versions_match(ORACLE["meta"])
+
+
+@pytest.mark.parametrize("case", MODEL_CASES, ids=[c["id"] for c in MODEL_CASES])
+def test_a_faithful_column_trains_the_same_model_as_today(
+    case: dict[str, Any], answers: dict[str, Any]
+) -> None:
+    h.model_versions_match(ORACLE["meta"])
+    assert answers["models"][case["id"]] == case["model"]
+
+
 @pytest.mark.parametrize("case", TEMPORAL, ids=[c["id"] for c in TEMPORAL])
 def test_a_temporal_column_behaves_exactly_as_today(
     case: dict[str, Any], answers: dict[str, Any]
