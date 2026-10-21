@@ -16661,3 +16661,17 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
   - 単位の無い `np.datetime64`（V の中）は、codec と生成コードの codec で戻せなかった（NumPy は整数から単位の無い datetime64 を作らない。H-0133 からの欠陥で、受け入れ 1 の「全ての保存処理でキーが変わらない」に反する）。2 つの codec の復号で、単位が `generic` の値を整数のバイトから戻すようにした。書く形（バイト）は変えない。単体・tuple・frozenset の往復のテストを足した（NumPy 2 は単位の無い `timedelta64` を hash できないので、frozenset には入れない）。
   - 変わる case の一覧のテストは、知らない規則の項目を見逃していた。全ての規則が Y・R・S のどれかであることと、ID の集合が Y∪R∪S と等しいことを確かめるようにした。知らない規則の項目を足す陰性対照で、テストが落ちることを確かめた。
 - **テスト**: pandas 3.0.1 で全体 22754 本が通った。pandas 2.3.3 と 2.0.0 で、参照・H-0139・core・H-0133・H-0136・codec の写しのテストが通った（14494・14537 本）。
+
+### 実装レビュー round 2 と管理者の判断（2026-10-22）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`313a826`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`313a826`）は CHANGES_REQUESTED で、major 2 件だった。どちらも H-0133 が受け付けた値の端の場合なので、停止ルールにより管理者に判断を仰いだ。
+  1. 単位の無い `np.datetime64`（V の中）は、NumPy 自身が文字列にできない（`str` が例外を出す）。round 1 の修正で保存の往復はできるようになったが、作り直しの並べ替え（`sorted(..., key=str)`）と警告の文で落ち、fit できなかった。
+  2. NumPy 1.24（pandas 2.0.0 のレーン）で、`frozenset({np.uint64(4), np.timedelta64(4, "s")})` は codec を往復できない（`np.uint64` を素の int で書き、NumPy 1.24 ではその int と `timedelta64` が等しく hash も同じなので、復号で 1 つにまとまる）。
+- **管理者の判断**（2026-10-22。カード D-20261022-004）:
+  1. 単位の無い `np.datetime64` は、年・月の `timedelta64` と同じく、キーを持たず fit で拒否する（context `{"column": 列, "reason": "unitless_datetime64"}`。生成コードは同じ文の `ValueError`）。predict に来たものは unseen で、警告の文では `<unprintable datetime64>` と書く。V と符号化は変えない（round 1 の修正で、保存した値は今までどおり読み込める）。
+  2. NumPy 1.24 の件は H-0133 の codec の性質で、時刻に固有でないので、別の issue（#391）で扱う。受け入れ 1 の「全ての保存処理でキーが変わらない」は、#391 の値を除く。
+  3. 直した後は、この run の通常の round 3 を走らせる。
+- **対応**: `category_temporal.UnitlessDatetime` と `holds_unitless_datetime`、`category_values.check_keyless_temporals`（年・月の検査を広げ、名前を変えた）、`identity_eligible` の除外、生成コードの写し（`_holds_unitless_datetime`・`_check_keyless_temporals`・`_text`）。実行時と生成コードの照合は、文字列にできない値を `<unprintable ...>` と書く。単位の無い `np.datetime64` の、キーが無いこと・codec の往復・fit の拒否（行・tuple・frozenset、組み立て・エンコーダ・生成コード）・predict の 3 つの方針のテストを足した。
+- **実装で決めたこと**: `np.datetime64("NaT")` も単位を持たないが、V の外の値（H-0133）なので、単位の無い値の拒否から外した（fit は通り、保存で拒否される今の経路のまま）。H-0133 の受け入れ `tuple with NaT` で確かめた。
+- **テスト**: pandas 3.0.1 で全体 22763 本、pandas 2.3.3 と 2.0.0 で関係するテスト（14503・14546 本）が通った。

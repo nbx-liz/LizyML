@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- **A `np.timedelta64` in `Y` or `M` units is refused at fit** (H-0139). Such a value has no fixed length and so no category identity key; a categorical column holding one (in a row, nested, or declared) raises `DATA_SCHEMA_INVALID` with `reason: "calendar_timedelta64"`. At predict it is unseen.
+- **A `np.timedelta64` in `Y` or `M` units is refused at fit** (H-0139). Such a value has no fixed length and so no category identity key; a categorical column holding one (in a row, nested, or declared) raises `DATA_SCHEMA_INVALID` with `reason: "calendar_timedelta64"`. A unitless `np.datetime64` (which NumPy cannot print) is refused the same way with `reason: "unitless_datetime64"`. At predict both are unseen.
 - **`max_depth=0` is no limit, as in LightGBM** (H-0140). With `auto_num_leaves`, `max_depth=0` used to derive 8 leaves; it now derives like `-1` (131072 with the default ratio, and the new warning). Saved models keep their fitted parameters.
 - **Boundary expansion no longer caps `max_depth` at 30** (H-0140). `parameter_bounds(task)["max_depth"]` is now `{"min": -1}`; an entry of `parameter_bounds` may give one side only. Studies already recorded keep their recorded range.
 

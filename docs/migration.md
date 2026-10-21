@@ -50,8 +50,10 @@ Naive and aware values stay apart, and so do a `date` and a midnight `datetime`.
   `Y` or `M` units (in a row, inside a tuple / frozenset, or as a declared
   category) raises `DATA_SCHEMA_INVALID` with context
   `{"column", "units", "reason": "calendar_timedelta64"}`; such a value has no
-  fixed length. Convert it to days or to a string before fit. One arriving at
-  predict is treated as unseen.
+  fixed length. Convert it to days or to a string before fit. A unitless
+  `np.datetime64` (which NumPy cannot print) is refused the same way, with
+  `"reason": "unitless_datetime64"`. Either value arriving at predict is
+  treated as unseen.
 - **No format change.** Artifacts stay `format_version` 5 and
   `category_identity_version` stays `1`. Saved models (any format) predict
   with the lookup they were saved with; fit again to use the temporal key.
