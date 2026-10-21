@@ -16272,3 +16272,98 @@ Codex の run `h0138-impl-review`（3 round、Proposal の停止基準をその�
   - round 2 の修正中に、H-0136 のキーでの比較のテスト（カテゴリを逆順にした写し）が hash の seed によって `codes` ではなく `raises` を返すことが分かった。pandas がその人工の順の一覧を持てるかが seed で変わるためである。fit が作る順で影響が無いかを測った: 1891 列（3 つずつの組と #378・#380 の一覧）× 12 の seed で、fit の判定と、置き換えにしない 1418 列の一覧の扱いはどの seed でも同じだった。テストは `codes` か `raises` のどちらかを受け付ける（印を落とすと `[]` になり落ちる）。
 - **round 3 の前の monitor**: relational（観察した round は 1〜2）、CONVERGING・continue。disposition は continue。
 - **round 3**（`edd8089`）: APPROVE、指摘 0 件。run はこれで終わる。この実行の方針により、APPROVE と CI 緑でマージする。
+
+---
+
+## H-0140: 大きな num_leaves で学習する前に警告し、max_depth が 0 以下を LightGBM と同じ「制限なし」にする ― max_depth は制限せず、モデルの規則は変えない（#388）
+
+- **ステータス**: Proposed
+- **起票日**: 2026-10-21
+- **関連**: #388、LizyStudio#729（同時に起票。Studio のサーバーの守り）、H-0121（`auto_num_leaves` と `num_leaves` の衝突の検査）、registry のカード D-20261021-019（この Proposal の方針の判断）、Codex の run `v021-388-critique`（仕組みと上限の案の実測）と `v021-388-critique-v2`（運用の安全の枠組みでの設計）
+- **スコープ**:
+  - `Model.fit` と `Model.tune` の、学習の前の警告（`num_leaves` が大きいとき）
+  - `auto_num_leaves` の算出で、`max_depth` が 0 のときの扱い
+  - CI の Linux のテストの job のメモリの上限
+  - 範囲の外: `max_depth` の制限（fit・既定の探索空間・境界の拡張のどれでも）、`num_leaves` の上限や拒否、isotonic の校正と生成 `train.py` の警告、LizyStudio のサーバーの守り（#729）、学習前に拒否するメモリの予算
+
+### 目的（課題）
+
+#388 は、LizyStudio を lizyml 0.20 に追従させる作業の中で、LizyStudio#729 と一緒に起票された。目的は**運用の安全**である。Studio の Fit フォームで Max Depth を `-1`（LightGBM が「制限なし」と文書に書く値）にするといった普通の操作 1 つで、150 行・3 特徴量の学習が約 12 GB を使い、OOM で kill される。同じ process で動けば、Studio のサーバーやマシンごと落ちうる。既定の探索空間の tune を `resume=True` で続けたときも、境界の拡張で `max_depth` が広がり、同じことが起きる。モデルのパラメータを制限してほしいという要望ではない。
+
+原因は LizyML の `auto_num_leaves`（既定で有効）の算出にある。`estimators/lgbm/smart_params.py` の `_compute_num_leaves` は、`num_leaves = max(8, min(131072, ceil(基準値 × num_leaves_ratio)))` で、基準値は `2 ** max_depth`、`max_depth` が未指定か負なら 131072 とする。既定の `num_leaves_ratio` は 1.0 なので、`max_depth` が 17 以上か負なら 131072 になる。
+
+### 実測（2026-10-21、Codex の run、develop `78e2a0c`、LightGBM 4.6.0。全ての測定を `ulimit -v 4000000` の下で 1 つずつ行い、`num_leaves` は 16384 までに限った）
+
+- **メモリは、育つ葉の数ではなく、指定した `num_leaves` で決まる**（`v021-388-critique`）。150 行・3 特徴量・`max_bin=255` で、`num_leaves` 256 / 1024 / 4096 / 16384 の最大 RSS は 60088 / 60904 / 68012 / 105272 KiB で、どの木も葉は 4 つだった。30 特徴量・`max_bin=255` では、256 から 16384 で 74.8 MiB から 1273.7 MiB に増えた。
+  - 1 つ目の項はヒストグラムの領域で、およそ 16 バイト × 特徴量の bin の合計 × `num_leaves` である。
+  - 2 つ目の項は、保存される木の配列で、およそ 80 バイト × `num_leaves` × round 数 × class 数である。既定の 1500 round と 131072 葉では、この項だけで約 14.8 GiB になる。
+  - つまり、`auto_num_leaves` のまま `max_depth=-1` にした設定は、ふつうのマシンでは事実上動かない。
+- **見積もりの精度**（`v021-388-critique-v2`）: 上の 2 項の和を、実測した最大 RSS と比べると、`num_leaves` 4096 以下の小さな例で予測と実測は 217612 / 218352、314280 / 326104、709608 / 719436、243212 / 244340 KiB、多値分類で 202624 / 202084 KiB（差は約 0.3〜3.8%）だった。いちばん小さな例では、固定の初期の使用量が大きく、差は約 26〜29% になる。
+  - 早期終了では、止まるまでの round の木が残る（100 round の設定で best iteration 1 でも 11 本の木が残った）。そのため、設定した round 数での見積もりは上限である。
+  - bin の数は `max_bin` だけでは決まらない（500 カテゴリの特徴量は `max_bin=63` でも 496 bin だった）。
+- **上限を付ける案は今のモデルを変える**（`v021-388-critique`）。
+  - 「学習行数 ÷ `min_data_in_leaf`」の上限は、LizyML の既定の balanced の重みのもとで、学習される木を変えた（二値・多値の 14 組の全て）。
+  - 「学習行数」の上限は、72 組で木を変えなかったが、保存される `num_leaves` の値は変えた。データが大きければメモリも抑えない。
+
+### 管理者の判断（2026-10-21。カード D-20261021-019）
+
+1. **`max_depth` は制限しない**。fit、既定の探索空間、境界の拡張のどれでも制限しない。木の深さを制限するのは、機械学習の考え方として望ましくない。Codex の最初の推奨（4096 を超えたら拒否し、拡張で `max_depth` を 12 より広げない）は、これにより採らない。
+2. **モデルの規則は変えない**（`auto_num_leaves` の算出、上限、拒否）。例外は `max_depth = 0` で、LightGBM の文書の「`<= 0` means no limit」に合わせて「制限なし」とする。
+3. LizyML がするのは運用のための警告と文書である。Studio のサーバーは #729 が守る。
+4. 警告の条件は「`num_leaves` が 16384 以上」または「見積もりが 1 GiB 以上」。警告は `num_leaves` とその原因を主に書き、見積もりを「おおよその値」として添える。
+5. 警告を出すのは `Model.fit` と `Model.tune` だけである。isotonic の校正と生成 `train.py` には出さない。
+6. この変更の PR で、CI の Linux のテストの job にメモリの上限を付ける。
+
+### 対応方針（提案）
+
+1. **判定と見積もり**: `estimators/lgbm/` に新しい module を置き、次を決める。
+   - 判定に使う `num_leaves` は、smart param を解決した後の値である。`auto_num_leaves` が導いた値と、`auto_num_leaves=false` のときに明示した値の両方を含む。別名（`num_leaf`・`max_leaf`・`max_leaves`・`max_leaf_nodes`）は `param_names.py` の LightGBM の別名の表で正規化する。
+   - 見積もりは「増える分のおおよその CPU メモリ」で、ヒストグラムの項と木の項の和とする。
+     - 特徴量の bin の合計は、学習データの列から近似する。数の列は `min(異なる値の数, max_bin)`、カテゴリの列はカテゴリの数とし、`max_bin_by_feature` があればそれを使う。
+     - round 数は設定した値（早期終了なら上限）、class 数は多値分類で class の数とする。
+     - 近似であることと、早期終了では上限であることを、警告の文と文書に書く。
+   - 条件は「`num_leaves >= 16384`」または「見積もり >= 1 GiB」である。前者は、bin の近似が外れても 131072 葉を見逃さないためにある。後者は、葉が 16384 未満でも特徴量の多い場合を捉えるためにある。
+2. **Facade に判定を書かない**: `core/model.py` は組み立てだけを行う（CLAUDE.md §3）。判定は provider の IF（`BaseEstimatorProvider` の新しいメソッド）として呼び、LightGBM の provider だけが中身を持つ。
+3. **警告の出し方**: `UserWarning` とし、`stacklevel` を `Model.fit` / `Model.tune` の呼び手に向ける。
+   - 文は `num_leaves` の値、その原因（`auto_num_leaves` が `max_depth` から導いた、または明示した）、おおよその見積もり、対処（`auto_num_leaves=false` と小さな `num_leaves`、または浅い `max_depth`）を書く。
+   - 警告を例外にする設定（`warnings` の filter、`-W error`）なら、学習の前に止まる。
+4. **出す位置と回数**:
+   - `Model.fit`: smart param を解決した後、`CVTrainer.fit` の前に 1 回だけ判定する。全ての fold と refit を合わせて 1 回である。
+   - `Model.tune`: trial ごとに、サンプルした値で解決した後、その trial の学習の前に判定する。最初に条件に当たった trial で 1 回だけ `UserWarning` を出し、以降の trial は logger に記録する。この 1 回は `tune()` の呼び出しごと（`resume` を含む）に数える。Python の警告の重複の filter には頼らない（trial ごとに文が違うため）。
+5. **`max_depth <= 0`**: `_compute_num_leaves` の条件を `max_depth < 0` から `max_depth <= 0` にする。既定の割合で `0` が導く値は 8 から 131072 になり、上の警告の対象になる。保存したモデルは、fold と refit の adapter が保存したパラメータ（8）のまま読み込み、予測し、`export_code` に渡す。新しく fit したときだけ新しい規則で導く。BLUEPRINT の算出ロジック（「未指定または負値」）を「未指定、または 0 以下」に直す。
+6. **CI のメモリの上限**: `.github/workflows/ci.yml` の Linux の pytest の step（develop の lane、main の lane、lowest-direct、latest deps）に、仮想メモリの上限（`ulimit -v`）を設ける。値は、今のスイートが通ることを CI で確かめて決める。大きな `num_leaves` を扱うテストは `lgb.train` を差し替え、本物の学習をしない。
+
+Firing rate: 0/5545 of the LightGBM training calls of the runnable non-slow test suite (Codex dynamic census at `78e2a0c`, maximum 3956 leaves; 8427 temp-path tests could not run in the reviewer's read-only sandbox, so the census over the full suite is repeated after implementation, with both trigger arms)
+
+- 既定の探索空間: 最初の `[3, 12]` では 0/100000、報告された拡張の後の `[3, 21]` では 36810/100000（乱数の seed を固定したサンプル）。
+- 既定の fit（`max_depth=5`、32 葉）では警告しない。
+
+### 互換性
+
+- 学習の結果は変わらない。警告が増えるだけである。例外は `auto_num_leaves` のままの `max_depth = 0` で、新しく fit したときに導く `num_leaves` が 8 から 131072 になる（リポジトリの中のテスト・文書・notebook・例・既定の探索空間には `max_depth = 0` を使うものが無い。Codex の検索）。
+- 保存したモデルは変わらない（`format_version` も変えない）。
+- 公開 API と Config は変わらない。警告を例外にして使う利用者は、条件に当たる設定で学習の前に止まるようになる。
+
+### 代替案
+
+- **`num_leaves` が 4096 を超えたら拒否し、拡張で `max_depth` を 12 より広げない**（Codex の最初の推奨）: `max_depth` を制限するので採らない（判断 1）。
+- **学習行数や「行数 ÷ `min_data_in_leaf`」で自動の上限を付ける**: 後者は木を変え、前者は保存する値を変えるうえ、大きなデータではメモリを抑えない。モデルの規則を変えるので採らない（判断 2）。
+- **固定の低い上限（例えば 4096）**: 大きなデータの今のモデルを黙って変える。採らない。
+- **学習の前に拒否するメモリの予算（opt-in）**: モデルの規則は変えないが、見積もりの保守性、別名・device・`histogram_pool_size` の扱い、config と生成コードへの伝搬、tune の同一性を決める必要がある。この Proposal では採らず、警告を例外にする設定で代える。
+- **isotonic の校正と生成 `train.py` にも警告を出す**: 判断 5 により範囲の外とする。
+
+### 受け入れ基準
+
+1. `auto_num_leaves` のまま `max_depth=-1`、および `max_depth=0` の `Model.fit` で、`lgb.train` の呼び出しより前に `UserWarning` がちょうど 1 回出て、`num_leaves` の値と原因と見積もりを含む（`lgb.train` は差し替え、本物の学習をしない）。
+2. `auto_num_leaves=false` で `num_leaves`、およびその別名（`max_leaves` など）を 16384 以上にした fit でも同じ警告が出る。
+3. `num_leaves` は 16384 未満だが見積もりが 1 GiB 以上の fit（特徴量と bin の多い場合）で警告が出る。
+4. 既定の fit と、最初の既定の探索空間の tune では警告しない。
+5. CV の全ての fold と refit を合わせて、警告はちょうど 1 回である。
+6. 条件に当たる trial が複数ある `tune()`（`resume` を含む）で、`UserWarning` は呼び出しごとにちょうど 1 回で、以降の trial は logger に記録される。
+7. 警告を例外にする設定では、どの `lgb.train` も呼ばれない。
+8. `_compute_num_leaves(0, 1.0)` は 131072 で、新しく fit したモデルの `export_code` の `config.json` も 131072 を持つ（差し替えで確かめる）。`max_depth=0` で 8 葉を学習して保存した成果物は、load 後の予測と `export_code` が 8 のままである。
+9. 見積もりの式を、上の実測の例の数（予測値）で固定する単体テストがある。
+10. CI の Linux の pytest の step がメモリの上限の下で走り、通る。
+11. BLUEPRINT（算出ロジックと警告）と CHANGELOG を更新する。
+
+**レビューの停止基準**: 上の受け入れ基準のテスト、実装の後の full suite での firing rate の census、文書、CI の上限が通ったら止める。経験的な係数の精度を詰めること、拒否する予算を必須にすること、Studio の守りを LizyML で解くこと、`max_depth` を制限することは、次の round に進む理由にならない。
