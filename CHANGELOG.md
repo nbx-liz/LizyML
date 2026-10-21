@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **A warning before LightGBM allocates memory for a large `num_leaves`** (H-0140, [#388](https://github.com/nbx-liz/LizyML/issues/388)). LightGBM sizes its histogram cache and every tree by the configured `num_leaves`, not by the leaves a tree grows: with `auto_num_leaves` and `max_depth=-1`, a 150-row fit asked for 131072 leaves and about 12 GB. `Model.fit` (once for all folds and the refit) and `Model.tune` (once per call; later trials are logged) now emit a `UserWarning` before training when the `num_leaves` LightGBM receives is at least 16384 or the estimated extra memory reaches 1 GiB. The warning names the value, its cause (derived from `max_depth`, set explicitly, or LightGBM's default 31) and an approximate estimate. It changes nothing; turn it into an error with a warnings filter to stop before training. The check is the optional `ResourceWarningProvider` provider capability.
+
+### Changed
+
+- **`max_depth=0` is no limit, as in LightGBM** (H-0140). With `auto_num_leaves`, `max_depth=0` used to derive 8 leaves; it now derives like `-1` (131072 with the default ratio, and the new warning). Saved models keep their fitted parameters.
+- **Boundary expansion no longer caps `max_depth` at 30** (H-0140). `parameter_bounds(task)["max_depth"]` is now `{"min": -1}`; an entry of `parameter_bounds` may give one side only. Studies already recorded keep their recorded range.
+
 ### Fixed
 
 - **Category values pandas confused now fit and predict** (H-0138, [#378](https://github.com/nbx-liz/LizyML/issues/378), [#380](https://github.com/nbx-liz/LizyML/issues/380)). Which values are one category is decided by one structural key, `lizyml.core.category_values.category_identity_key`: numbers equal as numbers are one category (`Decimal("1")` and `np.int8(1)`), and a NumPy scalar and a tuple holding the same number are two. A column holding `Decimal("1")` beside a NumPy integer no longer fails in transform with a bare `TypeError`; a column holding a NumPy scalar beside a tuple no longer gets codes that depend on the batch order or calls a learned value unseen; `2**70` beside `np.bool_` no longer fails the cast. Columns pandas already handled correctly keep their categories, mode, codes and trained model. Columns with a date or time value are unchanged (#379 is H-0139). The generated `train.py` / `predict.py` carry a copy of the key.

@@ -297,9 +297,14 @@ config = {
 - `auto_num_leaves: bool = True`: 有効時、`max_depth` から `num_leaves` を自動算出する。
 - `num_leaves_ratio: float = 1.0`（`0 < ratio ≤ 1`）: 基準値に対する割合。
 - 算出ロジック:
-  - `params.max_depth` が未指定または負値（制限なし）→ 基準値 = `131072`
+  - `params.max_depth` が未指定、または 0 以下（制限なし。LightGBM の「`<= 0` means no limit」と同じ。H-0140 より前は 0 が 8 葉を導いた）→ 基準値 = `131072`
   - `params.max_depth` が指定されている → 基準値 = `2 ^ max_depth`
   - `num_leaves = clamp(ceil(基準値 × num_leaves_ratio), 8, 131072)`
+- **メモリの警告（H-0140）**: LightGBM は、木が実際に育つ葉の数ではなく、指定した `num_leaves` の大きさでヒストグラムの領域と木の配列を確保する（150 行でも 131072 葉で約 12 GB）。`Model.fit` と `Model.tune` は、学習の前に、LightGBM が受け取る `num_leaves` が 16384 以上か、増える分のメモリの見積もりが 1 GiB 以上なら `UserWarning` を出す。値は変えない（運用のための知らせである）。
+  - 判定の値は adapter が `lgb.train` に渡す確定後の params（`num_leaves` とその別名、何も無ければ LightGBM の既定の 31）と `num_boost_round`・`num_class` から読む。原因は「`auto_num_leaves` が `max_depth` から導いた」「明示した」「LightGBM の既定」のどれかで、対処の文も原因ごとに違う。
+  - 見積もりは、ヒストグラム（約 16 バイト × 特徴量の bin の合計 × `num_leaves`）1 回分と、同時にメモリに残る booster の数だけの木（約 80 バイト × `num_leaves` × round 数 × class 数）の和。LizyML の adapter は `keep_training_booster=True` で学習するので、学習の済んだ booster も指定の大きさの木を持ち続ける。残る数は `Model.fit` で outer の fold の数 + refit、tune の 1 つの trial で outer の fold の数。近似で、早期終了では上限、isotonic の校正の booster は数えない。
+  - 回数: `Model.fit` は全ての fold と refit を合わせて 1 回。`Model.tune` は呼び出しごとに最初に条件に当たった trial で 1 回だけ警告し、以降の trial は logger に記録する。警告を例外にする設定では学習の前に止まる（tune では `TUNING_FAILED` に包まれる）。
+  - 判定は provider の任意の capability `ResourceWarningProvider`（§14.4）で、LightGBM の provider だけが持つ（`estimators/lgbm/memory_check.py`）。
 - 制約: `auto_num_leaves` が有効なとき、`num_leaves` を別名（`max_leaves` など）を含めてどの層に書いても `fit` / `tune` の学習前に `CONFIG_INVALID`（H-0121。config の構築時には拒否しない）。`num_leaves_ratio` は `auto_num_leaves` が真のときだけ読まれる。
 
 ### データサイズ相対比率パラメーター
@@ -1831,7 +1836,16 @@ class EstimatorProvider(Protocol):
 @runtime_checkable
 class TrialErrorProvider(Protocol):  # 任意の機能（H-0128）
     def trial_errors(self) -> tuple[type[Exception], ...]: ...
+
+
+@runtime_checkable
+class ResourceWarningProvider(Protocol):  # 任意の機能（H-0140）
+    def resource_warning(
+        self, *, estimator_factory, X, smart_params, n_boosters
+    ) -> str | None: ...
 ```
+
+`ResourceWarningProvider` も `EstimatorProvider` とは別の任意の機能である。`Model.fit` と `Model.tune` は `isinstance(provider, ResourceWarningProvider)` のときだけ `resource_warning(...)` を呼び、文が返れば学習の前に `UserWarning` を出す（§5.3 の `auto_num_leaves` のメモリの警告）。持たない provider では何もしない。
 
 `TrialErrorProvider` は `EstimatorProvider` とは別の任意の機能で、`EstimatorProvider` の成員には入れない（入れると、それを持たない既存の provider が静的に `EstimatorProvider` を満たさなくなる）。`Model.tune`（Facade）は `isinstance(provider, TrialErrorProvider)` のときだけ `trial_errors()` を呼び、`Tuner.run` / `Tuner.tune` の `extra_catch` に渡す。その型の例外は試行の FAIL になり、round は続く。`tuning/` は estimator のライブラリを知らない。LightGBM の provider は `(lightgbm.basic.LightGBMError,)` を返す。
 
@@ -1839,7 +1853,7 @@ class TrialErrorProvider(Protocol):  # 任意の機能（H-0128）
 - `EstimatorProvider` は `config/` を import しない（§2.1 の R2。import の文で判定し、呼ぶ側は問わない。H-0130）。
 - `model_cfg` 引数は `Any` 型で受け取り、各 provider は設定を属性として読む（具象型の `isinstance` もキャストもしない）。
 - `runtime_deps()` はアルゴリズム固有の依存パッケージ名とバージョンを返す（例: `{"lightgbm": "4.5.0"}`）。`RunMeta.deps_versions` に使用。
-- `parameter_bounds(task)` は境界拡張（§11.5）をクランプするための、パラメーターとして意味のある範囲 `{name: {"min": ..., "max": ...}}` を返す（H-0078）。表に無いパラメーターは無制限、空の dict は宣言なし。`LGBMProvider` は task によらない 15 パラメーターの表（`learning_rate` / `feature_fraction` / `bagging_fraction` / `num_leaves_ratio` / `min_data_in_leaf_ratio` / `min_data_in_bin_ratio` / `validation_ratio` / `lambda_l1` / `lambda_l2` / `n_estimators` / `max_depth` / `max_bin` / `bagging_freq` / `early_stopping_rounds` / `seed`）を返す。`Model.tune` は既定の空間にも利用者の空間にもこれを付ける（§11.2）。smart パラメーターの上下限は `smart_value_rules()` の範囲の内側に置くこと（拡張した次元も値の規則で検査されるため）。`num_leaves_ratio` の上限は 1.0（H-0121 改訂 2。それまでは 2.0 で、config の範囲 `(0, 1]` を越えていた）。
+- `parameter_bounds(task)` は境界拡張（§11.5）をクランプするための、パラメーターとして意味のある範囲 `{name: {"min": ..., "max": ...}}` を返す（H-0078）。片側だけ（`min` だけ、または `max` だけ）でもよく、無い側は無制限で、両方あるときは `min < max`（H-0140。`LGBMProvider` の `max_depth` は `{"min": -1}` だけで、木の深さの上限は置かない）。表に無いパラメーターは無制限、空の dict は宣言なし。`LGBMProvider` は task によらない 15 パラメーターの表（`learning_rate` / `feature_fraction` / `bagging_fraction` / `num_leaves_ratio` / `min_data_in_leaf_ratio` / `min_data_in_bin_ratio` / `validation_ratio` / `lambda_l1` / `lambda_l2` / `n_estimators` / `max_depth` / `max_bin` / `bagging_freq` / `early_stopping_rounds` / `seed`）を返す。`Model.tune` は既定の空間にも利用者の空間にもこれを付ける（§11.2）。smart パラメーターの上下限は `smart_value_rules()` の範囲の内側に置くこと（拡張した次元も値の規則で検査されるため）。`num_leaves_ratio` の上限は 1.0（H-0121 改訂 2。それまでは 2.0 で、config の範囲 `(0, 1]` を越えていた）。
 - `objective_choices(task)` は task で有効な objective の canonical 名を、決まった順の tuple で返す（エイリアスは含めない。H-0079）。`default_space` の `objective` 次元と UI の選択肢の元であり、集合は adapter が受理する `TASK_COMPATIBLE_OBJECTIVES`（§14.2）と同じ。未知の task は空の tuple。
 - `metric_choices(task)` は `{"native": tuple, "feval": tuple}` を返す（H-0079）。`native` は学習器が評価する指標、`feval` は LizyML が feval として注入する指標（§14.3）。どちらも canonical 名で、順は決定的、2 つの tuple の間に重複は無い。
 - `params_summary()` は `params_table()` 用のパラメータ行を返す。smart params + native model params（`metric` を含む、H-0061）の両方を含む。
@@ -1876,6 +1890,7 @@ estimators/
 │   ├── adapter.py       LGBMAdapter（現在の lgbm.py から）
 │   ├── provider.py      LGBMProvider（EstimatorProvider 実装）
 │   ├── smart_params.py  resolve_smart_params / resolve_ratio_params
+│   ├── memory_check.py  num_leaves のメモリの見積もりと警告 (H-0140)
 │   └── defaults.py      _COMMON_DEFAULTS / task defaults / default_space
 └── <future>/            EntityEmbedding 等（同構造で追加）
 ```
@@ -2212,6 +2227,7 @@ lizyml/
 │   ├── _model_metrics.py           _has_metric_content, _filter_metrics
 │   ├── _model_persistence.py       ModelPersistenceMixin
 │   ├── _model_tuning.py            ModelTuningMixin (tune orchestration、唯一の writer mixin、H-0091)
+│   ├── _resource_warning.py        fit / tune の学習前のメモリの警告 (H-0140)
 │   ├── _model_state.py             FitState / TuningState frozen snapshot (H-0074/H-0084)
 │   ├── train_components.py         TrainComponents (frozen dataclass)
 │   └── seed.py                     seed 固定ユーティリティ
@@ -2252,6 +2268,7 @@ lizyml/
 │       ├── adapter.py              LGBMAdapter
 │       ├── provider.py             LGBMProvider (EstimatorProvider 実装)
 │       ├── smart_params.py         resolve_smart_params / resolve_ratio_params
+│       ├── memory_check.py         num_leaves のメモリの見積もりと警告 (H-0140)
 │       ├── metric_bridge.py        BaseMetric → LightGBM feval (§2.1 の estimators → metrics)
 │       ├── category_json.py        保存できるカテゴリ値の判定 (H-0127)
 │       └── defaults.py             _COMMON_DEFAULTS / default_space / default_fixed_params

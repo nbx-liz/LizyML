@@ -665,7 +665,8 @@ def attach_bounds(
 
     For each ``FloatDim`` / ``IntDim`` whose ``name`` is a key in *bounds*,
     a copy is returned with ``min_allowed`` / ``max_allowed`` populated
-    from ``{"min": ..., "max": ...}``, keeping ``step``. Dims that already
+    from ``{"min": ..., "max": ...}``, keeping ``step``. Either key may be
+    absent, and that side stays unbounded (H-0140). Dims that already
     carry user-set bounds are left untouched (user override wins). ``CategoricalDim`` is
     always returned unchanged. Dims with no entry in *bounds* are
     unchanged.
@@ -689,6 +690,8 @@ def attach_bounds(
         if dim.min_allowed is not None or dim.max_allowed is not None:
             new_dims.append(dim)
             continue
+        # A one-sided bound (H-0140) leaves the other side unbounded.
+        low_b, high_b = b.get("min"), b.get("max")
         if isinstance(dim, FloatDim):
             new_dims.append(
                 FloatDim(
@@ -697,8 +700,8 @@ def attach_bounds(
                     high=dim.high,
                     log=dim.log,
                     category=dim.category,
-                    min_allowed=float(b["min"]),
-                    max_allowed=float(b["max"]),
+                    min_allowed=None if low_b is None else float(low_b),
+                    max_allowed=None if high_b is None else float(high_b),
                     step=dim.step,
                 )
             )
@@ -710,8 +713,8 @@ def attach_bounds(
                     high=dim.high,
                     log=dim.log,
                     category=dim.category,
-                    min_allowed=int(b["min"]),
-                    max_allowed=int(b["max"]),
+                    min_allowed=None if low_b is None else int(low_b),
+                    max_allowed=None if high_b is None else int(high_b),
                     step=dim.step,
                 )
             )

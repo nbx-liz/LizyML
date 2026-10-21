@@ -414,9 +414,11 @@ class EstimatorProvider(Protocol):  # pragma: no cover
 
         Returns:
             Dict mapping a parameter name to ``{"min": ..., "max": ...}``.
-            Parameters not present in the dict are unbounded (re-tune
-            expansion grows freely as before). An empty dict means the
-            provider has no parameter-specific bounds to declare.
+            Either key may be absent, and that side is unbounded (H-0140:
+            ``max_depth`` has only ``min``); when both are present,
+            ``min < max``. Parameters not present in the dict are unbounded
+            (re-tune expansion grows freely as before). An empty dict means
+            the provider has no parameter-specific bounds to declare.
         """
         ...
 
@@ -475,4 +477,35 @@ class TrialErrorProvider(Protocol):  # pragma: no cover
     def trial_errors(self) -> tuple[type[Exception], ...]:
         """Exception types a trial records as FAIL (for example the estimator
         library's own error type)."""
+        ...
+
+
+@runtime_checkable
+class ResourceWarningProvider(Protocol):  # pragma: no cover
+    """Optional provider capability: a warning before a fit that will ask the
+    estimator library for a lot of memory (H-0140).
+
+    Separate from :class:`EstimatorProvider`, as :class:`TrialErrorProvider`
+    is, so a provider without it still satisfies that Protocol. ``Model.fit``
+    and ``Model.tune`` call :meth:`resource_warning` only when
+    ``isinstance(provider, ResourceWarningProvider)``; otherwise nothing is
+    checked. The check only informs: it changes no parameter.
+    """
+
+    def resource_warning(
+        self,
+        *,
+        estimator_factory: Callable[[], BaseEstimatorAdapter],
+        X: pd.DataFrame,
+        smart_params: dict[str, Any],
+        n_boosters: int,
+    ) -> str | None:
+        """The warning text for the fit *estimator_factory* builds, or ``None``.
+
+        Args:
+            estimator_factory: The factory the fit's trainers use.
+            X: The training features.
+            smart_params: The fit's smart parameters.
+            n_boosters: How many trained models the fit keeps alive at once.
+        """
         ...

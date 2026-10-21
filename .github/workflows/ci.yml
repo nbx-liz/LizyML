@@ -6,6 +6,13 @@ on:
   push:
     branches: [main]
 
+# H-0140: every Linux pytest step runs under this address-space ceiling
+# (`ulimit -v`, KiB), so a fit that asks LightGBM for too much memory fails
+# the job instead of the runner. 12 GiB: the full suite passes under it on a
+# 16 GB host. tests/test_ci_memory_ceiling.py checks every step uses it.
+env:
+  PYTEST_MEMORY_CEILING_KIB: 12582912
+
 jobs:
   git-policy:
     name: Owned Git policy
@@ -60,6 +67,7 @@ jobs:
         # realistic floor with a 1-point buffer. The main lane (full suite)
         # measures higher, so the same floor holds there.
         run: |
+          ulimit -v "$PYTEST_MEMORY_CEILING_KIB"
           if [ "${{ github.base_ref }}" = "main" ]; then
             uv run pytest tests/ -m "" --cov=lizyml --cov-report=term-missing --cov-fail-under=96 -q
           else
@@ -100,7 +108,9 @@ jobs:
         run: .venv/bin/python scripts/check_dependency_floors.py
 
       - name: Test (pytest)
-        run: .venv/bin/python -m pytest tests/ -q
+        run: |
+          ulimit -v "$PYTEST_MEMORY_CEILING_KIB"
+          .venv/bin/python -m pytest tests/ -q
 
   quality-latest-deps:
     name: Quality (latest deps, non-blocking)
@@ -123,7 +133,9 @@ jobs:
         run: uv sync --upgrade --dev
 
       - name: Test (pytest)
-        run: uv run pytest tests/ -m "not slow" -q
+        run: |
+          ulimit -v "$PYTEST_MEMORY_CEILING_KIB"
+          uv run pytest tests/ -m "not slow" -q
 
   smoke-os-matrix:
     name: Smoke (${{ matrix.os }})
@@ -151,7 +163,16 @@ jobs:
       - name: Install dependencies
         run: uv sync --frozen --dev
 
+      # Linux gets the H-0140 ceiling; `ulimit -v` does not apply the same way
+      # on macOS and is not available in Windows' default shell.
+      - name: Portability smoke (persistence + README round-trip, Linux)
+        if: runner.os == 'Linux'
+        run: |
+          ulimit -v "$PYTEST_MEMORY_CEILING_KIB"
+          uv run pytest tests/test_persistence tests/test_e2e/test_readme_example.py -m "not slow" -q
+
       - name: Portability smoke (persistence + README round-trip)
+        if: runner.os != 'Linux'
         run: uv run pytest tests/test_persistence tests/test_e2e/test_readme_example.py -m "not slow" -q
 
   distribution:
@@ -264,7 +285,9 @@ jobs:
         run: uv run --no-sync --no-dev python -m tests.test_notebooks.check_installed_extras "$NOTEBOOK"
 
       - name: Execute the notebook and record its index examples
-        run: uv run --no-sync --no-dev python -m pytest tests/test_notebooks/test_index_execution.py -m slow -k "$NOTEBOOK"
+        run: |
+          ulimit -v "$PYTEST_MEMORY_CEILING_KIB"
+          uv run --no-sync --no-dev python -m pytest tests/test_notebooks/test_index_execution.py -m slow -k "$NOTEBOOK"
 
   notebook-index-gate:
     # The single check to require for the notebook index (H-0119 6.). It always

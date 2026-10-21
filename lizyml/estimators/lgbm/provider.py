@@ -28,6 +28,12 @@ from lizyml.estimators.lgbm.defaults import (
     default_fixed_params,
     default_space,
 )
+from lizyml.estimators.lgbm.memory_check import (
+    assess,
+    feature_bins,
+    finalized,
+)
+from lizyml.estimators.lgbm.memory_check import message as memory_message
 from lizyml.estimators.lgbm.param_names import (
     LGBM_CANONICAL_NAME,
     LGBM_PARAM_NAMES,
@@ -107,7 +113,8 @@ _LGBM_PARAMETER_BOUNDS: dict[str, dict[str, float | int]] = {
     "lambda_l1": {"min": 0.0, "max": 100.0},
     "lambda_l2": {"min": 0.0, "max": 100.0},
     "n_estimators": {"min": 10, "max": 10000},
-    "max_depth": {"min": -1, "max": 30},
+    # H-0140: no upper bound; tree depth is not limited (``<= 0`` is no limit).
+    "max_depth": {"min": -1},
     "max_bin": {"min": 2, "max": 8192},
     "bagging_freq": {"min": 0, "max": 100},
     "early_stopping_rounds": {"min": 1, "max": 5000},
@@ -406,6 +413,33 @@ class LGBMProvider:
         from lightgbm.basic import LightGBMError
 
         return (LightGBMError,)
+
+    def resource_warning(
+        self,
+        *,
+        estimator_factory: Callable[[], BaseEstimatorAdapter],
+        X: pd.DataFrame,
+        smart_params: dict[str, Any],
+        n_boosters: int,
+    ) -> str | None:
+        """Warn before a fit whose ``num_leaves`` needs a lot of memory (H-0140).
+
+        Reads the finalized parameters of one adapter the factory builds; the
+        warning fires at ``num_leaves >= 16384`` or an estimate of 1 GiB.
+        """
+        adapter = estimator_factory()
+        if not isinstance(adapter, LGBMAdapter):
+            return None
+        params, num_boost_round = finalized(adapter)
+        assessment = assess(
+            params,
+            num_boost_round,
+            bins=feature_bins(X, params),
+            auto_num_leaves=bool(smart_params.get("auto_num_leaves", False)),
+            n_boosters=n_boosters,
+            n_features=X.shape[1],
+        )
+        return memory_message(assessment) if assessment.fires else None
 
     def runtime_deps(self) -> dict[str, str]:
         """Return LightGBM package version."""

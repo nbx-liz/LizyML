@@ -280,8 +280,20 @@ def test_carry_forward_per_dim() -> None:
     assert [d.name for d in base] == ["learning_rate", "num_leaves", "max_depth"]
     assert base[1] == kept_eff
     assert base[0] == replace(new_lr, min_allowed=1e-8, max_allowed=1.0)
-    assert base[2] == replace(fresh, min_allowed=-1, max_allowed=30)
+    # H-0140: max_depth keeps its lower bound and has no upper bound.
+    assert base[2] == replace(fresh, min_allowed=-1, max_allowed=None)
     assert changed == frozenset({"learning_rate", "max_depth"})
+
+
+def test_a_recorded_max_depth_keeps_its_recorded_ceiling() -> None:
+    """H-0140 acceptance 12: removing the provider's ceiling 30 does not
+    rewrite a recorded study; an unchanged dimension keeps its clamp."""
+    depth = IntDim("max_depth", 3, 12)
+    recorded = replace(depth, low=3, high=30, min_allowed=-1, max_allowed=30)
+    previous = stored_round(2, 4, declared=(depth,), effective=(recorded,))
+    base, changed = carry_forward([depth], previous, BOUNDS, _routes_for(depth))
+    assert list(base) == [recorded]
+    assert changed == frozenset()
 
 
 def test_outside_range() -> None:

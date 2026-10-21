@@ -108,8 +108,12 @@ def smart_managed_names(
 
 
 def _compute_num_leaves(max_depth: int | None, ratio: float) -> int:
-    """Compute num_leaves from max_depth and ratio."""
-    base = 131072 if max_depth is None or max_depth < 0 else 2**max_depth
+    """Compute num_leaves from max_depth and ratio.
+
+    ``max_depth <= 0`` is no limit, as in LightGBM (H-0140); ``0`` used to
+    derive 8 leaves.
+    """
+    base = 131072 if max_depth is None or max_depth <= 0 else 2**max_depth
     return max(8, min(131072, math.ceil(base * ratio)))
 
 

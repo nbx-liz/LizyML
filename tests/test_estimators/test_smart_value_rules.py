@@ -79,7 +79,7 @@ def test_the_expansion_bound_is_inside_the_rule() -> None:
     for task in ("regression", "binary", "multiclass"):
         for name, bound in provider.parameter_bounds(task).items():
             if name in rules:
-                for edge in (bound["min"], bound["max"]):
+                for edge in bound.values():  # one side may be absent (H-0140)
                     assert rules[name].check_value(edge, task) is None, (name, edge)
 
 

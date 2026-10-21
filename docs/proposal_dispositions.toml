@@ -563,6 +563,10 @@ reason = "Test infrastructure and tutorial data only: the notebooks read vendore
 disposition = "specified"
 anchors = ["category_identity_version", "identity_columns"]
 
+[proposals."H-0140"]
+disposition = "specified"
+anchors = ["ResourceWarningProvider", "keep_training_booster=True"]
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 
