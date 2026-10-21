@@ -195,18 +195,7 @@ def test_amendment_3_auto_flag_ignored(
     )
 
 
-def test_policy_5_codes_reverted_to_str_keys(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    """Keyed by str, "1" and 1 share a code, so predict.py drifts."""
-    _revert(
-        monkeypatch,
-        "_PREDICT_PY",
-        'series = series.astype("category").cat.set_categories(known)',
-        # The pre-H-0120 lookup: a str -> code dict, later keys overwriting.
-        "mapping = {str(v): i for i, v in enumerate(known)}; "
-        "return series.astype(str).map(mapping).to_numpy(dtype=float)",
-    )
+def _str_and_int_model() -> tuple[Model, pd.DataFrame]:
     df = make_frame("binary")
     df["c"] = pd.Series(["1", 1, "2", 2] * (len(df) // 4), dtype=object)
     df["target"] = df["c"].map(lambda v: isinstance(v, str) != (str(v) == "2"))
@@ -214,8 +203,10 @@ def test_policy_5_codes_reverted_to_str_keys(
     cfg = make_config("binary", "kfold")
     cfg["model"]["params"].update(_CATEGORY_SPLITS)
     cfg["features"] = {"categorical": ["c"]}
-    model = _fit(cfg, df)
-    project = tmp_path / "gen"
+    return _fit(cfg, df), df
+
+
+def _check_str_keys_drift(model: Model, df: pd.DataFrame, project: Path) -> None:
     model.export_code(project)
     X = df.drop(columns=["target"])
     _fails(
@@ -227,15 +218,43 @@ def test_policy_5_codes_reverted_to_str_keys(
     )
 
 
-def test_declared_categories_restore_reverted(
+def test_policy_5_codes_reverted_to_str_keys(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    """Keyed by str, "1" and 1 share a code, so predict.py drifts.
+
+    The pandas lookup serves a state saved before H-0138, so the export here
+    carries an unmarked state.
+    """
     _revert(
         monkeypatch,
-        "_TRAIN_PY",
-        'declared = CFG["declared_categories"]',
-        "declared = {}",
+        "_PREDICT_PY",
+        'series = series.astype("category").cat.set_categories(known)',
+        # The pre-H-0120 lookup: a str -> code dict, later keys overwriting.
+        "mapping = {str(v): i for i, v in enumerate(known)}; "
+        "return series.astype(str).map(mapping).to_numpy(dtype=float)",
     )
+    model, df = _str_and_int_model()
+    encoder = model._refit_result.pipeline_state["encoder"]  # noqa: SLF001
+    del encoder["category_identity_version"], encoder["identity_columns"]
+    _check_str_keys_drift(model, df, tmp_path / "gen")
+
+
+def test_policy_5_keyed_codes_reverted_to_str_keys(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The H-0138 lookup keyed by str: "1" and 1 share a code again."""
+    _revert(
+        monkeypatch,
+        "_VALUE_CODEC",
+        "    return _key(value)\n",
+        "    return str(value)\n",
+    )
+    model, df = _str_and_int_model()
+    _check_str_keys_drift(model, df, tmp_path / "gen")
+
+
+def _declared_model() -> tuple[Model, pd.DataFrame]:
     df = make_frame("binary")
     rng = np.random.default_rng(8)
     df["d"] = pd.Categorical(
@@ -244,7 +263,39 @@ def test_declared_categories_restore_reverted(
     df["target"] = ((df["d"].astype(str) == "v") ^ (df["f0"] > 1.5)).astype(np.int64)
     cfg = make_config("binary", "kfold")
     cfg["model"]["params"].update(_CATEGORY_SPLITS)
-    model = _fit(cfg, df)
+    return _fit(cfg, df), df
+
+
+def test_declared_categories_restore_reverted(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The pandas restore serves a state saved before H-0138 (unmarked here)."""
+    _revert(
+        monkeypatch,
+        "_TRAIN_PY",
+        'declared = CFG["declared_categories"]',
+        "declared = {}",
+    )
+    model, df = _declared_model()
+    encoder = model._refit_result.pipeline_state["encoder"]  # noqa: SLF001
+    del encoder["category_identity_version"], encoder["identity_columns"]
+    project = tmp_path / "gen"
+    assert_retrain_reproduces(model, df, project, fmt="csv")
+    _fails(lambda: _state_matches_encoder(model, project))
+
+
+def test_declared_categories_reverted_under_the_identity(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Under H-0138 the declared list reaches the fit through the restore and
+    through ``fit_pipeline``'s declared order; losing it loses both."""
+    _revert(
+        monkeypatch,
+        "_TRAIN_PY",
+        'for col, cats in CFG["declared_categories"].items()',
+        "for col, cats in {}.items()",
+    )
+    model, df = _declared_model()
     project = tmp_path / "gen"
     assert_retrain_reproduces(model, df, project, fmt="csv")
     _fails(lambda: _state_matches_encoder(model, project))
