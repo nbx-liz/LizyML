@@ -16088,3 +16088,117 @@ Codex の実装レビュー（run `h0136-impl-review`、`6dce827`）は CHANGES_
 
 - **monitor**: round 3 の前に、runner の relational monitor を走らせた（`12b2dc0`、観察した round は 1〜2）。結果は CONVERGING・continue で、disposition は continue。
 - **結果**: round 3（`12b2dc0`）は APPROVE で、指摘は 0 件だった。run `h0137-proposal-review-2` はこれで終わる。
+
+## H-0138: カテゴリの値の同一性を 1 か所で決め、pandas が取り違える列もそれで符号を付ける ― 数として等しい値は 1 つのカテゴリにし、今正しく動く列は変えない（#378、#380）
+
+- **ステータス**: Proposed
+- **起票日**: 2026-10-21
+- **関連**: #378、#380、#379（H-0139 で扱う）、H-0133（値の集合 V、置き換えの列 `stand_in_columns`）、H-0136（保存の前の検査）、H-0127（`comparable_values`）、registry のカード D-20261021-001（v0.21 の実行の方針）、D-20261021-002（#378〜#380 を 2 本の Proposal で扱う判断）、Codex の run `v021-category-critique`（批評）と `h0138-mechanism-design`（機構の設計）
+- **スコープ**:
+  - カテゴリの特徴量の列で「どの値が同じカテゴリか」を決める全ての箇所（`docs/audits/2026-10-h0138/code_paths.md` の 9 か所）。実行時のライブラリと、`export_code` が生成する `train.py`・`predict.py` の両方
+  - 保存形式（`FORMAT_VERSION` を 5 にする）
+  - 範囲の外: 時刻の型の値の同一性（H-0139）、tune の指紋（`core/_tuning_identity.py`）、LightGBM 自身の振る舞い
+
+### 目的（課題）
+
+カテゴリの列の値の「同じかどうか」を、今は場所ごとに別の規則で決めている。fit は pandas の `astype("category")`、unseen の判定は Python の `set`、符号は pandas の Index の `get_indexer` である（`code_paths.md`）。値の型が混ざった列で、これらの答えが食い違う。H-0133 が受け付けた値（V）の中で、次が起きる。
+
+- **#378**: `Decimal("1")` と、値の等しい NumPy の整数（`np.int8(1)` など 8 型）を持つ列。Python の `==` が向きで答えを変える（`np.int8(1) == Decimal("1")` は `True`、逆は `TypeError`）。fit した後の transform が、どちらの順でも素の `TypeError` で落ちる（列の名前も出ない）。
+- **#380**: NumPy のスカラー（値が 1）と、1 を tuple で包んだ値を持つ列。pandas の object の Index が両者を取り違える。
+  - バッチの中の順で符号が変わり、既知の値に別の値の符号が付く（DC1）。
+  - 包みの深さが偶数なら、fit の cast が素の `ValueError` で落ちる。
+  - 学習した値を unseen と判定する。
+- **ほかにも同じ族**: `2**70` と `np.bool_` の列は、fit の cast が素の `OverflowError` で落ちる。
+
+### 実測（2026-10-21、branch `feat/h0138-category-identity`、develop `b297de4` の上）
+
+測定のスクリプトと出力は `docs/audits/2026-10-h0138/` にある。
+
+- **候補の同一性ごとの影響**（`identity_rows.py`・`identity_rows_pd3.out`・`identity_rows_pd2.out`）: H-0133 の `SAMPLES` の 111 値の 1 つずつと 2 つずつの組（6216 列）に、#378・#380 の形 130 列を足した 6346 列を、それぞれ文字列 `"x"` と並べて調べた。時刻の型を含まない列の結果は、pandas 3.0.1 と 2.3.3 で同じだった。
+  - **数として等しい値を 1 つにする同一性**（下の決定 1）は、今正しく動く列を 1 本も変えない。型は違うが数として等しい組（`0` と `-0.0`、`True` と `np.uint8(1)`、`1.5` と `Decimal("1.50")`、`Decimal("1")` と `np.float64(1.0)` など）の 21 列は、今 pandas が 1 つのカテゴリにまとめて正しく動いていて、この同一性でも同じになる。
+  - **型で区別する同一性**は、この 21 列を全て 2 つのカテゴリに割り、今の符号を変える。
+  - **今壊れている列**（時刻を含まない）:
+
+    | 族 | 列 | 今の振る舞い |
+    |---|---|---|
+    | #378（`Decimal("1")` と 8 つの NumPy の整数、2 つの順） | 16 | transform が素の `TypeError` |
+    | #380（13 の NumPy の型の 1 と、深さ 1・2・3・8 の tuple、2 つの順） | 104 | 下の内訳 |
+    | `2**70` と `np.bool_` | 2 | fit の cast が素の `OverflowError` |
+
+    #380 の 104 列と、`SAMPLES` の組の中の同じ形を合わせて、バッチの順で符号が変わるものが 54、fit の cast が `ValueError` で落ちるものが 28（pandas 2 では 29）、学習した値を unseen と判定するものが 26 だった。決定 1 の同一性では、どれも別々の値として扱える。
+- **firing rate**（下の対応方針 2 の条件。カテゴリをキーで作り直す割合）。試作の規則（`firing/h0138_rule.py`）で測った。
+
+  Firing rate: 0/203 of the object categorical columns the test suite fits (census over the full suite with `firing/h0138_census.py`: 168 at the builder entry, 35 at direct encoder fits; `firing/census_pd3.*`); 88/1726 of the non-temporal probe columns (28 + 26 cast raises, 34 not faithful; `firing/probe_columns_pd3.out` and `_pd2.out`, the same on pandas 3.0.1 and 2.3.3).
+
+  - テストスイートの普段の入力では、作り直しは 1 列も働かない。これは設計どおりで、作り直しは pandas が取り違える混在の列のための修正である。そうした列はテストスイートに無いので、受け入れ基準で明示的に足す（3〜5）。普段の列で 0 であることは、「今正しく動く列を変えない」ことの裏付けでもある。
+  - この条件で切り替わるのは、カテゴリをどう作るか（pandas の結果を使うか、キーで作り直して置き換えの列にするか）だけである。印のある状態の transform は、条件なしに常にキーで引く。#378 の列と #380 の一部は fit の時点では pandas に忠実（上の 70 列）で、壊れるのは transform の pandas の引き方だからである。
+  - census の全体: builder の入口で 448 件の記録のうち、object の列が 168（全て忠実）、時刻を含む列が 100、V の外の値を持つ列が 12、文字列の dtype の列が 128、その他が 5 だった。規則が読めなかった列は 0。
+
+### 管理者の判断（2026-10-21。カード D-20261021-002）
+
+Codex の批評（run `v021-category-critique`）の推奨により、#378〜#380 は「1 件ずつ直す」のでも「fit で拒否する」のでもなく、カテゴリの値の同一性を 1 か所で定義して全ての面で使う形にする。Proposal は 2 本とし、この H-0138 が #378・#380 を、H-0139 が #379 と時刻の型を扱う。そのうえで、次の 4 つを決めた。どれも推奨の案である。
+
+1. **数として等しい値は 1 つのカテゴリにする**（Python の `==` と同じ）。`-0.0`・`0`・`False`・`Decimal("-0")` は 1 つ、`True` と `np.uint8(1)` は 1 つ、`Decimal("1")` と `np.int8(1)` は 1 つである。文字列と `np.str_`、bytes と `np.bytes_` も、等しければ 1 つにする。tuple と frozenset は、要素ごとにこの規則で比べる。
+2. **今の版（format_version 4 以前）で保存したモデルは、load の後も今の pandas の引き方で予測する**。予測は変わらない。
+3. **pandas がカテゴリとして持てない列**（tuple と NumPy のスカラーを pandas が重複と誤るものなど）は、H-0133 の置き換え（カテゴリを位置の番号 `0..k-1` にする）で LightGBM に渡す。fit で新しく拒否するものは置かない。
+4. **範囲の外**: 時刻の型の値の同一性（H-0139）と、tune の指紋（`_tuning_identity.py`）。時刻の型の値を含む列は、今と全く同じに振る舞う。
+
+### 対応方針（提案。Codex の run `h0138-mechanism-design` の設計による）
+
+1. **同一性のキー**: `core/category_values.py` に `category_identity_key(value)` を置く。V の値だけを受け付ける。生成コードには、codec と同じく写しを置き、`tests/test_codegen/test_h0133_codec_copy.py` の `COPY` で写しを固定する。
+   - 数（`bool`・`int`・NumPy の整数、有限の `float`・NumPy の浮動小数、`Decimal`）: 正確な比 `("number", "finite", 分子, 分母)`。無限大は `("number", "infinity", 符号)`。虚部が 0 の複素数は実部のキー、それ以外は `("number", "complex", 実部のキー, 虚部のキー)`。
+   - `str`・`np.str_`: `("string", str(value))`。`bytes`・`np.bytes_`: `("bytes", bytes(value))`。
+   - `tuple`: `("tuple", 要素のキーの tuple)`。`frozenset`: `("frozenset", 要素のキーの frozenset)`。
+   - 時刻の型の値（入れ子の中も含む）を持つ列と、V の外の値を持つ列は、キーを使わず今の経路を通る（決定 4）。
+2. **今正しく動く列を変えない条件（pandas に忠実かどうか）**: 列ごとに、pandas の cast を実際に行い、その結果がキーに忠実かを確かめる。
+   - 忠実とは、次の全てを満たすことである。カテゴリのキーが一意である。欠損でない全ての行に 0 以上の符号が付き、その符号のカテゴリのキーが行の値のキーと同じである。欠損の行の符号は -1 である。宣言したカテゴリは同じ順で残る。
+   - 忠実なら、今の結果（カテゴリ、その順、代表の値、最頻値 `series.mode().iloc[0]`、置き換えの判定、符号）をそのまま使う。
+   - cast が例外を出すか、忠実でないときだけ、キーで作り直す。代表の値は、キーごとに最初に現れた値とする。順は、推定した object の列では今の `sorted(..., key=str)` の規則、宣言した列では宣言の順とする。最頻値はキーで数え、同数ならカテゴリの順で先のものとする。作り直した列は、必ず置き換えの列（`stand_in_columns`）にする。
+3. **データ層**: `dataframe_builder._apply_categorical` は、時刻を含まない列の cast が例外を出すか忠実でないとき、元の object の列を残し、`DataFrame.attrs` の非公開の項目に「カテゴリの列である」と記録する。`NativeFeaturePipeline.fit` は、`.cat` と文字列の列に加えて、この記録の列も選ぶ。記録はカテゴリを持たないので、カテゴリはこれまでどおり各 fold と refit の `pipeline.fit` の中で学習する（リークの境界は変わらない）。記録が、複製・`sort_components`・`iloc`・`reset_index`、outer・inner・calibration の分割を通ることをテストで固定する。時刻を含む列と V の外の値を持つ列は、今の `astype("category")` をそのまま行い、結果も例外も変えない。
+4. **エンコーダ**: 新しく fit した状態は、`category_identity_version: 1` と、キーで扱う列の一覧 `identity_columns` を持つ。
+   - transform は、H-0127 の `comparable_values` を通した後、カテゴリと行のキーから位置の番号を直接引き、unseen の方針（`error`・`mode`・`nan`）を番号の上で当て、`Categorical.from_codes` で列を作る。`set(values)`、`isin`、`astype("category")` での照合、`Index.get_indexer` は使わない。
+   - 入ってきた列が `.cat` の宣言を持つなら、今と同じに調べる（使われていない未知の宣言も `error` の方針で落ちる）。
+   - pandas が忠実でなかった列は、置き換えの列として位置の番号で LightGBM に渡す。忠実で書ける列は元のカテゴリのまま渡すので、保存した booster とモデルは変わらない。
+   - `load_state`: 印（`category_identity_version`）の無い状態は、今の pandas の経路で動く（決定 2）。知らない版の値は拒否する。
+5. **ほかの箇所**（`code_paths.md` の 1〜9）:
+   - fit と、生成コードの fit の 2 つの写しは、同じ「cast・忠実の判定・キーでの作り直し」を使う。builder の cast と、生成コードの `cast_categoricals` も同じ。
+   - 実行時の transform、生成した `train.py`・`predict.py` の transform は、同じキーでの unseen・最頻値・符号の処理を使う。
+   - `comparable_values` は、3 つの写しとも、キーの前の H-0127 の変換のまま。
+   - codec の保存の形はバイトとして変えない（キーを変えないことのテストを足す）。
+   - H-0136 の検査（`state_changes.py`・`_category_preflight.py`）は、印のある状態を符号とキーで比べ、印の無い状態は今のエンコーダと `CategoricalDtype` の検査のまま。
+   - `category_json.needs_stand_in` は、LightGBM に実際に渡すカテゴリで判定し、忠実でない一覧を正規化しない。
+   - `input_categories`（本物のカテゴリの dtype の列）は変えない。`export_state_json` は印と一覧も書く。生成コードの宣言したカテゴリの復元は、忠実の判定を使う。
+   - 実行時の LightGBM 自身の `pandas_categorical` の照合は変えない。忠実な列は同じ一覧を、置き換えの列は位置の番号を渡すからである。生成コードの predict は、これまでどおり NumPy の符号を渡す。
+6. **`export_code` と古いモデル**: `export_code` は、元の pipeline の同一性の版を引き継ぐ。印の無い（古い）成果物から load したモデルは、今の引き方の `train.py`・`predict.py` を生成し、印の無い状態を書く。版 1 のモデルは、キーで引く生成コードを書く。古いカテゴリを黙って新しい同一性に上げない。
+7. **保存形式**: `FORMAT_VERSION` を 5 にし、loader は {1,2,3,4,5} を受け付ける。版 1〜4 を load した状態は印が無いので、振る舞いは全く同じである。古いライブラリは、版 5 の成果物を pickle を読む前に拒否する（`loader.py:361-377`）。移行は「古い状態を版 1 の同一性に書き直さない、一方向の振る舞いの互換」である。
+
+### 互換性
+
+- 今正しく動く列（上の測定の 21 列を含め、pandas が忠実な列）は、カテゴリ・順・代表の値・最頻値・符号・保存した状態・学習したモデルが、同じ依存の版・パラメータ・行の順・seed のもとで変わらない。状態に印（`category_identity_version`・`identity_columns`）が足されるだけである。
+- 今壊れている列（#378・#380 の族など）は、fit が通り、正しい符号で予測する。素の例外で落ちていた列は落ちなくなる。予測が変わるのはこの列だけである。
+- 版 5 の成果物は、古いライブラリでは load できない（format_version で明示的に拒否される）。版 1〜4 の成果物は、新しいライブラリで今と同じに予測する。
+- 公開 API と Config は変わらない。`FitResult` と `PredictionResult` の形も変わらない。
+
+### 代替案
+
+- **1 件ずつ直す**（#378 は比較を安全にして例外を包む、#379 は predict でも cast する、#380 は別の引き方）: 族の全体を覆わず、#379 の案はバッチの中身で結果が変わる（批評）。採らない。
+- **fit で見分けにくい混在を拒否する**: 型の組み合わせの規則は今動く 8 通りの混在を拒否し、型の族の規則は `SAMPLES` の 31 列のうち 21 列（そのうち 19〜20 列は今動く）を拒否した（批評）。完全で互換な規則が無い。採らない（決定 3）。
+- **型で区別する同一性**: 今正しく動く 21 列の符号を変える。採らない（決定 1）。
+- **全ての列をキーで作り直す**（pandas に忠実な列も）: 今動く列の順や代表の値が変わりうる。忠実な列は今の結果を使う方が、変えないことを確かめられる。採らない。
+- **古い成果物もキーで引く**: 壊れていた列の予測は直るが、保存した時と違う予測を返す。採らない（決定 2）。
+
+### 受け入れ基準
+
+1. **キー**: V の全ての `SAMPLES` の値と入れ子の容器で、キーが決まり、codec の往復でキーが変わらない。決定 1 の等しい組（測定の 21 列の組と、#378 の組）が同じキーになり、別の値が別のキーになる。
+2. **今正しく動く列を変えない**: 測定で今正しく動く、時刻を含まない全ての列について、今の実装を固定した参照と比べて、カテゴリ・順・代表の値・最頻値・符号・状態の欄・置き換えの判定が同じである。固定した版と seed のもとで、LightGBM のモデルの文字列、`pandas_categorical`、予測も同じである。
+3. **#378**: `Decimal("1")` と 8 つの NumPy の整数の 16 列（2 つの順）で、fit と predict が通り、1 つのカテゴリとして同じ符号が付く。
+4. **#380**: ID を付けた 104 列の一覧（13 の NumPy の型 × 深さ 1・2・3・8 × 2 つの順）で、件数と集合が一覧と一致することを確かめたうえで、2 つのバッチの順と 3 つの unseen の方針の全てで、各値の符号が順によらず同じで、学習した値が unseen にならない。
+5. **`2**70` と `np.bool_`** の 2 列で、fit が通り、2 つの値が別のカテゴリになる。
+6. **データ層**: cast が例外を出す列と忠実でない列が、object の列のまま記録され、カテゴリの列として選ばれる。その記録が、複製・並べ替え・分割（outer・inner・calibration）を通る。検証の側にしか無いキーが、fit のカテゴリに入らない（リークの検知。落ちるべき例を含む）。
+7. **H-0136 の検査**: 印のある状態の joblib と JSON の写しを、符号とキーで比べる。印の無い状態は今の検査のまま。
+8. **宣言したカテゴリ**（使われていない宣言を含む）、`export_state_json`、本物の booster の pickle・load・predict。
+9. **実行時と生成コードの一致**: 実行時、生成した `train.py`、生成した `predict.py` の符号が、上の 3〜5 の列で同じになる。キーの写しを `COPY` で固定する。
+10. **古い成果物**: 版 1〜4 の成果物が今と同じに予測し、`export_code` が今の引き方の生成コードを書く。古いライブラリの loader（固定した写し）が版 5 を拒否する。
+11. **時刻の型**: 時刻の型の値を含む列が、今と全く同じに振る舞う（`identity_rows` の時刻の行で、今の結果と一致する）。
+
+**レビューの停止基準**: 上の受け入れ基準のテストと、実装の前の census（firing rate）が通ったら止める。次の round に進む理由になるのは、この契約の中の欠陥だけである: キーの同一視の誤り、忠実な経路のずれ、リーク、実行時と生成コードの食い違い、保存形式の移行、LightGBM への実際の受け渡し。時刻の型、tune の指紋、LightGBM 自身の振る舞い、契約の外の値は、次の round に進む理由にならない。
