@@ -62,6 +62,7 @@ from lizyml.core._model_factories import (
     check_smart_managed_overrides,
     check_training_managed_overrides,
     effective_early_stopping_rounds,
+    get_outer_n_splits,
     get_provider,
     normalise_and_check,
     overlay_params,
@@ -79,6 +80,7 @@ from lizyml.core._model_predict import run_predict
 from lizyml.core._model_state import FitState
 from lizyml.core._model_tables import ModelTablesMixin
 from lizyml.core._model_tuning import ModelTuningMixin
+from lizyml.core._resource_warning import check_resources
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.logging import generate_run_id, get_logger
 from lizyml.core.specs.feature_spec import FeatureSpec
@@ -296,6 +298,16 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         # Model.export and export_code will refuse. The refit pipeline is fit
         # on these same rows (H-0085).
         warn_unsaveable_category_values(pipeline_factory().fit(X, y).get_state())
+        # H-0140: once, before any LightGBM allocation; the outer folds and the
+        # refit are kept alive together.
+        check_resources(
+            provider,
+            tc,
+            X,
+            smart_params,
+            n_boosters=get_outer_n_splits(cfg) + 1,
+            stacklevel=2,
+        )
 
         # --- CV training -----------------------------------------------------
         cv_trainer = CVTrainer(

@@ -25,11 +25,13 @@ from typing import TYPE_CHECKING, Any
 
 from lizyml.core._model_factories import (
     build_splitter,
+    get_outer_n_splits,
     get_provider,
     overlay_params,
 )
 from lizyml.core._model_metrics import _DEFAULT_METRICS
 from lizyml.core._model_state import TuningState
+from lizyml.core._resource_warning import WarningLatch, check_resources
 from lizyml.core._tuning_admission import (
     check_round_space,
     check_space_names,
@@ -707,6 +709,10 @@ class ModelTuningMixin:
         change per call.
         """
         cfg = self._cfg
+        # H-0140: one warning per tune() call (this closure is built once per
+        # call); the later trials that fire are logged.
+        latch = WarningLatch()
+        n_folds = get_outer_n_splits(cfg)
 
         def objective(trial: Any) -> float:
             trial_params = suggest_params(trial, space)
@@ -732,6 +738,16 @@ class ModelTuningMixin:
                 model_params=merged_model,
                 smart_params=merged_smart,
                 training_overrides=training_p,
+            )
+            # Before the trial trains; its outer folds are kept alive together.
+            check_resources(
+                provider,
+                tc,
+                X,
+                merged_smart,
+                n_boosters=n_folds,
+                stacklevel=2,
+                latch=latch,
             )
 
             cv_trainer = CVTrainer(
