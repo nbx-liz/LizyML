@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 
 from lizyml.core.category_values import (
@@ -121,7 +122,7 @@ def keyed_codes(
     mode: Any,
     policy: UnseenPolicy,
     column: Any,
-) -> tuple[np.ndarray, list[str]]:
+) -> tuple[npt.NDArray[np.int64], list[str]]:
     """Codes of *series* (``comparable_values`` of *arrived*) looked up by key.
 
     *changed* marks the rows ``comparable_values`` found no category for

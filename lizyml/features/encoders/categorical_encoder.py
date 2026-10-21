@@ -218,7 +218,12 @@ class CategoricalEncoder:
                 stand_in = col in self._stand_in_columns
                 categories: Any = range(len(known_cats)) if stand_in else known_cats
                 X[col] = pd.Series(
-                    pd.Categorical.from_codes(codes, categories=categories),
+                    # Older pandas stubs (the 3.10 lane) type codes as
+                    # Sequence[int]; an int64 array is what pandas reads.
+                    pd.Categorical.from_codes(
+                        codes,  # type: ignore[arg-type, unused-ignore]
+                        categories=categories,
+                    ),
                     index=X.index,
                     name=arrived.name,
                 )
