@@ -15888,8 +15888,9 @@ Codex の実装レビュー（run `h0136-impl-review`、`6dce827`）は CHANGES_
 
 ## H-0137: チュートリアルの notebook が読むデータをリポジトリに同梱し、実行中の通信を拒否する ― 取得の失敗を再試行・skip する仕組みを外す（#385）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-21
+- **決定日**: 2026-10-21
 - **関連**: #385、H-0119（6.(b) の「データ取得の失敗」）、#197（v0.16.0 で入れた skip）、PR #384（v0.20.0 のリリース PR で、OpenML の取得が失敗した）、registry のカード D-20261021-001（v0.21 の実行の方針。#385 を最初に行い、データを同梱し、notebook が通信しないことをテストする）
 - **スコープ**:
   - `notebooks/` の 5 本のチュートリアルの、データを読むセルと、その説明の文
@@ -16082,3 +16083,8 @@ Codex の実装レビュー（run `h0136-impl-review`、`6dce827`）は CHANGES_
 - **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`1f1d8da`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
 - **結果**: round 2（`1f1d8da`）は CHANGES_REQUESTED で、major 1 件だった。受け入れ 2 は 2 つの層でガードが効くことを求めていたが、slow な実行テストの層には、ガードが効くことを確かめる対照が無かった。ガードを入れる 2 行を消しても、どのテストも落ちなかった（DC1）。round 1 の対応（記述の修正）の欠陥ではない。
 - **対応**: slow な実行テストの実行を `execute_guarded` にまとめ、同じ関数で、通信・例外を捕まえる通信・`raises-exception` のセルの通信の 3 つが落ちること、通信しない双子が通ることを確かめる slow のテストを足した。ガードを入れる 2 行を外すと 3 つが落ち、双子は通った。受け入れ 2 を、層ごとに書き直した。
+
+### 新しいレビュー run の round 3（2026-10-21）
+
+- **monitor**: round 3 の前に、runner の relational monitor を走らせた（`12b2dc0`、観察した round は 1〜2）。結果は CONVERGING・continue で、disposition は continue。
+- **結果**: round 3（`12b2dc0`）は APPROVE で、指摘は 0 件だった。run `h0137-proposal-review-2` はこれで終わる。
