@@ -16447,9 +16447,9 @@ Firing rate: 0/5545 of the LightGBM training calls of the runnable non-slow test
   - tune で警告を例外にする設定では、trial の中の `UserWarning` を tuner が受けて `TUNING_FAILED`（警告の文を含む）として出す。学習は 1 度も呼ばれない（受け入れ 7 のテストはこの形を確かめる）。
   - tune の警告の `stacklevel` は Optuna の中の frame を指す。fit の警告は利用者の `fit` の行を指す（テストで確かめた）。
   - 既存のテスト 4 本を新しい契約に合わせた: provider の conformance test（片側の範囲）、`test_smart_value_rules`（片側の範囲の端）、#152 の上限 30 のテスト（判断 7 で上限が無いことを固定する形にした）、`carry_forward` のテスト（新しい次元の上限が無いこと）。
-- **firing rate（実装の後の census）**: 判定を全て記録する pytest の plugin を付けて、full suite（`-m ""`）を流した。2 本目の実装レビューの round 1 で bin の数え方を直した後に取り直した（22510 件が通った）。最初の census（3/3359）と同じ 3 件である。
+- **firing rate（実装の後の census）**: 判定を全て記録する pytest の plugin を付けて、full suite（`-m ""`）を流した。2 本目の実装レビューの round 1・2 で bin の数え方を直した後に、その都度取り直した（最後は 22516 件が通った）。どの census でも、当たったのは最初の census（3/3359）と同じ 3 件である。
 
-  Firing rate: 3/3356 of the H-0140 assessments the suite makes outside the H-0140 tests (3383 assessments over 2141 tests, after the bin-count fix of the second implementation review; the 3 are the estimate arm only, on deep default-space tune trials in `tests/test_e2e/test_pairwise.py` and `tests/test_persistence/test_reporting_surfaces_survive_load.py`; the leaf arm fired 0 times outside the H-0140 tests)
+  Firing rate: 3/3329 of the H-0140 assessments the suite makes outside the H-0140 tests (3356 assessments over 2141 tests, after the bin-count fixes of rounds 1 and 2 of the second implementation review; 3/3356 after round 1; the 3 are the estimate arm only, on deep default-space tune trials in `tests/test_e2e/test_pairwise.py` and `tests/test_persistence/test_reporting_surfaces_survive_load.py`; the leaf arm fired 0 times outside the H-0140 tests)
 
   - H-0140 のテストの中では 21 回当たった（`num_leaves` の条件 17、見積もりの条件だけ 4）。notebook のカーネルの中の fit は plugin が届かないので数えていない。
 - **テスト**: `tests/test_estimators/test_h0140_memory_warning.py`（受け入れ 1〜9・12・13）、`tests/test_ci_memory_ceiling.py`（受け入れ 10）、`tests/test_tuning/test_space_declaration.py` の記録した study の上限（受け入れ 12）。
@@ -16470,3 +16470,8 @@ Codex の run `h0140-impl-review`（3 round）。3 回とも同じ一つの入�
 #### 2 本目の run（`h0140-impl-review-2`）
 
 - **round 1**（`dc60395`）: CHANGES_REQUESTED、major 1。値の種類の少ない数の列で、LightGBM は値の数に既定（0）の bin と欠損の bin を足す（1.0 と 2.0 だけの列が 3 bin。3000 特徴量で見積もり 6000 bin、LightGBM は 9000 bin）。見積もりが LightGBM より小さくなり、1 GiB を超える fit を見逃した。→ 小さな Dataset で測ると、値の数を超える bin は 1 特徴量につき最大 2（カテゴリの列は 1）だったので、各特徴量に 2 を足した。テストは、値の種類の少ない列・欠損・0・負の値・カテゴリの列について、見積もりが LightGBM の作る bin の数を下回らないことを確かめる。census を取り直した（上の firing rate）。
+- **round 2 の前の monitor**: absolute、DELIVERABLE-FOCUSED・continue。disposition は continue。
+- **round 2**（`7a9e38b`）: CHANGES_REQUESTED、major 1。bin の作り方を変える LightGBM のパラメータ（`categorical_column` で数の列をカテゴリにする、`forcedbins_filename` で境界を強制する）を見積もりが見ず、LightGBM より小さく数えた。round 1 の修正の「上界」の主張の穴なので停止ルールで管理者に仰ぎ、管理者は直し方として「文書の一覧で閉じる」を、進め方として「直して round 3」を選んだ。
+  - → LightGBM 4.6 が文書に書く Dataset のパラメータ 23 個を `memory_check.DATASET_PARAMS` で分類した（上界を保つもの 11、bin を増やしうるもの 2、ファイルの読み書きだけのもの 10）。増やしうるもの（`categorical_feature`・`forcedbins_filename`）が指定されていれば、数の列の bin を「異なる値の数と上限の大きい方 + 2」で数える。
+  - `linear_tree` は bin を変えないが、葉ごとに線形モデルを持つ（10 特徴量で、指定の葉 1 つ・1 round につき約 124 バイト増えた）。木の項に、葉 1 つ・1 round につき 16 バイト ×（特徴量の数 + 1）を足す。
+  - テストは、指摘の 2 つの例で見積もりが LightGBM の作る bin の数を下回らないこと、分類した 23 個が全て LightGBM の正規の名前であること、`linear_tree` の分を確かめる。census を取り直した（上の firing rate。カテゴリの列のある普通の fit で新しく当たるものは無かった）。

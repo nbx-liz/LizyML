@@ -542,6 +542,70 @@ def test_a_string_max_bin_by_feature_warns_end_to_end(train_stub: _Recorder) -> 
     )
 
 
+def test_every_documented_dataset_parameter_is_classified() -> None:
+    """The 23 Dataset parameters LightGBM 4.6 documents, each a real
+    canonical name (implementation review run 2, round 2)."""
+    from lizyml.estimators.lgbm.memory_check import DATASET_PARAMS
+
+    assert len(DATASET_PARAMS) == 23
+    assert set(DATASET_PARAMS.values()) == {"bounded", "widening", "io"}
+    assert all(LGBM_CANONICAL_NAME.get(name) == name for name in DATASET_PARAMS)
+
+
+def test_a_categorical_column_parameter_never_undercounts(tmp_path: Path) -> None:
+    from lizyml.estimators.lgbm.memory_check import feature_bins
+
+    X = pd.DataFrame({f"f{i}": np.arange(500.0) for i in range(20)})
+    params = {
+        "max_bin": 63,
+        "min_data_in_bin": 1,
+        "verbose": -1,
+        "categorical_column": ",".join(str(i) for i in range(20)),
+    }
+    dataset = lightgbm.Dataset(X, params=params).construct()
+    built = sum(dataset.feature_num_bin(i) for i in range(X.shape[1]))
+    assert feature_bins(X, params) >= built
+
+
+def test_forced_bins_never_undercount(tmp_path: Path) -> None:
+    from lizyml.estimators.lgbm.memory_check import feature_bins
+
+    X = pd.DataFrame({f"f{i}": np.tile([1.0, 2.0], 500) for i in range(40)})
+    forced = [
+        {"feature": i, "bin_upper_bound": [0.01 * k for k in range(1, 255)]}
+        for i in range(40)
+    ]
+    file = tmp_path / "forced_bins.json"
+    file.write_text(json.dumps(forced))
+    params = {"verbose": -1, "forcedbins_filename": str(file)}
+    dataset = lightgbm.Dataset(X, params=params).construct()
+    built = sum(dataset.feature_num_bin(i) for i in range(X.shape[1]))
+    assert built > 2 * 40 + 2 * 40  # forced bins exceed the values
+    assert feature_bins(X, params) >= built
+
+
+@pytest.mark.parametrize("flag", [True, "true", 1])
+def test_linear_tree_adds_its_leaf_models(flag: Any) -> None:
+    from lizyml.estimators.lgbm.memory_check import assess
+
+    base = {"num_leaves": 1024}
+    plain = assess(
+        base, 100, bins=0, auto_num_leaves=False, n_boosters=3, n_features=10
+    )
+    linear = assess(
+        {**base, "linear_tree": flag},
+        100,
+        bins=0,
+        auto_num_leaves=False,
+        n_boosters=3,
+        n_features=10,
+    )
+    # About 124 bytes per leaf per round were measured with 10 features.
+    extra = linear.estimate_bytes - plain.estimate_bytes
+    assert extra == 16 * 11 * 1024 * 100 * 3
+    assert extra >= 124 * 1024 * 100 * 3
+
+
 # --- acceptance 12: max_depth has no upper bound ------------------------------------
 
 

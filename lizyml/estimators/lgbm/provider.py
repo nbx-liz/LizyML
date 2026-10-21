@@ -437,6 +437,7 @@ class LGBMProvider:
             bins=feature_bins(X, params),
             auto_num_leaves=bool(smart_params.get("auto_num_leaves", False)),
             n_boosters=n_boosters,
+            n_features=X.shape[1],
         )
         return memory_message(assessment) if assessment.fires else None
 

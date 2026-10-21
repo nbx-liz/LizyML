@@ -87,6 +87,42 @@ _UNCAPPED = None
 #: review, run 2), 1 for a categorical feature.
 _EXTRA_BINS = 2
 
+#: LightGBM 4.6's documented Dataset parameters, by what they do to the bins
+#: this estimate counts (H-0140 implementation review, run 2, round 2).
+#: ``bounded``: the bins stay within ``min(values, cap) + 2`` (caps, fewer
+#: bins, the missing / zero bins). ``widening``: the bins may exceed the cap
+#: (a numeric column made categorical, forced bin bounds), so a feature then
+#: counts ``max(values, cap) + 2``. ``io``: reading files only.
+DATASET_PARAMS: dict[str, str] = {
+    "max_bin": "bounded",
+    "max_bin_by_feature": "bounded",
+    "min_data_in_bin": "bounded",
+    "bin_construct_sample_cnt": "bounded",
+    "data_random_seed": "bounded",
+    "is_enable_sparse": "bounded",
+    "enable_bundle": "bounded",
+    "use_missing": "bounded",
+    "zero_as_missing": "bounded",
+    "feature_pre_filter": "bounded",
+    "linear_tree": "bounded",  # bins unchanged; its tree memory is counted below
+    "categorical_feature": "widening",
+    "forcedbins_filename": "widening",
+    "pre_partition": "io",
+    "two_round": "io",
+    "header": "io",
+    "label_column": "io",
+    "weight_column": "io",
+    "group_column": "io",
+    "ignore_column": "io",
+    "save_binary": "io",
+    "precise_float_parser": "io",
+    "parser_config_file": "io",
+}
+#: Extra bytes ``linear_tree`` keeps per configured leaf per round, per
+#: feature plus one (its coefficients; about 124 bytes measured with 10
+#: features, 176 counted).
+_LINEAR_TREE_BYTES = 16
+
 
 def _as_int(item: Any) -> int | None:
     """One bin count as LightGBM reads it (an integer, or a finite number
@@ -134,6 +170,11 @@ def feature_bins(X: pd.DataFrame, params: dict[str, Any]) -> int:
     max_bin = _canonical(params, "max_bin")
     default_bin = LIGHTGBM_DEFAULT_MAX_BIN if max_bin is None else _as_int(max_bin)
     by_feature = _per_feature_caps(_canonical(params, "max_bin_by_feature"))
+    widening = any(
+        _canonical(params, name) not in (None, "", [], ())
+        for name, kind in DATASET_PARAMS.items()
+        if kind == "widening"
+    )
     total = 0
     for i, col in enumerate(X.columns):
         series = X[col]
@@ -144,7 +185,12 @@ def feature_bins(X: pd.DataFrame, params: dict[str, Any]) -> int:
             values = len(series.cat.categories)
         elif pd.api.types.is_numeric_dtype(series.dtype):
             distinct = int(series.nunique(dropna=True))
-            values = distinct if cap is None else min(distinct, cap)
+            if cap is None:
+                values = distinct
+            elif widening:
+                values = max(distinct, cap)
+            else:
+                values = min(distinct, cap)
         else:
             values = len(series)
         total += values + _EXTRA_BINS
@@ -152,11 +198,23 @@ def feature_bins(X: pd.DataFrame, params: dict[str, Any]) -> int:
 
 
 def estimate_bytes(
-    num_leaves: int, bins: int, rounds: int, num_class: int, n_boosters: int
+    num_leaves: int,
+    bins: int,
+    rounds: int,
+    num_class: int,
+    n_boosters: int,
+    linear_features: int = 0,
 ) -> int:
-    """The approximate extra CPU memory, in bytes (see the module docstring)."""
+    """The approximate extra CPU memory, in bytes (see the module docstring).
+
+    *linear_features* is the number of features when ``linear_tree`` is on
+    (each leaf then keeps a linear model), else 0.
+    """
+    per_leaf = _TREE_BYTES
+    if linear_features:
+        per_leaf += _LINEAR_TREE_BYTES * (linear_features + 1)
     histogram = _HISTOGRAM_BYTES * bins * num_leaves
-    trees = _TREE_BYTES * num_leaves * rounds * num_class * n_boosters
+    trees = per_leaf * num_leaves * rounds * num_class * n_boosters
     return histogram + trees
 
 
@@ -178,9 +236,11 @@ def assess(
     bins: int,
     auto_num_leaves: bool,
     n_boosters: int,
+    n_features: int = 0,
 ) -> MemoryAssessment:
     """Assess a fit from the finalized *params* and *num_boost_round*."""
     leaves = _canonical(params, "num_leaves")
+    linear = _as_bool(_canonical(params, "linear_tree"))
     cause: Cause
     if leaves is None:
         leaves, cause = LIGHTGBM_DEFAULT_NUM_LEAVES, "default"
@@ -198,9 +258,17 @@ def assess(
             num_boost_round,
             max(1, int(num_class)) if num_class is not None else 1,
             n_boosters,
+            linear_features=n_features if linear else 0,
         ),
         n_boosters=n_boosters,
     )
+
+
+def _as_bool(value: Any) -> bool:
+    """A LightGBM boolean as LightGBM reads it (``True``, ``1``, ``"true"``)."""
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "1", "+", "yes")
+    return bool(value) if value is not None else False
 
 
 def message(assessment: MemoryAssessment) -> str:
