@@ -16475,3 +16475,5 @@ Codex の run `h0140-impl-review`（3 round）。3 回とも同じ一つの入�
   - → LightGBM 4.6 が文書に書く Dataset のパラメータ 23 個を `memory_check.DATASET_PARAMS` で分類した（上界を保つもの 11、bin を増やしうるもの 2、ファイルの読み書きだけのもの 10）。増やしうるもの（`categorical_feature`・`forcedbins_filename`）が指定されていれば、数の列の bin を「異なる値の数と上限の大きい方 + 2」で数える。
   - `linear_tree` は bin を変えないが、葉ごとに線形モデルを持つ（10 特徴量で、指定の葉 1 つ・1 round につき約 124 バイト増えた）。木の項に、葉 1 つ・1 round につき 16 バイト ×（特徴量の数 + 1）を足す。
   - テストは、指摘の 2 つの例で見積もりが LightGBM の作る bin の数を下回らないこと、分類した 23 個が全て LightGBM の正規の名前であること、`linear_tree` の分を確かめる。census を取り直した（上の firing rate。カテゴリの列のある普通の fit で新しく当たるものは無かった）。
+- **round 3 の前の monitor**: relational（観察した round は 1〜2）、CONVERGING・continue。disposition は continue。
+- **round 3**（`00e673c`）: APPROVE。minor 1: 分類のテストは 23 個が正規の名前であることと 3 つの区分があることだけを確かめ、どの名前がどの区分かは固定していない（Codex は分類そのものを別に確かめ、正しいとした）。APPROVE の後の変更を増やさないため、この PR では直さない。run はこれで終わる。この実行の方針により、APPROVE と CI 緑でマージする。
