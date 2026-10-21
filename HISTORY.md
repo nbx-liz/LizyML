@@ -16328,7 +16328,9 @@ Codex の run `h0138-impl-review`（3 round、Proposal の停止基準をその�
      - 見積もりが数えるのは、主の estimator（LightGBM の provider が作るモデル）の booster である。同時に残る数は、`Model.fit` では outer の fold の数 + refit の 1 つ（`CVTrainer` は fold の adapter を全て `models` に残し、refit はその後に学習する）、tune の 1 つの trial では outer の fold の数である。
      - isotonic の校正の booster（校正の fold の最後の 1 つと最終の校正器の 2 つが、主の fold のモデルと同時に残る）は数えない。校正には警告を出さない判断 5 に合わせ、見積もりの対象の外であることを警告の文と文書に書く。
      - 特徴量の bin の合計は、学習データの列から近似する。数の列は `min(異なる値の数, max_bin)`、カテゴリの列はカテゴリの数とし、`max_bin_by_feature` があればそれを使う。
-     - round 数は設定した値（早期終了なら上限）、class 数は多値分類で class の数とする。
+     - 見積もりの入力（`num_leaves`、round 数、class 数、`max_bin` と `max_bin_by_feature`）は全て、adapter が `lgb.train` に渡すのと同じ確定後の値から読む。具体的には、`LGBMAdapter._build_params` が作る params と `num_boost_round` を、学習を始めずに得る同じ経路を使う（判定のために別の解決を書かない）。
+       - 理由: adapter は `num_class` を y から書いた後に利用者の params で上書きしうる。round 数は `num_iterations` の全ての別名（`num_round`・`num_rounds`・`num_tree`・`num_trees`・`n_estimators`・`num_boost_round` など）から解決される。y の class の数や `n_estimators` だけを読むと、例えば `num_class=100` を指定した 3 class の tune で、見積もりは約 0.7 GiB、LightGBM が受け取る値では約 22.9 GiB になり、警告を見逃す。
+     - round 数は確定した `num_boost_round`（早期終了なら上限）、class 数は確定した `num_class`（多値分類以外は 1）とする。
      - 近似であることと、早期終了では上限であることを、警告の文と文書に書く。
    - 条件は「`num_leaves >= 16384`」または「見積もり >= 1 GiB」である。前者は、bin の近似が外れても 131072 葉を見逃さないためにある。後者は、葉が 16384 未満でも特徴量の多い場合を捉えるためにある。
 2. **Facade に判定を書かない**: `core/model.py` は組み立てだけを行う（CLAUDE.md §3）。判定は、provider の任意の capability として呼ぶ。
@@ -16336,7 +16338,7 @@ Codex の run `h0138-impl-review`（3 round、Proposal の停止基準をその�
    - `Model.fit` と `Model.tune` は、`isinstance(provider, ResourceWarningProvider)` のときだけ判定を呼び、そうでなければ何もしない。H-0140 より前に書いた provider や、LightGBM 以外の provider は、そのまま `EstimatorProvider` を満たし、警告は出ない。
    - LightGBM の provider だけが中身を持つ。`EstimatorProvider` の protocol 自体は変えない（変えるのは `parameter_bounds` の戻り値の形だけ。互換性の節）。
 3. **警告の出し方**: `UserWarning` とし、`stacklevel` を `Model.fit` / `Model.tune` の呼び手に向ける。
-   - 文は `num_leaves` の値、その原因（上の 3 つのどれか: `auto_num_leaves` が `max_depth` から導いた、明示した、LightGBM の既定）、おおよその見積もり、対処（`auto_num_leaves=false` と小さな `num_leaves`、または浅い `max_depth`）を書く。
+   - 文は `num_leaves` の値、その原因（上の 3 つのどれか: `auto_num_leaves` が `max_depth` から導いた、明示した、LightGBM の既定）、おおよその見積もり、原因ごとの対処を書く。`max_depth` から導いたときは「浅い `max_depth`、または `auto_num_leaves=false` と小さな `num_leaves`」、明示したときと LightGBM の既定のときは「小さな `num_leaves`（または特徴量・`max_bin`・round を減らす）」である。後の 2 つでは `max_depth` を浅くしても葉は減らないので、それを勧めない。
    - 警告を例外にする設定（`warnings` の filter、`-W error`）なら、学習の前に止まる。
 4. **出す位置と回数**:
    - `Model.fit`: smart param を解決した後、`CVTrainer.fit` の前に 1 回だけ判定する。全ての fold と refit を合わせて 1 回である。
@@ -16380,7 +16382,7 @@ Firing rate: 0/5545 of the LightGBM training calls of the runnable non-slow test
 6. 条件に当たる trial が複数ある `tune()`（`resume` を含む）で、`UserWarning` は呼び出しごとにちょうど 1 回で、以降の trial は logger に記録される。
 7. 警告を例外にする設定では、どの `lgb.train` も呼ばれない。
 8. `_compute_num_leaves(0, 1.0)` は 131072 で、新しく fit したモデルの `export_code` の `config.json` も 131072 を持つ（差し替えで確かめる）。`max_depth=0` で 8 葉を学習して保存した成果物は、load 後の予測と `export_code` が 8 のままである。
-9. 見積もりの式を、上の実測の例の数（予測値）で固定する単体テストがある。
+9. 見積もりの式を、上の実測の例の数（予測値）で固定する単体テストがある。見積もりの入力が `lgb.train` の受け取る値と同じであることを、`lgb.train` の差し替えで受け取った params と `num_boost_round` を読んで確かめる。次を含む: `model.params` と tune のサンプルによる `num_class` の上書き、`num_iterations` と `num_leaves` と `max_bin` の全ての別名。警告の対処の文が原因ごとに違い、明示と既定のときに `max_depth` を勧めないことも確かめる。
 10. CI の Linux で pytest を走らせる全ての step（対応方針 6 の 5 つ）がメモリの上限の下で走り、通る。workflow の中で pytest を走らせる Linux の step のうち上限の無いものが 0 であることを、テストで数える。
 11. BLUEPRINT（算出ロジック、警告、`parameter_bounds` の片側の範囲）と CHANGELOG を更新する。
 12. `max_depth` の上限: provider の conformance test が片側だけの範囲を受け付け、両方あるときだけ `min < max` を求める。`parameter_bounds` の `max_depth` は `{"min": -1}` で、最良の値が端の近くにある新しい study の境界の拡張が 30 より深く広がる。下限 -1 はそのまま効く。片側だけの範囲を `attach_bounds` が受け付け、無い側を無制限にする。記録した study の resume で、変えていない `max_depth` の次元は記録した上限 30 のままである。
@@ -16411,3 +16413,11 @@ Firing rate: 0/5545 of the LightGBM training calls of the runnable non-slow test
 - **monitor**: round 3 の前に、runner の relational monitor を走らせた（`7e65722`、観察した round は 1〜2）。結果は CONVERGING・continue で、disposition は continue。
 - **結果**: round 3（`7e65722`）は CHANGES_REQUESTED で、major 1 件だった。run `h0140-proposal-review` はこれで終わる。
   - 判定を「`BaseEstimatorProvider` の新しいメソッド」として呼ぶと書いていたが、その型は無い。Facade の境界は構造の Protocol `EstimatorProvider` で、既定の実装を持たない。そのまま足すと、古い provider や LightGBM 以外の provider が fit と tune で落ちる。→ H-0128 の `TrialErrorProvider` と同じ任意の capability（`ResourceWarningProvider`）にし、実装しない provider では何もしない形にした（対応方針 2、受け入れ 13）。
+- run が尽きたので、管理者は新しい通常の run を選んだ。
+
+### Proposal レビュー（2 本目の run）round 1（2026-10-21）
+
+- **結果**: Codex の run `h0140-proposal-review-2` の round 1（`4e546d8`）は CHANGES_REQUESTED で、major 1 件・minor 1 件だった。
+- **対応**（上の本文を直した）:
+  1. major: 見積もりの class 数と round 数が、LightGBM の受け取る値と同じであることを求めていなかった（adapter は `num_class` を利用者の params で上書きし、round 数は `num_iterations` の別名から解決する。`num_class=100` の例で約 0.7 GiB と約 22.9 GiB）。→ 見積もりの入力を全て、adapter が `lgb.train` に渡す確定後の params と `num_boost_round` から読むと決め、受け入れ 9 で上書きと全ての別名を確かめる。
+  2. minor: 明示した `num_leaves` と LightGBM の既定のときにも「浅い `max_depth`」を勧めていた。→ 対処を原因ごとに分けた。
