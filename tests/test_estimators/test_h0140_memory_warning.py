@@ -346,6 +346,40 @@ def test_max_bin_is_read_under_every_spelling(spelling: str) -> None:
     assert feature_bins(X, {spelling: 63}) == 63 + 1
 
 
+@pytest.mark.parametrize(
+    "caps",
+    [[8192, 8192], (8192, 8192), "8192,8192", " 8192 , 8192 "],
+    ids=["list", "tuple", "string", "spaced-string"],
+)
+def test_max_bin_by_feature_is_read_in_every_form_lightgbm_accepts(caps: Any) -> None:
+    """Implementation review round 1: a comma-separated string was ignored."""
+    from lizyml.estimators.lgbm.memory_check import feature_bins
+
+    X = pd.DataFrame({"a": range(10_000), "b": range(10_000)})
+    assert feature_bins(X, {"max_bin": 63, "max_bin_by_feature": caps}) == 2 * 8192
+
+
+def test_a_string_max_bin_by_feature_warns_end_to_end(train_stub: _Recorder) -> None:
+    rows = 10_000
+    df = pd.DataFrame({f"f{i}": range(rows) for i in range(10)})
+    df["target"] = [float(i % 7) for i in range(rows)]
+    cfg = _config(
+        auto_num_leaves=False,
+        num_leaves=8192,
+        n_estimators=1,
+        max_bin_by_feature=",".join(["8192"] * 10),
+    )
+    model = Model(cfg)
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        model.fit(data=df)
+    assert len(_memory_warnings(record)) == 1
+    assert all(
+        _canonical(p, "max_bin_by_feature") == ",".join(["8192"] * 10)
+        for p, _ in train_stub.calls
+    )
+
+
 # --- acceptance 12: max_depth has no upper bound ------------------------------------
 
 

@@ -78,6 +78,19 @@ def _canonical(params: dict[str, Any], name: str) -> Any:
     return None
 
 
+def _per_feature_caps(value: Any) -> list[int] | None:
+    """``max_bin_by_feature`` as ints, in any form LightGBM accepts: a list, a
+    tuple, an array or a comma-separated string. ``None`` when it is absent or
+    unreadable (LightGBM then refuses it before allocating anything)."""
+    if value is None:
+        return None
+    items = value.split(",") if isinstance(value, str) else value
+    try:
+        return [int(str(item).strip()) for item in items]
+    except (TypeError, ValueError):
+        return None
+
+
 def feature_bins(X: pd.DataFrame, params: dict[str, Any]) -> int:
     """An upper-bound approximation of the bins LightGBM builds for *X*.
 
@@ -88,13 +101,13 @@ def feature_bins(X: pd.DataFrame, params: dict[str, Any]) -> int:
     """
     max_bin = _canonical(params, "max_bin")
     default_bin = LIGHTGBM_DEFAULT_MAX_BIN if max_bin is None else int(max_bin)
-    by_feature = _canonical(params, "max_bin_by_feature")
+    by_feature = _per_feature_caps(_canonical(params, "max_bin_by_feature"))
     total = 0
     for i, col in enumerate(X.columns):
         series = X[col]
         cap = default_bin
-        if isinstance(by_feature, (list, tuple)) and i < len(by_feature):
-            cap = int(by_feature[i])
+        if by_feature is not None and i < len(by_feature):
+            cap = by_feature[i]
         if isinstance(series.dtype, pd.CategoricalDtype):
             total += len(series.cat.categories)
         elif pd.api.types.is_numeric_dtype(series.dtype):
