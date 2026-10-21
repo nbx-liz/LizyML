@@ -181,23 +181,27 @@ class TestProtocolReturnTypes:
     ) -> None:
         """``parameter_bounds`` returns a dict of param->{'min','max'} (H-0078).
 
-        An empty dict is acceptable (provider without bounds).  Non-empty
-        entries must each contain 'min' and 'max' as numeric values, with
-        ``min < max``.
+        An empty dict is acceptable (provider without bounds). Each entry has
+        'min', 'max' or both as numeric values and nothing else; a missing
+        side is unbounded (H-0140), and ``min < max`` when both are present.
         """
         bounds = provider.parameter_bounds(task)
         assert isinstance(bounds, dict)
         for param, b in bounds.items():
             assert isinstance(param, str), f"param key must be str, got {type(param)}"
             assert isinstance(b, dict), f"{param} bounds must be dict"
-            assert "min" in b and "max" in b, (
-                f"{param} bounds must have 'min' and 'max' keys"
+            assert b and set(b) <= {"min", "max"}, (
+                f"{param} bounds must have 'min', 'max' or both, got {sorted(b)}"
             )
-            assert isinstance(b["min"], (int, float)), f"{param}.min must be numeric"
-            assert isinstance(b["max"], (int, float)), f"{param}.max must be numeric"
-            assert b["min"] < b["max"], (
-                f"{param} must satisfy min < max, got min={b['min']}, max={b['max']}"
-            )
+            for side, value in b.items():
+                assert isinstance(value, (int, float)), (
+                    f"{param}.{side} must be numeric"
+                )
+            if "min" in b and "max" in b:
+                assert b["min"] < b["max"], (
+                    f"{param} must satisfy min < max, got min={b['min']}, "
+                    f"max={b['max']}"
+                )
 
 
 # ===================================================================
