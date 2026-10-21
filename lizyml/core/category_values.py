@@ -461,6 +461,11 @@ def decode(obj: Any) -> Any:
 #: The identity a fitted encoder state records (``category_identity_version``).
 CATEGORY_IDENTITY_VERSION = 1
 
+#: ``DataFrame.attrs`` key naming the categorical columns the builder keeps
+#: as object because pandas' cast raised or was not faithful (H-0138). It
+#: names columns only; their categories are learned inside each fit.
+IDENTITY_OBJECT_COLUMNS = "lizyml_identity_object_columns"
+
 _TEMPORAL: tuple[type, ...] = (
     dt.date,
     dt.datetime,
@@ -538,6 +543,51 @@ def category_identity_key(value: Any) -> Any:
             f"outside V ({type_name(value)})"
         )
     return _key(value)
+
+
+def is_missing(value: Any) -> bool:
+    """A missing cell: ``None``, ``pd.NA``, ``NaT`` or a float NaN."""
+    if value is None or value is pd.NA or value is pd.NaT:
+        return True
+    return isinstance(value, (float, np.floating)) and math.isnan(value)
+
+
+def _values(series: pd.Series) -> list[Any]:
+    """Non-missing row values, then the declared categories (used or not)."""
+    values = [v for v in series.to_numpy(dtype=object) if not is_missing(v)]
+    if isinstance(series.dtype, pd.CategoricalDtype):
+        values += list(series.cat.categories)
+    return values
+
+
+def identity_eligible(series: pd.Series) -> bool:
+    """Whether H-0138's key decides this column (no temporal, all in V)."""
+    return not any(holds_temporal(v) or refusal(v) is not None for v in _values(series))
+
+
+def cast_is_faithful(original: pd.Series, cast: pd.Series) -> bool:
+    """Does pandas' cast agree with the key, row by row? (executed, not predicted)
+
+    The categories' keys are unique, every non-missing row has a code whose
+    category has the row's key, every missing row has code -1, and declared
+    categories survive in their order.
+    """
+    cats = list(cast.cat.categories)
+    if isinstance(original.dtype, pd.CategoricalDtype) and cats != list(
+        original.cat.categories
+    ):
+        return False
+    keys = [category_identity_key(c) for c in cats]
+    if len(set(keys)) != len(keys):
+        return False
+    codes = cast.cat.codes.to_numpy()
+    for raw, code in zip(original.to_numpy(dtype=object), codes, strict=True):
+        if is_missing(raw):
+            if code != -1:
+                return False
+        elif code < 0 or keys[code] != category_identity_key(raw):
+            return False
+    return True
 
 
 def _key(value: Any) -> Any:

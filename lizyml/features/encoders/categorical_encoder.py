@@ -8,7 +8,12 @@ from typing import Any, Literal
 import numpy as np
 import pandas as pd
 
+from lizyml.core.category_values import CATEGORY_IDENTITY_VERSION, identity_eligible
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.features.encoders.category_identity import (
+    keyed_categories,
+    keyed_codes,
+)
 
 UnseenPolicy = Literal["mode", "nan", "error"]
 
@@ -97,10 +102,18 @@ class CategoricalEncoder:
         self._categories: dict[str, list[Any]] = {}
         self._modes: dict[str, Any] = {}
         self._stand_in_columns: list[str] = []
+        # H-0138: the identity the state records (None: a state saved before
+        # H-0138, looked up the old way) and the columns looked up by key.
+        self._identity_version: int | None = None
+        self._identity_columns: list[str] = []
         self._fitted = False
 
     def fit(self, X: pd.DataFrame, categorical_cols: list[str]) -> CategoricalEncoder:
         """Record categories from training data.
+
+        A column whose values are all in V and none is temporal is looked up
+        by the H-0138 key: its categories are today's where they are faithful
+        under the key, else built by key (and it becomes a stand-in column).
 
         Args:
             X: Training DataFrame.
@@ -112,25 +125,30 @@ class CategoricalEncoder:
         self._categories = {}
         self._modes = {}
         self._stand_in_columns = []
+        self._identity_version = CATEGORY_IDENTITY_VERSION
+        self._identity_columns = []
         for col in categorical_cols:
             if col not in X.columns:
                 continue
             series = X[col]
-            if hasattr(series, "cat"):
-                cats = list(series.cat.categories)
+            rebuilt = False
+            if identity_eligible(series):
+                cats, mode, rebuilt = keyed_categories(series)
+                self._identity_columns.append(col)
             else:
-                cats = sorted(series.dropna().unique().tolist(), key=str)
+                cats, mode = _today_categories(series)
             self._categories[col] = cats
-            if cats:
-                mode_val = series.mode()
-                self._modes[col] = mode_val.iloc[0] if len(mode_val) > 0 else cats[0]
-            else:
-                self._modes[col] = None
+            self._modes[col] = mode
             # Decided here, not in transform: CV saves the state right after
             # fit, before any transform (H-0133). The values are the ones the
-            # estimator receives after set_categories(cats).
-            if self._needs_stand_in is not None and any(
-                self._needs_stand_in(v) for v in pd.CategoricalDtype(cats).categories
+            # estimator receives after set_categories(cats). A column built by
+            # key holds values pandas cannot hold: always positions (H-0138).
+            if rebuilt or (
+                self._needs_stand_in is not None
+                and any(
+                    self._needs_stand_in(v)
+                    for v in pd.CategoricalDtype(cats).categories
+                )
             ):
                 self._stand_in_columns.append(col)
         self._fitted = True
@@ -186,6 +204,21 @@ class CategoricalEncoder:
             # H-0127 (#309): float16 / longdouble values are compared as
             # float64; one float64 changes matches no category (unseen).
             series, changed = comparable_values(arrived)
+            if col in self._identity_columns:
+                # H-0138: codes by key, never through pandas' object Index.
+                codes, notes = keyed_codes(
+                    series, arrived, changed, known_cats, self._modes.get(col),
+                    self.unseen_policy, col,
+                )  # fmt: skip
+                warnings.extend(notes)
+                stand_in = col in self._stand_in_columns
+                categories: Any = range(len(known_cats)) if stand_in else known_cats
+                X[col] = pd.Series(
+                    pd.Categorical.from_codes(codes, categories=categories),
+                    index=X.index,
+                    name=arrived.name,
+                )
+                continue
             # Determine unseen values
             if hasattr(series, "cat"):
                 current_cats = set(series.cat.categories.tolist())
@@ -240,20 +273,75 @@ class CategoricalEncoder:
 
     def get_state(self) -> dict[str, Any]:
         """Return serializable state."""
-        return {
+        state: dict[str, Any] = {
             "unseen_policy": self.unseen_policy,
             "categories": self._categories,
             "modes": self._modes,
             "stand_in_columns": list(self._stand_in_columns),
         }
+        if self._identity_version is not None:
+            state["category_identity_version"] = self._identity_version
+            state["identity_columns"] = list(self._identity_columns)
+        return state
 
     def load_state(self, state: dict[str, Any]) -> CategoricalEncoder:
-        """Restore from a previously saved state."""
+        """Restore from a previously saved state.
+
+        Raises:
+            LizyMLError: ``DESERIALIZATION_FAILED`` when the state names an
+                identity version other than ``1`` or a malformed column list.
+        """
+        version, identity_columns = _identity_fields(state)
         self.unseen_policy = state["unseen_policy"]
         self._categories = state["categories"]
         self._modes = state["modes"]
         # A state saved before H-0133 (format_version 1 / 2) has no field:
         # every column keeps its raw categories, as when it was saved.
         self._stand_in_columns = list(state.get("stand_in_columns", []))
+        # A state saved before H-0138 has no identity: today's lookup, so it
+        # predicts as when it was saved (H-0138 decision 2).
+        self._identity_version = version
+        self._identity_columns = identity_columns
         self._fitted = True
         return self
+
+
+def _today_categories(series: pd.Series) -> tuple[list[Any], Any]:
+    """The categories and mode a column outside H-0138's key gets (as before)."""
+    if hasattr(series, "cat"):
+        cats = list(series.cat.categories)
+    else:
+        cats = sorted(series.dropna().unique().tolist(), key=str)
+    if not cats:
+        return cats, None
+    mode_val = series.mode()
+    return cats, mode_val.iloc[0] if len(mode_val) > 0 else cats[0]
+
+
+def _identity_fields(state: dict[str, Any]) -> tuple[int | None, list[str]]:
+    if "category_identity_version" not in state:
+        return None, []
+    version = state["category_identity_version"]
+    columns = state.get("identity_columns")
+    categories = state.get("categories")
+    if type(version) is not int or version != CATEGORY_IDENTITY_VERSION:
+        raise LizyMLError(
+            ErrorCode.DESERIALIZATION_FAILED,
+            user_message=(
+                f"The saved encoder state names category identity version "
+                f"{version!r}; this LizyML reads only "
+                f"{CATEGORY_IDENTITY_VERSION}."
+            ),
+            context={"category_identity_version": repr(version)},
+        )
+    if (
+        type(columns) is not list
+        or not isinstance(categories, dict)
+        or any(c not in categories for c in columns)
+    ):
+        raise LizyMLError(
+            ErrorCode.DESERIALIZATION_FAILED,
+            user_message="The saved encoder state has a malformed identity_columns.",
+            context={"identity_columns": repr(columns)[:200]},
+        )
+    return version, list(columns)
