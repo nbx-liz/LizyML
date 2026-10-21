@@ -16433,3 +16433,23 @@ Firing rate: 0/5545 of the LightGBM training calls of the runnable non-slow test
 - **測定**（150 行・3 特徴量・`num_leaves=4096`・300 round、`ulimit -v 4000000`）: `keep_training_booster=False` で学習した booster は、学習の後に指定した葉の数の大きさの木を持ち続けなかった（4 つを同時に残しても約 1 MB ずつ）。LizyML の adapter が使う `keep_training_booster=True` では持ち続け、1 つにつき約 110 MB 増えた（4 つで 446 MB。見積もりの式は 421 MB）。fold の数だけ木の項を数える対応方針 1 の式は、LizyML の adapter では正しい。
 - **既定の探索空間での見積もりの条件**: 上の式（5 fold）で、`max_depth` 3〜12・`num_leaves_ratio` 0.5〜1.0・`n_estimators` 600〜2500 を一様に 200000 点サンプルすると、見積もりが 1 GiB 以上になる trial は 12.2%（3 特徴量）と 14.9%（30 特徴量・255 bin）だった。ほとんどが `max_depth` 11〜12 である。早期終了では実際の round 数はこれより少ないが、見積もりは上限である。
 - **判断**: 管理者は条件を 1 GiB のままとした（その trial は実際に 1〜3.8 GiB を使いうる。tune の警告は呼び出しごとに 1 回）。受け入れ 4 をそれに合わせて直した。firing rate は実装の後の census で、二つの条件の両方を測る。
+
+### 実装の記録（2026-10-21）
+
+- **コード**:
+  - `lizyml/estimators/lgbm/memory_check.py`（新しい）: `finalized`（adapter の `_build_params` から確定後の params と `num_boost_round`）、`feature_bins`（`category` 列はカテゴリの数、数の列は `min(異なる値の数, max_bin)`、それ以外の列は行の数。値を比べない）、`estimate_bytes`、`assess`、`message`（原因ごとの対処）。閾値は `LEAVES_THRESHOLD = 16384` と `BYTES_THRESHOLD = 1 << 30`。
+  - `estimators/provider.py`: 任意の capability `ResourceWarningProvider`。`LGBMProvider.resource_warning` が中身を持つ。
+  - `lizyml/core/_resource_warning.py`（新しい）: `check_resources`（capability の判定、`UserWarning`、`stacklevel`）と `WarningLatch`。`Model.fit` は `get_outer_n_splits(cfg) + 1` 個、tune の trial は fold の数を渡す。latch は `_build_tune_objective` の中で作るので、`tune()` の呼び出しごとに 1 つである。
+  - `smart_params._compute_num_leaves` の条件を `<= 0` に、`_LGBM_PARAMETER_BOUNDS["max_depth"]` を `{"min": -1}` に、`attach_bounds` を片側の範囲を受け付ける形にした。
+  - `.github/workflows/ci.yml`: workflow の `env` の `PYTEST_MEMORY_CEILING_KIB: 12582912`（12 GiB）を、Linux で pytest を走らせる 5 つの step が `ulimit -v` で使う。Smoke は Linux の step とそれ以外の step に分けた。
+- **実装で決めたこと**:
+  - CI の上限の値: 手元（16 GB）で、`ulimit -v 12582912` の下で not slow のスイート（22446 件）と slow のテスト（30 件、notebook の実行を含む）が全て通ったので 12 GiB とした。
+  - tune で警告を例外にする設定では、trial の中の `UserWarning` を tuner が受けて `TUNING_FAILED`（警告の文を含む）として出す。学習は 1 度も呼ばれない（受け入れ 7 のテストはこの形を確かめる）。
+  - tune の警告の `stacklevel` は Optuna の中の frame を指す。fit の警告は利用者の `fit` の行を指す（テストで確かめた）。
+  - 既存のテスト 4 本を新しい契約に合わせた: provider の conformance test（片側の範囲）、`test_smart_value_rules`（片側の範囲の端）、#152 の上限 30 のテスト（判断 7 で上限が無いことを固定する形にした）、`carry_forward` のテスト（新しい次元の上限が無いこと）。
+- **firing rate（実装の後の census）**: 判定を全て記録する pytest の plugin を付けて、full suite（`-m ""`、22478 件が通った）を流した。
+
+  Firing rate: 3/3359 of the H-0140 assessments the suite makes outside the H-0140 tests (3382 assessments over 2138 tests at the implementation head; the 3 are the estimate arm only, on deep default-space tune trials in `tests/test_e2e/test_pairwise.py` and `tests/test_persistence/test_reporting_surfaces_survive_load.py`; the leaf arm fired 0 times outside the H-0140 tests)
+
+  - H-0140 のテストの中では 21 回当たった（`num_leaves` の条件 17、見積もりの条件だけ 4）。notebook のカーネルの中の fit は plugin が届かないので数えていない。
+- **テスト**: `tests/test_estimators/test_h0140_memory_warning.py`（受け入れ 1〜9・12・13）、`tests/test_ci_memory_ceiling.py`（受け入れ 10）、`tests/test_tuning/test_space_declaration.py` の記録した study の上限（受け入れ 12）。

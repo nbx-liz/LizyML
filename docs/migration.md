@@ -7,6 +7,25 @@ release from v0.5.0 onward.
 
 ## Unreleased
 
+### A memory warning for a large `num_leaves`; `max_depth=0` is no limit; no `max_depth` ceiling in expansion (H-0140)
+
+- **New `UserWarning` before training.** `Model.fit` and `Model.tune` warn when
+  the `num_leaves` LightGBM receives is at least 16384 or the estimated extra
+  memory is at least 1 GiB ([#388](https://github.com/nbx-liz/LizyML/issues/388)).
+  Results do not change. A default-space tune can warn on its deepest trials
+  (`max_depth` 11-12 with many rounds and folds), once per `tune()` call. To
+  stop instead of training, turn the warning into an error, for example
+  `warnings.filterwarnings("error", message="LightGBM will train with num_leaves")`.
+- **`max_depth=0` with `auto_num_leaves` now derives like `-1`.** It derived 8
+  leaves before; LightGBM treats `max_depth <= 0` as no limit. A new fit with
+  `max_depth=0` gets 131072 leaves with the default ratio; set a positive
+  `max_depth`, or `auto_num_leaves=False` with an explicit `num_leaves`, to keep
+  a small tree. Saved models keep the parameters they were fitted with.
+- **`parameter_bounds(task)["max_depth"]` has no `max`.** Boundary expansion may
+  widen `max_depth` beyond 30 in a new study or a changed dimension; a recorded
+  study keeps its recorded range. Code that reads `parameter_bounds` (for
+  example a UI range editor) must accept an entry with only `min` or only `max`.
+
 ### Category values are matched by one structural key; artifacts are `format_version` 5 (H-0138)
 
 Categorical columns whose values pandas confused

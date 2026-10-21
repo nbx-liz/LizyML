@@ -735,6 +735,7 @@ lizyml/
 │       ├── adapter.py              LGBMAdapter (Booster API wrapper)
 │       ├── defaults.py             Task defaults, search space
 │       ├── smart_params.py         resolve_smart_params, resolve_ratio_params
+│       ├── memory_check.py         num_leaves のメモリの見積もりと警告 (H-0140)
 │       ├── metric_bridge.py        Metric mapping, validation, feval (H-0064)
 │       └── provider.py             LGBMProvider (EstimatorProvider impl)
 │
@@ -802,7 +803,8 @@ lizyml/
     ├── _model_state.py             FitState / TuningState (facade snapshot, #171)
     ├── _model_plots.py             ModelPlotsMixin
     ├── _model_tables.py            ModelTablesMixin
-    └── _model_persistence.py       ModelPersistenceMixin
+    ├── _model_persistence.py       ModelPersistenceMixin
+    └── _resource_warning.py        fit / tune の学習前のメモリの警告 (H-0140)
 ```
 
 ---

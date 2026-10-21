@@ -564,8 +564,8 @@ disposition = "specified"
 anchors = ["category_identity_version", "identity_columns"]
 
 [proposals."H-0140"]
-disposition = "pending"
-reason = "Under review; BLUEPRINT is updated with the implementation (the num_leaves memory warning, max_depth <= 0 as no limit)."
+disposition = "specified"
+anchors = ["ResourceWarningProvider", "keep_training_booster=True"]
 
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
