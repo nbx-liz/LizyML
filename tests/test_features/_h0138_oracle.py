@@ -28,12 +28,29 @@ NP_ONE_TYPES = (np.bool_, np.int8, np.int16, np.int32, np.int64, np.uint8,
                 np.complex64, np.complex128)  # fmt: skip
 
 
+def oracle_path() -> Path:
+    return DATA / f"h0138_oracle_pandas-{pd.__version__}.json.gz"
+
+
+def oracle_or_none() -> dict[str, Any] | None:
+    """The oracle for the running pandas version, or ``None`` when there is
+    none: the test module then fails one test instead of its collection, so
+    the rest of a lane still runs."""
+    path = oracle_path()
+    if not path.is_file():
+        return None
+    with gzip.open(path, "rt", encoding="utf-8") as fh:
+        loaded: dict[str, Any] = json.load(fh)
+    return loaded
+
+
 def oracle() -> dict[str, Any]:
     """The oracle for the running pandas version; missing -> the test fails."""
-    path = DATA / f"h0138_oracle_pandas-{pd.__version__}.json.gz"
-    assert path.is_file(), f"no H-0138 oracle for pandas {pd.__version__}: {path}"
-    with gzip.open(path, "rt", encoding="utf-8") as fh:
-        return json.load(fh)
+    loaded = oracle_or_none()
+    assert loaded is not None, (
+        f"no H-0138 oracle for pandas {pd.__version__}: {oracle_path()}"
+    )
+    return loaded
 
 
 def model_versions_match(meta: dict[str, Any]) -> None:

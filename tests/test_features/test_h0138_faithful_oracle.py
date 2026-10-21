@@ -26,9 +26,17 @@ import pytest
 from tests.test_features import _h0138_oracle as h
 
 ROOT = Path(__file__).resolve().parents[2]
-ORACLE = h.oracle()
-CASES = ORACLE["cases"]
-TEMPORAL = ORACLE["temporal_cases"]
+#: ``None`` on a pandas without an oracle (the latest-deps lane): the case
+#: lists are then empty and ``test_an_oracle_exists_for_this_pandas`` fails.
+ORACLE = h.oracle_or_none()
+CASES = ORACLE["cases"] if ORACLE is not None else []
+TEMPORAL = ORACLE["temporal_cases"] if ORACLE is not None else []
+
+
+def test_an_oracle_exists_for_this_pandas() -> None:
+    assert ORACLE is not None, (
+        f"no H-0138 oracle for pandas {pd.__version__}: {h.oracle_path()}"
+    )
 
 
 @pytest.fixture(scope="module")

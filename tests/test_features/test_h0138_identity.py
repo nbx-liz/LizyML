@@ -234,23 +234,35 @@ def _refit(model: Model) -> Any:
     return model._refit_result  # noqa: SLF001
 
 
+HUGE_BESIDE_BOOL = [2**70, np.True_]
 REBUILT = [
     [decimal.Decimal("1"), np.int8(1)],  # pandas keeps both: not faithful
     [np.True_, _wrap(1, 2)],  # the cast raises
-    [2**70, np.True_],  # the cast raises
+    # The cast raises on pandas 3; pandas 2.0 (the lowest-direct lane) holds
+    # it faithfully, so there it keeps today's categories.
+    HUGE_BESIDE_BOOL,
 ]
 
 
 @pytest.mark.parametrize("values", REBUILT, ids=repr)
 def test_a_rebuilt_column_reaches_lightgbm_as_positions(values: list[Any]) -> None:
-    model, _ = _model_on(values)
+    from lizyml.features.encoders.category_identity import keyed_categories
+
+    model, df = _model_on(values)
     refit = _refit(model)
     encoder = refit.pipeline_state["encoder"]
-    assert "c" in encoder["stand_in_columns"]
     assert "c" in encoder["identity_columns"]
-    k = len(encoder["categories"]["c"])
+    built = _apply_categorical(df[["c"]], FeatureSpec())
+    _, _, rebuilt = keyed_categories(built["c"])
+    assert rebuilt or values is HUGE_BESIDE_BOOL
+    cats = encoder["categories"]["c"]
     booster = refit.model.get_native_model()
-    assert booster.pandas_categorical == [list(range(k))]
+    if rebuilt:
+        assert "c" in encoder["stand_in_columns"]
+        assert booster.pandas_categorical == [list(range(len(cats)))]
+    else:
+        assert "c" not in encoder["stand_in_columns"]
+        assert booster.pandas_categorical == [list(cats)]
 
 
 def test_a_faithful_column_reaches_lightgbm_with_its_categories() -> None:
