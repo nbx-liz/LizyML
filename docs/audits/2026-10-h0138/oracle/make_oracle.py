@@ -20,7 +20,7 @@ Population:
   value, with exactly today's outcome: the categories and codes, or the
   step (cast / fit / transform) and exception type where it fails today.
 - **model cases**: the ordinary inputs, the columns that hold two numerically
-  equal values of different types, and every 50th other encoder case. For
+  equal values of different types, and every 50th encoder case (counted over the frozen encoder cases). For
   each: ``Model.fit`` (fixed seed, one thread), then the refit booster's
   ``pandas_categorical`` for the column, the sha256 of ``model_to_string()``,
   and the predictions (``float.hex``).
@@ -204,7 +204,7 @@ def main() -> None:
     probe = _probe_columns()
     skipped: dict[str, int] = {}
     temporal: list[dict[str, Any]] = []
-    for k, (cid, values) in enumerate(probe):
+    for cid, values in probe:
         train = pd.Series([*values, *values, "x"], dtype=object)
         path = classify(train)
         if path == "temporal":
@@ -233,10 +233,14 @@ def main() -> None:
             and numbers[0] == numbers[1]
             and type(values[0]) is not type(values[1])
         )
-        if cross_type or k % 50 == 0:
+        # Every 50th encoder case, counted over the frozen cases only.
+        if cross_type or len(cases) % 50 == 0:
             model_ids.add(cid)
             record["model"] = _model_case(pd.Series([*values, "x"] * 8, dtype=object))
         cases.append(record)
+    # Self-check (round 2): every 50th frozen probe case carries a model case.
+    missing = [i for i in range(0, len(cases), 50) if "model" not in cases[i]]
+    assert not missing, f"model sampling missed encoder cases {missing}"
     for cid, train, batch in _ordinary():
         record = {
             "id": cid,
