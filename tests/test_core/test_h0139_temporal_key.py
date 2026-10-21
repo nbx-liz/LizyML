@@ -171,6 +171,49 @@ def test_a_calendar_duration_has_no_key_anywhere(unit: str, wrap: str) -> None:
         COPY._identity_key(value)
 
 
+def _generic_datetime64() -> Any:
+    """A unitless datetime64 (its repr raises; NumPy builds none from an int)."""
+    return np.array(4, dtype=np.int64).view("datetime64")[()]
+
+
+@pytest.mark.parametrize(
+    "build",
+    [
+        _generic_datetime64,
+        lambda: np.timedelta64(4),
+        lambda: (_generic_datetime64(), 1),
+        # NumPy 2 cannot hash a unitless timedelta64, so only the datetime64
+        # goes into the frozenset.
+        lambda: frozenset({_generic_datetime64(), 1}),
+        lambda: (np.timedelta64(4), "a"),
+    ],
+    ids=[
+        "datetime64",
+        "timedelta64",
+        "datetime64 in a tuple",
+        "datetime64 in a frozenset",
+        "timedelta64 in a tuple",
+    ],
+)
+def test_a_unitless_value_survives_every_serializer(build: Any) -> None:
+    value = build()
+    assert refusal(value) is None
+    key = category_identity_key(value)
+    buffer = io.BytesIO()
+    joblib.dump(value, buffer, compress=3)
+    buffer.seek(0)
+    assert category_identity_key(joblib.load(buffer)) == key
+    assert category_identity_key(decode(encode(value))) == key
+    assert COPY._identity_key(COPY._decode_value(COPY._encode_value(value))) == key
+    assert COPY._identity_key(value) == key
+
+
+def test_a_unitless_datetime64_is_apart_from_every_unit() -> None:
+    key = category_identity_key(_generic_datetime64())
+    assert key == ("datetime", "naive", ("datetime64-generic", 4))
+    assert key != category_identity_key(np.datetime64(4, "s"))
+
+
 def test_a_unitless_timedelta64_is_apart_from_every_fixed_duration() -> None:
     generic = np.timedelta64(4)
     if refusal(generic) is not None:

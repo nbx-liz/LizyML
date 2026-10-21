@@ -150,6 +150,7 @@ def test_the_overlay_is_the_closed_union_of_its_rules() -> None:
     }
     y = {cid for cid in frozen if _case_indices(cid) & calendar}
     r = {cid for cid, out in frozen.items() if out.get("fails_at") == "cast"} - y
+    assert {c["rule"] for c in changes} <= {"Y", "R", "S"}
     by_rule = {
         rule: {c["id"] for c in changes if c["rule"] == rule}
         for rule in ("Y", "R", "S")
@@ -157,6 +158,8 @@ def test_the_overlay_is_the_closed_union_of_its_rules() -> None:
     assert by_rule["Y"] == y
     assert by_rule["R"] == r
     assert sorted(by_rule["S"]) == S_NAMED[pd.__version__]
+    # Nothing outside the union may override a frozen outcome.
+    assert set(ids) == y | r | set(S_NAMED[pd.__version__])
     assert OVERLAY["meta"]["counts"] == {k: len(v) for k, v in by_rule.items()}
 
 

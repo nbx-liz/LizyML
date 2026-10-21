@@ -193,6 +193,9 @@ def _decode_raw(obj, depth=0):
         unit, count = _field(obj, "unit", str), _field(obj, "count", int)
         if count < 1:
             raise ValueError("count is not positive")
+        if unit == "generic" and count == 1:
+            # NumPy builds no unitless datetime64 from an int (H-0139).
+            return np.array(_field(obj, "value", int), dtype=np.int64).view(tag)[()]
         kind = np.datetime64 if tag == "datetime64" else np.timedelta64
         return kind(_field(obj, "value", int), unit if count == 1 else f"{count}{unit}")
     if tag == "timedelta":

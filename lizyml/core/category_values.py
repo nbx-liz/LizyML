@@ -394,6 +394,10 @@ def _decode_tagged(obj: dict[str, Any], depth: int) -> Any:
         unit, count = _str(obj, "unit"), _int(obj, "count")
         if count < 1:
             raise _Malformed("count is not positive")
+        if unit == "generic" and count == 1:
+            # NumPy builds no unitless datetime64 from an int; the bytes are
+            # the count itself (H-0139: the key must survive the codec).
+            return np.array(_int(obj, "value"), dtype=np.int64).view(tag)[()]
         kind = _DATETIME64 if tag == "datetime64" else _TIMEDELTA64
         return kind(_int(obj, "value"), unit if count == 1 else f"{count}{unit}")
     if tag == "pd_timedelta":
