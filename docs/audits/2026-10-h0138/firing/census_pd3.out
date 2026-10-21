@@ -1,0 +1,9 @@
+448 column records
+    168 builder  faithful
+      5 builder  not_object
+     12 builder  outside_v
+    128 builder  string_dtype
+    100 builder  temporal
+     35 encoder  faithful
+Firing rate (builder): 0/168 eligible object columns build by key
+Firing rate (encoder): 0/35 eligible object columns build by key
