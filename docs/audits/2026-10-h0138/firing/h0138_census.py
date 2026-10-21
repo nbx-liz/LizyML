@@ -9,8 +9,8 @@ call unchanged:
 - ``builder``: ``lizyml.data.dataframe_builder._apply_categorical``, the
   production entry (every ``Model.fit`` / ``tune`` / ``predict`` input goes
   through it), for each column it casts;
-- ``encoder``: ``CategoricalEncoder.fit`` for each column that arrives as an
-  object column (tests that build an encoder directly, without the builder).
+- ``encoder``: ``CategoricalEncoder.fit`` for each column it is asked to fit
+  (direct encoder tests, and the fold fits after the builder), of any dtype.
 
 A column the prototype cannot classify is recorded with ``rule_error``,
 never skipped. One JSON record per column per call.
@@ -35,10 +35,11 @@ def _write(record: dict[str, Any]) -> None:
 
 
 def _classify(surface: str, column: Any, series: Any) -> None:
-    from h0138_rule import classify
+    from h0138_rule import classify, dtype_kind
 
     record: dict[str, Any] = {"surface": surface, "column": str(column)}
     try:
+        record["dtype"] = dtype_kind(series)
         record["path"] = classify(series)
     except Exception as exc:  # noqa: BLE001 -- recorded, never skipped
         record["rule_error"] = f"{type(exc).__name__}: {exc}"[:300]
@@ -70,7 +71,7 @@ def _install() -> None:
 
     def fit(self: Any, X: Any, categorical_cols: list[str]) -> Any:
         for col in categorical_cols:
-            if col in X.columns and X[col].dtype == object:
+            if col in X.columns:
                 _classify("encoder", col, X[col])
         return original_fit(self, X, categorical_cols)
 

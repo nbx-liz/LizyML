@@ -1,4 +1,4 @@
-[run-exclusive] h0138-census starting; load was 2.56
+[run-exclusive] h0138-census2 starting; load was 4.51
 run-heavy: pgid=12 (stop with: kill -- -12)
 ........................................................................ [  0%]
 ........................................................................ [  1%]
@@ -126,12 +126,12 @@ ss......ss......ss..ss.....ss......ss......ss......ss......ss......ss... [ 18%]
 ........................................................................ [ 66%]
 ........................................................................ [ 67%]
 ........................................................................ [ 67%]
-...............................................................F........ [ 68%]
+................................................................F....... [ 68%]
 ........................................................................ [ 68%]
 ........................................................................ [ 69%]
 ........................................................................ [ 69%]
 ........................................................................ [ 70%]
-........................................................................ [ 71%]
+........................................................................ [ 70%]
 ........................................................................ [ 71%]
 ........................................................................ [ 72%]
 ........................................................................ [ 72%]
@@ -148,13 +148,13 @@ ss......ss......ss..ss.....ss......ss......ss......ss......ss......ss... [ 18%]
 ........................................................................ [ 78%]
 ........................................................................ [ 79%]
 ........................................................................ [ 79%]
-....................................................s..............s.... [ 80%]
+.....................................................s..............s... [ 80%]
 ........................................................................ [ 80%]
-.....s..............s................................................... [ 81%]
+......s..............s.................................................. [ 81%]
 ........................................................................ [ 81%]
 ........................................................................ [ 82%]
-.............................................................ssssssssss. [ 82%]
-.............ss......................................................... [ 83%]
+..............................................................ssssssssss [ 82%]
+..............ss........................................................ [ 83%]
 ........................................................................ [ 83%]
 ........................................................................ [ 84%]
 ........................................................................ [ 84%]
@@ -185,11 +185,11 @@ ss......ss......ss..ss.....ss......ss......ss......ss......ss......ss... [ 18%]
 ........................................................................ [ 98%]
 ........................................................................ [ 98%]
 ........................................................................ [ 99%]
-.................................................................        [100%]
+..................................................................       [100%]
 =================================== FAILURES ===================================
 ______________ TestVersion.test_version_matches_package_metadata _______________
 
-self = <tests.test_e2e.test_version.TestVersion object at 0xfca8003f62a0>
+self = <tests.test_e2e.test_version.TestVersion object at 0xee8c597267e0>
 
     def test_version_matches_package_metadata(self) -> None:
         """__version__ must match the installed package metadata."""
@@ -299,7 +299,7 @@ tests/test_codegen/test_calibration_params_codegen.py::test_generated_fitter_mat
     result = minimize(neg_log_likelihood, **kwargs)
 
 tests/test_codegen/test_calibration_params_codegen.py::test_generated_fitter_matches_the_runtime_calibrator[beta-params4]
-  /tmp/claude-1000/pytest-of-rem/pytest-234/test_generated_fitter_matches_4/eq_beta_2/train.py:1175: OptimizeWarning: Initial guess is not within the specified bounds
+  /tmp/claude-1000/pytest-of-rem/pytest-240/test_generated_fitter_matches_4/eq_beta_2/train.py:1175: OptimizeWarning: Initial guess is not within the specified bounds
     result = minimize(objective, jac=jac, **kwargs)
 
 tests/test_codegen/test_calibration_params_codegen.py::test_generated_fitter_matches_the_runtime_calibrator[platt-params5]
@@ -308,7 +308,7 @@ tests/test_codegen/test_calibration_params_codegen.py::test_generated_fitter_mat
     result = minimize(objective, jac=True if gradient else None, **kwargs)
 
 tests/test_codegen/test_calibration_params_codegen.py::test_generated_fitter_matches_the_runtime_calibrator[platt-params5]
-  /tmp/claude-1000/pytest-of-rem/pytest-234/test_generated_fitter_matches_5/eq_platt_2/train.py:1175: OptimizeWarning: Initial guess is not within the specified bounds
+  /tmp/claude-1000/pytest-of-rem/pytest-240/test_generated_fitter_matches_5/eq_platt_2/train.py:1175: OptimizeWarning: Initial guess is not within the specified bounds
     result = minimize(objective, jac=jac, **kwargs)
 
 tests/test_codegen/test_equivalence.py: 1 warning
@@ -426,5 +426,5 @@ tests/test_training/test_blocked_group_inner_valid.py::TestBlockedGroupInnerVali
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
 =========================== short test summary info ============================
 FAILED tests/test_e2e/test_version.py::TestVersion::test_version_matches_package_metadata
-1 failed, 13138 passed, 246 skipped, 30 deselected, 979 warnings in 341.16s (0:05:41)
-[run-exclusive] h0138-census finished in 344s, exit 1
+1 failed, 13139 passed, 246 skipped, 30 deselected, 979 warnings in 224.00s (0:03:44)
+[run-exclusive] h0138-census2 finished in 226s, exit 1

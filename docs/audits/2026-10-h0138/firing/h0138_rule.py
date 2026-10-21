@@ -108,10 +108,21 @@ def faithful(original: pd.Series, cast: pd.Series) -> bool:
     return True
 
 
+def dtype_kind(series: pd.Series) -> str:
+    if isinstance(series.dtype, pd.CategoricalDtype):
+        return "category"
+    if series.dtype == object:
+        return "object"
+    if pd.api.types.is_string_dtype(series):
+        return "string"
+    return "other:" + str(series.dtype)
+
+
 def classify(series: pd.Series) -> str:
-    if series.dtype != object:
-        return "string_dtype" if pd.api.types.is_string_dtype(series) else "not_object"
+    """The path for a column of any dtype: the cast and the check are run."""
     values = [v for v in series.to_numpy(dtype=object) if not _missing(v)]
+    if isinstance(series.dtype, pd.CategoricalDtype):
+        values += list(series.cat.categories)  # declared, used or not
     if any(_is_temporal(v) for v in values):
         return "temporal"
     if any(refusal(v) is not None for v in values):
@@ -120,4 +131,8 @@ def classify(series: pd.Series) -> str:
         cast = series.astype("category")
     except Exception:  # noqa: BLE001 -- the outcome being classified
         return "cast_raised"
+    if isinstance(series.dtype, pd.CategoricalDtype) and list(
+        cast.cat.categories
+    ) != list(series.cat.categories):
+        return "predicate_false"  # a declaration did not survive in its order
     return "faithful" if faithful(series, cast) else "predicate_false"
