@@ -16352,7 +16352,7 @@ Codex の run `h0138-impl-review`（3 round、Proposal の停止基準をその�
 
 Firing rate: 0/5545 of the LightGBM training calls of the runnable non-slow test suite (Codex dynamic census at `78e2a0c`, maximum 3956 leaves; 8427 temp-path tests could not run in the reviewer's read-only sandbox, so the census over the full suite is repeated after implementation, with both trigger arms)
 
-- 既定の探索空間: 最初の `[3, 12]` では 0/100000、報告された拡張の後の `[3, 21]` では 36810/100000（乱数の seed を固定したサンプル）。
+- 既定の探索空間: 最初の `[3, 12]` では 0/100000、報告された拡張の後の `[3, 21]` では 36810/100000（乱数の seed を固定したサンプル。`num_leaves` の条件だけ）。見積もりの条件は、実装の中の改訂の項に測った値を書く。
 - 既定の fit（`max_depth=5`、32 葉）では警告しない。
 - 見積もりの条件（1 GiB 以上）は、同時に残る booster の数を数える形にしたので、上の census には入っていない。実装の後の full suite の census で、二つの条件の両方を測る。
 
@@ -16378,7 +16378,7 @@ Firing rate: 0/5545 of the LightGBM training calls of the runnable non-slow test
 1. `auto_num_leaves` のまま `max_depth=-1`、および `max_depth=0` の `Model.fit` で、`lgb.train` の呼び出しより前に `UserWarning` がちょうど 1 回出て、`num_leaves` の値と原因と見積もりを含む（`lgb.train` は差し替え、本物の学習をしない）。
 2. `auto_num_leaves=false` で `num_leaves`、およびその別名（`max_leaves` など）を 16384 以上にした fit でも同じ警告が出る。`auto_num_leaves=false` で何も指定しない fit は、LightGBM の既定の 31 で判定し、判定した値が LightGBM の受け取る値と同じであることを確かめる（`lgb.train` の差し替えで受け取った params を読む）。その値が見積もりの条件に当たる場合（特徴量と bin が多い）の警告の文は、原因として「LightGBM の既定」を書く。
 3. `num_leaves` は 16384 未満だが見積もりが 1 GiB 以上の fit で警告が出る。次の 2 つを含む: 特徴量と bin の多い場合と、1 つの booster では 1 GiB 未満だが fold と refit を合わせると超える場合（例えば `num_leaves=8192`、1000 round、20 fold）。後者は tune の trial でも確かめる。
-4. 既定の fit と、最初の既定の探索空間の tune では警告しない。
+4. 既定の fit（`max_depth=5`）では警告しない。最初の既定の探索空間の tune で、`num_leaves` の条件（16384 以上）は当たらない。見積もりの条件は深い trial（`max_depth` 11〜12）で当たりうる（下の「実装の中の改訂」）。そのとき警告は呼び出しごとに 1 回である。
 5. CV の全ての fold と refit を合わせて、警告はちょうど 1 回である。
 6. 条件に当たる trial が複数ある `tune()`（`resume` を含む）で、`UserWarning` は呼び出しごとにちょうど 1 回で、以降の trial は logger に記録される。
 7. 警告を例外にする設定では、どの `lgb.train` も呼ばれない。
@@ -16427,3 +16427,9 @@ Firing rate: 0/5545 of the LightGBM training calls of the runnable non-slow test
 
 - **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`97ceb82`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
 - **結果**: round 2（`97ceb82`）は APPROVE で、指摘は 0 件だった。run `h0140-proposal-review-2` はこれで終わる。この実行の方針により、APPROVE をもって受け入れとした（2026-10-21、Accepted）。
+
+### 実装の中の改訂（2026-10-21、管理者の判断）
+
+- **測定**（150 行・3 特徴量・`num_leaves=4096`・300 round、`ulimit -v 4000000`）: `keep_training_booster=False` で学習した booster は、学習の後に指定した葉の数の大きさの木を持ち続けなかった（4 つを同時に残しても約 1 MB ずつ）。LizyML の adapter が使う `keep_training_booster=True` では持ち続け、1 つにつき約 110 MB 増えた（4 つで 446 MB。見積もりの式は 421 MB）。fold の数だけ木の項を数える対応方針 1 の式は、LizyML の adapter では正しい。
+- **既定の探索空間での見積もりの条件**: 上の式（5 fold）で、`max_depth` 3〜12・`num_leaves_ratio` 0.5〜1.0・`n_estimators` 600〜2500 を一様に 200000 点サンプルすると、見積もりが 1 GiB 以上になる trial は 12.2%（3 特徴量）と 14.9%（30 特徴量・255 bin）だった。ほとんどが `max_depth` 11〜12 である。早期終了では実際の round 数はこれより少ないが、見積もりは上限である。
+- **判断**: 管理者は条件を 1 GiB のままとした（その trial は実際に 1〜3.8 GiB を使いうる。tune の警告は呼び出しごとに 1 回）。受け入れ 4 をそれに合わせて直した。firing rate は実装の後の census で、二つの条件の両方を測る。
