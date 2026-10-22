@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **The latest-deps CI lane compares the H-0138 oracle of the same pandas minor** (H-0144, [#389](https://github.com/nbx-liz/LizyML/issues/389)). The non-blocking `Quality (latest deps)` job failed on every run because the per-version oracle of H-0138 did not exist for the newest pandas. Only that job (named by `LIZYML_H0138_ORACLE_MODE=latest-same-minor` and its `GITHUB_JOB`) now compares the nearest older oracle and H-0139 overlay of the same minor, and skips the model cases, before computing them, when numpy or LightGBM differ; every other lane still fails without its own version's files. The oracle module prints which files it compared. CONTRIBUTING.md describes how a new pandas minor is onboarded; the H-0139 overlay generator now reads a frozen copy of the codec and gains rule T. Test and CI only; the library is unchanged.
+
 ## [0.21.0] - 2026-10-22
 
 ### Added
