@@ -9,7 +9,7 @@ from typing import Any
 
 import pandas as pd
 
-from lizyml.core.category_values import encode
+from lizyml.core.category_values import IDENTITY_OBJECT_COLUMNS, encode
 from lizyml.features.column_check import select_training_columns
 from lizyml.features.encoders.categorical_encoder import (
     CategoricalEncoder,
@@ -64,10 +64,15 @@ class NativeFeaturePipeline(BaseFeaturePipeline):
             ``self`` for chaining.
         """
         self._feature_names = list(X.columns)
+        # H-0138: the builder keeps a column pandas cannot hold as object and
+        # names it here; it is categorical all the same.
+        kept_object = X.attrs.get(IDENTITY_OBJECT_COLUMNS, [])
         self._categorical_cols = [
             c
             for c in X.columns
-            if hasattr(X[c], "cat") or pd.api.types.is_string_dtype(X[c])
+            if hasattr(X[c], "cat")
+            or pd.api.types.is_string_dtype(X[c])
+            or c in kept_object
         ]
         self._encoder.fit(X, self._categorical_cols)
         self._transformer.fit(X)

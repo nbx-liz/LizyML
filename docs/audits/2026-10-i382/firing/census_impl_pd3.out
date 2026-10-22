@@ -1,0 +1,6 @@
+project_column_names calls: 1420
+  export_code: 20/693 aliased or refused
+  generate_code: 72/727 aliased or refused
+      36  tests/test_codegen/test_h0141_column_name_projects.py
+      56  tests/test_codegen/test_h0141_column_names.py
+  outside the H-0141 tests: 0

@@ -27,7 +27,16 @@ from typing import Any
 import joblib
 import pandas as pd
 
-from lizyml.core.category_values import decode, encode, shown, type_name
+from lizyml.core.category_values import (
+    CATEGORY_IDENTITY_VERSION,
+    category_identity_key,
+    decode,
+    encode,
+    holds_temporal,
+    identity_fields,
+    shown,
+    type_name,
+)
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.features.pipeline_base import CategoryStateChange, category_state_changes
 
@@ -82,10 +91,11 @@ def state_changes(state: Any) -> list[SerializedChange]:
         project = _through_joblib if serializer == "joblib" else _encoder_through_json
         # Runs after the V check (H-0133): every value here pickles and encodes.
         projected = project(encoder)
-        found.extend(
-            SerializedChange(serializer, c)
-            for c in category_state_changes(encoder, projected)
+        # The JSON projection's reader is the generated predict.py (H-0143).
+        changes = category_state_changes(
+            encoder, projected, generated=serializer == "json"
         )
+        found.extend(SerializedChange(serializer, c) for c in changes)
     return found
 
 
@@ -133,13 +143,18 @@ def refuse_change(
     )
 
 
-def warn_changes(states: list[Any], declared: Mapping[str, list[Any]] | None) -> None:
+def warn_changes(
+    states: list[Any],
+    declared: Mapping[str, list[Any]] | None,
+    encoder: Mapping[str, Any] | None = None,
+) -> None:
     """Warn once per column the H-0136 check would refuse in any of *states*
-    or in *declared* (P4)."""
+    or in *declared* (P4). *encoder* is the refit encoder state, for
+    :func:`declared_change`."""
     seen: set[str] = set()
     found = [(c.serializer, c.change) for state in states for c in state_changes(state)]
     for column, cats in (declared or {}).items():
-        change = declared_change(column, cats)
+        change = declared_change(column, cats, encoder)
         if change is not None:
             found.append(("json", change))
     for serializer, change in found:
@@ -157,10 +172,21 @@ def warn_changes(states: list[Any], declared: Mapping[str, list[Any]] | None) ->
         )
 
 
-def declared_change(column: Any, categories: list[Any]) -> CategoryStateChange | None:
+def declared_change(
+    column: Any,
+    categories: list[Any],
+    encoder: Mapping[str, Any] | None = None,
+) -> CategoryStateChange | None:
     """How a declared categorical dtype answers differently after JSON, or
     ``None``. A dtype pandas cannot build from the original values is not
-    judged (the fit's own input would fail first)."""
+    judged (the fit's own input would fail first).
+
+    A temporal declaration of a column the refit *encoder* state looks up by
+    key (H-0139) is compared by key instead: the generated code restores it by
+    key, so pandas' answer on the projected values does not decide.
+    """
+    if encoder is not None and _keyed_temporal(column, categories, encoder):
+        return _declared_change_by_key(column, categories)
     learned = list(categories)
     try:
         want = (
@@ -180,5 +206,38 @@ def declared_change(column: Any, categories: list[Any]) -> CategoryStateChange |
         if g != w:
             return CategoryStateChange(
                 name, "unseen" if g < 0 else "codes", value=value
+            )
+    return None
+
+
+def _keyed_temporal(
+    column: Any, categories: list[Any], encoder: Mapping[str, Any]
+) -> bool:
+    """The saved route decides: version 1 and *column* in the saved
+    ``identity_columns``, and the declaration holds a temporal value."""
+    version, columns = identity_fields(encoder)
+    return (
+        version == CATEGORY_IDENTITY_VERSION
+        and column in columns
+        and any(holds_temporal(v) for v in categories)
+    )
+
+
+def _declared_change_by_key(
+    column: Any, categories: list[Any]
+) -> CategoryStateChange | None:
+    """The declared keys, in order, before and after JSON (H-0139)."""
+    name = str(column)
+    learned = list(categories)
+    want = [category_identity_key(v) for v in learned]
+    try:
+        got = [category_identity_key(through_json(v)) for v in learned]
+    except Exception as exc:  # noqa: BLE001 -- the change measured (H-0136 P3)
+        return CategoryStateChange(name, "raises", exception=type(exc).__name__)
+    known = set(want)
+    for value, g, w in zip(learned, got, want, strict=True):
+        if g != w:
+            return CategoryStateChange(
+                name, "unseen" if g not in known else "codes", value=value
             )
     return None

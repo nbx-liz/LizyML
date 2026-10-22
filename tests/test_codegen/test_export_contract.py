@@ -76,8 +76,11 @@ def test_accepted_values_become_plain_values(name: str) -> None:
 #: refused only datetime64 / timedelta64 (confirmation review). Labels only:
 #: feature categories take H-0133's closed set. In a column of one type pandas
 #: turns longlong / ulonglong into Python ints and cannot make a category of
-#: float16; in an object column of mixed types all three stay numpy scalars
-#: outside the set and are refused like any other such type.
+#: float16. In an object column mixed with a non-numeric value (a ``str`` in
+#: these tests) all three stay numpy scalars outside the set and are refused
+#: like any other such type; a numeric-only mix is turned into Python numbers
+#: (``[np.float16(1), 2.5]`` -> float, ``[np.longlong(1), np.int64(2)]`` and
+#: ``[np.ulonglong(1), 2]`` -> int) and written (#370).
 _ACCEPTED_AS_LABELS: dict[str, tuple[Any, type]] = {
     "np.float16": (np.float16(1), float),
     "np.longlong": (np.longlong(1), int),

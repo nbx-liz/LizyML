@@ -47,6 +47,8 @@ def build_config(
     sample_weight: str | None = None,
     declared_categories: dict[str, list[Any]] | None = None,
     categorical_rule: dict[str, Any] | None = None,
+    category_identity_version: int | None = None,
+    column_name_policy: str | None = None,
 ) -> dict[str, Any]:
     """Build config.json content as an ordered dict.
 
@@ -80,6 +82,12 @@ def build_config(
             "auto": bool}`` from ``features.categorical`` and
             ``features.auto_categorical``; defaults to LizyML's defaults
             (H-0120 amendment 3).
+        category_identity_version: The fitted encoder's category identity
+            (H-0138), or ``None`` for a state saved before it: the generated
+            code then keeps the pandas lookup.
+        column_name_policy: The project's column-name marker (H-0141,
+            ``"str_alias_v1"``: every name is its string alias); omitted from
+            the file when ``None``.
 
     Returns:
         Dict ready for ``json.dump()``.
@@ -109,7 +117,7 @@ def build_config(
         for col, cats in (declared_categories or {}).items()
     }
 
-    return {
+    config: dict[str, Any] = {
         # ── Meta (read-only, _ prefix) ──
         "_generated_by": f"lizyml {run_meta['lizyml_version']}",
         "_run_id": run_meta["run_id"],
@@ -134,6 +142,9 @@ def build_config(
             "explicit": list((categorical_rule or {}).get("explicit", [])),
             "auto": bool((categorical_rule or {}).get("auto", True)),
         },
+        # H-0138: the original pipeline's identity, never upgraded; written
+        # always (null before H-0138) and read without a default.
+        "category_identity_version": category_identity_version,
         # ── LightGBM ──
         "lgbm_params": dict(lgbm_params),
         "num_boost_round": num_boost_round,
@@ -158,3 +169,8 @@ def build_config(
         # ── Split reproduction for retrain OOF (#228) ──
         "split": split,
     }
+    if column_name_policy is not None:
+        # H-0141: the names above are string aliases; a project without the
+        # marker (written before H-0141) keeps its own lookup.
+        config["column_name_policy"] = column_name_policy
+    return config

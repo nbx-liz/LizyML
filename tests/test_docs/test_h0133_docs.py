@@ -61,12 +61,14 @@ def test_the_blueprint_value_set_names_every_admitted_python_and_pandas_type() -
 
 
 def test_migration_and_changelog_describe_format_version_3() -> None:
+    # v0.20.0 shipped H-0133 with format_version 4 (H-0134 raised it in the
+    # same release); H-0138 raised the current version later.
     migration = _read("docs/migration.md")
     assert "## v0.20.0" in migration
-    assert f"`format_version` {FORMAT_VERSION}" in migration
+    assert "`format_version` 4" in migration
     unreleased = _unreleased(_read("CHANGELOG.md"))
     assert "H-0133" in unreleased
-    assert f"`format_version` {FORMAT_VERSION}" in unreleased
+    assert "`format_version` 4" in unreleased
     assert "categories_checked=True" in unreleased
 
 

@@ -1,0 +1,4 @@
+LGBMAdapter.fit calls: 9829
+  with a categorical declaration: 2106
+  declaring a non-str label: 0/2106
+  frame column label types (calls): {'str': 9829}

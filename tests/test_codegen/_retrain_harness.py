@@ -154,11 +154,18 @@ def run_train(project: Path, data_path: Path, *, subprocess_run: bool = False) -
 
 
 def write_data(df: pd.DataFrame, project: Path, fmt: str) -> Path:
+    """Write *df* for the generated project, its columns named by their H-0141
+    aliases (a file header is always a string; ``None`` would read back as
+    ``"Unnamed: 0"``)."""
+    from lizyml.codegen.column_names import column_alias
+
     path = project / f"train_data.{fmt}"
+    aliased = df.copy(deep=False)
+    aliased.columns = [column_alias(c) for c in df.columns]
     if fmt == "parquet":
-        df.to_parquet(path)
+        aliased.to_parquet(path)
     else:
-        df.to_csv(path, index=False)
+        aliased.to_csv(path, index=False)
     return path
 
 

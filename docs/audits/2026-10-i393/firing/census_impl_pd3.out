@@ -1,0 +1,24 @@
+LGBMAdapter.fit calls: 9830
+  with a categorical declaration: 2143
+  declaring a non-str label: 22/2143
+  frame column label types (calls): {'str': 9830, 'int': 22}
+    tests/test_estimators/test_h0142_categorical_positions.py::test_the_named_column_is_the_categorical_one[0] [{'repr': '0', 'type': 'int'}]
+    tests/test_estimators/test_h0142_categorical_positions.py::test_the_named_column_is_the_categorical_one[0] [{'repr': '0', 'type': 'int'}]
+    tests/test_estimators/test_h0142_categorical_positions.py::test_the_named_column_is_the_categorical_one[0] [{'repr': '0', 'type': 'int'}]
+    tests/test_estimators/test_h0142_categorical_positions.py::test_the_named_column_is_the_categorical_one[1] [{'repr': '1', 'type': 'int'}]
+    tests/test_estimators/test_h0142_categorical_positions.py::test_the_named_column_is_the_categorical_one[1] [{'repr': '1', 'type': 'int'}]
+    tests/test_estimators/test_h0142_categorical_positions.py::test_the_named_column_is_the_categorical_one[1] [{'repr': '1', 'type': 'int'}]
+    tests/test_estimators/test_h0142_categorical_positions.py::test_the_named_column_is_the_categorical_one[7] [{'repr': '7', 'type': 'int'}]
+    tests/test_estimators/test_h0142_categorical_positions.py::test_the_named_column_is_the_categorical_one[7] [{'repr': '7', 'type': 'int'}]
+    tests/test_estimators/test_h0142_categorical_positions.py::test_the_named_column_is_the_categorical_one[7] [{'repr': '7', 'type': 'int'}]
+    tests/test_estimators/test_h0142_categorical_positions.py::test_an_int_name_trains_the_model_a_str_name_trains [{'repr': '0', 'type': 'int'}]
+    tests/test_estimators/test_h0142_categorical_positions.py::test_an_int_name_trains_the_model_a_str_name_trains [{'repr': '0', 'type': 'int'}]
+    tests/test_estimators/test_h0142_categorical_positions.py::test_an_int_name_trains_the_model_a_str_name_trains [{'repr': '0', 'type': 'int'}]
+    tests/test_estimators/test_h0142_categorical_positions.py::test_an_int_name_trains_the_model_a_str_name_trains [{'repr': '1', 'type': 'int'}]
+    tests/test_estimators/test_h0142_categorical_positions.py::test_an_int_name_trains_the_model_a_str_name_trains [{'repr': '1', 'type': 'int'}]
+    tests/test_estimators/test_h0142_categorical_positions.py::test_an_int_name_trains_the_model_a_str_name_trains [{'repr': '1', 'type': 'int'}]
+    tests/test_estimators/test_h0142_categorical_positions.py::test_an_int_name_trains_the_model_a_str_name_trains [{'repr': '7', 'type': 'int'}]
+    tests/test_estimators/test_h0142_categorical_positions.py::test_an_int_name_trains_the_model_a_str_name_trains [{'repr': '7', 'type': 'int'}]
+    tests/test_estimators/test_h0142_categorical_positions.py::test_an_int_name_trains_the_model_a_str_name_trains [{'repr': '7', 'type': 'int'}]
+    tests/test_estimators/test_h0142_categorical_positions.py::test_several_columns_with_mixed_names_are_declared_ [{'repr': '2', 'type': 'int'}, {'repr': '0', 'type': 'int'}]
+    tests/test_estimators/test_h0142_categorical_positions.py::test_several_columns_with_mixed_names_are_declared_ [{'repr': '2', 'type': 'int'}, {'repr': '0', 'type': 'int'}]

@@ -46,7 +46,7 @@
 
 | Layer | 名称 | 依存先 | 含まれるモジュール | 下の層から参照してよいモジュール（IF） |
 |---|---|---|---|---|
-| 0 | Foundation | なし | `core/exceptions.py`, `core/logging.py`, `core/registries.py`, `core/types/`, `core/param_domain.py`, `core/category_values.py`, `core/magnitude.py`, `core/tuning_codec.py`, `core/specs/`, `_extras.py`, `_version.py` | 全部 |
+| 0 | Foundation | なし | `core/exceptions.py`, `core/logging.py`, `core/registries.py`, `core/types/`, `core/param_domain.py`, `core/category_values.py`, `core/category_temporal.py`, `core/magnitude.py`, `core/tuning_codec.py`, `core/specs/`, `_extras.py`, `_version.py` | 全部 |
 | 1 | Leaf | Foundation + 同じ層の中で許す参照 | `config/`, `data/`, `splitters/`, `features/`, `estimators/`, `metrics/`, `calibration/` | `splitters/base.py`, `features/pipeline_base.py`, `estimators/base.py`, `estimators/provider.py`, `metrics/base.py`, `metrics/registry.py`, `calibration/base.py` |
 | 2 | Composition | Foundation + Layer 1 の IF | `training/`, `evaluation/`, `tuning/` | `training/results.py` |
 | 3 | Optional | Foundation + Layer 1/2 の IF | `explain/`, `plots/`, `persistence/`, `codegen/` | なし |
@@ -297,9 +297,14 @@ config = {
 - `auto_num_leaves: bool = True`: 有効時、`max_depth` から `num_leaves` を自動算出する。
 - `num_leaves_ratio: float = 1.0`（`0 < ratio ≤ 1`）: 基準値に対する割合。
 - 算出ロジック:
-  - `params.max_depth` が未指定または負値（制限なし）→ 基準値 = `131072`
+  - `params.max_depth` が未指定、または 0 以下（制限なし。LightGBM の「`<= 0` means no limit」と同じ。H-0140 より前は 0 が 8 葉を導いた）→ 基準値 = `131072`
   - `params.max_depth` が指定されている → 基準値 = `2 ^ max_depth`
   - `num_leaves = clamp(ceil(基準値 × num_leaves_ratio), 8, 131072)`
+- **メモリの警告（H-0140）**: LightGBM は、木が実際に育つ葉の数ではなく、指定した `num_leaves` の大きさでヒストグラムの領域と木の配列を確保する（150 行でも 131072 葉で約 12 GB）。`Model.fit` と `Model.tune` は、学習の前に、LightGBM が受け取る `num_leaves` が 16384 以上か、増える分のメモリの見積もりが 1 GiB 以上なら `UserWarning` を出す。値は変えない（運用のための知らせである）。
+  - 判定の値は adapter が `lgb.train` に渡す確定後の params（`num_leaves` とその別名、何も無ければ LightGBM の既定の 31）と `num_boost_round`・`num_class` から読む。原因は「`auto_num_leaves` が `max_depth` から導いた」「明示した」「LightGBM の既定」のどれかで、対処の文も原因ごとに違う。
+  - 見積もりは、ヒストグラム（約 16 バイト × 特徴量の bin の合計 × `num_leaves`）1 回分と、同時にメモリに残る booster の数だけの木（約 80 バイト × `num_leaves` × round 数 × class 数）の和。LizyML の adapter は `keep_training_booster=True` で学習するので、学習の済んだ booster も指定の大きさの木を持ち続ける。残る数は `Model.fit` で outer の fold の数 + refit、tune の 1 つの trial で outer の fold の数。近似で、早期終了では上限、isotonic の校正の booster は数えない。
+  - 回数: `Model.fit` は全ての fold と refit を合わせて 1 回。`Model.tune` は呼び出しごとに最初に条件に当たった trial で 1 回だけ警告し、以降の trial は logger に記録する。警告を例外にする設定では学習の前に止まる（tune では `TUNING_FAILED` に包まれる）。
+  - 判定は provider の任意の capability `ResourceWarningProvider`（§14.4）で、LightGBM の provider だけが持つ（`estimators/lgbm/memory_check.py`）。
 - 制約: `auto_num_leaves` が有効なとき、`num_leaves` を別名（`max_leaves` など）を含めてどの層に書いても `fit` / `tune` の学習前に `CONFIG_INVALID`（H-0121。config の構築時には拒否しない）。`num_leaves_ratio` は `auto_num_leaves` が真のときだけ読まれる。
 
 ### データサイズ相対比率パラメーター
@@ -585,7 +590,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - `run_meta`
   - `lizyml_version / python_version / deps_versions / config_normalized / config_version / run_id / timestamp`
   - 型: `lizyml_version`（`str`）、`python_version`（`str`）、`deps_versions`（`dict[str, str]`）、`config_normalized`（`dict`）、`config_version`（`int`）、`run_id`（`str`、UUID 文字列）、`timestamp`（`str`、ISO 8601、UTC）。
-- `target_encoder`（H-0070 で v2 に追加。現行は format_version=4）
+- `target_encoder`（H-0070 で v2 に追加。現行は format_version=5）
   - `TargetEncoder(classes_: tuple[Any, ...], needs_encoding: bool, original_dtype: str)`
   - 数値 y / regression では `needs_encoding=False` の no-op
   - 非数値 classification y では `classes_` に **lexicographically** sorted な元ラベルを保持
@@ -1654,6 +1659,7 @@ unsaveable_categories(pipeline_state) -> list[UnsaveableCategory]  # デフォ�
 - `objective / metric` 整合
   - 利用者または trial が書いた `objective`（エイリアスの綴りを含む）は、task の `TASK_COMPATIBLE_OBJECTIVES`（`estimators/lgbm/defaults.py`。LightGBM の canonical 名で regression 9 / binary 3 / multiclass 2）に含まれればそのまま `lgb.train` に渡し、含まれなければ `CONFIG_INVALID` とする（H-0079）。H-0079 より前は黙ってタスク既定に置き換えていた。`None` 以外の文字列でない値（dict / list など）も、包含を調べる前に `CONFIG_INVALID` とする（`check_objective_compatible`、H-0116。それ以前は dict / list が未加工の `TypeError` で落ちていた）。包含の検査とメッセージは値を書式化もハッシュもしないが、値の型やその属性の参照が例外を出すもの（`__class__`、メタクラスなど）と、送出後のエラーの表示（`context` は書いた値を保つ）は範囲外（H-0116 決定 2）。明示の `None` は「上書きなし」で、task の既定の objective で学習する。
 - categorical の扱い統一
+  - カテゴリの列の宣言は、学習に使う frame の列の順での位置の一覧（`categorical_positions`）にして、学習と検証の `lgb.Dataset` に渡す。名前を渡すと、LightGBM は `int` の名前を位置として読み、別の列をカテゴリにするからである（H-0142、#393）。名前と列は、型が完全に同じで値が等しいときだけ一致とし（`1`・`True`・`1.0` を取り違えない）、一致がちょうど 1 つでない宣言は `DATA_SCHEMA_INVALID`（context `{"column", "reason": "categorical_feature_not_unique"}`）。文字列の名前では、位置で渡しても学習した booster は名前で渡したときとバイトとして同じである。
 - early stopping の設定吸収
 - SHAP（内蔵寄り）対応
 
@@ -1831,7 +1837,16 @@ class EstimatorProvider(Protocol):
 @runtime_checkable
 class TrialErrorProvider(Protocol):  # 任意の機能（H-0128）
     def trial_errors(self) -> tuple[type[Exception], ...]: ...
+
+
+@runtime_checkable
+class ResourceWarningProvider(Protocol):  # 任意の機能（H-0140）
+    def resource_warning(
+        self, *, estimator_factory, X, smart_params, n_boosters
+    ) -> str | None: ...
 ```
+
+`ResourceWarningProvider` も `EstimatorProvider` とは別の任意の機能である。`Model.fit` と `Model.tune` は `isinstance(provider, ResourceWarningProvider)` のときだけ `resource_warning(...)` を呼び、文が返れば学習の前に `UserWarning` を出す（§5.3 の `auto_num_leaves` のメモリの警告）。持たない provider では何もしない。
 
 `TrialErrorProvider` は `EstimatorProvider` とは別の任意の機能で、`EstimatorProvider` の成員には入れない（入れると、それを持たない既存の provider が静的に `EstimatorProvider` を満たさなくなる）。`Model.tune`（Facade）は `isinstance(provider, TrialErrorProvider)` のときだけ `trial_errors()` を呼び、`Tuner.run` / `Tuner.tune` の `extra_catch` に渡す。その型の例外は試行の FAIL になり、round は続く。`tuning/` は estimator のライブラリを知らない。LightGBM の provider は `(lightgbm.basic.LightGBMError,)` を返す。
 
@@ -1839,7 +1854,7 @@ class TrialErrorProvider(Protocol):  # 任意の機能（H-0128）
 - `EstimatorProvider` は `config/` を import しない（§2.1 の R2。import の文で判定し、呼ぶ側は問わない。H-0130）。
 - `model_cfg` 引数は `Any` 型で受け取り、各 provider は設定を属性として読む（具象型の `isinstance` もキャストもしない）。
 - `runtime_deps()` はアルゴリズム固有の依存パッケージ名とバージョンを返す（例: `{"lightgbm": "4.5.0"}`）。`RunMeta.deps_versions` に使用。
-- `parameter_bounds(task)` は境界拡張（§11.5）をクランプするための、パラメーターとして意味のある範囲 `{name: {"min": ..., "max": ...}}` を返す（H-0078）。表に無いパラメーターは無制限、空の dict は宣言なし。`LGBMProvider` は task によらない 15 パラメーターの表（`learning_rate` / `feature_fraction` / `bagging_fraction` / `num_leaves_ratio` / `min_data_in_leaf_ratio` / `min_data_in_bin_ratio` / `validation_ratio` / `lambda_l1` / `lambda_l2` / `n_estimators` / `max_depth` / `max_bin` / `bagging_freq` / `early_stopping_rounds` / `seed`）を返す。`Model.tune` は既定の空間にも利用者の空間にもこれを付ける（§11.2）。smart パラメーターの上下限は `smart_value_rules()` の範囲の内側に置くこと（拡張した次元も値の規則で検査されるため）。`num_leaves_ratio` の上限は 1.0（H-0121 改訂 2。それまでは 2.0 で、config の範囲 `(0, 1]` を越えていた）。
+- `parameter_bounds(task)` は境界拡張（§11.5）をクランプするための、パラメーターとして意味のある範囲 `{name: {"min": ..., "max": ...}}` を返す（H-0078）。片側だけ（`min` だけ、または `max` だけ）でもよく、無い側は無制限で、両方あるときは `min < max`（H-0140。`LGBMProvider` の `max_depth` は `{"min": -1}` だけで、木の深さの上限は置かない）。表に無いパラメーターは無制限、空の dict は宣言なし。`LGBMProvider` は task によらない 15 パラメーターの表（`learning_rate` / `feature_fraction` / `bagging_fraction` / `num_leaves_ratio` / `min_data_in_leaf_ratio` / `min_data_in_bin_ratio` / `validation_ratio` / `lambda_l1` / `lambda_l2` / `n_estimators` / `max_depth` / `max_bin` / `bagging_freq` / `early_stopping_rounds` / `seed`）を返す。`Model.tune` は既定の空間にも利用者の空間にもこれを付ける（§11.2）。smart パラメーターの上下限は `smart_value_rules()` の範囲の内側に置くこと（拡張した次元も値の規則で検査されるため）。`num_leaves_ratio` の上限は 1.0（H-0121 改訂 2。それまでは 2.0 で、config の範囲 `(0, 1]` を越えていた）。
 - `objective_choices(task)` は task で有効な objective の canonical 名を、決まった順の tuple で返す（エイリアスは含めない。H-0079）。`default_space` の `objective` 次元と UI の選択肢の元であり、集合は adapter が受理する `TASK_COMPATIBLE_OBJECTIVES`（§14.2）と同じ。未知の task は空の tuple。
 - `metric_choices(task)` は `{"native": tuple, "feval": tuple}` を返す（H-0079）。`native` は学習器が評価する指標、`feval` は LizyML が feval として注入する指標（§14.3）。どちらも canonical 名で、順は決定的、2 つの tuple の間に重複は無い。
 - `params_summary()` は `params_table()` 用のパラメータ行を返す。smart params + native model params（`metric` を含む、H-0061）の両方を含む。
@@ -1876,6 +1891,7 @@ estimators/
 │   ├── adapter.py       LGBMAdapter（現在の lgbm.py から）
 │   ├── provider.py      LGBMProvider（EstimatorProvider 実装）
 │   ├── smart_params.py  resolve_smart_params / resolve_ratio_params
+│   ├── memory_check.py  num_leaves のメモリの見積もりと警告 (H-0140)
 │   └── defaults.py      _COMMON_DEFAULTS / task defaults / default_space
 └── <future>/            EntityEmbedding 等（同構造で追加）
 ```
@@ -1907,8 +1923,8 @@ estimators/
 
 - `format_version` が読めない場合は明示的に拒否する（黙って壊れた復元をしない）。`format_version` は JSON の整数でなければならず、`true` や `2.0` のように等しく比べられる値も拒否する。`metadata.json` が JSON の object でないときも拒否する（H-0135）。
 - 将来 migration を実装できる前提で serializer に拡張点を残す。
-- 現行 `FORMAT_VERSION = 4`（H-0134）。`{1, 2, 3, 4}` を loader が受理し、v1 artifact には no-op `TargetEncoder` を in-memory で注入して contract を整合させる（INV-5、H-0070）。v1・v2 の pipeline 状態には `stand_in_columns` が無く、どの列も元の値のカテゴリのまま読み、今と同じに予測する。3 に上げたのは意味の変更のためである: 位置の番号に置き換えた列（§15.3）を持つ状態を古い LizyML が読むと、元の値のカテゴリとして扱い、エラー無しに予測を間違える（H-0133 の実測）。そのため古い LizyML は v3 を拒否しなければならない。4 に上げたのは、`tuning_history.json` を知らない LizyML が v4 を読むと、そのファイルを無視して試行の履歴を空の表として見せるためである（#315 の欠陥。H-0134）。v1〜v3 は履歴を持たない成果物として読む。
-- **フィールドの追加は後方互換の変更で、`format_version` を上げない。** フィールドの削除、型や意味の変更は破壊的変更で、`format_version` を上げる（H-0003）。`checksums`（H-0083）、`tuning`（H-0086）、`applied_training_params`（H-0109）、`applied_sample_weight` / `declared_categories`（H-0120）はいずれも追加で、版を上げずに入った（H-0133 が意味の変更で版を 3 に上げるまで v2。H-0134 が `FORMAT_VERSION = 4` に上げた）。旧 loader は知らないキーを無視する。**例外（H-0134）**: 追加のフィールドでも、それが無いと、受理する古い loader が報告を黙って間違えるもの（`tuning.history` と `tuning_history.json`。古い loader は空の表を返す）は意味の変更として扱い、版を上げる。
+- 現行 `FORMAT_VERSION = 5`（H-0138）。`{1, 2, 3, 4, 5}` を loader が受理し、v1 artifact には no-op `TargetEncoder` を in-memory で注入して contract を整合させる（INV-5、H-0070）。v1・v2 の pipeline 状態には `stand_in_columns` が無く、どの列も元の値のカテゴリのまま読み、今と同じに予測する。3 に上げたのは意味の変更のためである: 位置の番号に置き換えた列（§15.3）を持つ状態を古い LizyML が読むと、元の値のカテゴリとして扱い、エラー無しに予測を間違える（H-0133 の実測）。そのため古い LizyML は v3 を拒否しなければならない。4 に上げたのは、`tuning_history.json` を知らない LizyML が v4 を読むと、そのファイルを無視して試行の履歴を空の表として見せるためである（#315 の欠陥。H-0134）。v1〜v3 は履歴を持たない成果物として読む。5 に上げたのは、エンコーダの状態がカテゴリを構造のキーで引く印（`category_identity_version`、§15.3）を持つためである。古い LizyML が v5 を読むと pandas の引き方で照合し、H-0138 が直した列に古い間違った符号を付ける。v1〜v4 の状態は印を持たないので、load の後も今までの pandas の引き方で予測する（予測は変わらない。古い状態を版 1 の同一性に書き直さない、一方向の互換。H-0138）。
+- **フィールドの追加は後方互換の変更で、`format_version` を上げない。** フィールドの削除、型や意味の変更は破壊的変更で、`format_version` を上げる（H-0003）。`checksums`（H-0083）、`tuning`（H-0086）、`applied_training_params`（H-0109）、`applied_sample_weight` / `declared_categories`（H-0120）はいずれも追加で、版を上げずに入った（H-0133 が意味の変更で版を 3 に上げるまで v2。H-0134 が 4 に上げ、現行は H-0138 の `FORMAT_VERSION = 5`）。旧 loader は知らないキーを無視する。**例外（H-0134）**: 追加のフィールドでも、それが無いと、受理する古い loader が報告を黙って間違えるもの（`tuning.history` と `tuning_history.json`。古い loader は空の表を返す）は意味の変更として扱い、版を上げる。
 - `load()` は毎回 `metadata.json` を検査する。必須キー（`_REQUIRED_METADATA_KEYS` = `format_version` / `task` / `feature_names` / `config` / `run_id`）が欠けていれば `DESERIALIZATION_FAILED`。
 - **完全性の検査（H-0083）**: `load()` は各 `.pkl` のバイト列を 1 回だけ読み、`checksums` に記録された digest と照合してから、そのバイト列を `joblib.load(io.BytesIO(...))` で復元する（ファイルを再 open しないので、検査と復元の間の TOCTOU が無い）。digest が一致しないときは pickle を実行する前に `DESERIALIZATION_FAILED`（context: `file` / `expected` / `actual`）。
 - **読むファイルは `checksums` の宣言で決まる（H-0135）**: 次の拒否はどれも `DESERIALIZATION_FAILED` で、context の `reason` が理由を示し、どの pickle も読む前に起きる。
@@ -1932,12 +1948,19 @@ estimators/
   - **値の集合 V**（`core/category_values.py`、Layer 0）: `Model.export`、公開の `lizyml.persistence.export`、`export_code` は、特徴量のカテゴリについて同じ閉じた集合を受け付ける。型は `ADMITTED_TYPES` のどれかに厳密に一致すること（`str`・`int`・`float`・`bool`・`bytes`・`Decimal`・`date`・`datetime`・`timedelta`・`complex`・`pd.Timestamp`・`pd.Timedelta`、それらの numpy のスカラー、`np.datetime64`・`np.timedelta64`、要素が V の `tuple`・`frozenset`。入れ物は 8 段まで）。自分自身と等しくならない値（NaN、`Decimal` の NaN、NaN を含む `complex`、NaT）は入れ子の中でも外である。タイムゾーンつきの `Timestamp` は固定の時差・`ZoneInfo`・pytz の zone、タイムゾーンつきの `datetime` は固定の時差とキャッシュされた `ZoneInfo` だけを受け付ける（H-0133 の符号化で、夏時間の重なりでも等しさと hash を保てるもの。joblib はこれを保たないことがあり、それは下の保存の後の振る舞いの検査が拒否する。H-0136）。判定は値の型を最初に見るので、V の外の型の値のコードは走らない。
   - **拒否**: `Model.export`、公開の `lizyml.persistence.export`、`export_code` は、何かを書く前に同じ検査（`persistence/exporter.py` の `check_category_values`）を行う（H-0136。3 つの出口は同じモデルを受け付ける。公開の `export` の引数 `categories_checked` は H-0133 で非推奨で、渡しても検査を飛ばさず `DeprecationWarning` を出す。v1.0 で削除）。検査は次の順である。
     1. 保存する全ての pipeline 状態（refit、各 fold、`pipeline_state_per_fold` が無いモデルでは `pipeline_state` を `last fold` と呼ぶ）のエンコーダのカテゴリと最頻値、それから `declared_categories` を V で判定する。外の値があれば `SERIALIZATION_FAILED` を送出し（context `column` / `value` / `type` / `state`。値は例外を出さない表示で書く）、出力先に何も書かない。
-    2. **保存の後の振る舞い（H-0136）**: 各状態のエンコーダを、保存したモデルが使う 2 つの保存処理で写す。`joblib`（`compress=3` で書いて読み戻す。成果物の pickle と同じ）と `json`（H-0133 の符号化と JSON。codegen の `pipeline_state.json` と同じ）である。学習したカテゴリを状態の順に 1 つのバッチにし、`unseen_policy="error"` のエンコーダで、元の状態と写した状態のそれぞれで変換する。次のどれかなら、その列を `SERIALIZATION_FAILED` で拒否する: 学習したカテゴリが写した状態で unseen になる（`kind="unseen"`）、写した状態の変換が例外を出す（`kind="raises"`、context `exception` に型の名前）、学習したカテゴリの符号が変わる（`kind="codes"`）、unseen の行を `unseen_policy="mode"` で最頻値に置き換えたときの符号が変わる（`kind="mode"`。同じバッチに、どのカテゴリとも等しくない値の行を 1 つ足し、各状態が自分の最頻値で置き換えた符号を比べる）。context は `column` / `state` / `serializer` / `kind`（値があれば `value` / `type`）。`declared_categories` は `json` だけで写し、写した値の `CategoricalDtype` で元の値の符号を比べる。比較の実装は `features/encoders/state_changes.py` にあり、Layer 3 からは IF の `features/pipeline_base.py` を通して使う（§2.1）。
-       - 約束の範囲: 学習したカテゴリと最頻値（と、それと同じ型で等しい値）の行が、保存の後もメモリ上と同じ符号を受け取ること。基準はメモリ上の状態である。メモリ上のモデルが unseen とする値の行（型をまたいで等しい値を含む）、メモリ上のモデル自身がバッチによって符号を変える場合（pandas 2 で pytz の値の fold が fit の中で変わる #379、NumPy の 1 に等しいスカラーと 1 を包む tuple を pandas が取り違える #380）は、この約束の外である。
+    2. **保存の後の振る舞い（H-0136）**: 各状態のエンコーダを、保存したモデルが使う 2 つの保存処理で写す。`joblib`（`compress=3` で書いて読み戻す。成果物の pickle と同じ）と `json`（H-0133 の符号化と JSON。codegen の `pipeline_state.json` と同じ）である。学習したカテゴリを状態の順に 1 つのバッチにし、`unseen_policy="error"` のエンコーダで、元の状態と写した状態のそれぞれで変換する。次のどれかなら、その列を `SERIALIZATION_FAILED` で拒否する: 学習したカテゴリが写した状態で unseen になる（`kind="unseen"`）、写した状態の変換が例外を出す（`kind="raises"`、context `exception` に型の名前）、学習したカテゴリの符号が変わる（`kind="codes"`）、unseen の行を `unseen_policy="mode"` で最頻値に置き換えたときの符号が変わる（`kind="mode"`。同じバッチに、どのカテゴリとも等しくない値の行を 1 つ足し、各状態が自分の最頻値で置き換えた符号を比べる）。context は `column` / `state` / `serializer` / `kind`（値があれば `value` / `type`）。`declared_categories` は `json` だけで写し、写した値の `CategoricalDtype` で元の値の符号を比べる。ただし refit のエンコーダの状態が版 1 でその列を `identity_columns` に持ち、宣言が時刻の値を持つときは、写した値のキーの並びを元のキーの並びと比べる（生成コードは宣言をキーで戻すので。H-0139）。状態のカテゴリの `json` の経路の読み手は生成 `predict.py` なので、状態が版 1 でその列が `identity_columns` にあるときは、写した状態の符号（と最頻値で置き換えた符号）を、実行時のエンコーダの変換でなく、生成コードの `_keyed_codes` が写す `keyed_codes` だけで求める（実行時のエンコーダは写したカテゴリから `pd.Categorical.from_codes` を作り、JSON が `np.uint64` を戻した `int` と時刻の値を pandas が型にできないことがあるが、生成コードはその型を作らない。H-0143）。`joblib` の経路と identity で引かない列は、実行時のエンコーダで判定する。比較の実装は `features/encoders/state_changes.py` にあり、Layer 3 からは IF の `features/pipeline_base.py` を通して使う（§2.1）。
+       - 約束の範囲: 学習したカテゴリと最頻値（と、それと同じ型で等しい値）の行が、保存の後もメモリ上と同じ符号を受け取ること。基準はメモリ上の状態である。メモリ上のモデルが unseen とする値の行（型をまたいで等しい値を含む）、メモリ上のモデル自身がバッチによって符号を変える場合は、この約束の外である（pandas 2 で pytz の値の fold が fit の中で変わる #379 は H-0139 で、NumPy の 1 に等しいスカラーと 1 を包む tuple を pandas が取り違える #380 は H-0138 で、キーで引くようになり起きない）。
        - 等しさが推移的でない値（`np.uint64(4) == 4 == np.timedelta64(4, 'M')`、`np.uint64(4) != np.timedelta64(4, 'M')`）では、結果は状態のカテゴリの順（その状態の行の現れる順）で変わる。
     3. 状態ごとに adapter の `unsaveable_categories` にも尋ねる（下の IF）。
   - **fit の警告**: `fit()` は CV の学習の前に、全ての学習行で fit した pipeline の状態（refit の pipeline と同じ行）を V で判定し、外の値を持つ列ごとに `UserWarning` を出す。V の外の値が無ければ、fit を終えた後で、export が判定するのと同じ保存する状態と `declared_categories` に上の 2 の検査を当て、拒否される列ごとに `UserWarning` を出す（H-0136、`exporter.warn_saved_state_changes`。結果は状態のカテゴリの順で変わるので、保存する状態そのもので判定する）。fit は止めない。
   - **位置の番号への置き換え**: LightGBM は booster を pickle するとき、各カテゴリ列のカテゴリをモデル文字列に JSON で書くので、書けない値（`category_json.is_writable`）を持つ列はそのままでは保存できない。LightGBM の provider はこの判定を pipeline に渡し、エンコーダは fit の時点で、そのような値を一つでも持つ列を `stand_in_columns` として状態に記録する（CV は transform より前に状態を保存するので、fit で決める）。transform は元の値で照合した後（未知の値、`unseen_policy`、欠損は今と同じ）、その列だけカテゴリを位置の番号 0..k−1 に置き換える。符号は変わらないので、予測は変わらない。それ以外の列と、`get_native_model()` が返す Booster の挙動は変わらない。メモリの中のモデルで、置き換えた列を持つ Booster に元の値の列を直接渡すと、予測を黙って間違える。
+  - **カテゴリの値の同一性（H-0138、時刻の型は H-0139）**: カテゴリの列の値が全て V の中にある列では、「どの値が同じカテゴリか」を `core/category_values.py` の `category_identity_key` が決める。数として等しい値（`-0.0`・`0`・`False`・`Decimal("-0")`、`True` と `np.uint8(1)`、`Decimal("1")` と `np.int8(1)`）は 1 つのカテゴリ、文字列と `np.str_`、bytes と `np.bytes_` も等しければ 1 つ、`tuple` と `frozenset` は要素ごとにこの規則で比べる。キーは値自身の `==` と `hash` を走らせない。V の外の値を持つ列は、キーを使わず今までの pandas の経路を通る。
+    - **時刻の型（H-0139、#379）**: 時刻の値のキーは `core/category_temporal.py` の `temporal_key` が決める。座標はアト秒の整数（Python の `int`）である。タイムゾーンつきの `datetime`・`Timestamp` は、同じ UTC の瞬間なら時区の種類（UTC・IANA の `ZoneInfo`・pytz・固定の時差）や fold によらず 1 つのカテゴリ。naive の `datetime`・`Timestamp`・`np.datetime64` は壁時計の座標が（ns より細かい単位も含め）正確に等しければ 1 つ。naive とタイムゾーンつきは別、`date` と 0 時の `datetime` は別。固定の長さの期間（`pd.Timedelta`・`datetime.timedelta`・固定の単位の `np.timedelta64`）は長さが正確に等しければ 1 つ、単位の無い `np.timedelta64` はどの固定の期間とも別。時区の名前と fold はキーに入らないので、保存（joblib・H-0133 の符号化）でキーは変わらない。
+    - **年・月の単位の `np.timedelta64`**: 長さを持たないのでキーが無い。fit（組み立て、エンコーダの fit、生成 `train.py`）は、行の値・入れ子の値・宣言したカテゴリ（使われていないものも）にこの値を持つ列を、学習の前に `DATA_SCHEMA_INVALID`（context `{"column", "units", "reason": "calendar_timedelta64"}`。生成コードは同じ文の `ValueError`）で拒否する。predict に来たこの値は unseen として `unseen_policy` に従う。V と符号化は変えないので、この値を持つ保存したモデルは今までどおり読み込める。
+    - **単位の無い `np.datetime64`**: NumPy 自身が文字列にできない値で、キーが無い。年・月の `timedelta64` と同じ位置で fit が拒否する（context `{"column", "reason": "unitless_datetime64"}`）。predict に来たものは unseen で、警告の文では `<unprintable datetime64>` と書く。符号化はこの値も往復する（H-0139）。
+    - **今正しく動く列は変えない**: データの組み立て（`dataframe_builder._apply_categorical`）とエンコーダの fit は、pandas の cast（`astype("category")`）と今までのカテゴリ・最頻値を実際に作り、それがキーに忠実か（カテゴリのキーが一意、欠損でない行の符号のカテゴリのキーが行のキーと同じ、欠損は -1、宣言したカテゴリは同じ順）を確かめる。忠実なら今の結果をそのまま使う。cast が例外を出すか忠実でないときだけ、キーで作り直す（代表の値はキーごとに最初に現れた値、順は推定した列で `sorted(..., key=str)`、宣言した列で宣言の順、最頻値はキーで数えて同数ならカテゴリの順で先のもの）。作り直した列は必ず位置の番号への置き換えの列（`stand_in_columns`）になる。
+    - **データ層**: 組み立てが cast できない列・忠実でない列は元の object の列のまま残し、`DataFrame.attrs` の非公開の項目（`IDENTITY_OBJECT_COLUMNS`）に列の名前だけを記録する。`NativeFeaturePipeline.fit` はこの列もカテゴリの列として選ぶ。カテゴリは各 fold と refit の `pipeline.fit` の中で学習する（リークの境界は変わらない）。
+    - **状態と照合**: 新しく fit したエンコーダの状態は `category_identity_version`（現行 1）と、キーで扱う列の一覧 `identity_columns` を持つ。transform はその列を、H-0127 の `comparable_values` を通した後、行のキーから位置の番号を直接引き（pandas の object の Index・`set`・`isin` を使わない）、unseen の方針を番号の上で当てる。印の無い状態（v1〜v4）は今までの pandas の引き方で動く。知らない印（`category_identity_version` が 1 以外、整数でない、`identity_columns` の形が違う）は `load_state`（と `Model.load`）で `DESERIALIZATION_FAILED`。`export_state_json` も印と一覧を書く。
   - **`metadata.json` の `declared_categories`**: 型の印つきの JSON（下の §15.4）で書く。`lizyml.persistence.load` が一度だけ復号し、`Model.load` はその結果を使う。形の外れた印は両方で `DESERIALIZATION_FAILED`。
 
 ## 15.4 `export_code`（Codegen Export, H-0059）
@@ -1969,8 +1992,16 @@ estimators/
   - **`config.json` が持つ値**: `inner_valid`（refit が使った strategy。`export_code` が fit と同じ `resolve_inner_valid` を、config と `applied_training_params` から呼び直して作る。検証集合が無ければ `null`）と `early_stopping_rounds`（adapter の patience、無ければ `null`）を独立に必ず書き、生成 `train.py` は既定値なしで読む。callback は両方があるときだけ付く。`sample_weight`（`"balanced"` か `null`、fit の記録から）、`declared_categories`（入力で `category` だった列）、`categorical_rule`（データの組み立てが `category` に変える列の規則、`{"explicit": [...], "auto": bool}`）、`_versions`。
   - **生成 `train.py` の学習**: 時間順の split と `blocked_group_kfold` は `Series.argsort()` で行を並べてから学習する。inner valid は 4 つの strategy を同じ numpy / scikit-learn の呼び出しで移したもので分割する。multiclass の `balanced` の重みは並べた後の全行で `compute_sample_weight("balanced", y)` と同じ値を作り、inner-train の行にだけ付ける。`LGBMAdapter.fit` と同じ Dataset と callback の組み立てで `lgb.train` を呼ぶ。
   - **カテゴリの符号（#304）**: 生成 `train.py` は `categorical_rule` で LizyML と同じ `astype("category")` を当ててから、`CategoricalEncoder.fit` と同じ 2 つの分岐でカテゴリと最頻値を決める。`pipeline_state.json` は列ごとに `{"categories": [型付きの値, ...], "mode": 値}` を持ち、配列の位置が符号である（`str` をキーにしない）。`predict.py` も同じ値で符号を引く。
+  - **カテゴリの同一性（H-0138）**: `config.json` は元の pipeline の `category_identity_version` を必ず書く（H-0138 より前の状態から load したモデルでは `null`。古いカテゴリを黙って新しい同一性に上げない）。版 1 のとき、`pipeline_state.json` は `category_identity_version` と `identity_columns` を持ち、生成 `train.py` は §15.3 と同じ「cast・忠実の判定・キーでの作り直し」で組み立てと fit を行い（宣言したカテゴリの復元も符号をキーで引き、pandas が宣言の一覧をそのまま持てなければ fit が宣言の順にキーで作る）、`train.py` と `predict.py` の符号の照合は印のある列をキーで引く。キーと照合の写しは `codegen/identity_template.py` にあり、正と同じ答えを返すことをテストで確かめる。`null` のときは H-0138 より前と同じ pandas の引き方のコードとして動き、`pipeline_state.json` に印を書かない。`predict.py` は `pipeline_state.json` の知らない印（1 以外、整数でない、`null`、形の違う `identity_columns`）を値を読む前に `ValueError` で拒否し、`train.py` も `config.json` の知らない版を拒否する。
   - **値の書き方（H-0133）**: 特徴量のカテゴリ・最頻値・`declared_categories` は、素の値（`str`・`int`・`float`・`bool` と、それらの numpy のスカラー）を JSON の値で、それ以外の V の値を `{"$lizyml": 印, ...}` の形の JSON の object で書く。印と欄の表は `core/category_values.py`（H-0133 P2）が正で、生成 `train.py` / `predict.py` は同じ表の写しで符号化・復号する（写しと正が同じ答えを返すことをテストで確かめる）。復号は決まった位置だけで行い、形の外れた object は `ValueError` である。
   - **拒否**: 特徴量のカテゴリ・最頻値・`declared_categories` が V（§15.3）の外にあるとき、目的変数のラベルが `str` / `int` / `float` / `bool` と、`.item()` がそれらになり元の値と等しい numpy のスカラーの外にあるとき（ただし `np.datetime64` と `np.timedelta64` は外す。Y・M 単位の `np.timedelta64` は `.item()` が int で、numpy が元の値と等しいと判定するため。H-0133）、`export_code` は何も書く前に `SERIALIZATION_FAILED` で拒否する（黙って `str` にしない）。ラベルの集合は H-0133 で広げていない。特徴量のカテゴリについては、`export_code` も `Model.export` と同じ `check_category_values`（§15.3 の 3 つの検査）を、何も書く前に行う（H-0136）。
+- **列名の別名（H-0141、#382）**: 生成プロジェクトは全ての列を文字列の別名 `str(name)` で呼ぶ（JSON の key・CSV の見出し・parquet の列名が、どれも同じ文字列で戻るように）。fit したモデル・Config・`Model.export` の保存形式・実行時の fit / predict の名前は変えず、書き出す写しだけを別名にする。
+  - **受け付ける名前**: 型が完全に `str`・`numpy.str_`・`int`・`float`・`bool`・`NoneType`・`np.float64` のどれかで、別名が空でなく、NUL と UTF-8 にできない文字を含まないもの（`7` → `"7"`、`7.0` → `"7.0"`、NaN → `"nan"`、`True` → `"True"`、`None` → `"None"`）。数の正規化はしない。規則は `codegen/column_names.py` の `column_alias` だけにあり、生成 `train.py` / `predict.py` はそのソースの写しを持つ（同じ答えを返すことをテストで確かめる）。
+  - **書く前の拒否**: `export_code` は、fit の状態を取った後・カテゴリの値の検査の前に、`generate_code` は入口で、特徴量の名前と Config の役割の名前（`data.target`・`data.time_col`・`data.group_col`・`features.exclude`・`features.categorical`・`split.blocks.col`・`split.groups.col`・`inner_valid.group_col`）を調べ、何も書く前に `SERIALIZATION_FAILED` で拒否する。context は `surface: "export_code"`・`reason`（`unsupported_column_name` か `column_name_collision`）・`kind`（`type`・`empty_alias`・`invalid_alias_text`・`unknown_reference`・`ambiguous_reference`・`duplicate_alias`）・`alias`・`columns`（各項目に `where`・`position`・`type`（`builtins.int` の形）・`repr`・`alias`）である。調べる順は、受け付けない名前（特徴量の順、次に役割）、宣言したカテゴリの key の対応づけ、別名の重なり（最初の組）。重なりは別名の文字列で調べ、2 つの特徴量の別名が同じとき、または文字列でない特徴量の別名が役割の名前と同じときである（文字列の特徴量と同じ文字列の役割の名前は 1 つの列）。
+  - **宣言したカテゴリの key**: `Model.load` したモデルでは JSON の key の形で戻る（`7` → `"7"`、`inf` → `"Infinity"`、`None` → `"null"`）。書き出す写しの中で、型と値が同じ特徴量を先に、無ければ `str` の key を `numpy.str_` の特徴量の `str(name)` か、それ以外の特徴量の JSON の key の形に対応づけ、その特徴量の別名を key にする。どれにも当たらない key は `unknown_reference`、両方の規則か 2 つ以上の特徴量に当たる key は `ambiguous_reference`。
+  - **印 `column_name_policy`**: `config.json` と `pipeline_state.json` の両方に `"str_alias_v1"` を書く。生成スクリプトは、予測と学習し直しの最初に（カテゴリの値の復号・identity の検査・書き込みより前に）、両方に無ければ H-0141 より前のプロジェクトとして今までの引き方で動き（学習し直しても印を足さない）、値が `"str_alias_v1"` でなければ `unsupported_column_name_policy`、片方だけなら `column_name_policy_mismatch`、両方にあれば名前の形（`feature_names` は文字列の一意な一覧で順まで同じ、カテゴリの列の一覧は同じで特徴量に含まれる、カテゴリの key はカテゴリの列と同じ集合、`identity_columns` と宣言の key はカテゴリの列に含まれる、役割の名前は文字列）を確かめ、外れれば `invalid_column_name_state` で止める。
+  - **入力の境界**: 印のあるプロジェクトでは、生成スクリプトは型つきの frame の列名を別名にしてから引く（重なりは `column_name_collision`、受け付けない名前と MultiIndex は `unsupported_column_name`、足りない別名は `missing_column_alias`）。CSV は最初の行を `csv.reader(strict=True)` で読み、空の見出しと pandas が読んだ見出しとの違いを `invalid_column_header`、重なった見出しを `column_name_collision` で拒否する。parquet は列名が文字列・平ら・一意であることを確かめる。`train.py`・`predict.py`・`test_equivalence.py` の読み込みは全てこの検査を通る。例外は `ValueError` の子で `reason` と問題の名前を持つ。CSV と parquet の見出しは別名で書く（`"Unnamed: 0"` を `None` の列と推し量らない）。
+  - 生成 `train.py` は LightGBM にカテゴリの列を位置で渡す（H-0142 と同じ）。すでに書き出したプロジェクトは印を持たず、今までの振る舞いのまま。直すには元のモデルから書き直す。
 - **校正用 OOF の fold の再現（H-0090）**: `config.json` は `split` ブロック（`config.json["split"]`）を持ち、outer split の method 固有のパラメーターを解決済みの値で書く（`_build_split_metadata(cfg)`。`stratify="auto"` は bool に畳み、`random_state` が無ければ `training.seed` を書く）。生成 `train.py` は校正用 OOF の CV fold をこのブロックから作り、`split.method` を再現する: `kfold` / `stratified_kfold` / `time_series` / `group_kfold` / `stratified_group_kfold` は scikit-learn の splitter、`purged_time_series` / `group_time_series` / `blocked_group_kfold` は LizyML のロジックを numpy に移したもの。
   - 時間の method では `time_col`、`blocked_group_kfold` では `blocks.col` で pandas の `argsort()` により並べてから分割し、fold を元の行順に戻す。
   - 生成 calibrator は covered な（OOF が NaN でない）行だけで学習する（LizyML の cross-fit の `C_final` と同じ）。
@@ -2102,7 +2133,7 @@ Artifact の保存・復元が `format_version` 管理のもとで安全に動�
 - **Frozen artifact fixture**: `tests/fixtures/` に CI 生成の artifact スナップショットを格納し、`Model.load()` → `predict()` の結果が既知の期待値と一致することを検証する。将来の `format_version` bump 時に migration テストの基盤となる。
 - **Legacy calibration path**: `oof_raw_scores=None` の旧形式 artifact が probability 入力で calibrate される経路を検証する。
 - **format_version rejection**: 未知の version（`0`, `5`, `99`, `-1`, `None`）で `DESERIALIZATION_FAILED`。`{1, 2}` だけを受理する loader（模擬）は v3 を拒否する。
-- **v1 と v2 の形（H-0133 P8）**: 旧版で保存した成果物はリポジトリに無いので、テストは今の成果物を書き直して作る（`tests/test_persistence/_artifact_versions.py` の `to_v2_shape`: `stand_in_columns` を除き、`format_version` を 2 にして checksums を書き直す。v1 はさらに `target_encoder` を除く）。今の版を「v2」と呼ぶテストは置かない。
+- **v1 と v2 の形（H-0133 P8）**: 旧版で保存した成果物はリポジトリに無いので、テストは今の成果物を書き直して作る（`tests/test_persistence/_artifact_versions.py` の `to_v2_shape`: `stand_in_columns` を除き、`format_version` を 2 にして checksums を書き直す。v1 はさらに `target_encoder` を除く）。v4 の形は `to_v4_shape` で、エンコーダの `category_identity_version` と `identity_columns` を除いて `format_version` を 4 にする（H-0138）。v3 の形はそれに続けて作る。今の版を「v2」と呼ぶテストは置かない。
 - **metadata 部分欠損**: 必須フィールドを 1 つずつ削除し、各欠損で正しいエラーメッセージを検証。
 - **Booster string roundtrip**: `model_to_string()` → `model_from_string()` 往復で predict 結果が一致。
 
@@ -2196,6 +2227,7 @@ lizyml/
 │   │   └── smart_ratio.py          RatioRange, SMART_RATIO_RANGES (H-0130)
 │   ├── param_domain.py             パラメーターの値の閉じた集合 (Layer 0, H-0095)
 │   ├── category_values.py          保存できるカテゴリ値の閉じた集合と符号化 (Layer 0, H-0133)
+│   ├── category_temporal.py        時刻の値の同一性のキー temporal_key (Layer 0, H-0139)
 │   └── specs/                      ProblemSpec, FeatureSpec (Layer 0、data/ が使用)
 │
 │                                   ── Layer 4: Facade (core/ の残り) ──
@@ -2207,6 +2239,7 @@ lizyml/
 │   ├── _model_metrics.py           _has_metric_content, _filter_metrics
 │   ├── _model_persistence.py       ModelPersistenceMixin
 │   ├── _model_tuning.py            ModelTuningMixin (tune orchestration、唯一の writer mixin、H-0091)
+│   ├── _resource_warning.py        fit / tune の学習前のメモリの警告 (H-0140)
 │   ├── _model_state.py             FitState / TuningState frozen snapshot (H-0074/H-0084)
 │   ├── train_components.py         TrainComponents (frozen dataclass)
 │   └── seed.py                     seed 固定ユーティリティ
@@ -2233,7 +2266,9 @@ lizyml/
 │   ├── pipeline_base.py            BaseFeaturePipeline
 │   ├── pipelines_native.py         NativeFeaturePipeline
 │   ├── encoders/
-│   │   └── categorical_encoder.py  カテゴリ処理部品
+│   │   ├── categorical_encoder.py  カテゴリ処理部品
+│   │   ├── category_identity.py    構造のキーでのカテゴリの学習と照合 (H-0138)
+│   │   └── state_changes.py        保存処理で写した状態と元の状態の比較 (H-0136)
 │   └── transformers/
 │       └── feature_transformer.py  特徴量変換 (passthrough 拡張点)
 │
@@ -2245,6 +2280,7 @@ lizyml/
 │       ├── adapter.py              LGBMAdapter
 │       ├── provider.py             LGBMProvider (EstimatorProvider 実装)
 │       ├── smart_params.py         resolve_smart_params / resolve_ratio_params
+│       ├── memory_check.py         num_leaves のメモリの見積もりと警告 (H-0140)
 │       ├── metric_bridge.py        BaseMetric → LightGBM feval (§2.1 の estimators → metrics)
 │       ├── category_json.py        保存できるカテゴリ値の判定 (H-0127)
 │       └── defaults.py             _COMMON_DEFAULTS / default_space / default_fixed_params
@@ -2294,12 +2330,15 @@ lizyml/
 │
 ├── persistence/                    ── Layer 3: Persistence ──
 │   ├── exporter.py                 export() + AnalysisContext + FORMAT_VERSION
-│   └── loader.py                   load() + format_version validation
+│   ├── loader.py                   load() + format_version validation
+│   ├── _manifest.py                checksums の形の検査 declared_files (H-0135)
+│   └── _category_preflight.py      書く前のカテゴリの検査 (H-0136)
 │
 └── codegen/                        ── Layer 3: Codegen (optional, H-0059/H-0073) ──
     ├── generator.py                generate_code() エントリ (Model.export_code から)
     ├── artifact_writer.py          pipeline_state.json / model.txt 等の書き出し
     ├── config_writer.py            config.json 書き出し
+    ├── identity_template.py        生成コードに写すカテゴリの同一性 (H-0138)
     └── templates.py                train.py / predict.py / test_equivalence.py テンプレ
 ```
 

@@ -5,6 +5,135 @@ release from v0.5.0 onward.
 
 ---
 
+## v0.21.0
+
+### The save check judges keyed columns as the generated code reads them (H-0143)
+
+No action is needed. A model the save check (H-0136) refused because the
+runtime encoder could not rebuild the JSON copy of a keyed column -- for
+example a categorical column holding `np.uint64(4)` beside
+`np.timedelta64(4, 'ps')`, refused for some hash seeds -- is now exported,
+because the generated `predict.py` reads that copy correctly. Every model
+exported before is exported as before.
+
+### A memory warning for a large `num_leaves`; `max_depth=0` is no limit; no `max_depth` ceiling in expansion (H-0140)
+
+- **New `UserWarning` before training.** `Model.fit` and `Model.tune` warn when
+  the `num_leaves` LightGBM receives is at least 16384 or the estimated extra
+  memory is at least 1 GiB ([#388](https://github.com/nbx-liz/LizyML/issues/388)).
+  Results do not change. A default-space tune can warn on its deepest trials
+  (`max_depth` 11-12 with many rounds and folds), once per `tune()` call. To
+  stop instead of training, turn the warning into an error, for example
+  `warnings.filterwarnings("error", message="LightGBM will train with num_leaves")`.
+- **`max_depth=0` with `auto_num_leaves` now derives like `-1`.** It derived 8
+  leaves before; LightGBM treats `max_depth <= 0` as no limit. A new fit with
+  `max_depth=0` gets 131072 leaves with the default ratio; set a positive
+  `max_depth`, or `auto_num_leaves=False` with an explicit `num_leaves`, to keep
+  a small tree. Saved models keep the parameters they were fitted with.
+- **`parameter_bounds(task)["max_depth"]` has no `max`.** Boundary expansion may
+  widen `max_depth` beyond 30 in a new study or a changed dimension; a recorded
+  study keeps its recorded range. Code that reads `parameter_bounds` (for
+  example a UI range editor) must accept an entry with only `min` or only `max`.
+
+### `export_code` projects name every column by a string alias (H-0141)
+
+A project written by `export_code` now names each column by `str(name)`
+([#382](https://github.com/nbx-liz/LizyML/issues/382)): a column named `7` is
+`"7"` in `config.json`, `pipeline_state.json` and the input headers the
+scripts read. Before, a project with int-named columns could not predict from
+the frame it was fitted on, or from any CSV. What to do:
+
+- **CSV and parquet inputs** to the generated `train.py`, `predict.py` and
+  `test_equivalence.py` must carry the aliases as headers (`7`, `7.5`,
+  `True`, `None`); a blank, repeated or pandas-renamed header is refused. A
+  typed DataFrame passed to `predict.predict` is renamed for you.
+- **Names `export_code` now refuses** with `SERIALIZATION_FAILED`, before
+  writing anything: NumPy scalar names other than `np.str_` and `np.float64`
+  (they failed with a bare `TypeError` before), other non-admitted types, an
+  empty name, and two columns or a non-string column and a Config role (target,
+  time, group, excluded, categorical, block or group column) sharing one alias
+  (`7` and `"7"`). Rename the column to a `str` and fit again.
+- **Projects written before this release** carry no `column_name_policy`
+  marker and keep their old behaviour, also when retrained. Write the project
+  again from the model (or from the model `Model.load` reads) to get the
+  aliases.
+
+String-named projects keep their names, order, categories and model files;
+both JSON files gain `column_name_policy: "str_alias_v1"`. The fitted model,
+its Config and the saved artifact format are unchanged.
+
+### Int-named categorical columns reach LightGBM by position (H-0142)
+
+A categorical column whose name is an `int` was handed to LightGBM by name,
+and LightGBM read the name as a column position
+([#393](https://github.com/nbx-liz/LizyML/issues/393)): a column named `1`
+made column 1 categorical, a column named `7` in a smaller frame made none.
+The adapter now passes positions. Fit again any model with int-named
+categorical columns whose name differed from its position; its predictions
+change because the right column is now categorical. String-named columns,
+and an int name that equals its position, train the same booster as before.
+Saved models are unchanged.
+
+### Date and time categories are matched by instant; timedelta64 years and months are refused at fit (H-0139)
+
+The category key covers date and time values
+([#379](https://github.com/nbx-liz/LizyML/issues/379)): two time-zone-aware
+`datetime` / `Timestamp` values are one category when they are the same UTC
+instant, whatever the time zone (UTC, `ZoneInfo`, pytz, a fixed offset) or fold;
+naive values are one when their wall-clock values are exactly equal (sub-ns
+`np.datetime64` units included); durations are one when their lengths are equal.
+Naive and aware values stay apart, and so do a `date` and a midnight `datetime`.
+
+- **Columns that work today do not change**, with these deliberate exceptions
+  in newly fitted models: a `datetime` column holding both folds of one wall
+  time in one zone (two instants Python's `==` called equal) now has two
+  categories; sub-ns `np.datetime64` values are no longer coded as another
+  value (pandas 2 replaced them with the mode, pandas 3 gave them the epoch's
+  code); pytz's standard-time value and the same instant as a `ZoneInfo`
+  `fold=1` value are now one category.
+- **#379 is fixed.** On pandas 2, a column of pytz `Timestamp`s in one zone
+  keeps every training value at predict, and `Model.export` / `export_code`
+  save it (H-0136 refused it before).
+- **New refusal at fit.** A categorical column holding a `np.timedelta64` in
+  `Y` or `M` units (in a row, inside a tuple / frozenset, or as a declared
+  category) raises `DATA_SCHEMA_INVALID` with context
+  `{"column", "units", "reason": "calendar_timedelta64"}`; such a value has no
+  fixed length. Convert it to days or to a string before fit. A unitless
+  `np.datetime64` (which NumPy cannot print) is refused the same way, with
+  `"reason": "unitless_datetime64"`. Either value arriving at predict is
+  treated as unseen.
+- **No format change.** Artifacts stay `format_version` 5 and
+  `category_identity_version` stays `1`. Saved models (any format) predict
+  with the lookup they were saved with; fit again to use the temporal key.
+
+### Category values are matched by one structural key; artifacts are `format_version` 5 (H-0138)
+
+Categorical columns whose values pandas confused
+([#378](https://github.com/nbx-liz/LizyML/issues/378),
+[#380](https://github.com/nbx-liz/LizyML/issues/380)) now fit and predict:
+which values are one category is decided by
+`lizyml.core.category_values.category_identity_key`. Numbers equal as numbers
+(`0`, `-0.0`, `False`; `Decimal("1")` and `np.int8(1)`) are one category, a
+string or bytes value and its NumPy twin are one, and tuples and frozensets
+compare item by item.
+
+- **Columns that work today do not change.** Where pandas' answer agrees with
+  the key, the categories, their order, the mode, the codes and the trained
+  model are the same as before. Only columns pandas could not cast or coded
+  wrongly change: they are built by key and reach LightGBM as position
+  stand-ins. Date and time values follow the same key since H-0139 (below).
+- **Older LizyML cannot read v5 artifacts.** `Model.load` in v0.20.0 or earlier
+  raises `DESERIALIZATION_FAILED` for `format_version` 5. An older version would
+  match categories through pandas and give the fixed columns their old codes.
+- **Artifacts saved before (`format_version` 1-4) predict as they did.** Their
+  encoder states carry no identity marker, so a loaded model keeps pandas'
+  lookup, and `export_code` on it generates code that keeps it too. Fit the
+  model again to use the key.
+- **Generated code.** `config.json` has a new key, `category_identity_version`
+  (`1`, or `null` for a model loaded from a v1-4 artifact), and the generated
+  `pipeline_state.json` carries `category_identity_version` and
+  `identity_columns`. `predict.py` refuses an identity version it does not know.
+
 ## v0.20.0
 
 ### Models a saved copy would answer differently for are refused (H-0136)

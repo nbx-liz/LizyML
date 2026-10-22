@@ -155,11 +155,12 @@ class TestLGBMParameterBounds:
         assert "validation_ratio" in b
         assert b["validation_ratio"]["min"] > 0
 
-    def test_max_depth_has_sane_ceiling(self) -> None:
-        """max_depth growing without bound causes tree memory cliffs (#152)."""
+    def test_max_depth_has_no_ceiling_and_keeps_its_floor(self) -> None:
+        """H-0140 decision 7: tree depth is not limited, so boundary expansion
+        may go beyond 30 (the ceiling #152 set); the memory cost of a deep
+        auto-derived num_leaves is warned about instead. The floor -1 stays."""
         b = self._bounds()
-        assert "max_depth" in b
-        assert b["max_depth"]["max"] <= 50
+        assert b["max_depth"] == {"min": -1}
 
     def test_same_bounds_across_tasks(self) -> None:
         """Bounds are not task-dependent for LightGBM (sanity)."""

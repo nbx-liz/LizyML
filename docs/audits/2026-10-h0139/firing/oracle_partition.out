@@ -1,0 +1,6 @@
+pandas 3.0.1: calendar sample indices [90, 91]
+  temporal cases 4620  Y 221  R 190
+pandas 2.3.3: calendar sample indices [92, 93]
+  temporal cases 4845  Y 225  R 247
+pandas 2.0.0: calendar sample indices [92, 93]
+  temporal cases 4845  Y 225  R 111

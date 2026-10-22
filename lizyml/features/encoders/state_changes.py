@@ -12,6 +12,13 @@ replaces that row, and the codes it gets are compared.
 The reference is the original (in-memory) state and its own categories. The
 promise is for rows holding a learned value; a value the original state
 treats as unseen is outside it (H-0136 "残る範囲").
+
+A projection the generated ``predict.py`` reads (``generated=True``, the JSON
+route) is judged as that code reads it: a keyed column (H-0138) by
+``keyed_codes`` alone, which the generated ``_keyed_codes`` copies. The
+runtime encoder would also build ``pd.Categorical.from_codes`` on the
+projected categories, which pandas can refuse for values the generated code
+never hands it (H-0143).
 """
 
 from __future__ import annotations
@@ -26,7 +33,9 @@ from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.features.encoders.categorical_encoder import (
     CategoricalEncoder,
     UnseenPolicy,
+    comparable_values,
 )
+from lizyml.features.encoders.category_identity import keyed_codes
 
 ChangeKind = Literal["unseen", "raises", "codes", "mode"]
 
@@ -64,20 +73,69 @@ def _column_codes(
     values: list[Any],
     policy: UnseenPolicy = "error",
 ) -> list[int]:
-    """The codes *values* get from *state*'s encoder for *column* alone."""
-    encoder = CategoricalEncoder(unseen_policy=policy).load_state(
-        {
-            "unseen_policy": policy,
-            "categories": {column: list(state["categories"][column])},
-            "modes": {column: (state.get("modes") or {}).get(column)},
-            "stand_in_columns": [
-                c for c in state.get("stand_in_columns", []) if c == column
-            ],
-        }
-    )
+    """The codes *values* get from *state*'s encoder for *column* alone.
+
+    A marked state (H-0138) keeps its marker, so a keyed column is looked up
+    by key, as ``predict`` looks it up.
+    """
+    reduced: dict[str, Any] = {
+        "unseen_policy": policy,
+        "categories": {column: list(state["categories"][column])},
+        "modes": {column: (state.get("modes") or {}).get(column)},
+        "stand_in_columns": [
+            c for c in state.get("stand_in_columns", []) if c == column
+        ],
+    }
+    if "category_identity_version" in state:
+        reduced["category_identity_version"] = state["category_identity_version"]
+        reduced["identity_columns"] = [
+            c for c in state.get("identity_columns", []) if c == column
+        ]
+    encoder = CategoricalEncoder(unseen_policy=policy).load_state(reduced)
     frame = pd.DataFrame({column: pd.Series(values, dtype=object)})
     codes: list[int] = encoder.transform(frame)[column].cat.codes.tolist()
     return codes
+
+
+def _keyed(state: Mapping[str, Any], column: Any) -> bool:
+    return "category_identity_version" in state and column in (
+        state.get("identity_columns") or []
+    )
+
+
+def _generated_codes(
+    state: Mapping[str, Any],
+    column: Any,
+    values: list[Any],
+    policy: UnseenPolicy = "error",
+) -> list[int]:
+    """The codes the generated ``predict.py`` gives *values* for a keyed
+    *column* of *state*: by key, without building a pandas categorical."""
+    arrived = pd.Series(values, dtype=object)
+    series, changed = comparable_values(arrived)
+    codes, _ = keyed_codes(
+        series,
+        arrived,
+        changed,
+        list(state["categories"][column]),
+        (state.get("modes") or {}).get(column),
+        policy,
+        column,
+    )
+    return [int(c) for c in codes]
+
+
+def _projected_codes(
+    projected: Mapping[str, Any],
+    column: Any,
+    values: list[Any],
+    policy: UnseenPolicy,
+    *,
+    generated: bool,
+) -> list[int]:
+    if generated and _keyed(projected, column):
+        return _generated_codes(projected, column, values, policy)
+    return _column_codes(projected, column, values, policy)
 
 
 def replacement_code(state: Mapping[str, Any], column: Any, learned: list[Any]) -> int:
@@ -96,12 +154,17 @@ def _first_missing(learned: list[Any], projected: list[Any]) -> Any:
 
 
 def column_change(
-    state: Mapping[str, Any], projected: Mapping[str, Any], column: Any
+    state: Mapping[str, Any],
+    projected: Mapping[str, Any],
+    column: Any,
+    *,
+    generated: bool = False,
 ) -> CategoryStateChange | None:
     """How *column* of *projected* answers differently from *state*, or ``None``.
 
     A column whose original state already fails to transform its own
     categories is not judged (fit and predict fail before any save).
+    *generated* judges the projection as the generated code reads it (H-0143).
     """
     learned = list(state["categories"][column])
     if not learned:
@@ -113,7 +176,7 @@ def column_change(
         return None
     name = str(column)
     try:
-        got = _column_codes(projected, column, learned)
+        got = _projected_codes(projected, column, learned, "error", generated=generated)
     except LizyMLError as exc:
         if exc.code != ErrorCode.DATA_SCHEMA_INVALID:
             return CategoryStateChange(name, "raises", exception=type(exc).__name__)
@@ -136,7 +199,9 @@ def column_change(
     except Exception:  # noqa: BLE001 -- judged only where the original answers
         return None
     try:
-        got_mode = replacement_code(projected, column, learned)
+        got_mode = _projected_codes(
+            projected, column, [*learned, _Unseen()], "mode", generated=generated
+        )[-1]
     except Exception as exc:  # noqa: BLE001 -- the change measured (H-0136 P3)
         return CategoryStateChange(name, "raises", exception=type(exc).__name__)
     if got_mode != want_mode:
@@ -145,16 +210,19 @@ def column_change(
 
 
 def category_state_changes(
-    state: Mapping[str, Any], projected: Mapping[str, Any]
+    state: Mapping[str, Any],
+    projected: Mapping[str, Any],
+    *,
+    generated: bool = False,
 ) -> list[CategoryStateChange]:
     """Each column of encoder *state* that *projected* answers differently, in
-    column order (H-0136 P1)."""
+    column order (H-0136 P1); *generated* as in :func:`column_change`."""
     categories = state.get("categories")
     if not isinstance(categories, Mapping):
         return []
     found: list[CategoryStateChange] = []
     for column in categories:
-        change = column_change(state, projected, column)
+        change = column_change(state, projected, column, generated=generated)
         if change is not None:
             found.append(change)
     return found

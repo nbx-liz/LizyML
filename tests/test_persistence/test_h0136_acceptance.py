@@ -155,21 +155,24 @@ def _assert_saved_the_same(model: Model, df: pd.DataFrame, tmp_path: Path) -> No
 # --- Criterion 1: the reported pair ------------------------------------------
 
 
-def test_the_372_pair_is_refused_at_every_exit_and_fit_warns(tmp_path: Path) -> None:
-    model, warned = _fit(_frame([FOLD1, _pytz_standard(), "x"]))
-    assert warned
-    _assert_refused(model, tmp_path, serializer="joblib", kind="unseen")
+def test_the_372_pair_saves_and_predicts_the_same(tmp_path: Path) -> None:
+    """H-0139 replaced "refused at every exit and fit warns": the zoneinfo
+    fold 1 value and the pytz standard value are one instant, one category,
+    looked up by key on every exit."""
+    df = _frame([FOLD1, _pytz_standard(), "x"])
+    model, warned = _fit(df)
+    assert not warned
+    _assert_saved_the_same(model, df, tmp_path)
 
 
-# --- Criterion 8: the H-0133 case this rule refuses ---------------------------
+# --- Criterion 8: the H-0133 case this rule refused (#379, H-0139) ------------
 
 
-def test_the_h0133_pytz_fold_case_is_refused_and_fit_warns(tmp_path: Path) -> None:
+def test_the_h0133_pytz_fold_case_saves_and_predicts_the_same(tmp_path: Path) -> None:
     """Both pytz occurrences of 01:30 on 2024-11-03, the H-0133 acceptance
     case ``Timestamp pytz fold`` in that test's own frame. pandas 2 rebuilds
-    the standard side with fold 1 inside fit (#379), so the in-memory state
-    holds that value and the codec JSON gives back fold 0: the JSON side
-    breaks."""
+    the standard side with fold 1 inside fit (#379); H-0139 looks both up by
+    their instant, so every exit saves a model that answers the same."""
     from tests.test_persistence.test_h0133_acceptance import _frame as h0133_frame
 
     ny = _pytz_ny()
@@ -177,21 +180,23 @@ def test_the_h0133_pytz_fold_case_is_refused_and_fit_warns(tmp_path: Path) -> No
         pd.Timestamp(ny.localize(dt.datetime(2024, 11, 3, 1, 30), is_dst=d))
         for d in (True, False)
     ]
-    model, warned = _fit(h0133_frame(values))
-    assert warned
-    _assert_refused(model, tmp_path, serializer="json", kind="unseen")
+    df = h0133_frame(values)
+    model, warned = _fit(df)
+    assert not warned
+    _assert_saved_the_same(model, df, tmp_path)
 
 
-# --- Criterion 2: one pytz value, not the mode -------------------------------
+# --- Criterion 2: one pytz value, not the mode (H-0139: saved) ---------------
 
 
 @pytest.mark.parametrize("policy", ["mode", "nan", "error"])
-def test_one_pytz_value_is_refused_under_every_policy(
+def test_one_pytz_value_saves_and_predicts_the_same_under_every_policy(
     policy: str, tmp_path: Path
 ) -> None:
-    model, warned = _fit(_frame([_pytz_standard(), "x", "y"], [20, 60, 40]), policy)
-    assert warned
-    _assert_refused(model, tmp_path, serializer="joblib", kind="unseen")
+    df = _frame([_pytz_standard(), "x", "y"], [20, 60, 40])
+    model, warned = _fit(df, policy)
+    assert not warned
+    _assert_saved_the_same(model, df, tmp_path)
 
 
 @pytest.mark.parametrize("policy", ["mode", "nan", "error"])
@@ -209,83 +214,73 @@ def test_an_unambiguous_pytz_value_saves_and_predicts_the_same(
 
 
 @pytest.mark.parametrize("container", ["tuple", "frozenset"])
-def test_a_pytz_value_inside_a_container_is_refused(
+def test_a_pytz_value_inside_a_container_saves_and_predicts_the_same(
     container: str, tmp_path: Path
 ) -> None:
+    """H-0139: the key recurses into containers, so the pytz value's instant
+    survives joblib and JSON inside them too."""
     value = _pytz_standard()
     held = (value, 1) if container == "tuple" else frozenset({value, 1})
-    model, warned = _fit(_frame([held, "x"]))
-    assert warned
-    _assert_refused(model, tmp_path, serializer="joblib", kind="unseen")
+    df = _frame([held, "x"])
+    model, warned = _fit(df)
+    assert not warned
+    _assert_saved_the_same(model, df, tmp_path)
 
 
 # --- Criterion 4: the codegen JSON collision ---------------------------------
 
 
+def _assert_refused_at_fit(df: pd.DataFrame) -> None:
+    with pytest.raises(LizyMLError) as caught:
+        _fit(df)
+    assert caught.value.code == ErrorCode.DATA_SCHEMA_INVALID
+    assert caught.value.context == {
+        "column": "c",
+        "units": ["M"],
+        "reason": "calendar_timedelta64",
+    }
+
+
 @pytest.mark.parametrize(
-    ("order", "kind", "exception"),
+    "order",
     [
-        # JSON turns np.uint64(4) into 4; 4 == np.timedelta64(4, 'M') and both
-        # hash to 4, but np.uint64(4) != np.timedelta64(4, 'M').
-        pytest.param("uint64 first", "raises", "ValueError", id="not unique"),
-        pytest.param("timedelta64 first", "unseen", None, id="uint64 unseen"),
+        # Before H-0139, JSON turned np.uint64(4) into 4, which hashes like
+        # np.timedelta64(4, 'M'): export refused (not unique / uint64 unseen).
+        pytest.param("uint64 first", id="not unique"),
+        pytest.param("timedelta64 first", id="uint64 unseen"),
     ],
 )
-def test_uint64_beside_timedelta64_months_is_refused(
-    order: str, kind: str, exception: str | None, tmp_path: Path
-) -> None:
+def test_uint64_beside_timedelta64_months_is_refused_at_fit(order: str) -> None:
+    """H-0139 decision 4: a timedelta64 in M units has no key, so fit refuses
+    the column before any model exists to save."""
     pair = [np.uint64(4), np.timedelta64(4, "M")]
     values = pair if order == "uint64 first" else pair[::-1]
-    model, warned = _fit(_frame([*values, "x"], shuffle=False))
-    assert warned
-    _assert_refused(model, tmp_path, serializer="json", kind=kind, exception=exception)
+    _assert_refused_at_fit(_frame([*values, "x"], shuffle=False))
 
 
-def test_the_pair_as_declared_categories_is_refused(tmp_path: Path) -> None:
+def test_the_pair_as_declared_categories_is_refused_at_fit() -> None:
     values = [np.uint64(4), np.timedelta64(4, "M"), "x"]
     df = _frame(values)
     df["c"] = df["c"].astype(pd.CategoricalDtype(values))
-    model, warned = _fit(df)
-    assert warned
-    answers = _exits(model, tmp_path)
-    for name in EXITS:
-        exc = answers[name]
-        assert isinstance(exc, LizyMLError), name
-        assert exc.code == ErrorCode.SERIALIZATION_FAILED
-        assert exc.context["serializer"] == "json"
-    assert not any((tmp_path / p).exists() for p in ("a", "b", "c"))
+    _assert_refused_at_fit(df)
 
 
-def test_a_large_uint64_declared_before_numpy_true_is_refused(tmp_path: Path) -> None:
-    """In this order ``set_categories`` raises comparing the JSON-projected
-    categories. pandas itself orders an object column's ``np.bool_`` first,
-    so only a declared category order reaches it."""
+def test_a_large_uint64_declared_before_numpy_true_is_saved_by_key(
+    tmp_path: Path,
+) -> None:
+    """In this order pandas' ``set_categories`` may raise comparing the
+    JSON-projected categories (``np.uint64`` -> ``int``, ``np.bool_`` ->
+    ``bool``). Since H-0138 the column is looked up by key, which the JSON
+    copy keeps, so the model is saved and answers the same on every pandas
+    (H-0136 refused it where pandas raised)."""
     values = [np.uint64(2**63 + 5), np.bool_(True), "x"]
     df = _frame(values, shuffle=False)
     df["c"] = df["c"].astype(pd.CategoricalDtype(values))
     model, warned = _fit(df)
-    if not _json_order_overflows(values):
-        # pandas 2.0 (the floor) compares these without raising, and the
-        # JSON copy answers the same: nothing to refuse.
-        assert not warned
-        _assert_saved_the_same(model, df, tmp_path)
-        return
-    assert warned
-    _assert_refused(
-        model, tmp_path, serializer="json", kind="raises", exception="OverflowError"
-    )
-
-
-def _json_order_overflows(values: list[Any]) -> bool:
-    """Whether this pandas raises ``OverflowError`` mapping *values* onto their
-    JSON copies (``np.uint64`` -> ``int``, ``np.bool_`` -> ``bool``), as the
-    generated ``predict.py`` does."""
-    plain = [v.item() if isinstance(v, np.generic) else v for v in values]
-    try:
-        pd.Series(values, dtype=object).astype("category").cat.set_categories(plain)
-    except OverflowError:
-        return True
-    return False
+    encoder = model._refit_result.pipeline_state["encoder"]  # noqa: SLF001
+    assert "c" in encoder["identity_columns"]
+    assert not warned
+    _assert_saved_the_same(model, df, tmp_path)
 
 
 def test_numpy_true_first_keeps_its_codes(tmp_path: Path) -> None:
@@ -322,10 +317,14 @@ def test_stable_pairs_save_and_predict_the_same(
     _assert_saved_the_same(model, df, tmp_path)
 
 
-def test_the_refusal_message_names_both_surfaces(tmp_path: Path) -> None:
-    model, _ = _fit(_frame([np.uint64(4), np.timedelta64(4, "M"), "x"]))
-    with pytest.raises(LizyMLError) as info:
-        model.export(tmp_path / "a")
-    message = info.value.user_message
+def test_the_refusal_message_names_both_surfaces() -> None:
+    """The month pair this test fitted is refused at fit since H-0139, and no
+    column of V reaches the refusal by model any more on pandas 3; the
+    message is checked on the refusal itself."""
+    from lizyml.features.pipeline_base import CategoryStateChange
+    from lizyml.persistence._category_preflight import refuse_change
+
+    change = CategoryStateChange("c", "unseen", value=np.uint64(4))
+    message = refuse_change(change, "json", "refit", "Model.export").user_message
     assert "Model.export" in message and "export_code" in message
     assert "'c'" in message

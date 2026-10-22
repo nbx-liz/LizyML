@@ -30,11 +30,17 @@ import inspect
 import json
 import math
 import zoneinfo
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
+from lizyml.core.category_temporal import (
+    calendar_units,
+    holds_unitless_datetime,
+    temporal_key,
+)
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 
 #: The deepest ``tuple`` / ``frozenset`` nesting V admits (``((1,),)`` is 2).
@@ -392,6 +398,10 @@ def _decode_tagged(obj: dict[str, Any], depth: int) -> Any:
         unit, count = _str(obj, "unit"), _int(obj, "count")
         if count < 1:
             raise _Malformed("count is not positive")
+        if unit == "generic" and count == 1:
+            # NumPy builds no unitless datetime64 from an int; the bytes are
+            # the count itself (H-0139: the key must survive the codec).
+            return np.array(_int(obj, "value"), dtype=np.int64).view(tag)[()]
         kind = _DATETIME64 if tag == "datetime64" else _TIMEDELTA64
         return kind(_int(obj, "value"), unit if count == 1 else f"{count}{unit}")
     if tag == "pd_timedelta":
@@ -452,3 +462,247 @@ def decode(obj: Any) -> Any:
             context={"reason": str(exc)},
             cause=exc,
         ) from exc
+
+
+# ---------------------------------------------------------------------------
+# identity (H-0138)
+# ---------------------------------------------------------------------------
+
+#: The identity a fitted encoder state records (``category_identity_version``).
+#: H-0139 widened version 1 to temporal values (H-0138 was never released).
+CATEGORY_IDENTITY_VERSION = 1
+
+#: ``DataFrame.attrs`` key naming the categorical columns the builder keeps
+#: as object because pandas' cast raised or was not faithful (H-0138). It
+#: names columns only; their categories are learned inside each fit.
+IDENTITY_OBJECT_COLUMNS = "lizyml_identity_object_columns"
+
+_TEMPORAL: tuple[type, ...] = (
+    dt.date,
+    dt.datetime,
+    dt.timedelta,
+    pd.Timestamp,
+    pd.Timedelta,
+    np.datetime64,
+    np.timedelta64,
+)
+_INTEGERS: tuple[type, ...] = (
+    bool,
+    int,
+    np.bool_,
+    np.int8,
+    np.int16,
+    np.int32,
+    np.int64,
+    np.uint8,
+    np.uint16,
+    np.uint32,
+    np.uint64,
+)
+_FLOATS: tuple[type, ...] = (float, np.float32, np.float64)
+
+
+def holds_temporal(value: Any) -> bool:
+    """Whether *value* is, or holds at any depth, a temporal value.
+
+    Observational only since H-0139 (tests and the census): temporal values
+    have a key and no longer route a column to the pandas path.
+    """
+    if _is(value, _CONTAINERS):
+        return any(holds_temporal(item) for item in value)
+    return isinstance(value, _TEMPORAL)
+
+
+def _number_key(value: Any) -> tuple[Any, ...] | None:
+    if _is(value, _INTEGERS):
+        return ("number", "finite", int(value), 1)
+    if _is(value, _FLOATS):
+        x = float(value)
+        if math.isinf(x):
+            return ("number", "infinity", 1 if x > 0 else -1)
+        n, d = x.as_integer_ratio()
+        return ("number", "finite", n, d)
+    if type(value) is decimal.Decimal:
+        if value.is_infinite():
+            return ("number", "infinity", -1 if value.is_signed() else 1)
+        n, d = value.as_integer_ratio()
+        return ("number", "finite", n, d)
+    if _is(value, (complex, *_NUMPY_COMPLEX)):
+        c = complex(value)
+        real = _number_key(c.real)
+        if c.imag == 0:
+            return real
+        return ("number", "complex", real, _number_key(c.imag))
+    return None
+
+
+def category_identity_key(value: Any) -> Any:
+    """The structural key of a value of V (H-0138, temporal values H-0139).
+
+    Two values are one category exactly when their keys are equal: numbers
+    equal as numbers (``-0.0``, ``0``, ``False``, ``Decimal("-0")``), a string
+    or bytes value and its NumPy twin, temporal values by instant, wall-clock
+    coordinate or length (:mod:`lizyml.core.category_temporal`), and tuples /
+    frozensets item by item. The key never runs a value's own ``==`` or
+    ``hash``.
+
+    Raises:
+        TypeError: for a value outside V (its column keeps today's pandas
+            path) or one holding a ``np.timedelta64`` in ``Y`` / ``M`` units
+            (``CalendarDuration``; fit refuses such a column).
+    """
+    if refusal(value) is not None:
+        raise TypeError(
+            f"no category identity key for a value outside V ({type_name(value)})"
+        )
+    return _key(value)
+
+
+def check_keyless_temporals(series: pd.Series, column: Any) -> None:
+    """Refuse a column holding a temporal value with no identity key: a
+    ``np.timedelta64`` in ``Y`` / ``M`` units (H-0139 decision 4) or a
+    unitless ``np.datetime64`` (the owner's ruling after the implementation
+    review's round 2) -- in a row, inside a tuple / frozenset, or in a
+    declared category, used or not. Run before fit learns the column.
+
+    Raises:
+        LizyMLError: ``DATA_SCHEMA_INVALID``, naming the column (and the
+            units of a calendar duration).
+    """
+    values = _values(series)
+    units: set[str] = set()
+    for value in values:
+        units |= calendar_units(value)
+    if not units and any(holds_unitless_datetime(v) for v in values):
+        raise LizyMLError(
+            ErrorCode.DATA_SCHEMA_INVALID,
+            user_message=(
+                f"Column '{column}' contains unitless numpy datetime64 categories."
+            ),
+            context={"column": column, "reason": "unitless_datetime64"},
+        )
+    if units:
+        shown = sorted(units)
+        raise LizyMLError(
+            ErrorCode.DATA_SCHEMA_INVALID,
+            user_message=(
+                f"Column '{column}' contains calendar-unit numpy timedelta64 "
+                f"categories: {shown}."
+            ),
+            context={
+                "column": column,
+                "units": shown,
+                "reason": "calendar_timedelta64",
+            },
+        )
+
+
+def identity_fields(state: Mapping[str, Any]) -> tuple[int | None, list[Any]]:
+    """``(version, identity_columns)`` of an encoder state (H-0138).
+
+    ``(None, [])`` for a state saved before H-0138: it keeps the pandas lookup.
+
+    Raises:
+        LizyMLError: ``DESERIALIZATION_FAILED`` for an identity version other
+            than ``1`` (``True`` and ``1.0`` included) or a malformed
+            ``identity_columns``.
+    """
+    if "category_identity_version" not in state:
+        return None, []
+    version = state["category_identity_version"]
+    columns = state.get("identity_columns")
+    categories = state.get("categories")
+    if type(version) is not int or version != CATEGORY_IDENTITY_VERSION:
+        raise LizyMLError(
+            ErrorCode.DESERIALIZATION_FAILED,
+            user_message=(
+                f"The saved encoder state names category identity version "
+                f"{version!r}; this LizyML reads only "
+                f"{CATEGORY_IDENTITY_VERSION}."
+            ),
+            context={"category_identity_version": repr(version)},
+        )
+    if (
+        type(columns) is not list
+        or not isinstance(categories, Mapping)
+        or not all(_names_a_column(c, categories) for c in columns)
+    ):
+        raise LizyMLError(
+            ErrorCode.DESERIALIZATION_FAILED,
+            user_message="The saved encoder state has a malformed identity_columns.",
+            context={"identity_columns": repr(columns)[:200]},
+        )
+    return version, list(columns)
+
+
+def _names_a_column(column: Any, categories: Mapping[str, Any]) -> bool:
+    try:
+        return column in categories
+    except TypeError:  # an unhashable entry (``[]``, ``{}``) names no column
+        return False
+
+
+def is_missing(value: Any) -> bool:
+    """A missing cell: ``None``, ``pd.NA``, ``NaT`` or a float NaN."""
+    if value is None or value is pd.NA or value is pd.NaT:
+        return True
+    return isinstance(value, (float, np.floating)) and math.isnan(value)
+
+
+def _values(series: pd.Series) -> list[Any]:
+    """Non-missing row values, then the declared categories (used or not)."""
+    values = [v for v in series.to_numpy(dtype=object) if not is_missing(v)]
+    if isinstance(series.dtype, pd.CategoricalDtype):
+        values += list(series.cat.categories)
+    return values
+
+
+def identity_eligible(series: pd.Series) -> bool:
+    """Whether the identity key decides this column: every value is in V and
+    none is a keyless temporal value (fit refuses those before asking)."""
+    return not any(
+        refusal(v) is not None or calendar_units(v) or holds_unitless_datetime(v)
+        for v in _values(series)
+    )
+
+
+def cast_is_faithful(original: pd.Series, cast: pd.Series) -> bool:
+    """Does pandas' cast agree with the key, row by row? (executed, not predicted)
+
+    The categories' keys are unique, every non-missing row has a code whose
+    category has the row's key, every missing row has code -1, and declared
+    categories survive in their order.
+    """
+    cats = list(cast.cat.categories)
+    if isinstance(original.dtype, pd.CategoricalDtype) and cats != list(
+        original.cat.categories
+    ):
+        return False
+    keys = [category_identity_key(c) for c in cats]
+    if len(set(keys)) != len(keys):
+        return False
+    codes = cast.cat.codes.to_numpy()
+    for raw, code in zip(original.to_numpy(dtype=object), codes, strict=True):
+        if is_missing(raw):
+            if code != -1:
+                return False
+        elif code < 0 or keys[code] != category_identity_key(raw):
+            return False
+    return True
+
+
+def _key(value: Any) -> Any:
+    if isinstance(value, _TEMPORAL):
+        return temporal_key(value)
+    number = _number_key(value)
+    if number is not None:
+        return number
+    if _is(value, (str, np.str_)):
+        return ("string", str(value))
+    if _is(value, (bytes, np.bytes_)):
+        return ("bytes", bytes(value))
+    if type(value) is tuple:
+        return ("tuple", tuple(_key(item) for item in value))
+    if type(value) is frozenset:
+        return ("frozenset", frozenset(_key(item) for item in value))
+    raise AssertionError(f"unreachable: {type(value).__name__}")  # pragma: no cover

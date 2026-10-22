@@ -1,0 +1,24 @@
+   1 builder  predicate_false  tests/test_persistence/test_h0133_acceptance.py::test_every_admitted_type_saves_and_predicts_the_same[numpy.datetime64]
+   1 builder  ym_refused       tests/test_persistence/test_h0133_acceptance.py::test_every_admitted_type_saves_and_predicts_the_same[numpy.timedelta64 with a str]
+   4 encoder  ym_refused       tests/test_persistence/test_h0133_acceptance.py::test_every_admitted_type_saves_and_predicts_the_same[numpy.timedelta64 with a str]
+   1 builder  ym_refused       tests/test_persistence/test_h0133_acceptance.py::test_every_admitted_type_saves_and_predicts_the_same[timedelta64[M] with a str]
+   4 encoder  ym_refused       tests/test_persistence/test_h0133_acceptance.py::test_every_admitted_type_saves_and_predicts_the_same[timedelta64[M] with a str]
+   1 builder  ym_refused       tests/test_persistence/test_h0133_acceptance.py::test_every_admitted_type_saves_and_predicts_the_same[timedelta64[Y] with a str]
+   4 encoder  ym_refused       tests/test_persistence/test_h0133_acceptance.py::test_every_admitted_type_saves_and_predicts_the_same[timedelta64[Y] with a str]
+   1 builder  predicate_false  tests/test_persistence/test_h0133_acceptance.py::test_the_three_surfaces_accept_every_admitted_column[numpy.datetime64]
+   1 builder  ym_refused       tests/test_persistence/test_h0133_acceptance.py::test_the_three_surfaces_accept_every_admitted_column[numpy.timedelta64 with a str]
+   4 encoder  ym_refused       tests/test_persistence/test_h0133_acceptance.py::test_the_three_surfaces_accept_every_admitted_column[numpy.timedelta64 with a str]
+   1 builder  ym_refused       tests/test_persistence/test_h0133_acceptance.py::test_the_three_surfaces_accept_every_admitted_column[timedelta64[M] with a str]
+   4 encoder  ym_refused       tests/test_persistence/test_h0133_acceptance.py::test_the_three_surfaces_accept_every_admitted_column[timedelta64[M] with a str]
+   1 builder  ym_refused       tests/test_persistence/test_h0133_acceptance.py::test_the_three_surfaces_accept_every_admitted_column[timedelta64[Y] with a str]
+   4 encoder  ym_refused       tests/test_persistence/test_h0133_acceptance.py::test_the_three_surfaces_accept_every_admitted_column[timedelta64[Y] with a str]
+   1 builder  predicate_false  tests/test_persistence/test_h0136_acceptance.py::test_stable_pairs_save_and_predict_the_same[zoneinfo fold 1 + fixed offset]
+   4 encoder  predicate_false  tests/test_persistence/test_h0136_acceptance.py::test_stable_pairs_save_and_predict_the_same[zoneinfo fold 1 + fixed offset]
+   1 builder  ym_refused       tests/test_persistence/test_h0136_acceptance.py::test_the_pair_as_declared_categories_is_refused
+   4 encoder  ym_refused       tests/test_persistence/test_h0136_acceptance.py::test_the_pair_as_declared_categories_is_refused
+   1 builder  ym_refused       tests/test_persistence/test_h0136_acceptance.py::test_the_refusal_message_names_both_surfaces
+   4 encoder  ym_refused       tests/test_persistence/test_h0136_acceptance.py::test_the_refusal_message_names_both_surfaces
+   1 builder  ym_refused       tests/test_persistence/test_h0136_acceptance.py::test_uint64_beside_timedelta64_months_is_refused[not unique]
+   4 encoder  ym_refused       tests/test_persistence/test_h0136_acceptance.py::test_uint64_beside_timedelta64_months_is_refused[not unique]
+   1 builder  ym_refused       tests/test_persistence/test_h0136_acceptance.py::test_uint64_beside_timedelta64_months_is_refused[uint64 unseen]
+   4 encoder  ym_refused       tests/test_persistence/test_h0136_acceptance.py::test_uint64_beside_timedelta64_months_is_refused[uint64 unseen]

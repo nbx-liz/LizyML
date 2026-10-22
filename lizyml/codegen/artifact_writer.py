@@ -42,12 +42,21 @@ def convert_pipeline_state(
             if mode is None
             else category_value(mode, where=f"mode of column {col!r}"),
         }
-    return {
+    converted: dict[str, Any] = {
         "feature_names": feature_names,
         "categorical_features": config.get("categorical_features", []),
         "categories": categories,
         "unseen_policy": encoder.get("unseen_policy", "mode"),
     }
+    # H-0138: a state saved before the identity has no marker, and the
+    # generated predict.py then keeps the pandas lookup.
+    if "category_identity_version" in encoder:
+        converted["category_identity_version"] = encoder["category_identity_version"]
+        converted["identity_columns"] = list(encoder["identity_columns"])
+    # H-0141: the column-name marker goes with the names (state and config).
+    if "column_name_policy" in config:
+        converted["column_name_policy"] = config["column_name_policy"]
+    return converted
 
 
 def write_artifacts(

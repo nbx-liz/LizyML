@@ -65,7 +65,10 @@ if TYPE_CHECKING:
 #: categories and predict wrongly without an error, so it must refuse it.
 #: H-0134: 4. A tuned model's trial history is in ``tuning_history.json``; an
 #: older LizyML would ignore the file and show the history as an empty table.
-FORMAT_VERSION = 4
+#: H-0138: 5. An encoder state may look categories up by the structural key
+#: (``category_identity_version``); an older LizyML would look them up through
+#: pandas and give the columns H-0138 fixed their old, wrong codes.
+FORMAT_VERSION = 5
 
 _log = get_logger("persistence.exporter")
 
@@ -146,7 +149,11 @@ def warn_saved_state_changes(
         for v in cats
     ):
         return
-    warn_changes([state for _, state, _ in saved], declared_categories)
+    warn_changes(
+        [state for _, state, _ in saved],
+        declared_categories,
+        _refit_encoder(saved),
+    )
 
 
 def _refuse_value(
@@ -216,6 +223,18 @@ def _saved_pipeline_states(
     return named
 
 
+def _refit_encoder(
+    saved: list[tuple[str, Any, BaseEstimatorAdapter]],
+) -> Mapping[str, Any] | None:
+    """The refit pipeline state's encoder state: its saved route decides how
+    a declared temporal column is compared (H-0139)."""
+    for name, state, _ in saved:
+        if name == "refit" and isinstance(state, Mapping):
+            encoder = state.get("encoder")
+            return encoder if isinstance(encoder, Mapping) else None
+    return None
+
+
 def check_category_values(
     fit_result: FitResult,
     refit_result: RefitResultView,
@@ -267,8 +286,9 @@ def check_category_values(
             raise refuse_change(
                 serialized.change, serialized.serializer, state_name, surface
             )
+    refit_encoder = _refit_encoder(saved)
     for column, cats in (declared_categories or {}).items():
-        change = declared_change(column, list(cats))
+        change = declared_change(column, list(cats), refit_encoder)
         if change is not None:
             raise refuse_change(change, "json", "declared categories", surface)
     for state_name, state, adapter in saved:

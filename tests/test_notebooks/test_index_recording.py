@@ -1,28 +1,35 @@
-"""The call recorder and the retry policy of the index execution (H-0119 6.(b)).
+"""The call recorder and the network guard of the index execution.
 
-Acceptance 7 (the recorder, on ``Model`` directly, no notebook) and 8 (the
-retry policy, with the executor replaced, no kernel), plus the runtime replays
-of acceptance 3 and 6: an instrumented notebook is executed cell by cell with
-``exec`` (fast) or in a real kernel (``slow``), and each counterexample must
-fail the recording.
+H-0119 6.(b) acceptance 7 (the recorder, on ``Model`` directly, no notebook),
+plus the runtime replays of acceptance 3 and 6: an instrumented notebook is
+executed cell by cell with ``exec`` (fast) or in a real kernel (``slow``), and
+each counterexample must fail the recording.
+
+H-0137 replaced acceptance 8 (the retry of network failures) with the network
+guard (``network_guard.py``): its acceptance 2 and 3 are the guard cases below,
+each with a twin that reads a local file and passes.
 """
 
 from __future__ import annotations
 
+import _socket
 import copy
 import inspect
 import pathlib
+import socket
+import urllib.request
+from collections.abc import Callable
 from typing import Any
 
+import pandas as pd
 import pytest
 from nbclient.exceptions import CellExecutionError
 
 from lizyml import Model
 from lizyml.core.exceptions import LizyMLError
 from tests._helpers import make_config, make_regression_df
-from tests.test_notebooks import index_runner
+from tests.test_notebooks import index_runner, network_guard
 from tests.test_notebooks.index_recorder import CallRecorder
-from tests.test_notebooks.network_markers import NETWORK_ERROR_MARKERS
 
 
 def _public(cls: type) -> dict[str, Any]:
@@ -201,96 +208,6 @@ def test_the_recording_fails(recorder: CallRecorder, fitted: Model, case: str) -
             recorder.finish(["1:0"])
 
 
-# --- 8. The retry policy ------------------------------------------------------------
-
-
-def _marker_error() -> CellExecutionError:
-    return CellExecutionError(
-        f"... {NETWORK_ERROR_MARKERS[0]}: 503 ...", "HTTPError", "503"
-    )
-
-
-def _run(outcomes: list[BaseException | None], tmp_path: pathlib.Path) -> list[Any]:
-    log: list[Any] = []
-    pending = list(outcomes)
-
-    def execute(kernel: object, workdir: pathlib.Path) -> None:
-        assert workdir.is_dir()
-        outcome = pending.pop(0)
-        if outcome is not None:
-            raise outcome
-
-    counter = iter(range(100))
-    index_runner.run_with_retries(
-        execute,
-        new_kernel=object,
-        new_workdir=lambda: index_runner.fresh_workdir(tmp_path / f"w{next(counter)}"),
-        log=log,
-    )
-    return log
-
-
-def test_success_on_the_first_attempt(tmp_path: pathlib.Path) -> None:
-    assert len(_run([None], tmp_path)) == 1
-
-
-def test_a_marker_failure_then_success(tmp_path: pathlib.Path) -> None:
-    log = _run([_marker_error(), None], tmp_path)
-    assert len(log) == 2
-    assert log[0].error is not None and log[1].error is None
-
-
-def test_three_marker_failures_fail_without_skipping(tmp_path: pathlib.Path) -> None:
-    log: list[Any] = []
-
-    def execute(kernel: object, workdir: pathlib.Path) -> None:
-        raise _marker_error()
-
-    with pytest.raises(CellExecutionError):
-        index_runner.run_with_retries(
-            execute,
-            new_kernel=object,
-            new_workdir=lambda: index_runner.fresh_workdir(tmp_path / str(len(log))),
-            log=log,
-        )
-    assert len(log) == 3
-
-
-@pytest.mark.parametrize(
-    "error",
-    [
-        CellExecutionError("NameError: x", "NameError", "x"),
-        RuntimeError("Kernel died before replying"),
-        AssertionError(f"recording failed ({NETWORK_ERROR_MARKERS[0]} in text)"),
-    ],
-)
-def test_any_other_failure_ends_after_one_attempt(
-    error: BaseException, tmp_path: pathlib.Path
-) -> None:
-    log: list[Any] = []
-
-    def execute(kernel: object, workdir: pathlib.Path) -> None:
-        raise error
-
-    with pytest.raises(type(error)):
-        index_runner.run_with_retries(
-            execute,
-            new_kernel=object,
-            new_workdir=lambda: index_runner.fresh_workdir(tmp_path / "w"),
-            log=log,
-        )
-    assert len(log) == 1
-
-
-def test_each_attempt_gets_its_own_kernel_and_workdir(tmp_path: pathlib.Path) -> None:
-    log = _run([_marker_error(), _marker_error(), None], tmp_path)
-    assert len(log) == 3
-    assert len({id(a.kernel) for a in log}) == 3
-    assert len({a.workdir for a in log}) == 3
-    for attempt in log:
-        assert (attempt.workdir / "tutorial_codegen_export.ipynb").is_file()
-
-
 # --- Runtime replays (acceptance 3 and 6) ---------------------------------------------
 
 
@@ -339,6 +256,9 @@ def _exec(nb: dict[str, Any]) -> str:
         recorder = namespace.get(index_runner.RECORDER_NAME)
         if recorder is not None:
             recorder.uninstall()
+        guard = namespace.get(network_guard.GUARD_NAME)
+        if guard is not None:
+            guard.uninstall()
     return "\n".join(printed)
 
 
@@ -380,11 +300,143 @@ def test_instrumentation_does_not_change_the_file(tmp_path: pathlib.Path) -> Non
     assert nb == snapshot
 
 
+# --- The network guard (H-0137 acceptance 2 and 3) ------------------------------------
+
+# Never resolvable (RFC 2606), so a broken guard cannot reach a real host either.
+HOST = "lizyml-h0137.invalid"
+URL = f"https://{HOST}/x.csv"
+
+# The two refused entry points, each driven directly.
+ENTRY_POINT_CALLS: dict[str, Callable[[], object]] = {
+    "getaddrinfo": lambda: socket.getaddrinfo(HOST, 443),
+    "connect": lambda: socket.socket().connect(("127.0.0.1", 9)),
+}
+# The remote loads the tutorials used to make, and other ordinary clients.
+CLIENT_CALLS: dict[str, Callable[[], object]] = {
+    "urllib.request.urlopen": lambda: urllib.request.urlopen(URL),
+    "pandas.read_csv of a URL": lambda: pd.read_csv(URL),
+    "socket.create_connection": lambda: socket.create_connection((HOST, 443)),
+}
+
+
+def test_every_refused_entry_point_has_a_call() -> None:
+    assert sorted(ENTRY_POINT_CALLS) == sorted(n for _, n in network_guard.REFUSED)
+
+
+@pytest.mark.parametrize("call", sorted(ENTRY_POINT_CALLS))
+def test_the_guard_refuses_and_records_each_entry_point(call: str) -> None:
+    guard = network_guard.install()
+    try:
+        with pytest.raises(network_guard.NetworkRefused, match=network_guard.MESSAGE):
+            ENTRY_POINT_CALLS[call]()
+        assert [a.split("(")[0] for a in guard.attempts] == [call]
+        with pytest.raises(AssertionError, match=network_guard.MESSAGE):
+            guard.check()
+    finally:
+        guard.uninstall()
+
+
+@pytest.mark.parametrize("call", sorted(CLIENT_CALLS))
+def test_an_ordinary_remote_load_is_refused(call: str) -> None:
+    guard = network_guard.install()
+    try:
+        with pytest.raises(OSError, match=network_guard.MESSAGE):
+            CLIENT_CALLS[call]()
+        assert guard.attempts
+        with pytest.raises(AssertionError, match=network_guard.MESSAGE):
+            guard.check()
+    finally:
+        guard.uninstall()
+
+
+def test_uninstall_restores_both_entry_points() -> None:
+    def pristine() -> bool:
+        return (
+            socket.getaddrinfo.__module__ == "socket"
+            and socket.getaddrinfo.__name__ == "getaddrinfo"
+            and socket.socket.connect is _socket.socket.connect
+        )
+
+    assert pristine()
+    guard = network_guard.install()
+    assert not pristine()
+    guard.uninstall()
+    assert pristine()
+
+
+def test_a_guard_with_no_attempt_passes_its_check() -> None:
+    guard = network_guard.install()
+    try:
+        guard.check()
+    finally:
+        guard.uninstall()
+
+
+FETCH = f"import urllib.request\nurllib.request.urlopen({URL!r})"
+SWALLOWED = (
+    "import urllib.request\n"
+    "try:\n"
+    f"    urllib.request.urlopen({URL!r})\n"
+    "except Exception as exc:\n"
+    "    assert 'H-0137' in str(exc)  # the call was made, and refused\n"
+)
+LOCAL_READ = (
+    "import pandas as pd\n"
+    f"pd.read_csv({str(index_runner.NOTEBOOKS / 'data' / 'vehicle.csv.gz')!r})"
+)
+
+
+def test_a_network_call_fails_the_instrumented_notebook() -> None:
+    nb = _notebook(
+        _cell(SETUP), _cell(FETCH), _cell("model.params_table()", tagged=True)
+    )
+    with pytest.raises(OSError, match=network_guard.MESSAGE):
+        _exec(nb)
+
+
+def test_a_swallowed_network_call_fails_at_the_last_cell() -> None:
+    nb = _notebook(
+        _cell(SETUP), _cell(SWALLOWED), _cell("model.params_table()", tagged=True)
+    )
+    with pytest.raises(AssertionError, match=network_guard.MESSAGE):
+        _exec(nb)
+
+
+def test_the_twin_without_a_network_call_passes() -> None:
+    nb = _notebook(
+        _cell(SETUP), _cell(LOCAL_READ), _cell("model.params_table()", tagged=True)
+    )
+    assert _exec(nb) == f"{index_runner.SENTINEL} 1"
+
+
+VENDORED_READ = (
+    "import pandas as pd\n"
+    "assert pd.read_csv('data/credit-g.csv.gz').shape == (1000, 21)"
+)
+TAGGED = _cell("model.params_table()", tagged=True)
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize(
     ("case", "cells", "reason"),
     [
-        ("positive control", [_cell("model.params_table()", tagged=True)], None),
+        ("positive control", [TAGGED], None),
+        (
+            "a vendored file read from the working directory",
+            [_cell(VENDORED_READ), TAGGED],
+            None,
+        ),
+        ("a network call", [_cell(FETCH), TAGGED], network_guard.MESSAGE),
+        (
+            "a network call the notebook swallows",
+            [_cell(SWALLOWED), TAGGED],
+            network_guard.MESSAGE,
+        ),
+        (
+            "a network call in a cell allowed to raise",
+            [_cell(FETCH, tags=["raises-exception"]), TAGGED],
+            network_guard.MESSAGE,
+        ),
         (
             "a tagged cell the kernel skips",
             [_cell("model.params_table()", tagged=True, tags=["skip-execution"])],
@@ -400,10 +452,7 @@ def test_instrumentation_does_not_change_the_file(tmp_path: pathlib.Path) -> Non
         ),
         (
             "a receiver that is not a Model",
-            [
-                _cell(LOOK_ALIKE + "model = Fake()"),
-                _cell("model.params_table()", tagged=True),
-            ],
+            [_cell(LOOK_ALIKE + "model = Fake()"), TAGGED],
             "not a Model",
         ),
     ],

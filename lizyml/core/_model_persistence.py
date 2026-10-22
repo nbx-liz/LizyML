@@ -408,8 +408,19 @@ class ModelPersistenceMixin:
         state = self._get_fit_state()
         refit_result = self._require_refit()
 
+        from lizyml.codegen.column_names import project_column_names
+        from lizyml.core._codegen_inputs import exported_inner_valid
         from lizyml.persistence.exporter import check_category_values
 
+        # H-0141: the project's column names (string aliases) are checked
+        # first, before anything is written; the generator checks them again
+        # at its own entry.
+        project_column_names(
+            list(refit_result.feature_names),
+            state.fit_result.run_meta.config_normalized,
+            list((state.declared_categories or {}).keys()),
+            exported_inner_valid(state.cfg, state.applied_training_params),
+        )
         # H-0136 P2: the same check Model.export runs, before anything is
         # written, so the two accept the same models.
         check_category_values(
@@ -455,10 +466,7 @@ class ModelPersistenceMixin:
         # reproduces it -- the inner split rebuilt by the function the fit used
         # from the inputs it used, the weight rule the fit recorded, and the
         # features the fit's input declared `category` (amendment 4).
-        from lizyml.core._codegen_inputs import (
-            derived_sample_weight,
-            exported_inner_valid,
-        )
+        from lizyml.core._codegen_inputs import derived_sample_weight
 
         inner_valid = exported_inner_valid(cfg, state.applied_training_params)
         if state.applied_sample_weight is not None:

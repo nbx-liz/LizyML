@@ -1,0 +1,9 @@
+pandas 2.3.3 numpy 2.2.6 columns 6571
+    54 non-temporal  cast_raised
+  1638 non-temporal  faithful
+    34 non-temporal  predicate_false
+   247 temporal      cast_raised
+  4366 temporal      faithful
+     7 temporal      predicate_false
+   225 temporal      ym_refused
+H-0139 activation: 479/4845 temporal columns; rule errors 0

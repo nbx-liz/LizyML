@@ -13,9 +13,9 @@ where it checks the recording only.
 
 The notebook is instrumented in memory (``index_runner.py``): every tagged
 statement must run, on the declared receiver, as an outermost ``Model`` call. A
-missing extra fails the execution. A network failure is retried (three
-attempts in all, each with a new kernel and working directory) and then fails;
-it is never skipped.
+missing extra fails the execution. The notebook runs once, with a new kernel
+and working directory; a network call fails it (H-0137: the data is vendored,
+so there is no network failure to retry or skip).
 """
 
 from __future__ import annotations
@@ -41,5 +41,5 @@ def test_notebook_runs_its_index_examples(
     path: pathlib.Path, tmp_path: pathlib.Path
 ) -> None:
     nb = json.loads(path.read_text(encoding="utf-8"))
-    log = index_runner.run_instrumented(nb, workdir_base=tmp_path)
-    assert 1 <= len(log) <= index_runner.ATTEMPTS
+    workdir = index_runner.run_instrumented(nb, workdir_base=tmp_path)
+    assert (workdir / path.name).is_file()

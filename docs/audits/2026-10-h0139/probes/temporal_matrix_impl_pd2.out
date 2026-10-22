@@ -1,0 +1,134 @@
+lizyml=0.17.2.dev71+g289f591a8 pandas=2.3.3 numpy=2.2.6
+zoneinfo fold 0 + fold 1:
+    fit warnings: none
+    state (2 categories for 2 inputs): [('2024-11-03 01:30:00-04:00', 'Timestamp', 0), ('2024-11-03 01:30:00-05:00', 'Timestamp', 1)]
+    predict on training rows: no unseen rows
+    batch (each value alone vs in the full batch): same
+    export/load: ok, max_abs_diff 0.0, unseen none
+    export_code: ok (generated transform ran)
+aware UTC vs NY, one instant:
+    fit warnings: none
+    state (2 categories for 3 inputs): [('2024-01-02 08:00:00+00:00', 'Timestamp', 0), ('x', 'str', None)]
+    predict on training rows: no unseen rows
+    batch (each value alone vs in the full batch): same
+    export/load: ok, max_abs_diff 0.0, unseen none
+    export_code: ok (generated transform ran)
+fixed offset vs zoneinfo, one instant:
+    fit warnings: none
+    state (2 categories for 3 inputs): [('2024-01-02 03:00:00-05:00', 'Timestamp', 0), ('x', 'str', None)]
+    predict on training rows: no unseen rows
+    batch (each value alone vs in the full batch): same
+    export/load: ok, max_abs_diff 0.0, unseen none
+    export_code: ok (generated transform ran)
+naive vs aware, same wall time:
+    fit warnings: none
+    state (3 categories for 3 inputs): [('2024-01-02 03:04:05', 'Timestamp', 0), ('2024-01-02 03:04:05+00:00', 'Timestamp', 0), ('x', 'str', None)]
+    predict on training rows: no unseen rows
+    batch (each value alone vs in the full batch): same
+    export/load: ok, max_abs_diff 0.0, unseen none
+    export_code: ok (generated transform ran)
+date + Timestamp midnight:
+    fit warnings: none
+    state (3 categories for 3 inputs): [('2024-01-02', 'date', None), ('2024-01-02 00:00:00', 'Timestamp', 0), ('x', 'str', None)]
+    predict on training rows: no unseen rows
+    batch (each value alone vs in the full batch): same
+    export/load: ok, max_abs_diff 0.0, unseen none
+    export_code: ok (generated transform ran)
+datetime + Timestamp, same wall:
+    fit warnings: none
+    state (2 categories for 3 inputs): [('2024-01-02 03:04:05', 'datetime', 0), ('x', 'str', None)]
+    predict on training rows: no unseen rows
+    batch (each value alone vs in the full batch): same
+    export/load: ok, max_abs_diff 0.0, unseen none
+    export_code: ok (generated transform ran)
+Timestamp unit s vs ns, same value:
+    fit warnings: none
+    state (2 categories for 3 inputs): [('2024-01-02 03:04:05', 'Timestamp', 0), ('x', 'str', None)]
+    predict on training rows: no unseen rows
+    batch (each value alone vs in the full batch): same
+    export/load: ok, max_abs_diff 0.0, unseen none
+    export_code: ok (generated transform ran)
+Timestamp only (control):
+    fit warnings: none
+    state (3 categories for 3 inputs): [('2024-01-02 03:04:05', 'Timestamp', 0), ('2024-01-03 03:04:05', 'Timestamp', 0), ('2024-01-04 03:04:05', 'Timestamp', 0)]
+    predict on training rows: no unseen rows
+    batch (each value alone vs in the full batch): same
+    export/load: ok, max_abs_diff 0.0, unseen none
+    export_code: ok (generated transform ran)
+datetime64 D vs ns, same instant:
+    fit warnings: none
+    state (2 categories for 3 inputs): [('2024-01-02', 'datetime64', None), ('x', 'str', None)]
+    predict on training rows: no unseen rows
+    batch (each value alone vs in the full batch): same
+    export/load: ok, max_abs_diff 0.0, unseen none
+    export_code: ok (generated transform ran)
+datetime64 only, distinct days:
+    fit warnings: none
+    state (3 categories for 3 inputs): [('2024-01-02 00:00:00', 'Timestamp', 0), ('2024-01-03 00:00:00', 'Timestamp', 0), ('2024-01-04 00:00:00', 'Timestamp', 0)]
+    predict on training rows: no unseen rows
+    batch (each value alone vs in the full batch): same
+    export/load: ok, max_abs_diff 0.0, unseen none
+    export_code: ok (generated transform ran)
+timedelta64 mixed units:
+    fit warnings: none
+    state (3 categories for 3 inputs): [('0 days 01:30:00', 'Timedelta', None), ('1 days 00:00:00', 'Timedelta', None), ('1 days 12:00:00', 'Timedelta', None)]
+    predict on training rows: no unseen rows
+    batch (each value alone vs in the full batch): same
+    export/load: ok, max_abs_diff 0.0, unseen none
+    export_code: ok (generated transform ran)
+timedelta64 h vs m, same duration:
+    fit warnings: none
+    state (2 categories for 3 inputs): [('1 hours', 'timedelta64', None), ('x', 'str', None)]
+    predict on training rows: no unseen rows
+    batch (each value alone vs in the full batch): same
+    export/load: ok, max_abs_diff 0.0, unseen none
+    export_code: ok (generated transform ran)
+pd.Timedelta vs dt.timedelta, same duration:
+    fit warnings: none
+    state (2 categories for 3 inputs): [('0 days 01:00:00', 'Timedelta', None), ('x', 'str', None)]
+    predict on training rows: no unseen rows
+    batch (each value alone vs in the full batch): same
+    export/load: ok, max_abs_diff 0.0, unseen none
+    export_code: ok (generated transform ran)
+datetime64 + Timestamp, same instant:
+    fit warnings: none
+    state (2 categories for 3 inputs): [('2024-01-02T03:04:05.000000000', 'datetime64', None), ('x', 'str', None)]
+    predict on training rows: no unseen rows
+    batch (each value alone vs in the full batch): same
+    export/load: ok, max_abs_diff 0.0, unseen none
+    export_code: ok (generated transform ran)
+tuple holding a Timestamp + str:
+    fit warnings: none
+    state (3 categories for 3 inputs): [("(Timestamp('2024-01-02 03:04:05'), 1)", 'tuple', None), ("(Timestamp('2024-01-03 03:04:05'), 1)", 'tuple', None), ('x', 'str', None)]
+    predict on training rows: no unseen rows
+    batch (each value alone vs in the full batch): same
+    export/load: ok, max_abs_diff 0.0, unseen none
+    export_code: ok (generated transform ran)
+pytz DST + standard (#379):
+    fit warnings: none
+    state (2 categories for 2 inputs): [('2024-11-03 01:30:00-04:00', 'Timestamp', 0), ('2024-11-03 01:30:00-05:00', 'Timestamp', 1)]
+    predict on training rows: no unseen rows
+    batch (each value alone vs in the full batch): same
+    export/load: ok, max_abs_diff 0.0, unseen none
+    export_code: ok (generated transform ran)
+pytz standard + str (control):
+    fit warnings: none
+    state (2 categories for 2 inputs): [('2024-11-03 01:30:00-05:00', 'Timestamp', 0), ('x', 'str', None)]
+    predict on training rows: no unseen rows
+    batch (each value alone vs in the full batch): same
+    export/load: ok, max_abs_diff 0.0, unseen none
+    export_code: ok (generated transform ran)
+pytz vs zoneinfo, one instant:
+    fit warnings: none
+    state (2 categories for 3 inputs): [('2024-01-02 03:00:00-05:00', 'Timestamp', 0), ('x', 'str', None)]
+    predict on training rows: no unseen rows
+    batch (each value alone vs in the full batch): same
+    export/load: ok, max_abs_diff 0.0, unseen none
+    export_code: ok (generated transform ran)
+pytz standard + zoneinfo fold 1 (same instant):
+    fit warnings: none
+    state (2 categories for 3 inputs): [('2024-11-03 01:30:00-05:00', 'Timestamp', 0), ('y', 'str', None)]
+    predict on training rows: no unseen rows
+    batch (each value alone vs in the full batch): same
+    export/load: ok, max_abs_diff 0.0, unseen none
+    export_code: ok (generated transform ran)

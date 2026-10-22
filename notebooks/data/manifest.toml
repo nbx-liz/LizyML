@@ -1,0 +1,107 @@
+# The datasets the tutorial notebooks read (H-0137, #385).
+#
+# Every file in this directory except this manifest is listed here, with the
+# sha256 of its bytes and the attribution its licence requires (`notice`).
+# tests/test_notebooks/test_notebook_data.py checks the files against this
+# record. scripts/vendor_notebook_data.py rebuilds the files from the sources below and
+# checks that each tutorial's prepared frame equals the one built from the
+# online source. It needs the network, so CI does not run it.
+#
+# Each file is a gzip-compressed CSV (gzip mtime 0, level 9), read with
+# pandas.read_csv.
+
+[[dataset]]
+file = "credit-g.csv.gz"
+sha256 = "584993877329142e1150e2c142888cfa16f653fab34b77d63c10ae82774c5a17"
+title = "Statlog (German Credit Data)"
+creator = "Hans Hofmann"
+source = "OpenML dataset 31 (credit-g, version 1), https://www.openml.org/d/31"
+origin = "UCI Machine Learning Repository, https://archive.ics.uci.edu/dataset/144/statlog+german+credit+data"
+licence = "CC BY 4.0"
+licence_url = "https://creativecommons.org/licenses/by/4.0/"
+retrieved = "2026-10-21"
+derivation = "sklearn.datasets.fetch_openml('credit-g', version=1, as_frame=True, parser='auto').frame, written unchanged as gzip CSV (1000 rows, 21 columns; the target column is 'class')"
+notice = """
+Hofmann, H. (1994). Statlog (German Credit Data) [Dataset]. UCI Machine
+Learning Repository. https://doi.org/10.24432/C5NC77. Licensed under CC BY 4.0
+(https://creativecommons.org/licenses/by/4.0/), which provides the material as
+is, without warranties. Changes: the OpenML copy (dataset 31) converted to a
+gzip-compressed CSV.
+"""
+
+[[dataset]]
+file = "vehicle.csv.gz"
+sha256 = "f04c8222e88773112e892bcd7df5d300c51e3683e2f194280a527ef2ca9a4cea"
+title = "Statlog (Vehicle Silhouettes)"
+creator = "Pete Mowforth and Barry Shepherd"
+source = "OpenML dataset 54 (vehicle, version 1), https://www.openml.org/d/54"
+origin = "UCI Machine Learning Repository, https://archive.ics.uci.edu/dataset/149/statlog+vehicle+silhouettes"
+licence = "CC BY 4.0"
+licence_url = "https://creativecommons.org/licenses/by/4.0/"
+retrieved = "2026-10-21"
+derivation = "sklearn.datasets.fetch_openml('vehicle', version=1, as_frame=True, parser='auto').frame, written unchanged as gzip CSV (846 rows, 19 columns; the target column is 'Class')"
+notice = """
+Mowforth, P. & Shepherd, B. Statlog (Vehicle Silhouettes) [Dataset]. UCI
+Machine Learning Repository. https://doi.org/10.24432/C5HG6N. Licensed under
+CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/), which provides the
+material as is, without warranties. Changes: the OpenML copy (dataset 54)
+converted to a gzip-compressed CSV.
+"""
+
+[[dataset]]
+file = "diamonds.csv.gz"
+sha256 = "ab11a58136e3e3253881cf4986b98991bb9074cd75a6bb9a2c5c84da61099bf4"
+title = "diamonds"
+creator = "the ggplot2 core developer team"
+source = "seaborn-data, https://raw.githubusercontent.com/mwaskom/seaborn-data/master/diamonds.csv"
+origin = "the ggplot2 R package, https://github.com/tidyverse/ggplot2 (the seaborn-data copy carries no licence of its own)"
+licence = "MIT"
+licence_url = "https://github.com/tidyverse/ggplot2/blob/main/LICENSE.md"
+retrieved = "2026-10-21"
+derivation = "pandas.read_csv of the source, written unchanged as gzip CSV (53940 rows, 10 columns)"
+notice = """
+The diamonds data of ggplot2 (https://github.com/tidyverse/ggplot2), as copied
+by seaborn-data. Its licence notice, from ggplot2's LICENSE.md:
+
+MIT License
+
+Copyright (c) 2025 ggplot2 core developer team
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
+
+[[dataset]]
+file = "jena_climate_2016_tail.csv.gz"
+sha256 = "141034601b22bb3cdae5f42df88c2cc1cfc74ce3884fd2ec302040de9f2a334a"
+title = "Jena Climate 2009-2016 (weather station of the Max Planck Institute for Biogeochemistry, Jena)"
+creator = "Max Planck Institute for Biogeochemistry"
+source = "Keras datasets, https://storage.googleapis.com/tensorflow/tf-keras-datasets/jena_climate_2009_2016.csv.zip"
+origin = "https://www.bgc-jena.mpg.de/wetter/ (terms of use: CC BY 4.0, https://www.bgc-jena.mpg.de/wetter/weather_data.html)"
+licence = "CC BY 4.0"
+licence_url = "https://creativecommons.org/licenses/by/4.0/"
+retrieved = "2026-10-21"
+derivation = "the 10-minute rows from 2016-06-03 16:00:00 on (29988 of 420551 rows, 15 columns), written unchanged as gzip CSV: exactly the rows behind the last 5000 rows of the hourly resample the tutorial does"
+notice = """
+Weather data of the weather station of the Max Planck Institute for
+Biogeochemistry, Jena (https://www.bgc-jena.mpg.de/wetter/), as packaged in the
+Keras datasets (jena_climate_2009_2016.csv). Licensed under CC BY 4.0
+(https://creativecommons.org/licenses/by/4.0/), which provides the material as
+is, without warranties. Changes: only the rows from 2016-06-03 16:00:00 on are
+kept, as a gzip-compressed CSV.
+"""

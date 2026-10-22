@@ -1,0 +1,7 @@
+names a7d20bf3e634fdc8 [1, 2]
+   categorical_feature lines: ['[categorical_feature: 1,2]', 'pandas_categorical:[["a", "b", "c"], ["p", "q"]]']
+positions a7d20bf3e634fdc8 [1, 2]
+   categorical_feature lines: ['[categorical_feature: 1,2]', 'pandas_categorical:[["a", "b", "c"], ["p", "q"]]']
+auto a7d20bf3e634fdc8 [1, 2]
+   categorical_feature lines: ['[categorical_feature: 1,2]', 'pandas_categorical:[["a", "b", "c"], ["p", "q"]]']
+names == positions: True

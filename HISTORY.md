@@ -11532,6 +11532,7 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
      - 実行は最大 3 回（初回と再試行 2 回）。毎回、新しいカーネルで、notebooks ディレクトリを新しい一時ディレクトリに写したものを作業ディレクトリにして実行する。
      - 再試行するのは、失敗の `CellExecutionError` の文字列に、既存のマーカー一覧（`tests/test_notebooks/test_notebook_execution.py` の `_NETWORK_ERROR_MARKERS`）のどれかが含まれる場合だけとする。その一覧は新しいモジュールに移し、既存のテストはそこから読む。
      - それ以外の失敗は、再試行せずに落とす。3 回とも上記の失敗なら落とし、skip しない（DC1）。
+     - 〔2026-10-21、H-0137 で置き換え: notebook はデータを `notebooks/data/` から読むので、取得の失敗は起きない。実行は 1 回だけで、新しいカーネルと notebooks ディレクトリの新しい写しを使うことは残す。マーカー一覧と再試行は削除し、代わりにカーネルの中の通信を拒否するガード（`tests/test_notebooks/network_guard.py`）を入れる。受け入れ 8（再試行の仕組み）も H-0137 の受け入れ 2・3 で置き換える。〕
 
    **起動条件**（決定 1 で改訂、2026-10-10）: (a)(b) は、base や変わったパスに関係なく、ci.yml が走るすべての PR と main への push で走らせる。最後に常に走る gate ジョブを置き、matrix を作るジョブと (a)(b) がすべて成功した場合だけを通す。失敗、skip、cancel はどれも gate を失敗させる。必須にする check はこの gate 1 つとする。変わったパスで実行を絞る仕組みは置かない（それまでの起動判定 `.github/scripts/notebook_index_scope.sh` は削除する）。
 
@@ -11659,6 +11660,8 @@ Firing rate: 0/397 of default-setting calibrator minimize calls in the full test
    - マーカーに当たる失敗が 3 回続くと、試行は 3 回で失敗として終わり、skip にはならない。
    - マーカーに当たらない失敗は、1 回で失敗として終わる。
    - 試行ごとに、カーネルと作業ディレクトリが別のものになる（識別子が試行の間で異なる）。
+
+   〔2026-10-21、H-0137 で置き換え: 再試行の仕組みを外したので、この 5 つのテストも外した。代わりに、通信を拒否するガードのテスト（H-0137 の受け入れ 2・3）を置く。〕
 9. **review**: 新しい review run を 1 回、Codex APPROVE まで通す。review が確かめるのは、5. と 6. の各条文、受け入れ基準 1〜8 の各項目にテストがあるかと、そのテストが通るかである。条文に無い形（CommonMark や GFM の書き方、git のパスの表し方など）を探すことは求めない。条文に無い形が見つかっても、それは次の round に進む理由にならない。保証を広げたい場合は、別の Proposal とする。各条文にテストがあり、どの major の指摘も、改訂後の条文に反することを示していなければ、run を止める。
 
 ### 決定 1: 外部の仕組みとの完全一致をやめ、生成した行と無条件の実行に絞る（実装 review run 1〜5 の後、2026-10-10、管理者の判断）
@@ -15019,7 +15022,7 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
   - 対処: ラベルの検査を `core/category_values.py` の `NUMPY_PLAIN_TYPES` に厳密に一致する型だけにした。判断 3 の「ラベルは今の値の集合のまま」の意図どおりで、集合は広げていない。回帰のテスト（`test_export_contract.py` の `_REFUSED` に `np.timedelta64` の Y・M と `np.datetime64` の ns）を足した。
   - `tuple` のラベルは、pandas 2.0 では fit そのものが pandas の例外で失敗する（`export_code` に届かない）。ラベルのテストはこの場合、理由をつけて skip する。
 - **確認の review**（run `h0133-impl-confirm`、`acea369`）は CHANGES_REQUESTED（major 1、minor 1）だった。major は上のラベルの直しに入った欠陥で、停止ルールに従って管理者に報告し、管理者は「直して、もう 1 度確認」を選んだ。
-  - major: ラベルの検査を型の一覧に厳密に一致させたため、H-0120 から正しく受け付けていた `np.float16`・`np.longlong`・`np.ulonglong` まで拒否していた。「ラベルの集合は広げていない」は正しかったが、狭めていた。H-0120 の規則（`.item()` が素の値で元の値と等しい numpy のスカラー）に戻し、`np.datetime64` と `np.timedelta64` だけを型で外した。この 3 型がラベルとして受け付けられ、素の値で書かれることを確かめるテストを足した（特徴量のカテゴリでは V のまま。型が 1 種類の列では、pandas は longlong と ulonglong を Python の int に直し、float16 は category にできない。型の混ざった object の列では 3 型とも numpy のスカラーのまま残り、V の外の型として拒否される）。
+  - major: ラベルの検査を型の一覧に厳密に一致させたため、H-0120 から正しく受け付けていた `np.float16`・`np.longlong`・`np.ulonglong` まで拒否していた。「ラベルの集合は広げていない」は正しかったが、狭めていた。H-0120 の規則（`.item()` が素の値で元の値と等しい numpy のスカラー）に戻し、`np.datetime64` と `np.timedelta64` だけを型で外した。この 3 型がラベルとして受け付けられ、素の値で書かれることを確かめるテストを足した（特徴量のカテゴリでは V のまま。型が 1 種類の列では、pandas は longlong と ulonglong を Python の int に直し、float16 は category にできない。数でない値（このテストでは `str`）と混ざった object の列では 3 型とも numpy のスカラーのまま残り、V の外の型として拒否される。数だけの混在では pandas が Python の数に直し、拒否せずに書く: `[np.float16(1), 2.5]` は float、`[np.longlong(1), np.int64(2)]` と `[np.ulonglong(1), 2]` は int のカテゴリになる。pandas 3.0.1 と 2.0.0 で同じ。#370 で文言を直した）。
   - minor: ラベルのテストの skip が、fit の全ての例外を skip にしていた。skip をやめ、pandas が扱えるラベルの組を選ぶようにした。
     - 原因の実測: pandas 2.0 は、`TargetEncoder.transform` の `Series.map` で tuple をキーにした辞書から MultiIndex を作り、`()` を含むと失敗する。これは tuple のラベルの既存の制限で、H-0133 の範囲の外である。
     - 選び方: 同じ操作（辞書による `map`）ができる組を選ぶ。fit の中の例外は、全て失敗として扱う。
@@ -15882,3 +15885,1215 @@ Codex の実装レビュー（run `h0136-impl-review`、`6dce827`）は CHANGES_
     - round 2 の位置の比較に戻すと、新しいテストが落ちる。
   - minor は、2 つ目の最頻値の例の結果が pandas の版だけでなく hash seed でも変わることだった（上の round 2 の対応の項を訂正した）。
 - **対応**: テストの docstring と上の記述を直した。コードは変えていない。管理者の方針（1 行の修正でも確かめ直す）により、絞った確認を 1 回走らせる。
+
+## H-0137: チュートリアルの notebook が読むデータをリポジトリに同梱し、実行中の通信を拒否する ― 取得の失敗を再試行・skip する仕組みを外す（#385）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-21
+- **決定日**: 2026-10-21
+- **関連**: #385、H-0119（6.(b) の「データ取得の失敗」）、#197（v0.16.0 で入れた skip）、PR #384（v0.20.0 のリリース PR で、OpenML の取得が失敗した）、registry のカード D-20261021-001（v0.21 の実行の方針。#385 を最初に行い、データを同梱し、notebook が通信しないことをテストする）
+- **スコープ**:
+  - `notebooks/` の 5 本のチュートリアルの、データを読むセルと、その説明の文
+  - 新しい `notebooks/data/`（データ 4 ファイルと `manifest.toml`）と、それを作り直す `scripts/vendor_notebook_data.py`
+  - notebook を実行する 2 つの層（H-0119 の index の実行 `tests/test_notebooks/index_runner.py` と、slow な実行テスト `tests/test_notebooks/test_notebook_execution.py`）
+  - 公開 API、Config、結果の型、保存形式は変えない
+
+### 目的（課題）
+
+8 本のチュートリアルのうち 5 本が、実行のたびに第三者のホストからデータを取得している。
+
+| notebook | 取得元 |
+|---|---|
+| `tutorial_binary_lgbm` | OpenML `fetch_openml("credit-g", version=1)` |
+| `tutorial_multiclass_lgbm` | OpenML `fetch_openml("vehicle", version=1)` |
+| `tutorial_regression_lgbm` | `raw.githubusercontent.com/mwaskom/seaborn-data/master/diamonds.csv` |
+| `tutorial_regression_tuning_lgbm` | 同じ diamonds の CSV |
+| `tutorial_time_series_lgbm` | `storage.googleapis.com/tensorflow/tf-keras-datasets/jena_climate_2009_2016.csv.zip` |
+
+取得元が一時的に落ちると、notebook に触れていない PR の CI が赤くなる。全ての notebook を実行するリリース PR が最も影響を受け、これまでに 2 回リリースが止まった（v0.16.0 の PR #196・#197、v0.20.0 の PR #384）。
+
+今の扱いでは足りない。
+- H-0119 の index の実行は、通信の失敗を数分のうちに 3 回まで再試行する。取得元の障害が数十分続けば防げない。
+- slow な実行テスト（#197）は、通信の失敗を skip する。notebook を実行していないのに、リリースの gate が通る（DC1）。H-0119 は index の層でこれを拒否したので、同じ失敗に対して 2 つの層の扱いが食い違っている。
+
+### 実測（2026-10-21、branch `feat/h0137-vendor-notebook-data`、develop `b39608d` の上）
+
+各主張と、それを出したスクリプト・出力の対応は `docs/audits/2026-10-h0137/README.md` にある。
+
+- **データの大きさとライセンス**:
+
+  | ファイル | 行 × 列 | CSV | gzip（level 9） | ライセンス（確認した出典） |
+  |---|---|---|---|---|
+  | `credit-g.csv.gz` | 1000 × 21 | 139 KB | 15 KB | CC BY 4.0（UCI の dataset 144 のページ） |
+  | `vehicle.csv.gz` | 846 × 19 | 55 KB | 19 KB | CC BY 4.0（UCI の dataset 149 のページ） |
+  | `diamonds.csv.gz` | 53940 × 10 | 2.6 MB | 557 KB | MIT（ggplot2 の `LICENSE.md`。seaborn-data の写しには独自のライセンスが無い） |
+  | `jena_climate_2016_tail.csv.gz` | 29988 × 15（元は 420551 行、42 MB） | 3.0 MB | 955 KB | CC BY 4.0（Max Planck Institute for Biogeochemistry の `weather_data.html` の Terms of Use） |
+
+  合計は gzip で 1,546,226 バイトである。`*.csv` は `.gitignore` の対象なので、gzip した `.csv.gz` で置く。ページの文と確認した日は `licences.md` にある。
+- **Jena の切り出し**: notebook は 10 分ごとの値を 1 時間ごとに平均し（`resample("1h").mean().dropna()`）、その最後の 5000 行だけを使う（`tail(5000)`）。1 時間の区間はその時刻以降の行だけでできるので、最後の 5000 区間の最初の時刻（2016-06-03 16:00:00）以降の元の行を全て残せば、同じ区間ができる。同梱したファイルを 1 時間ごとにすると、ちょうど 5000 行になる。
+- **notebook の結果が変わらないこと**: 4 つのデータそれぞれで、notebook が作るデータフレーム（目的変数を作り、列名を直した後）を、今の取得元から作ったものと、同梱したファイルから新しいセルで作ったものとで比べた。どれも `pandas.testing.assert_frame_equal` が dtype も含めて通った（pandas 3.0.1、`rebuild_run1.out`・`rebuild_run2.out`。比較は `scripts/vendor_notebook_data.py` の中にある）。学習に入るデータが同じなので、表示される学習の結果は変わらない。変わる表示は、`tutorial_time_series_lgbm` のセル 4 と 5 だけである。
+  - セル 4: 元のデータの行数（`Raw shape`）と、その先頭の表（`df_raw.head()`）。表は 2009-01-01 からの行ではなく、2016-06-03 16:00:00 からの行になる。
+  - セル 5: 1 時間ごとにした後の行数と期間（`Hourly shape`・`Date range`。期間の始まりが 2016-06-03 16:00:00 になる）と、その先頭の表（`df_raw.head()`。同じく 2016-06-03 16:00 からの行）。
+  - セル 6 以降は、最後の 5000 行から作るので変わらない。ほかの 4 本は、作るデータフレームが同じなので、どの表示も変わらない。
+- **作り直せること**: `scripts/vendor_notebook_data.py` を 2 回、別の出力先に走らせた。2 回とも、4 ファイルの sha256 が manifest と同じだった（gzip の時刻を 0 に固定している。`rebuild_run1.out`・`rebuild_run2.out`）。
+- **カーネルの中の通信**: 8 本全てを、`socket` の入口を記録だけする（拒否しない）先頭のセルを足して実行した（`socket_census.py`・`.json`）。記録したのは、ガードが拒否する 2 つの入口（`socket.getaddrinfo`・`socket.socket.connect`）を含む 15 の入口と、`socket.*` の監査イベント（`_socket` を直接呼ぶものや、ソケットを作る `socket.__new__` も含む）である。
+  - データを同梱した後の notebook では、8 本とも、どの入口への呼び出しも監査イベントも 0 件だった。カーネルの中ではソケットを 1 つも作っていない。このため、ガードを入れても通信をしない notebook は壊れない。
+  - 陽性対照: 同じ記録で、今の取得（`fetch_openml("credit-g")` を空の cache で実行）は 30 件、`pd.read_csv` で diamonds の URL を読むと 3 件を記録した。どちらも `getaddrinfo` と `connect` を通っていた（`socket_census_control.out`）。ガードの 2 つの入口は、戻ってくるおそれのある取得を捕まえる。
+- **sdist と wheel**: hatchling の sdist には、今も `notebooks/` が入っている。同梱したデータと manifest も入り、sdist は 3,448,627 バイト（develop `b39608d`）から 5,018,443 バイトになる。wheel には `notebooks/` が入らない（`dist_contents.out`）。
+
+### 対応方針（提案。ゼロベースの見直しの後の形）
+
+**保証**: 8 本のチュートリアルは、同梱したデータで、2 つの層（index の実行と slow な実行テスト）のどちらでも 1 回で実行できる。保守する人が遠隔の取得を戻すと、notebook がその例外を捕まえても、大きく落ちる。対象は `socket.getaddrinfo` か `socket.socket.connect` を通る取得である。`fetch_openml` と、URL を読む `pandas.read_csv` がこの 2 つを通ることは測った（`socket_census_control.out`）。`urllib.request.urlopen`・URL を読む `pandas.read_csv`・`socket.create_connection` が落ちることはテストで確かめる（受け入れ 2）。ほかのクライアントについては、この 2 つを通る限りで落ちる、とだけ主張する。通信の失敗のための再試行と skip は置かない。
+
+想定する相手は、遠隔の取得をうっかり戻す保守の人である。サンドボックスを抜けようとするコードではない。
+
+1. **データを同梱する**: `notebooks/data/` に上の 4 ファイルを置く。各 notebook は `pd.read_csv("data/<file>")` で読む。notebook を実行する 2 つの層は、どちらも `notebooks/`（index の実行ではその写し）を作業ディレクトリにするので、相対パスで読める。
+   - credit-g と vehicle は OpenML の `frame` をそのまま書く。notebook は目的変数の列（`class`・`Class`）を `pop` して作る。`fetch_openml` の import を外す。
+   - Jena は上の切り出しを置く。`tail(5000)` のセルは残し、コメントを「同梱したファイルがちょうどこの行を持つ」に直す。
+   - notebook の説明の文（データの出典、「OpenML から取得する」など）を、同梱したことと出典・ライセンスに合わせて直す。
+2. **出典と帰属の記録**: `notebooks/data/manifest.toml` に、各ファイルについて次の欄を書く。どれも必須で、空にできない。
+   - `file`、`sha256`
+   - `title`、`creator`、`source`（取得元）、`origin`（元の出典）、`retrieved`（取得日）、`derivation`（作り方）
+   - `licence`、`licence_url`、`notice`（ライセンスが求める表示）
+     - CC BY 4.0 の 3 件: 引用（作成者・題名・DOI か元の URL）、ライセンスの名前と URI、保証が無いこと、変更の内容。
+     - MIT の diamonds: ggplot2 の `LICENSE.md` の著作権の表示と許諾の文の全文。
+
+   manifest は同梱したファイルと同じディレクトリにあり、sdist にも一緒に入る。
+3. **作り直すスクリプト**: `scripts/vendor_notebook_data.py` は、取得元からファイルを作り直し、上の比較を行う。通信が必要なので CI では走らせない。作り方の記録である。
+4. **通信の拒否**: 新しい `tests/test_notebooks/network_guard.py` を、2 つの層が notebook の先頭のセルでカーネルに読み込む。
+   - `socket.getaddrinfo` と `socket.socket.connect` を、呼び出しを記録して `NetworkRefused`（`OSError` の派生）を出すものに置き換える。HTTP クライアントは、ホストの名前を引くときと接続するときに、この 2 つを通る。
+   - 最後のセルで、記録が 1 件でもあれば失敗する。ライブラリが例外を捕まえて黙って進んだ場合や、`raises-exception` のタグのセルで起きた場合も、ここで落ちる（DC1）。
+   - index の実行では、記録用のセルの前に読み込み、sentinel を出すセルの前で確かめる。slow な実行テストでは、notebook の先頭と末尾にセルを足して実行する。どちらもファイルは変えない。
+   - **主張はこの 2 つの入口を拒否することだけである**。サンドボックスではない。ほかのソケットの呼び出し（`connect_ex`・`sendto`・`bind` など）、`_socket` を直接呼ぶコード、自分でソケットを開く C の拡張、notebook が起動する子プロセス（`tutorial_codegen_export` は、生成した `predict.py` と `test_equivalence.py` を、notebook が書いたローカルのファイルに対して実行する）は範囲の外である。これらまで含む強い保証（OS の層での遮断など）が要るなら、別の Proposal とする。
+5. **再試行と skip を外す**: 失敗の原因が無くなるので、通信の失敗を見分ける仕組みを全て外す。
+   - `tests/test_notebooks/network_markers.py` を削除する。
+   - index の実行（`index_runner.py`）は 1 回だけ実行する。新しいカーネルと、`notebooks/` の新しい写しを作業ディレクトリにすることは残す。`run_with_retries`・`Attempt`・`ATTEMPTS` を外す。
+   - slow な実行テストの skip（#197）を外す。失敗はそのまま失敗にする。
+   - 再試行の仕組みを確かめていたテスト（`test_index_recording.py` の「8. The retry policy」の 5 つの関数。parametrize を含めて 7 件）は、仕組みと一緒に外し、ガードのテストに置き換える。H-0119 の受け入れ 8（再試行の仕組み）は、この Proposal で置き換える。
+   - H-0119 の 6.(b)「データ取得の失敗」と受け入れ 8 に、H-0137 で置き換えたことを日付つきで書き添える。
+6. **データの検査（速い層）**: 新しい `tests/test_notebooks/test_notebook_data.py` で、次を確かめる。
+   - `manifest.toml` の各項目のファイルがあり、sha256 が合う。
+   - 各項目が上の 2. の必須の欄を持ち、どれも空でない。
+   - `notebooks/data/` に、`manifest.toml` 以外で、記録に無いファイルが無い。同じファイルを 2 回記録していない。
+   - 記録するファイルが、同梱した 4 つである。
+
+条件で作業を省いたり通したりする仕組みは足さない。外すだけである（再試行は「通信の失敗なら、もう 1 回実行する」という条件だった）。
+
+### 互換性
+
+- 公開 API、Config、結果の型、保存形式は変わらない。ライブラリのコードは変えない。
+- notebook の利用者から見ると、データの取得が要らなくなる。`notebooks/` を写して使う場合は、`data/` も一緒に写す必要がある。
+- チュートリアルは `fetch_openml` の使い方を見せなくなる。
+- sdist は約 1.5 MB 大きくなる。wheel は変わらない。
+
+### 代替案
+
+- **B. CI でダウンロードを cache する**（`actions/cache`）: 短い障害は吸収できるが、cache が無い、追い出された、key が変わった場合に同じ問題が戻る。採らない。
+- **C. 自前の写し（リリースの asset など）を置き、失敗したらそこから取る**: 取得の形は残るが、2 つ目の取得元を同期し続ける必要があり、通信も残る。採らない。
+- **D. 今のまま**: リリースが第三者のホストを待つ状態が続く。採らない。
+- **Python の socket の全ての経路を、表で分類して拒否する**（この Proposal の round 1〜3 の形）: 公開の名前を全て分類しても、意味として正しいかは開いたままで、C の中で名前を解決する経路などが見つかり続けた。目的（うっかり戻した取得を捕まえる）には要らない。採らない（下の「ゼロベースの見直し」）。
+- **notebook が読んだ `data/` のファイルを記録し、manifest と照合する**（round 1〜3 の形）: #385 が求めていない性質で、2 つ目の SSOT とレビューの面を作った。採らない。
+- **CI の OS の層での遮断**（`iptables` やネットワークの名前空間）: 子プロセスや C の拡張まで含む強い保証になるが、CI の権限と実際の runner での実測が要る。目的には要らないので、この Proposal では採らない。要るなら別の Proposal とする。
+- **ソースの静的な検査（URL や `fetch_` の文字列を探す）**: 書き方の集合が開いていて、組み立てた URL や別名で黙って通る（DC1・DC2）。実行時に 2 つの入口で拒否する方が、目的の後退をはっきり捕まえる。採らない。
+- **非圧縮の CSV で置く**: `*.csv` は `.gitignore` の対象で、作業ツリーも約 4 倍になる。採らない。
+
+### 受け入れ基準
+
+1. 8 本全てが、ガードを入れた 2 つの層（index の実行と slow な実行テスト）で 1 回で通る（CI の `Notebook index` の 8 job と gate）。
+2. 陽性対照（どれも失敗し、失敗の文に `H-0137` の文言が入る）:
+   - 2 つの入口を、それぞれ直接呼ぶ（その入口で記録されたことも確かめる）。呼ぶ表が `network_guard.REFUSED` とちょうど同じであることもテストする。
+   - 普通の遠隔の取得: `urllib.request.urlopen`、URL を読む `pandas.read_csv`、`socket.create_connection`。
+   - 通信するセル、例外を捕まえて進むセル（最後のセルで落ちる）、`raises-exception` のタグのセルで通信するもの。2 つの層それぞれの実際の配線で確かめる。
+     - index の実行: `index_runner.run_instrumented`（実際のカーネル、slow）。速い層の `exec` でも、通信と、例外を捕まえる場合を確かめる。
+     - slow な実行テスト: 8 本を実行するのと同じ関数 `execute_guarded` に、小さな notebook を渡して実行する（slow）。この関数からガードを入れる 2 行を外すと、この 3 つが落ちることを確かめた。
+
+   陰性対照: 通信をせず、同梱したファイルを作業ディレクトリから読む同じ形の notebook は通る（速い層と、2 つの層の実際のカーネル）。
+3. ガードを外す（`uninstall`）と、2 つの入口が元に戻る（`socket.socket.connect` は `_socket` の元の実装と比べる）。
+4. 上の 6. のデータの検査が通る。次のどれでも落ちる: ファイルのバイトを変える、記録に無いファイルを足す、記録の項目を消す、記録したファイルを消す、2. の各必須の欄を空にする・消す（欄ごとに確かめる）。
+5. `network_markers.py`、`NETWORK_ERROR_MARKERS`、`run_with_retries`、`Attempt`、`ATTEMPTS`、slow な実行テストの skip が、実行するコード（`docs/audits/` と HISTORY.md の記録を除く）に残っていない。
+6. 学習の結果が変わらないことは、上の実測（データフレームの一致）で示す。`scripts/vendor_notebook_data.py` を走らせれば、誰でも確かめ直せる。
+
+**レビューの停止基準**: 次が確かめられたら止める。
+- 同梱した 4 ファイルのバイトが manifest と合い、出典・ライセンス・表示が使える。
+- 5 本の notebook のコードのセルが `data/*.csv.gz` を相対パスで読み、説明の文と合う。
+- 作り直しの記録が、変わる表示とデータフレームの一致を説明する。
+- 8 本が 2 つの層で 1 回で通る。
+- 2 つの入口が、普通の HTTP クライアントの陽性対照（例外を捕まえる場合を含む）を、2 つの層で落とす。
+- 再試行、マーカー、skip が実行するコードに無い。
+
+`bind`・`sendmsg`・`getfqdn`・ほかの `socket` の名前・`_socket` の直接の呼び出し・C の拡張・子プロセスでガードを迂回できることは、次の round に進む理由にならない。それは、上の保証より強い性質で、別の Proposal の範囲である（H-0119 の停止の原則と同じ。条文に無い反例は保証を広げない）。
+
+### Proposal レビュー round 1（2026-10-21）
+
+- **結果**: Codex の run `h0137-proposal-review` の round 1（`f9ee378`）は CHANGES_REQUESTED で、major 7 件だった。
+- **対応**（上の本文を直した）:
+  1. ガードが、`sendmsg`・`gethostbyaddr`・`getnameinfo` を見逃していた。また、陽性対照が一部の入口しか直接叩いていなかった。→ 入口を 10 個にし、一覧が閉じている理由を書いた。テストは入口ごとに直接呼び、表と宣言の一致も確かめる。`AF_UNIX` を拒否しても壊れないことは、測定（0 件）で示した。
+  2. manifest と notebook の対応が逆向きにずれても気づけなかった（diamonds の項目から notebook を 1 つ消しても、何も落ちない）。→ 実行時に `data/` から開いたファイルを記録し、manifest と集合で比べる（4.）。文字列の検査はやめた。
+  3. 帰属の表示が足りず、欄の一部が守られていなかった。→ `licence_url` と `notice`（CC BY の表示、MIT の全文）を足し、全ての欄を必須にして欄ごとにテストする。
+  4. 測定の記録が、通信の測定のぶんしか無かった。→ 作り直し 2 回、配布物の中身、ライセンスの確認を足し、`README.md` で主張との対応を示した。
+  5. 再試行のテストの数を「6 本」と書いていた。→ 5 つの関数（7 件）に直した。
+  6. 子プロセスとして `train.py` を挙げていた。実際に実行するのは `predict.py` と `test_equivalence.py` である。→ 直した。
+  7. 受け入れ 5 が、外すと書いた `Attempt`・`ATTEMPTS`・`network_markers.py` を確かめていなかった。→ 足した。
+
+### Proposal レビュー round 2（2026-10-21）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`f916792`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`f916792`）は CHANGES_REQUESTED で、major 2 件だった。どちらも round 1 の対応で書いたものの欠陥なので、停止ルールにより管理者に判断を仰いだ。管理者は「直して round 3」を選んだ。
+- **対応**（上の本文を直した）:
+  1. 読み込みの記録が、`open` の成否も mode も見ていなかった。失敗した `open` や書き込みの `open` でも「読んだ」になり、検査を素通りできた（DC1）。→ 開くのに成功し、mode に `w`・`a`・`x`・`+` が無いときだけ記録する。失敗と書き込みの各 mode のテストを足した。
+  2. 「一覧は閉じている」と書いたのに、名前を解決する公開関数 `socket.getfqdn` が抜けていた。→ 一覧を手で挙げるのをやめ、`socket` と `socket.socket` の全ての公開の名前を理由つきで分類した表から決める。表に無い名前があればテストが落ちる。拒否するのは 14 個になった（`getfqdn` と、名前データベースを引く 3 個を足した）。
+
+### Proposal レビュー round 3（2026-10-21）
+
+- **monitor**: round 3 の前に、runner の relational monitor を走らせた（`29f1a21`、観察した round は 1〜2）。結果は CONVERGING・continue で、disposition は continue。
+- **結果**: round 3（`29f1a21`）は CHANGES_REQUESTED で、major 1 件だった。round 2 の対応で作った分類の表の欠陥で、run の 3 round を使い切った。停止ルールにより管理者に判断を仰ぎ、管理者は「直して通常の run」（新しい 3 round の run）を選んだ。
+- **対応**（上の本文を直した）:
+  1. 表が `bind`（とそれを使う `create_server`）を「ローカルの端点を作るだけ」に分類していた。アドレスにホスト名があれば、C のコードが `bind` の中で名前を解決する。例外を捕まえれば最後のセルも通った（DC1）。表に名前があることは確かめていたが、分類が意味として正しいかは確かめていなかった。→
+     - メソッドの規則を「アドレスを引数に取るものは全て拒否する」にし、`bind` を拒否する側に移した（15 個）。この規則を CPython の docstring から読んで、表と一致することをテストで確かめる。
+     - 拒否しない関数は、ガードの下で呼んで名前を引かないことを確かめる、拒否するメソッドを通ることを確かめる、呼ばない理由を書く、のどれかに全てを当てはめ、テストで確かめる。
+     - 監査のフック（`sys.addaudithook`）で拒否する案も測った。`bind`・`connect`・`sendto`・`sendmsg` は、ホスト名の解決を監査イベントより前に行うので、この案では捕まえられない（`socket_audit_events.out`。ゼロベースの見直しで外したが、commit `2858dde` にある）。採らなかった。
+
+### ゼロベースの見直し（2026-10-21）
+
+- **経緯**: round 3 の後、新しい run の前に、Claude の relational monitor（新しい文脈、読み取りのみ）を走らせた。判定は CONVERGING だったが、推奨は reframe だった。データの同梱・manifest・帰属・再試行の削除は収束している。一方、round 2 と 3 の欠陥は、どちらも「Python の全ての通信経路を拒否する」という開いた主張から出ていて、新しい run でも同じ形が続く見込みが高い、という理由である。
+- **管理者の判断**: 「Codex と議論して、そもそもこの問題をゼロベースで整理し直す。当初の目的から何かずれているように見える」。
+- **Codex の分析**（run `h0137-zero-base-critique`、`2858dde`）。major 4 件と minor 1 件で、主張は次のとおり:
+  - #385 が要るのは、保守する人がうっかり戻した遠隔の取得を大きく落とすことである。「Python の全ての通信経路を拒否する」は要らず、しかも成り立っていない（子プロセスなどは最初から範囲の外だった）。これを証明の義務にしたことが、レビューのずれの原因だった（DC5）。
+  - 最小で足りる設計は、`socket.getaddrinfo` と `socket.socket.connect` だけを拒否し、最後のセルの検査を残すものである。主張は閉じていて、レビューできる。
+  - 残すもの: 同梱、manifest の出典と帰属、sha256 の検査、作り直しスクリプト、再試行と skip の削除。
+  - 外すもの: 読み込みの記録と manifest との照合、socket の分類表とそのテスト、監査のフックの probe、mutant。
+  - 停止基準: 上の「レビューの停止基準」のとおり。保証より強い性質への反例は、round を続ける理由にしない。
+  - 同梱の作業はすでに #385 に沿っていて、蒸し返さない（minor）。
+- **管理者の判断**: Codex の推奨どおりに作り直す。OS の層での遮断は採らない（要るなら別の Proposal）。
+- **対応**:
+  - 上の「対応方針」「代替案」「受け入れ基準」を書き直した。
+  - ガードを 2 つの入口だけにし、`open` の記録・分類表・関連のテストを外した。
+  - manifest から `notebooks` の欄を外し、必須の欄の検査に変えた。
+  - `docs/audits/2026-10-h0137/` から、分類を守るためだけの `socket_audit_events.*` と `mutate_guard.*` を外した。
+- **教訓**: 指摘に答えるたびに、保証を #385 の目的に照らして確かめていなかった。round 1 の「ガードが `sendmsg` などを見逃す」に入口を足して答えたことで、主張が「全ての経路」に広がった。round 2 と 3 は、その広がった主張の穴を突いた。指摘が保証を広げる方向のときは、広げる前に目的と照らす。
+- **monitor（新しい run の前）**: Claude の relational monitor（新しい文脈）は CONVERGING・continue と判定した。ただし「保証」の文の「ほかの普通の HTTP クライアント」が開いた言い方だと指摘したので、2 つの入口を通る取得に限る文に直した。
+
+### 新しいレビュー run の round 1（2026-10-21）
+
+- **結果**: Codex の run `h0137-proposal-review-2` の round 1（`8dcd03d`）は CHANGES_REQUESTED で、major 1 件・minor 1 件だった。どちらも記述の正確さで、2 つの入口に限った設計は変えていない。
+- **対応**: major は「変わる表示」が Jena のセル 4・5 の `df_raw.head()` の表を落としていたこと。上の「実測」に、変わる表示をセルごとに書いた。minor は測定スクリプトの docstring が、外した 15 個の入口のガードを前提にしていたこと。今の 2 つの入口との関係を書いた。
+
+### 新しいレビュー run の round 2（2026-10-21）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`1f1d8da`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`1f1d8da`）は CHANGES_REQUESTED で、major 1 件だった。受け入れ 2 は 2 つの層でガードが効くことを求めていたが、slow な実行テストの層には、ガードが効くことを確かめる対照が無かった。ガードを入れる 2 行を消しても、どのテストも落ちなかった（DC1）。round 1 の対応（記述の修正）の欠陥ではない。
+- **対応**: slow な実行テストの実行を `execute_guarded` にまとめ、同じ関数で、通信・例外を捕まえる通信・`raises-exception` のセルの通信の 3 つが落ちること、通信しない双子が通ることを確かめる slow のテストを足した。ガードを入れる 2 行を外すと 3 つが落ち、双子は通った。受け入れ 2 を、層ごとに書き直した。
+
+### 新しいレビュー run の round 3（2026-10-21）
+
+- **monitor**: round 3 の前に、runner の relational monitor を走らせた（`12b2dc0`、観察した round は 1〜2）。結果は CONVERGING・continue で、disposition は continue。
+- **結果**: round 3（`12b2dc0`）は APPROVE で、指摘は 0 件だった。run `h0137-proposal-review-2` はこれで終わる。
+
+## H-0138: カテゴリの値の同一性を 1 か所で決め、pandas が取り違える列もそれで符号を付ける ― 数として等しい値は 1 つのカテゴリにし、今正しく動く列は変えない（#378、#380）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-21
+- **決定日**: 2026-10-21
+- **関連**: #378、#380、#379（H-0139 で扱う）、H-0133（値の集合 V、置き換えの列 `stand_in_columns`）、H-0136（保存の前の検査）、H-0127（`comparable_values`）、registry のカード D-20261021-001（v0.21 の実行の方針）、D-20261021-002（#378〜#380 を 2 本の Proposal で扱う判断）、Codex の run `v021-category-critique`（批評）と `h0138-mechanism-design`（機構の設計）
+- **スコープ**:
+  - カテゴリの特徴量の列で「どの値が同じカテゴリか」を決める全ての箇所（`docs/audits/2026-10-h0138/code_paths.md` の 9 か所）。実行時のライブラリと、`export_code` が生成する `train.py`・`predict.py` の両方
+  - 保存形式（`FORMAT_VERSION` を 5 にする）
+  - 範囲の外: 時刻の型の値の同一性（H-0139）、tune の指紋（`core/_tuning_identity.py`）、LightGBM 自身の振る舞い
+
+### 目的（課題）
+
+カテゴリの列の値の「同じかどうか」を、今は場所ごとに別の規則で決めている。fit は pandas の `astype("category")`、unseen の判定は Python の `set`、符号は pandas の Index の `get_indexer` である（`code_paths.md`）。値の型が混ざった列で、これらの答えが食い違う。H-0133 が受け付けた値（V）の中で、次が起きる。
+
+- **#378**: `Decimal("1")` と、値の等しい NumPy の整数（`np.int8(1)` など 8 型）を持つ列。Python の `==` が向きで答えを変える（`np.int8(1) == Decimal("1")` は `True`、逆は `TypeError`）。fit した後の transform が、どちらの順でも素の `TypeError` で落ちる（列の名前も出ない）。
+- **#380**: NumPy のスカラー（値が 1）と、1 を tuple で包んだ値を持つ列。pandas の object の Index が両者を取り違える。
+  - バッチの中の順で符号が変わり、既知の値に別の値の符号が付く（DC1）。
+  - 包みの深さが偶数なら、fit の cast が素の `ValueError` で落ちる。
+  - 学習した値を unseen と判定する。
+- **ほかにも同じ族**: `2**70` と `np.bool_` の列は、fit の cast が素の `OverflowError` で落ちる。
+
+### 実測（2026-10-21、branch `feat/h0138-category-identity`、develop `b297de4` の上）
+
+測定のスクリプトと出力は `docs/audits/2026-10-h0138/` にある。
+
+- **候補の同一性ごとの影響**（`identity_rows.py`・`identity_rows_pd3.out`・`identity_rows_pd2.out`）: H-0133 の `SAMPLES` の 111 値の 1 つずつと 2 つずつの組（6216 列）に、#378・#380 の形 130 列を足した 6346 列を、それぞれ文字列 `"x"` と並べて調べた。時刻の型を含まない列の結果は、pandas 3.0.1 と 2.3.3 で同じだった。
+  - **数として等しい値を 1 つにする同一性**（下の決定 1）は、今正しく動く列を 1 本も変えない。型は違うが数として等しい組（`0` と `-0.0`、`True` と `np.uint8(1)`、`1.5` と `Decimal("1.50")`、`Decimal("1")` と `np.float64(1.0)` など）の 21 列は、今 pandas が 1 つのカテゴリにまとめて正しく動いていて、この同一性でも同じになる。
+  - **型で区別する同一性**は、この 21 列を全て 2 つのカテゴリに割り、今の符号を変える。
+  - **今壊れている列**（時刻を含まない）:
+
+    | 族 | 列 | 今の振る舞い |
+    |---|---|---|
+    | #378（`Decimal("1")` と 8 つの NumPy の整数、2 つの順） | 16 | transform が素の `TypeError` |
+    | #380（13 の NumPy の型の 1 と、深さ 1・2・3・8 の tuple、2 つの順） | 104 | 下の内訳 |
+    | `2**70` と `np.bool_` | 2 | fit の cast が素の `OverflowError` |
+
+    #380 の 104 列と、`SAMPLES` の組の中の同じ形を合わせて、バッチの順で符号が変わるものが 54、fit の cast が `ValueError` で落ちるものが 28（pandas 2 では 29）、学習した値を unseen と判定するものが 26 だった。決定 1 の同一性では、どれも別々の値として扱える。
+- **firing rate**（下の対応方針 2 の条件。カテゴリをキーで作り直す割合）。試作の規則（`firing/h0138_rule.py`）で測った。
+
+  Firing rate: 0/2009 of the eligible categorical columns the test suite fits, of every dtype (census over the full suite with `firing/h0138_census.py`, pandas 3.0.1: 0/300 at the builder entry, 0/1709 at encoder fits; `firing/census_pd3.*`); 88/1726 of the non-temporal probe columns (28 + 26 cast raises, 34 not faithful; `firing/probe_columns_pd3.out` and `_pd2.out`, the same on pandas 3.0.1 and 2.3.3).
+
+  - テストスイートの普段の入力では、作り直しは 1 列も働かない。これは設計どおりで、作り直しは pandas が取り違える混在の列のための修正である。そうした列はテストスイートに無いので、受け入れ基準で明示的に足す（3〜5）。普段の列で 0 であることは、「今正しく動く列を変えない」ことの裏付けでもある。
+  - この条件で切り替わるのは、カテゴリをどう作るか（pandas の結果を使うか、キーで作り直して置き換えの列にするか）だけである。印のある状態の transform は、条件なしに常にキーで引く。#378 の列と #380 の一部は fit の時点では pandas に忠実（上の 70 列）で、壊れるのは transform の pandas の引き方だからである。
+  - census の全体（2643 件の記録）: 判定は、dtype によらず cast を実際に行って確かめた（round 1 の指摘で、object 以外の列の判定を飛ばしていたのを直した）。
+    - builder の入口（413 件）: object の列 168、宣言した category の列 43、文字列の dtype の列 86、明示した int64 の列 3 が全て忠実だった。時刻を含む列 101 と、V の外の値を持つ列 12 は今の経路を通る。
+    - encoder の fit（2230 件）: category の列 1467、object の列 35、文字列の列 207 が全て忠実だった。時刻を含む列 441 と、V の外の値を持つ列 80 は今の経路を通る。
+    - 規則が読めなかった列は 0。テストの結果は、手元の版の情報が古いために落ちる既知の `test_version.py` の 1 本を除いて通った（13139 本）。
+
+### 管理者の判断（2026-10-21。カード D-20261021-002）
+
+Codex の批評（run `v021-category-critique`）の推奨により、#378〜#380 は「1 件ずつ直す」のでも「fit で拒否する」のでもなく、カテゴリの値の同一性を 1 か所で定義して全ての面で使う形にする。Proposal は 2 本とし、この H-0138 が #378・#380 を、H-0139 が #379 と時刻の型を扱う。そのうえで、次の 4 つを決めた。どれも推奨の案である。
+
+1. **数として等しい値は 1 つのカテゴリにする**（Python の `==` と同じ）。`-0.0`・`0`・`False`・`Decimal("-0")` は 1 つ、`True` と `np.uint8(1)` は 1 つ、`Decimal("1")` と `np.int8(1)` は 1 つである。文字列と `np.str_`、bytes と `np.bytes_` も、等しければ 1 つにする。tuple と frozenset は、要素ごとにこの規則で比べる。
+2. **今の版（format_version 4 以前）で保存したモデルは、load の後も今の pandas の引き方で予測する**。予測は変わらない。
+3. **pandas がカテゴリとして持てない列**（tuple と NumPy のスカラーを pandas が重複と誤るものなど）は、H-0133 の置き換え（カテゴリを位置の番号 `0..k-1` にする）で LightGBM に渡す。fit で新しく拒否するものは置かない。
+4. **範囲の外**: 時刻の型の値の同一性（H-0139）と、tune の指紋（`_tuning_identity.py`）。時刻の型の値を含む列は、今と全く同じに振る舞う。
+
+### 対応方針（提案。Codex の run `h0138-mechanism-design` の設計による）
+
+1. **同一性のキー**: `core/category_values.py` に `category_identity_key(value)` を置く。V の値だけを受け付ける。生成コードには、codec と同じく写しを置き、`tests/test_codegen/test_h0133_codec_copy.py` の `COPY` で写しを固定する。
+   - 数（`bool`・`int`・NumPy の整数、有限の `float`・NumPy の浮動小数、`Decimal`）: 正確な比 `("number", "finite", 分子, 分母)`。無限大は `("number", "infinity", 符号)`。虚部が 0 の複素数は実部のキー、それ以外は `("number", "complex", 実部のキー, 虚部のキー)`。
+   - `str`・`np.str_`: `("string", str(value))`。`bytes`・`np.bytes_`: `("bytes", bytes(value))`。
+   - `tuple`: `("tuple", 要素のキーの tuple)`。`frozenset`: `("frozenset", 要素のキーの frozenset)`。
+   - 時刻の型の値（入れ子の中も含む）を持つ列と、V の外の値を持つ列は、キーを使わず今の経路を通る（決定 4）。
+2. **今正しく動く列を変えない条件（pandas に忠実かどうか）**: カテゴリとして扱う列ごとに、dtype によらず（object、pandas の文字列、宣言した category、明示した数値や bool の列）、pandas の cast を実際に行い、その結果がキーに忠実かを確かめる。dtype で判定を飛ばさない。
+   - 忠実とは、次の全てを満たすことである。カテゴリのキーが一意である。欠損でない全ての行に 0 以上の符号が付き、その符号のカテゴリのキーが行の値のキーと同じである。欠損の行の符号は -1 である。宣言したカテゴリは同じ順で残る。
+   - 忠実なら、今の結果（カテゴリ、その順、代表の値、最頻値 `series.mode().iloc[0]`、置き換えの判定、符号）をそのまま使う。
+   - cast が例外を出すか、忠実でないときだけ、キーで作り直す。代表の値は、キーごとに最初に現れた値とする。順は、推定した object の列では今の `sorted(..., key=str)` の規則、宣言した列では宣言の順とする。最頻値はキーで数え、同数ならカテゴリの順で先のものとする。作り直した列は、必ず置き換えの列（`stand_in_columns`）にする。
+3. **データ層**: `dataframe_builder._apply_categorical` は、時刻を含まない列の cast が例外を出すか忠実でないとき、元の object の列を残し、`DataFrame.attrs` の非公開の項目に「カテゴリの列である」と記録する。`NativeFeaturePipeline.fit` は、`.cat` と文字列の列に加えて、この記録の列も選ぶ。記録はカテゴリを持たないので、カテゴリはこれまでどおり各 fold と refit の `pipeline.fit` の中で学習する（リークの境界は変わらない）。記録が、複製・`sort_components`・`iloc`・`reset_index`、outer・inner・calibration の分割を通ることをテストで固定する。時刻を含む列と V の外の値を持つ列は、今の `astype("category")` をそのまま行い、結果も例外も変えない。
+4. **エンコーダ**: 新しく fit した状態は、`category_identity_version: 1` と、キーで扱う列の一覧 `identity_columns` を持つ。
+   - transform は、H-0127 の `comparable_values` を通した後、カテゴリと行のキーから位置の番号を直接引き、unseen の方針（`error`・`mode`・`nan`）を番号の上で当て、`Categorical.from_codes` で列を作る。`set(values)`、`isin`、`astype("category")` での照合、`Index.get_indexer` は使わない。
+   - 入ってきた列が `.cat` の宣言を持つなら、今と同じに調べる（使われていない未知の宣言も `error` の方針で落ちる）。
+   - pandas が忠実でなかった列は、置き換えの列として位置の番号で LightGBM に渡す。忠実で書ける列は元のカテゴリのまま渡すので、保存した booster とモデルは変わらない。
+   - `load_state`: 印（`category_identity_version`）の無い状態は、今の pandas の経路で動く（決定 2）。知らない版の値は拒否する。
+5. **ほかの箇所**（`code_paths.md` の 1〜9）:
+   - fit と、生成コードの fit の 2 つの写しは、同じ「cast・忠実の判定・キーでの作り直し」を使う。builder の cast と、生成コードの `cast_categoricals` も同じ。
+   - 実行時の transform、生成した `train.py`・`predict.py` の transform は、同じキーでの unseen・最頻値・符号の処理を使う。
+   - `comparable_values` は、3 つの写しとも、キーの前の H-0127 の変換のまま。
+   - codec の保存の形はバイトとして変えない（キーを変えないことのテストを足す）。
+   - H-0136 の検査（`state_changes.py`・`_category_preflight.py`）は、印のある状態を符号とキーで比べ、印の無い状態は今のエンコーダと `CategoricalDtype` の検査のまま。
+   - `category_json.needs_stand_in` は、LightGBM に実際に渡すカテゴリで判定し、忠実でない一覧を正規化しない。
+   - `input_categories`（本物のカテゴリの dtype の列）は変えない。`export_state_json` は印と一覧も書く。生成コードの宣言したカテゴリの復元は、忠実の判定を使う。
+   - 実行時の LightGBM 自身の `pandas_categorical` の照合は変えない。忠実な列は同じ一覧を、置き換えの列は位置の番号を渡すからである。生成コードの predict は、これまでどおり NumPy の符号を渡す。
+6. **`export_code` と古いモデル**: `export_code` は、元の pipeline の同一性の版を引き継ぐ。印の無い（古い）成果物から load したモデルは、今の引き方の `train.py`・`predict.py` を生成し、印の無い状態を書く。版 1 のモデルは、キーで引く生成コードを書く。古いカテゴリを黙って新しい同一性に上げない。
+7. **保存形式**: `FORMAT_VERSION` を 5 にし、loader は {1,2,3,4,5} を受け付ける。版 1〜4 を load した状態は印が無いので、振る舞いは全く同じである。古いライブラリは、版 5 の成果物を pickle を読む前に拒否する（`loader.py:361-377`）。移行は「古い状態を版 1 の同一性に書き直さない、一方向の振る舞いの互換」である。
+
+### 互換性
+
+- 今正しく動く列（上の測定の 21 列を含め、pandas が忠実な列）は、カテゴリ・順・代表の値・最頻値・符号・保存した状態・学習したモデルが、同じ依存の版・パラメータ・行の順・seed のもとで変わらない。状態に印（`category_identity_version`・`identity_columns`）が足されるだけである。
+- 今壊れている列（#378・#380 の族など）は、fit が通り、正しい符号で予測する。素の例外で落ちていた列は落ちなくなる。予測が変わるのはこの列だけである。
+- 版 5 の成果物は、古いライブラリでは load できない（format_version で明示的に拒否される）。版 1〜4 の成果物は、新しいライブラリで今と同じに予測する。
+- 公開 API と Config は変わらない。`FitResult` と `PredictionResult` の形も変わらない。
+
+### 代替案
+
+- **1 件ずつ直す**（#378 は比較を安全にして例外を包む、#379 は predict でも cast する、#380 は別の引き方）: 族の全体を覆わず、#379 の案はバッチの中身で結果が変わる（批評）。採らない。
+- **fit で見分けにくい混在を拒否する**: 型の組み合わせの規則は今動く 8 通りの混在を拒否し、型の族の規則は `SAMPLES` の 31 列のうち 21 列（そのうち 19〜20 列は今動く）を拒否した（批評）。完全で互換な規則が無い。採らない（決定 3）。
+- **型で区別する同一性**: 今正しく動く 21 列の符号を変える。採らない（決定 1）。
+- **全ての列をキーで作り直す**（pandas に忠実な列も）: 今動く列の順や代表の値が変わりうる。忠実な列は今の結果を使う方が、変えないことを確かめられる。採らない。
+- **古い成果物もキーで引く**: 壊れていた列の予測は直るが、保存した時と違う予測を返す。採らない（決定 2）。
+
+### 受け入れ基準
+
+1. **キー**: V の全ての `SAMPLES` の値と入れ子の容器で、キーが決まり、codec の往復でキーが変わらない。決定 1 の等しい組（測定の 21 列の組と、#378 の組）が同じキーになり、別の値が別のキーになる。
+2. **今正しく動く列を変えない**: 参照は、実装の前に今のコード（develop `b297de4` の振る舞い）で作って commit した、pandas の版ごとのファイルである。CI のどのレーンにも、その版のファイルがある。
+   | ファイル（`tests/test_features/data/`） | 環境 | 当たるレーン |
+   |---|---|---|
+   | `h0138_oracle_pandas-3.0.1.json.gz` | Python 3.12、numpy 2.4.2、lightgbm 4.6.0 | lock の Python 3.11 以上の解決（`Quality (3.11)`・`(3.12)` など） |
+   | `h0138_oracle_pandas-2.3.3.json.gz` | Python 3.10.22、numpy 2.2.6、lightgbm 4.6.0 | lock の Python 3.10 の解決（`Quality (3.10)`） |
+   | `h0138_oracle_pandas-2.0.0.json.gz` | Python 3.10.22、numpy 1.24.0、lightgbm 4.4.0 | `Quality (lowest-direct deps)`（CI と同じ手順で作り、`check_dependency_floors.py` で全ての依存が下限の版であることを確かめた） |
+
+   生成は `docs/audits/2026-10-h0138/oracle/make_oracle.py` で、3 つとも 2 回作ってバイトが同じだった。テストは、実装したライブラリの答えを、そのレーンの pandas の版のファイルと比べるだけで、参照を計算し直さない。
+   - **版の合わせ方**: レーンの pandas の版のファイルが無ければ、テストは落ちる（黙って通らない）。除外するレーンは無い。モデルの case は、numpy と lightgbm の版もファイルの `meta` と同じであることを先に確かめ、違えば落ちる。
+   - **エンコーダの case**（pandas 3.0.1 と 2.3.3 で 1584、2.0.0 で 1612）: 測定の列のうち、ゲートが忠実と判定し、今の transform も両方の順で同じ符号を返す全ての列と、ふつうの入力の全ての dtype（object、pandas の文字列、使われないカテゴリを持つ宣言した category、明示した int64・float64・bool、欠損を含む列、型の混ざった object の列）。カテゴリとその型、最頻値、`stand_in_columns`、2 つのバッチの順の符号が同じである。
+   - **モデルの case**（3.0.1 と 2.3.3 で 74、2.0.0 で 75）: ふつうの入力、数として等しい型違いの値の組、参照のエンコーダの case の 50 本に 1 本（参照に入れた case だけで数える。生成の最後に、0・50・100…番目の全てがモデルの case を持つことを確かめる）。`Model.fit`（seed と 1 スレッドを固定）の後の refit の booster の `pandas_categorical`、`model_to_string()` の sha256、予測（`float.hex`）が同じである。
+   - 参照から外した列とその数も、ファイルの `meta` にある。pandas 3.0.1 では、時刻を含む 4620 と、今すでに壊れている 150（cast の失敗 54、忠実でない 34、忠実だがバッチの順で符号が変わる 54、忠実だが transform が `TypeError` の 8）である。最後の 2 つ（62 列）は、印のある状態の transform を常にキーで引く理由でもある。
+3. **#378**: `Decimal("1")` と 8 つの NumPy の整数の 16 列（2 つの順）で、fit と predict が通り、1 つのカテゴリとして同じ符号が付く。
+4. **#380**: ID を付けた 104 列の一覧（13 の NumPy の型 × 深さ 1・2・3・8 × 2 つの順）で、件数と集合が一覧と一致することを確かめたうえで、2 つのバッチの順と 3 つの unseen の方針の全てで、各値の符号が順によらず同じで、学習した値が unseen にならない。
+5. **`2**70` と `np.bool_`** の 2 列で、fit が通り、2 つの値が別のカテゴリになる。
+6. **データ層**: cast が例外を出す列と忠実でない列が、object の列のまま記録され、カテゴリの列として選ばれる。その記録が、複製・並べ替え・分割（outer・inner・calibration）を通る。検証の側にしか無いキーが、fit のカテゴリに入らない（リークの検知。落ちるべき例を含む）。
+7. **H-0136 の検査**: 印のある状態の joblib と JSON の写しを、符号とキーで比べる。印の無い状態は今の検査のまま。
+8. **LightGBM への受け渡しと、状態の書き出し**:
+   - 3〜5 の列のうち、キーで作り直した列（忠実でない列）は、`stand_in_columns` に入り、本物の refit の booster の `pandas_categorical` のその列が `list(range(k))`（k は学習したカテゴリの数）である。忠実で書ける列の `pandas_categorical` は、学習したカテゴリの一覧そのものである（2 の参照と同じ）。
+   - その booster を pickle して load した後の predict が、load の前と同じ予測を返す。
+   - `export_state_json` が `category_identity_version: 1` と、状態と同じ `identity_columns` を書く。
+   - 宣言したカテゴリ（`pd.Categorical` の宣言）: 宣言の順が学習したカテゴリの順になる。使われていない宣言のカテゴリは、`unseen_policy="error"` の transform で、今と同じ `DATA_SCHEMA_INVALID` を出す。
+9. **実行時と生成コードの一致**: 実行時、生成した `train.py`、生成した `predict.py` の符号が、上の 3〜5 の列で同じになる。キーの写しを `COPY` で固定する。
+10. **古い成果物と印の版**: 版 1〜4 の成果物が今と同じに予測し、`export_code` が今の引き方の生成コードを書く。古いライブラリの loader（固定した写し）が版 5 を拒否する。知らない印は拒否する: `category_identity_version` が 2、`"1"`（文字列）、`None`、負の数の状態は、`load_state`（と、それを通る `Model.load`）で `DESERIALIZATION_FAILED` になり、生成した `predict.py` も `pipeline_state.json` の同じ値を拒否する。
+11. **時刻の型**: 時刻の型の値を含む列が、今と全く同じに振る舞う。参照は 2 と同じファイルの `temporal_cases`（測定の時刻の列の全て。pandas 3.0.1 で 4620、2.3.3 と 2.0.0 で 4845）で、今の符号とカテゴリ、または今失敗する段（cast・fit・transform）と例外の型を固定している。
+
+**レビューの停止基準**: 上の受け入れ基準のテストと、実装の前の census（firing rate）が通ったら止める。次の round に進む理由になるのは、この契約の中の欠陥だけである: キーの同一視の誤り、忠実な経路のずれ、リーク、実行時と生成コードの食い違い、保存形式の移行、LightGBM への実際の受け渡し。時刻の型、tune の指紋、LightGBM 自身の振る舞い、契約の外の値は、次の round に進む理由にならない。
+
+### Proposal レビュー round 1（2026-10-21）
+
+- **結果**: Codex の run `h0138-proposal-review` の round 1（`88fb071`）は CHANGES_REQUESTED で、major 3 件だった。どれも停止基準の内側（忠実な経路のずれ、LightGBM への受け渡し、保存形式の移行）である。
+- **対応**（上の本文を直した）:
+  1. 受け入れ 2 に固定した参照が無く、試作の規則は object 以外の列で cast と判定を飛ばしていた。→ 実装の前に、今のコードで pandas の版ごとの参照（`h0138_oracle_pandas-3.0.1.json.gz`・`-2.3.3.json.gz`）を作って commit し、受け入れ 2 と 11 をそれと比べる形にした。判定は dtype によらず cast を行うようにし、census を取り直した（0/2009）。
+  2. 受け入れ 8 が、置き換えの列の `pandas_categorical`、`export_state_json` の印、使われない宣言のカテゴリを確かめていなかった。→ 確かめる値を書いた。
+  3. 知らない印の版を拒否するテストが無かった。→ 受け入れ 10 に、`category_identity_version` が 2・`"1"`・`None`・負の数の状態を `DESERIALIZATION_FAILED` で拒否することを足した。
+
+### Proposal レビュー round 2（2026-10-21）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`55a0a9b`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`55a0a9b`）は CHANGES_REQUESTED で、major 2 件だった。どちらも round 1 の対応（参照データ）の欠陥なので、停止ルールにより管理者に判断を仰いだ。管理者は「直して round 3」を選んだ。
+- **対応**（上の本文を直した）:
+  1. 下限の版のレーン（pandas 2.0）の参照が無く、受け入れ 2 の「全てのレーンで比べる」と、そのレーンを外す例外が食い違っていた。→ CI と同じ手順で下限の版の環境を作り、`h0138_oracle_pandas-2.0.0.json.gz` を足した。除外するレーンを無くし、版の合わないファイルしか無ければ落ちる形にした。
+  2. モデルの case の「50 本に 1 本」を、除外する前の全ての列で数えていた（実際の間隔は 156〜185）。→ 参照に入れた case だけで数え、生成の最後に 0・50・100…番目が全てモデルの case を持つことを確かめるようにした（3 つの版とも最大の間隔は 50）。
+
+### Proposal レビュー round 3（2026-10-21）
+
+- **monitor**: round 3 の前に、runner の relational monitor を走らせた（`62600f3`、観察した round は 1〜2）。結果は CONVERGING・continue で、disposition は continue。
+- **結果**: round 3（`62600f3`）は APPROVE で、指摘は 0 件だった。run `h0138-proposal-review` はこれで終わる。
+
+### 実装の記録（2026-10-21）
+
+- **コード**:
+  - `lizyml/core/category_values.py`: `category_identity_key`、`holds_temporal`、`identity_eligible`、`cast_is_faithful`、`CATEGORY_IDENTITY_VERSION`、`IDENTITY_OBJECT_COLUMNS`（対応方針 1・2）。
+  - `lizyml/features/encoders/category_identity.py`（新しい）: `keyed_categories`（忠実なら今の答え、でなければキーで作り直す）と `keyed_codes`（キーでの照合と unseen の方針）。`categorical_encoder.py` は印と `identity_columns` を状態に書き、印の無い状態は今の経路、知らない印は `DESERIALIZATION_FAILED`（対応方針 4）。
+  - `dataframe_builder._apply_categorical` と `NativeFeaturePipeline.fit`: cast できない列・忠実でない列を object のまま残して `DataFrame.attrs` に記録し、カテゴリの列として選ぶ（対応方針 3）。
+  - `lizyml/codegen/identity_template.py`（新しい）: キーと照合の生成コードへの写し。`templates.py` の codec の塊の後ろに付き、`train.py` の cast・宣言の復元・fit、両方の `encode_column`、`predict.py` の印の検査が使う。`config_writer` は `category_identity_version` を、`artifact_writer` は `pipeline_state.json` の印と `identity_columns` を書く（対応方針 5・6）。
+  - `FORMAT_VERSION = 5`、loader は `{1, 2, 3, 4, 5}`（対応方針 7）。
+- **実装で決めたこと**:
+  - 生成 `train.py` で、宣言した一覧を pandas がそのまま持てないとき（符号化で NumPy のスカラーが素の値になり、`Decimal("1")` と `1` のように重複になる場合）は、列を object のまま残し、fit が宣言の順にキーで作る。実行時の作り直し（宣言の順）と同じ結果である。
+  - H-0120 の負の対照のうち、pandas の引き方を戻す 2 つ（policy 5、宣言の復元）は、印のある列がその経路を通らなくなったので、印を除いた状態で走らせ、キーの経路を戻す対照を 1 つずつ足した。
+  - 印の無い状態の `export_code` で、#380 の列の今の引き方は、実行時と生成コードで別の間違え方をする（hash の seed で変わる）。受け入れ 10 の「今と同じ」は今の引き方のコードを書くことであり、符号の一致は今の引き方が正しい列で確かめる。
+- **#370**: H-0133 の範囲に触れるこの PR で、H-0133 の記録と `test_export_contract.py` の注釈の文言を直した（数でない値と混ざった列に限る）。
+- **テスト**: 受け入れ 1（`tests/test_core/test_category_identity.py`）、2・11（`tests/test_features/test_h0138_faithful_oracle.py`）、3〜8（`tests/test_features/test_h0138_identity.py`）、9・10（`tests/test_codegen/test_h0138_identity_copy.py`、`tests/test_persistence/test_artifact_compat.py` の v4 の形・v5 の拒否）。
+
+### 実装レビュー（2026-10-21）
+
+Codex の run `h0138-impl-review`（3 round、Proposal の停止基準をそのまま prompt に入れた）。
+
+- **round 1**（`b10a536`）: CHANGES_REQUESTED、major 3。どれも停止基準の内側である。
+  1. エンコーダの忠実の判定が、今の cast を実行せずに予測していた。cast が例外を出す列（`False`・`np.int8(1)`・8 段の tuple・`"z"`）でも作り直さず、置き換えの列にしなかった。→ 学習行に今の `astype("category").cat.set_categories(cats)` を実際に当て、キーで符号を確かめるようにした（実行時と生成コードの写しの両方）。混同される 23 値の 3 つずつの組 1772 列で、データ層が残した列は必ず置き換えの列になり、学習行の符号がキーに合うことを確かめるテストを足した（判定を外した改変で 41 件落ちる）。
+  2. `Model.load` が知らない印を拒否せず、最初の `predict` で初めて落ちていた。→ loader が保存した全てのエンコーダの状態の印を `core.category_values.identity_fields` で確かめ、版 1〜4 の成果物に印があるものも拒否する。
+  3. H-0136 の比較が、列ごとの状態を作るときに印を落とし、印のある列を pandas の引き方で比べていた。→ 印と、その列の `identity_columns` を残す。
+  - 旧版の形を版の番号だけ書き換えて作っていたテストの手順を、本当の古い形（`to_v2_shape`・`to_v3_shape`）から作るように直した。H-0136 が JSON の写しの `OverflowError` で拒否していた、宣言した `np.uint64` と `np.bool_` の列は、キーで比べると写しも同じ符号になるので、保存できるようになった（受け入れ 7）。
+- **round 2 の前の monitor**: absolute、DELIVERABLE-FOCUSED・continue。disposition は continue。
+- **round 2**（`1741420`）: 1 回目の試行はマシンのメモリ不足で止められ、2 回目で完了した。CHANGES_REQUESTED、major 1。`identity_columns` のハッシュできない要素（`[]`・`{}`）で、round 1 でつないだ検査が素の `TypeError` を出していた（生成 `predict.py` も同じ）。round 1 の修正の欠陥なので停止ルールにより管理者に判断を仰ぎ、管理者は「直して round 3」を選んだ。→ その要素は列を指さないとみなし、拒否する（`DESERIALIZATION_FAILED`、生成コードでは `ValueError`）。
+  - round 2 の修正中に、H-0136 のキーでの比較のテスト（カテゴリを逆順にした写し）が hash の seed によって `codes` ではなく `raises` を返すことが分かった。pandas がその人工の順の一覧を持てるかが seed で変わるためである。fit が作る順で影響が無いかを測った: 1891 列（3 つずつの組と #378・#380 の一覧）× 12 の seed で、fit の判定と、置き換えにしない 1418 列の一覧の扱いはどの seed でも同じだった。テストは `codes` か `raises` のどちらかを受け付ける（印を落とすと `[]` になり落ちる）。
+- **round 3 の前の monitor**: relational（観察した round は 1〜2）、CONVERGING・continue。disposition は continue。
+- **round 3**（`edd8089`）: APPROVE、指摘 0 件。run はこれで終わる。この実行の方針により、APPROVE と CI 緑でマージする。
+
+---
+
+## H-0140: 大きな num_leaves で学習する前に警告し、max_depth が 0 以下を LightGBM と同じ「制限なし」にする ― max_depth は制限せず、モデルの規則は変えない（#388）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-21
+- **決定日**: 2026-10-21
+- **関連**: #388、LizyStudio#729（同時に起票。Studio のサーバーの守り）、H-0121（`auto_num_leaves` と `num_leaves` の衝突の検査）、registry のカード D-20261021-019（この Proposal の方針の判断）、Codex の run `v021-388-critique`（仕組みと上限の案の実測）と `v021-388-critique-v2`（運用の安全の枠組みでの設計）
+- **スコープ**:
+  - `Model.fit` と `Model.tune` の、学習の前の警告（`num_leaves` が大きいとき）
+  - `auto_num_leaves` の算出で、`max_depth` が 0 のときの扱い
+  - CI の Linux のテストの job のメモリの上限
+  - tune の境界の拡張で `max_depth` に掛けていた上限 30 を外す（下限 -1 は残す）。そのために provider の protocol の `parameter_bounds(task)` が片側だけの範囲を許すようにする
+  - 範囲の外: `max_depth` の新しい制限（fit・既定の探索空間・境界の拡張のどれでも）、`num_leaves` の上限や拒否、isotonic の校正と生成 `train.py` の警告、LizyStudio のサーバーの守り（#729）、学習前に拒否するメモリの予算
+
+### 目的（課題）
+
+#388 は、LizyStudio を lizyml 0.20 に追従させる作業の中で、LizyStudio#729 と一緒に起票された。目的は**運用の安全**である。Studio の Fit フォームで Max Depth を `-1`（LightGBM が「制限なし」と文書に書く値）にするといった普通の操作 1 つで、150 行・3 特徴量の学習が約 12 GB を使い、OOM で kill される。同じ process で動けば、Studio のサーバーやマシンごと落ちうる。既定の探索空間の tune を `resume=True` で続けたときも、境界の拡張で `max_depth` が広がり、同じことが起きる。モデルのパラメータを制限してほしいという要望ではない。
+
+原因は LizyML の `auto_num_leaves`（既定で有効）の算出にある。`estimators/lgbm/smart_params.py` の `_compute_num_leaves` は、`num_leaves = max(8, min(131072, ceil(基準値 × num_leaves_ratio)))` で、基準値は `2 ** max_depth`、`max_depth` が未指定か負なら 131072 とする。既定の `num_leaves_ratio` は 1.0 なので、`max_depth` が 17 以上か負なら 131072 になる。
+
+### 実測（2026-10-21、Codex の run、develop `78e2a0c`、LightGBM 4.6.0。全ての測定を `ulimit -v 4000000` の下で 1 つずつ行い、`num_leaves` は 16384 までに限った）
+
+- **メモリは、育つ葉の数ではなく、指定した `num_leaves` で決まる**（`v021-388-critique`）。150 行・3 特徴量・`max_bin=255` で、`num_leaves` 256 / 1024 / 4096 / 16384 の最大 RSS は 60088 / 60904 / 68012 / 105272 KiB で、どの木も葉は 4 つだった。30 特徴量・`max_bin=255` では、256 から 16384 で 74.8 MiB から 1273.7 MiB に増えた。
+  - 1 つ目の項はヒストグラムの領域で、およそ 16 バイト × 特徴量の bin の合計 × `num_leaves` である。
+  - 2 つ目の項は、保存される木の配列で、およそ 80 バイト × `num_leaves` × round 数 × class 数である。既定の 1500 round と 131072 葉では、この項だけで約 14.8 GiB になる。
+  - つまり、`auto_num_leaves` のまま `max_depth=-1` にした設定は、ふつうのマシンでは事実上動かない。
+- **見積もりの精度**（`v021-388-critique-v2`）: 上の 2 項の和を、実測した最大 RSS と比べると、`num_leaves` 4096 以下の小さな例で予測と実測は 217612 / 218352、314280 / 326104、709608 / 719436、243212 / 244340 KiB、多値分類で 202624 / 202084 KiB（差は約 0.3〜3.8%）だった。いちばん小さな例では、固定の初期の使用量が大きく、差は約 26〜29% になる。
+  - 早期終了では、止まるまでの round の木が残る（100 round の設定で best iteration 1 でも 11 本の木が残った）。そのため、設定した round 数での見積もりは上限である。
+  - bin の数は `max_bin` だけでは決まらない（500 カテゴリの特徴量は `max_bin=63` でも 496 bin だった）。
+- **学習の済んだ booster が持ち続けるもの**（Proposal レビュー round 1 の後、手元で測定。150 行・30 特徴量・`max_bin=255`・`num_leaves=4096`・10 round、`ulimit -v 4000000`）: 最大 RSS は、1 つ目の booster の学習で 172324 KiB から 483908 KiB に増え、2〜4 つ目の booster を同時に残しても 483936〜484924 KiB だった。ヒストグラムの領域は学習の間だけ使われ、学習の済んだ booster は木の配列だけを持ち続ける。同時に残る booster が多いと木の項は数だけ増えるが、ヒストグラムの項は 1 回分である。
+- **上限を付ける案は今のモデルを変える**（`v021-388-critique`）。
+  - 「学習行数 ÷ `min_data_in_leaf`」の上限は、LizyML の既定の balanced の重みのもとで、学習される木を変えた（二値・多値の 14 組の全て）。
+  - 「学習行数」の上限は、72 組で木を変えなかったが、保存される `num_leaves` の値は変えた。データが大きければメモリも抑えない。
+
+### 管理者の判断（2026-10-21。カード D-20261021-019）
+
+1. **`max_depth` は制限しない**。fit、既定の探索空間、境界の拡張のどれでも制限しない。木の深さを制限するのは、機械学習の考え方として望ましくない。Codex の最初の推奨（4096 を超えたら拒否し、拡張で `max_depth` を 12 より広げない）は、これにより採らない。
+2. **モデルの規則は変えない**（`auto_num_leaves` の算出、上限、拒否）。例外は `max_depth = 0` で、LightGBM の文書の「`<= 0` means no limit」に合わせて「制限なし」とする。
+3. LizyML がするのは運用のための警告と文書である。Studio のサーバーは #729 が守る。
+4. 警告の条件は「`num_leaves` が 16384 以上」または「見積もりが 1 GiB 以上」。警告は `num_leaves` とその原因を主に書き、見積もりを「おおよその値」として添える。
+5. 警告を出すのは `Model.fit` と `Model.tune` だけである。isotonic の校正と生成 `train.py` には出さない。
+6. この変更の PR で、CI の Linux のテストの job にメモリの上限を付ける。
+7. （Proposal レビュー round 1 の後）tune の境界の拡張で `max_depth` に掛けていた既存の上限 30 も外す。下限 -1 は残す。
+
+### 対応方針（提案）
+
+1. **判定と見積もり**: `estimators/lgbm/` に新しい module を置き、次を決める。
+   - 判定に使う `num_leaves` は、smart param を解決した後に LightGBM が受け取る値である。次の 3 つのどれかになる。
+     - `auto_num_leaves` が導いた値（原因は「`max_depth` から導いた」）。
+     - `auto_num_leaves=false` のときに明示した値（原因は「明示した」）。別名（`num_leaf`・`max_leaf`・`max_leaves`・`max_leaf_nodes`）は `param_names.py` の LightGBM の別名の表で正規化する。
+     - `auto_num_leaves=false` で何も指定しないときの、LightGBM の既定の 31（原因は「LightGBM の既定」）。LizyML の既定のパラメータは `num_leaves` を持たない（`estimators/lgbm/defaults.py`）。
+   - 見積もりは「増える分のおおよその CPU メモリ」で、ヒストグラムの項 1 回分と、同時にメモリに残る booster の数だけの木の項の和とする（上の測定で、学習の済んだ booster はヒストグラムの領域を持ち続けない）。
+     - 見積もりが数えるのは、主の estimator（LightGBM の provider が作るモデル）の booster である。同時に残る数は、`Model.fit` では outer の fold の数 + refit の 1 つ（`CVTrainer` は fold の adapter を全て `models` に残し、refit はその後に学習する）、tune の 1 つの trial では outer の fold の数である。
+     - isotonic の校正の booster（校正の fold の最後の 1 つと最終の校正器の 2 つが、主の fold のモデルと同時に残る）は数えない。校正には警告を出さない判断 5 に合わせ、見積もりの対象の外であることを警告の文と文書に書く。
+     - 特徴量の bin の合計は、学習データの列から近似する。数の列は `min(異なる値の数, max_bin)`、カテゴリの列はカテゴリの数とし、`max_bin_by_feature` があればそれを使う。
+     - 見積もりの入力（`num_leaves`、round 数、class 数、`max_bin` と `max_bin_by_feature`）は全て、adapter が `lgb.train` に渡すのと同じ確定後の値から読む。具体的には、`LGBMAdapter._build_params` が作る params と `num_boost_round` を、学習を始めずに得る同じ経路を使う（判定のために別の解決を書かない）。
+       - 理由: adapter は `num_class` を y から書いた後に利用者の params で上書きしうる。round 数は `num_iterations` の全ての別名（`num_round`・`num_rounds`・`num_tree`・`num_trees`・`n_estimators`・`num_boost_round` など）から解決される。y の class の数や `n_estimators` だけを読むと、例えば `num_class=100` を指定した 3 class の tune で、見積もりは約 0.7 GiB、LightGBM が受け取る値では約 22.9 GiB になり、警告を見逃す。
+     - round 数は確定した `num_boost_round`（早期終了なら上限）、class 数は確定した `num_class`（多値分類以外は 1）とする。
+     - 近似であることと、早期終了では上限であることを、警告の文と文書に書く。
+   - 条件は「`num_leaves >= 16384`」または「見積もり >= 1 GiB」である。前者は、bin の近似が外れても 131072 葉を見逃さないためにある。後者は、葉が 16384 未満でも特徴量の多い場合を捉えるためにある。
+2. **Facade に判定を書かない**: `core/model.py` は組み立てだけを行う（CLAUDE.md §3）。判定は、provider の任意の capability として呼ぶ。
+   - `estimators/provider.py` に、`EstimatorProvider` とは別の `runtime_checkable` な Protocol（例えば `ResourceWarningProvider`）を置く。H-0128 の `TrialErrorProvider` と同じ形である。
+   - `Model.fit` と `Model.tune` は、`isinstance(provider, ResourceWarningProvider)` のときだけ判定を呼び、そうでなければ何もしない。H-0140 より前に書いた provider や、LightGBM 以外の provider は、そのまま `EstimatorProvider` を満たし、警告は出ない。
+   - LightGBM の provider だけが中身を持つ。`EstimatorProvider` の protocol 自体は変えない（変えるのは `parameter_bounds` の戻り値の形だけ。互換性の節）。
+3. **警告の出し方**: `UserWarning` とし、`stacklevel` を `Model.fit` / `Model.tune` の呼び手に向ける。
+   - 文は `num_leaves` の値、その原因（上の 3 つのどれか: `auto_num_leaves` が `max_depth` から導いた、明示した、LightGBM の既定）、おおよその見積もり、原因ごとの対処を書く。`max_depth` から導いたときは「浅い `max_depth`、または `auto_num_leaves=false` と小さな `num_leaves`」、明示したときと LightGBM の既定のときは「小さな `num_leaves`（または特徴量・`max_bin`・round を減らす）」である。後の 2 つでは `max_depth` を浅くしても葉は減らないので、それを勧めない。
+   - 警告を例外にする設定（`warnings` の filter、`-W error`）なら、学習の前に止まる。
+4. **出す位置と回数**:
+   - `Model.fit`: smart param を解決した後、`CVTrainer.fit` の前に 1 回だけ判定する。全ての fold と refit を合わせて 1 回である。
+   - `Model.tune`: trial ごとに、サンプルした値で解決した後、その trial の学習の前に判定する。最初に条件に当たった trial で 1 回だけ `UserWarning` を出し、以降の trial は logger に記録する。この 1 回は `tune()` の呼び出しごと（`resume` を含む）に数える。Python の警告の重複の filter には頼らない（trial ごとに文が違うため）。
+5. **`max_depth <= 0`**: `_compute_num_leaves` の条件を `max_depth < 0` から `max_depth <= 0` にする。既定の割合で `0` が導く値は 8 から 131072 になり、上の警告の対象になる。保存したモデルは、fold と refit の adapter が保存したパラメータ（8）のまま読み込み、予測し、`export_code` に渡す。新しく fit したときだけ新しい規則で導く。BLUEPRINT の算出ロジック（「未指定または負値」）を「未指定、または 0 以下」に直す。
+6. **CI のメモリの上限**: `.github/workflows/ci.yml` の Linux で pytest を走らせる全ての step に、仮想メモリの上限（`ulimit -v`）を設ける。対象は、Quality の matrix（develop と main の lane）、lowest-direct、latest deps、Smoke の `ubuntu-latest`、Notebook index の実行の job である（`rg -n pytest .github/workflows` で数えた全ての Linux の step。実装の PR でこの数え上げを繰り返し、漏れが無いことを確かめる）。macOS と Windows の Smoke は `ulimit -v` が同じには効かないので対象外とし、その理由を workflow の注釈に書く。値は、今のスイートが通ることを CI で確かめて決める。大きな `num_leaves` を扱うテストは `lgb.train` を差し替え、本物の学習をしない。
+7. **`max_depth` の上限 30 を外す**: `estimators/lgbm/provider.py` の `_LGBM_PARAMETER_BOUNDS` の `max_depth` を `{"min": -1}` にする。`tuning/search_space.py` の `attach_bounds` は、片側だけの範囲（`min` か `max` の片方）を受け付け、無い側を無制限とする。BLUEPRINT の `parameter_bounds(task)` の説明（`{"min": ..., "max": ...}`）を、片側だけを許す形に直す。
+   - 既に記録した study の resume では、変えていない次元は記録した範囲と上限をそのまま引き継ぐ（`_tuning_space.carry_forward` の今の規則）。上限 30 が外れるのは、新しい study と、変えた・足した次元である。
+   - LizyStudio は `parameter_bounds` を Range エディタに渡している（#729）。`max` の無い項目の扱いは #729 で合わせる。
+
+Firing rate: 0/5545 of the LightGBM training calls of the runnable non-slow test suite (Codex dynamic census at `78e2a0c`, maximum 3956 leaves; 8427 temp-path tests could not run in the reviewer's read-only sandbox, so the census over the full suite is repeated after implementation, with both trigger arms)
+
+- 既定の探索空間: 最初の `[3, 12]` では 0/100000、報告された拡張の後の `[3, 21]` では 36810/100000（乱数の seed を固定したサンプル。`num_leaves` の条件だけ）。見積もりの条件は、実装の中の改訂の項に測った値を書く。
+- 既定の fit（`max_depth=5`、32 葉）では警告しない。
+- 見積もりの条件（1 GiB 以上）は、同時に残る booster の数を数える形にしたので、上の census には入っていない。実装の後の full suite の census で、二つの条件の両方を測る。
+
+### 互換性
+
+- 学習の結果は変わらない。警告が増えるだけである。例外は `auto_num_leaves` のままの `max_depth = 0` で、新しく fit したときに導く `num_leaves` が 8 から 131072 になる（リポジトリの中のテスト・文書・notebook・例・既定の探索空間には `max_depth = 0` を使うものが無い。Codex の検索）。
+- 保存したモデルは変わらない（`format_version` も変えない）。
+- Config と `Model` の公開 API は変わらない。警告を例外にして使う利用者は、条件に当たる設定で学習の前に止まるようになる。
+- **provider の protocol の変更**: `EstimatorProvider.parameter_bounds(task)` の戻り値の形を広げる。今は各項目が `{"min": ..., "max": ...}` の両方を持つと定めているが、片側だけ（`min` だけ、または `max` だけ）を許す。これは公開の provider の protocol の意味の変更である。`estimators/provider.py` の docstring、BLUEPRINT の説明、provider の conformance test（`tests/test_estimators/test_check_provider.py` の `test_parameter_bounds_returns_dict`。両方の key と `min < max` を要求している）を、片側を許し、両方あるときだけ `min < max` を求める形に直す。
+- tune: 新しい study と、変えた・足した次元では、境界の拡張が `max_depth` を 30 より深く広げうる。拡張は最良の値が端の近くにあるときだけ働くので、深さ 30 の端に最良の値があった study だけで、次の round の範囲が変わる。記録した study の変えていない次元は、記録した上限のままである。
+- `parameter_bounds(task)` の戻り値で、`max_depth` は `max` を持たなくなる。この戻り値を読む呼び手（LizyStudio の Range エディタ）は、片側だけの範囲を扱う必要がある（#729）。
+
+### 代替案
+
+- **`num_leaves` が 4096 を超えたら拒否し、拡張で `max_depth` を 12 より広げない**（Codex の最初の推奨）: `max_depth` を制限するので採らない（判断 1）。
+- **学習行数や「行数 ÷ `min_data_in_leaf`」で自動の上限を付ける**: 後者は木を変え、前者は保存する値を変えるうえ、大きなデータではメモリを抑えない。モデルの規則を変えるので採らない（判断 2）。
+- **固定の低い上限（例えば 4096）**: 大きなデータの今のモデルを黙って変える。採らない。
+- **学習の前に拒否するメモリの予算（opt-in）**: モデルの規則は変えないが、見積もりの保守性、別名・device・`histogram_pool_size` の扱い、config と生成コードへの伝搬、tune の同一性を決める必要がある。この Proposal では採らず、警告を例外にする設定で代える。
+- **isotonic の校正と生成 `train.py` にも警告を出す**: 判断 5 により範囲の外とする。
+
+### 受け入れ基準
+
+1. `auto_num_leaves` のまま `max_depth=-1`、および `max_depth=0` の `Model.fit` で、`lgb.train` の呼び出しより前に `UserWarning` がちょうど 1 回出て、`num_leaves` の値と原因と見積もりを含む（`lgb.train` は差し替え、本物の学習をしない）。
+2. `auto_num_leaves=false` で `num_leaves`、およびその別名（`max_leaves` など）を 16384 以上にした fit でも同じ警告が出る。`auto_num_leaves=false` で何も指定しない fit は、LightGBM の既定の 31 で判定し、判定した値が LightGBM の受け取る値と同じであることを確かめる（`lgb.train` の差し替えで受け取った params を読む）。その値が見積もりの条件に当たる場合（特徴量と bin が多い）の警告の文は、原因として「LightGBM の既定」を書く。
+3. `num_leaves` は 16384 未満だが見積もりが 1 GiB 以上の fit で警告が出る。次の 2 つを含む: 特徴量と bin の多い場合と、1 つの booster では 1 GiB 未満だが fold と refit を合わせると超える場合（例えば `num_leaves=8192`、1000 round、20 fold）。後者は tune の trial でも確かめる。
+4. 既定の fit（`max_depth=5`）では警告しない。最初の既定の探索空間の tune で、`num_leaves` の条件（16384 以上）は当たらない。見積もりの条件は深い trial（`max_depth` 11〜12）で当たりうる（下の「実装の中の改訂」）。そのとき警告は呼び出しごとに 1 回である。
+5. CV の全ての fold と refit を合わせて、警告はちょうど 1 回である。
+6. 条件に当たる trial が複数ある `tune()`（`resume` を含む）で、`UserWarning` は呼び出しごとにちょうど 1 回で、以降の trial は logger に記録される。
+7. 警告を例外にする設定では、どの `lgb.train` も呼ばれない。
+8. `_compute_num_leaves(0, 1.0)` は 131072 で、新しく fit したモデルの `export_code` の `config.json` も 131072 を持つ（差し替えで確かめる）。`max_depth=0` で 8 葉を学習して保存した成果物は、load 後の予測と `export_code` が 8 のままである。
+9. 見積もりの式を、上の実測の例の数（予測値）で固定する単体テストがある。見積もりの入力が `lgb.train` の受け取る値と同じであることを、`lgb.train` の差し替えで受け取った params と `num_boost_round` を読んで確かめる。次を含む: `model.params` と tune のサンプルによる `num_class` の上書き、`num_iterations` と `num_leaves` と `max_bin` の全ての別名。警告の対処の文が原因ごとに違い、明示と既定のときに `max_depth` を勧めないことも確かめる。
+10. CI の Linux で pytest を走らせる全ての step（対応方針 6 の 5 つ）がメモリの上限の下で走り、通る。workflow の中で pytest を走らせる Linux の step のうち上限の無いものが 0 であることを、テストで数える。
+11. BLUEPRINT（算出ロジック、警告、`parameter_bounds` の片側の範囲）と CHANGELOG を更新する。
+12. `max_depth` の上限: provider の conformance test が片側だけの範囲を受け付け、両方あるときだけ `min < max` を求める。`parameter_bounds` の `max_depth` は `{"min": -1}` で、最良の値が端の近くにある新しい study の境界の拡張が 30 より深く広がる。下限 -1 はそのまま効く。片側だけの範囲を `attach_bounds` が受け付け、無い側を無制限にする。記録した study の resume で、変えていない `max_depth` の次元は記録した上限 30 のままである。
+13. capability: `ResourceWarningProvider` を実装しない provider（テストの最小の provider）で `Model.fit` と `Model.tune` が今と同じに動き、警告を出さない。LightGBM の provider は `isinstance(provider, ResourceWarningProvider)` を満たす。
+
+**レビューの停止基準**: 上の受け入れ基準のテスト、実装の後の full suite での firing rate の census、文書、CI の上限が通ったら止める。経験的な係数の精度を詰めること、拒否する予算を必須にすること、Studio の守りを LizyML で解くこと、`max_depth` を制限することは、次の round に進む理由にならない。
+
+### Proposal レビュー round 1（2026-10-21）
+
+- **結果**: Codex の run `h0140-proposal-review` の round 1（`00e223b`）は CHANGES_REQUESTED で、major 4 件だった。
+- **対応**（上の本文を直した）:
+  1. 見積もりが 1 つの booster だけを数え、fold の adapter と refit が同時にメモリに残ることを無視していた（`num_leaves=8192`・1000 round・20 fold で、1 つでは 0.64 GiB、合わせて約 12.8 GiB）。→ 学習の済んだ booster が何を持ち続けるかを測り（ヒストグラムは持ち続けない）、見積もりを「ヒストグラムの項 1 回分 + 同時に残る booster の数だけの木の項」にした。受け入れ 3 に、この場合を足した。
+  2. `auto_num_leaves=false` で何も指定しないとき、LightGBM の既定の 31 が使われる場合が抜けていた。→ 判定の値の 3 つ目に足し、受け入れ 2 に足した。
+  3. CI の上限の対象から、Smoke の `ubuntu-latest` と Notebook index の実行の job が漏れていた。→ Linux で pytest を走らせる 5 つの step を全て対象にし、上限の無い step が 0 であることをテストで数える（受け入れ 10）。
+  4. tune の境界の拡張に、`max_depth` の既存の上限 30 が残っていた。→ 管理者に判断を仰いだ。管理者は「上限 30 も外す」を選んだ（判断 7）。対応方針 7・互換性・受け入れ 12 を足した。
+
+### Proposal レビュー round 2（2026-10-21）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`ff31866`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`ff31866`）は CHANGES_REQUESTED で、major 3 件だった。どれも round 1 の対応の欠陥なので、停止ルールにより管理者に判断を仰ぎ、管理者は「直して round 3」を選んだ。
+- **対応**（上の本文を直した）:
+  1. LightGBM の既定の 31 を判定の値に足したのに、警告の文の原因に入れていなかった。→ 文の原因を 3 つにし、受け入れ 2 で「LightGBM の既定」を書くことを確かめる。
+  2. 「fold + refit」の数が、isotonic の校正の booster（2 つが同時に残る）を数えていなかった。→ 見積もりが数えるのは主の estimator の booster だと書き、校正の booster は判断 5 に合わせて対象の外だと警告の文と文書に書く。
+  3. `parameter_bounds(task)` の戻り値の形を変えるのに、互換性で「公開 API は変わらない」と書いていた。→ provider の protocol の変更として互換性とスコープに書き、protocol の docstring と conformance test を直す（受け入れ 12）。
+
+### Proposal レビュー round 3（2026-10-21）
+
+- **monitor**: round 3 の前に、runner の relational monitor を走らせた（`7e65722`、観察した round は 1〜2）。結果は CONVERGING・continue で、disposition は continue。
+- **結果**: round 3（`7e65722`）は CHANGES_REQUESTED で、major 1 件だった。run `h0140-proposal-review` はこれで終わる。
+  - 判定を「`BaseEstimatorProvider` の新しいメソッド」として呼ぶと書いていたが、その型は無い。Facade の境界は構造の Protocol `EstimatorProvider` で、既定の実装を持たない。そのまま足すと、古い provider や LightGBM 以外の provider が fit と tune で落ちる。→ H-0128 の `TrialErrorProvider` と同じ任意の capability（`ResourceWarningProvider`）にし、実装しない provider では何もしない形にした（対応方針 2、受け入れ 13）。
+- run が尽きたので、管理者は新しい通常の run を選んだ。
+
+### Proposal レビュー（2 本目の run）round 1（2026-10-21）
+
+- **結果**: Codex の run `h0140-proposal-review-2` の round 1（`4e546d8`）は CHANGES_REQUESTED で、major 1 件・minor 1 件だった。
+- **対応**（上の本文を直した）:
+  1. major: 見積もりの class 数と round 数が、LightGBM の受け取る値と同じであることを求めていなかった（adapter は `num_class` を利用者の params で上書きし、round 数は `num_iterations` の別名から解決する。`num_class=100` の例で約 0.7 GiB と約 22.9 GiB）。→ 見積もりの入力を全て、adapter が `lgb.train` に渡す確定後の params と `num_boost_round` から読むと決め、受け入れ 9 で上書きと全ての別名を確かめる。
+  2. minor: 明示した `num_leaves` と LightGBM の既定のときにも「浅い `max_depth`」を勧めていた。→ 対処を原因ごとに分けた。
+
+### Proposal レビュー（2 本目の run）round 2（2026-10-21）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`97ceb82`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`97ceb82`）は APPROVE で、指摘は 0 件だった。run `h0140-proposal-review-2` はこれで終わる。この実行の方針により、APPROVE をもって受け入れとした（2026-10-21、Accepted）。
+
+### 実装の中の改訂（2026-10-21、管理者の判断）
+
+- **測定**（150 行・3 特徴量・`num_leaves=4096`・300 round、`ulimit -v 4000000`）: `keep_training_booster=False` で学習した booster は、学習の後に指定した葉の数の大きさの木を持ち続けなかった（4 つを同時に残しても約 1 MB ずつ）。LizyML の adapter が使う `keep_training_booster=True` では持ち続け、1 つにつき約 110 MB 増えた（4 つで 446 MB。見積もりの式は 421 MB）。fold の数だけ木の項を数える対応方針 1 の式は、LizyML の adapter では正しい。
+- **既定の探索空間での見積もりの条件**: 上の式（5 fold）で、`max_depth` 3〜12・`num_leaves_ratio` 0.5〜1.0・`n_estimators` 600〜2500 を一様に 200000 点サンプルすると、見積もりが 1 GiB 以上になる trial は 12.2%（3 特徴量）と 14.9%（30 特徴量・255 bin）だった。ほとんどが `max_depth` 11〜12 である。早期終了では実際の round 数はこれより少ないが、見積もりは上限である。
+- **判断**: 管理者は条件を 1 GiB のままとした（その trial は実際に 1〜3.8 GiB を使いうる。tune の警告は呼び出しごとに 1 回）。受け入れ 4 をそれに合わせて直した。firing rate は実装の後の census で、二つの条件の両方を測る。
+
+### 実装の記録（2026-10-21）
+
+- **コード**:
+  - `lizyml/estimators/lgbm/memory_check.py`（新しい）: `finalized`（adapter の `_build_params` から確定後の params と `num_boost_round`）、`feature_bins`（`category` 列はカテゴリの数、数の列は `min(異なる値の数, max_bin)`、それ以外の列は行の数。値を比べない）、`estimate_bytes`、`assess`、`message`（原因ごとの対処）。閾値は `LEAVES_THRESHOLD = 16384` と `BYTES_THRESHOLD = 1 << 30`。
+  - `estimators/provider.py`: 任意の capability `ResourceWarningProvider`。`LGBMProvider.resource_warning` が中身を持つ。
+  - `lizyml/core/_resource_warning.py`（新しい）: `check_resources`（capability の判定、`UserWarning`、`stacklevel`）と `WarningLatch`。`Model.fit` は `get_outer_n_splits(cfg) + 1` 個、tune の trial は fold の数を渡す。latch は `_build_tune_objective` の中で作るので、`tune()` の呼び出しごとに 1 つである。
+  - `smart_params._compute_num_leaves` の条件を `<= 0` に、`_LGBM_PARAMETER_BOUNDS["max_depth"]` を `{"min": -1}` に、`attach_bounds` を片側の範囲を受け付ける形にした。
+  - `.github/workflows/ci.yml`: workflow の `env` の `PYTEST_MEMORY_CEILING_KIB: 12582912`（12 GiB）を、Linux で pytest を走らせる 5 つの step が `ulimit -v` で使う。Smoke は Linux の step とそれ以外の step に分けた。
+- **実装で決めたこと**:
+  - CI の上限の値: 手元（16 GB）で、`ulimit -v 12582912` の下で not slow のスイート（22446 件）と slow のテスト（30 件、notebook の実行を含む）が全て通ったので 12 GiB とした。
+  - tune で警告を例外にする設定では、trial の中の `UserWarning` を tuner が受けて `TUNING_FAILED`（警告の文を含む）として出す。学習は 1 度も呼ばれない（受け入れ 7 のテストはこの形を確かめる）。
+  - tune の警告の `stacklevel` は Optuna の中の frame を指す。fit の警告は利用者の `fit` の行を指す（テストで確かめた）。
+  - 既存のテスト 4 本を新しい契約に合わせた: provider の conformance test（片側の範囲）、`test_smart_value_rules`（片側の範囲の端）、#152 の上限 30 のテスト（判断 7 で上限が無いことを固定する形にした）、`carry_forward` のテスト（新しい次元の上限が無いこと）。
+- **firing rate（実装の後の census）**: 判定を全て記録する pytest の plugin を付けて、full suite（`-m ""`）を流した。2 本目の実装レビューの round 1・2 で bin の数え方を直した後に、その都度取り直した（最後は 22516 件が通った）。どの census でも、当たったのは最初の census（3/3359）と同じ 3 件である。
+
+  Firing rate: 3/3329 of the H-0140 assessments the suite makes outside the H-0140 tests (3356 assessments over 2141 tests, after the bin-count fixes of rounds 1 and 2 of the second implementation review; 3/3356 after round 1; the 3 are the estimate arm only, on deep default-space tune trials in `tests/test_e2e/test_pairwise.py` and `tests/test_persistence/test_reporting_surfaces_survive_load.py`; the leaf arm fired 0 times outside the H-0140 tests)
+
+  - H-0140 のテストの中では 21 回当たった（`num_leaves` の条件 17、見積もりの条件だけ 4）。notebook のカーネルの中の fit は plugin が届かないので数えていない。
+- **テスト**: `tests/test_estimators/test_h0140_memory_warning.py`（受け入れ 1〜9・12・13）、`tests/test_ci_memory_ceiling.py`（受け入れ 10）、`tests/test_tuning/test_space_declaration.py` の記録した study の上限（受け入れ 12）。
+
+### 実装レビュー（2026-10-21）
+
+Codex の run `h0140-impl-review`（3 round）。3 回とも同じ一つの入力（`max_bin_by_feature` の書き方）の見逃しだった。
+
+- **round 1**（`4a8b9e2`）: CHANGES_REQUESTED、major 1。カンマ区切りの文字列を読まず、`max_bin` の上限で見積もった（LightGBM はリストと同じに扱う）。→ リスト・tuple・配列・文字列を同じに読む（`f51dce5`）。
+- **round 2 の前の monitor**: absolute、DELIVERABLE-FOCUSED・continue。disposition は continue。
+- **round 2**（`f51dce5`）: CHANGES_REQUESTED、major 1。整数 1 つ（LightGBM は要素 1 つのリストとして読む）を読めなかった。round 1 の修正の欠陥なので停止ルールで管理者に仰ぎ、管理者は「直して round 3」を選んだ。→ 整数を要素 1 つとして読む（`7cc4870`）。
+- **round 3 の前の monitor**: relational（観察した round は 1〜2）、CONVERGING・continue。disposition は continue。
+- **round 3**（`7cc4870`）: CHANGES_REQUESTED、major 1。浮動小数（`8192.0`・`np.float64`・`[8192.0]`）を読めなかった。run はこれで終わる。
+  - 書き方を 1 つずつ足していたのが原因で、開いた文法を手で読む DC1 の形だった。→ 形を足すのをやめ、読み方を閉じた。整数と有限の数（LightGBM の C++ の読み方と同じく切り捨て）を読み、それでも読めない値は上限を掛けない（その特徴量は異なる値の数をそのまま数える）。見積もりは大きくなることはあっても、小さくはならない。`max_bin` も同じ読み方にした（以前は `"511.0"` で `int()` が例外になり、fit が落ちえた）。
+  - テストは、LightGBM が受け付ける形では LightGBM 自身が作る bin の数（`Dataset.construct()` と `feature_num_bin`、学習はしない）を下回らないこと、拒否する形（`max_bin` の浮動小数、空白入りの小数の文字列）では LightGBM が学習の前に拒否し、見積もり自体は例外を出さないことを確かめる。
+- run が尽きたので、管理者は新しい通常の run を選んだ。
+
+#### 2 本目の run（`h0140-impl-review-2`）
+
+- **round 1**（`dc60395`）: CHANGES_REQUESTED、major 1。値の種類の少ない数の列で、LightGBM は値の数に既定（0）の bin と欠損の bin を足す（1.0 と 2.0 だけの列が 3 bin。3000 特徴量で見積もり 6000 bin、LightGBM は 9000 bin）。見積もりが LightGBM より小さくなり、1 GiB を超える fit を見逃した。→ 小さな Dataset で測ると、値の数を超える bin は 1 特徴量につき最大 2（カテゴリの列は 1）だったので、各特徴量に 2 を足した。テストは、値の種類の少ない列・欠損・0・負の値・カテゴリの列について、見積もりが LightGBM の作る bin の数を下回らないことを確かめる。census を取り直した（上の firing rate）。
+- **round 2 の前の monitor**: absolute、DELIVERABLE-FOCUSED・continue。disposition は continue。
+- **round 2**（`7a9e38b`）: CHANGES_REQUESTED、major 1。bin の作り方を変える LightGBM のパラメータ（`categorical_column` で数の列をカテゴリにする、`forcedbins_filename` で境界を強制する）を見積もりが見ず、LightGBM より小さく数えた。round 1 の修正の「上界」の主張の穴なので停止ルールで管理者に仰ぎ、管理者は直し方として「文書の一覧で閉じる」を、進め方として「直して round 3」を選んだ。
+  - → LightGBM 4.6 が文書に書く Dataset のパラメータ 23 個を `memory_check.DATASET_PARAMS` で分類した（上界を保つもの 11、bin を増やしうるもの 2、ファイルの読み書きだけのもの 10）。増やしうるもの（`categorical_feature`・`forcedbins_filename`）が指定されていれば、数の列の bin を「異なる値の数と上限の大きい方 + 2」で数える。
+  - `linear_tree` は bin を変えないが、葉ごとに線形モデルを持つ（10 特徴量で、指定の葉 1 つ・1 round につき約 124 バイト増えた）。木の項に、葉 1 つ・1 round につき 16 バイト ×（特徴量の数 + 1）を足す。
+  - テストは、指摘の 2 つの例で見積もりが LightGBM の作る bin の数を下回らないこと、分類した 23 個が全て LightGBM の正規の名前であること、`linear_tree` の分を確かめる。census を取り直した（上の firing rate。カテゴリの列のある普通の fit で新しく当たるものは無かった）。
+- **round 3 の前の monitor**: relational（観察した round は 1〜2）、CONVERGING・continue。disposition は continue。
+- **round 3**（`00e673c`）: APPROVE。minor 1: 分類のテストは 23 個が正規の名前であることと 3 つの区分があることだけを確かめ、どの名前がどの区分かは固定していない（Codex は分類そのものを別に確かめ、正しいとした）。APPROVE の後の変更を増やさないため、この PR では直さない。run はこれで終わる。この実行の方針により、APPROVE と CI 緑でマージする。
+
+## H-0139: 時刻の値のカテゴリを「同じ瞬間か」で決め、#379 の列も fit と predict で同じ符号にする ― 時区の種類によらず同じ瞬間は 1 つのカテゴリ、timedelta64 の年・月の単位は fit で拒否する（#379）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-22
+- **決定日**: 2026-10-22
+- **関連**: #379、H-0138（同一性のキーと pandas に忠実かの判定。時刻の型をこの Proposal に回した）、H-0133（値の集合 V、置き換えの列）、H-0136（保存の前の検査）、registry のカード D-20261021-014（#378〜#380 を 2 本の Proposal で扱う判断）と D-20261022-002（この Proposal の契約の判断）、Codex の run `h0139-temporal-critique`（契約の批評と測定）と `h0139-mechanism-design`（機構の設計）。どちらの結果も `docs/audits/2026-10-h0139/codex/` に写した
+- **スコープ**:
+  - H-0138 のキーと「pandas に忠実か」の判定を、時刻の型の値（`pd.Timestamp`・`datetime.datetime`・`datetime.date`・`np.datetime64`・`pd.Timedelta`・`datetime.timedelta`・`np.timedelta64`、それを持つ `tuple`・`frozenset`）に広げる。実行時のライブラリと、`export_code` が生成する `train.py`・`predict.py` の両方
+  - `np.timedelta64` の年（`Y`）・月（`M`）の単位を fit で拒否する
+  - 保存形式は変えない（`FORMAT_VERSION` は 5 のまま、`category_identity_version: 1` の意味を広げる）
+  - 範囲の外: tune の指紋（`core/_tuning_identity.py`）、LightGBM 自身の振る舞い、V の外の値（pytz の時区を持つ `datetime.datetime` は今も V の外）、H-0138 の時刻でない値の契約、#382
+
+### 目的（課題）
+
+H-0138 は、時刻の型の値を含む列を範囲の外とし、今の pandas の経路（`astype("category")` と hash での照合）に残した。この経路で、時刻の値の「同じかどうか」が値そのものでなく、一緒に渡す行や保存の仕方で変わる。
+
+- **#379**: pandas 2 で、pytz の同じ時区の `Timestamp` だけの列（2024-11-03 01:30 America/New_York の夏時間と標準時）で fit したモデルが、in-memory の predict で自分の学習の行 800 のうち 426 を unseen と判定し、`unseen_policy` で置き換える（DC1）。fit の `astype("category")` が `datetime64[ns, tz]` のカテゴリを作り、標準時の値を `fold=1` で作り直す。その hash は、predict が見る元の pytz の `fold=0` の値と違う。H-0136 は、この列のモデルの保存を拒否し、fit で警告する。
+- **同じ族**（pandas 2.3.3、`docs/audits/2026-10-h0139/probes/temporal_matrix_pd2.out`）:
+  - pytz の標準時と、同じ瞬間の zoneinfo の `fold=1` と `"y"` の列は、3 つのカテゴリになり、値 1 つだけの予測が全体のバッチの中の予測と違う。保存は拒否される。
+  - pytz の標準時と `"x"` の列は、in-memory では正しいが、joblib が pytz の値を `fold=1` で戻して hash が変わるので、H-0136 が保存を拒否する。
+- **H-0133 の `SAMPLES` の列**（Codex の run が実行で確かめた）:
+  - ns より細かい単位（`ps`・`fs`・`as`、`2s`・`10ms` の倍数）の `np.datetime64` の列（800 行）は、学習した値を正しく引けない。pandas 2.3.3 では、予測が 6 つの値の 338 行を unseen とし、最頻値 `Timestamp("1970-01-01")` に置き換える。pandas 3.0.1 では unseen の警告は出ないが、`ps`・`fs`・`as` の 3 つの値の 175 行が、警告なしに epoch の符号になる。どちらも DC1 である（Proposal レビュー round 2 が両方の環境で実行して確かめた。`h0139-temporal-critique` の finding 5 と、それを写したこの Proposal の最初の版は、338 行を pandas 3 のこととしていた）。値 1 つのバッチの予測でも、符号がまとまる（pandas 2 では欠損の符号にもなる。`h0139-mechanism-design` の finding 2）。
+  - `SAMPLES` の単位の混ざった `np.timedelta64` の値だけの列は、fit の cast が pandas 2・3 とも失敗する（`from_unit must be <= to_unit`、単位 `Y` は扱えない）。文字列と混ざった同じ値の列（H-0133 の受け入れの `numpy.timedelta64 with a str`）は、object のまま残るので今 fit できる。
+  - pandas 2 の `SAMPLES` の `Timestamp` の値だけの列は、fit の cast が `Categorical categories must be unique` で失敗する。
+- 予測の段で fit と同じ cast をする案は直らない。`[標準時, "x"]` のバッチでは cast が `fold=0` を残すので、結果がバッチの中身で変わる（H-0138 の批評 `v021-category-critique`）。値 1 つから決まる同一性が要る。
+
+### 実測（2026-10-22、branch `feat/h0139-temporal-category-identity`、develop `3f8b65f` の上）
+
+測定のスクリプトと出力は `docs/audits/2026-10-h0139/` にある。
+
+- **今の振る舞い**（`probes/temporal_matrix.py`、800 行・8 round のモデル。fit、in-memory の predict、値 1 つずつのバッチと全体のバッチの比較、export と load、`export_code`）: pandas 2.3.3 で 19 通り、pandas 3.0.1（pytz が無い）で 15 通り。
+  - 今 1 つのカテゴリにまとまり、全ての段で正しく動く組: UTC と New York の同じ瞬間、固定オフセットと zoneinfo の同じ瞬間、pytz と zoneinfo の同じ瞬間（曖昧でない時刻）、`datetime` と `Timestamp` の同じ時刻、`Timestamp` の単位 `s` と `ns`、`np.datetime64` の `D` と `ns`、`np.datetime64` と `Timestamp`、`np.timedelta64` の `h` と `m`、`pd.Timedelta` と `datetime.timedelta`。
+  - 今 2 つのカテゴリになり、正しく動く組: naive と tz 付きの同じ時刻、`date` と 0 時の `Timestamp`、zoneinfo の `fold=0` と `fold=1` の `Timestamp`（2 つの瞬間）。
+  - 壊れている組（pandas 2.3.3 だけ）: 上の「目的」の 3 つ。
+- **候補の契約ごとの影響**（`codex/h0139-temporal-critique.json`、`SAMPLES` の時刻の 8 列と上の 19 通り。予測の差は Codex が実行して測った）:
+  - 下の判断 1 の契約で、`SAMPLES` の時刻の 8 列のうち、今 fit できて結果（カテゴリの数・符号・最頻値・予測）が変わるのは 2 列: `datetime` の列（同じ時区の zoneinfo の `fold=0` と `fold=1` が分かれ、5 から 6 カテゴリ）と `np.datetime64` の列（ns より細かい値が分かれ、12 から 15 カテゴリ）。予測の差は最大 0.00037 と 0.00061。今 fit が失敗して通るようになるのは、pandas 2 の `Timestamp` の列の 1 列だけで、pandas 3 では 0 列である（Proposal レビュー round 1 が、判断 4 の年・月の拒否を入れて 2 つの環境で数え直した）。批評の run が数えた「pandas 2 で 2 列、pandas 3 で 1 列」は、年・月を暦の月として扱うキーを前提にした数で、単位の混ざった `np.timedelta64` の列を含む。判断 4 ではこの列は拒否のままである。
+  - 19 通りでは、pandas 3 で 0/15 が変わる。pandas 2 で 1/19（pytz の標準時・zoneinfo の `fold=1`・`"y"` の列が 3 から 2 カテゴリになり、800 行のうち 510 行の確率が最大 0.00049 変わる）が変わり、3/19（上の「目的」の 3 つ）が保存の拒否から保存できるようになる。
+  - 時区の種類や fold もキーに入れる契約は、今 1 つにまとまって正しく動く組（UTC と New York など）を割る。Python・pandas の `==` に合わせる契約は、推移律が無く hash とも合わないので、キーにならない。
+- **firing rate**（下の対応方針 2・3 の条件）: 時刻の列がキーで作り直される（cast が例外を出すか、忠実でない）か、年・月の単位で拒否される割合。試作の規則（`firing/h0139_rule.py`）で測った。
+
+  Firing rate: 13/2767 of the builder visits and 44/5183 of the encoder fits the test suite makes, of every dtype (census over the full suite with `firing/h0139_census.py`, pandas 3.0.1: rebuilt 3 + 4, Y/M refused 10 + 40, 0 rule errors; `firing/census_pd3.*`); 415/4620, 479/4845 and 344/4845 of the temporal probe columns on pandas 3.0.1, 2.3.3 and 2.0.0 (`firing/probe_columns_pd3.out`, `_pd2.out`, `_pd200.out`)
+
+  - テストスイート（22486 本が通った）で、時刻の列は builder に 101 回、エンコーダの fit に 441 回来た。条件に当たったのは、H-0133 と H-0136 の受け入れテストの時刻の case だけである（`firing/census_pd3_by_test.out`）。
+    - 作り直し: H-0133 の受け入れの `numpy.datetime64` の列（2 本のテスト）と、H-0136 の受け入れの `zoneinfo fold 1 + fixed offset` の組（同じ瞬間なので 1 つのカテゴリになる）。
+    - 年・月で拒否: H-0133 の受け入れの `numpy.timedelta64 with a str`・`timedelta64[Y] with a str`・`timedelta64[M] with a str`（2 本のテストで 6 つの case。今は通る）と、H-0136 の受け入れの月の 4 本。
+    - ふつうの入力の時刻の列では、1 列も働かない。時刻の列で働くのは、pandas が取り違える混在の列と年・月の値のためだからである。
+    - 時刻でない列の作り直し（builder 701、エンコーダ 941）は、H-0138 のテストが #378・#380 の形を作るもので、H-0139 は変えない。
+  - 検査用の列（`firing/probe_columns.py`。H-0138 の `probe_columns.py` と同じ列で、`SAMPLES` の 1 つずつと 2 つずつの組と H-0138 の issue の形、それぞれ `"x"` と並べた）: pandas 3.0.1 で時刻の列 4620 のうち、cast の失敗で作り直し 190、忠実でなく作り直し 4、年・月で拒否 221、忠実 4205。pandas 2.3.3 で 4845 のうち 247・7・225・4366。pandas 2.0.0（lowest-direct のレーン、`/tmp` に作った環境）で 4845 のうち 111・8・225・4501。規則が読めなかった列は 0。Codex の run の数と一致した。
+  - `probes/temporal_matrix.py` の列では、pandas 3 で 0/15、pandas 2 で 1/19（pytz の標準時と zoneinfo の `fold=1` の列。同じ瞬間のキーが重なるので作り直す）。
+
+### 管理者の判断（2026-10-22。カード D-20261022-002）
+
+Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決めた。
+
+1. **同じ瞬間なら 1 つのカテゴリにする**（契約 A）。tz を持つ `datetime`・`Timestamp` は、同じ UTC の瞬間なら、時区の種類（UTC・IANA の zoneinfo・pytz・固定オフセット）によらず 1 つ。naive の `datetime`・`Timestamp`・`np.datetime64` は、壁時計の座標が（ns より細かい単位も含め）正確に等しければ 1 つ。naive と tz 付きは別。`date` と 0 時の `datetime` は別。固定の長さの期間（`pd.Timedelta`・`datetime.timedelta`・固定の単位の `np.timedelta64`）は、長さが正確に等しければ 1 つ。`tuple`・`frozenset` は要素ごとにこの規則で比べる。
+2. **新しく fit したモデルが変わることを受け入れる**（上の実測の変化。同じ時区の zoneinfo の fold の組が `datetime` の列で分かれる、ns より細かい `np.datetime64` が別の値と取り違えられなくなる、pytz の標準時と zoneinfo の `fold=1` が 1 つになる）。保存したモデルは、保存した引き方のまま。
+3. **`category_identity_version: 1` の意味を広げ、時刻の型も含める**。H-0138 は develop にあるだけで、リリースしていない。版 2 は作らず、`FORMAT_VERSION` は 5 のまま。
+4. **`np.timedelta64` の年（`Y`）・月（`M`）の単位は、fit で、列の名前を示す `LizyMLError` で拒否する**。暦の月の種類は作らない。
+
+### 対応方針（提案。Codex の run `h0139-mechanism-design` の設計による）
+
+1. **キー**: `core/category_values.py` の `category_identity_key` を時刻の型に広げる。型の完全一致で分け、時刻でない値のキーは変えない。共通の座標はアト秒の整数で、Python の `int` で計算する（int64 や ns の範囲で溢れない）。
+   - 単位ごとの係数: `W` = 604800×10^18、`D` = 86400×10^18、`h` = 3600×10^18、`m` = 60×10^18、`s` = 10^18、`ms` = 10^15、`us` = 10^12、`ns` = 10^9、`ps` = 10^6、`fs` = 10^3、`as` = 1。
+   - `date` → `("date", 序数)`。
+   - naive の `datetime`・`Timestamp`・`np.datetime64` → `("datetime", "naive", 座標)`。tz 付きの `datetime`・`Timestamp` → `("datetime", "aware", UTC の座標)`。
+     - `Timestamp`: `int(value.asm8.view("i8"))` に `value.unit` の係数を掛ける。tz 付きでも `asm8` は UTC なので、オフセットを引き直さない。`.value`（ns を求めて溢れうる）は使わない。
+     - `datetime`: 壁時計の µs（`value.replace(tzinfo=None)` と 1970-01-01 の差）から、tz 付きなら `utcoffset()` の µs を引き、10^12 を掛ける。fold と時区の種類のオフセットはここで入る。naive の `datetime` の fold は使わない。
+     - `np.datetime64`: `np.datetime_data` の単位と倍数で、生の整数に倍数を掛ける。固定の単位は係数を掛ける。`Y` は 1970+n 年の 1 月 1 日、`M` は 1970+n//12 年の n%12+1 月 1 日を、先発グレゴリオ暦の日数（Python の整数で計算）にして `D` の係数を掛ける。int64 の日の dtype を通さない。
+   - 期間 → `("duration", 長さ)`。`pd.Timedelta` は `asm8` の整数と単位の係数、`datetime.timedelta` は `((days×86400+seconds)×10^6+microseconds)×10^12`、固定の単位の `np.timedelta64` は生の整数×倍数×係数。
+   - 単位の無い `np.timedelta64`（V が受け付ける）→ `("timedelta64-generic", 生の整数)`。固定の期間とは別のキーである（長さを持たないので、長さを作らない）。
+   - 年・月の単位の `np.timedelta64` はキーを持たない（`TypeError`。入れ子の中も同じ）。
+   - `refusal()`・`ADMITTED_TYPES`・codec は変えない。時区の名前と fold の印はキーに入らないので、codec が pytz の時区を固定オフセットで書いても、joblib が fold を作り直しても、キーは変わらない。
+2. **年・月の拒否**: `category_values.py` に fit の検査を置く。欠損でない行の値と、宣言した全てのカテゴリ（使われていないものも）を、`tuple`・`frozenset` の中まで見て、`Y`・`M` の単位の `np.timedelta64` を集める（倍数があっても同じ）。
+   - `dataframe_builder._apply_categorical` で `identity_eligible` と `astype` の前に、`CategoricalEncoder.fit` でカテゴリを学ぶ前に走らせる。キーの無い値が黙って pandas の経路に落ちることを防ぎ、エンコーダを直接使う呼び手も覆う。
+   - 例外: `LizyMLError`、code `DATA_SCHEMA_INVALID`、文 `Column '<列>' contains calendar-unit numpy timedelta64 categories: <並べた単位>.`、context `{"column": 列, "units": 並べた単位, "reason": "calendar_timedelta64"}`。
+   - 生成 `train.py` は、`cast_categoricals` の前、宣言したカテゴリの復元の前、`fit_pipeline` で各列を学ぶ前に、同じ文の `ValueError` を出す（生成コードの今の例外の慣習）。印の無い古い設定で学習し直すときも検査する。
+   - predict では検査しない。年・月の値は、キーが無いので unseen として扱う（`mode` は保存した最頻値、`nan` は欠損、`error` は今の unseen の `DATA_SCHEMA_INVALID`。生成コードは `ValueError`）。印の無い列は保存した pandas の経路のまま。
+   - 今 fit できて拒否に変わるもの: 検査用の列で、年・月を含む列 221（pandas 3）・225（pandas 2）のうち、今 fit が通るのは 203・211、残り 18・14 は今も失敗する。`SAMPLES` の単位の混ざった `np.timedelta64` の値だけの列は今も両方の版で失敗するが、文字列と混ざった列は今 fit でき、拒否に変わる（H-0133 の受け入れの case。census で確かめた）。
+3. **経路**: `identity_eligible` とキーから `holds_temporal` の除外を外す（V の検査と年・月の検査は残す）。生成コードの写し（`identity_template.py` の `_identity_eligible`・`_identity_key`・`_key`）も同じにし、`_key` に時刻の全ての分岐を足す（最後の `frozenset` の分岐に落とさない）。`holds_temporal` は、テストと census のための観察用に残す。
+   - `cast_is_faithful` とその写しは変えない。忠実とは、キー・行の符号・欠損の符号・宣言の順のことで、代表の値の型が pandas の正規化で変わることは問わない。
+   - pandas 2 が `Timestamp` だけの列を `datetime64[ns, tz]` のカテゴリにしても（#379）、`np.datetime64` の日の列を `Timestamp` のカテゴリにしても、キーで忠実なら、今のカテゴリ・代表の値・順・最頻値をそのまま使う。忠実でなければ、H-0138 と同じに作り直し、置き換えの列にする（`DataFrame.attrs` の記録は列の名前だけで、カテゴリは各 fold の中で学ぶ）。
+   - `CategoricalEncoder.fit` は、忠実か作り直したかによらず、キーを持つ全ての時刻の列を `identity_columns` に入れる。transform は、これらの列を常にキーで引く。置き換えの判定は今のまま（作り直した列は位置の番号、忠実な列は推定器の `needs_stand_in`）で、時刻の列だからという新しい規則は足さない。
+4. **保存した引き方を変えない**: `CATEGORY_IDENTITY_VERSION = 1` と `FORMAT_VERSION = 5` はそのまま。load・export・変換の間に `identity_columns` を計算し直さない。`identity_fields`、`CategoricalEncoder.load_state`、loader の印の検査、生成コードの `_identity_fields`・`_load_pipeline` は振る舞いを変えない。
+   - develop で保存した版 1 の状態（`identity_columns` に時刻でない列だけ）は、保存した経路のまま読み込み、予測する。時刻の列は pandas の経路のまま。印の無い状態も同じ。新しく fit・学習し直したモデルだけが、時刻の列を版 1 で選ぶ。
+   - 知らない版と、形の壊れた一覧の拒否は今のまま。
+   - H-0136 の `state_changes.py` は、版と `identity_columns` を保ったままエンコーダを走らせるので、カテゴリと最頻値の比べ方が自然に時刻の意味になる。joblib と JSON の往復の検査（`_category_preflight.py`）は変えない。符号と最頻値の比較を、時刻の代表の値の Python の `==` で置き換えない。
+5. **宣言したカテゴリの保存の検査**: `_category_preflight.declared_change` は今、pandas の `CategoricalDtype` の cast だけで比べる。新しくキーで扱う時刻の宣言では、この比較が誤る（pandas 3 で、大きな `np.uint64` と固定の単位の `timedelta64` の宣言 8 件を、保存で変わらないのに拒否する）。
+   - 省略できるエンコーダの引数を足し（既定は `None` で、今の呼び手は今のまま）、`exporter.check_category_values` と `exporter.warn_saved_state_changes`（`warn_changes` を通して）から refit のエンコーダを渡す。
+   - そのエンコーダの版が 1 で、列が保存した `identity_columns` にあり、宣言が時刻の値を含むときだけ、宣言の各値を `through_json` に通し、キーの並びと、キーごとの最初の位置（生成コードの `_restore_declared`・`_rebuilt` が使う位置）を比べる。往復が例外なら `raises`、キーが無くなれば `unseen`、位置が変われば `codes` と報告する。
+   - 今の版の有無や版 1 だけからこの分岐を選ばない。ほかの宣言は今の pandas の比較のまま。
+6. **ほかの箇所**（`docs/audits/2026-10-h0138/code_paths.md` を今の head で辿り直した。`code_paths.md` の行番号も更新する）:
+   - 生成コード: `identity_template.py` にキー・年・月の検出・fit の検査の写しを置き、`COPY` のテストで固定する。`templates.py` の `cast_categoricals`・`fit_pipeline`・`apply_declared_categories` は検査と時刻の扱いのためだけに変える。宣言の復元（`_restore_declared`）は、dtype の正規化の後のキーの比較のまま。2 つの `encode_column` とその `comparable_values`、train と predict の transform は、保存した `identity_columns` で分けるまま。キーでの照合は、年・月の値の `TypeError` を受けて unseen の方針を当てる。生成コードの LightGBM への入力は、これまでどおり数の符号。
+   - 変えない箇所: `core/_codegen_inputs.py`（元の宣言を読む）、`pipelines_native.py`（記録の列を選ぶ、エンコーダを呼ぶ、`export_state_json` は辞書を写してから codec に通すので版 1 と `identity_columns` をそのまま書く）、`core/_model_predict.py`、`features/column_check.py`、`Model.predict`（builder を通らないので fit の検査を足さない）、`estimators/lgbm/category_json.py`（代表の値で JSON に書けるかを決める）と `adapter.py`、exporter の V の検査と宣言の codec、loader、`codegen/artifact_writer.py`・`config_writer.py`・`values.py`。LightGBM 自身のカテゴリの照合と tune の指紋は範囲の外。
+7. **H-0138 の参照ファイル**: `tests/test_features/data/h0138_oracle_pandas-*.json.gz` の 3 つはバイトとして変えない。H-0139 で意図して変わる時刻の case を、pandas の版ごとの別のファイル（変わる case の ID・前・後の記録と、理由の一覧）に置く。
+   - 一覧の集合は、元の参照ファイルと下の閉じた規則から決め、実装の答えを見て選ばない。テストは、ID が一意であること、集合が規則の和と等しいこと、件数、各「前」が元の参照と等しいことを確かめ、変わらない時刻の case は元の参照と、変わる case は記録した「後」と比べる。時刻でない case は今のまま比べる。
+   - 規則は 3 つの和である。**Y**: 年・月の値を含む元の時刻の case（pandas 3 で 221、2.3.3 で 225）。「後」は fit の検査での `DATA_SCHEMA_INVALID`（context は上の 2）。**R**: 元の参照で cast で失敗していた時刻の case（Y を除く。pandas 3 で 190、2.3.3 で 247）。「後」は成功し、置き換えの列 `["c"]`、キーごとの最初の代表を `str` の順で並べ、符号はキーの位置。**S**: 名前を挙げた case。pandas 3 は `p22-23`・`p22-36`・`p23-35`・`p24-38`・`p60-103` の 5、pandas 2.3.3 は `p22-23`・`p22-36`・`p22-40`・`p23-35`・`p23-41`・`p24-38`・`p36-41`・`p62-105` の 8。
+   - `p24-38` は、固定オフセットの `datetime`（UTC で 04:59:59.999999）と、表示の似た `Timestamp`（04:59:59）の組である。座標が 999999 µs 違うので、契約 A で別のカテゴリになる。表示の欄から作り直さない。
+   - 件数は、pandas 3 で 416（221+190+5）、2.3.3 で 480（225+247+8）。変わらない時刻の case は 4204 と 4365。時刻でないエンコーダの case 1584 は、どちらの版でも全て変わらなかった（Codex の試作）。pandas 2.0.0 では、Y が 225、R が 111 である（`firing/oracle_partition.py`。3.0.1 と 2.3.3 の Y・R は Codex の数と一致した）。
+   - S は、実装の答えを見ずに 2 つの規則で決める: (a) 試作の規則（`firing/h0139_rule.py`）で忠実でない時刻の case、(b) 元の参照に記録した 2 つのバッチの順の符号が、キーの位置と食い違う case（transform だけが直る。pandas 3 の `p60-103` など）。上の pandas 3 と 2.3.3 の名前の一覧は、この規則で再現できることを、変わる case のファイルの生成のスクリプトで確かめる。pandas 2.0.0 の S は、Proposal レビュー round 1 がこの 2 つの規則で数えて 8 件だった（規則が実装の答えに依らないことも確かめた）。名前の一覧は、そのスクリプトで決めて実装の記録に書く。
+   - `tests/test_features/_h0138_answers.py` は、無条件の `astype` でなく本物の builder の経路を通し、fit の検査での拒否を別に報告する。`docs/audits/2026-10-h0138/oracle/make_oracle.py` は記録として残し、変わる case のファイルは別の生成のスクリプトで作る。
+
+### 互換性
+
+- 今正しく動く時刻の列（上の測定の、今 1 つにまとまる組と、今 2 つになる組）は、pandas に忠実なので、カテゴリ・順・代表の値・最頻値・符号・学習したモデルが、同じ依存の版・パラメータ・行の順・seed のもとで変わらない。状態の `identity_columns` に、その列が足される。
+- 変わるのは、判断 2 で受け入れた列（同じ時区の zoneinfo の fold の組を持つ `datetime` の列、ns より細かい `np.datetime64` の列、pytz の標準時と zoneinfo の `fold=1` の列）と、今 fit が失敗する時刻の列（`SAMPLES` では pandas 2 の `Timestamp` の列だけで、通るようになる）、今の保存の拒否（上の 3 つの形と、H-0136 の受け入れの pytz の 7 つの形は保存できるようになる）。予測の差は、測った列で最大 0.0006。
+- 年・月の単位の `np.timedelta64` を含む列は、fit で拒否される。値 1 つと `"x"` の列は今 fit できる（検査用の列で pandas 3 の 203、pandas 2 の 211）。単位の混ざった値だけの列は今も失敗するが、文字列と混ざった列は今 fit できる。H-0133 の受け入れの「受け付ける全ての型が保存と予測で同じ」の 3 つの case（`numpy.timedelta64 with a str`・`timedelta64[Y] with a str`・`timedelta64[M] with a str`）は、判断 4 により、fit の拒否を確かめるテストに変わる。値の集合 V と codec は変えないので、年・月の値を持つ保存したモデルは今と同じに読み込める。
+- 保存したモデル（版 1〜4 の印の無い状態、develop で保存した版 5 の状態）は、保存した引き方で今と同じに予測し、`export_code` も今と同じコードを書く。保存形式は変わらない。develop の H-0138 のライブラリが、H-0139 で fit した版 1 の状態（時刻の列を `identity_columns` に持つ）を読むと、時刻の値にキーを作れず失敗しうる。H-0138 はリリースしていないので、判断 3 で受け入れた。
+- 公開 API と Config は変わらない。`FitResult` と `PredictionResult` の形も変わらない。
+
+### 代替案
+
+- **時区の種類と fold もキーに入れる**（契約 B）: 曖昧な組は分かれたままだが、今 1 つにまとまって正しく動く組（UTC と New York、固定オフセットと zoneinfo の同じ瞬間など）を割る。codec が pytz の時区を固定オフセットで書くので、保存の前後でキーが変わり、保存形式も変える必要がある。採らない（判断 1）。
+- **Python・pandas の `==` に合わせる**（契約 C）: 推移律が無く、hash とも合わない（pytz の標準時と zoneinfo の `fold=1` は `==` で等しいが hash が違う）。安定したキーにならない。採らない（判断 1）。
+- **予測の段でも fit と同じ cast をする**: バッチの中身で結果が変わる（H-0138 の批評）。採らない。
+- **同一性の版を 2 にする、`FORMAT_VERSION` を 6 にする**: リリースした版 1 が無いので、門を増やすだけで、移行とゴールデンテストの更新が増える。採らない（判断 3）。
+- **年・月を暦の月として別の種類にする**（1 年 = 12 か月、日や秒の期間とは比べない）: 今失敗する単位の混ざった値だけの列も fit できるようになり、文字列と混ざった列も今のまま fit できるが、契約が大きくなる。採らない（判断 4）。
+- **H-0138 の参照ファイルを作り直す**: 変わる case と変わらない case の区別が見えなくなり、変わらないはずの case のずれを見逃す。採らない（対応方針 7）。
+
+### 受け入れ基準
+
+1. **キー**: `ADMITTED_TYPES` の時刻の全ての型と入れ子で、決めたキーが決まるか、年・月なら拒否される。閉じた等しい組・別の組の fixture が、時区の種類、fold、naive と tz 付き、`date` と 0 時、`np.datetime64` の 13 の単位、固定の期間の 11 の単位、倍数、単位の無い期間、負の座標、`datetime.min`・`max` と極端なオフセット、int64 の端を覆う。codec・生成コードの codec・joblib の往復で、全てのキーが変わらない。上の「対応方針 1」の pytz の標準時の `Timestamp`、zoneinfo の `fold=1` の `Timestamp`、固定オフセットへの codec の写し、joblib の写しのキーが等しい。
+2. **参照ファイル**: 3 つのレーン（pandas 3.0.1、2.3.3、2.0.0）で、元の参照ファイルがバイトとして変わらず、閉じた変更の一覧（対応方針 7。ID・件数・各「前」が元と等しいこと）を通る。レーンの一覧が無ければ落ちる（黙って通らない）。
+3. **年・月の拒否**: builder、エンコーダの直接の fit、生成 `train.py` が、行の値・入れ子の値・使われていない宣言の年・月の値を、決めた code・文・context（生成コードは `ValueError`）で拒否する。predict に来た年・月の値（入れ子も）は、3 つの unseen の方針のとおりに扱われる（`mode`・`nan`・`error`）。
+4. **#379**: pandas 2.3.3 で、pytz の夏時間と標準時の列（800 行）の in-memory の predict が、学習の行を unseen と判定しない。`fit` は H-0136 の警告を出さず、`Model.export`・`lizyml.persistence.export`・`export_code` が通り、load の後の予測が in-memory と同じである。pytz の標準時と `"x"` の列、pytz の標準時と zoneinfo の `fold=1` と `"y"` の列も同じ（後者は 2 つのカテゴリ）。各値 1 つのバッチの予測が全体のバッチの中の予測と同じである。
+5. **忠実な列を変えない**: 忠実な時刻の列（pandas 2 の `datetime64[ns, tz]` と、`np.datetime64` から `Timestamp` への正規化を含む）は、今の代表の値・カテゴリ・順・最頻値を保つ。作り直した列は builder の記録で選ばれ、本物の refit の booster の `pandas_categorical` のその列が `list(range(k))` である。
+6. **リークと記録**: 記録が複製・並べ替え・分割（outer・inner・calibration）を通り、検証の側にしか無いキーが fit のカテゴリに入らない（落ちるべき例を含む）。
+7. **実行時と生成コードの一致**: 実行時と生成コードの cast・fit・宣言の復元・バッチと値 1 つの予測が、閉じた `SAMPLES` と `probes/temporal_matrix.py` の列で同じである。キーの写しを `COPY` で固定する。
+8. **保存した引き方**: 版 1〜4 の成果物と、develop の版 5 の状態（時刻でない列だけの `identity_columns`）が、保存した一覧で今と同じに予測する。版は 1 のまま。知らない版・形の壊れた一覧は今と同じに拒否する。
+9. **保存の検査**: 全ての fold と refit の状態と宣言の比較が、それぞれの保存処理の検査を通る。H-0136 の受け入れの pytz の 7 つの形（`tests/test_persistence/test_h0136_acceptance.py` の 2 つの組、1 つの pytz の値の 3 つの方針、2 つの容器）は、保存できて予測が変わらない。年・月の 3 つの形（2 つの順と宣言）は fit で拒否され、それを使う export の文のテストは置き換える。pandas 3 の 8 つの宣言（`p61-92`〜`p61-98`、`p61-103`）は保存できる。
+10. **書き出し**: `export_state_json` と全ての成果物・生成コードの変換が、印と codec の値を正確に保つ。
+11. **census**: 全てのテストでの census が、上の母集団と区分（作り直し・拒否・その和、V の外、規則のエラー）を記録する。
+12. **既存のテストの変わる case**: H-0133 の受け入れの年・月の 3 つの case（2 本のテスト）、H-0136 の受け入れの月の 4 本、`tests/test_core/test_category_identity.py` と `tests/test_codegen/test_h0138_identity_copy.py` の「時刻の値はキーを持たない」の確かめは、この Proposal の決定に合わせて置き換え、置き換えた case の一覧を実装の記録に書く。ほかのテストは変えない。
+13. **文書**: BLUEPRINT（カテゴリの値の同一性の節を時刻の型に広げる、年・月の拒否）、CHANGELOG、`docs/migration.md`（新しく fit したモデルが変わる列）、`docs/proposal_dispositions.toml` を更新する。
+
+**レビューの停止基準**: 上の受け入れ基準のテスト、レーンごとの変更の一覧、成果物と生成コードの検査、census が通ったら止める。次の round に進む理由になるのは、この契約の中の欠陥だけである: 時刻のキーの同一視の誤り、忠実な経路のずれ、拒否の診断、リーク、実行時と生成コードの食い違い、保存した引き方、推定器への実際の受け渡し。契約 A を開き直すこと、版 2 を足すこと、tune の指紋・LightGBM 自身の振る舞い・V の外の値・H-0138 の時刻でない値の契約・#382 に広げることは、次の round に進む理由にならない。
+
+### Proposal レビュー round 1（2026-10-22）
+
+- **結果**: Codex の run `h0139-proposal-review` の round 1（`5eff91f`）は CHANGES_REQUESTED で、major 1 件だった。
+- **対応**（上の本文を直した）: 今 fit が失敗して通るようになる `SAMPLES` の時刻の列の数を、判断 4 の年・月の拒否を入れた数（pandas 2 で 1、pandas 3 で 0）に直し、批評の run の数が暦の月のキーを前提にしていたことを書いた。round 1 が数えた pandas 2.0.0 の S の件数（8）を対応方針 7 に書いた。
+
+### Proposal レビュー round 2（2026-10-22）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`50c0978`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`50c0978`）は CHANGES_REQUESTED で、major 1 件だった。round 1 の修正の欠陥ではなく、最初の版の事実の誤りである。
+- **対応**（上の本文を直した）: ns より細かい `np.datetime64` の列で 338 行が最頻値に置き換わるのは pandas 2.3.3 で、pandas 3.0.1 では 175 行が警告なしに epoch の符号になることに直した。批評の run の誤りを写していたことも書いた。判断 2 の言い方も合わせた。
+
+### Proposal レビュー round 3（2026-10-22）
+
+- **monitor**: round 3 の前に、runner の relational monitor を走らせた（`8700338`、観察した round は 1〜2）。本文は「両 round の修正は Proposal の事実の食い違いを狭めていて、周辺は広がっていない（収束）」としたが、brief が名指しした registry のカード D-20261022-002 が workspace の外にあって読めなかったので、判定は INCONCLUSIVE・escalate だった。カードの判断はこの Proposal の「管理者の判断」に写してあるので、disposition は continue とした（runner は SUCCEEDED の後の monitor の再実行を受け付けない）。
+- **結果**: round 3（`8700338`）は APPROVE で、指摘は無かった。run `h0139-proposal-review` はこれで終わり、この Proposal を Accepted とした。
+
+### 実装の記録（2026-10-22）
+
+- **順番**: 変わる case の一覧（対応方針 7）を、実装の前に元の参照ファイルと試作の規則だけから作り、テストと一緒に commit した（`28c893a`。pandas 3.0.1 で一覧の 416 件だけが落ち、ほかの 5867 件は通った）。一覧の変わる記録の SHA-256 は、pandas 3.0.1 と 2.3.3 で Codex の run `h0139-mechanism-design` の値と一致した。pandas 2.0.0 は 344 件（Y 225、R 111、S 8。S の名前は 2.3.3 と同じ 8 つ）。実装の後、3 つのレーンとも参照のテストが全て通った（6283・6508・6537 件）。
+- **コード**:
+  - `lizyml/core/category_temporal.py`（新しい、Layer 0）: `temporal_key`（対応方針 1 のキー）、`calendar_units`、`CalendarDuration`（`TypeError` の子）。
+  - `lizyml/core/category_values.py`: `category_identity_key` が時刻の値もキーにする。`check_calendar_durations`（年・月の拒否、`calendar_timedelta64`）。`identity_eligible` は時刻の値を除かず、年・月を除く。`holds_temporal` は観察のためだけに残した。
+  - `dataframe_builder._apply_categorical` と `CategoricalEncoder.fit`: 学ぶ前に年・月を拒否する（対応方針 2）。
+  - `persistence/_category_preflight.declared_change` と `warn_changes`: refit のエンコーダの状態を受け取り、時刻の宣言をキーの並びで比べる（対応方針 5）。`exporter._refit_encoder` が両方の呼び手に渡す。
+  - `codegen/identity_template.py`: キー・年・月の検出・拒否の写し。`templates.py` の `cast_categoricals`・`fit_pipeline`・`apply_declared_categories` が学ぶ前に拒否する。
+  - BLUEPRINT §2.1 の層の表に `core/category_temporal.py` を Layer 0 として足した（層の規則のテストが表を読む）。
+- **実装で決めたこと**:
+  - 単位の無い `np.datetime64`（V の外ではない場合）は、`("datetime64-generic", 数)` の不透明なキーにした。単位の無い `np.timedelta64` と同じ扱いである。
+  - 忠実な時刻の列が置き換えの列になるかは、今までどおり推定器の判定（LightGBM はこれらの値を JSON に書けない。H-0133）で決まる。時刻の列だからという規則は足していない（対応方針 3）。
+  - sub-ns の `np.datetime64` は、文字列と混ぜた列では pandas が忠実に持つので作り直さず、値だけの列では作り直す。
+- **置き換えたテスト**（受け入れ 12）:
+  - `tests/test_core/test_category_identity.py`: 「時刻の値はキーを持たない」（57 case）を「キーを持ち codec を通っても変わらない」と「年・月はキーを持たない」に、「V の外の値」の文の照合を `outside V` に置き換えた。
+  - `tests/test_codegen/test_h0138_identity_copy.py`: 写しの「時刻の値はキーを持たない」を「年・月と V の外はキーを持たない」に、キーの一致を時刻の値にも広げた。
+  - `tests/test_persistence/test_h0133_acceptance.py`: 年・月を含む 3 つの case（`numpy.timedelta64 with a str`・`timedelta64[Y] with a str`・`timedelta64[M] with a str`）を `CASES` から `CALENDAR_CASES` に移し、fit の拒否を確かめるテストにした。型の case を保つため、固定の単位の `numpy.timedelta64 fixed units` を足した。
+  - `tests/test_persistence/test_h0136_acceptance.py`: pytz の 7 つの形（#372 の組、#379 の組、1 つの pytz の値の 3 つの方針、2 つの容器）を「保存できて予測が変わらない」に、月の 3 つ（2 つの順と宣言）を fit の拒否に、拒否の文のテストを `refuse_change` そのものの確かめに置き換えた（pandas 3 で V の列が保存の検査で拒否される形はもう無い）。
+  - `tests/test_features/test_h0138_faithful_oracle.py` と `_h0138_answers.py`: 時刻の答えを本物の組み立ての経路で計算し、変わる case の一覧で比べる（受け入れ 2）。
+- **新しいテスト**: `tests/test_core/test_h0139_temporal_key.py`（受け入れ 1。閉じた等しい組 23・別の組 13、pytz があればさらに 3、端の座標、全ての保存処理）、`tests/test_features/test_h0139_temporal_identity.py`（受け入れ 3〜9）。宣言の保存の検査の新しい分岐を止めると、`p61` の 8 つの宣言のテストが全て落ちることを確かめた（陰性対照）。
+- **census**（受け入れ 11、実装の後、`firing/census_impl_pd3.*`）: テスト 22748 本が通り、記録 8011 件、規則のエラー 0。builder で 21/2786（作り直し 8、年・月 13）、エンコーダの fit で 25/5225（作り直し 20、年・月 5）。当たったのは H-0133・H-0136・H-0139 の受け入れテストの時刻の case だけである（`census_impl_pd3_by_test.out`）。
+- **今の振る舞いの測り直し**（`probes/temporal_matrix_impl_pd2.out`・`_pd3.out`）: pandas 2.3.3 の #379 の列は、学習の行を unseen とせず、fit の警告も無く、export と `export_code` が通る。pytz の標準時・zoneinfo の `fold=1`・`"y"` の列は 2 つのカテゴリになり、値 1 つのバッチも同じ予測で、保存できる。pytz の標準時と `"x"` の列も、警告なしに保存できるようになった。ほかの組（pandas 3.0.1 の 15 通りは全て）は実装の前と同じだった。
+
+### 実装レビュー round 1（2026-10-22）
+
+- **結果**: Codex の run `h0139-impl-review` の round 1（`f21624a`）は CHANGES_REQUESTED で、major 2 件だった。
+- **対応**:
+  - 単位の無い `np.datetime64`（V の中）は、codec と生成コードの codec で戻せなかった（NumPy は整数から単位の無い datetime64 を作らない。H-0133 からの欠陥で、受け入れ 1 の「全ての保存処理でキーが変わらない」に反する）。2 つの codec の復号で、単位が `generic` の値を整数のバイトから戻すようにした。書く形（バイト）は変えない。単体・tuple・frozenset の往復のテストを足した（NumPy 2 は単位の無い `timedelta64` を hash できないので、frozenset には入れない）。
+  - 変わる case の一覧のテストは、知らない規則の項目を見逃していた。全ての規則が Y・R・S のどれかであることと、ID の集合が Y∪R∪S と等しいことを確かめるようにした。知らない規則の項目を足す陰性対照で、テストが落ちることを確かめた。
+- **テスト**: pandas 3.0.1 で全体 22754 本が通った。pandas 2.3.3 と 2.0.0 で、参照・H-0139・core・H-0133・H-0136・codec の写しのテストが通った（14494・14537 本）。
+
+### 実装レビュー round 2 と管理者の判断（2026-10-22）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`313a826`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`313a826`）は CHANGES_REQUESTED で、major 2 件だった。どちらも H-0133 が受け付けた値の端の場合なので、停止ルールにより管理者に判断を仰いだ。
+  1. 単位の無い `np.datetime64`（V の中）は、NumPy 自身が文字列にできない（`str` が例外を出す）。round 1 の修正で保存の往復はできるようになったが、作り直しの並べ替え（`sorted(..., key=str)`）と警告の文で落ち、fit できなかった。
+  2. NumPy 1.24（pandas 2.0.0 のレーン）で、`frozenset({np.uint64(4), np.timedelta64(4, "s")})` は codec を往復できない（`np.uint64` を素の int で書き、NumPy 1.24 ではその int と `timedelta64` が等しく hash も同じなので、復号で 1 つにまとまる）。
+- **管理者の判断**（2026-10-22。カード D-20261022-004）:
+  1. 単位の無い `np.datetime64` は、年・月の `timedelta64` と同じく、キーを持たず fit で拒否する（context `{"column": 列, "reason": "unitless_datetime64"}`。生成コードは同じ文の `ValueError`）。predict に来たものは unseen で、警告の文では `<unprintable datetime64>` と書く。V と符号化は変えない（round 1 の修正で、保存した値は今までどおり読み込める）。
+  2. NumPy 1.24 の件は H-0133 の codec の性質で、時刻に固有でないので、別の issue（#391）で扱う。受け入れ 1 の「全ての保存処理でキーが変わらない」は、#391 の値を除く。
+  3. 直した後は、この run の通常の round 3 を走らせる。
+- **対応**: `category_temporal.UnitlessDatetime` と `holds_unitless_datetime`、`category_values.check_keyless_temporals`（年・月の検査を広げ、名前を変えた）、`identity_eligible` の除外、生成コードの写し（`_holds_unitless_datetime`・`_check_keyless_temporals`・`_text`）。実行時と生成コードの照合は、文字列にできない値を `<unprintable ...>` と書く。単位の無い `np.datetime64` の、キーが無いこと・codec の往復・fit の拒否（行・tuple・frozenset、組み立て・エンコーダ・生成コード）・predict の 3 つの方針のテストを足した。
+- **実装で決めたこと**: `np.datetime64("NaT")` も単位を持たないが、V の外の値（H-0133）なので、単位の無い値の拒否から外した（fit は通り、保存で拒否される今の経路のまま）。H-0133 の受け入れ `tuple with NaT` で確かめた。
+- **テスト**: pandas 3.0.1 で全体 22763 本、pandas 2.3.3 と 2.0.0 で関係するテスト（14503・14546 本）が通った。
+
+### 実装レビュー round 3（2026-10-22）
+
+- **monitor**: round 3 の前に、runner の relational monitor を走らせた（`f5121f6`、観察した round は 1〜2）。結果は CONVERGING・continue で、disposition は continue。
+- **結果**: round 3（`f5121f6`）は APPROVE で、指摘は無かった。run `h0139-impl-review` はこれで終わる。この実行の方針により、APPROVE と CI 緑でマージする。
+
+## H-0142: LightGBM にカテゴリの列を位置で渡し、整数の列名を位置と取り違えないようにする（#393）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-22
+- **決定日**: 2026-10-22
+- **関連**: #393、#382（H-0141。生成コードの列名の別名）、registry のカード D-20261022-007（#393 を v0.21 で #382 より先に直す判断）、Codex の run `i382-mechanism-design`（この不具合を見つけた。写しは `docs/audits/2026-10-i382/codex/i382-mechanism-design.json`）
+- **スコープ**:
+  - `estimators/lgbm/adapter.py` の `LGBMAdapter.fit` が `lgb.Dataset` に渡すカテゴリの宣言（`categorical_feature`）。学習の Dataset と検証の Dataset の両方
+  - 範囲の外: 生成コードの `train.py`（#382 / H-0141 で列名を文字列の別名にするので、名前で渡しても取り違えない）、`fit` がどの列名を受け付けるか、保存したモデル、tune の指紋
+
+### 目的（課題）
+
+`LGBMAdapter.fit` は、カテゴリの列の名前の一覧をそのまま `lgb.Dataset(categorical_feature=...)` に渡している（`adapter.py:210-235`）。LightGBM は、一覧の文字列を特徴量の名前として、`int` を特徴量の位置として読む。そのため、列名が `int` のカテゴリの列では、LightGBM が別の列をカテゴリとして扱うか、どの列もカテゴリとして扱わない。警告は出ず、`fit`・`predict`・`Model.export` は通るので、予測は黙って違うモデルのものになる（DC1）。
+
+- 名前が `1` で位置 0 にあるカテゴリの列と、位置 1 の数値の列 `x` の組では、LightGBM は `x` をカテゴリとし、本当のカテゴリの列を数値（pandas のカテゴリの符号）として学習する。
+- 名前が `7` のカテゴリの列では、位置 7 の列が無いので、どの列もカテゴリにならない。
+- 名前が `0` で位置 0 の列は、たまたま正しい。
+
+### 実測（2026-10-22、develop `43083e3` の上）
+
+測定のスクリプトと出力は `docs/audits/2026-10-i393/` にある。
+
+- **取り違え**（`probes/int_categorical_names.py`、180 行、位置 0 にカテゴリの列、位置 1 に数値の列 `x`、`make_config("regression", n_estimators=3, n_splits=2)`。refit の booster の `params["categorical_column"]`）: 名前 `"c"` → `[0]`、`7` → `[7]`、`0` → `[0]`、`1` → `[1]`。pandas 3.0.1 / LightGBM 4.6.0 と pandas 2.0.0 / LightGBM 4.4.0 で同じだった。
+- **位置で渡しても、文字列の名前のモデルは変わらない**（`probes/names_vs_positions.py`）: 同じ frame で、名前の一覧・位置の一覧・`"auto"` のどれで渡しても、booster の `model_to_string()` の SHA-256 が一致し、どれも `[categorical_feature: 1,2]` と記録した。2 つのレーンで同じだった。
+- **firing rate**（下の対応方針 1 で振る舞いが変わる宣言の割合）: 変わるのは、宣言の中に `str` でない名前がある呼び出しだけである（文字列の名前の宣言は、位置に直しても上のとおり同じモデルになる）。
+
+  Firing rate: 0/2106 of the categorical declarations LGBMAdapter.fit passes to LightGBM in the test suite (census with `firing/i393_census.py`, pandas 3.0.1: 9829 fit calls, 2106 with a declaration, every frame label a `str`; `firing/census_pd3.*`)
+
+  - テストスイートの普段の入力では、変わる宣言は 1 つも無い。この不具合を通るテストが無かったことの裏付けでもある。変わる場合は、受け入れ基準で明示的に足す（1・2）。
+  - この変更は、条件で働きを切り替える仕組みではない。宣言は常に位置に直し、文字列の名前ではその結果が今と同じになる。
+
+### 管理者の判断（2026-10-22。カード D-20261022-007）
+
+#382 の設計（Codex の run `i382-mechanism-design`）でこの不具合が見つかった。管理者は、別の issue（#393）と Proposal にして、v0.21 で #382 より先に直すと決めた。#382 の生成コードは、この不具合を再現する仕組み（LightGBM に渡した位置の一覧を持ち回る）を持たない。
+
+### 対応方針（提案）
+
+1. **位置で渡す**: `LGBMAdapter.fit` は、宣言したカテゴリの列の名前を、学習に使う frame（`X_train`）の列の順での位置の一覧に直し、学習の Dataset と検証の Dataset の両方に `categorical_feature` として渡す。宣言が無いときは今と同じ `"auto"` である。
+   - 名前と列の照合は、型が完全に同じで値が等しいときだけ一致とする（`type(col) is type(name) and col == name`）。`1`・`True`・`1.0` を取り違えない。
+   - 宣言した名前がちょうど 1 つの列に一致しないとき（一致が無い、または 2 つ以上）は、`LizyMLError`（`DATA_SCHEMA_INVALID`、context `{"column": 名前, "reason": "categorical_feature_not_unique"}`）で止める。宣言は pipeline が同じ frame の列から作るので、今のコードでは起きない。起きたら黙って別の列を選ばないための検査である。
+   - 位置は、`X_train` の列の順で昇順に並べる。
+2. **ほかの箇所は変えない**: 宣言を作る側（`cv_trainer.py:244`・`refit_trainer.py:123` の `set_categorical_features`）、`EstimatorAdapter` の IF（`set_categorical_features(cols)` は名前の一覧を受け取るまま）、`pandas_categorical`、保存の形式、生成コードは変えない。
+
+### 互換性
+
+- 文字列の名前のカテゴリの列（テストスイートの全ての宣言）は、学習したモデルが同じ依存の版・パラメータ・seed のもとでバイトとして変わらない（上の実測。H-0138 の参照ファイルのモデルの case の `model_sha256` もそのまま通ることを確かめる）。
+- `int` の名前のカテゴリの列を持つモデルは、その名前を位置として読んだ結果が本当の位置と違うときだけ、新しく fit すると変わる（正しい列がカテゴリになる）。名前 `0` の列が位置 0 にあるときのように、今たまたま正しいモデルは、バイトとして変わらない（Proposal レビュー round 1 が 3 つのレーンで確かめた）。保存したモデルは、保存した booster のまま読み込み、予測する。
+- 公開 API と Config は変わらない。`EstimatorAdapter` の IF も変わらない。
+
+### 代替案
+
+- **文字列の名前で渡す**（`str(name)`）: LightGBM は frame の列名から特徴量の名前を作るが、空白を `_` に置き換えるなどの手直しをするので、名前の照合は確実でない。`7` と `"7"` の列があれば取り違える。採らない。
+- **`int` の名前のカテゴリの列を fit で拒否する**: 今黙って間違うモデルを、直すのでなく止めることになる。管理者は直すことを選んだ（カード D-20261022-007）。採らない。
+- **生成コードで今の振る舞いを再現する**（#382 の設計の最初の案）: 間違ったモデルを生成コードでも再現することになる。採らない。
+
+### 受け入れ基準
+
+1. **取り違えない**: 位置 0 のカテゴリの列の名前が `"c"`・`np.str_("c")`・`0`・`1`・`7` のそれぞれで、refit の booster と CV の各 fold の booster の `params["categorical_column"]` が `[0]` である。名前 `1` と `7` のモデルの予測が、同じ frame の名前を `"c"` にしたモデルの予測と一致する。
+2. **複数の列と混ざった名前**: カテゴリの列が 2 つ以上で、`int` と `str` の名前が混ざり、位置がばらばらの frame で、宣言した列だけが、その位置でカテゴリになる。
+3. **検証の Dataset**: inner valid（early stopping）のある設定で、検証の Dataset も同じ位置の宣言を受け取る（`lgb.Dataset` の呼び出しを差し替えて読む）。
+4. **文字列の名前は変わらない**: H-0138 の参照ファイルのモデルの case（`model_sha256` と予測）が、3 つのレーンでそのまま通る。名前で渡したときと位置で渡したときの booster のバイトが同じであることを、直接のテストでも確かめる。
+5. **照合の検査**: 宣言した名前が列に無いとき、または 2 つの列に一致するとき、決めた code と context で止まる。`1` と `True` の列を取り違えない。
+6. **census**: 実装の後の census で、変わる宣言が受け入れ基準 1〜2 のテストにだけ現れる。
+7. **文書**: BLUEPRINT（LightGBM の adapter がカテゴリの宣言を位置で渡すこと）、CHANGELOG、`docs/migration.md`、`docs/proposal_dispositions.toml` を更新する。
+
+**レビューの停止基準**: 上の受け入れ基準のテストと census が通ったら止める。次の round に進む理由になるのは、この契約の中の欠陥だけである: 位置の取り違え、文字列の名前のモデルのずれ、検証の Dataset の宣言、照合の検査の漏れ。生成コード（#382 / H-0141）、`fit` が受け付ける列名の範囲、保存の形式、LightGBM 自身の振る舞いは、次の round に進む理由にならない。
+
+### Proposal レビュー round 1（2026-10-22）
+
+- **結果**: Codex の run `h0142-proposal-review` の round 1（`54b1902`）は CHANGES_REQUESTED で、major 2 件だった。
+- **対応**（上の本文を直した）: `int` の名前のモデルが変わるのは、名前を位置として読んだ結果が本当の位置と違うときだけだと、互換性の文を絞った（名前 `0` が位置 0 のモデルは変わらない）。関連に挙げた Codex の run の写し（`docs/audits/2026-10-i382/codex/i382-mechanism-design.json`）が、#382 のブランチにしか無かったので、このブランチにも置いた。
+
+### Proposal レビュー round 2（2026-10-22）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`87f311f`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`87f311f`）は APPROVE で、指摘は無かった。run `h0142-proposal-review` はこれで終わり、この Proposal を Accepted とした。
+
+### 実装の記録（2026-10-22）
+
+- **コード**: `lizyml/estimators/lgbm/adapter.py` に `categorical_positions(columns, declared)` を置き、`LGBMAdapter.fit` は宣言を `X_train` の列の位置の一覧にして、学習と検証の `lgb.Dataset` に渡す（宣言が無いときは今までどおり `"auto"`）。照合は型が完全に同じで値が等しいときだけで、一致がちょうど 1 つでない宣言は `DATA_SCHEMA_INVALID`（`categorical_feature_not_unique`）。
+- **テスト**: `tests/test_estimators/test_h0142_categorical_positions.py`（受け入れ 1〜5）。名前 `"c"`・`np.str_("c")`・`0`・`1`・`7` の refit と CV の各 fold の booster が位置 0 をカテゴリにすること、`1` と `0` の名前のモデルの予測が `"c"` の名前のモデルと一致すること、名前の混ざった複数の列、検証の Dataset の宣言、名前と位置で同じ booster のバイト、型での照合と拒否。H-0138 の参照のモデルの case（`model_sha256`）は、3 つのレーンでそのまま通った（受け入れ 4）。
+- **陰性対照**: 変換を止めて名前をそのまま渡すと、14 本のうち 8 本が落ちた。名前 `7` の予測の一致のテストは、小さなモデルではカテゴリでも数値の符号でも予測が同じになるので、変換を止めても通る。名前 `7` の取り違えは、booster の `categorical_column` を確かめるテストが捉える。
+- **census**（受け入れ 6、`firing/census_impl_pd3.*`）: テスト 22778 本が通り、`LGBMAdapter.fit` の呼び出し 9830 件のうち宣言のあるもの 2143 件で、`str` でない名前の宣言は 22 件、全て H-0142 のテストだった。
+- **文書**: BLUEPRINT §14.2、CHANGELOG、`docs/migration.md`、`docs/proposal_dispositions.toml`（specified）。
+
+### 実装レビュー（2026-10-22）
+
+- **結果**: Codex の run `h0142-impl-review` の round 1（`efa5f1c`）は APPROVE で、指摘は無かった。run はこれで終わる。この実行の方針により、APPROVE と CI 緑でマージする。
+
+## H-0141: export_code が書くプロジェクトでは列名を文字列の別名にし、文字列でない列名でも予測できるようにする ― 実行時と保存したモデルは変えない（#382）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-22
+- **決定日**: 2026-10-22
+- **関連**: #382、H-0142（#393。LightGBM にカテゴリの列を位置で渡す）、H-0133（値の codec）、H-0138・H-0139（カテゴリの値の同一性）、registry のカード D-20261022-006（案 (e)）・D-20261022-007（NumPy の型の名前は拒否、#393 を先に直す）・D-20261022-012（`np.float64` は受け付ける）、Codex の run `i382-critique`（選択肢の測定）と `i382-mechanism-design`（機構の設計）。写しは `docs/audits/2026-10-i382/codex/`
+- **スコープ**:
+  - `export_code` が書くプロジェクト（`config.json`・`artifacts/pipeline_state.json`・生成 `train.py`・`predict.py`・`test_equivalence.py`）の列名
+  - 範囲の外: `fit` がどの列名を受け付けるか、Config の役割の列名（`target` など。Config の schema が文字列だけを受け付ける）、実行時の fit / predict の列の同一性、`Model.export` / `Model.load` と保存の形式、カテゴリの値の同一性、生成コードが持ち回る booster のテキスト、#391
+
+### 目的（課題）
+
+`export_code` は、カテゴリの列の名前が文字列でないとき（auto で拾った object の列の名前が int の `7` など）、予測できないプロジェクトを書く（#382、DC1）。`pipeline_state.json` は列名を JSON の key に書くので、`7` は `"7"` になる。今の head では、生成 `predict.py` は `pipeline_state.json has a malformed identity_columns` で落ちる（`identity_columns` は int の `7`、カテゴリの key は `"7"`）。印を除いても、`7` の列を `"7"` で引けず、生の値が LightGBM に渡って `could not convert string to float` で落ちる。
+
+同じ問題は列名の全体にある。25 種類の名前 × 数値・auto のカテゴリ・宣言したカテゴリの列（75 通り、120 行・2 fold・3 round）を、H-0142 をマージした後のこの head で測った（`docs/audits/2026-10-i382/probes/name_matrix.py`、出力は `name_matrix_pd3.out`・`_pd2.out`・`_pd200.out`）:
+
+- fit が通るのは、pandas 3.0.1 で 64 通り、2.3.3 で 66 通り、2.0.0 で 62〜64 通り。H-0142 で LightGBM にカテゴリの列を位置で渡すようになり、`float`・`np.float64`・多くの NumPy の名前のカテゴリの列も fit できるようになった。fit が通らない組は、レーンで次のとおり違う（カテゴリの列は、auto と宣言の両方）:
+  - 3 つのレーンとも: `bool`・`np.bool_`・`np.float16` の名前のカテゴリの列と、tuple の名前（3 種類の列とも。LightGBM が特徴量の名前の JSON の文字を拒否する）。
+  - pandas 3.0.1 だけ: `None` の名前のカテゴリの列（pandas 2 の 2 つのレーンでは通る）。
+  - pandas 2.0.0 だけ: `np.datetime64` の名前のカテゴリの列（`KeyError`）。`np.timedelta64` の名前のカテゴリの列は、hash の seed で結果が変わる（`PYTHONHASHSEED=0` で `KeyError`、記録した既定の実行では通る。`name_matrix_pd200_seed0.out` と `name_matrix_pd200.out`）。
+- `export_code` がプロジェクトを書けるのは 17 通り（3.0.1。2.3.3 と 2.0.0 では 19 通り）で、生成 `predict.py` が型つきの frame で同じ予測を返すのは 10 通り（11 通り）。int・float・`np.float64` の名前のカテゴリの列が #382 の形である。残りは、NumPy の名前を JSON に書けず、素の `TypeError` で落ちる（47・47・45 通り）。
+- 生成スクリプトが CSV を読むと、見出しは必ず文字列になる（`7` は `"7"`、`True` は `"True"`、`None` は `"Unnamed: 0"`）。CSV からの予測が通るのは、3 つのレーンとも文字列の名前の 6 通りだけである。parquet も数値の名前を文字列にする（Codex の run `i382-mechanism-design` が実行して確かめた）。
+- Codex の run `i382-critique` と `i382-mechanism-design` の 75 通りの数（fit が 29 通りなど）は、H-0142 より前の head（`43083e3`・`4a570dc`）のもので、記録として残す。
+
+### 管理者の判断（2026-10-22。カード D-20261022-006・-007・-012）
+
+1. **案 (e)**: `export_code` が書くプロジェクトでは、全ての列名を一意の文字列の別名 `str(名前)` にする。`config.json`・`pipeline_state.json`（カテゴリ・最頻値・宣言したカテゴリ・identity の列）・生成スクリプト・入力の境界（型つきの frame、CSV・parquet の見出し）で同じ別名を使う。実行時の fit / predict と保存したモデルは変えない。
+2. 別名の重なりと受け付けない名前は、`export_code` が何かを書く前に、名前を挙げて拒否する（`SERIALIZATION_FAILED`、surface `export_code`）。印で、それより前に書いたプロジェクトの意味を保つ。tuple と MultiIndex の名前は広げない。
+3. **受け付ける名前の型**: `str`・`numpy.str_`・Python の `int`・`float`・`bool`・`None`、と `np.float64`（Python の `float` の子クラスで、今も export できる。`str()` は Python の `float` と 3 つのレーンで 44014/44014 一致した）。ほかの NumPy のスカラー（`int64`・`float32`・`bool_`・`bytes_`・`complex` など）は名前を挙げて拒否する。NumPy の版で `str()` が変わる型の書式を記録する仕組みは作らない。
+4. 実行時の不具合（LightGBM が int の名前を位置と読む、#393）は H-0142 で先に直した。生成コードは位置の一覧を持ち回らない。
+5. #382 は v0.21.0 に入れる。
+
+### 実測
+
+- 上の数は、H-0142 の後のこの head で測った（`docs/audits/2026-10-i382/probes/`）。
+- **firing rate**（この Proposal の条件。プロジェクトの別名が名前と違う、または名前を拒否する。`probes/firing_from_matrix.py`）:
+
+  Firing rate: 11/64 of the fitted pandas 3.0.1 matrix cases get aliases that differ from their labels and 47/64 are refused by name, all 47 of which fail export_code today with a raw TypeError (75-case matrix at this head, `probes/name_matrix.py` and `firing_from_matrix.out`; 13/66 and 47/66 on pandas 2.3.3; on pandas 2.0.0 13/64 and 45/64 in the recorded run and 13/62 and 43/62 under PYTHONHASHSEED=0, because the np.timedelta64 categorical cases fit or fail with the hash seed there); 0/664 of the test suite's export_code calls (in-memory census over all 80 export_code call sites, Codex run i382-mechanism-design, before H-0142)
+
+  - テストスイートの普段のプロジェクトでは、別名も拒否も働かない（列名が全て文字列）。働く場合は受け入れ基準で明示的に足す。
+
+### 対応方針（提案。Codex の run `i382-mechanism-design` の設計を、管理者の判断 3・4 に合わせて絞った）
+
+1. **別名の規則**: `lizyml/codegen/column_names.py` に、ただ 1 つの関数 `column_alias(name) -> str` を置く。
+   - 型が完全に `str`・`numpy.str_`・`int`・`float`・`bool`・`NoneType`・`np.float64` のどれかなら、別名は `str(name)` である（`7` → `"7"`、`7.0` → `"7.0"`、`-0.0` → `"-0.0"`、NaN → `"nan"`、`True` → `"True"`、`None` → `"None"`、`np.str_("c")` → `"c"`）。数の正規化はしない。
+   - ほかの型は `unsupported_column_name`（kind `type`）。別名が空、NUL を含む、UTF-8 にできない文字を含むときも `unsupported_column_name`（kind `empty_alias` / `invalid_alias_text`）。
+   - 生成スクリプトには、この関数のソースをそのまま埋め込み、同じ答えを返すことをテストで固定する（DC3）。
+2. **書く前の検査**: 共通の検査を `Model.export_code`（fit の状態を取った後、今のカテゴリの値の検査の前）と、`generate_code` の入口（何かを作る前）の両方で走らせる。
+   - 名前の集合は、特徴量の名前（順つき）と、Config の役割の名前（`target`、`time_col`、`group_col`、`features.exclude`、`features.categorical`、`split.blocks.col`、`split.groups.col`、`inner_valid.group_col`）である。frame に無い役割の名前も含める（`features.categorical` の `"7"` が、別名にした後で int の `7` の列を選ばないように）。
+   - 別名の重なりは、別名の文字列で調べ、名前の Python の等しさや set を使わない（`7`・`True`・`7.0`・NaN の等しさは当てにならない）。重なりは、別名が同じで、違う列を指す 2 つの項目である。
+     - 特徴量どうし: 別名が同じ特徴量が 2 つ以上あれば重なり（`7` と `"7"` など）。
+     - 特徴量と役割の名前: 役割の名前は全て文字列である。文字列の特徴量と、同じ文字列の役割の名前は、同じ列を指すので重なりではない（`features.categorical: ["c"]` と特徴量 `"c"`、`split.blocks.col` が特徴量でもある列など）。文字列でない特徴量の別名が役割の名前と同じなら重なり（特徴量 `7` と `target: "7"` や `features.categorical: ["7"]`）。同じ役割の名前を何度挙げても、1 つの列である。
+   - 例外: `LizyMLError`、code `SERIALIZATION_FAILED`。context は次のとおりで、実装に選ぶ余地を残さない。
+     - `surface`: `"export_code"`。`reason`: `"unsupported_column_name"` か `"column_name_collision"`。
+     - `kind`: `unsupported_column_name` では `"type"`（受け付けない型）・`"empty_alias"`（別名が空）・`"invalid_alias_text"`（NUL か、UTF-8 にできない文字）・`"unknown_reference"` と `"ambiguous_reference"`（宣言したカテゴリの key を特徴量に対応づけられない。対応方針 3）。`column_name_collision` では `"duplicate_alias"`。
+     - `alias`: 重なりの別名の文字列。受け付けない型では `null`。
+     - `columns`: 問題の項目の一覧。各項目は `where`（`"feature_names"`、または役割の欄の場所 `"data.target"`・`"data.time_col"`・`"data.group_col"`・`"features.exclude"`・`"features.categorical"`・`"split.blocks.col"`・`"split.groups.col"`・`"inner_valid.group_col"`）・`position`（`feature_names` と一覧の役割では 0 始まりの位置、1 つの値の役割では `null`）・`type`（型の完全な名前、`"builtins.int"` など）・`repr`（例外を出さない表示）・`alias`（別名、受け付けない型では `null`）。
+     - 調べる順: まず受け付けない名前を、特徴量の順、次に役割の上の順で調べ、最初の 1 つで止める。次に重なりを同じ順で調べ、最初に見つかった重なりの組の全ての項目を `columns` に、その順で入れる。
+   - 検査は fit した状態・Config・入力の frame・保存したモデルを書き換えない（書き出すための写しだけを別名にする）。
+3. **書く箇所**: 検査を通った写しを、2 つの writer に渡す。
+   - **宣言したカテゴリの key を特徴量に対応づける**（別名にする前）: `declared_categories` の key は特徴量の名前から作るが、`Model.export` → `Model.load` したモデルでは JSON の object の key の形で戻る（`7` → `"7"`、`7.5` → `"7.5"`、`inf` → `"Infinity"`、NaN → `"NaN"`、`None` → `"null"`、`True` → `"true"`）。実行時と保存の形式は変えず、書き出すための写しの中で、各 key を 1 つの特徴量に対応づけてから、その特徴量の別名を key にする。
+     - key と型も値も同じ特徴量（`type(key) is type(name) and key == name`）があれば、それを選ぶ。
+     - 無ければ、`str` の key で、次のどちらかに当たる特徴量を選ぶ: `numpy.str_` の特徴量で `str(name)` が key と同じもの（load の後、`np.str_("c")` の列の key は Python の `"c"` で戻る）、または `str` でも `numpy.str_` でもない特徴量で、JSON の key の形（`json.dumps({name: 0})` が書く key の文字列）が key と同じもの。
+     - どの特徴量にも当たらない key は `unsupported_column_name`（kind `"unknown_reference"`）、型と値が同じ特徴量と、2 つ目の規則（`numpy.str_` か JSON の形）で当たる特徴量の両方に当たるか、2 つ目の規則で当たる特徴量が 2 つ以上ある key は `unsupported_column_name`（kind `"ambiguous_reference"`）で拒否する。`columns` の項目は `where: "declared_categories"`・`position`（key の順での 0 始まりの位置）・key の `type`・`repr`・`alias: null`。この検査は、特徴量と役割の受け付けない名前の後、重なりの前に行う。
+   - `config_writer`: `target`、`declared_categories` の key（上で対応づけた特徴量の別名）、`feature_names`、`categorical_features`、`categorical_rule.explicit`、`inner_valid.group_col`、`split` の `time_col`・`group_col`・`blocks.col`・`groups.col` を別名にする。`column_name_policy: "str_alias_v1"` を足す。
+   - `artifact_writer`: `pipeline_state.json` の `feature_names`、カテゴリの列の一覧、カテゴリと最頻値の key、`identity_columns` を別名にする。`column_name_policy` を足す。カテゴリの値・最頻値・宣言の値・目的変数のクラス・分割の値は別名にしない（値の codec はそのまま）。
+   - 生成 `train.py` の状態の writer も、別名と印を書く（学習し直した後も同じ）。
+   - 持ち回る `model.txt`・`calibrator_model.txt` は変えない。
+4. **生成スクリプトの入力**: 印のあるプロジェクトでは、両方のスクリプトが入力を別名に揃えてから、名前で引く。
+   - 型つきの frame: 全ての列名に `column_alias` を当て、別名の重なりを列を選ぶ前に拒否し、frame の浅い写しの列名を別名にする（値・dtype・カテゴリの情報・行の順・index は保つ）。足りない別名は `missing_column_alias`。余分な列は、検査の後は今までどおり無視する。
+   - ファイル: CSV は最初の行を `csv.reader(strict=True)` で読み、空でなく一意な名前であることを、pandas が名前を変える前に確かめ、pandas が読んだ見出しと比べる。違えば `invalid_column_header`、重なりは `column_name_collision`。parquet は、論理的な列名が文字列・平ら・一意であることを確かめる。必要な見出しは別名と完全に一致しなければならない（`"Unnamed: 0"` を `None` の列と推し量らない）。
+   - ファイルを読む全ての入口がこの検査を通る: 生成 `train.py`・`predict.py` の読み込みと、`test_equivalence.py` の CLI の読み込み（今は pandas で直接読んでいて、重なった見出し `7,7` を `7`・`7.1` として予測に渡してしまう）。
+   - テストの道具 `tests/test_codegen/_retrain_harness.py` の `write_data` は、生成プロジェクトに渡すデータを書く前に、列名を同じ規則で別名にする（今は元の名前をそのまま書き、`None` の名前は CSV で `"Unnamed: 0"` になる）。実行時の参照の予測は、元の型つきの frame で計算する。
+   - 生成コードの例外は `ValueError` の子で、`reason`（`unsupported_column_name`・`column_name_collision`・`invalid_column_header`・`missing_column_alias`）と、問題の名前を持つ。
+   - 生成 `train.py` は、LightGBM にカテゴリの列を位置（`feature_names` の中の位置）で渡す（H-0142 と同じ。別名は全て文字列なので名前でも取り違えないが、実行時と同じ渡し方にそろえる）。
+5. **印と古いプロジェクト**: 新しいプロジェクトは、`config.json` と `pipeline_state.json` の両方に `column_name_policy: "str_alias_v1"` を持つ。
+   - 両方に無いプロジェクト（H-0141 より前に書いたもの）は、新しいスクリプトでも今までの引き方で動き、学習し直しても印を足さない。
+   - 印の検査（予測と学習し直しの最初、カテゴリの値の復号と identity の検査と書き込みより前）は、次の順で行う。
+     1. 両方の欄が無ければ、今までの引き方（印の無いプロジェクト）。
+     2. どちらかの欄があり、その値が `"str_alias_v1"` でない（`null`・ほかの文字列・文字列でない値を含む）なら `unsupported_column_name_policy`（context に file・欄・値）。
+     3. 片方の欄だけがあるなら `column_name_policy_mismatch`（context に両方の file の値）。
+     4. 両方が `"str_alias_v1"` なら、状態の形を確かめ、外れれば `invalid_column_name_state`（context に file・欄・問題の名前）: `config.json` と `pipeline_state.json` の `feature_names` は文字列の一意な一覧で、順まで同じ（予測は `feature_names` の順で booster に位置で渡すので、順が違うと予測が黙って変わる）。カテゴリの列の一覧（config の `categorical_features` と状態の一覧）は同じで、`feature_names` に含まれる。カテゴリと最頻値の key は、カテゴリの列の一覧と同じ集合。`identity_columns` と `declared_categories` の key はカテゴリの列に含まれる。役割の名前は文字列。
+   - すでに書き出したスクリプトは、新しい仕組みを持たない。直すには、元のモデル（または保存したモデルを読み込んだもの）からプロジェクトを書き直す。
+6. **変えない箇所**: 実行時の fit / predict、`Model.export` / `Model.load` / `lizyml.persistence.export` と保存の形式、カテゴリの値の codec と同一性（`identity_template.py` の照合は、名前を検査した後で今のまま）、`_codegen_inputs.py` の役割の解決。
+
+### 互換性
+
+- 文字列の名前だけのプロジェクト: 名前・順・カテゴリの値・持ち回るモデルのテキストは変わらない。両方の JSON に印が足され、生成スクリプトに入力の検査が足されるので、プロジェクトのバイトは同じではない。
+- 文字列でない受け付ける名前（int・float・bool・None・`np.float64`）のプロジェクト: 予測できるようになる（#382 の 2 通りと、CSV から予測できなかった通り）。CSV の見出しは別名で書く必要がある。
+- NumPy の型（`np.float64` と `np.str_` 以外）の名前: `export_code` は今の素の `TypeError` の代わりに、名前を挙げた `SERIALIZATION_FAILED` で拒否する（今動いているものは無い）。
+- 空の文字列などの名前は、`export_code` が拒否するようになる。
+- すでに書き出したプロジェクトは、印が無いので今までの振る舞いのまま。直すには書き直す。
+- 公開 API・Config・`FitResult`・`PredictionResult`・保存の形式は変わらない。
+
+### 代替案
+
+- **生成物の中で名前の型を保つ**（案 (a)）: 名前の codec が要り、CSV の見出しは文字列なので、見出しの対応を別に決める必要がある。採らない（判断 1）。
+- **文字列でない名前を `export_code` で全て拒否する**（案 (b)）: 今動いている数値の列の生成予測を失う。採らない。
+- **fit で拒否する、fit で文字列に揃える**（案 (c)・(d)）: 実行時の契約を変える。採らない。
+- **NumPy の型の名前の書式を記録して受け付ける**: NumPy の版で `float16`・`float32` などの `str()` が変わる（3 つのレーンの間で 310 通り）。書式の記録と、版の違いでの拒否が要る。採らない（判断 3）。
+- **LightGBM に渡した位置の一覧を持ち回る**: #393 を生成コードで再現することになる。H-0142 で実行時を直したので要らない（判断 4）。
+
+### 受け入れ基準
+
+1. **別名の規則**: 受け付ける各型（`str`、`np.str_`、`int` の正負と大きい値、`float` の `7.0`・`-0.0`・NaN・±inf・小さい値と大きい値、同じ値の `np.float64`、`True`・`False`、`None`）で、ライブラリと 2 つの生成スクリプトの写しが同じ別名を返す（3 つのレーン）。拒否する型と値（`np.int64`・`np.float32`・`np.bool_`・`bytes`・`complex`・`Decimal`・tuple・`""`・NUL を含む文字列）で、決めた reason と kind を返す。
+2. **拒否と書かないこと**: `Model.export_code` と `generate_code` の両方で、受け付けない名前と、別名の重なり（`7` と `"7"`、`True` と `"True"`、NaN と `"nan"`、`7.0` と `"7.0"` の特徴量どうし、文字列でない特徴量と `target`・`time_col`・`group_col`・`features.exclude`・`features.categorical`・`split.blocks.col`・`split.groups.col`・`inner_valid.group_col` の同じ別名）が、対応方針 2 の code・surface・reason・kind・`alias`・`columns`（`where`・`position`・`type`・`repr`・`alias` の値と順）で拒否され、ディレクトリもファイルも作られない（出力先が既にある場合も）。文字列の特徴量を同じ文字列の役割の名前が指すプロジェクト（`features.categorical: ["c"]` と特徴量 `"c"`、特徴量でもある `split.blocks.col`）は、拒否されずに書き出される。
+3. **書く箇所**: 対応方針 3 の全ての欄が、書き出した直後と、生成 `train.py` で学習し直した後に、別名を順どおりに持つ。`Model.load` したモデルからの書き出しでも同じで、宣言したカテゴリの列の名前が `np.str_("c")`・`7`・`7.5`・`inf`・`-inf`・`np.float64(7.5)`（と、fit が通る lane では `None`）のモデルを export → load して書き出したプロジェクトが、宣言の key を対応する特徴量の別名で持ち、印のある状態の検査を通り、学習し直しで宣言の順（使われていないカテゴリを含む）を保つ。対応づけられない key（どの特徴量にも当たらない、型と値が同じ特徴量と JSON の形が同じ特徴量の両方に当たる）は、決めた kind で拒否される。カテゴリの値の codec の中身と、fit した状態は変わらない。
+4. **予測**: 受け付ける各型の名前 × 数値の列・auto のカテゴリの列・宣言したカテゴリの列のうち、fit が通る組（レーンごとに上の表のとおり。3.0.1 では `str`・`np.str_`・`int`・`float`・`np.float64` の 3 種類の列と、`bool`・`None` の数値の列。pandas 2 の 2 つのレーンでは `None` のカテゴリの列も。hash の seed で結果の変わる組は、テストで seed を固定して扱う）で、生成 `predict.py`（型つきの frame、別名の見出しの CSV、parquet）・学習し直してからの予測・`test_equivalence.py` が、実行時の予測と一致する。#382 の int の `7` のカテゴリの列を含む。fit が通らない組（`bool`・`None` の名前のカテゴリの列など）は、今の fit の拒否のままであることを確かめる（fit の範囲は変えない）。
+5. **入力の検査**: 型つきの frame の別名の重なり（余分な列を含む）、CSV の重なった見出し・空の見出し・正しい `"Unnamed: 0"` と `"7.1"` の名前・pandas が変えた見出し・足りない別名・並びの違う列、parquet の文字列でない名前・重なり・MultiIndex で、決めた 4 つの reason と問題の名前を返す。`test_equivalence.py` の CLI も、重なった見出し `7,7` を `column_name_collision` で拒否する。
+6. **印**: 両方に無い（今までの引き方で予測・学習し直し）、両方にある、片方だけ、`null`・知らない値・文字列でない値、それぞれの組み合わせで、対応方針 5 の順のとおりの reason を返す。形の検査は、`feature_names` の順の違い・重なり・文字列でない名前、カテゴリの列の一覧の違い、`feature_names` に無いカテゴリの列、カテゴリと最頻値の key の違い、カテゴリの列に無い `identity_columns` と宣言の key のそれぞれで `invalid_column_name_state` を返し、どれもカテゴリの値の復号と書き込みより前に止まる。
+7. **LightGBM への受け渡し**: 生成 `train.py` で学習し直したモデルが、int の名前（`0`・`1`・`7`）のカテゴリの列を位置 0 にもつ frame で、正しい列をカテゴリにし（booster の `categorical_column`）、実行時のモデルと同じ予測を返す。
+8. **文字列の名前のプロジェクト**: 名前・順・カテゴリの値と持ち回るモデルのバイトが変わらない。変わるのは、印の欄と生成スクリプトだけであることを、欄の一覧で確かめる。
+9. **census**: 実装の後の census で、テストスイートの `export_code` の呼び出しのうち、別名か拒否が働くものが、H-0141 のテストだけである。
+10. **文書**: BLUEPRINT（§15.4 の列名の別名・拒否・印・入力の境界）、CHANGELOG、`docs/migration.md`、`docs/proposal_dispositions.toml` を更新する。
+
+**レビューの停止基準**: 上の受け入れ基準のテストと census が通ったら止める。次の round に進む理由になるのは、この契約の中の欠陥だけである: 別名の計算、拒否と重なりの診断とその順、見落とした書く箇所、入力の見出しの検査、印による今までのプロジェクトの扱い、fit の状態を書き換えないこと、生成 `train.py` の LightGBM への受け渡し。案 (e) を開き直すこと、受け付ける名前の型を広げること、`fit` や Config の役割の名前の範囲を変えること、実行時と保存の形式やカテゴリの値の同一性を変えること、#391、tune の指紋は、次の round に進む理由にならない。
+
+### Proposal レビュー round 1（2026-10-22）
+
+- **結果**: Codex の run `h0141-proposal-review` の round 1（`5925f10`）は CHANGES_REQUESTED で、major 6 件だった。
+- **対応**（上の本文を直した）:
+  - 列名の表と firing rate は H-0142 より前の head のものだった。H-0142 の後のこの head で、25 種類の名前 × 3 種類の列を 3 つのレーンで測り直した（`docs/audits/2026-10-i382/probes/name_matrix.py`）。fit は 64・66・64 通り、拒否する名前は全て今 `export_code` が素の `TypeError` で落ちる。
+  - 文字列の特徴量を同じ文字列の役割の名前が指すのは同じ列で、重なりではないとした。重なりは、文字列でない特徴量の別名が役割の名前と同じとき。
+  - `test_equivalence.py` の CLI の読み込みと、テストの道具の `write_data` を入力の境界に加えた。
+  - 拒否の診断の `kind`（`duplicate_alias` など）・`alias`・`columns` の `where`・`position`・`type`・`repr`・`alias` の値と、調べる順、最初の重なりの組だけを返すことを決めた。
+  - 印のある状態の形の検査（`feature_names` の順が config と状態で同じ、カテゴリの列と key と identity の関係）と、印の検査の順を決めた。
+  - 予測の受け入れ基準を、fit が通る組に限り、通らない組は今の fit の拒否のままであることを確かめる形にした。
+
+### Proposal レビュー round 2（2026-10-22）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`96b0b65`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`96b0b65`）は CHANGES_REQUESTED で、major 1 件だった。round 1 の修正の欠陥ではなく、`Model.load` したモデルの宣言したカテゴリの key が JSON の形（`"null"`・`"Infinity"` など）で戻ることの見落としである。
+- **対応**（上の本文を直した）: 別名にする前に、宣言の key を特徴量に対応づける規則（型と値が同じ特徴量を先に、無ければ JSON の key の形が同じ特徴量）と、対応づけられない key の拒否（`unknown_reference`・`ambiguous_reference`）を決め、load したモデルの受け入れ基準を加えた。
+
+### Proposal レビュー round 3（2026-10-22）
+
+- **monitor**: round 3 の前に、runner の relational monitor を走らせた（`b0c3eb0`、観察した round は 1〜2）。結果は CONVERGING・continue で、disposition は continue。
+- **結果**: round 3（`b0c3eb0`）は CHANGES_REQUESTED で、major 1 件だった。round 2 の修正の欠陥である: `np.str_` の名前の宣言した列は、load の後に key が Python の `str` で戻るので、決めた規則ではどの特徴量にも当たらず、今動いている書き出しを拒否してしまう。run `h0141-proposal-review` はこれで終わる。
+- **対応**（上の本文を直した）: `str` の key を `numpy.str_` の特徴量にも `str(name)` で対応づけ、重なりの検査は残した。load したモデルの受け入れ基準に `np.str_("c")` の列を加えた。
+
+### Proposal レビュー（2 本目の run）round 1（2026-10-22）
+
+- **結果**: Codex の run `h0141-proposal-review-2` の round 1（`5afe277`）は CHANGES_REQUESTED で、major 1 件だった。fit が通らない名前の一覧が、レーンの違い（pandas 2.0.0 の `np.datetime64` のカテゴリの列、pandas 2 で通る `None` のカテゴリの列）を書いていなかった。pandas 2.0.0 では `np.timedelta64` のカテゴリの列が hash の seed で通ったり落ちたりする。
+- **対応**（上の本文を直した）: レーンごとの一覧に直し、pandas 2.0.0 を `PYTHONHASHSEED=0` で測り直した（`name_matrix_pd200_seed0.out`。fit 62 通り、拒否 43 通り）。firing rate の 2.0.0 の数に両方を書き、予測の受け入れ基準をレーンごとの表に合わせた。
+
+### Proposal レビュー（2 本目の run）round 2（2026-10-22）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`cc992d6`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`cc992d6`）は APPROVE で、指摘は無かった。run `h0141-proposal-review-2` はこれで終わり、この Proposal を Accepted とした。
+
+### 実装の記録（2026-10-22）
+
+- **コード**:
+  - `lizyml/codegen/column_names.py` に `column_alias`・`UnsupportedColumnName` と、書く前の検査 `project_column_names`（受け付けない名前 → 宣言したカテゴリの key の対応づけ → 別名の重なり、の順）を置いた。`Model.export_code` は fit の状態を取った後・`check_category_values` の前に、`generate_code` は入口で、同じ検査を呼ぶ。`inner_valid.group_col` は、書き出す inner split（`exported_inner_valid`）から取る（Config の schema の inner valid には group の列の欄が無く、fit が使った `data.group_col` か `split.groups.col` の写しである）。
+  - `generate_code` は、検査が返した対応から、特徴量・カテゴリの列・宣言の key と、fit した状態の写し（`alias_pipeline_state`。`feature_names`・`categorical_cols`・符号器のカテゴリと最頻値の key・`identity_columns`・`stand_in_columns`）を別名にして writer に渡す。`config_writer` と `artifact_writer` は `column_name_policy: "str_alias_v1"` を書く。役割の名前は Config の schema で文字列なので、別名は名前そのものである。
+  - 生成コードの写しは `lizyml/codegen/column_name_template.py` にある。`UnsupportedColumnName` と `column_alias` はライブラリのソースを `inspect.getsource` で埋め込む。印と状態の形の検査（`check_column_name_policy`）、`prepare_input`、`read_input`、例外 `ColumnNameError`（`ValueError` の子、`reason`・`names`・`context`）を足した。予測の `_load_pipeline` は、値の復号と identity の検査の前に印と状態を調べる。生成 `train.py` は最初に入力を別名にし（必要な列は特徴量・目的変数・分割の役割）、印のあるプロジェクトだけ状態に印を書き、LightGBM にカテゴリの列を位置で渡す。`train.py`・`predict.py`・`test_equivalence.py` の読み込みは `read_input` を通る。
+  - テストの道具 `write_data` は、列名を別名にしてからファイルに書く。
+- **テスト**:
+  - `tests/test_codegen/test_h0141_column_names.py`（受け入れ 1・2・3 の writer・5・6・8）: 受け付ける 17 の値と拒否する 10 の値で、ライブラリと 2 つの生成スクリプトの写しが同じ答え。写しがライブラリのソースそのものであること（DC3）。拒否の context の全体（出力先が無い場合と既にある場合の両方で、何も書かれない）、特徴量どうしの重なり 5 通り、役割 8 か所との重なり、最初の組の順、文字列の特徴量と同じ文字列の役割の名前は通ること、宣言の key の `unknown_reference`・`ambiguous_reference` 3 通りと、JSON の key の形 9 通りの対応づけ。全ての名前の欄の別名と、fit した状態が変わらないこと。印の 8 通り、状態の形の 9 通り（カテゴリの値を壊して、復号より前に止まることを確かめる）、型つきの frame・CSV・parquet の入力の検査、`test_equivalence.py` の CLI が `7,7` を拒否すること。印の無いプロジェクトは学習し直しても印を書かず、印のあるプロジェクトは書く。文字列の名前のプロジェクトは、H-0141 より前の writer の出力と、印の欄だけが違い、`model.txt` のバイトが同じ。
+  - `tests/test_codegen/test_h0141_column_name_projects.py`（受け入れ 2・3・4・7）: 受け付ける 7 つの型 × 数値の列・auto のカテゴリの列・宣言したカテゴリの列の 21 通り。fit が通る組では、型つきの frame・別名の見出しの CSV・parquet の予測、`test_equivalence.py`（subprocess）、学習し直してからの予測が、実行時の予測と一致する。fit が通らない組（`bool` のカテゴリの列、pandas 3 の `None` のカテゴリの列）は今の fit の拒否のまま。`Model.export_code` の拒否（`np.int64` の名前、特徴量 `7` と `target: "7"`）で何も書かれない。`Model.export` → `Model.load` したモデル 7 通り（pandas 3 では `None` を飛ばす）の宣言の key が別名になり、印のある状態の検査を通り、学習し直しで使われていないカテゴリを含む宣言の順を保つ。int の名前 `7`・`0`・`1` の frame で、学習し直した booster と実行時の booster がどちらも `[categorical_feature: 0]` を持つ。
+  - 3 つのレーン（pandas 3.0.1、2.3.3、2.0.0。2.0.0 は `PYTHONHASHSEED=0`）で 2 つのファイルが全て通った（3.0.1 は 195 passed・1 skipped、pandas 2 の 2 つは 196 passed）。
+- **陰性対照**（実装を 1 か所ずつ壊して、新しいテストを走らせた）: `prepare_input` を何もしないようにすると単体のファイルで 5 本、Model のファイルで 17 本（int・float・`np.float64` の全ての列、`bool` と `None` の数値の列、load したモデル 5 通り、LightGBM の位置）が落ちた。重なりの検査を止めると 28 本、印のある状態の形の検査を止めると 9 本、CSV の見出しと pandas の読んだ見出しの比較を止めると 1 本が落ちた。LightGBM に名前を渡すように戻しても、受け入れ 7 のテストは落ちない（別名は全て文字列で、名前でも位置 0 が選ばれる。Proposal の対応方針 4 のとおり）。
+- **実測**（`docs/audits/2026-10-i382/probes/name_matrix_impl_pd3.out`、pandas 3.0.1）: fit が通る 64 通りのうち、`export_code` が通るのは 17 通り（`str`・`np.str_` の 6 通りと、別名の 11 通り）で、47 通りは名前を挙げた `LizyMLError` になった（実装の前は素の `TypeError`）。型つきの frame の予測は 17 通り全てで一致した。この probe は CSV を元の名前の見出しで書き、`read_input` を通さずに `pd.read_csv` で読むので、`None` の数値の列の空の見出しは pandas が `"Unnamed: 1"` にし、予測は `ColumnNameError`（`missing_column_alias`。`"None"` の列が無い）になる（受け入れ 4 の CSV は別名の見出しで `read_input` から読み、上のテストが確かめる。実装レビュー round 1 で訂正）。
+- **census**（受け入れ 9、`docs/audits/2026-10-i382/firing/`）: フルスイートで 22974 本が通った（落ちた 1 本は `tests/test_e2e/test_version.py` で、編集可能なインストールのメタデータが古い、この環境の既知の事情）。`project_column_names` の呼び出し 1420 件（`export_code` 693 件・`generate_code` 727 件）のうち、別名か拒否が働いたのは 92 件で、全て H-0141 の 2 つのテストファイルだった（`summarize.py` は外にあれば exit 1 にする）。
+- **文書**: BLUEPRINT §15.4（列名の別名・拒否・宣言の key・印・入力の境界）、CHANGELOG、`docs/migration.md`、`docs/proposal_dispositions.toml`（specified）。
+
+### 実装レビュー round 1（2026-10-22）
+
+- **結果**: Codex の run `h0141-impl-review` の round 1（`e29d2da`）は CHANGES_REQUESTED で、major 5 件だった。
+  1. 生成 `train.py` の学習し直しが、既にある `pipeline_state.json` の印を読まずに状態を書き直していた（片方だけの印・知らない値・順の違う `feature_names` が通った）。
+  2. `read_input` が `config.json` の名前の形を、状態の印より先に調べていた（印の拒否の reason が `invalid_column_name_state` に化けた）。
+  3. 印のある状態の検査が、カテゴリの列の最頻値の欄の欠けと、`null` の役割の名前（`_target_col`、`categorical_rule.explicit` の要素）を通していた。
+  4. 重なった名前を持つ本物の parquet は pandas が reason の無い例外で落ち、閉じていない引用符の CSV の見出しは `csv.Error` が漏れた（テストは `read_parquet` を差し替えていて、この経路を通っていなかった）。
+  5. 実装の記録の、probe の CSV の `None` の列の reason が誤っていた（`read_input` を通らない経路だった）。
+- **対応**:
+  - 生成コードに `project_uses_aliases` を置き、`prepare_input`・`read_input`・学習し直しの最初で、`config.json` と、あれば `pipeline_state.json`（JSON として読むだけで、値は復号しない）の両方の印を、名前の形より先に調べるようにした。状態のファイルが無いときだけ `config.json` だけを調べる。
+  - 状態の検査に、各カテゴリの列の項目が `categories` と `mode` を持つことを加え、必須の役割の名前（`_target_col`・`split.blocks.col`・`split.groups.col`・`categorical_rule.explicit` の要素）は `null` を許さないようにした（`split.time_col`・`split.group_col`・`inner_valid.group_col` は無ければ `null`）。
+  - parquet は、pandas が読む前にファイルの schema の名前の重なりを `column_name_collision` で拒否し、CSV の見出しが読めないとき（`csv.Error`・`UnicodeDecodeError`）は `invalid_column_header` にした。
+  - 記録の誤りを上で訂正した。
+  - 回帰テスト 15 本（学習し直しの印の 4 通り × CSV と parquet、読み込みの印の 2 通り、最頻値の欠けと `null` の役割 3 通り、本物の parquet の重なり、読めない CSV の見出し）を足した。15 本とも round 1 の head（`e29d2da`）の生成コードの写しで落ち、直した後で通る。3 つのレーンで 2 つのファイルが通った（3.0.1 は 210 passed・1 skipped、pandas 2 の 2 つは 211 passed）。
+
+### 実装レビュー round 2（2026-10-22）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`3d64e9f`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`3d64e9f`）は CHANGES_REQUESTED で、major 3 件だった。
+  1. 生成 `train.py` の `train()` は、印を調べる前に必要な列の一覧を作っていて、形の壊れた `feature_names` で reason の無い `TypeError` になった。
+  2. 状態の `categories` が object でないとき、検査の診断を作るところで reason の無い `TypeError` になった。
+  3. 生成 `train.py` の CLI は、目的変数の列が無い CSV を、今までの目的変数の検査で `SystemExit(1)` にし、`missing_column_alias` の診断より先に止まっていた。
+- **対応**: `train()` と CLI は、印と名前を調べてから（`project_uses_aliases`）必要な列を集めて `prepare_input` に渡すようにした。`categories` は、object であることを確かめてから key を比べる。回帰テスト 3 本（`train()` を直接呼ぶ学習し直しの印、`categories: 1`、目的変数の無い CSV が `missing_column_alias` と `["target"]` になること）を足した。3 本とも round 2 の head（`3d64e9f`）の生成コードの写しで落ち、直した後で通る。codegen のテスト（pandas 3.0.1）は 1432 本が通り、pandas 2 の 2 つのレーンで H-0141 の 2 つのファイルが 214 本通った。
+
+### 実装レビュー round 3（2026-10-22）
+
+- **monitor**: round 3 の前に、runner の relational monitor を走らせた（`f641935`、round 1〜2 を観察）。結果は CONVERGING・continue で、disposition は continue。
+- **結果**: round 3（`f641935`）は CHANGES_REQUESTED で、major 2 件だった。run `h0141-impl-review` は 3 round を使い切った（`review_budget_exhausted`）。
+  1. 状態の `identity_columns` が list でない（`1`・`"7"`・`null`）とき、reason の無い `TypeError` か、検査を通って identity の検査や書き込みまで進んだ。
+  2. `config.json` の `declared_categories` が object でない（`1`・`["7"]`）とき、同じだった。
+- **対応**: 2 件は、印のある状態の検査が欄の型を確かめずに読んでいた、という同じ形の欠陥である。指摘された 2 つの欄だけでなく、検査が読む全ての欄の型を先に確かめるようにした（DC1 の、開いた文法を安全な側に閉じる規則）。
+  - 生成コードの `_typed_field` が、欄の型（`feature_names`・`categorical_features`・`identity_columns` は文字列の list、`declared_categories`・`categorical_rule`・`categories` とその各項目は object、`categorical_rule.explicit` と各項目の `categories` は list、`split`・`split.blocks`・`split.groups`・`inner_valid` は object か `null`、役割の名前は文字列）を、読む前に確かめる。
+  - 書き手が必ず書く欄が無い場合は、今までどおりその欄を読むコードに任せる（H-0120 の契約で、`inner_valid` の無い `config.json` は欄の名前を挙げた `KeyError` で止まる）。
+  - 回帰テストは、検査が読む 15 の欄 × それぞれの誤った型の 43 通りで、予測が値の復号より前に、学習し直しが状態を書く前に、`invalid_column_name_state` で止まることを確かめる。43 通りのうち 17 通りは round 3 の head（`f641935`）で落ち、round 3 が挙げなかった欄（`split`・`inner_valid`・`categorical_rule`・各項目の `categories`）も含んでいた。
+  - 最初の直しは、値の codec の `_field` と同じ名前の関数を足して、codec の関数を黙って置き換えていた（H-0138 の写しのテストが 215 本落ちて分かった）。名前を変え、描画した 2 つのスクリプトのトップレベルの名前が重ならないことを確かめるテストを足した。
+  - codegen のテスト（pandas 3.0.1）は 1432 本が通り、pandas 2 の 2 つのレーンで H-0141 の 2 つのファイルが 258 本通った。
+
+### 実装レビュー（2 本目の run）round 1（2026-10-22）
+
+- 1 本目の run が 3 round を使い切った後、管理者は新しい通常の run を選んだ。
+- **結果**: Codex の run `h0141-impl-review-2` の round 1（`9e63629`）は APPROVE で、指摘は無かった。run はこれで終わる。この実行の方針により、APPROVE と CI 緑でマージする。
+
+## H-0143: 保存の後の振る舞いの検査で、identity で引く列の JSON の経路を生成コードと同じ引き方で判定する ― slow のテストを feature PR の CI でも走らせる
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-22
+- **決定日**: 2026-10-22
+- **関連**: H-0136（保存の後の振る舞いの検査）、H-0138・H-0139（カテゴリの値の同一性。identity で引く列）、H-0141（生成コードの列名の別名）、リリース PR #397（v0.21.0。この検査のテストが CI で落ちた）、registry のカード D-20261022-013（判定を直してから v0.21.0 を出す、slow のテストを feature PR の CI に入れる）
+- **スコープ**:
+  - `persistence/_category_preflight.py` の `state_changes` の `json` の経路のうち、版 1 の状態で `identity_columns` にある列の判定（`features/encoders/state_changes.py`）
+  - `.github/workflows/ci.yml` の Quality の 3 つのレーンが走らせるテストの範囲
+  - `tests/test_persistence/test_h0136_grid.py` の、生成プロジェクトに状態を書くテストの道具
+  - 範囲の外: `joblib` の経路の判定、identity で引かない列の判定、`declared_categories` の判定（H-0139 で決めたとおり）、値の集合 V、実行時と生成コードの符号の引き方、保存の形式、latest-deps と lowest-direct deps のレーン
+
+### 目的（課題）
+
+v0.21.0 のリリース PR #397 の CI で、slow のテスト `tests/test_persistence/test_h0136_grid.py::test_the_verdict_matches_the_real_serializers` が、必須の 3 つのレーンで落ちた。このテストは、H-0133 の値の 1 つと 2 つの組の列（5995 通り）で、H-0136 の検査の判定が、本当の保存処理（joblib と、生成 `predict.py`）の結果と一致することを確かめる。slow のテストは `main` への PR でだけ走るので（`pyproject.toml` の `addopts = "-m 'not slow'"`、`ci.yml` の `base_ref` の分岐）、H-0139 と H-0141 の feature PR の CI と、PR の head で走らせたフルスイートは、このテストを走らせていなかった。原因は 2 つある。
+
+1. **テストの道具（H-0141）**: テストは、`convert_pipeline_state` に `feature_names` と `categorical_features` だけの config を渡して `pipeline_state.json` を書き、`export_code` が書いた生成プロジェクトの `predict.py` で変換する。H-0141 からプロジェクトの `config.json` は印 `column_name_policy` を持つので、印の無い状態は `column_name_policy_mismatch` で拒否され（正しい振る舞い）、全ての列が「JSON で壊れる」と測られた。
+2. **判定のずれ（H-0139）**: 1 つのカテゴリの列に `np.timedelta64` と `np.uint64` が並ぶ組で、判定は `json` の経路を「変換が例外を出す」（`kind="raises"`、`OverflowError` か `ValueError`）とし、3 つの出口（`Model.export`・`lizyml.persistence.export`・`export_code`）がそのモデルを拒否する。しかし本当の生成 `predict.py` は、その状態を正しく変換する。
+   - 判定は、JSON で写した状態を実行時の `CategoricalEncoder` で変換する。H-0139 から時刻の値の列も identity で引く列（`identity_columns`）になり、実行時のエンコーダは符号をキーで引いた後、`pd.Categorical.from_codes(codes, categories=...)` を作る。JSON の符号化は `np.uint64` を Python の `int` として戻すので、写したカテゴリで pandas の `CategoricalDtype` の検査が例外を出す。2**63 以上の値（`[timedelta64, 9223372036854775813, 'x']`）では単調性の検査が `OverflowError` を、`np.uint64(4)` と `np.timedelta64(4, 'ps')` の組では、pandas が `4` と `timedelta64(4, 'ps')` を等しいと見て、一意性の検査が `ValueError`（`Categorical categories must be unique`）を出す。元の状態（`np.uint64` のまま）では、どちらも出ない。
+   - 生成 `predict.py` は、identity で引く列ではキーで符号を引いて返すだけで（`_keyed_codes`。H-0138 の写し）、カテゴリの一覧から pandas の型を作らない。だから壊れない。
+   - 実行時のエンコーダが JSON で写した状態を読むことは無い（保存したモデルは joblib で読む）。`json` の経路の判定が真似るべき読み手は生成コードである。
+   - H-0139 より前は時刻の値の列を identity で引かず、生成コードも pandas の引き方で同じ例外を出したので、判定と本当の結果は一致していた（両方とも拒否）。利用者から見た拒否は v0.20.0 から変わっておらず、黙って通るものは無い。H-0139 で生成コードがこのモデルを扱えるようになったのに、判定が拒否を続けている（DC3: 判定は生成コードの振る舞いの写しで、生成コードが変わったときに写しが変わらなかった）。
+
+### 実測（2026-10-22、develop `de48bd4` の上）
+
+測定のスクリプトと出力は `docs/audits/2026-10-h0143/probes/` にある。`prototype.py` は、下の対応方針 1 を実装の外で試したもの（`json` の経路で、identity で引く列の符号を `keyed_codes` だけで求める）。
+
+- **原因 1**: H-0141 のテストの道具の直し（下の対応方針 3）の後、テストに残るずれは原因 2 の組だけである。
+- **原因 2 が入った commit**: develop の first-parent を遡り、テストを走らせた（テストの道具は直した版）。H-0137（`b297de4`）と H-0138（`78e2a0c`）で通り、H-0139（`43083e3`）で落ちる。H-0138 では、同じ組の判定は今と同じ `json` の `raises` だった。
+- **grid**（`grid_census.py`。テストと同じ population で、今の判定と試作の判定のそれぞれを、本当の結果と比べる）:
+
+  | レーン | 判定した列 | 今の判定のずれ | 試作の判定のずれ |
+  |---|---|---|---|
+  | pandas 3.0.1（seed を決めない） | 5995 | 12 | 0 |
+  | pandas 3.0.1（`PYTHONHASHSEED=0`） | 5995 | 14 | 0 |
+  | pandas 3.0.1（`PYTHONHASHSEED=1`） | 5995 | 13 | 0 |
+  | pandas 2.3.3（`PYTHONHASHSEED=0`） | 6216 | 1 | 0 |
+  | pandas 2.0.0（`PYTHONHASHSEED=0`） | 6216 | 11 | 0 |
+
+  ずれは全て「`np.timedelta64` + `np.uint64`、判定は `json`、本当は壊れない」だった。2**63 以上の `np.uint64` の組（`OverflowError`）と、`np.uint64(4)` と `np.timedelta64(4, 'ps')` の組（`ValueError`）を含む（pandas 3.0.1、`PYTHONHASHSEED=0` では 12 と 2。Proposal レビュー round 1 が実行して数えた）。数が seed と版で変わるのは、pandas の検査が、カテゴリの並び（set の順）で通ったり例外を出したりするためである。試作の判定は、全てのレーンと seed で本当の結果と一致した。
+- **firing rate**（対応方針 1 で判定が変わる呼び出しの割合）:
+
+  Firing rate: 14/16810 of the state_changes calls made in the pytest process of the test suite with slow tests included (census with `probes/h0143_census.py` on pandas 3.0.1: the prototype differs on 14 calls, all in `tests/test_persistence/test_h0136_grid.py`, and raised on none; `probes/census_pd3.*`. The notebook tests run the tutorials in separate kernels, which the plugin does not patch, so their fit-time calls are not counted)
+
+  - pytest のプロセスの 16810 回の呼び出しのうち、今の判定が何かの変化を見つけたのは 14 回で、14 回とも上の拒否しすぎの組だった。この population の普段の入力では、判定は変わらない。notebook のカーネルの中の呼び出し（tutorial の `fit` の警告）は数えていない。
+  - H-0138・H-0139 の後、H-0133 の population で本当に保存で答えが変わる列は無い（grid の本当の結果は全て空）。拒否の各 kind は、写した状態を合成する単体テスト（`tests/test_persistence/test_h0136_state_changes.py`、slow でない）が確かめている。
+
+### 管理者の判断（2026-10-22。カード D-20261022-013）
+
+- 判定を直してから v0.21.0 を出す（拒否しすぎの組をテストに固定して先に出す案は採らない）。
+- 同じ直しの PR で、feature PR の CI でも slow のテストを走らせる（CI の時間が延びることは受け入れる）。
+
+### 対応方針（提案）
+
+1. **`json` の経路の、identity で引く列**: `state_changes` の `json` の経路で、状態が版 1（`category_identity_version` を持つ）で、その列が `identity_columns` にあるとき、写した状態の符号は、実行時のエンコーダの変換ではなく、`keyed_codes`（`features/encoders/category_identity.py`。生成コードの `_keyed_codes` はこの写しで、H-0138 の写しのテストが同じ答えを返すことを固定している）だけで求める。最頻値で置き換えた符号（`kind="mode"` の判定）も同じである。
+   - 比べる相手（元の状態の符号）は今のまま、実行時のエンコーダで元の状態を変換したものである。元の状態が自分のカテゴリを変換できない列は、今と同じく判定しない。
+   - `joblib` の経路は今のまま、実行時のエンコーダで判定する（保存したモデルを読む実行時は `from_codes` を作るので、そこで壊れるものは拒否する）。
+   - identity で引かない列は今のまま（生成コードも pandas の引き方を使い、grid で判定と本当の結果が一致している）。
+   - `declared_categories` の判定は H-0139 で決めたまま変えない。
+2. **CI**: `.github/workflows/ci.yml` の Quality の 3 つのレーン（Python 3.10・3.11・3.12）は、PR の向き先によらず、`main` への PR と同じく slow のテストを含む全てのテストを走らせる（`-m ""`）。カバレッジの下限 96 は変えない。latest-deps と lowest-direct deps のレーン、smoke と notebook の index のジョブは変えない。`pyproject.toml` の `addopts` も変えない（手元で走らせるときの既定は今のまま）。
+3. **テストの道具**: `test_h0136_grid.py` は、生成プロジェクトの `config.json` をそのまま `convert_pipeline_state` に渡す（`export_code` が writer に渡すのと同じ。印が状態にも書かれる）。テストの主張（判定と本当の結果が一致すること）は変えない。
+
+### 互換性
+
+- 3 つの出口は、identity で引く列の `json` の経路で、今拒否している一部のモデル（上の測定では、`np.timedelta64` と `np.uint64` を同じ列に持ち、JSON で写した `int` と時刻の値のカテゴリを pandas が型にできないもの。2**63 以上の値の `OverflowError` と、`np.uint64(4)` と `np.timedelta64(4, 'ps')` の `ValueError`）を受け付けるようになる。受け付けるのは、生成 `predict.py` が元の状態と同じ符号を返すモデルだけである（grid で確かめる）。
+  - `Model.fit` を通したモデルでは、2**63 以上の `np.uint64` を持つ列は、LightGBM が書けない値を持つ列として代わりの符号の列（`stand_in_columns`、H-0133）になり、実行時のエンコーダは `from_codes` に位置の一覧を渡すので、今の判定でも拒否されない（grid は `CategoricalEncoder` を直接 fit するので代わりの符号の列にならず、拒否しすぎが現れる）。`Model.fit` を通したモデルで今拒否しすぎているのは、`np.uint64(4)` と `np.timedelta64(4, 'ps')` の組のような、代わりの符号の列にならず pandas の一意性の検査が落ちる場合で、hash の seed で拒否されたりされなかったりする（`PYTHONHASHSEED=0` で拒否、3・6・7 で拒否されない）。
+  - 今受け付けているモデルは、全て今と同じに受け付ける（判定が「変化なし」から「変化あり」に変わる列は無い。census と grid で確かめる）。
+- `fit` の警告（`warn_saved_state_changes`）も、同じ列で警告しなくなる。
+- 公開 API・Config・`FitResult`・保存の形式は変わらない。
+- CI は feature PR でも slow のテストを走らせるので、Quality のレーンの時間が延びる（Quality (3.12) のジョブは、リリース PR #397 で約 34 分、feature PR #395 で約 23 分だった）。
+
+### 代替案
+
+- **拒否しすぎの組をテストに固定して、判定の直しは後に回す**: 利用者から見た拒否は v0.20.0 と同じで、壊れるものは通さない。管理者は直してから出すことを選んだ（カード D-20261022-013）。採らない。
+- **判定で生成 `predict.py` の変換そのものを実行する**: 生成コードのソースを export のたびに組み立てて実行することになり、重い。identity で引く列の引き方は `keyed_codes` と、その写し `_keyed_codes` が同じ答えを返すことをテストが固定しているので、`keyed_codes` で同じ判定になる。採らない。
+- **実行時のエンコーダの `from_codes` を pandas の検査に通さない作り方にする**: 実行時のエンコーダは JSON で写した状態を読まないので、判定のためだけに実行時の振る舞いを変えることになる。`joblib` の経路の判定も変わってしまう。採らない。
+- **slow のテストを、codegen と persistence に触れる PR でだけ走らせる**: どの変更がどの slow のテストに効くかの条件を持つことになり、その条件の firing rate を測る必要がある。今回の 2 つの欠陥はどちらも feature PR から入った。管理者は全ての feature PR で走らせることを選んだ。採らない。
+
+### 受け入れ基準
+
+1. **grid**: `test_h0136_grid.py` が、pandas 3.0.1・2.3.3・2.0.0 の 3 つのレーンで、`PYTHONHASHSEED` を 0 と 1 にしても通る（判定と本当の結果のずれが 0）。
+2. **受け付けるようになったモデル**: `np.timedelta64` と `np.uint64(2**63 + 5)` を同じカテゴリの列に持つモデルと、`np.timedelta64(4, 'ps')` と `np.uint64(4)` を同じ列に持つモデルを、3 つの出口が受け付け、`Model.load` したモデルと生成 `predict.py` の予測が元のモデルと一致する。直す前の判定が拒否することも確かめる（直しが効いていることの陰性対照）: 2**63 以上の値は、カテゴリの順を `[timedelta64, uint64, "x"]` に決めた代わりの符号でない状態で `OverflowError`（seed によらない）、`np.uint64(4)` の組は `PYTHONHASHSEED=0` の子プロセスで `ValueError`。
+3. **他の判定は変わらない**: `test_h0136_state_changes.py` の全ての kind の判定がそのまま通る。identity で引く列でも、写した状態でカテゴリが失われる、符号が変わる、最頻値の符号が変わる場合は、`json` の経路で今と同じ kind で拒否される（合成した写しで確かめる）。`joblib` の経路の判定は変わらない。
+4. **census**: 実装の後の census で、判定が変わる呼び出しが grid のテストと受け入れ基準 2・3 のテストにだけ現れる。
+5. **CI**: feature PR の CI の Quality の 3 つのレーンが slow のテストを走らせる（この PR の CI のログで、slow のテストの名前が出ることを確かめる）。
+6. **文書**: BLUEPRINT §15.3（保存の後の振る舞いの検査で、`json` の経路の identity で引く列は生成コードと同じ引き方で判定すること）、CHANGELOG、`docs/migration.md`、`docs/proposal_dispositions.toml` を更新する（CONTRIBUTING.md は Quality のレーンが slow を外すことを書いていないので変えない）。
+
+**レビューの停止基準**: 上の受け入れ基準のテストと census が通ったら止める。次の round に進む理由になるのは、この契約の中の欠陥だけである: identity で引く列の `json` の判定が生成コードの引き方と違うこと、他の判定が変わること、CI のレーンが slow のテストを走らせないこと、テストの道具が生成プロジェクトと違う状態を書くこと。値の集合 V、identity の範囲、`declared_categories` の判定、保存の形式、latest-deps のレーンの #389 の失敗は、次の round に進む理由にならない。
+
+### Proposal レビュー round 1（2026-10-22）
+
+- **結果**: Codex の run `h0143-proposal-review` の round 1（`f709261`）は CHANGES_REQUESTED で、major 2 件だった。どちらも事実の記述の誤りで、対応方針は変わらない。
+  1. 拒否しすぎの組は 2**63 以上の `np.uint64` だけでなく、`np.uint64(4)` と `np.timedelta64(4, 'ps')` の組も含み、そこでは pandas の一意性の検査が `ValueError` を出す。
+  2. census は pytest のプロセスの中の呼び出しだけを数えていて、notebook のテストが tutorial を走らせる別のカーネルの中の呼び出しは数えていない。
+- **対応**（上の本文を直した）: 目的・実測・互換性の、例外の説明と population を直し、受け入れ基準 2 に `np.uint64(4)` の組を足した。firing rate の行と説明を、数えた population（pytest のプロセス）に合わせた。
+
+### Proposal レビュー round 2（2026-10-22）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`6ce4212`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`6ce4212`）は APPROVE で、指摘は無かった。run `h0143-proposal-review` はこれで終わり、この Proposal を Accepted とした。
+- **受け入れの後の訂正**（実装のテストを書いて自分で見つけた。設計は変わらない）: `Model.fit` を通したモデルでは、2**63 以上の `np.uint64` を持つ列は代わりの符号の列（H-0133）になり、今の判定でも拒否されない。互換性に、`Model.fit` を通したモデルで拒否しすぎが起きる範囲（一意性の検査が落ちる組、hash の seed で変わる）を書き足し、受け入れ基準 2 の陰性対照を、seed によらない形（順を決めた状態と、`PYTHONHASHSEED=0` の子プロセス）に直した。この訂正は実装レビューで確かめる。
+
+### 実装の記録（2026-10-22）
+
+- **コード**: `features/encoders/state_changes.py` の `column_change` と `category_state_changes` に `generated` を足した。`generated=True` のとき、写した状態が版 1 でその列が `identity_columns` にあれば、写した状態の符号と最頻値で置き換えた符号を `keyed_codes`（`_generated_codes`）だけで求める。`persistence/_category_preflight.py` の `state_changes` は、`json` の経路で `generated=True` を渡す。`joblib` の経路、identity で引かない列、元の状態の符号は今のまま。
+- **CI**: `.github/workflows/ci.yml` の Quality の 3 つのレーンは、PR の向き先によらず `-m ""` で全てのテストを走らせる。カバレッジの下限 96 は変えない。`tests/test_ci_memory_ceiling.py` と `tests/test_notebooks/test_notebook_index_gate.py`（`ci.yml` を読むテスト）は通った。
+- **テストの道具**: `tests/test_persistence/test_h0136_grid.py` は、生成プロジェクトの `config.json` を `convert_pipeline_state` に渡す。
+- **テスト**（`tests/test_persistence/test_h0143_keyed_json_verdict.py`）:
+  - 受け入れ 2: `np.timedelta64(4, 's')` と `np.uint64(2**63 + 5)`、`np.timedelta64(4, 'ps')` と `np.uint64(4)` の列を持つモデルを 3 つの出口が受け付け、`Model.export` と `lizyml.persistence.export` から `Model.load` したモデルと生成 `predict.py` の予測が元のモデルと一致する。frame の最初の行に値を置き、fit したカテゴリの順を `[timedelta64, uint64, "x"]` にした。
+  - 陰性対照: 受け入れ基準 2 の書き方（順を決めた状態の `OverflowError` と、`PYTHONHASHSEED=0` の `ValueError`）は、pandas 3.0.1 でしか成り立たなかった（`OverflowError` はその順で pandas 3.0.1 だけが出し、`ValueError` の組と順は pandas の版で違う）。対照を、3 つの組（4 s と 2**63 + 5、4 ps と 4、4 ns と 4）× `"x"` を含む全ての順の 18 通りの状態にし、`PYTHONHASHSEED=0` の子プロセスで、実行時のエンコーダの判定が少なくとも 1 つを拒否し、出荷する判定がどれも拒否しないことを確かめる形にした（受け入れ基準 2 の陰性対照の意図は同じ）。直す前の判定では 18 通りのうち 9 通りが拒否され（pandas 3.0.1）、直した後は 0 通りである。
+  - 受け入れ 3: identity で引く列で、写した状態がカテゴリを失う・並びが変わる・最頻値が変わるとき、`generated=True` でも `False` でも同じ kind（`unseen`・`codes`・`mode`）になる。`test_h0136_state_changes.py` はそのまま通った。
+  - 3 つのレーン（pandas 3.0.1・2.3.3・2.0.0）で、`PYTHONHASHSEED` を 0 と 3 にして、このファイルと grid のテストが通った。
+- **census**（受け入れ 4、`docs/audits/2026-10-h0143/firing/`）: slow を含むフルスイートで 23073 本が通った（落ちた 1 本は、この環境の既知の `tests/test_e2e/test_version.py`）。pytest のプロセスの `state_changes` の呼び出し 16852 回のうち、出荷する判定が何かの変化を見つけたのは 0 回で、直す前の判定と違ったのは 17 回、全て grid のテスト（12）と H-0143 のテスト（5）だった。
+- **文書**: BLUEPRINT §15.3（`json` の経路の identity で引く列の判定）、CHANGELOG（0.21.0 の Fixed）、`docs/migration.md`（v0.21.0）、`docs/proposal_dispositions.toml`（specified）。
+- **欠陥の分類**: 2 つとも DC3（生成コードの振る舞いの写しが、元の変更に追いつかなかった）。テストの道具は writer の出力を写して書いていて H-0141 の印に追いつかず、判定は生成コードの読み方を実行時のエンコーダで写していて H-0139 の identity の範囲に追いつかなかった。見逃した門は、slow のテストを feature PR の CI でも PR の head のフルスイートでも走らせていなかったことで、対応方針 2 がそれを直す。
+
+### 実装レビュー（2026-10-22）
+
+- **結果**: Codex の run `h0143-impl-review` の round 1（`0e404ae`）は APPROVE で、指摘は無かった。受け入れの後の訂正（`Model.fit` を通した 2**63 以上の `np.uint64` の列は代わりの符号の列）と、陰性対照の形の変更も確かめた。run はこれで終わる。この実行の方針により、APPROVE と CI 緑でマージする。

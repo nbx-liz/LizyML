@@ -14,6 +14,12 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
+from lizyml.core.category_values import (
+    IDENTITY_OBJECT_COLUMNS,
+    cast_is_faithful,
+    check_keyless_temporals,
+    identity_eligible,
+)
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.specs.feature_spec import FeatureSpec
 from lizyml.core.specs.problem_spec import ProblemSpec
@@ -106,9 +112,31 @@ def _apply_categorical(df: pd.DataFrame, spec: FeatureSpec) -> pd.DataFrame:
             if pd.api.types.is_string_dtype(df[col]) or df[col].dtype == object:
                 cat_set.add(col)
 
+    kept_object: list[Any] = []
     for col in cat_set:
-        if col in df.columns:
-            df[col] = df[col].astype("category")
+        if col not in df.columns:
+            continue
+        series = df[col]
+        # H-0139 decision 4: a Y / M duration has no key; refuse it before
+        # anything could route it to the pandas path silently.
+        check_keyless_temporals(series, col)
+        if not identity_eligible(series):
+            # Values outside V keep today's cast, its result and its
+            # exception alike (H-0138).
+            df[col] = series.astype("category")
+            continue
+        try:
+            cast = series.astype("category")
+        except (TypeError, ValueError, OverflowError):
+            cast = None  # pandas cannot hold this mix (#380): keep it as is
+        if cast is not None and cast_is_faithful(series, cast):
+            df[col] = cast
+        else:
+            # The encoder learns this column by key inside each fit; the mark
+            # names it only, so no category leaks across a split (H-0138).
+            kept_object.append(col)
+    if kept_object:
+        df.attrs[IDENTITY_OBJECT_COLUMNS] = sorted(kept_object, key=str)
 
     return df
 

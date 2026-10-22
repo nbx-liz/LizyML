@@ -1,0 +1,16 @@
+== base (b39608d)
+lizyml-<version>.tar.gz 3448627 bytes
+lizyml-<version>-py3-none-any.whl 393551 bytes
+sdist notebooks/data entries:
+  (none)
+wheel notebooks/ entries: 0
+== head (3f30651)
+lizyml-<version>.tar.gz 5018443 bytes
+lizyml-<version>-py3-none-any.whl 393548 bytes
+sdist notebooks/data entries:
+notebooks/data/credit-g.csv.gz
+notebooks/data/diamonds.csv.gz
+notebooks/data/jena_climate_2016_tail.csv.gz
+notebooks/data/manifest.toml
+notebooks/data/vehicle.csv.gz
+wheel notebooks/ entries: 0
