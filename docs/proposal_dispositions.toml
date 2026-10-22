@@ -580,8 +580,8 @@ disposition = "specified"
 anchors = ["ResourceWarningProvider", "keep_training_booster=True"]
 
 [proposals."H-0143"]
-disposition = "pending"
-reason = "Under review; BLUEPRINT is updated with the implementation (the json verdict judges keyed columns as the generated code does)."
+disposition = "specified"
+anchors = ["keyed_codes", "from_codes"]
 
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
