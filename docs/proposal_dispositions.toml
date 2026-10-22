@@ -583,6 +583,10 @@ anchors = ["ResourceWarningProvider", "keep_training_booster=True"]
 disposition = "specified"
 anchors = ["keyed_codes", "from_codes"]
 
+[proposals."H-0144"]
+disposition = "pending"
+reason = "Proposed; the implementation PR updates BLUEPRINT section 18 and this row."
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 

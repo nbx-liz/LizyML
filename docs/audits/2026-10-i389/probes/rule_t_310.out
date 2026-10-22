@@ -1,0 +1,2 @@
+      1 1 failed, 6282 passed, 2 warnings in 7.05s
+      1 FAILED tests/test_features/test_h0138_faithful_oracle.py::test_the_overlay_is_the_closed_union_of_its_rules
