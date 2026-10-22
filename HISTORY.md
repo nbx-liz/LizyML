@@ -16765,3 +16765,7 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
 - **陰性対照**: 変換を止めて名前をそのまま渡すと、14 本のうち 8 本が落ちた。名前 `7` の予測の一致のテストは、小さなモデルではカテゴリでも数値の符号でも予測が同じになるので、変換を止めても通る。名前 `7` の取り違えは、booster の `categorical_column` を確かめるテストが捉える。
 - **census**（受け入れ 6、`firing/census_impl_pd3.*`）: テスト 22778 本が通り、`LGBMAdapter.fit` の呼び出し 9830 件のうち宣言のあるもの 2143 件で、`str` でない名前の宣言は 22 件、全て H-0142 のテストだった。
 - **文書**: BLUEPRINT §14.2、CHANGELOG、`docs/migration.md`、`docs/proposal_dispositions.toml`（specified）。
+
+### 実装レビュー（2026-10-22）
+
+- **結果**: Codex の run `h0142-impl-review` の round 1（`efa5f1c`）は APPROVE で、指摘は無かった。run はこれで終わる。この実行の方針により、APPROVE と CI 緑でマージする。
