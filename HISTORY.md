@@ -16757,3 +16757,11 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
 
 - **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`87f311f`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
 - **結果**: round 2（`87f311f`）は APPROVE で、指摘は無かった。run `h0142-proposal-review` はこれで終わり、この Proposal を Accepted とした。
+
+### 実装の記録（2026-10-22）
+
+- **コード**: `lizyml/estimators/lgbm/adapter.py` に `categorical_positions(columns, declared)` を置き、`LGBMAdapter.fit` は宣言を `X_train` の列の位置の一覧にして、学習と検証の `lgb.Dataset` に渡す（宣言が無いときは今までどおり `"auto"`）。照合は型が完全に同じで値が等しいときだけで、一致がちょうど 1 つでない宣言は `DATA_SCHEMA_INVALID`（`categorical_feature_not_unique`）。
+- **テスト**: `tests/test_estimators/test_h0142_categorical_positions.py`（受け入れ 1〜5）。名前 `"c"`・`np.str_("c")`・`0`・`1`・`7` の refit と CV の各 fold の booster が位置 0 をカテゴリにすること、`1` と `0` の名前のモデルの予測が `"c"` の名前のモデルと一致すること、名前の混ざった複数の列、検証の Dataset の宣言、名前と位置で同じ booster のバイト、型での照合と拒否。H-0138 の参照のモデルの case（`model_sha256`）は、3 つのレーンでそのまま通った（受け入れ 4）。
+- **陰性対照**: 変換を止めて名前をそのまま渡すと、14 本のうち 8 本が落ちた。名前 `7` の予測の一致のテストは、小さなモデルではカテゴリでも数値の符号でも予測が同じになるので、変換を止めても通る。名前 `7` の取り違えは、booster の `categorical_column` を確かめるテストが捉える。
+- **census**（受け入れ 6、`firing/census_impl_pd3.*`）: テスト 22778 本が通り、`LGBMAdapter.fit` の呼び出し 9830 件のうち宣言のあるもの 2143 件で、`str` でない名前の宣言は 22 件、全て H-0142 のテストだった。
+- **文書**: BLUEPRINT §14.2、CHANGELOG、`docs/migration.md`、`docs/proposal_dispositions.toml`（specified）。

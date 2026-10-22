@@ -26,6 +26,18 @@ release from v0.5.0 onward.
   study keeps its recorded range. Code that reads `parameter_bounds` (for
   example a UI range editor) must accept an entry with only `min` or only `max`.
 
+### Int-named categorical columns reach LightGBM by position (H-0142)
+
+A categorical column whose name is an `int` was handed to LightGBM by name,
+and LightGBM read the name as a column position
+([#393](https://github.com/nbx-liz/LizyML/issues/393)): a column named `1`
+made column 1 categorical, a column named `7` in a smaller frame made none.
+The adapter now passes positions. Fit again any model with int-named
+categorical columns whose name differed from its position; its predictions
+change because the right column is now categorical. String-named columns,
+and an int name that equals its position, train the same booster as before.
+Saved models are unchanged.
+
 ### Date and time categories are matched by instant; timedelta64 years and months are refused at fit (H-0139)
 
 The category key covers date and time values

@@ -568,8 +568,8 @@ disposition = "specified"
 anchors = ["temporal_key", "calendar_timedelta64"]
 
 [proposals."H-0142"]
-disposition = "pending"
-reason = "Under review; BLUEPRINT is updated with the implementation (LightGBM receives categorical columns by position)."
+disposition = "specified"
+anchors = ["categorical_positions", "categorical_feature_not_unique"]
 
 [proposals."H-0140"]
 disposition = "specified"
