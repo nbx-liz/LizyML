@@ -16683,8 +16683,9 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
 
 ## H-0142: LightGBM にカテゴリの列を位置で渡し、整数の列名を位置と取り違えないようにする（#393）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-22
+- **決定日**: 2026-10-22
 - **関連**: #393、#382（H-0141。生成コードの列名の別名）、registry のカード D-20261022-007（#393 を v0.21 で #382 より先に直す判断）、Codex の run `i382-mechanism-design`（この不具合を見つけた。写しは `docs/audits/2026-10-i382/codex/i382-mechanism-design.json`）
 - **スコープ**:
   - `estimators/lgbm/adapter.py` の `LGBMAdapter.fit` が `lgb.Dataset` に渡すカテゴリの宣言（`categorical_feature`）。学習の Dataset と検証の Dataset の両方
@@ -16751,3 +16752,8 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
 
 - **結果**: Codex の run `h0142-proposal-review` の round 1（`54b1902`）は CHANGES_REQUESTED で、major 2 件だった。
 - **対応**（上の本文を直した）: `int` の名前のモデルが変わるのは、名前を位置として読んだ結果が本当の位置と違うときだけだと、互換性の文を絞った（名前 `0` が位置 0 のモデルは変わらない）。関連に挙げた Codex の run の写し（`docs/audits/2026-10-i382/codex/i382-mechanism-design.json`）が、#382 のブランチにしか無かったので、このブランチにも置いた。
+
+### Proposal レビュー round 2（2026-10-22）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`87f311f`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`87f311f`）は APPROVE で、指摘は無かった。run `h0142-proposal-review` はこれで終わり、この Proposal を Accepted とした。
