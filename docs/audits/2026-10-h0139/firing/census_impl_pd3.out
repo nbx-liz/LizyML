@@ -1,0 +1,19 @@
+records 8011; rule errors 0
+    303 builder  non-temporal  cast_raised
+   1953 builder  non-temporal  faithful
+     12 builder  non-temporal  outside_v
+    398 builder  non-temporal  predicate_false
+     96 builder  temporal      faithful
+      3 builder  temporal      outside_v
+      8 builder  temporal      predicate_false
+     13 builder  temporal      ym_refused
+    449 encoder  non-temporal  cast_raised
+   3724 encoder  non-temporal  faithful
+     80 encoder  non-temporal  outside_v
+    492 encoder  non-temporal  predicate_false
+    447 encoder  temporal      faithful
+      8 encoder  temporal      outside_v
+     20 encoder  temporal      predicate_false
+      5 encoder  temporal      ym_refused
+builder: rebuilt 8/2786, ym_refused 13/2786, union 21/2786 (temporal visits 120)
+encoder: rebuilt 20/5225, ym_refused 5/5225, union 25/5225 (temporal visits 480)

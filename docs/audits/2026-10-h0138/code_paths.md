@@ -88,3 +88,14 @@ H-0138（#378・#380）の設計の前に、カテゴリの特徴量の列で「
 - `test_features/`: `test_category_stand_in.py`（全て）、`test_categorical_float_arrivals.py`、`test_unseen_policy.py`、`test_feature_pipeline.py`、`test_categorical_encoder_edge.py`。
 - `test_codegen/`: `test_unseen_policy_codegen.py`（`test_retrain_picks_the_same_mode_as_the_runtime`、`test_export_keeps_the_mode_code_for_a_float32_category` を含む）、`test_float_arrival_codegen.py`、`test_predict_subprocess_equivalence.py::test_unseen_category_matches_model`、`test_retrain_reproduction.py`（`test_categories_parquet`、`test_mixed_type_column_predict_py_matches`、`test_csv_within_the_stated_condition`、`test_new_data_keeps_a_new_category_of_an_inferred_column`、`test_generated_cast_follows_the_builder_rule`）、`test_artifact_writer.py::test_convert_exports_unseen_policy_and_mode`、`test_export_params.py`（`export_state_json`）。
 - `test_tuning/test_objective_identity.py`（カテゴリの指紋）。
+
+## H-0139 で時刻の型に広げた箇所（branch `feat/h0139-temporal-category-identity`）
+
+H-0139（#379）は、上の箇所のうち次を変えた。上の行番号は `b297de4` のときのもので、ここは H-0139 の実装の head の位置である。ほかの箇所は変えていない（HISTORY.md `## H-0139` の対応方針 6）。
+
+- `core/category_temporal.py`（新しい）: `temporal_key`（`:95`）と `calendar_units`（`:52`）。
+- `core/category_values.py`: `category_identity_key`（`:531`）は時刻の値もキーにする（`_key` `:671` が `temporal_key` に渡す）。`check_calendar_durations`（`:553`）が年・月の値を拒否する。`identity_eligible`（`:640`）は時刻の値を除かず、年・月の値を除く。`holds_temporal`（`:497`）は観察のためだけに残す。
+- `data/dataframe_builder.py:122` と `features/encoders/categorical_encoder.py:137`: fit で学ぶ前に `check_calendar_durations` を呼ぶ。
+- `features/encoders/category_identity.py:180` `_lookup`: 年・月の値（キーが無い）は unseen になる。
+- `persistence/_category_preflight.py`: `declared_change`（`:174`）が refit のエンコーダの状態を受け取り、版 1 で `identity_columns` にある列の時刻の宣言は `_declared_change_by_key`（`:225`）でキーの並びを比べる（`_keyed_temporal` `:212`）。`warn_changes`（`:145`）がそれを渡す。`persistence/exporter.py` の `_refit_encoder`（`:226`）が refit の状態を探し、`:155` と `:291` で渡す。
+- 生成コード: `codegen/identity_template.py` の `_temporal_key`（`:131`）・`_calendar_units`（`:79`）・`_check_calendar_durations`（`:93`）・`_key`（`:201`）・`_identity_key`（`:216`）・`_identity_eligible`（`:233`）。`codegen/templates.py` の `cast_categoricals`（`:307`）・`fit_pipeline`（`:368`）・`apply_declared_categories`（`:564`）が学ぶ前に年・月を拒否する。

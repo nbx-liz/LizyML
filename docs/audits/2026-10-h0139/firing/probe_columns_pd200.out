@@ -1,0 +1,1359 @@
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit ps
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit ps
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit fs
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit fs
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+ValueError: cannot cast unit as
+Exception ignored in: 'pandas._libs.tslibs.conversion.precision_from_unit'
+Traceback (most recent call last):
+  File "/tmp/claude-1000/venvlow/lib/python3.10/site-packages/pandas/core/dtypes/cast.py", line 1178, in maybe_infer_to_datetimelike
+    return lib.maybe_convert_objects(  # type: ignore[return-value]
+ValueError: cannot cast unit as
+pandas 2.0.0 numpy 1.24.0 columns 6571
+    26 non-temporal  cast_raised
+  1666 non-temporal  faithful
+    34 non-temporal  predicate_false
+   111 temporal      cast_raised
+  4501 temporal      faithful
+     8 temporal      predicate_false
+   225 temporal      ym_refused
+H-0139 activation: 344/4845 temporal columns; rule errors 0

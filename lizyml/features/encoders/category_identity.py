@@ -1,7 +1,7 @@
-"""category_identity -- learn and look up categories by the H-0138 key.
+"""category_identity -- learn and look up categories by the identity key.
 
-A column whose values (rows and declared categories) are all in V and none is
-temporal is an *identity column*. For it:
+A column whose values (rows and declared categories) are all in V is an
+*identity column* (H-0138; temporal values since H-0139). For it:
 
 - fit keeps today's categories, order, representatives and mode whenever they
   are faithful under the key (:func:`keyed_categories`); otherwise it builds
@@ -10,8 +10,9 @@ temporal is an *identity column*. For it:
 - transform looks every row up by its key (:func:`keyed_codes`), never through
   pandas' object Index, ``set`` or ``isin``.
 
-A column holding a temporal value or a value outside V keeps today's pandas
-path (H-0138 decision 4); this module never sees it.
+A column holding a value outside V keeps today's pandas path (H-0138); this
+module never sees it. Fit refuses a ``Y`` / ``M`` duration before learning
+(H-0139); one arriving at transform has no key and is unseen.
 """
 
 from __future__ import annotations
@@ -144,16 +145,16 @@ def keyed_codes(
         pos = _lookup(position, value)
         if pos is None:
             hit[i] = True
-            unseen[str(value)] = None
+            unseen[_text(value)] = None
         else:
             codes[i] = pos
     if isinstance(arrived.dtype, pd.CategoricalDtype):
         for declared in arrived.cat.categories:
             if _lookup(position, declared) is None:
-                unseen[str(declared)] = None
+                unseen[_text(declared)] = None
     warnings: list[str] = []
     if unseen or flags.any():
-        shown = sorted(set(unseen) | {str(v) for v in original[flags]})
+        shown = sorted(set(unseen) | {_text(v) for v in original[flags]})
         if policy == "error":
             raise LizyMLError(
                 ErrorCode.DATA_SCHEMA_INVALID,
@@ -161,7 +162,7 @@ def keyed_codes(
                 context={"column": column, "unseen_categories": shown},
             )
         n_rows = int(hit.sum())
-        present = sorted({str(v) for v in original[hit]})
+        present = sorted({_text(v) for v in original[hit]})
         if policy == "mode":
             codes[hit] = -1 if mode is None else position[category_identity_key(mode)]
             replaced_by = f"the training mode {mode!r}"
@@ -176,10 +177,19 @@ def keyed_codes(
     return codes, warnings
 
 
+def _text(value: Any) -> str:
+    """``str(value)``; a value NumPy cannot show (a unitless ``datetime64``)
+    gets a placeholder, so an unseen one never breaks the message."""
+    try:
+        return str(value)
+    except (TypeError, ValueError):
+        return f"<unprintable {type(value).__name__}>"
+
+
 def _lookup(position: dict[Any, int], value: Any) -> int | None:
     try:
         return position.get(category_identity_key(value))
     except TypeError:
-        # A temporal value or one outside V arriving in an identity column
-        # matches no category: it is unseen.
+        # A value outside V, or a keyless temporal value (H-0139), arriving
+        # in an identity column matches no category: it is unseen.
         return None

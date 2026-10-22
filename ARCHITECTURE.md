@@ -690,6 +690,7 @@ lizyml/
 │   ├── registries.py               MetricRegistry (generic)
 │   ├── param_domain.py             受理するパラメーター値の集合 (H-0095; Layer 0, H-0129)
 │   ├── category_values.py          保存できるカテゴリ値の閉じた集合と符号化 (Layer 0, H-0133)
+│   ├── category_temporal.py        時刻の値の同一性のキー (Layer 0, H-0139)
 │   ├── magnitude.py                探索次元の大きさの検査 (H-0124; Layer 0, H-0134)
 │   ├── tuning_codec.py             tune の値・次元・境界の報告・履歴の JSON 符号化 (Layer 0, H-0134)
 │   ├── specs/                      ProblemSpec / FeatureSpec など (Layer 0, H-0129)

@@ -1,0 +1,12 @@
+pandas 3.0.1: {'Y': 221, 'R': 190, 'S': 5} total 416
+  S ['p22-23', 'p22-36', 'p23-35', 'p24-38', 'p60-103']
+  unchanged failures {}
+  changed sha256 d32567a34902782c6a364ea9ce36416d20755a75c2d5fa7731885b0fa3c84cc6
+pandas 2.3.3: {'Y': 225, 'R': 247, 'S': 8} total 480
+  S ['p22-23', 'p22-36', 'p22-40', 'p23-35', 'p23-41', 'p24-38', 'p36-41', 'p62-105']
+  unchanged failures {}
+  changed sha256 24f6d73ebfe4bce045f15d3f6a75ae89b8609ee571dfeab89fdf2a3150b7571a
+pandas 2.0.0: {'Y': 225, 'R': 111, 'S': 8} total 344
+  S ['p22-23', 'p22-36', 'p22-40', 'p23-35', 'p23-41', 'p24-38', 'p36-41', 'p62-105']
+  unchanged failures {}
+  changed sha256 dd3a7bb4f8b5c88b197c7fefe43c1211aa8d11826c8fb3f1787cf9435bdffdc1

@@ -1,23 +1,26 @@
-"""identity_template -- the H-0138 category identity, copied into generated code.
+"""identity_template -- the category identity, copied into generated code.
 
 The generated ``train.py`` / ``predict.py`` do not depend on LizyML, so they
-carry a copy of ``lizyml.core.category_values.category_identity_key`` and of the
-keyed fit and lookup of ``lizyml.features.encoders.category_identity``. The
-block follows the value codec (``templates._VALUE_CODEC``) and uses its
-``_is``, ``_encode_value`` and type tables. A test holds the copy to the
-library's answers.
+carry a copy of ``lizyml.core.category_values.category_identity_key`` (with the
+temporal key of ``lizyml.core.category_temporal``, H-0139) and of the keyed
+fit and lookup of ``lizyml.features.encoders.category_identity``. The block
+follows the value codec (``templates._VALUE_CODEC``) and uses its ``_is``,
+``_encode_value``, ``_EPOCH``, ``_US`` and type tables. A test holds the copy
+to the library's answers.
 """
 
 from __future__ import annotations
 
 IDENTITY_COPY = '''\
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-#  Category identity (LizyML H-0138)
+#  Category identity (LizyML H-0138, temporal values H-0139)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Two values are one category exactly when their keys are equal: numbers equal
-# as numbers, a string or bytes value and its NumPy twin, tuples / frozensets
-# item by item. A column holding a temporal value or a value the codec cannot
-# write keeps the pandas lookup.
+# as numbers, a string or bytes value and its NumPy twin, an aware datetime by
+# its UTC instant, a naive one by its wall-clock coordinate, a duration by its
+# length, tuples / frozensets item by item. A column holding a value the codec
+# cannot write keeps the pandas lookup; a numpy timedelta64 in Y or M units has
+# no key and training refuses it.
 
 import math as _math
 
@@ -32,6 +35,12 @@ _INTEGERS = (
 )
 _FLOATS = (float, np.float32, np.float64)
 _CAST_ERRORS = (TypeError, ValueError, OverflowError)
+_ATTOSECONDS = {
+    "W": 604800 * 10**18, "D": 86400 * 10**18, "h": 3600 * 10**18,
+    "m": 60 * 10**18, "s": 10**18, "ms": 10**15, "us": 10**12, "ns": 10**9,
+    "ps": 10**6, "fs": 10**3, "as": 1,
+}
+_CALENDAR_UNITS = ("Y", "M")
 
 
 def _check_identity_version(version, where):
@@ -67,10 +76,112 @@ def _names_a_column(column, categories):
         return False
 
 
-def _holds_temporal(value):
-    if _is(value, (tuple, frozenset)):
-        return any(_holds_temporal(item) for item in value)
-    return isinstance(value, _TEMPORAL)
+def _calendar_units(value):
+    """The Y / M units of the numpy timedelta64 values *value* is or holds."""
+    if type(value) is tuple or type(value) is frozenset:
+        found = set()
+        for item in value:
+            found |= _calendar_units(item)
+        return found
+    if type(value) is np.timedelta64:
+        unit = np.datetime_data(value.dtype)[0]
+        if unit in _CALENDAR_UNITS:
+            return {unit}
+    return set()
+
+
+def _holds_unitless_datetime(value):
+    if type(value) is tuple or type(value) is frozenset:
+        return any(_holds_unitless_datetime(item) for item in value)
+    return (
+        type(value) is np.datetime64
+        and np.datetime_data(value.dtype)[0] == "generic"
+        and not np.isnat(value)
+    )
+
+
+def _check_keyless_temporals(values, col):
+    """Refuse a column holding a temporal value with no key: a numpy
+    timedelta64 in Y or M units, or a unitless numpy datetime64 (H-0139)."""
+    units = set()
+    for value in values:
+        units |= _calendar_units(value)
+    if not units and any(_holds_unitless_datetime(v) for v in values):
+        raise ValueError(
+            f"Column '{col}' contains unitless numpy datetime64 categories."
+        )
+    if units:
+        raise ValueError(
+            f"Column '{col}' contains calendar-unit numpy timedelta64 "
+            f"categories: {sorted(units)}."
+        )
+
+
+def _text(value):
+    """``str(value)``; a value NumPy cannot show gets a placeholder."""
+    try:
+        return str(value)
+    except (TypeError, ValueError):
+        return f"<unprintable {type(value).__name__}>"
+
+
+def _days_from_civil(year, month, day):
+    year -= month <= 2
+    era = year // 400
+    year_of_era = year - era * 400
+    day_of_year = (153 * (month + (-3 if month > 2 else 9)) + 2) // 5 + day - 1
+    day_of_era = year_of_era * 365 + year_of_era // 4 - year_of_era // 100 + day_of_year
+    return era * 146097 + day_of_era - 719468
+
+
+def _raw(value):
+    return int(value.astype(np.int64))
+
+
+def _datetime64_coordinate(value):
+    unit, multiple = np.datetime_data(value.dtype)
+    count = _raw(value) * int(multiple)
+    if unit == "Y":
+        return _days_from_civil(1970 + count, 1, 1) * _ATTOSECONDS["D"]
+    if unit == "M":
+        days = _days_from_civil(1970 + count // 12, count % 12 + 1, 1)
+        return days * _ATTOSECONDS["D"]
+    if unit == "generic":
+        raise TypeError("a unitless numpy datetime64 has no identity key")
+    return count * _ATTOSECONDS[unit]
+
+
+def _temporal_key(value):
+    """The key of one temporal scalar, in attoseconds (H-0139)."""
+    kind = type(value)
+    if kind is pd.Timestamp:
+        coordinate = _raw(value.asm8) * _ATTOSECONDS[value.unit]
+        return ("datetime", "naive" if value.tzinfo is None else "aware", coordinate)
+    if kind is _dt.datetime:
+        wall_us = (value.replace(tzinfo=None) - _EPOCH) // _US
+        if value.tzinfo is None:
+            return ("datetime", "naive", wall_us * _ATTOSECONDS["us"])
+        offset_us = value.utcoffset() // _US
+        return ("datetime", "aware", (wall_us - offset_us) * _ATTOSECONDS["us"])
+    if kind is _dt.date:
+        return ("date", value.toordinal())
+    if kind is np.datetime64:
+        return ("datetime", "naive", _datetime64_coordinate(value))
+    if kind is pd.Timedelta:
+        return ("duration", _raw(value.asm8) * _ATTOSECONDS[value.unit])
+    if kind is _dt.timedelta:
+        microseconds = (
+            (value.days * 86400 + value.seconds) * 1_000_000 + value.microseconds
+        )
+        return ("duration", microseconds * _ATTOSECONDS["us"])
+    if kind is np.timedelta64:
+        unit, multiple = np.datetime_data(value.dtype)
+        if unit in _CALENDAR_UNITS:
+            raise TypeError(f"numpy timedelta64 in {unit} units has no identity key")
+        if unit == "generic":
+            return ("timedelta64-generic", _raw(value))
+        return ("duration", _raw(value) * int(multiple) * _ATTOSECONDS[unit])
+    raise TypeError(f"not a temporal value: {kind.__name__}")
 
 
 def _in_v(value):
@@ -111,6 +222,8 @@ def _number_key(value):
 
 
 def _key(value):
+    if isinstance(value, _TEMPORAL):
+        return _temporal_key(value)
     number = _number_key(value)
     if number is not None:
         return number
@@ -125,7 +238,7 @@ def _key(value):
 
 def _identity_key(value):
     """The structural key of *value*; a value that never runs its own ``==``."""
-    if _holds_temporal(value) or not _in_v(value):
+    if not _in_v(value):
         raise TypeError(
             f"no category identity key for a {type(value).__name__} value"
         )
@@ -141,7 +254,10 @@ def _column_values(series):
 
 
 def _identity_eligible(values):
-    return not any(_holds_temporal(v) or not _in_v(v) for v in values)
+    return not any(
+        not _in_v(v) or _calendar_units(v) or _holds_unitless_datetime(v)
+        for v in values
+    )
 
 
 def _cast_is_faithful(original, cast):
@@ -254,7 +370,7 @@ def _keyed_codes(series, arrived, changed, known, mode, policy, col):
         try:
             return position.get(_identity_key(value))
         except TypeError:
-            return None  # a temporal value or one outside V matches nothing
+            return None  # a value outside V or a Y / M duration matches nothing
 
     values = series.to_numpy(dtype=object)
     original = arrived.to_numpy(dtype=object)
@@ -271,23 +387,23 @@ def _keyed_codes(series, arrived, changed, known, mode, policy, col):
         pos = lookup(value)
         if pos is None:
             hit[i] = True
-            unseen[str(value)] = None
+            unseen[_text(value)] = None
         else:
             codes[i] = pos
     if isinstance(arrived.dtype, pd.CategoricalDtype):
         for declared in arrived.cat.categories:
             if lookup(declared) is None:
-                unseen[str(declared)] = None
+                unseen[_text(declared)] = None
     notes = []
     if unseen or flags.any():
-        shown = sorted(set(unseen) | {str(v) for v in original[flags]})
+        shown = sorted(set(unseen) | {_text(v) for v in original[flags]})
         if policy == "error":
             raise ValueError(
                 f"Column '{col}' contains unseen categories: "
                 f"{shown} (unseen_policy='error')"
             )
         n_rows = int(hit.sum())
-        present = sorted({str(v) for v in original[hit]})
+        present = sorted({_text(v) for v in original[hit]})
         if policy == "mode":
             codes[hit] = -1 if mode is None else position[_identity_key(mode)]
             replaced_by = f"the training mode {mode!r}"

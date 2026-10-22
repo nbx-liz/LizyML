@@ -23,9 +23,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from lizyml.core.category_temporal import calendar_units
 from lizyml.core.category_values import (
     category_identity_key,
-    holds_temporal,
     identity_eligible,
 )
 from lizyml.features.encoders.categorical_encoder import CategoricalEncoder
@@ -51,8 +51,11 @@ _OUTSIDE_V = [float("nan"), object(), np.float16(1), [1], decimal.Decimal("NaN")
 # --- the key copy (acceptance 1 and 9: COPY) ----------------------------------------
 
 
-@pytest.mark.parametrize("value", [v for v in _SAMPLE_VALUES if not holds_temporal(v)])
+@pytest.mark.parametrize(
+    "value", [v for v in _SAMPLE_VALUES if not calendar_units(v)], ids=repr
+)
 def test_the_copy_gives_the_library_key(value: Any) -> None:
+    """Temporal values included since H-0139."""
     assert COPY._identity_key(value) == category_identity_key(value)
 
 
@@ -68,10 +71,11 @@ def test_the_copy_keeps_the_distinct_pairs_apart(a: Any, b: Any) -> None:
 
 @pytest.mark.parametrize(
     "value",
-    [v for v in _SAMPLE_VALUES if holds_temporal(v)] + _OUTSIDE_V,
+    [v for v in _SAMPLE_VALUES if calendar_units(v)] + _OUTSIDE_V,
     ids=repr,
 )
 def test_the_copy_has_no_key_where_the_library_has_none(value: Any) -> None:
+    """A Y / M duration (H-0139) and a value outside V have no key."""
     with pytest.raises(TypeError):
         category_identity_key(value)
     with pytest.raises(TypeError):

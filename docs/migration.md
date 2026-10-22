@@ -26,6 +26,38 @@ release from v0.5.0 onward.
   study keeps its recorded range. Code that reads `parameter_bounds` (for
   example a UI range editor) must accept an entry with only `min` or only `max`.
 
+### Date and time categories are matched by instant; timedelta64 years and months are refused at fit (H-0139)
+
+The category key covers date and time values
+([#379](https://github.com/nbx-liz/LizyML/issues/379)): two time-zone-aware
+`datetime` / `Timestamp` values are one category when they are the same UTC
+instant, whatever the time zone (UTC, `ZoneInfo`, pytz, a fixed offset) or fold;
+naive values are one when their wall-clock values are exactly equal (sub-ns
+`np.datetime64` units included); durations are one when their lengths are equal.
+Naive and aware values stay apart, and so do a `date` and a midnight `datetime`.
+
+- **Columns that work today do not change**, with these deliberate exceptions
+  in newly fitted models: a `datetime` column holding both folds of one wall
+  time in one zone (two instants Python's `==` called equal) now has two
+  categories; sub-ns `np.datetime64` values are no longer coded as another
+  value (pandas 2 replaced them with the mode, pandas 3 gave them the epoch's
+  code); pytz's standard-time value and the same instant as a `ZoneInfo`
+  `fold=1` value are now one category.
+- **#379 is fixed.** On pandas 2, a column of pytz `Timestamp`s in one zone
+  keeps every training value at predict, and `Model.export` / `export_code`
+  save it (H-0136 refused it before).
+- **New refusal at fit.** A categorical column holding a `np.timedelta64` in
+  `Y` or `M` units (in a row, inside a tuple / frozenset, or as a declared
+  category) raises `DATA_SCHEMA_INVALID` with context
+  `{"column", "units", "reason": "calendar_timedelta64"}`; such a value has no
+  fixed length. Convert it to days or to a string before fit. A unitless
+  `np.datetime64` (which NumPy cannot print) is refused the same way, with
+  `"reason": "unitless_datetime64"`. Either value arriving at predict is
+  treated as unseen.
+- **No format change.** Artifacts stay `format_version` 5 and
+  `category_identity_version` stays `1`. Saved models (any format) predict
+  with the lookup they were saved with; fit again to use the temporal key.
+
 ### Category values are matched by one structural key; artifacts are `format_version` 5 (H-0138)
 
 Categorical columns whose values pandas confused
@@ -41,7 +73,7 @@ compare item by item.
   the key, the categories, their order, the mode, the codes and the trained
   model are the same as before. Only columns pandas could not cast or coded
   wrongly change: they are built by key and reach LightGBM as position
-  stand-ins. Columns holding a date or time value keep pandas' lookup.
+  stand-ins. Date and time values follow the same key since H-0139 (below).
 - **Older LizyML cannot read v5 artifacts.** `Model.load` in v0.20.0 or earlier
   raises `DESERIALIZATION_FAILED` for `format_version` 5. An older version would
   match categories through pandas and give the fixed columns their old codes.

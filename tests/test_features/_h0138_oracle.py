@@ -53,6 +53,22 @@ def oracle() -> dict[str, Any]:
     return loaded
 
 
+def overlay_path() -> Path:
+    return DATA / f"h0139_overlay_pandas-{pd.__version__}.json.gz"
+
+
+def overlay_or_none() -> dict[str, Any] | None:
+    """H-0139's closed list of temporal cases it changes on purpose, for the
+    running pandas version (``docs/audits/2026-10-h0139/oracle/make_overlay.py``),
+    or ``None`` when there is none (the overlay test then fails)."""
+    path = overlay_path()
+    if not path.is_file():
+        return None
+    with gzip.open(path, "rt", encoding="utf-8") as fh:
+        loaded: dict[str, Any] = json.load(fh)
+    return loaded
+
+
 def model_versions_match(meta: dict[str, Any]) -> None:
     """Model cases are compared only on the oracle's numpy and lightgbm."""
     running = (np.__version__, lightgbm.__version__)

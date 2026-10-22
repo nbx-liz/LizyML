@@ -193,6 +193,9 @@ def _decode_raw(obj, depth=0):
         unit, count = _field(obj, "unit", str), _field(obj, "count", int)
         if count < 1:
             raise ValueError("count is not positive")
+        if unit == "generic" and count == 1:
+            # NumPy builds no unitless datetime64 from an int (H-0139).
+            return np.array(_field(obj, "value", int), dtype=np.int64).view(tag)[()]
         kind = np.datetime64 if tag == "datetime64" else np.timedelta64
         return kind(_field(obj, "value", int), unit if count == 1 else f"{count}{unit}")
     if tag == "timedelta":
@@ -304,6 +307,7 @@ def cast_categoricals(X: pd.DataFrame) -> pd.DataFrame:
         if col not in X.columns:
             continue
         series = X[col]
+        _check_keyless_temporals(_column_values(series), col)  # H-0139
         if not keyed or not _identity_eligible(_column_values(series)):
             X[col] = series.astype("category")
             continue
@@ -344,9 +348,10 @@ def fit_pipeline(df: pd.DataFrame) -> dict:
     holds them in LizyML's tagged JSON (H-0133); the returned state holds the
     values themselves.
 
-    Under the H-0138 identity, a column whose values are all writable and
-    none is temporal is learned by key (``_keyed_categories``): the pandas
-    answer where it is faithful, else categories built by key.
+    Under the H-0138 identity, a column whose values are all writable is
+    learned by key (``_keyed_categories``; temporal values H-0139): the
+    pandas answer where it is faithful, else categories built by key. A
+    numpy timedelta64 in Y or M units is refused before learning.
     """
     expected = CFG["feature_names"]
     missing = sorted(set(expected) - set(df.columns))
@@ -363,6 +368,7 @@ def fit_pipeline(df: pd.DataFrame) -> dict:
         # A declared column apply_declared_categories could not restore.
         unrestored = None if hasattr(series, "cat") else declared.get(col)
         values = _column_values(series) + (unrestored or [])
+        _check_keyless_temporals(values, col)  # H-0139
         if version is not None and _identity_eligible(values):
             cats, mode = _keyed_categories(series, unrestored)
             identity_columns.append(col)
@@ -558,6 +564,7 @@ def apply_declared_categories(df: pd.DataFrame) -> pd.DataFrame:
     for col, values in _declared_values().items():  # tagged JSON (H-0133)
         if col not in df.columns:
             continue
+        _check_keyless_temporals(_column_values(df[col]) + list(values), col)
         if not keyed:
             df[col] = df[col].astype(pd.CategoricalDtype(categories=values))
             continue
