@@ -16769,3 +16769,211 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
 ### 実装レビュー（2026-10-22）
 
 - **結果**: Codex の run `h0142-impl-review` の round 1（`efa5f1c`）は APPROVE で、指摘は無かった。run はこれで終わる。この実行の方針により、APPROVE と CI 緑でマージする。
+
+## H-0141: export_code が書くプロジェクトでは列名を文字列の別名にし、文字列でない列名でも予測できるようにする ― 実行時と保存したモデルは変えない（#382）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-22
+- **決定日**: 2026-10-22
+- **関連**: #382、H-0142（#393。LightGBM にカテゴリの列を位置で渡す）、H-0133（値の codec）、H-0138・H-0139（カテゴリの値の同一性）、registry のカード D-20261022-006（案 (e)）・D-20261022-007（NumPy の型の名前は拒否、#393 を先に直す）・D-20261022-012（`np.float64` は受け付ける）、Codex の run `i382-critique`（選択肢の測定）と `i382-mechanism-design`（機構の設計）。写しは `docs/audits/2026-10-i382/codex/`
+- **スコープ**:
+  - `export_code` が書くプロジェクト（`config.json`・`artifacts/pipeline_state.json`・生成 `train.py`・`predict.py`・`test_equivalence.py`）の列名
+  - 範囲の外: `fit` がどの列名を受け付けるか、Config の役割の列名（`target` など。Config の schema が文字列だけを受け付ける）、実行時の fit / predict の列の同一性、`Model.export` / `Model.load` と保存の形式、カテゴリの値の同一性、生成コードが持ち回る booster のテキスト、#391
+
+### 目的（課題）
+
+`export_code` は、カテゴリの列の名前が文字列でないとき（auto で拾った object の列の名前が int の `7` など）、予測できないプロジェクトを書く（#382、DC1）。`pipeline_state.json` は列名を JSON の key に書くので、`7` は `"7"` になる。今の head では、生成 `predict.py` は `pipeline_state.json has a malformed identity_columns` で落ちる（`identity_columns` は int の `7`、カテゴリの key は `"7"`）。印を除いても、`7` の列を `"7"` で引けず、生の値が LightGBM に渡って `could not convert string to float` で落ちる。
+
+同じ問題は列名の全体にある。25 種類の名前 × 数値・auto のカテゴリ・宣言したカテゴリの列（75 通り、120 行・2 fold・3 round）を、H-0142 をマージした後のこの head で測った（`docs/audits/2026-10-i382/probes/name_matrix.py`、出力は `name_matrix_pd3.out`・`_pd2.out`・`_pd200.out`）:
+
+- fit が通るのは、pandas 3.0.1 で 64 通り、2.3.3 で 66 通り、2.0.0 で 62〜64 通り。H-0142 で LightGBM にカテゴリの列を位置で渡すようになり、`float`・`np.float64`・多くの NumPy の名前のカテゴリの列も fit できるようになった。fit が通らない組は、レーンで次のとおり違う（カテゴリの列は、auto と宣言の両方）:
+  - 3 つのレーンとも: `bool`・`np.bool_`・`np.float16` の名前のカテゴリの列と、tuple の名前（3 種類の列とも。LightGBM が特徴量の名前の JSON の文字を拒否する）。
+  - pandas 3.0.1 だけ: `None` の名前のカテゴリの列（pandas 2 の 2 つのレーンでは通る）。
+  - pandas 2.0.0 だけ: `np.datetime64` の名前のカテゴリの列（`KeyError`）。`np.timedelta64` の名前のカテゴリの列は、hash の seed で結果が変わる（`PYTHONHASHSEED=0` で `KeyError`、記録した既定の実行では通る。`name_matrix_pd200_seed0.out` と `name_matrix_pd200.out`）。
+- `export_code` がプロジェクトを書けるのは 17 通り（3.0.1。2.3.3 と 2.0.0 では 19 通り）で、生成 `predict.py` が型つきの frame で同じ予測を返すのは 10 通り（11 通り）。int・float・`np.float64` の名前のカテゴリの列が #382 の形である。残りは、NumPy の名前を JSON に書けず、素の `TypeError` で落ちる（47・47・45 通り）。
+- 生成スクリプトが CSV を読むと、見出しは必ず文字列になる（`7` は `"7"`、`True` は `"True"`、`None` は `"Unnamed: 0"`）。CSV からの予測が通るのは、3 つのレーンとも文字列の名前の 6 通りだけである。parquet も数値の名前を文字列にする（Codex の run `i382-mechanism-design` が実行して確かめた）。
+- Codex の run `i382-critique` と `i382-mechanism-design` の 75 通りの数（fit が 29 通りなど）は、H-0142 より前の head（`43083e3`・`4a570dc`）のもので、記録として残す。
+
+### 管理者の判断（2026-10-22。カード D-20261022-006・-007・-012）
+
+1. **案 (e)**: `export_code` が書くプロジェクトでは、全ての列名を一意の文字列の別名 `str(名前)` にする。`config.json`・`pipeline_state.json`（カテゴリ・最頻値・宣言したカテゴリ・identity の列）・生成スクリプト・入力の境界（型つきの frame、CSV・parquet の見出し）で同じ別名を使う。実行時の fit / predict と保存したモデルは変えない。
+2. 別名の重なりと受け付けない名前は、`export_code` が何かを書く前に、名前を挙げて拒否する（`SERIALIZATION_FAILED`、surface `export_code`）。印で、それより前に書いたプロジェクトの意味を保つ。tuple と MultiIndex の名前は広げない。
+3. **受け付ける名前の型**: `str`・`numpy.str_`・Python の `int`・`float`・`bool`・`None`、と `np.float64`（Python の `float` の子クラスで、今も export できる。`str()` は Python の `float` と 3 つのレーンで 44014/44014 一致した）。ほかの NumPy のスカラー（`int64`・`float32`・`bool_`・`bytes_`・`complex` など）は名前を挙げて拒否する。NumPy の版で `str()` が変わる型の書式を記録する仕組みは作らない。
+4. 実行時の不具合（LightGBM が int の名前を位置と読む、#393）は H-0142 で先に直した。生成コードは位置の一覧を持ち回らない。
+5. #382 は v0.21.0 に入れる。
+
+### 実測
+
+- 上の数は、H-0142 の後のこの head で測った（`docs/audits/2026-10-i382/probes/`）。
+- **firing rate**（この Proposal の条件。プロジェクトの別名が名前と違う、または名前を拒否する。`probes/firing_from_matrix.py`）:
+
+  Firing rate: 11/64 of the fitted pandas 3.0.1 matrix cases get aliases that differ from their labels and 47/64 are refused by name, all 47 of which fail export_code today with a raw TypeError (75-case matrix at this head, `probes/name_matrix.py` and `firing_from_matrix.out`; 13/66 and 47/66 on pandas 2.3.3; on pandas 2.0.0 13/64 and 45/64 in the recorded run and 13/62 and 43/62 under PYTHONHASHSEED=0, because the np.timedelta64 categorical cases fit or fail with the hash seed there); 0/664 of the test suite's export_code calls (in-memory census over all 80 export_code call sites, Codex run i382-mechanism-design, before H-0142)
+
+  - テストスイートの普段のプロジェクトでは、別名も拒否も働かない（列名が全て文字列）。働く場合は受け入れ基準で明示的に足す。
+
+### 対応方針（提案。Codex の run `i382-mechanism-design` の設計を、管理者の判断 3・4 に合わせて絞った）
+
+1. **別名の規則**: `lizyml/codegen/column_names.py` に、ただ 1 つの関数 `column_alias(name) -> str` を置く。
+   - 型が完全に `str`・`numpy.str_`・`int`・`float`・`bool`・`NoneType`・`np.float64` のどれかなら、別名は `str(name)` である（`7` → `"7"`、`7.0` → `"7.0"`、`-0.0` → `"-0.0"`、NaN → `"nan"`、`True` → `"True"`、`None` → `"None"`、`np.str_("c")` → `"c"`）。数の正規化はしない。
+   - ほかの型は `unsupported_column_name`（kind `type`）。別名が空、NUL を含む、UTF-8 にできない文字を含むときも `unsupported_column_name`（kind `empty_alias` / `invalid_alias_text`）。
+   - 生成スクリプトには、この関数のソースをそのまま埋め込み、同じ答えを返すことをテストで固定する（DC3）。
+2. **書く前の検査**: 共通の検査を `Model.export_code`（fit の状態を取った後、今のカテゴリの値の検査の前）と、`generate_code` の入口（何かを作る前）の両方で走らせる。
+   - 名前の集合は、特徴量の名前（順つき）と、Config の役割の名前（`target`、`time_col`、`group_col`、`features.exclude`、`features.categorical`、`split.blocks.col`、`split.groups.col`、`inner_valid.group_col`）である。frame に無い役割の名前も含める（`features.categorical` の `"7"` が、別名にした後で int の `7` の列を選ばないように）。
+   - 別名の重なりは、別名の文字列で調べ、名前の Python の等しさや set を使わない（`7`・`True`・`7.0`・NaN の等しさは当てにならない）。重なりは、別名が同じで、違う列を指す 2 つの項目である。
+     - 特徴量どうし: 別名が同じ特徴量が 2 つ以上あれば重なり（`7` と `"7"` など）。
+     - 特徴量と役割の名前: 役割の名前は全て文字列である。文字列の特徴量と、同じ文字列の役割の名前は、同じ列を指すので重なりではない（`features.categorical: ["c"]` と特徴量 `"c"`、`split.blocks.col` が特徴量でもある列など）。文字列でない特徴量の別名が役割の名前と同じなら重なり（特徴量 `7` と `target: "7"` や `features.categorical: ["7"]`）。同じ役割の名前を何度挙げても、1 つの列である。
+   - 例外: `LizyMLError`、code `SERIALIZATION_FAILED`。context は次のとおりで、実装に選ぶ余地を残さない。
+     - `surface`: `"export_code"`。`reason`: `"unsupported_column_name"` か `"column_name_collision"`。
+     - `kind`: `unsupported_column_name` では `"type"`（受け付けない型）・`"empty_alias"`（別名が空）・`"invalid_alias_text"`（NUL か、UTF-8 にできない文字）・`"unknown_reference"` と `"ambiguous_reference"`（宣言したカテゴリの key を特徴量に対応づけられない。対応方針 3）。`column_name_collision` では `"duplicate_alias"`。
+     - `alias`: 重なりの別名の文字列。受け付けない型では `null`。
+     - `columns`: 問題の項目の一覧。各項目は `where`（`"feature_names"`、または役割の欄の場所 `"data.target"`・`"data.time_col"`・`"data.group_col"`・`"features.exclude"`・`"features.categorical"`・`"split.blocks.col"`・`"split.groups.col"`・`"inner_valid.group_col"`）・`position`（`feature_names` と一覧の役割では 0 始まりの位置、1 つの値の役割では `null`）・`type`（型の完全な名前、`"builtins.int"` など）・`repr`（例外を出さない表示）・`alias`（別名、受け付けない型では `null`）。
+     - 調べる順: まず受け付けない名前を、特徴量の順、次に役割の上の順で調べ、最初の 1 つで止める。次に重なりを同じ順で調べ、最初に見つかった重なりの組の全ての項目を `columns` に、その順で入れる。
+   - 検査は fit した状態・Config・入力の frame・保存したモデルを書き換えない（書き出すための写しだけを別名にする）。
+3. **書く箇所**: 検査を通った写しを、2 つの writer に渡す。
+   - **宣言したカテゴリの key を特徴量に対応づける**（別名にする前）: `declared_categories` の key は特徴量の名前から作るが、`Model.export` → `Model.load` したモデルでは JSON の object の key の形で戻る（`7` → `"7"`、`7.5` → `"7.5"`、`inf` → `"Infinity"`、NaN → `"NaN"`、`None` → `"null"`、`True` → `"true"`）。実行時と保存の形式は変えず、書き出すための写しの中で、各 key を 1 つの特徴量に対応づけてから、その特徴量の別名を key にする。
+     - key と型も値も同じ特徴量（`type(key) is type(name) and key == name`）があれば、それを選ぶ。
+     - 無ければ、`str` の key で、次のどちらかに当たる特徴量を選ぶ: `numpy.str_` の特徴量で `str(name)` が key と同じもの（load の後、`np.str_("c")` の列の key は Python の `"c"` で戻る）、または `str` でも `numpy.str_` でもない特徴量で、JSON の key の形（`json.dumps({name: 0})` が書く key の文字列）が key と同じもの。
+     - どの特徴量にも当たらない key は `unsupported_column_name`（kind `"unknown_reference"`）、型と値が同じ特徴量と、2 つ目の規則（`numpy.str_` か JSON の形）で当たる特徴量の両方に当たるか、2 つ目の規則で当たる特徴量が 2 つ以上ある key は `unsupported_column_name`（kind `"ambiguous_reference"`）で拒否する。`columns` の項目は `where: "declared_categories"`・`position`（key の順での 0 始まりの位置）・key の `type`・`repr`・`alias: null`。この検査は、特徴量と役割の受け付けない名前の後、重なりの前に行う。
+   - `config_writer`: `target`、`declared_categories` の key（上で対応づけた特徴量の別名）、`feature_names`、`categorical_features`、`categorical_rule.explicit`、`inner_valid.group_col`、`split` の `time_col`・`group_col`・`blocks.col`・`groups.col` を別名にする。`column_name_policy: "str_alias_v1"` を足す。
+   - `artifact_writer`: `pipeline_state.json` の `feature_names`、カテゴリの列の一覧、カテゴリと最頻値の key、`identity_columns` を別名にする。`column_name_policy` を足す。カテゴリの値・最頻値・宣言の値・目的変数のクラス・分割の値は別名にしない（値の codec はそのまま）。
+   - 生成 `train.py` の状態の writer も、別名と印を書く（学習し直した後も同じ）。
+   - 持ち回る `model.txt`・`calibrator_model.txt` は変えない。
+4. **生成スクリプトの入力**: 印のあるプロジェクトでは、両方のスクリプトが入力を別名に揃えてから、名前で引く。
+   - 型つきの frame: 全ての列名に `column_alias` を当て、別名の重なりを列を選ぶ前に拒否し、frame の浅い写しの列名を別名にする（値・dtype・カテゴリの情報・行の順・index は保つ）。足りない別名は `missing_column_alias`。余分な列は、検査の後は今までどおり無視する。
+   - ファイル: CSV は最初の行を `csv.reader(strict=True)` で読み、空でなく一意な名前であることを、pandas が名前を変える前に確かめ、pandas が読んだ見出しと比べる。違えば `invalid_column_header`、重なりは `column_name_collision`。parquet は、論理的な列名が文字列・平ら・一意であることを確かめる。必要な見出しは別名と完全に一致しなければならない（`"Unnamed: 0"` を `None` の列と推し量らない）。
+   - ファイルを読む全ての入口がこの検査を通る: 生成 `train.py`・`predict.py` の読み込みと、`test_equivalence.py` の CLI の読み込み（今は pandas で直接読んでいて、重なった見出し `7,7` を `7`・`7.1` として予測に渡してしまう）。
+   - テストの道具 `tests/test_codegen/_retrain_harness.py` の `write_data` は、生成プロジェクトに渡すデータを書く前に、列名を同じ規則で別名にする（今は元の名前をそのまま書き、`None` の名前は CSV で `"Unnamed: 0"` になる）。実行時の参照の予測は、元の型つきの frame で計算する。
+   - 生成コードの例外は `ValueError` の子で、`reason`（`unsupported_column_name`・`column_name_collision`・`invalid_column_header`・`missing_column_alias`）と、問題の名前を持つ。
+   - 生成 `train.py` は、LightGBM にカテゴリの列を位置（`feature_names` の中の位置）で渡す（H-0142 と同じ。別名は全て文字列なので名前でも取り違えないが、実行時と同じ渡し方にそろえる）。
+5. **印と古いプロジェクト**: 新しいプロジェクトは、`config.json` と `pipeline_state.json` の両方に `column_name_policy: "str_alias_v1"` を持つ。
+   - 両方に無いプロジェクト（H-0141 より前に書いたもの）は、新しいスクリプトでも今までの引き方で動き、学習し直しても印を足さない。
+   - 印の検査（予測と学習し直しの最初、カテゴリの値の復号と identity の検査と書き込みより前）は、次の順で行う。
+     1. 両方の欄が無ければ、今までの引き方（印の無いプロジェクト）。
+     2. どちらかの欄があり、その値が `"str_alias_v1"` でない（`null`・ほかの文字列・文字列でない値を含む）なら `unsupported_column_name_policy`（context に file・欄・値）。
+     3. 片方の欄だけがあるなら `column_name_policy_mismatch`（context に両方の file の値）。
+     4. 両方が `"str_alias_v1"` なら、状態の形を確かめ、外れれば `invalid_column_name_state`（context に file・欄・問題の名前）: `config.json` と `pipeline_state.json` の `feature_names` は文字列の一意な一覧で、順まで同じ（予測は `feature_names` の順で booster に位置で渡すので、順が違うと予測が黙って変わる）。カテゴリの列の一覧（config の `categorical_features` と状態の一覧）は同じで、`feature_names` に含まれる。カテゴリと最頻値の key は、カテゴリの列の一覧と同じ集合。`identity_columns` と `declared_categories` の key はカテゴリの列に含まれる。役割の名前は文字列。
+   - すでに書き出したスクリプトは、新しい仕組みを持たない。直すには、元のモデル（または保存したモデルを読み込んだもの）からプロジェクトを書き直す。
+6. **変えない箇所**: 実行時の fit / predict、`Model.export` / `Model.load` / `lizyml.persistence.export` と保存の形式、カテゴリの値の codec と同一性（`identity_template.py` の照合は、名前を検査した後で今のまま）、`_codegen_inputs.py` の役割の解決。
+
+### 互換性
+
+- 文字列の名前だけのプロジェクト: 名前・順・カテゴリの値・持ち回るモデルのテキストは変わらない。両方の JSON に印が足され、生成スクリプトに入力の検査が足されるので、プロジェクトのバイトは同じではない。
+- 文字列でない受け付ける名前（int・float・bool・None・`np.float64`）のプロジェクト: 予測できるようになる（#382 の 2 通りと、CSV から予測できなかった通り）。CSV の見出しは別名で書く必要がある。
+- NumPy の型（`np.float64` と `np.str_` 以外）の名前: `export_code` は今の素の `TypeError` の代わりに、名前を挙げた `SERIALIZATION_FAILED` で拒否する（今動いているものは無い）。
+- 空の文字列などの名前は、`export_code` が拒否するようになる。
+- すでに書き出したプロジェクトは、印が無いので今までの振る舞いのまま。直すには書き直す。
+- 公開 API・Config・`FitResult`・`PredictionResult`・保存の形式は変わらない。
+
+### 代替案
+
+- **生成物の中で名前の型を保つ**（案 (a)）: 名前の codec が要り、CSV の見出しは文字列なので、見出しの対応を別に決める必要がある。採らない（判断 1）。
+- **文字列でない名前を `export_code` で全て拒否する**（案 (b)）: 今動いている数値の列の生成予測を失う。採らない。
+- **fit で拒否する、fit で文字列に揃える**（案 (c)・(d)）: 実行時の契約を変える。採らない。
+- **NumPy の型の名前の書式を記録して受け付ける**: NumPy の版で `float16`・`float32` などの `str()` が変わる（3 つのレーンの間で 310 通り）。書式の記録と、版の違いでの拒否が要る。採らない（判断 3）。
+- **LightGBM に渡した位置の一覧を持ち回る**: #393 を生成コードで再現することになる。H-0142 で実行時を直したので要らない（判断 4）。
+
+### 受け入れ基準
+
+1. **別名の規則**: 受け付ける各型（`str`、`np.str_`、`int` の正負と大きい値、`float` の `7.0`・`-0.0`・NaN・±inf・小さい値と大きい値、同じ値の `np.float64`、`True`・`False`、`None`）で、ライブラリと 2 つの生成スクリプトの写しが同じ別名を返す（3 つのレーン）。拒否する型と値（`np.int64`・`np.float32`・`np.bool_`・`bytes`・`complex`・`Decimal`・tuple・`""`・NUL を含む文字列）で、決めた reason と kind を返す。
+2. **拒否と書かないこと**: `Model.export_code` と `generate_code` の両方で、受け付けない名前と、別名の重なり（`7` と `"7"`、`True` と `"True"`、NaN と `"nan"`、`7.0` と `"7.0"` の特徴量どうし、文字列でない特徴量と `target`・`time_col`・`group_col`・`features.exclude`・`features.categorical`・`split.blocks.col`・`split.groups.col`・`inner_valid.group_col` の同じ別名）が、対応方針 2 の code・surface・reason・kind・`alias`・`columns`（`where`・`position`・`type`・`repr`・`alias` の値と順）で拒否され、ディレクトリもファイルも作られない（出力先が既にある場合も）。文字列の特徴量を同じ文字列の役割の名前が指すプロジェクト（`features.categorical: ["c"]` と特徴量 `"c"`、特徴量でもある `split.blocks.col`）は、拒否されずに書き出される。
+3. **書く箇所**: 対応方針 3 の全ての欄が、書き出した直後と、生成 `train.py` で学習し直した後に、別名を順どおりに持つ。`Model.load` したモデルからの書き出しでも同じで、宣言したカテゴリの列の名前が `np.str_("c")`・`7`・`7.5`・`inf`・`-inf`・`np.float64(7.5)`（と、fit が通る lane では `None`）のモデルを export → load して書き出したプロジェクトが、宣言の key を対応する特徴量の別名で持ち、印のある状態の検査を通り、学習し直しで宣言の順（使われていないカテゴリを含む）を保つ。対応づけられない key（どの特徴量にも当たらない、型と値が同じ特徴量と JSON の形が同じ特徴量の両方に当たる）は、決めた kind で拒否される。カテゴリの値の codec の中身と、fit した状態は変わらない。
+4. **予測**: 受け付ける各型の名前 × 数値の列・auto のカテゴリの列・宣言したカテゴリの列のうち、fit が通る組（レーンごとに上の表のとおり。3.0.1 では `str`・`np.str_`・`int`・`float`・`np.float64` の 3 種類の列と、`bool`・`None` の数値の列。pandas 2 の 2 つのレーンでは `None` のカテゴリの列も。hash の seed で結果の変わる組は、テストで seed を固定して扱う）で、生成 `predict.py`（型つきの frame、別名の見出しの CSV、parquet）・学習し直してからの予測・`test_equivalence.py` が、実行時の予測と一致する。#382 の int の `7` のカテゴリの列を含む。fit が通らない組（`bool`・`None` の名前のカテゴリの列など）は、今の fit の拒否のままであることを確かめる（fit の範囲は変えない）。
+5. **入力の検査**: 型つきの frame の別名の重なり（余分な列を含む）、CSV の重なった見出し・空の見出し・正しい `"Unnamed: 0"` と `"7.1"` の名前・pandas が変えた見出し・足りない別名・並びの違う列、parquet の文字列でない名前・重なり・MultiIndex で、決めた 4 つの reason と問題の名前を返す。`test_equivalence.py` の CLI も、重なった見出し `7,7` を `column_name_collision` で拒否する。
+6. **印**: 両方に無い（今までの引き方で予測・学習し直し）、両方にある、片方だけ、`null`・知らない値・文字列でない値、それぞれの組み合わせで、対応方針 5 の順のとおりの reason を返す。形の検査は、`feature_names` の順の違い・重なり・文字列でない名前、カテゴリの列の一覧の違い、`feature_names` に無いカテゴリの列、カテゴリと最頻値の key の違い、カテゴリの列に無い `identity_columns` と宣言の key のそれぞれで `invalid_column_name_state` を返し、どれもカテゴリの値の復号と書き込みより前に止まる。
+7. **LightGBM への受け渡し**: 生成 `train.py` で学習し直したモデルが、int の名前（`0`・`1`・`7`）のカテゴリの列を位置 0 にもつ frame で、正しい列をカテゴリにし（booster の `categorical_column`）、実行時のモデルと同じ予測を返す。
+8. **文字列の名前のプロジェクト**: 名前・順・カテゴリの値と持ち回るモデルのバイトが変わらない。変わるのは、印の欄と生成スクリプトだけであることを、欄の一覧で確かめる。
+9. **census**: 実装の後の census で、テストスイートの `export_code` の呼び出しのうち、別名か拒否が働くものが、H-0141 のテストだけである。
+10. **文書**: BLUEPRINT（§15.4 の列名の別名・拒否・印・入力の境界）、CHANGELOG、`docs/migration.md`、`docs/proposal_dispositions.toml` を更新する。
+
+**レビューの停止基準**: 上の受け入れ基準のテストと census が通ったら止める。次の round に進む理由になるのは、この契約の中の欠陥だけである: 別名の計算、拒否と重なりの診断とその順、見落とした書く箇所、入力の見出しの検査、印による今までのプロジェクトの扱い、fit の状態を書き換えないこと、生成 `train.py` の LightGBM への受け渡し。案 (e) を開き直すこと、受け付ける名前の型を広げること、`fit` や Config の役割の名前の範囲を変えること、実行時と保存の形式やカテゴリの値の同一性を変えること、#391、tune の指紋は、次の round に進む理由にならない。
+
+### Proposal レビュー round 1（2026-10-22）
+
+- **結果**: Codex の run `h0141-proposal-review` の round 1（`5925f10`）は CHANGES_REQUESTED で、major 6 件だった。
+- **対応**（上の本文を直した）:
+  - 列名の表と firing rate は H-0142 より前の head のものだった。H-0142 の後のこの head で、25 種類の名前 × 3 種類の列を 3 つのレーンで測り直した（`docs/audits/2026-10-i382/probes/name_matrix.py`）。fit は 64・66・64 通り、拒否する名前は全て今 `export_code` が素の `TypeError` で落ちる。
+  - 文字列の特徴量を同じ文字列の役割の名前が指すのは同じ列で、重なりではないとした。重なりは、文字列でない特徴量の別名が役割の名前と同じとき。
+  - `test_equivalence.py` の CLI の読み込みと、テストの道具の `write_data` を入力の境界に加えた。
+  - 拒否の診断の `kind`（`duplicate_alias` など）・`alias`・`columns` の `where`・`position`・`type`・`repr`・`alias` の値と、調べる順、最初の重なりの組だけを返すことを決めた。
+  - 印のある状態の形の検査（`feature_names` の順が config と状態で同じ、カテゴリの列と key と identity の関係）と、印の検査の順を決めた。
+  - 予測の受け入れ基準を、fit が通る組に限り、通らない組は今の fit の拒否のままであることを確かめる形にした。
+
+### Proposal レビュー round 2（2026-10-22）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`96b0b65`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`96b0b65`）は CHANGES_REQUESTED で、major 1 件だった。round 1 の修正の欠陥ではなく、`Model.load` したモデルの宣言したカテゴリの key が JSON の形（`"null"`・`"Infinity"` など）で戻ることの見落としである。
+- **対応**（上の本文を直した）: 別名にする前に、宣言の key を特徴量に対応づける規則（型と値が同じ特徴量を先に、無ければ JSON の key の形が同じ特徴量）と、対応づけられない key の拒否（`unknown_reference`・`ambiguous_reference`）を決め、load したモデルの受け入れ基準を加えた。
+
+### Proposal レビュー round 3（2026-10-22）
+
+- **monitor**: round 3 の前に、runner の relational monitor を走らせた（`b0c3eb0`、観察した round は 1〜2）。結果は CONVERGING・continue で、disposition は continue。
+- **結果**: round 3（`b0c3eb0`）は CHANGES_REQUESTED で、major 1 件だった。round 2 の修正の欠陥である: `np.str_` の名前の宣言した列は、load の後に key が Python の `str` で戻るので、決めた規則ではどの特徴量にも当たらず、今動いている書き出しを拒否してしまう。run `h0141-proposal-review` はこれで終わる。
+- **対応**（上の本文を直した）: `str` の key を `numpy.str_` の特徴量にも `str(name)` で対応づけ、重なりの検査は残した。load したモデルの受け入れ基準に `np.str_("c")` の列を加えた。
+
+### Proposal レビュー（2 本目の run）round 1（2026-10-22）
+
+- **結果**: Codex の run `h0141-proposal-review-2` の round 1（`5afe277`）は CHANGES_REQUESTED で、major 1 件だった。fit が通らない名前の一覧が、レーンの違い（pandas 2.0.0 の `np.datetime64` のカテゴリの列、pandas 2 で通る `None` のカテゴリの列）を書いていなかった。pandas 2.0.0 では `np.timedelta64` のカテゴリの列が hash の seed で通ったり落ちたりする。
+- **対応**（上の本文を直した）: レーンごとの一覧に直し、pandas 2.0.0 を `PYTHONHASHSEED=0` で測り直した（`name_matrix_pd200_seed0.out`。fit 62 通り、拒否 43 通り）。firing rate の 2.0.0 の数に両方を書き、予測の受け入れ基準をレーンごとの表に合わせた。
+
+### Proposal レビュー（2 本目の run）round 2（2026-10-22）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`cc992d6`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`cc992d6`）は APPROVE で、指摘は無かった。run `h0141-proposal-review-2` はこれで終わり、この Proposal を Accepted とした。
+
+### 実装の記録（2026-10-22）
+
+- **コード**:
+  - `lizyml/codegen/column_names.py` に `column_alias`・`UnsupportedColumnName` と、書く前の検査 `project_column_names`（受け付けない名前 → 宣言したカテゴリの key の対応づけ → 別名の重なり、の順）を置いた。`Model.export_code` は fit の状態を取った後・`check_category_values` の前に、`generate_code` は入口で、同じ検査を呼ぶ。`inner_valid.group_col` は、書き出す inner split（`exported_inner_valid`）から取る（Config の schema の inner valid には group の列の欄が無く、fit が使った `data.group_col` か `split.groups.col` の写しである）。
+  - `generate_code` は、検査が返した対応から、特徴量・カテゴリの列・宣言の key と、fit した状態の写し（`alias_pipeline_state`。`feature_names`・`categorical_cols`・符号器のカテゴリと最頻値の key・`identity_columns`・`stand_in_columns`）を別名にして writer に渡す。`config_writer` と `artifact_writer` は `column_name_policy: "str_alias_v1"` を書く。役割の名前は Config の schema で文字列なので、別名は名前そのものである。
+  - 生成コードの写しは `lizyml/codegen/column_name_template.py` にある。`UnsupportedColumnName` と `column_alias` はライブラリのソースを `inspect.getsource` で埋め込む。印と状態の形の検査（`check_column_name_policy`）、`prepare_input`、`read_input`、例外 `ColumnNameError`（`ValueError` の子、`reason`・`names`・`context`）を足した。予測の `_load_pipeline` は、値の復号と identity の検査の前に印と状態を調べる。生成 `train.py` は最初に入力を別名にし（必要な列は特徴量・目的変数・分割の役割）、印のあるプロジェクトだけ状態に印を書き、LightGBM にカテゴリの列を位置で渡す。`train.py`・`predict.py`・`test_equivalence.py` の読み込みは `read_input` を通る。
+  - テストの道具 `write_data` は、列名を別名にしてからファイルに書く。
+- **テスト**:
+  - `tests/test_codegen/test_h0141_column_names.py`（受け入れ 1・2・3 の writer・5・6・8）: 受け付ける 17 の値と拒否する 10 の値で、ライブラリと 2 つの生成スクリプトの写しが同じ答え。写しがライブラリのソースそのものであること（DC3）。拒否の context の全体（出力先が無い場合と既にある場合の両方で、何も書かれない）、特徴量どうしの重なり 5 通り、役割 8 か所との重なり、最初の組の順、文字列の特徴量と同じ文字列の役割の名前は通ること、宣言の key の `unknown_reference`・`ambiguous_reference` 3 通りと、JSON の key の形 9 通りの対応づけ。全ての名前の欄の別名と、fit した状態が変わらないこと。印の 8 通り、状態の形の 9 通り（カテゴリの値を壊して、復号より前に止まることを確かめる）、型つきの frame・CSV・parquet の入力の検査、`test_equivalence.py` の CLI が `7,7` を拒否すること。印の無いプロジェクトは学習し直しても印を書かず、印のあるプロジェクトは書く。文字列の名前のプロジェクトは、H-0141 より前の writer の出力と、印の欄だけが違い、`model.txt` のバイトが同じ。
+  - `tests/test_codegen/test_h0141_column_name_projects.py`（受け入れ 2・3・4・7）: 受け付ける 7 つの型 × 数値の列・auto のカテゴリの列・宣言したカテゴリの列の 21 通り。fit が通る組では、型つきの frame・別名の見出しの CSV・parquet の予測、`test_equivalence.py`（subprocess）、学習し直してからの予測が、実行時の予測と一致する。fit が通らない組（`bool` のカテゴリの列、pandas 3 の `None` のカテゴリの列）は今の fit の拒否のまま。`Model.export_code` の拒否（`np.int64` の名前、特徴量 `7` と `target: "7"`）で何も書かれない。`Model.export` → `Model.load` したモデル 7 通り（pandas 3 では `None` を飛ばす）の宣言の key が別名になり、印のある状態の検査を通り、学習し直しで使われていないカテゴリを含む宣言の順を保つ。int の名前 `7`・`0`・`1` の frame で、学習し直した booster と実行時の booster がどちらも `[categorical_feature: 0]` を持つ。
+  - 3 つのレーン（pandas 3.0.1、2.3.3、2.0.0。2.0.0 は `PYTHONHASHSEED=0`）で 2 つのファイルが全て通った（3.0.1 は 195 passed・1 skipped、pandas 2 の 2 つは 196 passed）。
+- **陰性対照**（実装を 1 か所ずつ壊して、新しいテストを走らせた）: `prepare_input` を何もしないようにすると単体のファイルで 5 本、Model のファイルで 17 本（int・float・`np.float64` の全ての列、`bool` と `None` の数値の列、load したモデル 5 通り、LightGBM の位置）が落ちた。重なりの検査を止めると 28 本、印のある状態の形の検査を止めると 9 本、CSV の見出しと pandas の読んだ見出しの比較を止めると 1 本が落ちた。LightGBM に名前を渡すように戻しても、受け入れ 7 のテストは落ちない（別名は全て文字列で、名前でも位置 0 が選ばれる。Proposal の対応方針 4 のとおり）。
+- **実測**（`docs/audits/2026-10-i382/probes/name_matrix_impl_pd3.out`、pandas 3.0.1）: fit が通る 64 通りのうち、`export_code` が通るのは 17 通り（`str`・`np.str_` の 6 通りと、別名の 11 通り）で、47 通りは名前を挙げた `LizyMLError` になった（実装の前は素の `TypeError`）。型つきの frame の予測は 17 通り全てで一致した。この probe は CSV を元の名前の見出しで書き、`read_input` を通さずに `pd.read_csv` で読むので、`None` の数値の列の空の見出しは pandas が `"Unnamed: 1"` にし、予測は `ColumnNameError`（`missing_column_alias`。`"None"` の列が無い）になる（受け入れ 4 の CSV は別名の見出しで `read_input` から読み、上のテストが確かめる。実装レビュー round 1 で訂正）。
+- **census**（受け入れ 9、`docs/audits/2026-10-i382/firing/`）: フルスイートで 22974 本が通った（落ちた 1 本は `tests/test_e2e/test_version.py` で、編集可能なインストールのメタデータが古い、この環境の既知の事情）。`project_column_names` の呼び出し 1420 件（`export_code` 693 件・`generate_code` 727 件）のうち、別名か拒否が働いたのは 92 件で、全て H-0141 の 2 つのテストファイルだった（`summarize.py` は外にあれば exit 1 にする）。
+- **文書**: BLUEPRINT §15.4（列名の別名・拒否・宣言の key・印・入力の境界）、CHANGELOG、`docs/migration.md`、`docs/proposal_dispositions.toml`（specified）。
+
+### 実装レビュー round 1（2026-10-22）
+
+- **結果**: Codex の run `h0141-impl-review` の round 1（`e29d2da`）は CHANGES_REQUESTED で、major 5 件だった。
+  1. 生成 `train.py` の学習し直しが、既にある `pipeline_state.json` の印を読まずに状態を書き直していた（片方だけの印・知らない値・順の違う `feature_names` が通った）。
+  2. `read_input` が `config.json` の名前の形を、状態の印より先に調べていた（印の拒否の reason が `invalid_column_name_state` に化けた）。
+  3. 印のある状態の検査が、カテゴリの列の最頻値の欄の欠けと、`null` の役割の名前（`_target_col`、`categorical_rule.explicit` の要素）を通していた。
+  4. 重なった名前を持つ本物の parquet は pandas が reason の無い例外で落ち、閉じていない引用符の CSV の見出しは `csv.Error` が漏れた（テストは `read_parquet` を差し替えていて、この経路を通っていなかった）。
+  5. 実装の記録の、probe の CSV の `None` の列の reason が誤っていた（`read_input` を通らない経路だった）。
+- **対応**:
+  - 生成コードに `project_uses_aliases` を置き、`prepare_input`・`read_input`・学習し直しの最初で、`config.json` と、あれば `pipeline_state.json`（JSON として読むだけで、値は復号しない）の両方の印を、名前の形より先に調べるようにした。状態のファイルが無いときだけ `config.json` だけを調べる。
+  - 状態の検査に、各カテゴリの列の項目が `categories` と `mode` を持つことを加え、必須の役割の名前（`_target_col`・`split.blocks.col`・`split.groups.col`・`categorical_rule.explicit` の要素）は `null` を許さないようにした（`split.time_col`・`split.group_col`・`inner_valid.group_col` は無ければ `null`）。
+  - parquet は、pandas が読む前にファイルの schema の名前の重なりを `column_name_collision` で拒否し、CSV の見出しが読めないとき（`csv.Error`・`UnicodeDecodeError`）は `invalid_column_header` にした。
+  - 記録の誤りを上で訂正した。
+  - 回帰テスト 15 本（学習し直しの印の 4 通り × CSV と parquet、読み込みの印の 2 通り、最頻値の欠けと `null` の役割 3 通り、本物の parquet の重なり、読めない CSV の見出し）を足した。15 本とも round 1 の head（`e29d2da`）の生成コードの写しで落ち、直した後で通る。3 つのレーンで 2 つのファイルが通った（3.0.1 は 210 passed・1 skipped、pandas 2 の 2 つは 211 passed）。
+
+### 実装レビュー round 2（2026-10-22）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`3d64e9f`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`3d64e9f`）は CHANGES_REQUESTED で、major 3 件だった。
+  1. 生成 `train.py` の `train()` は、印を調べる前に必要な列の一覧を作っていて、形の壊れた `feature_names` で reason の無い `TypeError` になった。
+  2. 状態の `categories` が object でないとき、検査の診断を作るところで reason の無い `TypeError` になった。
+  3. 生成 `train.py` の CLI は、目的変数の列が無い CSV を、今までの目的変数の検査で `SystemExit(1)` にし、`missing_column_alias` の診断より先に止まっていた。
+- **対応**: `train()` と CLI は、印と名前を調べてから（`project_uses_aliases`）必要な列を集めて `prepare_input` に渡すようにした。`categories` は、object であることを確かめてから key を比べる。回帰テスト 3 本（`train()` を直接呼ぶ学習し直しの印、`categories: 1`、目的変数の無い CSV が `missing_column_alias` と `["target"]` になること）を足した。3 本とも round 2 の head（`3d64e9f`）の生成コードの写しで落ち、直した後で通る。codegen のテスト（pandas 3.0.1）は 1432 本が通り、pandas 2 の 2 つのレーンで H-0141 の 2 つのファイルが 214 本通った。
+
+### 実装レビュー round 3（2026-10-22）
+
+- **monitor**: round 3 の前に、runner の relational monitor を走らせた（`f641935`、round 1〜2 を観察）。結果は CONVERGING・continue で、disposition は continue。
+- **結果**: round 3（`f641935`）は CHANGES_REQUESTED で、major 2 件だった。run `h0141-impl-review` は 3 round を使い切った（`review_budget_exhausted`）。
+  1. 状態の `identity_columns` が list でない（`1`・`"7"`・`null`）とき、reason の無い `TypeError` か、検査を通って identity の検査や書き込みまで進んだ。
+  2. `config.json` の `declared_categories` が object でない（`1`・`["7"]`）とき、同じだった。
+- **対応**: 2 件は、印のある状態の検査が欄の型を確かめずに読んでいた、という同じ形の欠陥である。指摘された 2 つの欄だけでなく、検査が読む全ての欄の型を先に確かめるようにした（DC1 の、開いた文法を安全な側に閉じる規則）。
+  - 生成コードの `_typed_field` が、欄の型（`feature_names`・`categorical_features`・`identity_columns` は文字列の list、`declared_categories`・`categorical_rule`・`categories` とその各項目は object、`categorical_rule.explicit` と各項目の `categories` は list、`split`・`split.blocks`・`split.groups`・`inner_valid` は object か `null`、役割の名前は文字列）を、読む前に確かめる。
+  - 書き手が必ず書く欄が無い場合は、今までどおりその欄を読むコードに任せる（H-0120 の契約で、`inner_valid` の無い `config.json` は欄の名前を挙げた `KeyError` で止まる）。
+  - 回帰テストは、検査が読む 15 の欄 × それぞれの誤った型の 43 通りで、予測が値の復号より前に、学習し直しが状態を書く前に、`invalid_column_name_state` で止まることを確かめる。43 通りのうち 17 通りは round 3 の head（`f641935`）で落ち、round 3 が挙げなかった欄（`split`・`inner_valid`・`categorical_rule`・各項目の `categories`）も含んでいた。
+  - 最初の直しは、値の codec の `_field` と同じ名前の関数を足して、codec の関数を黙って置き換えていた（H-0138 の写しのテストが 215 本落ちて分かった）。名前を変え、描画した 2 つのスクリプトのトップレベルの名前が重ならないことを確かめるテストを足した。
+  - codegen のテスト（pandas 3.0.1）は 1432 本が通り、pandas 2 の 2 つのレーンで H-0141 の 2 つのファイルが 258 本通った。
+
+### 実装レビュー（2 本目の run）round 1（2026-10-22）
+
+- 1 本目の run が 3 round を使い切った後、管理者は新しい通常の run を選んだ。
+- **結果**: Codex の run `h0141-impl-review-2` の round 1（`9e63629`）は APPROVE で、指摘は無かった。run はこれで終わる。この実行の方針により、APPROVE と CI 緑でマージする。

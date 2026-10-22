@@ -1,0 +1,74 @@
+lizyml 0.17.2.dev71+g289f591a8 pandas 3.0.1 numpy 2.4.2
+str                numeric      {'fit': 'ok', 'export_code': 'ok', 'typed': 'same', 'csv': 'same'}
+str                categorical  {'fit': 'ok', 'export_code': 'ok', 'typed': 'same', 'csv': 'same'}
+str                declared     {'fit': 'ok', 'export_code': 'ok', 'typed': 'same', 'csv': 'same'}
+numpy.str_         numeric      {'fit': 'ok', 'export_code': 'ok', 'typed': 'same', 'csv': 'same'}
+numpy.str_         categorical  {'fit': 'ok', 'export_code': 'ok', 'typed': 'same', 'csv': 'same'}
+numpy.str_         declared     {'fit': 'ok', 'export_code': 'ok', 'typed': 'same', 'csv': 'same'}
+int                numeric      {'fit': 'ok', 'export_code': 'ok', 'typed': 'same', 'csv': 'same'}
+int                categorical  {'fit': 'ok', 'export_code': 'ok', 'typed': 'same', 'csv': 'same'}
+int                declared     {'fit': 'ok', 'export_code': 'ok', 'typed': 'same', 'csv': 'same'}
+float              numeric      {'fit': 'ok', 'export_code': 'ok', 'typed': 'same', 'csv': 'same'}
+float              categorical  {'fit': 'ok', 'export_code': 'ok', 'typed': 'same', 'csv': 'same'}
+float              declared     {'fit': 'ok', 'export_code': 'ok', 'typed': 'same', 'csv': 'same'}
+bool               numeric      {'fit': 'ok', 'export_code': 'ok', 'typed': 'same', 'csv': 'same'}
+bool               categorical  {'fit': 'ValueError'}
+bool               declared     {'fit': 'ValueError'}
+None               numeric      {'fit': 'ok', 'export_code': 'ok', 'typed': 'same', 'csv': 'ColumnNameError'}
+None               categorical  {'fit': 'LizyMLError'}
+None               declared     {'fit': 'LizyMLError'}
+numpy.float64      numeric      {'fit': 'ok', 'export_code': 'ok', 'typed': 'same', 'csv': 'same'}
+numpy.float64      categorical  {'fit': 'ok', 'export_code': 'ok', 'typed': 'same', 'csv': 'same'}
+numpy.float64      declared     {'fit': 'ok', 'export_code': 'ok', 'typed': 'same', 'csv': 'same'}
+numpy.int8         numeric      {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.int8         categorical  {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.int8         declared     {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.int16        numeric      {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.int16        categorical  {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.int16        declared     {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.int32        numeric      {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.int32        categorical  {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.int32        declared     {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.int64        numeric      {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.int64        categorical  {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.int64        declared     {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.uint8        numeric      {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.uint8        categorical  {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.uint8        declared     {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.uint16       numeric      {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.uint16       categorical  {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.uint16       declared     {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.uint32       numeric      {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.uint32       categorical  {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.uint32       declared     {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.uint64       numeric      {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.uint64       categorical  {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.uint64       declared     {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.float16      numeric      {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.float16      categorical  {'fit': 'NotImplementedError'}
+numpy.float16      declared     {'fit': 'NotImplementedError'}
+numpy.float32      numeric      {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.float32      categorical  {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.float32      declared     {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.longdouble   numeric      {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.longdouble   categorical  {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.longdouble   declared     {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.bool_        numeric      {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.bool_        categorical  {'fit': 'ValueError'}
+numpy.bool_        declared     {'fit': 'ValueError'}
+numpy.bytes_       numeric      {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.bytes_       categorical  {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.bytes_       declared     {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.complex64    numeric      {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.complex64    categorical  {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.complex64    declared     {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.complex128   numeric      {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.complex128   categorical  {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.complex128   declared     {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.datetime64   numeric      {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.datetime64   categorical  {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.datetime64   declared     {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.timedelta64  numeric      {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.timedelta64  categorical  {'fit': 'ok', 'export_code': 'LizyMLError'}
+numpy.timedelta64  declared     {'fit': 'ok', 'export_code': 'LizyMLError'}
+{'cases': 75, 'fit': 64, 'export ok': 17, 'typed same': 17, 'csv same': 16, 'export LizyMLError': 47}

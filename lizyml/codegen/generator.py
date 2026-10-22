@@ -7,6 +7,11 @@ from typing import Any
 
 from lizyml.calibration.base import BaseCalibratorAdapter
 from lizyml.codegen.artifact_writer import write_artifacts
+from lizyml.codegen.column_names import (
+    COLUMN_NAME_POLICY,
+    alias_pipeline_state,
+    project_column_names,
+)
 from lizyml.codegen.config_writer import build_config
 from lizyml.codegen.templates import (
     render_predict_py,
@@ -21,8 +26,8 @@ def generate_code(
     *,
     output_dir: str | Path,
     run_meta: dict[str, Any],
-    feature_names: list[str],
-    categorical_features: list[str],
+    feature_names: list[Any],
+    categorical_features: list[Any],
     lgbm_params: dict[str, Any],
     num_boost_round: int,
     early_stopping_rounds: int | None,
@@ -92,6 +97,23 @@ def generate_code(
     """
     root = Path(output_dir)
 
+    # H-0141: every column name becomes its string alias in the project; the
+    # names are checked before anything is built or written, and the fitted
+    # state is only read (the writers get aliased copies).
+    projection = project_column_names(
+        list(feature_names),
+        run_meta.get("config_normalized", {}),
+        list((declared_categories or {}).keys()),
+        inner_valid,
+    )
+    feature_names = list(projection.aliases)
+    categorical_features = [projection.alias(c) for c in categorical_features]
+    declared_categories = {
+        projection.declared_alias(key): cats
+        for key, cats in (declared_categories or {}).items()
+    }
+    pipeline_state = alias_pipeline_state(pipeline_state, projection)
+
     # Build config (checks the target labels and declared categories)
     config = build_config(
         run_meta=run_meta,
@@ -118,6 +140,7 @@ def generate_code(
         category_identity_version=pipeline_state.get("encoder", {}).get(
             "category_identity_version"
         ),
+        column_name_policy=COLUMN_NAME_POLICY,
     )
 
     # Write artifacts (config.json, model.txt, pipeline_state.json, calibrator)
