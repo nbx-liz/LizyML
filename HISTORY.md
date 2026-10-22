@@ -16980,8 +16980,9 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
 
 ## H-0143: 保存の後の振る舞いの検査で、identity で引く列の JSON の経路を生成コードと同じ引き方で判定する ― slow のテストを feature PR の CI でも走らせる
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-22
+- **決定日**: 2026-10-22
 - **関連**: H-0136（保存の後の振る舞いの検査）、H-0138・H-0139（カテゴリの値の同一性。identity で引く列）、H-0141（生成コードの列名の別名）、リリース PR #397（v0.21.0。この検査のテストが CI で落ちた）、registry のカード D-20261022-013（判定を直してから v0.21.0 を出す、slow のテストを feature PR の CI に入れる）
 - **スコープ**:
   - `persistence/_category_preflight.py` の `state_changes` の `json` の経路のうち、版 1 の状態で `identity_columns` にある列の判定（`features/encoders/state_changes.py`）
@@ -17041,7 +17042,9 @@ v0.21.0 のリリース PR #397 の CI で、slow のテスト `tests/test_persi
 
 ### 互換性
 
-- 3 つの出口は、identity で引く列の `json` の経路で、今拒否している一部のモデル（上の測定では、`np.timedelta64` と `np.uint64` を同じ列に持ち、JSON で写した `int` と時刻の値のカテゴリを pandas が型にできないもの。2**63 以上の値の `OverflowError` と、`np.uint64(4)` と `np.timedelta64(4, 'ps')` の `ValueError`）を受け付けるようになる。受け付けるのは、生成 `predict.py` が元の状態と同じ符号を返すモデルだけである（grid で確かめる）。今受け付けているモデルは、全て今と同じに受け付ける（判定が「変化なし」から「変化あり」に変わる列は無い。census と grid で確かめる）。
+- 3 つの出口は、identity で引く列の `json` の経路で、今拒否している一部のモデル（上の測定では、`np.timedelta64` と `np.uint64` を同じ列に持ち、JSON で写した `int` と時刻の値のカテゴリを pandas が型にできないもの。2**63 以上の値の `OverflowError` と、`np.uint64(4)` と `np.timedelta64(4, 'ps')` の `ValueError`）を受け付けるようになる。受け付けるのは、生成 `predict.py` が元の状態と同じ符号を返すモデルだけである（grid で確かめる）。
+  - `Model.fit` を通したモデルでは、2**63 以上の `np.uint64` を持つ列は、LightGBM が書けない値を持つ列として代わりの符号の列（`stand_in_columns`、H-0133）になり、実行時のエンコーダは `from_codes` に位置の一覧を渡すので、今の判定でも拒否されない（grid は `CategoricalEncoder` を直接 fit するので代わりの符号の列にならず、拒否しすぎが現れる）。`Model.fit` を通したモデルで今拒否しすぎているのは、`np.uint64(4)` と `np.timedelta64(4, 'ps')` の組のような、代わりの符号の列にならず pandas の一意性の検査が落ちる場合で、hash の seed で拒否されたりされなかったりする（`PYTHONHASHSEED=0` で拒否、3・6・7 で拒否されない）。
+  - 今受け付けているモデルは、全て今と同じに受け付ける（判定が「変化なし」から「変化あり」に変わる列は無い。census と grid で確かめる）。
 - `fit` の警告（`warn_saved_state_changes`）も、同じ列で警告しなくなる。
 - 公開 API・Config・`FitResult`・保存の形式は変わらない。
 - CI は feature PR でも slow のテストを走らせるので、Quality のレーンの時間が延びる（Quality (3.12) のジョブは、リリース PR #397 で約 34 分、feature PR #395 で約 23 分だった）。
@@ -17056,7 +17059,7 @@ v0.21.0 のリリース PR #397 の CI で、slow のテスト `tests/test_persi
 ### 受け入れ基準
 
 1. **grid**: `test_h0136_grid.py` が、pandas 3.0.1・2.3.3・2.0.0 の 3 つのレーンで、`PYTHONHASHSEED` を 0 と 1 にしても通る（判定と本当の結果のずれが 0）。
-2. **受け付けるようになったモデル**: `np.timedelta64` と `np.uint64(2**63 + 5)` を同じカテゴリの列に持つモデルと、`np.timedelta64(4, 'ps')` と `np.uint64(4)` を同じ列に持つモデルを、3 つの出口が受け付け、`Model.load` したモデルと生成 `predict.py` の予測が元のモデルと一致する。直す前の判定で、このモデルが `json` の `raises` で拒否されることも確かめる（直しが効いていることの陰性対照）。
+2. **受け付けるようになったモデル**: `np.timedelta64` と `np.uint64(2**63 + 5)` を同じカテゴリの列に持つモデルと、`np.timedelta64(4, 'ps')` と `np.uint64(4)` を同じ列に持つモデルを、3 つの出口が受け付け、`Model.load` したモデルと生成 `predict.py` の予測が元のモデルと一致する。直す前の判定が拒否することも確かめる（直しが効いていることの陰性対照）: 2**63 以上の値は、カテゴリの順を `[timedelta64, uint64, "x"]` に決めた代わりの符号でない状態で `OverflowError`（seed によらない）、`np.uint64(4)` の組は `PYTHONHASHSEED=0` の子プロセスで `ValueError`。
 3. **他の判定は変わらない**: `test_h0136_state_changes.py` の全ての kind の判定がそのまま通る。identity で引く列でも、写した状態でカテゴリが失われる、符号が変わる、最頻値の符号が変わる場合は、`json` の経路で今と同じ kind で拒否される（合成した写しで確かめる）。`joblib` の経路の判定は変わらない。
 4. **census**: 実装の後の census で、判定が変わる呼び出しが grid のテストと受け入れ基準 2・3 のテストにだけ現れる。
 5. **CI**: feature PR の CI の Quality の 3 つのレーンが slow のテストを走らせる（この PR の CI のログで、slow のテストの名前が出ることを確かめる）。
@@ -17070,3 +17073,9 @@ v0.21.0 のリリース PR #397 の CI で、slow のテスト `tests/test_persi
   1. 拒否しすぎの組は 2**63 以上の `np.uint64` だけでなく、`np.uint64(4)` と `np.timedelta64(4, 'ps')` の組も含み、そこでは pandas の一意性の検査が `ValueError` を出す。
   2. census は pytest のプロセスの中の呼び出しだけを数えていて、notebook のテストが tutorial を走らせる別のカーネルの中の呼び出しは数えていない。
 - **対応**（上の本文を直した）: 目的・実測・互換性の、例外の説明と population を直し、受け入れ基準 2 に `np.uint64(4)` の組を足した。firing rate の行と説明を、数えた population（pytest のプロセス）に合わせた。
+
+### Proposal レビュー round 2（2026-10-22）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`6ce4212`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`6ce4212`）は APPROVE で、指摘は無かった。run `h0143-proposal-review` はこれで終わり、この Proposal を Accepted とした。
+- **受け入れの後の訂正**（実装のテストを書いて自分で見つけた。設計は変わらない）: `Model.fit` を通したモデルでは、2**63 以上の `np.uint64` を持つ列は代わりの符号の列（H-0133）になり、今の判定でも拒否されない。互換性に、`Model.fit` を通したモデルで拒否しすぎが起きる範囲（一意性の検査が落ちる組、hash の seed で変わる）を書き足し、受け入れ基準 2 の陰性対照を、seed によらない形（順を決めた状態と、`PYTHONHASHSEED=0` の子プロセス）に直した。この訂正は実装レビューで確かめる。
