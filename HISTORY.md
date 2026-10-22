@@ -16680,3 +16680,92 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
 
 - **monitor**: round 3 の前に、runner の relational monitor を走らせた（`f5121f6`、観察した round は 1〜2）。結果は CONVERGING・continue で、disposition は continue。
 - **結果**: round 3（`f5121f6`）は APPROVE で、指摘は無かった。run `h0139-impl-review` はこれで終わる。この実行の方針により、APPROVE と CI 緑でマージする。
+
+## H-0142: LightGBM にカテゴリの列を位置で渡し、整数の列名を位置と取り違えないようにする（#393）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-22
+- **決定日**: 2026-10-22
+- **関連**: #393、#382（H-0141。生成コードの列名の別名）、registry のカード D-20261022-007（#393 を v0.21 で #382 より先に直す判断）、Codex の run `i382-mechanism-design`（この不具合を見つけた。写しは `docs/audits/2026-10-i382/codex/i382-mechanism-design.json`）
+- **スコープ**:
+  - `estimators/lgbm/adapter.py` の `LGBMAdapter.fit` が `lgb.Dataset` に渡すカテゴリの宣言（`categorical_feature`）。学習の Dataset と検証の Dataset の両方
+  - 範囲の外: 生成コードの `train.py`（#382 / H-0141 で列名を文字列の別名にするので、名前で渡しても取り違えない）、`fit` がどの列名を受け付けるか、保存したモデル、tune の指紋
+
+### 目的（課題）
+
+`LGBMAdapter.fit` は、カテゴリの列の名前の一覧をそのまま `lgb.Dataset(categorical_feature=...)` に渡している（`adapter.py:210-235`）。LightGBM は、一覧の文字列を特徴量の名前として、`int` を特徴量の位置として読む。そのため、列名が `int` のカテゴリの列では、LightGBM が別の列をカテゴリとして扱うか、どの列もカテゴリとして扱わない。警告は出ず、`fit`・`predict`・`Model.export` は通るので、予測は黙って違うモデルのものになる（DC1）。
+
+- 名前が `1` で位置 0 にあるカテゴリの列と、位置 1 の数値の列 `x` の組では、LightGBM は `x` をカテゴリとし、本当のカテゴリの列を数値（pandas のカテゴリの符号）として学習する。
+- 名前が `7` のカテゴリの列では、位置 7 の列が無いので、どの列もカテゴリにならない。
+- 名前が `0` で位置 0 の列は、たまたま正しい。
+
+### 実測（2026-10-22、develop `43083e3` の上）
+
+測定のスクリプトと出力は `docs/audits/2026-10-i393/` にある。
+
+- **取り違え**（`probes/int_categorical_names.py`、180 行、位置 0 にカテゴリの列、位置 1 に数値の列 `x`、`make_config("regression", n_estimators=3, n_splits=2)`。refit の booster の `params["categorical_column"]`）: 名前 `"c"` → `[0]`、`7` → `[7]`、`0` → `[0]`、`1` → `[1]`。pandas 3.0.1 / LightGBM 4.6.0 と pandas 2.0.0 / LightGBM 4.4.0 で同じだった。
+- **位置で渡しても、文字列の名前のモデルは変わらない**（`probes/names_vs_positions.py`）: 同じ frame で、名前の一覧・位置の一覧・`"auto"` のどれで渡しても、booster の `model_to_string()` の SHA-256 が一致し、どれも `[categorical_feature: 1,2]` と記録した。2 つのレーンで同じだった。
+- **firing rate**（下の対応方針 1 で振る舞いが変わる宣言の割合）: 変わるのは、宣言の中に `str` でない名前がある呼び出しだけである（文字列の名前の宣言は、位置に直しても上のとおり同じモデルになる）。
+
+  Firing rate: 0/2106 of the categorical declarations LGBMAdapter.fit passes to LightGBM in the test suite (census with `firing/i393_census.py`, pandas 3.0.1: 9829 fit calls, 2106 with a declaration, every frame label a `str`; `firing/census_pd3.*`)
+
+  - テストスイートの普段の入力では、変わる宣言は 1 つも無い。この不具合を通るテストが無かったことの裏付けでもある。変わる場合は、受け入れ基準で明示的に足す（1・2）。
+  - この変更は、条件で働きを切り替える仕組みではない。宣言は常に位置に直し、文字列の名前ではその結果が今と同じになる。
+
+### 管理者の判断（2026-10-22。カード D-20261022-007）
+
+#382 の設計（Codex の run `i382-mechanism-design`）でこの不具合が見つかった。管理者は、別の issue（#393）と Proposal にして、v0.21 で #382 より先に直すと決めた。#382 の生成コードは、この不具合を再現する仕組み（LightGBM に渡した位置の一覧を持ち回る）を持たない。
+
+### 対応方針（提案）
+
+1. **位置で渡す**: `LGBMAdapter.fit` は、宣言したカテゴリの列の名前を、学習に使う frame（`X_train`）の列の順での位置の一覧に直し、学習の Dataset と検証の Dataset の両方に `categorical_feature` として渡す。宣言が無いときは今と同じ `"auto"` である。
+   - 名前と列の照合は、型が完全に同じで値が等しいときだけ一致とする（`type(col) is type(name) and col == name`）。`1`・`True`・`1.0` を取り違えない。
+   - 宣言した名前がちょうど 1 つの列に一致しないとき（一致が無い、または 2 つ以上）は、`LizyMLError`（`DATA_SCHEMA_INVALID`、context `{"column": 名前, "reason": "categorical_feature_not_unique"}`）で止める。宣言は pipeline が同じ frame の列から作るので、今のコードでは起きない。起きたら黙って別の列を選ばないための検査である。
+   - 位置は、`X_train` の列の順で昇順に並べる。
+2. **ほかの箇所は変えない**: 宣言を作る側（`cv_trainer.py:244`・`refit_trainer.py:123` の `set_categorical_features`）、`EstimatorAdapter` の IF（`set_categorical_features(cols)` は名前の一覧を受け取るまま）、`pandas_categorical`、保存の形式、生成コードは変えない。
+
+### 互換性
+
+- 文字列の名前のカテゴリの列（テストスイートの全ての宣言）は、学習したモデルが同じ依存の版・パラメータ・seed のもとでバイトとして変わらない（上の実測。H-0138 の参照ファイルのモデルの case の `model_sha256` もそのまま通ることを確かめる）。
+- `int` の名前のカテゴリの列を持つモデルは、その名前を位置として読んだ結果が本当の位置と違うときだけ、新しく fit すると変わる（正しい列がカテゴリになる）。名前 `0` の列が位置 0 にあるときのように、今たまたま正しいモデルは、バイトとして変わらない（Proposal レビュー round 1 が 3 つのレーンで確かめた）。保存したモデルは、保存した booster のまま読み込み、予測する。
+- 公開 API と Config は変わらない。`EstimatorAdapter` の IF も変わらない。
+
+### 代替案
+
+- **文字列の名前で渡す**（`str(name)`）: LightGBM は frame の列名から特徴量の名前を作るが、空白を `_` に置き換えるなどの手直しをするので、名前の照合は確実でない。`7` と `"7"` の列があれば取り違える。採らない。
+- **`int` の名前のカテゴリの列を fit で拒否する**: 今黙って間違うモデルを、直すのでなく止めることになる。管理者は直すことを選んだ（カード D-20261022-007）。採らない。
+- **生成コードで今の振る舞いを再現する**（#382 の設計の最初の案）: 間違ったモデルを生成コードでも再現することになる。採らない。
+
+### 受け入れ基準
+
+1. **取り違えない**: 位置 0 のカテゴリの列の名前が `"c"`・`np.str_("c")`・`0`・`1`・`7` のそれぞれで、refit の booster と CV の各 fold の booster の `params["categorical_column"]` が `[0]` である。名前 `1` と `7` のモデルの予測が、同じ frame の名前を `"c"` にしたモデルの予測と一致する。
+2. **複数の列と混ざった名前**: カテゴリの列が 2 つ以上で、`int` と `str` の名前が混ざり、位置がばらばらの frame で、宣言した列だけが、その位置でカテゴリになる。
+3. **検証の Dataset**: inner valid（early stopping）のある設定で、検証の Dataset も同じ位置の宣言を受け取る（`lgb.Dataset` の呼び出しを差し替えて読む）。
+4. **文字列の名前は変わらない**: H-0138 の参照ファイルのモデルの case（`model_sha256` と予測）が、3 つのレーンでそのまま通る。名前で渡したときと位置で渡したときの booster のバイトが同じであることを、直接のテストでも確かめる。
+5. **照合の検査**: 宣言した名前が列に無いとき、または 2 つの列に一致するとき、決めた code と context で止まる。`1` と `True` の列を取り違えない。
+6. **census**: 実装の後の census で、変わる宣言が受け入れ基準 1〜2 のテストにだけ現れる。
+7. **文書**: BLUEPRINT（LightGBM の adapter がカテゴリの宣言を位置で渡すこと）、CHANGELOG、`docs/migration.md`、`docs/proposal_dispositions.toml` を更新する。
+
+**レビューの停止基準**: 上の受け入れ基準のテストと census が通ったら止める。次の round に進む理由になるのは、この契約の中の欠陥だけである: 位置の取り違え、文字列の名前のモデルのずれ、検証の Dataset の宣言、照合の検査の漏れ。生成コード（#382 / H-0141）、`fit` が受け付ける列名の範囲、保存の形式、LightGBM 自身の振る舞いは、次の round に進む理由にならない。
+
+### Proposal レビュー round 1（2026-10-22）
+
+- **結果**: Codex の run `h0142-proposal-review` の round 1（`54b1902`）は CHANGES_REQUESTED で、major 2 件だった。
+- **対応**（上の本文を直した）: `int` の名前のモデルが変わるのは、名前を位置として読んだ結果が本当の位置と違うときだけだと、互換性の文を絞った（名前 `0` が位置 0 のモデルは変わらない）。関連に挙げた Codex の run の写し（`docs/audits/2026-10-i382/codex/i382-mechanism-design.json`）が、#382 のブランチにしか無かったので、このブランチにも置いた。
+
+### Proposal レビュー round 2（2026-10-22）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`87f311f`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`87f311f`）は APPROVE で、指摘は無かった。run `h0142-proposal-review` はこれで終わり、この Proposal を Accepted とした。
+
+### 実装の記録（2026-10-22）
+
+- **コード**: `lizyml/estimators/lgbm/adapter.py` に `categorical_positions(columns, declared)` を置き、`LGBMAdapter.fit` は宣言を `X_train` の列の位置の一覧にして、学習と検証の `lgb.Dataset` に渡す（宣言が無いときは今までどおり `"auto"`）。照合は型が完全に同じで値が等しいときだけで、一致がちょうど 1 つでない宣言は `DATA_SCHEMA_INVALID`（`categorical_feature_not_unique`）。
+- **テスト**: `tests/test_estimators/test_h0142_categorical_positions.py`（受け入れ 1〜5）。名前 `"c"`・`np.str_("c")`・`0`・`1`・`7` の refit と CV の各 fold の booster が位置 0 をカテゴリにすること、`1` と `0` の名前のモデルの予測が `"c"` の名前のモデルと一致すること、名前の混ざった複数の列、検証の Dataset の宣言、名前と位置で同じ booster のバイト、型での照合と拒否。H-0138 の参照のモデルの case（`model_sha256`）は、3 つのレーンでそのまま通った（受け入れ 4）。
+- **陰性対照**: 変換を止めて名前をそのまま渡すと、14 本のうち 8 本が落ちた。名前 `7` の予測の一致のテストは、小さなモデルではカテゴリでも数値の符号でも予測が同じになるので、変換を止めても通る。名前 `7` の取り違えは、booster の `categorical_column` を確かめるテストが捉える。
+- **census**（受け入れ 6、`firing/census_impl_pd3.*`）: テスト 22778 本が通り、`LGBMAdapter.fit` の呼び出し 9830 件のうち宣言のあるもの 2143 件で、`str` でない名前の宣言は 22 件、全て H-0142 のテストだった。
+- **文書**: BLUEPRINT §14.2、CHANGELOG、`docs/migration.md`、`docs/proposal_dispositions.toml`（specified）。
+
+### 実装レビュー（2026-10-22）
+
+- **結果**: Codex の run `h0142-impl-review` の round 1（`efa5f1c`）は APPROVE で、指摘は無かった。run はこれで終わる。この実行の方針により、APPROVE と CI 緑でマージする。
