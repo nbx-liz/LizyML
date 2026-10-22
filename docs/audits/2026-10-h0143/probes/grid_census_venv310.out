@@ -1,0 +1,5 @@
+pandas 2.3.3 numpy 2.2.6
+judged 6216; verdict changed by H-0143: 1
+today: 1 mismatches
+      1  timedelta64 + uint64: verdict ['json'] real []
+H-0143: 0 mismatches
