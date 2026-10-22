@@ -16950,3 +16950,12 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
   - parquet は、pandas が読む前にファイルの schema の名前の重なりを `column_name_collision` で拒否し、CSV の見出しが読めないとき（`csv.Error`・`UnicodeDecodeError`）は `invalid_column_header` にした。
   - 記録の誤りを上で訂正した。
   - 回帰テスト 15 本（学習し直しの印の 4 通り × CSV と parquet、読み込みの印の 2 通り、最頻値の欠けと `null` の役割 3 通り、本物の parquet の重なり、読めない CSV の見出し）を足した。15 本とも round 1 の head（`e29d2da`）の生成コードの写しで落ち、直した後で通る。3 つのレーンで 2 つのファイルが通った（3.0.1 は 210 passed・1 skipped、pandas 2 の 2 つは 211 passed）。
+
+### 実装レビュー round 2（2026-10-22）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`3d64e9f`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`3d64e9f`）は CHANGES_REQUESTED で、major 3 件だった。
+  1. 生成 `train.py` の `train()` は、印を調べる前に必要な列の一覧を作っていて、形の壊れた `feature_names` で reason の無い `TypeError` になった。
+  2. 状態の `categories` が object でないとき、検査の診断を作るところで reason の無い `TypeError` になった。
+  3. 生成 `train.py` の CLI は、目的変数の列が無い CSV を、今までの目的変数の検査で `SystemExit(1)` にし、`missing_column_alias` の診断より先に止まっていた。
+- **対応**: `train()` と CLI は、印と名前を調べてから（`project_uses_aliases`）必要な列を集めて `prepare_input` に渡すようにした。`categories` は、object であることを確かめてから key を比べる。回帰テスト 3 本（`train()` を直接呼ぶ学習し直しの印、`categories: 1`、目的変数の無い CSV が `missing_column_alias` と `["target"]` になること）を足した。3 本とも round 2 の head（`3d64e9f`）の生成コードの写しで落ち、直した後で通る。codegen のテスト（pandas 3.0.1）は 1432 本が通り、pandas 2 の 2 つのレーンで H-0141 の 2 つのファイルが 214 本通った。

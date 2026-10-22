@@ -1486,8 +1486,10 @@ def _required_columns() -> list:
 
 def train(df: pd.DataFrame, *, calibrate: bool = True) -> None:
     check_versions()
-    # H-0141: a marked project renames its input to the aliases first.
-    df = prepare_input(df, _required_columns())
+    # H-0141: a marked project renames its input to the aliases first; the
+    # markers and names are checked before the required columns are read.
+    if project_uses_aliases():
+        df = prepare_input(df, _required_columns())
     df = apply_declared_categories(df)
     target = CFG["_target_col"]
     y = _encode_target(df[target])
@@ -1531,6 +1533,9 @@ def main() -> None:
     args = p.parse_args()
 
     df = read_input(args.data)  # H-0141: a marked project checks the header
+    if project_uses_aliases():
+        # Every required alias (the target included) is named when missing.
+        df = prepare_input(df, _required_columns())
 
     target = CFG["_target_col"]
     if target not in df.columns:

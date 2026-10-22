@@ -752,6 +752,8 @@ STATE_CASES = [
     ("artifacts/pipeline_state.json", lambda d: d["categories"]["7"].pop("mode")),
     ("config.json", lambda d: d.__setitem__("_target_col", None)),
     ("config.json", lambda d: d["categorical_rule"].__setitem__("explicit", [None])),
+    # Review round 2: categories that are not an object.
+    ("artifacts/pipeline_state.json", lambda d: d.__setitem__("categories", 1)),
 ]
 
 
@@ -833,6 +835,32 @@ def test_the_readers_check_both_markers_before_names(
     path = _csv(project, "in.csv", "7,x\na,1.0\n")
     module = _predict_module(project)
     assert _reason(lambda: module.read_input(path)) == reason
+
+
+def test_a_programmatic_retrain_checks_the_markers_first(
+    marked: SimpleNamespace, tmp_path: Path
+) -> None:
+    """Review round 2: train() checks the markers before reading the names."""
+    project = _copy_project(marked.project, tmp_path / "p")
+    _edit(project, "config.json", lambda d: d["feature_names"].__setitem__(0, []))
+    _edit(project, STATE, _set_policy("str_alias_v2"))
+    module = load_module(project / "train.py", f"h0141_train_{tmp_path.name}")
+    assert _reason(lambda: module.train(marked.df, calibrate=False)) == (
+        "unsupported_column_name_policy"
+    )
+
+
+def test_the_retrain_cli_names_a_missing_target(
+    marked: SimpleNamespace, tmp_path: Path
+) -> None:
+    """Review round 2: the CLI's own target check must not pre-empt the
+    missing-alias diagnostic."""
+    project = _copy_project(marked.project, tmp_path / "p")
+    data = write_data(marked.df.drop(columns=["target"]), project, "csv")
+    with pytest.raises(ValueError) as info:
+        run_train(project, data)
+    assert getattr(info.value, "reason", None) == "missing_column_alias"
+    assert getattr(info.value, "names", None) == ["target"]
 
 
 def test_a_real_parquet_with_repeated_names_is_refused(marked: SimpleNamespace) -> None:

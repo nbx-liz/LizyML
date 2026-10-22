@@ -119,10 +119,12 @@ def _check_state_names(state, where, features, categorical):
     if _names_of(state, "categorical_features", where) != categorical:
         raise _bad_state(where, "categorical_features", "differ from config.json")
     categories = state.get("categories")
-    if not isinstance(categories, dict) or set(categories) != set(categorical):
+    if not isinstance(categories, dict):
+        raise _bad_state(where, "categories", "is not an object")
+    if set(categories) != set(categorical):
         raise _bad_state(
             where, "categories", "are not keyed by the categorical features",
-            sorted(set(categories or {}) ^ set(categorical), key=repr),
+            sorted(set(categories) ^ set(categorical), key=repr),
         )
     # Each column's entry holds its categories and its mode (the mode keys).
     incomplete = [
