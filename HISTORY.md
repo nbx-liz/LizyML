@@ -16828,8 +16828,8 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
 3. **書く箇所**: 検査を通った写しを、2 つの writer に渡す。
    - **宣言したカテゴリの key を特徴量に対応づける**（別名にする前）: `declared_categories` の key は特徴量の名前から作るが、`Model.export` → `Model.load` したモデルでは JSON の object の key の形で戻る（`7` → `"7"`、`7.5` → `"7.5"`、`inf` → `"Infinity"`、NaN → `"NaN"`、`None` → `"null"`、`True` → `"true"`）。実行時と保存の形式は変えず、書き出すための写しの中で、各 key を 1 つの特徴量に対応づけてから、その特徴量の別名を key にする。
      - key と型も値も同じ特徴量（`type(key) is type(name) and key == name`）があれば、それを選ぶ。
-     - 無ければ、`str` の key で、文字列でない特徴量のうち、JSON の key の形（`json.dumps({name: 0})` が書く key の文字列）が key と同じものを選ぶ。
-     - どの特徴量にも当たらない key は `unsupported_column_name`（kind `"unknown_reference"`）、型と値が同じ特徴量と JSON の形が同じ特徴量の両方に当たるか、JSON の形が同じ特徴量が 2 つ以上ある key は `unsupported_column_name`（kind `"ambiguous_reference"`）で拒否する。`columns` の項目は `where: "declared_categories"`・`position`（key の順での 0 始まりの位置）・key の `type`・`repr`・`alias: null`。この検査は、特徴量と役割の受け付けない名前の後、重なりの前に行う。
+     - 無ければ、`str` の key で、次のどちらかに当たる特徴量を選ぶ: `numpy.str_` の特徴量で `str(name)` が key と同じもの（load の後、`np.str_("c")` の列の key は Python の `"c"` で戻る）、または `str` でも `numpy.str_` でもない特徴量で、JSON の key の形（`json.dumps({name: 0})` が書く key の文字列）が key と同じもの。
+     - どの特徴量にも当たらない key は `unsupported_column_name`（kind `"unknown_reference"`）、型と値が同じ特徴量と、2 つ目の規則（`numpy.str_` か JSON の形）で当たる特徴量の両方に当たるか、2 つ目の規則で当たる特徴量が 2 つ以上ある key は `unsupported_column_name`（kind `"ambiguous_reference"`）で拒否する。`columns` の項目は `where: "declared_categories"`・`position`（key の順での 0 始まりの位置）・key の `type`・`repr`・`alias: null`。この検査は、特徴量と役割の受け付けない名前の後、重なりの前に行う。
    - `config_writer`: `target`、`declared_categories` の key（上で対応づけた特徴量の別名）、`feature_names`、`categorical_features`、`categorical_rule.explicit`、`inner_valid.group_col`、`split` の `time_col`・`group_col`・`blocks.col`・`groups.col` を別名にする。`column_name_policy: "str_alias_v1"` を足す。
    - `artifact_writer`: `pipeline_state.json` の `feature_names`、カテゴリの列の一覧、カテゴリと最頻値の key、`identity_columns` を別名にする。`column_name_policy` を足す。カテゴリの値・最頻値・宣言の値・目的変数のクラス・分割の値は別名にしない（値の codec はそのまま）。
    - 生成 `train.py` の状態の writer も、別名と印を書く（学習し直した後も同じ）。
@@ -16872,7 +16872,7 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
 
 1. **別名の規則**: 受け付ける各型（`str`、`np.str_`、`int` の正負と大きい値、`float` の `7.0`・`-0.0`・NaN・±inf・小さい値と大きい値、同じ値の `np.float64`、`True`・`False`、`None`）で、ライブラリと 2 つの生成スクリプトの写しが同じ別名を返す（3 つのレーン）。拒否する型と値（`np.int64`・`np.float32`・`np.bool_`・`bytes`・`complex`・`Decimal`・tuple・`""`・NUL を含む文字列）で、決めた reason と kind を返す。
 2. **拒否と書かないこと**: `Model.export_code` と `generate_code` の両方で、受け付けない名前と、別名の重なり（`7` と `"7"`、`True` と `"True"`、NaN と `"nan"`、`7.0` と `"7.0"` の特徴量どうし、文字列でない特徴量と `target`・`time_col`・`group_col`・`features.exclude`・`features.categorical`・`split.blocks.col`・`split.groups.col`・`inner_valid.group_col` の同じ別名）が、対応方針 2 の code・surface・reason・kind・`alias`・`columns`（`where`・`position`・`type`・`repr`・`alias` の値と順）で拒否され、ディレクトリもファイルも作られない（出力先が既にある場合も）。文字列の特徴量を同じ文字列の役割の名前が指すプロジェクト（`features.categorical: ["c"]` と特徴量 `"c"`、特徴量でもある `split.blocks.col`）は、拒否されずに書き出される。
-3. **書く箇所**: 対応方針 3 の全ての欄が、書き出した直後と、生成 `train.py` で学習し直した後に、別名を順どおりに持つ。`Model.load` したモデルからの書き出しでも同じで、宣言したカテゴリの列の名前が `7`・`7.5`・`inf`・`-inf`・`np.float64(7.5)`（と、fit が通る lane では `None`）のモデルを export → load して書き出したプロジェクトが、宣言の key を対応する特徴量の別名で持ち、印のある状態の検査を通り、学習し直しで宣言の順（使われていないカテゴリを含む）を保つ。対応づけられない key（どの特徴量にも当たらない、型と値が同じ特徴量と JSON の形が同じ特徴量の両方に当たる）は、決めた kind で拒否される。カテゴリの値の codec の中身と、fit した状態は変わらない。
+3. **書く箇所**: 対応方針 3 の全ての欄が、書き出した直後と、生成 `train.py` で学習し直した後に、別名を順どおりに持つ。`Model.load` したモデルからの書き出しでも同じで、宣言したカテゴリの列の名前が `np.str_("c")`・`7`・`7.5`・`inf`・`-inf`・`np.float64(7.5)`（と、fit が通る lane では `None`）のモデルを export → load して書き出したプロジェクトが、宣言の key を対応する特徴量の別名で持ち、印のある状態の検査を通り、学習し直しで宣言の順（使われていないカテゴリを含む）を保つ。対応づけられない key（どの特徴量にも当たらない、型と値が同じ特徴量と JSON の形が同じ特徴量の両方に当たる）は、決めた kind で拒否される。カテゴリの値の codec の中身と、fit した状態は変わらない。
 4. **予測**: 受け付ける各型の名前 × 数値の列・auto のカテゴリの列・宣言したカテゴリの列のうち、fit が通る組（上の表。3.0.1 では `str`・`np.str_`・`int`・`float`・`np.float64` の 3 種類の列と、`bool`・`None` の数値の列）で、生成 `predict.py`（型つきの frame、別名の見出しの CSV、parquet）・学習し直してからの予測・`test_equivalence.py` が、実行時の予測と一致する。#382 の int の `7` のカテゴリの列を含む。fit が通らない組（`bool`・`None` の名前のカテゴリの列など）は、今の fit の拒否のままであることを確かめる（fit の範囲は変えない）。
 5. **入力の検査**: 型つきの frame の別名の重なり（余分な列を含む）、CSV の重なった見出し・空の見出し・正しい `"Unnamed: 0"` と `"7.1"` の名前・pandas が変えた見出し・足りない別名・並びの違う列、parquet の文字列でない名前・重なり・MultiIndex で、決めた 4 つの reason と問題の名前を返す。`test_equivalence.py` の CLI も、重なった見出し `7,7` を `column_name_collision` で拒否する。
 6. **印**: 両方に無い（今までの引き方で予測・学習し直し）、両方にある、片方だけ、`null`・知らない値・文字列でない値、それぞれの組み合わせで、対応方針 5 の順のとおりの reason を返す。形の検査は、`feature_names` の順の違い・重なり・文字列でない名前、カテゴリの列の一覧の違い、`feature_names` に無いカテゴリの列、カテゴリと最頻値の key の違い、カテゴリの列に無い `identity_columns` と宣言の key のそれぞれで `invalid_column_name_state` を返し、どれもカテゴリの値の復号と書き込みより前に止まる。
@@ -16899,3 +16899,9 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
 - **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`96b0b65`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
 - **結果**: round 2（`96b0b65`）は CHANGES_REQUESTED で、major 1 件だった。round 1 の修正の欠陥ではなく、`Model.load` したモデルの宣言したカテゴリの key が JSON の形（`"null"`・`"Infinity"` など）で戻ることの見落としである。
 - **対応**（上の本文を直した）: 別名にする前に、宣言の key を特徴量に対応づける規則（型と値が同じ特徴量を先に、無ければ JSON の key の形が同じ特徴量）と、対応づけられない key の拒否（`unknown_reference`・`ambiguous_reference`）を決め、load したモデルの受け入れ基準を加えた。
+
+### Proposal レビュー round 3（2026-10-22）
+
+- **monitor**: round 3 の前に、runner の relational monitor を走らせた（`b0c3eb0`、観察した round は 1〜2）。結果は CONVERGING・continue で、disposition は continue。
+- **結果**: round 3（`b0c3eb0`）は CHANGES_REQUESTED で、major 1 件だった。round 2 の修正の欠陥である: `np.str_` の名前の宣言した列は、load の後に key が Python の `str` で戻るので、決めた規則ではどの特徴量にも当たらず、今動いている書き出しを拒否してしまう。run `h0141-proposal-review` はこれで終わる。
+- **対応**（上の本文を直した）: `str` の key を `numpy.str_` の特徴量にも `str(name)` で対応づけ、重なりの検査は残した。load したモデルの受け入れ基準に `np.str_("c")` の列を加えた。
