@@ -16994,8 +16994,8 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
 v0.21.0 のリリース PR #397 の CI で、slow のテスト `tests/test_persistence/test_h0136_grid.py::test_the_verdict_matches_the_real_serializers` が、必須の 3 つのレーンで落ちた。このテストは、H-0133 の値の 1 つと 2 つの組の列（5995 通り）で、H-0136 の検査の判定が、本当の保存処理（joblib と、生成 `predict.py`）の結果と一致することを確かめる。slow のテストは `main` への PR でだけ走るので（`pyproject.toml` の `addopts = "-m 'not slow'"`、`ci.yml` の `base_ref` の分岐）、H-0139 と H-0141 の feature PR の CI と、PR の head で走らせたフルスイートは、このテストを走らせていなかった。原因は 2 つある。
 
 1. **テストの道具（H-0141）**: テストは、`convert_pipeline_state` に `feature_names` と `categorical_features` だけの config を渡して `pipeline_state.json` を書き、`export_code` が書いた生成プロジェクトの `predict.py` で変換する。H-0141 からプロジェクトの `config.json` は印 `column_name_policy` を持つので、印の無い状態は `column_name_policy_mismatch` で拒否され（正しい振る舞い）、全ての列が「JSON で壊れる」と測られた。
-2. **判定のずれ（H-0139）**: 1 つのカテゴリの列に `np.timedelta64` と `np.uint64` が並ぶ組で、判定は `json` の経路を「変換が例外を出す」（`kind="raises"`、`OverflowError`）とし、3 つの出口（`Model.export`・`lizyml.persistence.export`・`export_code`）がそのモデルを拒否する。しかし本当の生成 `predict.py` は、その状態を正しく変換する。
-   - 判定は、JSON で写した状態を実行時の `CategoricalEncoder` で変換する。H-0139 から時刻の値の列も identity で引く列（`identity_columns`）になり、実行時のエンコーダは符号をキーで引いた後、`pd.Categorical.from_codes(codes, categories=...)` を作る。JSON の符号化は `np.uint64` を Python の `int` として戻すので、写したカテゴリ `[timedelta64, 2**63 より大きい int, 'x']` で pandas の `CategoricalDtype` の検査が `OverflowError` を出す。
+2. **判定のずれ（H-0139）**: 1 つのカテゴリの列に `np.timedelta64` と `np.uint64` が並ぶ組で、判定は `json` の経路を「変換が例外を出す」（`kind="raises"`、`OverflowError` か `ValueError`）とし、3 つの出口（`Model.export`・`lizyml.persistence.export`・`export_code`）がそのモデルを拒否する。しかし本当の生成 `predict.py` は、その状態を正しく変換する。
+   - 判定は、JSON で写した状態を実行時の `CategoricalEncoder` で変換する。H-0139 から時刻の値の列も identity で引く列（`identity_columns`）になり、実行時のエンコーダは符号をキーで引いた後、`pd.Categorical.from_codes(codes, categories=...)` を作る。JSON の符号化は `np.uint64` を Python の `int` として戻すので、写したカテゴリで pandas の `CategoricalDtype` の検査が例外を出す。2**63 以上の値（`[timedelta64, 9223372036854775813, 'x']`）では単調性の検査が `OverflowError` を、`np.uint64(4)` と `np.timedelta64(4, 'ps')` の組では、pandas が `4` と `timedelta64(4, 'ps')` を等しいと見て、一意性の検査が `ValueError`（`Categorical categories must be unique`）を出す。元の状態（`np.uint64` のまま）では、どちらも出ない。
    - 生成 `predict.py` は、identity で引く列ではキーで符号を引いて返すだけで（`_keyed_codes`。H-0138 の写し）、カテゴリの一覧から pandas の型を作らない。だから壊れない。
    - 実行時のエンコーダが JSON で写した状態を読むことは無い（保存したモデルは joblib で読む）。`json` の経路の判定が真似るべき読み手は生成コードである。
    - H-0139 より前は時刻の値の列を identity で引かず、生成コードも pandas の引き方で同じ例外を出したので、判定と本当の結果は一致していた（両方とも拒否）。利用者から見た拒否は v0.20.0 から変わっておらず、黙って通るものは無い。H-0139 で生成コードがこのモデルを扱えるようになったのに、判定が拒否を続けている（DC3: 判定は生成コードの振る舞いの写しで、生成コードが変わったときに写しが変わらなかった）。
@@ -17016,12 +17016,12 @@ v0.21.0 のリリース PR #397 の CI で、slow のテスト `tests/test_persi
   | pandas 2.3.3（`PYTHONHASHSEED=0`） | 6216 | 1 | 0 |
   | pandas 2.0.0（`PYTHONHASHSEED=0`） | 6216 | 11 | 0 |
 
-  ずれは全て「`np.timedelta64` + `np.uint64`、判定は `json`、本当は壊れない」だった。数が seed と版で変わるのは、pandas の単調性の検査が、カテゴリの並び（set の順）で通ったり `OverflowError` を出したりするためである。試作の判定は、全てのレーンと seed で本当の結果と一致した。
+  ずれは全て「`np.timedelta64` + `np.uint64`、判定は `json`、本当は壊れない」だった。2**63 以上の `np.uint64` の組（`OverflowError`）と、`np.uint64(4)` と `np.timedelta64(4, 'ps')` の組（`ValueError`）を含む（pandas 3.0.1、`PYTHONHASHSEED=0` では 12 と 2。Proposal レビュー round 1 が実行して数えた）。数が seed と版で変わるのは、pandas の検査が、カテゴリの並び（set の順）で通ったり例外を出したりするためである。試作の判定は、全てのレーンと seed で本当の結果と一致した。
 - **firing rate**（対応方針 1 で判定が変わる呼び出しの割合）:
 
-  Firing rate: 14/16810 of the state_changes calls in the test suite with slow tests included (census with `probes/h0143_census.py` on pandas 3.0.1: the prototype differs on 14 calls, all in `tests/test_persistence/test_h0136_grid.py`, and raised on none; `probes/census_pd3.*`)
+  Firing rate: 14/16810 of the state_changes calls made in the pytest process of the test suite with slow tests included (census with `probes/h0143_census.py` on pandas 3.0.1: the prototype differs on 14 calls, all in `tests/test_persistence/test_h0136_grid.py`, and raised on none; `probes/census_pd3.*`. The notebook tests run the tutorials in separate kernels, which the plugin does not patch, so their fit-time calls are not counted)
 
-  - 16810 回の呼び出しのうち、今の判定が何かの変化を見つけたのは 14 回で、14 回とも上の拒否しすぎの組だった。テストスイートの普段の入力では、判定は変わらない。
+  - pytest のプロセスの 16810 回の呼び出しのうち、今の判定が何かの変化を見つけたのは 14 回で、14 回とも上の拒否しすぎの組だった。この population の普段の入力では、判定は変わらない。notebook のカーネルの中の呼び出し（tutorial の `fit` の警告）は数えていない。
   - H-0138・H-0139 の後、H-0133 の population で本当に保存で答えが変わる列は無い（grid の本当の結果は全て空）。拒否の各 kind は、写した状態を合成する単体テスト（`tests/test_persistence/test_h0136_state_changes.py`、slow でない）が確かめている。
 
 ### 管理者の判断（2026-10-22。カード D-20261022-013）
@@ -17041,7 +17041,7 @@ v0.21.0 のリリース PR #397 の CI で、slow のテスト `tests/test_persi
 
 ### 互換性
 
-- 3 つの出口は、identity で引く列の `json` の経路で、今拒否している一部のモデル（上の測定では `np.timedelta64` と、2**63 以上の `np.uint64` を同じ列に持つもの）を受け付けるようになる。受け付けるのは、生成 `predict.py` が元の状態と同じ符号を返すモデルだけである（grid で確かめる）。今受け付けているモデルは、全て今と同じに受け付ける（判定が「変化なし」から「変化あり」に変わる列は無い。census と grid で確かめる）。
+- 3 つの出口は、identity で引く列の `json` の経路で、今拒否している一部のモデル（上の測定では、`np.timedelta64` と `np.uint64` を同じ列に持ち、JSON で写した `int` と時刻の値のカテゴリを pandas が型にできないもの。2**63 以上の値の `OverflowError` と、`np.uint64(4)` と `np.timedelta64(4, 'ps')` の `ValueError`）を受け付けるようになる。受け付けるのは、生成 `predict.py` が元の状態と同じ符号を返すモデルだけである（grid で確かめる）。今受け付けているモデルは、全て今と同じに受け付ける（判定が「変化なし」から「変化あり」に変わる列は無い。census と grid で確かめる）。
 - `fit` の警告（`warn_saved_state_changes`）も、同じ列で警告しなくなる。
 - 公開 API・Config・`FitResult`・保存の形式は変わらない。
 - CI は feature PR でも slow のテストを走らせるので、Quality のレーンの時間が延びる（Quality (3.12) のジョブは、リリース PR #397 で約 34 分、feature PR #395 で約 23 分だった）。
@@ -17056,10 +17056,17 @@ v0.21.0 のリリース PR #397 の CI で、slow のテスト `tests/test_persi
 ### 受け入れ基準
 
 1. **grid**: `test_h0136_grid.py` が、pandas 3.0.1・2.3.3・2.0.0 の 3 つのレーンで、`PYTHONHASHSEED` を 0 と 1 にしても通る（判定と本当の結果のずれが 0）。
-2. **受け付けるようになったモデル**: `np.timedelta64` と `np.uint64(2**63 + 5)` を同じカテゴリの列に持つモデルを、3 つの出口が受け付け、`Model.load` したモデルと生成 `predict.py` の予測が元のモデルと一致する。直す前の判定で、このモデルが `json` の `raises` で拒否されることも確かめる（直しが効いていることの陰性対照）。
+2. **受け付けるようになったモデル**: `np.timedelta64` と `np.uint64(2**63 + 5)` を同じカテゴリの列に持つモデルと、`np.timedelta64(4, 'ps')` と `np.uint64(4)` を同じ列に持つモデルを、3 つの出口が受け付け、`Model.load` したモデルと生成 `predict.py` の予測が元のモデルと一致する。直す前の判定で、このモデルが `json` の `raises` で拒否されることも確かめる（直しが効いていることの陰性対照）。
 3. **他の判定は変わらない**: `test_h0136_state_changes.py` の全ての kind の判定がそのまま通る。identity で引く列でも、写した状態でカテゴリが失われる、符号が変わる、最頻値の符号が変わる場合は、`json` の経路で今と同じ kind で拒否される（合成した写しで確かめる）。`joblib` の経路の判定は変わらない。
 4. **census**: 実装の後の census で、判定が変わる呼び出しが grid のテストと受け入れ基準 2・3 のテストにだけ現れる。
 5. **CI**: feature PR の CI の Quality の 3 つのレーンが slow のテストを走らせる（この PR の CI のログで、slow のテストの名前が出ることを確かめる）。
 6. **文書**: BLUEPRINT §15.3（保存の後の振る舞いの検査で、`json` の経路の identity で引く列は生成コードと同じ引き方で判定すること）、CHANGELOG、`docs/migration.md`、`docs/proposal_dispositions.toml` を更新する（CONTRIBUTING.md は Quality のレーンが slow を外すことを書いていないので変えない）。
 
 **レビューの停止基準**: 上の受け入れ基準のテストと census が通ったら止める。次の round に進む理由になるのは、この契約の中の欠陥だけである: identity で引く列の `json` の判定が生成コードの引き方と違うこと、他の判定が変わること、CI のレーンが slow のテストを走らせないこと、テストの道具が生成プロジェクトと違う状態を書くこと。値の集合 V、identity の範囲、`declared_categories` の判定、保存の形式、latest-deps のレーンの #389 の失敗は、次の round に進む理由にならない。
+
+### Proposal レビュー round 1（2026-10-22）
+
+- **結果**: Codex の run `h0143-proposal-review` の round 1（`f709261`）は CHANGES_REQUESTED で、major 2 件だった。どちらも事実の記述の誤りで、対応方針は変わらない。
+  1. 拒否しすぎの組は 2**63 以上の `np.uint64` だけでなく、`np.uint64(4)` と `np.timedelta64(4, 'ps')` の組も含み、そこでは pandas の一意性の検査が `ValueError` を出す。
+  2. census は pytest のプロセスの中の呼び出しだけを数えていて、notebook のテストが tutorial を走らせる別のカーネルの中の呼び出しは数えていない。
+- **対応**（上の本文を直した）: 目的・実測・互換性の、例外の説明と population を直し、受け入れ基準 2 に `np.uint64(4)` の組を足した。firing rate の行と説明を、数えた population（pytest のプロセス）に合わせた。
