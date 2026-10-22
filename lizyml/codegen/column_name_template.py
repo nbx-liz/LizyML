@@ -57,10 +57,28 @@ def _bad_state(where, field, message, names=()):
     )
 
 
-def _names_of(doc, field, where):
-    values = doc.get(field)
-    if type(values) is not list:
-        raise _bad_state(where, field, "is not a list")
+def _typed_field(doc, field, where, kinds, required=True):
+    """*doc[field]* when its type is one of *kinds*; else invalid_column_name_state.
+
+    The marked-state check reads only fields whose type it has checked first,
+    so a malformed document is refused with the decided reason, never with an
+    error from the code that reads it.
+    """
+    if field not in doc:
+        if required:
+            raise _bad_state(where, field, "is missing")
+        return None
+    value = doc[field]
+    if not any(type(value) is kind for kind in kinds):
+        names = " or ".join("null" if k is type(None) else k.__name__ for k in kinds)
+        raise _bad_state(where, field, f"is not {names}", [value])
+    return value
+
+
+def _names_of(doc, field, where, required=True):
+    values = _typed_field(doc, field, where, (list,), required)
+    if values is None:
+        return None
     stray = [v for v in values if type(v) is not str]
     if stray:
         raise _bad_state(where, field, "holds names that are not str", stray)
@@ -68,21 +86,28 @@ def _names_of(doc, field, where):
 
 
 def _role_names(config):
-    """(field, value, required) for the role fields of config.json."""
-    sp = config.get("split") or {}
-    iv = config.get("inner_valid") or {}
-    roles = [("_target_col", config.get("_target_col"), True)]
-    roles += [(f"split.{k}", sp.get(k), False) for k in ("time_col", "group_col")]
+    """(field, value, required) for the role fields of config.json.
+
+    A field the writer always writes but that is absent is left to the code
+    that reads it (H-0120 fails such a project with a KeyError naming it);
+    a field that is present must have its type.
+    """
+    where = "config.json"
+    roles = []
+    if "_target_col" in config:
+        roles.append(("_target_col", config["_target_col"], True))
+    split = _typed_field(config, "split", where, (dict, type(None)), False) or {}
+    for key in ("time_col", "group_col"):
+        roles.append((f"split.{key}", split.get(key), False))
     for block in ("blocks", "groups"):
-        if sp.get(block) is not None:
-            if not isinstance(sp[block], dict):
-                raise _bad_state("config.json", f"split.{block}", "is not an object")
-            roles.append((f"split.{block}.col", sp[block].get("col"), True))
-    roles.append(("inner_valid.group_col", iv.get("group_col"), False))
-    rule = config.get("categorical_rule") or {}
-    explicit = rule.get("explicit", [])
-    if type(explicit) is not list:
-        raise _bad_state("config.json", "categorical_rule.explicit", "is not a list")
+        value = _typed_field(split, block, f"{where} split", (dict, type(None)), False)
+        if value is not None:
+            roles.append((f"split.{block}.col", value.get("col"), True))
+    inner = _typed_field(config, "inner_valid", where, (dict, type(None)), False) or {}
+    roles.append(("inner_valid.group_col", inner.get("group_col"), False))
+    rule = _typed_field(config, "categorical_rule", where, (dict,), False) or {}
+    rule_where = f"{where} categorical_rule"
+    explicit = _typed_field(rule, "explicit", rule_where, (list,), False) or []
     roles += [("categorical_rule.explicit", c, True) for c in explicit]
     return roles
 
@@ -97,7 +122,9 @@ def _check_config_names(config):
     outside = [c for c in categorical if c not in features]
     if outside:
         raise _bad_state(where, "categorical_features", "are not features", outside)
-    declared = config.get("declared_categories") or {}
+    declared = (
+        _typed_field(config, "declared_categories", where, (dict,), False) or {}
+    )
     stray = [k for k in declared if k not in categorical]
     if stray:
         raise _bad_state(
@@ -118,25 +145,26 @@ def _check_state_names(state, where, features, categorical):
         )
     if _names_of(state, "categorical_features", where) != categorical:
         raise _bad_state(where, "categorical_features", "differ from config.json")
-    categories = state.get("categories")
-    if not isinstance(categories, dict):
-        raise _bad_state(where, "categories", "is not an object")
+    categories = _typed_field(state, "categories", where, (dict,))
     if set(categories) != set(categorical):
         raise _bad_state(
             where, "categories", "are not keyed by the categorical features",
             sorted(set(categories) ^ set(categorical), key=repr),
         )
-    # Each column's entry holds its categories and its mode (the mode keys).
+    # Each column's entry holds its list of categories and its mode.
     incomplete = [
         c for c, entry in categories.items()
-        if not isinstance(entry, dict) or not {"categories", "mode"} <= set(entry)
+        if type(entry) is not dict
+        or "mode" not in entry
+        or type(entry.get("categories")) is not list
     ]
     if incomplete:
         raise _bad_state(
             where, "categories", "entries lack their categories or mode", incomplete
         )
-    identity = state.get("identity_columns") or []
-    stray = [c for c in identity if type(c) is not str or c not in categorical]
+    # Absent before H-0138's identity; when present, a list of categorical names.
+    identity = _names_of(state, "identity_columns", where, required=False) or []
+    stray = [c for c in identity if c not in categorical]
     if stray:
         raise _bad_state(
             where, "identity_columns", "name non-categorical columns", stray

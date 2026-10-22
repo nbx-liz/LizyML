@@ -16959,3 +16959,16 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
   2. 状態の `categories` が object でないとき、検査の診断を作るところで reason の無い `TypeError` になった。
   3. 生成 `train.py` の CLI は、目的変数の列が無い CSV を、今までの目的変数の検査で `SystemExit(1)` にし、`missing_column_alias` の診断より先に止まっていた。
 - **対応**: `train()` と CLI は、印と名前を調べてから（`project_uses_aliases`）必要な列を集めて `prepare_input` に渡すようにした。`categories` は、object であることを確かめてから key を比べる。回帰テスト 3 本（`train()` を直接呼ぶ学習し直しの印、`categories: 1`、目的変数の無い CSV が `missing_column_alias` と `["target"]` になること）を足した。3 本とも round 2 の head（`3d64e9f`）の生成コードの写しで落ち、直した後で通る。codegen のテスト（pandas 3.0.1）は 1432 本が通り、pandas 2 の 2 つのレーンで H-0141 の 2 つのファイルが 214 本通った。
+
+### 実装レビュー round 3（2026-10-22）
+
+- **monitor**: round 3 の前に、runner の relational monitor を走らせた（`f641935`、round 1〜2 を観察）。結果は CONVERGING・continue で、disposition は continue。
+- **結果**: round 3（`f641935`）は CHANGES_REQUESTED で、major 2 件だった。run `h0141-impl-review` は 3 round を使い切った（`review_budget_exhausted`）。
+  1. 状態の `identity_columns` が list でない（`1`・`"7"`・`null`）とき、reason の無い `TypeError` か、検査を通って identity の検査や書き込みまで進んだ。
+  2. `config.json` の `declared_categories` が object でない（`1`・`["7"]`）とき、同じだった。
+- **対応**: 2 件は、印のある状態の検査が欄の型を確かめずに読んでいた、という同じ形の欠陥である。指摘された 2 つの欄だけでなく、検査が読む全ての欄の型を先に確かめるようにした（DC1 の、開いた文法を安全な側に閉じる規則）。
+  - 生成コードの `_typed_field` が、欄の型（`feature_names`・`categorical_features`・`identity_columns` は文字列の list、`declared_categories`・`categorical_rule`・`categories` とその各項目は object、`categorical_rule.explicit` と各項目の `categories` は list、`split`・`split.blocks`・`split.groups`・`inner_valid` は object か `null`、役割の名前は文字列）を、読む前に確かめる。
+  - 書き手が必ず書く欄が無い場合は、今までどおりその欄を読むコードに任せる（H-0120 の契約で、`inner_valid` の無い `config.json` は欄の名前を挙げた `KeyError` で止まる）。
+  - 回帰テストは、検査が読む 15 の欄 × それぞれの誤った型の 43 通りで、予測が値の復号より前に、学習し直しが状態を書く前に、`invalid_column_name_state` で止まることを確かめる。43 通りのうち 17 通りは round 3 の head（`f641935`）で落ち、round 3 が挙げなかった欄（`split`・`inner_valid`・`categorical_rule`・各項目の `categories`）も含んでいた。
+  - 最初の直しは、値の codec の `_field` と同じ名前の関数を足して、codec の関数を黙って置き換えていた（H-0138 の写しのテストが 215 本落ちて分かった）。名前を変え、描画した 2 つのスクリプトのトップレベルの名前が重ならないことを確かめるテストを足した。
+  - codegen のテスト（pandas 3.0.1）は 1432 本が通り、pandas 2 の 2 つのレーンで H-0141 の 2 つのファイルが 258 本通った。

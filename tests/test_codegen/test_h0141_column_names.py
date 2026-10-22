@@ -837,6 +837,75 @@ def test_the_readers_check_both_markers_before_names(
     assert _reason(lambda: module.read_input(path)) == reason
 
 
+# Review round 3: every field the marked-state check reads, with each wrong
+# container type, is refused with the decided reason -- by prediction before a
+# value is decoded, and by the retrain before the state is written. Quantified
+# over the fields, not only the two the review executed.
+MALFORMED = [
+    (file, path, value)
+    for file, path, values in [
+        ("config.json", ("feature_names",), [1, "7", None, {"7": 1}]),
+        ("config.json", ("categorical_features",), [1, "7", None]),
+        ("config.json", ("declared_categories",), [1, ["7"], "7", None]),
+        ("config.json", ("categorical_rule",), [1, ["x"], None]),
+        ("config.json", ("categorical_rule", "explicit"), [1, "x", None]),
+        ("config.json", ("split",), [1, ["x"]]),
+        ("config.json", ("split", "blocks"), [1, ["x"]]),
+        ("config.json", ("inner_valid",), [1, ["x"]]),
+        ("config.json", ("_target_col",), [None, 7, ["target"]]),
+        (STATE, ("feature_names",), [1, None]),
+        (STATE, ("categorical_features",), [1, None]),
+        (STATE, ("categories",), [1, ["7"], None]),
+        (STATE, ("categories", "7"), [1, ["a"], None]),
+        (STATE, ("categories", "7", "categories"), [1, "abc", None]),
+        (STATE, ("identity_columns",), [1, "7", None, [7]]),
+    ]
+    for value in values
+]
+
+
+def _set_path(path: tuple[str, ...], value: Any) -> Any:
+    def change(doc: dict) -> None:
+        for key in path[:-1]:
+            doc = doc.setdefault(key, {})
+        doc[path[-1]] = value
+
+    return change
+
+
+@pytest.mark.parametrize(
+    ("file", "path", "value"),
+    MALFORMED,
+    ids=[f"{f.split('/')[-1]}:{'.'.join(p)}={v!r}" for f, p, v in MALFORMED],
+)
+def test_a_malformed_field_is_refused_by_its_reason(
+    marked: SimpleNamespace, tmp_path: Path, file: str, path: tuple, value: Any
+) -> None:
+    project = _copy_project(marked.project, tmp_path / "p")
+    _edit(project, STATE, _poison_values)
+    _edit(project, file, _set_path(path, value))
+    module = _predict_module(project)
+    assert _reason(lambda: module.predict(marked.X)) == "invalid_column_name_state"
+    data = write_data(marked.df, project, "csv")
+    before = (project / STATE).read_bytes()
+    assert _reason(lambda: run_train(project, data)) == "invalid_column_name_state"
+    assert (project / STATE).read_bytes() == before
+
+
+def test_the_scripts_define_each_top_level_name_once() -> None:
+    """A helper named like a codec function would silently replace it (the
+    round-3 remedy first shadowed the codec's ``_field``)."""
+    from collections import Counter
+
+    for source in (render_train_py(), render_predict_py()):
+        names = [
+            node.name
+            for node in ast.parse(source).body
+            if isinstance(node, ast.FunctionDef | ast.ClassDef)
+        ]
+        assert [n for n, k in Counter(names).items() if k > 1] == []
+
+
 def test_a_programmatic_retrain_checks_the_markers_first(
     marked: SimpleNamespace, tmp_path: Path
 ) -> None:
