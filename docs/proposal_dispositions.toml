@@ -579,6 +579,10 @@ anchors = ["categorical_positions", "categorical_feature_not_unique"]
 disposition = "specified"
 anchors = ["ResourceWarningProvider", "keep_training_booster=True"]
 
+[proposals."H-0143"]
+disposition = "specified"
+anchors = ["keyed_codes", "from_codes"]
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 

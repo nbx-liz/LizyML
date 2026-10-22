@@ -91,10 +91,11 @@ def state_changes(state: Any) -> list[SerializedChange]:
         project = _through_joblib if serializer == "joblib" else _encoder_through_json
         # Runs after the V check (H-0133): every value here pickles and encodes.
         projected = project(encoder)
-        found.extend(
-            SerializedChange(serializer, c)
-            for c in category_state_changes(encoder, projected)
+        # The JSON projection's reader is the generated predict.py (H-0143).
+        changes = category_state_changes(
+            encoder, projected, generated=serializer == "json"
         )
+        found.extend(SerializedChange(serializer, c) for c in changes)
     return found
 
 

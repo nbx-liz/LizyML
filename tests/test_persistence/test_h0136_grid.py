@@ -126,7 +126,10 @@ def _json_breaks(
     want: list[float],
     want_mode: float | None,
 ) -> bool:
-    config = {"feature_names": ["c"], "categorical_features": ["c"]}
+    # The project's own config.json, as export_code hands it to the writer:
+    # since H-0141 it carries the column-name marker, and the generated
+    # predict.py refuses a state written without it.
+    config = json.loads((project / "config.json").read_text(encoding="utf-8"))
     path = project / "artifacts" / "pipeline_state.json"
     try:
         for policy in ("error", "mode"):

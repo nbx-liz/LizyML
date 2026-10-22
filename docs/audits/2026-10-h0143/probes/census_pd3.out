@@ -1,0 +1,4 @@
+state_changes calls: 16810
+  with any change today: 14
+  changed by H-0143: 14; prototype errors: 0
+       14  tests/test_persistence/test_h0136_grid.py

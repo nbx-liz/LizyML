@@ -7,6 +7,15 @@ release from v0.5.0 onward.
 
 ## v0.21.0
 
+### The save check judges keyed columns as the generated code reads them (H-0143)
+
+No action is needed. A model the save check (H-0136) refused because the
+runtime encoder could not rebuild the JSON copy of a keyed column -- for
+example a categorical column holding `np.uint64(4)` beside
+`np.timedelta64(4, 'ps')`, refused for some hash seeds -- is now exported,
+because the generated `predict.py` reads that copy correctly. Every model
+exported before is exported as before.
+
 ### A memory warning for a large `num_leaves`; `max_depth=0` is no limit; no `max_depth` ceiling in expansion (H-0140)
 
 - **New `UserWarning` before training.** `Model.fit` and `Model.tune` warn when
