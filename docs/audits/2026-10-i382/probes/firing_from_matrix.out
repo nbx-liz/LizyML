@@ -1,0 +1,9 @@
+pd3: [LightGBM] [Fatal] Do not support special JSON characters in feature name.
+fitted 64; aliased 11/64; refused 47/64
+  export_code today for the refused: {'TypeError': 47}
+pd2: [LightGBM] [Fatal] Do not support special JSON characters in feature name.
+fitted 66; aliased 13/66; refused 47/66
+  export_code today for the refused: {'TypeError': 47}
+pd200: [LightGBM] [Fatal] Do not support special JSON characters in feature name.
+fitted 64; aliased 13/64; refused 45/64
+  export_code today for the refused: {'TypeError': 45}
