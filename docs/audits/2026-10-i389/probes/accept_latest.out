@@ -1,0 +1,25 @@
+== 3.0.6 same-minor
+      1 SKIPPED [75] latest-deps lane: the oracle 3.0.1 was made with numpy/lightgbm 2.4.2/4.6.0, this lane runs 2.5.4/4.7.0
+      1 H-0138 oracle: pandas=3.0.6, numpy=2.5.4, lightgbm=4.7.0, pyarrow=26.0.0, mode=latest-same-minor, oracle=3.0.1, exact=False, encoder_cases=1584, temporal_cases=4620, model_cases=74, models=skipped
+      1 6210 passed, 75 skipped, 2 warnings in 8.21s
+== 3.0.6 strict
+      3 SKIPPED [1] got empty parameter set for (case)
+      1 SKIPPED [1] no oracle: test_an_oracle_exists_for_this_pandas fails
+      1 H-0138 oracle: pandas=3.0.6, numpy=2.5.4, lightgbm=4.7.0, pyarrow=26.0.0, mode=strict, oracle=None, exact=False, encoder_cases=0, temporal_cases=0, model_cases=0, models=none
+      1 5 failed, 1 passed, 4 skipped, 2 warnings in 0.52s
+== 3.0.6 mode outside the job
+      3 SKIPPED [1] got empty parameter set for (case)
+      1 SKIPPED [1] no oracle: test_an_oracle_exists_for_this_pandas fails
+      1 H-0138 oracle: pandas=3.0.6, numpy=2.5.4, lightgbm=4.7.0, pyarrow=26.0.0, mode=latest-same-minor, oracle=None, exact=False, encoder_cases=0, temporal_cases=0, model_cases=0, models=none
+      1 6 failed, 4 skipped, 2 warnings in 0.50s
+== 3.1.0 same-minor
+      3 SKIPPED [1] got empty parameter set for (case)
+      1 SKIPPED [1] no oracle: test_an_oracle_exists_for_this_pandas fails
+      1 H-0138 oracle: pandas=3.1.0, numpy=2.5.4, lightgbm=4.7.0, pyarrow=26.0.0, mode=latest-same-minor, oracle=None, exact=False, encoder_cases=0, temporal_cases=0, model_cases=0, models=none
+      1 5 failed, 1 passed, 4 skipped, 2 warnings in 0.62s
+== 2.3.3 strict
+      1 H-0138 oracle: pandas=2.3.3, numpy=2.2.6, lightgbm=4.6.0, pyarrow=23.0.1, mode=strict, oracle=2.3.3, exact=True, encoder_cases=1584, temporal_cases=4845, model_cases=74, models=compared
+      1 6510 passed, 4 warnings in 9.50s
+== 2.0.0 strict
+      1 H-0138 oracle: pandas=2.0.0, numpy=1.24.0, lightgbm=4.4.0, pyarrow=23.0.1, mode=strict, oracle=2.0.0, exact=True, encoder_cases=1612, temporal_cases=4845, model_cases=75, models=compared
+      1 6539 passed, 4 warnings in 8.88s
