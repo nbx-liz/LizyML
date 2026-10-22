@@ -567,6 +567,10 @@ anchors = ["category_identity_version", "identity_columns"]
 disposition = "specified"
 anchors = ["temporal_key", "calendar_timedelta64"]
 
+[proposals."H-0141"]
+disposition = "pending"
+reason = "Under review; BLUEPRINT is updated with the implementation (export_code projects use string aliases for column names)."
+
 [proposals."H-0142"]
 disposition = "specified"
 anchors = ["categorical_positions", "categorical_feature_not_unique"]
