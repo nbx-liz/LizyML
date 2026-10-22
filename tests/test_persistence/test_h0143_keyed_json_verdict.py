@@ -17,6 +17,7 @@ generated ``predict.py`` does.
 
 from __future__ import annotations
 
+import itertools
 import os
 import subprocess
 import sys
@@ -109,50 +110,56 @@ def _ordered_state(categories: list[Any]) -> dict[str, Any]:
     return {**state, "categories": {"c": categories}, "modes": {"c": categories[0]}}
 
 
-def test_the_runtime_encoder_verdict_refused_the_large_uint64() -> None:
-    """Negative control: in this order pandas' monotonic check overflows on
-    the JSON-projected int, whatever the hash seed (measured on seeds 0-7)."""
-    state = _ordered_state([np.timedelta64(4, "s"), np.uint64(2**63 + 5), "x"])
-    projected = _encoder_through_json(state)
+def control_counts() -> tuple[int, int, int]:
+    """(candidates, refused by the runtime-encoder verdict, refused now).
+
+    The candidates are a ``np.timedelta64`` beside a ``np.uint64`` that JSON
+    gives back as an ``int`` -- 2**63 + 5 beside 4 s, and 4 beside 4 ps and
+    4 ns -- in every category order with ``"x"``. Which of them pandas cannot
+    build depends on the pandas version, the order and the hash seed
+    (monotonic check overflow, uniqueness); none of that reaches the
+    generated code's lookup.
+    """
+    pairs = [
+        (np.timedelta64(4, "s"), np.uint64(2**63 + 5)),
+        (np.timedelta64(4, "ps"), np.uint64(4)),
+        (np.timedelta64(4, "ns"), np.uint64(4)),
+    ]
+    candidates = runtime = shipped = 0
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        runtime = category_state_changes(state, projected)
-        generated = category_state_changes(state, projected, generated=True)
-    assert [(c.kind, c.exception) for c in runtime] == [("raises", "OverflowError")]
-    assert generated == []
-    assert state_changes({"encoder": state}) == []
+        for pair in pairs:
+            for order in itertools.permutations([*pair, "x"]):
+                state = _ordered_state(list(order))
+                projected = _encoder_through_json(state)
+                candidates += 1
+                runtime += bool(category_state_changes(state, projected))
+                shipped += bool(state_changes({"encoder": state}))
+    return candidates, runtime, shipped
 
 
-_PS_CONTROL = """
-import warnings
-import numpy as np
-from lizyml.features.encoders.state_changes import category_state_changes
-from lizyml.persistence._category_preflight import _encoder_through_json, state_changes
-from tests.test_persistence.test_h0143_keyed_json_verdict import _ordered_state
-warnings.simplefilter("ignore")
-state = _ordered_state([np.timedelta64(4, "ps"), "x", np.uint64(4)])
-projected = _encoder_through_json(state)
-runtime = category_state_changes(state, projected)
-print([(c.kind, c.exception) for c in runtime])
-generated = category_state_changes(state, projected, generated=True)
-print(generated, state_changes({"encoder": state}))
-"""
-
-
-def test_the_runtime_encoder_verdict_refused_uint64_4_beside_4_ps() -> None:
-    """Negative control: pandas' uniqueness check takes 4 and timedelta64(4,
-    'ps') for one category only for some hash seeds, so it runs with seed 0
-    (measured to refuse; seeds 3, 6 and 7 do not)."""
+def test_the_runtime_encoder_verdict_refused_some_and_the_json_verdict_none() -> None:
+    """Negative control: under ``PYTHONHASHSEED=0`` (measured on pandas
+    3.0.1, 2.3.3 and 2.0.0) the runtime-encoder verdict refuses at least one
+    candidate; the shipped verdict refuses none, on any seed."""
     root = Path(__file__).resolve().parents[2]
+    code = (
+        "from tests.test_persistence.test_h0143_keyed_json_verdict import "
+        "control_counts; print(*control_counts())"
+    )
     result = subprocess.run(
-        [sys.executable, "-c", _PS_CONTROL],
+        [sys.executable, "-c", code],
         cwd=root,
         env={**os.environ, "PYTHONHASHSEED": "0", "PYTHONPATH": str(root)},
         capture_output=True,
         text=True,
         check=True,
     )
-    assert result.stdout.splitlines() == ["[('raises', 'ValueError')]", "[] []"]
+    candidates, runtime, shipped = map(int, result.stdout.split())
+    assert candidates == 18
+    assert runtime >= 1
+    assert shipped == 0
+    assert control_counts()[2] == 0  # this process's own hash seed
 
 
 def _keyed_state() -> dict[str, Any]:
