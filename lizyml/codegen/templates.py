@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from lizyml.codegen.column_name_template import COLUMN_NAME_COPY
 from lizyml.codegen.identity_template import IDENTITY_COPY
 
 #: The category-value codec of ``lizyml.core.category_values`` (H-0133 P2),
@@ -223,6 +224,7 @@ def _decode_value(obj):
 
 '''
     + IDENTITY_COPY
+    + COLUMN_NAME_COPY
 )
 
 _TRAIN_PY = '''\
@@ -297,7 +299,7 @@ def cast_categoricals(X: pd.DataFrame) -> pd.DataFrame:
     """
     rule = CFG["categorical_rule"]
     keyed = identity_version() is not None
-    X = X.copy()
+    X = prepare_input(X).copy()  # H-0141 (idempotent on aliases)
     cast = set(rule["explicit"])
     if rule["auto"]:
         for col in X.columns:
@@ -354,6 +356,7 @@ def fit_pipeline(df: pd.DataFrame) -> dict:
     numpy timedelta64 in Y or M units is refused before learning.
     """
     expected = CFG["feature_names"]
+    df = prepare_input(df)  # H-0141 (idempotent on aliases)
     missing = sorted(set(expected) - set(df.columns))
     if missing:
         raise ValueError(f"Missing columns: {missing}")
@@ -391,6 +394,9 @@ def fit_pipeline(df: pd.DataFrame) -> dict:
     if version is not None:
         state["category_identity_version"] = version
         state["identity_columns"] = identity_columns
+    if check_column_name_policy(CFG):
+        # H-0141: a marked project's state carries the marker too.
+        state["column_name_policy"] = CFG["column_name_policy"]
     ARTIFACTS.mkdir(parents=True, exist_ok=True)
     with open(ARTIFACTS / "pipeline_state.json", "w", encoding="utf-8") as f:
         json.dump({**state, "categories": written}, f, indent=2, ensure_ascii=False)
@@ -509,6 +515,7 @@ def encode_column(
 
 def transform(df: pd.DataFrame, state: dict) -> pd.DataFrame:
     """Apply the fitted pipeline to a DataFrame."""
+    df = prepare_input(df)  # H-0141 (idempotent on aliases)
     X = df[state["feature_names"]].copy()
     for col, entry in state["categories"].items():
         if col in X.columns:
@@ -557,6 +564,7 @@ def apply_declared_categories(df: pd.DataFrame) -> pd.DataFrame:
     ``fit_pipeline`` builds it by key in the declared order.
     """
     declared = CFG["declared_categories"]
+    df = prepare_input(df)  # H-0141 (idempotent on aliases)
     if not declared:
         return df
     keyed = identity_version() is not None
@@ -680,7 +688,7 @@ def inner_split(n: int, y: np.ndarray, groups, iv: dict):
 
 
 def train_lgbm(
-    X: pd.DataFrame, y: pd.Series, cat_cols: list[str], groups,
+    X: pd.DataFrame, y: pd.Series, cat_cols: list[int], groups,
 ) -> lgb.Booster:
     """Train LightGBM as LizyML's refit does (LGBMAdapter.fit).
 
@@ -1460,8 +1468,26 @@ def _encode_target(y: pd.Series) -> pd.Series:
     return pd.Series(y).map(mapping).astype(np.int64)
 
 
+def _required_columns() -> list:
+    """The columns train.py reads: features, the target and the split roles."""
+    names = [*CFG["feature_names"], CFG["_target_col"]]
+    sp = CFG.get("split") or {}
+    for key in ("time_col", "group_col"):
+        if sp.get(key):
+            names.append(sp[key])
+    for block in ("blocks", "groups"):
+        if isinstance(sp.get(block), dict) and sp[block].get("col"):
+            names.append(sp[block]["col"])
+    iv = CFG.get("inner_valid") or {}
+    if iv.get("group_col"):
+        names.append(iv["group_col"])
+    return list(dict.fromkeys(names))
+
+
 def train(df: pd.DataFrame, *, calibrate: bool = True) -> None:
     check_versions()
+    # H-0141: a marked project renames its input to the aliases first.
+    df = prepare_input(df, _required_columns())
     df = apply_declared_categories(df)
     target = CFG["_target_col"]
     y = _encode_target(df[target])
@@ -1472,7 +1498,10 @@ def train(df: pd.DataFrame, *, calibrate: bool = True) -> None:
     X = transform(X_raw, state)
 
     log.info("[2/4] Training LightGBM ...")
-    cat_cols = [c for c in CFG["categorical_features"] if c in X.columns]
+    # LightGBM reads an int entry as a position, so it gets positions (H-0142,
+    # H-0141); for string names this is the same booster as names.
+    categorical = set(CFG["categorical_features"])
+    cat_cols = [i for i, c in enumerate(X.columns) if c in categorical]
     # The refit trains on the rows in LizyML's order; the calibration below
     # keeps the input order, as its folds are mapped back to it (H-0090).
     order = training_order(df)
@@ -1501,8 +1530,7 @@ def main() -> None:
     p.add_argument("--no-calibration", action="store_true")
     args = p.parse_args()
 
-    path = Path(args.data)
-    df = pd.read_parquet(path) if path.suffix == ".parquet" else pd.read_csv(path)
+    df = read_input(args.data)  # H-0141: a marked project checks the header
 
     target = CFG["_target_col"]
     if target not in df.columns:
@@ -1562,6 +1590,9 @@ def _load_pipeline() -> dict:
         raise FileNotFoundError(f"{path} not found. Run train.py first.")
     with open(path, encoding="utf-8") as f:
         state = json.load(f)
+    # H-0141: the column-name marker and the marked state's names are checked
+    # first, before any name or value is read.
+    check_column_name_policy(CFG, state, str(path))
     # H-0138: a state without the marker keeps the pandas lookup; an unknown
     # marker is refused before any value is read.
     _, state["identity_columns"] = _identity_fields(state, str(path))
@@ -1687,6 +1718,8 @@ def transform(df: pd.DataFrame) -> pd.DataFrame:
     """Select expected columns and apply categorical encoding."""
     state = _load_pipeline()
     expected = state["feature_names"]
+    # H-0141: a marked project renames the input to its aliases first.
+    df = prepare_input(df, expected)
 
     missing = sorted(set(expected) - set(df.columns))
     if missing:
@@ -1796,8 +1829,7 @@ def main() -> None:
     p.add_argument("-o", "--output", default="predictions.csv")
     args = p.parse_args()
 
-    path = Path(args.data)
-    df = pd.read_parquet(path) if path.suffix == ".parquet" else pd.read_csv(path)
+    df = read_input(args.data)  # H-0141: a marked project checks the header
     result = predict(df)
 
     out = pd.DataFrame({"pred": result["pred"]})
@@ -1923,9 +1955,8 @@ def main() -> None:
                    help="Relative tolerance (default: 1e-7)")
     args = p.parse_args()
 
-    data_path = Path(args.data)
-    df = (pd.read_parquet(data_path) if data_path.suffix == ".parquet"
-          else pd.read_csv(data_path))
+    # H-0141: the same validated reader as predict.py.
+    df = predict.read_input(args.data)
     ref = pd.read_csv(args.reference)
 
     ok = check_equivalence(df, ref, rtol=args.rtol)

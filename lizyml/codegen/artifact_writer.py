@@ -53,6 +53,9 @@ def convert_pipeline_state(
     if "category_identity_version" in encoder:
         converted["category_identity_version"] = encoder["category_identity_version"]
         converted["identity_columns"] = list(encoder["identity_columns"])
+    # H-0141: the column-name marker goes with the names (state and config).
+    if "column_name_policy" in config:
+        converted["column_name_policy"] = config["column_name_policy"]
     return converted
 
 

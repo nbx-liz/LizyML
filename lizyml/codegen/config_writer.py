@@ -48,6 +48,7 @@ def build_config(
     declared_categories: dict[str, list[Any]] | None = None,
     categorical_rule: dict[str, Any] | None = None,
     category_identity_version: int | None = None,
+    column_name_policy: str | None = None,
 ) -> dict[str, Any]:
     """Build config.json content as an ordered dict.
 
@@ -84,6 +85,9 @@ def build_config(
         category_identity_version: The fitted encoder's category identity
             (H-0138), or ``None`` for a state saved before it: the generated
             code then keeps the pandas lookup.
+        column_name_policy: The project's column-name marker (H-0141,
+            ``"str_alias_v1"``: every name is its string alias); omitted from
+            the file when ``None``.
 
     Returns:
         Dict ready for ``json.dump()``.
@@ -113,7 +117,7 @@ def build_config(
         for col, cats in (declared_categories or {}).items()
     }
 
-    return {
+    config: dict[str, Any] = {
         # ── Meta (read-only, _ prefix) ──
         "_generated_by": f"lizyml {run_meta['lizyml_version']}",
         "_run_id": run_meta["run_id"],
@@ -165,3 +169,8 @@ def build_config(
         # ── Split reproduction for retrain OOF (#228) ──
         "split": split,
     }
+    if column_name_policy is not None:
+        # H-0141: the names above are string aliases; a project without the
+        # marker (written before H-0141) keeps its own lookup.
+        config["column_name_policy"] = column_name_policy
+    return config

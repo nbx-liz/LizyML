@@ -568,8 +568,8 @@ disposition = "specified"
 anchors = ["temporal_key", "calendar_timedelta64"]
 
 [proposals."H-0141"]
-disposition = "pending"
-reason = "Under review; BLUEPRINT is updated with the implementation (export_code projects use string aliases for column names)."
+disposition = "specified"
+anchors = ["column_name_policy", "column_alias"]
 
 [proposals."H-0142"]
 disposition = "specified"

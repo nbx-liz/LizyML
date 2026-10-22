@@ -26,6 +26,33 @@ release from v0.5.0 onward.
   study keeps its recorded range. Code that reads `parameter_bounds` (for
   example a UI range editor) must accept an entry with only `min` or only `max`.
 
+### `export_code` projects name every column by a string alias (H-0141)
+
+A project written by `export_code` now names each column by `str(name)`
+([#382](https://github.com/nbx-liz/LizyML/issues/382)): a column named `7` is
+`"7"` in `config.json`, `pipeline_state.json` and the input headers the
+scripts read. Before, a project with int-named columns could not predict from
+the frame it was fitted on, or from any CSV. What to do:
+
+- **CSV and parquet inputs** to the generated `train.py`, `predict.py` and
+  `test_equivalence.py` must carry the aliases as headers (`7`, `7.5`,
+  `True`, `None`); a blank, repeated or pandas-renamed header is refused. A
+  typed DataFrame passed to `predict.predict` is renamed for you.
+- **Names `export_code` now refuses** with `SERIALIZATION_FAILED`, before
+  writing anything: NumPy scalar names other than `np.str_` and `np.float64`
+  (they failed with a bare `TypeError` before), other non-admitted types, an
+  empty name, and two columns or a non-string column and a Config role (target,
+  time, group, excluded, categorical, block or group column) sharing one alias
+  (`7` and `"7"`). Rename the column to a `str` and fit again.
+- **Projects written before this release** carry no `column_name_policy`
+  marker and keep their old behaviour, also when retrained. Write the project
+  again from the model (or from the model `Model.load` reads) to get the
+  aliases.
+
+String-named projects keep their names, order, categories and model files;
+both JSON files gain `column_name_policy: "str_alias_v1"`. The fitted model,
+its Config and the saved artifact format are unchanged.
+
 ### Int-named categorical columns reach LightGBM by position (H-0142)
 
 A categorical column whose name is an `int` was handed to LightGBM by name,
