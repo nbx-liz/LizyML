@@ -17093,3 +17093,7 @@ v0.21.0 のリリース PR #397 の CI で、slow のテスト `tests/test_persi
 - **census**（受け入れ 4、`docs/audits/2026-10-h0143/firing/`）: slow を含むフルスイートで 23073 本が通った（落ちた 1 本は、この環境の既知の `tests/test_e2e/test_version.py`）。pytest のプロセスの `state_changes` の呼び出し 16852 回のうち、出荷する判定が何かの変化を見つけたのは 0 回で、直す前の判定と違ったのは 17 回、全て grid のテスト（12）と H-0143 のテスト（5）だった。
 - **文書**: BLUEPRINT §15.3（`json` の経路の identity で引く列の判定）、CHANGELOG（0.21.0 の Fixed）、`docs/migration.md`（v0.21.0）、`docs/proposal_dispositions.toml`（specified）。
 - **欠陥の分類**: 2 つとも DC3（生成コードの振る舞いの写しが、元の変更に追いつかなかった）。テストの道具は writer の出力を写して書いていて H-0141 の印に追いつかず、判定は生成コードの読み方を実行時のエンコーダで写していて H-0139 の identity の範囲に追いつかなかった。見逃した門は、slow のテストを feature PR の CI でも PR の head のフルスイートでも走らせていなかったことで、対応方針 2 がそれを直す。
+
+### 実装レビュー（2026-10-22）
+
+- **結果**: Codex の run `h0143-impl-review` の round 1（`0e404ae`）は APPROVE で、指摘は無かった。受け入れの後の訂正（`Model.fit` を通した 2**63 以上の `np.uint64` の列は代わりの符号の列）と、陰性対照の形の変更も確かめた。run はこれで終わる。この実行の方針により、APPROVE と CI 緑でマージする。
