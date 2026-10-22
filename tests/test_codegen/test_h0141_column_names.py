@@ -658,11 +658,14 @@ def test_a_header_pandas_changes_is_refused(
 def test_parquet_names_are_checked(
     marked: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, columns: Any, reason: str
 ) -> None:
-    """pandas will not write these names to parquet; the reader is given them."""
+    """pandas will not write these names to parquet; the reader is given them
+    (the file itself holds valid names, so its schema passes)."""
     module = _predict_module(marked.project)
+    path = marked.project.parent / "valid.parquet"
+    pd.DataFrame([["a", 1.0]], columns=["7", "x"]).to_parquet(path)
     frame = pd.DataFrame([["a", 1.0]], columns=columns)
-    monkeypatch.setattr(module.pd, "read_parquet", lambda *a, **k: frame)
-    assert _reason(lambda: module.read_input(marked.project / "x.parquet")) == reason
+    monkeypatch.setattr(module.pd, "read_parquet", lambda *_a, **_k: frame)
+    assert _reason(lambda: module.read_input(path)) == reason
 
 
 def test_the_equivalence_cli_refuses_a_repeated_header(marked: SimpleNamespace) -> None:
@@ -745,6 +748,10 @@ STATE_CASES = [
     ),
     ("config.json", lambda d: d["declared_categories"].__setitem__("x", ["1"])),
     ("config.json", lambda d: d.__setitem__("_target_col", 7)),
+    # Review round 1: a missing mode, and role names that are null.
+    ("artifacts/pipeline_state.json", lambda d: d["categories"]["7"].pop("mode")),
+    ("config.json", lambda d: d.__setitem__("_target_col", None)),
+    ("config.json", lambda d: d["categorical_rule"].__setitem__("explicit", [None])),
 ]
 
 
@@ -757,6 +764,95 @@ def test_a_marked_state_is_checked_before_any_value(
     _edit(project, name, change)
     module = _predict_module(project)
     assert _reason(lambda: module.predict(marked.X)) == "invalid_column_name_state"
+
+
+RETRAIN_REFUSALS = [
+    (
+        "config only",
+        lambda p: _edit(p, STATE, _set_policy(None)),
+        "column_name_policy_mismatch",
+    ),
+    (
+        "state only",
+        lambda p: _edit(p, "config.json", _set_policy(None)),
+        "column_name_policy_mismatch",
+    ),
+    (
+        "state unknown",
+        lambda p: _edit(p, STATE, _set_policy("str_alias_v2")),
+        "unsupported_column_name_policy",
+    ),
+    (
+        "state reordered",
+        lambda p: _edit(p, STATE, lambda d: d["feature_names"].reverse()),
+        "invalid_column_name_state",
+    ),
+]
+STATE = "artifacts/pipeline_state.json"
+
+
+@pytest.mark.parametrize(
+    ("label", "change", "reason"),
+    RETRAIN_REFUSALS,
+    ids=[c[0] for c in RETRAIN_REFUSALS],
+)
+@pytest.mark.parametrize("fmt", ["csv", "parquet"])
+def test_a_retrain_checks_both_markers_before_writing(
+    marked: SimpleNamespace,
+    tmp_path: Path,
+    label: str,
+    change: Any,
+    reason: str,
+    fmt: str,
+) -> None:
+    """Review round 1: the retrain reads the project's state markers first."""
+    project = _copy_project(marked.project, tmp_path / "p")
+    change(project)
+    data = write_data(marked.df, project, fmt)
+    before = (project / STATE).read_bytes()
+    with pytest.raises(ValueError) as info:
+        run_train(project, data)
+    assert getattr(info.value, "reason", None) == reason
+    assert (project / STATE).read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    ("label", "in_state", "reason"),
+    [
+        ("unknown", "str_alias_v2", "unsupported_column_name_policy"),
+        ("absent", None, "column_name_policy_mismatch"),
+    ],
+)
+def test_the_readers_check_both_markers_before_names(
+    marked: SimpleNamespace, tmp_path: Path, label: str, in_state: Any, reason: str
+) -> None:
+    """Review round 1: a bad config name must not hide a marker refusal."""
+    project = _copy_project(marked.project, tmp_path / "p")
+    _edit(project, "config.json", lambda d: d["feature_names"].__setitem__(0, 7))
+    _edit(project, STATE, _set_policy(in_state))
+    path = _csv(project, "in.csv", "7,x\na,1.0\n")
+    module = _predict_module(project)
+    assert _reason(lambda: module.read_input(path)) == reason
+
+
+def test_a_real_parquet_with_repeated_names_is_refused(marked: SimpleNamespace) -> None:
+    """Review round 1: pandas cannot read such a file; the reader must say why."""
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+
+    path = marked.project.parent / "repeated.parquet"
+    table = pa.Table.from_arrays(
+        [pa.array(["a"]), pa.array(["b"]), pa.array([1.0])], names=["7", "7", "x"]
+    )
+    pq.write_table(table, path)
+    module = _predict_module(marked.project)
+    assert _reason(lambda: module.read_input(path)) == "column_name_collision"
+
+
+def test_an_unreadable_csv_header_is_refused(marked: SimpleNamespace) -> None:
+    module = _predict_module(marked.project)
+    path = _csv(marked.project, "quote.csv", '"7,x\na,1.0\n')
+    assert _reason(lambda: module.read_input(path)) == "invalid_column_header"
 
 
 def test_an_unmarked_project_retrains_without_the_marker(

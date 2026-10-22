@@ -68,18 +68,23 @@ def _names_of(doc, field, where):
 
 
 def _role_names(config):
-    """The role fields of config.json, as (field, value) pairs."""
+    """(field, value, required) for the role fields of config.json."""
     sp = config.get("split") or {}
     iv = config.get("inner_valid") or {}
-    roles = [("_target_col", config.get("_target_col"))]
-    roles += [(f"split.{k}", sp.get(k)) for k in ("time_col", "group_col")]
+    roles = [("_target_col", config.get("_target_col"), True)]
+    roles += [(f"split.{k}", sp.get(k), False) for k in ("time_col", "group_col")]
     for block in ("blocks", "groups"):
-        if isinstance(sp.get(block), dict):
-            roles.append((f"split.{block}.col", sp[block].get("col")))
-    roles.append(("inner_valid.group_col", iv.get("group_col")))
+        if sp.get(block) is not None:
+            if not isinstance(sp[block], dict):
+                raise _bad_state("config.json", f"split.{block}", "is not an object")
+            roles.append((f"split.{block}.col", sp[block].get("col"), True))
+    roles.append(("inner_valid.group_col", iv.get("group_col"), False))
     rule = config.get("categorical_rule") or {}
-    roles += [("categorical_rule.explicit", c) for c in rule.get("explicit", [])]
-    return [(field, value) for field, value in roles if value is not None]
+    explicit = rule.get("explicit", [])
+    if type(explicit) is not list:
+        raise _bad_state("config.json", "categorical_rule.explicit", "is not a list")
+    roles += [("categorical_rule.explicit", c, True) for c in explicit]
+    return roles
 
 
 def _check_config_names(config):
@@ -98,7 +103,9 @@ def _check_config_names(config):
         raise _bad_state(
             where, "declared_categories", "name non-categorical columns", stray
         )
-    for field, value in _role_names(config):
+    for field, value, required in _role_names(config):
+        if value is None and not required:
+            continue
         if type(value) is not str:
             raise _bad_state(where, field, "is not a str", [value])
     return features, categorical
@@ -117,7 +124,17 @@ def _check_state_names(state, where, features, categorical):
             where, "categories", "are not keyed by the categorical features",
             sorted(set(categories or {}) ^ set(categorical), key=repr),
         )
-    stray = [c for c in state.get("identity_columns") or [] if c not in categorical]
+    # Each column's entry holds its categories and its mode (the mode keys).
+    incomplete = [
+        c for c, entry in categories.items()
+        if not isinstance(entry, dict) or not {"categories", "mode"} <= set(entry)
+    ]
+    if incomplete:
+        raise _bad_state(
+            where, "categories", "entries lack their categories or mode", incomplete
+        )
+    identity = state.get("identity_columns") or []
+    stray = [c for c in identity if type(c) is not str or c not in categorical]
     if stray:
         raise _bad_state(
             where, "identity_columns", "name non-categorical columns", stray
@@ -129,7 +146,9 @@ def check_column_name_policy(config, state=None, where="pipeline_state.json"):
 
     No marker anywhere: False (a project written before H-0141). A marker with
     another value, or a marker in one file only, is refused; a marked project
-    must name its columns consistently, as H-0141 decides.
+    must name its columns consistently, as H-0141 decides. Both markers are
+    read before any name is checked. *state* is None only when the project
+    has no state file.
     """
     in_config = _policy_value(config, "config.json")
     if state is None:
@@ -152,12 +171,26 @@ def check_column_name_policy(config, state=None, where="pipeline_state.json"):
     return True
 
 
+def project_uses_aliases():
+    """check_column_name_policy over config.json and the project's state file.
+
+    The state is read as JSON only: no category value is decoded before the
+    markers and names are checked.
+    """
+    path = ARTIFACTS / "pipeline_state.json"
+    if not path.exists():
+        return check_column_name_policy(CFG)
+    with open(path, encoding="utf-8") as f:
+        state = json.load(f)
+    return check_column_name_policy(CFG, state, str(path))
+
+
 def prepare_input(df, required=()):
     """*df* with its columns renamed to their aliases (a shallow copy).
 
     A project written before H-0141 (no marker) reads its input as it is.
     """
-    if not check_column_name_policy(CFG):
+    if not project_uses_aliases():
         return df
     if isinstance(df.columns, pd.MultiIndex):
         raise ColumnNameError(
@@ -192,32 +225,50 @@ def prepare_input(df, required=()):
 
 
 def _raw_csv_header(path):
-    with open(path, newline="", encoding="utf-8-sig") as f:
-        return next(_csv.reader(f, strict=True), [])
+    try:
+        with open(path, newline="", encoding="utf-8-sig") as f:
+            return next(_csv.reader(f, strict=True), [])
+    except (_csv.Error, UnicodeDecodeError) as exc:
+        raise ColumnNameError(
+            "invalid_column_header", f"{path}: the header cannot be read ({exc})"
+        ) from exc
+
+
+def _read_parquet_checked(path):
+    # The file's own names first: pandas cannot build a frame from repeated
+    # names, and would fail without a reason.
+    import pyarrow.parquet as _pq
+
+    stored = _pq.read_schema(path).names
+    repeated = sorted({n for n in stored if stored.count(n) > 1})
+    if repeated:
+        raise ColumnNameError(
+            "column_name_collision", f"{path} repeats column names", repeated
+        )
+    df = pd.read_parquet(path)
+    if isinstance(df.columns, pd.MultiIndex):
+        raise ColumnNameError(
+            "invalid_column_header", f"{path} has a MultiIndex header"
+        )
+    names = list(df.columns)
+    bad = [repr(n) for n in names if type(n) is not str or n == ""]
+    if bad:
+        raise ColumnNameError(
+            "invalid_column_header", f"{path} has non-string names", bad
+        )
+    if len(set(names)) != len(names):
+        raise ColumnNameError(
+            "column_name_collision", f"{path} repeats a column name", names
+        )
+    return df
 
 
 def read_input(path):
     """Read a CSV or parquet input; a marked project validates its header first."""
     path = Path(path)
-    marked = check_column_name_policy(CFG)
+    marked = project_uses_aliases()
     if path.suffix == ".parquet":
-        df = pd.read_parquet(path)
-        if marked:
-            if isinstance(df.columns, pd.MultiIndex):
-                raise ColumnNameError(
-                    "invalid_column_header", f"{path} has a MultiIndex header"
-                )
-            names = list(df.columns)
-            bad = [repr(n) for n in names if type(n) is not str or n == ""]
-            if bad:
-                raise ColumnNameError(
-                    "invalid_column_header", f"{path} has non-string names", bad
-                )
-            if len(set(names)) != len(names):
-                raise ColumnNameError(
-                    "column_name_collision", f"{path} repeats a column name", names
-                )
-        return df
+        return _read_parquet_checked(path) if marked else pd.read_parquet(path)
     if not marked:
         return pd.read_csv(path)
     raw = _raw_csv_header(path)

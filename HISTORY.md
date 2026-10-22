@@ -16932,6 +16932,21 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
   - `tests/test_codegen/test_h0141_column_name_projects.py`（受け入れ 2・3・4・7）: 受け付ける 7 つの型 × 数値の列・auto のカテゴリの列・宣言したカテゴリの列の 21 通り。fit が通る組では、型つきの frame・別名の見出しの CSV・parquet の予測、`test_equivalence.py`（subprocess）、学習し直してからの予測が、実行時の予測と一致する。fit が通らない組（`bool` のカテゴリの列、pandas 3 の `None` のカテゴリの列）は今の fit の拒否のまま。`Model.export_code` の拒否（`np.int64` の名前、特徴量 `7` と `target: "7"`）で何も書かれない。`Model.export` → `Model.load` したモデル 7 通り（pandas 3 では `None` を飛ばす）の宣言の key が別名になり、印のある状態の検査を通り、学習し直しで使われていないカテゴリを含む宣言の順を保つ。int の名前 `7`・`0`・`1` の frame で、学習し直した booster と実行時の booster がどちらも `[categorical_feature: 0]` を持つ。
   - 3 つのレーン（pandas 3.0.1、2.3.3、2.0.0。2.0.0 は `PYTHONHASHSEED=0`）で 2 つのファイルが全て通った（3.0.1 は 195 passed・1 skipped、pandas 2 の 2 つは 196 passed）。
 - **陰性対照**（実装を 1 か所ずつ壊して、新しいテストを走らせた）: `prepare_input` を何もしないようにすると単体のファイルで 5 本、Model のファイルで 17 本（int・float・`np.float64` の全ての列、`bool` と `None` の数値の列、load したモデル 5 通り、LightGBM の位置）が落ちた。重なりの検査を止めると 28 本、印のある状態の形の検査を止めると 9 本、CSV の見出しと pandas の読んだ見出しの比較を止めると 1 本が落ちた。LightGBM に名前を渡すように戻しても、受け入れ 7 のテストは落ちない（別名は全て文字列で、名前でも位置 0 が選ばれる。Proposal の対応方針 4 のとおり）。
-- **実測**（`docs/audits/2026-10-i382/probes/name_matrix_impl_pd3.out`、pandas 3.0.1）: fit が通る 64 通りのうち、`export_code` が通るのは 17 通り（`str`・`np.str_` の 6 通りと、別名の 11 通り）で、47 通りは名前を挙げた `LizyMLError` になった（実装の前は素の `TypeError`）。型つきの frame の予測は 17 通り全てで一致した。この probe は CSV を元の名前の見出しで書くので、`None` の数値の列は空の見出しとして `invalid_column_header` で拒否される（受け入れ 4 の CSV は別名の見出しで、上のテストが確かめる）。
+- **実測**（`docs/audits/2026-10-i382/probes/name_matrix_impl_pd3.out`、pandas 3.0.1）: fit が通る 64 通りのうち、`export_code` が通るのは 17 通り（`str`・`np.str_` の 6 通りと、別名の 11 通り）で、47 通りは名前を挙げた `LizyMLError` になった（実装の前は素の `TypeError`）。型つきの frame の予測は 17 通り全てで一致した。この probe は CSV を元の名前の見出しで書き、`read_input` を通さずに `pd.read_csv` で読むので、`None` の数値の列の空の見出しは pandas が `"Unnamed: 1"` にし、予測は `ColumnNameError`（`missing_column_alias`。`"None"` の列が無い）になる（受け入れ 4 の CSV は別名の見出しで `read_input` から読み、上のテストが確かめる。実装レビュー round 1 で訂正）。
 - **census**（受け入れ 9、`docs/audits/2026-10-i382/firing/`）: フルスイートで 22974 本が通った（落ちた 1 本は `tests/test_e2e/test_version.py` で、編集可能なインストールのメタデータが古い、この環境の既知の事情）。`project_column_names` の呼び出し 1420 件（`export_code` 693 件・`generate_code` 727 件）のうち、別名か拒否が働いたのは 92 件で、全て H-0141 の 2 つのテストファイルだった（`summarize.py` は外にあれば exit 1 にする）。
 - **文書**: BLUEPRINT §15.4（列名の別名・拒否・宣言の key・印・入力の境界）、CHANGELOG、`docs/migration.md`、`docs/proposal_dispositions.toml`（specified）。
+
+### 実装レビュー round 1（2026-10-22）
+
+- **結果**: Codex の run `h0141-impl-review` の round 1（`e29d2da`）は CHANGES_REQUESTED で、major 5 件だった。
+  1. 生成 `train.py` の学習し直しが、既にある `pipeline_state.json` の印を読まずに状態を書き直していた（片方だけの印・知らない値・順の違う `feature_names` が通った）。
+  2. `read_input` が `config.json` の名前の形を、状態の印より先に調べていた（印の拒否の reason が `invalid_column_name_state` に化けた）。
+  3. 印のある状態の検査が、カテゴリの列の最頻値の欄の欠けと、`null` の役割の名前（`_target_col`、`categorical_rule.explicit` の要素）を通していた。
+  4. 重なった名前を持つ本物の parquet は pandas が reason の無い例外で落ち、閉じていない引用符の CSV の見出しは `csv.Error` が漏れた（テストは `read_parquet` を差し替えていて、この経路を通っていなかった）。
+  5. 実装の記録の、probe の CSV の `None` の列の reason が誤っていた（`read_input` を通らない経路だった）。
+- **対応**:
+  - 生成コードに `project_uses_aliases` を置き、`prepare_input`・`read_input`・学習し直しの最初で、`config.json` と、あれば `pipeline_state.json`（JSON として読むだけで、値は復号しない）の両方の印を、名前の形より先に調べるようにした。状態のファイルが無いときだけ `config.json` だけを調べる。
+  - 状態の検査に、各カテゴリの列の項目が `categories` と `mode` を持つことを加え、必須の役割の名前（`_target_col`・`split.blocks.col`・`split.groups.col`・`categorical_rule.explicit` の要素）は `null` を許さないようにした（`split.time_col`・`split.group_col`・`inner_valid.group_col` は無ければ `null`）。
+  - parquet は、pandas が読む前にファイルの schema の名前の重なりを `column_name_collision` で拒否し、CSV の見出しが読めないとき（`csv.Error`・`UnicodeDecodeError`）は `invalid_column_header` にした。
+  - 記録の誤りを上で訂正した。
+  - 回帰テスト 15 本（学習し直しの印の 4 通り × CSV と parquet、読み込みの印の 2 通り、最頻値の欠けと `null` の役割 3 通り、本物の parquet の重なり、読めない CSV の見出し）を足した。15 本とも round 1 の head（`e29d2da`）の生成コードの写しで落ち、直した後で通る。3 つのレーンで 2 つのファイルが通った（3.0.1 は 210 passed・1 skipped、pandas 2 の 2 つは 211 passed）。
