@@ -567,6 +567,10 @@ anchors = ["category_identity_version", "identity_columns"]
 disposition = "specified"
 anchors = ["temporal_key", "calendar_timedelta64"]
 
+[proposals."H-0142"]
+disposition = "pending"
+reason = "Under review; BLUEPRINT is updated with the implementation (LightGBM receives categorical columns by position)."
+
 [proposals."H-0140"]
 disposition = "specified"
 anchors = ["ResourceWarningProvider", "keep_training_booster=True"]
