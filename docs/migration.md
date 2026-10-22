@@ -5,7 +5,7 @@ release from v0.5.0 onward.
 
 ---
 
-## Unreleased
+## v0.21.0
 
 ### A memory warning for a large `num_leaves`; `max_depth=0` is no limit; no `max_depth` ceiling in expansion (H-0140)
 
