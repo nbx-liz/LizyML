@@ -16785,7 +16785,10 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
 
 同じ問題は列名の全体にある。25 種類の名前 × 数値・auto のカテゴリ・宣言したカテゴリの列（75 通り、120 行・2 fold・3 round）を、H-0142 をマージした後のこの head で測った（`docs/audits/2026-10-i382/probes/name_matrix.py`、出力は `name_matrix_pd3.out`・`_pd2.out`・`_pd200.out`）:
 
-- fit が通るのは、pandas 3.0.1 で 64 通り、2.3.3 で 66 通り、2.0.0 で 64 通り。H-0142 で LightGBM にカテゴリの列を位置で渡すようになり、`float`・`np.float64`・多くの NumPy の名前のカテゴリの列も fit できるようになった。fit が通らないのは、`bool`・`np.bool_`・`None`・`np.float16` の名前のカテゴリの列と、tuple の名前（LightGBM が特徴量の名前の JSON の文字を拒否する）である。
+- fit が通るのは、pandas 3.0.1 で 64 通り、2.3.3 で 66 通り、2.0.0 で 62〜64 通り。H-0142 で LightGBM にカテゴリの列を位置で渡すようになり、`float`・`np.float64`・多くの NumPy の名前のカテゴリの列も fit できるようになった。fit が通らない組は、レーンで次のとおり違う（カテゴリの列は、auto と宣言の両方）:
+  - 3 つのレーンとも: `bool`・`np.bool_`・`np.float16` の名前のカテゴリの列と、tuple の名前（3 種類の列とも。LightGBM が特徴量の名前の JSON の文字を拒否する）。
+  - pandas 3.0.1 だけ: `None` の名前のカテゴリの列（pandas 2 の 2 つのレーンでは通る）。
+  - pandas 2.0.0 だけ: `np.datetime64` の名前のカテゴリの列（`KeyError`）。`np.timedelta64` の名前のカテゴリの列は、hash の seed で結果が変わる（`PYTHONHASHSEED=0` で `KeyError`、記録した既定の実行では通る。`name_matrix_pd200_seed0.out` と `name_matrix_pd200.out`）。
 - `export_code` がプロジェクトを書けるのは 17 通り（3.0.1。2.3.3 と 2.0.0 では 19 通り）で、生成 `predict.py` が型つきの frame で同じ予測を返すのは 10 通り（11 通り）。int・float・`np.float64` の名前のカテゴリの列が #382 の形である。残りは、NumPy の名前を JSON に書けず、素の `TypeError` で落ちる（47・47・45 通り）。
 - 生成スクリプトが CSV を読むと、見出しは必ず文字列になる（`7` は `"7"`、`True` は `"True"`、`None` は `"Unnamed: 0"`）。CSV からの予測が通るのは、3 つのレーンとも文字列の名前の 6 通りだけである。parquet も数値の名前を文字列にする（Codex の run `i382-mechanism-design` が実行して確かめた）。
 - Codex の run `i382-critique` と `i382-mechanism-design` の 75 通りの数（fit が 29 通りなど）は、H-0142 より前の head（`43083e3`・`4a570dc`）のもので、記録として残す。
@@ -16803,7 +16806,7 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
 - 上の数は、H-0142 の後のこの head で測った（`docs/audits/2026-10-i382/probes/`）。
 - **firing rate**（この Proposal の条件。プロジェクトの別名が名前と違う、または名前を拒否する。`probes/firing_from_matrix.py`）:
 
-  Firing rate: 11/64 of the fitted pandas 3.0.1 matrix cases get aliases that differ from their labels and 47/64 are refused by name, all 47 of which fail export_code today with a raw TypeError (75-case matrix at this head, `probes/name_matrix.py` and `firing_from_matrix.out`; 13/66 and 47/66 on pandas 2.3.3, 13/64 and 45/64 on pandas 2.0.0); 0/664 of the test suite's export_code calls (in-memory census over all 80 export_code call sites, Codex run i382-mechanism-design, before H-0142)
+  Firing rate: 11/64 of the fitted pandas 3.0.1 matrix cases get aliases that differ from their labels and 47/64 are refused by name, all 47 of which fail export_code today with a raw TypeError (75-case matrix at this head, `probes/name_matrix.py` and `firing_from_matrix.out`; 13/66 and 47/66 on pandas 2.3.3; on pandas 2.0.0 13/64 and 45/64 in the recorded run and 13/62 and 43/62 under PYTHONHASHSEED=0, because the np.timedelta64 categorical cases fit or fail with the hash seed there); 0/664 of the test suite's export_code calls (in-memory census over all 80 export_code call sites, Codex run i382-mechanism-design, before H-0142)
 
   - テストスイートの普段のプロジェクトでは、別名も拒否も働かない（列名が全て文字列）。働く場合は受け入れ基準で明示的に足す。
 
@@ -16873,7 +16876,7 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
 1. **別名の規則**: 受け付ける各型（`str`、`np.str_`、`int` の正負と大きい値、`float` の `7.0`・`-0.0`・NaN・±inf・小さい値と大きい値、同じ値の `np.float64`、`True`・`False`、`None`）で、ライブラリと 2 つの生成スクリプトの写しが同じ別名を返す（3 つのレーン）。拒否する型と値（`np.int64`・`np.float32`・`np.bool_`・`bytes`・`complex`・`Decimal`・tuple・`""`・NUL を含む文字列）で、決めた reason と kind を返す。
 2. **拒否と書かないこと**: `Model.export_code` と `generate_code` の両方で、受け付けない名前と、別名の重なり（`7` と `"7"`、`True` と `"True"`、NaN と `"nan"`、`7.0` と `"7.0"` の特徴量どうし、文字列でない特徴量と `target`・`time_col`・`group_col`・`features.exclude`・`features.categorical`・`split.blocks.col`・`split.groups.col`・`inner_valid.group_col` の同じ別名）が、対応方針 2 の code・surface・reason・kind・`alias`・`columns`（`where`・`position`・`type`・`repr`・`alias` の値と順）で拒否され、ディレクトリもファイルも作られない（出力先が既にある場合も）。文字列の特徴量を同じ文字列の役割の名前が指すプロジェクト（`features.categorical: ["c"]` と特徴量 `"c"`、特徴量でもある `split.blocks.col`）は、拒否されずに書き出される。
 3. **書く箇所**: 対応方針 3 の全ての欄が、書き出した直後と、生成 `train.py` で学習し直した後に、別名を順どおりに持つ。`Model.load` したモデルからの書き出しでも同じで、宣言したカテゴリの列の名前が `np.str_("c")`・`7`・`7.5`・`inf`・`-inf`・`np.float64(7.5)`（と、fit が通る lane では `None`）のモデルを export → load して書き出したプロジェクトが、宣言の key を対応する特徴量の別名で持ち、印のある状態の検査を通り、学習し直しで宣言の順（使われていないカテゴリを含む）を保つ。対応づけられない key（どの特徴量にも当たらない、型と値が同じ特徴量と JSON の形が同じ特徴量の両方に当たる）は、決めた kind で拒否される。カテゴリの値の codec の中身と、fit した状態は変わらない。
-4. **予測**: 受け付ける各型の名前 × 数値の列・auto のカテゴリの列・宣言したカテゴリの列のうち、fit が通る組（上の表。3.0.1 では `str`・`np.str_`・`int`・`float`・`np.float64` の 3 種類の列と、`bool`・`None` の数値の列）で、生成 `predict.py`（型つきの frame、別名の見出しの CSV、parquet）・学習し直してからの予測・`test_equivalence.py` が、実行時の予測と一致する。#382 の int の `7` のカテゴリの列を含む。fit が通らない組（`bool`・`None` の名前のカテゴリの列など）は、今の fit の拒否のままであることを確かめる（fit の範囲は変えない）。
+4. **予測**: 受け付ける各型の名前 × 数値の列・auto のカテゴリの列・宣言したカテゴリの列のうち、fit が通る組（レーンごとに上の表のとおり。3.0.1 では `str`・`np.str_`・`int`・`float`・`np.float64` の 3 種類の列と、`bool`・`None` の数値の列。pandas 2 の 2 つのレーンでは `None` のカテゴリの列も。hash の seed で結果の変わる組は、テストで seed を固定して扱う）で、生成 `predict.py`（型つきの frame、別名の見出しの CSV、parquet）・学習し直してからの予測・`test_equivalence.py` が、実行時の予測と一致する。#382 の int の `7` のカテゴリの列を含む。fit が通らない組（`bool`・`None` の名前のカテゴリの列など）は、今の fit の拒否のままであることを確かめる（fit の範囲は変えない）。
 5. **入力の検査**: 型つきの frame の別名の重なり（余分な列を含む）、CSV の重なった見出し・空の見出し・正しい `"Unnamed: 0"` と `"7.1"` の名前・pandas が変えた見出し・足りない別名・並びの違う列、parquet の文字列でない名前・重なり・MultiIndex で、決めた 4 つの reason と問題の名前を返す。`test_equivalence.py` の CLI も、重なった見出し `7,7` を `column_name_collision` で拒否する。
 6. **印**: 両方に無い（今までの引き方で予測・学習し直し）、両方にある、片方だけ、`null`・知らない値・文字列でない値、それぞれの組み合わせで、対応方針 5 の順のとおりの reason を返す。形の検査は、`feature_names` の順の違い・重なり・文字列でない名前、カテゴリの列の一覧の違い、`feature_names` に無いカテゴリの列、カテゴリと最頻値の key の違い、カテゴリの列に無い `identity_columns` と宣言の key のそれぞれで `invalid_column_name_state` を返し、どれもカテゴリの値の復号と書き込みより前に止まる。
 7. **LightGBM への受け渡し**: 生成 `train.py` で学習し直したモデルが、int の名前（`0`・`1`・`7`）のカテゴリの列を位置 0 にもつ frame で、正しい列をカテゴリにし（booster の `categorical_column`）、実行時のモデルと同じ予測を返す。
@@ -16905,3 +16908,8 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
 - **monitor**: round 3 の前に、runner の relational monitor を走らせた（`b0c3eb0`、観察した round は 1〜2）。結果は CONVERGING・continue で、disposition は continue。
 - **結果**: round 3（`b0c3eb0`）は CHANGES_REQUESTED で、major 1 件だった。round 2 の修正の欠陥である: `np.str_` の名前の宣言した列は、load の後に key が Python の `str` で戻るので、決めた規則ではどの特徴量にも当たらず、今動いている書き出しを拒否してしまう。run `h0141-proposal-review` はこれで終わる。
 - **対応**（上の本文を直した）: `str` の key を `numpy.str_` の特徴量にも `str(name)` で対応づけ、重なりの検査は残した。load したモデルの受け入れ基準に `np.str_("c")` の列を加えた。
+
+### Proposal レビュー（2 本目の run）round 1（2026-10-22）
+
+- **結果**: Codex の run `h0141-proposal-review-2` の round 1（`5afe277`）は CHANGES_REQUESTED で、major 1 件だった。fit が通らない名前の一覧が、レーンの違い（pandas 2.0.0 の `np.datetime64` のカテゴリの列、pandas 2 で通る `None` のカテゴリの列）を書いていなかった。pandas 2.0.0 では `np.timedelta64` のカテゴリの列が hash の seed で通ったり落ちたりする。
+- **対応**（上の本文を直した）: レーンごとの一覧に直し、pandas 2.0.0 を `PYTHONHASHSEED=0` で測り直した（`name_matrix_pd200_seed0.out`。fit 62 通り、拒否 43 通り）。firing rate の 2.0.0 の数に両方を書き、予測の受け入れ基準をレーンごとの表に合わせた。
