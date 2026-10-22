@@ -1,0 +1,5 @@
+state_changes calls: 16852
+  with any change today: 0
+  changed by H-0143: 17; prototype errors: 0
+       12  tests/test_persistence/test_h0136_grid.py
+        5  tests/test_persistence/test_h0143_keyed_json_verdict.py

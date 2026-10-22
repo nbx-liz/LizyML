@@ -17079,3 +17079,17 @@ v0.21.0 のリリース PR #397 の CI で、slow のテスト `tests/test_persi
 - **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`6ce4212`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
 - **結果**: round 2（`6ce4212`）は APPROVE で、指摘は無かった。run `h0143-proposal-review` はこれで終わり、この Proposal を Accepted とした。
 - **受け入れの後の訂正**（実装のテストを書いて自分で見つけた。設計は変わらない）: `Model.fit` を通したモデルでは、2**63 以上の `np.uint64` を持つ列は代わりの符号の列（H-0133）になり、今の判定でも拒否されない。互換性に、`Model.fit` を通したモデルで拒否しすぎが起きる範囲（一意性の検査が落ちる組、hash の seed で変わる）を書き足し、受け入れ基準 2 の陰性対照を、seed によらない形（順を決めた状態と、`PYTHONHASHSEED=0` の子プロセス）に直した。この訂正は実装レビューで確かめる。
+
+### 実装の記録（2026-10-22）
+
+- **コード**: `features/encoders/state_changes.py` の `column_change` と `category_state_changes` に `generated` を足した。`generated=True` のとき、写した状態が版 1 でその列が `identity_columns` にあれば、写した状態の符号と最頻値で置き換えた符号を `keyed_codes`（`_generated_codes`）だけで求める。`persistence/_category_preflight.py` の `state_changes` は、`json` の経路で `generated=True` を渡す。`joblib` の経路、identity で引かない列、元の状態の符号は今のまま。
+- **CI**: `.github/workflows/ci.yml` の Quality の 3 つのレーンは、PR の向き先によらず `-m ""` で全てのテストを走らせる。カバレッジの下限 96 は変えない。`tests/test_ci_memory_ceiling.py` と `tests/test_notebooks/test_notebook_index_gate.py`（`ci.yml` を読むテスト）は通った。
+- **テストの道具**: `tests/test_persistence/test_h0136_grid.py` は、生成プロジェクトの `config.json` を `convert_pipeline_state` に渡す。
+- **テスト**（`tests/test_persistence/test_h0143_keyed_json_verdict.py`）:
+  - 受け入れ 2: `np.timedelta64(4, 's')` と `np.uint64(2**63 + 5)`、`np.timedelta64(4, 'ps')` と `np.uint64(4)` の列を持つモデルを 3 つの出口が受け付け、`Model.export` と `lizyml.persistence.export` から `Model.load` したモデルと生成 `predict.py` の予測が元のモデルと一致する。frame の最初の行に値を置き、fit したカテゴリの順を `[timedelta64, uint64, "x"]` にした。
+  - 陰性対照: 受け入れ基準 2 の書き方（順を決めた状態の `OverflowError` と、`PYTHONHASHSEED=0` の `ValueError`）は、pandas 3.0.1 でしか成り立たなかった（`OverflowError` はその順で pandas 3.0.1 だけが出し、`ValueError` の組と順は pandas の版で違う）。対照を、3 つの組（4 s と 2**63 + 5、4 ps と 4、4 ns と 4）× `"x"` を含む全ての順の 18 通りの状態にし、`PYTHONHASHSEED=0` の子プロセスで、実行時のエンコーダの判定が少なくとも 1 つを拒否し、出荷する判定がどれも拒否しないことを確かめる形にした（受け入れ基準 2 の陰性対照の意図は同じ）。直す前の判定では 18 通りのうち 9 通りが拒否され（pandas 3.0.1）、直した後は 0 通りである。
+  - 受け入れ 3: identity で引く列で、写した状態がカテゴリを失う・並びが変わる・最頻値が変わるとき、`generated=True` でも `False` でも同じ kind（`unseen`・`codes`・`mode`）になる。`test_h0136_state_changes.py` はそのまま通った。
+  - 3 つのレーン（pandas 3.0.1・2.3.3・2.0.0）で、`PYTHONHASHSEED` を 0 と 3 にして、このファイルと grid のテストが通った。
+- **census**（受け入れ 4、`docs/audits/2026-10-h0143/firing/`）: slow を含むフルスイートで 23073 本が通った（落ちた 1 本は、この環境の既知の `tests/test_e2e/test_version.py`）。pytest のプロセスの `state_changes` の呼び出し 16852 回のうち、出荷する判定が何かの変化を見つけたのは 0 回で、直す前の判定と違ったのは 17 回、全て grid のテスト（12）と H-0143 のテスト（5）だった。
+- **文書**: BLUEPRINT §15.3（`json` の経路の identity で引く列の判定）、CHANGELOG（0.21.0 の Fixed）、`docs/migration.md`（v0.21.0）、`docs/proposal_dispositions.toml`（specified）。
+- **欠陥の分類**: 2 つとも DC3（生成コードの振る舞いの写しが、元の変更に追いつかなかった）。テストの道具は writer の出力を写して書いていて H-0141 の印に追いつかず、判定は生成コードの読み方を実行時のエンコーダで写していて H-0139 の identity の範囲に追いつかなかった。見逃した門は、slow のテストを feature PR の CI でも PR の head のフルスイートでも走らせていなかったことで、対応方針 2 がそれを直す。
