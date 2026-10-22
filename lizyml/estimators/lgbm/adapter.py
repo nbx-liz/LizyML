@@ -111,7 +111,41 @@ except ImportError as e:  # pragma: no cover
 
 from lizyml.core.types.task import TaskType  # noqa: E402  re-export for ext
 
-__all__ = ["LGBMAdapter", "TaskType"]
+__all__ = ["LGBMAdapter", "TaskType", "categorical_positions"]
+
+
+def categorical_positions(columns: list[Any], declared: list[Any]) -> list[int]:
+    """The positions in *columns* of the *declared* categorical columns (H-0142).
+
+    LightGBM reads an ``int`` entry of ``categorical_feature`` as a position
+    and a ``str`` entry as a name, so a column named ``1`` would otherwise
+    make column 1 categorical (#393). A name matches a column only when both
+    have the same exact type and are equal (``1``, ``True`` and ``1.0`` stay
+    apart). For string names the positions give LightGBM the same booster as
+    the names did.
+
+    Raises:
+        LizyMLError: ``DATA_SCHEMA_INVALID`` when a declared name matches no
+            column or more than one.
+    """
+    positions: set[int] = set()
+    for name in declared:
+        hits = [
+            i
+            for i, column in enumerate(columns)
+            if type(column) is type(name) and bool(column == name)
+        ]
+        if len(hits) != 1:
+            raise LizyMLError(
+                code=ErrorCode.DATA_SCHEMA_INVALID,
+                user_message=(
+                    f"Categorical column {name!r} matches {len(hits)} columns of "
+                    "the training frame; it must match exactly one."
+                ),
+                context={"column": name, "reason": "categorical_feature_not_unique"},
+            )
+        positions.add(hits[0])
+    return sorted(positions)
 
 
 class LGBMAdapter(BaseEstimatorAdapter):
@@ -207,7 +241,13 @@ class LGBMAdapter(BaseEstimatorAdapter):
             self._build_params(y_train=np.asarray(y_train))
         )
 
-        cat_feature: list[str] | Literal["auto"] = self._categorical_features or "auto"
+        # H-0142: positions, never names -- LightGBM reads an int name as a
+        # position (#393).
+        cat_feature: list[int] | Literal["auto"] = (
+            categorical_positions(self._feature_names, self._categorical_features)
+            if self._categorical_features
+            else "auto"
+        )
         sample_weight = kwargs.pop("sample_weight", None)
 
         train_set = lgb.Dataset(
