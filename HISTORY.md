@@ -16772,8 +16772,9 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
 
 ## H-0141: export_code が書くプロジェクトでは列名を文字列の別名にし、文字列でない列名でも予測できるようにする ― 実行時と保存したモデルは変えない（#382）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-22
+- **決定日**: 2026-10-22
 - **関連**: #382、H-0142（#393。LightGBM にカテゴリの列を位置で渡す）、H-0133（値の codec）、H-0138・H-0139（カテゴリの値の同一性）、registry のカード D-20261022-006（案 (e)）・D-20261022-007（NumPy の型の名前は拒否、#393 を先に直す）・D-20261022-012（`np.float64` は受け付ける）、Codex の run `i382-critique`（選択肢の測定）と `i382-mechanism-design`（機構の設計）。写しは `docs/audits/2026-10-i382/codex/`
 - **スコープ**:
   - `export_code` が書くプロジェクト（`config.json`・`artifacts/pipeline_state.json`・生成 `train.py`・`predict.py`・`test_equivalence.py`）の列名
@@ -16913,3 +16914,8 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
 
 - **結果**: Codex の run `h0141-proposal-review-2` の round 1（`5afe277`）は CHANGES_REQUESTED で、major 1 件だった。fit が通らない名前の一覧が、レーンの違い（pandas 2.0.0 の `np.datetime64` のカテゴリの列、pandas 2 で通る `None` のカテゴリの列）を書いていなかった。pandas 2.0.0 では `np.timedelta64` のカテゴリの列が hash の seed で通ったり落ちたりする。
 - **対応**（上の本文を直した）: レーンごとの一覧に直し、pandas 2.0.0 を `PYTHONHASHSEED=0` で測り直した（`name_matrix_pd200_seed0.out`。fit 62 通り、拒否 43 通り）。firing rate の 2.0.0 の数に両方を書き、予測の受け入れ基準をレーンごとの表に合わせた。
+
+### Proposal レビュー（2 本目の run）round 2（2026-10-22）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`cc992d6`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`cc992d6`）は APPROVE で、指摘は無かった。run `h0141-proposal-review-2` はこれで終わり、この Proposal を Accepted とした。
