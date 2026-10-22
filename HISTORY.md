@@ -17127,7 +17127,9 @@ H-0138 の参照ファイル（`tests/test_features/data/h0138_oracle_pandas-{3.
   - `b297de4` のコードは pandas 3.1.0 で動き、`make_oracle.py` は 2 回ともバイトの同じファイルを作った（SHA-256 `bc71c27d…`。Codex の批評と一致）。同じ手順で 3.0.1 のファイルを作り直すと、commit したファイルとバイトが一致した。
   - そのファイルから今の `make_overlay.py` で一覧を作ると（Y 221、R 195、S 5。S の名前は 3.0.1 と同じ）、時刻の case 72 本がまだ合わない。72 本は全て、倍数の単位の `np.datetime64`（`2s`、`10ms`）を含む組で、`b297de4` は pandas 3.0.1 では成功していた（一覧に無い）が、pandas 3.1.0 では transform で `ValueError` を出す。今のコードは成功する。今の一覧の規則は cast の失敗（R）しか扱わず、transform の失敗はそのまま比べる。
   - R を「cast か transform の失敗」に広げると 42 本が合い、30 本はカテゴリの並びだけが違う。transform で失敗した case では pandas の cast は成功していて、列はカテゴリの dtype（宣言した列）としてエンコーダに入る。H-0138 の対応方針 2 は、作り直しの順を「推定した object の列では `sorted(..., key=str)`、宣言した列では宣言の順」と決めている。R の「後」は cast が失敗した object の列の規則（`str` の順）なので、宣言の順を保つ case には当たらない。下の規則 T（cast の並びを保つ）にすると、72 本が全て合い、参照のテストはモジュールの全て（6283 本のうち、規則の一覧を書いたテスト 1 本を除く）が通った。
-  - 規則 T は、30 本の食い違いを調べて見つけたが、規則そのものは H-0138 の対応方針 2（宣言した列は宣言の順で作り直す）から決まり、この Proposal で新しく決める並びは無い。どの case に当たるかは元の参照ファイル（`fails_at == "transform"`、Y でない）だけで決まり、「後」は pandas の cast と試作のキー（`firing/h0139_rule.py`）だけから計算し、ライブラリを import しない（H-0139 の対応方針 7 と同じ）。
+  - 規則 T は、30 本の食い違いを調べて見つけたが、規則そのものは H-0138 の対応方針 2（宣言した列は宣言の順で作り直す）から決まり、この Proposal で新しく決める並びは無い。どの case に当たるかは元の参照ファイル（`fails_at == "transform"`、Y でない）だけで決まる。
+  - 一覧の生成は、今はライブラリに依っている: 試作のキー（`firing/h0139_rule.py`）は時刻でない値に本番の `category_identity_key` を使い、記録の `typed`（`tests/test_features/_h0138_oracle.py`）は本番の `encode` を使い、`make_overlay.py` は本番の `decode` を使う。Proposal レビュー round 1 は、本番のキーを差し替えると `p3-88` の T の「後」が変わることを実行で示した。新しい minor を取り込むときに、そのときのライブラリで一覧を作ると、確かめる相手を確かめられる側で作ることになる。下の対応方針 6 で、生成を凍結したキーと codec に移す。
+  - 凍結の試作（`docs/audits/2026-10-i389/oracle/frozen_core/` に `f025620` の `lizyml/core/{category_values,category_temporal,exceptions}.py` をバイトのまま写し、`make_overlay.py` の import の hook がこの 3 つだけを同じ名前で渡し、ほかの `lizyml` の module を拒否する）で、既存の 3 つの一覧はバイトが一致し、3.1.0 の一覧（Y 221、R 195、S 5、T 72）は上の試作と同じ SHA-256 になった（`probes/frozen_hook_check.*`、`probes/rule_t_310.out`）。
   - pandas 3.1.0 の参照ファイルは、H-0138 を決めたときに無かった pandas の上での、`b297de4` の答えの記録である（その時に観察した答えではない）。役目は、pandas の版をまたいで答えが変わったことを見つけることで、確かめる相手をライブラリの外に置くために、今のライブラリでなく `b297de4` で作る。既存の 3 つのファイルには transform で失敗した case が無い（3.0.1: 成功 4412・cast 208、2.3.3: 4584・261、2.0.0: 4726・119）ので、規則 T を足しても既存の 3 つの一覧はバイトが変わらない（空の T を `meta` の件数に書かない場合。実際に作り直して確かめた）。
 - **firing rate**（対応方針 1 の同じ minor への切り替えは `allow` の条件）:
 
@@ -17154,6 +17156,8 @@ H-0138 の参照ファイル（`tests/test_features/data/h0138_oracle_pandas-{3.
 4. **表示**: 参照のテストを集めたとき、端末の要約に 1 行を必ず出す: 走っている pandas・numpy・lightgbm・pyarrow の版、選んだファイルの版とパス、厳密か同じ minor か、比べたエンコーダと時刻の case の数、skip したモデルの case の数。CI の `-q` でも見える。
 5. **CI**: `quality-latest-deps` のジョブの pytest の step にだけ `LIZYML_H0138_ORACLE_MODE: latest-same-minor` を置く。ジョブは non-blocking のまま。
 6. **規則 T**（H-0139 の対応方針 7 の規則に足す）: Y でなく、元の参照で transform で失敗していた時刻の case（pandas の cast は成功し、`b297de4` の引き方が失敗した）。「後」は成功し、置き換えの列 `["c"]`、カテゴリは pandas の cast のカテゴリ（その順）と学習の行から、キーごとの最初の代表をその順で並べたもの、符号は固定したバッチとその逆順のキーの位置。`make_overlay.py` の件数は、空の規則を `meta` に書かない（既存の 3 つの一覧のバイトを変えない）。テストの閉じた和は Y・R・S・T の和になる。
+   - **生成をライブラリから切り離す**: `docs/audits/2026-10-h0139/oracle/make_overlay.py` は、最初に import の hook を置き、`lizyml.core.category_values`・`lizyml.core.category_temporal`・`lizyml.core.exceptions` を `docs/audits/2026-10-i389/oracle/frozen_core/` の凍結した写し（`f025620` のバイトのまま）から渡し、ほかの `lizyml` の module の import を拒否する（`lizyml` が先に import されていれば落ちる）。試作のキー、`typed`、`SAMPLES` はそのまま凍結した写しを使う。Y・R・S・T の全ての規則が同じ写しで計算される。写しは、規則の答えを変える Proposal があるときだけ更新する。
+   - 生成のスクリプトの場所は変えない（一覧の `meta["generator"]` が既存のファイルのバイトに入っているため）。
 7. **新しい pandas の minor を取り込む手順**（CONTRIBUTING.md に書く）:
    1. `b297de4` の worktree に develop の `docs/audits/2026-10-h0138/{oracle,firing}` を写し、その pandas と latest-deps と同じ依存（pyarrow を含む）の環境で、`PYTHONHASHSEED=0` で `make_oracle.py` を 2 回走らせ、バイトが同じことを確かめる。
    2. develop の木で `make_overlay.py` を走らせて一覧を作る（2 回、バイトが同じ）。
@@ -17161,7 +17165,7 @@ H-0138 の参照ファイル（`tests/test_features/data/h0138_oracle_pandas-{3.
    4. 生成の記録（下の 8）に、ファイルの SHA-256 と環境を足す。
    5. 参照のテストが全て通ることを確かめる。合わない case が残れば、ファイルを足さずに、閉じた規則を足す Proposal（またはこの Proposal の改訂）で扱いを決める。答えに合わせてファイルや規則を直さない。
    - `uv.lock` の pandas を上げるときも、同じ手順でその版のファイルを作る。
-8. **生成の記録**: `docs/audits/2026-10-h0138/oracle/provenance.json` に、全ての参照ファイルと一覧のファイルの SHA-256 と、作った環境（Python・pandas・numpy・lightgbm・pyarrow の版、pyarrow の有無、生成のコマンドと元の commit）を書く。テストは、`tests/test_features/data/` の全ての参照ファイルと一覧のファイルが記録にあり、SHA-256 が一致することを確かめる（記録に無いファイル、記録だけのファイルは落ちる。DC3）。既存の 6 つの記録は、作り直して commit とバイトが一致した環境で書く（3.0.1 の参照ファイルは 2026-10-22 に自分で、3 つの参照ファイルと 3 つの一覧は Codex の批評が作り直して一致した。2.3.3 と 2.0.0 の環境は resume kit の手順で作る lock と下限の環境）。
+8. **生成の記録**: `docs/audits/2026-10-h0138/oracle/provenance.json` に、全ての参照ファイルと一覧のファイルの SHA-256 と、作った環境（Python・pandas・numpy・lightgbm・pyarrow の版、pyarrow の有無、生成のコマンドと元の commit）と、凍結した写しの 3 つのファイルの SHA-256 を書く。テストは、`tests/test_features/data/` の全ての参照ファイルと一覧のファイルが記録にあり、SHA-256 が一致することを確かめる（記録に無いファイル、記録だけのファイルは落ちる。DC3）。既存の 6 つの記録は、作り直して commit とバイトが一致した環境で書く（3.0.1 の参照ファイルは 2026-10-22 に自分で、3 つの参照ファイルと 3 つの一覧は Codex の批評が作り直して一致した。2.3.3 と 2.0.0 の環境は resume kit の手順で作る lock と下限の環境）。
 9. **pandas 3.1.0 の取り込み**（2 つ目の PR）: 上の 7 の手順で `h0138_oracle_pandas-3.1.0.json.gz`（numpy 2.5.4、lightgbm 4.7.0、pyarrow 26.0.0、Python 3.12）と一覧（Y 221、R 195、S 5、T 72）を足し、`S_NAMED["3.1.0"]` を `p22-23`・`p22-36`・`p23-35`・`p24-38`・`p60-103` にする。
 
 ### 互換性
@@ -17182,7 +17186,8 @@ H-0138 の参照ファイル（`tests/test_features/data/h0138_oracle_pandas-{3.
 
 ### 受け入れ基準
 
-1. **既存のファイル**: 既存の 3 つの参照ファイルと 3 つの一覧はバイトとして変わらない。規則 T を足した `make_overlay.py` で 3 つの一覧を作り直すと、バイトが一致する。
+1. **既存のファイル**: 既存の 3 つの参照ファイルと 3 つの一覧はバイトとして変わらない。規則 T と凍結した写しを使う `make_overlay.py` で 3 つの一覧を作り直すと（3 つの pandas の環境）、バイトが一致する。
+1a. **生成がライブラリに依らない**: `make_overlay.py` は、凍結した 3 つの写し以外の `lizyml` の module を import できない状態で一覧を作り終える。読み込まれた 3 つの module のファイルが凍結した写しで、その SHA-256 が `provenance.json` と一致する。`lizyml` を先に import した状態で走らせると落ちる。
 2. **必須のレーン**: 版のファイルが無い pandas で、モードの値が無いとき、モードの値が `GITHUB_JOB` の違うジョブや CI の外で入っているとき、知らない値のときのそれぞれで、参照のテストが落ちる（monkeypatch で版とファイルの一覧を差し替えて確かめる）。
 3. **選び方**: 走っている版のファイルを優先すること、同じ minor の一番近い古い版、patch の数の順（3.0.10 > 3.0.9）、pre-release・post・dev・local、読めない版の文字列、一覧が無い・`meta` の版が合わない・壊れたファイルを、それぞれ単体のテストで確かめる。
 4. **選んだ版での検査**: 対応方針 3 の全ての検査が、選んだ版に対して働く（選んだ版で `S_NAMED` を引く、件数と既知の ID の検査が残る）。
@@ -17194,3 +17199,8 @@ H-0138 の参照ファイル（`tests/test_features/data/h0138_oracle_pandas-{3.
 10. **文書**: CONTRIBUTING.md（latest-deps のレーンの説明と、新しい minor を取り込む手順）、BLUEPRINT §18（non-blocking lane が参照のファイルを同じ minor で比べること）、`docs/proposal_dispositions.toml`、H-0138 の受け入れ 2 と H-0139 の対応方針 7 に、この Proposal で改めたことへの注記を書く。
 
 **レビューの停止基準**: 上の受け入れ基準のテストが通ったら止める。次の round に進む理由になるのは、この契約の中の欠陥だけである: 必須のレーンが版のファイル無しで通ること、同じ minor の選び方の誤り、モデルの skip が計算の前に決まらないこと、選んだ版での検査が緩むこと、規則 T の答えがライブラリに依ること、既存のファイルのバイトが変わること。ライブラリの振る舞い、H-0138・H-0139 の契約そのもの、必須のレーンの依存の版、#391 は、次の round に進む理由にならない。
+
+### Proposal レビュー round 1（2026-10-22）
+
+- **結果**: Codex の run `h0144-proposal-review` の round 1（`f025620`）は CHANGES_REQUESTED で、major 1 件だった。規則 T の答えを「ライブラリを import せずに計算する」と書いたが、試作のキーと記録の関数が本番の `category_identity_key`・`encode` を使っていて、答えがそれに依る（キーを差し替えると `p3-88` の答えが変わる）。ほかの事実の主張（3.1.0 の参照ファイルの SHA-256、6 つの既存のファイルのバイト、T の 72 本、R を広げたときの 30 本、3.0.6 の 6204 本、pyarrow の 9 本）は全て実行で再現された。モデルを計算の前に外す試作と、5 つの陰性対照も確かめた。
+- **対応**: 実測の誤った記述を直し、対応方針 6 に、生成を凍結した写しに移すことを足した（Y・R・S・T の全てに及ぶ）。受け入れ 1 に凍結した生成での作り直しを、1a に import を拒否した状態での生成を足し、対応方針 8 の記録に凍結した写しの SHA-256 を足した。凍結の試作で既存の 3 つの一覧のバイトが一致することを確かめた（上の実測）。
