@@ -17390,3 +17390,4 @@ NumPy 1.24（`Quality (lowest-direct deps)` のレーン、pandas 2.0.0）では
 
 - **結果**: Codex の run `h0145-impl-review` の round 1（`1c93da1`）は APPROVE で、minor 1 件だった。`docs/migration.md` の影響する値の説明が整数と `np.timedelta64` の組に限られていて、NumPy 1.24 の `{np.timedelta64(0, 's'), Decimal('-0')}`（整数を含まない）が漏れていた。
 - **対応**: 説明を往復の規則（書いた値から組み直すと要素が等しくなるか比べられない）で書き、組は例として挙げる形にした。管理者の方針（1 行でも再確認）により、この直しを 1 round の確認で見る。
+- **確認**（2026-10-24）: 実行の前に Claude の新しい文脈で absolute monitor を走らせた（DELIVERABLE-FOCUSED・continue。確認は直した文言だけに絞る）。Codex の 1 round の確認の run `h0145-impl-confirm`（`570c8a5`）は APPROVE で、指摘は無かった。この実行の方針により、APPROVE と CI 緑でマージする。
