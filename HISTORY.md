@@ -17253,8 +17253,9 @@ H-0138 の参照ファイル（`tests/test_features/data/h0138_oracle_pandas-{3.
 
 ## H-0145: 書いて読み戻すと要素が減る frozenset を V から外す ― 実行中の NumPy で判定し、identity の対象からも外す（#391）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-10-24
+- **決定日**: 2026-10-24
 - **関連**: H-0133（値の集合 V と符号化）、H-0136（保存の後の振る舞いの検査）、H-0138（カテゴリの値の同一性。V の外の値を持つ列は pandas の経路）、H-0139（時刻の値のキー。年・月の単位の拒否）、#391、registry のカード D-20261022-014・D-20261022-016（管理者の判断）
 - **スコープ**:
   - `lizyml/core/category_values.py` の `refusal`（V の判定）と、その写しである生成コードの `_encode_value`・`_in_v`（`codegen/templates.py`・`codegen/identity_template.py`）
@@ -17364,3 +17365,7 @@ NumPy 1.24（`Quality (lowest-direct deps)` のレーン、pandas 2.0.0）では
 - **対応**: 判定を生成コードの書き手 `_encode_value` に置き（検査の無い `_encode_raw` と `_decode_raw` で往復する）、`_in_v`・`_identity_key`・`_decode_value` はそれを通るようにした（対応方針 2）。受け入れ 3a（生成 `train.py` が書く前に拒否する。陰性対照付き）を足した。
 - **確認の前の monitor**（loop の round 4 にあたる確認の run の前。Claude の新しい文脈で、読むだけ）: relational（round 1〜3）は CONVERGING・continue。生成コードの判定に試作と実行の証拠が無いことを指摘したので、確認の前に足した。
 - **生成コードの試作**（`probes/prototype.diff` に正と一緒に入れた。`probes/generated_writer*.out`）: 生成 `_encode_value` を `_encode_raw` に分けて往復の判定を置くと、普通の値で書いたプロジェクトの `fit_pipeline` を、NumPy 1.24 では #391 の組、NumPy 2.2.6・2.4.2 では round 2 の大きな `np.uint64` の組を持つ行で学習し直したとき、`ValueError` を出し、`pipeline_state.json` は変わらなかった（受け入れ 3a）。陰性対照: 生成コードを変えない木では、ファイルを書き直し、生成 `_load_pipeline` がそれを読めなかった（NumPy 1.24 で `ValueError`、2.4.2 で `OverflowError`）。正と生成コードは、2 つの値の受け付けと拒否で一致した。H-0133・H-0138 の写しのテストと `test_category_values.py` は、両方の試作を当てて通った（lock 1044 本、下限 1056 本）。
+
+### 確認のレビュー（2026-10-24）
+
+- **結果**: Codex の 1 round の確認の run `h0145-proposal-confirm`（`24204e1`）は APPROVE で、指摘は無かった。この Proposal を Accepted とした。
