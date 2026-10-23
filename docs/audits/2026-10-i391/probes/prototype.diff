@@ -1,0 +1,89 @@
+diff --git a/lizyml/codegen/templates.py b/lizyml/codegen/templates.py
+index cbc951c..4c8db2d 100644
+--- a/lizyml/codegen/templates.py
++++ b/lizyml/codegen/templates.py
+@@ -92,8 +92,31 @@ def _equals_itself(value):
+     return True
+ 
+ 
+-def _encode_value(value, depth=0):
+-    """A category value as JSON (the same table as LizyML's export)."""
++def _holds_frozenset(value):
++    if type(value) is frozenset:
++        return True
++    return type(value) is tuple and any(_holds_frozenset(v) for v in value)
++
++
++def _encode_value(value):
++    """A category value as JSON (the same table as LizyML's export).
++
++    A value holding a frozenset must read back as written: written and read
++    with the unchecked codec, it must give back the same form (#391).
++    """
++    written = _encode_raw(value)
++    if _holds_frozenset(value):
++        try:
++            same = _encode_raw(_decode_raw(written)) == written
++        except (ValueError, TypeError, OverflowError, _decimal.InvalidOperation):
++            same = False
++        if not same:
++            raise ValueError("a frozenset whose members do not read back as written")
++    return written
++
++
++def _encode_raw(value, depth=0):
++    """A category value as JSON, unchecked against the codec's read-back."""
+     if not _equals_itself(value):
+         raise ValueError(f"{value!r} equals no value, so it cannot be matched again")
+     if _is(value, (str, int, float, bool)):
+@@ -130,7 +153,7 @@ def _encode_value(value, depth=0):
+     if type(value) in (tuple, frozenset):
+         if depth >= _MAX_DEPTH:
+             raise ValueError(f"a tuple / frozenset nested deeper than {_MAX_DEPTH}")
+-        items = [_encode_value(v, depth + 1) for v in value]
++        items = [_encode_raw(v, depth + 1) for v in value]
+         if type(value) is frozenset:
+             items.sort(key=lambda item: json.dumps(item, sort_keys=True))
+             return {"$lizyml": "frozenset", "items": items}
+diff --git a/lizyml/core/category_values.py b/lizyml/core/category_values.py
+index 5dd1f8e..a355362 100644
+--- a/lizyml/core/category_values.py
++++ b/lizyml/core/category_values.py
+@@ -182,9 +182,36 @@ def _refusal(value: Any, depth: int) -> str | None:
+     return _scalar_refusal(value)
+ 
+ 
++def _holds_frozenset(value: Any) -> bool:
++    if type(value) is frozenset:
++        return True
++    return type(value) is tuple and any(_holds_frozenset(v) for v in value)
++
++
++def _round_trip_refusal(value: Any) -> str | None:
++    """#391: a value holding a frozenset must read back as written.
++
++    The codec writes numpy scalars as plain values and a frozenset's items in
++    a sorted order; reading them back rebuilds the set in that order, which
++    can merge members (``np.uint64(4)`` beside ``np.timedelta64(4, "s")`` on
++    NumPy 1.24) or raise while comparing them. Judged on the running NumPy,
++    with the private codec (``refusal`` is not called again).
++    """
++    try:
++        written = _encode(value)
++        if _encode(_decode(written, 0)) == written:
++            return None
++    except (_Malformed, ValueError, TypeError, OverflowError, decimal.InvalidOperation):
++        return "a frozenset whose members do not read back as written"
++    return "a frozenset whose members do not read back as written"
++
++
+ def refusal(value: Any) -> str | None:
+     """``None`` when *value* is in V, else why it is not (no caller code runs)."""
+-    return _refusal(value, 0)
++    reason = _refusal(value, 0)
++    if reason is None and _holds_frozenset(value):
++        return _round_trip_refusal(value)
++    return reason
+ 
+ 
+ def type_name(value: Any) -> str:

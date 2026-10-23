@@ -1,0 +1,11 @@
+lizyml /tmp/claude-1000/wt-391/lizyml/__init__.py numpy 1.24.0 pandas 2.0.0
+refusal(V): a frozenset whose members do not read back as written
+['a', 'b']                               mode  identity_columns=['c'] -> {'collapsing': 'ok [0.0654, 0.0654, 0.0689]', 'unseen': 'ok [0.0654, 0.0654, 0.0689]'}
+['a', 'b']                               nan   identity_columns=['c'] -> {'collapsing': 'ok [0.0655, 0.0654, 0.0689]', 'unseen': 'ok [0.0655, 0.0654, 0.0689]'}
+['a', 'b']                               error identity_columns=['c'] -> {'collapsing': 'LizyMLError: [DATA_SCHEMA_INVALID] Column \'c\' contains unseen categories: ["frozenset({4, numpy.timedel', 'unseen': "LizyMLError: [DATA_SCHEMA_INVALID] Column 'c' contains unseen categories: ['never-seen']"}
+[5, 'a']                                 mode  identity_columns=['c'] -> {'collapsing': 'ok [0.0654, 0.0654, 0.0689]', 'unseen': 'ok [0.0654, 0.0654, 0.0689]'}
+[5, 'a']                                 nan   identity_columns=['c'] -> {'collapsing': 'ok [0.0655, 0.0654, 0.0689]', 'unseen': 'ok [0.0655, 0.0654, 0.0689]'}
+[5, 'a']                                 error identity_columns=['c'] -> {'collapsing': 'LizyMLError: [DATA_SCHEMA_INVALID] Column \'c\' contains unseen categories: ["frozenset({4, numpy.timedel', 'unseen': "LizyMLError: [DATA_SCHEMA_INVALID] Column 'c' contains unseen categories: ['never-seen']"}
+[(1,), frozenset({2, 3})]                mode  identity_columns=['c'] -> {'collapsing': 'ok [0.0654, 0.0654, 0.0689]', 'unseen': 'ok [0.0654, 0.0654, 0.0689]'}
+[(1,), frozenset({2, 3})]                nan   identity_columns=['c'] -> {'collapsing': 'ok [0.0655, 0.0654, 0.0689]', 'unseen': 'ok [0.0655, 0.0654, 0.0689]'}
+[(1,), frozenset({2, 3})]                error identity_columns=['c'] -> {'collapsing': 'LizyMLError: [DATA_SCHEMA_INVALID] Column \'c\' contains unseen categories: ["frozenset({4, numpy.timedel', 'unseen': "LizyMLError: [DATA_SCHEMA_INVALID] Column 'c' contains unseen categories: ['never-seen']"}

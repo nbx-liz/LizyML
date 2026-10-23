@@ -5,6 +5,31 @@ release from v0.5.0 onward.
 
 ---
 
+## Unreleased
+
+### A frozenset category value that does not read back as written is not saveable (H-0145)
+
+No action is needed unless a categorical column holds a `frozenset` that the
+saved form cannot read back as written: its members become equal, or cannot
+be compared, when the set is rebuilt from the written (plain JSON) values
+([#391](https://github.com/nbx-liz/LizyML/issues/391)). Whether a value reads
+back depends on the running NumPy. Examples:
+`frozenset({np.uint64(4), np.timedelta64(4, "s")})` and
+`frozenset({np.timedelta64(0, "s"), Decimal("-0")})` on NumPy 1.24, or a
+hash-colliding large `np.uint64` beside a fixed-unit `np.timedelta64` on
+NumPy 2.x.
+
+- **fit**: such a model used to fail at the end of `fit` with
+  `DESERIALIZATION_FAILED`. It now fits with a `UserWarning`; the column takes
+  the pandas path, and `Model.export` / `export_code` refuse it with
+  `SERIALIZATION_FAILED` before writing.
+- **predict**: such a value arriving at predict is unseen and follows
+  `unseen_policy`, even when the model was fitted on a saveable value with the
+  same identity key (for example `frozenset({4, timedelta(seconds=4)})`), which
+  it used to match. Convert such values (for example to tuples or strings) if
+  they must match.
+- Saved models and exported projects are unchanged.
+
 ## v0.21.0
 
 ### The save check judges keyed columns as the generated code reads them (H-0143)

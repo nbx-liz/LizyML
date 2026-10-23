@@ -1,0 +1,17 @@
+numpy 2.4.2 pandas 3.0.1
+== pair: refusal(v)=None
+   v == twin: True, hash equal: True
+   builder eligible: True
+   cast categories: [['4', 'datetime.timedelta(seconds=4)'], 'x']
+   identity_columns: ['c']
+   warnings: []
+   export: written
+   predict v: [-0.10636973297303799, -0.10636973297303799] twin: [-0.10636973297303799, -0.10636973297303799]
+== big: refusal(v)='a frozenset whose members do not read back as written'
+   v == twin: OverflowError, hash equal: True
+   builder eligible: False
+   cast categories: [['9265762820973641783', 'datetime.timedelta(microseconds=4000)'], 'x']
+   identity_columns: ['c']
+   warnings: []
+   export: written
+   predict v: [-0.10636973297303799, -0.10636973297303799] twin: [-0.10636973297303799, -0.10636973297303799]

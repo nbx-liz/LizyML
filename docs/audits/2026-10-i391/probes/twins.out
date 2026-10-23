@@ -1,0 +1,10 @@
+  frozenset({np.uint64(4), np.timedelta64(4, "s")}),
+numpy 1.24.0
+pair: v in V today=True, v reads back=False; twin in V=True, twin reads back=True, same key=True
+big: v in V today=True, v reads back=True; twin in V=True, twin reads back=True, same key=True
+numpy 2.2.6
+pair: v in V today=True, v reads back=True; twin in V=True, twin reads back=True, same key=True
+big: v in V today=True, v reads back=False; twin in V=True, twin reads back=True, same key=True
+numpy 2.4.2
+pair: v in V today=True, v reads back=True; twin in V=True, twin reads back=True, same key=True
+big: v in V today=True, v reads back=False; twin in V=True, twin reads back=True, same key=True
