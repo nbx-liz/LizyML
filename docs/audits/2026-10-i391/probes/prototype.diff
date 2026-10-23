@@ -1,34 +1,42 @@
 diff --git a/lizyml/core/category_values.py b/lizyml/core/category_values.py
-index 5dd1f8e..9fe9a63 100644
+index 5dd1f8e..a355362 100644
 --- a/lizyml/core/category_values.py
 +++ b/lizyml/core/category_values.py
-@@ -176,12 +176,29 @@ def _refusal(value: Any, depth: int) -> str | None:
-             reason = _refusal(item, depth + 1)
-             if reason is not None:
-                 return reason
-+        if type(value) is frozenset and len(value) > 1:
-+            return _collapse_refusal(value, depth)
-         return None
-     if not _is(value, ADMITTED_TYPES):
-         return f"the type {type(value).__name__}"
+@@ -182,9 +182,36 @@ def _refusal(value: Any, depth: int) -> str | None:
      return _scalar_refusal(value)
  
  
-+def _collapse_refusal(value: frozenset[Any], depth: int) -> str | None:
-+    """#391: members the codec writes back as equal values (on this NumPy).
++def _holds_frozenset(value: Any) -> bool:
++    if type(value) is frozenset:
++        return True
++    return type(value) is tuple and any(_holds_frozenset(v) for v in value)
 +
-+    The members are already in V, so the private codec runs without calling
-+    :func:`refusal` again; a nested set was checked first (bottom-up).
++
++def _round_trip_refusal(value: Any) -> str | None:
++    """#391: a value holding a frozenset must read back as written.
++
++    The codec writes numpy scalars as plain values and a frozenset's items in
++    a sorted order; reading them back rebuilds the set in that order, which
++    can merge members (``np.uint64(4)`` beside ``np.timedelta64(4, "s")`` on
++    NumPy 1.24) or raise while comparing them. Judged on the running NumPy,
++    with the private codec (``refusal`` is not called again).
 +    """
 +    try:
-+        written = {_decode(_encode(item), depth + 1) for item in value}
-+    except (_Malformed, ValueError, TypeError, OverflowError) as exc:
-+        return f"a frozenset whose members cannot be read back ({type(exc).__name__})"
-+    if len(written) != len(value):
-+        return "a frozenset whose members are equal once written"
-+    return None
++        written = _encode(value)
++        if _encode(_decode(written, 0)) == written:
++            return None
++    except (_Malformed, ValueError, TypeError, OverflowError, decimal.InvalidOperation):
++        return "a frozenset whose members do not read back as written"
++    return "a frozenset whose members do not read back as written"
 +
 +
  def refusal(value: Any) -> str | None:
      """``None`` when *value* is in V, else why it is not (no caller code runs)."""
-     return _refusal(value, 0)
+-    return _refusal(value, 0)
++    reason = _refusal(value, 0)
++    if reason is None and _holds_frozenset(value):
++        return _round_trip_refusal(value)
++    return reason
+ 
+ 
+ def type_name(value: Any) -> str:

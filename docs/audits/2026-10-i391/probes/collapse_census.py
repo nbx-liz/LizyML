@@ -3,7 +3,7 @@
     pytest -p docs.audits... is awkward; run with
     PYTHONPATH=.:docs/audits/2026-10-i391/probes python -m pytest -p collapse_census ...
 
-Wraps ``lizyml.core.category_values._collapse_refusal`` (the prototype rule) in
+Wraps ``lizyml.core.category_values._round_trip_refusal`` (the prototype rule) in
 the pytest process, counts calls and refusals with the test that made them,
 and writes ``$COLLAPSE_CENSUS_OUT`` (JSON) at the end of the session. Calls in
 subprocesses (the H-0138 answers, notebook kernels) are not counted.
@@ -24,11 +24,11 @@ _CALLS: Counter[str] = Counter()
 _FIRES: Counter[str] = Counter()
 _EXAMPLES: dict[str, str] = {}
 _CURRENT = {"test": "<collection>"}
-_ORIGINAL = cv._collapse_refusal
+_ORIGINAL = cv._round_trip_refusal
 
 
-def _counted(value: frozenset[Any], depth: int) -> str | None:
-    reason = _ORIGINAL(value, depth)
+def _counted(value: Any) -> str | None:
+    reason = _ORIGINAL(value)
     test = _CURRENT["test"]
     _CALLS[test] += 1
     if reason is not None:
@@ -37,7 +37,7 @@ def _counted(value: frozenset[Any], depth: int) -> str | None:
     return reason
 
 
-cv._collapse_refusal = _counted
+cv._round_trip_refusal = _counted
 
 
 @pytest.hookimpl(hookwrapper=True)

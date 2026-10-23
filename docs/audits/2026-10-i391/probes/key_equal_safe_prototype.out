@@ -1,5 +1,5 @@
 lizyml /tmp/claude-1000/wt-391/lizyml/__init__.py numpy 1.24.0 pandas 2.0.0
-refusal(v): a frozenset whose members are equal once written | refusal(safe): None
+refusal(v): a frozenset whose members do not read back as written | refusal(safe): None
 key of v: TypeError no category identity key for a value outside V (frozenset)
 fit [safe, x] / predict v, mode : ok [0.316326, 0.317151]
 fit [safe, x] / predict v, nan  : ok [0.316341, 0.317151]
