@@ -21,7 +21,9 @@ from tests.test_features import _h0138_oracle as h
 ROOT = Path(__file__).resolve().parents[2]
 LATEST = {"GITHUB_ACTIONS": "true", "GITHUB_JOB": h.LATEST_JOB}
 ON = {**LATEST, h.MODE_ENV: h.SAME_MINOR}
-SHIPPED = ["2.0.0", "2.3.3", "3.0.1"]
+#: A fixed, synthetic set of oracle versions for the selection rule; the
+#: shipped inventory may grow (CONTRIBUTING.md onboarding) without touching it.
+EXAMPLE = ["2.0.0", "2.3.3", "3.0.1"]
 
 
 @pytest.mark.parametrize(
@@ -69,27 +71,27 @@ def test_a_lanes_own_version_comes_first(mode: str | None) -> None:
 
 
 def test_a_strict_lane_without_its_version_has_no_oracle() -> None:
-    assert h.select_version("3.0.6", SHIPPED, None) is None
+    assert h.select_version("3.0.6", EXAMPLE, None) is None
 
 
 @pytest.mark.parametrize(
     ("running", "available", "selected"),
     [
-        ("3.0.6", SHIPPED, "3.0.1"),
+        ("3.0.6", EXAMPLE, "3.0.1"),
         ("3.0.10", ["3.0.1", "3.0.9", "3.0.2"], "3.0.9"),  # numeric, not text
-        ("3.0.1.post1", SHIPPED, "3.0.1"),
-        ("3.0.2rc1", SHIPPED, "3.0.1"),
-        ("3.0.2.dev1", SHIPPED, "3.0.1"),
-        ("3.0.6+local", SHIPPED, "3.0.1"),
-        ("2.3.5", SHIPPED, "2.3.3"),
-        ("2.0.3", SHIPPED, "2.0.0"),
-        ("3.0.1rc1", SHIPPED, None),  # older than 3.0.1
-        ("3.1.0", SHIPPED, None),  # a new minor: red until its oracle exists
-        ("3.1.0rc1", SHIPPED, None),
-        ("3.1.0.dev0", SHIPPED, None),
-        ("4.0.0", SHIPPED, None),
-        ("3.0.0", SHIPPED, None),
-        ("1!3.0.6", SHIPPED, None),  # another epoch
+        ("3.0.1.post1", EXAMPLE, "3.0.1"),
+        ("3.0.2rc1", EXAMPLE, "3.0.1"),
+        ("3.0.2.dev1", EXAMPLE, "3.0.1"),
+        ("3.0.6+local", EXAMPLE, "3.0.1"),
+        ("2.3.5", EXAMPLE, "2.3.3"),
+        ("2.0.3", EXAMPLE, "2.0.0"),
+        ("3.0.1rc1", EXAMPLE, None),  # older than 3.0.1
+        ("3.1.0", EXAMPLE, None),  # a new minor: red until its oracle exists
+        ("3.1.0rc1", EXAMPLE, None),
+        ("3.1.0.dev0", EXAMPLE, None),
+        ("4.0.0", EXAMPLE, None),
+        ("3.0.0", EXAMPLE, None),
+        ("1!3.0.6", EXAMPLE, None),  # another epoch
     ],
 )
 def test_same_minor_selection(
@@ -100,7 +102,7 @@ def test_same_minor_selection(
 
 @pytest.mark.parametrize(
     ("running", "available"),
-    [("not-a-version", SHIPPED), ("3.0.6", ["3.0.1", "garbage"])],
+    [("not-a-version", EXAMPLE), ("3.0.6", ["3.0.1", "garbage"])],
 )
 def test_an_unparsable_version_fails(running: str, available: list[str]) -> None:
     with pytest.raises(InvalidVersion):
@@ -134,12 +136,16 @@ def test_an_unparsable_file_name_is_an_error(tmp_path: Path) -> None:
     assert resolved.version is None and resolved.error is not None
 
 
-def test_the_shipped_oracles_each_have_their_overlay() -> None:
-    """The selected oracle's overlay is the same version's file (no mixing)."""
+def test_the_shipped_oracles_and_overlays_pair_up() -> None:
+    """Every shipped oracle has its overlay and every overlay its oracle, so a
+    selected oracle is never paired with another version's overlay."""
     versions = h.oracle_versions()
-    assert versions == SHIPPED
-    for v in versions:
-        assert h.overlay_path(v).is_file()
+    assert {"2.0.0", "2.3.3", "3.0.1"} <= set(versions)
+    overlays = sorted(
+        p.name.removeprefix("h0139_overlay_pandas-").removesuffix(".json.gz")
+        for p in h.DATA.glob("h0139_overlay_pandas-*.json.gz")
+    )
+    assert overlays == versions
 
 
 def test_models_are_skipped_only_in_same_minor_mode() -> None:

@@ -180,6 +180,11 @@ def test_an_overlay_exists_for_this_pandas() -> None:
     assert OVERLAY["meta"]["pandas"] == RESOLVED.version
 
 
+def test_every_shipped_oracle_has_its_named_s_set() -> None:
+    """Onboarding a pandas version (CONTRIBUTING.md step 3) names its S set."""
+    assert set(S_NAMED) == set(h.oracle_versions())
+
+
 def test_the_overlay_is_the_closed_union_of_its_rules() -> None:
     """Membership follows from the frozen oracle, never from the library."""
     assert OVERLAY is not None and ORACLE is not None
@@ -234,6 +239,11 @@ h.SUMMARY.update(
         "pyarrow": h.pyarrow_version(),
         "mode": RESOLVED.mode or "strict",
         "oracle": RESOLVED.version,
+        "oracle_path": (
+            h.oracle_path(RESOLVED.version).relative_to(ROOT)
+            if RESOLVED.version
+            else None
+        ),
         "exact": RESOLVED.exact,
         "encoder_cases": len(CASES),
         "temporal_cases": len(TEMPORAL),

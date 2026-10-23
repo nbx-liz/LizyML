@@ -17228,3 +17228,11 @@ H-0138 の参照ファイル（`tests/test_features/data/h0138_oracle_pandas-{3.
   - 受け入れ 6（`negative_controls.*`）: pandas 3.0.6 の latest-deps のモードで、写した 3.0.1 の参照ファイルのカテゴリ・最頻値・符号・置き換えの列・一覧の外の時刻の case をそれぞれ変えると、対応するテストが 5 つとも skip でなく落ちた。
 - **文書**: BLUEPRINT §18、CONTRIBUTING.md（latest-deps のレーンと、新しい minor を取り込む手順）、CHANGELOG（Unreleased）、`docs/proposal_dispositions.toml`（specified）、H-0138 の受け入れ 2 と H-0139 の対応方針 7 の注記。
 - **欠陥の分類**（#389）: DC3（版ごとの参照ファイルが、上流の新しい版に追いつかない）。直したのは、追いつく手順と、追いつくまでの比べ方である。
+
+### 実装レビュー round 1（2026-10-23）
+
+- **結果**: Codex の run `h0144-impl-review` の round 1（`414c6e1`）は CHANGES_REQUESTED で、major 1 件・minor 1 件だった。
+  1. （major）CONTRIBUTING.md の手順で新しい版のファイルを足すと、`test_the_shipped_oracles_each_have_their_overlay` が 3 つの版の固定の一覧と比べていて落ちる（手順が完結しない）。
+  2. （minor）表示の 1 行に、選んだ参照ファイルのパスが無い（対応方針 4）。
+- **対応**: 選び方の例の版の一覧（`EXAMPLE`）を、出荷するファイルの一覧から切り離した。出荷するファイルのテストは、参照ファイルと一覧が版ごとに対になっていることと、既存の 3 つの版があることだけを確かめる。全ての参照ファイルの版に `S_NAMED` の名前があることを確かめるテストを足した（手順の 3）。表示の 1 行に `oracle_path` を足した。
+- **CI**（PR #399、`414c6e1`）: 必須のジョブは全て通った。latest-deps のジョブは pandas 3.1.0 を解決し、表示の 1 行に `mode=latest-same-minor` が出て（`GITHUB_JOB` の検査が本物の CI で通った）、同じ minor の参照ファイルが無いので参照のテスト 5 本だけで落ちた（受け入れ 7・8）。
