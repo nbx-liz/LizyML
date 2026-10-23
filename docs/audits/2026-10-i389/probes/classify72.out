@@ -1,0 +1,7 @@
+transform failures in 3.1.0 oracle: 72
+in 3.0.1 oracle at all: 72
+('ok', '-', 'ValueError') 72
+3.0.1 transform failures: 0
+sample ids: ['p10-88', 'p10-89', 'p11-88', 'p11-89', 'p29-88', 'p29-89', 'p3-88', 'p3-89', 'p30-88', 'p30-89', 'p4-88', 'p4-89']
+overlay ids only in 3.0.1: [] 0
+overlay ids only in 3.1.0: ['p40-103', 'p41-103', 'p42-103', 'p43-103', 'p44-103'] 5

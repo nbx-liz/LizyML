@@ -1,0 +1,5 @@
+categories test_a_faithful_column_answers_as_today[s0]: 1 failed, 2 warnings in 5.14s -> FAILS (good)
+mode       test_a_faithful_column_answers_as_today[s0]: 1 failed, 2 warnings in 5.11s -> FAILS (good)
+codes      test_a_faithful_column_answers_as_today[s0]: 1 failed, 2 warnings in 5.13s -> FAILS (good)
+stand_in   test_a_faithful_column_answers_as_today[s0]: 1 failed, 2 warnings in 5.16s -> FAILS (good)
+temporal   test_a_temporal_column_behaves_as_frozen_or_as_h0139_decided[s18]: 1 failed, 2 warnings in 5.15s -> FAILS (good)

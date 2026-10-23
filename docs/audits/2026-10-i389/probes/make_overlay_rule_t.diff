@@ -1,0 +1,52 @@
+--- docs/audits/2026-10-h0139/oracle/make_overlay.py	2026-10-22 21:30:09.305796302 +0900
++++ /tmp/claude-1000/make_overlay_t.py	2026-10-22 23:47:09.485865721 +0900
+@@ -65,6 +65,29 @@
+     }
+ 
+ 
++def _rebuilt_cast_order(values: list[Any]) -> dict[str, Any] | None:
++    """Rule T: pandas casts the column, so the categories keep the cast's
++    order (declared order), deduplicated by key; codes are key positions."""
++    train = pd.Series([*values, *values, "x"], dtype=object)
++    try:
++        cast = list(train.astype("category").cat.categories)
++    except Exception:  # noqa: BLE001
++        return None
++    reps: dict[Any, Any] = {}
++    for value in [*cast, *train.tolist()]:
++        reps.setdefault(category_key(value), value)
++    cats = list(reps.values())
++    position = {category_key(c): i for i, c in enumerate(cats)}
++    batch = [*h.distinct(values), "x"]
++    forward = [position[category_key(v)] for v in batch]
++    return {
++        "categories": [h.typed(v) for v in cats],
++        "stand_in": ["c"],
++        "codes_forward": forward,
++        "codes_reversed": forward[::-1],
++    }
++
++
+ def _keyed_codes(before: dict[str, Any], values: list[Any]) -> list[int] | None:
+     """Key positions of the frozen batch in the frozen categories, or None."""
+     cats = [decode(c["value"]) for c in before["categories"]]
+@@ -82,7 +105,7 @@
+     assert os.environ.get("PYTHONHASHSEED") == "0", "run under PYTHONHASHSEED=0"
+     oracle = h.oracle()
+     changes: list[dict[str, Any]] = []
+-    sets: dict[str, list[str]] = {"Y": [], "R": [], "S": []}
++    sets: dict[str, list[str]] = {"Y": [], "R": [], "S": [], "T": []}
+     unchanged_failures: Counter[str] = Counter()
+     for case in oracle["temporal_cases"]:
+         cid, before = case["id"], case["outcome"]
+@@ -97,6 +120,10 @@
+             }
+         elif before.get("fails_at") == "cast":
+             rule, after = "R", _rebuilt(values)
++        elif before.get("fails_at") == "transform":
++            t_after = _rebuilt_cast_order(values)
++            assert t_after is not None, f"{cid}: transform failure but the cast fails"
++            rule, after = "T", t_after
+         elif "fails_at" in before:
+             unchanged_failures[before["fails_at"]] += 1
+             continue

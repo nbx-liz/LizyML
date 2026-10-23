@@ -16203,6 +16203,7 @@ Codex の批評（run `v021-category-critique`）の推奨により、#378〜#38
 
    生成は `docs/audits/2026-10-h0138/oracle/make_oracle.py` で、3 つとも 2 回作ってバイトが同じだった。テストは、実装したライブラリの答えを、そのレーンの pandas の版のファイルと比べるだけで、参照を計算し直さない。
    - **版の合わせ方**: レーンの pandas の版のファイルが無ければ、テストは落ちる（黙って通らない）。除外するレーンは無い。モデルの case は、numpy と lightgbm の版もファイルの `meta` と同じであることを先に確かめ、違えば落ちる。
+     - **注記（H-0144）**: non-blocking の latest-deps のジョブだけは、同じ minor の一番近い古い版のファイルと比べ、numpy・lightgbm が違えばモデルの case を skip する。必須のレーンは上のとおり。
    - **エンコーダの case**（pandas 3.0.1 と 2.3.3 で 1584、2.0.0 で 1612）: 測定の列のうち、ゲートが忠実と判定し、今の transform も両方の順で同じ符号を返す全ての列と、ふつうの入力の全ての dtype（object、pandas の文字列、使われないカテゴリを持つ宣言した category、明示した int64・float64・bool、欠損を含む列、型の混ざった object の列）。カテゴリとその型、最頻値、`stand_in_columns`、2 つのバッチの順の符号が同じである。
    - **モデルの case**（3.0.1 と 2.3.3 で 74、2.0.0 で 75）: ふつうの入力、数として等しい型違いの値の組、参照のエンコーダの case の 50 本に 1 本（参照に入れた case だけで数える。生成の最後に、0・50・100…番目の全てがモデルの case を持つことを確かめる）。`Model.fit`（seed と 1 スレッドを固定）の後の refit の booster の `pandas_categorical`、`model_to_string()` の sha256、予測（`float.hex`）が同じである。
    - 参照から外した列とその数も、ファイルの `meta` にある。pandas 3.0.1 では、時刻を含む 4620 と、今すでに壊れている 150（cast の失敗 54、忠実でない 34、忠実だがバッチの順で符号が変わる 54、忠実だが transform が `TypeError` の 8）である。最後の 2 つ（62 列）は、印のある状態の transform を常にキーで引く理由でもある。
@@ -16578,6 +16579,7 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
    - 件数は、pandas 3 で 416（221+190+5）、2.3.3 で 480（225+247+8）。変わらない時刻の case は 4204 と 4365。時刻でないエンコーダの case 1584 は、どちらの版でも全て変わらなかった（Codex の試作）。pandas 2.0.0 では、Y が 225、R が 111 である（`firing/oracle_partition.py`。3.0.1 と 2.3.3 の Y・R は Codex の数と一致した）。
    - S は、実装の答えを見ずに 2 つの規則で決める: (a) 試作の規則（`firing/h0139_rule.py`）で忠実でない時刻の case、(b) 元の参照に記録した 2 つのバッチの順の符号が、キーの位置と食い違う case（transform だけが直る。pandas 3 の `p60-103` など）。上の pandas 3 と 2.3.3 の名前の一覧は、この規則で再現できることを、変わる case のファイルの生成のスクリプトで確かめる。pandas 2.0.0 の S は、Proposal レビュー round 1 がこの 2 つの規則で数えて 8 件だった（規則が実装の答えに依らないことも確かめた）。名前の一覧は、そのスクリプトで決めて実装の記録に書く。
    - `tests/test_features/_h0138_answers.py` は、無条件の `astype` でなく本物の builder の経路を通し、fit の検査での拒否を別に報告する。`docs/audits/2026-10-h0138/oracle/make_oracle.py` は記録として残し、変わる case のファイルは別の生成のスクリプトで作る。
+   - **注記（H-0144）**: 規則に T（元の参照で transform で失敗した case。cast の順を保ってキーで作り直す）を足した。生成のスクリプトは凍結した codec の写しだけを読む。既存の 3 つの一覧はバイトが変わらない。
 
 ### 互換性
 
@@ -17097,3 +17099,145 @@ v0.21.0 のリリース PR #397 の CI で、slow のテスト `tests/test_persi
 ### 実装レビュー（2026-10-22）
 
 - **結果**: Codex の run `h0143-impl-review` の round 1（`0e404ae`）は APPROVE で、指摘は無かった。受け入れの後の訂正（`Model.fit` を通した 2**63 以上の `np.uint64` の列は代わりの符号の列）と、陰性対照の形の変更も確かめた。run はこれで終わる。この実行の方針により、APPROVE と CI 緑でマージする。
+
+## H-0144: latest-deps のレーンでは、同じ minor の一番近い古い参照ファイルと比べる ― 新しい pandas の minor を参照ファイルに取り込む手順を決め、pandas 3.1.0 を取り込む（#389）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-22
+- **決定日**: 2026-10-23
+- **関連**: H-0138（受け入れ 2: pandas の版ごとの参照ファイル。版の合わないレーンは落ちる）、H-0139（対応方針 7: 変わる時刻の case の一覧と、その閉じた規則 Y・R・S）、#180（latest-deps のレーン）、#389、registry のカード D-20261022-014・D-20261022-016（管理者の判断）
+- **スコープ**:
+  - `tests/test_features/test_h0138_faithful_oracle.py`・`_h0138_oracle.py`・`_h0138_answers.py` の、参照ファイルの選び方・モデルの case の扱い・結果の表示
+  - `.github/workflows/ci.yml` の `quality-latest-deps` のジョブの pytest の step の環境変数
+  - `docs/audits/2026-10-h0139/oracle/make_overlay.py` の規則（T を足す）と、pandas 3.1.0 の参照ファイル・変わる case の一覧
+  - 参照ファイルの生成の記録（環境と SHA-256）と、新しい minor を取り込む手順の文書（CONTRIBUTING.md、BLUEPRINT §18）
+  - 範囲の外: ライブラリのコード、H-0138・H-0139 の契約そのもの、必須のレーンの依存の版（`uv.lock` の pandas は 3.0.1 のまま）、#391
+
+### 目的（課題）
+
+H-0138 の参照ファイル（`tests/test_features/data/h0138_oracle_pandas-{3.0.1,2.3.3,2.0.0}.json.gz`。H-0138 より前のコード、develop `b297de4` の答え）と H-0139 の変わる case の一覧（`h0139_overlay_pandas-<v>.json.gz`）は、pandas の版ごとにある。H-0138 の受け入れ 2 は「レーンの pandas の版のファイルが無ければ落ちる。除外するレーンは無い」と決めた。依存を上向きに解決する `Quality (latest deps, non-blocking)`（`uv sync --upgrade --dev`）は、そのとき一番新しい pandas を使うので、ファイルの無い版で毎回 5 本落ちる。赤いままのレーンは、そのレーンが見つけるはずの上流の変化を隠す（#180 の目的が果たせない）。
+
+### 実測（2026-10-22、develop `f002e8c` の上）
+
+測定のスクリプトと出力は `docs/audits/2026-10-i389/probes/` にある。批評は Codex の run `i389-critique-20261022T140501Z-cb315866`（1 round、CHANGES_REQUESTED、指摘は設計の細部と、3.1.0 の 72 本の扱いの判断）。
+
+- **latest-deps のレーンの履歴**: 参照ファイルが入った PR #387 の最初の run から develop `f002e8c` まで、latest-deps のジョブは 11 回走り、全て pandas 3.0.6 を解決した。そのうち 10 回が参照のテストで落ち（3 本、H-0139 の後は 5 本）、ほかのテストは全て通った（1 回は別の理由で落ちた）。
+- **pandas 3.0.6**（numpy 2.5.4、lightgbm 4.7.0、pyarrow 26.0.0。CI と同じ）: 3.0.1 の参照ファイルと一覧で比べると、エンコーダの case 1584 と時刻の case 4620 が全て一致する。落ちるのは、モデルの case 74 と版を確かめるテスト（numpy と lightgbm が違う）、`meta` の pandas の版の検査、一覧の閉じた和のテスト（`S_NAMED` に `"3.0.6"` が無い）だけである。
+  - pyarrow が入っていないと、`np.str_` を含むエンコーダの case 9 本で、カテゴリの型が `numpy.str_` のままになる（pandas 3.0.1・3.0.6 × numpy 2.4.2・2.5.4 の 4 つの組で同じ）。決めるのは pandas の版でなく pyarrow の有無なので、生成の記録に pyarrow を書く。
+- **pandas 3.1.0**: 今日の `uv sync --upgrade --dev` は pandas 3.1.0 を解決する（次の latest-deps の run から使われる）。
+  - フルスイート（slow を除く）は、参照のテストの 5 本だけが落ち、16759 本が通った。
+  - 3.0.1 の参照ファイルと比べると、時刻の case 185 本が違う（`pd.Timedelta(7, unit="D")` の分解能が秒からマイクロ秒になる、倍数の単位の numpy の時刻の作り方が変わる。pandas 3.1 の変更）。Codex の批評は、185 本とも 2 つのバッチの符号が同じで、違いは値の表し方（109 本）と置き換えの列の有無（77 本、1 本は両方）であること、代表の 3 つのモデル（`s44`・`p3-88`・`p40-103`）ではモデルのハッシュと予測も同じであることを確かめた。
+  - `b297de4` のコードは pandas 3.1.0 で動き、`make_oracle.py` は 2 回ともバイトの同じファイルを作った（SHA-256 `bc71c27d…`。Codex の批評と一致）。同じ手順で 3.0.1 のファイルを作り直すと、commit したファイルとバイトが一致した。
+  - そのファイルから今の `make_overlay.py` で一覧を作ると（Y 221、R 195、S 5。S の名前は 3.0.1 と同じ）、時刻の case 72 本がまだ合わない。72 本は全て、倍数の単位の `np.datetime64`（`2s`、`10ms`）を含む組で、`b297de4` は pandas 3.0.1 では成功していた（一覧に無い）が、pandas 3.1.0 では transform で `ValueError` を出す。今のコードは成功する。今の一覧の規則は cast の失敗（R）しか扱わず、transform の失敗はそのまま比べる。
+  - R を「cast か transform の失敗」に広げると 42 本が合い、30 本はカテゴリの並びだけが違う。transform で失敗した case では pandas の cast は成功していて、列はカテゴリの dtype（宣言した列）としてエンコーダに入る。H-0138 の対応方針 2 は、作り直しの順を「推定した object の列では `sorted(..., key=str)`、宣言した列では宣言の順」と決めている。R の「後」は cast が失敗した object の列の規則（`str` の順）なので、宣言の順を保つ case には当たらない。下の規則 T（cast の並びを保つ）にすると、72 本が全て合い、参照のテストはモジュールの全て（6283 本のうち、規則の一覧を書いたテスト 1 本を除く）が通った。
+  - 規則 T は、30 本の食い違いを調べて見つけたが、規則そのものは H-0138 の対応方針 2（宣言した列は宣言の順で作り直す）から決まり、この Proposal で新しく決める並びは無い。どの case に当たるかは元の参照ファイル（`fails_at == "transform"`、Y でない）だけで決まる。
+  - 一覧の生成は、今はライブラリに依っている: 試作のキー（`firing/h0139_rule.py`）は時刻でない値に本番の `category_identity_key` を使い、記録の `typed`（`tests/test_features/_h0138_oracle.py`）は本番の `encode` を使い、`make_overlay.py` は本番の `decode` を使う。Proposal レビュー round 1 は、本番のキーを差し替えると `p3-88` の T の「後」が変わることを実行で示した。新しい minor を取り込むときに、そのときのライブラリで一覧を作ると、確かめる相手を確かめられる側で作ることになる。下の対応方針 6 で、生成を凍結したキーと codec に移す。
+  - 凍結の試作（`docs/audits/2026-10-i389/oracle/frozen_core/` に `f025620` の `lizyml/core/{category_values,category_temporal,exceptions}.py` をバイトのまま写し、`make_overlay.py` の import の hook がこの 3 つだけを同じ名前で渡し、ほかの `lizyml` の module を拒否する）で、既存の 3 つの一覧はバイトが一致し、3.1.0 の一覧（Y 221、R 195、S 5、T 72）は上の試作と同じ SHA-256 になった（`probes/frozen_hook_check.*`、`probes/rule_t_310.out`）。
+  - pandas 3.1.0 の参照ファイルは、H-0138 を決めたときに無かった pandas の上での、`b297de4` の答えの記録である（その時に観察した答えではない）。役目は、pandas の版をまたいで答えが変わったことを見つけることで、確かめる相手をライブラリの外に置くために、今のライブラリでなく `b297de4` で作る。既存の 3 つのファイルには transform で失敗した case が無い（3.0.1: 成功 4412・cast 208、2.3.3: 4584・261、2.0.0: 4726・119）ので、規則 T を足しても既存の 3 つの一覧はバイトが変わらない（空の T を `meta` の件数に書かない場合。実際に作り直して確かめた）。
+- **firing rate**（対応方針 1 の同じ minor への切り替えは `allow` の条件）:
+
+  Firing rate: 11/11 of the latest-deps CI jobs from the first run of PR #387 to develop f002e8c (run list via `gh run list --workflow CI`, resolved pandas from each job log: all 11 resolved pandas 3.0.6, which has no exact oracle and whose same-minor candidate is 3.0.1; `probes/latest_lane_history.out`)
+
+  - 11 回のうち 10 回は参照のテストだけで落ちていたので、同じ minor で比べれば緑になっていた（3.0.6 で全ての case が一致する、上の測定）。残りの 1 回は、テストの前に別の理由で落ちた。
+  - 今日の解決は pandas 3.1.0 で、同じ minor の候補が無いので、2 つ目の PR（3.1.0 のファイル）が入るまで、この条件は 1 度も働かない。
+
+### 管理者の判断（2026-10-22。カード D-20261022-014・D-20261022-016）
+
+- latest-deps のレーンだけ（CI の環境変数で名指しする）で、同じ minor の一番近い古い参照ファイルと一覧（3.0.6 → 3.0.1）と比べる。答えが違えば落ちる。モデルの case は、numpy と lightgbm がファイルの `meta` と違えば理由を付けて skip する。必須のレーンは今のまま（版のファイルが無ければ落ちる）。
+- この実行で pandas 3.1.0 も取り込む。新しい minor を取り込む手順（`b297de4` から再現できるファイル、環境の記録、S の名前、合わない case の扱い）を Proposal で決める。PR は仕組みと 3.1.0 の取り込みの 2 つに分ける。
+- 採らなかった案: 3.0.6 のファイルを作るだけ（numpy・lightgbm・pandas のどれかが上がるたびに赤くなる）、latest-deps のレーンで参照のテストを外す（答えが変わっても気づけない）。
+
+### 対応方針（提案）
+
+1. **参照ファイルの選び方**（`_h0138_oracle.py`）:
+   - 走っている pandas の版のファイルがあれば、それを使う（どのレーンでも、モードによらず）。
+   - 無いとき、環境変数 `LIZYML_H0138_ORACLE_MODE=latest-same-minor` があれば、`packaging.version.Version` で、epoch・major・minor が同じで走っている版より古い版のファイルのうち一番新しいものを選ぶ。選んだ版の一覧（`h0139_overlay_pandas-<選んだ版>.json.gz`）も必ず使い、版を混ぜない。一覧が無い、読めない、`meta` の版が合わないときは落ちる（古い版へ下がり直さない）。pre-release・post・dev・local の版も `Version` の順に従う（例: 3.0.6・3.0.1.post1・3.0.2rc1 → 3.0.1。3.0.1rc1 と 3.1 の全ての版 → 候補なし）。`packaging` は宣言した依存ではなく、pytest の依存として全てのテストの環境に入っている（`uv.lock`）。テストの道具だけが使う。
+   - 候補が無ければ、今と同じく落ちる（新しい minor は、その minor のファイルができるまで赤い）。
+   - **誤って有効にしない**（DC1）: モードは `GITHUB_ACTIONS=true` かつ `GITHUB_JOB=quality-latest-deps` のときだけ受け付ける。それ以外で値があれば、知らない値も含めてテストが落ちる（黙って厳密なモードに戻らない）。値が無ければ今と同じ厳密なモードである。
+2. **モデルの case**: numpy と lightgbm が選んだファイルの `meta` と同じかを、answers の子プロセスを走らせる前に決める。latest-same-minor のモードで違うときは、子プロセスにモデルを計算させず（モデルの数 0）、モデルの case 74 本と版を確かめるテストを、期待と実際の版を書いた理由で skip する。版が同じなら、今と同じくモデルを比べる。必須のレーン（厳密なモード）では今と同じく、版が違えば落ちる。
+3. **選んだ版での検査**: `meta` の pandas の版は選んだ版と等しく、2 つのファイルの版は等しく、走っている版は選び方の規則を満たすことを確かめる。件数と、ID が既知であることの検査は今のまま。一覧の閉じた和は、選んだ版の参照ファイルの case と `S_NAMED[選んだ版]` から計算する（一覧そのものから S を作らない）。重複の無い ID、各「前」が参照と等しいこと、規則ごとの集合と件数の検査は今のまま。
+4. **表示**: 参照のテストを集めたとき、端末の要約に 1 行を必ず出す: 走っている pandas・numpy・lightgbm・pyarrow の版、選んだファイルの版とパス、厳密か同じ minor か、比べたエンコーダと時刻の case の数、skip したモデルの case の数。CI の `-q` でも見える。
+5. **CI**: `quality-latest-deps` のジョブの pytest の step にだけ `LIZYML_H0138_ORACLE_MODE: latest-same-minor` を置く。ジョブは non-blocking のまま。
+6. **規則 T**（H-0139 の対応方針 7 の規則に足す）: Y でなく、元の参照で transform で失敗していた時刻の case（pandas の cast は成功し、`b297de4` の引き方が失敗した）。「後」は成功し、置き換えの列 `["c"]`、カテゴリは pandas の cast のカテゴリ（その順）と学習の行から、キーごとの最初の代表をその順で並べたもの、符号は固定したバッチとその逆順のキーの位置。`make_overlay.py` の件数は、空の規則を `meta` に書かない（既存の 3 つの一覧のバイトを変えない）。テストの閉じた和は Y・R・S・T の和になる。
+   - **生成をライブラリから切り離す**: `docs/audits/2026-10-h0139/oracle/make_overlay.py` は、最初に import の hook を置き、`lizyml.core.category_values`・`lizyml.core.category_temporal`・`lizyml.core.exceptions` を `docs/audits/2026-10-i389/oracle/frozen_core/` の凍結した写し（`f025620` のバイトのまま）から渡し、ほかの `lizyml` の module の import を拒否する（`lizyml` が先に import されていれば落ちる）。試作のキー、`typed`、`SAMPLES` はそのまま凍結した写しを使う。Y・R・S・T の全ての規則が同じ写しで計算される。写しは、規則の答えを変える Proposal があるときだけ更新する。
+   - 生成のスクリプトの場所は変えない（一覧の `meta["generator"]` が既存のファイルのバイトに入っているため）。
+7. **新しい pandas の minor を取り込む手順**（CONTRIBUTING.md に書く）:
+   1. `b297de4` の worktree に develop の `docs/audits/2026-10-h0138/{oracle,firing}` を写し、その pandas と latest-deps と同じ依存（pyarrow を含む）の環境で、`PYTHONHASHSEED=0` で `make_oracle.py` を 2 回走らせ、バイトが同じことを確かめる。
+   2. develop の木で `make_overlay.py` を走らせて一覧を作る（2 回、バイトが同じ）。
+   3. S の名前を `S_NAMED` に足す（一覧の生成が出す名前。実装の答えを見て選ばない）。
+   4. 生成の記録（下の 8）に、ファイルの SHA-256 と環境を足す。
+   5. 参照のテストが全て通ることを確かめる。合わない case が残れば、ファイルを足さずに、閉じた規則を足す Proposal（またはこの Proposal の改訂）で扱いを決める。答えに合わせてファイルや規則を直さない。
+   - `uv.lock` の pandas を上げるときも、同じ手順でその版のファイルを作る。
+8. **生成の記録**: `docs/audits/2026-10-h0138/oracle/provenance.json` に、全ての参照ファイルと一覧のファイルの SHA-256 と、作った環境（Python・pandas・numpy・lightgbm・pyarrow の版、pyarrow の有無、生成のコマンドと元の commit）と、凍結した写しの 3 つのファイルの SHA-256 を書く。テストは、`tests/test_features/data/` の全ての参照ファイルと一覧のファイルが記録にあり、SHA-256 が一致することを確かめる（記録に無いファイル、記録だけのファイルは落ちる。DC3）。既存の 6 つの記録は、作り直して commit とバイトが一致した環境で書く（3.0.1 の参照ファイルは 2026-10-22 に自分で、3 つの参照ファイルと 3 つの一覧は Codex の批評が作り直して一致した。2.3.3 と 2.0.0 の環境は resume kit の手順で作る lock と下限の環境）。
+9. **pandas 3.1.0 の取り込み**（2 つ目の PR）: 上の 7 の手順で `h0138_oracle_pandas-3.1.0.json.gz`（numpy 2.5.4、lightgbm 4.7.0、pyarrow 26.0.0、Python 3.12）と一覧（Y 221、R 195、S 5、T 72）を足し、`S_NAMED["3.1.0"]` を `p22-23`・`p22-36`・`p23-35`・`p24-38`・`p60-103` にする。
+
+### 互換性
+
+- ライブラリ・公開 API・保存の形式は変わらない。テストと CI と記録だけの変更である。
+- 必須のレーンの振る舞いは変わらない（版のファイルが無ければ落ちる、numpy・lightgbm の版が違えば落ちる）。既存の 6 つのファイルはバイトとして変えない。
+- latest-deps のレーンは、同じ minor の古いファイルと比べるあいだ、モデルの退行（モデルのハッシュと予測）を見ない。エンコーダと時刻の case は比べ続ける。表示の 1 行でこれが見える。
+- pandas 3.1.0 の取り込みまで（1 つ目の PR の後）、latest-deps のレーンは 3.1.0 で赤いままである（受け入れ 7 のとおり）。
+
+### 代替案
+
+- **3.0.6 のファイルを作るだけ**: numpy・lightgbm・pandas のどれかが上がるたびに赤くなり、毎回手で作り直すことになる。管理者が採らなかった。
+- **latest-deps のレーンで参照のテストを外す**: 新しい pandas で答えが変わっても気づけない（#389 の受け入れ「違えば赤」を満たさない）。管理者が採らなかった。
+- **minor をまたいで一番近い古いファイルと比べる**: pandas 3.1.0 で 185 本が値の表し方の違いで落ち、本当の変化と区別できない。採らない。
+- **新しい minor のファイルを、今のライブラリ（または最新のリリース）で作る**: 参照が確かめる相手を、確かめられる側で作ることになり、H-0138 の受け入れ 2 の意味（H-0138 より前の答え）が無くなる。採らない。
+- **72 本を R を広げて扱う**: 30 本の並びが合わない（上の実測）。採らない。
+- **モードを環境変数だけで決める**: 必須のレーンで誤って値が入ると黙って緩む（DC1）。`GITHUB_JOB` も確かめる。
+
+### 受け入れ基準
+
+1. **既存のファイル**: 既存の 3 つの参照ファイルと 3 つの一覧はバイトとして変わらない。規則 T と凍結した写しを使う `make_overlay.py` で 3 つの一覧を作り直すと（3 つの pandas の環境）、バイトが一致する。
+1a. **生成がライブラリに依らない**: `make_overlay.py` は、凍結した 3 つの写し以外の `lizyml` の module を import できない状態で一覧を作り終える。読み込まれた 3 つの module のファイルが凍結した写しで、その SHA-256 が `provenance.json` と一致する。`lizyml` を先に import した状態で走らせると落ちる。
+2. **必須のレーン**: 版のファイルが無い pandas で、モードの値が無いとき、モードの値が `GITHUB_JOB` の違うジョブや CI の外で入っているとき、知らない値のときのそれぞれで、参照のテストが落ちる（monkeypatch で版とファイルの一覧を差し替えて確かめる）。
+3. **選び方**: 走っている版のファイルを優先すること、同じ minor の一番近い古い版、patch の数の順（3.0.10 > 3.0.9）、pre-release・post・dev・local、読めない版の文字列、一覧が無い・`meta` の版が合わない・壊れたファイルを、それぞれ単体のテストで確かめる。
+4. **選んだ版での検査**: 対応方針 3 の全ての検査が、選んだ版に対して働く（選んだ版で `S_NAMED` を引く、件数と既知の ID の検査が残る）。
+5. **モデルの case**: pandas 3.0.6（numpy 2.5.4、lightgbm 4.7.0、pyarrow 26.0.0）の環境で、latest-same-minor のモード（`GITHUB_ACTIONS`・`GITHUB_JOB` を合わせる）で、エンコーダの case 1584 と時刻の case 4620 を比べて全て通り、モデルの case 74 本と版のテストが理由付きで skip され、answers の子プロセスが計算したモデルの数が 0 である（子プロセスの出力で数える）。numpy と lightgbm が `meta` と同じ環境では、モデルを比べる。
+6. **陰性対照**: 同じ minor で比べるとき、選んだファイルの写しで、カテゴリ・最頻値・符号・置き換えの列・一覧の外の時刻の case の答えをそれぞれ変えると、テストが skip でなく落ちる。
+7. **新しい minor**: pandas 3.1.0 の環境で、1 つ目の PR の木では、同じ minor の候補が無いので参照のテストが落ち、3.0.1 のファイルと黙って比べない。
+8. **表示**: 対応方針 4 の 1 行が、通るときも出る（CI のログで確かめる）。ジョブは non-blocking のまま。
+9. **pandas 3.1.0 の取り込み**: 2 つ目の PR の木で、pandas 3.1.0 の環境（上の版）のフルスイートが通り、参照のテストが全て通る（モデルの case も比べる）。3.1.0 のファイルは 2 回作ってバイトが同じで、`provenance.json` の SHA-256 と一致する。latest-deps のレーンが緑になる（PR の CI で確かめる）。
+10. **文書**: CONTRIBUTING.md（latest-deps のレーンの説明と、新しい minor を取り込む手順）、BLUEPRINT §18（non-blocking lane が参照のファイルを同じ minor で比べること）、`docs/proposal_dispositions.toml`、H-0138 の受け入れ 2 と H-0139 の対応方針 7 に、この Proposal で改めたことへの注記を書く。
+
+**レビューの停止基準**: 上の受け入れ基準のテストが通ったら止める。次の round に進む理由になるのは、この契約の中の欠陥だけである: 必須のレーンが版のファイル無しで通ること、同じ minor の選び方の誤り、モデルの skip が計算の前に決まらないこと、選んだ版での検査が緩むこと、規則 T の答えがライブラリに依ること、既存のファイルのバイトが変わること。ライブラリの振る舞い、H-0138・H-0139 の契約そのもの、必須のレーンの依存の版、#391 は、次の round に進む理由にならない。
+
+### Proposal レビュー round 1（2026-10-22）
+
+- **結果**: Codex の run `h0144-proposal-review` の round 1（`f025620`）は CHANGES_REQUESTED で、major 1 件だった。規則 T の答えを「ライブラリを import せずに計算する」と書いたが、試作のキーと記録の関数が本番の `category_identity_key`・`encode` を使っていて、答えがそれに依る（キーを差し替えると `p3-88` の答えが変わる）。ほかの事実の主張（3.1.0 の参照ファイルの SHA-256、6 つの既存のファイルのバイト、T の 72 本、R を広げたときの 30 本、3.0.6 の 6204 本、pyarrow の 9 本）は全て実行で再現された。モデルを計算の前に外す試作と、5 つの陰性対照も確かめた。
+- **対応**: 実測の誤った記述を直し、対応方針 6 に、生成を凍結した写しに移すことを足した（Y・R・S・T の全てに及ぶ）。受け入れ 1 に凍結した生成での作り直しを、1a に import を拒否した状態での生成を足し、対応方針 8 の記録に凍結した写しの SHA-256 を足した。凍結の試作で既存の 3 つの一覧のバイトが一致することを確かめた（上の実測）。
+
+### Proposal レビュー round 2（2026-10-23）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`0688fe5`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`0688fe5`）は APPROVE で、指摘は無かった。run `h0144-proposal-review` はこれで終わり、この Proposal を Accepted とした。
+
+### 実装の記録（2026-10-23。1 つ目の PR: 仕組み）
+
+- **選び方**（`tests/test_features/_h0138_oracle.py`）: `resolve()` が、モード（`oracle_mode`。`GITHUB_ACTIONS=true` と `GITHUB_JOB=quality-latest-deps` のときだけ受け付け、ほかの値や場所では `ValueError`）、ファイルの版の一覧（`oracle_versions`）、選び方（`select_version`。`packaging.version.Version` で同じ epoch・major・minor の一番新しい古い版）から、比べる版を決める。誤りは `Resolved.error` に入り、テスト `test_the_oracle_mode_is_allowed_here` が落ちる。参照ファイルと一覧は、選んだ版のものだけを読む。
+- **モデルの case**: `compare_models` を、answers の子プロセスを走らせる前に決め、環境変数 `LIZYML_H0138_MODELS` で子プロセスに渡す。`0` なら子プロセスはモデルを 1 つも計算しない（`models_computed` で数え、`test_models_are_computed_only_when_compared` が確かめる）。厳密なモードでは今と同じく、版が違えば落ちる。
+- **選んだ版での検査**: `meta` の pandas の版、一覧の `meta` の版、`S_NAMED[選んだ版]`、Y・R・S・T の閉じた和（空の規則は件数に書かない）。
+- **表示**: `tests/test_features/conftest.py` の `pytest_terminal_summary` が、`H-0138 oracle:` で始まる 1 行（pandas・numpy・lightgbm・pyarrow の版、モード、選んだ版、厳密か、比べた case の数、モデルを比べたか）を出す。
+- **CI**: `quality-latest-deps` のジョブの `Test (pytest)` の step にだけ `LIZYML_H0138_ORACLE_MODE: latest-same-minor` を置いた。これを確かめるテストも足した（ほかのジョブ・ワークフローの全体に値が無いこと）。
+- **生成の記録**: `docs/audits/2026-10-h0138/oracle/provenance.json`（`probes/write_provenance.py` で書く）。`tests/test_features/test_h0144_oracle_provenance.py` が、ファイルと記録の一致（過不足、SHA-256、`meta` の版）、凍結した写しの SHA-256、生成のスクリプトが凍結した写しだけを読み、ほかの `lizyml` を拒否し、先に `lizyml` を import していれば落ちることを確かめる。
+- **受け入れの測定**（`docs/audits/2026-10-i389/probes/`）:
+  - 受け入れ 1: 3 つの参照ファイルを `b297de4` から各 2 回、3 つの一覧を凍結した生成で作り直し、全てバイトが一致した（`regen_existing.*`。環境は pandas 3.0.1: Python 3.12.3・numpy 2.4.2・lightgbm 4.6.0・pyarrow 23.0.1、2.3.3: 3.10.22・2.2.6・4.6.0・23.0.1、2.0.0: 3.10.22・1.24.0・4.4.0・23.0.1）。
+  - 受け入れ 2・5・7（`accept_latest.*`）: pandas 3.0.6（numpy 2.5.4・lightgbm 4.7.0・pyarrow 26.0.0）で、latest-deps のモードでは 3.0.1 と比べ 6210 本が通り、モデルの case 74 本と版のテストが理由付きで skip され、計算したモデルは 0 だった。同じ環境で、モードが無いとき・ジョブの外でモードがあるときは落ちた。pandas 3.1.0 では候補が無く落ちた（3.0.1 と黙って比べない）。pandas 2.3.3・2.0.0 の厳密なレーンは全て通った（6510・6539 本）。
+  - 受け入れ 3・4: `tests/test_features/test_h0144_oracle_selection.py`（モードの誤用 7 通り、選び方 15 通り、読めない版、ファイルの版の一覧、版を混ぜないこと、モデルの skip の条件、CI の設定）。
+  - 受け入れ 6（`negative_controls.*`）: pandas 3.0.6 の latest-deps のモードで、写した 3.0.1 の参照ファイルのカテゴリ・最頻値・符号・置き換えの列・一覧の外の時刻の case をそれぞれ変えると、対応するテストが 5 つとも skip でなく落ちた。
+- **文書**: BLUEPRINT §18、CONTRIBUTING.md（latest-deps のレーンと、新しい minor を取り込む手順）、CHANGELOG（Unreleased）、`docs/proposal_dispositions.toml`（specified）、H-0138 の受け入れ 2 と H-0139 の対応方針 7 の注記。
+- **欠陥の分類**（#389）: DC3（版ごとの参照ファイルが、上流の新しい版に追いつかない）。直したのは、追いつく手順と、追いつくまでの比べ方である。
+
+### 実装レビュー round 1（2026-10-23）
+
+- **結果**: Codex の run `h0144-impl-review` の round 1（`414c6e1`）は CHANGES_REQUESTED で、major 1 件・minor 1 件だった。
+  1. （major）CONTRIBUTING.md の手順で新しい版のファイルを足すと、`test_the_shipped_oracles_each_have_their_overlay` が 3 つの版の固定の一覧と比べていて落ちる（手順が完結しない）。
+  2. （minor）表示の 1 行に、選んだ参照ファイルのパスが無い（対応方針 4）。
+- **対応**: 選び方の例の版の一覧（`EXAMPLE`）を、出荷するファイルの一覧から切り離した。出荷するファイルのテストは、参照ファイルと一覧が版ごとに対になっていることと、既存の 3 つの版があることだけを確かめる。全ての参照ファイルの版に `S_NAMED` の名前があることを確かめるテストを足した（手順の 3）。表示の 1 行に `oracle_path` を足した。
+- **CI**（PR #399、`414c6e1`）: 必須のジョブは全て通った。latest-deps のジョブは pandas 3.1.0 を解決し、表示の 1 行に `mode=latest-same-minor` が出て（`GITHUB_JOB` の検査が本物の CI で通った）、同じ minor の参照ファイルが無いので参照のテスト 5 本だけで落ちた（受け入れ 7・8）。
+
+### 実装レビュー round 2（2026-10-24）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`b1c248f`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`b1c248f`）は APPROVE で、指摘は無かった。run `h0144-impl-review` はこれで終わる。この実行の方針により、APPROVE と CI 緑で 1 つ目の PR をマージし、2 つ目の PR（pandas 3.1.0 の取り込み）に進む。

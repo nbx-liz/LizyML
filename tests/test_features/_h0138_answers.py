@@ -4,7 +4,9 @@ Run as ``python -m tests.test_features._h0138_answers`` under
 ``PYTHONHASHSEED=0``, the seed the oracle was made with: today's order of
 some mixed columns (a tuple beside a frozenset) follows string hashing, so
 the comparison is made under the same seed. Prints one JSON object
-``{"cases": {id: answer}, "temporal_cases": {id: outcome}}``.
+``{"cases": {id: answer}, "temporal_cases": {id: outcome}, "models": {id:
+answer}, "models_computed": n}``; with ``LIZYML_H0138_MODELS=0`` no model is
+computed (H-0144).
 """
 
 from __future__ import annotations
@@ -152,15 +154,21 @@ def main() -> None:
         train = pd.Series([*values, *values, "x"], dtype=object)
         temporal[case["id"]] = temporal_answer(train, values)
     models: dict[str, Any] = {}
+    # H-0144: the test module decides before this runs whether models count.
+    compute_models = os.environ.get(h.MODELS_ENV, "1") == "1"
     for case in oracle["cases"]:
-        if "model" in case:
+        if compute_models and "model" in case:
             try:
                 models[case["id"]] = model_answer(_model_train(case["id"]))
             except Exception as exc:  # noqa: BLE001 -- a raised answer is a mismatch
                 models[case["id"]] = {"raised": f"{type(exc).__name__}: {exc}"[:300]}
-    json.dump(
-        {"cases": answers, "temporal_cases": temporal, "models": models}, sys.stdout
-    )
+    out = {
+        "cases": answers,
+        "temporal_cases": temporal,
+        "models": models,
+        "models_computed": len(models),
+    }
+    json.dump(out, sys.stdout)
 
 
 if __name__ == "__main__":

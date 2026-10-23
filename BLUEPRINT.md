@@ -2194,6 +2194,7 @@ LightGBM/XGBoost が `all_x_types` / `all_y_types` で実施しているコン�
 - 複数 Python バージョン（最低限 `requires-python` の下限と最新安定版）でテストを実行する。
 - 依存の下限バージョンでのテストを CI に含める（H-0126）。`Quality (lowest-direct deps)` は lock を使わずに、本体と全 extras を `uv pip install --resolution lowest-direct` で宣言した下限の版で入れ、`scripts/check_dependency_floors.py` で入った版が全て下限と等しいことを確かめて（版の表を表示する）から、slow を除くスイートを流す。`quality` の各レーンは依存の導入の前に `uv lock --check` で lock と `pyproject.toml` の整合を確かめる。`[dependency-groups].dev` は extras の下限を写さず `lizyml[tuning,explain,plots,calibration]` で参照する。
 - 依存の上限方向（forward-compat）を検証する non-blocking lane を CI に含める（`uv sync --upgrade`）。上流の破壊的リリース（pandas / numpy / lightgbm 等）を早期検知する。ランタイム依存は下限のみ宣言し上限 cap は付けない方針とする（詳細は CONTRIBUTING.md）。
+  - H-0138 の参照ファイル（pandas の版ごと）は、各レーンがその pandas の版のファイルと比べ、無ければ落ちる。この lane（`quality-latest-deps` のジョブ）だけは、環境変数 `LIZYML_H0138_ORACLE_MODE=latest-same-minor` で、同じ minor の一番近い古い版のファイルと H-0139 の一覧と比べ、numpy・lightgbm がファイルと違えばモデルの case を計算の前に skip する（H-0144）。値はそのジョブの外では受け付けない。新しい pandas の minor の取り込みは CONTRIBUTING.md の手順で行い、生成の記録は `docs/audits/2026-10-h0138/oracle/provenance.json` に置く。
 - OS portability smoke（ubuntu / windows / macos）を CI に含め、path / newline 等の移植性問題を検知する（最低限の file I/O 系サブセット、単一 Python で可）。
 - `develop` および `main` ブランチへの PR で CI を実行する。`develop` PR では slow テストを除外し、`main` PR では全テストを実行する（H-0043）。
 
