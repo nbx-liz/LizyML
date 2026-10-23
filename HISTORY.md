@@ -14786,6 +14786,7 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
     - 厳密に `zoneinfo.ZoneInfo` で、`zoneinfo.ZoneInfo(key) is tzinfo` が真のもの（キャッシュされた instance）
     - `ZoneInfo.no_cache` の instance と pytz の zone は外である。理由: Python は `tzinfo` の instance が違う 2 つの `datetime` を UTC で比べ、夏時間の重なりの時刻を常に「等しくない」とする（PEP 495）。そのため、復元した値が学習したカテゴリと一致しなくなる。`Timestamp` は時刻の値で比べるので、instance が違っても等しい。hash も、`ZoneInfo` の `Timestamp` では instance が違っても等しい（`probes/tz_fold_probe.out`、fold 0 と 1）。ただし pytz の zone の `Timestamp` は、`ZoneInfo` で戻すと fold 1 で hash が違うので、P2 で時差として書く（`probes/pytz_fold_probe.out`）。
   - 判定は型を最初に見る。V の外の型の値のメソッドは呼ばない。一覧の型のメソッドは、標準ライブラリ・numpy・pandas のものだけが走る。この判定の境界は「値に対して閉じる」ことであり、プロセスの中で numpy や pandas を差し替えた呼び出し元への備えではない（H-0095 の宣言と同じ）。
+  - **注記（H-0145）**: この一覧の型だけからなる値でも、`frozenset` を持ち、P2 の符号化で書いて読み戻すと書いた形に戻らない値（要素が潰れる、組み直しの比較が例外を出す。実行中の NumPy で判定）は V の外になった。
 - **P2. 符号化と復号**（P1 のモジュールにだけ置く）:
   - 素の値（`str`・`int`・`float`・`bool` と、`.item()` がそれらになる numpy のスカラー）は、今と同じ JSON の値で書く（numpy は `.item()` で書く）。それ以外は印つきの JSON の object で書く。
   - 印つきの形は次の表で固定する。各 object は `"$lizyml"` と表の欄だけを持ち、欄の過不足は復号で拒否する。整数は JSON の整数、浮動小数は素の float と同じ規則（`-0.0` と ±inf を含む）で書く:
@@ -16154,6 +16155,7 @@ Codex の批評（run `v021-category-critique`）の推奨により、#378〜#38
    - `str`・`np.str_`: `("string", str(value))`。`bytes`・`np.bytes_`: `("bytes", bytes(value))`。
    - `tuple`: `("tuple", 要素のキーの tuple)`。`frozenset`: `("frozenset", 要素のキーの frozenset)`。
    - 時刻の型の値（入れ子の中も含む）を持つ列と、V の外の値を持つ列は、キーを使わず今の経路を通る（決定 4）。
+     - **注記（H-0145）**: 書いて読み戻すと書いた形に戻らない frozenset（実行中の NumPy で判定）も V の外になり、この経路を通る。predict で来たその値は、同じキーの V の中の値を学習していても unseen になる。
 2. **今正しく動く列を変えない条件（pandas に忠実かどうか）**: カテゴリとして扱う列ごとに、dtype によらず（object、pandas の文字列、宣言した category、明示した数値や bool の列）、pandas の cast を実際に行い、その結果がキーに忠実かを確かめる。dtype で判定を飛ばさない。
    - 忠実とは、次の全てを満たすことである。カテゴリのキーが一意である。欠損でない全ての行に 0 以上の符号が付き、その符号のカテゴリのキーが行の値のキーと同じである。欠損の行の符号は -1 である。宣言したカテゴリは同じ順で残る。
    - 忠実なら、今の結果（カテゴリ、その順、代表の値、最頻値 `series.mode().iloc[0]`、置き換えの判定、符号）をそのまま使う。
@@ -17369,3 +17371,17 @@ NumPy 1.24（`Quality (lowest-direct deps)` のレーン、pandas 2.0.0）では
 ### 確認のレビュー（2026-10-24）
 
 - **結果**: Codex の 1 round の確認の run `h0145-proposal-confirm`（`24204e1`）は APPROVE で、指摘は無かった。この Proposal を Accepted とした。
+
+### 実装の記録（2026-10-24）
+
+- **コード**: `probes/prototype.diff` をそのまま当てた（`lizyml/core/category_values.py` の `_holds_frozenset`・`_round_trip_refusal`・`refusal`、`lizyml/codegen/templates.py` の生成 `_holds_frozenset`・`_encode_value`・`_encode_raw`）。試作との違いは 2 つ: `_round_trip_refusal` の分岐を 1 つの返り値にまとめた（答えは同じ）。生成 `_decode_value` が、組み直しの比較の `TypeError`・`OverflowError` を `ValueError` にする（生成コードの復号は形の外れたものを `ValueError` にする約束。NumPy 2.x の大きな `np.uint64` の組で `OverflowError` が漏れていた。正の `decode` は既に `DESERIALIZATION_FAILED` にしている）。
+- **テスト**:
+  - `tests/test_core/test_h0145_round_trip.py`（受け入れ 1〜3）: 各 NumPy で 2 つの値（NumPy 1.24 の組、NumPy 2.x の大きな `np.uint64` の組）の少なくとも 1 つが拒否されること（どのレーンでも規則が走る）、同じキーの V の中の値が V に残ること、行列と `SAMPLES` の組（1 万通り以上）で拒否が独立した基準（この規則を外した公開の往復）とちょうど一致すること、生成コードが同じ答えを返すこと、`encode`・codegen の書き手・`decode`・識別キーの例外。
+  - `tests/test_features/test_h0145_fit_and_predict.py`（受け入れ 3・4・6a・6b）: fit は警告 1 回で戻り、識別の対象から外れ、`Model.export` と `export_code` は何も書かずに拒否する。predict で初めて来る値は 3 つの方針で unseen、同じキーの値を学習していても unseen。
+  - `tests/test_codegen/test_h0145_generated_writer.py`（受け入れ 3a）: 生成 `train.py` の `fit_pipeline` は `pipeline_state.json` を書く前に `ValueError` を出す。陰性対照: 書き手を検査の無い `_encode_raw` にすると、ファイルを書き、生成 `_load_pipeline` が読めない。
+  - 3 つの NumPy（1.24.0・2.2.6・2.4.2）で全て通った。
+- **受け入れ 6b の NumPy 2.x の形**（実装中に測った。`probes/twin_column_2x.*`）: 同じキーの V の中の値と一緒に持つ列は、どの NumPy でも識別の対象外になり pandas の経路を通る（管理者の判断の 1）。NumPy 1.24 では pandas が 2 つを別のカテゴリにし（hash が違う）、export は拒否される（6b のとおり）。NumPy 2.x の大きな `np.uint64` の組では hash が等しく、pandas の cast がこの値を同じキーの値に合わせるので、状態は V の中の値だけを持ち、警告は無く、export できる（pandas の経路では pandas の結果に従う、の範囲）。テストは NumPy ごとに測った振る舞いを固定した。
+- **census**（受け入れ 5。`probes/census_impl_*`）: slow を含むフルスイートで、拒否が働いた呼び出しは H-0145 の 3 つのテストのファイルにだけ現れた（lock の NumPy 2.4.2 で 136/87964、下限の NumPy 1.24.0 で 1155/89567）。ほかの失敗は既知の環境のものだけだった（worktree に写した版の情報による `tests/test_e2e/test_version.py`、下限の手元の環境の `beta` の校正 2 本）。lock 23787 本、下限 24103 本が通った。
+- **計算の量**: 判定は frozenset を持つ値にだけ、値ごとに内部の符号化・復号・符号化を 1 回行う（批評の測定で 1 値あたり十数 µs）。frozenset のカテゴリはまれなので、結果を覚えておく仕組みは足さない。
+- **文書**: BLUEPRINT §15.3（V の定義の frozenset の規則、同一性の段の注記）と §16（生成コードの書き手）、CHANGELOG（Unreleased の Fixed）、`docs/migration.md`（Unreleased）、H-0133 の P1 と H-0138 の注記、`docs/proposal_dispositions.toml`（specified）。
+- **欠陥の分類**（#391）: DC1（V が「保存できる値」と約束しながら、保存で読み戻せない値を受け付けていた）。

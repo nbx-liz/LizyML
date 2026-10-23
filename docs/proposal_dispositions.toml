@@ -588,8 +588,8 @@ disposition = "specified"
 anchors = ["LIZYML_H0138_ORACLE_MODE", "latest-same-minor", "quality-latest-deps"]
 
 [proposals."H-0145"]
-disposition = "pending"
-reason = "Proposed; the implementation PR updates BLUEPRINT section 15.3 and this row."
+disposition = "specified"
+anchors = ["_round_trip_refusal", "_encode_raw", "_decode_raw"]
 
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
