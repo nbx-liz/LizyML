@@ -5,7 +5,7 @@ release from v0.5.0 onward.
 
 ---
 
-## Unreleased
+## v0.21.1
 
 ### A frozenset category value that does not read back as written is not saveable (H-0145)
 
