@@ -40,6 +40,19 @@
       "library_commit": "b297de42c1146cb6e7132366cdd9f03e4400e6bb",
       "sha256": "62d88cf786d59369d979366a38510c1302794bb98c88d463ebbb12b4c5324816"
     },
+    "h0138_oracle_pandas-3.1.0.json.gz": {
+      "command": "PYTHONHASHSEED=0 PYTHONPATH=.:docs/audits/2026-10-h0138/firing python -B docs/audits/2026-10-h0138/oracle/make_oracle.py (in a b297de4 worktree with develop's docs/audits/2026-10-h0138/{oracle,firing})",
+      "environment": {
+        "lightgbm": "4.7.0",
+        "numpy": "2.5.4",
+        "pandas": "3.1.0",
+        "pyarrow": "26.0.0",
+        "python": "3.12.3"
+      },
+      "generator": "docs/audits/2026-10-h0138/oracle/make_oracle.py",
+      "library_commit": "b297de42c1146cb6e7132366cdd9f03e4400e6bb",
+      "sha256": "bc71c27de4ef992c75fdb79119939f9e360d23cb464e75cfffbd208f66cd95a2"
+    },
     "h0139_overlay_pandas-2.0.0.json.gz": {
       "command": "PYTHONHASHSEED=0 PYTHONPATH=.:docs/audits/2026-10-h0139/firing python -B docs/audits/2026-10-h0139/oracle/make_overlay.py",
       "environment": {
@@ -78,6 +91,19 @@
       "generator": "docs/audits/2026-10-h0139/oracle/make_overlay.py",
       "library_commit": "frozen_core at f0256208195c061b55441a049f8fdcd8f6abc9aa",
       "sha256": "1cc072d9853ad7b5bfea26a8c74341b7fa5bb21f2e173c86045d00fec9e758c4"
+    },
+    "h0139_overlay_pandas-3.1.0.json.gz": {
+      "command": "PYTHONHASHSEED=0 PYTHONPATH=.:docs/audits/2026-10-h0139/firing python -B docs/audits/2026-10-h0139/oracle/make_overlay.py",
+      "environment": {
+        "lightgbm": "4.7.0",
+        "numpy": "2.5.4",
+        "pandas": "3.1.0",
+        "pyarrow": "26.0.0",
+        "python": "3.12.3"
+      },
+      "generator": "docs/audits/2026-10-h0139/oracle/make_overlay.py",
+      "library_commit": "frozen_core at f0256208195c061b55441a049f8fdcd8f6abc9aa",
+      "sha256": "bf2da959e5076d257b0933f43d9d11718fe279fcca179499f3e657203d4fee2e"
     }
   },
   "frozen_core": {

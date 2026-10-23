@@ -144,6 +144,8 @@ CHANGED = {c["id"]: c for c in OVERLAY["changes"]} if OVERLAY is not None else {
 #: H-0139 対応方針 7: the S set named per pandas version (2.0.0 decided by
 #: the generator from the same two rules; HISTORY.md ``## H-0139``).
 S_NAMED = {
+    # H-0144: printed by make_overlay.py when pandas 3.1.0 was onboarded.
+    "3.1.0": ["p22-23", "p22-36", "p23-35", "p24-38", "p60-103"],
     "3.0.1": ["p22-23", "p22-36", "p23-35", "p24-38", "p60-103"],
     "2.3.3": [
         "p22-23",
