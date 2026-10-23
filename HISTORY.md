@@ -17250,3 +17250,80 @@ H-0138 の参照ファイル（`tests/test_features/data/h0138_oracle_pandas-{3.
   3. `S_NAMED["3.1.0"]` を生成が出した `p22-23`・`p22-36`・`p23-35`・`p24-38`・`p60-103` にした。
   4. `provenance.json` を 4 つの版（8 つのファイル）で書き直した。
 - **受け入れ 9**（`probes/accept_310.*`）: pandas 3.1.0 の環境の latest-deps のモードで、slow を含むフルスイートが通った（23124 本、skip 252）。参照のテストは 3.1.0 のファイルと厳密に比べ（`exact=True`）、モデルの case も比べた（numpy と lightgbm がファイルと同じ）。lock の環境のフルスイートも通った（23126 本）。
+
+## H-0145: 書いて読み戻すと要素が減る frozenset を V から外す ― 実行中の NumPy で判定し、identity の対象からも外す（#391）
+
+- **ステータス**: Proposed
+- **起票日**: 2026-10-24
+- **関連**: H-0133（値の集合 V と符号化）、H-0136（保存の後の振る舞いの検査）、H-0138（カテゴリの値の同一性。V の外の値を持つ列は pandas の経路）、H-0139（時刻の値のキー。年・月の単位の拒否）、#391、registry のカード D-20261022-014・D-20261022-016（管理者の判断）
+- **スコープ**:
+  - `lizyml/core/category_values.py` の `refusal`（V の判定）と、その写しである生成コードの `_encode_value`・`_in_v`（`codegen/templates.py`・`codegen/identity_template.py`）
+  - 範囲の外: 符号化の形式（書き方は変えない）、V のほかの規則、H-0138・H-0139 のキーそのもの、カテゴリの一覧（入れ物でない並び）の扱い、#389
+
+### 目的（課題）
+
+NumPy 1.24（`Quality (lowest-direct deps)` のレーン、pandas 2.0.0）では、カテゴリの値 `frozenset({np.uint64(4), np.timedelta64(4, "s")})` は V の中にある（`refusal` が `None`）が、H-0133 の符号化で往復できない。`encode` は numpy のスカラーを `.item()` で書くので `np.uint64(4)` は JSON の `4` になり、NumPy 1.24 では `4 == np.timedelta64(4, "s")` で hash も等しいので、読み戻した frozenset は 1 つの要素に潰れ、`decode` は正規の形でないとして `DESERIALIZATION_FAILED` を出す。生成コードの `_decode_value`（`codegen/templates.py`）も `ValueError` を出す。この値を持つ列のモデルは、`Model.fit` の最後の保存の後の振る舞いの検査（`warn_saved_state_changes`）で、結果を確定した後に `DESERIALIZATION_FAILED` を出し、`Model.export` と `export_code` も同じ例外で止まる（V が「保存できる値の集合」なのに保存できない。DC1 の形）。
+
+### 実測（2026-10-22〜24、develop `f002e8c` の上）
+
+測定のスクリプトと出力は `docs/audits/2026-10-i391/` にある。批評は Codex の run `i391-critique`（`critique-i391-r1.json`。1 round、CHANGES_REQUESTED。issue の本文の 2 つの事実の誤りを訂正し、issue にコメントした）。
+
+- **届く範囲**（批評の測定）: NumPy 1.24 では、`np.uint64` と、単位がどれでも `np.timedelta64` の組が潰れる（ほかの NumPy の整数型と Python の `int`・`bool` は、set を作る時点で既に 1 つになる）。NumPy 2.x では、`np.uint64` と月・年の単位の `np.timedelta64` の組が潰れる（秒などの固定の単位は潰れない）。浮動小数点・複素数・文字列・bytes・`Decimal`、時刻どうしの組は潰れなかった（NumPy 1.24 で 10296 組、2.2.6 で 8385 組、時刻どうし 5778 組）。構造の要素でも潰れる: `{(uint64(4),), (timedelta64(4,'s'),)}` と、それぞれを要素 1 つの frozenset にした組は 2 → 1、tuple の中の frozenset の中の潰れる組も読み戻せない。tuple そのもの（`(uint64(4), timedelta64(4,'s'))`）は位置を保つので潰れない。
+- **到達できなさ**（`probes/reachability.*`、NumPy 1.24.0、pandas 2.0.0。今の木は `98f6cc0` で、develop `b35afee` の squash の前の同じ内容）: `[v, 'x']` の列の fit は `DESERIALIZATION_FAILED` を出し、`Model.export` と `export_code` も同じ例外を出して何も書かなかった（批評の測定を自分で確かめた）。
+- **predict で初めて来る値**（`probes/predict_time.*`、NumPy 1.24、pandas 2.0.0）: 普通の値（`['a','b']`、`[np.uint64(5),'a']`、`[(1,), frozenset({2,3})]`）で fit した keyed の列（`identity_columns` に入る）に、predict でこの値が来ると、今の木（`98f6cc0`。`b35afee` と同じ内容）でも試作でも unseen として扱われ（`mode`・`nan` は今と同じ予測、`error` は `DATA_SCHEMA_INVALID` の unseen）、振る舞いは変わらない。
+- **カテゴリの一覧**（入れ物でない並び）: `[uint64(4), timedelta64(4,'s'), 'x']` は JSON に写しても長さ 3 を保つ。この Proposal は一覧を変えない（H-0143 の判定もそのまま）。
+- **試作**（`probes/prototype.diff`。`lizyml/core/category_values.py` に `_collapse_refusal`。実装の commit までは木に入れない）: 入れ物の要素を先に判定し（下から順に）、要素が 2 つ以上の frozenset について、各要素を内部の符号化と復号（`_decode(_encode(item))`。`refusal` を呼び直さない）で写した集合の要素数が減るか、写せないときに拒否する。NumPy 1.24 では組・`'x'` を足した組・入れ子・構造の要素・月の単位を、NumPy 2.4.2 では月の単位だけを拒否し、批評の測定と一致した。
+- **firing rate**（新しい拒否が働く割合）:
+
+  Firing rate: 0/84481 of the collapse checks made in the pytest process of the full suite with slow tests on the lock (NumPy 2.4.2, pandas 3.0.1) and lowest-direct (NumPy 1.24.0, pandas 2.0.0) environments (census plugin `docs/audits/2026-10-i391/probes/collapse_census.py` wrapping the prototype at develop `f002e8c`; 0/41111 and 0/43370 per lane; positive control 1/1; subprocesses such as the H-0138 answers and notebook kernels are not counted)
+
+  - census の仕組みが数えることは、#391 の組を拒否するだけのテストで確かめた（1 回の判定、1 回の拒否。`probes/census_positive_control.out`）。
+  - スイートの普段の入力では、この拒否は働かない。働くのは #391 の形の値だけで、批評が `SAMPLES` の全ての組を frozenset にして数えると、NumPy 1.24 で 13/6216（`np.uint64(4)` と 13 の単位の `np.timedelta64`）、2.2.6 で 1/6216（月の単位）だった。普段は働かない安全の拒否なので、受け入れ基準で明示的に値を作って確かめる（DC6 の「働かない仕組み」ではなく、間違った入力を止める門である）。
+  - census の環境では、フルスイートは試作と関係なく既知の失敗だけだった（lock: `tests/test_e2e/test_version.py`、下限: この手元の環境の `beta` の校正 2 本。試作の無い木でも同じく落ちる。CI の下限のレーンは通る）。
+
+### 管理者の判断（2026-10-22。カード D-20261022-014・D-20261022-016）
+
+- この値を V から外す（書き方は変えない。「NumPy の整数に型の印を付ける」案と「文書に書くだけ」の案は採らない）。
+- 批評の後: 保存だけでなく identity の対象からも外す（批評の推奨の「保存だけの制限」は採らない）。受け入れた結果は次の閉じた一覧で、H-0138 の「カテゴリの値の同一性」の段（V の外の値を持つ列は pandas の経路）に注記する。
+  1. この値を行または宣言に持つ列は、fit で identity の対象外になり、pandas の経路（今の cast・その結果・その例外）を通る。
+  2. その経路で pandas が例外を出す列（例 `[v, Decimal(1), np.int8(1), 'x']`）は、fit で pandas の例外を出す。
+  3. この値をカテゴリに持つ keyed の状態の predict は、防御の `TypeError`（`no category identity key for a value outside V`）を出す（ただし対応方針 4 のとおり、そのような状態は作れない）。
+  4. predict で初めて来るこの値は、今と同じく unseen（上の実測）。
+- 判定は実行中の NumPy で行う（同じ値でも NumPy 1.24 では外、2.x では中になりうる）。
+
+### 対応方針（提案）
+
+1. **V の判定**: `refusal` は、入れ物の要素を全て判定した後、要素が 2 つ以上の `frozenset` について、各要素を内部の符号化と復号で写し、写した値の集合の要素数が元より少なければ「書いて読み戻すと要素が等しくなる frozenset」、写すときに例外が出れば「要素を読み戻せない frozenset」として拒否する。下の入れ物が先に判定されるので、入れ子の潰れは内側で拒否される。外側の frozenset で要素どうし（tuple や frozenset の要素）が潰れるときも拒否する。tuple は位置を保つので判定しない。
+2. **生成コード**: 生成コードの `_encode_value` の frozenset の枝で同じ判定を行い、`ValueError` を出す。判定の写しは、生成コードに既にある検査の無い復号 `_decode_raw`（`_decode_value` はそれを呼んでから、`_encode_value` で書き直して正規の形を確かめる）で各要素を写す。`_decode_value` を呼ぶと、その検査が `_encode_value` を呼び直して入れ子で計算が増えるので、正の `_decode(_encode(item))` と同じく検査の無い経路を使う。`_in_v`・`_identity_key`・`_identity_eligible`・`_decode_value` の正規の形の検査は `_encode_value` を通るので、正と同じ答えになる（H-0138・H-0133 の写しのテストで、`SAMPLES` の組を frozenset にした値と下の行列を加えて確かめる）。既に書いたプロジェクトは自分の写しを持つので変わらない。
+3. **V の外になった列の振る舞い**（今ある規則のまま）: fit の警告（V の外の値を持つ列ごとに `UserWarning`）、identity の対象外（`identity_eligible` が偽になり、今までの pandas の cast・その結果・その例外を使う。H-0138）、3 つの出口は何も書く前に `SERIALIZATION_FAILED`（context `column` / `value` / `type` / `state`）。`encode` は `SERIALIZATION_FAILED`（context `type` / `reason`）、`decode` が読み戻した値がこの理由で V の外なら `DESERIALIZATION_FAILED`（今も正規の形の検査で同じ例外）。
+4. **例外の扱い**: 批評が測った `TypeError` は 2 つとも、V の外の値に対する今の規則の振る舞いである。fit の pandas の経路の例外（`[v, Decimal(1), np.int8(1), 'x']` の列）は H-0138 が「V の外の値を持つ列は今の cast、その結果と例外をそのまま」と決めた振る舞いで、keyed の状態の predict の `TypeError`（`no category identity key for a value outside V`）は、V の外の値を持つ keyed の状態が無い前提の防御である。この Proposal はどちらも `LizyMLError` に変えない。
+   - keyed の状態がこの値を持つ経路は、実際には無い: NumPy 1.24 では、今の版の `fit` がこの値を持つ列で最後に `DESERIALIZATION_FAILED` を出し、3 つの出口も拒否するので、保存した成果物は無い。NumPy 2.x では秒などの組は V の中のまま、月・年の単位の値は H-0139 が fit で拒否する。NumPy 2.x で保存したモデルを NumPy 1.24 で読むことは、joblib が版をまたいで読めない（`numpy._core`）。実装で、この到達できなさを確かめる（受け入れ 6）。
+5. **文書**: BLUEPRINT §15.3 の V の定義（`frozenset` の新しい規則と、実行中の NumPy で判定すること）、カテゴリの値の同一性の段（V の外になった列は pandas の経路）、§16 の値の書き方は変えない。HISTORY の H-0133 と H-0138 に注記、CHANGELOG、`docs/proposal_dispositions.toml`。
+
+### 互換性
+
+- 書き方（符号化の形式）、`format_version`、公開 API は変わらない。
+- NumPy 2.x: V から外れるのは `np.uint64` と月・年の単位の `np.timedelta64` を同じ frozenset に持つ値だけで、この単位の値を持つ列は H-0139 から fit で拒否されているので、fit の振る舞いは変わらない。
+- NumPy 1.24: この値を持つ列のモデルは、今は fit の最後に `DESERIALIZATION_FAILED` を出す。変更の後は、その列は pandas の経路で fit し、fit は V の外の値の警告を出して戻り、3 つの出口は `SERIALIZATION_FAILED` で拒否する（批評の測定では、`[v, 'x']` の列の予測は変わらず、`identity_columns` からその列が外れる）。pandas の経路で例外を出す列（上の 4）は、fit で pandas の例外を出す。
+- 保存した成果物と、既に書いたプロジェクトは変わらない（上の 4 のとおり、この値を持つものは無い）。
+
+### 代替案
+
+- **NumPy の整数に型の印を付けて書く**（値を保つ）: 書き方が変わり、古い LizyML が新しいファイルを読めない。管理者が採らなかった。
+- **文書に書くだけ**: 今も大きな例外で止まるが、V が「保存できる値」という約束を破ったままになる。管理者が採らなかった。
+- **保存だけの制限にする**（identity はそのまま。批評の推奨）: fit と predict は今のまま。管理者は V から外す（identity も）ことを選んだ。
+- **どの NumPy でも同じ答えにする**: 潰れる組を並べた一覧は閉じず、閉じた規則にするには新しい等しさの定義が要る。管理者は実行中の NumPy で判定することを選んだ。
+- **公開の `encode` / `decode` で往復して判定する**: `encode` が `refusal` を呼ぶので再帰し、入れ子で計算が増える（批評の測定で深さ 8 の値に約 17 ms）。内部の符号化と復号を下から使う（約 18 µs）。
+
+### 受け入れ基準
+
+1. **行列**（NumPy 1.24 と 2.x の両方）: 拒否は、写した集合の要素数が減る値と、写せない値のときだけ働く。`np.uint64(4)` と `np.timedelta64(4, u)`（全ての単位、倍数の単位、generic は作れる範囲で）、`'x'` を足した組、3 つの要素、両方の挿入の順、構造の要素（tuple と frozenset）、tuple の中の frozenset の中、深さ 8 の境界、月・年の単位と 0 の値。対照: tuple の組、数値・文字列・bytes の組は受け付ける。期待値は、試作と別の書き方（値を `json.dumps` して `json.loads` し復号した集合の大きさ）で求める。
+2. **正と写しの一致**: `refusal`・`encode`・`decode`・`category_identity_key`・`identity_eligible` と、生成コードの `_encode_value`・`_in_v`・`_identity_key`・`_identity_eligible`・`_decode_value` が、`SAMPLES` の全ての組を frozenset にした値（6216 通り程度）と 1 の行列で、両方の NumPy で同じ答えを返す。
+3. **例外の面**: `encode` の `SERIALIZATION_FAILED`（`type`・`reason`）、codegen の値の書き手の `SERIALIZATION_FAILED`（`where`・`type`・`reason`）、3 つの出口の `SERIALIZATION_FAILED`（`column`・`value`・`type`・`state`。refit・各 fold・最頻値・使われていない宣言のカテゴリ）が何も書く前に出る。読み戻した値が V の外のときの `DESERIALIZATION_FAILED`（`reason`）。生成コードは `ValueError`。
+4. **fit の振る舞い（NumPy 1.24）**: `[v, 'x']` の列の小さなモデルで、fit は V の外の値の警告を 1 回出して戻り（`DESERIALIZATION_FAILED` を出さない）、`identity_columns` にその列が無く、`Model.export` と `export_code` は `SERIALIZATION_FAILED` で拒否する。陰性対照: 変更の前の木では fit が `DESERIALIZATION_FAILED` を出す。
+5. **変わらないもの**: 実装の後の census で、拒否が働く呼び出しがこの Proposal のテストにだけ現れる。H-0138・H-0139 の参照のテスト、H-0136・H-0143 の grid、カテゴリの一覧（入れ物でない並び）の判定がそのまま通る。
+6. **到達できなさ**: 変更の前の木（develop `b35afee`）と NumPy 1.24.0・pandas 2.0.0 の下限の環境で、この値を持つ列の fit が `DESERIALIZATION_FAILED` を出し、3 つの出口が何も書かない（保存した成果物ができない）ことを確かめる。
+6a. **predict で初めて来る値**: keyed の列に predict でこの値が来ると、変更の前と後で同じく unseen として扱われる（`mode`・`nan`・`error` の 3 つの方針。NumPy 1.24）。
+7. **文書**: 対応方針 5 のとおり。
+
+**レビューの停止基準**: 上の受け入れ基準のテストが通ったら止める。次の round に進む理由になるのは、この契約の中の欠陥だけである: 潰れる frozenset を受け付けること、潰れない値を拒否すること、正と生成コードの答えが違うこと、拒否が何かを書いた後に出ること、書き方が変わること。V のほかの規則、H-0138・H-0139 のキー、カテゴリの一覧の扱い、`TypeError` を `LizyMLError` に変えないこと（対応方針 4）、#389 は、次の round に進む理由にならない。

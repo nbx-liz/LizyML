@@ -1,0 +1,7 @@
+lizyml /tmp/claude-1000/wt-389/lizyml/__init__.py numpy 1.24.0 pandas 2.0.0
+refusal(V): None
+fit: DESERIALIZATION_FAILED [DESERIALIZATION_FAILED] A saved category value is malformed: it is not the form encode writes for its value
+Model.export: DESERIALIZATION_FAILED [DESERIALIZATION_FAILED] A saved category value is malformed: it is not the form encode writes for its value
+  written: []
+export_code: DESERIALIZATION_FAILED [DESERIALIZATION_FAILED] A saved category value is malformed: it is not the form encode writes for its value
+  written: []

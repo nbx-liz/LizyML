@@ -1,0 +1,34 @@
+diff --git a/lizyml/core/category_values.py b/lizyml/core/category_values.py
+index 5dd1f8e..9fe9a63 100644
+--- a/lizyml/core/category_values.py
++++ b/lizyml/core/category_values.py
+@@ -176,12 +176,29 @@ def _refusal(value: Any, depth: int) -> str | None:
+             reason = _refusal(item, depth + 1)
+             if reason is not None:
+                 return reason
++        if type(value) is frozenset and len(value) > 1:
++            return _collapse_refusal(value, depth)
+         return None
+     if not _is(value, ADMITTED_TYPES):
+         return f"the type {type(value).__name__}"
+     return _scalar_refusal(value)
+ 
+ 
++def _collapse_refusal(value: frozenset[Any], depth: int) -> str | None:
++    """#391: members the codec writes back as equal values (on this NumPy).
++
++    The members are already in V, so the private codec runs without calling
++    :func:`refusal` again; a nested set was checked first (bottom-up).
++    """
++    try:
++        written = {_decode(_encode(item), depth + 1) for item in value}
++    except (_Malformed, ValueError, TypeError, OverflowError) as exc:
++        return f"a frozenset whose members cannot be read back ({type(exc).__name__})"
++    if len(written) != len(value):
++        return "a frozenset whose members are equal once written"
++    return None
++
++
+ def refusal(value: Any) -> str | None:
+     """``None`` when *value* is in V, else why it is not (no caller code runs)."""
+     return _refusal(value, 0)
