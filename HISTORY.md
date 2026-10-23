@@ -17385,3 +17385,8 @@ NumPy 1.24（`Quality (lowest-direct deps)` のレーン、pandas 2.0.0）では
 - **計算の量**: 判定は frozenset を持つ値にだけ、値ごとに内部の符号化・復号・符号化を 1 回行う（批評の測定で 1 値あたり十数 µs）。frozenset のカテゴリはまれなので、結果を覚えておく仕組みは足さない。
 - **文書**: BLUEPRINT §15.3（V の定義の frozenset の規則、同一性の段の注記）と §16（生成コードの書き手）、CHANGELOG（Unreleased の Fixed）、`docs/migration.md`（Unreleased）、H-0133 の P1 と H-0138 の注記、`docs/proposal_dispositions.toml`（specified）。
 - **欠陥の分類**（#391）: DC1（V が「保存できる値」と約束しながら、保存で読み戻せない値を受け付けていた）。
+
+### 実装レビュー round 1（2026-10-24）
+
+- **結果**: Codex の run `h0145-impl-review` の round 1（`1c93da1`）は APPROVE で、minor 1 件だった。`docs/migration.md` の影響する値の説明が整数と `np.timedelta64` の組に限られていて、NumPy 1.24 の `{np.timedelta64(0, 's'), Decimal('-0')}`（整数を含まない）が漏れていた。
+- **対応**: 説明を往復の規則（書いた値から組み直すと要素が等しくなるか比べられない）で書き、組は例として挙げる形にした。管理者の方針（1 行でも再確認）により、この直しを 1 round の確認で見る。

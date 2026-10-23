@@ -9,11 +9,13 @@ release from v0.5.0 onward.
 
 ### A frozenset category value that does not read back as written is not saveable (H-0145)
 
-No action is needed unless a categorical column holds a `frozenset` mixing a
-large or NumPy integer with a `np.timedelta64` of the same magnitude
-([#391](https://github.com/nbx-liz/LizyML/issues/391)). Whether such a value
-reads back depends on the running NumPy: for example
-`frozenset({np.uint64(4), np.timedelta64(4, "s")})` on NumPy 1.24, or a
+No action is needed unless a categorical column holds a `frozenset` that the
+saved form cannot read back as written: its members become equal, or cannot
+be compared, when the set is rebuilt from the written (plain JSON) values
+([#391](https://github.com/nbx-liz/LizyML/issues/391)). Whether a value reads
+back depends on the running NumPy. Examples:
+`frozenset({np.uint64(4), np.timedelta64(4, "s")})` and
+`frozenset({np.timedelta64(0, "s"), Decimal("-0")})` on NumPy 1.24, or a
 hash-colliding large `np.uint64` beside a fixed-unit `np.timedelta64` on
 NumPy 2.x.
 
