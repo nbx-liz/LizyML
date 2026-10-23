@@ -1,0 +1,9 @@
+lizyml /tmp/claude-1000/wt-391/lizyml/__init__.py numpy 1.24.0 pandas 2.0.0
+refusal(v): None | refusal(safe): None
+same key: True
+fit [safe, x] / predict v, mode : ok [0.316326, 0.317151]
+fit [safe, x] / predict v, nan  : ok [0.316326, 0.317151]
+fit [safe, x] / predict v, error: ok [0.316326, 0.317151]
+fit [safe, safe, v, x]: ok; identity_columns ['c']
+  refit categories: ["frozenset['4', 'datetime.timedelta(seconds=4)']", 'str"\'x\'"']
+  export preflight: passes

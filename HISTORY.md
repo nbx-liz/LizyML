@@ -17271,6 +17271,10 @@ NumPy 1.24（`Quality (lowest-direct deps)` のレーン、pandas 2.0.0）では
 - **届く範囲**（批評の測定）: NumPy 1.24 では、`np.uint64` と、単位がどれでも `np.timedelta64` の組が潰れる（ほかの NumPy の整数型と Python の `int`・`bool` は、set を作る時点で既に 1 つになる）。NumPy 2.x では、`np.uint64` と月・年の単位の `np.timedelta64` の組が潰れる（秒などの固定の単位は潰れない）。浮動小数点・複素数・文字列・bytes・`Decimal`、時刻どうしの組は潰れなかった（NumPy 1.24 で 10296 組、2.2.6 で 8385 組、時刻どうし 5778 組）。構造の要素でも潰れる: `{(uint64(4),), (timedelta64(4,'s'),)}` と、それぞれを要素 1 つの frozenset にした組は 2 → 1、tuple の中の frozenset の中の潰れる組も読み戻せない。tuple そのもの（`(uint64(4), timedelta64(4,'s'))`）は位置を保つので潰れない。
 - **到達できなさ**（`probes/reachability.*`、NumPy 1.24.0、pandas 2.0.0。今の木は `98f6cc0` で、develop `b35afee` の squash の前の同じ内容）: `[v, 'x']` の列の fit は `DESERIALIZATION_FAILED` を出し、`Model.export` と `export_code` も同じ例外を出して何も書かなかった（批評の測定を自分で確かめた）。
 - **predict で初めて来る値**（`probes/predict_time.*`、NumPy 1.24、pandas 2.0.0）: 普通の値（`['a','b']`、`[np.uint64(5),'a']`、`[(1,), frozenset({2,3})]`）で fit した keyed の列（`identity_columns` に入る）に、predict でこの値が来ると、今の木（`98f6cc0`。`b35afee` と同じ内容）でも試作でも unseen として扱われ（`mode`・`nan` は今と同じ予測、`error` は `DATA_SCHEMA_INVALID` の unseen）、振る舞いは変わらない。
+- **同じキーの V の中の値**（Proposal レビュー round 1 が見つけた。`probes/key_equal_safe*.out`・`find_v.out`、NumPy 1.24、pandas 2.0.0）: `safe = frozenset({4, timedelta(seconds=4)})` は往復でき V の中にあり、そのキーはこの値 `v` のキーと等しい。
+  - `[safe, 'x']` で fit した keyed の列は、今は predict で来た `v` を `safe` のカテゴリとして引く（3 つの方針とも予測を返す）。試作では `v` は V の外でキーが無いので unseen になる（`error` は `DATA_SCHEMA_INVALID`、`mode`・`nan` は予測が変わる）。このモデルは今も export できるので、保存したモデルにも及ぶ。
+  - `[safe, safe, v, 'x']` の列は、今は keyed で fit し（`v` はキーで `safe` に合わさり、状態のカテゴリは `safe` と `'x'`）、export の検査も通る。試作では identity の対象外になって pandas の経路を通り、pandas は `v` を別のカテゴリとして持ち、fit は V の外の値の警告を出し、export は `SERIALIZATION_FAILED` で拒否する。
+  - `v` そのものを保持するのは、モデルのメモリの中の学習データ（`Model._X`）だけで、エンコーダの状態は持たない。`Model.export` の任意の `analysis_context.pkl`（学習データの joblib）は `v` を含みうるが、V の判定と符号化の対象でなく、この変更の影響を受けない。
 - **カテゴリの一覧**（入れ物でない並び）: `[uint64(4), timedelta64(4,'s'), 'x']` は JSON に写しても長さ 3 を保つ。この Proposal は一覧を変えない（H-0143 の判定もそのまま）。
 - **試作**（`probes/prototype.diff`。`lizyml/core/category_values.py` に `_collapse_refusal`。実装の commit までは木に入れない）: 入れ物の要素を先に判定し（下から順に）、要素が 2 つ以上の frozenset について、各要素を内部の符号化と復号（`_decode(_encode(item))`。`refusal` を呼び直さない）で写した集合の要素数が減るか、写せないときに拒否する。NumPy 1.24 では組・`'x'` を足した組・入れ子・構造の要素・月の単位を、NumPy 2.4.2 では月の単位だけを拒否し、批評の測定と一致した。
 - **firing rate**（新しい拒否が働く割合）:
@@ -17288,7 +17292,8 @@ NumPy 1.24（`Quality (lowest-direct deps)` のレーン、pandas 2.0.0）では
   1. この値を行または宣言に持つ列は、fit で identity の対象外になり、pandas の経路（今の cast・その結果・その例外）を通る。
   2. その経路で pandas が例外を出す列（例 `[v, Decimal(1), np.int8(1), 'x']`）は、fit で pandas の例外を出す。
   3. この値をカテゴリに持つ keyed の状態の predict は、防御の `TypeError`（`no category identity key for a value outside V`）を出す（ただし対応方針 4 のとおり、そのような状態は作れない）。
-  4. predict で初めて来るこの値は、今と同じく unseen（上の実測）。
+  4. predict で初めて来るこの値は unseen。学習したカテゴリに同じキーの V の中の値（例 `frozenset({4, timedelta(seconds=4)})`）があるときも unseen で、今はそのカテゴリとして引くので、予測が変わる（`error` では例外）。保存したモデルにも及ぶ（Proposal レビュー round 1 の後、2026-10-24 に管理者が「unseen にする」を選んだ。カード D-20261024-001）。
+  5. 1 により、この値と同じキーの V の中の値を一緒に持つ列（今は keyed でこの値を合わせ、export できる）も pandas の経路になり、この値を別のカテゴリとして持ち、export は拒否される。
 - 判定は実行中の NumPy で行う（同じ値でも NumPy 1.24 では外、2.x では中になりうる）。
 
 ### 対応方針（提案）
@@ -17297,15 +17302,16 @@ NumPy 1.24（`Quality (lowest-direct deps)` のレーン、pandas 2.0.0）では
 2. **生成コード**: 生成コードの `_encode_value` の frozenset の枝で同じ判定を行い、`ValueError` を出す。判定の写しは、生成コードに既にある検査の無い復号 `_decode_raw`（`_decode_value` はそれを呼んでから、`_encode_value` で書き直して正規の形を確かめる）で各要素を写す。`_decode_value` を呼ぶと、その検査が `_encode_value` を呼び直して入れ子で計算が増えるので、正の `_decode(_encode(item))` と同じく検査の無い経路を使う。`_in_v`・`_identity_key`・`_identity_eligible`・`_decode_value` の正規の形の検査は `_encode_value` を通るので、正と同じ答えになる（H-0138・H-0133 の写しのテストで、`SAMPLES` の組を frozenset にした値と下の行列を加えて確かめる）。既に書いたプロジェクトは自分の写しを持つので変わらない。
 3. **V の外になった列の振る舞い**（今ある規則のまま）: fit の警告（V の外の値を持つ列ごとに `UserWarning`）、identity の対象外（`identity_eligible` が偽になり、今までの pandas の cast・その結果・その例外を使う。H-0138）、3 つの出口は何も書く前に `SERIALIZATION_FAILED`（context `column` / `value` / `type` / `state`）。`encode` は `SERIALIZATION_FAILED`（context `type` / `reason`）、`decode` が読み戻した値がこの理由で V の外なら `DESERIALIZATION_FAILED`（今も正規の形の検査で同じ例外）。
 4. **例外の扱い**: 批評が測った `TypeError` は 2 つとも、V の外の値に対する今の規則の振る舞いである。fit の pandas の経路の例外（`[v, Decimal(1), np.int8(1), 'x']` の列）は H-0138 が「V の外の値を持つ列は今の cast、その結果と例外をそのまま」と決めた振る舞いで、keyed の状態の predict の `TypeError`（`no category identity key for a value outside V`）は、V の外の値を持つ keyed の状態が無い前提の防御である。この Proposal はどちらも `LizyMLError` に変えない。
-   - keyed の状態がこの値を持つ経路は、実際には無い: NumPy 1.24 では、今の版の `fit` がこの値を持つ列で最後に `DESERIALIZATION_FAILED` を出し、3 つの出口も拒否するので、保存した成果物は無い。NumPy 2.x では秒などの組は V の中のまま、月・年の単位の値は H-0139 が fit で拒否する。NumPy 2.x で保存したモデルを NumPy 1.24 で読むことは、joblib が版をまたいで読めない（`numpy._core`）。実装で、この到達できなさを確かめる（受け入れ 6）。
+   - keyed の状態のカテゴリがこの値を持つ経路は、実際には無い: NumPy 1.24 では、この値が列の最初の代表になる列は、今の版の `fit` が最後に `DESERIALIZATION_FAILED` を出し、3 つの出口も拒否する。同じキーの V の中の値が先にある列では、キーの代表はその値で、状態はこの値を持たない（上の実測）。NumPy 2.x では秒などの組は V の中のまま、月・年の単位の値は H-0139 が fit で拒否する。NumPy 2.x で保存したモデルを NumPy 1.24 で読むことは、joblib が版をまたいで読めない（`numpy._core`）。実装で、この到達できなさを確かめる（受け入れ 6）。
 5. **文書**: BLUEPRINT §15.3 の V の定義（`frozenset` の新しい規則と、実行中の NumPy で判定すること）、カテゴリの値の同一性の段（V の外になった列は pandas の経路）、§16 の値の書き方は変えない。HISTORY の H-0133 と H-0138 に注記、CHANGELOG、`docs/proposal_dispositions.toml`。
 
 ### 互換性
 
 - 書き方（符号化の形式）、`format_version`、公開 API は変わらない。
 - NumPy 2.x: V から外れるのは `np.uint64` と月・年の単位の `np.timedelta64` を同じ frozenset に持つ値だけで、この単位の値を持つ列は H-0139 から fit で拒否されているので、fit の振る舞いは変わらない。
-- NumPy 1.24: この値を持つ列のモデルは、今は fit の最後に `DESERIALIZATION_FAILED` を出す。変更の後は、その列は pandas の経路で fit し、fit は V の外の値の警告を出して戻り、3 つの出口は `SERIALIZATION_FAILED` で拒否する（批評の測定では、`[v, 'x']` の列の予測は変わらず、`identity_columns` からその列が外れる）。pandas の経路で例外を出す列（上の 4）は、fit で pandas の例外を出す。
-- 保存した成果物と、既に書いたプロジェクトは変わらない（上の 4 のとおり、この値を持つものは無い）。
+- NumPy 1.24: この値が最初の代表になる列のモデルは、今は fit の最後に `DESERIALIZATION_FAILED` を出す。変更の後は、その列は pandas の経路で fit し、fit は V の外の値の警告を出して戻り、3 つの出口は `SERIALIZATION_FAILED` で拒否する（批評の測定では、`[v, 'x']` の列の予測は変わらず、`identity_columns` からその列が外れる）。pandas の経路で例外を出す列（上の 4）は、fit で pandas の例外を出す。
+  同じキーの V の中の値を一緒に持つ列は、今は keyed で fit して export できるが、変更の後は pandas の経路でこの値を別のカテゴリにし、export は拒否される（管理者の判断の 5）。
+- 保存した成果物のエンコーダの状態はこの値を持たないので、読み込みは変わらない。ただし同じキーの V の中の値で学習した保存したモデルは、predict で来たこの値を unseen として扱うようになる（管理者の判断の 4）。既に書いたプロジェクトは自分の写しを持つので変わらない。`analysis_context.pkl` は変わらない。
 
 ### 代替案
 
@@ -17323,7 +17329,14 @@ NumPy 1.24（`Quality (lowest-direct deps)` のレーン、pandas 2.0.0）では
 4. **fit の振る舞い（NumPy 1.24）**: `[v, 'x']` の列の小さなモデルで、fit は V の外の値の警告を 1 回出して戻り（`DESERIALIZATION_FAILED` を出さない）、`identity_columns` にその列が無く、`Model.export` と `export_code` は `SERIALIZATION_FAILED` で拒否する。陰性対照: 変更の前の木では fit が `DESERIALIZATION_FAILED` を出す。
 5. **変わらないもの**: 実装の後の census で、拒否が働く呼び出しがこの Proposal のテストにだけ現れる。H-0138・H-0139 の参照のテスト、H-0136・H-0143 の grid、カテゴリの一覧（入れ物でない並び）の判定がそのまま通る。
 6. **到達できなさ**: 変更の前の木（develop `b35afee`）と NumPy 1.24.0・pandas 2.0.0 の下限の環境で、この値を持つ列の fit が `DESERIALIZATION_FAILED` を出し、3 つの出口が何も書かない（保存した成果物ができない）ことを確かめる。
-6a. **predict で初めて来る値**: keyed の列に predict でこの値が来ると、変更の前と後で同じく unseen として扱われる（`mode`・`nan`・`error` の 3 つの方針。NumPy 1.24）。
+6a. **predict で初めて来る値**: keyed の列に predict でこの値が来ると、変更の前と後で同じく unseen として扱われる（`mode`・`nan`・`error` の 3 つの方針。NumPy 1.24）。学習したカテゴリに同じキーの V の中の値があるときは、変更の前は一致、後は unseen になる（`error` では `DATA_SCHEMA_INVALID`）。
+6b. **同じキーの値を一緒に持つ列**: `[safe, safe, v, 'x']` の列は、変更の前は keyed で fit して export の検査を通り、後は `identity_columns` に入らず、V の外の値の警告を出し、export は `SERIALIZATION_FAILED` で拒否される（NumPy 1.24）。
 7. **文書**: 対応方針 5 のとおり。
 
 **レビューの停止基準**: 上の受け入れ基準のテストが通ったら止める。次の round に進む理由になるのは、この契約の中の欠陥だけである: 潰れる frozenset を受け付けること、潰れない値を拒否すること、正と生成コードの答えが違うこと、拒否が何かを書いた後に出ること、書き方が変わること。V のほかの規則、H-0138・H-0139 のキー、カテゴリの一覧の扱い、`TypeError` を `LizyMLError` に変えないこと（対応方針 4）、#389 は、次の round に進む理由にならない。
+
+### Proposal レビュー round 1（2026-10-24）
+
+- **結果**: Codex の run `h0145-proposal-review` の round 1（`98f4ac4`）は CHANGES_REQUESTED で、major 1 件だった。同じキーを持つ V の中の値（`frozenset({4, timedelta(seconds=4)})`）で学習したモデルは、今は predict で来たこの値をそのカテゴリとして引くので、「predict で来るこの値は今と同じく unseen」と「この値を持つ成果物は作れない」の主張は、その場合に偽だった。ほかの測定（行列、census の 0/84481 と陽性対照、2 つの probe）は実行で再現された。
+- **管理者の判断**（2026-10-24。カード D-20261024-001）: その場合も unseen にする（今の設計のまま。キーを残す案は採らない）。
+- **対応**: 実測に同じキーの値の測定を足し（`probes/key_equal_safe*.out`・`find_v.*`）、管理者の判断の 4 を直して 5 を足し、対応方針 4・互換性の記述を直し、受け入れ 6a を直して 6b を足した。

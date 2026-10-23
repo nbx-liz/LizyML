@@ -1,0 +1,9 @@
+lizyml /tmp/claude-1000/wt-391/lizyml/__init__.py numpy 1.24.0 pandas 2.0.0
+refusal(v): a frozenset whose members are equal once written | refusal(safe): None
+key of v: TypeError no category identity key for a value outside V (frozenset)
+fit [safe, x] / predict v, mode : ok [0.316326, 0.317151]
+fit [safe, x] / predict v, nan  : ok [0.316341, 0.317151]
+fit [safe, x] / predict v, error: LizyMLError: [DATA_SCHEMA_INVALID] Column 'c' contains unseen categories: ["frozenset({4, num
+fit [safe, safe, v, x]: ok; identity_columns []
+  refit categories: ["frozenset['4', 'datetime.timedelta(seconds=4)']", 'frozenset[\'4\', "numpy.timedelta64(4,\'s\')"]', 'str"\'x\'"']
+  export preflight: LizyMLError [SERIALIZATION_FAILED] Model.export cannot save this model: column 'c' (refit pipeline state) holds 
