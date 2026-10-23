@@ -17241,3 +17241,12 @@ H-0138 の参照ファイル（`tests/test_features/data/h0138_oracle_pandas-{3.
 
 - **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`b1c248f`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
 - **結果**: round 2（`b1c248f`）は APPROVE で、指摘は無かった。run `h0144-impl-review` はこれで終わる。この実行の方針により、APPROVE と CI 緑で 1 つ目の PR をマージし、2 つ目の PR（pandas 3.1.0 の取り込み）に進む。
+
+### 実装の記録（2026-10-24。2 つ目の PR: pandas 3.1.0 の取り込み）
+
+- **手順**: CONTRIBUTING.md の手順のとおりに行った（`docs/audits/2026-10-i389/probes/onboard_310.*`）。環境は Python 3.12.3・pandas 3.1.0・numpy 2.5.4・lightgbm 4.7.0・pyarrow 26.0.0（latest-deps のレーンと同じ解決）。
+  1. `b297de4` から `h0138_oracle_pandas-3.1.0.json.gz` を 2 回作り、バイトが同じだった（SHA-256 `bc71c27d…`。Proposal の実測と同じ）。
+  2. 凍結した生成で `h0139_overlay_pandas-3.1.0.json.gz` を 2 回作り、バイトが同じだった（Y 221、R 195、S 5、T 72）。
+  3. `S_NAMED["3.1.0"]` を生成が出した `p22-23`・`p22-36`・`p23-35`・`p24-38`・`p60-103` にした。
+  4. `provenance.json` を 4 つの版（8 つのファイル）で書き直した。
+- **受け入れ 9**（`probes/accept_310.*`）: pandas 3.1.0 の環境の latest-deps のモードで、slow を含むフルスイートが通った（23124 本、skip 252）。参照のテストは 3.1.0 のファイルと厳密に比べ（`exact=True`）、モデルの case も比べた（numpy と lightgbm がファイルと同じ）。lock の環境のフルスイートも通った（23126 本）。

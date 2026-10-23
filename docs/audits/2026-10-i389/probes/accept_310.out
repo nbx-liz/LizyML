@@ -1,0 +1,6 @@
+== pandas310
+H-0138 oracle: pandas=3.1.0, numpy=2.5.4, lightgbm=4.7.0, pyarrow=26.0.0, mode=latest-same-minor, oracle=3.1.0, oracle_path=tests/test_features/data/h0138_oracle_pandas-3.1.0.json.gz, exact=True, encoder_cases=1584, temporal_cases=4620, model_cases=74, models=compared
+23124 passed, 252 skipped, 1033 warnings in 367.66s (0:06:07)
+== lock
+H-0138 oracle: pandas=3.0.1, numpy=2.4.2, lightgbm=4.6.0, pyarrow=23.0.1, mode=strict, oracle=3.0.1, oracle_path=tests/test_features/data/h0138_oracle_pandas-3.0.1.json.gz, exact=True, encoder_cases=1584, temporal_cases=4620, model_cases=74, models=compared
+23126 passed, 250 skipped, 1001 warnings in 395.76s (0:06:35)
