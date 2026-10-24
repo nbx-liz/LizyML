@@ -11,6 +11,11 @@ route). Nothing here is recomputed from the code under test: the answers are
 computed once, in a subprocess under the seed
 the oracle was made with (``PYTHONHASHSEED=0``), because today's order of a
 tuple beside a frozenset follows string hashing.
+
+H-0144: the oracle and its overlay are the running pandas version's, or, in
+the latest-deps CI job only, the nearest older version of the same minor
+(``_h0138_oracle.resolve``). There, the model cases are skipped when numpy or
+lightgbm differ from the oracle's, decided before any model is computed.
 """
 
 from __future__ import annotations
@@ -22,30 +27,43 @@ import sys
 from pathlib import Path
 from typing import Any
 
+import lightgbm
 import numpy as np
-import pandas as pd
 import pytest
 
 from tests.test_core.test_category_values import SAMPLES
 from tests.test_features import _h0138_oracle as h
 
 ROOT = Path(__file__).resolve().parents[2]
-#: ``None`` on a pandas without an oracle (the latest-deps lane): the case
-#: lists are then empty and ``test_an_oracle_exists_for_this_pandas`` fails.
-ORACLE = h.oracle_or_none()
+RESOLVED = h.resolve()
+#: ``None`` on a pandas without a selectable oracle: the case lists are then
+#: empty and ``test_an_oracle_exists_for_this_pandas`` fails.
+ORACLE = h.oracle_or_none(RESOLVED)
 CASES = ORACLE["cases"] if ORACLE is not None else []
 TEMPORAL = ORACLE["temporal_cases"] if ORACLE is not None else []
+#: Whether the model cases run on this lane (H-0144 対応方針 2).
+MODELS = ORACLE is not None and h.compare_models(ORACLE["meta"], RESOLVED.mode)
+
+
+def test_the_oracle_mode_is_allowed_here() -> None:
+    assert RESOLVED.error is None, RESOLVED.error
 
 
 def test_an_oracle_exists_for_this_pandas() -> None:
     assert ORACLE is not None, (
-        f"no H-0138 oracle for pandas {pd.__version__}: {h.oracle_path()}"
+        f"no H-0138 oracle for pandas {RESOLVED.running} (mode {RESOLVED.mode}): "
+        f"{h.oracle_path(RESOLVED.running)}"
     )
 
 
 @pytest.fixture(scope="module")
 def answers() -> dict[str, Any]:
-    env = {**os.environ, "PYTHONHASHSEED": "0", "PYTHONPATH": str(ROOT)}
+    env = {
+        **os.environ,
+        "PYTHONHASHSEED": "0",
+        "PYTHONPATH": str(ROOT),
+        h.MODELS_ENV: "1" if MODELS else "0",
+    }
     result = subprocess.run(
         [sys.executable, "-m", "tests.test_features._h0138_answers"],
         cwd=ROOT,
@@ -62,7 +80,12 @@ def answers() -> dict[str, Any]:
 
 def test_the_oracle_matches_its_meta() -> None:
     meta = ORACLE["meta"]
-    assert meta["pandas"] == pd.__version__
+    assert meta["pandas"] == RESOLVED.version
+    available = h.oracle_versions()
+    assert h.select_version(RESOLVED.running, available, RESOLVED.mode) == (
+        RESOLVED.version
+    )
+    assert RESOLVED.exact or RESOLVED.mode == h.SAME_MINOR
     assert len(CASES) == meta["encoder_cases"]
     assert len(TEMPORAL) == meta["temporal_cases"]
     known = set(h.all_probe_ids())
@@ -80,26 +103,49 @@ def test_a_faithful_column_answers_as_today(
 MODEL_CASES = [c for c in CASES if "model" in c]
 
 
+def _skip_models() -> None:
+    assert ORACLE is not None, "no H-0138 oracle selected for this lane"
+    if not MODELS:
+        meta = ORACLE["meta"]
+        pytest.skip(
+            f"latest-deps lane: the oracle {RESOLVED.version} was made with "
+            f"numpy/lightgbm {meta['numpy']}/{meta['lightgbm']}, this lane runs "
+            f"{np.__version__}/{lightgbm.__version__}"
+        )
+
+
 def test_the_lane_runs_the_oracles_numpy_and_lightgbm() -> None:
+    _skip_models()
     h.model_versions_match(ORACLE["meta"])
+
+
+def test_models_are_computed_only_when_compared(request: pytest.FixtureRequest) -> None:
+    """H-0144 acceptance 5: a skipped model case is never computed."""
+    if ORACLE is None:
+        pytest.skip("no oracle: test_an_oracle_exists_for_this_pandas fails")
+    answers = request.getfixturevalue("answers")
+    assert answers["models_computed"] == (len(MODEL_CASES) if MODELS else 0)
 
 
 @pytest.mark.parametrize("case", MODEL_CASES, ids=[c["id"] for c in MODEL_CASES])
 def test_a_faithful_column_trains_the_same_model_as_today(
     case: dict[str, Any], answers: dict[str, Any]
 ) -> None:
+    _skip_models()
     h.model_versions_match(ORACLE["meta"])
     assert answers["models"][case["id"]] == case["model"]
 
 
 #: H-0139's closed list of temporal cases it changes on purpose. ``None`` on
 #: a pandas without one: ``test_an_overlay_exists_for_this_pandas`` fails.
-OVERLAY = h.overlay_or_none()
+OVERLAY = h.overlay_or_none(RESOLVED)
 CHANGED = {c["id"]: c for c in OVERLAY["changes"]} if OVERLAY is not None else {}
 
 #: H-0139 対応方針 7: the S set named per pandas version (2.0.0 decided by
 #: the generator from the same two rules; HISTORY.md ``## H-0139``).
 S_NAMED = {
+    # H-0144: printed by make_overlay.py when pandas 3.1.0 was onboarded.
+    "3.1.0": ["p22-23", "p22-36", "p23-35", "p24-38", "p60-103"],
     "3.0.1": ["p22-23", "p22-36", "p23-35", "p24-38", "p60-103"],
     "2.3.3": [
         "p22-23",
@@ -130,8 +176,15 @@ def _case_indices(case_id: str) -> set[int]:
 
 def test_an_overlay_exists_for_this_pandas() -> None:
     assert OVERLAY is not None, (
-        f"no H-0139 overlay for pandas {pd.__version__}: {h.overlay_path()}"
+        f"no H-0139 overlay for pandas {RESOLVED.version}: "
+        f"{h.overlay_path(RESOLVED.version)}"
     )
+    assert OVERLAY["meta"]["pandas"] == RESOLVED.version
+
+
+def test_every_shipped_oracle_has_its_named_s_set() -> None:
+    """Onboarding a pandas version (CONTRIBUTING.md step 3) names its S set."""
+    assert set(S_NAMED) == set(h.oracle_versions())
 
 
 def test_the_overlay_is_the_closed_union_of_its_rules() -> None:
@@ -150,17 +203,24 @@ def test_the_overlay_is_the_closed_union_of_its_rules() -> None:
     }
     y = {cid for cid in frozen if _case_indices(cid) & calendar}
     r = {cid for cid, out in frozen.items() if out.get("fails_at") == "cast"} - y
-    assert {c["rule"] for c in changes} <= {"Y", "R", "S"}
+    # H-0144 rule T: the cast held the column, the old lookup failed.
+    t = {cid for cid, out in frozen.items() if out.get("fails_at") == "transform"} - y
+    assert {c["rule"] for c in changes} <= {"Y", "R", "S", "T"}
     by_rule = {
         rule: {c["id"] for c in changes if c["rule"] == rule}
-        for rule in ("Y", "R", "S")
+        for rule in ("Y", "R", "S", "T")
     }
+    assert RESOLVED.version is not None
+    named = S_NAMED[RESOLVED.version]
     assert by_rule["Y"] == y
     assert by_rule["R"] == r
-    assert sorted(by_rule["S"]) == S_NAMED[pd.__version__]
+    assert by_rule["T"] == t
+    assert sorted(by_rule["S"]) == named
     # Nothing outside the union may override a frozen outcome.
-    assert set(ids) == y | r | set(S_NAMED[pd.__version__])
-    assert OVERLAY["meta"]["counts"] == {k: len(v) for k, v in by_rule.items()}
+    assert set(ids) == y | r | t | set(named)
+    # An empty rule is left out of the counts (the overlays before H-0144).
+    counts = {k: len(v) for k, v in by_rule.items() if v}
+    assert OVERLAY["meta"]["counts"] == counts
 
 
 @pytest.mark.parametrize("case", TEMPORAL, ids=[c["id"] for c in TEMPORAL])
@@ -171,3 +231,25 @@ def test_a_temporal_column_behaves_as_frozen_or_as_h0139_decided(
         CHANGED[case["id"]]["after"] if case["id"] in CHANGED else case["outcome"]
     )
     assert answers["temporal_cases"][case["id"]] == expected
+
+
+h.SUMMARY.update(
+    {
+        "pandas": RESOLVED.running,
+        "numpy": np.__version__,
+        "lightgbm": lightgbm.__version__,
+        "pyarrow": h.pyarrow_version(),
+        "mode": RESOLVED.mode or "strict",
+        "oracle": RESOLVED.version,
+        "oracle_path": (
+            h.oracle_path(RESOLVED.version).relative_to(ROOT)
+            if RESOLVED.version
+            else None
+        ),
+        "exact": RESOLVED.exact,
+        "encoder_cases": len(CASES),
+        "temporal_cases": len(TEMPORAL),
+        "model_cases": len(MODEL_CASES),
+        "models": "compared" if MODELS else ("skipped" if ORACLE else "none"),
+    }
+)

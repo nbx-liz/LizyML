@@ -92,8 +92,31 @@ def _equals_itself(value):
     return True
 
 
-def _encode_value(value, depth=0):
-    """A category value as JSON (the same table as LizyML's export)."""
+def _holds_frozenset(value):
+    if type(value) is frozenset:
+        return True
+    return type(value) is tuple and any(_holds_frozenset(v) for v in value)
+
+
+def _encode_value(value):
+    """A category value as JSON (the same table as LizyML's export).
+
+    A value holding a frozenset must read back as written: written and read
+    with the unchecked codec, it must give back the same form (H-0145, #391).
+    """
+    written = _encode_raw(value)
+    if _holds_frozenset(value):
+        try:
+            same = _encode_raw(_decode_raw(written)) == written
+        except (ValueError, TypeError, OverflowError, _decimal.InvalidOperation):
+            same = False
+        if not same:
+            raise ValueError("a frozenset whose members do not read back as written")
+    return written
+
+
+def _encode_raw(value, depth=0):
+    """A category value as JSON, unchecked against the codec's read-back."""
     if not _equals_itself(value):
         raise ValueError(f"{value!r} equals no value, so it cannot be matched again")
     if _is(value, (str, int, float, bool)):
@@ -130,7 +153,7 @@ def _encode_value(value, depth=0):
     if type(value) in (tuple, frozenset):
         if depth >= _MAX_DEPTH:
             raise ValueError(f"a tuple / frozenset nested deeper than {_MAX_DEPTH}")
-        items = [_encode_value(v, depth + 1) for v in value]
+        items = [_encode_raw(v, depth + 1) for v in value]
         if type(value) is frozenset:
             items.sort(key=lambda item: json.dumps(item, sort_keys=True))
             return {"$lizyml": "frozenset", "items": items}
@@ -215,9 +238,13 @@ def _decode_value(obj):
 
     A shape the encoder never writes (a NaN, NaT, a deeper nesting, a
     non-canonical form) is refused: the decoded value is written again, which
-    checks it, and must give back *obj* itself.
+    checks it, and must give back *obj* itself. Members that cannot be
+    compared while the set is rebuilt are refused the same way (H-0145).
     """
-    value = _decode_raw(obj)
+    try:
+        value = _decode_raw(obj)
+    except (TypeError, OverflowError) as exc:
+        raise ValueError(f"its members cannot be read back: {exc}") from exc
     if _encode_value(value) != obj:
         raise ValueError("it is not the form the encoder writes for its value")
     return value

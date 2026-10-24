@@ -87,7 +87,38 @@ Forward compatibility is protected by CI rather than by pinning:
   file-I/O-sensitive subset to catch path / newline portability issues.
 
 When the latest-deps lane goes red, fix forward (adapt the code) and bump
-`uv.lock` — do **not** add an upper cap to silence it. Adding or removing a
+`uv.lock` — do **not** add an upper cap to silence it.
+
+The H-0138 faithful-path oracles (`tests/test_features/data/h0138_oracle_pandas-<v>.json.gz`)
+and H-0139 overlays (`h0139_overlay_pandas-<v>.json.gz`) exist per pandas
+version. Every lane compares its own pandas version's files and fails
+without them, except the latest-deps job: its pytest step sets
+`LIZYML_H0138_ORACLE_MODE=latest-same-minor`, and only there (the test also
+checks `GITHUB_JOB`) it compares the nearest older version of the same minor
+and skips the model cases when numpy or lightgbm differ from the oracle's.
+The terminal summary prints one `H-0138 oracle:` line naming what was
+compared (H-0144). A new pandas minor stays red there until it is onboarded,
+and so does a pandas the lock moves to:
+
+1. In a worktree of `b297de4` (the code before H-0138), copy develop's
+   `docs/audits/2026-10-h0138/{oracle,firing}` in, and in an environment with
+   that pandas and the latest-deps lane's other dependencies (pyarrow
+   included: it decides how pandas holds strings) run
+   `PYTHONHASHSEED=0 PYTHONPATH=.:docs/audits/2026-10-h0138/firing python -B docs/audits/2026-10-h0138/oracle/make_oracle.py`
+   twice; the two files must be byte-identical.
+2. On develop, with that oracle in `tests/test_features/data/`, run
+   `PYTHONHASHSEED=0 PYTHONPATH=.:docs/audits/2026-10-h0139/firing python -B docs/audits/2026-10-h0139/oracle/make_overlay.py`
+   twice (byte-identical). The generator reads a frozen copy of the codec
+   (`docs/audits/2026-10-i389/oracle/frozen_core/`) and refuses any other
+   `lizyml` module, so the overlay never follows the code it checks.
+3. Add the S set the generator prints to `S_NAMED` in
+   `tests/test_features/test_h0138_faithful_oracle.py`.
+4. Record both files with
+   `python docs/audits/2026-10-i389/probes/write_provenance.py <version>=<python>,<numpy>,<lightgbm>,<pyarrow> ...`
+   (all versions, so the record stays complete).
+5. Run the oracle tests in that environment. If a case still disagrees, do not
+   add the files: a new closed rule needs a Proposal. Never edit an oracle or
+   an overlay to match the library. Adding or removing a
 runtime dependency still requires a Change-Gate proposal (see below).
 
 ## Spec-First Development

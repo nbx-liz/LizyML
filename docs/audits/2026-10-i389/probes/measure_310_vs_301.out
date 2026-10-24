@@ -1,0 +1,6 @@
+      1 262 failed, 6021 passed, 2 warnings in 7.85s
+     74 FAILED tests/test_features/test_h0138_faithful_oracle.py::test_a_faithful_column_trains_the_same_model_as_today
+    185 FAILED tests/test_features/test_h0138_faithful_oracle.py::test_a_temporal_column_behaves_as_frozen_or_as_h0139_decided
+      1 FAILED tests/test_features/test_h0138_faithful_oracle.py::test_the_lane_runs_the_oracles_numpy_and_lightgbm
+      1 FAILED tests/test_features/test_h0138_faithful_oracle.py::test_the_oracle_matches_its_meta
+      1 FAILED tests/test_features/test_h0138_faithful_oracle.py::test_the_overlay_is_the_closed_union_of_its_rules

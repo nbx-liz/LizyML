@@ -1,0 +1,14 @@
+[run-exclusive] i389-gen starting; load was 0.57
+run-heavy: pgid=11 (stop with: kill -- -11)
+62d88cf786d59369d979366a38510c1302794bb98c88d463ebbb12b4c5324816  /tmp/claude-1000/i389-gen/oracle-3.0.1.json.gz
+bc71c27de4ef992c75fdb79119939f9e360d23cb464e75cfffbd208f66cd95a2  /tmp/claude-1000/i389-gen/oracle-3.1.0-a.json.gz
+bc71c27de4ef992c75fdb79119939f9e360d23cb464e75cfffbd208f66cd95a2  /tmp/claude-1000/i389-gen/oracle-3.1.0-b.json.gz
+62d88cf786d59369d979366a38510c1302794bb98c88d463ebbb12b4c5324816  /home/rem/repos/LizyML/tests/test_features/data/h0138_oracle_pandas-3.0.1.json.gz
+32d7b80eab609fb29b6e161bb680e65021d61e60ae816028a9527c3d13dc4aed  /tmp/claude-1000/i389-gen/overlay-3.1.0-a.json.gz
+32d7b80eab609fb29b6e161bb680e65021d61e60ae816028a9527c3d13dc4aed  /tmp/claude-1000/i389-gen/overlay-3.1.0-b.json.gz
+pandas 3.1.0: {'Y': 221, 'R': 195, 'S': 5} total 421
+  S ['p22-23', 'p22-36', 'p23-35', 'p24-38', 'p60-103']
+  unchanged failures {'transform': 72}
+  changed sha256 17017fd6b271ae6402ae6fe4d8cab597f6119f1b6fdf0ca84254944439e2eda9
+[run-exclusive] i389-gen finished in 21s, exit 0
+[exited with code 0]

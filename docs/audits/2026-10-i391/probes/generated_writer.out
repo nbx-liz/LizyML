@@ -1,0 +1,18 @@
+lizyml /tmp/claude-1000/wt-391/lizyml/__init__.py numpy 1.24.0 pandas 2.0.0
+pair: library refusal='a frozenset whose members do not read back as written'; generated _encode_value refuses (a frozenset whose members do not read back as written); _in_v=False
+big: library refusal=None; generated _encode_value admits; _in_v=True
+pair: fit_pipeline raised ValueError: a frozenset whose members do not read back as written; pipeline_state.json unchanged; generated _load_pipeline reads it
+big: reads back on this NumPy; not a 3a case here
+
+lizyml /tmp/claude-1000/wt-391/lizyml/__init__.py numpy 2.2.6 pandas 2.3.3
+pair: library refusal=None; generated _encode_value admits; _in_v=True
+big: library refusal='a frozenset whose members do not read back as written'; generated _encode_value refuses (a frozenset whose members do not read back as written); _in_v=False
+pair: reads back on this NumPy; not a 3a case here
+big: fit_pipeline raised ValueError: a frozenset whose members do not read back as written; pipeline_state.json unchanged; generated _load_pipeline reads it
+
+lizyml /tmp/claude-1000/wt-391/lizyml/__init__.py numpy 2.4.2 pandas 3.0.1
+pair: library refusal=None; generated _encode_value admits; _in_v=True
+big: library refusal='a frozenset whose members do not read back as written'; generated _encode_value refuses (a frozenset whose members do not read back as written); _in_v=False
+pair: reads back on this NumPy; not a 3a case here
+big: fit_pipeline raised ValueError: a frozenset whose members do not read back as written; pipeline_state.json unchanged; generated _load_pipeline reads it
+

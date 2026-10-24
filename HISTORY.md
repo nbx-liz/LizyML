@@ -14786,6 +14786,7 @@ MASE（Hyndman & Koehler 2006）は `mean(|y - ŷ|) / scale` である。`scale`
     - 厳密に `zoneinfo.ZoneInfo` で、`zoneinfo.ZoneInfo(key) is tzinfo` が真のもの（キャッシュされた instance）
     - `ZoneInfo.no_cache` の instance と pytz の zone は外である。理由: Python は `tzinfo` の instance が違う 2 つの `datetime` を UTC で比べ、夏時間の重なりの時刻を常に「等しくない」とする（PEP 495）。そのため、復元した値が学習したカテゴリと一致しなくなる。`Timestamp` は時刻の値で比べるので、instance が違っても等しい。hash も、`ZoneInfo` の `Timestamp` では instance が違っても等しい（`probes/tz_fold_probe.out`、fold 0 と 1）。ただし pytz の zone の `Timestamp` は、`ZoneInfo` で戻すと fold 1 で hash が違うので、P2 で時差として書く（`probes/pytz_fold_probe.out`）。
   - 判定は型を最初に見る。V の外の型の値のメソッドは呼ばない。一覧の型のメソッドは、標準ライブラリ・numpy・pandas のものだけが走る。この判定の境界は「値に対して閉じる」ことであり、プロセスの中で numpy や pandas を差し替えた呼び出し元への備えではない（H-0095 の宣言と同じ）。
+  - **注記（H-0145）**: この一覧の型だけからなる値でも、`frozenset` を持ち、P2 の符号化で書いて読み戻すと書いた形に戻らない値（要素が潰れる、組み直しの比較が例外を出す。実行中の NumPy で判定）は V の外になった。
 - **P2. 符号化と復号**（P1 のモジュールにだけ置く）:
   - 素の値（`str`・`int`・`float`・`bool` と、`.item()` がそれらになる numpy のスカラー）は、今と同じ JSON の値で書く（numpy は `.item()` で書く）。それ以外は印つきの JSON の object で書く。
   - 印つきの形は次の表で固定する。各 object は `"$lizyml"` と表の欄だけを持ち、欄の過不足は復号で拒否する。整数は JSON の整数、浮動小数は素の float と同じ規則（`-0.0` と ±inf を含む）で書く:
@@ -16154,6 +16155,7 @@ Codex の批評（run `v021-category-critique`）の推奨により、#378〜#38
    - `str`・`np.str_`: `("string", str(value))`。`bytes`・`np.bytes_`: `("bytes", bytes(value))`。
    - `tuple`: `("tuple", 要素のキーの tuple)`。`frozenset`: `("frozenset", 要素のキーの frozenset)`。
    - 時刻の型の値（入れ子の中も含む）を持つ列と、V の外の値を持つ列は、キーを使わず今の経路を通る（決定 4）。
+     - **注記（H-0145）**: 書いて読み戻すと書いた形に戻らない frozenset（実行中の NumPy で判定）も V の外になり、この経路を通る。predict で来たその値は、同じキーの V の中の値を学習していても unseen になる。
 2. **今正しく動く列を変えない条件（pandas に忠実かどうか）**: カテゴリとして扱う列ごとに、dtype によらず（object、pandas の文字列、宣言した category、明示した数値や bool の列）、pandas の cast を実際に行い、その結果がキーに忠実かを確かめる。dtype で判定を飛ばさない。
    - 忠実とは、次の全てを満たすことである。カテゴリのキーが一意である。欠損でない全ての行に 0 以上の符号が付き、その符号のカテゴリのキーが行の値のキーと同じである。欠損の行の符号は -1 である。宣言したカテゴリは同じ順で残る。
    - 忠実なら、今の結果（カテゴリ、その順、代表の値、最頻値 `series.mode().iloc[0]`、置き換えの判定、符号）をそのまま使う。
@@ -16203,6 +16205,7 @@ Codex の批評（run `v021-category-critique`）の推奨により、#378〜#38
 
    生成は `docs/audits/2026-10-h0138/oracle/make_oracle.py` で、3 つとも 2 回作ってバイトが同じだった。テストは、実装したライブラリの答えを、そのレーンの pandas の版のファイルと比べるだけで、参照を計算し直さない。
    - **版の合わせ方**: レーンの pandas の版のファイルが無ければ、テストは落ちる（黙って通らない）。除外するレーンは無い。モデルの case は、numpy と lightgbm の版もファイルの `meta` と同じであることを先に確かめ、違えば落ちる。
+     - **注記（H-0144）**: non-blocking の latest-deps のジョブだけは、同じ minor の一番近い古い版のファイルと比べ、numpy・lightgbm が違えばモデルの case を skip する。必須のレーンは上のとおり。
    - **エンコーダの case**（pandas 3.0.1 と 2.3.3 で 1584、2.0.0 で 1612）: 測定の列のうち、ゲートが忠実と判定し、今の transform も両方の順で同じ符号を返す全ての列と、ふつうの入力の全ての dtype（object、pandas の文字列、使われないカテゴリを持つ宣言した category、明示した int64・float64・bool、欠損を含む列、型の混ざった object の列）。カテゴリとその型、最頻値、`stand_in_columns`、2 つのバッチの順の符号が同じである。
    - **モデルの case**（3.0.1 と 2.3.3 で 74、2.0.0 で 75）: ふつうの入力、数として等しい型違いの値の組、参照のエンコーダの case の 50 本に 1 本（参照に入れた case だけで数える。生成の最後に、0・50・100…番目の全てがモデルの case を持つことを確かめる）。`Model.fit`（seed と 1 スレッドを固定）の後の refit の booster の `pandas_categorical`、`model_to_string()` の sha256、予測（`float.hex`）が同じである。
    - 参照から外した列とその数も、ファイルの `meta` にある。pandas 3.0.1 では、時刻を含む 4620 と、今すでに壊れている 150（cast の失敗 54、忠実でない 34、忠実だがバッチの順で符号が変わる 54、忠実だが transform が `TypeError` の 8）である。最後の 2 つ（62 列）は、印のある状態の transform を常にキーで引く理由でもある。
@@ -16578,6 +16581,7 @@ Codex の批評（run `h0139-temporal-critique`）の後で、次の 4 つを決
    - 件数は、pandas 3 で 416（221+190+5）、2.3.3 で 480（225+247+8）。変わらない時刻の case は 4204 と 4365。時刻でないエンコーダの case 1584 は、どちらの版でも全て変わらなかった（Codex の試作）。pandas 2.0.0 では、Y が 225、R が 111 である（`firing/oracle_partition.py`。3.0.1 と 2.3.3 の Y・R は Codex の数と一致した）。
    - S は、実装の答えを見ずに 2 つの規則で決める: (a) 試作の規則（`firing/h0139_rule.py`）で忠実でない時刻の case、(b) 元の参照に記録した 2 つのバッチの順の符号が、キーの位置と食い違う case（transform だけが直る。pandas 3 の `p60-103` など）。上の pandas 3 と 2.3.3 の名前の一覧は、この規則で再現できることを、変わる case のファイルの生成のスクリプトで確かめる。pandas 2.0.0 の S は、Proposal レビュー round 1 がこの 2 つの規則で数えて 8 件だった（規則が実装の答えに依らないことも確かめた）。名前の一覧は、そのスクリプトで決めて実装の記録に書く。
    - `tests/test_features/_h0138_answers.py` は、無条件の `astype` でなく本物の builder の経路を通し、fit の検査での拒否を別に報告する。`docs/audits/2026-10-h0138/oracle/make_oracle.py` は記録として残し、変わる case のファイルは別の生成のスクリプトで作る。
+   - **注記（H-0144）**: 規則に T（元の参照で transform で失敗した case。cast の順を保ってキーで作り直す）を足した。生成のスクリプトは凍結した codec の写しだけを読む。既存の 3 つの一覧はバイトが変わらない。
 
 ### 互換性
 
@@ -17097,3 +17101,293 @@ v0.21.0 のリリース PR #397 の CI で、slow のテスト `tests/test_persi
 ### 実装レビュー（2026-10-22）
 
 - **結果**: Codex の run `h0143-impl-review` の round 1（`0e404ae`）は APPROVE で、指摘は無かった。受け入れの後の訂正（`Model.fit` を通した 2**63 以上の `np.uint64` の列は代わりの符号の列）と、陰性対照の形の変更も確かめた。run はこれで終わる。この実行の方針により、APPROVE と CI 緑でマージする。
+
+## H-0144: latest-deps のレーンでは、同じ minor の一番近い古い参照ファイルと比べる ― 新しい pandas の minor を参照ファイルに取り込む手順を決め、pandas 3.1.0 を取り込む（#389）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-22
+- **決定日**: 2026-10-23
+- **関連**: H-0138（受け入れ 2: pandas の版ごとの参照ファイル。版の合わないレーンは落ちる）、H-0139（対応方針 7: 変わる時刻の case の一覧と、その閉じた規則 Y・R・S）、#180（latest-deps のレーン）、#389、registry のカード D-20261022-014・D-20261022-016（管理者の判断）
+- **スコープ**:
+  - `tests/test_features/test_h0138_faithful_oracle.py`・`_h0138_oracle.py`・`_h0138_answers.py` の、参照ファイルの選び方・モデルの case の扱い・結果の表示
+  - `.github/workflows/ci.yml` の `quality-latest-deps` のジョブの pytest の step の環境変数
+  - `docs/audits/2026-10-h0139/oracle/make_overlay.py` の規則（T を足す）と、pandas 3.1.0 の参照ファイル・変わる case の一覧
+  - 参照ファイルの生成の記録（環境と SHA-256）と、新しい minor を取り込む手順の文書（CONTRIBUTING.md、BLUEPRINT §18）
+  - 範囲の外: ライブラリのコード、H-0138・H-0139 の契約そのもの、必須のレーンの依存の版（`uv.lock` の pandas は 3.0.1 のまま）、#391
+
+### 目的（課題）
+
+H-0138 の参照ファイル（`tests/test_features/data/h0138_oracle_pandas-{3.0.1,2.3.3,2.0.0}.json.gz`。H-0138 より前のコード、develop `b297de4` の答え）と H-0139 の変わる case の一覧（`h0139_overlay_pandas-<v>.json.gz`）は、pandas の版ごとにある。H-0138 の受け入れ 2 は「レーンの pandas の版のファイルが無ければ落ちる。除外するレーンは無い」と決めた。依存を上向きに解決する `Quality (latest deps, non-blocking)`（`uv sync --upgrade --dev`）は、そのとき一番新しい pandas を使うので、ファイルの無い版で毎回 5 本落ちる。赤いままのレーンは、そのレーンが見つけるはずの上流の変化を隠す（#180 の目的が果たせない）。
+
+### 実測（2026-10-22、develop `f002e8c` の上）
+
+測定のスクリプトと出力は `docs/audits/2026-10-i389/probes/` にある。批評は Codex の run `i389-critique-20261022T140501Z-cb315866`（1 round、CHANGES_REQUESTED、指摘は設計の細部と、3.1.0 の 72 本の扱いの判断）。
+
+- **latest-deps のレーンの履歴**: 参照ファイルが入った PR #387 の最初の run から develop `f002e8c` まで、latest-deps のジョブは 11 回走り、全て pandas 3.0.6 を解決した。そのうち 10 回が参照のテストで落ち（3 本、H-0139 の後は 5 本）、ほかのテストは全て通った（1 回は別の理由で落ちた）。
+- **pandas 3.0.6**（numpy 2.5.4、lightgbm 4.7.0、pyarrow 26.0.0。CI と同じ）: 3.0.1 の参照ファイルと一覧で比べると、エンコーダの case 1584 と時刻の case 4620 が全て一致する。落ちるのは、モデルの case 74 と版を確かめるテスト（numpy と lightgbm が違う）、`meta` の pandas の版の検査、一覧の閉じた和のテスト（`S_NAMED` に `"3.0.6"` が無い）だけである。
+  - pyarrow が入っていないと、`np.str_` を含むエンコーダの case 9 本で、カテゴリの型が `numpy.str_` のままになる（pandas 3.0.1・3.0.6 × numpy 2.4.2・2.5.4 の 4 つの組で同じ）。決めるのは pandas の版でなく pyarrow の有無なので、生成の記録に pyarrow を書く。
+- **pandas 3.1.0**: 今日の `uv sync --upgrade --dev` は pandas 3.1.0 を解決する（次の latest-deps の run から使われる）。
+  - フルスイート（slow を除く）は、参照のテストの 5 本だけが落ち、16759 本が通った。
+  - 3.0.1 の参照ファイルと比べると、時刻の case 185 本が違う（`pd.Timedelta(7, unit="D")` の分解能が秒からマイクロ秒になる、倍数の単位の numpy の時刻の作り方が変わる。pandas 3.1 の変更）。Codex の批評は、185 本とも 2 つのバッチの符号が同じで、違いは値の表し方（109 本）と置き換えの列の有無（77 本、1 本は両方）であること、代表の 3 つのモデル（`s44`・`p3-88`・`p40-103`）ではモデルのハッシュと予測も同じであることを確かめた。
+  - `b297de4` のコードは pandas 3.1.0 で動き、`make_oracle.py` は 2 回ともバイトの同じファイルを作った（SHA-256 `bc71c27d…`。Codex の批評と一致）。同じ手順で 3.0.1 のファイルを作り直すと、commit したファイルとバイトが一致した。
+  - そのファイルから今の `make_overlay.py` で一覧を作ると（Y 221、R 195、S 5。S の名前は 3.0.1 と同じ）、時刻の case 72 本がまだ合わない。72 本は全て、倍数の単位の `np.datetime64`（`2s`、`10ms`）を含む組で、`b297de4` は pandas 3.0.1 では成功していた（一覧に無い）が、pandas 3.1.0 では transform で `ValueError` を出す。今のコードは成功する。今の一覧の規則は cast の失敗（R）しか扱わず、transform の失敗はそのまま比べる。
+  - R を「cast か transform の失敗」に広げると 42 本が合い、30 本はカテゴリの並びだけが違う。transform で失敗した case では pandas の cast は成功していて、列はカテゴリの dtype（宣言した列）としてエンコーダに入る。H-0138 の対応方針 2 は、作り直しの順を「推定した object の列では `sorted(..., key=str)`、宣言した列では宣言の順」と決めている。R の「後」は cast が失敗した object の列の規則（`str` の順）なので、宣言の順を保つ case には当たらない。下の規則 T（cast の並びを保つ）にすると、72 本が全て合い、参照のテストはモジュールの全て（6283 本のうち、規則の一覧を書いたテスト 1 本を除く）が通った。
+  - 規則 T は、30 本の食い違いを調べて見つけたが、規則そのものは H-0138 の対応方針 2（宣言した列は宣言の順で作り直す）から決まり、この Proposal で新しく決める並びは無い。どの case に当たるかは元の参照ファイル（`fails_at == "transform"`、Y でない）だけで決まる。
+  - 一覧の生成は、今はライブラリに依っている: 試作のキー（`firing/h0139_rule.py`）は時刻でない値に本番の `category_identity_key` を使い、記録の `typed`（`tests/test_features/_h0138_oracle.py`）は本番の `encode` を使い、`make_overlay.py` は本番の `decode` を使う。Proposal レビュー round 1 は、本番のキーを差し替えると `p3-88` の T の「後」が変わることを実行で示した。新しい minor を取り込むときに、そのときのライブラリで一覧を作ると、確かめる相手を確かめられる側で作ることになる。下の対応方針 6 で、生成を凍結したキーと codec に移す。
+  - 凍結の試作（`docs/audits/2026-10-i389/oracle/frozen_core/` に `f025620` の `lizyml/core/{category_values,category_temporal,exceptions}.py` をバイトのまま写し、`make_overlay.py` の import の hook がこの 3 つだけを同じ名前で渡し、ほかの `lizyml` の module を拒否する）で、既存の 3 つの一覧はバイトが一致し、3.1.0 の一覧（Y 221、R 195、S 5、T 72）は上の試作と同じ SHA-256 になった（`probes/frozen_hook_check.*`、`probes/rule_t_310.out`）。
+  - pandas 3.1.0 の参照ファイルは、H-0138 を決めたときに無かった pandas の上での、`b297de4` の答えの記録である（その時に観察した答えではない）。役目は、pandas の版をまたいで答えが変わったことを見つけることで、確かめる相手をライブラリの外に置くために、今のライブラリでなく `b297de4` で作る。既存の 3 つのファイルには transform で失敗した case が無い（3.0.1: 成功 4412・cast 208、2.3.3: 4584・261、2.0.0: 4726・119）ので、規則 T を足しても既存の 3 つの一覧はバイトが変わらない（空の T を `meta` の件数に書かない場合。実際に作り直して確かめた）。
+- **firing rate**（対応方針 1 の同じ minor への切り替えは `allow` の条件）:
+
+  Firing rate: 11/11 of the latest-deps CI jobs from the first run of PR #387 to develop f002e8c (run list via `gh run list --workflow CI`, resolved pandas from each job log: all 11 resolved pandas 3.0.6, which has no exact oracle and whose same-minor candidate is 3.0.1; `probes/latest_lane_history.out`)
+
+  - 11 回のうち 10 回は参照のテストだけで落ちていたので、同じ minor で比べれば緑になっていた（3.0.6 で全ての case が一致する、上の測定）。残りの 1 回は、テストの前に別の理由で落ちた。
+  - 今日の解決は pandas 3.1.0 で、同じ minor の候補が無いので、2 つ目の PR（3.1.0 のファイル）が入るまで、この条件は 1 度も働かない。
+
+### 管理者の判断（2026-10-22。カード D-20261022-014・D-20261022-016）
+
+- latest-deps のレーンだけ（CI の環境変数で名指しする）で、同じ minor の一番近い古い参照ファイルと一覧（3.0.6 → 3.0.1）と比べる。答えが違えば落ちる。モデルの case は、numpy と lightgbm がファイルの `meta` と違えば理由を付けて skip する。必須のレーンは今のまま（版のファイルが無ければ落ちる）。
+- この実行で pandas 3.1.0 も取り込む。新しい minor を取り込む手順（`b297de4` から再現できるファイル、環境の記録、S の名前、合わない case の扱い）を Proposal で決める。PR は仕組みと 3.1.0 の取り込みの 2 つに分ける。
+- 採らなかった案: 3.0.6 のファイルを作るだけ（numpy・lightgbm・pandas のどれかが上がるたびに赤くなる）、latest-deps のレーンで参照のテストを外す（答えが変わっても気づけない）。
+
+### 対応方針（提案）
+
+1. **参照ファイルの選び方**（`_h0138_oracle.py`）:
+   - 走っている pandas の版のファイルがあれば、それを使う（どのレーンでも、モードによらず）。
+   - 無いとき、環境変数 `LIZYML_H0138_ORACLE_MODE=latest-same-minor` があれば、`packaging.version.Version` で、epoch・major・minor が同じで走っている版より古い版のファイルのうち一番新しいものを選ぶ。選んだ版の一覧（`h0139_overlay_pandas-<選んだ版>.json.gz`）も必ず使い、版を混ぜない。一覧が無い、読めない、`meta` の版が合わないときは落ちる（古い版へ下がり直さない）。pre-release・post・dev・local の版も `Version` の順に従う（例: 3.0.6・3.0.1.post1・3.0.2rc1 → 3.0.1。3.0.1rc1 と 3.1 の全ての版 → 候補なし）。`packaging` は宣言した依存ではなく、pytest の依存として全てのテストの環境に入っている（`uv.lock`）。テストの道具だけが使う。
+   - 候補が無ければ、今と同じく落ちる（新しい minor は、その minor のファイルができるまで赤い）。
+   - **誤って有効にしない**（DC1）: モードは `GITHUB_ACTIONS=true` かつ `GITHUB_JOB=quality-latest-deps` のときだけ受け付ける。それ以外で値があれば、知らない値も含めてテストが落ちる（黙って厳密なモードに戻らない）。値が無ければ今と同じ厳密なモードである。
+2. **モデルの case**: numpy と lightgbm が選んだファイルの `meta` と同じかを、answers の子プロセスを走らせる前に決める。latest-same-minor のモードで違うときは、子プロセスにモデルを計算させず（モデルの数 0）、モデルの case 74 本と版を確かめるテストを、期待と実際の版を書いた理由で skip する。版が同じなら、今と同じくモデルを比べる。必須のレーン（厳密なモード）では今と同じく、版が違えば落ちる。
+3. **選んだ版での検査**: `meta` の pandas の版は選んだ版と等しく、2 つのファイルの版は等しく、走っている版は選び方の規則を満たすことを確かめる。件数と、ID が既知であることの検査は今のまま。一覧の閉じた和は、選んだ版の参照ファイルの case と `S_NAMED[選んだ版]` から計算する（一覧そのものから S を作らない）。重複の無い ID、各「前」が参照と等しいこと、規則ごとの集合と件数の検査は今のまま。
+4. **表示**: 参照のテストを集めたとき、端末の要約に 1 行を必ず出す: 走っている pandas・numpy・lightgbm・pyarrow の版、選んだファイルの版とパス、厳密か同じ minor か、比べたエンコーダと時刻の case の数、skip したモデルの case の数。CI の `-q` でも見える。
+5. **CI**: `quality-latest-deps` のジョブの pytest の step にだけ `LIZYML_H0138_ORACLE_MODE: latest-same-minor` を置く。ジョブは non-blocking のまま。
+6. **規則 T**（H-0139 の対応方針 7 の規則に足す）: Y でなく、元の参照で transform で失敗していた時刻の case（pandas の cast は成功し、`b297de4` の引き方が失敗した）。「後」は成功し、置き換えの列 `["c"]`、カテゴリは pandas の cast のカテゴリ（その順）と学習の行から、キーごとの最初の代表をその順で並べたもの、符号は固定したバッチとその逆順のキーの位置。`make_overlay.py` の件数は、空の規則を `meta` に書かない（既存の 3 つの一覧のバイトを変えない）。テストの閉じた和は Y・R・S・T の和になる。
+   - **生成をライブラリから切り離す**: `docs/audits/2026-10-h0139/oracle/make_overlay.py` は、最初に import の hook を置き、`lizyml.core.category_values`・`lizyml.core.category_temporal`・`lizyml.core.exceptions` を `docs/audits/2026-10-i389/oracle/frozen_core/` の凍結した写し（`f025620` のバイトのまま）から渡し、ほかの `lizyml` の module の import を拒否する（`lizyml` が先に import されていれば落ちる）。試作のキー、`typed`、`SAMPLES` はそのまま凍結した写しを使う。Y・R・S・T の全ての規則が同じ写しで計算される。写しは、規則の答えを変える Proposal があるときだけ更新する。
+   - 生成のスクリプトの場所は変えない（一覧の `meta["generator"]` が既存のファイルのバイトに入っているため）。
+7. **新しい pandas の minor を取り込む手順**（CONTRIBUTING.md に書く）:
+   1. `b297de4` の worktree に develop の `docs/audits/2026-10-h0138/{oracle,firing}` を写し、その pandas と latest-deps と同じ依存（pyarrow を含む）の環境で、`PYTHONHASHSEED=0` で `make_oracle.py` を 2 回走らせ、バイトが同じことを確かめる。
+   2. develop の木で `make_overlay.py` を走らせて一覧を作る（2 回、バイトが同じ）。
+   3. S の名前を `S_NAMED` に足す（一覧の生成が出す名前。実装の答えを見て選ばない）。
+   4. 生成の記録（下の 8）に、ファイルの SHA-256 と環境を足す。
+   5. 参照のテストが全て通ることを確かめる。合わない case が残れば、ファイルを足さずに、閉じた規則を足す Proposal（またはこの Proposal の改訂）で扱いを決める。答えに合わせてファイルや規則を直さない。
+   - `uv.lock` の pandas を上げるときも、同じ手順でその版のファイルを作る。
+8. **生成の記録**: `docs/audits/2026-10-h0138/oracle/provenance.json` に、全ての参照ファイルと一覧のファイルの SHA-256 と、作った環境（Python・pandas・numpy・lightgbm・pyarrow の版、pyarrow の有無、生成のコマンドと元の commit）と、凍結した写しの 3 つのファイルの SHA-256 を書く。テストは、`tests/test_features/data/` の全ての参照ファイルと一覧のファイルが記録にあり、SHA-256 が一致することを確かめる（記録に無いファイル、記録だけのファイルは落ちる。DC3）。既存の 6 つの記録は、作り直して commit とバイトが一致した環境で書く（3.0.1 の参照ファイルは 2026-10-22 に自分で、3 つの参照ファイルと 3 つの一覧は Codex の批評が作り直して一致した。2.3.3 と 2.0.0 の環境は resume kit の手順で作る lock と下限の環境）。
+9. **pandas 3.1.0 の取り込み**（2 つ目の PR）: 上の 7 の手順で `h0138_oracle_pandas-3.1.0.json.gz`（numpy 2.5.4、lightgbm 4.7.0、pyarrow 26.0.0、Python 3.12）と一覧（Y 221、R 195、S 5、T 72）を足し、`S_NAMED["3.1.0"]` を `p22-23`・`p22-36`・`p23-35`・`p24-38`・`p60-103` にする。
+
+### 互換性
+
+- ライブラリ・公開 API・保存の形式は変わらない。テストと CI と記録だけの変更である。
+- 必須のレーンの振る舞いは変わらない（版のファイルが無ければ落ちる、numpy・lightgbm の版が違えば落ちる）。既存の 6 つのファイルはバイトとして変えない。
+- latest-deps のレーンは、同じ minor の古いファイルと比べるあいだ、モデルの退行（モデルのハッシュと予測）を見ない。エンコーダと時刻の case は比べ続ける。表示の 1 行でこれが見える。
+- pandas 3.1.0 の取り込みまで（1 つ目の PR の後）、latest-deps のレーンは 3.1.0 で赤いままである（受け入れ 7 のとおり）。
+
+### 代替案
+
+- **3.0.6 のファイルを作るだけ**: numpy・lightgbm・pandas のどれかが上がるたびに赤くなり、毎回手で作り直すことになる。管理者が採らなかった。
+- **latest-deps のレーンで参照のテストを外す**: 新しい pandas で答えが変わっても気づけない（#389 の受け入れ「違えば赤」を満たさない）。管理者が採らなかった。
+- **minor をまたいで一番近い古いファイルと比べる**: pandas 3.1.0 で 185 本が値の表し方の違いで落ち、本当の変化と区別できない。採らない。
+- **新しい minor のファイルを、今のライブラリ（または最新のリリース）で作る**: 参照が確かめる相手を、確かめられる側で作ることになり、H-0138 の受け入れ 2 の意味（H-0138 より前の答え）が無くなる。採らない。
+- **72 本を R を広げて扱う**: 30 本の並びが合わない（上の実測）。採らない。
+- **モードを環境変数だけで決める**: 必須のレーンで誤って値が入ると黙って緩む（DC1）。`GITHUB_JOB` も確かめる。
+
+### 受け入れ基準
+
+1. **既存のファイル**: 既存の 3 つの参照ファイルと 3 つの一覧はバイトとして変わらない。規則 T と凍結した写しを使う `make_overlay.py` で 3 つの一覧を作り直すと（3 つの pandas の環境）、バイトが一致する。
+1a. **生成がライブラリに依らない**: `make_overlay.py` は、凍結した 3 つの写し以外の `lizyml` の module を import できない状態で一覧を作り終える。読み込まれた 3 つの module のファイルが凍結した写しで、その SHA-256 が `provenance.json` と一致する。`lizyml` を先に import した状態で走らせると落ちる。
+2. **必須のレーン**: 版のファイルが無い pandas で、モードの値が無いとき、モードの値が `GITHUB_JOB` の違うジョブや CI の外で入っているとき、知らない値のときのそれぞれで、参照のテストが落ちる（monkeypatch で版とファイルの一覧を差し替えて確かめる）。
+3. **選び方**: 走っている版のファイルを優先すること、同じ minor の一番近い古い版、patch の数の順（3.0.10 > 3.0.9）、pre-release・post・dev・local、読めない版の文字列、一覧が無い・`meta` の版が合わない・壊れたファイルを、それぞれ単体のテストで確かめる。
+4. **選んだ版での検査**: 対応方針 3 の全ての検査が、選んだ版に対して働く（選んだ版で `S_NAMED` を引く、件数と既知の ID の検査が残る）。
+5. **モデルの case**: pandas 3.0.6（numpy 2.5.4、lightgbm 4.7.0、pyarrow 26.0.0）の環境で、latest-same-minor のモード（`GITHUB_ACTIONS`・`GITHUB_JOB` を合わせる）で、エンコーダの case 1584 と時刻の case 4620 を比べて全て通り、モデルの case 74 本と版のテストが理由付きで skip され、answers の子プロセスが計算したモデルの数が 0 である（子プロセスの出力で数える）。numpy と lightgbm が `meta` と同じ環境では、モデルを比べる。
+6. **陰性対照**: 同じ minor で比べるとき、選んだファイルの写しで、カテゴリ・最頻値・符号・置き換えの列・一覧の外の時刻の case の答えをそれぞれ変えると、テストが skip でなく落ちる。
+7. **新しい minor**: pandas 3.1.0 の環境で、1 つ目の PR の木では、同じ minor の候補が無いので参照のテストが落ち、3.0.1 のファイルと黙って比べない。
+8. **表示**: 対応方針 4 の 1 行が、通るときも出る（CI のログで確かめる）。ジョブは non-blocking のまま。
+9. **pandas 3.1.0 の取り込み**: 2 つ目の PR の木で、pandas 3.1.0 の環境（上の版）のフルスイートが通り、参照のテストが全て通る（モデルの case も比べる）。3.1.0 のファイルは 2 回作ってバイトが同じで、`provenance.json` の SHA-256 と一致する。latest-deps のレーンが緑になる（PR の CI で確かめる）。
+10. **文書**: CONTRIBUTING.md（latest-deps のレーンの説明と、新しい minor を取り込む手順）、BLUEPRINT §18（non-blocking lane が参照のファイルを同じ minor で比べること）、`docs/proposal_dispositions.toml`、H-0138 の受け入れ 2 と H-0139 の対応方針 7 に、この Proposal で改めたことへの注記を書く。
+
+**レビューの停止基準**: 上の受け入れ基準のテストが通ったら止める。次の round に進む理由になるのは、この契約の中の欠陥だけである: 必須のレーンが版のファイル無しで通ること、同じ minor の選び方の誤り、モデルの skip が計算の前に決まらないこと、選んだ版での検査が緩むこと、規則 T の答えがライブラリに依ること、既存のファイルのバイトが変わること。ライブラリの振る舞い、H-0138・H-0139 の契約そのもの、必須のレーンの依存の版、#391 は、次の round に進む理由にならない。
+
+### Proposal レビュー round 1（2026-10-22）
+
+- **結果**: Codex の run `h0144-proposal-review` の round 1（`f025620`）は CHANGES_REQUESTED で、major 1 件だった。規則 T の答えを「ライブラリを import せずに計算する」と書いたが、試作のキーと記録の関数が本番の `category_identity_key`・`encode` を使っていて、答えがそれに依る（キーを差し替えると `p3-88` の答えが変わる）。ほかの事実の主張（3.1.0 の参照ファイルの SHA-256、6 つの既存のファイルのバイト、T の 72 本、R を広げたときの 30 本、3.0.6 の 6204 本、pyarrow の 9 本）は全て実行で再現された。モデルを計算の前に外す試作と、5 つの陰性対照も確かめた。
+- **対応**: 実測の誤った記述を直し、対応方針 6 に、生成を凍結した写しに移すことを足した（Y・R・S・T の全てに及ぶ）。受け入れ 1 に凍結した生成での作り直しを、1a に import を拒否した状態での生成を足し、対応方針 8 の記録に凍結した写しの SHA-256 を足した。凍結の試作で既存の 3 つの一覧のバイトが一致することを確かめた（上の実測）。
+
+### Proposal レビュー round 2（2026-10-23）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`0688fe5`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`0688fe5`）は APPROVE で、指摘は無かった。run `h0144-proposal-review` はこれで終わり、この Proposal を Accepted とした。
+
+### 実装の記録（2026-10-23。1 つ目の PR: 仕組み）
+
+- **選び方**（`tests/test_features/_h0138_oracle.py`）: `resolve()` が、モード（`oracle_mode`。`GITHUB_ACTIONS=true` と `GITHUB_JOB=quality-latest-deps` のときだけ受け付け、ほかの値や場所では `ValueError`）、ファイルの版の一覧（`oracle_versions`）、選び方（`select_version`。`packaging.version.Version` で同じ epoch・major・minor の一番新しい古い版）から、比べる版を決める。誤りは `Resolved.error` に入り、テスト `test_the_oracle_mode_is_allowed_here` が落ちる。参照ファイルと一覧は、選んだ版のものだけを読む。
+- **モデルの case**: `compare_models` を、answers の子プロセスを走らせる前に決め、環境変数 `LIZYML_H0138_MODELS` で子プロセスに渡す。`0` なら子プロセスはモデルを 1 つも計算しない（`models_computed` で数え、`test_models_are_computed_only_when_compared` が確かめる）。厳密なモードでは今と同じく、版が違えば落ちる。
+- **選んだ版での検査**: `meta` の pandas の版、一覧の `meta` の版、`S_NAMED[選んだ版]`、Y・R・S・T の閉じた和（空の規則は件数に書かない）。
+- **表示**: `tests/test_features/conftest.py` の `pytest_terminal_summary` が、`H-0138 oracle:` で始まる 1 行（pandas・numpy・lightgbm・pyarrow の版、モード、選んだ版、厳密か、比べた case の数、モデルを比べたか）を出す。
+- **CI**: `quality-latest-deps` のジョブの `Test (pytest)` の step にだけ `LIZYML_H0138_ORACLE_MODE: latest-same-minor` を置いた。これを確かめるテストも足した（ほかのジョブ・ワークフローの全体に値が無いこと）。
+- **生成の記録**: `docs/audits/2026-10-h0138/oracle/provenance.json`（`probes/write_provenance.py` で書く）。`tests/test_features/test_h0144_oracle_provenance.py` が、ファイルと記録の一致（過不足、SHA-256、`meta` の版）、凍結した写しの SHA-256、生成のスクリプトが凍結した写しだけを読み、ほかの `lizyml` を拒否し、先に `lizyml` を import していれば落ちることを確かめる。
+- **受け入れの測定**（`docs/audits/2026-10-i389/probes/`）:
+  - 受け入れ 1: 3 つの参照ファイルを `b297de4` から各 2 回、3 つの一覧を凍結した生成で作り直し、全てバイトが一致した（`regen_existing.*`。環境は pandas 3.0.1: Python 3.12.3・numpy 2.4.2・lightgbm 4.6.0・pyarrow 23.0.1、2.3.3: 3.10.22・2.2.6・4.6.0・23.0.1、2.0.0: 3.10.22・1.24.0・4.4.0・23.0.1）。
+  - 受け入れ 2・5・7（`accept_latest.*`）: pandas 3.0.6（numpy 2.5.4・lightgbm 4.7.0・pyarrow 26.0.0）で、latest-deps のモードでは 3.0.1 と比べ 6210 本が通り、モデルの case 74 本と版のテストが理由付きで skip され、計算したモデルは 0 だった。同じ環境で、モードが無いとき・ジョブの外でモードがあるときは落ちた。pandas 3.1.0 では候補が無く落ちた（3.0.1 と黙って比べない）。pandas 2.3.3・2.0.0 の厳密なレーンは全て通った（6510・6539 本）。
+  - 受け入れ 3・4: `tests/test_features/test_h0144_oracle_selection.py`（モードの誤用 7 通り、選び方 15 通り、読めない版、ファイルの版の一覧、版を混ぜないこと、モデルの skip の条件、CI の設定）。
+  - 受け入れ 6（`negative_controls.*`）: pandas 3.0.6 の latest-deps のモードで、写した 3.0.1 の参照ファイルのカテゴリ・最頻値・符号・置き換えの列・一覧の外の時刻の case をそれぞれ変えると、対応するテストが 5 つとも skip でなく落ちた。
+- **文書**: BLUEPRINT §18、CONTRIBUTING.md（latest-deps のレーンと、新しい minor を取り込む手順）、CHANGELOG（Unreleased）、`docs/proposal_dispositions.toml`（specified）、H-0138 の受け入れ 2 と H-0139 の対応方針 7 の注記。
+- **欠陥の分類**（#389）: DC3（版ごとの参照ファイルが、上流の新しい版に追いつかない）。直したのは、追いつく手順と、追いつくまでの比べ方である。
+
+### 実装レビュー round 1（2026-10-23）
+
+- **結果**: Codex の run `h0144-impl-review` の round 1（`414c6e1`）は CHANGES_REQUESTED で、major 1 件・minor 1 件だった。
+  1. （major）CONTRIBUTING.md の手順で新しい版のファイルを足すと、`test_the_shipped_oracles_each_have_their_overlay` が 3 つの版の固定の一覧と比べていて落ちる（手順が完結しない）。
+  2. （minor）表示の 1 行に、選んだ参照ファイルのパスが無い（対応方針 4）。
+- **対応**: 選び方の例の版の一覧（`EXAMPLE`）を、出荷するファイルの一覧から切り離した。出荷するファイルのテストは、参照ファイルと一覧が版ごとに対になっていることと、既存の 3 つの版があることだけを確かめる。全ての参照ファイルの版に `S_NAMED` の名前があることを確かめるテストを足した（手順の 3）。表示の 1 行に `oracle_path` を足した。
+- **CI**（PR #399、`414c6e1`）: 必須のジョブは全て通った。latest-deps のジョブは pandas 3.1.0 を解決し、表示の 1 行に `mode=latest-same-minor` が出て（`GITHUB_JOB` の検査が本物の CI で通った）、同じ minor の参照ファイルが無いので参照のテスト 5 本だけで落ちた（受け入れ 7・8）。
+
+### 実装レビュー round 2（2026-10-24）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`b1c248f`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`b1c248f`）は APPROVE で、指摘は無かった。run `h0144-impl-review` はこれで終わる。この実行の方針により、APPROVE と CI 緑で 1 つ目の PR をマージし、2 つ目の PR（pandas 3.1.0 の取り込み）に進む。
+
+### 実装の記録（2026-10-24。2 つ目の PR: pandas 3.1.0 の取り込み）
+
+- **手順**: CONTRIBUTING.md の手順のとおりに行った（`docs/audits/2026-10-i389/probes/onboard_310.*`）。環境は Python 3.12.3・pandas 3.1.0・numpy 2.5.4・lightgbm 4.7.0・pyarrow 26.0.0（latest-deps のレーンと同じ解決）。
+  1. `b297de4` から `h0138_oracle_pandas-3.1.0.json.gz` を 2 回作り、バイトが同じだった（SHA-256 `bc71c27d…`。Proposal の実測と同じ）。
+  2. 凍結した生成で `h0139_overlay_pandas-3.1.0.json.gz` を 2 回作り、バイトが同じだった（Y 221、R 195、S 5、T 72）。
+  3. `S_NAMED["3.1.0"]` を生成が出した `p22-23`・`p22-36`・`p23-35`・`p24-38`・`p60-103` にした。
+  4. `provenance.json` を 4 つの版（8 つのファイル）で書き直した。
+- **受け入れ 9**（`probes/accept_310.*`）: pandas 3.1.0 の環境の latest-deps のモードで、slow を含むフルスイートが通った（23124 本、skip 252）。参照のテストは 3.1.0 のファイルと厳密に比べ（`exact=True`）、モデルの case も比べた（numpy と lightgbm がファイルと同じ）。lock の環境のフルスイートも通った（23126 本）。
+
+## H-0145: 書いて読み戻すと要素が減る frozenset を V から外す ― 実行中の NumPy で判定し、identity の対象からも外す（#391）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-10-24
+- **決定日**: 2026-10-24
+- **関連**: H-0133（値の集合 V と符号化）、H-0136（保存の後の振る舞いの検査）、H-0138（カテゴリの値の同一性。V の外の値を持つ列は pandas の経路）、H-0139（時刻の値のキー。年・月の単位の拒否）、#391、registry のカード D-20261022-014・D-20261022-016（管理者の判断）
+- **スコープ**:
+  - `lizyml/core/category_values.py` の `refusal`（V の判定）と、その写しである生成コードの `_encode_value`・`_in_v`（`codegen/templates.py`・`codegen/identity_template.py`）
+  - 範囲の外: 符号化の形式（書き方は変えない）、V のほかの規則、H-0138・H-0139 のキーそのもの、カテゴリの一覧（入れ物でない並び）の扱い、#389
+
+### 目的（課題）
+
+NumPy 1.24（`Quality (lowest-direct deps)` のレーン、pandas 2.0.0）では、カテゴリの値 `frozenset({np.uint64(4), np.timedelta64(4, "s")})` は V の中にある（`refusal` が `None`）が、H-0133 の符号化で往復できない。`encode` は numpy のスカラーを `.item()` で書くので `np.uint64(4)` は JSON の `4` になり、NumPy 1.24 では `4 == np.timedelta64(4, "s")` で hash も等しいので、読み戻した frozenset は 1 つの要素に潰れ、`decode` は正規の形でないとして `DESERIALIZATION_FAILED` を出す。生成コードの `_decode_value`（`codegen/templates.py`）も `ValueError` を出す。この値を持つ列のモデルは、`Model.fit` の最後の保存の後の振る舞いの検査（`warn_saved_state_changes`）で、結果を確定した後に `DESERIALIZATION_FAILED` を出し、`Model.export` と `export_code` も同じ例外で止まる（V が「保存できる値の集合」なのに保存できない。DC1 の形）。
+
+### 実測（2026-10-22〜24、develop `f002e8c` の上）
+
+測定のスクリプトと出力は `docs/audits/2026-10-i391/` にある。批評は Codex の run `i391-critique`（`critique-i391-r1.json`。1 round、CHANGES_REQUESTED。issue の本文の 2 つの事実の誤りを訂正し、issue にコメントした）。
+
+- **届く範囲**（批評の測定）: NumPy 1.24 では、`np.uint64` と、単位がどれでも `np.timedelta64` の組が潰れる（ほかの NumPy の整数型と Python の `int`・`bool` は、set を作る時点で既に 1 つになる）。NumPy 2.x では、`np.uint64` と月・年の単位の `np.timedelta64` の組が潰れる。固定の単位でも、hash が衝突する大きな `np.uint64` との組（`{np.uint64(9265762820973641783), np.timedelta64(4, 'ms')}`）は、読み戻すときの比較が `OverflowError` を出す（Proposal レビュー round 2。NumPy 2.2.6・2.4.2）。NumPy 1.24 では `{np.timedelta64(0, 's'), Decimal('-0')}` も、書く順（並べ替えた順）で組み直すと比較が `TypeError` を出す（同じ round 2）。浮動小数点・複素数・文字列・bytes・`Decimal`、時刻どうしの組は潰れなかった（NumPy 1.24 で 10296 組、2.2.6 で 8385 組、時刻どうし 5778 組）。構造の要素でも潰れる: `{(uint64(4),), (timedelta64(4,'s'),)}` と、それぞれを要素 1 つの frozenset にした組は 2 → 1、tuple の中の frozenset の中の潰れる組も読み戻せない。tuple そのもの（`(uint64(4), timedelta64(4,'s'))`）は位置を保つので潰れない。
+- **到達できなさ**（`probes/reachability.*`、NumPy 1.24.0、pandas 2.0.0。今の木は `98f6cc0` で、develop `b35afee` の squash の前の同じ内容）: `[v, 'x']` の列の fit は `DESERIALIZATION_FAILED` を出し、`Model.export` と `export_code` も同じ例外を出して何も書かなかった（批評の測定を自分で確かめた）。
+- **predict で初めて来る値**（`probes/predict_time.*`、NumPy 1.24、pandas 2.0.0）: 普通の値（`['a','b']`、`[np.uint64(5),'a']`、`[(1,), frozenset({2,3})]`）で fit した keyed の列（`identity_columns` に入る）に、predict でこの値が来ると、今の木（`98f6cc0`。`b35afee` と同じ内容）でも試作でも unseen として扱われ（`mode`・`nan` は今と同じ予測、`error` は `DATA_SCHEMA_INVALID` の unseen）、振る舞いは変わらない。
+- **同じキーの V の中の値**（Proposal レビュー round 1 が見つけた。`probes/key_equal_safe*.out`・`find_v.out`、NumPy 1.24、pandas 2.0.0）: `safe = frozenset({4, timedelta(seconds=4)})` は往復でき V の中にあり、そのキーはこの値 `v` のキーと等しい。
+  - `[safe, 'x']` で fit した keyed の列は、今は predict で来た `v` を `safe` のカテゴリとして引く（3 つの方針とも予測を返す）。試作では `v` は V の外でキーが無いので unseen になる（`error` は `DATA_SCHEMA_INVALID`、`nan` は予測が変わる。`mode` は学習の最頻値が `safe` なので、置き換えた後の予測は同じだった）。このモデルは今も export できるので、保存したモデルにも及ぶ。
+  - `[safe, safe, v, 'x']` の列は、今は keyed で fit し（`v` はキーで `safe` に合わさり、状態のカテゴリは `safe` と `'x'`）、export の検査も通る。試作では identity の対象外になって pandas の経路を通り、pandas は `v` を別のカテゴリとして持ち、fit は V の外の値の警告を出し、export は `SERIALIZATION_FAILED` で拒否する。
+  - `v` そのものを保持するのは、モデルのメモリの中の学習データ（`Model._X`）だけで、エンコーダの状態は持たない。`Model.export` の任意の `analysis_context.pkl`（学習データの joblib）は `v` を含みうるが、V の判定と符号化の対象でなく、この変更の影響を受けない。
+- **カテゴリの一覧**（入れ物でない並び）: `[uint64(4), timedelta64(4,'s'), 'x']` は JSON に写しても長さ 3 を保つ。この Proposal は一覧を変えない（H-0143 の判定もそのまま）。
+- **試作**（`probes/prototype.diff`。`lizyml/core/category_values.py` に `_round_trip_refusal`。実装の commit までは木に入れない）: 今の規則で V の中にあり frozenset を持つ値について、内部の符号化と復号で 1 回往復し（`_encode(_decode(_encode(v))) == _encode(v)`。`refusal` を呼び直さない）、読み戻した形が書いた形と違うか、往復で例外が出れば拒否する。書く順（並べ替えた順）で組み直すので、公開の `decode(encode(v))` と同じ順で比べる。
+  - 最初の試作（要素ごとに写して数える。round 1 まで）は、round 2 が示した 2 つの値（書く順で組み直すと比較が例外を出す値）を受け付けていた。
+  - 独立した基準との比較（`probes/matrix_v2.*`）: 試作を外した公開の `decode(encode(v))` が成功するかを基準に、#391 の行列（15 の単位 × 0・1・4 × 組・`'x'`・構造・入れ子・tuple）と `SAMPLES` の全ての組（frozenset と tuple）で比べ、NumPy 1.24.0・2.2.6・2.4.2 の 3 つとも食い違いは 0 だった（今の規則で V の中の値 12660・12660・12218）。拒否は NumPy 1.24 で 194、2.2.6 と 2.4.2 で 18。`SAMPLES` の組を frozenset にした値では 13/6216、1/6216、1/5995。
+- **firing rate**（新しい拒否が働く割合）:
+
+  Firing rate: 0/147417 of the round-trip checks made in the pytest process of the full suite with slow tests on the lock (NumPy 2.4.2, pandas 3.0.1) and lowest-direct (NumPy 1.24.0, pandas 2.0.0) environments (census plugin `docs/audits/2026-10-i391/probes/collapse_census.py` wrapping the prototype v2 at develop `b35afee`; 0/72559 and 0/74858 per lane; positive control 1/1; subprocesses such as the H-0138 answers and notebook kernels are not counted; the first prototype's census, 0/84481, is kept as `v1_census_*`)
+
+  - census の仕組みが数えることは、#391 の組を拒否するだけのテストで確かめた（1 回の判定、1 回の拒否。`probes/census_positive_control.out`）。
+  - スイートの普段の入力では、この拒否は働かない。働くのは #391 の形の値だけで、批評が `SAMPLES` の全ての組を frozenset にして数えると、NumPy 1.24 で 13/6216（`np.uint64(4)` と 13 の単位の `np.timedelta64`）、2.2.6 で 1/6216（月の単位）だった（試作 v2 でも同じ数で、2.4.2 では 1/5995。`probes/matrix_v2.out`）。普段は働かない安全の拒否なので、受け入れ基準で明示的に値を作って確かめる（DC6 の「働かない仕組み」ではなく、間違った入力を止める門である）。
+  - census の環境では、フルスイートは試作と関係なく既知の失敗だけだった（`tests/test_e2e/test_version.py` は worktree に写した版の情報による。下限の環境の `beta` の校正 2 本は、試作の無い木でも同じく落ちる手元の環境の失敗で、CI の下限のレーンは通る）。
+
+### 管理者の判断（2026-10-22。カード D-20261022-014・D-20261022-016）
+
+- この値を V から外す（書き方は変えない。「NumPy の整数に型の印を付ける」案と「文書に書くだけ」の案は採らない）。
+- 批評の後: 保存だけでなく identity の対象からも外す（批評の推奨の「保存だけの制限」は採らない）。受け入れた結果は次の閉じた一覧で、H-0138 の「カテゴリの値の同一性」の段（V の外の値を持つ列は pandas の経路）に注記する。
+  1. この値を行または宣言に持つ列は、fit で identity の対象外になり、pandas の経路（今の cast・その結果・その例外）を通る。
+  2. その経路で pandas が例外を出す列（例 `[v, Decimal(1), np.int8(1), 'x']`）は、fit で pandas の例外を出す。
+  3. この値をカテゴリに持つ keyed の状態の predict は、防御の `TypeError`（`no category identity key for a value outside V`）を出す（ただし対応方針 4 のとおり、そのような状態は作れない）。
+  4. predict で初めて来るこの値は unseen。学習したカテゴリに同じキーの V の中の値（例 `frozenset({4, timedelta(seconds=4)})`）があるときも unseen で、今はそのカテゴリとして引くので、予測が変わる（`error` では例外）。保存したモデルにも及ぶ（Proposal レビュー round 1 の後、2026-10-24 に管理者が「unseen にする」を選んだ。カード D-20261024-001）。
+  5. 1 により、この値と同じキーの V の中の値を一緒に持つ列（今は keyed でこの値を合わせ、export できる）も pandas の経路になり、この値を別のカテゴリとして持ち、export は拒否される。
+- 判定は実行中の NumPy で行う（同じ値でも NumPy 1.24 では外、2.x では中になりうる）。
+
+### 対応方針（提案）
+
+1. **V の判定**: `refusal` は、今の規則（型・自分と等しいこと・時区・深さ）で V の中にあり、`frozenset` を持つ（値そのもの、または tuple の中にある）値について、内部の符号化と復号で 1 回往復し、読み戻して書き直した形が書いた形と違うか、往復で例外が出れば「書いた形に読み戻せない frozenset」として拒否する。公開の `decode` が受け付けない（要素が潰れる、組み直しの比較が例外を出す、正規の形に戻らない）値と、ちょうど同じ値を拒否する。frozenset を持たない値（tuple だけの値、スカラー）は判定しない。
+2. **生成コード**: 生成コードの書き手 `_encode_value` で同じ判定を行う。今の `_encode_value` の本体を検査の無い `_encode_raw` に分け（入れ子の要素も `_encode_raw` で書く）、`_encode_value(v)` は `_encode_raw(v)` で書いた後、`v` が frozenset を持てば `_encode_raw(_decode_raw(written)) == written` で 1 回往復し、違うか例外が出れば `ValueError`（「書いた形に読み戻せない frozenset」）を出す。`_decode_raw` は生成コードに既にある検査の無い復号で（`_decode_value` はそれを呼んでから正規の形を確かめる）、往復の中では検査のある `_encode_value`・`_decode_value` を呼ばない（正の `_decode(_encode(...))` と同じ）。
+   - こうすると、生成 `train.py` の `fit_pipeline` が `pipeline_state.json` のカテゴリと最頻値を書く `_encode_value` も拒否するので（Proposal レビュー round 3: `_in_v` だけで判定すると、pandas の経路で fit した列の状態を、読み戻せない形で書けた）、書く前の全てのカテゴリの符号化の段で `ValueError` になり、ファイルを書かない。
+   - `_in_v`（`_encode_value` が例外を出さないか）、`_identity_key`・`_identity_eligible`（`_in_v` を通る）、`_decode_value` の正規の形の検査（`_encode_value` で書き直す）は、全て `_encode_value` を通るので、正と同じ答えになる（H-0138・H-0133 の写しのテストで、`SAMPLES` の組を frozenset にした値と下の行列を加えて確かめる）。既に書いたプロジェクトは自分の写しを持つので変わらない。
+3. **V の外になった列の振る舞い**（今ある規則のまま）: fit の警告（V の外の値を持つ列ごとに `UserWarning`）、identity の対象外（`identity_eligible` が偽になり、今までの pandas の cast・その結果・その例外を使う。H-0138）、3 つの出口は何も書く前に `SERIALIZATION_FAILED`（context `column` / `value` / `type` / `state`）。`encode` は `SERIALIZATION_FAILED`（context `type` / `reason`）、`decode` が読み戻した値がこの理由で V の外なら `DESERIALIZATION_FAILED`（今も正規の形の検査で同じ例外）。
+4. **例外の扱い**: 批評が測った `TypeError` は 2 つとも、V の外の値に対する今の規則の振る舞いである。fit の pandas の経路の例外（`[v, Decimal(1), np.int8(1), 'x']` の列）は H-0138 が「V の外の値を持つ列は今の cast、その結果と例外をそのまま」と決めた振る舞いで、keyed の状態の predict の `TypeError`（`no category identity key for a value outside V`）は、V の外の値を持つ keyed の状態が無い前提の防御である。この Proposal はどちらも `LizyMLError` に変えない。
+   - keyed の状態のカテゴリがこの値を持つ経路は、実際には無い: NumPy 1.24 では、この値が列の最初の代表になる列は、今の版の `fit` が最後に `DESERIALIZATION_FAILED` を出し、3 つの出口も拒否する。同じキーの V の中の値が先にある列では、キーの代表はその値で、状態はこの値を持たない（上の実測）。NumPy 2.x では秒などの組は V の中のまま、月・年の単位の値は H-0139 が fit で拒否する。NumPy 2.x で保存したモデルを NumPy 1.24 で読むことは、joblib が版をまたいで読めない（`numpy._core`）。実装で、この到達できなさを確かめる（受け入れ 6）。
+5. **文書**: BLUEPRINT §15.3 の V の定義（`frozenset` の新しい規則と、実行中の NumPy で判定すること）、カテゴリの値の同一性の段（V の外になった列は pandas の経路）、§16 の値の書き方は変えない。HISTORY の H-0133 と H-0138 に注記、CHANGELOG、`docs/proposal_dispositions.toml`。
+
+### 互換性
+
+- 書き方（符号化の形式）、`format_version`、公開 API は変わらない。
+- NumPy 2.x: V から外れるのは、`np.uint64` と月・年の単位の `np.timedelta64` を同じ frozenset に持つ値（この単位の値を持つ列は H-0139 から fit で拒否されているので変わらない）と、hash が衝突する大きな `np.uint64` と固定の単位の `np.timedelta64` を持つ値である。後者の列は、今は fit の最後に `DESERIALIZATION_FAILED` を出し、変更の後は pandas の経路で fit して V の外の値の警告を出し、3 つの出口は何も書く前に `SERIALIZATION_FAILED` で拒否する（Proposal レビュー round 2 の測定。NumPy 1.24 の上の 4 と同じ形）。
+- NumPy 1.24: この値が最初の代表になる列のモデルは、今は fit の最後に `DESERIALIZATION_FAILED` を出す。変更の後は、その列は pandas の経路で fit し、fit は V の外の値の警告を出して戻り、3 つの出口は `SERIALIZATION_FAILED` で拒否する（批評の測定では、`[v, 'x']` の列の予測は変わらず、`identity_columns` からその列が外れる）。pandas の経路で例外を出す列（上の 4）は、fit で pandas の例外を出す。
+  同じキーの V の中の値を一緒に持つ列は、今は keyed で fit して export できるが、変更の後は pandas の経路でこの値を別のカテゴリにし、export は拒否される（管理者の判断の 5）。
+- 保存した成果物のエンコーダの状態はこの値を持たないので、読み込みは変わらない。ただし同じキーの V の中の値で学習した保存したモデルは、predict で来たこの値を unseen として扱うようになる（管理者の判断の 4）。既に書いたプロジェクトは自分の写しを持つので変わらない。`analysis_context.pkl` は変わらない。
+
+### 代替案
+
+- **NumPy の整数に型の印を付けて書く**（値を保つ）: 書き方が変わり、古い LizyML が新しいファイルを読めない。管理者が採らなかった。
+- **文書に書くだけ**: 今も大きな例外で止まるが、V が「保存できる値」という約束を破ったままになる。管理者が採らなかった。
+- **保存だけの制限にする**（identity はそのまま。批評の推奨）: fit と predict は今のまま。管理者は V から外す（identity も）ことを選んだ。
+- **どの NumPy でも同じ答えにする**: 潰れる組を並べた一覧は閉じず、閉じた規則にするには新しい等しさの定義が要る。管理者は実行中の NumPy で判定することを選んだ。
+- **公開の `encode` / `decode` で往復して判定する**: `encode` が `refusal` を呼ぶので再帰し、入れ子で計算が増える（批評の測定で深さ 8 の値に約 17 ms）。内部の符号化と復号を下から使う（約 18 µs）。
+
+### 受け入れ基準
+
+1. **行列**（NumPy 1.24 と 2.x の両方）: 拒否は、公開の `decode(encode(v))` が（この規則を外して）失敗する値のときだけ働く。Proposal レビュー round 2 の 2 つの値（`{np.timedelta64(0, 's'), Decimal('-0')}` は NumPy 1.24、`{np.uint64(9265762820973641783), np.timedelta64(4, 'ms')}` は NumPy 2.x で拒否、もう一方の NumPy では受け付ける）を含む。`np.uint64(4)` と `np.timedelta64(4, u)`（全ての単位、倍数の単位、generic は作れる範囲で）、`'x'` を足した組、3 つの要素、両方の挿入の順、構造の要素（tuple と frozenset）、tuple の中の frozenset の中、深さ 8 の境界、月・年の単位と 0 の値。対照: tuple の組、数値・文字列・bytes の組は受け付ける。期待値は、試作と別の書き方（この規則を外した公開の `decode(encode(v))` が成功するか）で求める。
+2. **正と写しの一致**: `refusal`・`encode`・`decode`・`category_identity_key`・`identity_eligible` と、生成コードの `_encode_value`・`_in_v`・`_identity_key`・`_identity_eligible`・`_decode_value` が、`SAMPLES` の全ての組を frozenset にした値（6216 通り程度）と 1 の行列で、両方の NumPy で同じ答えを返す。
+3. **例外の面**: `encode` の `SERIALIZATION_FAILED`（`type`・`reason`）、codegen の値の書き手の `SERIALIZATION_FAILED`（`where`・`type`・`reason`）、3 つの出口の `SERIALIZATION_FAILED`（`column`・`value`・`type`・`state`。refit・各 fold・最頻値・使われていない宣言のカテゴリ）が何も書く前に出る。読み戻した値が V の外のときの `DESERIALIZATION_FAILED`（`reason`）。生成コードは `ValueError`。
+3a. **生成 `train.py` の書き手**: 生成プロジェクトで学習し直す `fit_pipeline` に、この値を持つカテゴリの列（NumPy 1.24 の `[v, 'x']`、NumPy 2.x の round 2 の大きな `np.uint64` の組）を渡すと、`pipeline_state.json` を書く前に `ValueError` を出し、ファイルを書かない。陰性対照: 判定を `_in_v` だけに置いた書き方では、ファイルを書き、生成 `_load_pipeline` がそれを読めない（round 3 の測定）。
+4. **fit の振る舞い（NumPy 1.24）**: `[v, 'x']` の列の小さなモデルで、fit は V の外の値の警告を 1 回出して戻り（`DESERIALIZATION_FAILED` を出さない）、`identity_columns` にその列が無く、`Model.export` と `export_code` は `SERIALIZATION_FAILED` で拒否する。陰性対照: 変更の前の木では fit が `DESERIALIZATION_FAILED` を出す。
+5. **変わらないもの**: 実装の後の census で、拒否が働く呼び出しがこの Proposal のテストにだけ現れる。H-0138・H-0139 の参照のテスト、H-0136・H-0143 の grid、カテゴリの一覧（入れ物でない並び）の判定がそのまま通る。
+6. **到達できなさ**: 変更の前の木（develop `b35afee`）と NumPy 1.24.0・pandas 2.0.0 の下限の環境で、この値を持つ列の fit が `DESERIALIZATION_FAILED` を出し、3 つの出口が何も書かない（保存した成果物ができない）ことを確かめる。
+6a. **predict で初めて来る値**: keyed の列に predict でこの値が来ると、変更の前と後で同じく unseen として扱われる（`mode`・`nan`・`error` の 3 つの方針。NumPy 1.24）。学習したカテゴリに同じキーの V の中の値があるときは、変更の前は一致、後は unseen になる（`error` では `DATA_SCHEMA_INVALID`）。
+6b. **同じキーの値を一緒に持つ列**: `[safe, safe, v, 'x']` の列は、変更の前は keyed で fit して export の検査を通り、後は `identity_columns` に入らず、V の外の値の警告を出し、export は `SERIALIZATION_FAILED` で拒否される（NumPy 1.24）。
+7. **文書**: 対応方針 5 のとおり。
+
+**レビューの停止基準**: 上の受け入れ基準のテストが通ったら止める。次の round に進む理由になるのは、この契約の中の欠陥だけである: 潰れる frozenset を受け付けること、潰れない値を拒否すること、正と生成コードの答えが違うこと、拒否が何かを書いた後に出ること、書き方が変わること。V のほかの規則、H-0138・H-0139 のキー、カテゴリの一覧の扱い、`TypeError` を `LizyMLError` に変えないこと（対応方針 4）、#389 は、次の round に進む理由にならない。
+
+### Proposal レビュー round 1（2026-10-24）
+
+- **結果**: Codex の run `h0145-proposal-review` の round 1（`98f4ac4`）は CHANGES_REQUESTED で、major 1 件だった。同じキーを持つ V の中の値（`frozenset({4, timedelta(seconds=4)})`）で学習したモデルは、今は predict で来たこの値をそのカテゴリとして引くので、「predict で来るこの値は今と同じく unseen」と「この値を持つ成果物は作れない」の主張は、その場合に偽だった。ほかの測定（行列、census の 0/84481 と陽性対照、2 つの probe）は実行で再現された。
+- **管理者の判断**（2026-10-24。カード D-20261024-001）: その場合も unseen にする（今の設計のまま。キーを残す案は採らない）。
+- **対応**: 実測に同じキーの値の測定を足し（`probes/key_equal_safe*.out`・`find_v.*`）、管理者の判断の 4 を直して 5 を足し、対応方針 4・互換性の記述を直し、受け入れ 6a を直して 6b を足した。
+
+### Proposal レビュー round 2（2026-10-24）
+
+- **monitor**: round 2 の前に、runner の absolute monitor を走らせた（`6b23f75`）。結果は DELIVERABLE-FOCUSED・continue で、disposition は continue。
+- **結果**: round 2（`6b23f75`）は CHANGES_REQUESTED で、major 2 件・minor 1 件だった。
+  1. （major）最初の試作は、frozenset の要素を集合の反復の順で組み直していて、符号化が書く順（並べ替えた順）と違った。NumPy 1.24 の `{np.timedelta64(0, 's'), Decimal('-0')}` は試作が受け付けるが、`decode(encode(v))` は書く順で組み直すと比較が `TypeError` を出して失敗し、fit と 2 つの出口が `DESERIALIZATION_FAILED` を出す。
+  2. （major）NumPy 2.x で V から外れるのは月・年の単位だけ、という互換性の主張が偽だった。hash が衝突する大きな `np.uint64` と固定の単位の `np.timedelta64`（`{np.uint64(9265762820973641783), np.timedelta64(4, 'ms')}`）も読み戻せず、今は fit が `DESERIALIZATION_FAILED` を出す。
+  3. （minor）`[safe, 'x']` の `mode` の予測は変わらない（変わるのは `nan`、`error` は例外）。
+- **対応**: 判定を「公開の `decode(encode(v))` が受け付けない値」そのものにした（対応方針 1。内部の符号化と復号で 1 回往復し、書いた形に読み戻せなければ拒否する。書く順で組み直すので、公開の往復と同じ答えになる）。生成コードは `_in_v` で同じ往復を行う（対応方針 2）。試作 v2 を独立した基準（試作を外した公開の往復）と 3 つの NumPy で比べ、食い違いは 0 だった。census を取り直した（0/147417）。届く範囲・互換性・受け入れ 1 に 2 つの値を足し、`mode` の記述を直した。
+
+
+### Proposal レビュー round 3（2026-10-24）
+
+- **monitor**: round 3 の前に、runner の relational monitor を走らせた（`19684f7`、round 1・2 を比べた）。結果は CONVERGING・continue で、disposition は continue。
+- **結果**: round 3（`19684f7`）は CHANGES_REQUESTED で、major 1 件だった。対応方針 2 は判定を生成コードの `_in_v` に置いたが、生成 `train.py` の `fit_pipeline` は `pipeline_state.json` のカテゴリと最頻値を `_encode_value` で直接書くので、pandas の経路で fit した列の状態を読み戻せない形で書けた（NumPy 1.24 の `[v, 'x']`、NumPy 2.2.6・2.4.2 の round 2 の大きな `np.uint64` の組。生成 `_load_pipeline` が読めない）。run `h0145-proposal-review` はこれで 3 round を使い切った。
+- **管理者の判断**（2026-10-24）: 直して、絞った確認を 1 round 走らせる（その前に loop の monitor を走らせる）。
+- **対応**: 判定を生成コードの書き手 `_encode_value` に置き（検査の無い `_encode_raw` と `_decode_raw` で往復する）、`_in_v`・`_identity_key`・`_decode_value` はそれを通るようにした（対応方針 2）。受け入れ 3a（生成 `train.py` が書く前に拒否する。陰性対照付き）を足した。
+- **確認の前の monitor**（loop の round 4 にあたる確認の run の前。Claude の新しい文脈で、読むだけ）: relational（round 1〜3）は CONVERGING・continue。生成コードの判定に試作と実行の証拠が無いことを指摘したので、確認の前に足した。
+- **生成コードの試作**（`probes/prototype.diff` に正と一緒に入れた。`probes/generated_writer*.out`）: 生成 `_encode_value` を `_encode_raw` に分けて往復の判定を置くと、普通の値で書いたプロジェクトの `fit_pipeline` を、NumPy 1.24 では #391 の組、NumPy 2.2.6・2.4.2 では round 2 の大きな `np.uint64` の組を持つ行で学習し直したとき、`ValueError` を出し、`pipeline_state.json` は変わらなかった（受け入れ 3a）。陰性対照: 生成コードを変えない木では、ファイルを書き直し、生成 `_load_pipeline` がそれを読めなかった（NumPy 1.24 で `ValueError`、2.4.2 で `OverflowError`）。正と生成コードは、2 つの値の受け付けと拒否で一致した。H-0133・H-0138 の写しのテストと `test_category_values.py` は、両方の試作を当てて通った（lock 1044 本、下限 1056 本）。
+
+### 確認のレビュー（2026-10-24）
+
+- **結果**: Codex の 1 round の確認の run `h0145-proposal-confirm`（`24204e1`）は APPROVE で、指摘は無かった。この Proposal を Accepted とした。
+
+### 実装の記録（2026-10-24）
+
+- **コード**: `probes/prototype.diff` をそのまま当てた（`lizyml/core/category_values.py` の `_holds_frozenset`・`_round_trip_refusal`・`refusal`、`lizyml/codegen/templates.py` の生成 `_holds_frozenset`・`_encode_value`・`_encode_raw`）。試作との違いは 2 つ: `_round_trip_refusal` の分岐を 1 つの返り値にまとめた（答えは同じ）。生成 `_decode_value` が、組み直しの比較の `TypeError`・`OverflowError` を `ValueError` にする（生成コードの復号は形の外れたものを `ValueError` にする約束。NumPy 2.x の大きな `np.uint64` の組で `OverflowError` が漏れていた。正の `decode` は既に `DESERIALIZATION_FAILED` にしている）。
+- **テスト**:
+  - `tests/test_core/test_h0145_round_trip.py`（受け入れ 1〜3）: 各 NumPy で 2 つの値（NumPy 1.24 の組、NumPy 2.x の大きな `np.uint64` の組）の少なくとも 1 つが拒否されること（どのレーンでも規則が走る）、同じキーの V の中の値が V に残ること、行列と `SAMPLES` の組（1 万通り以上）で拒否が独立した基準（この規則を外した公開の往復）とちょうど一致すること、生成コードが同じ答えを返すこと、`encode`・codegen の書き手・`decode`・識別キーの例外。
+  - `tests/test_features/test_h0145_fit_and_predict.py`（受け入れ 3・4・6a・6b）: fit は警告 1 回で戻り、識別の対象から外れ、`Model.export` と `export_code` は何も書かずに拒否する。predict で初めて来る値は 3 つの方針で unseen、同じキーの値を学習していても unseen。
+  - `tests/test_codegen/test_h0145_generated_writer.py`（受け入れ 3a）: 生成 `train.py` の `fit_pipeline` は `pipeline_state.json` を書く前に `ValueError` を出す。陰性対照: 書き手を検査の無い `_encode_raw` にすると、ファイルを書き、生成 `_load_pipeline` が読めない。
+  - 3 つの NumPy（1.24.0・2.2.6・2.4.2）で全て通った。
+- **受け入れ 6b の NumPy 2.x の形**（実装中に測った。`probes/twin_column_2x.*`）: 同じキーの V の中の値と一緒に持つ列は、どの NumPy でも識別の対象外になり pandas の経路を通る（管理者の判断の 1）。NumPy 1.24 では pandas が 2 つを別のカテゴリにし（hash が違う）、export は拒否される（6b のとおり）。NumPy 2.x の大きな `np.uint64` の組では hash が等しく、pandas の cast がこの値を同じキーの値に合わせるので、状態は V の中の値だけを持ち、警告は無く、export できる（pandas の経路では pandas の結果に従う、の範囲）。テストは NumPy ごとに測った振る舞いを固定した。
+- **census**（受け入れ 5。`probes/census_impl_*`）: slow を含むフルスイートで、拒否が働いた呼び出しは H-0145 の 3 つのテストのファイルにだけ現れた（lock の NumPy 2.4.2 で 136/87964、下限の NumPy 1.24.0 で 1155/89567）。ほかの失敗は既知の環境のものだけだった（worktree に写した版の情報による `tests/test_e2e/test_version.py`、下限の手元の環境の `beta` の校正 2 本）。lock 23787 本、下限 24103 本が通った。
+- **計算の量**: 判定は frozenset を持つ値にだけ、値ごとに内部の符号化・復号・符号化を 1 回行う（批評の測定で 1 値あたり十数 µs）。frozenset のカテゴリはまれなので、結果を覚えておく仕組みは足さない。
+- **文書**: BLUEPRINT §15.3（V の定義の frozenset の規則、同一性の段の注記）と §16（生成コードの書き手）、CHANGELOG（Unreleased の Fixed）、`docs/migration.md`（Unreleased）、H-0133 の P1 と H-0138 の注記、`docs/proposal_dispositions.toml`（specified）。
+- **欠陥の分類**（#391）: DC1（V が「保存できる値」と約束しながら、保存で読み戻せない値を受け付けていた）。
+
+### 実装レビュー round 1（2026-10-24）
+
+- **結果**: Codex の run `h0145-impl-review` の round 1（`1c93da1`）は APPROVE で、minor 1 件だった。`docs/migration.md` の影響する値の説明が整数と `np.timedelta64` の組に限られていて、NumPy 1.24 の `{np.timedelta64(0, 's'), Decimal('-0')}`（整数を含まない）が漏れていた。
+- **対応**: 説明を往復の規則（書いた値から組み直すと要素が等しくなるか比べられない）で書き、組は例として挙げる形にした。管理者の方針（1 行でも再確認）により、この直しを 1 round の確認で見る。
+- **確認**（2026-10-24）: 実行の前に Claude の新しい文脈で absolute monitor を走らせた（DELIVERABLE-FOCUSED・continue。確認は直した文言だけに絞る）。Codex の 1 round の確認の run `h0145-impl-confirm`（`570c8a5`）は APPROVE で、指摘は無かった。この実行の方針により、APPROVE と CI 緑でマージする。

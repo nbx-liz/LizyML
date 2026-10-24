@@ -182,9 +182,35 @@ def _refusal(value: Any, depth: int) -> str | None:
     return _scalar_refusal(value)
 
 
+def _holds_frozenset(value: Any) -> bool:
+    if type(value) is frozenset:
+        return True
+    return type(value) is tuple and any(_holds_frozenset(v) for v in value)
+
+
+def _round_trip_refusal(value: Any) -> str | None:
+    """#391: a value holding a frozenset must read back as written.
+
+    The codec writes numpy scalars as plain values and a frozenset's items in
+    a sorted order; reading them back rebuilds the set in that order, which
+    can merge members (``np.uint64(4)`` beside ``np.timedelta64(4, "s")`` on
+    NumPy 1.24) or raise while comparing them. Judged on the running NumPy,
+    with the private codec (``refusal`` is not called again), H-0145.
+    """
+    try:
+        written = _encode(value)
+        same = _encode(_decode(written, 0)) == written
+    except (_Malformed, ValueError, TypeError, OverflowError, decimal.InvalidOperation):
+        same = False
+    return None if same else "a frozenset whose members do not read back as written"
+
+
 def refusal(value: Any) -> str | None:
     """``None`` when *value* is in V, else why it is not (no caller code runs)."""
-    return _refusal(value, 0)
+    reason = _refusal(value, 0)
+    if reason is None and _holds_frozenset(value):
+        return _round_trip_refusal(value)
+    return reason
 
 
 def type_name(value: Any) -> str:

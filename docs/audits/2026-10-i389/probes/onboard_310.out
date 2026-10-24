@@ -1,0 +1,13 @@
+env: python 3.12.3 pandas 3.1.0 numpy 2.5.4 lightgbm 4.7.0 pyarrow 26.0.0
+pandas 3.1.0: {'Y': 221, 'R': 195, 'S': 5, 'T': 72} total 493
+  S ['p22-23', 'p22-36', 'p23-35', 'p24-38', 'p60-103']
+  unchanged failures {}
+  changed sha256 d5cc631b59bca7976219cd1ae5fa1836c3546edd40cbc75722b4a3d081647c4a
+pandas 3.1.0: {'Y': 221, 'R': 195, 'S': 5, 'T': 72} total 493
+  S ['p22-23', 'p22-36', 'p23-35', 'p24-38', 'p60-103']
+  unchanged failures {}
+  changed sha256 d5cc631b59bca7976219cd1ae5fa1836c3546edd40cbc75722b4a3d081647c4a
+bc71c27de4ef992c75fdb79119939f9e360d23cb464e75cfffbd208f66cd95a2  oracle-a.json.gz
+bf2da959e5076d257b0933f43d9d11718fe279fcca179499f3e657203d4fee2e  overlay-a.json.gz
+?? tests/test_features/data/h0138_oracle_pandas-3.1.0.json.gz
+?? tests/test_features/data/h0139_overlay_pandas-3.1.0.json.gz

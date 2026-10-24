@@ -1,0 +1,18 @@
+# Quality (latest deps, non-blocking) jobs, CI runs created 2026-10-21 .. 2026-10-22
+# (gh run list --workflow CI --created '>=2026-10-21'; per-job log via
+#  gh api repos/nbx-liz/LizyML/actions/jobs/<id>/logs; pandas from the `+ pandas==` line)
+# run_id      job_id        conclusion  pandas  pytest summary
+39771047084  119798378014  failure     3.0.6   5 failed, 16761 passed   (push main, v0.21.0)
+39766830320  119784256354  failure     3.0.6   5 failed, 16761 passed   (PR develop -> main)
+39762388899  119769482755  failure     3.0.6   5 failed, 16761 passed   (PR #398)
+39745403393  119712475368  failure     3.0.6   5 failed, 16754 passed
+39735622302  119680492258  failure     3.0.6   5 failed, 16754 passed
+39733062382  119672304782  failure     3.0.6   5 failed, 16754 passed
+39710713194  119601125770  failure     3.0.6   5 failed, 16496 passed
+39694764791  119549345547  failure     3.0.6   5 failed, 16481 passed   (PR #392, H-0139: +2 overlay tests)
+39617110578  119280957484  failure     3.0.6   3 failed, 16206 passed
+39559761765  119087909663  failure     3.0.6   3 failed, 16122 passed   (PR #387, H-0138)
+39557170612  119079535340  failure     3.0.6   (no pytest summary: failed before the tests)
+39520719136  118963616323  success     3.0.6   (before the oracle files existed)
+# From the first PR #387 run: 11 runs, all pandas 3.0.6 without an exact oracle;
+# 10 failed on the oracle tests only.

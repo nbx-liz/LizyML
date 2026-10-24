@@ -1,0 +1,14 @@
+02:51:21      c: 2 categories
+lizyml /tmp/claude-1000/wt-391/lizyml/__init__.py numpy 1.24.0 pandas 2.0.0
+pair: library refusal='a frozenset whose members do not read back as written'; generated _encode_value admits; _in_v=True
+big: library refusal=None; generated _encode_value admits; _in_v=True
+pair: fit_pipeline returned; pipeline_state.json REWRITTEN; generated _load_pipeline raises ValueError
+big: reads back on this NumPy; not a 3a case here
+
+02:51:22      c: 2 categories
+lizyml /tmp/claude-1000/wt-391/lizyml/__init__.py numpy 2.4.2 pandas 3.0.1
+pair: library refusal=None; generated _encode_value admits; _in_v=True
+big: library refusal='a frozenset whose members do not read back as written'; generated _encode_value admits; _in_v=True
+pair: reads back on this NumPy; not a 3a case here
+big: fit_pipeline returned; pipeline_state.json REWRITTEN; generated _load_pipeline raises OverflowError
+

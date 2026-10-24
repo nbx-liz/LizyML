@@ -1,0 +1,21 @@
+lizyml /tmp/claude-1000/wt-391/lizyml/__init__.py numpy 1.24.0 pandas 2.0.0
+admitted today 12660, refused by prototype 194, oracle mismatches 0
+fired on: ['+x 15m 0', '+x 15m 1', '+x 15m 4', '+x 2s 0', '+x 2s 1', '+x 2s 4', '+x D 0', '+x D 1', '+x D 4', '+x M 0', '+x M 1', '+x M 4', '+x W 0', '+x W 1', '+x W 4', '+x Y 0', '+x Y 1', '+x Y 4', '+x as 0', '+x as 1', '+x as 4', '+x fs 0', '+x fs 1', '+x fs 4', '+x h 0', '+x h 1', '+x h 4', '+x m 0', '+x m 1', '+x m 4', '+x ms 0', '+x ms 1', '+x ms 4', '+x ns 0', '+x ns 1', '+x ns 4', '+x ps 0', '+x ps 1', '+x ps 4', '+x s 0']
+mismatches: []
+SAMPLES pairs as frozensets: refused 13 of 6216
+review r2-1 refused: True | review r2-2 refused: False | safe refused: False
+
+lizyml /tmp/claude-1000/wt-391/lizyml/__init__.py numpy 2.2.6 pandas 2.3.3
+admitted today 12660, refused by prototype 18, oracle mismatches 0
+fired on: ['+x M 0', '+x M 1', '+x M 4', '+x Y 0', 'fs p64-93', 'nested M 0', 'nested M 1', 'nested M 4', 'nested Y 0', 'review r2-2', 'struct M 0', 'struct M 1', 'struct M 4', 'struct Y 0', 'uint64(0)+td(0,M)', 'uint64(0)+td(0,Y)', 'uint64(1)+td(1,M)', 'uint64(4)+td(4,M)']
+mismatches: []
+SAMPLES pairs as frozensets: refused 1 of 6216
+review r2-1 refused: False | review r2-2 refused: True | safe refused: False
+
+lizyml /tmp/claude-1000/wt-391/lizyml/__init__.py numpy 2.4.2 pandas 3.0.1
+admitted today 12218, refused by prototype 18, oracle mismatches 0
+fired on: ['+x M 0', '+x M 1', '+x M 4', '+x Y 0', 'fs p62-91', 'nested M 0', 'nested M 1', 'nested M 4', 'nested Y 0', 'review r2-2', 'struct M 0', 'struct M 1', 'struct M 4', 'struct Y 0', 'uint64(0)+td(0,M)', 'uint64(0)+td(0,Y)', 'uint64(1)+td(1,M)', 'uint64(4)+td(4,M)']
+mismatches: []
+SAMPLES pairs as frozensets: refused 1 of 5995
+review r2-1 refused: False | review r2-2 refused: True | safe refused: False
+

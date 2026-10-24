@@ -1,0 +1,18 @@
+3.0.1 env: python 3.12.3 pandas 3.0.1 numpy 2.4.2 lightgbm 4.6.0 pyarrow 23.0.1
+2.3.3 env: python 3.10.22 pandas 2.3.3 numpy 2.2.6 lightgbm 4.6.0 pyarrow 23.0.1
+2.0.0 env: python 3.10.22 pandas 2.0.0 numpy 1.24.0 lightgbm 4.4.0 pyarrow 23.0.1
+62d88cf786d59369d979366a38510c1302794bb98c88d463ebbb12b4c5324816  oracle-3.0.1-a.json.gz
+62d88cf786d59369d979366a38510c1302794bb98c88d463ebbb12b4c5324816  oracle-3.0.1-b.json.gz
+62d88cf786d59369d979366a38510c1302794bb98c88d463ebbb12b4c5324816  tests/test_features/data/h0138_oracle_pandas-3.0.1.json.gz
+1cc072d9853ad7b5bfea26a8c74341b7fa5bb21f2e173c86045d00fec9e758c4  overlay-3.0.1.json.gz
+1cc072d9853ad7b5bfea26a8c74341b7fa5bb21f2e173c86045d00fec9e758c4  tests/test_features/data/h0139_overlay_pandas-3.0.1.json.gz
+b4e5a8dbce7f4c2947f2298886e0f60330bf7c6264a284cefecbe78839e681fd  oracle-2.3.3-a.json.gz
+b4e5a8dbce7f4c2947f2298886e0f60330bf7c6264a284cefecbe78839e681fd  oracle-2.3.3-b.json.gz
+b4e5a8dbce7f4c2947f2298886e0f60330bf7c6264a284cefecbe78839e681fd  tests/test_features/data/h0138_oracle_pandas-2.3.3.json.gz
+64ec8ce476cc5f803d90fa4184cf2244e02b27c6c232e33e691d5580ea6501e2  overlay-2.3.3.json.gz
+64ec8ce476cc5f803d90fa4184cf2244e02b27c6c232e33e691d5580ea6501e2  tests/test_features/data/h0139_overlay_pandas-2.3.3.json.gz
+a31f6b1219bd92346c5c95e7e91d325bbe0809a3a742bd7eea35f6ef65e3ff16  oracle-2.0.0-a.json.gz
+a31f6b1219bd92346c5c95e7e91d325bbe0809a3a742bd7eea35f6ef65e3ff16  oracle-2.0.0-b.json.gz
+a31f6b1219bd92346c5c95e7e91d325bbe0809a3a742bd7eea35f6ef65e3ff16  tests/test_features/data/h0138_oracle_pandas-2.0.0.json.gz
+7846abdd37c789f07a6bda7ca6e3918d0325be0123cf0f413c35695aa0654687  overlay-2.0.0.json.gz
+7846abdd37c789f07a6bda7ca6e3918d0325be0123cf0f413c35695aa0654687  tests/test_features/data/h0139_overlay_pandas-2.0.0.json.gz

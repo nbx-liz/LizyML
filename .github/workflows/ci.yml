@@ -130,6 +130,11 @@ jobs:
         run: uv sync --upgrade --dev
 
       - name: Test (pytest)
+        # H-0144: only this job may compare a pandas without its own H-0138
+        # oracle against the nearest older oracle of the same minor (the test
+        # also checks GITHUB_JOB, so this value fails anywhere else).
+        env:
+          LIZYML_H0138_ORACLE_MODE: latest-same-minor
         run: |
           ulimit -v "$PYTEST_MEMORY_CEILING_KIB"
           uv run pytest tests/ -m "not slow" -q

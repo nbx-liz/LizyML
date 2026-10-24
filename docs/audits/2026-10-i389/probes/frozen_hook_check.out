@@ -1,0 +1,7 @@
+lizyml.core.category_values docs/audits/2026-10-i389/oracle/frozen_core/category_values.py 8dcf85a7b364e698
+lizyml.core.category_temporal docs/audits/2026-10-i389/oracle/frozen_core/category_temporal.py 8b1d2b55ae4346d9
+lizyml.core.exceptions docs/audits/2026-10-i389/oracle/frozen_core/exceptions.py 00980ba23d3dbd08
+refused lizyml.core.model -> the overlay generator does not import lizyml.core.model
+refused lizyml.features.encoders.category_identity -> the overlay generator does not import lizyml.features
+refused lizyml.codegen -> the overlay generator does not import lizyml.codegen
+lizyml modules loaded: ['lizyml', 'lizyml.core', 'lizyml.core.category_temporal', 'lizyml.core.category_values', 'lizyml.core.exceptions']
