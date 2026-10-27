@@ -35,6 +35,14 @@ git config core.hooksPath .githooks
    already names the merge commit is reused (H-0117)
 6. No post-release sync PR needed
 
+### Maintainer run procedure
+
+- Each PR gets a Codex review of its Proposal and of its implementation, run through lizy-reviewer, at most 3 rounds per run. APPROVE plus green CI means squash merge into develop without asking. Close linked Issues by hand, because develop is not the default branch.
+- Stop rule: a round that finds a defect in the previous fix goes to the maintainer. An exhausted run goes to the maintainer, who may allow one narrow one-round fix check.
+- Keep one Proposal (HISTORY PR) in flight at a time. Run training and pytest through heavy.sh.
+- Release: confirm with the maintainer right before merging the release PR, because the PyPI publish is irreversible.
+- Two machines (W and V): PRs that touch HISTORY.md are serialized across the machines. Hand a theme from one machine to the other with lizy_state checkpoint, release and resume, not by copying memory files.
+
 ### Commit Types
 
 | Type | Description |
