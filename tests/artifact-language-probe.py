@@ -106,7 +106,7 @@ class ArtifactLanguageTests(unittest.TestCase):
                 "action": "opened",
                 "pull_request": {
                     "number": 7,
-                    "title": "English title",
+                    "title": "fix(test): English title",
                     "body": "English body",
                 },
                 "repository": {"full_name": "o/r"},
@@ -209,7 +209,7 @@ class ArtifactLanguageTests(unittest.TestCase):
                 "pull_request",
                 {
                     "action": "opened",
-                    "pull_request": {"number": 1, "title": "English"},
+                    "pull_request": {"number": 1, "title": "fix(test): English"},
                 },
             ),
             ("issues", {"action": "opened", "issue": {"title": 7, "body": None}}),

@@ -75,10 +75,32 @@ def validate_commit_message(message: str, label: str = "commit message") -> None
     # look like editor-template comments, so both language and subject checks
     # must cover the raw message rather than a guessed cleanup post-image.
     validate_english(label, message)
-    payload = message.strip()
+    validate_subject(subject_lines(message, label)[0], label)
+
+
+def subject_lines(text: str, label: str) -> list[str]:
+    """Normalize text as a commit message: strip it, refuse it empty, split it."""
+    payload = text.strip()
     if not payload:
         raise PolicyError(f"{label} is empty")
-    subject = payload.splitlines()[0]
+    return payload.splitlines()
+
+
+def validate_title_subject(title: str, label: str) -> None:
+    # A title is graded through the normalization the commit path applies, so
+    # an accepted title is an accepted commit subject. A title that still spans
+    # more than one line after stripping (any str.splitlines() break, U+2028
+    # included) is refused outright rather than graded on its first line:
+    # GitHub titles are single-line, and the lines after the first would reach
+    # a squash subject or body without ever being graded as a subject.
+    lines = subject_lines(title, label)
+    if len(lines) > 1:
+        raise PolicyError(f"{label} spans more than one line")
+    validate_subject(lines[0], label)
+
+
+def validate_subject(subject: str, label: str) -> None:
+    """The one subject rule, shared by commit messages and pull request titles."""
     if subject.startswith("Merge ") or subject.startswith('Revert "'):
         return
     if CONVENTIONAL_SUBJECT.fullmatch(subject) is None:
@@ -261,6 +283,7 @@ def validate_event_value(
             raise PolicyError(f"unsupported pull_request action: {action!r}")
         pull_request = require_object(event.get("pull_request"), "pull_request")
         validate_field(pull_request, "title", "pull_request.title")
+        validate_title_subject(pull_request["title"], "pull_request.title")
         validate_field(pull_request, "body", "pull_request.body", optional=True)
         rows = (
             fetch_pull_request_commits(event)
@@ -315,7 +338,8 @@ def self_test() -> None:
     rejected(lambda: validate_commit_message("not conventional\n"), "Conventional")
     pr = {
         "action": "opened",
-        "pull_request": {"number": 1, "title": "English PR", "body": "English body"},
+        "pull_request": {"number": 1, "title": "fix(test): English PR",
+                         "body": "English body"},
         "repository": {"full_name": "o/r"},
     }
     commits = [{"commit": {"message": "fix(test): English commit"}}]
@@ -327,14 +351,64 @@ def self_test() -> None:
             lambda value=mutated: validate_event_value(
                 "pull_request", value, pull_request_commits=commits
             ),
-            f"pull_request.{field}",
+            f"pull_request.{field} contains a disallowed non-English character",
         )
+    mutated = json.loads(json.dumps(pr))
+    mutated["pull_request"]["title"] = "[docs-only] chore(x): y"
+    rejected(
+        lambda: validate_event_value(
+            "pull_request", mutated, pull_request_commits=commits
+        ),
+        "pull_request.title subject is not Conventional",
+    )
+    for title in ("release: v1.2.3", "Merge pull request #1 from a/b",
+                  'Revert "fix(x): y"'):
+        accepted = json.loads(json.dumps(pr))
+        accepted["pull_request"]["title"] = title
+        validate_event_value("pull_request", accepted, pull_request_commits=commits)
+
+    def title_event(title: str) -> dict[str, Any]:
+        value = json.loads(json.dumps(pr))
+        value["pull_request"]["title"] = title
+        return value
+
+    def accepts(callable_object: Any) -> bool:
+        try:
+            callable_object()
+        except PolicyError:
+            return False
+        return True
+
+    # Accepted title <=> accepted commit subject, for single-line titles.
+    for title in ("fix(x): ok", "fix:  ", "fix:  a", " fix(x): ok", "fix(x): ok\n",
+                  "fix(x): ok ", "\tfix(x): ok\r\n", "", "   ", "\n",
+                  "[docs-only] chore(x): y", " Merge pull request #1 from a/b"):
+        title_ok = accepts(lambda t=title: validate_event_value(
+            "pull_request", title_event(t), pull_request_commits=commits))
+        commit_ok = accepts(lambda t=title: validate_commit_message(t + "\n"))
+        if title_ok != commit_ok:
+            raise AssertionError(
+                f"title {title!r}: title={title_ok}, commit subject={commit_ok}"
+            )
+    for title, contains in (("fix:  ", "pull_request.title subject is not Conventional"),
+                            ("", "pull_request.title is empty"),
+                            (" \t\n", "pull_request.title is empty")):
+        rejected(lambda t=title: validate_event_value(
+            "pull_request", title_event(t), pull_request_commits=commits), contains)
+    validate_event_value("pull_request", title_event(" fix(x): ok\n"),
+                         pull_request_commits=commits)
+    # A multi-line title is refused outright, even where the commit path accepts.
+    for title in ("fix(x): ok\nsecond line", "fix(x): ok\r\n\r\nbody",
+                  "fix(x): ok tail"):
+        rejected(lambda t=title: validate_event_value(
+            "pull_request", title_event(t), pull_request_commits=commits),
+            "pull_request.title spans more than one line")
     rejected(
         lambda: validate_event_value(
             "pull_request", pr,
             pull_request_commits=[{"commit": {"message": "fix(test): 日本語"}}],
         ),
-        "pull_request.commits[0].message",
+        "pull_request.commits[0].message contains a disallowed non-English",
     )
     issue = {"action": "opened", "issue": {"title": "English", "body": None}}
     validate_event_value("issues", issue)
