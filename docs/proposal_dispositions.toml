@@ -599,6 +599,10 @@ anchors = ["ci-gate", "workflow-lint", "enable-cache: false", "persist-credentia
 disposition = "specified"
 anchors = ["unsaveable_feature_names", "equals_sign_at_feature_names_edge", "line_break_in_feature_name", "lightgbm_unwritable_category"]
 
+[proposals."H-0148"]
+disposition = "pending"
+reason = "Proposed; BLUEPRINT sections 8.2 and 14.4 are updated by the implementation commit."
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 

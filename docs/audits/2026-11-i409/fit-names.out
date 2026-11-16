@@ -1,0 +1,19 @@
+[run-exclusive] i409-names starting; load was 1.07
+plain	fit=ok	tune=ok
+quote "	fit=lightgbm.basic.LightGBMError: 'Do not support special JSON characters in feature name.'	tune=TUNING_FAILED ['first_error', 'n_trials', 'round', 'status', 'trial_states']
+comma ,	fit=lightgbm.basic.LightGBMError: 'Do not support special JSON characters in feature name.'	tune=TUNING_FAILED ['first_error', 'n_trials', 'round', 'status', 'trial_states']
+colon :	fit=lightgbm.basic.LightGBMError: 'Do not support special JSON characters in feature name.'	tune=TUNING_FAILED ['first_error', 'n_trials', 'round', 'status', 'trial_states']
+bracket [	fit=lightgbm.basic.LightGBMError: 'Do not support special JSON characters in feature name.'	tune=TUNING_FAILED ['first_error', 'n_trials', 'round', 'status', 'trial_states']
+bracket ]	fit=lightgbm.basic.LightGBMError: 'Do not support special JSON characters in feature name.'	tune=TUNING_FAILED ['first_error', 'n_trials', 'round', 'status', 'trial_states']
+brace {	fit=lightgbm.basic.LightGBMError: 'Do not support special JSON characters in feature name.'	tune=TUNING_FAILED ['first_error', 'n_trials', 'round', 'status', 'trial_states']
+brace }	fit=lightgbm.basic.LightGBMError: 'Do not support special JSON characters in feature name.'	tune=TUNING_FAILED ['first_error', 'n_trials', 'round', 'status', 'trial_states']
+space vs underscore	fit=lightgbm.basic.LightGBMError: 'Feature (a_b) appears more than one time.'	tune=TUNING_FAILED ['first_error', 'n_trials', 'round', 'status', 'trial_states']
+two spaces	fit=lightgbm.basic.LightGBMError: 'Feature (a__b) appears more than one time.'	tune=TUNING_FAILED ['first_error', 'n_trials', 'round', 'status', 'trial_states']
+int vs str	fit=lightgbm.basic.LightGBMError: 'Feature (0) appears more than one time.'	tune=TUNING_FAILED ['first_error', 'n_trials', 'round', 'status', 'trial_states']
+float vs str	fit=lightgbm.basic.LightGBMError: 'Feature (1.5) appears more than one time.'	tune=TUNING_FAILED ['first_error', 'n_trials', 'round', 'status', 'trial_states']
+NUL vs prefix	fit=lightgbm.basic.LightGBMError: 'Feature (a) appears more than one time.'	tune=TUNING_FAILED ['first_error', 'n_trials', 'round', 'status', 'trial_states']
+apostrophe	fit=ok	tune=ok
+backslash	fit=ok	tune=ok
+semicolon	fit=ok	tune=ok
+exact duplicate	fit=builtins.AttributeError: "'DataFrame' object has no attribute 'dtype'"	tune=builtins.AttributeError: "'DataFrame' object has no attribute 'dtype'"
+[run-exclusive] i409-names finished in 1s, exit 0

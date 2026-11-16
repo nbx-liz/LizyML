@@ -1,0 +1,5 @@
+[run-exclusive] i409-facts starting; load was 2.89
+excluded duplicate	fit=ok
+tune with storage	TUNING_FAILED
+stored study 's'	trials=['FAIL', 'FAIL']
+[run-exclusive] i409-facts finished in 2s, exit 0
