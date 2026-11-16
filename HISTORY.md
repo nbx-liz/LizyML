@@ -17524,8 +17524,9 @@ Firing rate: 1/52 of zizmor findings on develop `9402dc3` is exempted by the one
 
 ## H-0147: 空か改行を含む特徴量の名前を持つモデルは保存の前に拒否し、fit で警告する ― カテゴリの保存の 2 つの拒否に context の `reason` を足す（#406）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-11-16
+- **決定日**: 2026-11-16
 - **関連**: H-0127（保存できないカテゴリ値を export で拒否）、H-0129（`unsaveable_categories` の IF）、H-0133 P5（V の外の値の拒否と context）、H-0136 P2（3 つの出口が同じ検査）、H-0141（export_code の列名の別名と `empty_alias`）、#406、#409、nbx-liz/LizyStudio#748（P-0117 D2）
 - **スコープ**:
   - `lizyml/persistence/exporter.py`（保存の前の検査）、`lizyml/estimators/base.py` と `lizyml/estimators/lgbm/adapter.py`（新しい IF のメソッド）、`lizyml/core/model.py`（fit の警告の 1 行）、テスト、BLUEPRINT §14.1・§15.3、CHANGELOG
@@ -17558,7 +17559,7 @@ Gate-category: none
 
 ### 対応方針（提案）
 
-1. **estimator の IF**: `BaseEstimatorAdapter.unsaveable_feature_names() -> list[UnsaveableFeatureName]` を足す（既定は `[]`）。`UnsaveableFeatureName(position, name, reason)` は `estimators/base.py` の frozen な dataclass。`LGBMAdapter` は自分の booster の `feature_name()`（LightGBM が実際にモデルの文字列に書く名前）を読み、モデルの文字列が同じ名前のまま持てない名前を、位置の順に返す: 空の文字列は `reason="empty_feature_name"`、`\n` か `\r` を含む名前は `reason="line_break_in_feature_name"`。booster が無い adapter は `[]`。規則の正は LightGBM のモデルの文字列の形である: 行ごとに読み、`feature_names=` の行は名前を空白で区切る。空の名前は区切りの中で消え、改行と復帰は行を切る（実測）。改行を含む名前は、最後の列なら読み戻せることがあるが、名前が切れ、改行の後ろが別の行として読まれて予測が変わりうるので、位置によらず拒否する（「同じ名前で読み戻せる」を保存できる条件とする）。半角の空白は LightGBM が `_` に置き換えた後の名前を読むので対象にならない。`persistence/` は具体的な estimator を import しない（H-0129 の形のまま）。
+1. **estimator の IF**: `BaseEstimatorAdapter.unsaveable_feature_names() -> list[UnsaveableFeatureName]` を足す（既定は `[]`）。`UnsaveableFeatureName(position, name, reason)` は `estimators/base.py` の frozen な dataclass。`LGBMAdapter` は自分の booster の `feature_name()`（LightGBM が実際にモデルの文字列に書く名前）を読み、モデルの文字列が同じ名前のまま持てない名前を、位置の順に返す: 空の文字列は `reason="empty_feature_name"`、`\n` か `\r` を含む名前は `reason="line_break_in_feature_name"`、並べた名前が `=` で 1 つの切れ端にしかならないときの最初の名前の先頭か最後の名前の末尾の `=` は `reason="equals_sign_at_feature_names_edge"`（実装の記録で足した）。booster が無い adapter は `[]`。規則の正は LightGBM のモデルの文字列の形である: 行ごとに読み、`feature_names=` の行は名前を空白で区切る。空の名前は区切りの中で消え、改行と復帰は行を切る（実測）。改行を含む名前は、最後の列なら読み戻せることがあるが、名前が切れ、改行の後ろが別の行として読まれて予測が変わりうるので、位置によらず拒否する（「同じ名前で読み戻せる」を保存できる条件とする）。半角の空白は LightGBM が `_` に置き換えた後の名前を読むので対象にならない。`persistence/` は具体的な estimator を import しない（H-0129 の形のまま）。
 2. **保存の前の検査**: `check_category_values` の最初の段として、**保存される全ての adapter** に `unsaveable_feature_names()` を尋ね、最初に見つかった名前で `SERIALIZATION_FAILED` を送出し、何も書かない。たどる adapter は pipeline 状態の有無と組にしない新しい列挙 `_saved_adapters(fit_result, refit_result)` で、`refit`（`refit_result.model`）、続いて `fold k`（`fit_result.models` の k 番目、1 から数える）の全てである（`pipeline_state_per_fold` が無い結果でも全ての fold。round 1 の指摘 2）。context は `column`（名前）、`position`（特徴量の中の位置。0 から数える）、`state`（`refit` / `fold k`）、`reason`（`empty_feature_name` / `line_break_in_feature_name`）、`surface`（`Model.export` か `export_code`）。メッセージは、何番目の特徴量の名前が空か改行を含むか、LightGBM の保存したモデルがその名前を同じまま持てないこと、列の名前を付け直して fit し直すことを示す。
    - 3 つの出口が同じ検査を通る（H-0136 P2）。`export_code` は今どおり `project_column_names` が先に `empty_alias` で拒否するので、空の名前での `export_code` の拒否（context と文）は変わらない。改行を含む名前は `project_column_names` が通すので、`export_code` はこの新しい拒否で止まる（生成する `artifacts/model.txt` も同じモデルの文字列で、生成 `predict.py` が同じく読めない）。
    - 検査の順は、名前、それからカテゴリの値（今の 3 つの検査）。名前の拒否は booster そのものが同じまま読めない欠陥なので先に出す。
@@ -17566,7 +17567,7 @@ Gate-category: none
 4. **カテゴリの保存の拒否の `reason`**: context に `reason` を足す。`_refuse_value`（V の外の値。状態と `declared_categories` の両方）は `unsaveable_category_value`、adapter の `unsaveable_categories` の分岐は `lightgbm_unwritable_category`（LightGBM がカテゴリ値を JSON で書けない。後者の値は adapter の答えでなく exporter が付ける。`UnsaveableCategory` は変えない）。今の 4 つのキーと `user_message` は変えない。H-0136 の `refuse_change` は `kind` を持つので変えない。
 5. **文書**: BLUEPRINT §14.1 に IF のメソッド、§15.3 に名前の検査と 2 つの拒否の `reason`。CHANGELOG の `[Unreleased]`。`docs/proposal_dispositions.toml` の行。
 
-Firing rate: 6/17 of the probed column-name cases that fit through lizyml (the five placements of an empty feature name and the `a\nb` feature name; none of the other 11 spellings and positions) are refused by the new name check, and 14/42 of the LightGBM-only name and position cases (`docs/audits/2026-11-i406/probes/`, develop `b0ebadf`)
+Firing rate: 6/17 of the probed column-name cases that fit through lizyml (the five placements of an empty feature name and the `a\nb` feature name; none of the other 11 spellings and positions) are refused by the new name check, and 15/42 of the LightGBM-only name and position cases (14 before the implementation record's `=` rule) (`docs/audits/2026-11-i406/probes/`, develop `b0ebadf`)
 
 ### 互換性
 
@@ -17601,3 +17602,9 @@ Firing rate: 6/17 of the probed column-name cases that fit through lizyml (the f
 ### Proposal レビュー
 
 - **round 1**（`h0147-proposal-review`、`64eac3a`、CHANGES_REQUESTED）: major 2 件と minor 1 件。(1) 改行を含む名前が前の列にあると読めない — 実行して確かめた（`booster-names.out` を先頭と最後の 42 通りに広げ、`linebreak-readback.out` で読み戻せた場合も名前が切れ、予測が変わりうることを測った）。規則を「空か、`\n`・`\r` を含む」にし、受け入れ 5 を全ての綴りと位置で本物の LightGBM と一致させる形にした。(2) `pipeline_state_per_fold` が無い結果では最後の fold の adapter しかたどらない — `_saved_pipeline_states` と組にしない列挙 `_saved_adapters`（refit と全ての fold）に替え、警告も同じ列挙を使う。受け入れ 6 に、状態が無い結果の fold 1 の場合を足した。(3) 受け入れ 3 が空の名前を含んでいた — 除いた。
+- **round 2**（`6fcc8d8`、absolute monitor は DELIVERABLE-FOCUSED で continue）: APPROVE、指摘なし。
+
+### 実装の記録
+
+- **`=` の規則を足した（受け入れ 5 が見つけた）**: 名前と位置の 42 通りを本物の LightGBM と比べるテスト（受け入れ 5）が、`"=b"` を先頭に置いた場合を見つけた。読み戻せるが、名前が `b` になる。LightGBM 4.6.0 の読み手を読んだ（`src/boosting/gbdt_model_text.cpp` の header の読み方、`feature_names_ = Common::Split(..., ' ')`、`include/LightGBM/utils/common.h` の `GetLine`・`Split`）: 行を `=` で切り、空の切れ端を捨て、切れ端がちょうど 2 つならその 2 つ目を値に、3 つ以上なら `feature_names=` の後ろ全部を値にする。並べた名前が `=` で 1 つの切れ端にしかならないとき、最初の名前の先頭と最後の名前の末尾の `=` が落ちる（`equals-readback.out`: `"=b"`・`"==b"` を先頭、`"a="` を最後に置くと名前が変わり、`"="` は先頭でも最後でも `Wrong size of feature_names`。`"a=b"`・`"b=c=d"` や、ほかの名前に `=` がある `["=b", "c=d"]` は同じまま）。対応方針 1 の規則にこの場合を `reason="equals_sign_at_feature_names_edge"` で足した。判定は 1 つの名前でなく並べた名前の全体で決まるので、`estimators/lgbm/feature_names.py` は名前の列を受け取る。受け入れ 5 のテストに `=` の 12 通りの名前の並びを足し、全て本物の LightGBM と一致した。
+- **置き場所**: 規則は `lizyml/estimators/lgbm/feature_names.py`（`unsaveable_feature_names`）、IF は `estimators/base.py` の `UnsaveableFeatureName` と `BaseEstimatorAdapter.unsaveable_feature_names`、`LGBMAdapter.unsaveable_feature_names` は booster が無ければ `[]`。exporter の `_saved_adapters`・`check_feature_names`（`check_category_values` の最初に呼ぶ）・`warn_unsaveable_feature_names`（`Model.fit` の `warn_saved_state_changes` の後）。テストは `tests/test_persistence/test_h0147_feature_names.py`（`test_unwritable_categories.py` の context の比較 1 か所に `reason` を足した）。

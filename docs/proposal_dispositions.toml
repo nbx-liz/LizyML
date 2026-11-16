@@ -596,8 +596,8 @@ disposition = "specified"
 anchors = ["ci-gate", "workflow-lint", "enable-cache: false", "persist-credentials: false"]
 
 [proposals."H-0147"]
-disposition = "pending"
-reason = "Proposed; BLUEPRINT sections 14.1 and 15.3 are updated by the implementation commit."
+disposition = "specified"
+anchors = ["unsaveable_feature_names", "equals_sign_at_feature_names_edge", "line_break_in_feature_name", "lightgbm_unwritable_category"]
 
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
