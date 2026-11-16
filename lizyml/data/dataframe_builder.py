@@ -52,26 +52,17 @@ def _selected_positions(index: pd.Index, label: Any) -> list[int]:
     return [int(loc)]
 
 
-def _grouping_key(label: Any) -> Any:
-    """*label*, or NaN for every missing scalar label (None, NaN, NaT, NA)."""
-    try:
-        missing = bool(pd.api.types.is_scalar(label) and pd.isna(label))
-    except (TypeError, ValueError):
-        missing = False
-    return np.nan if missing else label
-
-
 def check_duplicate_columns(
     df: pd.DataFrame, roles: Mapping[str, Any], exclude: Iterable[Any]
 ) -> None:
     """Refuse a frame whose repeated column label is a role or a feature.
 
     Labels are grouped as ``df[label]`` selects them (``Index.duplicated``
-    and ``Index.get_loc``: ``0`` with ``False``, ``1`` with ``1.0``), except
-    that every missing label (NaN, ``None``) is one label, because LizyML's
-    column selection (``select_training_columns``, ``df[list(columns)]``)
-    turns ``None`` into NaN before LightGBM sees the names (H-0148 owner
-    ruling). Roles and ``features.exclude`` are matched the same way.
+    and ``Index.get_loc``: ``0`` with ``False``, ``1`` with ``1.0``; ``None``
+    and NaN apart). Labels that only the later list selection merges (on
+    pandas 3.0, ``None`` beside NaN) are refused by the estimator's name
+    rule on the selected names (``check_feature_names_for_training``).
+    Roles and ``features.exclude`` are matched the same way.
 
     Raises:
         LizyMLError: ``DATA_SCHEMA_INVALID`` with ``reason`` ``duplicate_column_name``,
@@ -79,7 +70,7 @@ def check_duplicate_columns(
             feature).
     """
     index = pd.Index(list(df.columns), dtype=object)
-    keys = pd.Index([_grouping_key(label) for label in index], dtype=object)
+    keys = index
     repeated = keys.duplicated(keep=False)
     if not repeated.any():
         return

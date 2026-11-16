@@ -227,8 +227,6 @@ LABEL_CASES: list[tuple[list[Any], str, list[int]]] = [
     (["x", 0, False], "duplicate_column_name", [1, 2]),
     (["x", 1, 1.0], "duplicate_column_name", [1, 2]),
     (["x", ("a", 1), ("a", 1)], "duplicate_column_name", [1, 2]),
-    (["x", None, np.nan], "duplicate_column_name", [1, 2]),
-    (["x", None, np.nan, None], "duplicate_column_name", [1, 2, 3]),
     (["x", "0", 0], "duplicate_feature_name", [2]),
     (["x", "a\x00b", "a"], "duplicate_feature_name", [2]),
 ]
@@ -246,24 +244,65 @@ def test_repeated_labels_are_grouped(
         assert context["position"] == positions[0]
 
 
-def test_missing_labels_beside_an_excluded_duplicate_are_refused() -> None:
+def _merged_by_selection(features: list[Any]) -> bool:
+    """Whether the running pandas's list selection (what
+    ``select_training_columns`` does) gives two of *features* one label."""
+    X = pd.DataFrame(np.zeros((1, len(features))))
+    X.columns = pd.Index(features, dtype=object)
+    picked = X[list(X.columns)]
+    return len({str(c) for c in picked.columns}) < len(features)
+
+
+@pytest.mark.parametrize(
+    "features",
+    [["x", None, np.nan], [None, np.nan], [0, None, np.nan]],
+    ids=repr,
+)
+def test_none_beside_nan_follows_the_running_pandas(features: list[Any]) -> None:
+    """None beside NaN is refused exactly when the running pandas's list
+    selection merges them before LightGBM (pandas 3.0 with a string label
+    beside them; pandas 2.x never), as ``duplicate_feature_name`` on the
+    selected names (owner ruling after PR #420's CI). Otherwise it trains."""
+    df = _frame(features)
+    if _merged_by_selection(features):
+        context = _refusal(lambda: Model(_config()).fit(data=df)).context
+        assert context["reason"] == DUPLICATE_REASON
+        assert context["column"] is features[-1] or np.isnan(context["column"])
+        assert context["first_column"] is None
+    else:
+        assert _fit(df)._refit_result is not None
+
+
+def test_a_repeated_none_label_is_refused_everywhere() -> None:
+    """Two None labels are one repeated label on every pandas."""
+    df = _frame(["x", None, None])
+    context = _refusal(lambda: Model(_config()).fit(data=df)).context
+    assert context["reason"] == "duplicate_column_name"
+    assert context["positions"] == [1, 2]
+
+
+def test_missing_labels_beside_an_excluded_duplicate() -> None:
     """The reviewer's case: ``a`` repeats and is excluded; None and NaN are
-    one repeated feature label and are refused, not the excluded ``a``."""
+    distinct column labels, so the duplicate check passes, and training
+    meets them as the running pandas selects them."""
     df = _frame([None, np.nan, "a", "a"])
-    context = _refusal(
-        lambda: Model(_config(features={"exclude": ["a"]})).fit(data=df)
-    ).context
-    assert context["positions"] == [0, 1]
-    assert context["role"] == "feature"
+    config = _config(features={"exclude": ["a"]})
+    if _merged_by_selection([None, np.nan]):
+        assert _refusal(lambda: Model(config).fit(data=df)).context["reason"] == (
+            DUPLICATE_REASON
+        )
+    else:
+        assert _fit(df, features={"exclude": ["a"]})._refit_result is not None
 
 
-def test_missing_labels_fail_lightgbm_after_column_selection() -> None:
-    """Why None and NaN are one label: selecting the columns by list (as
-    ``select_training_columns`` does) turns None into NaN."""
-    df = _frame(["x", None, np.nan]).drop(columns="target")
-    assert pd.Index(df.columns).duplicated(keep=False).tolist() == [False] * 3
-    picked = df[list(df.columns)]
-    assert _lightgbm_refuses(list(picked.columns))
+def test_the_selected_names_match_lightgbm() -> None:
+    """The names the rule judges are the ones LightGBM meets: after the list
+    selection, LightGBM refuses None beside NaN exactly when they merged."""
+    features = ["x", None, np.nan]
+    X = pd.DataFrame(np.zeros((40, 3)))
+    X.columns = pd.Index(features, dtype=object)
+    picked = X[list(X.columns)]
+    assert _lightgbm_refuses(list(picked.columns)) is _merged_by_selection(features)
 
 
 def test_an_excluded_duplicate_feature_still_fits() -> None:

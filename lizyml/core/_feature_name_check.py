@@ -55,6 +55,16 @@ def _refusal_text(refused: Any) -> str:
     )
 
 
+def selected_labels(X: pd.DataFrame) -> list[Any]:
+    """The column labels training sees: ``select_training_columns`` selects
+    the training columns by list (``X[list(columns)]``), and pandas may
+    rewrite labels there (pandas 3.0 turns ``None`` beside NaN into NaN;
+    2.x keeps it), so the estimator's rule is judged on the selected labels
+    of the running pandas (H-0148 owner ruling). Selected on the empty frame.
+    """
+    return list(X.iloc[:0][list(X.columns)].columns)
+
+
 def check_feature_names_for_training(provider: Any, X: pd.DataFrame) -> None:
     """Refuse training columns the provider's estimator refuses (H-0148).
 
@@ -66,11 +76,11 @@ def check_feature_names_for_training(provider: Any, X: pd.DataFrame) -> None:
     if not isinstance(provider, FeatureNameRuleProvider):
         return
     names = list(X.columns)
-    refused = provider.refused_feature_names(names)
+    refused = provider.refused_feature_names(selected_labels(X))
     if refused is None:
         return
     context: dict[str, Any] = {
-        "column": refused.name,
+        "column": names[refused.position],
         "position": refused.position,
         "estimator_name": refused.estimator_name,
         "reason": refused.reason,
@@ -81,7 +91,8 @@ def check_feature_names_for_training(provider: Any, X: pd.DataFrame) -> None:
     raise LizyMLError(
         code=ErrorCode.DATA_SCHEMA_INVALID,
         user_message=(
-            f"The feature column {refused.name!r} (position {refused.position}) "
+            f"The feature column {names[refused.position]!r} "
+            f"(position {refused.position}) "
             f"{_refusal_text(refused)}, so training would fail. Rename the "
             "column before fit or tune (H-0148)."
         ),
