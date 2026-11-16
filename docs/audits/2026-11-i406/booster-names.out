@@ -1,13 +1,55 @@
-[run-exclusive] i406-booster starting; load was 0.85
+[run-exclusive] i406-booster starting; load was 0.80
 run-heavy: pgid=11 (stop with: kill -- -11)
-'z'	feature_name()=['x', 'z']	reads back
+'z'	last	feature_name()=['x', 'z']	reads back
+'z'	first	feature_name()=['z', 'x']	reads back
 [LightGBM] [Fatal] Wrong size of feature_names
-''	feature_name()=['x', '']	LightGBMError: Wrong size of feature_names
-' '	feature_name()=['x', '_']	reads back
-'a b'	feature_name()=['x', 'a_b']	reads back
-'a\tb'	feature_name()=['x', 'a\tb']	reads back
-'a\nb'	feature_name()=['x', 'a\nb']	reads back
-' a'	feature_name()=['x', '_a']	reads back
-'列'	feature_name()=['x', '列']	reads back
-'a=b'	feature_name()=['x', 'a=b']	reads back
-[run-exclusive] i406-booster finished in 0s, exit 0
+''	last	feature_name()=['x', '']	LightGBMError: Wrong size of feature_names
+[LightGBM] [Fatal] Wrong size of feature_names
+''	first	feature_name()=['', 'x']	LightGBMError: Wrong size of feature_names
+' '	last	feature_name()=['x', '_']	reads back
+' '	first	feature_name()=['_', 'x']	reads back
+'a b'	last	feature_name()=['x', 'a_b']	reads back
+'a b'	first	feature_name()=['a_b', 'x']	reads back
+'a\tb'	last	feature_name()=['x', 'a\tb']	reads back
+'a\tb'	first	feature_name()=['a\tb', 'x']	reads back
+'\tb'	last	feature_name()=['x', '\tb']	reads back
+'\tb'	first	feature_name()=['\tb', 'x']	reads back
+'a\nb'	last	feature_name()=['x', 'a\nb']	reads back
+[LightGBM] [Fatal] Wrong size of feature_names
+'a\nb'	first	feature_name()=['a\nb', 'x']	LightGBMError: Wrong size of feature_names
+[LightGBM] [Fatal] Wrong size of feature_names
+'\nb'	last	feature_name()=['x', '\nb']	LightGBMError: Wrong size of feature_names
+[LightGBM] [Fatal] Wrong size of feature_names
+'\nb'	first	feature_name()=['\nb', 'x']	LightGBMError: Wrong size of feature_names
+'a\n'	last	feature_name()=['x', 'a\n']	reads back
+[LightGBM] [Fatal] Wrong size of feature_names
+'a\n'	first	feature_name()=['a\n', 'x']	LightGBMError: Wrong size of feature_names
+'a\rb'	last	feature_name()=['x', 'a\rb']	reads back
+[LightGBM] [Fatal] Wrong size of feature_names
+'a\rb'	first	feature_name()=['a\rb', 'x']	LightGBMError: Wrong size of feature_names
+[LightGBM] [Fatal] Wrong size of feature_names
+'\rb'	last	feature_name()=['x', '\rb']	LightGBMError: Wrong size of feature_names
+[LightGBM] [Fatal] Wrong size of feature_names
+'\rb'	first	feature_name()=['\rb', 'x']	LightGBMError: Wrong size of feature_names
+'a\r\nb'	last	feature_name()=['x', 'a\r\nb']	reads back
+[LightGBM] [Fatal] Wrong size of feature_names
+'a\r\nb'	first	feature_name()=['a\r\nb', 'x']	LightGBMError: Wrong size of feature_names
+'a\x0bb'	last	feature_name()=['x', 'a\x0bb']	reads back
+'a\x0bb'	first	feature_name()=['a\x0bb', 'x']	reads back
+'a\x0cb'	last	feature_name()=['x', 'a\x0cb']	reads back
+'a\x0cb'	first	feature_name()=['a\x0cb', 'x']	reads back
+'a\x00b'	last	feature_name()=['x', 'a']	reads back
+'a\x00b'	first	feature_name()=['a', 'x']	reads back
+' a'	last	feature_name()=['x', '_a']	reads back
+' a'	first	feature_name()=['_a', 'x']	reads back
+'列'	last	feature_name()=['x', '列']	reads back
+'列'	first	feature_name()=['列', 'x']	reads back
+'a=b'	last	feature_name()=['x', 'a=b']	reads back
+'a=b'	first	feature_name()=['a=b', 'x']	reads back
+'=b'	last	feature_name()=['x', '=b']	reads back
+'=b'	first	feature_name()=['=b', 'x']	reads back
+'a\u3000b'	last	feature_name()=['x', 'a\u3000b']	reads back
+'a\u3000b'	first	feature_name()=['a\u3000b', 'x']	reads back
+'a\xa0b'	last	feature_name()=['x', 'a\xa0b']	reads back
+'a\xa0b'	first	feature_name()=['a\xa0b', 'x']	reads back
+[run-exclusive] i406-booster finished in 1s, exit 0
