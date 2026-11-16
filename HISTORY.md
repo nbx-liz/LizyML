@@ -17394,9 +17394,9 @@ NumPy 1.24（`Quality (lowest-direct deps)` のレーン、pandas 2.0.0）では
 
 ## H-0146: リリースの経路を固め、ブランチの ruleset を効かせる ― キャッシュを使わない build、SHA で固定した action、タグの上で動く publish、CI の集約ジョブ（#407）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-11-16
-- **決定日**: —
+- **決定日**: 2026-11-16
 - **関連**: H-0000（PyPI 配布要件）、H-0117（リリースは develop の 2 親のマージだけ）、H-0119（notebook の集約ジョブ）、H-0126（下限のレーン）、H-0140（メモリの上限）、H-0143（slow を全 PR で走らせる。CI の所要時間はこのまま）、#407
 - **スコープ**:
   - `.github/workflows/{ci,release,auto-release,artifact-language}.yml`、`.github/dependabot.yml`、`.github/scripts/`、`scripts/` の集約ジョブの判定、`pyproject.toml` の dependency group と `uv.lock`、それらのテスト、BLUEPRINT §18.2、CONTRIBUTING.md のリリースの段
@@ -17507,3 +17507,12 @@ Firing rate: 1/52 of zizmor findings on develop `9402dc3` is exempted by the one
 
 - **結果**: Codex の run `h0146-proposal-review` の round 1（`76805df`）は APPROVE で、minor 1 件だった。対応方針 7 の「それより前は `main` 向けの PR に `CI (gate)` が出ない」は広すぎる: `main` 向けの PR は merge ref で CI を走らせるので、この変更を含むリリースの PR はマージの前に `CI (gate)` を出す。出ないのは merge ref がこの変更を含まない PR（リリースの前の Dependabot の PR など）である。有効にする順番は安全なまま。
 - **対応**: その文を、merge ref がこの変更を含まない PR に絞って書き直した。管理者の方針（1 行でも再確認）により、この直しを 1 round の確認で見る。
+- **確認**（2026-11-16）: 実行の前に Claude の新しい文脈で absolute monitor を走らせた（DELIVERABLE-FOCUSED・continue。`docs/audits/2026-11-i407/review/h0146-proposal-monitor-r2-absolute.md`）。Codex の 1 round の確認の run `h0146-proposal-confirm`（`e7c191a`）は APPROVE で、指摘は無かった。
+
+### 実装の記録（2026-11-16）
+
+- workflow: `release.yml`（タグの検査 `.github/scripts/check_release_ref.sh`、`enable-cache: false`、`permissions: {}` とジョブごとの権限、`concurrency`、`timeout-minutes`）、`auto-release.yml`（`--ref "$TAG"` の dispatch、`gh auth setup-git` の段とタグの段の `GH_TOKEN`、ジョブだけの権限）、`ci.yml`（`permissions: contents: read`、PR だけ取り消す `concurrency`、全てのジョブの `timeout-minutes`、SC2086 の 2 か所を配列に、`workflow-lint` と `ci-gate` のジョブ）、`artifact-language.yml`（SHA の固定、`persist-credentials: false`、`issue_comment` の zizmor の ignore と理由）。全ての `uses` は SHA と `# vX.Y.Z`（checkout v7.0.1、setup-uv v7.6.0（今の v7 の系列の最新。v10 への更新は Dependabot に任せる）、upload-artifact v7.0.2、download-artifact v8.0.2、gh-action-pypi-publish v1.14.3）。
+- `.github/dependabot.yml`、`pyproject.toml` の group `workflow-lint`（zizmor は Python 3.11 以上なので marker を付けた）と `uv.lock`（手元の uv 0.13.1 で lock の revision が 3 から 5 になった。CI の setup-uv は最新の uv を入れ、直近の run は 0.13.7 だった）。
+- 判定とテスト: `scripts/ci_gate.py`、`tests/test_ci_gate.py`、`tests/test_release/test_check_release_ref.py`、`tests/test_workflow_policy.py`、`tests/test_release/test_auto_release_guard.py`（新しい段の順番と入力に合わせた）。
+- 手元の lint（受け入れ 1）: zizmor 1.32.0（offline）は 0 件（ignore 1、既定の抑止 6）、actionlint 1.7.12 と shellcheck 0.11.0 は 0 件。陰性対照（`docs/audits/2026-11-i407/negative-controls.out`）: checkout をタグに戻すと `unpinned-uses`、`enable-cache: false` を消すと `cache-poisoning` を zizmor が出す。`persist-credentials: false` の行だけを消す（空の `with:` が残る）か `true` にすると zizmor は何も出さない（`with:` ごと消したときだけ `artipacked`）ので、この規則は `test_no_checkout_keeps_credentials`（値が `false` であることを求める）だけが守る。
+- 管理者の設定の手順は `docs/audits/2026-11-i407/owner-steps.md`。

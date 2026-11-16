@@ -33,7 +33,31 @@ git config core.hooksPath .githooks
    parents, and refuses to tag anything else. The title must be exactly
    `release: vX.Y.Z`. If a later step fails, re-run the workflow: a tag that
    already names the merge commit is reused (H-0117)
-6. No post-release sync PR needed
+6. `auto-release.yml` dispatches `release.yml` on the tag
+   (`gh workflow run release.yml --ref vX.Y.Z -f tag=vX.Y.Z`), so the publish
+   jobs run on `refs/tags/vX.Y.Z` and the `pypi` / `testpypi` environments can
+   allow `v*` tags only. The build refuses a run on any other ref, restores no
+   cache, and publishes to TestPyPI before PyPI (H-0146). To re-publish by hand,
+   dispatch with the same `--ref` and `-f tag`
+7. No post-release sync PR needed
+
+### Branch rulesets and required checks (H-0146)
+
+- `develop` and `main` are protected by the rulesets "Protect develop" and
+  "Protect main": no deletion, no force push, changes only through a pull
+  request, and two required checks, `CI (gate)` (`ci.yml`; passes only when
+  every blocking job succeeded) and `validate` (`artifact-language.yml`).
+- `develop` accepts squash merges only; `main` accepts merge commits only.
+- A change that reached `main` alone (a security update, an urgent fix) comes
+  back to `develop` through a squash pull request; resolve any conflict inside
+  that pull request. The next release's merge commit joins the two histories.
+- Dependabot opens version updates against `develop` after a 7-day cooldown
+  (the `uv` lock and the pinned actions); security updates still target `main`.
+- Every action is pinned to a commit SHA with its version in a comment, every
+  checkout sets `persist-credentials: false`, and the `Workflow lint` job runs
+  zizmor and actionlint over `.github/`.
+- A special case that the rulesets refuse (for example a force push) is done
+  by the maintainer turning the ruleset's enforcement off and on again.
 
 ### Maintainer run procedure
 

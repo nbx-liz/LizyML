@@ -592,8 +592,8 @@ disposition = "specified"
 anchors = ["_round_trip_refusal", "_encode_raw", "_decode_raw"]
 
 [proposals."H-0146"]
-disposition = "pending"
-reason = "Proposed; BLUEPRINT section 18.2 is updated by the implementation commit."
+disposition = "specified"
+anchors = ["ci-gate", "workflow-lint", "enable-cache: false", "persist-credentials: false"]
 
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
