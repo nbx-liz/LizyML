@@ -1,0 +1,8 @@
+.github/workflows/ci.yml:252:9: shellcheck reported issue in this script: SC2086:info:2:45: Double quote to prevent globbing and word splitting [shellcheck]
+    |
+252 |         run: |
+    |         ^~~~
+.github/workflows/ci.yml:281:9: shellcheck reported issue in this script: SC2086:info:3:45: Double quote to prevent globbing and word splitting [shellcheck]
+    |
+281 |         run: |
+    |         ^~~~
