@@ -2,7 +2,7 @@ name: Auto-tag and GitHub Release
 
 # Triggered when a PR with title starting "release:" is merged into main.
 # Creates a git tag and a GitHub Release with notes from CHANGELOG.md.
-# Then triggers release.yml (PyPI publish) via workflow_dispatch.
+# Then triggers release.yml (PyPI publish) via workflow_dispatch on the tag.
 #
 # Note: GITHUB_TOKEN-created release events do NOT trigger other workflows
 # (GitHub's infinite loop prevention). workflow_dispatch is the official
@@ -14,9 +14,12 @@ on:
     types: [closed]
     branches: [main]
 
-permissions:
-  contents: write
-  actions: write  # Required to trigger release.yml via workflow_dispatch
+# H-0146: no workflow-level token; the one job gets only what it needs.
+permissions: {}
+
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
 
 jobs:
   tag-and-release:
@@ -24,11 +27,16 @@ jobs:
       github.event.pull_request.merged == true &&
       startsWith(github.event.pull_request.title, 'release:')
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write  # push the tag, create the GitHub Release
+      actions: write  # trigger release.yml via workflow_dispatch
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       # H-0117: only a two-parent merge of develop into main is a release.
       - name: Verify the release is a merge commit of develop
@@ -60,10 +68,18 @@ jobs:
           echo "Release notes extracted:"
           cat /tmp/release-notes.md
 
+      # H-0146: the checkout keeps no credential. git asks gh for one, and gh
+      # answers only in a step whose environment holds GH_TOKEN (Create tag).
+      - name: Route git credentials through gh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh auth setup-git
+
       # Idempotent: a re-run after a later step failed reuses a tag that already
       # names the merge commit, and refuses one that names anything else.
       - name: Create tag
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.version.outputs.tag }}
           MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
         run: bash .github/scripts/create_release_tag.sh
@@ -79,8 +95,9 @@ jobs:
             gh release create "$TAG" --title "$TAG" --notes-file /tmp/release-notes.md
           fi
 
+      # H-0146: run release.yml on the tag, so the environments can allow v* only.
       - name: Trigger PyPI publish workflow
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.version.outputs.tag }}
-        run: gh workflow run release.yml -f tag="$TAG"
+        run: gh workflow run release.yml --ref "$TAG" -f tag="$TAG"

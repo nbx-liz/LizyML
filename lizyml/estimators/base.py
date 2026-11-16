@@ -27,6 +27,19 @@ class UnsaveableCategory:
     type_name: str
 
 
+@dataclass(frozen=True)
+class UnsaveableFeatureName:
+    """A feature name an estimator's saved model cannot hold intact (H-0147).
+
+    ``position`` counts from 0 in the estimator's feature order; ``reason`` is
+    a snake_case token the save refusal puts in ``context["reason"]``.
+    """
+
+    position: int
+    name: str
+    reason: str
+
+
 class BaseEstimatorAdapter(ABC):
     """Uniform wrapper around a native ML estimator.
 
@@ -121,6 +134,16 @@ class BaseEstimatorAdapter(ABC):
         and ``lizyml.persistence.export`` ask the adapter saved with each
         pipeline state before writing anything (H-0127, H-0129). The default
         is ``[]``: the estimator can save every category value it trained on.
+        """
+        return []
+
+    def unsaveable_feature_names(self) -> list[UnsaveableFeatureName]:
+        """The feature names this estimator's saved model cannot hold intact.
+
+        In feature order. ``Model.export``, ``lizyml.persistence.export`` and
+        ``export_code`` ask every saved adapter before writing anything, and
+        ``Model.fit`` warns on the same answer (H-0147). The default is
+        ``[]``: the estimator saves every feature name it trained on.
         """
         return []
 

@@ -1,0 +1,19 @@
+[run-exclusive] i406-equals starting; load was 1.90
+run-heavy: pgid=11 (stop with: kill -- -11)
+'=b'	first	['=b', 'x'] -> ['b', 'x']	same predictions=True
+'=b'	last	['x', '=b'] -> ['x', '=b']	same predictions=True
+'==b'	first	['==b', 'x'] -> ['b', 'x']	same predictions=True
+'==b'	last	['x', '==b'] -> ['x', '==b']	same predictions=True
+'a=b'	first	['a=b', 'x'] -> ['a=b', 'x']	same predictions=True
+'a=b'	last	['x', 'a=b'] -> ['x', 'a=b']	same predictions=True
+[LightGBM] [Fatal] Wrong size of feature_names
+'='	first	LightGBMError: Wrong size of feature_names
+[LightGBM] [Fatal] Wrong size of feature_names
+'='	last	LightGBMError: Wrong size of feature_names
+'a='	first	['a=', 'x'] -> ['a=', 'x']	same predictions=True
+'a='	last	['x', 'a='] -> ['x', 'a']	same predictions=True
+'b=c=d'	first	['b=c=d', 'x'] -> ['b=c=d', 'x']	same predictions=True
+'b=c=d'	last	['x', 'b=c=d'] -> ['x', 'b=c=d']	same predictions=True
+'x=1'	first	['x=1', 'x'] -> ['x=1', 'x']	same predictions=True
+'x=1'	last	['x', 'x=1'] -> ['x', 'x=1']	same predictions=True
+[run-exclusive] i406-equals finished in 1s, exit 0

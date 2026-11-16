@@ -269,6 +269,7 @@ def test_export_names_the_column_and_writes_nothing(tmp_path: Path) -> None:
         "value": shown(REFUSED[0]),
         "type": "tuple",
         "state": "refit",
+        "reason": "unsaveable_category_value",  # H-0147
     }
     assert "Circular reference" not in str(exc.value)
     assert not out.exists()  # before H-0127 a 728-byte fit_result.pkl was left

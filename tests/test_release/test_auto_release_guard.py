@@ -268,6 +268,7 @@ def test_the_steps_run_the_scripts_in_order() -> None:
     order = [
         "Verify the release is a merge commit of develop",
         "Extract version from PR title",
+        "Route git credentials through gh",
         "Create tag",
         "Create GitHub Release",
         "Trigger PyPI publish workflow",
@@ -275,7 +276,8 @@ def test_the_steps_run_the_scripts_in_order() -> None:
     assert [names.index(n) for n in order] == sorted(names.index(n) for n in order)
     assert by_name[order[0]]["run"] == f"bash .github/scripts/{GUARD.name}"
     assert by_name[order[1]]["run"] == f"bash .github/scripts/{VERSION.name}"
-    assert by_name[order[2]]["run"] == f"bash .github/scripts/{TAGGER.name}"
+    assert by_name[order[2]]["run"] == "gh auth setup-git"
+    assert by_name[order[3]]["run"] == f"bash .github/scripts/{TAGGER.name}"
 
 
 #: Every step's whole ``env`` mapping, by step name. A step not listed must have
@@ -294,7 +296,13 @@ EXPECTED_ENV: dict[str, dict[str, str]] = {
     "Extract release notes from CHANGELOG.md": {
         "VERSION": "${{ steps.version.outputs.version }}",
     },
+    # H-0146: the checkout keeps no credential; git asks gh, which answers only
+    # where GH_TOKEN is set.
+    "Route git credentials through gh": {
+        "GH_TOKEN": "${{ secrets.GITHUB_TOKEN }}",
+    },
     "Create tag": {
+        "GH_TOKEN": "${{ secrets.GITHUB_TOKEN }}",
         "TAG": "${{ steps.version.outputs.tag }}",
         "MERGE_SHA": "${{ github.event.pull_request.merge_commit_sha }}",
     },

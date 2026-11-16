@@ -15,6 +15,7 @@ from lizyml.estimators.base import (
     BaseEstimatorAdapter,
     ImportanceKind,
     UnsaveableCategory,
+    UnsaveableFeatureName,
 )
 from lizyml.estimators.lgbm.category_json import (
     encoder_categories,
@@ -26,6 +27,7 @@ from lizyml.estimators.lgbm.defaults import (
     _TASK_METRIC,
     _TASK_OBJECTIVE,
 )
+from lizyml.estimators.lgbm.feature_names import unsaveable_feature_names
 from lizyml.estimators.lgbm.param_names import (
     LGBM_CANONICAL_NAME,
     accepted_spellings,
@@ -202,6 +204,16 @@ class LGBMAdapter(BaseEstimatorAdapter):
             if str(col) not in stood
         }
         return unwritable_categories(raw)
+
+    def unsaveable_feature_names(self) -> list[UnsaveableFeatureName]:
+        """Booster feature names LightGBM's model text cannot hold (H-0147).
+
+        Judged on the booster's own names, the ones the model text writes.
+        An adapter that holds no booster yet refuses nothing.
+        """
+        if self._model is None:
+            return []
+        return unsaveable_feature_names(self._model.feature_name())
 
     def set_categorical_features(self, cols: list[str] | None) -> None:
         """Store categorical column names for use in ``fit()``."""

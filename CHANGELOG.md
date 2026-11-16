@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.21.2] - 2026-11-16
+
+### Fixed
+
+- **A model whose feature names LightGBM's model text cannot hold intact is refused before saving; #406 is fixed** (H-0147, [#406](https://github.com/nbx-liz/LizyML/issues/406)). LightGBM writes the names as one space-separated line and reads it back line by line, splitting at `=` and at spaces. An empty feature name was dropped, so `Model.export` succeeded and `Model.load` then failed with `DESERIALIZATION_FAILED` (`Wrong size of feature_names`). A name holding `\n` or `\r` cut the line, so the model was refused or read back with the name cut short, and the text after the break could change its predictions. A `=` at the start of the first name or the end of the last one was also dropped when no other `=` kept it. `Model.export`, `lizyml.persistence.export` and `export_code` now refuse these models with `SERIALIZATION_FAILED` before writing anything, asking every saved booster (refit and every fold). The context holds `column`, `position`, `state`, `reason` (`empty_feature_name`, `line_break_in_feature_name` or `equals_sign_at_feature_names_edge`) and `surface`. `Model.fit` warns once per such name; fit and predict still work. For an empty name, `export_code` still refuses with its own H-0141 check first. A model saved by 0.21.1 or earlier with an empty name still cannot be loaded. `BaseEstimatorAdapter` gains `unsaveable_feature_names()`, which defaults to `[]`.
+- **The two category-save refusals carry `context["reason"]`** (H-0147). A category value outside the saveable set now has `reason: "unsaveable_category_value"`, and a value LightGBM cannot write as JSON has `reason: "lightgbm_unwritable_category"`, beside the existing `column`, `value`, `type` and `state`. The messages are unchanged.
+
+### Changed
+
+- **The release path and CI are hardened, and the branch rulesets are enforced** (H-0146, [#407](https://github.com/nbx-liz/LizyML/issues/407)). The distribution build restores no uv cache and runs only on its own `vX.Y.Z` tag: `auto-release.yml` now dispatches `release.yml --ref <tag>`, where before every publish ran on `main`. Every action in the four workflows is pinned to a commit SHA, no checkout keeps its credentials (the tag push authenticates through `gh` in that step only), each job gets only the token permissions it needs, and every job has a timeout. A newer push cancels the older CI run of the same pull request. A new `Workflow lint` job runs zizmor and actionlint, and a new `CI (gate)` job passes only when the seven blocking jobs succeed; `CI (gate)` and `validate` are the required checks of the `main` and `develop` rulesets. Dependabot updates the uv lock file only, into `develop`, after a 7-day cooldown. CI and release only; the library is unchanged.
+
 ## [0.21.1] - 2026-10-24
 
 ### Fixed

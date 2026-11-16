@@ -1,0 +1,8 @@
+[run-exclusive] i406-linebreak starting; load was 0.61
+run-heavy: pgid=11 (stop with: kill -- -11)
+'a\nb'	read back feature_name()=['x', 'a']	num_feature=2	same predictions=True
+'a\rb'	read back feature_name()=['x', 'a']	num_feature=2	same predictions=True
+'a\r\nb'	read back feature_name()=['x', 'a']	num_feature=2	same predictions=True
+'a\n'	read back feature_name()=['x', 'a']	num_feature=2	same predictions=True
+'a\nobjective=regression'	read back feature_name()=['x', 'a']	num_feature=2	same predictions=False
+[run-exclusive] i406-linebreak finished in 0s, exit 0

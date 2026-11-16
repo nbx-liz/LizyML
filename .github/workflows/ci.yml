@@ -13,12 +13,25 @@ on:
 env:
   PYTEST_MEMORY_CEILING_KIB: 12582912
 
+# H-0146: a read-only token for every job; no job asks for more.
+permissions:
+  contents: read
+
+# H-0146: a newer push to the same pull request cancels the older run; a push
+# to main is never cancelled.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   git-policy:
     name: Owned Git policy
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Activate tracked hooks
         run: git config core.hooksPath .githooks
       - name: Verify owned hook routing and controls
@@ -27,16 +40,19 @@ jobs:
   quality:
     name: Quality (${{ matrix.python-version }})
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         python-version: ["3.10", "3.11", "3.12"]
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -74,12 +90,15 @@ jobs:
   quality-lowest-deps:
     name: Quality (lowest-direct deps)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           python-version: "3.10"
 
@@ -112,6 +131,7 @@ jobs:
   quality-latest-deps:
     name: Quality (latest deps, non-blocking)
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     # Forward-compat early-warning lane (#180): resolves dependencies upward to
     # the newest compatible releases so an upstream breaking change (pandas /
     # numpy / lightgbm) surfaces here before it reaches the locked lanes.
@@ -119,10 +139,12 @@ jobs:
     continue-on-error: true
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           python-version: "3.12"
 
@@ -142,6 +164,7 @@ jobs:
   smoke-os-matrix:
     name: Smoke (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     # OS portability smoke (#180): file I/O, path, and newline handling on
     # non-Linux runners. Scoped to persistence + a minimal end-to-end
     # round-trip (single Python) to keep the matrix fast.
@@ -151,10 +174,12 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           python-version: "3.12"
 
@@ -180,14 +205,16 @@ jobs:
   distribution:
     name: Distribution check
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           python-version: "3.12"
 
@@ -214,10 +241,13 @@ jobs:
   notebook-index-matrix:
     name: Notebook index (matrix)
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     outputs:
       matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Read the notebooks and extras to test
         id: matrix
@@ -233,6 +263,7 @@ jobs:
     name: Extras registry (without ${{ matrix.removed }})
     needs: notebook-index-matrix
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -241,17 +272,20 @@ jobs:
       REMOVED: ${{ matrix.removed }}
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           python-version: "3.12"
 
       - name: Install every extra but the removed one
         run: |
-          flags=$(python3 scripts/examples_index.py --uv-flags-without "$REMOVED")
-          uv sync --frozen --no-dev --group notebooks $flags
+          out=$(python3 scripts/examples_index.py --uv-flags-without "$REMOVED")
+          read -ra flags <<< "$out"
+          uv sync --frozen --no-dev --group notebooks "${flags[@]}"
 
       - name: Call every registry row that needs the removed extra
         run: uv run --no-sync --no-dev python -m tests.test_notebooks.probe_extras_registry --without "$REMOVED"
@@ -262,6 +296,7 @@ jobs:
     name: Notebook index (${{ matrix.notebook }})
     needs: notebook-index-matrix
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -270,18 +305,21 @@ jobs:
       NOTEBOOK: ${{ matrix.notebook }}
 
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
         with:
           python-version: "3.12"
 
       - name: Install the declared extras only
         run: |
-          flags=$(python3 scripts/examples_index.py --uv-flags-for "$NOTEBOOK")
-          echo "extras: ${flags:-none}"
-          uv sync --frozen --no-dev --group notebooks $flags
+          out=$(python3 scripts/examples_index.py --uv-flags-for "$NOTEBOOK")
+          echo "extras: ${out:-none}"
+          read -ra flags <<< "$out"
+          uv sync --frozen --no-dev --group notebooks "${flags[@]}"
 
       - name: Check that exactly the declared extras are installed
         run: uv run --no-sync --no-dev python -m tests.test_notebooks.check_installed_extras "$NOTEBOOK"
@@ -300,8 +338,11 @@ jobs:
     needs: [notebook-index-matrix, extras-registry, notebook-index-execution]
     if: always()
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Decide from the index job results
         env:
@@ -309,3 +350,61 @@ jobs:
           REGISTRY_RESULT: ${{ needs.extras-registry.result }}
           EXECUTION_RESULT: ${{ needs.notebook-index-execution.result }}
         run: python3 scripts/notebook_index_gate.py
+
+  # --- Workflow lint (H-0146) ---------------------------------------------------
+  # zizmor (with its online audits, e.g. a pinned SHA that is not a commit of the
+  # action's repository) and actionlint (with the group's shellcheck on PATH)
+  # over every workflow and the Dependabot config. Any finding fails the job.
+  workflow-lint:
+    name: Workflow lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Install the workflow linters at the lock's versions
+        run: uv sync --frozen --only-group workflow-lint
+
+      - name: zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uv run --no-sync zizmor --format github .
+
+      - name: actionlint
+        run: uv run --no-sync actionlint
+
+  # --- CI gate (H-0146) ---------------------------------------------------------
+  # The single CI check the rulesets require. It always runs and passes only when
+  # every job it needs succeeded; scripts/ci_gate.py decides (unit-tested), and
+  # tests/test_ci_gate.py checks that every other job of this file is either
+  # needed here or on its closed exclusion list.
+  ci-gate:
+    name: CI (gate)
+    needs:
+      - git-policy
+      - quality
+      - quality-lowest-deps
+      - smoke-os-matrix
+      - distribution
+      - notebook-index-gate
+      - workflow-lint
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Decide from the needed job results
+        env:
+          NEEDS_JSON: ${{ toJSON(needs) }}
+        run: python3 scripts/ci_gate.py
