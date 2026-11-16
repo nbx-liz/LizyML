@@ -17521,3 +17521,76 @@ Firing rate: 1/52 of zizmor findings on develop `9402dc3` is exempted by the one
 
 - **結果**: Codex の run `h0146-impl-review` の round 1（`73c378c`）は APPROVE で、指摘は無かった。この実行の方針により、APPROVE と CI 緑でマージする。#407 は、管理者の設定（`docs/audits/2026-11-i407/owner-steps.md`）と次のリリースの実行の証拠（受け入れ 6）が揃うまで閉じない。
 - **CI の最初の run**（PR #408、`73c378c`、run 43801319781）: `Workflow lint` は `GH_TOKEN` を持つ online の zizmor 1.32.0 で 5 つのファイルを検査し、指摘 0 件で通った（受け入れ 6 の 1 つ目）。
+
+## H-0147: 空の特徴量の名前を持つモデルは保存の前に拒否し、fit で警告する ― カテゴリの保存の 2 つの拒否に context の `reason` を足す（#406）
+
+- **ステータス**: Proposed
+- **起票日**: 2026-11-16
+- **関連**: H-0127（保存できないカテゴリ値を export で拒否）、H-0129（`unsaveable_categories` の IF）、H-0133 P5（V の外の値の拒否と context）、H-0136 P2（3 つの出口が同じ検査）、H-0141（export_code の列名の別名と `empty_alias`）、#406、#409、nbx-liz/LizyStudio#748（P-0117 D2）
+- **スコープ**:
+  - `lizyml/persistence/exporter.py`（保存の前の検査）、`lizyml/estimators/base.py` と `lizyml/estimators/lgbm/adapter.py`（新しい IF のメソッド）、`lizyml/core/model.py`（fit の警告の 1 行）、テスト、BLUEPRINT §14.1・§15.3、CHANGELOG
+  - 範囲の外: LightGBM が fit で拒否する名前（JSON の特殊文字、空白を `_` に置き換えた後の重なり）。生の `LightGBMError` がコードなしで出る件は #409 で扱う（管理者の判断）。0.21.1 までに保存された空の名前のモデルを読めるようにすること（下の互換性）。
+
+Gate-category: none
+
+### 目的（課題）
+
+1. **空の特徴量の名前**: 特徴量の列名が空の文字列のモデルは、`Model.fit`・`predict` はメモリの上で動き、`Model.export` も成功するが、`Model.load` が LightGBM の中で失敗し（`Wrong size of feature_names`）、`DESERIALIZATION_FAILED` になる。保存に成功したモデルを誰も開けない。`export_code` だけは H-0141 の `empty_alias` で拒否している。
+2. **カテゴリの保存の拒否の context**: `SERIALIZATION_FAILED` の 2 か所（`_refuse_value` と、adapter の `unsaveable_categories` の分岐）は context が `{column, value, type, state}` だけで、理由は `user_message` の文にしかない。拒否を `context["reason"]` で分ける呼び手（LizyStudio P-0117 D2）は、この 2 つだけ文を読む必要がある。
+
+### 実測（2026-11-16、develop `b0ebadf`、`uv.lock` の LightGBM）
+
+出力とスクリプトは `docs/audits/2026-11-i406/` にある。
+
+- **列名の綴り**（`roundtrip-names.out`）: 特徴量の名前を 12 通り（普通の名前、空、空白だけ、途中の空白、タブ、改行、先頭の空白、日本語、`=`、`"`、整数の `0`、`a b` と `a_b` の組）と、空の名前を target と `features.exclude` に置いた 2 通り。fit → export → load → predict が最後まで同じ予測で通らなかったのは、特徴量の空の名前（load で `DESERIALIZATION_FAILED`）と、fit で LightGBM が拒否した 2 つ（`"` と `a b`/`a_b`。#409）だけだった。空の名前でも target や除外した列なら問題はない。
+- **空の名前の置き場所**（`empty-name-cases.out`）: 最後、真ん中、`np.str_("")`、カテゴリの列の 4 つとも export は成功し、load は `DESERIALIZATION_FAILED`、`export_code` は `SERIALIZATION_FAILED`（`reason: unsupported_column_name`）。普通の名前の対照は 3 つとも通った。
+- **原因**（同じ出力の最後の行）: LightGBM の booster は `feature_name()` に `['x', '']` を持つが、モデルの文字列は `feature_names=x ` と書く（名前を空白で区切るので空の名前が消える）。その文字列を `Booster(model_str=...)` で読むと `Wrong size of feature_names`。`lgb.train` 自体も、`keep_training_booster=True` でなければ学習の終わりに同じ読み戻しをして失敗する。LizyML は `keep_training_booster=True` で学習するので fit は通り、joblib の pickle（中身はモデルの文字列）を読むときに初めて失敗する。
+- **今の検査の順**: `Model.export`（`_model_persistence.py`）と公開の `lizyml.persistence.export` は、何かを書く前に `check_category_values` を呼ぶ。`export_code` は先に `project_column_names`（H-0141）、次に `check_category_values` を呼ぶ。
+
+### 管理者の判断（2026-11-16。#406 に記録）
+
+- 空の名前は、保存の 3 つの出口が共通に通る検査で `SERIALIZATION_FAILED` で拒否し、`Model.fit` は警告だけにする。fit では拒否しない（メモリの上で fit・predict だけ使う利用を壊さない）。LightGBM に別の名前を渡す作り替えはしない。
+- `reason` は記号（snake_case）にし、文の理由は今どおり `user_message` に残す。
+- fit で LightGBM が拒否する名前は #409 に分ける。
+- このあと v0.21.2 を出す（リリース PR のマージの直前に管理者が確認する）。
+
+### 対応方針（提案）
+
+1. **estimator の IF**: `BaseEstimatorAdapter.unsaveable_feature_names() -> list[UnsaveableFeatureName]` を足す（既定は `[]`）。`UnsaveableFeatureName(position, name, reason)` は `estimators/base.py` の frozen な dataclass。`LGBMAdapter` は自分の booster の `feature_name()`（LightGBM が実際にモデルの文字列に書く名前）を読み、空の文字列の名前を `reason="empty_feature_name"` で、位置の順に返す。booster が無い adapter は `[]`。判定の正は「LightGBM のモデルの文字列が名前を空白で区切る」ことである。空でない名前は消えない。LightGBM は booster に入れるときに半角の空白を `_` に置き換え（`" "` は `_`、`"a b"` は `a_b`、`" a"` は `_a`）、タブ・改行・`=`・日本語はそのまま持つが、どれも読み戻せる（`booster-names.out`）。`persistence/` は具体的な estimator を import しない（H-0129 の形のまま）。
+2. **保存の前の検査**: `check_category_values` の最初の段として、保存する全ての pipeline 状態（今の `_saved_pipeline_states`: refit、各 fold、fold ごとが無ければ最後の fold）について、その状態と一緒に保存される adapter に `unsaveable_feature_names()` を尋ね、最初に見つかった名前で `SERIALIZATION_FAILED` を送出し、何も書かない。context は `column`（名前。空の文字列）、`position`（特徴量の中の位置。0 から数える）、`state`（`refit` / `fold k` / `last fold`）、`reason`（`empty_feature_name`）、`surface`（`Model.export` か `export_code`）。メッセージは、何番目の特徴量の名前が空か、LightGBM の保存したモデルがその名前を持てず読み込めなくなること、列の名前を付け直して fit し直すことを示す。
+   - 3 つの出口が同じ検査を通る（H-0136 P2）。`export_code` は今どおり `project_column_names` が先に `empty_alias` で拒否するので、`export_code` の拒否（context と文）は変わらない。新しい拒否が `export_code` から出るのは、`project_column_names` が通した名前を adapter が拒否するときだけで、今の LightGBM ではそれは起きない。
+   - 検査の順は、名前、それからカテゴリの値（今の 3 つの検査）。名前の拒否は booster そのものが読めない欠陥なので先に出す。
+3. **fit の警告**: `Model.fit` の終わり（H-0136 P4 の `warn_saved_state_changes` と同じ所、fit の結果を確定した後）に、同じ `_saved_pipeline_states` と同じ adapter の答えで、拒否される名前ごとに 1 回 `UserWarning` を出す（fit・predict は動くが `Model.export` と `export_code` は拒否する、と書く）。判定は export の検査と同じ関数の答えを使い、2 か所で規則を別に持たない。refit と fold は同じ特徴量を持つので、名前（位置）で重ねない。
+4. **カテゴリの保存の拒否の `reason`**: context に `reason` を足す。`_refuse_value`（V の外の値。状態と `declared_categories` の両方）は `unsaveable_category_value`、adapter の `unsaveable_categories` の分岐は `lightgbm_unwritable_category`（LightGBM がカテゴリ値を JSON で書けない。後者の値は adapter の答えでなく exporter が付ける。`UnsaveableCategory` は変えない）。今の 4 つのキーと `user_message` は変えない。H-0136 の `refuse_change` は `kind` を持つので変えない。
+5. **文書**: BLUEPRINT §14.1 に IF のメソッド、§15.3 に名前の検査と 2 つの拒否の `reason`。CHANGELOG の `[Unreleased]`。`docs/proposal_dispositions.toml` の行。
+
+Firing rate: 5/17 of the probed column-name cases that fit (the four placements of an empty feature name and the plain empty name; none of the other 12 spellings and positions) are refused by the new name check (`docs/audits/2026-11-i406/probes/`, develop `b0ebadf`)
+
+### 互換性
+
+- 空の特徴量の名前のモデルの `Model.export` と `lizyml.persistence.export` は、読めない artifact を書く代わりに `SERIALIZATION_FAILED` を送出する。fit は通り、警告が 1 つ増える。`export_code` は今どおり。
+- 2 つのカテゴリの拒否の context にキーが 1 つ増える（今の 4 つはそのまま）。context をキーの集合ごと比べる呼び手は影響を受ける。
+- 0.21.1 までに保存した空の名前のモデルは、今後も読めない（booster のモデルの文字列から名前がすでに消えている）。`Model.load` は今どおり `DESERIALIZATION_FAILED`。保存の形式と `format_version` は変えない。
+- 公開の `BaseEstimatorAdapter` にメソッドが 1 つ増える（既定は `[]` なので、外の adapter は変えなくてよい）。
+
+### 代替案
+
+- **fit で拒否する**: いちばん早いが、保存しない利用を壊す（管理者が退けた）。
+- **LightGBM に位置の名前（`f0`…）を渡す**: 保存できるようになるが、重要度・SHAP・export_code の `model.txt` に出る名前が変わる（管理者が退けた）。
+- **保存の前に、各 booster をモデルの文字列にして読み戻す**: 名前の綴りによらず「読めない booster」の全体を捕まえるが、fold ごとに booster を 1 つ余分に作り、大きなモデルでは export の時間とメモリが倍になる。今の LightGBM で読めなくなる名前は空の名前だけ（実測）で、その規則は LightGBM の書き方から閉じているので、名前の規則を採る。規則が LightGBM の変化で外れたことは、下の受け入れ 5 のテストが本物の LightGBM で検出する。
+- **exporter に LightGBM の規則を直接書く**: `persistence/` が estimator の知識を持つ（H-0129 が避けた形）。
+
+### 受け入れ基準（テスト観点）
+
+1. **落ちるべき例**: 空の特徴量の名前（最後、真ん中、`np.str_("")`、カテゴリの列）のモデルで、`Model.export` と `lizyml.persistence.export` が `SERIALIZATION_FAILED` を送出し、context が `{column: "", position, state: "refit", reason: "empty_feature_name", surface}` で、出力先に何も作らない。今の develop ではこのテストは落ちる（export が成功する）。
+2. **export_code は変わらない**: 同じモデルの `export_code` は今どおり H-0141 の `empty_alias` の拒否（context のキーも同じ）。
+3. **通るべき例**: 実測の 12 通りのうち fit が通る綴り、target と除外した列の空の名前は、今どおり export → load → predict で同じ予測。
+4. **fit の警告**: 空の特徴量の名前の fit が、その名前について `UserWarning` を 1 つだけ出し、`predict` は動く。普通の名前の fit は警告を出さない。
+5. **規則と本物の LightGBM**: インストールされた LightGBM で、空の名前の booster のモデルの文字列を `Booster(model_str=...)` で読むと失敗し、空でない名前（実測の綴り）は読める。LightGBM が空の名前を読めるように変われば、このテストが落ち、拒否を見直す合図になる。
+6. **adapter の IF**: 既定の `unsaveable_feature_names()` は `[]`。`LGBMAdapter` は位置の順に返す。各 fold と refit の adapter に尋ねる（refit だけでない）ことを、fold の adapter だけが名前を返す偽の adapter で確かめる。
+7. **`reason`**: V の外の値（実行して `_refuse_value` に届く。状態と `declared_categories` の両方）の拒否が `reason: "unsaveable_category_value"` を持ち、adapter の分岐（実行して届く。偽の adapter で `unsaveable_categories` が値を返す）の拒否が `reason: "lightgbm_unwritable_category"` を持つ。どちらも今の 4 つのキーと文は変わらない。
+8. フルスイート（slow を含む）、ruff、mypy。
+
+### レビューの停止基準
+
+指摘は、契約の中の欠陥（保存して読めないモデルが export を通る、読めるモデルを拒否する、3 つの出口の答えが食い違う、fit の警告と export の拒否の判定が別の規則になる、`reason` が欠ける）か、この Proposal の偽の主張に限る。#409 の名前、0.21.1 までの artifact の救済、LightGBM 以外の estimator の規則は指摘にしない。

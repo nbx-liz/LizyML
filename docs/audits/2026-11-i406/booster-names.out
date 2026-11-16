@@ -1,0 +1,13 @@
+[run-exclusive] i406-booster starting; load was 0.85
+run-heavy: pgid=11 (stop with: kill -- -11)
+'z'	feature_name()=['x', 'z']	reads back
+[LightGBM] [Fatal] Wrong size of feature_names
+''	feature_name()=['x', '']	LightGBMError: Wrong size of feature_names
+' '	feature_name()=['x', '_']	reads back
+'a b'	feature_name()=['x', 'a_b']	reads back
+'a\tb'	feature_name()=['x', 'a\tb']	reads back
+'a\nb'	feature_name()=['x', 'a\nb']	reads back
+' a'	feature_name()=['x', '_a']	reads back
+'列'	feature_name()=['x', '列']	reads back
+'a=b'	feature_name()=['x', 'a=b']	reads back
+[run-exclusive] i406-booster finished in 0s, exit 0

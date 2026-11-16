@@ -1,0 +1,15 @@
+[run-exclusive] i406-empty starting; load was 0.72
+run-heavy: pgid=32 (stop with: kill -- -32)
+[LightGBM] [Fatal] Wrong size of feature_names
+empty_last	export=ok	load=DESERIALIZATION_FAILED ['path']	export_code=SERIALIZATION_FAILED ['alias', 'columns', 'kind', 'reason', 'surface']
+[LightGBM] [Fatal] Wrong size of feature_names
+empty_middle	export=ok	load=DESERIALIZATION_FAILED ['path']	export_code=SERIALIZATION_FAILED ['alias', 'columns', 'kind', 'reason', 'surface']
+[LightGBM] [Fatal] Wrong size of feature_names
+np_str_empty	export=ok	load=DESERIALIZATION_FAILED ['path']	export_code=SERIALIZATION_FAILED ['alias', 'columns', 'kind', 'reason', 'surface']
+[LightGBM] [Fatal] Wrong size of feature_names
+empty_categorical	export=ok	load=DESERIALIZATION_FAILED ['path']	export_code=SERIALIZATION_FAILED ['alias', 'columns', 'kind', 'reason', 'surface']
+plain_control	export=ok	load=ok	export_code=ok
+[LightGBM] [Fatal] Wrong size of feature_names
+[LightGBM] [Fatal] Wrong size of feature_names
+lightgbm	train=LightGBMError: 'Wrong size of feature_names'	feature_name()=['x', '']	'feature_names=x '	read=LightGBMError: 'Wrong size of feature_names'
+[run-exclusive] i406-empty finished in 0s, exit 0

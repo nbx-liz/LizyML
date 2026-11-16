@@ -1,0 +1,20 @@
+[run-exclusive] i406-names starting; load was 0.72
+run-heavy: pgid=11 (stop with: kill -- -11)
+plain	done	same predictions
+[LightGBM] [Fatal] Wrong size of feature_names
+empty	load	DESERIALIZATION_FAILED ['path']
+space_only	done	same predictions
+inner_space	done	same predictions
+tab	done	same predictions
+newline	done	same predictions
+leading_space	done	same predictions
+unicode	done	same predictions
+equals	done	same predictions
+[LightGBM] [Fatal] Do not support special JSON characters in feature name.
+json_special	fit	LightGBMError: 'Do not support special JSON characters in feature name.'
+int_name	done	same predictions
+[LightGBM] [Fatal] Feature (a_b) appears more than one time.
+collide_a_b	fit	LightGBMError: 'Feature (a_b) appears more than one time.'
+empty_target	done	same predictions
+empty_excluded	done	same predictions
+[run-exclusive] i406-names finished in 1s, exit 0
