@@ -23,6 +23,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
+from lizyml.core._feature_name_check import check_feature_names_for_training
 from lizyml.core._model_factories import (
     build_splitter,
     get_outer_n_splits,
@@ -329,6 +330,8 @@ class ModelTuningMixin:
         X, y, groups, _components = self._prepare_training_data(raw)
         del _components
         provider = get_provider(cfg.model)
+        # H-0148: before the study is read or written and before any trial.
+        check_feature_names_for_training(provider, X)
         n_classes = int(y.nunique()) if cfg.task == "multiclass" else None
         splitter = build_splitter(
             cfg,

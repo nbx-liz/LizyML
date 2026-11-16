@@ -6,7 +6,7 @@ model.py has zero LightGBM imports.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable
+from collections.abc import Callable, Iterable, Sequence
 from typing import Any
 
 import numpy as np
@@ -28,6 +28,7 @@ from lizyml.estimators.lgbm.defaults import (
     default_fixed_params,
     default_space,
 )
+from lizyml.estimators.lgbm.feature_names import lightgbm_refused_feature_name
 from lizyml.estimators.lgbm.memory_check import (
     assess,
     feature_bins,
@@ -45,7 +46,12 @@ from lizyml.estimators.lgbm.smart_params import (
     resolve_smart_params,
     smart_managed_names,
 )
-from lizyml.estimators.provider import ExportParams, MetricChoices, SmartValueRule
+from lizyml.estimators.provider import (
+    ExportParams,
+    MetricChoices,
+    RefusedFeatureName,
+    SmartValueRule,
+)
 from lizyml.features.encoders.categorical_encoder import UnseenPolicy
 from lizyml.features.pipeline_base import BaseFeaturePipeline
 from lizyml.features.pipelines_native import NativeFeaturePipeline
@@ -413,6 +419,10 @@ class LGBMProvider:
         from lightgbm.basic import LightGBMError
 
         return (LightGBMError,)
+
+    def refused_feature_names(self, names: Sequence[Any]) -> RefusedFeatureName | None:
+        """The first training column name LightGBM refuses (H-0148)."""
+        return lightgbm_refused_feature_name(names)
 
     def resource_warning(
         self,

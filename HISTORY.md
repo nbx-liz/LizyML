@@ -17612,8 +17612,9 @@ Firing rate: 6/17 of the probed column-name cases that fit through lizyml (the f
 
 ## H-0148: LightGBM が受け付けない特徴量の名前と、重なった列名を、fit と tune の学習の前に `DATA_SCHEMA_INVALID` で拒否する（#409）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-11-16
+- **決定日**: 2026-11-16
 - **関連**: H-0140（provider の任意の capability `ResourceWarningProvider`）、H-0142（`categorical_feature_not_unique` の `DATA_SCHEMA_INVALID`）、H-0147（保存の前の名前の検査）、#409、#406、nbx-liz/LizyStudio#748（P-0117 D2）
 - **スコープ**:
   - `lizyml/estimators/provider.py`（新しい任意の capability）、`lizyml/estimators/lgbm/`（LightGBM の規則）、`lizyml/core/`（fit と tune から呼ぶ検査）、`lizyml/data/dataframe_builder.py`（重なった列名）、テスト、BLUEPRINT §8.2（データの検査）・§14.4、CHANGELOG
@@ -17687,3 +17688,10 @@ Firing rate: 13/17 of the probed feature-name cases (7 JSON-special names, 5 col
 
 - **round 1**（`h0148-proposal-review`、`31f0a41`、CHANGES_REQUESTED）: major 2 件と minor 1 件。(1) `features.exclude` の例外が、重なった `data.target` を通してしまう、(2) 重なった `data.group_col` は `kfold` なら今 fit が通るので、互換性の「今通っている入力は変わらない」は偽 — どちらも実行して確かめた（`duplicate-roles.out`）。対応方針 4 を、役割の列の重なりは `exclude` と split によらず拒否し、役割の列でない重なりは `exclude` に入っていれば受け付ける、に改め、互換性に新しく拒否するものを書き、受け入れ 2 に役割の列の場合を足した。(3) 数え違い（16 通りでなく 17 通り、重なりは 5 通り）— Firing rate と実測を直した。
 - **round 2**（`ca389a8`、absolute monitor は DELIVERABLE-FOCUSED で continue）: CHANGES_REQUESTED、minor 1 件。役割の列の一覧の `inner_valid.group_col` は存在しない（`lizyml/config/schema.py` の inner valid の 3 つの schema は列名を持たない）。一覧から外し、inner valid が `data.group_col` か `split.groups.col` の groups を使うことを書いた。
+- **round 3**（`4b17976`、relational monitor は CONVERGING で continue）: APPROVE、指摘なし。
+
+### 実装の記録
+
+- **置き場所**: capability は `lizyml/estimators/provider.py` の `FeatureNameRuleProvider` と `RefusedFeatureName`、LightGBM の規則は `lizyml/estimators/lgbm/feature_names.py` の `lightgbm_refused_feature_name`（`LGBMProvider.refused_feature_names` が呼ぶ）、検査は `lizyml/core/_feature_name_check.py` の `check_feature_names_for_training` と `config_roles`、重なった列は `lizyml/data/dataframe_builder.py` の `check_duplicate_columns`（`_prepare_training_data` が frame を読んだ直後に呼ぶ）。fit は `get_provider` の直後、tune は Phase B の `get_provider` の直後（Phase C の study の読み出しの前）に名前を調べる。
+- **テスト**: `tests/test_estimators/test_h0148_feature_names.py`（62 件）。受け入れ 4 は、名前の並び 32 通り（7 文字を最後と先頭に、5 つの重なりを 2 つの並びで、受け付ける名前、空白だけの名前、NUL、整数・真偽値の名前）で `lgb.Dataset(X, y).construct()` が失敗するかと規則の答えが一致することを確かめる。
+- **フルスイート**（slow を含む）: 24043 passed、264 skipped。ruff・ruff format・mypy は指摘なし。

@@ -8,7 +8,7 @@ See BLUEPRINT §14.4 for the full specification.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol, runtime_checkable
 
@@ -508,4 +508,39 @@ class ResourceWarningProvider(Protocol):  # pragma: no cover
             smart_params: The fit's smart parameters.
             n_boosters: How many trained models the fit keeps alive at once.
         """
+        ...
+
+
+@dataclass(frozen=True)
+class RefusedFeatureName:
+    """A feature name the estimator library refuses to train on (H-0148).
+
+    ``position`` counts from 0 in the training columns; ``name`` is the
+    column name as given and ``estimator_name`` the string the library sees.
+    ``first_position`` is the earlier column a ``duplicate_feature_name``
+    repeats, else ``None``.
+    """
+
+    position: int
+    name: Any
+    estimator_name: str
+    reason: str
+    first_position: int | None
+
+
+@runtime_checkable
+class FeatureNameRuleProvider(Protocol):  # pragma: no cover
+    """Optional provider capability: the feature names the estimator library
+    refuses, checked before any training (H-0148).
+
+    Separate from :class:`EstimatorProvider`, as
+    :class:`ResourceWarningProvider` is. ``Model.fit`` and ``Model.tune`` call
+    :meth:`refused_feature_names` only when
+    ``isinstance(provider, FeatureNameRuleProvider)``; otherwise no name is
+    checked.
+    """
+
+    def refused_feature_names(self, names: Sequence[Any]) -> RefusedFeatureName | None:
+        """The first name in *names* (the training columns, in order) the
+        library refuses, or ``None``."""
         ...

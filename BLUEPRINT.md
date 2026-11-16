@@ -667,6 +667,7 @@ LizyML 非依存の学習・推論コードを自動生成する。
 - group: group 跨ぎ、分割条件の不整合
 - leakage: target リーク疑い（例: target と完全一致の列、時間逆転など）
 - target dtype: regression × 非数値 y は `TARGET_NOT_NUMERIC`（H-0070）
+- **同じ名前の列（H-0148、#409）**: `Model.fit` と `Model.tune` は、frame を読んだ直後・特徴量と役割の列に分ける前に、2 回以上現れる列名を調べる（`data/dataframe_builder.py` の `check_duplicate_columns`、役割は `core/_feature_name_check.py` の `config_roles`）。Config の役割の列（`data.target`・`data.time_col`・`data.group_col`・`split.blocks.col`・`split.groups.col` のうち設定されたもの。Config で列名を持つのはこの 5 つだけ）なら、`features.exclude` と split によらず `DATA_SCHEMA_INVALID` で拒否する（どの写しが役割の列かが決まらない）。役割の列でなく `features.exclude` にも無い列（特徴量）も拒否する。役割の列でなく `features.exclude` にある列は、全ての写しが落ちるので受け付ける。context は `column`・`positions`（全ての写し）・`role`（Config の場所、特徴量なら `"feature"`）・`reason`（`duplicate_column_name`）。
 - target の欠損: 数値 target に NaN があれば `Model.fit` の入口で `LizyMLError(DATA_SCHEMA_INVALID)`（context `nan_count`）を送出する（H-0085）。分類 target の NaN も同じ code で拒否する。
 - 公開 API: `lizyml.data` が `validate_time_series_order` / `validate_no_target_leakage` / `validate_group_split` を公開する（H-0087）。**`Model.fit` には自動配線しない**。利用者が明示的に呼ぶ（自動配線は通過中の config に新たに警告や例外を出す挙動変更なので、別の提案で扱う）。
 - `validate_no_target_leakage(df, target, *, raise_on_violation=True)` の規則（H-0107）:
@@ -1846,9 +1847,16 @@ class ResourceWarningProvider(Protocol):  # 任意の機能（H-0140）
     def resource_warning(
         self, *, estimator_factory, X, smart_params, n_boosters
     ) -> str | None: ...
+
+
+@runtime_checkable
+class FeatureNameRuleProvider(Protocol):  # 任意の機能（H-0148）
+    def refused_feature_names(self, names) -> RefusedFeatureName | None: ...
 ```
 
 `ResourceWarningProvider` も `EstimatorProvider` とは別の任意の機能である。`Model.fit` と `Model.tune` は `isinstance(provider, ResourceWarningProvider)` のときだけ `resource_warning(...)` を呼び、文が返れば学習の前に `UserWarning` を出す（§5.3 の `auto_num_leaves` のメモリの警告）。持たない provider では何もしない。
+
+`FeatureNameRuleProvider` も任意の機能である（H-0148、#409）。`Model.fit` と `Model.tune` は、`_prepare_training_data` と `get_provider` の後・学習の前（tune では study を読み書きする前、trial の前）に、`isinstance(provider, FeatureNameRuleProvider)` のときだけ `refused_feature_names(X の列名)` を呼び（`core/_feature_name_check.py` の `check_feature_names_for_training`）、答えがあれば `DATA_SCHEMA_INVALID` を送出する。答えの `RefusedFeatureName` は `position`・`name`（元の列名）・`estimator_name`（学習器が見る名前）・`reason`・`first_position`（重なりのとき先の列の位置）で、context は `column`・`position`・`estimator_name`・`reason`、重なりのときだけ `first_column`・`first_position`。`LGBMProvider` の規則は `estimators/lgbm/feature_names.py` の `lightgbm_refused_feature_name` で、LightGBM 4.6.0 の `Dataset::set_feature_names` に従う: 各列名を `str()` にして NUL より後を落とし、順に見て、`"` `,` `:` `[` `]` `{` `}` のどれかを含めば `json_special_character_in_feature_name`、半角の空白を `_` に置き換えた後に前の名前と同じなら `duplicate_feature_name`。重ならない空白の名前は LightGBM が `_` に置き換えて学習するので受け付ける。規則と本物の LightGBM の一致はテストで確かめる。持たない provider では何もしない。
 
 `TrialErrorProvider` は `EstimatorProvider` とは別の任意の機能で、`EstimatorProvider` の成員には入れない（入れると、それを持たない既存の provider が静的に `EstimatorProvider` を満たさなくなる）。`Model.tune`（Facade）は `isinstance(provider, TrialErrorProvider)` のときだけ `trial_errors()` を呼び、`Tuner.run` / `Tuner.tune` の `extra_catch` に渡す。その型の例外は試行の FAIL になり、round は続く。`tuning/` は estimator のライブラリを知らない。LightGBM の provider は `(lightgbm.basic.LightGBMError,)` を返す。
 

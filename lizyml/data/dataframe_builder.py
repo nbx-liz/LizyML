@@ -7,6 +7,7 @@ downstream layers (training/estimators/calibration) always see int y.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -35,6 +36,56 @@ class DataFrameComponents:
     time_col: pd.Series | None
     group_col: pd.Series | None
     target_encoder: TargetEncoder
+
+
+def _labels_equal(a: Any, b: Any) -> bool:
+    try:
+        return bool(a == b)
+    except Exception:  # noqa: BLE001 - an uncomparable label matches nothing
+        return False
+
+
+def check_duplicate_columns(
+    df: pd.DataFrame, roles: Mapping[str, Any], exclude: Iterable[Any]
+) -> None:
+    """Refuse a frame whose repeated column label is a role or a feature.
+
+    Raises:
+        LizyMLError: ``DATA_SCHEMA_INVALID`` with ``reason`` ``duplicate_column_name``,
+            the label, every position it holds and the role (``"feature"`` for a
+            feature).
+    """
+    columns = list(df.columns)
+    if pd.Index(columns).is_unique:
+        return
+    excluded = list(exclude)
+    reported: list[Any] = []
+    for label in columns:
+        if any(_labels_equal(label, done) for done in reported):
+            continue
+        positions = [i for i, c in enumerate(columns) if _labels_equal(c, label)]
+        if len(positions) < 2:
+            continue
+        reported.append(label)
+        role = next((w for w, col in roles.items() if _labels_equal(col, label)), None)
+        if role is None and any(_labels_equal(label, e) for e in excluded):
+            continue
+        raise LizyMLError(
+            code=ErrorCode.DATA_SCHEMA_INVALID,
+            user_message=(
+                f"Column {label!r} appears {len(positions)} times in the data "
+                f"(positions {positions}), as "
+                f"{'the ' + role + ' column' if role else 'a feature'}: which "
+                "copy is meant is undefined. Rename or drop the copies before "
+                "fit or tune (H-0148)."
+            ),
+            context={
+                "column": label,
+                "positions": positions,
+                "role": role or "feature",
+                "reason": "duplicate_column_name",
+            },
+        )
 
 
 def build(

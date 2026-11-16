@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Feature names LightGBM refuses are refused before training; #409 is fixed** (H-0148, [#409](https://github.com/nbx-liz/LizyML/issues/409)). `Model.fit` used to pass such names to LightGBM and raise its `LightGBMError` with no `LizyMLError` code, and `Model.tune` failed every trial into `TUNING_FAILED` (writing FAIL trials to a given storage). Both now refuse before any training (tune runs no trial and reads or writes no study) with `DATA_SCHEMA_INVALID`. A name holding one of `" , : [ ] { }` has `reason: "json_special_character_in_feature_name"`; a name that repeats an earlier one in LightGBM's eyes (after `str()`, a NUL cut, and spaces rewritten to `_`: `"a b"` beside `"a_b"`, `0` beside `"0"`) has `reason: "duplicate_feature_name"` with `first_column` and `first_position`. The context also holds `column`, `position` and `estimator_name`. Names with spaces that do not collide still train as before. The rule is the optional provider capability `FeatureNameRuleProvider`; the LightGBM provider has it.
+- **Duplicate column names are refused before the data is split** (H-0148). A column label that appears more than once used to crash with `AttributeError` or `ValueError`. `Model.fit` and `Model.tune` now refuse it with `DATA_SCHEMA_INVALID` (`reason: "duplicate_column_name"`, with `column`, `positions` and `role`) when it is a feature or a Config role column (`data.target`, `data.time_col`, `data.group_col`, `split.blocks.col`, `split.groups.col`). A repeated role column is refused even when the split does not read it (for example a duplicated `group_col` with `kfold`, which used to fit), because which copy is meant is undefined. A repeated column that is not a role and is in `features.exclude` is still accepted.
+
 ## [0.21.2] - 2026-11-16
 
 ### Fixed
