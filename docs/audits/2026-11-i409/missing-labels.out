@@ -1,0 +1,5 @@
+duplicated=[False, False, False]
+get_loc(None)=1 get_loc(nan)=2
+df[list(columns)].columns=['x', nan, nan] shape=(40, 3)
+lgb.Dataset on the frame: ok
+select_training_columns -> ['x', nan, nan] shape=(40, 3)

@@ -30,8 +30,10 @@ booster, so the names judged here are the booster's own
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
 from lizyml.estimators.base import UnsaveableFeatureName
+from lizyml.estimators.provider import RefusedFeatureName
 
 #: ``context["reason"]`` of the refusals.
 EMPTY_FEATURE_NAME = "empty_feature_name"
@@ -63,3 +65,49 @@ def unsaveable_feature_names(names: Sequence[str]) -> list[UnsaveableFeatureName
         UnsaveableFeatureName(position=p, name=names[p], reason=reasons[p])
         for p in sorted(reasons)
     ]
+
+
+#: ``Common::CheckAllowedJSON`` (LightGBM 4.6.0 include/LightGBM/utils/common.h).
+_JSON_SPECIAL = frozenset('",:[]{}')
+
+#: ``context["reason"]`` of the training refusals (H-0148).
+JSON_SPECIAL_CHARACTER_IN_FEATURE_NAME = "json_special_character_in_feature_name"
+DUPLICATE_FEATURE_NAME = "duplicate_feature_name"
+
+
+def _seen_by_lightgbm(name: Any) -> str:
+    """The name LightGBM's Dataset receives: the Python package passes
+    ``str(name)`` as a C string, so a NUL ends it."""
+    return str(name).split("\x00", 1)[0]
+
+
+def lightgbm_refused_feature_name(names: Sequence[Any]) -> RefusedFeatureName | None:
+    """The first of *names* LightGBM's Dataset refuses, or ``None`` (H-0148).
+
+    ``Dataset::set_feature_names`` (LightGBM 4.6.0 include/LightGBM/dataset.h)
+    looks at each name in order: a name holding a JSON special character is
+    refused, then spaces are rewritten to ``_`` and a name equal to an
+    earlier rewritten one is refused.
+    """
+    seen: dict[str, int] = {}
+    for position, name in enumerate(names):
+        given = _seen_by_lightgbm(name)
+        if any(char in _JSON_SPECIAL for char in given):
+            return RefusedFeatureName(
+                position=position,
+                name=name,
+                estimator_name=given,
+                reason=JSON_SPECIAL_CHARACTER_IN_FEATURE_NAME,
+                first_position=None,
+            )
+        rewritten = given.replace(" ", "_")
+        if rewritten in seen:
+            return RefusedFeatureName(
+                position=position,
+                name=name,
+                estimator_name=rewritten,
+                reason=DUPLICATE_FEATURE_NAME,
+                first_position=seen[rewritten],
+            )
+        seen[rewritten] = position
+    return None
