@@ -198,6 +198,26 @@ def test_fit_and_tune_refuse_a_duplicate_column(case: str) -> None:
     assert _refusal(lambda: Model(tune_cfg).tune(data=df)).context == expected
 
 
+@pytest.mark.parametrize("label", [np.nan, 0, 1.5, True], ids=repr)
+def test_a_repeated_non_string_label_is_refused(label: Any) -> None:
+    """Grouped as pandas groups labels: two NaN labels are one repeated label
+    (implementation review round 1; ``nan == nan`` is false)."""
+    df = _frame(["x", label, label])
+    for call in (
+        lambda: Model(_config()).fit(data=df),
+        lambda: Model(_tune_config()).tune(data=df),
+    ):
+        context = _refusal(call).context
+        assert context["positions"] == [1, 2]
+        assert context["role"] == "feature"
+        assert context["reason"] == "duplicate_column_name"
+        column = context["column"]
+        if isinstance(label, float) and np.isnan(label):
+            assert isinstance(column, float) and np.isnan(column)
+        else:
+            assert column == label
+
+
 def test_an_excluded_duplicate_feature_still_fits() -> None:
     model = _fit(_role_frame(["x", "a", "a", "target"]), features={"exclude": ["a"]})
     assert model._refit_result is not None

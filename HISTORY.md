@@ -17695,3 +17695,7 @@ Firing rate: 13/17 of the probed feature-name cases (7 JSON-special names, 5 col
 - **置き場所**: capability は `lizyml/estimators/provider.py` の `FeatureNameRuleProvider` と `RefusedFeatureName`、LightGBM の規則は `lizyml/estimators/lgbm/feature_names.py` の `lightgbm_refused_feature_name`（`LGBMProvider.refused_feature_names` が呼ぶ）、検査は `lizyml/core/_feature_name_check.py` の `check_feature_names_for_training` と `config_roles`、重なった列は `lizyml/data/dataframe_builder.py` の `check_duplicate_columns`（`_prepare_training_data` が frame を読んだ直後に呼ぶ）。fit は `get_provider` の直後、tune は Phase B の `get_provider` の直後（Phase C の study の読み出しの前）に名前を調べる。
 - **テスト**: `tests/test_estimators/test_h0148_feature_names.py`（62 件）。受け入れ 4 は、名前の並び 32 通り（7 文字を最後と先頭に、5 つの重なりを 2 つの並びで、受け付ける名前、空白だけの名前、NUL、整数・真偽値の名前）で `lgb.Dataset(X, y).construct()` が失敗するかと規則の答えが一致することを確かめる。
 - **フルスイート**（slow を含む）: 24043 passed、264 skipped。ruff・ruff format・mypy は指摘なし。
+
+### 実装レビュー
+
+- **round 1**（`h0148-impl-review`、`1b7f4ef`、CHANGES_REQUESTED）: major 1 件。重なった NaN の列名が検査を通り抜ける（`_labels_equal` が `a == b` で比べ、`nan == nan` は偽。pandas は 2 つの NaN を重なりとして扱うので、`_apply_categorical` で `AttributeError`）。Defect-class: DC1（拒否すべき入力を黙って通す）。比べ方を pandas と同じにした: `Index.factorize(use_na_sentinel=False)` で名前を組にし、役割と `features.exclude` との照合は `Index.isin` で行う。`0`・`1.5`・`True`・NaN の重なった名前を fit と tune で拒否するテストを足した（NaN は `features.exclude` に書けない: Config が拒否する）。

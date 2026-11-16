@@ -38,9 +38,10 @@ class DataFrameComponents:
     target_encoder: TargetEncoder
 
 
-def _labels_equal(a: Any, b: Any) -> bool:
+def _same_label(a: Any, b: Any) -> bool:
+    """Whether pandas selects column *a* by label *b* (NaN matches NaN)."""
     try:
-        return bool(a == b)
+        return bool(pd.Index([a], dtype=object).isin([b])[0])
     except Exception:  # noqa: BLE001 - an uncomparable label matches nothing
         return False
 
@@ -50,25 +51,30 @@ def check_duplicate_columns(
 ) -> None:
     """Refuse a frame whose repeated column label is a role or a feature.
 
+    Labels are grouped as pandas groups them (``Index.factorize`` with NaN
+    kept as a value), so two NaN labels are one repeated label.
+
     Raises:
         LizyMLError: ``DATA_SCHEMA_INVALID`` with ``reason`` ``duplicate_column_name``,
             the label, every position it holds and the role (``"feature"`` for a
             feature).
     """
-    columns = list(df.columns)
-    if pd.Index(columns).is_unique:
+    index = pd.Index(list(df.columns), dtype=object)
+    if index.is_unique:
         return
+    codes, _ = index.factorize(use_na_sentinel=False)
     excluded = list(exclude)
-    reported: list[Any] = []
-    for label in columns:
-        if any(_labels_equal(label, done) for done in reported):
+    seen: set[int] = set()
+    for code in codes:
+        if code in seen:
             continue
-        positions = [i for i, c in enumerate(columns) if _labels_equal(c, label)]
+        seen.add(code)
+        positions = [i for i, c in enumerate(codes) if c == code]
         if len(positions) < 2:
             continue
-        reported.append(label)
-        role = next((w for w, col in roles.items() if _labels_equal(col, label)), None)
-        if role is None and any(_labels_equal(label, e) for e in excluded):
+        label = index[positions[0]]
+        role = next((w for w, col in roles.items() if _same_label(label, col)), None)
+        if role is None and any(_same_label(label, e) for e in excluded):
             continue
         raise LizyMLError(
             code=ErrorCode.DATA_SCHEMA_INVALID,
