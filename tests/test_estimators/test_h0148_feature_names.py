@@ -218,6 +218,54 @@ def test_a_repeated_non_string_label_is_refused(label: Any) -> None:
             assert column == label
 
 
+#: Column labels, the reason fit refuses them with, and the refused positions.
+#: Equal labels group as pandas hashes them; every missing label (None, NaN)
+#: is one label, because ``select_training_columns`` (``df[list(columns)]``)
+#: turns None into NaN before LightGBM sees the names (owner ruling,
+#: implementation review round 2; ``missing-labels.out``).
+LABEL_CASES: list[tuple[list[Any], str, list[int]]] = [
+    (["x", 0, False], "duplicate_column_name", [1, 2]),
+    (["x", 1, 1.0], "duplicate_column_name", [1, 2]),
+    (["x", ("a", 1), ("a", 1)], "duplicate_column_name", [1, 2]),
+    (["x", None, np.nan], "duplicate_column_name", [1, 2]),
+    (["x", None, np.nan, None], "duplicate_column_name", [1, 2, 3]),
+    (["x", "0", 0], "duplicate_feature_name", [2]),
+    (["x", "a\x00b", "a"], "duplicate_feature_name", [2]),
+]
+
+
+@pytest.mark.parametrize(("columns", "reason", "positions"), LABEL_CASES, ids=repr)
+def test_repeated_labels_are_grouped(
+    columns: list[Any], reason: str, positions: list[int]
+) -> None:
+    context = _refusal(lambda: Model(_config()).fit(data=_frame(columns))).context
+    assert context["reason"] == reason
+    if reason == "duplicate_column_name":
+        assert context["positions"] == positions
+    else:
+        assert context["position"] == positions[0]
+
+
+def test_missing_labels_beside_an_excluded_duplicate_are_refused() -> None:
+    """The reviewer's case: ``a`` repeats and is excluded; None and NaN are
+    one repeated feature label and are refused, not the excluded ``a``."""
+    df = _frame([None, np.nan, "a", "a"])
+    context = _refusal(
+        lambda: Model(_config(features={"exclude": ["a"]})).fit(data=df)
+    ).context
+    assert context["positions"] == [0, 1]
+    assert context["role"] == "feature"
+
+
+def test_missing_labels_fail_lightgbm_after_column_selection() -> None:
+    """Why None and NaN are one label: selecting the columns by list (as
+    ``select_training_columns`` does) turns None into NaN."""
+    df = _frame(["x", None, np.nan]).drop(columns="target")
+    assert pd.Index(df.columns).duplicated(keep=False).tolist() == [False] * 3
+    picked = df[list(df.columns)]
+    assert _lightgbm_refuses(list(picked.columns))
+
+
 def test_an_excluded_duplicate_feature_still_fits() -> None:
     model = _fit(_role_frame(["x", "a", "a", "target"]), features={"exclude": ["a"]})
     assert model._refit_result is not None

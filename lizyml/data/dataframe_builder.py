@@ -38,12 +38,27 @@ class DataFrameComponents:
     target_encoder: TargetEncoder
 
 
-def _same_label(a: Any, b: Any) -> bool:
-    """Whether pandas selects column *a* by label *b* (NaN matches NaN)."""
+def _selected_positions(index: pd.Index, label: Any) -> list[int]:
+    """Every position ``df[label]`` selects in *index* (``Index.get_loc``);
+    ``[]`` when *label* selects none."""
     try:
-        return bool(pd.Index([a], dtype=object).isin([b])[0])
-    except Exception:  # noqa: BLE001 - an uncomparable label matches nothing
-        return False
+        loc = index.get_loc(label)
+    except (KeyError, TypeError):
+        return []
+    if isinstance(loc, slice):
+        return list(range(len(index)))[loc]
+    if isinstance(loc, np.ndarray):
+        return [int(i) for i in np.flatnonzero(loc)]
+    return [int(loc)]
+
+
+def _grouping_key(label: Any) -> Any:
+    """*label*, or NaN for every missing scalar label (None, NaN, NaT, NA)."""
+    try:
+        missing = bool(pd.api.types.is_scalar(label) and pd.isna(label))
+    except (TypeError, ValueError):
+        missing = False
+    return np.nan if missing else label
 
 
 def check_duplicate_columns(
@@ -51,8 +66,12 @@ def check_duplicate_columns(
 ) -> None:
     """Refuse a frame whose repeated column label is a role or a feature.
 
-    Labels are grouped as pandas groups them (``Index.factorize`` with NaN
-    kept as a value), so two NaN labels are one repeated label.
+    Labels are grouped as ``df[label]`` selects them (``Index.duplicated``
+    and ``Index.get_loc``: ``0`` with ``False``, ``1`` with ``1.0``), except
+    that every missing label (NaN, ``None``) is one label, because LizyML's
+    column selection (``select_training_columns``, ``df[list(columns)]``)
+    turns ``None`` into NaN before LightGBM sees the names (H-0148 owner
+    ruling). Roles and ``features.exclude`` are matched the same way.
 
     Raises:
         LizyMLError: ``DATA_SCHEMA_INVALID`` with ``reason`` ``duplicate_column_name``,
@@ -60,21 +79,27 @@ def check_duplicate_columns(
             feature).
     """
     index = pd.Index(list(df.columns), dtype=object)
-    if index.is_unique:
+    keys = pd.Index([_grouping_key(label) for label in index], dtype=object)
+    repeated = keys.duplicated(keep=False)
+    if not repeated.any():
         return
-    codes, _ = index.factorize(use_na_sentinel=False)
     excluded = list(exclude)
-    seen: set[int] = set()
-    for code in codes:
-        if code in seen:
+    done: set[int] = set()
+    for first in range(len(keys)):
+        if not repeated[first] or first in done:
             continue
-        seen.add(code)
-        positions = [i for i, c in enumerate(codes) if c == code]
+        positions = _selected_positions(keys, keys[first])
+        done.update(positions)
         if len(positions) < 2:
             continue
-        label = index[positions[0]]
-        role = next((w for w, col in roles.items() if _same_label(label, col)), None)
-        if role is None and any(_same_label(label, e) for e in excluded):
+        label = index[first]
+        role = next(
+            (w for w, col in roles.items() if first in _selected_positions(index, col)),
+            None,
+        )
+        if role is None and any(
+            first in _selected_positions(index, e) for e in excluded
+        ):
             continue
         raise LizyMLError(
             code=ErrorCode.DATA_SCHEMA_INVALID,
