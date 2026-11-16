@@ -1,0 +1,1 @@
+{"schema_version": "runner-task/v2", "task_id": "h0148-proposal-review", "provider": "codex", "model": "gpt-6.1-sol", "effort": "high", "deadline_seconds": 3600, "review": {"max_rounds": 3, "max_reviewer_attempts_per_round": 2, "max_monitor_attempts_per_round": 2}, "monitor": {"model": "gpt-6.1-sol", "effort": "medium", "deadline_seconds": 900}}

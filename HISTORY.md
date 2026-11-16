@@ -17631,12 +17631,13 @@ Gate-category: none
 出力とスクリプトは `docs/audits/2026-11-i409/` にある。
 
 - **LightGBM の規則**（LightGBM 4.6.0 `include/LightGBM/dataset.h:888-913` の `Dataset::set_feature_names`、`include/LightGBM/utils/common.h:886` の `Common::CheckAllowedJSON`）: 名前を順に見て、`"` `,` `:` `[` `]` `{` `}` のどれかを含む名前で `Do not support special JSON characters in feature name.`、半角の空白を `_` に置き換えた後の名前がそれより前の名前と同じなら `Feature (<名前>) appears more than one time.` で止まる。Python の `lgb.Dataset` は pandas の列名を `str()` にして C の文字列で渡すので、名前は `str()` と NUL での切り詰めの後に判定される。
-- **fit と tune**（`fit-names.out`。特徴量の名前の 16 通り）:
+- **fit と tune**（`fit-names.out`。特徴量の名前の 17 通り）:
   - `"`・`,`・`:`・`[`・`]`・`{`・`}` を含む名前（7 通り）: `Model.fit` は `lightgbm.basic.LightGBMError`、`Model.tune` は 2 つの trial がその例外で失敗して `TUNING_FAILED`。
-  - 置き換えた後に重なる名前（4 通り）: `"a b"` と `"a_b"`、`"a  b"` と `"a__b"`、整数の `0` と `"0"`、浮動小数点の `1.5` と `"1.5"`、`"a\x00b"` と `"a"`（NUL で切れて `a`）。どれも fit と tune で同じ失敗。
+  - 置き換えた後に重なる名前（5 通り）: `"a b"` と `"a_b"`、`"a  b"` と `"a__b"`、整数の `0` と `"0"`、浮動小数点の `1.5` と `"1.5"`、`"a\x00b"` と `"a"`（NUL で切れて `a`）。どれも fit と tune で同じ失敗。
   - 同じ名前の列が 2 つ（`"a"` と `"a"`）: fit も tune も `AttributeError`（`dataframe_builder.py:112`）。
   - `'`・`\`・`;` を含む名前と普通の名前: 通る。
 - **重なった列を除外したとき・storage を渡した tune**（`excluded-duplicate-and-storage.out`）: 重なった `"a"` を 2 つとも `features.exclude` に入れた frame は、今 fit が通る。`,` を含む名前で storage（sqlite）を渡した tune は `TUNING_FAILED` で終わり、storage には study `s` と FAIL の trial が 2 つ残る。
+- **重なった役割の列**（`duplicate-roles.out`。Proposal レビュー round 1 の指摘 1・2 で測った）: `data.target` の列が 2 つあると、`features.exclude` に入れても入れなくても `AttributeError`（`TargetEncoder.fit` が `y.dtype` を読む。`exclude` は X にしか効かない）。`data.group_col` が 2 つで `group_kfold` は `ValueError: object too deep for desired array`、`data.time_col` が 2 つで `time_series` は `AttributeError`（`argsort`）。一方、`data.group_col` か `data.time_col` が 2 つでも、その列を読まない `kfold` なら今 fit が通る（2 つの写しのどちらが役割の列かは決まっていないが、どちらも X から落ちる）。重なった特徴量を `features.exclude` に入れたものは通る。
 - **今の流れ**: `Model.fit`（`core/model.py`）と `Model.tune`（`core/_model_tuning.py`）は、どちらも `_prepare_training_data` で X を作り、すぐ後に `get_provider(cfg.model)` で provider を得てから学習に入る。X の列名は、pipeline（`NativeFeaturePipeline` は列を選ぶだけで名前を変えない）を通っても同じまま adapter の `lgb.Dataset` に届く。
 
 ### 管理者の判断（2026-11-16。#409 に記録）
@@ -17651,14 +17652,15 @@ Gate-category: none
 1. **任意の capability**: `lizyml/estimators/provider.py` に `FeatureNameRuleProvider`（`runtime_checkable` の Protocol。H-0140 の `ResourceWarningProvider` と同じ形）を足す。メソッドは `refused_feature_names(names: Sequence[Any]) -> RefusedFeatureName | None` で、学習器がその列名の並びを受け付けないとき、最初に拒否する名前を返す。`RefusedFeatureName` は frozen な dataclass で、`position`（0 から数える）、`name`（元の列名）、`estimator_name`（学習器が見る名前の文字列）、`reason`、`first_position`（重なりのとき、先に現れた名前の位置。ほかは `None`）を持つ。持たない provider では何もしない。
 2. **LightGBM の規則**（`lizyml/estimators/lgbm/feature_names.py` に足す。H-0147 の保存の規則と同じ所）: 各名前を `str()` にし、NUL より後を落とし、LightGBM と同じ順に見る。`"` `,` `:` `[` `]` `{` `}` のどれかを含めば `reason="json_special_character_in_feature_name"`、半角の空白を `_` に置き換えた後の文字列がそれより前の名前と同じなら `reason="duplicate_feature_name"`（`first_position` に先の位置）。`LGBMProvider` が capability を持つ。
 3. **呼ぶ所**: `lizyml/core/` の新しい関数 `check_feature_names_for_training(provider, X)` を、`Model.fit` と `Model.tune` の、`get_provider` の直後・学習（tune では study の作成と trial）の前に呼ぶ。答えがあれば `DATA_SCHEMA_INVALID` を送出する。context は `column`（元の列名）、`position`、`estimator_name`、`reason`、重なりのときだけ `first_column`・`first_position`。メッセージは、どの列の名前を学習器が受け付けないか、理由（使えない文字の一覧、または置き換えた後にどの列と重なるか）、列の名前を付け直すことを示す。`restore_tuning` は学習しないので呼ばない。
-4. **同じ名前の列**（学習器によらない）: `dataframe_builder.build` の最初で、frame の列名のうち 2 回以上現れ、`features.exclude` に入っていないものがあれば、`DATA_SCHEMA_INVALID`（`reason="duplicate_column_name"`、context `column`・`positions`）を送出する。`features.exclude` に入った重なった列は、今どおり `drop` が全ての写しを落とすので受け付ける。fit と tune はどちらも `_prepare_training_data` からここを通る。
+4. **同じ名前の列**（学習器によらない）: `data/dataframe_builder.py` の新しい関数 `check_duplicate_columns(df, roles, exclude)` を、`_prepare_training_data`（fit と tune の両方が通る）の、frame を読んだ直後・`dataframe_builder.build` の前に呼ぶ。frame の列名のうち 2 回以上現れるものが、(a) Config の役割の列（`data.target`・`data.time_col`・`data.group_col`・`split.blocks.col`・`split.groups.col`・`inner_valid.group_col` のうち設定されたもの）なら、`exclude` に入っていても、その役割を今の split が読むかどうかによらず拒否する。(b) 役割の列でなく `features.exclude` にも入っていない（特徴量になる）なら拒否する。(c) 役割の列でなく `features.exclude` に入っているものは、今どおり `drop` が全ての写しを落とすので受け付ける。拒否は `DATA_SCHEMA_INVALID`（`reason="duplicate_column_name"`、context `column`・`positions`（全ての写しの位置）・`role`（役割の Config の場所、特徴量なら `"feature"`））。役割の列を位置によらず拒否するのは、どの写しが役割の列かが決まらないからで、今 fit が通る場合（その列を読まない split）も同じく拒否する（下の互換性）。
 5. **文書**: BLUEPRINT §14.4 に capability、§8.2 に同じ名前の列の拒否。CHANGELOG の `[Unreleased]`。`docs/proposal_dispositions.toml` の行。
 
-Firing rate: 12/16 of the probed feature-name cases are refused before training (7 JSON-special names, 4 collisions after LightGBM's rewrite, 1 exact duplicate); the other 4 (a plain name, `'`, `\`, `;`) are admitted (`docs/audits/2026-11-i409/fit-names.out`, develop `2e84262`)
+Firing rate: 13/17 of the probed feature-name cases (7 JSON-special names, 5 collisions after LightGBM's rewrite, 1 exact duplicate; a plain name, `'`, `\` and `;` are admitted) and 6/7 of the probed duplicate role-column cases (all but an excluded duplicate feature) are refused before training (`docs/audits/2026-11-i409/fit-names.out`, `duplicate-roles.out`, develop `2e84262`)
 
 ### 互換性
 
-- 拒否される名前の fit と tune は、今も必ず失敗している（`LightGBMError`、`TUNING_FAILED`、`AttributeError`）。失敗が、学習の前の `DATA_SCHEMA_INVALID` に変わるだけで、今通っている入力は変わらない。
+- LightGBM が拒否する名前、重なった特徴量、読まれる役割の列の重なりの fit と tune は、今も必ず失敗している（`LightGBMError`、`TUNING_FAILED`、`AttributeError`、`ValueError`）。失敗が、学習の前の `DATA_SCHEMA_INVALID` に変わる。
+- **今通っていて新しく拒否されるもの**: `data.group_col` か `data.time_col`（と `split.*.col`・`inner_valid.group_col`）の列が重なっていて、今の split がその列を読まない場合（例: `kfold` で `group_col` が 2 つ。`duplicate-roles.out`）。どの写しが役割の列かが決まっていない入力なので、拒否する。ほかの今通っている入力は変わらない。
 - tune は trial を走らせずに止まるので、storage を渡した tune は、study も trial も書かない（今は失敗した trial が書かれる）。
 - 公開の provider の Protocol に任意の capability が 1 つ増える（持たない provider は今どおり）。保存の形式と `format_version` は変えない。
 
@@ -17671,7 +17673,7 @@ Firing rate: 12/16 of the probed feature-name cases are refused before training 
 ### 受け入れ基準（テスト観点）
 
 1. **落ちるべき例**: 7 つの文字のそれぞれを含む名前、置き換えた後に重なる 5 つの組（`"a b"`/`"a_b"`、`"a  b"`/`"a__b"`、`0`/`"0"`、`1.5`/`"1.5"`、`"a\x00b"`/`"a"`）で、`Model.fit` と `Model.tune` が `DATA_SCHEMA_INVALID` を送出し、context が上の形である。tune は storage を渡しても study を作らない（trial が 0）。今の develop ではこのテストは落ちる。
-2. **同じ名前の列**: `"a"` が 2 つの frame で fit と tune が `DATA_SCHEMA_INVALID`（`duplicate_column_name`、`positions`）。重なった列が `features.exclude` に入っていれば今どおり fit が通る。
+2. **同じ名前の列**: `"a"` が 2 つの frame（特徴量）、`data.target` が 2 つ（`exclude` に入れた場合も）、`data.group_col` が 2 つ（`kfold` と `group_kfold`）、`data.time_col` が 2 つ（`kfold` と `time_series`）で、fit と tune が `DATA_SCHEMA_INVALID`（`duplicate_column_name`、`positions`、`role`）。役割の列でない重なった列が `features.exclude` に入っていれば今どおり fit が通る。
 3. **通るべき例**: 普通の名前、`'`・`\`・`;` を含む名前、重ならない空白を含む名前は今どおり fit と tune が通る。
 4. **規則と本物の LightGBM**: インストールされた LightGBM で、上の全ての名前の並び（と、それぞれを先頭・最後に置いたもの）について、`refused_feature_names` が答えを返す場合と、`lgb.Dataset(X, y).construct()` が失敗する場合が、ちょうど一致する。LightGBM の規則が変われば、このテストが落ちる。
 5. **capability**: capability を持たない provider では何もしない（偽の provider で確かめる）。`LGBMProvider` は持つ。
@@ -17680,3 +17682,7 @@ Firing rate: 12/16 of the probed feature-name cases are refused before training 
 ### レビューの停止基準
 
 指摘は、契約の中の欠陥（LightGBM が拒否する名前が学習まで通る、LightGBM が受け付ける名前を拒否する、fit と tune の答えが食い違う、tune が trial を走らせる、`reason` や context が欠ける）か、この Proposal の偽の主張に限る。重ならない空白の名前、保存の前の名前の検査（H-0147）、predict の frame、LightGBM 以外の estimator の規則は指摘にしない。
+
+### Proposal レビュー
+
+- **round 1**（`h0148-proposal-review`、`31f0a41`、CHANGES_REQUESTED）: major 2 件と minor 1 件。(1) `features.exclude` の例外が、重なった `data.target` を通してしまう、(2) 重なった `data.group_col` は `kfold` なら今 fit が通るので、互換性の「今通っている入力は変わらない」は偽 — どちらも実行して確かめた（`duplicate-roles.out`）。対応方針 4 を、役割の列の重なりは `exclude` と split によらず拒否し、役割の列でない重なりは `exclude` に入っていれば受け付ける、に改め、互換性に新しく拒否するものを書き、受け入れ 2 に役割の列の場合を足した。(3) 数え違い（16 通りでなく 17 通り、重なりは 5 通り）— Firing rate と実測を直した。

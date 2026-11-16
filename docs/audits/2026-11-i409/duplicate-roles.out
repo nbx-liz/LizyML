@@ -1,0 +1,9 @@
+[run-exclusive] i409-roles starting; load was 2.47
+target twice, excluded	fit=AttributeError: "'DataFrame' object has no attribute 'dtype'"
+target twice	fit=AttributeError: "'DataFrame' object has no attribute 'dtype'"
+group_col twice, kfold	fit=ok
+group_col twice, group_kfold	fit=ValueError: 'object too deep for desired array'
+time_col twice, kfold	fit=ok
+time_col twice, time_series	fit=AttributeError: "'DataFrame' object has no attribute 'argsort'"
+feature twice, excluded	fit=ok
+[run-exclusive] i409-roles finished in 1s, exit 0
