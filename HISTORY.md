@@ -17516,3 +17516,8 @@ Firing rate: 1/52 of zizmor findings on develop `9402dc3` is exempted by the one
 - 判定とテスト: `scripts/ci_gate.py`、`tests/test_ci_gate.py`、`tests/test_release/test_check_release_ref.py`、`tests/test_workflow_policy.py`、`tests/test_release/test_auto_release_guard.py`（新しい段の順番と入力に合わせた）。
 - 手元の lint（受け入れ 1）: zizmor 1.32.0（offline）は 0 件（ignore 1、既定の抑止 6）、actionlint 1.7.12 と shellcheck 0.11.0 は 0 件。陰性対照（`docs/audits/2026-11-i407/negative-controls.out`）: checkout をタグに戻すと `unpinned-uses`、`enable-cache: false` を消すと `cache-poisoning` を zizmor が出す。`persist-credentials: false` の行だけを消す（空の `with:` が残る）か `true` にすると zizmor は何も出さない（`with:` ごと消したときだけ `artipacked`）ので、この規則は `test_no_checkout_keeps_credentials`（値が `false` であることを求める）だけが守る。
 - 管理者の設定の手順は `docs/audits/2026-11-i407/owner-steps.md`。
+
+### 実装レビュー round 1（2026-11-16）
+
+- **結果**: Codex の run `h0146-impl-review` の round 1（`73c378c`）は APPROVE で、指摘は無かった。この実行の方針により、APPROVE と CI 緑でマージする。#407 は、管理者の設定（`docs/audits/2026-11-i407/owner-steps.md`）と次のリリースの実行の証拠（受け入れ 6）が揃うまで閉じない。
+- **CI の最初の run**（PR #408、`73c378c`、run 43801319781）: `Workflow lint` は `GH_TOKEN` を持つ online の zizmor 1.32.0 で 5 つのファイルを検査し、指摘 0 件で通った（受け入れ 6 の 1 つ目）。
