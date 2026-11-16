@@ -17521,3 +17521,91 @@ Firing rate: 1/52 of zizmor findings on develop `9402dc3` is exempted by the one
 
 - **結果**: Codex の run `h0146-impl-review` の round 1（`73c378c`）は APPROVE で、指摘は無かった。この実行の方針により、APPROVE と CI 緑でマージする。#407 は、管理者の設定（`docs/audits/2026-11-i407/owner-steps.md`）と次のリリースの実行の証拠（受け入れ 6）が揃うまで閉じない。
 - **CI の最初の run**（PR #408、`73c378c`、run 43801319781）: `Workflow lint` は `GH_TOKEN` を持つ online の zizmor 1.32.0 で 5 つのファイルを検査し、指摘 0 件で通った（受け入れ 6 の 1 つ目）。
+
+## H-0147: 空か改行を含む特徴量の名前を持つモデルは保存の前に拒否し、fit で警告する ― カテゴリの保存の 2 つの拒否に context の `reason` を足す（#406）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-11-16
+- **決定日**: 2026-11-16
+- **関連**: H-0127（保存できないカテゴリ値を export で拒否）、H-0129（`unsaveable_categories` の IF）、H-0133 P5（V の外の値の拒否と context）、H-0136 P2（3 つの出口が同じ検査）、H-0141（export_code の列名の別名と `empty_alias`）、#406、#409、nbx-liz/LizyStudio#748（P-0117 D2）
+- **スコープ**:
+  - `lizyml/persistence/exporter.py`（保存の前の検査）、`lizyml/estimators/base.py` と `lizyml/estimators/lgbm/adapter.py`（新しい IF のメソッド）、`lizyml/core/model.py`（fit の警告の 1 行）、テスト、BLUEPRINT §14.1・§15.3、CHANGELOG
+  - 範囲の外: LightGBM が fit で拒否する名前（JSON の特殊文字、空白を `_` に置き換えた後の重なり）。生の `LightGBMError` がコードなしで出る件は #409 で扱う（管理者の判断）。0.21.1 までに保存された空の名前のモデルを読めるようにすること（下の互換性）。
+
+Gate-category: none
+
+### 目的（課題）
+
+1. **空の特徴量の名前**: 特徴量の列名が空の文字列のモデルは、`Model.fit`・`predict` はメモリの上で動き、`Model.export` も成功するが、`Model.load` が LightGBM の中で失敗し（`Wrong size of feature_names`）、`DESERIALIZATION_FAILED` になる。保存に成功したモデルを誰も開けない。`export_code` だけは H-0141 の `empty_alias` で拒否している。同じ原因（LightGBM のモデルの文字列の形）で、改行か復帰を含む名前も、置き場所によって読み込めないか、名前が切れて読み込まれる（Proposal レビュー round 1 の指摘 1 で分かった。下の実測）。
+2. **カテゴリの保存の拒否の context**: `SERIALIZATION_FAILED` の 2 か所（`_refuse_value` と、adapter の `unsaveable_categories` の分岐）は context が `{column, value, type, state}` だけで、理由は `user_message` の文にしかない。拒否を `context["reason"]` で分ける呼び手（LizyStudio P-0117 D2）は、この 2 つだけ文を読む必要がある。
+
+### 実測（2026-11-16、develop `b0ebadf`、`uv.lock` の LightGBM）
+
+出力とスクリプトは `docs/audits/2026-11-i406/` にある。
+
+- **列名の綴り**（`roundtrip-names.out`）: 特徴量の名前を 12 通り（普通の名前、空、空白だけ、途中の空白、タブ、改行、先頭の空白、日本語、`=`、`"`、整数の `0`、`a b` と `a_b` の組）と、空の名前を target と `features.exclude` に置いた 2 通り。fit → export → load → predict が最後まで同じ予測で通らなかったのは、特徴量の空の名前（load で `DESERIALIZATION_FAILED`）と、fit で LightGBM が拒否した 2 つ（`"` と `a b`/`a_b`。#409）だけだった。空の名前でも target や除外した列なら問題はない。
+- **空の名前の置き場所**（`empty-name-cases.out`）: 最後、真ん中、`np.str_("")`、カテゴリの列の 4 つとも export は成功し、load は `DESERIALIZATION_FAILED`、`export_code` は `SERIALIZATION_FAILED`（`reason: unsupported_column_name`）。普通の名前の対照は 3 つとも通った。
+- **原因**（同じ出力の最後の行）: LightGBM の booster は `feature_name()` に `['x', '']` を持つが、モデルの文字列は `feature_names=x ` と書く（名前を空白で区切るので空の名前が消える）。その文字列を `Booster(model_str=...)` で読むと `Wrong size of feature_names`。`lgb.train` 自体も、`keep_training_booster=True` でなければ学習の終わりに同じ読み戻しをして失敗する。LizyML は `keep_training_booster=True` で学習するので fit は通り、joblib の pickle（中身はモデルの文字列）を読むときに初めて失敗する。
+- **booster の名前と読み戻し**（`booster-names.out`。LightGBM だけ、名前 21 通りを 2 列の先頭と最後に置いた 42 通り）: LightGBM は booster に入れるときに半角の空白を `_` に置き換え（`" "` は `_`、`"a b"` は `a_b`、`" a"` は `_a`）、NUL から後を落とし（`"a\x00b"` は `a`）、ほかの文字（タブ、`\x0b`、`\x0c`、`=`、全角の空白、NBSP、日本語）はそのまま持つ。読み戻せなかったのは、空の名前（先頭でも最後でも）と、改行（`\n`）か復帰（`\r`）を含む名前で、後者は最後の列で改行の前に文字があるとき（`"a\nb"`、`"a\n"`、`"a\rb"`、`"a\r\nb"`）だけ読み戻せた。モデルの文字列は行ごとに読まれ、`feature_names=` の行は名前を空白で区切るので、空の名前は区切りの中で消え、改行は行を切る。
+- **改行を含む名前の「読み戻せた」場合**（`linebreak-readback.out`）: 4 つとも読み戻した booster の `feature_name()` は `['x', 'a']` で（名前が改行の前で切れる）、予測は同じだった。名前を `"a\nobjective=regression"` にすると、読み戻した booster の予測が元と変わった（改行の後ろがモデルの文字列の別の行として読まれる）。読み戻せても、保存の前と同じ booster ではない。
+- **今の検査の順と、たどる adapter**: `Model.export`（`_model_persistence.py`）と公開の `lizyml.persistence.export` は、何かを書く前に `check_category_values` を呼ぶ。`export_code` は先に `project_column_names`（H-0141。空の別名と NUL を拒否し、改行は通す）、次に `check_category_values` を呼ぶ。`check_category_values` がたどる `_saved_pipeline_states` は、`pipeline_state_per_fold` が無い結果では refit と最後の fold の adapter しか返さないが、`fit_result.pkl` は `fit_result.models` の全ての booster を保存する（round 1 の指摘 2）。
+
+### 管理者の判断（2026-11-16。#406 に記録）
+
+- 空の名前は、保存の 3 つの出口が共通に通る検査で `SERIALIZATION_FAILED` で拒否し、`Model.fit` は警告だけにする。fit では拒否しない（メモリの上で fit・predict だけ使う利用を壊さない）。LightGBM に別の名前を渡す作り替えはしない。
+- `reason` は記号（snake_case）にし、文の理由は今どおり `user_message` に残す。
+- fit で LightGBM が拒否する名前は #409 に分ける。
+- このあと v0.21.2 を出す（リリース PR のマージの直前に管理者が確認する）。
+
+### 対応方針（提案）
+
+1. **estimator の IF**: `BaseEstimatorAdapter.unsaveable_feature_names() -> list[UnsaveableFeatureName]` を足す（既定は `[]`）。`UnsaveableFeatureName(position, name, reason)` は `estimators/base.py` の frozen な dataclass。`LGBMAdapter` は自分の booster の `feature_name()`（LightGBM が実際にモデルの文字列に書く名前）を読み、モデルの文字列が同じ名前のまま持てない名前を、位置の順に返す: 空の文字列は `reason="empty_feature_name"`、`\n` か `\r` を含む名前は `reason="line_break_in_feature_name"`、並べた名前が `=` で 1 つの切れ端にしかならないときの最初の名前の先頭か最後の名前の末尾の `=` は `reason="equals_sign_at_feature_names_edge"`（実装の記録で足した）。booster が無い adapter は `[]`。規則の正は LightGBM のモデルの文字列の形である: 行ごとに読み、`feature_names=` の行は名前を空白で区切る。空の名前は区切りの中で消え、改行と復帰は行を切る（実測）。改行を含む名前は、最後の列なら読み戻せることがあるが、名前が切れ、改行の後ろが別の行として読まれて予測が変わりうるので、位置によらず拒否する（「同じ名前で読み戻せる」を保存できる条件とする）。半角の空白は LightGBM が `_` に置き換えた後の名前を読むので対象にならない。`persistence/` は具体的な estimator を import しない（H-0129 の形のまま）。
+2. **保存の前の検査**: `check_category_values` の最初の段として、**保存される全ての adapter** に `unsaveable_feature_names()` を尋ね、最初に見つかった名前で `SERIALIZATION_FAILED` を送出し、何も書かない。たどる adapter は pipeline 状態の有無と組にしない新しい列挙 `_saved_adapters(fit_result, refit_result)` で、`refit`（`refit_result.model`）、続いて `fold k`（`fit_result.models` の k 番目、1 から数える）の全てである（`pipeline_state_per_fold` が無い結果でも全ての fold。round 1 の指摘 2）。context は `column`（名前）、`position`（特徴量の中の位置。0 から数える）、`state`（`refit` / `fold k`）、`reason`（`empty_feature_name` / `line_break_in_feature_name`）、`surface`（`Model.export` か `export_code`）。メッセージは、何番目の特徴量の名前が空か改行を含むか、LightGBM の保存したモデルがその名前を同じまま持てないこと、列の名前を付け直して fit し直すことを示す。
+   - 3 つの出口が同じ検査を通る（H-0136 P2）。`export_code` は今どおり `project_column_names` が先に `empty_alias` で拒否するので、空の名前での `export_code` の拒否（context と文）は変わらない。改行を含む名前は `project_column_names` が通すので、`export_code` はこの新しい拒否で止まる（生成する `artifacts/model.txt` も同じモデルの文字列で、生成 `predict.py` が同じく読めない）。
+   - 検査の順は、名前、それからカテゴリの値（今の 3 つの検査）。名前の拒否は booster そのものが同じまま読めない欠陥なので先に出す。
+3. **fit の警告**: `Model.fit` の終わり（H-0136 P4 の `warn_saved_state_changes` と同じ所、fit の結果を確定した後）に、同じ `_saved_adapters` と同じ adapter の答えで、拒否される名前ごとに 1 回 `UserWarning` を出す（fit・predict は動くが `Model.export` と `export_code` は拒否する、と書く）。判定は export の検査と同じ列挙と同じ答えを使い、2 か所で規則を別に持たない。refit と fold は同じ特徴量を持つので、位置と理由の組で重ねない。
+4. **カテゴリの保存の拒否の `reason`**: context に `reason` を足す。`_refuse_value`（V の外の値。状態と `declared_categories` の両方）は `unsaveable_category_value`、adapter の `unsaveable_categories` の分岐は `lightgbm_unwritable_category`（LightGBM がカテゴリ値を JSON で書けない。後者の値は adapter の答えでなく exporter が付ける。`UnsaveableCategory` は変えない）。今の 4 つのキーと `user_message` は変えない。H-0136 の `refuse_change` は `kind` を持つので変えない。
+5. **文書**: BLUEPRINT §14.1 に IF のメソッド、§15.3 に名前の検査と 2 つの拒否の `reason`。CHANGELOG の `[Unreleased]`。`docs/proposal_dispositions.toml` の行。
+
+Firing rate: 6/17 of the probed column-name cases that fit through lizyml (the five placements of an empty feature name and the `a\nb` feature name; none of the other 11 spellings and positions) are refused by the new name check, and 15/42 of the LightGBM-only name and position cases (14 before the implementation record's `=` rule) (`docs/audits/2026-11-i406/probes/`, develop `b0ebadf`)
+
+### 互換性
+
+- 空の特徴量の名前のモデルの `Model.export` と `lizyml.persistence.export` は、読めない artifact を書く代わりに `SERIALIZATION_FAILED` を送出する。fit は通り、警告が 1 つ増える。`export_code` は今どおり（H-0141 の拒否）。
+- 改行か復帰を含む特徴量の名前のモデルは、3 つの出口とも `SERIALIZATION_FAILED` になる。今は、その名前が最後の列で改行の前に文字があれば保存して読み込めていたが、読み込んだ booster の名前は切れ、改行の後ろの文字によっては予測が変わる（実測）。そうした保存を止めることも、この変更の一部である。
+- 2 つのカテゴリの拒否の context にキーが 1 つ増える（今の 4 つはそのまま）。context をキーの集合ごと比べる呼び手は影響を受ける。
+- 0.21.1 までに保存した空の名前のモデルは、今後も読めない（booster のモデルの文字列から名前がすでに消えている）。`Model.load` は今どおり `DESERIALIZATION_FAILED`。保存の形式と `format_version` は変えない。
+- 公開の `BaseEstimatorAdapter` にメソッドが 1 つ増える（既定は `[]` なので、外の adapter は変えなくてよい）。
+
+### 代替案
+
+- **fit で拒否する**: いちばん早いが、保存しない利用を壊す（管理者が退けた）。
+- **LightGBM に位置の名前（`f0`…）を渡す**: 保存できるようになるが、重要度・SHAP・export_code の `model.txt` に出る名前が変わる（管理者が退けた）。
+- **保存の前に、各 booster をモデルの文字列にして読み戻す**: 名前の綴りによらず「読めない booster」の全体を捕まえるが、fold ごとに booster を 1 つ余分に作り、大きなモデルでは export の時間とメモリが倍になる。また、改行を含む名前のように「読み戻せるが名前が切れ、予測が変わりうる」booster は、読み戻しが成功するので見逃す（名前と予測まで比べるなら、さらに重くなる）。今の LightGBM で同じまま読み戻せない名前は、空の名前と改行・復帰を含む名前（実測の 42 通り）で、その規則は LightGBM の書き方（行ごと、空白で区切る）から閉じているので、名前の規則を採る。規則が LightGBM の変化で外れたことは、下の受け入れ 5 のテストが本物の LightGBM で検出する。
+- **exporter に LightGBM の規則を直接書く**: `persistence/` が estimator の知識を持つ（H-0129 が避けた形）。
+
+### 受け入れ基準（テスト観点）
+
+1. **落ちるべき例**: 空の特徴量の名前（最後、真ん中、`np.str_("")`、カテゴリの列）のモデルと、改行を含む名前（最後の列の `"a\nb"` と、先頭の列の `"\nb"`）のモデルで、`Model.export` と `lizyml.persistence.export` が `SERIALIZATION_FAILED` を送出し、context が `{column, position, state: "refit", reason, surface}`（`reason` は `empty_feature_name` か `line_break_in_feature_name`）で、出力先に何も作らない。今の develop ではこのテストは落ちる（export が成功する）。
+2. **export_code**: 空の名前のモデルの `export_code` は今どおり H-0141 の `empty_alias` の拒否（context のキーも同じ）。改行を含む名前のモデルの `export_code` は新しい拒否（context は 1 と同じ形、`surface: "export_code"`）で、何も書かない。
+3. **通るべき例**: 実測の綴りのうち、空の名前と改行・復帰を含む名前と、fit で LightGBM が拒否する 2 つ（#409）を除いたもの、target と除外した列の空の名前は、今どおり export → load → predict で同じ予測。
+4. **fit の警告**: 拒否される名前の fit が、その名前（位置）について `UserWarning` を 1 つだけ出し、`predict` は動く。普通の名前の fit は警告を出さない。
+5. **規則と本物の LightGBM**: インストールされた LightGBM で、実測の 21 通りの名前を先頭と最後に置いた全ての場合について、`LGBMAdapter.unsaveable_feature_names()` が名前を返す場合と、`Booster(model_str=booster.model_to_string())` が失敗するか読み戻した `feature_name()` が元と違う場合が、ちょうど一致する。LightGBM の読み書きが変われば、このテストが落ちて規則を見直す合図になる。
+6. **adapter の IF と列挙**: 既定の `unsaveable_feature_names()` は `[]`。`LGBMAdapter` は位置の順に返す。`_saved_adapters` が refit と全ての fold を返すことを、fold 1 の adapter だけが名前を返す偽の adapter で、`pipeline_state_per_fold` がある結果と無い結果の両方で確かめる（無い結果でも fold 1 で拒否する）。
+7. **`reason`**: V の外の値（実行して `_refuse_value` に届く。状態と `declared_categories` の両方）の拒否が `reason: "unsaveable_category_value"` を持ち、adapter の分岐（実行して届く。偽の adapter で `unsaveable_categories` が値を返す）の拒否が `reason: "lightgbm_unwritable_category"` を持つ。どちらも今の 4 つのキーと文は変わらない。
+8. フルスイート（slow を含む）、ruff、mypy。
+
+### レビューの停止基準
+
+指摘は、契約の中の欠陥（同じまま読み戻せないモデルが export を通る、同じまま読み戻せるモデルを拒否する、3 つの出口の答えが食い違う、fit の警告と export の拒否の判定が別の規則になる、`reason` が欠ける）か、この Proposal の偽の主張に限る。#409 の名前、0.21.1 までの artifact の救済、LightGBM 以外の estimator の規則は指摘にしない。
+
+### Proposal レビュー
+
+- **round 1**（`h0147-proposal-review`、`64eac3a`、CHANGES_REQUESTED）: major 2 件と minor 1 件。(1) 改行を含む名前が前の列にあると読めない — 実行して確かめた（`booster-names.out` を先頭と最後の 42 通りに広げ、`linebreak-readback.out` で読み戻せた場合も名前が切れ、予測が変わりうることを測った）。規則を「空か、`\n`・`\r` を含む」にし、受け入れ 5 を全ての綴りと位置で本物の LightGBM と一致させる形にした。(2) `pipeline_state_per_fold` が無い結果では最後の fold の adapter しかたどらない — `_saved_pipeline_states` と組にしない列挙 `_saved_adapters`（refit と全ての fold）に替え、警告も同じ列挙を使う。受け入れ 6 に、状態が無い結果の fold 1 の場合を足した。(3) 受け入れ 3 が空の名前を含んでいた — 除いた。
+- **round 2**（`6fcc8d8`、absolute monitor は DELIVERABLE-FOCUSED で continue）: APPROVE、指摘なし。
+
+### 実装の記録
+
+- **`=` の規則を足した（受け入れ 5 が見つけた）**: 名前と位置の 42 通りを本物の LightGBM と比べるテスト（受け入れ 5）が、`"=b"` を先頭に置いた場合を見つけた。読み戻せるが、名前が `b` になる。LightGBM 4.6.0 の読み手を読んだ（`src/boosting/gbdt_model_text.cpp` の header の読み方、`feature_names_ = Common::Split(..., ' ')`、`include/LightGBM/utils/common.h` の `GetLine`・`Split`）: 行を `=` で切り、空の切れ端を捨て、切れ端がちょうど 2 つならその 2 つ目を値に、3 つ以上なら `feature_names=` の後ろ全部を値にする。並べた名前が `=` で 1 つの切れ端にしかならないとき、最初の名前の先頭と最後の名前の末尾の `=` が落ちる（`equals-readback.out`: `"=b"`・`"==b"` を先頭、`"a="` を最後に置くと名前が変わり、`"="` は先頭でも最後でも `Wrong size of feature_names`。`"a=b"`・`"b=c=d"` や、ほかの名前に `=` がある `["=b", "c=d"]` は同じまま）。対応方針 1 の規則にこの場合を `reason="equals_sign_at_feature_names_edge"` で足した。判定は 1 つの名前でなく並べた名前の全体で決まるので、`estimators/lgbm/feature_names.py` は名前の列を受け取る。受け入れ 5 のテストに `=` の 12 通りの名前の並びを足し、全て本物の LightGBM と一致した。
+- **置き場所**: 規則は `lizyml/estimators/lgbm/feature_names.py`（`unsaveable_feature_names`）、IF は `estimators/base.py` の `UnsaveableFeatureName` と `BaseEstimatorAdapter.unsaveable_feature_names`、`LGBMAdapter.unsaveable_feature_names` は booster が無ければ `[]`。exporter の `_saved_adapters`・`check_feature_names`（`check_category_values` の最初に呼ぶ）・`warn_unsaveable_feature_names`（`Model.fit` の `warn_saved_state_changes` の後）。テストは `tests/test_persistence/test_h0147_feature_names.py`（`test_unwritable_categories.py` の context の比較 1 か所に `reason` を足した）。
+- **実装レビュー**（`h0147-impl-review`、`1629f73`）: round 1 で APPROVE、指摘なし（`=` の規則の追加を含む）。フルスイート（slow を含む）は 23980 passed、264 skipped。

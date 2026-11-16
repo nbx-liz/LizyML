@@ -57,7 +57,7 @@ from lizyml.persistence._category_preflight import (
 if TYPE_CHECKING:
     from lizyml.core.types.fit_result import FitResult
     from lizyml.core.types.tuning_result import TuningResult
-    from lizyml.estimators.base import BaseEstimatorAdapter
+    from lizyml.estimators.base import BaseEstimatorAdapter, UnsaveableFeatureName
     from lizyml.training.results import RefitResultView
 
 #: H-0133: 3. A pipeline state may hand LightGBM position stand-ins
@@ -178,8 +178,103 @@ def _refuse_value(
             "value": shown(value),
             "type": type_name(value),
             "state": where,
+            "reason": "unsaveable_category_value",  # H-0147
         },
     )
+
+
+def _saved_adapters(
+    fit_result: FitResult, refit_result: RefitResultView
+) -> list[tuple[str, BaseEstimatorAdapter]]:
+    """Every adapter whose booster is pickled, named for the error (H-0147).
+
+    ``refit_model.pkl`` holds the refit adapter and ``fit_result.pkl`` every
+    fold model, whether or not the result has per-fold pipeline states, so
+    this list does not pair the adapters with states.
+    """
+    named: list[tuple[str, BaseEstimatorAdapter]] = [("refit", refit_result.model)]
+    named.extend((f"fold {k}", m) for k, m in enumerate(fit_result.models, 1))
+    return named
+
+
+def _feature_name_problems(
+    fit_result: FitResult, refit_result: RefitResultView
+) -> list[tuple[str, UnsaveableFeatureName]]:
+    """``(state, name)`` for each name a saved adapter refuses, refit first."""
+    return [
+        (where, item)
+        for where, adapter in _saved_adapters(fit_result, refit_result)
+        for item in adapter.unsaveable_feature_names()
+    ]
+
+
+#: The phrase each ``UnsaveableFeatureName.reason`` reads as (H-0147).
+_NAME_PROBLEM_TEXT = {
+    "empty_feature_name": "is empty",
+    "line_break_in_feature_name": "holds a line break",
+    "equals_sign_at_feature_names_edge": "has a '=' the saved names would lose",
+}
+
+
+def _name_problem_text(item: UnsaveableFeatureName) -> str:
+    # An adapter's own reason is shown as given rather than dropped.
+    return _NAME_PROBLEM_TEXT.get(item.reason, f"cannot be saved ({item.reason})")
+
+
+def check_feature_names(
+    fit_result: FitResult,
+    refit_result: RefitResultView,
+    *,
+    surface: str = "Model.export",
+) -> None:
+    """Refuse a model whose saved boosters cannot hold a feature name intact.
+
+    Raises:
+        LizyMLError: ``SERIALIZATION_FAILED`` naming the first such name, its
+            position, the saved model holding it and the reason (H-0147).
+    """
+    problems = _feature_name_problems(fit_result, refit_result)
+    if not problems:
+        return
+    where, item = problems[0]
+    raise LizyMLError(
+        code=ErrorCode.SERIALIZATION_FAILED,
+        user_message=(
+            f"{surface} cannot save this model: the feature name at position "
+            f"{item.position} ({item.name!r}, {where} model) "
+            f"{_name_problem_text(item)}, which the estimator's saved model "
+            "cannot hold intact, so the saved model could not be loaded as it "
+            "was fitted. Rename the column and fit again (H-0147)."
+        ),
+        context={
+            "column": item.name,
+            "position": item.position,
+            "state": where,
+            "reason": item.reason,
+            "surface": surface,
+        },
+    )
+
+
+def warn_unsaveable_feature_names(
+    fit_result: FitResult, refit_result: RefitResultView
+) -> None:
+    """Warn, after a fit, once per feature name ``check_feature_names`` will
+    refuse (H-0147); the refit and fold models share their feature names."""
+    seen: set[tuple[int, str]] = set()
+    for _, item in _feature_name_problems(fit_result, refit_result):
+        if (item.position, item.reason) in seen:
+            continue
+        seen.add((item.position, item.reason))
+        warnings.warn(
+            f"The feature name at position {item.position} ({item.name!r}) "
+            f"{_name_problem_text(item)}, which a saved model cannot hold "
+            "intact: fit and predict work, but Model.export and export_code "
+            "will refuse this model. Rename the column before fit to be able "
+            "to save it.",
+            UserWarning,
+            stacklevel=3,
+        )
 
 
 def _saved_pipeline_states(
@@ -266,8 +361,10 @@ def check_category_values(
     Raises:
         LizyMLError: With ``SERIALIZATION_FAILED`` naming the column, the value,
             its type and the pipeline state that holds it, or a state that has
-            no adapter to ask.
+            no adapter to ask. Before those, a feature name a saved model
+            cannot hold intact (:func:`check_feature_names`, H-0147).
     """
+    check_feature_names(fit_result, refit_result, surface=surface)
     saved = _saved_pipeline_states(fit_result, refit_result)
     for state_name, state, _ in saved:
         for column, value in _state_category_values(state):
@@ -311,6 +408,7 @@ def check_category_values(
                 "value": item.shown,
                 "type": item.type_name,
                 "state": state_name,
+                "reason": "lightgbm_unwritable_category",  # H-0147
             },
         )
 

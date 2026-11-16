@@ -595,6 +595,10 @@ anchors = ["_round_trip_refusal", "_encode_raw", "_decode_raw"]
 disposition = "specified"
 anchors = ["ci-gate", "workflow-lint", "enable-cache: false", "persist-credentials: false"]
 
+[proposals."H-0147"]
+disposition = "specified"
+anchors = ["unsaveable_feature_names", "equals_sign_at_feature_names_edge", "line_break_in_feature_name", "lightgbm_unwritable_category"]
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 
