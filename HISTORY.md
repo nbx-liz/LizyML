@@ -17391,3 +17391,133 @@ NumPy 1.24（`Quality (lowest-direct deps)` のレーン、pandas 2.0.0）では
 - **結果**: Codex の run `h0145-impl-review` の round 1（`1c93da1`）は APPROVE で、minor 1 件だった。`docs/migration.md` の影響する値の説明が整数と `np.timedelta64` の組に限られていて、NumPy 1.24 の `{np.timedelta64(0, 's'), Decimal('-0')}`（整数を含まない）が漏れていた。
 - **対応**: 説明を往復の規則（書いた値から組み直すと要素が等しくなるか比べられない）で書き、組は例として挙げる形にした。管理者の方針（1 行でも再確認）により、この直しを 1 round の確認で見る。
 - **確認**（2026-10-24）: 実行の前に Claude の新しい文脈で absolute monitor を走らせた（DELIVERABLE-FOCUSED・continue。確認は直した文言だけに絞る）。Codex の 1 round の確認の run `h0145-impl-confirm`（`570c8a5`）は APPROVE で、指摘は無かった。この実行の方針により、APPROVE と CI 緑でマージする。
+
+## H-0146: リリースの経路を固め、ブランチの ruleset を効かせる ― キャッシュを使わない build、SHA で固定した action、タグの上で動く publish、CI の集約ジョブ（#407）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-11-16
+- **決定日**: 2026-11-16
+- **関連**: H-0000（PyPI 配布要件）、H-0117（リリースは develop の 2 親のマージだけ）、H-0119（notebook の集約ジョブ）、H-0126（下限のレーン）、H-0140（メモリの上限）、H-0143（slow を全 PR で走らせる。CI の所要時間はこのまま）、#407
+- **スコープ**:
+  - `.github/workflows/{ci,release,auto-release,artifact-language}.yml`、`.github/dependabot.yml`、`.github/scripts/`、`scripts/` の集約ジョブの判定、`pyproject.toml` の dependency group と `uv.lock`、それらのテスト、BLUEPRINT §18.2、CONTRIBUTING.md のリリースの段
+  - リポジトリの設定（ruleset「Protect main」「Protect develop」と、environment `pypi`・`testpypi`）は**管理者が UI で行う**。この Proposal はその値と順番を決め、実装は手順を渡すだけで API から書かない
+  - 範囲の外: CI の所要時間の短縮（H-0143 のまま）、レーンの構成（lock の検査、下限・最新のレーン、`ulimit -v`、TestPyPI を経る段階 publish、`twine check`、2 親の検査はそのまま）、Dependabot の脆弱性アラートの有効化（API は 404。管理者の設定）、`v*` タグそのものを守る tag ruleset
+
+Gate-category: none
+
+### 目的（課題）
+
+PyPI へ出す経路（`release.yml`・`auto-release.yml`）が、書き換えられる参照とキャッシュを通っている。`build` ジョブは uv のキャッシュを復元し（汚染されたキャッシュが wheel に入りうる）、`id-token: write` を持つ publish ジョブは `pypa/gh-action-pypi-publish@release/v1`（ブランチ）と、タグの参照の action を呼ぶ。environment `pypi`・`testpypi` には保護の規則が無い。ブランチの ruleset は 2 つとも作ってあるが `enforcement: disabled` で、必須にするチェックも無い。
+
+### 実測（2026-11-16、develop `9402dc3` の上）
+
+出力とスクリプトは `docs/audits/2026-11-i407/` にある。
+
+- **キャッシュ**（`release-build-40048349006-cache.txt`）: v0.21.1 の publish の run 40048349006 の `Build distribution` は `enable-cache: auto` で `Cache restored successfully` を出した。
+- **dispatch の ref**（`release-run-refs.out`）: 記録の残る `release.yml` の run 10/10 が `workflow_dispatch` で、ref は `main` だった。`auto-release.yml` の `gh workflow run release.yml -f tag="$TAG"` が `--ref` を渡さないからで、build は `inputs.tag` を checkout するが、run そのもの（environment の規則が判定する ref）は `main` である。このまま environment を「`v*` タグだけ」にすると、次のリリースは TestPyPI の手前で止まる。
+- **zizmor 1.32.0**（`--offline`。`zizmor-develop-9402dc3.txt`）: 52 件（ほかに既定で抑止 12 件）。`unpinned-uses` 26（4 つの workflow の全ての `uses`）、`artipacked` 13（全ての checkout）、`excessive-permissions` 11（`ci.yml` に `permissions` が無い）、`cache-poisoning` 1（`release.yml:27`）、`dangerous-triggers` 1（`artifact-language.yml` の `issue_comment`）。
+- **actionlint 1.7.12 と shellcheck 0.11.0**（`actionlint-develop-9402dc3.txt`）: 2 件。`ci.yml` の notebook の 2 つのジョブの `$flags`（意図して引用符を付けず単語に分けている）の SC2086。CI の runner は shellcheck を持つので、CI で走らせればこの 2 件が出る。
+- **タグの push**: `.github/scripts/create_release_tag.sh` は `git push origin refs/tags/$TAG` で送り、checkout が残す認証情報に頼る。全ての checkout に `persist-credentials: false` を付けると、この push が壊れる。
+- **`gh auth setup-git`**（手元、gh の既定の設定を使わない捨ての HOME、`GH_TOKEN` だけを置く）: exit 0 で、git の設定に `helper = !/usr/bin/gh auth git-credential` だけを書いた（token は書かない）。続く `git credential fill`（`host=github.com`）は `username=x-access-token` と `GH_TOKEN` の値を返した。`GH_TOKEN` の無い段の git は、この helper から認証情報を得られない。
+- **zizmor の online の audit**（`impostor-commit` など）は、手元では走らせていない（利用者の token を外部のツールに渡さないため）。最初の PR の run で初めて測る。
+- **ジョブの所要時間**（`job-durations.out`。成功した 19 の run の最大）: Quality (3.12) 35.8 分、(3.10)・(3.11) 29.9 分、lowest-direct 10.4 分、latest-deps 10.8 分、smoke 3.8 分、それ以外は 2.3 分以下。
+- **同じ PR の古い run**（`concurrency-overlap.out`）: 2026-09-08〜11-04 の完了した `pull_request` の run 195 件のうち 24 件は、同じブランチの次の run が始まった時点でまだ動いていた。
+- **artifact-language.yml** は Issue #22 の bundle の写しで（`scripts/verify-artifact-language-bundle.py` の対象）、LizyML の中にその digest を固定する検査は無い。
+
+### 管理者の判断（2026-11-16。#407 に記録）
+
+- CI の所要時間（中央値 34 分）は H-0143 のとおりで、短縮しない。
+- ruleset を 2 つとも有効にする。必須のチェックは CI の集約ジョブと `artifact-language`。zizmor と actionlint は集約に入れ、落ちればマージできない。
+- マージの方法は `main` を merge commit だけ、`develop` を squash だけにする。
+- ruleset と environment の設定は管理者が UI で行う（API から書かない）。environment は `v*` タグからだけ実行できるようにする。
+- action はフル SHA で、4 つの workflow の全てで固定する。
+- Dependabot は ecosystem を `uv` にし、cooldown を 7 日、`target-branch` を `develop` にする。
+
+### 対応方針（提案）
+
+1. **release.yml**
+   - `build` の `setup-uv` に `enable-cache: false` を書く（明示する。既定に頼らない）。
+   - checkout の `ref:` の入力をやめ、run の ref（タグ）をそのまま checkout する。最初の段で、run の ref が `refs/tags/<tag>` で、`<tag>` が `vX.Y.Z` の形で、dispatch のときは `inputs.tag` と等しいことを確かめ、違えば何もせず落ちる（`.github/scripts/check_release_ref.sh`。release の event の run は `github.event.release.tag_name` と比べる）。
+   - workflow 全体の `permissions` を `{}` にし、`build` に `contents: read`、publish の 2 つに `id-token: write` だけを付ける。
+   - `concurrency: release-${{ github.ref }}`（`cancel-in-progress: false`）。`timeout-minutes` は build 20、publish 15。
+2. **auto-release.yml**
+   - workflow 全体の `permissions` を `{}` にし、`tag-and-release` に `contents: write`・`actions: write` を付ける。
+   - dispatch を `gh workflow run release.yml --ref "$TAG" -f tag="$TAG"` にする。`release.yml` は**タグの上の版**で動くので、environment の `v*` の規則を通る。
+   - checkout は `persist-credentials: false`。タグの push の段だけ `GH_TOKEN` を渡し、`gh auth setup-git` で git の認証を gh に向けてから `create_release_tag.sh` を呼ぶ（認証情報をファイルに書かず、その段の環境にだけ置く。スクリプトとその bare remote のテストは変えない）。
+   - `concurrency: auto-release`（`cancel-in-progress: false`）。`timeout-minutes: 15`。
+3. **ci.yml**
+   - workflow 全体に `permissions: contents: read`。全ての checkout に `persist-credentials: false`。
+   - `concurrency`: group は PR 番号（無ければ ref）、`cancel-in-progress` は `pull_request` の event のときだけ真（`main` への push の run は取り消さない）。
+   - `timeout-minutes`（測った最大のおよそ 1.7 倍以上）: quality 60、lowest-direct 30、latest-deps 30、smoke 20、distribution 15、notebook と registry 15、それ以外 10。
+   - SC2086 の 2 か所は、`$flags` を bash の配列に読んで `"${flags[@]}"` で渡す（振る舞いは同じ）。
+   - 新しいジョブ `workflow-lint`（名前 `Workflow lint`）: dependency group `workflow-lint`（`zizmor`・`actionlint-py`・`shellcheck-py`。版は `uv.lock` が固定し、Dependabot の uv が更新する）を `uv sync --frozen --only-group workflow-lint` で入れ、`zizmor`（online の audit を使う。`GH_TOKEN` は read の `github.token`。SHA が上流の repository に無い commit を指す `impostor-commit` などを判定する）と `actionlint`（PATH の先頭に group の shellcheck）を走らせ、どちらかが 1 件でも出せば落ちる。
+   - 新しいジョブ `ci-gate`（名前 `CI (gate)`。これを必須のチェックにする）: `if: always()` で、`needs` は `git-policy`・`quality`・`quality-lowest-deps`・`smoke-os-matrix`・`distribution`・`notebook-index-gate`・`workflow-lint`。判定は `scripts/ci_gate.py`（`toJSON(needs)` を環境変数で受け、全てが `success` のときだけ通る。`failure`・`cancelled`・`skipped`・欠けたジョブは落ちる。`notebook_index_gate.py` と同じ形）。`needs` に入れないジョブは閉じた一覧で、理由を持つ: `quality-latest-deps`（non-blocking。#180）、`notebook-index-matrix`・`extras-registry`・`notebook-index-execution`（`notebook-index-gate` が集める）。テストが `ci.yml` の全てのジョブを読み、`needs` とこの一覧の和がちょうど全てのジョブ（`ci-gate` を除く）であることを確かめる（新しいジョブを足して集約に入れ忘れると落ちる）。
+4. **artifact-language.yml**: checkout を SHA で固定して `persist-credentials: false`、`timeout-minutes: 10`。`issue_comment` の trigger には、`# zizmor: ignore[dangerous-triggers]` と理由（read だけの権限、PR の head を checkout しない、event の本文を検査するだけ）を書く。この写しは Issue #22 の正本と食い違うようになる。正本から写し直すと固定が消えるが、そのときは `Workflow lint` が落ちるので気づける（黙って戻らない）。
+5. **dependabot.yml**: 2 つの ecosystem とも `target-branch: develop`、`cooldown: default-days: 7`。`pip` を `uv` にし、`versioning-strategy: lockfile-only`（`pyproject.toml` の下限は H-0126 の方針で人が決めるので、Dependabot は lock だけを上げる。GitHub の文書は uv が `versioning-strategy` を受け付けると書くが、どの値を受け付けるかは書いていない。受け付けなければ Dependabot は設定の誤りを出すので、受け入れ基準 6 で確かめ、誤りなら `increase-if-necessary` に替える案を実装の時に Proposal に戻す）。github-actions の更新は SHA と `# vX.Y.Z` の注記を一緒に上げる。Dependabot は既定のブランチ（`main`）の設定を読むので、効くのはこの変更を含むリリースの後である。security update は `target-branch` に関係なく `main` に来る（GitHub の仕様。今はアラートが無効）。
+6. **action の固定**: 4 つの workflow の全ての `uses` を、そのタグが指す commit の 40 桁の SHA にし（annotated tag は commit まで辿る）、行の後ろに `# vX.Y.Z` を書く。`pypa/gh-action-pypi-publish` は `release/v1` の代わりにその時点の最新のリリースのタグを使う。
+7. **ruleset**（管理者が UI で設定。実装 PR が値と手順を渡す）:
+   - **Protect develop**: deletion、non_fast_forward、pull_request（承認 0、マージの方法は squash だけ）、required status checks `CI (gate)` と `validate`（`artifact-language` のジョブ。「最新に追従」は求めない）、bypass なし。この変更が develop に入った後に有効にする（それより前に作った PR は develop を取り込むと `CI (gate)` が出る）。
+   - **Protect main**: 今の規則（deletion、non_fast_forward、pull_request）に、マージの方法を merge commit だけに絞ることと、同じ required status checks を足す。この変更を含むリリースの PR が `main` に入った後に有効にする（それより前は、merge ref がこの変更を含まない `main` 向けの PR、例えばリリースの前の Dependabot の PR に、`CI (gate)` が出ない。リリースの PR そのものは merge ref にこの変更を含むので、マージの前に `CI (gate)` が出る）。
+   - 必須のチェックの名前は、実装 PR の実際のチェックの一覧から写す（YAML から推測しない）。
+   - 2 つの ruleset の pull_request の規則の値: `required_approving_review_count` 0、`dismiss_stale_reviews_on_push`・`require_code_owner_review`・`require_last_push_approval`・`required_review_thread_resolution` は false。`require_extra_approval_for_unattributed_changes` は今の値（main は true）のままでよい。GitHub の文書は、これを「Copilot が人の協力者なしに開いた PR に、承認の数が 0 でないとき承認を 1 つ足す」と書くので、承認 0 では効かない。
+   - bypass が無いので、過去の develop の force push のような特例は、管理者が一時的に ruleset を外して行う。ruleset が PR やリリースを止めたときの戻し方も同じで、管理者がその ruleset の enforcement を disabled に戻す。
+   - `main` だけに入った変更（security update、緊急の修正）を develop に揃える PR は、develop が squash だけなので squash で入れる。中身は同じなので、次のリリースの merge commit（develop → main）で両方の履歴がつながる。同じ行で衝突したときは、その同期 PR の中で解く（今までの「同期 PR を merge commit で入れる」はできなくなる）。
+8. **environment**（管理者が UI で設定。実装 PR が手順を渡す）: `testpypi` と `pypi` の Deployment branches and tags を「Selected branches and tags」にし、Tag の規則 `v*` だけを置く。設定するのは、この変更を含むリリース PR をマージする直前（リリースの確認のとき）で、そのリリースの publish で規則を通ることを確かめる。拒否されたときは、規則を一時的に外して `gh workflow run release.yml --ref vX.Y.Z -f tag=vX.Y.Z` で出し直せる（TestPyPI に上げる前に止まるので、何も公開されていない）。
+9. **文書**: BLUEPRINT §18.2 に、リリースの経路の規則（キャッシュを使わない build、タグの上の publish、SHA の固定、`persist-credentials: false`、集約ジョブと必須のチェック、`Workflow lint`）を足す。同じ節の最後の項（「`develop` PR では slow テストを除外し」）は H-0143 から古いので、全ての PR で slow を走らせる今の規則に直す。CONTRIBUTING.md のリリースの段に、dispatch がタグの上で動くこと、必須のチェック、マージの方法、environment の規則、`main` だけに入った変更の同期の仕方を書く。`docs/proposal_dispositions.toml` の行。
+
+Firing rate: 24/195 of completed pull_request CI runs from 2026-09-08 to 2026-11-04 would have been cancelled by the per-PR cancel-in-progress group (replayed from gh run list createdAt/updatedAt per head branch; `docs/audits/2026-11-i407/probes/overlap.py`)
+
+Firing rate: 1/52 of zizmor findings on develop `9402dc3` is exempted by the one inline ignore (`dangerous-triggers` on the `issue_comment` trigger of artifact-language.yml; zizmor 1.32.0 offline, `docs/audits/2026-11-i407/zizmor-develop-9402dc3.txt`)
+
+### 互換性
+
+- ライブラリの公開 API、保存の形式、配布物の中身は変わらない（build のキャッシュを使わないだけで、`uv build` の入力は同じ）。
+- 依存: dev 用の dependency group `workflow-lint` を足す（配布物の依存には入らない）。`dev` の group と下限のレーンには入れない。
+- リリースの手順: 利用者の操作は変わらない（`release: vX.Y.Z` の PR を merge commit で入れる）。`release.yml` を手で dispatch するときは、`--ref vX.Y.Z` を付けなければ最初の段で落ちる。
+- PR の流れ: ruleset を有効にした後は、`CI (gate)` と `validate` が緑でなければマージできず、`develop` は squash、`main` は merge commit しか選べない。
+- Dependabot の PR は、効いた後は `develop` に来る。リリースの前に `main` の変更を develop に揃える手間が無くなる。
+
+### 代替案
+
+- **release の経路だけ固定する**: 差分は小さいが、`ci.yml` にも zizmor の指摘が残り、`Workflow lint` を必須にできない。管理者が全ての workflow を選んだ。
+- **`create_release_tag.sh` を `gh api` の ref の作成に書き換える**: 認証の扱いは同じくらい狭くなるが、冪等の検査と bare remote のテストを作り直すことになる。段の環境だけに token を置く `gh auth setup-git` を選ぶ。
+- **auto-release の checkout だけ認証情報を残す**: 変更は最小だが、ジョブの全ての段から token が読める。採らない。
+- **集約ジョブを YAML の式だけで書く**: スクリプトとテストが要らないが、判定をテストできず、notebook の集約（H-0119）と形が揃わない。
+- **zizmor を offline で走らせる**: 必須のチェックが GitHub の API に依存しなくなるが、SHA が上流に無い commit を指す固定（`impostor-commit`）を判定できない。SHA の固定の意味を確かめられる online を選ぶ。API の一時的な失敗で落ちたときは run をやり直す。
+- **environment に承認者を置く**: publish のたびに手で承認が要る。管理者の判断はタグの規則だけ。
+
+### 受け入れ基準
+
+1. **lint**: PR の head で zizmor（手元は offline、online は受け入れ 6）と actionlint（shellcheck つき）が 0 件。陰性対照: 1 つの `uses` をタグに戻す、`enable-cache: false` を消す、1 つの checkout の `persist-credentials: false` を消す、のそれぞれで zizmor が指摘を出す（手元の実行で記録する。`enable-cache` の対照で zizmor が出さなければ、下の 3 のテストだけがそれを守ると記録する）。
+2. **集約の判定**（`scripts/ci_gate.py` の単体テスト）: 全て `success` で通る。`failure`・`cancelled`・`skipped` のどれか 1 つ、`needs` から欠けたジョブ、読めない入力で落ちる。構造のテスト: `ci.yml` の全てのジョブが `ci-gate` の `needs` か除外の一覧のちょうど一方にあり、除外の一覧は上の 4 つだけ。陰性対照: ジョブを 1 つ足して `needs` に入れない `ci.yml` で落ちる。
+3. **workflow の規則のテスト**: 全てのジョブに `timeout-minutes`、`release.yml` の `build` の `setup-uv` に `enable-cache: false`、全ての `uses` が 40 桁の SHA と `# v` の注記、全ての checkout に `persist-credentials: false`、`auto-release.yml` の dispatch に `--ref "$TAG"`、`release.yml` と `auto-release.yml` の workflow 全体の `permissions` が `{}`。
+4. **ref の検査**（`check_release_ref.sh` の単体テスト）: ref がタグで入力と等しければ通る。ref が `refs/heads/main`、入力と違うタグ、`vX.Y.Z` の形でないタグは何も出力せず落ちる。
+5. **既存のテスト**: `tests/test_release/test_auto_release_guard.py`（段の順番と入力を新しい段に合わせて直す。消さない）、`tests/test_ci_memory_ceiling.py`、notebook の集約のテストが通る。
+6. **実行の証拠**（実装 PR の後。PR は `Refs #407` で、#407 はここまで閉じない）:
+   - 実装 PR のチェックの一覧に `CI (gate)` と `validate` が出て、その名前を管理者の手順に書く。
+   - develop の ruleset を有効にした後の最初の PR で、`CI (gate)` が終わる前は `mergeStateStatus` が `BLOCKED` になる。
+   - 実装 PR の最初の run で、online の zizmor が 0 件（online の audit はここで初めて測る）。
+   - この変更を含むリリースで、`auto-release.yml` のタグの push が成功し（失敗しても、`create_release_tag.sh` は冪等なので run のやり直しで続けられる）、`Build distribution` のログに `Cache restored` が無く、`release.yml` の run の ref がタグで、2 つの publish が environment の `v*` の規則を通る。
+   - Dependabot の設定がリリースで `main` に入った後、Dependabot の設定の誤りが出ず（`versioning-strategy: lockfile-only` を uv が受け付ける）、最初の uv の PR が `develop` に来て `uv.lock` だけを変える。
+7. **文書**: 対応方針 9 のとおり。
+
+**レビューの停止基準**: 受け入れ基準 1〜5 のテストが通ったら止める。次の round に進む理由になるのは、この契約の中の欠陥だけである: publish の経路がキャッシュ・書き換えられる参照・タグでない ref を通ること、集約ジョブが落ちるべきときに通ること（または通るべきときに落ちること）、ruleset・environment の手順が次のリリースを止めること、`persist-credentials: false` がタグの push を壊すこと。CI の所要時間、レーンの構成、脆弱性アラート、tag ruleset、zizmor の版の選び方は、次の round に進む理由にならない。
+
+### Proposal レビュー round 1（2026-11-16）
+
+- **結果**: Codex の run `h0146-proposal-review` の round 1（`76805df`）は APPROVE で、minor 1 件だった。対応方針 7 の「それより前は `main` 向けの PR に `CI (gate)` が出ない」は広すぎる: `main` 向けの PR は merge ref で CI を走らせるので、この変更を含むリリースの PR はマージの前に `CI (gate)` を出す。出ないのは merge ref がこの変更を含まない PR（リリースの前の Dependabot の PR など）である。有効にする順番は安全なまま。
+- **対応**: その文を、merge ref がこの変更を含まない PR に絞って書き直した。管理者の方針（1 行でも再確認）により、この直しを 1 round の確認で見る。
+- **確認**（2026-11-16）: 実行の前に Claude の新しい文脈で absolute monitor を走らせた（DELIVERABLE-FOCUSED・continue。`docs/audits/2026-11-i407/review/h0146-proposal-monitor-r2-absolute.md`）。Codex の 1 round の確認の run `h0146-proposal-confirm`（`e7c191a`）は APPROVE で、指摘は無かった。
+
+### 実装の記録（2026-11-16）
+
+- workflow: `release.yml`（タグの検査 `.github/scripts/check_release_ref.sh`、`enable-cache: false`、`permissions: {}` とジョブごとの権限、`concurrency`、`timeout-minutes`）、`auto-release.yml`（`--ref "$TAG"` の dispatch、`gh auth setup-git` の段とタグの段の `GH_TOKEN`、ジョブだけの権限）、`ci.yml`（`permissions: contents: read`、PR だけ取り消す `concurrency`、全てのジョブの `timeout-minutes`、SC2086 の 2 か所を配列に、`workflow-lint` と `ci-gate` のジョブ）、`artifact-language.yml`（SHA の固定、`persist-credentials: false`、`issue_comment` の zizmor の ignore と理由）。全ての `uses` は SHA と `# vX.Y.Z`（checkout v7.0.1、setup-uv v7.6.0（今の v7 の系列の最新。v10 への更新は Dependabot に任せる）、upload-artifact v7.0.2、download-artifact v8.0.2、gh-action-pypi-publish v1.14.3）。
+- `.github/dependabot.yml`、`pyproject.toml` の group `workflow-lint`（zizmor は Python 3.11 以上なので marker を付けた）と `uv.lock`（手元の uv 0.13.1 で lock の revision が 3 から 5 になった。CI の setup-uv は最新の uv を入れ、直近の run は 0.13.7 だった）。
+- 判定とテスト: `scripts/ci_gate.py`、`tests/test_ci_gate.py`、`tests/test_release/test_check_release_ref.py`、`tests/test_workflow_policy.py`、`tests/test_release/test_auto_release_guard.py`（新しい段の順番と入力に合わせた）。
+- 手元の lint（受け入れ 1）: zizmor 1.32.0（offline）は 0 件（ignore 1、既定の抑止 6）、actionlint 1.7.12 と shellcheck 0.11.0 は 0 件。陰性対照（`docs/audits/2026-11-i407/negative-controls.out`）: checkout をタグに戻すと `unpinned-uses`、`enable-cache: false` を消すと `cache-poisoning` を zizmor が出す。`persist-credentials: false` の行だけを消す（空の `with:` が残る）か `true` にすると zizmor は何も出さない（`with:` ごと消したときだけ `artipacked`）ので、この規則は `test_no_checkout_keeps_credentials`（値が `false` であることを求める）だけが守る。
+- 管理者の設定の手順は `docs/audits/2026-11-i407/owner-steps.md`。
+
+### 実装レビュー round 1（2026-11-16）
+
+- **結果**: Codex の run `h0146-impl-review` の round 1（`73c378c`）は APPROVE で、指摘は無かった。この実行の方針により、APPROVE と CI 緑でマージする。#407 は、管理者の設定（`docs/audits/2026-11-i407/owner-steps.md`）と次のリリースの実行の証拠（受け入れ 6）が揃うまで閉じない。
+- **CI の最初の run**（PR #408、`73c378c`、run 43801319781）: `Workflow lint` は `GH_TOKEN` を持つ online の zizmor 1.32.0 で 5 つのファイルを検査し、指摘 0 件で通った（受け入れ 6 の 1 つ目）。

@@ -77,6 +77,15 @@ notebooks = [
     "nbconvert>=7.0",
     "ipykernel>=6.0",
 ]
+# The `Workflow lint` CI job (H-0146): zizmor and actionlint over .github/, with
+# shellcheck for the `run:` scripts actionlint checks. The lock fixes the
+# versions; Dependabot (uv) moves them. zizmor needs Python 3.11 or newer; the
+# job runs on 3.12.
+workflow-lint = [
+    "zizmor>=1.32; python_version >= '3.11'",
+    "actionlint-py>=1.7.12",
+    "shellcheck-py>=0.11",
+]
 
 [tool.uv]
 # Forward-compat lane guard (#180 lane): `uv sync --upgrade` prefers the newest

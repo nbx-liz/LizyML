@@ -1,0 +1,10 @@
+== unpinned-checkout (exit 14)
+      1 error[unpinned-uses]: unpinned action reference
+== release-cache-on (exit 14)
+      1 error[cache-poisoning]: runtime artifacts potentially vulnerable to a cache poisoning attack
+== persisted-credentials-line-removed (exit 0)
+   no findings
+== persisted-credentials-with-removed (exit 13)
+      1 warning[artipacked]: credential persistence through GitHub Actions artifacts
+== persisted-credentials-true (exit 0)
+   no findings

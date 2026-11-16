@@ -2197,7 +2197,10 @@ LightGBM/XGBoost が `all_x_types` / `all_y_types` で実施しているコン�
 - 依存の上限方向（forward-compat）を検証する non-blocking lane を CI に含める（`uv sync --upgrade`）。上流の破壊的リリース（pandas / numpy / lightgbm 等）を早期検知する。ランタイム依存は下限のみ宣言し上限 cap は付けない方針とする（詳細は CONTRIBUTING.md）。
   - H-0138 の参照ファイル（pandas の版ごと）は、各レーンがその pandas の版のファイルと比べ、無ければ落ちる。この lane（`quality-latest-deps` のジョブ）だけは、環境変数 `LIZYML_H0138_ORACLE_MODE=latest-same-minor` で、同じ minor の一番近い古い版のファイルと H-0139 の一覧と比べ、numpy・lightgbm がファイルと違えばモデルの case を計算の前に skip する（H-0144）。値はそのジョブの外では受け付けない。新しい pandas の minor の取り込みは CONTRIBUTING.md の手順で行い、生成の記録は `docs/audits/2026-10-h0138/oracle/provenance.json` に置く。
 - OS portability smoke（ubuntu / windows / macos）を CI に含め、path / newline 等の移植性問題を検知する（最低限の file I/O 系サブセット、単一 Python で可）。
-- `develop` および `main` ブランチへの PR で CI を実行する。`develop` PR では slow テストを除外し、`main` PR では全テストを実行する（H-0043）。
+- `develop` および `main` ブランチへの PR で CI を実行する。どちらの PR でも slow を含む全テストを実行する（H-0043 を H-0143 が改めた）。
+- CI の結果は集約ジョブ `CI (gate)`（`ci-gate`）にまとめる（H-0146）。`if: always()` で走り、`scripts/ci_gate.py` が、必要とする全てのジョブ（`git-policy`・`quality`・`quality-lowest-deps`・`smoke-os-matrix`・`distribution`・`notebook-index-gate`・`workflow-lint`）が `success` のときだけ通す。必要としないジョブは閉じた一覧（non-blocking の `quality-latest-deps` と、`notebook-index-gate` が集める 3 つ）で、新しいジョブはどちらかに入れなければテストが落ちる。ruleset「Protect develop」「Protect main」は `CI (gate)` と `validate`（`artifact-language`）を必須にし、`develop` は squash、`main` は merge commit だけを受け付ける（設定は管理者が行う）。
+- workflow の供給網の規則（H-0146）: 全ての `uses` はコミットの 40 桁の SHA と `# vX.Y.Z` の注記で固定し、全ての checkout は `persist-credentials: false`、全てのジョブは `timeout-minutes` を持ち、workflow 全体の `permissions` は read 以下（`release.yml`・`auto-release.yml` は `{}` で、ジョブごとに要る権限だけを付ける）。`Workflow lint` のジョブが zizmor と actionlint（shellcheck つき）で `.github/` を検査し、1 件でも出れば落ちる。PR の古い run は新しい push で取り消し、`main` への push の run は取り消さない。
+- リリースの経路（H-0146）: `auto-release.yml` は `release.yml` をタグの上で dispatch し（`--ref vX.Y.Z`）、`release.yml` の build は run の ref が `refs/tags/vX.Y.Z` でなければ何も build せずに落ち、uv のキャッシュを使わない（`enable-cache: false`）。publish は TestPyPI、PyPI の順で、environment `testpypi`・`pypi` は `v*` のタグからだけ実行できる（設定は管理者が行う）。タグの push は、checkout が認証情報を残さないので、その段の `GH_TOKEN` を `gh auth setup-git` で git に渡す。
 
 # 19. ディレクトリ構成
 
