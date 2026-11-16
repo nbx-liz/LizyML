@@ -17457,7 +17457,7 @@ PyPI へ出す経路（`release.yml`・`auto-release.yml`）が、書き換え�
 6. **action の固定**: 4 つの workflow の全ての `uses` を、そのタグが指す commit の 40 桁の SHA にし（annotated tag は commit まで辿る）、行の後ろに `# vX.Y.Z` を書く。`pypa/gh-action-pypi-publish` は `release/v1` の代わりにその時点の最新のリリースのタグを使う。
 7. **ruleset**（管理者が UI で設定。実装 PR が値と手順を渡す）:
    - **Protect develop**: deletion、non_fast_forward、pull_request（承認 0、マージの方法は squash だけ）、required status checks `CI (gate)` と `validate`（`artifact-language` のジョブ。「最新に追従」は求めない）、bypass なし。この変更が develop に入った後に有効にする（それより前に作った PR は develop を取り込むと `CI (gate)` が出る）。
-   - **Protect main**: 今の規則（deletion、non_fast_forward、pull_request）に、マージの方法を merge commit だけに絞ることと、同じ required status checks を足す。この変更を含むリリースの PR が `main` に入った後に有効にする（それより前は `main` 向けの PR に `CI (gate)` が出ない）。
+   - **Protect main**: 今の規則（deletion、non_fast_forward、pull_request）に、マージの方法を merge commit だけに絞ることと、同じ required status checks を足す。この変更を含むリリースの PR が `main` に入った後に有効にする（それより前は、merge ref がこの変更を含まない `main` 向けの PR、例えばリリースの前の Dependabot の PR に、`CI (gate)` が出ない。リリースの PR そのものは merge ref にこの変更を含むので、マージの前に `CI (gate)` が出る）。
    - 必須のチェックの名前は、実装 PR の実際のチェックの一覧から写す（YAML から推測しない）。
    - 2 つの ruleset の pull_request の規則の値: `required_approving_review_count` 0、`dismiss_stale_reviews_on_push`・`require_code_owner_review`・`require_last_push_approval`・`required_review_thread_resolution` は false。`require_extra_approval_for_unattributed_changes` は今の値（main は true）のままでよい。GitHub の文書は、これを「Copilot が人の協力者なしに開いた PR に、承認の数が 0 でないとき承認を 1 つ足す」と書くので、承認 0 では効かない。
    - bypass が無いので、過去の develop の force push のような特例は、管理者が一時的に ruleset を外して行う。ruleset が PR やリリースを止めたときの戻し方も同じで、管理者がその ruleset の enforcement を disabled に戻す。
@@ -17502,3 +17502,8 @@ Firing rate: 1/52 of zizmor findings on develop `9402dc3` is exempted by the one
 7. **文書**: 対応方針 9 のとおり。
 
 **レビューの停止基準**: 受け入れ基準 1〜5 のテストが通ったら止める。次の round に進む理由になるのは、この契約の中の欠陥だけである: publish の経路がキャッシュ・書き換えられる参照・タグでない ref を通ること、集約ジョブが落ちるべきときに通ること（または通るべきときに落ちること）、ruleset・environment の手順が次のリリースを止めること、`persist-credentials: false` がタグの push を壊すこと。CI の所要時間、レーンの構成、脆弱性アラート、tag ruleset、zizmor の版の選び方は、次の round に進む理由にならない。
+
+### Proposal レビュー round 1（2026-11-16）
+
+- **結果**: Codex の run `h0146-proposal-review` の round 1（`76805df`）は APPROVE で、minor 1 件だった。対応方針 7 の「それより前は `main` 向けの PR に `CI (gate)` が出ない」は広すぎる: `main` 向けの PR は merge ref で CI を走らせるので、この変更を含むリリースの PR はマージの前に `CI (gate)` を出す。出ないのは merge ref がこの変更を含まない PR（リリースの前の Dependabot の PR など）である。有効にする順番は安全なまま。
+- **対応**: その文を、merge ref がこの変更を含まない PR に絞って書き直した。管理者の方針（1 行でも再確認）により、この直しを 1 round の確認で見る。
