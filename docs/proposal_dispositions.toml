@@ -599,6 +599,10 @@ anchors = ["ci-gate", "workflow-lint", "enable-cache: false", "persist-credentia
 disposition = "specified"
 anchors = ["unsaveable_feature_names", "equals_sign_at_feature_names_edge", "line_break_in_feature_name", "lightgbm_unwritable_category"]
 
+[proposals."H-0148"]
+disposition = "specified"
+anchors = ["FeatureNameRuleProvider", "check_duplicate_columns", "json_special_character_in_feature_name", "duplicate_column_name"]
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 

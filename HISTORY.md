@@ -17609,3 +17609,98 @@ Firing rate: 6/17 of the probed column-name cases that fit through lizyml (the f
 - **`=` の規則を足した（受け入れ 5 が見つけた）**: 名前と位置の 42 通りを本物の LightGBM と比べるテスト（受け入れ 5）が、`"=b"` を先頭に置いた場合を見つけた。読み戻せるが、名前が `b` になる。LightGBM 4.6.0 の読み手を読んだ（`src/boosting/gbdt_model_text.cpp` の header の読み方、`feature_names_ = Common::Split(..., ' ')`、`include/LightGBM/utils/common.h` の `GetLine`・`Split`）: 行を `=` で切り、空の切れ端を捨て、切れ端がちょうど 2 つならその 2 つ目を値に、3 つ以上なら `feature_names=` の後ろ全部を値にする。並べた名前が `=` で 1 つの切れ端にしかならないとき、最初の名前の先頭と最後の名前の末尾の `=` が落ちる（`equals-readback.out`: `"=b"`・`"==b"` を先頭、`"a="` を最後に置くと名前が変わり、`"="` は先頭でも最後でも `Wrong size of feature_names`。`"a=b"`・`"b=c=d"` や、ほかの名前に `=` がある `["=b", "c=d"]` は同じまま）。対応方針 1 の規則にこの場合を `reason="equals_sign_at_feature_names_edge"` で足した。判定は 1 つの名前でなく並べた名前の全体で決まるので、`estimators/lgbm/feature_names.py` は名前の列を受け取る。受け入れ 5 のテストに `=` の 12 通りの名前の並びを足し、全て本物の LightGBM と一致した。
 - **置き場所**: 規則は `lizyml/estimators/lgbm/feature_names.py`（`unsaveable_feature_names`）、IF は `estimators/base.py` の `UnsaveableFeatureName` と `BaseEstimatorAdapter.unsaveable_feature_names`、`LGBMAdapter.unsaveable_feature_names` は booster が無ければ `[]`。exporter の `_saved_adapters`・`check_feature_names`（`check_category_values` の最初に呼ぶ）・`warn_unsaveable_feature_names`（`Model.fit` の `warn_saved_state_changes` の後）。テストは `tests/test_persistence/test_h0147_feature_names.py`（`test_unwritable_categories.py` の context の比較 1 か所に `reason` を足した）。
 - **実装レビュー**（`h0147-impl-review`、`1629f73`）: round 1 で APPROVE、指摘なし（`=` の規則の追加を含む）。フルスイート（slow を含む）は 23980 passed、264 skipped。
+
+## H-0148: LightGBM が受け付けない特徴量の名前と、重なった列名を、fit と tune の学習の前に `DATA_SCHEMA_INVALID` で拒否する（#409）
+
+- **ステータス**: Accepted
+- **起票日**: 2026-11-16
+- **決定日**: 2026-11-16
+- **関連**: H-0140（provider の任意の capability `ResourceWarningProvider`）、H-0142（`categorical_feature_not_unique` の `DATA_SCHEMA_INVALID`）、H-0147（保存の前の名前の検査）、#409、#406、nbx-liz/LizyStudio#748（P-0117 D2）
+- **スコープ**:
+  - `lizyml/estimators/provider.py`（新しい任意の capability）、`lizyml/estimators/lgbm/`（LightGBM の規則）、`lizyml/core/`（fit と tune から呼ぶ検査）、`lizyml/data/dataframe_builder.py`（重なった列名）、テスト、BLUEPRINT §8.2（データの検査）・§14.4、CHANGELOG
+  - 範囲の外: 半角の空白を含む名前で重ならないもの（LightGBM が `_` に置き換えて学習する。今のまま。管理者の判断）、保存の前の名前の検査（H-0147 のまま）、predict に渡す frame の重なった列名
+
+Gate-category: none
+
+### 目的（課題）
+
+1. **LightGBM が拒否する名前**: `Model.fit` は、LightGBM が受け付けない特徴量の名前を学習まで通し、LightGBM の `LightGBMError` をそのまま送出する（`LizyMLError` のコードが無い）。`Model.tune` は全ての trial をその例外で失敗させ、最後に `TUNING_FAILED` を送出する。拒否を `code` で分ける呼び手（LizyStudio P-0117 D2）は、どちらも名前の誤りとして扱えない。
+2. **重なった列名**（調べる中で分かった）: 同じ名前の列が 2 つある frame は、LightGBM に届く前に、LizyML の中で `AttributeError: 'DataFrame' object has no attribute 'dtype'` で落ちる（`data/dataframe_builder.py` の `_apply_categorical`）。
+
+### 実測（2026-11-16、develop `2e84262`、LightGBM 4.6.0）
+
+出力とスクリプトは `docs/audits/2026-11-i409/` にある。
+
+- **LightGBM の規則**（LightGBM 4.6.0 `include/LightGBM/dataset.h:888-913` の `Dataset::set_feature_names`、`include/LightGBM/utils/common.h:886` の `Common::CheckAllowedJSON`）: 名前を順に見て、`"` `,` `:` `[` `]` `{` `}` のどれかを含む名前で `Do not support special JSON characters in feature name.`、半角の空白を `_` に置き換えた後の名前がそれより前の名前と同じなら `Feature (<名前>) appears more than one time.` で止まる。Python の `lgb.Dataset` は pandas の列名を `str()` にして C の文字列で渡すので、名前は `str()` と NUL での切り詰めの後に判定される。
+- **fit と tune**（`fit-names.out`。特徴量の名前の 17 通り）:
+  - `"`・`,`・`:`・`[`・`]`・`{`・`}` を含む名前（7 通り）: `Model.fit` は `lightgbm.basic.LightGBMError`、`Model.tune` は 2 つの trial がその例外で失敗して `TUNING_FAILED`。
+  - 置き換えた後に重なる名前（5 通り）: `"a b"` と `"a_b"`、`"a  b"` と `"a__b"`、整数の `0` と `"0"`、浮動小数点の `1.5` と `"1.5"`、`"a\x00b"` と `"a"`（NUL で切れて `a`）。どれも fit と tune で同じ失敗。
+  - 同じ名前の列が 2 つ（`"a"` と `"a"`）: fit も tune も `AttributeError`（`dataframe_builder.py:112`）。
+  - `'`・`\`・`;` を含む名前と普通の名前: 通る。
+- **重なった列を除外したとき・storage を渡した tune**（`excluded-duplicate-and-storage.out`）: 重なった `"a"` を 2 つとも `features.exclude` に入れた frame は、今 fit が通る。`,` を含む名前で storage（sqlite）を渡した tune は `TUNING_FAILED` で終わり、storage には study `s` と FAIL の trial が 2 つ残る。
+- **重なった役割の列**（`duplicate-roles.out`。Proposal レビュー round 1 の指摘 1・2 で測った）: `data.target` の列が 2 つあると、`features.exclude` に入れても入れなくても `AttributeError`（`TargetEncoder.fit` が `y.dtype` を読む。`exclude` は X にしか効かない）。`data.group_col` が 2 つで `group_kfold` は `ValueError: object too deep for desired array`、`data.time_col` が 2 つで `time_series` は `AttributeError`（`argsort`）。一方、`data.group_col` か `data.time_col` が 2 つでも、その列を読まない `kfold` なら今 fit が通る（2 つの写しのどちらが役割の列かは決まっていないが、どちらも X から落ちる）。重なった特徴量を `features.exclude` に入れたものは通る。
+- **今の流れ**: `Model.fit`（`core/model.py`）と `Model.tune`（`core/_model_tuning.py`）は、どちらも `_prepare_training_data` で X を作り、すぐ後に `get_provider(cfg.model)` で provider を得てから学習に入る。X の列名は、pipeline（`NativeFeaturePipeline` は列を選ぶだけで名前を変えない）を通っても同じまま adapter の `lgb.Dataset` に届く。
+
+### 管理者の判断（2026-11-16。#409 に記録）
+
+- LightGBM が拒否する名前は `DATA_SCHEMA_INVALID` で拒否し、context に列と `reason`（記号）を入れる。
+- `Model.fit` と `Model.tune` の両方で、学習の前に拒否する（tune は trial を 1 つも走らせない）。
+- 半角の空白を含む名前で重ならないものは今のまま（LightGBM が `_` に置き換える）。新しい警告は出さない。
+- このあと v0.21.3 を出す（リリース PR のマージの直前に管理者が確認する）。
+
+### 対応方針（提案）
+
+1. **任意の capability**: `lizyml/estimators/provider.py` に `FeatureNameRuleProvider`（`runtime_checkable` の Protocol。H-0140 の `ResourceWarningProvider` と同じ形）を足す。メソッドは `refused_feature_names(names: Sequence[Any]) -> RefusedFeatureName | None` で、学習器がその列名の並びを受け付けないとき、最初に拒否する名前を返す。`RefusedFeatureName` は frozen な dataclass で、`position`（0 から数える）、`name`（元の列名）、`estimator_name`（学習器が見る名前の文字列）、`reason`、`first_position`（重なりのとき、先に現れた名前の位置。ほかは `None`）を持つ。持たない provider では何もしない。
+2. **LightGBM の規則**（`lizyml/estimators/lgbm/feature_names.py` に足す。H-0147 の保存の規則と同じ所）: 各名前を `str()` にし、NUL より後を落とし、LightGBM と同じ順に見る。`"` `,` `:` `[` `]` `{` `}` のどれかを含めば `reason="json_special_character_in_feature_name"`、半角の空白を `_` に置き換えた後の文字列がそれより前の名前と同じなら `reason="duplicate_feature_name"`（`first_position` に先の位置）。`LGBMProvider` が capability を持つ。
+3. **呼ぶ所**: `lizyml/core/` の新しい関数 `check_feature_names_for_training(provider, X)` を、`Model.fit` と `Model.tune` の、`get_provider` の直後・学習（tune では study の作成と trial）の前に呼ぶ。答えがあれば `DATA_SCHEMA_INVALID` を送出する。context は `column`（元の列名）、`position`、`estimator_name`、`reason`、重なりのときだけ `first_column`・`first_position`。メッセージは、どの列の名前を学習器が受け付けないか、理由（使えない文字の一覧、または置き換えた後にどの列と重なるか）、列の名前を付け直すことを示す。`restore_tuning` は学習しないので呼ばない。
+4. **同じ名前の列**（学習器によらない）: `data/dataframe_builder.py` の新しい関数 `check_duplicate_columns(df, roles, exclude)` を、`_prepare_training_data`（fit と tune の両方が通る）の、frame を読んだ直後・`dataframe_builder.build` の前に呼ぶ。frame の列名のうち 2 回以上現れるものが、(a) Config の役割の列（`data.target`・`data.time_col`・`data.group_col`・`split.blocks.col`・`split.groups.col` のうち設定されたもの。Config で列名を持つのはこの 5 つだけで、inner valid は `data.group_col` か `split.groups.col` から作った groups を使う）なら、`exclude` に入っていても、その役割を今の split が読むかどうかによらず拒否する。(b) 役割の列でなく `features.exclude` にも入っていない（特徴量になる）なら拒否する。(c) 役割の列でなく `features.exclude` に入っているものは、今どおり `drop` が全ての写しを落とすので受け付ける。拒否は `DATA_SCHEMA_INVALID`（`reason="duplicate_column_name"`、context `column`・`positions`（全ての写しの位置）・`role`（役割の Config の場所、特徴量なら `"feature"`））。役割の列を位置によらず拒否するのは、どの写しが役割の列かが決まらないからで、今 fit が通る場合（その列を読まない split）も同じく拒否する（下の互換性）。
+5. **文書**: BLUEPRINT §14.4 に capability、§8.2 に同じ名前の列の拒否。CHANGELOG の `[Unreleased]`。`docs/proposal_dispositions.toml` の行。
+
+Firing rate: 13/17 of the probed feature-name cases (7 JSON-special names, 5 collisions after LightGBM's rewrite, 1 exact duplicate; a plain name, `'`, `\` and `;` are admitted) and 6/7 of the probed duplicate role-column cases (all but an excluded duplicate feature) are refused before training (`docs/audits/2026-11-i409/fit-names.out`, `duplicate-roles.out`, develop `2e84262`)
+
+### 互換性
+
+- LightGBM が拒否する名前、重なった特徴量、読まれる役割の列の重なりの fit と tune は、今も必ず失敗している（`LightGBMError`、`TUNING_FAILED`、`AttributeError`、`ValueError`）。失敗が、学習の前の `DATA_SCHEMA_INVALID` に変わる。
+- **今通っていて新しく拒否されるもの**: `data.group_col` か `data.time_col`（と `split.blocks.col`・`split.groups.col`）の列が重なっていて、今の split がその列を読まない場合（例: `kfold` で `group_col` が 2 つ。`duplicate-roles.out`）。どの写しが役割の列かが決まっていない入力なので、拒否する。ほかの今通っている入力は変わらない。
+- tune は trial を走らせずに止まるので、storage を渡した tune は、study も trial も書かない（今は失敗した trial が書かれる）。
+- 公開の provider の Protocol に任意の capability が 1 つ増える（持たない provider は今どおり）。保存の形式と `format_version` は変えない。
+
+### 代替案
+
+- **adapter の `fit` の中で拒否する**: fit では学習の直前に止まるが、tune では trial ごとに失敗して `TUNING_FAILED` になる（管理者の判断の「tune は trial を走らせない」に合わない）。
+- **LightGBM の例外を捕まえて言い換える**: 学習を始めた後で止まり、tune は trial ごとに失敗する。例外の文を読むのは LightGBM の版に縛られる。
+- **core に LightGBM の文字の一覧を書く**: core が estimator の知識を持つ（H-0053・H-0140 が避けた形）。
+
+### 受け入れ基準（テスト観点）
+
+1. **落ちるべき例**: 7 つの文字のそれぞれを含む名前、置き換えた後に重なる 5 つの組（`"a b"`/`"a_b"`、`"a  b"`/`"a__b"`、`0`/`"0"`、`1.5`/`"1.5"`、`"a\x00b"`/`"a"`）で、`Model.fit` と `Model.tune` が `DATA_SCHEMA_INVALID` を送出し、context が上の形である。tune は storage を渡しても study を作らない（trial が 0）。今の develop ではこのテストは落ちる。
+2. **同じ名前の列**: `"a"` が 2 つの frame（特徴量）、`data.target` が 2 つ（`exclude` に入れた場合も）、`data.group_col` が 2 つ（`kfold` と `group_kfold`）、`data.time_col` が 2 つ（`kfold` と `time_series`）で、fit と tune が `DATA_SCHEMA_INVALID`（`duplicate_column_name`、`positions`、`role`）。役割の列でない重なった列が `features.exclude` に入っていれば今どおり fit が通る。
+3. **通るべき例**: 普通の名前、`'`・`\`・`;` を含む名前、重ならない空白を含む名前は今どおり fit と tune が通る。
+4. **規則と本物の LightGBM**: インストールされた LightGBM で、上の全ての名前の並び（と、それぞれを先頭・最後に置いたもの）について、`refused_feature_names` が答えを返す場合と、`lgb.Dataset(X, y).construct()` が失敗する場合が、ちょうど一致する。LightGBM の規則が変われば、このテストが落ちる。
+5. **capability**: capability を持たない provider では何もしない（偽の provider で確かめる）。`LGBMProvider` は持つ。
+6. フルスイート（slow を含む）、ruff、mypy。
+
+### レビューの停止基準
+
+指摘は、契約の中の欠陥（LightGBM が拒否する名前が学習まで通る、LightGBM が受け付ける名前を拒否する、fit と tune の答えが食い違う、tune が trial を走らせる、`reason` や context が欠ける）か、この Proposal の偽の主張に限る。重ならない空白の名前、保存の前の名前の検査（H-0147）、predict の frame、LightGBM 以外の estimator の規則は指摘にしない。
+
+### Proposal レビュー
+
+- **round 1**（`h0148-proposal-review`、`31f0a41`、CHANGES_REQUESTED）: major 2 件と minor 1 件。(1) `features.exclude` の例外が、重なった `data.target` を通してしまう、(2) 重なった `data.group_col` は `kfold` なら今 fit が通るので、互換性の「今通っている入力は変わらない」は偽 — どちらも実行して確かめた（`duplicate-roles.out`）。対応方針 4 を、役割の列の重なりは `exclude` と split によらず拒否し、役割の列でない重なりは `exclude` に入っていれば受け付ける、に改め、互換性に新しく拒否するものを書き、受け入れ 2 に役割の列の場合を足した。(3) 数え違い（16 通りでなく 17 通り、重なりは 5 通り）— Firing rate と実測を直した。
+- **round 2**（`ca389a8`、absolute monitor は DELIVERABLE-FOCUSED で continue）: CHANGES_REQUESTED、minor 1 件。役割の列の一覧の `inner_valid.group_col` は存在しない（`lizyml/config/schema.py` の inner valid の 3 つの schema は列名を持たない）。一覧から外し、inner valid が `data.group_col` か `split.groups.col` の groups を使うことを書いた。
+- **round 3**（`4b17976`、relational monitor は CONVERGING で continue）: APPROVE、指摘なし。
+
+### 実装の記録
+
+- **置き場所**: capability は `lizyml/estimators/provider.py` の `FeatureNameRuleProvider` と `RefusedFeatureName`、LightGBM の規則は `lizyml/estimators/lgbm/feature_names.py` の `lightgbm_refused_feature_name`（`LGBMProvider.refused_feature_names` が呼ぶ）、検査は `lizyml/core/_feature_name_check.py` の `check_feature_names_for_training` と `config_roles`、重なった列は `lizyml/data/dataframe_builder.py` の `check_duplicate_columns`（`_prepare_training_data` が frame を読んだ直後に呼ぶ）。fit は `get_provider` の直後、tune は Phase B の `get_provider` の直後（Phase C の study の読み出しの前）に名前を調べる。
+- **テスト**: `tests/test_estimators/test_h0148_feature_names.py`（62 件）。受け入れ 4 は、名前の並び 32 通り（7 文字を最後と先頭に、5 つの重なりを 2 つの並びで、受け付ける名前、空白だけの名前、NUL、整数・真偽値の名前）で `lgb.Dataset(X, y).construct()` が失敗するかと規則の答えが一致することを確かめる。
+- **フルスイート**（slow を含む）: 24043 passed、264 skipped。ruff・ruff format・mypy は指摘なし。
+
+### 実装レビュー
+
+- **round 1**（`h0148-impl-review`、`1b7f4ef`、CHANGES_REQUESTED）: major 1 件。重なった NaN の列名が検査を通り抜ける（`_labels_equal` が `a == b` で比べ、`nan == nan` は偽。pandas は 2 つの NaN を重なりとして扱うので、`_apply_categorical` で `AttributeError`）。Defect-class: DC1（拒否すべき入力を黙って通す）。比べ方を pandas と同じにした: `Index.factorize(use_na_sentinel=False)` で名前を組にし、役割と `features.exclude` との照合は `Index.isin` で行う。`0`・`1.5`・`True`・NaN の重なった名前を fit と tune で拒否するテストを足した（NaN は `features.exclude` に書けない: Config が拒否する）。
+- **round 2**（`ebb50f6`、absolute monitor は DELIVERABLE-FOCUSED で continue）: CHANGES_REQUESTED、major 1 件（round 1 の修正の欠陥。規則により管理者に確認した）。`Index.factorize(use_na_sentinel=False)` は None と NaN を 1 つにまとめるが、pandas の Index は 2 つを区別する。実測（`missing-labels.out`・`label-grouping.out`）: pandas の `duplicated`・`get_loc` は None と NaN を区別し、LightGBM も元の frame を受け付けるが、LizyML の `select_training_columns`（`df[list(columns)]`）が None を NaN に変え、`["x", None, NaN]` は今 LightGBM の生のエラーで落ちる。また `factorize` は `"a\x00b"` と `"a"` もまとめる（`duplicated` はまとめない）。管理者の判断（#409 に記録）: 欠けた名前は 1 つの名前として扱う。名前の組を、欠けた名前を 1 つの NaN に置き換えた上で `Index.duplicated` と `Index.get_loc` で作るように直し、役割と `features.exclude` も `get_loc` で照らす。テストに、`0`/`False`・`1`/`1.0`・tuple・None/NaN・None/NaN/None・`"0"`/`0`・`"a\x00b"`/`"a"` と、レビューの例（None と NaN と、除外した重なった `a`）を足した。
+- **round 3**（`a944a4c`、relational monitor は CONVERGING で continue）: APPROVE、指摘なし。
+- **フルスイート**（slow を含む、`a944a4c`）: 24056 passed、264 skipped。
+- **PR #420 の CI**（`88d156f`）: Quality (3.10)（pandas 2.3.3）と lowest-direct（pandas 2.0.0）で `test_missing_labels_fail_lightgbm_after_column_selection` が落ちた。pandas 2.x では list での列の選び出しが None と NaN を区別したままで、`["x", None, NaN]` は学習できる（pandas 3.0 では NaN にまとまる。しかも 3.0 でも、文字列の名前が並ぶときだけまとまり、`[None, NaN]` だけならまとまらない）。round 2 の管理者の判断の前提は pandas 3.0 の一部の場合だけのものだった。管理者の判断（#409 に記録、round 2 の判断を置き換える）: 実行中の pandas で決める。実装: 重なった列名の検査は pandas の Index の意味（None と NaN を区別）だけで組を作り、欠けた名前の特別扱いを外した。代わりに `check_feature_names_for_training` が、`select_training_columns` と同じ list での選び出しを空の frame で行った後の名前（`selected_labels`）で LightGBM の規則を判定する。これで、その frame・その pandas で選び出しが名前をまとめるときだけ、`duplicate_feature_name` で拒否する。テストは、期待を実行中の pandas の選び出しから計算する形にした。
+- **差分の確認**（loop round 4、`h0148-impl-delta`、`c124671`。fresh context の relational monitor は CONVERGING で continue）: APPROVE、指摘なし。

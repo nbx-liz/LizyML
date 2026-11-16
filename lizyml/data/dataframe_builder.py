@@ -7,6 +7,7 @@ downstream layers (training/estimators/calibration) always see int y.
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -35,6 +36,78 @@ class DataFrameComponents:
     time_col: pd.Series | None
     group_col: pd.Series | None
     target_encoder: TargetEncoder
+
+
+def _selected_positions(index: pd.Index, label: Any) -> list[int]:
+    """Every position ``df[label]`` selects in *index* (``Index.get_loc``);
+    ``[]`` when *label* selects none."""
+    try:
+        loc = index.get_loc(label)
+    except (KeyError, TypeError):
+        return []
+    if isinstance(loc, slice):
+        return list(range(len(index)))[loc]
+    if isinstance(loc, np.ndarray):
+        return [int(i) for i in np.flatnonzero(loc)]
+    return [int(loc)]
+
+
+def check_duplicate_columns(
+    df: pd.DataFrame, roles: Mapping[str, Any], exclude: Iterable[Any]
+) -> None:
+    """Refuse a frame whose repeated column label is a role or a feature.
+
+    Labels are grouped as ``df[label]`` selects them (``Index.duplicated``
+    and ``Index.get_loc``: ``0`` with ``False``, ``1`` with ``1.0``; ``None``
+    and NaN apart). Labels that only the later list selection merges (on
+    pandas 3.0, ``None`` beside NaN) are refused by the estimator's name
+    rule on the selected names (``check_feature_names_for_training``).
+    Roles and ``features.exclude`` are matched the same way.
+
+    Raises:
+        LizyMLError: ``DATA_SCHEMA_INVALID`` with ``reason`` ``duplicate_column_name``,
+            the label, every position it holds and the role (``"feature"`` for a
+            feature).
+    """
+    index = pd.Index(list(df.columns), dtype=object)
+    keys = index
+    repeated = keys.duplicated(keep=False)
+    if not repeated.any():
+        return
+    excluded = list(exclude)
+    done: set[int] = set()
+    for first in range(len(keys)):
+        if not repeated[first] or first in done:
+            continue
+        positions = _selected_positions(keys, keys[first])
+        done.update(positions)
+        if len(positions) < 2:
+            continue
+        label = index[first]
+        role = next(
+            (w for w, col in roles.items() if first in _selected_positions(index, col)),
+            None,
+        )
+        if role is None and any(
+            first in _selected_positions(index, e) for e in excluded
+        ):
+            continue
+        raise LizyMLError(
+            code=ErrorCode.DATA_SCHEMA_INVALID,
+            user_message=(
+                f"Column {label!r} appears {len(positions)} times in the data "
+                f"(positions {positions}), as "
+                f"{'the ' + role + ' column' if role else 'a feature'}: which "
+                "copy is meant is undefined. Rename or drop the copies before "
+                "fit or tune (H-0148)."
+            ),
+            context={
+                "column": label,
+                "positions": positions,
+                "role": role or "feature",
+                "reason": "duplicate_column_name",
+            },
+        )
 
 
 def build(

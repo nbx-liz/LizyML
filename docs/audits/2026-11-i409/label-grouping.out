@@ -1,0 +1,9 @@
+0 / False	duplicated=True	factorize=True	df[a] many=True
+1 / True	duplicated=True	factorize=True	df[a] many=True
+1 / 1.0	duplicated=True	factorize=True	df[a] many=True
+None / nan	duplicated=False	factorize=True	df[a] many=False
+nan / nan	duplicated=True	factorize=True	df[a] many=True
+('a', 1) / ('a', 1)	duplicated=True	factorize=True	df[a] many=True
+'0' / 0	duplicated=False	factorize=False	df[a] many=False
+np.float64(1.5) / 1.5	duplicated=True	factorize=True	df[a] many=True
+np.int64(2) / 2	duplicated=True	factorize=True	df[a] many=True

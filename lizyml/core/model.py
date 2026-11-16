@@ -53,6 +53,10 @@ from lizyml.config.schema import (
 )
 from lizyml.config.version import check_config_version
 from lizyml.core._codegen_inputs import input_categories
+from lizyml.core._feature_name_check import (
+    check_feature_names_for_training,
+    config_roles,
+)
 from lizyml.core._model_factories import (
     applied_training_overlay,
     build_splitter,
@@ -255,6 +259,7 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
 
         # --- Build components (H-0050/H-0053: provider-based) ----------------
         provider = get_provider(cfg.model)
+        check_feature_names_for_training(provider, X)  # H-0148, before training
         self._provider = provider
         run_meta = self._build_run_meta(run_id)
         # H-0094: `params` is forwarded here. It was documented as overriding
@@ -798,6 +803,10 @@ class Model(ModelPlotsMixin, ModelTablesMixin, ModelPersistenceMixin, ModelTunin
         cfg = self._cfg
         self._block_values = None  # reset per-call transient state
         df = self._load_data(data)
+        # H-0148: a repeated role or feature label is refused before the split.
+        dataframe_builder.check_duplicate_columns(
+            df, config_roles(cfg), cfg.features.exclude
+        )
 
         problem_spec = ProblemSpec(
             task=cfg.task,
