@@ -603,6 +603,10 @@ anchors = ["unsaveable_feature_names", "equals_sign_at_feature_names_edge", "lin
 disposition = "specified"
 anchors = ["FeatureNameRuleProvider", "check_duplicate_columns", "json_special_character_in_feature_name", "duplicate_column_name"]
 
+[proposals."H-0149"]
+disposition = "pending"
+reason = "Proposed; the implementation PR specifies it in BLUEPRINT sections 11.5.3 and 18.1.6 and replaces this row with a specified one."
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 

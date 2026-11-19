@@ -1,0 +1,48 @@
+{
+ "optuna": "3.1.0",
+ "round1": {
+  "warnings": [],
+  "relative_space_at_end": [
+   "x",
+   "y"
+  ]
+ },
+ "round2": {
+  "warnings": [],
+  "relative_space_at_end": [
+   "y"
+  ]
+ }
+}
+{
+ "optuna": "4.7.0",
+ "round1": {
+  "warnings": [],
+  "relative_space_at_end": [
+   "x",
+   "y"
+  ]
+ },
+ "round2": {
+  "warnings": [],
+  "relative_space_at_end": [
+   "y"
+  ]
+ }
+}
+{
+ "optuna": "5.0.0",
+ "round1": {
+  "warnings": [],
+  "relative_space_at_end": [
+   "x",
+   "y"
+  ]
+ },
+ "round2": {
+  "warnings": [],
+  "relative_space_at_end": [
+   "y"
+  ]
+ }
+}
