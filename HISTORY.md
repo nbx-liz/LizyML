@@ -17805,3 +17805,7 @@ Firing rate: 16/16 of the Optuna versions measured in the admitted range (every 
 ### 実装レビュー
 
 - **round 1**（`h0149-impl-review`、`ab5e36c`、CHANGES_REQUESTED。同じ provider のレビュー）: major 1 件と minor 1 件。(1) 公開済みの Optuna 5.1.0 が帯に無く、latest-deps のレーンで列のテストが落ちる（main context が開示していた件）。生成の対象と帯に 5.1 を足し、帯の外の例を 5.2.0 にした。(2) CHANGELOG の H-0149 の項目が、公開済みの `[0.21.3]` の下にあった。`[Unreleased]` に移し、書き換えられていた 0.21.3 の項目を `23a1f14` の文に戻した。
+- **round 2**（`89dde4d`。absolute monitor は DELIVERABLE-FOCUSED で continue）: APPROVE、指摘なし。round 2 の prompt は `docs/audits/2026-11-i419/review/h0149-impl-review-r2.prompt.md`（承認された head を動かさないよう、PR #424 には入れず、リリースの準備の PR で入れた）。
+- **CI**（`89dde4d`）: 27 件すべて合格。latest-deps は Optuna 5.1.0 を解決して 23978 passed、lowest-direct は Optuna 3.1.0・NumPy 1.24.0 で 24373 passed、windows の smoke はこのテストのファイルを集めて 971 passed。
+- **マージ**: PR #424 を develop に squash merge（`bfab4cf`、2026-11-20）。#419 は手で close した。Codex が作った PR の記録は nbx-liz/lizy-harness#357（issuecomment-7028059568、訂正 -7028100849）。
+- **リリース**: v0.22.0（管理者の判断、#419 issuecomment-7028310703。Optuna 4.x 以前の利用者の列が変わるので minor を上げる。LizyStudio は `lizyml<0.22` なので、上限を手で上げるまで入らない）。

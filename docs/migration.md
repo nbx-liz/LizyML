@@ -5,6 +5,29 @@ release from v0.5.0 onward.
 
 ---
 
+## v0.22.0
+
+### Seeded tunes sample with multivariate TPE under every Optuna version (H-0149)
+
+LizyML now builds its sampler as
+`TPESampler(seed=seed, multivariate=True, constant_liar=True)`, the defaults of
+Optuna 5.x ([#419](https://github.com/nbx-liz/LizyML/issues/419)).
+
+- **Optuna 5.x**: nothing changes. The same Config and seed give the same
+  trials as v0.21.
+- **Optuna 4.x and 3.x**: a tune with the same Config and seed now gives a
+  different trial sequence from trial 10 onward (the first ten startup trials
+  are unchanged), and therefore possibly different `best_params`. To reproduce
+  a v0.21 result exactly, stay on v0.21 for that run.
+- **Reproducibility** is guaranteed for the same Config and seed under the same
+  Optuna version. A different Optuna version can sample differently even with
+  the same options (for example 5.0 changed the Parzen estimator's bandwidth).
+- **Resuming a stored study** created under v0.21 continues as before; the
+  trials after the resume use the new sampler. When the study was recorded
+  under another Optuna major, the version-difference warning now says that the
+  following trials differ from continuing under the recorded version.
+- Saved models, exported projects and the stored study format are unchanged.
+
 ## v0.21.1
 
 ### A frozenset category value that does not read back as written is not saveable (H-0145)
