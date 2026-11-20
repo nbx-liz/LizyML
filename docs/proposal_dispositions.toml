@@ -603,6 +603,10 @@ anchors = ["unsaveable_feature_names", "equals_sign_at_feature_names_edge", "lin
 disposition = "specified"
 anchors = ["FeatureNameRuleProvider", "check_duplicate_columns", "json_special_character_in_feature_name", "duplicate_column_name"]
 
+[proposals."H-0149"]
+disposition = "specified"
+anchors = ["make_tpe_sampler", "multivariate=True", "constant_liar=True", "ExperimentalWarning", "h0149_tpe_sequences.json"]
+
 # Public names #271 found documented nowhere: documented (full token in
 # `where`) or internal with a reason.
 

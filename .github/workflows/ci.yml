@@ -196,11 +196,11 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           ulimit -v "$PYTEST_MEMORY_CEILING_KIB"
-          uv run pytest tests/test_persistence tests/test_e2e/test_readme_example.py -m "not slow" -q
+          uv run pytest tests/test_persistence tests/test_e2e/test_readme_example.py tests/test_tuning/test_h0149_sampler_sequence.py -m "not slow" -q
 
       - name: Portability smoke (persistence + README round-trip)
         if: runner.os != 'Linux'
-        run: uv run pytest tests/test_persistence tests/test_e2e/test_readme_example.py -m "not slow" -q
+        run: uv run pytest tests/test_persistence tests/test_e2e/test_readme_example.py tests/test_tuning/test_h0149_sampler_sequence.py -m "not slow" -q
 
   distribution:
     name: Distribution check
