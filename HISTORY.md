@@ -17759,7 +17759,7 @@ Firing rate: 16/16 of the Optuna versions measured in the admitted range (every 
 ### 互換性
 
 - **列が変わる**: Optuna 3.1〜4.7 の利用者では、同じ Config と seed でも trial 10 以後の列が今と変わる（multivariate TPE になる）。Optuna 5.x の利用者では変わらない（5.x の既定と同じ値を渡すため）。
-- **再開**: Optuna 4.x で作った study を、この変更の後に同じ 4.x で再開すると、続きは multivariate TPE で sample される（sampler の状態は study に保存されず、再開のたびに作り直すため）。目的関数の同一性は変わらないので、再開は今どおり通る。
+- **再開**: Optuna 4.x で作った study を、この変更の後に同じ 4.x で storage から読み直して再開すると、続きは multivariate TPE で sample される（sampler の状態は study に保存されず、`load_stored_study` が読み直すたびに作り直すため）。同じ Model が持っている study を続ける再開（`lizyml/core/_tuning_resume.py` の `StudyTarget("continue", current_study)`）は、その study の sampler をそのまま使い、作り直さない。目的関数の同一性は変わらないので、再開は今どおり通る。
 - **major が同じでも列が変わる版がある**: 5.x の値を明示した列は、3.2→3.3 と 3.4→3.5 でも変わる（実測）。このときは方針 3 の 1 文は入らず、今の版の違いの警告だけが出る（管理者の判断 2 は major で決めた）。
 - 公開の API、Config、`TuningResult`、保存の形式と `format_version` は変えない。`make_tpe_sampler` は `lizyml.tuning.tuner` の中の関数で、`lizyml.tuning` から公開しない。
 - 版の判断（v0.21.4 か v0.22.0 か）はリリースのときに管理者が決める。LizyStudio は `lizyml>=0.21.1,<0.22.0` で、lock の optuna は 4.7.0。
@@ -17789,3 +17789,4 @@ Firing rate: 16/16 of the Optuna versions measured in the admitted range (every 
 ### Proposal レビュー
 
 - **round 1**（`h0149-proposal-review`、`adf7098`、CHANGES_REQUESTED）: major 2 件。(1) sampler を作る 3 か所目は `Tuner.run` でなく `Tuner.tune`（`lizyml/tuning/tuner.py:358`。`Tuner.run` は study を作らない）。方針 1・5 と受け入れ 1 を直した。(2) smoke のレーンは `tests/test_persistence` と README の例しか集めない（`.github/workflows/ci.yml` の 2 つの Portability smoke の step）ので、管理者の判断 3 の「全てのレーン」を満たさない。方針 4 に smoke の step への追加、受け入れ 3 に smoke の 3 レーンを足し、pytest でこのテストを走らせない Extras registry と Notebook index のレーンを範囲の外と書いた。レビューの環境には Optuna・pytest・NumPy が無く、probe は動かせなかった（出力の照合だけ）。
+- **round 2**（`176ff9c`。absolute monitor は INCONCLUSIVE: brief の成果物の名前の誤り（`task.json` と書いたが実際は `h0149-proposal-review.task.json`）のためで、分類そのものは 2 つの修正を Proposal の改訂として釣り合っていると判断した。main context は continue とした）: APPROVE、minor 1 件。互換性の「再開のたびに sampler を作り直す」は言い過ぎで、同じ Model が持つ study を続ける再開（`_tuning_resume.py` の `continue`）は sampler を作り直さない。storage から読み直す再開に限って書き直した。
