@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.22.0] - 2026-11-20
+
+### Changed
+
+- **Tuning explicitly uses multivariate TPE and constant liar** (H-0149, [#419](https://github.com/nbx-liz/LizyML/issues/419)). Every new or reloaded sampler uses `TPESampler(seed=seed, multivariate=True, constant_liar=True)`. Optuna 4.x and earlier users get different trial sequences from trial 10 onward; Optuna 5.x users keep the same options as its defaults. A study already held by the same Model keeps its sampler. Reproducibility requires the same Config, seed and Optuna version: options cannot restore another version's sequence. Resuming with a different Optuna major still continues, with an additional sentence warning that sampler behavior and subsequent trials may differ even with the same seed. Only Optuna's construction-time `ExperimentalWarning` is suppressed; other warnings remain visible. The dependency range remains `optuna>=3.1`. The golden covers Optuna 3.1 to 5.1.
+
 ## [0.21.3] - 2026-11-17
 
 ### Fixed
