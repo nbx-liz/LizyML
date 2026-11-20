@@ -192,7 +192,7 @@ def test_seeded_default_space_sequence_matches_band(
 
 
 @pytest.mark.parametrize(
-    "version", ["3.0.0", "3.7.0", "4.8.0", "5.1.0", "6.0.0", "unknown"]
+    "version", ["3.0.0", "3.7.0", "4.8.0", "5.2.0", "6.0.0", "unknown"]
 )
 def test_unknown_optuna_minor_fails(golden_data: dict[str, Any], version: str) -> None:
     with pytest.raises(AssertionError, match=r"capture_sequences\.py VERSION=PYTHON"):

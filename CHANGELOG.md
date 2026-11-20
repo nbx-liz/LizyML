@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Changed
+
+- **Tuning explicitly uses multivariate TPE and constant liar** (H-0149, [#419](https://github.com/nbx-liz/LizyML/issues/419)). Every new or reloaded sampler uses `TPESampler(seed=seed, multivariate=True, constant_liar=True)`. Optuna 4.x and earlier users get different trial sequences from trial 10 onward; Optuna 5.x users keep the same options as its defaults. A study already held by the same Model keeps its sampler. Reproducibility requires the same Config, seed and Optuna version: options cannot restore another version's sequence. Resuming with a different Optuna major still continues, with an additional sentence warning that sampler behavior and subsequent trials may differ even with the same seed. Only Optuna's construction-time `ExperimentalWarning` is suppressed; other warnings remain visible. The dependency range remains `optuna>=3.1`. The golden covers Optuna 3.1 to 5.1.
+
 ## [0.21.3] - 2026-11-17
 
 ### Fixed
@@ -14,8 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
-- **Tuning explicitly uses multivariate TPE and constant liar** (H-0149, [#419](https://github.com/nbx-liz/LizyML/issues/419)). Every new or reloaded sampler uses `TPESampler(seed=seed, multivariate=True, constant_liar=True)`. Optuna 4.x and earlier users get different trial sequences from trial 10 onward; Optuna 5.x users keep the same options as its defaults. A study already held by the same Model keeps its sampler. Reproducibility requires the same Config, seed and Optuna version: options cannot restore another version's sequence. Resuming with a different Optuna major still continues, with an additional sentence warning that sampler behavior and subsequent trials may differ even with the same seed. Only Optuna's construction-time `ExperimentalWarning` is suppressed; other warnings remain visible. The dependency range remains `optuna>=3.1`.
-- **The lock file and CI moved to newer dependencies** (Dependabot, #413-#418): optuna 5.0.0, pyarrow 25.0.1, pytest 9.2.0, nbconvert 7.17.2, vulture 2.16, and `astral-sh/setup-uv` v10.3.3 in the workflows. The library's dependency ranges are unchanged (`optuna>=3.1` already admitted 5.0). Optuna 5.0 changed the defaults of `TPESampler` (multivariate TPE and constant liar); H-0149 above makes those options explicit in LizyML.
+- **The lock file and CI moved to newer dependencies** (Dependabot, #413-#418): optuna 5.0.0, pyarrow 25.0.1, pytest 9.2.0, nbconvert 7.17.2, vulture 2.16, and `astral-sh/setup-uv` v10.3.3 in the workflows. The library's dependency ranges are unchanged (`optuna>=3.1` already admitted 5.0). Optuna 5.0 changed the defaults of `TPESampler` (multivariate TPE and constant liar), so a tune with the same seed samples differently under Optuna 4.x and 5.x; whether LizyML pins the sampler options is open in [#419](https://github.com/nbx-liz/LizyML/issues/419).
 
 ## [0.21.2] - 2026-11-16
 
