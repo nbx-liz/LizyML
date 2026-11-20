@@ -17798,5 +17798,10 @@ Firing rate: 16/16 of the Optuna versions measured in the admitted range (every 
 
 - **作り手**: Codex maker（`gpt-6.1-sol`、effort `high`、nbx-liz/lizy-harness#335 の P0 の手順と M4 の cache の改訂）。1 回目の起動で 9 つのファイルを変えた（`lizyml/tuning/tuner.py`、`lizyml/core/_tuning_resume.py`、`tests/test_tuning/test_h0149_sampler_sequence.py`、`tests/test_tuning/data/h0149_tpe_sequences.json`、`docs/audits/2026-11-i419/capture_sequences.py`、`.github/workflows/ci.yml`、BLUEPRINT.md、CHANGELOG.md、`docs/proposal_dispositions.toml`）。この記録は main context が書いた。
 - **置き場所**: `make_tpe_sampler` は `lizyml/tuning/tuner.py`。列を作る関数 `build_sequence` と帯を選ぶ `select_band` は生成のスクリプト `docs/audits/2026-11-i419/capture_sequences.py` にあり、テストはそれを path で import する（テストと生成が同じコードを使う）。
-- **帯**（LizyML の `default_space("binary")` で測り直した値）: 3.1〜3.2、3.3〜3.4、3.5〜4.7、5.0。生成を 2 回走らせると、参照データは同じバイト（sha256 `ad8fd158…`）。
-- **Optuna 5.1.0**: 実装の後に、PyPI に 5.1.0 があることが分かった（latest-deps のレーンが解決する）。LizyML の空間での列は 5.0.0 と同じ（main context が 5.1.0 の環境で測った）が、1 回目の参照データには 5.1 が無い。修正の起動で 5.1 を 5.0 の帯に加える。
+- **帯**（LizyML の `default_space("binary")` で測り直した値）: 3.1〜3.2、3.3〜3.4、3.5〜4.7、5.0〜5.1。生成を 2 回走らせると、参照データは同じバイト（17 版で sha256 `0e529987…`。5.1.0 を足す前の 16 版では `ad8fd158…`）。
+- **Optuna 5.1.0**: 実装の後に、PyPI に 5.1.0 があることが分かった（latest-deps のレーンが解決する）。LizyML の空間での列は 5.0.0 と同じで、修正の起動で 5.1 を 5.0 の帯に加えた（`CAPTURE_VERSIONS` は 17 版）。帯の外の版の例は `5.2.0` にした。
+- **Codex maker の起動**: 3 回。1 回目が実装。2 回目（修正）は、brief の BLUEPRINT.md の sha256 が 1 回目の編集の前の値だったため、契約の検査で止まり、何も変えなかった（brief の誤り。maker は規則どおり止まった）。管理者が 3 回目を承認し（#419 issuecomment-7027447982）、3 回目が実装レビュー round 1 の 2 件を直した。
+
+### 実装レビュー
+
+- **round 1**（`h0149-impl-review`、`ab5e36c`、CHANGES_REQUESTED。同じ provider のレビュー）: major 1 件と minor 1 件。(1) 公開済みの Optuna 5.1.0 が帯に無く、latest-deps のレーンで列のテストが落ちる（main context が開示していた件）。生成の対象と帯に 5.1 を足し、帯の外の例を 5.2.0 にした。(2) CHANGELOG の H-0149 の項目が、公開済みの `[0.21.3]` の下にあった。`[Unreleased]` に移し、書き換えられていた 0.21.3 の項目を `23a1f14` の文に戻した。
