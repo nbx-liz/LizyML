@@ -17711,14 +17711,14 @@ Firing rate: 13/17 of the probed feature-name cases (7 JSON-special names, 5 col
 - **起票日**: 2026-11-20
 - **関連**: H-0122（study の記録と版の警告）、H-0081（再現性の前提）、H-0056（§18.1.6 tuning 再現性）、#419、#417（optuna 5.0.0 への lock の更新）
 - **スコープ**:
-  - `lizyml/tuning/tuner.py`（sampler を作る 3 か所を 1 つの関数にまとめる）、`lizyml/core/_tuning_resume.py`（版の警告）、テストと参照データ、参照データの生成のスクリプト、BLUEPRINT §11.5.3・§18.1.6・§18（再現性テスト）、CHANGELOG、`docs/proposal_dispositions.toml`
+  - `lizyml/tuning/tuner.py`（sampler を作る 3 か所を 1 つの関数にまとめる）、`lizyml/core/_tuning_resume.py`（版の警告）、テストと参照データ、参照データの生成のスクリプト、`.github/workflows/ci.yml`（smoke のレーンに列のテストを足す）、BLUEPRINT §11.5.3・§18.1.6・§18（再現性テスト）、CHANGELOG、`docs/proposal_dispositions.toml`
   - 範囲の外: `pyproject.toml` の optuna の範囲（`optuna>=3.1` のまま。管理者の判断）、resume の拒否（しない。管理者の判断）、sampler の種類や Config の項目の追加、並列の trial（`n_jobs`）、LizyStudio の変更
 
 Gate-category: none
 
 ### 目的（課題）
 
-Optuna 5.0 は `TPESampler` の既定を変えた（単目的の study で multivariate TPE と constant liar が既定で有効、bandwidth の新しい計算）。LizyML は sampler を `TPESampler(seed=seed)` だけで作る（`lizyml/tuning/tuner.py` の `load_stored_study`・`create_study`・`Tuner.run` の 3 か所）。そのため、同じ Config と seed でも、入っている Optuna の版で trial の列が変わり、`best_params` も変わりうる。`pyproject.toml` は `optuna>=3.1` で上限が無く、lock は #417 で 5.0.0 になった。seed を固定した trial の列を固定するテストは無いので、CI はこの違いを捕まえない。再現性は LizyML の第一の目的（CLAUDE.md §0）なので、管理者は Proposal で決めることを求めた。
+Optuna 5.0 は `TPESampler` の既定を変えた（単目的の study で multivariate TPE と constant liar が既定で有効、bandwidth の新しい計算）。LizyML は sampler を `TPESampler(seed=seed)` だけで作る（`lizyml/tuning/tuner.py` の `load_stored_study`・`create_study`・`Tuner.tune` の 3 か所）。そのため、同じ Config と seed でも、入っている Optuna の版で trial の列が変わり、`best_params` も変わりうる。`pyproject.toml` は `optuna>=3.1` で上限が無く、lock は #417 で 5.0.0 になった。seed を固定した trial の列を固定するテストは無いので、CI はこの違いを捕まえない。再現性は LizyML の第一の目的（CLAUDE.md §0）なので、管理者は Proposal で決めることを求めた。
 
 ### 実測（2026-11-20、develop `6b15200`、CPython 3.12、NumPy 2.5.5）
 
@@ -17742,15 +17742,16 @@ Optuna 5.0 は `TPESampler` の既定を変えた（単目的の study で multi
 
 ### 対応方針（提案）
 
-1. **sampler を作る関数を 1 つにする**: `lizyml/tuning/tuner.py` に `make_tpe_sampler(seed: int) -> Any` を足し、`TPESampler(seed=seed, multivariate=True, constant_liar=True)` を返す。ほかの引数は渡さない（`n_startup_trials=10`・`n_ei_candidates=24`・`group=False` の既定は 3.1.0・3.5.0・4.7.0・5.0.0 で同じ。`consider_prior`・`prior_weight` などは 5.0 で既定が `None` になり、一部は非推奨なので、渡さず既定に任せる）。`load_stored_study`・`create_study`・`Tuner.run` の 3 か所は、`optuna_.samplers.TPESampler(...)` を直接呼ばず、この関数を呼ぶ。関数は呼ぶ時点で `optuna_.samplers.TPESampler` を引く（テストが差し替えられるように、今の `create_study` と同じ）。
+1. **sampler を作る関数を 1 つにする**: `lizyml/tuning/tuner.py` に `make_tpe_sampler(seed: int) -> Any` を足し、`TPESampler(seed=seed, multivariate=True, constant_liar=True)` を返す。ほかの引数は渡さない（`n_startup_trials=10`・`n_ei_candidates=24`・`group=False` の既定は 3.1.0・3.5.0・4.7.0・5.0.0 で同じ。`consider_prior`・`prior_weight` などは 5.0 で既定が `None` になり、一部は非推奨なので、渡さず既定に任せる）。`load_stored_study`・`create_study`・`Tuner.tune` の 3 か所は、`optuna_.samplers.TPESampler(...)` を直接呼ばず、この関数を呼ぶ。関数は呼ぶ時点で `optuna_.samplers.TPESampler` を引く（テストが差し替えられるように、今の `create_study` と同じ）。
 2. **ExperimentalWarning を外に出さない**: 構築の間だけ `warnings.catch_warnings()` で `optuna.exceptions.ExperimentalWarning` を無視する。ほかの種類の警告は今どおり出す。5.0 以後は出ないので何もしない。
 3. **resume の警告**: `_tuning_resume.py` の版の違いの警告（`study '<name>' was created with other library versions (...)`）は今どおり出す。記録した Optuna と入っている Optuna の major が違うときだけ、同じ警告の文に 1 文を足す。文は「Optuna の major が違うと TPE sampler の振る舞いが違い、seed が同じでも、続きの trial は記録した版で続けた場合と違う」という意味の英文。major は版の文字列の先頭の数で比べ、どちらかが読めない（数で始まらない）ときは 1 文を足さない（版の違いの警告そのものは今どおり出る）。
 4. **列を固定するテスト**: `tests/test_tuning/test_h0149_sampler_sequence.py`。
    - 参照データ `tests/test_tuning/data/h0149_tpe_sequences.json`: 帯の一覧。各帯は、含む Optuna の minor（`"3.1"` の形）の一覧、40 trial の列（パラメーターの dict の一覧）、生成の記録（各 minor で使った Optuna・NumPy・Python の版）を持つ。帯は実測の 4 つ（3.1〜3.2、3.3〜3.4、3.5〜4.7、5.0）。
    - 列の作り方: `make_tpe_sampler(seed)` で作った sampler と `optuna.create_study(direction="minimize")`、`lizyml.tuning.search_space.suggest_params` に LightGBM の既定の空間（`lizyml.estimators.lgbm.defaults.default_space("binary")`）を渡す目的関数（学習しない。sample した値の決まった関数）。float は有効数字 12 桁に丸めて比べる（platform と NumPy の版による最後の桁の違いを吸収する。categorical と int はそのまま比べる）。
-   - 入っている Optuna の minor がどの帯にも無いときは落ち、生成のスクリプトの使い方を示す。skip はしない。
+   - 入っている Optuna の minor がどの帯にも無いときは落ち、生成のスクリプトの使い方を示す。skip はしない。latest-deps のレーンは、Optuna の新しい minor が出ると、その minor を参照に足すまで落ちる（H-0144 の pandas の参照と同じ扱い）。そのときは生成のスクリプトで帯を足す。
+   - **走らせるレーン**: テストスイートを pytest で走らせるレーン（Quality 3.10・3.11・3.12、lowest-direct、latest-deps）は `tests/` 全体を集めるので、そのまま走る。smoke の 3 レーン（ubuntu・macos・windows。`.github/workflows/ci.yml` の 2 つの Portability smoke の step）は `tests/test_persistence` と README の例しか集めないので、両方の step の pytest の引数にこのテストのファイルを足す（platform による違いもここで見る）。Extras registry と Notebook index のレーンは pytest で `tests/test_tuning` を走らせず、範囲の外。
    - 生成のスクリプト: `docs/audits/2026-11-i419/capture_sequences.py`（CI のテストの外に置く。H-0144 の capture driver と同じ考え）。minor ごとの環境で動かし、帯の中の全ての minor が同じ列を出すことを確かめてから参照データを書く。同じ環境でもう一度動かすと、参照データとバイトが一致する。
-5. **3 か所の配線のテスト**（DC4）: `optuna.samplers.TPESampler` を記録する subclass に差し替え、`load_stored_study`・`create_study`・`Tuner.run`（`study=None`）が、それぞれちょうど `seed`・`multivariate=True`・`constant_liar=True` で作ることを確かめる。
+5. **3 か所の配線のテスト**（DC4）: `optuna.samplers.TPESampler` を記録する subclass に差し替え、`load_stored_study`・`create_study`・`Tuner.tune`（`study=None`）が、それぞれちょうど `seed`・`multivariate=True`・`constant_liar=True` で作ることを確かめる。
 6. **文書**: BLUEPRINT §18.1.6 と §18 の再現性テストの文（「同一 seed で…trial 順序が一致」）を「同じ Optuna の版で」に直し、sampler の引数（`multivariate=True`、`constant_liar=True`）と、Optuna の版が違えば列が違うこと（引数では戻せないこと）を書く。§11.5.3 の版の警告の文に、major が違うときの 1 文を書く。CHANGELOG の `[Unreleased]` に、Optuna 4.x 以前の利用者の列が変わること。`docs/proposal_dispositions.toml` に H-0149 の行（`specified`）。
 
 Firing rate: 16/16 of the Optuna versions measured in the admitted range (every minor from 3.1 to 5.0 at x.y.0, plus 3.6.1) fall in one of the four golden bands, so the band lookup of policy 4 selects a golden for each of them (`docs/audits/2026-11-i419/explicit-options-band.out`); the major-difference sentence of policy 3 is unmeasurable before implementation (no population of stored studies exists in this repository; measurable when LizyStudio's paused jobs written under Optuna 4.x are resumed under 5.x).
@@ -17773,9 +17774,9 @@ Firing rate: 16/16 of the Optuna versions measured in the admitted range (every 
 
 ### 受け入れ基準（テスト観点）
 
-1. **配線**: `load_stored_study`・`create_study`・`Tuner.run`（`study=None`）の 3 つが、`TPESampler` をちょうど `seed`・`multivariate=True`・`constant_liar=True` で作る（方針 5）。`lizyml/tuning/` に `TPESampler(` を直接呼ぶ所が `make_tpe_sampler` のほかに無い。
+1. **配線**: `load_stored_study`・`create_study`・`Tuner.tune`（`study=None`）の 3 つが、`TPESampler` をちょうど `seed`・`multivariate=True`・`constant_liar=True` で作る（方針 5）。`lizyml/tuning/` に `TPESampler(` を直接呼ぶ所が `make_tpe_sampler` のほかに無い。
 2. **警告**: どのレーンの Optuna でも、`make_tpe_sampler` は `ExperimentalWarning` を呼び出し側に出さない。`ExperimentalWarning` 以外の警告は飲み込まない（構築の中で別の警告を出す偽の sampler で確かめる）。
-3. **列**: 全てのレーン（3.10・3.11・3.12、lowest-direct、latest-deps）で、入っている Optuna の帯の参照と一致する。どの帯にも無い minor では落ちる（偽の版で確かめる）。**落ちるべき例**: `multivariate=False` で作った sampler の列は、どのレーンでも参照と一致しない（テストで確かめる）。
+3. **列**: テストスイートを走らせる全てのレーン（Quality 3.10・3.11・3.12、lowest-direct、latest-deps）と smoke の 3 レーン（ubuntu・macos・windows）で、入っている Optuna の帯の参照と一致する。どの帯にも無い minor では落ちる（偽の版で確かめる）。**落ちるべき例**: `multivariate=False` で作った sampler の列は、どのレーンでも参照と一致しない（テストで確かめる）。smoke の 2 つの step の pytest の引数にこのファイルがあることは、PR の CI の smoke の job の出力で確かめる。
 4. **生成のスクリプト**: 4 つの帯の代表の環境で動かし、帯の中の全ての minor が同じ列を出し、参照データとバイトが一致することを、実装の PR の証拠に記録する。
 5. **resume の警告**: 記録した Optuna の major が入っている版と違うと、版の違いの警告に方針 3 の 1 文が入る。major が同じで版が違うときは、その文が入らず、警告は今と同じ文。版が読めないときも 1 文が入らない。記録の版は入っている版から作り、レーンの版に依らない。
 6. **文書**: 方針 6 の BLUEPRINT・CHANGELOG・`docs/proposal_dispositions.toml`。`tests/test_docs/` が通る。
@@ -17784,3 +17785,7 @@ Firing rate: 16/16 of the Optuna versions measured in the admitted range (every 
 ### レビューの停止基準
 
 指摘は、契約の中の欠陥（3 か所のどれかが `make_tpe_sampler` を通らない、ExperimentalWarning が出る、ほかの警告を飲み込む、列のテストがどこかのレーンで skip するか黙って通る、帯の外の版で通る、resume の 1 文が major の違いと食い違う、実測と文書が食い違う）に限る。範囲の外（Optuna の範囲、resume の拒否、並列の trial、LizyStudio）は指摘にしない。
+
+### Proposal レビュー
+
+- **round 1**（`h0149-proposal-review`、`adf7098`、CHANGES_REQUESTED）: major 2 件。(1) sampler を作る 3 か所目は `Tuner.run` でなく `Tuner.tune`（`lizyml/tuning/tuner.py:358`。`Tuner.run` は study を作らない）。方針 1・5 と受け入れ 1 を直した。(2) smoke のレーンは `tests/test_persistence` と README の例しか集めない（`.github/workflows/ci.yml` の 2 つの Portability smoke の step）ので、管理者の判断 3 の「全てのレーン」を満たさない。方針 4 に smoke の step への追加、受け入れ 3 に smoke の 3 レーンを足し、pytest でこのテストを走らせない Extras registry と Notebook index のレーンを範囲の外と書いた。レビューの環境には Optuna・pytest・NumPy が無く、probe は動かせなかった（出力の照合だけ）。
