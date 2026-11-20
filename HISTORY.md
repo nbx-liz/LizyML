@@ -17707,8 +17707,9 @@ Firing rate: 13/17 of the probed feature-name cases (7 JSON-special names, 5 col
 
 ## H-0149: TPESampler の設定を明示し、tune の再現性を「同じ Optuna の版の中で」と定める（#419）
 
-- **ステータス**: Proposed
+- **ステータス**: Accepted
 - **起票日**: 2026-11-20
+- **決定日**: 2026-11-20
 - **関連**: H-0122（study の記録と版の警告）、H-0081（再現性の前提）、H-0056（§18.1.6 tuning 再現性）、#419、#417（optuna 5.0.0 への lock の更新）
 - **スコープ**:
   - `lizyml/tuning/tuner.py`（sampler を作る 3 か所を 1 つの関数にまとめる）、`lizyml/core/_tuning_resume.py`（版の警告）、テストと参照データ、参照データの生成のスクリプト、`.github/workflows/ci.yml`（smoke のレーンに列のテストを足す）、BLUEPRINT §11.5.3・§18.1.6・§18（再現性テスト）、CHANGELOG、`docs/proposal_dispositions.toml`
@@ -17739,6 +17740,7 @@ Optuna 5.0 は `TPESampler` の既定を変えた（単目的の study で multi
 2. 記録と違う Optuna の major で study を再開するときは、続けるが、sampler の振る舞いが違い、seed が同じでも以後の trial が違うことを具体的に警告する。拒否はしない。
 3. seed を固定した trial の列をテストで固定し、全ての CI のレーンで skip せずに走らせる。Optuna の版の帯ごとに参照を持ち、知られた帯の外の版では落とす。
 4. 実装の PR は Codex maker（nbx-liz/lizy-harness#335 の P0 の手順）が作る。この Proposal が `Gate-category: none` で承認されることが条件。
+5. （Codex のレビューの後、2026-11-20。#419 issuecomment-7026463964）この Proposal を承認する。resume の 1 文は major で決めたまま（3.2→3.3 と 3.4→3.5 でも列は変わるが、一般の版の違いの警告が版を示す）。実装の Codex maker のタスクを承認する（起動は最大 2 回、変更してよいファイルは 9 つ）。
 
 ### 対応方針（提案）
 
@@ -17791,3 +17793,10 @@ Firing rate: 16/16 of the Optuna versions measured in the admitted range (every 
 - **round 1**（`h0149-proposal-review`、`adf7098`、CHANGES_REQUESTED）: major 2 件。(1) sampler を作る 3 か所目は `Tuner.run` でなく `Tuner.tune`（`lizyml/tuning/tuner.py:358`。`Tuner.run` は study を作らない）。方針 1・5 と受け入れ 1 を直した。(2) smoke のレーンは `tests/test_persistence` と README の例しか集めない（`.github/workflows/ci.yml` の 2 つの Portability smoke の step）ので、管理者の判断 3 の「全てのレーン」を満たさない。方針 4 に smoke の step への追加、受け入れ 3 に smoke の 3 レーンを足し、pytest でこのテストを走らせない Extras registry と Notebook index のレーンを範囲の外と書いた。レビューの環境には Optuna・pytest・NumPy が無く、probe は動かせなかった（出力の照合だけ）。
 - **round 2**（`176ff9c`。absolute monitor は INCONCLUSIVE: brief の成果物の名前の誤り（`task.json` と書いたが実際は `h0149-proposal-review.task.json`）のためで、分類そのものは 2 つの修正を Proposal の改訂として釣り合っていると判断した。main context は continue とした）: APPROVE、minor 1 件。互換性の「再開のたびに sampler を作り直す」は言い過ぎで、同じ Model が持つ study を続ける再開（`_tuning_resume.py` の `continue`）は sampler を作り直さない。storage から読み直す再開に限って書き直した。
 - **差分の確認**（loop round 3、`h0149-proposal-delta`、`21cd5c2`。round 2 の APPROVE の後に直した互換性の 1 文だけを見る。fresh context の relational monitor は CONVERGING で continue）: APPROVE、指摘なし。
+
+### 実装の記録
+
+- **作り手**: Codex maker（`gpt-6.1-sol`、effort `high`、nbx-liz/lizy-harness#335 の P0 の手順と M4 の cache の改訂）。1 回目の起動で 9 つのファイルを変えた（`lizyml/tuning/tuner.py`、`lizyml/core/_tuning_resume.py`、`tests/test_tuning/test_h0149_sampler_sequence.py`、`tests/test_tuning/data/h0149_tpe_sequences.json`、`docs/audits/2026-11-i419/capture_sequences.py`、`.github/workflows/ci.yml`、BLUEPRINT.md、CHANGELOG.md、`docs/proposal_dispositions.toml`）。この記録は main context が書いた。
+- **置き場所**: `make_tpe_sampler` は `lizyml/tuning/tuner.py`。列を作る関数 `build_sequence` と帯を選ぶ `select_band` は生成のスクリプト `docs/audits/2026-11-i419/capture_sequences.py` にあり、テストはそれを path で import する（テストと生成が同じコードを使う）。
+- **帯**（LizyML の `default_space("binary")` で測り直した値）: 3.1〜3.2、3.3〜3.4、3.5〜4.7、5.0。生成を 2 回走らせると、参照データは同じバイト（sha256 `ad8fd158…`）。
+- **Optuna 5.1.0**: 実装の後に、PyPI に 5.1.0 があることが分かった（latest-deps のレーンが解決する）。LizyML の空間での列は 5.0.0 と同じ（main context が 5.1.0 の環境で測った）が、1 回目の参照データには 5.1 が無い。修正の起動で 5.1 を 5.0 の帯に加える。
