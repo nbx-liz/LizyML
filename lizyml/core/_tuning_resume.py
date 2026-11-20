@@ -20,6 +20,7 @@ attribute writes themselves happen in ``Model.tune`` phase E.
 
 from __future__ import annotations
 
+import re
 import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -341,12 +342,23 @@ def check_against_record(
         changes = ", ".join(
             f"{d.package} {d.stored} -> {d.current}" for d in differences
         )
-        warnings.warn(
+        message = (
             f"study '{name}' was created with other library versions ({changes}). "
-            "The objective identity matches, so the study continues.",
-            UserWarning,
-            stacklevel=4,
+            "The objective identity matches, so the study continues."
         )
+        stored_major = re.match(r"[0-9]+", record.versions.get("optuna", ""))
+        current_major = re.match(r"[0-9]+", versions.get("optuna", ""))
+        if (
+            stored_major is not None
+            and current_major is not None
+            and int(stored_major[0]) != int(current_major[0])
+        ):
+            message += (
+                " Optuna major versions differ, so TPE sampler behavior changes "
+                "and, even with the same seed, subsequent trials may differ from "
+                "continuing with the recorded version."
+            )
+        warnings.warn(message, UserWarning, stacklevel=4)
 
 
 def objective_identity(

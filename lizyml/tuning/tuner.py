@@ -109,6 +109,16 @@ def require_optuna() -> Any:
     return _require_optuna()
 
 
+def make_tpe_sampler(seed: int) -> Any:
+    """Construct the seeded TPE sampler with H-0149's explicit options."""
+    optuna_ = _require_optuna()
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", optuna_.exceptions.ExperimentalWarning)
+        return optuna_.samplers.TPESampler(
+            seed=seed, multivariate=True, constant_liar=True
+        )
+
+
 def precheck_study_args(
     storage: str | BaseStorage | None,
     study_name: str | None,
@@ -177,8 +187,9 @@ def load_stored_study(
 ) -> Any | None:
     """Return the stored study named *study_name*, or ``None`` when absent.
 
-    Loading writes nothing to the study (Optuna 4.7, verified). The sampler is
-    a fresh ``TPESampler(seed)``, as for a created study.
+    Loading writes nothing to the study (verified on Optuna 3.1.0, 4.7.0 and
+    5.0.0; see docs/audits/2026-11-i419/README.md). The sampler is freshly
+    constructed by ``make_tpe_sampler(seed)``, as for a created study.
     """
     optuna_ = _require_optuna()
     if not stored_study_exists(storage, study_name):
@@ -186,7 +197,7 @@ def load_stored_study(
     return optuna_.load_study(
         study_name=study_name,
         storage=storage,
-        sampler=optuna_.samplers.TPESampler(seed=seed),
+        sampler=make_tpe_sampler(seed),
     )
 
 
@@ -202,7 +213,7 @@ def create_study(
     patching ``optuna.create_study`` sees every creation.
     """
     optuna_ = _require_optuna()
-    sampler = optuna_.samplers.TPESampler(seed=seed)
+    sampler = make_tpe_sampler(seed)
     if storage is None:
         return optuna_.create_study(direction=direction, sampler=sampler)
     return optuna_.create_study(
@@ -355,7 +366,7 @@ class Tuner:
         check_tuner_dims(self.dims)
         optuna_ = _require_optuna()
         if study is None:
-            sampler = optuna_.samplers.TPESampler(seed=self.seed)
+            sampler = make_tpe_sampler(self.seed)
             if self.storage is None:
                 study = optuna_.create_study(direction=self.direction, sampler=sampler)
             else:

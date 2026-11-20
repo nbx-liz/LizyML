@@ -1300,7 +1300,7 @@ study を作るとき、目的関数の同一性を study の属性に書く（�
 
 - 含める: データ（tune が実際に使う DataFrame の列名と順序、dtype、categorical の categories とその順序と `ordered`、値と行の順序。index、型の違う同じ表記の値も区別する。`data.path` は文字列ではなく読んだ中身を要約する。除外する列も含める）、config の探索空間以外（task、data と特徴量の設定、`model` の全体（探索している次元の値も含む）、実効の固定パラメーター `fixed`、provider の既定パラメーター、training の全体、split の全体）、最初の評価指標とそこから導いた最適化の向き。
 - 含めない: 探索空間（`space_mode` が変える `fixed` は含める）、`n_trials`、timeout、sampler、`progress_callback`、`expand_boundary`、`boundary_threshold`、二つ目以降の評価指標、calibration、export・出力の設定、`storage`、`study_name`、時刻。
-- ライブラリの版（LizyML、LightGBM、Optuna、pandas、scikit-learn）は同一性と別に記録し、違えば警告だけを出して続ける。版の更新で同一性に入る値そのもの（provider が決める `fixed` や既定パラメーター）が変われば、目的関数の変更として `CONFIG_INVALID`。
+- ライブラリの版（LizyML、LightGBM、Optuna、pandas、scikit-learn）は同一性と別に記録し、違えば警告だけを出して続ける。記録した Optuna と入っている Optuna の major が違うときだけ、同じ警告に「TPE sampler の振る舞いが変わり、seed が同じでも、続きの trial は記録した版で続けた場合と違いうる」という意味の英文を 1 文足す（H-0149）。major は版の文字列の先頭の整数で比べ、どちらかが数で始まらなければ 1 文を足さない。major が同じで minor が違う場合も、従来の版の違いの警告だけで続ける。版の更新で同一性に入る値そのもの（provider が決める `fixed` や既定パラメーター）が変われば、目的関数の変更として `CONFIG_INVALID`。
 - 向きの照合（H-0099）はそのまま残り、目的関数の照合と同じく試行を足す前に行う。
 
 ### study の属性
@@ -2092,7 +2092,7 @@ LizyMLError(code, user_message, *, debug_message=None, cause=None, context=None)
 ### 18.1.1 基本テストカテゴリ
 
 - **Golden test（契約固定）**: `FitResult / PredictionResult / RunMeta / SplitIndices` のフィールド名・型・構造を固定し、意図しない破壊的変更を検知する。
-- **再現性テスト**: 同一 config + seed で `oof_pred`, `predict`, `metrics`, `split indices` が bit 一致する。`tune()` も同一 seed で `best_params` / `best_score` / trial 順序が一致する。bit 一致は**固定 `(num_threads, CPU)` 環境**（同一スレッド数の同一プロセス / マシン）を前提とする。LightGBM の histogram 構築がスレッド数依存のため、クロス環境 bit 一致は保証範囲外（H-0081）。
+- **再現性テスト**: 同一 config + seed で `oof_pred`, `predict`, `metrics`, `split indices` が bit 一致する。`tune()` も同一 config + seed を同じ Optuna の版で使えば `best_params` / `best_score` / trial 順序が一致する（H-0149、§18.1.6）。bit 一致は**固定 `(num_threads, CPU)` 環境**（同一スレッド数の同一プロセス / マシン）を前提とする。LightGBM の histogram 構築がスレッド数依存のため、クロス環境 bit 一致は保証範囲外（H-0081）。
 - **リーク防止テスト**: OOF が held-out データのみから生成されること、calibration が cross-fit で分離されていること、feature pipeline が train fold のみで fit されることを検証する。
 - **列ズレテスト**: 余剰 / 不足 / unseen category のポリシー通り動く。カテゴリ順序ずれ（学習時と推論時で同一カテゴリだが出現順が異なる）もカバーする。
 - **例外テスト**: 全 `ErrorCode` に対して少なくとも 1 テストが存在し、`context` dict の必須キーを検証する。
@@ -2163,7 +2163,9 @@ scikit-learn の `check_estimator` に相当する、EstimatorProvider / BaseEst
 
 Optuna の seed 固定ポリシーに準拠し、tuning 結果の再現性と失敗系パスを網羅する。
 
-- **再現性**: 同一 seed で `best_params`, `best_score`, trial 順序が一致。
+- **再現性**: 同一 config + seed を同じ Optuna の版で使えば `best_params`, `best_score`, trial 順序が一致（H-0149）。sampler は内部の `make_tpe_sampler(seed)` で `TPESampler(seed=seed, multivariate=True, constant_liar=True)` を作り、ほかの引数は既定に任せる。構築の間だけ Optuna の `ExperimentalWarning` を無視し、ほかの警告は通す。新規作成・storage からの読み直し・`Tuner.tune` の study 作成の 3 か所がこの関数を使う。同じ Model が持つ study の継続は、その sampler をそのまま使う。
+- **Optuna の版と列**（H-0149）: Optuna の版が違えば trial の列が変わりうる。明示した引数でも版の違いを戻せない（5.0 の bandwidth の計算の変更など）。3.2→3.3 と 3.4→3.5 でも列が変わるので、同じ major だけでは再現性を保証しない。Optuna 4.x 以前の利用者も multivariate TPE になり、従来の列から変わる。
+- **sampler の列の参照**（H-0149）: `test_h0149_sampler_sequence.py` が LightGBM の `default_space("binary")` と `suggest_params` を使い、学習しない決まった目的関数で seed 42・40 trial の列を固定する。float は有効数字 12 桁、int と categorical はそのままで比べる。`h0149_tpe_sequences.json` は Optuna minor の帯（3.1〜3.2、3.3〜3.4、3.5〜4.7、5.0）ごとの列と生成時の Optuna・NumPy・Python の版を持つ。知らない minor は生成スクリプト `docs/audits/2026-11-i419/capture_sequences.py` の使い方を示して落ちる。生成は各帯の全 minor の列の一致を確かめ、同じ環境でバイトが一致する。Quality（3.10・3.11・3.12、lowest-direct、latest-deps）と smoke（ubuntu・macos・windows）の全レーンで skip せずに走らせ、`multivariate=False` の列がどの帯にも一致しないことも確かめる。
 - **全 trial 失敗**: objective が常に例外 → `TUNING_FAILED` + 正しい context。
 - **部分 trial 失敗**: 一部 trial のみ失敗 → 成功 trial の best が正しく返る。
 - **NaN/inf 返却**: objective の異常値に対する挙動。
