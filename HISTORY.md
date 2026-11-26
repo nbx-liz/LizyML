@@ -17809,3 +17809,109 @@ Firing rate: 16/16 of the Optuna versions measured in the admitted range (every 
 - **CI**（`89dde4d`）: 27 件すべて合格。latest-deps は Optuna 5.1.0 を解決して 23978 passed、lowest-direct は Optuna 3.1.0・NumPy 1.24.0 で 24373 passed、windows の smoke はこのテストのファイルを集めて 971 passed。
 - **マージ**: PR #424 を develop に squash merge（`bfab4cf`、2026-11-20）。#419 は手で close した。Codex が作った PR の記録は nbx-liz/lizy-harness#357（issuecomment-7028059568、訂正 -7028100849）。
 - **リリース**: v0.22.0（管理者の判断、#419 issuecomment-7028310703。Optuna 4.x 以前の利用者の列が変わるので minor を上げる。LizyStudio は `lizyml<0.22` なので、上限を手で上げるまで入らない）。
+
+## H-0150: fit と tune のメモリの見積もりを公開し、tune に opt-in のメモリの予算を足す（#423、LizyStudio#729）
+
+- **ステータス**: Proposed
+- **起票日**: 2026-11-27
+- **関連**: H-0140（学習の前の警告と見積もりの式）、H-0128（round に COMPLETE が無ければ `TUNING_FAILED`）、H-0122（study の記録）、H-0068（round と境界の拡張）、#423、LizyStudio#729（Studio の守り。予算の既定 4 GiB、P-0118）
+- **スコープ**:
+  - `Model.estimate_memory`・`Model.estimate_tune_memory` の追加、`Model.tune` の引数 `memory_budget_bytes`、公開の型（`core/types`）、provider の任意の capability、BLUEPRINT（公開 API・tune の節）、CHANGELOG、`docs/proposal_dispositions.toml`、テスト
+  - 範囲の外: `Model.fit` の予算（管理者の判断 1）、見積もりの式と係数の変更（H-0140 のまま）、Config の項目の追加、生成コード（`export_code`）、isotonic の校正の見積もり、GPU の見積もり、LizyStudio の変更
+
+Gate-category: none
+
+### 目的（課題）
+
+LizyStudio は、学習のメモリが予算を超える Fit と Tune を、LightGBM が確保する前に拒否したい（LizyStudio#729）。見積もり自体は H-0140 の `memory_check.assess`（`lizyml/estimators/lgbm/memory_check.py`）にあるが、公開の API はそれを返さない。`provider.resource_warning` は閾値（16384 葉以上か 1 GiB 以上）に当たったときに文を返すだけで、`Model.fit` と `Model.tune` はそれを `UserWarning` にするだけである。呼び出し側が自分の予算で判定するには、確定したパラメーター（別名、`num_class`、`linear_tree`）、round 数、bin（`max_bin`・`max_bin_by_feature`・広げる入力）、booster の数を LizyML の外で組み立て直すしかなく、LizyStudio の Proposal の Codex の批評は、組み立て直しが少なく見積もる 5 つの到達できる場合を見つけた。
+
+もう 1 つ、Studio がジョブの開始前に確かめられない trial がある。境界の拡張（`expand_boundary`）で広がった範囲の trial と、resume した study の記録した範囲の trial である。これには tune の中で trial を拒否する仕組みが要る。H-0140 はこの予算を検討して先送りした（H-0140 の代替案）。#423 はその判断を求めている。
+
+### 管理者の判断（2026-11-26。#423 issuecomment-7193622211 に記録）
+
+1. **予算は tune だけ**に入れる。`Model.tune` の実行時の引数とし、Config には入れない。予算を超える trial は学習せずに失敗として記録し、round に COMPLETE の trial が無ければ H-0128 どおり `TUNING_FAILED` にする。`Model.fit` には予算を付けない（呼び出し側は公開の見積もりで先に確かめる）。予算が無いときは今と同じに振る舞う。
+2. **1 つの Proposal**で、fit の見積もり、tune の見積もり（complete / incomplete の状態つき）、予算を扱う。
+
+### 実測（2026-11-27、develop `fc113c9`、Python 3.12.3、LightGBM 4.7.0、Optuna 5.0.0、machine V）
+
+スクリプトと出力は `docs/audits/2026-11-i423/` に置く。
+
+- **予算が働く率**（`budget_census.py`）: 同梱のチュートリアルのデータ 3 つで、既定の探索空間・5 fold・`auto_num_leaves: true` の tune を 300 trial ずつ走らせた。trial ごとの `check_resources` を、本物の見積もり（`finalized` → `feature_bins` → `assess`）を記録して学習の前に trial を失敗させるものに差し替えた。COMPLETE の trial が無いので TPE は無作為に引き、母集団は既定の空間の一様な標本になる。データは `pandas.read_csv` が返すままの形（object の列。アップロードが `Model.tune` に届く形、`--as-read`）と、カテゴリの列を先に `category` にした形の両方で走らせ、900 の trial の記録が完全に一致した（`census.json`・`census-as-read.json`。LizyML の `DataFrameBuilder` が object と string の列を自分で `category` にするため）。
+
+  | データ | task | 行・特徴量 | 最大 | 1 GiB 超 | 2 GiB 超 | 4 GiB 超 | 8 GiB 超 |
+  |---|---|---|---|---|---|---|---|
+  | credit-g | binary | 1000・20 | 2.54 GiB | 27/300 | 3/300 | 0/300 | 0/300 |
+  | vehicle | multiclass | 846・18 | 12.82 GiB | 84/300 | 52/300 | 24/300 | 10/300 |
+  | diamonds | regression | 53940・9 | 3.30 GiB | 27/300 | 10/300 | 0/300 | 0/300 |
+
+- **TPE は FAIL の trial から学ばない**（ソースを読んだ結果。Optuna 5.0.0 だけで、3.1〜4.x は読んでいない）: Optuna 5.0.0 の `optuna/samplers/_tpe/sampler.py` は、分布を作るときに COMPLETE と PRUNED の trial だけを読む（499 行・514 行）。予算で拒否した trial は `n_trials` を使い、sampler には何も教えない。
+- **拒否を trial ごとに読める場所が無い**: `lizyml/` の中で trial の `user_attrs` を読む所は無く（`grep`）、Studio が study を読む `read_study_lineage` の `StudyLineage` は trial を返さない（`lizyml/tuning/study_lineage.py`）。trial の `user_attrs` に理由を書いても、読む側が無い（DC4）。
+- **tune で学習する所は trial ごとに 1 か所**: `lizyml/core/_model_tuning.py` の `check_resources` の直後の `CVTrainer`。`lizyml/tuning/tuner.py` の `study.tell(..., FAIL)` は落ちたプロセスが残した RUNNING の trial を閉じるだけで、学習しない。
+
+Firing rate: unmeasurable before implementation (the argument does not exist yet, so no recorded tune has passed a budget and the first conjunct has no history to replay; measurable when LizyStudio P-0118 passes its 4 GiB default on real Studio tunes and the tune.trial.memory_refused log events are counted against all trials)
+
+| Conjunct | Env-dependent | Evidence | Machines | Bad input |
+|---|---|---|---|---|
+| 1. `memory_budget_bytes` が渡されている | no | not measured: 引数がまだ無く、渡した tune の記録が無い。LizyStudio は P-0118 で全ての tune に 4 GiB の既定値を渡す予定（LizyStudio#729） | — | — |
+| 2. trial の見積もりが予算を超える | no | measured separately: 24/900 of default-space tune trials on the three vendored tutorial datasets at 4 GiB (binary 0/300, multiclass 24/300, regression 0/300), by `budget_census.py` replaying `Model.tune` with the per-trial check replaced by the real H-0140 assessment and no training | — | — |
+
+### 対応方針（提案）
+
+1. **公開の型**（`lizyml/core/types/memory_estimate.py`、`lizyml.core.types` から公開）:
+   - `MemoryEstimate`（frozen dataclass）: `num_leaves`、`cause`（`"derived"`・`"explicit"`・`"default"`）、`max_depth`、`estimate_bytes`、`n_boosters`。H-0140 の `MemoryAssessment` と同じ意味で、`MemoryAssessment` は内部の型のまま、provider がこの型に写す。
+   - `TuneMemoryEstimate`（frozen dataclass）: `status`（`"complete"`・`"incomplete"`）、`envelope`（`MemoryEstimate | None`。次の round で LizyML が引きうる trial の見積もりの最大）、`unresolved`（上限を決められなかった次元の名前の tuple、`complete` なら空）、`round`（見積もった round の番号）、`n_candidates`（評価した点の数）。その round で走る trial が無いとき（開いた round の残りが 0 など）は、`status="complete"`、`envelope=None`、`n_candidates=0` である。
+2. **provider の任意の capability**（`lizyml/estimators/provider.py`）: `MemoryEstimateProvider` に `estimate_memory(*, estimator_factory, X, smart_params, n_boosters) -> MemoryEstimate` と `memory_role(name) -> Literal["increasing", "choices", "none"] | None` を置く。LightGBM の知識（別名、`max_depth` が 0 以下なら 131072 を基にすること、bin の数え方）は provider に閉じる。LightGBM の provider は H-0140 の `finalized`・`feature_bins`・`assess` をそのまま使い、`resource_warning` も同じ評価を通す（警告と見積もりが分かれない、DC3）。
+3. **`Model.estimate_memory(data=None, params=None) -> MemoryEstimate`**: `Model.fit(data=..., params=...)` が学習の前に計算する評価と同じ値を返す。同じ確定したパラメーター、`booster` は outer fold 数 + 1、同じ特徴量の bin。fit の前処理のうち評価の入力を作る部分を 1 つの関数にまとめ、`fit` と `estimate_memory` の両方がそれを呼ぶ。学習しない（`lgb.train` も `lgb.Dataset` も呼ばない）。Model の状態（fit 結果、tune 結果）を変えない。provider が `MemoryEstimateProvider` でないか、見積もれない adapter（LightGBM でない）なら `CONFIG_INVALID`（context に `reason: "memory_estimate_unsupported"`）を出し、`None` や 0 を返さない（DC1）。`estimate_tune_memory` も同じ。
+4. **`Model.estimate_tune_memory(data=None, *, resume=False, n_trials=None, expand_boundary=None, boundary_threshold=0.05, storage=None, study_name=None, space=None) -> TuneMemoryEstimate`**: 同じ引数の `Model.tune` が次に走らせる round を、tune と同じ計画の関数（`plan_round`）で決め、その round の有効な範囲（引き継いだ範囲、拡張した範囲、開いた round の記録した範囲を含む）で包絡を計算する。
+   - **包絡の作り方**: その round の各次元を provider の `memory_role` で分ける。`"increasing"`（見積もりがその値について減らない数値の次元。`n_estimators` と別名、`num_leaves`、`max_bin`、`num_leaves_ratio`、`max_depth`）は端の 2 点を候補にし、`max_depth` は範囲が 0 以下を含むとき 0 も候補にする。`"choices"`（`linear_tree` など）は全ての選択肢を候補にする。`"none"`（`learning_rate`、`feature_fraction`、`bagging_fraction`、`lambda_l1`、`lambda_l2`、`min_data_in_leaf_ratio`、`early_stopping_rounds`、`validation_ratio`、`objective` など。閉じた集合として provider に書く）は 1 点だけにする。候補の直積の各点を、trial と同じ経路（パラメーターの統合 → `_build_train_components` → provider の `estimate_memory`）で評価し、最大を `envelope` にする。
+   - **閉じない入力は `incomplete`**（DC1）: `memory_role` が `None` の次元（知らない名前）、`max_bin_by_feature` のように候補を作れない次元、固定値の `device_type` が `cpu` でないときは、その名前を `unresolved` に入れて `status="incomplete"` にする。`envelope` は残りの次元で計算した最大で、上限ではないことを docstring に書く。
+   - 範囲は次の 1 round だけである。その round の後の境界の拡張は見積もらない（`expand_boundary` が有効なら docstring に書く）。
+   - **何も書かない**: LizyML は storage に study も trial も属性も書かず、Model の状態を変えない。保証してテストで確かめるのは 2 つである。SQLite の URL でファイルが無いとき、ファイルが作られない（study が無いときは storage を開かずに計画する）。既存の study（SQLite）では、全ての表の中身が前後で同じ。そのほかの RDB の URL で空のデータベースを渡すと、Optuna が storage を開くときに schema を作りうる。これは Optuna の storage の作り方で、LizyML の書き込みではないことを docstring に書く。`BaseStorage` の object を渡したときは、LizyML は読み出しの method だけを呼ぶ。tune が計画の段階で拒否する入力（`resume=True` で study が無い、開いた round と違う `n_trials` など）は、同じ例外を出す。
+5. **`Model.tune(..., memory_budget_bytes: int | None = None)`**:
+   - `None`（既定）: 今と同じ。H-0140 の警告と、warnings filter で例外にする道も今と同じ。
+   - 正の `int`: 各 trial で、学習の前に（`check_resources` と同じ位置で）provider の `estimate_memory` を呼び、`estimate_bytes > memory_budget_bytes`（等しいときは通す）なら学習しない。trial は `LizyMLError(code=TUNING_FAILED)` で失敗させ、今の `catch=` の経路で FAIL として記録する。例外の文と `event='tune.trial.memory_refused'` の log に、見積もり、予算、`num_leaves` を書く。study には何も足さない（trial の `user_attrs` にも書かない。読む側が無いため、実測を参照）。
+   - 0 以下、`bool`、`int` でない値は、round を始める前に `CONFIG_INVALID`。
+   - 予算があり、provider が `MemoryEstimateProvider` でないか、見積もれない adapter（LightGBM でない）なら、round を始める前に `CONFIG_INVALID`（黙って判定しない、DC1）。
+   - round の全ての trial が拒否されたら、H-0128 の `TUNING_FAILED` の context に `memory_refused`（数）と `memory_budget_bytes` を足す。
+   - 予算は study にも round の記録にも書かない。resume のたびに変えてよく、開いた round を違う予算で再開しても拒否しない（`_refuse_changed_argument` の対象にしない）。
+6. **H-0140 が残した問い**:
+   - 保守性: 予算は見積もりと比べる。見積もりは RSS の保証ではない（isotonic の校正と process の基礎の分を含まず、#423 の表の全ての行で process 全体の最大 RSS が見積もりより大きい）。予算は受け入れの見積もりであることを docstring と BLUEPRINT に書く。
+   - 別名: `finalized` が adapter の `_build_params` を通すので、LightGBM が見るとおりに解決される。テストで `num_leaves` の別名を確かめる。
+   - device: `device_type` が `cpu` でないとき、見積もり（CPU のメモリ）は対象外である。`estimate_memory` はそのまま CPU の見積もりを返し、tune の包絡は `unresolved` に `device_type` を入れる。予算があり、その round の固定値の `device_type` が `cpu` でないか、`device_type` が探索の次元で `cpu` でない選択肢を持つなら、その trial を予算で判定できないので、round を始める前に `CONFIG_INVALID` にする。
+   - `histogram_pool_size`: LightGBM の histogram の cache を小さくするだけなので、見積もりは上限のまま（読まない）。
+   - Config と生成コードへの伝搬: 予算は実行時の引数なので、どちらにも入らない。
+7. **層**: 公開の型は `core/types`、LightGBM の知識は provider、組み立ては Facade（`Model`）と tune の mixin。#366 の規則（具体の型での分岐は Facade だけ）に従い、`isinstance(provider, MemoryEstimateProvider)` は Facade 側で判定する。
+
+### 互換性
+
+- 公開 API が増える（2 つのメソッド、2 つの型、`tune` の引数）。既存の呼び出しは変わらない。保存の形式、Config、`FitResult`、`TuningResult`、`TrialResult`、生成コードは変わらない。
+- study の中身は変わらない。拒否した trial は、ほかの理由で失敗した trial と同じ FAIL として残る。trial ごとに拒否を機械で読む方法は、この Proposal では作らない（log と例外の文だけ。全ての trial が拒否された round は `TUNING_FAILED` の context で分かる）。
+- 拒否した trial は FAIL で、`n_trials` を 1 つ使い、TPE は学ばない（Optuna 5.0.0 のソース）。予算が厳しいと、COMPLETE の trial が少ない round になる。
+- `resource_warning` は provider の見積もりと同じ評価を通すように書き直すが、警告の文と閾値は変えない。
+
+### 代替案
+
+- **fit にも予算を付ける**: 対称だが、fit は `estimate_memory` で先に確かめられる。管理者が退けた（判断 1）。
+- **予算を Config に入れる**（`tuning` の節）: resume で変えられ、目的関数の同一性にも入らないが、Config・生成コード・保存の形式への伝搬を決める必要がある。管理者が退けた。
+- **拒否した trial を PRUNED にする**: TPE が学ぶ（Optuna 5.0.0 のソースで PRUNED は分布に入る）が、PRUNED は「途中で打ち切った」の意味で、score の扱いも違う。管理者の判断の「失敗として記録」に合わない。
+- **拒否を `TrialResult` に足す**: `TrialResult` は `tuning_history.json` に保存されるので、保存の形式が変わる。採らない。
+- **trial の `user_attrs` に理由を書く**: Optuna 3 以後は失敗の理由を保存しないので、trial ごとに読める唯一の場所だが、今の LizyML にも `read_study_lineage` にも読む側が無く、書くだけになる（DC4）。読む API と一緒に、必要になったときに別の Proposal で扱う。
+- **包絡を標本で作る**（多数の trial を引いて最大を取る）: 端の点を外しうるので上限にならない。端の点の直積を、trial と同じ経路で評価する。
+- **見積もりの API を返り値なしで済ませ、警告の閾値を引数にする**: 呼び出し側は数値を得られず、tune の包絡も作れない。
+
+### 受け入れ基準（テスト観点）
+
+1. **fit の見積もりが fit と同じ**: `estimate_memory(params=…)` が、同じ `params` の `fit` が `check_resources` に渡す評価と等しい。`num_leaves` の別名、`linear_tree` on、`num_class`、`max_bin_by_feature`、`auto_num_leaves` の on と off で確かめる。spy で `lgb.train` と `lgb.Dataset` が呼ばれないことを確かめる。Model の状態が変わらない。
+2. **tune の包絡が trial を上から抑える**: 既定の空間の binary・multiclass・regression で `status == "complete"`、`unresolved == ()`。同じ設定の tune（予算なし、学習を差し替え）の全ての trial の見積もりが `envelope.estimate_bytes` 以下で、包絡の最大の点（端の点）に等しい trial を作ると等しい。`max_depth` の範囲が 0 以下を含むときは 131072 を基にした葉の数が包絡に入る。
+3. **閉じない入力**: 知らない名前の次元、`max_bin_by_feature` の次元、`device_type: "gpu"` の固定値で `status == "incomplete"` になり、その名前が `unresolved` にある。
+4. **次の round の範囲**: 境界の拡張で広がった round、開いた round（記録した範囲）、引き継いだ範囲のそれぞれで、包絡がその round の有効な範囲から計算される。
+5. **書かない**: SQLite の URL でファイルが無いとき、`estimate_tune_memory` の後もファイルが無い。既存の study（SQLite）では全ての表の中身が前後で同じ。`resume=True` で study が無いなど、tune が計画で出す例外を同じ code で出す。
+6. **予算**: 予算を超える trial は学習せず（spy）、FAIL で、`event='tune.trial.memory_refused'` が log に出て、study の表には予算なしの FAIL の trial と同じものだけが残る。等しい見積もりは通る。全ての trial が拒否された round は `TUNING_FAILED` で、context に `memory_refused` と `memory_budget_bytes` がある。一部だけ拒否した round は COMPLETE の trial から最良を選ぶ。
+7. **入力と capability の検査**: 0、負、`True`、`float`、文字列の予算は round の前に `CONFIG_INVALID`。予算があり provider が capability を持たない（テスト用の provider）とき、固定値の `device_type` が `cpu` でないとき、`device_type` の次元が `cpu` でない選択肢を持つとき、round の前に `CONFIG_INVALID`。capability を持たない provider では、`estimate_memory` と `estimate_tune_memory` も `CONFIG_INVALID`（`reason: "memory_estimate_unsupported"`）を出す。走る trial が無い round では `envelope is None`、`n_candidates == 0`。
+8. **既定は変わらない**: `memory_budget_bytes=None` の tune は、H-0140 の警告のテストと warnings filter のテスト（`tests/test_estimators/test_h0140_memory_warning.py`）をそのまま通す。
+9. **resume**: 予算を変えて開いた round を再開しても拒否されず、study の記録に予算が無い。
+10. **文書**: BLUEPRINT の公開 API と tune の節、CHANGELOG、`docs/proposal_dispositions.toml` の行（specified、anchors）。
+
+### レビューの停止基準
+
+受け入れ基準と、互換性に書いた主張が正しいかを見る。見積もりの式と係数の精度、GPU の見積もり、isotonic の校正の見積もり、Studio の予算の既定値、fit の予算、Config への追加は、次の round に進む理由にならない。
