@@ -4,7 +4,8 @@
 
 Masks ``meta.lightgbm`` and each model case's ``model.model_sha256``, then
 requires the two documents to be equal everywhere else (every case, every
-field, every temporal case). Exits 1 on any other difference, or when the
+field, every temporal case; types are compared, and floats by ``float.hex``
+so the sign of zero counts). Exits 1 on any other difference, or when the
 number of model cases whose hash changed is not *expected_hash_changes*.
 """
 
@@ -53,6 +54,10 @@ def first_difference(a: Any, b: Any, path: str = "") -> str | None:
             if found:
                 return found
         return None
+    if isinstance(a, float):
+        # float.hex keeps what == drops: the sign of zero (-0.0 == 0.0), and
+        # it compares NaN with NaN as the same value (round-2 finding 1).
+        return None if a.hex() == b.hex() else f"{path}: {a.hex()} != {b.hex()}"
     return None if a == b else f"{path}: {a!r} != {b!r}"
 
 

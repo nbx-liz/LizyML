@@ -39,6 +39,31 @@ def flip_first_leaf(node: Any) -> bool:
     return False
 
 
+def flip_zero_sign(node: Any) -> bool:
+    """Flip the sign of the first float zero inside *node* (round-2 finding 1)."""
+    items = node.items() if isinstance(node, dict) else enumerate(node)
+    for key, value in items:
+        if isinstance(value, (dict, list)):
+            if flip_zero_sign(value):
+                return True
+        elif isinstance(value, float) and value == 0.0:
+            node[key] = -value
+            return True
+    return False
+
+
+def sign_mutant(base: dict[str, Any], field: str) -> tuple[str, dict[str, Any]]:
+    """A copy whose first model case holding a float zero in *field* has it negated."""
+    m = copy.deepcopy(base)
+    for case in m["cases"]:
+        if "model" not in case:
+            continue
+        node = case["model"][field] if field == "pandas_categorical" else case[field]
+        if node is not None and flip_zero_sign(node):
+            return case["id"], m
+    raise AssertionError(f"no model case holds a float zero in {field}")
+
+
 def main() -> int:
     with gzip.open(sys.argv[1]) as fh:
         base: dict[str, Any] = json.load(fh)
@@ -59,6 +84,9 @@ def main() -> int:
     m = copy.deepcopy(base)
     assert flip_first_leaf(m["temporal_cases"][-1])
     mutants["temporal_case"] = m
+    for field in ("encoder", "pandas_categorical"):
+        case_id, m = sign_mutant(base, field)
+        mutants[f"zero_sign_in_{field}_of_{case_id}"] = m
     m = copy.deepcopy(base)
     m["meta"]["numpy"] = "0.0.0"
     mutants["meta_numpy"] = m

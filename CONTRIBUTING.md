@@ -161,7 +161,9 @@ when a field-by-field comparison finds no difference other than the `meta`
 version that moved and `model_sha256`, the predictions (`pred_hex`) are
 bit-identical, and the hash change is shown to come from the model text
 format alone. Then regenerate the overlay (step 2) and require it
-byte-identical, and rewrite the record (step 4). Any other difference means
+byte-identical, rewrite the record (step 4), and run the oracle tests in the
+new lock's environment (step 5), stopping if a case disagrees. Any other
+difference means
 the dependency changed an answer: stop and decide it in a Proposal. #431
 (`docs/audits/2026-11-i431/`) is the worked example.
 
