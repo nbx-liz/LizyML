@@ -4,7 +4,8 @@ Runs ``Model.tune`` with the default search space on the three vendored tutorial
 datasets, replacing the per-trial ``check_resources`` with a probe that records
 the real H-0140 assessment (finalized params, feature bins, booster count) and
 then fails the trial before any training. With no COMPLETE trial TPE samples
-at random, so the population is the default space sampled uniformly.
+at random, so the population is random draws from the default space's configured
+distributions (learning_rate log-uniform, the others uniform).
 
     python budget_census.py <notebooks/data dir> <n_trials> <out.json> [--as-read]
 
