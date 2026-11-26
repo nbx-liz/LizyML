@@ -1,0 +1,14 @@
+== 3.0.1
+unmutated: exit 0 (want 0)
+encoder_field_of_last_model_case: exit 1 (want 1)
+dtype_of_last_model_case: exit 1 (want 1)
+pred_hex: exit 1 (want 1)
+temporal_case: exit 1 (want 1)
+meta_numpy: exit 1 (want 1)
+== 2.3.3
+unmutated: exit 0 (want 0)
+encoder_field_of_last_model_case: exit 1 (want 1)
+dtype_of_last_model_case: exit 1 (want 1)
+pred_hex: exit 1 (want 1)
+temporal_case: exit 1 (want 1)
+meta_numpy: exit 1 (want 1)

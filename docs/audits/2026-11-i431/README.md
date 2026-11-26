@@ -7,29 +7,43 @@ oracle (lowest-direct lane, lightgbm 4.4.0) and the 3.1.0 oracle (already
 lightgbm 4.7.0) are not touched.
 
 All runs below were on V (aarch64, Ubuntu), through `heavy.sh`, with
-`PYTHONHASHSEED=0`, in a `b297de4` worktree carrying develop's
-`docs/audits/2026-10-h0138/{oracle,firing}` (CONTRIBUTING.md step 1). The
-environments were synced from the lock: develop's (lightgbm 4.6.0) for the
-control, this branch's (lightgbm 4.7.0) for the new files. Only lightgbm
-differs between them: Python 3.12.3 / pandas 3.0.1 / numpy 2.4.2 and Python
-3.10.22 / pandas 2.3.3 / numpy 2.2.6, pyarrow 25.0.1 in both.
+`PYTHONHASHSEED=0`. The environments were synced from the lock: develop's
+(lightgbm 4.6.0) for the control, this branch's (lightgbm 4.7.0) for the new
+files. Only lightgbm differs between them: Python 3.12.3 / pandas 3.0.1 /
+numpy 2.4.2 and Python 3.10.22 / pandas 2.3.3 / numpy 2.2.6, pyarrow 25.0.1
+in both.
 
-| Step | Script | Result |
+Two source trees were used, as CONTRIBUTING.md prescribes:
+
+- **The oracles** (`regen_431.sh`, `strip_probe.sh`) were generated in a
+  `b297de4` worktree carrying develop's `docs/audits/2026-10-h0138/{oracle,firing}`
+  (step 1). `make_oracle.py` imports `Model` and the encoder from that tree,
+  so the oracle is made by the code before H-0138, never by the code it checks.
+- **The overlays** (`overlay_431.sh`) and **the tests** ran in the PR worktree
+  (`eec71dd` plus the new oracles), as step 2 and step 5 do. `make_overlay.py`
+  serves the frozen codec and refuses any other `lizyml` module.
+
+| Step | Script / output | Result |
 |---|---|---|
 | Control: regenerate under 4.6.0, twice | `regen_431.sh` | both runs byte-identical to the committed 3.0.1 (`62d88cf7…`) and 2.3.3 (`b4e5a8db…`) files, so the rig reproduces the shipped oracles |
 | Regenerate under 4.7.0, twice | `regen_431.sh` | each pair byte-identical: 3.0.1 `88c74048…`, 2.3.3 `06291850…` |
-| Case diff, committed vs 4.7.0 | `diff_oracle.py`, `diff_model.py` | `meta.lightgbm` and `model_sha256` of all 74 model cases differ; every encoder case, every temporal case, and each model case's `pred_hex`, `pandas_categorical` and `feature_position` are equal |
-| Why the hash moved | `model_text.py`, `model_text.diff` | lightgbm 4.7.0's `model_to_string()` adds one parameter line, `[gpu_device_id_list: ]`; the trees are the same |
-| All 74 models | `strip_probe.sh` | hashing the 4.7.0 model text with that one line removed reproduces the committed 4.6.0 `model_sha256` of every case, in both files (0 cases differ); the unpatched run above is the negative control (74 differ) |
+| Full comparison, committed (`eec71dd`) vs this head | `full_compare.py`, `full_compare.out` | after masking `meta.lightgbm` and each model case's `model.model_sha256`, both files are equal to the committed ones in every other field of every case and every temporal case; the hash changed in 74 of 74 model cases |
+| The comparison catches other changes | `mutation_check.py`, `mutation_check.out` | copies of each committed file with one change each (an `encoder` field and the `dtype` of the last model case, a `pred_hex`, a temporal case, `meta.numpy`) all fail `full_compare.py`; the unmutated copy passes |
+| Why the hash moved | `model_text.py`, `model_text.diff` | lightgbm 4.7.0's `model_to_string()` adds one parameter line, `[gpu_device_id_list: ]`, to a small sample model; the trees are the same |
+| All 74 models | `strip_probe.sh`, `full_compare.out` | the generator, patched to require that line exactly once as a whole line in every model text and to hash the text without it, reproduces the committed 4.6.0 files: 0 of 74 hashes change and nothing else differs. The unpatched files above are the negative control (74 of 74 change). An EXIT trap restores the generator |
 | Overlays under 4.7.0, twice | `overlay_431.sh` | 3.0.1 (`1cc072d9…`) and 2.3.3 (`64ec8ce4…`) byte-identical to the committed overlays |
 | Tests on this head | `pytest tests/test_features -m ""` | 3.12: 8824 passed; 3.10: 9052 passed; both print `mode=strict … exact=True … model_cases=74, models=compared` |
 
-So lightgbm 4.7.0 does not change any oracle model: the new files differ from
-the old ones only in the version they record and in the hash of a model text
-that gained one empty parameter line. `provenance.json` is rewritten with
-`write_provenance.py` for all four versions; the 3.0.1 and 2.3.3 entries
-(oracle and overlay) now record lightgbm 4.7.0 and pyarrow 25.0.1, the
-environment that regenerated them.
+`diff_oracle.py` and `diff_model.py` were the first, exploratory look; they
+report only some fields, and `full_compare.py` is the check the claims rest on.
+
+So lightgbm 4.7.0 does not change any oracle answer: the new files differ from
+the old ones only in the lightgbm version they record and in the hash of a
+model text that gained one empty parameter line. `provenance.json` is
+rewritten with `write_provenance.py` for all four versions; the 3.0.1 and 2.3.3
+entries (oracle and overlay) now record lightgbm 4.7.0 and pyarrow 25.0.1, the
+environment that regenerated them. CONTRIBUTING.md now describes this case (a
+numpy or lightgbm move on a pandas version that already has files).
 
 The scripts keep the session's absolute paths; they are a record of what ran,
 not a reusable tool.

@@ -150,8 +150,23 @@ and so does a pandas the lock moves to:
    (all versions, so the record stays complete).
 5. Run the oracle tests in that environment. If a case still disagrees, do not
    add the files: a new closed rule needs a Proposal. Never edit an oracle or
-   an overlay to match the library. Adding or removing a
-runtime dependency still requires a Change-Gate proposal (see below).
+   an overlay to match the library.
+
+When the lock moves numpy or lightgbm while pandas stays on a version that
+already has files, the required lanes go red in strict mode
+(`model_versions_match`). Re-capture that version's oracle with step 1, in
+the new lock's environment, after reproducing the committed file byte for
+byte in the old lock's environment (the control). Accept the new file only
+when a field-by-field comparison finds no difference other than the `meta`
+version that moved and `model_sha256`, the predictions (`pred_hex`) are
+bit-identical, and the hash change is shown to come from the model text
+format alone. Then regenerate the overlay (step 2) and require it
+byte-identical, and rewrite the record (step 4). Any other difference means
+the dependency changed an answer: stop and decide it in a Proposal. #431
+(`docs/audits/2026-11-i431/`) is the worked example.
+
+Adding or removing a runtime dependency still requires a Change-Gate
+proposal (see below).
 
 ## Spec-First Development
 
