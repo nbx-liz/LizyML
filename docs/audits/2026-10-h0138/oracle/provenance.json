@@ -17,28 +17,28 @@
     "h0138_oracle_pandas-2.3.3.json.gz": {
       "command": "PYTHONHASHSEED=0 PYTHONPATH=.:docs/audits/2026-10-h0138/firing python -B docs/audits/2026-10-h0138/oracle/make_oracle.py (in a b297de4 worktree with develop's docs/audits/2026-10-h0138/{oracle,firing})",
       "environment": {
-        "lightgbm": "4.6.0",
+        "lightgbm": "4.7.0",
         "numpy": "2.2.6",
         "pandas": "2.3.3",
-        "pyarrow": "23.0.1",
+        "pyarrow": "25.0.1",
         "python": "3.10.22"
       },
       "generator": "docs/audits/2026-10-h0138/oracle/make_oracle.py",
       "library_commit": "b297de42c1146cb6e7132366cdd9f03e4400e6bb",
-      "sha256": "b4e5a8dbce7f4c2947f2298886e0f60330bf7c6264a284cefecbe78839e681fd"
+      "sha256": "062918500837e5e892fa45cba41234e73c830f4a91e0e1ee8bfbe63d513eeb0f"
     },
     "h0138_oracle_pandas-3.0.1.json.gz": {
       "command": "PYTHONHASHSEED=0 PYTHONPATH=.:docs/audits/2026-10-h0138/firing python -B docs/audits/2026-10-h0138/oracle/make_oracle.py (in a b297de4 worktree with develop's docs/audits/2026-10-h0138/{oracle,firing})",
       "environment": {
-        "lightgbm": "4.6.0",
+        "lightgbm": "4.7.0",
         "numpy": "2.4.2",
         "pandas": "3.0.1",
-        "pyarrow": "23.0.1",
+        "pyarrow": "25.0.1",
         "python": "3.12.3"
       },
       "generator": "docs/audits/2026-10-h0138/oracle/make_oracle.py",
       "library_commit": "b297de42c1146cb6e7132366cdd9f03e4400e6bb",
-      "sha256": "62d88cf786d59369d979366a38510c1302794bb98c88d463ebbb12b4c5324816"
+      "sha256": "88c740487707e9b7f7b5f9794be870e02008df10597c84acfde3ce37674b99c5"
     },
     "h0138_oracle_pandas-3.1.0.json.gz": {
       "command": "PYTHONHASHSEED=0 PYTHONPATH=.:docs/audits/2026-10-h0138/firing python -B docs/audits/2026-10-h0138/oracle/make_oracle.py (in a b297de4 worktree with develop's docs/audits/2026-10-h0138/{oracle,firing})",
@@ -69,10 +69,10 @@
     "h0139_overlay_pandas-2.3.3.json.gz": {
       "command": "PYTHONHASHSEED=0 PYTHONPATH=.:docs/audits/2026-10-h0139/firing python -B docs/audits/2026-10-h0139/oracle/make_overlay.py",
       "environment": {
-        "lightgbm": "4.6.0",
+        "lightgbm": "4.7.0",
         "numpy": "2.2.6",
         "pandas": "2.3.3",
-        "pyarrow": "23.0.1",
+        "pyarrow": "25.0.1",
         "python": "3.10.22"
       },
       "generator": "docs/audits/2026-10-h0139/oracle/make_overlay.py",
@@ -82,10 +82,10 @@
     "h0139_overlay_pandas-3.0.1.json.gz": {
       "command": "PYTHONHASHSEED=0 PYTHONPATH=.:docs/audits/2026-10-h0139/firing python -B docs/audits/2026-10-h0139/oracle/make_overlay.py",
       "environment": {
-        "lightgbm": "4.6.0",
+        "lightgbm": "4.7.0",
         "numpy": "2.4.2",
         "pandas": "3.0.1",
-        "pyarrow": "23.0.1",
+        "pyarrow": "25.0.1",
         "python": "3.12.3"
       },
       "generator": "docs/audits/2026-10-h0139/oracle/make_overlay.py",
