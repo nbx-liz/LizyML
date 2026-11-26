@@ -1,0 +1,23 @@
+== 3.0.1
+unmutated: exit 0 (want 0)
+encoder_field_of_last_model_case: exit 1 (want 1)
+dtype_of_last_model_case: exit 1 (want 1)
+pred_hex: exit 1 (want 1)
+temporal_case: exit 1 (want 1)
+zero_sign_in_encoder_of_p0-70: exit 1 (want 1)
+zero_sign_in_pandas_categorical_of_p7-11: exit 1 (want 1)
+meta_numpy: exit 1 (want 1)
+== 2.3.3
+unmutated: exit 0 (want 0)
+encoder_field_of_last_model_case: exit 1 (want 1)
+dtype_of_last_model_case: exit 1 (want 1)
+pred_hex: exit 1 (want 1)
+temporal_case: exit 1 (want 1)
+zero_sign_in_encoder_of_p0-72: exit 1 (want 1)
+zero_sign_in_pandas_categorical_of_p7-11: exit 1 (want 1)
+meta_numpy: exit 1 (want 1)
+== pre-fix full_compare.py (bb28606) on the zero-sign mutants, the round-2 defect
+3.0.1 zero_sign_in_encoder_of_p0-70: exit 0 (the defect: 0)
+3.0.1 zero_sign_in_pandas_categorical_of_p7-11: exit 0 (the defect: 0)
+2.3.3 zero_sign_in_encoder_of_p0-72: exit 0 (the defect: 0)
+2.3.3 zero_sign_in_pandas_categorical_of_p7-11: exit 0 (the defect: 0)

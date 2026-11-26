@@ -1,0 +1,8 @@
+== 3.0.1, committed 4.6.0 (eec71dd) vs this head (unpatched 4.7.0)
+model cases=74 hash changes=74 (expected 74); meta.lightgbm 4.6.0 -> 4.7.0; other differences: none
+== 3.0.1, committed 4.6.0 (eec71dd) vs stripped 4.7.0
+model cases=74 hash changes=0 (expected 0); meta.lightgbm 4.6.0 -> 4.7.0; other differences: none
+== 2.3.3, committed 4.6.0 (eec71dd) vs this head (unpatched 4.7.0)
+model cases=74 hash changes=74 (expected 74); meta.lightgbm 4.6.0 -> 4.7.0; other differences: none
+== 2.3.3, committed 4.6.0 (eec71dd) vs stripped 4.7.0
+model cases=74 hash changes=0 (expected 0); meta.lightgbm 4.6.0 -> 4.7.0; other differences: none
