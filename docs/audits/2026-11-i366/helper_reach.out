@@ -47,5 +47,7 @@
 ## unknown names (message order)
   metric:     LizyMLError UNSUPPORTED_METRIC: Metric 'nope' is not registered. Available: ['logloss', 'auc', 'auc_pr', 'f1', 'accuracy', 'brier', 'ece', 'precision_at_k', 'rmse', 'mae', 'r2', 'rmsle', 'mape', 'huber', 'smape', 'wape', 'mase']
   calibrator: LizyMLError CALIBRATION_NOT_SUPPORTED: Unknown calibration method: 'nope'.
+## error precedence: construction before the task check
+  precision_at_k k=0 for regression: LizyMLError CONFIG_INVALID: Invalid parameters for metric 'precision_at_k': k must be in [1, 100], got 0
 ## Facade preflight with an unregistered method and params
   KeyError: "'nope' is not registered in CalibratorRegistry. Available: ['beta', 'isotonic', 'platt']"

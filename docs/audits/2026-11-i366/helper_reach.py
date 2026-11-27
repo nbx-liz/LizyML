@@ -51,6 +51,10 @@ def main() -> int:
     print("## unknown names (message order)")
     print(f"  metric:     {outcome(metric_helpers.get_metric, 'nope')}")
     print(f"  calibrator: {outcome(get_calibrator, 'nope')}")
+    print("## error precedence: construction before the task check")
+    bad_k = [{"precision_at_k": {"k": 0}}]
+    res = outcome(metric_helpers.get_metrics_for_task, bad_k, "regression")
+    print(f"  precision_at_k k=0 for regression: {res}")
     print("## Facade preflight with an unregistered method and params")
     from lizyml.core._model_factories import check_calibration_param_names
 
