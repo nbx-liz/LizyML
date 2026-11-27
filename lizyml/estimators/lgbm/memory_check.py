@@ -295,6 +295,27 @@ def assess_factory(
     )
 
 
+def finalized_device(
+    estimator_factory: Callable[[], BaseEstimatorAdapter],
+) -> dict[str, Any] | None:
+    """The device entries, under any spelling, of the params one adapter
+    *estimator_factory* builds passes to ``lgb.train`` (H-0150 policy 6 (b)).
+
+    Read from ``finalized`` -- what LightGBM receives, not the merged layers.
+    Empty when no device is named (the CPU); ``None`` when the adapter is not
+    a LightGBM one, so a foreign adapter is never read as the CPU (DC1).
+    """
+    adapter = estimator_factory()
+    if not isinstance(adapter, LGBMAdapter):
+        return None
+    params, _ = finalized(adapter)
+    return {
+        k: v
+        for k, v in params.items()
+        if LGBM_CANONICAL_NAME.get(k, k) == "device_type"
+    }
+
+
 def _as_bool(value: Any) -> bool:
     """A LightGBM boolean as LightGBM reads it (``True``, ``1``, ``"true"``)."""
     if isinstance(value, str):

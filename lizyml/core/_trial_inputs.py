@@ -2,7 +2,7 @@
 
 The tune objective and the memory estimates build a trial's parameters through
 this one function, so an estimate sees the parameters a trial would train on
-(DC3). It is callable per trial: the budget check of a later part reuses it.
+(DC3). The objective calls it once per trial, through ``_tune_budget.build_trial``.
 """
 
 from __future__ import annotations

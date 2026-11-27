@@ -28,11 +28,10 @@ from lizyml.core._model_factories import (
 )
 from lizyml.core._model_state import TuningState
 from lizyml.core._resource_warning import WarningLatch, check_resources
-from lizyml.core._trial_inputs import trial_inputs
 from lizyml.core._tune_budget import (
     TuneBudget,
     admit_budget,
-    check_trial,
+    build_trial,
     validate_budget_value,
 )
 from lizyml.core._tune_round_close import close_round
@@ -40,6 +39,7 @@ from lizyml.core._tune_support import (
     _first_metric,
     _restored_on_failure,
     _trial_errors,
+    components_builder,
 )
 from lizyml.core._tuning_admission import (
     validate_tune_args,
@@ -238,14 +238,15 @@ class ModelTuningMixin:
                 trial (H-0150). ``None`` (default) changes nothing. A
                 positive ``int`` refuses, before it trains, each trial whose
                 estimate is over it (equal passes), whose assessment raises,
-                or whose device is not the CPU; the trial is recorded FAIL
-                (``event='tune.trial.memory_refused'`` is logged with its
-                ``reason``). It is compared with the estimate of extra CPU
+                or whose finalized device is not the CPU; the trial is
+                recorded FAIL (``event='tune.trial.memory_refused'`` is
+                logged, and the trial error carries, its ``reason`` and the
+                budget). It is compared with the estimate of extra CPU
                 memory, not the process's resident set. It is per call:
                 never stored, and it may change on resume. A round that can
-                reach a non-CPU device, or a provider that cannot estimate,
-                is refused before any write; a round that runs no trial
-                closes as without a budget.
+                reach a non-CPU device, or a provider that cannot estimate
+                memory or the adapter it builds, is refused before any
+                write; a round that runs no trial closes as without a budget.
 
         Returns:
             :class:`~lizyml.core.types.tuning_result.TuningResult` with
@@ -277,7 +278,7 @@ class ModelTuningMixin:
             LizyMLError with CONFIG_INVALID for a ``memory_budget_bytes``
                 that is not ``None`` or a positive ``int``, a budgeted round
                 that runs trials but whose provider cannot estimate memory
-                or whose device may not be the CPU.
+                or the adapter it builds, or whose device may not be the CPU.
         """
         cfg = self._cfg
         budget = TuneBudget(validate_budget_value(memory_budget_bytes))
@@ -308,6 +309,10 @@ class ModelTuningMixin:
                 dims=plan.effective,
                 fixed=dict(plan.fixed),
                 base_model_params=base_model_params,
+                base_smart_params=base_smart_params,
+                n_boosters=get_outer_n_splits(cfg),
+                build_components=components_builder(self, X, y, provider),
+                X=X,
             )
 
         # --- Phase E: writes, in the §7.1 order --------------------------------
@@ -623,8 +628,11 @@ class ModelTuningMixin:
 
         def objective(trial: Any) -> float:
             trial_params = suggest_params(trial, space)
-            # H-0150 policy 5: refuse before anything of the trial is built.
-            check_trial(
+            # The trial's parameters (`trial_inputs`, shared with the memory
+            # estimates) and components, built once. With a budget the device
+            # and the estimate are read from these components, and the trial
+            # is refused before it trains (H-0150 policy 5, 6 (b)).
+            built = build_trial(
                 limits,
                 provider,
                 space,
@@ -633,40 +641,16 @@ class ModelTuningMixin:
                 base_smart_params=base_smart_params,
                 fixed=fixed,
                 n_boosters=n_folds,
-                build_components=lambda m, s, t: self._build_train_components(
-                    X,
-                    y,
-                    provider=provider,
-                    model_params=m,
-                    smart_params=s,
-                    training_overrides=t,
-                ),
+                build_components=components_builder(self, X, y, provider),
                 X=X,
             )
-            # The same function the memory estimates use (H-0150).
-            merged_model, merged_smart, training_p = trial_inputs(
-                provider,
-                space,
-                trial_params,
-                base_model_params=base_model_params,
-                base_smart_params=base_smart_params,
-                fixed=fixed,
-            )
-
-            tc = self._build_train_components(
-                X,
-                y,
-                provider=provider,
-                model_params=merged_model,
-                smart_params=merged_smart,
-                training_overrides=training_p,
-            )
+            tc = built.components
             # Before the trial trains; its outer folds are kept alive together.
             check_resources(
                 provider,
                 tc,
                 X,
-                merged_smart,
+                built.smart,
                 n_boosters=n_folds,
                 stacklevel=2,
                 latch=latch,

@@ -7,9 +7,11 @@ the CPU. A refused trial raises ``TUNING_FAILED`` so that the objective's
 the trial's attributes or ``TrialResult``. The budget is a per-call argument:
 it is never stored and may change on resume.
 
-Three seams are reused so a refusal sees what a trial would train on (DC3):
-``trial_inputs`` for the parameters, ``estimate_trial`` for the estimate and
-the provider's ``device_is_cpu`` for the device.
+A trial's parameters and train components are built once (``build_trial``),
+and the device check and the estimate read the components that trial trains
+with (DC3): the parameters come from ``trial_inputs``, the device from the
+provider's ``finalized_device`` (what the adapter hands the library), judged
+by its ``device_is_cpu``, and the estimate from its ``estimate_memory``.
 """
 
 from __future__ import annotations
@@ -20,13 +22,25 @@ from typing import Any, NoReturn
 
 from lizyml.core._model_memory import require_memory_provider
 from lizyml.core._trial_inputs import trial_inputs
-from lizyml.core._tune_memory_envelope import device_may_leave_cpu, estimate_trial
+from lizyml.core._tune_memory_envelope import (
+    UNSUPPORTED,
+    device_may_leave_cpu,
+    estimate_trial,
+)
 from lizyml.core.exceptions import ErrorCode, LizyMLError
 from lizyml.core.logging import get_logger
 from lizyml.core.train_components import TrainComponents
+from lizyml.core.types.memory_estimate import MemoryEstimate
 from lizyml.core.types.search_dim import SearchDim
+from lizyml.estimators.provider import MemoryEstimateProvider
+from lizyml.tuning.trial_failure import describe_exception
 
 _log = get_logger("core.tune_budget")
+
+#: ``(model_params, smart_params, training_overrides) -> TrainComponents``.
+BuildComponents = Callable[
+    [dict[str, Any], dict[str, Any], dict[str, Any]], TrainComponents
+]
 
 
 @dataclass
@@ -46,6 +60,16 @@ class TuneBudget:
             "memory_refused_this_call": self.refused,
             "memory_budget_bytes": self.limit,
         }
+
+
+@dataclass(frozen=True)
+class TrialBuild:
+    """The parameters and train components one trial trains with."""
+
+    model: dict[str, Any]
+    smart: dict[str, Any]
+    training: dict[str, Any]
+    components: TrainComponents
 
 
 def validate_budget_value(value: Any) -> int | None:
@@ -73,13 +97,18 @@ def admit_budget(
     dims: tuple[SearchDim, ...],
     fixed: dict[str, Any],
     base_model_params: dict[str, Any],
+    base_smart_params: dict[str, Any],
+    n_boosters: int,
+    build_components: BuildComponents,
+    X: Any,
 ) -> None:
     """Refuse a budgeted round that cannot be checked, before any write.
 
     Only a round that runs a trial is judged (a no-trial round closes as it
-    does without a budget): the provider must have the memory capability
-    (``memory_estimate_unsupported``), and no value the round can reach may
-    leave the CPU (policy 6 (a)), decided from the declared layers.
+    does without a budget). The provider must have the memory capability and
+    estimate the adapter it builds (``memory_estimate_unsupported``, policy
+    5), and no value the round can reach may leave the CPU (policy 6 (a)),
+    decided from the declared layers.
     """
     if not runs_optimize:
         return
@@ -94,13 +123,65 @@ def admit_budget(
             ),
             context={"reason": "memory_budget_device_not_cpu"},
         )
+    probe_adapter(
+        capable,
+        dims,
+        base_model_params=base_model_params,
+        base_smart_params=base_smart_params,
+        fixed=fixed,
+        n_boosters=n_boosters,
+        build_components=build_components,
+        X=X,
+    )
 
 
-def _device_text(provider: Any, params: dict[str, Any]) -> str:
-    return ",".join(str(v) for k, v in params.items() if provider.is_device_name(k))
+def probe_adapter(
+    provider: MemoryEstimateProvider,
+    dims: tuple[SearchDim, ...],
+    *,
+    base_model_params: dict[str, Any],
+    base_smart_params: dict[str, Any],
+    fixed: dict[str, Any],
+    n_boosters: int,
+    build_components: BuildComponents,
+    X: Any,
+) -> None:
+    """Estimate one representative point -- the base parameters with no
+    sampled value -- and re-raise only ``memory_estimate_unsupported``.
+
+    The factory builds the same kind of adapter for every trial, so an
+    adapter the provider cannot estimate shows here. Any other failure of
+    this point is logged and left to the per-trial guard, which refuses each
+    trial it hits.
+    """
+    try:
+        estimate_trial(
+            provider,
+            list(dims),
+            {},
+            base_model_params=base_model_params,
+            base_smart_params=base_smart_params,
+            fixed=fixed,
+            n_boosters=n_boosters,
+            build_components=build_components,
+            X=X,
+        )
+    except LizyMLError as exc:
+        if exc.context.get("reason") == UNSUPPORTED:
+            raise
+        _probe_failed(exc)
+    except Exception as exc:  # noqa: BLE001 -- logged; each trial is judged
+        _probe_failed(exc)
 
 
-def check_trial(
+def _probe_failed(exc: BaseException) -> None:
+    _log.debug(
+        "event='tune.budget.probe_failed' error=%s (left to the trial guard)",
+        describe_exception(exc),
+    )
+
+
+def build_trial(
     budget: TuneBudget,
     provider: Any,
     dims: list[SearchDim],
@@ -110,22 +191,24 @@ def check_trial(
     base_smart_params: dict[str, Any],
     fixed: dict[str, Any],
     n_boosters: int,
-    build_components: Callable[
-        [dict[str, Any], dict[str, Any], dict[str, Any]], TrainComponents
-    ],
+    build_components: BuildComponents,
     X: Any,
-) -> None:
-    """Raise ``TUNING_FAILED`` (and count it) when the trial must not train.
+) -> TrialBuild:
+    """Build the trial once; with a budget, refuse it before it trains.
 
-    No-op without a budget. Any exception of the assessment refuses the trial,
-    whatever its type, so one that ``catch=`` would not record cannot stop the
-    run.
+    Without a budget this is the build alone, and its exceptions propagate as
+    before. With one, any exception of the build or of the assessment, of any
+    type, refuses the trial (``assessment_failed``), so one that ``catch=``
+    would not record cannot stop the run. Then the finalized device
+    (``device_not_cpu``) and the estimate (``over_budget``) are judged.
+
+    Raises:
+        LizyMLError: ``TUNING_FAILED`` for a refused trial, counted in
+            *budget*.
     """
-    limit = budget.limit
-    if limit is None:
-        return
-    try:
-        merged_model, _, _ = trial_inputs(
+
+    def build() -> TrialBuild:
+        model_p, smart_p, training_p = trial_inputs(
             provider,
             dims,
             trial_params,
@@ -133,53 +216,66 @@ def check_trial(
             base_smart_params=base_smart_params,
             fixed=fixed,
         )
-        on_cpu = provider.device_is_cpu(merged_model)
-        est = (
-            estimate_trial(
-                provider,
-                dims,
-                trial_params,
-                base_model_params=base_model_params,
-                base_smart_params=base_smart_params,
-                fixed=fixed,
-                n_boosters=n_boosters,
-                build_components=build_components,
+        tc = build_components(model_p, smart_p, training_p)
+        return TrialBuild(model_p, smart_p, training_p, tc)
+
+    limit = budget.limit
+    if limit is None:
+        return build()
+    est: MemoryEstimate | None = None
+    device_text = ""
+    try:
+        built = build()
+        factory = built.components.estimator_factory
+        device = provider.finalized_device(estimator_factory=factory)
+        device_text = ",".join(str(v) for v in device.values())
+        if provider.device_is_cpu(device):
+            est = provider.estimate_memory(
+                estimator_factory=factory,
                 X=X,
+                smart_params=built.smart,
+                n_boosters=n_boosters,
             )
-            if on_cpu
-            else None
-        )
     except Exception as exc:  # noqa: BLE001 -- refused and logged, never swallowed
+        error = describe_exception(exc)
         _refuse(
             budget,
             "assessment_failed",
-            f"error={type(exc).__name__}: {exc} budget={limit}",
-            f"its memory assessment failed ({type(exc).__name__}: {exc})",
+            f"error={error}",
+            "the memory assessment failed",
         )
     if est is None:
-        device = _device_text(provider, merged_model)
         _refuse(
             budget,
             "device_not_cpu",
-            f"device={device} budget={limit}",
-            f"its device ({device}) is not the CPU",
+            f"device={device_text}",
+            "the finalized device is not the CPU",
         )
-    elif est.estimate_bytes > limit:
+    if est.estimate_bytes > limit:
         _refuse(
             budget,
             "over_budget",
-            f"estimate_bytes={est.estimate_bytes} budget={limit} "
-            f"num_leaves={est.num_leaves}",
-            f"its estimated {est.estimate_bytes} bytes exceed the budget "
-            f"{limit} (num_leaves={est.num_leaves})",
+            f"estimate_bytes={est.estimate_bytes} num_leaves={est.num_leaves}",
+            "the estimate is over the budget",
         )
+    return built
 
 
-def _refuse(budget: TuneBudget, reason: str, log_fields: str, why: str) -> NoReturn:
+def _refuse(budget: TuneBudget, reason: str, fields: str, why: str) -> NoReturn:
+    """Count, log and raise one refusal; the reason and the budget lead both
+    the log line and the message, so a cut ``first_error`` keeps them."""
     budget.refused += 1
-    _log.info("event='tune.trial.memory_refused' reason=%s %s", reason, log_fields)
+    _log.info(
+        "event='tune.trial.memory_refused' reason=%s budget=%s %s",
+        reason,
+        budget.limit,
+        fields,
+    )
     raise LizyMLError(
         code=ErrorCode.TUNING_FAILED,
-        user_message=f"Trial refused by memory_budget_bytes: {why}.",
+        user_message=(
+            f"Trial refused by memory_budget_bytes: reason={reason} "
+            f"budget={budget.limit} {fields} ({why})."
+        ),
         context={"reason": reason, "memory_budget_bytes": budget.limit},
     )

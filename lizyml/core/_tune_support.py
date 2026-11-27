@@ -3,15 +3,18 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any
 
 from lizyml.core._model_metrics import _DEFAULT_METRICS
+from lizyml.core.train_components import TrainComponents
 from lizyml.estimators.provider import TrialErrorProvider
 from lizyml.metrics.registry import parse_metric_entry
 
 if TYPE_CHECKING:
+    import pandas as pd
+
     from lizyml.config.schema import LizyMLConfig
 
 
@@ -36,6 +39,30 @@ def _first_metric(cfg: LizyMLConfig) -> tuple[str | dict[str, Any], str]:
     first_entry = (cfg.evaluation.metrics or _DEFAULT_METRICS[cfg.task])[0]
     metric_name, _ = parse_metric_entry(first_entry)
     return first_entry, metric_name
+
+
+def components_builder(
+    model: Any, X: pd.DataFrame, y: pd.Series, provider: Any
+) -> Callable[[dict[str, Any], dict[str, Any], dict[str, Any]], TrainComponents]:
+    """``(model_params, smart_params, training_overrides) -> TrainComponents``
+    through *model*'s ``_build_train_components`` on *X*, *y* (H-0150)."""
+
+    def build(
+        model_params: dict[str, Any],
+        smart_params: dict[str, Any],
+        training_overrides: dict[str, Any],
+    ) -> TrainComponents:
+        tc: TrainComponents = model._build_train_components(
+            X,
+            y,
+            provider=provider,
+            model_params=model_params,
+            smart_params=smart_params,
+            training_overrides=training_overrides,
+        )
+        return tc
+
+    return build
 
 
 def _trial_errors(provider: Any) -> tuple[type[Exception], ...]:

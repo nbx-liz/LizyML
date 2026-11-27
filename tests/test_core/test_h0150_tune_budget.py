@@ -19,6 +19,7 @@ import pytest
 from lizyml import Model
 from lizyml.core import _tune_budget
 from lizyml.core.exceptions import ErrorCode, LizyMLError
+from lizyml.estimators.lgbm.adapter import LGBMAdapter
 from lizyml.estimators.lgbm.provider import LGBMProvider
 from tests.test_core.test_h0150_estimate_tune_memory import (
     N_FOLDS,
@@ -133,8 +134,10 @@ def test_a_partly_refused_round_picks_its_best_from_the_complete_trials(
     assert 0 < refused < 10
     assert result.best_params["num_leaves"] == 8
     assert len(train_stub.calls) == (10 - refused) * N_FOLDS
+    # `TrialResult.state` is lowercase: each refusal is a "fail", the rest train.
     states = [t.state for t in result.trials]
-    assert any(s == "COMPLETE" for s in states) or result.best_score is not None
+    assert states.count("fail") == refused
+    assert states.count("complete") == 10 - refused
 
 
 def test_a_plain_no_complete_round_carries_zero_and_none(
@@ -159,43 +162,141 @@ def test_budget_none_trains_every_trial(train_stub: _Recorder) -> None:  # noqa:
 # --- policy 5: the assessment raises, the device is not the CPU ---
 
 
-def test_an_assessment_that_raises_refuses_that_trial_only(
-    monkeypatch: pytest.MonkeyPatch,
-    train_stub: _Recorder,  # noqa: F811
-    caplog: pytest.LogCaptureFixture,
+def _raising_estimate(
+    monkeypatch: pytest.MonkeyPatch, exc: Exception, *, first_only: bool
 ) -> None:
+    """Make the provider's estimate raise *exc* (on the first call only, or on
+    every call): an exception outside Optuna's ``catch=`` tuple."""
     real = LGBMProvider.estimate_memory
     seen = {"n": 0}
 
     def flaky(self: LGBMProvider, **kw: Any) -> Any:
         seen["n"] += 1
-        if seen["n"] == 1:
-            raise TypeError("not an LizyMLError, outside catch=")
+        if not first_only or seen["n"] == 1:
+            raise exc
         return real(self, **kw)
 
     monkeypatch.setattr(LGBMProvider, "estimate_memory", flaky)
-    caplog.set_level(logging.INFO)
-    cfg = _cfg(space=_space(), auto=False, n_trials=3)
-    result = _tune(cfg, memory_budget_bytes=10**15)
-    lines = _refusals(caplog)
-    assert len(lines) == 1 and "reason=assessment_failed" in lines[0]
-    assert "TypeError" in lines[0] and "budget=" in lines[0]
-    assert len(train_stub.calls) == 2 * N_FOLDS  # the other two trained
-    assert result.best_params
 
 
-def test_a_trial_whose_device_is_not_cpu_is_refused(
+def _no_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Skip the admission's representative estimate, so a test that makes the
+    estimate or the build raise reaches the per-trial guard with every call
+    (``raising=False``: the probe did not exist before H-0150 round 1)."""
+    monkeypatch.setattr(
+        _tune_budget, "probe_adapter", lambda *a, **k: None, raising=False
+    )
+
+
+def _states(url: str, name: str = "s") -> list[str]:
+    study = optuna.load_study(study_name=name, storage=url)
+    return [t.state.name for t in sorted(study.trials, key=lambda t: t.number)]
+
+
+def test_an_assessment_that_raises_refuses_that_trial_only(
+    tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     train_stub: _Recorder,  # noqa: F811
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    real = _tune_budget.trial_inputs
+    caplog.set_level(logging.INFO)
+    cfg = _cfg(space=_space(), auto=False, n_trials=3)
+    url = _url(tmp_path)
+    _no_probe(monkeypatch)
+    _raising_estimate(monkeypatch, TypeError("outside catch="), first_only=True)
+    result = _tune(cfg, memory_budget_bytes=10**15, storage=url, study_name="s")
+    lines = _refusals(caplog)
+    assert len(lines) == 1 and "reason=assessment_failed" in lines[0]
+    assert "TypeError" in lines[0] and "budget=" in lines[0]
+    # The refused trial is persisted FAIL (not pruned) and the run went on.
+    assert _states(url) == ["FAIL", "COMPLETE", "COMPLETE"]
+    assert len(train_stub.calls) == 2 * N_FOLDS  # the other two trained
+    assert result.best_params
 
-    def gpu(*a: Any, **k: Any) -> Any:
-        model_p, smart_p, training_p = real(*a, **k)
-        return {**model_p, "device_type": "gpu"}, smart_p, training_p
 
-    monkeypatch.setattr(_tune_budget, "trial_inputs", gpu)
+def test_every_assessment_that_raises_is_counted_and_the_round_runs_on(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    train_stub: _Recorder,  # noqa: F811
+) -> None:
+    _no_probe(monkeypatch)
+    _raising_estimate(monkeypatch, TypeError("outside catch="), first_only=False)
+    cfg = _cfg(space=_space(), auto=False, n_trials=3)
+    url = _url(tmp_path)
+    err = _tune_failed(cfg, memory_budget_bytes=10**15, storage=url, study_name="s")
+    assert err.context["memory_refused_this_call"] == 3
+    assert _states(url) == ["FAIL", "FAIL", "FAIL"]  # all three trials ran
+    assert train_stub.calls == []
+    first = err.context["first_error"]
+    assert "reason=assessment_failed" in first and "budget=1000000000000000" in first
+    assert "TypeError: outside catch=" in first
+
+
+class _UnprintableError(TypeError):
+    def __str__(self) -> str:
+        raise KeyError("a misbehaving __str__")
+
+
+def test_an_assessment_error_that_cannot_be_printed_is_still_a_refusal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    train_stub: _Recorder,  # noqa: F811
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _no_probe(monkeypatch)
+    _raising_estimate(monkeypatch, _UnprintableError(), first_only=False)
+    caplog.set_level(logging.INFO)
+    cfg = _cfg(space=_space(), auto=False, n_trials=2)
+    url = _url(tmp_path)
+    err = _tune_failed(cfg, memory_budget_bytes=10**15, storage=url, study_name="s")
+    assert err.context["memory_refused_this_call"] == 2
+    assert _states(url) == ["FAIL", "FAIL"]
+    lines = _refusals(caplog)
+    assert len(lines) == 2
+    assert all("_UnprintableError: <unprintable message>" in m for m in lines)
+
+
+def test_a_component_build_that_raises_under_a_budget_is_assessment_failed(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    train_stub: _Recorder,  # noqa: F811
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    _no_probe(monkeypatch)
+    real = Model._build_train_components
+    seen = {"n": 0}
+
+    def flaky(self: Any, *a: Any, **k: Any) -> Any:
+        seen["n"] += 1
+        if seen["n"] == 1:
+            raise TypeError("the components could not be built")
+        return real(self, *a, **k)
+
+    monkeypatch.setattr(Model, "_build_train_components", flaky)
+    caplog.set_level(logging.INFO)
+    cfg = _cfg(space=_space(), auto=False, n_trials=2)
+    url = _url(tmp_path)
+    _tune(cfg, memory_budget_bytes=10**15, storage=url, study_name="s")
+    lines = _refusals(caplog)
+    assert len(lines) == 1 and "reason=assessment_failed" in lines[0]
+    assert "TypeError: the components could not be built" in lines[0]
+    assert _states(url) == ["FAIL", "COMPLETE"]
+
+
+def test_a_trial_whose_finalized_device_is_not_cpu_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+    train_stub: _Recorder,  # noqa: F811
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    # The merged parameters stay CPU and the estimate is in budget; GPU appears
+    # only where the adapter finalizes what LightGBM receives (acceptance 6).
+    real = LGBMAdapter._build_params
+
+    def gpu(self: LGBMAdapter, *a: Any, **k: Any) -> Any:
+        params, *rest = real(self, *a, **k)
+        return ({**params, "device_type": "gpu"}, *rest)
+
+    monkeypatch.setattr(LGBMAdapter, "_build_params", gpu)
     caplog.set_level(logging.INFO)
     cfg = _cfg(space=_space(), auto=False, n_trials=2)
     err = _tune_failed(cfg, memory_budget_bytes=10**15)
@@ -204,6 +305,19 @@ def test_a_trial_whose_device_is_not_cpu_is_refused(
     assert len(lines) == 2
     assert all("reason=device_not_cpu" in m and "device=gpu" in m for m in lines)
     assert err.context["memory_refused_this_call"] == 2
+    first = err.context["first_error"]
+    assert "reason=device_not_cpu" in first and "gpu" in first
+    assert "budget=1000000000000000" in first
+
+
+def test_an_over_budget_refusal_message_carries_its_fields(
+    train_stub: _Recorder,  # noqa: F811
+) -> None:
+    cfg = _cfg(space=_space(), auto=False, n_trials=2)
+    err = _tune_failed(cfg, memory_budget_bytes=1)
+    first = err.context["first_error"]
+    assert "reason=over_budget" in first and "budget=1" in first
+    assert "estimate_bytes=" in first and "num_leaves=" in first
 
 
 # --- acceptance 7: the value and the capability -------------------------------------
@@ -247,3 +361,31 @@ def test_a_provider_without_the_capability_is_refused_before_any_write(
     assert err.value.context["reason"] == "memory_estimate_unsupported"
     # Planning may open the storage (as a read does); no study is written.
     assert optuna.get_all_study_summaries(storage=url) == []
+
+
+# --- the provider's finalized device (policy 6 (b)) ---------------------------------
+
+
+@pytest.mark.parametrize(
+    ("params", "expected", "on_cpu"),
+    [
+        ({}, {}, True),
+        ({"device_type": "cpu"}, {"device_type": "cpu"}, True),
+        ({"device": "cuda"}, {"device": "cuda"}, False),
+    ],
+)
+def test_the_finalized_device_is_what_the_adapter_hands_lightgbm(
+    params: dict[str, Any], expected: dict[str, Any], on_cpu: bool
+) -> None:
+    provider = LGBMProvider()
+    factory = provider.build_estimator_factory("regression", params, None, None, 0)
+    device = provider.finalized_device(estimator_factory=factory)
+    assert device == expected
+    assert provider.device_is_cpu(device) is on_cpu
+
+
+def test_a_foreign_adapter_has_no_finalized_device() -> None:
+    with pytest.raises(LizyMLError) as err:
+        LGBMProvider().finalized_device(estimator_factory=lambda: object())
+    assert err.value.code is ErrorCode.CONFIG_INVALID
+    assert err.value.context["reason"] == "memory_estimate_unsupported"

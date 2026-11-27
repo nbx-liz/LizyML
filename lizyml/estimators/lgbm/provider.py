@@ -471,14 +471,7 @@ class LGBMProvider:
             n_boosters=n_boosters,
         )
         if a is None:
-            raise LizyMLError(
-                code=ErrorCode.CONFIG_INVALID,
-                user_message=(
-                    "The estimator is not a LightGBM adapter, so its memory "
-                    "cannot be estimated."
-                ),
-                context={"reason": "memory_estimate_unsupported"},
-            )
+            raise _unsupported_adapter()
         if a.num_leaves < 1 or a.rounds < 1:
             # The bound rule of ``memory_role`` holds only from 1 up (H-0150).
             raise LizyMLError(
@@ -534,6 +527,23 @@ class LGBMProvider:
             if self.is_device_name(key) and str(value).strip().lower() != "cpu":
                 return False
         return True
+
+    def finalized_device(
+        self, *, estimator_factory: Callable[[], BaseEstimatorAdapter]
+    ) -> dict[str, Any]:
+        """The device entries of the params the adapter *estimator_factory*
+        builds passes to ``lgb.train`` (H-0150 policy 6 (b)); judge them with
+        ``device_is_cpu``.
+
+        Raises:
+            LizyMLError: ``CONFIG_INVALID`` (``reason:
+                "memory_estimate_unsupported"``) when the factory does not
+                build a LightGBM adapter.
+        """
+        device = memory_check.finalized_device(estimator_factory)
+        if device is None:
+            raise _unsupported_adapter()
+        return device
 
     def runtime_deps(self) -> dict[str, str]:
         """Return LightGBM package version."""
@@ -694,6 +704,18 @@ class LGBMProvider:
             early_stopping_rounds=adapter.early_stopping_rounds,
             feval_metadata=feval_metadata,
         )
+
+
+def _unsupported_adapter() -> LizyMLError:
+    """The refusal for an adapter the memory estimate cannot read (H-0150)."""
+    return LizyMLError(
+        code=ErrorCode.CONFIG_INVALID,
+        user_message=(
+            "The estimator is not a LightGBM adapter, so its memory cannot be "
+            "estimated."
+        ),
+        context={"reason": "memory_estimate_unsupported"},
+    )
 
 
 def _extract_feval_metadata(

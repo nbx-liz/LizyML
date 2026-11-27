@@ -566,6 +566,20 @@ class MemoryEstimateProvider(Protocol):  # pragma: no cover
         is the CPU). The one place the device is decided (H-0150 policy 6)."""
         ...
 
+    def finalized_device(
+        self, *, estimator_factory: Callable[[], BaseEstimatorAdapter]
+    ) -> dict[str, Any]:
+        """The device entries of the parameters the adapter *estimator_factory*
+        builds hands the estimator library (empty: none named), for
+        ``device_is_cpu``; the tune budget's per-trial device check (H-0150
+        policy 6 (b)).
+
+        Raises:
+            LizyMLError: ``CONFIG_INVALID`` when the factory's estimator is
+                one this provider cannot read.
+        """
+        ...
+
 
 @dataclass(frozen=True)
 class RefusedFeatureName:
